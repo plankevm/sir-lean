@@ -4,13 +4,18 @@ This documentation maps the local formalization repos under `forks/` and explain
 
 ## Reading Path
 
-1. [Jargon and semantic styles](./jargon.md)
-2. [Repository map](./repo-map.md)
-3. [Lean-based models: EVMYulLean and Verity](./lean-models.md)
-4. [HOL-based models: Verifereum and Vyper-HOL](./hol-models.md)
-5. [Horizontal concept comparison](./concept-comparison.md)
-6. [Plank IR modeling notes](./plank-ir-modeling.md)
-7. [Recommended formalization plan](./formalization-plan.md)
+1. [Review follow-up plan](./review-followup-plan.md)
+2. [Jargon and semantic styles](./jargon.md)
+3. [EVM state model and Yellow Paper notation](./evm-state-model.md)
+4. [Repository map](./repo-map.md)
+5. [Lean-based models: EVMYulLean and Verity](./lean-models.md)
+6. [Verity to EVMYulLean bridge](./verity-bridge.md)
+7. [HOL-based models: Verifereum and Vyper-HOL](./hol-models.md)
+8. [Horizontal concept comparison](./concept-comparison.md)
+9. [Plank IR modeling notes](./plank-ir-modeling.md)
+10. [SIR to bytecode correctness](./sir-to-bytecode.md)
+11. [Recommended formalization plan](./formalization-plan.md)
+12. [Semantics choice for Plank](./semantics-choice.md)
 
 ## Short Takeaway
 
@@ -24,5 +29,4 @@ The closest examples of "source/IR hooks into EVM" are:
 - `forks/verity`: a Lean EDSL and compiler model that lowers to Yul and has bridge code toward EVMYulLean.
 - `forks/vyper-hol`: a HOL source-level Vyper interpreter, a Venom IR semantics, lowering relations, pass simulations, and codegen-to-Verifereum statements.
 
-For Plank, the strongest first target is likely SIR/EthIR rather than parser AST or HIR. SIR is already CFG-shaped, close to EVM, and explicit about storage, memory, calldata, calls, logs, return data, and bytecode emission.
-
+For Plank, the strongest first target is likely SIR/EthIR rather than parser AST or HIR. SIR is already CFG-shaped, close to EVM, and explicit about storage, memory, calldata, calls, logs, return data, and bytecode emission. The most promising architecture is not "prove Plank directly inside EVMYulLean"; it is "give SIR an executable semantics, then prove the bytecode backend refines that semantics using EVMYulLean as the target model."

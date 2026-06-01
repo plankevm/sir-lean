@@ -2,7 +2,7 @@
 
 ## EVMYulLean
 
-EVMYulLean is an executable Lean model of EVM and Yul. Its main design choice is a layered state model that mirrors Yellow Paper notation.
+EVMYulLean is an executable Lean model of EVM and Yul. Its main design choice is a layered state model that mirrors Yellow Paper notation. See [EVM state model and Yellow Paper notation](./evm-state-model.md) for the expanded explanation of `sigma`, checkpoint state, machine state, and execution environment.
 
 ### State Layers
 
@@ -80,7 +80,7 @@ def step (fuel : Nat) (gasCost : Nat)
 
 Source: [`forks/EVMYulLean/EvmYul/EVM/Semantics.lean`](../forks/EVMYulLean/EvmYul/EVM/Semantics.lean)
 
-This is "small step" because one call to `step` handles one EVM instruction. Larger Yellow Paper-style functions such as `X`, `Theta`, and `Upsilon` iterate or wrap the single-step semantics for message calls and transactions.
+This is "small step" because one call to `step` handles one EVM instruction. Larger Yellow Paper-style functions such as `X`, `Theta`, and `Upsilon` iterate or wrap the single-step semantics for message calls and transactions. See [Jargon and semantic styles](./jargon.md) for the distinction between `step`, `run`, big-step source evaluation, and relational proof layers.
 
 ### Yul Hook
 
@@ -106,7 +106,7 @@ inductive State where
 
 Source: [`forks/EVMYulLean/EvmYul/Yul/State.lean`](../forks/EVMYulLean/EvmYul/Yul/State.lean)
 
-Yul execution is a **fuel-bounded big-step interpreter over Yul syntax**, with mutually recursive expression and statement evaluators:
+Yul execution is a **fuel-bounded interpreter over Yul syntax**, with mutually recursive expression and statement evaluators:
 
 ```lean
 def eval (fuel : Nat) (expr : Expr) ... : Except Yul.Exception (State × Literal)
@@ -115,9 +115,11 @@ def exec (fuel : Nat) (stmt : Stmt) ... : Except Yul.Exception State
 
 Source: [`forks/EVMYulLean/EvmYul/Yul/Interpreter.lean`](../forks/EVMYulLean/EvmYul/Yul/Interpreter.lean)
 
+Design consequence: Yul is a useful intermediate target when the compiler already emits Yul-like structured code. Plank's SIR is lower-level than Verity's Yul layer and already has bytecode-oriented operations, so SIR should probably get its own semantics rather than being encoded as Yul just to reuse this interpreter.
+
 ## Verity
 
-Verity is more compiler/EDSL-oriented than EVMYulLean. Its source semantics are intentionally abstract; its compiler/proof path lowers through IR and Yul toward EVMYulLean.
+Verity is more compiler/EDSL-oriented than EVMYulLean. Its source semantics are intentionally abstract; its compiler/proof path lowers through IR and Yul toward EVMYulLean. The bridge is important enough to have its own page: [Verity to EVMYulLean bridge](./verity-bridge.md).
 
 ### Source Contract State
 
@@ -142,11 +144,10 @@ structure ContractState where
 
 Source: [`forks/verity/Verity/Core.lean`](../forks/verity/Verity/Core.lean)
 
-The contract monad is direct state-passing:
+The contract monad is direct state-passing. The type parameter `alpha` is the return type of the computation:
 
 ```lean
-structure Contract (alpha : Type) where
-  run : ContractState -> ContractResult alpha
+abbrev Contract (alpha : Type) := ContractState -> ContractResult alpha
 ```
 
 Source: [`forks/verity/Verity/Core.lean`](../forks/verity/Verity/Core.lean)
@@ -160,6 +161,10 @@ Verity also has a typed IR where ill-typed expressions are unrepresentable:
 ```lean
 inductive Ty where
   | uint256 | address | bool | unit
+
+structure TVar where
+  id : Nat
+  ty : Ty
 
 inductive TExpr : Ty -> Type where
   | var (v : TVar) : TExpr v.ty
@@ -232,3 +237,13 @@ The useful lesson for Plank is that Verity separates:
 
 That separation is a good pattern, but Plank's existing Rust SIR is already closer to the target than Verity's high-level contract model.
 
+### Consequences for Plank
+
+Verity's source semantics and EVMYulLean semantics are separate. The source side computes over `ContractState`; the native/backend side runs generated Yul in EVMYulLean and projects the result back to Verity observables. That is the relevant pattern:
+
+- define a compact proof-side state for the language or IR being proved;
+- lower to the target syntax or bytecode;
+- build an EVMYulLean state from the proof-side state;
+- compare observable results rather than demanding whole-world equality immediately.
+
+For Plank, replace Verity's source `ContractState` with a SIR state and replace Verity's Yul lowering with SIR backend emission. The same bridge/projection idea should still apply.

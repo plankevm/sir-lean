@@ -2,6 +2,8 @@
 
 This page compares the same EVM concepts across the Lean and HOL repos.
 
+For the state vocabulary used by EVMYulLean, see [EVM state model and Yellow Paper notation](./evm-state-model.md). For the proof-style vocabulary used below, see [Jargon and semantic styles](./jargon.md).
+
 ## State Granularity
 
 | Concept | EVMYulLean | Verifereum | Verity | Vyper-HOL |
@@ -43,6 +45,8 @@ storageArray   : Nat -> List Uint256
 ```
 
 For a Plank IR model, use an EVM-shaped storage model at the SIR boundary: account-address plus slot to word. Higher-level helpers can be proved to implement layouts over this map.
+
+Consequence of the Lean/HOL difference: Verity's function-valued storage surfaces are pleasant for source proofs, but they postpone the layout proof. Verifereum/EVMYulLean storage is closer to the actual EVM and therefore better for SIR, where `SLOAD` and `SSTORE` are already explicit.
 
 ## Memory
 
@@ -97,6 +101,8 @@ Source: [`forks/vyper-hol/semantics/vyperInterpreterScript.sml`](../forks/vyper-
 
 For Plank, any semantics for `call`, `delegatecall`, `staticcall`, `callcode`, `create`, and `create2` needs a world of accounts and a call-frame stack, even if most initial proofs abstract the callee.
 
+Design consequence: if early SIR proofs avoid full external-call execution, they should say so explicitly. A common staging is to prove local correctness under an abstract call oracle first, then refine the oracle to EVMYulLean call execution once account/world-state relations are in place.
+
 ## Return, Revert, and Exceptional Halt
 
 You should distinguish at least:
@@ -127,7 +133,39 @@ End
 
 Source: [`forks/vyper-hol/venom/defs/venomExecSemanticsScript.sml`](../forks/vyper-hol/venom/defs/venomExecSemanticsScript.sml)
 
-This is a good shape for Plank SIR too. Do not collapse revert and exceptional halt if the goal is EVM correctness.
+EVMYulLean also separates normal return/revert from execution exceptions:
+
+```lean
+inductive ExecutionResult (S : Type) where
+  | success (state : S) (o : ByteArray)
+  | revert (g : UInt256) (o : ByteArray)
+
+inductive ExecutionException where
+  | OutOfFuel
+  | InvalidInstruction
+  | OutOfGass
+  | BadJumpDestination
+  | StackOverflow
+  | StackUnderflow
+  | InvalidMemoryAccess
+  | StaticModeViolation
+```
+
+Sources: [`forks/EVMYulLean/EvmYul/EVM/State.lean`](../forks/EVMYulLean/EvmYul/EVM/State.lean), [`forks/EVMYulLean/EvmYul/EVM/Exception.lean`](../forks/EVMYulLean/EvmYul/EVM/Exception.lean)
+
+Verity's source monad has a simpler success/revert split and normalizes revert to the pre-call snapshot:
+
+```lean
+def Contract.run {alpha : Type} (c : Contract alpha) (s : ContractState) :
+    ContractResult alpha :=
+  match c s with
+  | ContractResult.success a s' => ContractResult.success a s'
+  | ContractResult.revert msg _ => ContractResult.revert msg s
+```
+
+Source: [`forks/verity/Verity/Core.lean`](../forks/verity/Verity/Core.lean)
+
+This is a good shape for Plank SIR too, but SIR should be closer to Venom/EVMYulLean than to Verity source: do not collapse revert and exceptional halt if the goal is EVM bytecode correctness.
 
 ## Gas
 
@@ -141,3 +179,12 @@ For Plank, a pragmatic staged approach:
 
 This is defensible because many compiler correctness proofs first prove semantic preservation under adequate gas, then separately prove gas bounds or gas monotonicity.
 
+## Main Lean/HOL Design Consequences
+
+EVMYulLean is the best Lean target because it is executable and already models EVM/Yul. Its weakness is proof infrastructure: it does not have Verifereum's mature `prog` layer for local Hoare/separation-logic specs.
+
+Verifereum is a better architecture reference for a full EVM proof environment. Its weakness for Plank is language/tooling fit: it is HOL, not Lean, and reimplementing that whole surface in Lean would dominate the project.
+
+Vyper-HOL is the best architecture reference for an IR-to-bytecode proof. Its weakness is proof completeness: several top-level lowering/codegen theorems are still blueprint-level or `cheat`ed.
+
+Verity is the best Lean-native bridge reference. Its source model is too high-level for Plank SIR, but its adapter pattern is directly relevant: project proof-side state into EVMYulLean state, run the target interpreter, and compare observable results.

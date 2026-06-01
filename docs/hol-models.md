@@ -65,7 +65,7 @@ End
 
 Source: [`forks/verifereum/spec/vfmExecutionScript.sml`](../forks/verifereum/spec/vfmExecutionScript.sml)
 
-Calls are modeled by a large `step_call` that consumes stack arguments, computes memory expansion and gas, checks value/static/depth conditions, then pushes a new call context or aborts.
+Calls are modeled inside the opcode-level small-step semantics by a large `step_call` handler. This is not "big-step semantics"; it is one EVM instruction whose one-step effect is large because `CALL` itself creates a new call frame. The handler consumes stack arguments, computes memory expansion and gas, checks value/static/depth conditions, then pushes a new call context or aborts.
 
 ```sml
 Definition step_call_def:
@@ -77,6 +77,26 @@ Definition step_call_def:
     ...
     proceed_call op sender address value argsOffset argsSize code stipend
       (Memory <| offset := retOffset; size := retSize |>)
+  od
+End
+```
+
+Source: [`forks/verifereum/spec/vfmExecutionScript.sml`](../forks/verifereum/spec/vfmExecutionScript.sml)
+
+Return/revert from a nested frame is handled by popping the current context and either incorporating logs/refunds or restoring rollback state:
+
+```sml
+Definition pop_and_incorporate_context_def:
+  pop_and_incorporate_context success = do
+    calleeGasLeft <- get_gas_left;
+    callee_rb <- pop_context;
+    callee <<- FST callee_rb;
+    unuse_gas calleeGasLeft;
+    if success then do
+      push_logs callee.logs;
+      update_gas_refund (callee.addRefund, callee.subRefund)
+    od else
+      set_rollback (SND callee_rb)
   od
 End
 ```
@@ -134,7 +154,20 @@ End
 
 Source: [`forks/verifereum/prog/vfmProgScript.sml`](../forks/verifereum/prog/vfmProgScript.sml)
 
-This layer is useful when proving local specs without exposing the entire record state every time.
+This layer is useful when proving local specs without exposing the entire record state every time. The reason all components live in one sum type is that the generic `prog`/separation-logic machinery wants a set of resources. `Stack`, `Memory`, `PC`, `ReturnData`, `GasUsed`, and `MsgParams` become independently mentionable resources rather than fields in one indivisible record.
+
+The next relation still wraps the executable interpreter:
+
+```sml
+Definition EVM_NEXT_REL_def:
+  EVM_NEXT_REL (s: unit execution_result) s' =
+    ((if ISR (FST s) then s else step (SND s)) = s')
+End
+```
+
+Source: [`forks/verifereum/prog/vfmProgScript.sml`](../forks/verifereum/prog/vfmProgScript.sml)
+
+Design consequence: Verifereum pays for extra projection infrastructure but gains local Hoare/separation-style specifications. EVMYulLean currently gives a more direct executable model but not this mature relational wrapper.
 
 ## Vyper-HOL
 
@@ -275,22 +308,53 @@ Source: [`forks/vyper-hol/venom/defs/venomExecSemanticsScript.sml`](../forks/vyp
 
 ### Lowering Correctness Shape
 
-The top-level lowering file states the intended theorem:
+The top-level lowering file states the intended theorem as a relation between source execution and Venom execution:
 
 ```sml
-(* Connects Vyper big-step semantics (call_external) to Venom IR
- * execution (run_context) on the context produced by run_lowering. *)
+Theorem vyper_to_venom_correct:
+  !tenv selectors ext_fns int_fns fb_fn dispatch
+    bucket_count fn_meta_bytes dense_buckets entry_info entry_label
+    vs am tx sel fn_lbl htz cenv
+    args dflts ret body mut nr.
+  let (ctx, _) = run_lowering selectors ext_fns int_fns fb_fn
+                   dispatch bucket_count fn_meta_bytes
+                   dense_buckets entry_info entry_label in
+    ...
+    ==>
+    ?fuel.
+      external_call_result_rel tenv cenv
+        (initial_evaluation_context am.sources am.layouts tx)
+        ret (call_external am tx) (run_context fuel ctx vs)
 ```
 
 Source: [`forks/vyper-hol/lowering/vyperLoweringCorrectScript.sml`](../forks/vyper-hol/lowering/vyperLoweringCorrectScript.sml)
 
-This is the closest pattern for Plank:
+The proof is currently `cheat`ed, so this is a blueprint rather than completed evidence that the bridge is easy.
 
-```text
-source/IR evaluator result
-  related_to
-target IR or EVM evaluator result
+The codegen relation layer is even more directly relevant to Plank SIR-to-bytecode:
+
+```sml
+Definition plan_stack_rel_def:
+  plan_stack_rel label_offsets vs ps_stack asm_stack <=>
+    LENGTH ps_stack = LENGTH asm_stack /\
+    !i. i < LENGTH ps_stack ==>
+      let op = EL i (REVERSE ps_stack) in
+      let val = EL i asm_stack in
+      operand_val vs label_offsets op = SOME val
+End
+
+Definition venom_asm_rel_def:
+  venom_asm_rel label_offsets ps vs as <=>
+    plan_stack_rel label_offsets vs ps.ps_stack as.as_stack /\
+    plan_spill_rel label_offsets vs ps.ps_spilled as.as_memory /\
+    memory_rel ps.ps_alloc vs.vs_memory as.as_memory /\
+    as.as_accounts = vs.vs_accounts /\
+    as.as_transient = vs.vs_transient /\
+    as.as_returndata = vs.vs_returndata /\
+    as.as_logs = vs.vs_logs
+End
 ```
 
-The result relation should include externally observable effects: storage/accounts, transient storage, logs, returndata, return/revert/exception mode, and call context.
+Source: [`forks/vyper-hol/venom/codegen/defs/codegenRelScript.sml`](../forks/vyper-hol/venom/codegen/defs/codegenRelScript.sml)
 
+The result relation should include externally observable effects: storage/accounts, transient storage, logs, returndata, return/revert/exception mode, and call context. For Plank, see [SIR to bytecode correctness](./sir-to-bytecode.md).

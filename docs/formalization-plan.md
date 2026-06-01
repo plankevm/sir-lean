@@ -4,6 +4,8 @@
 
 Formalize enough of Plank IR to prove semantic preservation for lowering to EVM bytecode.
 
+This plan assumes the architecture justified in [Semantics choice for Plank](./semantics-choice.md): Plank owns a SIR semantics and proves a bridge to EVMYulLean, rather than owning a fresh full EVM semantics. The bytecode bridge is expanded in [SIR to bytecode correctness](./sir-to-bytecode.md).
+
 The likely theorem shape:
 
 ```text
@@ -81,7 +83,7 @@ The proof can be staged:
 5. calls and creates,
 6. return/revert/exhalt.
 
-## Phase 4: Special SIR Operations
+## Phase 4: Special SIR Operations and Bytecode Segments
 
 Special operations are not single EVM opcodes:
 
@@ -93,7 +95,7 @@ Special operations are not single EVM opcodes:
 - `RuntimeStartOffset`, `InitEndOffset`, `RuntimeLength`,
 - `SetDataOffset`.
 
-For these, prove correctness against their emitted opcode sequences.
+For these, prove correctness against their emitted opcode sequences. This is where the proof stops being one SIR op to one EVM opcode and becomes one SIR op to a bounded bytecode segment.
 
 Example backend special case:
 
@@ -108,7 +110,22 @@ Operation::InternalCall(args) => {
 
 Source: [`forks/plank-monorepo/plankc/sir/crates/release-backend/src/code_to_asm.rs`](../forks/plank-monorepo/plankc/sir/crates/release-backend/src/code_to_asm.rs)
 
-## Phase 5: Pass Correctness
+## Phase 5: Function-Level Bytecode Simulation
+
+After opcode and special-operation lemmas exist, prove that a whole emitted SIR function simulates the SIR interpreter.
+
+The relation should include:
+
+- current SIR block/op index to EVM program counter;
+- SIR locals to scheduled stack/spill memory;
+- SIR memory to EVM memory outside compiler spill regions;
+- shared accounts/storage/transient storage;
+- shared returndata/logs;
+- compatible halt/revert/exception outcomes.
+
+This follows the Vyper-HOL Venom codegen split: stack relation, spill/memory relation, full running-state relation, and terminal observable relation.
+
+## Phase 6: Pass Correctness
 
 Once SIR semantics exists, optimization pass correctness can be stated as simulation:
 
@@ -120,7 +137,7 @@ exists r', run_sir p' s = r' and result_rel r r'
 
 Vyper-HOL's pass organization is a useful precedent: each pass has a transformation file and a correctness/proof file.
 
-## Phase 6: MIR-to-SIR Lowering
+## Phase 7: MIR-to-SIR Lowering
 
 MIR-to-SIR lowering flattens structs, maps MIR locals to one or more SIR locals, builds CFG segments, and maps runtime builtins to SIR operations.
 
@@ -152,4 +169,3 @@ Since the likely target is Lean, the most relevant implementation model is EVMYu
 - Verity shows Lean-side EDSL/compiler structuring and bridge patterns, but its source state is more abstract than Plank's low-level IR needs.
 
 Pragmatic recommendation: define Plank SIR semantics in Lean using a Vyper-HOL/Venom-like structure, then prove a bridge either to EVMYulLean EVM execution or to an intermediate assembly semantics.
-

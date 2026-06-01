@@ -1,5 +1,7 @@
 # Repository Map
 
+The `forks/` directory is intentionally ignored by git. Run [`scripts/fetch-forks.sh`](../scripts/fetch-forks.sh) from the repository root to clone the pinned revisions used by these docs.
+
 ## EVMYulLean
 
 Path: [`forks/EVMYulLean`](../forks/EVMYulLean)
@@ -104,4 +106,3 @@ Key files:
 - [`plankc/sir/crates/data/src/lib.rs`](../forks/plank-monorepo/plankc/sir/crates/data/src/lib.rs): SIR program, blocks, locals, data.
 - [`plankc/sir/crates/data/src/operation/mod.rs`](../forks/plank-monorepo/plankc/sir/crates/data/src/operation/mod.rs): SIR operations and EVM opcode mapping.
 - [`plankc/frontend/session/src/builtins.rs`](../forks/plank-monorepo/plankc/frontend/session/src/builtins.rs): Plank raw EVM builtins.
-

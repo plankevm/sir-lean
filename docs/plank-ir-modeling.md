@@ -78,7 +78,7 @@ MIR is a reasonable semantics target if the goal is to reason about language con
 
 ## SIR/EthIR
 
-SIR/EthIR is the best first formal IR boundary. It is CFG-shaped and close to EVM:
+SIR/EthIR is the best first formal IR boundary. It is CFG-shaped and close to EVM. It is also the right place to work downward to bytecode first; source/HIR/MIR semantics can come later.
 
 ```rust
 pub struct EthIRProgram {
@@ -198,6 +198,8 @@ SirResult =
 
 This mirrors Venom's `OK`, `Halt`, `Abort Revert_abort`, `Abort ExHalt_abort`, `IntRet`, and `Error`.
 
+See [SIR to bytecode correctness](./sir-to-bytecode.md) for the state relation needed between this SIR state and EVMYulLean bytecode execution.
+
 ## What to Prove First
 
 The first useful proof is probably not source-to-EVM end-to-end. Start at the lowest stable IR boundary:
@@ -205,8 +207,8 @@ The first useful proof is probably not source-to-EVM end-to-end. Start at the lo
 1. Define executable SIR semantics.
 2. Prove simple literal-op lowering correctness for operations where `as_literal_evm_op` returns `Some opcode`.
 3. Prove special-op lowering correctness for `MemoryLoad`, `MemoryStore`, allocations, constants, data offsets, and internal calls.
-4. Prove pass simulations over SIR.
-5. Then connect MIR-to-SIR lowering.
+4. Prove block/function simulation against emitted bytecode.
+5. Prove pass simulations over SIR.
+6. Then connect MIR-to-SIR lowering.
 
 This mirrors Vyper-HOL's structure, where Venom gets its own semantics and only later connects to source Vyper and Verifereum EVM.
-
