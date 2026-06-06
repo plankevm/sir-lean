@@ -14,8 +14,9 @@ This documentation maps the local formalization repos under `forks/` and explain
 8. [Horizontal concept comparison](./concept-comparison.md)
 9. [Plank IR modeling notes](./plank-ir-modeling.md)
 10. [SIR to bytecode correctness](./sir-to-bytecode.md)
-11. [Recommended formalization plan](./formalization-plan.md)
-12. [Semantics choice for Plank](./semantics-choice.md)
+11. [Pilot SIR formalization plan](./pilot-sir-formalization-plan.md)
+12. [Recommended formalization plan](./formalization-plan.md)
+13. [Semantics choice for Plank](./semantics-choice.md)
 
 ## Short Takeaway
 
