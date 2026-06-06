@@ -26,27 +26,29 @@ Do not model gas perfectly at first. We should prove under an adequate-gas assum
 
 ## Proposed Toy IR
 
-Use a typed-enough AST with 256-bit words and explicit call expressions.
+Use a typed-enough instruction-like IR with 256-bit words and explicit locals. `CALL` is an EVM bytecode opcode and a Plank SIR operation; the toy should model it as an instruction too.
 
 ```lean
 abbrev Word := UInt256
 abbrev Address := AccountAddress
 
-inductive Expr where
-  | inputLoad  : Word -> Expr
-  | addConst   : Expr -> Word -> Expr
+abbrev Local := Nat
 
-structure ExternalCall where
-  gas     : Expr
-  to      : Expr
-  value   : Expr
-  inOff   : Expr
-  inSize  : Expr
-  outOff  : Expr
-  outSize : Expr
+structure CallArgs where
+  gas     : Operand
+  target  : Operand
+  value   : Operand
+  inOff   : Operand
+  inSize  : Operand
+  outOff  : Operand
+  outSize : Operand
 
-inductive Program where
-  | call : ExternalCall -> Program
+inductive Instr where
+  | inputLoad : Local -> Operand -> Instr
+  | addConst  : Local -> Local -> Word -> Instr
+  | call      : Local -> CallArgs -> Instr
+
+abbrev Program := List Instr
 ```
 
 This is deliberately close to the EVM `CALL` stack arguments:
@@ -66,60 +68,49 @@ Source: [`forks/plank-monorepo/plankc/sir/crates/data/src/operation/mod.rs`](../
 For the first example, instantiate a program like:
 
 ```text
-let x = inputLoad 0
-let to = x + constant
-call(gas = fixedGas, to = to, value = 0, inOff = 0, inSize = 0, outOff = 0, outSize = 0)
+inputLoad x 0
+addConst target x constant
+call success { gas = fixedGas, target = target, value = 0, inOff = 0, inSize = 0, outOff = 0, outSize = 0 }
 ```
 
 That gives us calldata, arithmetic, constant emission, and external call while avoiding memory-copy complexity in the first proof.
 
 ## Semantic State
 
-The toy state should already have the pieces needed for external calls, even if most fields are simple in the first milestone.
+The toy state should already have the pieces needed for external calls, even if most fields are simple in the first milestone. The chosen implementation is a direct wrapper around EVMYulLean's EVM state:
 
 ```lean
 structure ToyState where
-  calldata   : ByteArray
-  memory     : ByteArray
-  returndata : ByteArray
-  accounts   : AccountMap .EVM
-  this       : AccountAddress
-  caller     : AccountAddress
-  origin     : AccountAddress
-  callvalue  : UInt256
-  depth      : Nat
-  static     : Bool
-  gas        : UInt256
-  logs       : List Event
+  evm    : EVM.State
+  locals : Local -> Word
 ```
 
-Design decision: this state is not full EVMYulLean state, but it is EVM-shaped enough to define a later relation to EVMYulLean `EVM.State`.
+Design decision: use EVMYulLean's account/storage, memory, returndata, gas, and execution-environment fields immediately through `EVM.State`. This avoids an avoidable translation layer for calls and storage, while still keeping the IR interpreter independent from EVMYulLean bytecode execution. This is intentionally different from Verity's higher-level source state.
 
-Open question: should `accounts` initially be exactly EVMYulLean's `AccountMap .EVM`, or should the toy semantics use a smaller account model and define a projection relation later?
-
-Recommendation: use EVMYulLean's account/storage types immediately. This avoids an avoidable translation layer for calls and storage, while still keeping the toy interpreter separate from EVMYulLean.
+Consequence: the toy semantics is less abstract than Verity's source semantics, but the call/storage bridge should be simpler because there is no separate account or memory model to relate. The independent semantic content is the IR local environment and instruction stepping.
 
 ## Result Type
 
-Use a result type that distinguishes success, revert, exceptional halt, and meta-level timeout.
+Use a result type that distinguishes normal continuation, exceptional halt, and meta-level timeout.
 
 ```lean
-inductive ToyResult where
-  | ok       : ToyState -> UInt256 -> ToyResult
-  | revert   : ToyState -> ByteArray -> ToyResult
-  | exHalt   : ToyState -> ToyError -> ToyResult
-  | outOfFuel : ToyResult
+inductive RunResult where
+  | ok          : ToyState -> RunResult
+  | exceptional : ToyState -> EVM.ExecutionException -> RunResult
+  | outOfFuel   : ToyState -> RunResult
 ```
 
-Design decision: do not collapse revert and exceptional halt. EVMYulLean separates normal success/revert from exceptions, and SIR should preserve that distinction.
+Design decision: do not model callee revert as caller-level `RunResult.revert` in this first toy. EVM `CALL` reports callee success by pushing `1` or `0`; a callee revert normally gives success flag `0`, updates returndata, and lets the caller continue. Caller-level revert should become a separate IR instruction later.
+
+Exceptional halt remains separate because EVMYulLean distinguishes instruction-level exceptions such as out-of-gas, stack underflow, invalid instruction, and static-mode violation.
 
 ## Interpreter Shape
 
 Use executable, fuel-bounded semantics.
 
 ```lean
-evalExpr : Nat -> ToyState -> Expr -> Except ToyError UInt256
-run      : Nat -> ToyState -> Program -> ToyResult
+evalInstr : CallOracle -> ToyState -> Instr -> StepResult
+run       : CallOracle -> Nat -> ToyState -> Program -> RunResult
 ```
 
 This follows the research recommendation: define a Plank-owned executable IR semantics, then prove relations to EVMYulLean. See [Jargon and semantic styles](./jargon.md).
@@ -136,10 +127,10 @@ There are three possible levels:
    The toy interpreter calls an abstract function:
 
    ```lean
-   CallOracle : ToyState -> CallArgs -> CallResult
+   CallOracle : ToyState -> CallRequest -> Except EVM.ExecutionException CallResult
    ```
 
-   This is fastest and cleanly exposes the call boundary, but it does not prove EVMYulLean `CALL` behavior yet.
+   This is fastest and cleanly exposes the call boundary, but it does not prove EVMYulLean `CALL` behavior yet. `CallResult.success = false` models the ordinary callee-revert/failed-call flag; the `Except` channel models caller-level exceptional halt.
 
 2. **Constrained EVM call semantics**
    Prove correspondence for `CALL` under strong restrictions:
@@ -159,7 +150,7 @@ There are three possible levels:
 
    This is the real target but too large for the first pilot.
 
-Recommendation: implement level 1 and prove level 2 for one constrained case. This gives us the architecture and one concrete EVMYulLean theorem without blocking on full call semantics.
+Recommendation: implement level 1 and prove level 2 for one constrained case. This gives us the architecture and one concrete EVMYulLean theorem without blocking on full call semantics. Then move from an empty/STOP callee to a fixed successful callee that returns nontrivial data.
 
 ## Why Calls Are Hard
 
@@ -302,12 +293,12 @@ Deliverable: a short Lean/design note with:
 
 Implement:
 
-- `Expr`;
-- `ExternalCall`;
+- `Operand`;
 - `Program`;
 - `ToyState`;
-- `ToyResult`;
-- `evalExpr`;
+- `CallRequest`;
+- `CallResult`;
+- `evalInstr`;
 - `run`.
 
 External call initially uses an oracle parameter or typeclass.
@@ -408,7 +399,7 @@ Then connect the toy semantics to the Plank operation universe and eventually to
 9. **Control flow**
    No control flow in toy AST, but should bytecode end in `STOP` or `RETURN`?
 
-   Recommendation: use `STOP` first for minimality, then add `RETURN` once memory output matters.
+   Recommendation: use `STOP` first for minimality, then add `RETURN` once memory output matters. This is not a major design point for the toy.
 
 10. **Compiler target**
     Hand-written bytecode first or Plank release backend first?
@@ -423,12 +414,12 @@ Then connect the toy semantics to the Plank operation universe and eventually to
 12. **External call target**
     Should the callee be empty code, `STOP`, a fixed successful contract, a precompile, or an oracle?
 
-    Recommendation: start with empty/STOP code and zero value/input/output.
+    Recommendation: start with empty/STOP code and zero value/input/output, then quickly add a fixed successful callee because empty code does not exercise enough call behavior.
 
 13. **Reentrancy**
     Do we model reentrancy now?
 
-    Recommendation: no, but do not design it away. The call oracle/result relation should allow state changes by callee so reentrancy can be introduced later.
+    Recommendation: not in the first theorem, but do not design it away. Since the motivation for external calls includes reentrancy, the call oracle/result relation should allow callee state changes and later nested calls.
 
 14. **State equality vs observables**
     Compare full state or observable projection?
@@ -439,7 +430,11 @@ Then connect the toy semantics to the Plank operation universe and eventually to
 
 1. Is the pilot supposed to live in Lean immediately, or should we first write an executable reference interpreter in Rust/Lean pseudocode?
 
+   Decision: Lean immediately.
+
 2. Should the toy IR be an independent teaching IR, or should it literally be a subset of Plank SIR operations from the start?
+
+   Decision: independent teaching IR first, but instruction-shaped and close to SIR.
 
 3. What is the intended external call example?
    Is it `call(to = calldata[0] + k)`, or should calldata supply gas/value/offsets too?
@@ -447,17 +442,25 @@ Then connect the toy semantics to the Plank operation universe and eventually to
 4. Do we care about value-transferring calls in the pilot?
    If yes, balance transfer and account creation enter immediately.
 
+   Decision: no value transfer in the first pilot.
+
 5. Should the first call theorem use an empty/STOP callee, a fixed callee bytecode, or an abstract oracle?
 
 6. Should returndata be observable in the first pilot if `outSize = 0`?
 
+   Decision: yes. Even if no output bytes are copied into caller memory, `CALL` still updates the caller-visible returndata buffer.
+
 7. Do we want to include memory input/output for `CALL` now, or intentionally set them to zero for milestone one?
+
+   Decision: include memory fields and request construction now. The first theorem may use zero-sized slices, but the state and oracle already carry memory and returndata.
 
 8. Are we proving against EVMYulLean `.EVM` bytecode execution directly, or introducing an intermediate assembly/stack-machine semantics first?
 
 9. How close should the toy compiler's bytecode be to Plank's actual stack scheduler output?
 
 10. Is exact gas out of scope for the pilot, or do we need at least a rough gas monotonicity/adequate-gas theorem?
+
+   Decision: gas is part of the model from the beginning, but exact gas proofs can start as adequate-gas assumptions.
 
 11. What should count as success for the pilot?
     A running Lean interpreter? A theorem about expression compilation? A theorem about constrained `CALL`? A whole-program theorem?
@@ -475,4 +478,3 @@ The pilot is successful if we have:
 5. a call-boundary relation;
 6. one constrained EVMYulLean `CALL` correspondence theorem or, if that proves too large, a precise list of the missing EVMYulLean lemmas needed;
 7. a clear next step from toy IR to the actual SIR subset.
-
