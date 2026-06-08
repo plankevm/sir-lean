@@ -30,14 +30,17 @@ structure CallArgs where
 
 structure CallRequest where
   gas : Word
+  targetWord : Word
   target : Address
   value : Word
+  inOffset : Word
+  inSize : Word
   input : ByteArray
   outOffset : Word
   outSize : Word
 
 structure CallResult where
-  success : Bool
+  successFlag : Word
   returnData : ByteArray
   evm : EVM.State
 
@@ -84,9 +87,13 @@ def setReturnData (s : ToyState) (returnData : ByteArray) : ToyState :=
 def evalCallRequest (s : ToyState) (args : CallArgs) : CallRequest :=
   let inOffset := s.evalOperand args.inOffset
   let inSize := s.evalOperand args.inSize
+  let targetWord := s.evalOperand args.target
   { gas := s.evalOperand args.gas
-    target := AccountAddress.ofUInt256 (s.evalOperand args.target)
+    targetWord := targetWord
+    target := AccountAddress.ofUInt256 targetWord
     value := s.evalOperand args.value
+    inOffset := inOffset
+    inSize := inSize
     input := s.callInput inOffset inSize
     outOffset := s.evalOperand args.outOffset
     outSize := s.evalOperand args.outSize }
@@ -105,19 +112,16 @@ inductive RunResult where
   | exceptional (state : ToyState) (error : EVM.ExecutionException)
   | outOfFuel (state : ToyState)
 
-def successWord (success : Bool) : Word :=
-  if success then UInt256.ofNat 1 else UInt256.ofNat 0
-
 def evalInstr (oracle : CallOracle) (s : ToyState) : Instr → StepResult
   | .inputLoad dst offset =>
       .ok (s.writeLocal dst (s.callDataLoad (s.evalOperand offset)))
   | .addConst dst src value =>
-      .ok (s.writeLocal dst (s.readLocal src + value))
+      .ok (s.writeLocal dst (value + s.readLocal src))
   | .call dst args =>
       match oracle s (s.evalCallRequest args) with
       | .ok result =>
           .ok (((s.setEvm result.evm).setReturnData result.returnData).writeLocal dst
-            (successWord result.success))
+            result.successFlag)
       | .error error =>
           .exceptional s error
 

@@ -56,13 +56,13 @@ CallOracle : ToyState -> CallRequest -> Except EVM.ExecutionException CallResult
 
 This makes the call boundary explicit while we build the state and interpreter. `CallRequest` contains the evaluated call operands plus the input memory slice. `CallResult` contains:
 
-- `success : Bool`, the value that the EVM `CALL` instruction would push;
+- `successFlag : UInt256`, the exact value that the EVM `CALL` instruction would push;
 - `returnData : ByteArray`, the caller-visible returndata buffer;
 - `evm : EVM.State`, the updated world/machine state after the call.
 
-Important semantic distinction: a callee revert is represented by `success = false` and updated returndata; it is not a caller-level `revert` result. The caller-level interpreter only stops exceptionally when the call cannot be performed as an EVM instruction, for example stack/gas/static/depth-style exceptional failure once those checks are modeled.
+Important semantic distinction: a callee revert is represented by a `0` success flag and updated returndata; it is not a caller-level `revert` result. The caller-level interpreter only stops exceptionally when the call cannot be performed as an EVM instruction, for example stack/gas/static/depth-style exceptional failure once those checks are modeled.
 
-The next step is to prove a constrained EVMYulLean correspondence theorem for a fixed callee.
+The first lowering increment now derives an oracle from EVMYulLean's `CALL` step and proves that the toy call writes the same success flag and preserves the same machine/world observations. The next step is to replace that EVM-step oracle with a constrained theorem for a fixed callee.
 
 ## Output Memory
 
