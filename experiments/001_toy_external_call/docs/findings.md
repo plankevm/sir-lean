@@ -15,6 +15,8 @@ The implemented artifact is intentionally small:
 - `Instr.addConst`: add a constant to a local using `UInt256` arithmetic;
 - `Instr.call`: evaluate the seven EVM `CALL` operands and delegate the call boundary to an oracle;
 - `run`: fuel-bounded interpreter over a linear list of instructions.
+- `Bytecode.lower`: a partial compiler from the existing `Program` type to EVM bytecode.
+- `Correctness`: source-side semantic facts and the explicit `EVM.X` preservation predicate for the prefix.
 
 ## Main Design Decisions
 
@@ -70,13 +72,52 @@ The next theorem should make output copying explicit, at least as an observable 
 
 An earlier `ToyExternalCall.Lowering` module was removed because it proved preservation only against an opcode-trace/primitive-step shortcut. That was not the requested theorem and it was not a clean model of lowering to bytecode.
 
-The next lowering attempt should use the existing `Instr`/`Program` IR, produce `ByteArray`, and state/prove correctness against EVMYulLean `EVM.X`.
+The replacement uses the existing `Instr`/`Program` IR and produces `ByteArray`. It does not prove preservation against an opcode trace.
+
+## Current Lowering Status
+
+The lowering currently recognizes two shapes:
+
+```lean
+[ inputLoad 0 0
+, addConst 1 0 constant
+]
+```
+
+and:
+
+```lean
+canonicalProgram callArgs constant
+```
+
+where the canonical call has target `local 1` and all other `CALL` operands are constants. Unsupported operand shapes return `none`; there is no silent fallback to zero.
+
+The prefix bytecode is:
+
+```text
+PUSH0; CALLDATALOAD; PUSH32 constant; ADD; STOP
+```
+
+The canonical call bytecode additionally pushes the six constant `CALL` operands, duplicates the computed target with `DUP6`, pushes call gas, executes `CALL`, then uses `SWAP1; POP; STOP` so the observable final stack contains the call success flag rather than the stale target.
+
+What is proved today:
+
+- the source interpreter computes the expected local for calldata-load plus add-constant;
+- the source interpreter computes the expected locals for the canonical fixed-call oracle;
+- the partial compiler maps the recognized source programs to the intended bytecode.
+
+What is not proved yet:
+
+- `EVM.X` executes the lowered prefix bytecode to the corresponding stack observation;
+- `EVM.X` executes the lowered `CALL` bytecode against a fixed callee;
+- exact gas preservation.
 
 ## Next Proof Targets
 
-1. Define `lower : Program -> ByteArray` for the existing toy IR.
-2. Define the initial EVM state relation for running lowered bytecode.
-3. Prove PC/gas/halting side conditions for the canonical program.
-4. Prove a whole canonical-program theorem against EVMYulLean `EVM.X`.
+1. Prove the `PUSH32` byte round-trip lemma:
+   `uInt256OfByteArray value.toByteArray = value`.
+2. Prove `EVM.decode` lemmas for each byte offset in the prefix bytecode.
+3. Prove PC/gas/halting side conditions for the prefix program.
+4. Prove the prefix theorem against EVMYulLean `EVM.X`.
 5. Add the constrained fixed-callee theorem for `CALL`.
-6. Make output memory-copy observations explicit.
+6. Compose the whole canonical-program theorem and make output memory-copy observations explicit.
