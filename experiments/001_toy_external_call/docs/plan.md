@@ -62,7 +62,7 @@ This makes the call boundary explicit while we build the state and interpreter. 
 
 Important semantic distinction: a callee revert is represented by a `0` success flag and updated returndata; it is not a caller-level `revert` result. The caller-level interpreter only stops exceptionally when the call cannot be performed as an EVM instruction, for example stack/gas/static/depth-style exceptional failure once those checks are modeled.
 
-The first lowering increment now derives an oracle from EVMYulLean's `CALL` step and proves that the toy call writes the same success flag and preserves the same machine/world observations. The next step is to replace that EVM-step oracle with a constrained theorem for a fixed callee.
+The lowering proof is not implemented yet. The next attempt should lower this existing IR to bytecode and prove the whole-program theorem against EVMYulLean `EVM.X`; opcode-trace shortcuts are explicitly out of scope.
 
 ## Output Memory
 
