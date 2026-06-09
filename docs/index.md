@@ -16,8 +16,9 @@ This documentation maps the local formalization repos under `forks/` and explain
 10. [SIR to bytecode correctness](./sir-to-bytecode.md)
 11. [Pilot SIR formalization plan](./pilot-sir-formalization-plan.md)
 12. [Experiment 001: Toy external call](../experiments/001_toy_external_call/docs/plan.md)
-13. [Recommended formalization plan](./formalization-plan.md)
-14. [Semantics choice for Plank](./semantics-choice.md)
+13. [Experiment 001 wrong attempts](../experiments/001_toy_external_call/docs/wrong-attempts.md)
+14. [Recommended formalization plan](./formalization-plan.md)
+15. [Semantics choice for Plank](./semantics-choice.md)
 
 ## Short Takeaway
 

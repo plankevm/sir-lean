@@ -79,4 +79,4 @@ Continue the bytecode/EVMYulLean harness:
 3. prove a reserved-local-memory disjointness invariant;
 4. prove instruction-level preservation lemmas for calldata load, addition, and call;
 5. add the fixed successful callee account/code setup;
-6. prove the constrained `CALL` theorem and compose the general `LoweringPreservesSemantics` theorem.
+6. prove the constrained `CALL` theorem and compose the general `LoweringPreservationSpec` theorem.

@@ -18,6 +18,14 @@ inductive Operand where
   | const (value : Word)
   deriving Repr
 
+namespace Operand
+
+def locals : Operand → List Local
+  | .local x => [x]
+  | .const _ => []
+
+end Operand
+
 structure CallArgs where
   gas : Operand
   target : Operand
@@ -27,6 +35,19 @@ structure CallArgs where
   outOffset : Operand
   outSize : Operand
   deriving Repr
+
+namespace CallArgs
+
+def locals (args : CallArgs) : List Local :=
+  args.gas.locals ++
+  args.target.locals ++
+  args.value.locals ++
+  args.inOffset.locals ++
+  args.inSize.locals ++
+  args.outOffset.locals ++
+  args.outSize.locals
+
+end CallArgs
 
 structure CallRequest where
   gas : Word
@@ -50,7 +71,37 @@ inductive Instr where
   | call (dst : Local) (args : CallArgs)
   deriving Repr
 
+namespace Instr
+
+def readLocals : Instr → List Local
+  | .inputLoad _ offset => offset.locals
+  | .add _ lhs rhs => lhs.locals ++ rhs.locals
+  | .call _ args => args.locals
+
+def writtenLocals : Instr → List Local
+  | .inputLoad dst _ => [dst]
+  | .add dst _ _ => [dst]
+  | .call dst _ => [dst]
+
+def touchedLocals (instr : Instr) : List Local :=
+  instr.readLocals ++ instr.writtenLocals
+
+end Instr
+
 abbrev Program := List Instr
+
+namespace Program
+
+def readLocals (program : Program) : List Local :=
+  program.foldr (fun instr locals => instr.readLocals ++ locals) []
+
+def writtenLocals (program : Program) : List Local :=
+  program.foldr (fun instr locals => instr.writtenLocals ++ locals) []
+
+def touchedLocals (program : Program) : List Local :=
+  program.foldr (fun instr locals => instr.touchedLocals ++ locals) []
+
+end Program
 
 structure ToyState where
   evm : EVM.State

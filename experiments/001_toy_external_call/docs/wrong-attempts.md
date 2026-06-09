@@ -1,0 +1,110 @@
+# Experiment 001 Wrong Attempts
+
+This file records mistakes in the toy SIR/EVM lowering attempt so future work does not repeat them.
+
+## Opcode Trace Shortcut
+
+An earlier module proved facts about an opcode-trace/primitive-step shortcut rather than bytecode execution through EVMYulLean `EVM.X`.
+
+Why it was wrong:
+
+- the requested target was bytecode execution;
+- opcode traces bypass decoding, program counters, gas prechecks, halting, and `CALL` setup;
+- proving against the shortcut did not establish anything about the actual lowered bytecode.
+
+Fix:
+
+- remove the shortcut module;
+- keep `Bytecode.lower : Program -> ByteArray`;
+- state target execution only through `EVM.X`.
+
+## Canonical-Only Lowering
+
+The first `Bytecode.lower` recognized only one or two hard-coded canonical programs and returned `none` for everything else.
+
+Why it was wrong:
+
+- it was not a compiler for the IR;
+- it made the preservation statement about a hand-picked example rather than `Program`;
+- it hid real local/register allocation issues.
+
+Fix:
+
+- make `Bytecode.lower` total over every `Program`;
+- lower operands generically;
+- store source locals in reserved EVM memory slots.
+
+## Infinite Local Relation
+
+The first state relation compared every `Nat` local:
+
+```lean
+∀ x, evm.lookupMemory (localSlot x) = locals x
+```
+
+Why it was wrong:
+
+- bytecode can only initialize/use finitely many locals;
+- arbitrary source states have infinitely many local values;
+- full equality of all locals is stronger than the program can observe.
+
+Fix:
+
+- collect finite local sets from syntax;
+- compare only `program.touchedLocals`.
+
+## Uninitialized Source Locals
+
+The source interpreter read locals from `ToyState.locals`, but the lowered bytecode read locals from EVM memory.
+
+Why it was wrong:
+
+- the initial EVM state did not encode source locals;
+- any program reading a preexisting local could disagree immediately.
+
+Fix:
+
+- `withLoweredCodeAndLocals` seeds EVM memory for `program.readLocals` before execution.
+
+## Arbitrary EVM Fuel
+
+The earlier spec quantified over arbitrary `evmFuel`.
+
+Why it was wrong:
+
+- with `evmFuel = 0`, even the empty lowered program returns `OutOfFuel`;
+- the source run can still succeed.
+
+Fix:
+
+- remove arbitrary target fuel from the preservation spec;
+- use `Bytecode.lowerFuel program`.
+
+## Arbitrary Call Oracle
+
+The source semantics uses a `CallOracle`, but lowered bytecode uses real EVM `CALL`.
+
+Why it was wrong:
+
+- an arbitrary oracle can return any state, returndata, or success flag;
+- real EVM bytecode cannot preserve arbitrary oracle behavior.
+
+Fix:
+
+- add `CallOracleSoundForLowering oracle`, relating oracle answers to EVMYulLean `EVM.call`;
+- keep call preservation as an explicit proof obligation.
+
+## Reserved Local Memory Clobbering
+
+The total lowerer stores locals in reserved memory slots starting at `1048576`.
+
+Why it was wrong to ignore:
+
+- EVM calls can write returndata into caller memory;
+- if `outOffset/outSize` overlaps reserved local slots, lowered locals can be corrupted;
+- source locals are not stored in EVM memory, so source semantics would not see this corruption.
+
+Fix:
+
+- add `CallOraclePreservesReservedLocalSlots oracle program.touchedLocals`;
+- later replace this assumption with a stronger memory-frame/layout discipline.

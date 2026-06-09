@@ -41,6 +41,10 @@ def compileOperand : Operand → ByteArray
   | .const value => push32 value
   | .local x => loadLocal x
 
+def operandFuel : Operand → Nat
+  | .const _ => 1
+  | .local _ => 2
+
 def compileAdd (dst : Local) (lhs rhs : Operand) : ByteArray :=
   appendMany
     [ compileOperand rhs
@@ -48,6 +52,9 @@ def compileAdd (dst : Local) (lhs rhs : Operand) : ByteArray :=
     , op .ADD
     , storeLocal dst
     ]
+
+def addFuel (lhs rhs : Operand) : Nat :=
+  operandFuel rhs + operandFuel lhs + 3
 
 def compileCall (dst : Local) (args : CallArgs) : ByteArray :=
   appendMany
@@ -62,6 +69,16 @@ def compileCall (dst : Local) (args : CallArgs) : ByteArray :=
     , storeLocal dst
     ]
 
+def callFuel (args : CallArgs) : Nat :=
+  operandFuel args.outSize +
+  operandFuel args.outOffset +
+  operandFuel args.inSize +
+  operandFuel args.inOffset +
+  operandFuel args.value +
+  operandFuel args.target +
+  operandFuel args.gas +
+  3
+
 def compileInstr : Instr → ByteArray
   | .inputLoad dst offset =>
       appendMany
@@ -74,11 +91,19 @@ def compileInstr : Instr → ByteArray
   | .call dst args =>
       compileCall dst args
 
+def instrFuel : Instr → Nat
+  | .inputLoad _ offset => operandFuel offset + 3
+  | .add _ lhs rhs => addFuel lhs rhs
+  | .call _ args => callFuel args
+
 def lowerBody : Program → ByteArray :=
   fun program => appendMany (program.map compileInstr)
 
 def lower (program : Program) : ByteArray :=
   appendMany [lowerBody program, op .STOP]
+
+def lowerFuel (program : Program) : Nat :=
+  program.foldl (fun fuel instr => fuel + instrFuel instr) 1
 
 end Bytecode
 
