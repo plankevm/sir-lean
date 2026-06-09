@@ -4,6 +4,39 @@ import EvmYul.StateOps
 import EvmYul.MachineStateOps
 import EvmYul.EVM.Exception
 import EvmYul.EVM.State
+import EvmYul.EVM.Gas
+import EvmYul.EVM.Semantics
+
+/-!
+# A toy IR with a gas-exact executable semantics
+
+The IR is a straight-line register language with three instructions:
+`inputLoad` (CALLDATALOAD), `add`, and `call` (external EVM CALL).
+
+Design decisions, in response to the obstructions found in the previous
+iteration (see `docs/findings.md`):
+
+* **Locals are memory-backed.** The IR state is an `EVM.State` (plus a fuel
+  counter); local `x` denotes the 32-byte memory word at `localSlot x`.
+  There is no separate locals map, hence no frame invariant relating two
+  copies of the same data: if an external call clobbers a local slot, source
+  and target see the identical clobbering.
+
+* **The semantics is gas-exact.** Every IR action charges precisely the gas
+  the lowered bytecode charges, including memory-expansion costs, and
+  mirrors the fuel discipline of `EVM.X`/`EVM.step`. Consequently the
+  lowering theorem needs no "enough gas" side conditions.
+
+* **External calls go through an oracle** with the exact signature of the
+  relevant `EVM.call` instance. The only assumption of the lowering theorem
+  is `CallOracleSound`: the oracle agrees with `EVM.call`, and `EVM.call`
+  neither reads nor garbles the frame fields (`pc`, `stack`, code) that
+  distinguish an IR state from its lowered counterpart.
+
+The frame fields `pc`, `stack` and `executionEnv.code` of the embedded
+`EVM.State` are *don't care* in IR states: the semantics never reads them,
+and the lowering theorem overrides them on both ends via `injectFrame`.
+-/
 
 namespace ToyExternalCall
 
@@ -13,18 +46,12 @@ abbrev Word := UInt256
 abbrev Address := AccountAddress
 abbrev Local := Nat
 
+/-! ## Syntax -/
+
 inductive Operand where
   | local (x : Local)
   | const (value : Word)
   deriving Repr
-
-namespace Operand
-
-def locals : Operand → List Local
-  | .local x => [x]
-  | .const _ => []
-
-end Operand
 
 structure CallArgs where
   gas : Operand
@@ -36,167 +63,234 @@ structure CallArgs where
   outSize : Operand
   deriving Repr
 
-namespace CallArgs
-
-def locals (args : CallArgs) : List Local :=
-  args.gas.locals ++
-  args.target.locals ++
-  args.value.locals ++
-  args.inOffset.locals ++
-  args.inSize.locals ++
-  args.outOffset.locals ++
-  args.outSize.locals
-
-end CallArgs
-
-structure CallRequest where
-  gas : Word
-  targetWord : Word
-  target : Address
-  value : Word
-  inOffset : Word
-  inSize : Word
-  input : ByteArray
-  outOffset : Word
-  outSize : Word
-
-structure CallResult where
-  successFlag : Word
-  returnData : ByteArray
-  evm : EVM.State
-
 inductive Instr where
   | inputLoad (dst : Local) (offset : Operand)
   | add (dst : Local) (lhs rhs : Operand)
   | call (dst : Local) (args : CallArgs)
   deriving Repr
 
-namespace Instr
-
-def readLocals : Instr → List Local
-  | .inputLoad _ offset => offset.locals
-  | .add _ lhs rhs => lhs.locals ++ rhs.locals
-  | .call _ args => args.locals
-
-def writtenLocals : Instr → List Local
-  | .inputLoad dst _ => [dst]
-  | .add dst _ _ => [dst]
-  | .call dst _ => [dst]
-
-def touchedLocals (instr : Instr) : List Local :=
-  instr.readLocals ++ instr.writtenLocals
-
-end Instr
-
 abbrev Program := List Instr
 
-namespace Program
+/-! ## Memory layout
 
-def readLocals (program : Program) : List Local :=
-  program.foldr (fun instr locals => instr.readLocals ++ locals) []
+Locals live in a reserved region of EVM memory. The layout is a fact about
+the IR's memory model (local reads/writes *are* `MLOAD`/`MSTORE` at these
+addresses), not merely a compilation detail.
+-/
 
-def writtenLocals (program : Program) : List Local :=
-  program.foldr (fun instr locals => instr.writtenLocals ++ locals) []
+def localBase : Nat := 1048576
 
-def touchedLocals (program : Program) : List Local :=
-  program.foldr (fun instr locals => instr.touchedLocals ++ locals) []
+def localSlot (x : Local) : Word :=
+  UInt256.ofNat (localBase + 32 * x)
 
-end Program
+/-! ## States -/
 
-structure ToyState where
+/-- An IR state: an EVM machine state plus the fuel counter threaded through
+`EVM.X`. The `pc`, `stack` and `executionEnv.code` fields of `evm` are unused
+by the IR semantics. -/
+structure Exec where
   evm : EVM.State
-  locals : Local → Word
-  deriving Inhabited
+  fuel : Nat
 
-namespace ToyState
+/-- Override the frame fields that distinguish an IR state from the state of
+its lowered bytecode: program counter, machine stack and executing code. -/
+def injectFrame (evm : EVM.State) (pc : Word) (stack : List Word) (code : ByteArray) :
+    EVM.State :=
+  { evm with
+      pc := pc
+      stack := stack
+      executionEnv := { evm.executionEnv with code := code } }
 
-def emptyLocals : Local → Word :=
-  fun _ => UInt256.ofNat 0
+namespace Exec
 
-def readLocal (s : ToyState) (x : Local) : Word :=
-  s.locals x
+def chargeGas (c : Nat) (s : Exec) : Exec :=
+  { s with evm := { s.evm with gasAvailable := s.evm.gasAvailable - UInt256.ofNat c } }
 
-def writeLocal (s : ToyState) (x : Local) (v : Word) : ToyState :=
-  { s with locals := fun y => if y = x then v else s.locals y }
+def bumpExecLength (s : Exec) : Exec :=
+  { s with evm := { s.evm with execLength := s.evm.execLength + 1 } }
 
-def evalOperand (s : ToyState) : Operand → Word
-  | .local x => s.readLocal x
-  | .const value => value
+def setMachineState (m : MachineState) (s : Exec) : Exec :=
+  { s with evm := { s.evm with toMachineState := m } }
 
-def callDataLoad (s : ToyState) (offset : Word) : Word :=
-  EvmYul.State.calldataload s.evm.toState offset
+end Exec
 
-def callInput (s : ToyState) (inOffset inSize : Word) : ByteArray :=
-  s.evm.memory.readWithPadding inOffset.toNat inSize.toNat
+/-! ## Gas-exact micro actions
 
-def setEvm (s : ToyState) (evm : EVM.State) : ToyState :=
-  { s with evm := evm }
+Each lowered opcode is executed by `EVM.X` as: fuel check, decode,
+`EVM.Z` (memory-expansion cost, instruction cost, validity checks),
+`EVM.step` (fuel check, trace bump, instruction-cost deduction, effect).
+The IR semantics mirrors this sequence exactly, one action per opcode.
+-/
 
-def setReturnData (s : ToyState) (returnData : ByteArray) : ToyState :=
-  { s with evm := { s.evm with returnData := returnData } }
+/-- The fuel check and decrement performed by one `EVM.X` iteration. -/
+def tick (s : Exec) : Except EVM.ExecutionException Exec :=
+  match s.fuel with
+  | 0 => .error .OutOfFuel
+  | f + 1 => .ok { s with fuel := f }
 
-def evalCallRequest (s : ToyState) (args : CallArgs) : CallRequest :=
-  let inOffset := s.evalOperand args.inOffset
-  let inSize := s.evalOperand args.inSize
-  let targetWord := s.evalOperand args.target
-  { gas := s.evalOperand args.gas
-    targetWord := targetWord
-    target := AccountAddress.ofUInt256 targetWord
-    value := s.evalOperand args.value
-    inOffset := inOffset
-    inSize := inSize
-    input := s.callInput inOffset inSize
-    outOffset := s.evalOperand args.outOffset
-    outSize := s.evalOperand args.outSize }
+/-- First half of `EVM.Z`'s gas accounting: charge the memory-expansion
+cost `c₁`. -/
+def chargeMem (c₁ : Nat) (s : Exec) : Except EVM.ExecutionException Exec :=
+  if s.evm.gasAvailable.toNat < c₁ then .error .OutOfGass
+  else .ok (s.chargeGas c₁)
 
-end ToyState
+/-- Second half of `EVM.Z`'s gas accounting: check (without deducting) the
+instruction cost `c₂`. `c₂` must be computed on the state already charged
+with `c₁` — this matters for `CALL`, whose cost reads the gas counter. -/
+def requireGas (c₂ : Nat) (s : Exec) : Except EVM.ExecutionException Exec :=
+  if s.evm.gasAvailable.toNat < c₂ then .error .OutOfGass
+  else .ok s
 
+/-- The gas accounting of `EVM.Z` for instructions whose cost `c₂` does not
+depend on the state. -/
+def payZ (c₁ c₂ : Nat) (s : Exec) : Except EVM.ExecutionException Exec := do
+  let s ← chargeMem c₁ s
+  requireGas c₂ s
+
+/-- The fuel check performed by `EVM.step` (depth protection; the counter
+itself is only consumed by `EVM.X`). -/
+def stepGuard (s : Exec) : Except EVM.ExecutionException Exec :=
+  match s.fuel with
+  | 0 => .error .OutOfFuel
+  | _ + 1 => .ok s
+
+/-- The state bookkeeping of `EVM.step` for non-call instructions: bump the
+trace length and deduct the instruction cost. -/
+def commit (c₂ : Nat) (s : Exec) : Exec :=
+  s.bumpExecLength.chargeGas c₂
+
+/-- One non-call opcode of cost `c₂` and memory-expansion cost `c₁`. -/
+def opStep (c₁ c₂ : Nat) (s : Exec) : Except EVM.ExecutionException Exec := do
+  let s ← tick s
+  let s ← payZ c₁ c₂ s
+  let s ← stepGuard s
+  .ok (commit c₂ s)
+
+/-- Memory-expansion cost of an `MLOAD`/`MSTORE` at `addr`
+(cf. `EVM.memoryExpansionCost`). -/
+def wordTouchCost (evm : EVM.State) (addr : Word) : Nat :=
+  EVM.Cₘ (.ofNat (MachineState.M evm.toMachineState.activeWords.toNat addr.toNat 32)) -
+    EVM.Cₘ evm.toMachineState.activeWords
+
+/-- Memory-expansion cost of a `CALL` with the given in/out regions
+(cf. `EVM.memoryExpansionCost`). -/
+def callTouchCost (evm : EVM.State) (inOffset inSize outOffset outSize : Word) : Nat :=
+  EVM.Cₘ (.ofNat
+    (MachineState.M
+      (MachineState.M evm.toMachineState.activeWords.toNat inOffset.toNat inSize.toNat)
+      outOffset.toNat outSize.toNat)) -
+    EVM.Cₘ evm.toMachineState.activeWords
+
+/-! ## Operand evaluation and local update -/
+
+/-- Evaluate an operand. A constant costs one `PUSH32`; a local costs a
+`PUSH32` followed by an `MLOAD` of its slot (which can expand memory). -/
+def evalOperand (s : Exec) : Operand → Except EVM.ExecutionException (Word × Exec)
+  | .const v => do
+      let s ← opStep 0 GasConstants.Gverylow s
+      .ok (v, s)
+  | .local x => do
+      let s ← opStep 0 GasConstants.Gverylow s
+      let s ← opStep (wordTouchCost s.evm (localSlot x)) GasConstants.Gverylow s
+      let (v, m) := s.evm.toMachineState.mload (localSlot x)
+      .ok (v, s.setMachineState m)
+
+/-- Write a local: a `PUSH32` of its slot followed by an `MSTORE`. -/
+def writeLocal (s : Exec) (x : Local) (v : Word) : Except EVM.ExecutionException Exec := do
+  let s ← opStep 0 GasConstants.Gverylow s
+  let s ← opStep (wordTouchCost s.evm (localSlot x)) GasConstants.Gverylow s
+  .ok (s.setMachineState (s.evm.toMachineState.mstore (localSlot x) v))
+
+/-! ## External calls -/
+
+/-- The call oracle abstracts the execution of the called contract. Its
+signature is exactly that of the `EVM.call` instance reached by lowered
+code: `fuel` and `gasCost` are the values threaded by `EVM.X`/`EVM.step`,
+and the state is the caller's state at the `CALL` opcode (memory-expansion
+cost already charged, trace length already bumped, instruction cost not yet
+deducted — `EVM.call` deducts it internally). -/
 abbrev CallOracle :=
-  ToyState → CallRequest → Except EVM.ExecutionException CallResult
+  Nat → Nat → EVM.State →
+  (gas target value inOffset inSize outOffset outSize : Word) →
+  Except EVM.ExecutionException (Word × EVM.State)
 
-inductive StepResult where
-  | ok (state : ToyState)
-  | exceptional (state : ToyState) (error : EVM.ExecutionException)
+/-- The lowering theorem's only assumption. It says, jointly:
 
-inductive RunResult where
-  | ok (state : ToyState)
-  | exceptional (state : ToyState) (error : EVM.ExecutionException)
-  | outOfFuel (state : ToyState)
+1. the oracle computes exactly what `EVM.call` computes, and
+2. `EVM.call` is insensitive to the frame fields (`pc`, `stack`, code):
+   they are passed through to the result state untouched and do not
+   influence anything else.
 
-def evalInstr (oracle : CallOracle) (s : ToyState) : Instr → StepResult
-  | .inputLoad dst offset =>
-      .ok (s.writeLocal dst (s.callDataLoad (s.evalOperand offset)))
-  | .add dst lhs rhs =>
-      .ok (s.writeLocal dst (s.evalOperand lhs + s.evalOperand rhs))
-  | .call dst args =>
-      match oracle s (s.evalCallRequest args) with
-      | .ok result =>
-          .ok (((s.setEvm result.evm).setReturnData result.returnData).writeLocal dst
-            result.successFlag)
-      | .error error =>
-          .exceptional s error
+The hypothesis is satisfiable by taking the oracle to *be* `EVM.call`;
+part 2 is then a provable (if laborious) fact about `EVM.call`, which never
+reads those fields. -/
+def CallOracleSound (oracle : CallOracle) : Prop :=
+  ∀ (fuel gasCost : Nat) (s : EVM.State)
+    (gas target value inOffset inSize outOffset outSize : Word)
+    (pc : Word) (stack : List Word) (code : ByteArray),
+    EVM.call fuel gasCost s.executionEnv.blobVersionedHashes
+      gas (.ofNat s.executionEnv.codeOwner) target target value value
+      inOffset inSize outOffset outSize
+      s.executionEnv.perm
+      (injectFrame s pc stack code) =
+    (oracle fuel gasCost s gas target value inOffset inSize outOffset outSize).map
+      (fun r => (r.1, injectFrame r.2 pc stack code))
 
-def run (oracle : CallOracle) : Nat → ToyState → Program → RunResult
-  | 0, s, _ => .outOfFuel s
-  | _fuel, s, [] => .ok s
-  | fuel + 1, s, instr :: rest =>
-      match evalInstr oracle s instr with
-      | .ok s' => run oracle fuel s' rest
-      | .exceptional s' error => .exceptional s' error
+/-! ## Instruction semantics -/
 
-def canonicalProgram (callArgs : CallArgs) (constant : Word) : Program :=
-  [ .inputLoad 0 (.const (UInt256.ofNat 0))
-  , .add 1 (.const constant) (.local 0)
-  , .call 2 { callArgs with target := .local 1 }
-  ]
+/-- Execute one IR instruction, charging exactly the gas of its lowering. -/
+def execInstr (oracle : CallOracle) (s : Exec) : Instr → Except EVM.ExecutionException Exec
+  | .inputLoad dst offset => do
+      let (off, s) ← evalOperand s offset
+      let s ← opStep 0 GasConstants.Gverylow s
+      writeLocal s dst (EvmYul.State.calldataload s.evm.toState off)
+  | .add dst lhs rhs => do
+      -- Operands are evaluated right-to-left, matching the order in which
+      -- the lowering pushes them (evaluation can expand memory, so the
+      -- order is observable in the gas accounting).
+      let (vr, s) ← evalOperand s rhs
+      let (vl, s) ← evalOperand s lhs
+      let s ← opStep 0 GasConstants.Gverylow s
+      writeLocal s dst (vl + vr)
+  | .call dst args => do
+      let (outSize, s) ← evalOperand s args.outSize
+      let (outOffset, s) ← evalOperand s args.outOffset
+      let (inSize, s) ← evalOperand s args.inSize
+      let (inOffset, s) ← evalOperand s args.inOffset
+      let (value, s) ← evalOperand s args.value
+      let (target, s) ← evalOperand s args.target
+      let (gas, s) ← evalOperand s args.gas
+      let s ← tick s
+      let s ← chargeMem (callTouchCost s.evm inOffset inSize outOffset outSize) s
+      -- `Ccall` reads the gas counter, so it is computed on the state
+      -- already charged with the memory-expansion cost, exactly as `EVM.Z`
+      -- computes `C'` after deducting `cost₁`.
+      let c₂ :=
+        EVM.Ccall (.ofUInt256 target) (.ofUInt256 target) value gas
+          s.evm.accountMap s.evm.toMachineState s.evm.substate
+      let s ← requireGas c₂ s
+      if ¬ s.evm.executionEnv.perm ∧ value ≠ UInt256.ofNat 0 then
+        .error .StaticModeViolation
+      else do
+        let s ← stepGuard s
+        let s := s.bumpExecLength
+        match oracle (s.fuel - 1) c₂ s.evm gas target value inOffset inSize outOffset outSize with
+        | .error e => .error e
+        | .ok (flag, evm') => writeLocal { s with evm := evm' } dst flag
 
-def canonicalZeroValueCallArgs (gas inOffset inSize outOffset outSize : Word) : CallArgs :=
-  { gas := .const gas
-    target := .const (UInt256.ofNat 0)
-    value := .const (UInt256.ofNat 0)
-    inOffset := .const inOffset
-    inSize := .const inSize
-    outOffset := .const outOffset
-    outSize := .const outSize }
+/-- The final `STOP` appended by the lowering: clears the return-data buffer
+and halts. -/
+def stopStep (s : Exec) : Except EVM.ExecutionException Exec := do
+  let s ← opStep 0 GasConstants.Gzero s
+  .ok (s.setMachineState (s.evm.toMachineState.setReturnData .empty))
+
+/-- Run a program. Structural recursion on the program; the fuel counter
+only mirrors `EVM.X`'s and is consumed one unit per lowered opcode. -/
+def run (oracle : CallOracle) : Program → Exec → Except EVM.ExecutionException Exec
+  | [], s => stopStep s
+  | instr :: rest, s =>
+      match execInstr oracle s instr with
+      | .ok s' => run oracle rest s'
+      | .error e => .error e
 
 end ToyExternalCall
