@@ -365,6 +365,16 @@ Stated for an arbitrary pre-state (the state already validated and charged
 by `EVM.Z`); the conclusions are plain record updates, provable by `rfl`.
 -/
 
+theorem step_stop (f c : Nat) (st : EVM.State) :
+    EVM.step (f + 1) c (some ((.STOP : Operation .EVM), (none : Option (UInt256 × Nat)))) st =
+      .ok { st with
+        execLength := st.execLength + 1,
+        toMachineState := { st.toMachineState with
+          gasAvailable := st.gasAvailable - UInt256.ofNat c,
+          returnData := .empty } } := by
+  unfold EVM.step
+  rfl
+
 theorem step_push32 (f c : Nat) (v : Word) (st : EVM.State) :
     EVM.step (f + 1) c (some ((.PUSH32 : Operation .EVM), some (v, 32))) st =
       .ok { st with
@@ -458,6 +468,571 @@ theorem step_call (f c : Nat) (g t v io is oo os : Word) (rest : List Word)
     shared.toState.executionEnv.perm
     (⟨shared, pc0, g :: t :: v :: io :: is :: oo :: os :: rest, len0 + 1⟩ : EVM.State))
 
+/-! ## `EVM.X` iteration lemmas, one per lowered opcode
+
+Each lemma shows that one `EVM.X` iteration on the lowered code is
+simulated by the corresponding IR action, for *all* fuel and gas levels
+(out-of-fuel and out-of-gas outcomes included).
+-/
+
+section XIteration
+
+variable (code : ByteArray) (l r : List UInt8) (vj : Array UInt256)
+
+private theorem stop_neq_jump : (.STOP : Operation .EVM) ≠ .JUMP := by decide
+private theorem hδ_stop : EVM.δ (.STOP : Operation .EVM) ≠ none := by decide
+
+theorem X_stop
+    (hcode : code.data.toList = l ++ Bytecode.opBytes .stop ++ r)
+    (hl : l.length < UInt256.size)
+    (stk : List Word) (hov : stk.length ≤ 1024)
+    (s : Exec) :
+    EVM.X s.fuel vj (injectFrame s.evm (.ofNat l.length) stk code) =
+      (stopStep s).map
+        (fun s' => .success (injectFrame s'.evm (.ofNat l.length) stk code)
+          ByteArray.empty) := by
+  obtain ⟨evm, fuel⟩ := s
+  have hdec : EVM.decode code (.ofNat l.length) = some (.STOP, none) :=
+    decode_one_byte_at code l r .STOP
+      (by simpa [Bytecode.opBytes, Bytecode.opcode] using hcode)
+      parse_serialize_stop rfl hl
+  have hov'' : ¬ (stk.length > 1024) := by omega
+  cases fuel with
+  | zero =>
+      simp [EVM.X, stopStep, opStep, tick, Except.map, Bind.bind, Except.bind]
+  | succ f =>
+      simp only [EVM.X]
+      simp only [injectFrame_code, injectFrame_pc, hdec, Option.getD_some]
+      simp only [EVM.Z, memExp_stop, C'_stop, injectFrame_gasAvailable, injectFrame_stack]
+      simp [GasConstants.Gzero, EVM.δ, EVM.α, EVM.W, EVM.notIn,
+        EVM.belongs, Operation.isCreate, hov'',
+        stopStep, opStep, tick, payZ, chargeMem, requireGas, stepGuard, commit,
+        Exec.chargeGas, Exec.bumpExecLength, Exec.setMachineState,
+        Except.map, Bind.bind, Except.bind, Pure.pure, Except.pure]
+      cases f with
+      | zero => simp [EVM.step]
+      | succ f' =>
+          rw [step_stop]
+          simp [EVM.H, MachineState.setReturnData]
+          rfl
+
+theorem X_push (v : Word)
+    (hcode : code.data.toList = l ++ Bytecode.opBytes (.push v) ++ r)
+    (hl : l.length < UInt256.size)
+    (stk : List Word) (hov : stk.length ≤ 1023)
+    (s : Exec) :
+    EVM.X s.fuel vj (injectFrame s.evm (.ofNat l.length) stk code) =
+      match pushStep s with
+      | .error e => .error e
+      | .ok s' =>
+          EVM.X s'.fuel vj
+            (injectFrame s'.evm (.ofNat (l.length + 33)) (v :: stk) code) := by
+  obtain ⟨evm, fuel⟩ := s
+  have hdec : EVM.decode code (.ofNat l.length) = some (.PUSH32, some (v, 32)) :=
+    decode_push_at code l r v hcode hl
+  have hz := Z_generic vj .PUSH32 evm (.ofNat l.length) stk code 0 GasConstants.Gverylow
+    (memExp_push32 _) (fun st _ _ _ => C'_push32 st)
+    (by decide) (by simp [EVM.δ]) (by simp [EVM.δ, EVM.α]; omega)
+    (by simp [EVM.W]) (by decide) (by decide) (by decide) (by decide) (by decide)
+  cases fuel with
+  | zero => simp [EVM.X, pushStep, opStep, tick, Bind.bind, Except.bind]
+  | succ f =>
+      by_cases h₂ : (evm.gasAvailable - UInt256.ofNat 0).toNat < GasConstants.Gverylow
+      · rw [X_error_Z f vj _ .PUSH32 (some (v, 32)) .OutOfGass hdec
+          (by rw [hz]; simp [h₂])]
+        simp [pushStep, opStep, tick, payZ, chargeMem, requireGas, h₂,
+          Exec.chargeGas, Bind.bind, Except.bind, Pure.pure, Except.pure]
+      · have hzok : EVM.Z vj .PUSH32 (injectFrame evm (.ofNat l.length) stk code) =
+            .ok ({ injectFrame evm (.ofNat l.length) stk code with
+              gasAvailable := evm.gasAvailable - UInt256.ofNat 0 },
+              GasConstants.Gverylow) := by
+          rw [hz]; simp [h₂]
+        cases f with
+        | zero =>
+            rw [X_error_step 0 vj _ _ .PUSH32 (some (v, 32)) GasConstants.Gverylow
+              .OutOfFuel hdec hzok rfl]
+            simp [pushStep, opStep, tick, payZ, chargeMem, requireGas, stepGuard, h₂,
+              Exec.chargeGas, Bind.bind, Except.bind, Pure.pure, Except.pure]
+        | succ f' =>
+            rw [X_continue (f' + 1) vj _ _ _ .PUSH32 (some (v, 32))
+              GasConstants.Gverylow hdec hzok
+              (step_push32 f' GasConstants.Gverylow v _) (by simp [EVM.H])]
+            simp [pushStep, opStep, tick, payZ, chargeMem, requireGas, stepGuard,
+              commit, Exec.chargeGas, Exec.bumpExecLength, h₂,
+              Bind.bind, Except.bind, Pure.pure, Except.pure]
+            congr 1
+            rw [← ofNat_add]
+            rfl
+
+theorem X_add (a b : Word)
+    (hcode : code.data.toList = l ++ Bytecode.opBytes .add ++ r)
+    (hl : l.length < UInt256.size)
+    (stk : List Word) (hov : stk.length ≤ 1023)
+    (s : Exec) :
+    EVM.X s.fuel vj (injectFrame s.evm (.ofNat l.length) (a :: b :: stk) code) =
+      match pushStep s with
+      | .error e => .error e
+      | .ok s' =>
+          EVM.X s'.fuel vj
+            (injectFrame s'.evm (.ofNat (l.length + 1)) ((a + b) :: stk) code) := by
+  obtain ⟨evm, fuel⟩ := s
+  have hdec : EVM.decode code (.ofNat l.length) = some (.ADD, none) :=
+    decode_one_byte_at code l r .ADD
+      (by simpa [Bytecode.opBytes, Bytecode.opcode] using hcode)
+      parse_serialize_add rfl hl
+  have hz := Z_generic vj .ADD evm (.ofNat l.length) (a :: b :: stk) code 0
+    GasConstants.Gverylow (memExp_add _) (fun st _ _ _ => C'_add st)
+    (by decide) (by simp [EVM.δ]) (by simp [EVM.δ, EVM.α]; omega)
+    (by simp [EVM.W]) (by decide) (by decide) (by decide) (by decide) (by decide)
+  cases fuel with
+  | zero => simp [EVM.X, pushStep, opStep, tick, Bind.bind, Except.bind]
+  | succ f =>
+      by_cases h₂ : (evm.gasAvailable - UInt256.ofNat 0).toNat < GasConstants.Gverylow
+      · rw [X_error_Z f vj _ .ADD none .OutOfGass hdec (by rw [hz]; simp [h₂])]
+        simp [pushStep, opStep, tick, payZ, chargeMem, requireGas, h₂,
+          Exec.chargeGas, Bind.bind, Except.bind, Pure.pure, Except.pure]
+      · have hzok : EVM.Z vj .ADD
+            (injectFrame evm (.ofNat l.length) (a :: b :: stk) code) =
+            .ok ({ injectFrame evm (.ofNat l.length) (a :: b :: stk) code with
+              gasAvailable := evm.gasAvailable - UInt256.ofNat 0 },
+              GasConstants.Gverylow) := by
+          rw [hz]; simp [h₂]
+        cases f with
+        | zero =>
+            rw [X_error_step 0 vj _ _ .ADD none GasConstants.Gverylow
+              .OutOfFuel hdec hzok rfl]
+            simp [pushStep, opStep, tick, payZ, chargeMem, requireGas, stepGuard, h₂,
+              Exec.chargeGas, Bind.bind, Except.bind, Pure.pure, Except.pure]
+        | succ f' =>
+            rw [X_continue (f' + 1) vj _ _ _ .ADD none GasConstants.Gverylow hdec hzok
+              (step_add f' GasConstants.Gverylow a b stk _ rfl) (by simp [EVM.H])]
+            simp [pushStep, opStep, tick, payZ, chargeMem, requireGas, stepGuard,
+              commit, Exec.chargeGas, Exec.bumpExecLength, h₂,
+              Bind.bind, Except.bind, Pure.pure, Except.pure]
+            congr 1
+            rw [← ofNat_add]
+            rfl
+
+theorem X_calldataload (addr : Word)
+    (hcode : code.data.toList = l ++ Bytecode.opBytes .calldataload ++ r)
+    (hl : l.length < UInt256.size)
+    (stk : List Word) (hov : stk.length ≤ 1023)
+    (s : Exec) :
+    EVM.X s.fuel vj (injectFrame s.evm (.ofNat l.length) (addr :: stk) code) =
+      match pushStep s with
+      | .error e => .error e
+      | .ok s' =>
+          EVM.X s'.fuel vj
+            (injectFrame s'.evm (.ofNat (l.length + 1))
+              (EvmYul.State.calldataload s'.evm.toState addr :: stk) code) := by
+  obtain ⟨evm, fuel⟩ := s
+  have hdec : EVM.decode code (.ofNat l.length) = some (.CALLDATALOAD, none) :=
+    decode_one_byte_at code l r .CALLDATALOAD
+      (by simpa [Bytecode.opBytes, Bytecode.opcode] using hcode)
+      parse_serialize_calldataload rfl hl
+  have hz := Z_generic vj .CALLDATALOAD evm (.ofNat l.length) (addr :: stk) code 0
+    GasConstants.Gverylow (memExp_calldataload _) (fun st _ _ _ => C'_calldataload st)
+    (by decide) (by simp [EVM.δ]) (by simp [EVM.δ, EVM.α]; omega)
+    (by simp [EVM.W]) (by decide) (by decide) (by decide) (by decide) (by decide)
+  cases fuel with
+  | zero => simp [EVM.X, pushStep, opStep, tick, Bind.bind, Except.bind]
+  | succ f =>
+      by_cases h₂ : (evm.gasAvailable - UInt256.ofNat 0).toNat < GasConstants.Gverylow
+      · rw [X_error_Z f vj _ .CALLDATALOAD none .OutOfGass hdec (by rw [hz]; simp [h₂])]
+        simp [pushStep, opStep, tick, payZ, chargeMem, requireGas, h₂,
+          Exec.chargeGas, Bind.bind, Except.bind, Pure.pure, Except.pure]
+      · have hzok : EVM.Z vj .CALLDATALOAD
+            (injectFrame evm (.ofNat l.length) (addr :: stk) code) =
+            .ok ({ injectFrame evm (.ofNat l.length) (addr :: stk) code with
+              gasAvailable := evm.gasAvailable - UInt256.ofNat 0 },
+              GasConstants.Gverylow) := by
+          rw [hz]; simp [h₂]
+        cases f with
+        | zero =>
+            rw [X_error_step 0 vj _ _ .CALLDATALOAD none GasConstants.Gverylow
+              .OutOfFuel hdec hzok rfl]
+            simp [pushStep, opStep, tick, payZ, chargeMem, requireGas, stepGuard, h₂,
+              Exec.chargeGas, Bind.bind, Except.bind, Pure.pure, Except.pure]
+        | succ f' =>
+            rw [X_continue (f' + 1) vj _ _ _ .CALLDATALOAD none GasConstants.Gverylow
+              hdec hzok (step_calldataload f' GasConstants.Gverylow addr stk _ rfl)
+              (by simp [EVM.H])]
+            simp [pushStep, opStep, tick, payZ, chargeMem, requireGas, stepGuard,
+              commit, Exec.chargeGas, Exec.bumpExecLength, h₂,
+              Bind.bind, Except.bind, Pure.pure, Except.pure]
+            congr 1
+            rw [← ofNat_add]
+            rfl
+
+theorem X_mload (addr : Word)
+    (hcode : code.data.toList = l ++ Bytecode.opBytes .mload ++ r)
+    (hl : l.length < UInt256.size)
+    (stk : List Word) (hov : stk.length ≤ 1023)
+    (s : Exec) :
+    EVM.X s.fuel vj (injectFrame s.evm (.ofNat l.length) (addr :: stk) code) =
+      match mloadStep addr s with
+      | .error e => .error e
+      | .ok (v, s') =>
+          EVM.X s'.fuel vj
+            (injectFrame s'.evm (.ofNat (l.length + 1)) (v :: stk) code) := by
+  obtain ⟨evm, fuel⟩ := s
+  have hdec : EVM.decode code (.ofNat l.length) = some (.MLOAD, none) :=
+    decode_one_byte_at code l r .MLOAD
+      (by simpa [Bytecode.opBytes, Bytecode.opcode] using hcode)
+      parse_serialize_mload rfl hl
+  have hz := Z_generic vj .MLOAD evm (.ofNat l.length) (addr :: stk) code
+    (wordTouchCost evm addr) GasConstants.Gverylow
+    (memExp_mload evm _ addr stk code) (fun st _ _ _ => C'_mload st)
+    (by decide) (by simp [EVM.δ]) (by simp [EVM.δ, EVM.α]; omega)
+    (by simp [EVM.W]) (by decide) (by decide) (by decide) (by decide) (by decide)
+  cases fuel with
+  | zero => simp [EVM.X, mloadStep, opStep, tick, Bind.bind, Except.bind]
+  | succ f =>
+      by_cases h₁ : evm.gasAvailable.toNat < wordTouchCost evm addr
+      · rw [X_error_Z f vj _ .MLOAD none .OutOfGass hdec (by rw [hz]; simp [h₁])]
+        simp [mloadStep, opStep, tick, payZ, chargeMem, requireGas, h₁,
+          Exec.chargeGas, Bind.bind, Except.bind, Pure.pure, Except.pure]
+      · by_cases h₂ : (evm.gasAvailable -
+            UInt256.ofNat (wordTouchCost evm addr)).toNat < GasConstants.Gverylow
+        · rw [X_error_Z f vj _ .MLOAD none .OutOfGass hdec (by rw [hz]; simp [h₁, h₂])]
+          simp [mloadStep, opStep, tick, payZ, chargeMem, requireGas, h₁, h₂,
+            Exec.chargeGas, Bind.bind, Except.bind, Pure.pure, Except.pure]
+        · have hzok : EVM.Z vj .MLOAD
+              (injectFrame evm (.ofNat l.length) (addr :: stk) code) =
+              .ok ({ injectFrame evm (.ofNat l.length) (addr :: stk) code with
+                gasAvailable := evm.gasAvailable -
+                  UInt256.ofNat (wordTouchCost evm addr) },
+                GasConstants.Gverylow) := by
+            rw [hz]; simp [h₁, h₂]
+          cases f with
+          | zero =>
+              rw [X_error_step 0 vj _ _ .MLOAD none GasConstants.Gverylow
+                .OutOfFuel hdec hzok rfl]
+              simp [mloadStep, opStep, tick, payZ, chargeMem, requireGas, stepGuard,
+                h₁, h₂, Exec.chargeGas, Bind.bind, Except.bind, Pure.pure, Except.pure]
+          | succ f' =>
+              rw [X_continue (f' + 1) vj _ _ _ .MLOAD none GasConstants.Gverylow
+                hdec hzok (step_mload f' GasConstants.Gverylow addr stk _ rfl)
+                (by simp [EVM.H])]
+              simp [mloadStep, opStep, tick, payZ, chargeMem, requireGas, stepGuard,
+                commit, Exec.chargeGas, Exec.bumpExecLength, Exec.setMachineState,
+                h₁, h₂, Bind.bind, Except.bind, Pure.pure, Except.pure]
+              congr 1
+              rw [← ofNat_add]
+              rfl
+
+theorem X_mstore (addr v : Word)
+    (hcode : code.data.toList = l ++ Bytecode.opBytes .mstore ++ r)
+    (hl : l.length < UInt256.size)
+    (stk : List Word) (hov : stk.length ≤ 1024)
+    (s : Exec) :
+    EVM.X s.fuel vj (injectFrame s.evm (.ofNat l.length) (addr :: v :: stk) code) =
+      match mstoreStep addr v s with
+      | .error e => .error e
+      | .ok s' =>
+          EVM.X s'.fuel vj
+            (injectFrame s'.evm (.ofNat (l.length + 1)) stk code) := by
+  obtain ⟨evm, fuel⟩ := s
+  have hdec : EVM.decode code (.ofNat l.length) = some (.MSTORE, none) :=
+    decode_one_byte_at code l r .MSTORE
+      (by simpa [Bytecode.opBytes, Bytecode.opcode] using hcode)
+      parse_serialize_mstore rfl hl
+  have hz := Z_generic vj .MSTORE evm (.ofNat l.length) (addr :: v :: stk) code
+    (wordTouchCost evm addr) GasConstants.Gverylow
+    (memExp_mstore evm _ addr v stk code) (fun st _ _ _ => C'_mstore st)
+    (by decide) (by simp [EVM.δ]) (by simp [EVM.δ, EVM.α]; omega)
+    (by simp [EVM.W]) (by decide) (by decide) (by decide) (by decide) (by decide)
+  cases fuel with
+  | zero => simp [EVM.X, mstoreStep, opStep, tick, Bind.bind, Except.bind]
+  | succ f =>
+      by_cases h₁ : evm.gasAvailable.toNat < wordTouchCost evm addr
+      · rw [X_error_Z f vj _ .MSTORE none .OutOfGass hdec (by rw [hz]; simp [h₁])]
+        simp [mstoreStep, opStep, tick, payZ, chargeMem, requireGas, h₁,
+          Exec.chargeGas, Bind.bind, Except.bind, Pure.pure, Except.pure]
+      · by_cases h₂ : (evm.gasAvailable -
+            UInt256.ofNat (wordTouchCost evm addr)).toNat < GasConstants.Gverylow
+        · rw [X_error_Z f vj _ .MSTORE none .OutOfGass hdec (by rw [hz]; simp [h₁, h₂])]
+          simp [mstoreStep, opStep, tick, payZ, chargeMem, requireGas, h₁, h₂,
+            Exec.chargeGas, Bind.bind, Except.bind, Pure.pure, Except.pure]
+        · have hzok : EVM.Z vj .MSTORE
+              (injectFrame evm (.ofNat l.length) (addr :: v :: stk) code) =
+              .ok ({ injectFrame evm (.ofNat l.length) (addr :: v :: stk) code with
+                gasAvailable := evm.gasAvailable -
+                  UInt256.ofNat (wordTouchCost evm addr) },
+                GasConstants.Gverylow) := by
+            rw [hz]; simp [h₁, h₂]
+          cases f with
+          | zero =>
+              rw [X_error_step 0 vj _ _ .MSTORE none GasConstants.Gverylow
+                .OutOfFuel hdec hzok rfl]
+              simp [mstoreStep, opStep, tick, payZ, chargeMem, requireGas, stepGuard,
+                h₁, h₂, Exec.chargeGas, Bind.bind, Except.bind, Pure.pure, Except.pure]
+          | succ f' =>
+              rw [X_continue (f' + 1) vj _ _ _ .MSTORE none GasConstants.Gverylow
+                hdec hzok (step_mstore f' GasConstants.Gverylow addr v stk _ rfl)
+                (by simp [EVM.H])]
+              simp [mstoreStep, opStep, tick, payZ, chargeMem, requireGas, stepGuard,
+                commit, Exec.chargeGas, Exec.bumpExecLength, Exec.setMachineState,
+                h₁, h₂, Bind.bind, Except.bind, Pure.pure, Except.pure]
+              congr 1
+              rw [← ofNat_add]
+              rfl
+
+theorem UInt256_ofNat_zero : UInt256.ofNat 0 = (⟨0⟩ : UInt256) := rfl
+
+theorem Z_call (evm : EVM.State) (pc : Word)
+    (g t v io is oo os : Word) (stk : List Word)
+    (hov : stk.length ≤ 1023) :
+    EVM.Z vj .CALL
+      (injectFrame evm pc (g :: t :: v :: io :: is :: oo :: os :: stk) code) =
+      if evm.gasAvailable.toNat < callTouchCost evm io is oo os then
+        .error .OutOfGass
+      else if (evm.gasAvailable -
+          UInt256.ofNat (callTouchCost evm io is oo os)).toNat <
+          EVM.Ccall (.ofUInt256 t) (.ofUInt256 t) v g evm.accountMap
+            { evm.toMachineState with
+              gasAvailable := evm.gasAvailable -
+                UInt256.ofNat (callTouchCost evm io is oo os) }
+            evm.substate then
+        .error .OutOfGass
+      else if ¬ evm.executionEnv.perm ∧ ¬ v = UInt256.ofNat 0 then
+        .error .StaticModeViolation
+      else
+        .ok ({ injectFrame evm pc (g :: t :: v :: io :: is :: oo :: os :: stk) code with
+          gasAvailable := evm.gasAvailable -
+            UInt256.ofNat (callTouchCost evm io is oo os) },
+          EVM.Ccall (.ofUInt256 t) (.ofUInt256 t) v g evm.accountMap
+            { evm.toMachineState with
+              gasAvailable := evm.gasAvailable -
+                UInt256.ofNat (callTouchCost evm io is oo os) }
+            evm.substate) := by
+  unfold EVM.Z
+  simp only [memExp_call]
+  have hC : EVM.C'
+      { injectFrame evm pc (g :: t :: v :: io :: is :: oo :: os :: stk) code with
+        gasAvailable :=
+          (injectFrame evm pc (g :: t :: v :: io :: is :: oo :: os :: stk)
+            code).gasAvailable -
+          UInt256.ofNat (callTouchCost evm io is oo os) } .CALL =
+      EVM.Ccall (.ofUInt256 t) (.ofUInt256 t) v g evm.accountMap
+        { evm.toMachineState with
+          gasAvailable := evm.gasAvailable -
+            UInt256.ofNat (callTouchCost evm io is oo os) }
+        evm.substate := rfl
+  rw [hC]
+  by_cases h₁ : evm.gasAvailable.toNat < callTouchCost evm io is oo os
+  · simp [h₁, Bind.bind, Except.bind]
+  · by_cases h₂ : (evm.gasAvailable -
+        UInt256.ofNat (callTouchCost evm io is oo os)).toNat <
+        EVM.Ccall (.ofUInt256 t) (.ofUInt256 t) v g evm.accountMap
+          { evm.toMachineState with
+            gasAvailable := evm.gasAvailable -
+              UInt256.ofNat (callTouchCost evm io is oo os) }
+          evm.substate
+    · simp [h₁, h₂, Bind.bind, Except.bind, Pure.pure, Except.pure]
+    · have hunder : ¬ (stk.length + 1 + 1 + 1 + 1 + 1 + 1 + 1 < 7) := by omega
+      have hover2 : ¬ (1024 < stk.length + 1) := by omega
+      by_cases h₃ : ¬ evm.executionEnv.perm ∧ ¬ v = UInt256.ofNat 0
+      · obtain ⟨hperm, hv⟩ := h₃
+        have hv' : ¬ v = (⟨0⟩ : UInt256) := by simpa [UInt256_ofNat_zero] using hv
+        have hperm' : evm.executionEnv.perm = false := by simpa using hperm
+        simp [h₁, h₂, hperm', hv', hunder, hover2, UInt256_ofNat_zero,
+          EVM.W, EVM.δ, EVM.α,
+          Bind.bind, Except.bind, Pure.pure, Except.pure]
+      · have h₃' : ¬ (evm.executionEnv.perm = false ∧ ¬ v = (⟨0⟩ : UInt256)) := by
+          simpa [UInt256_ofNat_zero] using h₃
+        simp [h₁, h₂, h₃', hunder, hover2, UInt256_ofNat_zero,
+          EVM.W, EVM.δ, EVM.α, Operation.isCreate,
+          Bind.bind, Except.bind, Pure.pure, Except.pure]
+
+theorem callStep_eval (oracle : CallOracle) (g t v io is oo os : Word)
+    (evm : EVM.State) (f : Nat) :
+    callStep oracle g t v io is oo os ⟨evm, f + 1⟩ =
+      if evm.gasAvailable.toNat < callTouchCost evm io is oo os then
+        .error .OutOfGass
+      else if (evm.gasAvailable -
+          UInt256.ofNat (callTouchCost evm io is oo os)).toNat <
+          EVM.Ccall (.ofUInt256 t) (.ofUInt256 t) v g evm.accountMap
+            { evm.toMachineState with
+              gasAvailable := evm.gasAvailable -
+                UInt256.ofNat (callTouchCost evm io is oo os) }
+            evm.substate then
+        .error .OutOfGass
+      else if ¬ evm.executionEnv.perm ∧ ¬ v = UInt256.ofNat 0 then
+        .error .StaticModeViolation
+      else
+        match f with
+        | 0 => .error .OutOfFuel
+        | _ + 1 =>
+          match oracle (f - 1)
+              (EVM.Ccall (.ofUInt256 t) (.ofUInt256 t) v g evm.accountMap
+                { evm.toMachineState with
+                  gasAvailable := evm.gasAvailable -
+                    UInt256.ofNat (callTouchCost evm io is oo os) }
+                evm.substate)
+              { evm with
+                gasAvailable := evm.gasAvailable -
+                  UInt256.ofNat (callTouchCost evm io is oo os),
+                execLength := evm.execLength + 1 }
+              g t v io is oo os with
+          | .error e => .error e
+          | .ok (flag, evm') => .ok (flag, ⟨evm', f⟩) := by
+  by_cases h₁ : evm.gasAvailable.toNat < callTouchCost evm io is oo os
+  · simp [callStep, tick, chargeMem, h₁,
+      Bind.bind, Except.bind]
+  · by_cases h₂ : (evm.gasAvailable -
+        UInt256.ofNat (callTouchCost evm io is oo os)).toNat <
+        EVM.Ccall (.ofUInt256 t) (.ofUInt256 t) v g evm.accountMap
+          { evm.toMachineState with
+            gasAvailable := evm.gasAvailable -
+              UInt256.ofNat (callTouchCost evm io is oo os) }
+          evm.substate
+    · simp [callStep, tick, chargeMem, requireGas, h₁, h₂, Exec.chargeGas,
+        Bind.bind, Except.bind]
+    · by_cases h₃ : ¬ evm.executionEnv.perm ∧ ¬ v = UInt256.ofNat 0
+      · simp [callStep, tick, chargeMem, requireGas, h₁, h₂, h₃, Exec.chargeGas,
+          Bind.bind, Except.bind]
+      · cases f with
+        | zero =>
+            simp [callStep, tick, chargeMem, requireGas, stepGuard, h₁, h₂, h₃,
+              Exec.chargeGas, Bind.bind, Except.bind]
+        | succ f'' =>
+            simp only [callStep, tick, chargeMem, requireGas, stepGuard, h₁, h₂,
+              Exec.chargeGas, Exec.bumpExecLength,
+              Bind.bind, Except.bind, Pure.pure, Except.pure, if_neg, if_false]
+            rfl
+
+set_option maxHeartbeats 1000000 in
+theorem X_call (oracle : CallOracle) (hsound : CallOracleSound oracle)
+    (g t v io is oo os : Word)
+    (hcode : code.data.toList = l ++ Bytecode.opBytes .call ++ r)
+    (hl : l.length < UInt256.size)
+    (stk : List Word) (hov : stk.length ≤ 1023)
+    (s : Exec) :
+    EVM.X s.fuel vj (injectFrame s.evm (.ofNat l.length)
+        (g :: t :: v :: io :: is :: oo :: os :: stk) code) =
+      match callStep oracle g t v io is oo os s with
+      | .error e => .error e
+      | .ok (flag, s') =>
+          EVM.X s'.fuel vj
+            (injectFrame s'.evm (.ofNat (l.length + 1)) (flag :: stk) code) := by
+  obtain ⟨evm, fuel⟩ := s
+  have hdec : EVM.decode code (.ofNat l.length) = some (.CALL, none) :=
+    decode_one_byte_at code l r .CALL
+      (by simpa [Bytecode.opBytes, Bytecode.opcode] using hcode)
+      parse_serialize_call rfl hl
+  have hz := Z_call code vj evm (.ofNat l.length) g t v io is oo os stk hov
+  cases fuel with
+  | zero => simp [EVM.X, callStep, tick, Bind.bind, Except.bind]
+  | succ f =>
+      rw [callStep_eval]
+      by_cases h₁ : evm.gasAvailable.toNat < callTouchCost evm io is oo os
+      · rw [X_error_Z f vj _ .CALL none .OutOfGass hdec (by rw [hz, if_pos h₁]),
+          if_pos h₁]
+      · by_cases h₂ : (evm.gasAvailable -
+            UInt256.ofNat (callTouchCost evm io is oo os)).toNat <
+            EVM.Ccall (.ofUInt256 t) (.ofUInt256 t) v g evm.accountMap
+              { evm.toMachineState with
+                gasAvailable := evm.gasAvailable -
+                  UInt256.ofNat (callTouchCost evm io is oo os) }
+              evm.substate
+        · rw [X_error_Z f vj _ .CALL none .OutOfGass hdec
+            (by rw [hz, if_neg h₁, if_pos h₂]), if_neg h₁, if_pos h₂]
+        · by_cases h₃ : ¬ evm.executionEnv.perm ∧ ¬ v = UInt256.ofNat 0
+          · rw [X_error_Z f vj _ .CALL none .StaticModeViolation hdec
+              (by rw [hz, if_neg h₁, if_neg h₂, if_pos h₃]),
+              if_neg h₁, if_neg h₂, if_pos h₃]
+          · have hzok := hz.trans (by rw [if_neg h₁, if_neg h₂, if_neg h₃])
+            rw [if_neg h₁, if_neg h₂, if_neg h₃]
+            cases f with
+            | zero =>
+                rw [X_error_step 0 vj _ _ .CALL none _ .OutOfFuel hdec hzok rfl]
+            | succ f' =>
+                simp only [Nat.add_sub_cancel]
+                have hcb := hsound f'
+                  (EVM.Ccall (.ofUInt256 t) (.ofUInt256 t) v g evm.accountMap
+                    { evm.toMachineState with
+                      gasAvailable := evm.gasAvailable -
+                        UInt256.ofNat (callTouchCost evm io is oo os) }
+                    evm.substate)
+                  { evm with
+                    gasAvailable := evm.gasAvailable -
+                      UInt256.ofNat (callTouchCost evm io is oo os),
+                    execLength := evm.execLength + 1 }
+                  g t v io is oo os (.ofNat l.length)
+                  (g :: t :: v :: io :: is :: oo :: os :: stk) code
+                have hstep_call : EVM.step (f' + 1)
+                    (EVM.Ccall (.ofUInt256 t) (.ofUInt256 t) v g evm.accountMap
+                      { evm.toMachineState with
+                        gasAvailable := evm.gasAvailable -
+                          UInt256.ofNat (callTouchCost evm io is oo os) }
+                      evm.substate)
+                    (some ((.CALL : Operation .EVM), none))
+                    ({ injectFrame evm (.ofNat l.length)
+                        (g :: t :: v :: io :: is :: oo :: os :: stk) code with
+                      gasAvailable := evm.gasAvailable -
+                        UInt256.ofNat (callTouchCost evm io is oo os) }) =
+                    (EVM.call f'
+                      (EVM.Ccall (.ofUInt256 t) (.ofUInt256 t) v g evm.accountMap
+                        { evm.toMachineState with
+                          gasAvailable := evm.gasAvailable -
+                            UInt256.ofNat (callTouchCost evm io is oo os) }
+                        evm.substate)
+                      ({ evm with
+                        gasAvailable := evm.gasAvailable -
+                          UInt256.ofNat (callTouchCost evm io is oo os),
+                        execLength := evm.execLength + 1 } : EVM.State).executionEnv.blobVersionedHashes
+                      g
+                      (.ofNat ({ evm with
+                        gasAvailable := evm.gasAvailable -
+                          UInt256.ofNat (callTouchCost evm io is oo os),
+                        execLength := evm.execLength + 1 } : EVM.State).executionEnv.codeOwner)
+                      t t v v io is oo os
+                      ({ evm with
+                        gasAvailable := evm.gasAvailable -
+                          UInt256.ofNat (callTouchCost evm io is oo os),
+                        execLength := evm.execLength + 1 } : EVM.State).executionEnv.perm
+                      (injectFrame
+                        { evm with
+                          gasAvailable := evm.gasAvailable -
+                            UInt256.ofNat (callTouchCost evm io is oo os),
+                          execLength := evm.execLength + 1 }
+                        (.ofNat l.length)
+                        (g :: t :: v :: io :: is :: oo :: os :: stk) code)).map
+                      (fun p =>
+                        { p.2 with
+                          pc := p.2.pc + UInt256.ofNat 1
+                          stack := p.1 :: stk }) :=
+                  step_call f' _ g t v io is oo os stk _ _ _
+                rw [hcb] at hstep_call
+                cases hres : oracle f'
+                    (EVM.Ccall (.ofUInt256 t) (.ofUInt256 t) v g evm.accountMap
+                      { evm.toMachineState with
+                        gasAvailable := evm.gasAvailable -
+                          UInt256.ofNat (callTouchCost evm io is oo os) }
+                      evm.substate)
+                    { evm with
+                      gasAvailable := evm.gasAvailable -
+                        UInt256.ofNat (callTouchCost evm io is oo os),
+                      execLength := evm.execLength + 1 }
+                    g t v io is oo os with
+                | error e =>
+                    rw [hres] at hstep_call
+                    rw [X_error_step (f' + 1) vj _ _ .CALL none _ e hdec hzok
+                      (by simpa [Except.map] using hstep_call)]
+                | ok p =>
+                    obtain ⟨flag, evm''⟩ := p
+                    rw [hres] at hstep_call
+                    simp only [Except.map] at hstep_call
+                    rw [X_continue (f' + 1) vj _ _ _ .CALL none _ hdec hzok hstep_call
+                      (by simp [EVM.H])]
+                    congr 1
+                    rw [← ofNat_add]
+                    rfl
+
+end XIteration
+
 end EVMLemmas
 
 end ToyExternalCall
+
