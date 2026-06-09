@@ -18,6 +18,28 @@ Fix:
 - keep `Bytecode.lower : Program -> ByteArray`;
 - state target execution only through `EVM.X`.
 
+Current status:
+
+- `Correctness.lowerOps_preserve_semantics` is now a checked theorem over `Bytecode.lowerOps : Program -> List Bytecode.Op`;
+- this is still not the final `EVM.X` theorem over assembled `ByteArray`;
+- the remaining bytecode theorem must prove that EVMYulLean execution of `Bytecode.lower program` implements the structured lowered semantics.
+
+## Unproved Spec Mistaken For Progress
+
+After removing the opcode-trace shortcut, the next attempt stated a bytecode-level preservation spec without proving it.
+
+Why it was wrong:
+
+- a `Prop` definition is not a compiler-correctness result;
+- it can hide missing decoding, PC, gas, memory-layout, and call lemmas;
+- it gives no Lean evidence that the compiler works.
+
+Fix:
+
+- keep `LoweringPreservationSpec` only as the explicit future target;
+- add the checked theorem `lowerOps_preserve_semantics`;
+- treat the structured target theorem as an intermediate compiler proof, not as the EVM bytecode theorem.
+
 ## Canonical-Only Lowering
 
 The first `Bytecode.lower` recognized only one or two hard-coded canonical programs and returned `none` for everything else.

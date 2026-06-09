@@ -62,7 +62,20 @@ This makes the call boundary explicit while we build the state and interpreter. 
 
 Important semantic distinction: a callee revert is represented by a `0` success flag and updated returndata; it is not a caller-level `revert` result. The caller-level interpreter only stops exceptionally when the call cannot be performed as an EVM instruction, for example stack/gas/static/depth-style exceptional failure once those checks are modeled.
 
-The current lowering now lowers every existing IR `Program` to EVM bytecode as a `ByteArray`; opcode-trace shortcuts are explicitly out of scope. The full whole-program preservation theorem against EVMYulLean `EVM.X` is still the next proof target, not something we claim through a wrapper evaluator.
+The current lowering has a structured target layer and an assembly layer:
+
+```lean
+Bytecode.lowerOps : Program -> List Bytecode.Op
+Bytecode.lower : Program -> ByteArray
+```
+
+The checked theorem is over `lowerOps`:
+
+```lean
+Correctness.lowerOps_preserve_semantics
+```
+
+It proves preservation for every source `Program` with no `sorry`. The full whole-program preservation theorem against EVMYulLean `EVM.X` on `Bytecode.lower` is still the next proof target, not something we claim through a wrapper evaluator or an unproved proposition.
 
 ## Output Memory
 
@@ -74,9 +87,10 @@ That keeps day-one memory and returndata visible without committing the first in
 
 Continue the bytecode/EVMYulLean harness:
 
-1. prove `UInt256.toByteArray`/`uInt256OfByteArray` round-trip lemmas needed for `PUSH32`;
-2. prove small `EVM.X` entrypoint lemmas for `PUSH32`, `MLOAD`, `MSTORE`, `CALLDATALOAD`, `ADD`, `CALL`, and `STOP`;
-3. prove a reserved-local-memory disjointness invariant;
-4. prove instruction-level preservation lemmas for calldata load, addition, and call;
-5. add the fixed successful callee account/code setup;
-6. prove the constrained `CALL` theorem and compose the general `LoweringPreservationSpec` theorem.
+1. prove `assemble` faithfully encodes every `Bytecode.Op` expected by EVMYulLean decoding;
+2. prove `UInt256.toByteArray`/`uInt256OfByteArray` round-trip lemmas needed for `PUSH32`;
+3. prove small `EVM.X` entrypoint lemmas for `PUSH32`, `MLOAD`, `MSTORE`, `CALLDATALOAD`, `ADD`, `CALL`, and `STOP`;
+4. prove a reserved-local-memory disjointness invariant;
+5. prove instruction-level preservation lemmas from structured target ops to actual EVM execution;
+6. add the fixed successful callee account/code setup;
+7. prove the constrained `CALL` theorem and compose the general `LoweringPreservationSpec` theorem.

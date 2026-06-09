@@ -15,8 +15,10 @@ The implemented artifact is intentionally small:
 - `Instr.add`: add two word operands using `UInt256` arithmetic;
 - `Instr.call`: evaluate the seven EVM `CALL` operands and delegate the call boundary to an oracle;
 - `run`: fuel-bounded interpreter over a linear list of instructions.
-- `Bytecode.lower`: a total compiler from the existing `Program` type to EVM bytecode.
-- `Correctness`: a single general preservation spec relating source `run` to EVMYulLean `EVM.X` on `Bytecode.lower`.
+- `Bytecode.lowerOps`: a total compiler from the existing `Program` type to a structured EVM-like target instruction list.
+- `Bytecode.lower`: assembly from that structured instruction list to EVM bytecode.
+- `Correctness.lowerOps_preserve_semantics`: a checked theorem, with no `sorry`, proving source semantics are preserved by `lowerOps` for every `Program`.
+- `Correctness.LoweringPreservationSpec`: the remaining, unproved target spec relating source `run` to EVMYulLean `EVM.X` on `Bytecode.lower`.
 
 ## Main Design Decisions
 
@@ -68,21 +70,51 @@ The next theorem should make output copying explicit, at least as an observable 
 - The plan used `to` as an operand name. Lean rejected it in this context, so the implementation uses `target`.
 - `UInt256` does not use plain numeral notation here, so constants are written with `UInt256.ofNat`.
 
-## Removed False Start
+## Removed False Starts
 
 An earlier `ToyExternalCall.Lowering` module was removed because it proved preservation only against an opcode-trace/primitive-step shortcut. That was not the requested theorem and it was not a clean model of lowering to bytecode.
 
 The replacement uses the existing `Instr`/`Program` IR and produces `ByteArray`. It does not prove preservation against an opcode trace.
 
+The next attempted theorem over bytecode also had a false shape: it stated an `EVM.X` preservation proposition without proving it. That is not useful as compiler formalization. The current checked theorem is intentionally narrower but real:
+
+```lean
+theorem lowerOps_preserve_semantics
+    (oracle : CallOracle)
+    (program : Program)
+    (initial : ToyState) :
+    runLoweredOps oracle { toy := initial, stack := [] } (Bytecode.lowerOps program) =
+      run oracle (program.length + 1) initial program
+```
+
+This theorem says: for every toy IR program, running its structured lowered target program gives exactly the same `RunResult` as running the source interpreter with enough source fuel. It is proved by induction over `Program`, using instruction-level lemmas for operand compilation and instruction compilation.
+
 ## Current Lowering Status
 
-The lowering is now instruction-directed and total:
+The lowering has two levels:
+
+```lean
+Bytecode.lowerOps : Program -> List Bytecode.Op
+Bytecode.lower : Program -> ByteArray
+```
+
+`lowerOps` is the target language currently used by the checked preservation theorem. It is structured enough to avoid re-proving byte decoding, program-counter movement, and EVM gas behavior before the core compiler proof exists.
+
+The target `CALL` op in `lowerOps` does not carry `CallArgs`. The compiler lowers all seven call operands onto the target stack, and `CALL` pops:
+
+```text
+gas, target, value, inOffset, inSize, outOffset, outSize
+```
+
+The preservation proof therefore checks the operand order and call-request reconstruction instead of assuming the source call bundle survives lowering.
+
+`lower` assembles those lowered operations into bytecode:
 
 ```lean
 Bytecode.lower : Program -> ByteArray
 ```
 
-It handles every syntactically possible toy IR program. It does this by compiling each instruction independently and storing toy locals in reserved EVM memory slots:
+Both functions handle every syntactically possible toy IR program. They do this by compiling each instruction independently and storing toy locals in reserved EVM memory slots:
 
 ```lean
 localSlot x = UInt256.ofNat (1048576 + 32 * x)
@@ -101,11 +133,17 @@ Instruction lowering:
 - `add dst lhs rhs`: lower `rhs`, lower `lhs`, run `ADD`, store the result in `localSlot dst`.
 - `call dst args`: lower the seven EVM `CALL` operands in stack order, run `CALL`, store the success flag in `localSlot dst`.
 
-`lower` appends `STOP` after the lowered body.
+`lowerOps` appends `STOP` after the lowered body. `lower` assembles that list.
 
-This is a real total lowering, but the eventual preservation theorem now needs an explicit memory-disjointness assumption: source locals are separate from EVM memory, while lowered locals live in reserved memory. Calls that read or write the reserved local-memory range can interfere with compiled locals unless ruled out or modeled through a stronger memory layout discipline.
+The proved lowering theorem is currently over `lowerOps`, not over `lower` executed by `EVM.X`. The bytecode-level theorem still needs an explicit memory-disjointness assumption: source locals are separate from EVM memory, while lowered locals live in reserved memory. Calls that read or write the reserved local-memory range can interfere with compiled locals unless ruled out or modeled through a stronger memory layout discipline.
 
-The correctness file no longer contains prefix/canonical proof fragments. Its main spec is now:
+The correctness file no longer contains prefix/canonical proof fragments. Its proved theorem is:
+
+```lean
+lowerOps_preserve_semantics
+```
+
+Its bytecode-level target spec is:
 
 ```lean
 LoweringPreservationSpec oracle program initial
@@ -127,7 +165,7 @@ EVM.X (Bytecode.lowerFuel program)
 
 The result relation compares successful source runs against successful lowered EVM runs through `StateRelOn program.touchedLocals`; source exceptional halt against matching EVM exception; and source fuel exhaustion against EVM `OutOfFuel`.
 
-The corrected spec fixes the previous false statement by:
+The unproved bytecode-level spec fixes the previous false statement by:
 
 - choosing EVM fuel with `Bytecode.lowerFuel program`;
 - seeding EVM memory with source locals read by the program;
@@ -137,9 +175,16 @@ The corrected spec fixes the previous false statement by:
 
 See [Wrong Attempts](./wrong-attempts.md) for the detailed audit of what was wrong.
 
+What is proved now:
+
+- operand compilation into structured target ops preserves operand values;
+- every instruction compilation into structured target ops preserves one source step;
+- every whole `Program` preserves source semantics under `lowerOps`;
+- the theorem is fully checked by Lean and the package contains no `sorry`, `admit`, or `axiom`.
+
 What is not proved yet:
 
-- the corrected, assumption-bearing preservation theorem;
+- the corrected, assumption-bearing preservation theorem against `EVM.X`;
 - instruction-level `EVM.X` lemmas for compiler-generated chunks;
 - `EVM.X` executes the lowered `CALL` bytecode against a fixed callee;
 - exact gas preservation.

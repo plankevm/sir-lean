@@ -7,6 +7,16 @@ open EvmYul
 
 namespace Bytecode
 
+inductive Op where
+  | push (value : Word)
+  | loadLocal (x : Local)
+  | storeLocal (x : Local)
+  | calldataload
+  | add
+  | call
+  | stop
+  deriving Repr
+
 def opcode (op : Operation .EVM) : UInt8 :=
   EVM.serializeInstr op
 
@@ -37,37 +47,56 @@ def storeLocal (x : Local) : ByteArray :=
     , op .MSTORE
     ]
 
-def compileOperand : Operand → ByteArray
+def assembleOperand : Operand → ByteArray
   | .const value => push32 value
   | .local x => loadLocal x
+
+def assembleOp : Op → ByteArray
+  | .push value => push32 value
+  | .loadLocal x => loadLocal x
+  | .storeLocal x => storeLocal x
+  | .calldataload => op .CALLDATALOAD
+  | .add => op .ADD
+  | .call => op .CALL
+  | .stop => op .STOP
+
+def assemble (ops : List Op) : ByteArray :=
+  appendMany (ops.map assembleOp)
+
+def compileOperandOps : Operand → List Op
+  | .const value => [.push value]
+  | .local x => [.loadLocal x]
+
+def compileOperand (operand : Operand) : ByteArray :=
+  assembleOperand operand
 
 def operandFuel : Operand → Nat
   | .const _ => 1
   | .local _ => 2
 
+def compileAddOps (dst : Local) (lhs rhs : Operand) : List Op :=
+  compileOperandOps rhs ++
+  compileOperandOps lhs ++
+  [.add, .storeLocal dst]
+
 def compileAdd (dst : Local) (lhs rhs : Operand) : ByteArray :=
-  appendMany
-    [ compileOperand rhs
-    , compileOperand lhs
-    , op .ADD
-    , storeLocal dst
-    ]
+  assemble (compileAddOps dst lhs rhs)
 
 def addFuel (lhs rhs : Operand) : Nat :=
   operandFuel rhs + operandFuel lhs + 3
 
+def compileCallOps (dst : Local) (args : CallArgs) : List Op :=
+  compileOperandOps args.outSize ++
+  compileOperandOps args.outOffset ++
+  compileOperandOps args.inSize ++
+  compileOperandOps args.inOffset ++
+  compileOperandOps args.value ++
+  compileOperandOps args.target ++
+  compileOperandOps args.gas ++
+  [.call, .storeLocal dst]
+
 def compileCall (dst : Local) (args : CallArgs) : ByteArray :=
-  appendMany
-    [ compileOperand args.outSize
-    , compileOperand args.outOffset
-    , compileOperand args.inSize
-    , compileOperand args.inOffset
-    , compileOperand args.value
-    , compileOperand args.target
-    , compileOperand args.gas
-    , op .CALL
-    , storeLocal dst
-    ]
+  assemble (compileCallOps dst args)
 
 def callFuel (args : CallArgs) : Nat :=
   operandFuel args.outSize +
@@ -79,17 +108,16 @@ def callFuel (args : CallArgs) : Nat :=
   operandFuel args.gas +
   3
 
-def compileInstr : Instr → ByteArray
+def compileInstrOps : Instr → List Op
   | .inputLoad dst offset =>
-      appendMany
-        [ compileOperand offset
-        , op .CALLDATALOAD
-        , storeLocal dst
-        ]
+      compileOperandOps offset ++ [.calldataload, .storeLocal dst]
   | .add dst lhs rhs =>
-      compileAdd dst lhs rhs
+      compileAddOps dst lhs rhs
   | .call dst args =>
-      compileCall dst args
+      compileCallOps dst args
+
+def compileInstr : Instr → ByteArray
+  | instr => assemble (compileInstrOps instr)
 
 def instrFuel : Instr → Nat
   | .inputLoad _ offset => operandFuel offset + 3
@@ -97,10 +125,14 @@ def instrFuel : Instr → Nat
   | .call _ args => callFuel args
 
 def lowerBody : Program → ByteArray :=
-  fun program => appendMany (program.map compileInstr)
+  fun program => assemble (program.foldr (fun instr ops => compileInstrOps instr ++ ops) [])
+
+def lowerOps : Program → List Op
+  | [] => [.stop]
+  | instr :: rest => compileInstrOps instr ++ lowerOps rest
 
 def lower (program : Program) : ByteArray :=
-  appendMany [lowerBody program, op .STOP]
+  assemble (lowerOps program)
 
 def lowerFuel (program : Program) : Nat :=
   program.foldl (fun fuel instr => fuel + instrFuel instr) 1
