@@ -77,6 +77,6 @@ Continue the bytecode/EVMYulLean harness:
 1. prove `UInt256.toByteArray`/`uInt256OfByteArray` round-trip lemmas needed for `PUSH32`;
 2. prove small `EVM.X` entrypoint lemmas for `PUSH32`, `MLOAD`, `MSTORE`, `CALLDATALOAD`, `ADD`, `CALL`, and `STOP`;
 3. prove a reserved-local-memory disjointness invariant;
-4. prove the prefix theorem for calldata load plus addition;
+4. prove instruction-level preservation lemmas for calldata load, addition, and call;
 5. add the fixed successful callee account/code setup;
-6. prove the constrained `CALL` theorem and compose the whole canonical-program theorem.
+6. prove the constrained `CALL` theorem and compose the general `LoweringPreservesSemantics` theorem.

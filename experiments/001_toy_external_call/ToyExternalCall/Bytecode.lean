@@ -80,9 +80,6 @@ def lowerBody : Program → ByteArray :=
 def lower (program : Program) : ByteArray :=
   appendMany [lowerBody program, op .STOP]
 
-def prefixPushedConstant (constant : Word) : Word :=
-  uInt256OfByteArray ((push32 constant).extract' 1 33)
-
 end Bytecode
 
 end ToyExternalCall
