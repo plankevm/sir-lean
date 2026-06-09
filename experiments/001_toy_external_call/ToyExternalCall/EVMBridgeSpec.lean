@@ -63,19 +63,30 @@ def evmCall
     state.evm.executionEnv.perm
     state.evm
 
+def CallOracleMatchesEVMCallAt
+    (oracle : CallOracle)
+    (fuel gasCost : Nat)
+    (state : ToyState)
+    (request : CallRequest) : Prop :=
+  match oracle state request, evmCall fuel gasCost state request with
+  | .ok result, .ok (successFlag, evmAfter) =>
+      result.successFlag = successFlag ∧
+      result.returnData = evmAfter.returnData ∧
+      result.evm = evmAfter
+  | .error oracleError, .error evmError =>
+      oracleError = evmError
+  | _, _ =>
+      False
+
 def CallOracleSoundForLowering
-    (oracle : CallOracle) : Prop :=
+    (oracle : CallOracle)
+    (callFuel callGasCost : ToyState → CallRequest → Nat) : Prop :=
   ∀ state request,
-    match oracle state request with
-    | .ok result =>
-        ∃ fuel gasCost evmAfter successFlag,
-          evmCall fuel gasCost state request = .ok (successFlag, evmAfter) ∧
-          result.successFlag = successFlag ∧
-          result.returnData = evmAfter.returnData ∧
-          result.evm = evmAfter
-    | .error error =>
-        ∃ fuel gasCost,
-          evmCall fuel gasCost state request = .error error
+    CallOracleMatchesEVMCallAt oracle
+      (callFuel state request)
+      (callGasCost state request)
+      state
+      request
 
 def CallOraclePreservesReservedLocalSlots
     (oracle : CallOracle)
@@ -88,9 +99,10 @@ def CallOraclePreservesReservedLocalSlots
 
 def LoweringPreservationSpec
     (oracle : CallOracle)
+    (callFuel callGasCost : ToyState → CallRequest → Nat)
     (program : Program)
     (initial : ToyState) : Prop :=
-  CallOracleSoundForLowering oracle →
+  CallOracleSoundForLowering oracle callFuel callGasCost →
   CallOraclePreservesReservedLocalSlots oracle program.touchedLocals →
   ResultRelOn
     program.touchedLocals

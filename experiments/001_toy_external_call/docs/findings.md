@@ -147,7 +147,7 @@ lowerOps_preserve_semantics
 Its bytecode-level target spec is:
 
 ```lean
-LoweringPreservationSpec oracle program initial
+LoweringPreservationSpec oracle callFuel callGasCost program initial
 ```
 
 which directly relates:
@@ -171,7 +171,7 @@ The unproved bytecode-level spec fixes the previous false statement by:
 - choosing EVM fuel with `Bytecode.lowerFuel program`;
 - seeding EVM memory with source locals read by the program;
 - comparing only finite program-touched locals;
-- requiring `CallOracleSoundForLowering oracle`;
+- requiring `CallOracleSoundForLowering oracle callFuel callGasCost`, where `callFuel` and `callGasCost` identify the exact EVM call context the bytecode proof reaches;
 - requiring `CallOraclePreservesReservedLocalSlots oracle program.touchedLocals`.
 
 See [Wrong Attempts](./wrong-attempts.md) for the detailed audit of what was wrong.
@@ -182,6 +182,7 @@ What is proved now:
 - every instruction compilation into structured target ops preserves one source step;
 - every whole `Program` preserves source semantics under `lowerOps`;
 - generated one-byte opcodes for `STOP`, `ADD`, `CALLDATALOAD`, `MLOAD`, `MSTORE`, and `CALL` decode through EVMYulLean;
+- source call oracles can now be constrained by `CallOracleMatchesEVMCallAt`, an explicit equality relation against executable `EVM.call`;
 - the theorem is fully checked by Lean and the package contains no `sorry`, `admit`, or `axiom`.
 
 What is not proved yet:

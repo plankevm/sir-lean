@@ -128,7 +128,8 @@ Why it was wrong:
 
 Fix:
 
-- add `CallOracleSoundForLowering oracle`, relating oracle answers to EVMYulLean `EVM.call`;
+- add `CallOracleMatchesEVMCallAt`, relating one oracle answer to EVMYulLean `EVM.call` at a specific `(fuel, gasCost)`;
+- state `CallOracleSoundForLowering oracle callFuel callGasCost` using the exact call context functions needed by the bytecode proof;
 - keep call preservation as an explicit proof obligation.
 
 ## Reserved Local Memory Clobbering
