@@ -181,25 +181,45 @@ def callTouchCost (evm : EVM.State) (inOffset inSize outOffset outSize : Word) :
       outOffset.toNat outSize.toNat)) -
     EVM.Cₘ evm.toMachineState.activeWords
 
+/-! ## Per-opcode actions
+
+One action per opcode of the lowered code; each mirrors exactly one
+iteration of `EVM.X` for that opcode.
+-/
+
+/-- `PUSH32` (also `ADD` and `CALLDATALOAD`): no memory expansion, very-low
+cost, no machine-state effect beyond the bookkeeping. -/
+def pushStep (s : Exec) : Except EVM.ExecutionException Exec :=
+  opStep 0 GasConstants.Gverylow s
+
+/-- `MLOAD` at `addr`: returns the loaded word and the state with expanded
+memory accounting. -/
+def mloadStep (addr : Word) (s : Exec) : Except EVM.ExecutionException (Word × Exec) := do
+  let s ← opStep (wordTouchCost s.evm addr) GasConstants.Gverylow s
+  let (v, m) := s.evm.toMachineState.mload addr
+  .ok (v, s.setMachineState m)
+
+/-- `MSTORE` of `v` at `addr`. -/
+def mstoreStep (addr v : Word) (s : Exec) : Except EVM.ExecutionException Exec := do
+  let s ← opStep (wordTouchCost s.evm addr) GasConstants.Gverylow s
+  .ok (s.setMachineState (s.evm.toMachineState.mstore addr v))
+
 /-! ## Operand evaluation and local update -/
 
 /-- Evaluate an operand. A constant costs one `PUSH32`; a local costs a
 `PUSH32` followed by an `MLOAD` of its slot (which can expand memory). -/
 def evalOperand (s : Exec) : Operand → Except EVM.ExecutionException (Word × Exec)
   | .const v => do
-      let s ← opStep 0 GasConstants.Gverylow s
+      let s ← pushStep s
       .ok (v, s)
   | .local x => do
-      let s ← opStep 0 GasConstants.Gverylow s
-      let s ← opStep (wordTouchCost s.evm (localSlot x)) GasConstants.Gverylow s
-      let (v, m) := s.evm.toMachineState.mload (localSlot x)
-      .ok (v, s.setMachineState m)
+      let s ← pushStep s
+      mloadStep (localSlot x) s
 
 /-- Write a local: a `PUSH32` of its slot followed by an `MSTORE`. -/
 def writeLocal (s : Exec) (x : Local) (v : Word) : Except EVM.ExecutionException Exec := do
-  let s ← opStep 0 GasConstants.Gverylow s
-  let s ← opStep (wordTouchCost s.evm (localSlot x)) GasConstants.Gverylow s
-  .ok (s.setMachineState (s.evm.toMachineState.mstore (localSlot x) v))
+  let s ← pushStep s
+  mstoreStep (localSlot x) v s
 
 /-! ## External calls -/
 
@@ -236,13 +256,36 @@ def CallOracleSound (oracle : CallOracle) : Prop :=
     (oracle fuel gasCost s gas target value inOffset inSize outOffset outSize).map
       (fun r => (r.1, injectFrame r.2 pc stack code))
 
+/-- `CALL` with the given (already evaluated) arguments, via the oracle.
+Returns the success flag. -/
+def callStep (oracle : CallOracle)
+    (gas target value inOffset inSize outOffset outSize : Word) (s : Exec) :
+    Except EVM.ExecutionException (Word × Exec) := do
+  let s ← tick s
+  let s ← chargeMem (callTouchCost s.evm inOffset inSize outOffset outSize) s
+  -- `Ccall` reads the gas counter, so it is computed on the state already
+  -- charged with the memory-expansion cost, exactly as `EVM.Z` computes
+  -- `C'` after deducting `cost₁`.
+  let c₂ :=
+    EVM.Ccall (.ofUInt256 target) (.ofUInt256 target) value gas
+      s.evm.accountMap s.evm.toMachineState s.evm.substate
+  let s ← requireGas c₂ s
+  if ¬ s.evm.executionEnv.perm ∧ value ≠ UInt256.ofNat 0 then
+    .error .StaticModeViolation
+  else do
+    let s ← stepGuard s
+    let s := s.bumpExecLength
+    match oracle (s.fuel - 1) c₂ s.evm gas target value inOffset inSize outOffset outSize with
+    | .error e => .error e
+    | .ok (flag, evm') => .ok (flag, { s with evm := evm' })
+
 /-! ## Instruction semantics -/
 
 /-- Execute one IR instruction, charging exactly the gas of its lowering. -/
 def execInstr (oracle : CallOracle) (s : Exec) : Instr → Except EVM.ExecutionException Exec
   | .inputLoad dst offset => do
       let (off, s) ← evalOperand s offset
-      let s ← opStep 0 GasConstants.Gverylow s
+      let s ← pushStep s
       writeLocal s dst (EvmYul.State.calldataload s.evm.toState off)
   | .add dst lhs rhs => do
       -- Operands are evaluated right-to-left, matching the order in which
@@ -250,7 +293,7 @@ def execInstr (oracle : CallOracle) (s : Exec) : Instr → Except EVM.ExecutionE
       -- order is observable in the gas accounting).
       let (vr, s) ← evalOperand s rhs
       let (vl, s) ← evalOperand s lhs
-      let s ← opStep 0 GasConstants.Gverylow s
+      let s ← pushStep s
       writeLocal s dst (vl + vr)
   | .call dst args => do
       let (outSize, s) ← evalOperand s args.outSize
@@ -260,23 +303,8 @@ def execInstr (oracle : CallOracle) (s : Exec) : Instr → Except EVM.ExecutionE
       let (value, s) ← evalOperand s args.value
       let (target, s) ← evalOperand s args.target
       let (gas, s) ← evalOperand s args.gas
-      let s ← tick s
-      let s ← chargeMem (callTouchCost s.evm inOffset inSize outOffset outSize) s
-      -- `Ccall` reads the gas counter, so it is computed on the state
-      -- already charged with the memory-expansion cost, exactly as `EVM.Z`
-      -- computes `C'` after deducting `cost₁`.
-      let c₂ :=
-        EVM.Ccall (.ofUInt256 target) (.ofUInt256 target) value gas
-          s.evm.accountMap s.evm.toMachineState s.evm.substate
-      let s ← requireGas c₂ s
-      if ¬ s.evm.executionEnv.perm ∧ value ≠ UInt256.ofNat 0 then
-        .error .StaticModeViolation
-      else do
-        let s ← stepGuard s
-        let s := s.bumpExecLength
-        match oracle (s.fuel - 1) c₂ s.evm gas target value inOffset inSize outOffset outSize with
-        | .error e => .error e
-        | .ok (flag, evm') => writeLocal { s with evm := evm' } dst flag
+      let (flag, s) ← callStep oracle gas target value inOffset inSize outOffset outSize s
+      writeLocal s dst flag
 
 /-- The final `STOP` appended by the lowering: clears the return-data buffer
 and halts. -/
