@@ -40,6 +40,21 @@ Fix:
 - add the checked theorem `lowerOps_preserve_semantics`;
 - treat the structured target theorem as an intermediate compiler proof, not as the EVM bytecode theorem.
 
+## Unrestricted EVM.X Preservation
+
+A theorem directly comparing current source `run` with `EVM.X (Bytecode.lower program)` for all programs and all initial states is false.
+
+Why it is wrong:
+
+- source `run` ignores gas, but `EVM.X` checks `memoryExpansionCost` and `C'` before every step;
+- with zero target gas, a source program like `inputLoad 0 (const 0)` can succeed while lowered bytecode fails before executing its first `PUSH32`;
+- source calls use an arbitrary `CallOracle`, but real `CALL` can only produce EVMYulLean call behavior and pushes a success word determined by that behavior.
+
+Fix:
+
+- either change the source semantics so gas and calls are EVM-backed;
+- or prove a bytecode theorem under explicit enough-gas, exact-call, and memory-frame hypotheses.
+
 ## Canonical-Only Lowering
 
 The first `Bytecode.lower` recognized only one or two hard-coded canonical programs and returned `none` for everything else.

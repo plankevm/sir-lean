@@ -77,6 +77,8 @@ Correctness.lowerOps_preserve_semantics
 
 It proves preservation for every source `Program` with no `sorry`. The full whole-program preservation theorem against EVMYulLean `EVM.X` on `Bytecode.lower` is still the next proof target, not something we claim through a wrapper evaluator or an unproved proposition.
 
+The current source semantics cannot be related to `EVM.X` for all states without additional work: it ignores gas and uses an arbitrary call oracle. Before the bytecode theorem, we need either a gas-aware/EVM-backed source semantics or a theorem statement with explicit enough-gas and exact-call-behavior hypotheses.
+
 ## Output Memory
 
 EVM `CALL` takes `outOffset` and `outSize` because the callee's output is copied into a caller memory slice after the call. The current oracle returns an already-updated `EVM.State`, so output copying can either be included in the oracle's state update or exposed as a separate lemma later.
@@ -87,10 +89,11 @@ That keeps day-one memory and returndata visible without committing the first in
 
 Continue the bytecode/EVMYulLean harness:
 
-1. prove `assemble` faithfully encodes every `Bytecode.Op` expected by EVMYulLean decoding;
+1. choose and implement the true source semantics shape: gas-aware/EVM-backed calls, or explicit enough-gas/exact-call hypotheses;
 2. prove `UInt256.toByteArray`/`uInt256OfByteArray` round-trip lemmas needed for `PUSH32`;
-3. prove small `EVM.X` entrypoint lemmas for `PUSH32`, `MLOAD`, `MSTORE`, `CALLDATALOAD`, `ADD`, `CALL`, and `STOP`;
-4. prove a reserved-local-memory disjointness invariant;
-5. prove instruction-level preservation lemmas from structured target ops to actual EVM execution;
-6. add the fixed successful callee account/code setup;
-7. prove the constrained `CALL` theorem and compose the general `LoweringPreservationSpec` theorem.
+3. prove `assemble` faithfully encodes every `Bytecode.Op` expected by EVMYulLean decoding;
+4. prove small `EVM.X` entrypoint lemmas for `PUSH32`, `MLOAD`, `MSTORE`, `CALLDATALOAD`, `ADD`, `CALL`, and `STOP`;
+5. prove a reserved-local-memory disjointness invariant;
+6. prove instruction-level preservation lemmas from structured target ops to actual EVM execution;
+7. add the fixed successful callee account/code setup;
+8. prove the constrained `CALL` theorem and compose the general `LoweringPreservationSpec` theorem.

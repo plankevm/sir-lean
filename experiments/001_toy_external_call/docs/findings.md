@@ -18,7 +18,8 @@ The implemented artifact is intentionally small:
 - `Bytecode.lowerOps`: a total compiler from the existing `Program` type to a structured EVM-like target instruction list.
 - `Bytecode.lower`: assembly from that structured instruction list to EVM bytecode.
 - `Correctness.lowerOps_preserve_semantics`: a checked theorem, with no `sorry`, proving source semantics are preserved by `lowerOps` for every `Program`.
-- `Correctness.LoweringPreservationSpec`: the remaining, unproved target spec relating source `run` to EVMYulLean `EVM.X` on `Bytecode.lower`.
+- `EVMBytecode`: checked decode lemmas for generated one-byte EVM opcodes.
+- `EVMBridgeSpec.LoweringPreservationSpec`: the remaining, unproved target spec relating source `run` to EVMYulLean `EVM.X` on `Bytecode.lower`.
 
 ## Main Design Decisions
 
@@ -180,14 +181,23 @@ What is proved now:
 - operand compilation into structured target ops preserves operand values;
 - every instruction compilation into structured target ops preserves one source step;
 - every whole `Program` preserves source semantics under `lowerOps`;
+- generated one-byte opcodes for `STOP`, `ADD`, `CALLDATALOAD`, `MLOAD`, `MSTORE`, and `CALL` decode through EVMYulLean;
 - the theorem is fully checked by Lean and the package contains no `sorry`, `admit`, or `axiom`.
 
 What is not proved yet:
 
 - the corrected, assumption-bearing preservation theorem against `EVM.X`;
+- a true theorem shape for all programs with calls and gas;
 - instruction-level `EVM.X` lemmas for compiler-generated chunks;
 - `EVM.X` executes the lowered `CALL` bytecode against a fixed callee;
 - exact gas preservation.
+
+The current unrestricted source-to-`EVM.X` theorem would be false for two independent reasons:
+
+- source `run` does not charge gas, while `EVM.X` checks and subtracts gas before every step;
+- source `run` accepts an arbitrary `CallOracle`, while real EVM `CALL` can only return behavior produced by EVMYulLean's call semantics.
+
+So the next implementation change must be semantic, not cosmetic: either make the source semantics gas-aware and EVM-backed at calls, or state the bytecode theorem with explicit enough-gas and exact-call-behavior hypotheses.
 
 ## Next Proof Targets
 
