@@ -19,6 +19,7 @@ The implemented artifact is intentionally small:
 - `Bytecode.lower`: assembly from that structured instruction list to EVM bytecode.
 - `Correctness.lowerOps_preserve_semantics`: a checked theorem, with no `sorry`, proving source semantics are preserved by `lowerOps` for every `Program`.
 - `EVMBytecode`: checked decode lemmas for generated one-byte EVM opcodes.
+- `Obstruction`: checked counterexample showing the current source semantics cannot be preserved by `EVM.X` for all initial EVM states because source execution is not gas-aware.
 - `EVMBridgeSpec.LoweringPreservationSpec`: the remaining, unproved target spec relating source `run` to EVMYulLean `EVM.X` on `Bytecode.lower`.
 
 ## Main Design Decisions
@@ -197,6 +198,18 @@ The current unrestricted source-to-`EVM.X` theorem would be false for two indepe
 
 - source `run` does not charge gas, while `EVM.X` checks and subtracts gas before every step;
 - source `run` accepts an arbitrary `CallOracle`, while real EVM `CALL` can only return behavior produced by EVMYulLean's call semantics.
+
+The gas mismatch is now checked in Lean:
+
+```lean
+theorem current_evm_preservation_statement_is_false :
+    ¬ EVMBridgeSpec.ResultRelOn
+      addOnlyProgram.touchedLocals
+      (run emptyOracle (addOnlyProgram.length + 1) zeroGasState addOnlyProgram)
+      (EVM.X (Bytecode.lowerFuel addOnlyProgram)
+        (EVM.D_J (Bytecode.lower addOnlyProgram) (UInt256.ofNat 0))
+        (EVMBridgeSpec.withLoweredCodeAndLocals zeroGasState addOnlyProgram))
+```
 
 So the next implementation change must be semantic, not cosmetic: either make the source semantics gas-aware and EVM-backed at calls, or state the bytecode theorem with explicit enough-gas and exact-call-behavior hypotheses.
 

@@ -47,8 +47,14 @@ A theorem directly comparing current source `run` with `EVM.X (Bytecode.lower pr
 Why it is wrong:
 
 - source `run` ignores gas, but `EVM.X` checks `memoryExpansionCost` and `C'` before every step;
-- with zero target gas, a source program like `inputLoad 0 (const 0)` can succeed while lowered bytecode fails before executing its first `PUSH32`;
+- with zero target gas, a source program like `add 0 (const 1) (const 2)` can succeed while lowered bytecode fails before executing its first `PUSH32`;
 - source calls use an arbitrary `CallOracle`, but real `CALL` can only produce EVMYulLean call behavior and pushes a success word determined by that behavior.
+
+Checked evidence:
+
+- `ToyExternalCall.Obstruction.source_addOnlyProgram_succeeds` proves the current source interpreter succeeds on the add-only program despite zero EVM gas;
+- `ToyExternalCall.Obstruction.lowered_addOnlyProgram_zeroGas_fails` proves the lowered bytecode run through `EVM.X` fails with `.OutOfGass`;
+- `ToyExternalCall.Obstruction.current_evm_preservation_statement_is_false` proves the current result relation does not hold for that case.
 
 Fix:
 
