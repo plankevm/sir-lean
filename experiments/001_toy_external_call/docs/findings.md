@@ -126,9 +126,28 @@ EVM.X evmFuel (EVM.D_J (Bytecode.lower program) 0)
 
 The result relation compares successful source runs against successful lowered EVM runs through `StateRel`; source exceptional halt against matching EVM exception; and source fuel exhaustion against EVM `OutOfFuel`.
 
+The unrestricted preservation theorem is false as currently stated. This is now recorded in Lean:
+
+```lean
+theorem lowering_preservation_false_with_zero_evm_fuel
+    (oracle : CallOracle)
+    (initial : ToyState) :
+    ¬ LoweringPreservesSemantics oracle 1 0 [] initial
+```
+
+The counterexample is the empty program with zero EVM fuel: source execution succeeds, while `EVM.X` immediately returns `OutOfFuel`.
+
+Other necessary conditions for a real theorem:
+
+- the EVM fuel must be chosen from the compiled program, not arbitrary;
+- initial EVM memory must encode any source locals that the program reads;
+- final state comparison must be over the finite locals observed by the program, not all `Nat` locals;
+- the call oracle must be related to EVMYulLean `CALL`; arbitrary oracles cannot be preserved by real EVM execution;
+- calls must not clobber the reserved local-memory range, or the compiler needs a stronger frame/layout discipline.
+
 What is not proved yet:
 
-- the general `LoweringPreservesSemantics` theorem itself;
+- a corrected, assumption-bearing `LoweringPreservesSemantics` theorem;
 - instruction-level `EVM.X` lemmas for compiler-generated chunks;
 - `EVM.X` executes the lowered `CALL` bytecode against a fixed callee;
 - exact gas preservation.

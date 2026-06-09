@@ -47,6 +47,12 @@ def LoweringPreservesSemantics
     (EVM.X evmFuel (EVM.D_J (Bytecode.lower program) (UInt256.ofNat 0))
       (withLoweredCode initial.evm program))
 
+theorem lowering_preservation_false_with_zero_evm_fuel
+    (oracle : CallOracle)
+    (initial : ToyState) :
+    ¬ LoweringPreservesSemantics oracle 1 0 [] initial := by
+  simp [LoweringPreservesSemantics, ResultRel, run, EVM.X]
+
 end Correctness
 
 end ToyExternalCall
