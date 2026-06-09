@@ -145,3 +145,19 @@ Fix:
 
 - add `CallOraclePreservesReservedLocalSlots oracle program.touchedLocals`;
 - later replace this assumption with a stronger memory-frame/layout discipline.
+
+## Sequence-Specific EVM.X Lemmas
+
+The bytecode proof attempt started adding hand-written `EVM.X` theorems for concrete bytecode fragments such as `PUSH32; STOP`.
+
+Why that was wrong:
+
+- EVMYulLean already gives the executable semantics through `EVM.X`; duplicating one theorem per bytecode sequence scales badly;
+- sequence-specific lemmas hide the proof architecture needed for a compiler theorem over every `Program`;
+- the reusable fact is not "this particular byte string runs", but "if decode, gas precheck, step, and halting classification line up, then `EVM.X` advances or halts accordingly."
+
+Fix:
+
+- factor EVMYulLean's local `X` helpers into named definitions `EVM.Z` and `EVM.H`;
+- prove generic local lemmas `EVMBytecode.evmX_continue` and `EVMBytecode.evmX_halt_success`;
+- keep opcode-specific facts at the `decode` and `EVM.step` layers, where they are actually reusable.

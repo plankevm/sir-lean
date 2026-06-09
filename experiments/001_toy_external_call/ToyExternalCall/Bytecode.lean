@@ -135,7 +135,7 @@ def lower (program : Program) : ByteArray :=
   assemble (lowerOps program)
 
 def lowerFuel (program : Program) : Nat :=
-  program.foldl (fun fuel instr => fuel + instrFuel instr) 1
+  program.foldl (fun fuel instr => fuel + instrFuel instr) 2
 
 end Bytecode
 
