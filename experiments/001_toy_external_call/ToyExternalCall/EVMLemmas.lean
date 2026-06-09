@@ -147,8 +147,7 @@ theorem decode_push_at
   unfold EVM.decode
   rw [ByteArray.get?, toNat_ofNat_of_lt hl, hcons,
     List.getElem?_append_right (Nat.le_refl _)]
-  simp only [Nat.sub_self, List.getElem?_cons_zero, Option.some_bind,
-    Bytecode.opcode, parse_serialize_push32]
+  simp only [Nat.sub_self, List.getElem?_cons_zero, Bytecode.opcode]
   have harg : EVM.argOnNBytesOfInstr (.PUSH32 : Operation .EVM) = 32 := rfl
   have hextract :
       code.extract' l.length.succ (l.length.succ + 32) =
