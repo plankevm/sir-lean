@@ -1,225 +1,129 @@
-# Experiment 001 Findings
-
-## What Built
-
-The package builds as a local Lake package against `../../forks/EVMYulLean` with Lean `v4.22.0`.
-
-```text
-lake build
-```
-
-The implemented artifact is intentionally small:
-
-- `Operand`: local or constant word;
-- `Instr.inputLoad`: load one EVM calldata word into a local;
-- `Instr.add`: add two word operands using `UInt256` arithmetic;
-- `Instr.call`: evaluate the seven EVM `CALL` operands and delegate the call boundary to an oracle;
-- `run`: fuel-bounded interpreter over a linear list of instructions.
-- `Bytecode.lowerOps`: a total compiler from the existing `Program` type to a structured EVM-like target instruction list.
-- `Bytecode.lower`: assembly from that structured instruction list to EVM bytecode.
-- `Correctness.lowerOps_preserve_semantics`: a checked theorem, with no `sorry`, proving source semantics are preserved by `lowerOps` for every `Program`.
-- `EVMBytecode`: checked decode lemmas for generated one-byte EVM opcodes.
-- `Obstruction`: checked counterexample showing the current source semantics cannot be preserved by `EVM.X` for all initial EVM states because source execution is not gas-aware.
-- `EVMBridgeSpec.LoweringPreservationSpec`: the remaining, unproved target spec relating source `run` to EVMYulLean `EVM.X` on `Bytecode.lower`.
-
-## Main Design Decisions
-
-### CALL Is An Instruction
-
-The toy IR models external call as `Instr.call`. The `CallArgs` structure only bundles the seven EVM operands:
-
-```text
-gas, target, value, inOffset, inSize, outOffset, outSize
-```
-
-This answers the review concern: `CALL` is an EVM opcode and a SIR operation, not a meta-level expression. The struct is just a typed way to keep the operand list readable.
-
-### State Is EVMYulLean State Plus Locals
-
-The implemented state is:
-
-```lean
-structure ToyState where
-  evm : EVM.State
-  locals : Local -> Word
-```
-
-This commits to the review decision to use EVMYulLean memory, returndata, gas, account map, substate, and execution environment from day one. It avoids a parallel toy account or memory model and should make the first bytecode relation less artificial.
-
-### Call Failure Is A Success Flag
-
-The call oracle has this shape:
-
-```lean
-CallOracle : ToyState -> CallRequest -> Except EVM.ExecutionException CallResult
-```
-
-`CallResult.successFlag` is the exact `UInt256` word that EVM `CALL` pushes. In practice this is `0` for failure and `1` for success, but keeping the word avoids an unnecessary Boolean translation once we prove lowering. The toy interpreter continues and writes that flag to the destination local. The `Except` channel is reserved for caller-level exceptional halt.
-
-This matters because callee revert is not the same thing as the caller reverting.
-
-### Memory And Returndata Are Present
-
-`CallRequest.input` is read from `s.evm.memory` using `inOffset` and `inSize`. `CallRequest` also keeps both `targetWord` and `target`: EVM receives a 256-bit stack word and converts it to a 160-bit account address internally. `CallResult.returnData` updates `s.evm.returnData`. Output copying through `outOffset` and `outSize` is not proved yet; the current oracle can include that update in the returned `EVM.State`.
-
-The next theorem should make output copying explicit, at least as an observable memory-slice relation.
-
-## What Changed From The Initial Plan
-
-- The plan originally showed a separate EVM-shaped toy state. The implementation now uses full `EVM.State`.
-- The plan originally risked treating callee revert as a top-level toy result. The implementation instead follows EVM `CALL`: failure is a `0` success flag.
-- The first implementation stored call success as `Bool`; the model now stores the exact EVM success word so future lowering can compare against the EVM stack result directly.
-- The plan used `to` as an operand name. Lean rejected it in this context, so the implementation uses `target`.
-- `UInt256` does not use plain numeral notation here, so constants are written with `UInt256.ofNat`.
-
-## Removed False Starts
-
-An earlier `ToyExternalCall.Lowering` module was removed because it proved preservation only against an opcode-trace/primitive-step shortcut. That was not the requested theorem and it was not a clean model of lowering to bytecode.
-
-The replacement uses the existing `Instr`/`Program` IR and produces `ByteArray`. It does not prove preservation against an opcode trace.
-
-The next attempted theorem over bytecode also had a false shape: it stated an `EVM.X` preservation proposition without proving it. That is not useful as compiler formalization. The current checked theorem is intentionally narrower but real:
-
-```lean
-theorem lowerOps_preserve_semantics
-    (oracle : CallOracle)
-    (program : Program)
-    (initial : ToyState) :
-    runLoweredOps oracle { toy := initial, stack := [] } (Bytecode.lowerOps program) =
-      run oracle (program.length + 1) initial program
-```
-
-This theorem says: for every toy IR program, running its structured lowered target program gives exactly the same `RunResult` as running the source interpreter with enough source fuel. It is proved by induction over `Program`, using instruction-level lemmas for operand compilation and instruction compilation.
-
-## Current Lowering Status
-
-The lowering has two levels:
-
-```lean
-Bytecode.lowerOps : Program -> List Bytecode.Op
-Bytecode.lower : Program -> ByteArray
-```
-
-`lowerOps` is the target language currently used by the checked preservation theorem. It is structured enough to avoid re-proving byte decoding, program-counter movement, and EVM gas behavior before the core compiler proof exists.
-
-The target `CALL` op in `lowerOps` does not carry `CallArgs`. The compiler lowers all seven call operands onto the target stack, and `CALL` pops:
-
-```text
-gas, target, value, inOffset, inSize, outOffset, outSize
-```
-
-The preservation proof therefore checks the operand order and call-request reconstruction instead of assuming the source call bundle survives lowering.
-
-`lower` assembles those lowered operations into bytecode:
-
-```lean
-Bytecode.lower : Program -> ByteArray
-```
-
-Both functions handle every syntactically possible toy IR program. They do this by compiling each instruction independently and storing toy locals in reserved EVM memory slots:
-
-```lean
-localSlot x = UInt256.ofNat (1048576 + 32 * x)
-```
-
-Operand lowering:
-
-```text
-const w  => PUSH32 w
-local x  => PUSH32 (localSlot x); MLOAD
-```
-
-Instruction lowering:
-
-- `inputLoad dst offset`: lower `offset`, run `CALLDATALOAD`, store the result in `localSlot dst`.
-- `add dst lhs rhs`: lower `rhs`, lower `lhs`, run `ADD`, store the result in `localSlot dst`.
-- `call dst args`: lower the seven EVM `CALL` operands in stack order, run `CALL`, store the success flag in `localSlot dst`.
-
-`lowerOps` appends `STOP` after the lowered body. `lower` assembles that list.
-
-The proved lowering theorem is currently over `lowerOps`, not over `lower` executed by `EVM.X`. The bytecode-level theorem still needs an explicit memory-disjointness assumption: source locals are separate from EVM memory, while lowered locals live in reserved memory. Calls that read or write the reserved local-memory range can interfere with compiled locals unless ruled out or modeled through a stronger memory layout discipline.
-
-The correctness file no longer contains prefix/canonical proof fragments. Its proved theorem is:
-
-```lean
-lowerOps_preserve_semantics
-```
-
-Its bytecode-level target spec is:
-
-```lean
-LoweringPreservationSpec oracle callFuel callGasCost program initial
-```
-
-which directly relates:
-
-```lean
-run oracle (program.length + 1) initial program
-```
-
-to:
-
-```lean
-EVM.X (Bytecode.lowerFuel program)
-  (EVM.D_J (Bytecode.lower program) 0)
-  (withLoweredCodeAndLocals initial program)
-```
-
-The result relation compares successful source runs against successful lowered EVM runs through `StateRelOn program.touchedLocals`; source exceptional halt against matching EVM exception; and source fuel exhaustion against EVM `OutOfFuel`.
-
-The unproved bytecode-level spec fixes the previous false statement by:
-
-- choosing EVM fuel with `Bytecode.lowerFuel program`;
-- seeding EVM memory with source locals read by the program;
-- comparing only finite program-touched locals;
-- requiring `CallOracleSoundForLowering oracle callFuel callGasCost`, where `callFuel` and `callGasCost` identify the exact EVM call context the bytecode proof reaches;
-- requiring `CallOraclePreservesReservedLocalSlots oracle program.touchedLocals`.
-
-See [Wrong Attempts](./wrong-attempts.md) for the detailed audit of what was wrong.
-
-What is proved now:
-
-- operand compilation into structured target ops preserves operand values;
-- every instruction compilation into structured target ops preserves one source step;
-- every whole `Program` preserves source semantics under `lowerOps`;
-- generated one-byte opcodes for `STOP`, `ADD`, `CALLDATALOAD`, `MLOAD`, `MSTORE`, and `CALL` decode through EVMYulLean;
-- source call oracles can now be constrained by `CallOracleMatchesEVMCallAt`, an explicit equality relation against executable `EVM.call`;
-- the theorem is fully checked by Lean and the package contains no `sorry`, `admit`, or `axiom`.
-
-What is not proved yet:
-
-- the corrected, assumption-bearing preservation theorem against `EVM.X`;
-- a true theorem shape for all programs with calls and gas;
-- instruction-level `EVM.X` lemmas for compiler-generated chunks;
-- `EVM.X` executes the lowered `CALL` bytecode against a fixed callee;
-- exact gas preservation.
-
-The current unrestricted source-to-`EVM.X` theorem would be false for two independent reasons:
-
-- source `run` does not charge gas, while `EVM.X` checks and subtracts gas before every step;
-- source `run` accepts an arbitrary `CallOracle`, while real EVM `CALL` can only return behavior produced by EVMYulLean's call semantics.
-
-The gas mismatch is now checked in Lean:
-
-```lean
-theorem current_evm_preservation_statement_is_false :
-    ¬ EVMBridgeSpec.ResultRelOn
-      addOnlyProgram.touchedLocals
-      (run emptyOracle (addOnlyProgram.length + 1) zeroGasState addOnlyProgram)
-      (EVM.X (Bytecode.lowerFuel addOnlyProgram)
-        (EVM.D_J (Bytecode.lower addOnlyProgram) (UInt256.ofNat 0))
-        (EVMBridgeSpec.withLoweredCodeAndLocals zeroGasState addOnlyProgram))
-```
-
-So the next implementation change must be semantic, not cosmetic: either make the source semantics gas-aware and EVM-backed at calls, or state the bytecode theorem with explicit enough-gas and exact-call-behavior hypotheses.
-
-## Next Proof Targets
-
-1. Prove the `PUSH32` byte round-trip lemma:
-   `uInt256OfByteArray value.toByteArray = value`.
-2. Prove `EVM.decode` lemmas for the compiler-generated bytecode chunks.
-3. State and prove the memory-disjointness invariant for the reserved local slots.
-4. Prove PC/gas/halting side conditions for compiler-generated bytecode.
-5. Prove instruction-level preservation lemmas for `inputLoad`, `add`, and `call`.
-6. Add the constrained fixed-callee theorem for `CALL`.
-7. Compose the general `LoweringPreservationSpec` theorem by induction over `Program`.
+# Findings: proving a lowering theorem against EVMYulLean's `EVM.X`
+
+This documents what worked, what failed, and why — so the next layer
+(richer IR, control flow, transaction boundary) doesn't rediscover it.
+The earlier findings about the pre-redesign artifact are superseded; the
+historical record of the failed preservation statement lives in
+`wrong-attempts.md` and in git history (`Obstruction.lean`, removed).
+
+## About EVMYulLean
+
+* It is an **executable specification**: `EvmYul/EVM/Semantics.lean` proves
+  no theorems. Any compositional reasoning needs a bespoke lemma layer.
+* `EVM.X` (YP Eq. 159) is the right equivalence target: fuel check →
+  `decode` → `Z` (memory-expansion cost `cost₁`, instruction cost `cost₂` =
+  `C'`, validity checks) → `step` (trace bump, cost deduction, effect) →
+  `H` (halting) → recurse. Fuel decreases by exactly 1 per opcode; `step`
+  and `call` only *check* their fuel argument (recursion-depth protection),
+  with `call` receiving `fuel - 1` and `Θ` receiving `fuel - 2`.
+* Gas subtleties that must be mirrored exactly:
+  * `Z` deducts `cost₁` first, then computes `C'` **on the charged state**
+    — observable for `CALL`, whose `Ccall` reads the gas counter via
+    `Cgascap`.
+  * `C'` for `CALL` reads the **stack** (`μₛ[0]`, `μₛ[1]`, `μₛ[2]`).
+  * `step` deducts `cost₂` for ordinary ops; `EVM.call` deducts it
+    internally *after* computing `Ccallgas` on the undeducted state.
+  * `MLOAD`/`MSTORE` update `activeWords` even when reading; evaluation
+    order of operands is observable through memory-expansion gas.
+  * The very first local access pays the full expansion to `localBase`
+    (≈ 2.1 M gas at 1 MiB) — semantically irrelevant for the theorem,
+    relevant for choosing test gas budgets.
+
+## Design
+
+* **Locals-as-memory beats locals-as-map.** With a separate locals map the
+  preservation statement is false without disjointness hypotheses (a CALL
+  may clobber reserved slots). Making local `x` *be* memory word
+  `localSlot x` turns the simulation relation into literal record equality
+  modulo three frame fields, and `injectFrame` pins those.
+* **Mirror the machine's bookkeeping, don't abstract it.** The IR state
+  embeds `EVM.State` and tracks `execLength` and fuel faithfully. The
+  result equality is then `=`, not a relation — every later proof gets
+  cheaper.
+* **Oracle signature = the reached `EVM.call` instance.** Fuel and
+  `gasCost` are explicit oracle parameters; `CallOracleSound` is stated
+  against `injectFrame`-shaped states so the rewrite fires at the exact
+  point of use, and bundles frame insensitivity of `EVM.call` (provable
+  separately, future work).
+* The IR's *gas schedule* is defined to equal the cost of its lowering, so
+  gas agreement is partly by construction. The theorem's content is
+  everything else: decode/assemble correctness, stack discipline, pc
+  threading, the `X` loop, halting, error propagation, and that the
+  declared cost formulas are what the EVM actually charges.
+
+## Proof-engineering patterns that worked
+
+1. **List-first byte encoding.** Define `codeBytes : List Op → List UInt8`
+   and wrap the `ByteArray` only at the end. All decode lemmas take a
+   hypothesis `code.data.toList = l ++ opBytes op ++ r` and use plain list
+   lemmas (`getElem?_append_right`, `drop_left'`, `take_left'`). The fork's
+   list-based `ByteArray.get?`/`extract'` make this seamless.
+2. **`injectFrame` + `@[simp]` `rfl` projections.** One definition pinning
+   the frame, with every pass-through projection a `rfl` simp lemma. All
+   `Z`/`step`/`X` lemmas are stated on `injectFrame` states.
+3. **`step` lemmas by `rfl` over destructured states.** `EVM.step` for a
+   concrete opcode is definitional. State the conclusion as a flat record
+   update and prove with `unfold EVM.step; rfl`. When the stack shape
+   matters, destructure the state (`⟨shared, pc, stk, len⟩`), retype the
+   stack hypothesis by defeq (`replace hstk : stk0 = _ := hstk`), `subst`.
+   For `CALL`, prove the bind/map conversion with a single `exact` —
+   structure eta makes the pattern-lambda and `p.1`/`p.2` forms defeq.
+4. **Guard alignment with `if_pos`/`if_neg`, not `simp`.** State `Z_*` and
+   `callStep_eval` as if-chains whose conditions are *syntactically* the
+   `by_cases` propositions. `simp [h]` on `¬(A ∧ B)` turns ifs into
+   implications and strands the proof; `rw [hz, if_neg h₁, if_pos h₂]` is
+   deterministic.
+5. **Evaluate the IR side once, standalone (`callStep_eval`).** Reducing
+   the IR action inside the main proof fights `simp`'s record normal forms
+   (nested `Exec` updates vs flat literals). A separate equation lemma,
+   proven by `by_cases` + `simp` + a final `rfl` (the residue differs only
+   in invisible `Decidable` instances), gives the main proof a clean
+   `rw` + `cases oracle …` skeleton.
+6. **Position-generalized chunk lemmas (`*_at`).** Chunk lemmas at
+   `pc = pre.length` force constant rewriting between `length`-form and
+   `+`-form. Variants taking `(n : Nat) (hpre : pre.length = n)` (proved by
+   `subst`) let successive chunks compose with `(by simp; try omega)` side
+   goals and no pc rewriting.
+7. **Componentwise cost hypotheses.** `Z_generic` takes
+   `hC : ∀ st, st.toState = … → st.stack = … → st.toMachineState = … →
+   C' st w = c₂` and is applied with `rw [hC ⟨explicit literal⟩ rfl rfl rfl]`
+   — robust against however `simp` displays the charged intermediate state.
+8. **Iota-reduce before `rw`.** After `cases h : action s`, the goal's
+   `match Except.ok s₁ with …` needs `dsimp only` before a `rw` can find
+   terms inside the branch.
+
+## Dead ends (do not retry)
+
+* **Record-update commutation as `@[simp]` lemmas**
+  (`{injectFrame … with gasAvailable := g} = injectFrame {… with …} …`):
+  simp's projection-reduction inside record literals changes the term shape
+  before the pattern can match. Use defeq bridging (`exact`, `show`,
+  componentwise hypotheses) instead.
+* **`set` for abbreviating cost/state terms** in the `X_call` proof: `set`
+  rewrites hypotheses into the let-variable, breaking the syntactic match
+  with goal terms produced by `simp`. Write terms longhand or factor into a
+  standalone lemma.
+* **Multi-line record literals with lower-indented continuation lines**
+  silently fail to parse (`unexpected identifier; expected '}'`); keep
+  fields one-per-line, indented past the brace.
+* **`subst` on `st.stack = …`** fails (projection, not a variable);
+  destructure first.
+
+## Fork changes (forks/EVMYulLean)
+
+* `2727b79` exposes `EVM.W/Z/H/belongs/notIn` (visibility only), adds
+  `toBytes!_length`, `UInt256.ofNat_toNat`, `fromBytes'_toBytes!`, and
+  makes `UInt256.toByteArray`, `ByteArray.get?`, `ByteArray.extract'` pure
+  and list-based. `toByteArray` was verified against the upstream
+  implementation by evaluation (0, 1, 255, 256, 2^64, 2^255, 2^256−1, …).
+* This session: `ffi.ByteArray.zeroes` opaque-extern → pure `def`
+  (`List.replicate`), enabling `#eval` interpretation of the semantics.
+  Compiled conformance runs lose the native memset; revisit if the fork's
+  test suite is ever timed.
+
+## Validation
+
+* `lowering_correct` has no sorries; axioms: `propext`, `Classical.choice`,
+  `Quot.sound`.
+* Concrete interpretation agrees exactly (gas, values, errors) on a
+  two-instruction program in both the funded and underfunded cases.

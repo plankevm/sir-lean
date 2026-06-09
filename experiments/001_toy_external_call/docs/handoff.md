@@ -1,204 +1,154 @@
 # Experiment 001 Handoff
 
-## Current State
+## Status: lowering theorem proved
 
-Repo: `/Users/eduardo/workspace/evm-semantics`
-
-Experiment: `experiments/001_toy_external_call`
-
-Recent commits:
-
-```text
-c656366 Document checked EVM preservation obstruction
-a055025 Prove current EVM preservation target is false
-8a8e487 Add reusable EVM bytecode proof lemmas
-f718322 Model exact EVM call oracle agreement
-2727b79 Expose EVM X proof helpers
-```
-
-Build status:
+`Preservation.lowering_correct` is fully proved: for **every** program,
+initial EVM state, fuel and gas level, executing the lowered bytecode under
+EVMYulLean's `EVM.X` is equal to the IR's gas-exact executable semantics.
 
 ```bash
 cd experiments/001_toy_external_call
-lake build
+lake build                  # passes, no sorries
+rg -n "\bsorry\b|\badmit\b|^axiom" ToyExternalCall   # empty
 ```
 
-This currently passes.
+`#print axioms Preservation.lowering_correct` reports only
+`propext, Classical.choice, Quot.sound`.
 
-## What Exists
+A concrete `#eval` check (interpreting both semantics on
+`[inputLoad 0 0, add 1 (local 0) (const 5)]`) confirms byte-for-byte
+agreement: identical remaining gas (7 804 252 of 10 000 000) and result on
+the success path, identical `OutOfGass` on the underfunded path.
 
-### Toy IR
-
-File: `ToyExternalCall/IR.lean`
-
-- `Operand := local | const`
-- `Instr := inputLoad | add | call`
-- `ToyState := EVM.State + locals`
-- Source `run` is fuel-bounded but not gas-aware.
-
-### Lowering
-
-File: `ToyExternalCall/Bytecode.lean`
-
-- `Bytecode.lowerOps : Program -> List Bytecode.Op`
-- `Bytecode.lower : Program -> ByteArray`
-- Lowering is total over every `Program`.
-- Locals are stored in reserved EVM memory:
+## The theorem
 
 ```lean
-localSlot x = UInt256.ofNat (1048576 + 32 * x)
+theorem lowering_correct (oracle : CallOracle) (hsound : CallOracleSound oracle)
+    (program : Program) (vj : Array UInt256) (s : Exec)
+    (hsize : (Bytecode.lower program).size < UInt256.size) :
+    EVM.X s.fuel vj
+      (injectFrame s.evm (.ofNat 0) [] (Bytecode.lower program)) =
+      (run oracle program s).map (fun s' =>
+        .success
+          (injectFrame s'.evm (.ofNat ((Bytecode.lower program).size - 1)) []
+            (Bytecode.lower program))
+          ByteArray.empty)
 ```
 
-### Checked Structured Proof
+How to read it:
 
-File: `ToyExternalCall/Correctness.lean`
+* `injectFrame evm pc stack code` overrides exactly the three frame fields
+  (`pc`, machine `stack`, `executionEnv.code`) that distinguish an IR state
+  from the state of its lowered code. Everything else — memory, gas,
+  accounts, substate, return data, trace length — is **equal on the nose**.
+* `run` is the IR's executable semantics (`IR.lean`). It is total
+  (structural recursion on the program); the fuel counter only mirrors
+  `EVM.X`'s and is consumed one unit per lowered opcode, so the theorem
+  covers out-of-fuel outcomes too.
+* Errors agree exactly: `OutOfGass`, `OutOfFuel`, `StaticModeViolation`
+  occur on the source side iff they occur at the corresponding opcode of
+  the lowered code.
 
-Main theorem:
+### Assumptions (exactly two)
 
-```lean
-lowerOps_preserve_semantics
-```
+1. `CallOracleSound oracle` — the call oracle returns exactly what
+   `EVM.call` returns, *and* `EVM.call` passes the frame fields through
+   untouched. It is satisfiable by taking the oracle to be `EVM.call`
+   itself; the frame-insensitivity half is then a provable (unproven here)
+   fact about `EVM.call`, whose body never reads `pc`/`stack`/code.
+2. `hsize` — the lowered code is addressable by a 256-bit program counter.
+   A representability bound, not a semantic restriction (real EVM code is
+   ≤ 24 576 bytes).
 
-This proves source semantics equals the structured lowered-op interpreter for all programs.
-It is not an `EVM.X` bytecode theorem.
+## Design decisions (and why the previous attempt failed)
 
-### EVM Bytecode Lemmas
+The previous iteration proved its own preservation statement **false**
+(`current_evm_preservation_statement_is_false`): the source semantics
+ignored gas, and locals lived in a map separate from EVM memory, requiring
+an unprovable frame invariant across `CALL` (calls may legally clobber any
+memory, including the reserved local slots). Both problems were fixed by
+redesign rather than by adding hypotheses:
 
-File: `ToyExternalCall/EVMBytecode.lean`
+* **Locals are memory-backed.** `Exec` wraps an `EVM.State` plus fuel;
+  local `x` *is* the memory word at `localSlot x`. If a call clobbers a
+  local slot, source and target see the identical clobbering — no frame
+  invariant, no disjointness side conditions.
+* **The semantics is gas-exact.** Each IR action mirrors one `EVM.X`
+  iteration: fuel check (`tick`), `EVM.Z`'s two-stage gas accounting
+  (`chargeMem`/`requireGas`, including `Cₘ` memory-expansion costs and the
+  full `Ccall` formula), `EVM.step`'s fuel guard (`stepGuard`), then the
+  effect. Operands evaluate right-to-left, matching push order, because
+  evaluation order is observable through memory-expansion gas.
+* **Calls go through an oracle** with the exact signature of the reached
+  `EVM.call` instance (fuel and gas-cost threaded explicitly).
 
-Contains reusable lemmas for:
+An honest caveat: the IR's *gas schedule* is defined to be the cost of its
+lowering, so gas agreement is partly by construction. The theorem's real
+content is everything else — decode/assemble correctness, stack discipline,
+pc threading, the `X` loop, halting, error propagation, and that the
+declared gas schedule formulas (`wordTouchCost`, `callTouchCost`, `Ccall`,
+`Gverylow`, …) are in fact what the EVM charges at each opcode.
 
-- decoding one-byte ops;
-- decoding `PUSH32`;
-- `EVM.Z`/`EVM.H` execution helpers;
-- basic `step_*` lemmas;
-- `empty_program_evmX`.
+## File map
 
-### EVM Bridge Spec
+| File | Contents |
+|---|---|
+| `ToyExternalCall/IR.lean` | Syntax, `Exec`, gas-exact actions, `CallOracle`, `CallOracleSound`, `execInstr`, `run` |
+| `ToyExternalCall/Bytecode.lean` | Opcode-level `Op`, list-first byte encoding (`codeBytes`), compilation, `lower` |
+| `ToyExternalCall/EVMLemmas.lean` | The reusable lemma layer over `EVM.X`: decode-at-prefix, `Z_generic`/`Z_call`, per-op `step` lemmas, per-op `X` iteration lemmas (incl. `X_call`), `callStep_eval` |
+| `ToyExternalCall/Preservation.lean` | Chunk lemmas (operand, write-local, instruction), `run_simulation` induction, `lowering_correct` |
 
-File: `ToyExternalCall/EVMBridgeSpec.lean`
+## Validated assumptions about EVMYulLean
 
-Defines:
+* `EvmYul/EVM/Semantics.lean` proves **zero** theorems: it is an executable
+  spec. Building our own lemma layer is necessary; the previous agent's
+  judgment was correct.
+* `EVM.X` is the right layer: the YP Eq. 159 instruction loop with full gas
+  accounting. `Ξ`/`Θ`/`Υ` add account/transaction machinery (a later
+  experiment); bare `EVM.step` has no loop or halting.
+* Fork changes (branch `2727b79` + this session): exposing `Z`/`H`/`W` from
+  `X` (visibility only); list-based `ByteArray.get?`/`extract'`
+  (extensionally equal; verified `UInt256.toByteArray` against upstream by
+  evaluation on edge cases); `ffi.ByteArray.zeroes` got a pure Lean body so
+  the semantics is interpretable with `#eval` (compiled conformance runs
+  pay a performance cost).
 
-```lean
-CallOracleMatchesEVMCallAt
-CallOracleSoundForLowering
-LoweringPreservationSpec
-```
+## Proof-engineering notes
 
-This is still only a spec, not a proved preservation theorem.
+See `docs/findings.md` for the patterns that made this tractable (and the
+dead ends). The short version: keep byte encodings list-first; pin frames
+with `injectFrame` and prove its projections as `@[simp]` `rfl` lemmas;
+state `step` lemmas over destructured states so `rfl` closes them; align
+guards with `if_pos`/`if_neg` instead of fighting `simp` normal forms;
+evaluate the IR side with a standalone equation (`callStep_eval`) rather
+than in-proof `simp`; generalize chunk-lemma positions over a `Nat` with a
+side equation (`*_at` variants) so pc arithmetic never changes shape.
 
-### Checked Obstruction
+## Next steps
 
-File: `ToyExternalCall/Obstruction.lean`
+1. **Discharge half of `CallOracleSound`**: prove `EVM.call` frame
+   insensitivity (unfold `call` once, case on the `Θ` result; `Θ` never
+   receives the caller's frame fields). The assumption then reduces to pure
+   oracle/`EVM.call` agreement, and instantiating `oracle := EVM.call`
+   yields an assumption-free corollary for call-free programs.
+2. **Returndata**: expose `RETURNDATASIZE`/`RETURNDATACOPY` in the IR; the
+   returnData field already agrees on the nose.
+3. **Control flow**: `JUMP`/`JUMPI` need `D_J` (valid-jump-destination)
+   reasoning; the lemma layer's `validJumps` parameter is already threaded
+   everywhere.
+4. **Abstract locals**: re-introduce a locals map as a *view* of the
+   reserved region with a separation discipline, recovering the
+   CompCert-style abstraction on top of `lowering_correct` instead of
+   inside it.
+5. **Scale the IR toward Plank SIR** (more operators, storage, function
+   calls) and wrap the theorem at the `Ξ`/`Θ` message-call boundary.
+6. Cosmetic: a number of `unusedSimpArgs` lint warnings remain in
+   `EVMLemmas.lean`; harmless.
 
-Main theorem:
-
-```lean
-current_evm_preservation_statement_is_false
-```
-
-This proves the current source semantics cannot preserve `EVM.X` for all initial states because source execution ignores EVM gas.
-
-## Why The EVM.X Theorem Failed
-
-The definitions are misaligned.
-
-1. Source `run` ignores EVM gas.
-
-   Example:
-
-   ```lean
-   add 0 (const 1) (const 2)
-   ```
-
-   This succeeds even when `initial.evm.gasAvailable = 0`.
-
-2. Lowered bytecode runs through `EVM.X`.
-
-   The first lowered instruction is `PUSH32`. `EVM.X` calls `EVM.Z`, and `Z` checks:
-
-   ```lean
-   C' PUSH32 = GasConstants.Gverylow = 3
-   ```
-
-   With zero gas, target execution fails with `.OutOfGass`.
-
-3. Source `CALL` uses an arbitrary `CallOracle`.
-
-   Real bytecode call goes through:
-
-   ```text
-   EVM.X -> EVM.Z -> EVM.step -> EVM.call
-   ```
-
-   An arbitrary oracle can return behavior impossible for EVM.
-
-4. Source locals are not EVM memory.
-
-   Lowered locals are stored in reserved memory slots. This needs a frame invariant, especially because `CALL` copies returndata into caller memory.
-
-## EVMYulLean Fork Changes
-
-In `forks/EVMYulLean`, helpers from `EVM.X` were exposed:
-
-- `EVM.belongs`
-- `EVM.notIn`
-- `EVM.W`
-- `EVM.Z`
-- `EVM.H`
-
-Files touched:
-
-- `forks/EVMYulLean/EvmYul/EVM/Semantics.lean`
-- `forks/EVMYulLean/EvmYul/UInt256.lean`
-- `forks/EVMYulLean/EvmYul/Wheels.lean`
-
-Caution: `Wheels.lean` and `UInt256.lean` were changed to make byte/array reasoning more tractable. Those changes should be reviewed against upstream EVMYulLean behavior.
-
-## Next Work
-
-Do not try to prove the current `LoweringPreservationSpec` as-is. It is false.
-
-The clean next path:
-
-1. Redesign IR semantics to be gas-aware.
-
-   Source execution must either charge the same costs as lowered bytecode or the theorem must include explicit enough-gas assumptions.
-
-2. Decide how source `CALL` is modeled.
-
-   Either make it executable EVM-backed from day one, or keep the oracle and require a precise hypothesis tying each oracle answer to the exact reached `EVM.call`.
-
-3. Prove bytecode execution compositionally.
-
-   Needed reusable lemmas:
-
-   - generic decode-at-prefix for `PUSH32`;
-   - generic decode-at-prefix for one-byte ops;
-   - `assembleOp_size`;
-   - instruction chunk theorem for each source instruction;
-   - `CALL; PUSH32 localSlot; MSTORE` theorem, not just `CALL`.
-
-4. Add a memory-frame invariant.
-
-   Either prove `CALL` output does not clobber reserved local slots, or choose a layout discipline that makes this impossible.
-
-5. Replace `LoweringPreservationSpec` with an actual theorem only after the definitions line up.
-
-## Useful Commands
+## Useful commands
 
 ```bash
 cd /Users/eduardo/workspace/evm-semantics/experiments/001_toy_external_call
 lake build
+rg -n "\bsorry\b|\badmit\b|\baxiom\b" ToyExternalCall
 ```
-
-```bash
-rg -n "\bsorry\b|\badmit\b|\baxiom\b" ToyExternalCall ../../forks/EVMYulLean/EvmYul/EVM/Semantics.lean
-```
-
-## Relevant Docs
-
-- `experiments/001_toy_external_call/docs/findings.md`
-- `experiments/001_toy_external_call/docs/wrong-attempts.md`
-- `experiments/001_toy_external_call/docs/plan.md`
