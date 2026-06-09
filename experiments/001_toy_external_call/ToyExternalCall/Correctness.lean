@@ -25,10 +25,10 @@ def withCode (state : EVM.State) (code : ByteArray) : EVM.State :=
   }
 
 def prefixEvmInitial (state : ToyState) (constant : Word) : EVM.State :=
-  withCode state.evm (Bytecode.prefixAddConst constant)
+  withCode state.evm (Bytecode.lower (prefixProgram constant))
 
-def prefixExpectedStack (state : ToyState) (constant : Word) : Stack Word :=
-  [constant + state.callDataLoad (UInt256.ofNat 0)]
+def prefixExpectedLocalValue (state : ToyState) (constant : Word) : Word :=
+  constant + state.callDataLoad (UInt256.ofNat 0)
 
 def prefixObservation (state : ToyState) (constant : Word) : Prop :=
   match run noCallOracle 3 state (prefixProgram constant) with
@@ -44,21 +44,18 @@ def prefixEvmResultMatches (state : ToyState) (constant : Word)
     (result : EVM.ExecutionResult EVM.State) : Prop :=
   match result with
   | .success evmState output =>
-      evmState.stack = prefixExpectedStack state constant ∧
+      evmState.toMachineState.lookupMemory (Bytecode.localSlot 1) =
+        prefixExpectedLocalValue state constant ∧
       output = ByteArray.empty
   | .revert _ _ => False
 
 theorem prefix_lowering_has_expected_code (state : ToyState) (constant : Word) :
-    (prefixEvmInitial state constant).executionEnv.code = Bytecode.prefixAddConst constant := by
+    (prefixEvmInitial state constant).executionEnv.code = Bytecode.lower (prefixProgram constant) := by
   rfl
-
-theorem lower_prefixProgram (constant : Word) :
-    Bytecode.lower (prefixProgram constant) = some (Bytecode.prefixAddConst constant) := by
-  simp [Bytecode.lower, prefixProgram]
 
 def RunsPrefixThroughEvmX (state : ToyState) (constant : Word) : Prop :=
   ∃ result,
-    EVM.X 6 (EVM.D_J (Bytecode.prefixAddConst constant) (UInt256.ofNat 0))
+    EVM.X 32 (EVM.D_J (Bytecode.lower (prefixProgram constant)) (UInt256.ofNat 0))
       (prefixEvmInitial state constant) =
       .ok result ∧
     prefixEvmResultMatches state constant result
@@ -88,22 +85,6 @@ theorem canonical_source_semantics
   simp [canonicalSourceResultMatches, canonicalProgram, run, evalInstr, FixedCallOracle,
     ToyState.readLocal, ToyState.writeLocal, ToyState.evalOperand, ToyState.callDataLoad,
     ToyState.evalCallRequest, ToyState.callInput, ToyState.setEvm, ToyState.setReturnData]
-
-def CanonicalLoweringSourceAndCodeAgree
-    (callArgs : CallArgs) (constant : Word) (state : ToyState) : Prop :=
-  Bytecode.canonicalProgramLowerable callArgs →
-  canonicalSourceResultMatches callArgs constant state ∧
-  ∃ concrete,
-    Bytecode.concreteCanonicalCallArgs? { callArgs with target := .local 1 } = some concrete ∧
-    Bytecode.lower (canonicalProgram callArgs constant) = some (Bytecode.lowerCanonical concrete constant)
-
-theorem canonical_lowering_source_and_code_agree
-    (callArgs : CallArgs) (constant : Word) (state : ToyState) :
-    CanonicalLoweringSourceAndCodeAgree callArgs constant state := by
-  intro hLowerable
-  rcases hLowerable with ⟨concrete, hConcrete⟩
-  refine ⟨canonical_source_semantics callArgs constant state, concrete, hConcrete, ?_⟩
-  simp [Bytecode.lower, canonicalProgram, hConcrete]
 
 end Correctness
 

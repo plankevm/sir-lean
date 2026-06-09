@@ -7,30 +7,6 @@ open EvmYul
 
 namespace Bytecode
 
-def constOperand? : Operand → Option Word
-  | .const value => some value
-  | .local _ => none
-
-structure ConcreteCallArgs where
-  gas : Word
-  value : Word
-  inOffset : Word
-  inSize : Word
-  outOffset : Word
-  outSize : Word
-
-def concreteCanonicalCallArgs? (callArgs : CallArgs) : Option ConcreteCallArgs := do
-  match callArgs.target with
-  | .local 1 => pure ()
-  | _ => none
-  pure
-    { gas := ← constOperand? callArgs.gas
-      value := ← constOperand? callArgs.value
-      inOffset := ← constOperand? callArgs.inOffset
-      inSize := ← constOperand? callArgs.inSize
-      outOffset := ← constOperand? callArgs.outOffset
-      outSize := ← constOperand? callArgs.outSize }
-
 def opcode (op : Operation .EVM) : UInt8 :=
   EVM.serializeInstr op
 
@@ -43,59 +19,69 @@ def push32 (value : Word) : ByteArray :=
 def appendMany : List ByteArray → ByteArray :=
   fun parts => ⟨parts.foldl (fun acc part => acc ++ part.data) #[]⟩
 
-def prefixAddConst (constant : Word) : ByteArray :=
+def localBase : Nat :=
+  1048576
+
+def localSlot (x : Local) : Word :=
+  UInt256.ofNat (localBase + 32 * x)
+
+def loadLocal (x : Local) : ByteArray :=
   appendMany
-    [ op .PUSH0
-    , op .CALLDATALOAD
-    , push32 constant
-    , op .ADD
-    , op .STOP
+    [ push32 (localSlot x)
+    , op .MLOAD
     ]
 
-def lowerCanonical (callArgs : ConcreteCallArgs) (constant : Word) : ByteArray :=
+def storeLocal (x : Local) : ByteArray :=
   appendMany
-    [ op .PUSH0
-    , op .CALLDATALOAD
-    , push32 constant
+    [ push32 (localSlot x)
+    , op .MSTORE
+    ]
+
+def compileOperand : Operand → ByteArray
+  | .const value => push32 value
+  | .local x => loadLocal x
+
+def compileAdd (dst : Local) (lhs rhs : Operand) : ByteArray :=
+  appendMany
+    [ compileOperand rhs
+    , compileOperand lhs
     , op .ADD
-    , push32 callArgs.outSize
-    , push32 callArgs.outOffset
-    , push32 callArgs.inSize
-    , push32 callArgs.inOffset
-    , push32 callArgs.value
-    , op .DUP6
-    , push32 callArgs.gas
+    , storeLocal dst
+    ]
+
+def compileCall (dst : Local) (args : CallArgs) : ByteArray :=
+  appendMany
+    [ compileOperand args.outSize
+    , compileOperand args.outOffset
+    , compileOperand args.inSize
+    , compileOperand args.inOffset
+    , compileOperand args.value
+    , compileOperand args.target
+    , compileOperand args.gas
     , op .CALL
-    , op .SWAP1
-    , op .POP
-    , op .STOP
+    , storeLocal dst
     ]
 
-def canonicalProgramLowerable (callArgs : CallArgs) : Prop :=
-  ∃ concrete, concreteCanonicalCallArgs? { callArgs with target := .local 1 } = some concrete
+def compileInstr : Instr → ByteArray
+  | .inputLoad dst offset =>
+      appendMany
+        [ compileOperand offset
+        , op .CALLDATALOAD
+        , storeLocal dst
+        ]
+  | .add dst lhs rhs =>
+      compileAdd dst lhs rhs
+  | .call dst args =>
+      compileCall dst args
 
-def lower : Program → Option ByteArray
-  | [ .inputLoad 0 (.const offset)
-    , .add 1 (.const constant) (.local 0)
-    ] =>
-      if offset = UInt256.ofNat 0 then
-        some (prefixAddConst constant)
-      else
-        none
-  | [ .inputLoad 0 (.const offset)
-    , .add 1 (.const constant) (.local 0)
-    , .call 2 callArgs
-    ] =>
-      if offset = UInt256.ofNat 0 then
-        match concreteCanonicalCallArgs? callArgs with
-        | some concrete => some (lowerCanonical concrete constant)
-        | none => none
-      else
-        none
-  | _ => none
+def lowerBody : Program → ByteArray :=
+  fun program => appendMany (program.map compileInstr)
+
+def lower (program : Program) : ByteArray :=
+  appendMany [lowerBody program, op .STOP]
 
 def prefixPushedConstant (constant : Word) : Word :=
-  uInt256OfByteArray ((prefixAddConst constant).extract' 3 35)
+  uInt256OfByteArray ((push32 constant).extract' 1 33)
 
 end Bytecode
 
