@@ -46,7 +46,7 @@ structure CallResult where
 
 inductive Instr where
   | inputLoad (dst : Local) (offset : Operand)
-  | addConst (dst src : Local) (value : Word)
+  | add (dst : Local) (lhs rhs : Operand)
   | call (dst : Local) (args : CallArgs)
   deriving Repr
 
@@ -115,8 +115,8 @@ inductive RunResult where
 def evalInstr (oracle : CallOracle) (s : ToyState) : Instr → StepResult
   | .inputLoad dst offset =>
       .ok (s.writeLocal dst (s.callDataLoad (s.evalOperand offset)))
-  | .addConst dst src value =>
-      .ok (s.writeLocal dst (value + s.readLocal src))
+  | .add dst lhs rhs =>
+      .ok (s.writeLocal dst (s.evalOperand lhs + s.evalOperand rhs))
   | .call dst args =>
       match oracle s (s.evalCallRequest args) with
       | .ok result =>
@@ -135,7 +135,7 @@ def run (oracle : CallOracle) : Nat → ToyState → Program → RunResult
 
 def canonicalProgram (callArgs : CallArgs) (constant : Word) : Program :=
   [ .inputLoad 0 (.const (UInt256.ofNat 0))
-  , .addConst 1 0 constant
+  , .add 1 (.const constant) (.local 0)
   , .call 2 { callArgs with target := .local 1 }
   ]
 

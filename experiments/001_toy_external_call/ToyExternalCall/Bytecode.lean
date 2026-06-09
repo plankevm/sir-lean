@@ -76,14 +76,14 @@ def canonicalProgramLowerable (callArgs : CallArgs) : Prop :=
 
 def lower : Program → Option ByteArray
   | [ .inputLoad 0 (.const offset)
-    , .addConst 1 0 constant
+    , .add 1 (.const constant) (.local 0)
     ] =>
       if offset = UInt256.ofNat 0 then
         some (prefixAddConst constant)
       else
         none
   | [ .inputLoad 0 (.const offset)
-    , .addConst 1 0 constant
+    , .add 1 (.const constant) (.local 0)
     , .call 2 callArgs
     ] =>
       if offset = UInt256.ofNat 0 then

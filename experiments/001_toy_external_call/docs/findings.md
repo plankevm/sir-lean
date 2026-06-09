@@ -12,7 +12,7 @@ The implemented artifact is intentionally small:
 
 - `Operand`: local or constant word;
 - `Instr.inputLoad`: load one EVM calldata word into a local;
-- `Instr.addConst`: add a constant to a local using `UInt256` arithmetic;
+- `Instr.add`: add two word operands using `UInt256` arithmetic;
 - `Instr.call`: evaluate the seven EVM `CALL` operands and delegate the call boundary to an oracle;
 - `run`: fuel-bounded interpreter over a linear list of instructions.
 - `Bytecode.lower`: a partial compiler from the existing `Program` type to EVM bytecode.
@@ -80,7 +80,7 @@ The lowering currently recognizes two shapes:
 
 ```lean
 [ inputLoad 0 0
-, addConst 1 0 constant
+, add 1 (const constant) (local 0)
 ]
 ```
 
@@ -102,7 +102,7 @@ The canonical call bytecode additionally pushes the six constant `CALL` operands
 
 What is proved today:
 
-- the source interpreter computes the expected local for calldata-load plus add-constant;
+- the source interpreter computes the expected local for calldata-load plus addition;
 - the source interpreter computes the expected locals for the canonical fixed-call oracle;
 - the partial compiler maps the recognized source programs to the intended bytecode.
 

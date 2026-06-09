@@ -9,7 +9,7 @@ namespace Correctness
 
 def prefixProgram (constant : Word) : Program :=
   [ .inputLoad 0 (.const (UInt256.ofNat 0))
-  , .addConst 1 0 constant
+  , .add 1 (.const constant) (.local 0)
   ]
 
 def noCallOracle : CallOracle :=

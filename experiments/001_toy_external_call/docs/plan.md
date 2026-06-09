@@ -5,7 +5,7 @@
 Implement the first Lean pilot for a tiny instruction-like IR with:
 
 - calldata word load;
-- add constant;
+- add two word operands;
 - external `CALL` as an instruction writing a success local;
 - gas, memory, return data, and EVM account state present from day one.
 
