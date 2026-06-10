@@ -24,7 +24,6 @@ example : ControlFlowGraph := {
   entry := ⟨0, by decide⟩
   entry_no_inputs := by decide
   blocks_valid := by simp [BasicBlock.valid_in_cfg, BasicBlock.successors, EndOp.successors]
-  is_ssa := by decide
   refs_valid := by
     simp [InnerCFG.refs_valid, InnerCFG.op_refs_valid, InnerCFG.end_op_refs_valid]
     constructor

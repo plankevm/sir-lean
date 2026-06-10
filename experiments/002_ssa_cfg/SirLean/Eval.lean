@@ -43,6 +43,37 @@ def EndOp.eval? : EndOp → Env → Option Continuation
 def BasicBlock.initialCtx (w : World) : Env :=
   { vars := .empty, world := w }
 
-def BasicBlock.eval? (bb : BasicBlock) (w : World) (vars : VarCtx) : Option (World × VarCtx × Continuation) := sorry
+def BasicBlock.eval? (bb : BasicBlock) (w : World) (vars : VarCtx) : Option (World × VarCtx × Continuation) := do
+  let ctx0 : Env := { vars := vars, world := w }
+  let ctx ← bb.ops.foldlM (fun ctx op => Op.eval? ctx op) ctx0
+  let cont ← bb.last.eval? ctx
+  some (ctx.world, ctx.vars, cont)
+
+inductive CFGEvalError where
+  | outOfFuel
+  | stuck
+deriving DecidableEq, Repr
+
+def ControlFlowGraph.eval?
+  (cfg : ControlFlowGraph)
+  (w : World)
+  (fuel : Nat) :
+  Except CFGEvalError (Termination × World) :=
+  let rec go : Nat → Fin cfg.blocks.size → World → VarCtx → Except CFGEvalError (Termination × World)
+    | 0, _, _, _ => .error .outOfFuel
+    | fuel + 1, bbIdx, w, vars =>
+        let bb := cfg.blocks[bbIdx]
+        match bb.eval? w vars with
+        | none => .error .stuck
+        | some (w', vars', .terminated t) => .ok (t, w')
+        | some (w', vars', .goto dst) =>
+            if hsucc : dst ∈ bb.successors then
+              let dstIdx := cfg.succ_to_idx (bb := bbIdx) hsucc
+              match vars'.transfer_block_io bb.outputs cfg.blocks[dstIdx].inputs (cfg.succ_io_size_eq bbIdx hsucc) with
+              | none => .error .stuck
+              | some vars'' => go fuel dstIdx w' vars''
+            else
+              .error .stuck
+  go fuel cfg.entry w VarCtx.empty
 
 end Sir
