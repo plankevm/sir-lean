@@ -88,4 +88,12 @@ def ControlFlowGraph.eval?
     Except CFGEvalError (Termination × World) :=
   cfg.evalGo? fuel cfg.entry w .empty
 
+/-- A CFG transformation preserves semantics when, from any initial world,
+the transformed program terminates with a given exit code and final world
+exactly when the original does. -/
+def PreservesSemantics (f : SSACFG → SSACFG) : Prop :=
+  ∀ (cfg : SSACFG) (w : World) (t : Termination) (w' : World),
+    (∃ fuel, (f cfg).val.eval? w fuel = .ok (t, w')) ↔
+      ∃ fuel, cfg.val.eval? w fuel = .ok (t, w')
+
 end Sir

@@ -327,7 +327,8 @@ No fuel: each non-fixpoint round strictly increases `score`, which is
 bounded by `maxScore`, so the recursion is well-founded. -/
 
 def solve (s : AbsState cfg) : AbsState cfg :=
-  if _h : step s = s then s else solve (step s)
+  let s' := step s
+  if _h : s' = s then s else solve s'
 termination_by maxScore cfg - s.score
 decreasing_by
   have hlt := AbsState.score_lt_of_lt (le_step s) (fun e => _h e.symm)
