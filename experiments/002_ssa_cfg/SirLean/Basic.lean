@@ -25,8 +25,9 @@ example : ControlFlowGraph := {
   entry_no_inputs := by decide
   blocks_valid := by simp [BasicBlock.valid_in_cfg, BasicBlock.successors, EndOp.successors]
   refs_valid := by
-    simp [InnerCFG.refs_valid, InnerCFG.op_refs_valid, InnerCFG.end_op_refs_valid]
-    constructor
+    simp [InnerCFG.refs_valid, InnerCFG.op_refs_valid, InnerCFG.end_op_refs_valid,
+      InnerCFG.block_output_refs_valid]
+    refine ⟨?_, ?_, ?_⟩
     · intro bi
       rcases bi with ⟨i, hi⟩
       cases i with
@@ -80,6 +81,16 @@ example : ControlFlowGraph := {
               left
               simp [BasicBlock.defs, Op.defs, EndOp.var_refs] at href ⊢
               exact href
+          | succ i =>
+              simp at hi
+              omega
+    · intro bi ref href
+      rcases bi with ⟨i, hi⟩
+      cases i with
+      | zero => simp at href
+      | succ i =>
+          cases i with
+          | zero => simp at href
           | succ i =>
               simp at hi
               omega

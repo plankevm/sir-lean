@@ -34,16 +34,14 @@ structure Env where
   vars : VarCtx
   world : World
 
+def VarCtx.transfer_var (start_vars vars : VarCtx) : VarId × VarId → Option VarCtx
+  | (out, inp) => (start_vars.get? out).map fun out_val => vars.set inp out_val
+
 def VarCtx.transfer_block_io (start_vars : VarCtx) (outputs inputs : Array VarId) : Option VarCtx :=
   do
     -- `Array.zip` would silently truncate on a size mismatch
     guard (outputs.size = inputs.size)
-    let transfer_var (vars : VarCtx) (out_in : VarId × VarId): Option VarCtx := do
-      let (out, inp) := out_in
-      let out_val ← start_vars.get? out
-      let vars' := vars.set inp out_val
-      some vars'
-    (outputs.zip inputs).foldlM transfer_var start_vars
+    (outputs.zip inputs).foldlM start_vars.transfer_var start_vars
 
 def Env.transfer_block_io (env : Env) (outputs inputs : Array VarId) : Option Env := do
   let vars' ← env.vars.transfer_block_io outputs inputs 

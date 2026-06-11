@@ -1,0 +1,1 @@
+- Do not add comments that restate what the code already says. Comment only non-obvious rationale or invariants.

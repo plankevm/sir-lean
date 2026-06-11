@@ -70,21 +70,22 @@ def ControlFlowGraph.resolveSucc?
   else
     throw .stuck
 
+def ControlFlowGraph.evalGo? (cfg : ControlFlowGraph) :
+    Nat → Fin cfg.blocks.size → World → VarCtx → Except CFGEvalError (Termination × World)
+  | 0, _, _, _ => throw .outOfFuel
+  | fuel + 1, bbIdx, w, vars => do
+    let bb := cfg.blocks[bbIdx]
+    let (w, vars, cont) ← bb.eval? w vars
+    match cont with
+    | .terminated t => return (t, w)
+    | .goto dst =>
+      let dstIdx ← cfg.resolveSucc? bbIdx dst
+      let vars ← vars.transfer_block_io bb.outputs cfg.blocks[dstIdx].inputs
+      cfg.evalGo? fuel dstIdx w vars
+
 def ControlFlowGraph.eval?
     (cfg : ControlFlowGraph) (w : World) (fuel : Nat) :
     Except CFGEvalError (Termination × World) :=
-  go fuel cfg.entry w .empty
-where
-  go : Nat → Fin cfg.blocks.size → World → VarCtx → Except CFGEvalError (Termination × World)
-    | 0, _, _, _ => throw .outOfFuel
-    | fuel + 1, bbIdx, w, vars => do
-      let bb := cfg.blocks[bbIdx]
-      let (w, vars, cont) ← bb.eval? w vars
-      match cont with
-      | .terminated t => return (t, w)
-      | .goto dst =>
-        let dstIdx ← cfg.resolveSucc? bbIdx dst
-        let vars ← vars.transfer_block_io bb.outputs cfg.blocks[dstIdx].inputs
-        go fuel dstIdx w vars
+  cfg.evalGo? fuel cfg.entry w .empty
 
 end Sir
