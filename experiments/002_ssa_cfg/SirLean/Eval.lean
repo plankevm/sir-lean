@@ -54,26 +54,37 @@ inductive CFGEvalError where
   | stuck
 deriving DecidableEq, Repr
 
-def ControlFlowGraph.eval?
+/-- `none` from a partial operation means evaluation got stuck. -/
+instance : MonadLift Option (Except CFGEvalError) where
+  monadLift
+    | some x => .ok x
+    | none => .error .stuck
+
+def ControlFlowGraph.resolveSucc?
   (cfg : ControlFlowGraph)
-  (w : World)
-  (fuel : Nat) :
-  Except CFGEvalError (Termination × World) :=
-  let rec go : Nat → Fin cfg.blocks.size → World → VarCtx → Except CFGEvalError (Termination × World)
-    | 0, _, _, _ => .error .outOfFuel
-    | fuel + 1, bbIdx, w, vars =>
-        let bb := cfg.blocks[bbIdx]
-        match bb.eval? w vars with
-        | none => .error .stuck
-        | some (w', vars', .terminated t) => .ok (t, w')
-        | some (w', vars', .goto dst) =>
-            if hsucc : dst ∈ bb.successors then
-              let dstIdx := cfg.succ_to_idx (bb := bbIdx) hsucc
-              match vars'.transfer_block_io bb.outputs cfg.blocks[dstIdx].inputs (cfg.succ_io_size_eq bbIdx hsucc) with
-              | none => .error .stuck
-              | some vars'' => go fuel dstIdx w' vars''
-            else
-              .error .stuck
-  go fuel cfg.entry w VarCtx.empty
+  (bbIdx : Fin cfg.blocks.size)
+  (dst : BasicBlockId) :
+  Except CFGEvalError (Fin cfg.blocks.size)  :=
+  if hsucc : dst ∈ cfg.blocks[bbIdx].successors then
+    .ok (cfg.succ_to_idx (bb := bbIdx) hsucc)
+  else
+    throw .stuck
+
+def ControlFlowGraph.eval?
+    (cfg : ControlFlowGraph) (w : World) (fuel : Nat) :
+    Except CFGEvalError (Termination × World) :=
+  go fuel cfg.entry w .empty
+where
+  go : Nat → Fin cfg.blocks.size → World → VarCtx → Except CFGEvalError (Termination × World)
+    | 0, _, _, _ => throw .outOfFuel
+    | fuel + 1, bbIdx, w, vars => do
+      let bb := cfg.blocks[bbIdx]
+      let (w, vars, cont) ← bb.eval? w vars
+      match cont with
+      | .terminated t => return (t, w)
+      | .goto dst =>
+        let dstIdx ← cfg.resolveSucc? bbIdx dst
+        let vars ← vars.transfer_block_io bb.outputs cfg.blocks[dstIdx].inputs
+        go fuel dstIdx w vars
 
 end Sir

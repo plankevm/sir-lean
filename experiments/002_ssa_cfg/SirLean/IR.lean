@@ -122,7 +122,7 @@ def InnerCFG.block_output_refs_valid (cfg : InnerCFG) : Prop :=
   ref ∈ cfg.blocks[bi].defs ∨ ¬ InnerCFG.PathWhereUndef cfg ref cfg.entry bi
 
 def InnerCFG.refs_valid (cfg : InnerCFG) : Prop :=
-  cfg.op_refs_valid ∧ cfg.end_op_refs_valid
+  cfg.op_refs_valid ∧ cfg.end_op_refs_valid ∧ cfg.block_output_refs_valid
 
 structure ControlFlowGraph where
   blocks: Array BasicBlock
@@ -130,6 +130,9 @@ structure ControlFlowGraph where
   entry_no_inputs : blocks[entry].inputs.isEmpty = true
   blocks_valid : ∀ block ∈ blocks, block.valid_in_cfg blocks
   refs_valid : InnerCFG.refs_valid ⟨ blocks, entry, blocks_valid ⟩
+
+def ControlFlowGraph.inner (cfg : ControlFlowGraph) : InnerCFG :=
+  ⟨cfg.blocks, cfg.entry, cfg.blocks_valid⟩
 
 def ControlFlowGraph.is_ssa (cfg : ControlFlowGraph) : Prop := (cfg.blocks.flatMap BasicBlock.defs).toList.Nodup
 

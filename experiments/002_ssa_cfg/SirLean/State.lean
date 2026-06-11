@@ -34,15 +34,10 @@ structure Env where
   vars : VarCtx
   world : World
 
-/-- Logical lookup relation used by the small-step semantics. -/
-def Env.var_eq (env : Env) (key : VarId) (value : Word) : Prop :=
-  env.vars.get? key = some value
-
-def VarCtx.transfer_block_io
-  (start_vars : VarCtx)
-  (outputs inputs : Array VarId)
-  (_in_eq_out : outputs.size = inputs.size) : Option VarCtx :=
+def VarCtx.transfer_block_io (start_vars : VarCtx) (outputs inputs : Array VarId) : Option VarCtx :=
   do
+    -- `Array.zip` would silently truncate on a size mismatch
+    guard (outputs.size = inputs.size)
     let transfer_var (vars : VarCtx) (out_in : VarId × VarId): Option VarCtx := do
       let (out, inp) := out_in
       let out_val ← start_vars.get? out
@@ -50,11 +45,8 @@ def VarCtx.transfer_block_io
       some vars'
     (outputs.zip inputs).foldlM transfer_var start_vars
 
-def Env.transfer_block_io
-  (env : Env)
-  (outputs inputs : Array VarId)
-  (in_eq_out : outputs.size = inputs.size) : Option Env := do
-  let vars' ← env.vars.transfer_block_io outputs inputs in_eq_out
+def Env.transfer_block_io (env : Env) (outputs inputs : Array VarId) : Option Env := do
+  let vars' ← env.vars.transfer_block_io outputs inputs 
   some { env with vars := vars' }
 
 inductive Termination where
