@@ -1,5 +1,16 @@
 import SirLean.Proof
 
+/-!
+# SIR specification
+
+Audit surface: this file plus the definitions its statements reach —
+`IR.lean` (program representation and validity), `State.lean` (execution
+state), `Eval.lean` (executable semantics), `SmallStep.lean` (small-step
+semantics). `Proof.lean` contains only proofs and proof-internal
+definitions; it is kernel-checked and needs no human review. Proof-layer
+names must not appear in the statements below.
+-/
+
 namespace Sir
 
 theorem ControlFlowGraph.eval?_iff_steps
@@ -13,5 +24,17 @@ theorem ControlFlowGraph.progress
     (hreach : CFGSteps cfg (cfg.initialConf w) c) :
     (∃ t w', c = .done t w') ∨ (∃ c', StepCFG cfg c c') :=
   ControlFlowGraph.progress.proof cfg w c hreach
+
+/--
+info: 'Sir.ControlFlowGraph.eval?_iff_steps' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ControlFlowGraph.eval?_iff_steps
+
+/--
+info: 'Sir.ControlFlowGraph.progress' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms ControlFlowGraph.progress
 
 end Sir

@@ -378,8 +378,9 @@ theorem evalGo?_sound {cfg : ControlFlowGraph} :
 
 /-! ### Big-step completeness (small-step reaches `done` → `eval?` ok) -/
 
-/-- Evaluation of a configuration: finish the current block from `pc`, then
-continue via `evalGo?` with `fuel`. -/
+/-- Proof-internal: `eval?` cannot be entered mid-block, but trace induction
+passes through mid-block configurations, so they need a denotable
+evaluation. -/
 def ControlFlowGraph.cEval? (cfg : ControlFlowGraph) (fuel : Nat) :
     Conf → Except CFGEvalError (Termination × World)
   | .done t w => .ok (t, w)
@@ -517,7 +518,7 @@ def Avail (cfg : ControlFlowGraph) (bb : Fin cfg.blocks.size) (pc : Nat)
     (v : VarId) : Prop :=
   v ∈ cfg.blocks[bb].inputs
   ∨ (∃ i, ∃ hi : i < cfg.blocks[bb].ops.size, i < pc ∧ v ∈ cfg.blocks[bb].ops[i].defs)
-  ∨ ¬ cfg.inner.PathWhereUndef v cfg.entry bb
+  ∨ cfg.inner.DefinedOnAllPaths v bb
 
 def WF (cfg : ControlFlowGraph) : Conf → Prop
   | .done _ _ => True
@@ -634,7 +635,7 @@ theorem wf_progress {cfg : ControlFlowGraph} {c : Conf} (hwf : WF cfg c) :
       exact ⟨_, .op hbb hlt henv'⟩
     · have hpceq : pc = (cfg.blocks[bb]'hbb).ops.size := by omega
       have hat : ∀ r, r ∈ (cfg.blocks[bb]'hbb).defs ∨
-          ¬ cfg.inner.PathWhereUndef r cfg.entry ⟨bb, hbb⟩ →
+          cfg.inner.DefinedOnAllPaths r ⟨bb, hbb⟩ →
           (env.vars.get? r).isSome := by
         intro r hd
         rcases hd with hd | hnp

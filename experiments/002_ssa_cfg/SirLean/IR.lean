@@ -28,7 +28,6 @@ inductive Op where
   | persistentStore (addr value : VarId)
 
 
-/-- The variables defined by an operation. -/
 def Op.defs : Op → Array VarId
   | .const var _ => #[var]
   | .add32 res _ _ => #[res]
@@ -100,6 +99,10 @@ def InnerCFG.PathWhereUndef (cfg : InnerCFG) (var : VarId) :=
   Relation.ReflTransGen (fun (pred succ : Fin cfg.blocks.size) =>
     ⟨ succ ⟩ ∈ cfg.blocks[pred].successors ∧ var ∉ cfg.blocks[pred].defs)
 
+def InnerCFG.DefinedOnAllPaths (cfg : InnerCFG) (var : VarId)
+    (bb : Fin cfg.blocks.size) : Prop :=
+  ¬ cfg.PathWhereUndef var cfg.entry bb
+
 theorem InnerCFG.undef_at_entry :
     ∀ cfg : InnerCFG, ∀ var : VarId, InnerCFG.PathWhereUndef cfg var cfg.entry cfg.entry := by
     simp [InnerCFG.PathWhereUndef]
@@ -109,17 +112,17 @@ def InnerCFG.op_refs_valid (cfg : InnerCFG) : Prop :=
   ∀ bi : Fin cfg.blocks.size,
   ∀ opi : Fin cfg.blocks[bi].ops.size,
   ∀ ref ∈ cfg.blocks[bi].ops[opi].refs,
-  ref ∈ cfg.blocks[bi].defs_up_to opi ∨ ¬ InnerCFG.PathWhereUndef cfg ref cfg.entry bi
+  ref ∈ cfg.blocks[bi].defs_up_to opi ∨ cfg.DefinedOnAllPaths ref bi
 
 def InnerCFG.end_op_refs_valid (cfg : InnerCFG) : Prop :=
   ∀ bi : Fin cfg.blocks.size,
-  ∀ ref ∈ cfg.blocks[bi].last.var_refs ,
-  ref ∈ cfg.blocks[bi].defs ∨ ¬ InnerCFG.PathWhereUndef cfg ref cfg.entry bi
+  ∀ ref ∈ cfg.blocks[bi].last.var_refs,
+  ref ∈ cfg.blocks[bi].defs ∨ cfg.DefinedOnAllPaths ref bi
 
 def InnerCFG.block_output_refs_valid (cfg : InnerCFG) : Prop :=
   ∀ bi : Fin cfg.blocks.size,
-  ∀ ref ∈ cfg.blocks[bi].outputs ,
-  ref ∈ cfg.blocks[bi].defs ∨ ¬ InnerCFG.PathWhereUndef cfg ref cfg.entry bi
+  ∀ ref ∈ cfg.blocks[bi].outputs,
+  ref ∈ cfg.blocks[bi].defs ∨ cfg.DefinedOnAllPaths ref bi
 
 def InnerCFG.refs_valid (cfg : InnerCFG) : Prop :=
   cfg.op_refs_valid ∧ cfg.end_op_refs_valid ∧ cfg.block_output_refs_valid
