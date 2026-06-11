@@ -1,4 +1,5 @@
 import ToyExternalCall.Bytecode
+import ToyExternalCall.Metered
 
 /-!
 # Reusable lemmas about EVMYulLean's executable semantics
