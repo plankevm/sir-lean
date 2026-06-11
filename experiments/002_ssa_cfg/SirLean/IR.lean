@@ -26,6 +26,7 @@ inductive Op where
   | lessThan (res lhs rhs : VarId)
   | persistentLoad (out addr : VarId)
   | persistentStore (addr value : VarId)
+deriving DecidableEq, Repr
 
 
 def Op.defs : Op → Array VarId
@@ -42,17 +43,17 @@ def Op.refs : Op → List VarId
   | .persistentLoad _ addr => [addr]
   | .persistentStore addr value => [addr, value]
 
-
-
 structure JumpIf where
   cond : VarId
   dst_if_zero : BasicBlockId
   dst_if_non_zero : BasicBlockId
+deriving DecidableEq, Repr
 
 inductive EndOp where
   | exit (exit_code_var : VarId)
   | jump (dst : BasicBlockId)
   | jump_if (j : JumpIf)
+deriving DecidableEq, Repr
 
 def EndOp.var_refs : EndOp → Array VarId
   | .exit exit_code_var => #[exit_code_var]
@@ -148,6 +149,8 @@ def ControlFlowGraph.succ_to_idx
     have := cfg.blocks_valid cfg.blocks[bb] (by simp) s
     grind
   }⟩
+
+abbrev SSACFG := { cfg : ControlFlowGraph // cfg.is_ssa }
 
 theorem ControlFlowGraph.succ_io_size_eq
   (cfg : ControlFlowGraph)
