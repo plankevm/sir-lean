@@ -23,10 +23,25 @@ clone_or_update() {
   git -C "$dest" checkout "$rev"
 }
 
+# Read-only reference repos, pinned to the revisions the docs cite.
 clone_or_update "EVMYulLean" "https://github.com/NethermindEth/EVMYulLean.git" "047f63070309f436b66c61e276ab3b6d1169265a"
 clone_or_update "verity" "https://github.com/lfglabs-dev/verity.git" "30777c293e1cb9e7ce307833cb69f01d1400a666"
 clone_or_update "verifereum" "https://github.com/verifereum/verifereum.git" "114e4d3d6b605c84d9b27bf772fb2a76dc93bff2"
 clone_or_update "vyper-hol" "https://github.com/verifereum/vyper-hol.git" "fbb5a4043229da8d769c8f18a28389bc1fd4fc38"
 clone_or_update "plank-monorepo" "https://github.com/plankevm/plank-monorepo.git" "adc751211c404f33210fa5a48417474c9302913b"
+
+# leanevm is our WORKING BASE EVM semantics (experiment 003 onward), not a pinned
+# read-only reference: track its default branch and contribute changes upstream
+# (PR to philogy/leanevm, or our fork). EthereumTests is a submodule needed only
+# for the conformance harness — initialize it separately with:
+#   git -C "$FORKS_DIR/leanevm" submodule update --init EthereumTests
+LEANEVM_DIR="$FORKS_DIR/leanevm"
+if [ -d "$LEANEVM_DIR/.git" ]; then
+  echo "Updating leanevm"
+  git -C "$LEANEVM_DIR" pull --ff-only || echo "  (skipped fast-forward; leanevm has local work)"
+else
+  echo "Cloning leanevm"
+  git clone "https://github.com/philogy/leanevm.git" "$LEANEVM_DIR"
+fi
 
 echo "Done. Forks are available under $FORKS_DIR."
