@@ -1,5 +1,9 @@
 # Experiment 001 Wrong Attempts
 
+> **Archived — historical dead-ends log** from the closed experiment 001. Still
+> useful as "what not to do"; the positive proof-engineering patterns live in
+> [../findings.md](../findings.md).
+
 This file records mistakes in the toy SIR/EVM lowering attempt so future work does not repeat them.
 
 ## Opcode Trace Shortcut

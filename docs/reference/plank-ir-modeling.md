@@ -26,7 +26,7 @@ if let Some(passes) = optimizations {
 sir_release_backend::ir_to_bytecode(&program, &analyses, &mut bytecode);
 ```
 
-Source: [`forks/plank-monorepo/plankc/frontend/driver/src/lib.rs`](../forks/plank-monorepo/plankc/frontend/driver/src/lib.rs)
+Source: [`forks/plank-monorepo/plankc/frontend/driver/src/lib.rs`](../../forks/plank-monorepo/plankc/frontend/driver/src/lib.rs)
 
 ## HIR
 
@@ -46,7 +46,7 @@ pub enum InstructionKind {
 }
 ```
 
-Source: [`forks/plank-monorepo/plankc/frontend/hir/src/lib.rs`](../forks/plank-monorepo/plankc/frontend/hir/src/lib.rs)
+Source: [`forks/plank-monorepo/plankc/frontend/hir/src/lib.rs`](../../forks/plank-monorepo/plankc/frontend/hir/src/lib.rs)
 
 HIR is valuable for source-language reasoning, but it is not the first place to connect to EVM semantics.
 
@@ -72,7 +72,7 @@ pub enum Instruction {
 }
 ```
 
-Source: [`forks/plank-monorepo/plankc/frontend/mir/src/lib.rs`](../forks/plank-monorepo/plankc/frontend/mir/src/lib.rs)
+Source: [`forks/plank-monorepo/plankc/frontend/mir/src/lib.rs`](../../forks/plank-monorepo/plankc/frontend/mir/src/lib.rs)
 
 MIR is a reasonable semantics target if the goal is to reason about language constructs. But its runtime builtins already point below it.
 
@@ -94,7 +94,7 @@ pub struct EthIRProgram {
 }
 ```
 
-Source: [`forks/plank-monorepo/plankc/sir/crates/data/src/lib.rs`](../forks/plank-monorepo/plankc/sir/crates/data/src/lib.rs)
+Source: [`forks/plank-monorepo/plankc/sir/crates/data/src/lib.rs`](../../forks/plank-monorepo/plankc/sir/crates/data/src/lib.rs)
 
 The operation universe includes direct EVM operations plus IR-specific operations:
 
@@ -111,7 +111,7 @@ Return(InlineOperands<2, 0>) "return",
 Revert(InlineOperands<2, 0>) "revert",
 ```
 
-Source: [`forks/plank-monorepo/plankc/sir/crates/data/src/operation/mod.rs`](../forks/plank-monorepo/plankc/sir/crates/data/src/operation/mod.rs)
+Source: [`forks/plank-monorepo/plankc/sir/crates/data/src/operation/mod.rs`](../../forks/plank-monorepo/plankc/sir/crates/data/src/operation/mod.rs)
 
 Many SIR operations lower literally to EVM opcodes:
 
@@ -131,7 +131,7 @@ pub fn as_literal_evm_op(self) -> Option<u8> {
 }
 ```
 
-Source: [`forks/plank-monorepo/plankc/sir/crates/data/src/operation/mod.rs`](../forks/plank-monorepo/plankc/sir/crates/data/src/operation/mod.rs)
+Source: [`forks/plank-monorepo/plankc/sir/crates/data/src/operation/mod.rs`](../../forks/plank-monorepo/plankc/sir/crates/data/src/operation/mod.rs)
 
 ## Raw EVM Builtins
 
@@ -149,7 +149,7 @@ RETURN "@evm_return" => Return;
 REVERT "@evm_revert" => Revert;
 ```
 
-Source: [`forks/plank-monorepo/plankc/frontend/session/src/builtins.rs`](../forks/plank-monorepo/plankc/frontend/session/src/builtins.rs)
+Source: [`forks/plank-monorepo/plankc/frontend/session/src/builtins.rs`](../../forks/plank-monorepo/plankc/frontend/session/src/builtins.rs)
 
 These builtins lower directly into SIR operations:
 
@@ -161,7 +161,7 @@ RuntimeBuiltin::DelegateCall => OperationKind::DelegateCall,
 RuntimeBuiltin::StaticCall => OperationKind::StaticCall,
 ```
 
-Source: [`forks/plank-monorepo/plankc/frontend/mir-lower/src/builtins.rs`](../forks/plank-monorepo/plankc/frontend/mir-lower/src/builtins.rs)
+Source: [`forks/plank-monorepo/plankc/frontend/mir-lower/src/builtins.rs`](../../forks/plank-monorepo/plankc/frontend/mir-lower/src/builtins.rs)
 
 ## Recommended SIR Semantic State
 
@@ -198,7 +198,7 @@ SirResult =
 
 This mirrors Venom's `OK`, `Halt`, `Abort Revert_abort`, `Abort ExHalt_abort`, `IntRet`, and `Error`.
 
-See [SIR to bytecode correctness](./sir-to-bytecode.md) for the state relation needed between this SIR state and EVMYulLean bytecode execution.
+See [SIR to bytecode correctness](../planning/sir-to-bytecode.md) for the state relation needed between this SIR state and EVMYulLean bytecode execution.
 
 ## What to Prove First
 

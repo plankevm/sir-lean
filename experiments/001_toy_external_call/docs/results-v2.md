@@ -8,7 +8,7 @@ This documents what v2 set out to do, what was actually achieved, and — per
 the brief — an honest accounting of where it fell short of the hope and what
 the rough edges are. The strategic conclusion drawn from this work (retire
 the toy IR, go bytecode-first) lives in
-[`docs/bytecode-first-plan.md`](../../../docs/bytecode-first-plan.md).
+[`docs/planning/bytecode-first-plan.md`](../../../docs/planning/bytecode-first-plan.md).
 
 ## 1. What v2 set out to do
 
@@ -132,7 +132,7 @@ architecture level**, in an instructive way: the proof still routes through a
 gas ledger and a lockstep simulation, and the IR being a bijective
 re-notation of bytecode means most of the proof effort buys no abstraction.
 That observation, plus the findings above, motivated the decision recorded in
-[`bytecode-first-plan.md`](../../../docs/bytecode-first-plan.md): retire the
+[`bytecode-first-plan.md`](../../../docs/planning/bytecode-first-plan.md): retire the
 toy IR, invest in a reusable reasoning layer over the (vendored, EVM-only)
 bytecode semantics with theorem boundaries at the message-call level, and
 make Plank SIR the first IR with a genuine abstraction gap.

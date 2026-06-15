@@ -16,7 +16,7 @@ Definition lookup_storage_def:
 End
 ```
 
-Source: [`forks/verifereum/spec/vfmStateScript.sml`](../forks/verifereum/spec/vfmStateScript.sml)
+Source: [`forks/verifereum/spec/vfmStateScript.sml`](../../forks/verifereum/spec/vfmStateScript.sml)
 
 Accounts are total by address and contain nonce, balance, storage, and code:
 
@@ -33,7 +33,7 @@ End
 Type evm_accounts = ":address -> account_state"
 ```
 
-Source: [`forks/verifereum/spec/vfmStateScript.sml`](../forks/verifereum/spec/vfmStateScript.sml)
+Source: [`forks/verifereum/spec/vfmStateScript.sml`](../../forks/verifereum/spec/vfmStateScript.sml)
 
 ### Memory, Storage, and Calls
 
@@ -49,7 +49,7 @@ Definition expand_memory_def:
 End
 ```
 
-Source: [`forks/verifereum/spec/vfmExecutionScript.sml`](../forks/verifereum/spec/vfmExecutionScript.sml)
+Source: [`forks/verifereum/spec/vfmExecutionScript.sml`](../../forks/verifereum/spec/vfmExecutionScript.sml)
 
 Storage writes update the account map:
 
@@ -63,7 +63,7 @@ Definition write_storage_def:
 End
 ```
 
-Source: [`forks/verifereum/spec/vfmExecutionScript.sml`](../forks/verifereum/spec/vfmExecutionScript.sml)
+Source: [`forks/verifereum/spec/vfmExecutionScript.sml`](../../forks/verifereum/spec/vfmExecutionScript.sml)
 
 Calls are modeled inside the opcode-level small-step semantics by a large `step_call` handler. This is not "big-step semantics"; it is one EVM instruction whose one-step effect is large because `CALL` itself creates a new call frame. The handler consumes stack arguments, computes memory expansion and gas, checks value/static/depth conditions, then pushes a new call context or aborts.
 
@@ -81,7 +81,7 @@ Definition step_call_def:
 End
 ```
 
-Source: [`forks/verifereum/spec/vfmExecutionScript.sml`](../forks/verifereum/spec/vfmExecutionScript.sml)
+Source: [`forks/verifereum/spec/vfmExecutionScript.sml`](../../forks/verifereum/spec/vfmExecutionScript.sml)
 
 Return/revert from a nested frame is handled by popping the current context and either incorporating logs/refunds or restoring rollback state:
 
@@ -101,7 +101,7 @@ Definition pop_and_incorporate_context_def:
 End
 ```
 
-Source: [`forks/verifereum/spec/vfmExecutionScript.sml`](../forks/verifereum/spec/vfmExecutionScript.sml)
+Source: [`forks/verifereum/spec/vfmExecutionScript.sml`](../../forks/verifereum/spec/vfmExecutionScript.sml)
 
 ### Small-Step EVM
 
@@ -123,7 +123,7 @@ Definition step_def:
 End
 ```
 
-Source: [`forks/verifereum/spec/vfmExecutionScript.sml`](../forks/verifereum/spec/vfmExecutionScript.sml)
+Source: [`forks/verifereum/spec/vfmExecutionScript.sml`](../../forks/verifereum/spec/vfmExecutionScript.sml)
 
 `run` iterates `step` until termination:
 
@@ -133,7 +133,7 @@ Definition run_def:
 End
 ```
 
-Source: [`forks/verifereum/spec/vfmExecutionScript.sml`](../forks/verifereum/spec/vfmExecutionScript.sml)
+Source: [`forks/verifereum/spec/vfmExecutionScript.sml`](../../forks/verifereum/spec/vfmExecutionScript.sml)
 
 ### Spec Layer
 
@@ -152,7 +152,7 @@ Datatype:
 End
 ```
 
-Source: [`forks/verifereum/prog/vfmProgScript.sml`](../forks/verifereum/prog/vfmProgScript.sml)
+Source: [`forks/verifereum/prog/vfmProgScript.sml`](../../forks/verifereum/prog/vfmProgScript.sml)
 
 This layer is useful when proving local specs without exposing the entire record state every time. The reason all components live in one sum type is that the generic `prog`/separation-logic machinery wants a set of resources. `Stack`, `Memory`, `PC`, `ReturnData`, `GasUsed`, and `MsgParams` become independently mentionable resources rather than fields in one indivisible record.
 
@@ -165,7 +165,7 @@ Definition EVM_NEXT_REL_def:
 End
 ```
 
-Source: [`forks/verifereum/prog/vfmProgScript.sml`](../forks/verifereum/prog/vfmProgScript.sml)
+Source: [`forks/verifereum/prog/vfmProgScript.sml`](../../forks/verifereum/prog/vfmProgScript.sml)
 
 Design consequence: Verifereum pays for extra projection infrastructure but gains local Hoare/separation-style specifications. EVMYulLean currently gives a more direct executable model but not this mature relational wrapper.
 
@@ -189,7 +189,7 @@ Datatype:
 End
 ```
 
-Source: [`forks/vyper-hol/semantics/vyperStateScript.sml`](../forks/vyper-hol/semantics/vyperStateScript.sml)
+Source: [`forks/vyper-hol/semantics/vyperStateScript.sml`](../../forks/vyper-hol/semantics/vyperStateScript.sml)
 
 The whole source-level abstract machine stores deployed sources, exports, layouts, accounts, transient storage, and logs:
 
@@ -206,7 +206,7 @@ Datatype:
 End
 ```
 
-Source: [`forks/vyper-hol/semantics/vyperInterpreterScript.sml`](../forks/vyper-hol/semantics/vyperInterpreterScript.sml)
+Source: [`forks/vyper-hol/semantics/vyperInterpreterScript.sml`](../../forks/vyper-hol/semantics/vyperInterpreterScript.sml)
 
 ### Source Semantics
 
@@ -224,7 +224,7 @@ Definition evaluate_def:
   eval_stmts cx (s::ss) = do eval_stmt cx s; eval_stmts cx ss od
 ```
 
-Source: [`forks/vyper-hol/semantics/vyperInterpreterScript.sml`](../forks/vyper-hol/semantics/vyperInterpreterScript.sml)
+Source: [`forks/vyper-hol/semantics/vyperInterpreterScript.sml`](../../forks/vyper-hol/semantics/vyperInterpreterScript.sml)
 
 There is also a CPS/small-step-flavored source semantics with explicit continuations:
 
@@ -240,7 +240,7 @@ Datatype:
 End
 ```
 
-Source: [`forks/vyper-hol/semantics/vyperSmallStepScript.sml`](../forks/vyper-hol/semantics/vyperSmallStepScript.sml)
+Source: [`forks/vyper-hol/semantics/vyperSmallStepScript.sml`](../../forks/vyper-hol/semantics/vyperSmallStepScript.sml)
 
 ### Venom IR
 
@@ -261,7 +261,7 @@ Datatype:
 End
 ```
 
-Source: [`forks/vyper-hol/venom/defs/venomInstScript.sml`](../forks/vyper-hol/venom/defs/venomInstScript.sml)
+Source: [`forks/vyper-hol/venom/defs/venomInstScript.sml`](../../forks/vyper-hol/venom/defs/venomInstScript.sml)
 
 Venom state contains memory, SSA variables, control-flow position, returndata, accounts, transient storage, contexts, logs, data section, code, parameters, and allocation metadata:
 
@@ -283,7 +283,7 @@ Datatype:
 End
 ```
 
-Source: [`forks/vyper-hol/venom/defs/venomStateScript.sml`](../forks/vyper-hol/venom/defs/venomStateScript.sml)
+Source: [`forks/vyper-hol/venom/defs/venomStateScript.sml`](../../forks/vyper-hol/venom/defs/venomStateScript.sml)
 
 Venom execution is small-step at the instruction level and block-step at the CFG level:
 
@@ -304,7 +304,7 @@ Definition run_defs:
 End
 ```
 
-Source: [`forks/vyper-hol/venom/defs/venomExecSemanticsScript.sml`](../forks/vyper-hol/venom/defs/venomExecSemanticsScript.sml)
+Source: [`forks/vyper-hol/venom/defs/venomExecSemanticsScript.sml`](../../forks/vyper-hol/venom/defs/venomExecSemanticsScript.sml)
 
 ### Lowering Correctness Shape
 
@@ -327,7 +327,7 @@ Theorem vyper_to_venom_correct:
         ret (call_external am tx) (run_context fuel ctx vs)
 ```
 
-Source: [`forks/vyper-hol/lowering/vyperLoweringCorrectScript.sml`](../forks/vyper-hol/lowering/vyperLoweringCorrectScript.sml)
+Source: [`forks/vyper-hol/lowering/vyperLoweringCorrectScript.sml`](../../forks/vyper-hol/lowering/vyperLoweringCorrectScript.sml)
 
 The proof is currently `cheat`ed, so this is a blueprint rather than completed evidence that the bridge is easy.
 
@@ -355,6 +355,6 @@ Definition venom_asm_rel_def:
 End
 ```
 
-Source: [`forks/vyper-hol/venom/codegen/defs/codegenRelScript.sml`](../forks/vyper-hol/venom/codegen/defs/codegenRelScript.sml)
+Source: [`forks/vyper-hol/venom/codegen/defs/codegenRelScript.sml`](../../forks/vyper-hol/venom/codegen/defs/codegenRelScript.sml)
 
-The result relation should include externally observable effects: storage/accounts, transient storage, logs, returndata, return/revert/exception mode, and call context. For Plank, see [SIR to bytecode correctness](./sir-to-bytecode.md).
+The result relation should include externally observable effects: storage/accounts, transient storage, logs, returndata, return/revert/exception mode, and call context. For Plank, see [SIR to bytecode correctness](../planning/sir-to-bytecode.md).

@@ -21,7 +21,7 @@ structure State (tau : OperationType) where
   createdAccounts     : Batteries.RBSet AccountAddress compare
 ```
 
-Source: [`forks/EVMYulLean/EvmYul/State.lean`](../forks/EVMYulLean/EvmYul/State.lean)
+Source: [`forks/EVMYulLean/EvmYul/State.lean`](../../forks/EVMYulLean/EvmYul/State.lean)
 
 Machine state:
 
@@ -34,7 +34,7 @@ structure MachineState where
   H_return     : ByteArray
 ```
 
-Source: [`forks/EVMYulLean/EvmYul/MachineState.lean`](../forks/EVMYulLean/EvmYul/MachineState.lean)
+Source: [`forks/EVMYulLean/EvmYul/MachineState.lean`](../../forks/EVMYulLean/EvmYul/MachineState.lean)
 
 Execution environment:
 
@@ -52,7 +52,7 @@ structure ExecutionEnv (tau : OperationType) where
   perm      : Bool
 ```
 
-Source: [`forks/EVMYulLean/EvmYul/State/ExecutionEnv.lean`](../forks/EVMYulLean/EvmYul/State/ExecutionEnv.lean)
+Source: [`forks/EVMYulLean/EvmYul/State/ExecutionEnv.lean`](../../forks/EVMYulLean/EvmYul/State/ExecutionEnv.lean)
 
 The EVM-specific state extends this with `pc`, `stack`, and `execLength`. This makes the executable EVM a program-counter-and-stack machine, while Yul uses the same world and machine state under a variable-store wrapper.
 
@@ -78,7 +78,7 @@ def step (fuel : Nat) (gasCost : Nat)
       | .CREATE => ...
 ```
 
-Source: [`forks/EVMYulLean/EvmYul/EVM/Semantics.lean`](../forks/EVMYulLean/EvmYul/EVM/Semantics.lean)
+Source: [`forks/EVMYulLean/EvmYul/EVM/Semantics.lean`](../../forks/EVMYulLean/EvmYul/EVM/Semantics.lean)
 
 This is "small step" because one call to `step` handles one EVM instruction. Larger Yellow Paper-style functions such as `X`, `Theta`, and `Upsilon` iterate or wrap the single-step semantics for message calls and transactions. See [Jargon and semantic styles](./jargon.md) for the distinction between `step`, `run`, big-step source evaluation, and relational proof layers.
 
@@ -93,7 +93,7 @@ abbrev contractCode (tau : OperationType) :=
   | .Yul => YulContract
 ```
 
-Source: [`forks/EVMYulLean/EvmYul/Yul/Ast.lean`](../forks/EVMYulLean/EvmYul/Yul/Ast.lean)
+Source: [`forks/EVMYulLean/EvmYul/Yul/Ast.lean`](../../forks/EVMYulLean/EvmYul/Yul/Ast.lean)
 
 Yul has its own state wrapper:
 
@@ -104,7 +104,7 @@ inductive State where
   | Checkpoint : Jump -> State
 ```
 
-Source: [`forks/EVMYulLean/EvmYul/Yul/State.lean`](../forks/EVMYulLean/EvmYul/Yul/State.lean)
+Source: [`forks/EVMYulLean/EvmYul/Yul/State.lean`](../../forks/EVMYulLean/EvmYul/Yul/State.lean)
 
 Yul execution is a **fuel-bounded interpreter over Yul syntax**, with mutually recursive expression and statement evaluators:
 
@@ -113,7 +113,7 @@ def eval (fuel : Nat) (expr : Expr) ... : Except Yul.Exception (State × Literal
 def exec (fuel : Nat) (stmt : Stmt) ... : Except Yul.Exception State
 ```
 
-Source: [`forks/EVMYulLean/EvmYul/Yul/Interpreter.lean`](../forks/EVMYulLean/EvmYul/Yul/Interpreter.lean)
+Source: [`forks/EVMYulLean/EvmYul/Yul/Interpreter.lean`](../../forks/EVMYulLean/EvmYul/Yul/Interpreter.lean)
 
 Design consequence: Yul is a useful intermediate target when the compiler already emits Yul-like structured code. Plank's SIR is lower-level than Verity's Yul layer and already has bytecode-oriented operations, so SIR should probably get its own semantics rather than being encoded as Yul just to reuse this interpreter.
 
@@ -142,7 +142,7 @@ structure ContractState where
   events           : List Event := []
 ```
 
-Source: [`forks/verity/Verity/Core.lean`](../forks/verity/Verity/Core.lean)
+Source: [`forks/verity/Verity/Core.lean`](../../forks/verity/Verity/Core.lean)
 
 The contract monad is direct state-passing. The type parameter `alpha` is the return type of the computation:
 
@@ -150,7 +150,7 @@ The contract monad is direct state-passing. The type parameter `alpha` is the re
 abbrev Contract (alpha : Type) := ContractState -> ContractResult alpha
 ```
 
-Source: [`forks/verity/Verity/Core.lean`](../forks/verity/Verity/Core.lean)
+Source: [`forks/verity/Verity/Core.lean`](../../forks/verity/Verity/Core.lean)
 
 This is a big-step monadic source semantics: running a contract function computes a whole result from an initial `ContractState`.
 
@@ -174,7 +174,7 @@ inductive TExpr : Ty -> Type where
   | getMapping (slot : Nat) (key : TExpr .address) : TExpr .uint256
 ```
 
-Source: [`forks/verity/Verity/Core/Free/TypedIR.lean`](../forks/verity/Verity/Core/Free/TypedIR.lean)
+Source: [`forks/verity/Verity/Core/Free/TypedIR.lean`](../../forks/verity/Verity/Core/Free/TypedIR.lean)
 
 The typed IR has a fuel-bounded evaluator for statements:
 
@@ -184,7 +184,7 @@ def evalTStmtFuel : Nat -> TExecState -> TStmt -> TExecResult
   | Nat.succ _, s, .setStorage slot value => ...
 ```
 
-Source: [`forks/verity/Verity/Core/Free/TypedIR.lean`](../forks/verity/Verity/Core/Free/TypedIR.lean)
+Source: [`forks/verity/Verity/Core/Free/TypedIR.lean`](../../forks/verity/Verity/Core/Free/TypedIR.lean)
 
 ### Compiler Model and Yul
 
@@ -199,7 +199,7 @@ inductive FieldType
   | mappingStruct (keyType : MappingKeyType) (members : List StructMember)
 ```
 
-Source: [`forks/verity/Compiler/CompilationModel/Types.lean`](../forks/verity/Compiler/CompilationModel/Types.lean)
+Source: [`forks/verity/Compiler/CompilationModel/Types.lean`](../../forks/verity/Compiler/CompilationModel/Types.lean)
 
 The simple IR is already Yul-shaped:
 
@@ -214,7 +214,7 @@ structure IRFunction where
   body     : List IRStmt
 ```
 
-Source: [`forks/verity/Compiler/IR.lean`](../forks/verity/Compiler/IR.lean)
+Source: [`forks/verity/Compiler/IR.lean`](../../forks/verity/Compiler/IR.lean)
 
 Compilation emits Yul statements:
 
@@ -226,7 +226,7 @@ def compileStmt ... : Stmt -> Except String (List YulStmt)
       compileSetStorage fields dynamicSource field value
 ```
 
-Source: [`forks/verity/Compiler/CompilationModel/Compile.lean`](../forks/verity/Compiler/CompilationModel/Compile.lean)
+Source: [`forks/verity/Compiler/CompilationModel/Compile.lean`](../../forks/verity/Compiler/CompilationModel/Compile.lean)
 
 The useful lesson for Plank is that Verity separates:
 

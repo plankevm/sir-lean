@@ -33,7 +33,7 @@ structure State (tau : OperationType) where
   createdAccounts     : Batteries.RBSet AccountAddress compare
 ```
 
-Source: [`forks/EVMYulLean/EvmYul/State.lean`](../forks/EVMYulLean/EvmYul/State.lean)
+Source: [`forks/EVMYulLean/EvmYul/State.lean`](../../forks/EVMYulLean/EvmYul/State.lean)
 
 The actual field name is `sigma0` in this excerpt only because this documentation uses ASCII. In the source it is written as `σ₀`.
 
@@ -46,7 +46,7 @@ The actual field name is `sigma0` in this excerpt only because this documentatio
 let sigma0 := sigma.insert sender senderAccount
 ```
 
-Source: [`forks/EVMYulLean/EvmYul/EVM/Semantics.lean`](../forks/EVMYulLean/EvmYul/EVM/Semantics.lean)
+Source: [`forks/EVMYulLean/EvmYul/EVM/Semantics.lean`](../../forks/EVMYulLean/EvmYul/EVM/Semantics.lean)
 
 Consequence: if a Plank proof relates SIR state directly to EVMYulLean transaction execution, it must account for precharged gas, nonce increment, checkpoint state, and rollback behavior. For early SIR-to-bytecode proofs, it is usually easier to target message-call execution or a prepared EVM frame.
 
@@ -70,7 +70,7 @@ structure MachineState where
   H_return     : ByteArray
 ```
 
-Source: [`forks/EVMYulLean/EvmYul/MachineState.lean`](../forks/EVMYulLean/EvmYul/MachineState.lean)
+Source: [`forks/EVMYulLean/EvmYul/MachineState.lean`](../../forks/EVMYulLean/EvmYul/MachineState.lean)
 
 The EVM-specific state then adds program counter and operand stack:
 
@@ -81,7 +81,7 @@ structure State extends EvmYul.SharedState .EVM where
   execLength : Nat
 ```
 
-Source: [`forks/EVMYulLean/EvmYul/EVM/State.lean`](../forks/EVMYulLean/EvmYul/EVM/State.lean)
+Source: [`forks/EVMYulLean/EvmYul/EVM/State.lean`](../../forks/EVMYulLean/EvmYul/EVM/State.lean)
 
 Consequence: a SIR state should not be forced to contain a program counter and stack just because the final bytecode does. SIR has locals and CFG blocks. The compiler-correctness relation should explain how locals are represented on the EVM stack/memory at a particular bytecode program counter.
 
@@ -106,7 +106,7 @@ Datatype:
 End
 ```
 
-Source: [`forks/verifereum/spec/vfmContextScript.sml`](../forks/verifereum/spec/vfmContextScript.sml)
+Source: [`forks/verifereum/spec/vfmContextScript.sml`](../../forks/verifereum/spec/vfmContextScript.sml)
 
 The full execution state is a stack of contexts plus rollback and transaction data:
 
@@ -121,7 +121,7 @@ Datatype:
 End
 ```
 
-Source: [`forks/verifereum/spec/vfmContextScript.sml`](../forks/verifereum/spec/vfmContextScript.sml)
+Source: [`forks/verifereum/spec/vfmContextScript.sml`](../../forks/verifereum/spec/vfmContextScript.sml)
 
 Consequence: Verifereum is a useful reference for the minimum shape of a full EVM semantics. It also shows why reimplementing EVM in Lean is not a small task: call stack, rollback, gas, memory, returndata, logs, and transaction state are all semantic, not incidental.
 

@@ -72,7 +72,7 @@ OperationKind::Return => op::RETURN,
 OperationKind::Revert => op::REVERT,
 ```
 
-Source: [`forks/plank-monorepo/plankc/sir/crates/data/src/operation/mod.rs`](../forks/plank-monorepo/plankc/sir/crates/data/src/operation/mod.rs)
+Source: [`forks/plank-monorepo/plankc/sir/crates/data/src/operation/mod.rs`](../../forks/plank-monorepo/plankc/sir/crates/data/src/operation/mod.rs)
 
 The proof can be staged:
 
@@ -108,7 +108,7 @@ Operation::InternalCall(args) => {
 }
 ```
 
-Source: [`forks/plank-monorepo/plankc/sir/crates/release-backend/src/code_to_asm.rs`](../forks/plank-monorepo/plankc/sir/crates/release-backend/src/code_to_asm.rs)
+Source: [`forks/plank-monorepo/plankc/sir/crates/release-backend/src/code_to_asm.rs`](../../forks/plank-monorepo/plankc/sir/crates/release-backend/src/code_to_asm.rs)
 
 ## Phase 5: Function-Level Bytecode Simulation
 
@@ -148,7 +148,7 @@ fn lower_function(...) -> sir::FunctionId { ... }
 fn lower_basic_block(...) -> CFGSegment { ... }
 ```
 
-Source: [`forks/plank-monorepo/plankc/frontend/mir-lower/src/lib.rs`](../forks/plank-monorepo/plankc/frontend/mir-lower/src/lib.rs)
+Source: [`forks/plank-monorepo/plankc/frontend/mir-lower/src/lib.rs`](../../forks/plank-monorepo/plankc/frontend/mir-lower/src/lib.rs)
 
 For the first MIR theorem, avoid the full source language:
 

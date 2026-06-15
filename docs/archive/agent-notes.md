@@ -1,5 +1,13 @@
 # Agent Responses (Plank EVM Semantics)
 
+> **Archived — raw transcript.** Multi-agent investigation log. Its durable
+> conclusions have been distilled into proper docs: the program-counter answer
+> (§1) into [planning/sir-to-bytecode.md](../planning/sir-to-bytecode.md#where-the-program-counter-lives),
+> and the Verity state-relation deep-dive (§4–§5) into
+> [experiment 001 verity-state-relations.md](../../experiments/001_toy_external_call/docs/verity-state-relations.md).
+> The docs-audit results (§3) drove the now-completed
+> [review-followup-plan.md](./review-followup-plan.md). Kept for provenance.
+
 ## 1. Program Counter Question
 
 Both sub-agents launched below. First, the program-counter question, which I can answer directly:

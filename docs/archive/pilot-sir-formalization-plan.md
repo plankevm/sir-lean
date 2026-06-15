@@ -1,5 +1,12 @@
 # Pilot SIR Formalization Plan
 
+> **Archived — superseded.** This is the original "teaching IR" pilot scope.
+> It was realized as [experiment 001](../../experiments/001_toy_external_call/docs/README.md)
+> and then explicitly retired by the strategic pivot in
+> [planning/bytecode-first-plan.md](../planning/bytecode-first-plan.md) (drop the
+> intermediate toy-IR ladder, go straight to Plank SIR). Kept for the reasoning
+> that led there; not a live plan.
+
 ## Pilot Goal
 
 Build the smallest Lean artifact that teaches us how Plank SIR-style semantics should work and how it can later connect to EVMYulLean bytecode execution.
@@ -18,7 +25,7 @@ The key reason to include external call early is that `CALL` forces the semantic
 
 Do not formalize full Plank source, HIR, MIR, or full SIR yet.
 
-Do not define a fresh full EVM semantics. The long-term target remains EVMYulLean bytecode execution. See [Semantics choice for Plank](./semantics-choice.md).
+Do not define a fresh full EVM semantics. The long-term target remains EVMYulLean bytecode execution. See [Semantics choice for Plank](../planning/semantics-choice.md).
 
 Do not prove full arbitrary reentrant EVM call correctness in the first milestone. The first milestone should make the call boundary explicit and prove a constrained call case or a call-summary theorem.
 
@@ -63,7 +70,7 @@ Plank SIR has the corresponding literal EVM operation:
 Call(AllocatedIns<7, 1>) "call"
 ```
 
-Source: [`forks/plank-monorepo/plankc/sir/crates/data/src/operation/mod.rs`](../forks/plank-monorepo/plankc/sir/crates/data/src/operation/mod.rs)
+Source: [`forks/plank-monorepo/plankc/sir/crates/data/src/operation/mod.rs`](../../forks/plank-monorepo/plankc/sir/crates/data/src/operation/mod.rs)
 
 For the first example, instantiate a program like:
 
@@ -113,7 +120,7 @@ evalInstr : CallOracle -> ToyState -> Instr -> StepResult
 run       : CallOracle -> Nat -> ToyState -> Program -> RunResult
 ```
 
-This follows the research recommendation: define a Plank-owned executable IR semantics, then prove relations to EVMYulLean. See [Jargon and semantic styles](./jargon.md).
+This follows the research recommendation: define a Plank-owned executable IR semantics, then prove relations to EVMYulLean. See [Jargon and semantic styles](../reference/jargon.md).
 
 Design decision: even without control flow, use fuel. It makes the toy interpreter structurally similar to later SIR and EVMYulLean execution and avoids redesign when calls execute nested code.
 
@@ -167,11 +174,11 @@ EVMYulLean's bytecode `CALL` pops seven stack values:
 let (stack, mu0, mu1, mu2, mu3, mu4, mu5, mu6) <- evmState.stack.pop7
 ```
 
-Source: [`forks/EVMYulLean/EvmYul/EVM/Semantics.lean`](../forks/EVMYulLean/EvmYul/EVM/Semantics.lean)
+Source: [`forks/EVMYulLean/EvmYul/EVM/Semantics.lean`](../../forks/EVMYulLean/EvmYul/EVM/Semantics.lean)
 
 It then delegates to message-call semantics `Theta`, which updates balances, constructs a new execution environment, runs precompile or callee code, handles revert/success, and returns `(createdAccounts, accountMap, gas, substate, success, output)`.
 
-Source: [`forks/EVMYulLean/EvmYul/EVM/Semantics.lean`](../forks/EVMYulLean/EvmYul/EVM/Semantics.lean)
+Source: [`forks/EVMYulLean/EvmYul/EVM/Semantics.lean`](../../forks/EVMYulLean/EvmYul/EVM/Semantics.lean)
 
 Consequence: even a toy external call must decide how to handle:
 

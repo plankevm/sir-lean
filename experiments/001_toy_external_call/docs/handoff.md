@@ -14,7 +14,7 @@ All exported theorems depend only on `propext, Classical.choice, Quot.sound`.
 
 1. [`results-v2.md`](./results-v2.md) — what was achieved, the honest
    rough-edge list, and the verdict.
-2. [`../../../docs/bytecode-first-plan.md`](../../../docs/bytecode-first-plan.md)
+2. [`../../../docs/planning/bytecode-first-plan.md`](../../../docs/planning/bytecode-first-plan.md)
    — the discussion record and agreed next direction (retire this toy IR,
    vendor EVMYulLean EVM-only, build a bytecode reasoning layer, go straight
    to Plank SIR). **This experiment is closed; new work starts there.**

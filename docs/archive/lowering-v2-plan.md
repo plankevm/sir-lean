@@ -1,5 +1,12 @@
 # Lowering v2: gasless IR, reflexive calls, observables export
 
+> **Archived — partially superseded.** v2 was *completed* (see
+> [experiment 001 results-v2.md](../../experiments/001_toy_external_call/docs/results-v2.md)).
+> Its exported-statement *shape* (∃G₀ gas refinement, observables-only) survives
+> verbatim and is still the design reference; its later execution phases are
+> replaced by [planning/bytecode-first-plan.md](../planning/bytecode-first-plan.md).
+> Read for the statement-shape rationale, not the roadmap.
+
 Plan for the second iteration of the IR → bytecode lowering proof, superseding
 the *statement* (not the machinery) of experiment 001. Three changes, in order
 of importance:

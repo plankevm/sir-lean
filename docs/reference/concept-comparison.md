@@ -97,7 +97,7 @@ Definition run_ext_call_def:
 End
 ```
 
-Source: [`forks/vyper-hol/semantics/vyperInterpreterScript.sml`](../forks/vyper-hol/semantics/vyperInterpreterScript.sml)
+Source: [`forks/vyper-hol/semantics/vyperInterpreterScript.sml`](../../forks/vyper-hol/semantics/vyperInterpreterScript.sml)
 
 For Plank, any semantics for `call`, `delegatecall`, `staticcall`, `callcode`, `create`, and `create2` needs a world of accounts and a call-frame stack, even if most initial proofs abstract the callee.
 
@@ -131,7 +131,7 @@ Datatype:
 End
 ```
 
-Source: [`forks/vyper-hol/venom/defs/venomExecSemanticsScript.sml`](../forks/vyper-hol/venom/defs/venomExecSemanticsScript.sml)
+Source: [`forks/vyper-hol/venom/defs/venomExecSemanticsScript.sml`](../../forks/vyper-hol/venom/defs/venomExecSemanticsScript.sml)
 
 EVMYulLean also separates normal return/revert from execution exceptions:
 
@@ -151,7 +151,7 @@ inductive ExecutionException where
   | StaticModeViolation
 ```
 
-Sources: [`forks/EVMYulLean/EvmYul/EVM/State.lean`](../forks/EVMYulLean/EvmYul/EVM/State.lean), [`forks/EVMYulLean/EvmYul/EVM/Exception.lean`](../forks/EVMYulLean/EvmYul/EVM/Exception.lean)
+Sources: [`forks/EVMYulLean/EvmYul/EVM/State.lean`](../../forks/EVMYulLean/EvmYul/EVM/State.lean), [`forks/EVMYulLean/EvmYul/EVM/Exception.lean`](../../forks/EVMYulLean/EvmYul/EVM/Exception.lean)
 
 Verity's source monad has a simpler success/revert split and normalizes revert to the pre-call snapshot:
 
@@ -163,7 +163,7 @@ def Contract.run {alpha : Type} (c : Contract alpha) (s : ContractState) :
   | ContractResult.revert msg _ => ContractResult.revert msg s
 ```
 
-Source: [`forks/verity/Verity/Core.lean`](../forks/verity/Verity/Core.lean)
+Source: [`forks/verity/Verity/Core.lean`](../../forks/verity/Verity/Core.lean)
 
 This is a good shape for Plank SIR too, but SIR should be closer to Venom/EVMYulLean than to Verity source: do not collapse revert and exceptional halt if the goal is EVM bytecode correctness.
 

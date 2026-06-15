@@ -39,7 +39,7 @@ OperationKind::Return => op::RETURN,
 OperationKind::Revert => op::REVERT,
 ```
 
-Source: [`forks/plank-monorepo/plankc/sir/crates/data/src/operation/mod.rs`](../forks/plank-monorepo/plankc/sir/crates/data/src/operation/mod.rs)
+Source: [`forks/plank-monorepo/plankc/sir/crates/data/src/operation/mod.rs`](../../forks/plank-monorepo/plankc/sir/crates/data/src/operation/mod.rs)
 
 For these, the proof mostly establishes that operand order, stack layout, gas assumptions, memory slices, and returndata conventions line up.
 
@@ -64,7 +64,7 @@ Operation::InternalCall(args) => {
 }
 ```
 
-Source: [`forks/plank-monorepo/plankc/sir/crates/release-backend/src/code_to_asm.rs`](../forks/plank-monorepo/plankc/sir/crates/release-backend/src/code_to_asm.rs)
+Source: [`forks/plank-monorepo/plankc/sir/crates/release-backend/src/code_to_asm.rs`](../../forks/plank-monorepo/plankc/sir/crates/release-backend/src/code_to_asm.rs)
 
 For these, prove correctness against emitted instruction sequences, not one-step opcode semantics.
 
@@ -81,6 +81,42 @@ At minimum:
 - SIR halt/revert/exception outcomes match EVM `RETURN`, `REVERT`, and exceptional halt outcomes.
 
 Vyper-HOL's Venom codegen architecture is the closest precedent. It separates register/stack/memory relations, full state relations, and terminal observable relations. That split is more scalable than one giant equality theorem.
+
+## Where the Program Counter Lives
+
+Control flow does **not** force a byte-level program counter into the SIR
+language. Both standard shapes keep the IR `pc`-free:
+
+- **Structured control flow** (`if`/`while`/blocks): semantics by structural
+  recursion (big-step, or small-step with a continuation stack); no `pc`. This
+  is what Verity inherits by making its IR literally Yul.
+- **CFG of basic blocks** (what Plank SIR is): the "position" is an abstract
+  control point — a `(label, index-within-block)` — not a byte offset.
+
+The byte-level `pc` appears only in the *simulation relation*. The
+straight-line lowering already has the degenerate version (a code-layout
+offset threaded through the chunk lemmas). With control flow it generalizes to
+a compiler-produced map `layout : Label → ByteOffset`, and the relation's
+invariant becomes:
+
+```text
+EVM pc = layout(current label) + offset within the current chunk
+```
+
+Two new proof obligations come with that generalization:
+
+- **Jump validity.** `JUMP`/`JUMPI` targets must land on `JUMPDEST`s — this is
+  where the threaded `validJumps`/`D_J` data is used.
+- **Termination.** Induction switches from structural-on-program to
+  well-founded-on-fuel, because loops mean the program no longer shrinks.
+
+So `pc` belongs to the relation, not to the SIR language. The matching
+discipline for higher-layer state, from low to high: the bytecode layer uses
+on-the-nose equality; structured/CFG layers use a coupling invariant (source
+locals/encodings ↔ EVM stack/memory); the contract boundary collapses to
+observables (success, returndata, storage, logs). `injectFrame` in experiment
+001 is the degenerate case — identity encoding with a keep-everything
+projection.
 
 ## Why This Should Not Start at Raw EVMYulLean
 

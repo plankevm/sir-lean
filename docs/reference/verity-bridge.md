@@ -11,7 +11,7 @@ require evmyul from git
   "https://github.com/lfglabs-dev/EVMYulLean.git"@"7785a9bba344db917e42b7f1033ee8346197bb40"
 ```
 
-Source: [`forks/verity/lakefile.lean`](../forks/verity/lakefile.lean)
+Source: [`forks/verity/lakefile.lean`](../../forks/verity/lakefile.lean)
 
 The local `forks/EVMYulLean` checkout is `NethermindEth/EVMYulLean` at commit `047f63070309f436b66c61e276ab3b6d1169265a`. Verity pins `lfglabs-dev/EVMYulLean` at `7785a9bba344db917e42b7f1033ee8346197bb40`.
 
@@ -25,7 +25,7 @@ Verity's source contracts run in an abstract state monad:
 abbrev Contract (alpha : Type) := ContractState -> ContractResult alpha
 ```
 
-Source: [`forks/verity/Verity/Core.lean`](../forks/verity/Verity/Core.lean)
+Source: [`forks/verity/Verity/Core.lean`](../../forks/verity/Verity/Core.lean)
 
 Here `alpha` is the return type of the computation. `Contract Uint256` is a contract computation returning a `Uint256`; `Contract PUnit` is a stateful command returning no meaningful value.
 
@@ -39,7 +39,7 @@ def Contract.run {alpha : Type} (c : Contract alpha) (s : ContractState) :
   | ContractResult.revert msg _ => ContractResult.revert msg s
 ```
 
-Source: [`forks/verity/Verity/Core.lean`](../forks/verity/Verity/Core.lean)
+Source: [`forks/verity/Verity/Core.lean`](../../forks/verity/Verity/Core.lean)
 
 Consequence: Verity has a separate source semantics. It then proves compiler/IR agreement for supported fragments and separately bridges generated Yul/native execution back to observable results.
 
@@ -65,7 +65,7 @@ inductive TExpr : Ty -> Type where
   | getStorage (slot : Nat) : TExpr .uint256
 ```
 
-Source: [`forks/verity/Verity/Core/Free/TypedIR.lean`](../forks/verity/Verity/Core/Free/TypedIR.lean)
+Source: [`forks/verity/Verity/Core/Free/TypedIR.lean`](../../forks/verity/Verity/Core/Free/TypedIR.lean)
 
 The important proof consequence is that ill-typed expressions are unrepresentable. You do not need a separate theorem saying `add` only receives `uint256`; the constructor enforces it.
 
@@ -87,7 +87,7 @@ def toSharedState (state : YulState) (observableSlots : List Nat) :
   ...
 ```
 
-Source: [`forks/verity/Compiler/Proofs/YulGeneration/Backends/EvmYulLeanStateBridge.lean`](../forks/verity/Compiler/Proofs/YulGeneration/Backends/EvmYulLeanStateBridge.lean)
+Source: [`forks/verity/Compiler/Proofs/YulGeneration/Backends/EvmYulLeanStateBridge.lean`](../../forks/verity/Compiler/Proofs/YulGeneration/Backends/EvmYulLeanStateBridge.lean)
 
 Consequence: this is an observable-projection bridge, not full state equality. That is a good early pattern for Plank: prove equality of storage slots, returndata, logs, return values, and relevant memory slices before trying to prove equality of an entire EVM world.
 
@@ -110,7 +110,7 @@ def lookupRuntimePrimOp : String -> Option (EvmYul.Operation .Yul)
   | _              => none
 ```
 
-Source: [`forks/verity/Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeLowering.lean`](../forks/verity/Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeLowering.lean)
+Source: [`forks/verity/Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeLowering.lean`](../../forks/verity/Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeLowering.lean)
 
 The runtime entry point validates the generated fragment, lowers to an EVMYulLean contract, calls EVMYulLean's dispatcher, then projects the result back to Verity's `YulResult`.
 
@@ -129,7 +129,7 @@ theorem compile_preserves_semantics
       (interpretIR ir tx (FunctionBody.initialIRStateForTx model tx initialWorld))
 ```
 
-Source: [`forks/verity/Compiler/Proofs/IRGeneration/Contract.lean`](../forks/verity/Compiler/Proofs/IRGeneration/Contract.lean)
+Source: [`forks/verity/Compiler/Proofs/IRGeneration/Contract.lean`](../../forks/verity/Compiler/Proofs/IRGeneration/Contract.lean)
 
 The native EVMYulLean side is organized around an observable comparison predicate:
 
@@ -149,7 +149,7 @@ def nativeResultsMatchOn
   | .error _ => False
 ```
 
-Source: [`forks/verity/Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness.lean`](../forks/verity/Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness.lean)
+Source: [`forks/verity/Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness.lean`](../../forks/verity/Compiler/Proofs/YulGeneration/Backends/EvmYulLeanNativeHarness.lean)
 
 Consequence: Verity does have a separate abstract semantics, and it connects that semantics to lower layers by explicit result/state matching predicates. The lower layer is not "automatically equivalent" to the source semantics; the bridge theorem has to state which observables match and under what generated-fragment assumptions.
 

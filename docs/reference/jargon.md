@@ -21,7 +21,7 @@ EVMYulLean uses this shape directly. Primitive opcode transformers are one-state
 def Transformer := EVM.State -> Except EVM.ExecutionException EVM.State
 ```
 
-Source: [`forks/EVMYulLean/EvmYul/EVM/PrimOps.lean`](../forks/EVMYulLean/EvmYul/EVM/PrimOps.lean)
+Source: [`forks/EVMYulLean/EvmYul/EVM/PrimOps.lean`](../../forks/EVMYulLean/EvmYul/EVM/PrimOps.lean)
 
 Its `step` is one decoded EVM instruction, guarded by Lean fuel:
 
@@ -37,7 +37,7 @@ def step (fuel : ℕ) (gasCost : ℕ)
     | .CREATE => ...
 ```
 
-Source: [`forks/EVMYulLean/EvmYul/EVM/Semantics.lean`](../forks/EVMYulLean/EvmYul/EVM/Semantics.lean)
+Source: [`forks/EVMYulLean/EvmYul/EVM/Semantics.lean`](../../forks/EVMYulLean/EvmYul/EVM/Semantics.lean)
 
 Verifereum has the same conceptual split in HOL: `step` fetches the opcode at the current program counter, dispatches it, then increments or jumps. `run` iterates `step`.
 
@@ -61,7 +61,7 @@ Definition run_def:
 End
 ```
 
-Source: [`forks/verifereum/spec/vfmExecutionScript.sml`](../forks/verifereum/spec/vfmExecutionScript.sml)
+Source: [`forks/verifereum/spec/vfmExecutionScript.sml`](../../forks/verifereum/spec/vfmExecutionScript.sml)
 
 Consequence: small-step is the right style for EVM bytecode and SIR-to-bytecode proof because each backend emission rule can be connected to either one opcode step or a bounded sequence of opcode steps.
 
@@ -91,7 +91,7 @@ Definition evaluate_def:
   od /\ ...
 ```
 
-Source: [`forks/vyper-hol/semantics/vyperInterpreterScript.sml`](../forks/vyper-hol/semantics/vyperInterpreterScript.sml)
+Source: [`forks/vyper-hol/semantics/vyperInterpreterScript.sml`](../../forks/vyper-hol/semantics/vyperInterpreterScript.sml)
 
 Consequence: big-step is convenient for source-language reasoning because source users care that a statement or external function call finishes with a certain state. It is awkward for bytecode correctness because the target semantics is inherently program-counter driven.
 
@@ -122,7 +122,7 @@ Theorem run_blocks_unfold:
             else run_blocks fuel ctx fn s'
 ```
 
-Source: [`forks/vyper-hol/venom/defs/venomExecSemanticsScript.sml`](../forks/vyper-hol/venom/defs/venomExecSemanticsScript.sml)
+Source: [`forks/vyper-hol/venom/defs/venomExecSemanticsScript.sml`](../../forks/vyper-hol/venom/defs/venomExecSemanticsScript.sml)
 
 This is the closest precedent for Plank SIR: define instruction/block execution over SIR state, then relate backend-emitted bytecode to the SIR operation or block.
 
@@ -171,7 +171,7 @@ def X (fuel : ℕ) (validJumps : Array UInt256) (evmState : State)
   | .succ f => ...
 ```
 
-Source: [`forks/EVMYulLean/EvmYul/EVM/Semantics.lean`](../forks/EVMYulLean/EvmYul/EVM/Semantics.lean)
+Source: [`forks/EVMYulLean/EvmYul/EVM/Semantics.lean`](../../forks/EVMYulLean/EvmYul/EVM/Semantics.lean)
 
 Verifereum uses `OWHILE`, whose result is optional. Nontermination or failure to find a loop result appears as `NONE` at the outer level:
 
@@ -181,7 +181,7 @@ Definition run_def:
 End
 ```
 
-Source: [`forks/verifereum/spec/vfmExecutionScript.sml`](../forks/verifereum/spec/vfmExecutionScript.sml)
+Source: [`forks/verifereum/spec/vfmExecutionScript.sml`](../../forks/verifereum/spec/vfmExecutionScript.sml)
 
 Vyper-HOL Venom uses explicit fuel for block iteration. That is often easier for compiler proofs because the theorem can quantify over enough fuel or prove a fuel-monotonicity lemma.
 
@@ -206,7 +206,7 @@ Datatype:
 End
 ```
 
-Source: [`forks/verifereum/prog/vfmProgScript.sml`](../forks/verifereum/prog/vfmProgScript.sml)
+Source: [`forks/verifereum/prog/vfmProgScript.sml`](../../forks/verifereum/prog/vfmProgScript.sml)
 
 It then packages the concrete interpreter step as a relation:
 
@@ -223,7 +223,7 @@ Definition EVM_MODEL_def:
 End
 ```
 
-Source: [`forks/verifereum/prog/vfmProgScript.sml`](../forks/verifereum/prog/vfmProgScript.sml)
+Source: [`forks/verifereum/prog/vfmProgScript.sml`](../../forks/verifereum/prog/vfmProgScript.sml)
 
 Why put many components in one sum type? It lets the separation-logic/spec framework talk about selected pieces of EVM state as resources. A local opcode spec can mention stack, memory, gas, and pc without having to restate every account and transaction field. The set representation also makes hiding/projection possible.
 
@@ -235,7 +235,7 @@ external_call_result_rel tenv cenv
   ret (call_external am tx) (run_context fuel ctx vs)
 ```
 
-Source: [`forks/vyper-hol/venom/compiler/compilerCorrectnessDraftScript.sml`](../forks/vyper-hol/venom/compiler/compilerCorrectnessDraftScript.sml)
+Source: [`forks/vyper-hol/venom/compiler/compilerCorrectnessDraftScript.sml`](../../forks/vyper-hol/venom/compiler/compilerCorrectnessDraftScript.sml)
 
 Consequence for Plank: use executable SIR semantics for testing and direct proofs, but use relations for the compiler theorem:
 

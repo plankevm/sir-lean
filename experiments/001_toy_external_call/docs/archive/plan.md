@@ -1,5 +1,9 @@
 # Experiment 001: Toy External Call — Plan
 
+> **Archived — superseded.** Experiment 001 is closed; this original phased plan
+> is history. For current state see [../handoff.md](../handoff.md) and
+> [../results-v2.md](../results-v2.md).
+
 ## Goal (achieved)
 
 A tiny straight-line IR (calldata load, add, external `CALL` via oracle)

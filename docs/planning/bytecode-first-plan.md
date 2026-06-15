@@ -4,7 +4,7 @@
 running. This document is the handoff: it captures the session's findings, the
 strategic discussion between Eduardo and the agent, the proposed pivot, and how
 to finish the in-flight work. It partially supersedes
-[lowering-v2-plan.md](./lowering-v2-plan.md): the v2 *statement shape* survives;
+[lowering-v2-plan.md](../archive/lowering-v2-plan.md): the v2 *statement shape* survives;
 the plan's later phases are replaced by the direction below.*
 
 ## 1. Session state (experiment 001, "lowering v2")
