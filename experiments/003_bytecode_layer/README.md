@@ -1,25 +1,29 @@
 # Experiment 003 — bytecode reasoning-layer machinery (external calls)
 
-> **Status: M1 proven (green, zero `sorry`); M2 blocked.** The call-free spine
-> is proved in the target shape — observables-only, frame-free, fuel-free —
-> against the real `messageCall` (`messageCall_stop_observe`,
-> `messageCall_pushStop_observe`). External calls (M2) are **not** proven, and
-> the literal axiom-purity gate is **unmet**, due to two orthogonal
-> foundation-level obstructions. Full detail: [`docs/results.md`](./docs/results.md)
-> and [`docs/handoff.md`](./docs/handoff.md).
+> **Status: M1 and M2 proven (green, zero `sorry`, axiom-clean).** The call-free
+> spine *and* external calls are proved in the target shape — observables-only,
+> frame-free, fuel-free — against the real `messageCall`. Every exported theorem's
+> `#print axioms` is **exactly** `[propext, Classical.choice, Quot.sound]`. Full
+> detail: [`docs/results.md`](./docs/results.md) and
+> [`docs/handoff.md`](./docs/handoff.md).
 >
-> - **Axiom obstruction (key finding):** every theorem mentioning `messageCall`
->   inherits `Evm.UInt256.blt_iff_toBitVec_lt._native.bv_decide.ax_1_7` from
->   leanevm (`Evm/UInt256.lean:459`, a `bv_decide` proof powering `UInt256`'s
->   `Decidable (·<·)`). It is definition-level in `drive`/`messageCall`/etc., not
->   introduced by these proofs; satisfying "ONLY propext/Classical.choice/Quot.sound"
->   is impossible without reproving that foundation lemma.
-> - **M2 obstruction:** `callArm`/`createArm` are `private` in leanevm
->   (`Evm/Semantics/System.lean`), so the `CALL` reduction cannot be unfolded
->   from this package; the `∃G₀` counterexample was not reached.
+> - **M1:** `messageCall_stop_observe`, `messageCall_pushStop_observe`,
+>   `messageCall_sstore_storageAt`, `messageCall_seq_storageAt`.
+> - **M2 (the headline — external calls):** `messageCall_call_storageAt` (the
+>   `∃G₀` storage-observable theorem; the child `CALL` is the **real reflexive**
+>   `beginCall`/`drive` on the child params), `call_counterexample` (executable
+>   `∃G₀` witness: at `g = 24000` the 63/64 cap starves the callee, its `SSTORE`
+>   rolls back, the cell reads `0` while the caller completes), and
+>   `messageCall_child_reflexive` (the in-parent child computation *is* the genuine
+>   top-level child message call — no oracle).
+> - **Both foundation obstructions the earlier run found (the `bv_decide` axiom
+>   inherited by `messageCall`; `private callArm`/`createArm`) were resolved
+>   upstream in leanevm** by one endorsed commit (`9cefe5b`), conformance unchanged
+>   (2859/2859). That is what makes the whole experiment axiom-clean — see
+>   `docs/results.md §3`.
 >
-> `lake build` → green (1107 jobs). No `sorry`/`admit`/`native_decide`/`bv_decide`
-> in experiment code.
+> `lake build` → green (1111 jobs; two cosmetic linter warnings). No
+> `sorry`/`admit`/`native_decide`/`bv_decide` in experiment code.
 
 ## What this experiment is
 

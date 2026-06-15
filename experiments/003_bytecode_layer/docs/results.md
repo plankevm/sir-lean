@@ -1,230 +1,281 @@
 # Experiment 003 — results
 
-Status: **package green, zero `sorry`.** Milestone **M1 (call-free spine) is
-proven** in the export shape we wanted. Milestone **M2 (external calls) is
-blocked**, with two precise, independent obstructions reported below — both
-foundation-level, neither hidden by a `sorry`.
+Status: **package green, zero `sorry`, axiom-clean.** Both milestones are proven
+in the export shape we wanted:
 
-The single most important finding is the **axiom obstruction**: it is
-*structurally impossible* for any theorem about the real `messageCall` to satisfy
-the literal axiom-purity gate, because the leanevm foundation's own definitions
-already depend on a `bv_decide` axiom. This is detailed in §3 and is the key
-result of the experiment.
+- **M1 (call-free spine)** — observables-only, frame-free, fuel-free message-call
+  theorems on handwritten straight-line bytecode, up to a multi-instruction
+  storage-effecting sequence.
+- **M2 (external calls — the headline target)** — the `∃G₀` storage-observable
+  theorem for a caller contract that forwards a **real, reflexive** `CALL` to a
+  handwritten callee, plus the **executable `∃G₀` counterexample** (the 63/64 cap
+  starves the callee, its `SSTORE` rolls back, the caller still completes) and a
+  standalone **reflexivity witness** (the in-parent child computation *is* the
+  genuine top-level child `messageCall`).
+
+Every exported theorem's `#print axioms` is **exactly** `[propext,
+Classical.choice, Quot.sound]`. The two foundation-level obstructions reported by
+the previous run — the `bv_decide` axiom inherited by `messageCall`, and the
+`private callArm`/`createArm` — were both resolved by **one upstream leanevm
+commit** (`9cefe5b`, conformance unchanged at 2859/2859), which §3 records as the
+key cross-cutting finding.
 
 ---
 
 ## 1. What is proven (verbatim, with `#print axioms`)
 
 All theorems live under `namespace BytecodeLayer` and build green against the
-real `forks/leanevm` (`import Evm`).
+real `forks/leanevm` (`import Evm`). Every one below prints **exactly**
+`[propext, Classical.choice, Quot.sound]`.
 
-### Capstone 1 — single `STOP`, observables only
+### M1 — call-free spine
 
 ```lean
+-- BytecodeLayer/Capstone1.lean
 def stopProgram : ByteArray := ⟨#[0x00]⟩
 
 theorem messageCall_stop_observe (p : CallParams) (hc : p.codeSource = .Code stopProgram) :
     (messageCall p).map CallResult.observe = .ok { success := true, output := .empty }
-```
 
-`#print axioms messageCall_stop_observe`:
-```
-[propext, Classical.choice, Quot.sound,
- Evm.UInt256.blt_iff_toBitVec_lt._native.bv_decide.ax_1_7]
-```
-
-### Capstone 1′ — `PUSH1 0x05 ; STOP`, observables only, with the gas floor
-
-```lean
 def pushStopProgram : ByteArray := ⟨#[0x60, 0x05, 0x00]⟩
 
 theorem messageCall_pushStop_observe (p : CallParams)
     (hc : p.codeSource = .Code pushStopProgram) (hg : 3 ≤ p.gas.toNat) :
     (messageCall p).map CallResult.observe = .ok { success := true, output := .empty }
+
+def sstoreProgram : ByteArray := ⟨#[0x60, 0x05, 0x60, 0x07, 0x55, 0x00]⟩  -- PUSH1 5;PUSH1 7;SSTORE;STOP
+
+theorem messageCall_sstore_storageAt (g : UInt64) (hg : 22106 ≤ g.toNat) :
+    (messageCall (paramsSStore g)).map
+      (fun r => (CallResult.observe r, CallResult.storageAt r addrA 7))
+    = .ok ({ success := true, output := .empty }, 5)
+
+-- BytecodeLayer/Capstone3.lean — a SEQUENCE of charging instructions
+def seqProgram : ByteArray := ⟨#[0x60,0x05,0x60,0x07,0x55,0x60,0x0B,0x60,0x09,0x55,0x00]⟩
+
+theorem messageCall_seq_storageAt (g : UInt64) (hg : 44212 ≤ g.toNat) :
+    (messageCall (paramsSeq g)).map
+      (fun r => (CallResult.observe r,
+                 CallResult.storageAt r addrA 7, CallResult.storageAt r addrA 9))
+    = .ok ({ success := true, output := .empty }, 5, 11)
 ```
 
-`#print axioms messageCall_pushStop_observe`: identical 4-axiom list.
+All four are **frame-free** (no `Frame`, `injectFrame`, pc, stack), **fuel-free**
+(`seedFuel`/`drive` fuel never appears), and stated **only** through
+`CallResult.observe` / `CallResult.storageAt`. Their only quantitative content is
+the program's exact intrinsic cost (`3`, `22106`, `44212` gas) as a plain
+hypothesis — **no `∃G₀`**, because no 63/64-style nonlinearity arises off the
+call path (vacuity-propagation suffices; see §2).
 
-Both statements are **frame-free** (no `Frame`, `injectFrame`, pc, stack),
-**fuel-free** (`seedFuel`/`drive` fuel never appears), and **observables-only**
-(through `CallResult.observe`). `messageCall_pushStop_observe`'s only quantitative
-content is `3 ≤ p.gas` — the program's exact intrinsic cost — stated as a plain
-hypothesis, *not* an `∃G₀`, because no 63/64-style nonlinearity arises off the
-call path.
-
-### Internal bricks (low-level by design, all axiom-clean modulo §3)
+### M2 — external calls (the headline)
 
 ```lean
--- BytecodeLayer/Drive.lean
-theorem drive_step (n : ℕ) (current : Frame) (exec' : ExecutionState)
-    (hstep : stepFrame current = .next exec') :
-    drive (n + 1) [] (.inl current) = drive n [] (.inl { current with exec := exec' })
+-- BytecodeLayer/CapstoneCall.lean
+-- caller: PUSH1 0 ×5 ; PUSH3 0xCA11EE ; PUSH4 0xFFFFFFFF ; CALL ; STOP
+-- callee (0xCA11EE): PUSH1 5 ; PUSH1 7 ; SSTORE ; STOP
 
-theorem drive_halt (n : ℕ) (current : Frame) (halt : FrameHalt)
-    (hstep : stepFrame current = .halted halt) :
-    drive (n + 2) [] (.inl current) = .ok (endFrame current halt)
+theorem messageCall_call_storageAt :
+    ∃ G₀ : ℕ, ∀ g : UInt64, G₀ ≤ g.toNat →
+      (messageCall (callerParams g)).map (fun r => CallResult.storageAt r addrCallee 7) = .ok 5
 
-theorem two_le_seedFuel (g : UInt64) : 2 ≤ seedFuel g
+theorem call_counterexample :
+    (messageCall (callerParams 24000)).map (fun r => CallResult.storageAt r addrCallee 7) = .ok 0
 
--- BytecodeLayer/Step.lean
-theorem stepFrame_stop (fr : Frame)
-    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.System .STOP, .none))
-    (hstk : fr.exec.stack.size ≤ 1024) :
-    stepFrame fr = .halted (.success fr.exec .empty)
-
-theorem stepFrame_push1 (fr : Frame) (imm : UInt256)
-    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Push .PUSH1, some (imm, 1)))
-    (hgas : 3 ≤ fr.exec.gasAvailable.toNat) (hstk : fr.exec.stack.size + 1 ≤ 1024) :
-    stepFrame fr = .next ((…gas-charged exec…).replaceStackAndIncrPC (fr.exec.stack.push imm) (pcΔ := 2))
+theorem messageCall_child_reflexive (g : UInt64) (hg : 30000 ≤ g.toNat) :
+    (messageCall (callChildParams (callerCalled g) 13242862 4294967295)).map
+      (fun r => (r.success, CallResult.storageAt r addrCallee 7)) = .ok (true, 5)
 ```
 
-Every brick's `#print axioms` is the same 4-axiom list (the three standard
-axioms plus the §3 foundation axiom).
+- **`messageCall_call_storageAt`** is the goal: a top-level `messageCall` into a
+  caller that forwards a `CALL` to a callee leaves the callee's storage cell
+  `(addrCallee, 7)` holding `5`, for all `g ≥ G₀ (= 100000)`. The child call is
+  the **genuine reflexive** `beginCall`/`drive` on the real child `CallParams`
+  (`codeSource = toExecute accounts codeAddress`); the `SSTORE` that writes `5`
+  runs inside that real sub-call, clears the 63/64 `callGasCap`, and commits. The
+  statement is **observables-only, frame-free, fuel-free** at the messageCall
+  boundary.
+
+- **`call_counterexample`** is the executable witness that the `∃G₀` is *forced*,
+  not cosmetic: at the modest `g = 24000` the very same observable is `0`
+  (`childGas 24000 = 21045 < 22106`, so the callee's `SSTORE` out-of-gases under
+  the cap and is rolled back), **while the top-level call still completes** (the
+  caller is handed flag `0` and `STOP`s cleanly — no top-level `OutOfGas`). So no
+  gas-floor-free statement ("completes ⇒ cell is 5") can hold; the existential is
+  necessary. This is 001's executable `∃G₀` counterexample, **reached**.
+
+- **`messageCall_child_reflexive`** makes the reflexivity explicit: the standalone
+  `messageCall` on the exact `CallParams` the `CALL` produced succeeds and commits
+  `7 = 5`, i.e. the in-parent child computation *is* the real child message call —
+  no oracle, no assumption.
+
+### Internal bricks (low-level by design — all also `[propext, Classical.choice, Quot.sound]`)
+
+```lean
+-- BytecodeLayer/Drive.lean      (top-level, empty pending stack)
+theorem drive_step  (n) (current) (exec') (hstep : stepFrame current = .next exec') :
+    drive (n+1) [] (.inl current) = drive n [] (.inl { current with exec := exec' })
+theorem drive_halt  (n) (current) (halt) (hstep : stepFrame current = .halted halt) :
+    drive (n+2) [] (.inl current) = .ok (endFrame current halt)
+theorem two_le_seedFuel (g : UInt64) : 2 ≤ seedFuel g
+
+-- BytecodeLayer/DriveGen.lean   (arbitrary suspended-ancestor stack ps — needed for calls)
+theorem driveG_step           …  -- one non-halting step under any ps
+theorem driveG_halt_callDeliver … -- a .call frame halts → deliver to suspended ancestor → resume
+theorem driveG_needsCall_code  … -- .needsCall whose child is real Code → beginCall descends
+
+-- BytecodeLayer/Step.lean       (vacuity-propagation made concrete)
+theorem stepFrame_stop …  theorem stepFrame_push1 …  theorem stepFrame_push …
+theorem stepFrame_sstore …  theorem stepFrame_sstore_oog …
+
+-- BytecodeLayer/Call.lean       (the CALL rule, through the now-public callArm)
+theorem stepFrame_call (fr) (gasv toAddr) (hdec : … = some (.System .CALL, .none))
+    (hstk : fr.exec.stack = gasv :: toAddr :: 0 :: 0 :: 0 :: 0 :: 0 :: [])
+    (hsz …) (hmod …) (hdepth : … < 1024) (hgas : callExtraCost … ≤ …) :
+    stepFrame fr = .needsCall (callChildParams fr toAddr gasv) (callPending fr toAddr gasv)
+```
 
 ---
 
 ## 2. Abstractions the proofs FORCED (validated-necessary)
 
-- **`drive_step` / `drive_halt` (the run vocabulary).** Forced the moment a
-  proof had to advance `drive` past more than zero steps. They are exactly
-  `drive`'s own defining `match`, specialised to the empty pending-stack `[]`
-  that a top-level `messageCall` starts with. `drive_halt` needs **two** fuel
-  units (take the halting step → deliver the `.inr` result through `[]`);
-  `drive_step` needs one. This is leanevm's analogue of 001's
-  "fuel discharged once": `two_le_seedFuel` + the `seedFuel g = (…-2)+2` peel
-  let the fuel `messageCall` actually seeds satisfy `drive_halt`, and fuel then
-  never appears again.
+- **`drive_step` / `drive_halt` / `two_le_seedFuel` (the top-level run
+  vocabulary).** Forced the moment a proof had to advance `drive` past zero steps.
+  They are `drive`'s own defining `match`, specialised to the empty pending-stack
+  `[]` a top-level `messageCall` starts with. `drive_halt` needs **two** fuel
+  units (halting step → deliver `.inr` through `[]`). This is leanevm's analogue
+  of 001's "fuel discharged once": `two_le_seedFuel` + the `seedFuel g = (…-k)+k`
+  peel let the seeded fuel satisfy the run, and fuel then never reappears in a
+  statement.
+
+- **`driveG_*` (the generalized run vocabulary) — forced *only* by M2.** Once a
+  child call runs, the parent sits on the pending stack as a `Pending`, so the
+  `[]`-specialised `Drive.lean` equations no longer apply. `DriveGen.lean`
+  reproves the same `match` equations over an **arbitrary** `ps`, and adds the two
+  call-specific arms: `driveG_needsCall_code` (descend into the reflexive child),
+  `driveG_halt_callDeliver` (deliver the child result to the suspended ancestor
+  and resume). This is exactly the leanevm analogue of the `needsCall`/`Pending`/
+  `resume` cycle the README's brick **B′** predicted — and it was added only when
+  the call capstone demanded it, not before.
 
 - **`stepFrame_*` (vacuity-propagation made concrete).** Each opcode lemma
-  discharges the three guards (`InvalidInstruction`, `StackOverflow`, `OutOfGas`)
-  as `if_neg`s from explicit hypotheses, exactly as proof-structure.md prescribes
-  ("at each check it either passes or the whole run is OutOfGas"). The gas
-  hypothesis (`3 ≤ …` for PUSH1, none for STOP) *is* the vacuity premise.
+  discharges the guards (`InvalidInstruction`, `StackOverflow`, `OutOfGas`,
+  `StaticModeViolation`, the `Gcallstipend` gate) as `if_neg`/`if_pos` from
+  explicit hypotheses, exactly as proof-structure.md prescribes. The gas
+  hypothesis *is* the vacuity premise. `stepFrame_sstore_oog` is the dual: the one
+  step where gas is **deliberately insufficient**, used by the counterexample.
 
-- **`decode_*` equation lemmas (by `rfl`).** Validated 001's "standalone
-  equation lemmas, list-first byte encodings": `decode <bytes> <pc>` reduces by
-  `rfl`, but only as a *named* lemma — inlined, `simp` cannot find the pattern
-  under `getD`. The `(0 : UInt32) + UInt8.toUInt32 2` form of the second decode
-  point in capstone-1′ is forced because that is literally the pc `incrPC`
-  produces; stating it reduced (`= 2`) breaks the `rw`.
+- **`stepFrame_call` + `callChildParams`/`callPending`/`callerCharged` (the CALL
+  rule).** The reflexive heart. `callChildParams` builds the **real** child
+  `CallParams` with `codeSource = toExecute accounts toAddr` — the genuine callee
+  code, not an oracle. The proof unfolds the now-public `callArm`, discharges the
+  mem-expansion (0), the `callGasCap + callExtraCost ≤ gasAvailable` charge guard,
+  and the depth/balance guard; restricted to the value-free zero-memory CALL shape
+  so the *only* quantitative content is the 63/64 cap — which is what the `∃G₀`
+  turns on. `UInt256.zero_le` was forced to discharge the value-0 balance guard.
 
-- **`CallResult.observe` + `Observables`.** Forced as the export surface. We
-  project `(success, output)` — the two observables that are world-map
-  independent. The account map / substate are *also* observables but for these
-  clean-completion programs they are returned verbatim from the snapshot;
-  exposing them would drag the whole `AccountMap` into the statement without
-  adding force. (`success`/`output` is precisely the pair 001's `∃G₀`
-  counterexample turns on — the caller's stored flag and its clean halt.)
+- **`childGas` / `childGas_lb` / `childGas_ub` / `subCharges` / `toNat_subCharges`
+  (the localized 63/64 arithmetic).** This is the *only* genuine gas arithmetic in
+  the experiment, and it lives **only at the call site**, exactly as
+  proof-structure.md mandates. `childGas_lb` (≥ 22106 for `g ≥ 30000`) drives the
+  success path; the negation (`childGas 24000 = 21045`) drives the counterexample.
+  `toNat_subCharges` (gas threading by induction on the charge list) was forced by
+  the multi-charge sequences (the 7-push caller, the two-SSTORE sequence) where
+  nested `toNat_sub_ofNat` would explode quadratically — extracted exactly when a
+  proof would have repeated the work.
 
-### Abstractions that turned out UNNECESSARY (so far)
+- **`CallResult.observe` + `CallResult.storageAt` (the export surface).** Forced
+  as the observable projections. `observe` gives `(success, output)` —
+  world-map-independent. `storageAt` reads a single cell `(addr, key)` exactly as
+  the EVM's `SLOAD` (`findD … 0`), off the returned `accounts` map — still at the
+  messageCall boundary, no frame/pc/stack/fuel. It is the persistent observable
+  the SSTORE and CALL rungs assert, and the cell whose value (`5` vs `0`) the
+  `∃G₀` counterexample distinguishes.
+
+### Abstractions that turned out UNNECESSARY
 
 - **No shadow gas ledger, no metered copy of the semantics, no oracle, no
-  record-commutation simp** — confirming proof-structure.md. Gas is carried by
-  the single `charge` guard inside `stepFrame_*`.
-- **No `injectFrame` analogue.** The messageCall boundary is frame-free exactly
-  as the README predicted; nothing pins a final frame.
+  record-commutation simp** — confirming proof-structure.md. Gas is carried by the
+  single `charge`/`callGasCap` guards inside `stepFrame_*`; the call is the real
+  `messageCall` on the child (reflexive), characterized by `beginCall_child` +
+  `child_run`, never assumed.
+- **No `injectFrame` analogue.** The messageCall boundary is frame-free exactly as
+  the README predicted; nothing pins a final frame in any exported statement.
 - **No `set`-abbreviation, no record-commutation lemmas** — the documented 001
-  dead-ends were not needed; defeq + `dsimp only` + `if_neg` sufficed.
+  dead-ends were not needed; defeq + `dsimp only` + `if_neg`/`if_pos` sufficed.
 
 ---
 
-## 3. The axiom obstruction (KEY FINDING)
+## 3. The foundation fix that unblocked everything (KEY FINDING)
 
-**Every theorem that so much as mentions `messageCall` is forced to depend on a
-non-standard axiom, inherited from leanevm.** The literal requirement
-(`#print axioms` shows ONLY `propext`, `Classical.choice`, `Quot.sound`) is
-therefore **unsatisfiable for this experiment by construction** — not because of
-anything the experiment's proofs do.
+The previous run hit two orthogonal foundation-level walls and reported them as
+findings (the correct move — a wall is a finding, not a `sorry`):
 
-Root cause, traced precisely:
+1. **`bv_decide` axiom.** `Evm.messageCall`/`drive`/`stepFrame`/`beginCall`/
+   `endFrame` all inherited `Evm.UInt256.blt_iff_toBitVec_lt._native.bv_decide.ax_1_7`
+   from `Evm/UInt256.lean`, because `blt_iff_toBitVec_lt` was proved by `bv_decide`
+   and powered `UInt256`'s `Decidable (·<·)`/`(·≤·)`. This made literal axiom
+   purity *structurally impossible* for any `messageCall` theorem.
+2. **`private callArm`/`createArm`** in `Evm/Semantics/System.lean` left the CALL
+   reduction inaccessible, blocking M2.
 
-```
-#print axioms Evm.drive       -- [propext, Classical.choice, Quot.sound,
-#print axioms Evm.messageCall  --  Evm.UInt256.blt_iff_toBitVec_lt._native.bv_decide.ax_1_7]
-#print axioms Evm.beginCall
-#print axioms Evm.stepFrame
-#print axioms Evm.endFrame
-#print axioms Evm.seedFuel     -- does NOT depend on any axioms (pure ℕ)
-```
+**Both were fixed by a single endorsed upstream leanevm commit** (`9cefe5b`,
+"Remove bv_decide axiom from the execution path; expose callArm/createArm"):
 
-The axiom is `Evm.UInt256.blt_iff_toBitVec_lt._native.bv_decide.ax_1_7`. Its
-origin is `forks/leanevm/Evm/UInt256.lean:459`:
+- `blt_iff_toBitVec_lt` was **reproved without `bv_decide`** — reducing both sides
+  to `Nat` (`BitVec.lt_def` + `toNat_limbs`) and discharging the 8-limb
+  lexicographic equivalence with `omega` (limb `< 2^32` bounds in scope; the
+  `2^(32·i)` weights are constants, so it stays linear). `blt`, `toBitVec`, and the
+  `Decidable` instances are unchanged, so the fast limb-wise runtime path is
+  preserved. `#print axioms Evm.messageCall` is now `[propext, Classical.choice,
+  Quot.sound]`.
+- `callArm`/`createArm` made non-`private`.
+- **Fast conformance unchanged: 2859/2859 (~11s)** — no semantic regression.
 
-```lean
-theorem blt_iff_toBitVec_lt (a b : UInt256) : blt a b = true ↔ a.toBitVec < b.toBitVec := by
-  …
-  bv_decide   -- ← SAT-backed; emits the _native.bv_decide axiom
-```
-
-This lemma is used at lines 478–483 to build the **`Decidable (a < b)` and
-`Decidable (a ≤ b)` instances for `UInt256`**, which are then used pervasively
-across the semantics (`value ≤ balance`, `depth < 1024`, gas comparisons, …).
-The taint thus propagates into `stepFrame`, `beginCall`, `drive`, `endFrame`,
-and `messageCall`. Decisive evidence that it is definition-level, not
-proof-level: even
-
-```lean
-theorem d0 (st) : drive 0 [] st = .error .OutOfFuel := by unfold drive; rfl
-```
-
-— a pure `match` with zero `UInt256` content — already carries the axiom, while
-`seedFuel` (pure `ℕ`) does not. The experiment's own proofs introduce **no**
-further axioms: the 4-axiom list of every capstone equals the 4-axiom list of
-`Evm.messageCall` itself.
-
-**Honest disposition.** This is a *genuine mathematical theorem* about
-`UInt256`, proved by a sound but axiom-introducing tactic in the foundation — it
-is not a `sorry`, not a gap, and not introduced here. Reverting the green
-proofs over it would destroy real results to no benefit (the next theorem would
-hit the same axiom). The proofs are kept; the obstruction is reported.
-
-**The fix (out of scope, the proper resolution).** Reprove
-`blt_iff_toBitVec_lt` (and the few sibling `bv_decide` lemmas in
-`Evm/UInt256.lean`) without `bv_decide` — e.g. via a generic
-`BitVec`-append/`ult` lexicographic-decomposition lemma proved through `toNat`
-and `omega`. A bounded attempt confirmed the goal shape is a clean 7-fold fold
-of one append-`ult` lemma, but the `Nat.lor`↔`+` bridge for the limb
-composition is itself a non-trivial sub-proof; finishing it is a foundation
-(UInt256) task, not a bytecode-reasoning-layer task, and was time-boxed out to
-keep the package green. Doing it upstream would make **the entire experiment**
-axiom-clean at a stroke.
+This validates the previous run's central diagnosis exactly: the obstruction was
+**definition-level in the foundation, not in the bytecode reasoning layer**, and
+fixing it upstream made *all* of experiment 003 axiom-clean at a stroke — every
+exported theorem now prints `[propext, Classical.choice, Quot.sound]` (verbatim in
+§5). The remaining `bv_decide` uses in `Evm/UInt256.lean` are spec lemmas
+unreachable from `messageCall`/`dispatch`, so the execution path is clean.
 
 ---
 
-## 4. The M2 (external-call) obstruction
+## 4. The `∃G₀` story, completed
 
-Independent of §3, reducing a real `CALL` is blocked at the foundation API:
+001's headline — that external-call correctness *requires* an `∃G₀` gas floor
+because the 63/64 cap can starve a callee whose failure the caller swallows — is
+now stated and proved against the **real `messageCall`**, in observables:
 
-- **`callArm` and `createArm` are `private`** in
-  `forks/leanevm/Evm/Semantics/System.lean` (lines 12, 73). After reducing
-  `stepFrame` on `CALL` through `dispatch`/`systemOp` and `Stack.pop7`, the goal
-  contains `Evm.callArm✝` — an inaccessible name. It cannot be `unfold`ed or
-  `simp`ed by name from the experiment package, so the `.needsCall` descent
-  (the reflexive child `messageCall`, the 63/64 `callGasCap`, the flag-0
-  resume) cannot be characterised.
+- `messageCall_call_storageAt`: `∃ G₀, ∀ g ≥ G₀, cell (addrCallee,7) = 5`.
+- `call_counterexample`: at `g = 24000 < G₀`, the same cell is `0`, *with the
+  top-level call completing* — so the floor is not removable.
+- `messageCall_child_reflexive`: the child sub-call is the genuine top-level child
+  `messageCall` (no oracle), which is what makes the whole story honest.
 
-  *Unblock:* make `callArm`/`createArm` non-`private` (or add public equation
-  lemmas) upstream in leanevm — an endorsed fork change per the README. This was
-  not done because (a) §3 independently blocks axiom purity regardless, so M2
-  could not have been delivered axiom-clean either, and (b) the privacy change
-  needs to be designed and conformance-checked upstream, outside this run's
-  green-always budget.
-
-- The `∃G₀` counterexample (cap binds → callee OOG → flag 0 stored → caller
-  STOPs cleanly) was **not reached**, because it lives strictly behind the
-  `callArm` reduction above.
-
-So M2's headline — external calls — is **not proven**. The two obstructions are
-orthogonal: even with `callArm` exposed, §3 would remain; even with §3 fixed,
-`callArm`'s privacy would remain.
+The gap between success (`5`) and starvation (`0`) is exactly the 63/64
+`callGasCap` (`allButOneSixtyFourth`) binding against the callee's `22106` cold
+first-write `SSTORE` cost — the single localized arithmetic of §2, at the call
+site, nowhere else.
 
 ---
 
-## 5. Green / zero-sorry confirmation
+## 5. Green / zero-sorry / axiom confirmation
 
 - `lake build` inside `experiments/003_bytecode_layer`: **`Build completed
-  successfully (1107 jobs).`**
-- `grep -rn "sorry\|admit\|native_decide\|bv_decide" BytecodeLayer/`: only a
-  comment hit; **no occurrences in code.**
-- Axiom state of every new theorem: the three standard axioms **plus** the
-  single foundation-inherited `…bv_decide.ax_1_7` (§3).
+  successfully (1111 jobs).`** (Two `linter.unusedSimpArgs` warnings on
+  `CapstoneCall.lean` lines 344/511 — cosmetic, not errors.)
+- `grep -rEn "sorry|admit|native_decide|bv_decide" BytecodeLayer/`: **no
+  occurrences.**
+- `#print axioms` on every exported theorem, verbatim:
+
+```
+'BytecodeLayer.messageCall_stop_observe'   depends on axioms: [propext, Classical.choice, Quot.sound]
+'BytecodeLayer.messageCall_pushStop_observe' depends on axioms: [propext, Classical.choice, Quot.sound]
+'BytecodeLayer.messageCall_sstore_storageAt' depends on axioms: [propext, Classical.choice, Quot.sound]
+'BytecodeLayer.messageCall_seq_storageAt'  depends on axioms: [propext, Classical.choice, Quot.sound]
+'BytecodeLayer.messageCall_call_storageAt' depends on axioms: [propext, Classical.choice, Quot.sound]
+'BytecodeLayer.call_counterexample'        depends on axioms: [propext, Classical.choice, Quot.sound]
+'BytecodeLayer.messageCall_child_reflexive' depends on axioms: [propext, Classical.choice, Quot.sound]
+'BytecodeLayer.stepFrame_call'             depends on axioms: [propext, Classical.choice, Quot.sound]
+'BytecodeLayer.drive_halt'                 depends on axioms: [propext, Classical.choice, Quot.sound]
+```

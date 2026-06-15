@@ -16,6 +16,7 @@ they are internal bricks, not exports.
 
 namespace BytecodeLayer
 open Evm
+open GasConstants
 
 /-- **STOP halts with the current state and empty output**, given only that the
 stack is not overflowing (≤ 1024). STOP reads no operands and charges no gas, so
@@ -55,5 +56,142 @@ theorem stepFrame_push1 (fr : Frame) (imm : UInt256)
   unfold Evm.charge
   rw [if_neg (by simp only [show GasConstants.Gverylow = 3 from rfl]; omega)]
   rfl
+
+set_option maxHeartbeats 1000000 in
+/-- **Generic `PUSH<w>` (w ≥ 1) pushes `imm` and advances pc by `w+1`**, charging
+`Gverylow = 3`. Works for any push width `p` other than `PUSH0` (they share the
+`.Push _` dispatch arm); the caller supplies the decode and the pop/push counts
+(`δ = 0`, `α = 1` for every PUSH). Used for the multi-byte gas/address pushes the
+external-call caller needs (PUSH3, PUSH4). -/
+theorem stepFrame_push (fr : Frame) (p : Operation.PushOp) (imm : UInt256) (w : UInt8)
+    (hp0 : p ≠ .PUSH0)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Push p, some (imm, w)))
+    (hpop : stackPopCount (.Push p) = 0) (hpush : stackPushCount (.Push p) = 1)
+    (hgas : 3 ≤ fr.exec.gasAvailable.toNat)
+    (hstk : fr.exec.stack.size + 1 ≤ 1024) :
+    stepFrame fr = .next
+      (({ fr.exec with gasAvailable := fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow }
+        ).replaceStackAndIncrPC (fr.exec.stack.push imm) (pcΔ := w + 1)) := by
+  unfold stepFrame
+  simp only [hdec]
+  dsimp only [Option.getD]
+  rw [if_neg (by exact (by nofun : (Operation.Push p) ≠ Operation.INVALID))]
+  have hov : ¬ (fr.exec.stack.size - stackPopCount (.Push p)
+      + stackPushCount (.Push p) > 1024) := by
+    rw [hpop, hpush]; omega
+  rw [if_neg hov]
+  cases p with
+  | PUSH0 => exact absurd rfl hp0
+  | _ =>
+    all_goals (
+      dsimp only [dispatch]
+      unfold Evm.charge
+      rw [if_neg (by simp only [show GasConstants.Gverylow = 3 from rfl]; omega)]
+      rfl)
+
+/-! ## SSTORE
+
+The first instruction with a *persistent* effect. SSTORE (`.Smsf .SSTORE`):
+requires state-modifying context, refuses to run with `gasAvailable ≤
+Gcallstipend`, pops `key`/`newValue`, charges the EIP-2200 store cost, and
+writes the cell. The cost depends on the world (original/current cell values,
+warm/cold), so we pull it out as `sstoreChargeOf` and let the step lemma's gas
+guard and result share that one term — the result state `sstorePost` is the
+frame after charging and performing the write. The three guards
+(`StaticModeViolation`, the stipend gate, `OutOfGas`) are discharged once here as
+`if_pos`/`if_neg` from explicit hypotheses, in the vacuity-propagation style. -/
+
+/-- The exact cost SSTORE charges for storing `newValue` at `key`, as a function
+of the frame's world. Pulled out so the step lemma's gas guard and resulting
+state refer to the same term. -/
+def sstoreChargeOf (exec : ExecutionState) (key newValue : UInt256) : ℕ :=
+  sstoreCost
+    (exec.originalAccounts.find? exec.executionEnv.address |>.option 0 (·.storage.findD key 0))
+    (exec.accounts.find? exec.executionEnv.address |>.option 0 (·.storage.findD key 0))
+    newValue
+    (exec.substate.accessedStorageKeys.contains (exec.executionEnv.address, key))
+
+/-- The execution state after SSTORE charges its cost and performs the write. -/
+def sstorePost (exec : ExecutionState) (key newValue : UInt256) (rest : Stack UInt256) :
+    ExecutionState :=
+  let charged : ExecutionState :=
+    { exec with gasAvailable := exec.gasAvailable - UInt64.ofNat (sstoreChargeOf exec key newValue) }
+  ExecutionState.replaceStackAndIncrPC
+    { charged with toState := charged.toState.sstore key newValue } rest
+
+set_option maxHeartbeats 2000000 in
+/-- **SSTORE writes `newValue` at `key` and advances pc by 1**, charging the
+EIP-2200 store cost. The guards (`StaticModeViolation`, the `Gcallstipend` gate,
+`StackOverflow`, `OutOfGas`) are discharged from the hypotheses. -/
+theorem stepFrame_sstore (fr : Frame) (key newValue : UInt256) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .SSTORE, .none))
+    (hstk : fr.exec.stack = key :: newValue :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hmod : fr.exec.executionEnv.canModifyState = true)
+    (hstip : ¬ fr.exec.gasAvailable.toNat ≤ Gcallstipend)
+    (hcost : sstoreChargeOf fr.exec key newValue ≤ fr.exec.gasAvailable.toNat) :
+    stepFrame fr = .next (sstorePost fr.exec key newValue rest) := by
+  unfold stepFrame
+  simp only [hdec]
+  dsimp only [Option.getD]
+  rw [if_neg (by decide)]
+  have hov : ¬ (fr.exec.stack.size - stackPopCount (.Smsf .SSTORE)
+      + stackPushCount (.Smsf .SSTORE) > 1024) := by
+    simp only [show stackPopCount (.Smsf .SSTORE) = 2 from rfl,
+               show stackPushCount (.Smsf .SSTORE) = 0 from rfl]
+    have := hsz
+    omega
+  rw [if_neg hov]
+  dsimp only [dispatch, smsfOp]
+  unfold requireStateMod
+  rw [if_pos hmod]
+  dsimp only [bind, Except.bind, pure, Except.pure]
+  rw [if_neg hstip]
+  rw [hstk]
+  dsimp only [Stack.pop2, liftM, monadLift, MonadLift.monadLift, Option.option, bind,
+    Except.bind, pure, Except.pure]
+  unfold charge
+  rw [if_neg (by
+    have h := hcost
+    dsimp only [sstoreChargeOf, Option.option] at h
+    omega)]
+  dsimp only [sstorePost, sstoreChargeOf, Option.option]
+  rfl
+
+set_option maxHeartbeats 2000000 in
+/-- **SSTORE out-of-gas.** With the stipend gate cleared but the store cost
+exceeding the remaining gas, `stepFrame` halts with an `OutOfGas` exception. This
+is the callee-starving step the external-call `∃G₀` counterexample turns on. -/
+theorem stepFrame_sstore_oog (fr : Frame) (key newValue : UInt256) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .SSTORE, .none))
+    (hstk : fr.exec.stack = key :: newValue :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hmod : fr.exec.executionEnv.canModifyState = true)
+    (hstip : ¬ fr.exec.gasAvailable.toNat ≤ Gcallstipend)
+    (hoog : fr.exec.gasAvailable.toNat < sstoreChargeOf fr.exec key newValue) :
+    stepFrame fr = .halted (.exception .OutOfGas) := by
+  unfold stepFrame
+  simp only [hdec]
+  dsimp only [Option.getD]
+  rw [if_neg (by decide)]
+  have hov : ¬ (fr.exec.stack.size - stackPopCount (.Smsf .SSTORE)
+      + stackPushCount (.Smsf .SSTORE) > 1024) := by
+    simp only [show stackPopCount (.Smsf .SSTORE) = 2 from rfl,
+               show stackPushCount (.Smsf .SSTORE) = 0 from rfl]
+    have := hsz; omega
+  rw [if_neg hov]
+  dsimp only [dispatch, smsfOp]
+  unfold requireStateMod
+  rw [if_pos hmod]
+  dsimp only [bind, Except.bind, pure, Except.pure]
+  rw [if_neg hstip]
+  rw [hstk]
+  dsimp only [Stack.pop2, liftM, monadLift, MonadLift.monadLift, Option.option, bind,
+    Except.bind, pure, Except.pure]
+  unfold charge
+  rw [if_pos (by
+    have h := hoog
+    dsimp only [sstoreChargeOf, Option.option] at h
+    omega)]
 
 end BytecodeLayer

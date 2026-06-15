@@ -29,4 +29,19 @@ structure Observables where
 def CallResult.observe (r : CallResult) : Observables :=
   { success := r.success, output := r.output }
 
+/-! ## A persistent-storage observable
+
+The success/output pair is world-independent; the next rung (SSTORE) asserts a
+**persistent effect**, so we extend the observed surface with the storage cell a
+completed call leaves behind. This reads the cell exactly as the EVM does
+(`Account.lookupStorage`, i.e. `findD … 0`) at a chosen `(addr, key)`, off the
+call's returned `accounts` map — still at the messageCall boundary, no `Frame`,
+pc, stack, or fuel. -/
+
+/-- The persistent storage value a completed call leaves at `(addr, key)`:
+the `key` cell of `addr`'s account in the returned `accounts` map, defaulting to
+`0` for an absent account or unset cell — exactly the EVM's own `SLOAD` reading. -/
+def CallResult.storageAt (r : CallResult) (addr : AccountAddress) (key : UInt256) : UInt256 :=
+  r.accounts.find? addr |>.option 0 (fun a => a.lookupStorage key)
+
 end BytecodeLayer

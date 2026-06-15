@@ -1,98 +1,104 @@
 # Experiment 003 — handoff
 
-Read `results.md` first. This file is the to-do list for the next run.
+Read `results.md` first. Both milestones (M1 call-free spine, M2 external calls)
+are **proven, green, and axiom-clean** (`[propext, Classical.choice, Quot.sound]`
+on every export). The two foundation obstructions the earlier run reported were
+resolved upstream in leanevm (`9cefe5b`). This file records the final ladder and
+what a *next* experiment can build on.
 
-## Where the ladder stopped
+## Where the ladder reached (all ✅)
 
 ```
-A  Observables           ✅  CallResult.observe / Observables          (BytecodeLayer/Observables.lean)
-B  run vocabulary        ✅  drive_step / drive_halt / two_le_seedFuel (BytecodeLayer/Drive.lean)
-   step characterization ✅  stepFrame_stop / stepFrame_push1          (BytecodeLayer/Step.lean)
-C  sequencing            ✅  exercised in capstone-1′ (PUSH1;STOP)      (BytecodeLayer/Capstone1.lean)
-capstone-1               ✅  messageCall_stop_observe
-capstone-1′              ✅  messageCall_pushStop_observe (gas floor 3≤gas, no ∃G₀)
+A  Observables           ✅  CallResult.observe / .storageAt            (BytecodeLayer/Observables.lean)
+B  run vocabulary        ✅  drive_step / drive_halt / two_le_seedFuel  (BytecodeLayer/Drive.lean)
+B′ generalized run       ✅  driveG_step / _halt_callDeliver / _needsCall_code (BytecodeLayer/DriveGen.lean)
+   step characterization ✅  stepFrame_stop/_push1/_push/_sstore/_sstore_oog   (BytecodeLayer/Step.lean)
+C  sequencing            ✅  messageCall_seq_storageAt + toNat_subCharges (BytecodeLayer/Capstone3.lean)
+C′ CALL rule             ✅  stepFrame_call (reflexive callChildParams)  (BytecodeLayer/Call.lean)
+capstone-1               ✅  messageCall_stop_observe                    (BytecodeLayer/Capstone1.lean)
+capstone-1′              ✅  messageCall_pushStop_observe (gas floor 3)
+capstone (SSTORE)        ✅  messageCall_sstore_storageAt (floor 22106)
+capstone (SEQUENCE)      ✅  messageCall_seq_storageAt (floor 44212)
 ─────────────────────────────────────────────────────────────────────
-B′ descents              ❌  blocked — see "Obstruction 2"
-C′ CALL rule             ❌  blocked — see "Obstruction 2"
-D  fuel-sufficiency      —   not attempted (vacuous for M1; needed only with descents)
-capstone-2 (∃G₀)         ❌  not reached
-axiom purity             ❌  impossible without a foundation fix — see "Obstruction 1"
+capstone-2 (∃G₀ CALL)    ✅  messageCall_call_storageAt                  (BytecodeLayer/CapstoneCall.lean)
+∃G₀ counterexample       ✅  call_counterexample (g = 24000 ⇒ cell = 0)
+reflexivity witness      ✅  messageCall_child_reflexive
+axiom purity             ✅  every export = [propext, Classical.choice, Quot.sound]
 ```
 
-## Obstruction 1 — foundation `bv_decide` axiom (blocks axiom purity everywhere)
+`D` fuel-sufficiency was never needed as a separate brick: leanevm seeds enough
+fuel from gas, and each capstone peels exactly the units it consumes from
+`seedFuel g` via `two_le_seedFuel` + the `seedFuel g = (… - k) + k` rewrite, so
+fuel is discharged once per proof and never appears in a statement.
 
-`Evm.messageCall`, `Evm.drive`, `Evm.beginCall`, `Evm.stepFrame`, `Evm.endFrame`
-all already depend on `Evm.UInt256.blt_iff_toBitVec_lt._native.bv_decide.ax_1_7`.
-Source: `forks/leanevm/Evm/UInt256.lean:459` (`blt_iff_toBitVec_lt` proved by
-`bv_decide`), used to build `Decidable (· < ·)`/`Decidable (· ≤ ·)` for
-`UInt256` (lines 478–483), used throughout the semantics.
+## The two obstructions — RESOLVED (record of the fix)
 
-**Next step (to unblock):** reprove the `bv_decide` lemmas in
-`Evm/UInt256.lean` (`blt_iff_toBitVec_lt` and siblings at lines 271, 276, 312,
-424, 430, 436, 441, 464) without `bv_decide`/`ofReduceBool`. Plan that was
-validated to the goal-shape stage:
-1. Prove a generic `append_ult : (hi₁ ++ lo₁).ult (hi₂ ++ lo₂) =
-   hi₁.ult hi₂ || (hi₁ == hi₂ && lo₁.ult lo₂)` for `BitVec`, via
-   `BitVec.toNat_append` + `BitVec.ult ↔ decide (·.toNat < ·.toNat)` + `omega`.
-   The one missing sub-lemma is the `Nat` bridge `a <<< n ||| b = a*2^n + b`
-   for `b < 2^n` (mathlib name not found by `exact?`; prove from
-   `Nat.lor`/`testBit` or `Nat.shiftLeft_add`).
-2. Fold `append_ult` seven times to reduce `blt` (lexicographic over 8 limbs) to
-   the 256-bit `ult`. The file already has axiom-free `toNat_add`/`toNat_mul`
-   etc. as models for the style.
-3. Re-run `#print axioms` on a downstream theorem to confirm the axiom is gone.
+Both were `forks/leanevm` foundation issues, fixed by one endorsed upstream
+commit `9cefe5b` ("Remove bv_decide axiom from the execution path; expose
+callArm/createArm"), conformance unchanged (2859/2859):
 
-This is a self-contained UInt256 task; once done, **all of experiment 003 (and
-any other leanevm proof) becomes axiom-clean for free.**
+1. **`bv_decide` axiom** — `blt_iff_toBitVec_lt` (`Evm/UInt256.lean`) reproved by
+   reducing both sides to `Nat` (`BitVec.lt_def` + `toNat_limbs`) and an
+   8-limb-lexicographic `omega`, keeping `blt`/`toBitVec`/the `Decidable` instances
+   and the fast runtime path unchanged. `#print axioms Evm.messageCall` is now
+   standard. (Spec lemmas off the execution path still use `bv_decide` — harmless.)
+2. **`private callArm`/`createArm`** (`Evm/Semantics/System.lean`) made
+   non-`private`, so `stepFrame_call` can `unfold callArm`.
 
-## Obstruction 2 — `callArm`/`createArm` are `private` (blocks M2)
-
-`forks/leanevm/Evm/Semantics/System.lean:12,73` declare `callArm`/`createArm`
-`private`. After `stepFrame` on `CALL` reduces through `dispatch`/`systemOp`/
-`Stack.pop7`, the goal contains the inaccessible `Evm.callArm✝`; it cannot be
-unfolded from the experiment.
-
-**Next step (to unblock M2):**
-1. Upstream change in leanevm: drop `private` on `callArm`/`createArm` (or add
-   public `@[simp]` equation lemmas for the `.needsCall`/`.next`-on-fail
-   branches). Re-run `lake exe conform 8` to confirm no regression.
-2. Then build, in this package:
-   - `stepFrame_call_needsCall` — CALL with a 7-element stack, `value = 0`,
-     `depth < 1024`, enough gas ⇒ `.needsCall childParams pending`, exhibiting
-     `childParams.codeSource = toExecute accounts codeAddress` (the **reflexive**
-     child — model it as the real `messageCall`, never an oracle).
-   - a `drive` descent lemma (the `.needsCall` arm of `drive`, analogous to
-     `drive_step`/`drive_halt`).
-   - `resumeAfterCall` characterisation: push `1` on child success, `0` on
-     child OOG, advance pc.
-   - capstone-2: caller = `PUSH1×7 ; CALL ; STOP` (or a stack-preloaded internal
-     frame to avoid 7 PUSH lemmas), callee = `STOP` account. State the `∃G₀`:
-     at modest `g` the `callGasCap` (`allButOneSixtyFourth`) binds, the callee
-     OOGs, flag `0` is stored, caller STOPs — observables differ from the
-     full-gas run, no `OutOfGas` at top level.
-3. The 7-PUSH caller is the proof-cost risk. A `stepFrame_push1`-style lemma
-   already exists; either iterate it 7× (mechanical) or prove the capstone about
-   an internal frame whose stack is pre-loaded (internal lemmas may be
-   low-level), then connect via the PUSH lemmas separately.
+If a future leanevm bump regresses either, re-applying the same two changes
+upstream restores axiom purity and M2 reducibility.
 
 ## Reusable patterns confirmed this run (carry forward)
 
-- `decode <bytes> <pc> = some (op, imm)` **by `rfl`, as a named lemma**; inline
-  it and `simp` won't fire under `getD`.
+- `decode <bytes> <pc> = some (op, imm)` **by `rfl`, as a named lemma**; inline it
+  and `simp` won't fire under `getD`. The pc argument must be written **exactly as
+  `incrPC` produces it** (e.g. `(0:UInt32) + UInt8.toUInt32 2 + …`), not reduced.
 - Reduce `stepFrame` with: `unfold stepFrame; simp only [hdec];
-  dsimp only [Option.getD]; rw [if_neg (by decide)]` (INVALID guard) `;
-  rw [if_neg <overflow>]; dsimp only [dispatch, …]; unfold Evm.charge;
-  rw [if_neg <gas>]; rfl`.
-- Advance `drive` with `conv_lhs => unfold drive; dsimp only; rw [hstep]`
-  (`drive_step`) — `conv_lhs` is essential or `unfold` rewrites the RHS too.
-- Peel seeded fuel: `rw [show seedFuel p.gas = (… - k) + k by have := two_le_seedFuel …; omega]`.
-- Stack-size side goals over a `(…push v)` of a `default.stack` record: discharge
-  with `le_of_eq_of_le (by rfl) (by omega)` — `decide` fails (free vars in the
-  surrounding record), but the `.size` is defeq to a literal.
-- `set_option … in` must go **before** the `/-- … -/` docstring, not between it
-  and the `theorem`.
+  dsimp only [Option.getD]; rw [if_neg (by decide)]` (INVALID guard)
+  `; rw [if_neg <overflow>]; dsimp only [dispatch, …]; unfold Evm.charge;
+  rw [if_neg <gas>]; rfl`. For CALL also unfold `callArm`, kill the
+  mem-expansion (`Cₘ a - Cₘ a = 0`), and discharge `callGasCap + callExtraCost ≤
+  gasAvailable` then the depth/balance guard (`⟨UInt256.zero_le _, hdepth⟩`).
+- Advance top-level `drive` with `drive_step`/`drive_halt`; advance a *suspended*
+  run (parent on the pending stack) with `driveG_step`/`driveG_halt_callDeliver`/
+  `driveG_needsCall_code`. The `conv_lhs => unfold drive` guard against rewriting
+  the RHS is baked into the lemmas.
+- Peel seeded fuel: `rw [show seedFuel g = (seedFuel g - k) + k by
+  have := two_le_seedFuel g; unfold seedFuel; omega]` (k = total fuel the run
+  consumes).
+- **Gas threading for sequences**: `subCharges g cs` + `toNat_subCharges` reads the
+  running `gasAvailable` after charges `cs` as `g.toNat - cs.sum` (given the sum
+  fits), so every step's gas/stipend side-goal is a one-line `omega` against a
+  fixed prefix sum — avoids the quadratic blow-up of nested `toNat_sub_ofNat`.
+- The **63/64 cap** lives in `callGasCap`/`allButOneSixtyFourth`; bound it with
+  `childGas_lb`/`childGas_ub` and let `omega` finish. `callExtraCost … = 2600` and
+  `sstoreChargeOf … = 22100` reduce by `decide` once the world fields are pinned.
+- Stack-size side goals over a `(…push v)` of a `default.stack`: discharge by
+  reducing `.size` to a literal `Nat` and `omega` (free vars block `decide`).
+- `set_option … in` must go **before** the `/-- … -/` docstring.
+- Some call proofs need a large `maxHeartbeats` (e.g. `messageCall_call_storageAt`
+  uses `800000000`). This is reduction depth, not a soundness concession.
+
+## Where a next experiment could go
+
+The bytecode reasoning layer is now demonstrated end-to-end against the real
+`messageCall`, including the hard case (external calls with the `∃G₀` gas story),
+all axiom-clean. Natural next rungs, each demand-driven:
+
+- **Non-zero `value` / non-empty memory windows** in CALL (the value-free,
+  zero-memory restriction in `stepFrame_call` was deliberate to isolate the 63/64
+  content; lifting it adds the value-transfer balance arithmetic and
+  mem-expansion charge).
+- **`RETURN`/`REVERT` output**, so `CallResult.output` carries non-empty bytes and
+  the caller can read returndata.
+- **Nested calls / depth**, exercising `driveG_*` with a deeper pending stack.
+- **A source IR → bytecode lowering** with these capstones as the target-side
+  obligations (the original bytecode-first goal); the export shape (observables at
+  the messageCall boundary, fuel/frame-free) is exactly what a lowering soundness
+  theorem should land in.
 
 ## Build
 
-`cd experiments/003_bytecode_layer && lake build` → green (1107 jobs).
-`lakefile.lean` globs `.andSubmodules \`BytecodeLayer`.
+`cd experiments/003_bytecode_layer && lake build` → green (1111 jobs; two cosmetic
+unused-simp-arg linter warnings). `lakefile.lean` globs `.andSubmodules
+`BytecodeLayer`.
