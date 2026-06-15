@@ -13,6 +13,30 @@ Seed crystal to read first:
 [001 `results-v2.md` §3](../../001_toy_external_call/docs/results-v2.md),
 [`planning/bytecode-first-plan.md` §2–4](../../../docs/planning/bytecode-first-plan.md).
 
+## Prime directive: proof-first, always-green
+
+A `sorry`-ed abstraction proves nothing and *validates* nothing. The whole point
+of using Lean is that **only a closed proof reveals which abstraction is actually
+necessary.** Therefore:
+
+- **No `sorry` ever lands.** The package is always green and axiom-clean. Every
+  step ends with a whole-package `lake build` green, **zero `sorry` anywhere**,
+  and `#print axioms` standard on the new theorem.
+- **Abstractions are demand-driven**, never scaffolded. A definition or lemma is
+  added only when it is *immediately proved* or *immediately required by a proof
+  in progress*. Do not lay out a skeleton of stated-but-unproved theorems.
+- **Bottom-up.** Start from the smallest theorem you can fully close about a
+  concrete handwritten program at the messageCall boundary, then grow toward the
+  goal (external calls) one proven step at a time. When a concrete proof would
+  repeat work, *that* is when you extract a reusable lemma — and you prove it.
+- **A wall is a finding, not a `sorry`.** If a step cannot be closed honestly,
+  revert it and report the obstruction. An obstruction is information about what
+  is genuinely hard; a `sorry` is slop that hides it.
+
+This supersedes any top-down "state all the bricks, then fill them in" reading of
+the lemma DAG below — the DAG is the *expected* shape, to be discovered and
+validated by proofs, not asserted up front.
+
 ## Two architectures coexisted in 001
 
 **What 001 shipped ("done").** A *bijective, mirror-the-machine* lowering: the IR

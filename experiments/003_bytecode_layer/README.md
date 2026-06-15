@@ -1,7 +1,25 @@
 # Experiment 003 — bytecode reasoning-layer machinery (external calls)
 
-> **Status: scaffolding.** Foundation chosen and wired; the work is driven by
-> [`orchestration.prose`](./orchestration.prose) and has not been run yet.
+> **Status: M1 proven (green, zero `sorry`); M2 blocked.** The call-free spine
+> is proved in the target shape — observables-only, frame-free, fuel-free —
+> against the real `messageCall` (`messageCall_stop_observe`,
+> `messageCall_pushStop_observe`). External calls (M2) are **not** proven, and
+> the literal axiom-purity gate is **unmet**, due to two orthogonal
+> foundation-level obstructions. Full detail: [`docs/results.md`](./docs/results.md)
+> and [`docs/handoff.md`](./docs/handoff.md).
+>
+> - **Axiom obstruction (key finding):** every theorem mentioning `messageCall`
+>   inherits `Evm.UInt256.blt_iff_toBitVec_lt._native.bv_decide.ax_1_7` from
+>   leanevm (`Evm/UInt256.lean:459`, a `bv_decide` proof powering `UInt256`'s
+>   `Decidable (·<·)`). It is definition-level in `drive`/`messageCall`/etc., not
+>   introduced by these proofs; satisfying "ONLY propext/Classical.choice/Quot.sound"
+>   is impossible without reproving that foundation lemma.
+> - **M2 obstruction:** `callArm`/`createArm` are `private` in leanevm
+>   (`Evm/Semantics/System.lean`), so the `CALL` reduction cannot be unfolded
+>   from this package; the `∃G₀` counterexample was not reached.
+>
+> `lake build` → green (1107 jobs). No `sorry`/`admit`/`native_decide`/`bv_decide`
+> in experiment code.
 
 ## What this experiment is
 

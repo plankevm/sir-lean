@@ -1,185 +1,52 @@
-# Experiment 003 — bytecode reasoning-layer machinery, EXTERNAL CALLS as the goal
+# Experiment 003 — bytecode reasoning layer, EXTERNAL CALLS goal. PROOF-FIRST RATCHET.
 #
-# Build the reusable reasoning layer over leanevm's bytecode semantics, validated
-# on handwritten bytecode, and show it composes into the export shape:
-#   messageCall-boundary, observables-only, fuel-free, ∃G₀.
+# Prime directive (docs/proof-structure.md): no sorry EVER lands; abstractions are
+# demand-driven; bottom-up, one PROVEN step at a time; a wall is a finding.
 #
-# The proof architecture is fixed by docs/proof-structure.md (the structure that
-# emerged as correct from 001 — single high-level spec; reflexive effects proved
-# by characterization/defeq, not oracle/simulation; gas by vacuity-propagation
-# away from calls with local ∃G₀/cap arithmetic at CALL; exports in observables,
-# fuel and lockstep detail discharged once). READ THAT DOC; this loop enforces it.
-#
-# Verification is PLACED, not blanket: a deterministic build/axiom gate on every
-# brick, plus targeted auditors only where a requirement is at risk —
-#   export-shape  : exports are observable/frame-free/fuel-free/clean
-#   reflexive-call: CALL is a real messageCall (no oracle), soundness by defeq
-#   gas-honesty   : ∃G₀ forced (counterexample exhibited), vacuity away from calls
-#   characterization: single semantics, route through characterization lemmas (once)
-#
-# Bricks: A Observables · B run vocabulary · C sequencing · C' CALL rule ·
-#         D fuel-sufficiency.  Milestones: M1 call-free spine, M2 external calls.
+# The loop grows ONE always-green development up a ladder of concrete EXPORTED
+# theorems at the messageCall boundary. Each rung must be fully closed —
+# whole-package `lake build` green, ZERO sorry anywhere, standard axioms — before
+# the next. Lemmas (observe, fuel-sufficiency, sequencing, the CALL rule) appear
+# ONLY when a proof forces them. If a rung can't close, REVERT to green and report
+# the obstruction (that is the finding). The gate uses an INDEPENDENT verifier's
+# command output, never the prover's self-report.
 
 # state: file
 
-agent prover:
+agent prover:        # proof-first; always-green; demand-driven; revert+report if blocked
   model: opus
-  prompt: """
-    You are a Lean 4 proof engineer in experiments/003_bytecode_layer/, depending
-    on the EVM semantics in forks/leanevm (gitignored working copy of
-    philogy/leanevm — upstream changes there, do not diverge silently).
-
-    FOLLOW docs/proof-structure.md exactly. In particular:
-    - ONE high-level spec; never introduce a second gas-decorated copy of the
-      semantics to make a proof go through.
-    - Model effectful operations REFLEXIVELY: a CALL is the real leanevm
-      messageCall on the child. Prove soundness by characterization / defeq in the
-      style of 001's CallSound.lean (if_congr / bind_map_comm / structure eta) —
-      NOT via an oracle hypothesis, NOT by a parallel metered simulation, NOT by
-      record-commutation simp lemmas.
-    - Gas: vacuity-propagation away from calls (each gas check either passes or the
-      run is OutOfGas, contradicting success — zero arithmetic). Quantitative gas
-      (∃G₀, the 63/64 cap) ONLY at call sites.
-    - EXPORTED statements (the capstones, the CALL rule's public face, Observables)
-      must be observables at the messageCall boundary: no frame fields / injectFrame
-      analogue, no fuel, no lockstep internals, human-readable. INTERNAL bricks
-      (run vocabulary, sequencing/chunk lemmas, coupling relations) MAY be
-      low-level — that is correct, keep them out of the exports.
-    - Route proofs THROUGH characterization lemmas; do not unfold the spec or
-      leanevm defs inside statements, so statements can be reshaped without
-      breaking the proof corpus.
-    - Reuse 001's proof-engineering (findings.md): standalone equation lemmas,
-      defeq bridging, if_pos/if_neg guard alignment, list-first encodings,
-      dsimp-before-rw, position-generalized lemmas. Avoid its dead-ends.
-
-    Build is ground truth. Never claim done without a green `lake build` (zero
-    `sorry`) and `#print axioms` showing only propext, Classical.choice, Quot.sound.
-    Always report build output, #eval results, and the axiom list verbatim.
-  """
-
-agent auditor:
+agent verifier:      # independent: runs `lake build` / grep sorry / `#print axioms`, reports facts only
   model: opus
-  prompt: """
-    You are a targeted, read-only verifier of ONE specified property of the
-    experiments/003_bytecode_layer/ Lean package. Inspect source and build/axiom
-    output; do not edit. Check ONLY the property you are given — do not opine on
-    others. Be concrete: if the property is violated, exhibit the offending
-    location or a witness. End with exactly one of: 'VERDICT: PASS' or
-    'VERDICT: REFUTE'.
-  """
+agent auditor:       # read-only property check (export-shape / reflexive-call / gas-honesty)
+  model: opus
 
-# ── Gate tiers (deterministic build gate + the auditors a brick's risk requires).
+# Ladder of exported goals (concrete; internal lemmas emerge under each rung):
+#   1 stop    — trivial program (STOP): observables for sufficiently-large gas
+#               (forces program-specific fuel-sufficiency + the observe projection)
+#   2 sstore  — PUSH;PUSH;SSTORE;STOP: a storage observable
+#   3 seq     — multi-instruction straight line (extract sequencing iff it repeats)
+#   4 call    — caller+callee, reflexive CALL rule + ∃G₀ counterexample   ← the goal
 
-# Internal bricks: build/axiom gate only. Internal lemmas MAY be low-level.
-block prove(brick, goal):
+block rung(goal, exported, isCall):
   loop until ***
-    `lake build` for experiments/003_bytecode_layer is green, zero `sorry`, and
-    `#print axioms` on {brick}'s statements shows only standard axioms
-  *** (max: 6):
-    session: prover
-      prompt: "Brick {brick}. Goal: {goal}. Iterate `lake build` to green/zero-sorry; validate with `#eval` on the handwritten bytecode; run `#print axioms`. Report all three verbatim. Address any prior auditor REFUTE in context."
+    the INDEPENDENT verifier confirms: whole-package `lake build` green, ZERO sorry,
+    standard axioms on the new theorem; AND (if exported) export-shape PASS; AND
+    (if isCall) reflexive-call PASS and gas-honesty PASS
+    — OR the prover reports BLOCKED with the package reverted to green (a finding)
+  ***:
+    let attempt = session: prover
+      prompt: "The package is currently green/zero-sorry. Prove this EXPORTED goal, demand-driven: {goal}. HARD INVARIANT: finish with whole-package lake build green, ZERO sorry anywhere, #print axioms standard on the new theorem. Introduce+prove a lemma ONLY because this proof needs it. If you cannot close it honestly, REVERT all your edits (restore green) and report blocked + the precise obstruction. Report the new theorem name and the abstractions the proof forced."
+    let check = session: verifier
+      prompt: "Independently verify {PKG} now: run `lake build`; `grep -rn sorry` the package; `#print axioms` the new theorem. Report green / zeroSorry / axiomsStandard as facts. Do not edit."
+    # placed audits fire only once the verifier says green (exports only; calls get all three)
 
-# Exported statements: + export-shape auditor.
-block prove_export(brick, goal):
-  loop until ***
-    build green + zero sorry + standard axioms on {brick}, AND the export-shape
-    auditor returned VERDICT: PASS
-  *** (max: 6):
-    let work = session: prover
-      prompt: "Brick {brick} (EXPORTED). Goal: {goal}. Keep the exported statement observables-only at the messageCall boundary: no frame/injectFrame, no fuel, no lockstep internals. Build to green/zero-sorry; #eval; #print axioms; report verbatim. Address any prior auditor REFUTE."
-    session: auditor
-      prompt: "Property = EXPORT-SHAPE for {brick}. The exported statement(s) must be observables at the messageCall boundary with NO frame fields / injectFrame analogue, NO fuel parameter or hypothesis, NO lowering-lockstep internals (chunk indices, per-opcode cost schedule), and be high-level/readable. Internal lemmas are EXEMPT — judge only the exported statement(s). REFUTE if a low-level artifact appears in an export."
-      context: work
+# Baseline, then climb the ladder; stop at the first wall and report it.
+session: verifier
+  prompt: "Confirm the empty package {PKG} builds green (stub root + leanevm dep)."
+do rung("1 stop — contract code = STOP; ∃G₀ ∀g≥G₀, observe(messageCall) = .ok {success, empty out, storage unchanged, no logs}", true, false)
+do rung("2 sstore — PUSH v;PUSH k;SSTORE;STOP; storage[k]=v observable", true, false)
+do rung("3 seq — multi-instruction straight line; extract+prove sequencing iff the proof repeats", true, false)
+do rung("4 call — caller CALLs handwritten callee; reflexive CALL rule (63/64 cap, callee OOG→flag0→continue) + ∃G₀ with the executable counterexample", true, true)
 
-# Call bricks/capstone: + export-shape + reflexive-call + gas-honesty auditors.
-block prove_call(brick, goal):
-  loop until ***
-    build green + zero sorry + standard axioms on {brick}, AND all of the
-    export-shape, reflexive-call and gas-honesty auditors returned VERDICT: PASS
-  *** (max: 8):
-    let work = session: prover
-      prompt: "Brick {brick} (CALL). Goal: {goal}. The CALL must be the REAL leanevm messageCall on the child (reflexive), soundness by characterization/defeq (cf 001 CallSound), no oracle. Gas: ∃G₀ shape, exhibit the executable counterexample that forces it. Build to green/zero-sorry; #eval (incl. the counterexample regime); #print axioms; report verbatim. Address any prior auditor REFUTE."
-    parallel (on-fail: continue):
-      session: auditor
-        prompt: "Property = EXPORT-SHAPE for {brick}: exported statement observables-only at the messageCall boundary; no frame/injectFrame, no fuel, no lockstep internals. REFUTE on any leak."
-        context: work
-      session: auditor
-        prompt: "Property = REFLEXIVE-CALL for {brick}: the callee is EXECUTED as a real leanevm messageCall (reflexive), with NO oracle/axiom/assumption standing in for callee behavior, and soundness proved by characterization/defeq — not assumed. REFUTE if callee behavior is assumed rather than executed."
-        context: work
-      session: auditor
-        prompt: "Property = GAS-HONESTY for {brick}: (1) gas erasure is ∃G₀-shaped and that shape is FORCED — the prover exhibits the executable counterexample (modest g: 63/64 cap binds, callee OOG, flag 0, caller continues, observably different) making 'not-OutOfGas → equal' false; (2) away from calls, gas is vacuity-propagated, not gratuitous arithmetic; (3) the theorem is non-vacuous. REFUTE otherwise."
-        context: work
-
-# ── Phase 0 — foundation. leanevm is shared infrastructure: smoke-test it.
-let foundation = session: prover
-  prompt: """
-    In forks/leanevm run `lake build` (build the C/Rust FFI as needed), then the
-    FAST conformance phase (`lake exe conform 8` — curated set, NOT --full).
-    Report build result and conformance pass/fail counts verbatim. If it does not
-    build or conformance regresses, STOP and report — do not proceed.
-  """
-
-# ── Phase 1 — design: parallel fan-out → synthesize a sorry-ed skeleton that
-#    BUILDS, then gate the skeleton's EXPORT statements on the export-shape auditor.
-parallel:
-  api = session: prover
-    prompt: "Read-only. Map leanevm's execution/call API precisely (signatures + file:line): messageCall, drive, seedFuel, stepFrame, Signal, beginCall/endCall/resumeAfterCall, CallParams, CallResult, Substate, FrameHalt, Frame/ExecutionState, callGasCap/allButOneSixtyFourth, the CALL handler. Note exactly what observables CallResult/Substate expose."
-  fuel = session: prover
-    prompt: "Draft the fuel-sufficiency statement (`messageCall p ≠ .error .OutOfFuel` for gas-respecting p) and a proof strategy covering straight-line steps (≥1 gas) AND call descents/deliveries (≥100 gas), per drive's seedFuel comment."
-  vocab = session: prover
-    prompt: "Draft the fuel-free run vocabulary (FrameStep/FrameRun/halts-with over stepFrame; the drive-level config relation for the needsCall/Pending/resume cycle) and the sequencing (C) + CALL-rule (C') statements. Internal vocabulary MAY be low-level."
-  obs = session: prover
-    prompt: "Draft Observables + CallResult.observe (high-level), and the two capstone statements (call-free; caller+callee with the ∃G₀ counterexample regime)."
-let skeleton
-loop until ***
-  experiments/003_bytecode_layer builds with every brick statement present as a
-  `sorry`-ed theorem, AND the export-shape auditor PASSES on the exported
-  statements (capstones, CALL rule public face, Observables)
-*** (max: 3):
-  skeleton = session: prover
-    prompt: "Synthesize / fix the Lean package experiments/003_bytecode_layer/ depending on ../../forks/leanevm (toolchain lean4 v4.30.0 + mathlib), building with every brick statement as a `sorry`-ed theorem, plus docs/design.md (lemma DAG, the two milestones, the handwritten test programs — a call-free program and a caller+callee pair). Exports observables-only; address any prior auditor REFUTE."
-    context: { foundation, api, fuel, vocab, obs }
-  session: auditor
-    prompt: "Property = EXPORT-SHAPE for the skeleton. Judge ONLY the exported statements (the two capstones, the CALL rule's public statement, Observables/CallResult.observe): observables at the messageCall boundary, no frame/injectFrame analogue, no fuel, no lockstep internals, high-level. Internal sorry-ed lemmas are exempt. REFUTE on any leak into an export."
-    context: skeleton
-
-# ── Phase 2 — Milestone 1: the call-free spine (lock in the new shape).
-do prove("A — Observables projection", "CallResult.observe + basic lemmas")
-do prove("B — fuel-free run vocabulary", "FrameStep/FrameRun/halts-with over stepFrame, straight-line")
-parallel:
-  do prove("C — sequencing combinator", "run A then B = run A++B when A falls through into B; decode-at-offset / code-layout reasoning")
-  do prove("D0 — fuel-sufficiency (call-free)", "messageCall p ≠ .error .OutOfFuel for straight-line gas-respecting runs (#steps ≤ seedFuel)")
-do prove_export("capstone-1 — call-free export", "∃ G0, ∀ g ≥ G0, (messageCall {…, code := straightLineProg, gas := g, …}).map CallResult.observe = .ok <computed>; #eval-validated")
-
-# ── Phase 3 — Milestone 2: EXTERNAL CALLS (the goal).
-do prove("B' — call descents in the vocabulary", "extend the run relation to the drive-level needsCall → beginCall → Pending → resumeAfterCall cycle")
-parallel:
-  do prove_call("C' — CALL rule", "characterize executing a CALL: 63/64 cap forwards min(g, ⌊63/64·(avail−extra)⌋); callee success → flag 1, callee OOG → flag 0 and the CALLER CONTINUES; the call is a REAL reflexive messageCall on the child — leanevm's analogue of 001's frame-insensitivity, proved by characterization")
-  do prove("D — fuel-sufficiency (with descents)", "extend D0 to the call descent/delivery accounting (≥100 gas/descent), so it holds for runs containing CALLs")
-do prove_call("capstone-2 — external-call export", "caller+callee handwritten bytecode: ∃ G0, ∀ g ≥ G0, observables agree; REPRODUCE the 001 counterexample (modest g: cap binds, callee OOG, flag 0, caller STOPs cleanly, observables ≠ full-gas run, no OutOfGas anywhere) and locate the ∃G0 threshold with #eval")
-
-# ── Phase 4 — integration: characterization review + final completeness (loop to fix).
-loop until ***
-  the characterization auditor AND the completeness auditor both return
-  VERDICT: PASS (build green, zero sorry, standard axioms throughout)
-*** (max: 3):
-  session: prover
-    prompt: "Integration pass over the whole 003 package: ensure a clean full `lake build` (zero sorry, standard axioms), assemble both capstones, and fix anything the integration auditors flagged in context. Report build + axioms verbatim."
-  parallel (on-fail: continue):
-    session: auditor
-      prompt: "Property = CHARACTERIZATION/SINGLE-SEMANTICS for the whole package: (1) no second gas-decorated copy of the semantics introduced just to prove things; (2) proofs route through characterization lemmas, not by unfolding the spec/leanevm defs; (3) proof-internal definitions (coupling relations, chunk lemmas) do NOT appear in any exported statement. REFUTE with the offending location."
-    session: auditor
-      prompt: "Property = COMPLETENESS for the whole package: zero `sorry`; `#print axioms` standard on every export; FUEL absent from every exported statement (discharged via fuel-sufficiency, not assumed); no injectFrame analogue in exports; external calls executed for real (reflexive); ∃G0 honest (counterexample exhibited). List anything still assumed or any brick stated-but-unused. REFUTE if the two target debts (injectFrame, fuel-in-statement) are not gone or calls are not genuinely executed."
-
-# ── Phase 5 — honest write-up.
-output writeup = session: prover
-  prompt: """
-    Write experiments/003_bytecode_layer/docs/results.md, docs/handoff.md, and a
-    docs/README.md index, in the style of 001: every capstone statement and the
-    CALL rule verbatim; the executable CALL counterexample + located ∃G0
-    threshold; the HONEST rough-edge list (what is still assumed, remaining
-    fuel/gas obligations, any leanevm changes pending upstream); and what carries
-    forward — the reasoning-layer bricks the first real SIR will reuse. Confirm
-    against docs/proof-structure.md that the emerged-correct architecture was
-    followed. Update the experiment README. State build + axiom status plainly.
-  """
+session: prover
+  prompt: "WRITE-UP — only what is PROVEN. docs/results.md + docs/handoff.md: each proven theorem verbatim + its #print axioms; the abstractions the proofs FORCED; for any blocked rung, the precise obstruction (the key finding). Confirm green/zero-sorry. No sorry, no speculative modules."
