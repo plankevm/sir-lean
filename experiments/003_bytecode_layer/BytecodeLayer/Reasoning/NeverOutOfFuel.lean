@@ -26,14 +26,17 @@ it strictly decreases on every `drive` recursion, and starts below `seedFuel`.
     7 (resume fault) inline.
   - `messageCall_never_outOfFuel_of_descentDrops` — the general boundary theorem
     **modulo** `DescentDrops`.
-* **Open (the one remaining hypothesis):** `DescentDrops` — the CALL/CREATE
-  *descent / `System`-`.next`-fallback* gas arithmetic (obligations 3, 4, 5).
-  Closing it (the 63/64 / stipend-vs-`Gcallvalue` / `extraCost ≥ accessCost`
-  bounds, mined from M2's `Proof/ExternalCall.lean`) removes the hypothesis and
-  yields the unconditional general theorem. The relevant leanevm defs are
-  `callArm`/`createArm` (`Evm/Semantics/System.lean`), `beginCall` (precompile
-  branch, `Evm/Semantics/Call.lean`), `beginCreate` (`Evm/Semantics/Create.lean`),
-  and the gas helpers `callGasCap`/`callExtraCost`/`allButOneSixtyFourth`
+* **Discharged:** `DescentDrops` — the CALL/CREATE *descent / `System`-`.next`-
+  fallback* gas arithmetic (obligations 3, 4, 5a, 4', 5b) — is fully proven in
+  `Proof/DescentDrops.lean` (`descentDrops_holds`). The CREATE descent (4')
+  relies on the kind-aware `Pending.savedGas` below, which withholds the
+  forwarded `allButOneSixtyFourth` from the measure (since the child already
+  counts it) and so does not double-count during an open CREATE descent. This
+  yields the **unconditional** general theorem
+  `BytecodeLayer.Proof.messageCall_never_outOfFuel`. The relevant leanevm defs
+  are `callArm`/`createArm` (`Evm/Semantics/System.lean`), `beginCall`
+  (`Evm/Semantics/Call.lean`), `beginCreate` (`Evm/Semantics/Create.lean`), and
+  the gas helpers `callGasCap`/`callExtraCost`/`allButOneSixtyFourth`
   (`Evm/Semantics/Gas.lean`).
 -/
 
@@ -48,8 +51,19 @@ def FrameResult.gasRemaining : FrameResult → ℕ
   | .call r   => r.gasRemaining.toNat
   | .create r => r.gasRemaining.toNat
 
-/-- The gas a suspended parent frame holds (its saved `gasAvailable`). -/
-def Pending.savedGas (p : Pending) : ℕ := p.frame.exec.gasAvailable.toNat
+/-- The gas a suspended parent frame holds, as it contributes to the measure.
+
+For a suspended CALL parent this is its full saved `gasAvailable` (the parent was
+debited the forwarded gas *before* it was saved, so its saved gas is genuinely
+"its own"). For a suspended CREATE parent, however, `createArm` saves the parent
+with its *full* undebited gas while forwarding `allButOneSixtyFourth` of it to the
+child; that forwarded part is already counted in the child's `activeGas`, so we
+subtract it here to avoid double-counting during an open CREATE descent.
+`resumeAfterCreate` later reconciles by returning the lent part to the parent. -/
+def Pending.savedGas : Pending → ℕ
+  | .call pd   => pd.frame.exec.gasAvailable.toNat
+  | .create pd => pd.frame.exec.gasAvailable.toNat
+                    - allButOneSixtyFourth pd.frame.exec.gasAvailable.toNat
 
 /-- Gas held by the active component of a `drive` state. -/
 def activeGas : (Frame ⊕ FrameResult) → ℕ
@@ -578,6 +592,27 @@ theorem resumeAfterCreate_gas_le {result : CreateResult} {pd : PendingCreate} {p
         ≤ pd.frame.exec.gasAvailable.toNat := Nat.sub_le _ _
     omega
 
+/-- The **tight** `resumeAfterCreate` bound, matching the kind-aware
+`Pending.savedGas`: the resumed parent's gas is `≤ (saved − allButOneSixtyFourth
+saved) + childRemaining`. The forwarded `allButOneSixtyFourth` returns to the
+parent on delivery, which is exactly what `savedGas (.create _)` already withheld
+from the measure. -/
+theorem resumeAfterCreate_gas_le_savedGas {result : CreateResult} {pd : PendingCreate} {parent : Frame}
+    (h : resumeAfterCreate result pd = .ok parent) :
+    parent.exec.gasAvailable.toNat
+      ≤ (pd.frame.exec.gasAvailable.toNat
+          - allButOneSixtyFourth pd.frame.exec.gasAvailable.toNat)
+        + result.gasRemaining.toNat := by
+  unfold resumeAfterCreate at h
+  simp only [bind, Except.bind, pure, Except.pure] at h
+  split at h
+  · exact absurd h (by simp [throw, throwThe, MonadExceptOf.throw])
+  · simp only [Except.ok.injEq] at h
+    subst h
+    simp only [gasNat_replaceStackAndIncrPC]
+    rw [UInt64.toNat_ofNat']
+    exact Nat.mod_le _ _
+
 /-! ## Call-free corollary
 
 For programs whose code carries no CALL/CREATE-family opcode, a top-level run
@@ -846,12 +881,12 @@ theorem mu_bound (hd : DescentDrops) :
                 simp only [Except.ok.injEq] at hres; subst hres
                 have hb := resumeAfterCall_gas_le result.toCallResult pd
                 rw [toCallResult_gasRemaining] at hb
-                simp only [activeGas, Pending.savedGas, Pending.frame]; omega
+                simp only [activeGas, Pending.savedGas]; omega
               | create pd =>
                 simp only [Pending.resume] at hres
-                have hb := resumeAfterCreate_gas_le (result := result.toCreateResult) (pd := pd) hres
+                have hb := resumeAfterCreate_gas_le_savedGas (result := result.toCreateResult) (pd := pd) hres
                 rw [toCreateResult_gasRemaining] at hb
-                simp only [activeGas, Pending.savedGas, Pending.frame]; omega
+                simp only [activeGas, Pending.savedGas]; omega
             omega
           subst hstk
           simp only [activeGas] at hcons

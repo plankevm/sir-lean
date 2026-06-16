@@ -473,10 +473,11 @@ theorem beginCall_inr_gas {p : CallParams} {result : CallResult}
     case _ => simp
 
 /-- **`createArm` `.needsCreate` inversion (saved gas).** `createArm` performs
-**no** charge, so the suspended parent's saved gas equals the working `exec`'s
-gas. (The forwarded child gas — `allButOneSixtyFourth exec.gas` — is *not*
-debited from the parent here; see the bottom-of-file note: this is exactly why
-the `totalGas`-descent conjunct (4') cannot hold.) -/
+**no** charge, so the suspended parent's saved frame keeps the full working
+`exec` gas. The forwarded child gas (`allButOneSixtyFourth exec.gas`) is *not*
+debited from the parent here; the kind-aware `Pending.savedGas (.create _)`
+compensates by withholding that forwarded part from the measure, so conjunct (4')
+goes through (see `descentDrops_conj4'`). -/
 theorem createArm_needsCreate_savedGas
     {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
     {value initOffset initSize : UInt256} {salt : Option ByteArray}
@@ -496,6 +497,44 @@ theorem createArm_needsCreate_savedGas
       simp only [Except.ok.injEq, Signal.needsCreate.injEq] at h
       obtain ⟨_, hpd⟩ := h
       subst hpd; rfl
+    · revert h
+      cases hr : resumeAfterCreate _ _ with
+      | error e => intro h; simp [bind, Except.bind] at h
+      | ok f => intro h; simp [bind, Except.bind, pure, Except.pure] at h
+
+/-- **`beginCreate` gas.** When `beginCreate` succeeds, the child frame's gas is
+exactly the forwarded `params.gas`. -/
+theorem beginCreate_ok_gas {params : CreateParams} {child : Frame}
+    (h : beginCreate params = .ok child) :
+    child.exec.gasAvailable = params.gas := by
+  rw [beginCreate] at h
+  simp only [Except.pure, Option.option,
+    MonadLift.monadLift, liftM, monadLift] at h
+  split at h
+  · rw [Except.ok.injEq] at h
+    subst h; rfl
+  · simp [throw, throwThe, MonadExceptOf.throw] at h
+
+/-- **`createArm` `.needsCreate` inversion (child gas).** The child created by a
+CREATE/CREATE2 descent is forwarded exactly `allButOneSixtyFourth exec.gas`
+(`createArm` does no charge before forwarding). -/
+theorem createArm_needsCreate_childGas
+    {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
+    {value initOffset initSize : UInt256} {salt : Option ByteArray}
+    {cp : CreateParams} {pd : PendingCreate}
+    (h : createArm fr exec stack value initOffset initSize salt = .ok (.needsCreate cp pd)) :
+    cp.gas = .ofNat (allButOneSixtyFourth exec.gasAvailable.toNat) := by
+  rw [createArm] at h
+  simp only [bind, Except.bind, pure, Except.pure] at h
+  split at h
+  · revert h
+    cases hr : resumeAfterCreate _ _ with
+    | error e => intro h; simp [bind, Except.bind] at h
+    | ok f => intro h; simp [bind, Except.bind, pure, Except.pure] at h
+  · split at h
+    · simp only [Except.ok.injEq, Signal.needsCreate.injEq] at h
+      obtain ⟨hcp, _⟩ := h
+      subst hcp; rfl
     · revert h
       cases hr : resumeAfterCreate _ _ with
       | error e => intro h; simp [bind, Except.bind] at h
@@ -868,6 +907,103 @@ theorem systemOp_needsCreate_savedGas {op : Operation.SystemOp} {fr : Frame} {ex
               have hcc := charge_drop_ge hc
               have h2 := create2Cost_ge_2 is
               rw [hsaved]; omega
+
+/-- **`systemOp` `.needsCreate` inversion (child gas).** The forwarded child gas
+is `allButOneSixtyFourth` of the suspended parent's saved gas (`createArm` does no
+charge between saving the parent and forwarding the child). -/
+theorem systemOp_needsCreate_childGas {op : Operation.SystemOp} {fr : Frame} {exec : ExecutionState}
+    {cp : CreateParams} {pd : PendingCreate}
+    (h : systemOp op fr exec = .ok (.needsCreate cp pd)) :
+    cp.gas = .ofNat (allButOneSixtyFourth pd.frame.exec.gasAvailable.toNat) := by
+  unfold systemOp at h
+  cases op with
+  | STOP => exact absurd h (haltOp_never_needsCreate (by tauto))
+  | RETURN => exact absurd h (haltOp_never_needsCreate (by tauto))
+  | REVERT => exact absurd h (haltOp_never_needsCreate (by tauto))
+  | SELFDESTRUCT => exact absurd h (haltOp_never_needsCreate (by tauto))
+  | INVALID => exact absurd h (haltOp_never_needsCreate (by tauto))
+  | CALL =>
+    simp only [bind, Except.bind] at h
+    cases hp : exec.stack.pop7 with
+    | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+    | some v =>
+      obtain ⟨s, g, t, val, io, is, oo, os⟩ := v; rw [hp] at h
+      simp only [MonadLift.monadLift, liftM, monadLift, Option.option, bind, Except.bind] at h
+      split at h
+      · simp [throw, throwThe, MonadExceptOf.throw] at h
+      · exact absurd h callArm_never_needsCreate
+  | CALLCODE =>
+    simp only [bind, Except.bind] at h
+    cases hp : exec.stack.pop7 with
+    | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+    | some v =>
+      obtain ⟨s, g, t, val, io, is, oo, os⟩ := v; rw [hp] at h
+      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      exact absurd h callArm_never_needsCreate
+  | DELEGATECALL =>
+    simp only [bind, Except.bind] at h
+    cases hp : exec.stack.pop6 with
+    | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+    | some v =>
+      obtain ⟨s, g, t, io, is, oo, os⟩ := v; rw [hp] at h
+      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      exact absurd h callArm_never_needsCreate
+  | STATICCALL =>
+    simp only [bind, Except.bind] at h
+    cases hp : exec.stack.pop6 with
+    | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+    | some v =>
+      obtain ⟨s, g, t, io, is, oo, os⟩ := v; rw [hp] at h
+      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      exact absurd h callArm_never_needsCreate
+  | CREATE =>
+    simp only [bind, Except.bind] at h
+    cases hr : requireStateMod exec with
+    | error e => rw [hr] at h; simp [bind, Except.bind] at h
+    | ok _ =>
+      rw [hr] at h; simp only [bind, Except.bind] at h
+      cases hp : exec.stack.pop3 with
+      | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      | some v =>
+        obtain ⟨s, val, io, is⟩ := v; rw [hp] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option, bind, Except.bind] at h
+        split at h
+        · simp [throw, throwThe, MonadExceptOf.throw] at h
+        · cases hm : chargeMemExpansion exec io is with
+          | error e => rw [hm] at h; simp [bind, Except.bind, pure, Except.pure] at h
+          | ok em =>
+            rw [hm] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+            cases hc : charge (createCost is) em with
+            | error e => rw [hc] at h; simp [bind, Except.bind, pure, Except.pure] at h
+            | ok ec =>
+              rw [hc] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+              have hchild := createArm_needsCreate_childGas h
+              have hsaved := createArm_needsCreate_savedGas h
+              rw [hchild, hsaved]
+  | CREATE2 =>
+    simp only [bind, Except.bind] at h
+    cases hr : requireStateMod exec with
+    | error e => rw [hr] at h; simp [bind, Except.bind] at h
+    | ok _ =>
+      rw [hr] at h; simp only [bind, Except.bind] at h
+      cases hp : exec.stack.pop4 with
+      | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      | some v =>
+        obtain ⟨s, val, io, is, salt⟩ := v; rw [hp] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option, bind, Except.bind] at h
+        split at h
+        · simp [throw, throwThe, MonadExceptOf.throw] at h
+        · cases hm : chargeMemExpansion exec io is with
+          | error e => rw [hm] at h; simp [bind, Except.bind, pure, Except.pure] at h
+          | ok em =>
+            rw [hm] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+            cases hc : charge (create2Cost is) em with
+            | error e => rw [hc] at h; simp [bind, Except.bind, pure, Except.pure] at h
+            | ok ec =>
+              rw [hc] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+              have hchild := createArm_needsCreate_childGas h
+              have hsaved := createArm_needsCreate_savedGas h
+              rw [hchild, hsaved]
 
 /-- `haltOp` never emits `.next`: its `.ok` outputs are all `.halted`. (Local
 restatement of `haltOp_not_next` over the explicit op disjunction.) -/
@@ -1262,16 +1398,13 @@ theorem stepFrame_next_systemOp {fr : Frame} {exec' : ExecutionState} {s : Opera
           simp only [Signal.next.injEq] at h; subst h
           rw [dispatch] at hdisp; exact hdisp
 
-/-! ## The four *sound* `DescentDrops` conjuncts
+/-! ## The five `DescentDrops` conjuncts
 
-Conjuncts (3), (4), (5a), (5b) are exactly the per-transition decreases that
-`mu_bound` needs, and each follows from the `systemOp`/`stepFrame` inversions
-plus the gas arithmetic above. They are stated here in the precise `Prop` shapes
-of `DescentDrops` so they can be plugged into a future assembly.
-
-**Conjunct (4') is *not* here, and `descentDrops_holds` is deliberately *not*
-assembled** — see the closing note: leanevm's `createArm` does not debit the
-parent frame by the forwarded child gas, so (4') is false. -/
+Conjuncts (3), (4), (5a), (4'), (5b) are exactly the per-transition decreases
+that `mu_bound` needs, and each follows from the `systemOp`/`stepFrame`
+inversions plus the gas arithmetic above. They are stated here in the precise
+`Prop` shapes of `DescentDrops` and assembled into `descentDrops_holds`, which
+discharges the last hypothesis of the general theorem. -/
 
 open BytecodeLayer
 
@@ -1320,52 +1453,70 @@ theorem descentDrops_conj5b
     Pending.savedGas (.create pending) + 2 ≤ activeGas (.inl fr) := by
   obtain ⟨s, hsop⟩ := stepFrame_needsCreate_systemOp hstep
   have hgas := systemOp_needsCreate_savedGas hsop
-  simp only [Pending.savedGas, Pending.frame, activeGas]
-  exact hgas
+  simp only [Pending.savedGas, activeGas]
+  have hsub : pending.frame.exec.gasAvailable.toNat
+      - allButOneSixtyFourth pending.frame.exec.gasAvailable.toNat
+      ≤ pending.frame.exec.gasAvailable.toNat := Nat.sub_le _ _
+  omega
 
-/-! ## ⚠️ The blocking conjunct (4') — `needsCreate` descent
+/-! ## Conjunct (4') — `needsCreate` descent
 
-`DescentDrops`'s fourth conjunct (4') requires, for a CREATE/CREATE2 descent
-`stepFrame fr = .needsCreate params pending` with `beginCreate params = .ok child`:
+For a CREATE/CREATE2 descent `stepFrame fr = .needsCreate params pending` with
+`beginCreate params = .ok child`, the kind-aware `Pending.savedGas` makes the
+descent conserve the measure (plus the `createCost ≥ 2` slack):
 
-  `activeGas (.inl child) + Pending.savedGas (.create pending) + 2 ≤ activeGas (.inl fr)`.
+* the suspended parent's frame keeps the full charged gas `g`, so
+  `Pending.savedGas (.create pending) = g − allButOneSixtyFourth g`;
+* the child is forwarded `allButOneSixtyFourth g`, so
+  `activeGas (.inl child) = allButOneSixtyFourth g`.
 
-This is **false** under the current leanevm semantics. In `createArm`
-(`Evm/Semantics/System.lean:73`):
+Hence the LHS is
+`allButOneSixtyFourth g + (g − allButOneSixtyFourth g) + 2 = g + 2`, and
+`g + 2 ≤ activeGas (.inl fr)` is exactly `systemOp_needsCreate_savedGas` (the
+`createCost`/`create2Cost` charged in `systemOp` before `createArm` covers the
+`+2`). The forwarded `allButOneSixtyFourth g` is no longer double-counted: the
+measure subtracts it from the parent precisely because the child holds it, and
+`resumeAfterCreate` returns it on delivery (`mu_bound`'s create-resume case via
+`resumeAfterCreate_gas_le_savedGas`). -/
 
-* the suspended parent's frame is saved with the *full* working gas `g`
-  (`{ fr with exec := exec }`, line 84 — `createArm` performs **no** charge of
-  the forwarded gas), so `Pending.savedGas (.create pending) = g`
-  (`createArm_needsCreate_savedGas`);
-* the child is forwarded `allButOneSixtyFourth g` (line 112 →
-  `beginCreate`'s `gasAvailable := params.gas`, `Create.lean:97`), so
-  `activeGas (.inl child) = g - g/64` (`createArm_child_gas`, checked separately).
+/-- **Conjunct (4').** A `.needsCreate` descent into a code child: child gas +
+saved parent gas + 2 ≤ pre-step gas. The child holds `allButOneSixtyFourth g`,
+the (kind-aware) saved parent holds `g − allButOneSixtyFourth g`, and the
+`createCost` charged before `createArm` covers the `+2`. -/
+theorem descentDrops_conj4'
+    (fr : Frame) (params : CreateParams) (pending : PendingCreate) (child : Frame) (stack : List Pending)
+    (hstep : stepFrame fr = .needsCreate params pending) (hbcr : beginCreate params = .ok child) :
+    activeGas (.inl child) + Pending.savedGas (.create pending) + 2 ≤ activeGas (.inl fr) := by
+  obtain ⟨s, hsop⟩ := stepFrame_needsCreate_systemOp hstep
+  have hsaved := systemOp_needsCreate_savedGas hsop
+  have hchild := systemOp_needsCreate_childGas hsop
+  have hcg : child.exec.gasAvailable = params.gas := beginCreate_ok_gas hbcr
+  -- `params.gas = .ofNat (allButOneSixtyFourth pd.gas)`, and the round-trip is exact.
+  have habf_le : allButOneSixtyFourth pending.frame.exec.gasAvailable.toNat
+      ≤ pending.frame.exec.gasAvailable.toNat := by unfold allButOneSixtyFourth; omega
+  have hlt : allButOneSixtyFourth pending.frame.exec.gasAvailable.toNat < 2 ^ 64 :=
+    Nat.lt_of_le_of_lt habf_le pending.frame.exec.gasAvailable.toNat_lt
+  have hchildNat : child.exec.gasAvailable.toNat
+      = allButOneSixtyFourth pending.frame.exec.gasAvailable.toNat := by
+    rw [hcg, hchild, UInt64.toNat_ofNat']; exact Nat.mod_eq_of_lt hlt
+  simp only [activeGas, Pending.savedGas]
+  rw [hchildNat]
+  omega
 
-Hence the LHS is `(g - g/64) + g + 2 = 2·g - g/64 + 2`, while
-`activeGas (.inl fr) = g + createCost + memExpansion` (the `createCost ≥ 32000`
-charged in `systemOp` *before* `createArm`). For large `g` the LHS exceeds the
-RHS by `≈ g`, so (4') cannot hold.
+open BytecodeLayer in
+/-- **`DescentDrops` discharged.** All five per-transition decrease obligations
+hold; the create descent (4') is sound under the kind-aware `Pending.savedGas`. -/
+theorem descentDrops_holds : DescentDrops :=
+  ⟨descentDrops_conj3, descentDrops_conj4, descentDrops_conj5a,
+    descentDrops_conj4', descentDrops_conj5b⟩
 
-Contrast with CALL: `callArm` charges `gasCap + extraCost` **inside** the arm
-(`System.lean:28`) *before* saving the parent, so the parent keeps only
-`pre − gasCap − extraCost` and the child gets `≈ gasCap` — no double-counting,
-and conjunct (4) (`descentDrops_conj4`) goes through.
-
-The gas *is* reconciled end-to-end by `resumeAfterCreate` (it resets the parent
-to `g/64 + childRemaining`, `Create.lean:173`), so the **semantics** is sound;
-but the `totalGas` measure used by `mu_bound` double-counts the forwarded
-`allButOneSixtyFourth g` during the open CREATE descent, so it transiently
-*increases*. Closing (4') therefore requires either:
-
-* patching `createArm` to debit the parent frame by the forwarded child gas
-  (mirroring `callArm`), or
-* redefining the measure / `DescentDrops` so the CREATE descent obligation does
-  not over-count (e.g. measuring the parent's *un-forwarded* gas).
-
-Both are out of scope for a proof-only task, so per the task contract we leave
-(4') unproven, do **not** assemble `descentDrops_holds`, and do **not** state the
-unconditional `messageCall_never_outOfFuel`. The other four conjuncts (3, 4, 5a,
-5b) are fully proven above and remain reusable for whichever fix lands. -/
+open BytecodeLayer in
+/-- **General `messageCall` never out-of-fuel — unconditional.** No
+`DescentDrops`, no `Frame`/fuel hypothesis: for every `CallParams`, the message
+call never returns `OutOfFuel`. -/
+theorem messageCall_never_outOfFuel (p : CallParams) :
+    messageCall p ≠ .error .OutOfFuel :=
+  messageCall_never_outOfFuel_of_descentDrops descentDrops_holds p
 
 end BytecodeLayer.Proof
 
