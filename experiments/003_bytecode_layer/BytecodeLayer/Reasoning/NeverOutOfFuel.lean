@@ -131,11 +131,11 @@ theorem returnOrRevertOp_gasOf_le {op : Operation.SystemOp} {exec : ExecutionSta
     obtain ⟨s, off, size⟩ := v; rw [hp] at h
     simp only [bind, Except.bind, MonadLift.monadLift, liftM, monadLift, Option.option] at h
     cases hm : chargeMemExpansion exec off size with
-    | error e => rw [hm] at h; simp [bind, Except.bind] at h
+    | error e => rw [hm] at h; simp at h
     | ok ec =>
       rw [hm] at h
       have hle : ec.gasAvailable.toNat ≤ exec.gasAvailable.toNat := chargeMem_gasOf_le hm
-      simp only [bind, Except.bind, pure, Except.pure] at h
+      simp only [pure, Except.pure] at h
       split at h <;>
         · simp only [Except.ok.injEq, Signal.halted.injEq] at h
           subst h
@@ -153,16 +153,16 @@ theorem selfdestructOp_gasOf_le {exec : ExecutionState} {halt : FrameHalt}
     rw [hr] at h
     simp only [bind, Except.bind, pure, Except.pure] at h
     cases hp : exec.stack.pop with
-    | none => rw [hp] at h; simp [bind, Except.bind, MonadLift.monadLift, liftM, monadLift, Option.option] at h
+    | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
     | some v =>
       obtain ⟨s, rw'⟩ := v; rw [hp] at h
-      simp only [bind, Except.bind, MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
       cases hc : charge (selfdestructCost _ _) exec with
-      | error e => rw [hc] at h; simp [bind, Except.bind] at h
+      | error e => rw [hc] at h; simp at h
       | ok ec =>
         rw [hc] at h
         have hle : ec.gasAvailable.toNat ≤ exec.gasAvailable.toNat := charge_gasOf_le hc
-        simp only [bind, Except.bind, pure, Except.pure] at h
+        simp only [] at h
         -- the result is `.halted (.success (exec'.replaceStackAndIncrPC stack) .empty)`
         -- where exec' is ec with only account/substate fields changed (gas preserved).
         split at h <;>
@@ -375,7 +375,7 @@ theorem dispatch_neverHalts {op : Operation} {arg : Option (UInt256 × UInt8)} {
            exact neverHalts_continueWith _)
         | (apply neverHalts_optionBind; rintro ⟨s, a, b, c⟩ _ hl he
            revert he; dsimp only; split
-           · intro he; simp [bind, Except.bind, throw, throwThe, MonadExceptOf.throw] at he
+           · intro he; simp [bind, Except.bind] at he
            · exact (neverHalts_memChargeBind (k := _)
                (fun ec => neverHalts_chargeBind (fun ec2 _ => neverHalts_continueWith _)) hl))
   | Block b =>
@@ -396,13 +396,13 @@ theorem callArm_neverHalts {fr : Frame} {exec : ExecutionState} {stack : Stack U
   cases hw : (memoryExpansionWords? exec.activeWords inOffset inSize >>=
       (memoryExpansionWords? · outOffset outSize)) with
   | none =>
-    intro hl he; simp [bind, Except.bind, throw, throwThe, MonadExceptOf.throw] at he
+    intro hl he; simp [throw, throwThe, MonadExceptOf.throw] at he
   | some words' =>
     simp only [bind, Except.bind]
     apply neverHalts_chargeBind; intro ec1 _
     apply neverHalts_chargeBind; intro ec2 _
     unfold neverHalts; intro hl he
-    split at he <;> simp [continueWith] at he
+    split at he <;> simp at he
 
 /-- `createArm` never halts: its outputs are `.needsCreate` or `.next`. -/
 theorem createArm_neverHalts {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
@@ -421,7 +421,7 @@ theorem createArm_neverHalts {fr : Frame} {exec : ExecutionState} {stack : Stack
   split at he
   · exact hk _ _ hl he
   · split at he
-    · simp [continueWith] at he
+    · simp at he
     · exact hk _ _ hl he
 
 /-- `systemOp` halts with gas ≤ the input frame gas. Halt ops go through
@@ -442,7 +442,7 @@ theorem systemOp_gasOf_le {op : Operation.SystemOp} {fr : Frame} {exec : Executi
     unfold neverHalts; intro hl he
     revert he; simp only [bind, Except.bind, pure, Except.pure]
     split <;> intro he
-    · simp [throw, throwThe, MonadExceptOf.throw] at he
+    · simp at he
     · exact callArm_neverHalts hl he
   | CALLCODE =>
     refine absurd h ?_
@@ -463,7 +463,7 @@ theorem systemOp_gasOf_le {op : Operation.SystemOp} {fr : Frame} {exec : Executi
     unfold neverHalts; intro hl he
     revert he; simp only [bind, Except.bind, pure, Except.pure]
     split <;> intro he
-    · simp [throw, throwThe, MonadExceptOf.throw] at he
+    · simp at he
     · revert he
       exact (neverHalts_memChargeBind (k := _)
         (fun ec => neverHalts_chargeBind (fun ec2 _ => createArm_neverHalts)) hl)
@@ -474,7 +474,7 @@ theorem systemOp_gasOf_le {op : Operation.SystemOp} {fr : Frame} {exec : Executi
     unfold neverHalts; intro hl he
     revert he; simp only [bind, Except.bind, pure, Except.pure]
     split <;> intro he
-    · simp [throw, throwThe, MonadExceptOf.throw] at he
+    · simp at he
     · revert he
       exact (neverHalts_memChargeBind (k := _)
         (fun ec => neverHalts_chargeBind (fun ec2 _ => createArm_neverHalts)) hl)
@@ -525,7 +525,7 @@ theorem endFrame_gasRemaining_le {fr : Frame} {halt : FrameHalt}
     | success exec output =>
       simp only [endCall, FrameHalt.gasOf] at hb ⊢; exact hb
     | revert g output => simp only [endCall, FrameHalt.gasOf] at hb ⊢; exact hb
-    | exception e => simp only [endCall, FrameHalt.gasOf, UInt64.toNat_ofNat]; omega
+    | exception e => simp only [endCall, UInt64.toNat_ofNat]; omega
   | create addr cp =>
     simp only [FrameResult.gasRemaining]
     cases halt with
@@ -535,7 +535,7 @@ theorem endFrame_gasRemaining_le {fr : Frame} {halt : FrameHalt}
       refine le_trans (Nat.mod_le _ _) (le_trans ?_ hb)
       exact ite_le (Nat.zero_le _) (Nat.sub_le _ _)
     | revert g output => simp only [endCreate, FrameHalt.gasOf] at hb ⊢; exact hb
-    | exception e => simp only [endCreate, FrameHalt.gasOf, UInt64.toNat_ofNat]; omega
+    | exception e => simp only [endCreate, UInt64.toNat_ofNat]; omega
 
 /-! ## Obligation 6 — delivery: `resume` does not create gas
 
@@ -581,7 +581,7 @@ theorem resumeAfterCreate_gas_le {result : CreateResult} {pd : PendingCreate} {p
   unfold resumeAfterCreate at h
   simp only [bind, Except.bind, pure, Except.pure] at h
   split at h
-  · exact absurd h (by simp [throw, throwThe, MonadExceptOf.throw])
+  · exact absurd h (by simp)
   · simp only [Except.ok.injEq] at h
     subst h
     simp only [gasNat_replaceStackAndIncrPC]
@@ -606,7 +606,7 @@ theorem resumeAfterCreate_gas_le_savedGas {result : CreateResult} {pd : PendingC
   unfold resumeAfterCreate at h
   simp only [bind, Except.bind, pure, Except.pure] at h
   split at h
-  · exact absurd h (by simp [throw, throwThe, MonadExceptOf.throw])
+  · exact absurd h (by simp)
   · simp only [Except.ok.injEq] at h
     subst h
     simp only [gasNat_replaceStackAndIncrPC]
@@ -652,9 +652,9 @@ theorem haltOp_not_next {op : Operation.SystemOp} {exec exec' : ExecutionState}
       obtain ⟨s, off, size⟩ := v; rw [hp] at he
       simp only [bind, Except.bind, MonadLift.monadLift, liftM, monadLift, Option.option] at he
       cases hm : chargeMemExpansion exec off size with
-      | error e => rw [hm] at he; simp [bind, Except.bind] at he
+      | error e => rw [hm] at he; simp at he
       | ok ec =>
-        rw [hm] at he; simp only [bind, Except.bind, pure, Except.pure] at he
+        rw [hm] at he; simp only [pure, Except.pure] at he
         split at he <;> simp at he
   · rw [returnOrRevertOp] at he
     cases hp : exec.stack.pop2 with
@@ -663,9 +663,9 @@ theorem haltOp_not_next {op : Operation.SystemOp} {exec exec' : ExecutionState}
       obtain ⟨s, off, size⟩ := v; rw [hp] at he
       simp only [bind, Except.bind, MonadLift.monadLift, liftM, monadLift, Option.option] at he
       cases hm : chargeMemExpansion exec off size with
-      | error e => rw [hm] at he; simp [bind, Except.bind] at he
+      | error e => rw [hm] at he; simp at he
       | ok ec =>
-        rw [hm] at he; simp only [bind, Except.bind, pure, Except.pure] at he
+        rw [hm] at he; simp only [pure, Except.pure] at he
         split at he <;> simp at he
   · rw [selfdestructOp] at he
     cases hr : requireStateMod exec with
@@ -673,14 +673,14 @@ theorem haltOp_not_next {op : Operation.SystemOp} {exec exec' : ExecutionState}
     | ok _ =>
       rw [hr] at he; simp only [bind, Except.bind, pure, Except.pure] at he
       cases hp : exec.stack.pop with
-      | none => rw [hp] at he; simp [bind, Except.bind, MonadLift.monadLift, liftM, monadLift, Option.option] at he
+      | none => rw [hp] at he; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at he
       | some v =>
         obtain ⟨s, rw'⟩ := v; rw [hp] at he
-        simp only [bind, Except.bind, MonadLift.monadLift, liftM, monadLift, Option.option] at he
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at he
         cases hc : charge (selfdestructCost _ _) exec with
-        | error e => rw [hc] at he; simp [bind, Except.bind] at he
+        | error e => rw [hc] at he; simp at he
         | ok ec =>
-          rw [hc] at he; simp only [bind, Except.bind, pure, Except.pure] at he
+          rw [hc] at he; simp only [] at he
           split at he <;> simp at he
   · simp [throw, throwThe, MonadExceptOf.throw] at he
 
@@ -891,7 +891,7 @@ theorem mu_bound (hd : DescentDrops) :
           subst hstk
           simp only [activeGas] at hcons
           simp only [μ, tagBit, totalGas, activeGas, List.length_cons] at hf ⊢
-          simp only [totalGas, List.map_cons, List.sum_cons] at hf
+          simp only [List.map_cons, List.sum_cons] at hf
           omega
         | error e =>
           dsimp only
@@ -918,7 +918,7 @@ theorem mu_bound (hd : DescentDrops) :
           omega
         · -- (1) non-System next: gas strictly drops
           apply ih
-          push_neg at hsys
+          push Not at hsys
           have hlt : exec'.gasAvailable.toNat < current.exec.gasAvailable.toNat :=
             stepFrame_next_lt hsys hstep
           simp only [μ, tagBit, totalGas, activeGas] at hf ⊢
@@ -937,16 +937,15 @@ theorem mu_bound (hd : DescentDrops) :
           dsimp only
           apply ih
           have hdrop := hd4 current params pending child stack hstep hbc
-          simp only [μ, tagBit, totalGas, activeGas, Pending.savedGas, Pending.frame, List.length_cons, List.map_cons, List.sum_cons] at hf ⊢
-          simp only [activeGas, Pending.savedGas, Pending.frame] at hdrop
+          simp only [μ, tagBit, totalGas, activeGas, Pending.savedGas, List.length_cons, List.map_cons, List.sum_cons] at hf ⊢
+          simp only [activeGas, Pending.savedGas] at hdrop
           omega
         | inr result =>
           dsimp only
           apply ih
           have hdrop := hd5 current params pending result stack hstep hbc
-          simp only [μ, tagBit, totalGas, activeGas, Pending.savedGas, Pending.frame, List.length_cons,
-            List.map_cons, List.sum_cons] at hf ⊢
-          simp only [activeGas, Pending.savedGas, Pending.frame] at hdrop
+          simp only [μ, tagBit, totalGas, activeGas, Pending.savedGas, List.length_cons, List.map_cons, List.sum_cons] at hf ⊢
+          simp only [activeGas, Pending.savedGas] at hdrop
           omega
       | needsCreate params pending =>
         dsimp only
@@ -955,16 +954,15 @@ theorem mu_bound (hd : DescentDrops) :
           dsimp only
           apply ih
           have hdrop := hd4' current params pending child stack hstep hbcr
-          simp only [μ, tagBit, totalGas, activeGas, Pending.savedGas, Pending.frame, List.length_cons, List.map_cons, List.sum_cons] at hf ⊢
-          simp only [activeGas, Pending.savedGas, Pending.frame] at hdrop
+          simp only [μ, tagBit, totalGas, activeGas, Pending.savedGas, List.length_cons, List.map_cons, List.sum_cons] at hf ⊢
+          simp only [activeGas, Pending.savedGas] at hdrop
           omega
         | error e =>
           dsimp only
           apply ih
           have hdrop := hd5' current params pending stack hstep
-          simp only [μ, tagBit, totalGas, activeGas, FrameResult.gasRemaining, UInt64.toNat_ofNat,
-            Pending.savedGas, Pending.frame, List.length_cons, List.map_cons, List.sum_cons] at hf ⊢
-          simp only [activeGas, Pending.savedGas, Pending.frame] at hdrop
+          simp only [μ, tagBit, totalGas, activeGas, FrameResult.gasRemaining, UInt64.toNat_ofNat, Pending.savedGas, List.length_cons, List.map_cons, List.sum_cons] at hf ⊢
+          simp only [activeGas, Pending.savedGas] at hdrop
           omega
 
 /-- **General `messageCall` never out-of-fuel**, modulo `DescentDrops`. The

@@ -216,7 +216,7 @@ theorem logArm_lt {exec exec' : ExecutionState} {stack : Stack UInt256}
   | error e => rw [hr] at h; simp [bind, Except.bind] at h
   | ok _ =>
     rw [hr] at h
-    simp only [bind, Except.bind, pure, Except.pure] at h
+    simp only [bind, Except.bind] at h
     apply memChargeBind_lt (fun _ => logCost_pos _ _) (k := _) (h := h)
     intro ec ec2 _ _
     exact gasBoundedBy_continueWith (le_of_eq (gasNat_replaceStackAndIncrPC ..))
@@ -272,15 +272,15 @@ theorem smsfOp_next_lt {op : SmsfOp} {fr : Frame} {exec exec' : ExecutionState}
       rw [hr] at h
       simp only [bind, Except.bind, pure, Except.pure] at h
       split at h
-      · simp [throw, throwThe, MonadExceptOf.throw] at h
+      · simp at h
       · cases hp : exec.stack.pop2 with
         | none =>
           rw [hp] at h
-          simp only [bind, Except.bind, MonadLift.monadLift, liftM, monadLift, Option.option] at h
+          simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
           exact absurd h (by simp)
         | some v =>
           obtain ⟨s, a, b⟩ := v; rw [hp] at h
-          simp only [bind, Except.bind, MonadLift.monadLift, liftM, monadLift, Option.option] at h
+          simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
           apply chargeBind_lt (sstoreCost_pos _ _ _ _) (k := _) (h := h)
           intro ec _
           exact gasBoundedBy_continueWith (le_of_eq (gasNat_replaceStackAndIncrPC ..))
@@ -479,7 +479,7 @@ theorem dispatch_next_lt {op : Operation} {arg : Option (UInt256 × UInt8)} {fr 
       | some v =>
         obtain ⟨s, a, b, c⟩ := v; rw [hp, lift_some_bind] at h
         split at h
-        · simp [bind, Except.bind, throw, throwThe, MonadExceptOf.throw] at h
+        · simp [bind, Except.bind] at h
         · apply memChargeBind_lt (cost := fun _ => Gverylow + copyCost c) (k := _) (h := h)
           · intro _; show 1 ≤ Gverylow + copyCost _; unfold Gverylow; omega
           · intro ec ec2 _ _

@@ -105,15 +105,15 @@ theorem callArm_needsCall_gas
   -- mem-charge step
   cases hw : (memoryExpansionWords? exec.activeWords inOffset inSize >>=
       (memoryExpansionWords? · outOffset outSize)) with
-  | none => rw [hw] at h; simp [bind, Except.bind, throw, throwThe, MonadExceptOf.throw] at h
+  | none => rw [hw] at h; simp [throw, throwThe, MonadExceptOf.throw] at h
   | some words' =>
     rw [hw] at h
     simp only [bind, Except.bind] at h
     cases he1 : charge (Cₘ words' - Cₘ exec.activeWords) exec with
-    | error e => rw [he1] at h; simp [bind, Except.bind] at h
+    | error e => rw [he1] at h; simp at h
     | ok e1 =>
       rw [he1] at h
-      simp only [bind, Except.bind] at h
+      simp only [] at h
       -- abbreviations as in callArm (computed from e1)
       set ca : AccountAddress := AccountAddress.ofUInt256 codeAddress with hca
       set rc : AccountAddress := AccountAddress.ofUInt256 recipient with hrc
@@ -121,10 +121,10 @@ theorem callArm_needsCall_gas
       set gasCap := callGasCap ca rc value gas e1.accounts e1.gasAvailable e1.substate with hgcap
       set childGas := if value = 0 then gasCap else gasCap + Gcallstipend with hcg
       cases he2 : charge (gasCap + extraCost) e1 with
-      | error e => rw [he2] at h; simp [bind, Except.bind] at h
+      | error e => rw [he2] at h; simp at h
       | ok e2 =>
         rw [he2] at h
-        simp only [bind, Except.bind] at h
+        simp only [] at h
         -- now `h` is the final `if … then .ok (.needsCall …) else .ok (.next …)`
         split at h
         · -- needsCall branch
@@ -179,25 +179,25 @@ theorem callArm_next_gas
   rw [callArm] at h
   cases hw : (memoryExpansionWords? exec.activeWords inOffset inSize >>=
       (memoryExpansionWords? · outOffset outSize)) with
-  | none => rw [hw] at h; simp [bind, Except.bind, throw, throwThe, MonadExceptOf.throw] at h
+  | none => rw [hw] at h; simp [throw, throwThe, MonadExceptOf.throw] at h
   | some words' =>
     rw [hw] at h
     simp only [bind, Except.bind] at h
     cases he1 : charge (Cₘ words' - Cₘ exec.activeWords) exec with
-    | error e => rw [he1] at h; simp [bind, Except.bind] at h
+    | error e => rw [he1] at h; simp at h
     | ok e1 =>
       rw [he1] at h
-      simp only [bind, Except.bind] at h
+      simp only [] at h
       set ca : AccountAddress := AccountAddress.ofUInt256 codeAddress with hca
       set rc : AccountAddress := AccountAddress.ofUInt256 recipient with hrc
       set extraCost := callExtraCost ca rc value e1.accounts e1.substate with hextra
       set gasCap := callGasCap ca rc value gas e1.accounts e1.gasAvailable e1.substate with hgcap
       set childGas := if value = 0 then gasCap else gasCap + Gcallstipend with hcg
       cases he2 : charge (gasCap + extraCost) e1 with
-      | error e => rw [he2] at h; simp [bind, Except.bind] at h
+      | error e => rw [he2] at h; simp at h
       | ok e2 =>
         rw [he2] at h
-        simp only [bind, Except.bind] at h
+        simp only [] at h
         split at h
         · -- needsCall branch: contradiction
           simp only [Except.ok.injEq] at h
@@ -313,7 +313,7 @@ theorem createArm_next_gas
     unfold resumeAfterCreate at hf
     simp only [bind, Except.bind, pure, Except.pure] at hf
     split at hf
-    · exact absurd hf (by simp [throw, throwThe, MonadExceptOf.throw])
+    · exact absurd hf (by simp)
     · simp only [Except.ok.injEq] at hf
       subst hf
       simp only [gasNat_replaceStackAndIncrPC]
@@ -335,10 +335,10 @@ theorem createArm_next_gas
   · -- nonce overflow: `.next (resumeAfterCreate failed pending).exec`
     revert h
     cases hr : resumeAfterCreate _ _ with
-    | error e => intro h; simp [bind, Except.bind] at h
+    | error e => intro h; simp at h
     | ok f =>
       intro h
-      simp only [bind, Except.bind, pure, Except.pure, Except.ok.injEq, Signal.next.injEq] at h
+      simp only [Except.ok.injEq, Signal.next.injEq] at h
       subst h
       exact key f hr
   · split at h
@@ -346,10 +346,10 @@ theorem createArm_next_gas
       simp only [Except.ok.injEq] at h; exact absurd h (by simp)
     · revert h
       cases hr : resumeAfterCreate _ _ with
-      | error e => intro h; simp [bind, Except.bind] at h
+      | error e => intro h; simp at h
       | ok f =>
         intro h
-        simp only [bind, Except.bind, pure, Except.pure, Except.ok.injEq, Signal.next.injEq] at h
+        simp only [Except.ok.injEq, Signal.next.injEq] at h
         subst h
         exact key f hr
 
@@ -490,8 +490,8 @@ theorem createArm_needsCreate_savedGas
   · -- nonce overflow: `.next`, not `.needsCreate`
     revert h
     cases hr : resumeAfterCreate _ _ with
-    | error e => intro h; simp [bind, Except.bind] at h
-    | ok f => intro h; simp [bind, Except.bind, pure, Except.pure] at h
+    | error e => intro h; simp at h
+    | ok f => intro h; simp at h
   · split at h
     · -- the `.needsCreate` branch: pd.frame = { fr with exec := exec }
       simp only [Except.ok.injEq, Signal.needsCreate.injEq] at h
@@ -499,8 +499,8 @@ theorem createArm_needsCreate_savedGas
       subst hpd; rfl
     · revert h
       cases hr : resumeAfterCreate _ _ with
-      | error e => intro h; simp [bind, Except.bind] at h
-      | ok f => intro h; simp [bind, Except.bind, pure, Except.pure] at h
+      | error e => intro h; simp at h
+      | ok f => intro h; simp at h
 
 /-- **`beginCreate` gas.** When `beginCreate` succeeds, the child frame's gas is
 exactly the forwarded `params.gas`. -/
@@ -508,12 +508,11 @@ theorem beginCreate_ok_gas {params : CreateParams} {child : Frame}
     (h : beginCreate params = .ok child) :
     child.exec.gasAvailable = params.gas := by
   rw [beginCreate] at h
-  simp only [Except.pure, Option.option,
-    MonadLift.monadLift, liftM, monadLift] at h
+  simp only [Option.option] at h
   split at h
   · rw [Except.ok.injEq] at h
     subst h; rfl
-  · simp [throw, throwThe, MonadExceptOf.throw] at h
+  · simp at h
 
 /-- **`createArm` `.needsCreate` inversion (child gas).** The child created by a
 CREATE/CREATE2 descent is forwarded exactly `allButOneSixtyFourth exec.gas`
@@ -529,16 +528,16 @@ theorem createArm_needsCreate_childGas
   split at h
   · revert h
     cases hr : resumeAfterCreate _ _ with
-    | error e => intro h; simp [bind, Except.bind] at h
-    | ok f => intro h; simp [bind, Except.bind, pure, Except.pure] at h
+    | error e => intro h; simp at h
+    | ok f => intro h; simp at h
   · split at h
     · simp only [Except.ok.injEq, Signal.needsCreate.injEq] at h
       obtain ⟨hcp, _⟩ := h
       subst hcp; rfl
     · revert h
       cases hr : resumeAfterCreate _ _ with
-      | error e => intro h; simp [bind, Except.bind] at h
-      | ok f => intro h; simp [bind, Except.bind, pure, Except.pure] at h
+      | error e => intro h; simp at h
+      | ok f => intro h; simp at h
 
 /-- `createArm` never emits `.needsCall` (only `.needsCreate`/`.next`). -/
 theorem createArm_never_needsCall {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
@@ -551,14 +550,14 @@ theorem createArm_never_needsCall {fr : Frame} {exec : ExecutionState} {stack : 
   · -- nonce overflow: .next via resumeAfterCreate
     revert h
     cases hr : resumeAfterCreate _ _ with
-    | error e => simp [bind, Except.bind]
-    | ok f => simp [bind, Except.bind, pure, Except.pure]
+    | error e => simp
+    | ok f => simp
   · split at h
     · simp only [Except.ok.injEq] at h; exact absurd h (by simp)
     · revert h
       cases hr : resumeAfterCreate _ _ with
-      | error e => simp [bind, Except.bind]
-      | ok f => simp [bind, Except.bind, pure, Except.pure]
+      | error e => simp
+      | ok f => simp
 
 /-- `haltOp` never emits `.needsCall`. -/
 theorem haltOp_never_needsCall {op : Operation.SystemOp} {exec : ExecutionState}
@@ -576,9 +575,9 @@ theorem haltOp_never_needsCall {op : Operation.SystemOp} {exec : ExecutionState}
       obtain ⟨s, off, size⟩ := v; rw [hp] at h
       simp only [bind, Except.bind, MonadLift.monadLift, liftM, monadLift, Option.option] at h
       cases hm : chargeMemExpansion exec off size with
-      | error e => rw [hm] at h; simp [bind, Except.bind] at h
+      | error e => rw [hm] at h; simp at h
       | ok ec =>
-        rw [hm] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+        rw [hm] at h; simp only [pure, Except.pure] at h
         split at h <;> simp at h
   · rw [returnOrRevertOp] at h
     cases hp : exec.stack.pop2 with
@@ -587,9 +586,9 @@ theorem haltOp_never_needsCall {op : Operation.SystemOp} {exec : ExecutionState}
       obtain ⟨s, off, size⟩ := v; rw [hp] at h
       simp only [bind, Except.bind, MonadLift.monadLift, liftM, monadLift, Option.option] at h
       cases hm : chargeMemExpansion exec off size with
-      | error e => rw [hm] at h; simp [bind, Except.bind] at h
+      | error e => rw [hm] at h; simp at h
       | ok ec =>
-        rw [hm] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+        rw [hm] at h; simp only [pure, Except.pure] at h
         split at h <;> simp at h
   · rw [selfdestructOp] at h
     cases hr : requireStateMod exec with
@@ -597,14 +596,14 @@ theorem haltOp_never_needsCall {op : Operation.SystemOp} {exec : ExecutionState}
     | ok _ =>
       rw [hr] at h; simp only [bind, Except.bind, pure, Except.pure] at h
       cases hp : exec.stack.pop with
-      | none => rw [hp] at h; simp [bind, Except.bind, MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
       | some v =>
         obtain ⟨s, rw'⟩ := v; rw [hp] at h
-        simp only [bind, Except.bind, MonadLift.monadLift, liftM, monadLift, Option.option] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
         cases hc : charge (selfdestructCost _ _) exec with
-        | error e => rw [hc] at h; simp [bind, Except.bind] at h
+        | error e => rw [hc] at h; simp at h
         | ok ec =>
-          rw [hc] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+          rw [hc] at h; simp only [] at h
           split at h <;> simp at h
   · simp [throw, throwThe, MonadExceptOf.throw] at h
 
@@ -656,9 +655,9 @@ theorem systemOp_needsCall_gas {op : Operation.SystemOp} {fr : Frame} {exec : Ex
     | some v =>
       obtain ⟨s, g, t, val, io, is, oo, os⟩ := v
       rw [hp] at h
-      simp only [MonadLift.monadLift, liftM, monadLift, Option.option, bind, Except.bind] at h
+      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
       split at h
-      · simp [throw, throwThe, MonadExceptOf.throw] at h
+      · simp at h
       · exact callArm_needsCall_gas h
   | CALLCODE =>
     simp only [bind, Except.bind] at h
@@ -690,47 +689,47 @@ theorem systemOp_needsCall_gas {op : Operation.SystemOp} {fr : Frame} {exec : Ex
   | CREATE =>
     simp only [bind, Except.bind] at h
     cases hr : requireStateMod exec with
-    | error e => rw [hr] at h; simp [bind, Except.bind] at h
+    | error e => rw [hr] at h; simp at h
     | ok _ =>
-      rw [hr] at h; simp only [bind, Except.bind] at h
+      rw [hr] at h; simp only [] at h
       cases hp : exec.stack.pop3 with
       | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
       | some v =>
         obtain ⟨s, val, io, is⟩ := v; rw [hp] at h
-        simp only [MonadLift.monadLift, liftM, monadLift, Option.option, bind, Except.bind] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
         split at h
-        · simp [throw, throwThe, MonadExceptOf.throw] at h
+        · simp at h
         · -- chargeMemExpansion >>= charge >>= createArm; createArm never .needsCall
           cases hm : chargeMemExpansion exec io is with
-          | error e => rw [hm] at h; simp [bind, Except.bind, pure, Except.pure] at h
+          | error e => rw [hm] at h; simp [pure, Except.pure] at h
           | ok em =>
-            rw [hm] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+            rw [hm] at h; simp only [pure, Except.pure] at h
             cases hc : charge (createCost is) em with
-            | error e => rw [hc] at h; simp [bind, Except.bind, pure, Except.pure] at h
+            | error e => rw [hc] at h; simp at h
             | ok ec =>
-              rw [hc] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+              rw [hc] at h; simp only [] at h
               exact absurd h createArm_never_needsCall
   | CREATE2 =>
     simp only [bind, Except.bind] at h
     cases hr : requireStateMod exec with
-    | error e => rw [hr] at h; simp [bind, Except.bind] at h
+    | error e => rw [hr] at h; simp at h
     | ok _ =>
-      rw [hr] at h; simp only [bind, Except.bind] at h
+      rw [hr] at h; simp only [] at h
       cases hp : exec.stack.pop4 with
       | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
       | some v =>
         obtain ⟨s, val, io, is, salt⟩ := v; rw [hp] at h
-        simp only [MonadLift.monadLift, liftM, monadLift, Option.option, bind, Except.bind] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
         split at h
-        · simp [throw, throwThe, MonadExceptOf.throw] at h
+        · simp at h
         · cases hm : chargeMemExpansion exec io is with
-          | error e => rw [hm] at h; simp [bind, Except.bind, pure, Except.pure] at h
+          | error e => rw [hm] at h; simp [pure, Except.pure] at h
           | ok em =>
-            rw [hm] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+            rw [hm] at h; simp only [pure, Except.pure] at h
             cases hc : charge (create2Cost is) em with
-            | error e => rw [hc] at h; simp [bind, Except.bind, pure, Except.pure] at h
+            | error e => rw [hc] at h; simp at h
             | ok ec =>
-              rw [hc] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+              rw [hc] at h; simp only [] at h
               exact absurd h createArm_never_needsCall
 
 /-- `callArm` never emits `.needsCreate` (only `.needsCall`/`.next`). -/
@@ -744,18 +743,18 @@ theorem callArm_never_needsCreate
   rw [callArm] at h
   cases hw : (memoryExpansionWords? exec.activeWords inOffset inSize >>=
       (memoryExpansionWords? · outOffset outSize)) with
-  | none => rw [hw] at h; simp [bind, Except.bind, throw, throwThe, MonadExceptOf.throw] at h
+  | none => rw [hw] at h; simp [throw, throwThe, MonadExceptOf.throw] at h
   | some words' =>
     rw [hw] at h; simp only [bind, Except.bind] at h
     cases he1 : charge (Cₘ words' - Cₘ exec.activeWords) exec with
-    | error e => rw [he1] at h; simp [bind, Except.bind] at h
+    | error e => rw [he1] at h; simp at h
     | ok e1 =>
-      rw [he1] at h; simp only [bind, Except.bind] at h
+      rw [he1] at h; simp only [] at h
       cases he2 : charge _ e1 with
-      | error e => rw [he2] at h; simp [bind, Except.bind] at h
+      | error e => rw [he2] at h; simp at h
       | ok e2 =>
         rw [he2] at h
-        simp only [bind, Except.bind] at h
+        simp only [] at h
         split at h <;> · simp only [Except.ok.injEq] at h; exact absurd h (by simp)
 
 /-- `haltOp` never emits `.needsCreate`. -/
@@ -774,9 +773,9 @@ theorem haltOp_never_needsCreate {op : Operation.SystemOp} {exec : ExecutionStat
       obtain ⟨s, off, size⟩ := v; rw [hp] at h
       simp only [bind, Except.bind, MonadLift.monadLift, liftM, monadLift, Option.option] at h
       cases hm : chargeMemExpansion exec off size with
-      | error e => rw [hm] at h; simp [bind, Except.bind] at h
+      | error e => rw [hm] at h; simp at h
       | ok ec =>
-        rw [hm] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+        rw [hm] at h; simp only [pure, Except.pure] at h
         split at h <;> simp at h
   · rw [returnOrRevertOp] at h
     cases hp : exec.stack.pop2 with
@@ -785,9 +784,9 @@ theorem haltOp_never_needsCreate {op : Operation.SystemOp} {exec : ExecutionStat
       obtain ⟨s, off, size⟩ := v; rw [hp] at h
       simp only [bind, Except.bind, MonadLift.monadLift, liftM, monadLift, Option.option] at h
       cases hm : chargeMemExpansion exec off size with
-      | error e => rw [hm] at h; simp [bind, Except.bind] at h
+      | error e => rw [hm] at h; simp at h
       | ok ec =>
-        rw [hm] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+        rw [hm] at h; simp only [pure, Except.pure] at h
         split at h <;> simp at h
   · rw [selfdestructOp] at h
     cases hr : requireStateMod exec with
@@ -795,14 +794,14 @@ theorem haltOp_never_needsCreate {op : Operation.SystemOp} {exec : ExecutionStat
     | ok _ =>
       rw [hr] at h; simp only [bind, Except.bind, pure, Except.pure] at h
       cases hp : exec.stack.pop with
-      | none => rw [hp] at h; simp [bind, Except.bind, MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
       | some v =>
         obtain ⟨s, rw'⟩ := v; rw [hp] at h
-        simp only [bind, Except.bind, MonadLift.monadLift, liftM, monadLift, Option.option] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
         cases hc : charge (selfdestructCost _ _) exec with
-        | error e => rw [hc] at h; simp [bind, Except.bind] at h
+        | error e => rw [hc] at h; simp at h
         | ok ec =>
-          rw [hc] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+          rw [hc] at h; simp only [] at h
           split at h <;> simp at h
   · simp [throw, throwThe, MonadExceptOf.throw] at h
 
@@ -827,9 +826,9 @@ theorem systemOp_needsCreate_savedGas {op : Operation.SystemOp} {fr : Frame} {ex
     | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
     | some v =>
       obtain ⟨s, g, t, val, io, is, oo, os⟩ := v; rw [hp] at h
-      simp only [MonadLift.monadLift, liftM, monadLift, Option.option, bind, Except.bind] at h
+      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
       split at h
-      · simp [throw, throwThe, MonadExceptOf.throw] at h
+      · simp at h
       · exact absurd h callArm_never_needsCreate
   | CALLCODE =>
     simp only [bind, Except.bind] at h
@@ -858,24 +857,24 @@ theorem systemOp_needsCreate_savedGas {op : Operation.SystemOp} {fr : Frame} {ex
   | CREATE =>
     simp only [bind, Except.bind] at h
     cases hr : requireStateMod exec with
-    | error e => rw [hr] at h; simp [bind, Except.bind] at h
+    | error e => rw [hr] at h; simp at h
     | ok _ =>
-      rw [hr] at h; simp only [bind, Except.bind] at h
+      rw [hr] at h; simp only [] at h
       cases hp : exec.stack.pop3 with
       | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
       | some v =>
         obtain ⟨s, val, io, is⟩ := v; rw [hp] at h
-        simp only [MonadLift.monadLift, liftM, monadLift, Option.option, bind, Except.bind] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
         split at h
-        · simp [throw, throwThe, MonadExceptOf.throw] at h
+        · simp at h
         · cases hm : chargeMemExpansion exec io is with
-          | error e => rw [hm] at h; simp [bind, Except.bind, pure, Except.pure] at h
+          | error e => rw [hm] at h; simp [pure, Except.pure] at h
           | ok em =>
-            rw [hm] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+            rw [hm] at h; simp only [pure, Except.pure] at h
             cases hc : charge (createCost is) em with
-            | error e => rw [hc] at h; simp [bind, Except.bind, pure, Except.pure] at h
+            | error e => rw [hc] at h; simp at h
             | ok ec =>
-              rw [hc] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+              rw [hc] at h; simp only [] at h
               have hsaved := createArm_needsCreate_savedGas h
               have hmle : em.gasAvailable.toNat ≤ exec.gasAvailable.toNat := chargeMem_gasAvailable_le hm
               have hcc := charge_drop_ge hc
@@ -884,24 +883,24 @@ theorem systemOp_needsCreate_savedGas {op : Operation.SystemOp} {fr : Frame} {ex
   | CREATE2 =>
     simp only [bind, Except.bind] at h
     cases hr : requireStateMod exec with
-    | error e => rw [hr] at h; simp [bind, Except.bind] at h
+    | error e => rw [hr] at h; simp at h
     | ok _ =>
-      rw [hr] at h; simp only [bind, Except.bind] at h
+      rw [hr] at h; simp only [] at h
       cases hp : exec.stack.pop4 with
       | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
       | some v =>
         obtain ⟨s, val, io, is, salt⟩ := v; rw [hp] at h
-        simp only [MonadLift.monadLift, liftM, monadLift, Option.option, bind, Except.bind] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
         split at h
-        · simp [throw, throwThe, MonadExceptOf.throw] at h
+        · simp at h
         · cases hm : chargeMemExpansion exec io is with
-          | error e => rw [hm] at h; simp [bind, Except.bind, pure, Except.pure] at h
+          | error e => rw [hm] at h; simp [pure, Except.pure] at h
           | ok em =>
-            rw [hm] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+            rw [hm] at h; simp only [pure, Except.pure] at h
             cases hc : charge (create2Cost is) em with
-            | error e => rw [hc] at h; simp [bind, Except.bind, pure, Except.pure] at h
+            | error e => rw [hc] at h; simp at h
             | ok ec =>
-              rw [hc] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+              rw [hc] at h; simp only [] at h
               have hsaved := createArm_needsCreate_savedGas h
               have hmle : em.gasAvailable.toNat ≤ exec.gasAvailable.toNat := chargeMem_gasAvailable_le hm
               have hcc := charge_drop_ge hc
@@ -928,9 +927,9 @@ theorem systemOp_needsCreate_childGas {op : Operation.SystemOp} {fr : Frame} {ex
     | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
     | some v =>
       obtain ⟨s, g, t, val, io, is, oo, os⟩ := v; rw [hp] at h
-      simp only [MonadLift.monadLift, liftM, monadLift, Option.option, bind, Except.bind] at h
+      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
       split at h
-      · simp [throw, throwThe, MonadExceptOf.throw] at h
+      · simp at h
       · exact absurd h callArm_never_needsCreate
   | CALLCODE =>
     simp only [bind, Except.bind] at h
@@ -959,48 +958,48 @@ theorem systemOp_needsCreate_childGas {op : Operation.SystemOp} {fr : Frame} {ex
   | CREATE =>
     simp only [bind, Except.bind] at h
     cases hr : requireStateMod exec with
-    | error e => rw [hr] at h; simp [bind, Except.bind] at h
+    | error e => rw [hr] at h; simp at h
     | ok _ =>
-      rw [hr] at h; simp only [bind, Except.bind] at h
+      rw [hr] at h; simp only [] at h
       cases hp : exec.stack.pop3 with
       | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
       | some v =>
         obtain ⟨s, val, io, is⟩ := v; rw [hp] at h
-        simp only [MonadLift.monadLift, liftM, monadLift, Option.option, bind, Except.bind] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
         split at h
-        · simp [throw, throwThe, MonadExceptOf.throw] at h
+        · simp at h
         · cases hm : chargeMemExpansion exec io is with
-          | error e => rw [hm] at h; simp [bind, Except.bind, pure, Except.pure] at h
+          | error e => rw [hm] at h; simp [pure, Except.pure] at h
           | ok em =>
-            rw [hm] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+            rw [hm] at h; simp only [pure, Except.pure] at h
             cases hc : charge (createCost is) em with
-            | error e => rw [hc] at h; simp [bind, Except.bind, pure, Except.pure] at h
+            | error e => rw [hc] at h; simp at h
             | ok ec =>
-              rw [hc] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+              rw [hc] at h; simp only [] at h
               have hchild := createArm_needsCreate_childGas h
               have hsaved := createArm_needsCreate_savedGas h
               rw [hchild, hsaved]
   | CREATE2 =>
     simp only [bind, Except.bind] at h
     cases hr : requireStateMod exec with
-    | error e => rw [hr] at h; simp [bind, Except.bind] at h
+    | error e => rw [hr] at h; simp at h
     | ok _ =>
-      rw [hr] at h; simp only [bind, Except.bind] at h
+      rw [hr] at h; simp only [] at h
       cases hp : exec.stack.pop4 with
       | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
       | some v =>
         obtain ⟨s, val, io, is, salt⟩ := v; rw [hp] at h
-        simp only [MonadLift.monadLift, liftM, monadLift, Option.option, bind, Except.bind] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
         split at h
-        · simp [throw, throwThe, MonadExceptOf.throw] at h
+        · simp at h
         · cases hm : chargeMemExpansion exec io is with
-          | error e => rw [hm] at h; simp [bind, Except.bind, pure, Except.pure] at h
+          | error e => rw [hm] at h; simp [pure, Except.pure] at h
           | ok em =>
-            rw [hm] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+            rw [hm] at h; simp only [pure, Except.pure] at h
             cases hc : charge (create2Cost is) em with
-            | error e => rw [hc] at h; simp [bind, Except.bind, pure, Except.pure] at h
+            | error e => rw [hc] at h; simp at h
             | ok ec =>
-              rw [hc] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+              rw [hc] at h; simp only [] at h
               have hchild := createArm_needsCreate_childGas h
               have hsaved := createArm_needsCreate_savedGas h
               rw [hchild, hsaved]
@@ -1033,9 +1032,9 @@ theorem systemOp_next_gas {op : Operation.SystemOp} {fr : Frame} {exec : Executi
     | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
     | some v =>
       obtain ⟨s, g, t, val, io, is, oo, os⟩ := v; rw [hp] at h
-      simp only [MonadLift.monadLift, liftM, monadLift, Option.option, bind, Except.bind] at h
+      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
       split at h
-      · simp [throw, throwThe, MonadExceptOf.throw] at h
+      · simp at h
       · exact callArm_next_gas h
   | CALLCODE =>
     simp only [bind, Except.bind] at h
@@ -1064,24 +1063,24 @@ theorem systemOp_next_gas {op : Operation.SystemOp} {fr : Frame} {exec : Executi
   | CREATE =>
     simp only [bind, Except.bind] at h
     cases hr : requireStateMod exec with
-    | error e => rw [hr] at h; simp [bind, Except.bind] at h
+    | error e => rw [hr] at h; simp at h
     | ok _ =>
-      rw [hr] at h; simp only [bind, Except.bind] at h
+      rw [hr] at h; simp only [] at h
       cases hp : exec.stack.pop3 with
       | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
       | some v =>
         obtain ⟨s, val, io, is⟩ := v; rw [hp] at h
-        simp only [MonadLift.monadLift, liftM, monadLift, Option.option, bind, Except.bind] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
         split at h
-        · simp [throw, throwThe, MonadExceptOf.throw] at h
+        · simp at h
         · cases hm : chargeMemExpansion exec io is with
-          | error e => rw [hm] at h; simp [bind, Except.bind, pure, Except.pure] at h
+          | error e => rw [hm] at h; simp [pure, Except.pure] at h
           | ok em =>
-            rw [hm] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+            rw [hm] at h; simp only [pure, Except.pure] at h
             cases hc : charge (createCost is) em with
-            | error e => rw [hc] at h; simp [bind, Except.bind, pure, Except.pure] at h
+            | error e => rw [hc] at h; simp at h
             | ok ec =>
-              rw [hc] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+              rw [hc] at h; simp only [] at h
               -- createArm .next: gas ≤ ec.gas; createCost charge makes it < exec.gas
               have hca := createArm_next_gas h
               have hmle : em.gasAvailable.toNat ≤ exec.gasAvailable.toNat := chargeMem_gasAvailable_le hm
@@ -1091,24 +1090,24 @@ theorem systemOp_next_gas {op : Operation.SystemOp} {fr : Frame} {exec : Executi
   | CREATE2 =>
     simp only [bind, Except.bind] at h
     cases hr : requireStateMod exec with
-    | error e => rw [hr] at h; simp [bind, Except.bind] at h
+    | error e => rw [hr] at h; simp at h
     | ok _ =>
-      rw [hr] at h; simp only [bind, Except.bind] at h
+      rw [hr] at h; simp only [] at h
       cases hp : exec.stack.pop4 with
       | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
       | some v =>
         obtain ⟨s, val, io, is, salt⟩ := v; rw [hp] at h
-        simp only [MonadLift.monadLift, liftM, monadLift, Option.option, bind, Except.bind] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
         split at h
-        · simp [throw, throwThe, MonadExceptOf.throw] at h
+        · simp at h
         · cases hm : chargeMemExpansion exec io is with
-          | error e => rw [hm] at h; simp [bind, Except.bind, pure, Except.pure] at h
+          | error e => rw [hm] at h; simp [pure, Except.pure] at h
           | ok em =>
-            rw [hm] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+            rw [hm] at h; simp only [pure, Except.pure] at h
             cases hc : charge (create2Cost is) em with
-            | error e => rw [hc] at h; simp [bind, Except.bind, pure, Except.pure] at h
+            | error e => rw [hc] at h; simp at h
             | ok ec =>
-              rw [hc] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+              rw [hc] at h; simp only [] at h
               have hca := createArm_next_gas h
               have hmle : em.gasAvailable.toNat ≤ exec.gasAvailable.toNat := chargeMem_gasAvailable_le hm
               have hcc := charge_drop_ge hc
@@ -1277,7 +1276,7 @@ theorem dispatch_onlyNext {op : Operation} {arg : Option (UInt256 × UInt8)} {fr
       cases arg <;>
         first
           | (simp only [continueWith, Except.ok.injEq] at he; exact ⟨_, he.symm⟩)
-          | simp [continueWith, throw, throwThe, MonadExceptOf.throw] at he
+          | simp [throw, throwThe, MonadExceptOf.throw] at he
   | Dup d => exact dup_onlyNext
   | Swap s => exact swap_onlyNext
   | ArithLogic a => cases a <;>
@@ -1297,7 +1296,7 @@ theorem dispatch_onlyNext {op : Operation} {arg : Option (UInt256 × UInt8)} {fr
            exact onlyNext_continueWith _)
         | (apply onlyNext_optionBind; rintro ⟨s, a, b, c⟩ _ sig he
            revert he; dsimp only; split
-           · intro he; simp [bind, Except.bind, throw, throwThe, MonadExceptOf.throw] at he
+           · intro he; simp [bind, Except.bind] at he
            · exact (onlyNext_memChargeBind (k := _)
                (fun ec => onlyNext_chargeBind (fun ec2 _ => onlyNext_continueWith _)) sig))
   | Block b =>
@@ -1315,7 +1314,7 @@ theorem dispatch_ok_System_of_not_next {op : Operation} {arg : Option (UInt256 �
     ∃ s, op = .System s := by
   by_cases hsys : ∃ s, op = .System s
   · exact hsys
-  · push_neg at hsys
+  · push Not at hsys
     obtain ⟨e, he⟩ := dispatch_onlyNext hsys sig hdisp
     exact absurd he (hnn e)
 
@@ -1429,7 +1428,7 @@ theorem descentDrops_conj4
   obtain ⟨s, hsop⟩ := stepFrame_needsCall_systemOp hstep
   have hgas := systemOp_needsCall_gas hsop
   have hchild : child.exec.gasAvailable = params.gas := beginCall_inl_gas hbc
-  simp only [activeGas, Pending.savedGas, Pending.frame]
+  simp only [activeGas, Pending.savedGas]
   rw [hchild]
   exact hgas
 
@@ -1442,7 +1441,7 @@ theorem descentDrops_conj5a
   obtain ⟨s, hsop⟩ := stepFrame_needsCall_systemOp hstep
   have hgas := systemOp_needsCall_gas hsop
   have hres : result.gasRemaining.toNat ≤ params.gas.toNat := beginCall_inr_gas hbc
-  simp only [FrameResult.gasRemaining, activeGas, Pending.savedGas, Pending.frame]
+  simp only [FrameResult.gasRemaining, activeGas, Pending.savedGas]
   omega
 
 /-- **Conjunct (5b).** A `.needsCreate` that fails the guard (zeroed result):
