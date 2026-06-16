@@ -1,4 +1,3 @@
-import BytecodeLayer.Reasoning.Straightline
 import BytecodeLayer.Reasoning.Begin
 import BytecodeLayer.Reasoning.Step
 import BytecodeLayer.Reasoning.Behaves

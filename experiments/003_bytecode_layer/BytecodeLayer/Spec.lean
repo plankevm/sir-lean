@@ -6,7 +6,7 @@ import BytecodeLayer.Proof.Sequence
 import BytecodeLayer.Proof.ExternalCall
 import BytecodeLayer.Proof.ExternalCallGen
 import BytecodeLayer.Proof.Straightline
-import BytecodeLayer.Proof.StraightlineInstances
+import BytecodeLayer.Proof.CallFreePrograms
 
 /-!
 # Spec — the audit surface of experiment 003

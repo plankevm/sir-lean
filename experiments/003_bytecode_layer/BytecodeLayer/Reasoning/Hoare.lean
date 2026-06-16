@@ -1,5 +1,5 @@
 import BytecodeLayer.Reasoning.Step
-import BytecodeLayer.Reasoning.Straightline
+import BytecodeLayer.Reasoning.Drive
 import BytecodeLayer.Reasoning.Begin
 import BytecodeLayer.Reasoning.Maps
 import BytecodeLayer.Observables
@@ -7,10 +7,10 @@ import BytecodeLayer.Observables
 /-!
 # A thin Hoare-style composition layer for non-branching blocks
 
-The straight-line engine (`Reasoning/Straightline.lean`) runs a block once you
-hand it the *whole* list of intermediate frames. That list is exactly the
-execution trace, and writing it out — `sstoreF1`, `sstoreF2`, … with their gas
-arithmetic — is the per-program pain this file removes.
+A straight-line engine could run a block once you hand it the *whole* list of
+intermediate frames. That list is exactly the execution trace, and writing it out
+— `sstoreF1`, `sstoreF2`, … with their gas arithmetic — is the per-program pain
+this file removes.
 
 The idea here is to never name a trace. We introduce one relation,
 
@@ -33,6 +33,39 @@ storage only.
 namespace BytecodeLayer
 open Evm
 open GasConstants
+
+/-! ## The single-step primitive
+
+`StepsTo fr fr'` is the atom everything is built on: one non-halting `stepFrame`
+carries `fr` to `fr'`, which keeps `fr`'s `kind`/`validJumps` and only moves
+`exec` forward. `drive_stepsTo` connects it to the fuel-level driver. These are
+fuel-level bricks (they mention `Frame`, `drive`, fuel); they never appear in an
+exported statement. -/
+
+/-- **One non-halting step.** `stepFrame fr` advances to `fr'`, which keeps `fr`'s
+`kind`/`validJumps` and only moves `exec` forward. The atom `Runs` is the closure
+of. -/
+def StepsTo (fr fr' : Frame) : Prop :=
+  stepFrame fr = Signal.next fr'.exec ∧ fr' = { fr with exec := fr'.exec }
+
+/-- `StepsTo` preserves the frame `kind` (only `exec` advances). -/
+theorem StepsTo.kind_eq {fr fr' : Frame} (h : StepsTo fr fr') : fr'.kind = fr.kind := by
+  rw [h.2]
+
+/-- **Build a `StepsTo` from a `.next` step.** `stepFrame fr = .next e` gives a
+`StepsTo fr { fr with exec := e }` — the successor frame is `fr` with `exec`
+replaced by `e`. The one constructor the opcode rules feed each `Step` lemma
+into. -/
+theorem stepsTo_of_next {fr : Frame} {e : ExecutionState} (h : stepFrame fr = Signal.next e) :
+    StepsTo fr { fr with exec := e } := ⟨h, rfl⟩
+
+/-- A single `StepsTo` is exactly one `drive` step at the top level: `drive`
+spends one fuel and re-enters on `fr'`. -/
+theorem drive_stepsTo (n : ℕ) {fr fr' : Frame} (h : StepsTo fr fr') :
+    drive (n + 1) [] (.inl fr) = drive n [] (.inl fr') := by
+  obtain ⟨hstep, hfr'⟩ := h
+  rw [drive_step n fr fr'.exec hstep]
+  rw [← hfr']
 
 /-! ## The composition relation
 
