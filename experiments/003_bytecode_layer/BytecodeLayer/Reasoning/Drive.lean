@@ -41,4 +41,15 @@ deliver its result. Used to peel `seedFuel g = (seedFuel g - 2) + 2` so
 theorem two_le_seedFuel (g : UInt64) : 2 ≤ seedFuel g := by
   unfold seedFuel; omega
 
+/-- **The `messageCall` entry characterization.** When a call begins as a frame
+(`beginCall p = .inl frame`, i.e. EVM code must run), `messageCall p` is exactly
+the driver run on that frame, seeded from the gas. This is the single bridge that
+lets every capstone proof start from `drive` **without unfolding `messageCall`**;
+the frame is supplied by a `beginCall_*` characterization lemma. -/
+theorem messageCall_eq_drive (p : CallParams) (frame : Frame)
+    (h : beginCall p = .inl frame) :
+    messageCall p = (FrameResult.toCallResult <$> drive (seedFuel p.gas) [] (.inl frame)) := by
+  unfold messageCall
+  rw [h]
+
 end BytecodeLayer

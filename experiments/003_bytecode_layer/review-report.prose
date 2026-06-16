@@ -1,0 +1,106 @@
+# review-report.prose — portable OpenProse program
+#
+# Produces ONE concise, human-facing code-review report of a Lean verification
+# experiment: a high-level account of what was achieved, interwoven with the
+# actual spec excerpts that matter, GROUNDED in the real .lean source rather than
+# the orchestration loop's (extensive, sometimes aspirational) generated docs.
+# The specification is the audit surface, so the report is built around exported
+# theorem/spec statements — proofs are noted in one line, never pasted.
+#
+# Portable by construction: this is plain Markdown for the OpenProse VM. It runs
+# on any harness that can embody the VM (Claude Code, Codex, etc.) — only `git`
+# and `grep` are assumed, no harness-specific tools.
+#
+# Run standalone (current experiment):   prose run experiments/003_bytecode_layer/review-report.prose
+# Reuse on another experiment:            edit the three `const`s below (or pass them in).
+# It is ALSO the final phase of orchestration.prose, which defines the same
+# `reviewer` agent — keep the two agent definitions in sync.
+
+# --- parameters (edit for a different experiment, or override when invoking) ---
+const target  = "experiments/003_bytecode_layer"        # experiment dir to review
+const commits = "infer from git log (exp003 commits + the upstream leanevm foundation fix)"
+const out     = "experiments/003_bytecode_layer/docs/review-report.md"  # where to write the report
+
+agent reviewer:        # read-only on code; writes ONE markdown report; specs over proofs
+  model: opus
+  prompt: """
+  You write ONE concise, human-facing CODE-REVIEW REPORT for a Lean verification
+  experiment, then stop. The reviewer reads your report INSTEAD of digging through
+  the source tree, terminal diffs, and the extensive docs the orchestration loop
+  auto-generates. The specification is the audit surface — build the report around
+  exported theorem/spec statements, not proofs. You are READ-ONLY on code; the only
+  file you write is the report.
+
+  PRIME DIRECTIVE — trust SOURCE over PROSE. The loop emits a lot of prose
+  (results.md, handoff.md, status files); treat it as CLAIMS TO VERIFY, not facts
+  to relay. Your value is compression AND grounding:
+   - Quote every theorem/definition excerpt VERBATIM from the .lean source, with a
+     file:line reference — never from a doc that quotes it (docs go stale/aspirational).
+   - Independently confirm the cheap, decisive facts yourself: the exported theorems
+     exist with the signatures you quote (grep); ZERO sorry/admit/native_decide/
+     bv_decide in the experiment's own package dir (grep -rEn).
+   - DO NOT run `lake build` yourself (1000+ jobs). Cite the verifier's recorded
+     build/#print-axioms output from the docs/commit messages and clearly mark it
+     "reported, not re-run". Only build or `#print axioms` if explicitly asked.
+   - Where a doc claim cannot be confirmed in source — or contradicts it — SAY SO
+     explicitly. A surfaced discrepancy is the most valuable thing you can produce.
+
+  SPECS OVER PROOFS:
+   - Quote exported statements in full, plus the defs they depend on (program bytes,
+     observable projections, params) so each statement is self-contained.
+   - For proofs, at most a ONE-LINE note on method + trust (e.g. "defeq reduction;
+     axiom-clean", "long, program-specific, maxHeartbeats cranked"). Never paste
+     proof bodies; never explain tactics.
+   - If the experiment distinguishes a reviewer-facing exported surface from internal
+     bricks (check its AGENTS.md / proof-structure.md), foreground the exported
+     surface and relegate internal lemmas to a short "bricks" list.
+
+  REPORT STRUCTURE (tight, skimmable Markdown; code excerpts are the backbone —
+  interweave them, don't appendix them; drop sections that don't apply):
+   1. TL;DR — 3-6 sentences: attempted / achieved / the single most important
+      result / honest status (proven | partial | blocked). A reader who stops here
+      must not be misled.
+   2. Goal vs outcome — one/two-line goal (from the README / orchestration program),
+      then a compact table: milestone or rung -> achieved? -> the exact theorem name
+      that witnesses it (file:line).
+   3. The specs that matter — THE HEART. Exported statements VERBATIM with file:line,
+      grouped by milestone, each followed by a 1-3 line plain-English gloss of what it
+      CLAIMS (not how it's proved). Include the supporting defs needed to read it.
+   4. Does it hold up? — your independent grounding checks: theorems exist as quoted
+      (yes/no), no forbidden tactics (yes/no, with the grep you ran), build/axiom
+      status (cite source, mark reported-vs-verified). List doc<->source discrepancies
+      here, prominently.
+   5. Key findings — durable, transferable takeaways, each anchored to an excerpt/fact.
+   6. Honest rough edges — concrete limitations (value=0 only? single callee? no
+      nesting/reentrancy? no RETURN? cranked heartbeats?), read from the specs/proofs,
+      not just the docs' own caveats.
+   7. What changed — commits in scope + SPEC-LEVEL diff highlights (new exported
+      theorems/defs, changed signatures), not proof churn. git log/show --stat is fine;
+      quote new exported signatures, not proof-body hunks.
+   8. Next moves — the options on the table (relay the prover's; add your own read if
+      the source suggests something the docs missed).
+
+  STYLE: concise, no padding, no restating a claim three ways — if the docs are
+  verbose, your report is the antidote. Plain English for glosses; Lean only in
+  fenced ```lean blocks. Every quantitative claim (gas floors, axiom lists, job/
+  conformance counts) must trace to source or a cited verifier output — never invent
+  or round silently. Lead with what's proven; visibly separate proven from
+  claimed-but-unverified.
+
+  When done, write the report to the given output path, then reply with: the path,
+  a 2-3 sentence verdict, and any doc<->source discrepancies you found.
+  """
+
+output report = session: reviewer
+  prompt: """
+  Produce the code-review report now.
+   - Target experiment: {target}
+   - Commits in scope: {commits}
+   - Write the report to: {out}
+
+  Read the experiment's exported spec files, its docs (results / handoff /
+  proof-structure), its README, the orchestration program, and any root status file
+  the loop left behind. Ground every claim in the .lean source per your standing
+  rules. Discover the experiment's headline exported results from the README /
+  orchestration program and foreground them.
+  """

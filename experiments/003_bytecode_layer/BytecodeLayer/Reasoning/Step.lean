@@ -194,4 +194,63 @@ theorem stepFrame_sstore_oog (fr : Frame) (key newValue : UInt256) (rest : Stack
     dsimp only [sstoreChargeOf, Option.option] at h
     omega)]
 
+/-! ## RETURN (empty output)
+
+The first opcode with a *return-data* observable. `RETURN` pops `offset`/`size`,
+charges memory expansion, and halts with `.success` carrying the bytes read from
+memory. For the zero-size case (`offset = size = 0`) the memory charge is `0`
+(`Cₘ activeWords - Cₘ activeWords`) and the output is empty (`readWithPadding _ 0`),
+so the step is unconditional — no gas hypothesis. This is the brick the
+`RETURN` instances stand on. -/
+
+/-- The execution state RETURN leaves before halting (empty `offset = size = 0`):
+the size-0 memory charge (`- ofNat 0`, a no-op on gas), the active-words bump, and
+the popped stack. -/
+def returnEmptyPost (exec : ExecutionState) (rest : Stack UInt256) : ExecutionState :=
+  let charged : ExecutionState := { exec with gasAvailable := exec.gasAvailable - UInt64.ofNat 0 }
+  ExecutionState.replaceStackAndIncrPC
+    { charged with
+        toMachineState :=
+          { charged.toMachineState with
+              activeWords := MachineState.M charged.activeWords (0 : UInt256).toUInt64 (0 : UInt256).toUInt64 } }
+    rest
+
+set_option maxHeartbeats 2000000 in
+/-- **RETURN with zero size halts successfully, returning the read bytes.** At a pc
+decoding to `RETURN` with `0`/`0` (offset/size) on top of the stack, `stepFrame`
+halts with `.success (returnEmptyPost …) (memory.readWithPadding 0 0)`: the
+zero-size memory charge is `0`, so no gas hypothesis is needed; only the
+stack-overflow guard (discharged from `hsz`). For a frame with empty memory the
+returned bytes reduce to `.empty` — the return-data observable the rung lands on. -/
+theorem stepFrame_return_empty (fr : Frame) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.System .RETURN, .none))
+    (hstk : fr.exec.stack = (0 : UInt256) :: (0 : UInt256) :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024) :
+    stepFrame fr = .halted (.success (returnEmptyPost fr.exec rest)
+      (fr.exec.memory.readWithPadding (0 : UInt256).toNat (0 : UInt256).toNat)) := by
+  unfold stepFrame
+  simp only [hdec]
+  dsimp only [Option.getD]
+  rw [if_neg (by decide)]
+  have hov : ¬ (fr.exec.stack.size - stackPopCount (.System .RETURN)
+      + stackPushCount (.System .RETURN) > 1024) := by
+    simp only [show stackPopCount (.System .RETURN) = 2 from rfl,
+               show stackPushCount (.System .RETURN) = 0 from rfl]
+    have := hsz; omega
+  rw [if_neg hov]
+  dsimp only [dispatch, systemOp, haltOp, returnOrRevertOp]
+  rw [hstk]
+  dsimp only [Stack.pop2, liftM, monadLift, MonadLift.monadLift, Option.option, bind,
+    Except.bind, pure, Except.pure]
+  dsimp only [chargeMemExpansion, memoryExpansionWords?]
+  -- size = 0 branch of `memoryExpansionWords?` and the `Cₘ - Cₘ = 0` charge.
+  rw [if_pos (by decide)]
+  dsimp only [bind, Except.bind, pure, Except.pure]
+  unfold charge
+  rw [if_neg (by simp)]
+  dsimp only [bind, Except.bind, pure, Except.pure]
+  rw [if_neg (by decide)]
+  dsimp only [returnEmptyPost]
+  rw [Nat.sub_self]
+
 end BytecodeLayer

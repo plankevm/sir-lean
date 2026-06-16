@@ -11,19 +11,45 @@
 >   `messageCall_sstore_storageAt`, `messageCall_seq_storageAt`.
 > - **M2 (the headline — external calls):** `messageCall_call_storageAt` (the
 >   `∃G₀` storage-observable theorem; the child `CALL` is the **real reflexive**
->   `beginCall`/`drive` on the child params), `call_counterexample` (executable
+>   `beginCall`/`drive` on the child params) and `call_counterexample` (executable
 >   `∃G₀` witness: at `g = 24000` the 63/64 cap starves the callee, its `SSTORE`
->   rolls back, the cell reads `0` while the caller completes), and
->   `messageCall_child_reflexive` (the in-parent child computation *is* the genuine
->   top-level child message call — no oracle).
+>   rolls back, the cell reads `0` while the caller completes). The reflexivity
+>   witness `messageCall_child_reflexive` now lives in the proof layer as
+>   `Proof.messageCall_child_reflexive` (its statement names the internal caller
+>   frame, so it is not on the frame-free audit surface).
 > - **Both foundation obstructions the earlier run found (the `bv_decide` axiom
 >   inherited by `messageCall`; `private callArm`/`createArm`) were resolved
 >   upstream in leanevm** by one endorsed commit (`9cefe5b`), conformance unchanged
 >   (2859/2859). That is what makes the whole experiment axiom-clean — see
 >   `docs/results.md §3`.
 >
-> `lake build` → green (1111 jobs; two cosmetic linter warnings). No
+> `lake build` → green (1120 jobs). No
 > `sorry`/`admit`/`native_decide`/`bv_decide` in experiment code.
+
+## Layout — where to read (core vs examples vs proofs)
+
+The package is split so the specification is readable on its own; proof internals
+are quarantined. **Read `Spec.lean` first.**
+
+```
+BytecodeLayer/
+  Spec.lean         THE AUDIT SURFACE — every exported theorem (statement +
+                    docstring); each delegates its proof to Proof/.
+  Programs.lean     the example bytecode contracts and messageCall params.
+  Observables.lean  the observable projections results are stated through.
+  Reasoning/        reusable bricks (the engine): Step, the reflexive CALL rule
+                    (Call), the drive vocabulary (Drive/DriveGen), and the
+                    messageCall/beginCall entry characterizations (Drive/Begin).
+  Proof/            proof internals (scaffolding frames, decode lemmas, the long
+                    reductions): CallFree, Sequence, ExternalCall, ExternalCallGen
+                    (the black-box call rule), Straightline + StraightlineInstances.
+```
+
+The proof layer never unfolds the semantics (`messageCall`/`beginCall`/`stepFrame`/
+`drive`) directly: every proof routes through a `Reasoning/` characterization
+lemma (`messageCall_eq_drive`, `beginCall_code`, the `stepFrame_*`/`drive*`
+equations, the `stepFrame_call` rule), so the spec defs can be reshaped without
+breaking the proof corpus.
 
 ## What this experiment is
 
@@ -120,7 +146,18 @@ phase 2  M1 spine         A → B → (C ∥ D₀) → capstone-1
 phase 3  M2 calls         B′ → (C′ ∥ D) → capstone-2     ← external calls
 phase 4  integration      characterization review + completeness (loop to fix)
 phase 5  write-up         results.md / handoff.md, rough edges first-class
+phase 6  review report    grounded, spec-centric human digest -> docs/review-report.md
 ```
+
+Phase 6 is the **`reviewer`** agent: a concise, human-facing review report built
+from the exported spec statements quoted verbatim from source (specs over proofs),
+which independently re-greps the code and flags any doc↔source discrepancy rather
+than relaying the loop's prose. It is also packaged as a standalone, portable
+OpenProse program — [`review-report.prose`](./review-report.prose) — so it can be
+re-run on demand without the whole loop (`prose run
+experiments/003_bytecode_layer/review-report.prose`) and reused on other
+experiments by editing its three `const`s. Both define the same `reviewer` agent;
+keep them in sync.
 
 ### How it proves — the placed-verifier model
 

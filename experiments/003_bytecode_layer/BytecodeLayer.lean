@@ -1,11 +1,11 @@
 -- Experiment 003 — bytecode layer over leanevm.
 -- Proof-first / always-green: this root imports only modules whose theorems are
 -- fully proved (zero sorry). Abstractions are added only when a proof forces them.
-import BytecodeLayer.Observables
-import BytecodeLayer.Drive
-import BytecodeLayer.DriveGen
-import BytecodeLayer.Step
-import BytecodeLayer.Call
-import BytecodeLayer.Capstone1
-import BytecodeLayer.Capstone3
-import BytecodeLayer.CapstoneCall
+--
+-- Layout (core vs examples vs proofs are physically separated):
+--   Spec.lean         — THE AUDIT SURFACE: every exported theorem (read this).
+--   Programs.lean     — the example bytecode contracts and message-call params.
+--   Observables.lean  — the observable projections results are stated through.
+--   Reasoning/        — the reusable bricks: stepping + the reflexive CALL + drive.
+--   Proof/            — the proof internals (scaffolding, decode lemmas, reductions).
+import BytecodeLayer.Spec

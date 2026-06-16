@@ -1,73 +1,35 @@
-import BytecodeLayer.DriveGen
-import BytecodeLayer.Call
-import BytecodeLayer.Step
-import BytecodeLayer.Drive
+import BytecodeLayer.Reasoning.DriveGen
+import BytecodeLayer.Reasoning.Call
+import BytecodeLayer.Reasoning.Step
+import BytecodeLayer.Reasoning.Drive
 import BytecodeLayer.Observables
-import BytecodeLayer.Capstone1
-import BytecodeLayer.Capstone3
+import BytecodeLayer.Programs
+import BytecodeLayer.Proof.CallFree
+import BytecodeLayer.Proof.Sequence
 
 /-!
-# The external-call rung
+# Proof — the external-call rung
 
-A caller contract that `CALL`s a handwritten callee, run as a real top-level
-`messageCall`, with the child call modeled **reflexively** — the genuine leanevm
-`beginCall`/`drive` on the real child `CallParams` (`codeSource = toExecute …`),
-never an oracle.
+Proof internals for M2. The exported statements (`messageCall_call_storageAt`,
+`call_counterexample`, `messageCall_child_reflexive`) live in `Spec.lean`. The
+caller/callee programs and `callerParams` live in `Programs.lean`. Everything
+here — the intermediate frames at each pc, decode lemmas, the 63/64 gas
+arithmetic, the reflexive child run, and the long reductions — is proof
+machinery and not part of the audit surface.
 
-* **caller** `callerProg`: `PUSH1 0 ×5 ; PUSH3 callee ; PUSH4 0xFFFFFFFF ; CALL ; STOP`
-  — pushes the seven CALL args (value-free, zero-memory; the gas arg is large, so
-  the 63/64 `callGasCap` always binds, never the literal) then forwards a CALL to
-  the callee and STOPs.
-* **callee** `calleeProg`: `PUSH1 5 ; PUSH1 7 ; SSTORE ; STOP` — stores `5` at slot
-  `7`, then STOPs. Its cold first-write cost is `22106`.
-
-The exported observable is the callee's persistent storage cell `(addrCallee, 7)`
-in the **caller's** returned account map. This is exactly where the `∃G₀` story
-bites: when `g` is large the child gets ≥ `22106` gas, the SSTORE commits, and the
-cell reads `5`; when `g` is modest the 63/64 cap starves the child, its SSTORE
-out-of-gases and is rolled back, the cell reads `0` — yet the caller never
-top-level-OutOfGas's (it pushes flag `0` and STOPs cleanly). So the simpler
-"not-OutOfGas ⇒ equal to the full run" form is *false*; the existential `∃G₀` is
-forced. `messageCall_call_storageAt` proves the `∃G₀`; `call_counterexample`
-exhibits the concrete starving `g`.
+The child call is modeled **reflexively**: the genuine leanevm `beginCall`/`drive`
+on the real child `CallParams` (`codeSource = toExecute …`), never an oracle.
 -/
 
-namespace BytecodeLayer
+namespace BytecodeLayer.Proof
 open Evm Operation GasConstants
 
-/-! ## Programs and accounts -/
-
-/-- `PUSH1 0 ×5 ; PUSH3 0xCA11EE ; PUSH4 0xFFFFFFFF ; CALL ; STOP`. -/
-def callerProg : ByteArray :=
-  ⟨#[0x60,0x00, 0x60,0x00, 0x60,0x00, 0x60,0x00, 0x60,0x00,
-     0x62,0xCA,0x11,0xEE, 0x63,0xFF,0xFF,0xFF,0xFF, 0xF1, 0x00]⟩
-
-/-- `PUSH1 5 ; PUSH1 7 ; SSTORE ; STOP`. -/
-def calleeProg : ByteArray := ⟨#[0x60,0x05, 0x60,0x07, 0x55, 0x00]⟩
-
-def addrCaller : AccountAddress := AccountAddress.ofNat 0xCA11E2
-def addrCallee : AccountAddress := AccountAddress.ofNat 0xCA11EE
-
-def callerAccount : Account := { (default : Account) with code := callerProg }
-def calleeAccount : Account := { (default : Account) with code := calleeProg }
-
-/-- The world: caller and callee accounts, each with its code. -/
-def accts : AccountMap :=
-  ((∅ : AccountMap).insert addrCaller callerAccount).insert addrCallee calleeAccount
+/-! ## Derived world states -/
 
 /-- The caller's account map after `beginCall`'s (value-0, self-recipient)
 balance transfer — a no-op on storage, re-inserting the caller with `balance+0`. -/
 def callerXfer : AccountMap :=
   accts.insert addrCaller { callerAccount with balance := callerAccount.balance + 0 }
-
-/-- Top-level message-call parameters: run `callerProg` in `addrCaller`. -/
-def callerParams (g : UInt64) : CallParams :=
-  { blobVersionedHashes := [], createdAccounts := ∅, genesisBlockHeader := default,
-    blocks := #[], accounts := accts, originalAccounts := ∅, substate := default,
-    caller := addrCaller, origin := addrCaller, recipient := addrCaller,
-    codeSource := .Code callerProg, gas := g, gasPrice := 0, value := 0,
-    apparentValue := 0, calldata := .empty, depth := 0, blockHeader := default,
-    chainId := 0, canModifyState := true }
 
 /-- The caller frame `beginCall` produces (its mess collapsed to `callerXfer`). -/
 def callerEnv : ExecutionEnv :=
@@ -341,33 +303,41 @@ theorem final_obs (g : UInt64) :
   unfold endCall
   dsimp only
   rw [resumed_acc]
-  simp only [childStored_ne, if_false]
+  simp only [childStored_ne]
   exact childStored_storage
 
-/-! ## The exported external-call theorem (`∃G₀`) -/
+/-! ## The exported external-call theorem (`∃G₀`) — proof
+
+The top-level run is first pinned to the **exact `CallResult`** the caller `STOP`s
+with (`callerResult g`), so that *both* its storage observable and its success flag
+are readable; the `∃G₀ ∀g` storage theorem and the `completedWith` form (used by
+the general rung-2 instance) are then corollaries. -/
+
+/-- The exact `CallResult` the top-level caller `STOP`s with after the (successful)
+child commits: the `endFrame`/`endCall` of the resumed caller frame. -/
+def callerResult (g : UInt64) : CallResult :=
+  (endFrame (resumeAfterCall (childResult g) (callPending (callerCalled g) 13242862 4294967295))
+    (FrameHalt.success
+      (resumeAfterCall (childResult g) (callPending (callerCalled g) 13242862 4294967295)).exec
+      ByteArray.empty)).toCallResult
+
+/-- The caller `STOP`s successfully (it ignores the child's flag). -/
+theorem callerResult_success (g : UInt64) : (callerResult g).success = true := by
+  unfold callerResult endFrame
+  rw [resumed_kind]; dsimp only [FrameResult.toCallResult]; unfold endCall; dsimp only
 
 set_option maxHeartbeats 800000000 in
-/-- **External-call rung — the `∃G₀` observables theorem.** There is a gas floor
-`G₀` such that for every `g ≥ G₀` the top-level message call into the caller
-contract (which forwards a real `CALL` to the callee) leaves the callee's storage
-cell `(addrCallee, 7)` holding `5`. The child call is the **genuine reflexive**
-`beginCall`/`drive` on the real child `CallParams` (`codeSource = toExecute …`):
-the SSTORE that writes `5` runs inside that real sub-call, gets ≥ `22106` gas past
-the 63/64 `callGasCap`, and commits.
-
-The `∃G₀` is *forced*, not cosmetic: `call_counterexample` exhibits a modest `g`
-for which the same observable is `0` (the 63/64 cap starves the callee, its SSTORE
-out-of-gases and rolls back) while the top-level call still completes — so no
-single gas-independent statement ("not OutOfGas ⇒ cell is 5") can hold. -/
-theorem messageCall_call_storageAt :
-    ∃ G₀ : ℕ, ∀ g : UInt64, G₀ ≤ g.toNat →
-      (messageCall (callerParams g)).map (fun r => CallResult.storageAt r addrCallee 7) = .ok 5 := by
-  refine ⟨100000, fun g hg => ?_⟩
-  have hg30 : 30000 ≤ g.toNat := by omega
+/-- **The top-level run pinned to its `CallResult`.** For `g ≥ 30000`, the whole
+message call into the caller equals `.ok (callerResult g)` — the caller forwards a
+real `CALL` to the callee, the child commits, and the caller `STOP`s carrying the
+child's account map. Both the storage observable and the success flag read off this
+single equation. -/
+theorem messageCall_call_eq (g : UInt64) (hg : 30000 ≤ g.toNat) :
+    messageCall (callerParams g) = .ok (callerResult g) := by
+  have hg30 : 30000 ≤ g.toNat := hg
   have hcg := childGas_lb g hg30
   have hcg2 := childGas_ub g
-  unfold messageCall
-  rw [beginCall_caller]
+  rw [messageCall_eq_drive _ _ (beginCall_caller g)]
   dsimp only [callerFrame]
   rw [show (callerParams g).gas = g from rfl]
   rw [show seedFuel g = (seedFuel g - 15) + 15 by have := two_le_seedFuel g; unfold seedFuel; omega]
@@ -400,8 +370,8 @@ theorem messageCall_call_storageAt :
         (by show (6:ℕ)+1≤1024; omega))]
   dsimp only [ExecutionState.replaceStackAndIncrPC]; simp only [gv]
   -- fold the 7-pushed frame into `callerCalled g` (defeq), then take the real CALL
-  show (FrameResult.toCallResult <$> drive (seedFuel g - 15 + 8) []
-        (Sum.inl (callerCalled g))).map (fun r => CallResult.storageAt r addrCallee 7) = Except.ok 5
+  show FrameResult.toCallResult <$> drive (seedFuel g - 15 + 8) []
+        (Sum.inl (callerCalled g)) = Except.ok (callerResult g)
   rw [driveG_needsCall_code _ _ (callerCalled g) _ _ _
         (stepFrame_call _ 0xFFFFFFFF 0xCA11EE dc19 rfl (by show (7:ℕ)≤1024; omega) rfl (by show (0:ℕ)<1024; omega)
           (by
@@ -428,18 +398,23 @@ theorem messageCall_call_storageAt :
           unfold resumeAfterCall callPending
           dsimp only [ExecutionState.replaceStackAndIncrPC]
           show (Stack.push [] _).size ≤ 1024; show (1:ℕ) ≤ 1024; omega))]
-  -- read off the storage observable
-  dsimp only [Except.map]
+  -- the driver returns `.ok (endFrame …)`, i.e. `.ok (callerResult g)`
+  rfl
+
+/-! ## The exported external-call theorem (`∃G₀`) — corollaries -/
+
+theorem messageCall_call_storageAt :
+    ∃ G₀ : ℕ, ∀ g : UInt64, G₀ ≤ g.toNat →
+      (messageCall (callerParams g)).map (fun r => CallResult.storageAt r addrCallee 7) = .ok 5 := by
+  refine ⟨100000, fun g hg => ?_⟩
+  rw [messageCall_call_eq g (by omega)]
   exact congrArg Except.ok (final_obs g)
 
-/-! ## The forced-`∃G₀` counterexample (the call OOGs, observable differs)
+/-! ## The forced-`∃G₀` counterexample (the call OOGs, observable differs) — proof
 
 A *modest* gas `g = 24000` for which the 63/64 `callGasCap` starves the callee:
 `childGas 24000 = 21045 < 22106`, so its `SSTORE` out-of-gases, its write is
-rolled back, the caller is handed flag `0` and `STOP`s cleanly. The top-level
-call completes (no `OutOfGas`), yet the callee's cell `(addrCallee, 7)` reads `0`,
-not `5`. This is what makes the existential genuine: no gas-independent
-"completes ⇒ cell is 5" statement can hold. -/
+rolled back, the caller is handed flag `0` and `STOP`s cleanly. -/
 
 /-- The failing child's `CallResult`: the `endCall` of an `OutOfGas` exception,
 reverting to the pre-call checkpoint (`callerXfer`), `success = false`. -/
@@ -508,22 +483,16 @@ theorem final_obs_fail (g : UInt64) :
   unfold endCall
   dsimp only
   rw [resumedF_acc]
-  simp only [callerXfer_ne, if_false]
+  simp only [callerXfer_ne]
   exact callerXfer_storage
 
 set_option maxHeartbeats 800000000 in
-/-- **The executable counterexample.** At the modest gas `g = 24000` the same
-message call leaves cell `(addrCallee, 7)` holding `0` — the callee's `SSTORE`
-out-of-gased under the 63/64 cap and rolled back, while the caller completed. Read
-against `messageCall_call_storageAt` (which gives `5` for all `g ≥ 100000`), this
-shows the `∃G₀` is forced: there is no gas-floor-free statement. -/
 theorem call_counterexample :
     (messageCall (callerParams 24000)).map (fun r => CallResult.storageAt r addrCallee 7) = .ok 0 := by
   have hstip : 2306 < childGas 24000 := by unfold childGas; decide
   have hoog : childGas 24000 - 6 < 22100 := by decide
   have hub : childGas 24000 < 2^64 := childGas_ub 24000
-  unfold messageCall
-  rw [beginCall_caller]
+  rw [messageCall_eq_drive _ _ (beginCall_caller 24000)]
   dsimp only [callerFrame]
   rw [show (callerParams 24000).gas = 24000 from rfl]
   rw [show seedFuel 24000 = (seedFuel 24000 - 14) + 14 by unfold seedFuel; decide]
@@ -570,14 +539,11 @@ theorem call_counterexample :
   dsimp only [Except.map]
   exact congrArg Except.ok (final_obs_fail 24000)
 
-/-! ## Reflexivity witness
+/-! ## Reflexivity witness — proof
 
 The child call inside `messageCall_call_storageAt` is run by the real
 `beginCall`/`drive` on `callChildParams …` — the same operations `messageCall`
-performs. This lemma makes that explicit: the **standalone** `messageCall` on the
-very `CallParams` the `CALL` produced succeeds and commits cell `7 = 5`, i.e. the
-in-parent child computation *is* the genuine top-level child message call (no
-oracle). -/
+performs. This lemma makes that explicit. -/
 set_option maxHeartbeats 400000000 in
 theorem messageCall_child_reflexive (g : UInt64) (hg : 30000 ≤ g.toNat) :
     (messageCall (callChildParams (callerCalled g) 13242862 4294967295)).map
@@ -586,9 +552,7 @@ theorem messageCall_child_reflexive (g : UInt64) (hg : 30000 ≤ g.toNat) :
   have hcg2 := childGas_ub g
   have hofnat : (UInt64.ofNat (childGas g)).toNat = childGas g := by
     rw [UInt64.toNat_ofNat']; exact Nat.mod_eq_of_lt (by omega)
-  unfold messageCall
-  rw [beginCall_child]
-  dsimp only
+  rw [messageCall_eq_drive _ _ (beginCall_child g)]
   rw [show seedFuel (callChildParams (callerCalled g) 13242862 4294967295).gas
         = (seedFuel (childFrame g).exec.gasAvailable - 5) + 5 by
       have : (callChildParams (callerCalled g) 13242862 4294967295).gas
@@ -618,4 +582,4 @@ theorem messageCall_child_reflexive (g : UInt64) (hg : 30000 ≤ g.toNat) :
   show Except.ok ((childResult g).success, CallResult.storageAt (childResult g) addrCallee 7) = Except.ok (true, 5)
   rw [childResult_success, CallResult.storageAt, childResult_accounts, childStored_storage]
 
-end BytecodeLayer
+end BytecodeLayer.Proof
