@@ -1,5 +1,5 @@
 import BytecodeLayer.Semantics.Dispatch
-import BytecodeLayer.Reasoning.Drive
+import BytecodeLayer.Semantics.Interpreter.Drive
 import BytecodeLayer.Semantics.System
 import BytecodeLayer.Semantics.Maps
 import BytecodeLayer.Observables
@@ -35,6 +35,7 @@ open Evm
 open GasConstants
 open BytecodeLayer.Maps
 open BytecodeLayer.Dispatch
+open BytecodeLayer.Interpreter
 
 /-! ## The single-step primitive
 

@@ -1,7 +1,7 @@
 import Evm
 import BytecodeLayer.Semantics.Gas
 import BytecodeLayer.Semantics.System
-import BytecodeLayer.Reasoning.Fuel
+import BytecodeLayer.Semantics.Interpreter.Drive
 
 /-!
 # `drive` never runs out of fuel (unconditional)
@@ -25,19 +25,19 @@ it strictly decreases on every `drive` recursion, and starts below `seedFuel`.
     **modulo** `DescentDrops`.
 * **Discharged:** `DescentDrops` — the CALL/CREATE *descent / `System`-`.next`-
   fallback* gas arithmetic (obligations 3, 4, 5a, 4', 5b) — is fully proven in
-  `Proof/DescentDrops.lean` (`descentDrops_holds`). The CREATE descent (4')
-  relies on the kind-aware `Pending.savedGas` below, which withholds the
-  forwarded `allButOneSixtyFourth` from the measure (since the child already
+  `Semantics/Interpreter/DescentDrops.lean` (`descentDrops_holds`). The CREATE
+  descent (4') relies on the kind-aware `Pending.savedGas` below, which withholds
+  the forwarded `allButOneSixtyFourth` from the measure (since the child already
   counts it) and so does not double-count during an open CREATE descent. This
   yields the **unconditional** general theorem
-  `BytecodeLayer.Proof.messageCall_never_outOfFuel`. The relevant leanevm defs
+  `BytecodeLayer.Interpreter.messageCall_never_outOfFuel`. The relevant leanevm defs
   are `callArm`/`createArm` (`Evm/Semantics/System.lean`), `beginCall`
   (`Evm/Semantics/Call.lean`), `beginCreate` (`Evm/Semantics/Create.lean`), and
   the gas helpers `callGasCap`/`callExtraCost`/`allButOneSixtyFourth`
   (`Evm/Semantics/Gas.lean`).
 -/
 
-namespace BytecodeLayer
+namespace BytecodeLayer.Interpreter
 open Evm
 open GasConstants
 open BytecodeLayer.Gas
@@ -270,4 +270,4 @@ theorem messageCall_never_outOfFuel_of_descentDrops (hd : DescentDrops) (p : Cal
     | error e => rw [hd'] at hc; simp [Functor.map, Except.map] at hc; rw [hc] at hd'; exact hb hd'
     | ok r => rw [hd'] at hc; simp [Functor.map, Except.map] at hc
 
-end BytecodeLayer
+end BytecodeLayer.Interpreter

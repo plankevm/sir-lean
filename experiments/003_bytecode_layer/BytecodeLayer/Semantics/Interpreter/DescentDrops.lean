@@ -1,16 +1,16 @@
-import BytecodeLayer.Reasoning.NeverOutOfFuel
+import BytecodeLayer.Semantics.Interpreter.NeverOutOfFuel
 import BytecodeLayer.Semantics.Gas
 import BytecodeLayer.Semantics.UInt256
 import BytecodeLayer.Semantics.Precompiles
 import BytecodeLayer.Semantics.Dispatch
 
 /-!
-# Proof — the descent/fallback gas arithmetic (`DescentDrops`)
+# The descent/fallback gas arithmetic (`DescentDrops`)
 
 This file discharges the one remaining hypothesis of the general
 `never-out-of-fuel` theorem: `DescentDrops` (the CALL/CREATE *descent* and
 `System`-`.next`-*fallback* gas inequalities, obligations 3/4/5 in
-`Reasoning/NeverOutOfFuel.lean`). With it proven, the boundary theorem
+`Semantics/Interpreter/NeverOutOfFuel.lean`). With it proven, the boundary theorem
 
   `messageCall_never_outOfFuel (p : CallParams) : messageCall p ≠ .error .OutOfFuel`
 
@@ -28,7 +28,7 @@ added to the child. No tight arithmetic is needed — only "the call's own cost 
 a positive constant bigger than 2 (resp. 2302)."
 -/
 
-namespace BytecodeLayer.Proof
+namespace BytecodeLayer.Interpreter
 open Evm
 open Evm.Operation
 open GasConstants
@@ -45,8 +45,6 @@ that `mu_bound` needs, and each follows from the `systemOp`/`stepFrame`
 inversions plus the gas arithmetic above. They are stated here in the precise
 `Prop` shapes of `DescentDrops` and assembled into `descentDrops_holds`, which
 discharges the last hypothesis of the general theorem. -/
-
-open BytecodeLayer
 
 /-- **Conjunct (3).** A `System`-op `.next` fallback strictly drops `totalGas`. -/
 theorem descentDrops_conj3
@@ -143,14 +141,12 @@ theorem descentDrops_conj4'
   rw [hchildNat]
   omega
 
-open BytecodeLayer in
 /-- **`DescentDrops` discharged.** All five per-transition decrease obligations
 hold; the create descent (4') is sound under the kind-aware `Pending.savedGas`. -/
 theorem descentDrops_holds : DescentDrops :=
   ⟨descentDrops_conj3, descentDrops_conj4, descentDrops_conj5a,
     descentDrops_conj4', descentDrops_conj5b⟩
 
-open BytecodeLayer in
 /-- **General `messageCall` never out-of-fuel — unconditional.** No
 `DescentDrops`, no `Frame`/fuel hypothesis: for every `CallParams`, the message
 call never returns `OutOfFuel`. -/
@@ -158,5 +154,5 @@ theorem messageCall_never_outOfFuel (p : CallParams) :
     messageCall p ≠ .error .OutOfFuel :=
   messageCall_never_outOfFuel_of_descentDrops descentDrops_holds p
 
-end BytecodeLayer.Proof
+end BytecodeLayer.Interpreter
 
