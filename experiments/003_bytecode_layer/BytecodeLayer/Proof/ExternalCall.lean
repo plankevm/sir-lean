@@ -1,5 +1,5 @@
 import BytecodeLayer.Reasoning.DriveGen
-import BytecodeLayer.Reasoning.Call
+import BytecodeLayer.Semantics.System
 import BytecodeLayer.Semantics.Dispatch
 import BytecodeLayer.Reasoning.Drive
 import BytecodeLayer.Observables
@@ -25,6 +25,7 @@ namespace BytecodeLayer.Proof
 open Evm Operation GasConstants
 open BytecodeLayer.UInt256
 open BytecodeLayer.Dispatch
+open BytecodeLayer.System
 
 /-! ## Derived world states -/
 

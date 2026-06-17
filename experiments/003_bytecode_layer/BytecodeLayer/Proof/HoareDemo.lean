@@ -26,6 +26,7 @@ open GasConstants
 open BytecodeLayer.UInt256
 open BytecodeLayer.Decode
 open BytecodeLayer.Dispatch
+open BytecodeLayer.System
 
 set_option maxRecDepth 4000
 

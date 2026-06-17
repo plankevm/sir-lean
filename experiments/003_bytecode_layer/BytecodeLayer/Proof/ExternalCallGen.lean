@@ -56,6 +56,7 @@ callerParams g`, recovering the original fixed-world `∃G₀ ∀g` theorem. -/
 
 namespace BytecodeLayer.Proof
 open Evm
+open BytecodeLayer.System
 
 /-! ## The per-entry caller-forwarding witness -/
 

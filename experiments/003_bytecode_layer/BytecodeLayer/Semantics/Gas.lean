@@ -1,4 +1,5 @@
 import Evm
+import BytecodeLayer.Semantics.UInt256
 
 /-!
 # Per-step gas accounting (`Gas`)
@@ -27,6 +28,7 @@ namespace BytecodeLayer.Gas
 open Evm
 open Evm.Operation
 open GasConstants
+open BytecodeLayer.UInt256
 
 /-! ## Gas-charging foundations -/
 
@@ -611,5 +613,61 @@ theorem stepFrame_next_lt {fr : Frame} {exec' : ExecutionState}
         | needsCall p pc => simp only at h; exact absurd h (by simp)
         | needsCreate p pc => simp only at h; exact absurd h (by simp)
       | error e => rw [hdisp] at h; exact absurd h (by simp)
+
+/-! ## CALL/CREATE own-cost lower bounds
+
+The non-forwarded part of a CALL/CREATE — `callExtraCost` (≥ `Gwarmaccess` = 100,
+or ≥ `Gcallvalue` = 9000 with value) and `createCost`/`create2Cost` (≥ `Gcreate` =
+32000 ≥ 2) — strictly dominates the small measure slack used in the descent
+arithmetic. `charge_drop_ge` records that `charge cost` drops gas by at least
+`cost`. These feed the `System` descent inversions. -/
+
+/-- The non-value, non-new-account part of `callExtraCost` is at least `100`
+(`accessCost ≥ Gwarmaccess = 100`). -/
+theorem callExtraCost_ge_100 (t r : AccountAddress) (val : UInt256)
+    (accounts : AccountMap) (substate : Substate) :
+    100 ≤ callExtraCost t r val accounts substate := by
+  unfold callExtraCost
+  have := accessCost_pos t substate
+  have h2 : 100 ≤ accessCost t substate := by
+    unfold accessCost Gwarmaccess Gcoldaccountaccess; split <;> omega
+  omega
+
+/-- For value-carrying calls (`val ≠ 0`), `callExtraCost ≥ Gcallvalue = 9000`
+(the `transferCost` is `Gcallvalue`). -/
+theorem callExtraCost_ge_9000_of_val (t r : AccountAddress) (val : UInt256)
+    (accounts : AccountMap) (substate : Substate) (hval : val ≠ 0) :
+    9000 ≤ callExtraCost t r val accounts substate := by
+  unfold callExtraCost transferCost
+  have hbeq : (val == (0 : UInt256)) = false := by
+    rw [Bool.eq_false_iff]; intro h
+    exact hval ((UInt256.beq_iff_eq _ _).mp h)
+  have hne : (val != (0 : UInt256)) = true := by
+    simp only [bne, hbeq, Bool.not_false]
+  simp only [hne, if_true]
+  unfold Gcallvalue
+  omega
+
+/-- `charge cost` drops gas by at least `cost`. -/
+theorem charge_drop_ge {cost : ℕ} {exec exec' : ExecutionState}
+    (h : charge cost exec = .ok exec') :
+    exec'.gasAvailable.toNat + cost ≤ exec.gasAvailable.toNat := by
+  unfold charge at h
+  split at h
+  · exact absurd h (by simp)
+  · rename_i hge
+    have hge' : cost ≤ exec.gasAvailable.toNat := Nat.not_lt.mp hge
+    injection h with h; subst h
+    have hlt : cost < 2 ^ 64 := Nat.lt_of_le_of_lt hge' exec.gasAvailable.toNat_lt
+    dsimp only
+    rw [toNat_sub_ofNat _ _ hge' hlt]; omega
+
+/-- `createCost ≥ Gcreate = 32000 ≥ 2`. -/
+theorem createCost_ge_2 (initSize : UInt256) : 2 ≤ createCost initSize := by
+  unfold createCost Gcreate; omega
+
+/-- `create2Cost ≥ Gcreate = 32000 ≥ 2`. -/
+theorem create2Cost_ge_2 (initSize : UInt256) : 2 ≤ create2Cost initSize := by
+  unfold create2Cost Gcreate; omega
 
 end BytecodeLayer.Gas
