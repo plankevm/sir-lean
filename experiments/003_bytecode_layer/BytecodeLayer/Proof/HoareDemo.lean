@@ -1,5 +1,6 @@
 import BytecodeLayer.Reasoning.Hoare
-import BytecodeLayer.Proof.DecodeGas
+import BytecodeLayer.Semantics.UInt256
+import BytecodeLayer.Semantics.Decode
 import BytecodeLayer.Programs
 
 /-!
@@ -22,6 +23,9 @@ The two conclusions:
 namespace BytecodeLayer.Proof
 open Evm
 open GasConstants
+open BytecodeLayer.UInt256
+open BytecodeLayer.Decode
+open BytecodeLayer.Dispatch
 
 set_option maxRecDepth 4000
 

@@ -1,9 +1,8 @@
 import BytecodeLayer.Reasoning.Begin
-import BytecodeLayer.Reasoning.Step
+import BytecodeLayer.Semantics.Dispatch
 import BytecodeLayer.Reasoning.Behaves
 import BytecodeLayer.Observables
 import BytecodeLayer.Programs
-import BytecodeLayer.Proof.DecodeGas
 import BytecodeLayer.Proof.Sequence
 
 /-!

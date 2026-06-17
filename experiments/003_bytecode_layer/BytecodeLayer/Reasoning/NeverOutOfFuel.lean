@@ -1,5 +1,5 @@
 import Evm
-import BytecodeLayer.Reasoning.StepGas
+import BytecodeLayer.Semantics.Gas
 import BytecodeLayer.Reasoning.Fuel
 
 /-!
@@ -39,6 +39,7 @@ it strictly decreases on every `drive` recursion, and starts below `seedFuel`.
 namespace BytecodeLayer
 open Evm
 open GasConstants
+open BytecodeLayer.Gas
 
 /-! ## Gas accessors -/
 

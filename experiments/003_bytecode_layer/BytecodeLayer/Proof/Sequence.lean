@@ -1,9 +1,9 @@
 import BytecodeLayer.Reasoning.Drive
 import BytecodeLayer.Reasoning.Begin
-import BytecodeLayer.Reasoning.Step
+import BytecodeLayer.Semantics.Dispatch
 import BytecodeLayer.Observables
 import BytecodeLayer.Programs
-import BytecodeLayer.Proof.DecodeGas
+import BytecodeLayer.Semantics.UInt256
 
 /-!
 # Proof — sequence decode lemmas and the gas-threading composition lemma (Sequence)
@@ -19,6 +19,7 @@ pieces that instance — and the external-call proof — reuse.
 namespace BytecodeLayer.Proof
 open Evm
 open GasConstants
+open BytecodeLayer.UInt256
 
 /-! ## Decode lemmas -/
 

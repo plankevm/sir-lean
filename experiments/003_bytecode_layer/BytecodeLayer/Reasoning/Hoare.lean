@@ -1,7 +1,7 @@
-import BytecodeLayer.Reasoning.Step
+import BytecodeLayer.Semantics.Dispatch
 import BytecodeLayer.Reasoning.Drive
 import BytecodeLayer.Reasoning.Begin
-import BytecodeLayer.Reasoning.Maps
+import BytecodeLayer.Semantics.Maps
 import BytecodeLayer.Observables
 
 /-!
@@ -33,6 +33,8 @@ storage only.
 namespace BytecodeLayer
 open Evm
 open GasConstants
+open BytecodeLayer.Maps
+open BytecodeLayer.Dispatch
 
 /-! ## The single-step primitive
 

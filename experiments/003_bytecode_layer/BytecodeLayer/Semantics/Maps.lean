@@ -15,7 +15,7 @@ needs to state *what storage it leaves untouched*.
 These are pure data-structure facts; they mention no EVM execution concept.
 -/
 
-namespace BytecodeLayer
+namespace BytecodeLayer.Maps
 open Evm
 
 /-! ## `TransCmp` for the key comparators -/
@@ -107,4 +107,4 @@ theorem accounts_find?_insert_of_ne (m : AccountMap) {a' a : AccountAddress} (ac
     (h : a' ≠ a) : (m.insert a acc).find? a' = m.find? a' := by
   rw [Batteries.RBMap.find?_insert_of_ne m (addr_compare_ne_eq_of_ne h)]
 
-end BytecodeLayer
+end BytecodeLayer.Maps

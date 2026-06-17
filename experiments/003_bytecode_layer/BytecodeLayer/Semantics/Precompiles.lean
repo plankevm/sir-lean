@@ -1,20 +1,21 @@
-import BytecodeLayer.Proof.DecodeGas
+import BytecodeLayer.Semantics.UInt256
 
 /-!
-# Proof — precompile gas bounds (`PrecompileGas`)
+# Precompile gas bounds (`Precompiles`)
 
 Every precompile returns its gas component as either `0` (insufficient gas) or
 `gas - .ofNat requiredGas` taken in the `gas.toNat ≥ requiredGas` branch (so the
 subtraction does not wrap). Either way it is `≤ gas.toNat`.
 
-This cluster was extracted from `Proof/DescentDrops.lean`; the capstone
-`beginCall_inr_gas` feeds `descentDrops_conj5a` there (which imports this file).
+The capstone `beginCall_inr_gas` feeds `descentDrops_conj5a` in `DescentDrops`
+(which imports this file).
 -/
 
-namespace BytecodeLayer.Proof
+namespace BytecodeLayer.Precompiles
 open Evm
 open Evm.Operation
 open GasConstants
+open BytecodeLayer.UInt256
 
 /-! ## Precompile gas — a precompile consumes `≤` the forwarded gas -/
 
@@ -131,4 +132,4 @@ theorem beginCall_inr_gas {p : CallParams} {result : CallResult}
     case _ => exact pointEvaluation_gas_le _ _ _ _
     case _ => simp
 
-end BytecodeLayer.Proof
+end BytecodeLayer.Precompiles

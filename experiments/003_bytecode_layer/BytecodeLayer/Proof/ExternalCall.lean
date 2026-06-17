@@ -1,10 +1,10 @@
 import BytecodeLayer.Reasoning.DriveGen
 import BytecodeLayer.Reasoning.Call
-import BytecodeLayer.Reasoning.Step
+import BytecodeLayer.Semantics.Dispatch
 import BytecodeLayer.Reasoning.Drive
 import BytecodeLayer.Observables
 import BytecodeLayer.Programs
-import BytecodeLayer.Proof.DecodeGas
+import BytecodeLayer.Semantics.UInt256
 import BytecodeLayer.Proof.Sequence
 
 /-!
@@ -23,6 +23,8 @@ on the real child `CallParams` (`codeSource = toExecute …`), never an oracle.
 
 namespace BytecodeLayer.Proof
 open Evm Operation GasConstants
+open BytecodeLayer.UInt256
+open BytecodeLayer.Dispatch
 
 /-! ## Derived world states -/
 

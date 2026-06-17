@@ -1,8 +1,8 @@
 import BytecodeLayer.Reasoning.NeverOutOfFuel
-import BytecodeLayer.Reasoning.StepGas
-import BytecodeLayer.Proof.DecodeGas
-import BytecodeLayer.Proof.Fuel.PrecompileGas
-import BytecodeLayer.Proof.Fuel.DispatchSignalShape
+import BytecodeLayer.Semantics.Gas
+import BytecodeLayer.Semantics.UInt256
+import BytecodeLayer.Semantics.Precompiles
+import BytecodeLayer.Semantics.Dispatch
 
 /-!
 # Proof — the descent/fallback gas arithmetic (`DescentDrops`)
@@ -32,6 +32,10 @@ namespace BytecodeLayer.Proof
 open Evm
 open Evm.Operation
 open GasConstants
+open BytecodeLayer.Precompiles
+open BytecodeLayer.UInt256
+open BytecodeLayer.Gas
+open BytecodeLayer.Dispatch
 
 /-! ## `extraCost` lower bounds (the call's own non-forwarded cost) -/
 

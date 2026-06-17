@@ -1,7 +1,6 @@
 import BytecodeLayer.Programs
 import BytecodeLayer.Observables
 import BytecodeLayer.Reasoning.Behaves
-import BytecodeLayer.Proof.DecodeGas
 import BytecodeLayer.Proof.Sequence
 import BytecodeLayer.Proof.ExternalCall
 import BytecodeLayer.Proof.ExternalCallGen

@@ -1,6 +1,7 @@
 import BytecodeLayer.Reasoning.Hoare
 import BytecodeLayer.Proof.Straightline
-import BytecodeLayer.Proof.DecodeGas
+import BytecodeLayer.Semantics.UInt256
+import BytecodeLayer.Semantics.Decode
 import BytecodeLayer.Proof.Sequence
 
 /-!
@@ -27,6 +28,9 @@ lemmas) land here, off the composed `Runs`. The fuel obligation is the numeric
 namespace BytecodeLayer.Proof
 open Evm
 open GasConstants
+open BytecodeLayer.UInt256
+open BytecodeLayer.Decode
+open BytecodeLayer.Dispatch
 
 set_option maxRecDepth 4000
 
