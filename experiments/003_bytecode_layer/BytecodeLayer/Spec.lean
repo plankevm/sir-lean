@@ -1,11 +1,11 @@
 import BytecodeLayer.Programs
 import BytecodeLayer.Observables
-import BytecodeLayer.Reasoning.Behaves
-import BytecodeLayer.Proof.Sequence
-import BytecodeLayer.Proof.ExternalCall
-import BytecodeLayer.Proof.ExternalCallGen
-import BytecodeLayer.Proof.Straightline
-import BytecodeLayer.Proof.ProgramExamples
+import BytecodeLayer.Hoare.Behaves
+import BytecodeLayer.Hoare.Sequence
+import BytecodeLayer.ExternalCall
+import BytecodeLayer.ExternalCallGen
+import BytecodeLayer.Hoare.Straightline
+import BytecodeLayer.Examples.ProgramExamples
 
 /-!
 # Spec — the audit surface of experiment 003
@@ -17,11 +17,12 @@ pc, stack, gas counter, or fuel appears in any statement.
 
 Scope note: these are results about **specific handwritten programs**, not yet
 general statements over all programs. The reusable, program-agnostic content is
-the engine in `Reasoning/`; these theorems are worked examples that exercise it.
+the engine in `Semantics/`; these theorems are worked examples that exercise it.
 
-The proofs live in `Proof/`, out of sight: each theorem delegates to a lemma of
-the same name in `BytecodeLayer.Proof`. Every theorem's `#print axioms` is
-`[propext, Classical.choice, Quot.sound]`.
+The proofs live in `Examples/`, `ExternalCall(Gen).lean`, and the `Hoare/` layer,
+out of sight: each theorem delegates to a lemma of the same name in
+`BytecodeLayer.Examples` / `BytecodeLayer.ExternalCall`. Every theorem's
+`#print axioms` is `[propext, Classical.choice, Quot.sound]`.
 
 Two groups:
 * **Call-free programs** (`stopProgram` … `seqProgram`): the success/output and
@@ -35,6 +36,7 @@ Two groups:
 
 namespace BytecodeLayer
 open Evm
+open BytecodeLayer.Hoare
 
 /-! ## M1 — the call-free spine -/
 
@@ -43,7 +45,7 @@ empty output, for *any* call parameters whose code is `stopProgram` — no gas f
 required (STOP charges nothing). Stated purely in observables. -/
 theorem messageCall_stop_observe (p : CallParams) (hc : p.codeSource = .Code stopProgram) :
     (messageCall p).map CallResult.observe = .ok Observables.ok :=
-  Proof.messageCall_stop_observe' p hc
+  Examples.messageCall_stop_observe' p hc
 
 /-- A message call into `PUSH1 0x05 ; STOP` (`pushStopProgram`) succeeds with empty
 output for every `p` with `3 ≤ p.gas` — the program's exact gas cost, stated as a
@@ -51,7 +53,7 @@ plain hypothesis rather than an `∃G₀`. -/
 theorem messageCall_pushStop_observe (p : CallParams)
     (hc : p.codeSource = .Code pushStopProgram) (hg : 3 ≤ p.gas.toNat) :
     (messageCall p).map CallResult.observe = .ok Observables.ok :=
-  Proof.messageCall_pushStop_observe' p hc hg
+  Examples.messageCall_pushStop_observe' p hc hg
 
 /-- **First persistent effect.** A message call into `PUSH1 5 ; PUSH1 7 ; SSTORE ;
 STOP` (`sstoreProgram`) in `addrA` succeeds and leaves `addrA`'s storage cell `7`
@@ -61,7 +63,7 @@ theorem messageCall_sstore_storageAt (g : UInt64) (hg : 22106 ≤ g.toNat) :
     (messageCall (paramsSStore g)).map
       (fun r => (CallResult.observe r, CallResult.storageAt r addrA 7))
     = .ok (Observables.ok, 5) :=
-  Proof.messageCall_sstore_storageAt' g hg
+  Examples.messageCall_sstore_storageAt' g hg
 
 /-- **A sequence of charging instructions.** A message call into
 `PUSH;PUSH;SSTORE;PUSH;PUSH;SSTORE;STOP` (`seqProgram`) in `addrA` leaves cell `7`
@@ -72,7 +74,7 @@ theorem messageCall_seq_storageAt (g : UInt64) (hg : 44212 ≤ g.toNat) :
       (fun r => (CallResult.observe r,
                  CallResult.storageAt r addrA 7, CallResult.storageAt r addrA 9))
     = .ok (Observables.ok, 5, 11) :=
-  Proof.messageCall_seq_storageAt' g hg
+  Examples.messageCall_seq_storageAt' g hg
 
 /-! ## External call
 
@@ -103,7 +105,7 @@ produces the `∃G₀` `Behaves`, which is specialized back to the fixed
 theorem messageCall_call_storageAt :
     ∃ G₀ : ℕ, ∀ g : UInt64, G₀ ≤ g.toNat →
       (messageCall (callerParams g)).map (fun r => CallResult.storageAt r addrCallee 7) = .ok 5 :=
-  Proof.messageCall_call_storageAt_via_behaves_call
+  ExternalCall.messageCall_call_storageAt_via_behaves_call
 
 /-- **The executable counterexample that forces the `∃G₀`.** At the modest gas
 `g = 24000`, the *same* observable is `0`: the 63/64 cap starves the callee
@@ -113,15 +115,15 @@ and `STOP`s, no top-level `OutOfGas`). Read against `messageCall_call_storageAt`
 this shows no gas-floor-free statement ("completes ⇒ cell is 5") can hold. -/
 theorem call_counterexample :
     (messageCall (callerParams 24000)).map (fun r => CallResult.storageAt r addrCallee 7) = .ok 0 :=
-  Proof.call_counterexample
+  ExternalCall.call_counterexample
 
 /-! **Reflexivity is intrinsic here, not a separate axiom.** `messageCall_call_storageAt`
 already runs the child through the genuine `beginCall`/`drive` (no oracle
 hypothesis), so its truth *is* the statement that the sub-call is a real message
 call. The standalone witness that the exact CALL-produced child params, run on
-their own, commit `5` is `Proof.messageCall_child_reflexive` — it is kept in the
+their own, commit `5` is `ExternalCall.messageCall_child_reflexive` — it is kept in the
 proof layer because its statement necessarily names the internal caller frame
-(`Proof.callerCalled`), which has no place on the frame-free audit surface. -/
+(`ExternalCall.callerCalled`), which has no place on the frame-free audit surface. -/
 
 /-! ## Rung 2 — the general external-call theorem (general, over both programs)
 
@@ -156,9 +158,9 @@ theorem behaves_call
     (a : AccountAddress) (k v : UInt256) (G₀ : ℕ)
     (hcallee : Behaves calleePre calleeCode (fun o => Outcome.completedWith o a k v))
     (W : ∀ p : World, p.codeSource = .Code callerCode → callerPre p → G₀ ≤ p.gas.toNat →
-        Proof.CallerForwards calleeCode calleePre a k v p) :
+        ExternalCall.CallerForwards calleeCode calleePre a k v p) :
     Behaves (fun p => callerPre p ∧ G₀ ≤ p.gas.toNat) callerCode
       (fun o => Outcome.completedWith o a k v) :=
-  Proof.behaves_call callerCode calleeCode callerPre calleePre a k v G₀ hcallee W
+  ExternalCall.behaves_call callerCode calleeCode callerPre calleePre a k v G₀ hcallee W
 
 end BytecodeLayer

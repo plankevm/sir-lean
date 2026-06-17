@@ -6,7 +6,7 @@ import BytecodeLayer.Programs
 import BytecodeLayer.Semantics.UInt256
 
 /-!
-# Proof — sequence decode lemmas and the gas-threading composition lemma (Sequence)
+# Sequence decode lemmas and the gas-threading composition lemma (Sequence)
 
 Shared machinery for the multi-write straight-line program: its per-pc `decode`
 lemmas and the `subCharges` / `toNat_subCharges` gas-threading composition lemma
@@ -16,7 +16,7 @@ straight-line rung (`Proof/StraightlineInstances.lean`); this file holds only th
 pieces that instance — and the external-call proof — reuse.
 -/
 
-namespace BytecodeLayer.Proof
+namespace BytecodeLayer.Hoare
 open Evm
 open GasConstants
 open BytecodeLayer.UInt256
@@ -85,4 +85,4 @@ theorem toNat_subCharges (g : UInt64) (cs : List ℕ)
     have : (c :: cs).sum = c + cs.sum := by simp [List.sum_cons]
     omega
 
-end BytecodeLayer.Proof
+end BytecodeLayer.Hoare

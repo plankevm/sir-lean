@@ -1,19 +1,19 @@
 import BytecodeLayer.Semantics.System
 import BytecodeLayer.Semantics.Dispatch
-import BytecodeLayer.Reasoning.Behaves
+import BytecodeLayer.Hoare.Behaves
 import BytecodeLayer.Observables
 import BytecodeLayer.Programs
-import BytecodeLayer.Proof.Sequence
+import BytecodeLayer.Hoare.Sequence
 
 /-!
-# Proof — an Outcome-from-success bridge lemma
+# An Outcome-from-success bridge lemma
 
 `ofCall_completed_of_success` turns "`messageCall p` is `.ok r` with `r`
 successful" into the named `Outcome.completed` predicate, so a straight-line proof
 that lands a concrete `.ok r` can be read off on the audit surface.
 -/
 
-namespace BytecodeLayer.Proof
+namespace BytecodeLayer.Hoare
 open Evm
 open GasConstants
 
@@ -29,4 +29,4 @@ theorem ofCall_completed_of_success {p : CallParams} {r : CallResult}
     Outcome.ofCall (messageCall p) = .completed r.output (CallResult.storageAt r) := by
   rw [hmc, Outcome.ofCall, Outcome.ofResult, if_pos hsucc]
 
-end BytecodeLayer.Proof
+end BytecodeLayer.Hoare

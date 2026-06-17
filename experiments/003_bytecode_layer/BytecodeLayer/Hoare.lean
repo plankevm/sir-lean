@@ -30,7 +30,7 @@ turns a `Runs … halt` into a high-level `Outcome` — observables and queryabl
 storage only.
 -/
 
-namespace BytecodeLayer
+namespace BytecodeLayer.Hoare
 open Evm
 open GasConstants
 open BytecodeLayer.Maps
@@ -258,4 +258,4 @@ theorem sstoreFrame_storage_frame (fr : Frame) (key newValue : UInt256) (rest : 
       exact storage_findD_insert_of_ne _ _ _ hk
     · rw [accounts_find?_insert_of_ne _ _ ha]
 
-end BytecodeLayer
+end BytecodeLayer.Hoare

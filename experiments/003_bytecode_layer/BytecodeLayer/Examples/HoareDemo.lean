@@ -1,6 +1,6 @@
-import BytecodeLayer.Reasoning.Hoare
+import BytecodeLayer.Hoare
 import BytecodeLayer.Semantics.UInt256
-import BytecodeLayer.Semantics.Decode
+import BytecodeLayer.Examples.ProgramDecode
 import BytecodeLayer.Programs
 
 /-!
@@ -20,13 +20,13 @@ The two conclusions:
 * **frame** — the same run leaves cell `(addrA, 8)` untouched (still `0`).
 -/
 
-namespace BytecodeLayer.Proof
+namespace BytecodeLayer.Examples
 open Evm
 open GasConstants
 open BytecodeLayer.UInt256
-open BytecodeLayer.Decode
 open BytecodeLayer.Dispatch
 open BytecodeLayer.System
+open BytecodeLayer.Hoare
 
 set_option maxRecDepth 4000
 
@@ -167,4 +167,4 @@ theorem hoare_demo (g : UInt64) (hg : 22106 ≤ g.toNat) :
   cases hc
   exact demo_frame g
 
-end BytecodeLayer.Proof
+end BytecodeLayer.Examples

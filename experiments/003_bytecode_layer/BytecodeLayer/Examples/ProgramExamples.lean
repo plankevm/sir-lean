@@ -1,11 +1,11 @@
-import BytecodeLayer.Reasoning.Hoare
-import BytecodeLayer.Proof.Straightline
+import BytecodeLayer.Hoare
+import BytecodeLayer.Hoare.Straightline
 import BytecodeLayer.Semantics.UInt256
-import BytecodeLayer.Semantics.Decode
-import BytecodeLayer.Proof.Sequence
+import BytecodeLayer.Examples.ProgramDecode
+import BytecodeLayer.Hoare.Sequence
 
 /-!
-# Proof — worked example programs as compositions of opcode rules
+# Worked example programs as compositions of opcode rules
 
 These are end-to-end `messageCall` observations for concrete straight-line
 programs (`stopProgram`, `pushStopProgram`, `sstoreProgram`, and an SSTORE
@@ -25,13 +25,13 @@ lemmas) land here, off the composed `Runs`. The fuel obligation is the numeric
 `drive`/fuel plumbing is gone — it is discharged once in `messageCall_runs`.
 -/
 
-namespace BytecodeLayer.Proof
+namespace BytecodeLayer.Examples
 open Evm
 open GasConstants
 open BytecodeLayer.UInt256
-open BytecodeLayer.Decode
 open BytecodeLayer.Dispatch
 open BytecodeLayer.System
+open BytecodeLayer.Hoare
 
 set_option maxRecDepth 4000
 
@@ -274,4 +274,4 @@ theorem messageCall_seq_storageAt' (g : UInt64) (hg : 44212 ≤ g.toNat) :
       ((sq6 g).exec.accounts.find? addrA |>.option 0 (·.lookupStorage 9))) = _
   rw [hcell9, hframe7, hcell7']; rfl
 
-end BytecodeLayer.Proof
+end BytecodeLayer.Examples

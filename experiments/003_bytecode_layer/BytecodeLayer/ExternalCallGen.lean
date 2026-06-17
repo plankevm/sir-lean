@@ -1,12 +1,12 @@
-import BytecodeLayer.Reasoning.Behaves
+import BytecodeLayer.Hoare.Behaves
 import BytecodeLayer.Semantics.Interpreter.Drive
 import BytecodeLayer.Observables
 import BytecodeLayer.Programs
-import BytecodeLayer.Proof.ExternalCall
-import BytecodeLayer.Proof.Straightline
+import BytecodeLayer.ExternalCall
+import BytecodeLayer.Hoare.Straightline
 
 /-!
-# Proof — the general external-call rung (rung 2): `behaves_call`
+# The general external-call rung (rung 2): `behaves_call`
 
 The concrete `messageCall_call_storageAt` is about *one* caller (`callerProg`)
 calling *one* callee (`calleeProg`) in *one* world. Rung 2 makes the external
@@ -54,9 +54,10 @@ unchanged — callee as its own `Behaves`, named `Outcome`, the `∃G₀` 63/64 
 gas first-class. The concrete instance supplies `callerPre p := ∃ g, p =
 callerParams g`, recovering the original fixed-world `∃G₀ ∀g` theorem. -/
 
-namespace BytecodeLayer.Proof
+namespace BytecodeLayer.ExternalCall
 open Evm
 open BytecodeLayer.System
+open BytecodeLayer.Hoare
 
 /-! ## The per-entry caller-forwarding witness -/
 
@@ -239,4 +240,4 @@ theorem messageCall_call_storageAt_via_behaves_call :
       rw [show CallResult.storageAt r addrCallee 7 = σ addrCallee 7 from by rw [hσeq], hσ]
     · nomatch hco
 
-end BytecodeLayer.Proof
+end BytecodeLayer.ExternalCall

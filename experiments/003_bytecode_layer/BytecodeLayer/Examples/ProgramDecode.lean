@@ -2,15 +2,14 @@ import Evm
 import BytecodeLayer.Programs
 
 /-!
-# Program `decode` lemmas (`Decode`)
+# Program `decode` lemmas (`ProgramDecode`)
 
 The per-pc `decode` facts for the example programs (`stopProgram`,
 `pushStopProgram`, `sstoreProgram`). Reused by the straight-line program proofs
-(`ProgramExamples`, built on `Straightline`) and by the descent / external-call
-proofs (`DescentDrops`, `ExternalCall`).
+(`ProgramExamples`, built on `Straightline`) and by the Hoare demo (`HoareDemo`).
 -/
 
-namespace BytecodeLayer.Decode
+namespace BytecodeLayer.Examples
 open Evm
 
 /-! ## STOP -/
@@ -43,4 +42,4 @@ theorem decode_sstore_5 :
       ((((0 : UInt32) + UInt8.toUInt32 2) + UInt8.toUInt32 2) + UInt8.toUInt32 1)
       = some (.System .STOP, .none) := by rfl
 
-end BytecodeLayer.Decode
+end BytecodeLayer.Examples

@@ -27,7 +27,7 @@ the conclusion ranges over `Outcome`, a `post` may legitimately *require* `compl
 (no top-level exception).
 -/
 
-namespace BytecodeLayer
+namespace BytecodeLayer.Hoare
 open Evm
 
 /-- The world a `messageCall` runs against: its entry parameters (account map and
@@ -45,4 +45,4 @@ so gas stays first-class and program-agnostic; `post` ranges over the named
 def Behaves (pre : World → Prop) (code : ByteArray) (post : Outcome → Prop) : Prop :=
   ∀ p : World, p.codeSource = .Code code → pre p → post (Outcome.ofCall (messageCall p))
 
-end BytecodeLayer
+end BytecodeLayer.Hoare

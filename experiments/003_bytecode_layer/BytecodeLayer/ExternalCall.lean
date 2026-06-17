@@ -4,10 +4,10 @@ import BytecodeLayer.Semantics.Dispatch
 import BytecodeLayer.Observables
 import BytecodeLayer.Programs
 import BytecodeLayer.Semantics.UInt256
-import BytecodeLayer.Proof.Sequence
+import BytecodeLayer.Hoare.Sequence
 
 /-!
-# Proof — the external-call rung
+# The external-call rung
 
 Proof internals for M2. The exported statements (`messageCall_call_storageAt`,
 `call_counterexample`, `messageCall_child_reflexive`) live in `Spec.lean`. The
@@ -20,12 +20,13 @@ The child call is modeled **reflexively**: the genuine leanevm `beginCall`/`driv
 on the real child `CallParams` (`codeSource = toExecute …`), never an oracle.
 -/
 
-namespace BytecodeLayer.Proof
+namespace BytecodeLayer.ExternalCall
 open Evm Operation GasConstants
 open BytecodeLayer.UInt256
 open BytecodeLayer.Dispatch
 open BytecodeLayer.System
 open BytecodeLayer.Interpreter
+open BytecodeLayer.Hoare
 
 /-! ## Derived world states -/
 
@@ -585,4 +586,4 @@ theorem messageCall_child_reflexive (g : UInt64) (hg : 30000 ≤ g.toNat) :
   show Except.ok ((childResult g).success, CallResult.storageAt (childResult g) addrCallee 7) = Except.ok (true, 5)
   rw [childResult_success, CallResult.storageAt, childResult_accounts, childStored_storage]
 
-end BytecodeLayer.Proof
+end BytecodeLayer.ExternalCall

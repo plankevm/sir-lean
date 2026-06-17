@@ -2,10 +2,13 @@
 -- Proof-first / always-green: this root imports only modules whose theorems are
 -- fully proved (zero sorry). Abstractions are added only when a proof forces them.
 --
--- Layout (core vs examples vs proofs are physically separated):
+-- Layout (a topic tree mirroring leanevm's Evm/Semantics/):
 --   Spec.lean         — THE AUDIT SURFACE: every exported theorem (read this).
 --   Programs.lean     — the example bytecode contracts and message-call params.
 --   Observables.lean  — the observable projections results are stated through.
---   Reasoning/        — the reusable bricks: stepping + the reflexive CALL + drive.
---   Proof/            — the proof internals (scaffolding, decode lemmas, reductions).
+--   Semantics/        — the reusable semantic facts (gas/system/dispatch/...) and
+--                       the fuel-specific Interpreter/ measure argument.
+--   Hoare/            — our compositional Hoare-style layer (Runs + opcode rules).
+--   ExternalCall(Gen).lean — the external-call rung (concrete + general).
+--   Examples/         — worked example programs / demos.
 import BytecodeLayer.Spec
