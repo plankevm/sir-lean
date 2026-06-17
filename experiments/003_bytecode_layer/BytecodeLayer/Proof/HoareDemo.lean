@@ -1,5 +1,5 @@
 import BytecodeLayer.Reasoning.Hoare
-import BytecodeLayer.Proof.CallFree
+import BytecodeLayer.Proof.DecodeGas
 import BytecodeLayer.Programs
 
 /-!

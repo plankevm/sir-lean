@@ -3,7 +3,7 @@ import BytecodeLayer.Reasoning.Begin
 import BytecodeLayer.Reasoning.Step
 import BytecodeLayer.Observables
 import BytecodeLayer.Programs
-import BytecodeLayer.Proof.CallFree
+import BytecodeLayer.Proof.DecodeGas
 
 /-!
 # Proof — sequence decode lemmas and the gas-threading composition lemma (Sequence)

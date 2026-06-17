@@ -1,12 +1,12 @@
 import BytecodeLayer.Programs
 import BytecodeLayer.Observables
 import BytecodeLayer.Reasoning.Behaves
-import BytecodeLayer.Proof.CallFree
+import BytecodeLayer.Proof.DecodeGas
 import BytecodeLayer.Proof.Sequence
 import BytecodeLayer.Proof.ExternalCall
 import BytecodeLayer.Proof.ExternalCallGen
 import BytecodeLayer.Proof.Straightline
-import BytecodeLayer.Proof.CallFreePrograms
+import BytecodeLayer.Proof.ProgramExamples
 
 /-!
 # Spec — the audit surface of experiment 003

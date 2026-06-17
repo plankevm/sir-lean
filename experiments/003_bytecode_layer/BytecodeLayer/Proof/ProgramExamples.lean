@@ -1,12 +1,17 @@
 import BytecodeLayer.Reasoning.Hoare
 import BytecodeLayer.Proof.Straightline
-import BytecodeLayer.Proof.CallFree
+import BytecodeLayer.Proof.DecodeGas
 import BytecodeLayer.Proof.Sequence
 
 /-!
-# Proof — the call-free programs as compositions of opcode rules
+# Proof — worked example programs as compositions of opcode rules
 
-Each call-free program is proven by **composing the Hoare-core opcode rules**
+These are end-to-end `messageCall` observations for concrete straight-line
+programs (`stopProgram`, `pushStopProgram`, `sstoreProgram`, and an SSTORE
+sequence) — the live worked examples behind the `Spec.lean` capstones. They are
+demonstrations of the reasoning layer, not part of the never-out-of-fuel work.
+
+Each program is proven by **composing the Hoare-core opcode rules**
 (`runs_push1`, `runs_sstore`) with the sequencing rule `Runs.trans`, then crossing
 the `messageCall` boundary with `messageCall_runs`. No execution trace is named:
 the intermediate frames live inside the `Runs` derivation, and the stored values

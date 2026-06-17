@@ -5,13 +5,16 @@ import BytecodeLayer.Observables
 import BytecodeLayer.Programs
 
 /-!
-# Proof — call-free decode lemmas and the gas-threading bridge (CallFree)
+# Proof — program `decode` lemmas and the gas-threading bridge (`DecodeGas`)
 
-Shared proof machinery for the call-free programs: the per-pc `decode` lemmas and
-the `toNat_sub_ofNat` gas-threading bridge. The call-free capstones themselves are
-now **instances of the general straight-line rung** (`Proof/StraightlineInstances.lean`,
-built on `Reasoning/Straightline.lean`); this file holds only the pieces those
-instances — and the external-call proof — reuse. Not part of the audit surface.
+Shared low-level proof machinery: the per-pc `decode` facts for the example
+programs (`stopProgram`, `pushStopProgram`, `sstoreProgram`) and the
+`toNat_sub_ofNat` UInt64 gas-threading bridge. The bridge is reused by the
+straight-line program proofs (`Proof/ProgramExamples.lean`, built on
+`Reasoning/Straightline.lean`) *and* by the descent / external-call proofs
+(`Proof/DescentDrops.lean`, `Proof/ExternalCall.lean`) — it is not call-specific.
+Despite the historical `CallFree` name, nothing here concerns the (now deleted)
+call-free out-of-fuel rung.
 -/
 
 namespace BytecodeLayer.Proof

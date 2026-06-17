@@ -3,7 +3,7 @@ import BytecodeLayer.Reasoning.Step
 import BytecodeLayer.Reasoning.Behaves
 import BytecodeLayer.Observables
 import BytecodeLayer.Programs
-import BytecodeLayer.Proof.CallFree
+import BytecodeLayer.Proof.DecodeGas
 import BytecodeLayer.Proof.Sequence
 
 /-!
