@@ -17,10 +17,6 @@ it strictly decreases on every `drive` recursion, and starts below `seedFuel`.
 ## Status
 
 * **Fully proven, unconditional in the gas:**
-  - `messageCall_callFree_never_outOfFuel` — the target for every program whose
-    code carries no CALL/CREATE-family opcode (`NeverDescends`). Built on
-    `drive_callFree_aux` (measure induction over the empty pending stack) +
-    obligations 1 (`stepFrame_next_lt`) and 2 (`endFrame_gasRemaining_le`).
   - `mu_bound` — the **general** measure-induction skeleton over arbitrary
     pending stacks, discharging obligations 1, 2, 6 (`resumeAfterCall_gas_le`),
     7 (resume fault) inline.
@@ -613,29 +609,7 @@ theorem resumeAfterCreate_gas_le_savedGas {result : CreateResult} {pd : PendingC
     rw [UInt64.toNat_ofNat']
     exact Nat.mod_le _ _
 
-/-! ## Call-free corollary
-
-For programs whose code carries no CALL/CREATE-family opcode, a top-level run
-never descends (`stepFrame` is always `.next` from a non-`System` op, or
-`.halted`). With the pending stack permanently empty, the measure collapses to
-`2 * fr.exec.gasAvailable.toNat + 2`, which strictly decreases on every `.next`
-step (obligation 1) and on the single halting step (obligation 2). This rung is
-fully unconditional in the gas (no termination/budget hypothesis): out-of-gas is
-a halt. The CALL/CREATE descent arithmetic (obligations 3–6) is **not** needed
-here — it is the remaining work for the fully general theorem. -/
-
-/-- The decoded opcode at `fr`'s current pc, defaulting to `STOP`. -/
-def decodedOp (fr : Frame) : Operation :=
-  (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (Operation.STOP, .none)).1
-
-/-- A code is *call-free* when no reachable pc decodes to a CALL/CREATE-family
-`System` op. The halting `System` ops (STOP/RETURN/REVERT/SELFDESTRUCT/INVALID)
-are allowed; only the descending ones are excluded. We phrase it per-pc over the
-whole code, so it is preserved automatically as the pc advances. -/
-def CallFreeCode (code : ByteArray) : Prop :=
-  ∀ pc op arg, decode code pc = some (op, arg) →
-    ∀ s, op = .System s →
-      (s = .STOP ∨ s = .RETURN ∨ s = .REVERT ∨ s = .SELFDESTRUCT ∨ s = .INVALID)
+/-! ## Halt-op shape helper -/
 
 /-- `haltOp` never produces `.next`: its `.ok` outputs are all `.halted`. -/
 theorem haltOp_not_next {op : Operation.SystemOp} {exec exec' : ExecutionState}
@@ -684,99 +658,6 @@ theorem haltOp_not_next {op : Operation.SystemOp} {exec exec' : ExecutionState}
           split at he <;> simp at he
   · simp [throw, throwThe, MonadExceptOf.throw] at he
 
-/-- Under `CallFreeCode`, a `.next` step's decoded op is not a `System` op: a
-`System` op is either descending (excluded by `CallFreeCode`) or halting (would
-be `.halted`/`.error`, not `.next`). -/
-theorem callFree_next_nonSystem {fr : Frame} {exec' : ExecutionState}
-    (hcf : CallFreeCode fr.exec.executionEnv.code)
-    (hstep : stepFrame fr = .next exec') :
-    ∀ s, (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (Operation.STOP, .none)).1 ≠ .System s := by
-  intro s hs
-  -- Establish the decoded op is a halting System op (decoded or default STOP).
-  have hhalt : s = .STOP ∨ s = .RETURN ∨ s = .REVERT ∨ s = .SELFDESTRUCT ∨ s = .INVALID := by
-    cases hd : decode fr.exec.executionEnv.code fr.exec.pc with
-    | none =>
-      rw [hd] at hs; simp only [Option.getD] at hs
-      -- default op is `Operation.STOP = .System .STOP`; so s = .STOP
-      left
-      have : Operation.System Operation.SystemOp.STOP = Operation.System s := hs
-      injection this with h; exact h.symm
-    | some p =>
-      obtain ⟨op, ar⟩ := p
-      rw [hd] at hs; simp only [Option.getD] at hs
-      exact hcf fr.exec.pc op ar hd s hs
-  rw [stepFrame] at hstep
-  generalize hdp : (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (Operation.STOP, .none)) = dp at hstep
-  rw [hdp] at hs
-  obtain ⟨op, ar⟩ := dp
-  simp only at hs hstep; subst hs
-  by_cases hinv : Operation.System s = .INVALID
-  · rw [if_pos hinv] at hstep; exact absurd hstep (by simp)
-  · rw [if_neg hinv] at hstep
-    split at hstep
-    · exact absurd hstep (by simp)
-    · cases hdisp : dispatch (.System s) ar fr fr.exec with
-      | error e => rw [hdisp] at hstep; exact absurd hstep (by simp)
-      | ok sig =>
-        rw [hdisp] at hstep; subst hstep
-        rw [dispatch] at hdisp
-        rcases hhalt with rfl | rfl | rfl | rfl | rfl <;>
-          · rw [systemOp] at hdisp; refine haltOp_not_next ?_ hdisp; tauto
-
-/-! ## The call-free measure bound (empty stack)
-
-A run that never descends keeps the pending stack empty forever, so the measure
-collapses to `μ [] (.inl fr) = 2 * fr.exec.gasAvailable.toNat + 2`. The
-hypothesis `NeverDescends` says that from *every* frame the step is `.next`
-(from a non-`System` op — so gas strictly drops, obligation 1) or `.halted`
-(obligation 2) — never a `.needsCall`/`.needsCreate`. This is exactly the
-call-free condition, taken as an assumption here (its discharge for a concrete
-program — e.g. from a static no-CALL/CREATE-opcode check — is independent of the
-fuel argument). The CALL/CREATE descent/delivery arithmetic (obligations 3–7,
-for which `resumeAfterCall_gas_le`/`resumeAfterCreate_gas_le` are already in
-hand) is the remaining work for dropping this hypothesis. -/
-
-/-- Every step of every frame is non-descending and, when `.next`, comes from a
-non-`System` op (so it strictly decreases gas). -/
-def NeverDescends : Prop :=
-  ∀ fr : Frame,
-    (∀ exec', stepFrame fr = .next exec' →
-      ∀ s, (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (Operation.STOP, .none)).1 ≠ .System s)
-    ∧ (∀ p pd, stepFrame fr ≠ .needsCall p pd)
-    ∧ (∀ p pd, stepFrame fr ≠ .needsCreate p pd)
-
-/-- **Call-free `drive` bound.** Under `NeverDescends`, the driver started on a
-single frame with an empty pending stack never runs out of fuel, provided the
-fuel covers `2 * gas + 2`. By induction on fuel: a `.next` step drops gas (so
-`μ' < μ ≤ f`), a `.halted` step delivers through the empty stack to `.ok`. -/
-theorem drive_callFree_aux (hnd : NeverDescends) :
-    ∀ (f : ℕ) (fr : Frame), 2 * fr.exec.gasAvailable.toNat + 2 ≤ f →
-      drive f [] (.inl fr) ≠ .error .OutOfFuel := by
-  intro f
-  induction f with
-  | zero => intro fr hf; omega
-  | succ n ih =>
-    intro fr hf
-    conv_lhs => unfold drive
-    dsimp only
-    cases hstep : stepFrame fr with
-    | next exec' =>
-      have hns := (hnd fr).1 exec' hstep
-      have hlt : exec'.gasAvailable.toNat < fr.exec.gasAvailable.toNat :=
-        stepFrame_next_lt hns hstep
-      exact ih { fr with exec := exec' } (by simp only []; omega)
-    | halted halt =>
-      -- deliver through empty stack: drive n [] (.inr (endFrame fr halt))
-      conv_lhs => unfold drive
-      dsimp only
-      cases hn : n with
-      | zero =>
-        -- n = 0 but we took one step; fuel was n+1 = 1, need ≥ 2*gas+2 ≥ 2, so n ≥ 1
-        exfalso; omega
-      | succ m => simp
-    | needsCall p pd => exact absurd hstep ((hnd fr).2.1 p pd)
-    | needsCreate p pd => exact absurd hstep ((hnd fr).2.2 p pd)
-
 /-- The gas of the frame `beginCall` produces for a code call is `params.gas`. -/
 theorem beginCall_inl_gas {p : CallParams} {fr : Frame} (h : beginCall p = .inl fr) :
     fr.exec.gasAvailable = p.gas := by
@@ -784,27 +665,6 @@ theorem beginCall_inl_gas {p : CallParams} {fr : Frame} (h : beginCall p = .inl 
   cases hcs : p.codeSource with
   | Precompiled pc => rw [hcs] at h; simp at h
   | Code code => rw [hcs] at h; simp only [Sum.inl.injEq] at h; subst h; rfl
-
-/-- **Call-free `messageCall` never out-of-fuel.** For programs satisfying
-`NeverDescends`, the boundary form holds unconditionally in the gas. Precompile
-entries return immediately; code entries reduce to `drive_callFree_aux` with
-`seedFuel p.gas = 2 * p.gas.toNat + 4096 ≥ 2 * p.gas.toNat + 2`. -/
-theorem messageCall_callFree_never_outOfFuel (hnd : NeverDescends) (p : CallParams) :
-    messageCall p ≠ .error .OutOfFuel := by
-  unfold messageCall
-  cases h : beginCall p with
-  | inr result => simp
-  | inl frame =>
-    simp only []
-    intro hc
-    -- hc : (FrameResult.toCallResult <$> drive (seedFuel p.gas) [] (.inl frame)) = .error .OutOfFuel
-    have hg : frame.exec.gasAvailable = p.gas := beginCall_inl_gas h
-    have hb : drive (seedFuel p.gas) [] (.inl frame) ≠ .error .OutOfFuel :=
-      drive_callFree_aux hnd (seedFuel p.gas) frame
-        (by unfold seedFuel; rw [hg]; omega)
-    cases hd : drive (seedFuel p.gas) [] (.inl frame) with
-    | error e => rw [hd] at hc; simp [Functor.map, Except.map] at hc; rw [hc] at hd; exact hb hd
-    | ok r => rw [hd] at hc; simp [Functor.map, Except.map] at hc
 
 /-! ## General measure bound (induction skeleton)
 
