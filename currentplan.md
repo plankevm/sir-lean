@@ -141,9 +141,14 @@ whichever interface, ideally the shared one.
   no proofs broke (vendored core was `def`/`structure` only). Nested `Θ/Ξ/X` is now
   plain EVM. (Main loop fixed the default-target glob: `andSubmodules` needed a
   `NestedEvmYul/` dir that won't exist until B2 — temporarily `roots := [NestedEvmYul]`.)
-- [ ] **B2** (IN PROGRESS) Fuel↔gas: never-`OutOfFuel` on nested `Ξ/Θ` when fuel ≥ gas-derived
-  bound (the nested analogue of `messageCall_never_outOfFuel`). REDO on the
-  monomorphized base after B0 (B2's earlier scratch was discarded).
+- [~] **B2** Fuel↔gas: never-`OutOfFuel` on nested `Ξ/Θ` — PARTIAL (`863dc24`, green,
+  axiom-clean). DONE: `seedFuel g = 4*(g+1)`; fuel-0 base cases (all 5 layers); the
+  cornerstone `C'_pos_of_runnable` (every loop-continuing opcode burns ≥1 gas — ~140 ops;
+  zero-cost ops all halt); positivity helpers; the headline `Θ_never_outOfFuel` stated.
+  REMAINING (continuation IN PROGRESS): (1) `Z→step→X` gas inversion, (2) `X` measure
+  descent, (3) cross-layer gas/depth conservation (nested analogue of flat
+  `gasFundsDescent`), (4) the final MUTUAL fuel-passing induction over `X/Ξ/Θ/call/step`
+  (the hardest single proof in the experiment).
 - [ ] **B3** Nested external-call core: a `{P} Ξ(child) {Q}` triple + call-site/frame
   rule; demonstrate **multiple** calls compose naturally (contrast with A's effort).
 - [ ] **B4** Expose an observables-only, fuel/frame-free semantics surface for IRs.
@@ -282,6 +287,11 @@ your own branch with clear messages; never touch another track's files; if block
 write the blocker into PLAN.md before stopping.
 
 ## Orchestration log
+- 2026-06-22: **B2 PARTIAL & verified** (`863dc24`, green, axiom-clean). Cornerstone
+  (per-opcode gas-positivity, ~140 ops) + fuel bound + base cases proved; remaining = the
+  mutual fuel-passing induction (Z→step→X inversion, X descent, cross-layer conservation,
+  final mutual induction). Continuation launched. Both proofs now grinding in parallel:
+  C3-assembly + B2-mutual-induction.
 - 2026-06-22: **C3 PARTIAL & verified** (`b81b331`, green 1126). Semantic core proved
   (Match + all per-construct sims + boundary discharge that already covers multi-call).
   Remaining = byte-layout assembly (`decode_lower` + `lower_simulates_step`); continuation
