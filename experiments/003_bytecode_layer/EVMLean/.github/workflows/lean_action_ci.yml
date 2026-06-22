@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-conform:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The conformance fixtures (ethereum/tests) — shallow, the pinned
+      # commit's tree is all the runner needs. Doing it here keeps the
+      # lakefile's fallback `git submodule update --init` (non-shallow)
+      # from firing during the build.
+      - name: Fetch conformance fixtures
+        run: git submodule update --init --depth 1
+
+      # Builds the Evm library and the conform executable (plus tools/evmrs
+      # via cargo — rust is preinstalled on the runner). `conform` is built
+      # here explicitly (it is not a default target) so lean-action's .lake
+      # cache snapshot — saved right after this build step — includes the
+      # Conform oleans and the linked exe. The conformance run happens in
+      # the explicit step below (`lake test` would run the executable without
+      # args, i.e. the fast sample only).
+      - uses: leanprover/lean-action@v1
+        with:
+          use-mathlib-cache: true
+          test: false
+          build-args: "Evm conform"
+
+      # The full conformance phase, 22,308 tests. Exit code 0 requires every
+      # test to pass except the ExpectedToFail list in Conform/Main.lean.
+      - name: Run conformance suite
+        run: lake exe conform --full

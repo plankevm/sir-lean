@@ -1,0 +1,16 @@
+*.olean
+.lake/
+vc/.stack-work/*
+__pycache__/
+sha2/
+blake2/
+keccak256/
+out_*
+.venv/
+tests_*.txt
+conform_run.log
+conform_sample.txt
+tools/evmrs/target/
+.baseline_tests_1.txt
+full_run.log
+*.log
