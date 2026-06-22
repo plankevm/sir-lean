@@ -65,6 +65,26 @@ nesting *as a theorem over flat*; Track B *adopts* the already-nested semantics.
 
 ---
 
+## END GOAL — converge the two EVM semantics (Phase 2)
+
+**This is the experiment's culminating objective (Eduardo, restated 2026-06-22).** We
+now have/are-building two EVM semantics: **flat** (philogy's `EVMLean`, exp003 — single
+`drive` over a pending stack, one fuel) and **nested** (`EVMYulLean`-with-Yul-stripped,
+exp004 — Yellow-Paper `Θ/Ξ` mutual recursion). The goal is to make them **provably or
+structurally the same thing**, so they can be compared on *other* merits (ergonomics,
+proof compositionality, conformance) with confidence they're equivalent:
+- **Phase 2a — shared interface.** Define a Lean **type class / structure** capturing the
+  EVM-semantics surface (e.g. `messageCall`/observables, never-`OutOfFuel`, the
+  call/sequencing rules, gas behaviour) and have BOTH semantics *instantiate it with the
+  same theorems*. If both are instances of one `EVMSemantics` trait proving the same
+  spec, they're interchangeable for IR reasoning.
+- **Phase 2b — equivalence (stretch).** Prove an actual behavioural equivalence
+  (`messageCall_flat ≃ messageCall_nested` on observables), or a `driveNested ≃ drive`
+  bridge. The verifereum doc (E.3) flagged this as the deferred unification.
+This is what Tracks A (flat surface) and B (nested surface) are FEEDING. Their B4/A-surface
+milestones should converge on the SAME signatures so 2a is mechanical. Track C consumes
+whichever interface, ideally the shared one.
+
 ## Milestones (intent — verify against build)
 
 ### Track A — `Runs.call` + multi-call composition  (worktree `runs-call`)
@@ -90,8 +110,14 @@ nesting *as a theorem over flat*; Track B *adopts* the already-nested semantics.
   through the bridge. **The intermediary-call defect is fixed. This unblocks Track C C4.**
 - [x] **A4** Verdict delivered (in A's report + PLAN.md): `messageCall_runs_calls`
   supersedes the old keystone; composition API recorded for Track C.
-- [ ] **CFG combinator** IN PROGRESS — JUMP/JUMPI `Runs` rules + conditional-branch
-  helper (prereq for C branch lowering + gas-introspection branches).
+- [x] **CFG combinator** DONE (`bc810cc`, green 1129 jobs, axiom-clean). Step-level
+  `stepFrame_jump/jumpi_taken/jumpi_fallthrough/jumpdest` + `Runs` rules `runs_jump/
+  runs_jumpi_taken/runs_jumpi_fallthrough/runs_jumpdest` + the **`runs_branch`** helper
+  (disjunction over taken/fall-through; caller case-splits on the runtime condition,
+  drops into `Runs.trans`). Worked `BranchExample`. Loops deferred (a back-edge is just
+  another `runs_jump` glued by `trans`; gas ⇒ finiteness). **The report MUST argue this
+  design choice + alternatives (Eduardo wasn't in this discussion).**
+- [ ] **Opcode-rule completion** IN PROGRESS — `runs_add/lt/sload(+read)/gas`.
 - NOTE (cleanup, defer to a review pass once `exp003-runs-call` stabilizes): A2's
   deletion left stale `messageCall_call_runs` refs in `docs/review-report.md` +
   `review-report-followup.md` — regenerate via `review-report.prose`, don't hand-patch.
@@ -104,16 +130,13 @@ nesting *as a theorem over flat*; Track B *adopts* the already-nested semantics.
   (`Yul/{Ast,State,StateOps,Exception,Wheels,PrimOps}` kept; `Yul/{Interpreter,
   MachineState,SizeLemmas,YulNotation}`+tests deleted). exp004 lakefile requires
   `evmyul from "EVMYulLean"`; toolchain v4.22.0; crypto FFI built fine.
-- [ ] **B0** MONOMORPHIZE to EVM-only (IN PROGRESS, supersedes the B1 "keep minimal
-  Yul" finding — Eduardo's call). Remove the `OperationType = Yul | EVM` polymorphism
-  entirely: drop `.Yul` dispatch arms, specialize `contractCode τ → ByteArray` and the
-  `τ` parameter to `.EVM`, delete the now-dead Yul fragment, adapt broken proofs. **Why:
-  a `Yul | EVM` union entry-point is wrong for a VERIFIED COMPILER** — Yul→EVM belongs
-  as a lowering in the spec (like `LirLean`→EVM), not a parallel execution entry point;
-  and we want a clean EVM-only nested semantics to bake off against flat EVMLean. Land
-  as ONE green commit on `exp004-nested`, or WIP on `exp004-mono-wip` if it can't reach
-  green (no broken commits to the green branch, no `sorry`).
-- [ ] **B2** Fuel↔gas: never-`OutOfFuel` on nested `Ξ/Θ` when fuel ≥ gas-derived
+- [x] **B0** DONE (`exp004-nested` @ `63e234e` + lakefile fix, green, axiom-clean).
+  FULL Yul removal achieved: deleted `OperationType`, the `τ` parameter (~210 sites),
+  and ALL of `EvmYul/Yul/`; `contractCode τ → ByteArray`; `.Yul` dispatch arms gone;
+  no proofs broke (vendored core was `def`/`structure` only). Nested `Θ/Ξ/X` is now
+  plain EVM. (Main loop fixed the default-target glob: `andSubmodules` needed a
+  `NestedEvmYul/` dir that won't exist until B2 — temporarily `roots := [NestedEvmYul]`.)
+- [ ] **B2** (IN PROGRESS) Fuel↔gas: never-`OutOfFuel` on nested `Ξ/Θ` when fuel ≥ gas-derived
   bound (the nested analogue of `messageCall_never_outOfFuel`). REDO on the
   monomorphized base after B0 (B2's earlier scratch was discarded).
 - [ ] **B3** Nested external-call core: a `{P} Ξ(child) {Q}` triple + call-site/frame
@@ -210,6 +233,29 @@ launch a **review/simplify pass** on that track's landed code instead (quality w
 never idle). Insert a simplify pass per track roughly every 2–3 milestones. If ALL
 tracks are simultaneously dep-blocked (rare), schedule a review wakeup rather than stall.
 
+## Reporting & cleanup policy (Eduardo, 2026-06-22)
+
+Produce documentation **as tracks land, not only at the end**:
+1. **Per-track review report** — when a track reaches a stable, reportable state (A after
+   opcode-rules + A→base merge; B after B2; C after C3), spawn the **`lean-review-report`
+   agent** (read-only, specs-first) to write ONE grounded Markdown report in that
+   experiment's `docs/` (e.g. `docs/track-a-review.md`): the goal, the abstraction layers,
+   definitions/specs/hypotheses, what depends on what, headline-vs-supporting, with linked
+   code blocks / `file:line` refs. **The report MUST ARGUE the design decisions + their
+   alternatives** — especially (i) **why `call` is a `Runs` constructor** (and that this is
+   what makes the regular-language multi-call composition work — argue it as the report
+   would), and (ii) **why the CFG-combinator control-flow design** (`runs_branch`
+   disjunction, JUMPDEST handling, loops-as-`trans` back-edges) was chosen, what it buys,
+   and what the alternatives were (Eduardo was NOT in that discussion — make the case).
+2. **Master experiment report** — `EXPERIMENT-REPORT.md` (repo root) links the per-track
+   reports, synthesises results, and says what each means for next steps + the Phase-2
+   convergence. Update it incrementally as each track report lands; write the big synthesis
+   when all three are done.
+3. **End-of-line cleanup sweep** — once tracks mature, spawn review/refactor-finder agents
+   that read the docs alongside the code and propose concrete simplification/refactor
+   points; APPLY the obvious ones without waiting for Eduardo (open-ended is OK). Keep
+   everything clean, green, axiom-clean.
+
 ## Resume protocol (for a context-cleared main Claude)
 
 1. Read this file.
@@ -229,6 +275,15 @@ your own branch with clear messages; never touch another track's files; if block
 write the blocker into PLAN.md before stopping.
 
 ## Orchestration log
+- 2026-06-22: **B0 (mono) + A CFG combinator DONE & verified** (B0 `63e234e`+glob-fix
+  green; CFG `bc810cc` green 1129). Yul fully gone from exp004; control-flow combinator
+  in exp003. Launched: A **opcode-rule completion** (`runs_add/lt/sload/gas`) → then
+  A→base merge; B **B2** nested never-OOF on the mono base (B2 already restored the
+  `andSubmodules` glob). C still parked. **Added (Eduardo): END-GOAL convergence section
+  (shared `EVMSemantics` interface / equivalence between flat & nested), a reporting &
+  cleanup policy (per-track `lean-review-report` docs as tracks land + master
+  `EXPERIMENT-REPORT.md` + end-of-line refactor sweep; reports MUST argue the `Runs.call`
+  + CFG design choices & alternatives), and created `EXPERIMENT-REPORT.md` skeleton.**
 - 2026-06-22: **C rebase-safe prep DONE & verified** (`8946f78`, green 1106). Simplify +
   `Match` plan + C→A rule request. **C now PARKED** (dep-blocked on A→base merge) — did
   NOT launch a new C task (would be busywork; A+B carry the loop). Sharpened A's pending
