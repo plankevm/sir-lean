@@ -7,17 +7,23 @@ import BytecodeLayer.Semantics.UInt256
 import BytecodeLayer.Hoare.Sequence
 
 /-!
-# The external-call rung
+# The external-call rung — supporting bricks
 
-Proof internals for M2. The exported statements (`messageCall_call_storageAt`,
-`call_counterexample`, `messageCall_child_reflexive`) live in `Spec.lean`. The
-caller/callee programs and `callerParams` live in `Programs.lean`. Everything
-here — the intermediate frames at each pc, decode lemmas, the 63/64 gas
-arithmetic, the reflexive child run, and the long reductions — is proof
-machinery and not part of the audit surface.
+The reusable per-program machinery for `callerProg`'s external `CALL`: the
+caller/child frames, decode lemmas, the 63/64 gas arithmetic (`childGas`), the
+final-observable lemmas, and the **starved-child counterexample**
+`call_counterexample` (the `∃G₀` floor is *forced* — at `g = 24000` the 63/64 cap
+starves the callee, its `SSTORE` out-of-gases, and the observed cell is `0`). The
+caller/callee programs and `callerParams` live in `Programs.lean`.
+
+These bricks are consumed by the compositional proof in
+[`Examples/CallerProgExample.lean`] — which obtains the caller's storage result by
+instantiating the general `messageCall_call_runs` rule, not a giant opcode chain —
+and by `Examples/ConcreteSpecs.lean` (`call_counterexample`). None of it is part
+of the audit surface `Spec.lean`.
 
 The child call is modeled **reflexively**: the genuine leanevm `beginCall`/`drive`
-on the real child `CallParams` (`codeSource = toExecute …`), never an oracle.
+on the real child `CallParams` (`codeSource = .Code …`), never an oracle.
 -/
 
 namespace BytecodeLayer.ExternalCall
@@ -234,43 +240,6 @@ theorem childStored_storage :
     ((childStored.find? addrCallee).option 0 (fun a => a.lookupStorage 7)) = (5:UInt256) := by
   unfold childStored childStoredExec childXfer childEnv childCkptSubstate; decide
 
-/-- The callee reports success. -/
-theorem childResult_success (g : UInt64) : (childResult g).success = true := by
-  unfold childResult endCall; dsimp only
-
-/-- **The child run, reflexively.** Starting from the real `childFrame g`
-(`= beginCall (callChildParams …)`), the genuine driver runs the callee
-`PUSH;PUSH;SSTORE;STOP` and delivers `childResult g` to the suspended parent `pd`,
-which resumes. Five fuel units: 3 steps + the 2-unit halt-and-deliver. -/
-theorem child_run (g : UInt64) (n : ℕ) (pd : PendingCall) (ps : List Pending)
-    (hcg : 22106 ≤ childGas g) (hcg2 : childGas g < 2^64) :
-    drive (n + 5) (.call pd :: ps) (.inl (childFrame g))
-      = drive n ps (.inl (resumeAfterCall (childResult g) pd)) := by
-  have hofnat : (UInt64.ofNat (childGas g)).toNat = childGas g := by
-    rw [UInt64.toNat_ofNat']; exact Nat.mod_eq_of_lt (by omega)
-  conv_lhs => dsimp only [childFrame]
-  rw [driveG_step _ _ _ _ (stepFrame_push1 _ 5 dce0 (by
-        show 3 ≤ (UInt64.ofNat (childGas g)).toNat; rw [hofnat]; omega) (by show (0:ℕ)+1≤1024; omega))]
-  dsimp only [ExecutionState.replaceStackAndIncrPC]; simp only [gv]
-  rw [driveG_step _ _ _ _ (stepFrame_push1 _ 7 dce2 (by
-        show 3 ≤ (UInt64.ofNat (childGas g) - UInt64.ofNat 3).toNat
-        rw [toNat_sub_ofNat _ 3 (by rw [hofnat]; omega) (by omega), hofnat]; omega)
-        (by show (1:ℕ)+1≤1024; omega))]
-  dsimp only [ExecutionState.replaceStackAndIncrPC]; simp only [gv]
-  have hg6 : ((UInt64.ofNat (childGas g) - UInt64.ofNat 3) - UInt64.ofNat 3).toNat = childGas g - 6 := by
-    rw [toNat_sub_ofNat _ 3 (by rw [toNat_sub_ofNat _ 3 (by rw[hofnat];omega) (by omega), hofnat]; omega) (by omega),
-        toNat_sub_ofNat _ 3 (by rw[hofnat];omega) (by omega), hofnat]; omega
-  rw [driveG_step _ _ _ _ (stepFrame_sstore _ 7 5 _ dce4 rfl ?hsz rfl ?hstip ?hcost)]
-  case hsz => show (2:ℕ) ≤ 1024; omega
-  case hstip =>
-    show ¬ ((UInt64.ofNat (childGas g) - UInt64.ofNat 3) - UInt64.ofNat 3).toNat ≤ Gcallstipend
-    rw [hg6, show Gcallstipend = 2300 from rfl]; omega
-  case hcost => rw [sstoreChargeOf_child _ rfl rfl rfl rfl, hg6]; omega
-  dsimp only [sstorePost, ExecutionState.replaceStackAndIncrPC]
-  rw [driveG_halt_callDeliver _ _ _ _ _ (stepFrame_stop _ dce5 (by show (0:ℕ)≤1024; omega))]
-  unfold childResult endCall sstorePost childAfter2Push childFrame
-  rfl
-
 /-! ## The resumed caller, and the final observable -/
 
 /-- After the child returns, `resumeAfterCall` writes the child's account map
@@ -308,109 +277,6 @@ theorem final_obs (g : UInt64) :
   rw [resumed_acc]
   simp only [childStored_ne]
   exact childStored_storage
-
-/-! ## The exported external-call theorem (`∃G₀`) — proof
-
-The top-level run is first pinned to the **exact `CallResult`** the caller `STOP`s
-with (`callerResult g`), so that *both* its storage observable and its success flag
-are readable; the `∃G₀ ∀g` storage theorem and the `completedWith` form (used by
-the general rung-2 instance) are then corollaries. -/
-
-/-- The exact `CallResult` the top-level caller `STOP`s with after the (successful)
-child commits: the `endFrame`/`endCall` of the resumed caller frame. -/
-def callerResult (g : UInt64) : CallResult :=
-  (endFrame (resumeAfterCall (childResult g) (callPending (callerCalled g) 13242862 4294967295))
-    (FrameHalt.success
-      (resumeAfterCall (childResult g) (callPending (callerCalled g) 13242862 4294967295)).exec
-      ByteArray.empty)).toCallResult
-
-/-- The caller `STOP`s successfully (it ignores the child's flag). -/
-theorem callerResult_success (g : UInt64) : (callerResult g).success = true := by
-  unfold callerResult endFrame
-  rw [resumed_kind]; dsimp only [FrameResult.toCallResult]; unfold endCall; dsimp only
-
-/-- **The top-level run pinned to its `CallResult`.** For `g ≥ 30000`, the whole
-message call into the caller equals `.ok (callerResult g)` — the caller forwards a
-real `CALL` to the callee, the child commits, and the caller `STOP`s carrying the
-child's account map. Both the storage observable and the success flag read off this
-single equation. -/
-theorem messageCall_call_eq (g : UInt64) (hg : 30000 ≤ g.toNat) :
-    messageCall (callerParams g) = .ok (callerResult g) := by
-  have hg30 : 30000 ≤ g.toNat := hg
-  have hcg := childGas_lb g hg30
-  have hcg2 := childGas_ub g
-  rw [messageCall_eq_drive _ _ (beginCall_caller g)]
-  dsimp only [callerFrame]
-  rw [show (callerParams g).gas = g from rfl]
-  rw [show seedFuel g = (seedFuel g - 15) + 15 by have := two_le_seedFuel g; unfold seedFuel; omega]
-  simp only [show (default:ExecutionState).pc = (0:UInt32) from rfl,
-             show (default:ExecutionState).stack = ([]:Stack UInt256) from rfl]
-  rw [drive_step _ _ _ (stepFrame_push1 _ 0 dc0 (by show 3≤g.toNat;omega) (by show (0:ℕ)+1≤1024; omega))]
-  dsimp only [ExecutionState.replaceStackAndIncrPC]; simp only [gv]
-  rw [drive_step _ _ _ (stepFrame_push1 _ 0 dc2 (by
-        show 3 ≤ (subCharges g [3]).toNat; rw [toNat_subCharges g [3] (by simp;omega)]; simp; omega)
-        (by show (1:ℕ)+1≤1024; omega))]
-  dsimp only [ExecutionState.replaceStackAndIncrPC]; simp only [gv]
-  rw [drive_step _ _ _ (stepFrame_push1 _ 0 dc4 (by
-        show 3 ≤ (subCharges g [3,3]).toNat; rw [toNat_subCharges g [3,3] (by simp;omega)]; simp; omega)
-        (by show (2:ℕ)+1≤1024; omega))]
-  dsimp only [ExecutionState.replaceStackAndIncrPC]; simp only [gv]
-  rw [drive_step _ _ _ (stepFrame_push1 _ 0 dc6 (by
-        show 3 ≤ (subCharges g [3,3,3]).toNat; rw [toNat_subCharges g [3,3,3] (by simp;omega)]; simp; omega)
-        (by show (3:ℕ)+1≤1024; omega))]
-  dsimp only [ExecutionState.replaceStackAndIncrPC]; simp only [gv]
-  rw [drive_step _ _ _ (stepFrame_push1 _ 0 dc8 (by
-        show 3 ≤ (subCharges g [3,3,3,3]).toNat; rw [toNat_subCharges g [3,3,3,3] (by simp;omega)]; simp; omega)
-        (by show (4:ℕ)+1≤1024; omega))]
-  dsimp only [ExecutionState.replaceStackAndIncrPC]; simp only [gv]
-  rw [drive_step _ _ _ (stepFrame_push _ .PUSH3 0xCA11EE 3 (by nofun) dc10 rfl rfl (by
-        show 3 ≤ (subCharges g [3,3,3,3,3]).toNat; rw [toNat_subCharges g [3,3,3,3,3] (by simp;omega)]; simp; omega)
-        (by show (5:ℕ)+1≤1024; omega))]
-  dsimp only [ExecutionState.replaceStackAndIncrPC]; simp only [gv]
-  rw [drive_step _ _ _ (stepFrame_push _ .PUSH4 0xFFFFFFFF 4 (by nofun) dc14 rfl rfl (by
-        show 3 ≤ (subCharges g [3,3,3,3,3,3]).toNat; rw [toNat_subCharges g [3,3,3,3,3,3] (by simp;omega)]; simp; omega)
-        (by show (6:ℕ)+1≤1024; omega))]
-  dsimp only [ExecutionState.replaceStackAndIncrPC]; simp only [gv]
-  -- fold the 7-pushed frame into `callerCalled g` (defeq), then take the real CALL
-  show FrameResult.toCallResult <$> drive (seedFuel g - 15 + 8) []
-        (Sum.inl (callerCalled g)) = Except.ok (callerResult g)
-  rw [driveG_needsCall_code _ _ (callerCalled g) _ _ _
-        (stepFrame_call _ 0xFFFFFFFF 0xCA11EE dc19 rfl (by show (7:ℕ)≤1024; omega) rfl (by show (0:ℕ)<1024; omega)
-          (by
-            show callExtraCost (AccountAddress.ofUInt256 0xCA11EE) (AccountAddress.ofUInt256 0xCA11EE) 0 _ _
-                  ≤ (subCharges g [3,3,3,3,3,3,3]).toNat
-            rw [toNat_subCharges g [3,3,3,3,3,3,3] (by simp;omega)]
-            rw [show callExtraCost (AccountAddress.ofUInt256 0xCA11EE) (AccountAddress.ofUInt256 0xCA11EE) 0
-                  (callerCalled g).exec.accounts (callerCalled g).exec.substate = 2600 from by
-                  unfold callerCalled; dsimp only; decide]
-            simp; omega))
-        (beginCall_child g)]
-  -- the reflexive child run
-  rw [child_run g _ _ _ hcg hcg2]
-  -- resume, then the caller STOPs
-  rw [drive_halt _ _ _ (stepFrame_stop
-        (resumeAfterCall (childResult g) (callPending (callerCalled g) 13242862 4294967295))
-        (by
-          show decode (resumeAfterCall (childResult g)
-              (callPending (callerCalled g) 13242862 4294967295)).exec.executionEnv.code _ = _
-          unfold resumeAfterCall callPending callerCalled callerEnv
-          dsimp only [ExecutionState.replaceStackAndIncrPC, callerCharged]
-          exact dc20)
-        (by
-          unfold resumeAfterCall callPending
-          dsimp only [ExecutionState.replaceStackAndIncrPC]
-          show (Stack.push [] _).size ≤ 1024; show (1:ℕ) ≤ 1024; omega))]
-  -- the driver returns `.ok (endFrame …)`, i.e. `.ok (callerResult g)`
-  rfl
-
-/-! ## The exported external-call theorem (`∃G₀`) — corollaries -/
-
-theorem messageCall_call_storageAt :
-    ∃ G₀ : ℕ, ∀ g : UInt64, G₀ ≤ g.toNat →
-      (messageCall (callerParams g)).map (fun r => CallResult.storageAt r addrCallee 7) = .ok 5 := by
-  refine ⟨100000, fun g hg => ?_⟩
-  rw [messageCall_call_eq g (by omega)]
-  exact congrArg Except.ok (final_obs g)
 
 /-! ## The forced-`∃G₀` counterexample (the call OOGs, observable differs) — proof
 
@@ -538,47 +404,5 @@ theorem call_counterexample :
           show (Stack.push [] _).size ≤ 1024; show (1:ℕ) ≤ 1024; omega))]
   dsimp only [Except.map]
   exact congrArg Except.ok (final_obs_fail 24000)
-
-/-! ## Reflexivity witness — proof
-
-The child call inside `messageCall_call_storageAt` is run by the real
-`beginCall`/`drive` on `callChildParams …` — the same operations `messageCall`
-performs. This lemma makes that explicit. -/
-theorem messageCall_child_reflexive (g : UInt64) (hg : 30000 ≤ g.toNat) :
-    (messageCall (callChildParams (callerCalled g) 13242862 4294967295)).map
-      (fun r => (r.success, CallResult.storageAt r addrCallee 7)) = .ok (true, 5) := by
-  have hcg := childGas_lb g hg
-  have hcg2 := childGas_ub g
-  have hofnat : (UInt64.ofNat (childGas g)).toNat = childGas g := by
-    rw [UInt64.toNat_ofNat']; exact Nat.mod_eq_of_lt (by omega)
-  rw [messageCall_eq_drive _ _ (beginCall_child g)]
-  rw [show seedFuel (callChildParams (callerCalled g) 13242862 4294967295).gas
-        = (seedFuel (childFrame g).exec.gasAvailable - 5) + 5 by
-      have : (callChildParams (callerCalled g) 13242862 4294967295).gas
-          = (childFrame g).exec.gasAvailable := by
-        unfold callChildParams childFrame; dsimp only [callerCharged, childGas]; rfl
-      rw [this]; have := two_le_seedFuel (childFrame g).exec.gasAvailable; unfold seedFuel; omega]
-  conv_lhs => dsimp only [childFrame]
-  rw [drive_step _ _ _ (stepFrame_push1 _ 5 dce0 (by
-        show 3 ≤ (UInt64.ofNat (childGas g)).toNat; rw [hofnat]; omega) (by show (0:ℕ)+1≤1024; omega))]
-  dsimp only [ExecutionState.replaceStackAndIncrPC]; simp only [gv]
-  rw [drive_step _ _ _ (stepFrame_push1 _ 7 dce2 (by
-        show 3 ≤ (UInt64.ofNat (childGas g) - UInt64.ofNat 3).toNat
-        rw [toNat_sub_ofNat _ 3 (by rw [hofnat]; omega) (by omega), hofnat]; omega)
-        (by show (1:ℕ)+1≤1024; omega))]
-  dsimp only [ExecutionState.replaceStackAndIncrPC]; simp only [gv]
-  have hg6 : ((UInt64.ofNat (childGas g) - UInt64.ofNat 3) - UInt64.ofNat 3).toNat = childGas g - 6 := by
-    rw [toNat_sub_ofNat _ 3 (by rw [toNat_sub_ofNat _ 3 (by rw[hofnat];omega) (by omega), hofnat]; omega) (by omega),
-        toNat_sub_ofNat _ 3 (by rw[hofnat];omega) (by omega), hofnat]; omega
-  rw [drive_step _ _ _ (stepFrame_sstore _ 7 5 _ dce4 rfl ?hsz rfl ?hstip ?hcost)]
-  case hsz => show (2:ℕ) ≤ 1024; omega
-  case hstip =>
-    show ¬ ((UInt64.ofNat (childGas g) - UInt64.ofNat 3) - UInt64.ofNat 3).toNat ≤ Gcallstipend
-    rw [hg6, show Gcallstipend = 2300 from rfl]; omega
-  case hcost => rw [sstoreChargeOf_child _ rfl rfl rfl rfl, hg6]; omega
-  dsimp only [sstorePost, ExecutionState.replaceStackAndIncrPC]
-  rw [drive_halt _ _ _ (stepFrame_stop _ dce5 (by show (0:ℕ)≤1024; omega))]
-  show Except.ok ((childResult g).success, CallResult.storageAt (childResult g) addrCallee 7) = Except.ok (true, 5)
-  rw [childResult_success, CallResult.storageAt, childResult_accounts, childStored_storage]
 
 end BytecodeLayer.ExternalCall

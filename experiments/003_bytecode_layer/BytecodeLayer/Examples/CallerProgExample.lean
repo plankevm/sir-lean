@@ -21,11 +21,11 @@ storage result — the callee's cell `(addrCallee, 7) = 5` above the gas floor �
 * the suffix `Runs n₂ … last` to the caller's `STOP`, with `hhalt`;
 * `hfuel`: the numeric fuel bound, discharged by `omega` off `childGas_ub`/`seedFuel`.
 
-Unlike the monolith `ExternalCall.messageCall_call_eq` (a single giant opcode
-chain), this derivation never names the full execution trace: each piece is an
-independent lemma, composed by the general rule. It both
-demonstrates the intended user workflow and ensures `messageCall_call_runs` is a
-live, exercised theorem rather than a dead island.
+This derivation never names the full execution trace: each piece is an
+independent lemma, composed by the general rule. It both demonstrates the
+intended user workflow and ensures `messageCall_call_runs` is a live, exercised
+theorem; the concrete `∃G₀` spec `Examples.messageCall_call_storageAt` is now
+obtained from this compositional result (no monolithic opcode chain remains).
 -/
 
 namespace BytecodeLayer.Examples
@@ -244,11 +244,11 @@ theorem messageCall_callerProg_runs (g : UInt64) (hg : 30000 ≤ g.toNat) :
 
 /-- **The compositional external-call storage result.** Reading
 `messageCall_callerProg_runs`'s pinned result through `storageAt (addrCallee, 7)`
-recovers the callee's committed `5`, for `g ≥ 30000` — the same observable as the
-monolithic `Examples.messageCall_call_storageAt`, but obtained by *instantiating the
-general rule* `messageCall_call_runs` rather than a giant opcode chain. The
-`callerResumed g` final result's cell agrees with `ExternalCall.final_obs`, since
-`(childFrameRes g).toCallResult = childResult g`. -/
+recovers the callee's committed `5`, for `g ≥ 30000`, obtained by *instantiating
+the general rule* `messageCall_call_runs` rather than a giant opcode chain. This is
+the proof the concrete `∃G₀` spec `Examples.messageCall_call_storageAt` delegates
+to. The `callerResumed g` final result's cell agrees with `ExternalCall.final_obs`,
+since `(childFrameRes g).toCallResult = childResult g`. -/
 theorem messageCall_callerProg_storageAt (g : UInt64) (hg : 30000 ≤ g.toNat) :
     (messageCall (callerParams g)).map (fun r => CallResult.storageAt r addrCallee 7) = .ok 5 := by
   rw [messageCall_callerProg_runs g hg]

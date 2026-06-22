@@ -2,6 +2,7 @@ import BytecodeLayer.Programs
 import BytecodeLayer.Observables
 import BytecodeLayer.ExternalCall
 import BytecodeLayer.Examples.ProgramExamples
+import BytecodeLayer.Examples.CallerProgExample
 
 /-!
 # Concrete per-program results — worked examples, not general specs
@@ -16,7 +17,9 @@ The general, program-agnostic content lives on the audit surface `Spec.lean`
 (the sequencing rule `Runs.trans`, the opcode rules, the `messageCall` bridge, and
 the external-CALL rule `messageCall_call_runs` / `messageCall_call_completedWith`).
 These concrete results delegate to the proofs in `ProgramExamples.lean` (the
-`*'` lemmas, composed from the opcode rules) and `ExternalCall.lean`.
+`*'` lemmas, composed from the opcode rules) and — for the external call — to the
+**compositional** `CallerProgExample.lean` (which instantiates `messageCall_call_runs`),
+with the forced-`∃G₀` counterexample from `ExternalCall.lean`.
 
 Two groups:
 * **Call-free programs** (`stopProgram` … `seqProgram`): the success/output and
@@ -84,11 +87,15 @@ no oracle, no assumption). -/
 every `g ≥ G₀`, the top-level message call into the caller (which forwards a real
 `CALL` to the callee) leaves the callee's storage cell `(addrCallee, 7)` holding
 `5`: with enough gas, the child clears the 63/64 `callGasCap`, its `SSTORE`
-commits. The `∃G₀` is *forced*, not cosmetic — see `call_counterexample`. -/
+commits. The `∃G₀` is *forced*, not cosmetic — see `call_counterexample`.
+
+The witness `G₀ = 30000` and the proof come from the **compositional**
+`messageCall_callerProg_storageAt` (the general `messageCall_call_runs` rule
+instantiated on `callerProg`/`calleeProg`), not a monolithic opcode chain. -/
 theorem messageCall_call_storageAt :
     ∃ G₀ : ℕ, ∀ g : UInt64, G₀ ≤ g.toNat →
       (messageCall (callerParams g)).map (fun r => CallResult.storageAt r addrCallee 7) = .ok 5 :=
-  ExternalCall.messageCall_call_storageAt
+  ⟨30000, fun g hg => messageCall_callerProg_storageAt g hg⟩
 
 /-- **The executable counterexample that forces the `∃G₀`.** At the modest gas
 `g = 24000`, the *same* observable is `0`: the 63/64 cap starves the callee
