@@ -14,6 +14,6 @@ package «nested_evmyul» where
 
 @[default_target]
 lean_lib «NestedEvmYul» where
-  -- Root module only for now; switch back to `.andSubmodules` once the
-  -- `NestedEvmYul/` directory exists (B2 adds `NestedEvmYul/NeverOutOfFuel.lean`).
-  roots := #[`NestedEvmYul]
+  -- Root module plus every submodule under `NestedEvmYul/` (B2 added
+  -- `NestedEvmYul/NeverOutOfFuel.lean`).
+  globs := #[.andSubmodules `NestedEvmYul]

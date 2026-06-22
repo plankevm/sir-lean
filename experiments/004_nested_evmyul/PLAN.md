@@ -28,8 +28,10 @@ composing naturally (the thing flat makes hard).
   `EvmYul/Yul/` + Yul-only code; fix the `EvmYul/Semantics.lean` import; keep the
   EVM library (+`Conform` dep) green via `lake build`; trim heavy/irrelevant pieces.
   Add a lakefile for exp004 requiring the vendored `evmyul`.
-- [ ] **B2** Never-`OutOfFuel` on nested `Ξ/Θ`: fuel ≥ gas-derived bound ⇒ no
+- [~] **B2** Never-`OutOfFuel` on nested `Ξ/Θ`: fuel ≥ gas-derived bound ⇒ no
   `OutOfFuel` (nested analogue of exp003's `messageCall_never_outOfFuel`).
+  PARTIAL — cornerstone (per-step gas positivity) fully proved; measure assembly
+  remains. See B2 log below.
 - [ ] **B3** Nested external-call core: `{P} Ξ(child) {Q}` triple + call-site/frame
   rule; show ≥2 calls compose naturally.
 - [ ] **B4** Observables-only, fuel/frame-free surface for IRs.
@@ -49,6 +51,59 @@ composing naturally (the thing flat makes hard).
 > branch; do not touch other tracks. Report the final build status + what was stripped.
 
 ## Progress log
+- 2026-06-22 (B2, PARTIAL): Nested never-`OutOfFuel` — cornerstone proved, measure
+  assembly documented. All in `NestedEvmYul/NeverOutOfFuel.lean`; bare `lake build`
+  GREEN; `#print axioms` on every theorem reports only `[propext, Quot.sound]`
+  (+ `Classical.choice` for the `Θ_zero`/`Ξ_zero` base cases) — **no `sorryAx`, no
+  custom axiom, zero `sorry`/`admit`/`axiom` in source.**
+  - **Lakefile + wiring.** Restored the default-target glob to
+    `globs := #[.andSubmodules \`NestedEvmYul]`; root `NestedEvmYul.lean` now
+    `import`s `NestedEvmYul.NeverOutOfFuel`. New module is in the default build.
+  - **Fuel bound.** `def seedFuel (g : ℕ) : ℕ := 4 * (g + 1)` — gas-derived,
+    analogue of exp003's flat `seedFuel gas`. Rationale: each `X` loop iteration
+    burns ≥1 gas; the per-instruction fuel-hop count across `X`/`step`/`call`/`Θ`/`Ξ`
+    is ≤4; child gas is carved from the parent (`Ccallgas ≤ parent gas`); depth ≤1024.
+    Any larger multiple also works.
+  - **Fuel-`0` base cases (PROVED, all `rfl`).** `X_zero`, `step_zero`, `call_zero`,
+    `Ξ_zero`, `Θ_zero` — these are the ONLY direct emitters of `.error .OutOfFuel`
+    in the five mutual layers (everything else propagates), pinning exactly where the
+    bound must bite.
+  - **Per-step gas positivity = CORNERSTONE (PROVED).** `C'_pos_of_runnable :
+    runnable w → 1 ≤ C' s w`, where `runnable w := w ∉ {STOP, RETURN, REVERT,
+    SELFDESTRUCT, INVALID}`. Covers ALL ~140 opcodes via one `cases w`-sweep:
+    constant-cost groups (`Wbase/Wverylow/Wlow/Wmid/Whigh`) collapse under a
+    `decide`-evaluated membership cascade; special arms use helper positivity lemmas
+    `Caccess_pos`, `Csstore_pos`, `Csload_pos`, `Cselfdestruct_pos`, `Ccall_pos` (all
+    PROVED — each dominated by a positive gas constant, `Gwarmaccess=100`, …).
+    KEY SEMANTIC FACTS this rests on: the only `C'=0` opcodes are `Wzero =
+    {STOP, RETURN, REVERT}` (all *halt* the `X` loop via `H`) and `INVALID` (whose
+    `step` returns `.error .InvalidInstruction` — a non-`OutOfFuel` halt). So every
+    opcode that *continues* the loop strictly burns gas ⇒ gas is a sound decreasing
+    measure.
+  - **REMAINING obligations for the headline `Θ_never_outOfFuel` (documented in the
+    file, NOT faked):**
+    1. **Gas-decrement chain** `C'_pos_of_runnable → Z → step → X`: prove a
+       successful `Z validJumps w s = .ok (s', cost₂)` yields `1 ≤ cost₂` (= `C'` of
+       `Z`'s post-`cost₁` state — started as `Z_cost₂_pos` but the `Except` `do`-block
+       inversion is fiddly: `simp [Bind.bind, Except.bind]` leaves nested
+       `match .ok/.error` that `split` doesn't fully peel; needs a targeted
+       `Except.bind` inversion lemma), then that `step f cost₂ instr s` on the default
+       (non-call/create/halt) arm yields a state with `gasAvailable` reduced by
+       `cost₂` (i.e. `EvmYul.step` preserves gas except the `- gasCost` debit; a
+       per-opcode `replaceStackAndIncrPC`-preserves-gas sweep).
+    2. **`X` measure descent.** With (1): one non-halting `X (f+1)` iteration goes to
+       a state with strictly less gas, so `X` needs ≤ `gas+1` fuel for its own loop
+       (a `Nat`-strong-induction on gas, or a `termination_by gas` measure lemma).
+    3. **Cross-layer gas/depth conservation.** `call`/`Θ`/`Ξ` forward `Ccallgas ≤ g`
+       to the child and bump depth (`e+1`), capped at 1024; the child's fuel need
+       (`seedFuel childGas`) plus the 3 descent hops stays under the parent's budget.
+       This is the genuinely-nested analogue of exp003's flat `gasFundsDescent`
+       (there the trampoline made it a `totalGas` sum over a pending stack; here it is
+       a direct parent→child inequality threaded through the `Θ`/`Ξ` arms of `call`).
+    4. **Final mutual induction** on `fuel` over `X`/`Ξ`/`Θ`/`call`/`step`
+       simultaneously, concluding `seedFuel g ≤ fuel → layer … ≠ .error .OutOfFuel`.
+       Spine mirrors exp003 but the recursion is genuinely mutual (no trampoline), so
+       it is a `Nat.rec`/well-founded mutual induction rather than a stack measure.
 - 2026-06-22: Track seeded. Awaiting B1 agent.
 - 2026-06-22 (B1): Vendored EVMYulLean as a squashed subtree at
   `experiments/004_nested_evmyul/EVMYulLean` from
