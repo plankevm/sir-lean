@@ -35,13 +35,13 @@ The headline CALL rule sits on top of four layers. Every file in scope is accoun
 |---|---|---|
 | **0. Data/world** | [`Programs.lean`](BytecodeLayer/Programs.lean#L1) | The example bytecode (`stopProgram`…`callerProg`/`calleeProg`), addresses, and `CallParams` entry points. No theorems. |
 | | [`Observables.lean`](BytecodeLayer/Observables.lean#L1) | `Observables`, `CallResult.storageAt`, and the named [`Outcome`](BytecodeLayer/Observables.lean#L72) decoder (`completed`/`reverted`/`exception`). |
-| **1. Semantic leaf facts** | [`Semantics/UInt256.lean`](BytecodeLayer/Semantics/UInt256.lean#L1) | One `UInt64` gas-subtraction fact (`toNat_sub_ofNat`). |
+| **1. Semantic leaf facts** | [`Semantics/UInt64.lean`](BytecodeLayer/Semantics/UInt64.lean#L1) | One `UInt64` gas-subtraction fact (`toNat_sub_ofNat`). |
 | | [`Semantics/Maps.lean`](BytecodeLayer/Semantics/Maps.lean#L1) | The two missing `TransCmp` instances + `find?`/`findD` framing the SSTORE rule needs. |
 | | [`Semantics/Gas.lean`](BytecodeLayer/Semantics/Gas.lean#L1) | Per-step gas decrease for every non-`System` opcode (`stepFrame_next_lt`). |
 | | [`Semantics/Precompiles.lean`](BytecodeLayer/Semantics/Precompiles.lean#L1) | Precompiles consume `≤` forwarded gas (`beginCall_inr_gas`, feeds conjunct 5a). |
 | | [`Semantics/Dispatch.lean`](BytecodeLayer/Semantics/Dispatch.lean#L1) | `stepFrame` per-opcode characterizations (`stepFrame_push1`, `stepFrame_sstore`, `stepFrame_stop`, `stepFrame_sstore_oog`, …). |
-| | [`Semantics/System.lean`](BytecodeLayer/Semantics/System.lean#L1) | The `System`-op (CALL/CREATE/halt/resume) facts: `stepFrame_call`, `beginCall_*`, `resumeAfterCall`/`resumeAfterCreate` gas lemmas, `messageCall_eq_drive`. The largest file (1517 lines). |
-| **2. Interpreter / fuel** | [`Semantics/Interpreter/Drive.lean`](BytecodeLayer/Semantics/Interpreter/Drive.lean#L1) | The `drive` vocabulary: `drive_step`, `drive_halt`, `driveG_*`, `drive_fuel_mono`, `seedFuel`. |
+| | [`Semantics/System.lean`](BytecodeLayer/Semantics/System.lean#L1) | The `System`-op (CALL/CREATE/halt/resume) facts: `stepFrame_call`, `beginCall_*`, `resumeAfterCall`/`resumeAfterCreate` gas lemmas. The largest file (1517 lines). |
+| **2. Interpreter / fuel** | [`Semantics/Interpreter/Drive.lean`](BytecodeLayer/Semantics/Interpreter/Drive.lean#L1) | The `drive` vocabulary: `drive_step`, `drive_halt`, `driveG_*`, `drive_fuel_mono`, `seedFuel`, `messageCall_eq_drive`. |
 | | [`Semantics/Interpreter/NeverOutOfFuel.lean`](BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean#L1) | The measure `μ` and the general bound `mu_bound` (modulo `DescentDrops`). |
 | | [`Semantics/Interpreter/DescentDrops.lean`](BytecodeLayer/Semantics/Interpreter/DescentDrops.lean#L1) | Discharges `DescentDrops`; yields the **unconditional** `messageCall_never_outOfFuel`. |
 | | [`Semantics/Interpreter/DescentEq.lean`](BytecodeLayer/Semantics/Interpreter/DescentEq.lean#L1) | The generic CALL-boundary framing/descent equation (`drive_append_framing`, `drive_descend_eq`). |
