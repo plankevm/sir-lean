@@ -204,6 +204,135 @@ theorem runs_sstore (fr : Frame) (key newValue : UInt256) (rest : Stack UInt256)
     Runs fr (sstoreFrame fr key newValue rest) :=
   Runs.single (stepsTo_of_next (stepFrame_sstore fr key newValue rest hdec hstk hsz hmod hstip hcost))
 
+/-! ## Control-flow rules (JUMP / JUMPI) — the CFG combinator
+
+The conditional/unconditional jumps lift the `Step.lean` jump lemmas to `Runs`.
+Each is a one-step `Runs` to a post-frame whose `exec` is the jump's result
+(`jumpPost`/`jumpiFallthroughPost`); the only difference from PUSH/SSTORE is that
+the post-frame moves `pc` to a resolved destination rather than `pc + width`.
+
+- `runs_jump` — unconditional jump to a valid destination (`fr.get_dest dest =
+  some new_pc`).
+- `runs_jumpi_taken` — conditional jump with a non-zero condition, to a valid
+  destination.
+- `runs_jumpi_fallthrough` — conditional jump with a zero condition, falling
+  through to `pc + 1`.
+
+A program with a conditional branch is then assembled by *case-splitting on the
+branch condition* and threading the matching rule into `Runs.trans` — see
+`runs_branch` below, the branching reasoning helper. Loops (back-edges) need no
+extra theory: a `Runs` already expresses any finite trace, so a `runs_jump` back
+to an earlier `pc` is just another `Runs` node glued by `Runs.trans`. -/
+
+/-- The frame after JUMP / a taken JUMPI: `exec` is `jumpPost` (gas charged by
+`cost`, `pc := new_pc`, operands popped to `rest`); `kind`/`validJumps` unchanged. -/
+def jumpFrame (fr : Frame) (cost : ℕ) (new_pc : UInt32) (rest : Stack UInt256) : Frame :=
+  { fr with exec := BytecodeLayer.Dispatch.jumpPost fr.exec cost new_pc rest }
+
+/-- The frame after a not-taken JUMPI: `exec` is `jumpiFallthroughPost` (gas
+charged `Ghigh`, `pc := pc + 1`, operands popped to `rest`). -/
+def jumpiFallthroughFrame (fr : Frame) (rest : Stack UInt256) : Frame :=
+  { fr with exec := BytecodeLayer.Dispatch.jumpiFallthroughPost fr.exec rest }
+
+/-- **The JUMP rule.** From a frame decoding to `JUMP` with `dest :: rest` on the
+stack, enough gas (`Gmid`), and `dest` a valid jump destination
+(`fr.get_dest dest = some new_pc`), one step `Runs` to `jumpFrame fr Gmid new_pc
+rest` (pc set to `new_pc`). Pure `Step.lean` derivation. -/
+theorem runs_jump (fr : Frame) (dest : UInt256) (new_pc : UInt32) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMP, .none))
+    (hstk : fr.exec.stack = dest :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : GasConstants.Gmid ≤ fr.exec.gasAvailable.toNat)
+    (hdest : fr.get_dest dest = some new_pc) :
+    Runs fr (jumpFrame fr GasConstants.Gmid new_pc rest) :=
+  Runs.single (stepsTo_of_next (stepFrame_jump fr dest new_pc rest hdec hstk hsz hgas hdest))
+
+/-- **The JUMPI rule (taken).** From a frame decoding to `JUMPI` with
+`dest :: cond :: rest`, a non-zero `cond`, enough gas (`Ghigh`), and `dest` a
+valid jump destination, one step `Runs` to `jumpFrame fr Ghigh new_pc rest`
+(pc set to `new_pc`). -/
+theorem runs_jumpi_taken (fr : Frame) (dest cond : UInt256) (new_pc : UInt32)
+    (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMPI, .none))
+    (hstk : fr.exec.stack = dest :: cond :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : GasConstants.Ghigh ≤ fr.exec.gasAvailable.toNat)
+    (hcond : cond ≠ 0)
+    (hdest : fr.get_dest dest = some new_pc) :
+    Runs fr (jumpFrame fr GasConstants.Ghigh new_pc rest) :=
+  Runs.single (stepsTo_of_next
+    (stepFrame_jumpi_taken fr dest cond new_pc rest hdec hstk hsz hgas hcond hdest))
+
+/-- **The JUMPI rule (fall-through).** From a frame decoding to `JUMPI` with
+`dest :: 0 :: rest` (zero condition) and enough gas (`Ghigh`), one step `Runs` to
+`jumpiFallthroughFrame fr rest` (pc advanced by one). No destination requirement —
+the jump is not taken. -/
+theorem runs_jumpi_fallthrough (fr : Frame) (dest : UInt256) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMPI, .none))
+    (hstk : fr.exec.stack = dest :: (0 : UInt256) :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : GasConstants.Ghigh ≤ fr.exec.gasAvailable.toNat) :
+    Runs fr (jumpiFallthroughFrame fr rest) :=
+  Runs.single (stepsTo_of_next
+    (stepFrame_jumpi_fallthrough fr dest rest hdec hstk hsz hgas))
+
+/-- The frame after JUMPDEST: `exec` is `jumpdestPost` (gas charged `Gjumpdest`,
+pc advanced by one). The no-op landing pad a taken jump steps past. -/
+def jumpdestFrame (fr : Frame) : Frame :=
+  { fr with exec := BytecodeLayer.Dispatch.jumpdestPost fr.exec }
+
+/-- **The JUMPDEST rule.** From a frame decoding to `JUMPDEST` with enough gas
+(`Gjumpdest`), one step `Runs` to `jumpdestFrame fr` (pc advanced by one, stack
+unchanged). Lets a taken jump step past its target landing pad. -/
+theorem runs_jumpdest (fr : Frame)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMPDEST, .none))
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : GasConstants.Gjumpdest ≤ fr.exec.gasAvailable.toNat) :
+    Runs fr (jumpdestFrame fr) :=
+  Runs.single (stepsTo_of_next (stepFrame_jumpdest fr hdec hsz hgas))
+
+/-! ### The branching reasoning helper
+
+A conditional branch is reasoned about by *case-splitting on the runtime value of
+the branch condition* and supplying, for each side, the `Runs` that the JUMPI
+takes from there. `runs_branch` packages exactly that: given the JUMPI frame, the
+`Runs` continuation for the taken side (from the destination frame) and for the
+fall-through side (from `pc + 1`), it produces the single `Runs fr fr'` for the
+whole `if`. The caller no longer threads the JUMPI step by hand — it just hands
+over the two branch continuations and a decision about the condition.
+
+`hcond_dec` lets the caller decide the condition: it returns either the taken
+witness (`cond ≠ 0` together with the resolved destination) or the fall-through
+witness (`cond = 0`). This keeps the combinator usable both when the condition is
+statically known and when it is only known to be one of the two cases. -/
+
+/-- **The conditional-branch combinator.** A JUMPI at `fr` (decoding to `JUMPI`,
+stack `dest :: cond :: rest`, gas/overflow OK) composes into one `Runs fr fr'`
+once the caller supplies, for whichever branch the condition selects, the `Runs`
+that continues from there:
+
+* taken side: `cond ≠ 0`, `fr.get_dest dest = some new_pc`, and a
+  `Runs (jumpFrame fr Ghigh new_pc rest) fr'`;
+* fall-through side: `cond = 0` and a `Runs (jumpiFallthroughFrame fr rest) fr'`.
+
+The decision between the two is the caller's `branch` value. This is the building
+block Track C's branch lowering threads through `Runs.trans` like straight-line
+code. -/
+theorem runs_branch {fr fr' : Frame} {dest cond : UInt256} {rest : Stack UInt256}
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMPI, .none))
+    (hstk : fr.exec.stack = dest :: cond :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : GasConstants.Ghigh ≤ fr.exec.gasAvailable.toNat)
+    (branch :
+      (∃ new_pc, cond ≠ 0 ∧ fr.get_dest dest = some new_pc
+        ∧ Runs (jumpFrame fr GasConstants.Ghigh new_pc rest) fr')
+      ∨ (cond = 0 ∧ Runs (jumpiFallthroughFrame fr rest) fr')) :
+    Runs fr fr' := by
+  rcases branch with ⟨new_pc, hcond, hdest, htaken⟩ | ⟨hcond, hfall⟩
+  · exact (runs_jumpi_taken fr dest cond new_pc rest hdec hstk hsz hgas hcond hdest).trans htaken
+  · subst hcond
+    exact (runs_jumpi_fallthrough fr dest rest hdec hstk hsz hgas).trans hfall
+
 /-! ### Storage effect and framing of `sstoreFrame`
 
 The SSTORE rule's two halves at the **observable** level: reading the resulting

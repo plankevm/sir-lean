@@ -4,6 +4,7 @@ import BytecodeLayer.ExternalCall
 import BytecodeLayer.Examples.ProgramExamples
 import BytecodeLayer.Examples.CallerProgExample
 import BytecodeLayer.Examples.TwoCallExample
+import BytecodeLayer.Examples.BranchExample
 
 /-!
 # Concrete per-program results — worked examples, not general specs

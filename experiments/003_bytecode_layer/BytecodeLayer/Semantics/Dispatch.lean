@@ -196,6 +196,158 @@ theorem stepFrame_sstore_oog (fr : Frame) (key newValue : UInt256) (rest : Stack
     dsimp only [sstoreChargeOf, Option.option] at h
     omega)]
 
+/-! ## JUMP / JUMPI (control flow)
+
+The conditional/unconditional jumps are the control-flow primitives the CFG
+combinator stands on. Both pop their destination off the stack, charge a fixed
+gas (`Gmid = 8` for JUMP, `Ghigh = 10` for JUMPI) and — when the destination is a
+valid `JUMPDEST` (`fr.get_dest dest = some new_pc`) — set `pc := new_pc` and drop
+the consumed operand(s). JUMPI with a zero condition instead falls through to
+`pc + 1`. The valid-destination side condition is supplied as the explicit
+hypothesis `hdest`; the gas guard is discharged from `hgas`; the overflow guard
+from `hsz` (both jumps only ever shrink the stack). These mirror the per-opcode
+step lemmas above; they are low-level bricks (they mention `pc`/`stack`/gas).
+
+Unlike PUSH/SSTORE the post-state is not `replaceStackAndIncrPC` — JUMP writes
+`pc` directly — so the result is spelled out inline with the charged gas. -/
+
+/-- The execution state JUMP / a taken JUMPI leaves: gas charged by `cost`, `pc`
+set to the resolved `new_pc`, and the consumed operand(s) popped to `rest`. -/
+def jumpPost (exec : ExecutionState) (cost : ℕ) (new_pc : UInt32) (rest : Stack UInt256) :
+    ExecutionState :=
+  { exec with gasAvailable := exec.gasAvailable - UInt64.ofNat cost, pc := new_pc, stack := rest }
+
+/-- The execution state a *not-taken* JUMPI leaves: gas charged `Ghigh`, `pc`
+advanced by one, and `dest`/`cond` popped to `rest`. -/
+def jumpiFallthroughPost (exec : ExecutionState) (rest : Stack UInt256) : ExecutionState :=
+  { exec with gasAvailable := exec.gasAvailable - UInt64.ofNat Ghigh, pc := exec.pc + 1, stack := rest }
+
+/-- **JUMP to a valid destination sets pc to `new_pc`**, charging `Gmid = 8` and
+popping the destination operand. The valid-destination requirement is the
+explicit `hdest : fr.get_dest dest = some new_pc`; the gas/overflow guards are
+discharged from `hgas`/`hsz`. -/
+theorem stepFrame_jump (fr : Frame) (dest : UInt256) (new_pc : UInt32) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMP, .none))
+    (hstk : fr.exec.stack = dest :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : Gmid ≤ fr.exec.gasAvailable.toNat)
+    (hdest : fr.get_dest dest = some new_pc) :
+    stepFrame fr = .next (jumpPost fr.exec Gmid new_pc rest) := by
+  unfold stepFrame
+  simp only [hdec]
+  dsimp only [Option.getD]
+  rw [if_neg (by decide)]
+  have hov : ¬ (fr.exec.stack.size - stackPopCount (.Smsf .JUMP)
+      + stackPushCount (.Smsf .JUMP) > 1024) := by
+    simp only [show stackPopCount (.Smsf .JUMP) = 1 from rfl,
+               show stackPushCount (.Smsf .JUMP) = 0 from rfl]
+    have := hsz; omega
+  rw [if_neg hov]
+  dsimp only [dispatch, smsfOp]
+  unfold charge
+  rw [if_neg (by omega)]
+  dsimp only [bind, Except.bind, pure, Except.pure]
+  rw [hstk]
+  dsimp only [Stack.pop, liftM, monadLift, MonadLift.monadLift, Option.option, bind,
+    Except.bind, pure, Except.pure]
+  rw [hdest]
+  rfl
+
+/-- **JUMPI with a non-zero condition jumps to a valid destination**, charging
+`Ghigh = 10` and popping both operands. The valid-destination requirement is
+`hdest`; `hcond : cond ≠ 0` selects the taken branch; gas/overflow from
+`hgas`/`hsz`. -/
+theorem stepFrame_jumpi_taken (fr : Frame) (dest cond : UInt256) (new_pc : UInt32)
+    (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMPI, .none))
+    (hstk : fr.exec.stack = dest :: cond :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : Ghigh ≤ fr.exec.gasAvailable.toNat)
+    (hcond : cond ≠ 0)
+    (hdest : fr.get_dest dest = some new_pc) :
+    stepFrame fr = .next (jumpPost fr.exec Ghigh new_pc rest) := by
+  unfold stepFrame
+  simp only [hdec]
+  dsimp only [Option.getD]
+  rw [if_neg (by decide)]
+  have hov : ¬ (fr.exec.stack.size - stackPopCount (.Smsf .JUMPI)
+      + stackPushCount (.Smsf .JUMPI) > 1024) := by
+    simp only [show stackPopCount (.Smsf .JUMPI) = 2 from rfl,
+               show stackPushCount (.Smsf .JUMPI) = 0 from rfl]
+    have := hsz; omega
+  rw [if_neg hov]
+  dsimp only [dispatch, smsfOp]
+  unfold charge
+  rw [if_neg (by omega)]
+  dsimp only [bind, Except.bind, pure, Except.pure]
+  rw [hstk]
+  dsimp only [Stack.pop2, liftM, monadLift, MonadLift.monadLift, Option.option, bind,
+    Except.bind, pure, Except.pure]
+  have hcz : (cond == (0 : UInt256)) = false := by
+    rw [Bool.eq_false_iff]
+    intro hc; exact hcond ((UInt256.beq_iff_eq cond 0).mp hc)
+  rw [if_pos (by show (cond != 0) = true; rw [bne, hcz]; rfl)]
+  rw [hdest]
+  rfl
+
+/-- **JUMPI with a zero condition falls through to pc + 1**, charging `Ghigh`
+and popping both operands. No destination requirement (the jump is not taken);
+gas/overflow from `hgas`/`hsz`. -/
+theorem stepFrame_jumpi_fallthrough (fr : Frame) (dest : UInt256) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMPI, .none))
+    (hstk : fr.exec.stack = dest :: (0 : UInt256) :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : Ghigh ≤ fr.exec.gasAvailable.toNat) :
+    stepFrame fr = .next (jumpiFallthroughPost fr.exec rest) := by
+  unfold stepFrame
+  simp only [hdec]
+  dsimp only [Option.getD]
+  rw [if_neg (by decide)]
+  have hov : ¬ (fr.exec.stack.size - stackPopCount (.Smsf .JUMPI)
+      + stackPushCount (.Smsf .JUMPI) > 1024) := by
+    simp only [show stackPopCount (.Smsf .JUMPI) = 2 from rfl,
+               show stackPushCount (.Smsf .JUMPI) = 0 from rfl]
+    have := hsz; omega
+  rw [if_neg hov]
+  dsimp only [dispatch, smsfOp]
+  unfold charge
+  rw [if_neg (by omega)]
+  dsimp only [bind, Except.bind, pure, Except.pure]
+  rw [hstk]
+  dsimp only [Stack.pop2, liftM, monadLift, MonadLift.monadLift, Option.option, bind,
+    Except.bind, pure, Except.pure]
+  rw [if_neg (by decide)]
+  rfl
+
+/-- The execution state JUMPDEST leaves: gas charged `Gjumpdest = 1`, pc advanced
+by one, stack unchanged. JUMPDEST is the no-op landing pad every jump target is. -/
+def jumpdestPost (exec : ExecutionState) : ExecutionState :=
+  ({ exec with gasAvailable := exec.gasAvailable - UInt64.ofNat Gjumpdest }).incrPC
+
+/-- **JUMPDEST advances pc by one**, charging `Gjumpdest = 1` and leaving the stack
+untouched. The landing-pad opcode every valid jump target carries; lifted so a
+taken jump can step past its target. Gas from `hgas`, overflow from `hsz`. -/
+theorem stepFrame_jumpdest (fr : Frame)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMPDEST, .none))
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : Gjumpdest ≤ fr.exec.gasAvailable.toNat) :
+    stepFrame fr = .next (jumpdestPost fr.exec) := by
+  unfold stepFrame
+  simp only [hdec]
+  dsimp only [Option.getD]
+  rw [if_neg (by decide)]
+  have hov : ¬ (fr.exec.stack.size - stackPopCount (.Smsf .JUMPDEST)
+      + stackPushCount (.Smsf .JUMPDEST) > 1024) := by
+    simp only [show stackPopCount (.Smsf .JUMPDEST) = 0 from rfl,
+               show stackPushCount (.Smsf .JUMPDEST) = 0 from rfl]
+    have := hsz; omega
+  rw [if_neg hov]
+  dsimp only [dispatch, smsfOp]
+  unfold charge
+  rw [if_neg (by omega)]
+  dsimp only [bind, Except.bind, pure, Except.pure]
+  rfl
+
 /-! ## RETURN (empty output)
 
 The first opcode with a *return-data* observable. `RETURN` pops `offset`/`size`,

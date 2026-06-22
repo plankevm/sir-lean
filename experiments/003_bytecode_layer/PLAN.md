@@ -19,6 +19,10 @@ reasoning about **intermediary** calls (calls that don't halt the program).
 - `BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean` — `messageCall_never_outOfFuel`.
 
 ## Milestones
+- [x] **B1 (CFG / conditional control flow)** `Runs`-level JUMP/JUMPI/JUMPDEST
+  rules + the `runs_branch` conditional-branch combinator + worked branch example.
+  The prereq for Track C's branch lowering. See the dated log entry below and the
+  "Control-flow API for Track C" section.
 - [x] **A1** Add `| call …` to `Runs` bundling `CallReturns`'s facts (`stepFrame =
   .needsCall`, `EntersAsCode`, child terminates, resume frame). Drop the `Nat` index
   (fuel premises are already gone) in favour of a non-`OutOfFuel`-reconciliation
@@ -51,6 +55,56 @@ bridge once. Constructors: `Runs.refl`, `Runs.step` (one `StepsTo`), `Runs.call`
   child `drive … = .ok childRes`, resumed frame by `rfl`).
 There is **no** per-call halt requirement and **no** numeric fuel side condition —
 all reconciliation is internal to `Runs.drive_reconcile`.
+
+## Control-flow API for Track C (CFG / branch lowering)
+The conditional-control-flow building blocks. All in `BytecodeLayer/Hoare.lean`
+(opened via `BytecodeLayer.Hoare`); the underlying `stepFrame_*` lemmas are in
+`BytecodeLayer/Semantics/Dispatch.lean`. Each rule is one `Runs` step with
+**semantic-only** preconditions (decode, gas, stack shape, valid jump dest); the
+post-frame is named by a transformer the way `pushFrame`/`sstoreFrame` are.
+
+Post-frame transformers (`Hoare.lean`):
+- `jumpFrame fr cost new_pc rest` — `exec := jumpPost` (gas `- cost`, `pc :=
+  new_pc`, operands popped to `rest`). Used by JUMP and a taken JUMPI.
+- `jumpiFallthroughFrame fr rest` — `exec := jumpiFallthroughPost` (gas `- Ghigh`,
+  `pc := pc+1`, operands popped). Used by a not-taken JUMPI.
+- `jumpdestFrame fr` — `exec := jumpdestPost` (gas `- Gjumpdest`, `pc := pc+1`,
+  stack unchanged). The no-op landing pad.
+
+Opcode rules (one `Runs` step each):
+- `runs_jump fr dest new_pc rest hdec hstk hsz hgas hdest :
+    Runs fr (jumpFrame fr Gmid new_pc rest)` — unconditional jump.
+  `hdest : fr.get_dest dest = some new_pc` (valid JUMPDEST), `hgas : Gmid ≤ gas`.
+- `runs_jumpi_taken fr dest cond new_pc rest hdec hstk hsz hgas hcond hdest :
+    Runs fr (jumpFrame fr Ghigh new_pc rest)` — `hcond : cond ≠ 0`, `hdest` valid.
+- `runs_jumpi_fallthrough fr dest rest hdec hstk hsz hgas :
+    Runs fr (jumpiFallthroughFrame fr rest)` — stack head must be `dest :: 0 :: rest`.
+- `runs_jumpdest fr hdec hsz hgas : Runs fr (jumpdestFrame fr)` — step past a
+  landing pad (a taken jump lands on a JUMPDEST, so chain this after the jump).
+
+The branching combinator (the key helper):
+- `runs_branch hdec hstk hsz hgas branch : Runs fr fr'`. Given the JUMPI frame
+  (decode `JUMPI`, stack `dest :: cond :: rest`, gas/overflow OK) and a `branch`
+  decision, builds the whole `if` as one `Runs fr fr'`:
+  `branch : (∃ new_pc, cond ≠ 0 ∧ fr.get_dest dest = some new_pc
+              ∧ Runs (jumpFrame fr Ghigh new_pc rest) fr')        -- taken arm
+           ∨ (cond = 0 ∧ Runs (jumpiFallthroughFrame fr rest) fr')`. -- fall-through
+  The caller case-splits on the runtime `cond` (or supplies a statically-known
+  side) and hands over the matching arm's continuation `Runs`. The result drops
+  straight into `Runs.trans` like straight-line code.
+
+Loops / back-edges: no separate theory needed. A `Runs` already expresses any
+finite trace, so a `runs_jump` back to an earlier `pc` is just another node glued
+by `Runs.trans` (gas strictly decreases each step ⇒ finiteness). A full
+loop-invariant theory is a follow-up if/when a real loop program needs it.
+
+Worked acceptance check: `Examples/BranchExample.lean`. `branchProgram =
+JUMPI;STOP;STOP;JUMPDEST;STOP`; `branchRuns cond g hg` builds one
+`Runs (jumpiFrame cond g) fr'` to a STOP-decoding frame for **any** `cond`, by
+`runs_branch` case-split — taken arm jumps to the JUMPDEST then `runs_jumpdest`
+steps to the trailing STOP, fall-through arm advances to its STOP. The frame uses
+an explicit `validJumps := #[3]` so `get_dest` is kernel-reducible (`codeFrame`'s
+`validJumpDests` is `partial`/opaque) — keeping the example free of `native_decide`.
 
 ## Agent brief (durable — re-spawn from this verbatim)
 > Work ONLY in `/Users/eduardo/workspace/evm-semantics-wt/runs-call`, on branch
@@ -123,3 +177,30 @@ all reconciliation is internal to `Runs.drive_reconcile`.
   theorems depend only on `propext`/`Classical.choice`/`Quot.sound`; no `sorryAx`).
   No blockers; the general statement needed no extra hypothesis. Track C composition
   API recorded above. A4 (verdict/report) NOT done this run.
+- 2026-06-22 (B1 — CFG / conditional control flow, CLOSED): the branch combinator
+  for Track C. NO new circular/trace-shaped hypotheses; all preconditions are
+  semantic (decode/gas/stack-shape/valid-dest), matching `runs_push`/`runs_sstore`.
+  * `Step.lean`-level (in `BytecodeLayer/Semantics/Dispatch.lean`, derived the same
+    way as `stepFrame_push`/`stepFrame_sstore`): `stepFrame_jump`,
+    `stepFrame_jumpi_taken`, `stepFrame_jumpi_fallthrough`, `stepFrame_jumpdest`.
+    JUMP/JUMPI/JUMPDEST live in `smsfOp` (the `.Smsf` cluster); the result sets
+    `pc` directly (not `replaceStackAndIncrPC`), so the post-states `jumpPost` /
+    `jumpiFallthroughPost` / `jumpdestPost` are spelled out inline. JUMPI's
+    `cond != 0` guard discharged via `UInt256.beq_iff_eq`; overflow guards from
+    `stack.size ≤ 1024` (both jumps only shrink the stack); gas from `Gmid`/`Ghigh`/
+    `Gjumpdest` bounds.
+  * `Runs`-level (in `BytecodeLayer/Hoare.lean`): `runs_jump`, `runs_jumpi_taken`,
+    `runs_jumpi_fallthrough`, `runs_jumpdest` (each `Runs.single` off its step
+    lemma), plus the **branching combinator `runs_branch`** (case-split on a
+    taken/fall-through witness disjunction, glued by `Runs.trans`). Full signatures
+    in "Control-flow API for Track C" above.
+  * Worked example: NEW `Examples/BranchExample.lean` — `branchRuns` composes both
+    arms of a one-JUMPI program into a single `Runs` to a STOP frame for arbitrary
+    `cond`, via `runs_branch`. Wired into the default build through `ConcreteSpecs`.
+  * Build GREEN (1129 jobs), axiom-clean: all ten new theorems (`stepFrame_jump`,
+    `stepFrame_jumpi_taken`, `stepFrame_jumpi_fallthrough`, `stepFrame_jumpdest`,
+    `runs_jump`, `runs_jumpi_taken`, `runs_jumpi_fallthrough`, `runs_jumpdest`,
+    `runs_branch`, `branchRuns`) depend only on `propext`/`Classical.choice`/
+    `Quot.sound` — no `sorryAx`, no `ofReduceBool` (no `native_decide`).
+  * Loops: deferred as noted (a back-edge is just another `Runs.trans` node; no
+    invariant theory needed this milestone). No blockers.
