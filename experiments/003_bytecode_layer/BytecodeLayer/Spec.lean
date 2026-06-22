@@ -24,7 +24,7 @@ Altitude caveat (flagged for the lead): the program-logic rules below are
 This is in tension with the experiment's "observables-only exported surface"
 standard. They are surfaced here because they *are* the reusable theorems a user
 instantiates; the only fully observable-level export is
-`messageCall_call_completedWith`. To reconcile.
+`messageCall_calls_completedWith`. To reconcile.
 -/
 
 namespace BytecodeLayer
@@ -125,69 +125,68 @@ theorem sstoreFrame_storage_frame (fr : Frame) (key newValue : UInt256) (rest : 
 
 /-! ## The general external-call rule (over both caller and callee programs)
 
-The sound, program-agnostic external-call sequencing rule. It is **general over
-both the caller and the callee program**, and unlike a forwarding hypothesis it
-assumes nothing about the conclusion:
+The sound, program-agnostic external-call rule. It is **general over both the
+caller and the callee program**, and unlike a forwarding hypothesis it assumes
+nothing about the conclusion:
 
 * the **callee is consumed as a black-box terminating run** — any `drive` of the
-  child params to `.ok childRes`, no oracle on what it computes;
-* the **caller is described by its actual `Runs` traces** through the CALL: an
-  honest prefix run `fr₀ ⇝ callFr` to the CALL site, the bundled `CallReturns`
-  fact resuming at `resumeFr`, and a suffix run from `resumeFr` to a halt site —
-  structural facts about how the caller bytecode executes, *not* an assumed
-  forwarding of the child's observable;
+  child params to `.ok childRes`, no oracle on what it computes (this is the
+  payload of a `Runs.call` / `CallReturns` node);
+* the **caller is described by its actual `Runs` trace** through every CALL: a
+  single `Runs fr₀ last` interleaving `Runs.step` (opcode steps) and `Runs.call`
+  (returning external CALLs) in any order, to a halting `last` — structural facts
+  about how the caller bytecode executes, *not* an assumed forwarding;
 * gas stays first-class but needs **no numeric side condition** — the rule
   discharges the fuel bound internally.
 
-`messageCall_call_runs` lands the raw `messageCall p = .ok (… endFrame last halt)`;
-`messageCall_call_completedWith` lifts it to the named `Outcome.completedWith`.
-A worked instantiation on `callerProg`/`calleeProg` is
-`Examples.messageCall_callerProg_storageAt`. -/
+There is **one** boundary bridge, `messageCall_runs` (above): because external
+CALLs are `Runs.call` nodes, it already accepts a caller trace with **any number**
+of returning calls. `messageCall_runs_calls` re-states it as the explicit
+multi-call composition guarantee, and `messageCall_calls_completedWith` lifts it to
+the named `Outcome.completedWith`. A worked single-call instantiation on
+`callerProg`/`calleeProg` is `Examples.messageCall_callerProg_storageAt`; a worked
+two-call program is `Examples.twoCallProg_runs`. -/
 
 /-- **`CallReturns callFr resumeFr`.** Re-exported from
 `BytecodeLayer.Hoare.CallSequence`. Bundles the three call-facts of the external
 CALL: `callFr` issues a CALL (`stepFrame callFr = .needsCall cp pending`) whose
 child enters as code (`EntersAsCode cp child`) and runs to completion
 (`drive (seedFuel cp.gas) [] (running child) = .ok childRes`), pinning the resumed
-parent frame to `resumeFr = resumeAfterCall childRes.toCallResult pending`. See
-`BytecodeLayer.Hoare.CallReturns`. -/
+parent frame to `resumeFr = resumeAfterCall childRes.toCallResult pending`. It is
+the payload of the `Runs.call` constructor. See `BytecodeLayer.Hoare.CallReturns`. -/
 abbrev CallReturns := Hoare.CallReturns
 
-/-- **The general external-CALL sequencing rule.** Re-exported from
-`BytecodeLayer.Hoare.CallSequence`. A caller that `Runs` from its entry frame to a
-CALL site, issues a CALL whose child terminates and resumes at `resumeFr`
-(`CallReturns callFr resumeFr`, black box), then `Runs` from `resumeFr` to a halt
-site, produces the caller's halt result as `messageCall p`. General over both
-programs; no assumed forwarding and **no numeric fuel side condition** — see the
-section note. -/
-theorem messageCall_call_runs (p : CallParams)
-    {fr₀ callFr resumeFr last : Frame} {halt : FrameHalt}
-    (hbegin   : EntersAsCode p fr₀)
-    (hpre     : Runs fr₀ callFr)
-    (hcallret : CallReturns callFr resumeFr)
-    (hpost    : Runs resumeFr last)
-    (hhalt    : stepFrame last = .halted halt) :
+/-- **Multi-call composition.** Re-exported from `BytecodeLayer.Hoare.CallSequence`.
+A caller that enters as code and whose single `Runs fr₀ last` interleaves **any
+number of returning external CALLs** (`Runs.call` / `CallReturns` nodes) with
+opcode steps, ending at a halting `last`, delivers the caller's halt result as
+`messageCall p` — no assumed forwarding, **no per-call halt requirement, and no
+numeric fuel side condition**. This is the general "≥N calls compose" guarantee
+Track C composes against; the caller builds `h` with `Runs.call` / `Runs.step` /
+`Runs.trans`. -/
+theorem messageCall_runs_calls (p : CallParams) {fr₀ last : Frame} {halt : FrameHalt}
+    (hbegin : EntersAsCode p fr₀)
+    (h : Runs fr₀ last)
+    (hhalt : stepFrame last = Signal.halted halt) :
     messageCall p = .ok (FrameResult.toCallResult (endFrame last halt)) :=
-  Hoare.messageCall_call_runs p hbegin hpre hcallret hpost hhalt
+  Hoare.messageCall_runs_calls p hbegin h hhalt
 
 /-- **The general external-CALL rule at the observable level.** Re-exported from
 `BytecodeLayer.Hoare.CallSequence`. The same honest hypotheses as
-`messageCall_call_runs`, plus the caller's halt result being a success leaving `v`
-at cell `(a, k)`, yield the named `Outcome.completedWith` on
-`Outcome.ofCall (messageCall p)`. This is the sound, general external-call rule for
-the spec surface — no assumed forwarding. -/
-theorem messageCall_call_completedWith (p : CallParams)
-    {fr₀ callFr resumeFr last : Frame} {halt : FrameHalt}
+`messageCall_runs_calls` (a single multi-call `Runs fr₀ last` to a halting `last`),
+plus the caller's halt result being a success leaving `v` at cell `(a, k)`, yield
+the named `Outcome.completedWith` on `Outcome.ofCall (messageCall p)`. This is the
+sound, general external-call rule for the spec surface — no assumed forwarding. -/
+theorem messageCall_calls_completedWith (p : CallParams)
+    {fr₀ last : Frame} {halt : FrameHalt}
     (a : AccountAddress) (k v : UInt256)
-    (hbegin   : EntersAsCode p fr₀)
-    (hpre     : Runs fr₀ callFr)
-    (hcallret : CallReturns callFr resumeFr)
-    (hpost    : Runs resumeFr last)
-    (hhalt    : stepFrame last = .halted halt)
-    (hsucc    : (FrameResult.toCallResult (endFrame last halt)).success = true)
-    (hcell    : CallResult.storageAt (FrameResult.toCallResult (endFrame last halt)) a k = v) :
+    (hbegin : EntersAsCode p fr₀)
+    (h      : Runs fr₀ last)
+    (hhalt  : stepFrame last = .halted halt)
+    (hsucc  : (FrameResult.toCallResult (endFrame last halt)).success = true)
+    (hcell  : CallResult.storageAt (FrameResult.toCallResult (endFrame last halt)) a k = v) :
     Outcome.completedWith (Outcome.ofCall (messageCall p)) a k v :=
-  Hoare.messageCall_call_completedWith p a k v
-    hbegin hpre hcallret hpost hhalt hsucc hcell
+  Hoare.messageCall_calls_completedWith p a k v
+    hbegin h hhalt hsucc hcell
 
 end BytecodeLayer

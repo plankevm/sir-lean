@@ -18,7 +18,8 @@ caller/callee programs and `callerParams` live in `Programs.lean`.
 
 These bricks are consumed by the compositional proof in
 [`Examples/CallerProgExample.lean`] — which obtains the caller's storage result by
-instantiating the general `messageCall_call_runs` rule, not a giant opcode chain —
+instantiating the single `messageCall_runs` bridge over a `Runs.call` node, not a
+giant opcode chain —
 and by `Examples/ConcreteSpecs.lean` (`call_counterexample`). None of it is part
 of the audit surface `Spec.lean`.
 

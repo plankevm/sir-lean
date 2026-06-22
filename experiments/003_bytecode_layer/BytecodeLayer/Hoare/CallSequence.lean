@@ -4,16 +4,15 @@ import BytecodeLayer.Semantics.Interpreter.NeverOutOfFuel
 import BytecodeLayer.Hoare.OutcomeBridge
 
 /-!
-# The two `messageCall`-boundary bridges, both fuel-free
+# The single `messageCall`-boundary bridge, fuel-free
 
-This file holds **both** `messageCall`-boundary sequencing rules — the call-free
-`messageCall_runs` and the external-CALL `messageCall_call_runs` — each proved
-**fuel-free** (no numeric `n + … ≤ seedFuel` side condition) via
-never-out-of-fuel (`messageCall_never_outOfFuel`) plus the index-free `Runs`
-reconciliation invariant `Runs.drive_reconcile`.
+This file holds the **one** `messageCall`-boundary sequencing rule,
+`messageCall_runs`, proved **fuel-free** (no numeric `n + … ≤ seedFuel` side
+condition) via never-out-of-fuel (`messageCall_never_outOfFuel`) plus the
+index-free `Runs` reconciliation invariant `Runs.drive_reconcile`.
 
 `Runs.drive_reconcile` is the engine: since the index-free `Runs` carries no step
-count, the bridges cannot phrase a numeric fuel bound. Instead this invariant
+count, the bridge cannot phrase a numeric fuel bound. Instead this invariant
 says that **any** non-`OutOfFuel` run from any frame on a `Runs` path yields the
 same final result — proved by induction on `Runs`, splicing returning external
 calls (`call` nodes) into the path via `drive_descend_eq` + `drive_fuel_mono`.
@@ -23,13 +22,13 @@ frame to a halt site produces the expected `messageCall` result. The halt site
 delivers in `2` fuel, which `Runs.drive_reconcile` reconciles with the seeded run
 (both avoid `OutOfFuel`) — no fuel ordering needed.
 
-`messageCall_call_runs` is the **program-agnostic** external-call analogue: a
-caller that `Runs` from its entry frame to a CALL site, a returning CALL (the
-bundled `CallReturns` — the CALL step, the child entering as code, and the child's
-black-box terminating run), then `Runs` from the resumed frame to a halt site. It
-is now a corollary of `messageCall_runs`: the prefix, the `Runs.call` node, and
-the suffix glue into one `Runs fr₀ last` by `Runs.trans`, with all reconciliation
-delegated to `Runs.drive_reconcile`.
+Because `Runs` carries external CALLs as `call` nodes (`CallReturns`), this **one**
+bridge already covers programs with **any number** of returning external calls,
+interleaved with opcode steps in any order: the caller simply builds its
+`Runs fr₀ last` with `Runs.call` / `Runs.step` / `Runs.trans` and crosses the
+boundary once. The former separate `messageCall_call_runs` (a single `.call` node)
+is the one-`.call` special case and is no longer needed; the general
+multi-call composition guarantee is `messageCall_runs_calls` below.
 -/
 
 namespace BytecodeLayer.Hoare
@@ -152,31 +151,33 @@ theorem messageCall_runs (p : CallParams) {fr₀ last : Frame} {halt : FrameHalt
   rw [h.drive_reconcile hseed_neoof hlast_neoof, hlast]
   rfl
 
-/-! ## Lemma 2 — the keystone external-CALL sequencing rule -/
+/-! ## Multi-call composition (the general regular-language-shaped guarantee)
 
-/-- **The general external-CALL sequencing rule.** A caller enters as code
-(`EntersAsCode p fr₀`), `Runs` its prefix to a CALL site `callFr`, issues a CALL
-whose child enters as code and terminates, resuming at `resumeFr`
-(`CallReturns callFr resumeFr`, a black-box terminating child), then `Runs` its
-suffix from `resumeFr` to a halt site `last`. `messageCall p` delivers the
-caller's halt result — **no numeric fuel side condition**.
+`messageCall_runs` already accepts a `Runs fr₀ last` that contains **any number**
+of `.call` nodes interleaved with `.step`s in any order — its only premises are
+`EntersAsCode p fr₀` and that `last` halts. `messageCall_runs_calls` is the same
+statement, re-stated as the explicit "≥N returning external calls compose"
+guarantee: it is *definitionally* `messageCall_runs`, named so callers can cite the
+multi-call composition contract directly. The reconciliation across every `call`
+node lives inside `Runs.drive_reconcile`; there is no per-call halt requirement and
+no numeric fuel side condition. -/
 
-With the index-free `Runs`, this is now a one-liner: the prefix, the returning
-CALL node (`Runs.call`), and the suffix glue into a single `Runs fr₀ last` by
-`Runs.trans`, and `messageCall_runs` crosses the boundary. The whole fuel
-reconciliation — including splicing the black-box child run into the path — lives
-inside `Runs.drive_reconcile`. -/
-theorem messageCall_call_runs (p : CallParams)
-    {fr₀ callFr resumeFr last : Frame} {halt : FrameHalt}
-    (hbegin   : EntersAsCode p fr₀)
-    (hpre     : Runs fr₀ callFr)
-    (hcallret : CallReturns callFr resumeFr)
-    (hpost    : Runs resumeFr last)
-    (hhalt    : stepFrame last = .halted halt) :
+/-- **Multi-call composition.** A caller that enters as code (`EntersAsCode p fr₀`)
+and whose single `Runs fr₀ last` interleaves **any number of returning external
+CALLs** (`.call` / `CallReturns` nodes) with opcode steps, ending at a halting
+`last`, delivers the caller's halt result as `messageCall p` — with **no numeric
+fuel side condition and no per-call halt requirement**. Intermediary calls (calls
+that return into more code rather than halting the program) compose: each is just a
+`.call` node spliced into the path by `Runs.drive_reconcile`.
+
+This is `messageCall_runs` under a name that makes the multi-call guarantee
+explicit; the caller builds `h` with `Runs.call` / `Runs.step` / `Runs.trans`. -/
+theorem messageCall_runs_calls (p : CallParams) {fr₀ last : Frame} {halt : FrameHalt}
+    (hbegin : EntersAsCode p fr₀)
+    (h : Runs fr₀ last)
+    (hhalt : stepFrame last = Signal.halted halt) :
     messageCall p = .ok (FrameResult.toCallResult (endFrame last halt)) :=
-  messageCall_runs p hbegin
-    (hpre.trans (Runs.call hcallret hpost))
-    hhalt
+  messageCall_runs p hbegin h hhalt
 
 /-! ## Except/Outcome decoders (reusable plumbing) -/
 
@@ -198,24 +199,25 @@ theorem completedWith_of_ok {p : CallParams} {r : CallResult}
 
 /-! ## The general external-CALL rule at the named-`Outcome` level -/
 
-/-- **The general external-CALL rule, observable-level.** The same honest,
-program-agnostic sequencing hypotheses as `messageCall_call_runs`, plus the caller's
-halt result being a success leaving `v` at cell `(a, k)`, yield the named
-`Outcome.completedWith` predicate on `Outcome.ofCall (messageCall p)`. This is the
-sound external-call rule the spec surface exposes — no assumed forwarding. -/
-theorem messageCall_call_completedWith (p : CallParams)
-    {fr₀ callFr resumeFr last : Frame} {halt : FrameHalt}
+/-- **The general external-CALL rule, observable-level.** A caller that enters as
+code and whose single `Runs fr₀ last` carries **any number** of returning external
+CALLs (`.call` nodes) to a halting `last`, plus the caller's halt result being a
+success leaving `v` at cell `(a, k)`, yields the named `Outcome.completedWith`
+predicate on `Outcome.ofCall (messageCall p)`. This is the sound external-call rule
+the spec surface exposes — no assumed forwarding, no per-call halt requirement, no
+numeric fuel side condition. The caller builds `h` with `Runs.call` /
+`Runs.step` / `Runs.trans` (the single-call case is one `.call` node). -/
+theorem messageCall_calls_completedWith (p : CallParams)
+    {fr₀ last : Frame} {halt : FrameHalt}
     (a : AccountAddress) (k v : UInt256)
-    (hbegin   : EntersAsCode p fr₀)
-    (hpre     : Runs fr₀ callFr)
-    (hcallret : CallReturns callFr resumeFr)
-    (hpost    : Runs resumeFr last)
-    (hhalt    : stepFrame last = .halted halt)
-    (hsucc    : (FrameResult.toCallResult (endFrame last halt)).success = true)
-    (hcell    : CallResult.storageAt (FrameResult.toCallResult (endFrame last halt)) a k = v) :
+    (hbegin : EntersAsCode p fr₀)
+    (h      : Runs fr₀ last)
+    (hhalt  : stepFrame last = .halted halt)
+    (hsucc  : (FrameResult.toCallResult (endFrame last halt)).success = true)
+    (hcell  : CallResult.storageAt (FrameResult.toCallResult (endFrame last halt)) a k = v) :
     Outcome.completedWith (Outcome.ofCall (messageCall p)) a k v :=
   completedWith_of_ok
-    (messageCall_call_runs p hbegin hpre hcallret hpost hhalt)
+    (messageCall_runs p hbegin h hhalt)
     hsucc hcell
 
 end BytecodeLayer.Hoare

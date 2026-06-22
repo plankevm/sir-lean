@@ -15,10 +15,12 @@ programs.
 
 The general, program-agnostic content lives on the audit surface `Spec.lean`
 (the sequencing rule `Runs.trans`, the opcode rules, the `messageCall` bridge, and
-the external-CALL rule `messageCall_call_runs` / `messageCall_call_completedWith`).
+the multi-call composition rule `messageCall_runs_calls` /
+`messageCall_calls_completedWith`).
 These concrete results delegate to the proofs in `ProgramExamples.lean` (the
 `*'` lemmas, composed from the opcode rules) and — for the external call — to the
-**compositional** `CallerProgExample.lean` (which instantiates `messageCall_call_runs`),
+**compositional** `CallerProgExample.lean` (which crosses `messageCall_runs` over a
+`Runs.call` node),
 with the forced-`∃G₀` counterexample from `ExternalCall.lean`.
 
 Two groups:
@@ -90,7 +92,7 @@ every `g ≥ G₀`, the top-level message call into the caller (which forwards a
 commits. The `∃G₀` is *forced*, not cosmetic — see `call_counterexample`.
 
 The witness `G₀ = 30000` and the proof come from the **compositional**
-`messageCall_callerProg_storageAt` (the general `messageCall_call_runs` rule
+`messageCall_callerProg_storageAt` (the single `messageCall_runs` bridge
 instantiated on `callerProg`/`calleeProg`), not a monolithic opcode chain. -/
 theorem messageCall_call_storageAt :
     ∃ G₀ : ℕ, ∀ g : UInt64, G₀ ≤ g.toNat →

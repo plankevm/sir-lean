@@ -33,7 +33,8 @@ terminating child equals the independent child run followed by
 `resumeAfterCall res.toCallResult pd`. Combined with `drive_fuel_mono` and
 `messageCall_never_outOfFuel`, the residual fuel `j` reconciles to whatever the
 resumed parent needs. This is the generic brick the sound external-CALL
-sequencing rule (`messageCall_call_runs`) uses to reconcile the black-box child
+reconciliation invariant (`Runs.drive_reconcile`, the engine behind
+`messageCall_runs`) uses on each `Runs.call` node to reconcile the black-box child
 run against the caller's suffix, replacing any assumed-forwarding hypothesis.
 -/
 
