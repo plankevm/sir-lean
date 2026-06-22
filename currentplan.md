@@ -82,11 +82,13 @@ nesting *as a theorem over flat*; Track B *adopts* the already-nested semantics.
   the composition API to Track C. Keep green, axiom-clean, no `sorry`.
 
 ### Track B — Nested EVM core over EVMYulLean  (worktree `nested-evmyul`)
-- [ ] **B1** Vendor EVMYulLean into `experiments/004_nested_evmyul/EVMYulLean/` as a
-  squashed git subtree (same model as EVMLean). **Strip the Yul subsystem**
-  (`EvmYul/Yul/`, ~200K; only `EvmYul/Semantics.lean` imports it — fix that import)
-  and anything Yul-only. Keep the EVM library (`EvmYul` + `Conform` dep) building
-  in-tree. Drop heavy/irrelevant fixtures. `lake build` green.
+- [x] **B1** DONE (`exp004-nested` @ `20ad4c1`, green 1033 jobs). Vendored
+  EVMYulLean @ `066dc8b` (816K). **Finding: a clean Yul-ectomy is impossible** — the
+  nested semantics is `τ`-polymorphic over `OperationType = Yul | EVM` and EVM state
+  types carry `Yul.Ast.contractCode`, so the EVM path needs a minimal Yul fragment
+  (`Yul/{Ast,State,StateOps,Exception,Wheels,PrimOps}` kept; `Yul/{Interpreter,
+  MachineState,SizeLemmas,YulNotation}`+tests deleted). exp004 lakefile requires
+  `evmyul from "EVMYulLean"`; toolchain v4.22.0; crypto FFI built fine.
 - [ ] **B2** Fuel↔gas: never-`OutOfFuel` on nested `Ξ/Θ` when fuel ≥ gas-derived
   bound (the nested analogue of `messageCall_never_outOfFuel`).
 - [ ] **B3** Nested external-call core: a `{P} Ξ(child) {Q}` triple + call-site/frame
@@ -94,9 +96,10 @@ nesting *as a theorem over flat*; Track B *adopts* the already-nested semantics.
 - [ ] **B4** Expose an observables-only, fuel/frame-free semantics surface for IRs.
 
 ### Track C — IR + lowering + preservation  (worktree `ir-lowering`)
-- [ ] **C1** Define the high-level IR: **storage arithmetic + external calls +
-  branching**. Build on exp002's `SirLean/` SSA-CFG IR but ensure branches and calls
-  are first-class. Local design doc.
+- [x] **C1** DONE (`exp005-ir` @ `505c83b`, green 1105 jobs). Fresh `LirLean` IR
+  (NOT extending `SirLean`: UInt32, no CALL, no gas, dead SSA weight). First-class
+  `sload/sstore/add/lt`, `Stmt.call`, `Term.branch`, `Expr.gas`. `docs/ir-design.md`
+  + `sorry`-free compiling two-pass lowering skeleton.
 - [ ] **C2** Lowering IR → EVM bytecode.
 - [ ] **C3** Prove lowering preserves semantics, using exp003's reasoning layer
   (the `Runs`/boundary-bridge machinery — coordinate with Track A's API).
@@ -145,3 +148,11 @@ write the blocker into PLAN.md before stopping.
   does only its M1, appends to its PLAN.md progress log, commits on its branch,
   then stops + reports). On resume: do NOT look for these agents (ephemeral); read
   each PLAN.md log + `lake build`, then re-spawn from the PLAN.md "Agent brief".
+- 2026-06-22: **B1 + C1 DONE, both green & committed** (B `20ad4c1`, C `505c83b`;
+  the C agent finished its work but failed to commit — main loop committed it, closing
+  the gap). Track A (`Runs.call`) still running. **KEY CROSS-TRACK FINDING (C, the C4
+  question, surfaced early): exp003's call sequencing CANNOT express ≥2-call programs**
+  — a CALL is `Signal.needsCall`, not a `StepsTo`/`Runs` link, so `Runs.trans` can't
+  glue it; the bridge is hard-wired to exactly one `CallReturns`. ⇒ **Track A's
+  `Runs.call` constructor is the confirmed critical path**; C's single-call lowering
+  (C2) can proceed now, but multi-call (C3/C4) is blocked on A1–A3.
