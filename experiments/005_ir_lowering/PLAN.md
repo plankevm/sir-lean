@@ -157,3 +157,140 @@ bridges). The IR's job is to exercise the three primitives we actually need:
   ONE `CallReturns` — remains the separate C4/Track-A `Runs.call` dependency
   recorded in the C1 log and `docs/ir-design.md` §5; single-call lowering, this
   milestone, is unaffected by it.)
+
+## C→A opcode-rule request (for Track A `exp003-runs-call`)
+
+The C3 preservation proof (`docs/ir-design.md` §6.4 obligation table) consumes
+Track A's new index-free `Runs` API (`Runs.step`/`Runs.call`/`Runs.trans`,
+`messageCall_runs` / `messageCall_runs_calls`). On top of the rules A already ships
+(`runs_push1`, `runs_push`, `runs_sstore` + framing), C3 needs the following
+**six new opcode `Runs` rules**. Each is a generic, program-independent brick of
+the same form A already wrote for SSTORE: under purely semantic preconditions
+(decode + gas bound + stack shape) it advances **one** frame to a named post-frame
+transformer, derived from the matching `stepFrame_*` characterization. **No halt
+wrapper and no CALL `runs_*` is requested** — A's `messageCall_runs` takes the
+`STOP`/`RETURN` halt directly via its `hhalt` argument (using the existing
+`stepFrame_stop` / `stepFrame_return_empty`), and `CALL` is a `Runs.call` node
+built from `CallReturns` (A's `stepFrame_call`), not a `runs_*` rule. JUMP/JUMPI
+are noted as already in A's CFG-combinator work; if not yet exposed as `runs_*`,
+the shapes below are the request.
+
+Gas/stack facts are confirmed against A's worktree (`EVMLean/Evm/Semantics/
+{Smsf,PrimOps,GasConstants}.lean`): `binOp`/`unOp` charge `Gverylow = 3`; `pushOp`
+charges `Gbase = 2`; `sloadCost warm = if warm then Gwarmaccess(100) else
+Gcoldsload(2100)`; JUMP charges `Gmid = 8`, JUMPI charges `Ghigh = 10`; jump targets
+are resolved by `Frame.get_dest dest = fr.validJumps.find? (· == dest.toUInt32)`.
+
+1. **`runs_add`** (ADD `0x01`) — `Expr.add`.
+   ```
+   def addFrame (fr) (a b : UInt256) (rest : Stack UInt256) : Frame :=    -- pops a,b; pushes a+b; pc+1; −Gverylow
+   theorem runs_add (fr : Frame) (a b : UInt256) (rest : Stack UInt256)
+       (hdec : decode fr.exec.code fr.exec.pc = some (.ArithLogic .ADD, none))
+       (hstk : fr.exec.stack = a :: b :: rest)
+       (hgas : 3 ≤ fr.exec.gasAvailable.toNat) (hsz : fr.exec.stack.size ≤ 1024) :
+       Runs fr (addFrame fr a b rest)
+   ```
+   (post: top = `a + b`, then `rest`; the IR `IRStep` for `add` must subtract the
+   same `Gverylow`.)
+
+2. **`runs_lt`** (LT `0x10`) — `Expr.lt`. Identical shape to `runs_add` with
+   `.ArithLogic .LT` and `ltFrame` pushing `if a < b then 1 else 0` (EVM `LT`
+   compares `top < second`, i.e. `a < b` for stack `a :: b :: rest`; charge
+   `Gverylow`).
+
+3. **`runs_sload`** (SLOAD `0x54`) — `Expr.sload`. Pops `key`, pushes the self
+   account's stored value, charges `sloadCost warm`:
+   ```
+   def sloadFrame (fr) (key : UInt256) (rest : Stack UInt256) : Frame :=     -- pops key; pushes value@key; pc+1; −sloadCost
+   theorem runs_sload (fr : Frame) (key : UInt256) (rest : Stack UInt256)
+       (hdec : decode fr.exec.code fr.exec.pc = some (.Smsf .SLOAD, none))
+       (hstk : fr.exec.stack = key :: rest) (hsz : fr.exec.stack.size ≤ 1024)
+       (hgas : sloadCost (fr.exec.substate.accessedStorageKeys.contains
+                  (fr.exec.executionEnv.address, key)) ≤ fr.exec.gasAvailable.toNat) :
+       Runs fr (sloadFrame fr key rest)
+   ```
+   Desired **read companion** (mirrors `sstoreFrame_storage_self`): the pushed value
+   equals the storage lens C3's `Match` (M3) uses —
+   `(sloadFrame fr key rest).exec.stack.head = (fr.exec.accounts.find?
+   fr.exec.executionEnv.address |>.option 0 (·.lookupStorage key))`.
+
+4. **`runs_gas`** (GAS `0x5a`) — `Expr.gas` (gas introspection). Pushes
+   `UInt256.ofUInt64 fr.exec.gasAvailable`, charges `Gbase = 2`, pops nothing:
+   ```
+   def gasFrame (fr) : Frame :=     -- pushes ofUInt64 gasAvailable; pc+1; −Gbase
+   theorem runs_gas (fr : Frame)
+       (hdec : decode fr.exec.code fr.exec.pc = some (.Smsf .GAS, none))
+       (hgas : 2 ≤ fr.exec.gasAvailable.toNat) (hstk : fr.exec.stack.size + 1 ≤ 1024) :
+       Runs fr (gasFrame fr)
+   ```
+   (Note: the pushed value is gas **after** the `Gbase` charge in the EVM model;
+   the exact post-charge value must be pinned in the post-frame so C3's `M4`
+   threading stays honest — this is the gas-introspection coupling.)
+
+5. **`runs_jump`** (JUMP `0x56`) — `Term.jump` and the not-taken edge of
+   `Term.branch`. Pops `dest`, sets pc to the resolved target, charges `Gmid = 8`:
+   ```
+   def jumpFrame (fr) (newPc : UInt32) (rest : Stack UInt256) : Frame :=    -- pops dest; pc:=newPc; −Gmid
+   theorem runs_jump (fr : Frame) (dest : UInt256) (newPc : UInt32) (rest : Stack UInt256)
+       (hdec : decode fr.exec.code fr.exec.pc = some (.Smsf .JUMP, none))
+       (hstk : fr.exec.stack = dest :: rest)
+       (hdst : fr.get_dest dest = some newPc)              -- dest ∈ validJumps
+       (hgas : 8 ≤ fr.exec.gasAvailable.toNat) :
+       Runs fr (jumpFrame fr newPc rest)
+   ```
+   C3 supplies `hdst` from the lowering's offset table landing on a `JUMPDEST`
+   (the `Decode.lean` checks already witness `decode code off = JUMPDEST`).
+
+6. **`runs_jumpi`** (JUMPI `0x57`) — `Term.branch`. Pops `dest, cond`, charges
+   `Ghigh = 10`; **two** post-frames by the condition. Cleanest as one rule per
+   edge (so C3 picks the edge its `Match` is on):
+   ```
+   theorem runs_jumpi_taken (fr) (dest cond : UInt256) (newPc : UInt32) (rest)
+       (hdec : decode … = some (.Smsf .JUMPI, none))
+       (hstk : fr.exec.stack = dest :: cond :: rest) (hc : cond ≠ 0)
+       (hdst : fr.get_dest dest = some newPc) (hgas : 10 ≤ …) :
+       Runs fr (jumpiTakenFrame fr newPc rest)              -- pc := newPc; −Ghigh
+   theorem runs_jumpi_fallthrough (fr) (dest cond : UInt256) (rest)
+       (hdec : …) (hstk : fr.exec.stack = dest :: cond :: rest) (hc : cond = 0)
+       (hgas : 10 ≤ …) :
+       Runs fr (jumpiFallFrame fr rest)                      -- pc := pc+1; −Ghigh
+   ```
+
+**Priority for C3's first worked program** (`workedCall`, `Decode.lean`):
+`runs_sload`, `runs_add`, `runs_lt`, `runs_gas` are needed for the storage-arith +
+introspection surface; `runs_jump` + `runs_jumpi_*` for the branch. All six are
+required for the full single-/multi-call preservation theorem.
+
+- 2026-06-22 (C-review/C3-design): **Rebase-safe review + C3 design milestone.**
+  Studied Track A's NEW `exp003-runs-call` API (read-only, from
+  `../runs-call/.../BytecodeLayer/{Hoare.lean, Hoare/Sequence.lean,
+  Hoare/CallSequence.lean, Examples/TwoCallExample.lean}`). Three API facts that
+  change C3's target vs. the C1/C2 assumptions: (i) `Runs` is now **index-free**
+  (`Runs fr fr'`, no `Nat`); (ii) `call` is a **constructor of `Runs`**
+  (`Runs.call hcall rest`, payload `CallReturns`) — so the C1/C2 multi-call blocker
+  is **RESOLVED** (worked in A's `TwoCallExample`); (iii) the boundary bridge is the
+  single `messageCall_runs` (alias `messageCall_runs_calls`) and it **takes the halt
+  itself** via `hhalt : stepFrame last = .halted halt` — so C3 needs **no** halt
+  `runs_*` wrapper (the C2-log "thin Runs→halt wrapper" note is superseded).
+  - **Simplified C1+C2** (build still green, 1106 jobs; axiom-clean — `#print axioms`
+    on a decode check = `[propext, Quot.sound]`, no `sorryAx`/native axiom). Removed
+    two genuinely dead defs from `LirLean/Lowering.lean`: `Byte.push1` (only
+    PUSH4/PUSH32 are ever emitted) and `destPushBytes` (referenced only in a doc
+    comment, never load-bearing — `emitDest` fixes the PUSH4 width itself); fixed the
+    one comment that named it. Reviewed recompute-on-use: it is correct and is in
+    fact the simplification that lets C3's `Match` drop the register↔slot map
+    entirely (see §6.1). No behavioural change — the 40 decode round-trip `rfl`
+    checks still pass, confirming the byte layout is identical.
+  - **Wrote the concrete C3 plan** in `docs/ir-design.md` §6: the `Match` invariant
+    (M1 pc-via-offset-table, M2 code, M3 storage-via-observable-lens, M4 honest gas,
+    M5 empty-stack-at-statement-boundary — no slot map, thanks to recompute-on-use);
+    the `lower_simulates_step` engine and `lower_preserves` top-level shapes against
+    A's new API; and the **per-construct proof-obligation table** mapping every IR
+    construct to the exact `runs_*` / `Runs.call` / bridge-halt step it consumes.
+    Updated §5 to A's new API and marked the multi-call blocker RESOLVED.
+  - **Wrote the C→A opcode-rule request** above (six rules: `runs_add`, `runs_lt`,
+    `runs_sload` (+read companion), `runs_gas`, `runs_jump`, `runs_jumpi_*`), each
+    with a precise signature shape (semantic preconditions + named post-frame),
+    gas/stack/pc facts confirmed against A's `EVMLean/Evm/Semantics/*`.
+  - Did **not** attempt the preservation proof (gated on A's merge into this base).
+    No `sorry`, no `axiom` introduced.

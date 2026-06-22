@@ -221,104 +221,232 @@ a `decode (lower prog)` correctness lemma in C2.
 
 This is the crux of Track C and its feedback edge to Track A.
 
-exp003 exposes (re-exported in `BytecodeLayer.Spec`):
+exp003 exposes (re-exported in `BytecodeLayer.Spec`), in Track A's **new
+`exp003-runs-call` API** (the one C3 targets — *not yet merged to this worktree's
+base*):
 
-- `Runs n fr fr'` — `n` non-halting steps, composed by `Runs.trans`;
-- `messageCall_runs` — a call-free block that `Runs` to a halt becomes a
-  `messageCall` result (fuel-free);
-- `CallReturns callFr resumeFr` — bundles **one** external CALL: the CALL step
-  (`stepFrame callFr = .needsCall cp pending`), the child entering as code, the
-  child's black-box terminating run, pinning `resumeFr`;
-- `messageCall_call_runs` — `EntersAsCode` ∧ prefix `Runs` to the CALL site ∧
-  `CallReturns` ∧ suffix `Runs` to a halt ⇒ `messageCall` result (fuel-free).
+- `Runs fr fr'` — an **index-free** reflexive-transitive closure of single
+  non-halting steps **extended with returning external CALLs**. Three
+  constructors: `Runs.refl`, `Runs.step` (one `StepsTo` opcode link), and
+  `Runs.call` (a returning external CALL, payload `CallReturns`). Composed by
+  `Runs.trans`; the one-step atom is `Runs.single`. **No `Nat` step index** — the
+  boundary reconciles by never-out-of-fuel, not a numeric bound.
+- `messageCall_runs (p) (hbegin : EntersAsCode p fr₀) (h : Runs fr₀ last)
+  (hhalt : stepFrame last = .halted halt) : messageCall p = .ok (toCallResult
+  (endFrame last halt))` — the **single** boundary bridge, fuel-free. The halt is
+  taken by `hhalt` at the bridge (no separate halt `runs_*` lemma needed).
+- `CallReturns callFr resumeFr` — bundles **one** returning external CALL: the
+  CALL step (`stepFrame callFr = .needsCall cp pending`), the child entering as
+  code (`EntersAsCode cp child`), the child's black-box terminating run
+  (`drive (seedFuel cp.gas) [] (running child) = .ok childRes`), pinning
+  `resumeFr = resumeAfterCall childRes.toCallResult pending`. This is the payload
+  of `Runs.call`.
+- `messageCall_runs_calls` — definitionally `messageCall_runs`, named to make the
+  **multi-call composition** guarantee explicit: a single `Runs fr₀ last`
+  interleaving **any number** of `Runs.call` nodes with `Runs.step`s, ending at a
+  halting `last`, crosses the boundary in one shot.
+- Opcode `Runs` rules currently provided: `runs_push1`, `runs_push` (any width),
+  `runs_sstore` (+ framing lemmas `sstoreFrame_storage_self` /
+  `sstoreFrame_storage_frame`). Post-frame transformers: `pushFrame`,
+  `pushFrameW`, `sstoreFrame`. The rules C3 additionally needs are the **C→A
+  opcode-rule request** (PLAN.md): `runs_sload` / `runs_add` / `runs_lt` /
+  `runs_gas` / `runs_jump` / `runs_jumpi`.
 
 **How a lowered IR program maps onto this:**
 
 - A lowered **call-free** IR program is a single `Runs` chain (glue the per-op
   `Runs` rules with `Runs.trans`) ending at a `STOP`/`RETURN` halt → discharge via
-  `messageCall_runs`. This is the C2/C3 single-block / single-path target.
-- A lowered IR program with **one** `Stmt.call` is exactly the
-  `messageCall_call_runs` shape: prefix `Runs` (everything before the call) →
-  `CallReturns` (the `CALL` opcode + black-box callee) → suffix `Runs` (everything
-  after) → halt. The IR's black-box `call` semantics (§3) was chosen to match
-  `CallReturns`'s black-box child precisely, so the simulation lines up.
+  `messageCall_runs`. This is the C3 single-block / single-path target.
+- A lowered IR program with `Stmt.call`s maps each CALL to a `Runs.call` node
+  (`CallReturns`) and threads them into the **same** `Runs fr₀ last` as the opcode
+  `Runs.step`s, by `Runs.trans`. The IR's black-box `call` semantics (§3) was
+  chosen to match `CallReturns`'s black-box child precisely, so the simulation
+  lines up. One CALL or many: it is the same single `Runs` value, crossed once by
+  `messageCall_runs` / `messageCall_runs_calls`.
 
-### ⚠️ Multi-call composition — the C4 question, surfaced now
+### ✅ Multi-call composition — RESOLVED by Track A's `Runs.call`
 
-**Studying the API already shows exp003's sequencing does NOT compose for IR
-programs with ≥2 external calls.** `messageCall_call_runs` is hard-wired to *one*
-`CallReturns` between a prefix and a suffix `Runs`:
+The C1/C2 logs flagged that exp003's *old* `messageCall_call_runs` admitted only
+**one** `CallReturns` between a prefix and a suffix `Runs`, so a ≥2-call IR program
+(`prefix → call → middle → call → suffix → halt`) was inexpressible. **Track A's
+new `exp003-runs-call` API resolves this**: `call` is now a **constructor of
+`Runs`** (`Runs.call hcall rest`), so a multi-call program is one `Runs` value
+built by `Runs.trans` over both `Runs.step` (opcode) links and `Runs.call`
+(returning-CALL) links — the regular-language shape `(step | call)*`. The worked
+two-call composition is A's `Examples/TwoCallExample.lean`
+(`twoCall_runs` / `twoCall_messageCall`), which is exactly Track C's shape:
 
 ```
-prefix Runs → CallReturns → suffix Runs → halt
+fr₀ --prefix Runs--> callFr₁ --Runs.call(CR₁)--> resumeFr₁
+    --middle Runs--> callFr₂ --Runs.call(CR₂)--> resumeFr₂
+    --suffix Runs--> last  (stepFrame last = .halted halt)
 ```
 
-A `Runs` chain (`StepsTo` = one **non-halting `stepFrame`**) **cannot contain a
-CALL step**: a CALL produces `stepFrame = .needsCall …` (a `Signal.needsCall`,
-handled by `CallReturns`), not `Signal.next`, so it is not a `StepsTo` link and
-cannot be glued in by `Runs.trans`. Hence the "suffix" after the first call is a
-plain `Runs` that must run straight to a halt — it can have **no second CALL**.
-A two-call IR program (`call; …; call; stop`) has the shape
-`prefix → call → middle → call → suffix → halt`, which `messageCall_call_runs`
-**cannot express**: there is no second `CallReturns` slot, and the `middle/suffix`
-`Runs` cannot absorb the second CALL.
-
-This is exactly the "intermediary calls" defect named in `currentplan.md` (§Why
-these three, Q1) and is Track A's A1–A3 mandate: make `call` a **constructor of
-`Runs`** so a multi-call program is one `Runs` value built by `.trans` over both
-`StepsTo` links and `.call` links. **Flagging for Track A now:** Track C's
-multi-call lowering (C3/C4) is blocked on Track A's `Runs.call` constructor; the
-single-call lowering can proceed against the current `messageCall_call_runs`
-without waiting.
+So C3 has **no remaining multi-call blocker** — it is gated only on the merge of
+A's branch (which carries the index-free `Runs` + `Runs.call` + the new opcode
+rules) into this worktree's base, plus the C→A opcode-rule additions (PLAN.md).
 
 ---
 
-## 6. Planned lowering-preservation statement (shape only — proved in C3)
+## 6. The concrete C3 preservation plan
 
-The simulation we will prove. Informally: *running the lowered bytecode as a
-top-level `messageCall` yields the same observable outcome (final self-storage and
-exit) that the IR small-step semantics produces.* Two coupled pieces:
+This section is the **C3 plan of record**: the `Match` invariant relating an IR
+small-step configuration to an EVM `Frame`, the top-level preservation theorem
+shape, and the per-IR-construct **proof-obligation table** naming the exact Track A
+`runs_*` rule each construct will consume. It targets A's *new* `exp003-runs-call`
+API (§5): index-free `Runs` with constructors `Runs.refl` / `Runs.step` /
+`Runs.call`, glued by `Runs.trans`; boundary bridge `messageCall_runs` /
+`messageCall_runs_calls`. C3 is **not proved yet** — it is gated on A's branch
+merging into this worktree's base and on the C→A opcode-rule additions (PLAN.md).
 
-**(a) Per-step / per-block simulation (the engine).** A relation
-`Match : IRConf → Frame → Prop` (locals ↔ stack contents the lowering would
-materialise; IR `storage` ↔ self-account storage; IR `gas` ↔ `gasAvailable`; IR
-`(label, pc)` ↔ `Frame.exec.pc` via the offset table) such that every IR step is
-simulated by a `Runs` segment of the lowered code:
+### 6.1 The `Match` invariant
+
+`Match : IRConf → Frame → Prop` is the simulation invariant. It is **deliberately
+NOT a stack-shape equivalence**: because the lowering is *recompute-on-use* (§4),
+an `IRState.locals` binding `t ↦ v` does **not** correspond to any persistent stack
+slot — `t` is re-materialised from its defining expression at each use, so between
+statements the EVM stack is empty (modulo a pending CALL success flag). This is the
+key simplification recompute-on-use buys: `Match` need not track a register↔slot
+map at all. It pins five correspondences:
+
+```
+Match (running L pc st) fr  :=
+  -- (M1) program counter: the IR cursor (L, pc) sits at the byte offset the
+  --      offset table assigns, i.e. fr is at the pc the next emitted opcode of
+  --      block L statement pc occupies.
+      fr.exec.pc = pcOf prog L pc
+  -- (M2) code: the frame runs the lowered program.
+    ∧ fr.exec.executionEnv.code = lower prog
+  -- (M3) storage: the IR self-storage equals the self account's storage, read
+  --      through exp003's observable lens (the same find?/lookupStorage used by
+  --      sstoreFrame_storage_self).
+    ∧ (∀ k, (fr.exec.accounts.find? fr.exec.executionEnv.address
+              |>.option 0 (·.lookupStorage k)) = st.storage k)
+  -- (M4) gas: the IR gas counter equals gasAvailable (honest gas; see §3).
+    ∧ fr.exec.gasAvailable.toNat = st.gas
+  -- (M5) stack discipline: at a statement boundary the working stack is empty
+  --      (recompute-on-use leaves nothing between statements) except for a
+  --      CALL-result flag still pending a bind. For C3's worked programs:
+  --      fr.exec.stack = [] at every non-mid-statement program point.
+    ∧ fr.exec.stack = []
+  -- plus standing well-formedness: kind = .Code, validJumps from the JUMPDESTs,
+  --      depth < 1024, canModifyState = true (state-modifying top-level call).
+```
+
+`pcOf prog L pc` is the offset-table address: `offsetTable defs fuel blocks L.idx`
+(the block's `JUMPDEST`) `+ 1` (skip the `JUMPDEST`) `+` the byte length of the
+emitted statements `0 .. pc` of block `L`. The two-pass layout (§4) makes this a
+prefix sum, so `pcOf` is computable and the `(M1)` equation is `rfl`-shaped per
+worked program (exactly the `decode code <pc> = …` checks already pinned in
+`Decode.lean`).
+
+The `halted` configuration matches a frame about to take its halt step:
+`Match (halted h) fr := stepFrame fr = .halted (haltFrameHalt h) ∧ (M2..M4)` — i.e.
+`fr` is the `last` frame `messageCall_runs` consumes, and `haltFrameHalt` maps the
+IR `Halt` (STOP / RETURN word / reverted) to the EVM `FrameHalt`.
+
+### 6.2 The simulation engine (per-construct)
+
+The engine is one lemma: **every IR step is simulated by a `Runs` segment** of the
+lowered code that re-establishes `Match`. Non-call statements produce a
+`Runs.step…`-built segment (via `Runs.trans` of the per-opcode rules that
+materialise operands then run the effect); a `Stmt.call` produces a `Runs.call`
+node from a `CallReturns` witness.
 
 ```
 theorem lower_simulates_step (prog) {c c' : IRConf} {fr : Frame}
     (hstep : IRStep prog c c') (hmatch : Match c fr) :
-    ∃ n fr', Runs n fr fr' ∧ Match c' fr'        -- non-call statements
-                                                 -- (call statements: a CallReturns segment)
+    ∃ fr', Runs fr fr' ∧ Match c' fr'
 ```
 
-**(b) Top-level preservation (the user-facing statement).** Closing the IR run
-under reflexive-transitive `IRStep` and discharging at the boundary with
-`messageCall_runs` / `messageCall_call_runs`:
+For a *non-halting* terminator/statement this is the shape verbatim. For a
+terminator that halts (`stop` / `ret`), the IR step goes to `halted h`, and the
+`Runs fr fr'` lands on the `last` frame with `Match (halted h) fr'` — i.e. `fr'`
+satisfies the `stepFrame fr' = .halted …` clause, ready for the bridge.
+
+### 6.3 Top-level preservation (user-facing)
+
+Close the simulation under the reflexive-transitive IR run (`IRRunsToHalt`, the
+RT-closure of `IRStep` ending in `halted`) by `Runs.trans`, then cross the single
+boundary bridge:
 
 ```
-theorem lower_preserves (prog) (p : CallParams) (w : Word) (out : Halt)
-    (hp : p.codeSource = .Code (lower prog))            -- p runs the lowered code
-    (hentry : Match (prog.initialConf w) ⟨entry frame of p⟩)
-    (hir : IRRunsToHalt prog (prog.initialConf w) out) :
-    messageCall p = .ok (toCallResult ⟨the EVM halt matching out⟩)
+theorem lower_preserves (prog) (p : CallParams) {fr₀ : Frame} {h : IRHalt}
+    (hbegin  : EntersAsCode p fr₀)                  -- p runs the lowered code as a frame
+    (hcode   : p.codeSource ⇒ fr₀.exec.code = lower prog)
+    (hentry  : Match (prog.initialConf) fr₀)         -- entry frame matches the IR entry
+    (hir     : IRRunsToHalt prog prog.initialConf h) :
+    messageCall p = .ok (FrameResult.toCallResult (endFrame last (haltFrameHalt h)))
 ```
 
-i.e. *the lowered program's `messageCall` observable equals the IR's halt
-observable.* For a call-free `prog` this is `messageCall_runs ∘ simulation`; for a
-single-call `prog` it is `messageCall_call_runs ∘ simulation`; for multi-call it
-needs Track A's `Runs.call` (see §5).
+where `last` is the frame the assembled `Runs fr₀ last` reaches. Proof skeleton:
+induction on `hir` chains `lower_simulates_step` segments with `Runs.trans` into one
+`Runs fr₀ last`; the final IR `halted` step gives `stepFrame last = .halted
+(haltFrameHalt h)`; discharge with `messageCall_runs p hbegin (the Runs) (the halt
+step)`. Multi-call programs are the **same** proof — each `Stmt.call` step
+contributes a `Runs.call` node, absorbed by `Runs.trans`, and `messageCall_runs`
+(= `messageCall_runs_calls`) crosses once regardless of call count (§5).
 
-The exact `Match` invariant, the gas-cost equalities, and the stack-layout
-discipline are the substance of C2/C3 and are intentionally left open here. C1's
-job is the IR datatypes, the lowering *type signature*, and this statement *shape*.
+The observable corollary lifts to `Outcome.completedWith` via A's
+`messageCall_calls_completedWith` when the program ends in a success storing a known
+value at a known cell.
+
+### 6.4 Per-IR-construct proof-obligation table
+
+Each row: the IR construct, the bytes `lower` emits (§4 / PLAN C2 log), the Track A
+`runs_*` rule(s) that discharge each emitted opcode, and the post-frame transformer
+the next rule consumes. Operand materialisation (`materialiseExpr`) is **always**
+one or more `runs_push` (PUSH32 literals / PUSH4 destinations) glued by
+`Runs.trans` ahead of the consuming opcode; the table abbreviates that as
+"push·(operands)". Rules marked **[A-new]** are the C→A request (PLAN.md); the rest
+already exist on A's branch.
+
+| IR construct           | emitted opcodes                              | `Runs` rule(s) consumed (in order)                                  | post-frame |
+|------------------------|----------------------------------------------|---------------------------------------------------------------------|------------|
+| `Expr.imm w`           | `PUSH32 w`                                    | `runs_push (.PUSH32) w 32`                                          | `pushFrameW` |
+| `Expr.tmp t`           | (recompute `defs t`)                          | the rules of `defs t` (no opcode of its own)                       | — |
+| `Expr.add a b`         | push·b; push·a; `ADD`                         | push-rules ×2, then **`runs_add` [A-new]**                          | `addFrame` [A-new] |
+| `Expr.lt a b`          | push·b; push·a; `LT`                          | push-rules ×2, then **`runs_lt` [A-new]**                           | `ltFrame` [A-new] |
+| `Expr.sload k`         | push·k; `SLOAD`                               | push-rule, then **`runs_sload` [A-new]**                            | `sloadFrame` [A-new] |
+| `Expr.gas`             | `GAS`                                         | **`runs_gas` [A-new]**                                              | `gasFrame` [A-new] |
+| `Stmt.assign t e`      | (nothing)                                     | `Runs.refl` (recompute-on-use emits no bytes)                       | unchanged |
+| `Stmt.sstore key val`  | push·val; push·key; `SSTORE`                  | push-rules ×2, then `runs_sstore`                                   | `sstoreFrame` |
+| `Stmt.call cs`         | push ×7 (5×`PUSH32 0`, callee, gasFwd); `CALL`| push-rules ×7, then a **`Runs.call`** node from a `CallReturns` witness (CALL step is `stepFrame = .needsCall …`, **not** a `runs_*`) | `resumeAfterCall …` (inside `CallReturns`) |
+| `Term.ret t`           | push·t; `RETURN`                             | push-rule(s); the `RETURN` halt is taken by `messageCall_runs`'s `hhalt` via `stepFrame_return_empty` (no `runs_*`) | `last` (halt) |
+| `Term.stop`            | `STOP`                                        | the `STOP` halt is taken by `messageCall_runs`'s `hhalt` via `stepFrame_stop` (no `runs_*`)                | `last` (halt) |
+| `Term.jump L`          | `PUSH4 off(L)`; `JUMP`                        | `runs_push (.PUSH4)`, then **`runs_jump` [A-new]** (CFG combinator) | `jumpFrame` [A-new] → pc = off(L) |
+| `Term.branch c t e`    | push·c; `PUSH4 off(t)`; `JUMPI`; `PUSH4 off(e)`; `JUMP` | push·c, `runs_push (.PUSH4)`, **`runs_jumpi` [A-new]** (two post-frames: taken → pc=off(t); not-taken → fall through to the `PUSH4 off(e); JUMP`), then on the not-taken edge `runs_push` + **`runs_jump` [A-new]** | `jumpiFrame`/`jumpFrame` [A-new] |
+
+Notes that shape the obligations:
+
+- **Halts are not `runs_*`.** `STOP`/`RETURN` are discharged directly at the
+  bridge: `messageCall_runs` takes the halt via its `hhalt : stepFrame last =
+  .halted halt` argument, which C3 supplies from A's existing `stepFrame_stop` /
+  `stepFrame_return_empty`. So C3 needs **no** halt `runs_*` wrapper — the C2 log's
+  "thin `Runs … → halt` wrapper" note is superseded by A's bridge taking the halt.
+- **CALL is not a `runs_*`.** The `CALL` opcode is a `Runs.call` node whose payload
+  is a `CallReturns` witness (built from A's `stepFrame_call` + `EntersAsCode` +
+  the child's black-box `drive`); it is glued by `Runs.trans`, never by a `runs_*`.
+- **Gas equalities (`M4`).** Each opcode rule's post-frame subtracts that opcode's
+  charge (`Gverylow` for PUSH/ADD/LT/GAS, `Gwarmsload`/cold for SLOAD,
+  `sstoreChargeOf` for SSTORE, the call cost for CALL). The IR `IRStep` for the
+  matching construct must subtract the **same** charge (§3), so `M4` is preserved
+  step-by-step. A's `subCharges` / `toNat_subCharges` (Sequence.lean) is the
+  gas-threading lemma C3 reuses to keep the prefix-sum side-goals linear.
+- **Stack discipline (`M5`).** Because materialisation pushes exactly the operands
+  a consuming opcode pops and the opcode pops them all, the stack returns to `[]`
+  after each statement — so `M5` is re-established without a slot map. The one
+  exception is `Stmt.call`'s success flag; C3's worked programs either bind it
+  immediately (an `assign` from `resultTmp`, which under recompute-on-use is a no-op
+  that the next use re-materialises) or `POP` it — pinned per worked program.
 
 ---
 
-## 7. C1 deliverable boundary
+## 7. C1/C2 deliverable boundary (historical)
 
-C1 ships: this doc; a compiling `LirLean` Lean skeleton (lakefile requiring
-exp003's `bytecode_layer` for the EVM/`Runs` API; the IR datatypes of §2; the
-`lower : Program → ByteArray` **type signature**, with a body only if it compiles
-without `sorry`); no `sorry`/`axiom`-backed theorems. The semantics relation
-(`IRStep`) and the lowering body/preservation proofs are C2/C3.
+C1 shipped: this doc; a compiling `LirLean` skeleton (lakefile requiring exp003's
+`bytecode_layer`; the IR datatypes of §2; the `lower : Program → ByteArray` type
+signature with a `sorry`-free body); no `sorry`/`axiom`-backed theorems. C2 shipped
+the decode-compatible single-call lowering body and the build-enforced round-trip
+checks (`LirLean/Decode.lean`). The semantics relation (`IRStep`) and the
+preservation proof (§6) are C3, gated on Track A's `exp003-runs-call` merge.

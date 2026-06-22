@@ -52,17 +52,11 @@ def jump     : UInt8 := 0x56
 def jumpi    : UInt8 := 0x57
 def gas      : UInt8 := 0x5a
 def jumpdest : UInt8 := 0x5b
-def push1    : UInt8 := 0x60
 def push4    : UInt8 := 0x63
 def push32   : UInt8 := 0x7f
 def call     : UInt8 := 0xf1
 def ret      : UInt8 := 0xf3
 end Byte
-
-/-- Uniform destination push width: jump targets are emitted as `PUSH4 <off>` so a
-32-bit pc (`decode` uses `UInt32`) always fits and every block's size is
-push-width-independent — making the offset table a simple prefix sum. -/
-def destPushBytes : Nat := 1 + 4  -- PUSH4 opcode + 4 immediate bytes
 
 /-- Big-endian 4-byte encoding of a `Nat` jump destination (low 32 bits). Read
 back by `decode` via `uInt256OfByteArray` (which is big-endian), so the immediate
@@ -180,7 +174,8 @@ def defsOf (prog : Program) : Tmp → Option Expr :=
 /-- Bytes of one block, *excluding* the leading `JUMPDEST`, given the `defs`
 environment, fuel, and offset table. Pass 1 measures lengths with a zero offset
 table; pass 2 emits with the real table. Both pass through the same function, and
-`emitDest` width is fixed at `destPushBytes`, so the two passes agree on lengths. -/
+`emitDest` always emits a fixed-width `PUSH4 <off>` (5 bytes) regardless of the
+offset value, so the two passes agree on lengths. -/
 def emitBlockBody (defs : Tmp → Option Expr) (fuel : Nat)
     (labelOff : Nat → Nat) (b : Block) : List UInt8 :=
   (b.stmts.flatMap (emitStmt defs fuel)) ++ emitTerm defs fuel labelOff b.term
