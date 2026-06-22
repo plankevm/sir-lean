@@ -6,10 +6,8 @@ import BytecodeLayer.Semantics.Interpreter.Drive
 This file proves the **program-agnostic** decomposition of the interpreter
 `drive` across a CALL boundary: a parent's in-line descent into a *terminating*
 child equals running that child *independently* to its result and then resuming
-the parent on the child's `CallResult`. It is the generic version of the
-fuel-explicit, program-specific witness `child_run`
-(`BytecodeLayer/ExternalCall.lean`): the concrete `+5` and the concrete child are
-replaced by an arbitrary terminating child run.
+the parent on the child's `CallResult`. The child is an arbitrary terminating
+run — no concrete fuel offset and no concrete program are baked in.
 
 ## The framing lemma
 
@@ -148,10 +146,10 @@ ancestor `pd` over an arbitrary inert stack `ps` — equals, for some residual f
 `j`, the parent resumed on the child's `CallResult`:
 `drive j ps (.inl (resumeAfterCall res.toCallResult pd))`.
 
-This is the program-agnostic generalization of `child_run`: the concrete `+5`
-fuel and concrete child are replaced by an arbitrary terminating child. Obtained
-by `drive_append_framing` with `top := []`, `bot := .call pd :: ps`, then peeling
-the single `.call` resume step (`Pending.resume (.call pd) res = .ok (…)`). -/
+Program-agnostic: the child is an arbitrary terminating run, with no concrete
+fuel offset or concrete program baked in. Obtained by `drive_append_framing` with
+`top := []`, `bot := .call pd :: ps`, then peeling the single `.call` resume step
+(`Pending.resume (.call pd) res = .ok (…)`). -/
 theorem drive_descend_eq (f : ℕ) (child : Frame) (res : FrameResult)
     (pd : PendingCall) (ps : List Pending)
     (h : drive f [] (.inl child) = .ok res) :

@@ -11,9 +11,8 @@ import BytecodeLayer.Semantics.UInt256
 Shared machinery for the multi-write straight-line program: its per-pc `decode`
 lemmas and the `subCharges` / `toNat_subCharges` gas-threading composition lemma
 (prefix-sum of charges against the running `gasAvailable`, proved once by induction
-on the suffix). The sequence capstone itself is now an instance of the general
-straight-line rung (`Proof/StraightlineInstances.lean`); this file holds only the
-pieces that instance — and the external-call proof — reuse.
+on the suffix). This file holds only the reusable gas/decode pieces; the sequence
+capstone itself is composed from the opcode `Runs` rules.
 -/
 
 namespace BytecodeLayer.Hoare

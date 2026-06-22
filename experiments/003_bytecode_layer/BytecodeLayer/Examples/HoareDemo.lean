@@ -6,14 +6,12 @@ import BytecodeLayer.Programs
 /-!
 # Demonstration — `sstoreProgram` proven by composing opcode rules
 
-The headline `messageCall_sstore_storageAt` in `Proof/StraightlineInstances.lean`
-proves the same program by writing out `sstoreF1`, `sstoreF2`, `sstoreF3` (the
-execution trace) with their gas arithmetic and chaining them by hand. Here we
-reprove it **compositionally**: glue `runs_push1 5`, `runs_push1 7`, `runs_sstore`
-with `Runs.trans` (the sequencing rule), and read the result through the SSTORE
+A standalone demonstration of the **compositional** Hoare workflow on
+`sstoreProgram`: glue `runs_push1 5`, `runs_push1 7`, `runs_sstore` with
+`Runs.trans` (the sequencing rule), and read the result through the SSTORE
 effect/frame projection lemmas. No intermediate frame is named in the theorem and
 the stored value `5` is **derived** from the composition (the `newValue` operand
-of `runs_sstore`), not asserted.
+of `runs_sstore`), not asserted — no execution trace is written out by hand.
 
 The two conclusions:
 * **effect** — the run completes leaving `5` at cell `(addrA, 7)`;

@@ -9,6 +9,6 @@
 --   Semantics/        — the reusable semantic facts (gas/system/dispatch/...) and
 --                       the fuel-specific Interpreter/ measure argument.
 --   Hoare/            — our compositional Hoare-style layer (Runs + opcode rules).
---   ExternalCall(Gen).lean — the external-call rung (concrete + general).
+--   ExternalCall.lean — reusable bricks for the external-call rung.
 --   Examples/         — worked example programs / demos.
 import BytecodeLayer.Spec

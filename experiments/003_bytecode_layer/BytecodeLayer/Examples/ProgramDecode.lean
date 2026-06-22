@@ -6,7 +6,7 @@ import BytecodeLayer.Programs
 
 The per-pc `decode` facts for the example programs (`stopProgram`,
 `pushStopProgram`, `sstoreProgram`). Reused by the straight-line program proofs
-(`ProgramExamples`, built on `Straightline`) and by the Hoare demo (`HoareDemo`).
+and the Hoare demo.
 -/
 
 namespace BytecodeLayer.Examples
