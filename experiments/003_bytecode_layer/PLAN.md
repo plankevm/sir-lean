@@ -204,3 +204,51 @@ an explicit `validJumps := #[3]` so `get_dest` is kernel-reducible (`codeFrame`'
     `Quot.sound` — no `sorryAx`, no `ofReduceBool` (no `native_decide`).
   * Loops: deferred as noted (a back-edge is just another `Runs.trans` node; no
     invariant theory needed this milestone). No blockers.
+- 2026-06-22 (C→A opcode rules — ADD/LT/SLOAD/GAS, CLOSED): completed the opcode
+  `Runs` rule set C3 requested (the C→A request's items 1–4; items 5–6, JUMP/JUMPI,
+  were already shipped by B1). All semantic-only preconditions (decode/gas/stack
+  shape — no trace/conclusion hypotheses), each with a named post-frame transformer,
+  same brick shape as `runs_push`/`runs_sstore`.
+  * `Step.lean`-level (`BytecodeLayer/Semantics/Dispatch.lean`, derived from
+    `stepFrame` like the existing per-opcode lemmas): `stepFrame_add`,
+    `stepFrame_lt` (both via a shared private `stepFrame_binOp` over `binOp f exec
+    Gverylow`, parametric in the result `f`; post-state `binOpPost`),
+    `stepFrame_sload` (`unStateOp Evm.State.sload`; post-state `sloadPost` charges
+    `sloadCost warm`, pushes the self storage value, marks `(self,key)` accessed),
+    `stepFrame_gas` (`pushOp (ofUInt64 gasAvailable)`; post-state `gasPost`, value
+    read **after** the `Gbase` charge — the gas-introspection coupling).
+  * `Runs`-level (`BytecodeLayer/Hoare.lean`): `runs_add`/`runs_lt`/`runs_sload`/
+    `runs_gas` (each `Runs.single` off its step lemma), with transformers
+    `addFrame`/`ltFrame`/`sloadFrame`/`gasFrame`. Plus the SLOAD **storage-READ
+    companion** `sloadFrame_storage_self` (mirrors `sstoreFrame_storage_self`): the
+    head of `sloadFrame`'s resulting stack `= fr.exec.accounts.find? self |>.option
+    0 (·.lookupStorage key)` — the exact lens C3's storage `Match` (M3) uses,
+    connecting SLOAD's pushed value to the IR storage cell. Proof is `rfl` (the
+    model's `sload` pushes exactly that value).
+  * Re-exported all five on `Spec.lean` alongside `runs_push`/`runs_sstore` (program-
+    logic surface). Note: the C request spelled `fr.exec.code` / `decode … = some
+    (.ArithLogic .ADD, none)`; the real field path is `fr.exec.executionEnv.code` and
+    `Operation.ADD` is the abbrev `.ArithLogic .ADD`, so the delivered decode
+    hypotheses read `.ArithLogic .ADD` / `.ArithLogic .LT` / `.Smsf .SLOAD` /
+    `.Smsf .GAS` against `fr.exec.executionEnv.code` — semantically the request.
+  * Worked example: NEW `Examples/ArithStorageExample.lean` — `arithStorageRuns`
+    composes `ADD ; LT ; GAS ; SLOAD` into one `Runs` via `Runs.trans`, threading
+    each rule's post-frame (incl. the GAS→SLOAD coupling where the pushed gas word
+    becomes SLOAD's key, and a cold-slot `Gcoldsload = 2100` charge). Wired into the
+    default build through `ConcreteSpecs`.
+  * Build GREEN (1130 jobs), axiom-clean: all new theorems (`stepFrame_add`,
+    `stepFrame_lt`, `stepFrame_sload`, `stepFrame_gas`, the four `runs_*`,
+    `sloadFrame_storage_self`, `arithStorageRuns`, and their Spec re-exports) depend
+    only on `propext`/`Classical.choice`/`Quot.sound` — no `sorry`/`admit`/`axiom`,
+    no `ofReduceBool` (no `native_decide`). No blockers; Track A's exp003 layer is
+    ready to merge.
+
+### C→A opcode-rule request — delivery checklist
+- [x] **1. `runs_add`** — ADD, `Gverylow = 3`, pop 2 / push 1; post-frame `addFrame`.
+- [x] **2. `runs_lt`** — LT, same shape, pushes `UInt256.lt a b`; post-frame `ltFrame`.
+- [x] **3. `runs_sload`** — SLOAD, `sloadCost warm/cold = 100/2100`, pop key / push
+  value; post-frame `sloadFrame`; **read companion `sloadFrame_storage_self`** added.
+- [x] **4. `runs_gas`** — GAS, `Gbase = 2`, pushes post-charge `ofUInt64
+  gasAvailable`; post-frame `gasFrame`.
+- [x] **5. `runs_jump`** / **6. `runs_jumpi_taken` / `runs_jumpi_fallthrough`** —
+  already delivered by B1 (see the CFG / control-flow entry above).

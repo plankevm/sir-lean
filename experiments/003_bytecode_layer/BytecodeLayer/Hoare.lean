@@ -204,6 +204,93 @@ theorem runs_sstore (fr : Frame) (key newValue : UInt256) (rest : Stack UInt256)
     Runs fr (sstoreFrame fr key newValue rest) :=
   Runs.single (stepsTo_of_next (stepFrame_sstore fr key newValue rest hdec hstk hsz hmod hstip hcost))
 
+/-! ## Arithmetic / storage-read / introspection rules (ADD / LT / SLOAD / GAS)
+
+The pure-stack and storage-read bricks Track C's expression lowering threads. Each
+is a one-step `Runs` to a named post-frame derived from the matching `Step.lean`
+characterization, under purely semantic preconditions (decode, gas bound, stack
+shape) — the same shape as `runs_push`/`runs_sstore`. SLOAD additionally carries a
+**storage-read companion** (`sloadFrame_storage_self`) mirroring
+`sstoreFrame_storage_self`: it exposes the pushed value through the same
+`find?/lookupStorage` lens C3's storage `Match` uses. -/
+
+/-- The frame after `ADD` (operands `a`/`b` popped off the top): `a + b` pushed onto
+`rest`, pc + 1, `Gverylow` charged. -/
+def addFrame (fr : Frame) (a b : UInt256) (rest : Stack UInt256) : Frame :=
+  { fr with exec := BytecodeLayer.Dispatch.binOpPost fr.exec UInt256.add a b rest }
+
+/-- The frame after `LT` (operands `a`/`b` popped off the top): `UInt256.lt a b`
+(`= if a < b then 1 else 0`) pushed onto `rest`, pc + 1, `Gverylow` charged. -/
+def ltFrame (fr : Frame) (a b : UInt256) (rest : Stack UInt256) : Frame :=
+  { fr with exec := BytecodeLayer.Dispatch.binOpPost fr.exec UInt256.lt a b rest }
+
+/-- The frame after `SLOAD` (key popped off the top): the self account's stored
+value at `key` pushed onto `rest`, pc + 1, `sloadCost warm` charged, `(self, key)`
+marked accessed. -/
+def sloadFrame (fr : Frame) (key : UInt256) (rest : Stack UInt256) : Frame :=
+  { fr with exec := BytecodeLayer.Dispatch.sloadPost fr.exec key rest }
+
+/-- The frame after `GAS`: `ofUInt64` of the *post-charge* `gasAvailable` pushed,
+pc + 1, `Gbase` charged. -/
+def gasFrame (fr : Frame) : Frame :=
+  { fr with exec := BytecodeLayer.Dispatch.gasPost fr.exec }
+
+/-- **The ADD rule.** From a frame decoding to `ADD` with `a :: b :: rest` on the
+stack, enough gas (`Gverylow`) and stack room, one step `Runs` to `addFrame fr a b
+rest` (top = `a + b`). Pure `Step.lean` derivation. -/
+theorem runs_add (fr : Frame) (a b : UInt256) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.ArithLogic .ADD, .none))
+    (hstk : fr.exec.stack = a :: b :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : GasConstants.Gverylow ≤ fr.exec.gasAvailable.toNat) :
+    Runs fr (addFrame fr a b rest) :=
+  Runs.single (stepsTo_of_next (stepFrame_add fr a b rest hdec hstk hsz hgas))
+
+/-- **The LT rule.** From a frame decoding to `LT` with `a :: b :: rest` on the
+stack, enough gas (`Gverylow`) and stack room, one step `Runs` to `ltFrame fr a b
+rest` (top = `UInt256.lt a b`, the boolean-as-word `a < b`). -/
+theorem runs_lt (fr : Frame) (a b : UInt256) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.ArithLogic .LT, .none))
+    (hstk : fr.exec.stack = a :: b :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : GasConstants.Gverylow ≤ fr.exec.gasAvailable.toNat) :
+    Runs fr (ltFrame fr a b rest) :=
+  Runs.single (stepsTo_of_next (stepFrame_lt fr a b rest hdec hstk hsz hgas))
+
+/-- **The SLOAD rule.** From a frame decoding to `SLOAD` with `key :: rest` on the
+stack and enough gas (`sloadCost warm`), one step `Runs` to `sloadFrame fr key rest`
+(top = the self account's stored value at `key`). The `warm` flag is the
+`accessedStorageKeys.contains (self, key)` membership the cost depends on. -/
+theorem runs_sload (fr : Frame) (key : UInt256) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .SLOAD, .none))
+    (hstk : fr.exec.stack = key :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : Evm.sloadCost (fr.exec.substate.accessedStorageKeys.contains
+              (fr.exec.executionEnv.address, key)) ≤ fr.exec.gasAvailable.toNat) :
+    Runs fr (sloadFrame fr key rest) :=
+  Runs.single (stepsTo_of_next (stepFrame_sload fr key rest hdec hstk hsz hgas))
+
+/-- **The GAS rule.** From a frame decoding to `GAS` with enough gas (`Gbase`) and
+stack room, one step `Runs` to `gasFrame fr` (top = `ofUInt64` of the *post-charge*
+`gasAvailable`). -/
+theorem runs_gas (fr : Frame)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .GAS, .none))
+    (hsz : fr.exec.stack.size + 1 ≤ 1024)
+    (hgas : GasConstants.Gbase ≤ fr.exec.gasAvailable.toNat) :
+    Runs fr (gasFrame fr) :=
+  Runs.single (stepsTo_of_next (stepFrame_gas fr hdec hsz hgas))
+
+/-- **SLOAD read companion** (mirrors `sstoreFrame_storage_self`). The value SLOAD
+pushes — the head of `sloadFrame`'s resulting stack — is exactly the self account's
+stored value at `key`, read through the same `find?/lookupStorage` lens C3's storage
+`Match` uses. This connects the pushed word to the IR-level storage cell. -/
+theorem sloadFrame_storage_self (fr : Frame) (key : UInt256) (rest : Stack UInt256) :
+    (sloadFrame fr key rest).exec.stack.head?
+      = some (fr.exec.accounts.find? fr.exec.executionEnv.address
+          |>.option 0 (·.lookupStorage key)) := by
+  show ((BytecodeLayer.Dispatch.sloadPost fr.exec key rest).stack).head? = _
+  rfl
+
 /-! ## Control-flow rules (JUMP / JUMPI) — the CFG combinator
 
 The conditional/unconditional jumps lift the `Step.lean` jump lemmas to `Runs`.

@@ -123,6 +123,60 @@ theorem sstoreFrame_storage_frame (fr : Frame) (key newValue : UInt256) (rest : 
       = (fr.exec.accounts.find? a' |>.option 0 (·.lookupStorage k')) :=
   Hoare.sstoreFrame_storage_frame fr key newValue rest acc hself hnz a' k' hframe
 
+/-- **The ADD rule.** From a frame decoding to `ADD` with `a :: b :: rest` on the
+stack, enough gas (`Gverylow`) and stack room, one step `Runs` to `addFrame fr a b
+rest` (top = `a + b`). -/
+theorem runs_add (fr : Frame) (a b : UInt256) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.ArithLogic .ADD, .none))
+    (hstk : fr.exec.stack = a :: b :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : GasConstants.Gverylow ≤ fr.exec.gasAvailable.toNat) :
+    Runs fr (addFrame fr a b rest) :=
+  Hoare.runs_add fr a b rest hdec hstk hsz hgas
+
+/-- **The LT rule.** From a frame decoding to `LT` with `a :: b :: rest` on the
+stack, enough gas (`Gverylow`) and stack room, one step `Runs` to `ltFrame fr a b
+rest` (top = `UInt256.lt a b`, the boolean-as-word `a < b`). -/
+theorem runs_lt (fr : Frame) (a b : UInt256) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.ArithLogic .LT, .none))
+    (hstk : fr.exec.stack = a :: b :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : GasConstants.Gverylow ≤ fr.exec.gasAvailable.toNat) :
+    Runs fr (ltFrame fr a b rest) :=
+  Hoare.runs_lt fr a b rest hdec hstk hsz hgas
+
+/-- **The SLOAD rule.** From a frame decoding to `SLOAD` with `key :: rest` on the
+stack and enough gas (`sloadCost warm`), one step `Runs` to `sloadFrame fr key rest`
+(top = the self account's stored value at `key`). The pushed value is exposed
+through the same storage lens by `sloadFrame_storage_self`. -/
+theorem runs_sload (fr : Frame) (key : UInt256) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .SLOAD, .none))
+    (hstk : fr.exec.stack = key :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : Evm.sloadCost (fr.exec.substate.accessedStorageKeys.contains
+              (fr.exec.executionEnv.address, key)) ≤ fr.exec.gasAvailable.toNat) :
+    Runs fr (sloadFrame fr key rest) :=
+  Hoare.runs_sload fr key rest hdec hstk hsz hgas
+
+/-- **SLOAD read companion** (mirrors `sstoreFrame_storage_self`). The value SLOAD
+pushes — the head of `sloadFrame`'s resulting stack — is exactly the self account's
+stored value at `key`, read through the same `find?/lookupStorage` lens. -/
+theorem sloadFrame_storage_self (fr : Frame) (key : UInt256) (rest : Stack UInt256) :
+    (sloadFrame fr key rest).exec.stack.head?
+      = some (fr.exec.accounts.find? fr.exec.executionEnv.address
+          |>.option 0 (·.lookupStorage key)) :=
+  Hoare.sloadFrame_storage_self fr key rest
+
+/-- **The GAS rule.** From a frame decoding to `GAS` with enough gas (`Gbase`) and
+stack room, one step `Runs` to `gasFrame fr` (top = `ofUInt64` of the *post-charge*
+`gasAvailable`). -/
+theorem runs_gas (fr : Frame)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .GAS, .none))
+    (hsz : fr.exec.stack.size + 1 ≤ 1024)
+    (hgas : GasConstants.Gbase ≤ fr.exec.gasAvailable.toNat) :
+    Runs fr (gasFrame fr) :=
+  Hoare.runs_gas fr hdec hsz hgas
+
 /-! ## The general external-call rule (over both caller and callee programs)
 
 The sound, program-agnostic external-call rule. It is **general over both the
