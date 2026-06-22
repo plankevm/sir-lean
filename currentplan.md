@@ -72,6 +72,13 @@ nesting *as a theorem over flat*; Track B *adopts* the already-nested semantics.
   index: drop the now-vestigial `Nat` (fuel premises already gone) in favour of the
   non-`OutOfFuel`-reconciliation invariant. Reuse `drive_descend_eq`,
   `drive_fuel_mono`, `drive_eq_of_both_ne_oof` (all exist in exp003).
+  → **DONE** (`exp003-runs-call` @ `7be5a5b`, green 1127 jobs, axiom-clean).
+  `Runs : Frame → Frame → Prop` (no index); constructors `refl`/`step`/`call`
+  (`call` payload = `CallReturns`, moved into `Hoare.lean`). Index-free
+  `Runs.drive_reconcile` replaces the exact-fuel advance lemma. Dropping the index
+  was clean — every former fuel obligation was already discharged by never-out-of-fuel.
+  `messageCall_call_runs` already fell out as a 3-line corollary (the A2 *surface*
+  collapse — keeping one named bridge — is still nominally pending).
 - [ ] **A2** Collapse the two boundary bridges (`messageCall_runs` +
   `messageCall_call_runs`) into one `messageCall_runs`; the old keystone becomes a
   use of it on a `Runs` containing `.call` nodes.
@@ -148,6 +155,12 @@ write the blocker into PLAN.md before stopping.
   does only its M1, appends to its PLAN.md progress log, commits on its branch,
   then stops + reports). On resume: do NOT look for these agents (ephemeral); read
   each PLAN.md log + `lake build`, then re-spawn from the PLAN.md "Agent brief".
+- 2026-06-22: **A1 DONE, green & committed** (`exp003-runs-call` @ `7be5a5b`, 1127
+  jobs, axiom-clean — verified by main loop, not just self-report). The `Runs.call`
+  constructor lands index-free; `messageCall_call_runs` collapsed to a 3-line
+  corollary. **First full bootstrap iteration complete: all three M1s green.** Next:
+  A2 (surface collapse to one bridge) + **A3 (multi-call composition, the unblock for
+  Track C)**; C2 (single-call lowering, can start now); B2 (nested never-OutOfFuel).
 - 2026-06-22: **B1 + C1 DONE, both green & committed** (B `20ad4c1`, C `505c83b`;
   the C agent finished its work but failed to commit — main loop committed it, closing
   the gap). Track A (`Runs.call`) still running. **KEY CROSS-TRACK FINDING (C, the C4
