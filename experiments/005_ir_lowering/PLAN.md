@@ -28,14 +28,20 @@ bridges). The IR's job is to exercise the three primitives we actually need:
   is build-enforced by `LirLean/Decode.lean` (`example … := by rfl` at every pc of
   a worked single-call program). See the C2 log entry below.
 - [~] **C3** Prove lowering preserves semantics via exp003's `Runs` machinery.
-  → IN PROGRESS: small-step IR semantics (`LirLean/SmallStep.lean`) + the `Match`
-  invariant, all **per-construct atomic simulation lemmas**, and the top-level
-  boundary discharge (`LirLean/Match.lean`) are proved, green, axiom-clean. The
-  remaining piece is the program-global assembly of the `Runs fr₀ last` under the
-  offset-table pc clause `M1`. See the C3 log entry below.
-- [ ] **C4** Acceptance check: does exp003 sequencing suffice for **multi-call** IR
-  programs? If NOT, write the precise requirement here and flag Track A
-  (`exp003-runs-call`) — this is the A↔C feedback edge.
+  → IN PROGRESS (nearly closed): small-step IR semantics + `Match` + per-construct
+  simulation lemmas + boundary discharge + generic `decode_lower` + offset-table `M1`
+  (all green, axiom-clean), AND the **concrete `Runs` assembly for the worked
+  single-call program** `workedCall`: the genuine straight-line prefix run
+  (`wc_prefix_runs`), the CALL step (`wc_call_step`), and `lower_preserves` for
+  `workedCall` discharged across `messageCall_runs` (`wc_preserves`). Two honest
+  remainders (NOT stubbed) block a *fully self-contained* end-to-end closure: the
+  concrete child `CallReturns` and the `validJumpDests`-gated branch terminator. See
+  the C3d log entry below.
+- [~] **C4** Acceptance check: multi-call composition. RESOLVED structurally:
+  `wc_preserves_twoCall` closes a two-CALL worked program via the same bridge
+  discharge (the bridge composes any number of `Runs.call` nodes) — no new theory
+  needed. The remaining gap is identical to C3's (concrete child `CallReturns`s +
+  the branch terminator), not a multi-call-specific blocker.
 
 ## Agent brief (durable — re-spawn from this verbatim)
 > Work ONLY in `/Users/eduardo/workspace/evm-semantics-wt/ir-lowering`, branch
@@ -489,3 +495,67 @@ required for the full single-/multi-call preservation theorem.
   and the bridge half are done; the open piece is the concrete `Runs`/`CallReturns`
   assembly, which is mechanical-but-large and would also bag C4 (the bridge already
   composes multiple `Runs.call` nodes). Nothing is faked with `sorry`.
+
+- 2026-06-22 (C3d): **Concrete `Runs` assembly for `workedCall` + `lower_preserves`
+  (bridge half) + the C4 corollary — DONE, green, axiom-clean.** New module
+  `LirLean/WorkedCall.lean`. `lake build` green (1129 jobs, up from 1128);
+  `#print axioms` on every new theorem (`wc_begin`, `wc_prefix_runs`, `wc_call_step`,
+  `wc_preserves`, `wc_preserves_twoCall`) = `[propext, Classical.choice, Quot.sound]`
+  — no `sorryAx`, no `native_decide`. This closes gap (b): the per-program frame/gas
+  threading for the worked single-call program is now a real assembled `Runs`, not a
+  TODO.
+
+  **What is genuinely proved (concrete, on `lower workedCall`):**
+  * `wcParams g` / `wcFrame g` — `workedCall` run as a top-level `messageCall` in
+    exp003's caller/callee world (`accts` carries the `0xCA11EE` callee), entering as
+    code (`wc_begin`, via `beginCall_code`).
+  * **`wc_prefix_runs`** — the **genuine straight-line prefix run** from the entry
+    frame to the CALL-site frame `wcCallSite g`: a real `Runs.trans` chain of the
+    exp003 opcode rules — `runs_jumpdest`, two `runs_push` (the SSTORE operands 5,7),
+    `runs_sstore` (cold first write, cost `22100` by `rfl`), and the seven `runs_push`
+    CALL args (five `0`, then `0xCA11EE`, then `0xFFFFFFFF`). Decode at every step is
+    the literal offset-table pc (0,1,34,67,68,…,266), reduced in the kernel via named
+    `wc_dec_*` lemmas (factored so each reduces independently — chaining them inline
+    blew the heartbeat budget); the running gas threads through `subCharges`
+    (`toNat_subCharges`), exactly the `CallerProgExample.caller_prefix_runs` style.
+    The CALL-arg pushes are folded into a `wcCallArgs g i` recursion with
+    length-/gas-by-index lemmas (`wc_gas_callarg`, `wc_stk_callarg`).
+  * **`wc_call_step`** — the CALL step at `wcCallSite g` (`stepFrame_call`): emits
+    `.needsCall` for the call to `0xCA11EE` forwarding `0xFFFFFFFF`, gas guard
+    discharged (`callExtraCost = 2600`, gas via `subCharges`).
+  * **`wc_preserves`** — **`lower_preserves` for `workedCall`** (the bridge half):
+    `messageCall (wcParams g) = .ok …` given a returning external CALL
+    (`CallReturns (wcCallSite g) resumeFr`) and the post-CALL run to a halting `last`,
+    assembled into one `Runs (wcFrame g) last = wc_prefix_runs · Runs.call · hpost`
+    and crossed by `lower_preserves_discharge`/`messageCall_runs`. This is the
+    `Examples.TwoCallExample.twoCall_messageCall` shape specialised to `workedCall`'s
+    single CALL — honest hypotheses for the two remainders below, never `sorry`.
+  * **`wc_preserves_twoCall`** — **the C4 multi-call corollary**: a two-CALL worked
+    program closes by the *same* discharge (prefix · call₁ · middle · call₂ · suffix,
+    glued into one `Runs`, crossed once). The bridge needs nothing extra for ≥2 calls,
+    so C4 is structurally resolved.
+
+  **The two honest remainders for a *fully self-contained* end-to-end closure** (both
+  verified feasible, NEITHER stubbed; documented in the module docstring):
+  1. **The concrete child `CallReturns`** discharging `wc_preserves`'s `hcall`: the
+     child `drive` run of the `0xCA11EE` callee (`PUSH1 5; PUSH1 7; SSTORE; STOP`) at
+     the 63/64-capped CALL-site gas, in the post-SSTORE world — the
+     `caller_callReturns` shape transposed onto `wcCallSite g`. Confirmed feasible:
+     `toExecute (wcCallSite g).accounts 0xCA11EE = .Code calleeProg` (`rfl`) and the
+     forwarded child gas clears the callee's `22106` floor (e.g. `g = 1_000_000`,
+     `by decide`). It is the ~200-line gas/decode-specific block exp003 needed per
+     call; left as the documented next step.
+  2. **The post-CALL branch terminator** (`JUMPI`/`JUMP` after the CALL returns).
+     `Frame.get_dest` reads the frame's `validJumps`, which for the real entry frame
+     `codeFrame … (lower workedCall)` is `validJumpDests (lower workedCall) 0` — a
+     **`partial def`**, hence not reducible in a proof without `native_decide` (banned
+     here). This is the same reason exp003's `BranchExample` builds its JUMPI frame
+     with an *explicit* `validJumps := #[3]` instead of via `codeFrame`. Closing the
+     branch axiom-cleanly requires a `validJumpDests`-characterization lemma over
+     `lower prog` (decode-side; relate `validJumpDests` to the offset-table block
+     `JUMPDEST`s the `Decode.lean` checks already witness). **NEW C→A/decode request.**
+
+  Net: the prefix run, the CALL step, the bridge discharge, and the C4 composition are
+  all real and green; `lower_preserves` for `workedCall` is closed **modulo** the two
+  honest hypotheses above (the child `CallReturns` and the `validJumpDests` branch
+  fact), which are the only pieces between this and a hypothesis-free end-to-end.

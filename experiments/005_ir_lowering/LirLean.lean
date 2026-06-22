@@ -11,3 +11,4 @@ import LirLean.DecodeLower
 import LirLean.Layout
 import LirLean.SmallStep
 import LirLean.Match
+import LirLean.WorkedCall
