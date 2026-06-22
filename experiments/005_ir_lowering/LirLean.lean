@@ -7,3 +7,5 @@
 import LirLean.IR
 import LirLean.Lowering
 import LirLean.Decode
+import LirLean.SmallStep
+import LirLean.Match

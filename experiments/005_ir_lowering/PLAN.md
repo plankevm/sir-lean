@@ -27,7 +27,12 @@ bridges). The IR's job is to exercise the three primitives we actually need:
   runnable EVM byte stream for the full single-call surface; decode-compatibility
   is build-enforced by `LirLean/Decode.lean` (`example … := by rfl` at every pc of
   a worked single-call program). See the C2 log entry below.
-- [ ] **C3** Prove lowering preserves semantics via exp003's `Runs` machinery.
+- [~] **C3** Prove lowering preserves semantics via exp003's `Runs` machinery.
+  → IN PROGRESS: small-step IR semantics (`LirLean/SmallStep.lean`) + the `Match`
+  invariant, all **per-construct atomic simulation lemmas**, and the top-level
+  boundary discharge (`LirLean/Match.lean`) are proved, green, axiom-clean. The
+  remaining piece is the program-global assembly of the `Runs fr₀ last` under the
+  offset-table pc clause `M1`. See the C3 log entry below.
 - [ ] **C4** Acceptance check: does exp003 sequencing suffice for **multi-call** IR
   programs? If NOT, write the precise requirement here and flag Track A
   (`exp003-runs-call`) — this is the A↔C feedback edge.
@@ -294,3 +299,80 @@ required for the full single-/multi-call preservation theorem.
     gas/stack/pc facts confirmed against A's `EVMLean/Evm/Semantics/*`.
   - Did **not** attempt the preservation proof (gated on A's merge into this base).
     No `sorry`, no `axiom` introduced.
+
+- 2026-06-22 (C3): **Single-call lowering preservation — small-step semantics +
+  `Match` + per-construct simulation engine + boundary discharge, all green and
+  axiom-clean.** Track A's new API is now merged into this base, so C3 builds
+  directly on the index-free `Runs` (`refl`/`step`/`call`, `Runs.trans`), the
+  single bridge `messageCall_runs` (= `messageCall_runs_calls`, halt via `hhalt`),
+  and the opcode rules `runs_push`/`runs_sstore`/`runs_add`/`runs_lt`/`runs_sload`
+  (+`sloadFrame_storage_self`)/`runs_gas`/`runs_jump`/`runs_jumpi_*`/
+  `runs_jumpdest`/`runs_branch`. `lake build` is green (1126 jobs, up from 1106);
+  `#print axioms` on every new lemma = `[propext, Classical.choice, Quot.sound]`
+  (no `sorryAx`, no native axiom).
+
+  **`LirLean/SmallStep.lean` — the small-step, gas-aware IR semantics** (§3).
+  - `IRState { locals : Tmp → Option Word, storage : Word → Word, gas : UInt64 }`
+    — `gas` is a **`UInt64`** (not `ℕ`) so it equals `fr.exec.gasAvailable`
+    *exactly*: the `Match` gas clause `M4` is a plain `UInt64` equality and each IR
+    charge is the same `UInt64.ofNat <const>` subtraction the EVM post-frame does.
+    `storage` mirrors the self account through the observable lens (`M3`).
+  - `IRHalt` (`stopped` / `returned w`), `IRConf` (`running L pc st` / `halted h`).
+  - `evalExpr st : Expr → Option Word` — total via `Option`; **arithmetic is
+    exp003's own** (`add → UInt256.add`, `lt → UInt256.lt`, `sload → storage lens`,
+    `gas → UInt256.ofUInt64 st.gas`), so the IR value is *definitionally* the word
+    the lowered opcode pushes. Helpers `setLocal` / `setStorage` / `charge` mirror
+    the EVM post-frame field updates; `blockAt` / `stmtAt` cursor accessors; the gas
+    constants `gVerylow`/`gBase`/`gMid`/`gHigh` (= `Gverylow`/`Gbase`/`Gmid`/`Ghigh`)
+    and a `matCost` recursion for materialisation cost.
+
+  **`LirLean/Match.lean` — the invariant + the simulation engine** (§6.1, §6.2).
+  - `Match prog L pc st fr` is a `structure` with the five clauses of §6.1:
+    `pc_eq` (M1, `fr.exec.pc = UInt32.ofNat (pcOf prog L pc)`), `code_eq` (M2),
+    `storage_eq` (M3, `∀ k, selfStorage fr k = st.storage k`), `gas_eq` (M4,
+    `fr.exec.gasAvailable = st.gas`), `stack_nil` (M5), plus `can_modify`. `pcOf`
+    is the offset-table address (prefix sum, computable). `selfStorage` / `storageAt`
+    are the observable storage lenses (the latter keyed on an explicit address to
+    match exp003's `sstoreFrame_storage_*` form exactly).
+  - **Per-construct atomic simulation lemmas** (the bricks `lower_simulates_step`
+    threads with `Runs.trans`), each proved by discharging straight to its `runs_*`
+    rule and reading back the IR-relevant post-frame fact:
+    * `sim_imm` → `runs_push (.PUSH32)`; pushes `w` (the `evalExpr (.imm w)` value).
+    * `sim_add` / `sim_lt` → `runs_add` / `runs_lt`; top = `UInt256.add`/`.lt a b`
+      (definitionally `evalExpr` of `.add`/`.lt`).
+    * `sim_sload` → `runs_sload`; top `= selfStorage fr key` via
+      `sloadFrame_storage_self` (the M3 read companion).
+    * `sim_gas` → `runs_gas`; gas drops by `gBase`, top = post-charge gas.
+    * `sim_sstore` → `runs_sstore`; the written cell reads back `value`
+      (`sstoreFrame_storage_self`) and every other cell is unchanged
+      (`sstoreFrame_storage_frame`) — i.e. M3 re-established.
+    * `sim_jump` → `runs_jump`; pc set to the resolved target.
+    * `sim_branch` → `runs_branch` (the CFG combinator, case-split on the runtime
+      condition; takes the per-arm `Runs` continuation).
+    * `sim_call` → `Runs.call` node from a `CallReturns` witness (built exactly as
+      `Examples.CallerProgExample.caller_callReturns`).
+    * `halt_stop` / `halt_ret` → `stepFrame_stop` / `stepFrame_return_empty`: the
+      halt step the bridge consumes via `hhalt` (terminators are **not** `runs_*`).
+  - **Top-level boundary discharge** (`lower_preserves`, §6.3, the bridge half):
+    `lower_preserves_discharge` crosses `messageCall_runs` given an assembled
+    `Runs fr₀ last` + the terminator halt; `lower_preserves_stop` /
+    `lower_preserves_ret` are the two terminator instances (halt from
+    `halt_stop`/`halt_ret`). This is the exact half that consumes A's bridge, and it
+    already covers **any number** of `Runs.call` nodes in the assembled run (so the
+    multi-call discharge is free — C4 is then only the *assembly*, not the bridge).
+
+  **What remains for full C3** (the honest gap — NOT faked with `sorry`): the
+  **program-global assembly** of `Runs fr₀ last`. The atomic lemmas are stated
+  frame-locally (they take the frame's decode/stack/gas hypotheses), which is what
+  lets them compose; the missing engine is `lower_simulates_step` proper —
+  induction over the IR statement/terminator stream that, for each construct,
+  (i) discharges `M1` by computing `decode (lower prog) (pcOf prog L pc)` = the
+  expected opcode from the offset-table prefix sum (the `Decode.lean` `rfl` checks
+  do this *per worked program*; the general lemma needs `decode (lower prog)`
+  correctness as a theorem, the C2-flagged generic decode lemma), and (ii) threads
+  the materialisation pushes (`materialiseExpr` → a `Runs.trans` chain of
+  `runs_push`) ahead of each effecting opcode while keeping `M5` (stack returns to
+  `[]`). This byte-layout arithmetic over `lower prog` is the bulk of the remaining
+  work; the worked single-call program (`Decode.lean`'s `workedCall`) is the
+  intended first instantiation once the generic decode lemma lands. C4 (multi-call)
+  reuses the same engine — the bridge already composes calls.
