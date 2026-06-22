@@ -108,7 +108,7 @@ The general bound [`mu_bound`](BytecodeLayer/Semantics/Interpreter/Measure.lean#
 theorem messageCall_never_outOfFuel (p : CallParams) :
     messageCall p ≠ .error .OutOfFuel
 ```
-[`NeverOutOfFuel.lean#L158`](BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean#L158). *Proof strategy:* `mu_bound gasFundsDescent_holds` started at `μ [] (.inl frame) = 2·p.gas + 2 ≤ seedFuel p.gas`.
+[`NeverOutOfFuel.lean#L158`](BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean#L158). *Proof strategy:* `mu_bound gasFundsDescent_holds` started at `μ [] (running frame) = 2·p.gas + 2 ≤ seedFuel p.gas`.
 
 ### 4.2 The generic CALL-boundary descent equation
 
@@ -117,9 +117,9 @@ theorem messageCall_never_outOfFuel (p : CallParams) :
 ```lean
 theorem drive_descend_eq (f : ℕ) (child : Frame) (res : FrameResult)
     (pd : PendingCall) (ps : List Pending)
-    (h : drive f [] (.inl child) = .ok res) :
-    ∃ j, drive f (.call pd :: ps) (.inl child)
-      = drive j ps (.inl (resumeAfterCall res.toCallResult pd))
+    (h : drive f [] (running child) = .ok res) :
+    ∃ j, drive f (.call pd :: ps) (running child)
+      = drive j ps (running (resumeAfterCall res.toCallResult pd))
 ```
 
 It is obtained from the central framing lemma [`drive_append_framing`](BytecodeLayer/Semantics/Interpreter/DescentEq.lean#L57) (an inert bottom stack segment is untouched while execution proceeds above it), then peeling one `.call` resume step. *Proof strategy:* induction on fuel following `drive`'s own recursion; the residual fuel `j` is existential, so no exact bookkeeping.
@@ -143,11 +143,11 @@ with the **sequencing rule** [`Runs.trans`](BytecodeLayer/Hoare.lean#L96), per-o
 theorem messageCall_call_runs {n₁ n₂ : ℕ}
     (p cp : CallParams) (fr₀ callFr child last : Frame)
     (childRes : FrameResult) (pending : PendingCall) (halt : FrameHalt)
-    (hbegin   : beginCall p = .inl fr₀)
+    (hbegin   : EntersAsCode p fr₀)
     (hpre     : Runs n₁ fr₀ callFr)
     (hcall    : stepFrame callFr = .needsCall cp pending)
-    (hcbegin  : beginCall cp = .inl child)
-    (hchild   : drive (seedFuel cp.gas) [] (.inl child) = .ok childRes)
+    (hcbegin  : EntersAsCode cp child)
+    (hchild   : drive (seedFuel cp.gas) [] (running child) = .ok childRes)
     (hpost    : Runs n₂ (resumeAfterCall childRes.toCallResult pending) last)
     (hhalt    : stepFrame last = .halted halt)
     (hfuel    : seedFuel cp.gas + n₁ + 1 ≤ seedFuel p.gas) :
