@@ -125,12 +125,16 @@ nesting *as a theorem over flat*; Track B *adopts* the already-nested semantics.
   (NOT extending `SirLean`: UInt32, no CALL, no gas, dead SSA weight). First-class
   `sload/sstore/add/lt`, `Stmt.call`, `Term.branch`, `Expr.gas`. `docs/ir-design.md`
   + `sorry`-free compiling two-pass lowering skeleton.
-- [ ] **C2** Lowering IR → EVM bytecode.
-- [ ] **C3** Prove lowering preserves semantics, using exp003's reasoning layer
-  (the `Runs`/boundary-bridge machinery — coordinate with Track A's API).
-- [ ] **C4** Evaluate whether exp003's sequencing suffices for **multi-call** IR
-  programs. If not, file the concrete requirement against Track A (this is the
-  feedback edge A↔C).
+- [x] **C2** DONE (`exp005-ir` @ `bde1913`, green 1106 jobs, axiom-clean). Lowering
+  emits decode-compatible bytecode per construct (recompute-on-use; PUSH32/ADD/LT/SLOAD/
+  GAS/SSTORE/CALL/JUMP/JUMPI/RETURN/STOP), ~40 build-enforced `decode … = expected`
+  round-trip `rfl` checks (avoided `native_decide` to stay axiom-clean).
+- [ ] **C3** Prove lowering preserves semantics. **GATED on Track A merging to base**
+  (needs the new `Runs.call`/`messageCall_runs_calls` + opcode rules for
+  SLOAD/ADD/LT/GAS/JUMP/JUMPI/STOP/RETURN). Until then C does rebase-safe work:
+  simplify C1/C2 + write the `Match`-invariant proof plan + the C→A opcode-rule request.
+- [ ] **C4** Multi-call lowering. A3 is DONE so the *bridge* exists; C4 still follows
+  C3 and the A→base merge + C rebase.
 
 ---
 
@@ -185,14 +189,16 @@ cross-track deps. Always launch ≥1 task per completion so the loop never stall
 user reviews/steers asynchronously; "go far, and when idle, also review + simplify."
 
 Per-track queue (top = next to launch when the track's current agent lands):
-- **A** (running A2/A3) → A4 verdict+expose API → **CFG combinator** (JUMPI/branches/
-  loops as `Runs`-level structure) → gas-introspection first-class → `CREATE` ctor →
+- **A** (running CFG combinator; A2/A3/A4 done) → **opcode-rule completion**
+  (SLOAD/ADD/LT/GAS + STOP/RETURN halt wrappers, per C's "C→A opcode-rule request" in
+  exp005 PLAN.md; JUMP/JUMPI come from the CFG combinator) → **MERGE A→base** (integration
+  gate, unblocks C3; then C rebases) → gas-introspection first-class → `CREATE` ctor →
   symbolic worlds + gas-ledger.
 - **B** (running B0 mono) → B2 nested never-OOF (on mono base) → B3 `Ξ` triple +
   call-site/frame rule → B4 IR surface → A-vs-B bake-off verdict.
-- **C** (running C2) → C3 single-call preservation → **C4 multi-call lowering [DEP:
-  A3 done]** → branch lowering [DEP: A CFG combinator] (→ gas-introspection preservation
-  theorem) → connect `LirLean` to Plank SIR.
+- **C** (running rebase-safe simplify + C3-plan; C2 done) → [after A→base merge + rebase]
+  C3 single-call preservation → C4 multi-call (bridge ready, A3 done) → branch lowering
+  (→ gas-introspection preservation theorem) → connect `LirLean` to Plank SIR.
 
 Cross-track deps to respect: C4 waits on A3; C branch-lowering waits on A's CFG
 combinator; C rebases on A after A merges to base. If a track's next item is dep-blocked,
@@ -219,6 +225,12 @@ your own branch with clear messages; never touch another track's files; if block
 write the blocker into PLAN.md before stopping.
 
 ## Orchestration log
+- 2026-06-22: **C2 DONE & verified** (`bde1913`, green 1106, axiom-clean). Decode-compat
+  lowering + ~40 round-trip checks. Surfaced the **integration bottleneck: Track A is
+  upstream of C3** — C's lowering emits SLOAD/ADD/LT/GAS/JUMP/JUMPI/STOP/RETURN but
+  exp003 has `runs_*` only for PUSH/SSTORE+call; those rules (Track A) must land + A must
+  merge to base before C3. Action: queued opcode-rule completion onto A (after CFG) + an
+  A→base merge gate; launched C on rebase-safe simplify + C3-plan + the C→A rule request.
 - 2026-06-22: **A2+A3 DONE & verified** (`aa141e7`, green 1128, axiom-clean). Multi-call
   composition works (`messageCall_runs_calls` + `TwoCallExample`); **the intermediary-call
   defect is fixed, C4 unblocked.** Launched A's next: **CFG combinator** (JUMP/JUMPI +
