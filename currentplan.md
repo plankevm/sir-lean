@@ -157,13 +157,15 @@ whichever interface, ideally the shared one.
   emits decode-compatible bytecode per construct (recompute-on-use; PUSH32/ADD/LT/SLOAD/
   GAS/SSTORE/CALL/JUMP/JUMPI/RETURN/STOP), ~40 build-enforced `decode … = expected`
   round-trip `rfl` checks (avoided `native_decide` to stay axiom-clean).
-- [ ] **C3** Prove lowering preserves semantics. **C PARKED, GATED on A→base merge.**
-  Rebase-safe prep DONE (`8946f78`): simplified C1/C2 (dropped dead defs); `Match`
-  invariant + per-construct obligation table in `docs/ir-design.md §6`; C→A rule request
-  in PLAN.md. **Refined finding:** with A's new API, C3 needs NO halt `runs_*` (the bridge
-  takes `STOP`/`RETURN` via `hhalt`) and CALL is a `Runs.call` node — so the only NEW
-  opcode rules A must add beyond the CFG combinator (JUMP/JUMPI) are **`runs_add`,
-  `runs_lt`, `runs_sload`(+read companion), `runs_gas`**. Resume C3 right after rebase.
+- [~] **C3** Prove lowering preserves semantics — UNBLOCKED (A merged) & PARTIAL
+  (`b81b331`, green 1126 jobs, axiom-clean). DONE: small-step gas-aware IR semantics
+  (`SmallStep.lean`), the 5-clause `Match` invariant (`Match.lean`), ALL per-construct
+  simulation lemmas (`sim_imm/add/lt/sload/gas/sstore/jump/branch/call`, `halt_stop/ret`),
+  and the top-level boundary discharge `lower_preserves_discharge` (crosses
+  `messageCall_runs`, already handles ANY number of `Runs.call` nodes ⇒ C4 discharge is
+  nearly free). REMAINING (continuation IN PROGRESS): generic `decode_lower` correctness
+  lemma + the `lower_simulates_step` assembly induction (the byte-layout arithmetic) to
+  close `lower_preserves`.
 - [ ] **C4** Multi-call lowering. A3 is DONE so the *bridge* exists; C4 still follows
   C3 and the A→base merge + C rebase.
 
@@ -280,6 +282,10 @@ your own branch with clear messages; never touch another track's files; if block
 write the blocker into PLAN.md before stopping.
 
 ## Orchestration log
+- 2026-06-22: **C3 PARTIAL & verified** (`b81b331`, green 1126). Semantic core proved
+  (Match + all per-construct sims + boundary discharge that already covers multi-call).
+  Remaining = byte-layout assembly (`decode_lower` + `lower_simulates_step`); continuation
+  agent launched. Track C report deferred until C3 closes. Still running: B2.
 - 2026-06-22: **Track A review report DONE & committed** (`docs/track-a-review.md`, 423
   lines; argues `Runs.call` + CFG choices vs alternatives). Fixed master report staleness.
   Report flagged for Phase-2: `Spec.lean`'s surface is frame-level, not observables-only
