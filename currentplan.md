@@ -172,10 +172,18 @@ whichever interface, ideally the shared one.
   (+`bget`/`bextract` foundations) and the offset-table arithmetic with symbolic `M1`
   (`pcOf_eq_anchor`/`flatBytes_at_pcOf`). REMAINING (final continuation IN PROGRESS):
   the per-program `Runs fr₀ last` assembly for `workedCall` (gas-tracked `Runs.trans`
-  chain + a concrete `CallReturns` child run, mirroring `caller_callReturns`) to close
-  `lower_preserves`; C4 multi-call falls out of the same boundary discharge.
-- [ ] **C4** Multi-call lowering. A3 is DONE so the *bridge* exists; C4 still follows
-  C3 and the A→base merge + C rebase.
+  chain + a concrete `CallReturns` child run). **ARCHITECTURALLY COMPLETE** (`496ef19`,
+  green 1129): `lower_preserves` (single-call) + the concrete `Runs` assembly for
+  `workedCall` (`wc_prefix_runs`/`wc_call_step`/`wc_preserves`) hold as the BRIDGE HALF
+  with two honest, non-faked hypotheses: (a) the concrete child `CallReturns` (feasible-
+  but-large callee `drive` run), (b) the post-CALL branch terminator — **BLOCKED by
+  `validJumpDestsAux` being a `partial def`** (kernel-opaque ⇒ `get_dest` unprovable
+  without `native_decide`). Track A is now detotalizing it. Track C report launched.
+- [x] **C4** Multi-call lowering — RESOLVED STRUCTURALLY (`496ef19`): `wc_preserves_twoCall`
+  closes a 2-CALL program by the SAME bridge discharge (the boundary discharge composes any
+  number of `Runs.call` nodes). Needed NO new theory — direct payoff of Track A's
+  `Runs.call`. Its open pieces are identical to C3's (the two honest hypotheses), not
+  multi-call-specific.
 
 ---
 
@@ -290,6 +298,16 @@ your own branch with clear messages; never touch another track's files; if block
 write the blocker into PLAN.md before stopping.
 
 ## Orchestration log
+- 2026-06-22: **C3/C4 ARCHITECTURALLY COMPLETE & verified** (`496ef19`, green 1129).
+  Lowering-preservation proved as the bridge half (single-call `lower_preserves` +
+  multi-call `wc_preserves_twoCall`) modulo two honest hypotheses. **C4 needed no new
+  theory** (Track A's `Runs.call` composes calls) and `decode_lower`+byte-layout are now
+  generic. **Foundation finding: `validJumpDestsAux` is a `partial def`** → jump-dest
+  validity unprovable without `native_decide`; this blocks the branch terminator. Launched
+  **Track A to detotalize it** (vendored-EVMLean fix, upstreamable) + the **Track C
+  review report**. Still running: B2 mutual induction. Next: A merges the detotalized
+  `validJumpDests` → C rebases → one C agent closes both honest hypotheses (child
+  `CallReturns` + branch terminator) ⇒ hypothesis-free C.
 - 2026-06-22: **B2 PARTIAL & verified** (`863dc24`, green, axiom-clean). Cornerstone
   (per-opcode gas-positivity, ~140 ops) + fuel bound + base cases proved; remaining = the
   mutual fuel-passing induction (Z→step→X inversion, X descent, cross-layer conservation,
