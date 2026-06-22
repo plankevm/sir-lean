@@ -10,13 +10,17 @@ This file proves the **program-agnostic** external-call analogue of the
 intra-frame `messageCall_runs`: a caller that `Runs` from its entry frame to a
 CALL site, issues a CALL whose child terminates (as a *black box* — any
 terminating child run), then `Runs` from the resumed frame to a halt site,
-produces the expected `messageCall` result. The single side condition is the
-numeric fuel bound `seedFuel cp.gas + n₁ + 1 ≤ seedFuel p.gas`.
+produces the expected `messageCall` result. The three call-facts (the CALL step,
+the child entering as code, and the child's terminating run) are bundled into the
+derived `CallReturns` predicate, so the rule reads as a clean five-hypothesis
+sequence with **no numeric fuel side condition**.
 
 It is the real theorem that replaces any assumed-the-conclusion forwarding
 hypothesis: the black-box child is reconciled against the suffix's concrete
 terminating run by `messageCall`-never-out-of-fuel plus fuel monotonicity
-(`drive_eq_of_both_ne_oof`).
+(`drive_eq_of_both_ne_oof`). The fuel bound is discharged internally by running
+the whole sequence at a deliberately large concrete fuel and reconciling it with
+`seedFuel p.gas` via `drive_eq_of_both_ne_oof` — no caller-supplied bound.
 -/
 
 namespace BytecodeLayer.Hoare
@@ -36,48 +40,63 @@ theorem drive_eq_of_both_ne_oof {a b : ℕ} (stack : List Pending)
   · exact (drive_fuel_mono hle stack state ha).symm
   · exact drive_fuel_mono hle stack state hb
 
+/-! ## The bundled `CallReturns` predicate -/
+
+/-- `callFr` issues a CALL whose child runs to completion, resuming at `resumeFr`.
+
+Bundles the three call-facts of the external-CALL sequence: the CALL step
+(`stepFrame callFr = .needsCall cp pending`), the child entering as code
+(`EntersAsCode cp child`), and the child's black-box terminating run
+(`drive (seedFuel cp.gas) [] (running child) = .ok childRes`), pinning the
+resumed parent frame to `resumeAfterCall childRes.toCallResult pending`. -/
+def CallReturns (callFr resumeFr : Frame) : Prop :=
+  ∃ cp pending child childRes,
+       stepFrame callFr = .needsCall cp pending
+     ∧ EntersAsCode cp child
+     ∧ drive (seedFuel cp.gas) [] (running child) = .ok childRes
+     ∧ resumeFr = resumeAfterCall childRes.toCallResult pending
+
 /-! ## Lemma 2 — the keystone external-CALL sequencing rule -/
 
 /-- **The general external-CALL sequencing rule.** A caller enters as code
-(`EntersAsCode p fr₀`), `Runs` its prefix to a CALL site `callFr`, issues a
-CALL (`stepFrame callFr = .needsCall cp pending`) whose child enters as code
-(`EntersAsCode cp child`) and **terminates** (`drive (seedFuel cp.gas) [] …
-= .ok childRes`, taken as a black box), then `Runs` its suffix from the resumed
-frame to a halt site `last`. Given the numeric fuel bound, `messageCall p`
-delivers the caller's halt result.
+(`EntersAsCode p fr₀`), `Runs` its prefix to a CALL site `callFr`, issues a CALL
+whose child enters as code and terminates, resuming at `resumeFr`
+(`CallReturns callFr resumeFr`, a black-box terminating child), then `Runs` its
+suffix from `resumeFr` to a halt site `last`. `messageCall p` delivers the
+caller's halt result — **no numeric fuel side condition**.
+
+The fuel bound is discharged internally: the whole sequence is run at a
+deliberately large concrete fuel `f*` (chosen so every fuel split closes by
+`omega` and `seedFuel p.gas ≤ f*` holds outright), then reconciled with
+`seedFuel p.gas` through `drive_eq_of_both_ne_oof` and
+`messageCall_never_outOfFuel`.
 
 This is the external-call analogue of `messageCall_runs`. -/
-theorem messageCall_call_runs {n₁ n₂ : ℕ} {cp : CallParams}
-    {fr₀ callFr child last : Frame}
-    {childRes : FrameResult} {pending : PendingCall} {halt : FrameHalt}
-    (p : CallParams)
+theorem messageCall_call_runs (p : CallParams) {n₁ n₂ : ℕ}
+    {fr₀ callFr resumeFr last : Frame} {halt : FrameHalt}
     (hbegin   : EntersAsCode p fr₀)
     (hpre     : Runs n₁ fr₀ callFr)
-    (hcall    : stepFrame callFr = .needsCall cp pending)
-    (hcbegin  : EntersAsCode cp child)
-    (hchild   : drive (seedFuel cp.gas) [] (running child) = .ok childRes)
-    (hpost    : Runs n₂ (resumeAfterCall childRes.toCallResult pending) last)
-    (hhalt    : stepFrame last = .halted halt)
-    (hfuel    : seedFuel cp.gas + n₁ + 1 ≤ seedFuel p.gas) :
+    (hcallret : CallReturns callFr resumeFr)
+    (hpost    : Runs n₂ resumeFr last)
+    (hhalt    : stepFrame last = .halted halt) :
     messageCall p = .ok (FrameResult.toCallResult (endFrame last halt)) := by
-  set S := seedFuel p.gas with hS
+  obtain ⟨cp, pending, child, childRes, hcall, hcbegin, hchild, hres⟩ := hcallret
+  subst hres
   -- Abbreviation for the resumed parent frame.
   set R := resumeAfterCall childRes.toCallResult pending with hR
-  -- Reduce the goal to a `drive` equation.
-  rw [messageCall_eq_drive p fr₀ hbegin]
-  -- It suffices to show `drive S [] (.inl fr₀) = .ok (endFrame last halt)`.
-  suffices hmain : drive S [] (.inl fr₀) = .ok (endFrame last halt) by
-    rw [hmain]; rfl
+  -- A deliberately large concrete fuel: every split closes by `omega`, and
+  -- `seedFuel p.gas ≤ f*` holds outright — no caller-supplied bound.
+  set f := seedFuel p.gas + n₁ + 1 + seedFuel cp.gas + n₂ + 2 with hf
   -- `m` is the fuel after the prefix and the CALL step.
-  set m := S - n₁ - 1 with hm
+  set m := f - n₁ - 1 with hm
   -- 1. Prefix: advance from `fr₀` to `callFr`.
-  have hprefix : drive S [] (.inl fr₀) = drive (S - n₁) [] (.inl callFr) := by
-    conv_lhs => rw [show S = n₁ + (S - n₁) by omega]
-    rw [hpre.drive_advance (S - n₁)]
+  have hprefix : drive f [] (.inl fr₀) = drive (f - n₁) [] (.inl callFr) := by
+    conv_lhs => rw [show f = n₁ + (f - n₁) by omega]
+    rw [hpre.drive_advance (f - n₁)]
   -- 2. The CALL step: descend into the child, suspending the parent.
-  have hcallstep : drive (S - n₁) [] (.inl callFr)
+  have hcallstep : drive (f - n₁) [] (.inl callFr)
       = drive m (.call pending :: []) (.inl child) := by
-    rw [show S - n₁ = m + 1 by omega]
+    rw [show f - n₁ = m + 1 by omega]
     exact driveG_needsCall_code m [] callFr cp pending child hcall hcbegin
   -- 3a. Lift the (black-box) child run to fuel `m`.
   have hchild_m : drive m [] (.inl child) = .ok childRes := by
@@ -86,30 +105,39 @@ theorem messageCall_call_runs {n₁ n₂ : ℕ} {cp : CallParams}
     exact hchild
   -- 3b. Descend equation: in-line descent equals resumed parent at some fuel `j`.
   obtain ⟨j, hj⟩ := drive_descend_eq m child childRes pending [] hchild_m
-  -- Chain 1–3: `drive S [] (.inl fr₀) = drive j [] (.inl R)`.
-  have hchain : drive S [] (.inl fr₀) = drive j [] (.inl R) := by
+  -- Chain 1–3: `drive f [] (.inl fr₀) = drive j [] (.inl R)`.
+  have hchain : drive f [] (.inl fr₀) = drive j [] (.inl R) := by
     rw [hprefix, hcallstep, hj]
   -- 4. Suffix: a concrete terminating run from `R`.
   have hsuffix : drive (n₂ + 2) [] (.inl R) = .ok (endFrame last halt) := by
     rw [hpost.drive_advance 2]
     exact drive_halt 0 last halt hhalt
-  -- `drive S [] (.inl fr₀) ≠ OutOfFuel` from `messageCall_never_outOfFuel`.
-  have hS_neoof : drive S [] (.inl fr₀) ≠ .error .OutOfFuel := by
+  -- `drive (seedFuel p.gas) [] (.inl fr₀) ≠ OutOfFuel` from `messageCall_never_outOfFuel`.
+  have hseed_neoof : drive (seedFuel p.gas) [] (.inl fr₀) ≠ .error .OutOfFuel := by
     intro hcontra
     apply messageCall_never_outOfFuel p
     rw [messageCall_eq_drive p fr₀ hbegin, hcontra]
     rfl
-  -- Hence `drive j [] (.inl R) ≠ OutOfFuel` (it equals `drive S [] (.inl fr₀)`).
+  -- Hence `drive f [] (.inl fr₀) ≠ OutOfFuel` (`seedFuel p.gas ≤ f`, by monotonicity).
+  have hf_neoof : drive f [] (.inl fr₀) ≠ .error .OutOfFuel := by
+    rw [drive_fuel_mono (show seedFuel p.gas ≤ f by omega) [] (.inl fr₀) hseed_neoof]
+    exact hseed_neoof
+  -- Hence `drive j [] (.inl R) ≠ OutOfFuel` (it equals `drive f [] (.inl fr₀)`).
   have hj_neoof : drive j [] (.inl R) ≠ .error .OutOfFuel := by
-    rw [← hchain]; exact hS_neoof
+    rw [← hchain]; exact hf_neoof
   -- And the suffix run avoids `OutOfFuel`.
   have hsuf_neoof : drive (n₂ + 2) [] (.inl R) ≠ .error .OutOfFuel := by
     rw [hsuffix]; nofun
   -- Reconcile the two terminating runs of `R`.
   have hjeq : drive j [] (.inl R) = drive (n₂ + 2) [] (.inl R) :=
     drive_eq_of_both_ne_oof [] (.inl R) hj_neoof hsuf_neoof
-  -- Combine.
-  rw [hchain, hjeq, hsuffix]
+  -- The large-fuel run delivers the caller's halt result.
+  have hf_ok : drive f [] (.inl fr₀) = .ok (endFrame last halt) := by
+    rw [hchain, hjeq, hsuffix]
+  -- Reduce the goal to a `drive` equation and reconcile `f` with `seedFuel p.gas`.
+  rw [messageCall_eq_drive p fr₀ hbegin]
+  rw [drive_eq_of_both_ne_oof [] (.inl fr₀) hseed_neoof hf_neoof, hf_ok]
+  rfl
 
 /-! ## Except/Outcome decoders (reusable plumbing) -/
 
@@ -136,24 +164,19 @@ program-agnostic sequencing hypotheses as `messageCall_call_runs`, plus the call
 halt result being a success leaving `v` at cell `(a, k)`, yield the named
 `Outcome.completedWith` predicate on `Outcome.ofCall (messageCall p)`. This is the
 sound external-call rule the spec surface exposes — no assumed forwarding. -/
-theorem messageCall_call_completedWith {n₁ n₂ : ℕ} {cp : CallParams}
-    {fr₀ callFr child last : Frame}
-    {childRes : FrameResult} {pending : PendingCall} {halt : FrameHalt}
-    (p : CallParams) (a : AccountAddress) (k v : UInt256)
+theorem messageCall_call_completedWith (p : CallParams) {n₁ n₂ : ℕ}
+    {fr₀ callFr resumeFr last : Frame} {halt : FrameHalt}
+    (a : AccountAddress) (k v : UInt256)
     (hbegin   : EntersAsCode p fr₀)
     (hpre     : Runs n₁ fr₀ callFr)
-    (hcall    : stepFrame callFr = .needsCall cp pending)
-    (hcbegin  : EntersAsCode cp child)
-    (hchild   : drive (seedFuel cp.gas) [] (running child) = .ok childRes)
-    (hpost    : Runs n₂ (resumeAfterCall childRes.toCallResult pending) last)
+    (hcallret : CallReturns callFr resumeFr)
+    (hpost    : Runs n₂ resumeFr last)
     (hhalt    : stepFrame last = .halted halt)
-    (hfuel    : seedFuel cp.gas + n₁ + 1 ≤ seedFuel p.gas)
     (hsucc    : (FrameResult.toCallResult (endFrame last halt)).success = true)
     (hcell    : CallResult.storageAt (FrameResult.toCallResult (endFrame last halt)) a k = v) :
     Outcome.completedWith (Outcome.ofCall (messageCall p)) a k v :=
   completedWith_of_ok
-    (messageCall_call_runs p
-      hbegin hpre hcall hcbegin hchild hpost hhalt hfuel)
+    (messageCall_call_runs p hbegin hpre hcallret hpost hhalt)
     hsucc hcell
 
 end BytecodeLayer.Hoare
