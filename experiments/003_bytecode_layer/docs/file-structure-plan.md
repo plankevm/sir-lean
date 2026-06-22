@@ -47,8 +47,8 @@ BytecodeLayer/
     Maps.lean         ← Maps
     Interpreter/      ← the fuel-specific measure argument (large → own subdir)
       Drive.lean        ← Drive + DriveGen + Fuel
-      NeverOutOfFuel.lean ← μ, mu_bound, boundary theorem
-      DescentDrops.lean   ← conjunct assembly + descentDrops_holds + messageCall_never_outOfFuel
+      Measure.lean        ← μ, mu_bound, boundary theorem (modulo gasFundsDescent)
+      NeverOutOfFuel.lean ← conjunct assembly + gasFundsDescent_holds + messageCall_never_outOfFuel
   Hoare/                        ← OUR additions, no leanevm home
     Hoare.lean · Behaves.lean · Straightline.lean · Sequence.lean
   ExternalCall.lean   ← ExternalCall + ExternalCallGen, MINUS whatever is generic System shape
@@ -68,8 +68,8 @@ BytecodeLayer/
 | `Semantics/System.lean` | `Reasoning/Call`, `Reasoning/Begin`, the `callArm`/`createArm`/`systemOp` inversion+reduction lemmas from `DescentDrops`, + generic bits factored out of ExternalCall | the reusable System-op facts |
 | `Semantics/Maps.lean` | `Reasoning/Maps` | mirrors `Evm/Maps/` |
 | `Semantics/Interpreter/Drive.lean` | `Reasoning/Drive`, `DriveGen`, `Fuel` | drive vocab + fuel monotonicity |
-| `Semantics/Interpreter/NeverOutOfFuel.lean` | `Reasoning/NeverOutOfFuel` | `μ`, `mu_bound`, boundary theorem |
-| `Semantics/Interpreter/DescentDrops.lean` | the conjunct-assembly + `descentDrops_holds` + `messageCall_never_outOfFuel` tail of `DescentDrops` | the fuel-specific remainder |
+| `Semantics/Interpreter/Measure.lean` | `Reasoning/NeverOutOfFuel` | `μ`, `mu_bound`, boundary theorem (modulo `gasFundsDescent`) |
+| `Semantics/Interpreter/NeverOutOfFuel.lean` | the conjunct-assembly + `gasFundsDescent_holds` + `messageCall_never_outOfFuel` tail | the fuel-specific remainder |
 | `Hoare/*` | `Reasoning/Hoare`, `Reasoning/Behaves`, `Proof/Straightline`, `Proof/Sequence` | our compositional layer |
 | `ExternalCall.lean` | `Proof/ExternalCall`, `Proof/ExternalCallGen` minus generic System shapes | keep external-call-specific rungs here |
 | `Examples/*` | `Programs`, `Proof/ProgramExamples`, `Proof/HoareDemo` | demos / worked programs |
@@ -95,7 +95,7 @@ BytecodeLayer/
 ```
 UInt256 ─► Gas ─► Decode
               └─► Precompiles ─┐
-Maps                           ├─► System ─► Interpreter/{Drive ─► NeverOutOfFuel ─► DescentDrops}
+Maps                           ├─► System ─► Interpreter/{Drive ─► Measure ─► NeverOutOfFuel}
             Dispatch ──────────┘                │
                                                 ▼
                               Hoare/* ─► ExternalCall ─► Examples/* ─► Spec
