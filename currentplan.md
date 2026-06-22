@@ -139,5 +139,9 @@ write the blocker into PLAN.md before stopping.
 
 ## Orchestration log
 - 2026-06-22: Plan created. exp003 vendored EVMLean + cleanup already committed on
-  base. Worktrees + branches to be created; M1 agents to be bootstrapped (bounded:
-  each does its M1, updates PLAN.md, commits, reports, stops).
+  base. Three worktrees + branches created (`exp003-runs-call`, `exp004-nested`,
+  `exp005-ir`), each with a committed local `PLAN.md`.
+- 2026-06-22: **M1 background agents launched for all three tracks** (bounded: each
+  does only its M1, appends to its PLAN.md progress log, commits on its branch,
+  then stops + reports). On resume: do NOT look for these agents (ephemeral); read
+  each PLAN.md log + `lake build`, then re-spawn from the PLAN.md "Agent brief".
