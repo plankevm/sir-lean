@@ -26,7 +26,7 @@ flat-vs-nested choice is purely about ergonomics/conformance, not correctness.
 
 | Track | What | Per-track report | Status |
 |---|---|---|---|
-| **A** | exp003 flat reasoning layer: `Runs` with a `call` constructor, multi-call composition, CFG combinator, opcode rules | `experiments/003_bytecode_layer/docs/track-a-review.md` *(pending: generated after opcode-rules + A→base merge)* | A1/A2/A3/CFG green; opcode rules in progress |
+| **A** | exp003 flat reasoning layer: `Runs` with a `call` constructor, multi-call composition, CFG combinator, opcode rules | **[track-a-review.md](experiments/003_bytecode_layer/docs/track-a-review.md)** ✓ | **Core complete + merged to base** (1130 jobs, axiom-clean). Backlog: gas-introspection, `CREATE`, symbolic worlds |
 | **B** | exp004 nested EVM core: EVMYulLean monomorphized to EVM-only, nested never-`OutOfFuel`, `Ξ`-triple | `experiments/004_nested_evmyul/docs/track-b-review.md` *(pending: after B2)* | B0 (mono) green; B2 in progress |
 | **C** | exp005 `LirLean` IR → bytecode lowering + semantics preservation | `experiments/005_ir_lowering/docs/track-c-review.md` *(pending: after C3)* | C1/C2 green; C3 gated on A→base merge |
 
