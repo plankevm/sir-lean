@@ -53,7 +53,7 @@ B′ descent equation      ✅  drive_append_framing / drive_descend_eq     (Sem
    step characterization ✅  stepFrame_push1/_sstore/_stop/_sstore_oog…  (Semantics/Dispatch.lean)
    System-op facts       ✅  stepFrame_call / beginCall_* / resumeAfterCall…  (Semantics/System.lean)
    63/64 arithmetic      ✅  Gas.liftFloor / …_ge_of_liftFloor_le; childGas_lb  (Semantics/Gas.lean, ExternalCall.lean)
-C  Hoare core            ✅  Runs / Runs.trans / runs_push1/_push/_sstore / messageCall_runs  (Hoare.lean)
+C  Hoare core            ✅  Runs / Runs.trans / runs_push1/_push/_sstore (Hoare.lean); messageCall_runs (Hoare/CallSequence.lean)
    sequencing gas        ✅  subCharges / toNat_subCharges               (Hoare/Sequence.lean)
    M1 capstones          ✅  messageCall_stop/_pushStop/_sstore/_seq_*   (Examples/ConcreteSpecs.lean ← ProgramExamples.lean)
 ─────────────────────────────────────────────────────────────────────
@@ -77,8 +77,10 @@ Fuel is not a hypothesis of the CALL rule at all: the never-out-of-fuel subsyste
 (`μ`/`mu_bound`/`gasFundsDescent`) discharges it *unconditionally*, so the rule
 runs the whole sequence at a large concrete fuel and reconciles back to
 `seedFuel p.gas` internally — fuel appears in no exported statement. (The call-free
-`messageCall_runs` still carries a `n + 2 ≤ seedFuel p.gas` premise; it could be
-dropped the same way — see "where next".)
+`messageCall_runs` is now also fuel-free: its `n + 2 ≤ seedFuel p.gas` premise was
+dropped the same way — it now lives next to the CALL rule in
+`Hoare/CallSequence.lean`, reconciling its exact `n + 2` fuel with `seedFuel p.gas`
+via `messageCall_never_outOfFuel` + `drive_eq_of_both_ne_oof`.)
 
 ## The two obstructions — RESOLVED (record of the fix)
 
@@ -154,9 +156,6 @@ demand-driven:
   M2 witness beyond the single `callerProg`/`calleeProg` pair and one CALL site. The
   general rule is parametric and consumes the child as a black box; only the
   *instantiation* is currently one example.
-- **Drop the fuel premise from `messageCall_runs` too** (the call-free bridge still
-  carries `n + 2 ≤ seedFuel p.gas`), by the same large-`f*` + `messageCall_never_outOfFuel`
-  reconciliation now used in `messageCall_call_runs` — for consistency, cheap.
 - **Gas-sufficiency "piece 2": derive the floor per callee.** A small gas-Hoare
   judgment "callee `Q` run with gas ≥ `cost(Q)` commits effect `E`" would make the
   `∃G₀` floor `liftFloor (cost Q) + overhead` for *any* callee instead of hand-derived.

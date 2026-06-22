@@ -4,23 +4,35 @@ import BytecodeLayer.Semantics.Interpreter.NeverOutOfFuel
 import BytecodeLayer.Hoare.OutcomeBridge
 
 /-!
-# The SOUND, general external-CALL sequencing rule (`messageCall_call_runs`)
+# The two `messageCall`-boundary bridges, both fuel-free
 
-This file proves the **program-agnostic** external-call analogue of the
-intra-frame `messageCall_runs`: a caller that `Runs` from its entry frame to a
-CALL site, issues a CALL whose child terminates (as a *black box* — any
-terminating child run), then `Runs` from the resumed frame to a halt site,
-produces the expected `messageCall` result. The three call-facts (the CALL step,
-the child entering as code, and the child's terminating run) are bundled into the
-derived `CallReturns` predicate, so the rule reads as a clean five-hypothesis
-sequence with **no numeric fuel side condition**.
+This file holds **both** `messageCall`-boundary sequencing rules — the call-free
+`messageCall_runs` and the external-CALL `messageCall_call_runs` — each proved
+**fuel-free** (no numeric `n + … ≤ seedFuel` side condition) via
+never-out-of-fuel (`messageCall_never_outOfFuel`) plus fuel agreement
+(`drive_eq_of_both_ne_oof`).
 
-It is the real theorem that replaces any assumed-the-conclusion forwarding
-hypothesis: the black-box child is reconciled against the suffix's concrete
-terminating run by `messageCall`-never-out-of-fuel plus fuel monotonicity
-(`drive_eq_of_both_ne_oof`). The fuel bound is discharged internally by running
-the whole sequence at a deliberately large concrete fuel and reconciling it with
-`seedFuel p.gas` via `drive_eq_of_both_ne_oof` — no caller-supplied bound.
+`messageCall_runs` is the intra-frame bridge: a caller that `Runs` from its entry
+frame to a halt site produces the expected `messageCall` result. Its run needs
+exactly `n + 2` fuel, which `drive_eq_of_both_ne_oof` reconciles with
+`seedFuel p.gas` (both avoid `OutOfFuel`) — no fuel ordering needed.
+
+`messageCall_call_runs` is the **program-agnostic** external-call analogue: a
+caller that `Runs` from its entry frame to a CALL site, issues a CALL whose child
+terminates (as a *black box* — any terminating child run), then `Runs` from the
+resumed frame to a halt site, produces the expected `messageCall` result. The
+three call-facts (the CALL step, the child entering as code, and the child's
+terminating run) are bundled into the derived `CallReturns` predicate, so the
+rule reads as a clean five-hypothesis sequence with **no numeric fuel side
+condition**.
+
+`messageCall_call_runs` is the real theorem that replaces any
+assumed-the-conclusion forwarding hypothesis: the black-box child is reconciled
+against the suffix's concrete terminating run by `messageCall`-never-out-of-fuel
+plus fuel monotonicity (`drive_eq_of_both_ne_oof`). Its fuel bound is discharged
+internally by running the whole sequence at a deliberately large concrete fuel
+and reconciling it with `seedFuel p.gas` via `drive_eq_of_both_ne_oof` — no
+caller-supplied bound.
 -/
 
 namespace BytecodeLayer.Hoare
@@ -39,6 +51,41 @@ theorem drive_eq_of_both_ne_oof {a b : ℕ} (stack : List Pending)
   rcases Nat.le_total a b with hle | hle
   · exact (drive_fuel_mono hle stack state ha).symm
   · exact drive_fuel_mono hle stack state hb
+
+/-! ## The call-free boundary bridge `messageCall_runs` -/
+
+/-- **A `Runs` block at the `messageCall` boundary, halting.** If a code call's
+initial frame `fr₀` (`EntersAsCode p fr₀`) `Runs` to a frame `last` that halts
+with `halt`, then `messageCall p = .ok (toCallResult (endFrame last halt))` —
+**no numeric fuel side condition**.
+
+The run needs exactly `n + 2` fuel (advance the `n` prefix steps, then halt and
+deliver in `+2`); `drive_eq_of_both_ne_oof` reconciles that concrete fuel with
+`seedFuel p.gas` since both avoid `OutOfFuel` (the latter by
+`messageCall_never_outOfFuel`) — no fuel ordering needed.
+
+This is the boundary; from here up, statements are observable-only. -/
+theorem messageCall_runs (p : CallParams) {n : ℕ} {fr₀ last : Frame} {halt : FrameHalt}
+    (hbegin : EntersAsCode p fr₀)
+    (h : Runs n fr₀ last)
+    (hhalt : stepFrame last = Signal.halted halt) :
+    messageCall p = .ok (FrameResult.toCallResult (endFrame last halt)) := by
+  -- The run delivers the caller's halt result (as a `FrameResult`) in exactly `n + 2` fuel.
+  have hrun : drive (n + 2) [] (running fr₀) = .ok (endFrame last halt) := by
+    rw [h.drive_advance 2]
+    exact drive_halt 0 last halt hhalt
+  -- Both the concrete run and the seeded run avoid `OutOfFuel`.
+  have hrun_neoof : drive (n + 2) [] (running fr₀) ≠ .error .OutOfFuel := by
+    rw [hrun]; nofun
+  have hseed_neoof : drive (seedFuel p.gas) [] (running fr₀) ≠ .error .OutOfFuel := by
+    intro hcontra
+    apply messageCall_never_outOfFuel p
+    rw [messageCall_eq_drive p fr₀ hbegin, hcontra]
+    rfl
+  -- Reduce the goal to a `drive` equation and reconcile the two terminating runs.
+  rw [messageCall_eq_drive p fr₀ hbegin]
+  rw [drive_eq_of_both_ne_oof [] (running fr₀) hseed_neoof hrun_neoof, hrun]
+  rfl
 
 /-! ## The bundled `CallReturns` predicate -/
 

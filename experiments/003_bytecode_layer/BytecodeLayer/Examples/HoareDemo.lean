@@ -1,4 +1,5 @@
 import BytecodeLayer.Hoare
+import BytecodeLayer.Hoare.CallSequence
 import BytecodeLayer.Semantics.UInt64
 import BytecodeLayer.Examples.ProgramDecode
 import BytecodeLayer.Programs
@@ -89,8 +90,8 @@ private theorem sstore_halt (g : UInt64) :
   stepFrame_stop _ decode_sstore_5 (by show (0:ℕ) ≤ 1024; omega)
 
 /-- `messageCall` of `sstoreProgram` equals the success result of the composed
-run's final frame — derived through `messageCall_runs`, with the fuel obligation
-`3 + 2 ≤ seedFuel g` discharged from the gas. -/
+run's final frame — derived through `messageCall_runs` (fuel-free; no fuel
+obligation). -/
 private theorem sstore_messageCall (g : UInt64) (hg : 22106 ≤ g.toNat) :
     messageCall (paramsSStore g)
       = .ok (FrameResult.toCallResult (endFrame
@@ -100,7 +101,6 @@ private theorem sstore_messageCall (g : UInt64) (hg : 22106 ≤ g.toNat) :
   messageCall_runs (paramsSStore g)
     (beginCall_code (paramsSStore g) sstoreProgram rfl)
     (sstore_runs g hg) (sstore_halt g)
-    (by show (3:ℕ) + 2 ≤ seedFuel g; unfold seedFuel; omega)
 
 /-- The SSTORE-stepping frame's account self-lookup, lifted from `fr₀` through the
 two pushes (which preserve accounts and the execution env). Stated at the frame's

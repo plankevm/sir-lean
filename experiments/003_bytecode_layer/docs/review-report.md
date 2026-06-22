@@ -14,7 +14,7 @@ external-call rebuild) and [`review-report-followup.md`](review-report-followup.
 Experiment 003 builds a **frame-level program-logic layer** over the leanevm
 `messageCall`/`drive` interpreter and proves the **sound, program-agnostic
 external-CALL sequencing rule**
-[`messageCall_call_runs`](../BytecodeLayer/Hoare/CallSequence.lean#L75): a caller
+[`messageCall_call_runs`](../BytecodeLayer/Hoare/CallSequence.lean#L122): a caller
 that runs to a CALL site, fires a CALL whose child terminates as a *black box*,
 then runs from the resumed frame to a halt, yields the expected `messageCall`
 result — with **no numeric fuel side condition** and **no conclusion-shaped
@@ -83,11 +83,11 @@ the **never-out-of-fuel measure argument** (Semantics/Interpreter) and the
 | [`Semantics/Interpreter/Measure.lean`](../BytecodeLayer/Semantics/Interpreter/Measure.lean) | mid | the measure `μ`, `mu_bound` (modulo `gasFundsDescent`), boundary theorem |
 | [`Semantics/Interpreter/NeverOutOfFuel.lean`](../BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean) | **headline** | discharges `gasFundsDescent_holds`; unconditional `messageCall_never_outOfFuel` |
 | [`Semantics/Interpreter/DescentEq.lean`](../BytecodeLayer/Semantics/Interpreter/DescentEq.lean) | mid | generic CALL-boundary decomposition `drive_append_framing` → `drive_descend_eq` |
-| [`Hoare.lean`](../BytecodeLayer/Hoare.lean) | mid | `StepsTo`/`Runs`/`Runs.trans`; opcode rules; `messageCall_runs` boundary bridge; SSTORE effect/frame |
+| [`Hoare.lean`](../BytecodeLayer/Hoare.lean) | mid | `StepsTo`/`Runs`/`Runs.trans`; `Runs.drive_advance`; opcode rules; SSTORE effect/frame |
 | [`Hoare/Behaves.lean`](../BytecodeLayer/Hoare/Behaves.lean) | leaf | the for-all-programs `Behaves` predicate — **defined but unconsumed** (see §7) |
 | [`Hoare/Sequence.lean`](../BytecodeLayer/Hoare/Sequence.lean) | leaf | `subCharges`/`toNat_subCharges` gas-threading; `seqProgram` decode facts |
 | [`Hoare/OutcomeBridge.lean`](../BytecodeLayer/Hoare/OutcomeBridge.lean) | leaf | `ofCall_completed_of_success` (raw `.ok` → named `Outcome.completed`) |
-| [`Hoare/CallSequence.lean`](../BytecodeLayer/Hoare/CallSequence.lean) | **headline** | `CallReturns`, `drive_eq_of_both_ne_oof`, `messageCall_call_runs`, `messageCall_call_completedWith` |
+| [`Hoare/CallSequence.lean`](../BytecodeLayer/Hoare/CallSequence.lean) | **headline** | `drive_eq_of_both_ne_oof`, `messageCall_runs`, `CallReturns`, `messageCall_call_runs`, `messageCall_call_completedWith` |
 | [`ExternalCall.lean`](../BytecodeLayer/ExternalCall.lean) | example support | caller/callee fixtures, `childGas`/`childGas_lb`, decode facts, `final_obs`, `call_counterexample` proof |
 | [`Programs.lean`](../BytecodeLayer/Programs.lean) | data | the handwritten bytecode contracts and `CallParams` entry points |
 | [`Examples/ProgramDecode.lean`](../BytecodeLayer/Examples/ProgramDecode.lean) | example | per-pc `decode` facts for the call-free programs |
@@ -149,7 +149,7 @@ CALL boundary decomposes), and the `Runs`/`drive` plumbing of `Hoare.lean` +
 
 ### 4.1 Headline — the sound external-CALL rule
 
-[`messageCall_call_runs`](../BytecodeLayer/Hoare/CallSequence.lean#L75):
+[`messageCall_call_runs`](../BytecodeLayer/Hoare/CallSequence.lean#L122):
 
 ```lean
 theorem messageCall_call_runs (p : CallParams) {n₁ n₂ : ℕ}
@@ -169,7 +169,7 @@ implicit binders. **There is no numeric fuel premise.** The world is a single
 executes (two `Runs` traces) and the callee by a black-box terminating run.
 
 The bundled call-fact is the derived predicate
-[`CallReturns`](../BytecodeLayer/Hoare/CallSequence.lean#L52):
+[`CallReturns`](../BytecodeLayer/Hoare/CallSequence.lean#L99):
 
 ```lean
 def CallReturns (callFr resumeFr : Frame) : Prop :=
@@ -198,7 +198,7 @@ inductive Runs : ℕ → Frame → Frame → Prop where
 ```
 
 The observable-level wrapper is
-[`messageCall_call_completedWith`](../BytecodeLayer/Hoare/CallSequence.lean#L167),
+[`messageCall_call_completedWith`](../BytecodeLayer/Hoare/CallSequence.lean#L214),
 which adds `r.success = true` and a cell value and lands on
 `Outcome.completedWith` — the only fully observable external-call export.
 
@@ -267,7 +267,7 @@ replaces the old assumed-forwarding hypothesis.
 
 ### 4.4 Mid — the fuel-reconciliation lemma
 
-[`drive_eq_of_both_ne_oof`](../BytecodeLayer/Hoare/CallSequence.lean#L34): two
+[`drive_eq_of_both_ne_oof`](../BytecodeLayer/Hoare/CallSequence.lean#L46): two
 terminating `drive` runs over the same stack/state at fuels `a`, `b` agree (the
 larger reduces to the smaller by
 [`drive_fuel_mono`](../BytecodeLayer/Semantics/Interpreter/Drive.lean#L187)). This
@@ -277,17 +277,16 @@ is how the large-fuel run is brought back to `seedFuel p.gas`.
 
 [`Runs.trans`](../BytecodeLayer/Hoare.lean#L97) is the sequencing rule (glue two
 blocks, never name a trace). The single-frame boundary bridge
-[`messageCall_runs`](../BytecodeLayer/Hoare.lean#L136) crosses to `messageCall` for
-call-free programs — note it **still carries** the numeric `n + 2 ≤ seedFuel p.gas`
-fuel premise (this is the call-free analogue; the *external-CALL* rule is the one
-that dropped the premise):
+[`messageCall_runs`](../BytecodeLayer/Hoare/CallSequence.lean#L68) crosses to
+`messageCall` for call-free programs — it is **now also fuel-free** (no numeric
+`n + 2 ≤ seedFuel p.gas` premise; the run needs exactly `n + 2` fuel, reconciled
+with `seedFuel p.gas` by never-out-of-fuel just like the *external-CALL* rule):
 
 ```lean
-theorem messageCall_runs {n : ℕ} {fr₀ last : Frame} {halt : FrameHalt} (p : CallParams)
+theorem messageCall_runs (p : CallParams) {n : ℕ} {fr₀ last : Frame} {halt : FrameHalt}
     (hbegin : EntersAsCode p fr₀)
     (h : Runs n fr₀ last)
-    (hhalt : stepFrame last = Signal.halted halt)
-    (hfuel : n + 2 ≤ seedFuel p.gas) :
+    (hhalt : stepFrame last = Signal.halted halt) :
     messageCall p = .ok (FrameResult.toCallResult (endFrame last halt))
 ```
 
@@ -365,21 +364,21 @@ a `lake env lean` scratch, now deleted):
 
 | Symbol | Axioms |
 |---|---|
-| [`messageCall_call_runs`](../BytecodeLayer/Hoare/CallSequence.lean#L75) | `[propext, Classical.choice, Quot.sound]` |
-| [`messageCall_call_completedWith`](../BytecodeLayer/Hoare/CallSequence.lean#L167) | `[propext, Classical.choice, Quot.sound]` |
+| [`messageCall_call_runs`](../BytecodeLayer/Hoare/CallSequence.lean#L122) | `[propext, Classical.choice, Quot.sound]` |
+| [`messageCall_call_completedWith`](../BytecodeLayer/Hoare/CallSequence.lean#L214) | `[propext, Classical.choice, Quot.sound]` |
 | [`messageCall_never_outOfFuel`](../BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean#L158) | `[propext, Classical.choice, Quot.sound]` |
 | [`mu_bound`](../BytecodeLayer/Semantics/Interpreter/Measure.lean#L129) | `[propext, Classical.choice, Quot.sound]` |
 | [`gasFundsDescent_holds`](../BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean#L151) | `[propext, Classical.choice, Quot.sound]` |
 | [`drive_descend_eq`](../BytecodeLayer/Semantics/Interpreter/DescentEq.lean#L153) | `[propext, Classical.choice, Quot.sound]` |
-| [`messageCall_runs`](../BytecodeLayer/Hoare.lean#L136) | `[propext, Classical.choice, Quot.sound]` |
+| [`messageCall_runs`](../BytecodeLayer/Hoare/CallSequence.lean#L68) | `[propext, Classical.choice, Quot.sound]` |
 | [`Runs.trans`](../BytecodeLayer/Hoare.lean#L97) | `[propext, Classical.choice, Quot.sound]` |
 | [`messageCall_call_storageAt`](../BytecodeLayer/Examples/ConcreteSpecs.lean#L95) | `[propext, Classical.choice, Quot.sound]` |
 | [`messageCall_callerProg_storageAt`](../BytecodeLayer/Examples/CallerProgExample.lean#L218) | `[propext, Classical.choice, Quot.sound]` |
 | [`call_counterexample`](../BytecodeLayer/Examples/ConcreteSpecs.lean#L106) | `[propext, Classical.choice, Quot.sound]` |
 
 **Headline / mainline**
-- [`messageCall_call_runs`](../BytecodeLayer/Hoare/CallSequence.lean#L75) and its
-  observable wrapper [`messageCall_call_completedWith`](../BytecodeLayer/Hoare/CallSequence.lean#L167).
+- [`messageCall_call_runs`](../BytecodeLayer/Hoare/CallSequence.lean#L122) and its
+  observable wrapper [`messageCall_call_completedWith`](../BytecodeLayer/Hoare/CallSequence.lean#L214).
 - [`messageCall_never_outOfFuel`](../BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean#L158).
 
 **Supporting lemmas (bricks)**
@@ -389,16 +388,16 @@ a `lake env lean` scratch, now deleted):
 - Descent: [`drive_append_framing`](../BytecodeLayer/Semantics/Interpreter/DescentEq.lean#L57)
   → [`drive_descend_eq`](../BytecodeLayer/Semantics/Interpreter/DescentEq.lean#L153).
 - Fuel: [`drive_fuel_mono`](../BytecodeLayer/Semantics/Interpreter/Drive.lean#L187),
-  [`drive_eq_of_both_ne_oof`](../BytecodeLayer/Hoare/CallSequence.lean#L34).
+  [`drive_eq_of_both_ne_oof`](../BytecodeLayer/Hoare/CallSequence.lean#L46).
 - Per-step gas: [`stepFrame_next_lt`](../BytecodeLayer/Semantics/Gas.lean#L590);
   the 63/64 floor [`allButOneSixtyFourth_ge_of_liftFloor_le`](../BytecodeLayer/Semantics/Gas.lean#L628).
 - Hoare: [`Runs.trans`](../BytecodeLayer/Hoare.lean#L97),
-  [`messageCall_runs`](../BytecodeLayer/Hoare.lean#L136), the opcode rules
-  ([`runs_push1`](../BytecodeLayer/Hoare.lean#L181),
-  [`runs_push`](../BytecodeLayer/Hoare.lean#L193),
-  [`runs_sstore`](../BytecodeLayer/Hoare.lean#L205)) and SSTORE effect/frame
-  ([`sstoreFrame_storage_self`](../BytecodeLayer/Hoare.lean#L238),
-  [`sstoreFrame_storage_frame`](../BytecodeLayer/Hoare.lean#L258)).
+  [`messageCall_runs`](../BytecodeLayer/Hoare/CallSequence.lean#L68), the opcode rules
+  ([`runs_push1`](../BytecodeLayer/Hoare.lean#L164),
+  [`runs_push`](../BytecodeLayer/Hoare.lean#L176),
+  [`runs_sstore`](../BytecodeLayer/Hoare.lean#L188)) and SSTORE effect/frame
+  ([`sstoreFrame_storage_self`](../BytecodeLayer/Hoare.lean#L221),
+  [`sstoreFrame_storage_frame`](../BytecodeLayer/Hoare.lean#L241)).
 
 **Examples / demos** (leaves; nothing in the core consumes them)
 - Call-free `*'` lemmas in [`ProgramExamples.lean`](../BytecodeLayer/Examples/ProgramExamples.lean)

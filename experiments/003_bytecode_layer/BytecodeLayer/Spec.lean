@@ -53,15 +53,14 @@ theorem Runs.trans {m n : ℕ} {fr mid fr' : Frame}
 
 /-- **The `messageCall` boundary bridge.** A code call whose entry frame `fr₀`
 (`EntersAsCode p fr₀`) `Runs` to a frame that halts yields the caller's halt
-result as `messageCall p`, under the numeric fuel bound `n + 2 ≤ seedFuel p.gas`.
-From here up, statements are observable-only. -/
+result as `messageCall p` — **no numeric fuel side condition**. From here up,
+statements are observable-only. -/
 theorem messageCall_runs {n : ℕ} {fr₀ last : Frame} {halt : FrameHalt} (p : CallParams)
     (hbegin : EntersAsCode p fr₀)
     (h : Runs n fr₀ last)
-    (hhalt : stepFrame last = Signal.halted halt)
-    (hfuel : n + 2 ≤ seedFuel p.gas) :
+    (hhalt : stepFrame last = Signal.halted halt) :
     messageCall p = .ok (FrameResult.toCallResult (endFrame last halt)) :=
-  Hoare.messageCall_runs p hbegin h hhalt hfuel
+  Hoare.messageCall_runs p hbegin h hhalt
 
 /-- **The PUSH1 rule.** From a frame decoding to `PUSH1 imm` with gas and stack
 room, one step `Runs` to `pushFrame fr imm` (`imm` pushed, pc + 2, `Gverylow`

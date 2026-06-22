@@ -1,4 +1,5 @@
 import BytecodeLayer.Hoare
+import BytecodeLayer.Hoare.CallSequence
 import BytecodeLayer.Hoare.OutcomeBridge
 import BytecodeLayer.Semantics.UInt64
 import BytecodeLayer.Examples.ProgramDecode
@@ -19,10 +20,10 @@ the intermediate frames live inside the `Runs` derivation, and the stored values
 are *derived* as the operands of `runs_sstore`, never asserted as literal frames.
 
 The four exported observe-form theorems (`Spec.lean` delegates to these `*'`
-lemmas) land here, off the composed `Runs`. The fuel obligation is the numeric
-`n + 2 ≤ seedFuel`; the per-step gas side-goals thread `g` through
-`toNat_sub_ofNat` / `subCharges` (`toNat_subCharges`) exactly as before, but the
-`drive`/fuel plumbing is gone — it is discharged once in `messageCall_runs`.
+lemmas) land here, off the composed `Runs`. There is **no fuel obligation** —
+`messageCall_runs` is fuel-free (never-out-of-fuel discharges it internally); the
+per-step gas side-goals thread `g` through `toNat_sub_ofNat` / `subCharges`
+(`toNat_subCharges`) exactly as before, and the `drive`/fuel plumbing is gone.
 -/
 
 namespace BytecodeLayer.Examples
@@ -45,8 +46,7 @@ theorem messageCall_stop_observe' (p : CallParams) (hc : p.codeSource = .Code st
   rw [messageCall_runs p
         (beginCall_code p stopProgram hc)
         (Runs.refl _)
-        (stepFrame_stop _ decode_stopProgram (by show (0:ℕ) ≤ 1024; omega))
-        (by show (0:ℕ) + 2 ≤ seedFuel p.gas; unfold seedFuel; omega)]
+        (stepFrame_stop _ decode_stopProgram (by show (0:ℕ) ≤ 1024; omega))]
   rfl
 
 /-! ## PUSH1 5 ; STOP — a one-step block (`runs_push1` then halt) -/
@@ -61,8 +61,7 @@ theorem messageCall_pushStop_observe' (p : CallParams)
         (beginCall_code p pushStopProgram hc)
         (runs_push1 (codeFrame p pushStopProgram) 5 decode_pushStop_0
           (by rw [hg0]; omega) (by show (0:ℕ) + 1 ≤ 1024; omega))
-        (stepFrame_stop _ decode_pushStop_2 (by show (1:ℕ) ≤ 1024; omega))
-        (by show (1:ℕ) + 2 ≤ seedFuel p.gas; unfold seedFuel; omega)]
+        (stepFrame_stop _ decode_pushStop_2 (by show (1:ℕ) ≤ 1024; omega))]
   rfl
 
 /-! ## PUSH1 5 ; PUSH1 7 ; SSTORE ; STOP — a three-step block (one cold write)
@@ -129,7 +128,6 @@ private theorem sstore_messageCall (g : UInt64) (hg : 22106 ≤ g.toNat) :
     (beginCall_code (paramsSStore g) sstoreProgram rfl)
     (sstore_runs g hg)
     (stepFrame_stop _ decode_sstore_5 (by show (0:ℕ) ≤ 1024; omega))
-    (by show (3:ℕ) + 2 ≤ seedFuel g; unfold seedFuel; omega)
 
 /-- **SSTORE, observe + storage form.** Reads the success/empty observable and the
 *derived* `5` at cell `(addrA, 7)` off the composed run — the value enters as the
@@ -233,7 +231,6 @@ private theorem seq_messageCall (g : UInt64) (hg : 44212 ≤ g.toNat) :
     (beginCall_code (paramsSeq g) seqProgram rfl)
     (seq_runs g hg)
     (stepFrame_stop _ decode_seq_10 (by show (0:ℕ) ≤ 1024; omega))
-    (by show (6:ℕ) + 2 ≤ seedFuel g; unfold seedFuel; omega)
 
 /-- **Seq, observe + two storage cells.** Reads the success observable and the two
 *derived* cells `(addrA, 7) ↦ 5`, `(addrA, 9) ↦ 11` off the composed run. The

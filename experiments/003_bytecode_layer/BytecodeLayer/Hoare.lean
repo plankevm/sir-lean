@@ -107,12 +107,14 @@ return. -/
 theorem Runs.single {fr fr' : Frame} (h : StepsTo fr fr') : Runs 1 fr fr' :=
   Runs.head h (Runs.refl fr')
 
-/-! ## The `messageCall` boundary bridge
+/-! ## Advancing the driver along a `Runs` block
 
-`messageCall_runs` turns a `Runs n fr₀ last` whose `last` halts into a
-`messageCall` result, driving the block under the interpreter by induction on the
-`Runs` derivation. No list of frames is ever materialized: the bridge consumes
-the `Runs` proof directly. The fuel obligation is the numeric `n + 2 ≤ seedFuel`. -/
+`Runs.drive_advance` runs a `Runs n` block under the interpreter, driving the
+block by induction on the `Runs` derivation. No list of frames is ever
+materialized: it consumes the `Runs` proof directly. The `messageCall` boundary
+bridge `messageCall_runs` that turns such a block into a `messageCall` result is
+proved fuel-free in `BytecodeLayer/Hoare/CallSequence.lean` (it needs the fuel
+subsystem, which this file does not import). -/
 
 /-- A `Runs n` block, run under the driver from the empty pending stack, advances
 the driver from `fr` to `last` while spending exactly `n` fuel — for any spare
@@ -126,25 +128,6 @@ theorem Runs.drive_advance {n : ℕ} {fr last : Frame} (h : Runs n fr last) (ext
     rw [show k + 1 + extra = (k + extra) + 1 by omega]
     rw [drive_stepsTo (k + extra) hstep]
     exact ih
-
-/-- **A `Runs` block at the `messageCall` boundary, halting.** If a code call's
-initial frame `fr₀` (`EntersAsCode p fr₀`) `Runs` to a frame `last` that halts
-with `halt`, then `messageCall p = .ok (toCallResult (endFrame last halt))`. The
-fuel obligation is the numeric bound `n + 2 ≤ seedFuel p.gas` — no trace.
-
-This is the boundary; from here up, statements are observable-only. -/
-theorem messageCall_runs {n : ℕ} {fr₀ last : Frame} {halt : FrameHalt} (p : CallParams)
-    (hbegin : EntersAsCode p fr₀)
-    (h : Runs n fr₀ last)
-    (hhalt : stepFrame last = Signal.halted halt)
-    (hfuel : n + 2 ≤ seedFuel p.gas) :
-    messageCall p = .ok (FrameResult.toCallResult (endFrame last halt)) := by
-  rw [messageCall_eq_drive p fr₀ hbegin]
-  rw [show seedFuel p.gas = n + (seedFuel p.gas - n) by omega]
-  rw [h.drive_advance (seedFuel p.gas - n)]
-  rw [show seedFuel p.gas - n = (seedFuel p.gas - n - 2) + 2 by omega]
-  rw [drive_halt (seedFuel p.gas - n - 2) last halt hhalt]
-  rfl
 
 /-! ## Opcode rules
 
