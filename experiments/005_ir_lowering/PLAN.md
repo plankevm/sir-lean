@@ -19,8 +19,9 @@ bridges). The IR's job is to exercise the three primitives we actually need:
   `Runs`/`messageCall_runs` API. Track C is its first real consumer.
 
 ## Milestones
-- [ ] **C1** Define the IR: storage arithmetic + external calls + branching.
+- [x] **C1** Define the IR: storage arithmetic + external calls + branching.
   Decide build-on-exp002 vs fresh. Write a design doc (`docs/ir-design.md`).
+  → DONE: fresh `LirLean` IR + design doc + compiling skeleton (no `sorry`).
 - [ ] **C2** Lowering IR → EVM bytecode (decode-compatible with exp003).
 - [ ] **C3** Prove lowering preserves semantics via exp003's `Runs` machinery.
 - [ ] **C4** Acceptance check: does exp003 sequencing suffice for **multi-call** IR
@@ -42,3 +43,34 @@ bridges). The IR's job is to exercise the three primitives we actually need:
 
 ## Progress log
 - 2026-06-22: Track seeded. Awaiting C1 agent.
+- 2026-06-22 (C1): Studied exp002 `SirLean/` and exp003's `Runs`/boundary-bridge
+  API. **Decision: fresh IR (`LirLean/`), not an extension of `SirLean`.** Reasons
+  (full version in `docs/ir-design.md` §1): `SirLean.Word = UInt32` vs EVM
+  `UInt256`; `SirLean.World = Word → Word` is disconnected from the EVM
+  account/storage model the preservation proof must target; `SirLean` has **no
+  external CALL** and **no gas/gas-introspection**; its SSA/dominance/`refs_valid`
+  + `SCCP` scaffolding (>80 KB) is dead weight for lowering. We keep only exp002's
+  *structural idea* (a CFG of basic blocks with branch terminators).
+- 2026-06-22 (C1): Wrote `docs/ir-design.md` — IR grammar (Tmp/Label/Expr/Stmt/
+  Term/Block/Program with first-class `sload`/`sstore`/`add`/`lt`, `Stmt.call`,
+  `Term.branch`, and `Expr.gas` introspection); small-step + gas-aware semantics
+  choice (rationale: mirror exp003's `Runs` for a simulation proof); two-pass
+  lowering to `Evm.decode`-compatible bytecode (per-block `JUMPDEST`, fixed-width
+  `PUSH4` destinations → prefix-sum offset table); call→`Runs`/`CallReturns`
+  mapping; preservation statement *shape* (per-step `Match` simulation +
+  top-level `messageCall_runs`/`_call_runs` discharge).
+- 2026-06-22 (C1): **⚠ C4 surfaced early (flag for Track A).** Reading
+  `Hoare/CallSequence.lean`: `messageCall_call_runs` is hard-wired to exactly ONE
+  `CallReturns` between a prefix and suffix `Runs`. A `Runs` link is one
+  *non-halting* `stepFrame` (`Signal.next`); a CALL is `Signal.needsCall`, so it is
+  NOT a `StepsTo` link and cannot be glued in by `Runs.trans`. Therefore a
+  ≥2-call IR program (`prefix → call → middle → call → suffix → halt`) is
+  inexpressible with the current bridge. Track C's multi-call lowering (C3/C4) is
+  blocked on Track A's planned `Runs.call` constructor (A1–A3). Single-call
+  lowering can proceed against the current API now. (Detail in `ir-design.md` §5.)
+- 2026-06-22 (C1): Wrote the compiling Lean skeleton — `lakefile.lean` (requires
+  exp003's `bytecode_layer`, transitively `evm`/Mathlib), `lean-toolchain`
+  (v4.30.0, matching exp003), `LirLean/IR.lean` (the IR datatypes),
+  `LirLean/Lowering.lean` (`lower : Program → ByteArray` with a concrete,
+  `sorry`-free two-pass body — correctness deferred to C2). No theorems stated, so
+  nothing is `sorry`/`axiom`-backed. `lake build` status recorded on commit.
