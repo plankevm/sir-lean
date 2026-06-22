@@ -1,14 +1,130 @@
-# Experiment 003 — review of the **rebuilt external-call reasoning layer** (branch `exp003-fuel-layer-cleanup`)
+# Experiment 003 — Bytecode Layer: review report
 
-*Navigation surface for the project lead. Every code reference links to the current source; headline statements are quoted verbatim. Links are paths relative to `experiments/003_bytecode_layer/`. This report covers the NOW-SOUND state after the external-call rebuild; the pre-rebuild report (describing the deleted circular rung) is preserved at [`docs/review-report-prerebuild.md`](./review-report-prerebuild.md).*
+*Branch `exp003-fuel-layer-cleanup`. Scope: the entire `experiments/003_bytecode_layer/` Lean package as it stands after the monolith retirement (commits `4fc9e1e`, `556ebef`) and the file reorg (`c08e04f`…`33e9fc8`). Paths below are relative to `experiments/003_bytecode_layer/`.*
+
+Supersedes the previous version of this file (which described the pre-reorg state with the monolith still present). Two earlier reports are preserved for history: the pre-rebuild snapshot at [`docs/review-report-prerebuild.md`](review-report-prerebuild.md) and the monolith-retirement note at [`docs/review-report-followup.md`](review-report-followup.md).
 
 ---
 
 ## 1. TL;DR
 
-The old external-call "rung 2" was **circular**: `behaves_call` assumed its own conclusion through a `CallerForwards.hforward` field (child completes ⟹ top-level completes). That entire file (`ExternalCallGen.lean`, `CallerForwards`, `behaves_call`, `hforward`) **no longer exists** — grep-confirmed: zero occurrences of `CallerForwards`/`behaves_call`/`hforward` anywhere in `BytecodeLayer/`. It has been replaced by a genuinely **proved** external-CALL sequencing rule [`messageCall_call_runs`](../BytecodeLayer/Hoare/CallSequence.lean#L50), built on two new program-agnostic `drive` framing bricks ([`drive_append_framing`](../BytecodeLayer/Semantics/Interpreter/DescentEq.lean#L59) / [`drive_descend_eq`](../BytecodeLayer/Semantics/Interpreter/DescentEq.lean#L155)) and the now-**live** unconditional [`messageCall_never_outOfFuel`](../BytecodeLayer/Semantics/Interpreter/DescentDrops.lean#L153). The rule consumes the callee as a black-box terminating `drive` run and the caller through honest `Runs` traces — **no hypothesis is conclusion-shaped** (verified below, §5). It is exercised end-to-end on the real `callerProg`/`calleeProg` ([`messageCall_callerProg_storageAt`](../BytecodeLayer/Examples/CallerProgExample.lean#L252)).
+The experiment formalizes a **bytecode-level layer over leanevm**: a thin Hoare-style program logic for straight-line EVM blocks, a measure proof that `messageCall` never runs out of interpreter fuel, and — the headline of this branch — a **sound, program-agnostic external-CALL sequencing rule** [`messageCall_call_runs`](BytecodeLayer/Hoare/CallSequence.lean#L50). The old proof carried a circular forwarding hypothesis (`behaves_call`/`CallerForwards`) that smuggled the conclusion; that is **entirely gone** (grep-confirmed: zero occurrences). The CALL rule now reconciles a *black-box terminating child* against the caller's actual suffix run using the genuinely unconditional [`messageCall_never_outOfFuel`](BytecodeLayer/Semantics/Interpreter/DescentDrops.lean#L153) plus fuel monotonicity — no hypothesis is conclusion-shaped (see §5). A worked compositional instantiation [`messageCall_callerProg_storageAt`](BytecodeLayer/Examples/CallerProgExample.lean#L252) drives the real caller/callee bytecode end-to-end, and the `∃G₀` storage spec [`messageCall_call_storageAt`](BytecodeLayer/Examples/ConcreteSpecs.lean#L95) now has exactly **one** (compositional) proof.
 
-The single most important result, [`Spec.lean#L151`](../BytecodeLayer/Spec.lean#L151):
+**Verification status (one line):** zero `sorry`/`admit`/`native_decide`/`bv_decide`/`maxHeartbeats` in `BytecodeLayer/` (the only matches are the word "sorry" inside a Maps docstring); `lake build` reported warning-free at 1127 jobs (reported, not re-run here); `#print axioms` over the five headline results is **`[propext, Classical.choice, Quot.sound]`** — **re-run by this reviewer**, see §6.
+
+---
+
+## 2. Goal & context
+
+Real-world property: *a contract that issues an external `CALL` to another contract leaves the expected persistent storage effect, with gas treated as a first-class, observable quantity* — and, dually, *the top-level `messageCall` interpreter never spuriously reports `OutOfFuel`* (out-of-gas is a real halt; fuel is just a Lean termination device and must not leak into the semantics).
+
+The package is layered as a topic tree mirroring leanevm's `Evm/Semantics/` (see the root [`BytecodeLayer.lean`](BytecodeLayer.lean#L1)). Two milestones:
+
+- **M1 — the call-free spine:** straight-line `PUSH`/`SSTORE`/`STOP` programs, verified by composing per-opcode `Runs` rules.
+- **M2 — the external-CALL rung:** a caller bytecode that `CALL`s a callee, with the 63/64 gas cap genuinely observable (hence a *forced* gas floor `∃G₀`).
+
+Observables are deliberately minimal — success/output and a single storage cell, read exactly as the EVM's `SLOAD` ([`CallResult.storageAt`](BytecodeLayer/Observables.lean#L49)).
+
+---
+
+## 3. The abstraction stack (bottom-up) and module map
+
+The headline CALL rule sits on top of four layers. Every file in scope is accounted for in the table; the dependency edges that feed the headline follow.
+
+| Layer | File | Role |
+|---|---|---|
+| **0. Data/world** | [`Programs.lean`](BytecodeLayer/Programs.lean#L1) | The example bytecode (`stopProgram`…`callerProg`/`calleeProg`), addresses, and `CallParams` entry points. No theorems. |
+| | [`Observables.lean`](BytecodeLayer/Observables.lean#L1) | `Observables`, `CallResult.storageAt`, and the named [`Outcome`](BytecodeLayer/Observables.lean#L72) decoder (`completed`/`reverted`/`exception`). |
+| **1. Semantic leaf facts** | [`Semantics/UInt256.lean`](BytecodeLayer/Semantics/UInt256.lean#L1) | One `UInt64` gas-subtraction fact (`toNat_sub_ofNat`). |
+| | [`Semantics/Maps.lean`](BytecodeLayer/Semantics/Maps.lean#L1) | The two missing `TransCmp` instances + `find?`/`findD` framing the SSTORE rule needs. |
+| | [`Semantics/Gas.lean`](BytecodeLayer/Semantics/Gas.lean#L1) | Per-step gas decrease for every non-`System` opcode (`stepFrame_next_lt`). |
+| | [`Semantics/Precompiles.lean`](BytecodeLayer/Semantics/Precompiles.lean#L1) | Precompiles consume `≤` forwarded gas (`beginCall_inr_gas`, feeds conjunct 5a). |
+| | [`Semantics/Dispatch.lean`](BytecodeLayer/Semantics/Dispatch.lean#L1) | `stepFrame` per-opcode characterizations (`stepFrame_push1`, `stepFrame_sstore`, `stepFrame_stop`, `stepFrame_sstore_oog`, …). |
+| | [`Semantics/System.lean`](BytecodeLayer/Semantics/System.lean#L1) | The `System`-op (CALL/CREATE/halt/resume) facts: `stepFrame_call`, `beginCall_*`, `resumeAfterCall`/`resumeAfterCreate` gas lemmas, `messageCall_eq_drive`. The largest file (1517 lines). |
+| **2. Interpreter / fuel** | [`Semantics/Interpreter/Drive.lean`](BytecodeLayer/Semantics/Interpreter/Drive.lean#L1) | The `drive` vocabulary: `drive_step`, `drive_halt`, `driveG_*`, `drive_fuel_mono`, `seedFuel`. |
+| | [`Semantics/Interpreter/NeverOutOfFuel.lean`](BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean#L1) | The measure `μ` and the general bound `mu_bound` (modulo `DescentDrops`). |
+| | [`Semantics/Interpreter/DescentDrops.lean`](BytecodeLayer/Semantics/Interpreter/DescentDrops.lean#L1) | Discharges `DescentDrops`; yields the **unconditional** `messageCall_never_outOfFuel`. |
+| | [`Semantics/Interpreter/DescentEq.lean`](BytecodeLayer/Semantics/Interpreter/DescentEq.lean#L1) | The generic CALL-boundary framing/descent equation (`drive_append_framing`, `drive_descend_eq`). |
+| **3. Hoare program logic** | [`Hoare.lean`](BytecodeLayer/Hoare.lean#L1) | `StepsTo`/`Runs`/`Runs.trans`, the opcode rules, `messageCall_runs`, SSTORE effect+framing. |
+| | [`Hoare/Sequence.lean`](BytecodeLayer/Hoare/Sequence.lean#L1) | `subCharges`/`toNat_subCharges` gas-threading + sequence decode lemmas. |
+| | [`Hoare/Behaves.lean`](BytecodeLayer/Hoare/Behaves.lean#L1) | The `Behaves pre code post` for-all-programs predicate (defined; not yet consumed by an export). |
+| | [`Hoare/OutcomeBridge.lean`](BytecodeLayer/Hoare/OutcomeBridge.lean#L1) | `ofCall_completed_of_success` — `.ok r`+success ⟶ named `Outcome.completed`. (File renamed from `Straightline.lean`.) |
+| | [`Hoare/CallSequence.lean`](BytecodeLayer/Hoare/CallSequence.lean#L1) | **The keystone:** `messageCall_call_runs` + `messageCall_call_completedWith`. |
+| **4. The CALL bricks** | [`ExternalCall.lean`](BytecodeLayer/ExternalCall.lean#L1) | Reusable per-program bricks: `childGas`, the frames/decode lemmas, `final_obs`, and the **forced counterexample** `call_counterexample`. (Monolith deleted; ~204 lines dropped.) |
+| **5. Audit surface** | [`Spec.lean`](BytecodeLayer/Spec.lean#L1) | The exported general rules a user instantiates. **The file to read.** |
+| **Examples** | [`Examples/ProgramDecode.lean`](BytecodeLayer/Examples/ProgramDecode.lean#L1) | Per-pc decode facts for M1 programs. |
+| | [`Examples/ProgramExamples.lean`](BytecodeLayer/Examples/ProgramExamples.lean#L1) | The M1 capstones (`*'` lemmas) composed from opcode rules. |
+| | [`Examples/CallerProgExample.lean`](BytecodeLayer/Examples/CallerProgExample.lean#L1) | The compositional instantiation of the CALL rule on real bytecode. |
+| | [`Examples/ConcreteSpecs.lean`](BytecodeLayer/Examples/ConcreteSpecs.lean#L1) | The per-program `messageCall` observations (delegating wrappers). |
+| | [`Examples/HoareDemo.lean`](BytecodeLayer/Examples/HoareDemo.lean#L1) | A standalone demo of the Hoare workflow on `sstoreProgram`. |
+
+**Dependency edges feeding the headline** [`messageCall_call_runs`](BytecodeLayer/Hoare/CallSequence.lean#L50):
+
+```
+drive_append_framing ──▶ drive_descend_eq ──┐
+drive_fuel_mono ──▶ drive_eq_of_both_ne_oof ┤
+mu_bound + descentDrops_holds ──▶ messageCall_never_outOfFuel ┤──▶ messageCall_call_runs
+Runs / Runs.trans / Runs.drive_advance (Hoare.lean) ─────────┘        │
+                                                                      ▼
+                                          messageCall_call_completedWith  (observable level, via OutcomeBridge)
+                                                                      │
+                          CallerProgExample (instantiates) ──▶ messageCall_callerProg_storageAt
+                                                                      │
+                                          ConcreteSpecs ──▶ messageCall_call_storageAt  (∃G₀, witness 30000)
+```
+
+---
+
+## 4. The specs that matter
+
+### 4.1 Fuel sufficiency — the unconditional `never-out-of-fuel`
+
+The measure ([`NeverOutOfFuel.lean`](BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean#L81)) sums gas across the running component and every suspended parent, with a kind-aware withholding for open CREATE descents:
+
+```lean
+def totalGas (stack : List Pending) (state : Frame ⊕ FrameResult) : ℕ :=
+  activeGas state + (stack.map Pending.savedGas).sum
+
+def μ (stack : List Pending) (state : Frame ⊕ FrameResult) : ℕ :=
+  2 * totalGas stack state + 2 * stack.length + tagBit state
+```
+
+The general bound [`mu_bound`](BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean#L133) is induction on fuel: every `drive` recursion strictly drops `μ`; the CALL/CREATE descent and `System`-`.next` fallback drops are taken as the [`DescentDrops`](BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean#L107) hypothesis there, then discharged in [`DescentDrops.lean`](BytecodeLayer/Semantics/Interpreter/DescentDrops.lean#L146) (`descentDrops_holds`, five gas-arithmetic conjuncts). The boundary theorem is **unconditional** — no fuel/`Frame` in the statement:
+
+```lean
+theorem messageCall_never_outOfFuel (p : CallParams) :
+    messageCall p ≠ .error .OutOfFuel
+```
+[`DescentDrops.lean#L153`](BytecodeLayer/Semantics/Interpreter/DescentDrops.lean#L153). *Proof strategy:* `mu_bound descentDrops_holds` started at `μ [] (.inl frame) = 2·p.gas + 2 ≤ seedFuel p.gas`.
+
+### 4.2 The generic CALL-boundary descent equation
+
+[`drive_descend_eq`](BytecodeLayer/Semantics/Interpreter/DescentEq.lean#L155) is the program-agnostic replacement for the old fuel-explicit `child_run`. It says a parent's in-line descent into a *terminating* child equals running that child independently and then resuming the parent:
+
+```lean
+theorem drive_descend_eq (f : ℕ) (child : Frame) (res : FrameResult)
+    (pd : PendingCall) (ps : List Pending)
+    (h : drive f [] (.inl child) = .ok res) :
+    ∃ j, drive f (.call pd :: ps) (.inl child)
+      = drive j ps (.inl (resumeAfterCall res.toCallResult pd))
+```
+
+It is obtained from the central framing lemma [`drive_append_framing`](BytecodeLayer/Semantics/Interpreter/DescentEq.lean#L59) (an inert bottom stack segment is untouched while execution proceeds above it), then peeling one `.call` resume step. *Proof strategy:* induction on fuel following `drive`'s own recursion; the residual fuel `j` is existential, so no exact bookkeeping.
+
+### 4.3 The Hoare core — `Runs`, sequencing, opcode rules
+
+The composition relation never names a trace ([`Hoare.lean#L85`](BytecodeLayer/Hoare.lean#L85)):
+
+```lean
+inductive Runs : ℕ → Frame → Frame → Prop where
+  | refl (fr : Frame) : Runs 0 fr fr
+  | head {n : ℕ} {fr mid fr' : Frame} (h : StepsTo fr mid) (rest : Runs n mid fr') :
+      Runs (n + 1) fr fr'
+```
+
+with the **sequencing rule** [`Runs.trans`](BytecodeLayer/Hoare.lean#L96), per-opcode rules (`runs_push1`, `runs_push`, `runs_sstore`), and the intra-frame boundary bridge [`messageCall_runs`](BytecodeLayer/Hoare.lean#L135). The SSTORE rule carries an effect+framing pair ([`sstoreFrame_storage_self`](BytecodeLayer/Hoare.lean#L237) / [`sstoreFrame_storage_frame`](BytecodeLayer/Hoare.lean#L257)). All of these are re-exported on `Spec.lean`.
+
+### 4.4 The headline — the sound external-CALL sequencing rule
 
 ```lean
 theorem messageCall_call_runs {n₁ n₂ : ℕ}
@@ -24,221 +140,77 @@ theorem messageCall_call_runs {n₁ n₂ : ℕ}
     (hfuel    : seedFuel cp.gas + n₁ + 1 ≤ seedFuel p.gas) :
     messageCall p = .ok (FrameResult.toCallResult (endFrame last halt))
 ```
+[`CallSequence.lean#L50`](BytecodeLayer/Hoare/CallSequence.lean#L50), re-exported at [`Spec.lean#L151`](BytecodeLayer/Spec.lean#L151).
 
-**Verification status (one line, reported not re-run):** zero `sorry`/`admit`/`native_decide`/`bv_decide` in `BytecodeLayer/` (grep-confirmed; the one hit is a comment at [`Maps.lean:11`](../BytecodeLayer/Semantics/Maps.lean#L11)); **all `set_option maxHeartbeats` removed experiment-wide** (grep-confirmed, zero matches); task reports green build + axioms `[propext, Classical.choice, Quot.sound]` — but the recorded `#print axioms` block in [`docs/results.md`](./results.md#L269) is **stale/pre-rebuild** (old symbol names, omits `messageCall_call_runs`/`messageCall_call_completedWith`/`messageCall_never_outOfFuel`) — flagged in §7.
+**What it claims:** a caller that enters as code, `Runs` its prefix to a CALL site, issues a CALL whose child *terminates as a black box*, then `Runs` its suffix to a halt site, produces exactly the caller's halt result as the top-level `messageCall`. *Proof strategy:* reduce `messageCall` to a `drive` equation; chain prefix (`Runs.drive_advance`) → CALL step (`driveG_needsCall_code`) → `drive_descend_eq` to the resumed parent at some fuel `j`; reconcile that `j`-fuel run against the concrete suffix run via [`drive_eq_of_both_ne_oof`](BytecodeLayer/Hoare/CallSequence.lean#L30) (both avoid `OutOfFuel` — the prefix side because of `messageCall_never_outOfFuel`, the suffix side because it terminates).
 
----
+The observable-level lift [`messageCall_call_completedWith`](BytecodeLayer/Hoare/CallSequence.lean#L138) (re-exported [`Spec.lean#L172`](BytecodeLayer/Spec.lean#L172)) adds success+cell hypotheses to land the named `Outcome.completedWith`.
 
-## 2. Goal & context
+### 4.5 The worked instantiation and the `∃G₀` spec
 
-The layer is the external-call rung of the bytecode-first plan: prove that a top-level `messageCall` into a contract that issues a real `CALL` to another contract delivers the expected observable, **with the sub-call run reflexively** (leanevm's own `beginCall`/`drive` on the callee's genuine bytecode — no oracle) and **gas first-class** (the 63/64 `callGasCap` makes the result hold only above a floor). The semantics being reasoned over is leanevm at [`../../forks/leanevm/Evm/Semantics/Interpreter.lean`](../../forks/leanevm/Evm/Semantics/Interpreter.lean), whose entry is `messageCall p = FrameResult.toCallResult <$> drive (seedFuel p.gas) [] (.inl frame)` with `seedFuel g = 2 * g.toNat + 4096` ([`Interpreter.lean#L82`](../../forks/leanevm/Evm/Semantics/Interpreter.lean#L82)).
-
-**The hole that was closed.** `drive` is a *single flat* recursion: one fuel counter, one `List Pending` stack, every CALL pushes a `.call` frame onto the same stack. There is no definitional "this sub-segment is a child `messageCall`" decomposition. The old rung could not derive forwarding generically, so it *assumed* it (`hforward`). The rebuild supplies the missing decomposition **as a proved theorem over the flat `drive`** ([`drive_descend_eq`](../BytecodeLayer/Semantics/Interpreter/DescentEq.lean#L155), the Lean analogue of Verifereum's depth-sliced `run_call` per [`docs/verifereum-nested-call.md`](./verifereum-nested-call.md)), and reconciles fuel via the never-out-of-fuel theorem. The rebuild plan is [`docs/external-call-rebuild-plan.md`](./external-call-rebuild-plan.md); the proof discipline is [`docs/proof-structure.md`](./proof-structure.md).
-
-Note: exp 003 is the **low-level semantics layer**, so the frame-level vocabulary (`Runs`/`Frame`/`stepFrame`) on the `Spec` surface is intentional and correct here — the observables-only export standard belongs to exp 001/002. The `Spec` docstring flags this itself ([`Spec.lean#L22`](../BytecodeLayer/Spec.lean#L22)).
-
----
-
-## 3. The abstraction stack (bottom-up) & module map
-
-### 3.1 The new/changed files (the rebuild proper)
-
-| Layer | File | Role |
-|---|---|---|
-| **Drive framing** | [`Semantics/Interpreter/DescentEq.lean`](../BytecodeLayer/Semantics/Interpreter/DescentEq.lean) | `drive_append_framing` (a bottom stack segment is inert) + `drive_descend_eq` (the generic CALL-boundary decomposition). Program-agnostic, proved OVER the flat `drive`. **NEW.** |
-| **Fuel sufficiency** | [`Semantics/Interpreter/DescentDrops.lean`](../BytecodeLayer/Semantics/Interpreter/DescentDrops.lean) → [`NeverOutOfFuel.lean`](../BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean) | the unconditional `messageCall_never_outOfFuel`. **Now LIVE** (imported by `CallSequence`), no longer a dead island. |
-| **The SOUND CALL rule** | [`Hoare/CallSequence.lean`](../BytecodeLayer/Hoare/CallSequence.lean) | `drive_eq_of_both_ne_oof`, `messageCall_call_runs` (the keystone), `messageCall_call_completedWith` (observable corollary). **NEW — replaces `hforward`.** |
-| **Outcome bridge** | [`Hoare/OutcomeBridge.lean`](../BytecodeLayer/Hoare/OutcomeBridge.lean) | `ofCall_completed_of_success` (`.ok r` success → `Outcome.completed`). **Renamed from `Hoare/Straightline.lean`.** |
-| **Worked instantiation** | [`Examples/CallerProgExample.lean`](../BytecodeLayer/Examples/CallerProgExample.lean) | `messageCall_call_runs` exercised compositionally on `callerProg`/`calleeProg` → `messageCall_callerProg_storageAt`. **NEW.** |
-| **Audit surface** | [`Spec.lean`](../BytecodeLayer/Spec.lean) | now the **general** program-logic rules only; per-program results moved out. |
-| **Concrete examples** | [`Examples/ConcreteSpecs.lean`](../BytecodeLayer/Examples/ConcreteSpecs.lean) | the per-program `messageCall_*` results (M1 spine + M2 `∃G₀`/counterexample) moved off `Spec`. **NEW home.** |
-
-### 3.2 Supporting files (unchanged in role, load-bearing)
-
-| File | Role |
-|---|---|
-| [`Hoare.lean`](../BytecodeLayer/Hoare.lean) | `StepsTo`/`Runs`/`Runs.trans`/`Runs.drive_advance`, `messageCall_runs`, the `runs_push1`/`runs_push`/`runs_sstore` opcode rules. The composition core. |
-| [`Hoare/Behaves.lean`](../BytecodeLayer/Hoare/Behaves.lean) | `World := CallParams` + the `Behaves pre code post` for-all-programs predicate. |
-| [`Semantics/Interpreter/Drive.lean`](../BytecodeLayer/Semantics/Interpreter/Drive.lean) | `drive_step`/`drive_halt`/`messageCall_eq_drive`/`driveG_needsCall_code`, `drive_fuel_mono`. The bridge that reduces `messageCall` without unfolding it. |
-| [`Semantics/System.lean`](../BytecodeLayer/Semantics/System.lean) | the reflexive CALL rule `stepFrame_call`, `callChildParams`, `callPending`, `resumeAfterCall`, plus the gas-inversions feeding `NeverOutOfFuel`. |
-| [`Semantics/{Gas,Dispatch,Precompiles,Maps,UInt256}.lean`](../BytecodeLayer/Semantics/) | the per-opcode semantic-inversion + gas-threading + `TransCmp` library. |
-| [`ExternalCall.lean`](../BytecodeLayer/ExternalCall.lean) | the **direct** M2 proof: the fuel-explicit child run `child_run`, `messageCall_call_eq`, `messageCall_call_storageAt`, `call_counterexample`. Still present (see §6/§7). |
-| [`Examples/ProgramExamples.lean`](../BytecodeLayer/Examples/ProgramExamples.lean) | the 4 M1 `*'` lemmas `ConcreteSpecs` delegates to. |
-| [`Examples/{HoareDemo,ProgramDecode,ProgramExamples}.lean`](../BytecodeLayer/Examples/), [`Programs.lean`](../BytecodeLayer/Programs.lean), [`Observables.lean`](../BytecodeLayer/Observables.lean), [`Hoare/Sequence.lean`](../BytecodeLayer/Hoare/Sequence.lean) | data / demos / decode facts / observable lens / `subCharges` gas threading. |
-
-### 3.3 The dependency picture (what feeds the headline)
-
-```
-Spec ─► Hoare.CallSequence ─► { DescentEq ─► Drive,
-                                DescentDrops ─► NeverOutOfFuel ─► {Gas, System, Drive},
-                                Hoare, OutcomeBridge }
-     ├► Examples.ConcreteSpecs ─► {ExternalCall, ProgramExamples}
-     └► {Programs, Observables, Hoare.Behaves, Hoare.Sequence}
-
-Examples.CallerProgExample ─► {Hoare, Hoare.CallSequence, ExternalCall, UInt256}   (built via lakefile glob; NOT under Spec — see §6.3)
-```
-
-**The structural headline of the rebuild:** the never-out-of-fuel subtree, which the pre-rebuild report flagged as a *dead island* imported by zero files, is now **load-bearing** — [`CallSequence.lean#L3`](../BytecodeLayer/Hoare/CallSequence.lean#L3) imports `DescentDrops`, and `messageCall_call_runs` uses `messageCall_never_outOfFuel` directly ([`CallSequence.lean#L96`](../BytecodeLayer/Hoare/CallSequence.lean#L96)). The `Gas`/`System`/`Dispatch` gas-inversion lemmas that fed only the dead island are now transitively on the audit surface. The big SMELL #1 of the prior report is **resolved**.
-
----
-
-## 4. The specs that matter (verbatim, bottom-up)
-
-### 4.1 Brick layer — the two generic `drive` framing lemmas
-
-These are the rebuild's foundation: the program-agnostic decomposition of a CALL boundary over the flat `drive`.
-
-[`DescentEq.lean#L59`](../BytecodeLayer/Semantics/Interpreter/DescentEq.lean#L59) — **stack-append framing**:
-
-```lean
-theorem drive_append_framing :
-    ∀ (f : ℕ) (top : List Pending) (st : Frame ⊕ FrameResult) (res : FrameResult),
-      drive f top st = .ok res →
-      ∀ (bot : List Pending), ∃ j, drive f (top ++ bot) st = drive (j + 1) bot (.inr res)
-```
-
-Gloss: a run that drains `top` to `[]` and returns `.ok res` takes the **identical** steps when an inert bottom segment `bot` is appended, until it reaches `(.inr res, bot)` instead of `(.inr res, [])`. The residual fuel is existential (`∃ j`) so no exact bookkeeping is needed. *Proof strategy (one line):* induction on `f` generalizing `top`/`st`, following `drive`'s own `match`; every non-terminal arm reduces to the IH, the `.error` arms are killed by the `.ok res` hypothesis, and the terminal `top = []` arm is the splice point.
-
-[`DescentEq.lean#L155`](../BytecodeLayer/Semantics/Interpreter/DescentEq.lean#L155) — **the generic CALL-boundary descent equation**:
-
-```lean
-theorem drive_descend_eq (f : ℕ) (child : Frame) (res : FrameResult)
-    (pd : PendingCall) (ps : List Pending)
-    (h : drive f [] (.inl child) = .ok res) :
-    ∃ j, drive f (.call pd :: ps) (.inl child)
-      = drive j ps (.inl (resumeAfterCall res.toCallResult pd))
-```
-
-Gloss: if a child frame run over the empty stack terminates with `.ok res`, then the **in-line descent** into that child (child suspended on a `.call` ancestor `pd` over arbitrary inert `ps`) equals, for some residual fuel `j`, the **parent resumed** on the child's `CallResult`. This is the program-agnostic generalization of the fuel-explicit `child_run` — the concrete `+5`/concrete child replaced by an arbitrary terminating child. *Strategy:* `drive_append_framing` with `top := []`, `bot := .call pd :: ps`, then peel one `.call` resume step.
-
-### 4.2 Fuel sufficiency — now live
-
-[`DescentDrops.lean#L153`](../BytecodeLayer/Semantics/Interpreter/DescentDrops.lean#L153):
-
-```lean
-theorem messageCall_never_outOfFuel (p : CallParams) :
-    messageCall p ≠ .error .OutOfFuel :=
-  messageCall_never_outOfFuel_of_descentDrops descentDrops_holds p
-```
-
-Gloss: unconditional, quantified over **all** `CallParams` and all programs (including CALL/CREATE descents). It rests on the measure `μ` + `mu_bound` ([`NeverOutOfFuel.lean`](../BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean)) and the five descent/fallback gas conjuncts assembled in [`descentDrops_holds`](../BytecodeLayer/Semantics/Interpreter/DescentDrops.lean#L146). It is the fact that lets `messageCall_call_runs` reconcile the black-box child run's fuel against the caller's suffix.
-
-### 4.3 The keystone — the SOUND general external-CALL rule
-
-[`CallSequence.lean#L50`](../BytecodeLayer/Hoare/CallSequence.lean#L50) (re-exported at [`Spec.lean#L151`](../BytecodeLayer/Spec.lean#L151)) — statement quoted in §1. The supporting agreement lemma, [`CallSequence.lean#L30`](../BytecodeLayer/Hoare/CallSequence.lean#L30):
-
-```lean
-theorem drive_eq_of_both_ne_oof {a b : ℕ} (stack : List Pending)
-    (state : Frame ⊕ FrameResult)
-    (ha : drive a stack state ≠ .error .OutOfFuel)
-    (hb : drive b stack state ≠ .error .OutOfFuel) :
-    drive a stack state = drive b stack state
-```
-
-*Proof strategy of the keystone (one line):* reduce `messageCall p` to `drive (seedFuel p.gas) [] (.inl fr₀)`; advance the prefix `Runs` via `Runs.drive_advance`; take the CALL step via `driveG_needsCall_code`; apply `drive_descend_eq` to the (mono-lifted) black-box child run to land at the resumed parent at some fuel `j`; build the suffix run; then reconcile `j` against the suffix fuel with `drive_eq_of_both_ne_oof`, whose hypotheses come from `messageCall_never_outOfFuel` + `drive_fuel_mono`. No proof body is reproduced here.
-
-The observable-level corollary, [`CallSequence.lean#L138`](../BytecodeLayer/Hoare/CallSequence.lean#L138) (re-exported [`Spec.lean#L172`](../BytecodeLayer/Spec.lean#L172)), wraps the raw `messageCall = .ok …` into the named `Outcome.completedWith` via `completedWith_of_ok`/`ofCall_completed_of_success`.
-
-### 4.4 The worked instantiation (the rule is live and exercised)
-
-[`CallerProgExample.lean#L207`](../BytecodeLayer/Examples/CallerProgExample.lean#L207) and [`#L252`](../BytecodeLayer/Examples/CallerProgExample.lean#L252):
-
-```lean
-theorem messageCall_callerProg_runs (g : UInt64) (hg : 30000 ≤ g.toNat) :
-    messageCall (callerParams g)
-      = .ok (FrameResult.toCallResult
-          (endFrame (callerResumed g) (.success (callerResumed g).exec .empty)))
-
-theorem messageCall_callerProg_storageAt (g : UInt64) (hg : 30000 ≤ g.toNat) :
-    (messageCall (callerParams g)).map (fun r => CallResult.storageAt r addrCallee 7) = .ok 5
-```
-
-Gloss: `messageCall_call_runs` instantiated on the real 7-arg caller. The prefix is the seven CALL-arg pushes glued by `Runs.trans` (five `runs_push1`, two `runs_push` for PUSH3/PUSH4, [`#L74`](../BytecodeLayer/Examples/CallerProgExample.lean#L74)); the CALL step is `caller_call_step` ([`#L107`](../BytecodeLayer/Examples/CallerProgExample.lean#L107)); the black-box child is `child_drive` ([`#L144`](../BytecodeLayer/Examples/CallerProgExample.lean#L144), the reflexive `PUSH;PUSH;SSTORE;STOP`); the suffix is a zero-step `Runs.refl` to `STOP`; the fuel side-condition discharges by `omega` off `childGas_le_caller`. This is the **intended user workflow** — each piece an independent lemma, composed by the general rule, never naming the full trace — contrasted with the `ExternalCall.messageCall_call_eq` monolith (§6.2).
-
-### 4.5 The audit surface & the concrete examples it no longer carries
-
-`Spec.lean` now exposes only the **general** rules: `Runs.trans`, `messageCall_runs`, `runs_push1`/`runs_push`/`runs_sstore` + the SSTORE effect/frame lemmas, and the two external-CALL rules. The per-program results moved to [`Examples/ConcreteSpecs.lean`](../BytecodeLayer/Examples/ConcreteSpecs.lean): the 4 M1 observables (`messageCall_stop_observe` … `messageCall_seq_storageAt`) and the M2 pair below ([`ConcreteSpecs.lean#L88`](../BytecodeLayer/Examples/ConcreteSpecs.lean#L88), [`#L99`](../BytecodeLayer/Examples/ConcreteSpecs.lean#L99)):
+[`messageCall_callerProg_storageAt`](BytecodeLayer/Examples/CallerProgExample.lean#L252) drives the real `callerProg`/`calleeProg` by instantiating §4.4 — prefix = seven pushes glued by `Runs.trans` (five `runs_push1`, two `runs_push`), `hchild` = the genuine reflexive callee run, suffix = the `STOP`, fuel discharged by `omega` off `childGas_le_caller`. The exported `∃G₀` spec now delegates to it (single proof):
 
 ```lean
 theorem messageCall_call_storageAt :
     ∃ G₀ : ℕ, ∀ g : UInt64, G₀ ≤ g.toNat →
-      (messageCall (callerParams g)).map (fun r => CallResult.storageAt r addrCallee 7) = .ok 5
-
-theorem call_counterexample :
-    (messageCall (callerParams 24000)).map (fun r => CallResult.storageAt r addrCallee 7) = .ok 0
+      (messageCall (callerParams g)).map (fun r => CallResult.storageAt r addrCallee 7) = .ok 5 :=
+  ⟨30000, fun g hg => messageCall_callerProg_storageAt g hg⟩
 ```
+[`ConcreteSpecs.lean#L95`](BytecodeLayer/Examples/ConcreteSpecs.lean#L95).
 
-These delegate to [`ExternalCall.messageCall_call_storageAt`](../BytecodeLayer/ExternalCall.lean#L408) and [`call_counterexample`](../BytecodeLayer/ExternalCall.lean), the direct monolithic proofs. `call_counterexample` is the load-bearing gas-honesty witness: at `g = 24000`, `childGas 24000 = 21045 < 22106`, the callee's SSTORE OOGs and rolls back, yet the top-level call completes (`.ok 0`, not an exception) — proving the `∃G₀` cannot be dropped.
+The floor is *forced*, witnessed by the executable counterexample [`call_counterexample`](BytecodeLayer/Examples/ConcreteSpecs.lean#L106) (at `g = 24000` the 63/64 cap starves the callee, its `SSTORE` OOGs, the cell reads `0`, yet the top-level call still completes). The M1 call-free capstones ([`messageCall_sstore_storageAt`](BytecodeLayer/Examples/ConcreteSpecs.lean#L60), [`messageCall_seq_storageAt`](BytecodeLayer/Examples/ConcreteSpecs.lean#L70), …) are observables-only and stated with a plain gas `≤` hypothesis (the program's exact cost).
 
 ---
 
-## 5. Hypotheses & modeling — the soundness verdict
+## 5. Hypotheses & modeling — soundness verdict
 
-**The central question: does `messageCall_call_runs` assume anything conclusion-shaped? No.** Each hypothesis is structural, contrast with the deleted `hforward`:
+**World model:** `World := CallParams` ([`Behaves.lean#L36`](BytecodeLayer/Hoare/Behaves.lean#L36)); a call's entire world (account map ⟹ all storage, gas, caller, calldata, depth) is its entry params. Results are observed only through `Observables`/`storageAt`/`Outcome`.
 
-| Hypothesis | What it is | Conclusion-shaped? |
-|---|---|---|
-| `hbegin : beginCall p = .inl fr₀` | caller enters as code | structural |
-| `hpre : Runs n₁ fr₀ callFr` | honest prefix trace to the CALL site | structural (a `Runs` derivation, not an assertion about `messageCall p`) |
-| `hcall : stepFrame callFr = .needsCall cp pending` | the CALL signal at that frame | structural |
-| `hcbegin : beginCall cp = .inl child` | child enters as code | structural |
-| `hchild : drive (seedFuel cp.gas) [] (.inl child) = .ok childRes` | **the callee as a black box** — *any* terminating child run, no claim about what it computes | NOT conclusion-shaped |
-| `hpost : Runs n₂ (resumeAfterCall childRes.toCallResult pending) last` | honest suffix trace from the resumed frame | structural |
-| `hhalt : stepFrame last = .halted halt` | caller halts | structural |
-| `hfuel : seedFuel cp.gas + n₁ + 1 ≤ seedFuel p.gas` | numeric fuel bound | arithmetic |
+**Is any hypothesis conclusion-shaped? No.** This is the crux of the rebuild. The retired proof assumed a `CallerForwards`/`behaves_call` hypothesis of the form "the caller forwards the child's observable" — i.e. it *assumed the very forwarding it was meant to prove* (circular). That symbol is gone (grep-confirmed zero occurrences of `behaves_call`/`CallerForwards`/`messageCall_child_reflexive`). In the current [`messageCall_call_runs`](BytecodeLayer/Hoare/CallSequence.lean#L50) every hypothesis is a *structural* fact about how the bytecode executes:
 
-**Contrast with the deleted `hforward`:** the old `CallerForwards.hforward` field literally read `completedWith (ofCall (messageCall cp)) … → completedWith (ofCall (messageCall p)) …` — i.e. "if the child completes, the top-level completes," which **is** the forwarding the engine could not derive. The rebuild derives that implication as the *body* of `messageCall_call_runs` (via `drive_descend_eq` + never-out-of-fuel), so the corresponding fact is now a **theorem, not a hypothesis**. The conclusion `messageCall p = .ok …` is genuinely produced, not assumed. This is the soundness repair.
+- `hpre`/`hpost` are honest `Runs` traces of the caller's prefix and suffix — not an assumed outcome;
+- `hchild` consumes the child as a **black box** (`drive … = .ok childRes`): *any* terminating child, with no oracle on what it computes;
+- `hcall`/`hcbegin`/`hhalt` are `stepFrame`/`beginCall` inversions;
+- `hfuel : seedFuel cp.gas + n₁ + 1 ≤ seedFuel p.gas` is the **single numeric** side condition — pure gas arithmetic, not the conclusion.
 
-**Other modeling notes:**
-- **World model.** `World := CallParams` ([`Behaves.lean#L40`](../BytecodeLayer/Hoare/Behaves.lean#L40)): entry params carry the account map (all storage), gas, caller/recipient, calldata; preconditions are `World → Prop`. No execution-trace shape.
-- **Reflexive child (no oracle).** `hchild` is discharged on the instance by the genuine `drive` of the callee's actual bytecode ([`child_drive`](../BytecodeLayer/Examples/CallerProgExample.lean#L144)) — leanevm's own driver, no oracle.
-- **Gas first-class.** The 63/64 cap survives into the side condition `hfuel` and (on the example) into the `g ≥ 30000` floor; the `∃G₀` of the concrete M2 result is non-vacuous, witnessed by `call_counterexample`.
-- **No awkward/smuggling hypothesis remains.** The one structural witness that used to smuggle the conclusion (`CallerForwards`) is gone.
+The reconciliation that the old hypothesis used to paper over is now *proved*: `drive_descend_eq` (sound descent) + `messageCall_never_outOfFuel` (the prefix can't be OOF) + fuel monotonicity. So the rule is genuinely load-bearing and sound.
 
 ---
 
 ## 6. Results taxonomy
 
-### 6.1 Headline / mainline
-- [`messageCall_call_runs`](../BytecodeLayer/Hoare/CallSequence.lean#L50) and [`messageCall_call_completedWith`](../BytecodeLayer/Hoare/CallSequence.lean#L138) — the sound general external-CALL rule (raw + observable). **The rebuild's reason to exist.**
-- [`messageCall_never_outOfFuel`](../BytecodeLayer/Semantics/Interpreter/DescentDrops.lean#L153) — now **load-bearing** under the headline (not just on-surface): the keystone uses it. Strongest unconditional statement in the package, finally consumed.
+**Verification status (stated once):** no `sorry`/`admit`/`native_decide`/`bv_decide`/`maxHeartbeats` anywhere in `BytecodeLayer/`. `lake build` reported warning-free, 1127 jobs (commit `556ebef`; reported, not re-run). **Axioms re-run by this reviewer** via `lake env lean` `#print axioms` — all five are exactly `[propext, Classical.choice, Quot.sound]`:
 
-### 6.2 Supporting bricks (load-bearing)
-- [`drive_append_framing`](../BytecodeLayer/Semantics/Interpreter/DescentEq.lean#L59) → [`drive_descend_eq`](../BytecodeLayer/Semantics/Interpreter/DescentEq.lean#L155) — the generic decomposition feeding the keystone. Clean, induction-only, no `decide`/`maxHeartbeats`. Good.
-- [`drive_eq_of_both_ne_oof`](../BytecodeLayer/Hoare/CallSequence.lean#L30), `drive_fuel_mono`, `Runs.drive_advance`, `driveG_needsCall_code` — the fuel-reconciliation plumbing. Good.
-- The Hoare core (`Runs`/`Runs.trans`/`messageCall_runs`/`runs_push1`/`runs_push`/`runs_sstore`) — unchanged, clean. Good.
-- `ExternalCall.child_run`, `childGas_lb`/`childGas_ub` — the fuel-explicit child run feeding both the monolith and (via `child_drive`) the example.
+| Theorem | Axioms |
+|---|---|
+| [`Hoare.messageCall_call_runs`](BytecodeLayer/Hoare/CallSequence.lean#L50) | propext, Classical.choice, Quot.sound |
+| [`Examples.messageCall_callerProg_storageAt`](BytecodeLayer/Examples/CallerProgExample.lean#L252) | propext, Classical.choice, Quot.sound |
+| [`Examples.messageCall_call_storageAt`](BytecodeLayer/Examples/ConcreteSpecs.lean#L95) | propext, Classical.choice, Quot.sound |
+| [`Examples.call_counterexample`](BytecodeLayer/Examples/ConcreteSpecs.lean#L106) | propext, Classical.choice, Quot.sound |
+| [`Interpreter.messageCall_never_outOfFuel`](BytecodeLayer/Semantics/Interpreter/DescentDrops.lean#L153) | propext, Classical.choice, Quot.sound |
 
-### 6.3 Examples / demos
-- [`messageCall_callerProg_runs`/`messageCall_callerProg_storageAt`](../BytecodeLayer/Examples/CallerProgExample.lean#L207) — the compositional instantiation. **Caveat (worth the lead's attention): `CallerProgExample.lean` is imported by no file, including the `BytecodeLayer.lean` root** (which imports only `Spec`). It is nonetheless **compiled and checked** because the lakefile uses `globs := #[.andSubmodules \`BytecodeLayer]` ([`lakefile.lean`](../lakefile.lean)) — every submodule builds. So the example is verified, but it is *not* reachable from the documented audit surface `Spec.lean`; a reader of `Spec` alone would not see that the rule has been exercised. Recommend importing it (or its result) somewhere under `Spec`, or noting it in the `Spec` docstring.
-- `ConcreteSpecs.lean` M1 spine + M2 `∃G₀`/counterexample — per-program worked examples, reachable from `Spec`. `messageCall_sstore_storageAt`, `messageCall_seq_storageAt` depend on `ProgramExamples` `*'` lemmas.
-- [`Examples/HoareDemo.lean`](../BytecodeLayer/Examples/HoareDemo.lean) — still a standalone demo, imported by nothing; harmless leaf.
+**Headline / mainline:** [`messageCall_call_runs`](BytecodeLayer/Hoare/CallSequence.lean#L50), [`messageCall_call_completedWith`](BytecodeLayer/Hoare/CallSequence.lean#L138), [`messageCall_never_outOfFuel`](BytecodeLayer/Semantics/Interpreter/DescentDrops.lean#L153).
 
-### 6.4 Smells
+**Supporting bricks (load-bearing):** [`drive_append_framing`](BytecodeLayer/Semantics/Interpreter/DescentEq.lean#L59), [`drive_descend_eq`](BytecodeLayer/Semantics/Interpreter/DescentEq.lean#L155), [`drive_eq_of_both_ne_oof`](BytecodeLayer/Hoare/CallSequence.lean#L30), [`mu_bound`](BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean#L133), [`descentDrops_holds`](BytecodeLayer/Semantics/Interpreter/DescentDrops.lean#L146), the `Runs` core + opcode rules ([`Hoare.lean`](BytecodeLayer/Hoare.lean#L96)), and the `System`/`Gas`/`Dispatch`/`Maps`/`Precompiles` leaf facts.
 
-| Item | Location | Class | Headline dependency? |
-|---|---|---|---|
-| `maxHeartbeats` | (none) | — | **RESOLVED — zero in tree** |
-| dead never-out-of-fuel island | (none) | — | **RESOLVED — now live under the keystone** |
-| `messageCall_call_eq` monolith | [`ExternalCall.lean#L337`](../BytecodeLayer/ExternalCall.lean#L337) | direct M2 proof | feeds `messageCall_call_storageAt` (a `ConcreteSpecs` example), NOT the keystone |
-| `decide` on concrete `callExtraCost = 2600` | [`ExternalCall.lean#L385`](../BytecodeLayer/ExternalCall.lean#L385), [`CallerProgExample.lean#L119`](../BytecodeLayer/Examples/CallerProgExample.lean#L119) | brick | local, small concrete terms |
-| `set_option maxRecDepth 4000` | [`CallerProgExample.lean#L41`](../BytecodeLayer/Examples/CallerProgExample.lean#L41), `ProgramExamples`/`HoareDemo` | brick | deep concrete reductions; isolated |
-| hardcoded magic constants (`0xCA11EE`, `0xFFFFFFFF`, `2600`, `21045`, `22106`, `24000`, `30000`) | M2 files | example-intrinsic | soundness-neutral |
+**Examples / demos:** [`messageCall_callerProg_storageAt`](BytecodeLayer/Examples/CallerProgExample.lean#L252) is consumed by the exported `∃G₀` spec — *not* a dead leaf. The M1 `*'` lemmas in [`ProgramExamples.lean`](BytecodeLayer/Examples/ProgramExamples.lean#L1) are consumed by `ConcreteSpecs`. [`hoare_demo`](BytecodeLayer/Examples/HoareDemo.lean#L156) is a true leaf (illustration only, nothing depends on it). `call_counterexample` is consumed by `ConcreteSpecs` and justifies the `∃G₀` shape.
 
-**The one remaining real smell — the `messageCall_call_eq` monolith ([`ExternalCall.lean#L337`](../BytecodeLayer/ExternalCall.lean#L337)).** This is the *old* direct proof: a single ~70-line `rw`-chain driving the whole caller program (7 pushes + CALL + nested child + resume + STOP) through `drive` in one tactic block. It still exists and still backs the `ConcreteSpecs.messageCall_call_storageAt` example. The rebuild **does not delete it** — instead `CallerProgExample` re-proves the same observable *compositionally* through the general rule. So there are now **two proofs of the same caller storage fact**: the monolith (under the `Spec`-reachable example) and the compositional one (off-surface, §6.3). This is redundancy, not unsoundness; with `maxHeartbeats` removed it apparently no longer needs cranked budgets, but it remains a long brittle reduction. **Does a *headline* depend on the monolith? No** — the keystone `messageCall_call_runs` is monolith-free. The monolith is now demonstrably *replaceable* (the example proves the same fact without it).
+**Smells, with the headline-dependency call:**
+
+- **`decide` on concrete terms** in [`ExternalCall.lean`](BytecodeLayer/ExternalCall.lean#L1) (e.g. `sstoreChargeOf_child`, `childGas_lb`, `callerXfer_storage`) and the M1 examples — and **`set_option maxRecDepth 4000`** in [`CallerProgExample.lean#L41`](BytecodeLayer/Examples/CallerProgExample.lean#L41), [`ProgramExamples.lean#L36`](BytecodeLayer/Examples/ProgramExamples.lean#L36), [`HoareDemo.lean#L31`](BytecodeLayer/Examples/HoareDemo.lean#L31). These evaluate concrete gas constants on fixed witness programs. **Dependency call:** they sit under the *worked example* `messageCall_callerProg_storageAt` and the M1 capstones — which the exported concrete specs depend on. So they *are* under a (concrete) headline, but the **general** rules (`messageCall_call_runs`, `messageCall_never_outOfFuel`) use **no** `decide`/`maxRecDepth` and are fully program-agnostic. The risk is contained to the concreteness of the witnesses, not to the general theory.
+- **Single caller/callee witness.** The entire M2 observable story rides one hardcoded program pair (`callerProg`/`calleeProg`) and one CALL site. The general rule is parametric, but the *exercised* evidence is one example — see §7.
+- **No `set_option maxHeartbeats`** anywhere (good — no reduction blow-up was papered over).
 
 ---
 
 ## 7. Honest rough edges & open questions
 
-1. **`messageCall_call_runs` is exercised on exactly one caller** ([`callerProg`](../BytecodeLayer/Programs.lean)) — a single CALL, value 0, single callee, no nesting, no RETURN data threading (callee `STOP`s). The rule's *statement* is general, but its only witness is one flat caller→callee shape. Multi-level nesting (a callee that itself CALLs) is supported by the generic `drive_descend_eq` in principle but not demonstrated.
+1. **Altitude caveat (flagged in-source).** The program-logic rules re-exported on [`Spec.lean`](BytecodeLayer/Spec.lean#L22) are **frame-level** (`Runs`/`Frame`/`stepFrame`), in tension with the experiment's "observables-only exported surface" standard. Only `messageCall_call_completedWith` is fully observable. Per memory note *exp003-frame-level-surface-ok*, this is accepted for this low-level layer, but the `Spec.lean` docstring itself says "To reconcile."
 
-2. **The worked instantiation is off the audit surface (§6.3).** `CallerProgExample.lean` builds via the lakefile glob but is not imported under `Spec`; the lead's "is the rule exercised?" question is answerable *yes* only by knowing the glob builds it. Recommend wiring it in or documenting it.
+2. **`Behaves` is defined but unconsumed.** [`Behaves.lean`](BytecodeLayer/Hoare/Behaves.lean#L45) sets up the for-all-programs predicate the generalization plan wants, but no exported theorem is yet phrased through it. It is scaffolding ahead of use.
 
-3. **The `messageCall_call_eq` monolith persists** (§6.4) as a redundant second proof of the caller storage fact, under the `Spec`-reachable `ConcreteSpecs` example. Recommend either retiring it in favor of the compositional `messageCall_callerProg_storageAt` (and routing `ConcreteSpecs` through the example), or consciously keeping it as the "direct" cross-check and saying so.
+3. **Single-witness M2.** No nested calls, no non-zero `value` (every example is value-0), no `RETURN`-carrying callee, one CALL site. The general `messageCall_call_runs` does *not* assume these away (it is parametric and the child is a black box), but the only *instantiation* is the one program pair.
 
-4. **Recorded axiom/build evidence is stale (doc↔source discrepancy).** [`docs/results.md#L269`](./results.md#L269) records a `#print axioms` block listing pre-rebuild symbols (`BytecodeLayer.messageCall_child_reflexive`, `…stepFrame_call`, `…drive_halt` — now namespaced `ExternalCall.`/`System.`/`Interpreter.`) and **omits the rebuild's headlines** `messageCall_call_runs`, `messageCall_call_completedWith`, and `messageCall_never_outOfFuel` entirely. [`docs/handoff.md#L102`](./handoff.md#L102) and `results.md` say "green (1111 jobs)"; the count predates the new files. The axiom-cleanliness claim `[propext, Classical.choice, Quot.sound]` is plausible and stated for the rebuild, but **its recorded evidence predates the rebuild** — regenerate `#print axioms` over the current export set (especially the three new theorems) and the job count. Not re-run here per instructions.
+4. **Stale docstrings / docs (cosmetic, not soundness).** Several in-source docstrings still point at files removed in the reorg: [`HoareDemo.lean#L9`](BytecodeLayer/Examples/HoareDemo.lean#L9) and [`Sequence.lean#L15`](BytecodeLayer/Hoare/Sequence.lean#L15) reference `Proof/StraightlineInstances.lean`; the root [`BytecodeLayer.lean#L12`](BytecodeLayer.lean#L12) still lists `ExternalCall(Gen).lean` though `ExternalCallGen.lean` is deleted. Separately, the **Phase-4 doc territory** files [`docs/results.md`](results.md) and [`docs/handoff.md`](handoff.md) carry axiom-evidence prose that predates the rebuild and should be regenerated before they are trusted (treat the live `#print axioms` in §6 as authoritative, not those docs).
 
-5. **`Spec` altitude caveat is self-flagged** ([`Spec.lean#L22`](../BytecodeLayer/Spec.lean#L22)): the program-logic rules are frame-level, not observables-only. Correct and intentional for this low-level layer (per task), but the only fully observable-level export is `messageCall_call_completedWith`; the `Spec` docstring itself says "to reconcile."
-
-**Recommendations (no code edited):** (a) import `CallerProgExample` (or its result) under `Spec` so the rule's exercise is on the audit surface; (b) decide the monolith's fate (retire vs. keep-as-cross-check) and de-duplicate the caller storage fact; (c) regenerate and reconcile the `#print axioms` block / job count post-rebuild — currently the strongest doc↔source discrepancy; (d) consider a second, *nested* caller witness to demonstrate the generic `drive_descend_eq` under recursion.
+**Natural next steps:** (a) phrase one external-call export through `Behaves`/`Outcome` to retire the altitude caveat; (b) add a second, structurally different callee (e.g. one that `RETURN`s) to widen the M2 witness; (c) refresh the stale docstrings and the `results.md`/`handoff.md` axiom evidence.
