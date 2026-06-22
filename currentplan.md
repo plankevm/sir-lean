@@ -168,9 +168,12 @@ whichever interface, ideally the shared one.
   simulation lemmas (`sim_imm/add/lt/sload/gas/sstore/jump/branch/call`, `halt_stop/ret`),
   and the top-level boundary discharge `lower_preserves_discharge` (crosses
   `messageCall_runs`, already handles ANY number of `Runs.call` nodes ⇒ C4 discharge is
-  nearly free). REMAINING (continuation IN PROGRESS): generic `decode_lower` correctness
-  lemma + the `lower_simulates_step` assembly induction (the byte-layout arithmetic) to
-  close `lower_preserves`.
+  nearly free). Byte-layout half now DONE generically (`84f79aa`): `decode_lower`
+  (+`bget`/`bextract` foundations) and the offset-table arithmetic with symbolic `M1`
+  (`pcOf_eq_anchor`/`flatBytes_at_pcOf`). REMAINING (final continuation IN PROGRESS):
+  the per-program `Runs fr₀ last` assembly for `workedCall` (gas-tracked `Runs.trans`
+  chain + a concrete `CallReturns` child run, mirroring `caller_callReturns`) to close
+  `lower_preserves`; C4 multi-call falls out of the same boundary discharge.
 - [ ] **C4** Multi-call lowering. A3 is DONE so the *bridge* exists; C4 still follows
   C3 and the A→base merge + C rebase.
 
