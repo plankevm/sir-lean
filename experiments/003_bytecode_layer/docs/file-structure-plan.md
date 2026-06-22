@@ -35,7 +35,7 @@ they stay an experiment-side layer regardless.
 ```
 BytecodeLayer/
   Semantics/                    ← mirrors leanevm Evm/Semantics/ (reusable, upstreamable)
-    UInt256.lean      ← toNat_sub_ofNat (UInt64/256 gas-threading arith)   [from DecodeGas]
+    UInt64.lean       ← toNat_sub_ofNat (UInt64 gas-threading arith)   [from DecodeGas]
     GasConstants?/Gas.lean ← StepGasBasics + StepGas (stepFrame_next_lt) + the cost
                           lower bounds (callExtraCost_ge_*, createCost_ge_2, charge_drop_ge)
     Decode.lean       ← DecodeGas's decode_* program facts
@@ -60,7 +60,7 @@ BytecodeLayer/
 
 | New file | Absorbs (current) | Notes |
 |---|---|---|
-| `Semantics/UInt256.lean` | `toNat_sub_ofNat` (from `Proof/DecodeGas`) | mirrors leanevm `Evm/UInt256.lean` (its arith-lemma home) |
+| `Semantics/UInt64.lean` | `toNat_sub_ofNat` (from `Proof/DecodeGas`) | the one UInt64 gas-threading arith fact |
 | `Semantics/Gas.lean` | `Reasoning/StepGasBasics`, `Reasoning/StepGas`, + `callExtraCost_ge_*`/`createCost_ge_2`/`create2Cost_ge_2`/`charge_drop_ge` (from `DescentDrops`) | the per-step gas-burn theorem sits with the cost bounds it feeds |
 | `Semantics/Decode.lean` | `decode_*` facts (from `Proof/DecodeGas`) | `DecodeGas.lean` dissolves into UInt256 + Decode |
 | `Semantics/Precompiles.lean` | `Proof/Fuel/PrecompileGas` | self-contained; cleanest pilot |
@@ -131,7 +131,7 @@ per-file as natural):
 
 | Module (path) | Namespace |
 |---|---|
-| `Semantics/UInt256.lean` | `BytecodeLayer.UInt256` |
+| `Semantics/UInt64.lean` | `BytecodeLayer.UInt64` |
 | `Semantics/Gas.lean` | `BytecodeLayer.Gas` |
 | `Semantics/Decode.lean` | `BytecodeLayer.Decode` |
 | `Semantics/Precompiles.lean` | `BytecodeLayer.Precompiles` |
