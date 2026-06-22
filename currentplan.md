@@ -117,7 +117,12 @@ whichever interface, ideally the shared one.
   drops into `Runs.trans`). Worked `BranchExample`. Loops deferred (a back-edge is just
   another `runs_jump` glued by `trans`; gas ⇒ finiteness). **The report MUST argue this
   design choice + alternatives (Eduardo wasn't in this discussion).**
-- [ ] **Opcode-rule completion** IN PROGRESS — `runs_add/lt/sload(+read)/gas`.
+- [x] **Opcode-rule completion** DONE (`2615d03`, green 1130 jobs, axiom-clean):
+  `runs_add/lt/sload`(+`sloadFrame_storage_self`)/`gas` + `ArithStorageExample`.
+- [x] **A→base MERGE DONE** (integration gate cleared). A's full flat layer merged into
+  `exp003-fuel-layer-cleanup` (clean, no conflicts, base exp003 green 1130); base then
+  merged into `exp005-ir` so **C is unblocked** (C green 1106 against the new API).
+  Track A core is complete & reportable → `lean-review-report` launched.
 - NOTE (cleanup, defer to a review pass once `exp003-runs-call` stabilizes): A2's
   deletion left stale `messageCall_call_runs` refs in `docs/review-report.md` +
   `review-report-followup.md` — regenerate via `review-report.prose`, don't hand-patch.
@@ -275,6 +280,11 @@ your own branch with clear messages; never touch another track's files; if block
 write the blocker into PLAN.md before stopping.
 
 ## Orchestration log
+- 2026-06-22: **A opcode rules DONE + A→base MERGE + C unblocked** (`2615d03`; merge clean,
+  base green 1130, C green 1106). Integration gate cleared. Launched: **C3** (single-call
+  preservation, now unblocked) and the **Track A `lean-review-report`** (→ `docs/track-a-
+  review.md`, arguing the `Runs.call` + CFG design choices). Still running: B2. Track A's
+  core flat layer is COMPLETE (`Runs`+call+multi-call+CFG+opcode rules, all merged).
 - 2026-06-22: **B0 (mono) + A CFG combinator DONE & verified** (B0 `63e234e`+glob-fix
   green; CFG `bc810cc` green 1129). Yul fully gone from exp004; control-flow combinator
   in exp003. Launched: A **opcode-rule completion** (`runs_add/lt/sload/gas`) → then
