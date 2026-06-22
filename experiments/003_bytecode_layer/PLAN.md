@@ -24,11 +24,33 @@ reasoning about **intermediary** calls (calls that don't halt the program).
   (fuel premises are already gone) in favour of a non-`OutOfFuel`-reconciliation
   advance lemma proved by induction on `Runs`: `refl`→`drive_eq_of_both_ne_oof`,
   `step`→`drive_stepsTo`, `call`→`drive_descend_eq`+`drive_fuel_mono`.
-- [ ] **A2** One boundary bridge `messageCall_runs`; re-derive the old
-  `messageCall_call_runs` as a corollary (a `Runs` with one `.call` node).
-- [ ] **A3** Multi-call composition: ≥2 calls with code between them, no
-  per-call halt requirement. The acceptance test for the defect.
-- [ ] **A4** Verdict + concise report; expose the composition API for Track C.
+- [x] **A2** One boundary bridge `messageCall_runs`. The old verbose
+  `messageCall_call_runs` (5-hypothesis prefix/call/suffix) is DELETED, not aliased;
+  its content is the one-`.call` special case of `messageCall_runs`. Replaced by the
+  named multi-call guarantee `messageCall_runs_calls` and the observable-level
+  `messageCall_calls_completedWith` (now over a single multi-call `Runs fr₀ last`).
+- [x] **A3** Multi-call composition: ≥2 calls with code between them, no per-call
+  halt requirement. General theorem `messageCall_runs_calls`; worked 2-call example
+  `Examples/TwoCallExample.lean` (`twoCall_runs` / `twoCall_messageCall` /
+  `twoCall_completedWith`). The acceptance test for the defect — intermediary calls
+  compose.
+- [ ] **A4** Verdict + concise report; finalize the composition API for Track C.
+
+## Composition API for Track C (stable surface)
+Build the caller's whole execution as ONE `Runs fr₀ last` and cross the single
+bridge once. Constructors: `Runs.refl`, `Runs.step` (one `StepsTo`), `Runs.call`
+(one returning external CALL, payload `CallReturns`), glued by `Runs.trans`. Then:
+- `messageCall_runs p hbegin h hhalt` / its alias `messageCall_runs_calls` — raw
+  `messageCall p = .ok (… endFrame last halt)` (Spec.lean re-exports both).
+- `messageCall_calls_completedWith p a k v hbegin h hhalt hsucc hcell` — named
+  `Outcome.completedWith` (Spec.lean).
+- `Examples.twoCall_runs` / `twoCall_messageCall` / `twoCall_completedWith` — the
+  ready-made `prefix·call₁·middle·call₂·suffix` composer (hand it two `CallReturns`
+  witnesses + the runs between them). Each `CallReturns` is built like
+  `CallerProgExample.caller_callReturns` (CALL step, child `EntersAsCode`, black-box
+  child `drive … = .ok childRes`, resumed frame by `rfl`).
+There is **no** per-call halt requirement and **no** numeric fuel side condition —
+all reconciliation is internal to `Runs.drive_reconcile`.
 
 ## Agent brief (durable — re-spawn from this verbatim)
 > Work ONLY in `/Users/eduardo/workspace/evm-semantics-wt/runs-call`, on branch
@@ -72,3 +94,32 @@ reasoning about **intermediary** calls (calls that don't halt the program).
   - A1 is FULLY CLOSED; no blockers. Dropping the index was clean — every former
     fuel-bound obligation was already discharged by never-out-of-fuel, so the
     index carried no information. Next: A2/A3 (NOT done this run).
+- 2026-06-22 (A2, CLOSED): One boundary bridge. DELETED `messageCall_call_runs`
+  (the verbose 5-hypothesis form) outright — per project policy, no dead alias.
+  Its content is the single-`.call` case of `messageCall_runs`. Added
+  `messageCall_runs_calls` (the named "≥N calls compose" guarantee, defeq to
+  `messageCall_runs`) and renamed `messageCall_call_completedWith` →
+  `messageCall_calls_completedWith`, now taking one multi-call `Runs fr₀ last`
+  (5-hyp split collapsed). Swept call sites: `CallerProgExample` now crosses
+  `messageCall_runs` over a `Runs.call` node (extracted `caller_callReturns`
+  lemma; whole caller run assembled as `prefix.trans (Runs.call …)`); `Spec.lean`
+  re-exports updated; stale doc refs in `ExternalCall`, `DescentEq`, `ConcreteSpecs`
+  fixed. Build GREEN (1127 jobs).
+- 2026-06-22 (A3, CLOSED): Multi-call composition. General theorem is
+  `messageCall_runs_calls` — `messageCall_runs` already accepts a `Runs` with any
+  number of `.call` nodes (reconciliation is inside `Runs.drive_reconcile`), so the
+  guarantee needed only an explicit name, no new proof obligation. Worked 2-call
+  acceptance test: NEW `Examples/TwoCallExample.lean`:
+  * `twoCall_runs` — glues `prefix · call₁ · middle · call₂ · suffix` into one
+    `Runs fr₀ last` via `Runs.trans`/`Runs.call`. Neither intermediary call halts:
+    call₁ returns into `middle`, call₂ into `suffix`, only `last` halts.
+  * `twoCall_messageCall` — discharges that `Runs` through `messageCall_runs_calls`.
+  * `twoCall_completedWith` — observable-level lift.
+  The six per-piece facts are honest structural hypotheses (real
+  `Runs`/`CallReturns`/`StepsTo`/halt values, exactly what
+  `CallerProgExample.caller_callReturns` produces for one call). Imported via
+  `ConcreteSpecs` (avoided a Spec→…→Spec import cycle by referencing the `Hoare.*`
+  names, not the Spec re-exports). Build GREEN (1128 jobs), axiom-clean (all six new
+  theorems depend only on `propext`/`Classical.choice`/`Quot.sound`; no `sorryAx`).
+  No blockers; the general statement needed no extra hypothesis. Track C composition
+  API recorded above. A4 (verdict/report) NOT done this run.

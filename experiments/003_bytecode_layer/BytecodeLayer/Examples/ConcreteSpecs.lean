@@ -3,6 +3,7 @@ import BytecodeLayer.Observables
 import BytecodeLayer.ExternalCall
 import BytecodeLayer.Examples.ProgramExamples
 import BytecodeLayer.Examples.CallerProgExample
+import BytecodeLayer.Examples.TwoCallExample
 
 /-!
 # Concrete per-program results — worked examples, not general specs
