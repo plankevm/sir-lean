@@ -1,6 +1,11 @@
 # File-structure plan — topic tree mirroring leanevm (for upstreaming)
 
-*Status: agreed direction, not yet executed. Pending one sign-off (namespaces, §7).*
+*Status: EXECUTED (2026-06-16, branch `exp003-fuel-layer-cleanup`, commits
+`64ff3dd`→`c08e04f`, green/no-sorry at each phase). Two notes from execution:
+(a) decision-3 found nothing in ExternalCall generic enough to move into System —
+it's all `behaves_call` fixtures; (b) `Semantics/Decode.lean` was example-specific
+(per-program `decode_*` facts) and landed in `Examples/ProgramDecode.lean`, not a
+Semantics topic; `Programs.lean` stayed top-level (foundation, used beyond examples).*
 
 ## Goal & rationale
 
