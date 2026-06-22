@@ -66,4 +66,10 @@ composing naturally (the thing flat makes hard).
   - Added `experiments/004_nested_evmyul/{lakefile.lean,NestedEvmYul.lean,
     lean-toolchain}` requiring the vendored `evmyul` (mirrors exp003's
     `require evm from "EVMLean"`). Toolchain pinned to the vendored `v4.22.0`.
-  - Build status: see next dated entry.
+  - **Build status: GREEN.** `lake update` pulled the mathlib v4.22.0 cache
+    (no scratch mathlib build needed). `lake build evmyul/EvmYul` → 1033/1033, 0
+    errors — and this includes the crypto FFI extern_lib (sha-256 + SHA3IUF +
+    ffi.c compiled via `cc`): **no FFI/native blocker in this environment.**
+    `lake build` (exp004 default target `NestedEvmYul`, which `import`s
+    `EvmYul.EVM.Semantics`) → green, confirming the lakefile `require evmyul`
+    wiring end-to-end. B1 complete.
