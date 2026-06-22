@@ -8,6 +8,35 @@ every export). The two foundation obstructions an earlier run reported were reso
 upstream in leanevm (`9cefe5b`). This file records where the ladder reached, the
 resolved obstructions, the reusable patterns to carry forward, and the build.
 
+## Recent consolidation (latest pass)
+
+No new results in this pass — the *legibility and economy* of the existing ones.
+All green, axiom-clean, pushed:
+
+- **Monolith retired.** `messageCall_call_eq` and its scaffolding (`child_run`,
+  `callerResult`, `messageCall_child_reflexive`) are deleted; the `∃G₀`
+  caller-storage spec now has exactly one proof, the compositional
+  `messageCall_callerProg_storageAt`.
+- **The CALL rule reads as a sequence.** `messageCall_call_runs` is now five
+  structural hypotheses — `fr₀ ─Runs→ callFr ─CallReturns→ resumeFr ─Runs→ last
+  ─halt` — with **no numeric fuel premise** (dropped; see the pattern below).
+  `CallReturns callFr resumeFr` is a derived `def` bundling the three call-facts
+  (call fires / callee enters as code / child terminates). Determined binders are
+  implicit, so callers pass `p` + the five hypotheses.
+- **Vocabulary surfaced.** The drive state's `.inl`/`.inr` → `running`/`finished`;
+  the call-entry equation `beginCall p = .inl fr` → `EntersAsCode p fr`.
+- **The fuel subsystem is named for what it is.** `Measure.lean` (μ, `mu_bound`)
+  → `NeverOutOfFuel.lean` (the unconditional headline); the descent Prop
+  `DescentDrops` → `gasFundsDescent` ("a descent is funded out of the parent's gas,
+  with ≥2 to spare, so the measure still drops").
+- **The 63/64 floor is derived,** via the universal `Gas.liftFloor` lemma, not an
+  asserted magic constant (`liftFloor 22106 = 22457`; the example's 30000 is now
+  justified, not hand-picked).
+- **Docs + a guard.** `review-report.md`/`results.md`/this file regenerated to the
+  current state; `scripts/check-report-links.sh` checks that every report link
+  resolves (links are relative to the doc, so package source needs `../`) and that
+  `#Lnn` anchors are in range — the `lean-review-report` agent now enforces both.
+
 ## Where the ladder reached (all ✅)
 
 The architecture is a topic tree under `BytecodeLayer/` mirroring leanevm's
@@ -44,10 +73,12 @@ monotonicity. No hypothesis is conclusion-shaped — the old circular
 `messageCall_call_eq` (with `child_run`/`callerResult`/`messageCall_child_reflexive`)
 is **deleted**.
 
-Fuel-sufficiency was never needed as a separate *statement-level* brick: leanevm
-seeds enough fuel from gas, and the never-out-of-fuel subsystem (`μ`/`mu_bound`/
-`gasFundsDescent`) discharges it *unconditionally*, so fuel never appears in an
-exported statement.
+Fuel is not a hypothesis of the CALL rule at all: the never-out-of-fuel subsystem
+(`μ`/`mu_bound`/`gasFundsDescent`) discharges it *unconditionally*, so the rule
+runs the whole sequence at a large concrete fuel and reconciles back to
+`seedFuel p.gas` internally — fuel appears in no exported statement. (The call-free
+`messageCall_runs` still carries a `n + 2 ≤ seedFuel p.gas` premise; it could be
+dropped the same way — see "where next".)
 
 ## The two obstructions — RESOLVED (record of the fix)
 
@@ -68,14 +99,18 @@ upstream restores axiom purity and M2 reducibility.
 
 ## Reusable patterns confirmed this run (carry forward)
 
-- **Sound CALL sequencing without a forwarding hypothesis.** The pattern is:
-  reduce `messageCall` to a `drive` equation; advance the caller's prefix with
-  `Runs.drive_advance`; take the CALL step with `driveG_needsCall_code`; cross the
-  child boundary with `drive_descend_eq` (black-box terminating child → resumed
-  parent at some residual fuel `j`); reconcile that `j`-fuel run against the concrete
-  suffix run via `drive_eq_of_both_ne_oof` (both avoid `OutOfFuel` — the prefix side
-  by `messageCall_never_outOfFuel`, the suffix side because it terminates). This is
-  what replaces the circular `hforward`; reuse it for any caller/callee pair.
+- **Sound CALL sequencing without a forwarding hypothesis — and without a fuel
+  premise.** Bundle the three call-facts as `CallReturns callFr resumeFr`. The proof
+  pattern: reduce `messageCall` to a `drive` equation; advance the caller's prefix
+  with `Runs.drive_advance`; take the CALL step with `driveG_needsCall_code`; cross
+  the child boundary with `drive_descend_eq` (black-box terminating child → resumed
+  parent); build the suffix run; finish with `drive_eq_of_both_ne_oof`. **To drop the
+  fuel-bound hypothesis:** don't run at `seedFuel p.gas` (that forces a `≤` premise) —
+  run the whole sequence at a deliberately large *concrete* fuel `f*` (every split
+  closes by `omega`, no bound assumed), then reconcile `f*` with `seedFuel p.gas` via
+  `drive_eq_of_both_ne_oof` + `messageCall_never_outOfFuel` (it needs no fuel
+  ordering). This is what replaces the circular `hforward`; reuse it for any
+  caller/callee pair, and it's the lever for dropping fuel premises elsewhere.
 - **`decode <bytes> <pc> = some (op, imm)` by `rfl`, as a named lemma** (per-pc
   facts in `Examples/ProgramDecode.lean`); inline it and `simp` won't fire under
   `getD`. The pc argument must be written exactly as `incrPC` produces it.
@@ -119,6 +154,15 @@ demand-driven:
   M2 witness beyond the single `callerProg`/`calleeProg` pair and one CALL site. The
   general rule is parametric and consumes the child as a black box; only the
   *instantiation* is currently one example.
+- **Drop the fuel premise from `messageCall_runs` too** (the call-free bridge still
+  carries `n + 2 ≤ seedFuel p.gas`), by the same large-`f*` + `messageCall_never_outOfFuel`
+  reconciliation now used in `messageCall_call_runs` — for consistency, cheap.
+- **Gas-sufficiency "piece 2": derive the floor per callee.** A small gas-Hoare
+  judgment "callee `Q` run with gas ≥ `cost(Q)` commits effect `E`" would make the
+  `∃G₀` floor `liftFloor (cost Q) + overhead` for *any* callee instead of hand-derived.
+  Deferred until a second callee exists (with only one, the payoff is conceptual).
+- **Squash the branch history** (`exp003-fuel-layer-cleanup`) — held for the lead's
+  review; the WIP/rebuild intermediate commits can collapse to the clean end state.
 - **Non-zero `value` / non-empty memory windows** in CALL (the value-free,
   zero-memory restriction was deliberate to isolate the 63/64 content; lifting it
   adds the value-transfer balance arithmetic and mem-expansion charge).
