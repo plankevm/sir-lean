@@ -116,6 +116,33 @@ nesting *as a theorem over flat*; Track B *adopts* the already-nested semantics.
 
 ---
 
+## Backlog (after the current round A2/A3 · C2 · B2)
+
+**Track A:** CFG combinator (`JUMPI`/branches/loops as `Runs`-level structure — prereq
+for C's branching + gas introspection) · gas introspection first-class (∃G₀-monotone) ·
+`CREATE` as a 2nd descent constructor · reentrancy/value-transfer (deferred) · symbolic
+worlds + gas-ledger to scale past concrete `find?`/`decide`.
+
+**Track B:** B3 `{P} Ξ(child) {Q}` triple + call-site/frame rule (≥2 calls native) ·
+B4 observables-only IR surface · **the bake-off verdict** A-vs-B foundation for IRs ·
+optional `driveNested ≃ drive` unification · optional monomorphize exp004 to EVM-only
+(removes the kept Yul fragment — only if `τ = Yul|EVM` baggage causes real friction; it
+is INERT for EVM today, so not urgent — see Yul note below).
+
+**Track C:** C3 lowering-preservation (single-call first) · C4 multi-call lowering (needs
+A3) · branch lowering (`Term.branch`→`JUMPI`) where **gas-introspection preservation**
+becomes a concrete theorem · connect `LirLean` to the real Plank SIR (the project's
+ultimate target).
+
+**Cross-cutting:** integration order A→base, C rebases on A, B merges when ready · the
+gas-introspection question lives at the A-CFG × C-branching intersection.
+
+**Yul note (B):** EVMYulLean's semantics is ONE machinery polymorphic over
+`OperationType = Yul | EVM`; `Account`/`ExecutionEnv` carry `Yul.Ast.contractCode τ`
+(= `ByteArray` for `.EVM`). The kept Yul fragment is the transitive closure the EVM path
+references; its `.Yul` dispatch arms are inert when `τ = .EVM`. Full removal = monomorphize
+to EVM (a real edit to the trusted semantics) → backlog, not blocking.
+
 ## Dependencies & integration
 
 - **A ↔ C** is the live feedback loop: C consumes A's sequencing API; C's multi-call
@@ -155,6 +182,13 @@ write the blocker into PLAN.md before stopping.
   does only its M1, appends to its PLAN.md progress log, commits on its branch,
   then stops + reports). On resume: do NOT look for these agents (ephemeral); read
   each PLAN.md log + `lake build`, then re-spawn from the PLAN.md "Agent brief".
+- 2026-06-22: **Round 2 launched** (bounded background agents): A2+A3 (one bridge +
+  multi-call composition — A3 expected light since `drive_reconcile` already inducts
+  through `.call` nodes; the "regular-language" shape IS the `refl`/`step`/`call`
+  closure), C2 (single-call decode-compatible lowering + #eval validation), B2 (nested
+  never-`OutOfFuel` on `Ξ/Θ`, may land partial — it's a mutual fuel-passing induction).
+  Backlog recorded above. On resume mid-round: verify each via `lake build` + `git log`
+  in its worktree (do NOT trust agent self-reports of committed/green).
 - 2026-06-22: **A1 DONE, green & committed** (`exp003-runs-call` @ `7be5a5b`, 1127
   jobs, axiom-clean — verified by main loop, not just self-report). The `Runs.call`
   constructor lands index-free; `messageCall_call_runs` collapsed to a 3-line
