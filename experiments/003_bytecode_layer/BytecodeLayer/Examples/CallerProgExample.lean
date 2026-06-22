@@ -6,12 +6,13 @@ import BytecodeLayer.Semantics.UInt64
 /-!
 # Worked instantiation of the general external-CALL rule on `callerProg`/`calleeProg`
 
-This file *exercises* `messageCall_call_runs` (`Spec.lean`) end-to-end on the real
+This file *exercises* the single `messageCall_runs` bridge (`Spec.lean`) over a
+`Runs.call` node end-to-end on the real
 caller/callee programs of `Programs.lean`, proving the concrete external-call
 storage result — the callee's cell `(addrCallee, 7) = 5` above the gas floor —
 **compositionally**, the way a user verifies their own bytecode:
 
-* the prefix `Runs n₁ fr₀ callFr`: the seven CALL-arg pushes glued by `Runs.trans`,
+* the prefix `Runs fr₀ callFr`: the seven CALL-arg pushes glued by `Runs.trans`,
   five via `runs_push1` (PUSH1) and two via the general `runs_push` (PUSH3, PUSH4),
   reusing the `ExternalCall` decode facts `dc*`;
 * `hcall`: the CALL step (`stepFrame_call` through the `ExternalCall` machinery)
@@ -20,14 +21,15 @@ storage result — the callee's cell `(addrCallee, 7) = 5` above the gas floor �
   (callerResumed g)`: the CALL step, the child entering as code, and the genuine
   child run of the reflexive callee `PUSH;PUSH;SSTORE;STOP` to its `FrameResult`
   over the *empty* pending stack;
-* the suffix `Runs n₂ … last` to the caller's `STOP`, with `hhalt`.
+* the suffix `Runs … last` to the caller's `STOP`, with `hhalt`.
 
 No numeric fuel bound is supplied — the rule discharges it internally.
 
 This derivation never names the full execution trace: each piece is an
 independent lemma, composed by the general rule. It both demonstrates the
-intended user workflow and ensures `messageCall_call_runs` is a live, exercised
-theorem; the concrete `∃G₀` spec `Examples.messageCall_call_storageAt` is now
+intended user workflow and ensures the `messageCall_runs` bridge + `Runs.call`
+path are live, exercised; the concrete `∃G₀` spec
+`Examples.messageCall_call_storageAt` is now
 obtained from this compositional result (no monolithic opcode chain remains).
 -/
 
@@ -46,12 +48,12 @@ set_option maxRecDepth 4000
 /-! ## The prefix `Runs`: the seven CALL-arg pushes -/
 
 /-- **The prefix run.** From the caller's entry frame, the seven CALL-arg pushes
-`Runs 7` to `callerCalled g` (the frame at the CALL byte with the seven args on the
+`Runs` to `callerCalled g` (the frame at the CALL byte with the seven args on the
 stack). Five `runs_push1` and two `runs_push` (PUSH3, PUSH4), glued by `Runs.trans`;
 the running gas threads through `subCharges`. The terminal frame is *defeq* to
 `callerCalled g`. -/
 private theorem caller_prefix_runs (g : UInt64) (hg : 30000 ≤ g.toNat) :
-    Runs 7 (callerFrame g) (callerCalled g) := by
+    Runs (callerFrame g) (callerCalled g) := by
   -- post-frames of each push, layered (each defeq to the previous after one push)
   have hg0 : (callerFrame g).exec.gasAvailable.toNat = g.toNat := rfl
   -- gas balances after each push
@@ -118,7 +120,7 @@ private theorem childFrameRes_toCallResult (g : UInt64) :
 
 /-- **The child run, empty stack.** Over the empty pending stack, the genuine
 driver runs the callee `PUSH;PUSH;SSTORE;STOP` from `childFrame g` to `.ok` of its
-success `FrameResult`. This is the black-box `hchild` of `messageCall_call_runs`:
+success `FrameResult`. This is the black-box child run of the `CallReturns` node:
 3 opcode steps + the 2-unit halt. -/
 private theorem child_drive (g : UInt64) (n : ℕ)
     (hcg : 22106 ≤ childGas g) (hcg2 : childGas g < 2^64) :
@@ -178,15 +180,11 @@ private theorem child_params_gas (g : UInt64) :
   unfold callChildParams childGas callerCalled
   dsimp only [callerCharged]
 
-/-- **`messageCall_call_runs`, instantiated on `callerProg`/`calleeProg`.**
-For `g ≥ 30000`, the top-level call into the caller pins to the caller's `STOP`
-result `endFrame (callerResumed g) …`, derived *compositionally* from the general
-external-CALL rule: prefix pushes (`Runs.trans` of `runs_push1`/`runs_push`), the
-CALL step, the black-box child run, the suffix `STOP`. -/
-theorem messageCall_callerProg_runs (g : UInt64) (hg : 30000 ≤ g.toNat) :
-    messageCall (callerParams g)
-      = .ok (FrameResult.toCallResult
-          (endFrame (callerResumed g) (.success (callerResumed g).exec .empty))) := by
+/-- The bundled `CallReturns` fact for the single caller CALL: the CALL step, the
+child entering as code, the child's black-box terminating run, and the resumed
+parent frame (`callerResumed g` by `rfl`). The payload of the `Runs.call` node. -/
+theorem caller_callReturns (g : UInt64) (hg : 30000 ≤ g.toNat) :
+    CallReturns (callerCalled g) (callerResumed g) := by
   have hcg := childGas_lb g hg
   have hcg2 := childGas_ub g
   -- the child terminating run, lifted to fuel `seedFuel cp.gas`
@@ -197,21 +195,30 @@ theorem messageCall_callerProg_runs (g : UInt64) (hg : 30000 ≤ g.toNat) :
     have : seedFuel (UInt64.ofNat (childGas g)) = (seedFuel (UInt64.ofNat (childGas g)) - 5) + 5 := by
       have := two_le_seedFuel (UInt64.ofNat (childGas g)); unfold seedFuel; omega
     rw [this]; exact child_drive g _ hcg hcg2
-  -- the bundled `CallReturns` fact: the CALL step, the child entering as code,
-  -- its terminating run, and the resumed parent frame (`callerResumed g` by `rfl`).
-  have hcallret : CallReturns (callerCalled g) (callerResumed g) :=
-    ⟨_, _, _, _, caller_call_step g hg, beginCall_child g, hchild, rfl⟩
-  exact messageCall_call_runs (n₂ := 0) (callerParams g)
-      (beginCall_caller g)
-      (caller_prefix_runs g hg)
-      hcallret
-      (Runs.refl (callerResumed g))
-      (caller_resumed_halts g)
+  exact ⟨_, _, _, _, caller_call_step g hg, beginCall_child g, hchild, rfl⟩
+
+/-- **The single boundary bridge, instantiated on `callerProg`/`calleeProg`.**
+For `g ≥ 30000`, the top-level call into the caller pins to the caller's `STOP`
+result `endFrame (callerResumed g) …`, derived *compositionally* via the single
+`messageCall_runs` bridge over one `Runs` trace: the prefix pushes (`Runs.trans` of
+`runs_push1`/`runs_push`), the returning CALL as a `Runs.call` node (`CallReturns`,
+the black-box child run), then the suffix `STOP`. -/
+theorem messageCall_callerProg_runs (g : UInt64) (hg : 30000 ≤ g.toNat) :
+    messageCall (callerParams g)
+      = .ok (FrameResult.toCallResult
+          (endFrame (callerResumed g) (.success (callerResumed g).exec .empty))) := by
+  -- The caller's whole execution as one `Runs` trace: prefix ++ CALL node ++ suffix.
+  have hruns : Runs (callerFrame g) (callerResumed g) :=
+    (caller_prefix_runs g hg).trans
+      (Runs.call (caller_callReturns g hg) (Runs.refl (callerResumed g)))
+  exact messageCall_runs (callerParams g)
+      (beginCall_caller g) hruns (caller_resumed_halts g)
 
 /-- **The compositional external-call storage result.** Reading
 `messageCall_callerProg_runs`'s pinned result through `storageAt (addrCallee, 7)`
 recovers the callee's committed `5`, for `g ≥ 30000`, obtained by *instantiating
-the general rule* `messageCall_call_runs` rather than a giant opcode chain. This is
+the single `messageCall_runs` bridge* over a `Runs.call` node rather than a giant
+opcode chain. This is
 the proof the concrete `∃G₀` spec `Examples.messageCall_call_storageAt` delegates
 to. The `callerResumed g` final result's cell agrees with `ExternalCall.final_obs`,
 since `(childFrameRes g).toCallResult = childResult g`. -/

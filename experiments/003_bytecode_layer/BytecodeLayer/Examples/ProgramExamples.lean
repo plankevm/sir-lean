@@ -79,9 +79,9 @@ private theorem sstore_self_present (g : UInt64) :
         (codeFrame (paramsSStore g) sstoreProgram).exec.executionEnv.address
       = some (sstoreSelfAcc g) := by rfl
 
-/-- The composed `Runs 3` for `sstoreProgram`: push 5, push 7, sstore. -/
+/-- The composed `Runs` for `sstoreProgram`: push 5, push 7, sstore. -/
 private theorem sstore_runs (g : UInt64) (hg : 22106 ≤ g.toNat) :
-    Runs 3 (codeFrame (paramsSStore g) sstoreProgram)
+    Runs (codeFrame (paramsSStore g) sstoreProgram)
       (sstoreFrame (pushFrame (pushFrame (codeFrame (paramsSStore g) sstoreProgram) 5) 7) 7 5
         (codeFrame (paramsSStore g) sstoreProgram).exec.stack) := by
   have gv : GasConstants.Gverylow = 3 := rfl
@@ -169,8 +169,8 @@ private theorem seq_self_present (g : UInt64) :
     (sq0 g).exec.accounts.find? (sq0 g).exec.executionEnv.address = some ((sq0 g).exec.accounts.find! addrA) := by
   rfl
 
-/-- The composed `Runs 6` for `seqProgram`. -/
-private theorem seq_runs (g : UInt64) (hg : 44212 ≤ g.toNat) : Runs 6 (sq0 g) (sq6 g) := by
+/-- The composed `Runs` for `seqProgram`. -/
+private theorem seq_runs (g : UInt64) (hg : 44212 ≤ g.toNat) : Runs (sq0 g) (sq6 g) := by
   have gv : GasConstants.Gverylow = 3 := rfl
   -- running gas balances via `subCharges`
   have e1 : (sq1 g).exec.gasAvailable = subCharges g [3] := by

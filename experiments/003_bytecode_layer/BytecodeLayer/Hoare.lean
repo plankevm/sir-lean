@@ -71,63 +71,72 @@ theorem drive_stepsTo (n : ℕ) {fr fr' : Frame} (h : StepsTo fr fr') :
   rw [drive_step n fr fr'.exec hstep]
   rw [← hfr']
 
+/-! ## The bundled `CallReturns` predicate
+
+`CallReturns callFr resumeFr` bundles the facts of one external CALL that returns:
+the CALL step (`stepFrame callFr = .needsCall cp pending`), the child entering as
+code (`EntersAsCode cp child`), the child's **black-box** terminating run
+(`drive (seedFuel cp.gas) [] (running child) = .ok childRes`), and the resumed
+parent frame pinned to `resumeAfterCall childRes.toCallResult pending`. It is the
+payload of the `Runs.call` constructor, so an external call that returns is a node
+of a `Runs` path rather than a separate boundary theorem. -/
+
+/-- `callFr` issues a CALL whose child runs to completion, resuming at `resumeFr`.
+
+Bundles the four call-facts of the external-CALL sequence: the CALL step
+(`stepFrame callFr = .needsCall cp pending`), the child entering as code
+(`EntersAsCode cp child`), the child's black-box terminating run
+(`drive (seedFuel cp.gas) [] (running child) = .ok childRes`), pinning the
+resumed parent frame to `resumeAfterCall childRes.toCallResult pending`. -/
+def CallReturns (callFr resumeFr : Frame) : Prop :=
+  ∃ cp pending child childRes,
+       stepFrame callFr = .needsCall cp pending
+     ∧ EntersAsCode cp child
+     ∧ drive (seedFuel cp.gas) [] (running child) = .ok childRes
+     ∧ resumeFr = resumeAfterCall childRes.toCallResult pending
+
 /-! ## The composition relation
 
-`Runs n fr fr'` is the reflexive–transitive closure of `StepsTo`, indexed by the
-**number of opcode steps** `n`. The index is a plain `Nat`, not a trace: it lets
-the boundary bridge phrase its fuel obligation as a numeric bound (`n + 2 ≤
-seedFuel`) without ever naming an intermediate frame. The frames themselves live
-inside the `Runs` derivation. -/
+`Runs fr fr'` is the reflexive–transitive closure of `StepsTo` **extended with an
+external-CALL link**: a `call` step jumps from a CALL site `callFr` to the resumed
+frame `resumeFr` whenever `CallReturns callFr resumeFr` holds. There is no longer
+a `Nat` step-index — the boundary bridges discharge their fuel obligation by
+never-out-of-fuel reconciliation (`Runs.drive_reconcile`), not by a numeric bound,
+so an explicit step count carries no information. The intermediate frames (and the
+whole descended child run) live inside the `Runs` derivation; they never surface
+in a statement. -/
 
-/-- **`Runs n fr fr'`: `fr` reaches `fr'` by exactly `n` non-halting opcode
-steps.** The intermediate frames are the recursion of this proof — they never
-surface in a statement. This is the single carrier the opcode rules thread and
-the sequencing rule composes. -/
-inductive Runs : ℕ → Frame → Frame → Prop where
+/-- **`Runs fr fr'`: `fr` reaches `fr'` by a run of non-halting opcode steps and
+returning external calls.** The intermediate frames are the recursion of this
+proof — they never surface in a statement. This is the single carrier the opcode
+rules thread and the sequencing rule composes; external calls that return are
+`call` nodes (see `CallReturns`), so a multi-call program is one `Runs` value. -/
+inductive Runs : Frame → Frame → Prop where
   /-- Zero steps: a frame reaches itself. -/
-  | refl (fr : Frame) : Runs 0 fr fr
+  | refl (fr : Frame) : Runs fr fr
   /-- One opcode step `fr → mid`, then the rest of the block `mid → fr'`. -/
-  | head {n : ℕ} {fr mid fr' : Frame} (h : StepsTo fr mid) (rest : Runs n mid fr') :
-      Runs (n + 1) fr fr'
+  | step {fr mid fr' : Frame} (h : StepsTo fr mid) (rest : Runs mid fr') :
+      Runs fr fr'
+  /-- An external CALL at `callFr` that returns, resuming at `resumeFr`
+  (`CallReturns callFr resumeFr`), then the rest of the block `resumeFr → fr'`. -/
+  | call {callFr resumeFr fr' : Frame} (hcall : CallReturns callFr resumeFr)
+      (rest : Runs resumeFr fr') : Runs callFr fr'
 
-/-- **The sequencing rule.** Compose a block `fr → mid` (`m` steps) with the block
-that follows it `mid → fr'` (`n` steps) into one block `fr → fr'` (`m + n`
-steps). This is the whole point: a program's `Runs` is built by gluing per-opcode
-`Runs`es, never by exhibiting the trace. -/
-theorem Runs.trans {m n : ℕ} {fr mid fr' : Frame}
-    (h₁ : Runs m fr mid) (h₂ : Runs n mid fr') : Runs (m + n) fr fr' := by
+/-- **The sequencing rule.** Compose a block `fr → mid` with the block that
+follows it `mid → fr'` into one block `fr → fr'`. This is the whole point: a
+program's `Runs` is built by gluing per-opcode `Runs`es (and returning-call nodes),
+never by exhibiting the trace. -/
+theorem Runs.trans {fr mid fr' : Frame}
+    (h₁ : Runs fr mid) (h₂ : Runs mid fr') : Runs fr fr' := by
   induction h₁ with
-  | refl _ => simpa using h₂
-  | @head k a b c hstep _ ih =>
-    rw [show k + 1 + n = (k + n) + 1 by omega]
-    exact Runs.head hstep (ih h₂)
+  | refl _ => exact h₂
+  | step hstep _ ih => exact Runs.step hstep (ih h₂)
+  | call hcall _ ih => exact Runs.call hcall (ih h₂)
 
 /-- A single opcode step is a one-instruction block. The atom the opcode rules
 return. -/
-theorem Runs.single {fr fr' : Frame} (h : StepsTo fr fr') : Runs 1 fr fr' :=
-  Runs.head h (Runs.refl fr')
-
-/-! ## Advancing the driver along a `Runs` block
-
-`Runs.drive_advance` runs a `Runs n` block under the interpreter, driving the
-block by induction on the `Runs` derivation. No list of frames is ever
-materialized: it consumes the `Runs` proof directly. The `messageCall` boundary
-bridge `messageCall_runs` that turns such a block into a `messageCall` result is
-proved fuel-free in `BytecodeLayer/Hoare/CallSequence.lean` (it needs the fuel
-subsystem, which this file does not import). -/
-
-/-- A `Runs n` block, run under the driver from the empty pending stack, advances
-the driver from `fr` to `last` while spending exactly `n` fuel — for any spare
-`extra`. Proved by induction on the `Runs` derivation (the trace is the
-recursion); reuses `drive_stepsTo` for each link. -/
-theorem Runs.drive_advance {n : ℕ} {fr last : Frame} (h : Runs n fr last) (extra : ℕ) :
-    drive (n + extra) [] (running fr) = drive extra [] (running last) := by
-  induction h with
-  | refl _ => rw [Nat.zero_add]
-  | @head k a b c hstep _ ih =>
-    rw [show k + 1 + extra = (k + extra) + 1 by omega]
-    rw [drive_stepsTo (k + extra) hstep]
-    exact ih
+theorem Runs.single {fr fr' : Frame} (h : StepsTo fr fr') : Runs fr fr' :=
+  Runs.step h (Runs.refl fr')
 
 /-! ## Opcode rules
 
@@ -165,7 +174,7 @@ theorem runs_push1 (fr : Frame) (imm : UInt256)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Push .PUSH1, some (imm, 1)))
     (hgas : 3 ≤ fr.exec.gasAvailable.toNat)
     (hstk : fr.exec.stack.size + 1 ≤ 1024) :
-    Runs 1 fr (pushFrame fr imm) :=
+    Runs fr (pushFrame fr imm) :=
   Runs.single (stepsTo_of_next (stepFrame_push1 fr imm hdec hgas hstk))
 
 /-- **The general PUSH rule (any width).** From a frame decoding to `PUSH<w> imm`
@@ -179,7 +188,7 @@ theorem runs_push (fr : Frame) (op : Operation.PushOp) (imm : UInt256) (w : UInt
     (hpop : stackPopCount (.Push op) = 0) (hpush : stackPushCount (.Push op) = 1)
     (hgas : 3 ≤ fr.exec.gasAvailable.toNat)
     (hstk : fr.exec.stack.size + 1 ≤ 1024) :
-    Runs 1 fr (pushFrameW fr imm w) :=
+    Runs fr (pushFrameW fr imm w) :=
   Runs.single (stepsTo_of_next (stepFrame_push fr op imm w hp0 hdec hpop hpush hgas hstk))
 
 /-- **The SSTORE rule (effect).** From a frame decoding to `SSTORE` with
@@ -192,8 +201,224 @@ theorem runs_sstore (fr : Frame) (key newValue : UInt256) (rest : Stack UInt256)
     (hmod : fr.exec.executionEnv.canModifyState = true)
     (hstip : ¬ fr.exec.gasAvailable.toNat ≤ GasConstants.Gcallstipend)
     (hcost : sstoreChargeOf fr.exec key newValue ≤ fr.exec.gasAvailable.toNat) :
-    Runs 1 fr (sstoreFrame fr key newValue rest) :=
+    Runs fr (sstoreFrame fr key newValue rest) :=
   Runs.single (stepsTo_of_next (stepFrame_sstore fr key newValue rest hdec hstk hsz hmod hstip hcost))
+
+/-! ## Arithmetic / storage-read / introspection rules (ADD / LT / SLOAD / GAS)
+
+The pure-stack and storage-read bricks Track C's expression lowering threads. Each
+is a one-step `Runs` to a named post-frame derived from the matching `Step.lean`
+characterization, under purely semantic preconditions (decode, gas bound, stack
+shape) — the same shape as `runs_push`/`runs_sstore`. SLOAD additionally carries a
+**storage-read companion** (`sloadFrame_storage_self`) mirroring
+`sstoreFrame_storage_self`: it exposes the pushed value through the same
+`find?/lookupStorage` lens C3's storage `Match` uses. -/
+
+/-- The frame after `ADD` (operands `a`/`b` popped off the top): `a + b` pushed onto
+`rest`, pc + 1, `Gverylow` charged. -/
+def addFrame (fr : Frame) (a b : UInt256) (rest : Stack UInt256) : Frame :=
+  { fr with exec := BytecodeLayer.Dispatch.binOpPost fr.exec UInt256.add a b rest }
+
+/-- The frame after `LT` (operands `a`/`b` popped off the top): `UInt256.lt a b`
+(`= if a < b then 1 else 0`) pushed onto `rest`, pc + 1, `Gverylow` charged. -/
+def ltFrame (fr : Frame) (a b : UInt256) (rest : Stack UInt256) : Frame :=
+  { fr with exec := BytecodeLayer.Dispatch.binOpPost fr.exec UInt256.lt a b rest }
+
+/-- The frame after `SLOAD` (key popped off the top): the self account's stored
+value at `key` pushed onto `rest`, pc + 1, `sloadCost warm` charged, `(self, key)`
+marked accessed. -/
+def sloadFrame (fr : Frame) (key : UInt256) (rest : Stack UInt256) : Frame :=
+  { fr with exec := BytecodeLayer.Dispatch.sloadPost fr.exec key rest }
+
+/-- The frame after `GAS`: `ofUInt64` of the *post-charge* `gasAvailable` pushed,
+pc + 1, `Gbase` charged. -/
+def gasFrame (fr : Frame) : Frame :=
+  { fr with exec := BytecodeLayer.Dispatch.gasPost fr.exec }
+
+/-- **The ADD rule.** From a frame decoding to `ADD` with `a :: b :: rest` on the
+stack, enough gas (`Gverylow`) and stack room, one step `Runs` to `addFrame fr a b
+rest` (top = `a + b`). Pure `Step.lean` derivation. -/
+theorem runs_add (fr : Frame) (a b : UInt256) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.ArithLogic .ADD, .none))
+    (hstk : fr.exec.stack = a :: b :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : GasConstants.Gverylow ≤ fr.exec.gasAvailable.toNat) :
+    Runs fr (addFrame fr a b rest) :=
+  Runs.single (stepsTo_of_next (stepFrame_add fr a b rest hdec hstk hsz hgas))
+
+/-- **The LT rule.** From a frame decoding to `LT` with `a :: b :: rest` on the
+stack, enough gas (`Gverylow`) and stack room, one step `Runs` to `ltFrame fr a b
+rest` (top = `UInt256.lt a b`, the boolean-as-word `a < b`). -/
+theorem runs_lt (fr : Frame) (a b : UInt256) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.ArithLogic .LT, .none))
+    (hstk : fr.exec.stack = a :: b :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : GasConstants.Gverylow ≤ fr.exec.gasAvailable.toNat) :
+    Runs fr (ltFrame fr a b rest) :=
+  Runs.single (stepsTo_of_next (stepFrame_lt fr a b rest hdec hstk hsz hgas))
+
+/-- **The SLOAD rule.** From a frame decoding to `SLOAD` with `key :: rest` on the
+stack and enough gas (`sloadCost warm`), one step `Runs` to `sloadFrame fr key rest`
+(top = the self account's stored value at `key`). The `warm` flag is the
+`accessedStorageKeys.contains (self, key)` membership the cost depends on. -/
+theorem runs_sload (fr : Frame) (key : UInt256) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .SLOAD, .none))
+    (hstk : fr.exec.stack = key :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : Evm.sloadCost (fr.exec.substate.accessedStorageKeys.contains
+              (fr.exec.executionEnv.address, key)) ≤ fr.exec.gasAvailable.toNat) :
+    Runs fr (sloadFrame fr key rest) :=
+  Runs.single (stepsTo_of_next (stepFrame_sload fr key rest hdec hstk hsz hgas))
+
+/-- **The GAS rule.** From a frame decoding to `GAS` with enough gas (`Gbase`) and
+stack room, one step `Runs` to `gasFrame fr` (top = `ofUInt64` of the *post-charge*
+`gasAvailable`). -/
+theorem runs_gas (fr : Frame)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .GAS, .none))
+    (hsz : fr.exec.stack.size + 1 ≤ 1024)
+    (hgas : GasConstants.Gbase ≤ fr.exec.gasAvailable.toNat) :
+    Runs fr (gasFrame fr) :=
+  Runs.single (stepsTo_of_next (stepFrame_gas fr hdec hsz hgas))
+
+/-- **SLOAD read companion** (mirrors `sstoreFrame_storage_self`). The value SLOAD
+pushes — the head of `sloadFrame`'s resulting stack — is exactly the self account's
+stored value at `key`, read through the same `find?/lookupStorage` lens C3's storage
+`Match` uses. This connects the pushed word to the IR-level storage cell. -/
+theorem sloadFrame_storage_self (fr : Frame) (key : UInt256) (rest : Stack UInt256) :
+    (sloadFrame fr key rest).exec.stack.head?
+      = some (fr.exec.accounts.find? fr.exec.executionEnv.address
+          |>.option 0 (·.lookupStorage key)) := by
+  show ((BytecodeLayer.Dispatch.sloadPost fr.exec key rest).stack).head? = _
+  rfl
+
+/-! ## Control-flow rules (JUMP / JUMPI) — the CFG combinator
+
+The conditional/unconditional jumps lift the `Step.lean` jump lemmas to `Runs`.
+Each is a one-step `Runs` to a post-frame whose `exec` is the jump's result
+(`jumpPost`/`jumpiFallthroughPost`); the only difference from PUSH/SSTORE is that
+the post-frame moves `pc` to a resolved destination rather than `pc + width`.
+
+- `runs_jump` — unconditional jump to a valid destination (`fr.get_dest dest =
+  some new_pc`).
+- `runs_jumpi_taken` — conditional jump with a non-zero condition, to a valid
+  destination.
+- `runs_jumpi_fallthrough` — conditional jump with a zero condition, falling
+  through to `pc + 1`.
+
+A program with a conditional branch is then assembled by *case-splitting on the
+branch condition* and threading the matching rule into `Runs.trans` — see
+`runs_branch` below, the branching reasoning helper. Loops (back-edges) need no
+extra theory: a `Runs` already expresses any finite trace, so a `runs_jump` back
+to an earlier `pc` is just another `Runs` node glued by `Runs.trans`. -/
+
+/-- The frame after JUMP / a taken JUMPI: `exec` is `jumpPost` (gas charged by
+`cost`, `pc := new_pc`, operands popped to `rest`); `kind`/`validJumps` unchanged. -/
+def jumpFrame (fr : Frame) (cost : ℕ) (new_pc : UInt32) (rest : Stack UInt256) : Frame :=
+  { fr with exec := BytecodeLayer.Dispatch.jumpPost fr.exec cost new_pc rest }
+
+/-- The frame after a not-taken JUMPI: `exec` is `jumpiFallthroughPost` (gas
+charged `Ghigh`, `pc := pc + 1`, operands popped to `rest`). -/
+def jumpiFallthroughFrame (fr : Frame) (rest : Stack UInt256) : Frame :=
+  { fr with exec := BytecodeLayer.Dispatch.jumpiFallthroughPost fr.exec rest }
+
+/-- **The JUMP rule.** From a frame decoding to `JUMP` with `dest :: rest` on the
+stack, enough gas (`Gmid`), and `dest` a valid jump destination
+(`fr.get_dest dest = some new_pc`), one step `Runs` to `jumpFrame fr Gmid new_pc
+rest` (pc set to `new_pc`). Pure `Step.lean` derivation. -/
+theorem runs_jump (fr : Frame) (dest : UInt256) (new_pc : UInt32) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMP, .none))
+    (hstk : fr.exec.stack = dest :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : GasConstants.Gmid ≤ fr.exec.gasAvailable.toNat)
+    (hdest : fr.get_dest dest = some new_pc) :
+    Runs fr (jumpFrame fr GasConstants.Gmid new_pc rest) :=
+  Runs.single (stepsTo_of_next (stepFrame_jump fr dest new_pc rest hdec hstk hsz hgas hdest))
+
+/-- **The JUMPI rule (taken).** From a frame decoding to `JUMPI` with
+`dest :: cond :: rest`, a non-zero `cond`, enough gas (`Ghigh`), and `dest` a
+valid jump destination, one step `Runs` to `jumpFrame fr Ghigh new_pc rest`
+(pc set to `new_pc`). -/
+theorem runs_jumpi_taken (fr : Frame) (dest cond : UInt256) (new_pc : UInt32)
+    (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMPI, .none))
+    (hstk : fr.exec.stack = dest :: cond :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : GasConstants.Ghigh ≤ fr.exec.gasAvailable.toNat)
+    (hcond : cond ≠ 0)
+    (hdest : fr.get_dest dest = some new_pc) :
+    Runs fr (jumpFrame fr GasConstants.Ghigh new_pc rest) :=
+  Runs.single (stepsTo_of_next
+    (stepFrame_jumpi_taken fr dest cond new_pc rest hdec hstk hsz hgas hcond hdest))
+
+/-- **The JUMPI rule (fall-through).** From a frame decoding to `JUMPI` with
+`dest :: 0 :: rest` (zero condition) and enough gas (`Ghigh`), one step `Runs` to
+`jumpiFallthroughFrame fr rest` (pc advanced by one). No destination requirement —
+the jump is not taken. -/
+theorem runs_jumpi_fallthrough (fr : Frame) (dest : UInt256) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMPI, .none))
+    (hstk : fr.exec.stack = dest :: (0 : UInt256) :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : GasConstants.Ghigh ≤ fr.exec.gasAvailable.toNat) :
+    Runs fr (jumpiFallthroughFrame fr rest) :=
+  Runs.single (stepsTo_of_next
+    (stepFrame_jumpi_fallthrough fr dest rest hdec hstk hsz hgas))
+
+/-- The frame after JUMPDEST: `exec` is `jumpdestPost` (gas charged `Gjumpdest`,
+pc advanced by one). The no-op landing pad a taken jump steps past. -/
+def jumpdestFrame (fr : Frame) : Frame :=
+  { fr with exec := BytecodeLayer.Dispatch.jumpdestPost fr.exec }
+
+/-- **The JUMPDEST rule.** From a frame decoding to `JUMPDEST` with enough gas
+(`Gjumpdest`), one step `Runs` to `jumpdestFrame fr` (pc advanced by one, stack
+unchanged). Lets a taken jump step past its target landing pad. -/
+theorem runs_jumpdest (fr : Frame)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMPDEST, .none))
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : GasConstants.Gjumpdest ≤ fr.exec.gasAvailable.toNat) :
+    Runs fr (jumpdestFrame fr) :=
+  Runs.single (stepsTo_of_next (stepFrame_jumpdest fr hdec hsz hgas))
+
+/-! ### The branching reasoning helper
+
+A conditional branch is reasoned about by *case-splitting on the runtime value of
+the branch condition* and supplying, for each side, the `Runs` that the JUMPI
+takes from there. `runs_branch` packages exactly that: given the JUMPI frame, the
+`Runs` continuation for the taken side (from the destination frame) and for the
+fall-through side (from `pc + 1`), it produces the single `Runs fr fr'` for the
+whole `if`. The caller no longer threads the JUMPI step by hand — it just hands
+over the two branch continuations and a decision about the condition.
+
+`hcond_dec` lets the caller decide the condition: it returns either the taken
+witness (`cond ≠ 0` together with the resolved destination) or the fall-through
+witness (`cond = 0`). This keeps the combinator usable both when the condition is
+statically known and when it is only known to be one of the two cases. -/
+
+/-- **The conditional-branch combinator.** A JUMPI at `fr` (decoding to `JUMPI`,
+stack `dest :: cond :: rest`, gas/overflow OK) composes into one `Runs fr fr'`
+once the caller supplies, for whichever branch the condition selects, the `Runs`
+that continues from there:
+
+* taken side: `cond ≠ 0`, `fr.get_dest dest = some new_pc`, and a
+  `Runs (jumpFrame fr Ghigh new_pc rest) fr'`;
+* fall-through side: `cond = 0` and a `Runs (jumpiFallthroughFrame fr rest) fr'`.
+
+The decision between the two is the caller's `branch` value. This is the building
+block Track C's branch lowering threads through `Runs.trans` like straight-line
+code. -/
+theorem runs_branch {fr fr' : Frame} {dest cond : UInt256} {rest : Stack UInt256}
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMPI, .none))
+    (hstk : fr.exec.stack = dest :: cond :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : GasConstants.Ghigh ≤ fr.exec.gasAvailable.toNat)
+    (branch :
+      (∃ new_pc, cond ≠ 0 ∧ fr.get_dest dest = some new_pc
+        ∧ Runs (jumpFrame fr GasConstants.Ghigh new_pc rest) fr')
+      ∨ (cond = 0 ∧ Runs (jumpiFallthroughFrame fr rest) fr')) :
+    Runs fr fr' := by
+  rcases branch with ⟨new_pc, hcond, hdest, htaken⟩ | ⟨hcond, hfall⟩
+  · exact (runs_jumpi_taken fr dest cond new_pc rest hdec hstk hsz hgas hcond hdest).trans htaken
+  · subst hcond
+    exact (runs_jumpi_fallthrough fr dest rest hdec hstk hsz hgas).trans hfall
 
 /-! ### Storage effect and framing of `sstoreFrame`
 
