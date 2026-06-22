@@ -96,8 +96,18 @@ nesting *as a theorem over flat*; Track B *adopts* the already-nested semantics.
   (`Yul/{Ast,State,StateOps,Exception,Wheels,PrimOps}` kept; `Yul/{Interpreter,
   MachineState,SizeLemmas,YulNotation}`+tests deleted). exp004 lakefile requires
   `evmyul from "EVMYulLean"`; toolchain v4.22.0; crypto FFI built fine.
+- [ ] **B0** MONOMORPHIZE to EVM-only (IN PROGRESS, supersedes the B1 "keep minimal
+  Yul" finding — Eduardo's call). Remove the `OperationType = Yul | EVM` polymorphism
+  entirely: drop `.Yul` dispatch arms, specialize `contractCode τ → ByteArray` and the
+  `τ` parameter to `.EVM`, delete the now-dead Yul fragment, adapt broken proofs. **Why:
+  a `Yul | EVM` union entry-point is wrong for a VERIFIED COMPILER** — Yul→EVM belongs
+  as a lowering in the spec (like `LirLean`→EVM), not a parallel execution entry point;
+  and we want a clean EVM-only nested semantics to bake off against flat EVMLean. Land
+  as ONE green commit on `exp004-nested`, or WIP on `exp004-mono-wip` if it can't reach
+  green (no broken commits to the green branch, no `sorry`).
 - [ ] **B2** Fuel↔gas: never-`OutOfFuel` on nested `Ξ/Θ` when fuel ≥ gas-derived
-  bound (the nested analogue of `messageCall_never_outOfFuel`).
+  bound (the nested analogue of `messageCall_never_outOfFuel`). REDO on the
+  monomorphized base after B0 (B2's earlier scratch was discarded).
 - [ ] **B3** Nested external-call core: a `{P} Ξ(child) {Q}` triple + call-site/frame
   rule; demonstrate **multiple** calls compose naturally (contrast with A's effort).
 - [ ] **B4** Expose an observables-only, fuel/frame-free semantics surface for IRs.
@@ -155,6 +165,32 @@ to EVM (a real edit to the trusted semantics) → backlog, not blocking.
   then C rebases onto it; B merges whenever B-milestones land.
 
 ---
+
+## Continuous operation — autonomous next-launch queue
+
+Mode (Eduardo, 2026-06-22): **keep cranking with no latency** — don't wait for the
+user between rounds. The loop is **event-driven by agent completions**: each time a
+background agent finishes, the main loop (1) VERIFIES it (`lake build` + `git log` in
+its worktree + grep `sorry`/`axiom` — never trust the agent's self-report), (2) updates
+this file's checkboxes, (3) launches that track's NEXT queue item, respecting
+cross-track deps. Always launch ≥1 task per completion so the loop never stalls. The
+user reviews/steers asynchronously; "go far, and when idle, also review + simplify."
+
+Per-track queue (top = next to launch when the track's current agent lands):
+- **A** (running A2/A3) → A4 verdict+expose API → **CFG combinator** (JUMPI/branches/
+  loops as `Runs`-level structure) → gas-introspection first-class → `CREATE` ctor →
+  symbolic worlds + gas-ledger.
+- **B** (running B0 mono) → B2 nested never-OOF (on mono base) → B3 `Ξ` triple +
+  call-site/frame rule → B4 IR surface → A-vs-B bake-off verdict.
+- **C** (running C2) → C3 single-call preservation → **C4 multi-call lowering [DEP:
+  A3 done]** → branch lowering [DEP: A CFG combinator] (→ gas-introspection preservation
+  theorem) → connect `LirLean` to Plank SIR.
+
+Cross-track deps to respect: C4 waits on A3; C branch-lowering waits on A's CFG
+combinator; C rebases on A after A merges to base. If a track's next item is dep-blocked,
+launch a **review/simplify pass** on that track's landed code instead (quality work is
+never idle). Insert a simplify pass per track roughly every 2–3 milestones. If ALL
+tracks are simultaneously dep-blocked (rare), schedule a review wakeup rather than stall.
 
 ## Resume protocol (for a context-cleared main Claude)
 
