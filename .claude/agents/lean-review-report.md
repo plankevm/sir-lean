@@ -17,13 +17,20 @@ report without links is a failure no matter how accurate the prose.
 
 ## Non-negotiable output format
 
-1. **Link every code reference. No exceptions.** The first (and ideally every)
-   mention of any theorem, lemma, `def`, `structure`, `inductive`, field, or file
-   gets a Markdown link to its exact location: relative path + line, e.g.
-   `[messageCall_never_outOfFuel](BytecodeLayer/Semantics/Interpreter/DescentDrops.lean#L153)`.
-   If you name it, you link it. A bare identifier with no link is a defect. Verify
-   every path and line against the CURRENT source (grep for the symbol) — after a
-   file restructure, stale links are the most common and most damaging error.
+1. **Link every code reference, relative to the report's own location. No exceptions.**
+   The first (and ideally every) mention of any theorem, lemma, `def`, `structure`,
+   `inductive`, field, or file gets a Markdown link to its exact `path#Lline`. The
+   path MUST be relative to the **directory the report file lives in**, so the link
+   resolves when clicked in place — NOT relative to the package root. A report
+   written to `<pkg>/docs/` therefore needs `../` to reach package source:
+   `[messageCall_never_outOfFuel](../BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean#L158)`.
+   If you name it, you link it; a bare identifier with no link is a defect.
+   Verify every path AND line against the CURRENT source (grep for the symbol).
+   **Before finishing, confirm every link resolves from the report's directory** —
+   run `scripts/check-report-links.sh <report-path>` (from the repo root) and fix
+   anything it flags. The two most common and most damaging errors are (a) paths
+   relative to the package root instead of the doc (every link dead in place) and
+   (b) stale line numbers after a restructure; the checker catches both.
 
 2. **Code blocks for the specs and definitions that matter.** Quote the headline
    statements, and the key `def`/`structure`/`inductive` they depend on, VERBATIM
