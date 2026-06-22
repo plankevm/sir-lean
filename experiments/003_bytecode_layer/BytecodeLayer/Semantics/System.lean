@@ -1135,7 +1135,7 @@ theorem createArm_next_gas
 `exec` gas. The forwarded child gas (`allButOneSixtyFourth exec.gas`) is *not*
 debited from the parent here; the kind-aware `Pending.savedGas (.create _)`
 compensates by withholding that forwarded part from the measure, so conjunct (4')
-goes through (see `descentDrops_conj4'`). -/
+goes through (see `gasFundsDescent_conj4'`). -/
 theorem createArm_needsCreate_savedGas
     {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
     {value initOffset initSize : UInt256} {salt : Option ByteArray}

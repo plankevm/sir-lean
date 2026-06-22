@@ -1,273 +1,163 @@
-import Evm
+import BytecodeLayer.Semantics.Interpreter.Measure
 import BytecodeLayer.Semantics.Gas
-import BytecodeLayer.Semantics.System
-import BytecodeLayer.Semantics.Interpreter.Drive
+import BytecodeLayer.Semantics.UInt64
+import BytecodeLayer.Semantics.Precompiles
+import BytecodeLayer.Semantics.Dispatch
 
 /-!
-# `drive` never runs out of fuel (unconditional)
+# `drive` never runs out of fuel — unconditional (`NeverOutOfFuel`)
 
-The target: `drive (seedFuel gas) [] (.inl fr) ≠ .error .OutOfFuel`, with no
-termination hypothesis — out-of-gas is itself a halt, so the number of `drive`
-recursions is bounded by the gas.
+The headline:
 
-The proof is a measure argument. `totalGas` sums the gas held by the active
-component (running frame or finished result) and every suspended parent on the
-pending stack. The measure `μ` is `2 * totalGas + 2 * stack.length + (1 or 2)`;
-it strictly decreases on every `drive` recursion, and starts below `seedFuel`.
+  `messageCall_never_outOfFuel (p : CallParams) : messageCall p ≠ .error .OutOfFuel`
 
-## Status
+for every program and gas, with no termination hypothesis and no `Frame`/fuel in
+the statement — out-of-gas is itself a halt, so the gas bounds the step count.
 
-* **Fully proven, unconditional in the gas:**
-  - `mu_bound` — the **general** measure-induction skeleton over arbitrary
-    pending stacks, discharging obligations 1, 2, 6 (`resumeAfterCall_gas_le`),
-    7 (resume fault) inline.
-  - `messageCall_never_outOfFuel_of_descentDrops` — the general boundary theorem
-    **modulo** `DescentDrops`.
-* **Discharged:** `DescentDrops` — the CALL/CREATE *descent / `System`-`.next`-
-  fallback* gas arithmetic (obligations 3, 4, 5a, 4', 5b) — is fully proven in
-  `Semantics/Interpreter/DescentDrops.lean` (`descentDrops_holds`). The CREATE
-  descent (4') relies on the kind-aware `Pending.savedGas` below, which withholds
-  the forwarded `allButOneSixtyFourth` from the measure (since the child already
-  counts it) and so does not double-count during an open CREATE descent. This
-  yields the **unconditional** general theorem
-  `BytecodeLayer.Interpreter.messageCall_never_outOfFuel`. The relevant leanevm defs
-  are `callArm`/`createArm` (`Evm/Semantics/System.lean`), `beginCall`
-  (`Evm/Semantics/Call.lean`), `beginCreate` (`Evm/Semantics/Create.lean`), and
-  the gas helpers `callGasCap`/`callExtraCost`/`allButOneSixtyFourth`
-  (`Evm/Semantics/Gas.lean`).
+The measure framework lives in `Semantics/Interpreter/Measure.lean`, which proves
+the general bound `mu_bound` modulo the one fact it cannot supply generically:
+`gasFundsDescent`. This file **discharges** `gasFundsDescent` (the CALL/CREATE
+*descent* and `System`-`.next`-*fallback* gas inequalities, obligations 3/4/5a/4'/5b),
+assembles them into `gasFundsDescent_holds`, and feeds it to
+`messageCall_never_outOfFuel_of_gasFundsDescent` to land the unconditional theorem.
+
+## The arithmetic, generously
+
+The descent semantics (`callArm`/`createArm`, `Evm/Semantics/System.lean`) charge
+the parent `gasCap + extraCost` *before* suspending and forward the child
+`childGas = gasCap (+ Gcallstipend when value ≠ 0)`. The forwarded gas is exactly
+conserved against the parent's saved gas, and the call's *own* cost (`extraCost`,
+≥ `Gcoldaccountaccess`/`Gwarmaccess` ≥ 100, or ≥ `Gcallvalue` = 9000 with value)
+strictly dominates the tiny `+2` measure slack and the `Gcallstipend` (2300)
+added to the child. No tight arithmetic is needed — only "the call's own cost is
+a positive constant bigger than 2 (resp. 2302)."
 -/
 
 namespace BytecodeLayer.Interpreter
 open Evm
+open Evm.Operation
 open GasConstants
+open BytecodeLayer.Precompiles
+open BytecodeLayer.UInt64
 open BytecodeLayer.Gas
+open BytecodeLayer.Dispatch
 open BytecodeLayer.System
 
-/-! ## The measure -/
+/-! ## The five `gasFundsDescent` conjuncts
 
-/-- The gas a suspended parent frame holds, as it contributes to the measure.
+Conjuncts (3), (4), (5a), (4'), (5b) are exactly the per-transition decreases
+that `mu_bound` needs, and each follows from the `systemOp`/`stepFrame`
+inversions plus the gas arithmetic above. They are stated here in the precise
+`Prop` shapes of `gasFundsDescent` and assembled into `gasFundsDescent_holds`, which
+discharges the last hypothesis of the general theorem. -/
 
-For a suspended CALL parent this is its full saved `gasAvailable` (the parent was
-debited the forwarded gas *before* it was saved, so its saved gas is genuinely
-"its own"). For a suspended CREATE parent, however, `createArm` saves the parent
-with its *full* undebited gas while forwarding `allButOneSixtyFourth` of it to the
-child; that forwarded part is already counted in the child's `activeGas`, so we
-subtract it here to avoid double-counting during an open CREATE descent.
-`resumeAfterCreate` later reconciles by returning the lent part to the parent. -/
-def Pending.savedGas : Pending → ℕ
-  | .call pd   => pd.frame.exec.gasAvailable.toNat
-  | .create pd => pd.frame.exec.gasAvailable.toNat
-                    - allButOneSixtyFourth pd.frame.exec.gasAvailable.toNat
+/-- **Conjunct (3).** A `System`-op `.next` fallback strictly drops `totalGas`. -/
+theorem gasFundsDescent_conj3
+    (fr : Frame) (exec' : ExecutionState) (stack : List Pending)
+    (hstep : stepFrame fr = .next exec')
+    (hsys : ∃ s, (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (Operation.STOP, .none)).1 = .System s) :
+    totalGas stack (.inl { fr with exec := exec' }) < totalGas stack (.inl fr) := by
+  obtain ⟨s, hs⟩ := hsys
+  have hsop := stepFrame_next_systemOp hs hstep
+  have hlt := systemOp_next_gas hsop
+  simp only [totalGas, activeGas]
+  omega
 
-/-- Gas held by the active component of a `drive` state. -/
-def activeGas : (Frame ⊕ FrameResult) → ℕ
-  | .inl fr => fr.exec.gasAvailable.toNat
-  | .inr r  => FrameResult.gasRemaining r
+/-- **Conjunct (4).** A `.needsCall` descent into a code child: child gas +
+saved parent gas + 2 ≤ pre-step gas. -/
+theorem gasFundsDescent_conj4
+    (fr : Frame) (params : CallParams) (pending : PendingCall) (child : Frame) (_stack : List Pending)
+    (hstep : stepFrame fr = .needsCall params pending) (hbc : beginCall params = .inl child) :
+    activeGas (.inl child) + Pending.savedGas (.call pending) + 2 ≤ activeGas (.inl fr) := by
+  obtain ⟨s, hsop⟩ := stepFrame_needsCall_systemOp hstep
+  have hgas := systemOp_needsCall_gas hsop
+  have hchild : child.exec.gasAvailable = params.gas := beginCall_inl_gas hbc
+  simp only [activeGas, Pending.savedGas]
+  rw [hchild]
+  exact hgas
 
-/-- Total gas in the machine: the active component plus every suspended parent. -/
-def totalGas (stack : List Pending) (state : Frame ⊕ FrameResult) : ℕ :=
-  activeGas state + (stack.map Pending.savedGas).sum
+/-- **Conjunct (5a).** A `.needsCall` precompile (immediate result): result gas +
+saved parent gas + 2 ≤ pre-step gas. -/
+theorem gasFundsDescent_conj5a
+    (fr : Frame) (params : CallParams) (pending : PendingCall) (result : CallResult) (_stack : List Pending)
+    (hstep : stepFrame fr = .needsCall params pending) (hbc : beginCall params = .inr result) :
+    FrameResult.gasRemaining (.call result) + Pending.savedGas (.call pending) + 2 ≤ activeGas (.inl fr) := by
+  obtain ⟨s, hsop⟩ := stepFrame_needsCall_systemOp hstep
+  have hgas := systemOp_needsCall_gas hsop
+  have hres : result.gasRemaining.toNat ≤ params.gas.toNat := beginCall_inr_gas hbc
+  simp only [FrameResult.gasRemaining, activeGas, Pending.savedGas]
+  omega
 
-/-- The `.inl`/`.inr` tag-bit: `2` for a running frame, `1` for a result. The
-gap makes a `.halted` delivery (`.inl → .inr`, same gas/stack) drop μ. -/
-def tagBit : (Frame ⊕ FrameResult) → ℕ
-  | .inl _ => 2
-  | .inr _ => 1
+/-- **Conjunct (5b).** A `.needsCreate` that fails the guard (zeroed result):
+saved parent gas + 2 ≤ pre-step gas. -/
+theorem gasFundsDescent_conj5b
+    (fr : Frame) (params : CreateParams) (pending : PendingCreate) (_stack : List Pending)
+    (hstep : stepFrame fr = .needsCreate params pending) :
+    Pending.savedGas (.create pending) + 2 ≤ activeGas (.inl fr) := by
+  obtain ⟨s, hsop⟩ := stepFrame_needsCreate_systemOp hstep
+  have hgas := systemOp_needsCreate_savedGas hsop
+  simp only [Pending.savedGas, activeGas]
+  have hsub : pending.frame.exec.gasAvailable.toNat
+      - allButOneSixtyFourth pending.frame.exec.gasAvailable.toNat
+      ≤ pending.frame.exec.gasAvailable.toNat := Nat.sub_le _ _
+  omega
 
-@[simp] theorem tagBit_inl (fr : Frame) : tagBit (.inl fr) = 2 := rfl
-@[simp] theorem tagBit_inr (r : FrameResult) : tagBit (.inr r) = 1 := rfl
+/-! ## Conjunct (4') — `needsCreate` descent
 
-/-- The measure. -/
-def μ (stack : List Pending) (state : Frame ⊕ FrameResult) : ℕ :=
-  2 * totalGas stack state + 2 * stack.length + tagBit state
+For a CREATE/CREATE2 descent `stepFrame fr = .needsCreate params pending` with
+`beginCreate params = .ok child`, the kind-aware `Pending.savedGas` makes the
+descent conserve the measure (plus the `createCost ≥ 2` slack):
 
-@[simp] theorem totalGas_cons (p : Pending) (stack : List Pending)
-    (state : Frame ⊕ FrameResult) :
-    totalGas (p :: stack) state
-      = activeGas state + Pending.savedGas p + (stack.map Pending.savedGas).sum := by
-  simp only [totalGas, List.map_cons, List.sum_cons]; omega
+* the suspended parent's frame keeps the full charged gas `g`, so
+  `Pending.savedGas (.create pending) = g − allButOneSixtyFourth g`;
+* the child is forwarded `allButOneSixtyFourth g`, so
+  `activeGas (.inl child) = allButOneSixtyFourth g`.
 
-theorem μ_pos (stack : List Pending) (state : Frame ⊕ FrameResult) : 1 ≤ μ stack state := by
-  unfold μ tagBit; split <;> omega
+Hence the LHS is
+`allButOneSixtyFourth g + (g − allButOneSixtyFourth g) + 2 = g + 2`, and
+`g + 2 ≤ activeGas (.inl fr)` is exactly `systemOp_needsCreate_savedGas` (the
+`createCost`/`create2Cost` charged in `systemOp` before `createArm` covers the
+`+2`). The forwarded `allButOneSixtyFourth g` is no longer double-counted: the
+measure subtracts it from the parent precisely because the child holds it, and
+`resumeAfterCreate` returns it on delivery (`mu_bound`'s create-resume case via
+`resumeAfterCreate_gas_le_savedGas`). -/
 
+/-- **Conjunct (4').** A `.needsCreate` descent into a code child: child gas +
+saved parent gas + 2 ≤ pre-step gas. The child holds `allButOneSixtyFourth g`,
+the (kind-aware) saved parent holds `g − allButOneSixtyFourth g`, and the
+`createCost` charged before `createArm` covers the `+2`. -/
+theorem gasFundsDescent_conj4'
+    (fr : Frame) (params : CreateParams) (pending : PendingCreate) (child : Frame) (_stack : List Pending)
+    (hstep : stepFrame fr = .needsCreate params pending) (hbcr : beginCreate params = .ok child) :
+    activeGas (.inl child) + Pending.savedGas (.create pending) + 2 ≤ activeGas (.inl fr) := by
+  obtain ⟨s, hsop⟩ := stepFrame_needsCreate_systemOp hstep
+  have hsaved := systemOp_needsCreate_savedGas hsop
+  have hchild := systemOp_needsCreate_childGas hsop
+  have hcg : child.exec.gasAvailable = params.gas := beginCreate_ok_gas hbcr
+  -- `params.gas = .ofNat (allButOneSixtyFourth pd.gas)`, and the round-trip is exact.
+  have habf_le : allButOneSixtyFourth pending.frame.exec.gasAvailable.toNat
+      ≤ pending.frame.exec.gasAvailable.toNat := by unfold allButOneSixtyFourth; omega
+  have hlt : allButOneSixtyFourth pending.frame.exec.gasAvailable.toNat < 2 ^ 64 :=
+    Nat.lt_of_le_of_lt habf_le pending.frame.exec.gasAvailable.toNat_lt
+  have hchildNat : child.exec.gasAvailable.toNat
+      = allButOneSixtyFourth pending.frame.exec.gasAvailable.toNat := by
+    rw [hcg, hchild, UInt64.toNat_ofNat']; exact Nat.mod_eq_of_lt hlt
+  simp only [activeGas, Pending.savedGas]
+  rw [hchildNat]
+  omega
 
-/-! ## General measure bound (induction skeleton)
+/-- **`gasFundsDescent` discharged.** All five per-transition decrease obligations
+hold; the create descent (4') is sound under the kind-aware `Pending.savedGas`. -/
+theorem gasFundsDescent_holds : gasFundsDescent :=
+  ⟨gasFundsDescent_conj3, gasFundsDescent_conj4, gasFundsDescent_conj5a,
+    gasFundsDescent_conj4', gasFundsDescent_conj5b⟩
 
-The full `mu_bound` over arbitrary pending stacks. Obligations 1 (non-`System`
-`.next`), 2 (`.halted`), 6 (`resume = .ok`), and 7 (`resume = .error`) are
-discharged inline below. The CALL/CREATE *descent* obligations (3 — `System`
-`.next` fallbacks; 4/5 — `.needsCall`/`.needsCreate` into a child) are taken as
-hypotheses `DescentDrops` here; closing them (the 63/64 / stipend / `extraCost`
-arithmetic, mined from M2) removes the hypothesis and yields the unconditional
-general theorem. -/
-
-/-- Each CALL/CREATE descent and each `System` `.next` fallback strictly drops
-the measure by enough: `μ` of the recursive `drive` target is `< μ` of the
-current state. This is the single remaining (gas-arithmetic) obligation. -/
-def DescentDrops : Prop :=
-  -- (3) System `.next` fallback: totalGas drops ≥ 1
-  (∀ (fr : Frame) (exec' : ExecutionState) (stack : List Pending),
-      stepFrame fr = .next exec' →
-      (∃ s, (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (Operation.STOP, .none)).1 = .System s) →
-      totalGas stack (.inl { fr with exec := exec' }) < totalGas stack (.inl fr))
-  ∧ -- (4) needsCall descent into a child
-  (∀ (fr : Frame) (params : CallParams) (pending : PendingCall) (child : Frame) (_stack : List Pending),
-      stepFrame fr = .needsCall params pending → beginCall params = .inl child →
-      activeGas (.inl child) + Pending.savedGas (.call pending) + 2 ≤ activeGas (.inl fr))
-  ∧ -- (5a) needsCall precompile (immediate result)
-  (∀ (fr : Frame) (params : CallParams) (pending : PendingCall) (result : CallResult) (_stack : List Pending),
-      stepFrame fr = .needsCall params pending → beginCall params = .inr result →
-      FrameResult.gasRemaining (.call result) + Pending.savedGas (.call pending) + 2 ≤ activeGas (.inl fr))
-  ∧ -- (4') needsCreate descent into a child
-  (∀ (fr : Frame) (params : CreateParams) (pending : PendingCreate) (child : Frame) (_stack : List Pending),
-      stepFrame fr = .needsCreate params pending → beginCreate params = .ok child →
-      activeGas (.inl child) + Pending.savedGas (.create pending) + 2 ≤ activeGas (.inl fr))
-  ∧ -- (5b) needsCreate failure (zeroed result)
-  (∀ (fr : Frame) (params : CreateParams) (pending : PendingCreate) (_stack : List Pending),
-      stepFrame fr = .needsCreate params pending →
-      Pending.savedGas (.create pending) + 2 ≤ activeGas (.inl fr))
-
-/-- **The general measure bound.** `μ stack state ≤ f → drive f stack state ≠
-OutOfFuel`. By induction on `f`, with the per-transition decrease for every
-`drive` branch; descent/fallback decreases come from `DescentDrops`. -/
-theorem mu_bound (hd : DescentDrops) :
-    ∀ (f : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult),
-      μ stack state ≤ f → drive f stack state ≠ .error .OutOfFuel := by
-  obtain ⟨hd3, hd4, hd5, hd4', hd5'⟩ := hd
-  intro f
-  induction f with
-  | zero =>
-    intro stack state hf
-    have := μ_pos stack state; omega
-  | succ n ih =>
-    intro stack state hf
-    conv_lhs => unfold drive
-    dsimp only
-    cases state with
-    | inr result =>
-      dsimp only
-      cases hstk : stack with
-      | nil => simp
-      | cons pending rest =>
-        dsimp only
-        cases hres : pending.resume result with
-        | ok parent =>
-          dsimp only
-          -- delivery: stack shrinks, totalGas conserved (resume doesn't create gas)
-          apply ih
-          have hcons : activeGas (.inl parent) + (rest.map Pending.savedGas).sum
-              ≤ FrameResult.gasRemaining result + Pending.savedGas pending
-                + (rest.map Pending.savedGas).sum := by
-            have : activeGas (.inl parent)
-                ≤ Pending.savedGas pending + FrameResult.gasRemaining result := by
-              cases pending with
-              | call pd =>
-                simp only [Pending.resume] at hres
-                simp only [Except.ok.injEq] at hres; subst hres
-                have hb := resumeAfterCall_gas_le result.toCallResult pd
-                rw [toCallResult_gasRemaining] at hb
-                simp only [activeGas, Pending.savedGas]; omega
-              | create pd =>
-                simp only [Pending.resume] at hres
-                have hb := resumeAfterCreate_gas_le_savedGas (result := result.toCreateResult) (pd := pd) hres
-                rw [toCreateResult_gasRemaining] at hb
-                simp only [activeGas, Pending.savedGas]; omega
-            omega
-          subst hstk
-          simp only [activeGas] at hcons
-          simp only [μ, tagBit, totalGas, activeGas, List.length_cons] at hf ⊢
-          simp only [List.map_cons, List.sum_cons] at hf
-          omega
-        | error e =>
-          dsimp only
-          -- resume faulted: parent halts exceptionally, stack shrinks
-          apply ih
-          subst hstk
-          -- endFrame (.exception) gas is 0
-          have hz : activeGas (.inr (endFrame pending.frame (.exception e))) = 0 := by
-            simp only [activeGas]
-            unfold endFrame; cases pending.frame.kind <;>
-              simp [FrameResult.gasRemaining, endCall, endCreate, UInt64.toNat_ofNat]
-          simp only [μ, tagBit, totalGas, List.length_cons, List.map_cons, List.sum_cons, hz] at hf ⊢
-          omega
-    | inl current =>
-      dsimp only
-      cases hstep : stepFrame current with
-      | next exec' =>
-        dsimp only
-        by_cases hsys : ∃ s, (decode current.exec.executionEnv.code current.exec.pc |>.getD (Operation.STOP, .none)).1 = .System s
-        · -- (3) System fallback
-          apply ih
-          have hdrop := hd3 current exec' stack hstep hsys
-          simp only [μ, tagBit] at hf ⊢
-          omega
-        · -- (1) non-System next: gas strictly drops
-          apply ih
-          push Not at hsys
-          have hlt : exec'.gasAvailable.toNat < current.exec.gasAvailable.toNat :=
-            stepFrame_next_lt hsys hstep
-          simp only [μ, tagBit, totalGas, activeGas] at hf ⊢
-          omega
-      | halted halt =>
-        dsimp only
-        -- (2) halt: state becomes .inr, gas ≤ current's
-        apply ih
-        have hle := endFrame_gasRemaining_le hstep
-        simp only [μ, tagBit, totalGas, activeGas] at hf ⊢
-        omega
-      | needsCall params pending =>
-        dsimp only
-        cases hbc : beginCall params with
-        | inl child =>
-          dsimp only
-          apply ih
-          have hdrop := hd4 current params pending child stack hstep hbc
-          simp only [μ, tagBit, totalGas, activeGas, Pending.savedGas, List.length_cons, List.map_cons, List.sum_cons] at hf ⊢
-          simp only [activeGas, Pending.savedGas] at hdrop
-          omega
-        | inr result =>
-          dsimp only
-          apply ih
-          have hdrop := hd5 current params pending result stack hstep hbc
-          simp only [μ, tagBit, totalGas, activeGas, Pending.savedGas, List.length_cons, List.map_cons, List.sum_cons] at hf ⊢
-          simp only [activeGas, Pending.savedGas] at hdrop
-          omega
-      | needsCreate params pending =>
-        dsimp only
-        cases hbcr : beginCreate params with
-        | ok child =>
-          dsimp only
-          apply ih
-          have hdrop := hd4' current params pending child stack hstep hbcr
-          simp only [μ, tagBit, totalGas, activeGas, Pending.savedGas, List.length_cons, List.map_cons, List.sum_cons] at hf ⊢
-          simp only [activeGas, Pending.savedGas] at hdrop
-          omega
-        | error e =>
-          dsimp only
-          apply ih
-          have hdrop := hd5' current params pending stack hstep
-          simp only [μ, tagBit, totalGas, activeGas, FrameResult.gasRemaining, UInt64.toNat_ofNat, Pending.savedGas, List.length_cons, List.map_cons, List.sum_cons] at hf ⊢
-          simp only [activeGas, Pending.savedGas] at hdrop
-          omega
-
-/-- **General `messageCall` never out-of-fuel**, modulo `DescentDrops`. The
-measure starts at `μ [] (.inl frame) = 2 * p.gas.toNat + 2 ≤ seedFuel p.gas`. -/
-theorem messageCall_never_outOfFuel_of_descentDrops (hd : DescentDrops) (p : CallParams) :
-    messageCall p ≠ .error .OutOfFuel := by
-  unfold messageCall
-  cases h : beginCall p with
-  | inr result => simp
-  | inl frame =>
-    simp only []
-    intro hc
-    have hg : frame.exec.gasAvailable = p.gas := beginCall_inl_gas h
-    have hμ : μ [] (.inl frame) ≤ seedFuel p.gas := by
-      simp only [μ, tagBit, totalGas, activeGas, List.map_nil, List.sum_nil, List.length_nil]
-      unfold seedFuel; rw [hg]; omega
-    have hb : drive (seedFuel p.gas) [] (.inl frame) ≠ .error .OutOfFuel :=
-      mu_bound hd (seedFuel p.gas) [] (.inl frame) hμ
-    cases hd' : drive (seedFuel p.gas) [] (.inl frame) with
-    | error e => rw [hd'] at hc; simp [Functor.map, Except.map] at hc; rw [hc] at hd'; exact hb hd'
-    | ok r => rw [hd'] at hc; simp [Functor.map, Except.map] at hc
+/-- **General `messageCall` never out-of-fuel — unconditional.** No
+`gasFundsDescent`, no `Frame`/fuel hypothesis: for every `CallParams`, the message
+call never returns `OutOfFuel`. -/
+theorem messageCall_never_outOfFuel (p : CallParams) :
+    messageCall p ≠ .error .OutOfFuel :=
+  messageCall_never_outOfFuel_of_gasFundsDescent gasFundsDescent_holds p
 
 end BytecodeLayer.Interpreter
+

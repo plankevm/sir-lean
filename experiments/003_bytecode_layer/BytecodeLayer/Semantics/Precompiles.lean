@@ -7,7 +7,7 @@ Every precompile returns its gas component as either `0` (insufficient gas) or
 `gas - .ofNat requiredGas` taken in the `gas.toNat ≥ requiredGas` branch (so the
 subtraction does not wrap). Either way it is `≤ gas.toNat`.
 
-The capstone `beginCall_inr_gas` feeds `descentDrops_conj5a` in `DescentDrops`
+The capstone `beginCall_inr_gas` feeds `gasFundsDescent_conj5a` in `gasFundsDescent`
 (which imports this file).
 -/
 

@@ -1,6 +1,6 @@
 import BytecodeLayer.Hoare
 import BytecodeLayer.Semantics.Interpreter.DescentEq
-import BytecodeLayer.Semantics.Interpreter.DescentDrops
+import BytecodeLayer.Semantics.Interpreter.NeverOutOfFuel
 import BytecodeLayer.Hoare.OutcomeBridge
 
 /-!
