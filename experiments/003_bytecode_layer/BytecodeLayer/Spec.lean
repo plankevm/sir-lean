@@ -33,6 +33,7 @@ open GasConstants
 open BytecodeLayer.Hoare
 open BytecodeLayer.Dispatch
 open BytecodeLayer.Interpreter
+open BytecodeLayer.System
 
 /-! ## Program-logic rules (general over all programs)
 
@@ -51,11 +52,11 @@ theorem Runs.trans {m n : ℕ} {fr mid fr' : Frame}
   Hoare.Runs.trans h₁ h₂
 
 /-- **The `messageCall` boundary bridge.** A code call whose entry frame `fr₀`
-(`beginCall p = .inl fr₀`) `Runs` to a frame that halts yields the caller's halt
+(`EntersAsCode p fr₀`) `Runs` to a frame that halts yields the caller's halt
 result as `messageCall p`, under the numeric fuel bound `n + 2 ≤ seedFuel p.gas`.
 From here up, statements are observable-only. -/
 theorem messageCall_runs {n : ℕ} (p : CallParams) (fr₀ last : Frame)
-    (hbegin : beginCall p = .inl fr₀)
+    (hbegin : EntersAsCode p fr₀)
     (h : Runs n fr₀ last)
     (halt : FrameHalt) (hhalt : stepFrame last = Signal.halted halt)
     (hfuel : n + 2 ≤ seedFuel p.gas) :
@@ -151,11 +152,11 @@ General over both programs; no assumed forwarding — see the section note. -/
 theorem messageCall_call_runs {n₁ n₂ : ℕ}
     (p cp : CallParams) (fr₀ callFr child last : Frame)
     (childRes : FrameResult) (pending : PendingCall) (halt : FrameHalt)
-    (hbegin   : beginCall p = .inl fr₀)
+    (hbegin   : EntersAsCode p fr₀)
     (hpre     : Runs n₁ fr₀ callFr)
     (hcall    : stepFrame callFr = .needsCall cp pending)
-    (hcbegin  : beginCall cp = .inl child)
-    (hchild   : drive (seedFuel cp.gas) [] (.inl child) = .ok childRes)
+    (hcbegin  : EntersAsCode cp child)
+    (hchild   : drive (seedFuel cp.gas) [] (running child) = .ok childRes)
     (hpost    : Runs n₂ (resumeAfterCall childRes.toCallResult pending) last)
     (hhalt    : stepFrame last = .halted halt)
     (hfuel    : seedFuel cp.gas + n₁ + 1 ≤ seedFuel p.gas) :
@@ -173,11 +174,11 @@ theorem messageCall_call_completedWith {n₁ n₂ : ℕ}
     (p cp : CallParams) (fr₀ callFr child last : Frame)
     (childRes : FrameResult) (pending : PendingCall) (halt : FrameHalt)
     (a : AccountAddress) (k v : UInt256)
-    (hbegin   : beginCall p = .inl fr₀)
+    (hbegin   : EntersAsCode p fr₀)
     (hpre     : Runs n₁ fr₀ callFr)
     (hcall    : stepFrame callFr = .needsCall cp pending)
-    (hcbegin  : beginCall cp = .inl child)
-    (hchild   : drive (seedFuel cp.gas) [] (.inl child) = .ok childRes)
+    (hcbegin  : EntersAsCode cp child)
+    (hchild   : drive (seedFuel cp.gas) [] (running child) = .ok childRes)
     (hpost    : Runs n₂ (resumeAfterCall childRes.toCallResult pending) last)
     (hhalt    : stepFrame last = .halted halt)
     (hfuel    : seedFuel cp.gas + n₁ + 1 ≤ seedFuel p.gas)

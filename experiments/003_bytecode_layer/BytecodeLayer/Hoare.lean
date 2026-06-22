@@ -36,6 +36,7 @@ open GasConstants
 open BytecodeLayer.Maps
 open BytecodeLayer.Dispatch
 open BytecodeLayer.Interpreter
+open BytecodeLayer.System
 
 /-! ## The single-step primitive
 
@@ -65,7 +66,7 @@ theorem stepsTo_of_next {fr : Frame} {e : ExecutionState} (h : stepFrame fr = Si
 /-- A single `StepsTo` is exactly one `drive` step at the top level: `drive`
 spends one fuel and re-enters on `fr'`. -/
 theorem drive_stepsTo (n : ℕ) {fr fr' : Frame} (h : StepsTo fr fr') :
-    drive (n + 1) [] (.inl fr) = drive n [] (.inl fr') := by
+    drive (n + 1) [] (running fr) = drive n [] (running fr') := by
   obtain ⟨hstep, hfr'⟩ := h
   rw [drive_step n fr fr'.exec hstep]
   rw [← hfr']
@@ -118,7 +119,7 @@ the driver from `fr` to `last` while spending exactly `n` fuel — for any spare
 `extra`. Proved by induction on the `Runs` derivation (the trace is the
 recursion); reuses `drive_stepsTo` for each link. -/
 theorem Runs.drive_advance {n : ℕ} {fr last : Frame} (h : Runs n fr last) (extra : ℕ) :
-    drive (n + extra) [] (.inl fr) = drive extra [] (.inl last) := by
+    drive (n + extra) [] (running fr) = drive extra [] (running last) := by
   induction h with
   | refl _ => rw [Nat.zero_add]
   | @head k a b c hstep _ ih =>
@@ -127,13 +128,13 @@ theorem Runs.drive_advance {n : ℕ} {fr last : Frame} (h : Runs n fr last) (ext
     exact ih
 
 /-- **A `Runs` block at the `messageCall` boundary, halting.** If a code call's
-initial frame `fr₀` (`beginCall p = .inl fr₀`) `Runs` to a frame `last` that halts
+initial frame `fr₀` (`EntersAsCode p fr₀`) `Runs` to a frame `last` that halts
 with `halt`, then `messageCall p = .ok (toCallResult (endFrame last halt))`. The
 fuel obligation is the numeric bound `n + 2 ≤ seedFuel p.gas` — no trace.
 
 This is the boundary; from here up, statements are observable-only. -/
 theorem messageCall_runs {n : ℕ} (p : CallParams) (fr₀ last : Frame)
-    (hbegin : beginCall p = .inl fr₀)
+    (hbegin : EntersAsCode p fr₀)
     (h : Runs n fr₀ last)
     (halt : FrameHalt) (hhalt : stepFrame last = Signal.halted halt)
     (hfuel : n + 2 ≤ seedFuel p.gas) :

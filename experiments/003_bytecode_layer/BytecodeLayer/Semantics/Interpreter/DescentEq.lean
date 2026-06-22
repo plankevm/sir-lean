@@ -57,7 +57,7 @@ with `top = []` is exactly `drive (f+1) bot (.inr res)`. -/
 theorem drive_append_framing :
     ∀ (f : ℕ) (top : List Pending) (st : Frame ⊕ FrameResult) (res : FrameResult),
       drive f top st = .ok res →
-      ∀ (bot : List Pending), ∃ j, drive f (top ++ bot) st = drive (j + 1) bot (.inr res) := by
+      ∀ (bot : List Pending), ∃ j, drive f (top ++ bot) st = drive (j + 1) bot (finished res) := by
   intro f
   induction f with
   | zero =>
@@ -152,9 +152,9 @@ fuel offset or concrete program baked in. Obtained by `drive_append_framing` wit
 (`Pending.resume (.call pd) res = .ok (…)`). -/
 theorem drive_descend_eq (f : ℕ) (child : Frame) (res : FrameResult)
     (pd : PendingCall) (ps : List Pending)
-    (h : drive f [] (.inl child) = .ok res) :
-    ∃ j, drive f (.call pd :: ps) (.inl child)
-      = drive j ps (.inl (resumeAfterCall res.toCallResult pd)) := by
+    (h : drive f [] (running child) = .ok res) :
+    ∃ j, drive f (.call pd :: ps) (running child)
+      = drive j ps (running (resumeAfterCall res.toCallResult pd)) := by
   obtain ⟨j, hj⟩ := drive_append_framing f [] (.inl child) res h (.call pd :: ps)
   -- `[] ++ (.call pd :: ps) = .call pd :: ps`.
   rw [List.nil_append] at hj

@@ -28,6 +28,12 @@ fuel or frames in an exported statement.
 namespace BytecodeLayer.Interpreter
 open Evm
 
+/-- A `drive` state that is still executing a frame. -/
+abbrev running (fr : Frame) : Frame ⊕ FrameResult := .inl fr
+
+/-- A `drive` state that has finished with a result. -/
+abbrev finished (res : FrameResult) : Frame ⊕ FrameResult := .inr res
+
 /-! ## Top-level drive vocabulary
 
 Both equations are pure rewrites of `drive`'s own defining `match`, specialised
@@ -38,7 +44,7 @@ suspended ancestors). -/
 `drive` re-enters on the updated frame with the *same* (empty) pending stack. -/
 theorem drive_step (n : ℕ) (current : Frame) (exec' : ExecutionState)
     (hstep : stepFrame current = .next exec') :
-    drive (n + 1) [] (.inl current) = drive n [] (.inl { current with exec := exec' }) := by
+    drive (n + 1) [] (running current) = drive n [] (running { current with exec := exec' }) := by
   conv_lhs => unfold drive
   dsimp only
   rw [hstep]
@@ -49,7 +55,7 @@ one to take the halting step, one to deliver the `.inr` result through the empty
 stack. -/
 theorem drive_halt (n : ℕ) (current : Frame) (halt : FrameHalt)
     (hstep : stepFrame current = .halted halt) :
-    drive (n + 2) [] (.inl current) = .ok (endFrame current halt) := by
+    drive (n + 2) [] (running current) = .ok (endFrame current halt) := by
   unfold drive
   dsimp only
   rw [hstep]
@@ -68,7 +74,7 @@ lets every capstone proof start from `drive` **without unfolding `messageCall`**
 the frame is supplied by a `beginCall_*` characterization lemma. -/
 theorem messageCall_eq_drive (p : CallParams) (frame : Frame)
     (h : beginCall p = .inl frame) :
-    messageCall p = (FrameResult.toCallResult <$> drive (seedFuel p.gas) [] (.inl frame)) := by
+    messageCall p = (FrameResult.toCallResult <$> drive (seedFuel p.gas) [] (running frame)) := by
   unfold messageCall
   rw [h]
 
@@ -82,7 +88,7 @@ because while the child call runs the parent sits on that stack as a `Pending`. 
 /-- One non-halting instruction under an arbitrary suspended stack `ps`. -/
 theorem driveG_step (n : ℕ) (ps : List Pending) (current : Frame) (exec' : ExecutionState)
     (hstep : stepFrame current = .next exec') :
-    drive (n + 1) ps (.inl current) = drive n ps (.inl { current with exec := exec' }) := by
+    drive (n + 1) ps (running current) = drive n ps (running { current with exec := exec' }) := by
   conv_lhs => unfold drive
   dsimp only
   rw [hstep]
@@ -95,8 +101,8 @@ resume. -/
 theorem driveG_halt_callDeliver (n : ℕ) (ps : List Pending) (current : Frame)
     (pd : PendingCall) (halt : FrameHalt)
     (hstep : stepFrame current = .halted halt) :
-    drive (n + 2) (.call pd :: ps) (.inl current)
-      = drive n ps (.inl (resumeAfterCall (endFrame current halt).toCallResult pd)) := by
+    drive (n + 2) (.call pd :: ps) (running current)
+      = drive n ps (running (resumeAfterCall (endFrame current halt).toCallResult pd)) := by
   conv_lhs => unfold drive
   dsimp only
   rw [hstep]
@@ -110,8 +116,8 @@ theorem driveG_needsCall_code (n : ℕ) (ps : List Pending) (current : Frame)
     (params : CallParams) (pending : PendingCall) (child : Frame)
     (hstep : stepFrame current = .needsCall params pending)
     (hbegin : beginCall params = .inl child) :
-    drive (n + 1) ps (.inl current)
-      = drive n (.call pending :: ps) (.inl child) := by
+    drive (n + 1) ps (running current)
+      = drive n (.call pending :: ps) (running child) := by
   conv_lhs => unfold drive
   dsimp only
   rw [hstep]

@@ -232,12 +232,18 @@ def codeFrame (params : CallParams) (code : ByteArray) : Frame :=
           blocks := params.blocks
           genesisBlockHeader := params.genesisBlockHeader } }
 
+/-- `p`'s call enters as code, starting at frame `fr` (as opposed to resolving
+immediately to a precompile/empty result). -/
+abbrev EntersAsCode (p : CallParams) (fr : Frame) : Prop := beginCall p = .inl fr
+
 /-- **`beginCall` on a code call.** For any `params` whose code source is
 `.Code code`, `beginCall` returns `.inl (codeFrame params code)` — the driver
-descends into the initial frame. The one place `beginCall` is unfolded. -/
+descends into the initial frame, i.e. `EntersAsCode params (codeFrame params
+code)`. The one place `beginCall` is unfolded. -/
 theorem beginCall_code (params : CallParams) (code : ByteArray)
     (hc : params.codeSource = .Code code) :
-    beginCall params = .inl (codeFrame params code) := by
+    EntersAsCode params (codeFrame params code) := by
+  unfold EntersAsCode
   unfold beginCall codeFrame codeEnv codeAccounts
   rw [hc]
   rfl

@@ -20,7 +20,7 @@ terminating run by `messageCall`-never-out-of-fuel plus fuel monotonicity
 -/
 
 namespace BytecodeLayer.Hoare
-open Evm BytecodeLayer.Interpreter
+open Evm BytecodeLayer.Interpreter BytecodeLayer.System
 
 /-! ## Lemma 1 — fuel-agnostic agreement of terminating runs -/
 
@@ -39,9 +39,9 @@ theorem drive_eq_of_both_ne_oof {a b : ℕ} (stack : List Pending)
 /-! ## Lemma 2 — the keystone external-CALL sequencing rule -/
 
 /-- **The general external-CALL sequencing rule.** A caller enters as code
-(`beginCall p = .inl fr₀`), `Runs` its prefix to a CALL site `callFr`, issues a
+(`EntersAsCode p fr₀`), `Runs` its prefix to a CALL site `callFr`, issues a
 CALL (`stepFrame callFr = .needsCall cp pending`) whose child enters as code
-(`beginCall cp = .inl child`) and **terminates** (`drive (seedFuel cp.gas) [] …
+(`EntersAsCode cp child`) and **terminates** (`drive (seedFuel cp.gas) [] …
 = .ok childRes`, taken as a black box), then `Runs` its suffix from the resumed
 frame to a halt site `last`. Given the numeric fuel bound, `messageCall p`
 delivers the caller's halt result.
@@ -50,11 +50,11 @@ This is the external-call analogue of `messageCall_runs`. -/
 theorem messageCall_call_runs {n₁ n₂ : ℕ}
     (p cp : CallParams) (fr₀ callFr child last : Frame)
     (childRes : FrameResult) (pending : PendingCall) (halt : FrameHalt)
-    (hbegin   : beginCall p = .inl fr₀)
+    (hbegin   : EntersAsCode p fr₀)
     (hpre     : Runs n₁ fr₀ callFr)
     (hcall    : stepFrame callFr = .needsCall cp pending)
-    (hcbegin  : beginCall cp = .inl child)
-    (hchild   : drive (seedFuel cp.gas) [] (.inl child) = .ok childRes)
+    (hcbegin  : EntersAsCode cp child)
+    (hchild   : drive (seedFuel cp.gas) [] (running child) = .ok childRes)
     (hpost    : Runs n₂ (resumeAfterCall childRes.toCallResult pending) last)
     (hhalt    : stepFrame last = .halted halt)
     (hfuel    : seedFuel cp.gas + n₁ + 1 ≤ seedFuel p.gas) :
@@ -139,11 +139,11 @@ theorem messageCall_call_completedWith {n₁ n₂ : ℕ}
     (p cp : CallParams) (fr₀ callFr child last : Frame)
     (childRes : FrameResult) (pending : PendingCall) (halt : FrameHalt)
     (a : AccountAddress) (k v : UInt256)
-    (hbegin   : beginCall p = .inl fr₀)
+    (hbegin   : EntersAsCode p fr₀)
     (hpre     : Runs n₁ fr₀ callFr)
     (hcall    : stepFrame callFr = .needsCall cp pending)
-    (hcbegin  : beginCall cp = .inl child)
-    (hchild   : drive (seedFuel cp.gas) [] (.inl child) = .ok childRes)
+    (hcbegin  : EntersAsCode cp child)
+    (hchild   : drive (seedFuel cp.gas) [] (running child) = .ok childRes)
     (hpost    : Runs n₂ (resumeAfterCall childRes.toCallResult pending) last)
     (hhalt    : stepFrame last = .halted halt)
     (hfuel    : seedFuel cp.gas + n₁ + 1 ≤ seedFuel p.gas)
