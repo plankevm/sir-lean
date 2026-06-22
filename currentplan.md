@@ -280,6 +280,13 @@ your own branch with clear messages; never touch another track's files; if block
 write the blocker into PLAN.md before stopping.
 
 ## Orchestration log
+- 2026-06-22: **Track A review report DONE & committed** (`docs/track-a-review.md`, 423
+  lines; argues `Runs.call` + CFG choices vs alternatives). Fixed master report staleness.
+  Report flagged for Phase-2: `Spec.lean`'s surface is frame-level, not observables-only
+  (accepted for the low-level layer per project standard; resolve at the shared-interface
+  EXPORT boundary). **Track A core now resting at a clean reported milestone** — did NOT
+  launch its backlog (gas-introspection is entangled with C's branch lowering; `CREATE` is
+  speculative). Loop carried by the two in-flight proofs: **C3** + **B2**.
 - 2026-06-22: **A opcode rules DONE + A→base MERGE + C unblocked** (`2615d03`; merge clean,
   base green 1130, C green 1106). Integration gate cleared. Launched: **C3** (single-call
   preservation, now unblocked) and the **Track A `lean-review-report`** (→ `docs/track-a-
