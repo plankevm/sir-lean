@@ -79,14 +79,22 @@ nesting *as a theorem over flat*; Track B *adopts* the already-nested semantics.
   was clean — every former fuel obligation was already discharged by never-out-of-fuel.
   `messageCall_call_runs` already fell out as a 3-line corollary (the A2 *surface*
   collapse — keeping one named bridge — is still nominally pending).
-- [ ] **A2** Collapse the two boundary bridges (`messageCall_runs` +
-  `messageCall_call_runs`) into one `messageCall_runs`; the old keystone becomes a
-  use of it on a `Runs` containing `.call` nodes.
-- [ ] **A3** Prove **multi-call composition**: a program with ≥2 external calls and
-  code between them, reasoned about without each call having to halt the program.
-  THE test of whether the constructor fixes the intermediary-call defect.
-- [ ] **A4** Verdict + report: does this supersede `messageCall_call_runs`? Feed
-  the composition API to Track C. Keep green, axiom-clean, no `sorry`.
+- [x] **A2** DONE (`ec6c297`). `messageCall_call_runs` DELETED outright (no alias);
+  `messageCall_runs` is the single bridge; `messageCall_calls_completedWith` takes one
+  multi-call `Runs`. Call sites swept.
+- [x] **A3** DONE (`aa141e7`, green 1128 jobs, axiom-clean). `messageCall_runs_calls`
+  is the named ≥N-call guarantee — `messageCall_runs` already accepts a `Runs` with any
+  number of `.call` nodes (all reconciliation inside `drive_reconcile`), so NO new proof
+  obligation. Worked 2-call acceptance test in `Examples/TwoCallExample.lean`: two
+  intermediary calls that DON'T halt, glued by `Runs.trans`/`Runs.call`, discharged
+  through the bridge. **The intermediary-call defect is fixed. This unblocks Track C C4.**
+- [x] **A4** Verdict delivered (in A's report + PLAN.md): `messageCall_runs_calls`
+  supersedes the old keystone; composition API recorded for Track C.
+- [ ] **CFG combinator** IN PROGRESS — JUMP/JUMPI `Runs` rules + conditional-branch
+  helper (prereq for C branch lowering + gas-introspection branches).
+- NOTE (cleanup, defer to a review pass once `exp003-runs-call` stabilizes): A2's
+  deletion left stale `messageCall_call_runs` refs in `docs/review-report.md` +
+  `review-report-followup.md` — regenerate via `review-report.prose`, don't hand-patch.
 
 ### Track B — Nested EVM core over EVMYulLean  (worktree `nested-evmyul`)
 - [x] **B1** DONE (`exp004-nested` @ `20ad4c1`, green 1033 jobs). Vendored
@@ -211,6 +219,11 @@ your own branch with clear messages; never touch another track's files; if block
 write the blocker into PLAN.md before stopping.
 
 ## Orchestration log
+- 2026-06-22: **A2+A3 DONE & verified** (`aa141e7`, green 1128, axiom-clean). Multi-call
+  composition works (`messageCall_runs_calls` + `TwoCallExample`); **the intermediary-call
+  defect is fixed, C4 unblocked.** Launched A's next: **CFG combinator** (JUMP/JUMPI +
+  branch helper). Still running: C (C2), B (mono). Stale review-report.md doc refs queued
+  for a later regen pass.
 - 2026-06-22: Plan created. exp003 vendored EVMLean + cleanup already committed on
   base. Three worktrees + branches created (`exp003-runs-call`, `exp004-nested`,
   `exp005-ir`), each with a committed local `PLAN.md`.
