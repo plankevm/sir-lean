@@ -376,3 +376,57 @@ required for the full single-/multi-call preservation theorem.
   work; the worked single-call program (`Decode.lean`'s `workedCall`) is the
   intended first instantiation once the generic decode lemma lands. C4 (multi-call)
   reuses the same engine — the bridge already composes calls.
+
+- 2026-06-22 (C3b): **Generic `decode_lower` infrastructure — DONE, green,
+  axiom-clean.** `lake build` green (1127 jobs, up from 1126); `#print axioms` on
+  every new lemma = `[propext, Quot.sound]` (`bget` only `[propext]`) — no `sorryAx`,
+  no native axiom. New module `LirLean/DecodeLower.lean`. This closes the
+  C2/C3-flagged "generic decode lemma" need: the per-pc `rfl` checks in `Decode.lean`
+  reduce the *whole* lowered `ByteArray` by kernel computation per worked program;
+  `DecodeLower` factors that into **program-independent** lemmas so a decode fact
+  follows from a *list-local* statement about the lowered byte list.
+
+  **The two foundation lemmas** (list-backed `ByteArray` ↔ its list):
+  * `bget : ByteArray.get? ⟨l.toArray⟩ n = l[n]?` — the byte `decode` reads at `pc`.
+  * `bextract : ((⟨a⟩ : ByteArray).extract b e).data = a.extract b e` — the immediate
+    window `decode` slices for a PUSH (then `uInt256OfByteArray`s). Proved by
+    unfolding `ByteArray.extract`/`copySlice` to `Array.extract` and discharging the
+    empty-slice prefix/suffix + the `b + (e-b) = max b e` window arithmetic.
+
+  **The two generic decode lemmas**, each computing `Evm.decode ⟨l.toArray⟩
+  (UInt32.ofNat n)` from a local fact about `l` at `n` (precondition `n < 2^32` so
+  `(UInt32.ofNat n).toNat = n`):
+  * `decode_nonpush_of_list` — `l[n] = byte`, `pushArgWidth (parseInstr byte) = 0`
+    ⇒ decodes to that zero-immediate opcode. Covers every effecting opcode `lower`
+    emits (`JUMPDEST/SSTORE/SLOAD/ADD/LT/GAS/JUMP/JUMPI/CALL/STOP/RETURN`).
+  * `decode_push_of_list` — `l[n] = byte` a PUSH of width `w > 0` and the immediate
+    sublist `l[n+1 .. n+1+w]` `uInt256OfByteArray`s to `imm` ⇒ decodes to that PUSH
+    carrying `(imm, w)`. Covers every `PUSH32` literal and `PUSH4` destination.
+  Plus `lower`-specialised forms `decode_lower_nonpush` / `decode_lower_push` (via
+  `lower_eq_flatBytes : lower prog = ⟨(flatBytes prog).toArray⟩`, `rfl`), phrased
+  directly on `lower prog` so a caller supplies `(flatBytes prog)[n]? = some opByte`
+  (and the immediate's `uInt256OfByteArray`).
+
+  **Build-exercised end-to-end on the worked program** (`Decode.lean`, two new
+  `example`s): a non-push (`JUMPDEST` at pc 0) and a push (`PUSH32 5` at pc 1) are
+  re-derived *through* the generic lemmas — the `flatBytes workedCall [n]? = some …`
+  byte and the `uInt256OfByteArray …extract… = 5` immediate are each a small
+  `rfl`/`decide`, confirming the infrastructure connects. So the generic decode core
+  is real and reusable, not just stated.
+
+  **What this leaves for full C3** (still NOT faked): the offset-table **byte-layout
+  arithmetic** — proving `(flatBytes prog)[pcOf prog L pc]? = some <expected opByte>`
+  (and the immediate sublist) for each construct *as a theorem over arbitrary `prog`*,
+  i.e. the prefix-sum decomposition of `flatBytes` at a block's `JUMPDEST + 1 +
+  Σ emitted-stmt-lengths`. `DecodeLower` is exactly the brick that turns such a
+  list-index fact into a `decode (lower prog) (pcOf …)` fact; the index fact itself is
+  the remaining work (provable per-worked-program by `rfl` today via the `lower`
+  specialisations, generic over `prog` by induction on the block/statement stream).
+  And the **`Runs fr₀ last` assembly** for a worked single-call program: this is the
+  large gas-tracked `Runs.trans` chain + a `Runs.call` node carrying a real
+  `CallReturns` (a genuine child `drive` run, ≈200 lines in exp003's
+  `CallerProgExample.caller_callReturns`); the discharge half across `messageCall_runs`
+  is already proved (`lower_preserves_discharge`). `lower_preserves` for `workedCall`
+  is therefore **not yet fully closed** — it is gated on (a) the offset-table index
+  arithmetic feeding `decode_lower`, and (b) the per-program `CallReturns`/gas
+  assembly. Both are mechanical-but-large; neither is stubbed.

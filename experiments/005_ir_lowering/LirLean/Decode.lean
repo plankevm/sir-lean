@@ -1,4 +1,5 @@
 import LirLean.Lowering
+import LirLean.DecodeLower
 
 /-!
 # LirLean — decode round-trip checks (C2 acceptance bar)
@@ -140,5 +141,24 @@ checks above together with `decode code 414 = JUMPDEST` and
 a proof is `native_decide`, which would pull in a native-reduction axiom and break
 the axiom-clean bar. The four `rfl` decode checks give the same guarantee for the
 two destinations this program actually uses.) -/
+
+/-! ## The generic `decode_lower` lemmas subsume the per-pc `rfl`s
+
+`LirLean/DecodeLower.lean` factors the whole-array `rfl` checks above into two
+program-independent lemmas (`decode_lower_nonpush` / `decode_lower_push`): a decode
+fact follows from a *list-local* statement about `flatBytes workedCall` — the byte
+at the pc (`flatBytes …[n]? = some opByte`) and, for a PUSH, the
+`uInt256OfByteArray` of the immediate sublist — each itself a small `rfl`/`decide`.
+These two examples re-derive a non-push and a push instruction *through* the generic
+lemmas (rather than by a single whole-array kernel reduction), confirming the
+infrastructure connects end-to-end on the worked program. -/
+
+/-- JUMPDEST at pc 0, via the generic non-push lemma. -/
+example : decode (lower workedCall) (UInt32.ofNat 0) = some (.Smsf .JUMPDEST, .none) :=
+  decode_lower_nonpush workedCall 0 0x5b (by norm_num) rfl rfl
+
+/-- `PUSH32 5` at pc 1 (the `sstore` value), via the generic push lemma. -/
+example : decode (lower workedCall) (UInt32.ofNat 1) = some (.Push .PUSH32, some (5, 32)) :=
+  decode_lower_push workedCall 1 0x7f 32 5 (by norm_num) rfl rfl (by decide) (by rfl)
 
 end Lir.Decode
