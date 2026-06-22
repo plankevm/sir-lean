@@ -613,6 +613,23 @@ theorem stepFrame_next_lt {fr : Frame} {exec' : ExecutionState}
         | needsCreate p pc => simp only at h; exact absurd h (by simp)
       | error e => rw [hdisp] at h; exact absurd h (by simp)
 
+/-! ## The 63/64 gas-forwarding floor
+
+`allButOneSixtyFourth n = n - n/64` (= ⌈63n/64⌉) is the EVM's 63/64 cap on the
+gas a CALL forwards to its child. `liftFloor C` is its inverse on the forwarding
+side: the least top-level budget `n` from which the cap is guaranteed to clear a
+target `C`. This is the universal fact behind any "the child still has at least
+`C` gas" argument. -/
+
+/-- The least top-level gas budget from which the 63/64 cap forwards at least `C`:
+`allButOneSixtyFourth` (= ⌈63n/64⌉) clears `C` once `n ≥ liftFloor C`. -/
+def liftFloor (C : ℕ) : ℕ := C + (C + 62) / 63
+
+theorem allButOneSixtyFourth_ge_of_liftFloor_le {C n : ℕ} (h : liftFloor C ≤ n) :
+    C ≤ allButOneSixtyFourth n := by
+  unfold liftFloor allButOneSixtyFourth at *
+  omega
+
 /-! ## CALL/CREATE own-cost lower bounds
 
 The non-forwarded part of a CALL/CREATE — `callExtraCost` (≥ `Gwarmaccess` = 100,

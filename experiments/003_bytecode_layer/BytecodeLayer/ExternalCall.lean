@@ -197,10 +197,14 @@ theorem childGas_lb (g : UInt64) (hg : 30000 ≤ g.toNat) : 22106 ≤ childGas g
   rw [show (g - UInt64.ofNat 3 - UInt64.ofNat 3 - UInt64.ofNat 3 - UInt64.ofNat 3 - UInt64.ofNat 3
         - UInt64.ofNat 3 - UInt64.ofNat 3) = subCharges g [3,3,3,3,3,3,3] from by simp [subCharges]]
   rw [toNat_subCharges g [3,3,3,3,3,3,3] (by simp; omega)]
-  unfold allButOneSixtyFourth
-  show 22106 ≤ min ((g.toNat - List.sum [3,3,3,3,3,3,3] - 2600)
-    - (g.toNat - List.sum [3,3,3,3,3,3,3] - 2600)/64) 4294967295
-  simp only [List.sum_cons, List.sum_nil]; omega
+  -- The cap is `min (allButOneSixtyFourth (g.toNat - 21 - 2600)) 0xFFFFFFFF`;
+  -- the floor on the forwarded branch is *derived* from the universal
+  -- `liftFloor` lemma, with the `30000`↦`22106` link mediated by
+  -- `liftFloor 22106 = 22457 ≤ g.toNat - 21 - 2600` (an `omega` from `hg`).
+  refine le_min ?_ (by decide)
+  apply Gas.allButOneSixtyFourth_ge_of_liftFloor_le (C := 22106)
+  simp only [List.sum_cons, List.sum_nil]
+  rw [show Gas.liftFloor 22106 = 22457 from rfl]; omega
 
 /-- The child gas always fits in `UInt64` (it is capped by `min … 0xFFFFFFFF`). -/
 theorem childGas_ub (g : UInt64) : childGas g < 2^64 := by
