@@ -19,7 +19,7 @@ reasoning about **intermediary** calls (calls that don't halt the program).
 - `BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean` — `messageCall_never_outOfFuel`.
 
 ## Milestones
-- [ ] **A1** Add `| call …` to `Runs` bundling `CallReturns`'s facts (`stepFrame =
+- [x] **A1** Add `| call …` to `Runs` bundling `CallReturns`'s facts (`stepFrame =
   .needsCall`, `EntersAsCode`, child terminates, resume frame). Drop the `Nat` index
   (fuel premises are already gone) in favour of a non-`OutOfFuel`-reconciliation
   advance lemma proved by induction on `Runs`: `refl`→`drive_eq_of_both_ne_oof`,
@@ -42,3 +42,33 @@ reasoning about **intermediary** calls (calls that don't halt the program).
 
 ## Progress log
 - 2026-06-22: Track seeded. Awaiting A1 agent.
+- 2026-06-22 (A1, CLOSED): Index-free `Runs` + `call` constructor landed; build
+  GREEN (1127 jobs), axiom-clean (`Runs.drive_reconcile`, `messageCall_runs`,
+  `messageCall_call_runs`, `messageCall_call_completedWith` all depend only on
+  `propext`/`Classical.choice`/`Quot.sound`; no `sorry`/`admit`/`axiom`).
+  - `Runs` is now `Frame → Frame → Prop` (no `Nat`): constructors `refl`,
+    `step` (was `head`), and the new `call hcall rest` where
+    `hcall : CallReturns callFr resumeFr`. `CallReturns` moved up into
+    `Hoare.lean` (it is the `call` payload); the duplicate def in
+    `CallSequence.lean` was removed.
+  - Replaced the exact-fuel `Runs.drive_advance` with the index-free
+    reconciliation invariant `Runs.drive_reconcile` (in `CallSequence.lean`,
+    which imports `DescentEq`/`NeverOutOfFuel`): "any two non-`OutOfFuel` runs
+    from the two endpoints of a `Runs` path agree." Proved by induction on `Runs`,
+    REUSING existing lemmas exactly as briefed — `refl`→`drive_eq_of_both_ne_oof`,
+    `step`→`drive_stepsTo`, `call`→`drive_descend_eq` + `drive_fuel_mono` (lift the
+    black-box child to `max a' (seedFuel cp.gas)`, splice via descent eq). No new
+    interpreter lemmas reproved.
+  - `messageCall_runs` reproved fuel-free off `drive_reconcile` (halt site in 2
+    fuel vs. seeded run). `messageCall_call_runs` collapsed to a 3-line corollary:
+    `messageCall_runs … (hpre.trans (Runs.call hcallret hpost)) hhalt` — note this
+    is the A1-mechanical fallout of the constructor, NOT the A2 surface collapse
+    (both boundary theorems still exist with their own signatures).
+  - Mechanical fallout swept: opcode rules (`runs_push1`/`runs_push`/`runs_sstore`)
+    now return `Runs` not `Runs 1`; `Runs.trans`/`single` lost the `m+n`/`1`;
+    Spec.lean re-exports + Examples (`ProgramExamples`, `HoareDemo`,
+    `CallerProgExample`) updated (`Runs 3/6/7` ascriptions and a `(n₂ := 0)`
+    arg dropped). Docstrings de-stale'd (`n+2`/`Runs n₁`/`Nat`-index prose).
+  - A1 is FULLY CLOSED; no blockers. Dropping the index was clean — every former
+    fuel-bound obligation was already discharged by never-out-of-fuel, so the
+    index carried no information. Next: A2/A3 (NOT done this run).

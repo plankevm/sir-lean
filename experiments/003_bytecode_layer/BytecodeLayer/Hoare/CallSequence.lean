@@ -9,30 +9,27 @@ import BytecodeLayer.Hoare.OutcomeBridge
 This file holds **both** `messageCall`-boundary sequencing rules — the call-free
 `messageCall_runs` and the external-CALL `messageCall_call_runs` — each proved
 **fuel-free** (no numeric `n + … ≤ seedFuel` side condition) via
-never-out-of-fuel (`messageCall_never_outOfFuel`) plus fuel agreement
-(`drive_eq_of_both_ne_oof`).
+never-out-of-fuel (`messageCall_never_outOfFuel`) plus the index-free `Runs`
+reconciliation invariant `Runs.drive_reconcile`.
+
+`Runs.drive_reconcile` is the engine: since the index-free `Runs` carries no step
+count, the bridges cannot phrase a numeric fuel bound. Instead this invariant
+says that **any** non-`OutOfFuel` run from any frame on a `Runs` path yields the
+same final result — proved by induction on `Runs`, splicing returning external
+calls (`call` nodes) into the path via `drive_descend_eq` + `drive_fuel_mono`.
 
 `messageCall_runs` is the intra-frame bridge: a caller that `Runs` from its entry
-frame to a halt site produces the expected `messageCall` result. Its run needs
-exactly `n + 2` fuel, which `drive_eq_of_both_ne_oof` reconciles with
-`seedFuel p.gas` (both avoid `OutOfFuel`) — no fuel ordering needed.
+frame to a halt site produces the expected `messageCall` result. The halt site
+delivers in `2` fuel, which `Runs.drive_reconcile` reconciles with the seeded run
+(both avoid `OutOfFuel`) — no fuel ordering needed.
 
 `messageCall_call_runs` is the **program-agnostic** external-call analogue: a
-caller that `Runs` from its entry frame to a CALL site, issues a CALL whose child
-terminates (as a *black box* — any terminating child run), then `Runs` from the
-resumed frame to a halt site, produces the expected `messageCall` result. The
-three call-facts (the CALL step, the child entering as code, and the child's
-terminating run) are bundled into the derived `CallReturns` predicate, so the
-rule reads as a clean five-hypothesis sequence with **no numeric fuel side
-condition**.
-
-`messageCall_call_runs` is the real theorem that replaces any
-assumed-the-conclusion forwarding hypothesis: the black-box child is reconciled
-against the suffix's concrete terminating run by `messageCall`-never-out-of-fuel
-plus fuel monotonicity (`drive_eq_of_both_ne_oof`). Its fuel bound is discharged
-internally by running the whole sequence at a deliberately large concrete fuel
-and reconciling it with `seedFuel p.gas` via `drive_eq_of_both_ne_oof` — no
-caller-supplied bound.
+caller that `Runs` from its entry frame to a CALL site, a returning CALL (the
+bundled `CallReturns` — the CALL step, the child entering as code, and the child's
+black-box terminating run), then `Runs` from the resumed frame to a halt site. It
+is now a corollary of `messageCall_runs`: the prefix, the `Runs.call` node, and
+the suffix glue into one `Runs fr₀ last` by `Runs.trans`, with all reconciliation
+delegated to `Runs.drive_reconcile`.
 -/
 
 namespace BytecodeLayer.Hoare
@@ -52,6 +49,75 @@ theorem drive_eq_of_both_ne_oof {a b : ℕ} (stack : List Pending)
   · exact (drive_fuel_mono hle stack state ha).symm
   · exact drive_fuel_mono hle stack state hb
 
+/-! ## The index-free `Runs` reconciliation invariant
+
+The `Runs` relation carries no step-index. `Runs.drive_reconcile` is the
+replacement for the old exact-fuel `drive_advance`: it states that **any**
+non-`OutOfFuel` run from any frame on a `Runs` path yields the same final result.
+Proved by induction on the `Runs` derivation, reusing the existing bricks —
+`drive_eq_of_both_ne_oof` (the `refl` link), `drive_stepsTo` (the `step` link),
+and `drive_descend_eq` + `drive_fuel_mono` (the `call` link, which splices a whole
+returning child run into the path). No fuel bookkeeping, no numeric side
+condition: the driver self-reconciles across the empty-stack run because every
+configuration on the path terminates whenever the endpoints do. -/
+
+/-- **The `Runs` reconciliation invariant.** If `fr` `Runs` to `last`, then any
+two terminating (`≠ OutOfFuel`) runs — one from `fr` at fuel `a`, one from `last`
+at fuel `b`, both over the empty pending stack — deliver the **same** result.
+
+This is the index-free successor of the old exact-fuel `drive_advance`: it never
+mentions a step count, only that the endpoints both avoid `OutOfFuel`. The three
+links reuse existing lemmas without reproving them:
+* `refl` — `fr = last`, so the two runs reconcile by `drive_eq_of_both_ne_oof`;
+* `step` — peel one `drive` step with `drive_stepsTo`, recurse;
+* `call` — splice the returning child via `drive_descend_eq` (lifting the
+  black-box child run to the path's fuel with `drive_fuel_mono`), then recurse on
+  the resumed frame. -/
+theorem Runs.drive_reconcile {fr last : Frame} (h : Runs fr last) :
+    ∀ {a b : ℕ},
+      drive a [] (running fr) ≠ .error .OutOfFuel →
+      drive b [] (running last) ≠ .error .OutOfFuel →
+      drive a [] (running fr) = drive b [] (running last) := by
+  induction h with
+  | refl _ =>
+    intro a b ha hb
+    exact drive_eq_of_both_ne_oof [] (running _) ha hb
+  | @step fr mid fr' hstep _ ih =>
+    intro a b ha hb
+    -- `a = 0` would be `OutOfFuel`, so peel one step `fr → mid`.
+    cases a with
+    | zero => simp [drive] at ha
+    | succ a' =>
+      rw [drive_stepsTo a' hstep] at ha ⊢
+      exact ih ha hb
+  | @call callFr resumeFr fr' hcall _ ih =>
+    intro a b ha hb
+    obtain ⟨cp, pending, child, childRes, hstep, hcbegin, hchild, hres⟩ := hcall
+    subst hres
+    -- `a = 0` would be `OutOfFuel`, so peel the CALL step `callFr → child`.
+    cases a with
+    | zero => simp [drive] at ha
+    | succ a' =>
+      rw [driveG_needsCall_code a' [] callFr cp pending child hstep hcbegin] at ha ⊢
+      -- Lift the black-box child run to a fuel `≥` the path's fuel so the descent
+      -- equation applies, then reconcile with the path's own (terminating) descent.
+      set m := max a' (seedFuel cp.gas) with hm
+      have hchild_m : drive m [] (running child) = .ok childRes := by
+        rw [drive_fuel_mono (show seedFuel cp.gas ≤ m by omega) [] (running child)
+          (by rw [hchild]; nofun)]
+        exact hchild
+      obtain ⟨j, hj⟩ := drive_descend_eq m child childRes pending [] hchild_m
+      -- The descent at fuel `a'` equals the descent at the larger fuel `m`
+      -- (the path's descent terminates, by `ha`), which `drive_descend_eq` turns
+      -- into a run from the resumed frame.
+      have hdesc : drive a' (.call pending :: []) (running child)
+          = drive j [] (running (resumeAfterCall childRes.toCallResult pending)) := by
+        rw [← hj]
+        exact (drive_fuel_mono (show a' ≤ m by omega) (.call pending :: []) (running child)
+          ha).symm
+      rw [hdesc] at ha ⊢
+      exact ih ha hb
+
 /-! ## The call-free boundary bridge `messageCall_runs` -/
 
 /-- **A `Runs` block at the `messageCall` boundary, halting.** If a code call's
@@ -59,49 +125,32 @@ initial frame `fr₀` (`EntersAsCode p fr₀`) `Runs` to a frame `last` that hal
 with `halt`, then `messageCall p = .ok (toCallResult (endFrame last halt))` —
 **no numeric fuel side condition**.
 
-The run needs exactly `n + 2` fuel (advance the `n` prefix steps, then halt and
-deliver in `+2`); `drive_eq_of_both_ne_oof` reconciles that concrete fuel with
-`seedFuel p.gas` since both avoid `OutOfFuel` (the latter by
-`messageCall_never_outOfFuel`) — no fuel ordering needed.
+The halt site delivers its result in `2` fuel; `Runs.drive_reconcile` reconciles
+that with the seeded run from `fr₀` since both avoid `OutOfFuel` (the latter by
+`messageCall_never_outOfFuel`) — no step index, no fuel ordering.
 
 This is the boundary; from here up, statements are observable-only. -/
-theorem messageCall_runs (p : CallParams) {n : ℕ} {fr₀ last : Frame} {halt : FrameHalt}
+theorem messageCall_runs (p : CallParams) {fr₀ last : Frame} {halt : FrameHalt}
     (hbegin : EntersAsCode p fr₀)
-    (h : Runs n fr₀ last)
+    (h : Runs fr₀ last)
     (hhalt : stepFrame last = Signal.halted halt) :
     messageCall p = .ok (FrameResult.toCallResult (endFrame last halt)) := by
-  -- The run delivers the caller's halt result (as a `FrameResult`) in exactly `n + 2` fuel.
-  have hrun : drive (n + 2) [] (running fr₀) = .ok (endFrame last halt) := by
-    rw [h.drive_advance 2]
-    exact drive_halt 0 last halt hhalt
-  -- Both the concrete run and the seeded run avoid `OutOfFuel`.
-  have hrun_neoof : drive (n + 2) [] (running fr₀) ≠ .error .OutOfFuel := by
-    rw [hrun]; nofun
+  -- The halt site delivers the caller's halt result (as a `FrameResult`) in `2` fuel.
+  have hlast : drive 2 [] (running last) = .ok (endFrame last halt) :=
+    drive_halt 0 last halt hhalt
+  have hlast_neoof : drive 2 [] (running last) ≠ .error .OutOfFuel := by
+    rw [hlast]; nofun
+  -- The seeded run from `fr₀` avoids `OutOfFuel` (never-out-of-fuel at the boundary).
   have hseed_neoof : drive (seedFuel p.gas) [] (running fr₀) ≠ .error .OutOfFuel := by
     intro hcontra
     apply messageCall_never_outOfFuel p
     rw [messageCall_eq_drive p fr₀ hbegin, hcontra]
     rfl
-  -- Reduce the goal to a `drive` equation and reconcile the two terminating runs.
+  -- Reduce the goal to a `drive` equation and reconcile the run from `fr₀` with
+  -- the halting run from `last` along the `Runs` path — no step index, no fuel bound.
   rw [messageCall_eq_drive p fr₀ hbegin]
-  rw [drive_eq_of_both_ne_oof [] (running fr₀) hseed_neoof hrun_neoof, hrun]
+  rw [h.drive_reconcile hseed_neoof hlast_neoof, hlast]
   rfl
-
-/-! ## The bundled `CallReturns` predicate -/
-
-/-- `callFr` issues a CALL whose child runs to completion, resuming at `resumeFr`.
-
-Bundles the three call-facts of the external-CALL sequence: the CALL step
-(`stepFrame callFr = .needsCall cp pending`), the child entering as code
-(`EntersAsCode cp child`), and the child's black-box terminating run
-(`drive (seedFuel cp.gas) [] (running child) = .ok childRes`), pinning the
-resumed parent frame to `resumeAfterCall childRes.toCallResult pending`. -/
-def CallReturns (callFr resumeFr : Frame) : Prop :=
-  ∃ cp pending child childRes,
-       stepFrame callFr = .needsCall cp pending
-     ∧ EntersAsCode cp child
-     ∧ drive (seedFuel cp.gas) [] (running child) = .ok childRes
-     ∧ resumeFr = resumeAfterCall childRes.toCallResult pending
 
 /-! ## Lemma 2 — the keystone external-CALL sequencing rule -/
 
@@ -112,79 +161,22 @@ whose child enters as code and terminates, resuming at `resumeFr`
 suffix from `resumeFr` to a halt site `last`. `messageCall p` delivers the
 caller's halt result — **no numeric fuel side condition**.
 
-The fuel bound is discharged internally: the whole sequence is run at a
-deliberately large concrete fuel `f*` (chosen so every fuel split closes by
-`omega` and `seedFuel p.gas ≤ f*` holds outright), then reconciled with
-`seedFuel p.gas` through `drive_eq_of_both_ne_oof` and
-`messageCall_never_outOfFuel`.
-
-This is the external-call analogue of `messageCall_runs`. -/
-theorem messageCall_call_runs (p : CallParams) {n₁ n₂ : ℕ}
+With the index-free `Runs`, this is now a one-liner: the prefix, the returning
+CALL node (`Runs.call`), and the suffix glue into a single `Runs fr₀ last` by
+`Runs.trans`, and `messageCall_runs` crosses the boundary. The whole fuel
+reconciliation — including splicing the black-box child run into the path — lives
+inside `Runs.drive_reconcile`. -/
+theorem messageCall_call_runs (p : CallParams)
     {fr₀ callFr resumeFr last : Frame} {halt : FrameHalt}
     (hbegin   : EntersAsCode p fr₀)
-    (hpre     : Runs n₁ fr₀ callFr)
+    (hpre     : Runs fr₀ callFr)
     (hcallret : CallReturns callFr resumeFr)
-    (hpost    : Runs n₂ resumeFr last)
+    (hpost    : Runs resumeFr last)
     (hhalt    : stepFrame last = .halted halt) :
-    messageCall p = .ok (FrameResult.toCallResult (endFrame last halt)) := by
-  obtain ⟨cp, pending, child, childRes, hcall, hcbegin, hchild, hres⟩ := hcallret
-  subst hres
-  -- Abbreviation for the resumed parent frame.
-  set R := resumeAfterCall childRes.toCallResult pending with hR
-  -- A deliberately large concrete fuel: every split closes by `omega`, and
-  -- `seedFuel p.gas ≤ f*` holds outright — no caller-supplied bound.
-  set f := seedFuel p.gas + n₁ + 1 + seedFuel cp.gas + n₂ + 2 with hf
-  -- `m` is the fuel after the prefix and the CALL step.
-  set m := f - n₁ - 1 with hm
-  -- 1. Prefix: advance from `fr₀` to `callFr`.
-  have hprefix : drive f [] (.inl fr₀) = drive (f - n₁) [] (.inl callFr) := by
-    conv_lhs => rw [show f = n₁ + (f - n₁) by omega]
-    rw [hpre.drive_advance (f - n₁)]
-  -- 2. The CALL step: descend into the child, suspending the parent.
-  have hcallstep : drive (f - n₁) [] (.inl callFr)
-      = drive m (.call pending :: []) (.inl child) := by
-    rw [show f - n₁ = m + 1 by omega]
-    exact driveG_needsCall_code m [] callFr cp pending child hcall hcbegin
-  -- 3a. Lift the (black-box) child run to fuel `m`.
-  have hchild_m : drive m [] (.inl child) = .ok childRes := by
-    rw [drive_fuel_mono (show seedFuel cp.gas ≤ m by omega) [] (.inl child)
-      (by rw [hchild]; nofun)]
-    exact hchild
-  -- 3b. Descend equation: in-line descent equals resumed parent at some fuel `j`.
-  obtain ⟨j, hj⟩ := drive_descend_eq m child childRes pending [] hchild_m
-  -- Chain 1–3: `drive f [] (.inl fr₀) = drive j [] (.inl R)`.
-  have hchain : drive f [] (.inl fr₀) = drive j [] (.inl R) := by
-    rw [hprefix, hcallstep, hj]
-  -- 4. Suffix: a concrete terminating run from `R`.
-  have hsuffix : drive (n₂ + 2) [] (.inl R) = .ok (endFrame last halt) := by
-    rw [hpost.drive_advance 2]
-    exact drive_halt 0 last halt hhalt
-  -- `drive (seedFuel p.gas) [] (.inl fr₀) ≠ OutOfFuel` from `messageCall_never_outOfFuel`.
-  have hseed_neoof : drive (seedFuel p.gas) [] (.inl fr₀) ≠ .error .OutOfFuel := by
-    intro hcontra
-    apply messageCall_never_outOfFuel p
-    rw [messageCall_eq_drive p fr₀ hbegin, hcontra]
-    rfl
-  -- Hence `drive f [] (.inl fr₀) ≠ OutOfFuel` (`seedFuel p.gas ≤ f`, by monotonicity).
-  have hf_neoof : drive f [] (.inl fr₀) ≠ .error .OutOfFuel := by
-    rw [drive_fuel_mono (show seedFuel p.gas ≤ f by omega) [] (.inl fr₀) hseed_neoof]
-    exact hseed_neoof
-  -- Hence `drive j [] (.inl R) ≠ OutOfFuel` (it equals `drive f [] (.inl fr₀)`).
-  have hj_neoof : drive j [] (.inl R) ≠ .error .OutOfFuel := by
-    rw [← hchain]; exact hf_neoof
-  -- And the suffix run avoids `OutOfFuel`.
-  have hsuf_neoof : drive (n₂ + 2) [] (.inl R) ≠ .error .OutOfFuel := by
-    rw [hsuffix]; nofun
-  -- Reconcile the two terminating runs of `R`.
-  have hjeq : drive j [] (.inl R) = drive (n₂ + 2) [] (.inl R) :=
-    drive_eq_of_both_ne_oof [] (.inl R) hj_neoof hsuf_neoof
-  -- The large-fuel run delivers the caller's halt result.
-  have hf_ok : drive f [] (.inl fr₀) = .ok (endFrame last halt) := by
-    rw [hchain, hjeq, hsuffix]
-  -- Reduce the goal to a `drive` equation and reconcile `f` with `seedFuel p.gas`.
-  rw [messageCall_eq_drive p fr₀ hbegin]
-  rw [drive_eq_of_both_ne_oof [] (.inl fr₀) hseed_neoof hf_neoof, hf_ok]
-  rfl
+    messageCall p = .ok (FrameResult.toCallResult (endFrame last halt)) :=
+  messageCall_runs p hbegin
+    (hpre.trans (Runs.call hcallret hpost))
+    hhalt
 
 /-! ## Except/Outcome decoders (reusable plumbing) -/
 
@@ -211,13 +203,13 @@ program-agnostic sequencing hypotheses as `messageCall_call_runs`, plus the call
 halt result being a success leaving `v` at cell `(a, k)`, yield the named
 `Outcome.completedWith` predicate on `Outcome.ofCall (messageCall p)`. This is the
 sound external-call rule the spec surface exposes — no assumed forwarding. -/
-theorem messageCall_call_completedWith (p : CallParams) {n₁ n₂ : ℕ}
+theorem messageCall_call_completedWith (p : CallParams)
     {fr₀ callFr resumeFr last : Frame} {halt : FrameHalt}
     (a : AccountAddress) (k v : UInt256)
     (hbegin   : EntersAsCode p fr₀)
-    (hpre     : Runs n₁ fr₀ callFr)
+    (hpre     : Runs fr₀ callFr)
     (hcallret : CallReturns callFr resumeFr)
-    (hpost    : Runs n₂ resumeFr last)
+    (hpost    : Runs resumeFr last)
     (hhalt    : stepFrame last = .halted halt)
     (hsucc    : (FrameResult.toCallResult (endFrame last halt)).success = true)
     (hcell    : CallResult.storageAt (FrameResult.toCallResult (endFrame last halt)) a k = v) :

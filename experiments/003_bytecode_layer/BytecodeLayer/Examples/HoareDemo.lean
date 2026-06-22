@@ -46,12 +46,12 @@ private theorem self_present (g : UInt64) :
     (fr₀ g).exec.accounts.find? (fr₀ g).exec.executionEnv.address = some (selfAcc g) := by
   rw [self_addr]; rfl
 
-/-- **The composed run.** From the initial frame, `Runs 3` to the post-SSTORE
+/-- **The composed run.** From the initial frame, `Runs` to the post-SSTORE
 frame `last`, built by `Runs.trans` of the three opcode rules. The value `5` and
 slot `7` enter only as the `runs_sstore` operands; the intermediate frames live
 inside the `Runs` proof. -/
 private theorem sstore_runs (g : UInt64) (hg : 22106 ≤ g.toNat) :
-    Runs 3 (fr₀ g)
+    Runs (fr₀ g)
       (sstoreFrame (pushFrame (pushFrame (fr₀ g) 5) 7) 7 5 (fr₀ g).exec.stack) := by
   have gv : GasConstants.Gverylow = 3 := rfl
   have hg0 : (fr₀ g).exec.gasAvailable.toNat = g.toNat := rfl

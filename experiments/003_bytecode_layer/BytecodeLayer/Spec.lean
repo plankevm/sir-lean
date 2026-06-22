@@ -43,21 +43,21 @@ A user instantiates these on their own bytecode (see `Examples/` for worked
 instantiations). They are general over every program; only the *premises*
 (decode, gas, stack shape) pin them to a concrete program. -/
 
-/-- **The sequencing rule.** Compose a block `fr → mid` (`m` steps) with the block
-that follows it `mid → fr'` (`n` steps) into one block `fr → fr'` (`m + n` steps).
-A program's `Runs` is built by gluing the per-opcode `Runs` rules with this, never
-by exhibiting an execution trace. -/
-theorem Runs.trans {m n : ℕ} {fr mid fr' : Frame}
-    (h₁ : Runs m fr mid) (h₂ : Runs n mid fr') : Runs (m + n) fr fr' :=
+/-- **The sequencing rule.** Compose a block `fr → mid` with the block that
+follows it `mid → fr'` into one block `fr → fr'`. A program's `Runs` is built by
+gluing the per-opcode `Runs` rules (and returning-CALL nodes) with this, never by
+exhibiting an execution trace. -/
+theorem Runs.trans {fr mid fr' : Frame}
+    (h₁ : Runs fr mid) (h₂ : Runs mid fr') : Runs fr fr' :=
   Hoare.Runs.trans h₁ h₂
 
 /-- **The `messageCall` boundary bridge.** A code call whose entry frame `fr₀`
 (`EntersAsCode p fr₀`) `Runs` to a frame that halts yields the caller's halt
 result as `messageCall p` — **no numeric fuel side condition**. From here up,
 statements are observable-only. -/
-theorem messageCall_runs {n : ℕ} {fr₀ last : Frame} {halt : FrameHalt} (p : CallParams)
+theorem messageCall_runs {fr₀ last : Frame} {halt : FrameHalt} (p : CallParams)
     (hbegin : EntersAsCode p fr₀)
-    (h : Runs n fr₀ last)
+    (h : Runs fr₀ last)
     (hhalt : stepFrame last = Signal.halted halt) :
     messageCall p = .ok (FrameResult.toCallResult (endFrame last halt)) :=
   Hoare.messageCall_runs p hbegin h hhalt
@@ -69,7 +69,7 @@ theorem runs_push1 (fr : Frame) (imm : UInt256)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Push .PUSH1, some (imm, 1)))
     (hgas : 3 ≤ fr.exec.gasAvailable.toNat)
     (hstk : fr.exec.stack.size + 1 ≤ 1024) :
-    Runs 1 fr (pushFrame fr imm) :=
+    Runs fr (pushFrame fr imm) :=
   Hoare.runs_push1 fr imm hdec hgas hstk
 
 /-- **The general PUSH rule (any width).** From a frame decoding to `PUSH<w> imm`
@@ -83,7 +83,7 @@ theorem runs_push (fr : Frame) (op : Operation.PushOp) (imm : UInt256) (w : UInt
     (hpush : stackPushCount (.Push op) = 1)
     (hgas : 3 ≤ fr.exec.gasAvailable.toNat)
     (hstk : fr.exec.stack.size + 1 ≤ 1024) :
-    Runs 1 fr (pushFrameW fr imm w) :=
+    Runs fr (pushFrameW fr imm w) :=
   Hoare.runs_push fr op imm w hp0 hdec hpop hpush hgas hstk
 
 /-- **The SSTORE rule (effect).** From a frame decoding to `SSTORE` with
@@ -97,7 +97,7 @@ theorem runs_sstore (fr : Frame) (key newValue : UInt256) (rest : Stack UInt256)
     (hmod : fr.exec.executionEnv.canModifyState = true)
     (hstip : ¬ fr.exec.gasAvailable.toNat ≤ GasConstants.Gcallstipend)
     (hcost : sstoreChargeOf fr.exec key newValue ≤ fr.exec.gasAvailable.toNat) :
-    Runs 1 fr (sstoreFrame fr key newValue rest) :=
+    Runs fr (sstoreFrame fr key newValue rest) :=
   Hoare.runs_sstore fr key newValue rest hdec hstk hsz hmod hstip hcost
 
 /-- **SSTORE effect.** After `sstoreFrame` (writing a *non-zero* `newValue`),
@@ -160,12 +160,12 @@ CALL site, issues a CALL whose child terminates and resumes at `resumeFr`
 site, produces the caller's halt result as `messageCall p`. General over both
 programs; no assumed forwarding and **no numeric fuel side condition** — see the
 section note. -/
-theorem messageCall_call_runs (p : CallParams) {n₁ n₂ : ℕ}
+theorem messageCall_call_runs (p : CallParams)
     {fr₀ callFr resumeFr last : Frame} {halt : FrameHalt}
     (hbegin   : EntersAsCode p fr₀)
-    (hpre     : Runs n₁ fr₀ callFr)
+    (hpre     : Runs fr₀ callFr)
     (hcallret : CallReturns callFr resumeFr)
-    (hpost    : Runs n₂ resumeFr last)
+    (hpost    : Runs resumeFr last)
     (hhalt    : stepFrame last = .halted halt) :
     messageCall p = .ok (FrameResult.toCallResult (endFrame last halt)) :=
   Hoare.messageCall_call_runs p hbegin hpre hcallret hpost hhalt
@@ -176,13 +176,13 @@ theorem messageCall_call_runs (p : CallParams) {n₁ n₂ : ℕ}
 at cell `(a, k)`, yield the named `Outcome.completedWith` on
 `Outcome.ofCall (messageCall p)`. This is the sound, general external-call rule for
 the spec surface — no assumed forwarding. -/
-theorem messageCall_call_completedWith (p : CallParams) {n₁ n₂ : ℕ}
+theorem messageCall_call_completedWith (p : CallParams)
     {fr₀ callFr resumeFr last : Frame} {halt : FrameHalt}
     (a : AccountAddress) (k v : UInt256)
     (hbegin   : EntersAsCode p fr₀)
-    (hpre     : Runs n₁ fr₀ callFr)
+    (hpre     : Runs fr₀ callFr)
     (hcallret : CallReturns callFr resumeFr)
-    (hpost    : Runs n₂ resumeFr last)
+    (hpost    : Runs resumeFr last)
     (hhalt    : stepFrame last = .halted halt)
     (hsucc    : (FrameResult.toCallResult (endFrame last halt)).success = true)
     (hcell    : CallResult.storageAt (FrameResult.toCallResult (endFrame last halt)) a k = v) :
