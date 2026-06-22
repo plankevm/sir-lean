@@ -25,3 +25,16 @@ Finish the retirement properly: re-point `ConcreteSpecs.messageCall_call_storage
 Would you like me to do that cleanup now? It is the natural completion of “retire the monolith,” but it deletes a chunk of `ExternalCall.lean`, so I’d rather confirm than assume.
 
 The stale `results.md`/`handoff.md` updates would be folded into Phase 4 unless you want them fixed now.
+
+## Resolution — done (commits `4fc9e1e`, `556ebef`)
+
+The retirement is complete; the report's findings #2/#3 (and §6.4/§7's "monolith persists") no longer hold:
+
+- `ConcreteSpecs.messageCall_call_storageAt` now delegates to the compositional `messageCall_callerProg_storageAt` (witness `G₀ = 30000`), so **`CallerProgExample` is reachable from the `Spec` audit surface** — no longer only glob-compiled. (Finding #2 / §6.3 resolved.)
+- `messageCall_call_eq` and its now-dead scaffolding (`messageCall_call_storageAt`, `child_run`, `callerResult`, `callerResult_success`, `childResult_success`, and the orphan `messageCall_child_reflexive`) are **deleted** — `ExternalCall.lean` −204 lines. There is now **one** proof of the caller-storage fact, the compositional one. (Finding #3 / §7.3 resolved.)
+- The reusable bricks the compositional proof consumes (`childGas`, `final_obs`, `call_counterexample`, the child-run machinery) are kept; stale docstrings naming the deleted monolith are updated.
+- Linter cleanup landed alongside (§6.4 minor smells): zero-warning `lake build`.
+
+Validation: `lake build` green (1127 jobs); `#print axioms` on `messageCall_call_runs`, `messageCall_callerProg_storageAt`, `ConcreteSpecs.messageCall_call_storageAt`, `call_counterexample`, `messageCall_never_outOfFuel` all = `[propext, Classical.choice, Quot.sound]`.
+
+**Still open (Phase 4, not in these commits):** the stale `results.md`/`handoff.md` `#print axioms`/job-count evidence above, and regenerating the full `review-report.md` via the `lean-review-report` subagent to reflect the now-retired monolith.
