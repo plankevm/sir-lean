@@ -524,9 +524,6 @@ theorem dispatch_neverHalts {op : Operation} {arg : Option (UInt256 × UInt8)} {
         | (apply neverHalts_optionBind; rintro ⟨s, a, b, c⟩ _
            apply neverHalts_memChargeBind; intro ec; apply neverHalts_chargeBind; intro ec2 _
            exact neverHalts_continueWith _)
-        | (apply neverHalts_optionBind; rintro ⟨s, a, b, c, d⟩ _
-           apply neverHalts_memChargeBind; intro ec; apply neverHalts_chargeBind; intro ec2 _
-           exact neverHalts_continueWith _)
         | (apply neverHalts_optionBind; rintro ⟨s, a, b, c⟩ _ hl he
            revert he; dsimp only; split
            · intro he; simp [bind, Except.bind] at he

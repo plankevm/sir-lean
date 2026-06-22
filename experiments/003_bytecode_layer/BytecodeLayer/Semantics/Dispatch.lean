@@ -319,14 +319,12 @@ theorem unStateOp_onlyNext {f : Evm.State → UInt256 → Evm.State × UInt256}
   rw [unStateOp]; apply onlyNext_optionBind; rintro ⟨s, a⟩ _
   apply onlyNext_chargeBind; intro ec _; exact onlyNext_continueWith _
 theorem dup_onlyNext {n : ℕ} {exec : ExecutionState} : onlyNext (dup n exec) := by
-  rw [dup]; apply onlyNext_chargeBind; intro ec _
-  intro sig he
+  rw [dup]; apply onlyNext_chargeBind; intro ec _ sig he
   cases hg : ec.stack[n-1]? with
   | none => rw [hg] at he; simp [throw, throwThe, MonadExceptOf.throw] at he
   | some v => rw [hg] at he; simp only [continueWith, Except.ok.injEq] at he; exact ⟨_, he.symm⟩
 theorem swap_onlyNext {n : ℕ} {exec : ExecutionState} : onlyNext (swap n exec) := by
-  rw [swap]; apply onlyNext_chargeBind; intro ec _
-  intro sig he
+  rw [swap]; apply onlyNext_chargeBind; intro ec _ sig he
   by_cases hg : List.length (ec.stack.take (n + 1)) = (n + 1)
   · rw [if_pos hg] at he; simp only [continueWith, Except.ok.injEq] at he; exact ⟨_, he.symm⟩
   · rw [if_neg hg] at he; simp [throw, throwThe, MonadExceptOf.throw] at he
@@ -429,9 +427,6 @@ theorem dispatch_onlyNext {op : Operation} {arg : Option (UInt256 × UInt8)} {fr
       first
         | exact pushOp_onlyNext | exact unStateOp_onlyNext
         | (apply onlyNext_optionBind; rintro ⟨s, a, b, c⟩ _
-           apply onlyNext_memChargeBind; intro ec; apply onlyNext_chargeBind; intro ec2 _
-           exact onlyNext_continueWith _)
-        | (apply onlyNext_optionBind; rintro ⟨s, a, b, c, d⟩ _
            apply onlyNext_memChargeBind; intro ec; apply onlyNext_chargeBind; intro ec2 _
            exact onlyNext_continueWith _)
         | (apply onlyNext_optionBind; rintro ⟨s, a, b, c⟩ _ sig he

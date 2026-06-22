@@ -111,19 +111,19 @@ def DescentDrops : Prop :=
       (∃ s, (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (Operation.STOP, .none)).1 = .System s) →
       totalGas stack (.inl { fr with exec := exec' }) < totalGas stack (.inl fr))
   ∧ -- (4) needsCall descent into a child
-  (∀ (fr : Frame) (params : CallParams) (pending : PendingCall) (child : Frame) (stack : List Pending),
+  (∀ (fr : Frame) (params : CallParams) (pending : PendingCall) (child : Frame) (_stack : List Pending),
       stepFrame fr = .needsCall params pending → beginCall params = .inl child →
       activeGas (.inl child) + Pending.savedGas (.call pending) + 2 ≤ activeGas (.inl fr))
   ∧ -- (5a) needsCall precompile (immediate result)
-  (∀ (fr : Frame) (params : CallParams) (pending : PendingCall) (result : CallResult) (stack : List Pending),
+  (∀ (fr : Frame) (params : CallParams) (pending : PendingCall) (result : CallResult) (_stack : List Pending),
       stepFrame fr = .needsCall params pending → beginCall params = .inr result →
       FrameResult.gasRemaining (.call result) + Pending.savedGas (.call pending) + 2 ≤ activeGas (.inl fr))
   ∧ -- (4') needsCreate descent into a child
-  (∀ (fr : Frame) (params : CreateParams) (pending : PendingCreate) (child : Frame) (stack : List Pending),
+  (∀ (fr : Frame) (params : CreateParams) (pending : PendingCreate) (child : Frame) (_stack : List Pending),
       stepFrame fr = .needsCreate params pending → beginCreate params = .ok child →
       activeGas (.inl child) + Pending.savedGas (.create pending) + 2 ≤ activeGas (.inl fr))
   ∧ -- (5b) needsCreate failure (zeroed result)
-  (∀ (fr : Frame) (params : CreateParams) (pending : PendingCreate) (stack : List Pending),
+  (∀ (fr : Frame) (params : CreateParams) (pending : PendingCreate) (_stack : List Pending),
       stepFrame fr = .needsCreate params pending →
       Pending.savedGas (.create pending) + 2 ≤ activeGas (.inl fr))
 
