@@ -21,7 +21,7 @@ precondition could constrain. So `World := CallParams`, and a precondition is a
 `Behaves pre code post` says: for **every** entry `p` running `code`
 (`p.codeSource = .Code code`) whose world satisfies `pre p`, the named outcome of
 `messageCall p` satisfies `post`. The **gas-respecting** hypothesis is *part of*
-`pre`: e.g. the call rule `behaves_call` supplies a `∃G₀`-style gas floor. Gas is
+`pre`: e.g. the external-call rule supplies a `∃G₀`-style gas floor. Gas is
 never erased — it appears, visibly, in the `pre` the caller must discharge. Because
 the conclusion ranges over `Outcome`, a `post` may legitimately *require* `completed`
 (no top-level exception).

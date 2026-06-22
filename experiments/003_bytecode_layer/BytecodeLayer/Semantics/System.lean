@@ -104,7 +104,6 @@ def callPending (fr : Frame) (toAddr gasv : UInt256) : PendingCall :=
     outOffset := UInt256.toUInt64 0
     outSize := UInt256.toUInt64 0 }
 
-set_option maxHeartbeats 4000000 in
 -- `hsz`/`hmod` are part of the documented CALL premise set (stack non-overflow,
 -- state-modifying context) but are vacuous for the exact 7-element, value-0 shape,
 -- so they go unused in the proof; kept in the signature for faithfulness.

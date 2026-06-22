@@ -1,5 +1,5 @@
 import BytecodeLayer.Hoare
-import BytecodeLayer.Hoare.Straightline
+import BytecodeLayer.Hoare.OutcomeBridge
 import BytecodeLayer.Semantics.UInt256
 import BytecodeLayer.Examples.ProgramDecode
 import BytecodeLayer.Hoare.Sequence
@@ -37,7 +37,6 @@ set_option maxRecDepth 4000
 
 /-! ## STOP — a zero-step block (halts on the first instruction) -/
 
-set_option maxHeartbeats 1000000 in
 /-- **STOP, observe-form.** `stopProgram` halts immediately: `Runs 0` (`Runs.refl`
 on the initial code frame), crossed by `messageCall_runs` with `n = 0`, the halt
 supplied by `stepFrame_stop`. -/
@@ -53,7 +52,6 @@ theorem messageCall_stop_observe' (p : CallParams) (hc : p.codeSource = .Code st
 
 /-! ## PUSH1 5 ; STOP — a one-step block (`runs_push1` then halt) -/
 
-set_option maxHeartbeats 1000000 in
 /-- **PUSH1 ; STOP, observe-form.** One `runs_push1` (the `Runs 1` block), then the
 `STOP` halt; `n = 1` at the boundary. -/
 theorem messageCall_pushStop_observe' (p : CallParams)
@@ -84,7 +82,6 @@ private theorem sstore_self_present (g : UInt64) :
         (codeFrame (paramsSStore g) sstoreProgram).exec.executionEnv.address
       = some (sstoreSelfAcc g) := by rfl
 
-set_option maxHeartbeats 4000000 in
 /-- The composed `Runs 3` for `sstoreProgram`: push 5, push 7, sstore. -/
 private theorem sstore_runs (g : UInt64) (hg : 22106 ≤ g.toNat) :
     Runs 3 (codeFrame (paramsSStore g) sstoreProgram)
@@ -120,7 +117,6 @@ private theorem sstore_runs (g : UInt64) (hg : 22106 ≤ g.toNat) :
         - UInt64.ofNat Gverylow).toNat
     rw [hg2]; omega
 
-set_option maxHeartbeats 4000000 in
 /-- `messageCall` of `sstoreProgram` equals the success result of the composed run's
 final frame, via `messageCall_runs` (`n = 3`). -/
 private theorem sstore_messageCall (g : UInt64) (hg : 22106 ≤ g.toNat) :
@@ -137,7 +133,6 @@ private theorem sstore_messageCall (g : UInt64) (hg : 22106 ≤ g.toNat) :
     (stepFrame_stop _ decode_sstore_5 (by show (0:ℕ) ≤ 1024; omega))
     (by show (3:ℕ) + 2 ≤ seedFuel g; unfold seedFuel; omega)
 
-set_option maxHeartbeats 4000000 in
 /-- **SSTORE, observe + storage form.** Reads the success/empty observable and the
 *derived* `5` at cell `(addrA, 7)` off the composed run — the value enters as the
 `runs_sstore` operand, never as a frame literal. -/
@@ -178,7 +173,6 @@ private theorem seq_self_present (g : UInt64) :
     (sq0 g).exec.accounts.find? (sq0 g).exec.executionEnv.address = some ((sq0 g).exec.accounts.find! addrA) := by
   rfl
 
-set_option maxHeartbeats 16000000 in
 /-- The composed `Runs 6` for `seqProgram`. -/
 private theorem seq_runs (g : UInt64) (hg : 44212 ≤ g.toNat) : Runs 6 (sq0 g) (sq6 g) := by
   have gv : GasConstants.Gverylow = 3 := rfl
@@ -233,7 +227,6 @@ private theorem seq_runs (g : UInt64) (hg : 44212 ≤ g.toNat) : Runs 6 (sq0 g) 
         e5, toNat_subCharges g [3, 3, 22100, 3, 3] (by simp; omega)]
     show (22100:ℕ) ≤ g.toNat - (3 + (3 + (22100 + (3 + (3 + 0))))); omega
 
-set_option maxHeartbeats 16000000 in
 private theorem seq_messageCall (g : UInt64) (hg : 44212 ≤ g.toNat) :
     messageCall (paramsSeq g)
       = .ok (FrameResult.toCallResult (endFrame (sq6 g)
@@ -244,7 +237,6 @@ private theorem seq_messageCall (g : UInt64) (hg : 44212 ≤ g.toNat) :
     (stepFrame_stop _ decode_seq_10 (by show (0:ℕ) ≤ 1024; omega))
     (by show (6:ℕ) + 2 ≤ seedFuel g; unfold seedFuel; omega)
 
-set_option maxHeartbeats 16000000 in
 /-- **Seq, observe + two storage cells.** Reads the success observable and the two
 *derived* cells `(addrA, 7) ↦ 5`, `(addrA, 9) ↦ 11` off the composed run. The
 second `SSTORE`'s framing leaves cell `7` intact (slot `9 ≠ 7`). -/

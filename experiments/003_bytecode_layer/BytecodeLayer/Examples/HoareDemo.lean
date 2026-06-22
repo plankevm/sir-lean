@@ -47,7 +47,6 @@ private theorem self_present (g : UInt64) :
     (fr₀ g).exec.accounts.find? (fr₀ g).exec.executionEnv.address = some (selfAcc g) := by
   rw [self_addr]; rfl
 
-set_option maxHeartbeats 1000000 in
 /-- **The composed run.** From the initial frame, `Runs 3` to the post-SSTORE
 frame `last`, built by `Runs.trans` of the three opcode rules. The value `5` and
 slot `7` enter only as the `runs_sstore` operands; the intermediate frames live
@@ -84,7 +83,6 @@ private theorem sstore_runs (g : UInt64) (hg : 22106 ≤ g.toNat) :
     show (22100:ℕ) ≤ ((pushFrame (fr₀ g) 5).exec.gasAvailable - UInt64.ofNat Gverylow).toNat
     rw [hg2]; omega
 
-set_option maxHeartbeats 1000000 in
 /-- The post-SSTORE frame halts on `STOP` (pc 5) with empty output. -/
 private theorem sstore_halt (g : UInt64) :
     stepFrame (sstoreFrame (pushFrame (pushFrame (fr₀ g) 5) 7) 7 5 (fr₀ g).exec.stack)
@@ -92,7 +90,6 @@ private theorem sstore_halt (g : UInt64) :
           (sstoreFrame (pushFrame (pushFrame (fr₀ g) 5) 7) 7 5 (fr₀ g).exec.stack).exec .empty) :=
   stepFrame_stop _ decode_sstore_5 (by show (0:ℕ) ≤ 1024; omega)
 
-set_option maxHeartbeats 1000000 in
 /-- `messageCall` of `sstoreProgram` equals the success result of the composed
 run's final frame — derived through `messageCall_runs`, with the fuel obligation
 `3 + 2 ≤ seedFuel g` discharged from the gas. -/
@@ -139,7 +136,6 @@ private theorem demo_frame (g : UInt64) :
     (selfAcc g) (step_self_present g) (by decide) addrA 8 (Or.inr (by decide))]
   rfl
 
-set_option maxHeartbeats 1000000 in
 /-- The success outcome of the message call decodes to `completed`, with its
 queryable storage being `storageAt (demoResult g)`. -/
 private theorem demo_outcome (g : UInt64) (hg : 22106 ≤ g.toNat) :
@@ -150,7 +146,6 @@ private theorem demo_outcome (g : UInt64) (hg : 22106 ≤ g.toNat) :
   rw [Outcome.ofResult, if_pos (show (demoResult g).success = true from rfl)]
   rfl
 
-set_option maxHeartbeats 1000000 in
 /-- **The demonstration theorem.** Running `sstoreProgram` at `addrA` (under its
 exact gas cost) completes leaving `5` at cell `(addrA, 7)` — the `5` **derived**
 by composing `runs_push1`/`runs_sstore`, not assumed — **and** leaves cell

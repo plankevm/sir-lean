@@ -238,7 +238,6 @@ theorem childStored_storage :
 theorem childResult_success (g : UInt64) : (childResult g).success = true := by
   unfold childResult endCall; dsimp only
 
-set_option maxHeartbeats 400000000 in
 /-- **The child run, reflexively.** Starting from the real `childFrame g`
 (`= beginCall (callChildParams …)`), the genuine driver runs the callee
 `PUSH;PUSH;SSTORE;STOP` and delivers `childResult g` to the suspended parent `pd`,
@@ -330,7 +329,6 @@ theorem callerResult_success (g : UInt64) : (callerResult g).success = true := b
   unfold callerResult endFrame
   rw [resumed_kind]; dsimp only [FrameResult.toCallResult]; unfold endCall; dsimp only
 
-set_option maxHeartbeats 800000000 in
 /-- **The top-level run pinned to its `CallResult`.** For `g ≥ 30000`, the whole
 message call into the caller equals `.ok (callerResult g)` — the caller forwards a
 real `CALL` to the callee, the child commits, and the caller `STOP`s carrying the
@@ -424,7 +422,6 @@ rolled back, the caller is handed flag `0` and `STOP`s cleanly. -/
 reverting to the pre-call checkpoint (`callerXfer`), `success = false`. -/
 def childResultFail : CallResult := endCall ⟨∅, callerXfer, childCkptSubstate⟩ (.exception .OutOfGas)
 
-set_option maxHeartbeats 200000000 in
 /-- **The starved child run.** When the 63/64-capped `childGas` clears the stipend
 gate but cannot pay the `SSTORE` (`childGas - 6 < 22100`), the real child run
 out-of-gases at the `SSTORE`; `endCall` reverts to the checkpoint and the parent
@@ -490,7 +487,6 @@ theorem final_obs_fail (g : UInt64) :
   simp only [callerXfer_ne]
   exact callerXfer_storage
 
-set_option maxHeartbeats 800000000 in
 theorem call_counterexample :
     (messageCall (callerParams 24000)).map (fun r => CallResult.storageAt r addrCallee 7) = .ok 0 := by
   have hstip : 2306 < childGas 24000 := by unfold childGas; decide
@@ -548,7 +544,6 @@ theorem call_counterexample :
 The child call inside `messageCall_call_storageAt` is run by the real
 `beginCall`/`drive` on `callChildParams …` — the same operations `messageCall`
 performs. This lemma makes that explicit. -/
-set_option maxHeartbeats 400000000 in
 theorem messageCall_child_reflexive (g : UInt64) (hg : 30000 ≤ g.toNat) :
     (messageCall (callChildParams (callerCalled g) 13242862 4294967295)).map
       (fun r => (r.success, CallResult.storageAt r addrCallee 7)) = .ok (true, 5) := by

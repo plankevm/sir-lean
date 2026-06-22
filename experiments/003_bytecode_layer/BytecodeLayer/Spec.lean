@@ -1,166 +1,190 @@
 import BytecodeLayer.Programs
 import BytecodeLayer.Observables
+import BytecodeLayer.Hoare
 import BytecodeLayer.Hoare.Behaves
 import BytecodeLayer.Hoare.Sequence
-import BytecodeLayer.ExternalCall
-import BytecodeLayer.ExternalCallGen
-import BytecodeLayer.Hoare.Straightline
-import BytecodeLayer.Examples.ProgramExamples
+import BytecodeLayer.Hoare.OutcomeBridge
+import BytecodeLayer.Hoare.CallSequence
+import BytecodeLayer.Examples.ConcreteSpecs
 
 /-!
 # Spec — the audit surface of experiment 003
 
-**This is the file to read.** Each theorem states the result of running one of
-the example programs from `Programs.lean` as a `messageCall`, observed through
-`Observables.lean` (`success`/`output`, and chosen storage cells). No `Frame`,
-pc, stack, gas counter, or fuel appears in any statement.
+**This is the file to read.** It collects the *general*, program-agnostic results
+of the formalization: the program-logic rules a user composes to verify their own
+bytecode, and the sound external-CALL sequencing rule. Each is re-exported here
+with a high-level docstring; the proofs live in `Hoare/`.
 
-Scope note: these are results about **specific handwritten programs**, not yet
-general statements over all programs. The reusable, program-agnostic content is
-the engine in `Semantics/`; these theorems are worked examples that exercise it.
+Scope note: the per-program storage/observable results (`stopProgram` …
+`callerProg`) are **worked examples** that exercise these rules, not general specs;
+they now live in `Examples/ConcreteSpecs.lean`, off this surface.
 
-The proofs live in `Examples/`, `ExternalCall(Gen).lean`, and the `Hoare/` layer,
-out of sight: each theorem delegates to a lemma of the same name in
-`BytecodeLayer.Examples` / `BytecodeLayer.ExternalCall`. Every theorem's
-`#print axioms` is `[propext, Classical.choice, Quot.sound]`.
-
-Two groups:
-* **Call-free programs** (`stopProgram` … `seqProgram`): the success/output and
-  storage left by straight-line bytecode; gas appears only as the program's exact
-  cost, stated as a plain `≤` hypothesis.
-* **External call** (`callerParams`): a program that `CALL`s another contract.
-  Here gas becomes genuinely observable (the 63/64 cap), so the storage result
-  holds only above a gas floor — `messageCall_call_storageAt` states the floor and
-  `call_counterexample` proves it cannot be dropped.
+Altitude caveat (flagged for the lead): the program-logic rules below are
+**frame-level** — they mention `Runs`/`Frame`/`stepFrame`, not pure observables.
+This is in tension with the experiment's "observables-only exported surface"
+standard. They are surfaced here because they *are* the reusable theorems a user
+instantiates; the only fully observable-level export is
+`messageCall_call_completedWith`. To reconcile.
 -/
 
 namespace BytecodeLayer
 open Evm
+open GasConstants
 open BytecodeLayer.Hoare
+open BytecodeLayer.Dispatch
+open BytecodeLayer.Interpreter
 
-/-! ## M1 — the call-free spine -/
+/-! ## Program-logic rules (general over all programs)
 
-/-- A message call into the single-`STOP` program (`stopProgram`) succeeds with
-empty output, for *any* call parameters whose code is `stopProgram` — no gas floor
-required (STOP charges nothing). Stated purely in observables. -/
-theorem messageCall_stop_observe (p : CallParams) (hc : p.codeSource = .Code stopProgram) :
-    (messageCall p).map CallResult.observe = .ok Observables.ok :=
-  Examples.messageCall_stop_observe' p hc
+The reusable bricks for verifying a straight-line block: a sequencing rule, the
+per-opcode `Runs` rules, and the bridge that crosses the `messageCall` boundary.
+A user instantiates these on their own bytecode (see `Examples/` for worked
+instantiations). They are general over every program; only the *premises*
+(decode, gas, stack shape) pin them to a concrete program. -/
 
-/-- A message call into `PUSH1 0x05 ; STOP` (`pushStopProgram`) succeeds with empty
-output for every `p` with `3 ≤ p.gas` — the program's exact gas cost, stated as a
-plain hypothesis rather than an `∃G₀`. -/
-theorem messageCall_pushStop_observe (p : CallParams)
-    (hc : p.codeSource = .Code pushStopProgram) (hg : 3 ≤ p.gas.toNat) :
-    (messageCall p).map CallResult.observe = .ok Observables.ok :=
-  Examples.messageCall_pushStop_observe' p hc hg
+/-- **The sequencing rule.** Compose a block `fr → mid` (`m` steps) with the block
+that follows it `mid → fr'` (`n` steps) into one block `fr → fr'` (`m + n` steps).
+A program's `Runs` is built by gluing the per-opcode `Runs` rules with this, never
+by exhibiting an execution trace. -/
+theorem Runs.trans {m n : ℕ} {fr mid fr' : Frame}
+    (h₁ : Runs m fr mid) (h₂ : Runs n mid fr') : Runs (m + n) fr fr' :=
+  Hoare.Runs.trans h₁ h₂
 
-/-- **First persistent effect.** A message call into `PUSH1 5 ; PUSH1 7 ; SSTORE ;
-STOP` (`sstoreProgram`) in `addrA` succeeds and leaves `addrA`'s storage cell `7`
-holding `5`, for every `g` with `22106 ≤ g` (`= 3 + 3 + 22100`, the cold
-first-write SSTORE cost). Observables-only. -/
-theorem messageCall_sstore_storageAt (g : UInt64) (hg : 22106 ≤ g.toNat) :
-    (messageCall (paramsSStore g)).map
-      (fun r => (CallResult.observe r, CallResult.storageAt r addrA 7))
-    = .ok (Observables.ok, 5) :=
-  Examples.messageCall_sstore_storageAt' g hg
+/-- **The `messageCall` boundary bridge.** A code call whose entry frame `fr₀`
+(`beginCall p = .inl fr₀`) `Runs` to a frame that halts yields the caller's halt
+result as `messageCall p`, under the numeric fuel bound `n + 2 ≤ seedFuel p.gas`.
+From here up, statements are observable-only. -/
+theorem messageCall_runs {n : ℕ} (p : CallParams) (fr₀ last : Frame)
+    (hbegin : beginCall p = .inl fr₀)
+    (h : Runs n fr₀ last)
+    (halt : FrameHalt) (hhalt : stepFrame last = Signal.halted halt)
+    (hfuel : n + 2 ≤ seedFuel p.gas) :
+    messageCall p = .ok (FrameResult.toCallResult (endFrame last halt)) :=
+  Hoare.messageCall_runs p fr₀ last hbegin h halt hhalt hfuel
 
-/-- **A sequence of charging instructions.** A message call into
-`PUSH;PUSH;SSTORE;PUSH;PUSH;SSTORE;STOP` (`seqProgram`) in `addrA` leaves cell `7`
-holding `5` and cell `9` holding `11`, for every `g` with `44212 ≤ g`
-(`= 2 × 22106`). Two distinct storage observables off one run. -/
-theorem messageCall_seq_storageAt (g : UInt64) (hg : 44212 ≤ g.toNat) :
-    (messageCall (paramsSeq g)).map
-      (fun r => (CallResult.observe r,
-                 CallResult.storageAt r addrA 7, CallResult.storageAt r addrA 9))
-    = .ok (Observables.ok, 5, 11) :=
-  Examples.messageCall_seq_storageAt' g hg
+/-- **The PUSH1 rule.** From a frame decoding to `PUSH1 imm` with gas and stack
+room, one step `Runs` to `pushFrame fr imm` (`imm` pushed, pc + 2, `Gverylow`
+charged). -/
+theorem runs_push1 (fr : Frame) (imm : UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Push .PUSH1, some (imm, 1)))
+    (hgas : 3 ≤ fr.exec.gasAvailable.toNat)
+    (hstk : fr.exec.stack.size + 1 ≤ 1024) :
+    Runs 1 fr (pushFrame fr imm) :=
+  Hoare.runs_push1 fr imm hdec hgas hstk
 
-/-! ## External call
+/-- **The general PUSH rule (any width).** From a frame decoding to `PUSH<w> imm`
+(any push opcode other than `PUSH0`) with gas and stack room, one step `Runs` to
+`pushFrameW fr imm w` (`imm` pushed, pc + `w+1`, `Gverylow` charged). Covers the
+multi-byte gas/address pushes (PUSH3, PUSH4, …) that `runs_push1` cannot. -/
+theorem runs_push (fr : Frame) (op : Operation.PushOp) (imm : UInt256) (w : UInt8)
+    (hp0 : op ≠ .PUSH0)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Push op, some (imm, w)))
+    (hpop : stackPopCount (.Push op) = 0)
+    (hpush : stackPushCount (.Push op) = 1)
+    (hgas : 3 ≤ fr.exec.gasAvailable.toNat)
+    (hstk : fr.exec.stack.size + 1 ≤ 1024) :
+    Runs 1 fr (pushFrameW fr imm w) :=
+  Hoare.runs_push fr op imm w hp0 hdec hpop hpush hgas hstk
 
-`callerParams` runs `callerProg`, which `CALL`s `calleeProg` (living at
-`addrCallee`). `calleeProg` is `PUSH1 5 ; PUSH1 7 ; SSTORE ; STOP` — it writes the
-value `5` to its own storage slot `7` (the slot and value are arbitrary choices of
-this example program; we observe slot `7` precisely because that is where this
-callee writes). The observable is that cell, `storageAt addrCallee 7`, read off the
-caller's returned account map.
+/-- **The SSTORE rule (effect).** From a frame decoding to `SSTORE` with
+`key :: newValue :: rest` on the stack, in a state-modifying context with enough
+gas, one step `Runs` to `sstoreFrame fr key newValue rest`. The framing of this
+write is `sstoreFrame_storage_self` / `sstoreFrame_storage_frame`. -/
+theorem runs_sstore (fr : Frame) (key newValue : UInt256) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .SSTORE, .none))
+    (hstk : fr.exec.stack = key :: newValue :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hmod : fr.exec.executionEnv.canModifyState = true)
+    (hstip : ¬ fr.exec.gasAvailable.toNat ≤ GasConstants.Gcallstipend)
+    (hcost : sstoreChargeOf fr.exec key newValue ≤ fr.exec.gasAvailable.toNat) :
+    Runs 1 fr (sstoreFrame fr key newValue rest) :=
+  Hoare.runs_sstore fr key newValue rest hdec hstk hsz hmod hstip hcost
 
-The sub-call is run for real (leanevm's own `beginCall`/`drive` on the callee's
-actual code — no oracle, no assumption), so these theorems are about a genuine
-nested execution.
--/
+/-- **SSTORE effect.** After `sstoreFrame` (writing a *non-zero* `newValue`),
+reading the self account's storage at `key` returns `newValue`. -/
+theorem sstoreFrame_storage_self (fr : Frame) (key newValue : UInt256) (rest : Stack UInt256)
+    (acc : Account)
+    (hself : fr.exec.accounts.find? fr.exec.executionEnv.address = some acc)
+    (hnz : newValue ≠ 0) :
+    ((sstoreFrame fr key newValue rest).exec.accounts.find? fr.exec.executionEnv.address
+      |>.option 0 (·.lookupStorage key)) = newValue :=
+  Hoare.sstoreFrame_storage_self fr key newValue rest acc hself hnz
 
-/-- **The `∃G₀` external-call theorem.** There is a gas floor `G₀` such that for
-every `g ≥ G₀`, the top-level message call into the caller (which forwards a real
-`CALL` to the callee) leaves the callee's storage cell `(addrCallee, 7)` holding
-`5`: with enough gas, the child clears the 63/64 `callGasCap`, its `SSTORE`
-commits.
+/-- **SSTORE framing.** After `sstoreFrame`, reading **any other** cell `(a', k')`
+— a different account, or the same account at a different slot — returns exactly
+what `fr` held there: the write touches only `(self, key)`. -/
+theorem sstoreFrame_storage_frame (fr : Frame) (key newValue : UInt256) (rest : Stack UInt256)
+    (acc : Account)
+    (hself : fr.exec.accounts.find? fr.exec.executionEnv.address = some acc)
+    (hnz : newValue ≠ 0)
+    (a' : AccountAddress) (k' : UInt256)
+    (hframe : a' ≠ fr.exec.executionEnv.address ∨ k' ≠ key) :
+    ((sstoreFrame fr key newValue rest).exec.accounts.find? a' |>.option 0 (·.lookupStorage k'))
+      = (fr.exec.accounts.find? a' |>.option 0 (·.lookupStorage k')) :=
+  Hoare.sstoreFrame_storage_frame fr key newValue rest acc hself hnz a' k' hframe
 
-This is now re-derived as an **instance of the general rung-2 theorem**
-`behaves_call` (below): the callee `calleeProg` is supplied through its own
-`Behaves`, and the caller through a `CallerForwards` witness; the general theorem
-produces the `∃G₀` `Behaves`, which is specialized back to the fixed
-`callerParams g` world here. The `∃G₀` is *forced*, not cosmetic — see
-`call_counterexample`. -/
-theorem messageCall_call_storageAt :
-    ∃ G₀ : ℕ, ∀ g : UInt64, G₀ ≤ g.toNat →
-      (messageCall (callerParams g)).map (fun r => CallResult.storageAt r addrCallee 7) = .ok 5 :=
-  ExternalCall.messageCall_call_storageAt_via_behaves_call
+/-! ## The general external-call rule (over both caller and callee programs)
 
-/-- **The executable counterexample that forces the `∃G₀`.** At the modest gas
-`g = 24000`, the *same* observable is `0`: the 63/64 cap starves the callee
-(`childGas 24000 = 21045 < 22106`), its `SSTORE` out-of-gases and rolls back —
-**yet the top-level call still completes cleanly** (the caller is handed flag `0`
-and `STOP`s, no top-level `OutOfGas`). Read against `messageCall_call_storageAt`,
-this shows no gas-floor-free statement ("completes ⇒ cell is 5") can hold. -/
-theorem call_counterexample :
-    (messageCall (callerParams 24000)).map (fun r => CallResult.storageAt r addrCallee 7) = .ok 0 :=
-  ExternalCall.call_counterexample
+The sound, program-agnostic external-call sequencing rule. It is **general over
+both the caller and the callee program**, and unlike a forwarding hypothesis it
+assumes nothing about the conclusion:
 
-/-! **Reflexivity is intrinsic here, not a separate axiom.** `messageCall_call_storageAt`
-already runs the child through the genuine `beginCall`/`drive` (no oracle
-hypothesis), so its truth *is* the statement that the sub-call is a real message
-call. The standalone witness that the exact CALL-produced child params, run on
-their own, commit `5` is `ExternalCall.messageCall_child_reflexive` — it is kept in the
-proof layer because its statement necessarily names the internal caller frame
-(`ExternalCall.callerCalled`), which has no place on the frame-free audit surface. -/
+* the **callee is consumed as a black-box terminating run** — any `drive` of the
+  child params to `.ok childRes`, no oracle on what it computes;
+* the **caller is described by its actual `Runs` traces** through the CALL: an
+  honest prefix run `fr₀ ⇝ callFr` to the CALL site, the CALL step itself, and a
+  suffix run from the resumed frame to a halt site — structural facts about how the
+  caller bytecode executes, *not* an assumed forwarding of the child's observable;
+* gas stays first-class through the single numeric side condition
+  `seedFuel cp.gas + n₁ + 1 ≤ seedFuel p.gas`.
 
-/-! ## Rung 2 — the general external-call theorem (general, over both programs)
+`messageCall_call_runs` lands the raw `messageCall p = .ok (… endFrame last halt)`;
+`messageCall_call_completedWith` lifts it to the named `Outcome.completedWith`.
+A worked instantiation on `callerProg`/`calleeProg` is
+`Examples.messageCall_callerProg_storageAt`. -/
 
-The external call generalized over **both** programs. For ANY callee characterized
-by its **own** `Behaves` (under a callee precondition `calleePre`), a caller that
-forwards a `CALL` to it `Behaves` with the **same** `completedWith a k v` named
-outcome, above a gas floor `G₀` — the floor being exactly the `∃G₀` the 63/64
-`callGasCap` forces. The callee is a black box (consumed only through its
-`Behaves`); the caller supplies a per-entry `CallerForwards` witness packaging the
-caller-specific facts the engine cannot know generically (which child params the
-`CALL` produces, that they run `calleeCode` and clear `calleePre`, and that a
-completed child's cell is forwarded to the top level).
+/-- **The general external-CALL sequencing rule.** Re-exported from
+`BytecodeLayer.Hoare.CallSequence`. A caller that `Runs` from its entry frame to a
+CALL site, issues a CALL whose child terminates (black box), then `Runs` from the
+resumed frame to a halt site, produces the caller's halt result as `messageCall p`.
+General over both programs; no assumed forwarding — see the section note. -/
+theorem messageCall_call_runs {n₁ n₂ : ℕ}
+    (p cp : CallParams) (fr₀ callFr child last : Frame)
+    (childRes : FrameResult) (pending : PendingCall) (halt : FrameHalt)
+    (hbegin   : beginCall p = .inl fr₀)
+    (hpre     : Runs n₁ fr₀ callFr)
+    (hcall    : stepFrame callFr = .needsCall cp pending)
+    (hcbegin  : beginCall cp = .inl child)
+    (hchild   : drive (seedFuel cp.gas) [] (.inl child) = .ok childRes)
+    (hpost    : Runs n₂ (resumeAfterCall childRes.toCallResult pending) last)
+    (hhalt    : stepFrame last = .halted halt)
+    (hfuel    : seedFuel cp.gas + n₁ + 1 ≤ seedFuel p.gas) :
+    messageCall p = .ok (FrameResult.toCallResult (endFrame last halt)) :=
+  Hoare.messageCall_call_runs p cp fr₀ callFr child last childRes pending halt
+    hbegin hpre hcall hcbegin hchild hpost hhalt hfuel
 
-Honest-statement note: `Behaves` quantifies over **all** worlds running
-`callerCode`, but a caller only forwards to *this* callee when the world actually
-places `calleeCode` at the called address; in an adversarial world the call fails
-and the cell is untouched. So the theorem carries a **caller precondition**
-`callerPre` (conjoined with the gas floor) that pins the world enough for
-forwarding to hold — gas stays first-class, the world constraint is visible, never
-swept away. The concrete `messageCall_call_storageAt` above is the instance with
-`callerPre := ∃ g, p = callerParams g`. -/
-
-/-- **Rung 2: `behaves_call`.** For any callee given by its own
-`Behaves calleePre calleeCode (completedWith … a k v)`, any caller with a per-entry
-`CallerForwards` witness `Behaves` with the **same** `completedWith a k v`, above
-the gas floor `G₀`. The callee `Behaves` is a genuine hypothesis (black-box), the
-`∃G₀` is the 63/64 `callGasCap` floor carried in `pre`, and the conclusion is the
-named `Outcome` — never a raw `.ok`. -/
-theorem behaves_call
-    (callerCode calleeCode : ByteArray)
-    (callerPre calleePre : World → Prop)
-    (a : AccountAddress) (k v : UInt256) (G₀ : ℕ)
-    (hcallee : Behaves calleePre calleeCode (fun o => Outcome.completedWith o a k v))
-    (W : ∀ p : World, p.codeSource = .Code callerCode → callerPre p → G₀ ≤ p.gas.toNat →
-        ExternalCall.CallerForwards calleeCode calleePre a k v p) :
-    Behaves (fun p => callerPre p ∧ G₀ ≤ p.gas.toNat) callerCode
-      (fun o => Outcome.completedWith o a k v) :=
-  ExternalCall.behaves_call callerCode calleeCode callerPre calleePre a k v G₀ hcallee W
+/-- **The general external-CALL rule at the observable level.** Re-exported from
+`BytecodeLayer.Hoare.CallSequence`. The same honest hypotheses as
+`messageCall_call_runs`, plus the caller's halt result being a success leaving `v`
+at cell `(a, k)`, yield the named `Outcome.completedWith` on
+`Outcome.ofCall (messageCall p)`. This is the sound, general external-call rule for
+the spec surface — no assumed forwarding. -/
+theorem messageCall_call_completedWith {n₁ n₂ : ℕ}
+    (p cp : CallParams) (fr₀ callFr child last : Frame)
+    (childRes : FrameResult) (pending : PendingCall) (halt : FrameHalt)
+    (a : AccountAddress) (k v : UInt256)
+    (hbegin   : beginCall p = .inl fr₀)
+    (hpre     : Runs n₁ fr₀ callFr)
+    (hcall    : stepFrame callFr = .needsCall cp pending)
+    (hcbegin  : beginCall cp = .inl child)
+    (hchild   : drive (seedFuel cp.gas) [] (.inl child) = .ok childRes)
+    (hpost    : Runs n₂ (resumeAfterCall childRes.toCallResult pending) last)
+    (hhalt    : stepFrame last = .halted halt)
+    (hfuel    : seedFuel cp.gas + n₁ + 1 ≤ seedFuel p.gas)
+    (hsucc    : (FrameResult.toCallResult (endFrame last halt)).success = true)
+    (hcell    : CallResult.storageAt (FrameResult.toCallResult (endFrame last halt)) a k = v) :
+    Outcome.completedWith (Outcome.ofCall (messageCall p)) a k v :=
+  Hoare.messageCall_call_completedWith p cp fr₀ callFr child last childRes pending halt a k v
+    hbegin hpre hcall hcbegin hchild hpost hhalt hfuel hsucc hcell
 
 end BytecodeLayer

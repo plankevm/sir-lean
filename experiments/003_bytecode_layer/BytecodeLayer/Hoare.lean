@@ -163,6 +163,13 @@ def pushFrame (fr : Frame) (imm : UInt256) : Frame :=
       ({ fr.exec with gasAvailable := fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow }
         ).replaceStackAndIncrPC (fr.exec.stack.push imm) (pcΔ := 2) }
 
+/-- The frame after a generic `PUSH<w>`: `imm` pushed, pc + `w+1`, `Gverylow`
+charged. Generalizes `pushFrame` (which fixes `w = 1`) to the multi-byte pushes. -/
+def pushFrameW (fr : Frame) (imm : UInt256) (w : UInt8) : Frame :=
+  { fr with exec :=
+      ({ fr.exec with gasAvailable := fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow }
+        ).replaceStackAndIncrPC (fr.exec.stack.push imm) (pcΔ := w + 1) }
+
 /-- The frame after `SSTORE` writing `newValue` at `key` (operands popped off the
 top of the stack), via `sstorePost`. -/
 def sstoreFrame (fr : Frame) (key newValue : UInt256) (rest : Stack UInt256) : Frame :=
@@ -176,6 +183,20 @@ theorem runs_push1 (fr : Frame) (imm : UInt256)
     (hstk : fr.exec.stack.size + 1 ≤ 1024) :
     Runs 1 fr (pushFrame fr imm) :=
   Runs.single (stepsTo_of_next (stepFrame_push1 fr imm hdec hgas hstk))
+
+/-- **The general PUSH rule (any width).** From a frame decoding to `PUSH<w> imm`
+(any push opcode `op ≠ PUSH0`) with gas and stack room, one step `Runs` to
+`pushFrameW fr imm w`. Built from the general `stepFrame_push`; `runs_push1` is the
+`w = 1` special case. The caller supplies the pop/push counts (`δ = 0`, `α = 1`,
+shared by every PUSH). -/
+theorem runs_push (fr : Frame) (op : Operation.PushOp) (imm : UInt256) (w : UInt8)
+    (hp0 : op ≠ .PUSH0)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Push op, some (imm, w)))
+    (hpop : stackPopCount (.Push op) = 0) (hpush : stackPushCount (.Push op) = 1)
+    (hgas : 3 ≤ fr.exec.gasAvailable.toNat)
+    (hstk : fr.exec.stack.size + 1 ≤ 1024) :
+    Runs 1 fr (pushFrameW fr imm w) :=
+  Runs.single (stepsTo_of_next (stepFrame_push fr op imm w hp0 hdec hpop hpush hgas hstk))
 
 /-- **The SSTORE rule (effect).** From a frame decoding to `SSTORE` with
 `key :: newValue :: rest` on the stack, in a state-modifying context with enough

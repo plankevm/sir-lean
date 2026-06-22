@@ -37,7 +37,6 @@ theorem stepFrame_stop (fr : Frame)
   rw [if_neg (by decide), if_neg (by simpa using hstk)]
   rfl
 
-set_option maxHeartbeats 1000000 in
 /-- **PUSH1 imm pushes `imm` and advances pc by 2**, charging `Gverylow = 3`.
 The guards (`InvalidInstruction`, `StackOverflow`, `OutOfGas`) are discharged
 from the hypotheses `hgas`, `hstk`. -/
@@ -63,7 +62,6 @@ theorem stepFrame_push1 (fr : Frame) (imm : UInt256)
   rw [if_neg (by simp only [show GasConstants.Gverylow = 3 from rfl]; omega)]
   rfl
 
-set_option maxHeartbeats 1000000 in
 /-- **Generic `PUSH<w>` (w ≥ 1) pushes `imm` and advances pc by `w+1`**, charging
 `Gverylow = 3`. Works for any push width `p` other than `PUSH0` (they share the
 `.Push _` dispatch arm); the caller supplies the decode and the pop/push counts
@@ -125,7 +123,6 @@ def sstorePost (exec : ExecutionState) (key newValue : UInt256) (rest : Stack UI
   ExecutionState.replaceStackAndIncrPC
     { charged with toState := charged.toState.sstore key newValue } rest
 
-set_option maxHeartbeats 2000000 in
 /-- **SSTORE writes `newValue` at `key` and advances pc by 1**, charging the
 EIP-2200 store cost. The guards (`StaticModeViolation`, the `Gcallstipend` gate,
 `StackOverflow`, `OutOfGas`) are discharged from the hypotheses. -/
@@ -164,7 +161,6 @@ theorem stepFrame_sstore (fr : Frame) (key newValue : UInt256) (rest : Stack UIn
   dsimp only [sstorePost, sstoreChargeOf, Option.option]
   rfl
 
-set_option maxHeartbeats 2000000 in
 /-- **SSTORE out-of-gas.** With the stipend gate cleared but the store cost
 exceeding the remaining gas, `stepFrame` halts with an `OutOfGas` exception. This
 is the callee-starving step the external-call `∃G₀` counterexample turns on. -/
@@ -221,7 +217,6 @@ def returnEmptyPost (exec : ExecutionState) (rest : Stack UInt256) : ExecutionSt
               activeWords := MachineState.M charged.activeWords (0 : UInt256).toUInt64 (0 : UInt256).toUInt64 } }
     rest
 
-set_option maxHeartbeats 2000000 in
 /-- **RETURN with zero size halts successfully, returning the read bytes.** At a pc
 decoding to `RETURN` with `0`/`0` (offset/size) on top of the stack, `stepFrame`
 halts with `.success (returnEmptyPost …) (memory.readWithPadding 0 0)`: the

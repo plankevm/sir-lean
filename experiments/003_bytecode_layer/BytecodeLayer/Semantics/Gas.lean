@@ -454,7 +454,6 @@ macro "pop_log" hyp:ident pop:term " with " pat:rcasesPat : tactic =>
        obtain $pat := v; rw [hp, lift_some_bind] at $hyp:ident
        exact logArm_lt $hyp))
 
-set_option maxHeartbeats 1000000 in
 /-- **Strict gas-decrease at the `dispatch` level for all non-`System` opcodes.**
 If a non-`System` opcode produces `.next exec'`, then `exec'` has strictly less
 available gas than the input `exec`. Proved by a per-opcode-class case split
