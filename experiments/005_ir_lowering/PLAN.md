@@ -22,7 +22,11 @@ bridges). The IR's job is to exercise the three primitives we actually need:
 - [x] **C1** Define the IR: storage arithmetic + external calls + branching.
   Decide build-on-exp002 vs fresh. Write a design doc (`docs/ir-design.md`).
   → DONE: fresh `LirLean` IR + design doc + compiling skeleton (no `sorry`).
-- [ ] **C2** Lowering IR → EVM bytecode (decode-compatible with exp003).
+- [x] **C2** Lowering IR → EVM bytecode (decode-compatible with exp003).
+  → DONE: `lower` now materialises operands (recompute-on-use) and emits a real,
+  runnable EVM byte stream for the full single-call surface; decode-compatibility
+  is build-enforced by `LirLean/Decode.lean` (`example … := by rfl` at every pc of
+  a worked single-call program). See the C2 log entry below.
 - [ ] **C3** Prove lowering preserves semantics via exp003's `Runs` machinery.
 - [ ] **C4** Acceptance check: does exp003 sequencing suffice for **multi-call** IR
   programs? If NOT, write the precise requirement here and flag Track A
@@ -74,3 +78,82 @@ bridges). The IR's job is to exercise the three primitives we actually need:
   `LirLean/Lowering.lean` (`lower : Program → ByteArray` with a concrete,
   `sorry`-free two-pass body — correctness deferred to C2). No theorems stated, so
   nothing is `sorry`/`axiom`-backed. `lake build` status recorded on commit.
+
+- 2026-06-22 (C2): **Decode-compatible single-call lowering — DONE, green,
+  axiom-clean.** `lake build` succeeds (1106 jobs); the decode checks are
+  kernel-`rfl` (`#print axioms` on a representative check: only `propext`,
+  `Quot.sound` — no `sorryAx`, no `native_decide` axiom).
+
+  **What `lower` now emits per IR construct** (`LirLean/Lowering.lean`). The
+  big change from C1: operands are *materialised* onto the stack by
+  recompute-on-use (an `assign` emits **no** bytes; its RHS is re-emitted at each
+  consuming opcode, exactly like exp003's hand-written programs push a literal
+  immediately before consuming it). `materialiseExpr` walks a program-global
+  `defs : Tmp → Option Expr` map; binary ops push the **second** operand first so
+  the first ends up on top.
+  - `Expr.imm w`     → `PUSH32 w` (uniform 32-byte literal; BE, round-trips via
+                       `uInt256OfByteArray`).
+  - `Expr.tmp t`     → re-materialise `t`'s defining expression (no bytes of its own).
+  - `Expr.add a b`   → materialise `b`; materialise `a`; `ADD`.
+  - `Expr.lt  a b`   → materialise `b`; materialise `a`; `LT`.
+  - `Expr.sload k`   → materialise `k`; `SLOAD`.
+  - `Expr.gas`       → `GAS`.
+  - `Stmt.assign`    → **nothing** (recompute-on-use).
+  - `Stmt.sstore k v`→ materialise `v`; materialise `k`; `SSTORE` (leaves
+                       `key :: value :: rest` — the shape `runs_sstore` wants).
+  - `Stmt.call cs`   → push 7 CALL args (value-free, zero-memory: five `PUSH32 0`,
+                       then `callee`, then `gasFwd` on top — the `callerProg`
+                       order); `CALL`. The 0/1 success flag is left on the stack
+                       for a following use of `resultTmp`.
+  - `Term.ret t`     → materialise `t`; `RETURN`.
+  - `Term.stop`      → `STOP`.
+  - `Term.jump L`    → `PUSH4 off(L)`; `JUMP`.
+  - `Term.branch c t e` → materialise `c`; `PUSH4 off(t)`; `JUMPI`;
+                          `PUSH4 off(e)`; `JUMP`.
+  Block layout unchanged from C1: each block is `JUMPDEST :: body`; the
+  `Label → byte offset` table is a prefix sum of `blockLen` (destination pushes
+  are fixed-width `PUSH4`, so layout is push-width-independent and the two passes
+  agree).
+
+  **Decode round-trip checks** (`LirLean/Decode.lean`, build-enforced). A worked
+  3-block single-call program `workedCall` exercises the whole surface
+  (`sstore`/`sload`/`add`/`lt`, one external `CALL` to `0xCA11EE` forwarding
+  `0xFFFFFFFF` gas, a `branch` on the `lt` result, plus `ret` and `stop`). It
+  lowers to a 520-byte array; block JUMPDESTs at offsets 0 / 414 / 518.
+  `example … := by rfl` pins `Evm.decode code pc = expected` at **every** emitted
+  instruction pc (≈40 checks), covering: `JUMPDEST`, every `PUSH32` literal (incl.
+  the recompute order — `lt`/`add`/`sload` operands at pcs 300/333/366 and again
+  415/448/481), `SSTORE`, the seven CALL-arg pushes + `CALL`, `ADD`, `LT`, `SLOAD`,
+  the two `PUSH4` branch destinations (immediates 414, 518), `JUMPI`, `JUMP`,
+  `RETURN`, `STOP`. Confirms the exp003 decode form: `ADD/LT = .ArithLogic …`,
+  `SLOAD/SSTORE/GAS/JUMP/JUMPI/JUMPDEST = .Smsf …`, `STOP/RETURN/CALL = .System …`,
+  pushes carry `(immediate, width)`. (`maxRecDepth` is bumped — `lower` is a deep
+  computation — but the checks are pure kernel `rfl`, no `native_decide`.) The two
+  branch destinations are shown to land on real `JUMPDEST`s via the four relevant
+  `rfl` decode checks rather than `validJumpDests` (which is `partial def` and would
+  force `native_decide`, breaking the axiom-clean bar).
+
+- 2026-06-22 (C2): **⚠ Missing exp003 `Runs` rules — C3/Track-A dependency.**
+  The opcodes `lower` emits line up with exp003's existing `Runs` API only
+  partially. exp003 currently provides opcode `Runs` rules for **PUSH1 / PUSH
+  (any width) / SSTORE** (`runs_push1`, `runs_push`, `runs_sstore` in `Spec.lean`),
+  and the CALL boundary (`CallReturns` + `messageCall_call_runs`), plus step-level
+  halt characterizations `stepFrame_stop` / `stepFrame_return_empty` (consumed at
+  the `messageCall_runs` boundary). It has **NO `runs_*` rule** for the following
+  opcodes that single-call lowering emits — each is a C3 prerequisite (and a
+  candidate Track-A deliverable, since they are generic opcode bricks):
+  - **`SLOAD` (0x54)** — needed by `Expr.sload`.
+  - **`ADD` (0x01)** — needed by `Expr.add`.
+  - **`LT` (0x10)** — needed by `Expr.lt`.
+  - **`GAS` (0x5a)** — needed by `Expr.gas` (gas introspection).
+  - **`JUMP` (0x56)** — needed by `Term.jump` and the `else` edge of `Term.branch`.
+  - **`JUMPI` (0x57)** — needed by `Term.branch`.
+  For `STOP` and `RETURN` the step-level `stepFrame_stop` / `stepFrame_return_empty`
+  exist but are not yet packaged as `runs_*` halt lemmas; C3 will need a thin
+  `Runs … → halt` wrapper for the terminator. So C3's per-step simulation can chain
+  `runs_push`/`runs_sstore`/the CALL facts today, but is **blocked** on new
+  `runs_sload`/`runs_add`/`runs_lt`/`runs_gas`/`runs_jump`/`runs_jumpi` opcode
+  rules. (The multi-call composition block — `messageCall_call_runs` admitting only
+  ONE `CallReturns` — remains the separate C4/Track-A `Runs.call` dependency
+  recorded in the C1 log and `docs/ir-design.md` §5; single-call lowering, this
+  milestone, is unaffected by it.)
