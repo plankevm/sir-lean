@@ -6,7 +6,7 @@
    "name": "evm",
    "manifestFile": "lake-manifest.json",
    "inherited": false,
-   "dir": "../../forks/leanevm",
+   "dir": "EVMLean",
    "configFile": "lakefile.lean"},
   {"url": "https://github.com/leanprover-community/mathlib4.git",
    "type": "git",
