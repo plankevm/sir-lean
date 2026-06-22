@@ -71,6 +71,4 @@ lean_lib «EvmYul»
 @[test_driver]
 lean_exe «conform» where
   root := `Conform.Main
-
-lean_exe «yulSemanticsTests» where
-  root := `EvmYul.Yul.YulSemanticsTests.Main
+-- exp004: `yulSemanticsTests` exe removed; the Yul subsystem it drove was stripped.
