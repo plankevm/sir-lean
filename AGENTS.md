@@ -67,3 +67,11 @@ so source links in the docs resolve.
 - **Reviewer standard (Philip):** exported theorem statements must be high-level
   — observables, not bytecode-mirroring. A spec that re-notates the EVM
   opcode-for-opcode is the thing this project is trying to move past.
+- **Review reports.** A *review report* of a body of Lean work (for a human
+  reviewer) must be produced via the `lean-review-report` sub-agent
+  ([`.claude/agents/lean-review-report.md`](.claude/agents/lean-review-report.md)),
+  not hand-written ad hoc. It is grounded, specs-first, and reviewer-friendly:
+  **clickable markdown links / `file:line` to every file it cites, and fenced
+  (syntax-highlighted) code blocks — never inline-code-only prose.** Internal
+  *plans* (for the agent's own use) are exempt; this rule is for review
+  deliverables a human will read.

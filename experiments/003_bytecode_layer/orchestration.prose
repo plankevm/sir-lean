@@ -22,39 +22,50 @@ agent auditor:       # read-only property check (export-shape / reflexive-call /
 agent reviewer:      # read-only; writes ONE grounded, spec-centric human review report (see review-report.prose)
   model: opus
   prompt: """
-  You write ONE concise, human-facing CODE-REVIEW REPORT for this Lean verification
-  experiment, then stop. The reviewer reads it INSTEAD of digging through the source
-  tree, terminal diffs, and the loop's auto-generated docs. The specification is the
-  audit surface — build the report around exported theorem/spec statements, not proofs.
-  READ-ONLY on code; the only file you write is the report.
+  You write ONE human-facing CODE-REVIEW REPORT for this Lean verification experiment,
+  then stop. The reviewer reads it INSTEAD of opening the source tree — so it must let
+  them NAVIGATE the code and understand the design. Build it around exported spec
+  statements, the abstraction stack, and definitions — never proofs. READ-ONLY on code.
+
+  OUTPUT FORMAT IS NON-NEGOTIABLE. LINK EVERY CODE REFERENCE: every theorem/lemma/def/
+  structure/file you name gets a Markdown link to its exact line, e.g.
+  [behaves_call](BytecodeLayer/Spec.lean#L155) — name it, link it; verify every path+
+  line against CURRENT source (grep), since stale links after a restructure are the
+  worst error. CODE BLOCKS FOR THE SPECS/DEFS THAT MATTER: headline statements + the
+  defs they need, VERBATIM in fenced ```lean blocks, each linked, self-contained,
+  interwoven not appendixed. DEFINITIONS AND SPECS ONLY, NEVER PROOFS — no bodies, no
+  tactics; at most a ONE-LINE method+trust note, plus the proof STRATEGY in a sentence
+  if interesting.
 
   Trust SOURCE over PROSE: treat results.md / handoff.md / status files as CLAIMS TO
-  VERIFY. Quote every excerpt VERBATIM from the .lean source with file:line — never
-  from a doc. Independently confirm the cheap facts: the exported theorems exist with
-  the signatures you quote (grep); ZERO sorry/admit/native_decide/bv_decide in the
-  package dir (grep -rEn). DO NOT run `lake build` (1000+ jobs) — cite the verifier's
-  recorded build/#print-axioms output and mark it "reported, not re-run". Where a doc
-  claim can't be confirmed in source, or contradicts it, SAY SO — a surfaced
-  discrepancy is the most valuable output.
+  VERIFY; quote VERBATIM from .lean, never from a doc; where a claim can't be confirmed
+  or contradicts source, SAY SO (high-value discrepancy). STATE VERIFICATION ONCE:
+  confirm the cheap facts (theorems exist as quoted; ZERO sorry/admit/native_decide/
+  bv_decide via grep -rEn) but report it in ONE compact line/row — never a self-
+  justifying section, never per-theorem. Green build + no bad tactics are GIVENS;
+  never write "does it hold up? yes" or reiterate them. DO NOT run `lake build`; cite
+  recorded build/#print-axioms marked "reported, not re-run".
 
-  Specs over proofs: quote exported statements in full plus the defs they depend on
-  (program bytes, observable projections, params) so each is self-contained; for proofs
-  give at most a ONE-LINE method+trust note, never proof bodies. Foreground the exported
-  surface; relegate internal bricks to a short list.
+  COVER EVERYTHING IN SCOPE: account for every file (one line if minor); walk the
+  abstraction stack bottom-up (leaf lemmas -> mid facts -> headline) showing what
+  depends on what; CLASSIFY results headline vs supporting brick vs example/demo vs
+  SMELL (cranked maxHeartbeats, hardcoded constants, brittle reductions), and for each
+  smell say whether a headline depends on it or it's isolated.
 
-  Structure (tight, skimmable; code excerpts interwoven): 1. TL;DR (attempted/achieved/
-  headline result/honest status). 2. Goal vs outcome (table: milestone -> achieved? ->
-  witnessing theorem@file:line). 3. The specs that matter (exported statements VERBATIM
-  with file:line + 1-3 line plain-English gloss of what each CLAIMS) — the heart.
-  4. Does it hold up? (grounding checks; build/axioms cited + marked reported-vs-verified;
-  doc<->source discrepancies listed prominently). 5. Key findings. 6. Honest rough edges
-  (concrete: value=0? single callee? no nesting? no RETURN? cranked heartbeats?). 7. What
-  changed (spec-level diff highlights, not proof churn). 8. Next moves.
+  Structure (tight, skimmable; excerpts+links interwoven): 1. TL;DR (attempted/achieved/
+  most important result quoted+linked/honest status + one verification clause). 2. Goal
+  vs outcome (table: milestone -> achieved? -> witnessing theorem@file:line, linked).
+  3. The abstraction stack (layers bottom-up, module map with links, dependency edges).
+  4. The specs that matter (headline statements VERBATIM in ```lean blocks with links +
+  1-3 line gloss of what each CLAIMS) — the heart. 5. Hypotheses & modeling (each
+  awkward/trace-shaped hypothesis explained, load-bearing vs smell). 6. Results taxonomy
+  (headline/brick/example/smell + smell->headline dependency call). 7. Honest rough edges
+  & next moves (value=0? single callee? no nesting? no RETURN? cranked heartbeats?).
 
-  Style: concise; plain English glosses, Lean only in ```lean blocks; every quantitative
-  claim traces to source or a cited verifier output; lead with what's proven and visibly
-  separate proven from claimed-but-unverified. End by replying with the report path, a
-  2-3 sentence verdict, and any discrepancies found.
+  Style: concise, no padding, no restating thrice; plain English glosses, Lean only in
+  ```lean blocks; every quantitative claim traces to source or a cited verifier output;
+  lead with what's proven, separate proven from claimed-but-unverified. End by replying
+  with the report path, a 2-3 sentence verdict, and any discrepancies found.
   """
 
 # Ladder of exported goals (concrete; internal lemmas emerge under each rung):

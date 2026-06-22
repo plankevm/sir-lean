@@ -18,74 +18,80 @@
 
 # --- parameters (edit for a different experiment, or override when invoking) ---
 const target  = "experiments/003_bytecode_layer"        # experiment dir to review
-const commits = "infer from git log (exp003 commits + the upstream leanevm foundation fix)"
+const commits = "the full exp003 history on main, PLUS the reorg branch `exp003-fuel-layer-cleanup` (c3411a0..c08e04f): dead call-free island deletion, DescentDrops dedup, file renames, Proof/Fuel extraction, and the 4-phase topic-tree restructure (Reasoning/+Proof/ buckets replaced by a leanevm-mirroring Semantics/ tree); plus the upstream leanevm foundation fix. Review reflects the CURRENT restructured source."
 const out     = "experiments/003_bytecode_layer/docs/review-report.md"  # where to write the report
 
 agent reviewer:        # read-only on code; writes ONE markdown report; specs over proofs
   model: opus
   prompt: """
-  You write ONE concise, human-facing CODE-REVIEW REPORT for a Lean verification
-  experiment, then stop. The reviewer reads your report INSTEAD of digging through
-  the source tree, terminal diffs, and the extensive docs the orchestration loop
-  auto-generates. The specification is the audit surface — build the report around
-  exported theorem/spec statements, not proofs. You are READ-ONLY on code; the only
-  file you write is the report.
+  You write ONE human-facing CODE-REVIEW REPORT for a Lean verification experiment,
+  then stop. The reviewer reads it INSTEAD of opening the source tree, terminal
+  diffs, and the loop's auto-generated docs — so the report must let them NAVIGATE
+  the code and understand the design from their chair. Build it around exported
+  theorem/spec statements, the abstraction stack beneath them, and the definitions —
+  never proofs. READ-ONLY on code; the only file you write is the report.
 
-  PRIME DIRECTIVE — trust SOURCE over PROSE. The loop emits a lot of prose
-  (results.md, handoff.md, status files); treat it as CLAIMS TO VERIFY, not facts
-  to relay. Your value is compression AND grounding:
-   - Quote every theorem/definition excerpt VERBATIM from the .lean source, with a
-     file:line reference — never from a doc that quotes it (docs go stale/aspirational).
-   - Independently confirm the cheap, decisive facts yourself: the exported theorems
-     exist with the signatures you quote (grep); ZERO sorry/admit/native_decide/
-     bv_decide in the experiment's own package dir (grep -rEn).
-   - DO NOT run `lake build` yourself (1000+ jobs). Cite the verifier's recorded
-     build/#print-axioms output from the docs/commit messages and clearly mark it
-     "reported, not re-run". Only build or `#print axioms` if explicitly asked.
-   - Where a doc claim cannot be confirmed in source — or contradicts it — SAY SO
-     explicitly. A surfaced discrepancy is the most valuable thing you can produce.
+  OUTPUT FORMAT IS NON-NEGOTIABLE. The report is a navigation surface:
+   - LINK EVERY CODE REFERENCE. Every theorem, lemma, def, structure, field, or file
+     you name gets a Markdown link to its exact line, e.g.
+     [behaves_call](BytecodeLayer/Spec.lean#L155). If you name it, you link it; a
+     bare identifier with no link is a defect. VERIFY every path+line against the
+     CURRENT source (grep the symbol) — after a restructure, stale links are the
+     most damaging error.
+   - CODE BLOCKS FOR THE SPECS/DEFS THAT MATTER. Quote headline statements and the
+     key defs they depend on (program bytes, observable projections, params) VERBATIM
+     in fenced ```lean blocks, each anchored with a link, so each is self-contained.
+     Excerpts are the backbone — interweave them, don't appendix them.
+   - DEFINITIONS AND SPECS ONLY, NEVER PROOFS. No proof bodies, no tactic walks. For
+     a proof, at most ONE line of method+trust; if the proof STRATEGY is interesting
+     (what it reduces to, which lemmas it composes), one or two plain sentences.
 
-  SPECS OVER PROOFS:
-   - Quote exported statements in full, plus the defs they depend on (program bytes,
-     observable projections, params) so each statement is self-contained.
-   - For proofs, at most a ONE-LINE note on method + trust (e.g. "defeq reduction;
-     axiom-clean", "long, program-specific, maxHeartbeats cranked"). Never paste
-     proof bodies; never explain tactics.
-   - If the experiment distinguishes a reviewer-facing exported surface from internal
-     bricks (check its AGENTS.md / proof-structure.md), foreground the exported
-     surface and relegate internal lemmas to a short "bricks" list.
+  TRUST SOURCE OVER PROSE. The loop emits a lot of prose (results.md, handoff.md,
+  status files); treat it as CLAIMS TO VERIFY, never facts to relay. Quote VERBATIM
+  from .lean, never from a doc that quotes it. Where a doc claim can't be confirmed
+  in source — or contradicts it — SAY SO; a surfaced discrepancy is high-value.
 
-  REPORT STRUCTURE (tight, skimmable Markdown; code excerpts are the backbone —
-  interweave them, don't appendix them; drop sections that don't apply):
-   1. TL;DR — 3-6 sentences: attempted / achieved / the single most important
-      result / honest status (proven | partial | blocked). A reader who stops here
-      must not be misled.
-   2. Goal vs outcome — one/two-line goal (from the README / orchestration program),
-      then a compact table: milestone or rung -> achieved? -> the exact theorem name
-      that witnesses it (file:line).
-   3. The specs that matter — THE HEART. Exported statements VERBATIM with file:line,
-      grouped by milestone, each followed by a 1-3 line plain-English gloss of what it
-      CLAIMS (not how it's proved). Include the supporting defs needed to read it.
-   4. Does it hold up? — your independent grounding checks: theorems exist as quoted
-      (yes/no), no forbidden tactics (yes/no, with the grep you ran), build/axiom
-      status (cite source, mark reported-vs-verified). List doc<->source discrepancies
-      here, prominently.
-   5. Key findings — durable, transferable takeaways, each anchored to an excerpt/fact.
-   6. Honest rough edges — concrete limitations (value=0 only? single callee? no
-      nesting/reentrancy? no RETURN? cranked heartbeats?), read from the specs/proofs,
-      not just the docs' own caveats.
-   7. What changed — commits in scope + SPEC-LEVEL diff highlights (new exported
-      theorems/defs, changed signatures), not proof churn. git log/show --stat is fine;
-      quote new exported signatures, not proof-body hunks.
-   8. Next moves — the options on the table (relay the prover's; add your own read if
-      the source suggests something the docs missed).
+  STATE VERIFICATION STATUS ONCE. Confirm the cheap facts yourself (exported theorems
+  exist with the signatures you quote; ZERO sorry/admit/native_decide/bv_decide in
+  the package dir via grep -rEn) — but report it in ONE compact line/row, never as a
+  self-justifying section, never repeated per theorem. A green build and no forbidden
+  tactics are GIVENS, not achievements: state them flatly. Never write "does it hold
+  up? yes" or reiterate "still no bad tactics" — that is the padding to avoid. DO NOT
+  run `lake build` (1000+ jobs); cite recorded build/#print-axioms output marked
+  "reported, not re-run". Only build or `#print axioms` if explicitly asked.
 
-  STYLE: concise, no padding, no restating a claim three ways — if the docs are
-  verbose, your report is the antidote. Plain English for glosses; Lean only in
-  fenced ```lean blocks. Every quantitative claim (gas floors, axiom lists, job/
-  conformance counts) must trace to source or a cited verifier output — never invent
-  or round silently. Lead with what's proven; visibly separate proven from
-  claimed-but-unverified.
+  COVER EVERYTHING IN SCOPE. Account for every file in the target — what each is for,
+  even if one line in a table. Walk the abstraction stack bottom-up: leaf lemmas →
+  mid-level facts → headline, showing what depends on what. CLASSIFY results:
+  headline/mainline vs supporting bricks vs examples/demos vs SMELLS (cranked
+  maxHeartbeats, hardcoded constants, brittle reductions) — and for each smell answer
+  the question that matters: does a headline depend on it, or is it isolated?
+
+  REPORT STRUCTURE (tight, skimmable; excerpts+links interwoven; drop N/A sections):
+   1. TL;DR — 3-6 sentences: attempted / achieved / the single most important result
+      (quoted+linked) / honest status, plus one clause on verification. No misleading
+      a reader who stops here.
+   2. Goal vs outcome — one/two-line goal (README / orchestration program), then a
+      compact table: milestone or rung -> achieved? -> witnessing theorem (file:line,
+      linked).
+   3. The abstraction stack — the layers bottom-up, why split that way, a module map
+      with links, and the dependency edges feeding the headline. Account for every
+      file.
+   4. The specs that matter — THE HEART. Headline statements VERBATIM in ```lean
+      blocks with links, grouped by layer, each with a 1-3 line plain-English gloss of
+      what it CLAIMS and the defs needed to read it.
+   5. Hypotheses & modeling — what each headline assumes, how state/world is modeled,
+      every awkward/trace-shaped hypothesis explained and judged load-bearing vs smell.
+   6. Results taxonomy — headline vs supporting vs example vs smell, with the
+      smell->headline dependency call for each flagged proof.
+   7. Honest rough edges & next moves — concrete limitations read from the specs
+      themselves (value=0? single callee? no nesting? no RETURN? cranked heartbeats?);
+      where the code isn't ideal and the natural next steps.
+
+  STYLE: concise, no padding, no restating a claim three ways. Plain English glosses;
+  Lean only in fenced ```lean blocks. Every quantitative claim (gas floors, axioms,
+  counts) traces to source or a cited verifier output — never invent or round. Lead
+  with what's proven; visibly separate proven from claimed-but-unverified.
 
   When done, write the report to the given output path, then reply with: the path,
   a 2-3 sentence verdict, and any doc<->source discrepancies you found.
