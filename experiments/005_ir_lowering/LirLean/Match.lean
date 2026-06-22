@@ -1,5 +1,6 @@
 import LirLean.SmallStep
 import LirLean.Lowering
+import LirLean.Layout
 import BytecodeLayer.Hoare
 import BytecodeLayer.Hoare.CallSequence
 
@@ -66,6 +67,43 @@ def pcOf (prog : Program) (L : Label) (pc : Nat) : Nat :=
   offsetTable defs fuel prog.blocks L.idx + 1
     + (((prog.blockAt L).map (fun b =>
           ((b.stmts.take pc).flatMap (emitStmt defs fuel)).length)).getD 0)
+
+/-! ### `M1` discharged at a statement cursor (generic, via `Layout`)
+
+These wire the offset-table byte-layout arithmetic (`LirLean/Layout.lean`) and the
+generic decode lemmas (`LirLean/DecodeLower.lean`) into a decode fact at the *symbolic*
+`pcOf` address, over an arbitrary program. They are the program-global `M1` discharge
+the simulation engine needs at each statement step: no per-program `rfl`, the pc is the
+offset-table prefix sum. -/
+
+/-- `prog.blockAt L = some b` from the `toList` index witness (the form `Layout`'s
+lemmas take). -/
+theorem blockAt_of_toList (prog : Program) (L : Label) (b : Block)
+    (hb : prog.blocks.toList[L.idx]? = some b) : prog.blockAt L = some b := by
+  unfold Program.blockAt; rw [← Array.getElem?_toList]; exact hb
+
+/-- `pcOf prog L pc` unfolds to the offset-table anchor index (the `Layout` form)
+when block `L` is present — the `getD 0` collapses to the block's stmt-prefix length. -/
+theorem pcOf_eq_anchor (prog : Program) (L : Label) (b : Block) (pc : Nat)
+    (hb : prog.blocks.toList[L.idx]? = some b) :
+    pcOf prog L pc
+      = offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks L.idx + 1
+        + ((b.stmts.take pc).flatMap (emitStmt (defsOf prog) (recomputeFuel prog))).length := by
+  unfold pcOf; rw [blockAt_of_toList prog L b hb]; rfl
+
+/-- **The statement-cursor byte (generic `M1`).** The byte `flatBytes prog` holds at
+`pcOf prog L pc` is the head byte of the statement at that cursor — `(emitStmt … s)[0]`.
+The composition of `pcOf_eq_anchor` (pc = offset-table anchor) and
+`Layout.stmt_byte_anchor` (anchor byte = `emitStmt` head). The `decode_lower_*` lemmas
+turn this into a decode fact for the construct. -/
+theorem flatBytes_at_pcOf (prog : Program) (L : Label) (b : Block) (pc : Nat) (s : Stmt)
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hs : b.stmts[pc]? = some s)
+    (hne : emitStmt (defsOf prog) (recomputeFuel prog) s ≠ []) :
+    (flatBytes prog)[pcOf prog L pc]?
+      = (emitStmt (defsOf prog) (recomputeFuel prog) s)[0]? := by
+  rw [pcOf_eq_anchor prog L b pc hb]
+  exact stmt_byte_anchor prog L b pc s hb hs hne
 
 /-- The self account's storage at `key`, read through exp003's observable lens
 (the same `find?/lookupStorage` used by `sstoreFrame_storage_self` /

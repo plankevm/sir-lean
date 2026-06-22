@@ -1,5 +1,6 @@
 import LirLean.Lowering
 import LirLean.DecodeLower
+import LirLean.Match
 
 /-!
 # LirLean — decode round-trip checks (C2 acceptance bar)
@@ -160,5 +161,23 @@ example : decode (lower workedCall) (UInt32.ofNat 0) = some (.Smsf .JUMPDEST, .n
 /-- `PUSH32 5` at pc 1 (the `sstore` value), via the generic push lemma. -/
 example : decode (lower workedCall) (UInt32.ofNat 1) = some (.Push .PUSH32, some (5, 32)) :=
   decode_lower_push workedCall 1 0x7f 32 5 (by norm_num) rfl rfl (by decide) (by rfl)
+
+/-! ## `M1` at a *symbolic* `pcOf` cursor — the offset-table discharge
+
+The decode facts above pin a *literal* pc (`0`, `1`). The simulation engine needs
+decode at the *symbolic* offset-table address `pcOf prog L pc`. This example
+discharges that for the `sstore` cursor (statement `2` of block `0`) of `workedCall`
+**through the offset-table arithmetic** — `pcOf` → `flatBytes_at_pcOf`
+(`Layout.stmt_byte_anchor`, the prefix-sum decomposition) → `decode_lower_push`. No
+whole-array `rfl` and no literal pc: the byte at `pcOf workedCall ⟨0⟩ 2` is shown to
+be the head of `emitStmt (.sstore …)` (a `PUSH32`) by the generic byte-layout lemmas,
+then decoded. This is the program-global `M1` brick the engine consumes at each
+statement step. -/
+example :
+    decode (lower workedCall) (UInt32.ofNat (pcOf workedCall ⟨0⟩ 2))
+      = some (.Push .PUSH32, some (5, 32)) := by
+  have hbyte : (flatBytes workedCall)[pcOf workedCall ⟨0⟩ 2]? = some 0x7f := by
+    rw [flatBytes_at_pcOf workedCall ⟨0⟩ _ 2 (.sstore ⟨1⟩ ⟨0⟩) rfl rfl (by decide)]; rfl
+  exact decode_lower_push workedCall _ 0x7f 32 5 (by decide) hbyte rfl (by decide) (by rfl)
 
 end Lir.Decode

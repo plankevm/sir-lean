@@ -8,5 +8,6 @@ import LirLean.IR
 import LirLean.Lowering
 import LirLean.Decode
 import LirLean.DecodeLower
+import LirLean.Layout
 import LirLean.SmallStep
 import LirLean.Match

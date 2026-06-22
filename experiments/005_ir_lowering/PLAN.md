@@ -430,3 +430,62 @@ required for the full single-/multi-call preservation theorem.
   is therefore **not yet fully closed** — it is gated on (a) the offset-table index
   arithmetic feeding `decode_lower`, and (b) the per-program `CallReturns`/gas
   assembly. Both are mechanical-but-large; neither is stubbed.
+
+- 2026-06-22 (C3c): **Offset-table byte-layout arithmetic + symbolic `M1`
+  discharge — DONE, green, axiom-clean.** This closes gap (a) above: the
+  offset-table index arithmetic that feeds `decode_lower` is now a **theorem over an
+  arbitrary program**, not a per-program `rfl`. `lake build` green (1128 jobs);
+  `#print axioms` on the new lemmas = `[propext, Classical.choice, Quot.sound]`
+  (`flatMap_split` only `[propext]`) — no `sorryAx`, no native axiom. New module
+  `LirLean/Layout.lean`; the `pcOf`-level wrappers live in `LirLean/Match.lean`.
+
+  **`LirLean/Layout.lean`** — the prefix-sum decomposition of `flatBytes prog`:
+  * `emitTerm_length_labelOff` / `emitBlockBody_length_labelOff` /
+    `blockLen_eq_length` — the lowered byte length is **independent of the resolved
+    offset table** (`emitDest` is a fixed-width `PUSH4`), so the measuring pass and
+    the emitting pass agree; this is what makes the two-pass offset table the genuine
+    byte layout.
+  * `flatMap_split` — a `List.flatMap` decomposes around the element at a known
+    index into `prefix ++ f a ++ suffix` (generic; reused for both the block stream
+    and the statement stream).
+  * `blockPrefix_length` — the bytes of the first `i` lowered blocks total exactly
+    `offsetTable defs fuel blocks i` (the table *is* the prefix sum of `blockLen`).
+  * `flatBytes_block_split` / `flatBytes_block_offset` — `flatBytes prog` decomposes
+    around block `L` into `pre ++ (JUMPDEST :: emitBlockBody b_L) ++ suf` with
+    `pre.length = offsetTable … L.idx`.
+  * `mid_index` — index into the middle of a three-way append.
+  * **`stmt_byte_anchor`** (the payoff) — over an arbitrary `prog`, the byte
+    `flatBytes prog` holds at `offsetTable … L.idx + 1 + (Σ emitStmt-lengths over the
+    first `pc` statements)` is the *head byte* of the statement at `(L, pc)` —
+    `(emitStmt … s)[0]`. The full prefix-sum/offset-table arithmetic, discharged once.
+
+  **`LirLean/Match.lean`** — the `pcOf`-level `M1` wrappers:
+  * `blockAt_of_toList` — `prog.blockAt L = some b` from the `toList` index witness.
+  * `pcOf_eq_anchor` — `pcOf prog L pc` (with its `blockAt`/`getD 0`) **equals** the
+    `Layout` anchor index when block `L` is present.
+  * **`flatBytes_at_pcOf`** — the generic `M1` byte fact:
+    `(flatBytes prog)[pcOf prog L pc]? = (emitStmt … s)[0]?`. Composed with
+    `decode_lower_{nonpush,push}` this is `decode (lower prog) (UInt32.ofNat (pcOf …))`
+    for the construct — the program-global `M1` discharge the engine consumes per
+    statement step.
+
+  **Build-exercised end-to-end** (`LirLean/Decode.lean`, new `example`): decode at the
+  **symbolic** `pcOf workedCall ⟨0⟩ 2` (the `sstore` cursor) is derived
+  `= PUSH32 5` through `pcOf_eq_anchor → flatBytes_at_pcOf (→ stmt_byte_anchor) →
+  decode_lower_push` — no literal pc, no whole-array `rfl`. So `decode_lower` at a
+  symbolic offset-table address is real and connected, generically over the program.
+
+  **What this leaves for full C3** (gap (b), unchanged, NOT stubbed): the
+  **`Runs fr₀ last` assembly** for a worked single-call program — the gas-tracked
+  `Runs.trans` chain of `sim_*`/`runs_push` steps + a `Runs.call` node carrying a
+  concrete `CallReturns` (a genuine child `drive` run, the ≈200-line
+  `CallerProgExample.caller_callReturns` shape, specific to the callee's bytecode/gas).
+  The decode side of every step is now generic (`flatBytes_at_pcOf` + `decode_lower`);
+  the discharge across `messageCall_runs` is already proved
+  (`lower_preserves_discharge`, any number of calls). What remains is purely the
+  per-program frame/gas threading + the child-run `CallReturns` for `workedCall`'s
+  single CALL. `lower_preserves` for `workedCall` is therefore **still not fully
+  closed end-to-end**, but both halves of `M1` (decode generic; pc arithmetic generic)
+  and the bridge half are done; the open piece is the concrete `Runs`/`CallReturns`
+  assembly, which is mechanical-but-large and would also bag C4 (the bridge already
+  composes multiple `Runs.call` nodes). Nothing is faked with `sorry`.
