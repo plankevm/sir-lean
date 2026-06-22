@@ -298,6 +298,14 @@ your own branch with clear messages; never touch another track's files; if block
 write the blocker into PLAN.md before stopping.
 
 ## Orchestration log
+- 2026-06-22: **Track C review report DONE & committed** (`docs/track-c-review.md`, 561
+  lines, on `exp005-ir`). Surfaced cleanup items for the C-close / cleanup sweep: (i)
+  `ir-design.md §6` describes a generic `IRStep`/`lower_simulates_step` engine that was
+  actually built CONCRETELY per `workedCall` — sync doc to as-built; (ii) `Match` doc
+  (5-clause conjunction) vs code (6-field structure) — fix doc; (iii) `maxHeartbeats
+  2000000` in `WorkedCall.lean` (PUSH32-reduction blowup `wc_preserves` depends on) —
+  investigate/contain. These fold into the C hypothesis-free close (after A's
+  `validJumpDests` merge) + the end-of-line cleanup sweep. C parked meanwhile.
 - 2026-06-22: **C3/C4 ARCHITECTURALLY COMPLETE & verified** (`496ef19`, green 1129).
   Lowering-preservation proved as the bridge half (single-call `lower_preserves` +
   multi-call `wc_preserves_twoCall`) modulo two honest hypotheses. **C4 needed no new
