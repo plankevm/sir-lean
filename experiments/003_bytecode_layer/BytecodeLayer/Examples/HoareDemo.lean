@@ -97,9 +97,9 @@ private theorem sstore_messageCall (g : UInt64) (hg : 22106 ≤ g.toNat) :
           (sstoreFrame (pushFrame (pushFrame (fr₀ g) 5) 7) 7 5 (fr₀ g).exec.stack)
           (.success
             (sstoreFrame (pushFrame (pushFrame (fr₀ g) 5) 7) 7 5 (fr₀ g).exec.stack).exec .empty))) :=
-  messageCall_runs (paramsSStore g) (fr₀ g) _
+  messageCall_runs (paramsSStore g)
     (beginCall_code (paramsSStore g) sstoreProgram rfl)
-    (sstore_runs g hg) _ (sstore_halt g)
+    (sstore_runs g hg) (sstore_halt g)
     (by show (3:ℕ) + 2 ≤ seedFuel g; unfold seedFuel; omega)
 
 /-- The SSTORE-stepping frame's account self-lookup, lifted from `fr₀` through the

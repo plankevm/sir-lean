@@ -42,10 +42,9 @@ on the initial code frame), crossed by `messageCall_runs` with `n = 0`, the halt
 supplied by `stepFrame_stop`. -/
 theorem messageCall_stop_observe' (p : CallParams) (hc : p.codeSource = .Code stopProgram) :
     (messageCall p).map CallResult.observe = .ok { success := true, output := .empty } := by
-  rw [messageCall_runs p (codeFrame p stopProgram) (codeFrame p stopProgram)
+  rw [messageCall_runs p
         (beginCall_code p stopProgram hc)
         (Runs.refl _)
-        (.success (codeFrame p stopProgram).exec .empty)
         (stepFrame_stop _ decode_stopProgram (by show (0:ℕ) ≤ 1024; omega))
         (by show (0:ℕ) + 2 ≤ seedFuel p.gas; unfold seedFuel; omega)]
   rfl
@@ -58,11 +57,10 @@ theorem messageCall_pushStop_observe' (p : CallParams)
     (hc : p.codeSource = .Code pushStopProgram) (hg : 3 ≤ p.gas.toNat) :
     (messageCall p).map CallResult.observe = .ok { success := true, output := .empty } := by
   have hg0 : (codeFrame p pushStopProgram).exec.gasAvailable.toNat = p.gas.toNat := rfl
-  rw [messageCall_runs p (codeFrame p pushStopProgram) (pushFrame (codeFrame p pushStopProgram) 5)
+  rw [messageCall_runs p
         (beginCall_code p pushStopProgram hc)
         (runs_push1 (codeFrame p pushStopProgram) 5 decode_pushStop_0
           (by rw [hg0]; omega) (by show (0:ℕ) + 1 ≤ 1024; omega))
-        (.success (pushFrame (codeFrame p pushStopProgram) 5).exec .empty)
         (stepFrame_stop _ decode_pushStop_2 (by show (1:ℕ) ≤ 1024; omega))
         (by show (1:ℕ) + 2 ≤ seedFuel p.gas; unfold seedFuel; omega)]
   rfl
@@ -127,9 +125,9 @@ private theorem sstore_messageCall (g : UInt64) (hg : 22106 ≤ g.toNat) :
           (.success
             (sstoreFrame (pushFrame (pushFrame (codeFrame (paramsSStore g) sstoreProgram) 5) 7) 7 5
               (codeFrame (paramsSStore g) sstoreProgram).exec.stack).exec .empty))) :=
-  messageCall_runs (paramsSStore g) (codeFrame (paramsSStore g) sstoreProgram) _
+  messageCall_runs (paramsSStore g)
     (beginCall_code (paramsSStore g) sstoreProgram rfl)
-    (sstore_runs g hg) _
+    (sstore_runs g hg)
     (stepFrame_stop _ decode_sstore_5 (by show (0:ℕ) ≤ 1024; omega))
     (by show (3:ℕ) + 2 ≤ seedFuel g; unfold seedFuel; omega)
 
@@ -231,9 +229,9 @@ private theorem seq_messageCall (g : UInt64) (hg : 44212 ≤ g.toNat) :
     messageCall (paramsSeq g)
       = .ok (FrameResult.toCallResult (endFrame (sq6 g)
           (.success (sq6 g).exec .empty))) :=
-  messageCall_runs (paramsSeq g) (sq0 g) _
+  messageCall_runs (paramsSeq g)
     (beginCall_code (paramsSeq g) seqProgram rfl)
-    (seq_runs g hg) _
+    (seq_runs g hg)
     (stepFrame_stop _ decode_seq_10 (by show (0:ℕ) ≤ 1024; omega))
     (by show (6:ℕ) + 2 ≤ seedFuel g; unfold seedFuel; omega)
 

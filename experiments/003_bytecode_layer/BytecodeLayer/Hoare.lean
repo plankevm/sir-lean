@@ -133,10 +133,10 @@ with `halt`, then `messageCall p = .ok (toCallResult (endFrame last halt))`. The
 fuel obligation is the numeric bound `n + 2 ≤ seedFuel p.gas` — no trace.
 
 This is the boundary; from here up, statements are observable-only. -/
-theorem messageCall_runs {n : ℕ} (p : CallParams) (fr₀ last : Frame)
+theorem messageCall_runs {n : ℕ} {fr₀ last : Frame} {halt : FrameHalt} (p : CallParams)
     (hbegin : EntersAsCode p fr₀)
     (h : Runs n fr₀ last)
-    (halt : FrameHalt) (hhalt : stepFrame last = Signal.halted halt)
+    (hhalt : stepFrame last = Signal.halted halt)
     (hfuel : n + 2 ≤ seedFuel p.gas) :
     messageCall p = .ok (FrameResult.toCallResult (endFrame last halt)) := by
   rw [messageCall_eq_drive p fr₀ hbegin]

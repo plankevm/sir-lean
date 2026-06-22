@@ -55,13 +55,13 @@ theorem Runs.trans {m n : ℕ} {fr mid fr' : Frame}
 (`EntersAsCode p fr₀`) `Runs` to a frame that halts yields the caller's halt
 result as `messageCall p`, under the numeric fuel bound `n + 2 ≤ seedFuel p.gas`.
 From here up, statements are observable-only. -/
-theorem messageCall_runs {n : ℕ} (p : CallParams) (fr₀ last : Frame)
+theorem messageCall_runs {n : ℕ} {fr₀ last : Frame} {halt : FrameHalt} (p : CallParams)
     (hbegin : EntersAsCode p fr₀)
     (h : Runs n fr₀ last)
-    (halt : FrameHalt) (hhalt : stepFrame last = Signal.halted halt)
+    (hhalt : stepFrame last = Signal.halted halt)
     (hfuel : n + 2 ≤ seedFuel p.gas) :
     messageCall p = .ok (FrameResult.toCallResult (endFrame last halt)) :=
-  Hoare.messageCall_runs p fr₀ last hbegin h halt hhalt hfuel
+  Hoare.messageCall_runs p hbegin h hhalt hfuel
 
 /-- **The PUSH1 rule.** From a frame decoding to `PUSH1 imm` with gas and stack
 room, one step `Runs` to `pushFrame fr imm` (`imm` pushed, pc + 2, `Gverylow`
@@ -149,9 +149,10 @@ A worked instantiation on `callerProg`/`calleeProg` is
 CALL site, issues a CALL whose child terminates (black box), then `Runs` from the
 resumed frame to a halt site, produces the caller's halt result as `messageCall p`.
 General over both programs; no assumed forwarding — see the section note. -/
-theorem messageCall_call_runs {n₁ n₂ : ℕ}
-    (p cp : CallParams) (fr₀ callFr child last : Frame)
-    (childRes : FrameResult) (pending : PendingCall) (halt : FrameHalt)
+theorem messageCall_call_runs {n₁ n₂ : ℕ} {cp : CallParams}
+    {fr₀ callFr child last : Frame}
+    {childRes : FrameResult} {pending : PendingCall} {halt : FrameHalt}
+    (p : CallParams)
     (hbegin   : EntersAsCode p fr₀)
     (hpre     : Runs n₁ fr₀ callFr)
     (hcall    : stepFrame callFr = .needsCall cp pending)
@@ -161,7 +162,7 @@ theorem messageCall_call_runs {n₁ n₂ : ℕ}
     (hhalt    : stepFrame last = .halted halt)
     (hfuel    : seedFuel cp.gas + n₁ + 1 ≤ seedFuel p.gas) :
     messageCall p = .ok (FrameResult.toCallResult (endFrame last halt)) :=
-  Hoare.messageCall_call_runs p cp fr₀ callFr child last childRes pending halt
+  Hoare.messageCall_call_runs p
     hbegin hpre hcall hcbegin hchild hpost hhalt hfuel
 
 /-- **The general external-CALL rule at the observable level.** Re-exported from
@@ -170,10 +171,10 @@ theorem messageCall_call_runs {n₁ n₂ : ℕ}
 at cell `(a, k)`, yield the named `Outcome.completedWith` on
 `Outcome.ofCall (messageCall p)`. This is the sound, general external-call rule for
 the spec surface — no assumed forwarding. -/
-theorem messageCall_call_completedWith {n₁ n₂ : ℕ}
-    (p cp : CallParams) (fr₀ callFr child last : Frame)
-    (childRes : FrameResult) (pending : PendingCall) (halt : FrameHalt)
-    (a : AccountAddress) (k v : UInt256)
+theorem messageCall_call_completedWith {n₁ n₂ : ℕ} {cp : CallParams}
+    {fr₀ callFr child last : Frame}
+    {childRes : FrameResult} {pending : PendingCall} {halt : FrameHalt}
+    (p : CallParams) (a : AccountAddress) (k v : UInt256)
     (hbegin   : EntersAsCode p fr₀)
     (hpre     : Runs n₁ fr₀ callFr)
     (hcall    : stepFrame callFr = .needsCall cp pending)
@@ -185,7 +186,7 @@ theorem messageCall_call_completedWith {n₁ n₂ : ℕ}
     (hsucc    : (FrameResult.toCallResult (endFrame last halt)).success = true)
     (hcell    : CallResult.storageAt (FrameResult.toCallResult (endFrame last halt)) a k = v) :
     Outcome.completedWith (Outcome.ofCall (messageCall p)) a k v :=
-  Hoare.messageCall_call_completedWith p cp fr₀ callFr child last childRes pending halt a k v
+  Hoare.messageCall_call_completedWith p a k v
     hbegin hpre hcall hcbegin hchild hpost hhalt hfuel hsucc hcell
 
 end BytecodeLayer

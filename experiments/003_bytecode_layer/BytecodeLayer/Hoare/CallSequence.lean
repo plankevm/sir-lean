@@ -47,9 +47,10 @@ frame to a halt site `last`. Given the numeric fuel bound, `messageCall p`
 delivers the caller's halt result.
 
 This is the external-call analogue of `messageCall_runs`. -/
-theorem messageCall_call_runs {n₁ n₂ : ℕ}
-    (p cp : CallParams) (fr₀ callFr child last : Frame)
-    (childRes : FrameResult) (pending : PendingCall) (halt : FrameHalt)
+theorem messageCall_call_runs {n₁ n₂ : ℕ} {cp : CallParams}
+    {fr₀ callFr child last : Frame}
+    {childRes : FrameResult} {pending : PendingCall} {halt : FrameHalt}
+    (p : CallParams)
     (hbegin   : EntersAsCode p fr₀)
     (hpre     : Runs n₁ fr₀ callFr)
     (hcall    : stepFrame callFr = .needsCall cp pending)
@@ -135,10 +136,10 @@ program-agnostic sequencing hypotheses as `messageCall_call_runs`, plus the call
 halt result being a success leaving `v` at cell `(a, k)`, yield the named
 `Outcome.completedWith` predicate on `Outcome.ofCall (messageCall p)`. This is the
 sound external-call rule the spec surface exposes — no assumed forwarding. -/
-theorem messageCall_call_completedWith {n₁ n₂ : ℕ}
-    (p cp : CallParams) (fr₀ callFr child last : Frame)
-    (childRes : FrameResult) (pending : PendingCall) (halt : FrameHalt)
-    (a : AccountAddress) (k v : UInt256)
+theorem messageCall_call_completedWith {n₁ n₂ : ℕ} {cp : CallParams}
+    {fr₀ callFr child last : Frame}
+    {childRes : FrameResult} {pending : PendingCall} {halt : FrameHalt}
+    (p : CallParams) (a : AccountAddress) (k v : UInt256)
     (hbegin   : EntersAsCode p fr₀)
     (hpre     : Runs n₁ fr₀ callFr)
     (hcall    : stepFrame callFr = .needsCall cp pending)
@@ -151,7 +152,7 @@ theorem messageCall_call_completedWith {n₁ n₂ : ℕ}
     (hcell    : CallResult.storageAt (FrameResult.toCallResult (endFrame last halt)) a k = v) :
     Outcome.completedWith (Outcome.ofCall (messageCall p)) a k v :=
   completedWith_of_ok
-    (messageCall_call_runs p cp fr₀ callFr child last childRes pending halt
+    (messageCall_call_runs p
       hbegin hpre hcall hcbegin hchild hpost hhalt hfuel)
     hsucc hcell
 

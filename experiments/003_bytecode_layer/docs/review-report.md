@@ -140,9 +140,10 @@ with the **sequencing rule** [`Runs.trans`](BytecodeLayer/Hoare.lean#L96), per-o
 ### 4.4 The headline — the sound external-CALL sequencing rule
 
 ```lean
-theorem messageCall_call_runs {n₁ n₂ : ℕ}
-    (p cp : CallParams) (fr₀ callFr child last : Frame)
-    (childRes : FrameResult) (pending : PendingCall) (halt : FrameHalt)
+theorem messageCall_call_runs {n₁ n₂ : ℕ} {cp : CallParams}
+    {fr₀ callFr child last : Frame}
+    {childRes : FrameResult} {pending : PendingCall} {halt : FrameHalt}
+    (p : CallParams)
     (hbegin   : EntersAsCode p fr₀)
     (hpre     : Runs n₁ fr₀ callFr)
     (hcall    : stepFrame callFr = .needsCall cp pending)

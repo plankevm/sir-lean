@@ -219,9 +219,6 @@ theorem messageCall_callerProg_runs (g : UInt64) (hg : 30000 ≤ g.toNat) :
       have := two_le_seedFuel (UInt64.ofNat (childGas g)); unfold seedFuel; omega
     rw [this]; exact child_drive g _ hcg hcg2
   refine messageCall_call_runs (n₂ := 0) (callerParams g)
-      (callChildParams (callerCalled g) 0xCA11EE 0xFFFFFFFF)
-      (callerFrame g) (callerCalled g) (childFrame g) (callerResumed g)
-      (childFrameRes g) (callPending (callerCalled g) 0xCA11EE 0xFFFFFFFF) _
       (beginCall_caller g)
       (caller_prefix_runs g hg)
       (caller_call_step g hg)

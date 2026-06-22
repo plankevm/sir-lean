@@ -84,9 +84,10 @@ over *both* caller and callee:
 
 ```lean
 -- Hoare/CallSequence.lean (re-exported BytecodeLayer.messageCall_call_runs in Spec.lean)
-theorem messageCall_call_runs {n₁ n₂ : ℕ}
-    (p cp : CallParams) (fr₀ callFr child last : Frame)
-    (childRes : FrameResult) (pending : PendingCall) (halt : FrameHalt)
+theorem messageCall_call_runs {n₁ n₂ : ℕ} {cp : CallParams}
+    {fr₀ callFr child last : Frame}
+    {childRes : FrameResult} {pending : PendingCall} {halt : FrameHalt}
+    (p : CallParams)
     (hbegin   : EntersAsCode p fr₀)
     (hpre     : Runs n₁ fr₀ callFr)
     (hcall    : stepFrame callFr = .needsCall cp pending)
