@@ -1,7 +1,7 @@
 import BytecodeLayer.Hoare
 import BytecodeLayer.Hoare.CallSequence
 import BytecodeLayer.ExternalCall
-import BytecodeLayer.Semantics.UInt256
+import BytecodeLayer.Semantics.UInt64
 
 /-!
 # Worked instantiation of the general external-CALL rule on `callerProg`/`calleeProg`
@@ -31,7 +31,7 @@ obtained from this compositional result (no monolithic opcode chain remains).
 namespace BytecodeLayer.Examples
 open Evm Operation GasConstants
 open BytecodeLayer
-open BytecodeLayer.UInt256
+open BytecodeLayer.UInt64
 open BytecodeLayer.Dispatch
 open BytecodeLayer.System
 open BytecodeLayer.Interpreter

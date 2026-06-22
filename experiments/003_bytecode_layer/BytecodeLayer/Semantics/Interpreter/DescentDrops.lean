@@ -1,6 +1,6 @@
 import BytecodeLayer.Semantics.Interpreter.NeverOutOfFuel
 import BytecodeLayer.Semantics.Gas
-import BytecodeLayer.Semantics.UInt256
+import BytecodeLayer.Semantics.UInt64
 import BytecodeLayer.Semantics.Precompiles
 import BytecodeLayer.Semantics.Dispatch
 
@@ -33,7 +33,7 @@ open Evm
 open Evm.Operation
 open GasConstants
 open BytecodeLayer.Precompiles
-open BytecodeLayer.UInt256
+open BytecodeLayer.UInt64
 open BytecodeLayer.Gas
 open BytecodeLayer.Dispatch
 open BytecodeLayer.System

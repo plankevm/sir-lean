@@ -1,6 +1,6 @@
 import BytecodeLayer.Hoare
 import BytecodeLayer.Hoare.OutcomeBridge
-import BytecodeLayer.Semantics.UInt256
+import BytecodeLayer.Semantics.UInt64
 import BytecodeLayer.Examples.ProgramDecode
 import BytecodeLayer.Hoare.Sequence
 
@@ -28,7 +28,7 @@ lemmas) land here, off the composed `Runs`. The fuel obligation is the numeric
 namespace BytecodeLayer.Examples
 open Evm
 open GasConstants
-open BytecodeLayer.UInt256
+open BytecodeLayer.UInt64
 open BytecodeLayer.Dispatch
 open BytecodeLayer.System
 open BytecodeLayer.Hoare

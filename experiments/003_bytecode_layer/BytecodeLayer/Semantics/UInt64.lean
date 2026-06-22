@@ -1,16 +1,15 @@
 import Evm
 
 /-!
-# UInt256/UInt64 gas-threading arithmetic (`UInt256`)
+# UInt64 gas-threading arithmetic (`UInt64`)
 
-The one UInt64 fact the gas-honest floor forces: charging `c ≤ g.toNat` gas
+The one `UInt64` fact the gas-honest floor forces: charging `c ≤ g.toNat` gas
 (with `c` in range) leaves exactly `g.toNat - c`, used to carry the running
-balance across charges in place of a shadow gas ledger.
-
-Mirrors leanevm's `Evm/UInt256.lean`, its arith-lemma home.
+gas balance across charges in place of a shadow gas ledger. (Gas is a `UInt64`
+in leanevm, so this is `UInt64` arithmetic, not `UInt256`.)
 -/
 
-namespace BytecodeLayer.UInt256
+namespace BytecodeLayer.UInt64
 open Evm
 
 /-- `gasAvailable` threading: charging `c ≤ g.toNat` gas (with `c` in range)
@@ -25,4 +24,4 @@ theorem toNat_sub_ofNat (g : UInt64) (c : ℕ) (hc : c ≤ g.toNat) (hlt : c < 2
     rw [UInt64.le_iff_toNat_le, hofNat]; exact hc
   rw [UInt64.toNat_sub_of_le _ _ hle, hofNat]
 
-end BytecodeLayer.UInt256
+end BytecodeLayer.UInt64

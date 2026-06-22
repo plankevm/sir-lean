@@ -1,4 +1,4 @@
-import BytecodeLayer.Semantics.UInt256
+import BytecodeLayer.Semantics.UInt64
 
 /-!
 # Precompile gas bounds (`Precompiles`)
@@ -15,7 +15,7 @@ namespace BytecodeLayer.Precompiles
 open Evm
 open Evm.Operation
 open GasConstants
-open BytecodeLayer.UInt256
+open BytecodeLayer.UInt64
 
 /-! ## Precompile gas — a precompile consumes `≤` the forwarded gas -/
 

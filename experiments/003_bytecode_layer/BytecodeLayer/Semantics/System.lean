@@ -1,5 +1,5 @@
 import Evm
-import BytecodeLayer.Semantics.UInt256
+import BytecodeLayer.Semantics.UInt64
 import BytecodeLayer.Semantics.Gas
 import BytecodeLayer.Semantics.Precompiles
 
@@ -37,7 +37,7 @@ namespace BytecodeLayer.System
 open Evm
 open Evm.Operation
 open GasConstants
-open BytecodeLayer.UInt256
+open BytecodeLayer.UInt64
 open BytecodeLayer.Gas
 open BytecodeLayer.Precompiles
 

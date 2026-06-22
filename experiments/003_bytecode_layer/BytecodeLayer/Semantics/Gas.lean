@@ -1,5 +1,5 @@
 import Evm
-import BytecodeLayer.Semantics.UInt256
+import BytecodeLayer.Semantics.UInt64
 
 /-!
 # Per-step gas accounting (`Gas`)
@@ -28,7 +28,7 @@ namespace BytecodeLayer.Gas
 open Evm
 open Evm.Operation
 open GasConstants
-open BytecodeLayer.UInt256
+open BytecodeLayer.UInt64
 
 /-! ## Gas-charging foundations -/
 

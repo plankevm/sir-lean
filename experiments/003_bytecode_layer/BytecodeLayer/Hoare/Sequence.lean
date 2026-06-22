@@ -3,7 +3,7 @@ import BytecodeLayer.Semantics.System
 import BytecodeLayer.Semantics.Dispatch
 import BytecodeLayer.Observables
 import BytecodeLayer.Programs
-import BytecodeLayer.Semantics.UInt256
+import BytecodeLayer.Semantics.UInt64
 
 /-!
 # Sequence decode lemmas and the gas-threading composition lemma (Sequence)
@@ -18,7 +18,7 @@ capstone itself is composed from the opcode `Runs` rules.
 namespace BytecodeLayer.Hoare
 open Evm
 open GasConstants
-open BytecodeLayer.UInt256
+open BytecodeLayer.UInt64
 
 /-! ## Decode lemmas -/
 

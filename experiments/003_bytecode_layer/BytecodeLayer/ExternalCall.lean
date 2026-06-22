@@ -3,7 +3,7 @@ import BytecodeLayer.Semantics.System
 import BytecodeLayer.Semantics.Dispatch
 import BytecodeLayer.Observables
 import BytecodeLayer.Programs
-import BytecodeLayer.Semantics.UInt256
+import BytecodeLayer.Semantics.UInt64
 import BytecodeLayer.Hoare.Sequence
 
 /-!
@@ -28,7 +28,7 @@ on the real child `CallParams` (`codeSource = .Code …`), never an oracle.
 
 namespace BytecodeLayer.ExternalCall
 open Evm Operation GasConstants
-open BytecodeLayer.UInt256
+open BytecodeLayer.UInt64
 open BytecodeLayer.Dispatch
 open BytecodeLayer.System
 open BytecodeLayer.Interpreter

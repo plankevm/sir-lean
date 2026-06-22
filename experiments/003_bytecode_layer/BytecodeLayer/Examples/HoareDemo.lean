@@ -1,5 +1,5 @@
 import BytecodeLayer.Hoare
-import BytecodeLayer.Semantics.UInt256
+import BytecodeLayer.Semantics.UInt64
 import BytecodeLayer.Examples.ProgramDecode
 import BytecodeLayer.Programs
 
@@ -21,7 +21,7 @@ The two conclusions:
 namespace BytecodeLayer.Examples
 open Evm
 open GasConstants
-open BytecodeLayer.UInt256
+open BytecodeLayer.UInt64
 open BytecodeLayer.Dispatch
 open BytecodeLayer.System
 open BytecodeLayer.Hoare
