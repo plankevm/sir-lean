@@ -47,17 +47,4 @@ import EvmYul.State.Withdrawal
 import EvmYul.State.TransactionOps
 import EvmYul.State.TrieRoot
 
--- Yul subsystem stripped (exp004: nested EVM core only). The modules kept below
--- are the minimum the τ-polymorphic shared `Semantics.lean`/EVM-side state types
--- require: `Ast` defines `contractCode` (used by `Account`/`ExecutionEnv`), and
--- `PrimOps` (+ State/StateOps/Exception/Wheels) supply the `.Yul` dispatch arms of
--- `step`. The standalone Yul interpreter (Interpreter/MachineState/SizeLemmas/
--- YulNotation) and the Yul tests were deleted.
-import EvmYul.Yul.Ast
-import EvmYul.Yul.Exception
-import EvmYul.Yul.PrimOps
-import EvmYul.Yul.State
-import EvmYul.Yul.StateOps
-import EvmYul.Yul.Wheels
-
 import EvmYul.SpongeHash.Keccak256

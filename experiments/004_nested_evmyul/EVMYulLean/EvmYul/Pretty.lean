@@ -18,7 +18,7 @@ Strip the existing `repr` a'la:
 
 This breaks the moment that `Repr` changes its behaviour; it is fine for the time being.
 -/
-def Operation.pretty {τ} (self : Operation τ) : String :=
+def Operation.pretty (self : Operation) : String :=
   let reprStr := ToString.toString <| repr self
   let lastComponent := reprStr.splitOn "." |>.getLast!
   lastComponent.take lastComponent.length.pred

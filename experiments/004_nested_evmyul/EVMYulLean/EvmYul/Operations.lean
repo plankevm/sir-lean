@@ -7,11 +7,6 @@ namespace EvmYul
 
 set_option autoImplicit true
 
-inductive OperationType where
-  | Yul
-  | EVM
-  deriving DecidableEq, Repr
-
 namespace Operation
 
 section Operation
@@ -19,373 +14,373 @@ section Operation
 /--
   Stop and Arithmetic Operations
 -/
-inductive SAOp (τ : OperationType) : Type where
+inductive SAOp : Type where
   /--
     Stop: halts program execution
     δ: 0 ; α : 0
   -/
-  | protected STOP : SAOp τ
+  | protected STOP : SAOp
   /--
     ADD: adds two stack values.
     δ: 2 ; α : 1
   -/
-  | protected ADD : SAOp τ
+  | protected ADD : SAOp
   /--
     MUL: multiplies two stack values.
     δ: 2 ; α : 1
   -/
-  | protected MUL : SAOp τ
+  | protected MUL : SAOp
   /--
     SUB: subtracts two stack values.
     δ: 2 ; α : 1
   -/
-  | protected SUB : SAOp τ
+  | protected SUB : SAOp
   /--
     DIV: divides two stack values.
     δ: 2 ; α: 1
   -/
-  | protected DIV : SAOp τ
+  | protected DIV : SAOp
   /--
     SDIV: signed integer division
     δ: 2 ; α: 1
   -/
-  | protected SDIV : SAOp τ
+  | protected SDIV : SAOp
   /--
     MOD: Modulo remainder operation
     δ: 2 ; α: 1
   -/
-  | protected MOD : SAOp τ
+  | protected MOD : SAOp
   /--
     SMOD: signed integer remainder
     δ: 2 ; α: 1
   -/
-  | protected SMOD : SAOp τ
+  | protected SMOD : SAOp
   /--
     ADDMOD: addition modulo operation
     δ: 3 ; α: 1
   -/
-  | protected ADDMOD : SAOp τ
+  | protected ADDMOD : SAOp
   /--
     MULMOD: multiplication modulo operation
     δ: 3 ; α: 1
   -/
-  | protected MULMOD : SAOp τ
+  | protected MULMOD : SAOp
   /--
     EXP: Exponential operation
     δ:2 ; α: 1
   -/
-  | protected EXP : SAOp τ
+  | protected EXP : SAOp
   /--
     SIGNEXTEND: Extend length of two's complement signed integer
     δ: 2 ; α: 1
   -/
-  | protected SIGNEXTEND : SAOp τ
+  | protected SIGNEXTEND : SAOp
   deriving DecidableEq, Repr
 
 /--
   Comparison & Bitwise Logic Operations
 -/
-inductive CBLOp (τ : OperationType) : Type where
+inductive CBLOp : Type where
   /--
     LT: less than comparison
     δ: 2 ; α: 1
   -/
-  | protected LT : CBLOp τ
+  | protected LT : CBLOp
   /--
     GT: greater than comparison
     δ: 2 ; α: 1
   -/
-  | protected GT : CBLOp τ
+  | protected GT : CBLOp
   /--
     SLT: signed less-than comparison
     δ:2 ; α: 1
   -/
-  | protected SLT : CBLOp τ
+  | protected SLT : CBLOp
   /--
     SGT: signed greater-than comparison
     δ: 2 ; α: 1
   -/
-  | protected SGT : CBLOp τ
+  | protected SGT : CBLOp
   /--
     EQ: equality test
     δ:2 ; α : 1
   -/
-  | protected EQ : CBLOp τ
+  | protected EQ : CBLOp
   /--
     ISZERO: simple not operation
     δ: 1 ; α : 1
   -/
-  | protected ISZERO : CBLOp τ
+  | protected ISZERO : CBLOp
   /--
     AND: bitwise and
     δ:2 ; α: 1
   -/
-  | protected AND : CBLOp τ
+  | protected AND : CBLOp
   /--
     OR: bitwise or
     δ: 2 ; α: 1
   -/
-  | protected OR : CBLOp τ
+  | protected OR : CBLOp
   /--
     XOR: bitwise xor
     δ: 2 ; α: 1
   -/
-  | protected XOR : CBLOp τ
+  | protected XOR : CBLOp
   /--
     NOT: bitwise not
     δ:1 ; α: 1
   -/
-  | protected NOT : CBLOp τ
+  | protected NOT : CBLOp
   /--
     BYTE: retrieve single byte from a word
     δ:2 ; α:1
   -/
-  | protected BYTE : CBLOp τ
+  | protected BYTE : CBLOp
   /--
     SHL: shift left operation
     δ:2 ; α: 1
   -/
-  | protected SHL : CBLOp τ
+  | protected SHL : CBLOp
   /--
     SHR: logical shift right operation
     δ:2 ; α:1
   -/
-  | protected SHR : CBLOp τ
+  | protected SHR : CBLOp
   /--
     SAR: arithmetical shift right operation
     δ:2 ; α:1
   -/
-  | protected SAR : CBLOp τ
+  | protected SAR : CBLOp
   deriving DecidableEq, Repr
 
 /--
   Keccak operation.
 -/
-inductive KOp : OperationType → Type where
+inductive KOp : Type where
   /--
     KECCAK256: compute KECCAK256 hash
     δ:2 ; α: 1
   -/
-  | protected KECCAK256 : KOp τ
+  | protected KECCAK256 : KOp
   deriving DecidableEq, Repr
 
 /--
   Environment Information.
 -/
-inductive EOp : OperationType → Type where
+inductive EOp : Type where
   /--
     ADDRESS: get the address of current executing account
     δ:0 ; α: 1
   -/
-  | protected ADDRESS : EOp τ
+  | protected ADDRESS : EOp
   /--
     BALANCE: get the balance of an input account
     δ:1 ; α: 1
   -/
-  | protected BALANCE : EOp τ
+  | protected BALANCE : EOp
   /--
     ORIGIN: get execution origination address
     δ:0 ; α: 1
   -/
-  | protected ORIGIN : EOp τ
+  | protected ORIGIN : EOp
   /--
     CALLER: returns the caller address
     δ: 0 ; α: 1
   -/
-  | protected CALLER : EOp τ
+  | protected CALLER : EOp
   /--
     CALLVALUE: get deposited value by the instruction / transaction
     responsible for this execution.
     δ: 0 ; α: 1
   -/
-  | protected CALLVALUE : EOp τ
+  | protected CALLVALUE : EOp
   /--
     CALLDATALOAD: get input data of current environment
     δ: 1 ;  α: 1
   -/
-  | protected CALLDATALOAD : EOp τ
+  | protected CALLDATALOAD : EOp
   /--
     CALLDATASIZE: get size of input data in current environment
     δ: 0 ; α: 1
   -/
-  | protected CALLDATASIZE : EOp τ
+  | protected CALLDATASIZE : EOp
   /--
     CALLDATACOPY: copy input data from environment to memory
     δ: 3 ; α: 0
   -/
-  | protected CALLDATACOPY : EOp τ
+  | protected CALLDATACOPY : EOp
   /--
     CODESIZE: get the size of code running in current environment
     δ:0 ; α: 1
   -/
-  | protected GASPRICE : EOp τ
+  | protected GASPRICE : EOp
   /--
     CODECOPY: Copy code running in current environment to memory
     δ: 3 ; α: 0
   -/
-  | protected CODESIZE : EOp τ
+  | protected CODESIZE : EOp
   /--
     GASPRICE: Gas price in current execution environment
     δ: 0 ; α: 1
   -/
-  | protected CODECOPY : EOp τ
+  | protected CODECOPY : EOp
   /--
     EXTCODESIZE: get the size of an account's code
     δ:1 ; α: 1
   -/
-  | protected EXTCODESIZE : EOp τ
+  | protected EXTCODESIZE : EOp
   /--
     EXTCODECOPY: copy an account's code to memory
     δ: 4 ; α: 0
   -/
-  | protected EXTCODECOPY : EOp τ
+  | protected EXTCODECOPY : EOp
   /--
     RETURNDATASIZE: get the size of output data from the previous call
                     from the current environment.
     δ: 0 ; α: 1
   -/
-  | protected RETURNDATASIZE : EOp τ
+  | protected RETURNDATASIZE : EOp
   /--
     RETURNDATACOPY: copy output data from previous call to memory
     δ: 3 ; α: 0
   -/
-  | protected RETURNDATACOPY : EOp τ
+  | protected RETURNDATACOPY : EOp
   /--
     EXTCODEHASH: get hash of an account's code
     δ: 1 ; α: 1
   -/
-  | protected EXTCODEHASH : EOp τ
+  | protected EXTCODEHASH : EOp
   deriving DecidableEq, Repr
 
 /--
   Block Information.
 -/
-inductive BOp : OperationType → Type where
+inductive BOp : Type where
   /--
     BLOCKHASH: get the hash of one of the 256 most recent blocks
     δ:1 ; α: 1
   -/
-  | protected BLOCKHASH : BOp τ
+  | protected BLOCKHASH : BOp
   /--
     COINBASE: get current's block beneficiary address
     δ: 0 ; α: 1
   -/
-  | protected COINBASE : BOp τ
+  | protected COINBASE : BOp
   /--
     TIMESTAMP: get current block's timestamp
     δ: 0 ; α: 1
   -/
-  | protected TIMESTAMP : BOp τ
+  | protected TIMESTAMP : BOp
   /--
     NUMBER: get current block's number
     δ: 0 ; α: 1
   -/
-  | protected NUMBER : BOp τ
-  | protected PREVRANDAO : BOp τ
+  | protected NUMBER : BOp
+  | protected PREVRANDAO : BOp
   /--
     GASLIMIT: get the gas limit for the current block
     δ: 0 ; α: 1
   -/
-  | protected GASLIMIT : BOp τ
+  | protected GASLIMIT : BOp
   /--
     CHAINID: returns the chainid, β
     δ: 0 ; α: 1
   -/
-  | protected CHAINID : BOp τ
+  | protected CHAINID : BOp
   /--
     SELFBALANCE: get the balance of the current executing account
     δ: 0 ; α: 1
   -/
-  | protected SELFBALANCE : BOp τ
-  | protected BASEFEE : BOp τ
-  | protected BLOBHASH : BOp τ
-  | protected BLOBBASEFEE : BOp τ
+  | protected SELFBALANCE : BOp
+  | protected BASEFEE : BOp
+  | protected BLOBHASH : BOp
+  | protected BLOBBASEFEE : BOp
   deriving DecidableEq, Repr
 
 /--
   Stack, Memory, Storage and Flow Operations
 -/
-inductive SMSFOp : OperationType → Type where
+inductive SMSFOp : Type where
   /--
     POP: remove an item from the stack
     δ: 1 ; α: 0
   -/
-  | protected POP : SMSFOp τ
+  | protected POP : SMSFOp
   /--
     MLOAD: load word from memory
     δ: 1 ; α: 1
   -/
-  | protected MLOAD : SMSFOp τ
+  | protected MLOAD : SMSFOp
   /--
     MSTORE: save word in memory
     δ: 2 ; α: 0
   -/
-  | protected MSTORE : SMSFOp τ
+  | protected MSTORE : SMSFOp
   /--
     SLOAD: load word from storage
     δ: 1 ; α: 1
   -/
-  | protected SLOAD : SMSFOp τ
+  | protected SLOAD : SMSFOp
   /--
     SSTORE: Save word to storage
     δ:2 ; α: 0
   -/
-  | protected SSTORE : SMSFOp τ
+  | protected SSTORE : SMSFOp
   /--
     MSTORE8: save byte in memory
     δ: 2 ; α: 0
   -/
-  | protected MSTORE8 : SMSFOp τ
+  | protected MSTORE8 : SMSFOp
   /--
     JUMP: modify program counter
     δ:1 ; α: 0
   -/
-  | protected JUMP : SMSFOp .EVM
+  | protected JUMP : SMSFOp
   /--
     JUMPI: conditionally modify program counter
     δ: 2 ; α: 0
   -/
-  | protected JUMPI : SMSFOp .EVM
+  | protected JUMPI : SMSFOp
   /--
     PC: get program counter before increment
     δ: 0 ; α: 1
   -/
-  | protected PC : SMSFOp .EVM
+  | protected PC : SMSFOp
   /--
     MSIZE: get the size of active memory in bytes
     δ: 0 ; α: 1
   -/
-  | protected MSIZE : SMSFOp τ
+  | protected MSIZE : SMSFOp
   /--
     GAS: get the amount of available gas
     δ: 0 ; α: 1
   -/
-  | protected GAS : SMSFOp τ
+  | protected GAS : SMSFOp
   /--
     JUMPDEST: mark a valid destination for jumps
     δ: 0 ; α: 0
   -/
-  | protected JUMPDEST : SMSFOp .EVM
+  | protected JUMPDEST : SMSFOp
   /--
     EIP-1153
     https://eips.ethereum.org/EIPS/eip-1153
     TLOAD: load word from transient memory
     δ: 1 ; α: 1
   -/
-  | protected TLOAD : SMSFOp τ
+  | protected TLOAD : SMSFOp
   /--
     EIP-1153
     https://eips.ethereum.org/EIPS/eip-1153
     TSTORE: Save word to transient memory
     δ: 2 ; α: 0
   -/
-  | protected TSTORE : SMSFOp τ
+  | protected TSTORE : SMSFOp
   /--
     EIPS-5656
     MCOPY: copy memory areas
     δ: 3 ; α: 0
   -/
-  | protected MCOPY : SMSFOp τ  deriving DecidableEq, Repr
+  | protected MCOPY : SMSFOp  deriving DecidableEq, Repr
 
 /--
   Push operations.
@@ -489,70 +484,70 @@ inductive ExOp : Type where
   LOGn: append log record with n topics.
     δ: n + 2 ; α : 0
 -/
-inductive LOp : OperationType → Type where
-  | protected LOG0 : LOp τ
-  | protected LOG1 : LOp τ
-  | protected LOG2 : LOp τ
-  | protected LOG3 : LOp τ
-  | protected LOG4 : LOp τ
+inductive LOp : Type where
+  | protected LOG0 : LOp
+  | protected LOG1 : LOp
+  | protected LOG2 : LOp
+  | protected LOG3 : LOp
+  | protected LOG4 : LOp
   deriving DecidableEq, Repr
 
 /--
   System Operations.
 -/
-inductive SOp : OperationType → Type where
+inductive SOp : Type where
   /--
     CREATE: create a new account with associated code
     δ: 3 ; α: 1
   -/
-  | protected CREATE : SOp τ
+  | protected CREATE : SOp
   /--
     CALL: message call into an account
     δ: 7 ; α: 1
   -/
-  | protected CALL : SOp τ
+  | protected CALL : SOp
   /--
     CALLCODE: message call into this account with an alternative account's code
     δ: 7 ; α: 1
   -/
-  | protected CALLCODE : SOp τ
+  | protected CALLCODE : SOp
   /--
     RETURN: Halt execution returning output data
     δ: 2 ; α: 0
   -/
-  | protected RETURN : SOp τ
+  | protected RETURN : SOp
   /--
     DELEGATECALL: message call into this account with an alternative account's code
                   but persisting the current values for sender and value
     δ: 6 ; α: 1
   -/
-  | protected DELEGATECALL : SOp τ
+  | protected DELEGATECALL : SOp
   /--
     CREATE2: create a new account with associated code
     δ: 4 ; α: 1
   -/
-  | protected CREATE2 : SOp τ
+  | protected CREATE2 : SOp
   /--
     STATICCALL: static message call into an account
     δ: 6 ; α: 1
   -/
-  | protected STATICCALL : SOp τ
+  | protected STATICCALL : SOp
   /--
     REVERT: halt execution reverting state changes but returning data and remaining gas
     δ: 2 ; α: 0
   -/
-  | protected REVERT : SOp τ
+  | protected REVERT : SOp
   /--
     INVALID: invalid opcode
     δ: ∅ ; α: ∅
   -/
-  | protected INVALID : SOp τ
+  | protected INVALID : SOp
   /--
     SELFDESTRUCT: halt and send entire balance to target.
     Deprecated; see EIP-6780
     δ: 1 ; α: 0
   -/
-  | protected SELFDESTRUCT : SOp τ
+  | protected SELFDESTRUCT : SOp
   deriving DecidableEq, Repr
 
 end Operation
@@ -561,213 +556,213 @@ end Operation
 
 open Operation
 
-inductive Operation : OperationType → Type where
-  | protected StopArith    : SAOp   τ → Operation τ
-  | protected CompBit      : CBLOp  τ → Operation τ
-  | protected Keccak       : KOp    τ → Operation τ
-  | protected Env          : EOp    τ → Operation τ
-  | protected Block        : BOp    τ → Operation τ
-  | protected StackMemFlow : SMSFOp τ → Operation τ
-  | protected Push         : POp      → Operation .EVM
-  | protected Dup          : DOp      → Operation .EVM
-  | protected Exchange     : ExOp     → Operation .EVM
-  | protected Log          : LOp    τ → Operation τ
-  | protected System       : SOp    τ → Operation τ
+inductive Operation : Type where
+  | protected StopArith    : SAOp   → Operation
+  | protected CompBit      : CBLOp  → Operation
+  | protected Keccak       : KOp    → Operation
+  | protected Env          : EOp    → Operation
+  | protected Block        : BOp    → Operation
+  | protected StackMemFlow : SMSFOp → Operation
+  | protected Push         : POp      → Operation
+  | protected Dup          : DOp      → Operation
+  | protected Exchange     : ExOp     → Operation
+  | protected Log          : LOp    → Operation
+  | protected System       : SOp    → Operation
   deriving DecidableEq, Repr
 namespace Operation
 
 @[match_pattern]
-abbrev STOP       {τ : OperationType} : Operation τ := .StopArith .STOP
-abbrev ADD        {τ : OperationType} : Operation τ := .StopArith .ADD
-abbrev MUL        {τ : OperationType} : Operation τ := .StopArith .MUL
-abbrev SUB        {τ : OperationType} : Operation τ := .StopArith .SUB
-abbrev DIV        {τ : OperationType} : Operation τ := .StopArith .DIV
-abbrev SDIV       {τ : OperationType} : Operation τ := .StopArith .SDIV
-abbrev MOD        {τ : OperationType} : Operation τ := .StopArith .MOD
-abbrev SMOD       {τ : OperationType} : Operation τ := .StopArith .SMOD
-abbrev ADDMOD     {τ : OperationType} : Operation τ := .StopArith .ADDMOD
-abbrev MULMOD     {τ : OperationType} : Operation τ := .StopArith .MULMOD
-abbrev EXP        {τ : OperationType} : Operation τ := .StopArith .EXP
-abbrev SIGNEXTEND {τ : OperationType} : Operation τ := .StopArith .SIGNEXTEND
+abbrev STOP       : Operation := .StopArith .STOP
+abbrev ADD        : Operation := .StopArith .ADD
+abbrev MUL        : Operation := .StopArith .MUL
+abbrev SUB        : Operation := .StopArith .SUB
+abbrev DIV        : Operation := .StopArith .DIV
+abbrev SDIV       : Operation := .StopArith .SDIV
+abbrev MOD        : Operation := .StopArith .MOD
+abbrev SMOD       : Operation := .StopArith .SMOD
+abbrev ADDMOD     : Operation := .StopArith .ADDMOD
+abbrev MULMOD     : Operation := .StopArith .MULMOD
+abbrev EXP        : Operation := .StopArith .EXP
+abbrev SIGNEXTEND : Operation := .StopArith .SIGNEXTEND
 
-abbrev LT     {τ : OperationType} : Operation τ := .CompBit .LT
-abbrev GT     {τ : OperationType} : Operation τ := .CompBit .GT
-abbrev SLT    {τ : OperationType} : Operation τ := .CompBit .SLT
-abbrev SGT    {τ : OperationType} : Operation τ := .CompBit .SGT
-abbrev EQ     {τ : OperationType} : Operation τ := .CompBit .EQ
-abbrev ISZERO {τ : OperationType} : Operation τ := .CompBit .ISZERO
-abbrev AND    {τ : OperationType} : Operation τ := .CompBit .AND
-abbrev OR     {τ : OperationType} : Operation τ := .CompBit .OR
-abbrev XOR    {τ : OperationType} : Operation τ := .CompBit .XOR
-abbrev NOT    {τ : OperationType} : Operation τ := .CompBit .NOT
-abbrev BYTE   {τ : OperationType} : Operation τ := .CompBit .BYTE
-abbrev SHL    {τ : OperationType} : Operation τ := .CompBit .SHL
-abbrev SHR    {τ : OperationType} : Operation τ := .CompBit .SHR
-abbrev SAR    {τ : OperationType} : Operation τ := .CompBit .SAR
+abbrev LT     : Operation := .CompBit .LT
+abbrev GT     : Operation := .CompBit .GT
+abbrev SLT    : Operation := .CompBit .SLT
+abbrev SGT    : Operation := .CompBit .SGT
+abbrev EQ     : Operation := .CompBit .EQ
+abbrev ISZERO : Operation := .CompBit .ISZERO
+abbrev AND    : Operation := .CompBit .AND
+abbrev OR     : Operation := .CompBit .OR
+abbrev XOR    : Operation := .CompBit .XOR
+abbrev NOT    : Operation := .CompBit .NOT
+abbrev BYTE   : Operation := .CompBit .BYTE
+abbrev SHL    : Operation := .CompBit .SHL
+abbrev SHR    : Operation := .CompBit .SHR
+abbrev SAR    : Operation := .CompBit .SAR
 
-abbrev KECCAK256 {τ : OperationType} : Operation τ := .Keccak .KECCAK256
+abbrev KECCAK256 : Operation := .Keccak .KECCAK256
 
-abbrev ADDRESS        {τ : OperationType} : Operation τ := .Env .ADDRESS
-abbrev BALANCE        {τ : OperationType} : Operation τ := .Env .BALANCE
-abbrev ORIGIN         {τ : OperationType} : Operation τ := .Env .ORIGIN
-abbrev CALLER         {τ : OperationType} : Operation τ := .Env .CALLER
-abbrev CALLVALUE      {τ : OperationType} : Operation τ := .Env .CALLVALUE
-abbrev CALLDATALOAD   {τ : OperationType} : Operation τ := .Env .CALLDATALOAD
-abbrev CALLDATASIZE   {τ : OperationType} : Operation τ := .Env .CALLDATASIZE
-abbrev CALLDATACOPY   {τ : OperationType} : Operation τ := .Env .CALLDATACOPY
-abbrev CODESIZE       {τ : OperationType} : Operation τ := .Env .CODESIZE
-abbrev GASPRICE       {τ : OperationType} : Operation τ := .Env .GASPRICE
-abbrev CODECOPY       {τ : OperationType} : Operation τ := .Env .CODECOPY
-abbrev EXTCODECOPY    {τ : OperationType} : Operation τ := .Env .EXTCODECOPY
-abbrev EXTCODESIZE    {τ : OperationType} : Operation τ := .Env .EXTCODESIZE
-abbrev RETURNDATASIZE {τ : OperationType} : Operation τ := .Env .RETURNDATASIZE
-abbrev RETURNDATACOPY {τ : OperationType} : Operation τ := .Env .RETURNDATACOPY
-abbrev EXTCODEHASH    {τ : OperationType} : Operation τ := .Env .EXTCODEHASH
+abbrev ADDRESS        : Operation := .Env .ADDRESS
+abbrev BALANCE        : Operation := .Env .BALANCE
+abbrev ORIGIN         : Operation := .Env .ORIGIN
+abbrev CALLER         : Operation := .Env .CALLER
+abbrev CALLVALUE      : Operation := .Env .CALLVALUE
+abbrev CALLDATALOAD   : Operation := .Env .CALLDATALOAD
+abbrev CALLDATASIZE   : Operation := .Env .CALLDATASIZE
+abbrev CALLDATACOPY   : Operation := .Env .CALLDATACOPY
+abbrev CODESIZE       : Operation := .Env .CODESIZE
+abbrev GASPRICE       : Operation := .Env .GASPRICE
+abbrev CODECOPY       : Operation := .Env .CODECOPY
+abbrev EXTCODECOPY    : Operation := .Env .EXTCODECOPY
+abbrev EXTCODESIZE    : Operation := .Env .EXTCODESIZE
+abbrev RETURNDATASIZE : Operation := .Env .RETURNDATASIZE
+abbrev RETURNDATACOPY : Operation := .Env .RETURNDATACOPY
+abbrev EXTCODEHASH    : Operation := .Env .EXTCODEHASH
 
-abbrev BLOCKHASH   {τ : OperationType} : Operation τ := .Block .BLOCKHASH
-abbrev COINBASE    {τ : OperationType} : Operation τ := .Block .COINBASE
-abbrev TIMESTAMP   {τ : OperationType} : Operation τ := .Block .TIMESTAMP
-abbrev NUMBER      {τ : OperationType} : Operation τ := .Block .NUMBER
-abbrev PREVRANDAO  {τ : OperationType} : Operation τ := .Block .PREVRANDAO
-abbrev GASLIMIT    {τ : OperationType} : Operation τ := .Block .GASLIMIT
-abbrev CHAINID     {τ : OperationType} : Operation τ := .Block .CHAINID
-abbrev SELFBALANCE {τ : OperationType} : Operation τ := .Block .SELFBALANCE
-abbrev BASEFEE     {τ : OperationType} : Operation τ := .Block .BASEFEE
-abbrev BLOBHASH    {τ : OperationType} : Operation τ := .Block .BLOBHASH
-abbrev BLOBBASEFEE {τ : OperationType} : Operation τ := .Block .BLOBBASEFEE
+abbrev BLOCKHASH   : Operation := .Block .BLOCKHASH
+abbrev COINBASE    : Operation := .Block .COINBASE
+abbrev TIMESTAMP   : Operation := .Block .TIMESTAMP
+abbrev NUMBER      : Operation := .Block .NUMBER
+abbrev PREVRANDAO  : Operation := .Block .PREVRANDAO
+abbrev GASLIMIT    : Operation := .Block .GASLIMIT
+abbrev CHAINID     : Operation := .Block .CHAINID
+abbrev SELFBALANCE : Operation := .Block .SELFBALANCE
+abbrev BASEFEE     : Operation := .Block .BASEFEE
+abbrev BLOBHASH    : Operation := .Block .BLOBHASH
+abbrev BLOBBASEFEE : Operation := .Block .BLOBBASEFEE
 
-abbrev POP     {τ : OperationType}   : Operation τ    := .StackMemFlow .POP
-abbrev MLOAD   {τ : OperationType}   : Operation τ    := .StackMemFlow .MLOAD
-abbrev MSTORE  {τ : OperationType}   : Operation τ    := .StackMemFlow .MSTORE
-abbrev SLOAD   {τ : OperationType}   : Operation τ    := .StackMemFlow .SLOAD
-abbrev SSTORE  {τ : OperationType}   : Operation τ    := .StackMemFlow .SSTORE
-abbrev MSTORE8 {τ : OperationType}   : Operation τ    := .StackMemFlow .MSTORE8
-abbrev JUMP                          : Operation .EVM := .StackMemFlow .JUMP
-abbrev JUMPI                         : Operation .EVM := .StackMemFlow .JUMPI
-abbrev PC                            : Operation .EVM    := .StackMemFlow .PC
-abbrev MSIZE   {τ : OperationType}   : Operation τ    := .StackMemFlow .MSIZE
-abbrev GAS     {τ : OperationType}   : Operation τ    := .StackMemFlow .GAS
-abbrev JUMPDEST                      : Operation .EVM := .StackMemFlow .JUMPDEST
-abbrev TLOAD   {τ : OperationType} : Operation τ    := .StackMemFlow .TLOAD
-abbrev TSTORE  {τ : OperationType} : Operation τ    := .StackMemFlow .TSTORE
-abbrev MCOPY   {τ : OperationType} : Operation τ := .StackMemFlow .MCOPY
+abbrev POP       : Operation    := .StackMemFlow .POP
+abbrev MLOAD     : Operation    := .StackMemFlow .MLOAD
+abbrev MSTORE    : Operation    := .StackMemFlow .MSTORE
+abbrev SLOAD     : Operation    := .StackMemFlow .SLOAD
+abbrev SSTORE    : Operation    := .StackMemFlow .SSTORE
+abbrev MSTORE8   : Operation    := .StackMemFlow .MSTORE8
+abbrev JUMP                          : Operation := .StackMemFlow .JUMP
+abbrev JUMPI                         : Operation := .StackMemFlow .JUMPI
+abbrev PC                            : Operation    := .StackMemFlow .PC
+abbrev MSIZE     : Operation    := .StackMemFlow .MSIZE
+abbrev GAS       : Operation    := .StackMemFlow .GAS
+abbrev JUMPDEST                      : Operation := .StackMemFlow .JUMPDEST
+abbrev TLOAD   : Operation    := .StackMemFlow .TLOAD
+abbrev TSTORE  : Operation    := .StackMemFlow .TSTORE
+abbrev MCOPY   : Operation := .StackMemFlow .MCOPY
 
-abbrev PUSH0  : Operation .EVM := .Push .PUSH0
-abbrev PUSH1  : Operation .EVM := .Push .PUSH1
-abbrev PUSH2  : Operation .EVM := .Push .PUSH2
-abbrev PUSH3  : Operation .EVM := .Push .PUSH3
-abbrev PUSH4  : Operation .EVM := .Push .PUSH4
-abbrev PUSH5  : Operation .EVM := .Push .PUSH5
-abbrev PUSH6  : Operation .EVM := .Push .PUSH6
-abbrev PUSH7  : Operation .EVM := .Push .PUSH7
-abbrev PUSH8  : Operation .EVM := .Push .PUSH8
-abbrev PUSH9  : Operation .EVM := .Push .PUSH9
-abbrev PUSH10 : Operation .EVM := .Push .PUSH10
-abbrev PUSH11 : Operation .EVM := .Push .PUSH11
-abbrev PUSH12 : Operation .EVM := .Push .PUSH12
-abbrev PUSH13 : Operation .EVM := .Push .PUSH13
-abbrev PUSH14 : Operation .EVM := .Push .PUSH14
-abbrev PUSH15 : Operation .EVM := .Push .PUSH15
-abbrev PUSH16 : Operation .EVM := .Push .PUSH16
-abbrev PUSH17 : Operation .EVM := .Push .PUSH17
-abbrev PUSH18 : Operation .EVM := .Push .PUSH18
-abbrev PUSH19 : Operation .EVM := .Push .PUSH19
-abbrev PUSH20 : Operation .EVM := .Push .PUSH20
-abbrev PUSH21 : Operation .EVM := .Push .PUSH21
-abbrev PUSH22 : Operation .EVM := .Push .PUSH22
-abbrev PUSH23 : Operation .EVM := .Push .PUSH23
-abbrev PUSH24 : Operation .EVM := .Push .PUSH24
-abbrev PUSH25 : Operation .EVM := .Push .PUSH25
-abbrev PUSH26 : Operation .EVM := .Push .PUSH26
-abbrev PUSH27 : Operation .EVM := .Push .PUSH27
-abbrev PUSH28 : Operation .EVM := .Push .PUSH28
-abbrev PUSH29 : Operation .EVM := .Push .PUSH29
-abbrev PUSH30 : Operation .EVM := .Push .PUSH30
-abbrev PUSH31 : Operation .EVM := .Push .PUSH31
-abbrev PUSH32 : Operation .EVM := .Push .PUSH32
+abbrev PUSH0  : Operation := .Push .PUSH0
+abbrev PUSH1  : Operation := .Push .PUSH1
+abbrev PUSH2  : Operation := .Push .PUSH2
+abbrev PUSH3  : Operation := .Push .PUSH3
+abbrev PUSH4  : Operation := .Push .PUSH4
+abbrev PUSH5  : Operation := .Push .PUSH5
+abbrev PUSH6  : Operation := .Push .PUSH6
+abbrev PUSH7  : Operation := .Push .PUSH7
+abbrev PUSH8  : Operation := .Push .PUSH8
+abbrev PUSH9  : Operation := .Push .PUSH9
+abbrev PUSH10 : Operation := .Push .PUSH10
+abbrev PUSH11 : Operation := .Push .PUSH11
+abbrev PUSH12 : Operation := .Push .PUSH12
+abbrev PUSH13 : Operation := .Push .PUSH13
+abbrev PUSH14 : Operation := .Push .PUSH14
+abbrev PUSH15 : Operation := .Push .PUSH15
+abbrev PUSH16 : Operation := .Push .PUSH16
+abbrev PUSH17 : Operation := .Push .PUSH17
+abbrev PUSH18 : Operation := .Push .PUSH18
+abbrev PUSH19 : Operation := .Push .PUSH19
+abbrev PUSH20 : Operation := .Push .PUSH20
+abbrev PUSH21 : Operation := .Push .PUSH21
+abbrev PUSH22 : Operation := .Push .PUSH22
+abbrev PUSH23 : Operation := .Push .PUSH23
+abbrev PUSH24 : Operation := .Push .PUSH24
+abbrev PUSH25 : Operation := .Push .PUSH25
+abbrev PUSH26 : Operation := .Push .PUSH26
+abbrev PUSH27 : Operation := .Push .PUSH27
+abbrev PUSH28 : Operation := .Push .PUSH28
+abbrev PUSH29 : Operation := .Push .PUSH29
+abbrev PUSH30 : Operation := .Push .PUSH30
+abbrev PUSH31 : Operation := .Push .PUSH31
+abbrev PUSH32 : Operation := .Push .PUSH32
 
-abbrev DUP1  : Operation .EVM := .Dup .DUP1
-abbrev DUP2  : Operation .EVM := .Dup .DUP2
-abbrev DUP3  : Operation .EVM := .Dup .DUP3
-abbrev DUP4  : Operation .EVM := .Dup .DUP4
-abbrev DUP5  : Operation .EVM := .Dup .DUP5
-abbrev DUP6  : Operation .EVM := .Dup .DUP6
-abbrev DUP7  : Operation .EVM := .Dup .DUP7
-abbrev DUP8  : Operation .EVM := .Dup .DUP8
-abbrev DUP9  : Operation .EVM := .Dup .DUP9
-abbrev DUP10 : Operation .EVM := .Dup .DUP10
-abbrev DUP11 : Operation .EVM := .Dup .DUP11
-abbrev DUP12 : Operation .EVM := .Dup .DUP12
-abbrev DUP13 : Operation .EVM := .Dup .DUP13
-abbrev DUP14 : Operation .EVM := .Dup .DUP14
-abbrev DUP15 : Operation .EVM := .Dup .DUP15
-abbrev DUP16 : Operation .EVM := .Dup .DUP16
+abbrev DUP1  : Operation := .Dup .DUP1
+abbrev DUP2  : Operation := .Dup .DUP2
+abbrev DUP3  : Operation := .Dup .DUP3
+abbrev DUP4  : Operation := .Dup .DUP4
+abbrev DUP5  : Operation := .Dup .DUP5
+abbrev DUP6  : Operation := .Dup .DUP6
+abbrev DUP7  : Operation := .Dup .DUP7
+abbrev DUP8  : Operation := .Dup .DUP8
+abbrev DUP9  : Operation := .Dup .DUP9
+abbrev DUP10 : Operation := .Dup .DUP10
+abbrev DUP11 : Operation := .Dup .DUP11
+abbrev DUP12 : Operation := .Dup .DUP12
+abbrev DUP13 : Operation := .Dup .DUP13
+abbrev DUP14 : Operation := .Dup .DUP14
+abbrev DUP15 : Operation := .Dup .DUP15
+abbrev DUP16 : Operation := .Dup .DUP16
 
-abbrev SWAP1  : Operation .EVM := .Exchange .SWAP1
-abbrev SWAP2  : Operation .EVM := .Exchange .SWAP2
-abbrev SWAP3  : Operation .EVM := .Exchange .SWAP3
-abbrev SWAP4  : Operation .EVM := .Exchange .SWAP4
-abbrev SWAP5  : Operation .EVM := .Exchange .SWAP5
-abbrev SWAP6  : Operation .EVM := .Exchange .SWAP6
-abbrev SWAP7  : Operation .EVM := .Exchange .SWAP7
-abbrev SWAP8  : Operation .EVM := .Exchange .SWAP8
-abbrev SWAP9  : Operation .EVM := .Exchange .SWAP9
-abbrev SWAP10 : Operation .EVM := .Exchange .SWAP10
-abbrev SWAP11 : Operation .EVM := .Exchange .SWAP11
-abbrev SWAP12 : Operation .EVM := .Exchange .SWAP12
-abbrev SWAP13 : Operation .EVM := .Exchange .SWAP13
-abbrev SWAP14 : Operation .EVM := .Exchange .SWAP14
-abbrev SWAP15 : Operation .EVM := .Exchange .SWAP15
-abbrev SWAP16 : Operation .EVM := .Exchange .SWAP16
+abbrev SWAP1  : Operation := .Exchange .SWAP1
+abbrev SWAP2  : Operation := .Exchange .SWAP2
+abbrev SWAP3  : Operation := .Exchange .SWAP3
+abbrev SWAP4  : Operation := .Exchange .SWAP4
+abbrev SWAP5  : Operation := .Exchange .SWAP5
+abbrev SWAP6  : Operation := .Exchange .SWAP6
+abbrev SWAP7  : Operation := .Exchange .SWAP7
+abbrev SWAP8  : Operation := .Exchange .SWAP8
+abbrev SWAP9  : Operation := .Exchange .SWAP9
+abbrev SWAP10 : Operation := .Exchange .SWAP10
+abbrev SWAP11 : Operation := .Exchange .SWAP11
+abbrev SWAP12 : Operation := .Exchange .SWAP12
+abbrev SWAP13 : Operation := .Exchange .SWAP13
+abbrev SWAP14 : Operation := .Exchange .SWAP14
+abbrev SWAP15 : Operation := .Exchange .SWAP15
+abbrev SWAP16 : Operation := .Exchange .SWAP16
 
-abbrev LOG0 {τ : OperationType} : Operation τ := .Log .LOG0
-abbrev LOG1 {τ : OperationType} : Operation τ := .Log .LOG1
-abbrev LOG2 {τ : OperationType} : Operation τ := .Log .LOG2
-abbrev LOG3 {τ : OperationType} : Operation τ := .Log .LOG3
-abbrev LOG4 {τ : OperationType} : Operation τ := .Log .LOG4
+abbrev LOG0 : Operation := .Log .LOG0
+abbrev LOG1 : Operation := .Log .LOG1
+abbrev LOG2 : Operation := .Log .LOG2
+abbrev LOG3 : Operation := .Log .LOG3
+abbrev LOG4 : Operation := .Log .LOG4
 
-abbrev CREATE       {τ : OperationType} : Operation τ := .System .CREATE
-abbrev CALL         {τ : OperationType} : Operation τ := .System .CALL
-abbrev CALLCODE     {τ : OperationType} : Operation τ := .System .CALLCODE
-abbrev RETURN       {τ : OperationType} : Operation τ := .System .RETURN
-abbrev DELEGATECALL {τ : OperationType} : Operation τ := .System .DELEGATECALL
-abbrev CREATE2      {τ : OperationType} : Operation τ := .System .CREATE2
-abbrev STATICCALL   {τ : OperationType} : Operation τ := .System .STATICCALL
-abbrev REVERT       {τ : OperationType} : Operation τ := .System .REVERT
-abbrev INVALID      {τ : OperationType} : Operation τ := .System .INVALID
-abbrev SELFDESTRUCT {τ : OperationType} : Operation τ := .System .SELFDESTRUCT
+abbrev CREATE       : Operation := .System .CREATE
+abbrev CALL         : Operation := .System .CALL
+abbrev CALLCODE     : Operation := .System .CALLCODE
+abbrev RETURN       : Operation := .System .RETURN
+abbrev DELEGATECALL : Operation := .System .DELEGATECALL
+abbrev CREATE2      : Operation := .System .CREATE2
+abbrev STATICCALL   : Operation := .System .STATICCALL
+abbrev REVERT       : Operation := .System .REVERT
+abbrev INVALID      : Operation := .System .INVALID
+abbrev SELFDESTRUCT : Operation := .System .SELFDESTRUCT
 
-def isPush {τ : OperationType} : Operation τ → Bool
+def isPush : Operation → Bool
   | .Push _ => true
   | _ => false
 
-def isJump {τ : OperationType} : Operation τ → Bool
+def isJump : Operation → Bool
   | .JUMP => true
   | .JUMPI => true
   | _ => false
 
-def isPC {τ : OperationType} : Operation τ → Bool
+def isPC : Operation → Bool
   | .PC => true
   | _ => false
 
-def isJumpdest {τ : OperationType} : Operation τ → Bool
+def isJumpdest : Operation → Bool
   | .JUMPDEST => true
   | _ => false
 
-def isDup {τ : OperationType} : Operation τ → Bool
+def isDup : Operation → Bool
   | .Dup _ => true
   | _ => false
 
-def isSwap {τ : OperationType} : Operation τ → Bool
+def isSwap : Operation → Bool
   | .Exchange _ => true
   | _ => false
 
-def isCreate {τ : OperationType} : Operation τ → Bool
+def isCreate : Operation → Bool
   | .CREATE => true
   | .CREATE2 => true
   | _ => false
 
-def isCall {τ : OperationType} : Operation τ → Bool
+def isCall : Operation → Bool
   | .CALL => true
   | .CALLCODE => true
   | .DELEGATECALL => true

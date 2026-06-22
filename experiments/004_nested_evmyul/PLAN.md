@@ -21,6 +21,9 @@ composing naturally (the thing flat makes hard).
   Removing `EvmYul/Yul/` requires fixing that single import.
 
 ## Milestones
+- [x] **B0** Monomorphize EVMYulLean to EVM-only: remove the `OperationType = Yul |
+  EVM` polymorphism entirely, specialize all `τ`-indexed types to their EVM
+  instances, delete the whole Yul subsystem. (Done 2026-06-22; see log.)
 - [ ] **B1** Squashed subtree vendor of EVMYulLean → `EVMYulLean/` here; strip
   `EvmYul/Yul/` + Yul-only code; fix the `EvmYul/Semantics.lean` import; keep the
   EVM library (+`Conform` dep) green via `lake build`; trim heavy/irrelevant pieces.
@@ -73,3 +76,35 @@ composing naturally (the thing flat makes hard).
     `lake build` (exp004 default target `NestedEvmYul`, which `import`s
     `EvmYul.EVM.Semantics`) → green, confirming the lakefile `require evmyul`
     wiring end-to-end. B1 complete.
+- 2026-06-22 (B0): **Monomorphized EVMYulLean to EVM-only.** The `OperationType =
+  Yul | EVM` polymorphism is gone — `inductive OperationType` deleted, the `τ`
+  parameter stripped from every type and function it threaded through.
+  - **Types specialized.** `contractCode τ` → `ByteArray` (its `.EVM` instance),
+    inlined directly into `Account`/`PersistentAccountState`/`ExecutionEnv`/
+    `ToExecute` (which no longer import `Yul.Ast`). The `(τ : OperationType)`
+    parameter dropped from `Account`, `PersistentAccountState`, `ExecutionEnv`,
+    `State`, `SharedState`, `AccountMap`, `PersistentAccountMap`, `ToExecute`,
+    `Operation` (and its `SAOp/CBLOp/KOp/EOp/BOp/SMSFOp/LOp/SOp` sub-ops). All
+    `… .EVM` type applications across the EVM side + Conform were stripped.
+  - **Shared `Semantics.lean` rewritten.** The `Transformer τ`/`dispatch*`
+    indirection (which matched on `τ` to pick EVM-vs-Yul interpreters) collapsed to
+    direct `EVM.*` calls; `step`'s signature lost `{τ}` and `Operation τ → … →
+    Operation`, and ALL `.Yul` match arms (STOP/MLOAD/RETURN/REVERT/SELFDESTRUCT/
+    POP/EXTCODESIZE/RETURNDATACOPY + the `.Yul, _` fallback) were deleted. The
+    `match τ, op` became `match op`.
+  - **Yul deleted.** Entire `EvmYul/Yul/` removed (`Ast`, `Exception`, `PrimOps`,
+    `State`, `StateOps`, `Wheels` — the modules B1 had kept). After the refactor no
+    file imports `EvmYul.Yul.*`, verified by grep. Umbrella `EvmYul.lean` dropped
+    the six Yul imports; `EVMYulLean/lakefile.lean` comment updated.
+  - **Proofs/lemmas adapted:** none. The vendored EVM library carries no proofs that
+    broke — the refactor was purely on `def`s/`structure`s/`abbrev`s. Conform (the
+    conformance harness) only ever used `.EVM` instances, so the same `.EVM`-strip
+    fixed it; all its modules + `Conform.Main` build.
+  - **Build: GREEN.** exp004 target (`lake build NestedEvmYul.lean`, transitively the
+    full `EvmYul` lib incl. nested `EvmYul.EVM.Semantics` Θ/Ξ/X) → green; vendored
+    `EvmYul` default lib → green; all `Conform.*` modules → green. (`lake build
+    Conform` as a lib still fails on a *pre-existing* missing `Conform.lean` root —
+    not introduced here; the modules themselves compile.)
+  - **Axioms:** `#print axioms` on `EvmYul.step`, `EvmYul.EVM.Ξ`, `EvmYul.EVM.Θ` all
+    report only `[propext, Classical.choice, Quot.sound]` — no `sorryAx`, no custom
+    axiom. `grep` confirms zero `sorry`/`admit`/`axiom` in source.

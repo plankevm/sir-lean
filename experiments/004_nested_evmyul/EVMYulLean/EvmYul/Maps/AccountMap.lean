@@ -31,23 +31,23 @@ namespace EvmYul
 section RemoveLater
 
 abbrev AddrMap (α : Type) [Inhabited α] := Batteries.RBMap AccountAddress α compare
-abbrev AccountMap (τ : OperationType) := AddrMap (Account τ)
-abbrev PersistentAccountMap (τ : OperationType) := AddrMap (PersistentAccountState τ)
-def AccountMap.toPersistentAccountMap (τ : OperationType) (a : AccountMap τ) : PersistentAccountMap τ :=
+abbrev AccountMap := AddrMap Account
+abbrev PersistentAccountMap := AddrMap PersistentAccountState
+def AccountMap.toPersistentAccountMap (a : AccountMap) : PersistentAccountMap :=
   a.mapVal (λ _ acc ↦ acc.toPersistentAccountState)
 
-def AccountMap.increaseBalance (τ : OperationType) (σ : AccountMap τ) (addr : AccountAddress) (amount : UInt256)
-  : AccountMap τ
+def AccountMap.increaseBalance (σ : AccountMap) (addr : AccountAddress) (amount : UInt256)
+  : AccountMap
 :=
   match σ.find? addr with
-    | none => σ.insert addr {(default : Account τ) with balance := amount}
+    | none => σ.insert addr {(default : Account) with balance := amount}
     | some acc => σ.insert addr {acc with balance := acc.balance + amount}
 
 /--
   Returns `none` in the case of an overflow below zero.
 -/
-def AccountMap.decreaseBalance (τ : OperationType) (σ : AccountMap τ) (addr : AccountAddress) (amount : UInt256)
-  : Option (AccountMap τ)
+def AccountMap.decreaseBalance (σ : AccountMap) (addr : AccountAddress) (amount : UInt256)
+  : Option AccountMap
 :=
   match σ.find? addr with
     | none => .none
@@ -57,36 +57,31 @@ def AccountMap.decreaseBalance (τ : OperationType) (σ : AccountMap τ) (addr :
 /--
   Returns `none` in the case of an overflow below zero.
 -/
-def AccountMap.transferBalance (τ : OperationType) (σ : AccountMap τ) (from_addr to_addr : AccountAddress) (amount : UInt256)
-  : Option (AccountMap τ)
+def AccountMap.transferBalance (σ : AccountMap) (from_addr to_addr : AccountAddress) (amount : UInt256)
+  : Option AccountMap
 :=
-  match (σ.decreaseBalance τ from_addr amount) with
+  match (σ.decreaseBalance from_addr amount) with
     | .none => .none
-    | .some σ' => σ'.increaseBalance τ to_addr amount
+    | .some σ' => σ'.increaseBalance to_addr amount
 
-def toExecute (τ : OperationType) (σ : AccountMap τ) (t : AccountAddress) : ToExecute τ :=
+def toExecute (σ : AccountMap) (t : AccountAddress) : ToExecute :=
   if /- t is a precompiled account -/ t ∈ π then
     ToExecute.Precompiled t
   else Id.run do
-    match τ with
-      | .EVM =>
-        -- We use the code directly without an indirection a'la `codeMap[t]`.
-        let .some tDirect := σ.find? t | ToExecute.Code default
-        ToExecute.Code tDirect.code
-      | .Yul =>
-        let .some tDirect := σ.find? t | ToExecute.Code default
-        ToExecute.Code tDirect.code
+    -- We use the code directly without an indirection a'la `codeMap[t]`.
+    let .some tDirect := σ.find? t | ToExecute.Code default
+    ToExecute.Code tDirect.code
 
-def L_S (σ : PersistentAccountMap .EVM) : Array (ByteArray × ByteArray) :=
+def L_S (σ : PersistentAccountMap) : Array (ByteArray × ByteArray) :=
   σ.foldl
     (λ arr (addr : AccountAddress) acc ↦
       arr.push (p addr acc)
     )
     .empty
  where
-  p (addr : AccountAddress) (acc : PersistentAccountState .EVM) : ByteArray × ByteArray :=
+  p (addr : AccountAddress) (acc : PersistentAccountState) : ByteArray × ByteArray :=
     (ffi.KEC addr.toByteArray, rlp acc)
-  rlp (acc : PersistentAccountState .EVM) :=
+  rlp (acc : PersistentAccountState) :=
     Option.get! <|
       RLP <|
         .𝕃
@@ -96,7 +91,7 @@ def L_S (σ : PersistentAccountMap .EVM) : Array (ByteArray × ByteArray) :=
           , .𝔹 acc.codeHash.toByteArray
           ]
 
-def stateTrieRoot (σ : PersistentAccountMap .EVM) : Option ByteArray :=
+def stateTrieRoot (σ : PersistentAccountMap) : Option ByteArray :=
   let a := Array.map toBlobPair (L_S σ)
   (ByteArray.ofBlob (blobComputeTrieRoot a)).toOption
  where

@@ -3,7 +3,8 @@ open Lake DSL
 
 -- Experiment 004: nested EVM core over EVMYulLean («evmyul» package, library `EvmYul`),
 -- vendored in-tree at ./EVMYulLean (squashed subtree of NethermindEth/EVMYulLean @ 066dc8b).
--- The Yul subsystem is stripped to the minimum the τ-polymorphic shared semantics need.
+-- Monomorphized to EVM-only (B0): the `OperationType` polymorphism and the whole Yul
+-- subsystem are removed; the shared semantics are now plain EVM.
 -- Genuinely-nested mutual Θ/Ξ semantics; flat-vs-nested bake-off against exp003. See PLAN.md.
 require evmyul from "EVMYulLean"
 

@@ -71,4 +71,7 @@ lean_lib «EvmYul»
 @[test_driver]
 lean_exe «conform» where
   root := `Conform.Main
--- exp004: `yulSemanticsTests` exe removed; the Yul subsystem it drove was stripped.
+-- exp004 B0: monomorphized to EVM-only. The `OperationType = Yul | EVM`
+-- polymorphism was removed; all `τ`-indexed types specialized to their EVM
+-- instances (`contractCode` ≡ `ByteArray`), and the entire `EvmYul/Yul/` subsystem
+-- (+ the `yulSemanticsTests` exe) was deleted.

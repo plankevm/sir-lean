@@ -4,7 +4,7 @@ import EvmYul.SpongeHash.Keccak256
 import EvmYul.UInt256
 import EvmYul.Wheels
 
-import EvmYul.Yul.Ast
+import EvmYul.Operations
 
 namespace EvmYul
 
@@ -15,15 +15,15 @@ namespace EvmYul
 def π : Batteries.RBSet AccountAddress compare :=
   Batteries.RBSet.ofList ((List.range 11).tail.map (Fin.ofNat _)) compare
 
-inductive ToExecute (τ : OperationType) where
-  | Code (code : Yul.Ast.contractCode τ)
+inductive ToExecute where
+  | Code (code : ByteArray)
   | Precompiled (precompiled : AccountAddress)
 
-structure PersistentAccountState (τ : OperationType) where
+structure PersistentAccountState where
   nonce    : UInt256
   balance  : UInt256
   storage  : Storage
-  code     : (Yul.Ast.contractCode τ)
+  code     : ByteArray
   deriving BEq, Inhabited, Repr
 
 /--
@@ -43,14 +43,14 @@ a Merkle Tree. KEVM implemets it as just an key/value map.
 For now, we assume no global map `GM` with which `GM[code_hash] ≡ code`.
 - `code`
 -/
-structure Account (τ : OperationType) extends PersistentAccountState τ where
+structure Account extends PersistentAccountState where
   tstorage : Storage
 deriving BEq, Inhabited
 
-def PersistentAccountState.codeHash (self : PersistentAccountState .EVM) : UInt256 :=
+def PersistentAccountState.codeHash (self : PersistentAccountState) : UInt256 :=
   .ofNat <| fromByteArrayBigEndian (ffi.KEC self.code)
 
-def Account.codeHash (self : (Account .EVM)) : UInt256 :=
+def Account.codeHash (self : Account) : UInt256 :=
   self.toPersistentAccountState.codeHash
 
 end EvmYul

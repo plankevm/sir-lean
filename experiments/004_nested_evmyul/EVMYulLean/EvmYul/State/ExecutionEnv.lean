@@ -1,7 +1,7 @@
 import EvmYul.Wheels
 import EvmYul.UInt256
 import EvmYul.State.BlockHeader
-import EvmYul.Yul.Ast
+import EvmYul.Operations
 
 namespace EvmYul
 
@@ -18,13 +18,13 @@ The execution envorinment `I` `ExecutionEnv`. Section 9.3.
 - `depth`     `Iₑ`
 - `perm`      `I_w`
 -/
-structure ExecutionEnv (τ : OperationType) where
+structure ExecutionEnv where
   codeOwner : AccountAddress
   sender    : AccountAddress
   source    : AccountAddress
   weiValue  : UInt256
   calldata : ByteArray
-  code      : (Yul.Ast.contractCode τ)
+  code      : ByteArray
   gasPrice  : ℕ
   header    : BlockHeader
   depth     : ℕ
@@ -32,16 +32,16 @@ structure ExecutionEnv (τ : OperationType) where
   blobVersionedHashes : List ByteArray
   deriving BEq, Inhabited, Repr
 
-def prevRandao {τ} (e : ExecutionEnv τ) : UInt256 :=
+def prevRandao (e : ExecutionEnv) : UInt256 :=
   e.header.prevRandao
 
-def basefee {τ} (e : ExecutionEnv τ) : UInt256 :=
+def basefee (e : ExecutionEnv) : UInt256 :=
   .ofNat e.header.baseFeePerGas
 
-def ExecutionEnv.getBlobGasprice {τ} (e : ExecutionEnv τ) : UInt256 :=
+def ExecutionEnv.getBlobGasprice (e : ExecutionEnv) : UInt256 :=
   .ofNat e.header.getBlobGasprice
 
-def blobhash {τ} (e : ExecutionEnv τ) (i : UInt256) : UInt256 :=
+def blobhash (e : ExecutionEnv) (i : UInt256) : UInt256 :=
   e.blobVersionedHashes[i.toNat]?.option ⟨0⟩
     (.ofNat ∘ fromByteArrayBigEndian)
 

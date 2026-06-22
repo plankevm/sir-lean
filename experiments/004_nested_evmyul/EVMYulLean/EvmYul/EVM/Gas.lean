@@ -15,21 +15,21 @@ Appendix G. Fee Schedule
 
 namespace InstructionGasGroups
 
-def Wzero : List (Operation .EVM) := [.STOP, .RETURN, .REVERT]
+def Wzero : List (Operation) := [.STOP, .RETURN, .REVERT]
 
-def Wbase : List (Operation .EVM) := [
+def Wbase : List (Operation) := [
   .ADDRESS, .ORIGIN, .CALLER, .CALLVALUE, .CALLDATASIZE, .CODESIZE, .GASPRICE, .COINBASE,
   .TIMESTAMP, .NUMBER, .PREVRANDAO, .GASLIMIT, .CHAINID, .RETURNDATASIZE, .POP, .PC, .MSIZE, .GAS,
   .BASEFEE, .BLOBBASEFEE, .PUSH0]
 
-def Wverylow : List (Operation .EVM) := [
+def Wverylow : List (Operation) := [
   .ADD, .SUB, .NOT, .LT, .GT, .SLT, .SGT, .EQ, .ISZERO, .AND, .OR, .XOR, .BYTE, .SHL, .SHR, .SAR,
   .CALLDATALOAD, .MLOAD, .MSTORE, .MSTORE8
   ] ++ pushInstrsWithoutZero
     ++ dupInstrs
     ++ swapInstrs
   where
-    pushInstrsWithoutZero : List (Operation .EVM) := [
+    pushInstrsWithoutZero : List (Operation) := [
       .PUSH1, .PUSH2, .PUSH3, .PUSH4, .PUSH5,
       .PUSH6, .PUSH7, .PUSH8, .PUSH9, .PUSH10,
       .PUSH11, .PUSH12, .PUSH13, .PUSH14, .PUSH15,
@@ -38,40 +38,40 @@ def Wverylow : List (Operation .EVM) := [
       .PUSH26, .PUSH27, .PUSH28, .PUSH29, .PUSH30,
       .PUSH31, .PUSH32
     ]
-    dupInstrs : List (Operation .EVM) := [
+    dupInstrs : List (Operation) := [
       .DUP1, .DUP2, .DUP3, .DUP4, .DUP5,
       .DUP6, .DUP7, .DUP8, .DUP9, .DUP10,
       .DUP11, .DUP12, .DUP13, .DUP14, .DUP15,
       .DUP16
     ]
-    swapInstrs : List (Operation .EVM) := [
+    swapInstrs : List (Operation) := [
       .SWAP1, .SWAP2, .SWAP3, .SWAP4, .SWAP5,
       .SWAP6, .SWAP7, .SWAP8, .SWAP9, .SWAP10,
       .SWAP11, .SWAP12, .SWAP13, .SWAP14, .SWAP15,
       .SWAP16
     ]
 
-def Wlow : List (Operation .EVM) := [
+def Wlow : List (Operation) := [
   .MUL, .DIV, .SDIV, .MOD, .SMOD, .SIGNEXTEND, .SELFBALANCE
 ]
 
-def Wmid : List (Operation .EVM) := [
+def Wmid : List (Operation) := [
   .ADDMOD, .MULMOD, .JUMP
 ]
 
-def Whigh : List (Operation .EVM) := [
+def Whigh : List (Operation) := [
   .JUMPI
 ]
 
-def Wcopy : List (Operation .EVM) := [
+def Wcopy : List (Operation) := [
   .CALLDATACOPY, .CODECOPY, .RETURNDATACOPY, .MCOPY
 ]
 
-def Wcall : List (Operation .EVM) := [
+def Wcall : List (Operation) := [
   .CALL, .CALLCODE, .DELEGATECALL, .STATICCALL
 ]
 
-def Wextaccount : List (Operation .EVM) := [
+def Wextaccount : List (Operation) := [
   .BALANCE, .EXTCODESIZE, .EXTCODEHASH
 ]
 
@@ -148,7 +148,7 @@ def Cselfdestruct (s : EVM.State) : ℕ :=
 /--
 NB Assumes stack coherency.
 -/
-def Csload (μₛ : Stack UInt256) (A : Substate) (I : ExecutionEnv .EVM) : ℕ :=
+def Csload (μₛ : Stack UInt256) (A : Substate) (I : ExecutionEnv) : ℕ :=
   if A.accessedStorageKeys.contains (I.codeOwner, μₛ[0]!)
   then Gwarmaccess
   else Gcoldsload
@@ -161,22 +161,22 @@ def Ctload : ℕ :=
 -/
 def L (n : ℕ) : ℕ := n - (n / 64)
 
-def Cnew (t : AccountAddress) (val : UInt256) (σ : AccountMap .EVM) : ℕ :=
+def Cnew (t : AccountAddress) (val : UInt256) (σ : AccountMap) : ℕ :=
   if EvmYul.State.dead σ t && val != ⟨0⟩ then Gnewaccount else 0
 
 def Cxfer (val : UInt256) : ℕ :=
   if val != ⟨0⟩ then Gcallvalue else 0
 
-def Cextra (t r : AccountAddress) (val : UInt256) (σ : AccountMap .EVM) (A : Substate) : ℕ :=
+def Cextra (t r : AccountAddress) (val : UInt256) (σ : AccountMap) (A : Substate) : ℕ :=
   Caccess t A + Cxfer val + Cnew r val σ
 
-def Cgascap (t r : AccountAddress) (val g : UInt256) (σ : AccountMap .EVM) (μ : MachineState) (A : Substate) :=
+def Cgascap (t r : AccountAddress) (val g : UInt256) (σ : AccountMap) (μ : MachineState) (A : Substate) :=
   if μ.gasAvailable.toNat >= Cextra t r val σ A then
     min (L <| (μ.gasAvailable.toNat - Cextra t r val σ A)) g.toNat
   else
     g.toNat
 
-def Ccallgas (t r : AccountAddress) (val g : UInt256) (σ : AccountMap .EVM) (μ : MachineState) (A : Substate) : ℕ :=
+def Ccallgas (t r : AccountAddress) (val g : UInt256) (σ : AccountMap) (μ : MachineState) (A : Substate) : ℕ :=
   match val with
     | ⟨0⟩ => Cgascap t r val g σ μ A
     | _ => Cgascap t r val g σ μ A + GasConstants.Gcallstipend
@@ -184,7 +184,7 @@ def Ccallgas (t r : AccountAddress) (val g : UInt256) (σ : AccountMap .EVM) (μ
 /--
 NB Assumes stack coherence.
 -/
-def Ccall (t r : AccountAddress) (val g : UInt256) (σ : AccountMap .EVM) (μ : MachineState) (A : Substate) : ℕ :=
+def Ccall (t r : AccountAddress) (val g : UInt256) (σ : AccountMap) (μ : MachineState) (A : Substate) : ℕ :=
   Cgascap t r val g σ μ A + Cextra t r val σ A
 
 /--
@@ -221,7 +221,7 @@ H.1. Gas Cost - the third summand.
 NB Stack accesses are assumed guarded here and we access with `!`.
 This is for keeping in sync with the way the YP is structures, at least for the time being.
 -/
-def C' (s : State) (instr : Operation .EVM) : ℕ :=
+def C' (s : State) (instr : Operation) : ℕ :=
   let { accountMap := σ, stack := μₛ, substate := A, toMachineState := μ, executionEnv := I, ..} := s
   match instr with
     | .SSTORE => Csstore s
@@ -269,7 +269,7 @@ NB this differs ever so slightly from how it is defined in the YP, please refer 
 `EVM/Semantics.lean`, function `X` for further discussion.
 -/
 
-def memoryExpansionCost (s : EVM.State) (instr : Operation .EVM) : ℕ :=
+def memoryExpansionCost (s : EVM.State) (instr : Operation) : ℕ :=
   Cₘ μᵢ' - Cₘ s.toMachineState.activeWords
  where
   μᵢ' : UInt256 :=

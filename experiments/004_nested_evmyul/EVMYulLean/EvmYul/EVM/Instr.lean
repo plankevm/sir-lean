@@ -6,7 +6,7 @@ namespace EVM
 
 open Operation
 
-def serializeStopArithInstr : SAOp .EVM → UInt8
+def serializeStopArithInstr : SAOp → UInt8
   | .STOP       => 0x00
   | .ADD        => 0x01
   | .MUL        => 0x02
@@ -20,7 +20,7 @@ def serializeStopArithInstr : SAOp .EVM → UInt8
   | .EXP        => 0x0a
   | .SIGNEXTEND => 0x0b
 
-def serializeCompBitInstr : CBLOp .EVM → UInt8
+def serializeCompBitInstr : CBLOp → UInt8
   | .LT     => 0x10
   | .GT     => 0x11
   | .SLT    => 0x12
@@ -36,10 +36,10 @@ def serializeCompBitInstr : CBLOp .EVM → UInt8
   | .SHR    => 0x1c
   | .SAR    => 0x1d
 
-def serializeKeccakInstr : KOp .EVM → UInt8
+def serializeKeccakInstr : KOp → UInt8
   | .KECCAK256 => 0x20
 
-def serializeEnvInstr : EOp .EVM → UInt8
+def serializeEnvInstr : EOp → UInt8
   | .ADDRESS        => 0x30
   | .BALANCE        => 0x31
   | .ORIGIN         => 0x32
@@ -57,7 +57,7 @@ def serializeEnvInstr : EOp .EVM → UInt8
   | .RETURNDATACOPY => 0x3e
   | .EXTCODEHASH    => 0x3f
 
-def serializeBlockInstr : BOp .EVM → UInt8
+def serializeBlockInstr : BOp → UInt8
   | .BLOCKHASH   => 0x40
   | .COINBASE    => 0x41
   | .TIMESTAMP   => 0x42
@@ -70,7 +70,7 @@ def serializeBlockInstr : BOp .EVM → UInt8
   | .BLOBHASH    => 0x49
   | .BLOBBASEFEE => 0x4a
 
-def serializeStackMemFlowInstr : SMSFOp .EVM → UInt8
+def serializeStackMemFlowInstr : SMSFOp → UInt8
   | .POP      => 0x50
   | .MLOAD    => 0x51
   | .MSTORE   => 0x52
@@ -158,14 +158,14 @@ def serializeSwapInstr : ExOp → UInt8
   | .SWAP15 => 0x9e
   | .SWAP16 => 0x9f
 
-def serializeLogInstr : LOp .EVM → UInt8
+def serializeLogInstr : LOp → UInt8
   | .LOG0 => 0xa0
   | .LOG1 => 0xa1
   | .LOG2 => 0xa2
   | .LOG3 => 0xa3
   | .LOG4 => 0xa4
 
-def serializeSysInstr : SOp .EVM → UInt8
+def serializeSysInstr : SOp → UInt8
   | .CREATE       => 0xf0
   | .CALL         => 0xf1
   | .CALLCODE     => 0xf2
@@ -177,7 +177,7 @@ def serializeSysInstr : SOp .EVM → UInt8
   | .INVALID      => 0xfe
   | .SELFDESTRUCT => 0xff
 
-def serializeInstr : Operation .EVM → UInt8
+def serializeInstr : Operation → UInt8
   | .StopArith a    => serializeStopArithInstr a
   | .CompBit e      => serializeCompBitInstr e
   | .Keccak k       => serializeKeccakInstr k
@@ -190,7 +190,7 @@ def serializeInstr : Operation .EVM → UInt8
   | .Log l          => serializeLogInstr l
   | .System s       => serializeSysInstr s
 
-def δ : Operation .EVM → Option ℕ
+def δ : Operation → Option ℕ
   | .STOP           => some 0
   | .ADD            => some 2
   | .MUL            => some 2
@@ -309,7 +309,7 @@ def δ : Operation .EVM → Option ℕ
   | .INVALID        => none
   | .SELFDESTRUCT   => some 1
 
-def α : Operation .EVM → Option ℕ
+def α : Operation → Option ℕ
   | .STOP => some 0
   | .ADD => some 1
   | .MUL => some 1
@@ -424,7 +424,7 @@ def α : Operation .EVM → Option ℕ
   | .INVALID => none
   | .SELFDESTRUCT => some 0
 
-def parseInstr : UInt8 → Option (Operation .EVM)
+def parseInstr : UInt8 → Option (Operation)
   | 0x00 => some .STOP
   | 0x01 => some .ADD
   | 0x02 => some .MUL

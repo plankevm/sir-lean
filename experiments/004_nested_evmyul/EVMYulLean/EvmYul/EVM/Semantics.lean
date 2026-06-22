@@ -38,7 +38,7 @@ namespace EvmYul
 
 namespace EVM
 
-def argOnNBytesOfInstr : Operation .EVM → ℕ
+def argOnNBytesOfInstr : Operation → ℕ
   -- | .Push .PUSH0 => 0 is handled as default.
   | .Push .PUSH1 => 1
   | .Push .PUSH2 => 2
@@ -74,7 +74,7 @@ def argOnNBytesOfInstr : Operation .EVM → ℕ
   | .Push .PUSH32 => 32
   | _ => 0
 
-def N (pc : UInt256) (instr : Operation .EVM) := pc + ⟨1⟩ + .ofNat (argOnNBytesOfInstr instr)
+def N (pc : UInt256) (instr : Operation) := pc + ⟨1⟩ + .ofNat (argOnNBytesOfInstr instr)
 
 /--
 Returns the instruction from `arr` at `pc` assuming it is valid.
@@ -82,7 +82,7 @@ Returns the instruction from `arr` at `pc` assuming it is valid.
 The `Push` instruction also returns the argument as an EVM word along with the width of the instruction.
 -/
 def decode (arr : ByteArray) (pc : UInt256) :
-  Option (Operation .EVM × Option (UInt256 × Nat)) := do
+  Option (Operation × Option (UInt256 × Nat)) := do
   let instr ← arr.get? pc.toNat >>= EvmYul.EVM.parseInstr
   let argWidth := argOnNBytesOfInstr instr
   .some (
@@ -92,8 +92,8 @@ def decode (arr : ByteArray) (pc : UInt256) :
     else .some (EvmYul.uInt256OfByteArray (arr.extract' pc.toNat.succ (pc.toNat.succ + argWidth)), argWidth)
   )
 
-def fetchInstr (I : EvmYul.ExecutionEnv .EVM) (pc : UInt256) :
-               Except EVM.ExecutionException (Operation .EVM × Option (UInt256 × Nat)) :=
+def fetchInstr (I : EvmYul.ExecutionEnv) (pc : UInt256) :
+               Except EVM.ExecutionException (Operation × Option (UInt256 × Nat)) :=
   decode I.code pc |>.option (.error .StackUnderflow) Except.ok
 
 partial def D_J_aux (c : ByteArray) (i : UInt256) (result : Array UInt256) : Array UInt256 :=
@@ -175,7 +175,7 @@ def call (fuel : Nat)
               (s  := source)
               (o  := evmState.executionEnv.sender)          -- Iₒ in Θ(.., Iₒ, ..)
               (r  := recipient)                             -- t in Θ(.., t, ..)
-              (c  := toExecute .EVM σ t)
+              (c  := toExecute σ t)
               (g  := .ofNat callgas)
               (p  := .ofNat evmState.executionEnv.gasPrice) -- Iₚ in Θ(.., Iₚ, ..)
               (v  := value)
@@ -218,7 +218,7 @@ def call (fuel : Nat)
       }
       .ok (x, result)
 
-def step (fuel : ℕ) (gasCost : ℕ) (instr : Option (Operation .EVM × Option (UInt256 × Nat)) := .none)
+def step (fuel : ℕ) (gasCost : ℕ) (instr : Option (Operation × Option (UInt256 × Nat)) := .none)
   : EVM.Transformer
 :=
   match fuel with
@@ -244,7 +244,7 @@ def step (fuel : ℕ) (gasCost : ℕ) (instr : Option (Operation .EVM × Option 
             let Iₒ := evmState.executionEnv.sender
             let Iₑ := evmState.executionEnv.depth
             let σ := evmState.accountMap
-            let σ_Iₐ : Account .EVM := σ.find? Iₐ |>.getD default
+            let σ_Iₐ : Account := σ.find? Iₐ |>.getD default
             let σStar := σ.insert Iₐ {σ_Iₐ with nonce := σ_Iₐ.nonce + ⟨1⟩}
 
             let (a, evmState', g', z, o)
@@ -314,7 +314,7 @@ def step (fuel : ℕ) (gasCost : ℕ) (instr : Option (Operation .EVM × Option 
             let Iₒ := evmState.executionEnv.sender
             let Iₑ := evmState.executionEnv.depth
             let σ := evmState.accountMap
-            let σ_Iₐ : Account .EVM := σ.find? Iₐ |>.getD default
+            let σ_Iₐ : Account := σ.find? Iₐ |>.getD default
             let σStar := σ.insert Iₐ {σ_Iₐ with nonce := σ_Iₐ.nonce + ⟨1⟩}
             let (a, evmState', g', z, o) : (AccountAddress × EVM.State × UInt256 × Bool × ByteArray) :=
               if σ_Iₐ.nonce.toNat ≥ 2^64-1 then (default, evmState, .ofNat (L evmState.gasAvailable.toNat), False, .empty) else
@@ -434,11 +434,11 @@ def belongs (o : Option UInt256) (l : Array UInt256) : Bool :=
 def notIn (o : Option UInt256) (l : Array UInt256) : Bool :=
   not (belongs o l)
 
-def W (w : Operation .EVM) (s : Stack UInt256) : Bool :=
+def W (w : Operation) (s : Stack UInt256) : Bool :=
   w ∈ [.CREATE, .CREATE2, .SSTORE, .SELFDESTRUCT, .LOG0, .LOG1, .LOG2, .LOG3, .LOG4, .TSTORE] ∨
   (w = .CALL ∧ s[2]? ≠ some ⟨0⟩)
 
-def Z (validJumps : Array UInt256) (w : Operation .EVM) (evmState : State) :
+def Z (validJumps : Array UInt256) (w : Operation) (evmState : State) :
     Except EVM.ExecutionException (State × ℕ) := do
   let cost₁ := memoryExpansionCost evmState w
   if evmState.gasAvailable.toNat < cost₁ then
@@ -483,7 +483,7 @@ def Z (validJumps : Array UInt256) (w : Operation .EVM) (evmState : State) :
 
   pure (evmState, cost₂)
 
-def H (μ : MachineState) (w : Operation .EVM) : Option ByteArray :=
+def H (μ : MachineState) (w : Operation) : Option ByteArray :=
   if w ∈ [.RETURN, .REVERT] then
     some <| μ.H_return
   else
@@ -531,15 +531,15 @@ def Ξ -- Type `Ξ` using `\GX` or `\Xi`
   (createdAccounts : Batteries.RBSet AccountAddress compare)
   (genesisBlockHeader : BlockHeader)
   (blocks : ProcessedBlocks)
-  (σ : AccountMap .EVM)
-  (σ₀ : AccountMap .EVM)
+  (σ : AccountMap)
+  (σ₀ : AccountMap)
   (g : UInt256)
   (A : Substate)
-  (I : ExecutionEnv .EVM)
+  (I : ExecutionEnv)
     :
   Except
     EVM.ExecutionException
-    (ExecutionResult (Batteries.RBSet AccountAddress compare × AccountMap .EVM × UInt256 × Substate))
+    (ExecutionResult (Batteries.RBSet AccountAddress compare × AccountMap × UInt256 × Substate))
 := do
   match fuel with
     | 0 => .error .OutOfFuel
@@ -569,8 +569,8 @@ def Lambda
   (createdAccounts : Batteries.RBSet AccountAddress compare) -- needed for EIP-6780
   (genesisBlockHeader : BlockHeader)
   (blocks : ProcessedBlocks)
-  (σ : AccountMap .EVM)
-  (σ₀ : AccountMap .EVM)
+  (σ : AccountMap)
+  (σ₀ : AccountMap)
   (A : Substate)
   (s : AccountAddress)   -- sender
   (o : AccountAddress)   -- original transactor
@@ -586,7 +586,7 @@ def Lambda
   Except EVM.ExecutionException
     ( AccountAddress
     × Batteries.RBSet AccountAddress compare
-    × AccountMap .EVM
+    × AccountMap
     × UInt256
     × Substate
     × Bool
@@ -628,7 +628,7 @@ def Lambda
       (⟨#[0xfe]⟩, createdAccounts)
     else (i, createdAccounts.insert a)
 
-  let newAccount : Account .EVM :=
+  let newAccount : Account :=
     { existentAccount with
         nonce := existentAccount.nonce + ⟨1⟩
         balance := v + existentAccount.balance
@@ -642,7 +642,7 @@ def Lambda
         σ.insert s {ac with balance := ac.balance - v}
           |>.insert a newAccount -- (99)
   -- I
-  let exEnv : ExecutionEnv .EVM :=
+  let exEnv : ExecutionEnv :=
     { codeOwner := a
     , sender    := o
     , source    := s
@@ -676,7 +676,7 @@ def Lambda
         let F₄ : Bool := ¬F₃ && returnedData[0]? = some 0xef
         pure (F₀ ∨ F₂ ∨ F₃ ∨ F₄)
 
-      let σ' : AccountMap .EVM := -- (115)
+      let σ' : AccountMap := -- (115)
         if F then σ else
           let newAccount' := σStarStar.findD a default
           σStarStar.insert a {newAccount' with code := returnedData}
@@ -723,13 +723,13 @@ def Θ (fuel : Nat)
       (createdAccounts : Batteries.RBSet AccountAddress compare)
       (genesisBlockHeader : BlockHeader)
       (blocks : ProcessedBlocks)
-      (σ  : AccountMap .EVM)
-      (σ₀  : AccountMap .EVM)
+      (σ  : AccountMap)
+      (σ₀  : AccountMap)
       (A  : Substate)
       (s  : AccountAddress)
       (o  : AccountAddress)
       (r  : AccountAddress)
-      (c  : ToExecute .EVM)
+      (c  : ToExecute)
       (g  : UInt256)
       (p  : UInt256)
       (v  : UInt256)
@@ -739,7 +739,7 @@ def Θ (fuel : Nat)
       (H : BlockHeader)
       (w  : Bool)
         :
-      Except EVM.ExecutionException (Batteries.RBSet AccountAddress compare × AccountMap .EVM × UInt256 × Substate × Bool × ByteArray)
+      Except EVM.ExecutionException (Batteries.RBSet AccountAddress compare × AccountMap × UInt256 × Substate × Bool × ByteArray)
 :=
   match fuel with
     | 0 => .error .OutOfFuel
@@ -750,7 +750,7 @@ def Θ (fuel : Nat)
     match σ.find? r with
       | none =>
         if v != ⟨0⟩ then
-          σ.insert r { (default : Account .EVM) with balance := v}
+          σ.insert r { (default : Account) with balance := v}
         else
           σ
       | some acc =>
@@ -763,7 +763,7 @@ def Θ (fuel : Nat)
       | some acc =>
         σ'₁.insert s { acc with balance := acc.balance - v}
 
-  let I : ExecutionEnv .EVM :=
+  let I : ExecutionEnv :=
     {
       codeOwner := r        -- Equation (132)
       sender    := o        -- Equation (133)
@@ -825,14 +825,14 @@ open Batteries (RBMap RBSet)
 
 -- Type Υ using \Upsilon or \GU
 def Υ (fuel : ℕ)
-  (σ : AccountMap .EVM)
+  (σ : AccountMap)
   (H_f : ℕ)
   (H : BlockHeader)
   (genesisBlockHeader : BlockHeader)
   (blocks : ProcessedBlocks)
   (T : Transaction)
   (S_T : AccountAddress)
-  : Except EVM.Exception (AccountMap .EVM × Substate × Bool × UInt256)
+  : Except EVM.Exception (AccountMap × Substate × Bool × UInt256)
 := do
   let g₀ : ℕ := EVM.intrinsicGas T
   -- "here can be no invalid transactions from this point"
@@ -919,7 +919,7 @@ def Υ (fuel : ℕ)
             S_T
             S_T
             t
-            (toExecute .EVM σ₀ t)
+            (toExecute σ₀ t)
             g
             p
             T.base.value
@@ -935,12 +935,12 @@ def Υ (fuel : ℕ)
   let gStar := g' + min ((T.base.gasLimit - g') / ⟨5⟩) A.refundBalance
   -- The pre-final state (83)
   let σStar :=
-    σ_P.increaseBalance .EVM S_T (gStar * p)
+    σ_P.increaseBalance S_T (gStar * p)
 
   let beneficiaryFee := (T.base.gasLimit - gStar) * f
   let σStar' :=
     if beneficiaryFee != ⟨0⟩ then
-      σStar.increaseBalance .EVM H.beneficiary beneficiaryFee
+      σStar.increaseBalance H.beneficiary beneficiaryFee
     else σStar
   let σ' := A.selfDestructSet.1.foldl Batteries.RBMap.erase σStar' -- (87)
   let deadAccounts := A.touchedAccounts.filter (State.dead σStar' ·)

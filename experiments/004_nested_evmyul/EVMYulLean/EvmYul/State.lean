@@ -23,19 +23,19 @@ The `State`. Section 9.3.
 - `executionEnv` `I`
 - `totalGasUsedInBlock` `Υᵍ`
 -/
-structure State (τ : OperationType) where
-  accountMap          : AccountMap τ
-  σ₀                  : AccountMap .EVM
+structure State where
+  accountMap          : AccountMap
+  σ₀                  : AccountMap
   totalGasUsedInBlock : ℕ
   transactionReceipts  : Array TransactionReceipt
   substate            : Substate
-  executionEnv        : ExecutionEnv τ
+  executionEnv        : ExecutionEnv
   blocks              : ProcessedBlocks
   genesisBlockHeader  : BlockHeader
   createdAccounts     : Batteries.RBSet AccountAddress compare
 deriving Inhabited
 
-def State.blockHashes {τ} (self : State τ) : Array UInt256 :=
+def State.blockHashes (self : State) : Array UInt256 :=
   self.blocks.map ProcessedBlock.hash
 
 end EvmYul

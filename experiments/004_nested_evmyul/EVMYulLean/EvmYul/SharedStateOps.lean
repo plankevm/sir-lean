@@ -15,25 +15,25 @@ end Keccak
 
 section Memory
 
-def writeWord {τ} (self : SharedState τ) (addr v : UInt256) : SharedState τ :=
+def writeWord (self : SharedState) (addr v : UInt256) : SharedState :=
   { self with toMachineState := self.toMachineState.writeWord addr v }
 
 
-def calldatacopy {τ} (self : SharedState τ) (mstart datastart size : UInt256) : SharedState τ :=
+def calldatacopy (self : SharedState) (mstart datastart size : UInt256) : SharedState :=
   { self with
     memory := self.executionEnv.calldata.write datastart.toNat self.memory mstart.toNat size.toNat
     activeWords :=
       .ofNat (MachineState.M self.activeWords.toNat mstart.toNat size.toNat)
   }
 
-def codeCopy  (self : SharedState .EVM) (mstart cstart size : UInt256) : SharedState .EVM :=
+def codeCopy  (self : SharedState) (mstart cstart size : UInt256) : SharedState :=
   { self with
     memory := self.executionEnv.code.write cstart.toNat self.memory mstart.toNat size.toNat
     activeWords :=
       .ofNat (MachineState.M self.activeWords.toNat mstart.toNat size.toNat)
   }
 
-def extCodeCopy' (self : SharedState .EVM) (acc mstart cstart size : UInt256) : SharedState .EVM :=
+def extCodeCopy' (self : SharedState) (acc mstart cstart size : UInt256) : SharedState :=
   let mstart := mstart.toNat
   let cstart := cstart.toNat
   let size := size.toNat
@@ -48,7 +48,7 @@ def extCodeCopy' (self : SharedState .EVM) (acc mstart cstart size : UInt256) : 
 
 end Memory
 
-def logOp {τ} (μ₀ μ₁ : UInt256) (t : Array UInt256) (sState : SharedState τ) : SharedState τ :=
+def logOp (μ₀ μ₁ : UInt256) (t : Array UInt256) (sState : SharedState) : SharedState :=
   let Iₐ := sState.executionEnv.codeOwner
   let mem := sState.memory.readWithPadding μ₀.toNat μ₁.toNat
   { sState with

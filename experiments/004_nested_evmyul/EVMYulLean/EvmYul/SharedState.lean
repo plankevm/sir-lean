@@ -3,7 +3,7 @@ import EvmYul.MachineState
 
 namespace EvmYul
 
-structure SharedState (τ : OperationType) extends EvmYul.State τ, EvmYul.MachineState
+structure SharedState extends EvmYul.State, EvmYul.MachineState
   deriving Inhabited
 
 end EvmYul
