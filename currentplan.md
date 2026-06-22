@@ -129,10 +129,13 @@ nesting *as a theorem over flat*; Track B *adopts* the already-nested semantics.
   emits decode-compatible bytecode per construct (recompute-on-use; PUSH32/ADD/LT/SLOAD/
   GAS/SSTORE/CALL/JUMP/JUMPI/RETURN/STOP), ~40 build-enforced `decode … = expected`
   round-trip `rfl` checks (avoided `native_decide` to stay axiom-clean).
-- [ ] **C3** Prove lowering preserves semantics. **GATED on Track A merging to base**
-  (needs the new `Runs.call`/`messageCall_runs_calls` + opcode rules for
-  SLOAD/ADD/LT/GAS/JUMP/JUMPI/STOP/RETURN). Until then C does rebase-safe work:
-  simplify C1/C2 + write the `Match`-invariant proof plan + the C→A opcode-rule request.
+- [ ] **C3** Prove lowering preserves semantics. **C PARKED, GATED on A→base merge.**
+  Rebase-safe prep DONE (`8946f78`): simplified C1/C2 (dropped dead defs); `Match`
+  invariant + per-construct obligation table in `docs/ir-design.md §6`; C→A rule request
+  in PLAN.md. **Refined finding:** with A's new API, C3 needs NO halt `runs_*` (the bridge
+  takes `STOP`/`RETURN` via `hhalt`) and CALL is a `Runs.call` node — so the only NEW
+  opcode rules A must add beyond the CFG combinator (JUMP/JUMPI) are **`runs_add`,
+  `runs_lt`, `runs_sload`(+read companion), `runs_gas`**. Resume C3 right after rebase.
 - [ ] **C4** Multi-call lowering. A3 is DONE so the *bridge* exists; C4 still follows
   C3 and the A→base merge + C rebase.
 
@@ -189,11 +192,12 @@ cross-track deps. Always launch ≥1 task per completion so the loop never stall
 user reviews/steers asynchronously; "go far, and when idle, also review + simplify."
 
 Per-track queue (top = next to launch when the track's current agent lands):
-- **A** (running CFG combinator; A2/A3/A4 done) → **opcode-rule completion**
-  (SLOAD/ADD/LT/GAS + STOP/RETURN halt wrappers, per C's "C→A opcode-rule request" in
-  exp005 PLAN.md; JUMP/JUMPI come from the CFG combinator) → **MERGE A→base** (integration
-  gate, unblocks C3; then C rebases) → gas-introspection first-class → `CREATE` ctor →
-  symbolic worlds + gas-ledger.
+- **A** (running CFG combinator; A2/A3/A4 done) → **opcode-rule completion**: exactly
+  `runs_add`, `runs_lt`, `runs_sload` (+ storage-read companion), `runs_gas` (per C's
+  refined "C→A request" in exp005 PLAN.md — JUMP/JUMPI come from the CFG combinator; NO
+  halt or CALL `runs_*` needed, the bridge takes halts and CALL is `Runs.call`) →
+  **MERGE A→base** (integration gate, unblocks C3; then C rebases) → gas-introspection
+  first-class → `CREATE` ctor → symbolic worlds + gas-ledger.
 - **B** (running B0 mono) → B2 nested never-OOF (on mono base) → B3 `Ξ` triple +
   call-site/frame rule → B4 IR surface → A-vs-B bake-off verdict.
 - **C** (running rebase-safe simplify + C3-plan; C2 done) → [after A→base merge + rebase]
@@ -225,6 +229,11 @@ your own branch with clear messages; never touch another track's files; if block
 write the blocker into PLAN.md before stopping.
 
 ## Orchestration log
+- 2026-06-22: **C rebase-safe prep DONE & verified** (`8946f78`, green 1106). Simplify +
+  `Match` plan + C→A rule request. **C now PARKED** (dep-blocked on A→base merge) — did
+  NOT launch a new C task (would be busywork; A+B carry the loop). Sharpened A's pending
+  opcode-rule task to exactly `runs_add`/`runs_lt`/`runs_sload`(+read)/`runs_gas`
+  (JUMP/JUMPI come from the in-flight CFG combinator; no halt/CALL rules needed).
 - 2026-06-22: **C2 DONE & verified** (`bde1913`, green 1106, axiom-clean). Decode-compat
   lowering + ~40 round-trip checks. Surfaced the **integration bottleneck: Track A is
   upstream of C3** — C's lowering emits SLOAD/ADD/LT/GAS/JUMP/JUMPI/STOP/RETURN but
