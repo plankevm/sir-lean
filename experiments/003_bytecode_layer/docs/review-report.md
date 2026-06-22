@@ -60,17 +60,30 @@ The headline CALL rule sits on top of four layers. Every file in scope is accoun
 
 **Dependency edges feeding the headline** [`messageCall_call_runs`](BytecodeLayer/Hoare/CallSequence.lean#L50):
 
-```
-drive_append_framing ──▶ drive_descend_eq ──┐
-drive_fuel_mono ──▶ drive_eq_of_both_ne_oof ┤
-mu_bound + descentDrops_holds ──▶ messageCall_never_outOfFuel ┤──▶ messageCall_call_runs
-Runs / Runs.trans / Runs.drive_advance (Hoare.lean) ─────────┘        │
-                                                                      ▼
-                                          messageCall_call_completedWith  (observable level, via OutcomeBridge)
-                                                                      │
-                          CallerProgExample (instantiates) ──▶ messageCall_callerProg_storageAt
-                                                                      │
-                                          ConcreteSpecs ──▶ messageCall_call_storageAt  (∃G₀, witness 30000)
+```mermaid
+flowchart TD
+    subgraph bricks["supporting bricks"]
+        AF[drive_append_framing] --> DE[drive_descend_eq]
+        FM[drive_fuel_mono] --> EQ[drive_eq_of_both_ne_oof]
+        MB[mu_bound] --> NOF[messageCall_never_outOfFuel]
+        DD[descentDrops_holds] --> NOF
+        RUNS["Runs / Runs.trans / Runs.drive_advance"]
+    end
+
+    DE --> K
+    EQ --> K
+    NOF --> K
+    RUNS --> K
+
+    K["★ messageCall_call_runs"] --> OBS["messageCall_call_completedWith<br/>(observable level, via OutcomeBridge)"]
+
+    subgraph examples["worked example"]
+        K -->|instantiated by CallerProgExample| CPS[messageCall_callerProg_storageAt]
+        CPS -->|ConcreteSpecs delegates| SPEC["messageCall_call_storageAt<br/>(∃G₀, witness 30000)"]
+    end
+
+    classDef headline fill:#fde68a,stroke:#b45309,stroke-width:2px;
+    class K headline;
 ```
 
 ---
