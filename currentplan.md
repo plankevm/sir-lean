@@ -125,7 +125,7 @@ whichever interface, ideally the shared one.
   Track A core is complete & reportable → `lean-review-report` launched.
 - NOTE (cleanup, defer to a review pass once `exp003-runs-call` stabilizes): A2's
   deletion left stale `messageCall_call_runs` refs in `docs/review-report.md` +
-  `review-report-followup.md` — regenerate via `review-report.prose`, don't hand-patch.
+  `review-report-followup.md` — regenerate via the `lean-review-report` agent, don't hand-patch.
 
 ### Track B — Nested EVM core over EVMYulLean  (worktree `nested-evmyul`)
 - [x] **B1** DONE (`exp004-nested` @ `20ad4c1`, green 1033 jobs). Vendored

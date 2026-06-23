@@ -131,8 +131,7 @@ lake build && lake exe conform 8                    # build + fast conformance
 
 ## The orchestration program
 
-[`orchestration.prose`](./orchestration.prose) (OpenProse; run via the
-`open-prose` skill) drives the work as deterministic control flow over subagents:
+The work was driven as deterministic control flow over subagents, in phases:
 
 ```
 phase 0  foundation       leanevm builds + fast conformance            (green or stop)
@@ -149,15 +148,11 @@ phase 5  write-up         results.md / handoff.md, rough edges first-class
 phase 6  review report    grounded, spec-centric human digest -> docs/review-report.md
 ```
 
-Phase 6 is the **`reviewer`** agent: a concise, human-facing review report built
-from the exported spec statements quoted verbatim from source (specs over proofs),
-which independently re-greps the code and flags any doc↔source discrepancy rather
-than relaying the loop's prose. It is also packaged as a standalone, portable
-OpenProse program — [`review-report.prose`](./review-report.prose) — so it can be
-re-run on demand without the whole loop (`prose run
-experiments/003_bytecode_layer/review-report.prose`) and reused on other
-experiments by editing its three `const`s. Both define the same `reviewer` agent;
-keep them in sync.
+Phase 6 is the **`lean-review-report`** agent: a concise, human-facing review report
+built from the exported spec statements quoted verbatim from source (specs over
+proofs), which independently re-greps the code and flags any doc↔source discrepancy.
+It can be re-run on demand and reused on other experiments by pointing it at the
+target track's sources.
 
 ### How it proves — the placed-verifier model
 
