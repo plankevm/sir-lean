@@ -937,4 +937,63 @@ theorem Cgascap_le_gas (t r : AccountAddress) (val g : UInt256) (σ : AccountMap
       _ ≤ μ.gasAvailable.toNat := Nat.sub_le _ _
   · right; exact le_refl _
 
+/-- `Cgascap ≤ g.toNat` always (both branches cap at `g`). The forwarded gas is also
+bounded by the cap `g` passed to the call (= the `gas` stack argument, already an
+`UInt256` so `< UInt256.size`). -/
+theorem Cgascap_le_cap (t r : AccountAddress) (val g : UInt256) (σ : AccountMap)
+    (μ : MachineState) (A : Substate) :
+    Cgascap t r val g σ μ A ≤ g.toNat := by
+  unfold Cgascap
+  split
+  · exact min_le_right _ _
+  · exact le_refl _
+
+/-! ### Item 3 — child gas is bounded by the parent's available gas (with the stipend)
+
+The gas a `CALL`-family frame forwards to its child is `Ccallgas`, which is
+`Cgascap` plus (when `val ≠ 0`) the `Gcallstipend` top-up. The stipend is only ever
+added when value is transferred, and the value-transfer cost `Cxfer = Gcallvalue =
+9000` (paid out of the parent's gas as part of `Cextra ≤` the parent's gas in the
+`Cgascap` branch) dominates the stipend `2300`. Hence the child's forwarded gas is
+bounded by the parent's available gas (`Cgascap` branch) — the genuinely-nested
+analogue of exp003's flat `gasFundsDescent`. -/
+
+/-- When the stipend is added (`val ≠ 0`), the parent paid `Cxfer = Gcallvalue` as
+part of `Cextra`; that cost dominates the stipend. So even with the stipend,
+`Ccallgas ≤ μ.gasAvailable.toNat` in the branch where the parent can cover `Cextra`. -/
+theorem Ccallgas_le_gas_of_cover (t r : AccountAddress) (val g : UInt256) (σ : AccountMap)
+    (μ : MachineState) (A : Substate)
+    (hcover : μ.gasAvailable.toNat ≥ Cextra t r val σ A) :
+    Ccallgas t r val g σ μ A ≤ μ.gasAvailable.toNat := by
+  -- `Cgascap` (in the cover branch) `= min (L (gas - Cextra)) g ≤ gas - Cextra`.
+  have hcap : Cgascap t r val g σ μ A ≤ μ.gasAvailable.toNat - Cextra t r val σ A := by
+    unfold Cgascap; rw [if_pos hcover]
+    exact le_trans (min_le_left _ _) (L_le _)
+  -- `Cextra ≥ Cxfer`.
+  have hextra_xfer : Cxfer val ≤ Cextra t r val σ A := by unfold Cextra; omega
+  -- Case on the `Fin` value of `val`, which simultaneously decides the `Ccallgas`
+  -- `⟨0⟩`-match and the `Cxfer` `!=`-guard (both reduce to `val.val == 0`).
+  obtain ⟨⟨n, hn⟩⟩ := val
+  cases n with
+  | zero =>
+    -- val = ⟨0⟩: `Ccallgas = Cgascap ≤ gas - Cextra ≤ gas`.
+    show Cgascap t r _ g σ μ A ≤ μ.gasAvailable.toNat
+    exact le_trans hcap (Nat.sub_le _ _)
+  | succ k =>
+    -- val ≠ 0: `Ccallgas = Cgascap + Gcallstipend`; `Cxfer val = Gcallvalue = 9000 ≥
+    -- Gcallstipend = 2300`, with `Cgascap ≤ gas - Cextra ≤ gas - Cxfer`.
+    -- The `!=`/match both reduce to the underlying `Nat.beq (k+1) 0 = false` (`rfl`).
+    have hxfer : Cxfer ⟨⟨k+1, hn⟩⟩ = Gcallvalue := rfl
+    have hstip : Gcallstipend ≤ Cxfer ⟨⟨k+1, hn⟩⟩ := by rw [hxfer]; decide
+    have hcgcap : Cgascap t r ⟨⟨k+1, hn⟩⟩ g σ μ A ≤ μ.gasAvailable.toNat - Cxfer ⟨⟨k+1, hn⟩⟩ :=
+      le_trans hcap (Nat.sub_le_sub_left hextra_xfer _)
+    -- goal: `Ccallgas … = Cgascap … + Gcallstipend ≤ gas`.
+    show Cgascap t r _ g σ μ A + Gcallstipend ≤ μ.gasAvailable.toNat
+    omega
+
+/-- The depth bound: `call`'s recursion into `Θ` is gated by `Iₑ < 1024`, so the
+child's depth `e = Iₑ + 1 ≤ 1024`. (Structural fact about the `call` guard — the
+descent never increases depth beyond `1024`.) -/
+theorem call_depth_bound (Iₑ : ℕ) (h : Iₑ < 1024) : Iₑ + 1 ≤ 1024 := h
+
 end EvmYul.EVM.NeverOutOfFuel
