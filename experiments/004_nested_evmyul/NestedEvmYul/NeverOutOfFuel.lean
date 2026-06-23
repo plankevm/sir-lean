@@ -1918,6 +1918,21 @@ theorem Ccallgas_le_Ccall (t r : AccountAddress) (val g : UInt256) (σ : Account
     show Cgascap t r _ g σ μ A + Gcallstipend ≤ Cgascap t r _ g σ μ A + Cextra t r _ σ A
     omega
 
+/-- **CALL-arm stack arg-matching.** A successful `pop7` exposes the top three stack
+words as `s[0]!`, `s[1]!`, `s[2]!` — exactly the entries `C'`'s `CALL`/`CALLCODE`/… arms
+read via `μₛ[i]!`. This is what reconciles the `Ccallgas` `call` forwards (from `pop7`)
+with the `Ccall` that `C'` charges (from `μₛ[i]!`). -/
+theorem pop7_stack_index {α} [Inhabited α] (s tl : Stack α) (a b c d e f g : α)
+    (h : s.pop7 = some (tl, a, b, c, d, e, f, g)) :
+    s[0]! = a ∧ s[1]! = b ∧ s[2]! = c := by
+  unfold Stack.pop7 at h
+  split at h
+  · rename_i hd hd₁ hd₂ hd₃ hd₄ hd₅ hd₆ tl'
+    simp only [Option.some.injEq, Prod.mk.injEq] at h
+    obtain ⟨_, rfl, rfl, rfl, _⟩ := h
+    refine ⟨?_, ?_, ?_⟩ <;> rfl
+  · exact absurd h (by simp)
+
 /-- **Strict** `Ccallgas < Ccall`: the forwarded gas is *strictly* less than the
 call's total cost, since `Cextra ≥ Caccess ≥ 1` (val = 0 case) and
 `Cextra ≥ Cxfer = 9000 > 2300 = Gcallstipend` (val ≠ 0 case). This gives the strict
@@ -2150,46 +2165,71 @@ theorem X_leaf_gas_le (vj : Array UInt256)
   for the non-nested fragment — the genuine bake-off deliverable for straight-line +
   intra-frame-control-flow execution.
 
+### CLOSED (this run, B2f) — the gas-monotonicity / CALL-descent bricks
+The CALL-iteration gas descent (prior "sub-obligation 1") is now fully reduced to the
+child-`Θ` gas-monotonicity hypothesis, with every supporting brick proved axiom-clean:
+
+* **`Ccallgas_le_Ccall` / `Ccallgas_lt_Ccall`** (pure arithmetic): the gas a frame
+  forwards to its child is `≤` (resp. strictly `<`) the call's total cost
+  `Ccall = Cgascap + Cextra`. Strictness holds because `Cextra ≥ Caccess ≥ 1` (val=0)
+  and `Cextra ≥ Cxfer = Gcallvalue = 9000 > 2300 = Gcallstipend` (val≠0).
+* **`gas_add_sub_le` / `gas_add_sub_lt`** (UInt256 no-wrap core): the call-result gas
+  `(ev.gas − ofNat cost) + g'` (a *wrapping* UInt256 sum!) has `.toNat ≤` (resp. `<`)
+  `ev.gas.toNat`, given `g'.toNat ≤ cost` (resp. `< cost`). This resolves the
+  wraparound subtlety in the call-result accounting.
+* **`call_result_gas_le` / `call_result_gas_lt`**: a successful `call (f+1) cost … ev`
+  lands at gas `≤` (resp. `<`) `ev.gas`, *given* (i) `cost ≤ ev.gas`, (ii) `Ccallgas
+  (call-args) ≤ cost` (resp. `<`), and (iii) the child-`Θ` returns `g'.toNat ≤ gg.toNat`
+  (the forwarded gas) — the gas-monotonicity hypothesis. Both `g'` sources (the child
+  `Θ` cover-branch and the `.ofNat callgas` else-branch) are handled.
+* **`Z_ok_code_pc`**: `Z` preserves `pc`/`code`, so the `X`-loop's decoded opcode (from
+  the pre-`Z` state) is the opcode at the post-`Z` step-state. Lets the loop's `hstep`
+  recover non-call/create from `hnc`.
+* **`X_loop_gas_le`**: the `X` loop never *raises* gas — `resultGas r ≤ s.gas` — given
+  every per-instruction `step` lands at gas `≤` input (`hstep`, now phrased with the
+  decoded-opcode equation so the leaf case can use `hnc`).
+* **`step_default_gas_le` + `X_leaf_gas_le`**: the leaf-frame gas-monotonicity is
+  **unconditional** (the default arm's `hstep` is `step_default_gas_le`, the strict
+  cousin of `gas_EVM_step_default`).
+
 ### REMAINING for the *fully nested* headline
-The only gap is the **mutual descent**: a frame whose `X`-loop executes a CALL/CREATE
-opcode recurses into a child frame (`call f → Θ (f-1) → Ξ (f-1) → X (f-2)`). Two
-sub-obligations:
+Two mutual inductions, both now reduced to threading the proved bricks:
 
-1. **Call-iteration gas descent.** `X_iter_gas_lt` (and hence `X_loop_noncallcreate`)
-   is stated for `¬ isCallCreate w`. A CALL/CREATE iteration *also* strictly burns
-   gas — net `≥ Cextra ≥ 1`, because the child returns leftover
-   `g' ≤ Cgascap = cost₂ − Cextra` (items `Cgascap_le_gas`,
-   `Ccallgas_le_gas_of_cover`) — so the gas measure still bottoms out the loop. But
-   proving the call-arm gas accounting in `step`/`call` is additional work comparable
-   to `gas_EVM_step_default`.
+1. **Gas-monotonicity mutual induction** (strong induction on `fuel` over
+   `step`/`call`/`Θ`/`Ξ`/`X`/`Lambda`). Discharges the `hΘ` hypothesis of
+   `call_result_gas_le`/`_lt` and the `hstep` of `X_loop_gas_le`. The IH at smaller
+   fuel hands the child layers. TWO sub-tasks remain inside it, neither faked:
+   * **CALL-arm arg-matching.** To apply `call_result_gas_le` from `step`'s CALL arm
+     with `cost = C' ev .CALL = Ccall(stack-args)`, the `Ccallgas` `call` forwards
+     (computed from `pop7 ev.stack`) must be shown `≤ Ccall` computed from `ev`'s
+     `μₛ[i]!`. Needs a small stack lemma `pop7 s = some (…, μ₀, μ₁, …) → μ₀ = s[0]! ∧
+     μ₁ = s[1]! ∧ …` and the fact `Z` leaves the stack untouched (so `C'`-args =
+     `call`-args). Tedious but mechanical; comparable to `gas_EVM_step_default`.
+   * **CREATE/`Lambda` gas accounting.** The CREATE arm's result gas is
+     `.ofNat (ev.gas.toNat − L(ev.gas.toNat) + g'.toNat)` (a *different* shape than
+     CALL's UInt256 sum) with `g' ≤ L(ev.gas)` from the child `Lambda → Ξ`. A separate
+     `Nat`-arithmetic lemma (`L_le` is already proved) closes it.
 
-2. **The mutual `fuel` induction with a depth-aware bound.** Strong induction on
-   `fuel` over the six layers, each `P_·` reading "`fuel ≥ B gas depth → layer ≠
-   OutOfFuel`". The skeletons above are the `fuel+1` steps; at a descent the child's
-   `Θ/Ξ/X` are at strictly smaller fuel, so the IH discharges them **provided the
-   bound is threaded**.
+2. **Never-`OutOfFuel` mutual induction with the depth-aware bound `B`.** Strong
+   induction on `fuel` over the six layers, each `P_·` reading "`fuel ≥ B gas depth →
+   layer ≠ OutOfFuel`". The propagation skeletons above are the `fuel+1` steps; sub-task
+   (1) supplies the *strict* gas descent (`call_result_gas_lt`) that bottoms out the
+   `X` loop on CALL/CREATE iterations (generalising `X_loop_noncallcreate` to drop
+   `hnc`); at each descent the child's `Θ/Ξ/X` are at strictly smaller fuel, so the IH
+   discharges them once `B` is threaded.
 
-   **Correct bound shape (a correction to the prior run's note).** The per-frame
-   `X`-loop runs up to `gas` iterations, and *each* iteration may spawn a child needing
-   its own full budget `B childgas (depth+1)`. So the recurrence is
-   `B gas depth ≥ gas * (c + B gas (depth+1))` for a small constant `c` (the hops),
-   which makes `B` **super-linear in gas across depth** — roughly `(gas+1)^(1025−depth)`
-   — *not* the linear product `(1025−depth)*4*(gas+1)` suggested earlier (that omits
-   the per-iteration child multiplicity). The cleanest sound `B` is therefore defined
-   by recursion on the depth-countdown `k = 1025 − depth`:
+   **Bound shape.** The per-frame `X`-loop runs up to `gas` iterations, and *each* may
+   spawn a child needing its own full budget `B childgas (depth+1)`, so `B` is
+   **super-linear in gas across depth** (`≈ (gas+1)^(1025−depth)`) — defined by
+   recursion on the depth-countdown `k = 1025 − depth`:
 
        B 0     gas = gas + 2
        B (k+1) gas = (gas + 1) * (B k gas + c) + 2     -- c = the X→step→call→Θ→Ξ hops
 
-   so the recurrence holds *definitionally* and the assembly's arithmetic is a few
-   `omega`/unfold steps rather than a telescoping argument. (Alternatively, the
-   gas-*telescoping* invariant `Σ frame-iters ≤ root gas` gives the linear
-   `B = c*gas + c*1024`, but proving the invariant through the mutual recursion is the
-   harder route.) The top-level headline instantiates at the initial depth.
-
-   ⇒ The original `seedFuel g = 4 * (g + 1)` is **insufficient** for nesting (no depth
-   factor), as is the linear product bound; the sound seed is the recursive `B` above.
-   This is the precise remaining design fact — recorded here and in PLAN.md, not faked.
+   so the recurrence holds *definitionally* (assembly arithmetic is a few `omega`/unfold
+   steps). The top-level headline instantiates at the initial depth. The original
+   `seedFuel g = 4*(g+1)` and the linear product `(1025−depth)*4*(gas+1)` are both
+   insufficient (no per-iteration child multiplicity); the sound seed is `B`.
 -/
 
 end EvmYul.EVM.NeverOutOfFuel
