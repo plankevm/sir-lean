@@ -274,4 +274,126 @@ theorem protoObs_ne_zero (g : UInt64) (hg : 30000 ≤ g.toNat) : protoObs g ≠ 
   apply ofUInt64_ne_zero
   rw [toNat_subCharges g chs (by rw [chs_sum]; omega), chs_sum]; omega
 
+/-! ## The JUMPI destination (pc 19) is a valid jump target
+
+`pc 19` holds a `JUMPDEST` reachable from the start (walking the 13 instructions
+PUSH;PUSH;SSTORE;PUSH;PUSH;SLOAD;PUSH;ADD;LT;GAS;PUSH;JUMPI;STOP). Routed through the
+total `validJumpDests` via `mem_validJumpDests_of_reachable_jumpdest`, axiom-clean. -/
+theorem nineteen_mem_validJumps : (19 : UInt32) ∈ validJumpDests protoBytecode 0 :=
+  mem_validJumpDests_of_reachable_jumpdest protoBytecode
+    (.step (byte := 0x60) (by decide) (.step (byte := 0x60) (by decide)
+    (.step (byte := 0x55) (by decide) (.step (byte := 0x60) (by decide)
+    (.step (byte := 0x60) (by decide) (.step (byte := 0x54) (by decide)
+    (.step (byte := 0x60) (by decide) (.step (byte := 0x01) (by decide)
+    (.step (byte := 0x10) (by decide) (.step (byte := 0x5a) (by decide)
+    (.step (byte := 0x60) (by decide) (.step (byte := 0x57) (by decide)
+    (.step (byte := 0x00) (by decide) (.refl 19))))))))))))))
+    (byte := 0x5b) (by decide) (by decide)
+
+/-! ## The branch / RETURN tail
+
+`f11` pushes the JUMPI destination `19`; the taken arm (gas non-zero) jumps to the
+`JUMPDEST` at pc 19, steps over it, pushes `0 0`, and RETURNs empty. The whole tail
+composes into one `Runs (f10 g) (retFr g)` via `runs_branch` (taken side) threaded
+with `Runs.trans`; `retFr` then halts by `stepFrame_return_empty`. -/
+
+private def f11 (g : UInt64) : Frame := pushFrame (f10 g) 19
+/-- After the taken JUMPI (jump to pc 19), `rest = [1]` (the residual lt result). -/
+private def fJumped (g : UInt64) : Frame := jumpFrame (f11 g) Ghigh 19 (1 :: [])
+private def fJd (g : UInt64) : Frame := jumpdestFrame (fJumped g)
+private def fR1 (g : UInt64) : Frame := pushFrame (fJd g) 0
+private def fR2 (g : UInt64) : Frame := pushFrame (fR1 g) 0
+/-- The RETURN-site frame (pc 24, stack `0 :: 0 :: [1]`). -/
+private def retFr (g : UInt64) : Frame := fR2 g
+
+private theorem gas_f11 (g : UInt64) :
+    (f11 g).exec.gasAvailable = subCharges g chs - UInt64.ofNat 3 := by
+  show ((f10 g).exec.gasAvailable - UInt64.ofNat Gverylow) = _
+  rw [gas_f10]; rfl
+
+/-- `f11`'s gas, in `toNat` form (`g - 22226`). -/
+private theorem toNat_gas_f11 (g : UInt64) (hg : 30000 ≤ g.toNat) :
+    (f11 g).exec.gasAvailable.toNat = g.toNat - 22226 := by
+  rw [gas_f11, toNat_sub_ofNat _ 3 (by
+        rw [toNat_subCharges g chs (by rw [chs_sum]; omega), chs_sum]; omega) (by omega),
+      toNat_subCharges g chs (by rw [chs_sum]; omega), chs_sum]; omega
+
+/-- `get_dest 19 = some 19` at the JUMPI frame `f11`. -/
+private theorem f11_get_dest (g : UInt64) : (f11 g).get_dest 19 = some 19 :=
+  Frame.get_dest_of_mem _ (d := 19) (by decide)
+    (by show (19 : UInt32) ∈ validJumpDests protoBytecode 0; exact nineteen_mem_validJumps)
+
+/-- The JUMPI condition word at `f11` is `protoObs g` (the GAS value), non-zero for
+`G₀ ≤ g`; the JUMPI stack is `19 :: protoObs g :: 1 :: []`. -/
+private theorem f11_stk (g : UInt64) :
+    (f11 g).exec.stack = (19 : UInt256) :: protoObs g :: (1 : UInt256) :: [] := by
+  show (f10 g).exec.stack.push 19 = _
+  show ((f9 g).exec.stack.push (UInt256.ofUInt64 (f10 g).exec.gasAvailable)).push 19 = _
+  rw [gas_f10]
+  show ((f9 g).exec.stack.push (protoObs g)).push 19 = _
+  rfl
+
+/-- **The branch / RETURN tail composes into one `Runs (f10 g) (retFr g)`.** The
+PUSH of the destination, then the taken JUMPI (`runs_branch`, gas non-zero), the
+`JUMPDEST` step, and the two `PUSH1 0`s, glued by `Runs.trans`. -/
+private theorem proto_tail_runs (g : UInt64) (hg : 30000 ≤ g.toNat) :
+    Runs (f10 g) (retFr g) := by
+  -- gas margins along the tail (all ≥ the small charges, derived from f11's gas)
+  have hf11 := toNat_gas_f11 g hg
+  -- PUSH1 19 onto f10
+  refine Runs.trans (runs_push1 (f10 g) 19 dec_15 ?gp (by show (2:ℕ)+1≤1024; omega)) ?_
+  case gp => -- f10 gas ≥ 3
+    rw [gas_f10, toNat_subCharges g chs (by rw [chs_sum]; omega), chs_sum]; omega
+  -- JUMPI (taken arm) via runs_branch, then JUMPDEST + two pushes
+  refine runs_branch (dest := 19) (cond := protoObs g) (rest := (1 : UInt256) :: [])
+    dec_17 (f11_stk g) (by show (3:ℕ)≤1024; omega) ?ghi
+    (Or.inl ⟨19, protoObs_ne_zero g hg, f11_get_dest g, ?taken⟩)
+  case ghi => -- Ghigh = 10 ≤ f11 gas
+    show Ghigh ≤ (f11 g).exec.gasAvailable.toNat
+    rw [show Ghigh = 10 from rfl, hf11]; omega
+  case taken =>
+    -- from jumpFrame f11 Ghigh 19 [1] (pc 19, stack [1]) : JUMPDEST; PUSH 0; PUSH 0
+    have hgJd : (fJumped g).exec.gasAvailable.toNat = g.toNat - 22236 := by
+      show ((f11 g).exec.gasAvailable - UInt64.ofNat Ghigh).toNat = _
+      rw [show Ghigh = 10 from rfl, toNat_sub_ofNat _ 10 (by rw [hf11]; omega) (by omega), hf11]; omega
+    refine Runs.trans (runs_jumpdest (fJumped g) ?djd (by show (1:ℕ)≤1024; omega) ?gjd) ?_
+    case djd => show decode (fJumped g).exec.executionEnv.code (fJumped g).exec.pc = _
+                show decode protoBytecode 19 = _; exact dec_19
+    case gjd => show Gjumpdest ≤ (fJumped g).exec.gasAvailable.toNat
+                rw [show Gjumpdest = 1 from rfl, hgJd]; omega
+    refine Runs.trans (runs_push1 (fJd g) 0 ?dp1 ?gp1 (by show (1:ℕ)+1≤1024; omega)) ?_
+    case dp1 => show decode (fJd g).exec.executionEnv.code (fJd g).exec.pc = _
+                show decode protoBytecode 20 = _; exact dec_20
+    case gp1 => show 3 ≤ (fJd g).exec.gasAvailable.toNat
+                show 3 ≤ ((fJumped g).exec.gasAvailable - UInt64.ofNat Gjumpdest).toNat
+                rw [show Gjumpdest = 1 from rfl, toNat_sub_ofNat _ 1 (by rw [hgJd]; omega) (by omega), hgJd]; omega
+    refine runs_push1 (fR1 g) 0 ?dp2 ?gp2 (by show (2:ℕ)+1≤1024; omega)
+    case dp2 => show decode (fR1 g).exec.executionEnv.code (fR1 g).exec.pc = _
+                show decode protoBytecode 22 = _; exact dec_22
+    case gp2 => show 3 ≤ (fR1 g).exec.gasAvailable.toNat
+                show 3 ≤ ((fJd g).exec.gasAvailable - UInt64.ofNat Gverylow).toNat
+                have : (fJd g).exec.gasAvailable.toNat = g.toNat - 22237 := by
+                  show ((fJumped g).exec.gasAvailable - UInt64.ofNat Gjumpdest).toNat = _
+                  rw [show Gjumpdest = 1 from rfl, toNat_sub_ofNat _ 1 (by rw [hgJd]; omega) (by omega), hgJd]; omega
+                rw [show Gverylow = 3 from rfl, toNat_sub_ofNat _ 3 (by rw [this]; omega) (by omega), this]; omega
+
+/-- The RETURN-site frame stack is `0 :: 0 :: [1]` — the empty-window RETURN shape. -/
+private theorem retFr_stk (g : UInt64) :
+    (retFr g).exec.stack = (0 : UInt256) :: (0 : UInt256) :: (1 : UInt256) :: [] := by
+  show ((fR1 g).exec.stack.push 0) = _
+  show (((fJd g).exec.stack.push 0).push 0) = _
+  show ((((fJumped g).exec.stack).push 0).push 0) = _
+  rfl
+
+/-- The RETURN at `retFr g` halts successfully (empty output) — the `hhalt` the
+bridge consumes. -/
+private theorem retFr_halts (g : UInt64) :
+    stepFrame (retFr g)
+      = .halted (.success (returnEmptyPost (retFr g).exec ((1 : UInt256) :: []))
+          ((retFr g).exec.memory.readWithPadding (0 : UInt256).toNat (0 : UInt256).toNat)) :=
+  stepFrame_return_empty (retFr g) ((1 : UInt256) :: [])
+    (by show decode (retFr g).exec.executionEnv.code (retFr g).exec.pc = _
+        show decode protoBytecode 24 = _; exact dec_24)
+    (retFr_stk g) (by rw [retFr_stk]; show (3:ℕ) ≤ 1024; omega)
+
 end Lir.V2
