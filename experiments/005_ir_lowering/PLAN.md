@@ -836,3 +836,101 @@ Frictions, for `ir-design-v2.md` before the `call`-event step:
   produces"), so the same discipline ports to the `call` step.
 - **Determinism lemma is worth having** for the clean `∀ O, IRRun … O → …` shape; the
   acyclic CFG makes it mechanical. Note it as a small follow-up, not a blocker.
+
+---
+
+## 2026-06-23 — v2-mono: the two-read gas-monotonicity milestone (§3.4) — DONE, axiom-clean
+
+**What.** The first example with **two** `gasRead`s, validating the ONE law the gas
+oracle carries (`ir-design-v2.md` §3.4): the `gasRead` values, in program order, are
+**monotone non-increasing**. The call-free prototype (`lower_preserves_obs`) only had a
+single read, which cannot exercise the law (it relates ≥2 reads). New file
+`LirLean/V2/Mono.lean` (prototype + v1 untouched); imported from `LirLean.lean`.
+
+**The law (IR side, gas-free).** `Trace.gasReads` extracts the `gasRead` values in order;
+`Trace.gasMonotone T := (T.gasReads).IsChain (fun earlier later => later.toNat ≤
+earlier.toNat)`. `gasMonotone_pair : gasMonotone [gasRead g1, gasRead g2] ↔ g2 ≤ g1` (via
+`List.isChain_pair`). The IR uses ONLY this law — never any per-opcode cost; the machine
+stays gas-free (no `matCost`, no charge, no counter), exactly as the prototype.
+
+**The two-read example — a sticky gas guard.** `guardIR`:
+- Block 0: `t0 := gas; t1:=5; t2:=7; sstore t2 t1; t3 := gas; t4 := lt t0 t3`,
+  `branch t4 BAD GOOD`. The guard `lt t0 t3 = (g1 < g2)` is "did gas go UP", which
+  monotonicity forces to `0` (`lt_eq_zero_of_toNat_le`, the SOLE use of the law on the
+  IR side), so the branch lands at `GOOD` (`ret t0`). The SSTORE is the "step" between
+  the two reads. A one-read program cannot exercise this — the point is the ORDER.
+- `guard_IRRun`: for any `g1 g2` with `gasMonotone [gasRead g1, gasRead g2]`, `guardIR`
+  halts with `guardObsResult w₀ g1` (world `7↦5`, returns `g1`).
+
+**Bytecode side — monotonicity DISCHARGED (not assumed).** `guardBytecode` (hand-written
+PUSH1, prototype's documented cut): `PUSH 5; PUSH 7; SSTORE; GAS; GAS; GT; PUSH 13; JUMPI;
+STOP(good); …; JUMPDEST(bad)`. The two `GAS` opcodes push `g1Read g = ofUInt64(g−22108)`
+and `g2Read g = ofUInt64(g−22110)`.
+- `gReads_monotone (g) (30000 ≤ g) : (g2Read g).toNat ≤ (g1Read g).toNat` — the actual
+  EVM **gas-descent fact** (`g2` charged one more `Gbase` than `g1`), proved by exact
+  `subCharges`/`toNat_subCharges` arithmetic + `omega`. This is the discharge: the same
+  `gasAvailable.toNat` descent the never-OutOfFuel induction rides, reused as exact
+  arithmetic (no new accounting). `gReads_gasMonotone` packages it as the realised
+  `Trace.gasMonotone`. Helper `toNat_ofUInt64` (the gas word reads back its `UInt64`
+  value) proved once via `toNat_limbs` (mirrors the prototype's `ofUInt64_ne_zero`).
+- The bytecode `GT` realises the IR `lt`: `gt_eq_lt_swap : UInt256.gt b a = UInt256.lt a
+  b` (defeq), so `GT` on `g2 :: g1` computes `lt g1 g2`. No `runs_gt` exists upstream, so
+  `stepFrame_gt`/`runs_gt` added here (mirrors the private `stepFrame_binOp` with op=GT,
+  lands in the public `binOpPost`). `g_runs` assembles the whole good path into one
+  `Runs (gfr0 g) (gfStop g)`; `g_messageCall` (via `messageCall_runs`) + `g_storageAt`
+  give the observable.
+
+**Headline.** `lower_preserves_obs_mono (w₀) : ∃ G₀, ∀ g ≥ G₀, IRRun guardIR w₀ [gasRead
+(g1Read g), gasRead (g2Read g)] (guardObsResult w₀ (g1Read g)) ∧ LoweredRunHasObsMono g
+…`. `LoweredRunHasObsMono` carries: (a) `realises` — the trace IS the two machine GAS
+values; (b) `monotone` — `Trace.gasMonotone T`, discharged internally; (c) world
+agreement at `(addrA,7)`; (d) success. **No pc, no gas-equality in the statement**; only
+the `G₀ ≤ g` envelope. IR and bytecode take the same branch because they share the same
+realised, monotone trace. `#print axioms lower_preserves_obs_mono = [propext,
+Classical.choice, Quot.sound]` (build-enforced guard in-file). Zero
+sorry/admit/axiom/native_decide. Full build GREEN (new + prototype + v1); prototype
+`lower_preserves_obs` and v1 untouched & green.
+
+**Reused exp003 machinery.** No general `Runs` gas-monotonicity lemma was needed: the
+prototype's `subCharges` + `toNat_subCharges` (`BytecodeLayer/Hoare/Sequence.lean`) gives
+the two GAS values *exactly*, so monotonicity is a one-line `omega` on the descent. The
+opcode rules (`runs_push1/sstore/gas/branch`, `messageCall_runs`, `beginCall_code`,
+`sstoreFrame_storage_self`, `validJumpDests`) and the gas-gate pattern are reused verbatim
+from the prototype. `GT` was the only new opcode brick.
+
+**DESIGN VERDICT.** The monotone-oracle law of §3.4 **works cleanly as designed.**
+- It is the right middle point: the IR side touches the law exactly ONCE
+  (`lt_eq_zero_of_toNat_le`) to decide the guard, and that is the whole "sticky guard"
+  reasoning §3.4 promised. Without the law the branch is undecidable; with it the
+  observable is pinned — exactly the buys/doesn't-buy split (sticky guard yes,
+  loop-termination no) the doc claims.
+- The discharge cost is genuinely "already-owned machinery": monotonicity fell out of the
+  exact gas accounting the prototype already had, as a single `omega`. No new gas theory.
+- The CompCert-style "events realised by the bytecode" discipline extends from one read to
+  two with zero friction: the realisability side-condition just lists both GAS values, and
+  the monotone conjunct rides on top.
+
+**Refinements worth folding into `ir-design-v2.md §3.4` (frictions found):**
+1. **State the order explicitly as `toNat` non-increasing, and pick the guard polarity.**
+   The law lands cleanest as `later.toNat ≤ earlier.toNat`. The example needed the guard
+   `lt g1 g2` (gas-went-UP, forced FALSE) to be *determinable*; the natural stack order
+   after two GAS is `g2 :: g1`, so the guard `g2 < g1` (gas strictly dropped) is NOT
+   determinable by the *non-strict* law (equality case). §3.4 should note: only the
+   `g_later ≤ g_earlier` direction (and its negation) is determinable; strict-decrease
+   guards are exactly the loop-termination non-goal. This is *why* the example uses GT
+   (= lt with swapped operands), not LT.
+2. **`gt_eq_lt_swap` / operand-order in lowering.** Realising an IR `lt a b` whose monotone
+   determinacy needs `a` on top requires either a SWAP or a GT in the lowering. The doc's
+   lowering sketch should say which (we used GT; it is free — same `binOp` path as LT).
+3. **No general `Runs`-monotonicity lemma was needed** for a *concrete* program (exact
+   `subCharges` suffices). §3.4 hints monotonicity "may already exist or be a short lemma"
+   in `BytecodeLayer`; for the *general* lowering it would (a `Runs`-level
+   `gasAvailable.toNat` non-increasing lemma threading `.call` nodes via the 63/64 net-debit
+   argument). Worth stating as the obligation for the post-prototype general theorem — and
+   it is exactly where the §3.4 "holds across calls" paragraph becomes a real proof rather
+   than a remark.
+4. **`gasReads` ignores `call` events** (it only pattern-matches `gasRead`). When the
+   `call` event lands (next step), confirm the monotone law is over the gasRead
+   *subsequence* of the full trace (calls interleave but do not themselves read gas) — the
+   current `Trace.gasReads` already does the right thing, but the doc should say so, since
+   §3.4's "holds across calls" is precisely about a `call` sitting between two reads.
