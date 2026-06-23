@@ -1137,13 +1137,15 @@ theorem X_loop_noncallcreate (vj : Array UInt256)
     (hnc : ∀ (s2 : State),
       ¬ isCallCreate (decode s2.toState.executionEnv.code s2.pc |>.getD (.STOP, .none)).1)
     (hstep : ∀ (f : ℕ) (w : Operation) (arg) (cost : ℕ) (s2 : State),
-       step f cost (some (w, arg)) s2 ≠ .error .OutOfFuel) :
-    ∀ (fuel : ℕ) (s : State), s.gasAvailable.toNat < fuel → X fuel vj s ≠ .error .OutOfFuel := by
+       ¬ isCallCreate w → step (f+1) cost (some (w, arg)) s2 ≠ .error .OutOfFuel) :
+    ∀ (fuel : ℕ) (s : State), s.gasAvailable.toNat + 1 < fuel → X fuel vj s ≠ .error .OutOfFuel := by
   intro fuel
   induction fuel with
   | zero => intro s hlt; omega
   | succ f ih =>
     intro s hlt
+    -- `gas + 1 < f + 1` ⇒ `gas < f`, so `f ≥ 1`: write `f = f'+1`.
+    obtain ⟨f', rfl⟩ : ∃ f', f = f' + 1 := ⟨f - 1, by omega⟩
     unfold X
     simp only [bind, Except.bind]
     set instr := decode s.toState.executionEnv.code s.pc |>.getD (.STOP, .none) with hinstr
@@ -1158,27 +1160,23 @@ theorem X_loop_noncallcreate (vj : Array UInt256)
       obtain ⟨ev, cost₂⟩ := p
       simp only [hZ]
       have hevle : ev.gasAvailable.toNat ≤ s.gasAvailable.toNat := Z_ok_state vj instr.1 s ev cost₂ hZ
-      cases hs : step f cost₂ instr ev with
+      -- the per-instruction step is at fuel `f'+1 ≥ 1`, so it never `OutOfFuel`s.
+      cases hs : step (f'+1) cost₂ instr ev with
       | error e =>
         intro hc
         have he : e = EVM.ExecutionException.OutOfFuel := by
           revert hc; simp only [hs]; intro hc; exact Except.error.inj hc
-        rw [he] at hs; exact hstep f instr.1 instr.2 cost₂ ev hs
+        rw [he] at hs; exact hstep f' instr.1 instr.2 cost₂ ev hncs hs
       | ok ev' =>
         simp only [hs]
         cases hH : H ev'.toMachineState instr.1 with
         | none =>
-          cases f with
-          | zero =>
-            exact absurd hs (by
-              intro hcc
-              simp only [show step 0 cost₂ instr ev = .error .OutOfFuel from rfl] at hcc
-              nomatch hcc)
-          | succ f' =>
-            have hlt2 : ev'.gasAvailable.toNat < ev.gasAvailable.toNat :=
-              X_iter_gas_lt f' cost₂ vj instr.1 instr.2 s ev ev' hncs hZ hs hH
-            apply ih ev'
-            omega
+          -- recurse `X (f'+1) vj ev'`; the loop tail's fuel is `f'+1` and the
+          -- successor's gas strictly dropped, so `ev'.gas + 1 < f'+1`.
+          have hlt2 : ev'.gasAvailable.toNat < ev.gasAvailable.toNat :=
+            X_iter_gas_lt f' cost₂ vj instr.1 instr.2 s ev ev' hncs hZ hs hH
+          apply ih ev'
+          omega
         | some o =>
           by_cases hrev : (instr.1 == Operation.REVERT) = true
           · rw [hrev]; intro hc; nomatch hc
@@ -1208,6 +1206,29 @@ theorem Ξ_outOfFuel_of (f : ℕ)
     exact hX s0 (by rw [hr, this])
   | ok r =>
     -- success: the trailing match yields `.ok …` in both `.success`/`.revert` arms.
+    simp only [hr, bind, Except.bind]
+    cases r <;> simp
+
+/-- Gas-aware refinement of `Ξ_outOfFuel_of`: the inner `X` is only ever run on the
+freshly-built child state, whose `gasAvailable` is exactly `g`. So it suffices to know
+`X f` is not `OutOfFuel` on states with `gasAvailable = g` (not all states). This is
+what lets the gas bound thread through the descent. -/
+theorem Ξ_outOfFuel_of_gas (f : ℕ)
+    (createdAccounts : Batteries.RBSet AccountAddress compare)
+    (genesisBlockHeader : BlockHeader) (blocks : ProcessedBlocks)
+    (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv)
+    (hX : ∀ s : State, s.gasAvailable = g → X f (D_J I.code ⟨0⟩) s ≠ .error .OutOfFuel) :
+    Ξ (f+1) createdAccounts genesisBlockHeader blocks σ σ₀ g A I ≠ .error .OutOfFuel := by
+  unfold Ξ
+  simp only []
+  cases hr : X f (D_J I.code ⟨0⟩) ({ (default : EVM.State) with accountMap := σ, σ₀ := σ₀, executionEnv := I, substate := A, createdAccounts := createdAccounts, gasAvailable := g, blocks := blocks, genesisBlockHeader := genesisBlockHeader }) with
+  | error e =>
+    intro hc
+    have : e = EVM.ExecutionException.OutOfFuel := by
+      simp only [hr, bind, Except.bind] at hc
+      exact (Except.error.inj hc)
+    exact hX _ rfl (by rw [hr, this])
+  | ok r =>
     simp only [hr, bind, Except.bind]
     cases r <;> simp
 
@@ -1702,6 +1723,68 @@ theorem noOOF_step (f cost : ℕ) (w : Operation) (a) (s : State)
     · exact noOOF_step_delegatecall f cost a s hcall
     · exact noOOF_step_staticcall f cost a s hcall
   · exact noOOF_step_default f cost w a s hcc
+
+/-! ## Item 4c — end-to-end leaf-frame never-`OutOfFuel` (DONE, unconditional)
+
+For a frame whose code contains **no** `CREATE`/`CALL`-family opcode (a *leaf* in the
+call tree), the never-`OutOfFuel` property is now fully closed *unconditionally* by
+chaining the proved pieces: `noOOF_step_default` (the `step` never `OutOfFuel`s on a
+non-call/create arm) discharges the `hstep` of `X_loop_noncallcreate`, which closes
+`X` (`X_leaf_noOOF`), which closes `Ξ` (`Ξ_leaf_noOOF`, via the gas-aware
+`Ξ_outOfFuel_of_gas`) and `Θ` on a `Code` leaf (`Θ_leaf_noOOF`). This is the genuine
+bake-off deliverable for non-nesting execution; the headline `Θ_never_outOfFuel` for
+the *nested* case needs the same chain with the call/create iterations' fuel supplied
+by the mutual IH (see the closing note). -/
+
+/-- **Leaf-frame `X` never `OutOfFuel` (unconditional).** If the executing code never
+decodes to a `CREATE`/`CALL`-family opcode, then `X fuel vj s ≠ OutOfFuel` whenever
+`fuel > gasAvailable + 1` — the loop halts (gas measure) before fuel runs out, and
+every per-instruction `step` is a non-call/create arm (never `OutOfFuel`). -/
+theorem X_leaf_noOOF (vj : Array UInt256)
+    (hnc : ∀ (s2 : State),
+      ¬ isCallCreate (decode s2.toState.executionEnv.code s2.pc |>.getD (.STOP, .none)).1)
+    (fuel : ℕ) (s : State) (hlt : s.gasAvailable.toNat + 1 < fuel) :
+    X fuel vj s ≠ .error .OutOfFuel := by
+  apply X_loop_noncallcreate vj hnc _ fuel s hlt
+  intro f w arg cost s2 hw
+  exact noOOF_step_default f cost w arg s2 hw
+
+/-- **Leaf-frame `Ξ` never `OutOfFuel` (unconditional).** For a child whose `code`
+contains no `CREATE`/`CALL`-family opcode, `Ξ (f+1)` is never `OutOfFuel` when the
+forwarded gas `g` satisfies `g + 1 < f`. -/
+theorem Ξ_leaf_noOOF (f : ℕ)
+    (createdAccounts : Batteries.RBSet AccountAddress compare)
+    (genesisBlockHeader : BlockHeader) (blocks : ProcessedBlocks)
+    (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv)
+    (hnc : ∀ (s2 : State),
+      ¬ isCallCreate (decode s2.toState.executionEnv.code s2.pc |>.getD (.STOP, .none)).1)
+    (hf : g.toNat + 1 < f) :
+    Ξ (f+1) createdAccounts genesisBlockHeader blocks σ σ₀ g A I ≠ .error .OutOfFuel := by
+  apply Ξ_outOfFuel_of_gas f createdAccounts genesisBlockHeader blocks σ σ₀ g A I
+  intro s hsg
+  exact X_leaf_noOOF (D_J I.code ⟨0⟩) hnc f s (by rw [hsg]; exact hf)
+
+/-- **Leaf-frame `Θ` (a `Code` call to call-free code) never `OutOfFuel`
+(unconditional).** Chains `Θ_outOfFuel_of` (the `Code`-path skeleton) with the leaf
+`Ξ`. Requires the called code to contain no `CREATE`/`CALL`-family opcode and the
+forwarded gas `g` to satisfy `g + 2 < fuel` (the `+2` covers the `Θ → Ξ → X`
+fuel hops above the `X`-loop's own `gas + 1` budget). This is the genuine end-to-end
+deliverable for a single (non-nesting) message call. -/
+theorem Θ_leaf_noOOF (fuel : ℕ) (bvh : List ByteArray)
+    (createdAccounts : Batteries.RBSet AccountAddress compare)
+    (genesisBlockHeader : BlockHeader) (blocks : ProcessedBlocks)
+    (σ σ₀ : AccountMap) (A : Substate) (s o r : AccountAddress) (code : ByteArray)
+    (g p v v' : UInt256) (d : ByteArray) (e : Nat) (Hd : BlockHeader) (w : Bool)
+    (hnc : ∀ (s2 : State),
+      ¬ isCallCreate (decode s2.toState.executionEnv.code s2.pc |>.getD (.STOP, .none)).1)
+    (hf : g.toNat + 2 < fuel) :
+    Θ (fuel+1) bvh createdAccounts genesisBlockHeader blocks σ σ₀ A s o r (.Code code)
+        g p v v' d e Hd w ≠ .error .OutOfFuel := by
+  obtain ⟨f', rfl⟩ : ∃ f', fuel = f' + 1 := ⟨fuel - 1, by omega⟩
+  apply Θ_outOfFuel_of (f'+1) bvh createdAccounts genesisBlockHeader blocks σ σ₀ A s o r code
+    g p v v' d e Hd w
+  intro σ₁ I
+  exact Ξ_leaf_noOOF f' createdAccounts genesisBlockHeader blocks σ₁ σ₀ g A I hnc (by omega)
 
 /-! ## Item 4 (remaining) — `step`, `Lambda`, the `X`-loop, and the final induction
 
