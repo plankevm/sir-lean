@@ -35,9 +35,11 @@ bridges). The IR's job is to exercise the three primitives we actually need:
   (`wc_prefix_runs`), the CALL step (`wc_call_step`), and `lower_preserves` for
   `workedCall` discharged across `messageCall_runs` (`wc_preserves`). The
   `validJumpDests`-gated branch terminator is now CLOSED (Track A detotalized
-  `validJumpDests`; see C3e). ONE honest remainder (NOT stubbed) blocks a *fully
-  self-contained* end-to-end closure: the concrete child `CallReturns` + post-CALL
-  run. See the C3d / C3e log entries below.
+  `validJumpDests`; see C3e), AND the **concrete child `CallReturns`** is now CLOSED
+  (`wc_callReturns`, hypothesis-free; `wc_preserves` dropped `hcall` — see C3f). ONE
+  honest remainder (NOT stubbed) blocks a *fully self-contained* end-to-end closure:
+  the **post-CALL run** (`hpost`/`hhalt` of `wc_preserves`) — block-0 recompute, taken
+  `JUMPI`, block 1's `RETURN`. See the C3f log entry below.
 - [~] **C4** Acceptance check: multi-call composition. RESOLVED structurally:
   `wc_preserves_twoCall` closes a two-CALL worked program via the same bridge
   discharge (the bridge composes any number of `Runs.call` nodes) — no new theory
@@ -632,3 +634,68 @@ required for the full single-/multi-call preservation theorem.
   Net: `wc_preserves` and `wc_preserves_twoCall` are **not yet hypothesis-free** — the
   branch terminator (item 1) is closed, but the concrete child `CallReturns` + post-CALL
   run (item 2) remains the single documented remainder. All cleanups (item 4) done.
+
+- 2026-06-22 (C3f): **Concrete child `CallReturns` CLOSED — `wc_preserves` no longer
+  takes `hcall`. Build green (1130 jobs), axiom-clean.** This closes C3e's item 2(a),
+  the documented #1 blocker (the ~200-line child-run block), in `WorkedCall.lean`.
+  `#print axioms` on every new theorem (`wc_callReturns`, `wc_child_drive`,
+  `wc_beginCall_child`, `wcChildGas_lb`, `wc_sstoreChargeOf_child`, `wc_preserves`,
+  `wc_preserves_twoCall`, the `wcResumed_*` fields) = `[propext, Classical.choice,
+  Quot.sound]` — no `sorryAx`, no `native_decide` (verified by grep: every
+  `native_decide`/`sorry` token in `LirLean/*.lean` is in a comment).
+
+  **The kernel-cost wall, defeated (the C3e blocker).** `wcCallSite g`'s `accounts` is
+  the post-SSTORE world threaded through `sstorePost` over the deep `lower workedCall`
+  computation, so a whole-map reduction hit "deep recursion". Fix = the exp003
+  named-lemma pattern, transposed:
+  * `wcStoredAccounts` — a **`g`-independent** post-SSTORE account map built from
+    `callerXfer` + the caller's `SSTORE 7 5` (the analogue of exp003's `childXfer`,
+    with **no `lower` dependence** — accounts never touch the code field).
+  * `sstore_accounts_congr` — the brick lemma: `State.sstore`'s resulting account map
+    depends only on the input `accounts` + self `executionEnv.address`. Lets
+    `wcCallSite_acc : (wcCallSite g).exec.accounts = wcStoredAccounts` be derived from
+    the cheap, code-free pre-SSTORE field facts (`wcBefore_acc` via `unfold codeFrame`,
+    never reducing `lower`).
+  * `wcCallSite_accessedAccounts` / `wc_ckpt_storageKeys` — the substate facts (SSTORE
+    only touches `accessedStorageKeys`, leaving `accessedAccounts`, so the callee is
+    cold → `callExtraCost = 2600`; and the callee slot `(0xCA11EE, 7)` is cold → the
+    child's first write costs `22100`), again off named facts not deep reduction.
+
+  **What is genuinely proved (concrete, on `wcCallSite g`):**
+  * `wc_toExecute_callee` — `toExecute wcStoredAccounts 0xCA11EE = .Code calleeProg`
+    (`rfl` on the small literal map; the SSTORE wrote `addrCaller`, not the callee).
+  * `wcChildGas` / `wcChildGas_lb` — the 63/64-capped child gas clears the callee's
+    `22106` cold-SSTORE floor for `g ≥ 50000` (via
+    `allButOneSixtyFourth_ge_of_liftFloor_le`, over the post-SSTORE world).
+  * `wcChildFrame` / `wc_beginCall_child` — the reflexive child frame (code
+    `calleeProg`, depth 1, the value-0 transfer applied) that `beginCall` descends into.
+  * `wc_child_drive` — the genuine child `drive` run `PUSH;PUSH;SSTORE;STOP` to its
+    success `FrameResult` (3 opcode steps + 2-unit halt), `wc_sstoreChargeOf_child` =
+    `22100` cold.
+  * **`wc_callReturns`** — the bundled, **hypothesis-free**
+    `CallReturns (wcCallSite g) (wcResumed g)` (the CALL step + child-as-code +
+    black-box child run + resumed parent), the `CallerProgExample.caller_callReturns`
+    shape transposed onto `wcCallSite`.
+  * **`wc_preserves`** rewritten: prefix (`wc_prefix_runs`) **and** the CALL
+    (`wc_callReturns`) are now both supplied internally; the signature dropped `hcall`,
+    keeping only `hpost`/`hhalt` (the post-CALL run). For `g ≥ 50000`.
+  * `wcResumed_addr/code/pc/validJumps` — the resumed-frame field foundation for the
+    post-CALL run (self `addrCaller`, code = lowered program, pc 300, `validJumps` = the
+    lowered table so `wc_get_dest_414` discharges the taken `JUMPI`).
+
+  **The single remaining honest remainder** (`hpost`/`hhalt` of `wc_preserves`, NOT
+  stubbed): the **post-CALL run** to a halt — block-0 recompute (`SLOAD; ADD; LT`,
+  taken `JUMPI`) then block 1's `RETURN`. Three sub-pieces documented in the module
+  (`lower_preserves` section): (1) the resumed-gas lower bound (the `allButOneSixtyFourth`
+  arithmetic over `callGasCap` + child remaining); (2) the `SLOAD` value over the
+  child-committed map (caller slot 7 still `5`, so `lt = 1`); (3) a general `RETURN`
+  halt — the lowering's `ret t` materialises the value, so `RETURN` consumes
+  `offset = 1, size = 1`, not the `0,0` of exp003's `stepFrame_return_empty`; a general
+  `RETURN` step (`∃ halt, stepFrame fr = .halted halt` from `chargeMemExpansion`
+  succeeding) is provable in this layer (probed feasible) and is the documented next
+  step. The resumed-field bricks for all three are already proved.
+
+  Net: `wc_preserves`/`wc_preserves_twoCall` are **not yet fully hypothesis-free** — but
+  the headline child-`CallReturns` blocker is gone (`hcall` dropped), the prefix + CALL
+  are both concrete, and only the post-CALL run (`hpost`/`hhalt`) remains, with its
+  foundation proved and the three sub-pieces documented precisely.

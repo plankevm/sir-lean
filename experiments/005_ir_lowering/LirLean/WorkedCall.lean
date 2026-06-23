@@ -46,28 +46,29 @@ lemma `mem_validJumpDests_of_reachable_jumpdest`), so the branch destination obl
 `validJumpDests` being a `partial def`, the same wall that forced
 `Examples.BranchExample` to build its JUMPI frame with an explicit `validJumps`.)
 
+## The concrete child `CallReturns` — now CLOSED (C3f)
+
+The child `CallReturns` (the C3e documented #1 blocker) is **closed**: `wc_callReturns`
+is a genuine, hypothesis-free `CallReturns (wcCallSite g) (wcResumed g)` (for
+`g ≥ 50000`). It builds the real child `drive` run of the `0xCA11EE` callee
+(`PUSH1 5; PUSH1 7; SSTORE; STOP`) at the 63/64-capped CALL-site gas, over the
+**post-SSTORE** parent world. The kernel-cost wall (the call-site `accounts` being the
+post-SSTORE world threaded through `sstorePost` over the deep `lower workedCall`
+computation) is defeated by the exp003 NAMED-LEMMA pattern: a `g`-independent
+`wcStoredAccounts` (built from `callerXfer` + the self write, NO `lower` dependence)
+plus `sstore_accounts_congr`, so the post-SSTORE world / SSTORE charge / cold floor are
+derived from cheap code-free field facts, never by whole-map reduction. `wc_preserves`
+no longer takes `hcall`.
+
 ## The one honest remainder (NOT `sorry`)
 
-A *fully self-contained* `workedCall` closure — `wc_preserves` with **no**
-hypotheses, all the way to a literal `RETURN` halt — is blocked on one concrete
-piece, kept as honest hypotheses of `wc_preserves` (verified feasible, not stubbed):
-
-1. **The concrete child `CallReturns` + post-CALL run.** `wc_call_step` already pins
-   the CALL step; what remains is (a) the child `drive` run of the `0xCA11EE` callee
-   (`PUSH1 5; PUSH1 7; SSTORE; STOP`) at the 63/64-capped CALL-site gas, in the
-   post-SSTORE world — the `CallerProgExample.caller_callReturns` shape transposed
-   onto `wcCallSite g`; and (b) the post-CALL opcode run (recompute the `lt`
-   condition, the taken `JUMPI` via `wc_get_dest_414`, then block 1's `RETURN`).
-   Confirmed feasible: `toExecute (wcCallSite g).accounts 0xCA11EE = .Code calleeProg`
-   and the child params reduce in the kernel (`callChildParams … .gas =
-   UInt64.ofNat (wcChildGas g)`, `.codeSource = .Code calleeProg`, `callExtraCost =
-   2600`, all `rfl`/`dsimp`). The blocker to landing it this run is purely kernel
-   *cost*: `wcCallSite g`'s `accounts` is the post-SSTORE world threaded through
-   `sstorePost` over the deep `lower workedCall` computation, so a full account-map
-   reduction hits "deep recursion" — the child run must be assembled with
-   `childXfer`/`sstoreChargeOf_child`-style named lemmas (the exp003 pattern) to
-   sidestep whole-map reduction, a ~200-line block left as the documented next step
-   (PLAN.md, C3e log).
+`wc_preserves` still takes `hpost`/`hhalt` — the **post-CALL run** to a halt. This is
+the block-0 branch-condition recompute (`SLOAD; ADD; LT`, the taken `JUMPI` via
+`wc_get_dest_414`) then block 1's `RETURN`. Its foundation (`wcResumed_addr/code/pc/
+validJumps`) is proved here; the three remaining sub-pieces (the resumed-gas
+`allButOneSixtyFourth` lower bound, the `SLOAD` value over the child-committed map, and
+a general `RETURN` halt for the materialised `offset/size`) are documented at the
+`lower_preserves` section below and in PLAN.md (C3f). NOT stubbed.
 -/
 
 namespace Lir.WorkedCall
@@ -795,42 +796,95 @@ so `wc_get_dest_414` applies to it and any frame that preserves `validJumps`. -/
 theorem wcFrame_validJumps (g : UInt64) :
     (wcFrame g).validJumps = validJumpDests (lower Lir.Decode.workedCall) 0 := rfl
 
+/-! ## The resumed parent frame fields (post-CALL run foundation)
+
+After `wc_callReturns`, `wcResumed g` is the genuine resumed frame the post-CALL run
+starts from. Its observable fields project cleanly off `resumeAfterCall` (no deep
+`lower` reduction): the code is still the lowered program, `validJumps` is still its
+jump table (so `wc_get_dest_414` applies to the post-CALL JUMPI), and the pc is the
+byte after the CALL (300) — block 0's branch-condition recompute. These are the bricks
+the post-CALL `Runs` chain (the documented remainder below) threads. -/
+
+/-- The resumed frame's self is still `addrCaller`. -/
+theorem wcResumed_addr (g : UInt64) : (wcResumed g).exec.executionEnv.address = addrCaller := by
+  unfold wcResumed resumeAfterCall callPending
+  dsimp only [ExecutionState.replaceStackAndIncrPC]; rfl
+
+/-- The resumed frame's code is still the lowered program. -/
+theorem wcResumed_code (g : UInt64) :
+    (wcResumed g).exec.executionEnv.code = lower Lir.Decode.workedCall := by
+  unfold wcResumed resumeAfterCall callPending
+  dsimp only [ExecutionState.replaceStackAndIncrPC]; rfl
+
+/-- The resumed frame's pc is the byte after the CALL (300) — block 0's post-CALL
+branch-condition recompute. -/
+theorem wcResumed_pc (g : UInt64) : (wcResumed g).exec.pc = 300 := by
+  unfold wcResumed resumeAfterCall callPending
+  dsimp only [ExecutionState.replaceStackAndIncrPC]; rfl
+
+/-- The resumed frame's `validJumps` is still the lowered program's jump table — so
+`wc_get_dest_414` discharges the post-CALL taken `JUMPI` to block 1. -/
+theorem wcResumed_validJumps (g : UInt64) :
+    (wcResumed g).validJumps = validJumpDests (lower Lir.Decode.workedCall) 0 := by
+  unfold wcResumed resumeAfterCall callPending
+  dsimp only [ExecutionState.replaceStackAndIncrPC]; rfl
+
 /-! ## `lower_preserves` for `workedCall` (the bridge half)
 
 The full execution of `workedCall` as one `Runs (wcFrame g) last`:
 
 ```
-  wcFrame g  --wc_prefix_runs-->  wcCallSite g
-             --Runs.call (CallReturns)-->  resumeFr      (the single external CALL)
-             --Runs resumeFr last-->  last               (block-0 branch recompute, then
-                                                          ret/stop in the taken block)
+  wcFrame g  --wc_prefix_runs-->  wcCallSite g       (the genuine straight-line prefix)
+             --Runs.call (wc_callReturns)-->  wcResumed g   (the CONCRETE external CALL,
+                                                              now closed — child drive run)
+             --hpost : Runs (wcResumed g) last-->  last      (block-0 branch recompute, then
+                                                              block 1's RETURN)
              --halts (stepFrame last = .halted halt)
 ```
 
 `wc_prefix_runs` (proved above) is the real prefix; the CALL is a `Runs.call` node
-carrying a `CallReturns (wcCallSite g) resumeFr` witness; the post-CALL run and the
-terminating halt are the remaining concrete pieces. We state `lower_preserves` taking
-exactly those as hypotheses (the `Examples.TwoCallExample.twoCall_messageCall` shape),
-and discharge it through the bridge with `lower_preserves_discharge`. The result holds
-for **any** assembled post-CALL run — so once the concrete child `CallReturns` and the
-branch-block post-run land, this closes `workedCall` end-to-end; and because the bridge
-composes any number of `Runs.call` nodes, a ≥2-call worked program closes the same way
-(C4). -/
+carrying the **concrete** `wc_callReturns` witness (no longer assumed); only the
+post-CALL run `hpost` and its halt `hhalt` remain hypotheses, discharged through the
+bridge with `lower_preserves_discharge`. The result holds for **any** assembled
+post-CALL run — and because the bridge composes any number of `Runs.call` nodes, a
+≥2-call worked program closes the same way (C4).
 
-/-- **`lower_preserves` for `workedCall`.** Given the single returning external CALL
-(`CallReturns (wcCallSite g) resumeFr`) and the post-CALL run to a halting `last`, the
-top-level `messageCall (wcParams g)` delivers `last`'s halt result. The prefix run to
-the CALL site (`wc_prefix_runs`) is genuine; the call node and post-run are the
-documented concrete remainder (see `PLAN.md`). -/
-theorem wc_preserves (g : UInt64) (hg : 30000 ≤ g.toNat)
-    {resumeFr last : Frame} {halt : FrameHalt}
-    (hcall : CallReturns (wcCallSite g) resumeFr)
-    (hpost : Runs resumeFr last)
+**The documented post-CALL remainder** (NOT stubbed). To make `wc_preserves`
+*fully* hypothesis-free, `hpost`/`hhalt` must be the genuine block-0 recompute run:
+from `wcResumed g` (pc 300, stack `[1]` — the CALL success flag — with the
+`wcResumed_*` fields above), run `PUSH32 100; PUSH32 9; PUSH32 7; SLOAD; ADD; LT;
+PUSH4 414; JUMPI` (the `lt` condition `(sload 7 + 9) < 100 = 1`, so the JUMPI is
+taken via `wc_get_dest_414`), then block 1's `JUMPDEST; PUSH32 100; PUSH32 9;
+PUSH32 7; SLOAD; ADD; LT; RETURN`. Three honest sub-pieces remain:
+1. **The resumed-gas lower bound.** The resumed gas is `callerCharged.gasAvailable +
+   childRemaining`; `callerCharged` retains `~1/64` of the pre-call gas
+   (`allButOneSixtyFourth`), so it is large for big `g`, but the bound requires the
+   `allButOneSixtyFourth` arithmetic over `callGasCap`.
+2. **The SLOAD value over the child-committed map.** `wcResumed g`'s accounts are the
+   child's committed map (`sstorePost (wcChildAfter2Push g) 7 5`); the caller's slot
+   `7` there is still `5` (block 0 wrote it; the child wrote `0xCA11EE`'s slot), so
+   `sload 7 = 5` and the recomputed `lt` is `1`. Needs a named storage-lens lemma over
+   that map.
+3. **A general `RETURN` halt.** The lowering's `ret t` materialises the value, so the
+   `RETURN` consumes `offset = 1, size = 1` (not the `0,0` of exp003's
+   `stepFrame_return_empty`); the halt needs a general `RETURN` step
+   (`∃ halt, stepFrame fr = .halted halt` from `chargeMemExpansion` succeeding),
+   provable in this layer but left as the documented next step. -/
+
+/-- **`lower_preserves` for `workedCall`.** The prefix run (`wc_prefix_runs`) and the
+single external CALL (`wc_callReturns` — the concrete child `drive`, now closed) are
+**both genuine and supplied internally**; only the post-CALL run to a halting `last`
+remains a hypothesis. For `g ≥ 50000` the top-level `messageCall (wcParams g)` delivers
+`last`'s halt result. The `hcall` hypothesis of the C3d/C3e shape is **gone** — the
+child `CallReturns` is no longer assumed. -/
+theorem wc_preserves (g : UInt64) (hg : 50000 ≤ g.toNat)
+    {last : Frame} {halt : FrameHalt}
+    (hpost : Runs (wcResumed g) last)
     (hhalt : stepFrame last = .halted halt) :
     messageCall (wcParams g)
       = .ok (FrameResult.toCallResult (endFrame last halt)) := by
   have hruns : Runs (wcFrame g) last :=
-    (wc_prefix_runs g hg).trans (Runs.call hcall hpost)
+    (wc_prefix_runs g (by omega)).trans (Runs.call (wc_callReturns g hg) hpost)
   exact lower_preserves_discharge Lir.Decode.workedCall (wcParams g)
     (wc_begin g) rfl hruns hhalt
 
