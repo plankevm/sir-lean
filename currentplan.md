@@ -325,6 +325,27 @@ your own branch with clear messages; never touch another track's files; if block
 write the blocker into PLAN.md before stopping.
 
 ## Orchestration log
+- 2026-06-23 (NIGHT): **Autonomous overnight mode (Eduardo asleep).** Directive: queue safe
+  forward work, otherwise BOOKKEEPING — verify each agent that lands, organize into clean
+  commits, produce/refresh reports, leave a tidy review surface. **No speculative refactors**
+  (they create review churn). Decision rules for landings while he sleeps:
+  - **C-v2 prototype lands** → verify (build green, axiom-clean, grep). If the design verdict
+    is POSITIVE → launch C-v2 step-2 (call-event milestone + first two-read monotonicity
+    example). If it hit fundamental friction → DO NOT build step-2 on a flawed base; document
+    the friction in PLAN.md + ir-design-v2 open-decisions, hold for morning steer.
+  - **B2h lands & headline `Θ_never_outOfFuel` CLOSED** → verify (`#print axioms` must be
+    `[propext, Classical.choice, Quot.sound]`); merge B→base; mark B2 ✅; spawn the Track B
+    `lean-review-report`; refresh EXPERIMENT-REPORT.md. 
+  - **B2h lands PARTIAL (5th)** → verify, commit, document the exact gap. **DO NOT launch a
+    6th B grind** (4 partials already; design-sensitive; needs his steer). Escalate via plan +
+    report for morning review; this track goes to bookkeeping only.
+  - **Reports**: keep EXPERIMENT-REPORT.md (base) + per-track reports current as tracks land.
+  - **Merges**: do NOT merge exp005-ir→base while the C-v2 prototype agent is mid-commit;
+    merge only once C-v2 reaches a stable verified commit (then fix master-report links).
+  - Loop is carried by background-agent completion notifications (self-sustaining while ≥1
+    agent runs). When all safe work is done/blocked, wind down to a clean state and STOP.
+  - Refreshed EXPERIMENT-REPORT.md to verified state (super-linear B finding; C v2 plan +
+    gas-introspection prior-art study linked).
 - 2026-06-23: **B2g CREATE de-risk DONE & verified — VERDICT: CREATE tractable** (`3c76a82`,
   green, axiom-clean, 5 commits, clean tree). All CREATE/CREATE2/`Lambda` gas-descent bricks
   closed (`create_gas_arith{,_lt}`, `create{,2}_result_gas_{le,lt}`, `C'_create{,2}_pos`,
