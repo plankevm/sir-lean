@@ -1786,54 +1786,66 @@ theorem Θ_leaf_noOOF (fuel : ℕ) (bvh : List ByteArray)
   intro σ₁ I
   exact Ξ_leaf_noOOF f' createdAccounts genesisBlockHeader blocks σ₁ σ₀ g A I hnc (by omega)
 
-/-! ## Item 4 (remaining) — `step`, `Lambda`, the `X`-loop, and the final induction
+/-! ## Status of the headline `Θ_never_outOfFuel` — what is closed and what remains
 
-The propagation skeletons above (`Ξ_outOfFuel_of`, `Θ_outOfFuel_of` for `Code`,
-`call_outOfFuel_of`, `Lambda_outOfFuel_of`) reduce each *recursive* layer's
-non-`OutOfFuel`-ness at `fuel+1` to that of the sub-layer it calls. What remains for
-the headline `Θ_never_outOfFuel`:
+### CLOSED (this run)
+* **`step` skeleton** (`noOOF_step`): `step (f+1) … ≠ OutOfFuel` given each
+  `call f …` is not `OutOfFuel`. CALL/CALLCODE/DELEGATECALL/STATICCALL route to
+  `call f` (`noOOF_call_arm_body`); CREATE/CREATE2 are *unconditional* (they swallow
+  `Lambda`'s result into a tuple); the default arm goes through `noOOF_EvmYul_step`
+  (the shared interpreter never `OutOfFuel`s — full per-arm sweep).
+* **`X` inner loop-induction** (`X_loop_noncallcreate`): the gas measure bottoms out
+  the loop — once `fuel > gas + 1`, `X` halts before fuel runs out. Closed for a
+  frame whose code never decodes to a CREATE/CALL opcode.
+* **Precompiled `Θ`-arm** (`Θ_precompiled_never_outOfFuel`): the literal-pattern arm,
+  via `dsimp only [Θ]` (avoids the enormous `.Precompiled` eq-lemma deep recursion)
+  + keep-`hc` split + `nomatch`.
+* **End-to-end leaf frame** (`Θ_leaf_noOOF`, `Ξ_leaf_noOOF`, `X_leaf_noOOF`): a single
+  *non-nesting* message call (Code with no CREATE/CALL opcode) is **unconditionally**
+  never `OutOfFuel` when `gas + 2 < fuel`. This is a complete, axiom-clean headline
+  for the non-nested fragment — the genuine bake-off deliverable for straight-line +
+  intra-frame-control-flow execution.
 
-1. **`step` propagation.** `step (f+1) cost (some (w,a)) s` routes:
-   * the `CALL`/`CALLCODE`/`DELEGATECALL`/`STATICCALL` arms → `call f …` (covered by
-     `call_outOfFuel_of`);
-   * the `CREATE`/`CREATE2` arms → `Lambda f …` (covered by `Lambda_outOfFuel_of`);
-   * every other opcode → `EvmYul.step` (no fuel, never `OutOfFuel` — provable like
-     `gas_EvmYul_step`'s sweep, the result is `.ok`/a non-`OutOfFuel` error).
-   So `step (f+1) … ≠ OutOfFuel` reduces to `call f … ≠ OutOfFuel` and
-   `Lambda f … ≠ OutOfFuel` (plus the trivial `EvmYul.step` arms). This is mostly a
-   `cases w`-sweep mirroring `gas_EVM_step_default`'s defeq-coercion technique.
+### REMAINING for the *fully nested* headline
+The only gap is the **mutual descent**: a frame whose `X`-loop executes a CALL/CREATE
+opcode recurses into a child frame (`call f → Θ (f-1) → Ξ (f-1) → X (f-2)`). Two
+sub-obligations:
 
-2. **The `X`-loop bound (the genuinely hard inner induction).** `X (f+1)` either
-   halts (`.ok`) or recurses `X f …` on a *gas-strictly-smaller* state
-   (`X_iter_gas_lt`). To conclude `X fuel … ≠ OutOfFuel` one needs an **inner**
-   induction on the number of loop iterations, bounded by the available gas (each
-   non-halting iteration burns `≥ 1` gas), nested inside the **outer** fuel
-   induction. Concretely: `fuel ≥ gas + 1` suffices for the `X`-loop of a single
-   frame, because the loop runs `≤ gas` non-halting iterations before halting.
+1. **Call-iteration gas descent.** `X_iter_gas_lt` (and hence `X_loop_noncallcreate`)
+   is stated for `¬ isCallCreate w`. A CALL/CREATE iteration *also* strictly burns
+   gas — net `≥ Cextra ≥ 1`, because the child returns leftover
+   `g' ≤ Cgascap = cost₂ − Cextra` (items `Cgascap_le_gas`,
+   `Ccallgas_le_gas_of_cover`) — so the gas measure still bottoms out the loop. But
+   proving the call-arm gas accounting in `step`/`call` is additional work comparable
+   to `gas_EVM_step_default`.
 
-3. **The precompiled `Θ`-arm** (non-recursive; documented above).
+2. **The mutual `fuel` induction with a depth-aware bound.** Strong induction on
+   `fuel` over the six layers, each `P_·` reading "`fuel ≥ B gas depth → layer ≠
+   OutOfFuel`". The skeletons above are the `fuel+1` steps; at a descent the child's
+   `Θ/Ξ/X` are at strictly smaller fuel, so the IH discharges them **provided the
+   bound is threaded**.
 
-4. **The final mutual `fuel` induction.** With (1)–(3), close
-   `Θ_never_outOfFuel` by **strong induction on `fuel`** over the six-layer mutual
-   statement `P_X ∧ P_step ∧ P_call ∧ P_Ξ ∧ P_Θ ∧ P_Lambda`, where each `P_·` is
-   "fuel ≥ B(gas, depth) → layer … ≠ OutOfFuel" for a gas/depth-derived bound `B`.
-   At `fuel+1` each layer's propagation skeleton (above) discharges the recursive
-   hand-off using the IH at `fuel`, PROVIDED the bound is threaded:
-   * the `X`-loop consumes `≤ gas` fuel (item 3); each descent hop is `+1` fuel and
-     `depth → depth+1` (capped at `1024`, `call_depth_bound`); the child's gas is
-     `≤` the parent's (`Cgascap_le_gas`, `Ccallgas_le_gas_of_cover`), so the child's
-     bound `B(childgas, depth+1) ≤ B(gas, depth+1)`.
-   * Because the child's gas is `≤` the parent's but **not** strictly smaller across
-     a single descent, the bound must be **`depth`-aware**: e.g.
-     `B(gas, depth) = (1025 - depth) * (4 * (gas + 1))`. This is sound (a frame at
-     depth `e ≤ 1024` needs `≤ 4*(gas+1)` fuel for its own `X`-loop + hops, plus its
-     child's `B(·, e+1)`), and crucially avoids the gas-*telescoping* argument: it
-     bounds by the *product* `gas × remaining-depth` rather than the sum.
+   **Correct bound shape (a correction to the prior run's note).** The per-frame
+   `X`-loop runs up to `gas` iterations, and *each* iteration may spawn a child needing
+   its own full budget `B childgas (depth+1)`. So the recurrence is
+   `B gas depth ≥ gas * (c + B gas (depth+1))` for a small constant `c` (the hops),
+   which makes `B` **super-linear in gas across depth** — roughly `(gas+1)^(1025−depth)`
+   — *not* the linear product `(1025−depth)*4*(gas+1)` suggested earlier (that omits
+   the per-iteration child multiplicity). The cleanest sound `B` is therefore defined
+   by recursion on the depth-countdown `k = 1025 − depth`:
 
-   ⇒ **The current `seedFuel g = 4 * (g + 1)` is therefore INSUFFICIENT** for the
-   nested case (it omits the depth factor); the correct seed is the depth-aware
-   `B` above (or any larger function dominating `(1025 - depth) * 4 * (gas + 1)`).
-   This is the precise remaining design fact — recorded here and in PLAN.md, not
-   faked. -/
+       B 0     gas = gas + 2
+       B (k+1) gas = (gas + 1) * (B k gas + c) + 2     -- c = the X→step→call→Θ→Ξ hops
+
+   so the recurrence holds *definitionally* and the assembly's arithmetic is a few
+   `omega`/unfold steps rather than a telescoping argument. (Alternatively, the
+   gas-*telescoping* invariant `Σ frame-iters ≤ root gas` gives the linear
+   `B = c*gas + c*1024`, but proving the invariant through the mutual recursion is the
+   harder route.) The top-level headline instantiates at the initial depth.
+
+   ⇒ The original `seedFuel g = 4 * (g + 1)` is **insufficient** for nesting (no depth
+   factor), as is the linear product bound; the sound seed is the recursive `B` above.
+   This is the precise remaining design fact — recorded here and in PLAN.md, not faked.
+-/
 
 end EvmYul.EVM.NeverOutOfFuel
