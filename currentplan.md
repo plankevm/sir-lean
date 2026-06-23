@@ -145,10 +145,12 @@ whichever interface, ideally the shared one.
   axiom-clean). DONE: `seedFuel g = 4*(g+1)`; fuel-0 base cases (all 5 layers); the
   cornerstone `C'_pos_of_runnable` (every loop-continuing opcode burns ≥1 gas — ~140 ops;
   zero-cost ops all halt); positivity helpers; the headline `Θ_never_outOfFuel` stated.
-  REMAINING (continuation IN PROGRESS): (1) `Z→step→X` gas inversion, (2) `X` measure
-  descent, (3) cross-layer gas/depth conservation (nested analogue of flat
-  `gasFundsDescent`), (4) the final MUTUAL fuel-passing induction over `X/Ξ/Θ/call/step`
-  (the hardest single proof in the experiment).
+  PROGRESS (`f460066`): (1) `Z→step→X` gas-decrement chain DONE (`gas_EvmYul_step` via
+  per-arm definitional unfolding to beat the 140-arm match timeout, `Z_ok_cost_le_gas`);
+  (2) `X` measure descent DONE (`X_iter_gas_lt`); (3) cross-layer conservation DOWN-PAYMENT
+  (`Cgascap_le_gas`: child gas ≤ parent). REMAINING (crux attempt IN PROGRESS): finish (3)
+  + (4) the final MUTUAL fuel-passing induction (recommended spine: strong induction on
+  fuel over the 5-layer statement). The single hardest proof in the experiment.
 - [ ] **B3** Nested external-call core: a `{P} Ξ(child) {Q}` triple + call-site/frame
   rule; demonstrate **multiple** calls compose naturally (contrast with A's effort).
 - [ ] **B4** Expose an observables-only, fuel/frame-free semantics surface for IRs.
@@ -298,6 +300,12 @@ your own branch with clear messages; never touch another track's files; if block
 write the blocker into PLAN.md before stopping.
 
 ## Orchestration log
+- 2026-06-22: **B2 items 1–2 DONE** (`f460066`, green, axiom-clean; a long 100-min run):
+  gas-decrement chain + `X` measure descent proved; item 3 down-payment. Launched the
+  **crux attempt** (item 3 finish + item 4 mutual induction, strong-induction-on-fuel
+  spine). DECISION: this is the make-or-break B2 run — if item 4 doesn't close, PAUSE B2
+  and flag for Eduardo's steer (it's design-sensitive + expensive; 3rd B2 iteration).
+  Still running: C child-`CallReturns` close.
 - 2026-06-22: **C branch terminator CLOSED + all report cleanups done** (`d4af049`, green
   1129). The foundation blocker is gone (`wc_get_dest_414` via the detotalized
   `validJumpDests`); `ir-design §6` synced to as-built, `Match` doc fixed, `maxHeartbeats`
