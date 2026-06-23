@@ -28,7 +28,7 @@ flat-vs-nested choice is purely about ergonomics/conformance, not correctness.
 |---|---|---|---|
 | **A** | exp003 flat reasoning layer: `Runs` with a `call` constructor, multi-call composition, CFG combinator, opcode rules | **[track-a-review.md](experiments/003_bytecode_layer/docs/track-a-review.md)** ✓ | **Core complete + merged to base** (1130 jobs, axiom-clean). Backlog: gas-introspection, `CREATE`, symbolic worlds |
 | **B** | exp004 nested EVM core: EVMYulLean monomorphized to EVM-only, nested never-`OutOfFuel`, `Ξ`-triple | `experiments/004_nested_evmyul/docs/track-b-review.md` *(pending: after B2)* | B0 (mono) green; B2 in progress |
-| **C** | exp005 `LirLean` IR → bytecode lowering + semantics preservation | **[track-c-review.md](experiments/005_ir_lowering/docs/track-c-review.md)** ✓ *(on `exp005-ir`; reaches base on C merge)* | **Preservation architecturally complete** (single + multi-call, bridge half, 2 honest hyps). Closing: child `CallReturns` + branch terminator (awaits A's `validJumpDests` detotalize) |
+| **C** | exp005 `LirLean` IR → bytecode lowering + semantics preservation | **[track-c-review.md](experiments/005_ir_lowering/docs/track-c-review.md)** ✓ *(report predates the final close; refresh pending)* | **DONE + merged to base.** `wc_preserves` is FULLY hypothesis-free + axiom-clean — a complete verified IR→bytecode lowering through an external CALL (only a gas knob `g ≥ 50000`). `wc_preserves_twoCall` is a generic multi-call shape lemma (no concrete 2-call program in `workedCall`; all pieces proved) |
 
 Each per-track report argues the design decisions + alternatives — notably **why `call` is
 a `Runs` constructor** (it's what makes the regular-language multi-call composition work)
@@ -43,7 +43,16 @@ and **why the CFG-combinator control-flow design** was chosen over alternatives.
 - **Full EVM-only nested semantics exists (Track B).** EVMYulLean's `Yul | EVM`
   polymorphism is entirely removed; the nested `Θ/Ξ` is plain EVM — the clean base for the
   bake-off and convergence.
-- *(more as B2 / C3 / Phase 2 land)*
+- **Verified IR→bytecode lowering, hypothesis-free (Track C).** `wc_preserves` proves the
+  lowered `workedCall` program's `messageCall` delivers the expected result — through an
+  external CALL, a storage write, arithmetic, and a gas-dependent branch — depending only
+  on a gas knob, axiom-clean. Multi-call composition needed ZERO new theory (Track A's
+  `Runs.call` composes calls) — the end-to-end payoff of the `Runs.call` design bet.
+- **Bake-off data point (Track B finding).** Nested never-`OutOfFuel` needs a DEPTH-AWARE
+  fuel bound (`~(1025−depth)·4·(gas+1)`), where flat (exp003) gets a clean linear
+  `≈2·gas+c` — a concrete termination-simplicity advantage for the flat model. (B2 headline
+  open, paused for steer.)
+- *(more as B2 closes / Phase 2 lands)*
 
 ## What this means for how we proceed
 

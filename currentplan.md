@@ -304,6 +304,14 @@ your own branch with clear messages; never touch another track's files; if block
 write the blocker into PLAN.md before stopping.
 
 ## Orchestration log
+- 2026-06-22: **🎉 TRACK C DONE — `wc_preserves` FULLY HYPOTHESIS-FREE + axiom-clean**
+  (`5ee984d`; `#print axioms` = `[propext, Classical.choice, Quot.sound]`). A complete
+  verified IR→bytecode lowering through an external CALL + storage write + arithmetic +
+  gas-dependent branch, depending only on a gas knob `g ≥ 50000`. Post-CALL run closed
+  (resumed-gas bound, SLOAD-value/branch-taken, general `RETURN` halt). `wc_preserves_twoCall`
+  stays a generic multi-call shape lemma (no concrete 2-call program in `workedCall`; all
+  pieces proved). **Merged C→base** (`2482f14`, clean). Track C report predates the close
+  → refresh pending. Multi-call needed ZERO new theory — the `Runs.call` payoff.
 - 2026-06-22: **C child `CallReturns` CLOSED — kernel-cost wall defeated** (`54b2c7b`, green
   1130). `wc_callReturns` is hypothesis-free (`g`-independent `wcStoredAccounts` +
   `sstore_accounts_congr` dodges the deep-map reduction); `wc_preserves` no longer takes
