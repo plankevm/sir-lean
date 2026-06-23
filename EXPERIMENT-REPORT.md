@@ -66,8 +66,11 @@ and **why the CFG-combinator control-flow design** was chosen over alternatives.
   as a **monotone oracle** (`gasRead` event whose only law is non-increasing) — introspection
   without opcode-cost accounting. **The call-free prototype is DONE and axiom-clean** — the
   gas-free + observable + event shape is validated (`lower_preserves_obs`, pc-free &
-  gas-equality-free); gas introspection cost zero gas machinery. Next: the two-read
-  monotonicity milestone, then the `call`-event step (pending a returndata-model decision).
+  gas-equality-free); gas introspection cost zero gas machinery. The **two-read monotonicity
+  milestone is also DONE** (axiom-clean) — the monotone-oracle law validated on a sticky
+  gas-guard, monotonicity *discharged* from exact gas accounting with no new gas theory.
+  Next (decision-free, in progress): the general `Runs`-level gas-monotonicity-across-calls
+  lemma. The `call`-event step is held pending a returndata-model decision.
 - **Prior-art study — gas introspection.**
   **[gas-introspection-prior-art.md](experiments/005_ir_lowering/docs/gas-introspection-prior-art.md)**:
   both verifereum/vyper-hol and lfglabs-dev/verity keep their high-level semantics gas-free,

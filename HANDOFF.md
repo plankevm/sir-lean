@@ -20,11 +20,17 @@ This is your resume surface. For the full chronological record see `currentplan.
 
 | Agent | Track | Goal |
 |---|---|---|
-| **C-v2 monotonicity** | C / `exp005-ir` | First two-read example validating the monotone gas-oracle law (§3.4) |
+| **C-v2 gas-monotone** | C / `exp005-ir` | General `Runs`-level gas-monotonicity-across-`.call` lemma (makes §3.4 "holds across calls" a real proof) |
 
 *(Track B is HELD — no agent running; awaiting your steer, see Open decisions.)*
 
 ## Overnight results (newest first — loop appends as things land)
+
+- **✅ C-v2 two-read monotonicity milestone DONE & verified** (`exp005-ir`, build green 1133,
+  axiom-clean). `LirLean/V2/Mono.lean`: validated the §3.4 monotone-oracle law on a
+  sticky-gas-guard example; the bytecode side *discharges* monotonicity from exact gas
+  accounting (no new gas theory). Verdict: the law works as designed. → Launched the general
+  across-`.call` gas-monotonicity lemma (decision-free); call-event step still held on §7.5.
 
 - **✅ C-v2 call-free prototype DONE & verified** (`exp005-ir`, build green 1132,
   axiom-clean, v1 untouched). `LirLean/V2/{Machine,Preserve}.lean`: gas-free IR machine +

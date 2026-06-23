@@ -333,6 +333,18 @@ your own branch with clear messages; never touch another track's files; if block
 write the blocker into PLAN.md before stopping.
 
 ## Orchestration log
+- 2026-06-23 (NIGHT): **C-v2 two-read MONOTONICITY milestone DONE & verified** (`acbe05c`/
+  `02026ca`, exp005-ir; build green 1133, tree clean, no forbidden tokens, both
+  `lower_preserves_obs` and `lower_preserves_obs_mono` axiom-clean). `LirLean/V2/Mono.lean`:
+  the §3.4 monotone-oracle law + a sticky-gas-guard two-read example; bytecode side
+  **discharges** monotonicity (one-line `omega` off exact `subCharges` — "already-owned
+  machinery, no new gas theory"). **Verdict: the monotone-oracle law works as designed.**
+  Folded the agent's refinements into ir-design-v2 §3.4 (toNat-non-increasing order; only
+  `later≤earlier` determinable [strict = loop-termination non-goal]; guards lower via `GT`
+  for operand order; `gasReads` = the gasRead subsequence; general Runs-level lemma owed).
+  **Launched the general `Runs`-level gas-monotonicity-across-`.call` lemma** (decision-free;
+  makes "holds across calls" a real proof; prerequisite for the general theorem). Call-event
+  step STILL HELD on Eduardo's §7.5 returndata decision.
 - 2026-06-23 (NIGHT): **B2h landed — 5th PARTIAL, headline STILL OPEN. Track B HELD for
   Eduardo's steer** (verified: `5b1fd13`, build green 1029/1030, tree clean, no forbidden
   tokens, all new theorems `[propext, Classical.choice, Quot.sound]`). B2h proved the
