@@ -20,8 +20,9 @@ This is your resume surface. For the full chronological record see `currentplan.
 
 | Agent | Track | Goal |
 |---|---|---|
-| **B2h** | B / `exp004-nested` | Final mutual-induction assembly to close `Θ_never_outOfFuel` |
 | **C-v2 monotonicity** | C / `exp005-ir` | First two-read example validating the monotone gas-oracle law (§3.4) |
+
+*(Track B is HELD — no agent running; awaiting your steer, see Open decisions.)*
 
 ## Overnight results (newest first — loop appends as things land)
 
@@ -31,7 +32,12 @@ This is your resume surface. For the full chronological record see `currentplan.
   shape is validated.** Surfaced open decisions for you (see "Open decisions" below).
   → Launched the **two-read monotonicity** milestone; **HELD** the call-event step pending
   your §7.5 returndata decision.
-- _(B2h pending …)_
+- **⏸️ B2h DONE & verified — 5th PARTIAL, headline still open; Track B HELD** (`exp004-nested`,
+  build green, axiom-clean, tree clean). Proved the gas-monotonicity per-layer reductions
+  (the novel structural work). Remaining to the headline: the gas-mono assembly fixpoint + a
+  precompiled-`Θ` brick, and the never-OOF mutual induction (super-linear `B`) which is **NOT
+  STARTED**. Per the overnight rule I did **not** launch a 6th grind — **needs your steer**
+  (see Open decisions). The 5-iteration struggle is itself a bake-off finding (see report).
 
 ## Decision rules the loop is following
 
@@ -46,9 +52,17 @@ This is your resume surface. For the full chronological record see `currentplan.
 
 ## Open decisions awaiting YOU (review in the morning)
 
-- **If B2h came back partial again:** whether to push a 5th time, scope the headline to
-  CALL-only (all CALL bricks are proved; CREATE adds the assembly weight), or bank the leaf
-  result and move to B3/Phase-2. (See `currentplan.md` Track-B entry.)
+- **🔴 Track B (TOP decision — B2h returned the 5th partial; track is held).** The nested
+  headline `Θ_never_outOfFuel` is still open and the never-OOF mutual induction is *not even
+  started*. Pick one:
+  (a) **accept** the axiom-clean leaf headline + the large gas-descent/monotonicity brick
+  library as Track B's deliverable, and treat the asymmetry (flat = easy/unconditional/linear;
+  nested = 5 iterations and counting) as the bake-off verdict → move B to B3/Phase-2;
+  (b) **scope** the headline to CALL-only (drops CREATE; precompile brick still needed);
+  (c) **keep grinding** (6th+ iteration — diminishing returns, design-sensitive);
+  (d) **try a cleaner measure** for the two mutual inductions before more grinding.
+  My read: (a) is the honest high-value call — the *difficulty itself* is the result — but
+  it's your bake-off to call. (See `currentplan.md` Track-B entry + the report's "Sharpening".)
 - **C-v2 open decisions** (`ir-design-v2.md §7`): `World` decoupling depth, simulation
   direction, calldata/value generality, revert-as-observable. Defaults chosen; override any.
 - **Gas monotonicity** (`ir-design-v2.md §3.4`): confirm promoting the monotone-oracle law

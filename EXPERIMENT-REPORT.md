@@ -27,7 +27,7 @@ flat-vs-nested choice is purely about ergonomics/conformance, not correctness.
 | Track | What | Per-track report | Status |
 |---|---|---|---|
 | **A** | exp003 flat reasoning layer: `Runs` with a `call` constructor, multi-call composition, CFG combinator, opcode rules | **[track-a-review.md](experiments/003_bytecode_layer/docs/track-a-review.md)** ✓ | **Core complete + merged to base** (1130 jobs, axiom-clean). Backlog: gas-introspection, `CREATE`, symbolic worlds |
-| **B** | exp004 nested EVM core: EVMYulLean monomorphized to EVM-only, nested never-`OutOfFuel`, `Ξ`-triple | `experiments/004_nested_evmyul/docs/track-b-review.md` *(pending: after the nested headline closes)* | B0 (mono) green; **non-nesting leaf** never-`OutOfFuel` CLOSED + axiom-clean; all CALL **and** CREATE gas-descent bricks proved; **fully-nested headline `Θ_never_outOfFuel` — final mutual-induction assembly in progress** (4 partials; CREATE de-risk passed) |
+| **B** | exp004 nested EVM core: EVMYulLean monomorphized to EVM-only, nested never-`OutOfFuel`, `Ξ`-triple | `experiments/004_nested_evmyul/docs/track-b-review.md` *(pending: after the nested headline closes)* | B0 (mono) green; **non-nesting leaf** never-`OutOfFuel` CLOSED + axiom-clean; all CALL+CREATE gas-descent bricks + gas-monotonicity per-layer reductions proved; **fully-nested headline `Θ_never_outOfFuel` STILL OPEN after 5 iterations** — the never-OOF mutual induction (super-linear bound) is not yet started. **Held for Eduardo's steer.** |
 | **C** | exp005 `LirLean` IR → bytecode lowering + semantics preservation | **[track-c-review.md](experiments/005_ir_lowering/docs/track-c-review.md)** ✓ *(refreshed to the hypothesis-free state, on `exp005-ir`)* | **DONE + merged to base.** `wc_preserves` is FULLY hypothesis-free + axiom-clean — a complete verified IR→bytecode lowering through an external CALL (only a gas knob `g ≥ 50000`). `wc_preserves_twoCall` is a generic multi-call shape lemma (all pieces proved). **A v2 redesign is now planned** (see below) |
 
 Each per-track report argues the design decisions + alternatives — notably **why `call` is
@@ -84,3 +84,13 @@ and **why the CFG-combinator control-flow design** was chosen over alternatives.
 plan, and the path to lowering Plank SIR. Early signal: flat's linear fuel bound vs nested's
 super-linear one is a real ergonomics point for the bake-off; the C-v2 observable/event
 boundary is a candidate shared surface for Phase-2 convergence.)*
+
+**Sharpening (2026-06-23, from the overnight B runs):** the bake-off asymmetry is now
+stark. Flat (exp003) proved `messageCall_never_outOfFuel` **unconditionally, with a clean
+linear fuel bound**. Nested (exp004) has taken **5 proof iterations**, a large library of
+gas-descent + gas-monotonicity bricks, a **super-linear** depth-aware bound, and still has
+two mutual inductions (one unstarted) plus precompile plumbing between it and the headline.
+The non-nesting *leaf* fragment is closed and axiom-clean, but the **fully-nested
+never-OutOfFuel is markedly harder to mechanize in the nested model** — a concrete
+termination-ergonomics result favoring the flat foundation for this property, independent of
+whether the nested headline eventually closes.

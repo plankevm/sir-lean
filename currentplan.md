@@ -175,7 +175,15 @@ whichever interface, ideally the shared one.
   (strong-induction on fuel; CALL path now mechanical, but **CREATE/`Lambda` gas
   accounting is a different shape and was NOT examined** — the one true unknown), and
   (2) never-OOF mutual induction with the super-linear `B`. ⇒ STOPPED per anti-thrash
-  rule; escalated to Eduardo (4th partial, design-sensitive). Pending steer.
+  rule; escalated to Eduardo (4th partial, design-sensitive).
+  B2g (`3c76a82`): CREATE/CREATE2/Lambda gas-descent bricks DONE — verdict CREATE tractable.
+  B2h (`5b1fd13`, **5th partial**): gas-monotonicity per-layer reductions DONE (the novel
+  structural work). HEADLINE STILL OPEN. Remaining: (1) gas-mono assembly fixpoint + the
+  precompiled-`Θ` arm brick (projection-plumbing obstacle, documented); (2) the never-OOF
+  mutual induction with super-linear `B` — **NOT STARTED**. **HELD for Eduardo's steer**
+  (5 partials; nested never-OOF is proving dramatically harder than flat's — a bake-off
+  finding in itself). Options for the morning: accept leaf+bricks as B's deliverable · scope
+  headline to CALL-only · keep grinding · try a cleaner measure for the induction.
 - [ ] **B3** Nested external-call core: a `{P} Ξ(child) {Q}` triple + call-site/frame
   rule; demonstrate **multiple** calls compose naturally (contrast with A's effort).
 - [ ] **B4** Expose an observables-only, fuel/frame-free semantics surface for IRs.
@@ -325,6 +333,21 @@ your own branch with clear messages; never touch another track's files; if block
 write the blocker into PLAN.md before stopping.
 
 ## Orchestration log
+- 2026-06-23 (NIGHT): **B2h landed — 5th PARTIAL, headline STILL OPEN. Track B HELD for
+  Eduardo's steer** (verified: `5b1fd13`, build green 1029/1030, tree clean, no forbidden
+  tokens, all new theorems `[propext, Classical.choice, Quot.sound]`). B2h proved the
+  **gas-monotonicity per-layer reduction chain** (the genuinely-novel structural work):
+  `step_{call,callcode,delegatecall,staticcall}_gas_le` + `step_gas_le` (unified dispatch) +
+  `X_loop_gas_le'` + `Θ_gas_le_code`/`Ξ_gas_le`/`Lambda_gas_le` + helpers. REMAINING for the
+  headline: (1) gas-mono mutual-induction ASSEMBLY (fixpoint `gas_mono n`) — **one brick
+  still missing**: the precompiled-`Θ` arm (projection-plumbing obstacle on EXPMOD/PointEval
+  `let gᵣ` blocks, documented); (2) the **never-OutOfFuel mutual induction with super-linear
+  `B` — NOT STARTED**. ⇒ Per the overnight rule, did NOT launch a 6th grind. **KEY BAKE-OFF
+  FINDING (for Eduardo): nested never-OutOfFuel is dramatically harder than flat's** — flat
+  (exp003) got `messageCall_never_outOfFuel` unconditionally with a clean linear bound; nested
+  has taken 5 iterations + a large brick library + TWO mutual inductions (one unstarted) + a
+  super-linear bound + precompile plumbing, and is STILL open. That asymmetry is itself a
+  concrete result for the flat-vs-nested verdict. Track B → bookkeeping only until steer.
 - 2026-06-23 (NIGHT): **C-v2 call-free prototype DONE & verified** (`ebc3efc`/`35bdd64`,
   exp005-ir; build green 1132, tree clean, no forbidden tokens, `#print axioms
   lower_preserves_obs` = `[propext, Classical.choice, Quot.sound]`). `LirLean/V2/{Machine,
