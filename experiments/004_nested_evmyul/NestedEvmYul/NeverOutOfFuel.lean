@@ -914,6 +914,7 @@ theorem X_iter_gas_lt (f cost₂ : ℕ) (validJumps : Array UInt256) (w : Operat
   exact gas_sub_lt s₁.gasAvailable cost₂ hle hpos
     (Nat.lt_of_le_of_lt hle s₁.gasAvailable.val.isLt)
 
+
 -- `gas_sub_le` (UInt256 subtraction of a non-underflowing cost does not increase `.toNat`,
 -- the `≤` companion of `gas_sub_lt`) now lives in `NestedEvmYul.GasArith` (shared with the
 -- precompile gas bricks), imported above.
@@ -2772,6 +2773,203 @@ theorem step_staticcall_gas_le (f cost : ℕ) (arg) (s s' : State)
         · intro cA σ σ₀ Asub src o rcpt cc gg p vv vv' dd ee Hd ww res hΘeq
           exact hΘ cA σ σ₀ Asub src o rcpt cc gg p vv vv' dd ee Hd ww res hΘeq
 
+set_option maxHeartbeats 4000000 in
+/-- **CALL-arm `step` gas STRICT descent.** Strict companion of `step_call_gas_le`: a
+successful `step (f+1) (C' s .CALL) (.CALL,_) s` lands at *strictly* less gas. Same
+reduction as `step_call_gas_le` but routes to `call_result_gas_lt` with the *strict*
+`Ccallgas(call-args) < Ccall = C' s .CALL` (`Ccallgas_lt_Ccall`). This bottoms out the
+`X` loop on a CALL iteration (the descent companion that `X_iter_gas_lt` is to a leaf). -/
+theorem step_call_gas_lt (f cost : ℕ) (arg) (s s' : State)
+    (hcle : cost ≤ s.gasAvailable.toNat)
+    (hcost : cost = C' s .CALL)
+    (hΘ : ∀ (cA : Batteries.RBSet AccountAddress compare) (σ σ₀ : AccountMap)
+            (Asub : Substate) (src o rcpt : AccountAddress) (c : ToExecute)
+            (gg p vv vv' : UInt256) (dd : ByteArray) (e : Nat) (Hd : BlockHeader) (ww : Bool)
+            (res),
+          Θ (f-1) s.executionEnv.blobVersionedHashes cA s.genesisBlockHeader s.blocks σ σ₀ Asub src o rcpt c gg p vv vv' dd e Hd ww
+            = .ok res → res.2.2.1.toNat ≤ gg.toNat)
+    (h : step (f+1) cost (some (.CALL, arg)) s = .ok s') :
+    s'.gasAvailable.toNat < s.gasAvailable.toNat := by
+  cases f with
+  | zero =>
+    dsimp only [step] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+    split at h
+    · exact absurd h (by simp)
+    · rename_i tup hpop; split at h
+      · exact absurd h (by simp)
+      · rename_i pr hcall; simp only [call] at hcall; exact absurd hcall (by simp)
+  | succ f' =>
+    dsimp only [step] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+    split at h
+    · exact absurd h (by simp)
+    · rename_i tup hpop; split at h
+      · exact absurd h (by simp)
+      · rename_i pr hcall
+        have hs' : s'.gasAvailable = pr.2.gasAvailable := by
+          have := Except.ok.inj h; rw [← this]; rfl
+        rw [hs']
+        set ev : State := { toSharedState := s.toSharedState, pc := s.pc, stack := s.stack, execLength := s.execLength + 1 } with hev
+        have hpop' : s.stack.pop7 = some tup := pop_of_liftM _ _ hpop
+        obtain ⟨tl, a, b, c, d, e, ff, g⟩ := tup
+        obtain ⟨hi0, hi1, hi2⟩ := pop7_stack_index s.stack tl a b c d e ff g hpop'
+        obtain ⟨x, result⟩ := pr
+        refine call_result_gas_lt f' cost s.executionEnv.blobVersionedHashes
+          a (UInt256.ofNat s.executionEnv.codeOwner) b b c c d e ff g s.executionEnv.perm ev x result
+          (by rw [hev]; exact hcle) ?_ ?_ hcall
+        · rw [hcost]
+          show Ccallgas (AccountAddress.ofUInt256 b) (AccountAddress.ofUInt256 b) c a ev.accountMap ev.toMachineState ev.substate < _
+          have hC : C' s .CALL = Ccall (AccountAddress.ofUInt256 s.stack[1]!) (AccountAddress.ofUInt256 s.stack[1]!) s.stack[2]! s.stack[0]! s.accountMap s.toMachineState s.substate := rfl
+          rw [hC, ← hi0, ← hi1, ← hi2]
+          exact Ccallgas_lt_Ccall _ _ _ _ _ _ _
+        · intro cA σ σ₀ Asub src o rcpt cc gg p vv vv' dd ee Hd ww res hΘeq
+          exact hΘ cA σ σ₀ Asub src o rcpt cc gg p vv vv' dd ee Hd ww res hΘeq
+
+set_option maxHeartbeats 4000000 in
+/-- **CALLCODE-arm `step` gas STRICT descent.** Strict companion of `step_callcode_gas_le`. -/
+theorem step_callcode_gas_lt (f cost : ℕ) (arg) (s s' : State)
+    (hcle : cost ≤ s.gasAvailable.toNat)
+    (hcost : cost = C' s .CALLCODE)
+    (hΘ : ∀ (cA : Batteries.RBSet AccountAddress compare) (σ σ₀ : AccountMap)
+            (Asub : Substate) (src o rcpt : AccountAddress) (c : ToExecute)
+            (gg p vv vv' : UInt256) (dd : ByteArray) (e : Nat) (Hd : BlockHeader) (ww : Bool)
+            (res),
+          Θ (f-1) s.executionEnv.blobVersionedHashes cA s.genesisBlockHeader s.blocks σ σ₀ Asub src o rcpt c gg p vv vv' dd e Hd ww
+            = .ok res → res.2.2.1.toNat ≤ gg.toNat)
+    (h : step (f+1) cost (some (.CALLCODE, arg)) s = .ok s') :
+    s'.gasAvailable.toNat < s.gasAvailable.toNat := by
+  cases f with
+  | zero =>
+    dsimp only [step] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+    split at h
+    · exact absurd h (by simp)
+    · rename_i tup hpop; split at h
+      · exact absurd h (by simp)
+      · rename_i pr hcall; simp only [call] at hcall; exact absurd hcall (by simp)
+  | succ f' =>
+    dsimp only [step] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+    split at h
+    · exact absurd h (by simp)
+    · rename_i tup hpop; split at h
+      · exact absurd h (by simp)
+      · rename_i pr hcall
+        have hs' : s'.gasAvailable = pr.2.gasAvailable := by
+          have := Except.ok.inj h; rw [← this]; rfl
+        rw [hs']
+        set ev : State := { toSharedState := s.toSharedState, pc := s.pc, stack := s.stack, execLength := s.execLength + 1 } with hev
+        have hpop' : s.stack.pop7 = some tup := pop_of_liftM _ _ hpop
+        obtain ⟨tl, a, b, c, d, e, ff, g⟩ := tup
+        obtain ⟨hi0, hi1, hi2⟩ := pop7_stack_index s.stack tl a b c d e ff g hpop'
+        obtain ⟨x, result⟩ := pr
+        refine call_result_gas_lt f' cost s.executionEnv.blobVersionedHashes
+          a (UInt256.ofNat s.executionEnv.codeOwner) (UInt256.ofNat s.executionEnv.codeOwner) b c c d e ff g s.executionEnv.perm ev x result
+          (by rw [hev]; exact hcle) ?_ ?_ hcall
+        · rw [hcost]
+          show Ccallgas (AccountAddress.ofUInt256 b) (AccountAddress.ofUInt256 (UInt256.ofNat s.executionEnv.codeOwner)) c a ev.accountMap ev.toMachineState ev.substate < _
+          rw [accountAddr_roundtrip]
+          have hC : C' s .CALLCODE = Ccall (AccountAddress.ofUInt256 s.stack[1]!) s.executionEnv.codeOwner s.stack[2]! s.stack[0]! s.accountMap s.toMachineState s.substate := rfl
+          rw [hC, ← hi0, ← hi1, ← hi2]
+          exact Ccallgas_lt_Ccall _ _ _ _ _ _ _
+        · intro cA σ σ₀ Asub src o rcpt cc gg p vv vv' dd ee Hd ww res hΘeq
+          exact hΘ cA σ σ₀ Asub src o rcpt cc gg p vv vv' dd ee Hd ww res hΘeq
+
+set_option maxHeartbeats 4000000 in
+/-- **DELEGATECALL-arm `step` gas STRICT descent.** Strict companion of
+`step_delegatecall_gas_le`. `value = 0` ⇒ no stipend; `Ccallgas = Cgascap < Ccall`
+strictly via `Caccess ≥ 1` (`Ccallgas_lt_Ccall`, val=0 branch). -/
+theorem step_delegatecall_gas_lt (f cost : ℕ) (arg) (s s' : State)
+    (hcle : cost ≤ s.gasAvailable.toNat)
+    (hcost : cost = C' s .DELEGATECALL)
+    (hΘ : ∀ (cA : Batteries.RBSet AccountAddress compare) (σ σ₀ : AccountMap)
+            (Asub : Substate) (src o rcpt : AccountAddress) (c : ToExecute)
+            (gg p vv vv' : UInt256) (dd : ByteArray) (e : Nat) (Hd : BlockHeader) (ww : Bool)
+            (res),
+          Θ (f-1) s.executionEnv.blobVersionedHashes cA s.genesisBlockHeader s.blocks σ σ₀ Asub src o rcpt c gg p vv vv' dd e Hd ww
+            = .ok res → res.2.2.1.toNat ≤ gg.toNat)
+    (h : step (f+1) cost (some (.DELEGATECALL, arg)) s = .ok s') :
+    s'.gasAvailable.toNat < s.gasAvailable.toNat := by
+  cases f with
+  | zero =>
+    dsimp only [step] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+    split at h
+    · exact absurd h (by simp)
+    · rename_i tup hpop; split at h
+      · exact absurd h (by simp)
+      · rename_i pr hcall; simp only [call] at hcall; exact absurd hcall (by simp)
+  | succ f' =>
+    dsimp only [step] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+    split at h
+    · exact absurd h (by simp)
+    · rename_i tup hpop; split at h
+      · exact absurd h (by simp)
+      · rename_i pr hcall
+        have hs' : s'.gasAvailable = pr.2.gasAvailable := by
+          have := Except.ok.inj h; rw [← this]; rfl
+        rw [hs']
+        set ev : State := { toSharedState := s.toSharedState, pc := s.pc, stack := s.stack, execLength := s.execLength + 1 } with hev
+        have hpop' : s.stack.pop6 = some tup := pop_of_liftM _ _ hpop
+        obtain ⟨tl, a, b, c, d, e, ff⟩ := tup
+        obtain ⟨hi0, hi1⟩ := pop6_stack_index s.stack tl a b c d e ff hpop'
+        obtain ⟨x, result⟩ := pr
+        refine call_result_gas_lt f' cost s.executionEnv.blobVersionedHashes
+          a (UInt256.ofNat s.executionEnv.source) (UInt256.ofNat s.executionEnv.codeOwner) b ⟨0⟩ s.executionEnv.weiValue c d e ff s.executionEnv.perm ev x result
+          (by rw [hev]; exact hcle) ?_ ?_ hcall
+        · rw [hcost]
+          show Ccallgas (AccountAddress.ofUInt256 b) (AccountAddress.ofUInt256 (UInt256.ofNat s.executionEnv.codeOwner)) ⟨0⟩ a ev.accountMap ev.toMachineState ev.substate < _
+          rw [accountAddr_roundtrip]
+          have hC : C' s .DELEGATECALL = Ccall (AccountAddress.ofUInt256 s.stack[1]!) s.executionEnv.codeOwner ⟨0⟩ s.stack[0]! s.accountMap s.toMachineState s.substate := rfl
+          rw [hC, ← hi0, ← hi1]
+          exact Ccallgas_lt_Ccall _ _ _ _ _ _ _
+        · intro cA σ σ₀ Asub src o rcpt cc gg p vv vv' dd ee Hd ww res hΘeq
+          exact hΘ cA σ σ₀ Asub src o rcpt cc gg p vv vv' dd ee Hd ww res hΘeq
+
+set_option maxHeartbeats 4000000 in
+/-- **STATICCALL-arm `step` gas STRICT descent.** Strict companion of
+`step_staticcall_gas_le`. -/
+theorem step_staticcall_gas_lt (f cost : ℕ) (arg) (s s' : State)
+    (hcle : cost ≤ s.gasAvailable.toNat)
+    (hcost : cost = C' s .STATICCALL)
+    (hΘ : ∀ (cA : Batteries.RBSet AccountAddress compare) (σ σ₀ : AccountMap)
+            (Asub : Substate) (src o rcpt : AccountAddress) (c : ToExecute)
+            (gg p vv vv' : UInt256) (dd : ByteArray) (e : Nat) (Hd : BlockHeader) (ww : Bool)
+            (res),
+          Θ (f-1) s.executionEnv.blobVersionedHashes cA s.genesisBlockHeader s.blocks σ σ₀ Asub src o rcpt c gg p vv vv' dd e Hd ww
+            = .ok res → res.2.2.1.toNat ≤ gg.toNat)
+    (h : step (f+1) cost (some (.STATICCALL, arg)) s = .ok s') :
+    s'.gasAvailable.toNat < s.gasAvailable.toNat := by
+  cases f with
+  | zero =>
+    dsimp only [step] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+    split at h
+    · exact absurd h (by simp)
+    · rename_i tup hpop; split at h
+      · exact absurd h (by simp)
+      · rename_i pr hcall; simp only [call] at hcall; exact absurd hcall (by simp)
+  | succ f' =>
+    dsimp only [step] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+    split at h
+    · exact absurd h (by simp)
+    · rename_i tup hpop; split at h
+      · exact absurd h (by simp)
+      · rename_i pr hcall
+        have hs' : s'.gasAvailable = pr.2.gasAvailable := by
+          have := Except.ok.inj h; rw [← this]; rfl
+        rw [hs']
+        set ev : State := { toSharedState := s.toSharedState, pc := s.pc, stack := s.stack, execLength := s.execLength + 1 } with hev
+        have hpop' : s.stack.pop6 = some tup := pop_of_liftM _ _ hpop
+        obtain ⟨tl, a, b, c, d, e, ff⟩ := tup
+        obtain ⟨hi0, hi1⟩ := pop6_stack_index s.stack tl a b c d e ff hpop'
+        obtain ⟨x, result⟩ := pr
+        refine call_result_gas_lt f' cost s.executionEnv.blobVersionedHashes
+          a (UInt256.ofNat s.executionEnv.codeOwner) b b ⟨0⟩ ⟨0⟩ c d e ff false ev x result
+          (by rw [hev]; exact hcle) ?_ ?_ hcall
+        · rw [hcost]
+          show Ccallgas (AccountAddress.ofUInt256 b) (AccountAddress.ofUInt256 b) ⟨0⟩ a ev.accountMap ev.toMachineState ev.substate < _
+          have hC : C' s .STATICCALL = Ccall (AccountAddress.ofUInt256 s.stack[1]!) (AccountAddress.ofUInt256 s.stack[1]!) ⟨0⟩ s.stack[0]! s.accountMap s.toMachineState s.substate := rfl
+          rw [hC, ← hi0, ← hi1]
+          exact Ccallgas_lt_Ccall _ _ _ _ _ _ _
+        · intro cA σ σ₀ Asub src o rcpt cc gg p vv vv' dd ee Hd ww res hΘeq
+          exact hΘ cA σ σ₀ Asub src o rcpt cc gg p vv vv' dd ee Hd ww res hΘeq
+
 /-- **Unified `step` gas-monotonicity.** For ANY opcode `w`, a successful
 `step (f+1) (C' s w) (w,arg) s` lands at gas `≤ s.gas`, dispatching: default arm →
 `step_default_gas_le` (unconditional); CREATE/CREATE2 → `create*_result_gas_le` (child
@@ -2803,6 +3001,98 @@ theorem step_gas_le (f cost : ℕ) (w : Operation) (arg) (s s' : State)
     · exact step_delegatecall_gas_le f cost arg s s' hcle hcost hΘ h
     · exact step_staticcall_gas_le f cost arg s s' hcle hcost hΘ h
   · exact step_default_gas_le (f+1) cost w arg s s' hcc hcle h
+
+/-- **Unified `step` gas STRICT descent on a CALL/CREATE opcode.** For any `w` in the
+CALL/CREATE family, a successful `step (f+1) (C' s w) (w,arg) s` lands at *strictly* less
+gas, given BOTH child hypotheses (`hΘ` for the CALL family at fuel `f-1`, `hΛ` for
+CREATE/CREATE2 at fuel `f`). Dispatches CREATE/CREATE2 → `create*_result_gas_lt` (with the
+`C'_create*_pos` positivity discharging the strict debit `hpos`), CALL family → the four
+`step_*_gas_lt`. This is the per-iteration descent that bottoms out the `X` loop on a
+CALL/CREATE iteration — the strict companion of `step_gas_le`. -/
+theorem step_gas_lt (f cost : ℕ) (w : Operation) (arg) (s s' : State)
+    (hcc : isCallCreate w)
+    (hcle : cost ≤ s.gasAvailable.toNat)
+    (hcost : cost = C' s w)
+    (hΘ : ∀ (cA : Batteries.RBSet AccountAddress compare) (σ σ₀ : AccountMap)
+            (Asub : Substate) (src o rcpt : AccountAddress) (c : ToExecute)
+            (gg p vv vv' : UInt256) (dd : ByteArray) (e : Nat) (Hd : BlockHeader) (ww : Bool) (res),
+          Θ (f-1) s.executionEnv.blobVersionedHashes cA s.genesisBlockHeader s.blocks σ σ₀ Asub src o rcpt c gg p vv vv' dd e Hd ww
+            = .ok res → res.2.2.1.toNat ≤ gg.toNat)
+    (hΛ : ∀ (bvh : List ByteArray) (cA : Batteries.RBSet AccountAddress compare)
+            (σ σ₀ : AccountMap) (Asub : Substate) (sndr orig : AccountAddress)
+            (gg pp vv : UInt256) (ii : ByteArray) (ee : UInt256) (zz : Option ByteArray)
+            (Hd : BlockHeader) (ww : Bool) (res),
+          Lambda f bvh cA s.genesisBlockHeader s.blocks σ σ₀ Asub sndr orig gg pp vv ii ee zz Hd ww
+            = .ok res → res.2.2.2.1.toNat ≤ gg.toNat)
+    (h : step (f+1) cost (some (w, arg)) s = .ok s') :
+    s'.gasAvailable.toNat < s.gasAvailable.toNat := by
+  unfold isCallCreate at hcc
+  rcases hcc with rfl | rfl | rfl | rfl | rfl | rfl
+  · exact create_result_gas_lt f cost arg s s' hcle (by rw [hcost]; exact C'_create_pos s) hΛ h
+  · exact create2_result_gas_lt f cost arg s s' hcle (by rw [hcost]; exact C'_create2_pos s) hΛ h
+  · exact step_call_gas_lt f cost arg s s' hcle hcost hΘ h
+  · exact step_callcode_gas_lt f cost arg s s' hcle hcost hΘ h
+  · exact step_delegatecall_gas_lt f cost arg s s' hcle hcost hΘ h
+  · exact step_staticcall_gas_lt f cost arg s s' hcle hcost hΘ h
+
+set_option maxHeartbeats 2000000 in
+/-- **`X` measure descent on a CALL/CREATE iteration.** The CALL/CREATE companion of
+`X_iter_gas_lt` (drops its `¬ isCallCreate w` gate): a non-halting `X (f+1)` iteration on a
+CALL/CREATE opcode `w` — `Z` ok with cost `cost₂`, `step` ok, `H = none` — lands in a state
+with *strictly less* gas, GIVEN the child gas-monotonicity hypotheses (`hΘ` for the CALL
+family at `f-1`, `hΛ` for CREATE/CREATE2 at `f`; these are CONDITIONAL — the orchestrator's
+mutual induction A1 discharges them). `Z_ok_cost_le_gas` supplies `cost₂ ≤ s₁.gas` and
+`cost₂ = C' s₁ w`; `step_gas_lt` does the strict descent. (Unlike `X_iter_gas_lt`, no
+`H_none_not_halt`/`runnable`/positivity reasoning is needed — `step_gas_lt`'s strictness
+comes from the call's `Ccallgas < Ccall` / create's debit, not from `C' ≥ 1`.) -/
+theorem X_iter_gas_lt_callcreate (f cost₂ : ℕ) (validJumps : Array UInt256) (w : Operation)
+    (a : Option (UInt256 × Nat)) (s s₁ s₂ : State)
+    (hw : isCallCreate w)
+    (hΘ : ∀ (cA : Batteries.RBSet AccountAddress compare) (σ σ₀ : AccountMap)
+            (Asub : Substate) (src o rcpt : AccountAddress) (c : ToExecute)
+            (gg p vv vv' : UInt256) (dd : ByteArray) (e : Nat) (Hd : BlockHeader) (ww : Bool) (res),
+          Θ (f-1) s₁.executionEnv.blobVersionedHashes cA s₁.genesisBlockHeader s₁.blocks σ σ₀ Asub src o rcpt c gg p vv vv' dd e Hd ww
+            = .ok res → res.2.2.1.toNat ≤ gg.toNat)
+    (hΛ : ∀ (bvh : List ByteArray) (cA : Batteries.RBSet AccountAddress compare)
+            (σ σ₀ : AccountMap) (Asub : Substate) (sndr orig : AccountAddress)
+            (gg pp vv : UInt256) (ii : ByteArray) (ee : UInt256) (zz : Option ByteArray)
+            (Hd : BlockHeader) (ww : Bool) (res),
+          Lambda f bvh cA s₁.genesisBlockHeader s₁.blocks σ σ₀ Asub sndr orig gg pp vv ii ee zz Hd ww
+            = .ok res → res.2.2.2.1.toNat ≤ gg.toNat)
+    (hZ : Z validJumps w s = .ok (s₁, cost₂))
+    (hstep : step (f+1) cost₂ (some (w, a)) s₁ = .ok s₂)
+    (hH : H s₂.toMachineState w = none) :
+    s₂.gasAvailable.toNat < s₁.gasAvailable.toNat := by
+  obtain ⟨hle, hcost⟩ := Z_ok_cost_le_gas validJumps w s s₁ cost₂ hZ
+  exact step_gas_lt f cost₂ w a s₁ s₂ hw hle hcost hΘ hΛ hstep
+
+set_option maxHeartbeats 2000000 in
+/-- **Unified `X` measure descent (any non-halting iteration).** Combines `X_iter_gas_lt`
+(non-call/create, unconditional) and `X_iter_gas_lt_callcreate` (call/create, conditional on
+the child hyps) under one statement: a non-halting `X (f+1)` iteration ALWAYS lands at
+strictly less gas. The child hypotheses `hΘ`/`hΛ` are only *used* on the call/create arms;
+on a leaf opcode they are vacuous. This is the single per-iteration descent the loop measure
+needs — A1 feeds it into the never-`OutOfFuel` induction. -/
+theorem X_iter_gas_lt_any (f cost₂ : ℕ) (validJumps : Array UInt256) (w : Operation)
+    (a : Option (UInt256 × Nat)) (s s₁ s₂ : State)
+    (hΘ : ∀ (cA : Batteries.RBSet AccountAddress compare) (σ σ₀ : AccountMap)
+            (Asub : Substate) (src o rcpt : AccountAddress) (c : ToExecute)
+            (gg p vv vv' : UInt256) (dd : ByteArray) (e : Nat) (Hd : BlockHeader) (ww : Bool) (res),
+          Θ (f-1) s₁.executionEnv.blobVersionedHashes cA s₁.genesisBlockHeader s₁.blocks σ σ₀ Asub src o rcpt c gg p vv vv' dd e Hd ww
+            = .ok res → res.2.2.1.toNat ≤ gg.toNat)
+    (hΛ : ∀ (bvh : List ByteArray) (cA : Batteries.RBSet AccountAddress compare)
+            (σ σ₀ : AccountMap) (Asub : Substate) (sndr orig : AccountAddress)
+            (gg pp vv : UInt256) (ii : ByteArray) (ee : UInt256) (zz : Option ByteArray)
+            (Hd : BlockHeader) (ww : Bool) (res),
+          Lambda f bvh cA s₁.genesisBlockHeader s₁.blocks σ σ₀ Asub sndr orig gg pp vv ii ee zz Hd ww
+            = .ok res → res.2.2.2.1.toNat ≤ gg.toNat)
+    (hZ : Z validJumps w s = .ok (s₁, cost₂))
+    (hstep : step (f+1) cost₂ (some (w, a)) s₁ = .ok s₂)
+    (hH : H s₂.toMachineState w = none) :
+    s₂.gasAvailable.toNat < s₁.gasAvailable.toNat := by
+  by_cases hcc : isCallCreate w
+  · exact X_iter_gas_lt_callcreate f cost₂ validJumps w a s s₁ s₂ hcc hΘ hΛ hZ hstep hH
+  · exact X_iter_gas_lt f cost₂ validJumps w a s s₁ s₂ hcc hZ hstep hH
 
 set_option maxHeartbeats 2000000 in
 /-- **`X` loop gas-monotonicity (with the `cost = C' s' w` hypothesis).** Strengthening
@@ -3139,29 +3429,49 @@ internalised). The arg-matching that B2f flagged as "tedious but mechanical" is 
 
 ### REMAINING for the *fully nested* headline (precise, NOT faked)
 
-1. **Gas-monotonicity mutual induction — ASSEMBLY only.** The per-layer reductions above
-   are all proved; what remains is the single strong induction on `fuel` that ties them
-   into the mutual fixpoint `gas_mono n : Θ_gas_le n ∧ Ξ_gas_le n ∧ X_gas_le n ∧
-   Lambda_gas_le n ∧ step_gas_le n`, feeding the IH at `< n` to each reduction's child
-   hypothesis (`X_gas_le` via `X_loop_gas_le'` needs `step_gas_le` at all `f`, hence
-   strong induction). ONE brick still missing: the **precompiled `Θ` arm** of `Θ_gas_le`
-   (`.Precompiled pc`, non-recursive). Each of the 10 `Ξ_*` precompiles returns gas
-   `⟨0⟩` (cheap-out) or `g − .ofNat gᵣ` (`≤ g` via `gas_sub_le`); a per-contract sweep
-   (`unfold Ξ_X; by_cases g.toNat < gᵣ`, then `cases` the inner result match) closes it.
-   `bn_add_gas_le` shape verified in scratch; `sub_word_le` helper is the uniform closer.
-   EXPMOD/PointEval/BLAKE2_F have extra inner branches but the same `⟨0⟩`/`g−gᵣ` shape.
+### CLOSED (this run, G1) — the precompiled `Θ`-gas arm
+* **`Θ_gas_le_precompiled`** — the `.Precompiled pc` arm of `Θ`-gas-monotonicity
+  (non-recursive, NO child hypothesis), assembled from the 10 per-contract `Ξ_*`-gas bricks
+  `ecrec_gas_le`/…/`point_eval_gas_le` + the generic `gas_branch_le`, all in the sibling
+  module `NestedEvmYul.PrecompileGas` (the FFI-backed precompiles overflow the worker-thread
+  stack under `lake build` unless split out + the lakefile `-s` flag is set). This finishes
+  the LAST brick of (former) item 1.
+
+### CLOSED (this run, N1) — the strict CALL/CREATE X-iteration descent
+* **`step_call_gas_lt` / `step_callcode_gas_lt` / `step_delegatecall_gas_lt` /
+  `step_staticcall_gas_lt`** — the STRICT companions of the `step_*_gas_le` CALL-family
+  reductions: route to `call_result_gas_lt` with the strict `Ccallgas < Ccall`
+  (`Ccallgas_lt_Ccall`). CONDITIONAL on child `Θ (f-1)` gas-mono (`hΘ`), discharged by A1.
+* **`step_gas_lt`** — unified strict per-instruction descent for ANY CALL/CREATE opcode:
+  CREATE/CREATE2 → `create*_result_gas_lt` (with `C'_create*_pos` discharging the strict
+  debit), CALL family → the four lemmas above. CONDITIONAL on `hΘ` + `hΛ`.
+* **`X_iter_gas_lt_callcreate`** — the CALL/CREATE companion of `X_iter_gas_lt` (drops the
+  `¬ isCallCreate` gate): a non-halting `X (f+1)` CALL/CREATE iteration drops gas strictly,
+  via `Z_ok_cost_le_gas` + `step_gas_lt`. CONDITIONAL on `hΘ` + `hΛ`.
+* **`X_iter_gas_lt_any`** — the UNIFIED per-iteration descent (leaf via `X_iter_gas_lt`
+  unconditional + call/create via `X_iter_gas_lt_callcreate`); the single descent A1 feeds
+  the never-`OutOfFuel` loop measure. The child hyps are vacuous on leaf opcodes.
+
+### REMAINING for the *fully nested* headline (precise, NOT faked)
+
+1. **Gas-monotonicity mutual induction — ASSEMBLY only.** ALL per-layer reductions
+   (incl. `Θ_gas_le_precompiled`, G1) are proved; what remains is the single strong
+   induction on `fuel` tying them into the mutual fixpoint `gas_mono n : Θ_gas_le n ∧
+   Ξ_gas_le n ∧ X_gas_le n ∧ Lambda_gas_le n ∧ step_gas_le n`, feeding the IH at `< n` to
+   each reduction's child hypothesis (`X_gas_le` via `X_loop_gas_le'` needs `step_gas_le` at
+   all `f`, hence strong induction). No bricks missing — pure assembly (A1).
 
 2. **Never-`OutOfFuel` mutual induction with the depth-aware bound `B`.** Strong
    induction on `fuel` over the layers, each `P_·` reading "`fuel ≥ B gas depth →
    layer ≠ OutOfFuel`". The propagation skeletons (`*_outOfFuel_of`) are the `fuel+1`
-   steps; `call_result_gas_lt` / `create*_result_gas_lt` (the STRICT companions) supply
-   the per-iteration gas descent that bottoms out the `X` loop on CALL/CREATE iterations
-   (generalising `X_loop_noncallcreate` to drop `hnc`, using the strict bricks like
-   `X_loop_gas_le'` uses the non-strict ones); at each descent the child's `Θ/Ξ/X` are at
-   strictly smaller fuel AND larger depth, so the IH discharges them once `B` is threaded.
-   Define `B 0 g = g+2`, `B (k+1) g = (g+1)*(B k g + c) + 2`, `k = 1025 − depth` so the
-   recurrence holds definitionally. This induction is NOT YET STARTED — the headline does
-   not close this run.
+   steps; `X_iter_gas_lt_any` (N1) supplies the per-iteration gas descent that bottoms out
+   the `X` loop on EVERY iteration (call/create AND leaf), generalising
+   `X_loop_noncallcreate` to drop `hnc`, using the strict bricks like `X_loop_gas_le'` uses
+   the non-strict ones; at each descent the child's `Θ/Ξ/X` are at strictly smaller fuel AND
+   larger depth, so the IH discharges them once `B` is threaded. **`B` is the LINEAR-PRODUCT
+   bound `B(g,d) = (1025−d)·(g+c)` (B2i correction — see PLAN.md; NOT the super-linear
+   shape sketched below).** This induction (A1) is NOT YET STARTED — the headline does not
+   close this run.
 
    **Bound shape.** The per-frame `X`-loop runs up to `gas` iterations, and *each* may
    spawn a child needing its own full budget `B childgas (depth+1)`, so `B` is

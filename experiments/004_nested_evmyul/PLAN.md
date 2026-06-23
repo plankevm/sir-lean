@@ -59,6 +59,38 @@ composing naturally (the thing flat makes hard).
 > branch; do not touch other tracks. Report the final build status + what was stripped.
 
 ## Progress log
+- 2026-06-23 (N1 — strict CALL/CREATE X-iteration descent DONE). `lake build
+  NestedEvmYul.NeverOutOfFuel` (and the default target) GREEN; `#print axioms` on every new
+  theorem ⊆ `[propext, Classical.choice, Quot.sound]`; zero
+  `sorry`/`admit`/`axiom`/`native_decide` in the additions (grep-clean).
+  - **`step_call_gas_lt`/`step_callcode_gas_lt`/`step_delegatecall_gas_lt`/
+    `step_staticcall_gas_lt`** — STRICT companions of the B2h `step_*_gas_le` CALL-family
+    reductions: same `dsimp [step]`+`pop7`/`pop6`+`accountAddr_roundtrip` arg-matching, but
+    route to `call_result_gas_lt` with the strict `Ccallgas < Ccall` (`Ccallgas_lt_Ccall`).
+    CONDITIONAL on child `Θ (f-1)` gas-mono (`hΘ`) — A1 discharges it.
+  - **`step_gas_lt`** — unified strict per-instruction descent on ANY CALL/CREATE opcode:
+    CREATE/CREATE2 → `create*_result_gas_lt` (`C'_create*_pos` discharges the strict debit
+    `hpos`), CALL family → the four lemmas above. CONDITIONAL on `hΘ` (Θ at `f-1`) + `hΛ`
+    (Lambda at `f`).
+  - **`X_iter_gas_lt_callcreate`** — the CALL/CREATE companion of `X_iter_gas_lt` (drops the
+    `¬ isCallCreate` gate): `Z_ok_cost_le_gas` (gives `cost₂ ≤ s₁.gas` ∧ `cost₂ = C' s₁ w`)
+    + `step_gas_lt`. CONDITIONAL on `hΘ`+`hΛ`. NOTE: strictness here comes from the
+    call's `Ccallgas < Ccall` / create's debit, NOT from `C' ≥ 1`, so unlike `X_iter_gas_lt`
+    it needs no `runnable`/positivity reasoning (the `hH` arg is carried but unused).
+  - **`X_iter_gas_lt_any`** — UNIFIED per-iteration descent: leaf (`X_iter_gas_lt`,
+    unconditional) + call/create (`X_iter_gas_lt_callcreate`, conditional). This is the
+    SINGLE per-iteration descent A1 feeds the never-OOF loop measure; child hyps vacuous on
+    leaves. (The brief's optional unification — done; not awkward.)
+  - **CONDITIONAL HYPS LEFT OPEN (for A1):** `step_gas_lt` / `X_iter_gas_lt_*` carry `hΘ`
+    (child `Θ (f-1)` gas-mono: `Θ (f-1) … = .ok res → res.2.2.1.toNat ≤ gg.toNat`) and `hΛ`
+    (child `Lambda f` gas-mono: `… = .ok res → res.2.2.2.1.toNat ≤ gg.toNat`), instantiated
+    at `s₁.{blobVersionedHashes, genesisBlockHeader, blocks}`. These are EXACTLY the
+    gas-monotonicity facts the B2h reductions reduce to; A1's combined mutual induction (gas-
+    mono ∧ never-OOF) supplies both from the IH at smaller fuel.
+  - **B2i plan check:** N1 confirms the strict per-iteration descent works for call/create
+    with the child gas-mono as a hypothesis — consistent with the LINEAR-PRODUCT
+    architecture (each iteration drops gas; the binding constraint is per-iteration, not a
+    sum). Nothing here contradicts the B2i bound correction.
 - 2026-06-23 (G1 — precompiled `Θ`-gas arm DONE). `lake build NestedEvmYul.NeverOutOfFuel`
   GREEN; `#print axioms` on every new theorem ⊆ `[propext, Classical.choice, Quot.sound]`
   (`Θ_gas_le_precompiled` + `expmod_gas_le` use `Classical.choice`; the rest only
