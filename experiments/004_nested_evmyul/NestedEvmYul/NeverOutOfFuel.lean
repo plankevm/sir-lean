@@ -1798,6 +1798,33 @@ theorem call_outOfFuel_of (f : ℕ) (gasCost : Nat) (bvh : List ByteArray)
   · -- else-branch: the call result is assembled as `.ok …`.
     intro hc; exact Except.noConfusion hc
 
+/-- **Gas/depth-refined `call` skeleton.** `call (f+1) … s` recurses into `Θ f` at the
+*specific* forwarded gas `.ofNat (Ccallgas …)` and depth `s.executionEnv.depth + 1`
+(Θ's `e := Iₑ+1`), gated by `Iₑ < 1024`. So it suffices that `Θ f …` is never
+`OutOfFuel` at *that* gas/depth — which is what lets the depth-aware bound thread
+through (the bound is fixed by the call's `Ccallgas`/`Iₑ+1`, not all Θ args). -/
+theorem call_outOfFuel_of_gas (f : ℕ) (gasCost : Nat) (bvh : List ByteArray)
+    (gas source recipient t value value' inOffset inSize outOffset outSize : UInt256)
+    (permission : Bool) (s : EVM.State)
+    (hΘ : ∀ (Asub : Substate) (src o rcpt : AccountAddress) (c : ToExecute)
+            (p vv vv' : UInt256) (dd : ByteArray) (Hd : BlockHeader) (w : Bool),
+          Θ f bvh s.createdAccounts s.genesisBlockHeader s.blocks s.accountMap s.σ₀ Asub src o rcpt c
+            (.ofNat (Ccallgas (AccountAddress.ofUInt256 t) (AccountAddress.ofUInt256 recipient) value gas
+                       s.accountMap s.toMachineState s.substate))
+            p vv vv' dd (s.executionEnv.depth + 1) Hd w
+            ≠ .error .OutOfFuel) :
+    call (f+1) gasCost bvh gas source recipient t value value' inOffset inSize outOffset outSize
+      permission s ≠ .error .OutOfFuel := by
+  simp only [call, bind, Except.bind]
+  split
+  · split
+    · rename_i err heq
+      intro hc
+      have herr : err = EVM.ExecutionException.OutOfFuel := Except.error.inj hc
+      exact (hΘ _ _ _ _ _ _ _ _ _ _ _) (herr ▸ heq)
+    · intro hc; exact Except.noConfusion hc
+  · intro hc; exact Except.noConfusion hc
+
 /-- `Lambda (f+1)` (contract creation, `CREATE`/`CREATE2`) emits `OutOfFuel` only
 via its inner `Ξ f` re-throw (same `if e == .OutOfFuel then throw .OutOfFuel` shape
 as `Θ`'s `Code` arm). The leading `L_A` address-derivation lift only ever errors as
@@ -2194,6 +2221,28 @@ theorem noOOF_step (f cost : ℕ) (w : Operation) (a) (s : State)
     · exact noOOF_step_callcode f cost a s hcall
     · exact noOOF_step_delegatecall f cost a s hcall
     · exact noOOF_step_staticcall f cost a s hcall
+  · exact noOOF_step_default f cost w a s hcc
+
+/-- **Bound-friendly `step` skeleton.** Like `noOOF_step`, but the CALL-family
+hypothesis is required only on the *specific* state the step calls into — the
+`execLength`-bumped `s` (same gas and depth as `s`). CREATE/CREATE2 are unconditional
+(they swallow the child `Lambda`'s `OutOfFuel` into a tuple), so the never-OOF
+induction needs NO `Lambda` bound; the default arm is unconditional. This is what the
+depth-aware bound threads through. -/
+theorem noOOF_step_bound (f cost : ℕ) (w : Operation) (a) (s : State)
+    (hcall : ∀ g src rcpt t v v' io is oo os perm,
+      call f cost s.executionEnv.blobVersionedHashes g src rcpt t v v' io is oo os perm
+        { s with execLength := s.execLength + 1 } ≠ .error .OutOfFuel) :
+    step (f+1) cost (some (w, a)) s ≠ .error .OutOfFuel := by
+  by_cases hcc : isCallCreate w
+  · unfold isCallCreate at hcc
+    rcases hcc with rfl | rfl | rfl | rfl | rfl | rfl
+    · exact noOOF_step_create f cost a s
+    · exact noOOF_step_create2 f cost a s
+    · intro h; exact noOOF_call_arm_body _ _ _ (fun _ => hcall _ _ _ _ _ _ _ _ _ _ _) h
+    · intro h; exact noOOF_call_arm_body _ _ _ (fun _ => hcall _ _ _ _ _ _ _ _ _ _ _) h
+    · intro h; exact noOOF_call_arm_body _ _ _ (fun _ => hcall _ _ _ _ _ _ _ _ _ _ _) h
+    · intro h; exact noOOF_call_arm_body _ _ _ (fun _ => hcall _ _ _ _ _ _ _ _ _ _ _) h
   · exact noOOF_step_default f cost w a s hcc
 
 /-! ## Item 4c — end-to-end leaf-frame never-`OutOfFuel` (DONE, unconditional)
@@ -4174,6 +4223,39 @@ theorem X_loop_noOOF_bound (vj : Array UInt256) (D : ℕ) (hD : D ≤ 1024) (N :
           by_cases hrev : (instr.1 == Operation.REVERT) = true
           · rw [hrev]; intro hc; nomatch hc
           · simp only [hrev, Bool.false_eq_true, if_false]; intro hc; nomatch hc
+
+/-! ## A1 — Stage-3 prerequisites for the never-`OutOfFuel` mutual induction
+
+All the bound-aware machinery the final 5-layer mutual induction consumes is now in
+place and axiom-clean:
+* **gas-monotonicity** (Stage 1, `gas_mono` + the `*_gas_mono` corollaries) — supplies
+  the child gas-mono facts the strict per-iteration descent needs.
+* **`step`/`Z` preserve depth** (`step_depth`, `Z_ok_depth`) — the frame depth is fixed
+  across the `X`-loop, so `fuelBound`'s depth index is a sound loop invariant.
+* **depth-aware `X` loop** (`X_loop_noOOF_bound`) — bottoms out on `fuelBound s.gas D + 1
+  ≤ fuel`, with `hstep` gated by the same bound (discharged by the IH).
+* **gas/depth-refined propagation skeletons**: `noOOF_step_bound` (CALL → `call` on the
+  bumped state; CREATE/CREATE2 *unconditional* — they swallow the child `Lambda`'s
+  `OutOfFuel`, so the induction needs NO `Lambda`/`Ξ`-via-Λ bound; default unconditional),
+  `call_outOfFuel_of_gas` (→ `Θ` at the *specific* forwarded gas `.ofNat (Ccallgas …)`
+  and depth `Iₑ+1`), `Θ_outOfFuel_of` / `Θ_precompiled_never_outOfFuel`,
+  `Ξ_outOfFuel_of_gas`.
+
+**The 5-layer (X/step/call/Θ/Ξ — Lambda is moot, CREATE swallows its OOF) mutual
+induction is the remaining assembly.** Derived design: bounds `fuelBound g e + C ≤ n`
+with per-layer offsets making each same-depth hop a trivial `omega` and the single
+depth bump (`call → Θ`, `Θ.e := Iₑ+1`) spending the `(g+8)` `fuelBound_succ` peel:
+
+    C_Θ = −3,  C_Ξ = −2,  C_X = −1 (= the loop's `+1`),  C_step = 0,  C_call = +1
+
+Every hop checks (`fuelHops = 8 ≥ 5` covers `Θ→Ξ→X→step→call` per level). The ONE
+unproved arithmetic input is the **call→Θ gas conservation** `Ccallgas (call-args) ≤
+ev.gasAvailable.toNat` (so `fuelBound callgas (Iₑ+1) ≤ fuelBound ev.gas (Iₑ+1)`):
+`Ccallgas_le_gas_of_cover` gives it *given* `ev.gas ≥ Cextra`, which holds because the
+step's `Z` guard charged `Ccall = Cgascap + Cextra ≤ ev.gas` — but that fact must be
+threaded from the step's `Z` into the `call` layer (the arg-matching of
+`step_call_gas_le`, reused on the never-OOF side). With that lemma the induction closes
+by the offset arithmetic above. See PLAN.md (A1 entry) for the precise obstacle. -/
 
 /-! ## Status of the headline `Θ_never_outOfFuel` — what is closed and what remains
 
