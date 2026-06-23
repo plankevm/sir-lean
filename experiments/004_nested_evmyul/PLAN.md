@@ -59,6 +59,20 @@ composing naturally (the thing flat makes hard).
 > branch; do not touch other tracks. Report the final build status + what was stripped.
 
 ## Progress log
+- 2026-06-23 (A1 Task 3 — HEADLINE `Θ_never_outOfFuel` (Stage 4) CLOSED). `lake build
+  NestedEvmYul.NeverOutOfFuel` GREEN; `#print axioms Θ_never_outOfFuel` ⊆ `[propext,
+  Classical.choice, Quot.sound]`; grep-clean. The headline is now a **real theorem**
+  (was a doc-comment): `e ≤ 1024 → fuelBound g.toNat e + 3 ≤ fuel → Θ fuel … ≠
+  .error .OutOfFuel`, a one-line projection of the `Θ` conjunct of `never_oof`. Only
+  premises are the LINEAR-PRODUCT `fuelBound` budget (with the `Θ`-layer `+3` hop
+  offset) and the structural depth cap `e ≤ 1024` — no per-arm/no-call-create hyps;
+  covers CALL/CALLCODE/DELEGATECALL/STATICCALL/CREATE/CREATE2 nesting to depth 1024.
+  Cleanup (project rule "just fix cruft"): removed the dead `seedFuel` def + its
+  super-linear-`B` doc blocks (the `B (k+1) gas = (gas+1)·(B k gas + c)+2` recurrence
+  + "REMAINING … NOT YET STARTED" text), rewriting the file header + the three `##
+  Status`/Stage-3 blocks to reflect the headline is CLOSED with the linear-product
+  `fuelBound`. **TRACK B HEADLINE Θ_never_outOfFuel is now fully proved and
+  axiom-clean.**
 - 2026-06-23 (A1 Task 2 — the 5-layer `never_oof` mutual induction (Stage 3) DONE).
   `lake build NestedEvmYul.NeverOutOfFuel` GREEN; `#print axioms never_oof` ⊆
   `[propext, Classical.choice, Quot.sound]`; grep-clean. `never_oof : ∀ n,
