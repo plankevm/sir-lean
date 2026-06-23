@@ -2783,6 +2783,141 @@ theorem step_staticcall_gas_le (f cost : ℕ) (arg) (s s' : State)
         · intro cA σ σ₀ Asub src o rcpt cc gg p vv vv' dd ee Hd ww res hΘeq
           exact hΘ cA σ σ₀ Asub src o rcpt cc gg p vv vv' dd ee Hd ww res hΘeq
 
+/-- **Unified `step` gas-monotonicity.** For ANY opcode `w`, a successful
+`step (f+1) (C' s w) (w,arg) s` lands at gas `≤ s.gas`, dispatching: default arm →
+`step_default_gas_le` (unconditional); CREATE/CREATE2 → `create*_result_gas_le` (child
+`Lambda f` mono, `hΛ`); CALL family → `step_{call,callcode,delegatecall,staticcall}_gas_le`
+(child `Θ (f-1)` mono, `hΘ`). This is the per-instruction bound the `X` loop needs. -/
+theorem step_gas_le (f cost : ℕ) (w : Operation) (arg) (s s' : State)
+    (hcle : cost ≤ s.gasAvailable.toNat)
+    (hcost : cost = C' s w)
+    (hΘ : ∀ (cA : Batteries.RBSet AccountAddress compare) (σ σ₀ : AccountMap)
+            (Asub : Substate) (src o rcpt : AccountAddress) (c : ToExecute)
+            (gg p vv vv' : UInt256) (dd : ByteArray) (e : Nat) (Hd : BlockHeader) (ww : Bool) (res),
+          Θ (f-1) s.executionEnv.blobVersionedHashes cA s.genesisBlockHeader s.blocks σ σ₀ Asub src o rcpt c gg p vv vv' dd e Hd ww
+            = .ok res → res.2.2.1.toNat ≤ gg.toNat)
+    (hΛ : ∀ (bvh : List ByteArray) (cA : Batteries.RBSet AccountAddress compare)
+            (σ σ₀ : AccountMap) (Asub : Substate) (sndr orig : AccountAddress)
+            (gg pp vv : UInt256) (ii : ByteArray) (ee : UInt256) (zz : Option ByteArray)
+            (Hd : BlockHeader) (ww : Bool) (res),
+          Lambda f bvh cA s.genesisBlockHeader s.blocks σ σ₀ Asub sndr orig gg pp vv ii ee zz Hd ww
+            = .ok res → res.2.2.2.1.toNat ≤ gg.toNat)
+    (h : step (f+1) cost (some (w, arg)) s = .ok s') :
+    s'.gasAvailable.toNat ≤ s.gasAvailable.toNat := by
+  by_cases hcc : isCallCreate w
+  · unfold isCallCreate at hcc
+    rcases hcc with rfl | rfl | rfl | rfl | rfl | rfl
+    · exact create_result_gas_le f cost arg s s' hcle hΛ h
+    · exact create2_result_gas_le f cost arg s s' hcle hΛ h
+    · exact step_call_gas_le f cost arg s s' hcle hcost hΘ h
+    · exact step_callcode_gas_le f cost arg s s' hcle hcost hΘ h
+    · exact step_delegatecall_gas_le f cost arg s s' hcle hcost hΘ h
+    · exact step_staticcall_gas_le f cost arg s s' hcle hcost hΘ h
+  · exact step_default_gas_le (f+1) cost w arg s s' hcc hcle h
+
+set_option maxHeartbeats 2000000 in
+/-- **`X` loop gas-monotonicity (with the `cost = C' s' w` hypothesis).** Strengthening
+of `X_loop_gas_le`: the per-step bound `hstep` may now assume `cost = C' s' w` (which
+`Z_ok_cost_le_gas` supplies in the loop). This is what lets the CALL/CREATE arms of
+`step_gas_le` apply (they need `cost = C' s' w` for the `Ccallgas ≤ Ccall` arg-matching). -/
+theorem X_loop_gas_le' (vj : Array UInt256)
+    (hstep : ∀ (f cost : ℕ) (w : Operation) (arg) (s' s'' : State),
+       (w, arg) = (decode s'.toState.executionEnv.code s'.pc |>.getD (.STOP, .none)) →
+       cost ≤ s'.gasAvailable.toNat →
+       cost = C' s' w →
+       step f cost (some (w, arg)) s' = .ok s'' →
+       s''.gasAvailable.toNat ≤ s'.gasAvailable.toNat) :
+    ∀ (fuel : ℕ) (s : State) (r : ExecutionResult State),
+      X fuel vj s = .ok r → resultGas r ≤ s.gasAvailable.toNat := by
+  intro fuel
+  induction fuel with
+  | zero => intro s r hX; exact absurd hX (by simp [X])
+  | succ f ih =>
+    intro s r hX
+    unfold X at hX
+    simp only [bind, Except.bind] at hX
+    set instr := decode s.toState.executionEnv.code s.pc |>.getD (.STOP, .none) with hinstr
+    cases hZ : Z vj instr.1 s with
+    | error e => rw [hZ] at hX; exact absurd hX (by simp)
+    | ok p =>
+      obtain ⟨ev, cost₂⟩ := p
+      rw [hZ] at hX
+      simp only at hX
+      have hevle : ev.gasAvailable.toNat ≤ s.gasAvailable.toNat := Z_ok_state vj instr.1 s ev cost₂ hZ
+      have hcodepc : ev.toState.executionEnv.code = s.toState.executionEnv.code ∧ ev.pc = s.pc :=
+        Z_ok_code_pc vj instr.1 s ev cost₂ hZ
+      cases hs : step f cost₂ instr ev with
+      | error e => rw [hs] at hX; exact absurd hX (by simp)
+      | ok ev' =>
+        rw [hs] at hX
+        simp only at hX
+        obtain ⟨hcle, hcost⟩ := Z_ok_cost_le_gas vj instr.1 s ev cost₂ hZ
+        have hdec : (instr.1, instr.2) = (decode ev.toState.executionEnv.code ev.pc |>.getD (.STOP, .none)) := by
+          rw [hcodepc.1, hcodepc.2, ← hinstr]
+        have hsle : ev'.gasAvailable.toNat ≤ ev.gasAvailable.toNat :=
+          hstep f cost₂ instr.1 instr.2 ev ev' hdec hcle hcost hs
+        cases hH : H ev'.toMachineState instr.1 with
+        | none =>
+          rw [hH] at hX; simp only at hX
+          exact le_trans (ih ev' r hX) (le_trans hsle hevle)
+        | some o =>
+          rw [hH] at hX; simp only at hX
+          by_cases hrev : (instr.1 == Operation.REVERT) = true
+          · rw [if_pos hrev] at hX
+            have : r = ExecutionResult.revert ev'.gasAvailable o := Except.ok.inj hX |>.symm
+            rw [this]; exact le_trans hsle hevle
+          · rw [if_neg (by simpa using hrev)] at hX
+            have : r = ExecutionResult.success ev' o := Except.ok.inj hX |>.symm
+            rw [this]; exact le_trans hsle hevle
+
+/-- Gas held by a `Ξ` result: the leftover gas on success (3rd component of the inner
+tuple) or the explicit `g'` on revert. The `Ξ`/`Θ`-side analogue of `resultGas`. -/
+def xiResultGas (r : ExecutionResult (Batteries.RBSet AccountAddress compare × AccountMap × UInt256 × Substate)) : ℕ :=
+  match r with
+  | .success s _ => s.2.2.1.toNat
+  | .revert g _ => g.toNat
+
+set_option maxHeartbeats 2000000 in
+/-- **`Θ` gas-monotonicity, `Code` arm.** A successful `Θ (n+1) … (.Code code) … g …`
+returns leftover gas `≤ g.toNat`, given the child `Ξ n` gas-monotonicity (`hΞ`). The
+three result sources: the swallowed-error branch (`g' = ⟨0⟩`), the `revert` branch
+(`g'` carried through), and the `success` branch (`g'` carried through) — all `≤ g`.
+(The `Precompiled` arm is a separate, non-recursive obligation; see
+`Θ_precompiled_never_outOfFuel` for its never-`OutOfFuel` companion, and the PLAN.md
+B2h entry for the uniform `g - .ofNat gᵣ ≤ g` precompile gas bound, still to assemble.) -/
+theorem Θ_gas_le_code (n : ℕ) (bvh : List ByteArray)
+    (cA : Batteries.RBSet AccountAddress compare) (gh : BlockHeader) (blocks : ProcessedBlocks)
+    (σ σ₀ : AccountMap) (A : Substate) (s o r : AccountAddress) (code : ByteArray)
+    (g p v v' : UInt256) (d : ByteArray) (e : Nat) (Hd : BlockHeader) (w : Bool)
+    (hΞ : ∀ (σ₁ : AccountMap) (I : ExecutionEnv) res,
+      Ξ n cA gh blocks σ₁ σ₀ g A I = .ok res → xiResultGas res ≤ g.toNat)
+    (res) (h : Θ (n+1) bvh cA gh blocks σ σ₀ A s o r (.Code code) g p v v' d e Hd w = .ok res) :
+    res.2.2.1.toNat ≤ g.toNat := by
+  simp only [Θ, bind, Except.bind, pure, Except.pure] at h
+  set I : ExecutionEnv := _ with hI
+  set σ₁ : AccountMap := _ with hσ₁
+  cases hr : Ξ n cA gh blocks σ₁ σ₀ g A I with
+  | error ee =>
+    rw [hr] at h; dsimp only at h
+    by_cases hee : ee = EVM.ExecutionException.OutOfFuel
+    · subst hee
+      rw [if_pos (show (EVM.ExecutionException.OutOfFuel == EVM.ExecutionException.OutOfFuel) = true from rfl)] at h
+      exact absurd h (fun hc => Except.noConfusion hc)
+    · have hb : (ee == EVM.ExecutionException.OutOfFuel) = false := by
+        cases ee <;> first | rfl | exact absurd rfl hee
+      rw [if_neg (by rw [hb]; simp)] at h
+      injection h with h; subst h; exact Nat.zero_le _
+  | ok xres =>
+    rw [hr] at h
+    have hgle := hΞ σ₁ I xres hr
+    cases xres with
+    | success st oo =>
+      simp only at h; injection h with h; subst h
+      simp only [xiResultGas] at hgle; exact hgle
+    | revert g' oo =>
+      simp only at h; injection h with h; subst h
+      simp only [xiResultGas] at hgle; exact hgle
+
 /-! ## Status of the headline `Θ_never_outOfFuel` — what is closed and what remains
 
 ### CLOSED (this run)
