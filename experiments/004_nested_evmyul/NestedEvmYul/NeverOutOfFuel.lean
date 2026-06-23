@@ -3328,6 +3328,52 @@ theorem Lambda_gas_le (n : ℕ) (bvh : List ByteArray)
       injection h with h; subst h
       exact ofNat_le_of_le _ g (le_trans (ite_zero_sub_le _ _) hxle)
 
+/-! ## N2 — the depth-aware fuel bound `B` (LINEAR-PRODUCT; see PLAN.md B2i)
+
+The fuel a frame needs is **linear in gas with a depth *factor*** — NOT the
+super-linear `(g+1)^(1025−d)` the earlier (B2e–B2h) sketches feared. Fuel is a
+pass-by-value structural counter: `X (f+1)` runs `step f` then continues `X f`, both
+the literal `f` (`Semantics.lean:494`), so after a child returns the parent loop
+resumes at exactly `f`, *independent of how much fuel the child subtree burned*.
+Hence the `g` children a frame spawns do **not** accumulate budgets; the binding
+constraint is the single worst (last) loop iteration. The recurrence is therefore
+*additive* in depth — `B g e = (g + c) + B g (e+1)` for `e ≤ 1024` — with the leaf
+(max depth `e = 1024`, where `call` is gated off by `Iₑ < 1024`) needing only its own
+loop + hops. Closed form below; `c = fuelHops` generously covers every layer's
+per-descent hop chain `X→step→call→Θ→Ξ→X` (`c ≥ 5` suffices; any larger works). -/
+
+/-- Per-descent fuel-hop constant (`≥ 5`; the `X→step→call→Θ→Ξ→X` chain). `abbrev`
+so `omega`/`decide` see the literal. -/
+abbrev fuelHops : ℕ := 8
+
+/-- The depth-aware fuel bound `B(g,e) = (1025 − e)·(g + c)` (`e` = call depth ≤ 1024).
+Linear in gas; the `(1025 − e)` is the depth *factor*. -/
+def fuelBound (g e : ℕ) : ℕ := (1025 - e) * (g + fuelHops)
+
+/-- One-step depth recurrence: descending one call level peels off exactly `(g + c)`.
+This is the arithmetic the CALL/CREATE descent uses to hand the child its budget. -/
+theorem fuelBound_succ (g e : ℕ) (he : e ≤ 1024) :
+    fuelBound g e = (g + fuelHops) + fuelBound g (e + 1) := by
+  unfold fuelBound
+  rw [show 1025 - e = (1024 - e) + 1 from by omega,
+      show 1025 - (e + 1) = 1024 - e from by omega]
+  ring
+
+/-- `B` is monotone in gas: the worst child gas (`≤ g`, by item-3 gas conservation)
+has its budget bounded by `B g _`. -/
+theorem fuelBound_mono_gas {g g' : ℕ} (e : ℕ) (h : g ≤ g') :
+    fuelBound g e ≤ fuelBound g' e := by
+  unfold fuelBound
+  exact Nat.mul_le_mul (le_refl _) (by omega)
+
+/-- `B g e ≥ 1` (in fact `≥ g + c`): a frame at depth `e ≤ 1024` always needs positive
+fuel, so the fuel-`0` base cases are vacuously covered (`0 ≥ B` is false). -/
+theorem fuelBound_pos (g e : ℕ) (he : e ≤ 1024) : 1 ≤ fuelBound g e := by
+  unfold fuelBound
+  have : 1 ≤ 1025 - e := by omega
+  calc 1 = 1 * 1 := by ring
+    _ ≤ (1025 - e) * (g + fuelHops) := Nat.mul_le_mul this (by simp [fuelHops])
+
 /-! ## Status of the headline `Θ_never_outOfFuel` — what is closed and what remains
 
 ### CLOSED (this run)
