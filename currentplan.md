@@ -343,7 +343,10 @@ write the blocker into PLAN.md before stopping.
   - **Merges**: do NOT merge exp005-ir→base while the C-v2 prototype agent is mid-commit;
     merge only once C-v2 reaches a stable verified commit (then fix master-report links).
   - Loop is carried by background-agent completion notifications (self-sustaining while ≥1
-    agent runs). When all safe work is done/blocked, wind down to a clean state and STOP.
+    agent runs) PLUS a **45-min cron heartbeat `f3ba5aed`** (every 45 min, session-only) so
+    the loop re-checks state even if an agent hangs. **On wind-down (all safe work done/
+    blocked on Eduardo): `CronDelete f3ba5aed`, finalize HANDOFF.md, then STOP.**
+  - Resume surface for the morning: **HANDOFF.md** (repo root) — kept current by the loop.
   - Refreshed EXPERIMENT-REPORT.md to verified state (super-linear B finding; C v2 plan +
     gas-introspection prior-art study linked).
 - 2026-06-23: **B2g CREATE de-risk DONE & verified — VERDICT: CREATE tractable** (`3c76a82`,
