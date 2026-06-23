@@ -59,6 +59,20 @@ composing naturally (the thing flat makes hard).
 > branch; do not touch other tracks. Report the final build status + what was stripped.
 
 ## Progress log
+- 2026-06-23 (A1 Task 1 — `step` CALL-family never-OOF arms DONE). `lake build
+  NestedEvmYul.NeverOutOfFuel` GREEN; `#print axioms` ⊆ `[propext, Classical.choice,
+  Quot.sound]`; grep-clean. Added `noOOF_step_{call,callcode,delegatecall,staticcall}_bound`
+  (Stage 2c) — the never-OOF analogues of `step_*_gas_le`. Each CALL-family arm of
+  `step (f+1) (C' s w) (w,_) s` reduces to the *gas-gated* `call f` child (`hcall`
+  carrying its `Ccallgas (call-args) ≤ ev.gas` premise on the `execLength`-bumped
+  `ev`), discharging that premise via the same arg-matching as the gas-mono side
+  (`pop7`/`pop6`-`_stack_index` + `accountAddr_roundtrip` + `Ccallgas_le_Ccall`),
+  threading `cost = C' s w ∧ cost ≤ s.gas`. Also added `liftM_ne_OutOfFuel` (the
+  `Option→Except` lift never OOFs: `some↦.ok`, `none↦.error StackUnderflow`). This is
+  the one unproved arithmetic input the Stage-3 doc flagged; the mutual induction now
+  routes step → call → `Θ`. **N.B.** the ℕ-encoded per-layer offsets are the NEGATION
+  of the doc's `C_L` (Θ:+3, Ξ:+2, X:+1, step:0, call: premise `fuelBound ≤ n+1`); the
+  doc's "C_X = −1 = the loop's +1" already signals this sign convention.
 - 2026-06-23 (A1 — headline assembly: Stages 1, 2, 2b + Stage-3 prereqs DONE; Stage-3
   mutual induction + Stage-4 headline NOT closed, one precise gap left). `lake build
   NestedEvmYul.NeverOutOfFuel` GREEN; `#print axioms` on every new theorem ⊆

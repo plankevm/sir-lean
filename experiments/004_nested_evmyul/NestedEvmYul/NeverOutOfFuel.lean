@@ -3044,6 +3044,14 @@ theorem pop_of_liftM {α} (o : Option α) (tup : α)
     have h2 : (Except.ok t : Except EVM.ExecutionException α) = Except.ok tup := h
     rw [Except.ok.inj h2]
 
+/-- The `Option → Except` lift never produces `OutOfFuel`: `some ↦ .ok`,
+`none ↦ .error .StackUnderflow`. -/
+theorem liftM_ne_OutOfFuel {α} (o : Option α) :
+    (liftM o : Except EVM.ExecutionException α) ≠ .error .OutOfFuel := by
+  cases o with
+  | none => intro h; exact absurd (Except.error.inj h) (by simp)
+  | some t => intro h; exact Except.noConfusion h
+
 /-- `AccountAddress` roundtrips through `UInt256`: `ofUInt256 (ofNat a.val) = a`
 (addresses are 160-bit, so they fit in a `UInt256` without truncation). This
 reconciles the `CALLCODE`/`DELEGATECALL`/`STATICCALL` arms (which pass
@@ -4226,6 +4234,181 @@ theorem X_loop_noOOF_bound (vj : Array UInt256) (D : ℕ) (hD : D ≤ 1024) (N :
           by_cases hrev : (instr.1 == Operation.REVERT) = true
           · rw [hrev]; intro hc; nomatch hc
           · simp only [hrev, Bool.false_eq_true, if_false]; intro hc; nomatch hc
+
+/-! ## A1 STAGE 2c — the `step` CALL-family never-`OutOfFuel` arms (Task 1)
+
+The never-`OutOfFuel` analogues of `step_call_gas_le` / `step_callcode_gas_le` /
+`step_delegatecall_gas_le` / `step_staticcall_gas_le`. Each CALL-family arm of
+`step (f+1) (C' s w) (w,_) s` reduces to `call f cost … ev` on the
+`execLength`-bumped state `ev` (same gas/depth as `s`), and the `hcall` hypothesis is
+the *gas-gated* call-never-OOF child carrying its `Ccallgas (call-args) ≤ ev.gas`
+premise. The arg-matching that closes that premise is identical to the gas-mono side
+(`pop7`/`pop6`-`_stack_index` + `accountAddr_roundtrip` + `Ccallgas_le_Ccall`),
+threading `cost ≤ s.gas ∧ cost = C' s w` so `Ccallgas (call-args) ≤ Ccall (C'-args)
+= cost ≤ ev.gas`. This is what lets the mutual induction route step → call → `Θ`. -/
+
+set_option maxHeartbeats 4000000 in
+/-- **CALL-arm `step` never-`OutOfFuel`.** Reduces to the gas-gated `call f` child
+(`hcall`), discharging its `Ccallgas (call-args) ≤ ev.gas` premise via the `pop7`
+arg-matching (`Ccallgas (call-args) = Ccallgas (C'-args) ≤ Ccall = cost ≤ ev.gas`). -/
+theorem noOOF_step_call_bound (f cost : ℕ) (a) (s : State)
+    (hcle : cost ≤ s.gasAvailable.toNat)
+    (hcost : cost = C' s .CALL)
+    (hcall : ∀ (gas source recipient t value value' io is oo os : UInt256) (perm : Bool),
+      Ccallgas (AccountAddress.ofUInt256 t) (AccountAddress.ofUInt256 recipient) value gas
+          ({ s with execLength := s.execLength + 1 } : State).accountMap
+          ({ s with execLength := s.execLength + 1 } : State).toMachineState
+          ({ s with execLength := s.execLength + 1 } : State).substate
+        ≤ ({ s with execLength := s.execLength + 1 } : State).gasAvailable.toNat →
+      call f cost s.executionEnv.blobVersionedHashes gas source recipient t value value' io is oo os perm
+        { s with execLength := s.execLength + 1 } ≠ .error .OutOfFuel) :
+    step (f+1) cost (some (.CALL, a)) s ≠ .error .OutOfFuel := by
+  intro hc
+  dsimp only [step] at hc
+  simp only [bind, Except.bind, pure, Except.pure] at hc
+  set ev : State := { s with execLength := s.execLength + 1 } with hev
+  split at hc
+  · rename_i err heq
+    exact liftM_ne_OutOfFuel _ ((Except.error.inj hc) ▸ heq)
+  · rename_i tup hpopl
+    have hpop : s.stack.pop7 = some tup := pop_of_liftM _ _ hpopl
+    obtain ⟨tl, b, c, d, e2, ff, gg, hh⟩ := tup
+    obtain ⟨hi0, hi1, hi2⟩ := pop7_stack_index s.stack tl b c d e2 ff gg hh hpop
+    split at hc
+    · rename_i err hcalleq
+      have herr : err = EVM.ExecutionException.OutOfFuel := Except.error.inj hc
+      refine hcall b (UInt256.ofNat s.executionEnv.codeOwner) c c d d e2 ff gg hh s.executionEnv.perm ?_ (herr ▸ hcalleq)
+      have hC : C' s .CALL = Ccall (AccountAddress.ofUInt256 s.stack[1]!)
+          (AccountAddress.ofUInt256 s.stack[1]!) s.stack[2]! s.stack[0]! s.accountMap s.toMachineState s.substate := rfl
+      calc Ccallgas (AccountAddress.ofUInt256 c) (AccountAddress.ofUInt256 c) d b ev.accountMap ev.toMachineState ev.substate
+          ≤ Ccall (AccountAddress.ofUInt256 c) (AccountAddress.ofUInt256 c) d b s.accountMap s.toMachineState s.substate :=
+            Ccallgas_le_Ccall _ _ _ _ _ _ _
+        _ = C' s .CALL := by rw [hC, ← hi0, ← hi1, ← hi2]
+        _ = cost := hcost.symm
+        _ ≤ ev.gasAvailable.toNat := hcle
+    · exact absurd hc (by simp)
+
+set_option maxHeartbeats 4000000 in
+/-- **CALLCODE-arm `step` never-`OutOfFuel`.** As `noOOF_step_call_bound`; the
+`recipient = .ofNat codeOwner` round-trips back via `accountAddr_roundtrip`. -/
+theorem noOOF_step_callcode_bound (f cost : ℕ) (a) (s : State)
+    (hcle : cost ≤ s.gasAvailable.toNat)
+    (hcost : cost = C' s .CALLCODE)
+    (hcall : ∀ (gas source recipient t value value' io is oo os : UInt256) (perm : Bool),
+      Ccallgas (AccountAddress.ofUInt256 t) (AccountAddress.ofUInt256 recipient) value gas
+          ({ s with execLength := s.execLength + 1 } : State).accountMap
+          ({ s with execLength := s.execLength + 1 } : State).toMachineState
+          ({ s with execLength := s.execLength + 1 } : State).substate
+        ≤ ({ s with execLength := s.execLength + 1 } : State).gasAvailable.toNat →
+      call f cost s.executionEnv.blobVersionedHashes gas source recipient t value value' io is oo os perm
+        { s with execLength := s.execLength + 1 } ≠ .error .OutOfFuel) :
+    step (f+1) cost (some (.CALLCODE, a)) s ≠ .error .OutOfFuel := by
+  intro hc
+  dsimp only [step] at hc
+  simp only [bind, Except.bind, pure, Except.pure] at hc
+  set ev : State := { s with execLength := s.execLength + 1 } with hev
+  split at hc
+  · rename_i err heq
+    exact liftM_ne_OutOfFuel _ ((Except.error.inj hc) ▸ heq)
+  · rename_i tup hpopl
+    have hpop : s.stack.pop7 = some tup := pop_of_liftM _ _ hpopl
+    obtain ⟨tl, b, c, d, e2, ff, gg, hh⟩ := tup
+    obtain ⟨hi0, hi1, hi2⟩ := pop7_stack_index s.stack tl b c d e2 ff gg hh hpop
+    split at hc
+    · rename_i err hcalleq
+      have herr : err = EVM.ExecutionException.OutOfFuel := Except.error.inj hc
+      refine hcall b (UInt256.ofNat s.executionEnv.codeOwner) (UInt256.ofNat s.executionEnv.codeOwner) c d d e2 ff gg hh s.executionEnv.perm ?_ (herr ▸ hcalleq)
+      rw [accountAddr_roundtrip]
+      have hC : C' s .CALLCODE = Ccall (AccountAddress.ofUInt256 s.stack[1]!)
+          s.executionEnv.codeOwner s.stack[2]! s.stack[0]! s.accountMap s.toMachineState s.substate := rfl
+      calc Ccallgas (AccountAddress.ofUInt256 c) s.executionEnv.codeOwner d b ev.accountMap ev.toMachineState ev.substate
+          ≤ Ccall (AccountAddress.ofUInt256 c) s.executionEnv.codeOwner d b s.accountMap s.toMachineState s.substate :=
+            Ccallgas_le_Ccall _ _ _ _ _ _ _
+        _ = C' s .CALLCODE := by rw [hC, ← hi0, ← hi1, ← hi2]
+        _ = cost := hcost.symm
+        _ ≤ ev.gasAvailable.toNat := hcle
+    · exact absurd hc (by simp)
+
+set_option maxHeartbeats 4000000 in
+/-- **DELEGATECALL-arm `step` never-`OutOfFuel`.** `value = 0`; recipient
+`= .ofNat codeOwner` round-trips back (`accountAddr_roundtrip`). -/
+theorem noOOF_step_delegatecall_bound (f cost : ℕ) (a) (s : State)
+    (hcle : cost ≤ s.gasAvailable.toNat)
+    (hcost : cost = C' s .DELEGATECALL)
+    (hcall : ∀ (gas source recipient t value value' io is oo os : UInt256) (perm : Bool),
+      Ccallgas (AccountAddress.ofUInt256 t) (AccountAddress.ofUInt256 recipient) value gas
+          ({ s with execLength := s.execLength + 1 } : State).accountMap
+          ({ s with execLength := s.execLength + 1 } : State).toMachineState
+          ({ s with execLength := s.execLength + 1 } : State).substate
+        ≤ ({ s with execLength := s.execLength + 1 } : State).gasAvailable.toNat →
+      call f cost s.executionEnv.blobVersionedHashes gas source recipient t value value' io is oo os perm
+        { s with execLength := s.execLength + 1 } ≠ .error .OutOfFuel) :
+    step (f+1) cost (some (.DELEGATECALL, a)) s ≠ .error .OutOfFuel := by
+  intro hc
+  dsimp only [step] at hc
+  simp only [bind, Except.bind, pure, Except.pure] at hc
+  set ev : State := { s with execLength := s.execLength + 1 } with hev
+  split at hc
+  · rename_i err heq
+    exact liftM_ne_OutOfFuel _ ((Except.error.inj hc) ▸ heq)
+  · rename_i tup hpopl
+    have hpop : s.stack.pop6 = some tup := pop_of_liftM _ _ hpopl
+    obtain ⟨tl, b, c, d, e2, ff, gg⟩ := tup
+    obtain ⟨hi0, hi1⟩ := pop6_stack_index s.stack tl b c d e2 ff gg hpop
+    split at hc
+    · rename_i err hcalleq
+      have herr : err = EVM.ExecutionException.OutOfFuel := Except.error.inj hc
+      refine hcall b (UInt256.ofNat s.executionEnv.source) (UInt256.ofNat s.executionEnv.codeOwner) c ⟨0⟩ s.executionEnv.weiValue d e2 ff gg s.executionEnv.perm ?_ (herr ▸ hcalleq)
+      rw [accountAddr_roundtrip]
+      have hC : C' s .DELEGATECALL = Ccall (AccountAddress.ofUInt256 s.stack[1]!)
+          s.executionEnv.codeOwner ⟨0⟩ s.stack[0]! s.accountMap s.toMachineState s.substate := rfl
+      calc Ccallgas (AccountAddress.ofUInt256 c) s.executionEnv.codeOwner ⟨0⟩ b ev.accountMap ev.toMachineState ev.substate
+          ≤ Ccall (AccountAddress.ofUInt256 c) s.executionEnv.codeOwner ⟨0⟩ b s.accountMap s.toMachineState s.substate :=
+            Ccallgas_le_Ccall _ _ _ _ _ _ _
+        _ = C' s .DELEGATECALL := by rw [hC, ← hi0, ← hi1]
+        _ = cost := hcost.symm
+        _ ≤ ev.gasAvailable.toNat := hcle
+    · exact absurd hc (by simp)
+
+set_option maxHeartbeats 4000000 in
+/-- **STATICCALL-arm `step` never-`OutOfFuel`.** `value = 0`; recipient
+`= .ofUInt256 μ₁` matches `C' .STATICCALL` directly (no round-trip). -/
+theorem noOOF_step_staticcall_bound (f cost : ℕ) (a) (s : State)
+    (hcle : cost ≤ s.gasAvailable.toNat)
+    (hcost : cost = C' s .STATICCALL)
+    (hcall : ∀ (gas source recipient t value value' io is oo os : UInt256) (perm : Bool),
+      Ccallgas (AccountAddress.ofUInt256 t) (AccountAddress.ofUInt256 recipient) value gas
+          ({ s with execLength := s.execLength + 1 } : State).accountMap
+          ({ s with execLength := s.execLength + 1 } : State).toMachineState
+          ({ s with execLength := s.execLength + 1 } : State).substate
+        ≤ ({ s with execLength := s.execLength + 1 } : State).gasAvailable.toNat →
+      call f cost s.executionEnv.blobVersionedHashes gas source recipient t value value' io is oo os perm
+        { s with execLength := s.execLength + 1 } ≠ .error .OutOfFuel) :
+    step (f+1) cost (some (.STATICCALL, a)) s ≠ .error .OutOfFuel := by
+  intro hc
+  dsimp only [step] at hc
+  simp only [bind, Except.bind, pure, Except.pure] at hc
+  set ev : State := { s with execLength := s.execLength + 1 } with hev
+  split at hc
+  · rename_i err heq
+    exact liftM_ne_OutOfFuel _ ((Except.error.inj hc) ▸ heq)
+  · rename_i tup hpopl
+    have hpop : s.stack.pop6 = some tup := pop_of_liftM _ _ hpopl
+    obtain ⟨tl, b, c, d, e2, ff, gg⟩ := tup
+    obtain ⟨hi0, hi1⟩ := pop6_stack_index s.stack tl b c d e2 ff gg hpop
+    split at hc
+    · rename_i err hcalleq
+      have herr : err = EVM.ExecutionException.OutOfFuel := Except.error.inj hc
+      refine hcall b (UInt256.ofNat s.executionEnv.codeOwner) c c ⟨0⟩ ⟨0⟩ d e2 ff gg false ?_ (herr ▸ hcalleq)
+      have hC : C' s .STATICCALL = Ccall (AccountAddress.ofUInt256 s.stack[1]!)
+          (AccountAddress.ofUInt256 s.stack[1]!) ⟨0⟩ s.stack[0]! s.accountMap s.toMachineState s.substate := rfl
+      calc Ccallgas (AccountAddress.ofUInt256 c) (AccountAddress.ofUInt256 c) ⟨0⟩ b ev.accountMap ev.toMachineState ev.substate
+          ≤ Ccall (AccountAddress.ofUInt256 c) (AccountAddress.ofUInt256 c) ⟨0⟩ b s.accountMap s.toMachineState s.substate :=
+            Ccallgas_le_Ccall _ _ _ _ _ _ _
+        _ = C' s .STATICCALL := by rw [hC, ← hi0, ← hi1]
+        _ = cost := hcost.symm
+        _ ≤ ev.gasAvailable.toNat := hcle
+    · exact absurd hc (by simp)
 
 /-! ## A1 — Stage-3 prerequisites for the never-`OutOfFuel` mutual induction
 
