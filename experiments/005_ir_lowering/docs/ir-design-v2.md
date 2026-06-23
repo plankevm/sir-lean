@@ -161,10 +161,17 @@ Refinements this surfaced (now part of the design):
 - **`gasReads` is the gasRead *subsequence*** (it ignores `call`/other events) — the right
   semantics once events interleave; "holds across calls" is precisely a `call` between two
   reads.
-- **A general `Runs`-level `gasAvailable.toNat`-non-increasing lemma (threading `.call`
-  nodes via the 63/64 net-debit) is still owed** for the *general* (non-concrete-program)
-  theorem. Exact `subCharges` suffices per-program; the general lowering needs the lemma —
-  that is where §3.4's "holds across calls" becomes a real proof. **(Being proved next.)**
+- **✅ The general `Runs`-level gas-monotonicity lemma is now PROVED, hypothesis-free,
+  axiom-clean** (`BytecodeLayer/Hoare/GasMonotone.lean`, on the `Spec.lean` audit surface):
+  `Runs.gasAvailable_le : Runs fr last → last.gasAvailable.toNat ≤ fr.gasAvailable.toNat`,
+  with the `.call` net-debit discharged as `CallReturns.gas_le` (no side-condition — a
+  `Runs.call` node already bundles the returning child). Supporting:
+  `drive_gasRemaining_le_totalGas` (the one genuinely-new fact — exp003 had only the
+  *termination* measure, never a gas-conservation bound) + `StepsTo.gas_le`. **§3.4's "holds
+  across calls" is now a real proof, not a remark.** The general v2 theorem cites
+  `Runs.gasAvailable_le` for any two gas reads on its witness `Runs`, no concrete-program
+  assumption, no per-opcode cost — confirming "already-owned machinery, no new gas theory"
+  at the general level (every per-transition bound was an existing lemma).
 
 > Note: this means v2 has **no gas counter at all** — neither for accounting (rejected)
 > nor for introspection (it's an event). The only surviving gas fact is the caller-local
