@@ -917,6 +917,88 @@ theorem wcResumed_sload7 (g : UInt64) :
     callerXfer accts callerAccount calleeAccount callerEnv wcChildEnv
   decide
 
+/-! ### The resumed gas
+
+The resumed frame's gas is `machineWithOutput.gasAvailable + result.gasRemaining`
+(`resumeAfterCall`): the caller's post-CALL-charge gas (`callerCharged`, which keeps
+`g − 22128 − (callGasCap + 2600)`) plus the child's leftover
+(`wcChildGas − 22106 = callGasCap − 22106`). The `callGasCap` **cancels**, leaving
+`g − 22128 − 2600 − 22106 = g − 46834` — independent of the (large) forwarded gas.
+We prove the lower bound `46834 + N ≤ g → N ≤ resumed gas` over UInt64 (no
+intermediate wraparound for `g` in range), giving the post-CALL run its gas. -/
+
+/-- The child's leftover gas equals `wcChildGas g − 22106` (3+3 for the two pushes,
+22100 for the cold SSTORE, 0 for STOP). -/
+theorem wcChildResult_gasRemaining (g : UInt64) (hg : 50000 ≤ g.toNat) :
+    (wcChildFrameRes g).toCallResult.gasRemaining.toNat = wcChildGas g - 22106 := by
+  have hcg := wcChildGas_lb g hg
+  have hcg2 := wcChildGas_ub g
+  have hofnat : (UInt64.ofNat (wcChildGas g)).toNat = wcChildGas g := by
+    rw [UInt64.toNat_ofNat']; exact Nat.mod_eq_of_lt (by omega)
+  unfold wcChildFrameRes endFrame
+  dsimp only [wcChildFrame, FrameResult.toCallResult, endCall]
+  show ((sstorePost (wcChildAfter2Push g) 7 5 []).gasAvailable).toNat = _
+  rw [show (sstorePost (wcChildAfter2Push g) 7 5 []).gasAvailable
+        = (wcChildAfter2Push g).gasAvailable - UInt64.ofNat (sstoreChargeOf (wcChildAfter2Push g) 7 5)
+        from rfl]
+  rw [show sstoreChargeOf (wcChildAfter2Push g) 7 5 = 22100 from
+      wc_sstoreChargeOf_child g (wcChildAfter2Push g) rfl rfl rfl rfl]
+  show ((UInt64.ofNat (wcChildGas g) - UInt64.ofNat 3 - UInt64.ofNat 3) - UInt64.ofNat 22100).toNat = _
+  rw [toNat_sub_ofNat _ 22100 (by
+        rw [toNat_sub_ofNat _ 3 (by rw [toNat_sub_ofNat _ 3 (by rw [hofnat]; omega) (by omega), hofnat]; omega) (by omega),
+            toNat_sub_ofNat _ 3 (by rw [hofnat]; omega) (by omega), hofnat]; omega) (by omega),
+      toNat_sub_ofNat _ 3 (by rw [toNat_sub_ofNat _ 3 (by rw [hofnat]; omega) (by omega), hofnat]; omega) (by omega),
+      toNat_sub_ofNat _ 3 (by rw [hofnat]; omega) (by omega), hofnat]
+  omega
+
+/-- The caller's post-CALL-charge gas (`callerCharged`), in `toNat`:
+`g − 22128 − (callGasCap + 2600)`, with `callGasCap = wcChildGas g`. -/
+theorem wc_callerCharged_gas (g : UInt64) (hg : 50000 ≤ g.toNat) :
+    (callerCharged (wcCallSite g).exec 0xCA11EE 0xFFFFFFFF).gasAvailable.toNat
+      = (g.toNat - 22128) - (wcChildGas g + 2600) := by
+  unfold callerCharged
+  dsimp only
+  rw [show callGasCap (AccountAddress.ofUInt256 0xCA11EE) (AccountAddress.ofUInt256 0xCA11EE) 0 0xFFFFFFFF
+          (wcCallSite g).exec.accounts (wcCallSite g).exec.gasAvailable (wcCallSite g).exec.substate
+        = wcChildGas g from by unfold wcChildGas; rw [← wcCallSite_acc],
+      wc_callExtraCost g]
+  -- callGasCap ≤ allButOneSixtyFourth (callSiteGas − 2600) ≤ callSiteGas − 2600 ≤ g − 24728
+  have hcap : wcChildGas g ≤ (g.toNat - 22128) - 2600 := by
+    unfold wcChildGas
+    rw [← wcCallSite_acc, callGasCap]
+    rw [if_pos (by rw [wc_callExtraCost, wc_gas_call_toNat g hg]; omega)]
+    rw [wc_callExtraCost, wc_gas_call_toNat g hg]
+    exact le_trans (min_le_left _ _) (Nat.sub_le _ _)
+  have hglt : g.toNat < 2 ^ 64 := g.toNat_lt
+  rw [toNat_sub_ofNat _ _ (by rw [wc_gas_call_toNat g hg]; omega) (by omega)]
+  rw [wc_gas_call_toNat g hg]
+
+/-- **The resumed gas, exact.** `callGasCap` cancels between the caller's post-CALL
+charge and the child's leftover, leaving `g − 46834` (`= g − 22128 − 2600 − 22106`).
+For `g ≥ 50000` this is `≥ 3166`. -/
+theorem wcResumed_gas (g : UInt64) (hg : 50000 ≤ g.toNat) :
+    (wcResumed g).exec.gasAvailable.toNat = g.toNat - 46834 := by
+  have hcc := wc_callerCharged_gas g hg
+  have hgr := wcChildResult_gasRemaining g hg
+  have hcglb := wcChildGas_lb g hg
+  have hglt : g.toNat < 2 ^ 64 := g.toNat_lt
+  -- callGasCap upper bound (so the gas pieces stay in range)
+  have hcap : wcChildGas g ≤ (g.toNat - 22128) - 2600 := by
+    unfold wcChildGas
+    rw [← wcCallSite_acc, callGasCap]
+    rw [if_pos (by rw [wc_callExtraCost, wc_gas_call_toNat g hg]; omega)]
+    rw [wc_callExtraCost, wc_gas_call_toNat g hg]
+    exact le_trans (min_le_left _ _) (Nat.sub_le _ _)
+  unfold wcResumed resumeAfterCall
+  dsimp only [ExecutionState.replaceStackAndIncrPC]
+  -- gasAfterReturn = machineWithOutput.gasAvailable + result.gasRemaining; the
+  -- machine's gas is the callerCharged gas (writeBytes preserves gas).
+  show ((callerCharged (wcCallSite g).exec 0xCA11EE 0xFFFFFFFF).gasAvailable
+          + (wcChildFrameRes g).toCallResult.gasRemaining).toNat = _
+  rw [UInt64.toNat_add, hcc, hgr]
+  rw [Nat.mod_eq_of_lt (by omega)]
+  omega
+
 /-! ## The general `RETURN` halt (materialised return window)
 
 The lowering's `ret t` emits `materialise t ++ [RETURN]`, so the `RETURN` consumes
