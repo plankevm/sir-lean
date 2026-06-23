@@ -1704,6 +1704,30 @@ theorem Ξ_outOfFuel_of_gas (f : ℕ)
     simp only [hr, bind, Except.bind]
     cases r <;> simp
 
+/-- Depth-aware refinement of `Ξ_outOfFuel_of_gas`: the fresh child state's
+`executionEnv.depth` is exactly `I.depth`, so the `hX` hypothesis may additionally
+assume `s.executionEnv.depth = I.depth` (alongside `s.gasAvailable = g`). This is what
+threads the depth index `I.depth` into the inner depth-aware `X` loop. -/
+theorem Ξ_outOfFuel_of_gas_depth (f : ℕ)
+    (createdAccounts : Batteries.RBSet AccountAddress compare)
+    (genesisBlockHeader : BlockHeader) (blocks : ProcessedBlocks)
+    (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv)
+    (hX : ∀ s : State, s.gasAvailable = g → s.executionEnv.depth = I.depth →
+      X f (D_J I.code ⟨0⟩) s ≠ .error .OutOfFuel) :
+    Ξ (f+1) createdAccounts genesisBlockHeader blocks σ σ₀ g A I ≠ .error .OutOfFuel := by
+  unfold Ξ
+  simp only []
+  cases hr : X f (D_J I.code ⟨0⟩) ({ (default : EVM.State) with accountMap := σ, σ₀ := σ₀, executionEnv := I, substate := A, createdAccounts := createdAccounts, gasAvailable := g, blocks := blocks, genesisBlockHeader := genesisBlockHeader }) with
+  | error e =>
+    intro hc
+    have : e = EVM.ExecutionException.OutOfFuel := by
+      simp only [hr, bind, Except.bind] at hc
+      exact (Except.error.inj hc)
+    exact hX _ rfl rfl (by rw [hr, this])
+  | ok r =>
+    simp only [hr, bind, Except.bind]
+    cases r <;> simp
+
 /-- `Θ (fuel+1)` on a **`Code`** call propagates `OutOfFuel` only from its inner
 `Ξ fuel` (the explicit `if e == .OutOfFuel then throw .OutOfFuel` re-throw): any
 other `Ξ`-error is swallowed into a `pure`, and on success the trailing `.ok` makes
@@ -1745,6 +1769,34 @@ theorem Θ_outOfFuel_of (fuel : ℕ) (bvh : List ByteArray)
       intro hc; exact Except.noConfusion hc
   | ok res =>
     -- success/revert both `pure`, then trailing `.ok`.
+    rcases res with ⟨g', o⟩ | ⟨⟨⟨a, b⟩, cc, dd⟩, o⟩ <;>
+      (intro hc; exact Except.noConfusion hc)
+
+/-- Depth-aware refinement of `Θ_outOfFuel_of`: the inner `Ξ fuel` runs at the
+`Θ`-built environment `I`, whose `depth` is exactly `e`. So the `hΞ` hypothesis may
+additionally assume `I.depth = e` — what threads the depth index into the depth-aware
+`Ξ`. (Same proof as `Θ_outOfFuel_of`; the built `I.depth = e` is `rfl`.) -/
+theorem Θ_outOfFuel_of_depth (fuel : ℕ) (bvh : List ByteArray)
+    (createdAccounts : Batteries.RBSet AccountAddress compare)
+    (genesisBlockHeader : BlockHeader) (blocks : ProcessedBlocks)
+    (σ σ₀ : AccountMap) (A : Substate) (s o r : AccountAddress) (code : ByteArray)
+    (g p v v' : UInt256) (d : ByteArray) (e : Nat) (Hd : BlockHeader) (w : Bool)
+    (hΞ : ∀ (σ₁ : AccountMap) (I : ExecutionEnv), I.depth = e →
+      Ξ fuel createdAccounts genesisBlockHeader blocks σ₁ σ₀ g A I ≠ .error .OutOfFuel) :
+    Θ (fuel+1) bvh createdAccounts genesisBlockHeader blocks σ σ₀ A s o r (.Code code)
+        g p v v' d e Hd w ≠ .error .OutOfFuel := by
+  simp only [Θ, bind, Except.bind]
+  set I : ExecutionEnv := _ with hI
+  set σ₁ : AccountMap := _ with hσ₁
+  cases hr : Ξ fuel createdAccounts genesisBlockHeader blocks σ₁ σ₀ g A I with
+  | error ee =>
+    by_cases hee : ee = EVM.ExecutionException.OutOfFuel
+    · exact absurd (hee ▸ hr) (hΞ σ₁ I (by rw [hI]))
+    · have hb : (ee == EVM.ExecutionException.OutOfFuel) = false := by
+        cases ee <;> first | rfl | exact absurd rfl hee
+      simp only [hb, if_false, Bool.false_eq_true]
+      intro hc; exact Except.noConfusion hc
+  | ok res =>
     rcases res with ⟨g', o⟩ | ⟨⟨⟨a, b⟩, cc, dd⟩, o⟩ <;>
       (intro hc; exact Except.noConfusion hc)
 
@@ -1823,6 +1875,21 @@ theorem call_outOfFuel_of_gas (f : ℕ) (gasCost : Nat) (bvh : List ByteArray)
       have herr : err = EVM.ExecutionException.OutOfFuel := Except.error.inj hc
       exact (hΘ _ _ _ _ _ _ _ _ _ _ _) (herr ▸ heq)
     · intro hc; exact Except.noConfusion hc
+  · intro hc; exact Except.noConfusion hc
+
+/-- **`call` at the depth cap (`Iₑ ≥ 1024`) never `OutOfFuel`, unconditionally.** The
+recursion guard `value ≤ balance ∧ Iₑ < 1024` is false (`Iₑ ≥ 1024`), so the `else`
+branch is taken — no `Θ` recursion, the result assembles to `.ok`. This handles the
+edge case the never-OOF induction reaches at `e = 1024` (where the child depth `e+1`
+would exceed the bound and the `Θ`-IH is unavailable). -/
+theorem call_noOOF_of_depth_cap (f : ℕ) (gasCost : Nat) (bvh : List ByteArray)
+    (gas source recipient t value value' inOffset inSize outOffset outSize : UInt256)
+    (permission : Bool) (s : EVM.State) (hdep : 1024 ≤ s.executionEnv.depth) :
+    call (f+1) gasCost bvh gas source recipient t value value' inOffset inSize outOffset outSize
+      permission s ≠ .error .OutOfFuel := by
+  simp only [call, bind, Except.bind]
+  split
+  · rename_i hcond; exfalso; omega
   · intro hc; exact Except.noConfusion hc
 
 /-- `Lambda (f+1)` (contract creation, `CREATE`/`CREATE2`) emits `OutOfFuel` only
@@ -3887,6 +3954,15 @@ theorem fuelBound_pos (g e : ℕ) (he : e ≤ 1024) : 1 ≤ fuelBound g e := by
   calc 1 = 1 * 1 := by ring
     _ ≤ (1025 - e) * (g + fuelHops) := Nat.mul_le_mul this (by simp [fuelHops])
 
+/-- `B g e ≥ g + c` for `e ≤ 1024`: the depth factor `(1025−e) ≥ 1`, so one copy of
+`(g + fuelHops)` is always present. This is the per-descent headroom the `call → Θ`
+depth bump spends (`fuelHops = 8 ≥ 5` covers the `Θ→Ξ→X→step→call` hop chain). -/
+theorem fuelBound_ge (g e : ℕ) (he : e ≤ 1024) : g + fuelHops ≤ fuelBound g e := by
+  unfold fuelBound
+  have : 1 ≤ 1025 - e := by omega
+  calc g + fuelHops = 1 * (g + fuelHops) := by ring
+    _ ≤ (1025 - e) * (g + fuelHops) := Nat.mul_le_mul this (le_refl _)
+
 /-! ## A1 STAGE 1 — the gas-monotonicity mutual induction (assembly)
 
 All per-layer gas-monotonicity reductions are proved above; this stage ties them
@@ -4409,6 +4485,178 @@ theorem noOOF_step_staticcall_bound (f cost : ℕ) (a) (s : State)
         _ = cost := hcost.symm
         _ ≤ ev.gasAvailable.toNat := hcle
     · exact absurd hc (by simp)
+
+/-! ## A1 STAGE 3 — the 5-layer never-`OutOfFuel` mutual induction
+
+One strong induction on `fuel`, bundling the five recursing layers
+(`Θ`/`Ξ`/`X`/`step`/`call` — **no `Lambda`**: CREATE/CREATE2 `step`s are
+*unconditionally* never-`OutOfFuel`, swallowing the child `Lambda`'s `OutOfFuel` into a
+result tuple). Each conjunct reads `fuelBound gas depth + kₗ ≤ n → layer … ≠
+OutOfFuel`, with the ℕ-encoded per-layer offsets
+
+    k_Θ = 3,  k_Ξ = 2,  k_X = 1 (= the loop's `+1`),  k_step = 0,  k_call: `fuelBound ≤ n+1`
+
+(the negation of the doc's `C_L = −3/−2/−1/0/+1`; the doc's "C_X = −1 = the loop's +1"
+already flags this sign convention). Each same-depth hop (`Θ→Ξ→X→step→call`) drops fuel
+by 1 and raises `k` by 1, so the bound is preserved by a trivial `omega`; the single
+depth bump (`call → Θ`, `Θ.e := Iₑ+1`) spends the `(gas + fuelHops)` `fuelBound_succ`
+peel (`fuelHops = 8 ≥ 5` covers the per-level hop chain). The `X` loop's per-iteration
+descent + depth-invariance is internalised by `X_loop_noOOF_bound` (Stage 2b). -/
+
+/-- `step n` never-`OutOfFuel` (predicate, `k_step = 0`). -/
+def step_noOOF_at (n : ℕ) : Prop :=
+  ∀ (cost : ℕ) (w : Operation) (arg) (s : State),
+    s.executionEnv.depth ≤ 1024 →
+    fuelBound s.gasAvailable.toNat s.executionEnv.depth ≤ n →
+    cost ≤ s.gasAvailable.toNat → cost = C' s w →
+    step n cost (some (w, arg)) s ≠ .error .OutOfFuel
+
+/-- `call n` never-`OutOfFuel` (predicate, `k_call`: `fuelBound ≤ n + 1`). Carries the
+forwarded-gas bound `Ccallgas (call-args) ≤ ev.gas` (discharged by the `step` arms). -/
+def call_noOOF_at (n : ℕ) : Prop :=
+  ∀ (cost : ℕ) (bvh : List ByteArray)
+    (gas source recipient t value value' io is oo os : UInt256) (perm : Bool) (ev : State),
+    ev.executionEnv.depth ≤ 1024 →
+    fuelBound ev.gasAvailable.toNat ev.executionEnv.depth ≤ n + 1 →
+    Ccallgas (AccountAddress.ofUInt256 t) (AccountAddress.ofUInt256 recipient) value gas
+      ev.accountMap ev.toMachineState ev.substate ≤ ev.gasAvailable.toNat →
+    call n cost bvh gas source recipient t value value' io is oo os perm ev ≠ .error .OutOfFuel
+
+/-- `Θ n` never-`OutOfFuel` (predicate, `k_Θ = 3`). -/
+def Θ_noOOF_at (n : ℕ) : Prop :=
+  ∀ (bvh : List ByteArray) (cA : Batteries.RBSet AccountAddress compare)
+    (gh : BlockHeader) (blocks : ProcessedBlocks) (σ σ₀ : AccountMap) (A : Substate)
+    (s o r : AccountAddress) (c : ToExecute) (g p v v' : UInt256) (d : ByteArray)
+    (e : Nat) (Hd : BlockHeader) (w : Bool),
+    e ≤ 1024 → fuelBound g.toNat e + 3 ≤ n →
+    Θ n bvh cA gh blocks σ σ₀ A s o r c g p v v' d e Hd w ≠ .error .OutOfFuel
+
+/-- `Ξ n` never-`OutOfFuel` (predicate, `k_Ξ = 2`; depth index `= I.depth`). -/
+def Ξ_noOOF_at (n : ℕ) : Prop :=
+  ∀ (cA : Batteries.RBSet AccountAddress compare) (gh : BlockHeader) (blocks : ProcessedBlocks)
+    (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv),
+    I.depth ≤ 1024 → fuelBound g.toNat I.depth + 2 ≤ n →
+    Ξ n cA gh blocks σ σ₀ g A I ≠ .error .OutOfFuel
+
+/-- `X n` never-`OutOfFuel` (predicate, `k_X = 1`; depth index `= s.depth`). -/
+def X_noOOF_at (n : ℕ) : Prop :=
+  ∀ (vj : Array UInt256) (s : State),
+    s.executionEnv.depth ≤ 1024 →
+    fuelBound s.gasAvailable.toNat s.executionEnv.depth + 1 ≤ n →
+    X n vj s ≠ .error .OutOfFuel
+
+set_option maxHeartbeats 4000000 in
+/-- **The never-`OutOfFuel` mutual induction (Stage 3).** One strong induction on
+`fuel`, bundling the five recursing layers with the depth-aware `fuelBound` and the
+per-layer offsets. The strong IH at every `m < n` discharges each reduction's
+sub-layer hypothesis at the correct smaller fuel (`X` via `X_loop_noOOF_bound` fed the
+`step` conjunct; `call → Θ` via `call_outOfFuel_of_gas` + `fuelBound_succ` + the
+forwarded-gas bound). -/
+theorem never_oof : ∀ n,
+    step_noOOF_at n ∧ call_noOOF_at n ∧ Θ_noOOF_at n ∧ Ξ_noOOF_at n ∧ X_noOOF_at n := by
+  intro n
+  induction n using Nat.strong_induction_on with
+  | _ n ih =>
+    have ihstep : ∀ m, m < n → step_noOOF_at m := fun m hm => (ih m hm).1
+    have ihcall : ∀ m, m < n → call_noOOF_at m := fun m hm => (ih m hm).2.1
+    have ihΘ : ∀ m, m < n → Θ_noOOF_at m := fun m hm => (ih m hm).2.2.1
+    have ihΞ : ∀ m, m < n → Ξ_noOOF_at m := fun m hm => (ih m hm).2.2.2.1
+    have ihX : ∀ m, m < n → X_noOOF_at m := fun m hm => (ih m hm).2.2.2.2
+    -- == X conjunct ==
+    have hX : X_noOOF_at n := by
+      intro vj s hsD hb
+      refine X_loop_noOOF_bound vj s.executionEnv.depth hsD n ?_ n (le_refl n) s rfl hb
+      -- the loop's `hstep` from the `step` conjunct of the IH (step at `f < n`).
+      intro f hfn w arg cost s2 hs2D hs2b hcle hcost
+      have := ihstep f hfn cost w arg s2 (by rw [hs2D]; exact hsD) (by rw [hs2D]; exact hs2b) hcle hcost
+      exact this
+    -- == step conjunct ==
+    have hstep : step_noOOF_at n := by
+      intro cost w arg s hsD hb hcle hcost
+      cases n with
+      | zero => exfalso; have := fuelBound_pos s.gasAvailable.toNat s.executionEnv.depth hsD; omega
+      | succ m =>
+        by_cases hcc : isCallCreate w
+        · unfold isCallCreate at hcc
+          rcases hcc with rfl | rfl | rfl | rfl | rfl | rfl
+          · exact noOOF_step_create m cost arg s
+          · exact noOOF_step_create2 m cost arg s
+          · refine noOOF_step_call_bound m cost arg s hcle hcost ?_
+            intro gas source recipient t value value' io is oo os perm hccg
+            exact ihcall m (by omega) cost s.executionEnv.blobVersionedHashes gas source recipient t value value' io is oo os perm
+              { s with execLength := s.execLength + 1 } (by exact hsD) (by simpa using hb) hccg
+          · refine noOOF_step_callcode_bound m cost arg s hcle hcost ?_
+            intro gas source recipient t value value' io is oo os perm hccg
+            exact ihcall m (by omega) cost s.executionEnv.blobVersionedHashes gas source recipient t value value' io is oo os perm
+              { s with execLength := s.execLength + 1 } (by exact hsD) (by simpa using hb) hccg
+          · refine noOOF_step_delegatecall_bound m cost arg s hcle hcost ?_
+            intro gas source recipient t value value' io is oo os perm hccg
+            exact ihcall m (by omega) cost s.executionEnv.blobVersionedHashes gas source recipient t value value' io is oo os perm
+              { s with execLength := s.execLength + 1 } (by exact hsD) (by simpa using hb) hccg
+          · refine noOOF_step_staticcall_bound m cost arg s hcle hcost ?_
+            intro gas source recipient t value value' io is oo os perm hccg
+            exact ihcall m (by omega) cost s.executionEnv.blobVersionedHashes gas source recipient t value value' io is oo os perm
+              { s with execLength := s.execLength + 1 } (by exact hsD) (by simpa using hb) hccg
+        · exact noOOF_step_default m cost w arg s hcc
+    -- == call conjunct ==
+    have hcall : call_noOOF_at n := by
+      intro cost bvh gas source recipient t value value' io is oo os perm ev hevD hb hccg
+      cases n with
+      | zero =>
+        exfalso
+        have := fuelBound_ge ev.gasAvailable.toNat ev.executionEnv.depth hevD
+        simp only [fuelHops] at this; omega
+      | succ m =>
+        by_cases hd : ev.executionEnv.depth < 1024
+        · refine call_outOfFuel_of_gas m cost bvh gas source recipient t value value' io is oo os perm ev ?_
+          intro Asub src o rcpt c p vv vv' dd Hd w
+          -- child `Θ m` at the forwarded gas `.ofNat callgas`, depth `ev.depth + 1`.
+          set callgas := Ccallgas (AccountAddress.ofUInt256 t) (AccountAddress.ofUInt256 recipient) value gas
+            ev.accountMap ev.toMachineState ev.substate with hcg
+          have hcgsz : callgas < UInt256.size :=
+            Nat.lt_of_le_of_lt hccg ev.gasAvailable.val.isLt
+          have hcgtoNat : (UInt256.ofNat callgas).toNat = callgas := by
+            show (Fin.ofNat _ callgas).val = callgas
+            simp only [Fin.ofNat, Fin.val_ofNat]; exact Nat.mod_eq_of_lt hcgsz
+          refine ihΘ m (by omega) bvh ev.createdAccounts ev.genesisBlockHeader ev.blocks
+            ev.accountMap ev.σ₀ Asub src o rcpt c (.ofNat callgas) p vv vv' dd (ev.executionEnv.depth + 1) Hd w
+            (by omega) ?_
+          -- the fuel premise: `fuelBound callgas (Iₑ+1) + 3 ≤ m` via `fuelBound_succ`.
+          rw [hcgtoNat]
+          have hmono : fuelBound callgas (ev.executionEnv.depth + 1)
+              ≤ fuelBound ev.gasAvailable.toNat (ev.executionEnv.depth + 1) :=
+            fuelBound_mono_gas _ hccg
+          have hsucc := fuelBound_succ ev.gasAvailable.toNat ev.executionEnv.depth (by omega)
+          simp only [fuelHops] at hsucc
+          omega
+        · exact call_noOOF_of_depth_cap m cost bvh gas source recipient t value value' io is oo os perm ev (by omega)
+    -- == Θ conjunct ==
+    have hΘ : Θ_noOOF_at n := by
+      intro bvh cA gh blocks σ σ₀ A s o r c g p v v' d e Hd w he hb
+      cases n with
+      | zero => exfalso; have := fuelBound_pos g.toNat e he; omega
+      | succ m =>
+        cases c with
+        | Code code =>
+          refine Θ_outOfFuel_of_depth m bvh cA gh blocks σ σ₀ A s o r code g p v v' d e Hd w ?_
+          intro σ₁ I hId
+          -- the child `Ξ m` runs at gas `g`, env `I` with `I.depth = e`.
+          refine ihΞ m (by omega) cA gh blocks σ₁ σ₀ g A I (by rw [hId]; exact he) ?_
+          rw [hId]; omega
+        | Precompiled pc =>
+          exact Θ_precompiled_never_outOfFuel m bvh cA gh blocks σ σ₀ A s o r pc g p v v' d e Hd w
+    -- == Ξ conjunct ==
+    have hΞ : Ξ_noOOF_at n := by
+      intro cA gh blocks σ σ₀ g A I hID hb
+      cases n with
+      | zero => exfalso; have := fuelBound_pos g.toNat I.depth hID; omega
+      | succ m =>
+        refine Ξ_outOfFuel_of_gas_depth m cA gh blocks σ σ₀ g A I ?_
+        intro s hsg hsD
+        refine ihX m (by omega) (D_J I.code ⟨0⟩) s ?_ ?_
+        · rw [hsD]; exact hID
+        · rw [hsD, hsg]; omega
+    exact ⟨hstep, hcall, hΘ, hΞ, hX⟩
 
 /-! ## A1 — Stage-3 prerequisites for the never-`OutOfFuel` mutual induction
 

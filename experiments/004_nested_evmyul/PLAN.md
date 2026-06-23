@@ -59,6 +59,22 @@ composing naturally (the thing flat makes hard).
 > branch; do not touch other tracks. Report the final build status + what was stripped.
 
 ## Progress log
+- 2026-06-23 (A1 Task 2 — the 5-layer `never_oof` mutual induction (Stage 3) DONE).
+  `lake build NestedEvmYul.NeverOutOfFuel` GREEN; `#print axioms never_oof` ⊆
+  `[propext, Classical.choice, Quot.sound]`; grep-clean. `never_oof : ∀ n,
+  step_noOOF_at n ∧ call_noOOF_at n ∧ Θ_noOOF_at n ∧ Ξ_noOOF_at n ∧ X_noOOF_at n` by
+  ONE `Nat.strong_induction_on` bundling the five recursing layers (NO `Lambda` —
+  CREATE/CREATE2 `step`s are unconditional, via `noOOF_step_create`/`create2`). ℕ
+  offsets `k_Θ=3, k_Ξ=2, k_X=1, k_step=0, k_call`(premise `fuelBound ≤ n+1`); every
+  same-depth hop closes by `omega`; the `call→Θ` depth bump (`e := Iₑ+1`) by
+  `fuelBound_succ` + `fuelBound_mono_gas` + the forwarded-gas bound (the `(g+8)` peel,
+  `fuelHops=8`). The `X` loop is internalised by `X_loop_noOOF_bound`. New supporting
+  lemmas (all axiom-clean): `fuelBound_ge` (`g + fuelHops ≤ B g e`, discharges the
+  fuel-0 `call` base case), `Θ_outOfFuel_of_depth` (pins `I.depth = e` in the `Ξ`
+  hypothesis), `Ξ_outOfFuel_of_gas_depth` (pins the fresh state's `depth = I.depth`),
+  `call_noOOF_of_depth_cap` (`Iₑ ≥ 1024` ⇒ `call` never OOF unconditionally — the
+  edge the induction reaches where the child depth `e+1` would exceed 1024 and the
+  `Θ`-IH is unavailable). NO `Lambda` conjunct needed.
 - 2026-06-23 (A1 Task 1 — `step` CALL-family never-OOF arms DONE). `lake build
   NestedEvmYul.NeverOutOfFuel` GREEN; `#print axioms` ⊆ `[propext, Classical.choice,
   Quot.sound]`; grep-clean. Added `noOOF_step_{call,callcode,delegatecall,staticcall}_bound`
