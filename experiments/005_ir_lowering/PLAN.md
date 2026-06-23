@@ -27,25 +27,25 @@ bridges). The IR's job is to exercise the three primitives we actually need:
   runnable EVM byte stream for the full single-call surface; decode-compatibility
   is build-enforced by `LirLean/Decode.lean` (`example … := by rfl` at every pc of
   a worked single-call program). See the C2 log entry below.
-- [~] **C3** Prove lowering preserves semantics via exp003's `Runs` machinery.
-  → IN PROGRESS (nearly closed): small-step IR semantics + `Match` + per-construct
-  simulation lemmas + boundary discharge + generic `decode_lower` + offset-table `M1`
-  (all green, axiom-clean), AND the **concrete `Runs` assembly for the worked
-  single-call program** `workedCall`: the genuine straight-line prefix run
-  (`wc_prefix_runs`), the CALL step (`wc_call_step`), and `lower_preserves` for
-  `workedCall` discharged across `messageCall_runs` (`wc_preserves`). The
-  `validJumpDests`-gated branch terminator is now CLOSED (Track A detotalized
-  `validJumpDests`; see C3e), AND the **concrete child `CallReturns`** is now CLOSED
-  (`wc_callReturns`, hypothesis-free; `wc_preserves` dropped `hcall` — see C3f). ONE
-  honest remainder (NOT stubbed) blocks a *fully self-contained* end-to-end closure:
-  the **post-CALL run** (`hpost`/`hhalt` of `wc_preserves`) — block-0 recompute, taken
-  `JUMPI`, block 1's `RETURN`. See the C3f log entry below.
+- [x] **C3** Prove lowering preserves semantics via exp003's `Runs` machinery.
+  → **CLOSED (C3g): `wc_preserves` is FULLY HYPOTHESIS-FREE and axiom-clean.** The
+  whole `workedCall` execution is now concrete end-to-end: small-step IR semantics +
+  `Match` + per-construct simulation + boundary discharge + generic `decode_lower` +
+  offset-table `M1`; the genuine straight-line prefix run (`wc_prefix_runs`), the CALL
+  step (`wc_call_step`), the concrete child `CallReturns` (`wc_callReturns`; C3f), the
+  `validJumpDests`-gated branch terminator (C3e), AND — new in C3g — the **post-CALL
+  run** (`wcPostRun`: block-0 recompute → taken `JUMPI` → block-1 recompute) plus the
+  **terminal `RETURN` halt** (`wcRetFrame_halts`, via the general `stepFrame_return_halts`).
+  `wc_preserves (g) (hg : 50000 ≤ g.toNat)` now takes ONLY the program (implicit) and
+  the gas knob, dropping the last `hpost`/`hhalt` hypotheses. `#print axioms` =
+  `[propext, Classical.choice, Quot.sound]`. See the C3g log entry below.
 - [~] **C4** Acceptance check: multi-call composition. RESOLVED structurally:
   `wc_preserves_twoCall` closes a two-CALL worked program via the same bridge
   discharge (the bridge composes any number of `Runs.call` nodes) — no new theory
-  needed. The remaining gap is identical to C3's (concrete child `CallReturns`s +
-  post-CALL runs), not a multi-call-specific blocker; the branch terminator is
-  closed (C3e).
+  needed. It stays a generic *shape* lemma (takes the two-call assembly as
+  hypotheses) because `workedCall` has only one CALL; with C3g every concrete piece
+  it would need (child `CallReturns`, post-CALL run, RETURN halt) is now proved, so a
+  genuine two-call program closes hypothesis-free by the same recipe.
 
 ## Agent brief (durable — re-spawn from this verbatim)
 > Work ONLY in `/Users/eduardo/workspace/evm-semantics-wt/ir-lowering`, branch
@@ -699,3 +699,54 @@ required for the full single-/multi-call preservation theorem.
   the headline child-`CallReturns` blocker is gone (`hcall` dropped), the prefix + CALL
   are both concrete, and only the post-CALL run (`hpost`/`hhalt`) remains, with its
   foundation proved and the three sub-pieces documented precisely.
+
+- 2026-06-22 (C3g): **`wc_preserves` is FULLY HYPOTHESIS-FREE — the post-CALL run is
+  closed end-to-end. Build green (1130 jobs), axiom-clean.** This closes C3f's single
+  remaining honest remainder (the `hpost`/`hhalt` post-CALL run). `wc_preserves (g) (hg)`
+  now takes ONLY the program (implicit) + the gas knob `g ≥ 50000`:
+  `∃ halt, messageCall (wcParams g) = .ok (toCallResult (endFrame (wcRetFrame g) halt))`.
+  `#print axioms wc_preserves` / `wc_preserves_twoCall` / `wcPostRun` /
+  `wcRetFrame_halts` / `stepFrame_return_halts` = `[propext, Classical.choice, Quot.sound]`
+  (verified by grep: every `sorry`/`axiom`/`native_decide` token in `LirLean/*.lean` is
+  in a comment).
+
+  **The three C3f sub-pieces, all closed:**
+  1. **Resumed gas (exact, the `allButOneSixtyFourth` cancellation).** `wcResumed_gas`:
+     the resumed gas is `g − 46834` — the `callGasCap` **cancels** between the caller's
+     post-CALL charge (`wc_callerCharged_gas = (g−22128) − (callGasCap+2600)`) and the
+     child's leftover (`wcChildResult_gasRemaining = wcChildGas − 22106 = callGasCap −
+     22106`). Threaded through `UInt64.toNat_add`/`toNat_sub_ofNat` with the
+     `callGasCap ≤ (g−24728)` bound so nothing wraps. For `g ≥ 50000` resumed `≥ 3166`,
+     and the post-CALL run spends only `244 (+3 RETURN mem)`, so `g ≥ 50000` suffices.
+  2. **SLOAD value over the child-committed map.** `wcResumed_acc`: the resumed accounts
+     is the named `g`-free `wcResumedAccounts` (= the child post-SSTORE map, via
+     `sstore_accounts_congr` — no deep reduction). `wcResumed_sload7`: the caller
+     (`addrCaller`) slot 7 there is still `5` (the child wrote `0xCA11EE`'s slot), so the
+     recomputed `lt = (5+9) < 100 = 1` ⇒ the `JUMPI` is taken (`wc_get_dest_414`).
+     `wcResumed_warm7`: that slot is warm (block-0 SSTORE's `(addrCaller,7)` survives the
+     CALL), so each post-CALL `SLOAD` costs `100`.
+  3. **General `RETURN` halt.** `stepFrame_return_halts`: at any frame decoding to
+     `RETURN` with `offset :: size :: rest` whose `chargeMemExpansion` succeeds,
+     `stepFrame` halts (existence form — the bridge needs only `∃ halt`). For the
+     materialised `ret t` the `RETURN` consumes `offset = 1, size = 1` (the `lt` result
+     on top, the residual CALL flag below), `Cₘ 1 − Cₘ 0 = 3 ≤ gas` ⇒ `wcRetFrame_halts`.
+     The exp003 `stepFrame_return_empty` (the `0,0` shape) does not cover this.
+
+  **The post-CALL run (`wcPostRun`).** A `Runs.trans` chain of the exp003 opcode rules
+  over the named post-CALL frames (`wcRec0Push3 … wcRetFrame`): block-0 recompute
+  (`PUSH 100; PUSH 9; PUSH 7; SLOAD=5; ADD=14; LT=1`) → `PUSH4 414` → taken `JUMPI` to
+  block 1 → `JUMPDEST` → block-1 recompute → the `RETURN` frame (pc 517, stack `[1,1]`).
+  Decode at every pc via `wcd_*` (kernel `rfl` threaded off `wcResumed_code`/`_pc`); gas
+  via `subCharges`/`wcSub_gas_ge` (warm SLOAD = 100, `wcChain_gas`/`_toNat`); the taken
+  branch via `wc_get_dest_414` on `wcResumed_validJumps`.
+
+  `wc_preserves` then glues `wc_prefix_runs · Runs.call wc_callReturns · wcPostRun` into
+  one `Runs (wcFrame g) (wcRetFrame g)` and crosses the bridge once with
+  `lower_preserves_discharge`, supplying `wcRetFrame_halts` for the halt.
+
+  **`wc_preserves_twoCall` stays a generic SHAPE lemma** (it still takes the two-call
+  assembly as hypotheses) because `workedCall` has exactly **one** external CALL — there
+  is no concrete two-call program here to instantiate the pieces from. It records that
+  the bridge composes any number of concrete `CallReturns` nodes (each closeable exactly
+  like `wc_callReturns`), so a genuine two-call program would close with no extra theory.
+  The single concrete deliverable, `wc_preserves`, is the one that is hypothesis-free.
