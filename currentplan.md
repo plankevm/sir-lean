@@ -300,6 +300,13 @@ your own branch with clear messages; never touch another track's files; if block
 write the blocker into PLAN.md before stopping.
 
 ## Orchestration log
+- 2026-06-22: **C child `CallReturns` CLOSED — kernel-cost wall defeated** (`54b2c7b`, green
+  1130). `wc_callReturns` is hypothesis-free (`g`-independent `wcStoredAccounts` +
+  `sstore_accounts_congr` dodges the deep-map reduction); `wc_preserves` no longer takes
+  `hcall`. ONLY the post-CALL run (`hpost`/`hhalt`) remains — final close launched (block-0
+  recompute → taken JUMPI → block-1 RETURN; needs a general `RETURN` halt lemma + resumed-gas
+  bound + SLOAD-value/branch-taken). After this, `wc_preserves`/`_twoCall` are FULLY
+  hypothesis-free. Still running: B2 mutual-induction crux.
 - 2026-06-22: **B2 items 1–2 DONE** (`f460066`, green, axiom-clean; a long 100-min run):
   gas-decrement chain + `X` measure descent proved; item 3 down-payment. Launched the
   **crux attempt** (item 3 finish + item 4 mutual induction, strong-induction-on-fuel
