@@ -1076,4 +1076,116 @@ theorem Θ_outOfFuel_of (fuel : ℕ) (bvh : List ByteArray)
     rcases res with ⟨g', o⟩ | ⟨⟨⟨a, b⟩, cc, dd⟩, o⟩ <;>
       (intro hc; exact Except.noConfusion hc)
 
+/-- `call (f+1)` emits `OutOfFuel` only via its inner `Θ f` (taken in the
+balance/depth `if`-branch). The `else` branch and all the post-call state assembly
+are pure `.ok`. So if every `Θ f …` (for whatever `c = toExecute σ t` the call
+forms) is not `OutOfFuel`, neither is `call (f+1)`. -/
+theorem call_outOfFuel_of (f : ℕ) (gasCost : Nat) (bvh : List ByteArray)
+    (gas source recipient t value value' inOffset inSize outOffset outSize : UInt256)
+    (permission : Bool) (s : EVM.State)
+    (hΘ : ∀ (cA : Batteries.RBSet AccountAddress compare) (σ σ₀ : AccountMap)
+            (Asub : Substate) (src o rcpt : AccountAddress) (c : ToExecute)
+            (g p vv vv' : UInt256) (dd : ByteArray) (e : Nat) (Hd : BlockHeader) (w : Bool),
+          Θ f bvh cA s.genesisBlockHeader s.blocks σ σ₀ Asub src o rcpt c g p vv vv' dd e Hd w
+            ≠ .error .OutOfFuel) :
+    call (f+1) gasCost bvh gas source recipient t value value' inOffset inSize outOffset outSize
+      permission s ≠ .error .OutOfFuel := by
+  simp only [call, bind, Except.bind]
+  split
+  · -- if-branch (can transfer value, depth < 1024): matches `Θ f …`.
+    split
+    · -- `Θ f = .error err`: the bind makes `call = .error err`. If `err = OutOfFuel`
+      -- that contradicts `hΘ`; so `err ≠ OutOfFuel`.
+      rename_i err heq
+      intro hc
+      have herr : err = EVM.ExecutionException.OutOfFuel := Except.error.inj hc
+      exact (hΘ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _) (herr ▸ heq)
+    · intro hc; exact Except.noConfusion hc
+  · -- else-branch: the call result is assembled as `.ok …`.
+    intro hc; exact Except.noConfusion hc
+
+/-- `Lambda (f+1)` (contract creation, `CREATE`/`CREATE2`) emits `OutOfFuel` only
+via its inner `Ξ f` re-throw (same `if e == .OutOfFuel then throw .OutOfFuel` shape
+as `Θ`'s `Code` arm). The leading `L_A` address-derivation lift only ever errors as
+`.StackUnderflow` (the `MonadLift Option (Except …)` instance), and on `Ξ` success
+the result is assembled as `.ok`. So if `Ξ f … ≠ OutOfFuel`, neither is
+`Lambda (f+1)`. -/
+theorem Lambda_outOfFuel_of (f : ℕ) (bvh : List ByteArray)
+    (cA : Batteries.RBSet AccountAddress compare) (gh : BlockHeader) (blocks : ProcessedBlocks)
+    (σ σ₀ : AccountMap) (A : Substate) (s o : AccountAddress) (g p v : UInt256)
+    (i : ByteArray) (e : UInt256) (ζ : Option ByteArray) (Hd : BlockHeader) (w : Bool)
+    (hΞ : ∀ (cA' : Batteries.RBSet AccountAddress compare) (σ' : AccountMap) (As : Substate)
+            (I : ExecutionEnv),
+          Ξ f cA' gh blocks σ' σ₀ g As I ≠ .error .OutOfFuel) :
+    Lambda (f+1) bvh cA gh blocks σ σ₀ A s o g p v i e ζ Hd w ≠ .error .OutOfFuel := by
+  simp only [Lambda, bind, Except.bind]
+  -- case on the `L_A` address lift: `none` ⇒ the lift is `.error StackUnderflow`.
+  cases hla : Lambda.L_A s (Option.option (⟨0⟩ : UInt256) (·.nonce) (σ.find? s) - ⟨1⟩) ζ i with
+  | none => intro hc; exact absurd (Except.error.inj hc) (fun h => by cases h)
+  | some lₐ =>
+    split
+    · -- lift `.error`: impossible since `liftM (some lₐ) = .ok lₐ`.
+      rename_i heqx; exact absurd heqx (fun h => by cases h)
+    · -- lift `.ok`: split the `Ξ f` result (`.error` re-throw / `.revert` / `.success`).
+      split
+      · rename_i err heq
+        by_cases hee : err = EVM.ExecutionException.OutOfFuel
+        · exact absurd (hee ▸ heq) (hΞ _ _ _ _)
+        · have hb : (err == EVM.ExecutionException.OutOfFuel) = false := by
+            cases err <;> first | rfl | exact absurd rfl hee
+          simp only [hb, if_false, Bool.false_eq_true]
+          intro hc; exact Except.noConfusion hc
+      -- `Ξ = .ok (.revert …)` and `Ξ = .ok (.success …)`: both assemble to `.ok …`.
+      all_goals (intro hc; exact Except.noConfusion hc)
+
+/-! ## Item 4 (remaining) — `step`, `Lambda`, the `X`-loop, and the final induction
+
+The propagation skeletons above (`Ξ_outOfFuel_of`, `Θ_outOfFuel_of` for `Code`,
+`call_outOfFuel_of`, `Lambda_outOfFuel_of`) reduce each *recursive* layer's
+non-`OutOfFuel`-ness at `fuel+1` to that of the sub-layer it calls. What remains for
+the headline `Θ_never_outOfFuel`:
+
+1. **`step` propagation.** `step (f+1) cost (some (w,a)) s` routes:
+   * the `CALL`/`CALLCODE`/`DELEGATECALL`/`STATICCALL` arms → `call f …` (covered by
+     `call_outOfFuel_of`);
+   * the `CREATE`/`CREATE2` arms → `Lambda f …` (covered by `Lambda_outOfFuel_of`);
+   * every other opcode → `EvmYul.step` (no fuel, never `OutOfFuel` — provable like
+     `gas_EvmYul_step`'s sweep, the result is `.ok`/a non-`OutOfFuel` error).
+   So `step (f+1) … ≠ OutOfFuel` reduces to `call f … ≠ OutOfFuel` and
+   `Lambda f … ≠ OutOfFuel` (plus the trivial `EvmYul.step` arms). This is mostly a
+   `cases w`-sweep mirroring `gas_EVM_step_default`'s defeq-coercion technique.
+
+2. **The `X`-loop bound (the genuinely hard inner induction).** `X (f+1)` either
+   halts (`.ok`) or recurses `X f …` on a *gas-strictly-smaller* state
+   (`X_iter_gas_lt`). To conclude `X fuel … ≠ OutOfFuel` one needs an **inner**
+   induction on the number of loop iterations, bounded by the available gas (each
+   non-halting iteration burns `≥ 1` gas), nested inside the **outer** fuel
+   induction. Concretely: `fuel ≥ gas + 1` suffices for the `X`-loop of a single
+   frame, because the loop runs `≤ gas` non-halting iterations before halting.
+
+3. **The precompiled `Θ`-arm** (non-recursive; documented above).
+
+4. **The final mutual `fuel` induction.** With (1)–(3), close
+   `Θ_never_outOfFuel` by **strong induction on `fuel`** over the six-layer mutual
+   statement `P_X ∧ P_step ∧ P_call ∧ P_Ξ ∧ P_Θ ∧ P_Lambda`, where each `P_·` is
+   "fuel ≥ B(gas, depth) → layer … ≠ OutOfFuel" for a gas/depth-derived bound `B`.
+   At `fuel+1` each layer's propagation skeleton (above) discharges the recursive
+   hand-off using the IH at `fuel`, PROVIDED the bound is threaded:
+   * the `X`-loop consumes `≤ gas` fuel (item 3); each descent hop is `+1` fuel and
+     `depth → depth+1` (capped at `1024`, `call_depth_bound`); the child's gas is
+     `≤` the parent's (`Cgascap_le_gas`, `Ccallgas_le_gas_of_cover`), so the child's
+     bound `B(childgas, depth+1) ≤ B(gas, depth+1)`.
+   * Because the child's gas is `≤` the parent's but **not** strictly smaller across
+     a single descent, the bound must be **`depth`-aware**: e.g.
+     `B(gas, depth) = (1025 - depth) * (4 * (gas + 1))`. This is sound (a frame at
+     depth `e ≤ 1024` needs `≤ 4*(gas+1)` fuel for its own `X`-loop + hops, plus its
+     child's `B(·, e+1)`), and crucially avoids the gas-*telescoping* argument: it
+     bounds by the *product* `gas × remaining-depth` rather than the sum.
+
+   ⇒ **The current `seedFuel g = 4 * (g + 1)` is therefore INSUFFICIENT** for the
+   nested case (it omits the depth factor); the correct seed is the depth-aware
+   `B` above (or any larger function dominating `(1025 - depth) * 4 * (gas + 1)`).
+   This is the precise remaining design fact — recorded here and in PLAN.md, not
+   faked. -/
+
 end EvmYul.EVM.NeverOutOfFuel
