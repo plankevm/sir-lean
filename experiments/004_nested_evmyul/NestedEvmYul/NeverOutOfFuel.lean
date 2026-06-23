@@ -1918,6 +1918,26 @@ theorem Ccallgas_le_Ccall (t r : AccountAddress) (val g : UInt256) (σ : Account
     show Cgascap t r _ g σ μ A + Gcallstipend ≤ Cgascap t r _ g σ μ A + Cextra t r _ σ A
     omega
 
+/-- **Strict** `Ccallgas < Ccall`: the forwarded gas is *strictly* less than the
+call's total cost, since `Cextra ≥ Caccess ≥ 1` (val = 0 case) and
+`Cextra ≥ Cxfer = 9000 > 2300 = Gcallstipend` (val ≠ 0 case). This gives the strict
+per-iteration gas drop a CALL iteration needs to bottom out the `X` loop. -/
+theorem Ccallgas_lt_Ccall (t r : AccountAddress) (val g : UInt256) (σ : AccountMap)
+    (μ : MachineState) (A : Substate) :
+    Ccallgas t r val g σ μ A < Ccall t r val g σ μ A := by
+  have hac := Caccess_pos t A
+  obtain ⟨⟨n, hn⟩⟩ := val
+  cases n with
+  | zero =>
+    show Cgascap t r _ g σ μ A < Cgascap t r _ g σ μ A + Cextra t r _ σ A
+    unfold Cextra; omega
+  | succ k =>
+    have hxfer : Cxfer ⟨⟨k+1, hn⟩⟩ = Gcallvalue := rfl
+    have hxe : Cxfer ⟨⟨k+1, hn⟩⟩ ≤ Cextra t r ⟨⟨k+1, hn⟩⟩ σ A := by unfold Cextra; omega
+    have : Gcallstipend < Cxfer ⟨⟨k+1, hn⟩⟩ := by rw [hxfer]; decide
+    show Cgascap t r _ g σ μ A + Gcallstipend < Cgascap t r _ g σ μ A + Cextra t r _ σ A
+    omega
+
 /-- `(a - ofNat c) + b` (UInt256) has `.toNat ≤ a.toNat` whenever `c ≤ a.toNat`,
 `c < size`, and `b.toNat ≤ c` (no wraparound: the sum `= a.toNat - c + b.toNat ≤ a.toNat`).
 This is the UInt256-arithmetic core of the call-result gas bound (`result.gas =
@@ -2004,6 +2024,76 @@ theorem call_result_gas_le (f cost : ℕ) (bvh : List ByteArray)
       have := Except.ok.inj h; rw [Prod.mk.injEq] at this; rw [← this.2]; rfl
     rw [hresgas]
     exact gas_add_sub_le ev.gasAvailable (UInt256.ofNat callgas) cost hcle hcostsz
+      (by rw [hcgtoNat]; exact hccg)
+
+/-- Strict companion of `gas_add_sub_le`: `((a - ofNat c) + b).toNat < a.toNat` when
+`c ≤ a.toNat`, `c < size`, and `b.toNat < c`. -/
+theorem gas_add_sub_lt (a b : UInt256) (c : ℕ) (hca : c ≤ a.toNat) (hcs : c < UInt256.size)
+    (hbc : b.toNat < c) : ((a - UInt256.ofNat c) + b).toNat < a.toNat := by
+  have hsub : (a - UInt256.ofNat c).toNat = a.toNat - c := by
+    have htn : a.toNat = a.val.val := rfl
+    have hcmod : (Fin.ofNat UInt256.size c).val = c := by
+      simp only [Fin.ofNat]; exact Nat.mod_eq_of_lt hcs
+    show ((a.val - (Fin.ofNat _ c))).val = a.val.val - c
+    rw [Fin.sub_def, hcmod]
+    show (UInt256.size - c + a.val.val) % UInt256.size = a.val.val - c
+    have hle' : c ≤ a.val.val := by rw [← htn]; exact hca
+    have hrw : UInt256.size - c + a.val.val = (a.val.val - c) + UInt256.size := by omega
+    rw [hrw, Nat.add_mod_right, Nat.mod_eq_of_lt (by omega)]
+  have hsum : ((a - UInt256.ofNat c) + b).toNat = ((a - UInt256.ofNat c).toNat + b.toNat) % UInt256.size := by
+    show (((a - UInt256.ofNat c).val + b.val)).val = _
+    rw [Fin.add_def]; rfl
+  rw [hsum, hsub]
+  have hbound : (a.toNat - c) + b.toNat < a.toNat := by omega
+  rw [Nat.mod_eq_of_lt (Nat.lt_trans hbound a.val.isLt)]; exact hbound
+
+set_option maxHeartbeats 2000000 in
+/-- **`call` result gas STRICT bound.** Strict companion of `call_result_gas_le`:
+when `Ccallgas … < cost` (always true, `Ccallgas_lt_Ccall`, with `cost = Ccall`),
+a successful `call` lands at *strictly* less gas. This is what bottoms out the `X`
+loop on a CALL iteration. -/
+theorem call_result_gas_lt (f cost : ℕ) (bvh : List ByteArray)
+    (gas source recipient t value value' io is oo os : UInt256) (perm : Bool) (ev : State)
+    (x : UInt256) (result : State)
+    (hcle : cost ≤ ev.gasAvailable.toNat)
+    (hccg : Ccallgas (AccountAddress.ofUInt256 t) (AccountAddress.ofUInt256 recipient) value gas
+              ev.accountMap ev.toMachineState ev.substate < cost)
+    (hΘ : ∀ (cA : Batteries.RBSet AccountAddress compare) (σ σ₀ : AccountMap)
+            (Asub : Substate) (src o rcpt : AccountAddress) (c : ToExecute)
+            (gg p vv vv' : UInt256) (dd : ByteArray) (e : Nat) (Hd : BlockHeader) (ww : Bool)
+            (res),
+          Θ f bvh cA ev.genesisBlockHeader ev.blocks σ σ₀ Asub src o rcpt c gg p vv vv' dd e Hd ww
+            = .ok res → res.2.2.1.toNat ≤ gg.toNat)
+    (h : call (f+1) cost bvh gas source recipient t value value' io is oo os perm ev
+          = .ok (x, result)) :
+    result.gasAvailable.toNat < ev.gasAvailable.toNat := by
+  set callgas := Ccallgas (AccountAddress.ofUInt256 t) (AccountAddress.ofUInt256 recipient) value gas
+              ev.accountMap ev.toMachineState ev.substate with hcg
+  have hcgsz : callgas < UInt256.size :=
+    Nat.lt_of_le_of_lt (le_of_lt (Nat.lt_of_lt_of_le hccg hcle)) ev.gasAvailable.val.isLt
+  have hcgtoNat : (UInt256.ofNat callgas).toNat = callgas := by
+    show (Fin.ofNat _ callgas).val = callgas
+    simp only [Fin.ofNat]; exact Nat.mod_eq_of_lt hcgsz
+  have hcostsz : cost < UInt256.size := Nat.lt_of_le_of_lt hcle ev.gasAvailable.val.isLt
+  simp only [call, bind, Except.bind] at h
+  split at h
+  · split at h
+    · exact absurd h (by simp)
+    · rename_i res hΘeq
+      have hg' : res.2.2.1.toNat ≤ (UInt256.ofNat callgas).toNat :=
+        hΘ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ res hΘeq
+      have hresgas : result.gasAvailable
+          = (ev.gasAvailable - UInt256.ofNat cost) + res.2.2.1 := by
+        have := Except.ok.inj h; rw [Prod.mk.injEq] at this; rw [← this.2]; rfl
+      rw [hresgas, hcgtoNat] at *
+      exact gas_add_sub_lt ev.gasAvailable res.2.2.1 cost hcle hcostsz
+        (Nat.lt_of_le_of_lt hg' hccg)
+  · rename_i hne
+    have hresgas : result.gasAvailable
+        = (ev.gasAvailable - UInt256.ofNat cost) + UInt256.ofNat callgas := by
+      have := Except.ok.inj h; rw [Prod.mk.injEq] at this; rw [← this.2]; rfl
+    rw [hresgas]
+    exact gas_add_sub_lt ev.gasAvailable (UInt256.ofNat callgas) cost hcle hcostsz
       (by rw [hcgtoNat]; exact hccg)
 
 /-- **Default-arm `step` gas bound** in the `X_loop_gas_le` `hstep` shape: a successful
