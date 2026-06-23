@@ -69,8 +69,10 @@ and **why the CFG-combinator control-flow design** was chosen over alternatives.
   gas-equality-free); gas introspection cost zero gas machinery. The **two-read monotonicity
   milestone is also DONE** (axiom-clean) — the monotone-oracle law validated on a sticky
   gas-guard, monotonicity *discharged* from exact gas accounting with no new gas theory.
-  Next (decision-free, in progress): the general `Runs`-level gas-monotonicity-across-calls
-  lemma. The `call`-event step is held pending a returndata-model decision.
+  The general `Runs`-level **gas-monotonicity-across-calls lemma is now PROVED**
+  (`Runs.gasAvailable_le`, hypothesis-free incl. the `.call` 63/64 net-debit), closing
+  §3.4's last open obligation. The `call`-event step (and the general theorem) is held
+  pending your returndata-model decision (`ir-design-v2.md §7.5`).
 - **Prior-art study — gas introspection.**
   **[gas-introspection-prior-art.md](experiments/005_ir_lowering/docs/gas-introspection-prior-art.md)**:
   both verifereum/vyper-hol and lfglabs-dev/verity keep their high-level semantics gas-free,

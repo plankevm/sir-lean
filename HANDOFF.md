@@ -1,89 +1,91 @@
 # HANDOFF — good morning, Eduardo
 
-**Written:** 2026-06-23 night (before you slept). **Kept current by the overnight loop.**
-This is your resume surface. For the full chronological record see `currentplan.md`
-(orchestration log + the "2026-06-23 (NIGHT)" overnight protocol).
+**Written overnight 2026-06-23; loop WOUND DOWN at the end (clean stop, nothing running).**
+Full chronological record: `currentplan.md` (orchestration log). This is your resume surface.
 
 ---
 
-## TL;DR state
+## TL;DR — what happened overnight
 
-- **Track A** (flat reasoning layer): DONE, merged to base, reported. No overnight work.
-- **Track C** (IR→bytecode lowering): v1 `wc_preserves` DONE (hypothesis-free, axiom-clean),
-  merged, report refreshed. A **v2 redesign is planned** (gas/pc-free IR, calls-as-events,
-  observable preservation, monotone gas oracle) — `docs/ir-design-v2.md` on `exp005-ir`.
-- **Track B** (nested EVM never-OutOfFuel): non-nesting leaf headline CLOSED; all CALL+CREATE
-  gas-descent bricks proved; the **fully-nested headline `Θ_never_outOfFuel` was in its final
-  assembly run (B2h) when you slept** (4 prior partials).
+Both proof/prototype tracks ran to clean, verified stopping points; **both are now blocked on
+a decision only you can make**, so I wound down (deleted the heartbeat, no speculative work).
 
-## Currently running (live)
+- **Track C (v2 redesign): 3 milestones landed, all axiom-clean, all verified by me.**
+  The gas-free / observable / events / monotone-gas-oracle design is **validated end-to-end
+  for the call-free fragment**, and §3.4's last open obligation ("gas monotonicity holds
+  across calls") is now a **real hypothesis-free proof**. The next step (external-call events
+  / general theorem) is **blocked on your returndata-model decision** (§7.5).
+- **Track B (nested never-OutOfFuel): 5th partial — held for your steer.** Lots of sound
+  brick-work landed, but the headline is still open and its final mutual induction isn't
+  started. The *difficulty itself* is now a concrete bake-off finding.
+- **Track A:** untouched (done + merged + reported).
 
-| Agent | Track | Goal |
-|---|---|---|
-| **C-v2 gas-monotone** | C / `exp005-ir` | General `Runs`-level gas-monotonicity-across-`.call` lemma (makes §3.4 "holds across calls" a real proof) |
+## Nothing is running now
 
-*(Track B is HELD — no agent running; awaiting your steer, see Open decisions.)*
+The 45-min heartbeat `f3ba5aed` has been **deleted** (wind-down). No background agents active.
+Everything is committed; all worktrees clean (except your pre-existing scratch files on base).
 
-## Overnight results (newest first — loop appends as things land)
+## Overnight results (newest first — all VERIFIED by me, not self-reported)
 
-- **✅ C-v2 two-read monotonicity milestone DONE & verified** (`exp005-ir`, build green 1133,
-  axiom-clean). `LirLean/V2/Mono.lean`: validated the §3.4 monotone-oracle law on a
-  sticky-gas-guard example; the bytecode side *discharges* monotonicity from exact gas
-  accounting (no new gas theory). Verdict: the law works as designed. → Launched the general
-  across-`.call` gas-monotonicity lemma (decision-free); call-event step still held on §7.5.
+- **✅ General `Runs`-level gas-monotonicity lemma — PROVED, hypothesis-free, axiom-clean**
+  (`6adebb5`/`7af50a3`; `BytecodeLayer/Hoare/GasMonotone.lean`, on the `Spec.lean` surface).
+  `Runs.gasAvailable_le` (gas never increases across any `Runs`, incl. `.call` nodes — the
+  63/64 net-debit is `CallReturns.gas_le`, no side-condition). Confirmed
+  `[propext, Classical.choice, Quot.sound]` myself. **This closes §3.4's "holds across calls"
+  as a real proof.** Decision-free runway for Track C is now exhausted ⇒ wound down.
+- **✅ C-v2 two-read monotonicity milestone** (`exp005-ir`, green 1133, axiom-clean).
+  `LirLean/V2/Mono.lean`: the monotone-oracle law on a sticky-gas-guard; bytecode *discharges*
+  monotonicity from exact gas accounting (no new gas theory). Law works as designed.
+- **✅ C-v2 call-free prototype** (green 1132, axiom-clean, v1 untouched).
+  `LirLean/V2/{Machine,Preserve}.lean`: gas-free IR machine + `gasRead` event + observable
+  `lower_preserves_obs` (pc-free, gas-equality-free). The v2 shape is validated.
+- **⏸️ B2h — 5th PARTIAL, Track B HELD** (`exp004-nested`, green, axiom-clean, tree clean).
+  Proved the gas-monotonicity per-layer reductions. Remaining to headline: gas-mono assembly
+  fixpoint + a precompiled-`Θ` brick, **and the never-OOF mutual induction (super-linear `B`)
+  which is NOT STARTED.** No 6th grind launched (per rule).
 
-- **✅ C-v2 call-free prototype DONE & verified** (`exp005-ir`, build green 1132,
-  axiom-clean, v1 untouched). `LirLean/V2/{Machine,Preserve}.lean`: gas-free IR machine +
-  `gasRead` event + observable `lower_preserves_obs` (pc-free, gas-equality-free). **The v2
-  shape is validated.** Surfaced open decisions for you (see "Open decisions" below).
-  → Launched the **two-read monotonicity** milestone; **HELD** the call-event step pending
-  your §7.5 returndata decision.
-- **⏸️ B2h DONE & verified — 5th PARTIAL, headline still open; Track B HELD** (`exp004-nested`,
-  build green, axiom-clean, tree clean). Proved the gas-monotonicity per-layer reductions
-  (the novel structural work). Remaining to the headline: the gas-mono assembly fixpoint + a
-  precompiled-`Θ` brick, and the never-OOF mutual induction (super-linear `B`) which is **NOT
-  STARTED**. Per the overnight rule I did **not** launch a 6th grind — **needs your steer**
-  (see Open decisions). The 5-iteration struggle is itself a bake-off finding (see report).
+## 🔴 Decisions awaiting YOU (in priority order)
 
-## Decision rules the loop is following
+1. **Track B — the bake-off call (top).** Headline still open after 5 iterations; the never-OOF
+   mutual induction isn't started. Options:
+   (a) **accept** the axiom-clean leaf headline + the brick library as B's deliverable and
+   treat the asymmetry (flat: easy, unconditional, linear bound — nested: 5 iterations and
+   counting, super-linear bound, two mutual inductions) as the **bake-off verdict** → move B
+   to B3/Phase-2;
+   (b) **scope** to CALL-only (drops CREATE);
+   (c) **keep grinding** (diminishing returns);
+   (d) **try a cleaner measure** first.
+   *My read: (a). The difficulty IS the result.* (See report "Sharpening" + `currentplan.md`.)
+2. **Track C — the returndata-model decision (`ir-design-v2.md §7.5`).** Unblocks the
+   call-event step. (a) Drop the word from `IRHalt.returned` (match the empty-window lowering)
+   or make the lowering RETURN it? (b) When revert enters, align `IRHalt`/`Observable.result`
+   with the EVM `Outcome`. *Default I'd take for a first cut: value-free, empty
+   calldata/returndata (mirrors v1 `workedCall`), revert deferred — then I can launch the
+   call-event step + wiring `lower` into the witness.*
+3. **Track C — smaller `§7` items:** `World` decoupling depth, simulation direction,
+   `evalExpr` gas-trace threading. Defaults chosen in the doc; override any.
 
-1. **Verify everything** (build green + `#print axioms` clean + grep `sorry`/`native_decide`)
-   — never trust agent self-reports.
-2. **C-v2 prototype positive** → launch step-2 (call-events + first two-read monotonicity
-   example). **Friction** → document + hold (don't build on a flawed base).
-3. **B2h closes headline** → merge B→base, mark B2 ✅, spawn Track B review report, refresh
-   master report. **B2h partial (5th)** → verify + document the gap, **STOP** (no 6th
-   autonomous grind — needs your steer).
-4. No speculative refactors. No exp005-ir→base merge while the C-v2 prototype is mid-commit.
+## What I deliberately did NOT do (and why)
 
-## Open decisions awaiting YOU (review in the morning)
+- No 6th Track-B grind (4→5 partials; design-sensitive; needs your steer).
+- Did not launch the "wire `lower` into the v2 witness" step — decision-free but grindy, and
+  better done *together with* the call-event step once you've settled returndata (§7.5), so it
+  comes out coherent rather than redone.
+- No speculative refactors; no `exp005-ir`→base merge (kept C work on its branch; merge when
+  v2 stabilizes — see below).
 
-- **🔴 Track B (TOP decision — B2h returned the 5th partial; track is held).** The nested
-  headline `Θ_never_outOfFuel` is still open and the never-OOF mutual induction is *not even
-  started*. Pick one:
-  (a) **accept** the axiom-clean leaf headline + the large gas-descent/monotonicity brick
-  library as Track B's deliverable, and treat the asymmetry (flat = easy/unconditional/linear;
-  nested = 5 iterations and counting) as the bake-off verdict → move B to B3/Phase-2;
-  (b) **scope** the headline to CALL-only (drops CREATE; precompile brick still needed);
-  (c) **keep grinding** (6th+ iteration — diminishing returns, design-sensitive);
-  (d) **try a cleaner measure** for the two mutual inductions before more grinding.
-  My read: (a) is the honest high-value call — the *difficulty itself* is the result — but
-  it's your bake-off to call. (See `currentplan.md` Track-B entry + the report's "Sharpening".)
-- **C-v2 open decisions** (`ir-design-v2.md §7`): `World` decoupling depth, simulation
-  direction, calldata/value generality, revert-as-observable. Defaults chosen; override any.
-- **Gas monotonicity** (`ir-design-v2.md §3.4`): confirm promoting the monotone-oracle law
-  into the first concrete two-read example, once the prototype validates the event shape.
+## To resume me in the morning
+
+Re-read this file + `currentplan.md` orchestration log; `git worktree list` then
+`git log --oneline` per worktree to see the commits. Then just tell me your calls on the
+decisions above and I'll spin the next agents back up. (The heartbeat is already deleted —
+nothing to clean up.)
 
 ## Where to look
 
-- `EXPERIMENT-REPORT.md` (repo root) — results synthesis, entry point.
-- `experiments/005_ir_lowering/docs/` on `exp005-ir` — `ir-design-v2.md`,
-  `gas-introspection-prior-art.md`, refreshed `track-c-review.md`.
-- `currentplan.md` — full orchestration log.
-
-## How to resume me
-
-Re-read this file + `currentplan.md`, then `git log --oneline` across the worktrees
-(`git worktree list`) to see what landed. **A 45-min cron heartbeat `f3ba5aed` is running**
-to keep the loop alive — if it's still active when you're back, tell me to `CronDelete
-f3ba5aed` (or it auto-expires in 7 days; it's session-only and dies if Claude exits).
+- `EXPERIMENT-REPORT.md` (repo root) — results synthesis + the flat-vs-nested "Sharpening".
+- `experiments/005_ir_lowering/docs/` on `exp005-ir` — `ir-design-v2.md` (the v2 plan, now with
+  step-1/1b DONE + §3.4 fully proved), `gas-introspection-prior-art.md`, `track-c-review.md`.
+- New Lean: `LirLean/V2/{Machine,Preserve,Mono}.lean` + `BytecodeLayer/Hoare/GasMonotone.lean`
+  (all on `exp005-ir`).
+- `currentplan.md` — full orchestration log + overnight protocol.

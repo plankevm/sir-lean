@@ -333,6 +333,21 @@ your own branch with clear messages; never touch another track's files; if block
 write the blocker into PLAN.md before stopping.
 
 ## Orchestration log
+- 2026-06-23 (NIGHT): **WOUND DOWN — both tracks blocked on Eduardo; heartbeat `f3ba5aed`
+  DELETED, nothing running.** Final overnight state: Track C v2 had 3 axiom-clean milestones
+  land (prototype, monotonicity, general gas-mono lemma — §3.4 fully proved); next C step
+  (call-events/general theorem) is blocked on the §7.5 returndata decision. Track B held
+  (5th partial). Did NOT launch the decision-free "wire `lower` into v2 witness" step —
+  judged better done together with the call-event step once returndata is settled (avoids
+  rework). HANDOFF.md finalized with the prioritized decision set. Clean stop.
+- 2026-06-23 (NIGHT): **General `Runs`-level gas-monotonicity lemma DONE & verified**
+  (`6adebb5`/`7af50a3`, exp005-ir; exp003 build green 1131, exp005 green 1133; `Runs.
+  gasAvailable_le`/`drive_gasRemaining_le_totalGas`/`CallReturns.gas_le` all confirmed
+  `[propext, Classical.choice, Quot.sound]` by me). Hypothesis-free incl. the `.call`
+  net-debit case (a `Runs.call` node already bundles the returning child). New module
+  `BytecodeLayer/Hoare/GasMonotone.lean` on the `Spec.lean` surface; only genuinely-new fact
+  was `drive_gasRemaining_le_totalGas` (exp003 had only the termination measure, not a gas
+  bound). **§3.4 "holds across calls" is now a real proof, not a remark.**
 - 2026-06-23 (NIGHT): **C-v2 two-read MONOTONICITY milestone DONE & verified** (`acbe05c`/
   `02026ca`, exp005-ir; build green 1133, tree clean, no forbidden tokens, both
   `lower_preserves_obs` and `lower_preserves_obs_mono` axiom-clean). `LirLean/V2/Mono.lean`:
