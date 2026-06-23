@@ -288,108 +288,137 @@ rules) into this worktree's base, plus the C→A opcode-rule additions (PLAN.md)
 
 ---
 
-## 6. The concrete C3 preservation plan
+## 6. The preservation architecture (AS-BUILT)
 
-This section is the **C3 plan of record**: the `Match` invariant relating an IR
-small-step configuration to an EVM `Frame`, the top-level preservation theorem
-shape, and the per-IR-construct **proof-obligation table** naming the exact Track A
-`runs_*` rule each construct will consume. It targets A's *new* `exp003-runs-call`
-API (§5): index-free `Runs` with constructors `Runs.refl` / `Runs.step` /
-`Runs.call`, glued by `Runs.trans`; boundary bridge `messageCall_runs` /
-`messageCall_runs_calls`. C3 is **not proved yet** — it is gated on A's branch
-merging into this worktree's base and on the C→A opcode-rule additions (PLAN.md).
+This section describes the preservation proof **as it is actually built** in the
+source (`LirLean/{SmallStep,Match,Layout,DecodeLower,WorkedCall}.lean`). The shape
+is: the `Match` invariant relating an IR small-step configuration to an EVM `Frame`
+(§6.1); a set of **frame-local, per-construct simulation lemmas** that each wrap one
+Track A `runs_*` rule (§6.2); the **concrete, per-program `Runs` assembly** that
+chains those lemmas for the worked program `workedCall` (§6.3); and the per-construct
+**obligation table** naming the exact rule each construct consumes (§6.4). It builds
+on Track A's `exp003-runs-call` API (§5): index-free `Runs` with constructors
+`Runs.refl` / `Runs.step` / `Runs.call`, glued by `Runs.trans`; boundary bridge
+`messageCall_runs` (= `messageCall_runs_calls`).
+
+> **AS-BUILT vs. a generic engine.** An earlier draft of this section described a
+> *generic simulation engine* — an `IRStep` inductive plus a single
+> `lower_simulates_step : IRStep prog c c' → Match c fr → ∃ fr', Runs fr fr' ∧
+> Match c' fr'` lemma, closed over `IRRunsToHalt` by induction to give a generic
+> `lower_preserves` over an arbitrary program. **That generic engine is not built.**
+> What ships instead is: the per-construct simulation lemmas of §6.2 (the bricks the
+> engine would have threaded), the program-global `M1` byte-layout discharge
+> (`Layout.lean` + `Match.flatBytes_at_pcOf`, generic over `prog`), and a *concrete*
+> assembly (`WorkedCall.lean`) that threads those bricks by hand for the single
+> worked program `workedCall`. The generic engine — induction over the IR
+> statement/terminator stream, plus the generic threading of `materialiseExpr`
+> push-chains — remains **future work** (it would generalise `WorkedCall`'s concrete
+> chain over an arbitrary `prog`; the `M1` and bridge halves it needs are already
+> generic). §6.3 below reflects the concrete assembly that actually exists.
 
 ### 6.1 The `Match` invariant
 
-`Match : IRConf → Frame → Prop` is the simulation invariant. It is **deliberately
-NOT a stack-shape equivalence**: because the lowering is *recompute-on-use* (§4),
-an `IRState.locals` binding `t ↦ v` does **not** correspond to any persistent stack
-slot — `t` is re-materialised from its defining expression at each use, so between
-statements the EVM stack is empty (modulo a pending CALL success flag). This is the
-key simplification recompute-on-use buys: `Match` need not track a register↔slot
-map at all. It pins five correspondences:
+`Match` (`LirLean/Match.lean`) is the simulation invariant. **As built it is a Lean
+`structure`** — `Match (prog : Program) (L : Label) (pc : Nat) (st : IRState)
+(fr : Frame) : Prop` — with **six named fields**, not an anonymous five-clause
+conjunction:
 
+```lean
+structure Match (prog : Program) (L : Label) (pc : Nat) (st : IRState) (fr : Frame) : Prop where
+  pc_eq      : fr.exec.pc = UInt32.ofNat (pcOf prog L pc)          -- M1
+  code_eq    : fr.exec.executionEnv.code = lower prog             -- M2
+  storage_eq : ∀ k, selfStorage fr k = st.storage k              -- M3
+  gas_eq     : fr.exec.gasAvailable = st.gas                     -- M4
+  stack_nil  : fr.exec.stack = []                               -- M5
+  can_modify : fr.exec.executionEnv.canModifyState = true       -- standing well-formedness
 ```
-Match (running L pc st) fr  :=
-  -- (M1) program counter: the IR cursor (L, pc) sits at the byte offset the
-  --      offset table assigns, i.e. fr is at the pc the next emitted opcode of
-  --      block L statement pc occupies.
-      fr.exec.pc = pcOf prog L pc
-  -- (M2) code: the frame runs the lowered program.
-    ∧ fr.exec.executionEnv.code = lower prog
-  -- (M3) storage: the IR self-storage equals the self account's storage, read
-  --      through exp003's observable lens (the same find?/lookupStorage used by
-  --      sstoreFrame_storage_self).
-    ∧ (∀ k, (fr.exec.accounts.find? fr.exec.executionEnv.address
-              |>.option 0 (·.lookupStorage k)) = st.storage k)
-  -- (M4) gas: the IR gas counter equals gasAvailable (honest gas; see §3).
-    ∧ fr.exec.gasAvailable.toNat = st.gas
-  -- (M5) stack discipline: at a statement boundary the working stack is empty
-  --      (recompute-on-use leaves nothing between statements) except for a
-  --      CALL-result flag still pending a bind. For C3's worked programs:
-  --      fr.exec.stack = [] at every non-mid-statement program point.
-    ∧ fr.exec.stack = []
-  -- plus standing well-formedness: kind = .Code, validJumps from the JUMPDESTs,
-  --      depth < 1024, canModifyState = true (state-modifying top-level call).
-```
+
+It is **deliberately NOT a stack-shape equivalence**: because the lowering is
+*recompute-on-use* (§4), an `IRState.locals` binding `t ↦ v` does **not** correspond
+to any persistent stack slot — `t` is re-materialised from its defining expression at
+each use, so between statements the EVM stack is empty. This is the key
+simplification recompute-on-use buys: `Match` need not track a register↔slot map at
+all (clause `M5`, `stack_nil`). The six fields:
+
+- `pc_eq` (`M1`) — program counter at the offset-table address `pcOf prog L pc`.
+- `code_eq` (`M2`) — the frame runs the lowered program.
+- `storage_eq` (`M3`) — the IR self-storage equals the self account's storage,
+  read through exp003's observable lens `selfStorage` (the same `find?/lookupStorage`
+  `sstoreFrame_storage_self` uses).
+- `gas_eq` (`M4`) — the IR gas counter equals `gasAvailable` (honest gas, §3); note
+  `IRState.gas` is a `UInt64`, so this is a *plain* `UInt64` equality, not a `toNat`
+  one.
+- `stack_nil` (`M5`) — empty working stack at the statement boundary.
+- `can_modify` — standing well-formedness for a state-modifying top-level call.
 
 `pcOf prog L pc` is the offset-table address: `offsetTable defs fuel blocks L.idx`
 (the block's `JUMPDEST`) `+ 1` (skip the `JUMPDEST`) `+` the byte length of the
 emitted statements `0 .. pc` of block `L`. The two-pass layout (§4) makes this a
-prefix sum, so `pcOf` is computable and the `(M1)` equation is `rfl`-shaped per
-worked program (exactly the `decode code <pc> = …` checks already pinned in
-`Decode.lean`).
+prefix sum, so `pcOf` is computable; `M1` is discharged *generically over `prog`* by
+`Match.flatBytes_at_pcOf` (which composes the `Layout.lean` prefix-sum decomposition
+`stmt_byte_anchor` with the generic decode lemmas `DecodeLower.decode_lower_*`) — not
+by per-program `rfl`. See `Decode.lean` for the same `M1` discharge exercised at a
+symbolic `pcOf` cursor.
 
-The `halted` configuration matches a frame about to take its halt step:
-`Match (halted h) fr := stepFrame fr = .halted (haltFrameHalt h) ∧ (M2..M4)` — i.e.
-`fr` is the `last` frame `messageCall_runs` consumes, and `haltFrameHalt` maps the
-IR `Halt` (STOP / RETURN word / reverted) to the EVM `FrameHalt`.
+### 6.2 The per-construct simulation lemmas (the bricks)
 
-### 6.2 The simulation engine (per-construct)
+There is **no single `lower_simulates_step` engine** and **no `IRStep` inductive**
+(see the AS-BUILT note above). Instead, each effecting construct gets one
+**frame-local** simulation lemma in `Match.lean` that wraps the corresponding
+Track A `runs_*` rule and reads back the IR-relevant post-frame fact. Each takes the
+frame's *local* hypotheses (decode at `fr.exec.pc`, stack shape, gas bound) — exactly
+what the `runs_*` rule wants — so the lemmas compose by `Runs.trans` independently of
+`M1`'s program-global pc arithmetic:
 
-The engine is one lemma: **every IR step is simulated by a `Runs` segment** of the
-lowered code that re-establishes `Match`. Non-call statements produce a
-`Runs.step…`-built segment (via `Runs.trans` of the per-opcode rules that
-materialise operands then run the effect); a `Stmt.call` produces a `Runs.call`
-node from a `CallReturns` witness.
+- `sim_imm` → `runs_push (.PUSH32)`; leaves `w` on top (`evalExpr (.imm w)`).
+- `sim_add` / `sim_lt` → `runs_add` / `runs_lt`; top = `UInt256.add`/`.lt a b`.
+- `sim_sload` → `runs_sload`; top = `selfStorage fr key` (via `sloadFrame_storage_self`).
+- `sim_gas` → `runs_gas`; gas drops by `gBase`, top = post-charge gas.
+- `sim_sstore` → `runs_sstore`; the written cell reads back `value`, other cells unchanged.
+- `sim_jump` → `runs_jump`; pc set to the resolved target.
+- `sim_branch` → `runs_branch` (the CFG combinator; case-split on the runtime condition).
+- `sim_call` → a `Runs.call` node from a `CallReturns` witness.
+- `halt_stop` / `halt_ret` → `stepFrame_stop` / `stepFrame_return_empty`: the halt
+  step the bridge consumes via its `hhalt` argument (terminators are **not** `runs_*`).
+
+### 6.3 The concrete `Runs` assembly + boundary discharge
+
+Two pieces ship, in place of a generic induction:
+
+**(i) The construct-agnostic bridge half** (`Match.lower_preserves_discharge`):
+
+```lean
+theorem lower_preserves_discharge (prog : Program) (p : CallParams)
+    {fr₀ last : Frame} {halt : FrameHalt}
+    (hbegin : EntersAsCode p fr₀)
+    (_hcode : fr₀.exec.executionEnv.code = lower prog)
+    (hruns  : Runs fr₀ last)
+    (hhalt  : stepFrame last = .halted halt) :
+    messageCall p = .ok (FrameResult.toCallResult (endFrame last halt)) :=
+  messageCall_runs p hbegin hruns hhalt
+```
+
+This is `messageCall_runs` (§5) applied at the IR/lowering boundary. It crosses the
+bridge for **any** assembled `Runs fr₀ last`, regardless of how many `Runs.call`
+nodes it contains — so the multi-call discharge is free.
+
+**(ii) The concrete assembly** (`WorkedCall.lean`), threading the §6.2 bricks by hand
+for the single worked program `workedCall` run as a top-level `messageCall`
+(`wcParams g`). It assembles one `Runs (wcFrame g) last`:
 
 ```
-theorem lower_simulates_step (prog) {c c' : IRConf} {fr : Frame}
-    (hstep : IRStep prog c c') (hmatch : Match c fr) :
-    ∃ fr', Runs fr fr' ∧ Match c' fr'
+  wcFrame g  --wc_prefix_runs-->  wcCallSite g          (JUMPDEST; SSTORE operands; SSTORE; 7 CALL args)
+             --Runs.call (wc_callReturns)-->  resumeFr   (the single external CALL to 0xCA11EE)
+             --wc_post_runs-->  last                     (recompute c; JUMPI taken; block 1 RETURN)
+             --halts (stepFrame last = .halted halt)
 ```
 
-For a *non-halting* terminator/statement this is the shape verbatim. For a
-terminator that halts (`stop` / `ret`), the IR step goes to `halted h`, and the
-`Runs fr fr'` lands on the `last` frame with `Match (halted h) fr'` — i.e. `fr'`
-satisfies the `stepFrame fr' = .halted …` clause, ready for the bridge.
-
-### 6.3 Top-level preservation (user-facing)
-
-Close the simulation under the reflexive-transitive IR run (`IRRunsToHalt`, the
-RT-closure of `IRStep` ending in `halted`) by `Runs.trans`, then cross the single
-boundary bridge:
-
-```
-theorem lower_preserves (prog) (p : CallParams) {fr₀ : Frame} {h : IRHalt}
-    (hbegin  : EntersAsCode p fr₀)                  -- p runs the lowered code as a frame
-    (hcode   : p.codeSource ⇒ fr₀.exec.code = lower prog)
-    (hentry  : Match (prog.initialConf) fr₀)         -- entry frame matches the IR entry
-    (hir     : IRRunsToHalt prog prog.initialConf h) :
-    messageCall p = .ok (FrameResult.toCallResult (endFrame last (haltFrameHalt h)))
-```
-
-where `last` is the frame the assembled `Runs fr₀ last` reaches. Proof skeleton:
-induction on `hir` chains `lower_simulates_step` segments with `Runs.trans` into one
-`Runs fr₀ last`; the final IR `halted` step gives `stepFrame last = .halted
-(haltFrameHalt h)`; discharge with `messageCall_runs p hbegin (the Runs) (the halt
-step)`. Multi-call programs are the **same** proof — each `Stmt.call` step
-contributes a `Runs.call` node, absorbed by `Runs.trans`, and `messageCall_runs`
-(= `messageCall_runs_calls`) crosses once regardless of call count (§5).
-
-The observable corollary lifts to `Outcome.completedWith` via A's
-`messageCall_calls_completedWith` when the program ends in a success storing a known
-value at a known cell.
+then crosses it once with `lower_preserves_discharge`. `wc_preserves` is the result;
+`wc_preserves_twoCall` is the same discharge with two `Runs.call` nodes (C4). The
+generic `lower_preserves` over an arbitrary `prog` of the earlier draft would
+generalise this concrete chain by induction over the IR stream — it is future work
+(see the AS-BUILT note); the `M1` discharge (§6.1) and the bridge half (i) it would
+reuse are already generic.
 
 ### 6.4 Per-IR-construct proof-obligation table
 
@@ -448,5 +477,8 @@ C1 shipped: this doc; a compiling `LirLean` skeleton (lakefile requiring exp003'
 `bytecode_layer`; the IR datatypes of §2; the `lower : Program → ByteArray` type
 signature with a `sorry`-free body); no `sorry`/`axiom`-backed theorems. C2 shipped
 the decode-compatible single-call lowering body and the build-enforced round-trip
-checks (`LirLean/Decode.lean`). The semantics relation (`IRStep`) and the
-preservation proof (§6) are C3, gated on Track A's `exp003-runs-call` merge.
+checks (`LirLean/Decode.lean`). The preservation architecture (§6) is C3, built on
+Track A's now-merged `exp003-runs-call` API. §6 reflects the AS-BUILT source: a
+small-step `SmallStep.lean`, the `Match` structure, frame-local simulation bricks,
+and the concrete per-program `Runs` assembly in `WorkedCall.lean` — not a generic
+`IRStep`/`lower_simulates_step` engine (which remains future work).

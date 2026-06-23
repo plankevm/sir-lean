@@ -33,15 +33,17 @@ bridges). The IR's job is to exercise the three primitives we actually need:
   (all green, axiom-clean), AND the **concrete `Runs` assembly for the worked
   single-call program** `workedCall`: the genuine straight-line prefix run
   (`wc_prefix_runs`), the CALL step (`wc_call_step`), and `lower_preserves` for
-  `workedCall` discharged across `messageCall_runs` (`wc_preserves`). Two honest
-  remainders (NOT stubbed) block a *fully self-contained* end-to-end closure: the
-  concrete child `CallReturns` and the `validJumpDests`-gated branch terminator. See
-  the C3d log entry below.
+  `workedCall` discharged across `messageCall_runs` (`wc_preserves`). The
+  `validJumpDests`-gated branch terminator is now CLOSED (Track A detotalized
+  `validJumpDests`; see C3e). ONE honest remainder (NOT stubbed) blocks a *fully
+  self-contained* end-to-end closure: the concrete child `CallReturns` + post-CALL
+  run. See the C3d / C3e log entries below.
 - [~] **C4** Acceptance check: multi-call composition. RESOLVED structurally:
   `wc_preserves_twoCall` closes a two-CALL worked program via the same bridge
   discharge (the bridge composes any number of `Runs.call` nodes) — no new theory
   needed. The remaining gap is identical to C3's (concrete child `CallReturns`s +
-  the branch terminator), not a multi-call-specific blocker.
+  post-CALL runs), not a multi-call-specific blocker; the branch terminator is
+  closed (C3e).
 
 ## Agent brief (durable — re-spawn from this verbatim)
 > Work ONLY in `/Users/eduardo/workspace/evm-semantics-wt/ir-lowering`, branch
@@ -559,3 +561,74 @@ required for the full single-/multi-call preservation theorem.
   all real and green; `lower_preserves` for `workedCall` is closed **modulo** the two
   honest hypotheses above (the child `CallReturns` and the `validJumpDests` branch
   fact), which are the only pieces between this and a hypothesis-free end-to-end.
+
+- 2026-06-22 (C3e): **Branch terminator CLOSED (Track A `validJumpDests`
+  detotalization) + Track-C-review cleanups. Build green (1129 jobs), axiom-clean.**
+  Base was re-merged, so Track A's detotalized `validJumpDests` (total/kernel-reducible)
+  + characterization (`mem_validJumpDests_of_reachable_jumpdest`, the `ReachesBoundary`
+  inductive) + `Frame.get_dest_of_mem` are now available
+  (`EVMLean/Evm/Semantics/{Decode,Frame}.lean`). `#print axioms` on every theorem
+  (`wc_preserves`, `wc_preserves_twoCall`, `wc_reaches_414`, `wc_414_mem_validJumps`,
+  `wc_get_dest_414`, `wc_prefix_runs`, `wc_call_step`) = `[propext, Classical.choice,
+  Quot.sound]` (the two pure-decode lemmas `[propext, Quot.sound]`) — no `sorryAx`, no
+  native axiom; no forbidden tactic in any `LirLean/*.lean` (verified by grep).
+
+  **Item 1 — branch terminator, DONE (new real theorems in `WorkedCall.lean`):**
+  * `wc_reaches_414 : ReachesBoundary (lower workedCall) 0 414` — the 22-step walk of
+    the lowered instruction stream (JUMPDEST · 2×PUSH32 · SSTORE · 7×PUSH32 · CALL ·
+    3×PUSH32 · SLOAD · ADD · LT · PUSH4 · JUMPI · PUSH4 · JUMP) landing on block 1's
+    `JUMPDEST`; each boundary byte a kernel `by decide` on the concrete lowered bytes.
+  * `wc_414_mem_validJumps : (414 : UInt32) ∈ validJumpDests (lower workedCall) 0` —
+    via `mem_validJumpDests_of_reachable_jumpdest` (414 holds a `JUMPDEST` reachable
+    from the start). This is exactly the fact `Examples.BranchExample` could only get
+    after A's detotalization (it had to hand-write `validJumps := #[3]` before).
+  * `wc_get_dest_414 (fr) (hvj : fr.validJumps = validJumpDests (lower workedCall) 0) :
+    fr.get_dest 414 = some 414` — the post-CALL branch obligation, discharged through
+    `Frame.get_dest_of_mem` + the membership fact. `validJumps` is preserved by every
+    prefix/post-CALL transformer (`jumpdestFrame`/`pushFrameW`/`sstoreFrame` carry it;
+    `resumeAfterCall` rebuilds from the pending parent), and `wcFrame_validJumps` shows
+    the entry frame's table is the lowered program's (`rfl`). **No `native_decide`, no
+    hypothesis.** This is the piece the C3d log flagged as the `partial def` blocker —
+    now gone.
+
+  **Item 4 — Track-C-review cleanups, DONE:**
+  * (4a) `docs/ir-design.md §6` rewritten to AS-BUILT: it no longer presents a generic
+    `IRStep`/`lower_simulates_step` engine + generic `lower_preserves` as if built. §6
+    now describes the actual shape — the `Match` structure, the frame-local
+    per-construct simulation bricks (§6.2), the construct-agnostic bridge
+    `lower_preserves_discharge` + the concrete per-program `Runs` assembly in
+    `WorkedCall.lean` (§6.3) — with an explicit AS-BUILT note flagging the generic
+    engine as future work (the `M1` discharge and bridge half it would reuse are
+    already generic). §7 updated likewise.
+  * (4b) `Match` description fixed: §6.1 now shows the 6-field Lean `structure`
+    (`pc_eq`/`code_eq`/`storage_eq`/`gas_eq`/`stack_nil`/`can_modify`), not a 5-clause
+    anonymous conjunction.
+  * (4c) `maxHeartbeats 2000000` in `WorkedCall.lean` **removed** — the default budget
+    now suffices (binary-searched: builds at the default 200000). The earlier
+    factoring of the prefix decode facts into independent `wc_dec_*` lemmas already
+    tamed the PUSH32-reduction cost; the crank was stale. `maxRecDepth 100000` is kept
+    (still needed: `lower` is a deep computation) with an updated comment.
+
+  **Item 2 — concrete child `CallReturns`, PUSHED but NOT closed (honest remainder).**
+  Verified feasible and the building blocks reduce in the kernel (probed in scratch,
+  now removed): `toExecute (wcCallSite g).accounts 0xCA11EE = .Code calleeProg` (`rfl`);
+  `callChildParams (wcCallSite g) 0xCA11EE 0xFFFFFFFF` reduces — `.gas = UInt64.ofNat
+  (wcChildGas g)` (`dsimp [callerCharged]`), `.codeSource = .Code calleeProg` (`rfl`);
+  `callExtraCost … = 2600`. The blocker to landing it THIS run is purely kernel
+  *cost*: `wcCallSite g`'s `accounts` is the post-SSTORE world threaded through
+  `sstorePost` over the deep `lower workedCall` computation, so a full account-map
+  reduction (e.g. `(wcCallSite g).exec.accounts = (wcCallSite 0).exec.accounts`) hits
+  the kernel "deep recursion" wall. Closing it needs the exp003 pattern —
+  `childXfer`/`sstoreChargeOf_child`-style **named** lemmas with explicit
+  `originalAccounts/accounts/address/substate` hypotheses (so the SSTORE charge and the
+  child world are derived from those facts rather than by whole-map reduction), plus
+  the post-CALL opcode run (recompute `lt` → taken `JUMPI` via `wc_get_dest_414` →
+  block 1 `RETURN`). This is the ~200-line gas/decode-specific block (the
+  `caller_callReturns` shape transposed onto `wcCallSite`); it is the only thing
+  between `wc_preserves` and hypothesis-free, and would also fully close C4. NOT
+  stubbed — `wc_preserves`/`wc_preserves_twoCall` still carry the `hcall`/`hpost`/
+  `hhalt` hypotheses honestly.
+
+  Net: `wc_preserves` and `wc_preserves_twoCall` are **not yet hypothesis-free** — the
+  branch terminator (item 1) is closed, but the concrete child `CallReturns` + post-CALL
+  run (item 2) remains the single documented remainder. All cleanups (item 4) done.

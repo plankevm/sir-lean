@@ -34,31 +34,39 @@ caller/callee world of exp003 (`BytecodeLayer.Programs`, whose `accts` carries t
   `Examples.TwoCallExample.twoCall_messageCall` shape, specialised to the single
   worked CALL of `workedCall`.
 
-## The two honest remainders (NOT `sorry`)
+## The branch terminator — now CLOSED (Track A `validJumpDests` detotalization)
+
+The post-CALL branch terminator is **no longer a remainder**. Track A detotalized
+`validJumpDests` (it is now a total, kernel-reducible def with the characterization
+lemma `mem_validJumpDests_of_reachable_jumpdest`), so the branch destination obligation
+`Frame.get_dest 414 = some 414` is discharged axiom-cleanly here as `wc_get_dest_414`
+(via `Frame.get_dest_of_mem` + a `ReachesBoundary (lower workedCall) 0 414` walk,
+`wc_reaches_414`). No `native_decide`, no hypothesis. (Previously this was blocked by
+`validJumpDests` being a `partial def`, the same wall that forced
+`Examples.BranchExample` to build its JUMPI frame with an explicit `validJumps`.)
+
+## The one honest remainder (NOT `sorry`)
 
 A *fully self-contained* `workedCall` closure — `wc_preserves` with **no**
-hypotheses, all the way to a literal `STOP`/`RETURN` halt — is blocked on two
-concrete pieces, kept as honest hypotheses of `wc_preserves` (verified feasible,
-not stubbed):
+hypotheses, all the way to a literal `RETURN` halt — is blocked on one concrete
+piece, kept as honest hypotheses of `wc_preserves` (verified feasible, not stubbed):
 
-1. **The concrete child `CallReturns`.** `wc_call_step` already pins the CALL step;
-   what remains is the child `drive` run of the `0xCA11EE` callee
+1. **The concrete child `CallReturns` + post-CALL run.** `wc_call_step` already pins
+   the CALL step; what remains is (a) the child `drive` run of the `0xCA11EE` callee
    (`PUSH1 5; PUSH1 7; SSTORE; STOP`) at the 63/64-capped CALL-site gas, in the
    post-SSTORE world — the `CallerProgExample.caller_callReturns` shape transposed
-   onto `wcCallSite g`. Confirmed feasible: `toExecute (wcCallSite g).accounts
-   0xCA11EE = .Code calleeProg` (`rfl`) and the forwarded child gas clears the
-   callee's `22106` cold-SSTORE floor (e.g. `g = 1_000_000`, `by decide`).
-
-2. **The post-CALL branch terminator.** After the CALL returns, block 0 recomputes
-   the `lt` condition and runs `JUMPI`/`JUMP`. `Frame.get_dest` reads the frame's
-   `validJumps`, which for the real entry frame `codeFrame … (lower workedCall)` is
-   `validJumpDests (lower workedCall) 0` — a `partial def`, so it cannot be reduced
-   in a proof without `native_decide` (which would break the axiom-clean bar; the same
-   reason `Examples.BranchExample` builds its JUMPI frame with an *explicit*
-   `validJumps` rather than via `codeFrame`). Closing the branch axiom-cleanly needs a
-   `validJumpDests`-characterization lemma on `lower prog`, tracked in `PLAN.md`.
-
-Both are external to the bridge half proved here; see `PLAN.md` (C3d log).
+   onto `wcCallSite g`; and (b) the post-CALL opcode run (recompute the `lt`
+   condition, the taken `JUMPI` via `wc_get_dest_414`, then block 1's `RETURN`).
+   Confirmed feasible: `toExecute (wcCallSite g).accounts 0xCA11EE = .Code calleeProg`
+   and the child params reduce in the kernel (`callChildParams … .gas =
+   UInt64.ofNat (wcChildGas g)`, `.codeSource = .Code calleeProg`, `callExtraCost =
+   2600`, all `rfl`/`dsimp`). The blocker to landing it this run is purely kernel
+   *cost*: `wcCallSite g`'s `accounts` is the post-SSTORE world threaded through
+   `sstorePost` over the deep `lower workedCall` computation, so a full account-map
+   reduction hits "deep recursion" — the child run must be assembled with
+   `childXfer`/`sstoreChargeOf_child`-style named lemmas (the exp003 pattern) to
+   sidestep whole-map reduction, a ~200-line block left as the documented next step
+   (PLAN.md, C3e log).
 -/
 
 namespace Lir.WorkedCall
@@ -70,8 +78,12 @@ open BytecodeLayer.Hoare
 open BytecodeLayer.Dispatch
 open BytecodeLayer.UInt64
 
+-- `lower` is a deep computation (PUSH32 literals are 33 bytes each), so the kernel
+-- reductions in the decode facts below need a higher recursion limit. The default
+-- `maxHeartbeats` suffices: the prefix decode facts are factored into independent
+-- `wc_dec_*` lemmas (each reduces one literal pc), which keeps every elaboration
+-- under the default budget — no `maxHeartbeats` crank is needed.
 set_option maxRecDepth 100000
-set_option maxHeartbeats 2000000
 
 /-! ## The entry point: `lower workedCall` as a top-level `messageCall` -/
 
@@ -364,6 +376,81 @@ theorem wc_call_step (g : UInt64) (hg : 30000 ≤ g.toNat) :
             simp only [List.sum_cons, List.sum_nil]; omega)]
       rw [List.sum_append, show (List.replicate 7 3).sum = 21 from rfl]
       simp only [List.sum_cons, List.sum_nil]; omega)
+
+/-! ## The post-CALL branch terminator — `get_dest` discharged via `validJumpDests`
+
+After the CALL returns, block 0 recomputes the `lt` condition and runs
+`JUMPI`/`JUMP` (pcs 402/413). The taken branch jumps to block 1's `JUMPDEST` at
+offset `414`; the `JUMPI` step needs `frame.get_dest 414 = some 414`, i.e.
+`(414 : UInt32) ∈ frame.validJumps`.
+
+For the real entry frame `wcFrame g = codeFrame … (lower workedCall)`, `validJumps`
+is `validJumpDests (lower workedCall) 0` (set by `codeFrame`), and this is
+**preserved** through every prefix transformer (`jumpdestFrame`/`pushFrameW`/
+`sstoreFrame` all carry `validJumps` unchanged) and across the CALL
+(`resumeAfterCall` rebuilds from the pending parent frame, whose `validJumps` is the
+CALL-site frame's). So the same membership fact discharges the branch on the
+post-CALL frame.
+
+Track A detotalized `validJumpDests` (it is now a total, kernel-reducible def with a
+characterization lemma), so the membership is provable axiom-cleanly — no
+`native_decide`. `mem_validJumpDests_of_reachable_jumpdest` needs a `ReachesBoundary
+(lower workedCall) 0 414` derivation (walking the instruction stream from the entry
+to offset 414) and that offset 414 holds a `JUMPDEST` byte; both are kernel `decide`s
+on the concrete lowered bytes. -/
+
+/-- Walking the lowered `workedCall` instruction stream from the entry (pc 0) lands
+exactly on block 1's offset `414`: JUMPDEST · 2×PUSH32 · SSTORE · 7×PUSH32 · CALL ·
+3×PUSH32 · SLOAD · ADD · LT · PUSH4 · JUMPI · PUSH4 · JUMP. Each step's boundary byte
+reduces in the kernel (`by decide`). -/
+theorem wc_reaches_414 : ReachesBoundary (lower Lir.Decode.workedCall) 0 414 :=
+      (.step (byte := 0x5b) (by decide)
+      (.step (byte := 0x7f) (by decide)
+      (.step (byte := 0x7f) (by decide)
+      (.step (byte := 0x55) (by decide)
+      (.step (byte := 0x7f) (by decide)
+      (.step (byte := 0x7f) (by decide)
+      (.step (byte := 0x7f) (by decide)
+      (.step (byte := 0x7f) (by decide)
+      (.step (byte := 0x7f) (by decide)
+      (.step (byte := 0x7f) (by decide)
+      (.step (byte := 0x7f) (by decide)
+      (.step (byte := 0xf1) (by decide)
+      (.step (byte := 0x7f) (by decide)
+      (.step (byte := 0x7f) (by decide)
+      (.step (byte := 0x7f) (by decide)
+      (.step (byte := 0x54) (by decide)
+      (.step (byte := 0x01) (by decide)
+      (.step (byte := 0x10) (by decide)
+      (.step (byte := 0x63) (by decide)
+      (.step (byte := 0x57) (by decide)
+      (.step (byte := 0x63) (by decide)
+      (.step (byte := 0x56) (by decide)
+      (.refl 414)))))))))))))))))))))))
+
+/-- Block 1's offset `414` is a valid jump destination of `lower workedCall`: it
+holds a `JUMPDEST` byte reachable from the start, so the detotalized
+`validJumpDests` records it. -/
+theorem wc_414_mem_validJumps :
+    (414 : UInt32) ∈ validJumpDests (lower Lir.Decode.workedCall) 0 :=
+  mem_validJumpDests_of_reachable_jumpdest (lower Lir.Decode.workedCall)
+    wc_reaches_414 (byte := 0x5b) (by decide) (by decide)
+
+/-- **The branch destination resolves.** For any frame `fr` whose `validJumps` is the
+lowered program's (`validJumpDests (lower workedCall) 0`) — the entry frame and every
+prefix/post-CALL frame derived from it — the branch operand `414` resolves to the
+real `JUMPDEST` at pc 414. This is the post-CALL branch-terminator obligation,
+discharged through Track A's `Frame.get_dest_of_mem` + the membership fact (no
+`native_decide`, no hypothesis). -/
+theorem wc_get_dest_414 (fr : Frame)
+    (hvj : fr.validJumps = validJumpDests (lower Lir.Decode.workedCall) 0) :
+    fr.get_dest 414 = some 414 :=
+  Frame.get_dest_of_mem fr (d := 414) (by decide) (hvj ▸ wc_414_mem_validJumps)
+
+/-- The entry frame's `validJumps` is the lowered program's table (by `codeFrame`),
+so `wc_get_dest_414` applies to it and any frame that preserves `validJumps`. -/
+theorem wcFrame_validJumps (g : UInt64) :
+    (wcFrame g).validJumps = validJumpDests (lower Lir.Decode.workedCall) 0 := rfl
 
 /-! ## `lower_preserves` for `workedCall` (the bridge half)
 
