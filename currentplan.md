@@ -117,7 +117,12 @@ whichever interface, ideally the shared one.
   drops into `Runs.trans`). Worked `BranchExample`. Loops deferred (a back-edge is just
   another `runs_jump` glued by `trans`; gas ⇒ finiteness). **The report MUST argue this
   design choice + alternatives (Eduardo wasn't in this discussion).**
-- [ ] **Opcode-rule completion** IN PROGRESS — `runs_add/lt/sload(+read)/gas`.
+- [x] **Opcode-rule completion** DONE (`2615d03`, green 1130 jobs, axiom-clean):
+  `runs_add/lt/sload`(+`sloadFrame_storage_self`)/`gas` + `ArithStorageExample`.
+- [x] **A→base MERGE DONE** (integration gate cleared). A's full flat layer merged into
+  `exp003-fuel-layer-cleanup` (clean, no conflicts, base exp003 green 1130); base then
+  merged into `exp005-ir` so **C is unblocked** (C green 1106 against the new API).
+  Track A core is complete & reportable → `lean-review-report` launched.
 - NOTE (cleanup, defer to a review pass once `exp003-runs-call` stabilizes): A2's
   deletion left stale `messageCall_call_runs` refs in `docs/review-report.md` +
   `review-report-followup.md` — regenerate via `review-report.prose`, don't hand-patch.
@@ -136,9 +141,14 @@ whichever interface, ideally the shared one.
   no proofs broke (vendored core was `def`/`structure` only). Nested `Θ/Ξ/X` is now
   plain EVM. (Main loop fixed the default-target glob: `andSubmodules` needed a
   `NestedEvmYul/` dir that won't exist until B2 — temporarily `roots := [NestedEvmYul]`.)
-- [ ] **B2** (IN PROGRESS) Fuel↔gas: never-`OutOfFuel` on nested `Ξ/Θ` when fuel ≥ gas-derived
-  bound (the nested analogue of `messageCall_never_outOfFuel`). REDO on the
-  monomorphized base after B0 (B2's earlier scratch was discarded).
+- [~] **B2** Fuel↔gas: never-`OutOfFuel` on nested `Ξ/Θ` — PARTIAL (`863dc24`, green,
+  axiom-clean). DONE: `seedFuel g = 4*(g+1)`; fuel-0 base cases (all 5 layers); the
+  cornerstone `C'_pos_of_runnable` (every loop-continuing opcode burns ≥1 gas — ~140 ops;
+  zero-cost ops all halt); positivity helpers; the headline `Θ_never_outOfFuel` stated.
+  REMAINING (continuation IN PROGRESS): (1) `Z→step→X` gas inversion, (2) `X` measure
+  descent, (3) cross-layer gas/depth conservation (nested analogue of flat
+  `gasFundsDescent`), (4) the final MUTUAL fuel-passing induction over `X/Ξ/Θ/call/step`
+  (the hardest single proof in the experiment).
 - [ ] **B3** Nested external-call core: a `{P} Ξ(child) {Q}` triple + call-site/frame
   rule; demonstrate **multiple** calls compose naturally (contrast with A's effort).
 - [ ] **B4** Expose an observables-only, fuel/frame-free semantics surface for IRs.
@@ -152,15 +162,28 @@ whichever interface, ideally the shared one.
   emits decode-compatible bytecode per construct (recompute-on-use; PUSH32/ADD/LT/SLOAD/
   GAS/SSTORE/CALL/JUMP/JUMPI/RETURN/STOP), ~40 build-enforced `decode … = expected`
   round-trip `rfl` checks (avoided `native_decide` to stay axiom-clean).
-- [ ] **C3** Prove lowering preserves semantics. **C PARKED, GATED on A→base merge.**
-  Rebase-safe prep DONE (`8946f78`): simplified C1/C2 (dropped dead defs); `Match`
-  invariant + per-construct obligation table in `docs/ir-design.md §6`; C→A rule request
-  in PLAN.md. **Refined finding:** with A's new API, C3 needs NO halt `runs_*` (the bridge
-  takes `STOP`/`RETURN` via `hhalt`) and CALL is a `Runs.call` node — so the only NEW
-  opcode rules A must add beyond the CFG combinator (JUMP/JUMPI) are **`runs_add`,
-  `runs_lt`, `runs_sload`(+read companion), `runs_gas`**. Resume C3 right after rebase.
-- [ ] **C4** Multi-call lowering. A3 is DONE so the *bridge* exists; C4 still follows
-  C3 and the A→base merge + C rebase.
+- [~] **C3** Prove lowering preserves semantics — UNBLOCKED (A merged) & PARTIAL
+  (`b81b331`, green 1126 jobs, axiom-clean). DONE: small-step gas-aware IR semantics
+  (`SmallStep.lean`), the 5-clause `Match` invariant (`Match.lean`), ALL per-construct
+  simulation lemmas (`sim_imm/add/lt/sload/gas/sstore/jump/branch/call`, `halt_stop/ret`),
+  and the top-level boundary discharge `lower_preserves_discharge` (crosses
+  `messageCall_runs`, already handles ANY number of `Runs.call` nodes ⇒ C4 discharge is
+  nearly free). Byte-layout half now DONE generically (`84f79aa`): `decode_lower`
+  (+`bget`/`bextract` foundations) and the offset-table arithmetic with symbolic `M1`
+  (`pcOf_eq_anchor`/`flatBytes_at_pcOf`). REMAINING (final continuation IN PROGRESS):
+  the per-program `Runs fr₀ last` assembly for `workedCall` (gas-tracked `Runs.trans`
+  chain + a concrete `CallReturns` child run). **ARCHITECTURALLY COMPLETE** (`496ef19`,
+  green 1129): `lower_preserves` (single-call) + the concrete `Runs` assembly for
+  `workedCall` (`wc_prefix_runs`/`wc_call_step`/`wc_preserves`) hold as the BRIDGE HALF
+  with two honest, non-faked hypotheses: (a) the concrete child `CallReturns` (feasible-
+  but-large callee `drive` run), (b) the post-CALL branch terminator — **BLOCKED by
+  `validJumpDestsAux` being a `partial def`** (kernel-opaque ⇒ `get_dest` unprovable
+  without `native_decide`). Track A is now detotalizing it. Track C report launched.
+- [x] **C4** Multi-call lowering — RESOLVED STRUCTURALLY (`496ef19`): `wc_preserves_twoCall`
+  closes a 2-CALL program by the SAME bridge discharge (the boundary discharge composes any
+  number of `Runs.call` nodes). Needed NO new theory — direct payoff of Track A's
+  `Runs.call`. Its open pieces are identical to C3's (the two honest hypotheses), not
+  multi-call-specific.
 
 ---
 
@@ -275,6 +298,45 @@ your own branch with clear messages; never touch another track's files; if block
 write the blocker into PLAN.md before stopping.
 
 ## Orchestration log
+- 2026-06-22: **Track C review report DONE & committed** (`docs/track-c-review.md`, 561
+  lines, on `exp005-ir`). Surfaced cleanup items for the C-close / cleanup sweep: (i)
+  `ir-design.md §6` describes a generic `IRStep`/`lower_simulates_step` engine that was
+  actually built CONCRETELY per `workedCall` — sync doc to as-built; (ii) `Match` doc
+  (5-clause conjunction) vs code (6-field structure) — fix doc; (iii) `maxHeartbeats
+  2000000` in `WorkedCall.lean` (PUSH32-reduction blowup `wc_preserves` depends on) —
+  investigate/contain. These fold into the C hypothesis-free close (after A's
+  `validJumpDests` merge) + the end-of-line cleanup sweep. C parked meanwhile.
+- 2026-06-22: **C3/C4 ARCHITECTURALLY COMPLETE & verified** (`496ef19`, green 1129).
+  Lowering-preservation proved as the bridge half (single-call `lower_preserves` +
+  multi-call `wc_preserves_twoCall`) modulo two honest hypotheses. **C4 needed no new
+  theory** (Track A's `Runs.call` composes calls) and `decode_lower`+byte-layout are now
+  generic. **Foundation finding: `validJumpDestsAux` is a `partial def`** → jump-dest
+  validity unprovable without `native_decide`; this blocks the branch terminator. Launched
+  **Track A to detotalize it** (vendored-EVMLean fix, upstreamable) + the **Track C
+  review report**. Still running: B2 mutual induction. Next: A merges the detotalized
+  `validJumpDests` → C rebases → one C agent closes both honest hypotheses (child
+  `CallReturns` + branch terminator) ⇒ hypothesis-free C.
+- 2026-06-22: **B2 PARTIAL & verified** (`863dc24`, green, axiom-clean). Cornerstone
+  (per-opcode gas-positivity, ~140 ops) + fuel bound + base cases proved; remaining = the
+  mutual fuel-passing induction (Z→step→X inversion, X descent, cross-layer conservation,
+  final mutual induction). Continuation launched. Both proofs now grinding in parallel:
+  C3-assembly + B2-mutual-induction.
+- 2026-06-22: **C3 PARTIAL & verified** (`b81b331`, green 1126). Semantic core proved
+  (Match + all per-construct sims + boundary discharge that already covers multi-call).
+  Remaining = byte-layout assembly (`decode_lower` + `lower_simulates_step`); continuation
+  agent launched. Track C report deferred until C3 closes. Still running: B2.
+- 2026-06-22: **Track A review report DONE & committed** (`docs/track-a-review.md`, 423
+  lines; argues `Runs.call` + CFG choices vs alternatives). Fixed master report staleness.
+  Report flagged for Phase-2: `Spec.lean`'s surface is frame-level, not observables-only
+  (accepted for the low-level layer per project standard; resolve at the shared-interface
+  EXPORT boundary). **Track A core now resting at a clean reported milestone** — did NOT
+  launch its backlog (gas-introspection is entangled with C's branch lowering; `CREATE` is
+  speculative). Loop carried by the two in-flight proofs: **C3** + **B2**.
+- 2026-06-22: **A opcode rules DONE + A→base MERGE + C unblocked** (`2615d03`; merge clean,
+  base green 1130, C green 1106). Integration gate cleared. Launched: **C3** (single-call
+  preservation, now unblocked) and the **Track A `lean-review-report`** (→ `docs/track-a-
+  review.md`, arguing the `Runs.call` + CFG design choices). Still running: B2. Track A's
+  core flat layer is COMPLETE (`Runs`+call+multi-call+CFG+opcode rules, all merged).
 - 2026-06-22: **B0 (mono) + A CFG combinator DONE & verified** (B0 `63e234e`+glob-fix
   green; CFG `bc810cc` green 1129). Yul fully gone from exp004; control-flow combinator
   in exp003. Launched: A **opcode-rule completion** (`runs_add/lt/sload/gas`) → then

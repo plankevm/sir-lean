@@ -1,6 +1,7 @@
 import Evm.UInt256
 import Evm.Machine.ExecutionState
 import Evm.Semantics.Params
+import Evm.Semantics.Decode
 
 namespace Evm
 
@@ -31,6 +32,15 @@ structure Frame where
 def Frame.get_dest (f : Frame) (dest : UInt256) : Option UInt32 := do
   let d ← dest.toUInt32?
   f.validJumps.find? (· == d)
+
+/-- `get_dest` resolves to `d` whenever the operand narrows to `d` and `d` is a
+recorded jump destination. Combine with `mem_validJumpDests_of_reachable_jumpdest`
+(see `Evm/Semantics/Decode.lean`) to discharge a lowered branch's destination. -/
+theorem Frame.get_dest_of_mem (f : Frame) {dest : UInt256} {d : UInt32}
+    (hd : dest.toUInt32? = some d) (hmem : d ∈ f.validJumps) :
+    f.get_dest dest = some d := by
+  simp only [Frame.get_dest, hd, bind, Option.bind]
+  exact Evm.find?_beq_eq_some_of_mem hmem
 
 inductive FrameHalt where
   | success (exec : ExecutionState) (output : ByteArray)
