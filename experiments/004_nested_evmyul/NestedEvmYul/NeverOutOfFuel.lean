@@ -958,6 +958,32 @@ theorem Z_ok_state (vj : Array UInt256) (w : Operation) (s s' : State) (c : ℕ)
       exact gas_sub_le s.gasAvailable m₁ (Nat.le_of_not_lt hg1)
         (Nat.lt_of_le_of_lt (Nat.le_of_not_lt hg1) s.gasAvailable.val.isLt)
 
+set_option maxHeartbeats 2000000 in
+/-- A successful `Z` preserves `pc` and the execution-env `code` (it only rewrites
+`gasAvailable`). Needed so the `X` loop's decoded opcode (decoded from the pre-`Z`
+state) is also the opcode at the post-`Z` step-state. -/
+theorem Z_ok_code_pc (vj : Array UInt256) (w : Operation) (s s' : State) (c : ℕ)
+    (h : Z vj w s = .ok (s', c)) :
+    s'.toState.executionEnv.code = s.toState.executionEnv.code ∧ s'.pc = s.pc := by
+  unfold Z at h
+  simp only [pure, Except.pure, bind, Except.bind] at h
+  generalize hm : memoryExpansionCost s w = m₁ at h
+  by_cases hg1 : s.gasAvailable.toNat < m₁
+  · rw [if_pos hg1] at h; exact absurd h (by simp)
+  · rw [if_neg hg1] at h
+    generalize hcc : C' { s with gasAvailable := s.gasAvailable - UInt256.ofNat m₁ } w = c₂ at h
+    by_cases hg2 : ({ s with gasAvailable := s.gasAvailable - UInt256.ofNat m₁ } : State).gasAvailable.toNat < c₂
+    · rw [if_pos hg2] at h; exact absurd h (by simp)
+    · rw [if_neg hg2] at h
+      have hs' : s' = { s with gasAvailable := s.gasAvailable - UInt256.ofNat m₁ } := by
+        revert h
+        split_ifs <;> intro h <;>
+          first
+          | (have hp := Except.ok.inj h; rw [Prod.mk.injEq] at hp
+             obtain ⟨rfl, _⟩ := hp; rfl)
+          | exact absurd h (by simp)
+      rw [hs']; exact ⟨rfl, rfl⟩
+
 /-! ## Item 3 (down-payment) — child gas is carved from the parent
 
 The gas a frame forwards to a child (`Ccallgas`) is bounded by the parent's own gas.
@@ -1810,6 +1836,8 @@ that succeeds lands at gas `≤ s'.gasAvailable.toNat`, then a successful
 — `Z_ok_state`; the halting arms read the post-`step` gas directly.) -/
 theorem X_loop_gas_le (vj : Array UInt256)
     (hstep : ∀ (f cost : ℕ) (w : Operation) (arg) (s' s'' : State),
+       (w, arg) = (decode s'.toState.executionEnv.code s'.pc |>.getD (.STOP, .none)) →
+       cost ≤ s'.gasAvailable.toNat →
        step f cost (some (w, arg)) s' = .ok s'' →
        s''.gasAvailable.toNat ≤ s'.gasAvailable.toNat) :
     ∀ (fuel : ℕ) (s : State) (r : ExecutionResult State),
@@ -1829,13 +1857,18 @@ theorem X_loop_gas_le (vj : Array UInt256)
       rw [hZ] at hX
       simp only at hX
       have hevle : ev.gasAvailable.toNat ≤ s.gasAvailable.toNat := Z_ok_state vj instr.1 s ev cost₂ hZ
+      have hcodepc : ev.toState.executionEnv.code = s.toState.executionEnv.code ∧ ev.pc = s.pc :=
+        Z_ok_code_pc vj instr.1 s ev cost₂ hZ
       cases hs : step f cost₂ instr ev with
       | error e => rw [hs] at hX; exact absurd hX (by simp)
       | ok ev' =>
         rw [hs] at hX
         simp only at hX
+        have hcle : cost₂ ≤ ev.gasAvailable.toNat := (Z_ok_cost_le_gas vj instr.1 s ev cost₂ hZ).1
+        have hdec : (instr.1, instr.2) = (decode ev.toState.executionEnv.code ev.pc |>.getD (.STOP, .none)) := by
+          rw [hcodepc.1, hcodepc.2, ← hinstr]
         have hsle : ev'.gasAvailable.toNat ≤ ev.gasAvailable.toNat :=
-          hstep f cost₂ instr.1 instr.2 ev ev' hs
+          hstep f cost₂ instr.1 instr.2 ev ev' hdec hcle hs
         cases hH : H ev'.toMachineState instr.1 with
         | none =>
           rw [hH] at hX
@@ -1884,6 +1917,40 @@ theorem Ccallgas_le_Ccall (t r : AccountAddress) (val g : UInt256) (σ : Account
     have hxe : Cxfer ⟨⟨k+1, hn⟩⟩ ≤ Cextra t r ⟨⟨k+1, hn⟩⟩ σ A := by unfold Cextra; omega
     show Cgascap t r _ g σ μ A + Gcallstipend ≤ Cgascap t r _ g σ μ A + Cextra t r _ σ A
     omega
+
+/-- **Default-arm `step` gas bound** in the `X_loop_gas_le` `hstep` shape: a successful
+non-call/create `step (f+1)` debits `cost` (so lands at `gas - cost ≤ gas`, using
+`cost ≤ s.gas.toNat` to rule out wraparound). -/
+theorem step_default_gas_le (f cost : ℕ) (w : Operation) (arg) (s s' : State)
+    (hop : ¬ isCallCreate w) (hcle : cost ≤ s.gasAvailable.toNat)
+    (h : step f cost (some (w, arg)) s = .ok s') :
+    s'.gasAvailable.toNat ≤ s.gasAvailable.toNat := by
+  cases f with
+  | zero => exact absurd h (by simp [step])
+  | succ f =>
+    have hg : s'.gasAvailable = s.gasAvailable - UInt256.ofNat cost :=
+      gas_EVM_step_default f cost w arg s s' hop h
+    rw [hg]
+    exact gas_sub_le s.gasAvailable cost hcle
+      (Nat.lt_of_le_of_lt hcle s.gasAvailable.val.isLt)
+
+/-- **Leaf-frame `X` gas-monotonicity (unconditional).** For a frame whose code never
+decodes to a CREATE/CALL opcode, a successful `X fuel vj s = .ok r` returns
+`resultGas r ≤ s.gasAvailable.toNat`. This is the gas-monotonicity companion of
+`X_leaf_noOOF`, discharging `X_loop_gas_le`'s `hstep` via `step_default_gas_le`. -/
+theorem X_leaf_gas_le (vj : Array UInt256)
+    (hnc : ∀ (s2 : State),
+      ¬ isCallCreate (decode s2.toState.executionEnv.code s2.pc |>.getD (.STOP, .none)).1)
+    (fuel : ℕ) (s : State) (r : ExecutionResult State)
+    (hX : X fuel vj s = .ok r) :
+    resultGas r ≤ s.gasAvailable.toNat := by
+  refine X_loop_gas_le vj ?_ fuel s r hX
+  intro f cost w arg s' s'' hdec hcle hs
+  -- the stepped `(w,arg)` is the decoded opcode at `s'`; `hnc s'` rules out call/create.
+  have hwnc : ¬ isCallCreate w := by
+    have := hnc s'
+    rw [← hdec] at this; exact this
+  exact step_default_gas_le f cost w arg s' s'' hwnc hcle hs
 
 /-! ## Status of the headline `Θ_never_outOfFuel` — what is closed and what remains
 
