@@ -2169,6 +2169,44 @@ The `Nat` no-wrap core `create_gas_arith{,_lt}` then gives `gd.toNat − L + g' 
 (`< gd.toNat` is impossible — equality holds when `g' = L`; the strict drop comes
 from the *debit*: `gd.toNat < ev.gas.toNat` since `Gcreate = 32000 > 0`). -/
 
+/-- `C' s .CREATE ≥ 1`: the create base cost `Gcreate = 32000` dominates. This
+discharges the `1 ≤ gasCost` (`hpos`) hypothesis of `create_result_gas_lt` when the
+assembly takes `gasCost = C' ev .CREATE`. -/
+theorem C'_create_pos (s : State) : 1 ≤ C' s .CREATE := by
+  show 1 ≤ Gcreate + _; simp only [Gcreate]; omega
+
+/-- `C' s .CREATE2 ≥ 1`: same, `Gcreate = 32000` dominates. -/
+theorem C'_create2_pos (s : State) : 1 ≤ C' s .CREATE2 := by
+  show 1 ≤ Gcreate + _ + _; simp only [Gcreate]; omega
+
+/-- **CREATE-arm stack arg-matching.** A successful `pop3` exposes the top three
+words as `s[0]!`, `s[1]!`, `s[2]!` — the entries `C' .CREATE` reads via `μₛ[i]!`. The
+create analogue of `pop7_stack_index` (CREATE pops 3). -/
+theorem pop3_stack_index {α} [Inhabited α] (s tl : Stack α) (a b c : α)
+    (h : s.pop3 = some (tl, a, b, c)) :
+    s[0]! = a ∧ s[1]! = b ∧ s[2]! = c := by
+  unfold Stack.pop3 at h
+  split at h
+  · rename_i hd hd₁ hd₂ tl'
+    simp only [Option.some.injEq, Prod.mk.injEq] at h
+    obtain ⟨_, rfl, rfl, rfl⟩ := h
+    refine ⟨?_, ?_, ?_⟩ <;> rfl
+  · exact absurd h (by simp)
+
+/-- **CREATE2-arm stack arg-matching.** A successful `pop4` exposes the top four
+words; the gas-relevant `μₛ[2]!` is the third. (CREATE2 pops 4: gas/salt + the three
+CREATE words.) -/
+theorem pop4_stack_index {α} [Inhabited α] (s tl : Stack α) (a b c d : α)
+    (h : s.pop4 = some (tl, a, b, c, d)) :
+    s[0]! = a ∧ s[1]! = b ∧ s[2]! = c ∧ s[3]! = d := by
+  unfold Stack.pop4 at h
+  split at h
+  · rename_i hd hd₁ hd₂ hd₃ tl'
+    simp only [Option.some.injEq, Prod.mk.injEq] at h
+    obtain ⟨_, rfl, rfl, rfl, rfl⟩ := h
+    refine ⟨?_, ?_, ?_, ?_⟩ <;> rfl
+  · exact absurd h (by simp)
+
 /-- **CREATE `Nat` no-wrap core (≤).** Given `g' ≤ L gd` (the child returns no more
 than the create cap) and `gd ≤ G` (the debited gas does not exceed the input), the
 `.ofNat`-wrapped create result gas `gd − L gd + g'` has `.toNat ≤ G`. The single
