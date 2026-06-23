@@ -829,6 +829,94 @@ theorem wcResumed_validJumps (g : UInt64) :
   unfold wcResumed resumeAfterCall callPending
   dsimp only [ExecutionState.replaceStackAndIncrPC]; rfl
 
+/-! ## Resumed-frame facts: stack, accounts, substate (post-CALL run foundation)
+
+The post-CALL run starts from `wcResumed g` (pc 300, the block-0 branch recompute).
+Beyond the `wcResumed_addr/code/pc/validJumps` fields above, the run needs the
+resumed **stack** (`[1]` — the CALL success flag), the resumed **accounts** (the
+child-committed map, where the caller's slot 7 is still 5), and the resumed
+**substate** (warm `(addrCaller, 7)`). These are all `g`-independent (gas is the only
+`g`-carrying field), so we read them off named `g`-free maps via `resumeAfterCall` /
+`endCall` projections — no deep `lower` reduction. -/
+
+/-- The child call returned success (the callee `PUSH;PUSH;SSTORE;STOP` halts with
+`.success`, and `endCall .success` keeps the non-empty child accounts → `success`). -/
+theorem wcChildResult_success (g : UInt64) :
+    (wcChildFrameRes g).toCallResult.success = true := by
+  unfold wcChildFrameRes endFrame
+  dsimp only [wcChildFrame, FrameResult.toCallResult, endCall]
+
+/-- The caller's self balance is `≥ 0` (always), so the "insufficient funds" guard
+in `resumeAfterCall` is false; with a successful child and caller depth `0 ≠ 1024`,
+the pushed success flag is `1`. -/
+theorem wcResumed_stack (g : UInt64) : (wcResumed g).exec.stack = [1] := by
+  unfold wcResumed resumeAfterCall callPending
+  dsimp only [ExecutionState.replaceStackAndIncrPC]
+  rw [wcChildResult_success g]
+  rw [if_neg (by
+    rw [show ((callerCharged (wcCallSite g).exec 0xCA11EE 0xFFFFFFFF).executionEnv.depth == 1024)
+          = false from by
+        rw [show (callerCharged (wcCallSite g).exec 0xCA11EE 0xFFFFFFFF).executionEnv.depth
+              = (wcCallSite g).exec.executionEnv.depth from rfl,
+            show (wcCallSite g).exec.executionEnv.depth = 0 from rfl]; rfl]
+    simp only [Bool.not_true, Bool.false_or, Bool.or_false, decide_eq_true_eq, gt_iff_lt]
+    exact not_lt_of_ge (UInt256.zero_le _))]
+  rfl
+
+/-- A `g`-independent exec carrying the child's pre-SSTORE world (`wcChildXfer`), self
+`0xCA11EE`. Mirrors `wcChildAfter2Push` on exactly the fields `State.sstore`'s account
+map depends on (`accounts`, `executionEnv.address`) — the analogue of `wcPreExec`. -/
+def wcChildPreExec : ExecutionState :=
+  { (default : ExecutionState) with
+      accounts := wcChildXfer, originalAccounts := ∅, executionEnv := wcChildEnv }
+
+/-- **The `g`-independent child post-SSTORE account map** — `wcChildXfer` after the
+callee's `SSTORE 7 5` (writing `0xCA11EE`'s slot 7). This is the map committed back
+to the parent on return (the resumed frame's accounts). -/
+def wcResumedAccounts : AccountMap := (wcChildPreExec.sstore 7 5).accounts
+
+/-- The resumed frame's accounts is the named child post-SSTORE world — derived
+through `sstore_accounts_congr` from the cheap field facts (`wcChildAfter2Push`'s
+accounts is `wcChildXfer`, self `0xCA11EE`), NOT by deep reduction. The `endCall`
+non-empty branch keeps the child's accounts (it is not `∅`). -/
+theorem wcResumed_acc (g : UInt64) : (wcResumed g).exec.accounts = wcResumedAccounts := by
+  unfold wcResumed resumeAfterCall callPending
+  dsimp only [ExecutionState.replaceStackAndIncrPC]
+  show (wcChildFrameRes g).toCallResult.accounts = wcResumedAccounts
+  unfold wcChildFrameRes endFrame
+  dsimp only [wcChildFrame, FrameResult.toCallResult, endCall]
+  rw [if_neg (by
+    -- the child post-SSTORE accounts is non-empty (it inserts `0xCA11EE`)
+    show ¬ ((sstorePost (wcChildAfter2Push g) 7 5 []).accounts == ∅) = true
+    rw [show (sstorePost (wcChildAfter2Push g) 7 5 []).accounts = wcResumedAccounts from by
+        unfold sstorePost
+        dsimp only [ExecutionState.replaceStackAndIncrPC]
+        show ((wcChildAfter2Push g).toState.sstore 7 5).accounts = wcResumedAccounts
+        unfold wcResumedAccounts
+        apply sstore_accounts_congr
+        · show (wcChildAfter2Push g).accounts = wcChildPreExec.accounts
+          show (wcChildFrame g).exec.accounts = wcChildPreExec.accounts; rfl
+        · show (wcChildAfter2Push g).executionEnv.address = wcChildPreExec.executionEnv.address; rfl]
+    decide)]
+  unfold sstorePost
+  dsimp only [ExecutionState.replaceStackAndIncrPC]
+  show ((wcChildAfter2Push g).toState.sstore 7 5).accounts = wcResumedAccounts
+  unfold wcResumedAccounts
+  apply sstore_accounts_congr
+  · show (wcChildAfter2Push g).accounts = wcChildPreExec.accounts; rfl
+  · show (wcChildAfter2Push g).executionEnv.address = wcChildPreExec.executionEnv.address; rfl
+
+/-- **The caller's slot 7 survives the child CALL = 5.** In the child-committed map,
+the caller (`addrCaller`) slot 7 is still `5` (block 0 wrote it; the child wrote
+`0xCA11EE`'s slot 7, a different account). This is the SLOAD value the block-0/block-1
+`lt` recompute reads. (`decide` on the small literal `wcResumedAccounts`.) -/
+theorem wcResumed_sload7 (g : UInt64) :
+    ((wcResumed g).exec.accounts.find? addrCaller).option 0 (·.lookupStorage 7) = 5 := by
+  rw [wcResumed_acc]
+  unfold wcResumedAccounts wcChildPreExec wcChildXfer wcStoredAccounts wcPreExec
+    callerXfer accts callerAccount calleeAccount callerEnv wcChildEnv
+  decide
+
 /-! ## The general `RETURN` halt (materialised return window)
 
 The lowering's `ret t` emits `materialise t ++ [RETURN]`, so the `RETURN` consumes
