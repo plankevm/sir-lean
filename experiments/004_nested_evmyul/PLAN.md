@@ -28,18 +28,18 @@ composing naturally (the thing flat makes hard).
   `EvmYul/Yul/` + Yul-only code; fix the `EvmYul/Semantics.lean` import; keep the
   EVM library (+`Conform` dep) green via `lake build`; trim heavy/irrelevant pieces.
   Add a lakefile for exp004 requiring the vendored `evmyul`.
-- [~] **B2** Never-`OutOfFuel` on nested `Ξ/Θ`: fuel ≥ gas-derived bound ⇒ no
+- [x] **B2** Never-`OutOfFuel` on nested `Ξ/Θ`: fuel ≥ gas-derived bound ⇒ no
   `OutOfFuel` (nested analogue of exp003's `messageCall_never_outOfFuel`).
-  PARTIAL — cornerstone + gas-decrement chain (`Z→step→X`) + `X` measure descent +
-  cross-layer gas/depth conservation (item 3) + 4/5 layer propagation skeletons
-  (`Ξ`/`Θ`-Code/`call`/`Lambda`) proved (B2d). **B2e: step skeleton + X inner
-  loop-induction + precompiled `Θ`-arm + END-TO-END LEAF FRAME (`Θ_leaf_noOOF`,
-  unconditional for non-nesting calls) now closed.** REMAINING for the fully nested
-  headline: extend the per-iteration gas descent to CALL/CREATE iterations + the final
-  mutual `fuel` induction threaded with a **super-linear depth-aware bound**
-  `B (k+1) gas = (gas+1)·(B k gas + c) + 2` (the linear `4*(g+1)` AND the linear
-  product `(1025−depth)·4·(gas+1)` are both insufficient — corrected in B2e). See
-  B2e/B2d logs below.
+  **DONE — headline `Θ_never_outOfFuel` CLOSED + axiom-clean.** Fuel bound is
+  **LINEAR-PRODUCT** `fuelBound g e = (1025−e)·(g+8)` — linear in gas, depth *factor*.
+  The earlier "super-linear `(g+1)^(1025−depth)`" estimate was WRONG: fuel is a
+  pass-by-value structural counter (the parent loop resumes at the same `f` regardless
+  of child consumption), so the binding constraint is the single worst loop iteration,
+  not the sum over children — the depth recurrence is additive (`fuelBound_succ`). Proof
+  = two mutual inductions `gas_mono` (6-layer) + `never_oof` (5-layer; CREATE/CREATE2
+  swallow the child `Lambda`'s OOF so no `Lambda` recursion) + a ~250-line
+  depth-preservation keystone (`step_depth`/`Z_ok_depth`). See the B2i/G1/N1/N2/A1
+  progress-log entries below + `docs/track-b-review.md`.
 - [ ] **B3** Nested external-call core: `{P} Ξ(child) {Q}` triple + call-site/frame
   rule; show ≥2 calls compose naturally.
 - [ ] **B4** Observables-only, fuel/frame-free surface for IRs.
