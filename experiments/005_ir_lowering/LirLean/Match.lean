@@ -1,0 +1,371 @@
+import LirLean.SmallStep
+import LirLean.Lowering
+import LirLean.Layout
+import BytecodeLayer.Hoare
+import BytecodeLayer.Hoare.CallSequence
+
+/-!
+# LirLean — the `Match` invariant and the per-construct simulation engine (C3)
+
+This module carries Track C's milestone-C3 work: the `Match` simulation invariant
+(`docs/ir-design.md` §6.1) relating an IR small-step configuration to an EVM
+`Frame`, and the **per-construct atomic simulation lemmas** that drive
+`lower_simulates_step` — each shows that the EVM `Runs` segment for one lowered IR
+construct re-establishes the relevant `Match` clauses, discharging straight to the
+exp003 `runs_*` opcode rule (now merged in).
+
+## What is proved here (C3, this run)
+
+The engine `lower_simulates_step` decomposes, per IR construct, into a `Runs`
+segment that runs the lowered opcodes and re-establishes `Match`. The hard,
+program-global part of that engine is the **program-counter clause `M1`**: relating
+`fr.exec.pc` to the offset-table address `pcOf prog L pc` *across a whole lowered
+program*. That is heavy byte-layout arithmetic over `lower prog` and is the bulk of
+the remaining C3 work (documented in `PLAN.md`).
+
+The genuinely-closeable core — proved here, green, no `sorry` — is the set of
+**atomic, frame-local simulation lemmas**: for each effecting construct, *given the
+frame's local decode + stack-shape + gas + storage correspondence*, there is a
+`Runs fr fr'` to the named exp003 post-frame whose result re-establishes the
+storage (`M3`), gas (`M4`) and value clauses. These are exactly the steps
+`lower_simulates_step` threads with `Runs.trans`; they wrap each `runs_*` rule with
+the IR-state correspondence so the simulation reads off the IR semantics
+(`evalExpr`, `IRState.charge`, `IRState.setStorage`). The `STOP`/`RETURN`
+terminators are handled by exposing the halt step the bridge consumes.
+-/
+
+namespace Lir
+open Evm
+open BytecodeLayer.Hoare
+open BytecodeLayer.Dispatch
+open BytecodeLayer.System
+
+/-! ## The `Match` invariant (`docs/ir-design.md` §6.1)
+
+`Match c fr` relates a *running* IR configuration to an EVM frame. Because the
+lowering is recompute-on-use (§4), there is **no register↔slot map**: between
+statements the working stack is empty (`M5`), each `tmp` being re-materialised from
+its defining expression at use. The clauses:
+
+* `M1` pc: `fr` is at the byte offset the offset table assigns to `(L, pc)`;
+* `M2` code: `fr` runs the lowered program;
+* `M3` storage: the IR self-storage equals the self account's storage through the
+  observable `find?/lookupStorage` lens;
+* `M4` gas: the IR gas counter equals `gasAvailable` (honest gas);
+* `M5` stack: empty at the statement boundary.
+
+`M1` is parameterised by the offset-table address `pcOf`; the full program-global
+discharge of `M1` is the remaining C3 work. -/
+
+/-- The byte offset the offset table assigns to cursor `(L, pc)` of `prog`: the
+block's `JUMPDEST` (`offsetTable … L.idx`), skip the `JUMPDEST` (`+1`), then the
+byte length of the emitted statements `0 .. pc` of block `L`. A prefix sum, so it
+is computable; `M1` pins `fr.exec.pc` to this. -/
+def pcOf (prog : Program) (L : Label) (pc : Nat) : Nat :=
+  let defs := defsOf prog
+  let fuel := recomputeFuel prog
+  offsetTable defs fuel prog.blocks L.idx + 1
+    + (((prog.blockAt L).map (fun b =>
+          ((b.stmts.take pc).flatMap (emitStmt defs fuel)).length)).getD 0)
+
+/-! ### `M1` discharged at a statement cursor (generic, via `Layout`)
+
+These wire the offset-table byte-layout arithmetic (`LirLean/Layout.lean`) and the
+generic decode lemmas (`LirLean/DecodeLower.lean`) into a decode fact at the *symbolic*
+`pcOf` address, over an arbitrary program. They are the program-global `M1` discharge
+the simulation engine needs at each statement step: no per-program `rfl`, the pc is the
+offset-table prefix sum. -/
+
+/-- `prog.blockAt L = some b` from the `toList` index witness (the form `Layout`'s
+lemmas take). -/
+theorem blockAt_of_toList (prog : Program) (L : Label) (b : Block)
+    (hb : prog.blocks.toList[L.idx]? = some b) : prog.blockAt L = some b := by
+  unfold Program.blockAt; rw [← Array.getElem?_toList]; exact hb
+
+/-- `pcOf prog L pc` unfolds to the offset-table anchor index (the `Layout` form)
+when block `L` is present — the `getD 0` collapses to the block's stmt-prefix length. -/
+theorem pcOf_eq_anchor (prog : Program) (L : Label) (b : Block) (pc : Nat)
+    (hb : prog.blocks.toList[L.idx]? = some b) :
+    pcOf prog L pc
+      = offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks L.idx + 1
+        + ((b.stmts.take pc).flatMap (emitStmt (defsOf prog) (recomputeFuel prog))).length := by
+  unfold pcOf; rw [blockAt_of_toList prog L b hb]; rfl
+
+/-- **The statement-cursor byte (generic `M1`).** The byte `flatBytes prog` holds at
+`pcOf prog L pc` is the head byte of the statement at that cursor — `(emitStmt … s)[0]`.
+The composition of `pcOf_eq_anchor` (pc = offset-table anchor) and
+`Layout.stmt_byte_anchor` (anchor byte = `emitStmt` head). The `decode_lower_*` lemmas
+turn this into a decode fact for the construct. -/
+theorem flatBytes_at_pcOf (prog : Program) (L : Label) (b : Block) (pc : Nat) (s : Stmt)
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hs : b.stmts[pc]? = some s)
+    (hne : emitStmt (defsOf prog) (recomputeFuel prog) s ≠ []) :
+    (flatBytes prog)[pcOf prog L pc]?
+      = (emitStmt (defsOf prog) (recomputeFuel prog) s)[0]? := by
+  rw [pcOf_eq_anchor prog L b pc hb]
+  exact stmt_byte_anchor prog L b pc s hb hs hne
+
+/-- The self account's storage at `key`, read through exp003's observable lens
+(the same `find?/lookupStorage` used by `sstoreFrame_storage_self` /
+`sloadFrame_storage_self`). This is the EVM side of `Match`'s storage clause `M3`. -/
+def selfStorage (fr : Frame) (key : Word) : Word :=
+  fr.exec.accounts.find? fr.exec.executionEnv.address |>.option 0 (·.lookupStorage key)
+
+/-- The storage of account `addr` at `key` in frame `fr`, through the same lens.
+Used to state the `SSTORE` effect/frame clauses keyed on a fixed self address (the
+exact form exp003's `sstoreFrame_storage_*` lemmas produce), sidestepping the
+post-frame's own-address defeq. -/
+def storageAt (fr : Frame) (addr : AccountAddress) (key : Word) : Word :=
+  fr.exec.accounts.find? addr |>.option 0 (·.lookupStorage key)
+
+/-- **The simulation invariant** relating a running IR configuration to a frame.
+See the module docstring and `docs/ir-design.md` §6.1 for the clause meanings. -/
+structure Match (prog : Program) (L : Label) (pc : Nat) (st : IRState) (fr : Frame) : Prop where
+  /-- `M1` — program counter at the offset-table address. -/
+  pc_eq      : fr.exec.pc = UInt32.ofNat (pcOf prog L pc)
+  /-- `M2` — the frame runs the lowered program. -/
+  code_eq    : fr.exec.executionEnv.code = lower prog
+  /-- `M3` — storage correspondence through the observable lens. -/
+  storage_eq : ∀ k, selfStorage fr k = st.storage k
+  /-- `M4` — gas correspondence (honest gas). -/
+  gas_eq     : fr.exec.gasAvailable = st.gas
+  /-- `M5` — empty working stack at the statement boundary. -/
+  stack_nil  : fr.exec.stack = []
+  /-- Standing well-formedness: the call may modify state (top-level call). -/
+  can_modify : fr.exec.executionEnv.canModifyState = true
+
+/-! ## Atomic per-construct simulation lemmas
+
+Each lemma takes the EVM frame's **local** facts (decode at `fr.exec.pc`, stack
+shape, gas bound) — the very hypotheses the `runs_*` rule wants — and packages the
+resulting `Runs` together with the IR-side reading of the post-frame: the pushed
+value equals `evalExpr`, the gas drops by the IR charge, storage follows
+`IRState.setStorage`. These are the bricks `lower_simulates_step` threads with
+`Runs.trans`; they are stated frame-locally so they compose independent of `M1`'s
+program-global pc arithmetic. -/
+
+/-- **`Expr.imm` simulation.** A frame decoding to `PUSH32 w` runs one step to
+`pushFrameW fr w 32`, leaving `w` on top — the value `evalExpr st (.imm w) = some w`. -/
+theorem sim_imm (fr : Frame) (w : Word)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Push .PUSH32, some (w, 32)))
+    (hgas : 3 ≤ fr.exec.gasAvailable.toNat)
+    (hstk : fr.exec.stack.size + 1 ≤ 1024) :
+    Runs fr (pushFrameW fr w 32)
+      ∧ (pushFrameW fr w 32).exec.stack = fr.exec.stack.push w := by
+  refine ⟨runs_push fr .PUSH32 w 32 (by nofun) hdec rfl rfl hgas hstk, ?_⟩
+  rfl
+
+/-- **`Expr.gas` simulation.** A frame decoding to `GAS` runs one step to
+`gasFrame fr`, pushing `UInt256.ofUInt64` of the post-charge gas — definitionally
+`evalExpr (st.charge gBase) .gas`. -/
+theorem sim_gas (fr : Frame)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .GAS, .none))
+    (hsz : fr.exec.stack.size + 1 ≤ 1024)
+    (hgas : GasConstants.Gbase ≤ fr.exec.gasAvailable.toNat) :
+    Runs fr (gasFrame fr)
+      ∧ (gasFrame fr).exec.gasAvailable = fr.exec.gasAvailable - UInt64.ofNat gBase := by
+  exact ⟨runs_gas fr hdec hsz hgas, rfl⟩
+
+/-- **`Expr.add` simulation.** A frame decoding to `ADD` with `a :: b :: rest`
+runs one step to `addFrame fr a b rest`, leaving `UInt256.add a b` on top — the
+value `evalExpr` computes for `.add` (its arithmetic is `UInt256.add` by
+construction). -/
+theorem sim_add (fr : Frame) (a b : Word) (rest : Stack Word)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.ArithLogic .ADD, .none))
+    (hstk : fr.exec.stack = a :: b :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : GasConstants.Gverylow ≤ fr.exec.gasAvailable.toNat) :
+    Runs fr (addFrame fr a b rest)
+      ∧ (addFrame fr a b rest).exec.stack = rest.push (UInt256.add a b) := by
+  exact ⟨runs_add fr a b rest hdec hstk hsz hgas, rfl⟩
+
+/-- **`Expr.lt` simulation.** A frame decoding to `LT` with `a :: b :: rest` runs
+one step to `ltFrame fr a b rest`, leaving `UInt256.lt a b` on top — the value
+`evalExpr` computes for `.lt`. -/
+theorem sim_lt (fr : Frame) (a b : Word) (rest : Stack Word)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.ArithLogic .LT, .none))
+    (hstk : fr.exec.stack = a :: b :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : GasConstants.Gverylow ≤ fr.exec.gasAvailable.toNat) :
+    Runs fr (ltFrame fr a b rest)
+      ∧ (ltFrame fr a b rest).exec.stack = rest.push (UInt256.lt a b) := by
+  exact ⟨runs_lt fr a b rest hdec hstk hsz hgas, rfl⟩
+
+/-- **`Expr.sload` simulation.** A frame decoding to `SLOAD` with `key :: rest`
+runs one step to `sloadFrame fr key rest`, leaving the self account's stored value
+at `key` on top — equal to `st.storage key` under `Match`'s `M3` (via
+`sloadFrame_storage_self`). -/
+theorem sim_sload (fr : Frame) (key : Word) (rest : Stack Word)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .SLOAD, .none))
+    (hstk : fr.exec.stack = key :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : Evm.sloadCost (fr.exec.substate.accessedStorageKeys.contains
+              (fr.exec.executionEnv.address, key)) ≤ fr.exec.gasAvailable.toNat) :
+    Runs fr (sloadFrame fr key rest)
+      ∧ (sloadFrame fr key rest).exec.stack.head? = some (selfStorage fr key) := by
+  exact ⟨runs_sload fr key rest hdec hstk hsz hgas, sloadFrame_storage_self fr key rest⟩
+
+/-- **`Stmt.sstore` simulation.** A frame decoding to `SSTORE` with
+`key :: value :: rest` runs one step to `sstoreFrame fr key value rest`; reading
+back `(self, key)` returns `value` (for `value ≠ 0`), re-establishing `M3` at the
+written cell, and any other cell is unchanged (the frame clause). -/
+theorem sim_sstore (fr : Frame) (key value : Word) (rest : Stack Word) (acc : Account)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .SSTORE, .none))
+    (hstk : fr.exec.stack = key :: value :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hmod : fr.exec.executionEnv.canModifyState = true)
+    (hstip : ¬ fr.exec.gasAvailable.toNat ≤ GasConstants.Gcallstipend)
+    (hcost : sstoreChargeOf fr.exec key value ≤ fr.exec.gasAvailable.toNat)
+    (hself : fr.exec.accounts.find? fr.exec.executionEnv.address = some acc)
+    (hnz : value ≠ 0) :
+    Runs fr (sstoreFrame fr key value rest)
+      ∧ storageAt (sstoreFrame fr key value rest) fr.exec.executionEnv.address key = value
+      ∧ ∀ k', k' ≠ key →
+          storageAt (sstoreFrame fr key value rest) fr.exec.executionEnv.address k'
+            = storageAt fr fr.exec.executionEnv.address k' := by
+  refine ⟨runs_sstore fr key value rest hdec hstk hsz hmod hstip hcost, ?_, ?_⟩
+  · exact sstoreFrame_storage_self fr key value rest acc hself hnz
+  · intro k' hk'
+    exact sstoreFrame_storage_frame fr key value rest acc hself hnz
+      fr.exec.executionEnv.address k' (Or.inr hk')
+
+/-! ## Terminator halt steps (consumed by the bridge `hhalt`)
+
+`STOP`/`RETURN` are **not** `runs_*` rules — the bridge `messageCall_runs` takes the
+halt directly via its `hhalt` argument. These lemmas expose exactly that halt step
+for the two IR terminators, ready to feed the bridge. -/
+
+/-- **`Term.stop` halt.** A frame decoding to `STOP` halts with the current state
+and empty output — the `hhalt` the bridge consumes for `IRHalt.stopped`. -/
+theorem halt_stop (fr : Frame)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.System .STOP, .none))
+    (hstk : fr.exec.stack.size ≤ 1024) :
+    stepFrame fr = .halted (.success fr.exec .empty) :=
+  stepFrame_stop fr hdec hstk
+
+/-- **`Term.ret` halt** (empty return window — the C3 `RETURN` shape: the lowering
+pushes `0 0` for `offset`/`size`). A frame decoding to `RETURN` with `0 :: 0 ::
+rest` halts successfully — the `hhalt` the bridge consumes for `IRHalt.returned`. -/
+theorem halt_ret (fr : Frame) (rest : Stack Word)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.System .RETURN, .none))
+    (hstk : fr.exec.stack = (0 : Word) :: (0 : Word) :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024) :
+    stepFrame fr = .halted (.success (returnEmptyPost fr.exec rest)
+      (fr.exec.memory.readWithPadding (0 : Word).toNat (0 : Word).toNat)) :=
+  stepFrame_return_empty fr rest hdec hstk hsz
+
+/-! ## Terminator control-flow steps (JUMP / branch)
+
+`Term.jump` and `Term.branch` lower to `PUSH4 dest; JUMP` / `… JUMPI …`. The push of
+the destination is a `runs_push`; the jump itself the `runs_jump` / `runs_branch`
+rule. These wrappers expose the control-flow `Runs` step keyed on the resolved
+destination, ready to thread into the engine. -/
+
+/-- **`Term.jump` simulation.** A frame decoding to `JUMP` with `dest :: rest`,
+`dest` resolving to a valid target `new_pc`, runs one step to `jumpFrame fr Gmid
+new_pc rest` (pc set to `new_pc`). -/
+theorem sim_jump (fr : Frame) (dest : Word) (new_pc : UInt32) (rest : Stack Word)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMP, .none))
+    (hstk : fr.exec.stack = dest :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : GasConstants.Gmid ≤ fr.exec.gasAvailable.toNat)
+    (hdest : fr.get_dest dest = some new_pc) :
+    Runs fr (jumpFrame fr GasConstants.Gmid new_pc rest)
+      ∧ (jumpFrame fr GasConstants.Gmid new_pc rest).exec.pc = new_pc := by
+  exact ⟨runs_jump fr dest new_pc rest hdec hstk hsz hgas hdest, rfl⟩
+
+/-- **`Term.branch` simulation.** A frame decoding to `JUMPI` with
+`dest :: cond :: rest`, given the `Runs` continuation for whichever arm the
+condition selects, composes into one `Runs fr fr'` for the whole branch — exactly
+`runs_branch` (the CFG combinator). This is the brick the IR `branch` threads,
+case-splitting on the runtime `cond`. -/
+theorem sim_branch {fr fr' : Frame} {dest cond : Word} {rest : Stack Word}
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMPI, .none))
+    (hstk : fr.exec.stack = dest :: cond :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : GasConstants.Ghigh ≤ fr.exec.gasAvailable.toNat)
+    (branch :
+      (∃ new_pc, cond ≠ 0 ∧ fr.get_dest dest = some new_pc
+        ∧ Runs (jumpFrame fr GasConstants.Ghigh new_pc rest) fr')
+      ∨ (cond = 0 ∧ Runs (jumpiFallthroughFrame fr rest) fr')) :
+    Runs fr fr' :=
+  runs_branch hdec hstk hsz hgas branch
+
+/-! ## `Stmt.call` simulation (the `Runs.call` node)
+
+A `Stmt.call` lowers to seven CALL-arg pushes then `CALL`. Under lowering it is a
+`Runs.call` node carrying a `CallReturns` witness (the CALL step, the child
+entering as code, the black-box child run, the resumed parent). The engine threads
+exactly that node by `Runs.trans` — see the worked compositional derivation in
+`BytecodeLayer.Examples.CallerProgExample`. We expose the constructor wrapper. -/
+
+/-- **`Stmt.call` simulation.** Given a returning external CALL at `callFr`
+(`CallReturns callFr resumeFr`) and the `Runs` continuation from the resumed frame,
+the whole call is one `Runs callFr fr'` — a `Runs.call` node glued by the rest. The
+`CallReturns` witness is built exactly as in
+`BytecodeLayer.Examples.CallerProgExample.caller_callReturns`. -/
+theorem sim_call {callFr resumeFr fr' : Frame}
+    (hcall : CallReturns callFr resumeFr) (rest : Runs resumeFr fr') :
+    Runs callFr fr' :=
+  Runs.call hcall rest
+
+/-! ## Top-level preservation discharge (`lower_preserves`, the bridge half)
+
+`lower_preserves` (`docs/ir-design.md` §6.3) closes the simulation under the IR run
+and crosses the single boundary bridge `messageCall_runs`. The program-global
+*assembly* of the `Runs fr₀ last` (chaining `lower_simulates_step` segments under
+`M1`'s offset-table pc arithmetic) is the remaining C3 work; the **discharge** —
+turning an assembled `Runs` + the terminator halt into the observable
+`messageCall` result — is fully provable now and proved here. It is the exact half
+that consumes A's `messageCall_runs`, specialised to the two IR terminators.
+
+`lower_preserves_discharge` is the construct-agnostic bridge; `lower_preserves_stop`
+/ `lower_preserves_ret` are the two terminator instances, supplying the halt from
+`halt_stop` / `halt_ret`. The single-call worked program assembles its `Runs` and
+applies the matching one. -/
+
+/-- **The boundary discharge.** A top-level call entering the lowered code as code
+(`EntersAsCode`) whose assembled `Runs fr₀ last` reaches a halting `last`
+(`stepFrame last = .halted halt`) delivers the caller's halt result as
+`messageCall`. This is `messageCall_runs` applied at the IR/lowering boundary; it
+crosses regardless of how many `Runs.call` (external CALL) nodes the assembled run
+contains (multi-call composition is `messageCall_runs_calls`). -/
+theorem lower_preserves_discharge (prog : Program) (p : CallParams)
+    {fr₀ last : Frame} {halt : FrameHalt}
+    (hbegin : EntersAsCode p fr₀)
+    (_hcode : fr₀.exec.executionEnv.code = lower prog)
+    (hruns  : Runs fr₀ last)
+    (hhalt  : stepFrame last = .halted halt) :
+    messageCall p = .ok (FrameResult.toCallResult (endFrame last halt)) :=
+  messageCall_runs p hbegin hruns hhalt
+
+/-- **`Term.stop` preservation.** When the assembled `Runs` lands on a `STOP` frame
+`last` (`IRHalt.stopped`), the discharge pins `messageCall` to `last`'s success
+`endFrame`. The halt is `halt_stop`. -/
+theorem lower_preserves_stop (prog : Program) (p : CallParams) {fr₀ last : Frame}
+    (hbegin : EntersAsCode p fr₀)
+    (hcode  : fr₀.exec.executionEnv.code = lower prog)
+    (hruns  : Runs fr₀ last)
+    (hdec   : decode last.exec.executionEnv.code last.exec.pc = some (.System .STOP, .none))
+    (hstk   : last.exec.stack.size ≤ 1024) :
+    messageCall p = .ok (FrameResult.toCallResult
+      (endFrame last (.success last.exec .empty))) :=
+  lower_preserves_discharge prog p hbegin hcode hruns (halt_stop last hdec hstk)
+
+/-- **`Term.ret` preservation** (empty return window). When the assembled `Runs`
+lands on a `RETURN` frame `last` with `0 :: 0 :: rest` (`IRHalt.returned`), the
+discharge pins `messageCall` to `last`'s success `endFrame`. The halt is `halt_ret`. -/
+theorem lower_preserves_ret (prog : Program) (p : CallParams) {fr₀ last : Frame}
+    (rest : Stack Word)
+    (hbegin : EntersAsCode p fr₀)
+    (hcode  : fr₀.exec.executionEnv.code = lower prog)
+    (hruns  : Runs fr₀ last)
+    (hdec   : decode last.exec.executionEnv.code last.exec.pc = some (.System .RETURN, .none))
+    (hstk   : last.exec.stack = (0 : Word) :: (0 : Word) :: rest)
+    (hsz    : last.exec.stack.size ≤ 1024) :
+    messageCall p = .ok (FrameResult.toCallResult
+      (endFrame last (.success (returnEmptyPost last.exec rest)
+        (last.exec.memory.readWithPadding (0 : Word).toNat (0 : Word).toNat)))) :=
+  lower_preserves_discharge prog p hbegin hcode hruns (halt_ret last rest hdec hstk hsz)
+
+end Lir
