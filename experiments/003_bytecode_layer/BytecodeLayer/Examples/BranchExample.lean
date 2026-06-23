@@ -28,10 +28,12 @@ frame:
   `JUMPDEST` at pc 3, then `runs_jumpdest` steps over it to the `STOP` at pc 4;
 * fall-through arm (`cond = 0`): `runs_branch` advances to the `STOP` at pc 1.
 
-The frame is built directly with an explicit `validJumps := #[3]`, so
-`get_dest 3 = some 3` reduces in the kernel (`codeFrame` would route through the
-`partial def validJumpDests`, which is opaque). No execution trace is named, and
-the example is axiom-clean (no `native_decide`).
+The frame's `validJumps` is the *real* `validJumpDests branchProgram 0` (no longer
+hand-written as `#[3]`): now that `validJumpDests` is a total, kernel-reducible
+def, `get_dest 3 = some 3` is discharged through the characterization lemma
+`mem_validJumpDests_of_reachable_jumpdest` — pc 3 holds a `JUMPDEST` and is
+reachable from the start by walking JUMPI;STOP;STOP. No execution trace is named,
+and the example is axiom-clean (no `native_decide`).
 -/
 
 namespace BytecodeLayer.Examples
@@ -45,10 +47,11 @@ open BytecodeLayer.UInt64
 def branchProgram : ByteArray := ⟨#[0x57, 0x00, 0x00, 0x5b, 0x00]⟩
 
 /-- The `JUMPI` frame: pc 0, stack `[3, cond]` (destination on top, condition
-below), `g` gas, explicit `validJumps := #[3]` (pc 3 is the only `JUMPDEST`). -/
+below), `g` gas, `validJumps` computed by the real `validJumpDests` (pc 3 is the
+only `JUMPDEST`). -/
 def jumpiFrame (cond : UInt256) (g : UInt64) : Frame :=
   { kind := .call ⟨∅, ∅, default⟩
-    validJumps := #[3]
+    validJumps := validJumpDests branchProgram 0
     exec :=
       { (default : ExecutionState) with
           executionEnv := { (default : ExecutionEnv) with code := branchProgram }
@@ -59,9 +62,20 @@ theorem decode_branch_0 : decode branchProgram 0 = some (.Smsf .JUMPI, .none) :=
 theorem decode_branch_1 : decode branchProgram 1 = some (.System .STOP, .none) := by rfl
 theorem decode_branch_3 : decode branchProgram 3 = some (.Smsf .JUMPDEST, .none) := by rfl
 
-/-- The destination operand `3` resolves to the valid jump target pc 3. -/
+/-- pc 3 holds a `JUMPDEST` reachable from the start (JUMPI;STOP;STOP), so it is
+recorded by the real `validJumpDests`. -/
+theorem three_mem_validJumps : (3 : UInt32) ∈ validJumpDests branchProgram 0 :=
+  mem_validJumpDests_of_reachable_jumpdest branchProgram
+    (.step (byte := 0x57) (by decide)
+      (.step (byte := 0x00) (by decide)
+        (.step (byte := 0x00) (by decide) (.refl 3))))
+    (byte := 0x5b) (by decide) (by decide)
+
+/-- The destination operand `3` resolves to the valid jump target pc 3 — now
+routed through the real `validJumpDests` via the characterization lemma. -/
 theorem jumpiFrame_get_dest (cond : UInt256) (g : UInt64) :
-    (jumpiFrame cond g).get_dest 3 = some 3 := by rfl
+    (jumpiFrame cond g).get_dest 3 = some 3 :=
+  Frame.get_dest_of_mem _ (d := 3) (by decide) three_mem_validJumps
 
 /-- **The branch program composes into one `Runs`.** For any condition `cond` and
 enough gas, there is a `Runs` from the `JUMPI` frame to *some* frame that decodes

@@ -252,3 +252,57 @@ an explicit `validJumps := #[3]` so `get_dest` is kernel-reducible (`codeFrame`'
   gasAvailable`; post-frame `gasFrame`.
 - [x] **5. `runs_jump`** / **6. `runs_jumpi_taken` / `runs_jumpi_fallthrough`** —
   already delivered by B1 (see the CFG / control-flow entry above).
+
+## 2026-06-22 — Detotalize `validJumpDests` + jump-dest characterization (foundation blocker from Track C)
+
+**Problem.** `validJumpDestsAux` was a `partial def` → kernel-opaque, so nothing
+about jump-destination validity was provable without `native_decide` (banned).
+This blocked Track C's branch-terminator preservation for lowered programs.
+
+**Detotalization** (`EVMLean/Evm/Semantics/Decode.lean`).
+- New `nextInstrPosNat (i : Nat) (instr) : Nat := i + 1 + (pushArgWidth instr).toNat`
+  — the `UInt32` `nextInstrPos`'s `Nat` mirror, monotone without wraparound.
+  `nextInstrPosNat_gt : i < nextInstrPosNat i instr`.
+- `validJumpDestsAux` (`partial def`, `UInt32` index) → `validJumpDestsAuxNat`
+  (`Nat` index), a TOTAL well-founded def, `termination_by c.size - i`,
+  `decreasing_by` discharged via `lt_size_of_get?_isSome` (get? = some ⇒ i < size)
+  + `nextInstrPosNat_gt`. Records `i.toUInt32` on JUMPDEST. `validJumpDests`
+  signature/behaviour UNCHANGED: `validJumpDests c i = validJumpDestsAuxNat c i.toNat #[]`.
+  (Behaviour identical to the old partial def on every real program; they could only
+  differ for the unreachable case of code > 2^32 bytes, where the old UInt32 index wrapped.)
+- `validJumpDestsAuxNat_eq` : the unfolding equation (WF defs don't reduce by `rfl`).
+  NOTE for downstream: `validJumpDests _ _` does NOT reduce by `rfl`/`decide` — go
+  through the characterization lemmas below (or unfold via `validJumpDestsAuxNat_eq`).
+
+**Characterization lemmas** (Decode.lean).
+- `mem_validJumpDestsAuxNat_of_mem` — accumulator monotonicity (recorded offsets survive).
+- `self_mem_validJumpDestsAuxNat` — a JUMPDEST at the current boundary records itself.
+- `inductive ReachesBoundary c start i` — `start` walks instruction boundaries
+  (`refl` | `step` advancing by `nextInstrPosNat`) and lands exactly on `i`.
+- `mem_validJumpDestsAuxNat_of_reachable` — scan from `start` records every JUMPDEST
+  on a boundary reachable from `start` (induction on `ReachesBoundary`, generalizing accumulator).
+- **`mem_validJumpDests_of_reachable_jumpdest`** — the headline: a JUMPDEST at an
+  offset reachable from program start (`ReachesBoundary c 0 i`) is a valid jump dest.
+  *This is what a lowered program's branch needs for block-start offsets.*
+- `find?_beq_eq_some_of_mem` — bridges membership → the `find?`-based lookup.
+
+**`get_dest` bridge** (`EVMLean/Evm/Semantics/Frame.lean`, now imports Decode).
+- `Frame.get_dest_of_mem (hd : dest.toUInt32? = some d) (hmem : d ∈ f.validJumps) :
+  f.get_dest dest = some d`. Compose with `mem_validJumpDests_of_reachable_jumpdest`
+  to discharge a branch's destination end-to-end.
+
+**Worked check** (`BytecodeLayer/Examples/BranchExample.lean`).
+- `jumpiFrame` now uses the REAL `validJumps := validJumpDests branchProgram 0`
+  (was hand-written `#[3]`). `three_mem_validJumps` proves `3 ∈ validJumpDests …`
+  through `ReachesBoundary branchProgram 0 3` (JUMPI;STOP;STOP ⇒ pc 3 = JUMPDEST);
+  `jumpiFrame_get_dest` derives `get_dest 3 = some 3` via `Frame.get_dest_of_mem`.
+  `branchRuns` (the full both-arms composition) unchanged downstream and still green.
+
+**Status.** Milestone COMPLETE (total def + full characterization + worked check —
+no remainder deferred). Outer `lake build` GREEN (1130 jobs), warning-clean (0).
+`EVMLean` `Conform` lib builds GREEN (1106 jobs). All new defs/theorems axiom-clean:
+`#print axioms` shows only `propext` / `Quot.sound` / `Classical.choice` — no
+`sorryAx`, no `ofReduceBool` (no `native_decide`). No `sorry`/`admit`/`axiom` in source.
+Upstreamable to philogy (vendored `EVMLean/` is our squashed subtree).
+
+→ Ready for the main loop to merge A→base again.
