@@ -27,7 +27,7 @@ flat-vs-nested choice is purely about ergonomics/conformance, not correctness.
 | Track | What | Per-track report | Status |
 |---|---|---|---|
 | **A** | exp003 flat reasoning layer: `Runs` with a `call` constructor, multi-call composition, CFG combinator, opcode rules | **[track-a-review.md](experiments/003_bytecode_layer/docs/track-a-review.md)** ✓ | **Core complete + merged to base** (1130 jobs, axiom-clean). Backlog: gas-introspection, `CREATE`, symbolic worlds |
-| **B** | exp004 nested EVM core: EVMYulLean monomorphized to EVM-only, nested never-`OutOfFuel`, `Ξ`-triple | `experiments/004_nested_evmyul/docs/track-b-review.md` *(pending: after the nested headline closes)* | B0 (mono) green; **non-nesting leaf** never-`OutOfFuel` CLOSED + axiom-clean; all CALL+CREATE gas-descent bricks + gas-monotonicity per-layer reductions proved; **fully-nested headline `Θ_never_outOfFuel` STILL OPEN after 5 iterations** — the never-OOF mutual induction (super-linear bound) is not yet started. **Held for Eduardo's steer.** |
+| **B** | exp004 nested EVM core: EVMYulLean monomorphized to EVM-only, nested never-`OutOfFuel`, `Ξ`-triple | `experiments/004_nested_evmyul/docs/track-b-review.md` *(pending)* | B0 (mono) green; **fully-nested headline `Θ_never_outOfFuel` CLOSED + axiom-clean** (`exp004-nested`) — the 5-layer never-`OutOfFuel` mutual induction over `Θ/Ξ/X/step/call`, plus the `gas_mono` mutual induction and a ~250-line `step`/`Z` depth-preservation keystone, all proved + independently verified. Fuel bound is **LINEAR-PRODUCT** `B(g,e)=(1025−e)·(g+c)` (depth factor; linear in gas) — the earlier *super-linear* estimate was wrong. |
 | **C** | exp005 `LirLean` IR → bytecode lowering + semantics preservation | **[track-c-review.md](experiments/005_ir_lowering/docs/track-c-review.md)** ✓ *(refreshed to the hypothesis-free state, on `exp005-ir`)* | **DONE + merged to base.** `wc_preserves` is FULLY hypothesis-free + axiom-clean — a complete verified IR→bytecode lowering through an external CALL (only a gas knob `g ≥ 50000`). `wc_preserves_twoCall` is a generic multi-call shape lemma (all pieces proved). **A v2 redesign is now planned** (see below) |
 
 Each per-track report argues the design decisions + alternatives — notably **why `call` is
@@ -48,13 +48,17 @@ and **why the CFG-combinator control-flow design** was chosen over alternatives.
   external CALL, a storage write, arithmetic, and a gas-dependent branch — depending only
   on a gas knob, axiom-clean. Multi-call composition needed ZERO new theory (Track A's
   `Runs.call` composes calls) — the end-to-end payoff of the `Runs.call` design bet.
-- **Bake-off data point (Track B finding).** Nested never-`OutOfFuel` needs a **depth-aware,
-  SUPER-LINEAR** fuel bound (`B (k+1) g = (g+1)·(B k g + c) + 2`, `k = 1025−depth`,
-  i.e. `~(g+1)^(1025−depth)`) — because each frame's gas loop can spawn a child needing its
-  own full budget. Flat (exp003) gets a clean linear `≈2·gas+c`. This is a concrete
-  termination-simplicity advantage for the flat model. (Bound size is irrelevant to the
-  theorem — fuel is a proof device — but it signals proof-engineering cost.) The non-nesting
-  fragment is closed unconditionally; the fully-nested headline assembly is in flight.
+- **Bake-off data point (Track B finding) — CORRECTED + CLOSED.** Nested never-`OutOfFuel`
+  `Θ_never_outOfFuel` is **proved, axiom-clean**, with a depth-aware **LINEAR-PRODUCT** fuel
+  bound `B(g,e) = (1025−e)·(g+c)` — linear in gas, with a depth *factor*. (The earlier
+  *super-linear* `~(g+1)^(1025−depth)` estimate was a mistake: it assumed a frame's `g`
+  child-calls accumulate budget, but fuel is a **pass-by-value structural counter** — the
+  parent loop resumes at the same `f` regardless of child consumption — so the binding
+  constraint is the single worst loop iteration, not the sum.) Flat (exp003) still gets a
+  cleaner *unconditional* linear `≈2·gas+c` with one mutual induction; nested needs a depth
+  term + **two** mutual inductions (`gas_mono`, `never_oof`) + a ~250-line depth-preservation
+  keystone + precompile plumbing. So the flat model keeps a real termination-ergonomics
+  advantage — but milder than first thought, and the nested headline *does* close.
 - **Track C v2 reformulation — DESIGNED (`exp005-ir`).** Driven by Eduardo: the IR
   semantics should not be gas- or call-aware. Plan in
   **[ir-design-v2.md](experiments/005_ir_lowering/docs/ir-design-v2.md)**: an abstract,
@@ -86,16 +90,23 @@ and **why the CFG-combinator control-flow design** was chosen over alternatives.
 ## What this means for how we proceed
 
 *(synthesis written when the tracks mature — the flat-vs-nested verdict, the convergence
-plan, and the path to lowering Plank SIR. Early signal: flat's linear fuel bound vs nested's
-super-linear one is a real ergonomics point for the bake-off; the C-v2 observable/event
-boundary is a candidate shared surface for Phase-2 convergence.)*
+plan, and the path to lowering Plank SIR. Early signal: flat's clean unconditional linear
+fuel bound vs nested's depth-factored linear-product one (both linear in gas; nested needs two
+mutual inductions + a depth-preservation keystone) is a real but moderate ergonomics point for
+the bake-off; the C-v2 observable/event boundary is a candidate shared surface for Phase-2
+convergence.)*
 
-**Sharpening (2026-06-23, from the overnight B runs):** the bake-off asymmetry is now
-stark. Flat (exp003) proved `messageCall_never_outOfFuel` **unconditionally, with a clean
-linear fuel bound**. Nested (exp004) has taken **5 proof iterations**, a large library of
-gas-descent + gas-monotonicity bricks, a **super-linear** depth-aware bound, and still has
-two mutual inductions (one unstarted) plus precompile plumbing between it and the headline.
-The non-nesting *leaf* fragment is closed and axiom-clean, but the **fully-nested
-never-OutOfFuel is markedly harder to mechanize in the nested model** — a concrete
-termination-ergonomics result favoring the flat foundation for this property, independent of
-whether the nested headline eventually closes.
+**Sharpening (2026-06-23, updated after the nested headline CLOSED):** the bake-off
+asymmetry is real but **milder than the overnight estimate**. Flat (exp003) proved
+`messageCall_never_outOfFuel` **unconditionally, with a clean linear bound** in one mutual
+induction. Nested (exp004) is **now also closed** — `Θ_never_outOfFuel`, axiom-clean — but
+cost ~7 brick/assembly iterations: a library of gas-descent + gas-monotonicity bricks, a
+`gas_mono` mutual induction, a ~250-line `step`/`Z` **depth-preservation keystone** (the
+`fuelBound` depth index must be a sound loop invariant), the `never_oof` 5-layer mutual
+induction, and precompile plumbing. The fuel bound is **LINEAR-PRODUCT**
+`B(g,e)=(1025−e)·(g+c)` — linear in gas with a depth *factor*, **not** the super-linear
+`~(g+1)^(1025−depth)` the overnight runs guessed (that estimate wrongly assumed children
+accumulate budget; pass-by-value fuel means the worst single iteration binds). Net: a concrete
+termination-ergonomics advantage for the flat foundation (fewer inductions, no depth term,
+unconditional) — but the nested model is **fully mechanizable** for this property, and the gap
+is mechanization cost, not a complexity-class blowup.
