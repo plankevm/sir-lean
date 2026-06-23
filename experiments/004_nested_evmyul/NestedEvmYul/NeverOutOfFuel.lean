@@ -1918,6 +1918,33 @@ theorem Ccallgas_le_Ccall (t r : AccountAddress) (val g : UInt256) (σ : Account
     show Cgascap t r _ g σ μ A + Gcallstipend ≤ Cgascap t r _ g σ μ A + Cextra t r _ σ A
     omega
 
+/-- `(a - ofNat c) + b` (UInt256) has `.toNat ≤ a.toNat` whenever `c ≤ a.toNat`,
+`c < size`, and `b.toNat ≤ c` (no wraparound: the sum `= a.toNat - c + b.toNat ≤ a.toNat`).
+This is the UInt256-arithmetic core of the call-result gas bound (`result.gas =
+(ev.gas - cost) + g'`). -/
+theorem gas_add_sub_le (a b : UInt256) (c : ℕ) (hca : c ≤ a.toNat) (hcs : c < UInt256.size)
+    (hbc : b.toNat ≤ c) : ((a - UInt256.ofNat c) + b).toNat ≤ a.toNat := by
+  have hsub : (a - UInt256.ofNat c).toNat = a.toNat - c := by
+    have htn : a.toNat = a.val.val := rfl
+    have hcmod : (Fin.ofNat UInt256.size c).val = c := by
+      simp only [Fin.ofNat, Fin.val_ofNat]; exact Nat.mod_eq_of_lt hcs
+    show ((a.val - (Fin.ofNat _ c))).val = a.val.val - c
+    rw [Fin.sub_def, hcmod]
+    show (UInt256.size - c + a.val.val) % UInt256.size = a.val.val - c
+    have hle' : c ≤ a.val.val := by rw [← htn]; exact hca
+    have hrw : UInt256.size - c + a.val.val = (a.val.val - c) + UInt256.size := by omega
+    rw [hrw, Nat.add_mod_right, Nat.mod_eq_of_lt (by omega)]
+  -- the sum: `((a-c).toNat + b.toNat) % size`, and `(a-c).toNat + b.toNat ≤ a.toNat < size`.
+  have hbsz : b.toNat < UInt256.size := b.val.isLt
+  have hsum : ((a - UInt256.ofNat c) + b).toNat = ((a - UInt256.ofNat c).toNat + b.toNat) % UInt256.size := by
+    show (((a - UInt256.ofNat c).val + b.val)).val = _
+    rw [Fin.add_def]; rfl
+  rw [hsum, hsub]
+  have hbound : (a.toNat - c) + b.toNat ≤ a.toNat := by omega
+  have : (a.toNat - c) + b.toNat < UInt256.size :=
+    Nat.lt_of_le_of_lt hbound (a.val.isLt)
+  rw [Nat.mod_eq_of_lt this]; exact hbound
+
 /-- **Default-arm `step` gas bound** in the `X_loop_gas_le` `hstep` shape: a successful
 non-call/create `step (f+1)` debits `cost` (so lands at `gas - cost ≤ gas`, using
 `cost ≤ s.gas.toNat` to rule out wraparound). -/
