@@ -204,12 +204,19 @@ work folds into "this `Runs.call` node realises this `CallEvent`."
 
 0. **Lens + types.** Define `World`, `Observable`, `CallEvent`, and the
    `World ↔ Frame`-observable abstraction lens (seed: `selfStorage`/`storageAt`).
-1. **Call-free prototype (arith + storage + gas-read branch).** Gas-free `IRRun` for the
-   no-`call` fragment, including a `gasRead` event feeding a gas-dependent `Term.branch`;
-   prove `lower_preserves_obs` on an **arithmetic+storage+gas-branch example**. This
-   validates the gas-free machine, the observable theorem shape, **and the event mechanism
-   (via the lightweight `gasRead` event)** end-to-end at low cost — before the heavier
-   `call`-event Runs assembly. ← **the de-risking prototype.**
+1. **Call-free prototype (arith + storage + gas-read branch). ✅ DONE (2026-06-23,
+   `exp005-ir`, axiom-clean, build-enforced).** `LirLean/V2/Machine.lean` (gas-free
+   `World`/`IRState`/`evalExpr`/`IRRun`, `Event.gasRead`, `Observable`) +
+   `LirLean/V2/Preserve.lean` (`Lir.V2.lower_preserves_obs`: `∃ G₀, ∀ g ≥ G₀`, IR run and
+   bytecode agree on the observable, the `GAS` opcode realising the `gasRead`; statement is
+   pc-free and gas-equality-free). **Verdict: the shape works** — gas introspection cost
+   ZERO gas machinery in the IR; the event-realisability clause fell out as a one-line
+   hypothesis (CompCert discipline confirmed); `World`-as-storage-lens reused v1's
+   `selfStorage`/`sstoreFrame_storage_self` verbatim. v1 `wc_preserves` untouched & green.
+   Documented prototype cuts (mechanical follow-up, not design risk): witness bytecode is
+   hand-written PUSH1 not `lower protoIR` (avoids the PUSH32 decode blowup); `returned w` ↦
+   success with empty RETURN window; STOP fall-through arm not instantiated; `RunFrom`
+   determinism not yet proved (headline states IR-and-bytecode-agree directly).
 2. **Calls as events.** Add transcript threading; re-derive `workedCall`'s preservation in
    the v2 shape, reusing the v1 `Runs` assembly as the witness for each `CallEvent`.
 3. **Branch + multi-call.** `Term.branch` lowering as an observable theorem;
@@ -233,9 +240,23 @@ Keep v1 `wc_preserves` green as reference until step 2 reaches parity.
    `gasRead` event — no opcode-cost accounting, no gas counter (§3.4). The prototype
    (§6 step 1) should include a gas-read + gas-dependent `branch` to exercise the event
    model cheaply, before external-call events.
-5. **Revert/failure as observable.** Does the IR model `REVERT` (an `Observable.result`
-   case) or only `stop`/`return`? *Default for v2 first cut: `stop`/`return` only.*
-6. **Convergence with Phase-2.** `CallEvent`/the call-as-event boundary is a candidate
+5. **Revert/failure as observable + the returned word.** *(Sharpened by the prototype —
+   needs Eduardo before the `call`-event step, since calls carry returndata.)*
+   (a) `IRHalt.returned w` currently carries a word, but the C3 lowering RETURNs an **empty
+   window**, so the word is not observed — drop the word from `returned` (match the lowering)
+   or make the lowering RETURN it so `output` reflects it? (b) When revert enters, align
+   `IRHalt`/`Observable.result` with the EVM `Outcome` (`completed/reverted/exception`) so
+   the result is faithful, not a bare success flag. *Default for the first `call`-event cut:
+   value-free, empty calldata/returndata (mirrors v1 `workedCall`), revert deferred.*
+6. **`evalExpr` gas-trace threading.** The prototype's single `obs` arg works only because
+   recompute-on-use ⇒ ≤1 `gasRead` per materialised expression. State that invariant
+   explicitly, or thread a sub-trace once an expression can force >1 gas read.
+7. **Trace realisability in the theorem.** The headline holds only for the trace whose
+   `gasRead` matches the machine `GAS` value. State this as the explicit *realisability
+   side-condition* of the events (the `call` analogue: `world'/success/returndata = what
+   `messageCall` produces`) so the discipline ports cleanly to the `call` step. Add the
+   `RunFrom` determinism lemma to recover the cleaner `∀ O, IRRun … O → …` shape.
+8. **Convergence with Phase-2.** `CallEvent`/the call-as-event boundary is a candidate
    piece of the shared `EVMSemantics` interface — both flat (A) and nested (B) realise the
    same `messageCall`-induced events. Worth aligning the `World`/`CallEvent` signatures
    with B4's IR surface so Phase-2a is mechanical.
