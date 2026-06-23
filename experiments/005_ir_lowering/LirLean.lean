@@ -12,3 +12,6 @@ import LirLean.Layout
 import LirLean.SmallStep
 import LirLean.Match
 import LirLean.WorkedCall
+-- v2 (exp005) prototype — gas-free, observable, event-trace IR + preservation.
+import LirLean.V2.Machine
+import LirLean.V2.Preserve
