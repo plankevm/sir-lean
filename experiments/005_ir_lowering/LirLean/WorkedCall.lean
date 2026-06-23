@@ -1103,6 +1103,169 @@ theorem stepFrame_return_halts (fr : Frame) (offset size : Word) (rest : Stack W
     rw [if_neg (by decide)]
   exact ⟨_, hstep⟩
 
+/-! ## The post-CALL run (block-0 recompute → taken JUMPI → block-1 RETURN)
+
+From the resumed frame `wcResumed g` (pc 300, stack `[1]`, accounts the child-committed
+map, gas `g − 46834`), block 0 recomputes the `lt` branch condition
+(`PUSH 100; PUSH 9; PUSH 7; SLOAD; ADD; LT`), pushes the then-target and takes the
+`JUMPI` to block 1 (offset 414), then block 1 recomputes the same condition and
+`RETURN`s the result. We assemble this as a `Runs.trans` chain of the exp003 opcode
+rules, threading the running gas through `subCharges` and reading the SLOAD value
+(`5`, `wcResumed_sload7`), the warm cost (`wcResumed_warm7`), and the taken branch
+(`wc_get_dest_414`). The terminal `RETURN` halts via `stepFrame_return_halts`. -/
+
+/-- The post-CALL charge list (execution order), block-0 recompute through block-1's
+last `LT` (the `RETURN`'s memory charge is handled separately). Sum `= 247`. -/
+def wcPostCharges : List ℕ :=
+  [3,3,3,100,3,3,3,10,   -- block 0: 3×PUSH32, SLOAD(warm), ADD, LT, PUSH4, JUMPI
+   1,3,3,3,100,3,3]      -- block 1: JUMPDEST, 3×PUSH32, SLOAD(warm), ADD, LT
+
+/-- The block-0 recompute frame after `PUSH 100; PUSH 9; PUSH 7` (three operands on
+the stack), on top of the resumed frame. -/
+def wcRec0Push3 (g : UInt64) : Frame :=
+  pushFrameW (pushFrameW (pushFrameW (wcResumed g) 100 32) 9 32) 7 32
+
+/-- The frame after the block-0 `SLOAD` (key 7 popped, value 5 pushed). -/
+def wcRec0Sload (g : UInt64) : Frame :=
+  sloadFrame (wcRec0Push3 g) 7 [9, 100, 1]
+
+/-- The frame after the block-0 `ADD` (`5 + 9 = 14`). -/
+def wcRec0Add (g : UInt64) : Frame :=
+  addFrame (wcRec0Sload g) 5 9 [100, 1]
+
+/-- The frame after the block-0 `LT` (`14 < 100 = 1`). -/
+def wcRec0Lt (g : UInt64) : Frame :=
+  ltFrame (wcRec0Add g) 14 100 [1]
+
+/-- The frame after `PUSH4 414` (the then-target on top of the `lt` result). -/
+def wcRec0PushDest (g : UInt64) : Frame :=
+  pushFrameW (wcRec0Lt g) 414 4
+
+/-- The frame after the taken `JUMPI` to block 1 (pc 414, stack `[1]`). -/
+def wcBlock1 (g : UInt64) : Frame :=
+  jumpFrame (wcRec0PushDest g) GasConstants.Ghigh 414 [1]
+
+/-- The frame after block 1's `JUMPDEST`. -/
+def wcBlock1Jd (g : UInt64) : Frame := jumpdestFrame (wcBlock1 g)
+
+/-- The frame after block 1's `PUSH 100; PUSH 9; PUSH 7`. -/
+def wcRec1Push3 (g : UInt64) : Frame :=
+  pushFrameW (pushFrameW (pushFrameW (wcBlock1Jd g) 100 32) 9 32) 7 32
+
+/-- The frame after block 1's `SLOAD`. -/
+def wcRec1Sload (g : UInt64) : Frame :=
+  sloadFrame (wcRec1Push3 g) 7 [9, 100, 1]
+
+/-- The frame after block 1's `ADD`. -/
+def wcRec1Add (g : UInt64) : Frame :=
+  addFrame (wcRec1Sload g) 5 9 [100, 1]
+
+/-- The frame after block 1's `LT` — the `RETURN` frame (stack `[1, 1]`: the `lt`
+result `1` on top, the residual CALL flag `1` below; pc 517). -/
+def wcRetFrame (g : UInt64) : Frame :=
+  ltFrame (wcRec1Add g) 14 100 [1]
+
+/-! ### Resumed-frame base facts threaded into the chain -/
+
+/-- The resumed frame's accounts equal the named child-committed map (alias of
+`wcResumed_acc`, used to read the SLOAD value). -/
+theorem wcResumed_self_sload (g : UInt64) :
+    ((wcResumed g).exec.accounts.find? (wcResumed g).exec.executionEnv.address).option 0
+        (·.lookupStorage 7) = 5 := by
+  rw [wcResumed_addr]; exact wcResumed_sload7 g
+
+/-! ### Decode facts at the post-CALL pcs
+
+Every chain frame preserves `executionEnv.code` (= the resumed code = `lower
+workedCall`) and threads the pc from `wcResumed_pc = 300`. So each decode reduces to
+`decode (lower workedCall) <pc> = …`, a kernel `rfl` at the literal offset-table pc. -/
+
+theorem wcd_300 (g : UInt64) :
+    decode (wcResumed g).exec.executionEnv.code (wcResumed g).exec.pc
+      = some (.Push .PUSH32, some (100, 32)) := by
+  rw [wcResumed_code, wcResumed_pc]; rfl
+theorem wcd_333 (g : UInt64) :
+    decode (pushFrameW (wcResumed g) 100 32).exec.executionEnv.code
+        (pushFrameW (wcResumed g) 100 32).exec.pc
+      = some (.Push .PUSH32, some (9, 32)) := by
+  show decode (wcResumed g).exec.executionEnv.code ((wcResumed g).exec.pc + (32 + 1)) = _
+  rw [wcResumed_code, wcResumed_pc]; rfl
+theorem wcd_366 (g : UInt64) :
+    decode (pushFrameW (pushFrameW (wcResumed g) 100 32) 9 32).exec.executionEnv.code
+        (pushFrameW (pushFrameW (wcResumed g) 100 32) 9 32).exec.pc
+      = some (.Push .PUSH32, some (7, 32)) := by
+  show decode (wcResumed g).exec.executionEnv.code (((wcResumed g).exec.pc + (32 + 1)) + (32 + 1)) = _
+  rw [wcResumed_code, wcResumed_pc]; rfl
+theorem wcd_399 (g : UInt64) :
+    decode (wcRec0Push3 g).exec.executionEnv.code (wcRec0Push3 g).exec.pc
+      = some (.Smsf .SLOAD, .none) := by
+  show decode (wcResumed g).exec.executionEnv.code ((((wcResumed g).exec.pc + (32+1)) + (32+1)) + (32+1)) = _
+  rw [wcResumed_code, wcResumed_pc]; rfl
+theorem wcd_400 (g : UInt64) :
+    decode (wcRec0Sload g).exec.executionEnv.code (wcRec0Sload g).exec.pc
+      = some (.ArithLogic .ADD, .none) := by
+  show decode (wcResumed g).exec.executionEnv.code (((((wcResumed g).exec.pc + (32+1)) + (32+1)) + (32+1)) + 1) = _
+  rw [wcResumed_code, wcResumed_pc]; rfl
+theorem wcd_401 (g : UInt64) :
+    decode (wcRec0Add g).exec.executionEnv.code (wcRec0Add g).exec.pc
+      = some (.ArithLogic .LT, .none) := by
+  show decode (wcResumed g).exec.executionEnv.code ((((((wcResumed g).exec.pc + (32+1)) + (32+1)) + (32+1)) + 1) + 1) = _
+  rw [wcResumed_code, wcResumed_pc]; rfl
+theorem wcd_402 (g : UInt64) :
+    decode (wcRec0Lt g).exec.executionEnv.code (wcRec0Lt g).exec.pc
+      = some (.Push .PUSH4, some (414, 4)) := by
+  show decode (wcResumed g).exec.executionEnv.code (((((((wcResumed g).exec.pc + (32+1)) + (32+1)) + (32+1)) + 1) + 1) + 1) = _
+  rw [wcResumed_code, wcResumed_pc]; rfl
+theorem wcd_407 (g : UInt64) :
+    decode (wcRec0PushDest g).exec.executionEnv.code (wcRec0PushDest g).exec.pc
+      = some (.Smsf .JUMPI, .none) := by
+  show decode (wcResumed g).exec.executionEnv.code ((((((((wcResumed g).exec.pc + (32+1)) + (32+1)) + (32+1)) + 1) + 1) + 1) + (4+1)) = _
+  rw [wcResumed_code, wcResumed_pc]; rfl
+
+-- Block 1: the taken JUMPI set pc := 414 (jumpPost), so block-1 pcs are absolute.
+theorem wcd_414 (g : UInt64) :
+    decode (wcBlock1 g).exec.executionEnv.code (wcBlock1 g).exec.pc
+      = some (.Smsf .JUMPDEST, .none) := by
+  show decode (wcResumed g).exec.executionEnv.code 414 = _
+  rw [wcResumed_code]; rfl
+theorem wcd_415 (g : UInt64) :
+    decode (wcBlock1Jd g).exec.executionEnv.code (wcBlock1Jd g).exec.pc
+      = some (.Push .PUSH32, some (100, 32)) := by
+  show decode (wcResumed g).exec.executionEnv.code (414 + 1) = _
+  rw [wcResumed_code]; rfl
+theorem wcd_448 (g : UInt64) :
+    decode (pushFrameW (wcBlock1Jd g) 100 32).exec.executionEnv.code
+        (pushFrameW (wcBlock1Jd g) 100 32).exec.pc
+      = some (.Push .PUSH32, some (9, 32)) := by
+  show decode (wcResumed g).exec.executionEnv.code ((414 + 1) + (32+1)) = _
+  rw [wcResumed_code]; rfl
+theorem wcd_481 (g : UInt64) :
+    decode (pushFrameW (pushFrameW (wcBlock1Jd g) 100 32) 9 32).exec.executionEnv.code
+        (pushFrameW (pushFrameW (wcBlock1Jd g) 100 32) 9 32).exec.pc
+      = some (.Push .PUSH32, some (7, 32)) := by
+  show decode (wcResumed g).exec.executionEnv.code (((414 + 1) + (32+1)) + (32+1)) = _
+  rw [wcResumed_code]; rfl
+theorem wcd_514 (g : UInt64) :
+    decode (wcRec1Push3 g).exec.executionEnv.code (wcRec1Push3 g).exec.pc
+      = some (.Smsf .SLOAD, .none) := by
+  show decode (wcResumed g).exec.executionEnv.code ((((414 + 1) + (32+1)) + (32+1)) + (32+1)) = _
+  rw [wcResumed_code]; rfl
+theorem wcd_515 (g : UInt64) :
+    decode (wcRec1Sload g).exec.executionEnv.code (wcRec1Sload g).exec.pc
+      = some (.ArithLogic .ADD, .none) := by
+  show decode (wcResumed g).exec.executionEnv.code (((((414 + 1) + (32+1)) + (32+1)) + (32+1)) + 1) = _
+  rw [wcResumed_code]; rfl
+theorem wcd_516 (g : UInt64) :
+    decode (wcRec1Add g).exec.executionEnv.code (wcRec1Add g).exec.pc
+      = some (.ArithLogic .LT, .none) := by
+  show decode (wcResumed g).exec.executionEnv.code ((((((414 + 1) + (32+1)) + (32+1)) + (32+1)) + 1) + 1) = _
+  rw [wcResumed_code]; rfl
+theorem wcd_517 (g : UInt64) :
+    decode (wcRetFrame g).exec.executionEnv.code (wcRetFrame g).exec.pc
+      = some (.System .RETURN, .none) := by
+  show decode (wcResumed g).exec.executionEnv.code (((((((414 + 1) + (32+1)) + (32+1)) + (32+1)) + 1) + 1) + 1) = _
+  rw [wcResumed_code]; rfl
+
 /-! ## `lower_preserves` for `workedCall` (the bridge half)
 
 The full execution of `workedCall` as one `Runs (wcFrame g) last`:
