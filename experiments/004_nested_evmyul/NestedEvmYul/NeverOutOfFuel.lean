@@ -801,6 +801,437 @@ theorem gas_EVM_step_default (f : ℕ) (cost : ℕ) (w : Operation) (a : Option 
         | exact absurd rfl hc4 | exact absurd rfl hc5 | exact absurd rfl hc6
         | exact h
 
+/-! ## Item 1d — `step` preserves `executionEnv` (hence `executionEnv.depth`)
+
+The current frame's `executionEnv` (which carries its `depth`) is the *static*
+context of a frame; no opcode mutates it. We make this precise with the same
+per-opcode sweep as `gas_EvmYul_step` (the `executionEnv` field lives deep inside
+`EvmYul.State`, so the storage/copy ops need their own `rfl`-after-unfold facts, but
+the machine/stack ops preserve it transparently). The nested CALL/CREATE arms of
+`EVM.step` also preserve `executionEnv` (their result reuses the parent's). This is
+what keeps the `X`-loop at a *fixed depth*, so the depth-aware `fuelBound` is a sound
+loop invariant. -/
+
+/-- `executionEnv` of an `EVM.State` (carries the call depth). -/
+abbrev EE (s : State) : ExecutionEnv := s.toState.executionEnv
+
+@[simp] theorem ee_replaceStackAndIncrPC (s : State) (st : Stack UInt256) (d : ℕ) :
+    EE (s.replaceStackAndIncrPC st d) = EE s := rfl
+
+theorem ee_execUnOp (f) (s s' : State) (h : EVM.execUnOp f s = .ok s') : EE s' = EE s := by
+  gas_comb EVM.execUnOp h
+theorem ee_execBinOp (f) (s s' : State) (h : EVM.execBinOp f s = .ok s') : EE s' = EE s := by
+  gas_comb EVM.execBinOp h
+theorem ee_execTriOp (f) (s s' : State) (h : EVM.execTriOp f s = .ok s') : EE s' = EE s := by
+  gas_comb EVM.execTriOp h
+theorem ee_execQuadOp (f) (s s' : State) (h : EVM.execQuadOp f s = .ok s') : EE s' = EE s := by
+  gas_comb EVM.execQuadOp h
+theorem ee_executionEnvOp (op) (s s' : State) (h : EVM.executionEnvOp op s = .ok s') : EE s' = EE s := by
+  gas_comb0 EVM.executionEnvOp h
+theorem ee_unaryExecutionEnvOp (op) (s s' : State) (h : EVM.unaryExecutionEnvOp op s = .ok s') : EE s' = EE s := by
+  gas_comb EVM.unaryExecutionEnvOp h
+theorem ee_machineStateOp (op) (s s' : State) (h : EVM.machineStateOp op s = .ok s') : EE s' = EE s := by
+  gas_comb0 EVM.machineStateOp h
+theorem ee_stateOp (op) (s s' : State) (h : EVM.stateOp op s = .ok s') : EE s' = EE s := by
+  gas_comb0 EVM.stateOp h
+theorem ee_binaryMachineStateOp (op) (s s' : State) (h : EVM.binaryMachineStateOp op s = .ok s') : EE s' = EE s := by
+  gas_comb EVM.binaryMachineStateOp h
+theorem ee_binaryMachineStateOp' (op) (s s' : State) (h : EVM.binaryMachineStateOp' op s = .ok s') : EE s' = EE s := by
+  gas_comb EVM.binaryMachineStateOp' h
+theorem ee_ternaryMachineStateOp (op) (s s' : State) (h : EVM.ternaryMachineStateOp op s = .ok s') : EE s' = EE s := by
+  gas_comb EVM.ternaryMachineStateOp h
+theorem ee_ternaryCopyOp (op) (s s' : State)
+    (hop : ∀ ss a b c, (op ss a b c).executionEnv = ss.executionEnv)
+    (h : EVM.ternaryCopyOp op s = .ok s') : EE s' = EE s := by
+  unfold EVM.ternaryCopyOp at h; split at h
+  · simp only [Id.run] at h; injection h with h; subst h
+    show (op s.toSharedState _ _ _).executionEnv = _; rw [hop]
+  · exact absurd h (by simp)
+theorem ee_quaternaryCopyOp (op) (s s' : State)
+    (hop : ∀ ss a b c d, (op ss a b c d).executionEnv = ss.executionEnv)
+    (h : EVM.quaternaryCopyOp op s = .ok s') : EE s' = EE s := by
+  unfold EVM.quaternaryCopyOp at h; split at h
+  · simp only [Id.run] at h; injection h with h; subst h
+    show (op s.toSharedState _ _ _ _).executionEnv = _; rw [hop]
+  · exact absurd h (by simp)
+theorem sse_calldatacopy (ss : SharedState) (a b c) : (SharedState.calldatacopy ss a b c).executionEnv = ss.executionEnv := rfl
+theorem sse_codeCopy (ss : SharedState) (a b c) : (SharedState.codeCopy ss a b c).executionEnv = ss.executionEnv := rfl
+theorem sse_extCodeCopy' (ss : SharedState) (acc a b c) : (SharedState.extCodeCopy' ss acc a b c).executionEnv = ss.executionEnv := by
+  unfold SharedState.extCodeCopy'; rfl
+
+/-- `unaryStateOp`/`binaryStateOp` carry the op's `executionEnv` behaviour as `hop`
+(the op rebuilds the pure `EvmYul.State`, which *contains* `executionEnv`). -/
+theorem ee_unaryStateOp_proj (op) (s s' : State)
+    (hop : ∀ st v, (op st v).1.executionEnv = st.executionEnv)
+    (h : EVM.unaryStateOp op s = .ok s') : EE s' = EE s := by
+  unfold EVM.unaryStateOp at h; split at h
+  · simp only [Id.run] at h; injection h with h; subst h
+    show (op s.toState _).1.executionEnv = _; rw [hop]
+  · exact absurd h (by simp)
+theorem ee_binaryStateOp_proj (op) (s s' : State)
+    (hop : ∀ st a b, (op st a b).executionEnv = st.executionEnv)
+    (h : EVM.binaryStateOp op s = .ok s') : EE s' = EE s := by
+  unfold EVM.binaryStateOp at h; split at h
+  · simp only [Id.run] at h; injection h with h; subst h
+    show (op s.toState _ _).executionEnv = _; rw [hop]
+  · exact absurd h (by simp)
+
+-- concrete state-op `executionEnv` facts
+theorem se_balance (st : EvmYul.State) (v) : (EvmYul.State.balance st v).1.executionEnv = st.executionEnv := rfl
+theorem se_extCodeSize (st : EvmYul.State) (v) : (EvmYul.State.extCodeSize st v).1.executionEnv = st.executionEnv := rfl
+theorem se_extCodeHash (st : EvmYul.State) (v) : (EvmYul.State.extCodeHash st v).1.executionEnv = st.executionEnv := by
+  unfold EvmYul.State.extCodeHash EvmYul.State.addAccessedAccount
+  cases h : EvmYul.State.dead st.accountMap (AccountAddress.ofUInt256 v) <;> simp only [h, Bool.false_eq_true, if_false, if_true]
+theorem se_sload (st : EvmYul.State) (v) : (EvmYul.State.sload st v).1.executionEnv = st.executionEnv := by
+  unfold EvmYul.State.sload; simp only [EvmYul.State.addAccessedStorageKey]
+theorem se_tload (st : EvmYul.State) (v) : (EvmYul.State.tload st v).1.executionEnv = st.executionEnv := rfl
+theorem se_calldataload (st : EvmYul.State) (v) :
+    ((fun s v => (s, EvmYul.State.calldataload s v)) st v).1.executionEnv = st.executionEnv := rfl
+theorem se_blockHash (st : EvmYul.State) (v) :
+    ((fun s v => (s, EvmYul.State.blockHash s v)) st v).1.executionEnv = st.executionEnv := rfl
+theorem se_sstore (st : EvmYul.State) (a b) : (EvmYul.State.sstore st a b).executionEnv = st.executionEnv := by
+  unfold EvmYul.State.sstore; simp only [EvmYul.State.setAccount, EvmYul.State.addAccessedStorageKey]
+  cases h : st.lookupAccount st.executionEnv.codeOwner <;> simp only [h, Option.option]
+theorem se_tstore (st : EvmYul.State) (a b) : (EvmYul.State.tstore st a b).executionEnv = st.executionEnv := by
+  unfold EvmYul.State.tstore EvmYul.State.updateAccount
+  cases h : st.lookupAccount st.executionEnv.codeOwner <;> simp only [h, Option.option]
+
+-- inline arms
+theorem ee_dup (n : ℕ) (s s' : State) (h : EvmYul.dup n s = .ok s') : EE s' = EE s := by
+  simp only [EvmYul.dup] at h; split at h
+  · injection h with h; subst h; rfl
+  · exact absurd h (by simp)
+theorem ee_swap (n : ℕ) (s s' : State) (h : EvmYul.swap n s = .ok s') : EE s' = EE s := by
+  simp only [EvmYul.swap] at h; split at h
+  · injection h with h; subst h; rfl
+  · exact absurd h (by simp)
+theorem ee_inl_stop (s s' : State)
+    (h : (.ok {s with toMachineState := s.toMachineState.setReturnData .empty}
+          : Except EVM.ExecutionException State) = .ok s') : EE s' = EE s := by
+  injection h with h; subst h; rfl
+theorem ee_inl_pop (s s' : State)
+    (h : (match s.stack.pop with
+          | some ⟨st, _⟩ => (.ok (s.replaceStackAndIncrPC st) : Except EVM.ExecutionException State)
+          | _ => .error .StackUnderflow) = .ok s') : EE s' = EE s := by
+  split at h
+  · injection h with h; subst h; rfl
+  · exact absurd h (by simp)
+theorem ee_inl_replaceStack (s s' : State) (st : Stack UInt256)
+    (h : (.ok (s.replaceStackAndIncrPC st) : Except EVM.ExecutionException State) = .ok s') :
+    EE s' = EE s := by injection h with h; subst h; rfl
+theorem ee_inl_incrPC (s s' : State)
+    (h : (.ok s.incrPC : Except EVM.ExecutionException State) = .ok s') : EE s' = EE s := by
+  injection h with h; subst h; rfl
+theorem ee_inl_replaceStackOf (s t s' : State) (st : Stack UInt256) (d : ℕ)
+    (hee : EE t = EE s)
+    (h : (.ok (t.replaceStackAndIncrPC st d) : Except EVM.ExecutionException State) = .ok s') :
+    EE s' = EE s := by injection h with h; subst h; rw [ee_replaceStackAndIncrPC]; exact hee
+theorem ee_inl_jump (arg) (s s' : State)
+    (h : EvmYul.step (.StackMemFlow .JUMP) arg s = .ok s') : EE s' = EE s := by
+  have h2 : (match s.stack.pop with
+              | some ⟨st, μ₀⟩ => (.ok {s with pc := μ₀, stack := st} : Except EVM.ExecutionException State)
+              | _ => .error .StackUnderflow) = .ok s' := h
+  split at h2
+  · injection h2 with h2; subst h2; rfl
+  · exact absurd h2 (by simp)
+theorem ee_inl_jumpi (arg) (s s' : State)
+    (h : EvmYul.step (.StackMemFlow .JUMPI) arg s = .ok s') : EE s' = EE s := by
+  have h2 : (match s.stack.pop2 with
+              | some ⟨st, μ₀, μ₁⟩ =>
+                (.ok {s with pc := if μ₁ != (⟨0⟩ : UInt256) then μ₀ else s.pc + (⟨1⟩ : UInt256),
+                              stack := st} : Except EVM.ExecutionException State)
+              | _ => .error .StackUnderflow) = .ok s' := h
+  split at h2
+  · injection h2 with h2; subst h2; rfl
+  · exact absurd h2 (by simp)
+theorem ee_inl_push (po : Operation.POp) (arg) (s s' : State)
+    (h : EvmYul.step (.Push po) arg s = .ok s') : EE s' = EE s := by
+  cases po with
+  | PUSH0 => exact ee_inl_replaceStack _ _ _ h
+  | _ =>
+    all_goals (cases arg with
+      | none =>
+        exact absurd (show (.error .StackUnderflow : Except EVM.ExecutionException State) = .ok s' from h) (by simp)
+      | some p =>
+        obtain ⟨a, w⟩ := p
+        have h2 : (.ok (s.replaceStackAndIncrPC (s.stack.push a) w.succ)
+                    : Except EVM.ExecutionException State) = .ok s' := h
+        injection h2 with h2; subst h2; rw [ee_replaceStackAndIncrPC])
+theorem ee_inl_error (s s' : State) (e : EVM.ExecutionException)
+    (h : (.error e : Except EVM.ExecutionException State) = .ok s') : EE s' = EE s := absurd h (by simp)
+theorem ee_inl_mload (s s' : State)
+    (h : (match s.stack.pop with
+          | some ⟨st, μ₀⟩ =>
+            (.ok (({s with toMachineState := (s.toMachineState.mload μ₀).2}).replaceStackAndIncrPC
+                    (st.push (s.toMachineState.mload μ₀).1)) : Except EVM.ExecutionException State)
+          | _ => .error .StackUnderflow) = .ok s') : EE s' = EE s := by
+  split at h
+  · injection h with h; subst h; rfl
+  · exact absurd h (by simp)
+theorem ee_inl_returndatacopy (s s' : State)
+    (h : (match s.stack.pop3 with
+          | some ⟨st, μ₀, μ₁, μ₂⟩ =>
+            (.ok (({s with toMachineState := s.toMachineState.returndatacopy μ₀ μ₁ μ₂}).replaceStackAndIncrPC
+                    st) : Except EVM.ExecutionException State)
+          | _ => .error .StackUnderflow) = .ok s') : EE s' = EE s := by
+  split at h
+  · injection h with h; subst h; rfl
+  · exact absurd h (by simp)
+theorem ee_log0Op (s s' : State) (h : EVM.log0Op s = .ok s') : EE s' = EE s := by
+  unfold EVM.log0Op at h; split at h
+  · simp only [Id.run] at h; injection h with h; subst h; rfl
+  · exact absurd h (by simp)
+theorem ee_log1Op (s s' : State) (h : EVM.log1Op s = .ok s') : EE s' = EE s := by
+  unfold EVM.log1Op at h; split at h
+  · simp only [Id.run] at h; injection h with h; subst h; rfl
+  · exact absurd h (by simp)
+theorem ee_log2Op (s s' : State) (h : EVM.log2Op s = .ok s') : EE s' = EE s := by
+  unfold EVM.log2Op at h; split at h
+  · simp only [Id.run] at h; injection h with h; subst h; rfl
+  · exact absurd h (by simp)
+theorem ee_log3Op (s s' : State) (h : EVM.log3Op s = .ok s') : EE s' = EE s := by
+  unfold EVM.log3Op at h; split at h
+  · simp only [Id.run] at h; injection h with h; subst h; rfl
+  · exact absurd h (by simp)
+theorem ee_log4Op (s s' : State) (h : EVM.log4Op s = .ok s') : EE s' = EE s := by
+  unfold EVM.log4Op at h; split at h
+  · simp only [Id.run] at h; injection h with h; subst h; rfl
+  · exact absurd h (by simp)
+
+set_option maxHeartbeats 4000000 in
+theorem ee_inl_selfdestruct (arg : Option (UInt256 × Nat)) (s s' : State)
+    (h : EvmYul.step (.System .SELFDESTRUCT) arg s = .ok s') : EE s' = EE s := by
+  have h2 : (match s.stack.pop with
+      | some ⟨st, μ₁⟩ =>
+        if s.createdAccounts.contains s.executionEnv.codeOwner then
+          (.ok (({s with
+              accountMap :=
+                match s.lookupAccount s.executionEnv.codeOwner with
+                  | none => s.accountMap
+                  | some σ_Iₐ =>
+                    match s.lookupAccount (AccountAddress.ofUInt256 μ₁) with
+                      | none =>
+                        if σ_Iₐ.balance == (⟨0⟩ : UInt256) then s.accountMap
+                        else s.accountMap.insert (AccountAddress.ofUInt256 μ₁)
+                                {(default : Account) with balance := σ_Iₐ.balance}
+                                |>.insert s.executionEnv.codeOwner {σ_Iₐ with balance := (⟨0⟩ : UInt256)}
+                      | some σ_r =>
+                        if (AccountAddress.ofUInt256 μ₁) ≠ s.executionEnv.codeOwner then
+                          s.accountMap.insert (AccountAddress.ofUInt256 μ₁)
+                              {σ_r with balance := σ_r.balance + σ_Iₐ.balance}
+                            |>.insert s.executionEnv.codeOwner {σ_Iₐ with balance := (⟨0⟩ : UInt256)}
+                        else s.accountMap.insert (AccountAddress.ofUInt256 μ₁) {σ_r with balance := (⟨0⟩ : UInt256)}
+                                |>.insert s.executionEnv.codeOwner {σ_Iₐ with balance := (⟨0⟩ : UInt256)}
+              substate :=
+                { s.substate with
+                    selfDestructSet := s.substate.selfDestructSet.insert s.executionEnv.codeOwner
+                    accessedAccounts := s.substate.accessedAccounts.insert (AccountAddress.ofUInt256 μ₁) }
+              }).replaceStackAndIncrPC st) : Except EVM.ExecutionException State)
+        else
+          (.ok (({s with
+              accountMap :=
+                match s.lookupAccount s.executionEnv.codeOwner with
+                  | none => s.accountMap
+                  | some σ_Iₐ =>
+                    match s.lookupAccount (AccountAddress.ofUInt256 μ₁) with
+                      | none =>
+                        if σ_Iₐ.balance == (⟨0⟩ : UInt256) then s.accountMap
+                        else s.accountMap.insert (AccountAddress.ofUInt256 μ₁)
+                                {(default : Account) with balance := σ_Iₐ.balance}
+                                |>.insert s.executionEnv.codeOwner {σ_Iₐ with balance := (⟨0⟩ : UInt256)}
+                      | some σ_r =>
+                        if (AccountAddress.ofUInt256 μ₁) ≠ s.executionEnv.codeOwner then
+                          s.accountMap.insert (AccountAddress.ofUInt256 μ₁)
+                              {σ_r with balance := σ_r.balance + σ_Iₐ.balance}
+                            |>.insert s.executionEnv.codeOwner {σ_Iₐ with balance := (⟨0⟩ : UInt256)}
+                        else s.accountMap
+              substate :=
+                { s.substate with accessedAccounts := s.substate.accessedAccounts.insert (AccountAddress.ofUInt256 μ₁) }
+              }).replaceStackAndIncrPC st) : Except EVM.ExecutionException State)
+      | _ => .error .StackUnderflow) = .ok s' := h
+  clear h
+  split at h2
+  · split at h2 <;>
+      (repeat' first
+        | (injection h2 with h2; subst h2; rw [ee_replaceStackAndIncrPC])
+        | split at h2)
+  · exact absurd h2 (by simp)
+
+/-- Closer for a combinator arm (`executionEnv` version). -/
+local macro "ee_arm" hyp:ident : tactic =>
+  `(tactic|
+    first
+    | exact ee_execUnOp _ _ _ $hyp
+    | exact ee_execBinOp _ _ _ $hyp
+    | exact ee_execTriOp _ _ _ $hyp
+    | exact ee_execQuadOp _ _ _ $hyp
+    | exact ee_executionEnvOp _ _ _ $hyp
+    | exact ee_unaryExecutionEnvOp _ _ _ $hyp
+    | exact ee_machineStateOp _ _ _ $hyp
+    | exact ee_stateOp _ _ _ $hyp
+    | exact ee_unaryStateOp_proj EvmYul.State.balance _ _ (fun _ _ => se_balance _ _) $hyp
+    | exact ee_unaryStateOp_proj EvmYul.State.extCodeSize _ _ (fun _ _ => se_extCodeSize _ _) $hyp
+    | exact ee_unaryStateOp_proj EvmYul.State.extCodeHash _ _ (fun _ _ => se_extCodeHash _ _) $hyp
+    | exact ee_unaryStateOp_proj EvmYul.State.sload _ _ (fun _ _ => se_sload _ _) $hyp
+    | exact ee_unaryStateOp_proj EvmYul.State.tload _ _ (fun _ _ => se_tload _ _) $hyp
+    | exact ee_unaryStateOp_proj (fun s v ↦ (s, EvmYul.State.calldataload s v)) _ _ (fun _ _ => se_calldataload _ _) $hyp
+    | exact ee_unaryStateOp_proj (fun s v ↦ (s, EvmYul.State.blockHash s v)) _ _ (fun _ _ => se_blockHash _ _) $hyp
+    | exact ee_binaryStateOp_proj EvmYul.State.sstore _ _ (fun _ _ _ => se_sstore _ _ _) $hyp
+    | exact ee_binaryStateOp_proj EvmYul.State.tstore _ _ (fun _ _ _ => se_tstore _ _ _) $hyp
+    | exact ee_binaryMachineStateOp MachineState.mstore _ _ $hyp
+    | exact ee_binaryMachineStateOp MachineState.mstore8 _ _ $hyp
+    | exact ee_binaryMachineStateOp MachineState.evmReturn _ _ $hyp
+    | exact ee_binaryMachineStateOp MachineState.evmRevert _ _ $hyp
+    | exact ee_binaryMachineStateOp' MachineState.keccak256 _ _ $hyp
+    | exact ee_ternaryMachineStateOp MachineState.mcopy _ _ $hyp
+    | exact ee_ternaryCopyOp SharedState.calldatacopy _ _ (fun _ _ _ _ => sse_calldatacopy _ _ _ _) $hyp
+    | exact ee_ternaryCopyOp SharedState.codeCopy _ _ (fun _ _ _ _ => sse_codeCopy _ _ _ _) $hyp
+    | exact ee_quaternaryCopyOp SharedState.extCodeCopy' _ _ (fun _ _ _ _ _ => sse_extCodeCopy' _ _ _ _ _) $hyp
+    | exact ee_log0Op _ _ $hyp
+    | exact ee_log1Op _ _ $hyp
+    | exact ee_log2Op _ _ $hyp
+    | exact ee_log3Op _ _ $hyp
+    | exact ee_log4Op _ _ $hyp)
+
+local macro "ee_inline" hyp:ident : tactic =>
+  `(tactic|
+    first
+    | exact ee_dup _ _ _ $hyp
+    | exact ee_swap _ _ _ $hyp
+    | exact ee_inl_stop _ _ $hyp
+    | exact ee_inl_pop _ _ $hyp
+    | exact ee_inl_mload _ _ $hyp
+    | exact ee_inl_returndatacopy _ _ $hyp
+    | exact ee_inl_incrPC _ _ $hyp
+    | exact ee_inl_replaceStack _ _ _ $hyp
+    | exact ee_inl_replaceStackOf _ _ _ _ _ rfl $hyp
+    | exact ee_inl_jump _ _ _ $hyp
+    | exact ee_inl_jumpi _ _ _ $hyp
+    | exact ee_inl_selfdestruct _ _ _ $hyp
+    | exact ee_inl_error _ _ _ $hyp)
+
+set_option maxHeartbeats 1000000 in
+/-- The shared interpreter `EvmYul.step` preserves `executionEnv` on `.ok` (for every
+non-call/create opcode). Mirrors `gas_EvmYul_step`. -/
+theorem ee_EvmYul_step (op : Operation) (arg : Option (UInt256 × Nat)) (s s' : State)
+    (hop : ¬ isCallCreate op) (h : EvmYul.step op arg s = .ok s') :
+    EE s' = EE s := by
+  unfold isCallCreate at hop
+  push_neg at hop
+  cases op with
+  | StopArith o => cases o <;> first | ee_arm h | ee_inline h
+  | CompBit o => cases o <;> first | ee_arm h | ee_inline h
+  | Keccak o => cases o <;> exact ee_binaryMachineStateOp' MachineState.keccak256 _ _ h
+  | Env o => cases o <;> first | ee_arm h | ee_inline h
+  | Block o => cases o <;> first | ee_arm h | ee_inline h
+  | StackMemFlow o => cases o <;> first | ee_arm h | ee_inline h
+  | Push o => exact ee_inl_push o _ _ _ h
+  | Dup o => cases o <;> exact ee_dup _ _ _ h
+  | Exchange o => cases o <;> exact ee_swap _ _ _ h
+  | Log o => cases o <;>
+      first | exact ee_log0Op _ _ h | exact ee_log1Op _ _ h | exact ee_log2Op _ _ h
+            | exact ee_log3Op _ _ h | exact ee_log4Op _ _ h
+  | System o =>
+      obtain ⟨hc1, hc2, hc3, hc4, hc5, hc6⟩ := hop
+      cases o <;>
+        first
+        | exact absurd rfl hc1 | exact absurd rfl hc2 | exact absurd rfl hc3
+        | exact absurd rfl hc4 | exact absurd rfl hc5 | exact absurd rfl hc6
+        | exact ee_inl_selfdestruct _ _ _ h
+        | ee_arm h
+        | ee_inline h
+
+set_option maxHeartbeats 2000000 in
+/-- `call` preserves the caller's `executionEnv`: the result state reuses the (gas-
+debited) input `evmState`'s `executionEnv` (line 215 of the vendored `call`). Stated
+for any fuel `n` (`n = 0` returns `.error`, so the hypothesis is vacuous). -/
+theorem call_ee (n cost : ℕ) (bvh : List ByteArray)
+    (gas source recipient t value value' io is oo os : UInt256) (perm : Bool) (ev : State)
+    (x : UInt256) (result : State)
+    (h : call n cost bvh gas source recipient t value value' io is oo os perm ev = .ok (x, result)) :
+    EE result = EE ev := by
+  cases n with
+  | zero => exact absurd h (by simp [call])
+  | succ f =>
+    simp only [call, bind, Except.bind] at h
+    split at h
+    · split at h
+      · exact absurd h (by simp)
+      · have := Except.ok.inj h; rw [Prod.mk.injEq] at this; rw [← this.2]
+    · have := Except.ok.inj h; rw [Prod.mk.injEq] at this; rw [← this.2]
+
+set_option maxHeartbeats 8000000 in
+/-- The nested `EVM.step` preserves `executionEnv` on `.ok`, for ALL opcodes (default
+arm via `ee_EvmYul_step` on the gas-debited state; CALL/CREATE arms reuse the parent's
+`executionEnv`). Hence in particular `executionEnv.depth` is preserved. -/
+theorem step_ee (f : ℕ) (cost : ℕ) (w : Operation) (a : Option (UInt256 × Nat))
+    (s s' : State) (h : step (f+1) cost (some (w, a)) s = .ok s') :
+    EE s' = EE s := by
+  by_cases hcc : isCallCreate w
+  · -- CALL/CREATE family: each result reuses the parent's executionEnv.
+    unfold isCallCreate at hcc
+    rcases hcc with rfl | rfl | rfl | rfl | rfl | rfl
+    -- CREATE / CREATE2: assembled inline; executionEnv preserved structurally.
+    · dsimp only [step] at h
+      simp only [pure, Except.pure, bind, Except.bind] at h
+      repeat' split at h
+      all_goals first
+        | (injection h with h; subst h; rfl)
+        | exact absurd h (by simp)
+    · dsimp only [step] at h
+      simp only [pure, Except.pure, bind, Except.bind] at h
+      repeat' split at h
+      all_goals first
+        | (injection h with h; subst h; rfl)
+        | exact absurd h (by simp)
+    -- CALL family: result via `call f`; `call_ee` gives executionEnv preservation.
+    all_goals (
+      dsimp only [step] at h
+      simp only [pure, Except.pure, bind, Except.bind] at h
+      split at h
+      · exact absurd h (by simp)
+      · rename_i tup hpop
+        split at h
+        · exact absurd h (by simp)
+        · rename_i pr hcall
+          obtain ⟨x, state'⟩ := pr
+          injection h with h; subst h
+          rw [ee_replaceStackAndIncrPC]
+          have hee := call_ee _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ hcall
+          exact hee)
+  · -- default arm: `EvmYul.step` on the gas-debited state (same `executionEnv` as `s`).
+    set t : State :=
+      { s with execLength := s.execLength + 1, gasAvailable := s.gasAvailable - UInt256.ofNat cost } with ht
+    have het : EE t = EE s := rfl
+    have key : EvmYul.step w a t = .ok s' → EE s' = EE s := by
+      intro he; rw [ee_EvmYul_step w a t s' hcc he, het]
+    apply key
+    cases w with
+    | StopArith o => cases o <;> exact h
+    | CompBit o => cases o <;> exact h
+    | Keccak o => cases o <;> exact h
+    | Env o => cases o <;> exact h
+    | Block o => cases o <;> exact h
+    | StackMemFlow o => cases o <;> exact h
+    | Push o => cases o <;> exact h
+    | Dup o => cases o <;> exact h
+    | Exchange o => cases o <;> exact h
+    | Log o => cases o <;> exact h
+    | System o =>
+        unfold isCallCreate at hcc; push_neg at hcc
+        obtain ⟨hc1, hc2, hc3, hc4, hc5, hc6⟩ := hcc
+        cases o <;>
+          first
+          | exact absurd rfl hc1 | exact absurd rfl hc2 | exact absurd rfl hc3
+          | exact absurd rfl hc4 | exact absurd rfl hc5 | exact absurd rfl hc6
+          | exact h
+
+/-- `step` preserves `executionEnv.depth`. -/
+theorem step_depth (f : ℕ) (cost : ℕ) (w : Operation) (a : Option (UInt256 × Nat))
+    (s s' : State) (h : step (f+1) cost (some (w, a)) s = .ok s') :
+    s'.executionEnv.depth = s.executionEnv.depth := by
+  have := step_ee f cost w a s s' h; exact congrArg ExecutionEnv.depth this
+
 /-! ## Item 1c — `Z` gas inversion
 
 `Z` debits the memory-expansion cost `cost₁` (guarded so it cannot underflow), forms
