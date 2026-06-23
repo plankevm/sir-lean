@@ -154,7 +154,10 @@ whichever interface, ideally the shared one.
   is only non-increasing (not strictly smaller) across a descent, so fuel must cover
   ~4 hops × ≤1024 descents ⇒ the seed must be **DEPTH-AWARE**, e.g.
   `B(gas,depth) = (1025−depth)·4·(gas+1)`. This must be settled before the headline closes.
-  DECISION PENDING (Eduardo): adopt the depth-aware bound + one more iteration, vs. park B2.
+  DECISION (Eduardo): finish it — final iteration IN PROGRESS with the depth-aware bound
+  `B(gas,depth)=(1025−depth)·4·(gas+1)`; closing `step` skeleton + `X` inner loop-induction
+  + precompiled-`Θ` arm + final mutual assembly. Reports (Track B full + Track C refresh)
+  held until B2 lands so they reflect the final state.
 - [ ] **B3** Nested external-call core: a `{P} Ξ(child) {Q}` triple + call-site/frame
   rule; demonstrate **multiple** calls compose naturally (contrast with A's effort).
 - [ ] **B4** Expose an observables-only, fuel/frame-free semantics surface for IRs.
