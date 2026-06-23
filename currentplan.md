@@ -298,6 +298,13 @@ your own branch with clear messages; never touch another track's files; if block
 write the blocker into PLAN.md before stopping.
 
 ## Orchestration log
+- 2026-06-22: **C branch terminator CLOSED + all report cleanups done** (`d4af049`, green
+  1129). The foundation blocker is gone (`wc_get_dest_414` via the detotalized
+  `validJumpDests`); `ir-design §6` synced to as-built, `Match` doc fixed, `maxHeartbeats`
+  hack REMOVED (default budget suffices). Only remaining hypothesis: the concrete child
+  `CallReturns` (kernel-cost, not foundations) — final close launched (childXfer/
+  sstoreChargeOf_child named-lemma pattern to dodge the deep-recursion wall). After this,
+  `wc_preserves`/`_twoCall` should be hypothesis-free. Still running: B2.
 - 2026-06-22: **`validJumpDests` DETOTALIZED + A→base merge #2 + C unblocked** (`07c8b8c`;
   merges clean, base green 1130, C green 1129). `validJumpDestsAux` is now a total WF def
   with a full jump-dest characterization (`mem_validJumpDests_of_reachable_jumpdest`,
