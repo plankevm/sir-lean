@@ -2954,6 +2954,60 @@ theorem Ξ_gas_le (n : ℕ)
       simp only at h; injection h with h; subst h
       simp only [xiResultGas, resultGas] at *; exact hxle
 
+/-- `(if c then 0 else a - x) ≤ a`: the `Lambda` create-result leftover gas (`g' = if F
+then 0 else gStarStar − codeDeposit`) never exceeds the child's leftover `gStarStar`. -/
+theorem ite_zero_sub_le {c : Prop} [Decidable c] (a x : ℕ) : (if c then 0 else a - x) ≤ a := by
+  split
+  · exact Nat.zero_le _
+  · exact Nat.sub_le _ _
+
+set_option maxHeartbeats 4000000 in
+/-- **`Lambda` gas-monotonicity.** A successful `Lambda (n+1) … g … = .ok res` (contract
+creation) returns leftover gas `≤ g.toNat`, given the inner `Ξ n` gas-monotonicity
+(`hΞ`). The three result branches: the swallowed-`Ξ`-error (`g' = ⟨0⟩`), `revert`
+(`g'` carried), and `success` (`g' = .ofNat (if F then 0 else gStarStar − codeDeposit)`,
+bounded by `gStarStar ≤ g` via `ite_zero_sub_le` + `ofNat_le_of_le`). The leading `L_A`
+address lift only errors as `.StackUnderflow`. -/
+theorem Lambda_gas_le (n : ℕ) (bvh : List ByteArray)
+    (cA : Batteries.RBSet AccountAddress compare) (gh : BlockHeader) (blocks : ProcessedBlocks)
+    (σ σ₀ : AccountMap) (A : Substate) (s o : AccountAddress) (g p v : UInt256)
+    (i : ByteArray) (e : UInt256) (ζ : Option ByteArray) (Hd : BlockHeader) (w : Bool)
+    (hΞ : ∀ (cA' : Batteries.RBSet AccountAddress compare) (σ' : AccountMap) (As : Substate)
+            (I : ExecutionEnv) res,
+          Ξ n cA' gh blocks σ' σ₀ g As I = .ok res → xiResultGas res ≤ g.toNat)
+    (res) (h : Lambda (n+1) bvh cA gh blocks σ σ₀ A s o g p v i e ζ Hd w = .ok res) :
+    res.2.2.2.1.toNat ≤ g.toNat := by
+  simp only [Lambda, bind, Except.bind] at h
+  cases hla : Lambda.L_A s (Option.option (⟨0⟩ : UInt256) (·.nonce) (σ.find? s) - ⟨1⟩) ζ i with
+  | none =>
+    rw [hla] at h
+    rw [show (liftM (none : Option ByteArray) : Except EVM.ExecutionException ByteArray) = .error .StackUnderflow from rfl] at h
+    exact absurd h (fun hc => Except.noConfusion hc)
+  | some lₐ =>
+    rw [hla] at h
+    rw [show (liftM (some lₐ) : Except EVM.ExecutionException ByteArray) = .ok lₐ from rfl] at h
+    dsimp only at h
+    split at h
+    case _ ee heq =>
+      by_cases hee : ee = EVM.ExecutionException.OutOfFuel
+      · subst hee
+        rw [if_pos (show (EVM.ExecutionException.OutOfFuel == EVM.ExecutionException.OutOfFuel) = true from rfl)] at h
+        exact absurd h (fun hc => Except.noConfusion hc)
+      · have hb : (ee == EVM.ExecutionException.OutOfFuel) = false := by
+          cases ee <;> first | rfl | exact absurd rfl hee
+        rw [if_neg (by rw [hb]; simp)] at h
+        injection h with h; subst h; exact Nat.zero_le _
+    case _ g' oo heq =>
+      injection h with h; subst h
+      have hxle := hΞ _ _ _ _ _ heq
+      simp only [xiResultGas] at hxle; exact hxle
+    case _ tup ret heq =>
+      obtain ⟨cA'', σ'', gSS, ASS⟩ := tup
+      have hxle := hΞ _ _ _ _ _ heq
+      simp only [xiResultGas] at hxle
+      injection h with h; subst h
+      exact ofNat_le_of_le _ g (le_trans (ite_zero_sub_le _ _) hxle)
+
 /-! ## Status of the headline `Θ_never_outOfFuel` — what is closed and what remains
 
 ### CLOSED (this run)
