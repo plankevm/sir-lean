@@ -829,6 +829,56 @@ theorem wcResumed_validJumps (g : UInt64) :
   unfold wcResumed resumeAfterCall callPending
   dsimp only [ExecutionState.replaceStackAndIncrPC]; rfl
 
+/-! ## The general `RETURN` halt (materialised return window)
+
+The lowering's `ret t` emits `materialise t ++ [RETURN]`, so the `RETURN` consumes
+the materialised value as `offset` and the value below it as `size` — NOT the `0,0`
+that exp003's `stepFrame_return_empty` (and `Match.halt_ret`) need. We prove the
+**general** `RETURN` halt here: at any frame decoding to `RETURN` with
+`offset :: size :: rest` on the stack, if the memory-expansion charge succeeds
+(`chargeMemExpansion fr.exec offset size = .ok ec`, i.e. enough gas), then
+`stepFrame fr` halts. The bridge (`lower_preserves_discharge`) only needs the halt
+to *exist*, so we deliver `∃ halt, stepFrame fr = .halted halt`. The proof mirrors
+`stepFrame_return_empty` but routes through the genuine `chargeMemExpansion` success
+instead of the size-0 short-circuit. -/
+
+/-- **The general `RETURN` halt.** A frame decoding to `RETURN` with
+`offset :: size :: rest`, whose memory-expansion charge succeeds, halts. (Existence
+form: the bridge needs only `∃ halt, stepFrame fr = .halted halt`.) -/
+theorem stepFrame_return_halts (fr : Frame) (offset size : Word) (rest : Stack Word)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.System .RETURN, .none))
+    (hstk : fr.exec.stack = offset :: size :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (ec : ExecutionState)
+    (hmem : chargeMemExpansion fr.exec offset size = .ok ec) :
+    ∃ halt, stepFrame fr = .halted halt := by
+  have hstep : stepFrame fr
+      = .halted (.success
+          (ExecutionState.replaceStackAndIncrPC
+            { ec with toMachineState :=
+                { ec.toMachineState with
+                    activeWords := MachineState.M ec.activeWords offset.toUInt64 size.toUInt64 } }
+            rest)
+          (ec.memory.readWithPadding offset.toNat size.toNat)) := by
+    unfold stepFrame
+    simp only [hdec]
+    dsimp only [Option.getD]
+    rw [if_neg (by decide)]
+    have hov : ¬ (fr.exec.stack.size - stackPopCount (.System .RETURN)
+        + stackPushCount (.System .RETURN) > 1024) := by
+      simp only [show stackPopCount (.System .RETURN) = 2 from rfl,
+                 show stackPushCount (.System .RETURN) = 0 from rfl]
+      have := hsz; omega
+    rw [if_neg hov]
+    dsimp only [dispatch, systemOp, haltOp, returnOrRevertOp]
+    rw [hstk]
+    dsimp only [Stack.pop2, liftM, monadLift, MonadLift.monadLift, Option.option, bind,
+      Except.bind, pure, Except.pure]
+    rw [hmem]
+    dsimp only [bind, Except.bind, pure, Except.pure]
+    rw [if_neg (by decide)]
+  exact ⟨_, hstep⟩
+
 /-! ## `lower_preserves` for `workedCall` (the bridge half)
 
 The full execution of `workedCall` as one `Runs (wcFrame g) last`:
