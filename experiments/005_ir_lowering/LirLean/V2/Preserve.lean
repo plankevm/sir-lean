@@ -396,4 +396,146 @@ private theorem retFr_halts (g : UInt64) :
         show decode protoBytecode 24 = _; exact dec_24)
     (retFr_stk g) (by rw [retFr_stk]; show (3:ℕ) ≤ 1024; omega)
 
+/-! ## The top-level `messageCall` observable
+
+`messageCall (protoParams g)` halts successfully, returns empty output, and leaves
+`5` at storage cell `(addrA, 7)` — read off the assembled `Runs` + `retFr_halts`
+through `messageCall_runs`. -/
+
+/-- The halt the assembled run lands on. -/
+private def protoHalt (g : UInt64) : FrameHalt :=
+  .success (returnEmptyPost (retFr g).exec ((1 : UInt256) :: []))
+    ((retFr g).exec.memory.readWithPadding (0 : UInt256).toNat (0 : UInt256).toNat)
+
+/-- **`messageCall` of the witness bytecode** pins to the assembled run's halt. -/
+theorem proto_messageCall (g : UInt64) (hg : 30000 ≤ g.toNat) :
+    messageCall (protoParams g)
+      = .ok (FrameResult.toCallResult (endFrame (retFr g) (protoHalt g))) :=
+  messageCall_runs (protoParams g)
+    (beginCall_code (protoParams g) protoBytecode rfl)
+    ((proto_prefix_runs g hg).trans (proto_tail_runs g hg))
+    (retFr_halts g)
+
+/-- The completed call's storage at `(addrA, 7)` is `5` (the SSTORE'd value,
+preserved by every later transformer). -/
+theorem proto_storageAt (g : UInt64) (hg : 30000 ≤ g.toNat) :
+    CallResult.storageAt (FrameResult.toCallResult (endFrame (retFr g) (protoHalt g))) addrA 7 = 5 := by
+  show ((endFrame (retFr g) (protoHalt g)).toCallResult.accounts.find? addrA
+          |>.option 0 (·.lookupStorage 7)) = 5
+  have hacc : (endFrame (retFr g) (protoHalt g)).toCallResult.accounts = (f3 g).exec.accounts := by rfl
+  rw [hacc]
+  exact sstoreFrame_storage_self (f2 g) 7 5 (fr0 g).exec.stack (protoSelfAcc g)
+    (by show (f2 g).exec.accounts.find? (f2 g).exec.executionEnv.address = _; exact proto_self_present g)
+    (by decide)
+
+/-- The completed call succeeded with empty output. -/
+theorem proto_success (g : UInt64) (hg : 30000 ≤ g.toNat) :
+    (FrameResult.toCallResult (endFrame (retFr g) (protoHalt g))).success = true := by rfl
+
+/-! ## The IR program (mirrors the witness bytecode's values)
+
+Block 0: `t0:=5; t1:=7; sstore t1 t0; t2:=100; t3:=sload t1; t4:=9;
+t5:=add t4 t3; t6:=lt t5 t2; t7:=gas` then `branch t7 L1 L2`.
+Block 1 (`L1`): `ret t6`. Block 2 (`L2`): `stop`.
+
+The arithmetic mirrors the bytecode exactly: `add t4 t3 = UInt256.add 9 5`,
+`lt t5 t2 = UInt256.lt 14 100` — so the IR values are *definitionally* the lowered
+opcodes'. `t7 := gas` consumes the single `gasRead` event. -/
+
+private def tmp (n : Nat) : Tmp := ⟨n⟩
+private def lbl (n : Nat) : Label := ⟨n⟩
+
+/-- Block 0 of `protoIR`, named so the `RunStmts` chain reduces against the explicit
+statement list rather than forcing the whole `Program`/`Array`. -/
+def protoBlock0 : Block :=
+  { stmts := [
+      .assign (tmp 0) (.imm 5),
+      .assign (tmp 1) (.imm 7),
+      .sstore (tmp 1) (tmp 0),
+      .assign (tmp 2) (.imm 100),
+      .assign (tmp 3) (.sload (tmp 1)),
+      .assign (tmp 4) (.imm 9),
+      .assign (tmp 5) (.add (tmp 4) (tmp 3)),
+      .assign (tmp 6) (.lt (tmp 5) (tmp 2)),
+      .assign (tmp 7) .gas ],
+    term := .branch (tmp 7) (lbl 1) (lbl 2) }
+
+def protoBlock1 : Block := { stmts := [], term := .ret (tmp 6) }
+def protoBlock2 : Block := { stmts := [], term := .stop }
+
+def protoIR : Program :=
+  { entry := lbl 0, blocks := #[protoBlock0, protoBlock1, protoBlock2] }
+
+theorem protoIR_block0 : blockAt protoIR (lbl 0) = some protoBlock0 := rfl
+theorem protoIR_block1 : blockAt protoIR (lbl 1) = some protoBlock1 := rfl
+
+/-- The observable the IR run produces: world with `7 ↦ 5`, returning the `lt`
+result `UInt256.lt 14 100`. Independent of the initial `w₀ 7` (the SSTORE overwrites
+it before the SLOAD). -/
+def protoObsResult (w₀ : World) : Observable :=
+  { worldDelta := fun k => if k = (7 : Word) then (5 : Word) else w₀ k
+    result := .returned (UInt256.lt 14 100) }
+
+/-! ### The block-0 statement run, stepwise over named intermediate states
+
+To keep every `whnf` bounded to a single `setLocal`/`setStorage` layer (the whole
+nested-record defeq blows up otherwise), we name each intermediate state `s0 … s9`
+and prove one `EvalStmt` between consecutive ones, then chain them. -/
+
+private def s0 (w₀ : World) : IRState := { locals := fun _ => none, world := w₀ }
+private def s1 (w₀ : World) : IRState := (s0 w₀).setLocal (tmp 0) 5
+private def s2 (w₀ : World) : IRState := (s1 w₀).setLocal (tmp 1) 7
+private def s3 (w₀ : World) : IRState := (s2 w₀).setStorage 7 5
+private def s4 (w₀ : World) : IRState := (s3 w₀).setLocal (tmp 2) 100
+private def s5 (w₀ : World) : IRState := (s4 w₀).setLocal (tmp 3) ((s4 w₀).world 7)
+private def s6 (w₀ : World) : IRState := (s5 w₀).setLocal (tmp 4) 9
+private def s7 (w₀ : World) : IRState := (s6 w₀).setLocal (tmp 5) (UInt256.add 9 5)
+private def s8 (w₀ : World) : IRState := (s7 w₀).setLocal (tmp 6) (UInt256.lt 14 100)
+private def s9 (w₀ : World) (obs : Word) : IRState := (s8 w₀).setLocal (tmp 7) obs
+
+private theorem s9_locals6 (w₀ : World) (obs : Word) :
+    (s9 w₀ obs).locals (tmp 6) = some (UInt256.lt 14 100) := by rfl
+private theorem s9_locals7 (w₀ : World) (obs : Word) :
+    (s9 w₀ obs).locals (tmp 7) = some obs := by rfl
+private theorem s9_world (w₀ : World) (obs : Word) :
+    (s9 w₀ obs).world = (protoObsResult w₀).worldDelta := by
+  funext k; show (if k = (7:Word) then (5:Word) else w₀ k) = _; rfl
+
+/-- **The gas-free IR run.** For any initial world `w₀` and any **non-zero**
+observed gas `obs`, `protoIR` consuming the single `gasRead obs` event halts with
+`protoObsResult w₀` — the gas-dependent branch takes the `ret` arm. `obs` is
+supplied by the run (the event), never computed. -/
+theorem proto_IRRun (w₀ : World) (obs : Word) (hobs : obs ≠ 0) :
+    IRRun protoIR w₀ [Event.gasRead obs] (protoObsResult w₀) := by
+  -- the nine block-0 statements, each between named states (local, cheap `whnf`)
+  have e0 : EvalStmt protoIR (s0 w₀) [Event.gasRead obs] (.assign (tmp 0) (.imm 5)) (s1 w₀) [Event.gasRead obs] :=
+    EvalStmt.assignPure (by nofun) rfl
+  have e1 : EvalStmt protoIR (s1 w₀) [Event.gasRead obs] (.assign (tmp 1) (.imm 7)) (s2 w₀) [Event.gasRead obs] :=
+    EvalStmt.assignPure (by nofun) rfl
+  have e2 : EvalStmt protoIR (s2 w₀) [Event.gasRead obs] (.sstore (tmp 1) (tmp 0)) (s3 w₀) [Event.gasRead obs] :=
+    EvalStmt.sstore (kw := 7) (vw := 5) rfl rfl
+  have e3 : EvalStmt protoIR (s3 w₀) [Event.gasRead obs] (.assign (tmp 2) (.imm 100)) (s4 w₀) [Event.gasRead obs] :=
+    EvalStmt.assignPure (by nofun) rfl
+  have e4 : EvalStmt protoIR (s4 w₀) [Event.gasRead obs] (.assign (tmp 3) (.sload (tmp 1))) (s5 w₀) [Event.gasRead obs] :=
+    EvalStmt.assignPure (by nofun) rfl
+  have e5 : EvalStmt protoIR (s5 w₀) [Event.gasRead obs] (.assign (tmp 4) (.imm 9)) (s6 w₀) [Event.gasRead obs] :=
+    EvalStmt.assignPure (by nofun) rfl
+  have e6 : EvalStmt protoIR (s6 w₀) [Event.gasRead obs] (.assign (tmp 5) (.add (tmp 4) (tmp 3))) (s7 w₀) [Event.gasRead obs] :=
+    EvalStmt.assignPure (by nofun) rfl
+  have e7 : EvalStmt protoIR (s7 w₀) [Event.gasRead obs] (.assign (tmp 6) (.lt (tmp 5) (tmp 2))) (s8 w₀) [Event.gasRead obs] :=
+    EvalStmt.assignPure (by nofun) rfl
+  have e8 : EvalStmt protoIR (s8 w₀) [Event.gasRead obs] (.assign (tmp 7) .gas) (s9 w₀ obs) [] :=
+    EvalStmt.assignGas
+  have hss : RunStmts protoIR (s0 w₀) [Event.gasRead obs] protoBlock0.stmts (s9 w₀ obs) [] :=
+    .cons e0 (.cons e1 (.cons e2 (.cons e3 (.cons e4 (.cons e5 (.cons e6 (.cons e7 (.cons e8 .nil))))))))
+  -- branch on t7 = obs ≠ 0 → block 1 (ret t6); resulting O is `protoObsResult w₀`
+  have hbranch :
+      RunFrom protoIR (s0 w₀) [Event.gasRead obs] (lbl 0)
+        { worldDelta := (s9 w₀ obs).world, result := .returned (UInt256.lt 14 100) } :=
+    RunFrom.branchThen (b := protoBlock0) (cw := obs) (thenL := lbl 1) (elseL := lbl 2)
+      protoIR_block0 hss rfl (s9_locals7 w₀ obs) hobs
+      (RunFrom.ret (b := protoBlock1) (t := tmp 6) protoIR_block1 RunStmts.nil rfl (s9_locals6 w₀ obs))
+  rw [s9_world] at hbranch
+  exact hbranch
+
 end Lir.V2
