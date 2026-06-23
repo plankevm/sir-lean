@@ -3374,6 +3374,211 @@ theorem fuelBound_pos (g e : ℕ) (he : e ≤ 1024) : 1 ≤ fuelBound g e := by
   calc 1 = 1 * 1 := by ring
     _ ≤ (1025 - e) * (g + fuelHops) := Nat.mul_le_mul this (by simp [fuelHops])
 
+/-! ## A1 STAGE 1 — the gas-monotonicity mutual induction (assembly)
+
+All per-layer gas-monotonicity reductions are proved above; this stage ties them
+into ONE strong induction on `fuel`, bundling all six layers. Gas-monotonicity is
+vacuous on `.error` results, so it needs no never-`OutOfFuel` facts and proves
+standalone (Stage 1 of the headline, the easiest). The clean per-layer corollaries
+(`Θ_gas_mono`, `Ξ_gas_mono`, `X_gas_mono`, `Lambda_gas_mono`, `step_gas_mono`,
+`call_gas_mono`) are derived at the end for Stages 2/3 to consume. -/
+
+set_option maxHeartbeats 2000000 in
+/-- **Bounded `X`-loop gas-monotonicity.** Like `X_loop_gas_le'`, but its per-step
+hypothesis `hstep` need only hold at fuels `f < fuel` (the loop never invokes `step`
+at a fuel `≥` its own). This is what a strong induction can discharge: the strong IH
+supplies `step_gas_le` only at smaller fuels. -/
+theorem X_loop_gas_le_bdd (vj : Array UInt256) (N : ℕ)
+    (hstep : ∀ (f cost : ℕ), f < N → ∀ (w : Operation) (arg) (s' s'' : State),
+       (w, arg) = (decode s'.toState.executionEnv.code s'.pc |>.getD (.STOP, .none)) →
+       cost ≤ s'.gasAvailable.toNat →
+       cost = C' s' w →
+       step f cost (some (w, arg)) s' = .ok s'' →
+       s''.gasAvailable.toNat ≤ s'.gasAvailable.toNat) :
+    ∀ (fuel : ℕ), fuel ≤ N → ∀ (s : State) (r : ExecutionResult State),
+      X fuel vj s = .ok r → resultGas r ≤ s.gasAvailable.toNat := by
+  intro fuel
+  induction fuel with
+  | zero => intro _ s r hX; exact absurd hX (by simp [X])
+  | succ f ih =>
+    intro hfN s r hX
+    unfold X at hX
+    simp only [bind, Except.bind] at hX
+    set instr := decode s.toState.executionEnv.code s.pc |>.getD (.STOP, .none) with hinstr
+    cases hZ : Z vj instr.1 s with
+    | error e => rw [hZ] at hX; exact absurd hX (by simp)
+    | ok p =>
+      obtain ⟨ev, cost₂⟩ := p
+      rw [hZ] at hX
+      simp only at hX
+      have hevle : ev.gasAvailable.toNat ≤ s.gasAvailable.toNat := Z_ok_state vj instr.1 s ev cost₂ hZ
+      have hcodepc : ev.toState.executionEnv.code = s.toState.executionEnv.code ∧ ev.pc = s.pc :=
+        Z_ok_code_pc vj instr.1 s ev cost₂ hZ
+      cases hs : step f cost₂ instr ev with
+      | error e => rw [hs] at hX; exact absurd hX (by simp)
+      | ok ev' =>
+        rw [hs] at hX
+        simp only at hX
+        obtain ⟨hcle, hcost⟩ := Z_ok_cost_le_gas vj instr.1 s ev cost₂ hZ
+        have hdec : (instr.1, instr.2) = (decode ev.toState.executionEnv.code ev.pc |>.getD (.STOP, .none)) := by
+          rw [hcodepc.1, hcodepc.2, ← hinstr]
+        have hsle : ev'.gasAvailable.toNat ≤ ev.gasAvailable.toNat :=
+          hstep f cost₂ (by omega) instr.1 instr.2 ev ev' hdec hcle hcost hs
+        cases hH : H ev'.toMachineState instr.1 with
+        | none =>
+          rw [hH] at hX; simp only at hX
+          exact le_trans (ih (by omega) ev' r hX) (le_trans hsle hevle)
+        | some o =>
+          rw [hH] at hX; simp only at hX
+          by_cases hrev : (instr.1 == Operation.REVERT) = true
+          · rw [if_pos hrev] at hX
+            have : r = ExecutionResult.revert ev'.gasAvailable o := Except.ok.inj hX |>.symm
+            rw [this]; exact le_trans hsle hevle
+          · rw [if_neg (by simpa using hrev)] at hX
+            have : r = ExecutionResult.success ev' o := Except.ok.inj hX |>.symm
+            rw [this]; exact le_trans hsle hevle
+
+/-! ### The six per-layer gas-monotonicity predicates (at a single fuel `n`)
+
+Each `*_gas_mono_at n` says: a successful `layer n …` returns leftover gas `≤` the
+gas it was handed. Bundled into `gas_mono_at n` and proved by strong induction. -/
+
+/-- `step n` gas-monotonicity (predicate). -/
+def step_gas_mono_at (n : ℕ) : Prop :=
+  ∀ (cost : ℕ) (w : Operation) (arg) (s s' : State),
+    cost ≤ s.gasAvailable.toNat → cost = C' s w →
+    step n cost (some (w, arg)) s = .ok s' → s'.gasAvailable.toNat ≤ s.gasAvailable.toNat
+
+/-- `call n` gas-monotonicity (predicate). -/
+def call_gas_mono_at (n : ℕ) : Prop :=
+  ∀ (cost : ℕ) (bvh : List ByteArray)
+    (gas source recipient t value value' io is oo os : UInt256) (perm : Bool) (ev : State)
+    (x : UInt256) (result : State),
+    cost ≤ ev.gasAvailable.toNat →
+    Ccallgas (AccountAddress.ofUInt256 t) (AccountAddress.ofUInt256 recipient) value gas
+      ev.accountMap ev.toMachineState ev.substate ≤ cost →
+    call n cost bvh gas source recipient t value value' io is oo os perm ev = .ok (x, result) →
+    result.gasAvailable.toNat ≤ ev.gasAvailable.toNat
+
+/-- `Θ n` gas-monotonicity (predicate). -/
+def Θ_gas_mono_at (n : ℕ) : Prop :=
+  ∀ (bvh : List ByteArray) (cA : Batteries.RBSet AccountAddress compare)
+    (gh : BlockHeader) (blocks : ProcessedBlocks) (σ σ₀ : AccountMap) (A : Substate)
+    (s o r : AccountAddress) (c : ToExecute) (g p v v' : UInt256) (d : ByteArray)
+    (e : Nat) (Hd : BlockHeader) (w : Bool) (res),
+    Θ n bvh cA gh blocks σ σ₀ A s o r c g p v v' d e Hd w = .ok res → res.2.2.1.toNat ≤ g.toNat
+
+/-- `Ξ n` gas-monotonicity (predicate). -/
+def Ξ_gas_mono_at (n : ℕ) : Prop :=
+  ∀ (cA : Batteries.RBSet AccountAddress compare) (gh : BlockHeader) (blocks : ProcessedBlocks)
+    (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv) (res),
+    Ξ n cA gh blocks σ σ₀ g A I = .ok res → xiResultGas res ≤ g.toNat
+
+/-- `Lambda n` gas-monotonicity (predicate). -/
+def Lambda_gas_mono_at (n : ℕ) : Prop :=
+  ∀ (bvh : List ByteArray) (cA : Batteries.RBSet AccountAddress compare)
+    (gh : BlockHeader) (blocks : ProcessedBlocks) (σ σ₀ : AccountMap) (A : Substate)
+    (s o : AccountAddress) (g p v : UInt256) (i : ByteArray) (e : UInt256)
+    (ζ : Option ByteArray) (Hd : BlockHeader) (w : Bool) (res),
+    Lambda n bvh cA gh blocks σ σ₀ A s o g p v i e ζ Hd w = .ok res → res.2.2.2.1.toNat ≤ g.toNat
+
+/-- `X n` gas-monotonicity (predicate): on any starting state. -/
+def X_gas_mono_at (n : ℕ) : Prop :=
+  ∀ (vj : Array UInt256) (s : State) (res),
+    X n vj s = .ok res → resultGas res ≤ s.gasAvailable.toNat
+
+set_option maxHeartbeats 2000000 in
+/-- **The gas-monotonicity mutual induction (Stage 1).** Strong induction on `fuel`,
+bundling all six layers. The IH at every `m < n` supplies each reduction's child
+gas-mono hypothesis at the correct smaller fuel. -/
+theorem gas_mono : ∀ n,
+    step_gas_mono_at n ∧ call_gas_mono_at n ∧ Θ_gas_mono_at n ∧
+    Ξ_gas_mono_at n ∧ Lambda_gas_mono_at n ∧ X_gas_mono_at n := by
+  intro n
+  induction n using Nat.strong_induction_on with
+  | _ n ih =>
+    -- Project the IH to per-layer gas-mono facts at any `m < n`.
+    have ihΘ : ∀ m, m < n → Θ_gas_mono_at m := fun m hm => (ih m hm).2.2.1
+    have ihΞ : ∀ m, m < n → Ξ_gas_mono_at m := fun m hm => (ih m hm).2.2.2.1
+    have ihΛ : ∀ m, m < n → Lambda_gas_mono_at m := fun m hm => (ih m hm).2.2.2.2.1
+    have ihX : ∀ m, m < n → X_gas_mono_at m := fun m hm => (ih m hm).2.2.2.2.2
+    have ihstep : ∀ m, m < n → step_gas_mono_at m := fun m hm => (ih m hm).1
+    -- == X conjunct ==
+    have hX : X_gas_mono_at n := by
+      intro vj s res hXok
+      -- discharge the loop's `hstep` from the strong IH (step at fuels `< n`).
+      refine X_loop_gas_le_bdd vj n ?_ n (le_refl _) s res hXok
+      intro f cost hfn w arg s' s'' _ hcle hcost hs
+      exact ihstep f hfn cost w arg s' s'' hcle hcost hs
+    -- == step conjunct ==
+    have hstep : step_gas_mono_at n := by
+      intro cost w arg s s' hcle hcost hsok
+      cases n with
+      | zero => exact absurd hsok (by simp [step])
+      | succ f =>
+        refine step_gas_le f cost w arg s s' hcle hcost ?_ ?_ hsok
+        · -- child `Θ (f-1)` gas-mono via IH (`f-1 < f+1 = n`)
+          intro cA σ σ₀ Asub src o rcpt c gg p vv vv' dd e Hd ww res hΘeq
+          exact ihΘ (f-1) (by omega) _ cA _ _ σ σ₀ Asub src o rcpt c gg p vv vv' dd e Hd ww res hΘeq
+        · -- child `Lambda f` gas-mono via IH (`f < f+1 = n`)
+          intro bvh cA σ σ₀ Asub sndr orig gg pp vv ii ee zz Hd ww res hΛeq
+          exact ihΛ f (by omega) bvh cA _ _ σ σ₀ Asub sndr orig gg pp vv ii ee zz Hd ww res hΛeq
+    -- == call conjunct ==
+    have hcall : call_gas_mono_at n := by
+      intro cost bvh gas source recipient t value value' io is oo os perm ev x result hcle hccg hcok
+      cases n with
+      | zero => exact absurd hcok (by simp [call])
+      | succ f =>
+        refine call_result_gas_le f cost bvh gas source recipient t value value' io is oo os perm ev x result hcle hccg ?_ hcok
+        intro cA σ σ₀ Asub src o rcpt c gg p vv vv' dd e Hd ww res hΘeq
+        exact ihΘ f (by omega) _ cA _ _ σ σ₀ Asub src o rcpt c gg p vv vv' dd e Hd ww res hΘeq
+    -- == Θ conjunct ==
+    have hΘ : Θ_gas_mono_at n := by
+      intro bvh cA gh blocks σ σ₀ A s o r c g p v v' d e Hd w res hΘok
+      cases n with
+      | zero => exact absurd hΘok (by simp [Θ])
+      | succ m =>
+        cases c with
+        | Code code =>
+          refine Θ_gas_le_code m bvh cA gh blocks σ σ₀ A s o r code g p v v' d e Hd w ?_ res hΘok
+          intro σ₁ I res' hΞeq
+          exact ihΞ m (by omega) cA gh blocks σ₁ σ₀ g A I res' hΞeq
+        | Precompiled pc =>
+          exact Θ_gas_le_precompiled m bvh cA gh blocks σ σ₀ A s o r pc g p v v' d e Hd w res hΘok
+    -- == Ξ conjunct ==
+    have hΞ : Ξ_gas_mono_at n := by
+      intro cA gh blocks σ σ₀ g A I res hΞok
+      cases n with
+      | zero => exact absurd hΞok (by simp [Ξ])
+      | succ m =>
+        refine Ξ_gas_le m cA gh blocks σ σ₀ g A I ?_ res hΞok
+        intro s hsg res' hXeq
+        have := ihX m (by omega) (D_J I.code ⟨0⟩) s res' hXeq
+        rwa [hsg] at this
+    -- == Lambda conjunct ==
+    have hΛ : Lambda_gas_mono_at n := by
+      intro bvh cA gh blocks σ σ₀ A s o g p v i e ζ Hd w res hΛok
+      cases n with
+      | zero => exact absurd hΛok (by simp [Lambda])
+      | succ m =>
+        refine Lambda_gas_le m bvh cA gh blocks σ σ₀ A s o g p v i e ζ Hd w ?_ res hΛok
+        intro cA' σ' As I res' hΞeq
+        exact ihΞ m (by omega) cA' gh blocks σ' σ₀ g As I res' hΞeq
+    exact ⟨hstep, hcall, hΘ, hΞ, hΛ, hX⟩
+
+/-- `Θ` gas-monotonicity corollary (Stage 2/3 consumer). -/
+theorem Θ_gas_mono (n : ℕ) : Θ_gas_mono_at n := (gas_mono n).2.2.1
+/-- `Ξ` gas-monotonicity corollary. -/
+theorem Ξ_gas_mono (n : ℕ) : Ξ_gas_mono_at n := (gas_mono n).2.2.2.1
+/-- `Lambda` gas-monotonicity corollary. -/
+theorem Lambda_gas_mono (n : ℕ) : Lambda_gas_mono_at n := (gas_mono n).2.2.2.2.1
+/-- `X` gas-monotonicity corollary. -/
+theorem X_gas_mono (n : ℕ) : X_gas_mono_at n := (gas_mono n).2.2.2.2.2
+/-- `step` gas-monotonicity corollary. -/
+theorem step_gas_mono (n : ℕ) : step_gas_mono_at n := (gas_mono n).1
+/-- `call` gas-monotonicity corollary. -/
+theorem call_gas_mono (n : ℕ) : call_gas_mono_at n := (gas_mono n).2.1
+
 /-! ## Status of the headline `Θ_never_outOfFuel` — what is closed and what remains
 
 ### CLOSED (this run)
