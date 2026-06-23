@@ -3,6 +3,7 @@ import LirLean.Decode
 import BytecodeLayer.Programs
 import BytecodeLayer.Hoare.Sequence
 import BytecodeLayer.Semantics.UInt64
+import BytecodeLayer.ExternalCall
 
 /-!
 # LirLean — the worked single-call program `Runs` assembly (C3d)
@@ -77,6 +78,8 @@ open BytecodeLayer.System
 open BytecodeLayer.Hoare
 open BytecodeLayer.Dispatch
 open BytecodeLayer.UInt64
+open BytecodeLayer.ExternalCall
+open BytecodeLayer.Interpreter
 
 -- `lower` is a deep computation (PUSH32 literals are 33 bytes each), so the kernel
 -- reductions in the decode facts below need a higher recursion limit. The default
@@ -376,6 +379,346 @@ theorem wc_call_step (g : UInt64) (hg : 30000 ≤ g.toNat) :
             simp only [List.sum_cons, List.sum_nil]; omega)]
       rw [List.sum_append, show (List.replicate 7 3).sum = 21 from rfl]
       simp only [List.sum_cons, List.sum_nil]; omega)
+
+/-! ## The concrete child `CallReturns` for the `0xCA11EE` callee (C3f)
+
+The CALL at `wcCallSite g` descends into the `0xCA11EE` callee (`calleeProg =
+PUSH1 5; PUSH1 7; SSTORE; STOP`) over the **post-SSTORE** parent world — block 0's
+SSTORE wrote slot `7 = 5` in the *caller* (`addrCaller`), so the world threaded into
+the child is `callerXfer` with that write applied. We build the genuine child `drive`
+run mirroring `Examples.CallerProgExample.caller_callReturns`, transposed onto
+`wcCallSite g`.
+
+The kernel-cost wall (PLAN.md C3e) is that `(wcCallSite g).exec.accounts` is the
+post-SSTORE world threaded through `sstorePost` over the deep `lower workedCall`
+computation; reducing it whole hits "deep recursion". We sidestep that with the
+exp003 NAMED-LEMMA pattern: a `g`-independent post-SSTORE world `wcStoredAccounts`
+defined from `callerXfer` + the self write (NO dependence on `lower`), and a
+congruence lemma (`sstore_accounts_congr`) that derives `(wcCallSite g).exec.accounts
+= wcStoredAccounts` from the (cheap, code-free) pre-SSTORE field facts — never
+reducing the code field. -/
+
+/-- **SSTORE account congruence.** The account map `State.sstore` produces depends
+only on the input `accounts` and the self (`executionEnv.address`); it is otherwise
+independent of the exec. This is the brick that lets us read the post-SSTORE world
+off the cheap pre-SSTORE field facts instead of reducing the deep `lower workedCall`
+frame. -/
+theorem sstore_accounts_congr (e1 e2 : ExecutionState) (key v : UInt256)
+    (ha : e1.accounts = e2.accounts) (haddr : e1.executionEnv.address = e2.executionEnv.address) :
+    (e1.sstore key v).accounts = (e2.sstore key v).accounts := by
+  unfold State.sstore
+  dsimp only [State.setAccount, State.addAccessedStorageKey, State.lookupAccount]
+  rw [ha, haddr]
+  cases h : e2.accounts.find? e2.executionEnv.address with
+  | none => simp [Option.option]; rw [ha]
+  | some acc => simp [Option.option]
+
+/-- A `g`-independent exec carrying the pre-SSTORE caller world (`callerXfer`), self
+`addrCaller`. Mirrors the call-site exec on exactly the fields `State.sstore`'s
+account map depends on (`accounts`, `executionEnv.address`). -/
+def wcPreExec : ExecutionState :=
+  { (default : ExecutionState) with
+      accounts := callerXfer, originalAccounts := ∅, executionEnv := callerEnv, substate := default }
+
+/-- **The `g`-independent post-SSTORE account map** — `callerXfer` after the caller's
+`SSTORE 7 5`. The world threaded into the child CALL. (No `lower` dependence: this is
+the analogue of exp003's `childXfer`, built from `callerXfer`.) -/
+def wcStoredAccounts : AccountMap := (wcPreExec.sstore 7 5).accounts
+
+/-- The pre-SSTORE call frame's accounts is `callerXfer` (cheap, code-free: the
+accounts never depend on `lower workedCall`, only `validJumps`/`code` do). -/
+theorem wcBefore_acc (g : UInt64) : (wcBeforeSStore g).exec.accounts = callerXfer := by
+  show (wcFrame g).exec.accounts = callerXfer
+  unfold wcFrame codeFrame; dsimp only
+  unfold codeAccounts wcParams callerXfer accts callerAccount; dsimp only; rfl
+
+/-- **The call-site accounts is the named post-SSTORE world** — derived through
+`sstore_accounts_congr` from the cheap pre-SSTORE field facts, NOT by reducing the
+deep `lower workedCall` frame. This is the lemma that defeats the kernel-cost wall. -/
+theorem wcCallSite_acc (g : UInt64) : (wcCallSite g).exec.accounts = wcStoredAccounts := by
+  show (sstoreFrame (wcBeforeSStore g) 7 5 []).exec.accounts = wcStoredAccounts
+  unfold sstoreFrame sstorePost
+  dsimp only [ExecutionState.replaceStackAndIncrPC]
+  show (({ (wcBeforeSStore g).exec with gasAvailable := _ }).toState.sstore 7 5).accounts = wcStoredAccounts
+  unfold wcStoredAccounts
+  apply sstore_accounts_congr
+  · show (wcBeforeSStore g).exec.accounts = wcPreExec.accounts; rw [wcBefore_acc]; rfl
+  · show (wcBeforeSStore g).exec.executionEnv.address = wcPreExec.executionEnv.address
+    rw [show (wcBeforeSStore g).exec.executionEnv.address = addrCaller from rfl]
+    rfl
+
+/-- The call-site substate's accessed-account set is unchanged from the entry
+(`default`): SSTORE only adds to `accessedStorageKeys`, never `accessedAccounts`. So
+`callExtraCost`'s `accessCost` reads the cold callee either way. -/
+theorem wcCallSite_accessedAccounts (g : UInt64) :
+    (wcCallSite g).exec.substate.accessedAccounts = (default : Substate).accessedAccounts := by
+  show (sstoreFrame (wcBeforeSStore g) 7 5 []).exec.substate.accessedAccounts = _
+  unfold sstoreFrame sstorePost State.sstore
+  dsimp only [ExecutionState.replaceStackAndIncrPC, State.setAccount, State.addAccessedStorageKey,
+    State.lookupAccount, State.addAccessedStorageKey, Substate.addAccessedStorageKey]
+  cases (wcBeforeSStore g).exec.accounts.find? (wcBeforeSStore g).exec.executionEnv.address with
+  | none => rfl
+  | some acc => rfl
+
+/-- `toExecute` on the post-SSTORE world reads the callee's real code: the SSTORE
+wrote `addrCaller`, leaving `0xCA11EE`'s `calleeProg` untouched. (`rfl` on the
+small literal `wcStoredAccounts` — no `lower` dependence.) -/
+theorem wc_toExecute_callee :
+    toExecute wcStoredAccounts (AccountAddress.ofUInt256 0xCA11EE) = ToExecute.Code calleeProg := by
+  unfold toExecute
+  rw [if_neg (by decide)]
+  unfold wcStoredAccounts wcPreExec callerXfer accts callerAccount calleeAccount callerEnv
+  rfl
+
+/-! ### The child gas and the cold-`SSTORE` floor -/
+
+/-- `callExtraCost` for the cold callee over the post-SSTORE world is `2600`
+(`accessCost` cold `2600`, no value transfer, callee already present). Derived
+through the named accounts/accessed-account lemmas. -/
+theorem wc_callExtraCost (g : UInt64) :
+    callExtraCost (AccountAddress.ofUInt256 0xCA11EE) (AccountAddress.ofUInt256 0xCA11EE) 0
+      (wcCallSite g).exec.accounts (wcCallSite g).exec.substate = 2600 := by
+  rw [wcCallSite_acc]
+  unfold callExtraCost accessCost
+  rw [wcCallSite_accessedAccounts]
+  -- transferCost 0 = 0, newAccountCost _ 0 _ = 0 (the `0 != 0` guard fails),
+  -- accessCost cold = 2600 (callee not in the default accessed-account set).
+  rw [show transferCost (0 : UInt256) = 0 from rfl,
+      show newAccountCost (AccountAddress.ofUInt256 0xCA11EE) 0 wcStoredAccounts = 0 from rfl,
+      show ((default : Substate).accessedAccounts.contains (AccountAddress.ofUInt256 0xCA11EE)) = false
+        from by decide]
+  decide
+
+/-- The running gas at the CALL site, as a `subCharges`. -/
+theorem wc_gas_call' (g : UInt64) :
+    (wcCallSite g).exec.gasAvailable = subCharges g ([1,3,3,22100] ++ List.replicate 7 3) :=
+  wc_gas_call g
+
+/-- The forwarded child gas: the 63/64-capped `callGasCap` over the post-SSTORE
+world. -/
+def wcChildGas (g : UInt64) : ℕ :=
+  callGasCap (AccountAddress.ofUInt256 0xCA11EE) (AccountAddress.ofUInt256 0xCA11EE) 0 0xFFFFFFFF
+    wcStoredAccounts (wcCallSite g).exec.gasAvailable (wcCallSite g).exec.substate
+
+/-- The total prefix charge before the CALL is `[1,3,3,22100] ++ replicate 7 3`,
+summing to `1 + 6 + 22100 + 21 = 22128`. For `g ≥ 50000` the call-site gas clears
+both `callExtraCost` and the callee floor with margin. -/
+theorem wc_gas_call_toNat (g : UInt64) (hg : 50000 ≤ g.toNat) :
+    (wcCallSite g).exec.gasAvailable.toNat = g.toNat - 22128 := by
+  rw [wc_gas_call', toNat_subCharges _ _ (by
+        rw [List.sum_append, show (List.replicate 7 3).sum = 21 from rfl]
+        simp only [List.sum_cons, List.sum_nil]; omega)]
+  rw [List.sum_append, show (List.replicate 7 3).sum = 21 from rfl]
+  simp only [List.sum_cons, List.sum_nil]; omega
+
+/-- **The cold-`SSTORE` floor clears.** For `g ≥ 50000` the 63/64-capped child gas
+clears the callee's `22106` cold-first-write cost — the genuine child run succeeds.
+Mirrors `ExternalCall.childGas_lb`, over the post-SSTORE world. -/
+theorem wcChildGas_lb (g : UInt64) (hg : 50000 ≤ g.toNat) : 22106 ≤ wcChildGas g := by
+  unfold wcChildGas
+  rw [← wcCallSite_acc]
+  rw [callGasCap, if_pos (by rw [wc_callExtraCost, wc_gas_call_toNat g hg]; omega)]
+  rw [wc_callExtraCost, wc_gas_call_toNat g hg]
+  refine le_min ?_ (by decide)
+  apply Gas.allButOneSixtyFourth_ge_of_liftFloor_le (C := 22106)
+  rw [show Gas.liftFloor 22106 = 22457 from rfl]; omega
+
+/-- The child gas fits in `UInt64` (capped by `min … 0xFFFFFFFF`). -/
+theorem wcChildGas_ub (g : UInt64) : wcChildGas g < 2^64 := by
+  have hgv : ((4294967295:UInt256)).toNat < 2^64 := by decide
+  unfold wcChildGas callGasCap
+  split
+  · exact lt_of_le_of_lt (min_le_right _ _) hgv
+  · exact hgv
+
+/-! ### The child world (value-transfer no-op) and the reflexive child frame -/
+
+/-- The callee account map after the (value-0) child transfer: credit callee
+`balance+0`, debit caller `balance-0` — a storage no-op over `wcStoredAccounts`. The
+analogue of exp003's `childXfer`, over the post-SSTORE world. -/
+def wcChildXfer : AccountMap :=
+  let m1 := wcStoredAccounts.insert (AccountAddress.ofUInt256 0xCA11EE)
+              { calleeAccount with balance := calleeAccount.balance + 0 }
+  match m1.find? (AccountAddress.ofUInt256 (UInt256.ofNat callerEnv.address.val)) with
+  | none => m1
+  | some acc => m1.insert (AccountAddress.ofUInt256 (UInt256.ofNat callerEnv.address.val))
+                  { acc with balance := acc.balance - 0 }
+
+/-- The callee's execution env (self `0xCA11EE`, caller `addrCaller`, depth 1). The
+parent-derived fields are the caller env's (every prefix transformer preserves the
+exec env verbatim, so `(wcCallSite g).exec.executionEnv` agrees with `callerEnv` on
+every field but `code` — see `wc_callSite_env_*`). -/
+def wcChildEnv : ExecutionEnv :=
+  { address := AccountAddress.ofUInt256 0xCA11EE, origin := callerEnv.origin,
+    caller := AccountAddress.ofUInt256 (UInt256.ofNat callerEnv.address.val), value := 0,
+    calldata := (default : ExecutionState).memory.readWithPadding (UInt256.toNat 0) (UInt256.toNat 0),
+    code := calleeProg, gasPrice := (UInt256.ofNat callerEnv.gasPrice).toNat,
+    blockHeader := callerEnv.blockHeader, depth := callerEnv.depth + 1,
+    canModifyState := callerEnv.canModifyState, blobVersionedHashes := callerEnv.blobVersionedHashes,
+    chainId := callerEnv.chainId }
+
+/-- The checkpoint substate of the child frame: the call-site substate (which carries
+block 0's SSTORE access `(addrCaller, 7)`) plus the accessed callee account. -/
+def wcChildCkptSubstate (g : UInt64) : Substate :=
+  ((wcCallSite g).exec |>.addAccessedAccount (AccountAddress.ofUInt256 0xCA11EE)).substate
+
+/-- The reflexive child frame `beginCall (callChildParams …)` produces: code
+`calleeProg`, gas `wcChildGas g`, depth `1`, the child value transfer applied. -/
+def wcChildFrame (g : UInt64) : Frame :=
+  { kind := .call ⟨∅, wcStoredAccounts, wcChildCkptSubstate g⟩,
+    validJumps := validJumpDests calleeProg 0,
+    exec := { (default : ExecutionState) with
+      accounts := wcChildXfer, originalAccounts := ∅, executionEnv := wcChildEnv,
+      substate := wcChildCkptSubstate g, createdAccounts := ∅,
+      gasAvailable := UInt64.ofNat (wcChildGas g) } }
+
+/-- The child params (the value-free CALL to `0xCA11EE`) enter as code, descending
+into `wcChildFrame g`. The `g`-independent world fields are read off the named
+`wcCallSite_acc`/`wcCallSite_accessedAccounts` lemmas, not the deep frame. -/
+theorem wc_beginCall_child (g : UInt64) :
+    beginCall (callChildParams (wcCallSite g) 0xCA11EE 0xFFFFFFFF) = .inl (wcChildFrame g) := by
+  unfold callChildParams
+  dsimp only [callerCharged]
+  rw [wcCallSite_acc]
+  unfold beginCall
+  dsimp only
+  rw [show toExecute wcStoredAccounts (AccountAddress.ofUInt256 0xCA11EE) = ToExecute.Code calleeProg
+        from wc_toExecute_callee]
+  dsimp only
+  rw [show (wcCallSite g).exec.createdAccounts
+        = (∅ : Batteries.RBSet AccountAddress compare) from rfl]
+  -- Every prefix transformer preserves the exec env verbatim, so the call-site
+  -- env agrees with `callerEnv` on every field but `code`; align the parent-derived
+  -- env fields the child params read (all cheap `rfl`, no code reduction).
+  rw [show (wcCallSite g).exec.executionEnv.address = callerEnv.address from rfl,
+      show (wcCallSite g).exec.executionEnv.origin = callerEnv.origin from rfl,
+      show (wcCallSite g).exec.executionEnv.gasPrice = callerEnv.gasPrice from rfl,
+      show (wcCallSite g).exec.executionEnv.blockHeader = callerEnv.blockHeader from rfl,
+      show (wcCallSite g).exec.executionEnv.depth = callerEnv.depth from rfl,
+      show (wcCallSite g).exec.executionEnv.canModifyState = callerEnv.canModifyState from rfl,
+      show (wcCallSite g).exec.executionEnv.blobVersionedHashes = callerEnv.blobVersionedHashes from rfl,
+      show (wcCallSite g).exec.executionEnv.chainId = callerEnv.chainId from rfl]
+  unfold wcChildFrame wcChildEnv wcChildXfer wcChildCkptSubstate wcChildGas
+  rfl
+
+/-! ### Callee-side decode lemmas (reuse exp003's `calleeProg` facts) -/
+
+/-- The callee exec right after its two `PUSH`es (stack `[7,5]`). -/
+def wcChildAfter2Push (g : UInt64) : ExecutionState :=
+  { (wcChildFrame g).exec with
+    gasAvailable := UInt64.ofNat (wcChildGas g) - UInt64.ofNat 3 - UInt64.ofNat 3,
+    pc := (default:ExecutionState).pc + UInt8.toUInt32 2 + UInt8.toUInt32 2, stack := [7,5] }
+
+/-- The child `FrameResult` delivered by the run: the success `endFrame` of the
+callee's post-SSTORE state over the empty pending stack. -/
+def wcChildFrameRes (g : UInt64) : FrameResult :=
+  endFrame (wcChildFrame g) (.success (sstorePost (wcChildAfter2Push g) 7 5 []) .empty)
+
+/-- The child checkpoint substate has **not** accessed the callee's slot `(0xCA11EE,
+7)` — block 0's SSTORE only marked `(addrCaller, 7)`, and `addAccessedAccount` does
+not touch storage keys. So the callee's first write is cold. Proved through the
+named call-site substate facts (no deep frame reduction). -/
+theorem wc_ckpt_storageKeys (g : UInt64) :
+    (wcChildCkptSubstate g).accessedStorageKeys.contains (AccountAddress.ofUInt256 0xCA11EE, 7)
+      = false := by
+  unfold wcChildCkptSubstate
+  show ((wcCallSite g).exec.substate.addAccessedAccount (AccountAddress.ofUInt256 0xCA11EE)).accessedStorageKeys.contains _ = false
+  unfold Substate.addAccessedAccount
+  dsimp only
+  rw [show (wcCallSite g).exec.substate.accessedStorageKeys
+        = (∅ : Batteries.RBSet (AccountAddress × UInt256) Substate.storageKeysCmp).insert (addrCaller, 7) from by
+      show (sstoreFrame (wcBeforeSStore g) 7 5 []).exec.substate.accessedStorageKeys = _
+      unfold sstoreFrame sstorePost State.sstore
+      dsimp only [ExecutionState.replaceStackAndIncrPC, State.setAccount, State.addAccessedStorageKey,
+        State.lookupAccount, Substate.addAccessedStorageKey]
+      rw [show (wcBeforeSStore g).exec.accounts.find? (wcBeforeSStore g).exec.executionEnv.address
+            = some callerAccount from by
+          rw [wcBefore_acc, show (wcBeforeSStore g).exec.executionEnv.address = addrCaller from rfl]
+          unfold callerXfer accts callerAccount; rfl]
+      show (((wcBeforeSStore g).exec.substate.addAccessedStorageKey (addrCaller, 7)).accessedStorageKeys) = _
+      rw [show (wcBeforeSStore g).exec.substate = default from rfl]
+      rfl]
+  decide
+
+/-- SSTORE's cold first-write cost in the callee is `22100` (its slot `7` starts at
+`0` in `wcChildXfer`, and the slot is cold by `wc_ckpt_storageKeys`). Mirrors
+`ExternalCall.sstoreChargeOf_child`, over the post-SSTORE parent world. -/
+theorem wc_sstoreChargeOf_child (g : UInt64) (exec : ExecutionState)
+    (h1 : exec.originalAccounts = ∅) (h2 : exec.accounts = wcChildXfer)
+    (h3 : exec.executionEnv.address = AccountAddress.ofUInt256 0xCA11EE)
+    (h4 : exec.substate = wcChildCkptSubstate g) : sstoreChargeOf exec 7 5 = 22100 := by
+  unfold sstoreChargeOf
+  rw [h1, h2, h3, h4, wc_ckpt_storageKeys g]
+  rw [show ((∅ : AccountMap).find? (AccountAddress.ofUInt256 0xCA11EE)).option 0
+            (fun a => a.storage.findD 7 0) = 0 from rfl,
+      show (wcChildXfer.find? (AccountAddress.ofUInt256 0xCA11EE)).option 0
+            (fun a => a.storage.findD 7 0) = 0 from by
+        unfold wcChildXfer wcStoredAccounts wcPreExec callerXfer accts callerAccount calleeAccount callerEnv
+        decide]
+  decide
+
+/-- **The child run, empty stack.** Over the empty pending stack, the genuine
+driver runs the callee `PUSH;PUSH;SSTORE;STOP` from `wcChildFrame g` to `.ok` of its
+success `FrameResult`. 3 opcode steps + the 2-unit halt. Mirrors
+`ExternalCall.child_drive`, over the post-SSTORE world. -/
+theorem wc_child_drive (g : UInt64) (n : ℕ)
+    (hcg : 22106 ≤ wcChildGas g) (hcg2 : wcChildGas g < 2^64) :
+    drive (n + 5) [] (.inl (wcChildFrame g)) = .ok (wcChildFrameRes g) := by
+  have hofnat : (UInt64.ofNat (wcChildGas g)).toNat = wcChildGas g := by
+    rw [UInt64.toNat_ofNat']; exact Nat.mod_eq_of_lt (by omega)
+  conv_lhs => dsimp only [wcChildFrame]
+  rw [drive_step _ _ _ (stepFrame_push1 _ 5 dce0 (by
+        show 3 ≤ (UInt64.ofNat (wcChildGas g)).toNat; rw [hofnat]; omega) (by show (0:ℕ)+1≤1024; omega))]
+  dsimp only [ExecutionState.replaceStackAndIncrPC]; simp only [gv]
+  rw [drive_step _ _ _ (stepFrame_push1 _ 7 dce2 (by
+        show 3 ≤ (UInt64.ofNat (wcChildGas g) - UInt64.ofNat 3).toNat
+        rw [toNat_sub_ofNat _ 3 (by rw [hofnat]; omega) (by omega), hofnat]; omega)
+        (by show (1:ℕ)+1≤1024; omega))]
+  dsimp only [ExecutionState.replaceStackAndIncrPC]; simp only [gv]
+  have hg6 : ((UInt64.ofNat (wcChildGas g) - UInt64.ofNat 3) - UInt64.ofNat 3).toNat = wcChildGas g - 6 := by
+    rw [toNat_sub_ofNat _ 3 (by rw [toNat_sub_ofNat _ 3 (by rw[hofnat];omega) (by omega), hofnat]; omega) (by omega),
+        toNat_sub_ofNat _ 3 (by rw[hofnat];omega) (by omega), hofnat]; omega
+  rw [drive_step _ _ _ (stepFrame_sstore _ 7 5 _ dce4 rfl ?hsz rfl ?hstip ?hcost)]
+  case hsz => show (2:ℕ) ≤ 1024; omega
+  case hstip =>
+    show ¬ ((UInt64.ofNat (wcChildGas g) - UInt64.ofNat 3) - UInt64.ofNat 3).toNat ≤ GasConstants.Gcallstipend
+    rw [hg6, show GasConstants.Gcallstipend = 2300 from rfl]; omega
+  case hcost => rw [wc_sstoreChargeOf_child g _ rfl rfl rfl rfl, hg6]; omega
+  dsimp only [sstorePost, ExecutionState.replaceStackAndIncrPC]
+  rw [drive_halt _ _ _ (stepFrame_stop _ dce5 (by show (0:ℕ)≤1024; omega))]
+  unfold wcChildFrameRes endFrame wcChildAfter2Push wcChildFrame
+  rfl
+
+/-! ### The resumed parent and the bundled `CallReturns` -/
+
+/-- The child params' gas is `UInt64.ofNat (wcChildGas g)` (the 63/64 cap over the
+post-SSTORE world). -/
+theorem wc_child_params_gas (g : UInt64) :
+    (callChildParams (wcCallSite g) 0xCA11EE 0xFFFFFFFF).gas = UInt64.ofNat (wcChildGas g) := by
+  unfold callChildParams wcChildGas
+  dsimp only [callerCharged]
+  rw [wcCallSite_acc]
+
+/-- The resumed parent frame (the parent after the child commits and returns). -/
+def wcResumed (g : UInt64) : Frame :=
+  resumeAfterCall (wcChildFrameRes g).toCallResult (callPending (wcCallSite g) 0xCA11EE 0xFFFFFFFF)
+
+/-- **The bundled `CallReturns` for `workedCall`'s single CALL.** The CALL step, the
+child entering as code (`wc_beginCall_child`), the child's genuine terminating run
+(`wc_child_drive`), and the resumed parent frame (`wcResumed g` by `rfl`). This
+discharges `wc_preserves`'s `hcall` with NO hypothesis (for `g ≥ 50000`). -/
+theorem wc_callReturns (g : UInt64) (hg : 50000 ≤ g.toNat) :
+    CallReturns (wcCallSite g) (wcResumed g) := by
+  have hcg := wcChildGas_lb g hg
+  have hcg2 := wcChildGas_ub g
+  have hchild :
+      drive (seedFuel (callChildParams (wcCallSite g) 0xCA11EE 0xFFFFFFFF).gas) []
+          (.inl (wcChildFrame g)) = .ok (wcChildFrameRes g) := by
+    rw [wc_child_params_gas g]
+    have : seedFuel (UInt64.ofNat (wcChildGas g)) = (seedFuel (UInt64.ofNat (wcChildGas g)) - 5) + 5 := by
+      have := two_le_seedFuel (UInt64.ofNat (wcChildGas g)); unfold seedFuel; omega
+    rw [this]; exact wc_child_drive g _ hcg hcg2
+  exact ⟨_, _, _, _, wc_call_step g (by omega), wc_beginCall_child g, hchild, rfl⟩
 
 /-! ## The post-CALL branch terminator — `get_dest` discharged via `validJumpDests`
 
