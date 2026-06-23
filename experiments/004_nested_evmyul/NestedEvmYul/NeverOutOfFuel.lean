@@ -1405,6 +1405,31 @@ theorem Z_ok_code_pc (vj : Array UInt256) (w : Operation) (s s' : State) (c : �
           | exact absurd h (by simp)
       rw [hs']; exact ⟨rfl, rfl⟩
 
+set_option maxHeartbeats 2000000 in
+/-- A successful `Z` preserves `executionEnv.depth` (it only rewrites `gasAvailable`).
+This keeps the frame's call depth fixed across the `X`-loop's `Z` prelude. -/
+theorem Z_ok_depth (vj : Array UInt256) (w : Operation) (s s' : State) (c : ℕ)
+    (h : Z vj w s = .ok (s', c)) :
+    s'.executionEnv.depth = s.executionEnv.depth := by
+  unfold Z at h
+  simp only [pure, Except.pure, bind, Except.bind] at h
+  generalize hm : memoryExpansionCost s w = m₁ at h
+  by_cases hg1 : s.gasAvailable.toNat < m₁
+  · rw [if_pos hg1] at h; exact absurd h (by simp)
+  · rw [if_neg hg1] at h
+    generalize hcc : C' { s with gasAvailable := s.gasAvailable - UInt256.ofNat m₁ } w = c₂ at h
+    by_cases hg2 : ({ s with gasAvailable := s.gasAvailable - UInt256.ofNat m₁ } : State).gasAvailable.toNat < c₂
+    · rw [if_pos hg2] at h; exact absurd h (by simp)
+    · rw [if_neg hg2] at h
+      have hs' : s' = { s with gasAvailable := s.gasAvailable - UInt256.ofNat m₁ } := by
+        revert h
+        split_ifs <;> intro h <;>
+          first
+          | (have hp := Except.ok.inj h; rw [Prod.mk.injEq] at hp
+             obtain ⟨rfl, _⟩ := hp; rfl)
+          | exact absurd h (by simp)
+      rw [hs']
+
 /-! ## Item 3 (down-payment) — child gas is carved from the parent
 
 The gas a frame forwards to a child (`Ccallgas`) is bounded by the parent's own gas.
@@ -4063,6 +4088,88 @@ theorem X_loop_noOOF (vj : Array UInt256)
               hZ hs hH
           apply ih ev'
           omega
+        | some o =>
+          by_cases hrev : (instr.1 == Operation.REVERT) = true
+          · rw [hrev]; intro hc; nomatch hc
+          · simp only [hrev, Bool.false_eq_true, if_false]; intro hc; nomatch hc
+
+/-! ## A1 STAGE 2b — the `fuelBound`-threaded `X` loop (depth-aware)
+
+`X_loop_noOOF`'s raw `gas + 1 < fuel` measure is enough for a *leaf* frame (where
+`hstep` is unconditional), but the nested headline needs the per-iteration `step` to
+be never-`OutOfFuel` only on states the loop actually reaches, *gated by the
+depth-aware bound*. `X_loop_noOOF_bound` threads `fuelBound s.gas D` (`D` = the frame's
+fixed depth, preserved by `Z`/`step`) as the loop invariant: gas strictly drops each
+iteration, so `fuelBound` drops by `≥ (1025−D) ≥ 1`, keeping `fuelBound ev.gas D + 1 ≤
+fuel` as fuel drops by 1. The `hstep` hypothesis is `step f`-never-OOF for `f < N` under
+exactly the bound the loop maintains — discharged by Stage 3's IH. -/
+set_option maxHeartbeats 2000000 in
+theorem X_loop_noOOF_bound (vj : Array UInt256) (D : ℕ) (hD : D ≤ 1024) (N : ℕ)
+    (hstep : ∀ (f : ℕ), f < N → ∀ (w : Operation) (arg) (cost : ℕ) (s2 : State),
+       s2.executionEnv.depth = D →
+       fuelBound s2.gasAvailable.toNat D ≤ f →
+       step f cost (some (w, arg)) s2 ≠ .error .OutOfFuel) :
+    ∀ (fuel : ℕ), fuel ≤ N → ∀ (s : State), s.executionEnv.depth = D →
+      fuelBound s.gasAvailable.toNat D + 1 ≤ fuel → X fuel vj s ≠ .error .OutOfFuel := by
+  intro fuel
+  induction fuel with
+  | zero => intro _ s _ hb; have := fuelBound_pos s.gasAvailable.toNat D hD; omega
+  | succ f ih =>
+    intro hfN s hsD hb
+    -- `fuelBound ≥ 1` ⇒ `f ≥ 1`; write `f = f'+1`.
+    have hbpos := fuelBound_pos s.gasAvailable.toNat D hD
+    obtain ⟨f', rfl⟩ : ∃ f', f = f' + 1 := ⟨f - 1, by omega⟩
+    unfold X
+    simp only [bind, Except.bind]
+    set instr := decode s.toState.executionEnv.code s.pc |>.getD (.STOP, .none) with hinstr
+    cases hZ : Z vj instr.1 s with
+    | error e =>
+      intro hc
+      have : e = EVM.ExecutionException.OutOfFuel := by
+        revert hc; simp only [hZ]; intro hc; exact Except.error.inj hc
+      exact Z_never_outOfFuel vj instr.1 s (by rw [hZ, this])
+    | ok p =>
+      obtain ⟨ev, cost₂⟩ := p
+      simp only [hZ]
+      have hevle : ev.gasAvailable.toNat ≤ s.gasAvailable.toNat := Z_ok_state vj instr.1 s ev cost₂ hZ
+      have hevD : ev.executionEnv.depth = D := by rw [Z_ok_depth vj instr.1 s ev cost₂ hZ]; exact hsD
+      -- the per-instruction step at fuel `f'+1 ≤ N` under the maintained bound.
+      have hevb : fuelBound ev.gasAvailable.toNat D ≤ f' + 1 := by
+        have := fuelBound_mono_gas (g := ev.gasAvailable.toNat) (g' := s.gasAvailable.toNat) D hevle
+        omega
+      cases hs : step (f'+1) cost₂ instr ev with
+      | error e =>
+        intro hc
+        have he : e = EVM.ExecutionException.OutOfFuel := by
+          revert hc; simp only [hs]; intro hc; exact Except.error.inj hc
+        rw [he] at hs
+        exact hstep (f'+1) (by omega) instr.1 instr.2 cost₂ ev hevD hevb hs
+      | ok ev' =>
+        simp only [hs]
+        cases hH : H ev'.toMachineState instr.1 with
+        | none =>
+          -- strict gas descent + depth preservation maintain the invariant at `f'+1`.
+          have hlt2 : ev'.gasAvailable.toNat < ev.gasAvailable.toNat :=
+            X_iter_gas_lt_any f' cost₂ vj instr.1 instr.2 s ev ev'
+              (fun cA σ σ₀ Asub src o rcpt c gg p vv vv' dd e Hd ww res hΘeq =>
+                Θ_gas_mono (f'-1) _ cA _ _ σ σ₀ Asub src o rcpt c gg p vv vv' dd e Hd ww res hΘeq)
+              (fun bvh cA σ σ₀ Asub sndr orig gg pp vv ii ee zz Hd ww res hΛeq =>
+                Lambda_gas_mono f' bvh cA _ _ σ σ₀ Asub sndr orig gg pp vv ii ee zz Hd ww res hΛeq)
+              hZ hs hH
+          have hev'D : ev'.executionEnv.depth = D := by rw [step_depth f' cost₂ instr.1 instr.2 ev ev' hs]; exact hevD
+          have hev'b : fuelBound ev'.gasAvailable.toNat D + 1 ≤ f' + 1 := by
+            -- gas dropped ≥1 ⇒ fuelBound dropped ≥ (1025-D) ≥ 1.
+            have hmono := fuelBound_mono_gas (g := ev'.gasAvailable.toNat) (g' := ev.gasAvailable.toNat - 1) D (by omega)
+            have hpeel : fuelBound (ev.gasAvailable.toNat - 1) D + (1025 - D) ≤ fuelBound ev.gasAvailable.toNat D := by
+              unfold fuelBound
+              have h1 : 1 ≤ 1025 - D := by omega
+              cases hge : ev.gasAvailable.toNat with
+              | zero => omega
+              | succ k =>
+                have : (1025 - D) * (k + fuelHops) + (1025 - D) = (1025 - D) * (k + 1 + fuelHops) := by ring
+                rw [show k + 1 - 1 = k from rfl]; omega
+            omega
+          apply ih (by omega) ev' hev'D hev'b
         | some o =>
           by_cases hrev : (instr.1 == Operation.REVERT) = true
           · rw [hrev]; intro hc; nomatch hc
