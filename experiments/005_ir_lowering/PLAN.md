@@ -750,3 +750,89 @@ required for the full single-/multi-call preservation theorem.
   the bridge composes any number of concrete `CallReturns` nodes (each closeable exactly
   like `wc_callReturns`), so a genuine two-call program would close with no extra theory.
   The single concrete deliverable, `wc_preserves`, is the one that is hypothesis-free.
+
+---
+
+## v2-proto (2026-06-23) — the call-free v2 prototype (ir-design-v2 §6 step 1), DONE & axiom-clean
+
+Built the **gas-free + observable + gasRead-event** prototype in NEW files
+(`LirLean/V2/Machine.lean`, `LirLean/V2/Preserve.lean`); v1 `wc_preserves` untouched
+and still green. Full build (v1 + v2) green, zero warnings.
+
+**`LirLean/V2/Machine.lean` — the reformed IR machine (§3).**
+- `World := Word → Word` (self-storage observable lens — IR-native, the seed v1's
+  `IRState.storage`/`selfStorage` carried). `IRState := { locals, world }` — **NO gas
+  counter, NO pc** (§3.1).
+- `Event.gasRead (observed : Word)`, `Trace := List Event` (§3.3–3.4); the `call`
+  constructor is out of scope for the prototype.
+- Gas-free `evalExpr st obs e` — `Expr.gas ↦ obs` (the observed value the run
+  supplies); arithmetic is `UInt256.add/lt` + the storage lens, so IR values are
+  *definitionally* the lowered opcode's. **No `matCost`/`gVerylow`/charge anywhere.**
+- Big-step semantics: `EvalStmt` (one stmt; `assign t .gas` consumes one `gasRead`),
+  `RunStmts`, `RunFrom` (CFG driver; `branch` picks the arm on the runtime cond),
+  `IRRun`, and `Observable := { worldDelta, result }` (§4).
+
+**`LirLean/V2/Preserve.lean` — the §4 theorem shape, proved on a concrete example.**
+- Example program: `sstore[7]:=5; t3:=sload 7; t5:=add 9 5; t6:=lt 14 100; t7:=gas`
+  then `branch t7 (ret t6) (stop)`. Exercises arith + storage + the gasRead event +
+  a **gas-dependent** branch to ret/stop — the cheapest program hitting all four.
+- IR side: `proto_IRRun` — for any `w₀` and any **non-zero** observed gas, consuming
+  `[gasRead obs]` halts with `protoObsResult w₀` (world `7↦5`, `returned (lt 14 100)`),
+  taking the `ret` arm. (Stepwise over named states `s0..s9` to keep `whnf` bounded.)
+- Bytecode side (the internal `Runs` witness): hand-written PUSH1 `protoBytecode`
+  computing the same values; `proto_prefix_runs` + `proto_tail_runs` assemble one
+  `Runs` via the reused exp003 `runs_*`/`runs_branch`/`messageCall_runs` machinery and
+  the `validJumpDests` reachability characterization; `proto_messageCall` crosses the
+  boundary; `proto_storageAt` reads `5` off the SSTORE through the observable lens.
+- Headline `lower_preserves_obs`: `∃ G₀, ∀ g ≥ G₀`, the IR run and the bytecode at
+  gas `g` produce the **same** observable, the `GAS` opcode realising the `gasRead`
+  (`ofUInt64_ne_zero` ⇒ obs ≠ 0 ⇒ same branch). **No pc, no gas-equality in the
+  statement** — only the `G₀ ≤ g` envelope; pc/stack/gas live inside the `Runs`
+  witness. `#print axioms lower_preserves_obs = [propext, Classical.choice, Quot.sound]`
+  (build-enforced guard in-file). Zero sorry/admit/axiom/native_decide.
+
+**Documented prototype cuts** (smallest thing that proves the shape):
+1. **Witness bytecode is hand-written, not `lower protoIR`.** `lower` emits PUSH32
+   (33 B each) ⇒ the deep offset-table/decode kernel reductions that make
+   `WorkedCall.lean` ~1700 lines. Wiring `lower` in is mechanical follow-up (exactly
+   what `WorkedCall.lean` already does). The reused *reasoning* is identical.
+2. **`returned w` ↦ success (empty RETURN window).** The C3 lowering RETURNs empty,
+   so the IR exit word isn't reflected in output (the §7 open question). The observable
+   checks success + **world agreement**; `out` is left existential (`ByteArray` eq is
+   not load-bearing).
+3. **Taken arm proved, STOP arm not instantiated** (it is the `runs_branch`
+   fall-through with `cond = 0`).
+4. **Determinism of `RunFrom` not proved** — the headline states
+   IR-run-and-bytecode-agree directly (the IR run is `proto_IRRun`) rather than
+   `∀ O, IRRun … O → …`. Observable agreement (the deliverable) is identical;
+   determinism is mechanical for the acyclic program.
+
+**DESIGN VERDICT.** The gas-free + observable + gasRead-event shape **works cleanly**.
+The gasRead-as-event mechanism is the right call: gas introspection cost **zero** gas
+machinery in the IR (no counter, no charge), and the "events realised by the bytecode"
+clause (obs = the actual `GAS` value) fell out as a one-line hypothesis — exactly the
+CompCert-trace discipline §2 wanted, validated cheaply before the heavier `call` event.
+World-as-self-storage-lens reused v1's `selfStorage`/`sstoreFrame_storage_self`
+verbatim. The §4 statement is genuinely pc-free and gas-equality-free.
+
+Frictions, for `ir-design-v2.md` before the `call`-event step:
+- **`returned w` vs empty RETURN window (§7.5).** Decide now: either the IR `ret t`
+  observable drops the word (matching the empty-window lowering — then `IRHalt.returned`
+  needn't carry a `Word`), or the lowering must RETURN the word (32-byte window) so the
+  observable's `output` reflects it. The prototype sidestepped by leaving `out`
+  existential; the `call`-event step needs returndata to be real, so resolve this.
+- **`Observable.result` ↔ bytecode reflection.** Currently both `stopped`/`returned`
+  map to "success". When revert enters (§7.5) the result tag must distinguish
+  `completed`/`reverted` — align `IRHalt` with `Outcome` (`completed/reverted/exception`)
+  so the result component is a faithful lens, not just a success flag.
+- **`evalExpr`'s single `obs` arg is a shortcut.** It works because prototype
+  expressions are flat (operands are `tmp`s, gas appears only at top level). The doc
+  should state the invariant (recompute-on-use ⇒ at most one `gasRead` per materialised
+  expression) or thread a sub-trace through `evalExpr` for nested-gas generality.
+- **Trace realisation belongs in the theorem.** The headline only holds for the trace
+  whose `gasRead` matches the machine `GAS` value (`obs = protoObs g`). §3.4 should
+  state this explicitly as the realisability side-condition of the `gasRead`/`call`
+  events (the analogue for `call` is "world'/success/returndata = what `messageCall`
+  produces"), so the same discipline ports to the `call` step.
+- **Determinism lemma is worth having** for the clean `∀ O, IRRun … O → …` shape; the
+  acyclic CFG makes it mechanical. Note it as a small follow-up, not a blocker.
