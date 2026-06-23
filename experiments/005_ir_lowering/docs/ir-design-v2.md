@@ -120,6 +120,34 @@ gas**, so the preserved observable is correct for the real machine value — and
 "observable independent of the `gasRead` value" becomes a *provable IR property*, never an
 assumption.
 
+#### The ONE law on the gas oracle: monotonicity (Eduardo, 2026-06-23)
+
+The `gasRead` values are not arbitrary. The IR semantics gives the gas opcode **exactly
+one** property to reason with: the sequence of `gasRead` values, in program order, is
+**monotone non-increasing** (the EVM `GAS` opcode returns gas *remaining*; the dual
+"gas-used non-decreasing" is the same law). The IR may assume *only* this — never any
+per-opcode cost. This is the precise middle point between an arbitrary oracle (buys only
+"robust over all values") and cost-modeling (rejected):
+
+- **Sound & cheap to discharge.** The real machine satisfies it (cf. vyper-hol's
+  `decreases_gas`; on our side it is the same gas-descent fact the never-OutOfFuel fuel
+  induction already rides). The lowering obligation "the realized `GAS` sequence is a
+  valid monotone instance" is *already-owned machinery*, not new accounting.
+- **Holds across calls.** Monotonicity survives an external call between two reads: a
+  returning call nets a *debit* on the caller (`before − cost − child_used`); the 63/64
+  refund only means the caller wasn't charged for the child's unused gas, it does not
+  raise the caller's gas. SSTORE/SELFDESTRUCT gas refunds are end-of-transaction, so they
+  never perturb a mid-run reading. **Scope: a single message-call execution** (LirLean's
+  scope); revisit only if the IR ever models a callee's own gas.
+- **Buys** "sticky" gas-guard reasoning (`if gasleft() < RESERVE then stop` — once gas
+  drops below a threshold it stays below). **Does not buy** loop-termination-by-gas or
+  predictive branch direction (those need *strict* decrease + a positive per-iteration
+  cost lower bound = cost modeling, the non-goal).
+
+Prototype note: a single `gasRead` example does not exercise monotonicity (it relates
+≥2 reads); the law lands at the milestone with two reads across a step/call. The §6 step-1
+prototype validates the event mechanism; the monotonicity law is layered on next.
+
 > Note: this means v2 has **no gas counter at all** — neither for accounting (rejected)
 > nor for introspection (it's an event). The only surviving gas fact is the caller-local
 > adequacy envelope `G₀ ≤ g` of §4, which is about *never running out*, not about *values*.
