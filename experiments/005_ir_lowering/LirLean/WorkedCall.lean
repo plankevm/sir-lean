@@ -1266,6 +1266,59 @@ theorem wcd_517 (g : UInt64) :
   show decode (wcResumed g).exec.executionEnv.code (((((((414 + 1) + (32+1)) + (32+1)) + (32+1)) + 1) + 1) + 1) = _
   rw [wcResumed_code]; rfl
 
+/-! ### Gas threading along the post-CALL chain
+
+Every chain frame's gas is `subCharges (wcResumed g).exec.gasAvailable [prefix]` (each
+transformer subtracts its `ofNat cost`). The SLOAD charge reduces to `100` (warm,
+`wcResumed_warm7`). With `wcResumed_gas = g − 46834 ≥ 3166` (for `g ≥ 50000`) and the
+total charges `≤ 244`, every step's gas bound holds with margin. -/
+
+/-- The block-0 SLOAD's warm charge is `100` — its frame's substate/address are the
+resumed frame's (the three pushes preserve both), where slot 7 of self is warm. -/
+theorem wcRec0_sloadCost (g : UInt64) :
+    Evm.sloadCost ((wcRec0Push3 g).exec.substate.accessedStorageKeys.contains
+        ((wcRec0Push3 g).exec.executionEnv.address, 7)) = 100 := by
+  rw [show (wcRec0Push3 g).exec.substate = (wcResumed g).exec.substate from rfl,
+      show (wcRec0Push3 g).exec.executionEnv.address = (wcResumed g).exec.executionEnv.address from rfl,
+      wcResumed_addr, wcResumed_warm7]; rfl
+
+/-- The block-1 SLOAD's warm charge is `100` (same self/slot, threaded through the
+taken JUMPI + block-1 pushes, which preserve substate/address). -/
+theorem wcRec1_sloadCost (g : UInt64) :
+    Evm.sloadCost ((wcRec1Push3 g).exec.substate.accessedStorageKeys.contains
+        ((wcRec1Push3 g).exec.executionEnv.address, 7)) = 100 := by
+  rw [show (wcRec1Push3 g).exec.substate = (wcResumed g).exec.substate from rfl,
+      show (wcRec1Push3 g).exec.executionEnv.address = (wcResumed g).exec.executionEnv.address from rfl,
+      wcResumed_addr, wcResumed_warm7]; rfl
+
+/-- The gas at the `RETURN` frame, threaded through the whole chain, as a
+`subCharges` of the resumed gas over `wcPostCharges`. -/
+theorem wcChain_gas (g : UInt64) :
+    (wcRetFrame g).exec.gasAvailable
+      = subCharges (wcResumed g).exec.gasAvailable wcPostCharges := by
+  unfold wcRetFrame wcRec1Add wcRec1Sload wcRec1Push3 wcBlock1Jd wcBlock1
+    wcRec0PushDest wcRec0Lt wcRec0Add wcRec0Sload wcRec0Push3
+    ltFrame addFrame sloadFrame jumpdestFrame jumpFrame pushFrameW
+  dsimp only [BytecodeLayer.Dispatch.binOpPost, BytecodeLayer.Dispatch.sloadPost,
+    BytecodeLayer.Dispatch.jumpdestPost, BytecodeLayer.Dispatch.jumpPost,
+    ExecutionState.replaceStackAndIncrPC, ExecutionState.incrPC]
+  rw [show Evm.sloadCost ((wcResumed g).exec.substate.accessedStorageKeys.contains
+            ((wcResumed g).exec.executionEnv.address, 7)) = 100 from by
+      rw [wcResumed_addr, wcResumed_warm7]; rfl]
+  rfl
+
+/-- Every step's running gas equals `resumed − prefix-sum`; in particular the gas at
+the `RETURN` frame is `resumed − 244 ≥ 2922` (for `g ≥ 50000`). -/
+theorem wcChain_gas_toNat (g : UInt64) (hg : 50000 ≤ g.toNat) :
+    (subCharges (wcResumed g).exec.gasAvailable wcPostCharges).toNat
+      = (wcResumed g).exec.gasAvailable.toNat - 244 := by
+  rw [toNat_subCharges _ _ (by
+        rw [wcResumed_gas g hg]
+        show wcPostCharges.sum ≤ g.toNat - 46834
+        unfold wcPostCharges; simp only [List.sum_cons, List.sum_nil]; omega)]
+  show (wcResumed g).exec.gasAvailable.toNat - wcPostCharges.sum = _
+  rw [show wcPostCharges.sum = 244 from by unfold wcPostCharges; decide]
+
 /-! ## `lower_preserves` for `workedCall` (the bridge half)
 
 The full execution of `workedCall` as one `Runs (wcFrame g) last`:
