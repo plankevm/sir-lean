@@ -1786,6 +1786,105 @@ theorem Θ_leaf_noOOF (fuel : ℕ) (bvh : List ByteArray)
   intro σ₁ I
   exact Ξ_leaf_noOOF f' createdAccounts genesisBlockHeader blocks σ₁ σ₀ g A I hnc (by omega)
 
+/-! ## Item 1 (gas monotonicity) — the `X` loop never raises gas
+
+`resultGas` reads the gas held by an `X`/`Ξ`-style result (`evmState'.gasAvailable`
+on `.success`, the explicit `g'` on `.revert`). The loop-monotonicity lemma
+`X_loop_gas_le` shows a successful `X fuel vj s` returns a result whose `resultGas`
+is `≤ s.gasAvailable.toNat`, *provided* every per-instruction `step` lands at gas
+`≤` its input (the hypothesis `hstep`, which both the non-call/create gas-debit and
+the call-arm accounting satisfy). This is the gas-monotonicity half threaded through
+the mutual induction; combined with `Ccallgas ≤ Ccall` it bottoms out the loop. -/
+
+/-- Gas held by an `X` result: the running state's gas on success, the explicit
+leftover on revert. -/
+def resultGas (r : ExecutionResult State) : ℕ :=
+  match r with
+  | .success s _ => s.gasAvailable.toNat
+  | .revert g _ => g.toNat
+
+set_option maxHeartbeats 1000000 in
+/-- **`X` loop gas-monotonicity.** If every per-instruction `step f cost (w,arg) s'`
+that succeeds lands at gas `≤ s'.gasAvailable.toNat`, then a successful
+`X fuel vj s = .ok r` has `resultGas r ≤ s.gasAvailable.toNat`. (`Z` never raises gas
+— `Z_ok_state`; the halting arms read the post-`step` gas directly.) -/
+theorem X_loop_gas_le (vj : Array UInt256)
+    (hstep : ∀ (f cost : ℕ) (w : Operation) (arg) (s' s'' : State),
+       step f cost (some (w, arg)) s' = .ok s'' →
+       s''.gasAvailable.toNat ≤ s'.gasAvailable.toNat) :
+    ∀ (fuel : ℕ) (s : State) (r : ExecutionResult State),
+      X fuel vj s = .ok r → resultGas r ≤ s.gasAvailable.toNat := by
+  intro fuel
+  induction fuel with
+  | zero => intro s r hX; exact absurd hX (by simp [X])
+  | succ f ih =>
+    intro s r hX
+    unfold X at hX
+    simp only [bind, Except.bind] at hX
+    set instr := decode s.toState.executionEnv.code s.pc |>.getD (.STOP, .none) with hinstr
+    cases hZ : Z vj instr.1 s with
+    | error e => rw [hZ] at hX; exact absurd hX (by simp)
+    | ok p =>
+      obtain ⟨ev, cost₂⟩ := p
+      rw [hZ] at hX
+      simp only at hX
+      have hevle : ev.gasAvailable.toNat ≤ s.gasAvailable.toNat := Z_ok_state vj instr.1 s ev cost₂ hZ
+      cases hs : step f cost₂ instr ev with
+      | error e => rw [hs] at hX; exact absurd hX (by simp)
+      | ok ev' =>
+        rw [hs] at hX
+        simp only at hX
+        have hsle : ev'.gasAvailable.toNat ≤ ev.gasAvailable.toNat :=
+          hstep f cost₂ instr.1 instr.2 ev ev' hs
+        cases hH : H ev'.toMachineState instr.1 with
+        | none =>
+          rw [hH] at hX
+          simp only at hX
+          exact le_trans (ih ev' r hX) (le_trans hsle hevle)
+        | some o =>
+          rw [hH] at hX
+          simp only at hX
+          by_cases hrev : (instr.1 == Operation.REVERT) = true
+          · rw [if_pos hrev] at hX
+            have : r = ExecutionResult.revert ev'.gasAvailable o := Except.ok.inj hX |>.symm
+            rw [this]; exact le_trans hsle hevle
+          · rw [if_neg (by simpa using hrev)] at hX
+            have : r = ExecutionResult.success ev' o := Except.ok.inj hX |>.symm
+            rw [this]; exact le_trans hsle hevle
+
+/-! ## Item 1 (foundation) — CALL-iteration gas accounting
+
+A `CALL`-family iteration of the `X` loop runs `step f cost₂ (w, arg) ev`, whose
+`CALL` arm calls `call f cost₂ … ev`. That `call`:
+  * debits `cost₂` from `ev` (`evmState.gasAvailable - ofNat gasCost`),
+  * runs the child `Θ` at forwarded gas `Ccallgas …`, which returns leftover `g'`,
+  * rebuilds the result with `gasAvailable := (ev.gas - cost₂) + g'`.
+So the post-`step` state has gas `(ev.gas - cost₂) + g'`. To bottom out the loop we
+need this `< ev.gas`, i.e. `g' < cost₂`. Since the child never raises gas above the
+forwarded `Ccallgas` (`Θ_result_gas_le`, the gas-monotonicity half of the mutual
+induction) and `Ccallgas ≤ Ccall = cost₂` with `cost₂ = C' ev .CALL ≥ Cextra ≥ 1`,
+the strict drop follows. We start with the pure-arithmetic `Ccallgas ≤ Ccall`. -/
+
+/-- `Ccallgas ≤ Ccall`: the gas forwarded to the child is at most the call's total
+cost. When `val = 0`, `Ccallgas = Cgascap ≤ Cgascap + Cextra = Ccall`. When `val ≠ 0`,
+the stipend `Gcallstipend = 2300` is dominated by `Cxfer = Gcallvalue = 9000 ≤ Cextra`,
+so `Ccallgas = Cgascap + 2300 ≤ Cgascap + Cextra = Ccall`. -/
+theorem Ccallgas_le_Ccall (t r : AccountAddress) (val g : UInt256) (σ : AccountMap)
+    (μ : MachineState) (A : Substate) :
+    Ccallgas t r val g σ μ A ≤ Ccall t r val g σ μ A := by
+  have hac := Caccess_pos t A
+  obtain ⟨⟨n, hn⟩⟩ := val
+  cases n with
+  | zero =>
+    show Cgascap t r _ g σ μ A ≤ Cgascap t r _ g σ μ A + Cextra t r _ σ A
+    omega
+  | succ k =>
+    have hxfer : Cxfer ⟨⟨k+1, hn⟩⟩ = Gcallvalue := rfl
+    have hstip : Gcallstipend ≤ Cxfer ⟨⟨k+1, hn⟩⟩ := by rw [hxfer]; decide
+    have hxe : Cxfer ⟨⟨k+1, hn⟩⟩ ≤ Cextra t r ⟨⟨k+1, hn⟩⟩ σ A := by unfold Cextra; omega
+    show Cgascap t r _ g σ μ A + Gcallstipend ≤ Cgascap t r _ g σ μ A + Cextra t r _ σ A
+    omega
+
 /-! ## Status of the headline `Θ_never_outOfFuel` — what is closed and what remains
 
 ### CLOSED (this run)
