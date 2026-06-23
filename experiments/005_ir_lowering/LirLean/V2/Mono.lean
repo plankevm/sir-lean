@@ -323,6 +323,9 @@ private def gSelfAcc (g : UInt64) : Account := (gfr0 g).exec.accounts.find! addr
 private theorem g_self_present (g : UInt64) :
     (gfr0 g).exec.accounts.find? (gfr0 g).exec.executionEnv.address = some (gSelfAcc g) := by rfl
 
+/-- The entry frame's stack is empty. -/
+private theorem gfr0_stk (g : UInt64) : (gfr0 g).exec.stack = [] := by rfl
+
 /-! ### The realised gas readings and the monotonicity discharge
 
 `g1Read g = ofUInt64 (gf4.gasAvailable)`, `g2Read g = ofUInt64 (gf5.gasAvailable)` are the
@@ -389,6 +392,215 @@ theorem gReads_monotone (g : UInt64) (hg : 30000 ≤ g.toNat) :
 theorem gReads_gasMonotone (g : UInt64) (hg : 30000 ≤ g.toNat) :
     Trace.gasMonotone [Event.gasRead (g1Read g), Event.gasRead (g2Read g)] :=
   gasMonotone_pair.mpr (gReads_monotone g hg)
+
+/-! ### The assembled `Runs` from entry to the STOP halt
+
+`gfr0 → gf5` is the PUSH;PUSH;SSTORE;GAS;GAS prefix; `gf6` is the GT; then PUSH 13 and the
+not-taken JUMPI fall through to the STOP at pc 11. The two `GAS` opcodes' pushed words are
+`g1Read g`/`g2Read g`; the GT computes the guard, which `gReads_monotone` forces to `0`, so
+the JUMPI is **not taken** (fall-through) — the bytecode takes the same arm as the IR. -/
+
+private def gf6 (g : UInt64) : Frame := gtFrame (gf5 g) (g2Read g) (g1Read g) (gfr0 g).exec.stack
+private def gf7 (g : UInt64) : Frame := pushFrame (gf6 g) 13
+private def gfStop (g : UInt64) : Frame := jumpiFallthroughFrame (gf7 g) (gfr0 g).exec.stack
+
+private theorem g_toNat_prefix (g : UInt64) (hg : 30000 ≤ g.toNat)
+    (l : List ℕ) (hle : l.sum ≤ 22223) : (subCharges g l).toNat = g.toNat - l.sum :=
+  toNat_subCharges g l (by omega)
+
+/-- The stack at `gf5` (after both GAS reads) is `g2 :: g1 :: rest`, `rest` the entry
+stack (empty; SSTORE popped `7`/`5` back to it). -/
+private theorem gf5_stk (g : UInt64) :
+    (gf5 g).exec.stack = (g2Read g) :: (g1Read g) :: (gfr0 g).exec.stack := by
+  show Stack.push (gf4 g).exec.stack (UInt256.ofUInt64 (gf5 g).exec.gasAvailable) = _
+  show Stack.push (Stack.push (gf3 g).exec.stack (UInt256.ofUInt64 (gf4 g).exec.gasAvailable))
+        (UInt256.ofUInt64 (gf5 g).exec.gasAvailable) = _
+  rw [g_gas_f4, g_gas_f5]; rfl
+
+/-- The guard word (top of `gf6`) is `UInt256.lt (g1Read g) (g2Read g)` — `0` under
+monotonicity, so the JUMPI falls through. The JUMPI stack at `gf7` is `13 :: guard :: rest`. -/
+private theorem gf7_stk (g : UInt64) :
+    (gf7 g).exec.stack
+      = (13 : Word) :: UInt256.lt (g1Read g) (g2Read g) :: (gfr0 g).exec.stack := by
+  show Stack.push (gf6 g).exec.stack 13 = _
+  show Stack.push ((BytecodeLayer.Dispatch.binOpPost (gf5 g).exec UInt256.gt (g2Read g) (g1Read g) (gfr0 g).exec.stack).stack) 13 = _
+  show Stack.push (Stack.push (gfr0 g).exec.stack (UInt256.gt (g2Read g) (g1Read g))) 13 = _
+  rw [gt_eq_lt_swap]; rfl
+
+/-- **The whole good path composes into one `Runs (gfr0 g) (gfStop g)`.**
+PUSH;PUSH;SSTORE;GAS;GAS;GT;PUSH;JUMPI(fall-through), glued by `Runs.trans`; each gas gate
+threads `g` through `g_gas_f*` + `g_toNat_prefix` then `omega`. -/
+private theorem g_runs (g : UInt64) (hg : 30000 ≤ g.toNat) :
+    Runs (gfr0 g) (gfStop g) := by
+  refine Runs.trans (runs_push1 (gfr0 g) 5 gdec_0 ?p0 (by show (0:ℕ)+1≤1024; omega))
+    (Runs.trans (runs_push1 (gf1 g) 7 gdec_2 ?p1 (by show (1:ℕ)+1≤1024; omega))
+    (Runs.trans (runs_sstore (gf2 g) 7 5 (gfr0 g).exec.stack gdec_4 rfl (by show (2:ℕ)≤1024; omega)
+        rfl ?stip ?cost)
+    (Runs.trans (runs_gas (gf3 g) gdec_5 (by show (0:ℕ)+1≤1024; omega) ?gg1)
+    (Runs.trans (runs_gas (gf4 g) gdec_6 (by show (1:ℕ)+1≤1024; omega) ?gg2)
+    (Runs.trans (runs_gt (gf5 g) (g2Read g) (g1Read g) (gfr0 g).exec.stack gdec_7 (gf5_stk g) (by rw [gf5_stk]; show (2:ℕ)≤1024; omega) ?ggt)
+    (Runs.trans (runs_push1 (gf6 g) 13 gdec_8 ?p13 (by
+        show (gf6 g).exec.stack.size + 1 ≤ 1024
+        show ((BytecodeLayer.Dispatch.binOpPost (gf5 g).exec UInt256.gt (g2Read g) (g1Read g) (gfr0 g).exec.stack).stack).size + 1 ≤ 1024
+        show (Stack.push (gfr0 g).exec.stack (UInt256.gt (g2Read g) (g1Read g))).size + 1 ≤ 1024
+        rw [gfr0_stk]; show (0:ℕ) + 1 + 1 ≤ 1024; omega))
+      (runs_branch (dest := 13) (cond := UInt256.lt (g1Read g) (g2Read g)) (rest := (gfr0 g).exec.stack)
+        gdec_10 (gf7_stk g) (by rw [show (pushFrame (gf6 g) 13) = gf7 g from rfl, gf7_stk]; show (2:ℕ)≤1024; omega) ?ghi
+        (Or.inr ⟨lt_eq_zero_of_toNat_le (gReads_monotone g hg), Runs.refl _⟩))))))))
+  case p0 => show 3 ≤ (gfr0 g).exec.gasAvailable.toNat; show 3 ≤ g.toNat; omega
+  case p1 => rw [g_gas_f1, g_toNat_prefix g hg [3] (by decide)]; simp only [List.sum_cons, List.sum_nil]; omega
+  case stip =>
+    show ¬ (gf2 g).exec.gasAvailable.toNat ≤ Gcallstipend
+    rw [g_gas_f2, g_toNat_prefix g hg [3,3] (by decide), show Gcallstipend = 2300 from rfl]
+    simp only [List.sum_cons, List.sum_nil]; omega
+  case cost =>
+    rw [show sstoreChargeOf (gf2 g).exec 7 5 = 22100 from rfl, g_gas_f2,
+        g_toNat_prefix g hg [3,3] (by decide)]; simp only [List.sum_cons, List.sum_nil]; omega
+  case gg1 =>
+    show Gbase ≤ (gf3 g).exec.gasAvailable.toNat
+    rw [show Gbase = 2 from rfl, g_gas_f3, g_toNat_prefix g hg [3,3,22100] (by decide)]
+    simp only [List.sum_cons, List.sum_nil]; omega
+  case gg2 =>
+    show Gbase ≤ (gf4 g).exec.gasAvailable.toNat
+    rw [show Gbase = 2 from rfl, g_gas_f4, g_toNat_prefix g hg gchs1 (by decide)]
+    show (2:ℕ) ≤ g.toNat - gchs1.sum; show (2:ℕ) ≤ g.toNat - 22108; omega
+  case ggt =>
+    show Gverylow ≤ (gf5 g).exec.gasAvailable.toNat
+    rw [show Gverylow = 3 from rfl, g_gas_f5, g_toNat_prefix g hg gchs2 (by decide)]
+    show (3:ℕ) ≤ g.toNat - gchs2.sum; show (3:ℕ) ≤ g.toNat - 22110; omega
+  case p13 =>
+    show 3 ≤ (gf6 g).exec.gasAvailable.toNat
+    show 3 ≤ (BytecodeLayer.Dispatch.binOpPost (gf5 g).exec UInt256.gt (g2Read g) (g1Read g) []).gasAvailable.toNat
+    show 3 ≤ ((gf5 g).exec.gasAvailable - UInt64.ofNat Gverylow).toNat
+    rw [show Gverylow = 3 from rfl, g_gas_f5]
+    rw [toNat_sub_ofNat _ 3 (by rw [g_toNat_prefix g hg gchs2 (by decide)]; show (3:ℕ) ≤ g.toNat - 22110; omega) (by omega),
+        g_toNat_prefix g hg gchs2 (by decide)]
+    show (3:ℕ) ≤ (g.toNat - gchs2.sum) - 3; show (3:ℕ) ≤ (g.toNat - 22110) - 3; omega
+  case ghi =>
+    show Ghigh ≤ (gf7 g).exec.gasAvailable.toNat
+    show Ghigh ≤ ((gf6 g).exec.gasAvailable - UInt64.ofNat Gverylow).toNat
+    show Ghigh ≤ ((BytecodeLayer.Dispatch.binOpPost (gf5 g).exec UInt256.gt (g2Read g) (g1Read g) (gfr0 g).exec.stack).gasAvailable - UInt64.ofNat Gverylow).toNat
+    show Ghigh ≤ (((gf5 g).exec.gasAvailable - UInt64.ofNat Gverylow) - UInt64.ofNat Gverylow).toNat
+    have hb : (gf5 g).exec.gasAvailable.toNat = g.toNat - 22110 := by
+      rw [g_gas_f5, g_toNat_prefix g hg gchs2 (by decide)]; show g.toNat - gchs2.sum = _; show g.toNat - 22110 = _; rfl
+    rw [show Ghigh = 10 from rfl, show Gverylow = 3 from rfl]
+    rw [toNat_sub_ofNat _ 3 (by
+          rw [toNat_sub_ofNat _ 3 (by rw [hb]; omega) (by omega), hb]; omega) (by omega),
+        toNat_sub_ofNat _ 3 (by rw [hb]; omega) (by omega), hb]; omega
+
+/-! ### The top-level `messageCall` observable
+
+`gfStop` (pc 11) decodes to STOP and halts successfully (empty output); `messageCall`
+delivers the assembled run's halt via `messageCall_runs`, leaving `5` at `(addrA, 7)`. -/
+
+/-- The STOP at `gfStop g` halts successfully with empty output. -/
+private theorem gfStop_halts (g : UInt64) :
+    stepFrame (gfStop g) = .halted (.success (gfStop g).exec .empty) :=
+  stepFrame_stop (gfStop g)
+    (by show decode (gfStop g).exec.executionEnv.code (gfStop g).exec.pc = _
+        show decode guardBytecode 11 = _; exact gdec_11)
+    (by show (gfStop g).exec.stack.size ≤ 1024
+        show (jumpiFallthroughFrame (gf7 g) (gfr0 g).exec.stack).exec.stack.size ≤ 1024
+        show ((BytecodeLayer.Dispatch.jumpiFallthroughPost (gf7 g).exec (gfr0 g).exec.stack).stack).size ≤ 1024
+        rw [gfr0_stk]; show (0:ℕ) ≤ 1024; omega)
+
+/-- The halt the assembled run lands on (STOP success, empty output). -/
+private def gHalt (g : UInt64) : FrameHalt := .success (gfStop g).exec .empty
+
+/-- **`messageCall` of the witness bytecode** pins to the assembled run's halt. -/
+theorem g_messageCall (g : UInt64) (hg : 30000 ≤ g.toNat) :
+    messageCall (guardParams g)
+      = .ok (FrameResult.toCallResult (endFrame (gfStop g) (gHalt g))) :=
+  messageCall_runs (guardParams g)
+    (beginCall_code (guardParams g) guardBytecode rfl)
+    (g_runs g hg)
+    (gfStop_halts g)
+
+/-- The completed call's storage at `(addrA, 7)` is `5` (the SSTORE'd value, preserved by
+every later transformer). -/
+theorem g_storageAt (g : UInt64) :
+    CallResult.storageAt (FrameResult.toCallResult (endFrame (gfStop g) (gHalt g))) addrA 7 = 5 := by
+  show ((endFrame (gfStop g) (gHalt g)).toCallResult.accounts.find? addrA
+          |>.option 0 (·.lookupStorage 7)) = 5
+  have hacc : (endFrame (gfStop g) (gHalt g)).toCallResult.accounts = (gf3 g).exec.accounts := by rfl
+  rw [hacc]
+  exact sstoreFrame_storage_self (gf2 g) 7 5 (gfr0 g).exec.stack (gSelfAcc g)
+    (by show (gf2 g).exec.accounts.find? (gf2 g).exec.executionEnv.address = _; exact g_self_present g)
+    (by decide)
+
+/-- The completed call succeeded. -/
+theorem g_success (g : UInt64) :
+    (FrameResult.toCallResult (endFrame (gfStop g) (gHalt g))).success = true := by rfl
+
+/-! ## 5. The headline (`docs/ir-design-v2.md` §4, two-read monotonicity milestone)
+
+`LoweredRunHasObsMono` is the bytecode-side conclusion: at gas `g`, the witness bytecode (the
+internal `Runs` witness) halts with the same observable `O`, **its two `GAS` opcodes
+realising the two `gasRead` events** AND the realised values **genuinely monotone**. No
+`pc`, no gas-equality appears — only:
+
+* `realises` — the trace is exactly the two machine `GAS` values `[g1Read g, g2Read g]`
+  (the §3.4 "events witnessed by the bytecode" clause, now for TWO reads);
+* `monotone` — those realised values satisfy the §3.4 law (`gReads_gasMonotone`),
+  **discharged from the EVM gas-descent fact**, not assumed;
+* `world` — the completed call's storage agrees with `O.worldDelta` at `(addrA, 7)`;
+* `success` — the call completed without reverting.
+
+All `Runs`/pc/stack/gas bookkeeping lives *inside* `g_messageCall`'s `Runs` witness. -/
+def LoweredRunHasObsMono (g : UInt64) (T : Trace) (O : Observable) : Prop :=
+  -- the two gasRead events are realised by the two actual GAS opcode values …
+  (T = [Event.gasRead (g1Read g), Event.gasRead (g2Read g)])
+  -- … and those realised values are genuinely monotone (the §3.4 law, discharged) …
+  ∧ Trace.gasMonotone T
+  -- … and the lowered bytecode at gas g completes with O's observable.
+  ∧ ∃ out σ,
+      Outcome.ofCall (messageCall (guardParams g)) = .completed out σ
+      ∧ σ addrA 7 = O.worldDelta 7
+      ∧ (O.result = .stopped ∨ ∃ w, O.result = .returned w)
+
+/-- **The two-read gas-monotonicity milestone (`docs/ir-design-v2.md` §3.4, §4).**
+
+There is an adequacy floor `G₀` such that for every gas `g ≥ G₀`:
+
+* the gas-free IR run of `guardIR` from `w₀`, consuming the **realised** two-read trace
+  `[gasRead (g1Read g), gasRead (g2Read g)]` **which is `gasMonotone`**, produces the
+  observable `O = guardObsResult w₀ (g1Read g)` — the run lands at `GOOD` because the
+  guard `lt g1 g2` is forced to `0` by monotonicity (`guard_IRRun`, the IR side using ONLY
+  §3.4's law);
+* the lowered bytecode at gas `g` halts with that **same** observable `O`, **its two `GAS`
+  opcodes realising the two `gasRead` events, and those realised values are monotone**
+  (`LoweredRunHasObsMono`) — the monotonicity is **discharged internally** from the bytecode's
+  gas descent (`gReads_gasMonotone`), never assumed.
+
+The §4 shape `∃ G₀, ∀ g ≥ G₀, …` is preserved with **no `pc` and no gas-equality** in the
+statement; the only gas fact is the envelope `G₀ ≤ g`. The IR and the bytecode take the
+same branch precisely because they share the same realised, monotone trace `T`. -/
+theorem lower_preserves_obs_mono (w₀ : World) :
+    ∃ G₀ : UInt64, ∀ g : UInt64, G₀.toNat ≤ g.toNat →
+      IRRun guardIR w₀ [Event.gasRead (g1Read g), Event.gasRead (g2Read g)]
+        (guardObsResult w₀ (g1Read g))
+      ∧ LoweredRunHasObsMono g [Event.gasRead (g1Read g), Event.gasRead (g2Read g)]
+        (guardObsResult w₀ (g1Read g)) := by
+  refine ⟨30000, fun g hg => ⟨guard_IRRun w₀ (g1Read g) (g2Read g) (gReads_gasMonotone g hg), ?_⟩⟩
+  refine ⟨rfl, gReads_gasMonotone g hg, ?_⟩
+  -- the bytecode observable, from g_messageCall
+  refine ⟨(FrameResult.toCallResult (endFrame (gfStop g) (gHalt g))).output,
+          CallResult.storageAt (FrameResult.toCallResult (endFrame (gfStop g) (gHalt g))),
+          ?_, ?_, ?_⟩
+  · -- Outcome.ofCall (messageCall …) = .completed _ σ
+    rw [show Outcome.ofCall (messageCall (guardParams g))
+          = Outcome.ofResult (FrameResult.toCallResult (endFrame (gfStop g) (gHalt g))) from by
+        unfold Outcome.ofCall; rw [g_messageCall g hg]]
+    unfold Outcome.ofResult
+    rw [if_pos (g_success g)]
+  · -- σ addrA 7 = (guardObsResult w₀ (g1Read g)).worldDelta 7 = 5
+    rw [g_storageAt g]; rfl
+  · -- O.result is a return
+    exact Or.inr ⟨_, rfl⟩
+
+-- Build-enforced axiom-cleanliness guard: the milestone headline depends only on
+-- `[propext, Classical.choice, Quot.sound]`.
+#print axioms lower_preserves_obs_mono
 
 end Lir.V2
 
