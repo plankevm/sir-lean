@@ -4157,6 +4157,8 @@ theorem X_loop_noOOF_bound (vj : Array UInt256) (D : ℕ) (hD : D ≤ 1024) (N :
     (hstep : ∀ (f : ℕ), f < N → ∀ (w : Operation) (arg) (cost : ℕ) (s2 : State),
        s2.executionEnv.depth = D →
        fuelBound s2.gasAvailable.toNat D ≤ f →
+       cost ≤ s2.gasAvailable.toNat →
+       cost = C' s2 w →
        step f cost (some (w, arg)) s2 ≠ .error .OutOfFuel) :
     ∀ (fuel : ℕ), fuel ≤ N → ∀ (s : State), s.executionEnv.depth = D →
       fuelBound s.gasAvailable.toNat D + 1 ≤ fuel → X fuel vj s ≠ .error .OutOfFuel := by
@@ -4192,7 +4194,8 @@ theorem X_loop_noOOF_bound (vj : Array UInt256) (D : ℕ) (hD : D ≤ 1024) (N :
         have he : e = EVM.ExecutionException.OutOfFuel := by
           revert hc; simp only [hs]; intro hc; exact Except.error.inj hc
         rw [he] at hs
-        exact hstep (f'+1) (by omega) instr.1 instr.2 cost₂ ev hevD hevb hs
+        obtain ⟨hcle, hcost⟩ := Z_ok_cost_le_gas vj instr.1 s ev cost₂ hZ
+        exact hstep (f'+1) (by omega) instr.1 instr.2 cost₂ ev hevD hevb hcle hcost hs
       | ok ev' =>
         simp only [hs]
         cases hH : H ev'.toMachineState instr.1 with
