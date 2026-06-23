@@ -2196,6 +2196,93 @@ theorem create_gas_arith_lt (gd G g' : ℕ) (hg' : g' ≤ L gd) (hgd : gd < G) (
     simp only [Fin.ofNat]; exact Nat.mod_eq_of_lt hlt
   rw [htoNat]; omega
 
+set_option maxHeartbeats 4000000 in
+/-- **CREATE result-gas bound.** A successful CREATE step
+`step (f+1) gasCost (some (.CREATE, arg)) ev = .ok s'` lands at
+`s'.gasAvailable.toNat ≤ ev.gasAvailable.toNat`, provided the debit does not wrap
+(`gasCost ≤ ev.gasAvailable.toNat`) and the child `Lambda` returns no more than the
+forwarded create cap (`hΛ`). The result gas is `.ofNat (gd.toNat − L gd.toNat + g'.toNat)`
+where `gd = ev.gas − ofNat gasCost`; `create_gas_arith` rules out the single `.ofNat`
+wrap. The `g'` across the three branches (nonce-overflow / `Lambda` / else) all satisfy
+`g'.toNat ≤ L gd.toNat`. -/
+theorem create_result_gas_le (f gasCost : ℕ) (arg : Option (UInt256 × Nat)) (ev s' : State)
+    (hcle : gasCost ≤ ev.gasAvailable.toNat)
+    (hΛ : ∀ (bvh : List ByteArray) (cA : Batteries.RBSet AccountAddress compare)
+            (σ σ₀ : AccountMap) (Asub : Substate) (sndr orig : AccountAddress)
+            (gg pp vv : UInt256) (ii : ByteArray) (ee : UInt256) (zz : Option ByteArray)
+            (Hd : BlockHeader) (ww : Bool) (res),
+          Lambda f bvh cA ev.genesisBlockHeader ev.blocks σ σ₀ Asub sndr orig gg pp vv ii ee zz Hd ww
+            = .ok res → res.2.2.2.1.toNat ≤ gg.toNat)
+    (h : step (f+1) gasCost (some (.CREATE, arg)) ev = .ok s') :
+    s'.gasAvailable.toNat ≤ ev.gasAvailable.toNat := by
+  -- the debited gas word and its `.toNat` bound
+  set gd : UInt256 := ev.gasAvailable - UInt256.ofNat gasCost with hgd
+  have hcsz : gasCost < UInt256.size := Nat.lt_of_le_of_lt hcle ev.gasAvailable.val.isLt
+  have hgdle : gd.toNat ≤ ev.gasAvailable.toNat := gas_sub_le ev.gasAvailable gasCost hcle hcsz
+  have hgdsz : ev.gasAvailable.toNat < UInt256.size := ev.gasAvailable.val.isLt
+  -- expose the CREATE arm; `evmState` after `execLength+1` then `-ofNat gasCost`
+  simp only [step, bind, Except.bind, pure, Except.pure] at h
+  -- the post-execLength-bump, post-debit state; its `.gasAvailable` is `gd`.
+  -- peel the `pop3` match.
+  split at h
+  · -- pop3 = some
+    rename_i stack μ₀ μ₁ μ₂ _hpop
+    -- close the goal once we have `g'.toNat ≤ L gd.toNat`; the result gas is then
+    -- `.ofNat (gd.toNat - L gd.toNat + g'.toNat)` independent of the branch's evmState'.
+    -- The `(a, evmState', g', z, o)` 3-way split:
+    split at h
+    · -- nonce-overflow branch: g' = .ofNat (L gd.toNat)
+      split at h
+      · exact absurd h (by simp)   -- OutOfGass guard fired
+      · injection h with h; subst h
+        simp only [gasAvailable_replaceStackAndIncrPC]
+        refine create_gas_arith gd.toNat ev.gasAvailable.toNat _ ?_ hgdle hgdsz
+        -- g' = .ofNat (L gd.toNat); its toNat = L gd.toNat ≤ L gd.toNat
+        have hLsz : L gd.toNat < UInt256.size :=
+          Nat.lt_of_le_of_lt (L_le _) (Nat.lt_of_le_of_lt hgdle hgdsz)
+        show (UInt256.ofNat (L gd.toNat)).toNat ≤ L gd.toNat
+        show (Fin.ofNat _ _).val ≤ _
+        simp only [Fin.ofNat]; rw [Nat.mod_eq_of_lt hLsz]
+    · -- the funds/depth/size guard
+      split at h
+      · -- Lambda sub-branch
+        split at h
+        · -- Lambda = .ok (a, cA, σ', g', A', z, o): the leftover gas component is `lamg'`
+          rename_i lama lamcA lamσ' lamg' lamA' lamz lamo hΛeq
+          split at h
+          · exact absurd h (by simp)   -- OutOfGass guard fired
+          · injection h with h; subst h
+            simp only [gasAvailable_replaceStackAndIncrPC]
+            refine create_gas_arith gd.toNat ev.gasAvailable.toNat _ ?_ hgdle hgdsz
+            -- hΛ bounds `lamg'` by the forwarded gas `.ofNat (L gd.toNat)`.
+            have hb := hΛ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ (lama, lamcA, lamσ', lamg', lamA', lamz, lamo) hΛeq
+            have hLsz : L gd.toNat < UInt256.size :=
+              Nat.lt_of_le_of_lt (L_le _) (Nat.lt_of_le_of_lt hgdle hgdsz)
+            have hfwd : (UInt256.ofNat (L gd.toNat)).toNat = L gd.toNat := by
+              show (Fin.ofNat _ _).val = _
+              simp only [Fin.ofNat]; rw [Nat.mod_eq_of_lt hLsz]
+            rw [hfwd] at hb; exact hb
+        · -- Lambda not .ok: g' = ⟨0⟩
+          split at h
+          · exact absurd h (by simp)
+          · injection h with h; subst h
+            simp only [gasAvailable_replaceStackAndIncrPC]
+            refine create_gas_arith gd.toNat ev.gasAvailable.toNat _ ?_ hgdle hgdsz
+            show (⟨0⟩ : UInt256).toNat ≤ L gd.toNat
+            exact Nat.zero_le _
+      · -- else branch: g' = .ofNat (L gd.toNat)
+        split at h
+        · exact absurd h (by simp)
+        · injection h with h; subst h
+          simp only [gasAvailable_replaceStackAndIncrPC]
+          refine create_gas_arith gd.toNat ev.gasAvailable.toNat _ ?_ hgdle hgdsz
+          have hLsz : L gd.toNat < UInt256.size :=
+            Nat.lt_of_le_of_lt (L_le _) (Nat.lt_of_le_of_lt hgdle hgdsz)
+          show (UInt256.ofNat (L gd.toNat)).toNat ≤ L gd.toNat
+          show (Fin.ofNat _ _).val ≤ _
+          simp only [Fin.ofNat]; rw [Nat.mod_eq_of_lt hLsz]
+  · exact absurd h (by simp)   -- pop3 = none → StackUnderflow
+
 /-! ## Status of the headline `Θ_never_outOfFuel` — what is closed and what remains
 
 ### CLOSED (this run)
