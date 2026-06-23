@@ -996,4 +996,84 @@ child's depth `e = Iₑ + 1 ≤ 1024`. (Structural fact about the `call` guard �
 descent never increases depth beyond `1024`.) -/
 theorem call_depth_bound (Iₑ : ℕ) (h : Iₑ < 1024) : Iₑ + 1 ≤ 1024 := h
 
+/-! ## Item 4 (setup) — the cross-layer propagation lemmas
+
+`OutOfFuel` is emitted *directly* only at the five fuel-`0` base cases (proved
+above). At a successor `fuel`, each layer either returns without recursing (never
+`OutOfFuel`) or hands off to a sub-layer; in every such hand-off the `OutOfFuel`
+case is *propagated*, never created. These propagation lemmas reduce each layer's
+non-`OutOfFuel`-ness at `fuel+1` to that of the sub-layers it calls — the inductive
+step skeleton for the final mutual induction. -/
+
+/-- `Ξ (f+1)` propagates `OutOfFuel` only from its inner `X f`. If that `X f` is not
+`OutOfFuel`, neither is `Ξ (f+1)`. (The post-processing match on `X`'s
+`.success`/`.revert` result never emits `OutOfFuel`.) -/
+theorem Ξ_outOfFuel_of (f : ℕ)
+    (createdAccounts : Batteries.RBSet AccountAddress compare)
+    (genesisBlockHeader : BlockHeader) (blocks : ProcessedBlocks)
+    (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv)
+    (hX : ∀ s : State, X f (D_J I.code ⟨0⟩) s ≠ .error .OutOfFuel) :
+    Ξ (f+1) createdAccounts genesisBlockHeader blocks σ σ₀ g A I ≠ .error .OutOfFuel := by
+  unfold Ξ
+  simp only []
+  -- the freshly-built child state
+  set s0 : EVM.State := _ with hs0
+  -- `Ξ (f+1) = do let result ← X f …; match result …`. Case on `X f`.
+  cases hr : X f (D_J I.code ⟨0⟩) s0 with
+  | error e =>
+    -- propagated error: it equals `e`, and `e ≠ OutOfFuel` by `hX`.
+    intro hc
+    have : e = EVM.ExecutionException.OutOfFuel := by
+      simp only [hr, bind, Except.bind] at hc
+      exact (Except.error.inj hc)
+    exact hX s0 (by rw [hr, this])
+  | ok r =>
+    -- success: the trailing match yields `.ok …` in both `.success`/`.revert` arms.
+    simp only [hr, bind, Except.bind]
+    cases r <;> simp
+
+/-- `Θ (fuel+1)` on a **`Code`** call propagates `OutOfFuel` only from its inner
+`Ξ fuel` (the explicit `if e == .OutOfFuel then throw .OutOfFuel` re-throw): any
+other `Ξ`-error is swallowed into a `pure`, and on success the trailing `.ok` makes
+`Θ` an `.ok`. So if `Ξ fuel … ≠ OutOfFuel`, neither is `Θ (fuel+1)`.
+
+The **precompiled** path (`c = .Precompiled _`) never recurses and never emits
+`OutOfFuel` — every arm of the 10-way numeric match is `.ok`, and the `_ => default`
+fallthrough is `.ok default` (the `Inhabited (Except ε α)` instance is `.ok default`).
+That case is a separate, non-recursive obligation: it is term-size-heavy (the
+`Θ.eq` equation lemmas for `.Precompiled` are enormous) and the literal-pattern
+`match pc with | 1 => … | 10 => …` makes `split` generate unprovable
+`pc = n → False` exhaustiveness side-goals. It is documented in PLAN.md, not faked. -/
+theorem Θ_outOfFuel_of (fuel : ℕ) (bvh : List ByteArray)
+    (createdAccounts : Batteries.RBSet AccountAddress compare)
+    (genesisBlockHeader : BlockHeader) (blocks : ProcessedBlocks)
+    (σ σ₀ : AccountMap) (A : Substate) (s o r : AccountAddress) (code : ByteArray)
+    (g p v v' : UInt256) (d : ByteArray) (e : Nat) (Hd : BlockHeader) (w : Bool)
+    (hΞ : ∀ (σ₁ : AccountMap) (I : ExecutionEnv),
+      Ξ fuel createdAccounts genesisBlockHeader blocks σ₁ σ₀ g A I ≠ .error .OutOfFuel) :
+    Θ (fuel+1) bvh createdAccounts genesisBlockHeader blocks σ σ₀ A s o r (.Code code)
+        g p v v' d e Hd w ≠ .error .OutOfFuel := by
+  -- The `Code` path's bound value comes from matching `Ξ fuel …`; an `OutOfFuel`
+  -- there is re-thrown, any other error is swallowed into `pure`, and on success the
+  -- trailing `.ok` makes `Θ` an `.ok`. (See `Θ_precompiled_never_outOfFuel` for the
+  -- non-recursive precompiled path.)
+  simp only [Θ, bind, Except.bind]
+  set I : ExecutionEnv := _ with hI
+  set σ₁ : AccountMap := _ with hσ₁
+  cases hr : Ξ fuel createdAccounts genesisBlockHeader blocks σ₁ σ₀ g A I with
+  | error ee =>
+    -- `if ee == OutOfFuel then throw OutOfFuel else pure …`. If we ended at
+    -- OutOfFuel, then `ee = OutOfFuel`, contradicting `hΞ`.
+    by_cases hee : ee = EVM.ExecutionException.OutOfFuel
+    · exact absurd (hee ▸ hr) (hΞ σ₁ I)
+    · -- ee ≠ OutOfFuel ⇒ the `if` takes the `else` (`pure`), so result is `.ok`.
+      have hb : (ee == EVM.ExecutionException.OutOfFuel) = false := by
+        cases ee <;> first | rfl | exact absurd rfl hee
+      simp only [hb, if_false, Bool.false_eq_true]
+      intro hc; exact Except.noConfusion hc
+  | ok res =>
+    -- success/revert both `pure`, then trailing `.ok`.
+    rcases res with ⟨g', o⟩ | ⟨⟨⟨a, b⟩, cc, dd⟩, o⟩ <;>
+      (intro hc; exact Except.noConfusion hc)
+
 end EvmYul.EVM.NeverOutOfFuel
