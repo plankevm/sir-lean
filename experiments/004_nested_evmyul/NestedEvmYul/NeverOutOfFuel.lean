@@ -2543,6 +2543,30 @@ theorem create2_result_gas_lt (f gasCost : ℕ) (arg : Option (UInt256 × Nat)) 
   for the non-nested fragment — the genuine bake-off deliverable for straight-line +
   intra-frame-control-flow execution.
 
+### CLOSED (this run, B2g) — the CREATE/CREATE2/`Lambda` descent bricks
+The CREATE-side analog of the B2f CALL descent. The CREATE/CREATE2 result gas is
+`.ofNat (gd.toNat − L gd.toNat + g'.toNat)` where `gd = ev.gas − ofNat gasCost` is the
+debited gas and `L n = n − n/64` the create cap — a *`Nat`*-shaped expression wrapped
+once by `.ofNat`, NOT CALL's wrapping `UInt256` sum. The result gas depends only on
+`g'` (the inner branch's `evmState'.gasAvailable` is overwritten). The bricks reduce the
+descent to the single child-`Lambda`-result hypothesis `g'.toNat ≤ (forwarded).toNat`:
+
+* **`create_gas_arith` / `create_gas_arith_lt`** — the `Nat` no-wrap core (CREATE analog
+  of `gas_add_sub_le/lt`): from `g' ≤ L gd` and `gd ≤ G` (resp. `gd < G`) conclude
+  `(.ofNat (gd − L gd + g')).toNat ≤ G` (resp. `< G`). No wrap: `gd − L gd + g' ≤ gd ≤ G`.
+* **`create_result_gas_le` / `create_result_gas_lt`** + **`create2_result_gas_le` /
+  `create2_result_gas_lt`** — a successful `step (f+1) gasCost (some (.CREATE/.CREATE2,_))
+  ev` lands at gas `≤` (resp. `<`) `ev.gas`, given `gasCost ≤ ev.gas`, `1 ≤ gasCost`
+  (strict only), and the child-`Lambda` mono hypothesis `hΛ`. The strict drop is from the
+  *debit* (`gd < ev.gas`), not from `g' < L`. Every branch + the `OutOfGass` guard handled.
+* **`C'_create_pos` / `C'_create2_pos`** — `C' s .CREATE/.CREATE2 ≥ Gcreate = 32000 ≥ 1`
+  (discharges the strict `hpos`).
+* **`pop3_stack_index` / `pop4_stack_index`** — CREATE/CREATE2 arg-matching (analog of
+  `pop7_stack_index`).
+
+**Verdict: CREATE is tractable** — monotone exactly as expected, `hΛ` plugs into the same
+mutual induction as B2f's `hΘ`. No structural surprise; the headline can keep CREATE in scope.
+
 ### CLOSED (this run, B2f) — the gas-monotonicity / CALL-descent bricks
 The CALL-iteration gas descent (prior "sub-obligation 1") is now fully reduced to the
 child-`Θ` gas-monotonicity hypothesis, with every supporting brick proved axiom-clean:

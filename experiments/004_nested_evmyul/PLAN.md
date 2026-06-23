@@ -59,6 +59,52 @@ composing naturally (the thing flat makes hard).
 > branch; do not touch other tracks. Report the final build status + what was stripped.
 
 ## Progress log
+- 2026-06-23 (B2g — CREATE/CREATE2/`Lambda` gas-descent bricks; CREATE-side analog of
+  B2f's CALL descent). `lake build NestedEvmYul.NeverOutOfFuel` GREEN; `#print axioms`
+  on every new theorem ⊆ `[propext, Classical.choice, Quot.sound]`; zero
+  `sorry`/`admit`/`axiom`/`native_decide` (grep-verified). All in
+  `NestedEvmYul/NeverOutOfFuel.lean`.
+  **VERDICT: CREATE IS TRACTABLE — ready for the mutual assembly.** The CREATE gas is
+  monotone in exactly the expected way; no structural surprise blocks the bricks.
+  - **Exact CREATE/CREATE2 gas shape (read from the vendored `EVM.step` arms).** Gas is
+    first debited (`evmState.gasAvailable := evmState.gasAvailable - .ofNat gasCost`;
+    call this debited word `gd`), then the child `Lambda f … (forwarded =
+    .ofNat (L gd.toNat)) …` runs returning leftover `g'`, and the result state has
+        `gasAvailable := .ofNat <| gd.toNat - L (gd.toNat) + g'.toNat`
+    where `L n = n - n/64` (EVM.L, the 63/64 create cap; `L_le` already proved). This is
+    a **`Nat`-shaped expression wrapped by a single `.ofNat`**, NOT CALL's wrapping
+    `UInt256` sum — the paraphrase in B2f's report was correct. The forwarded gas is
+    exactly `.ofNat (L gd.toNat)`, so the `Lambda`-mono brick is `g'.toNat ≤ L gd.toNat`.
+    KEY SIMPLIFICATION found in the code: the inner branch's `evmState'` has its
+    `gasAvailable` *overwritten* by the final `{ evmState' with … gasAvailable := … }`,
+    so the result gas depends ONLY on `g'`, not on which of the three branches ran.
+  - **`g'` across the three `(a, evmState', g', z, o)` branches** (all ≤ `L gd.toNat`):
+    nonce-overflow → `g' = .ofNat (L gd.toNat)`; else (insufficient funds / depth=1024 /
+    init-code > 49152) → same; `Lambda` branch → `g'` = `Lambda`'s 4th `.ok` component
+    (reduced to the single child hypothesis), else `⟨0⟩`.
+  - **Bricks PROVED (axiom-clean):**
+    - `create_gas_arith` / `create_gas_arith_lt` — the `Nat` no-wrap core: from
+      `g' ≤ L gd` and `gd ≤ G` (resp. `gd < G`, `G < size`) conclude
+      `(.ofNat (gd − L gd + g')).toNat ≤ G` (resp. `< G`). The single `.ofNat` does not
+      wrap because `gd − L gd + g' ≤ gd ≤ G < size`. (CREATE analog of `gas_add_sub_le/lt`.)
+    - `create_result_gas_le` / `create_result_gas_lt` — a successful
+      `step (f+1) gasCost (some (.CREATE, _)) ev` lands at gas `≤` (resp. `<`) `ev.gas`,
+      GIVEN `gasCost ≤ ev.gas.toNat` (no-wrap debit), `1 ≤ gasCost` (strict only;
+      supplied by `Gcreate = 32000`), and the child-`Lambda` mono hypothesis `hΛ`. The
+      strict drop comes from the DEBIT (`gd < ev.gas`), not from `g' < L` (equality
+      `g' = L` is allowed). Every branch (nonce-overflow / Lambda-ok / Lambda-fail /
+      else) + the `OutOfGass` guard arm handled.
+    - `create2_result_gas_le` / `create2_result_gas_lt` — identical over the `pop4` arm
+      (CREATE2 differs only by popping the salt `μ₃` and computing `ζ`; gas accounting
+      byte-for-byte the same).
+    - `C'_create_pos` / `C'_create2_pos` — `C' s .CREATE/.CREATE2 ≥ Gcreate = 32000 ≥ 1`
+      (discharges the strict `hpos`).
+    - `pop3_stack_index` / `pop4_stack_index` — CREATE/CREATE2 arg-matching (pop 3 / 4),
+      the create analog of `pop7_stack_index`; cheap, so included.
+  - **What's reduced, not yet assembled:** the `hΛ` hypothesis (child `Lambda → Ξ → X`
+    gas-monotonicity) is discharged by the same mutual induction that discharges B2f's
+    `hΘ`. The CREATE bricks plug into that induction exactly like the CALL bricks. No
+    new obstruction; the headline can keep BOTH CALL and CREATE in scope.
 - 2026-06-23 (B2f — gas-monotonicity / CALL-descent bricks). Bare `lake build` GREEN;
   `#print axioms` on every new theorem reports only `[propext, (Classical.choice,)
   Quot.sound]`; zero `sorry`/`admit`/`axiom`/`native_decide` in source. All in
