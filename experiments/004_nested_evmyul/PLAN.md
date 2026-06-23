@@ -59,6 +59,43 @@ composing naturally (the thing flat makes hard).
 > branch; do not touch other tracks. Report the final build status + what was stripped.
 
 ## Progress log
+- 2026-06-23 (B2i — HEADLINE-CLOSE PLAN; decision: close full CALL+CREATE headline).
+  **KEY DESIGN CORRECTION — the bound is LINEAR-PRODUCT, not super-linear.** B2e/B2f/B2g/B2h
+  recorded the fuel bound as super-linear `B(g,d) ≈ (g+1)^(1025−d)`, on the premise that "a
+  frame's X-loop runs up to `g` iterations and *each* spawns a child needing its own full
+  `B(childgas,d+1)`" (so children's budgets accumulate). **That premise is wrong.** Reading
+  `X` (`EvmYul/EVM/Semantics.lean:494`): `X (f+1)` runs `step f` then continues `X f` — BOTH
+  use the literal `f`. Fuel is NOT in `State`; it is a pass-by-value structural counter. So
+  after a child returns, the parent loop continues at exactly `f`, **independent of how much
+  fuel the child subtree burned.** The `g` children a frame spawns therefore do NOT accumulate
+  budgets; iteration `i` runs at fuel `F−i`, and the binding constraint is the single worst
+  (last) iteration, not the sum. Recurrence is ADDITIVE: `F ≥ g + c + B(g,d+1)` with child gas
+  ≤ parent gas (item 3) and `B` monotone in gas ⇒ closed form
+      **`B(g,d) = (1025 − d) · (g + c)`** — linear in gas, with a depth FACTOR.
+  Descent hop-chain confirmed `c ≈ 5`: `X(F)`→`step f`→`call (f-1)`→`Θ (f-2)`→`Ξ (f-3)`→child
+  `X (f-4)` (`call (f+1)`→`Θ f` at `Semantics.lean:141`; `Θ`→`Ξ`/`Lambda`→`X`).
+  **Bake-off implication:** nested costs a depth *factor* (+ ~6 brick iterations + two mutual
+  inductions), NOT a super-linear blowup — still linear in gas. The EXPERIMENT-REPORT
+  "Sharpening" super-linear claim must be corrected — but ONLY after the proof confirms the
+  product bound actually closes (earn it, don't assert it).
+  **ARCHITECTURE — ONE combined mutual induction on fuel.** The never-OOF strict descent
+  (`call_result_gas_lt`) needs child gas-monotonicity, so fold both obligations into one strong
+  induction on `fuel`: `P n := gasMono(n) ∧ neverOOF-under-B(n)` over step/call/Θ/Ξ/Lambda/X;
+  the IH at `< n` supplies BOTH child gas-mono and child never-OOF.
+  **Remaining work items (4):**
+  - **G1** (brick, delegated): precompiled `Θ` arm of `Θ_gas_le` (`.Precompiled`, non-recursive;
+    `gas_branch_le` + per-contract sweep, ~120 lines — recipe in the B2h entry below).
+  - **N1** (brick, delegated): strict gas-descent on CALL/CREATE iterations — generalize
+    `X_iter_gas_lt` to drop `¬isCallCreate`, via the already-proved `call_result_gas_lt` /
+    `create*_result_gas_lt` (as CONDITIONAL bricks: child gas-mono stays a hypothesis the A1
+    induction later discharges). Bottoms out the X-loop on every iteration.
+  - **N2** (design, HELD by orchestrator): define `B(g,d) = (1025−d)·(g+c)`, prove its one-step
+    recurrence + gas-monotonicity; part of A1's design.
+  - **A1** (assembly, HELD by orchestrator — integration risk where the product bound is
+    TESTED): the combined mutual induction tying G1+N1+N2; instantiate the headline at the
+    initial depth (verify the 1024-vs-1025 off-by-one).
+  G1+N1 dispatched to ONE background agent (sequential, same file → no concurrent-build race);
+  N2+A1 held for orchestrator design + steer.
 - 2026-06-23 (B2h — gas-monotonicity per-layer reductions; sub-task 1 of the headline
   assembly). `lake build NestedEvmYul.NeverOutOfFuel` GREEN; `#print axioms` on every new
   theorem ⊆ `[propext, Classical.choice, Quot.sound]` (`ofNat_le_of_le` only `[propext]`);
