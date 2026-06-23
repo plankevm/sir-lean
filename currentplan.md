@@ -325,6 +325,24 @@ your own branch with clear messages; never touch another track's files; if block
 write the blocker into PLAN.md before stopping.
 
 ## Orchestration log
+- 2026-06-23: **B2g CREATE de-risk DONE & verified — VERDICT: CREATE tractable** (`3c76a82`,
+  green, axiom-clean, 5 commits, clean tree). All CREATE/CREATE2/`Lambda` gas-descent bricks
+  closed (`create_gas_arith{,_lt}`, `create{,2}_result_gas_{le,lt}`, `C'_create{,2}_pos`,
+  `pop3/pop4_stack_index`). CREATE result gas = `.ofNat(gd.toNat − L(gd.toNat) + g'.toNat)`,
+  strict drop from the debit. Both CALL and CREATE bricks now exist ⇒ no CALL-only scoping
+  needed. Eduardo's steer was "push full headline (de-risk CREATE first)" → de-risk passed.
+  **Launched B2h** = the final mutual-induction assembly (both gas-monotonicity + never-OOF
+  with the super-linear `B`) to close `Θ_never_outOfFuel`.
+- 2026-06-23: **Track C v2 reformulation — plan written + prototype launched.** Eduardo's
+  design steer: IR semantics NOT gas-aware / NOT call-aware; external calls = "whatever the
+  bytecode does" (CompCert-style trace EVENTS, **not** an oracle); preservation on
+  observables; **keep gas introspection but DON'T model opcode gas costs** (gas = an observed
+  `gasRead` event, no counter). `docs/ir-design-v2.md` written (`04f37b3`, exp005-ir): gas/pc
+  leave the IR-facing surface (internal to the `Runs` witness), `Match.M4` deleted → caller-local
+  `G₀≤g` adequacy side-condition, `Match.M3`→observable `World`. **Launched C-v2 prototype**
+  (call-free: World + gas-free `IRRun` + `gasRead` event + observable-preservation on an
+  arith/storage/gas-branch example) to validate the shape before porting `workedCall`. v1
+  `wc_preserves` stays green as reference.
 - 2026-06-23: **B2f (4th iteration) landed PARTIAL & verified** (`34961b0`, green
   1029/1030, axiom-clean, clean tree, 7 commits). Closed all CALL-descent bricks (no-wrap
   UInt256 gas core, strict `call_result_gas_lt`, leaf gas-monotonicity, `pop7_stack_index`
