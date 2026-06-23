@@ -999,6 +999,60 @@ theorem wcResumed_gas (g : UInt64) (hg : 50000 ≤ g.toNat) :
   rw [Nat.mod_eq_of_lt (by omega)]
   omega
 
+/-- **Slot 7 of self is WARM in the resumed frame.** Block 0's `SSTORE 7 5` marked
+`(addrCaller, 7)` accessed; that survives the CALL (threaded into the child
+checkpoint) and the child's own `SSTORE` (which adds `(0xCA11EE, 7)`, keeping the
+caller's key). So the post-CALL `SLOAD 7` of self is warm (cost 100). -/
+theorem wcResumed_warm7 (g : UInt64) :
+    (wcResumed g).exec.substate.accessedStorageKeys.contains (addrCaller, 7) = true := by
+  rw [show (wcResumed g).exec.substate = (sstorePost (wcChildAfter2Push g) 7 5 []).substate from by
+      unfold wcResumed resumeAfterCall callPending
+      dsimp only [ExecutionState.replaceStackAndIncrPC]
+      show (wcChildFrameRes g).toCallResult.substate = _
+      unfold wcChildFrameRes endFrame
+      dsimp only [wcChildFrame, FrameResult.toCallResult, endCall]
+      rw [if_neg (by
+        show ¬ ((sstorePost (wcChildAfter2Push g) 7 5 []).accounts == ∅) = true
+        rw [show (sstorePost (wcChildAfter2Push g) 7 5 []).accounts = wcResumedAccounts from by
+            unfold sstorePost; dsimp only [ExecutionState.replaceStackAndIncrPC]
+            show ((wcChildAfter2Push g).toState.sstore 7 5).accounts = wcResumedAccounts
+            unfold wcResumedAccounts
+            apply sstore_accounts_congr
+            · show (wcChildAfter2Push g).accounts = wcChildPreExec.accounts; rfl
+            · show (wcChildAfter2Push g).executionEnv.address = wcChildPreExec.executionEnv.address; rfl]
+        decide)]]
+  -- The child SSTORE adds `(0xCA11EE, 7)` to the child checkpoint's accessed keys
+  -- (which already carry `(addrCaller, 7)` from block 0); membership of `(addrCaller, 7)`
+  -- survives. Reduce only the `accessedStorageKeys` field (never the refund).
+  unfold sstorePost State.sstore
+  dsimp only [ExecutionState.replaceStackAndIncrPC]
+  rw [show (wcChildAfter2Push g).toState.lookupAccount (wcChildAfter2Push g).executionEnv.address
+        = some calleeAccount from by
+      show wcChildXfer.find? (AccountAddress.ofUInt256 0xCA11EE) = some calleeAccount
+      unfold wcChildXfer wcStoredAccounts wcPreExec callerXfer accts callerAccount calleeAccount callerEnv
+      rfl]
+  dsimp only [Option.option, State.setAccount, State.addAccessedStorageKey,
+    Substate.addAccessedStorageKey]
+  rw [show (wcChildAfter2Push g).substate.accessedStorageKeys
+        = (∅ : Batteries.RBSet (AccountAddress × UInt256) Substate.storageKeysCmp).insert (addrCaller, 7) from by
+      show (wcChildCkptSubstate g).accessedStorageKeys = _
+      unfold wcChildCkptSubstate State.addAccessedAccount Substate.addAccessedAccount
+      dsimp only
+      show (wcCallSite g).exec.substate.accessedStorageKeys = _
+      show (sstoreFrame (wcBeforeSStore g) 7 5 []).exec.substate.accessedStorageKeys = _
+      unfold sstoreFrame sstorePost State.sstore
+      dsimp only [ExecutionState.replaceStackAndIncrPC, State.setAccount, State.addAccessedStorageKey,
+        State.lookupAccount, Substate.addAccessedStorageKey]
+      rw [show (wcBeforeSStore g).exec.accounts.find? (wcBeforeSStore g).exec.executionEnv.address
+            = some callerAccount from by
+          rw [wcBefore_acc, show (wcBeforeSStore g).exec.executionEnv.address = addrCaller from rfl]
+          unfold callerXfer accts callerAccount; rfl]
+      show (((wcBeforeSStore g).exec.substate.addAccessedStorageKey (addrCaller, 7)).accessedStorageKeys) = _
+      rw [show (wcBeforeSStore g).exec.substate = default from rfl]
+      rfl]
+  rw [show (wcChildAfter2Push g).executionEnv.address = AccountAddress.ofUInt256 0xCA11EE from rfl]
+  decide
+
 /-! ## The general `RETURN` halt (materialised return window)
 
 The lowering's `ret t` emits `materialise t ++ [RETURN]`, so the `RETURN` consumes
