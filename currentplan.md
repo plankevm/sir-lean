@@ -298,6 +298,14 @@ your own branch with clear messages; never touch another track's files; if block
 write the blocker into PLAN.md before stopping.
 
 ## Orchestration log
+- 2026-06-22: **`validJumpDests` DETOTALIZED + A→base merge #2 + C unblocked** (`07c8b8c`;
+  merges clean, base green 1130, C green 1129). `validJumpDestsAux` is now a total WF def
+  with a full jump-dest characterization (`mem_validJumpDests_of_reachable_jumpdest`,
+  `ReachesBoundary`, `Frame.get_dest_of_mem`); Conform still builds; upstreamable to
+  philogy. Launched the **C hypothesis-free close**: discharge the branch terminator (via
+  the new lemmas) + the concrete child `CallReturns` + the 3 report cleanups (ir-design §6
+  sync, Match doc, maxHeartbeats). Goal: `wc_preserves`/`wc_preserves_twoCall` fully
+  hypothesis-free ⇒ a complete verified single+multi-call lowering. Still running: B2.
 - 2026-06-22: **Track C review report DONE & committed** (`docs/track-c-review.md`, 561
   lines, on `exp005-ir`). Surfaced cleanup items for the C-close / cleanup sweep: (i)
   `ir-design.md §6` describes a generic `IRStep`/`lower_simulates_step` engine that was
