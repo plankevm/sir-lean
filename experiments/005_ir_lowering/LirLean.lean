@@ -15,3 +15,5 @@ import LirLean.WorkedCall
 -- v2 (exp005) prototype — gas-free, observable, event-trace IR + preservation.
 import LirLean.V2.Machine
 import LirLean.V2.Preserve
+-- v2 (exp005) two-read gas-monotonicity milestone (§3.4).
+import LirLean.V2.Mono
