@@ -30,9 +30,12 @@ composing naturally (the thing flat makes hard).
   Add a lakefile for exp004 requiring the vendored `evmyul`.
 - [~] **B2** Never-`OutOfFuel` on nested `Ξ/Θ`: fuel ≥ gas-derived bound ⇒ no
   `OutOfFuel` (nested analogue of exp003's `messageCall_never_outOfFuel`).
-  PARTIAL — cornerstone + the full gas-decrement chain (`Z→step→X`) + the `X`
-  measure descent are now proved; the cross-layer descent and the final mutual
-  induction remain. See B2 logs below.
+  PARTIAL — cornerstone + gas-decrement chain (`Z→step→X`) + `X` measure descent +
+  cross-layer gas/depth conservation (item 3) + 4/5 layer propagation skeletons
+  (`Ξ`/`Θ`-Code/`call`/`Lambda`) are now proved. REMAINING: the `step` skeleton, the
+  `X`-loop inner induction, the precompiled `Θ`-arm, and the final mutual induction
+  — the last blocked on a **depth-aware** `seedFuel` (the current `4*(g+1)` is
+  insufficient for nested calls). See B2/B2d logs below.
 - [ ] **B3** Nested external-call core: `{P} Ξ(child) {Q}` triple + call-site/frame
   rule; show ≥2 calls compose naturally.
 - [ ] **B4** Observables-only, fuel/frame-free surface for IRs.
@@ -52,6 +55,77 @@ composing naturally (the thing flat makes hard).
 > branch; do not touch other tracks. Report the final build status + what was stripped.
 
 ## Progress log
+- 2026-06-22 (B2d, item 3 DONE + 4 propagation skeletons): Cross-layer gas/depth
+  conservation closed, and four of the five recursive layers now have their
+  inductive-step (`fuel+1`) OutOfFuel-propagation skeleton **fully proved**. Bare
+  `lake build` GREEN; `#print axioms` on every new theorem reports only
+  `[propext, (Classical.choice,) Quot.sound]` — no `sorryAx`, no custom axiom; zero
+  `sorry`/`admit`/`axiom`/`native_decide` in source. All in
+  `NestedEvmYul/NeverOutOfFuel.lean`.
+  - **Item 3 (child gas ≤ parent gas) — DONE.**
+    - `Cgascap_le_cap` (`Cgascap ≤ g`, the call's gas-stack cap, both branches).
+    - `Ccallgas_le_gas_of_cover`: the gas a `CALL`-family frame forwards to its
+      child (`Ccallgas = Cgascap (+ Gcallstipend when val≠0)`) is `≤` the parent's
+      available gas **in the branch where the parent covers `Cextra`** — because the
+      stipend `2300` is dominated by `Cxfer = Gcallvalue = 9000`, which the parent
+      pays as part of `Cextra` exactly when `val ≠ 0`. (Proved by casing on the
+      `Fin` value of `val`, which simultaneously decides the `Ccallgas` `⟨0⟩`-match
+      and the `Cxfer` `!=`-guard; the `bne`/`Cxfer` evaluate by `rfl` per arm.)
+    - `call_depth_bound`: the `call→Θ` recursion is gated by `Iₑ < 1024`, so the
+      child depth `e = Iₑ+1 ≤ 1024`.
+  - **Item 4 — propagation skeletons (4/5 layers DONE), final assembly NOT closed.**
+    Each layer emits `.error .OutOfFuel` **directly** only at its `fuel = 0` arm
+    (the proved base cases); at `fuel+1` it only *propagates*. Proved skeletons
+    reduce `layer (fuel+1) … ≠ OutOfFuel` to the sub-layer it calls:
+    - `Ξ_outOfFuel_of`: `Ξ(f+1)` ⇐ `X f` (the success post-processing never errors).
+    - `Θ_outOfFuel_of`: `Θ(fuel+1)` on a **`Code`** call ⇐ `Ξ fuel` (the explicit
+      `if e == .OutOfFuel then throw .OutOfFuel` re-throw; other `Ξ`-errors swallowed
+      into `pure`).
+    - `call_outOfFuel_of`: `call(f+1)` ⇐ `Θ f` (the balance/depth `if`-branch; the
+      `else` and post-call assembly are pure `.ok`).
+    - `Lambda_outOfFuel_of`: `Lambda(f+1)` (CREATE/CREATE2) ⇐ `Ξ f` (same re-throw
+      shape as `Θ`'s Code arm; the leading `L_A` address lift only ever errors as
+      `.StackUnderflow`).
+    Tactic notes: `unfold Θ` fails (do-block equation-lemma gen), but
+    `simp only [Θ, bind, Except.bind]` works for the `Code` arm; the `Ξ`/`Θ`/`Lambda`
+    error arms use `by_cases err = OutOfFuel` + a `cases err` BEq-`false` lemma
+    (`ExecutionException` has only derived `BEq`, no `LawfulBEq`). The local
+    `MonadLift Option (Except …)` sends `none → .error .StackUnderflow`.
+  - **REMAINING for the headline `Θ_never_outOfFuel` (documented in-file + here, NOT
+    faked):**
+    1. **`step` skeleton.** `step(f+1) cost (some (w,a)) s` ⇐ `call f` (CALL family,
+       have `call_outOfFuel_of`) + `Lambda f` (CREATE family, have
+       `Lambda_outOfFuel_of`) + `EvmYul.step` (default arm, never `OutOfFuel`: the
+       shared interpreter mentions OutOfFuel **nowhere** (`grep` = 0), but a Lean
+       proof still needs the per-arm sweep like `gas_EvmYul_step`, or to be
+       parameterized over that clearly-true base fact). The routing itself is the
+       `cases w` defeq-coercion from `gas_EVM_step_default`.
+    2. **`X`-loop bound (the genuinely hard INNER induction).** `X(f+1)` halts (`.ok`)
+       or recurses `X f` on a *gas-strictly-smaller* state (`X_iter_gas_lt`, PROVED).
+       Concluding `X fuel … ≠ OutOfFuel` needs an inner induction on the loop-
+       iteration count, bounded by gas (each non-halting iter burns ≥1 gas), nested
+       inside the outer fuel induction: `fuel ≥ gas+1` covers a single frame's loop.
+    3. **Precompiled `Θ`-arm** (non-recursive; never `OutOfFuel` — every numeric arm
+       and the `_ => default = .ok default` fallthrough are `.ok`). Term-size-heavy:
+       the `Θ.eq` lemmas for `.Precompiled` are enormous, and the literal-pattern
+       `match pc with | 1 … | 10 …` makes `split` emit unprovable `pc = n → False`
+       exhaustiveness side-goals. Needs a bespoke reduction, not `split`.
+    4. **Final mutual `fuel` induction** (strong induction on `fuel` over the six-
+       layer mutual statement). The skeletons above are the per-layer `fuel+1` steps;
+       the IH at `fuel` discharges each hand-off PROVIDED the fuel bound is threaded.
+  - **KEY DESIGN FINDING — `seedFuel` must be DEPTH-AWARE.** The current
+    `seedFuel g = 4*(g+1)` is **insufficient** for the nested case. Reason: along a
+    single root-to-leaf fuel path, gas is only **non-increasing** across a descent
+    (child gas ≤ parent gas, item 3 — but NOT strictly smaller per descent), while
+    fuel must also cover the `~4` hops × up-to-`1024` descents. Two sound fixes:
+    (a) **depth-aware product bound** `B(gas,depth) = (1025 - depth) * 4*(gas+1)`
+        (a frame at depth `e ≤ 1024` needs `≤ 4*(gas+1)` for its own X-loop+hops plus
+        its child's `B(·,e+1)`; avoids gas-telescoping by bounding by the *product*
+        `gas × remaining-depth`); or
+    (b) prove **gas-telescoping** (`childgas ≤ parentgas − (parent's iters so far)`,
+        so `Σ frame-iters ≤ root gas`) and use `B = 4*(gas) + 4*1024`. (a) is the
+        lower-effort route. Either way the headline's `hfuel` hypothesis must be
+        restated against the depth-aware bound (or the depth pinned at the top frame).
 - 2026-06-22 (B2c, PARTIAL→measure assembly): The `Z→step→X` gas-decrement chain
   and the `X` measure descent are now **fully proved** (no `sorry`/`axiom`); bare
   `lake build` GREEN; `#print axioms` on every new theorem reports only
