@@ -2623,6 +2623,166 @@ theorem step_call_gas_le (f cost : ℕ) (arg) (s s' : State)
         · intro cA σ σ₀ Asub src o rcpt cc gg p vv vv' dd ee Hd ww res hΘeq
           exact hΘ cA σ σ₀ Asub src o rcpt cc gg p vv vv' dd ee Hd ww res hΘeq
 
+set_option maxHeartbeats 4000000 in
+/-- **CALLCODE-arm `step` gas-monotonicity.** As `step_call_gas_le`; the `call`-arm
+passes `recipient = .ofNat codeOwner`, which round-trips back to `codeOwner` (the
+recipient `C' .CALLCODE` charges), reconciled by `accountAddr_roundtrip`. -/
+theorem step_callcode_gas_le (f cost : ℕ) (arg) (s s' : State)
+    (hcle : cost ≤ s.gasAvailable.toNat)
+    (hcost : cost = C' s .CALLCODE)
+    (hΘ : ∀ (cA : Batteries.RBSet AccountAddress compare) (σ σ₀ : AccountMap)
+            (Asub : Substate) (src o rcpt : AccountAddress) (c : ToExecute)
+            (gg p vv vv' : UInt256) (dd : ByteArray) (e : Nat) (Hd : BlockHeader) (ww : Bool)
+            (res),
+          Θ (f-1) s.executionEnv.blobVersionedHashes cA s.genesisBlockHeader s.blocks σ σ₀ Asub src o rcpt c gg p vv vv' dd e Hd ww
+            = .ok res → res.2.2.1.toNat ≤ gg.toNat)
+    (h : step (f+1) cost (some (.CALLCODE, arg)) s = .ok s') :
+    s'.gasAvailable.toNat ≤ s.gasAvailable.toNat := by
+  cases f with
+  | zero =>
+    dsimp only [step] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+    split at h
+    · exact absurd h (by simp)
+    · rename_i tup hpop; split at h
+      · exact absurd h (by simp)
+      · rename_i pr hcall; simp only [call] at hcall; exact absurd hcall (by simp)
+  | succ f' =>
+    dsimp only [step] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+    split at h
+    · exact absurd h (by simp)
+    · rename_i tup hpop; split at h
+      · exact absurd h (by simp)
+      · rename_i pr hcall
+        have hs' : s'.gasAvailable = pr.2.gasAvailable := by
+          have := Except.ok.inj h; rw [← this]; rfl
+        rw [hs']
+        set ev : State := { toSharedState := s.toSharedState, pc := s.pc, stack := s.stack, execLength := s.execLength + 1 } with hev
+        have hpop' : s.stack.pop7 = some tup := pop_of_liftM _ _ hpop
+        obtain ⟨tl, a, b, c, d, e, ff, g⟩ := tup
+        obtain ⟨hi0, hi1, hi2⟩ := pop7_stack_index s.stack tl a b c d e ff g hpop'
+        obtain ⟨x, result⟩ := pr
+        refine call_result_gas_le f' cost s.executionEnv.blobVersionedHashes
+          a (UInt256.ofNat s.executionEnv.codeOwner) (UInt256.ofNat s.executionEnv.codeOwner) b c c d e ff g s.executionEnv.perm ev x result
+          (by rw [hev]; exact hcle) ?_ ?_ hcall
+        · rw [hcost]
+          show Ccallgas (AccountAddress.ofUInt256 b) (AccountAddress.ofUInt256 (UInt256.ofNat s.executionEnv.codeOwner)) c a ev.accountMap ev.toMachineState ev.substate ≤ _
+          rw [accountAddr_roundtrip]
+          have hC : C' s .CALLCODE = Ccall (AccountAddress.ofUInt256 s.stack[1]!) s.executionEnv.codeOwner s.stack[2]! s.stack[0]! s.accountMap s.toMachineState s.substate := rfl
+          rw [hC, ← hi0, ← hi1, ← hi2]
+          exact Ccallgas_le_Ccall _ _ _ _ _ _ _
+        · intro cA σ σ₀ Asub src o rcpt cc gg p vv vv' dd ee Hd ww res hΘeq
+          exact hΘ cA σ σ₀ Asub src o rcpt cc gg p vv vv' dd ee Hd ww res hΘeq
+
+/-- **CALL-arm stack arg-matching (pop6).** Exposes the top two stack words. The
+`DELEGATECALL`/`STATICCALL` analogue of `pop7_stack_index` (those pop 6). -/
+theorem pop6_stack_index {α} [Inhabited α] (s tl : Stack α) (a b c d e f : α)
+    (h : s.pop6 = some (tl, a, b, c, d, e, f)) :
+    s[0]! = a ∧ s[1]! = b := by
+  unfold Stack.pop6 at h
+  split at h
+  · rename_i hd hd₁ hd₂ hd₃ hd₄ hd₅ tl'
+    simp only [Option.some.injEq, Prod.mk.injEq] at h
+    obtain ⟨_, rfl, rfl, _⟩ := h
+    exact ⟨rfl, rfl⟩
+  · exact absurd h (by simp)
+
+set_option maxHeartbeats 4000000 in
+/-- **DELEGATECALL-arm `step` gas-monotonicity.** `value = 0` (no stipend), and the
+`recipient = .ofNat codeOwner` round-trips back to `codeOwner` (`accountAddr_roundtrip`). -/
+theorem step_delegatecall_gas_le (f cost : ℕ) (arg) (s s' : State)
+    (hcle : cost ≤ s.gasAvailable.toNat)
+    (hcost : cost = C' s .DELEGATECALL)
+    (hΘ : ∀ (cA : Batteries.RBSet AccountAddress compare) (σ σ₀ : AccountMap)
+            (Asub : Substate) (src o rcpt : AccountAddress) (c : ToExecute)
+            (gg p vv vv' : UInt256) (dd : ByteArray) (e : Nat) (Hd : BlockHeader) (ww : Bool)
+            (res),
+          Θ (f-1) s.executionEnv.blobVersionedHashes cA s.genesisBlockHeader s.blocks σ σ₀ Asub src o rcpt c gg p vv vv' dd e Hd ww
+            = .ok res → res.2.2.1.toNat ≤ gg.toNat)
+    (h : step (f+1) cost (some (.DELEGATECALL, arg)) s = .ok s') :
+    s'.gasAvailable.toNat ≤ s.gasAvailable.toNat := by
+  cases f with
+  | zero =>
+    dsimp only [step] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+    split at h
+    · exact absurd h (by simp)
+    · rename_i tup hpop; split at h
+      · exact absurd h (by simp)
+      · rename_i pr hcall; simp only [call] at hcall; exact absurd hcall (by simp)
+  | succ f' =>
+    dsimp only [step] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+    split at h
+    · exact absurd h (by simp)
+    · rename_i tup hpop; split at h
+      · exact absurd h (by simp)
+      · rename_i pr hcall
+        have hs' : s'.gasAvailable = pr.2.gasAvailable := by
+          have := Except.ok.inj h; rw [← this]; rfl
+        rw [hs']
+        set ev : State := { toSharedState := s.toSharedState, pc := s.pc, stack := s.stack, execLength := s.execLength + 1 } with hev
+        have hpop' : s.stack.pop6 = some tup := pop_of_liftM _ _ hpop
+        obtain ⟨tl, a, b, c, d, e, ff⟩ := tup
+        obtain ⟨hi0, hi1⟩ := pop6_stack_index s.stack tl a b c d e ff hpop'
+        obtain ⟨x, result⟩ := pr
+        refine call_result_gas_le f' cost s.executionEnv.blobVersionedHashes
+          a (UInt256.ofNat s.executionEnv.source) (UInt256.ofNat s.executionEnv.codeOwner) b ⟨0⟩ s.executionEnv.weiValue c d e ff s.executionEnv.perm ev x result
+          (by rw [hev]; exact hcle) ?_ ?_ hcall
+        · rw [hcost]
+          show Ccallgas (AccountAddress.ofUInt256 b) (AccountAddress.ofUInt256 (UInt256.ofNat s.executionEnv.codeOwner)) ⟨0⟩ a ev.accountMap ev.toMachineState ev.substate ≤ _
+          rw [accountAddr_roundtrip]
+          have hC : C' s .DELEGATECALL = Ccall (AccountAddress.ofUInt256 s.stack[1]!) s.executionEnv.codeOwner ⟨0⟩ s.stack[0]! s.accountMap s.toMachineState s.substate := rfl
+          rw [hC, ← hi0, ← hi1]
+          exact Ccallgas_le_Ccall _ _ _ _ _ _ _
+        · intro cA σ σ₀ Asub src o rcpt cc gg p vv vv' dd ee Hd ww res hΘeq
+          exact hΘ cA σ σ₀ Asub src o rcpt cc gg p vv vv' dd ee Hd ww res hΘeq
+
+set_option maxHeartbeats 4000000 in
+/-- **STATICCALL-arm `step` gas-monotonicity.** `value = 0`, recipient `= ofUInt256 μ₁`
+matches `C' .STATICCALL` directly (no round-trip needed). -/
+theorem step_staticcall_gas_le (f cost : ℕ) (arg) (s s' : State)
+    (hcle : cost ≤ s.gasAvailable.toNat)
+    (hcost : cost = C' s .STATICCALL)
+    (hΘ : ∀ (cA : Batteries.RBSet AccountAddress compare) (σ σ₀ : AccountMap)
+            (Asub : Substate) (src o rcpt : AccountAddress) (c : ToExecute)
+            (gg p vv vv' : UInt256) (dd : ByteArray) (e : Nat) (Hd : BlockHeader) (ww : Bool)
+            (res),
+          Θ (f-1) s.executionEnv.blobVersionedHashes cA s.genesisBlockHeader s.blocks σ σ₀ Asub src o rcpt c gg p vv vv' dd e Hd ww
+            = .ok res → res.2.2.1.toNat ≤ gg.toNat)
+    (h : step (f+1) cost (some (.STATICCALL, arg)) s = .ok s') :
+    s'.gasAvailable.toNat ≤ s.gasAvailable.toNat := by
+  cases f with
+  | zero =>
+    dsimp only [step] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+    split at h
+    · exact absurd h (by simp)
+    · rename_i tup hpop; split at h
+      · exact absurd h (by simp)
+      · rename_i pr hcall; simp only [call] at hcall; exact absurd hcall (by simp)
+  | succ f' =>
+    dsimp only [step] at h; simp only [bind, Except.bind, pure, Except.pure] at h
+    split at h
+    · exact absurd h (by simp)
+    · rename_i tup hpop; split at h
+      · exact absurd h (by simp)
+      · rename_i pr hcall
+        have hs' : s'.gasAvailable = pr.2.gasAvailable := by
+          have := Except.ok.inj h; rw [← this]; rfl
+        rw [hs']
+        set ev : State := { toSharedState := s.toSharedState, pc := s.pc, stack := s.stack, execLength := s.execLength + 1 } with hev
+        have hpop' : s.stack.pop6 = some tup := pop_of_liftM _ _ hpop
+        obtain ⟨tl, a, b, c, d, e, ff⟩ := tup
+        obtain ⟨hi0, hi1⟩ := pop6_stack_index s.stack tl a b c d e ff hpop'
+        obtain ⟨x, result⟩ := pr
+        refine call_result_gas_le f' cost s.executionEnv.blobVersionedHashes
+          a (UInt256.ofNat s.executionEnv.codeOwner) b b ⟨0⟩ ⟨0⟩ c d e ff false ev x result
+          (by rw [hev]; exact hcle) ?_ ?_ hcall
+        · rw [hcost]
+          show Ccallgas (AccountAddress.ofUInt256 b) (AccountAddress.ofUInt256 b) ⟨0⟩ a ev.accountMap ev.toMachineState ev.substate ≤ _
+          have hC : C' s .STATICCALL = Ccall (AccountAddress.ofUInt256 s.stack[1]!) (AccountAddress.ofUInt256 s.stack[1]!) ⟨0⟩ s.stack[0]! s.accountMap s.toMachineState s.substate := rfl
+          rw [hC, ← hi0, ← hi1]
+          exact Ccallgas_le_Ccall _ _ _ _ _ _ _
+        · intro cA σ σ₀ Asub src o rcpt cc gg p vv vv' dd ee Hd ww res hΘeq
+          exact hΘ cA σ σ₀ Asub src o rcpt cc gg p vv vv' dd ee Hd ww res hΘeq
+
 /-! ## Status of the headline `Θ_never_outOfFuel` — what is closed and what remains
 
 ### CLOSED (this run)
