@@ -1138,6 +1138,370 @@ theorem Lambda_outOfFuel_of (f : ℕ) (bvh : List ByteArray)
       -- `Ξ = .ok (.revert …)` and `Ξ = .ok (.success …)`: both assemble to `.ok …`.
       all_goals (intro hc; exact Except.noConfusion hc)
 
+/-! ## Item 4a — `EvmYul.step` never emits `OutOfFuel`
+
+The shared interpreter `EvmYul.step` mentions `OutOfFuel` nowhere (a `grep` over
+`EvmYul/Semantics.lean` returns zero hits): every arm returns `.ok …`, `.error
+.StackUnderflow`, or `.error .InvalidInstruction`, and even the `_ => default`
+fallthrough is `.ok default` (the `Inhabited (Except ε α)` instance is `.ok`). We
+make that precise with a per-opcode sweep mirroring `gas_EvmYul_step` (no
+re-elaboration of the 140-arm `match`; each arm is closed by defeq to a combinator
+or inline `noOOF` lemma). This is the `EvmYul.step` base fact for the `step`
+skeleton's default arm. -/
+
+local macro "nooof_comb" defn:ident : tactic =>
+  `(tactic| (unfold $defn; first | (split <;> simp [Id.run]) | simp [Id.run]))
+
+theorem noOOF_execUnOp (f : Primop.Unary) (s : State) : EVM.execUnOp f s ≠ .error .OutOfFuel := by nooof_comb EVM.execUnOp
+theorem noOOF_execBinOp (f : Primop.Binary) (s : State) : EVM.execBinOp f s ≠ .error .OutOfFuel := by nooof_comb EVM.execBinOp
+theorem noOOF_execTriOp (f : Primop.Ternary) (s : State) : EVM.execTriOp f s ≠ .error .OutOfFuel := by nooof_comb EVM.execTriOp
+theorem noOOF_execQuadOp (f : Primop.Quaternary) (s : State) : EVM.execQuadOp f s ≠ .error .OutOfFuel := by nooof_comb EVM.execQuadOp
+theorem noOOF_executionEnvOp (op) (s : State) : EVM.executionEnvOp op s ≠ .error .OutOfFuel := by nooof_comb EVM.executionEnvOp
+theorem noOOF_unaryExecutionEnvOp (op) (s : State) : EVM.unaryExecutionEnvOp op s ≠ .error .OutOfFuel := by nooof_comb EVM.unaryExecutionEnvOp
+theorem noOOF_machineStateOp (op) (s : State) : EVM.machineStateOp op s ≠ .error .OutOfFuel := by nooof_comb EVM.machineStateOp
+theorem noOOF_stateOp (op) (s : State) : EVM.stateOp op s ≠ .error .OutOfFuel := by nooof_comb EVM.stateOp
+theorem noOOF_unaryStateOp (op) (s : State) : EVM.unaryStateOp op s ≠ .error .OutOfFuel := by nooof_comb EVM.unaryStateOp
+theorem noOOF_binaryStateOp (op) (s : State) : EVM.binaryStateOp op s ≠ .error .OutOfFuel := by nooof_comb EVM.binaryStateOp
+theorem noOOF_binaryMachineStateOp (op) (s : State) : EVM.binaryMachineStateOp op s ≠ .error .OutOfFuel := by nooof_comb EVM.binaryMachineStateOp
+theorem noOOF_binaryMachineStateOp' (op) (s : State) : EVM.binaryMachineStateOp' op s ≠ .error .OutOfFuel := by nooof_comb EVM.binaryMachineStateOp'
+theorem noOOF_ternaryMachineStateOp (op) (s : State) : EVM.ternaryMachineStateOp op s ≠ .error .OutOfFuel := by nooof_comb EVM.ternaryMachineStateOp
+theorem noOOF_ternaryCopyOp (op) (s : State) : EVM.ternaryCopyOp op s ≠ .error .OutOfFuel := by nooof_comb EVM.ternaryCopyOp
+theorem noOOF_quaternaryCopyOp (op) (s : State) : EVM.quaternaryCopyOp op s ≠ .error .OutOfFuel := by nooof_comb EVM.quaternaryCopyOp
+theorem noOOF_log0Op (s : State) : EVM.log0Op s ≠ .error .OutOfFuel := by nooof_comb EVM.log0Op
+theorem noOOF_log1Op (s : State) : EVM.log1Op s ≠ .error .OutOfFuel := by nooof_comb EVM.log1Op
+theorem noOOF_log2Op (s : State) : EVM.log2Op s ≠ .error .OutOfFuel := by nooof_comb EVM.log2Op
+theorem noOOF_log3Op (s : State) : EVM.log3Op s ≠ .error .OutOfFuel := by nooof_comb EVM.log3Op
+theorem noOOF_log4Op (s : State) : EVM.log4Op s ≠ .error .OutOfFuel := by nooof_comb EVM.log4Op
+theorem noOOF_dup (n : ℕ) (s : State) : EvmYul.dup n s ≠ .error .OutOfFuel := by
+  unfold EvmYul.dup; simp only []; split <;> simp
+theorem noOOF_swap (n : ℕ) (s : State) : EvmYul.swap n s ≠ .error .OutOfFuel := by
+  unfold EvmYul.swap; simp only []; split <;> simp
+
+theorem noOOF_push (op : Operation.POp) (arg) (s : State) :
+    EvmYul.step (.Push op) arg s ≠ .error .OutOfFuel := by
+  cases op with
+  | PUSH0 =>
+    intro h
+    have h2 : (.ok (s.replaceStackAndIncrPC (s.stack.push ⟨0⟩)) : Except EVM.ExecutionException State)
+              = .error .OutOfFuel := h
+    exact Except.noConfusion h2
+  | _ =>
+    all_goals (
+      cases arg with
+      | none =>
+        intro h
+        have h2 : (.error .StackUnderflow : Except EVM.ExecutionException State) = .error .OutOfFuel := h
+        exact absurd h2 (by simp)
+      | some p =>
+        obtain ⟨a, w⟩ := p; intro h
+        have h2 : (.ok (s.replaceStackAndIncrPC (s.stack.push a) w.succ)
+                    : Except EVM.ExecutionException State) = .error .OutOfFuel := h
+        exact Except.noConfusion h2)
+
+theorem noOOF_inl_pop (arg) (s : State) : EvmYul.step (.StackMemFlow .POP) arg s ≠ .error .OutOfFuel := by
+  intro h
+  have h2 : (match s.stack.pop with
+              | some ⟨st, _⟩ => (.ok (s.replaceStackAndIncrPC st) : Except EVM.ExecutionException State)
+              | _ => .error .StackUnderflow) = .error .OutOfFuel := h
+  revert h2; split <;> (intro h2; exact absurd h2 (by simp))
+
+theorem noOOF_inl_mload (arg) (s : State) : EvmYul.step (.StackMemFlow .MLOAD) arg s ≠ .error .OutOfFuel := by
+  intro h
+  have h2 : (match s.stack.pop with
+              | some ⟨st, μ₀⟩ =>
+                (.ok (({s with toMachineState := (s.toMachineState.mload μ₀).2}).replaceStackAndIncrPC
+                        (st.push (s.toMachineState.mload μ₀).1)) : Except EVM.ExecutionException State)
+              | _ => .error .StackUnderflow) = .error .OutOfFuel := h
+  revert h2; split <;> (intro h2; exact absurd h2 (by simp))
+
+theorem noOOF_inl_returndatacopy (arg) (s : State) :
+    EvmYul.step (.Env .RETURNDATACOPY) arg s ≠ .error .OutOfFuel := by
+  intro h
+  have h2 : (match s.stack.pop3 with
+              | some ⟨st, μ₀, μ₁, μ₂⟩ =>
+                (.ok (({s with toMachineState := s.toMachineState.returndatacopy μ₀ μ₁ μ₂}).replaceStackAndIncrPC
+                        st) : Except EVM.ExecutionException State)
+              | _ => .error .StackUnderflow) = .error .OutOfFuel := h
+  revert h2; split <;> (intro h2; exact absurd h2 (by simp))
+
+theorem noOOF_inl_jump (arg) (s : State) : EvmYul.step (.StackMemFlow .JUMP) arg s ≠ .error .OutOfFuel := by
+  intro h
+  have h2 : (match s.stack.pop with
+              | some ⟨st, μ₀⟩ => (.ok {s with pc := μ₀, stack := st} : Except EVM.ExecutionException State)
+              | _ => .error .StackUnderflow) = .error .OutOfFuel := h
+  revert h2; split <;> (intro h2; exact absurd h2 (by simp))
+
+theorem noOOF_inl_jumpi (arg) (s : State) : EvmYul.step (.StackMemFlow .JUMPI) arg s ≠ .error .OutOfFuel := by
+  intro h
+  have h2 : (match s.stack.pop2 with
+              | some ⟨st, μ₀, μ₁⟩ =>
+                (.ok {s with pc := if μ₁ != (⟨0⟩ : UInt256) then μ₀ else s.pc + (⟨1⟩ : UInt256),
+                              stack := st} : Except EVM.ExecutionException State)
+              | _ => .error .StackUnderflow) = .error .OutOfFuel := h
+  revert h2; split <;> (intro h2; exact absurd h2 (by simp))
+
+theorem noOOF_inl_invalid (arg) (s : State) : EvmYul.step (.System .INVALID) arg s ≠ .error .OutOfFuel := by
+  intro h
+  have h2 : (.error .InvalidInstruction : Except EVM.ExecutionException State) = .error .OutOfFuel := h
+  exact absurd h2 (by simp)
+
+set_option maxHeartbeats 1000000 in
+theorem noOOF_inl_selfdestruct (arg) (s : State) :
+    EvmYul.step (.System .SELFDESTRUCT) arg s ≠ .error .OutOfFuel := by
+  intro h
+  have h2 : (match s.stack.pop with
+      | some ⟨st, μ₁⟩ =>
+        if s.createdAccounts.contains s.executionEnv.codeOwner then
+          (.ok (({s with
+              accountMap :=
+                match s.lookupAccount s.executionEnv.codeOwner with
+                  | none => s.accountMap
+                  | some σ_Iₐ =>
+                    match s.lookupAccount (AccountAddress.ofUInt256 μ₁) with
+                      | none =>
+                        if σ_Iₐ.balance == (⟨0⟩ : UInt256) then s.accountMap
+                        else s.accountMap.insert (AccountAddress.ofUInt256 μ₁)
+                                {(default : Account) with balance := σ_Iₐ.balance}
+                                |>.insert s.executionEnv.codeOwner {σ_Iₐ with balance := (⟨0⟩ : UInt256)}
+                      | some σ_r =>
+                        if (AccountAddress.ofUInt256 μ₁) ≠ s.executionEnv.codeOwner then
+                          s.accountMap.insert (AccountAddress.ofUInt256 μ₁)
+                              {σ_r with balance := σ_r.balance + σ_Iₐ.balance}
+                            |>.insert s.executionEnv.codeOwner {σ_Iₐ with balance := (⟨0⟩ : UInt256)}
+                        else s.accountMap.insert (AccountAddress.ofUInt256 μ₁) {σ_r with balance := (⟨0⟩ : UInt256)}
+                                |>.insert s.executionEnv.codeOwner {σ_Iₐ with balance := (⟨0⟩ : UInt256)}
+              substate :=
+                { s.substate with
+                    selfDestructSet := s.substate.selfDestructSet.insert s.executionEnv.codeOwner
+                    accessedAccounts := s.substate.accessedAccounts.insert (AccountAddress.ofUInt256 μ₁) }
+              }).replaceStackAndIncrPC st) : Except EVM.ExecutionException State)
+        else
+          (.ok (({s with
+              accountMap :=
+                match s.lookupAccount s.executionEnv.codeOwner with
+                  | none => s.accountMap
+                  | some σ_Iₐ =>
+                    match s.lookupAccount (AccountAddress.ofUInt256 μ₁) with
+                      | none =>
+                        if σ_Iₐ.balance == (⟨0⟩ : UInt256) then s.accountMap
+                        else s.accountMap.insert (AccountAddress.ofUInt256 μ₁)
+                                {(default : Account) with balance := σ_Iₐ.balance}
+                                |>.insert s.executionEnv.codeOwner {σ_Iₐ with balance := (⟨0⟩ : UInt256)}
+                      | some σ_r =>
+                        if (AccountAddress.ofUInt256 μ₁) ≠ s.executionEnv.codeOwner then
+                          s.accountMap.insert (AccountAddress.ofUInt256 μ₁)
+                              {σ_r with balance := σ_r.balance + σ_Iₐ.balance}
+                            |>.insert s.executionEnv.codeOwner {σ_Iₐ with balance := (⟨0⟩ : UInt256)}
+                        else s.accountMap
+              substate :=
+                { s.substate with accessedAccounts := s.substate.accessedAccounts.insert (AccountAddress.ofUInt256 μ₁) }
+              }).replaceStackAndIncrPC st) : Except EVM.ExecutionException State)
+      | _ => .error .StackUnderflow) = .error .OutOfFuel := h
+  clear h
+  revert h2
+  split
+  · split <;>
+      (repeat' first
+        | (intro h2; exact absurd h2 (by simp))
+        | split)
+  · intro h2; exact absurd h2 (by simp)
+
+local macro "noOOF_arm" hyp:ident : tactic =>
+  `(tactic|
+    first
+    | exact noOOF_execUnOp _ _ $hyp
+    | exact noOOF_execBinOp _ _ $hyp
+    | exact noOOF_execTriOp _ _ $hyp
+    | exact noOOF_execQuadOp _ _ $hyp
+    | exact noOOF_executionEnvOp _ _ $hyp
+    | exact noOOF_unaryExecutionEnvOp _ _ $hyp
+    | exact noOOF_machineStateOp _ _ $hyp
+    | exact noOOF_stateOp _ _ $hyp
+    | exact noOOF_unaryStateOp EvmYul.State.balance _ $hyp
+    | exact noOOF_unaryStateOp EvmYul.State.extCodeSize _ $hyp
+    | exact noOOF_unaryStateOp EvmYul.State.extCodeHash _ $hyp
+    | exact noOOF_unaryStateOp EvmYul.State.sload _ $hyp
+    | exact noOOF_unaryStateOp EvmYul.State.tload _ $hyp
+    | exact noOOF_unaryStateOp (fun s v ↦ (s, EvmYul.State.calldataload s v)) _ $hyp
+    | exact noOOF_unaryStateOp (fun s v ↦ (s, EvmYul.State.blockHash s v)) _ $hyp
+    | exact noOOF_binaryStateOp EvmYul.State.sstore _ $hyp
+    | exact noOOF_binaryStateOp EvmYul.State.tstore _ $hyp
+    | exact noOOF_binaryMachineStateOp MachineState.mstore _ $hyp
+    | exact noOOF_binaryMachineStateOp MachineState.mstore8 _ $hyp
+    | exact noOOF_binaryMachineStateOp MachineState.evmReturn _ $hyp
+    | exact noOOF_binaryMachineStateOp MachineState.evmRevert _ $hyp
+    | exact noOOF_binaryMachineStateOp' MachineState.keccak256 _ $hyp
+    | exact noOOF_ternaryMachineStateOp MachineState.mcopy _ $hyp
+    | exact noOOF_ternaryCopyOp SharedState.calldatacopy _ $hyp
+    | exact noOOF_ternaryCopyOp SharedState.codeCopy _ $hyp
+    | exact noOOF_quaternaryCopyOp SharedState.extCodeCopy' _ $hyp
+    | exact noOOF_log0Op _ $hyp
+    | exact noOOF_log1Op _ $hyp
+    | exact noOOF_log2Op _ $hyp
+    | exact noOOF_log3Op _ $hyp
+    | exact noOOF_log4Op _ $hyp)
+
+local macro "noOOF_inline" hyp:ident : tactic =>
+  `(tactic|
+    first
+    | exact absurd $hyp (by intro hc; exact Except.noConfusion hc)
+    | exact noOOF_inl_pop _ _ $hyp
+    | exact noOOF_inl_mload _ _ $hyp
+    | exact noOOF_inl_returndatacopy _ _ $hyp
+    | exact noOOF_inl_jump _ _ $hyp
+    | exact noOOF_inl_jumpi _ _ $hyp
+    | exact noOOF_inl_invalid _ _ $hyp
+    | exact noOOF_inl_selfdestruct _ _ $hyp)
+
+set_option maxHeartbeats 8000000 in
+/-- **`EvmYul.step` never `OutOfFuel`.** The shared interpreter emits only `.ok`,
+`.StackUnderflow`, `.InvalidInstruction`, or `.ok default` — never `OutOfFuel`. -/
+theorem noOOF_EvmYul_step (op : Operation) (arg : Option (UInt256 × Nat)) (s : State) :
+    EvmYul.step op arg s ≠ .error .OutOfFuel := by
+  intro h
+  cases op with
+  | StopArith o => cases o <;> first | (noOOF_arm h) | (noOOF_inline h)
+  | CompBit o => cases o <;> first | (noOOF_arm h) | (noOOF_inline h)
+  | Keccak o => cases o <;> exact noOOF_binaryMachineStateOp' MachineState.keccak256 _ h
+  | Env o => cases o <;> first | (noOOF_arm h) | (noOOF_inline h)
+  | Block o => cases o <;> first | (noOOF_arm h) | (noOOF_inline h)
+  | StackMemFlow o => cases o <;> first | (noOOF_arm h) | (noOOF_inline h)
+  | Push o => exact noOOF_push o arg s h
+  | Dup o => cases o <;> exact noOOF_dup _ _ h
+  | Exchange o => cases o <;> exact noOOF_swap _ _ h
+  | Log o => cases o <;>
+      first | exact noOOF_log0Op _ h | exact noOOF_log1Op _ h | exact noOOF_log2Op _ h
+            | exact noOOF_log3Op _ h | exact noOOF_log4Op _ h
+  | System o => cases o <;> first | (noOOF_arm h) | (noOOF_inline h)
+
+/-! ## Item 4b — the `step` skeleton (DONE)
+
+`step (f+1) cost (some (w,a)) s ≠ OutOfFuel` routes:
+* `CALL`/`CALLCODE`/`DELEGATECALL`/`STATICCALL` → `call f` (`noOOF_step_call*`, using
+  the `call f` non-`OutOfFuel` hypothesis);
+* `CREATE`/`CREATE2` → these *swallow* `Lambda`'s result into a tuple (the `match Λ
+  with | .ok … | _ => default` discards the error), so they are unconditionally
+  non-`OutOfFuel` — they never even need the `Lambda` hypothesis;
+* every other opcode → `EvmYul.step` on the gas-debited state (`noOOF_EvmYul_step`).
+
+`noOOF_step` assembles all three; the routing is the `cases w` defeq-coercion to
+the per-arm body (mirroring `gas_EVM_step_default`). -/
+
+/-- Generic call-arm body: `pop … >>= call f … >>= .ok (assemble)` propagates
+`OutOfFuel` only from `call f`. -/
+theorem noOOF_call_arm_body {X : Type}
+    (popv : Option X)
+    (callOf : X → Except EVM.ExecutionException (UInt256 × State))
+    (assemble : X → UInt256 × State → State)
+    (hcall : ∀ x, callOf x ≠ .error .OutOfFuel)
+    (h : (do
+      let r ← Option.option (Except.error ExecutionException.StackUnderflow) Except.ok popv
+      let p ← callOf r
+      Except.ok (assemble r p) : Except EVM.ExecutionException State) = .error .OutOfFuel) : False := by
+  revert h
+  simp only [bind, Except.bind]
+  cases hp : popv with
+  | none => simp [Option.option]
+  | some r =>
+    simp only [Option.option]
+    cases hr : callOf r with
+    | error e => intro h; injection h with h; exact hcall r (hr.trans (by rw [h]))
+    | ok p => intro h; simp at h
+
+theorem noOOF_step_call (f cost : ℕ) (a) (s : State)
+    (hcall : ∀ g src rcpt t v v' io is oo os perm s2,
+      call f cost s.executionEnv.blobVersionedHashes g src rcpt t v v' io is oo os perm s2
+        ≠ .error .OutOfFuel) :
+    step (f+1) cost (some (.System .CALL, a)) s ≠ .error .OutOfFuel := by
+  intro h; exact noOOF_call_arm_body _ _ _ (fun _ => hcall _ _ _ _ _ _ _ _ _ _ _ _) h
+
+theorem noOOF_step_callcode (f cost : ℕ) (a) (s : State)
+    (hcall : ∀ g src rcpt t v v' io is oo os perm s2,
+      call f cost s.executionEnv.blobVersionedHashes g src rcpt t v v' io is oo os perm s2
+        ≠ .error .OutOfFuel) :
+    step (f+1) cost (some (.System .CALLCODE, a)) s ≠ .error .OutOfFuel := by
+  intro h; exact noOOF_call_arm_body _ _ _ (fun _ => hcall _ _ _ _ _ _ _ _ _ _ _ _) h
+
+theorem noOOF_step_delegatecall (f cost : ℕ) (a) (s : State)
+    (hcall : ∀ g src rcpt t v v' io is oo os perm s2,
+      call f cost s.executionEnv.blobVersionedHashes g src rcpt t v v' io is oo os perm s2
+        ≠ .error .OutOfFuel) :
+    step (f+1) cost (some (.System .DELEGATECALL, a)) s ≠ .error .OutOfFuel := by
+  intro h; exact noOOF_call_arm_body _ _ _ (fun _ => hcall _ _ _ _ _ _ _ _ _ _ _ _) h
+
+theorem noOOF_step_staticcall (f cost : ℕ) (a) (s : State)
+    (hcall : ∀ g src rcpt t v v' io is oo os perm s2,
+      call f cost s.executionEnv.blobVersionedHashes g src rcpt t v v' io is oo os perm s2
+        ≠ .error .OutOfFuel) :
+    step (f+1) cost (some (.System .STATICCALL, a)) s ≠ .error .OutOfFuel := by
+  intro h; exact noOOF_call_arm_body _ _ _ (fun _ => hcall _ _ _ _ _ _ _ _ _ _ _ _) h
+
+set_option maxHeartbeats 8000000 in
+theorem noOOF_step_create (f cost : ℕ) (a) (s : State) :
+    step (f+1) cost (some (.System .CREATE, a)) s ≠ .error .OutOfFuel := by
+  intro h
+  dsimp only [step] at h
+  simp only [pure, Except.pure, bind, Except.bind] at h
+  repeat' first | split at h | (exact absurd h (by simp))
+
+set_option maxHeartbeats 8000000 in
+theorem noOOF_step_create2 (f cost : ℕ) (a) (s : State) :
+    step (f+1) cost (some (.System .CREATE2, a)) s ≠ .error .OutOfFuel := by
+  intro h
+  dsimp only [step] at h
+  simp only [pure, Except.pure, bind, Except.bind] at h
+  repeat' first | split at h | (exact absurd h (by simp))
+
+set_option maxHeartbeats 4000000 in
+/-- The `step` default arm (`¬ isCallCreate w`) hands off to `EvmYul.step` on the
+gas-debited state, which never errors `OutOfFuel` (`noOOF_EvmYul_step`). -/
+theorem noOOF_step_default (f cost : ℕ) (w : Operation) (a) (s : State) (hop : ¬ isCallCreate w) :
+    step (f+1) cost (some (w, a)) s ≠ .error .OutOfFuel := by
+  intro h
+  unfold isCallCreate at hop; push_neg at hop
+  obtain ⟨hc1, hc2, hc3, hc4, hc5, hc6⟩ := hop
+  set t : State := { s with execLength := s.execLength + 1, gasAvailable := s.gasAvailable - UInt256.ofNat cost } with ht
+  have key : ∀ (w' : Operation), EvmYul.step w' a t = .error .OutOfFuel → False :=
+    fun w' he => noOOF_EvmYul_step w' a t he
+  apply key w
+  cases w with
+  | StopArith o => cases o <;> exact h
+  | CompBit o => cases o <;> exact h
+  | Keccak o => cases o <;> exact h
+  | Env o => cases o <;> exact h
+  | Block o => cases o <;> exact h
+  | StackMemFlow o => cases o <;> exact h
+  | Push o => cases o <;> exact h
+  | Dup o => cases o <;> exact h
+  | Exchange o => cases o <;> exact h
+  | Log o => cases o <;> exact h
+  | System o =>
+      cases o <;>
+        first
+        | exact absurd rfl hc1 | exact absurd rfl hc2 | exact absurd rfl hc3
+        | exact absurd rfl hc4 | exact absurd rfl hc5 | exact absurd rfl hc6
+        | exact h
+
+/-- **The `step` skeleton (DONE).** `step (f+1) …` is never `OutOfFuel` provided
+every `call f …` (with `s`'s genesis/blocks) is not `OutOfFuel`. CREATE/CREATE2 are
+unconditional; the default arm goes through `noOOF_EvmYul_step`. -/
+theorem noOOF_step (f cost : ℕ) (w : Operation) (a) (s : State)
+    (hcall : ∀ g src rcpt t v v' io is oo os perm s2,
+      call f cost s.executionEnv.blobVersionedHashes g src rcpt t v v' io is oo os perm s2
+        ≠ .error .OutOfFuel) :
+    step (f+1) cost (some (w, a)) s ≠ .error .OutOfFuel := by
+  by_cases hcc : isCallCreate w
+  · -- one of the six call/create opcodes
+    unfold isCallCreate at hcc
+    rcases hcc with rfl | rfl | rfl | rfl | rfl | rfl
+    · exact noOOF_step_create f cost a s
+    · exact noOOF_step_create2 f cost a s
+    · exact noOOF_step_call f cost a s hcall
+    · exact noOOF_step_callcode f cost a s hcall
+    · exact noOOF_step_delegatecall f cost a s hcall
+    · exact noOOF_step_staticcall f cost a s hcall
+  · exact noOOF_step_default f cost w a s hcc
+
 /-! ## Item 4 (remaining) — `step`, `Lambda`, the `X`-loop, and the final induction
 
 The propagation skeletons above (`Ξ_outOfFuel_of`, `Θ_outOfFuel_of` for `Code`,
