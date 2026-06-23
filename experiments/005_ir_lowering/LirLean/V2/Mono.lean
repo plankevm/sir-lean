@@ -202,4 +202,193 @@ theorem guard_IRRun (w₀ : World) (g1 g2 : Word)
   rw [q6_world] at hbranch
   exact hbranch
 
+/-! ## 4. The bytecode witness — two `GAS` opcodes, monotonicity discharged
+
+The internal `Runs` witness, a hand-written PUSH1 bytecode (the prototype's documented
+cut — `lower` emits PUSH32, blowing up the decode kernel; the *reasoning* reused is
+identical). The two `GAS` opcodes realise the two `gasRead` events; the realised values
+are `g1 = ofUInt64 (g − 22108)` and `g2 = ofUInt64 (g − 22110)`, so `g2 ≤ g1` is the
+**actual machine gas-descent fact** — that is how we DISCHARGE the §3.4 monotonicity law
+from the bytecode side (the same `gasAvailable.toNat` descent the never-OutOfFuel fuel
+induction rides; here it is exact `subCharges` arithmetic + `omega`).
+
+```text
+pc 0  : PUSH1 5      60 05    value
+pc 2  : PUSH1 7      60 07    key
+pc 4  : SSTORE       55       storage[7] := 5     (the step between the two reads)
+pc 5  : GAS          5a       → g1 (first read)
+pc 6  : GAS          5a       → g2 (second read)   [stack: g2 :: g1]
+pc 7  : GT           11       → gt g2 g1 = lt g1 g2 (the "did gas go up?" guard)
+pc 8  : PUSH1 13     60 0d    JUMPI destination (the BAD block at pc 13)
+pc 10 : JUMPI        57       guard = 0 ⇒ fall through to STOP at 11 (GOOD)
+pc 11 : STOP         00       (GOOD — the taken fall-through arm)
+pc 12 : STOP         00       (padding)
+pc 13 : JUMPDEST     5b       (BAD block — never reached under monotonicity)
+```
+-/
+def guardBytecode : ByteArray :=
+  ⟨#[0x60,0x05, 0x60,0x07, 0x55, 0x5a, 0x5a, 0x11, 0x60,0x0d, 0x57, 0x00, 0x00, 0x5b]⟩
+
+/-- The top-level call running `guardBytecode` in `addrA` (present, default account;
+value-free, state-modifying, depth 0) — same world shape as the prototype. -/
+def guardParams (g : UInt64) : CallParams :=
+  { blobVersionedHashes := [], createdAccounts := ∅, genesisBlockHeader := default,
+    blocks := #[], accounts := (∅ : AccountMap).insert addrA default,
+    originalAccounts := ∅, substate := default,
+    caller := addrA, origin := addrA, recipient := addrA,
+    codeSource := .Code guardBytecode, gas := g, gasPrice := 0, value := 0,
+    apparentValue := 0, calldata := .empty, depth := 0, blockHeader := default,
+    chainId := 0, canModifyState := true }
+
+/-! ### Decode facts (literal `rfl`, cheap since PUSH1) -/
+
+private def gfr0 (g : UInt64) : Frame := codeFrame (guardParams g) guardBytecode
+
+theorem gdec_0  : decode guardBytecode 0  = some (.Push .PUSH1, some (5, 1))   := by rfl
+theorem gdec_2  : decode guardBytecode 2  = some (.Push .PUSH1, some (7, 1))   := by rfl
+theorem gdec_4  : decode guardBytecode 4  = some (.Smsf .SSTORE, .none)        := by rfl
+theorem gdec_5  : decode guardBytecode 5  = some (.Smsf .GAS, .none)           := by rfl
+theorem gdec_6  : decode guardBytecode 6  = some (.Smsf .GAS, .none)           := by rfl
+theorem gdec_7  : decode guardBytecode 7  = some (.ArithLogic .GT, .none)      := by rfl
+theorem gdec_8  : decode guardBytecode 8  = some (.Push .PUSH1, some (13, 1))  := by rfl
+theorem gdec_10 : decode guardBytecode 10 = some (.Smsf .JUMPI, .none)         := by rfl
+theorem gdec_11 : decode guardBytecode 11 = some (.System .STOP, .none)        := by rfl
+
+/-! ### The GT opcode rule
+
+There is no `runs_gt` upstream (only `runs_add`/`runs_lt`), so we derive it here. `GT`
+dispatches `binOp UInt256.gt exec` — structurally identical to `LT`'s `binOp UInt256.lt`
+— so the `stepFrame` characterization is the same proof as the (private) `stepFrame_binOp`
+with `op = GT`, landing in the public `binOpPost`. The crucial fact connecting it to the
+IR is the definitional `UInt256.gt b a = UInt256.lt a b` (`gt a b = fromBool (a > b)
+= fromBool (b < a) = lt b a`). -/
+
+/-- `GT` on `b :: a :: rest` computes `UInt256.gt b a` — definitionally `UInt256.lt a b`
+(the order swap). This is what makes the bytecode `GT` realise the IR's `lt g1 g2`. -/
+theorem gt_eq_lt_swap (a b : Word) : UInt256.gt b a = UInt256.lt a b := rfl
+
+/-- The post-GT frame (operands `a`/`b` popped, `UInt256.gt a b` pushed). -/
+def gtFrame (fr : Frame) (a b : Word) (rest : Stack UInt256) : Frame :=
+  { fr with exec := binOpPost fr.exec UInt256.gt a b rest }
+
+/-- The `stepFrame` characterization of `GT` (mirrors the private `stepFrame_binOp`). -/
+theorem stepFrame_gt (fr : Frame) (a b : Word) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.ArithLogic .GT, .none))
+    (hstk : fr.exec.stack = a :: b :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : Gverylow ≤ fr.exec.gasAvailable.toNat) :
+    stepFrame fr = .next (binOpPost fr.exec UInt256.gt a b rest) := by
+  unfold stepFrame
+  simp only [hdec]
+  dsimp only [Option.getD]
+  rw [if_neg (by nofun)]
+  have hov : ¬ (fr.exec.stack.size - stackPopCount (.ArithLogic .GT)
+      + stackPushCount (.ArithLogic .GT) > 1024) := by
+    simp only [show stackPopCount (.ArithLogic .GT) = 2 from rfl,
+               show stackPushCount (.ArithLogic .GT) = 1 from rfl]
+    have := hsz; omega
+  rw [if_neg hov]
+  rw [show dispatch (.ArithLogic .GT) .none fr fr.exec = binOp UInt256.gt fr.exec Gverylow from rfl]
+  unfold binOp charge
+  rw [if_neg (by omega)]
+  dsimp only [bind, Except.bind, pure, Except.pure]
+  rw [hstk]
+  dsimp only [Stack.pop2, liftM, monadLift, MonadLift.monadLift, Option.option, bind,
+    Except.bind, pure, Except.pure]
+  rfl
+
+/-- **The GT `Runs` rule.** One step to `binOpPost fr.exec UInt256.gt a b rest`. -/
+theorem runs_gt (fr : Frame) (a b : Word) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.ArithLogic .GT, .none))
+    (hstk : fr.exec.stack = a :: b :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : Gverylow ≤ fr.exec.gasAvailable.toNat) :
+    Runs fr (gtFrame fr a b rest) :=
+  Runs.single (stepsTo_of_next (stepFrame_gt fr a b rest hdec hstk hsz hgas))
+
+/-! ### The named post-frames (the internal `Runs` witness)
+
+`gf1 … gf6`: PUSH;PUSH;SSTORE;GAS;GAS;GT, then `gf7` pushes the JUMPI destination and the
+not-taken JUMPI falls through to the STOP at `gfStop`. -/
+
+private def gf1 (g : UInt64) : Frame := pushFrame (gfr0 g) 5
+private def gf2 (g : UInt64) : Frame := pushFrame (gf1 g) 7
+private def gf3 (g : UInt64) : Frame := sstoreFrame (gf2 g) 7 5 (gfr0 g).exec.stack
+private def gf4 (g : UInt64) : Frame := gasFrame (gf3 g)                       -- g1 read
+private def gf5 (g : UInt64) : Frame := gasFrame (gf4 g)                       -- g2 read
+
+/-- The self account is present in the entry world (for the SSTORE lens). -/
+private def gSelfAcc (g : UInt64) : Account := (gfr0 g).exec.accounts.find! addrA
+
+private theorem g_self_present (g : UInt64) :
+    (gfr0 g).exec.accounts.find? (gfr0 g).exec.executionEnv.address = some (gSelfAcc g) := by rfl
+
+/-! ### The realised gas readings and the monotonicity discharge
+
+`g1Read g = ofUInt64 (gf4.gasAvailable)`, `g2Read g = ofUInt64 (gf5.gasAvailable)` are the
+words the two `GAS` opcodes push. The §3.4 monotonicity law `g2.toNat ≤ g1.toNat` is the
+**actual gas-descent fact**: `gf5` charged one more `Gbase` than `gf4`, so its gas is
+strictly lower. Proved by exact `subCharges` arithmetic + `omega` — the discharge. -/
+
+/-- Charges (execution order) up to the first GAS read: `[3,3,22100,2]`, sum `22108`. -/
+private def gchs1 : List ℕ := [3, 3, 22100, 2]
+/-- Charges up to the second GAS read: `[3,3,22100,2,2]`, sum `22110`. -/
+private def gchs2 : List ℕ := [3, 3, 22100, 2, 2]
+
+private theorem g_gas_f1 (g : UInt64) : (gf1 g).exec.gasAvailable = subCharges g [3] := by
+  show (g - UInt64.ofNat Gverylow) = _; rfl
+private theorem g_gas_f2 (g : UInt64) : (gf2 g).exec.gasAvailable = subCharges g [3,3] := by
+  show ((gf1 g).exec.gasAvailable - UInt64.ofNat Gverylow) = _; rw [g_gas_f1]; rfl
+private theorem g_gas_f3 (g : UInt64) : (gf3 g).exec.gasAvailable = subCharges g [3,3,22100] := by
+  show ((gf2 g).exec.gasAvailable - UInt64.ofNat (sstoreChargeOf (gf2 g).exec 7 5)) = _
+  rw [show sstoreChargeOf (gf2 g).exec 7 5 = 22100 from rfl, g_gas_f2]; rfl
+private theorem g_gas_f4 (g : UInt64) : (gf4 g).exec.gasAvailable = subCharges g gchs1 := by
+  show ((gf3 g).exec.gasAvailable - UInt64.ofNat Gbase) = _; rw [g_gas_f3]; rfl
+private theorem g_gas_f5 (g : UInt64) : (gf5 g).exec.gasAvailable = subCharges g gchs2 := by
+  show ((gf4 g).exec.gasAvailable - UInt64.ofNat Gbase) = _; rw [g_gas_f4]; rfl
+
+/-- The first GAS read value (the word `gf4`'s GAS opcode pushed). -/
+def g1Read (g : UInt64) : Word := UInt256.ofUInt64 (subCharges g gchs1)
+/-- The second GAS read value (the word `gf5`'s GAS opcode pushed). -/
+def g2Read (g : UInt64) : Word := UInt256.ofUInt64 (subCharges g gchs2)
+
+/-- `UInt256.ofUInt64` preserves `toNat` (the gas word reads back its `UInt64` value).
+Limb reconstruction (`toNat_limbs`) of `⟨a.toUInt32, (a>>>32).toUInt32, 0,…⟩`, with the
+same `l0`/`l1` simp facts the prototype's `ofUInt64_ne_zero` used. -/
+theorem toNat_ofUInt64 (a : UInt64) : (UInt256.ofUInt64 a).toNat = a.toNat := by
+  rw [UInt256.toNat_limbs]
+  show ((a.toUInt32).toNat + ((a >>> (32:UInt64)).toUInt32).toNat * 2^32
+        + 0 * 2^64 + 0 * 2^96 + 0 * 2^128 + 0 * 2^160 + 0 * 2^192 + 0 * 2^224) = a.toNat
+  have lt64 : a.toNat < 2^64 := a.toNat_lt
+  simp only [UInt64.toUInt32_toNat, UInt64.toNat_shiftRight, Nat.shiftRight_eq_div_pow,
+             show ((32:UInt64).toNat) % 64 = 32 from rfl]
+  -- l0 = a.toNat % 2^32, l1 = a.toNat / 2^32 % 2^32, and a.toNat < 2^64
+  have dm0 := Nat.div_add_mod a.toNat (2^32)
+  have dm1 := Nat.div_add_mod (a.toNat / 2^32) (2^32)
+  simp only [show (2:Nat)^64 = 4294967296 * 4294967296 from rfl,
+             show (2:Nat)^32 = 4294967296 from rfl] at *
+  omega
+
+/-- **The monotonicity law, discharged from the bytecode side.** For `G₀ ≤ g` the actual
+gas-descent fact gives `(g2Read g).toNat ≤ (g1Read g).toNat` — the second `GAS` read is
+no larger than the first (it charged one more `Gbase`). This is the realised
+`Trace.gasMonotone [gasRead (g1Read g), gasRead (g2Read g)]`. -/
+theorem gReads_monotone (g : UInt64) (hg : 30000 ≤ g.toNat) :
+    (g2Read g).toNat ≤ (g1Read g).toNat := by
+  have h1 : (g1Read g).toNat = g.toNat - 22108 := by
+    show (UInt256.ofUInt64 (subCharges g gchs1)).toNat = _
+    rw [toNat_ofUInt64, toNat_subCharges g gchs1 (by show (22108:ℕ) ≤ g.toNat; omega)]
+    show g.toNat - 22108 = _; rfl
+  have h2 : (g2Read g).toNat = g.toNat - 22110 := by
+    show (UInt256.ofUInt64 (subCharges g gchs2)).toNat = _
+    rw [toNat_ofUInt64, toNat_subCharges g gchs2 (by show (22110:ℕ) ≤ g.toNat; omega)]
+    show g.toNat - 22110 = _; rfl
+  rw [h1, h2]; omega
+
+/-- The realised two-read trace is `gasMonotone` (the §3.4 law holds on the machine). -/
+theorem gReads_gasMonotone (g : UInt64) (hg : 30000 ≤ g.toNat) :
+    Trace.gasMonotone [Event.gasRead (g1Read g), Event.gasRead (g2Read g)] :=
+  gasMonotone_pair.mpr (gReads_monotone g hg)
+
 end Lir.V2
+
