@@ -2523,6 +2523,106 @@ theorem create2_result_gas_lt (f gasCost : ℕ) (arg : Option (UInt256 × Nat)) 
           simp only [Fin.ofNat]; rw [Nat.mod_eq_of_lt hLsz]
   · exact absurd h (by simp)
 
+/-! ## B2h — the gas-monotonicity mutual induction (assembly)
+
+The gas-monotonicity statements for the six mutual layers. Each is "a successful
+result lands at gas `≤` the forwarded gas". They reference each other one fuel level
+down, so they are proved by a single strong induction on `fuel` (`gas_mono` below),
+threading the proved descent bricks (`call_result_gas_le`, `create*_result_gas_le`,
+`step_default_gas_le`, `X_loop_gas_le`).
+
+First the per-CALL/CREATE-arm `step` gas-bounds: each reduces `step`'s arm to the
+child `call`/`Lambda` and applies the matching descent brick, with the arg-matching
+that reconciles the arm's `Ccallgas`/`Lambda`-forwarded gas with the charged `C'`. -/
+
+/-- `liftM (Option) = .ok x ⇒ the option is `some x`. The local `MonadLift Option
+(Except …)` sends `some → .ok`, `none → .error .StackUnderflow`. -/
+local instance : MonadLift Option (Except EVM.ExecutionException) :=
+  ⟨Option.option (.error .StackUnderflow) .ok⟩
+
+theorem pop_of_liftM {α} (o : Option α) (tup : α)
+    (h : (liftM o : Except EVM.ExecutionException α) = Except.ok tup) : o = some tup := by
+  cases hp : o with
+  | none => rw [hp] at h; exact absurd h (fun h => Except.noConfusion h)
+  | some t =>
+    rw [hp] at h
+    have h2 : (Except.ok t : Except EVM.ExecutionException α) = Except.ok tup := h
+    rw [Except.ok.inj h2]
+
+/-- `AccountAddress` roundtrips through `UInt256`: `ofUInt256 (ofNat a.val) = a`
+(addresses are 160-bit, so they fit in a `UInt256` without truncation). This
+reconciles the `CALLCODE`/`DELEGATECALL`/`STATICCALL` arms (which pass
+`.ofNat codeOwner` and round-trip back) with `C'`'s direct `codeOwner`. -/
+theorem accountAddr_roundtrip (a : AccountAddress) :
+    AccountAddress.ofUInt256 (UInt256.ofNat a.val) = a := by
+  apply Fin.ext
+  have h1 : a.val < AccountAddress.size := a.isLt
+  have h2 : AccountAddress.size < UInt256.size := by
+    unfold AccountAddress.size UInt256.size; norm_num
+  unfold AccountAddress.ofUInt256
+  have hv : (UInt256.ofNat a.val).val = a.val := by
+    show (Fin.ofNat _ a.val).val = a.val
+    simp only [Fin.ofNat]; exact Nat.mod_eq_of_lt (Nat.lt_trans h1 h2)
+  rw [hv]
+  show (a.val % AccountAddress.size) % AccountAddress.size = a.val
+  rw [Nat.mod_eq_of_lt h1, Nat.mod_eq_of_lt h1]
+
+set_option maxHeartbeats 4000000 in
+/-- **CALL-arm `step` gas-monotonicity.** A successful `step (f+1) (C' s .CALL) (.CALL,_) s`
+lands at gas `≤ s.gas`, given the child-`Θ` gas-monotonicity at fuel `f-1` (supplied
+by the mutual IH). Reduces the arm to `call f` and applies `call_result_gas_le` with
+the `pop7` arg-matching (`Ccallgas(call-args) = Ccallgas(C'-args) ≤ Ccall = C' s .CALL`). -/
+theorem step_call_gas_le (f cost : ℕ) (arg) (s s' : State)
+    (hcle : cost ≤ s.gasAvailable.toNat)
+    (hcost : cost = C' s .CALL)
+    (hΘ : ∀ (cA : Batteries.RBSet AccountAddress compare) (σ σ₀ : AccountMap)
+            (Asub : Substate) (src o rcpt : AccountAddress) (c : ToExecute)
+            (gg p vv vv' : UInt256) (dd : ByteArray) (e : Nat) (Hd : BlockHeader) (ww : Bool)
+            (res),
+          Θ (f-1) s.executionEnv.blobVersionedHashes cA s.genesisBlockHeader s.blocks σ σ₀ Asub src o rcpt c gg p vv vv' dd e Hd ww
+            = .ok res → res.2.2.1.toNat ≤ gg.toNat)
+    (h : step (f+1) cost (some (.CALL, arg)) s = .ok s') :
+    s'.gasAvailable.toNat ≤ s.gasAvailable.toNat := by
+  cases f with
+  | zero =>
+    dsimp only [step] at h
+    simp only [bind, Except.bind, pure, Except.pure] at h
+    split at h
+    · exact absurd h (by simp)
+    · rename_i tup hpop
+      split at h
+      · exact absurd h (by simp)
+      · rename_i pr hcall
+        simp only [call] at hcall
+        exact absurd hcall (by simp)
+  | succ f' =>
+    dsimp only [step] at h
+    simp only [bind, Except.bind, pure, Except.pure] at h
+    split at h
+    · exact absurd h (by simp)
+    · rename_i tup hpop
+      split at h
+      · exact absurd h (by simp)
+      · rename_i pr hcall
+        have hs' : s'.gasAvailable = pr.2.gasAvailable := by
+          have := Except.ok.inj h; rw [← this]; rfl
+        rw [hs']
+        set ev : State := { toSharedState := s.toSharedState, pc := s.pc, stack := s.stack, execLength := s.execLength + 1 } with hev
+        have hpop' : s.stack.pop7 = some tup := pop_of_liftM _ _ hpop
+        obtain ⟨tl, a, b, c, d, e, ff, g⟩ := tup
+        obtain ⟨hi0, hi1, hi2⟩ := pop7_stack_index s.stack tl a b c d e ff g hpop'
+        obtain ⟨x, result⟩ := pr
+        refine call_result_gas_le f' cost s.executionEnv.blobVersionedHashes
+          a (UInt256.ofNat s.executionEnv.codeOwner) b b c c d e ff g s.executionEnv.perm ev x result
+          (by rw [hev]; exact hcle) ?_ ?_ hcall
+        · rw [hcost]
+          show Ccallgas (AccountAddress.ofUInt256 b) (AccountAddress.ofUInt256 b) c a ev.accountMap ev.toMachineState ev.substate ≤ _
+          have hC : C' s .CALL = Ccall (AccountAddress.ofUInt256 s.stack[1]!) (AccountAddress.ofUInt256 s.stack[1]!) s.stack[2]! s.stack[0]! s.accountMap s.toMachineState s.substate := rfl
+          rw [hC, ← hi0, ← hi1, ← hi2]
+          exact Ccallgas_le_Ccall _ _ _ _ _ _ _
+        · intro cA σ σ₀ Asub src o rcpt cc gg p vv vv' dd ee Hd ww res hΘeq
+          exact hΘ cA σ σ₀ Asub src o rcpt cc gg p vv vv' dd ee Hd ww res hΘeq
+
 /-! ## Status of the headline `Θ_never_outOfFuel` — what is closed and what remains
 
 ### CLOSED (this run)
