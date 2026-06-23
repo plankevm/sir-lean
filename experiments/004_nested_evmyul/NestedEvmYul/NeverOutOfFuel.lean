@@ -1,5 +1,7 @@
 import EvmYul.EVM.Semantics
 import Mathlib.Tactic.FinCases
+import NestedEvmYul.GasArith
+import NestedEvmYul.PrecompileGas
 
 /-!
 # Nested never-`OutOfFuel` (Milestone B2) — WIP, always-green
@@ -912,22 +914,9 @@ theorem X_iter_gas_lt (f cost₂ : ℕ) (validJumps : Array UInt256) (w : Operat
   exact gas_sub_lt s₁.gasAvailable cost₂ hle hpos
     (Nat.lt_of_le_of_lt hle s₁.gasAvailable.val.isLt)
 
-/-- `UInt256` subtraction of a non-underflowing cost does not increase `.toNat`
-(the `≤` companion of `gas_sub_lt`). -/
-theorem gas_sub_le (g : UInt256) (m : ℕ) (hle : m ≤ g.toNat) (hm : m < UInt256.size) :
-    (g - UInt256.ofNat m).toNat ≤ g.toNat := by
-  have htn : g.toNat = g.val.val := rfl
-  have hgsz : g.val.val < UInt256.size := g.val.isLt
-  have hcmod : (Fin.ofNat UInt256.size m).val = m := by
-    simp only [Fin.ofNat, Fin.val_ofNat]; exact Nat.mod_eq_of_lt hm
-  have hsub : (g - UInt256.ofNat m).toNat = g.toNat - m := by
-    show ((g.val - (Fin.ofNat _ m))).val = g.val.val - m
-    rw [Fin.sub_def, hcmod]
-    show (UInt256.size - m + g.val.val) % UInt256.size = g.val.val - m
-    have hle' : m ≤ g.val.val := by rw [← htn]; exact hle
-    have hrw : UInt256.size - m + g.val.val = (g.val.val - m) + UInt256.size := by omega
-    rw [hrw, Nat.add_mod_right, Nat.mod_eq_of_lt (by omega)]
-  rw [hsub]; omega
+-- `gas_sub_le` (UInt256 subtraction of a non-underflowing cost does not increase `.toNat`,
+-- the `≤` companion of `gas_sub_lt`) now lives in `NestedEvmYul.GasArith` (shared with the
+-- precompile gas bricks), imported above.
 
 set_option maxHeartbeats 2000000 in
 /-- A successful `Z` returns a state whose gas does not exceed the input's: `Z`
@@ -2882,9 +2871,8 @@ set_option maxHeartbeats 2000000 in
 returns leftover gas `≤ g.toNat`, given the child `Ξ n` gas-monotonicity (`hΞ`). The
 three result sources: the swallowed-error branch (`g' = ⟨0⟩`), the `revert` branch
 (`g'` carried through), and the `success` branch (`g'` carried through) — all `≤ g`.
-(The `Precompiled` arm is a separate, non-recursive obligation; see
-`Θ_precompiled_never_outOfFuel` for its never-`OutOfFuel` companion, and the PLAN.md
-B2h entry for the uniform `g - .ofNat gᵣ ≤ g` precompile gas bound, still to assemble.) -/
+(The `Precompiled` arm is the separate, non-recursive `Θ_gas_le_precompiled` below, built
+on the per-contract `Ξ_*`-gas bricks in `NestedEvmYul.PrecompileGas`.) -/
 theorem Θ_gas_le_code (n : ℕ) (bvh : List ByteArray)
     (cA : Batteries.RBSet AccountAddress compare) (gh : BlockHeader) (blocks : ProcessedBlocks)
     (σ σ₀ : AccountMap) (A : Substate) (s o r : AccountAddress) (code : ByteArray)
@@ -2917,6 +2905,48 @@ theorem Θ_gas_le_code (n : ℕ) (bvh : List ByteArray)
     | revert g' oo =>
       simp only at h; injection h with h; subst h
       simp only [xiResultGas] at hgle; exact hgle
+
+set_option maxHeartbeats 4000000 in
+/-- **`Θ` gas-monotonicity, `Precompiled` arm.** A successful `Θ (n+1) … (.Precompiled pc) …
+g …` returns leftover gas `≤ g.toNat`. NON-recursive: each of the 10 precompiles `Ξ_*`
+returns leftover gas `≤ g` (the `*_gas_le` bricks in `NestedEvmYul.PrecompileGas`), and the
+`_ => default` fallthrough returns gas `⟨0⟩`. No child hypothesis needed. -/
+theorem Θ_gas_le_precompiled (n : ℕ) (bvh : List ByteArray)
+    (cA : Batteries.RBSet AccountAddress compare) (gh : BlockHeader) (blocks : ProcessedBlocks)
+    (σ σ₀ : AccountMap) (A : Substate) (s o r : AccountAddress) (pc : AccountAddress)
+    (g p v v' : UInt256) (d : ByteArray) (e : Nat) (Hd : BlockHeader) (w : Bool)
+    (res) (h : Θ (n+1) bvh cA gh blocks σ σ₀ A s o r (.Precompiled pc) g p v v' d e Hd w = .ok res) :
+    res.2.2.1.toNat ≤ g.toNat := by
+  simp only [Θ, bind, Except.bind, pure, Except.pure] at h
+  set I : ExecutionEnv := _ with hI
+  set σ₁ : AccountMap := _ with hσ₁
+  -- The `Precompiled pc` path binds `(_, _, _, g', _, _)` from the 10-way numeric match on
+  -- `pc` (each arm `.ok (∅, Ξ_* σ₁ g A I)`), or `default` on the fallthrough; then `.ok`s the
+  -- assembled tuple whose gas slot is exactly that `g'`. Drill the `pc` match, injecting `h`
+  -- to read off `res.2.2.1 = (Ξ_* …).2.2.1`, closed per-arm by the `*_gas_le` bricks.
+  split at h <;>
+    first
+    | (injection h with h; subst h; first
+        | exact ecrec_gas_le σ₁ g A I
+        | exact sha256_gas_le σ₁ g A I
+        | exact rip160_gas_le σ₁ g A I
+        | exact id_gas_le σ₁ g A I
+        | exact expmod_gas_le σ₁ g A I
+        | exact bn_add_gas_le σ₁ g A I
+        | exact bn_mul_gas_le σ₁ g A I
+        | exact snarkv_gas_le σ₁ g A I
+        | exact blake2_f_gas_le σ₁ g A I
+        | exact point_eval_gas_le σ₁ g A I
+        | exact Nat.zero_le _)
+    | exact absurd h (fun hc => Except.noConfusion hc)
+
+/-! ## Precompiled-contract gas bounds
+
+The `.Precompiled` arm of `Θ`-gas-monotonicity (`gas_branch_le` + the per-contract
+`Ξ_*`-gas bricks `ecrec_gas_le`/…/`point_eval_gas_le`) lives in the sibling module
+`NestedEvmYul.PrecompileGas` (imported above). It was split out because the FFI-backed
+precompiles have kernel-heavy `String`-pattern bodies; see that module + the lakefile
+`-s` (thread-stack) note. -/
 
 /-- `(UInt256.ofNat x).toNat ≤ g.toNat` when `x ≤ g.toNat` (no wrap, `x < size`). The
 common closer for the `.ofNat`-wrapped leftover-gas components in the `Lambda`/precompile

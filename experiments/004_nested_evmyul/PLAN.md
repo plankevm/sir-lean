@@ -59,6 +59,32 @@ composing naturally (the thing flat makes hard).
 > branch; do not touch other tracks. Report the final build status + what was stripped.
 
 ## Progress log
+- 2026-06-23 (G1 — precompiled `Θ`-gas arm DONE). `lake build NestedEvmYul.NeverOutOfFuel`
+  GREEN; `#print axioms` on every new theorem ⊆ `[propext, Classical.choice, Quot.sound]`
+  (`Θ_gas_le_precompiled` + `expmod_gas_le` use `Classical.choice`; the rest only
+  `[propext, Quot.sound]`); zero `sorry`/`admit`/`axiom`/`native_decide` in the additions.
+  - **The 10 per-contract `Ξ_*` gas bricks + the generic `gas_branch_le`** are PROVED. Each
+    `Ξ_*` returns leftover gas `if g.toNat < gᵣ then ⟨0⟩ else g − .ofNat gᵣ` (the fallible
+    ones — BN_ADD/BN_MUL/SNARKV/BLAKE2_F/PointEval — wrap the else in a `match` whose
+    `.error` arm is also `⟨0⟩`); both `≤ g`. Simple shape (ECREC/SHA256/RIP160/ID/EXPMOD):
+    `unfold; simp only []; rw [apply_ite (·.2.2.1)]; exact gas_branch_le _ _` — the
+    `apply_ite` push avoids `split` grabbing EXPMOD's inner `adjusted_exp_length` `if`s (the
+    B2h obstacle). Match shape: `by_cases` outer guard + `generalize` the result + `cases`.
+  - **`Θ_gas_le_precompiled`** assembles them into the `.Precompiled pc` arm of Θ-gas-mono
+    (non-recursive — NO child hypothesis). `simp only [Θ,…]` + `split at h` on the 10-way `pc`
+    match + per-arm `injection; subst; exact *_gas_le` (fallthrough → `Nat.zero_le`).
+  - **MODULE SPLIT + lakefile `-s` (IMPORTANT for A1).** The FFI-backed precompiles
+    (`BN_MUL`/`SNARKV`/… have kernel-heavy `String`-pattern bodies via `totallySafePerformIO`)
+    overflow the default *worker-thread* stack during kernel typechecking under `lake build`
+    (`(kernel) deep recursion detected`) — yet check fine on the main thread (`lake env lean`).
+    FIX: (a) the 10 bricks + `gas_branch_le` + `gas_sub_le` moved to siblings
+    `NestedEvmYul/GasArith.lean` (owns `gas_sub_le`+`gas_branch_le`+a `match_proj_le` helper)
+    and `NestedEvmYul/PrecompileGas.lean` (the 10 bricks), imported by `NeverOutOfFuel`;
+    (b) lakefile `moreLeanArgs += ["-s","1048576"]` (1 GB thread stack). `gas_sub_le` now lives
+    ONLY in `GasArith` (removed from `NeverOutOfFuel`; resolves via import). If A1 ever adds
+    more FFI-precompile reasoning, keep it in `PrecompileGas` / preserve the `-s` flag.
+  - **B2i plan check:** nothing here contradicts the LINEAR-PRODUCT bound. The precompile arm
+    is purely a gas-monotonicity leaf (`leftover ≤ g`), orthogonal to the depth recurrence.
 - 2026-06-23 (B2i — HEADLINE-CLOSE PLAN; decision: close full CALL+CREATE headline).
   **KEY DESIGN CORRECTION — the bound is LINEAR-PRODUCT, not super-linear.** B2e/B2f/B2g/B2h
   recorded the fuel bound as super-linear `B(g,d) ≈ (g+1)^(1025−d)`, on the premise that "a

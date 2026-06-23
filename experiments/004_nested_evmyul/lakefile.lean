@@ -9,7 +9,12 @@ open Lake DSL
 require evmyul from "EVMYulLean"
 
 package «nested_evmyul» where
-  moreLeanArgs := #["-DautoImplicit=false"]
+  -- `-s` raises the per-thread stack to 1 GB: the FFI-backed precompile gas lemmas
+  -- (`NestedEvmYul.PrecompileGas` — `Ξ_BN_MUL`/`SNARKV`/… have kernel-heavy `String`-pattern
+  -- bodies) overflow the default worker-thread stack during kernel typechecking under
+  -- `lake build` (`(kernel) deep recursion detected`), though they check fine on the main
+  -- thread (`lake env lean`).
+  moreLeanArgs := #["-DautoImplicit=false", "-s", "1048576"]
   moreServerOptions := #[⟨`autoImplicit, false⟩]
 
 @[default_target]
