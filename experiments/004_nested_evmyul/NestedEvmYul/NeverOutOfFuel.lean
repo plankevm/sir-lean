@@ -2918,6 +2918,42 @@ theorem Θ_gas_le_code (n : ℕ) (bvh : List ByteArray)
       simp only at h; injection h with h; subst h
       simp only [xiResultGas] at hgle; exact hgle
 
+/-- `(UInt256.ofNat x).toNat ≤ g.toNat` when `x ≤ g.toNat` (no wrap, `x < size`). The
+common closer for the `.ofNat`-wrapped leftover-gas components in the `Lambda`/precompile
+result-gas bounds. -/
+theorem ofNat_le_of_le (x : ℕ) (g : UInt256) (hb : x ≤ g.toNat) :
+    (UInt256.ofNat x).toNat ≤ g.toNat := by
+  have hsz : x < UInt256.size := Nat.lt_of_le_of_lt hb g.val.isLt
+  show (Fin.ofNat _ _).val ≤ _
+  simp only [Fin.ofNat]; rw [Nat.mod_eq_of_lt hsz]; exact hb
+
+set_option maxHeartbeats 2000000 in
+/-- **`Ξ` gas-monotonicity.** A successful `Ξ (n+1) … g … = .ok res` returns leftover
+gas `≤ g.toNat`, given the inner `X n` gas-monotonicity on the freshly-built child
+state (whose `gasAvailable` is exactly `g`). The `success`/`revert` post-processing
+carries the `X`-result gas through unchanged. -/
+theorem Ξ_gas_le (n : ℕ)
+    (cA : Batteries.RBSet AccountAddress compare) (gh : BlockHeader) (blocks : ProcessedBlocks)
+    (σ σ₀ : AccountMap) (g : UInt256) (A : Substate) (I : ExecutionEnv)
+    (hX : ∀ s : State, s.gasAvailable = g → ∀ res, X n (D_J I.code ⟨0⟩) s = .ok res → resultGas res ≤ g.toNat)
+    (res) (h : Ξ (n+1) cA gh blocks σ σ₀ g A I = .ok res) :
+    xiResultGas res ≤ g.toNat := by
+  unfold Ξ at h
+  simp only [bind, Except.bind] at h
+  set s0 : EVM.State := { (default : EVM.State) with accountMap := σ, σ₀ := σ₀, executionEnv := I, substate := A, createdAccounts := cA, gasAvailable := g, blocks := blocks, genesisBlockHeader := gh } with hs0
+  cases hr : X n (D_J I.code ⟨0⟩) s0 with
+  | error e => rw [hr] at h; exact absurd h (by simp)
+  | ok xr =>
+    rw [hr] at h
+    have hxle := hX s0 rfl xr hr
+    cases xr with
+    | success st oo =>
+      simp only at h; injection h with h; subst h
+      simp only [xiResultGas, resultGas] at *; exact hxle
+    | revert g' oo =>
+      simp only at h; injection h with h; subst h
+      simp only [xiResultGas, resultGas] at *; exact hxle
+
 /-! ## Status of the headline `Θ_never_outOfFuel` — what is closed and what remains
 
 ### CLOSED (this run)
