@@ -2283,6 +2283,208 @@ theorem create_result_gas_le (f gasCost : ℕ) (arg : Option (UInt256 × Nat)) (
           simp only [Fin.ofNat]; rw [Nat.mod_eq_of_lt hLsz]
   · exact absurd h (by simp)   -- pop3 = none → StackUnderflow
 
+set_option maxHeartbeats 4000000 in
+/-- **CREATE result-gas STRICT bound.** Strict companion of `create_result_gas_le`:
+a successful CREATE step with a *positive* base cost (`1 ≤ gasCost`, supplied by
+`Gcreate = 32000` at the assembly) lands at gas *strictly* less than the input. The
+strict drop comes from the debit `gd.toNat < ev.gas.toNat` (`gas_sub_lt`), since the
+result `gd − L gd + g' ≤ gd < ev.gas`. This bottoms out the `X` loop on a CREATE
+iteration. -/
+theorem create_result_gas_lt (f gasCost : ℕ) (arg : Option (UInt256 × Nat)) (ev s' : State)
+    (hcle : gasCost ≤ ev.gasAvailable.toNat) (hpos : 1 ≤ gasCost)
+    (hΛ : ∀ (bvh : List ByteArray) (cA : Batteries.RBSet AccountAddress compare)
+            (σ σ₀ : AccountMap) (Asub : Substate) (sndr orig : AccountAddress)
+            (gg pp vv : UInt256) (ii : ByteArray) (ee : UInt256) (zz : Option ByteArray)
+            (Hd : BlockHeader) (ww : Bool) (res),
+          Lambda f bvh cA ev.genesisBlockHeader ev.blocks σ σ₀ Asub sndr orig gg pp vv ii ee zz Hd ww
+            = .ok res → res.2.2.2.1.toNat ≤ gg.toNat)
+    (h : step (f+1) gasCost (some (.CREATE, arg)) ev = .ok s') :
+    s'.gasAvailable.toNat < ev.gasAvailable.toNat := by
+  set gd : UInt256 := ev.gasAvailable - UInt256.ofNat gasCost with hgd
+  have hcsz : gasCost < UInt256.size := Nat.lt_of_le_of_lt hcle ev.gasAvailable.val.isLt
+  have hgdlt : gd.toNat < ev.gasAvailable.toNat := gas_sub_lt ev.gasAvailable gasCost hcle hpos hcsz
+  have hgdsz : ev.gasAvailable.toNat < UInt256.size := ev.gasAvailable.val.isLt
+  simp only [step, bind, Except.bind, pure, Except.pure] at h
+  split at h
+  · rename_i stack μ₀ μ₁ μ₂ _hpop
+    split at h
+    · -- nonce-overflow branch
+      split at h
+      · exact absurd h (by simp)
+      · injection h with h; subst h
+        simp only [gasAvailable_replaceStackAndIncrPC]
+        refine create_gas_arith_lt gd.toNat ev.gasAvailable.toNat _ ?_ hgdlt hgdsz
+        have hLsz : L gd.toNat < UInt256.size :=
+          Nat.lt_of_le_of_lt (L_le _) (Nat.lt_of_le_of_lt (le_of_lt hgdlt) hgdsz)
+        show (UInt256.ofNat (L gd.toNat)).toNat ≤ L gd.toNat
+        show (Fin.ofNat _ _).val ≤ _
+        simp only [Fin.ofNat]; rw [Nat.mod_eq_of_lt hLsz]
+    · split at h
+      · split at h
+        · rename_i lama lamcA lamσ' lamg' lamA' lamz lamo hΛeq
+          split at h
+          · exact absurd h (by simp)
+          · injection h with h; subst h
+            simp only [gasAvailable_replaceStackAndIncrPC]
+            refine create_gas_arith_lt gd.toNat ev.gasAvailable.toNat _ ?_ hgdlt hgdsz
+            have hb := hΛ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ (lama, lamcA, lamσ', lamg', lamA', lamz, lamo) hΛeq
+            have hLsz : L gd.toNat < UInt256.size :=
+              Nat.lt_of_le_of_lt (L_le _) (Nat.lt_of_le_of_lt (le_of_lt hgdlt) hgdsz)
+            have hfwd : (UInt256.ofNat (L gd.toNat)).toNat = L gd.toNat := by
+              show (Fin.ofNat _ _).val = _
+              simp only [Fin.ofNat]; rw [Nat.mod_eq_of_lt hLsz]
+            rw [hfwd] at hb; exact hb
+        · split at h
+          · exact absurd h (by simp)
+          · injection h with h; subst h
+            simp only [gasAvailable_replaceStackAndIncrPC]
+            refine create_gas_arith_lt gd.toNat ev.gasAvailable.toNat _ ?_ hgdlt hgdsz
+            show (⟨0⟩ : UInt256).toNat ≤ L gd.toNat
+            exact Nat.zero_le _
+      · split at h
+        · exact absurd h (by simp)
+        · injection h with h; subst h
+          simp only [gasAvailable_replaceStackAndIncrPC]
+          refine create_gas_arith_lt gd.toNat ev.gasAvailable.toNat _ ?_ hgdlt hgdsz
+          have hLsz : L gd.toNat < UInt256.size :=
+            Nat.lt_of_le_of_lt (L_le _) (Nat.lt_of_le_of_lt (le_of_lt hgdlt) hgdsz)
+          show (UInt256.ofNat (L gd.toNat)).toNat ≤ L gd.toNat
+          show (Fin.ofNat _ _).val ≤ _
+          simp only [Fin.ofNat]; rw [Nat.mod_eq_of_lt hLsz]
+  · exact absurd h (by simp)
+
+set_option maxHeartbeats 4000000 in
+/-- **CREATE2 result-gas bound.** Identical to `create_result_gas_le` — the CREATE2
+arm of `step` differs only in popping 4 stack words (the salt `μ₃`) instead of 3 and
+computing `ζ` from it; the gas accounting (`gd − L gd + g'`, the same `.ofNat` wrap,
+the same three `g'` branches) is byte-for-byte the same. -/
+theorem create2_result_gas_le (f gasCost : ℕ) (arg : Option (UInt256 × Nat)) (ev s' : State)
+    (hcle : gasCost ≤ ev.gasAvailable.toNat)
+    (hΛ : ∀ (bvh : List ByteArray) (cA : Batteries.RBSet AccountAddress compare)
+            (σ σ₀ : AccountMap) (Asub : Substate) (sndr orig : AccountAddress)
+            (gg pp vv : UInt256) (ii : ByteArray) (ee : UInt256) (zz : Option ByteArray)
+            (Hd : BlockHeader) (ww : Bool) (res),
+          Lambda f bvh cA ev.genesisBlockHeader ev.blocks σ σ₀ Asub sndr orig gg pp vv ii ee zz Hd ww
+            = .ok res → res.2.2.2.1.toNat ≤ gg.toNat)
+    (h : step (f+1) gasCost (some (.CREATE2, arg)) ev = .ok s') :
+    s'.gasAvailable.toNat ≤ ev.gasAvailable.toNat := by
+  set gd : UInt256 := ev.gasAvailable - UInt256.ofNat gasCost with hgd
+  have hcsz : gasCost < UInt256.size := Nat.lt_of_le_of_lt hcle ev.gasAvailable.val.isLt
+  have hgdle : gd.toNat ≤ ev.gasAvailable.toNat := gas_sub_le ev.gasAvailable gasCost hcle hcsz
+  have hgdsz : ev.gasAvailable.toNat < UInt256.size := ev.gasAvailable.val.isLt
+  simp only [step, bind, Except.bind, pure, Except.pure] at h
+  split at h
+  · rename_i stack μ₀ μ₁ μ₂ μ₃ _hpop
+    split at h
+    · split at h
+      · exact absurd h (by simp)
+      · injection h with h; subst h
+        simp only [gasAvailable_replaceStackAndIncrPC]
+        refine create_gas_arith gd.toNat ev.gasAvailable.toNat _ ?_ hgdle hgdsz
+        have hLsz : L gd.toNat < UInt256.size :=
+          Nat.lt_of_le_of_lt (L_le _) (Nat.lt_of_le_of_lt hgdle hgdsz)
+        show (UInt256.ofNat (L gd.toNat)).toNat ≤ L gd.toNat
+        show (Fin.ofNat _ _).val ≤ _
+        simp only [Fin.ofNat]; rw [Nat.mod_eq_of_lt hLsz]
+    · split at h
+      · split at h
+        · rename_i lama lamcA lamσ' lamg' lamA' lamz lamo hΛeq
+          split at h
+          · exact absurd h (by simp)
+          · injection h with h; subst h
+            simp only [gasAvailable_replaceStackAndIncrPC]
+            refine create_gas_arith gd.toNat ev.gasAvailable.toNat _ ?_ hgdle hgdsz
+            have hb := hΛ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ (lama, lamcA, lamσ', lamg', lamA', lamz, lamo) hΛeq
+            have hLsz : L gd.toNat < UInt256.size :=
+              Nat.lt_of_le_of_lt (L_le _) (Nat.lt_of_le_of_lt hgdle hgdsz)
+            have hfwd : (UInt256.ofNat (L gd.toNat)).toNat = L gd.toNat := by
+              show (Fin.ofNat _ _).val = _
+              simp only [Fin.ofNat]; rw [Nat.mod_eq_of_lt hLsz]
+            rw [hfwd] at hb; exact hb
+        · split at h
+          · exact absurd h (by simp)
+          · injection h with h; subst h
+            simp only [gasAvailable_replaceStackAndIncrPC]
+            refine create_gas_arith gd.toNat ev.gasAvailable.toNat _ ?_ hgdle hgdsz
+            show (⟨0⟩ : UInt256).toNat ≤ L gd.toNat
+            exact Nat.zero_le _
+      · split at h
+        · exact absurd h (by simp)
+        · injection h with h; subst h
+          simp only [gasAvailable_replaceStackAndIncrPC]
+          refine create_gas_arith gd.toNat ev.gasAvailable.toNat _ ?_ hgdle hgdsz
+          have hLsz : L gd.toNat < UInt256.size :=
+            Nat.lt_of_le_of_lt (L_le _) (Nat.lt_of_le_of_lt hgdle hgdsz)
+          show (UInt256.ofNat (L gd.toNat)).toNat ≤ L gd.toNat
+          show (Fin.ofNat _ _).val ≤ _
+          simp only [Fin.ofNat]; rw [Nat.mod_eq_of_lt hLsz]
+  · exact absurd h (by simp)
+
+set_option maxHeartbeats 4000000 in
+/-- **CREATE2 result-gas STRICT bound.** Strict companion; same as
+`create_result_gas_lt` over the `pop4` arm. -/
+theorem create2_result_gas_lt (f gasCost : ℕ) (arg : Option (UInt256 × Nat)) (ev s' : State)
+    (hcle : gasCost ≤ ev.gasAvailable.toNat) (hpos : 1 ≤ gasCost)
+    (hΛ : ∀ (bvh : List ByteArray) (cA : Batteries.RBSet AccountAddress compare)
+            (σ σ₀ : AccountMap) (Asub : Substate) (sndr orig : AccountAddress)
+            (gg pp vv : UInt256) (ii : ByteArray) (ee : UInt256) (zz : Option ByteArray)
+            (Hd : BlockHeader) (ww : Bool) (res),
+          Lambda f bvh cA ev.genesisBlockHeader ev.blocks σ σ₀ Asub sndr orig gg pp vv ii ee zz Hd ww
+            = .ok res → res.2.2.2.1.toNat ≤ gg.toNat)
+    (h : step (f+1) gasCost (some (.CREATE2, arg)) ev = .ok s') :
+    s'.gasAvailable.toNat < ev.gasAvailable.toNat := by
+  set gd : UInt256 := ev.gasAvailable - UInt256.ofNat gasCost with hgd
+  have hcsz : gasCost < UInt256.size := Nat.lt_of_le_of_lt hcle ev.gasAvailable.val.isLt
+  have hgdlt : gd.toNat < ev.gasAvailable.toNat := gas_sub_lt ev.gasAvailable gasCost hcle hpos hcsz
+  have hgdsz : ev.gasAvailable.toNat < UInt256.size := ev.gasAvailable.val.isLt
+  simp only [step, bind, Except.bind, pure, Except.pure] at h
+  split at h
+  · rename_i stack μ₀ μ₁ μ₂ μ₃ _hpop
+    split at h
+    · split at h
+      · exact absurd h (by simp)
+      · injection h with h; subst h
+        simp only [gasAvailable_replaceStackAndIncrPC]
+        refine create_gas_arith_lt gd.toNat ev.gasAvailable.toNat _ ?_ hgdlt hgdsz
+        have hLsz : L gd.toNat < UInt256.size :=
+          Nat.lt_of_le_of_lt (L_le _) (Nat.lt_of_le_of_lt (le_of_lt hgdlt) hgdsz)
+        show (UInt256.ofNat (L gd.toNat)).toNat ≤ L gd.toNat
+        show (Fin.ofNat _ _).val ≤ _
+        simp only [Fin.ofNat]; rw [Nat.mod_eq_of_lt hLsz]
+    · split at h
+      · split at h
+        · rename_i lama lamcA lamσ' lamg' lamA' lamz lamo hΛeq
+          split at h
+          · exact absurd h (by simp)
+          · injection h with h; subst h
+            simp only [gasAvailable_replaceStackAndIncrPC]
+            refine create_gas_arith_lt gd.toNat ev.gasAvailable.toNat _ ?_ hgdlt hgdsz
+            have hb := hΛ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ (lama, lamcA, lamσ', lamg', lamA', lamz, lamo) hΛeq
+            have hLsz : L gd.toNat < UInt256.size :=
+              Nat.lt_of_le_of_lt (L_le _) (Nat.lt_of_le_of_lt (le_of_lt hgdlt) hgdsz)
+            have hfwd : (UInt256.ofNat (L gd.toNat)).toNat = L gd.toNat := by
+              show (Fin.ofNat _ _).val = _
+              simp only [Fin.ofNat]; rw [Nat.mod_eq_of_lt hLsz]
+            rw [hfwd] at hb; exact hb
+        · split at h
+          · exact absurd h (by simp)
+          · injection h with h; subst h
+            simp only [gasAvailable_replaceStackAndIncrPC]
+            refine create_gas_arith_lt gd.toNat ev.gasAvailable.toNat _ ?_ hgdlt hgdsz
+            show (⟨0⟩ : UInt256).toNat ≤ L gd.toNat
+            exact Nat.zero_le _
+      · split at h
+        · exact absurd h (by simp)
+        · injection h with h; subst h
+          simp only [gasAvailable_replaceStackAndIncrPC]
+          refine create_gas_arith_lt gd.toNat ev.gasAvailable.toNat _ ?_ hgdlt hgdsz
+          have hLsz : L gd.toNat < UInt256.size :=
+            Nat.lt_of_le_of_lt (L_le _) (Nat.lt_of_le_of_lt (le_of_lt hgdlt) hgdsz)
+          show (UInt256.ofNat (L gd.toNat)).toNat ≤ L gd.toNat
+          show (Fin.ofNat _ _).val ≤ _
+          simp only [Fin.ofNat]; rw [Nat.mod_eq_of_lt hLsz]
+  · exact absurd h (by simp)
+
 /-! ## Status of the headline `Θ_never_outOfFuel` — what is closed and what remains
 
 ### CLOSED (this run)
