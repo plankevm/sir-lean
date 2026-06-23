@@ -1945,6 +1945,67 @@ theorem gas_add_sub_le (a b : UInt256) (c : ℕ) (hca : c ≤ a.toNat) (hcs : c 
     Nat.lt_of_le_of_lt hbound (a.val.isLt)
   rw [Nat.mod_eq_of_lt this]; exact hbound
 
+set_option maxHeartbeats 2000000 in
+/-- **`call` result gas bound.** A successful `call (f+1) cost … ev = .ok (x, result)`
+returns `result.gasAvailable.toNat ≤ ev.gasAvailable.toNat`, *provided* the child `Θ`
+never returns more than the forwarded gas (`hΘ`) and the call's `cost` covers the
+forwarded `callgas` (`hccg : Ccallgas … ≤ cost`) with `cost ≤ ev.gas.toNat`. The
+result gas is `(ev.gas - cost) + g'` (UInt256), and `g'.toNat ≤ callgas ≤ cost`
+rules out wraparound (`gas_add_sub_le`). The two `g'` sources — the child `Θ` (cover
+branch) and the `.ofNat callgas` fallback (else branch) — both satisfy
+`g'.toNat ≤ callgas`. -/
+theorem call_result_gas_le (f cost : ℕ) (bvh : List ByteArray)
+    (gas source recipient t value value' io is oo os : UInt256) (perm : Bool) (ev : State)
+    (x : UInt256) (result : State)
+    (hcle : cost ≤ ev.gasAvailable.toNat)
+    (hccg : Ccallgas (AccountAddress.ofUInt256 t) (AccountAddress.ofUInt256 recipient) value gas
+              ev.accountMap ev.toMachineState ev.substate ≤ cost)
+    (hΘ : ∀ (cA : Batteries.RBSet AccountAddress compare) (σ σ₀ : AccountMap)
+            (Asub : Substate) (src o rcpt : AccountAddress) (c : ToExecute)
+            (gg p vv vv' : UInt256) (dd : ByteArray) (e : Nat) (Hd : BlockHeader) (ww : Bool)
+            (res),
+          Θ f bvh cA ev.genesisBlockHeader ev.blocks σ σ₀ Asub src o rcpt c gg p vv vv' dd e Hd ww
+            = .ok res → res.2.2.1.toNat ≤ gg.toNat)
+    (h : call (f+1) cost bvh gas source recipient t value value' io is oo os perm ev
+          = .ok (x, result)) :
+    result.gasAvailable.toNat ≤ ev.gasAvailable.toNat := by
+  -- abbreviations matching `call`'s `let`s
+  set tA := AccountAddress.ofUInt256 t with htA
+  set rA := AccountAddress.ofUInt256 recipient with hrA
+  set callgas := Ccallgas tA rA value gas ev.accountMap ev.toMachineState ev.substate with hcg
+  -- the forwarded-gas word is `.ofNat callgas`; its `.toNat = callgas` since `callgas < size`.
+  have hcgsz : callgas < UInt256.size :=
+    Nat.lt_of_le_of_lt (le_trans hccg hcle) ev.gasAvailable.val.isLt
+  have hcgtoNat : (UInt256.ofNat callgas).toNat = callgas := by
+    show (Fin.ofNat _ callgas).val = callgas
+    simp only [Fin.ofNat, Fin.val_ofNat]; exact Nat.mod_eq_of_lt hcgsz
+  have hcostsz : cost < UInt256.size := Nat.lt_of_le_of_lt hcle ev.gasAvailable.val.isLt
+  -- the debited machine-gas = ev.gas - ofNat cost
+  simp only [call, bind, Except.bind] at h
+  -- the inner `g'` comes from either the Θ-branch or the `.ofNat callgas` else-branch;
+  -- in both cases `g'.toNat ≤ callgas`, and `result.gas = (ev.gas - ofNat cost) + g'`.
+  -- We expose `g'` by casing the `if value ≤ … ∧ Iₑ < 1024`.
+  split at h
+  · -- cover branch: g' comes from Θ
+    split at h
+    · exact absurd h (by simp)
+    · rename_i res hΘeq
+      have hg' : res.2.2.1.toNat ≤ (UInt256.ofNat callgas).toNat :=
+        hΘ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ res hΘeq
+      have hresgas : result.gasAvailable
+          = (ev.gasAvailable - UInt256.ofNat cost) + res.2.2.1 := by
+        have := Except.ok.inj h; rw [Prod.mk.injEq] at this; rw [← this.2]; rfl
+      rw [hresgas]
+      rw [hcgtoNat] at hg'
+      exact gas_add_sub_le ev.gasAvailable res.2.2.1 cost hcle hcostsz (le_trans hg' hccg)
+  · -- else branch: g' = .ofNat callgas
+    have hresgas : result.gasAvailable
+        = (ev.gasAvailable - UInt256.ofNat cost) + UInt256.ofNat callgas := by
+      have := Except.ok.inj h; rw [Prod.mk.injEq] at this; rw [← this.2]; rfl
+    rw [hresgas]
+    exact gas_add_sub_le ev.gasAvailable (UInt256.ofNat callgas) cost hcle hcostsz
+      (by rw [hcgtoNat]; exact hccg)
+
 /-- **Default-arm `step` gas bound** in the `X_loop_gas_le` `hstep` shape: a successful
 non-call/create `step (f+1)` debits `cost` (so lands at `gas - cost ≤ gas`, using
 `cost ≤ s.gas.toNat` to rule out wraparound). -/
