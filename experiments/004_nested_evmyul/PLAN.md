@@ -59,6 +59,55 @@ composing naturally (the thing flat makes hard).
 > branch; do not touch other tracks. Report the final build status + what was stripped.
 
 ## Progress log
+- 2026-06-23 (B2f — gas-monotonicity / CALL-descent bricks). Bare `lake build` GREEN;
+  `#print axioms` on every new theorem reports only `[propext, (Classical.choice,)
+  Quot.sound]`; zero `sorry`/`admit`/`axiom`/`native_decide` in source. All in
+  `NestedEvmYul/NeverOutOfFuel.lean`. The CALL-iteration gas descent (prior
+  sub-obligation 1) is now fully reduced to the child-`Θ` gas-monotonicity hypothesis,
+  with every supporting brick PROVED:
+  - **`Ccallgas_le_Ccall` / `Ccallgas_lt_Ccall`** — forwarded gas `≤`/`<` call total
+    cost `Ccall = Cgascap + Cextra` (strict since `Cextra ≥ Caccess ≥ 1` for val=0 and
+    `Cextra ≥ Cxfer = 9000 > 2300 = Gcallstipend` for val≠0).
+  - **`gas_add_sub_le` / `gas_add_sub_lt`** — the UInt256 NO-WRAP core: the call-result
+    gas `(ev.gas − ofNat cost) + g'` is a *wrapping* UInt256 sum; its `.toNat` is
+    `≤`/`<` `ev.gas.toNat` given `g'.toNat ≤`/`< cost`. (This is the wraparound
+    subtlety the prior notes had not surfaced — now resolved.)
+  - **`call_result_gas_le` / `call_result_gas_lt`** — a successful `call (f+1) cost … ev`
+    lands at gas `≤`/`<` `ev.gas`, given (i) `cost ≤ ev.gas`, (ii) `Ccallgas(call-args)
+    ≤`/`< cost`, (iii) the child `Θ` returns `g'.toNat ≤ gg.toNat` (the gas-monotonicity
+    hypothesis the mutual IH supplies). Both `g'` sources (child-`Θ` cover branch and
+    `.ofNat callgas` else branch) handled.
+  - **`Z_ok_code_pc`** — `Z` preserves `pc`/`code` (only debits gas), so the loop's
+    decoded opcode is the opcode at the post-`Z` step-state.
+  - **`X_loop_gas_le`** — the `X` loop never RAISES gas (`resultGas r ≤ s.gas`) given a
+    per-instruction `hstep` (now phrased with the decoded-opcode equation so leaf frames
+    recover non-call/create from `hnc`).
+  - **`step_default_gas_le` + `X_leaf_gas_le`** — leaf-frame gas-monotonicity is
+    UNCONDITIONAL (default-arm `hstep` via the strict cousin of `gas_EVM_step_default`).
+  - **`pop7_stack_index`** — CALL-arm arg-matching: `pop7 s = some (tl,a,b,c,…) ⇒
+    s[0]!=a ∧ s[1]!=b ∧ s[2]!=c`, reconciling the `Ccallgas` `call` forwards (from
+    `pop7`) with the `Ccall` that `C'` charges (from `μₛ[i]!`).
+  - **REMAINING for the headline (2 mutual inductions, precise & not faked; in-file
+    `/-! ## Status … -/`):**
+    1. **Gas-monotonicity mutual induction** (strong induction on `fuel` over
+       step/call/Θ/Ξ/X/Lambda) — discharges `call_result_gas_le`'s `hΘ` and
+       `X_loop_gas_le`'s `hstep`. Two sub-tasks inside: (a) CALL-arm arg-matching
+       assembly — combine `pop7_stack_index` with "Z leaves stack untouched" to show
+       `Ccallgas(call-args) ≤ Ccall(C'-args) = cost`; (b) CREATE/`Lambda` gas accounting
+       — CREATE result gas is `.ofNat (ev.gas − L(ev.gas) + g')` (a *different* shape
+       than CALL's UInt256 sum), `g' ≤ L(ev.gas)` from the child `Lambda → Ξ`; a `Nat`
+       lemma (`L_le` already proved) closes it.
+    2. **Never-OutOfFuel mutual induction with the depth-aware `B`** — the propagation
+       skeletons (B2d/B2e) are the `fuel+1` steps; sub-task (1)'s `call_result_gas_lt`
+       supplies the *strict* gas descent that bottoms out the `X` loop on CALL/CREATE
+       iterations (generalising `X_loop_noncallcreate` to drop `hnc`); the IH at smaller
+       fuel + larger depth discharges each descent once `B` is threaded. Bound:
+       `B 0 gas = gas+2`, `B (k+1) gas = (gas+1)*(B k gas + c) + 2`, `k = 1025 − depth`
+       (super-linear; the linear/linear-product seeds are insufficient).
+    The CALL path is now essentially mechanical (all arithmetic + no-wrap + arg-match
+    bricks proved); the unexamined-in-proof residue is the CREATE/Lambda gas shape and
+    the actual mutual-induction wiring. Stopped here per the design-sensitivity guidance
+    rather than risk a broken half-assembly.
 - 2026-06-23 (B2e — step skeleton + X inner induction + precompiled arm + END-TO-END
   LEAF FRAME). Bare `lake build` GREEN; `#print axioms` on every new theorem reports
   only `[propext, (Classical.choice,) Quot.sound]` — no `sorryAx`, no custom axiom;
