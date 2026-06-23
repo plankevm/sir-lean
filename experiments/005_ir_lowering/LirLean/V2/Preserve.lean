@@ -104,21 +104,133 @@ def protoParams (g : UInt64) : CallParams :=
 
 private def fr0 (g : UInt64) : Frame := codeFrame (protoParams g) protoBytecode
 
-theorem dec_0  (g : UInt64) : decode protoBytecode 0  = some (.Push .PUSH1, some (5, 1))   := by rfl
-theorem dec_2  (g : UInt64) : decode protoBytecode 2  = some (.Push .PUSH1, some (7, 1))   := by rfl
-theorem dec_4  (g : UInt64) : decode protoBytecode 4  = some (.Smsf .SSTORE, .none)        := by rfl
-theorem dec_5  (g : UInt64) : decode protoBytecode 5  = some (.Push .PUSH1, some (100, 1)) := by rfl
-theorem dec_7  (g : UInt64) : decode protoBytecode 7  = some (.Push .PUSH1, some (7, 1))   := by rfl
-theorem dec_9  (g : UInt64) : decode protoBytecode 9  = some (.Smsf .SLOAD, .none)         := by rfl
-theorem dec_10 (g : UInt64) : decode protoBytecode 10 = some (.Push .PUSH1, some (9, 1))   := by rfl
-theorem dec_12 (g : UInt64) : decode protoBytecode 12 = some (.ArithLogic .ADD, .none)     := by rfl
-theorem dec_13 (g : UInt64) : decode protoBytecode 13 = some (.ArithLogic .LT, .none)      := by rfl
-theorem dec_14 (g : UInt64) : decode protoBytecode 14 = some (.Smsf .GAS, .none)           := by rfl
-theorem dec_15 (g : UInt64) : decode protoBytecode 15 = some (.Push .PUSH1, some (19, 1))  := by rfl
-theorem dec_17 (g : UInt64) : decode protoBytecode 17 = some (.Smsf .JUMPI, .none)         := by rfl
-theorem dec_19 (g : UInt64) : decode protoBytecode 19 = some (.Smsf .JUMPDEST, .none)      := by rfl
-theorem dec_20 (g : UInt64) : decode protoBytecode 20 = some (.Push .PUSH1, some (0, 1))   := by rfl
-theorem dec_22 (g : UInt64) : decode protoBytecode 22 = some (.Push .PUSH1, some (0, 1))   := by rfl
-theorem dec_24 (g : UInt64) : decode protoBytecode 24 = some (.System .RETURN, .none)      := by rfl
+theorem dec_0 : decode protoBytecode 0  = some (.Push .PUSH1, some (5, 1))   := by rfl
+theorem dec_2 : decode protoBytecode 2  = some (.Push .PUSH1, some (7, 1))   := by rfl
+theorem dec_4 : decode protoBytecode 4  = some (.Smsf .SSTORE, .none)        := by rfl
+theorem dec_5 : decode protoBytecode 5  = some (.Push .PUSH1, some (100, 1)) := by rfl
+theorem dec_7 : decode protoBytecode 7  = some (.Push .PUSH1, some (7, 1))   := by rfl
+theorem dec_9 : decode protoBytecode 9  = some (.Smsf .SLOAD, .none)         := by rfl
+theorem dec_10 : decode protoBytecode 10 = some (.Push .PUSH1, some (9, 1))   := by rfl
+theorem dec_12 : decode protoBytecode 12 = some (.ArithLogic .ADD, .none)     := by rfl
+theorem dec_13 : decode protoBytecode 13 = some (.ArithLogic .LT, .none)      := by rfl
+theorem dec_14 : decode protoBytecode 14 = some (.Smsf .GAS, .none)           := by rfl
+theorem dec_15 : decode protoBytecode 15 = some (.Push .PUSH1, some (19, 1))  := by rfl
+theorem dec_17 : decode protoBytecode 17 = some (.Smsf .JUMPI, .none)         := by rfl
+theorem dec_19 : decode protoBytecode 19 = some (.Smsf .JUMPDEST, .none)      := by rfl
+theorem dec_20 : decode protoBytecode 20 = some (.Push .PUSH1, some (0, 1))   := by rfl
+theorem dec_22 : decode protoBytecode 22 = some (.Push .PUSH1, some (0, 1))   := by rfl
+theorem dec_24 : decode protoBytecode 24 = some (.System .RETURN, .none)      := by rfl
+
+/-! ## The named post-frames (the internal `Runs` witness)
+
+Each `f*` is the previous frame after one opcode rule's transformer, layered
+exactly like `ProgramExamples.sq*`. `f0` is the entry frame; the chain runs
+PUSH;PUSH;SSTORE;PUSH;PUSH;SLOAD;PUSH;ADD;LT;GAS — landing at the JUMPI site `f10`. -/
+
+private def f1  (g : UInt64) : Frame := pushFrame (fr0 g) 5
+private def f2  (g : UInt64) : Frame := pushFrame (f1 g) 7
+private def f3  (g : UInt64) : Frame := sstoreFrame (f2 g) 7 5 (fr0 g).exec.stack
+private def f4  (g : UInt64) : Frame := pushFrame (f3 g) 100
+private def f5  (g : UInt64) : Frame := pushFrame (f4 g) 7
+private def f6  (g : UInt64) : Frame := sloadFrame (f5 g) 7 (100 :: (fr0 g).exec.stack)
+private def f7  (g : UInt64) : Frame := pushFrame (f6 g) 9
+private def f8  (g : UInt64) : Frame := addFrame (f7 g) 9 5 (100 :: (fr0 g).exec.stack)
+private def f9  (g : UInt64) : Frame := ltFrame (f8 g) 14 100 (fr0 g).exec.stack
+private def f10 (g : UInt64) : Frame := gasFrame (f9 g)
+
+/-- The self account is present in the entry world (for the SSTORE/SLOAD lens). -/
+private def protoSelfAcc (g : UInt64) : Account := (fr0 g).exec.accounts.find! addrA
+
+private theorem proto_self_present (g : UInt64) :
+    (fr0 g).exec.accounts.find? (fr0 g).exec.executionEnv.address = some (protoSelfAcc g) := by rfl
+
+/-! ### Gas along the chain, as `subCharges` (the running balance)
+
+The charge list in execution order is `chs = [3,3,22100,3,3,100,3,3,3,2]`
+(PUSH PUSH SSTORE PUSH PUSH SLOAD[warm] PUSH ADD LT GAS), summing to `22223`. -/
+
+private def chs : List ℕ := [3, 3, 22100, 3, 3, 100, 3, 3, 3, 2]
+
+private theorem chs_sum : chs.sum = 22223 := by decide
+
+private theorem gas_f1  (g : UInt64) : (f1 g).exec.gasAvailable  = subCharges g [3] := by
+  show (g - UInt64.ofNat Gverylow) = _; rfl
+private theorem gas_f2  (g : UInt64) : (f2 g).exec.gasAvailable  = subCharges g [3,3] := by
+  show ((f1 g).exec.gasAvailable - UInt64.ofNat Gverylow) = _; rw [gas_f1]; rfl
+private theorem gas_f3  (g : UInt64) : (f3 g).exec.gasAvailable  = subCharges g [3,3,22100] := by
+  show ((f2 g).exec.gasAvailable - UInt64.ofNat (sstoreChargeOf (f2 g).exec 7 5)) = _
+  rw [show sstoreChargeOf (f2 g).exec 7 5 = 22100 from rfl, gas_f2]; rfl
+private theorem gas_f4  (g : UInt64) : (f4 g).exec.gasAvailable  = subCharges g [3,3,22100,3] := by
+  show ((f3 g).exec.gasAvailable - UInt64.ofNat Gverylow) = _; rw [gas_f3]; rfl
+private theorem gas_f5  (g : UInt64) : (f5 g).exec.gasAvailable  = subCharges g [3,3,22100,3,3] := by
+  show ((f4 g).exec.gasAvailable - UInt64.ofNat Gverylow) = _; rw [gas_f4]; rfl
+private theorem gas_f6  (g : UInt64) : (f6 g).exec.gasAvailable  = subCharges g [3,3,22100,3,3,100] := by
+  show ((f5 g).exec.gasAvailable - UInt64.ofNat (sloadCost
+      ((f5 g).exec.substate.accessedStorageKeys.contains ((f5 g).exec.executionEnv.address, 7)))) = _
+  rw [show ((f5 g).exec.substate.accessedStorageKeys.contains ((f5 g).exec.executionEnv.address, 7))
+        = true from rfl, show sloadCost true = 100 from rfl, gas_f5]; rfl
+private theorem gas_f7  (g : UInt64) : (f7 g).exec.gasAvailable  = subCharges g [3,3,22100,3,3,100,3] := by
+  show ((f6 g).exec.gasAvailable - UInt64.ofNat Gverylow) = _; rw [gas_f6]; rfl
+private theorem gas_f8  (g : UInt64) : (f8 g).exec.gasAvailable  = subCharges g [3,3,22100,3,3,100,3,3] := by
+  show ((f7 g).exec.gasAvailable - UInt64.ofNat Gverylow) = _; rw [gas_f7]; rfl
+private theorem gas_f9  (g : UInt64) : (f9 g).exec.gasAvailable  = subCharges g [3,3,22100,3,3,100,3,3,3] := by
+  show ((f8 g).exec.gasAvailable - UInt64.ofNat Gverylow) = _; rw [gas_f8]; rfl
+private theorem gas_f10 (g : UInt64) : (f10 g).exec.gasAvailable = subCharges g chs := by
+  show ((f9 g).exec.gasAvailable - UInt64.ofNat Gbase) = _; rw [gas_f9]; rfl
+
+/-! ### `toNat` of the running gas at each frame (for the per-step gas gates)
+
+A small adequacy floor `G₀ = 30000` clears every gate (the deepest charge prefix
+sums to `22221` before the GAS opcode; `30000` leaves margin). -/
+
+private theorem toNat_subCharges_prefix (g : UInt64) (hg : 30000 ≤ g.toNat)
+    (l : List ℕ) (hle : l.sum ≤ 22223) :
+    (subCharges g l).toNat = g.toNat - l.sum :=
+  toNat_subCharges g l (by omega)
+
+/-! ## The straight-line prefix run to the GAS / JUMPI site
+
+`Runs (fr0 g) (f10 g)` — the ten opcode rules glued by `Runs.trans`. Each step's
+decode is a `dec_*` fact; each stack shape is `rfl`; each gas gate threads `g`
+through `gas_f*` + `toNat_subCharges_prefix` then `omega`. This is the v1
+`ProgramExamples.seq_runs` pattern, extended with SLOAD/ADD/LT/GAS. -/
+private theorem proto_prefix_runs (g : UInt64) (hg : 30000 ≤ g.toNat) :
+    Runs (fr0 g) (f10 g) := by
+  have gv : Gverylow = 3 := rfl
+  refine Runs.trans (runs_push1 (fr0 g) 5 dec_0 ?g0 (by show (0:ℕ)+1≤1024; omega))
+    (Runs.trans (runs_push1 (f1 g) 7 dec_2 ?g1 (by show (1:ℕ)+1≤1024; omega))
+    (Runs.trans (runs_sstore (f2 g) 7 5 (fr0 g).exec.stack dec_4 rfl (by show (2:ℕ)≤1024; omega)
+        rfl ?gstip ?gcost)
+    (Runs.trans (runs_push1 (f3 g) 100 dec_5 ?g3 (by show (0:ℕ)+1≤1024; omega))
+    (Runs.trans (runs_push1 (f4 g) 7 dec_7 ?g4 (by show (1:ℕ)+1≤1024; omega))
+    (Runs.trans (runs_sload (f5 g) 7 (100 :: (fr0 g).exec.stack) dec_9 rfl (by show (2:ℕ)≤1024; omega) ?gsload)
+    (Runs.trans (runs_push1 (f6 g) 9 dec_10 ?g6 (by show (2:ℕ)+1≤1024; omega))
+    (Runs.trans (runs_add (f7 g) 9 5 (100 :: (fr0 g).exec.stack) dec_12 rfl (by show (3:ℕ)≤1024; omega) ?gadd)
+    (Runs.trans (runs_lt (f8 g) 14 100 (fr0 g).exec.stack dec_13 rfl (by show (2:ℕ)≤1024; omega) ?glt)
+      (runs_gas (f9 g) dec_14 (by show (1:ℕ)+1≤1024; omega) ?ggas)))))))))
+  case g0 => show 3 ≤ (fr0 g).exec.gasAvailable.toNat; show 3 ≤ g.toNat; omega
+  case g1 => rw [gas_f1, toNat_subCharges_prefix g hg [3] (by decide)]; simp only [List.sum_cons, List.sum_nil]; omega
+  case gstip =>
+    show ¬ (f2 g).exec.gasAvailable.toNat ≤ Gcallstipend
+    rw [gas_f2, toNat_subCharges_prefix g hg [3,3] (by decide), show Gcallstipend = 2300 from rfl]; simp only [List.sum_cons, List.sum_nil]; omega
+  case gcost =>
+    rw [show sstoreChargeOf (f2 g).exec 7 5 = 22100 from rfl, gas_f2,
+        toNat_subCharges_prefix g hg [3,3] (by decide)]; simp only [List.sum_cons, List.sum_nil]; omega
+  case g3 => rw [gas_f3, toNat_subCharges_prefix g hg [3,3,22100] (by decide)]; simp only [List.sum_cons, List.sum_nil]; omega
+  case g4 => rw [gas_f4, toNat_subCharges_prefix g hg [3,3,22100,3] (by decide)]; simp only [List.sum_cons, List.sum_nil]; omega
+  case gsload =>
+    rw [show ((f5 g).exec.substate.accessedStorageKeys.contains ((f5 g).exec.executionEnv.address, 7))
+          = true from rfl, show sloadCost true = 100 from rfl, gas_f5,
+        toNat_subCharges_prefix g hg [3,3,22100,3,3] (by decide)]; simp only [List.sum_cons, List.sum_nil]; omega
+  case g6 => rw [gas_f6, toNat_subCharges_prefix g hg [3,3,22100,3,3,100] (by decide)]; simp only [List.sum_cons, List.sum_nil]; omega
+  case gadd =>
+    show Gverylow ≤ (f7 g).exec.gasAvailable.toNat
+    rw [gv, gas_f7, toNat_subCharges_prefix g hg [3,3,22100,3,3,100,3] (by decide)]; simp only [List.sum_cons, List.sum_nil]; omega
+  case glt =>
+    show Gverylow ≤ (f8 g).exec.gasAvailable.toNat
+    rw [gv, gas_f8, toNat_subCharges_prefix g hg [3,3,22100,3,3,100,3,3] (by decide)]; simp only [List.sum_cons, List.sum_nil]; omega
+  case ggas =>
+    show Gbase ≤ (f9 g).exec.gasAvailable.toNat
+    rw [show Gbase = 2 from rfl, gas_f9, toNat_subCharges_prefix g hg [3,3,22100,3,3,100,3,3,3] (by decide)]; simp only [List.sum_cons, List.sum_nil]; omega
 
 end Lir.V2
