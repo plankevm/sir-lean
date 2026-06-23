@@ -934,3 +934,78 @@ from the prototype. `GT` was the only new opcode brick.
    *subsequence* of the full trace (calls interleave but do not themselves read gas) — the
    current `Trace.gasReads` already does the right thing, but the doc should say so, since
    §3.4's "holds across calls" is precisely about a `call` sitting between two reads.
+
+---
+
+## 2026-06-23 — v2-gasmono: the general `Runs`-level gas-monotonicity lemma (§3.4 "holds across calls") is now a REAL PROOF
+
+**DELIVERABLE (done, axiom-clean, build-green).** New module
+`experiments/003_bytecode_layer/BytecodeLayer/Hoare/GasMonotone.lean`, re-exported on the
+audit surface `BytecodeLayer/Spec.lean`. The headline:
+
+```text
+theorem Runs.gasAvailable_le {fr last : Frame} (h : Runs fr last) :
+    last.exec.gasAvailable.toNat ≤ fr.exec.gasAvailable.toNat
+```
+
+Across **any** flat `Runs fr last` — opcode steps and returning external CALLs
+(`.call`/`CallReturns` nodes) in any order — the machine's remaining gas does not increase,
+**including through `.call` nodes** (the 63/64 net-debit). This is exactly the §3.4
+obligation PLAN.md item (3) above flagged as "still owed" for the *general* (non-concrete)
+preservation theorem. It is the structural fact `Mono.lean` discharged per-program by exact
+`subCharges`, generalised to an arbitrary `Runs`.
+
+**SHAPE consumed by the v2 general theorem.** `Mono.lean` discharges monotonicity by reading
+`gasAvailable.toNat` at the two GAS sites (`gReads_monotone`: `(g2Read g).toNat ≤
+(g1Read g).toNat`). The general lowering will not have a concrete two-read program; it will
+have a `Runs fr₀ last` (the internal witness of `LoweredRunHasObs`) with the two GAS opcodes
+at intermediate frames `frₐ`/`f_b` on the path, `Runs frₐ f_b`. `Runs.gasAvailable_le frₐ→f_b`
+then gives `f_b.gas.toNat ≤ frₐ.gas.toNat`, and `toNat_ofUInt64` (already in `Mono.lean`)
+turns the two pushed GAS words into exactly `Trace.gasMonotone [gasRead g1, gasRead g2]`. So
+the consumed form is "remaining gas at the later read ≤ at the earlier read", which is
+`Runs.gasAvailable_le` on the sub-`Runs` between the reads. No reshaping needed.
+
+**REUSED (exp003 never-OutOfFuel machinery) vs NEW.**
+- *Reused verbatim, nothing new about gas costs:* `stepFrame_next_lt` (non-System `.next`
+  strict drop), `systemOp_next_gas` + `stepFrame_next_systemOp` (System `.next` fallback
+  strict drop), `endFrame_gasRemaining_le` (halt), `gasFundsDescent_conj4/5a/4'/5b` (the
+  CALL/CREATE descent inequalities from `NeverOutOfFuel.lean`), `resumeAfterCall_gas_le` /
+  `resumeAfterCreate_gas_le_savedGas` (deliveries don't create gas), `beginCall_inl_gas`,
+  `totalGas`/`activeGas`/`Pending.savedGas` (the `Measure.lean` vocabulary). The §3.4 claim
+  "already-owned machinery, no new gas theory" is **confirmed at the general level too.**
+- *New (3 lemmas):* (1) `StepsTo.gas_le` — one opcode step never increases gas (unifies the
+  non-System + System `.next` strict drops to a single `≤`); (2)
+  `drive_gasRemaining_le_totalGas` — the gas-conservation invariant `drive f stack state =
+  .ok r → r.gasRemaining ≤ totalGas stack state`, by induction on fuel mirroring `mu_bound`'s
+  branch structure but tracking `totalGas` `≤` instead of the strict measure `μ` (the `+2`
+  slack relaxed to `≤`); this was the one genuinely-missing fact — exp003 had no `drive`
+  gas-conservation lemma, only the *termination* measure; (3) `CallReturns.gas_le` — the
+  63/64 net-debit assembled from descent (conj4) + child-return-bound
+  (`drive_gasRemaining_le_of_running`, a corollary of (2) at the empty stack) + delivery
+  bound (`resumeAfterCall_gas_le`).
+
+**HYPOTHESIS the `.call` case required: NONE beyond `CallReturns` itself.** `CallReturns
+callFr resumeFr` already bundles "the child runs to completion"
+(`drive (seedFuel cp.gas) [] (running child) = .ok childRes`), which is exactly the input to
+the child-return-gas bound. So the fully-general `.call` case is **hypothesis-free** — no
+"call returns" or "child gas bound" side-condition needed, because a `Runs.call` node is by
+construction a returning call. The net-debit chains cleanly: caller gas ≥ child-funded +
+saved-parent + 2 (conj4); child returns ≤ child-funded (drive conservation); resumed parent
+≤ saved-parent + child-returned (resumeAfterCall) ⇒ resumed ≤ caller, no slack assumption.
+
+**AXIOMS (build-enforced `#print axioms` guards on all three).**
+`Runs.gasAvailable_le`, `drive_gasRemaining_le_totalGas`, `CallReturns.gas_le` each
+`depends on axioms: [propext, Classical.choice, Quot.sound]`. Zero
+`sorry`/`admit`/`axiom`/`native_decide`.
+
+**BUILD.** `lake build` green for both exp003 (1131 jobs) and exp005 (1133 jobs). No existing
+proof touched (v1, the v2 prototype/Mono, exp003 never-OutOfFuel all untouched and green); the
+only edits are the new `GasMonotone.lean` and a 2-line re-export in `Spec.lean`.
+
+**VERDICT on §3.4 "holds across calls".** It is now a **real proof, not a remark.** The doc's
+paragraph ("a returning call nets a debit on the caller … the 63/64 refund only means the
+caller wasn't charged for the child's unused gas, it does not raise the caller's gas") is
+discharged exactly as `CallReturns.gas_le`, and the whole-run claim is `Runs.gasAvailable_le`.
+The general v2 preservation theorem can now cite `Runs.gasAvailable_le` for any two gas reads
+on its witness `Runs`, with no concrete-program assumption and no per-opcode cost — closing
+the last gas-monotonicity owe of §3.4.

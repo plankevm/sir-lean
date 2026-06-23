@@ -5,6 +5,7 @@ import BytecodeLayer.Hoare.Behaves
 import BytecodeLayer.Hoare.Sequence
 import BytecodeLayer.Hoare.OutcomeBridge
 import BytecodeLayer.Hoare.CallSequence
+import BytecodeLayer.Hoare.GasMonotone
 import BytecodeLayer.Examples.ConcreteSpecs
 
 /-!
@@ -50,6 +51,17 @@ exhibiting an execution trace. -/
 theorem Runs.trans {fr mid fr' : Frame}
     (h₁ : Runs fr mid) (h₂ : Runs mid fr') : Runs fr fr' :=
   Hoare.Runs.trans h₁ h₂
+
+/-- **Gas monotonicity of `Runs` (`docs/ir-design-v2.md` §3.4).** Across any flat
+`Runs fr last` — opcode steps and returning external CALLs (`.call` nodes) in any
+order — the machine's remaining gas does not increase:
+`last.exec.gasAvailable.toNat ≤ fr.exec.gasAvailable.toNat`. The `.call` case is the
+63/64 net-debit (a returning call cannot raise the caller's gas), discharged from the
+never-OutOfFuel descent machinery with **no hypothesis** beyond what `Runs.call` carries.
+This is the structural fact that makes the v2 monotone-gas-read law hold across calls. -/
+theorem Runs.gasAvailable_le {fr last : Frame} (h : Runs fr last) :
+    last.exec.gasAvailable.toNat ≤ fr.exec.gasAvailable.toNat :=
+  Hoare.Runs.gasAvailable_le h
 
 /-- **The `messageCall` boundary bridge.** A code call whose entry frame `fr₀`
 (`EntersAsCode p fr₀`) `Runs` to a frame that halts yields the caller's halt
