@@ -912,6 +912,52 @@ theorem X_iter_gas_lt (f cost₂ : ℕ) (validJumps : Array UInt256) (w : Operat
   exact gas_sub_lt s₁.gasAvailable cost₂ hle hpos
     (Nat.lt_of_le_of_lt hle s₁.gasAvailable.val.isLt)
 
+/-- `UInt256` subtraction of a non-underflowing cost does not increase `.toNat`
+(the `≤` companion of `gas_sub_lt`). -/
+theorem gas_sub_le (g : UInt256) (m : ℕ) (hle : m ≤ g.toNat) (hm : m < UInt256.size) :
+    (g - UInt256.ofNat m).toNat ≤ g.toNat := by
+  have htn : g.toNat = g.val.val := rfl
+  have hgsz : g.val.val < UInt256.size := g.val.isLt
+  have hcmod : (Fin.ofNat UInt256.size m).val = m := by
+    simp only [Fin.ofNat, Fin.val_ofNat]; exact Nat.mod_eq_of_lt hm
+  have hsub : (g - UInt256.ofNat m).toNat = g.toNat - m := by
+    show ((g.val - (Fin.ofNat _ m))).val = g.val.val - m
+    rw [Fin.sub_def, hcmod]
+    show (UInt256.size - m + g.val.val) % UInt256.size = g.val.val - m
+    have hle' : m ≤ g.val.val := by rw [← htn]; exact hle
+    have hrw : UInt256.size - m + g.val.val = (g.val.val - m) + UInt256.size := by omega
+    rw [hrw, Nat.add_mod_right, Nat.mod_eq_of_lt (by omega)]
+  rw [hsub]; omega
+
+set_option maxHeartbeats 2000000 in
+/-- A successful `Z` returns a state whose gas does not exceed the input's: `Z`
+debits the (non-underflowing) memory-expansion cost `cost₁` and leaves `gasAvailable`
+otherwise untouched. This is the non-strict gas bound the `X`-loop induction needs to
+chain `ev.gas ≤ s.gas` with the strict per-iteration drop (`X_iter_gas_lt`). -/
+theorem Z_ok_state (vj : Array UInt256) (w : Operation) (s s' : State) (c : ℕ)
+    (h : Z vj w s = .ok (s', c)) :
+    s'.gasAvailable.toNat ≤ s.gasAvailable.toNat := by
+  unfold Z at h
+  simp only [pure, Except.pure, bind, Except.bind] at h
+  generalize hm : memoryExpansionCost s w = m₁ at h
+  by_cases hg1 : s.gasAvailable.toNat < m₁
+  · rw [if_pos hg1] at h; exact absurd h (by simp)
+  · rw [if_neg hg1] at h
+    generalize hcc : C' { s with gasAvailable := s.gasAvailable - UInt256.ofNat m₁ } w = c₂ at h
+    by_cases hg2 : ({ s with gasAvailable := s.gasAvailable - UInt256.ofNat m₁ } : State).gasAvailable.toNat < c₂
+    · rw [if_pos hg2] at h; exact absurd h (by simp)
+    · rw [if_neg hg2] at h
+      have hs' : s'.gasAvailable = s.gasAvailable - UInt256.ofNat m₁ := by
+        revert h
+        split_ifs <;> intro h <;>
+          first
+          | (have hp := Except.ok.inj h; rw [Prod.mk.injEq] at hp
+             obtain ⟨rfl, _⟩ := hp; rfl)
+          | exact absurd h (by simp)
+      rw [hs']
+      exact gas_sub_le s.gasAvailable m₁ (Nat.le_of_not_lt hg1)
+        (Nat.lt_of_le_of_lt (Nat.le_of_not_lt hg1) s.gasAvailable.val.isLt)
+
 /-! ## Item 3 (down-payment) — child gas is carved from the parent
 
 The gas a frame forwards to a child (`Ccallgas`) is bounded by the parent's own gas.
@@ -1064,6 +1110,79 @@ theorem X_outOfFuel_of (f : ℕ) (vj : Array UInt256) (s : State)
         · rw [hrev]; intro hc; nomatch hc
         · simp only [hrev, Bool.false_eq_true, if_false]
           intro hc; nomatch hc
+
+/-! ### The `X` inner loop-induction (the genuinely hard piece — DONE for
+non-call/create frames)
+
+`X` is the only layer whose recursion is a *loop* over its own fuel (the loop tail
+`X f vj ev'` reuses the frame). Propagation alone (`X_outOfFuel_of`) is not enough:
+it reduces `X (f+1)` to `X f` on a *successor* state, so a naive fuel induction never
+bottoms out. The measure that does bottom out is **gas**: every non-halting
+iteration burns `≥ 1` gas (`X_iter_gas_lt`, via the cornerstone `C'_pos_of_runnable`),
+and `Z` never increases gas (`Z_ok_state`). So once `fuel > gasAvailable`, the loop
+*must* halt (or error non-`OutOfFuel`) before fuel runs out.
+
+`X_loop_noncallcreate` proves exactly this for a frame whose code never decodes to a
+`CREATE`/`CALL`-family opcode (the hypothesis `hnc`) — i.e. a *single* frame with no
+nested descent. The induction is on `fuel`; at `fuel = f+1` with `gas < f+1` (so
+`gas ≤ f`), one iteration lands at `ev'` with `ev'.gas < ev.gas ≤ s.gas ≤ f`, so the
+IH at `f` applies (the successor's gas is `< f`). This is the complete inner
+loop-induction; the only thing it assumes about the rest of the recursion is
+`hstep` (every `step f` is non-`OutOfFuel`), which the final mutual induction
+supplies. For frames that *do* call/create, the same gas measure works (a call
+iteration still strictly burns `Cextra ≥ 1` net, since the child returns
+`g' ≤ Cgascap = cost₂ − Cextra`), but threading that through the mutual
+`call`/`Θ`/`Ξ` descent is the remaining assembly work (see end of file). -/
+theorem X_loop_noncallcreate (vj : Array UInt256)
+    (hnc : ∀ (s2 : State),
+      ¬ isCallCreate (decode s2.toState.executionEnv.code s2.pc |>.getD (.STOP, .none)).1)
+    (hstep : ∀ (f : ℕ) (w : Operation) (arg) (cost : ℕ) (s2 : State),
+       step f cost (some (w, arg)) s2 ≠ .error .OutOfFuel) :
+    ∀ (fuel : ℕ) (s : State), s.gasAvailable.toNat < fuel → X fuel vj s ≠ .error .OutOfFuel := by
+  intro fuel
+  induction fuel with
+  | zero => intro s hlt; omega
+  | succ f ih =>
+    intro s hlt
+    unfold X
+    simp only [bind, Except.bind]
+    set instr := decode s.toState.executionEnv.code s.pc |>.getD (.STOP, .none) with hinstr
+    have hncs : ¬ isCallCreate instr.1 := hnc s
+    cases hZ : Z vj instr.1 s with
+    | error e =>
+      intro hc
+      have : e = EVM.ExecutionException.OutOfFuel := by
+        revert hc; simp only [hZ]; intro hc; exact Except.error.inj hc
+      exact Z_never_outOfFuel vj instr.1 s (by rw [hZ, this])
+    | ok p =>
+      obtain ⟨ev, cost₂⟩ := p
+      simp only [hZ]
+      have hevle : ev.gasAvailable.toNat ≤ s.gasAvailable.toNat := Z_ok_state vj instr.1 s ev cost₂ hZ
+      cases hs : step f cost₂ instr ev with
+      | error e =>
+        intro hc
+        have he : e = EVM.ExecutionException.OutOfFuel := by
+          revert hc; simp only [hs]; intro hc; exact Except.error.inj hc
+        rw [he] at hs; exact hstep f instr.1 instr.2 cost₂ ev hs
+      | ok ev' =>
+        simp only [hs]
+        cases hH : H ev'.toMachineState instr.1 with
+        | none =>
+          cases f with
+          | zero =>
+            exact absurd hs (by
+              intro hcc
+              simp only [show step 0 cost₂ instr ev = .error .OutOfFuel from rfl] at hcc
+              nomatch hcc)
+          | succ f' =>
+            have hlt2 : ev'.gasAvailable.toNat < ev.gasAvailable.toNat :=
+              X_iter_gas_lt f' cost₂ vj instr.1 instr.2 s ev ev' hncs hZ hs hH
+            apply ih ev'
+            omega
+        | some o =>
+          by_cases hrev : (instr.1 == Operation.REVERT) = true
+          · rw [hrev]; intro hc; nomatch hc
+          · simp only [hrev, Bool.false_eq_true, if_false]; intro hc; nomatch hc
 
 /-- `Ξ (f+1)` propagates `OutOfFuel` only from its inner `X f`. If that `X f` is not
 `OutOfFuel`, neither is `Ξ (f+1)`. (The post-processing match on `X`'s
