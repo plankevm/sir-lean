@@ -1590,6 +1590,51 @@ theorem wcPostRun (g : UInt64) (hg : 50000 ≤ g.toNat) :
               rw [wcRec1Sload_gas]; rfl]
           have := wcSub_gas_ge g hg ([3,3,3,100] ++ [3,3,3,10,1,3,3,3,100,3]) (by simp); omega)
 
+/-! ### The terminal `RETURN` halt
+
+The `RETURN` frame `wcRetFrame g` (pc 517) has stack `[1, 1]` (the `lt` result on top
+as `offset`, the residual CALL flag below as `size`). Its memory-expansion charge for
+`offset = size = 1` is `Cₘ 1 − Cₘ 0 = 3`, which the running gas (`≥ 2678`) covers, so
+`RETURN` halts (`stepFrame_return_halts`). -/
+
+/-- The `RETURN` frame's active words are `0` (default; every transformer and
+`resumeAfterCall`'s zero in/out windows leave them untouched). -/
+theorem wcRetFrame_activeWords (g : UInt64) : (wcRetFrame g).exec.activeWords = 0 := by
+  show (wcResumed g).exec.activeWords = 0
+  unfold wcResumed resumeAfterCall callPending
+  dsimp only [ExecutionState.replaceStackAndIncrPC]; rfl
+
+/-- The `RETURN` frame's stack is `[1, 1]` (the `lt` result `1` on top, the residual
+CALL success flag `1` below). -/
+theorem wcRetFrame_stack (g : UInt64) : (wcRetFrame g).exec.stack = (1 : Word) :: 1 :: [] := rfl
+
+/-- **The `RETURN` halts.** At `wcRetFrame g` (pc 517, stack `[1,1]`), the
+memory-expansion charge for `offset = size = 1` succeeds (cost `3`, gas `≥ 2678`), so
+`stepFrame` halts. -/
+theorem wcRetFrame_halts (g : UInt64) (hg : 50000 ≤ g.toNat) :
+    ∃ halt, stepFrame (wcRetFrame g) = .halted halt := by
+  have hgas : (wcRetFrame g).exec.gasAvailable.toNat = (wcResumed g).exec.gasAvailable.toNat - 244 := by
+    rw [show (wcRetFrame g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable wcPostCharges
+          from wcChain_gas g]
+    exact wcChain_gas_toNat g hg
+  have hge : 3 ≤ (wcRetFrame g).exec.gasAvailable.toNat := by
+    rw [hgas]; have := wcResumed_gas_ge g hg; omega
+  -- chargeMemExpansion succeeds: M 0 1 1 = 1, charge Cₘ 1 − Cₘ 0 = 3 ≤ gas.
+  have hmem : chargeMemExpansion (wcRetFrame g).exec 1 1
+      = .ok { (wcRetFrame g).exec with gasAvailable := (wcRetFrame g).exec.gasAvailable - UInt64.ofNat 3 } := by
+    unfold chargeMemExpansion
+    rw [show Evm.memoryExpansionWords? (wcRetFrame g).exec.activeWords 1 1
+          = some (MachineState.M (wcRetFrame g).exec.activeWords 1 1) from by
+        rw [wcRetFrame_activeWords]; rfl]
+    show charge (Evm.Cₘ (MachineState.M (wcRetFrame g).exec.activeWords 1 1)
+        - Evm.Cₘ (wcRetFrame g).exec.activeWords) (wcRetFrame g).exec = _
+    rw [wcRetFrame_activeWords]
+    rw [show Evm.Cₘ (MachineState.M 0 1 1) - Evm.Cₘ 0 = 3 from by decide]
+    unfold charge
+    rw [if_neg (by have := hge; omega)]
+  exact stepFrame_return_halts (wcRetFrame g) 1 1 [] (wcd_517 g) (wcRetFrame_stack g)
+    (by rw [wcRetFrame_stack]; decide) _ hmem
+
 /-! ## `lower_preserves` for `workedCall` (the bridge half)
 
 The full execution of `workedCall` as one `Runs (wcFrame g) last`:
@@ -1632,20 +1677,21 @@ PUSH32 7; SLOAD; ADD; LT; RETURN`. Three honest sub-pieces remain:
    (`∃ halt, stepFrame fr = .halted halt` from `chargeMemExpansion` succeeding),
    provable in this layer but left as the documented next step. -/
 
-/-- **`lower_preserves` for `workedCall`.** The prefix run (`wc_prefix_runs`) and the
-single external CALL (`wc_callReturns` — the concrete child `drive`, now closed) are
-**both genuine and supplied internally**; only the post-CALL run to a halting `last`
-remains a hypothesis. For `g ≥ 50000` the top-level `messageCall (wcParams g)` delivers
-`last`'s halt result. The `hcall` hypothesis of the C3d/C3e shape is **gone** — the
-child `CallReturns` is no longer assumed. -/
-theorem wc_preserves (g : UInt64) (hg : 50000 ≤ g.toNat)
-    {last : Frame} {halt : FrameHalt}
-    (hpost : Runs (wcResumed g) last)
-    (hhalt : stepFrame last = .halted halt) :
-    messageCall (wcParams g)
-      = .ok (FrameResult.toCallResult (endFrame last halt)) := by
-  have hruns : Runs (wcFrame g) last :=
-    (wc_prefix_runs g (by omega)).trans (Runs.call (wc_callReturns g hg) hpost)
+/-- **`lower_preserves` for `workedCall` — FULLY HYPOTHESIS-FREE.** Every piece is
+now concrete and supplied internally: the straight-line prefix (`wc_prefix_runs`), the
+single external CALL (`wc_callReturns` — the genuine child `drive`), the post-CALL
+block-0 recompute → taken `JUMPI` → block-1 recompute (`wcPostRun`), and the terminal
+`RETURN` halt (`wcRetFrame_halts`). For `g ≥ 50000` the top-level
+`messageCall (wcParams g)` delivers the `RETURN` frame's halt result. The `hcall` AND
+the `hpost`/`hhalt` hypotheses of the C3d–C3f shape are **all gone** — `wc_preserves`
+takes only the program (implicit) and the gas knob `g`. -/
+theorem wc_preserves (g : UInt64) (hg : 50000 ≤ g.toNat) :
+    ∃ halt, messageCall (wcParams g)
+      = .ok (FrameResult.toCallResult (endFrame (wcRetFrame g) halt)) := by
+  obtain ⟨halt, hhalt⟩ := wcRetFrame_halts g hg
+  refine ⟨halt, ?_⟩
+  have hruns : Runs (wcFrame g) (wcRetFrame g) :=
+    (wc_prefix_runs g (by omega)).trans (Runs.call (wc_callReturns g hg) (wcPostRun g hg))
   exact lower_preserves_discharge Lir.Decode.workedCall (wcParams g)
     (wc_begin g) rfl hruns hhalt
 
@@ -1654,7 +1700,14 @@ the bridge for *any* assembled `Runs` (any number of `Runs.call` nodes), a worke
 program with two returning external CALLs closes by the same discharge: glue the prefix,
 the first call node, the middle run, the second call node, and the suffix into one
 `Runs`, then cross once. This is `wc_preserves` generalised to two calls — the bridge
-needs nothing more (cf. `Examples.TwoCallExample.twoCall_messageCall`). -/
+needs nothing more (cf. `Examples.TwoCallExample.twoCall_messageCall`).
+
+This stays a *shape* lemma (it takes the two-call assembly as hypotheses) because
+`workedCall` itself has exactly **one** external CALL — there is no concrete two-call
+program here to instantiate the pieces from. The single concrete deliverable,
+`wc_preserves`, is fully hypothesis-free; `wc_preserves_twoCall` records that the same
+discharge composes any number of concrete `CallReturns` nodes (each closeable exactly
+like `wc_callReturns`), so a genuine two-call program closes with no extra theory. -/
 theorem wc_preserves_twoCall (g : UInt64)
     {fr₀ callFr₁ resumeFr₁ callFr₂ resumeFr₂ last : Frame} {halt : FrameHalt}
     (hbegin  : EntersAsCode (wcParams g) fr₀)
