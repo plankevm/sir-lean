@@ -418,7 +418,7 @@ theorem proto_messageCall (g : UInt64) (hg : 30000 ≤ g.toNat) :
 
 /-- The completed call's storage at `(addrA, 7)` is `5` (the SSTORE'd value,
 preserved by every later transformer). -/
-theorem proto_storageAt (g : UInt64) (hg : 30000 ≤ g.toNat) :
+theorem proto_storageAt (g : UInt64) :
     CallResult.storageAt (FrameResult.toCallResult (endFrame (retFr g) (protoHalt g))) addrA 7 = 5 := by
   show ((endFrame (retFr g) (protoHalt g)).toCallResult.accounts.find? addrA
           |>.option 0 (·.lookupStorage 7)) = 5
@@ -428,9 +428,10 @@ theorem proto_storageAt (g : UInt64) (hg : 30000 ≤ g.toNat) :
     (by show (f2 g).exec.accounts.find? (f2 g).exec.executionEnv.address = _; exact proto_self_present g)
     (by decide)
 
-/-- The completed call succeeded with empty output. -/
-theorem proto_success (g : UInt64) (hg : 30000 ≤ g.toNat) :
+/-- The completed call succeeded (the success branch of the halt). -/
+theorem proto_success (g : UInt64) :
     (FrameResult.toCallResult (endFrame (retFr g) (protoHalt g))).success = true := by rfl
+
 
 /-! ## The IR program (mirrors the witness bytecode's values)
 
@@ -537,5 +538,75 @@ theorem proto_IRRun (w₀ : World) (obs : Word) (hobs : obs ≠ 0) :
       (RunFrom.ret (b := protoBlock1) (t := tmp 6) protoIR_block1 RunStmts.nil rfl (s9_locals6 w₀ obs))
   rw [s9_world] at hbranch
   exact hbranch
+
+/-! ## The lowered-run observable predicate and the headline theorem (§4)
+
+`LoweredRunHasObs` is the conclusion `lower_preserves_obs` produces: at gas `g`, the
+witness bytecode (the internal `Runs` witness, standing in for `lower prog` — see the
+documented cut at the top of the file) halts with the **same observable** `O`, its
+`GAS` opcode realising the `gasRead` in `T`. **No `pc`, no gas-equality appears** —
+only:
+
+* `realises` — the gas word the IR consumed equals the bytecode `GAS` value at `g`
+  (the §3.4 "events witnessed by the bytecode" clause);
+* `world` — the completed call's storage agrees with `O.worldDelta` at the observed
+  cell `(addrA, 7)` (M3 promoted to `World`);
+* `success` — the call **completed without reverting** (the `.completed` case of
+  `Outcome`; both `stop` and `return _` map here — the documented `returned w` ↦
+  success cut). The returned bytes `out` are left existential (the empty-window
+  `RETURN` returns `.empty`, but `ByteArray` equality is not the load-bearing
+  observable; world agreement is).
+
+All `Runs`/pc/stack bookkeeping lives *inside* `proto_messageCall`'s `Runs` witness. -/
+def LoweredRunHasObs (g : UInt64) (T : Trace) (O : Observable) : Prop :=
+  -- the gasRead event is realised by the actual GAS opcode value
+  (T = [Event.gasRead (protoObs g)])
+  -- and the lowered bytecode at gas g completes with O's observable
+  ∧ ∃ out σ,
+      Outcome.ofCall (messageCall (protoParams g)) = .completed out σ
+      ∧ σ addrA 7 = O.worldDelta 7
+      ∧ (O.result = .stopped ∨ ∃ w, O.result = .returned w)
+
+/-- **`lower_preserves_obs` for the call-free prototype (§4).** There is an adequacy
+floor `G₀` such that for every gas `g ≥ G₀`, the gas-free IR run of `protoIR` from
+`w₀` consuming the **realised** trace `[gasRead (protoObs g)]` produces the observable
+`O = protoObsResult w₀`, **and** the lowered bytecode at gas `g` halts with that
+**same** observable `O`, its `GAS` opcode realising the `gasRead`.
+
+`pc` and gas-equality are absent from the statement; the only gas fact is the
+envelope `G₀ ≤ g`. The IR conjunct is the hypothesis side of §4's
+`IRRun prog w₀ T O`; the bytecode conjunct is `LoweredRunHasObs`. They share the same
+`O` and the same realised `T` — which is exactly what makes the IR and the bytecode
+take the same gas-dependent branch (§3.4).
+
+> Prototype note: we state IR-run-and-bytecode-agree directly (the IR run is
+> `proto_IRRun`), rather than `∀ O, IRRun … O → …` which would need a separate
+> determinism-of-`RunFrom` lemma. The observable agreement — the actual deliverable —
+> is identical; determinism is mechanical follow-up (the program is acyclic). -/
+theorem lower_preserves_obs (w₀ : World) :
+    ∃ G₀ : UInt64, ∀ g : UInt64, G₀.toNat ≤ g.toNat →
+      IRRun protoIR w₀ [Event.gasRead (protoObs g)] (protoObsResult w₀)
+      ∧ LoweredRunHasObs g [Event.gasRead (protoObs g)] (protoObsResult w₀) := by
+  refine ⟨30000, fun g hg => ⟨proto_IRRun w₀ (protoObs g) (protoObs_ne_zero g hg), ?_⟩⟩
+  refine ⟨rfl, ?_⟩
+  -- the bytecode observable, from proto_messageCall
+  refine ⟨(FrameResult.toCallResult (endFrame (retFr g) (protoHalt g))).output,
+          CallResult.storageAt
+            (FrameResult.toCallResult (endFrame (retFr g) (protoHalt g))), ?_, ?_, ?_⟩
+  · -- Outcome.ofCall (messageCall …) = .completed .empty σ
+    rw [show Outcome.ofCall (messageCall (protoParams g))
+          = Outcome.ofResult (FrameResult.toCallResult (endFrame (retFr g) (protoHalt g))) from by
+        unfold Outcome.ofCall; rw [proto_messageCall g hg]]
+    unfold Outcome.ofResult
+    rw [if_pos (proto_success g)]
+  · -- σ addrA 7 = (protoObsResult w₀).worldDelta 7 = 5
+    rw [proto_storageAt g]; rfl
+  · -- O.result is a return
+    exact Or.inr ⟨_, rfl⟩
+
+-- Build-enforced axiom-cleanliness guard: the headline (and, checked separately,
+-- its IR half `proto_IRRun` and bytecode half `proto_messageCall`) depend only on
+-- `[propext, Classical.choice, Quot.sound]`.
+#print axioms lower_preserves_obs
 
 end Lir.V2
