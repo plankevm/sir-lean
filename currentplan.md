@@ -152,12 +152,23 @@ whichever interface, ideally the shared one.
   REMAINING: `step` skeleton + `X` inner loop-induction + precompiled-`Θ` arm + final
   assembly. **KEY DESIGN FINDING: `seedFuel = 4*(g+1)` is INSUFFICIENT for nested** — gas
   is only non-increasing (not strictly smaller) across a descent, so fuel must cover
-  ~4 hops × ≤1024 descents ⇒ the seed must be **DEPTH-AWARE**, e.g.
-  `B(gas,depth) = (1025−depth)·4·(gas+1)`. This must be settled before the headline closes.
-  DECISION (Eduardo): finish it — final iteration IN PROGRESS with the depth-aware bound
-  `B(gas,depth)=(1025−depth)·4·(gas+1)`; closing `step` skeleton + `X` inner loop-induction
-  + precompiled-`Θ` arm + final mutual assembly. Reports (Track B full + Track C refresh)
-  held until B2 lands so they reflect the final state.
+  ~4 hops × ≤1024 descents ⇒ the seed must be **DEPTH-AWARE**.
+  PROGRESS (`71b1217`, green, axiom-clean): the four named-remaining pieces all CLOSED —
+  `step` skeleton (`noOOF_step`/`noOOF_EvmYul_step`), `X` inner loop-induction
+  (`X_loop_noncallcreate`, the hard one), precompiled-`Θ` arm, AND an end-to-end
+  **non-nesting leaf headline** (`Θ_leaf_noOOF`/`Ξ_leaf_noOOF`/`X_leaf_noOOF`: a single
+  message call with no CREATE/CALL opcode is *unconditionally* never-`OutOfFuel` when
+  `gas+2 < fuel`). All `[propext, Classical.choice, Quot.sound]`.
+  REMAINING (fully-nested headline `Θ_never_outOfFuel`): only the MUTUAL DESCENT — (1)
+  extend the per-iteration gas descent to CALL/CREATE iterations, (2) the mutual fuel
+  strong-induction over the 6 layers with a depth-aware bound.
+  **KEY CORRECTION: the linear bound is ALSO insufficient** — each X-loop iteration can
+  spawn a child needing its own full budget ⇒ the sound bound is SUPER-LINEAR,
+  `B (k+1) gas = (gas+1)·(B k gas + c) + 2` over `k = 1025−depth` (~`(gas+1)^(1025−depth)`).
+  Size is irrelevant (fuel is a proof device, never run); only tractability matters.
+  DECISION (Eduardo, after 3rd partial): **one more targeted iteration** — final B2f
+  agent IN PROGRESS with the recursive super-linear bound (closes the two descent
+  obligations + instantiates the headline at the initial depth).
 - [ ] **B3** Nested external-call core: a `{P} Ξ(child) {Q}` triple + call-site/frame
   rule; demonstrate **multiple** calls compose naturally (contrast with A's effort).
 - [ ] **B4** Expose an observables-only, fuel/frame-free semantics surface for IRs.
@@ -307,6 +318,18 @@ your own branch with clear messages; never touch another track's files; if block
 write the blocker into PLAN.md before stopping.
 
 ## Orchestration log
+- 2026-06-23: **B2 3rd iteration landed PARTIAL & verified** (`71b1217`, green, axiom-clean —
+  `#print axioms Θ_leaf_noOOF` = `[propext, Classical.choice, Quot.sound]`, zero
+  sorry/admit/axiom/native_decide, clean tree). Closed all four named-remaining pieces +
+  the **non-nesting leaf headline** (`Θ_leaf_noOOF` et al.). Fully-nested headline still
+  open (only the mutual call/create descent). Found the bound is **super-linear**, not
+  linear (per-iteration child multiplicity) — recursive `B` recorded. **Steer (Eduardo):
+  one more targeted iteration** — launched B2f with the recursive super-linear bound +
+  the two precise descent obligations. To keep the loop alive, also launched the **Track C
+  report refresh** (now DONE: `track-c-review.md` rewritten to the hypothesis-free state,
+  1130 green, 150 links resolve) and committed the **doc-comment sync** it surfaced
+  (`3236772` on `exp005-ir`: WorkedCall header + Decode `validJumpDests` no-longer-partial).
+  Track B full report still held until the headline closes (or B2f reports another partial).
 - 2026-06-22: **🎉 TRACK C DONE — `wc_preserves` FULLY HYPOTHESIS-FREE + axiom-clean**
   (`5ee984d`; `#print axioms` = `[propext, Classical.choice, Quot.sound]`). A complete
   verified IR→bytecode lowering through an external CALL + storage write + arithmetic +
