@@ -16,20 +16,22 @@ This is your resume surface. For the full chronological record see `currentplan.
   gas-descent bricks proved; the **fully-nested headline `Θ_never_outOfFuel` was in its final
   assembly run (B2h) when you slept** (4 prior partials).
 
-## What was running when you slept
+## Currently running (live)
 
 | Agent | Track | Goal |
 |---|---|---|
 | **B2h** | B / `exp004-nested` | Final mutual-induction assembly to close `Θ_never_outOfFuel` |
-| **C-v2 prototype** | C / `exp005-ir` | Gas-free observable IR machine + `gasRead` event + observable-preservation on a small example |
+| **C-v2 monotonicity** | C / `exp005-ir` | First two-read example validating the monotone gas-oracle law (§3.4) |
 
-## Overnight results — FILLED BY THE LOOP AS THINGS LAND
+## Overnight results (newest first — loop appends as things land)
 
-> *(empty as of bedtime; the loop appends verified outcomes here — what closed, axiom check,
-> commits, and what it launched next.)*
-
-- _(pending B2h …)_
-- _(pending C-v2 prototype …)_
+- **✅ C-v2 call-free prototype DONE & verified** (`exp005-ir`, build green 1132,
+  axiom-clean, v1 untouched). `LirLean/V2/{Machine,Preserve}.lean`: gas-free IR machine +
+  `gasRead` event + observable `lower_preserves_obs` (pc-free, gas-equality-free). **The v2
+  shape is validated.** Surfaced open decisions for you (see "Open decisions" below).
+  → Launched the **two-read monotonicity** milestone; **HELD** the call-event step pending
+  your §7.5 returndata decision.
+- _(B2h pending …)_
 
 ## Decision rules the loop is following
 

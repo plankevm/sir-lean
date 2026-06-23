@@ -64,8 +64,10 @@ and **why the CFG-combinator control-flow design** was chosen over alternatives.
   from preserved invariants to *internal* bookkeeping inside the `Runs` witness, with a
   single caller-local "enough gas" adequacy envelope. Gas introspection is **kept**, modeled
   as a **monotone oracle** (`gasRead` event whose only law is non-increasing) — introspection
-  without opcode-cost accounting. A call-free prototype is being proved now to validate the
-  shape before porting `workedCall`.
+  without opcode-cost accounting. **The call-free prototype is DONE and axiom-clean** — the
+  gas-free + observable + event shape is validated (`lower_preserves_obs`, pc-free &
+  gas-equality-free); gas introspection cost zero gas machinery. Next: the two-read
+  monotonicity milestone, then the `call`-event step (pending a returndata-model decision).
 - **Prior-art study — gas introspection.**
   **[gas-introspection-prior-art.md](experiments/005_ir_lowering/docs/gas-introspection-prior-art.md)**:
   both verifereum/vyper-hol and lfglabs-dev/verity keep their high-level semantics gas-free,

@@ -325,6 +325,17 @@ your own branch with clear messages; never touch another track's files; if block
 write the blocker into PLAN.md before stopping.
 
 ## Orchestration log
+- 2026-06-23 (NIGHT): **C-v2 call-free prototype DONE & verified** (`ebc3efc`/`35bdd64`,
+  exp005-ir; build green 1132, tree clean, no forbidden tokens, `#print axioms
+  lower_preserves_obs` = `[propext, Classical.choice, Quot.sound]`). `LirLean/V2/{Machine,
+  Preserve}.lean`: gas-free `World`/`IRState`/`IRRun` + `gasRead` event + observable
+  `lower_preserves_obs` (`∃G₀,∀g≥G₀`, pc-free & gas-equality-free). **Verdict: the shape
+  works** — gas introspection cost ZERO gas machinery; event-realisability is a one-line
+  hyp; v1 untouched. Prototype-surfaced open decisions recorded in ir-design-v2 §7.5–7
+  (returndata word / revert→Outcome / evalExpr gas-trace / realisability-in-theorem /
+  RunFrom determinism). **Launched the two-read MONOTONICITY milestone** (validates §3.4's
+  monotone-oracle law via a sticky gas-guard example; discharges monotonicity from exp003
+  gas-descent). **HELD the call-event step** — needs Eduardo's §7.5 returndata decision.
 - 2026-06-23 (NIGHT): **Autonomous overnight mode (Eduardo asleep).** Directive: queue safe
   forward work, otherwise BOOKKEEPING — verify each agent that lands, organize into clean
   commits, produce/refresh reports, leave a tidy review surface. **No speculative refactors**
