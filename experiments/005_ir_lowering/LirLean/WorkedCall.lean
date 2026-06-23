@@ -60,15 +60,17 @@ plus `sstore_accounts_congr`, so the post-SSTORE world / SSTORE charge / cold fl
 derived from cheap code-free field facts, never by whole-map reduction. `wc_preserves`
 no longer takes `hcall`.
 
-## The one honest remainder (NOT `sorry`)
+## Fully hypothesis-free (C3g)
 
-`wc_preserves` still takes `hpost`/`hhalt` — the **post-CALL run** to a halt. This is
-the block-0 branch-condition recompute (`SLOAD; ADD; LT`, the taken `JUMPI` via
-`wc_get_dest_414`) then block 1's `RETURN`. Its foundation (`wcResumed_addr/code/pc/
-validJumps`) is proved here; the three remaining sub-pieces (the resumed-gas
-`allButOneSixtyFourth` lower bound, the `SLOAD` value over the child-committed map, and
-a general `RETURN` halt for the materialised `offset/size`) are documented at the
-`lower_preserves` section below and in PLAN.md (C3f). NOT stubbed.
+`wc_preserves` is now **hypothesis-free** — it takes only the gas knob `g` with
+`50000 ≤ g.toNat` and returns the existence of a halting `messageCall`. The former
+`hpost`/`hhalt` post-CALL-run premise is discharged in-file: the block-0
+branch-condition recompute (`SLOAD; ADD; LT`, the taken `JUMPI` via `wc_get_dest_414`,
+which now goes through Track A's detotalized `validJumpDests` characterization) then
+block 1's `RETURN`, assembled as `wcPostRun`/`wcRetFrame_halts`. The three formerly-open
+sub-pieces (the resumed-gas `allButOneSixtyFourth` lower bound, the `SLOAD` value over
+the child-committed map, and a general `RETURN` halt for the materialised `offset/size`)
+are all closed. No `sorry`, no honest remainder.
 -/
 
 namespace Lir.WorkedCall

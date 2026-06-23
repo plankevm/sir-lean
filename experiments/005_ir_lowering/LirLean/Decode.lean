@@ -137,11 +137,12 @@ The two branch-destination immediates (414, 518) decode to `JUMPDEST` — proven
 axiom-cleanly by the `decode code 402 = PUSH4 414`, `decode code 408 = PUSH4 518`
 checks above together with `decode code 414 = JUMPDEST` and
 `decode code 518 = JUMPDEST`. So the lowered `JUMPI`/`JUMP` land on real
-`JUMPDEST`s — a prerequisite for exp003's jump steps. (We do not assert
-`validJumpDests` directly: it is a `partial def`, so the only way to evaluate it in
-a proof is `native_decide`, which would pull in a native-reduction axiom and break
-the axiom-clean bar. The four `rfl` decode checks give the same guarantee for the
-two destinations this program actually uses.) -/
+`JUMPDEST`s — a prerequisite for exp003's jump steps. (These four cheap `rfl` decode
+checks are the decode-level guarantee for the two destinations this program actually
+uses. `validJumpDests` itself is now a total well-founded def — Track A detotalized
+the former `partial def` and added a reachability characterization — and the actual
+branch terminator goes through it via `wc_get_dest_414`; these `rfl`s stay as the
+self-contained, axiom-clean witness that the destinations decode to `JUMPDEST`.) -/
 
 /-! ## The generic `decode_lower` lemmas subsume the per-pc `rfl`s
 
