@@ -59,6 +59,60 @@ composing naturally (the thing flat makes hard).
 > branch; do not touch other tracks. Report the final build status + what was stripped.
 
 ## Progress log
+- 2026-06-23 (B2h — gas-monotonicity per-layer reductions; sub-task 1 of the headline
+  assembly). `lake build NestedEvmYul.NeverOutOfFuel` GREEN; `#print axioms` on every new
+  theorem ⊆ `[propext, Classical.choice, Quot.sound]` (`ofNat_le_of_le` only `[propext]`);
+  zero `sorry`/`admit`/`axiom`/`native_decide` in source (grep-verified). All in
+  `NestedEvmYul/NeverOutOfFuel.lean`.
+  **The fully-nested headline `Θ_never_outOfFuel` is NOT closed this run.** What IS done:
+  the entire gas-monotonicity per-layer reduction chain (the harder of the two mutual
+  inductions' prerequisites — discharges `call_result_gas_le`/`create*`'s child hyps).
+  - **CALL-family `step` gas-monotonicity (the B2f "tedious but mechanical" arg-matching,
+    now PROVED):** `step_call_gas_le`, `step_callcode_gas_le`, `step_delegatecall_gas_le`,
+    `step_staticcall_gas_le`. Each reduces `step (f+1) (C' s w) (w,_) s`'s CALL arm to
+    `call f` and applies `call_result_gas_le`. Arg-matching: `pop7_stack_index` /
+    `pop6_stack_index` (new) expose `μᵢ = s[i]!`; `accountAddr_roundtrip` (new) handles the
+    `CALLCODE`/`DELEGATECALL` recipient round-trip `ofUInt256 (ofNat codeOwner) = codeOwner`
+    (addresses are 160-bit, fit in UInt256 without truncation); `Ccallgas_le_Ccall` closes.
+    `pop_of_liftM` (new) inverts the local `MonadLift Option (Except …)` stack-pop lift.
+    KEY fuel bookkeeping: `step (f+1)` → `call f` = `call ((f-1)+1)`, so the child hyp is at
+    `Θ (f-1)`; CREATE's `step (f+1)` → `Lambda f` (child hyp at `Lambda f`). Asymmetric but
+    both `< f+1` — fine for strong induction.
+  - **`step_gas_le`** — UNIFIED per-instruction bound dispatching all 7 arms (default →
+    `step_default_gas_le` unconditional; CREATE/2 → `create*_result_gas_le`; CALL family →
+    the four lemmas above). This is the `hstep` the X loop needs.
+  - **`X_loop_gas_le'`** — strengthening of `X_loop_gas_le` whose per-step `hstep` may assume
+    `cost = C' s' w` (`Z_ok_cost_le_gas.2` supplies it in the loop) — REQUIRED because the
+    CALL/CREATE arms of `step_gas_le` need `cost = C'` for the `Ccallgas ≤ Ccall` matching.
+  - **`Θ_gas_le_code`** — `Θ (n+1) (.Code code) g` leftover `≤ g`, given child `Ξ n` mono.
+    Three result sources (swallowed-error `g'=⟨0⟩` / revert / success) all handled.
+  - **`Ξ_gas_le`** — `Ξ (n+1) g` leftover `≤ g`, given child `X n` mono on the fresh child
+    state (gas exactly `g`). `xiResultGas` (new) projects the Ξ/Θ leftover gas.
+  - **`Lambda_gas_le`** — `Lambda (n+1) g` leftover `≤ g`, given child `Ξ n` mono. Success
+    `g' = .ofNat (if F then 0 else gStarStar − codeDeposit)` bounded via `ite_zero_sub_le` +
+    `ofNat_le_of_le` (both new). Handles the `L_A` lift + nested `liftM` reductions.
+  - **REMAINING (precise, NOT faked; also in-file `## Status` REMAINING section):**
+    1. **Gas-mono mutual induction — ASSEMBLY only.** Strong induction on `fuel` tying the
+       above reductions into `gas_mono n : Θ_gas_le n ∧ Ξ_gas_le n ∧ X_gas_le n ∧
+       Lambda_gas_le n ∧ step_gas_le n`, feeding the IH at `< n` to each child hyp. ONE
+       brick missing: the **precompiled `Θ` arm** of `Θ_gas_le` (`.Precompiled pc`,
+       non-recursive). Each of the 10 `Ξ_*` returns gas `⟨0⟩` or `g − .ofNat gᵣ` (≤ g via
+       `gas_sub_le`); per-contract sweep. Scratch-verified for `Ξ_BN_ADD` (`unfold; by_cases
+       g.toNat < 150; cases inner BN_ADD match`) and `Ξ_ID`. The OBSTACLE found: a uniform
+       `unfold Ξ_X; split` does NOT fire cleanly — the big `let gᵣ` block makes `split`
+       grab an inner `if` (e.g. EXPMOD's `adjusted_exp_length`) instead of the outer
+       `g.toNat < gᵣ`, and `simp only []` over-unfolds gᵣ. FIX (to apply next): a generic
+       `gas_branch_le : (if (g.toNat < gr) then (⟨0⟩:UInt256) else g − .ofNat gr).toNat ≤
+       g.toNat` lemma + per-contract `unfold; exact gas_branch_le …` once the projection is
+       reduced (or `conv` to the `.2.2.1` slot, avoiding gᵣ unfolding). `sub_word_le` is the
+       else-branch closer. ~120 lines for all 10.
+    2. **Never-`OutOfFuel` mutual induction with the depth-aware bound `B`.** NOT STARTED.
+       `B 0 g = g+2`, `B (k+1) g = (g+1)*(B k g + c) + 2`, `k = 1025 − depth`. The
+       propagation skeletons (`*_outOfFuel_of`) are the `fuel+1` steps; the STRICT bricks
+       `call_result_gas_lt`/`create*_result_gas_lt` bottom out the X loop on CALL/CREATE
+       iterations (generalising `X_loop_noncallcreate` to drop `hnc`, the strict cousin of
+       `X_loop_gas_le'`); the IH at smaller fuel + larger depth discharges each descent once
+       `B` is threaded. Instantiate the headline at the initial depth (verify 1024 vs 1025).
 - 2026-06-23 (B2g — CREATE/CREATE2/`Lambda` gas-descent bricks; CREATE-side analog of
   B2f's CALL descent). `lake build NestedEvmYul.NeverOutOfFuel` GREEN; `#print axioms`
   on every new theorem ⊆ `[propext, Classical.choice, Quot.sound]`; zero

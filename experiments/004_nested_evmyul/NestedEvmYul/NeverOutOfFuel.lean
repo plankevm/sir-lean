@@ -3079,31 +3079,59 @@ child-`Θ` gas-monotonicity hypothesis, with every supporting brick proved axiom
   **unconditional** (the default arm's `hstep` is `step_default_gas_le`, the strict
   cousin of `gas_EVM_step_default`).
 
-### REMAINING for the *fully nested* headline
-Two mutual inductions, both now reduced to threading the proved bricks:
+### CLOSED (this run, B2h) — the gas-monotonicity per-layer reductions
+Sub-task 1's per-layer reductions are now ALL proved (axiom-clean, green). Each reduces
+one layer's gas-monotonicity to its child's, exactly one fuel level down (with `X`'s loop
+internalised). The arg-matching that B2f flagged as "tedious but mechanical" is done:
 
-1. **Gas-monotonicity mutual induction** (strong induction on `fuel` over
-   `step`/`call`/`Θ`/`Ξ`/`X`/`Lambda`). Discharges the `hΘ` hypothesis of
-   `call_result_gas_le`/`_lt` and the `hstep` of `X_loop_gas_le`. The IH at smaller
-   fuel hands the child layers. TWO sub-tasks remain inside it, neither faked:
-   * **CALL-arm arg-matching.** To apply `call_result_gas_le` from `step`'s CALL arm
-     with `cost = C' ev .CALL = Ccall(stack-args)`, the `Ccallgas` `call` forwards
-     (computed from `pop7 ev.stack`) must be shown `≤ Ccall` computed from `ev`'s
-     `μₛ[i]!`. Needs a small stack lemma `pop7 s = some (…, μ₀, μ₁, …) → μ₀ = s[0]! ∧
-     μ₁ = s[1]! ∧ …` and the fact `Z` leaves the stack untouched (so `C'`-args =
-     `call`-args). Tedious but mechanical; comparable to `gas_EVM_step_default`.
-   * **CREATE/`Lambda` gas accounting.** The CREATE arm's result gas is
-     `.ofNat (ev.gas.toNat − L(ev.gas.toNat) + g'.toNat)` (a *different* shape than
-     CALL's UInt256 sum) with `g' ≤ L(ev.gas)` from the child `Lambda → Ξ`. A separate
-     `Nat`-arithmetic lemma (`L_le` is already proved) closes it.
+* **`step_call_gas_le` / `step_callcode_gas_le` / `step_delegatecall_gas_le` /
+  `step_staticcall_gas_le`** — each CALL-family arm of `step (f+1) (C' s w) (w,_) s`
+  lands at gas `≤ s.gas`, given child `Θ (f-1)` mono. The arg-matching reconciles the
+  `call`-arm's `Ccallgas(t,r,val,g)` with `C' s w = Ccall(stack-args)`: `pop7_stack_index`
+  / `pop6_stack_index` give `μᵢ = s[i]!`, and `accountAddr_roundtrip` handles the
+  `CALLCODE`/`DELEGATECALL` recipient round-trip (`ofUInt256 (ofNat codeOwner) = codeOwner`).
+  Then `Ccallgas_le_Ccall` closes it. (`pop_of_liftM` inverts the monadic stack-pop lift.)
+* **`step_gas_le`** — the UNIFIED per-instruction bound: dispatches CREATE/CREATE2 →
+  `create*_result_gas_le` (child `Lambda f`), CALL family → the four lemmas above (child
+  `Θ (f-1)`), default → `step_default_gas_le` (unconditional). This is the `hstep` the loop needs.
+* **`X_loop_gas_le'`** — strengthening of `X_loop_gas_le` whose `hstep` may assume
+  `cost = C' s' w` (`Z_ok_cost_le_gas` supplies it in the loop) — required for the
+  CALL/CREATE arms of `step_gas_le`.
+* **`Θ_gas_le_code`** — `Θ (n+1) … (.Code code) … g` returns leftover `≤ g`, given child
+  `Ξ n` mono (`hΞ`). All three result sources (swallowed-error `g'=⟨0⟩`, revert, success).
+* **`Ξ_gas_le`** — `Ξ (n+1) … g` returns leftover `≤ g`, given child `X n` mono on the
+  fresh child state (gas exactly `g`).
+* **`Lambda_gas_le`** — `Lambda (n+1) … g` returns leftover `≤ g`, given child `Ξ n` mono.
+  Success `g' = .ofNat (if F then 0 else gStarStar − codeDeposit)` bounded via
+  `ite_zero_sub_le` + `ofNat_le_of_le`.
+* **`xiResultGas`** / **`resultGas`** / **`ofNat_le_of_le`** — the result-gas projections
+  and the `.ofNat`-no-wrap closer threaded through all the above.
+
+### REMAINING for the *fully nested* headline (precise, NOT faked)
+
+1. **Gas-monotonicity mutual induction — ASSEMBLY only.** The per-layer reductions above
+   are all proved; what remains is the single strong induction on `fuel` that ties them
+   into the mutual fixpoint `gas_mono n : Θ_gas_le n ∧ Ξ_gas_le n ∧ X_gas_le n ∧
+   Lambda_gas_le n ∧ step_gas_le n`, feeding the IH at `< n` to each reduction's child
+   hypothesis (`X_gas_le` via `X_loop_gas_le'` needs `step_gas_le` at all `f`, hence
+   strong induction). ONE brick still missing: the **precompiled `Θ` arm** of `Θ_gas_le`
+   (`.Precompiled pc`, non-recursive). Each of the 10 `Ξ_*` precompiles returns gas
+   `⟨0⟩` (cheap-out) or `g − .ofNat gᵣ` (`≤ g` via `gas_sub_le`); a per-contract sweep
+   (`unfold Ξ_X; by_cases g.toNat < gᵣ`, then `cases` the inner result match) closes it.
+   `bn_add_gas_le` shape verified in scratch; `sub_word_le` helper is the uniform closer.
+   EXPMOD/PointEval/BLAKE2_F have extra inner branches but the same `⟨0⟩`/`g−gᵣ` shape.
 
 2. **Never-`OutOfFuel` mutual induction with the depth-aware bound `B`.** Strong
-   induction on `fuel` over the six layers, each `P_·` reading "`fuel ≥ B gas depth →
-   layer ≠ OutOfFuel`". The propagation skeletons above are the `fuel+1` steps; sub-task
-   (1) supplies the *strict* gas descent (`call_result_gas_lt`) that bottoms out the
-   `X` loop on CALL/CREATE iterations (generalising `X_loop_noncallcreate` to drop
-   `hnc`); at each descent the child's `Θ/Ξ/X` are at strictly smaller fuel, so the IH
-   discharges them once `B` is threaded.
+   induction on `fuel` over the layers, each `P_·` reading "`fuel ≥ B gas depth →
+   layer ≠ OutOfFuel`". The propagation skeletons (`*_outOfFuel_of`) are the `fuel+1`
+   steps; `call_result_gas_lt` / `create*_result_gas_lt` (the STRICT companions) supply
+   the per-iteration gas descent that bottoms out the `X` loop on CALL/CREATE iterations
+   (generalising `X_loop_noncallcreate` to drop `hnc`, using the strict bricks like
+   `X_loop_gas_le'` uses the non-strict ones); at each descent the child's `Θ/Ξ/X` are at
+   strictly smaller fuel AND larger depth, so the IH discharges them once `B` is threaded.
+   Define `B 0 g = g+2`, `B (k+1) g = (g+1)*(B k g + c) + 2`, `k = 1025 − depth` so the
+   recurrence holds definitionally. This induction is NOT YET STARTED — the headline does
+   not close this run.
 
    **Bound shape.** The per-frame `X`-loop runs up to `gas` iterations, and *each* may
    spawn a child needing its own full budget `B childgas (depth+1)`, so `B` is
