@@ -145,12 +145,16 @@ whichever interface, ideally the shared one.
   axiom-clean). DONE: `seedFuel g = 4*(g+1)`; fuel-0 base cases (all 5 layers); the
   cornerstone `C'_pos_of_runnable` (every loop-continuing opcode burns ≥1 gas — ~140 ops;
   zero-cost ops all halt); positivity helpers; the headline `Θ_never_outOfFuel` stated.
-  PROGRESS (`f460066`): (1) `Z→step→X` gas-decrement chain DONE (`gas_EvmYul_step` via
-  per-arm definitional unfolding to beat the 140-arm match timeout, `Z_ok_cost_le_gas`);
-  (2) `X` measure descent DONE (`X_iter_gas_lt`); (3) cross-layer conservation DOWN-PAYMENT
-  (`Cgascap_le_gas`: child gas ≤ parent). REMAINING (crux attempt IN PROGRESS): finish (3)
-  + (4) the final MUTUAL fuel-passing induction (recommended spine: strong induction on
-  fuel over the 5-layer statement). The single hardest proof in the experiment.
+  PROGRESS (`21f3450`, green, axiom-clean): (1) gas-decrement chain DONE; (2) `X` measure
+  descent DONE; (3) cross-layer gas/depth conservation DONE (`Ccallgas_le_gas_of_cover`,
+  `call_depth_bound` ≤1024); (4) 4/5 propagation skeletons proved (Ξ/Θ-Code/call/Lambda
+  inductive steps of the strong-fuel-induction). **PAUSED for steer (3rd iteration).**
+  REMAINING: `step` skeleton + `X` inner loop-induction + precompiled-`Θ` arm + final
+  assembly. **KEY DESIGN FINDING: `seedFuel = 4*(g+1)` is INSUFFICIENT for nested** — gas
+  is only non-increasing (not strictly smaller) across a descent, so fuel must cover
+  ~4 hops × ≤1024 descents ⇒ the seed must be **DEPTH-AWARE**, e.g.
+  `B(gas,depth) = (1025−depth)·4·(gas+1)`. This must be settled before the headline closes.
+  DECISION PENDING (Eduardo): adopt the depth-aware bound + one more iteration, vs. park B2.
 - [ ] **B3** Nested external-call core: a `{P} Ξ(child) {Q}` triple + call-site/frame
   rule; demonstrate **multiple** calls compose naturally (contrast with A's effort).
 - [ ] **B4** Expose an observables-only, fuel/frame-free semantics surface for IRs.
