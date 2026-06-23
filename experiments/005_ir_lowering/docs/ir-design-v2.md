@@ -144,9 +144,27 @@ per-opcode cost. This is the precise middle point between an arbitrary oracle (b
   predictive branch direction (those need *strict* decrease + a positive per-iteration
   cost lower bound = cost modeling, the non-goal).
 
-Prototype note: a single `gasRead` example does not exercise monotonicity (it relates
-≥2 reads); the law lands at the milestone with two reads across a step/call. The §6 step-1
-prototype validates the event mechanism; the monotonicity law is layered on next.
+**✅ VALIDATED (2026-06-23, `LirLean/V2/Mono.lean`, axiom-clean).** The two-read milestone
+proved `lower_preserves_obs_mono` on a "sticky gas guard" (`g1:=gas; …; g2:=gas;
+branch (g1<g2) BAD GOOD` — monotonicity forces the "did gas go up" guard to `0`, pinning the
+observable). The IR touches the law exactly once to decide the guard; the bytecode side
+**discharges** monotonicity (not assumes it) — and it fell out of the exact `subCharges` gas
+accounting as a one-line `omega`, confirming "already-owned machinery, no new gas theory."
+Refinements this surfaced (now part of the design):
+- **The law is `toNat` non-increasing, and only the `later ≤ earlier` direction (+ its
+  negation) is determinable.** A *strict*-decrease guard (`g2 < g1`) is NOT determinable
+  (the equality case) — that is exactly the loop-termination non-goal, re-confirmed.
+- **Determinable guards lower through `GT`, not `LT`.** Two `GAS` reads leave the stack as
+  `g2 :: g1`; deciding `g1 < g2` needs `g1` on top, i.e. a `SWAP` or (free, same `binOp`
+  path) a `GT`. The lowering uses `GT`. State this operand-order fact for any guard whose
+  determinacy needs a specific operand on top.
+- **`gasReads` is the gasRead *subsequence*** (it ignores `call`/other events) — the right
+  semantics once events interleave; "holds across calls" is precisely a `call` between two
+  reads.
+- **A general `Runs`-level `gasAvailable.toNat`-non-increasing lemma (threading `.call`
+  nodes via the 63/64 net-debit) is still owed** for the *general* (non-concrete-program)
+  theorem. Exact `subCharges` suffices per-program; the general lowering needs the lemma —
+  that is where §3.4's "holds across calls" becomes a real proof. **(Being proved next.)**
 
 > Note: this means v2 has **no gas counter at all** — neither for accounting (rejected)
 > nor for introspection (it's an event). The only surviving gas fact is the caller-local
@@ -217,8 +235,13 @@ work folds into "this `Runs.call` node realises this `CallEvent`."
    hand-written PUSH1 not `lower protoIR` (avoids the PUSH32 decode blowup); `returned w` ↦
    success with empty RETURN window; STOP fall-through arm not instantiated; `RunFrom`
    determinism not yet proved (headline states IR-and-bytecode-agree directly).
+1b. **Two-read monotonicity. ✅ DONE (`LirLean/V2/Mono.lean`, axiom-clean).** Validated the
+   §3.4 monotone-oracle law on a sticky-gas-guard example; bytecode discharges monotonicity.
+   *In progress next:* the general `Runs`-level gas-monotonicity-across-`.call` lemma (the
+   prerequisite that makes "holds across calls" a real proof, decision-free).
 2. **Calls as events.** Add transcript threading; re-derive `workedCall`'s preservation in
    the v2 shape, reusing the v1 `Runs` assembly as the witness for each `CallEvent`.
+   *(Blocked on the §7.5 returndata-model decision — held for Eduardo.)*
 3. **Branch + multi-call.** `Term.branch` lowering as an observable theorem;
    `wc_preserves_twoCall` analog falls out of transcript concatenation (Track A
    `Runs.call` composition).
