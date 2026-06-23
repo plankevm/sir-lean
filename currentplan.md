@@ -166,9 +166,16 @@ whichever interface, ideally the shared one.
   spawn a child needing its own full budget ⇒ the sound bound is SUPER-LINEAR,
   `B (k+1) gas = (gas+1)·(B k gas + c) + 2` over `k = 1025−depth` (~`(gas+1)^(1025−depth)`).
   Size is irrelevant (fuel is a proof device, never run); only tractability matters.
-  DECISION (Eduardo, after 3rd partial): **one more targeted iteration** — final B2f
-  agent IN PROGRESS with the recursive super-linear bound (closes the two descent
-  obligations + instantiates the headline at the initial depth).
+  DECISION (Eduardo, after 3rd partial): one more targeted iteration — B2f DONE
+  (`34961b0`, green, axiom-clean, 7 commits) but headline STILL OPEN (4th partial).
+  B2f closed all CALL-descent bricks: UInt256 no-wrap gas core (`gas_add_sub_le/lt`),
+  `call_result_gas_le/lt` (strict CALL descent mod one child-Θ-mono hyp), leaf
+  gas-monotonicity (`X_leaf_gas_le`, unconditional), CALL-arm arg-matching
+  (`pop7_stack_index`). REMAINING = two mutual inductions: (1) gas-monotonicity
+  (strong-induction on fuel; CALL path now mechanical, but **CREATE/`Lambda` gas
+  accounting is a different shape and was NOT examined** — the one true unknown), and
+  (2) never-OOF mutual induction with the super-linear `B`. ⇒ STOPPED per anti-thrash
+  rule; escalated to Eduardo (4th partial, design-sensitive). Pending steer.
 - [ ] **B3** Nested external-call core: a `{P} Ξ(child) {Q}` triple + call-site/frame
   rule; demonstrate **multiple** calls compose naturally (contrast with A's effort).
 - [ ] **B4** Expose an observables-only, fuel/frame-free semantics surface for IRs.
@@ -318,6 +325,15 @@ your own branch with clear messages; never touch another track's files; if block
 write the blocker into PLAN.md before stopping.
 
 ## Orchestration log
+- 2026-06-23: **B2f (4th iteration) landed PARTIAL & verified** (`34961b0`, green
+  1029/1030, axiom-clean, clean tree, 7 commits). Closed all CALL-descent bricks (no-wrap
+  UInt256 gas core, strict `call_result_gas_lt`, leaf gas-monotonicity, `pop7_stack_index`
+  arg-matching). Headline `Θ_never_outOfFuel` STILL OPEN. Remaining = the two mutual
+  inductions; **CREATE/`Lambda` gas accounting is the one unexamined unknown** (different
+  shape than CALL's UInt256 sum). Per anti-thrash rule, STOPPED and escalated to Eduardo
+  (4th partial). NOTE: Track C reformulation under discussion (gas/pc/call decoupling —
+  abstract IR machine + `CallOracle` + observables-only simulation; see Verity/Dafny-EVM
+  prior art) — `ir-design-v2` draft offered, pending Eduardo's go.
 - 2026-06-23: **B2 3rd iteration landed PARTIAL & verified** (`71b1217`, green, axiom-clean —
   `#print axioms Θ_leaf_noOOF` = `[propext, Classical.choice, Quot.sound]`, zero
   sorry/admit/axiom/native_decide, clean tree). Closed all four named-remaining pieces +
