@@ -92,13 +92,37 @@ preservation proof each event is *witnessed by the bytecode's actual `messageCal
 > the call. A callee that legitimately runs out of gas is just a `CallEvent` with
 > `success = 0` — absorbed into "whatever the bytecode does."
 
-### 3.4 `Expr.gas` / gas introspection — DEFERRED (open, see §7)
+### 3.4 `Expr.gas` / gas introspection — KEPT, as an observed-value event
 
-Gas introspection is the one place the IR reads a low-level quantity. Options recorded
-for later; v2's first cut likely **drops `Expr.gas`** and revisits gas-introspection as a
-follow-up (Eduardo de-emphasized gas-awareness). If kept: model `gas` as another *event*
-(an observed value the run supplies), with the honesty obligation stated as an IR theorem
-("output robust across the observed value"), never as a tracked counter.
+**Decision (Eduardo, 2026-06-23): keep gas introspection, but do NOT model opcode gas
+costs.** The IR may *read* gas and branch on it; it must never *account* gas (no
+per-opcode charge, no `matCost`, no decremented counter).
+
+This is the **same event mechanism as calls** (§3.3) applied to gas: `Expr.gas`
+evaluates to a value drawn from a **gas-read event** the run supplies. The IR consumes
+the event and asserts nothing about how the value arose — exactly "introspection without
+accounting." So v2's event trace is not just calls; it is the unified sequence of
+*things the IR observes but does not model*:
+
+```text
+Event := | call (callee : Address) (calldata : Calldata)
+                 (world' : World) (success : Word) (returndata : Returndata)
+         | gasRead (observed : Word)          -- the value a GAS opcode reports
+Trace := List Event
+```
+
+`Expr.gas` consumes the next `gasRead`; `Stmt.call` consumes the next `call`. In the
+preservation proof each `gasRead` is witnessed by the lowered `GAS` opcode's actual
+result (just as each `call` is witnessed by `messageCall`). The project's honesty
+constraint (theorems true *under* gas introspection, gas-freedom earned not assumed) is
+satisfied structurally: a gas-dependent branch is evaluated against the **actual observed
+gas**, so the preserved observable is correct for the real machine value — and a theorem
+"observable independent of the `gasRead` value" becomes a *provable IR property*, never an
+assumption.
+
+> Note: this means v2 has **no gas counter at all** — neither for accounting (rejected)
+> nor for introspection (it's an event). The only surviving gas fact is the caller-local
+> adequacy envelope `G₀ ≤ g` of §4, which is about *never running out*, not about *values*.
 
 ## 4. The preservation theorem (shape)
 
@@ -152,10 +176,12 @@ work folds into "this `Runs.call` node realises this `CallEvent`."
 
 0. **Lens + types.** Define `World`, `Observable`, `CallEvent`, and the
    `World ↔ Frame`-observable abstraction lens (seed: `selfStorage`/`storageAt`).
-1. **Pure fragment prototype.** Gas-free `IRRun` for the no-call fragment; prove
-   `lower_preserves_obs` on the **arithmetic+storage example** (the `ArithStorageExample`
-   analog). This validates the gas-free machine + observable theorem shape end-to-end at
-   low cost. ← **the de-risking prototype.**
+1. **Call-free prototype (arith + storage + gas-read branch).** Gas-free `IRRun` for the
+   no-`call` fragment, including a `gasRead` event feeding a gas-dependent `Term.branch`;
+   prove `lower_preserves_obs` on an **arithmetic+storage+gas-branch example**. This
+   validates the gas-free machine, the observable theorem shape, **and the event mechanism
+   (via the lightweight `gasRead` event)** end-to-end at low cost — before the heavier
+   `call`-event Runs assembly. ← **the de-risking prototype.**
 2. **Calls as events.** Add transcript threading; re-derive `workedCall`'s preservation in
    the v2 shape, reusing the v1 `Runs` assembly as the witness for each `CallEvent`.
 3. **Branch + multi-call.** `Term.branch` lowering as an observable theorem;
@@ -175,10 +201,12 @@ Keep v1 `wc_preserves` green as reference until step 2 reaches parity.
    is the useful guarantee; confirm.
 3. **calldata / returndata / value.** C1 was value-free & calldata-free. Keep that for v2
    first cut, or generalise the `CallEvent` now?
-4. **`Expr.gas`.** Drop for v2 and split gas-introspection to a follow-up experiment, or
-   keep via the event model (§3.4)?
+4. ~~`Expr.gas`.~~ **DECIDED (2026-06-23):** keep gas introspection, modeled as a
+   `gasRead` event — no opcode-cost accounting, no gas counter (§3.4). The prototype
+   (§6 step 1) should include a gas-read + gas-dependent `branch` to exercise the event
+   model cheaply, before external-call events.
 5. **Revert/failure as observable.** Does the IR model `REVERT` (an `Observable.result`
-   case) or only `stop`/`return`?
+   case) or only `stop`/`return`? *Default for v2 first cut: `stop`/`return` only.*
 6. **Convergence with Phase-2.** `CallEvent`/the call-as-event boundary is a candidate
    piece of the shared `EVMSemantics` interface — both flat (A) and nested (B) realise the
    same `messageCall`-induced events. Worth aligning the `World`/`CallEvent` signatures
