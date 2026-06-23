@@ -3579,6 +3579,64 @@ theorem step_gas_mono (n : ℕ) : step_gas_mono_at n := (gas_mono n).1
 /-- `call` gas-monotonicity corollary. -/
 theorem call_gas_mono (n : ℕ) : call_gas_mono_at n := (gas_mono n).2.1
 
+/-! ## A1 STAGE 2 — the `X` loop never `OutOfFuel` (fully nested)
+
+`X_loop_noOOF` is the nested generalisation of `X_loop_noncallcreate`: it DROPS the
+`hnc` (no-call/create) hypothesis. The loop still bottoms out on the gas measure
+(`gas + 1 < fuel`), but now EVERY iteration's strict gas descent — including
+CALL/CREATE iterations — is supplied by `X_iter_gas_lt_any`, whose child gas-mono
+hypotheses are discharged *unconditionally* by the Stage-1 corollaries
+`Θ_gas_mono`/`Lambda_gas_mono`. The only remaining hypothesis is `hstep` (every
+per-instruction `step (f+1) …` is never `OutOfFuel`), which Stage 3's mutual
+induction supplies via `noOOF_step`. -/
+set_option maxHeartbeats 2000000 in
+theorem X_loop_noOOF (vj : Array UInt256)
+    (hstep : ∀ (f : ℕ) (w : Operation) (arg) (cost : ℕ) (s2 : State),
+       step (f+1) cost (some (w, arg)) s2 ≠ .error .OutOfFuel) :
+    ∀ (fuel : ℕ) (s : State), s.gasAvailable.toNat + 1 < fuel → X fuel vj s ≠ .error .OutOfFuel := by
+  intro fuel
+  induction fuel with
+  | zero => intro s hlt; omega
+  | succ f ih =>
+    intro s hlt
+    obtain ⟨f', rfl⟩ : ∃ f', f = f' + 1 := ⟨f - 1, by omega⟩
+    unfold X
+    simp only [bind, Except.bind]
+    set instr := decode s.toState.executionEnv.code s.pc |>.getD (.STOP, .none) with hinstr
+    cases hZ : Z vj instr.1 s with
+    | error e =>
+      intro hc
+      have : e = EVM.ExecutionException.OutOfFuel := by
+        revert hc; simp only [hZ]; intro hc; exact Except.error.inj hc
+      exact Z_never_outOfFuel vj instr.1 s (by rw [hZ, this])
+    | ok p =>
+      obtain ⟨ev, cost₂⟩ := p
+      simp only [hZ]
+      have hevle : ev.gasAvailable.toNat ≤ s.gasAvailable.toNat := Z_ok_state vj instr.1 s ev cost₂ hZ
+      cases hs : step (f'+1) cost₂ instr ev with
+      | error e =>
+        intro hc
+        have he : e = EVM.ExecutionException.OutOfFuel := by
+          revert hc; simp only [hs]; intro hc; exact Except.error.inj hc
+        rw [he] at hs; exact hstep f' instr.1 instr.2 cost₂ ev hs
+      | ok ev' =>
+        simp only [hs]
+        cases hH : H ev'.toMachineState instr.1 with
+        | none =>
+          have hlt2 : ev'.gasAvailable.toNat < ev.gasAvailable.toNat :=
+            X_iter_gas_lt_any f' cost₂ vj instr.1 instr.2 s ev ev'
+              (fun cA σ σ₀ Asub src o rcpt c gg p vv vv' dd e Hd ww res hΘeq =>
+                Θ_gas_mono (f'-1) _ cA _ _ σ σ₀ Asub src o rcpt c gg p vv vv' dd e Hd ww res hΘeq)
+              (fun bvh cA σ σ₀ Asub sndr orig gg pp vv ii ee zz Hd ww res hΛeq =>
+                Lambda_gas_mono f' bvh cA _ _ σ σ₀ Asub sndr orig gg pp vv ii ee zz Hd ww res hΛeq)
+              hZ hs hH
+          apply ih ev'
+          omega
+        | some o =>
+          by_cases hrev : (instr.1 == Operation.REVERT) = true
+          · rw [hrev]; intro hc; nomatch hc
+          · simp only [hrev, Bool.false_eq_true, if_false]; intro hc; nomatch hc
+
 /-! ## Status of the headline `Θ_never_outOfFuel` — what is closed and what remains
 
 ### CLOSED (this run)
