@@ -1005,6 +1005,66 @@ case is *propagated*, never created. These propagation lemmas reduce each layer'
 non-`OutOfFuel`-ness at `fuel+1` to that of the sub-layers it calls — the inductive
 step skeleton for the final mutual induction. -/
 
+set_option maxHeartbeats 2000000 in
+/-- `Z` never emits `OutOfFuel`: every error arm is `OutOfGass`/`InvalidInstruction`/
+`StackUnderflow`/`BadJumpDestination`/`InvalidMemoryAccess`/`StackOverflow`/
+`StaticModeViolation`, and the final result is `.ok`. (We `generalize` the heavy
+`memoryExpansionCost`/`C'` discriminants opaque so `split` does not blow up — the same
+technique as `Z_ok_cost_le_gas`.) -/
+theorem Z_never_outOfFuel (vj : Array UInt256) (w : Operation) (s : State)
+    (h : Z vj w s = .error .OutOfFuel) : False := by
+  unfold Z at h
+  simp only [pure, Except.pure, bind, Except.bind] at h
+  generalize memoryExpansionCost s w = m₁ at h
+  by_cases hg1 : s.gasAvailable.toNat < m₁
+  · rw [if_pos hg1] at h; exact absurd h (by simp)
+  · rw [if_neg hg1] at h
+    generalize C' { s with gasAvailable := s.gasAvailable - UInt256.ofNat m₁ } w = c₂ at h
+    by_cases hg2 : ({ s with gasAvailable := s.gasAvailable - UInt256.ofNat m₁ } : State).gasAvailable.toNat < c₂
+    · rw [if_pos hg2] at h; exact absurd h (by simp)
+    · rw [if_neg hg2] at h
+      split_ifs at h <;> exact absurd h (by simp)
+
+/-- **`X` propagation skeleton.** `X (f+1) vj s` emits `OutOfFuel` only from the
+per-instruction `step f …` or the loop tail `X f …`: the decode/`Z` prelude never
+emits `OutOfFuel` (`Z_never_outOfFuel`), the `H = some` halts are `.ok`. So if every
+`step f …` and every `X f …` is not `OutOfFuel`, neither is `X (f+1)`. (This is the
+*propagation* half; the inner loop-induction that discharges `hX` from gas is
+`X_no_outOfFuel` below.) -/
+theorem X_outOfFuel_of (f : ℕ) (vj : Array UInt256) (s : State)
+    (hstep : ∀ (w : Operation) (arg) (cost : ℕ) (s2 : State),
+       step f cost (some (w, arg)) s2 ≠ .error .OutOfFuel)
+    (hX : ∀ s2 : State, X f vj s2 ≠ .error .OutOfFuel) :
+    X (f+1) vj s ≠ .error .OutOfFuel := by
+  unfold X
+  simp only [bind, Except.bind]
+  set instr := decode s.toState.executionEnv.code s.pc |>.getD (.STOP, .none) with hinstr
+  cases hZ : Z vj instr.1 s with
+  | error e =>
+    intro hc
+    have : e = EVM.ExecutionException.OutOfFuel := by
+      revert hc; simp only [hZ]; intro hc; exact Except.error.inj hc
+    exact Z_never_outOfFuel vj instr.1 s (by rw [hZ, this])
+  | ok p =>
+    obtain ⟨ev, cost₂⟩ := p
+    simp only [hZ]
+    cases hs : step f cost₂ instr ev with
+    | error e =>
+      intro hc
+      have he : e = EVM.ExecutionException.OutOfFuel := by
+        revert hc; simp only [hs]; intro hc; exact Except.error.inj hc
+      rw [he] at hs
+      exact hstep instr.1 instr.2 cost₂ ev hs
+    | ok ev' =>
+      simp only [hs]
+      cases hH : H ev'.toMachineState instr.1 with
+      | none => exact hX ev'
+      | some o =>
+        by_cases hrev : (instr.1 == Operation.REVERT) = true
+        · rw [hrev]; intro hc; nomatch hc
+        · simp only [hrev, Bool.false_eq_true, if_false]
+          intro hc; nomatch hc
+
 /-- `Ξ (f+1)` propagates `OutOfFuel` only from its inner `X f`. If that `X f` is not
 `OutOfFuel`, neither is `Ξ (f+1)`. (The post-processing match on `X`'s
 `.success`/`.revert` result never emits `OutOfFuel`.) -/
@@ -1075,6 +1135,28 @@ theorem Θ_outOfFuel_of (fuel : ℕ) (bvh : List ByteArray)
     -- success/revert both `pure`, then trailing `.ok`.
     rcases res with ⟨g', o⟩ | ⟨⟨⟨a, b⟩, cc, dd⟩, o⟩ <;>
       (intro hc; exact Except.noConfusion hc)
+
+set_option maxHeartbeats 8000000 in
+/-- **The precompiled `Θ`-arm (DONE).** `Θ (fuel+1) … (.Precompiled pc) …` is
+non-recursive and never `OutOfFuel`: every arm of the 10-way numeric match is `.ok`
+(each precompile returns a numeric result), and the `_ => default` fallthrough is
+`.ok default`. The `Θ.eq` equation lemmas for `.Precompiled` are enormous (so
+`simp only [Θ]` deep-recurses; we use `dsimp only [Θ]`), and the literal-pattern
+`match pc with | 1 … | 10 …` makes a naive `split` emit unprovable `pc = n → False`
+exhaustiveness side-goals. The bespoke reduction keeps `hc` in scope across the
+`split` (no `revert`) and drills nested `if`/`match` with `repeat' split at hc`,
+closing every `.ok …`-headed leaf by `nomatch hc`. -/
+theorem Θ_precompiled_never_outOfFuel (fuel : ℕ) (bvh : List ByteArray)
+    (cA : Batteries.RBSet AccountAddress compare)
+    (gh : BlockHeader) (blocks : ProcessedBlocks)
+    (σ σ₀ : AccountMap) (A : Substate) (s o r : AccountAddress) (pc : AccountAddress)
+    (g p v v' : UInt256) (d : ByteArray) (e : Nat) (Hd : BlockHeader) (w : Bool) :
+    Θ (fuel+1) bvh cA gh blocks σ σ₀ A s o r (.Precompiled pc) g p v v' d e Hd w
+      ≠ .error .OutOfFuel := by
+  intro hc
+  dsimp only [Θ] at hc
+  simp only [pure, Except.pure, bind, Except.bind] at hc
+  split at hc <;> (repeat' first | nomatch hc | split at hc)
 
 /-- `call (f+1)` emits `OutOfFuel` only via its inner `Θ f` (taken in the
 balance/depth `if`-branch). The `else` branch and all the post-call state assembly
