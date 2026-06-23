@@ -243,6 +243,13 @@ theorem subCharges_snoc (g : UInt64) (cs : List ℕ) (c : ℕ) :
   | nil => rfl
   | cons d cs ih => show subCharges (g - UInt64.ofNat d) (cs ++ [c]) = _; rw [ih]; rfl
 
+/-- `subCharges` over an append: charge `a` then `b`. -/
+theorem subCharges_append (g : UInt64) (a b : List ℕ) :
+    subCharges g (a ++ b) = subCharges (subCharges g a) b := by
+  induction a generalizing g with
+  | nil => rfl
+  | cons d a ih => show subCharges (g - UInt64.ofNat d) (a ++ b) = _; rw [ih]; rfl
+
 /-- Decode of the `i`-th CALL-arg push (the literal byte at the running pc reduces
 in the kernel). Stated per index because the immediate differs (callee/gas). -/
 theorem wc_dec_callarg0 (g : UInt64) :
@@ -1318,6 +1325,270 @@ theorem wcChain_gas_toNat (g : UInt64) (hg : 50000 ≤ g.toNat) :
         unfold wcPostCharges; simp only [List.sum_cons, List.sum_nil]; omega)]
   show (wcResumed g).exec.gasAvailable.toNat - wcPostCharges.sum = _
   rw [show wcPostCharges.sum = 244 from by unfold wcPostCharges; decide]
+
+/-! ### Per-frame gas lower bounds (each step's charge clears its running gas)
+
+Each chain frame's gas is `resumed − (its prefix of wcPostCharges)`. The gas at each
+frame a `runs_*` consumes is `≥ resumed − 244 ≥ 2922` (for `g ≥ 50000`), so every
+per-step gas bound (max charge `100`) holds. The frame gas is read as a `subCharges`
+(each transformer subtracts `ofNat c`), the SLOAD charge reduced to `100`. -/
+
+/-- The resumed gas lower bound used at every step: `≥ 2922` for `g ≥ 50000`. -/
+theorem wcResumed_gas_ge (g : UInt64) (hg : 50000 ≤ g.toNat) :
+    2922 ≤ (wcResumed g).exec.gasAvailable.toNat := by
+  rw [wcResumed_gas g hg]; omega
+
+/-- A frame whose gas is `subCharges resumed cs` (`cs.sum ≤ 244`) has gas `≥ 2678`
+(`= 2922 − 244`), clearing every per-step charge (max `100`). -/
+theorem wcSub_gas_ge (g : UInt64) (hg : 50000 ≤ g.toNat) (cs : List ℕ) (hcs : cs.sum ≤ 244) :
+    2678 ≤ (subCharges (wcResumed g).exec.gasAvailable cs).toNat := by
+  rw [toNat_subCharges _ _ (by have := wcResumed_gas_ge g hg; omega)]
+  have := wcResumed_gas_ge g hg; omega
+
+/-- The `wcRec0Sload`-frame gas as a constant-charge `subCharges` (SLOAD = 100). -/
+theorem wcRec0Sload_gas (g : UInt64) :
+    (wcRec0Sload g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100] := by
+  show (wcRec0Push3 g).exec.gasAvailable - UInt64.ofNat
+        (Evm.sloadCost ((wcRec0Push3 g).exec.substate.accessedStorageKeys.contains
+          ((wcRec0Push3 g).exec.executionEnv.address, 7))) = _
+  rw [wcRec0_sloadCost]; rfl
+
+/-- The block-1 SLOAD-frame gas as a constant-charge `subCharges` (SLOAD = 100). -/
+theorem wcRec1Sload_gas (g : UInt64) :
+    (wcRec1Sload g).exec.gasAvailable
+      = subCharges (wcResumed g).exec.gasAvailable ([3,3,3,100] ++ [3,3,3,10,1,3,3,3,100]) := by
+  rw [subCharges_append, ← wcRec0Sload_gas]
+  show (wcRec1Push3 g).exec.gasAvailable - UInt64.ofNat
+        (Evm.sloadCost ((wcRec1Push3 g).exec.substate.accessedStorageKeys.contains
+          ((wcRec1Push3 g).exec.executionEnv.address, 7))) = _
+  rw [wcRec1_sloadCost]
+  show (wcRec1Push3 g).exec.gasAvailable - UInt64.ofNat 100
+    = subCharges (wcRec0Sload g).exec.gasAvailable [3,3,3,10,1,3,3,3,100]
+  rfl
+
+/-! ### Stack facts (the SLOADs push the value `5`) -/
+
+/-- The block-0 SLOAD pushes `5` (caller slot 7), so its frame's stack is
+`5 :: 9 :: 100 :: 1 :: []` — the shape the following `ADD` consumes. -/
+theorem wcRec0Sload_stack (g : UInt64) :
+    (wcRec0Sload g).exec.stack = (5 : Word) :: 9 :: 100 :: 1 :: [] := by
+  show ((BytecodeLayer.Dispatch.sloadPost (wcRec0Push3 g).exec 7 [9,100,1]).stack) = _
+  unfold BytecodeLayer.Dispatch.sloadPost
+  dsimp only [ExecutionState.replaceStackAndIncrPC]
+  rw [show ((wcRec0Push3 g).exec.toState.sload 7).2 = 5 from by
+      show (((wcRec0Push3 g).exec.accounts.find? (wcRec0Push3 g).exec.executionEnv.address).option 0
+            (Account.lookupStorage (k := 7))) = 5
+      rw [show (wcRec0Push3 g).exec.accounts = (wcResumed g).exec.accounts from rfl,
+          show (wcRec0Push3 g).exec.executionEnv.address = (wcResumed g).exec.executionEnv.address from rfl]
+      exact wcResumed_self_sload g]
+  rfl
+
+/-- The block-1 SLOAD pushes `5` likewise. -/
+theorem wcRec1Sload_stack (g : UInt64) :
+    (wcRec1Sload g).exec.stack = (5 : Word) :: 9 :: 100 :: 1 :: [] := by
+  show ((BytecodeLayer.Dispatch.sloadPost (wcRec1Push3 g).exec 7 [9,100,1]).stack) = _
+  unfold BytecodeLayer.Dispatch.sloadPost
+  dsimp only [ExecutionState.replaceStackAndIncrPC]
+  rw [show ((wcRec1Push3 g).exec.toState.sload 7).2 = 5 from by
+      show (((wcRec1Push3 g).exec.accounts.find? (wcRec1Push3 g).exec.executionEnv.address).option 0
+            (Account.lookupStorage (k := 7))) = 5
+      rw [show (wcRec1Push3 g).exec.accounts = (wcResumed g).exec.accounts from rfl,
+          show (wcRec1Push3 g).exec.executionEnv.address = (wcResumed g).exec.executionEnv.address from rfl]
+      exact wcResumed_self_sload g]
+  rfl
+
+/-! ### Block-1 cumulative gas equations (push frames after the JUMPDEST) -/
+
+/-- Gas at `wcBlock1Jd` as a `subCharges` (block-0 charges + JUMPI + JUMPDEST). -/
+theorem wcBlock1Jd_gas (g : UInt64) :
+    (wcBlock1Jd g).exec.gasAvailable
+      = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3,10,1] := by
+  show (wcBlock1 g).exec.gasAvailable - UInt64.ofNat GasConstants.Gjumpdest = _
+  rw [show (wcBlock1 g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3,10] from by
+      show (wcRec0PushDest g).exec.gasAvailable - UInt64.ofNat GasConstants.Ghigh = _
+      rw [show (wcRec0PushDest g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3] from by
+          show (wcRec0Lt g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
+          rw [show (wcRec0Lt g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3] from by
+              show (wcRec0Add g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
+              rw [show (wcRec0Add g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3] from by
+                  show (wcRec0Sload g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
+                  rw [wcRec0Sload_gas]; rfl]; rfl]; rfl]; rfl]; rfl
+
+theorem wcRec1_g10 (g : UInt64) :
+    (pushFrameW (wcBlock1Jd g) 100 32).exec.gasAvailable
+      = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3,10,1,3] := by
+  show (wcBlock1Jd g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
+  rw [wcBlock1Jd_gas]; rfl
+
+theorem wcRec1_g11 (g : UInt64) :
+    (pushFrameW (pushFrameW (wcBlock1Jd g) 100 32) 9 32).exec.gasAvailable
+      = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3,10,1,3,3] := by
+  show (pushFrameW (wcBlock1Jd g) 100 32).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
+  rw [wcRec1_g10]; rfl
+
+theorem wcRec1_g12 (g : UInt64) :
+    (wcRec1Push3 g).exec.gasAvailable
+      = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3,10,1,3,3,3] := by
+  show (pushFrameW (pushFrameW (wcBlock1Jd g) 100 32) 9 32).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
+  rw [wcRec1_g11]; rfl
+
+/-! ### Stack-shape facts threaded into the chain -/
+
+theorem wcRec0Push3_stack (g : UInt64) :
+    (wcRec0Push3 g).exec.stack = (7 : Word) :: 9 :: 100 :: 1 :: [] := by
+  show Stack.push (Stack.push (Stack.push (wcResumed g).exec.stack 100) 9) 7 = _
+  rw [wcResumed_stack]; rfl
+
+theorem wcBlock1Jd_stack (g : UInt64) : (wcBlock1Jd g).exec.stack = (1 : Word) :: [] := rfl
+
+theorem wcRec1Push3_stack (g : UInt64) :
+    (wcRec1Push3 g).exec.stack = (7 : Word) :: 9 :: 100 :: 1 :: [] := rfl
+
+/-! ### The assembled post-CALL run
+
+`wcResumed g → … → wcRetFrame g` (pc 517, `RETURN`) as one `Runs`, a `Runs.trans`
+chain of the exp003 opcode rules over the post-CALL frames. Decode at each pc
+(`wcd_*`), gas via the `subCharges`/`wcSub_gas_ge` bounds (warm SLOAD = 100), SLOAD
+value `5` (`wcRec*Sload_stack`), the taken `JUMPI` to block 1 (`wc_get_dest_414` on
+`wcResumed_validJumps`). For `g ≥ 50000`. -/
+theorem wcPostRun (g : UInt64) (hg : 50000 ≤ g.toNat) :
+    Runs (wcResumed g) (wcRetFrame g) := by
+  -- block 0 recompute: PUSH 100; PUSH 9; PUSH 7
+  refine (runs_push (wcResumed g) .PUSH32 100 32 (by nofun) (wcd_300 g) rfl rfl
+      (by show 3 ≤ (subCharges (wcResumed g).exec.gasAvailable []).toNat
+          have := wcSub_gas_ge g hg [] (by simp); omega)
+      (by rw [wcResumed_stack]; decide)).trans ?_
+  refine (runs_push _ .PUSH32 9 32 (by nofun) (wcd_333 g) rfl rfl
+      (by show 3 ≤ (subCharges (wcResumed g).exec.gasAvailable [3]).toNat
+          have := wcSub_gas_ge g hg [3] (by simp); omega)
+      (by rw [show (pushFrameW (wcResumed g) 100 32).exec.stack = (100:Word) :: 1 :: [] from by
+              show Stack.push (wcResumed g).exec.stack 100 = _; rw [wcResumed_stack]; rfl]
+          decide)).trans ?_
+  refine (runs_push _ .PUSH32 7 32 (by nofun) (wcd_366 g) rfl rfl
+      (by show 3 ≤ (subCharges (wcResumed g).exec.gasAvailable [3,3]).toNat
+          have := wcSub_gas_ge g hg [3,3] (by simp); omega)
+      (by rw [show (pushFrameW (pushFrameW (wcResumed g) 100 32) 9 32).exec.stack = (9:Word) :: 100 :: 1 :: [] from by
+              show Stack.push (Stack.push (wcResumed g).exec.stack 100) 9 = _; rw [wcResumed_stack]; rfl]
+          decide)).trans ?_
+  -- SLOAD 7 (warm, value 5)
+  refine (runs_sload (wcRec0Push3 g) 7 [9,100,1] (wcd_399 g) (wcRec0Push3_stack g)
+      (by rw [wcRec0Push3_stack]; decide)
+      (by rw [show Evm.sloadCost ((wcRec0Push3 g).exec.substate.accessedStorageKeys.contains
+              ((wcRec0Push3 g).exec.executionEnv.address, 7)) = 100 from wcRec0_sloadCost g]
+          show 100 ≤ (subCharges (wcResumed g).exec.gasAvailable [3,3,3]).toNat
+          have := wcSub_gas_ge g hg [3,3,3] (by simp); omega)).trans ?_
+  -- ADD (5 + 9 = 14)
+  refine (runs_add (wcRec0Sload g) 5 9 [100,1] (wcd_400 g) (wcRec0Sload_stack g)
+      (by rw [wcRec0Sload_stack]; decide)
+      (by rw [wcRec0Sload_gas]; have := wcSub_gas_ge g hg [3,3,3,100] (by simp)
+          show (3:ℕ) ≤ _; omega)).trans ?_
+  -- LT (14 < 100 = 1)
+  refine (runs_lt (wcRec0Add g) 14 100 [1] (wcd_401 g) rfl
+      (by rw [show (wcRec0Add g).exec.stack = (14:Word) :: 100 :: 1 :: [] from rfl]; decide)
+      (by show (3:ℕ) ≤ (wcRec0Add g).exec.gasAvailable.toNat
+          rw [show (wcRec0Add g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3] from by
+              show (wcRec0Sload g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
+              rw [wcRec0Sload_gas]; rfl]
+          have := wcSub_gas_ge g hg [3,3,3,100,3] (by simp); omega)).trans ?_
+  -- PUSH4 414 (then-target)
+  refine (runs_push _ .PUSH4 414 4 (by nofun) (wcd_402 g) rfl rfl
+      (by show 3 ≤ (wcRec0Lt g).exec.gasAvailable.toNat
+          rw [show (wcRec0Lt g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3] from by
+              show (wcRec0Add g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
+              rw [show (wcRec0Add g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3] from by
+                  show (wcRec0Sload g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
+                  rw [wcRec0Sload_gas]; rfl]; rfl]
+          have := wcSub_gas_ge g hg [3,3,3,100,3,3] (by simp); omega)
+      (by show (wcRec0Lt g).exec.stack.size + 1 ≤ 1024
+          rw [show (wcRec0Lt g).exec.stack = (1:Word) :: 1 :: [] from rfl]
+          decide)).trans ?_
+  -- JUMPI taken to block 1 (cond = lt result = 1 ≠ 0, dest 414)
+  refine (runs_jumpi_taken (wcRec0PushDest g) 414 1 414 [1] (wcd_407 g) rfl
+      (by show (wcRec0PushDest g).exec.stack.size ≤ 1024
+          rw [show (wcRec0PushDest g).exec.stack = (414:Word) :: 1 :: 1 :: [] from rfl]
+          decide)
+      (by show (10:ℕ) ≤ (wcRec0PushDest g).exec.gasAvailable.toNat
+          rw [show (wcRec0PushDest g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3] from by
+              show (wcRec0Lt g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
+              rw [show (wcRec0Lt g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3] from by
+                  show (wcRec0Add g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
+                  rw [show (wcRec0Add g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3] from by
+                      show (wcRec0Sload g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
+                      rw [wcRec0Sload_gas]; rfl]; rfl]; rfl]
+          have := wcSub_gas_ge g hg [3,3,3,100,3,3,3] (by simp); omega)
+      (by decide)
+      (wc_get_dest_414 (wcRec0PushDest g) (by
+          show (wcRec0PushDest g).validJumps = validJumpDests (lower Lir.Decode.workedCall) 0
+          show (wcResumed g).validJumps = _; exact wcResumed_validJumps g))).trans ?_
+  -- block 1: JUMPDEST
+  refine (runs_jumpdest (wcBlock1 g) (wcd_414 g)
+      (by rw [show (wcBlock1 g).exec.stack = (1:Word) :: [] from rfl]; decide)
+      (by show (1:ℕ) ≤ (wcBlock1 g).exec.gasAvailable.toNat
+          rw [show (wcBlock1 g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3,10] from by
+              show (wcRec0PushDest g).exec.gasAvailable - UInt64.ofNat GasConstants.Ghigh = _
+              rw [show (wcRec0PushDest g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3] from by
+                  show (wcRec0Lt g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
+                  rw [show (wcRec0Lt g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3] from by
+                      show (wcRec0Add g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
+                      rw [show (wcRec0Add g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3] from by
+                          show (wcRec0Sload g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
+                          rw [wcRec0Sload_gas]; rfl]; rfl]; rfl]; rfl]
+          have := wcSub_gas_ge g hg [3,3,3,100,3,3,3,10] (by simp); show 1 ≤ _; omega)).trans ?_
+  -- block 1 recompute: PUSH 100; PUSH 9; PUSH 7
+  refine (runs_push (wcBlock1Jd g) .PUSH32 100 32 (by nofun) (wcd_415 g) rfl rfl
+      (by show 3 ≤ (wcBlock1Jd g).exec.gasAvailable.toNat
+          rw [show (wcBlock1Jd g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3,10,1] from by
+              show (wcBlock1 g).exec.gasAvailable - UInt64.ofNat GasConstants.Gjumpdest = _
+              rw [show (wcBlock1 g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3,10] from by
+                  show (wcRec0PushDest g).exec.gasAvailable - UInt64.ofNat GasConstants.Ghigh = _
+                  rw [show (wcRec0PushDest g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3] from by
+                      show (wcRec0Lt g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
+                      rw [show (wcRec0Lt g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3] from by
+                          show (wcRec0Add g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
+                          rw [show (wcRec0Add g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3] from by
+                              show (wcRec0Sload g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
+                              rw [wcRec0Sload_gas]; rfl]; rfl]; rfl]; rfl]; rfl]
+          have := wcSub_gas_ge g hg [3,3,3,100,3,3,3,10,1] (by simp); omega)
+      (by rw [wcBlock1Jd_stack]; decide)).trans ?_
+  refine (runs_push _ .PUSH32 9 32 (by nofun) (wcd_448 g) rfl rfl
+      (by have := wcSub_gas_ge g hg [3,3,3,100,3,3,3,10,1,3] (by simp)
+          show 3 ≤ (pushFrameW (wcBlock1Jd g) 100 32).exec.gasAvailable.toNat
+          rw [show (pushFrameW (wcBlock1Jd g) 100 32).exec.gasAvailable
+                = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3,10,1,3] from
+              wcRec1_g10 g]; omega)
+      (by rw [show (pushFrameW (wcBlock1Jd g) 100 32).exec.stack = (100:Word) :: 1 :: [] from by
+              show Stack.push (wcBlock1Jd g).exec.stack 100 = _; rw [wcBlock1Jd_stack]; rfl]
+          decide)).trans ?_
+  refine (runs_push _ .PUSH32 7 32 (by nofun) (wcd_481 g) rfl rfl
+      (by have := wcSub_gas_ge g hg [3,3,3,100,3,3,3,10,1,3,3] (by simp)
+          show 3 ≤ (pushFrameW (pushFrameW (wcBlock1Jd g) 100 32) 9 32).exec.gasAvailable.toNat
+          rw [show (pushFrameW (pushFrameW (wcBlock1Jd g) 100 32) 9 32).exec.gasAvailable
+                = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3,10,1,3,3] from wcRec1_g11 g]; omega)
+      (by rw [show (pushFrameW (pushFrameW (wcBlock1Jd g) 100 32) 9 32).exec.stack = (9:Word) :: 100 :: 1 :: [] from by
+              show Stack.push (Stack.push (wcBlock1Jd g).exec.stack 100) 9 = _; rw [wcBlock1Jd_stack]; rfl]
+          decide)).trans ?_
+  -- block 1 SLOAD (warm, value 5)
+  refine (runs_sload (wcRec1Push3 g) 7 [9,100,1] (wcd_514 g) (wcRec1Push3_stack g)
+      (by rw [wcRec1Push3_stack]; decide)
+      (by rw [show Evm.sloadCost ((wcRec1Push3 g).exec.substate.accessedStorageKeys.contains
+              ((wcRec1Push3 g).exec.executionEnv.address, 7)) = 100 from wcRec1_sloadCost g]
+          have := wcSub_gas_ge g hg [3,3,3,100,3,3,3,10,1,3,3,3] (by simp)
+          rw [show (wcRec1Push3 g).exec.gasAvailable
+                = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3,10,1,3,3,3] from wcRec1_g12 g]; omega)).trans ?_
+  -- block 1 ADD (5 + 9 = 14)
+  refine (runs_add (wcRec1Sload g) 5 9 [100,1] (wcd_515 g) (wcRec1Sload_stack g)
+      (by rw [wcRec1Sload_stack]; decide)
+      (by rw [wcRec1Sload_gas]; have := wcSub_gas_ge g hg ([3,3,3,100] ++ [3,3,3,10,1,3,3,3,100]) (by simp)
+          show (3:ℕ) ≤ _; omega)).trans ?_
+  -- block 1 LT (14 < 100 = 1) — the RETURN frame
+  exact runs_lt (wcRec1Add g) 14 100 [1] (wcd_516 g) rfl
+      (by rw [show (wcRec1Add g).exec.stack = (14:Word) :: 100 :: 1 :: [] from rfl]; decide)
+      (by show (3:ℕ) ≤ (wcRec1Add g).exec.gasAvailable.toNat
+          rw [show (wcRec1Add g).exec.gasAvailable
+                = subCharges (wcResumed g).exec.gasAvailable ([3,3,3,100] ++ [3,3,3,10,1,3,3,3,100,3]) from by
+              show (wcRec1Sload g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
+              rw [wcRec1Sload_gas]; rfl]
+          have := wcSub_gas_ge g hg ([3,3,3,100] ++ [3,3,3,10,1,3,3,3,100,3]) (by simp); omega)
 
 /-! ## `lower_preserves` for `workedCall` (the bridge half)
 
