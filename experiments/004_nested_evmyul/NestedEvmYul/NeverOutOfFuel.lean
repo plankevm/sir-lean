@@ -2145,6 +2145,57 @@ theorem X_leaf_gas_le (vj : Array UInt256)
     rw [← hdec] at this; exact this
   exact step_default_gas_le f cost w arg s' s'' hwnc hcle hs
 
+/-! ## Item 1 (CREATE-side) — CREATE/CREATE2/`Lambda` gas descent (B2g)
+
+The CREATE/CREATE2 arms of `step` have a *different* result-gas shape than CALL's
+wrapping `UInt256` sum. Reading the vendored `EVM.step` `.CREATE`/`.CREATE2` arms:
+the gas is first debited (`evmState.gasAvailable := evmState.gasAvailable - ofNat
+gasCost` — call this debited word `gd`), then a child `Lambda f … (forwarded gas =
+.ofNat (L gd.toNat)) …` runs returning a leftover `g'`, and the result state's gas is
+
+  `gasAvailable := .ofNat <| gd.toNat - L (gd.toNat) + g'.toNat`
+
+a **`Nat`-shaped** (not `UInt256`-wrapping) expression wrapped once by `.ofNat`,
+where `L n = n - n/64` is the create gas cap (the 63/64 reservation). The forwarded
+gas is exactly `.ofNat (L gd.toNat)`, so the create analogue of `Θ_result_gas_le` is
+`g'.toNat ≤ L gd.toNat`. Across the three `(a, evmState', g', z, o)` branches:
+  * nonce-overflow (`σ_Iₐ.nonce ≥ 2^64-1`):  `g' = .ofNat (L gd.toNat)`  → `= L gd.toNat`;
+  * else (insufficient funds / depth = 1024 / init-code too big): same `.ofNat (L gd.toNat)`;
+  * the `Lambda` branch: `g'` is `Lambda`'s 4th result component on `.ok`, else `⟨0⟩`.
+So `g'.toNat ≤ L gd.toNat` reduces to the single child-`Lambda`-result hypothesis,
+exactly as `call_result_gas_le` reduced to the child-`Θ` hypothesis.
+
+The `Nat` no-wrap core `create_gas_arith{,_lt}` then gives `gd.toNat − L + g' ≤ gd.toNat`
+(`< gd.toNat` is impossible — equality holds when `g' = L`; the strict drop comes
+from the *debit*: `gd.toNat < ev.gas.toNat` since `Gcreate = 32000 > 0`). -/
+
+/-- **CREATE `Nat` no-wrap core (≤).** Given `g' ≤ L gd` (the child returns no more
+than the create cap) and `gd ≤ G` (the debited gas does not exceed the input), the
+`.ofNat`-wrapped create result gas `gd − L gd + g'` has `.toNat ≤ G`. The single
+`.ofNat` does not wrap because `gd − L gd + g' ≤ gd ≤ G < size`. -/
+theorem create_gas_arith (gd G g' : ℕ) (hg' : g' ≤ L gd) (hgd : gd ≤ G) (hG : G < UInt256.size) :
+    (UInt256.ofNat (gd - L gd + g')).toNat ≤ G := by
+  have hLle : L gd ≤ gd := L_le gd
+  have hinner : gd - L gd + g' ≤ gd := by omega
+  have hlt : gd - L gd + g' < UInt256.size := Nat.lt_of_le_of_lt (le_trans hinner hgd) hG
+  have htoNat : (UInt256.ofNat (gd - L gd + g')).toNat = gd - L gd + g' := by
+    show (Fin.ofNat _ _).val = _
+    simp only [Fin.ofNat]; exact Nat.mod_eq_of_lt hlt
+  rw [htoNat]; omega
+
+/-- **CREATE `Nat` no-wrap core (strict <).** Same as `create_gas_arith` but with a
+*strict* debit `gd < G` (which the positive create base cost `Gcreate = 32000`
+guarantees), yielding `.toNat < G`. -/
+theorem create_gas_arith_lt (gd G g' : ℕ) (hg' : g' ≤ L gd) (hgd : gd < G) (hG : G < UInt256.size) :
+    (UInt256.ofNat (gd - L gd + g')).toNat < G := by
+  have hLle : L gd ≤ gd := L_le gd
+  have hinner : gd - L gd + g' ≤ gd := by omega
+  have hlt : gd - L gd + g' < UInt256.size := Nat.lt_of_le_of_lt (le_of_lt (Nat.lt_of_le_of_lt hinner hgd)) hG
+  have htoNat : (UInt256.ofNat (gd - L gd + g')).toNat = gd - L gd + g' := by
+    show (Fin.ofNat _ _).val = _
+    simp only [Fin.ofNat]; exact Nat.mod_eq_of_lt hlt
+  rw [htoNat]; omega
+
 /-! ## Status of the headline `Θ_never_outOfFuel` — what is closed and what remains
 
 ### CLOSED (this run)
