@@ -233,4 +233,45 @@ private theorem proto_prefix_runs (g : UInt64) (hg : 30000 ≤ g.toNat) :
     show Gbase ≤ (f9 g).exec.gasAvailable.toNat
     rw [show Gbase = 2 from rfl, gas_f9, toNat_subCharges_prefix g hg [3,3,22100,3,3,100,3,3,3] (by decide)]; simp only [List.sum_cons, List.sum_nil]; omega
 
+/-- `UInt256.ofUInt64` is injective on zero: a non-zero `UInt64` maps to a non-zero
+`UInt256`. Used to show the observed-gas word is non-zero (so the JUMPI is taken). -/
+theorem ofUInt64_ne_zero (a : UInt64) (ha : a.toNat ≠ 0) : UInt256.ofUInt64 a ≠ 0 := by
+  intro h
+  apply ha
+  have h0 := congrArg (fun w => (w.l0).toNat) h
+  have h1 := congrArg (fun w => (w.l1).toNat) h
+  simp only [UInt256.ofUInt64] at h0 h1
+  have e0 : ((0:UInt256).l0).toNat = 0 := rfl
+  have e1 : ((0:UInt256).l1).toNat = 0 := rfl
+  rw [e0] at h0; rw [e1] at h1
+  -- h0 : (a.toUInt32).toNat = 0 ; h1 : ((a >>> 32).toUInt32).toNat = 0
+  have lt64 : a.toNat < 2^64 := a.toNat_lt
+  simp only [UInt64.toUInt32_toNat, UInt64.toNat_shiftRight, Nat.shiftRight_eq_div_pow,
+             show ((32:UInt64).toNat) % 64 = 32 from rfl] at h0 h1
+  -- h0 : a.toNat % 2^32 = 0 ; h1 : a.toNat / 2^32 % 2^32 = 0 ; lt64 : a.toNat < 2^64
+  have dm0 := Nat.div_add_mod a.toNat (2^32)
+  have dm1 := Nat.div_add_mod (a.toNat / 2^32) (2^32)
+  simp only [show (2:Nat)^64 = 4294967296 * 4294967296 from rfl,
+             show (2:Nat)^32 = 4294967296 from rfl] at *
+  omega
+
+/-! ## The observed-gas word (§3.4: what the `gasRead` event must carry)
+
+`protoObs g` is the word the `GAS` opcode pushes at the JUMPI site: `ofUInt64` of
+the post-charge gas `g - 22223`. The IR's `gasRead` event must carry **this** value
+for the IR and the bytecode to take the same branch — the "events realised by the
+bytecode" clause. For `G₀ ≤ g` it is non-zero, so the gas-dependent branch is
+taken. -/
+def protoObs (g : UInt64) : Word := UInt256.ofUInt64 (subCharges g chs)
+
+/-- The `GAS` opcode at `f10` pushed exactly `protoObs g`. Definitional. -/
+theorem f10_top (g : UInt64) : (f10 g).exec.stack.head? = some (protoObs g) := by
+  show some (UInt256.ofUInt64 (f10 g).exec.gasAvailable) = some (protoObs g)
+  rw [gas_f10]; rfl
+
+/-- For `G₀ ≤ g` the observed gas is non-zero (so the JUMPI is taken). -/
+theorem protoObs_ne_zero (g : UInt64) (hg : 30000 ≤ g.toNat) : protoObs g ≠ 0 := by
+  apply ofUInt64_ne_zero
+  rw [toNat_subCharges g chs (by rw [chs_sum]; omega), chs_sum]; omega
+
 end Lir.V2
