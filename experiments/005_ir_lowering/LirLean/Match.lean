@@ -1,4 +1,5 @@
 import LirLean.SmallStep
+import LirLean.Call
 import LirLean.Lowering
 import LirLean.Layout
 import BytecodeLayer.Hoare
@@ -157,14 +158,40 @@ theorem sim_imm (fr : Frame) (w : Word)
 
 /-- **`Expr.gas` simulation.** A frame decoding to `GAS` runs one step to
 `gasFrame fr`, pushing `UInt256.ofUInt64` of the post-charge gas — definitionally
-`evalExpr (st.charge gBase) .gas`. -/
+`evalExpr (st.charge (gBase evmOracle)) .gas`. The charge is the oracle's `base`
+cost specialised to `evmOracle`, which reduces to `GasConstants.Gbase` by `rfl`. -/
 theorem sim_gas (fr : Frame)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .GAS, .none))
     (hsz : fr.exec.stack.size + 1 ≤ 1024)
     (hgas : GasConstants.Gbase ≤ fr.exec.gasAvailable.toNat) :
     Runs fr (gasFrame fr)
-      ∧ (gasFrame fr).exec.gasAvailable = fr.exec.gasAvailable - UInt64.ofNat gBase := by
+      ∧ (gasFrame fr).exec.gasAvailable = fr.exec.gasAvailable - UInt64.ofNat (gBase evmOracle) := by
   exact ⟨runs_gas fr hdec hsz hgas, rfl⟩
+
+/-! ## Gas-oracle reflexivity headline (`docs/ir-design.md` §3)
+
+The deliverable that demonstrates the gas-agnostic design: **instantiate the
+oracle to `evmOracle` → the IR's `Expr.gas` value is *reflexively equal* to the
+value the lowered `GAS` opcode pushes.** The IR side reads its post-charge counter
+(`evalExpr (st.charge (gBase evmOracle)) .gas`); the EVM side is the word
+`gasFrame fr` leaves on top. Under `Match`'s gas clause (`M4`,
+`fr.exec.gasAvailable = st.gas`), and because `gBase evmOracle = GasConstants.Gbase`
+by `rfl`, the two coincide — by `rfl` once `M4` is rewritten. This is `sim_gas`'s
+value side, restated as the oracle-reflexivity equation. -/
+
+/-- **The gas-introspection reflexivity headline.** Under `Match` (so the IR gas
+counter equals `gasAvailable`, `M4`), at the EVM oracle the value the lowered
+`GAS` opcode pushes onto the stack is exactly the IR's `Expr.gas` value after the
+oracle's `GAS` charge — `evalExpr (st.charge (gBase evmOracle)) .gas`. The whole
+point of the `GasOracle` design: the lowered bytecode's GAS = the IR's GAS,
+*reflexively*, once the oracle is the EVM one. -/
+theorem gas_reflects_lowered (prog : Program) (L : Label) (pc : Nat)
+    (st : IRState) (fr : Frame) (h : Match prog L pc st fr) :
+    (gasFrame fr).exec.stack.head?
+      = evalExpr (st.charge (gBase evmOracle)) .gas := by
+  show some (UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase))
+    = some (UInt256.ofUInt64 (st.gas - UInt64.ofNat (gBase evmOracle)))
+  rw [h.gas_eq]; rfl
 
 /-- **`Expr.add` simulation.** A frame decoding to `ADD` with `a :: b :: rest`
 runs one step to `addFrame fr a b rest`, leaving `UInt256.add a b` on top — the
@@ -308,6 +335,92 @@ theorem sim_call {callFr resumeFr fr' : Frame}
     (hcall : CallReturns callFr resumeFr) (rest : Runs resumeFr fr') :
     Runs callFr fr' :=
   Runs.call hcall rest
+
+/-! ## Call-oracle reflexivity headline (`docs/ir-design.md` §5)
+
+The deliverable that demonstrates the call-agnostic design — the exact analogue of
+`gas_reflects_lowered`: **instantiate the oracle to `evmCallOracle` → the IR's
+call-effect is *reflexively equal* to the lowered bytecode's ext-call effect.** The
+IR side reads the oracle's projections (`postStorage` / `restoredGas` /
+`successWord`); the EVM side is the resumed frame `resumeAfterCall result pd`'s
+observables. Because `evmCallOracle`'s fields are *defined* as those very
+projections (`LirLean/Call.lean`), the three coincidences are `rfl`-clean.
+
+The `CallReturns callFr resumeFr` witness pins `resumeFr = resumeAfterCall
+childRes.toCallResult pending`, so the headline reads off the actual resumed frame.
+
+**Scope** (the success-flag/stack subtlety, flagged in `LirLean/Call.lean` and
+§5): the *state* effect (post-storage through the `M3` lens, restored gas) and the
+*value* of the success word are reflected here. Folding the success word into a
+`resultTmp` binding — which would have to survive `Match`'s `M5 stack_nil`
+recompute-on-use discipline despite being a dynamic, non-recomputable value — is a
+separately-tracked lowering-completeness follow-up; it is not part of this
+reflexivity equation. -/
+
+/-- **The external-call reflexivity headline.** Given a returning external CALL
+(`CallReturns callFr resumeFr`, so `resumeFr = resumeAfterCall result pd` for the
+projected child result / pending call), at `evmCallOracle` the IR's call effect
+coincides — *by construction* — with the lowered resume's observables:
+
+* **post-storage** of any account `addr` at `key` equals the resumed frame's
+  storage through the `M3` lens (`storageAt resumeFr`);
+* **restored gas** equals the resumed frame's `gasAvailable` (`gasAfterReturn`);
+* **success word** equals the word the CALL pushed onto the stack — the head of
+  `resumeFr`'s stack, which is exp003's `x` (0 on failure/insufficient-funds/
+  depth-limit, else 1).
+
+This is the call analogue of `gas_reflects_lowered`: instantiate the oracle to the
+EVM one and the IR's external-call effect is reflexively the lowered bytecode's. -/
+theorem call_reflects_lowered {callFr resumeFr : Frame}
+    (hcall : CallReturns callFr resumeFr) :
+    ∃ result pd, resumeFr = resumeAfterCall result pd
+      ∧ (∀ addr key, evmCallOracle.postStorage result pd addr key = storageAt resumeFr addr key)
+      ∧ evmCallOracle.restoredGas result pd = resumeFr.exec.gasAvailable
+      ∧ evmCallOracle.successWord result pd = callSuccessFlag result pd := by
+  obtain ⟨cp, pending, child, childRes, _hstep, _henters, _hdrive, hresume⟩ := hcall
+  subst hresume
+  exact ⟨childRes.toCallResult, pending, rfl, fun _ _ => rfl, rfl, rfl⟩
+
+/-- **The IR call-transformer instantiation.** Threading the EVM oracle's call
+effect through `IRState.applyCall` (storage ← post-call lens, gas ← restored gas,
+`callResult` ← success word) lands exactly on the resumed frame's observables: under
+the projected `CallReturns`, the post-`applyCall` IR state agrees with `resumeFr`'s
+storage (at the self address, the `M3` lens), its gas, and the `callResult` slot is
+exactly exp003's CALL flag `x` (`callSuccessFlag`) — the dynamic, non-recomputable
+value, now first-class IR state. The `resultTmp` binding is the downstream
+`IRState.bindCallResult` step (`bindCallResult_reflects_lowered`). -/
+theorem applyCall_reflects_lowered {callFr resumeFr : Frame}
+    (st : IRState) (self : AccountAddress)
+    (hcall : CallReturns callFr resumeFr) :
+    ∃ result pd, resumeFr = resumeAfterCall result pd
+      ∧ (st.applyCall evmCallOracle result pd self).storage
+          = (fun key => storageAt resumeFr self key)
+      ∧ (st.applyCall evmCallOracle result pd self).gas = resumeFr.exec.gasAvailable
+      ∧ (st.applyCall evmCallOracle result pd self).callResult
+          = some (callSuccessFlag result pd) := by
+  obtain ⟨cp, pending, child, childRes, _hstep, _henters, _hdrive, hresume⟩ := hcall
+  subst hresume
+  exact ⟨childRes.toCallResult, pending, rfl, rfl, rfl, rfl⟩
+
+/-- **The `resultTmp` binding reads the success flag.** Composing the two steps —
+`applyCall` writes the slot, `bindCallResult` reads it into `locals` — the call's
+`resultTmp` ends up bound to exactly exp003's CALL flag `x` (`callSuccessFlag`),
+under the projected `CallReturns`. This closes the `resultTmp` story: a later use of
+`resultTmp` is now an ordinary `Expr.tmp`/`locals` read (recompute-on-use sees a
+bound local), never a recomputation of the dynamic flag. `M5 stack_nil` is untouched
+— the flag travelled through the `callResult` slot, not the IR-side stack. -/
+theorem bindCallResult_reflects_lowered {callFr resumeFr : Frame}
+    (st : IRState) (self : AccountAddress) (t : Tmp)
+    (hcall : CallReturns callFr resumeFr) :
+    ∃ result pd, resumeFr = resumeAfterCall result pd
+      ∧ ((st.applyCall evmCallOracle result pd self).bindCallResult (some t)).locals t
+          = some (callSuccessFlag result pd) := by
+  obtain ⟨cp, pending, child, childRes, _hstep, _henters, _hdrive, hresume⟩ := hcall
+  subst hresume
+  refine ⟨childRes.toCallResult, pending, rfl, ?_⟩
+  show (IRState.setLocal _ t (callSuccessFlag childRes.toCallResult pending)).locals t = _
+  unfold IRState.setLocal
+  simp
 
 /-! ## Top-level preservation discharge (`lower_preserves`, the bridge half)
 

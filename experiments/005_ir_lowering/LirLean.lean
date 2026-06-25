@@ -10,5 +10,6 @@ import LirLean.Decode
 import LirLean.DecodeLower
 import LirLean.Layout
 import LirLean.SmallStep
+import LirLean.Call
 import LirLean.Match
 import LirLean.WorkedCall
