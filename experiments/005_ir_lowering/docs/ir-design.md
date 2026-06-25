@@ -352,8 +352,9 @@ state: `storage ← postStorage` at the self address, `gas ← restoredGas`.
   `bindCallResult_reflects_lowered` then shows binding it to `resultTmp` makes
   `locals resultTmp = x`. This is the call analogue of `gas_reflects_lowered`:
   instantiate the oracle to the EVM one and the IR's external-call effect — storage,
-  gas, **and the bound success flag** — is *reflexively equal* to the lowered
-  bytecode's.
+  gas, **and the success word's value** — is *reflexively equal* to the lowered
+  bytecode's (the *binding* of that word into `locals` at `resultTmp` is the separate
+  `bindCallResult_reflects_lowered`, above).
 
 **The success-flag binding (`CallSpec.resultTmp`) — RESOLVED via a call-result
 slot.** `Match`'s `M5 stack_nil` (empty working stack at statement boundaries) is
