@@ -14,9 +14,13 @@ import LirLean.Match
 import LirLean.WorkedCall
 -- v2 (exp005) prototype — gas-free, observable, event-trace IR + preservation.
 import LirLean.V2.Machine
+-- v2 (exp005) frame-free gas LAW + IRRun determinism (imports only LirLean.IR/Evm;
+-- zero BytecodeLayer/Frame/Runs): Trace.gasMonotone, MonotoneGas, RunFrom.det/IRRun.det.
+import LirLean.V2.Law
 import LirLean.V2.Preserve
--- v2 (exp005) two-read gas-monotonicity milestone (§3.4).
+-- v2 (exp005) two-read gas-monotonicity milestone (§3.4); IR↔bytecode bridge that
+-- discharges the frame-free law from the bytecode's gas descent.
 import LirLean.V2.Mono
--- v2 (exp005) the gas-oracle interface, law-first (v3 §2, §4–5, S1):
--- MonotoneGas law, GasRealises side-condition, realises→law discharge, RunFrom determinism.
+-- v2 (exp005) the gas-oracle interface, law-first (v3 §2, §4–5, S1): the IR↔bytecode
+-- bridge — GasRealises side-condition over Frame/Runs, realises→law discharge.
 import LirLean.V2.Oracle

@@ -41,18 +41,13 @@ open Evm
 open BytecodeLayer
 open BytecodeLayer.Hoare
 
-/-! ## 1. The one law (`docs/ir-design-v3.md` §2)
+/-! ## 1. The one law (`docs/ir-design-v3.md` §2) — frame-free, in `LirLean/V2/Law.lean`
 
-`MonotoneGas` is the interface name for the single gas law. It IS `Mono.lean`'s
-`Trace.gasMonotone` — the `gasRead` subsequence, monotone non-increasing on `.toNat`,
-in program order. We alias rather than redefine so every existing fact
-(`gasMonotone_pair`, `gReads_gasMonotone`, …) transfers verbatim. `Word`-valued
-throughout; `ℕ` appears ONLY in the law, via `.toNat`. -/
-
-/-- **The one gas law (§2).** The `gasRead` subsequence of `T`, in program order, is
-monotone non-increasing on `.toNat`. The interface name for `Trace.gasMonotone` — the
-*only* gas fact the IR semantics may assume, never any per-opcode cost. -/
-abbrev MonotoneGas (T : Trace) : Prop := Trace.gasMonotone T
+The interface law `MonotoneGas` (the alias of `Trace.gasMonotone`) is frame-free and lives
+in `LirLean/V2/Law.lean` (imported transitively via `Mono`). This module is the
+IR↔bytecode **bridge**: it ties an abstract `Trace` to a witnessing bytecode `Runs`
+(`Frame`/`Runs` references below) and **discharges** the frame-free law from
+`Runs.gasAvailable_le`. -/
 
 /-! ## 2. The realised gas reading at a GAS frame
 
@@ -165,140 +160,11 @@ theorem guard_monotoneGas_via_interface (g : UInt64) (hg : 30000 ≤ g.toNat) :
   obtain ⟨_, hreal⟩ := guard_gasRealises g hg
   exact hreal.monotoneGas
 
-/-! ## 5. `RunFrom` determinism (`docs/ir-design-v3.md` §4 item 2)
+/-! ## 5. `RunFrom`/`IRRun` determinism — frame-free, in `LirLean/V2/Law.lean`
 
-The prototype's `RunFrom` is acyclic-by-construction and its statement/block accessors are
-functional, so the run is deterministic in the trace. We prove it bottom-up:
-`EvalStmt` → `RunStmts` → `RunFrom`. This unlocks the "*the* observable" headline shape. -/
-
-/-- `EvalStmt` is deterministic: same pre-state/trace/statement ⇒ same post-state/trace.
-By cases on the two derivations; the `evalExpr` results agree by `Option.some.inj`. -/
-theorem EvalStmt.det {prog : Program} {st st₁ st₂ : IRState} {T T₁ T₂ : Trace} {s : Stmt}
-    (h₁ : EvalStmt prog st T s st₁ T₁) (h₂ : EvalStmt prog st T s st₂ T₂) :
-    st₁ = st₂ ∧ T₁ = T₂ := by
-  cases h₁ with
-  | assignPure hne hv =>
-    cases h₂ with
-    | assignPure _ hv' => exact ⟨by rw [Option.some.inj (hv.symm.trans hv')], rfl⟩
-    | assignGas => exact absurd rfl hne
-  | assignGas =>
-    cases h₂ with
-    | assignPure hne' _ => exact absurd rfl hne'
-    | assignGas => exact ⟨rfl, rfl⟩
-  | sstore hk hv =>
-    cases h₂ with
-    | sstore hk' hv' =>
-      rw [Option.some.inj (hk.symm.trans hk'), Option.some.inj (hv.symm.trans hv')]
-      exact ⟨rfl, rfl⟩
-
-/-- `RunStmts` is deterministic: same pre-state/trace/statement-list ⇒ same post-state/trace.
-Induction on the first derivation, `EvalStmt.det` at each head. -/
-theorem RunStmts.det {prog : Program} {st st₁ st₂ : IRState} {T T₁ T₂ : Trace} {ss : List Stmt}
-    (h₁ : RunStmts prog st T ss st₁ T₁) (h₂ : RunStmts prog st T ss st₂ T₂) :
-    st₁ = st₂ ∧ T₁ = T₂ := by
-  induction h₁ generalizing st₂ T₂ with
-  | nil => cases h₂ with | nil => exact ⟨rfl, rfl⟩
-  | cons hh _ ih =>
-    cases h₂ with
-    | cons hh' ht' =>
-      obtain ⟨hst, hT⟩ := EvalStmt.det hh hh'
-      subst hst; subst hT
-      exact ih ht'
-
-/-- **`RunFrom` determinism (§4 item 2).** Same program, start state, trace and entry
-label ⇒ the *same* observable. Structural induction on the first derivation; the
-terminator is pinned by the block (`blockAt` is functional), the prefix state/trace by
-`RunStmts.det`, and the branch direction by the (functional) condition lookup — so the two
-runs never diverge. The acyclic-by-construction shape needs no fuel. -/
-theorem RunFrom.det {prog : Program} {st : IRState} {T : Trace} {L : Label} {O O' : Observable}
-    (h₁ : RunFrom prog st T L O) (h₂ : RunFrom prog st T L O') : O = O' := by
-  induction h₁ generalizing O' with
-  | ret hb hss hterm hv =>
-    cases h₂ with
-    | ret hb' hss' hterm' hv' =>
-      -- same block (`blockAt` functional) ⇒ same statements ⇒ same post-state
-      cases Option.some.inj (hb.symm.trans hb')
-      obtain ⟨hst, _⟩ := RunStmts.det hss hss'
-      subst hst; rw [hterm] at hterm'; cases hterm'    -- same returned tmp
-      rw [Option.some.inj (hv.symm.trans hv')]
-    | stop hb' _ hterm' =>
-      cases Option.some.inj (hb.symm.trans hb'); rw [hterm] at hterm'; cases hterm'
-    | branchThen hb' _ hterm' =>
-      cases Option.some.inj (hb.symm.trans hb'); rw [hterm] at hterm'; cases hterm'
-    | branchElse hb' _ hterm' =>
-      cases Option.some.inj (hb.symm.trans hb'); rw [hterm] at hterm'; cases hterm'
-    | jump hb' _ hterm' =>
-      cases Option.some.inj (hb.symm.trans hb'); rw [hterm] at hterm'; cases hterm'
-  | stop hb hss hterm =>
-    cases h₂ with
-    | ret hb' _ hterm' =>
-      cases Option.some.inj (hb.symm.trans hb'); rw [hterm] at hterm'; cases hterm'
-    | stop hb' hss' hterm' =>
-      cases Option.some.inj (hb.symm.trans hb')
-      obtain ⟨hst, _⟩ := RunStmts.det hss hss'; subst hst; rfl
-    | branchThen hb' _ hterm' =>
-      cases Option.some.inj (hb.symm.trans hb'); rw [hterm] at hterm'; cases hterm'
-    | branchElse hb' _ hterm' =>
-      cases Option.some.inj (hb.symm.trans hb'); rw [hterm] at hterm'; cases hterm'
-    | jump hb' _ hterm' =>
-      cases Option.some.inj (hb.symm.trans hb'); rw [hterm] at hterm'; cases hterm'
-  | branchThen hb hss hterm hc hnz hrest ih =>
-    cases h₂ with
-    | ret hb' _ hterm' =>
-      cases Option.some.inj (hb.symm.trans hb'); rw [hterm] at hterm'; cases hterm'
-    | stop hb' _ hterm' =>
-      cases Option.some.inj (hb.symm.trans hb'); rw [hterm] at hterm'; cases hterm'
-    | branchThen hb' hss' hterm' hc' _ hrest' =>
-      cases Option.some.inj (hb.symm.trans hb')
-      obtain ⟨hst, hT⟩ := RunStmts.det hss hss'; subst hst; subst hT
-      rw [hterm] at hterm'; cases hterm'    -- same `thenL`
-      exact ih hrest'
-    | branchElse hb' hss' hterm' hc' hrest' =>
-      cases Option.some.inj (hb.symm.trans hb')
-      obtain ⟨hst, _⟩ := RunStmts.det hss hss'; subst hst
-      rw [hterm] at hterm'; cases hterm'    -- same condition tmp
-      exact absurd (hc.symm.trans hc') (by simpa using hnz)
-    | jump hb' _ hterm' =>
-      cases Option.some.inj (hb.symm.trans hb'); rw [hterm] at hterm'; cases hterm'
-  | branchElse hb hss hterm hc hrest ih =>
-    cases h₂ with
-    | ret hb' _ hterm' =>
-      cases Option.some.inj (hb.symm.trans hb'); rw [hterm] at hterm'; cases hterm'
-    | stop hb' _ hterm' =>
-      cases Option.some.inj (hb.symm.trans hb'); rw [hterm] at hterm'; cases hterm'
-    | branchThen hb' hss' hterm' hc' hnz' hrest' =>
-      cases Option.some.inj (hb.symm.trans hb')
-      obtain ⟨hst, _⟩ := RunStmts.det hss hss'; subst hst
-      rw [hterm] at hterm'; cases hterm'
-      exact absurd (hc'.symm.trans hc) (by simpa using hnz')
-    | branchElse hb' hss' hterm' hc' hrest' =>
-      cases Option.some.inj (hb.symm.trans hb')
-      obtain ⟨hst, hT⟩ := RunStmts.det hss hss'; subst hst; subst hT
-      rw [hterm] at hterm'; cases hterm'    -- same `elseL`
-      exact ih hrest'
-    | jump hb' _ hterm' =>
-      cases Option.some.inj (hb.symm.trans hb'); rw [hterm] at hterm'; cases hterm'
-  | jump hb hss hterm hrest ih =>
-    cases h₂ with
-    | ret hb' _ hterm' =>
-      cases Option.some.inj (hb.symm.trans hb'); rw [hterm] at hterm'; cases hterm'
-    | stop hb' _ hterm' =>
-      cases Option.some.inj (hb.symm.trans hb'); rw [hterm] at hterm'; cases hterm'
-    | branchThen hb' _ hterm' =>
-      cases Option.some.inj (hb.symm.trans hb'); rw [hterm] at hterm'; cases hterm'
-    | branchElse hb' _ hterm' =>
-      cases Option.some.inj (hb.symm.trans hb'); rw [hterm] at hterm'; cases hterm'
-    | jump hb' hss' hterm' hrest' =>
-      cases Option.some.inj (hb.symm.trans hb')
-      obtain ⟨hst, hT⟩ := RunStmts.det hss hss'; subst hst; subst hT
-      rw [hterm] at hterm'; cases hterm'    -- same `dst`
-      exact ih hrest'
-
-/-- **`IRRun` determinism.** Same program/world/trace ⇒ the *same* observable — the §4
-item-2 "*the* observable" fact at top level. -/
-theorem IRRun.det {prog : Program} {w₀ : World} {T : Trace} {O O' : Observable}
-    (h₁ : IRRun prog w₀ T O) (h₂ : IRRun prog w₀ T O') : O = O' :=
-  RunFrom.det h₁ h₂
+`EvalStmt.det` → `RunStmts.det` → `RunFrom.det` → `IRRun.det` are frame-free (about
+`IRRun`, not `Frame`) and live in `LirLean/V2/Law.lean`. We use `IRRun.det` below to get
+the "*the* observable" headline shape. -/
 
 /-! ## 6. The headline in "*the* observable" shape (`docs/ir-design-v3.md` §4 item 2)
 

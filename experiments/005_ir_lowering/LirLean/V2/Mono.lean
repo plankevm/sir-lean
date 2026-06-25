@@ -1,4 +1,4 @@
-import LirLean.V2.Machine
+import LirLean.V2.Law
 import BytecodeLayer.Hoare
 import BytecodeLayer.Hoare.CallSequence
 import BytecodeLayer.Hoare.GasMonotone
@@ -47,50 +47,13 @@ open BytecodeLayer.UInt64
 
 set_option maxRecDepth 4000
 
-/-! ## 1. The monotonicity law on the trace (`docs/ir-design-v2.md` §3.4)
+/-! ## 1. The monotonicity law and the guard arithmetic (frame-free, `LirLean/V2/Law.lean`)
 
-The ONE law the gas oracle carries. We extract the `gasRead` values from a `Trace` in
-program order and assert they are non-increasing (each later read is `≤` the one before).
-We state `≤` on the `toNat` of the words — the robust EVM "gas remaining" order — which
-makes the discharge from the machine's `gasAvailable.toNat` descent immediate. -/
-
-/-- The `gasRead` values of a trace, in program order. -/
-def Trace.gasReads : Trace → List Word
-  | [] => []
-  | .gasRead w :: t => w :: Trace.gasReads t
-
-/-- **The monotonicity law (§3.4).** The `gasRead` values, in program order, are
-monotone non-increasing: each consecutive pair `(earlier, later)` satisfies
-`later.toNat ≤ earlier.toNat` (gas remaining only goes down). This is the *only* gas
-fact the IR semantics is allowed to assume — never any per-opcode cost. -/
-def Trace.gasMonotone (T : Trace) : Prop :=
-  (T.gasReads).IsChain (fun earlier later => later.toNat ≤ earlier.toNat)
-
-/-- For a two-read trace the law is exactly `g2 ≤ g1` (the case the milestone uses). -/
-theorem gasMonotone_pair {g1 g2 : Word} :
-    Trace.gasMonotone [Event.gasRead g1, Event.gasRead g2] ↔ g2.toNat ≤ g1.toNat :=
-  -- gasReads [gasRead g1, gasRead g2] = [g1, g2]; `IsChain` on a pair is the relation
-  List.isChain_pair
-
-/-! ## 2. Using the law: `lt` of two monotone reads is `0`
-
-`UInt256.lt a b = if a < b then 1 else 0`, and `<`/`≤` on `UInt256` are the `toBitVec`
-(= `toNat`) order. So once monotonicity gives `g2.toNat ≤ g1.toNat` the "gas went up"
-guard `lt g1 g2 = (g1 < g2)` is forced to `0`. This is the sole place the law is used
-on the IR side. -/
-
-/-- `b ≤ a` (on `toNat`) forces `UInt256.lt a b = 0` — the guard `lt g1 g2` is `0` when
-`g2 ≤ g1`, i.e. the "did gas increase" test is false under monotonicity. -/
-theorem lt_eq_zero_of_toNat_le {a b : Word} (h : b.toNat ≤ a.toNat) :
-    UInt256.lt a b = 0 := by
-  have hnlt : ¬ (a < b) := by
-    intro hlt
-    -- a < b is a.toBitVec < b.toBitVec, i.e. a.toNat < b.toNat
-    have hbv : a.toBitVec.toNat < b.toBitVec.toNat := hlt
-    simp only [← UInt256.toNat_eq_toBitVec_toNat] at hbv
-    omega
-  unfold UInt256.lt UInt256.fromBool
-  rw [decide_eq_false hnlt, if_neg (by simp)]
+`Trace.gasReads`, the monotonicity law `Trace.gasMonotone` (§3.4), its pair-form
+`gasMonotone_pair`, and the guard arithmetic `lt_eq_zero_of_toNat_le` are all frame-free
+and live in `LirLean/V2/Law.lean` (imported above). This file uses them; the bytecode-side
+discharge of the law (below) is what makes this module the IR↔bytecode bridge for the
+two-read milestone. -/
 
 /-! ## 3. The two-read IR program (`guardIR`)
 
