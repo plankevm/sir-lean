@@ -12,3 +12,16 @@
 --   ExternalCall.lean — reusable bricks for the external-call rung.
 --   Examples/         — worked example programs / demos.
 import BytecodeLayer.Spec
+-- Cross-engine convergence: the toolchain-neutral shared observable, the flat
+-- `observe_flat` projection, the `EVMSemantics` interface + flat instance, and
+-- the (stated-only) flat↔nested equivalence goal. Mirror on the nested side:
+-- experiments/004_nested_evmyul/NestedEvmYul/SharedObservable.lean.
+import BytecodeLayer.SharedObservable
+import BytecodeLayer.Equivalence
+-- The FLAT half of cross-engine refinement-through-a-shared-spec: the do-nothing
+-- STOP call observes as the canonical `emptyObs`. Mirror on the nested side.
+import BytecodeLayer.Refinement
+-- DRAFT: the abstract `EVMSpec` interface (bytecode + state as SEPARATE interp
+-- args) and the flat instance `flatSpec` — the reshape of the interim
+-- `EVMSemantics`/`flatSem`. Pending Eduardo's sign-off on the State/Result choice.
+import BytecodeLayer.EVMSpec
