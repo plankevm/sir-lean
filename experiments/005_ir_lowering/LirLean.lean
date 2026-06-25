@@ -17,3 +17,6 @@ import LirLean.V2.Machine
 import LirLean.V2.Preserve
 -- v2 (exp005) two-read gas-monotonicity milestone (§3.4).
 import LirLean.V2.Mono
+-- v2 (exp005) the gas-oracle interface, law-first (v3 §2, §4–5, S1):
+-- MonotoneGas law, GasRealises side-condition, realises→law discharge, RunFrom determinism.
+import LirLean.V2.Oracle

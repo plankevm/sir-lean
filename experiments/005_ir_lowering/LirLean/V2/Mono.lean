@@ -1,6 +1,7 @@
 import LirLean.V2.Machine
 import BytecodeLayer.Hoare
 import BytecodeLayer.Hoare.CallSequence
+import BytecodeLayer.Hoare.GasMonotone
 import BytecodeLayer.Semantics.UInt64
 import BytecodeLayer.Programs
 import BytecodeLayer.Observables
@@ -372,26 +373,65 @@ theorem toNat_ofUInt64 (a : UInt64) : (UInt256.ofUInt64 a).toNat = a.toNat := by
              show (2:Nat)^32 = 4294967296 from rfl] at *
   omega
 
-/-- **The monotonicity law, discharged from the bytecode side.** For `G₀ ≤ g` the actual
-gas-descent fact gives `(g2Read g).toNat ≤ (g1Read g).toNat` — the second `GAS` read is
-no larger than the first (it charged one more `Gbase`). This is the realised
-`Trace.gasMonotone [gasRead (g1Read g), gasRead (g2Read g)]`. -/
+/-- The realised read words are `ofUInt64` of the GAS-frames' `gasAvailable`, so their
+`.toNat` is exactly the machine's `gasAvailable.toNat` at each read (via `toNat_ofUInt64`
+and the running-balance facts `g_gas_f4`/`g_gas_f5`). This is the bridge from the read
+word's order to the engine's gas order — the quantity `Runs.gasAvailable_le` is monotone
+in. -/
+private theorem g1Read_toNat (g : UInt64) : (g1Read g).toNat = (gf4 g).exec.gasAvailable.toNat := by
+  show (UInt256.ofUInt64 (subCharges g gchs1)).toNat = _
+  rw [toNat_ofUInt64, g_gas_f4]
+private theorem g2Read_toNat (g : UInt64) : (g2Read g).toNat = (gf5 g).exec.gasAvailable.toNat := by
+  show (UInt256.ofUInt64 (subCharges g gchs2)).toNat = _
+  rw [toNat_ofUInt64, g_gas_f5]
+
+/-- **The monotonicity law, discharged from the bytecode side — through the engine's
+gas-descent lemma, not `subCharges` arithmetic.** The second `GAS` read happens at `gf5`,
+reachable from `gf4` (the first read) by one `GAS` step (`Runs (gf4 g) (gf5 g)`), so
+`Runs.gasAvailable_le` (`GasMonotone.lean`, the §3.4 "holds across calls" fact) forces
+`(gf5 g).gasAvailable.toNat ≤ (gf4 g).gasAvailable.toNat`; via `g1Read_toNat`/`g2Read_toNat`
+that is `(g2Read g).toNat ≤ (g1Read g).toNat`. This is the realised
+`Trace.gasMonotone [gasRead (g1Read g), gasRead (g2Read g)]` — monotonicity is a
+*consequence of the run*, not assumed. -/
 theorem gReads_monotone (g : UInt64) (hg : 30000 ≤ g.toNat) :
     (g2Read g).toNat ≤ (g1Read g).toNat := by
-  have h1 : (g1Read g).toNat = g.toNat - 22108 := by
-    show (UInt256.ofUInt64 (subCharges g gchs1)).toNat = _
-    rw [toNat_ofUInt64, toNat_subCharges g gchs1 (by show (22108:ℕ) ≤ g.toNat; omega)]
-    show g.toNat - 22108 = _; rfl
-  have h2 : (g2Read g).toNat = g.toNat - 22110 := by
-    show (UInt256.ofUInt64 (subCharges g gchs2)).toNat = _
-    rw [toNat_ofUInt64, toNat_subCharges g gchs2 (by show (22110:ℕ) ≤ g.toNat; omega)]
-    show g.toNat - 22110 = _; rfl
-  rw [h1, h2]; omega
+  -- `gf5 = gasFrame (gf4 g)`: one GAS step, the same gate `g_runs` uses for the second read.
+  have hrun : Runs (gf4 g) (gf5 g) :=
+    runs_gas (gf4 g) gdec_6 (by show (1:ℕ)+1≤1024; omega)
+      (by show Gbase ≤ (gf4 g).exec.gasAvailable.toNat
+          rw [show Gbase = 2 from rfl, g_gas_f4, toNat_subCharges g gchs1 (by show (22108:ℕ) ≤ g.toNat; omega)]
+          show (2:ℕ) ≤ g.toNat - gchs1.sum; show (2:ℕ) ≤ g.toNat - 22108; omega)
+  rw [g1Read_toNat, g2Read_toNat]
+  exact Runs.gasAvailable_le hrun
 
 /-- The realised two-read trace is `gasMonotone` (the §3.4 law holds on the machine). -/
 theorem gReads_gasMonotone (g : UInt64) (hg : 30000 ≤ g.toNat) :
     Trace.gasMonotone [Event.gasRead (g1Read g), Event.gasRead (g2Read g)] :=
   gasMonotone_pair.mpr (gReads_monotone g hg)
+
+/-! ### The realisability witness, exported for the `Oracle` interface
+
+The milestone trace is *realised* (`LirLean/V2/Oracle.lean`'s `GasRealises`) by two
+`Runs`-threaded GAS-frames whose `ofUInt64`-gas words are exactly `g1Read g`/`g2Read g`.
+We export that as an existential over frames (the private `gf4`/`gf5`), so `Oracle` can
+instantiate its `GasRealises` predicate against this concrete witness without naming the
+internal frames. -/
+
+/-- **The milestone trace's realisability data.** There are two frames `a` (first read)
+and `b` (second read), `Runs`-threaded (`b` reachable from `a`), whose reported gas words
+(`ofUInt64` of `gasAvailable`) are exactly `g1Read g`/`g2Read g`. This is the concrete
+witness `Oracle.GasRealises` packages for the two-read milestone. -/
+theorem gReads_realisable (g : UInt64) (hg : 30000 ≤ g.toNat) :
+    ∃ a b : Frame, Runs a b
+      ∧ g1Read g = UInt256.ofUInt64 a.exec.gasAvailable
+      ∧ g2Read g = UInt256.ofUInt64 b.exec.gasAvailable :=
+  ⟨gf4 g, gf5 g,
+    runs_gas (gf4 g) gdec_6 (by show (1:ℕ)+1≤1024; omega)
+      (by show Gbase ≤ (gf4 g).exec.gasAvailable.toNat
+          rw [show Gbase = 2 from rfl, g_gas_f4, toNat_subCharges g gchs1 (by show (22108:ℕ) ≤ g.toNat; omega)]
+          show (2:ℕ) ≤ g.toNat - gchs1.sum; show (2:ℕ) ≤ g.toNat - 22108; omega),
+    by show UInt256.ofUInt64 (subCharges g gchs1) = _; rw [g_gas_f4],
+    by show UInt256.ofUInt64 (subCharges g gchs2) = _; rw [g_gas_f5]⟩
 
 /-! ### The assembled `Runs` from entry to the STOP halt
 
