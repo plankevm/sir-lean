@@ -24,3 +24,6 @@ import LirLean.V2.Mono
 -- v2 (exp005) the gas-oracle interface, law-first (v3 §2, §4–5, S1): the IR↔bytecode
 -- bridge — GasRealises side-condition over Frame/Runs, realises→law discharge.
 import LirLean.V2.Oracle
+-- v2 (exp005) the abstract external-call oracle worked example (v3 §3, §7): the
+-- frame-free `Stmt.call` arm run under an arbitrary `CallOracle` (no instantiation).
+import LirLean.V2.Call

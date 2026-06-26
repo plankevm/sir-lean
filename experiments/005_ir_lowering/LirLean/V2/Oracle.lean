@@ -183,14 +183,14 @@ conjunct is now the uniqueness statement.
 The `MonotoneGas` conjunct is the §3.4 law obtained through the `GasRealises` interface —
 `guard_monotoneGas_via_interface` reproduces exactly the value `LoweredRunHasObsMono`
 carries, so either source gives the same law (we read it off the milestone here). -/
-theorem lower_preserves_obs_mono_unique (w₀ : World) :
+theorem lower_preserves_obs_mono_unique (o : CallOracle) (w₀ : World) :
     ∃ G₀ : UInt64, ∀ g : UInt64, G₀.toNat ≤ g.toNat →
       MonotoneGas [Event.gasRead (g1Read g), Event.gasRead (g2Read g)]
-      ∧ (∀ O, IRRun guardIR w₀ [Event.gasRead (g1Read g), Event.gasRead (g2Read g)] O →
+      ∧ (∀ O, IRRun guardIR o w₀ [Event.gasRead (g1Read g), Event.gasRead (g2Read g)] O →
               O = guardObsResult w₀ (g1Read g))
       ∧ LoweredRunHasObsMono g [Event.gasRead (g1Read g), Event.gasRead (g2Read g)]
           (guardObsResult w₀ (g1Read g)) := by
-  obtain ⟨G₀, h⟩ := lower_preserves_obs_mono w₀
+  obtain ⟨G₀, h⟩ := lower_preserves_obs_mono o w₀
   -- `LoweredRunHasObsMono = (T = …) ∧ MonotoneGas T ∧ ∃ …`; its `.2.2.1` is the law,
   -- `(h g hg).1` is the milestone's IR run that `IRRun.det` makes unique.
   exact ⟨G₀, fun g hg => ⟨(h g hg).2.2.1, fun O hO => IRRun.det hO (h g hg).1, (h g hg).2⟩⟩

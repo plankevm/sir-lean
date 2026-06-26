@@ -89,8 +89,9 @@ functional, so the run is deterministic in the trace. We prove it bottom-up:
 
 /-- `EvalStmt` is deterministic: same pre-state/trace/statement ⇒ same post-state/trace.
 By cases on the two derivations; the `evalExpr` results agree by `Option.some.inj`. -/
-theorem EvalStmt.det {prog : Program} {st st₁ st₂ : IRState} {T T₁ T₂ : Trace} {s : Stmt}
-    (h₁ : EvalStmt prog st T s st₁ T₁) (h₂ : EvalStmt prog st T s st₂ T₂) :
+theorem EvalStmt.det {prog : Program} {o : CallOracle} {st st₁ st₂ : IRState}
+    {T T₁ T₂ : Trace} {s : Stmt}
+    (h₁ : EvalStmt prog o st T s st₁ T₁) (h₂ : EvalStmt prog o st T s st₂ T₂) :
     st₁ = st₂ ∧ T₁ = T₂ := by
   cases h₁ with
   | assignPure hne hv =>
@@ -106,11 +107,21 @@ theorem EvalStmt.det {prog : Program} {st st₁ st₂ : IRState} {T T₁ T₂ : 
     | sstore hk' hv' =>
       rw [Option.some.inj (hk.symm.trans hk'), Option.some.inj (hv.symm.trans hv')]
       exact ⟨rfl, rfl⟩
+  | call hcallee hgas ho =>
+    cases h₂ with
+    | call hcallee' hgas' ho' =>
+      -- callee/gasFwd words pinned by the (functional) `locals` lookups, the
+      -- `(world', success)` bundle by the (functional) oracle.
+      cases Option.some.inj (hcallee.symm.trans hcallee')
+      cases Option.some.inj (hgas.symm.trans hgas')
+      cases ho.symm.trans ho'
+      exact ⟨rfl, rfl⟩
 
 /-- `RunStmts` is deterministic: same pre-state/trace/statement-list ⇒ same post-state/trace.
 Induction on the first derivation, `EvalStmt.det` at each head. -/
-theorem RunStmts.det {prog : Program} {st st₁ st₂ : IRState} {T T₁ T₂ : Trace} {ss : List Stmt}
-    (h₁ : RunStmts prog st T ss st₁ T₁) (h₂ : RunStmts prog st T ss st₂ T₂) :
+theorem RunStmts.det {prog : Program} {o : CallOracle} {st st₁ st₂ : IRState}
+    {T T₁ T₂ : Trace} {ss : List Stmt}
+    (h₁ : RunStmts prog o st T ss st₁ T₁) (h₂ : RunStmts prog o st T ss st₂ T₂) :
     st₁ = st₂ ∧ T₁ = T₂ := by
   induction h₁ generalizing st₂ T₂ with
   | nil => cases h₂ with | nil => exact ⟨rfl, rfl⟩
@@ -126,8 +137,9 @@ label ⇒ the *same* observable. Structural induction on the first derivation; t
 terminator is pinned by the block (`blockAt` is functional), the prefix state/trace by
 `RunStmts.det`, and the branch direction by the (functional) condition lookup — so the two
 runs never diverge. The acyclic-by-construction shape needs no fuel. -/
-theorem RunFrom.det {prog : Program} {st : IRState} {T : Trace} {L : Label} {O O' : Observable}
-    (h₁ : RunFrom prog st T L O) (h₂ : RunFrom prog st T L O') : O = O' := by
+theorem RunFrom.det {prog : Program} {o : CallOracle} {st : IRState} {T : Trace} {L : Label}
+    {O O' : Observable}
+    (h₁ : RunFrom prog o st T L O) (h₂ : RunFrom prog o st T L O') : O = O' := by
   induction h₁ generalizing O' with
   | ret hb hss hterm hv =>
     cases h₂ with
@@ -212,8 +224,8 @@ theorem RunFrom.det {prog : Program} {st : IRState} {T : Trace} {L : Label} {O O
 
 /-- **`IRRun` determinism.** Same program/world/trace ⇒ the *same* observable — the §4
 item-2 "*the* observable" fact at top level. -/
-theorem IRRun.det {prog : Program} {w₀ : World} {T : Trace} {O O' : Observable}
-    (h₁ : IRRun prog w₀ T O) (h₂ : IRRun prog w₀ T O') : O = O' :=
+theorem IRRun.det {prog : Program} {o : CallOracle} {w₀ : World} {T : Trace} {O O' : Observable}
+    (h₁ : IRRun prog o w₀ T O) (h₂ : IRRun prog o w₀ T O') : O = O' :=
   RunFrom.det h₁ h₂
 
 end Lir.V2

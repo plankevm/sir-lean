@@ -129,35 +129,35 @@ consuming `[gasRead g1, gasRead g2]` halts with `guardObsResult w₀ g1` — the
 `lt g1 g2` is `0` (by `lt_eq_zero_of_toNat_le`, the *only* use of the law), so the branch
 takes the `GOOD` (else) arm and returns `g1`. The gas values are supplied by the run
 (the events); the IR asserts nothing about them beyond monotonicity. -/
-theorem guard_IRRun (w₀ : World) (g1 g2 : Word)
+theorem guard_IRRun (o : CallOracle) (w₀ : World) (g1 g2 : Word)
     (hmono : Trace.gasMonotone [Event.gasRead g1, Event.gasRead g2]) :
-    IRRun guardIR w₀ [Event.gasRead g1, Event.gasRead g2] (guardObsResult w₀ g1) := by
+    IRRun guardIR o w₀ [Event.gasRead g1, Event.gasRead g2] (guardObsResult w₀ g1) := by
   have hle : g2.toNat ≤ g1.toNat := gasMonotone_pair.mp hmono
-  -- the six block-0 statements, each between named states
-  have e0 : EvalStmt guardIR (q0 w₀) [Event.gasRead g1, Event.gasRead g2]
+  -- the six block-0 statements, each between named states (call-free ⇒ oracle-agnostic)
+  have e0 : EvalStmt guardIR o (q0 w₀) [Event.gasRead g1, Event.gasRead g2]
       (.assign (tmp 0) .gas) (q1 w₀ g1) [Event.gasRead g2] := EvalStmt.assignGas
-  have e1 : EvalStmt guardIR (q1 w₀ g1) [Event.gasRead g2]
+  have e1 : EvalStmt guardIR o (q1 w₀ g1) [Event.gasRead g2]
       (.assign (tmp 1) (.imm 5)) (q2 w₀ g1) [Event.gasRead g2] :=
     EvalStmt.assignPure (by nofun) rfl
-  have e2 : EvalStmt guardIR (q2 w₀ g1) [Event.gasRead g2]
+  have e2 : EvalStmt guardIR o (q2 w₀ g1) [Event.gasRead g2]
       (.assign (tmp 2) (.imm 7)) (q3 w₀ g1) [Event.gasRead g2] :=
     EvalStmt.assignPure (by nofun) rfl
-  have e3 : EvalStmt guardIR (q3 w₀ g1) [Event.gasRead g2]
+  have e3 : EvalStmt guardIR o (q3 w₀ g1) [Event.gasRead g2]
       (.sstore (tmp 2) (tmp 1)) (q4 w₀ g1) [Event.gasRead g2] :=
     EvalStmt.sstore (kw := 7) (vw := 5) rfl rfl
-  have e4 : EvalStmt guardIR (q4 w₀ g1) [Event.gasRead g2]
+  have e4 : EvalStmt guardIR o (q4 w₀ g1) [Event.gasRead g2]
       (.assign (tmp 3) .gas) (q5 w₀ g1 g2) [] := EvalStmt.assignGas
-  have e5 : EvalStmt guardIR (q5 w₀ g1 g2) []
+  have e5 : EvalStmt guardIR o (q5 w₀ g1 g2) []
       (.assign (tmp 4) (.lt (tmp 0) (tmp 3))) (q6 w₀ g1 g2) [] :=
     EvalStmt.assignPure (by nofun) rfl
-  have hss : RunStmts guardIR (q0 w₀) [Event.gasRead g1, Event.gasRead g2]
+  have hss : RunStmts guardIR o (q0 w₀) [Event.gasRead g1, Event.gasRead g2]
       guardBlock0.stmts (q6 w₀ g1 g2) [] :=
     .cons e0 (.cons e1 (.cons e2 (.cons e3 (.cons e4 (.cons e5 .nil)))))
   -- the guard `lt g1 g2` is 0 under monotonicity → branch takes the GOOD (else) arm
   have hguard : (q6 w₀ g1 g2).locals (tmp 4) = some 0 := by
     rw [q6_locals4]; rw [lt_eq_zero_of_toNat_le hle]
   have hbranch :
-      RunFrom guardIR (q0 w₀) [Event.gasRead g1, Event.gasRead g2] (lbl 0)
+      RunFrom guardIR o (q0 w₀) [Event.gasRead g1, Event.gasRead g2] (lbl 0)
         { worldDelta := (q6 w₀ g1 g2).world, result := .returned g1 } :=
     RunFrom.branchElse (b := guardBlock0) (thenL := lbl 1) (elseL := lbl 2)
       guardIR_block0 hss rfl hguard
@@ -578,13 +578,13 @@ There is an adequacy floor `G₀` such that for every gas `g ≥ G₀`:
 The §4 shape `∃ G₀, ∀ g ≥ G₀, …` is preserved with **no `pc` and no gas-equality** in the
 statement; the only gas fact is the envelope `G₀ ≤ g`. The IR and the bytecode take the
 same branch precisely because they share the same realised, monotone trace `T`. -/
-theorem lower_preserves_obs_mono (w₀ : World) :
+theorem lower_preserves_obs_mono (o : CallOracle) (w₀ : World) :
     ∃ G₀ : UInt64, ∀ g : UInt64, G₀.toNat ≤ g.toNat →
-      IRRun guardIR w₀ [Event.gasRead (g1Read g), Event.gasRead (g2Read g)]
+      IRRun guardIR o w₀ [Event.gasRead (g1Read g), Event.gasRead (g2Read g)]
         (guardObsResult w₀ (g1Read g))
       ∧ LoweredRunHasObsMono g [Event.gasRead (g1Read g), Event.gasRead (g2Read g)]
         (guardObsResult w₀ (g1Read g)) := by
-  refine ⟨30000, fun g hg => ⟨guard_IRRun w₀ (g1Read g) (g2Read g) (gReads_gasMonotone g hg), ?_⟩⟩
+  refine ⟨30000, fun g hg => ⟨guard_IRRun o w₀ (g1Read g) (g2Read g) (gReads_gasMonotone g hg), ?_⟩⟩
   refine ⟨rfl, gReads_gasMonotone g hg, ?_⟩
   -- the bytecode observable, from g_messageCall
   refine ⟨(FrameResult.toCallResult (endFrame (gfStop g) (gHalt g))).output,

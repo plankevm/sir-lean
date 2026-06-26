@@ -506,32 +506,32 @@ private theorem s9_world (w₀ : World) (obs : Word) :
 observed gas `obs`, `protoIR` consuming the single `gasRead obs` event halts with
 `protoObsResult w₀` — the gas-dependent branch takes the `ret` arm. `obs` is
 supplied by the run (the event), never computed. -/
-theorem proto_IRRun (w₀ : World) (obs : Word) (hobs : obs ≠ 0) :
-    IRRun protoIR w₀ [Event.gasRead obs] (protoObsResult w₀) := by
-  -- the nine block-0 statements, each between named states (local, cheap `whnf`)
-  have e0 : EvalStmt protoIR (s0 w₀) [Event.gasRead obs] (.assign (tmp 0) (.imm 5)) (s1 w₀) [Event.gasRead obs] :=
+theorem proto_IRRun (o : CallOracle) (w₀ : World) (obs : Word) (hobs : obs ≠ 0) :
+    IRRun protoIR o w₀ [Event.gasRead obs] (protoObsResult w₀) := by
+  -- the nine block-0 statements, each between named states (call-free ⇒ oracle-agnostic)
+  have e0 : EvalStmt protoIR o (s0 w₀) [Event.gasRead obs] (.assign (tmp 0) (.imm 5)) (s1 w₀) [Event.gasRead obs] :=
     EvalStmt.assignPure (by nofun) rfl
-  have e1 : EvalStmt protoIR (s1 w₀) [Event.gasRead obs] (.assign (tmp 1) (.imm 7)) (s2 w₀) [Event.gasRead obs] :=
+  have e1 : EvalStmt protoIR o (s1 w₀) [Event.gasRead obs] (.assign (tmp 1) (.imm 7)) (s2 w₀) [Event.gasRead obs] :=
     EvalStmt.assignPure (by nofun) rfl
-  have e2 : EvalStmt protoIR (s2 w₀) [Event.gasRead obs] (.sstore (tmp 1) (tmp 0)) (s3 w₀) [Event.gasRead obs] :=
+  have e2 : EvalStmt protoIR o (s2 w₀) [Event.gasRead obs] (.sstore (tmp 1) (tmp 0)) (s3 w₀) [Event.gasRead obs] :=
     EvalStmt.sstore (kw := 7) (vw := 5) rfl rfl
-  have e3 : EvalStmt protoIR (s3 w₀) [Event.gasRead obs] (.assign (tmp 2) (.imm 100)) (s4 w₀) [Event.gasRead obs] :=
+  have e3 : EvalStmt protoIR o (s3 w₀) [Event.gasRead obs] (.assign (tmp 2) (.imm 100)) (s4 w₀) [Event.gasRead obs] :=
     EvalStmt.assignPure (by nofun) rfl
-  have e4 : EvalStmt protoIR (s4 w₀) [Event.gasRead obs] (.assign (tmp 3) (.sload (tmp 1))) (s5 w₀) [Event.gasRead obs] :=
+  have e4 : EvalStmt protoIR o (s4 w₀) [Event.gasRead obs] (.assign (tmp 3) (.sload (tmp 1))) (s5 w₀) [Event.gasRead obs] :=
     EvalStmt.assignPure (by nofun) rfl
-  have e5 : EvalStmt protoIR (s5 w₀) [Event.gasRead obs] (.assign (tmp 4) (.imm 9)) (s6 w₀) [Event.gasRead obs] :=
+  have e5 : EvalStmt protoIR o (s5 w₀) [Event.gasRead obs] (.assign (tmp 4) (.imm 9)) (s6 w₀) [Event.gasRead obs] :=
     EvalStmt.assignPure (by nofun) rfl
-  have e6 : EvalStmt protoIR (s6 w₀) [Event.gasRead obs] (.assign (tmp 5) (.add (tmp 4) (tmp 3))) (s7 w₀) [Event.gasRead obs] :=
+  have e6 : EvalStmt protoIR o (s6 w₀) [Event.gasRead obs] (.assign (tmp 5) (.add (tmp 4) (tmp 3))) (s7 w₀) [Event.gasRead obs] :=
     EvalStmt.assignPure (by nofun) rfl
-  have e7 : EvalStmt protoIR (s7 w₀) [Event.gasRead obs] (.assign (tmp 6) (.lt (tmp 5) (tmp 2))) (s8 w₀) [Event.gasRead obs] :=
+  have e7 : EvalStmt protoIR o (s7 w₀) [Event.gasRead obs] (.assign (tmp 6) (.lt (tmp 5) (tmp 2))) (s8 w₀) [Event.gasRead obs] :=
     EvalStmt.assignPure (by nofun) rfl
-  have e8 : EvalStmt protoIR (s8 w₀) [Event.gasRead obs] (.assign (tmp 7) .gas) (s9 w₀ obs) [] :=
+  have e8 : EvalStmt protoIR o (s8 w₀) [Event.gasRead obs] (.assign (tmp 7) .gas) (s9 w₀ obs) [] :=
     EvalStmt.assignGas
-  have hss : RunStmts protoIR (s0 w₀) [Event.gasRead obs] protoBlock0.stmts (s9 w₀ obs) [] :=
+  have hss : RunStmts protoIR o (s0 w₀) [Event.gasRead obs] protoBlock0.stmts (s9 w₀ obs) [] :=
     .cons e0 (.cons e1 (.cons e2 (.cons e3 (.cons e4 (.cons e5 (.cons e6 (.cons e7 (.cons e8 .nil))))))))
   -- branch on t7 = obs ≠ 0 → block 1 (ret t6); resulting O is `protoObsResult w₀`
   have hbranch :
-      RunFrom protoIR (s0 w₀) [Event.gasRead obs] (lbl 0)
+      RunFrom protoIR o (s0 w₀) [Event.gasRead obs] (lbl 0)
         { worldDelta := (s9 w₀ obs).world, result := .returned (UInt256.lt 14 100) } :=
     RunFrom.branchThen (b := protoBlock0) (cw := obs) (thenL := lbl 1) (elseL := lbl 2)
       protoIR_block0 hss rfl (s9_locals7 w₀ obs) hobs
@@ -583,11 +583,11 @@ take the same gas-dependent branch (§3.4).
 > `proto_IRRun`), rather than `∀ O, IRRun … O → …` which would need a separate
 > determinism-of-`RunFrom` lemma. The observable agreement — the actual deliverable —
 > is identical; determinism is mechanical follow-up (the program is acyclic). -/
-theorem lower_preserves_obs (w₀ : World) :
+theorem lower_preserves_obs (o : CallOracle) (w₀ : World) :
     ∃ G₀ : UInt64, ∀ g : UInt64, G₀.toNat ≤ g.toNat →
-      IRRun protoIR w₀ [Event.gasRead (protoObs g)] (protoObsResult w₀)
+      IRRun protoIR o w₀ [Event.gasRead (protoObs g)] (protoObsResult w₀)
       ∧ LoweredRunHasObs g [Event.gasRead (protoObs g)] (protoObsResult w₀) := by
-  refine ⟨30000, fun g hg => ⟨proto_IRRun w₀ (protoObs g) (protoObs_ne_zero g hg), ?_⟩⟩
+  refine ⟨30000, fun g hg => ⟨proto_IRRun o w₀ (protoObs g) (protoObs_ne_zero g hg), ?_⟩⟩
   refine ⟨rfl, ?_⟩
   -- the bytecode observable, from proto_messageCall
   refine ⟨(FrameResult.toCallResult (endFrame (retFr g) (protoHalt g))).output,
