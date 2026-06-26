@@ -69,9 +69,21 @@ assign (0 bytes, `setLocal`, preserve `Match`+`DefsSound`) *mechanical*; sstore 
   every emission helper is aligned; `reaches_block_offset` (induction on block index, each block steps
   `blockLen` bytes matching `offsetTable`'s prefix sum). *was hard; INDEPENDENT.*
 
-**Layer F** `sim_cfg` (induction on `RunFrom`: D1 + E1/E2/IH) → `lower_conforms` (compose via
-`runWithLog_drive`/`messageCall_runs`; realised oracles aligned by `realisedGas_monotone`/`callRealises_bridge`;
-needs `RunFrom` determinism — `IRRun.det` exists for the worked program, generalize).
+**Layer F** — **DONE** (`LirLean/LowerConforms.lean`, axiom-clean). `sim_cfg` (induction on
+`RunFrom`: D `sim_stmts_block` + E `SimTermStep` halt/edge + IH) is **fully proved** — the
+structural core. `lower_conforms` (call-free, WORLD channel) ties `sim_cfg` to the recorder via
+`runWithLog_messageCall` + `messageCall_runs` + `observe`-reads-only-`toCallResult`: the world
+edge `O.world = (observe self log.observable).world` is **fully discharged**. The per-block
+realisability is carried as two structured `∀`-hypotheses at the Layer-D/E conclusion altitude:
+`SimStmtStep` (D) and the new `SimTermStep` (E, this file) — the supplied-observation contract
+(§7), discharged for a concrete program by a `b.term` case-split feeding the four `sim_term_*`
+lemmas. The entry `Corr` (`hentry`), call-freedom (`hcf`), and the IR run under the realised
+oracles (`hir`) are likewise carried hypotheses; `paramsFor`/`paramsFor_entersAsCode` give the
+canonical top-level instantiation (`EntersAsCode` via `codeFrame`/`beginCall_code`). CARRIED
+(realisability-discharge follow-up): the per-block `SimStmtStep`/`SimTermStep` bundles, the
+entry `Corr`, and the IR-run hypothesis — none discharged from `runWithLog` yet (would need a
+generic entry-`Corr` builder incl. the leading-JUMPDEST step, and a bytecode→IR `RunFrom`
+synthesis). No `sorry`/`axiom`/`native_decide`.
 
 ## Deferred channels (separate milestones)
 - **Value channel** (`returned w` ↔ RETURN window): needs `ret` lowering → `MSTORE`+`RETURN(off,32)`, new
