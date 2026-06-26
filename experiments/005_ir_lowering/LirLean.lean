@@ -12,6 +12,9 @@ import LirLean.Layout
 import LirLean.SmallStep
 import LirLean.Call
 import LirLean.Match
+-- Layer A of the `lower_conforms` grind: decode-at-cursor anchors (A1–A3) —
+-- statement-head / arbitrary-offset / terminator decode facts over `lower prog`.
+import LirLean.DecodeAnchors
 import LirLean.WorkedCall
 -- v2 (exp005) prototype — gas-free, observable, event-trace IR + preservation.
 import LirLean.V2.Machine
