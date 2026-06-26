@@ -267,6 +267,7 @@ structure MatRuns (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ) (fuel : 
   stack      : fr'.exec.stack = fr.exec.stack.push w
   code       : fr'.exec.executionEnv.code = fr.exec.executionEnv.code
   addr       : fr'.exec.executionEnv.address = fr.exec.executionEnv.address
+  canMod     : fr'.exec.executionEnv.canModifyState = fr.exec.executionEnv.canModifyState
   storage    : ∀ k, selfStorage fr' k = selfStorage fr k
   pc         : fr'.exec.pc = fr.exec.pc + UInt32.ofNat (materialiseExpr defs fuel e).length
   gasCharge  : MaterialiseGasCharge defs sloadChg fuel e fr fr'
@@ -359,6 +360,7 @@ theorem matRuns_imm (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ) (fuel 
       stack := (sim_imm fr w hdec' hg3 hstk).2
       code := rfl
       addr := rfl
+      canMod := rfl
       storage := fun _ => rfl
       pc := ?_
       gasCharge := materialiseGasCharge_imm defs sloadChg fuel fr w hdec' hg3 hstk
@@ -554,6 +556,7 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
               stack := by rw [gasFrame_stack, hwval]
               code := rfl
               addr := rfl
+              canMod := rfl
               storage := fun _ => rfl
               pc := by
                 rw [gasFrame_pc, show (materialiseExpr defs (f+1) .gas).length = 1 from rfl,
@@ -636,6 +639,7 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
               stack := ?_
               code := ?_
               addr := ?_
+              canMod := ?_
               storage := ?_
               pc := ?_
               gasCharge := ?_
@@ -643,6 +647,9 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
           · rw [sloadFrame_stack, hval]
           · rw [sloadFrame_code, hkcode]
           · rw [sloadFrame_addr, hkaddr]
+          · show (sloadFrame frk key fr.exec.stack).exec.executionEnv.canModifyState = _
+            rw [show (sloadFrame frk key fr.exec.stack).exec.executionEnv.canModifyState
+                  = frk.exec.executionEnv.canModifyState from rfl, hmrk.canMod]
           · intro k'; rw [sloadFrame_selfStorage, hmrk.storage]
           · rw [sloadFrame_pc, hkpc, materialiseExpr_sload]
             simp only [List.length_append, List.length_singleton]
@@ -704,6 +711,7 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
                   stack := hmr.stack
                   code := hmr.code
                   addr := hmr.addr
+                  canMod := hmr.canMod
                   storage := hmr.storage
                   pc := by rw [hmexp]; exact hmr.pc
                   gasCharge := by
@@ -794,6 +802,7 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
               stack := ?_
               code := ?_
               addr := ?_
+              canMod := ?_
               storage := ?_
               pc := ?_
               gasCharge := ?_
@@ -801,6 +810,9 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
           · rw [hadstk]
           · rw [addFrame_code, hacode]
           · rw [addFrame_addr, hmra.addr, hmrb.addr]
+          · show (addFrame fra va vb fr.exec.stack).exec.executionEnv.canModifyState = _
+            rw [show (addFrame fra va vb fr.exec.stack).exec.executionEnv.canModifyState
+                  = fra.exec.executionEnv.canModifyState from rfl, hmra.canMod, hmrb.canMod]
           · intro k; rw [addFrame_selfStorage, hmra.storage, hmrb.storage]
           · rw [addFrame_pc, hapc, materialiseExpr_add]
             simp only [List.length_append, List.length_singleton]
@@ -904,6 +916,7 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
               stack := ?_
               code := ?_
               addr := ?_
+              canMod := ?_
               storage := ?_
               pc := ?_
               gasCharge := ?_
@@ -911,6 +924,9 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
           · rw [hadstk]
           · rw [ltFrame_code, hacode]
           · rw [ltFrame_addr, hmra.addr, hmrb.addr]
+          · show (ltFrame fra va vb fr.exec.stack).exec.executionEnv.canModifyState = _
+            rw [show (ltFrame fra va vb fr.exec.stack).exec.executionEnv.canModifyState
+                  = fra.exec.executionEnv.canModifyState from rfl, hmra.canMod, hmrb.canMod]
           · intro k; rw [ltFrame_selfStorage, hmra.storage, hmrb.storage]
           · rw [ltFrame_pc, hapc, materialiseExpr_lt]
             simp only [List.length_append, List.length_singleton]
