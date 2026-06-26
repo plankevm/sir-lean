@@ -213,6 +213,24 @@ finish MemAlgebra read-back → `sim_mstore`/`sim_mload` (P1b) → P2 decode anc
 → P4 materialise `.callResult` → P5 call-arm `CorrCall`→`Corr` → P6 drop CallFree →
 P7 worked example + `ret` fix + headline + docs.
 
+## P6 shape (the CallFree deletion)
+`SimStmtStep` carries `¬ s.isCall`; the induction (`sim_stmts_drop`) gates on `CallFree`.
+Spine B made `sim_call_stmt` deliver full `Corr` + `stack=[]` — exactly `SimStmtStep`'s
+shape. So P6:
+- **Mechanical**: drop `¬ s.isCall` from `SimStmtStep`; delete `CallFree`/`callFree_*` and
+  every `hcf` from `sim_stmts*`, `sim_cfg`, `lower_conforms*`; remove the call-exclusion
+  `absurd` in `simStmtStep_callfree`'s dispatch.
+- **The call discharge** (`simStmtStep_call`, mirroring `simStmtStep_sstore`): build the
+  arg-push run (5×PUSH0 + materialise callee/gasFwd → `callFr` pins) and feed `sim_call_stmt`.
+  Its remaining supplied premises become per-block ties: the realised **`CallReturns`** +
+  resume pins (the §7 CALL tie — replaces the *restriction* "no calls" with a *realisability
+  condition* "the call behaves as the realised trace says", like gas/sload ties); `hslots` +
+  slot-addressability become new `WellFormedLowered` fields (call-result tmps register
+  `slotOf` — true because `.callResult` is lowering-only, never in a source `assign`; add a
+  `WellFormed` condition forbidding `.callResult` in source assigns); pre-call `MemRealises`
+  from `Corr.memAgree`. Net: `lower_conforms` loses `hcf` and gains a call realisability tie
+  — GENERAL over calls.
+
 ## Known risk items
 1. **`resumeAfterCall` preserves caller memory** at our slots (zero-size out window). Must
    exist or be proved in exp003 territory — first thing P1 confirms.

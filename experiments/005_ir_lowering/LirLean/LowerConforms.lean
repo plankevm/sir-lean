@@ -3,7 +3,7 @@ import LirLean.LowerDecode
 /-!
 # LirLean — `sim_cfg` + `lower_conforms` (Layer **F** of the general `lower_conforms` grind)
 
-The capstone of the call-free, **world-channel** `lower_conforms` grind. It threads the
+The capstone of the **world-channel** `lower_conforms` grind (general over calls). It threads the
 per-block bricks of Layers C–E into a whole-CFG simulation (`sim_cfg`, by induction on
 `V2.RunFrom`) and then ties that to the instrumented recording interpreter `runWithLog`
 (`lower_conforms`).
@@ -37,11 +37,12 @@ arms. This is the **realisability contract**: `sim_cfg` runs the IR under the or
 lowered bytecode realises, and carries the per-block realisability as `SimStmtStep` /
 `SimTermStep` (the `docs/ir-design-v3.md` §7 supplied-observation model).
 
-## Scope — call-free, world channel
+## Scope — all statements, world channel
 
-The block's statements must be `CallFree` (Layer D's scope — the lowered CALL leaves its
-success flag on the bytecode stack, breaking the `stack = []` induction; folded in once the
-flag is consumed). And the channel is the **world** (storage) component: `observe`'s `result`
+Layer D now ranges over **all** statements: Route B's `sim_call_stmt` consumes the lowered
+CALL's success flag (`MSTORE` to the result slot, or `POP`), re-establishing `stack = []`, so a
+`Stmt.call` no longer breaks the induction — `lower_conforms` carries no call-free side
+condition. The channel is the **world** (storage) component: `observe`'s `result`
 is the value-free `.stopped` boundary (the RETURN value channel is the tracked deferral,
 `V2/RunLog.lean` `observe` doc). `sim_cfg`'s conclusion asserts the world component of
 `observe self (endFrame last halt)`.
@@ -176,6 +177,17 @@ structure WellFormedLowered (prog : Program) : Prop where
         + (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp cond)).length + 11 < 2 ^ 32
     ∧ offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx < 2 ^ 32
     ∧ offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks elseL.idx < 2 ^ 32
+  /-- **Call-result slot registration.** Every tmp registered as a call result in `defsOf`
+  carries its canonical slot `slotOf tw`. True structurally: `defsOf` registers each
+  `.call ⟨_, _, some t⟩` as `(t, .callResult (slotOf t))`, and a source `assign` never
+  carries the lowering-only `.callResult` marker (a `WellFormed` invariant, vacuous for real
+  IR — no source program writes a `.callResult` expression). This is `sim_call_stmt`'s
+  `hslots`: it pins the result slot of the binding MSTORE and the 32-aligned disjointness of
+  distinct bound call-result slots. (Call-result slot *addressability* — `slotOf t + 63 < 2^64`
+  — is a property of the realised resume frame's memory, so it travels with the `CallRealises`
+  tie, not here.) -/
+  slots_callResult : ∀ (tw : Tmp) (slot' : Nat),
+    defsOf prog tw = some (.callResult slot') → slot' = slotOf tw
 
 /-! ## Discharging `SimStmtStep` / `SimTermStep` for the call-free fragment
 
@@ -223,7 +235,7 @@ theorem simStmtStep_assign {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word
         ∧ GasRealises obs fr0
         ∧ MemRealises prog st0' fr0) :
     SimStmtStep prog sloadChg obs o L b := by
-  intro pc s st0 st0' T0 T0' fr0 hget hnc hcorr hstep
+  intro pc s st0 st0' T0 T0' fr0 hget hcorr hstep
   obtain ⟨t, e, hse⟩ := hassign s (List.mem_iff_getElem?.mpr ⟨pc, hget⟩)
   subst hse
   obtain ⟨hsc, hscoped', hsload', hgas', hmem'⟩ := hties pc t e st0 st0' fr0 hget hcorr
@@ -262,7 +274,7 @@ theorem simStmtStep_sstore {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word
             + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).length + 1 ≤ 1024
         ∧ (∃ acc, SstoreRealises fr0 kw vw acc) ∧ vw ≠ 0) :
     SimStmtStep prog sloadChg obs o L b := by
-  intro pc s st0 st0' T0 T0' fr0 hget hnc hcorr hstep
+  intro pc s st0 st0' T0 T0' fr0 hget hcorr hstep
   obtain ⟨key, value, hse⟩ := hsstore s (List.mem_iff_getElem?.mpr ⟨pc, hget⟩)
   subst hse
   -- read off the `EvalStmt.sstore` witnesses (operands + post-state).
@@ -274,23 +286,175 @@ theorem simStmtStep_sstore {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word
     exact sim_sstore_stmt_lowered hb hget hcorr hk hv hsc hwfv hwfk
       (hwf.bound_sstore L b pc key value hb hget) hgas hstk hsr hnz
 
-/-! ### The combined call-free statement discharge
+/-! ### The `call`-arm discharge (the §7 CALL tie)
 
-`simStmtStep_callfree` case-splits a general call-free block's statements per shape into the
-`assign` / `sstore` arms — so `SimStmtStep` is CONSTRUCTIBLE for *any* call-free block, given
-`WellFormedLowered` and the per-shape genuine ties. (A call-free block has no `Stmt.call`, so the
-two arms are exhaustive.) -/
+For a `.call cs` cursor, `simStmtStep_call` feeds `sim_call_stmt` (`SimStmt.lean` Arm 3,
+Route B). The CALL is a *genuine runtime call observation*: the realised external CALL trace
+(`CallReturns`, the resume frame, the realised-oracle pinning, the arg-push run reaching the
+CALL site, and the Route-B tail) cannot be discharged from the program text — it is the
+analogue of `SstoreRealises`/the gas-SLOAD ties (the `docs/ir-design-v3.md` §7 supplied
+observation). `CallRealises` bundles exactly that supply, quantified over the cursor frame;
+the structural side-conditions (slot registration + addressability) come from
+`WellFormedLowered`, and the pre-call `MemRealises` comes from `Corr.memAgree`.
 
-/-- **`SimStmtStep` for any call-free block.** Dispatches each statement on its shape:
-`assign` via `sim_assign` (no decode), `sstore` via `sim_sstore_stmt_lowered` (decode discharged
-inside). `WellFormedLowered` supplies the structural fuel/pc side-conditions; the per-shape
-genuine runtime ties (assign post-state realisability; sstore gas/`SstoreRealises`/non-zero) are
-the explicit §7 hypotheses. -/
+The realised step is pinned via `o = evmV2CallOracle result pd self` (in the headline,
+`o = realisedCall log self` *is* that realised oracle, `realisedCall_eq_evmV2` — `rfl`-clean
+when the log recorded the CALL), so the abstract `EvalStmt prog o` call step *is* the realised
+step `sim_call_stmt` consumes. -/
+
+/-- **The §7 CALL realisability tie.** For a `.call cs` cursor with frame `fr0` in `Corr`
+correspondence, `CallRealises` supplies the realised external-CALL trace `sim_call_stmt`
+consumes: the recorded `(result, pd)` and self address, the realised-oracle identification
+`o = evmV2CallOracle result pd self` (so the abstract call step is the realised step), the
+arg-push run reaching the CALL-site frame `callFr` with its pc/memory pins, the returning CALL
+(`CallReturns callFr resumeFr`) with the resume-frame pins, the post-state realisability ties,
+and the Route-B tail's realisability. The genuine runtime call observation (the analogue of
+`SstoreRealises`), supplied per cursor and quantified over the corresponding frame. -/
+def CallRealises (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (o : V2.CallOracle)
+    (L : Label) (b : Block) (pc : Nat) (cs : CallSpec) (st0 : V2.IRState) (fr0 : Frame) : Prop :=
+  Corr prog sloadChg obs st0 fr0 L pc →
+  ∃ (result : Evm.CallResult) (pd : Evm.PendingCall) (callFr resumeFr : Frame) (argsLen : Nat),
+    -- the per-step scoping of the call statement (the §7 call scoping):
+    StepScoped prog st0 (.call cs)
+    -- the realised oracle pinning (so the abstract call step is the realised one):
+    ∧ o = evmV2CallOracle result pd fr0.exec.executionEnv.address
+    -- the arg-push run + its pins (`MatRuns`-style, the realised arg materialisation):
+    ∧ argsLen = (emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
+        ++ materialise (defsOf prog) (recomputeFuel prog) cs.callee
+        ++ materialise (defsOf prog) (recomputeFuel prog) cs.gasFwd).length
+    ∧ Runs fr0 callFr
+    ∧ callFr.exec.pc = fr0.exec.pc + UInt32.ofNat argsLen
+    ∧ callFr.exec.toMachineState.memory = fr0.exec.toMachineState.memory
+    ∧ fr0.exec.toMachineState.activeWords.toNat ≤ callFr.exec.toMachineState.activeWords.toNat
+    -- the returning external CALL + realised resume:
+    ∧ CallReturns callFr resumeFr
+    ∧ resumeFr = Evm.resumeAfterCall result pd
+    -- the realised-call resume-frame pins (`resumeAfterCall` keeps the caller's env):
+    ∧ resumeFr.exec.executionEnv.address = fr0.exec.executionEnv.address
+    ∧ resumeFr.exec.executionEnv.code = lower prog
+    ∧ resumeFr.exec.executionEnv.canModifyState = true
+    ∧ resumeFr.exec.pc = callFr.exec.pc + 1
+    ∧ resumeFr.exec.stack = callSuccessFlag result pd :: []
+    ∧ resumeFr.exec.toMachineState.memory = callFr.exec.toMachineState.memory
+    ∧ callFr.exec.toMachineState.activeWords.toNat ≤ resumeFr.exec.toMachineState.activeWords.toNat
+    ∧ resumeFr.validJumps = validJumpDests resumeFr.exec.executionEnv.code 0
+    -- the post-state scoping/realisability (downstream-supplied, as in `materialise_runs`):
+    ∧ (∀ t, (match cs.resultTmp with
+              | some t' => { st0 with world := fun key =>
+                              evmCallOracle.postStorage result pd fr0.exec.executionEnv.address key }.setLocal
+                              t' (callSuccessFlag result pd)
+              | none   => { st0 with world := fun key =>
+                              evmCallOracle.postStorage result pd fr0.exec.executionEnv.address key }).locals t ≠ none →
+            (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.callResult slot))
+            ∧ defsOf prog t ≠ none)
+    ∧ SloadRealises sloadChg
+        (match cs.resultTmp with
+          | some t' => { st0 with world := fun key =>
+                          evmCallOracle.postStorage result pd fr0.exec.executionEnv.address key }.setLocal
+                          t' (callSuccessFlag result pd)
+          | none   => { st0 with world := fun key =>
+                          evmCallOracle.postStorage result pd fr0.exec.executionEnv.address key })
+        resumeFr
+    ∧ GasRealises obs resumeFr
+    -- the Route-B tail's realisability (decode anchors + gas + memory-expansion witness):
+    ∧ (∀ flag : Word, resumeFr.exec.stack = flag :: [] →
+        (∀ (t : Tmp), cs.resultTmp = some t →
+          (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
+          ∧ ∃ endFr,
+              Runs resumeFr endFr
+            ∧ endFr.exec.toMachineState
+                = resumeFr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) flag
+            ∧ endFr.exec.pc = resumeFr.exec.pc + UInt32.ofNat 34
+            ∧ endFr.exec.executionEnv.code = resumeFr.exec.executionEnv.code
+            ∧ endFr.validJumps = resumeFr.validJumps
+            ∧ endFr.exec.executionEnv.address = resumeFr.exec.executionEnv.address
+            ∧ endFr.exec.executionEnv.canModifyState = resumeFr.exec.executionEnv.canModifyState
+            ∧ (∀ k, selfStorage endFr k = selfStorage resumeFr k)
+            ∧ endFr.exec.stack = [])
+        ∧ (cs.resultTmp = none →
+            Runs resumeFr (popFrame resumeFr [])))
+
+/-- **`SimStmtStep` for a `.call`-only block (the call-arm discharge).** For a `.call cs`
+cursor, feeds `sim_call_stmt`: `WellFormedLowered` supplies the slot registration
+(`slots_callResult`) and addressability (`slots_addressable`), `Corr.memAgree` the pre-call
+`MemRealises`, and the §7 `CallRealises` tie supplies the realised external-CALL trace. The
+realised-oracle pinning makes the abstract call step the realised step. -/
+theorem simStmtStep_call {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
+    {o : V2.CallOracle} {L : Label} {b : Block} {pc : Nat} {cs : CallSpec}
+    {st0 st0' : V2.IRState} {T0 T0' : Trace} {fr0 : Frame}
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hget : b.stmts[pc]? = some (.call cs))
+    (hwf : WellFormedLowered prog)
+    (hcorr : Corr prog sloadChg obs st0 fr0 L pc)
+    (hstep : EvalStmt prog o st0 T0 (.call cs) st0' T0')
+    (hcall : CallRealises prog sloadChg obs o L b pc cs st0 fr0) :
+    ∃ fr0', Runs fr0 fr0' ∧ Corr prog sloadChg obs st0' fr0' L (pc + 1)
+      ∧ fr0'.exec.stack = [] := by
+  obtain ⟨result, pd, callFr, resumeFr, argsLen, hsc, hosame, hargslen, hargs, hcallpc, hcallmem,
+    hcallactive, hcallreturns, hresume, hresaddr, hrescode, hrescanmod, hrespc, hresstack,
+    hresmem, hresactive, hresvalidjumps, hscoped', hsload', hgas', htail⟩ := hcall hcorr
+  set self := fr0.exec.executionEnv.address with hselfdef
+  -- the realised post-state (with `callSuccessFlag`, matching `CallRealises`'s ties).
+  set stRes : V2.IRState := (match cs.resultTmp with
+    | some t' => { st0 with world := fun key => evmCallOracle.postStorage result pd self key }.setLocal
+                  t' (callSuccessFlag result pd)
+    | none   => { st0 with world := fun key => evmCallOracle.postStorage result pd self key }) with hstRes
+  -- the realised IR step into `stRes` (oracle pinned by `hosame`, success word reflexively
+  -- the CALL flag): built fresh so `sim_call_stmt`'s post-state IS `stRes`.
+  obtain ⟨calleeW, gasFwdW, hcallee, hgasfwd⟩ : ∃ cw gw, st0.locals cs.callee = some cw
+      ∧ st0.locals cs.gasFwd = some gw := by
+    cases hstep with
+    | call hcallee hgasr _ => exact ⟨_, _, hcallee, hgasr⟩
+  have hsuccW : evmCallOracle.successWord result pd = callSuccessFlag result pd :=
+    evmCallOracle_successWord_eq_x result pd
+  have hores : evmV2CallOracle result pd self calleeW gasFwdW st0.world
+      = ((fun key => evmCallOracle.postStorage result pd self key), callSuccessFlag result pd) := by
+    show ((fun key => evmCallOracle.postStorage result pd self key),
+          evmCallOracle.successWord result pd) = _
+    rw [hsuccW]
+  have hstepRes : EvalStmt prog (evmV2CallOracle result pd self) st0 T0 (.call cs) stRes T0 := by
+    have h := EvalStmt.call (prog := prog) (o := evmV2CallOracle result pd self) (T := T0)
+      hcallee hgasfwd hores
+    -- `EvalStmt.call`'s post-state matches `stRes` (the `match cs.resultTmp` shapes coincide).
+    cases hr : cs.resultTmp with
+    | some t' => rw [hstRes, hr]; rw [hr] at h; exact h
+    | none    => rw [hstRes, hr]; rw [hr] at h; exact h
+  -- the abstract step has the SAME post-state as `stRes` (the realised oracle ignores its
+  -- argument words, so `hstep`'s own callee/gasFwd reads don't matter; success word reflexive).
+  have hst0eq : st0' = stRes := by
+    cases hstep with
+    | call hcallee0 hgasr0 ho =>
+      rw [hosame] at ho
+      rw [show evmV2CallOracle result pd self _ _ st0.world
+            = ((fun key => evmCallOracle.postStorage result pd self key),
+               evmCallOracle.successWord result pd) from rfl] at ho
+      injection ho with hw' hs'
+      rw [hstRes, ← hsuccW]
+      cases cs.resultTmp <;> rw [← hw', ← hs']
+  rw [hst0eq]
+  exact sim_call_stmt hb hget hcorr.pc_eq hargslen hargs hcallpc hcallmem hcallactive
+    hselfdef hcallreturns hresume hcallee hgasfwd hstepRes hresaddr hrescode hrescanmod
+    hrespc hresstack hresmem hresactive hresvalidjumps hcorr.defsSound hsc hcorr.memAgree
+    (hwf.slots_callResult) hscoped' hsload' hgas' htail
+
+/-! ### The combined statement discharge
+
+`simStmtStep_callfree` case-splits a general block's statements per shape into the
+`assign` / `sstore` / `call` arms — so `SimStmtStep` is CONSTRUCTIBLE for *any* block, given
+`WellFormedLowered` and the per-shape genuine ties (including the §7 `CallRealises` tie for the
+call arm). The three arms are exhaustive over `EvalStmt`. -/
+
+/-- **`SimStmtStep` for any block (general over calls).** Dispatches each statement on its
+shape: `assign` via `sim_assign` (no decode), `sstore` via `sim_sstore_stmt_lowered` (decode
+discharged inside), `call` via `simStmtStep_call` (`sim_call_stmt` + the §7 `CallRealises`
+tie). `WellFormedLowered` supplies the structural fuel/pc/slot side-conditions; the per-shape
+genuine runtime ties (assign post-state realisability; sstore gas/`SstoreRealises`/non-zero;
+the realised CALL trace) are the explicit §7 hypotheses. The three arms are exhaustive over
+`EvalStmt`, so NO call-free side condition is needed. -/
 theorem simStmtStep_callfree {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {o : V2.CallOracle} {L : Label} {b : Block}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hwf : WellFormedLowered prog)
-    (hcf : CallFree b.stmts)
     -- the genuine `assign`-cursor ties (post-state realisability at the unchanged frame):
     (hassign : ∀ (pc : Nat) (t : Tmp) (e : Expr) (st0 st0' : V2.IRState) (fr0 : Frame),
         b.stmts[pc]? = some (.assign t e) →
@@ -313,10 +477,14 @@ theorem simStmtStep_callfree {prog : Program} {sloadChg : Tmp → ℕ} {obs : Wo
             ≤ fr0.exec.gasAvailable.toNat
         ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp value)).length
             + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).length + 1 ≤ 1024
-        ∧ (∃ acc, SstoreRealises fr0 kw vw acc) ∧ vw ≠ 0) :
+        ∧ (∃ acc, SstoreRealises fr0 kw vw acc) ∧ vw ≠ 0)
+    -- the genuine `call`-cursor tie (the §7 realised-CALL trace):
+    (hcallties : ∀ (pc : Nat) (cs : CallSpec) (st0 : V2.IRState) (fr0 : Frame),
+        b.stmts[pc]? = some (.call cs) →
+        CallRealises prog sloadChg obs o L b pc cs st0 fr0) :
     SimStmtStep prog sloadChg obs o L b := by
-  intro pc s st0 st0' T0 T0' fr0 hget hnc hcorr hstep
-  -- `s` is at a present cursor of a call-free block, so it is `assign` or `sstore` (not `call`).
+  intro pc s st0 st0' T0 T0' fr0 hget hcorr hstep
+  -- `s` is at a present cursor; case on the `EvalStmt` step (assign / sstore / call).
   cases hstep with
   | assignPure hne hv =>
     rename_i t e w
@@ -340,9 +508,9 @@ theorem simStmtStep_callfree {prog : Program} {sloadChg : Tmp → ℕ} {obs : Wo
       (hwf.bound_sstore L b pc key value hb hget) hgas hstk hsr hnz
   | call hcallee hgasr ho =>
     rename_i cs calleeW gasFwdW success world'
-    -- `call` is excluded by `CallFree`.
-    exact absurd (by show Stmt.isCall (.call cs) = true; rfl)
-      (by have := hcf (.call cs) (List.mem_iff_getElem?.mpr ⟨pc, hget⟩); simpa using this)
+    exact simStmtStep_call hb hget hwf hcorr
+      (EvalStmt.call (prog := prog) (o := o) (T := T0) hcallee hgasr ho)
+      (hcallties pc cs st0 fr0 hget)
 
 /-! ### The `stop`-terminator discharge (fully closed down to the genuine frame facts)
 
@@ -706,20 +874,20 @@ theorem simTermStep_callfree {prog : Program} {sloadChg : Tmp → ℕ} {obs : Wo
 
 Induction on `V2.RunFrom`. Each constructor:
 
-* runs the block's `CallFree` statement list via Layer D (`sim_stmts_block`), from `Corr` at
-  the block entry `(L, 0)` to `Corr` at the terminator cursor `(L, b.stmts.length)` with the
-  working stack back to `[]`;
+* runs the block's statement list (any statements, incl. calls) via Layer D
+  (`sim_stmts_block`), from `Corr` at the block entry `(L, 0)` to `Corr` at the terminator
+  cursor `(L, b.stmts.length)` with the working stack back to `[]`;
 * then dispatches on the terminator: `stop`/`ret` halt via `SimTermStep.halt` (the world
   matches `st'.world`, which is the IR halt's world); `jump`/`branch` run to the successor's
   entry via `SimTermStep.edge`, re-establishing `Corr`, and the **IH** closes the recursion.
 
 `RunFrom` is an inductive `Prop`, so the structural recursion on the derivation is well-founded
-— no fuel. The whole-program call-freedom and per-block simulation are supplied uniformly as
-the two `∀`-quantified structured hypotheses. -/
+— no fuel. The per-block simulation is supplied uniformly as the two `∀`-quantified structured
+hypotheses (`SimStmtStep` already ranges over calls, via `sim_call_stmt`). -/
 
-/-- **`sim_cfg` — whole-program CFG simulation (call-free, world channel).** From `Corr` at the
-entry cursor `(L, 0)` and a `V2.RunFrom prog o st T L O`, where every block reached is
-`CallFree` and supplies the per-statement (`SimStmtStep`) and per-terminator (`SimTermStep`)
+/-- **`sim_cfg` — whole-program CFG simulation (general over calls, world channel).** From
+`Corr` at the entry cursor `(L, 0)` and a `V2.RunFrom prog o st T L O`, where every block
+reached supplies the per-statement (`SimStmtStep`) and per-terminator (`SimTermStep`)
 simulations, the lowered bytecode runs from `fr` to a halting frame `last` whose `observe self`
 **world** is the IR observable `O`'s world.
 
@@ -732,7 +900,6 @@ theorem sim_cfg {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} {o : V2.C
       SimStmtStep prog sloadChg obs o L b)
     (hterm : ∀ (L : Label) (b : Block), blockAt prog L = some b →
       SimTermStep prog sloadChg obs o self L b)
-    (hcf : ∀ (L : Label) (b : Block), blockAt prog L = some b → CallFree b.stmts)
     {st : V2.IRState} {T : Trace} {L : Label} {O : V2.Observable} {fr : Frame}
     (hcorr : Corr prog sloadChg obs st fr L 0)
     (hrun : V2.RunFrom prog o st T L O) :
@@ -742,20 +909,20 @@ theorem sim_cfg {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} {o : V2.C
   | @ret st st' T T' L b t w hb hss hterm' hv =>
     -- Layer D: run the block's statements to the terminator cursor.
     obtain ⟨frT, hrunsT, hcorrT, _⟩ :=
-      sim_stmts_block (hstmts L b hb) hcorr hss (hcf L b hb)
+      sim_stmts_block (hstmts L b hb) hcorr hss
     -- Layer E: `ret` halts with world = st'.world (the IR ret halt's world).
     obtain ⟨last, haltSig, hlast, hhalt, hworld⟩ :=
       (hterm L b hb).halt st' frT hcorrT (Or.inr ⟨t, hterm'⟩)
     exact ⟨last, haltSig, hrunsT.trans hlast, hhalt, hworld⟩
   | @stop st st' T T' L b hb hss hterm' =>
     obtain ⟨frT, hrunsT, hcorrT, _⟩ :=
-      sim_stmts_block (hstmts L b hb) hcorr hss (hcf L b hb)
+      sim_stmts_block (hstmts L b hb) hcorr hss
     obtain ⟨last, haltSig, hlast, hhalt, hworld⟩ :=
       (hterm L b hb).halt st' frT hcorrT (Or.inl hterm')
     exact ⟨last, haltSig, hrunsT.trans hlast, hhalt, hworld⟩
   | @branchThen st st' T T' L b cond cw thenL elseL O hb hss hterm' hc hnz hrest ih =>
     obtain ⟨frT, hrunsT, hcorrT, _⟩ :=
-      sim_stmts_block (hstmts L b hb) hcorr hss (hcf L b hb)
+      sim_stmts_block (hstmts L b hb) hcorr hss
     -- Layer E (edge): step to `thenL`'s entry, re-establishing `Corr` at `(thenL, 0)`.
     obtain ⟨fr', hruns', hcorr'⟩ :=
       (hterm L b hb).edge st' frT thenL hcorrT
@@ -765,7 +932,7 @@ theorem sim_cfg {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} {o : V2.C
     exact ⟨last, haltSig, (hrunsT.trans hruns').trans hlast, hhalt, hworld⟩
   | @branchElse st st' T T' L b cond thenL elseL O hb hss hterm' hc hrest ih =>
     obtain ⟨frT, hrunsT, hcorrT, _⟩ :=
-      sim_stmts_block (hstmts L b hb) hcorr hss (hcf L b hb)
+      sim_stmts_block (hstmts L b hb) hcorr hss
     obtain ⟨fr', hruns', hcorr'⟩ :=
       (hterm L b hb).edge st' frT elseL hcorrT
         (Or.inr (Or.inr ⟨cond, thenL, hterm', hc⟩))
@@ -773,7 +940,7 @@ theorem sim_cfg {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} {o : V2.C
     exact ⟨last, haltSig, (hrunsT.trans hruns').trans hlast, hhalt, hworld⟩
   | @jump st st' T T' L b dst O hb hss hterm' hrest ih =>
     obtain ⟨frT, hrunsT, hcorrT, _⟩ :=
-      sim_stmts_block (hstmts L b hb) hcorr hss (hcf L b hb)
+      sim_stmts_block (hstmts L b hb) hcorr hss
     obtain ⟨fr', hruns', hcorr'⟩ :=
       (hterm L b hb).edge st' frT dst hcorrT (Or.inl hterm')
     obtain ⟨last, haltSig, hlast, hhalt, hworld⟩ := ih hcorr'
@@ -952,23 +1119,23 @@ The former entry `Corr` hypothesis is now **discharged** in-proof by `entry_corr
 leading-`JUMPDEST` step from the top-level frame), so `lower_conforms` no longer carries it:
 its replacements are the structural entry facts (`hentry0`/`hbentry`/`hbound` — the entry block
 is block 0, present, pc-bounded) plus the *genuine* entry-frame realisability ties
-(`hstore`/`hsload`/`hgasr`/`hgasj`). The per-block simulations (`hstmts`/`hterm`), call-freedom
-(`hcf`), and the IR run (`hir`) remain the carried structured hypotheses — the
-supplied-observation realisability contract (`hstmts`/`hterm` are themselves now dischargeable
-per shape by `simStmtStep_assign` / `simTermStep_stop`, down to the per-cursor genuine ties and
-the per-shape decode bundles — the documented A2/A3-reconstruction follow-up for the
-`sstore`/`ret`/`jump`/`branch` shapes). `runWithLog` at the seed fuel makes the `messageCall`
-bridge exact. -/
+(`hstore`/`hsload`/`hgasr`/`hgasj`). The per-block simulations (`hstmts`/`hterm`) and the IR
+run (`hir`) remain the carried structured hypotheses — the supplied-observation realisability
+contract (`hstmts`/`hterm` are themselves now dischargeable per shape by `simStmtStep_callfree`
+/ `simTermStep_callfree`, down to the per-cursor genuine ties — including the §7 `CallRealises`
+tie for `.call` — and the per-shape decode bundles). `runWithLog` at the seed fuel makes the
+`messageCall` bridge exact. There is **no** call-free side condition: the call statement is
+folded into the spine via `sim_call_stmt` (Route B). -/
 
-/-- **`lower_conforms` (call-free, world channel — under the realisability contract).** For a
-program `prog`, initial world `w₀`, self address `self`, observable IR run `O` and run log
+/-- **`lower_conforms` (general over calls, world channel — under the realisability contract).**
+For a program `prog`, initial world `w₀`, self address `self`, observable IR run `O` and run log
 `log`: if the recording run `runWithLog p (seedFuel p.gas)` over the top-level params `p`
 (canonically `paramsFor prog self accounts gas`) succeeds with `log`, where `p` is a top-level
 `.Code (lower prog)` modifiable call (`hp`/`hmod`), the entry block is block 0 and present
 (`hentry0`/`hbentry`/`hbound`), the genuine entry-frame realisability ties hold
-(`hstore`/`hsload`/`hgasr`/`hgasj`), the per-block simulations (`hstmts`/`hterm`) and
-call-freedom (`hcf`) hold, and the IR runs under the realised oracles to `O` (`hir`), then **the
-IR observable's world equals the `observe` world of the recorded bytecode result**:
+(`hstore`/`hsload`/`hgasr`/`hgasj`), the per-block simulations (`hstmts`/`hterm`) hold, and the
+IR runs under the realised oracles to `O` (`hir`), then **the IR observable's world equals the
+`observe` world of the recorded bytecode result**:
 
   `O.world = (observe self log.observable).world`.
 
@@ -998,12 +1165,11 @@ theorem lower_conforms {prog : Program} {w₀ : V2.World} {self : AccountAddress
                 (codeFrame p (lower prog)))
     (hgasr : GasRealises obs (codeFrame p (lower prog)))
     (hgasj : GasConstants.Gjumpdest ≤ p.gas.toNat)
-    -- the per-block simulations + call-freedom (the realisability contract over `lower prog`):
+    -- the per-block simulations (the realisability contract over `lower prog`):
     (hstmts : ∀ (L : Label) (b : Block), blockAt prog L = some b →
       SimStmtStep prog sloadChg obs (realisedCall log self) L b)
     (hterm : ∀ (L : Label) (b : Block), blockAt prog L = some b →
       SimTermStep prog sloadChg obs (realisedCall log self) self L b)
-    (hcf : ∀ (L : Label) (b : Block), blockAt prog L = some b → CallFree b.stmts)
     -- the IR run under the realised oracles (the IR side of the conformance diagram):
     (hir : V2.IRRun prog (realisedCall log self) w₀ (realisedGas log) O) :
     O.world = (observe self log.observable).world := by
@@ -1015,7 +1181,7 @@ theorem lower_conforms {prog : Program} {w₀ : V2.World} {self : AccountAddress
       hstore hsload hgasr hgasj
   -- `sim_cfg`: from the entry `Corr`, the lowered run halts with world = O.world.
   obtain ⟨last, haltSig, hruns, hhalt, hworld⟩ :=
-    sim_cfg (self := self) hstmts hterm hcf hentry hir
+    sim_cfg (self := self) hstmts hterm hentry hir
   -- the `messageCall` bridge, two ways: the assembled `Runs` halt (entry JUMPDEST then the CFG
   -- run), and the recorder.
   have hmc_runs : messageCall p = .ok (FrameResult.toCallResult (endFrame last haltSig)) :=
@@ -1043,8 +1209,8 @@ those props are now CONSTRUCTIBLE from `WellFormedLowered` (the folded structura
 plus the genuine §7 recording-correspondence ties. `lower_conforms_wf` re-states the headline at
 that altitude: its hypotheses reduce to
 
-* **well-formedness** — `WellFormedLowered prog` (`MatFueled` + pc/offset bounds) and `CallFree`
-  per block;
+* **well-formedness** — `WellFormedLowered prog` (`MatFueled` + pc/offset bounds + the
+  call-result slot registration);
 * **the genuine §7 ties** — the per-block statement (`StmtTies`) and terminator (`TermTies`)
   recording-correspondence bundles (collected/named below), and the entry-frame ties;
 * **the IR run** — `hir`.
@@ -1060,10 +1226,11 @@ theorem toList_of_blockAt {prog : Program} {L : Label} {b : Block}
   rwa [this] at hbat
 
 /-- **The per-block STATEMENT genuine §7 ties** — exactly what `simStmtStep_callfree` consumes:
-the assign-cursor post-state realisability and the sstore-cursor runtime SSTORE ties, over every
-cursor of block `b`. (The structural fuel/pc side-conditions are NOT here — they are folded into
-`WellFormedLowered`.) -/
-def StmtTies (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (L : Label) (b : Block) : Prop :=
+the assign-cursor post-state realisability, the sstore-cursor runtime SSTORE ties, and the
+call-cursor realised-CALL trace (`CallRealises`), over every cursor of block `b`. (The structural
+fuel/pc/slot side-conditions are NOT here — they are folded into `WellFormedLowered`.) -/
+def StmtTies (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (o : V2.CallOracle)
+    (L : Label) (b : Block) : Prop :=
   (∀ (pc : Nat) (t : Tmp) (e : Expr) (st0 st0' : V2.IRState) (fr0 : Frame),
       b.stmts[pc]? = some (.assign t e) →
       Corr prog sloadChg obs st0 fr0 L pc →
@@ -1085,6 +1252,9 @@ def StmtTies (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (L : Label) 
       ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp value)).length
           + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).length + 1 ≤ 1024
       ∧ (∃ acc, SstoreRealises fr0 kw vw acc) ∧ vw ≠ 0)
+  ∧ (∀ (pc : Nat) (cs : CallSpec) (st0 : V2.IRState) (fr0 : Frame),
+      b.stmts[pc]? = some (.call cs) →
+      CallRealises prog sloadChg obs o L b pc cs st0 fr0)
 
 /-- **The per-block TERMINATOR genuine §7 ties** — exactly what `simTermStep_callfree` consumes:
 the successor-block presence (for edges) and the per-shape runtime ties (`hstop`/`hretties`/
@@ -1167,8 +1337,8 @@ def TermTies (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (_o : V2.Cal
                 ([] : Stack Word)).exec.stack).exec.gasAvailable.toNat)
 
 /-- **`lower_conforms_wf` — the builder-based world-channel compiler-correctness headline.**
-For a call-free program `prog` whose lowering is well-formed (`WellFormedLowered`) and whose
-blocks are call-free (`hcf`), if the recording run over the top-level `.Code (lower prog)` call
+For a program `prog` (general over calls) whose lowering is well-formed (`WellFormedLowered`),
+if the recording run over the top-level `.Code (lower prog)` call
 succeeds (`hwl`/`hp`/`hmod`), the entry block is block 0 / present / pc-bounded
 (`hentry0`/`hbentry`/`hbound`), the genuine entry-frame ties hold (`hstore`/`hsload`/`hgasr`/
 `hgasj`), the genuine per-block statement (`hstmtties`) and terminator (`htermties`) §7 ties hold,
@@ -1194,12 +1364,11 @@ theorem lower_conforms_wf {prog : Program} {w₀ : V2.World} {self : AccountAddr
                 (codeFrame p (lower prog)))
     (hgasr : GasRealises obs (codeFrame p (lower prog)))
     (hgasj : GasConstants.Gjumpdest ≤ p.gas.toNat)
-    -- WELL-FORMEDNESS: the folded structural side-conditions + call-freedom.
+    -- WELL-FORMEDNESS: the folded structural side-conditions.
     (hwf : WellFormedLowered prog)
-    (hcf : ∀ (L : Label) (b : Block), blockAt prog L = some b → CallFree b.stmts)
     -- the GENUINE §7 per-block recording-correspondence ties (statement + terminator):
     (hstmtties : ∀ (L : Label) (b : Block), blockAt prog L = some b →
-      StmtTies prog sloadChg obs L b)
+      StmtTies prog sloadChg obs (realisedCall log self) L b)
     (htermties : ∀ (L : Label) (b : Block), blockAt prog L = some b →
       TermTies prog sloadChg obs (realisedCall log self) self L b)
     -- the IR run under the realised oracles (the IR side of the conformance diagram):
@@ -1209,8 +1378,8 @@ theorem lower_conforms_wf {prog : Program} {w₀ : V2.World} {self : AccountAddr
   have hstmts : ∀ (L : Label) (b : Block), blockAt prog L = some b →
       SimStmtStep prog sloadChg obs (realisedCall log self) L b := by
     intro L b hbat
-    obtain ⟨hassign, hsstore⟩ := hstmtties L b hbat
-    exact simStmtStep_callfree (toList_of_blockAt hbat) hwf (hcf L b hbat) hassign hsstore
+    obtain ⟨hassign, hsstore, hcallties⟩ := hstmtties L b hbat
+    exact simStmtStep_callfree (toList_of_blockAt hbat) hwf hassign hsstore hcallties
   -- build the per-block `SimTermStep` from `WellFormedLowered` + the terminator §7 ties.
   have hterm : ∀ (L : Label) (b : Block), blockAt prog L = some b →
       SimTermStep prog sloadChg obs (realisedCall log self) self L b := by
@@ -1218,12 +1387,12 @@ theorem lower_conforms_wf {prog : Program} {w₀ : V2.World} {self : AccountAddr
     obtain ⟨hsucc, hstop, hretties, hjump, hbranch⟩ := htermties L b hbat
     exact simTermStep_callfree (toList_of_blockAt hbat) hwf hsucc hstop hretties hjump hbranch
   exact lower_conforms hwl hp hmod hentry0 hbentry hbound hstore hsload hgasr hgasj
-    hstmts hterm hcf hir
+    hstmts hterm hir
 
 end Lir
 
 -- Build-enforced axiom-cleanliness guards for the Layer-F deliverables: the whole-CFG
--- simulation `sim_cfg`, the headline `lower_conforms` (call-free, world channel), the entry
+-- simulation `sim_cfg`, the headline `lower_conforms` (general over calls, world channel), the entry
 -- correspondence builder `entry_corr` (discharges the former `hentry`), and the
 -- `SimStmtStep`/`SimTermStep` discharge builders (`simStmtStep_assign`, `simTermStep_stop`)
 -- all depend only on `[propext, Classical.choice, Quot.sound]`.
@@ -1234,6 +1403,7 @@ end Lir
 #print axioms Lir.entry_corr
 #print axioms Lir.simStmtStep_assign
 #print axioms Lir.simStmtStep_sstore
+#print axioms Lir.simStmtStep_call
 #print axioms Lir.simStmtStep_callfree
 #print axioms Lir.simTermStep_stop
 #print axioms Lir.simTermStep_ret

@@ -83,14 +83,6 @@ inductive Stmt where
   | call   (cs : CallSpec)
 deriving DecidableEq, Repr
 
-/-- Is this statement a `Stmt.call`? The lowered CALL leaves its 0/1 success flag on
-the bytecode stack (`LirLean/SimStmt.lean` Arm 3), so a block containing one breaks the
-clean `stack = []` induction; `CallFree` (`LirLean/SimStmts.lean`) scopes the Layer-D
-statement-list simulation to lists with `¬ s.isCall` everywhere. -/
-def Stmt.isCall : Stmt → Bool
-  | .call _ => true
-  | _       => false
-
 /-- A block terminator: the control-flow edge(s) leaving a block. -/
 inductive Term where
   /-- RETURN the word in `t` (the block's exit word / code). -/
