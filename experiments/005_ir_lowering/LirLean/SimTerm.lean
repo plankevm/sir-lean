@@ -556,7 +556,8 @@ theorem sim_term_edge_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs : Wo
             (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks elseL.idx))
             (jumpiFallthroughFrame (pushFrameW frc thenWord 4)
               ([] : Stack Word)).exec.stack).exec.gasAvailable.toNat) :
-    ∃ fr' L', (L' = thenL ∨ L' = elseL) ∧ Runs fr fr' ∧ Corr prog sloadChg obs st fr' L' 0 := by
+    ∃ fr' L', (cw ≠ 0 ∧ L' = thenL ∨ cw = 0 ∧ L' = elseL)
+      ∧ Runs fr fr' ∧ Corr prog sloadChg obs st fr' L' 0 := by
   -- materialise-endpoint facts (`frc` carries `cw` on top of `fr`'s empty stack).
   have hfrcstk : frc.exec.stack = cw :: [] := by rw [hmrc.stack, hcorr.stack_nil]; rfl
   have hfrccode : frc.exec.executionEnv.code = lower prog := by
@@ -622,7 +623,7 @@ theorem sim_term_edge_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs : Wo
       hbelse helselt hgffcode hgffstk hgffmod hgffstore hcorr.defsSound hcorr.wellScoped
       hgffsload hgffgasr hgffvalid helseword hdpushE' hdjump' hdjdE
       (by rw [hgff]; exact hgpushE) (by rw [hgff]; exact hgjumpE) (by rw [hgff]; exact hgjdE)
-    exact ⟨fr', elseL, Or.inr rfl, ((hmrc.runs.trans hpushT).trans hfall).trans hruns', hcorr'⟩
+    exact ⟨fr', elseL, Or.inr ⟨rfl, rfl⟩, ((hmrc.runs.trans hpushT).trans hfall).trans hruns', hcorr'⟩
   · -- THEN arm: JUMPI taken jumps to `thenL`'s JUMPDEST.
     set new_pc := UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx)
       with hnewT
@@ -658,7 +659,7 @@ theorem sim_term_edge_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs : Wo
     obtain ⟨hjdrun, hjdcorr⟩ := corr_at_jumpdest_landing (st := st) hbthen hfjpc hfjcode hfjstk
       hfjmod hfjstore hcorr.defsSound hcorr.wellScoped hfjsload hfjgasr hfjdec
       (by rw [hfj]; exact hgjdT)
-    exact ⟨jumpdestFrame fj, thenL, Or.inl rfl,
+    exact ⟨jumpdestFrame fj, thenL, Or.inl ⟨hcw, rfl⟩,
       ((hmrc.runs.trans hpushT).trans htaken).trans hjdrun, hjdcorr⟩
 
 end Lir

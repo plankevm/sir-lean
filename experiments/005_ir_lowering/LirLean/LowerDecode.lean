@@ -499,7 +499,8 @@ theorem sim_term_edge_branch_lowered {prog : Program} {sloadChg : Tmp → ℕ} {
         (jumpiFallthroughFrame (pushFrameW frc
           (UInt256.ofNat ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32)) 4)
           ([] : Stack Word)).exec.stack).exec.gasAvailable.toNat) :
-    ∃ fr' L', (L' = thenL ∨ L' = elseL) ∧ Runs fr fr' ∧ Corr prog sloadChg obs st fr' L' 0 := by
+    ∃ fr' L', (cw ≠ 0 ∧ L' = thenL ∨ cw = 0 ∧ L' = elseL)
+      ∧ Runs fr fr' ∧ Corr prog sloadChg obs st fr' L' 0 := by
   set lc := (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp cond)).length with hlc
   set thenOff := offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx with hthenoff
   set elseOff := offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks elseL.idx with helseoff

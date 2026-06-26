@@ -88,13 +88,27 @@ frame + `Gjumpdest` margin) — the minimal honest §7 surface. The `SimStmtStep
 bundles now have per-shape discharge builders: `simStmtStep_assign` (an assign-only call-free
 block, **fully closed** down to the per-cursor `StepScoped` + post-state realisability ties) and
 `simTermStep_stop` (a `stop`-terminator block, **fully closed** — STOP decode from A3, edge/ret
-arms vacuous — down to the genuine top-level-frame facts). CARRIED (the precise residual): the
-`sstore`/`ret`/`jump`/`branch` shapes still take their per-byte `MatDec`/decode + immediate
-round-trip + gas-envelope bundles (the generic A2/A3 reconstruction of `materialiseExpr`/
-`emitTerm` at the *runtime* cursors), and the per-intermediate-frame
-SLOAD/SSTORE/GAS recording-correspondence ties (the trace-supplied gas/warmth = the actual
-frames); the IR-run hypothesis `hir` (no bytecode→IR `RunFrom` synthesis). No
-`sorry`/`axiom`/`native_decide`.
+arms vacuous — down to the genuine top-level-frame facts). BUILDER-CONVERGENCE PASS (2026-06-26):
+all four remaining shapes now have decode-free discharge builders threading the `_lowered`
+wrappers (`sim_sstore_stmt_lowered`/`sim_term_halt_ret_lowered`/`sim_term_edge_jump_lowered`/
+`sim_term_edge_branch_lowered` — the A2/A3 `materialiseExpr`/`emitTerm` reconstruction is done
+*inside* the wrappers, generically over `lower prog`): `simStmtStep_sstore`,
+`simTermStep_ret`/`_jump`/`_branch`, plus the COMBINED `simStmtStep_callfree` /
+`simTermStep_callfree` that case-split a general call-free block into the right arm — so
+`SimStmtStep`/`SimTermStep` are CONSTRUCTIBLE for any call-free block. The structural
+side-conditions (recompute-fuel `MatFueled` + pc/offset `< 2^32` bounds) are FOLDED into the
+`WellFormedLowered prog` predicate, so they leave the builder hypotheses entirely. (The
+`sim_term_edge_branch` conclusion was strengthened to cw-tie the resolved successor — `cw ≠ 0 ∧
+L' = thenL ∨ cw = 0 ∧ L' = elseL` — so the `SimTermStep.edge` branch disjunct's chosen `succ`
+reconciles with the runtime-resolved jump.) The builder-based headline `lower_conforms_wf`
+re-states `lower_conforms` with hypotheses reduced to: `WellFormedLowered` + `CallFree`
+(well-formedness), the GENUINE §7 per-block ties (`StmtTies`/`TermTies`, collected predicates) +
+the entry-frame ties, and `hir`. CARRIED (the precise honest residual): `WellFormedLowered`
+(`MatFueled` carried — dischargeable from `defsOf`-acyclicity, not yet re-derived; bounds from
+lowered-program size), the per-intermediate-frame SLOAD/SSTORE/GAS + `validJumps` + RETURN-site
+recording-correspondence ties (the trace-supplied gas/warmth/storage = the actual frames), and
+the IR-run hypothesis `hir` (no bytecode→IR `RunFrom` synthesis). No
+`sorry`/`axiom`/`native_decide`; axiom-clean `[propext, Classical.choice, Quot.sound]`.
 
 ## Deferred channels (separate milestones)
 - **Value channel** (`returned w` ↔ RETURN window): needs `ret` lowering → `MSTORE`+`RETURN(off,32)`, new
