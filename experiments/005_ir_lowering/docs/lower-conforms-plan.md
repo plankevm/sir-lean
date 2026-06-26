@@ -1,5 +1,11 @@
 # Plan: proving the general `lower_conforms` (the C grind)
 
+> **Update (2026-06-26):** the "general" theorem this plan delivered was actually
+> **call-free** (`CallFree` gate). That distortion is now removed — calls compose via a
+> memory value channel and `CallFree` is **deleted**; `lower_conforms` is general over all
+> `Stmt.call`. See **`calls-value-channel-plan.md`** for the call story (the authoritative
+> record). This document remains accurate for the call-free spine it built.
+
 Decomposition from the architecture pass (2026-06-26). The headline:
 
 ```lean
