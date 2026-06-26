@@ -481,75 +481,97 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       exact (hcorr.memAgree.transport hmembytes hmemact) tw slot v hdef hloc'
   · rw [sstoreFrame_stack]
 
-/-! ## Arm 3 — `call cs` (the `Runs.call` node)
+/-! ## Arm 3 — `call cs` (the `Runs.call` node + the Route-B tail)
 
-A `Stmt.call` lowers to `5×(PUSH 0) ++ materialise callee ++ materialise gasFwd ++ [CALL]`.
-Under lowering it is a `Runs.call` node carrying a `CallReturns callFr resumeFr` witness
-(the CALL step, the child entering as code, the black-box child run, the resumed parent).
-The IR `EvalStmt.call` queries the oracle and applies its `(world', success)` bundle.
+A `Stmt.call` lowers (Route B) to
+`5×(PUSH 0) ++ materialise callee ++ materialise gasFwd ++ [CALL] ++ tail`, where the tail
+is `PUSH32 slotOf t ; MSTORE` (`resultTmp = some t`) or `[POP]` (`resultTmp = none`). The
+arg-push prefix reaches the CALL-site frame `callFr`; under lowering the CALL is a
+`Runs.call` node carrying a `CallReturns callFr resumeFr` witness (the CALL step, the child
+entering as code, the black-box child run, the resumed parent); the tail then consumes the
+success flag CALL left on the stack — `MSTORE`-ing it to the result slot (`some t`) or
+`POP`-ing it (`none`). The IR `EvalStmt.call` queries the oracle and applies its
+`(world', success)` bundle.
 
 We instantiate the abstract oracle to the **realised** `evmV2CallOracle result pd self`
-(`LirLean/V2/CallRealises.lean`), whose output `callRealises_bridge` ties to the lowered
-CALL's observable effect: `world' = storageAt resumeFr self` (the `M3` lens) and
-`success = callSuccessFlag result pd` (exp003's CALL flag `x`). With that tie the post-
-`EvalStmt` IR world *is* the resumed frame's storage lens, so `M3` (`StorageAgree`) is
-re-established at `resumeFr`; `DefsSound` survives the world-replacement + result-binding
-by **B3** `defsSound_preserved_call`; code/canModifyState are preserved by
-`resumeAfterCall` (it keeps the caller's `executionEnv`).
+(`LirLean/V2/CallRealises.lean`): `world' = postStorage result pd self = storageAt resumeFr
+self` (the `M3` lens) and `success = successWord result pd = callSuccessFlag result pd`
+(exp003's CALL flag `x`). With that tie the post-`EvalStmt` IR world *is* the resumed
+frame's storage lens, so `M3` (`StorageAgree`) is re-established at `endFr` (the tail
+touches storage in neither branch); `DefsSound` survives the world-replacement +
+result-binding by **B3** `defsSound_preserved_call`; code/canModifyState/validJumps are
+preserved by `resumeAfterCall` (it keeps the caller's `executionEnv`) and the tail
+transformers (`popFrame`/`mstoreFrame` preserve `executionEnv`).
 
-### Scope (the documented stack/pc gap)
+This arm now delivers the **full** `Corr` at `endFr` for `(L, pc+1)`. The two former
+documented gaps close on the Route-B tail:
 
-Two `Corr` clauses are **not** re-established at `resumeFr` and are reported here as a
-precise, honest gap rather than papered over:
+* **`stack_nil` (M5)** — the tail consumes the flag: `MSTORE` pops `slot :: flag :: []`
+  (`some t`) / `POP` pops `flag :: []` (`none`), leaving `[]`.
+* **`pc_eq` (M1)** — `endFr.pc = callFr.pc + 1 + tailLen` (CALL + tail), `callFr.pc =
+  fr.pc + argsLen` (the supplied arg-push pin), `fr.pc = pcOf prog L pc`, and the
+  `emitStmt .call` length is exactly `argsLen + 1 + tailLen` (`pcOf_succ`).
 
-* **`stack_nil` (M5)** — the lowered CALL leaves its 0/1 success flag *on the bytecode
-  stack* (`resumeFr.exec.stack = callSuccessFlag result pd :: pd.stack`, and `pd.stack`
-  is the suspended stack below the seven CALL args). The IR side folds that flag into
-  state (the oracle bundle / `resultTmp`), keeping its own stack empty — but the *lowered*
-  bytecode has no POP / consuming opcode for it. Re-establishing `M5` needs the lowering
-  to bind/consume the flag (the `resultTmp`-binding lowering-completeness follow-up flagged
-  in `LirLean/Call.lean` §5 and `LirLean/Match.lean`).
-* **`pc_eq` (M1)** — `resumeAfterCall` sets `resumeFr.exec.pc = pd.frame.exec.pc + 1`,
-  pinned by the CALL step's `pending.frame` pc; relating that to `pcOf prog L (pc+1)`
-  requires the CALL-site pc bookkeeping, which is the same Layer-A offset arithmetic the
-  arg-push hypothesis already abstracts.
+The new **`memAgree`** clause (`MemRealises prog st' endFr`) is the heart: the pre-call
+`MemRealises … fr` transports across the arg pushes (`hcallmem`/`hcallactive`) and the CALL
+(zero in/out window ⇒ caller memory survives), then the tail: `none` leaves memory (POP),
+`some t` writes `mem[slotOf t] = flag` (binding the new call-result slot via
+`mstore_reads_back`) while keeping every other bound slot's coverage+value
+(`mstore_preserves_slot` + `slot_windows_disjoint`). -/
 
-So this arm delivers the **call-effect correspondence** `CorrCall` — code / canModifyState
-/ `M3` storage / `DefsSound` / scoping / the B1 realisability ties — fully and axiom-cleanly
-at `resumeFr`, with the success word tied to the bytecode flag, under the realised
-`CallReturns`. The two omitted clauses are the lowering-completeness gap above. -/
+/-! ### `popFrame` / `mstoreFrame` accessor reductions used by the tail
 
-/-- The **call-effect correspondence**: the `Corr` clauses re-establishable at the resumed
-frame after an external CALL — everything except `pc_eq` (M1) and `stack_nil` (M5), which
-are the documented lowering-completeness gap (the success flag is left on the bytecode
-stack; the resume pc is `resumeAfterCall`'s, not yet tied to `pcOf`). -/
-structure CorrCall (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
-    (st : V2.IRState) (fr : Frame) : Prop where
-  code_eq    : fr.exec.executionEnv.code = lower prog
-  can_modify : fr.exec.executionEnv.canModifyState = true
-  storage    : StorageAgree st fr
-  defsSound  : DefsSound prog st
-  wellScoped : ∀ t, st.locals t ≠ none → ¬ NonRecomputable prog t ∧ defsOf prog t ≠ none
-  sloadReal  : SloadRealises sloadChg st fr
-  gasReal    : GasRealises obs fr
+`popPost`/`mstorePost` (exp003 `Dispatch.lean`) `replaceStackAndIncrPC` only the
+`stack`/`pc`, leaving the `executionEnv` (code/address/canMod) and — for `popFrame` — the
+`MachineState` (memory/activeWords). `mstoreFrame`'s machine state is `fr`'s with `val`
+written at `addr` (`mstoreFrame_memory`, exp003). These reductions expose the `Corr` clauses
+the tail must re-establish. -/
 
-/-- **`sim_stmt`, the `call` arm (strongest closed form).** Let `callFr` be the CALL-site
-frame reached from `fr` by running the lowered CALL-argument pushes (the assembled
-`Runs fr callFr`, with `callFr` preserving `fr`'s self address `self`, code, canModifyState
-and storage lens — the `materialise_runs` arg chain). Given a returning external CALL
-(`CallReturns callFr resumeFr`) and the IR step taken under the **realised** oracle
-`evmV2CallOracle result pd self` (so `resumeFr = resumeAfterCall result pd`), the whole
-call is one `Runs fr resumeFr` (a `Runs.call` node), and the post-`EvalStmt` IR state is in
-**call-effect correspondence** `CorrCall` with `resumeFr`: its world is the resumed frame's
-storage lens (`M3`), `DefsSound` survives (B3), and the bound success flag is exactly
-exp003's `callSuccessFlag result pd`. (The `pc_eq`/`stack_nil` clauses are the documented
-gap — see the section docstring.) -/
+@[simp] theorem popFrame_canMod (fr : Frame) (rest : Stack Word) :
+    (popFrame fr rest).exec.executionEnv.canModifyState
+      = fr.exec.executionEnv.canModifyState := rfl
+
+@[simp] theorem popFrame_memory (fr : Frame) (rest : Stack Word) :
+    (popFrame fr rest).exec.toMachineState.memory = fr.exec.toMachineState.memory := rfl
+
+@[simp] theorem popFrame_activeWords (fr : Frame) (rest : Stack Word) :
+    (popFrame fr rest).exec.toMachineState.activeWords = fr.exec.toMachineState.activeWords := rfl
+
+@[simp] theorem mstoreFrame_addr (fr : Frame) (addr val : Word) (words' : UInt64) (rest : Stack Word) :
+    (mstoreFrame fr addr val words' rest).exec.executionEnv.address
+      = fr.exec.executionEnv.address := rfl
+
+/-- **`sim_stmt`, the `call` arm — FULL `Corr` (Route B).** Let `callFr` be the CALL-site
+frame reached from `fr` by running the lowered CALL-argument pushes (`hargs : Runs fr
+callFr`), pinned by its pc (`hcallpc`) and a `MatRuns`-style memory pin
+to `fr` (`hcallmem` bytes-equal, `hcallactive` `activeWords`-nondecreasing). Given a
+returning external CALL (`CallReturns callFr resumeFr`) with the realised resume frame pinned
+(`hrespc`/`hresstack` — the empty-boundary collapse `pd.stack = []`, `hresmem`/`hresactive` —
+zero in/out windows preserve caller memory) and the IR step taken under the **realised**
+oracle (so `resumeFr = resumeAfterCall result pd`), running the whole lowered call *and its
+Route-B tail* reaches `endFr` in **full correspondence** `Corr prog sloadChg obs st' endFr L
+(pc+1)`, with the working stack back to `[]`. The tail consumes the success flag (M5), the pc
+lands on the next statement (M1), and `memAgree` ties the bound call-result slot's memory to
+`st'.locals`. -/
 theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {st st' : V2.IRState} {T : Trace} {cs : CallSpec} {calleeW gasFwdW : Word}
+    {L : Label} {b : Block} {pc : Nat} {argsLen : Nat}
     {fr callFr resumeFr : Frame} {result : Evm.CallResult} {pd : Evm.PendingCall}
     {self : AccountAddress}
-    -- the assembled CALL-argument push run:
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hs : b.stmts[pc]? = some (.call cs))
+    -- M1 anchor: `fr` sits at the statement cursor; `argsLen` is the arg-push prefix length.
+    (hfrpc : fr.exec.pc = UInt32.ofNat (pcOf prog L pc))
+    (hargslen : argsLen
+      = (emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
+          ++ materialise (defsOf prog) (recomputeFuel prog) cs.callee
+          ++ materialise (defsOf prog) (recomputeFuel prog) cs.gasFwd).length)
+    -- the assembled CALL-argument push run + its pins (`MatRuns`-style, supplied by the caller):
     (hargs : Runs fr callFr)
+    (hcallpc : callFr.exec.pc = fr.exec.pc + UInt32.ofNat argsLen)
+    (hcallmem : callFr.exec.toMachineState.memory = fr.exec.toMachineState.memory)
+    (hcallactive : fr.exec.toMachineState.activeWords.toNat
+      ≤ callFr.exec.toMachineState.activeWords.toNat)
     (_hself : self = fr.exec.executionEnv.address)
     -- the returning external CALL and the realised-oracle IR step:
     (hcall : CallReturns callFr resumeFr)
@@ -562,77 +584,311 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     (hresaddr : resumeFr.exec.executionEnv.address = self)
     (hrescode : resumeFr.exec.executionEnv.code = lower prog)
     (hrescanmod : resumeFr.exec.executionEnv.canModifyState = true)
-    -- standing B3 / per-step scoping of `st`:
+    -- the resume frame's pc / stack / memory, pinned to `callFr` (`resumeAfterCall`: pc + 1,
+    -- stack = flag :: pd.stack with `pd.stack = []` at the empty boundary, memory/activeWords
+    -- preserved by the zero in/out windows):
+    (hrespc : resumeFr.exec.pc = callFr.exec.pc + 1)
+    (hresstack : resumeFr.exec.stack = callSuccessFlag result pd :: [])
+    (hresmem : resumeFr.exec.toMachineState.memory = callFr.exec.toMachineState.memory)
+    (hresactive : callFr.exec.toMachineState.activeWords.toNat
+      ≤ resumeFr.exec.toMachineState.activeWords.toNat)
+    (hresvalidjumps : resumeFr.validJumps = validJumpDests resumeFr.exec.executionEnv.code 0)
+    -- standing B3 / per-step scoping of `st`, the pre-call memory channel:
     (hdefs : DefsSound prog st)
     (hsc : StepScoped prog st (.call cs))
+    (hmem : MemRealises prog st fr)
+    -- every registered call-result slot is `slotOf` (`defsOf` registers `(t, .callResult (slotOf
+    -- t))`; a source `assign` never carries the lowering-only `.callResult` marker — a
+    -- `WellFormed` invariant the eventual caller discharges). Pins the result-slot for the new
+    -- binding and the 32-aligned disjointness of distinct bound slots.
+    (hslots : ∀ tw slot', defsOf prog tw = some (.callResult slot') → slot' = slotOf tw)
+    -- **Grow-aware MSTORE disjointness** (a pure memory-algebra fact, supplied as a runtime
+    -- tie like the SLOAD/GAS/memory-expansion observations): writing the success flag at the
+    -- result slot preserves the readback at every *covered*, window-disjoint slot `s`. The
+    -- binding MSTORE may grow memory *past* `s`, so this is strictly stronger than
+    -- `MemAlgebra.mstore_mload_disjoint` (which needs the write window pre-allocated). It is a
+    -- `MemAlgebra` deliverable (`copySlice_at_extract_disjoint`-shaped) outside this phase's
+    -- scope; threaded here as a supplied fact. Coverage preservation is proved inline
+    -- (`mstore_*_mono`); only the *value* needs this.
+    (hmstoreDisjoint : ∀ (slotT s : Nat) (flag : Word),
+      s + 32 ≤ resumeFr.exec.toMachineState.memory.size →
+      s + 32 ≤ resumeFr.exec.toMachineState.activeWords.toNat * 32 →
+      (slotT + 32 ≤ s ∨ s + 32 ≤ slotT) →
+      ((resumeFr.exec.toMachineState.mstore (UInt256.ofNat slotT) flag).mload
+          (UInt256.ofNat s)).1
+        = (resumeFr.exec.toMachineState.mload (UInt256.ofNat s)).1)
     -- the post-state scoping/realisability (downstream-supplied, as in `materialise_runs`):
-    (hscoped' : ∀ t, st'.locals t ≠ none → ¬ NonRecomputable prog t ∧ defsOf prog t ≠ none)
+    (hscoped' : ∀ t, st'.locals t ≠ none →
+      (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.callResult slot))
+      ∧ defsOf prog t ≠ none)
     (hsload' : SloadRealises sloadChg st' resumeFr)
-    (hgas' : GasRealises obs resumeFr) :
-    Runs fr resumeFr
-      ∧ CorrCall prog sloadChg obs st' resumeFr
-      ∧ (∀ t, cs.resultTmp = some t → st'.locals t = some (callSuccessFlag result pd)) := by
+    (hgas' : GasRealises obs resumeFr)
+    -- the Route-B tail's realisability (decode anchors + gas + memory-expansion witness),
+    -- supplied at the resume frame — the honest runtime ties the eventual caller discharges:
+    (htail : ∀ flag : Word, resumeFr.exec.stack = flag :: [] →
+      (∀ (t : Tmp), cs.resultTmp = some t →
+        -- `slotOf t` is addressable (the "slots are addressable" side condition):
+        (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
+        ∧ ∃ endFr,
+            Runs resumeFr endFr
+          -- the MSTORE tail writes `flag` at `slotOf t` onto `resumeFr`'s machine state
+          -- (the push + gas-charges leave the memory bytes / activeWords of `resumeFr`):
+          ∧ endFr.exec.toMachineState
+              = resumeFr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) flag
+          ∧ endFr.exec.pc = resumeFr.exec.pc + UInt32.ofNat 34
+          ∧ endFr.exec.executionEnv.code = resumeFr.exec.executionEnv.code
+          ∧ endFr.validJumps = resumeFr.validJumps
+          ∧ endFr.exec.executionEnv.address = resumeFr.exec.executionEnv.address
+          ∧ endFr.exec.executionEnv.canModifyState = resumeFr.exec.executionEnv.canModifyState
+          -- the MSTORE tail writes memory, not storage: the self-lens is preserved:
+          ∧ (∀ k, selfStorage endFr k = selfStorage resumeFr k)
+          ∧ endFr.exec.stack = [])
+      ∧ (cs.resultTmp = none →
+          Runs resumeFr (popFrame resumeFr []))) :
+    ∃ endFr, Runs fr endFr ∧ Corr prog sloadChg obs st' endFr L (pc + 1)
+      ∧ endFr.exec.stack = [] := by
   classical
-  -- == the Runs: arg pushes then the returning CALL node ==
-  have hruns : Runs fr resumeFr := hargs.trans (sim_call hcall (Runs.refl resumeFr))
-  -- the realised oracle's projections (`callRealises_bridge`, here `rfl`-clean for the
-  -- concrete `result pd` from `hresume`): `successWord = callSuccessFlag` (the §5 reflexivity),
-  -- and `postStorage result pd self = storageAt (resumeAfterCall result pd) self` by construction.
+  -- == the Runs to `resumeFr`: arg pushes then the returning CALL node ==
+  have hruns0 : Runs fr resumeFr := hargs.trans (sim_call hcall (Runs.refl resumeFr))
+  -- the realised oracle's projections: `successWord = callSuccessFlag` (§5 reflexivity).
   have hsuccW : evmCallOracle.successWord result pd = callSuccessFlag result pd :=
     evmCallOracle_successWord_eq_x result pd
-  -- `M3` re-established at `resumeFr`: `selfStorage resumeFr key = storageAt resumeFr resumeFr.addr
-  -- key`, and `resumeFr.addr = self` (`hresaddr`); `storageAt resumeFr self = postStorage…`
-  -- (by construction, `resumeFr = resumeAfterCall result pd`).
+  -- `M3` re-established at `resumeFr`: `selfStorage resumeFr key = postStorage…`.
   have hM3 : ∀ key,
-      selfStorage resumeFr key = (fun key => evmCallOracle.postStorage result pd self key) key := by
+      selfStorage resumeFr key = evmCallOracle.postStorage result pd self key := by
     intro key
-    show selfStorage resumeFr key = evmCallOracle.postStorage result pd self key
-    rw [selfStorage_eq_storageAt, hresaddr]
-    rw [hresume]; rfl
-  refine ⟨hruns, ?_, ?_⟩
-  · -- the call-effect correspondence at `resumeFr`, by inverting the IR step.
+    rw [selfStorage_eq_storageAt, hresaddr, hresume]; rfl
+  -- `emitStmt .call` length = argsLen + 1 + tailLen.
+  set defs := defsOf prog with hdefs2
+  set fuel := recomputeFuel prog with hfuel
+  have hemitcall : emitStmt defs fuel (.call cs)
+      = (emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
+          ++ materialise defs fuel cs.callee ++ materialise defs fuel cs.gasFwd)
+        ++ [Byte.call]
+        ++ (match cs.resultTmp with
+            | some t => emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]
+            | none   => [Byte.pop]) := rfl
+  -- the IR post-state `st'` projections (invert the realised oracle step once).
+  have hst' : st' = (match cs.resultTmp with
+      | some t => { st with world := fun key => evmCallOracle.postStorage result pd self key }.setLocal
+                    t (callSuccessFlag result pd)
+      | none   => { st with world := fun key => evmCallOracle.postStorage result pd self key }) := by
     cases hstep with
     | call hc hg ho =>
       rw [show evmV2CallOracle result pd self _ _ st.world
             = ((fun key => evmCallOracle.postStorage result pd self key),
                evmCallOracle.successWord result pd) from rfl] at ho
-      -- `ho` pins the constructor's `world'`/`success` to the realised projections.
       injection ho with hw' hs'
       subst hw'; subst hs'
-      -- B3: DefsSound survives world-replacement + result-binding.
-      obtain ⟨hnoSload, hisresult, hscopeCall⟩ := hsc
-      have hsound' : DefsSound prog
-          (match cs.resultTmp with
-            | some t => { st with world := fun key => evmCallOracle.postStorage result pd self key }.setLocal
-                          t (evmCallOracle.successWord result pd)
-            | none   => { st with world := fun key => evmCallOracle.postStorage result pd self key }) :=
-        defsSound_preserved_call hnoSload hisresult hscopeCall hdefs
-      refine
-        { code_eq := hrescode
-          can_modify := hrescanmod
-          storage := ?_
-          defsSound := hsound'
-          wellScoped := hscoped'
-          sloadReal := hsload'
-          gasReal := hgas' }
-      -- M3: the post-state world is the realised post-storage = resumeFr's self lens, in
-      -- both `resultTmp` branches (`setLocal` does not touch `world`).
+      cases cs.resultTmp <;> simp [hsuccW]
+  -- DefsSound survives world-replacement + result-binding (B3).
+  obtain ⟨hnoSload, hisresult, hscopeCall⟩ := hsc
+  have hsound' : DefsSound prog st' := by
+    rw [hst']
+    exact defsSound_preserved_call (world' := fun key => evmCallOracle.postStorage result pd self key)
+      (success := callSuccessFlag result pd) hnoSload hisresult hscopeCall hdefs
+  -- pre-call MemRealises transports `fr → callFr → resumeFr`.
+  have hmemRes : MemRealises prog st resumeFr :=
+    ((hmem.transport hcallmem hcallactive).transport hresmem hresactive)
+  -- == case on the result tmp: run the Route-B tail ==
+  obtain ⟨htailSome, htailNone⟩ := htail (callSuccessFlag result pd) hresstack
+  cases hr : cs.resultTmp with
+  | none =>
+    -- POP tail: `endFr = popFrame resumeFr []`, stack `[]`, memory untouched.
+    have hpoprun : Runs resumeFr (popFrame resumeFr []) := htailNone hr
+    refine ⟨popFrame resumeFr [], hruns0.trans hpoprun, ?_, by rw [popFrame_stack]⟩
+    -- pc: endFr.pc = resumeFr.pc + 1 = (fr.pc + argsLen) + 1 + 1; emit = argsLen + 1 + 1.
+    have hemitlen : (emitStmt defs fuel (.call cs)).length = argsLen + 1 + 1 := by
+      rw [hemitcall, hr]
+      set argsBlock := emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
+          ++ materialise defs fuel cs.callee ++ materialise defs fuel cs.gasFwd with hab
+      rw [List.length_append, List.length_append, List.length_singleton, List.length_singleton,
+        ← hargslen]
+    have hpcN : pcOf prog L (pc + 1) = pcOf prog L pc + (argsLen + 1 + 1) := by
+      rw [pcOf_succ prog L b pc (.call cs) hb hs, hemitlen]
+    refine
+      { pc_eq := ?_
+        code_eq := ?_
+        validJumps_eq := ?_
+        stack_nil := by rw [popFrame_stack]
+        can_modify := ?_
+        storage := ?_
+        defsSound := hsound'
+        wellScoped := hscoped'
+        sloadReal := ?_
+        gasReal := ?_
+        memAgree := ?_ }
+    · -- M1
+      rw [popFrame_pc, hrespc, hcallpc, hfrpc, hpcN,
+          UInt32.ofNat_add, UInt32.ofNat_add, UInt32.ofNat_add,
+          show (UInt32.ofNat 1) = (1 : UInt32) from rfl]
+      ac_rfl
+    · rw [popFrame_code, hrescode]
+    · rw [popFrame_validJumps, popFrame_code, hresvalidjumps]
+    · rw [popFrame_canMod, hrescanmod]
+    · -- M3: world is the resumed self-lens; POP doesn't touch storage.
       intro key
-      cases cs.resultTmp <;> exact hM3 key
-  · -- the bound success flag is exactly exp003's `callSuccessFlag`.
-    intro t ht
-    cases hstep with
-    | call hc hg ho =>
-      rw [show evmV2CallOracle result pd self _ _ st.world
-            = ((fun key => evmCallOracle.postStorage result pd self key),
-               evmCallOracle.successWord result pd) from rfl] at ho
-      injection ho with hw' hs'
-      subst hw'; subst hs'
-      rw [ht]
-      show (V2.IRState.setLocal _ t (evmCallOracle.successWord result pd)).locals t = _
-      rw [hsuccW]
-      unfold V2.IRState.setLocal
-      simp
+      have hst'none : st' = { st with world := fun key => evmCallOracle.postStorage result pd self key } := by
+        rw [hst', hr]
+      rw [hst'none]
+      show selfStorage (popFrame resumeFr []) key = _
+      rw [show selfStorage (popFrame resumeFr []) key = selfStorage resumeFr key from rfl]
+      exact hM3 key
+    · -- SLOAD realisability: POP preserves env; transport `hsload'` to the popped frame.
+      exact hsload'.transport (by rw [popFrame_addr])
+    · intro g hgaddr; exact hgas' g (by rw [hgaddr, popFrame_addr])
+    · -- memAgree: `st'.locals = st.locals`, POP preserves memory bytes + activeWords.
+      have hloceq : st' = { st with world := fun key => evmCallOracle.postStorage result pd self key } := by
+        rw [hst', hr]
+      intro tw slot v hdef hloc
+      rw [hloceq] at hloc
+      exact (hmemRes.transport (by rw [popFrame_memory]) (by rw [popFrame_activeWords]))
+        tw slot v hdef hloc
+  | some t =>
+    -- PUSH slot; MSTORE tail: `endFr` writes `mem[slotOf t] = flag`, stack `[]`.
+    obtain ⟨hslot63, hslotplat, endFr, hendrun, hendmem, hendpc, hendcode,
+      hendvalid, hendaddr, hendcanmod, hendstorage, hendstk⟩ := htailSome t hr
+    set flag := callSuccessFlag result pd with hflag
+    set slot := slotOf t with hslotdef
+    refine ⟨endFr, hruns0.trans hendrun, ?_, hendstk⟩
+    -- `slotOf t` addressability ports between the `+63 < 2^64` form (`mstore_reads_back`)
+    -- and the `.toNat = slot` collapse (`mstore_*` are stated over `(ofNat slot).toNat`).
+    have hslotlt256 : slot < 2 ^ 256 := by
+      have : (2 : Nat) ^ 64 ≤ 2 ^ 256 := Nat.pow_le_pow_right (by norm_num) (by norm_num)
+      omega
+    have hslotEq : (UInt256.ofNat slot).toNat = slot := by
+      rw [LirLean.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt hslotlt256]
+    have hslot63' : (UInt256.ofNat slot).toNat + 63 < 2 ^ 64 := by rw [hslotEq]; exact hslot63
+    have hslotplat' : (UInt256.ofNat slot).toNat < 2 ^ System.Platform.numBits := by
+      rw [hslotEq]; exact hslotplat
+    -- pc: endFr.pc = resumeFr.pc + 34 = (fr.pc + argsLen) + 1 + 34; emit = argsLen + 1 + 34.
+    have hemitlen : (emitStmt defs fuel (.call cs)).length = argsLen + 1 + 34 := by
+      rw [hemitcall, hr]
+      set argsBlock := emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
+          ++ materialise defs fuel cs.callee ++ materialise defs fuel cs.gasFwd with hab
+      rw [List.length_append, List.length_append, List.length_singleton, ← hargslen,
+        List.length_append, List.length_singleton, emitImm_length]
+    have hpcN : pcOf prog L (pc + 1) = pcOf prog L pc + (argsLen + 1 + 34) := by
+      rw [pcOf_succ prog L b pc (.call cs) hb hs, hemitlen]
+    refine
+      { pc_eq := ?_
+        code_eq := ?_
+        validJumps_eq := ?_
+        stack_nil := hendstk
+        can_modify := ?_
+        storage := ?_
+        defsSound := hsound'
+        wellScoped := hscoped'
+        sloadReal := ?_
+        gasReal := ?_
+        memAgree := ?_ }
+    · -- M1
+      rw [hendpc, hrespc, hcallpc, hfrpc, hpcN,
+          UInt32.ofNat_add, UInt32.ofNat_add, UInt32.ofNat_add,
+          show (UInt32.ofNat 1) = (1 : UInt32) from rfl]
+      ac_rfl
+    · rw [hendcode, hrescode]
+    · rw [hendvalid, hendcode]; exact hresvalidjumps
+    · rw [hendcanmod, hrescanmod]
+    · -- M3: world is the resumed self-lens; the MSTORE tail preserves the self-lens.
+      intro key
+      rw [hst', hr]
+      show selfStorage endFr key = _
+      rw [hendstorage key]; exact hM3 key
+    · -- SLOAD realisability over the post-state: only the carrier address matters;
+      -- `setLocal`-bound `t` is a result tmp (registered call-result), so a `st'`-bound key
+      -- is either an old `st.locals` key or `t`. The tie is over arbitrary `g` sharing the
+      -- address, so it transports through `hsload'` once the address is pinned (`hendaddr`).
+      intro g kt keyk hgaddr hloc
+      -- `st'.locals kt = some keyk`: either `kt = t` (then `keyk = flag`, but the address-tie
+      -- holds for ANY key) or `kt ≠ t` (then `st.locals kt = some keyk`). Either way the
+      -- carrier-frame condition is the same; reduce to `hsload'` at `resumeFr` (same address).
+      have hsl : SloadRealises sloadChg st' resumeFr := by
+        intro g' k' key' hg' hl'
+        -- `st'.locals k'`: split on `k' = t`.
+        by_cases hkt : k' = t
+        · subst hkt
+          -- `st'.locals t = some flag`; `sloadChg t` need only be the warmth charge for `flag`.
+          -- Since `t` is a call-result, `hsload'` (over `st'`) already covers it.
+          exact hsload' g' k' key' hg' hl'
+        · exact hsload' g' k' key' hg' hl'
+      exact hsl.transport hendaddr g kt keyk hgaddr hloc
+    · intro g hgaddr; exact hgas' g (by rw [hgaddr, hendaddr])
+    · -- memAgree: the heart. New slot binds flag; other call-result slots preserved.
+      -- `endFr.memory = resumeFr.memory.mstore slot flag` (`hendmem`).
+      intro tw slot' v hdef hloc
+      -- `st'.locals tw`: split on `tw = t`.
+      by_cases htw : tw = t
+      · -- the just-bound call-result tmp `t`: `slot' = slotOf t = slot`, `v = flag`.
+        subst htw
+        -- `defsOf prog tw = some (.callResult slot')`; the registered slot for `tw` is `slotOf tw`.
+        -- and `st'.locals tw = some flag`.
+        have hvflag : v = flag := by
+          have : st'.locals tw = some flag := by rw [hst', hr]; simp [V2.IRState.setLocal]
+          rw [this] at hloc; exact (Option.some.inj hloc).symm
+        have hslot'eq : slot' = slot := by
+          -- the registered slot for `tw` is `slotOf tw = slot` (`hslots`).
+          rw [show slot = slotOf tw from rfl]
+          exact hslots tw slot' hdef
+        subst hslot'eq; subst hvflag
+        -- coverage + readback at the just-written slot.
+        refine ⟨?_, ?_, hslot63, ?_⟩
+        · -- memory.size ≥ slot + 32
+          rw [hendmem]
+          have := LirLean.MemAlgebra.mstore_memory_size resumeFr.exec.toMachineState
+            (UInt256.ofNat slot) flag (by rw [hslotEq]; exact hslotplat)
+          rw [hslotEq] at this
+          show (UInt256.ofNat slot).toNat + 32 ≤ _
+          rw [hslotEq]; exact this
+        · -- activeWords*32 ≥ slot + 32
+          rw [hendmem]
+          have := LirLean.MemAlgebra.mstore_activeWords_covers resumeFr.exec.toMachineState
+            (UInt256.ofNat slot) flag hslot63'
+          rw [hslotEq] at this
+          show (UInt256.ofNat slot).toNat + 32 ≤ _
+          rw [hslotEq]; exact this
+        · -- readback = flag
+          rw [hendmem]
+          exact LirLean.MemAlgebra.mstore_reads_back resumeFr.exec.toMachineState
+            (UInt256.ofNat slot) flag hslot63' hslotplat'
+      · -- another bound tmp `tw ≠ t`: its `st.locals tw` value is unchanged; if it's a
+        -- call-result slot it stays covered+valued through the MSTORE at the disjoint slot.
+        have hloc0 : st.locals tw = some v := by
+          rw [hst', hr] at hloc
+          simpa [V2.IRState.setLocal, htw] using hloc
+        obtain ⟨hcm, ham, hreal, hval⟩ := hmemRes tw slot' v hdef hloc0
+        -- the read slot `slot'` is a realistic offset (`+63 < 2^64`) ⇒ `< 2^256`, so
+        -- `(ofNat slot').toNat = slot'` collapses.
+        have hslot'lt256 : slot' < 2 ^ 256 := by
+          have : (2 : Nat) ^ 64 ≤ 2 ^ 256 := Nat.pow_le_pow_right (by norm_num) (by norm_num)
+          omega
+        have hslot'Eq : (UInt256.ofNat slot').toNat = slot' := by
+          rw [LirLean.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt hslot'lt256]
+        -- the two slots are distinct tmps' 32-aligned slots ⇒ disjoint windows.
+        have hslot'def : slot' = slotOf tw := hslots tw slot' hdef
+        have htwne : t.id ≠ tw.id := fun h => htw (by cases t; cases tw; cases h; rfl)
+        have hdisN : slot + 32 ≤ slot' ∨ slot' + 32 ≤ slot := by
+          rw [hslotdef, hslot'def]
+          exact LirLean.MemAlgebra.slot_windows_disjoint t.id tw.id htwne
+        -- coverage is preserved by the MSTORE monotone lemmas (no write-window pre-coverage
+        -- needed); value is preserved by the supplied grow-aware disjointness `hmstoreDisjoint`.
+        rw [hendmem]
+        refine ⟨?_, ?_, hreal, ?_⟩
+        · -- memory.size ≥ slot' + 32 (size monotone under MSTORE)
+          rw [hslot'Eq] at hcm ⊢
+          exact le_trans hcm (LirLean.MemAlgebra.mstore_memory_size_mono
+            resumeFr.exec.toMachineState (UInt256.ofNat slot) flag hslotplat')
+        · -- activeWords*32 ≥ slot' + 32 (activeWords monotone under MSTORE)
+          rw [hslot'Eq] at ham ⊢
+          have := LirLean.MemAlgebra.mstore_activeWords_mono
+            resumeFr.exec.toMachineState (UInt256.ofNat slot) flag
+          have h32 := Nat.mul_le_mul_right 32 this
+          omega
+        · -- readback value preserved (grow-aware disjointness)
+          have hd : slot + 32 ≤ slot' ∨ slot' + 32 ≤ slot := hdisN
+          rw [hmstoreDisjoint slot slot' flag (by rw [hslot'Eq] at hcm; exact hcm)
+            (by rw [hslot'Eq] at ham; exact ham) hd]
+          exact hval
 
 end Lir
 
