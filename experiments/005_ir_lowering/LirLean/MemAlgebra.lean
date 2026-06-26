@@ -551,6 +551,248 @@ theorem mstore_mload_disjoint (m : MachineState) (addr addr' val : UInt256)
       readWithPadding_inbounds _ _ hrmem,
       copySlice_extract_disjoint m.memory addr.toNat addr'.toNat val hwmem hrmem hdis]
 
+/-! ## Grow-aware MSTORE toolkit
+
+The lemmas above all assume the written 32-byte window is *pre-allocated*
+(`addr.toNat + 32 ≤ m.memory.size`). The lowered CALL's flag-spill, however,
+`MSTORE`s the success flag to a **fresh** per-tmp slot `slot = t.id * 32` where
+memory may still be smaller than `slot + 32`. EVM `mstore`/`writeWord` *grows*
+memory to cover that slot (`ByteArray.write`'s `else` branch pads
+`dest ++ destPadding` and `copySlice`s into it). So the read-back is still TRUE
+for a fresh slot; the `hmem` pre-size premise is dropped here and replaced by
+reasoning about that grow path.
+
+Realisability on the offset is still required, but now in two shapes:
+* `addr.toNat + 63 < 2 ^ 64` — keeps the `UInt64` `activeWords` bookkeeping from
+  truncating (exactly as in `mload_after_mstore`);
+* `addr.toNat < 2 ^ System.Platform.numBits` — keeps the `USize`-typed *memory*
+  pad length `⟨addr - mem.size⟩` from truncating (on the model's 64-bit target
+  this is implied by the first; it is stated platform-honestly because
+  `System.Platform.numBits` is opaque and could be `32`). -/
+
+/-- A pad-length `USize` `⟨↑k⟩` has `toNat = k` once `k` is a realistic
+(`< 2 ^ numBits`) length — the `BitVec` reduction is the identity. -/
+theorem usize_mk_toNat (k : Nat) (hk : k < 2 ^ System.Platform.numBits) :
+    ({ toBitVec := ((k : Nat) : BitVec System.Platform.numBits) } : USize).toNat = k := by
+  show (((k : Nat) : BitVec System.Platform.numBits)).toNat = k
+  rw [show ((k : Nat) : BitVec System.Platform.numBits) = BitVec.ofNat _ k by
+        simp [Nat.cast, NatCast.natCast], BitVec.toNat_ofNat, Nat.mod_eq_of_lt hk]
+
+/-- **`writeWord`'s uniform memory shape.** For *any* offset (in-bounds, partially
+in-bounds, or pure-grow) `writeWord` reduces to a single `copySlice` of the stored
+word into the destination padded with `⟨addr - mem.size⟩` zero bytes. In the
+in-bounds and partial cases that pad is empty (`addr ≤ mem.size`); in the grow case
+it extends memory up to `addr`. The `source`-side padding (`sourcePaddingLength`)
+is always `0`, and the `min`s on the source window collapse because the word is a
+full 32 bytes. -/
+theorem writeWord_memory_grow (m : MachineState) (addr val : UInt256) :
+    (m.writeWord addr val).memory
+      = val.toByteArray.copySlice 0
+          (m.memory ++ ffi.ByteArray.zeroes ⟨(addr.toNat - m.memory.size : Nat)⟩) addr.toNat 32 := by
+  show (Evm.writeBytes val.toByteArray 0 m addr.toNat 32).memory = _
+  unfold Evm.writeBytes
+  show ByteArray.write val.toByteArray 0 m.memory addr.toNat 32 = _
+  unfold ByteArray.write
+  have hsz : val.toByteArray.size = 32 := toByteArray_size val
+  rw [if_neg (by norm_num), if_neg (by rw [hsz]; norm_num), hsz]
+  simp only [Nat.sub_zero]
+  rw [show min 32 (32 - 0) = 32 from rfl,
+      show (min m.memory.size (addr.toNat + 32)) - (addr.toNat + 32) = 0 by omega,
+      show (32 : Nat) + 0 = 32 from rfl,
+      show ({ toBitVec := ((0 : Nat) : BitVec System.Platform.numBits) } : USize) = (0 : USize)
+        from rfl,
+      zeroes_zero, ByteArray.append_empty]
+
+/-- Size of writing a full 32-byte word at offset `addr` into a destination `D`
+that already reaches `addr` (`addr ≤ D.size`): the window `[addr, addr+32)` extends
+`D` to `max D.size (addr+32)`. Generalises `copySlice_size` (which needed
+`addr + 32 ≤ D.size`) to the grow case `addr ≤ D.size`. -/
+theorem copySlice_at_size (D : ByteArray) (addr : Nat) (val : UInt256) (h : addr ≤ D.size) :
+    (val.toByteArray.copySlice 0 D addr 32).size = max D.size (addr + 32) := by
+  rw [ByteArray.copySlice_eq_append]
+  have hsz : val.toByteArray.size = 32 := toByteArray_size val
+  have hd : val.toByteArray.data.size = 32 := by rw [← ByteArray.size]; exact hsz
+  have hDd : D.data.size = D.size := ByteArray.size_data ..
+  simp only [ByteArray.size_append, ByteArray.size_extract, hd, hDd, hsz]
+  omega
+
+/-- Reading the just-written window straight back out of the grow `copySlice`
+yields the stored bytes verbatim, needing only `addr ≤ D.size` (the word lands at
+`[addr, addr+32)` and the trailing `D.extract (addr+32) …` is empty when `D` ends at
+`addr`). Generalises `copySlice_extract`. -/
+theorem copySlice_at_extract (D : ByteArray) (addr : Nat) (val : UInt256) (h : addr ≤ D.size) :
+    (val.toByteArray.copySlice 0 D addr 32).extract addr (addr + 32) = val.toByteArray := by
+  have hsz : val.toByteArray.size = 32 := toByteArray_size val
+  have hd : val.toByteArray.data.size = 32 := by rw [← ByteArray.size]; exact hsz
+  have hDd : D.data.size = D.size := ByteArray.size_data ..
+  rw [ByteArray.copySlice_eq_append,
+      show (0 : Nat) + 32 = 32 from rfl, hd, show min 32 (32 - 0) = 32 from rfl,
+      show val.toByteArray.extract 0 32 = val.toByteArray by
+        conv_rhs => rw [← ByteArray.extract_zero_size (b := val.toByteArray), hsz]]
+  set A := D.extract 0 addr with hA
+  have hAsz : A.size = addr := by rw [hA, ByteArray.size_extract]; omega
+  have h1 : addr - (A ++ val.toByteArray).size = 0 := by rw [ByteArray.size_append, hAsz, hsz]; omega
+  have h2 : addr + 32 - (A ++ val.toByteArray).size = 0 := by
+    rw [ByteArray.size_append, hAsz, hsz]; omega
+  rw [ByteArray.extract_append, h1, h2, ByteArray.extract_same, ByteArray.append_empty, ← hAsz,
+      ByteArray.extract_append_eq_right (by rw [hAsz]) (by rw [hAsz, hsz])]
+
+/-- The grow-padded destination `m.memory ++ zeroes ⟨addr - mem.size⟩` has size
+`max mem.size addr` (provided the pad length is a realistic `USize`). In
+particular `addr ≤ (… padded …).size`, the hypothesis the `copySlice_at_*` lemmas
+need. -/
+theorem grow_dest_size (m : MachineState) (addr : UInt256)
+    (haddr : addr.toNat < 2 ^ System.Platform.numBits) :
+    (m.memory ++ ffi.ByteArray.zeroes ⟨(addr.toNat - m.memory.size : Nat)⟩).size
+      = max m.memory.size addr.toNat := by
+  rw [ByteArray.size_append, zeroes_size, usize_mk_toNat _ (by omega)]; omega
+
+/-- `readWithPadding` at an in-bounds full window of the *written* (grown) memory
+is the corresponding `extract` (no padding), since the write made the window
+in-bounds. -/
+theorem readWithPadding_written_grow (m : MachineState) (addr val : UInt256)
+    (haddr : addr.toNat < 2 ^ System.Platform.numBits) :
+    (m.writeWord addr val).memory.readWithPadding addr.toNat 32 = val.toByteArray := by
+  rw [writeWord_memory_grow]
+  set D := m.memory ++ ffi.ByteArray.zeroes ⟨(addr.toNat - m.memory.size : Nat)⟩ with hD
+  have hDle : addr.toNat ≤ D.size := by rw [hD, grow_dest_size m addr haddr]; omega
+  have hWsz : (val.toByteArray.copySlice 0 D addr.toNat 32).size = max D.size (addr.toNat + 32) :=
+    copySlice_at_size D addr.toNat val hDle
+  unfold ByteArray.readWithPadding
+  rw [if_neg (by norm_num)]
+  unfold ByteArray.readWithoutPadding
+  rw [if_neg (by rw [hWsz]; omega), show min 32 (val.toByteArray.copySlice 0 D addr.toNat 32).size = 32
+        by rw [hWsz]; omega,
+      copySlice_at_extract D addr.toNat val hDle]
+  have hpad : ffi.ByteArray.zeroes
+      { toBitVec := ((32 : Nat) - (32 : Nat) : BitVec System.Platform.numBits) } = ByteArray.empty := by
+    rw [show ((32 : Nat) - (32 : Nat) : BitVec System.Platform.numBits) = 0 by simp]
+    exact zeroes_zero
+  simp only []
+  rw [toByteArray_size, hpad, ByteArray.append_empty]
+
+/-! ### Deliverables -/
+
+/-- **1. MSTORE grows memory to cover the slot.** After an `MSTORE` at `addr` the
+memory is at least `addr + 32` bytes — whether the slot was pre-allocated or freshly
+grown. (`mstore` only rewrites `memory` via `writeWord`, then bumps `activeWords`.) -/
+theorem mstore_memory_size (m : MachineState) (addr val : UInt256)
+    (haddr : addr.toNat < 2 ^ System.Platform.numBits) :
+    addr.toNat + 32 ≤ (m.mstore addr val).memory.size := by
+  show addr.toNat + 32 ≤ (m.writeWord addr val).memory.size
+  rw [writeWord_memory_grow]
+  set D := m.memory ++ ffi.ByteArray.zeroes ⟨(addr.toNat - m.memory.size : Nat)⟩ with hD
+  have hDle : addr.toNat ≤ D.size := by rw [hD, grow_dest_size m addr haddr]; omega
+  rw [copySlice_at_size D addr.toNat val hDle]; omega
+
+/-- **2. Grow-aware read-back — NO pre-size premise.** `((m.mstore addr val).mload
+addr).1 = val` for a *fresh* slot: the write first grows memory to cover
+`[addr, addr+32)`, so the `lookupMemory` size guard cannot fire; the `activeWords`
+guard is satisfied because `mstore` sets `activeWords := M activeWords addr 32`,
+which covers `addr` (`activeWords_covers`). Only the two realisability premises on
+the offset remain (`+63 < 2^64` for `UInt64` `activeWords`, `< 2^numBits` for the
+`USize` memory pad). -/
+theorem mstore_reads_back (m : MachineState) (addr val : UInt256)
+    (haddr : addr.toNat + 63 < 2 ^ 64) (hplat : addr.toNat < 2 ^ System.Platform.numBits) :
+    ((m.mstore addr val).mload addr).1 = val := by
+  show ((m.mstore addr val).lookupMemory addr) = val
+  unfold MachineState.mstore MachineState.lookupMemory
+  simp only []
+  rw [writeWord_activeWords]
+  rw [if_neg ?guard]
+  case guard =>
+    rw [not_or]
+    refine ⟨?_, ?_⟩
+    · have := mstore_memory_size m addr val hplat
+      show ¬ addr.toNat ≥ (m.mstore addr val).memory.size
+      simp only [ge_iff_le, not_le]; omega
+    · have := activeWords_covers m.activeWords addr haddr
+      simp only [ge_iff_le, not_le]; omega
+  rw [readWithPadding_written_grow m addr val hplat, fromByteArray_toByteArray, ofNat_toNat]
+
+/-- **3. MSTORE makes `activeWords` cover the slot.** After an `MSTORE` at `addr`
+the `lookupMemory` upper bound `addr.toNat + 32 ≤ activeWords.toNat * 32` holds
+(the `M`-update rounds `addr + 32` up to a word boundary). -/
+theorem mstore_activeWords_covers (m : MachineState) (addr val : UInt256)
+    (haddr : addr.toNat + 63 < 2 ^ 64) :
+    addr.toNat + 32 ≤ (m.mstore addr val).activeWords.toNat * 32 := by
+  show addr.toNat + 32 ≤ (MachineState.M (m.writeWord addr val).activeWords addr.toUInt64 32).toNat * 32
+  rw [writeWord_activeWords, M_32]
+  set x : UInt64 := (addr.toUInt64 + 32 + 31) / 32 with hx
+  have hmono : x.toNat ≤ (max m.activeWords x).toNat := umax_ge m.activeWords x
+  have hau : addr.toUInt64.toNat = addr.toNat := by
+    rw [toUInt64_toNat, Nat.mod_eq_of_lt (by omega)]
+  have hxval : x.toNat = (addr.toNat + 63) / 32 := by
+    rw [hx, UInt64.toNat_div]
+    simp only [UInt64.toNat_add, hau, show (32 : UInt64).toNat = 32 from rfl,
+      show (31 : UInt64).toNat = 31 from rfl]
+    rw [Nat.mod_eq_of_lt (by omega), Nat.mod_eq_of_lt (by omega)]
+  have hxge : addr.toNat + 32 ≤ x.toNat * 32 := by
+    rw [hxval]; omega
+  omega
+
+/-- **4a. `activeWords` is monotone under MSTORE.** -/
+theorem mstore_activeWords_mono (m : MachineState) (addr val : UInt256) :
+    m.activeWords.toNat ≤ (m.mstore addr val).activeWords.toNat := by
+  show m.activeWords.toNat ≤ (MachineState.M (m.writeWord addr val).activeWords addr.toUInt64 32).toNat
+  rw [writeWord_activeWords, M_32]; exact umax_ge_left _ _
+
+/-- **4b. Memory size is monotone under MSTORE** (`writeWord` only ever grows
+memory). -/
+theorem mstore_memory_size_mono (m : MachineState) (addr val : UInt256)
+    (haddr : addr.toNat < 2 ^ System.Platform.numBits) :
+    m.memory.size ≤ (m.mstore addr val).memory.size := by
+  show m.memory.size ≤ (m.writeWord addr val).memory.size
+  rw [writeWord_memory_grow]
+  set D := m.memory ++ ffi.ByteArray.zeroes ⟨(addr.toNat - m.memory.size : Nat)⟩ with hD
+  have hDsz : D.size = max m.memory.size addr.toNat := grow_dest_size m addr haddr
+  have hDle : addr.toNat ≤ D.size := by rw [hDsz]; omega
+  rw [copySlice_at_size D addr.toNat val hDle, hDsz]; omega
+
+/-! ### 5. Cross-slot preservation of an already-covered disjoint slot
+
+`MemRealises`-style coverage is a pair (memory ≥ slot+32, activeWords*32 ≥ slot+32)
+plus a stored value. An `MSTORE` at a *different* slot must preserve all three for
+the untouched slot. The disjointness lemma `mstore_mload_disjoint` already preserves
+the value; here we additionally carry the coverage forward through the monotonicity
+lemmas (4) — and provide the 32-aligned-slot disjointness corollary that makes the
+window-disjointness side-condition automatic for per-tmp slots `i * 32`. -/
+
+/-- Distinct 32-aligned slots `i*32`, `j*32` have disjoint 32-byte windows. This is
+the disjointness side-condition `mstore_mload_disjoint`/`mstore_preserves_slot` want,
+discharged automatically for per-tmp slots. -/
+theorem slot_windows_disjoint (i j : Nat) (hij : i ≠ j) :
+    (i * 32) + 32 ≤ (j * 32) ∨ (j * 32) + 32 ≤ (i * 32) := by
+  rcases Nat.lt_or_ge i j with h | h
+  · left; have : i + 1 ≤ j := h; calc i * 32 + 32 = (i + 1) * 32 := by ring
+      _ ≤ j * 32 := by exact Nat.mul_le_mul_right 32 this
+  · right
+    have hji : j < i := lt_of_le_of_ne h (by omega)
+    have : j + 1 ≤ i := hji
+    calc j * 32 + 32 = (j + 1) * 32 := by ring
+      _ ≤ i * 32 := Nat.mul_le_mul_right 32 this
+
+/-- **MSTORE preserves a covered, disjoint slot** — value *and* coverage. If slot
+`s` is covered in `m` (in-bounds memory and active) and its window is disjoint from
+the write window `[addr, addr+32)`, then after `MSTORE addr val` slot `s` is still
+covered (memory ≥ `s+32`, active*32 ≥ `s+32`) and reads back the same word. Packaged
+as the conjunction needed to carry a `MemRealises`-style coverage+value tuple across
+an MSTORE at a different slot. (For 32-aligned per-tmp slots `s = i*32`, `addr = j*32`
+with `i ≠ j`, `slot_windows_disjoint` supplies `hdis`.) -/
+theorem mstore_preserves_slot (m : MachineState) (addr s val : UInt256)
+    (haddr : addr.toNat < 2 ^ System.Platform.numBits)
+    (hsmem : s.toNat + 32 ≤ m.memory.size)
+    (hsact : s.toNat + 32 ≤ m.activeWords.toNat * 32)
+    (hwmem : addr.toNat + 32 ≤ m.memory.size)
+    (hdis : addr.toNat + 32 ≤ s.toNat ∨ s.toNat + 32 ≤ addr.toNat) :
+    s.toNat + 32 ≤ (m.mstore addr val).memory.size
+      ∧ s.toNat + 32 ≤ (m.mstore addr val).activeWords.toNat * 32
+      ∧ ((m.mstore addr val).mload s).1 = (m.mload s).1 := by
+  refine ⟨?_, ?_, ?_⟩
+  · exact le_trans hsmem (mstore_memory_size_mono m addr val haddr)
+  · have := mstore_activeWords_mono m addr val; omega
+  · exact mstore_mload_disjoint m addr s val hwmem hsmem (by omega) hdis
+
 /-! ## Axiom-cleanliness guard
 
 The three crux results must rest only on the standard `[propext, Classical.choice,
@@ -567,5 +809,21 @@ de-opaqued `ffi.ByteArray.zeroes` body is what makes this possible). -/
 /-- info: 'LirLean.MemAlgebra.mstore_mload_disjoint' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms mstore_mload_disjoint
+
+/-- info: 'LirLean.MemAlgebra.mstore_memory_size' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms mstore_memory_size
+
+/-- info: 'LirLean.MemAlgebra.mstore_reads_back' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms mstore_reads_back
+
+/-- info: 'LirLean.MemAlgebra.mstore_activeWords_covers' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms mstore_activeWords_covers
+
+/-- info: 'LirLean.MemAlgebra.mstore_preserves_slot' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms mstore_preserves_slot
 
 end LirLean.MemAlgebra
