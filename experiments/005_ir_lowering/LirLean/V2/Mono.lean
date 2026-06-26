@@ -10,9 +10,9 @@ import BytecodeLayer.Observables
 # LirLean v2 — the two-read gas-monotonicity milestone (`docs/ir-design-v2.md` §3.4)
 
 The call-free prototype (`LirLean/V2/Preserve.lean`, `Lir.V2.lower_preserves_obs`)
-validated the gas-free machine, the observable boundary and a **single** `gasRead`
-event. A single read does not exercise the ONE law the gas oracle carries (§3.4): the
-sequence of `gasRead` values, in program order, is **monotone non-increasing**. That
+validated the gas-free machine, the observable boundary and a **single** gas
+read. A single read does not exercise the ONE law the gas oracle carries (§3.4): the
+sequence of gas reads, in program order, is **monotone non-increasing**. That
 law relates **≥ 2** reads.
 
 This file is that milestone: the first example with **two** gas reads whose correctness
@@ -27,7 +27,7 @@ This file is that milestone: the first example with **two** gas reads whose corr
    determinable to `0` **only** because monotonicity pins `g2 ≤ g1`, so the run lands at
    `GOOD`. A one-read example cannot do this: the point is the ORDER between two reads;
 3. extends the preservation theorem so the lowered bytecode's two `GAS` opcodes realise
-   the two `gasRead` events AND the realised values are genuinely monotone — the
+   the two gas reads AND the realised values are genuinely monotone — the
    monotonicity law is **discharged from the bytecode side** (the EVM gas-descent fact),
    not assumed. The headline keeps the §4 shape `∃ G₀, ∀ g ≥ G₀, …` with no pc and no
    gas-equality in the statement; monotonicity is discharged internally.
@@ -49,7 +49,7 @@ set_option maxRecDepth 4000
 
 /-! ## 1. The monotonicity law and the guard arithmetic (frame-free, `LirLean/V2/Law.lean`)
 
-`Trace.gasReads`, the monotonicity law `Trace.gasMonotone` (§3.4), its pair-form
+The monotonicity law `Trace.gasMonotone` (§3.4), its pair-form
 `gasMonotone_pair`, and the guard arithmetic `lt_eq_zero_of_toNat_le` are all frame-free
 and live in `LirLean/V2/Law.lean` (imported above). This file uses them; the bytecode-side
 discharge of the law (below) is what makes this module the IR↔bytecode bridge for the
@@ -96,8 +96,8 @@ theorem guardIR_block2 : blockAt guardIR (lbl 2) = some guardBlock2 := rfl
 /-! ### The block-0 statement run over named intermediate states
 
 As in the prototype, each intermediate state is named so every `whnf` stays bounded to a
-single `setLocal`/`setStorage` layer. The two gas reads consume `gasRead g1` and
-`gasRead g2`; the trace empties after the second. -/
+single `setLocal`/`setStorage` layer. The two gas reads consume `g1` and
+`g2`; the stream empties after the second. -/
 
 private def q0 (w₀ : World) : IRState := { locals := fun _ => none, world := w₀ }
 private def q1 (w₀ : World) (g1 : Word) : IRState := (q0 w₀).setLocal (tmp 0) g1
@@ -125,39 +125,39 @@ private theorem q6_world (w₀ : World) (g1 g2 : Word) :
 
 /-- **The gas-free IR run, using ONLY the monotonicity law.** For any initial world
 `w₀` and any two gas readings `g1 g2` whose trace is monotone (`g2 ≤ g1`), `guardIR`
-consuming `[gasRead g1, gasRead g2]` halts with `guardObsResult w₀ g1` — the guard
+consuming `[g1, g2]` halts with `guardObsResult w₀ g1` — the guard
 `lt g1 g2` is `0` (by `lt_eq_zero_of_toNat_le`, the *only* use of the law), so the branch
 takes the `GOOD` (else) arm and returns `g1`. The gas values are supplied by the run
 (the events); the IR asserts nothing about them beyond monotonicity. -/
 theorem guard_IRRun (o : CallOracle) (w₀ : World) (g1 g2 : Word)
-    (hmono : Trace.gasMonotone [Event.gasRead g1, Event.gasRead g2]) :
-    IRRun guardIR o w₀ [Event.gasRead g1, Event.gasRead g2] (guardObsResult w₀ g1) := by
+    (hmono : Trace.gasMonotone [g1, g2]) :
+    IRRun guardIR o w₀ [g1, g2] (guardObsResult w₀ g1) := by
   have hle : g2.toNat ≤ g1.toNat := gasMonotone_pair.mp hmono
   -- the six block-0 statements, each between named states (call-free ⇒ oracle-agnostic)
-  have e0 : EvalStmt guardIR o (q0 w₀) [Event.gasRead g1, Event.gasRead g2]
-      (.assign (tmp 0) .gas) (q1 w₀ g1) [Event.gasRead g2] := EvalStmt.assignGas
-  have e1 : EvalStmt guardIR o (q1 w₀ g1) [Event.gasRead g2]
-      (.assign (tmp 1) (.imm 5)) (q2 w₀ g1) [Event.gasRead g2] :=
+  have e0 : EvalStmt guardIR o (q0 w₀) [g1, g2]
+      (.assign (tmp 0) .gas) (q1 w₀ g1) [g2] := EvalStmt.assignGas
+  have e1 : EvalStmt guardIR o (q1 w₀ g1) [g2]
+      (.assign (tmp 1) (.imm 5)) (q2 w₀ g1) [g2] :=
     EvalStmt.assignPure (by nofun) rfl
-  have e2 : EvalStmt guardIR o (q2 w₀ g1) [Event.gasRead g2]
-      (.assign (tmp 2) (.imm 7)) (q3 w₀ g1) [Event.gasRead g2] :=
+  have e2 : EvalStmt guardIR o (q2 w₀ g1) [g2]
+      (.assign (tmp 2) (.imm 7)) (q3 w₀ g1) [g2] :=
     EvalStmt.assignPure (by nofun) rfl
-  have e3 : EvalStmt guardIR o (q3 w₀ g1) [Event.gasRead g2]
-      (.sstore (tmp 2) (tmp 1)) (q4 w₀ g1) [Event.gasRead g2] :=
+  have e3 : EvalStmt guardIR o (q3 w₀ g1) [g2]
+      (.sstore (tmp 2) (tmp 1)) (q4 w₀ g1) [g2] :=
     EvalStmt.sstore (kw := 7) (vw := 5) rfl rfl
-  have e4 : EvalStmt guardIR o (q4 w₀ g1) [Event.gasRead g2]
+  have e4 : EvalStmt guardIR o (q4 w₀ g1) [g2]
       (.assign (tmp 3) .gas) (q5 w₀ g1 g2) [] := EvalStmt.assignGas
   have e5 : EvalStmt guardIR o (q5 w₀ g1 g2) []
       (.assign (tmp 4) (.lt (tmp 0) (tmp 3))) (q6 w₀ g1 g2) [] :=
     EvalStmt.assignPure (by nofun) rfl
-  have hss : RunStmts guardIR o (q0 w₀) [Event.gasRead g1, Event.gasRead g2]
+  have hss : RunStmts guardIR o (q0 w₀) [g1, g2]
       guardBlock0.stmts (q6 w₀ g1 g2) [] :=
     .cons e0 (.cons e1 (.cons e2 (.cons e3 (.cons e4 (.cons e5 .nil)))))
   -- the guard `lt g1 g2` is 0 under monotonicity → branch takes the GOOD (else) arm
   have hguard : (q6 w₀ g1 g2).locals (tmp 4) = some 0 := by
     rw [q6_locals4]; rw [lt_eq_zero_of_toNat_le hle]
   have hbranch :
-      RunFrom guardIR o (q0 w₀) [Event.gasRead g1, Event.gasRead g2] (lbl 0)
+      RunFrom guardIR o (q0 w₀) [g1, g2] (lbl 0)
         { worldDelta := (q6 w₀ g1 g2).world, result := .returned g1 } :=
     RunFrom.branchElse (b := guardBlock0) (thenL := lbl 1) (elseL := lbl 2)
       guardIR_block0 hss rfl hguard
@@ -170,7 +170,7 @@ theorem guard_IRRun (o : CallOracle) (w₀ : World) (g1 g2 : Word)
 
 The internal `Runs` witness, a hand-written PUSH1 bytecode (the prototype's documented
 cut — `lower` emits PUSH32, blowing up the decode kernel; the *reasoning* reused is
-identical). The two `GAS` opcodes realise the two `gasRead` events; the realised values
+identical). The two `GAS` opcodes realise the two gas reads; the realised values
 are `g1 = ofUInt64 (g − 22108)` and `g2 = ofUInt64 (g − 22110)`, so `g2 ≤ g1` is the
 **actual machine gas-descent fact** — that is how we DISCHARGE the §3.4 monotonicity law
 from the bytecode side (the same `gasAvailable.toNat` descent the never-OutOfFuel fuel
@@ -354,7 +354,7 @@ reachable from `gf4` (the first read) by one `GAS` step (`Runs (gf4 g) (gf5 g)`)
 `Runs.gasAvailable_le` (`GasMonotone.lean`, the §3.4 "holds across calls" fact) forces
 `(gf5 g).gasAvailable.toNat ≤ (gf4 g).gasAvailable.toNat`; via `g1Read_toNat`/`g2Read_toNat`
 that is `(g2Read g).toNat ≤ (g1Read g).toNat`. This is the realised
-`Trace.gasMonotone [gasRead (g1Read g), gasRead (g2Read g)]` — monotonicity is a
+`Trace.gasMonotone [g1Read g, g2Read g]` — monotonicity is a
 *consequence of the run*, not assumed. -/
 theorem gReads_monotone (g : UInt64) (hg : 30000 ≤ g.toNat) :
     (g2Read g).toNat ≤ (g1Read g).toNat := by
@@ -369,7 +369,7 @@ theorem gReads_monotone (g : UInt64) (hg : 30000 ≤ g.toNat) :
 
 /-- The realised two-read trace is `gasMonotone` (the §3.4 law holds on the machine). -/
 theorem gReads_gasMonotone (g : UInt64) (hg : 30000 ≤ g.toNat) :
-    Trace.gasMonotone [Event.gasRead (g1Read g), Event.gasRead (g2Read g)] :=
+    Trace.gasMonotone [(g1Read g), (g2Read g)] :=
   gasMonotone_pair.mpr (gReads_monotone g hg)
 
 /-! ### The realisability witness, exported for the `Oracle` interface
@@ -539,11 +539,11 @@ theorem g_success (g : UInt64) :
 
 `LoweredRunHasObsMono` is the bytecode-side conclusion: at gas `g`, the witness bytecode (the
 internal `Runs` witness) halts with the same observable `O`, **its two `GAS` opcodes
-realising the two `gasRead` events** AND the realised values **genuinely monotone**. No
+realising the two gas reads** AND the realised values **genuinely monotone**. No
 `pc`, no gas-equality appears — only:
 
-* `realises` — the trace is exactly the two machine `GAS` values `[g1Read g, g2Read g]`
-  (the §3.4 "events witnessed by the bytecode" clause, now for TWO reads);
+* `realises` — the stream is exactly the two machine `GAS` values `[g1Read g, g2Read g]`
+  (the §3.4 "reads witnessed by the bytecode" clause, now for TWO reads);
 * `monotone` — those realised values satisfy the §3.4 law (`gReads_gasMonotone`),
   **discharged from the EVM gas-descent fact**, not assumed;
 * `world` — the completed call's storage agrees with `O.worldDelta` at `(addrA, 7)`;
@@ -551,8 +551,8 @@ realising the two `gasRead` events** AND the realised values **genuinely monoton
 
 All `Runs`/pc/stack/gas bookkeeping lives *inside* `g_messageCall`'s `Runs` witness. -/
 def LoweredRunHasObsMono (g : UInt64) (T : Trace) (O : Observable) : Prop :=
-  -- the two gasRead events are realised by the two actual GAS opcode values …
-  (T = [Event.gasRead (g1Read g), Event.gasRead (g2Read g)])
+  -- the two gas reads are realised by the two actual GAS opcode values …
+  (T = [(g1Read g), (g2Read g)])
   -- … and those realised values are genuinely monotone (the §3.4 law, discharged) …
   ∧ Trace.gasMonotone T
   -- … and the lowered bytecode at gas g completes with O's observable.
@@ -566,12 +566,12 @@ def LoweredRunHasObsMono (g : UInt64) (T : Trace) (O : Observable) : Prop :=
 There is an adequacy floor `G₀` such that for every gas `g ≥ G₀`:
 
 * the gas-free IR run of `guardIR` from `w₀`, consuming the **realised** two-read trace
-  `[gasRead (g1Read g), gasRead (g2Read g)]` **which is `gasMonotone`**, produces the
+  `[g1Read g, g2Read g]` **which is `gasMonotone`**, produces the
   observable `O = guardObsResult w₀ (g1Read g)` — the run lands at `GOOD` because the
   guard `lt g1 g2` is forced to `0` by monotonicity (`guard_IRRun`, the IR side using ONLY
   §3.4's law);
 * the lowered bytecode at gas `g` halts with that **same** observable `O`, **its two `GAS`
-  opcodes realising the two `gasRead` events, and those realised values are monotone**
+  opcodes realising the two gas reads, and those realised values are monotone**
   (`LoweredRunHasObsMono`) — the monotonicity is **discharged internally** from the bytecode's
   gas descent (`gReads_gasMonotone`), never assumed.
 
@@ -580,9 +580,9 @@ statement; the only gas fact is the envelope `G₀ ≤ g`. The IR and the byteco
 same branch precisely because they share the same realised, monotone trace `T`. -/
 theorem lower_preserves_obs_mono (o : CallOracle) (w₀ : World) :
     ∃ G₀ : UInt64, ∀ g : UInt64, G₀.toNat ≤ g.toNat →
-      IRRun guardIR o w₀ [Event.gasRead (g1Read g), Event.gasRead (g2Read g)]
+      IRRun guardIR o w₀ [(g1Read g), (g2Read g)]
         (guardObsResult w₀ (g1Read g))
-      ∧ LoweredRunHasObsMono g [Event.gasRead (g1Read g), Event.gasRead (g2Read g)]
+      ∧ LoweredRunHasObsMono g [(g1Read g), (g2Read g)]
         (guardObsResult w₀ (g1Read g)) := by
   refine ⟨30000, fun g hg => ⟨guard_IRRun o w₀ (g1Read g) (g2Read g) (gReads_gasMonotone g hg), ?_⟩⟩
   refine ⟨rfl, gReads_gasMonotone g hg, ?_⟩

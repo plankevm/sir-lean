@@ -6,7 +6,7 @@ import LirLean.WorkedCall
 # LirLean v2 — the **call realisability bridge** (`docs/ir-design-v3.md` §3, §7)
 
 `LirLean/V2/Oracle.lean` discharged the *gas* oracle's realisability: the abstract
-`gasRead` events are *realised* by a witnessing bytecode `Runs`, and the §3.4 law is a
+gas reads are *realised* by a witnessing bytecode `Runs`, and the §3.4 law is a
 **consequence** of that realisation (`GasRealises.monotoneGas` ⟵ `Runs.gasAvailable_le`),
 never an axiom. This module is the **call** analogue: the abstract `V2.CallOracle`
 (`LirLean/V2/Machine.lean`) is *realised* by v1's concrete `evmCallOracle`
@@ -131,7 +131,7 @@ def wcV2Oracle (g : UInt64) : CallOracle :=
 
 /-- **With-CALL parity in v2's gas-free observable form (`workedCall`).** For `g ≥ 50000`
 and any initial world `w₀` / observed gas `obs`, running the worked v2 call program `callIR`
-under the *realised* oracle `wcV2Oracle g` (and consuming the single `gasRead obs` event)
+under the *realised* oracle `wcV2Oracle g` (and consuming the single gas read `obs`)
 halts with an `Observable` whose:
 
 * `worldDelta` is the resumed bytecode frame's self-storage lens `storageAt (wcResumed g)
@@ -152,7 +152,7 @@ pins. -/
 theorem wc_call_parity_v2 (g : UInt64) (hg : 50000 ≤ g.toNat) (w₀ : World) (obs : Word) :
     let result := (Lir.WorkedCall.wcChildFrameRes g).toCallResult
     let pd := callPending (Lir.WorkedCall.wcCallSite g) 0xCA11EE 0xFFFFFFFF
-    IRRun callIR (wcV2Oracle g) w₀ [Event.gasRead obs]
+    IRRun callIR (wcV2Oracle g) w₀ [obs]
       { worldDelta := fun key => storageAt (Lir.WorkedCall.wcResumed g) addrCaller key
       , result     := .returned (callSuccessFlag result pd) }
     ∧ callSuccessFlag result pd = 1

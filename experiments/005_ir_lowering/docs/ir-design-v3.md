@@ -183,7 +183,11 @@ general `lower : Program → Bytecode` + its run; general `lower_conforms` (comp
 per-construct lowering correctness + the two realisability facts + `IRRun.det`);
 `observable_oracle_agnostic`.
 
-**First concrete step — the `Event → List Word` collapse.** Now that calls are a
-function-oracle (not trace entries), `Event` has only `gasRead` left, so `Trace ≅ List Word`
-and `GasOracle := List Word` directly. The `Event` wrapper is dead weight; collapsing it is
-the cheapest move toward the regime-(i) shapes.
+**First concrete step — the `Event → List Word` collapse — DONE.** Now that calls are a
+function-oracle (not trace entries), `Event` had only `gasRead` left, so `Trace ≅ List Word`.
+`inductive Event` is removed; `abbrev GasOracle := List Word` is the canonical name (with
+`abbrev Trace := GasOracle` kept as a thin signature-position alias), `assignGas` consumes
+`obs :: T` directly, `MonotoneGas`/`Trace.gasMonotone` is the chain over the `List Word`
+directly (the old `Trace.gasReads` extractor was the identity and is gone), and `GasRealises`
+is `T = frs.map gasReadOf`. Axiom-clean (`{propext, Classical.choice, Quot.sound}`); every
+prior theorem stayed green with equivalent statements (`Event.gasRead obs` ↦ `obs`).

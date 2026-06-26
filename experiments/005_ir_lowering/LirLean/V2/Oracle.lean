@@ -9,13 +9,13 @@ The two-read milestone (`LirLean/V2/Mono.lean`) discharged the §3.4 monotonicit
 lifts that to an **interface**, made of three named, derived-not-assumed pieces (the
 CompCert external-call discipline, applied to gas):
 
-1. **The one law** — `MonotoneGas` (§2): the `gasRead` subsequence is monotone
+1. **The one law** — `MonotoneGas` (§2): the gas-read stream is monotone
    non-increasing on `.toNat`, in program order. This is *exactly* `Mono.lean`'s
    `Trace.gasMonotone`; v3 only renames it to the interface term. `Word`-valued; `ℕ`
    enters ONLY via `.toNat`.
 
 2. **The realisability side-condition** — `GasRealises` (§4 item 1): an explicit
-   predicate tying a `Trace` to a witnessing bytecode `Runs`. Each `gasRead observed`
+   predicate tying a gas stream to a witnessing bytecode `Runs`. Each read
    equals the actual `GAS` value (`UInt256.ofUInt64` of the post-charge `gasAvailable`)
    at that point, and the witness frames are threaded by `Runs` in program order. This
    is the equality-to-`GAS`-output form `Preserve.lean`/`Mono.lean` used implicitly
@@ -58,7 +58,7 @@ is the value the opcode reported). Its `.toNat` is `fr.exec.gasAvailable.toNat`
 (`toNat_ofUInt64`), which is the quantity `Runs.gasAvailable_le` is monotone in. -/
 
 /-- The `Word` a `GAS` opcode at (post-charge) frame `fr` reports: `ofUInt64` of the
-frame's `gasAvailable`. The realisability bridge between a `gasRead` event and a frame. -/
+frame's `gasAvailable`. The realisability bridge between a gas read and a frame. -/
 def gasReadOf (fr : Frame) : Word := UInt256.ofUInt64 fr.exec.gasAvailable
 
 /-- `(gasReadOf fr).toNat = fr.exec.gasAvailable.toNat` — the gas word reads back its
@@ -70,11 +70,11 @@ theorem toNat_gasReadOf (fr : Frame) :
 
 /-! ## 3. The realisability side-condition (`docs/ir-design-v3.md` §4 item 1)
 
-`GasRealises T frs` ties the trace `T` to a witnessing list of GAS-frames `frs` (the
+`GasRealises T frs` ties the gas stream `T` to a witnessing list of GAS-frames `frs` (the
 post-charge frames at each `GAS` site, in program order):
 
-* **read-equality** — `T`'s `gasReads` are exactly `frs`'s reported words (`gasReadOf`),
-  i.e. each `gasRead observed` equals the actual `GAS` output (the §4 equality form, the
+* **read-equality** — `T` is exactly `frs`'s reported words (`gasReadOf`),
+  i.e. each read equals the actual `GAS` output (the §4 equality form, the
   same shape for gas as v1's call realisability is for calls); and
 * **`Runs`-threaded** — consecutive GAS-frames are connected by `Runs` in program order
   (`FramesRun`), so the engine actually ran from one read to the next. This is what makes
@@ -91,12 +91,12 @@ def FramesRun : List Frame → Prop
   | [_] => True
   | a :: b :: rest => Runs a b ∧ FramesRun (b :: rest)
 
-/-- **The realisability side-condition (§4 item 1).** `T`'s `gasRead` values are exactly
-the reported words of the witness GAS-frames `frs` (each `gasRead = ofUInt64 gasAvailable`,
-the actual `GAS` output), and the frames are `Runs`-threaded in program order. The trace
+/-- **The realisability side-condition (§4 item 1).** The gas stream `T` is exactly
+the reported words of the witness GAS-frames `frs` (each read `= ofUInt64 gasAvailable`,
+the actual `GAS` output), and the frames are `Runs`-threaded in program order. The stream
 is realised by a genuine bytecode run reading gas at the frames `frs`. -/
 def GasRealises (T : Trace) (frs : List Frame) : Prop :=
-  T.gasReads = frs.map gasReadOf ∧ FramesRun frs
+  T = frs.map gasReadOf ∧ FramesRun frs
 
 /-! ## 4. `realises → MonotoneGas` (`docs/ir-design-v3.md` §0, §4)
 
@@ -120,14 +120,14 @@ theorem FramesRun.gasReads_isChain :
     rw [toNat_gasReadOf, toNat_gasReadOf]
     exact Runs.gasAvailable_le hab
 
-/-- **The headline elegance (§0, §4): realisability ⇒ the law.** If a trace is realised by
-a `Runs`-threaded list of GAS-frames, its `gasRead` subsequence is `MonotoneGas`. The
-monotonicity oracle law is **discharged** from `Runs.gasAvailable_le` (the EVM gas-descent
-fact, across `.call` nodes too) — it is never assumed on the oracle. -/
+/-- **The headline elegance (§0, §4): realisability ⇒ the law.** If a gas stream is
+realised by a `Runs`-threaded list of GAS-frames, it is `MonotoneGas`. The monotonicity
+oracle law is **discharged** from `Runs.gasAvailable_le` (the EVM gas-descent fact, across
+`.call` nodes too) — it is never assumed on the oracle. -/
 theorem GasRealises.monotoneGas {T : Trace} {frs : List Frame}
     (h : GasRealises T frs) : MonotoneGas T := by
   obtain ⟨hreads, hrun⟩ := h
-  show (T.gasReads).IsChain (fun earlier later => later.toNat ≤ earlier.toNat)
+  show T.IsChain (fun earlier later => later.toNat ≤ earlier.toNat)
   rw [hreads]
   exact hrun.gasReads_isChain
 
@@ -144,10 +144,10 @@ This makes the interface load-bearing rather than decorative. -/
 (`gReads_realisable`), with `g1Read`/`g2Read` as the frames' reported words. -/
 theorem guard_gasRealises (g : UInt64) (hg : 30000 ≤ g.toNat) :
     ∃ frs : List Frame,
-      GasRealises [Event.gasRead (g1Read g), Event.gasRead (g2Read g)] frs := by
+      GasRealises [g1Read g, g2Read g] frs := by
   obtain ⟨a, b, hrun, ha, hb⟩ := gReads_realisable g hg
   refine ⟨[a, b], ?_, ?_⟩
-  · -- gasReads [gasRead g1, gasRead g2] = [g1Read, g2Read] = [gasReadOf a, gasReadOf b]
+  · -- the stream [g1Read, g2Read] = [gasReadOf a, gasReadOf b]
     show [g1Read g, g2Read g] = [gasReadOf a, gasReadOf b]
     rw [show gasReadOf a = g1Read g from ha.symm, show gasReadOf b = g2Read g from hb.symm]
   · exact ⟨hrun, trivial⟩
@@ -156,7 +156,7 @@ theorem guard_gasRealises (g : UInt64) (hg : 30000 ≤ g.toNat) :
 interface discharge (`GasRealises.monotoneGas` ⟵ `Runs.gasAvailable_le`) reproduces the
 milestone's own `gReads_gasMonotone`. -/
 theorem guard_monotoneGas_via_interface (g : UInt64) (hg : 30000 ≤ g.toNat) :
-    MonotoneGas [Event.gasRead (g1Read g), Event.gasRead (g2Read g)] := by
+    MonotoneGas [g1Read g, g2Read g] := by
   obtain ⟨_, hreal⟩ := guard_gasRealises g hg
   exact hreal.monotoneGas
 
@@ -185,10 +185,10 @@ The `MonotoneGas` conjunct is the §3.4 law obtained through the `GasRealises` i
 carries, so either source gives the same law (we read it off the milestone here). -/
 theorem lower_preserves_obs_mono_unique (o : CallOracle) (w₀ : World) :
     ∃ G₀ : UInt64, ∀ g : UInt64, G₀.toNat ≤ g.toNat →
-      MonotoneGas [Event.gasRead (g1Read g), Event.gasRead (g2Read g)]
-      ∧ (∀ O, IRRun guardIR o w₀ [Event.gasRead (g1Read g), Event.gasRead (g2Read g)] O →
+      MonotoneGas [(g1Read g), (g2Read g)]
+      ∧ (∀ O, IRRun guardIR o w₀ [(g1Read g), (g2Read g)] O →
               O = guardObsResult w₀ (g1Read g))
-      ∧ LoweredRunHasObsMono g [Event.gasRead (g1Read g), Event.gasRead (g2Read g)]
+      ∧ LoweredRunHasObsMono g [(g1Read g), (g2Read g)]
           (guardObsResult w₀ (g1Read g)) := by
   obtain ⟨G₀, h⟩ := lower_preserves_obs_mono o w₀
   -- `LoweredRunHasObsMono = (T = …) ∧ MonotoneGas T ∧ ∃ …`; its `.2.2.1` is the law,

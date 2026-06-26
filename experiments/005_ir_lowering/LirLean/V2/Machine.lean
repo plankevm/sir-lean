@@ -17,10 +17,11 @@ Design decisions taken from `ir-design-v2.md`, verbatim:
   `IRState.storage` carried, and the same `selfStorage`/`storageAt` lens the
   bytecode side reads (`LirLean/Match.lean`). The abstraction lens to a `Frame`
   is *not* part of the IR; it lives in the preservation proof.
-* **The event trace** (§3.3–3.4). `Event` here has only `gasRead (observed)`; the
-  `call` constructor is out of scope for the call-free prototype. `Expr.gas`
-  **consumes** the next `gasRead` event — gas is an *observed value the run
-  supplies*, NEVER a counter, NEVER opcode-cost accounting. There is deliberately
+* **The gas stream** (§3.3–3.4, `ir-design-v3.md` §8). `GasOracle := List Word` —
+  the `Word`s a `GAS` opcode reports, consumed in order. `Expr.gas` **consumes**
+  the next gas read — gas is an *observed value the run supplies*, NEVER a counter,
+  NEVER opcode-cost accounting. (Calls are a function oracle, not stream entries,
+  so the stream carries only gas reads — no `Event` wrapper.) There is deliberately
   no `matCost`/`gVerylow`/charge logic anywhere in v2.
 
 Contrast with v1 (`LirLean/SmallStep.lean`), which is gas-aware: `IRState.gas`,
@@ -56,21 +57,23 @@ inductive IRHalt where
   | returned (w : Word)
 deriving DecidableEq, Repr
 
-/-! ## The event trace (§3.3–3.4)
+/-! ## The gas oracle (§7–§8, `docs/ir-design-v3.md`)
 
-`Event` is the unified sequence of *things the IR observes but does not model*.
-For the call-free prototype the only constructor is `gasRead`; the `call`
-constructor is added in the next migration step. -/
+Calls became a **function oracle** (`CallOracle`, below), so they are no longer
+trace entries; the only thing the run still *consumes as a stream* is the gas-read
+sequence. There is nothing left to wrap: the gas trace is exactly the list of the
+`Word`s a `GAS` opcode reports, consumed in order (`ir-design-v3.md` §8). The old
+`Event`/`Trace` wrapper was pure dead weight and has been collapsed away. -/
 
-/-- An observed event the run supplies. `gasRead observed` is the word a `GAS`
-opcode reports — an **observed value**, never a counter. -/
-inductive Event where
-  /-- The value a `GAS` opcode reports (gas introspection without accounting). -/
-  | gasRead (observed : Word)
-deriving DecidableEq, Repr
+/-- The supplied gas-read stream: the `Word`s a `GAS` opcode reports, in program
+order, consumed head-first as execution reaches each `GAS`. **An observed value
+sequence, never a counter** (`ir-design-v3.md` §8). Zero IR-visible inputs. -/
+abbrev GasOracle := List Word
 
-/-- The event trace threaded through an IR run. -/
-abbrev Trace := List Event
+/-- The gas stream threaded through an IR run. Thin alias for `GasOracle` kept so
+the many `T : Trace` signatures below read as before; the canonical name in new and
+signature positions is `GasOracle`, and the element type is `Word`. -/
+abbrev Trace := GasOracle
 
 /-! ## The external-call oracle (§3, §7 — SETTLED)
 
@@ -110,7 +113,7 @@ observed value rather than threading a sub-trace. The arithmetic mirrors v1 /
 exp003 (`UInt256.add`, `UInt256.lt`, the storage lens) so the IR value is
 *definitionally* the lowered opcode's. **No gas counter appears.** -/
 
-/-- Evaluate an expression. `obs` is the observed-gas word a `gasRead` event
+/-- Evaluate an expression. `obs` is the observed-gas word a gas read
 supplies (used only by `Expr.gas`). Total via `Option` (`none` = undefined tmp). -/
 def evalExpr (st : IRState) (obs : Word) : Expr → Option Word
   | .imm w   => some w
@@ -135,28 +138,28 @@ def blockAt (prog : Program) (L : Label) : Option Block :=
 A big-step relation (simpler than small-step for the prototype, §3, "your call").
 Three judgements, all threading a `Trace` left-to-right:
 
-* `EvalStmt` — one statement maps `(st, T) → (st', T')`, consuming a `gasRead`
-  event iff the statement's expression is `Expr.gas`. (The call-free fragment has
+* `EvalStmt` — one statement maps `(st, T) → (st', T')`, consuming the next gas read
+  iff the statement's expression is `Expr.gas`. (The call-free fragment has
   only `assign`/`sstore`; `Stmt.call` is rejected — out of scope.)
 * `RunStmts` — the reflexive/transitive closure over a statement list.
 * `IRRun` — the CFG driver: run the entry block's statements, then its terminator;
   `branch`/`jump` recurse into the target block; `ret`/`stop` halt with an
   `Observable`.
 
-An `assign t e` consuming the `gasRead obs` event happens exactly when `e = .gas`;
-otherwise the trace is unchanged. This is the §3.4 event mechanism: the value of
-`Expr.gas` is *drawn from the trace*, asserted nothing about.
+An `assign t e` consuming a gas read happens exactly when `e = .gas`;
+otherwise the stream is unchanged. This is the §3.4 mechanism: the value of
+`Expr.gas` is *drawn from the gas stream*, asserted nothing about.
 
 The call oracle `o : CallOracle` is a separate explicit parameter (alongside `prog` and
-distinct from the gas `Trace`): the gas channel is the consumed event sequence, the call
+distinct from the gas stream): the gas channel is the consumed read sequence, the call
 channel is a queried function. A `Stmt.call` consults `o` at the call site and applies
 the returned `(world', success)` bundle as a state change — it does **not** touch the
-trace (calls are not trace entries, §7). -/
+stream (calls are not stream entries, §7). -/
 
-/-- The trace event a statement consumes, and the resulting state, under the call oracle
-`o`. The only trace-consuming statement is `assign t .gas`, which pops one `gasRead obs`
-and binds `t := obs`. `Stmt.call` queries `o` and applies its bundle (no trace change).
-All other `assign`/`sstore` leave the trace unchanged. -/
+/-- The gas read a statement consumes, and the resulting state, under the call oracle
+`o`. The only stream-consuming statement is `assign t .gas`, which pops one read `obs`
+and binds `t := obs`. `Stmt.call` queries `o` and applies its bundle (no stream change).
+All other `assign`/`sstore` leave the stream unchanged. -/
 inductive EvalStmt (prog : Program) (o : CallOracle) :
     IRState → Trace → Stmt → IRState → Trace → Prop where
   /-- `t := e` for a **non-gas** expression `e`: evaluate `e` (no event), bind `t`.
@@ -165,9 +168,9 @@ inductive EvalStmt (prog : Program) (o : CallOracle) :
   | assignPure {st : IRState} {T : Trace} {t : Tmp} {e : Expr} {w : Word}
       (hne : e ≠ .gas) (hv : evalExpr st 0 e = some w) :
       EvalStmt prog o st T (.assign t e) (st.setLocal t w) T
-  /-- `t := gas`: consume the next `gasRead obs` event, bind `t := obs`. -/
+  /-- `t := gas`: consume the next gas read `obs` from the stream, bind `t := obs`. -/
   | assignGas {st : IRState} {obs : Word} {T : Trace} {t : Tmp} :
-      EvalStmt prog o st (.gasRead obs :: T) (.assign t .gas) (st.setLocal t obs) T
+      EvalStmt prog o st (obs :: T) (.assign t .gas) (st.setLocal t obs) T
   /-- `storage[key] := value` (non-zero value — the observable write the bytecode
   side establishes). -/
   | sstore {st : IRState} {T : Trace} {key value : Tmp} {kw vw : Word}

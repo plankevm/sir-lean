@@ -13,9 +13,9 @@ that ties these to a bytecode `Runs` lives in the IR↔bytecode bridge
 It carries:
 
 1. **The monotonicity law** (`Trace.gasMonotone`, §3.4) and its interface name
-   `MonotoneGas` (§2) — the `gasRead` subsequence, monotone non-increasing on `.toNat`,
+   `MonotoneGas` (§2) — the gas-read stream, monotone non-increasing on `.toNat`,
    in program order. The *only* gas fact the IR semantics may assume, never any
-   per-opcode cost. Plus the pure-`Trace` lemmas about it (`gasMonotone_pair`) and the
+   per-opcode cost. Plus the pure-`GasOracle` lemmas about it (`gasMonotone_pair`) and the
    arithmetic the IR side uses to discharge a guard under the law
    (`lt_eq_zero_of_toNat_le`).
 
@@ -29,36 +29,32 @@ namespace Lir.V2
 
 open Evm
 
-/-! ## 1. The monotonicity law on the trace (`docs/ir-design-v2.md` §3.4)
+/-! ## 1. The monotonicity law on the gas stream (`docs/ir-design-v2.md` §3.4)
 
-The ONE law the gas oracle carries. We extract the `gasRead` values from a `Trace` in
-program order and assert they are non-increasing (each later read is `≤` the one before).
-We state `≤` on the `toNat` of the words — the robust EVM "gas remaining" order — which
-makes the discharge from the machine's `gasAvailable.toNat` descent immediate. -/
+The ONE law the gas oracle carries. The stream *is* the gas-read values in program
+order (`GasOracle = List Word`; there is no wrapper to extract from), so the law is the
+chain "non-increasing on `.toNat`" stated directly over the list: each later read is `≤`
+the one before. We state `≤` on the `toNat` of the words — the robust EVM "gas remaining"
+order — which makes the discharge from the machine's `gasAvailable.toNat` descent
+immediate. -/
 
-/-- The `gasRead` values of a trace, in program order. -/
-def Trace.gasReads : Trace → List Word
-  | [] => []
-  | .gasRead w :: t => w :: Trace.gasReads t
-
-/-- **The monotonicity law (§3.4).** The `gasRead` values, in program order, are
+/-- **The monotonicity law (§3.4).** The gas reads, in program order, are
 monotone non-increasing: each consecutive pair `(earlier, later)` satisfies
 `later.toNat ≤ earlier.toNat` (gas remaining only goes down). This is the *only* gas
 fact the IR semantics is allowed to assume — never any per-opcode cost. -/
 def Trace.gasMonotone (T : Trace) : Prop :=
-  (T.gasReads).IsChain (fun earlier later => later.toNat ≤ earlier.toNat)
+  T.IsChain (fun earlier later => later.toNat ≤ earlier.toNat)
 
-/-- **The one gas law (`docs/ir-design-v3.md` §2).** The interface name for
-`Trace.gasMonotone`: the `gasRead` subsequence of `T`, in program order, monotone
-non-increasing on `.toNat`. We alias rather than redefine so every existing fact
-(`gasMonotone_pair`, …) transfers verbatim. `Word`-valued throughout; `ℕ` appears ONLY
-via `.toNat`. -/
-abbrev MonotoneGas (T : Trace) : Prop := Trace.gasMonotone T
+/-- **The one gas law (`docs/ir-design-v3.md` §2, §8).** The interface name for
+`Trace.gasMonotone`: the gas-read stream `g`, in program order, monotone non-increasing
+on `.toNat`. We alias rather than redefine so every existing fact (`gasMonotone_pair`, …)
+transfers verbatim. `Word`-valued throughout; `ℕ` appears ONLY via `.toNat`. -/
+abbrev MonotoneGas (g : GasOracle) : Prop := Trace.gasMonotone g
 
-/-- For a two-read trace the law is exactly `g2 ≤ g1` (the case the milestone uses). -/
+/-- For a two-read stream the law is exactly `g2 ≤ g1` (the case the milestone uses). -/
 theorem gasMonotone_pair {g1 g2 : Word} :
-    Trace.gasMonotone [Event.gasRead g1, Event.gasRead g2] ↔ g2.toNat ≤ g1.toNat :=
-  -- gasReads [gasRead g1, gasRead g2] = [g1, g2]; `IsChain` on a pair is the relation
+    Trace.gasMonotone [g1, g2] ↔ g2.toNat ≤ g1.toNat :=
+  -- `IsChain` on a pair is the relation
   List.isChain_pair
 
 /-! ## 2. Using the law: `lt` of two monotone reads is `0`

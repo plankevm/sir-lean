@@ -23,10 +23,10 @@ IRRun prog w₀ T O → ∃ G₀, ∀ g, G₀ ≤ g → LoweredRunHasObs (lower 
   `Runs` witness `LoweredRunHasObs` unfolds to — the IR never sees it.
 * **World agreement** (M3 promoted to `World`) and the **halt result** are the
   IR-facing observable.
-* **The `gasRead` event is realised** by the bytecode `GAS` opcode's actual value
+* **The gas read is realised** by the bytecode `GAS` opcode's actual value
   (§3.4): the obs the IR consumed equals the machine gas word at the GAS site. This
-  is the unified "events are witnessed by the bytecode" mechanism, applied to the
-  lightweight `gasRead` event (the `call` event is the next migration step).
+  is the "gas reads are witnessed by the bytecode" mechanism. (Calls are a function
+  oracle, not stream entries — `LirLean/V2/Call.lean`.)
 
 ## Deliberate prototype cuts (documented per the brief)
 
@@ -255,11 +255,11 @@ theorem ofUInt64_ne_zero (a : UInt64) (ha : a.toNat ≠ 0) : UInt256.ofUInt64 a 
              show (2:Nat)^32 = 4294967296 from rfl] at *
   omega
 
-/-! ## The observed-gas word (§3.4: what the `gasRead` event must carry)
+/-! ## The observed-gas word (§3.4: what the gas read must carry)
 
 `protoObs g` is the word the `GAS` opcode pushes at the JUMPI site: `ofUInt64` of
-the post-charge gas `g - 22223`. The IR's `gasRead` event must carry **this** value
-for the IR and the bytecode to take the same branch — the "events realised by the
+the post-charge gas `g - 22223`. The IR's gas read must carry **this** value
+for the IR and the bytecode to take the same branch — the "reads realised by the
 bytecode" clause. For `G₀ ≤ g` it is non-zero, so the gas-dependent branch is
 taken. -/
 def protoObs (g : UInt64) : Word := UInt256.ofUInt64 (subCharges g chs)
@@ -441,7 +441,7 @@ Block 1 (`L1`): `ret t6`. Block 2 (`L2`): `stop`.
 
 The arithmetic mirrors the bytecode exactly: `add t4 t3 = UInt256.add 9 5`,
 `lt t5 t2 = UInt256.lt 14 100` — so the IR values are *definitionally* the lowered
-opcodes'. `t7 := gas` consumes the single `gasRead` event. -/
+opcodes'. `t7 := gas` consumes the single gas read. -/
 
 private def tmp (n : Nat) : Tmp := ⟨n⟩
 private def lbl (n : Nat) : Label := ⟨n⟩
@@ -503,35 +503,35 @@ private theorem s9_world (w₀ : World) (obs : Word) :
   funext k; show (if k = (7:Word) then (5:Word) else w₀ k) = _; rfl
 
 /-- **The gas-free IR run.** For any initial world `w₀` and any **non-zero**
-observed gas `obs`, `protoIR` consuming the single `gasRead obs` event halts with
+observed gas `obs`, `protoIR` consuming the single gas read `obs` halts with
 `protoObsResult w₀` — the gas-dependent branch takes the `ret` arm. `obs` is
-supplied by the run (the event), never computed. -/
+supplied by the run (the stream), never computed. -/
 theorem proto_IRRun (o : CallOracle) (w₀ : World) (obs : Word) (hobs : obs ≠ 0) :
-    IRRun protoIR o w₀ [Event.gasRead obs] (protoObsResult w₀) := by
+    IRRun protoIR o w₀ [obs] (protoObsResult w₀) := by
   -- the nine block-0 statements, each between named states (call-free ⇒ oracle-agnostic)
-  have e0 : EvalStmt protoIR o (s0 w₀) [Event.gasRead obs] (.assign (tmp 0) (.imm 5)) (s1 w₀) [Event.gasRead obs] :=
+  have e0 : EvalStmt protoIR o (s0 w₀) [obs] (.assign (tmp 0) (.imm 5)) (s1 w₀) [obs] :=
     EvalStmt.assignPure (by nofun) rfl
-  have e1 : EvalStmt protoIR o (s1 w₀) [Event.gasRead obs] (.assign (tmp 1) (.imm 7)) (s2 w₀) [Event.gasRead obs] :=
+  have e1 : EvalStmt protoIR o (s1 w₀) [obs] (.assign (tmp 1) (.imm 7)) (s2 w₀) [obs] :=
     EvalStmt.assignPure (by nofun) rfl
-  have e2 : EvalStmt protoIR o (s2 w₀) [Event.gasRead obs] (.sstore (tmp 1) (tmp 0)) (s3 w₀) [Event.gasRead obs] :=
+  have e2 : EvalStmt protoIR o (s2 w₀) [obs] (.sstore (tmp 1) (tmp 0)) (s3 w₀) [obs] :=
     EvalStmt.sstore (kw := 7) (vw := 5) rfl rfl
-  have e3 : EvalStmt protoIR o (s3 w₀) [Event.gasRead obs] (.assign (tmp 2) (.imm 100)) (s4 w₀) [Event.gasRead obs] :=
+  have e3 : EvalStmt protoIR o (s3 w₀) [obs] (.assign (tmp 2) (.imm 100)) (s4 w₀) [obs] :=
     EvalStmt.assignPure (by nofun) rfl
-  have e4 : EvalStmt protoIR o (s4 w₀) [Event.gasRead obs] (.assign (tmp 3) (.sload (tmp 1))) (s5 w₀) [Event.gasRead obs] :=
+  have e4 : EvalStmt protoIR o (s4 w₀) [obs] (.assign (tmp 3) (.sload (tmp 1))) (s5 w₀) [obs] :=
     EvalStmt.assignPure (by nofun) rfl
-  have e5 : EvalStmt protoIR o (s5 w₀) [Event.gasRead obs] (.assign (tmp 4) (.imm 9)) (s6 w₀) [Event.gasRead obs] :=
+  have e5 : EvalStmt protoIR o (s5 w₀) [obs] (.assign (tmp 4) (.imm 9)) (s6 w₀) [obs] :=
     EvalStmt.assignPure (by nofun) rfl
-  have e6 : EvalStmt protoIR o (s6 w₀) [Event.gasRead obs] (.assign (tmp 5) (.add (tmp 4) (tmp 3))) (s7 w₀) [Event.gasRead obs] :=
+  have e6 : EvalStmt protoIR o (s6 w₀) [obs] (.assign (tmp 5) (.add (tmp 4) (tmp 3))) (s7 w₀) [obs] :=
     EvalStmt.assignPure (by nofun) rfl
-  have e7 : EvalStmt protoIR o (s7 w₀) [Event.gasRead obs] (.assign (tmp 6) (.lt (tmp 5) (tmp 2))) (s8 w₀) [Event.gasRead obs] :=
+  have e7 : EvalStmt protoIR o (s7 w₀) [obs] (.assign (tmp 6) (.lt (tmp 5) (tmp 2))) (s8 w₀) [obs] :=
     EvalStmt.assignPure (by nofun) rfl
-  have e8 : EvalStmt protoIR o (s8 w₀) [Event.gasRead obs] (.assign (tmp 7) .gas) (s9 w₀ obs) [] :=
+  have e8 : EvalStmt protoIR o (s8 w₀) [obs] (.assign (tmp 7) .gas) (s9 w₀ obs) [] :=
     EvalStmt.assignGas
-  have hss : RunStmts protoIR o (s0 w₀) [Event.gasRead obs] protoBlock0.stmts (s9 w₀ obs) [] :=
+  have hss : RunStmts protoIR o (s0 w₀) [obs] protoBlock0.stmts (s9 w₀ obs) [] :=
     .cons e0 (.cons e1 (.cons e2 (.cons e3 (.cons e4 (.cons e5 (.cons e6 (.cons e7 (.cons e8 .nil))))))))
   -- branch on t7 = obs ≠ 0 → block 1 (ret t6); resulting O is `protoObsResult w₀`
   have hbranch :
-      RunFrom protoIR o (s0 w₀) [Event.gasRead obs] (lbl 0)
+      RunFrom protoIR o (s0 w₀) [obs] (lbl 0)
         { worldDelta := (s9 w₀ obs).world, result := .returned (UInt256.lt 14 100) } :=
     RunFrom.branchThen (b := protoBlock0) (cw := obs) (thenL := lbl 1) (elseL := lbl 2)
       protoIR_block0 hss rfl (s9_locals7 w₀ obs) hobs
@@ -559,8 +559,8 @@ only:
 
 All `Runs`/pc/stack bookkeeping lives *inside* `proto_messageCall`'s `Runs` witness. -/
 def LoweredRunHasObs (g : UInt64) (T : Trace) (O : Observable) : Prop :=
-  -- the gasRead event is realised by the actual GAS opcode value
-  (T = [Event.gasRead (protoObs g)])
+  -- the gas read is realised by the actual GAS opcode value
+  (T = [(protoObs g)])
   -- and the lowered bytecode at gas g completes with O's observable
   ∧ ∃ out σ,
       Outcome.ofCall (messageCall (protoParams g)) = .completed out σ
@@ -569,7 +569,7 @@ def LoweredRunHasObs (g : UInt64) (T : Trace) (O : Observable) : Prop :=
 
 /-- **`lower_preserves_obs` for the call-free prototype (§4).** There is an adequacy
 floor `G₀` such that for every gas `g ≥ G₀`, the gas-free IR run of `protoIR` from
-`w₀` consuming the **realised** trace `[gasRead (protoObs g)]` produces the observable
+`w₀` consuming the **realised** trace `[protoObs g]` produces the observable
 `O = protoObsResult w₀`, **and** the lowered bytecode at gas `g` halts with that
 **same** observable `O`, its `GAS` opcode realising the `gasRead`.
 
@@ -585,8 +585,8 @@ take the same gas-dependent branch (§3.4).
 > is identical; determinism is mechanical follow-up (the program is acyclic). -/
 theorem lower_preserves_obs (o : CallOracle) (w₀ : World) :
     ∃ G₀ : UInt64, ∀ g : UInt64, G₀.toNat ≤ g.toNat →
-      IRRun protoIR o w₀ [Event.gasRead (protoObs g)] (protoObsResult w₀)
-      ∧ LoweredRunHasObs g [Event.gasRead (protoObs g)] (protoObsResult w₀) := by
+      IRRun protoIR o w₀ [(protoObs g)] (protoObsResult w₀)
+      ∧ LoweredRunHasObs g [(protoObs g)] (protoObsResult w₀) := by
   refine ⟨30000, fun g hg => ⟨proto_IRRun o w₀ (protoObs g) (protoObs_ne_zero g hg), ?_⟩⟩
   refine ⟨rfl, ?_⟩
   -- the bytecode observable, from proto_messageCall

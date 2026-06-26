@@ -4,7 +4,7 @@ import LirLean.V2.Law
 # LirLean v2 — a worked external-`Stmt.call` example (gas-free, abstract oracle)
 
 The call-free prototype (`LirLean/V2/Preserve.lean`) and the two-read milestone
-(`LirLean/V2/Mono.lean`) exercise the gas channel — the supplied `gasRead` *sequence*.
+(`LirLean/V2/Mono.lean`) exercise the gas channel — the supplied gas-read *sequence*.
 This file is the companion for the **call channel**: the `Stmt.call` `EvalStmt` arm of
 `LirLean/V2/Machine.lean`, run under an **arbitrary abstract `CallOracle`**
 (`docs/ir-design-v3.md` §3, §7).
@@ -21,7 +21,7 @@ The point it makes (the §7 interaction model, on the call side):
   flag bound straight into `locals` at `resultTmp` (**no `callResult` slot**);
 * it is **gas-free** — the bundle carries no restored gas; the call touches no gas
   notion. Post-call gas reads, if any, still come from the gas sequence;
-* the two channels **coexist**: the program also reads `Expr.gas` (a `gasRead` event) and
+* the two channels **coexist**: the program also reads `Expr.gas` (a gas read) and
   feeds that observed word to the call as the gas-to-forward input.
 
 The example mirrors the prototype's `proto_IRRun` style — hand-assembled `EvalStmt`s
@@ -41,13 +41,13 @@ One block (the entry), with one external `Stmt.call`. In order:
 
 ```text
 t0 := 42            -- the callee address (an immediate, for concreteness)
-t1 := gas           -- gas-to-forward = the observed GAS value (the gasRead event)
+t1 := gas           -- gas-to-forward = the observed GAS value (a gas read)
 call(callee=t0, gasFwd=t1, result=t2)   -- query the oracle, bind success → t2
 ret t2              -- return the success flag
 ```
 
 The `t1 := gas` / `call …` pair is the deliberate coexistence of the two channels: the
-gas value travels through the supplied `gasRead` event, and is then handed to the call as
+gas value travels through the supplied gas read, and is then handed to the call as
 an ordinary IR-visible input. -/
 def callBlock : Block :=
   { stmts :=
@@ -67,7 +67,7 @@ private theorem callIR_block0 : blockAt callIR (lbl 0) = some callBlock := rfl
 private def c0 (w₀ : World) : IRState := { locals := fun _ => none, world := w₀ }
 /-- After `t0 := 42`. -/
 private def c1 (w₀ : World) : IRState := (c0 w₀).setLocal (tmp 0) 42
-/-- After `t1 := gas` (consumes the `gasRead obs` event; `t1 := obs`). -/
+/-- After `t1 := gas` (consumes the gas read `obs`; `t1 := obs`). -/
 private def c2 (w₀ : World) (obs : Word) : IRState := (c1 w₀).setLocal (tmp 1) obs
 /-- After the call: world replaced by the oracle's `world'`, `t2 := success`. -/
 private def c3 (o : CallOracle) (w₀ : World) (obs : Word) : IRState :=
@@ -95,16 +95,16 @@ def callObsResult (o : CallOracle) (w₀ : World) (obs : Word) : Observable :=
 
 /-- **The gas-free IR run, with one external call, under an arbitrary oracle.** For any
 oracle `o`, initial world `w₀` and observed gas `obs`, `callIR` consuming the single
-`gasRead obs` event halts with `callObsResult o w₀ obs`: the gas event feeds the call's
+gas read `obs` halts with `callObsResult o w₀ obs`: the gas read feeds the call's
 gas-to-forward input, the oracle's `(world', success)` bundle is applied as the state
 change, and the success flag is returned. The oracle is held abstract throughout. -/
 theorem call_IRRun (o : CallOracle) (w₀ : World) (obs : Word) :
-    IRRun callIR o w₀ [Event.gasRead obs] (callObsResult o w₀ obs) := by
+    IRRun callIR o w₀ [obs] (callObsResult o w₀ obs) := by
   -- the three block-0 statements
-  have e0 : EvalStmt callIR o (c0 w₀) [Event.gasRead obs]
-      (.assign (tmp 0) (.imm 42)) (c1 w₀) [Event.gasRead obs] :=
+  have e0 : EvalStmt callIR o (c0 w₀) [obs]
+      (.assign (tmp 0) (.imm 42)) (c1 w₀) [obs] :=
     EvalStmt.assignPure (by nofun) rfl
-  have e1 : EvalStmt callIR o (c1 w₀) [Event.gasRead obs]
+  have e1 : EvalStmt callIR o (c1 w₀) [obs]
       (.assign (tmp 1) .gas) (c2 w₀ obs) [] := EvalStmt.assignGas
   have e2 : EvalStmt callIR o (c2 w₀ obs) []
       (.call { callee := tmp 0, gasFwd := tmp 1, resultTmp := some (tmp 2) })
@@ -121,11 +121,11 @@ theorem call_IRRun (o : CallOracle) (w₀ : World) (obs : Word) :
           | none   => { (c2 w₀ obs) with world := (o 42 obs w₀).1 }) = c3 o w₀ obs := by
       unfold c3; rw [show (o 42 obs w₀) = ((o 42 obs w₀).1, (o 42 obs w₀).2) from rfl]
     rw [← hpost]; exact h
-  have hss : RunStmts callIR o (c0 w₀) [Event.gasRead obs] callBlock.stmts (c3 o w₀ obs) [] :=
+  have hss : RunStmts callIR o (c0 w₀) [obs] callBlock.stmts (c3 o w₀ obs) [] :=
     .cons e0 (.cons e1 (.cons e2 .nil))
   -- the terminator `ret t2` returns the success flag, in the oracle's world
   have hret :
-      RunFrom callIR o (c0 w₀) [Event.gasRead obs] (lbl 0)
+      RunFrom callIR o (c0 w₀) [obs] (lbl 0)
         { worldDelta := (c3 o w₀ obs).world, result := .returned (o 42 obs w₀).2 } :=
     RunFrom.ret (b := callBlock) (t := tmp 2) callIR_block0 hss rfl (c3_result o w₀ obs)
   -- the post-call world is exactly the oracle's `world'`
@@ -137,7 +137,7 @@ theorem call_IRRun (o : CallOracle) (w₀ : World) (obs : Word) :
 /-- The §4 "*the* observable" shape on the call side: by `IRRun.det`, the observable
 above is the **only** one `callIR` yields on this trace under `o`. -/
 theorem call_IRRun_unique (o : CallOracle) (w₀ : World) (obs : Word) :
-    ∀ O, IRRun callIR o w₀ [Event.gasRead obs] O → O = callObsResult o w₀ obs :=
+    ∀ O, IRRun callIR o w₀ [obs] O → O = callObsResult o w₀ obs :=
   fun _ hO => IRRun.det hO (call_IRRun o w₀ obs)
 
 -- Build-enforced axiom-cleanliness guard: the worked call run and its uniqueness depend
