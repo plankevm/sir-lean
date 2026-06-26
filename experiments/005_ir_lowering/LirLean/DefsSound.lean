@@ -52,6 +52,7 @@ def usesInExpr (t : Tmp) : Expr → Nat
   | .lt  a b => (if a = t then 1 else 0) + (if b = t then 1 else 0)
   | .sload k => if k = t then 1 else 0
   | .gas     => 0
+  | .callResult _ => 0
 
 /-- Number of reads of tmp `t` inside statement `s`. -/
 def usesInStmt (t : Tmp) : Stmt → Nat
@@ -179,7 +180,16 @@ theorem nonRecomputable_mem_dec {prog : Program} {t : Tmp}
           have he' : e' = .gas := by rw [← hpe, ← hpair]
           subst ht'; subst he'; rfl
       | sstore _ _ => simp at hsmap
-      | call _ => simp at hsmap
+      | call cs =>
+          -- `defsOf`'s `.call` arm yields `some (_, .callResult _)` (or `none`); either way
+          -- `pr.2 = .gas` is impossible, since a call never registers a `.gas` body.
+          obtain ⟨callee, gasFwd, rt⟩ := cs
+          cases rt with
+          | none => simp at hsmap
+          | some t' =>
+              simp only [Option.some.injEq] at hsmap
+              rw [← hsmap] at hpe
+              exact absurd hpe (by simp)
   | inr hcall =>
       right
       obtain ⟨b, hb, cs, hcsmem, hres⟩ := hcall
@@ -260,6 +270,7 @@ theorem evalExpr_setLocal_of_unused {st : IRState} {t : Tmp} {w obs : Word} :
       evalExpr (st.setLocal t w) obs e = evalExpr st obs e
   | .imm _, _ => rfl
   | .gas,   _ => rfl
+  | .callResult _, _ => rfl
   | .tmp t', h => by
       simp only [usesInExpr] at h
       have hne : t' ≠ t := by
@@ -397,6 +408,7 @@ private theorem evalExpr_setStorage_of_noSload {st : IRState} {k v obs : Word} :
   | .tmp _,   _ => rfl
   | .add _ _, _ => rfl
   | .lt _ _,  _ => rfl
+  | .callResult _, _ => rfl
   | .sload key, h => absurd rfl (h key)
 
 /-- **Preservation of `DefsSound` across `sstore`.** Given that no already-assigned
@@ -444,6 +456,7 @@ private theorem evalExpr_world_irrel_of_noSload {locals : Tmp → Option Word}
   | .tmp _,   _ => rfl
   | .add _ _, _ => rfl
   | .lt _ _,  _ => rfl
+  | .callResult _, _ => rfl
   | .sload key, h => absurd rfl (h key)
 
 /-- **Preservation of `DefsSound` across `call cs`.** The world is replaced by the

@@ -291,6 +291,28 @@ theorem sloadFrame_storage_self (fr : Frame) (key : UInt256) (rest : Stack UInt2
   show ((BytecodeLayer.Dispatch.sloadPost fr.exec key rest).stack).head? = _
   rfl
 
+/-! ## POP (stack discard)
+
+The stack-discard brick Track C's fire-and-forget (`resultTmp = none`) call tail
+uses: one step that charges `Gbase`, drops the top operand and advances pc by one.
+Built from `stepFrame_pop`; the same shape as `runs_gas` (no operand pushed). -/
+
+/-- The frame after `POP` (top operand `v` popped off, leaving `rest`): `Gbase`
+charged, pc + 1. -/
+def popFrame (fr : Frame) (rest : Stack UInt256) : Frame :=
+  { fr with exec := BytecodeLayer.Dispatch.popPost fr.exec rest }
+
+/-- **The POP rule.** From a frame decoding to `POP` with `v :: rest` on the stack
+and enough gas (`Gbase`), one step `Runs` to `popFrame fr rest` (top dropped,
+leaving `rest`). Pure `Step.lean` derivation. -/
+theorem runs_pop (fr : Frame) (v : UInt256) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .POP, .none))
+    (hstk : fr.exec.stack = v :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : GasConstants.Gbase ≤ fr.exec.gasAvailable.toNat) :
+    Runs fr (popFrame fr rest) :=
+  Runs.single (stepsTo_of_next (stepFrame_pop fr v rest hdec hstk hsz hgas))
+
 /-! ## Control-flow rules (JUMP / JUMPI) — the CFG combinator
 
 The conditional/unconditional jumps lift the `Step.lean` jump lemmas to `Runs`.

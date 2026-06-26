@@ -46,6 +46,9 @@ namespace Byte
 def stop     : UInt8 := 0x00
 def add      : UInt8 := 0x01
 def lt       : UInt8 := 0x10
+def pop      : UInt8 := 0x50
+def mload    : UInt8 := 0x51
+def mstore   : UInt8 := 0x52
 def sload    : UInt8 := 0x54
 def sstore   : UInt8 := 0x55
 def jump     : UInt8 := 0x56
@@ -86,6 +89,10 @@ never surfaced in a theorem. -/
 /-- Emit a literal push (`PUSH32 w`). -/
 def emitImm (w : Word) : List UInt8 := Byte.push32 :: wordBytesBE w
 
+/-- Private memory slot for a call-result tmp. Unique per tmp id; SSA single-binding
+⇒ write-once. Base offset keeps slots clear of the (zero-size) CALL windows. -/
+def slotOf (t : Tmp) : Nat := t.id * 32
+
 /-- Emit a destination push (`PUSH4 off`). -/
 def emitDest (off : Nat) : List UInt8 := Byte.push4 :: offsetBytesBE off
 
@@ -94,6 +101,7 @@ that leaves `e`'s value on top. Operands of binary ops are pushed in reverse so
 the first operand ends up on top (`a` on top of `b`). -/
 def materialiseExpr (defs : Tmp → Option Expr) : Nat → Expr → List UInt8
   | _,      .imm w  => emitImm w
+  | _,      .callResult slot => emitImm (UInt256.ofNat slot) ++ [Byte.mload]
   | 0,      _       => []                       -- fuel exhausted (ill-formed IR)
   | f + 1,  .tmp t  =>
       match defs t with
@@ -140,6 +148,9 @@ def emitStmt (defs : Tmp → Option Expr) (fuel : Nat) : Stmt → List UInt8
       ++ materialise defs fuel cs.callee
       ++ materialise defs fuel cs.gasFwd
       ++ [Byte.call]
+      ++ (match cs.resultTmp with
+          | some t => emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]   -- PUSH slot; MSTORE
+          | none   => [Byte.pop])                                          -- discard flag
 
 /-- Emit the opcode bytes for a terminator, given the `defs` environment, fuel, and
 the resolved offset table `labelOff` (label index → byte offset of its
@@ -165,8 +176,9 @@ def defsOf (prog : Program) : Tmp → Option Expr :=
   let pairs : List (Tmp × Expr) :=
     prog.blocks.toList.flatMap (fun b =>
       b.stmts.filterMap (fun
-        | .assign t e => some (t, e)
-        | _           => none))
+        | .assign t e          => some (t, e)
+        | .call ⟨_, _, some t⟩ => some (t, Expr.callResult (slotOf t))
+        | _                    => none))
   fun t => (pairs.find? (fun p => p.1 == t)).map (·.2)
 
 /-! ## Block layout (two-pass offset table) -/

@@ -228,6 +228,47 @@ theorem sim_sstore (fr : Frame) (key value : Word) (rest : Stack Word) (acc : Ac
     exact sstoreFrame_storage_frame fr key value rest acc hself hnz
       fr.exec.executionEnv.address k' (Or.inr hk')
 
+/-! ### `popFrame` accessor reductions
+
+`popPost`/`popFrame` (exp003 `Hoare.lean`) `replaceStackAndIncrPC`s after a `Gbase`
+charge — replacing the stack with `rest`, advancing pc by one, leaving
+`executionEnv` (hence code / address) untouched. These reductions mirror the
+`sstoreFrame_*` / `sloadFrame_*` families so the worked-example run can read off the
+post-frame's code/pc/stack/gas/addr by `simp`. -/
+
+@[simp] theorem popFrame_code (fr : Frame) (rest : Stack Word) :
+    (popFrame fr rest).exec.executionEnv.code = fr.exec.executionEnv.code := rfl
+
+@[simp] theorem popFrame_validJumps (fr : Frame) (rest : Stack Word) :
+    (popFrame fr rest).validJumps = fr.validJumps := rfl
+
+@[simp] theorem popFrame_addr (fr : Frame) (rest : Stack Word) :
+    (popFrame fr rest).exec.executionEnv.address = fr.exec.executionEnv.address := rfl
+
+@[simp] theorem popFrame_pc (fr : Frame) (rest : Stack Word) :
+    (popFrame fr rest).exec.pc = fr.exec.pc + 1 := rfl
+
+@[simp] theorem popFrame_stack (fr : Frame) (rest : Stack Word) :
+    (popFrame fr rest).exec.stack = rest := rfl
+
+@[simp] theorem popFrame_gas (fr : Frame) (rest : Stack Word) :
+    (popFrame fr rest).exec.gasAvailable
+      = fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase := rfl
+
+/-- **`Stmt.call` (fire-and-forget) POP simulation.** A frame decoding to `POP`
+with `v :: rest` runs one step to `popFrame fr rest`, discarding the top operand
+`v` (the CALL success flag, for `resultTmp = none`) and leaving `rest` — `Gbase`
+charged, pc + 1. Mirrors `sim_sload`; the post-stack `= rest` companion is the
+shape the call-tail re-establishes (`M5`). -/
+theorem sim_pop (fr : Frame) (v : Word) (rest : Stack Word)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .POP, .none))
+    (hstk : fr.exec.stack = v :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : GasConstants.Gbase ≤ fr.exec.gasAvailable.toNat) :
+    Runs fr (popFrame fr rest)
+      ∧ (popFrame fr rest).exec.stack = rest := by
+  exact ⟨runs_pop fr v rest hdec hstk hsz hgas, rfl⟩
+
 /-! ## Terminator halt steps (consumed by the bridge `hhalt`)
 
 `STOP`/`RETURN` are **not** `runs_*` rules — the bridge `messageCall_runs` takes the

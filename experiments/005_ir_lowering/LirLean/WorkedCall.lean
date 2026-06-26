@@ -1,4 +1,5 @@
 import LirLean.Match
+import LirLean.Charges
 import LirLean.Decode
 import BytecodeLayer.Programs
 import BytecodeLayer.Hoare.Sequence
@@ -26,13 +27,13 @@ caller/callee world of exp003 (`BytecodeLayer.Programs`, whose `accts` carries t
   offset-table address, reduced in the kernel; gas threads through `subCharges`
   exactly as `CallerProgExample.caller_prefix_runs`.
 * `wc_call_step` — the CALL step at `wcCallSite g` (`stepFrame_call`).
-* `wc_preserves` — **`lower_preserves` for `workedCall`** (the bridge half): given a
-  returning external CALL (`CallReturns (wcCallSite g) resumeFr`, the documented
-  remainder — a genuine child `drive` run for the `0xCA11EE` callee) and the
-  post-CALL `Runs resumeFr last` to a halting `last`, the top-level `messageCall`
-  pins to `last`'s halt result. This consumes `lower_preserves_discharge` over the
-  assembled prefix + the `Runs.call` node, exactly the
-  `Examples.TwoCallExample.twoCall_messageCall` shape, specialised to the single
+* `wc_preserves` — **`lower_preserves` for `workedCall`** (the bridge half): the
+  prefix, the genuine external CALL (`wc_callReturns`), and the whole post-CALL run
+  (`wcPostRun` — fire-and-forget `POP`, branch recompute, taken `JUMPI`, block-1
+  recompute) are all concrete; given the terminal `RETURN` halt `hhalt`, the top-level
+  `messageCall` pins to `wcRetFrame g`'s halt result. This consumes
+  `lower_preserves_discharge` over the assembled prefix + the `Runs.call` node, exactly
+  the `Examples.TwoCallExample.twoCall_messageCall` shape, specialised to the single
   worked CALL of `workedCall`.
 
 ## The branch terminator — now CLOSED (Track A `validJumpDests` detotalization)
@@ -40,9 +41,9 @@ caller/callee world of exp003 (`BytecodeLayer.Programs`, whose `accts` carries t
 The post-CALL branch terminator is **no longer a remainder**. Track A detotalized
 `validJumpDests` (it is now a total, kernel-reducible def with the characterization
 lemma `mem_validJumpDests_of_reachable_jumpdest`), so the branch destination obligation
-`Frame.get_dest 414 = some 414` is discharged axiom-cleanly here as `wc_get_dest_414`
-(via `Frame.get_dest_of_mem` + a `ReachesBoundary (lower workedCall) 0 414` walk,
-`wc_reaches_414`). No `native_decide`, no hypothesis. (Previously this was blocked by
+`Frame.get_dest 415 = some 415` is discharged axiom-cleanly here as `wc_get_dest_415`
+(via `Frame.get_dest_of_mem` + a `ReachesBoundary (lower workedCall) 0 415` walk,
+`wc_reaches_415`). No `native_decide`, no hypothesis. (Previously this was blocked by
 `validJumpDests` being a `partial def`, the same wall that forced
 `Examples.BranchExample` to build its JUMPI frame with an explicit `validJumps`.)
 
@@ -60,18 +61,25 @@ plus `sstore_accounts_congr`, so the post-SSTORE world / SSTORE charge / cold fl
 derived from cheap code-free field facts, never by whole-map reduction. `wc_preserves`
 no longer takes `hcall`.
 
-## Fully hypothesis-free (C3g)
+## Post-CALL run CLOSED; only the terminal-`RETURN` operand shape remains (Route B)
 
-`wc_preserves` is now **hypothesis-free** — it takes only the gas knob `g` with
-`50000 ≤ g.toNat` and returns the existence of a halting `messageCall`. The former
-`hpost`/`hhalt` post-CALL-run premise is discharged in-file: the block-0
-branch-condition recompute (`SLOAD; ADD; LT`, the taken `JUMPI` via `wc_get_dest_414`,
-which now goes through Track A's detotalized `validJumpDests` characterization) then
-block 1's `RETURN`, assembled as `wcPostRun`/`wcRetFrame_halts`. The three formerly-open
-sub-pieces (the resumed-gas `allButOneSixtyFourth` lower bound, the `SLOAD` value over
-the child-committed map, and a general `RETURN` halt for the materialised `offset/size`)
-are all closed. No `sorry`, no honest remainder.
--/
+The whole interior post-CALL run is discharged in-file as `wcPostRun`: the
+fire-and-forget `POP` (Route B's `resultTmp = none` tail, discarding the CALL success
+flag via `runs_pop`), then the block-0 branch-condition recompute (`SLOAD; ADD; LT`,
+the taken `JUMPI` via `wc_get_dest_415` through Track A's detotalized `validJumpDests`),
+then block 1's recompute. The resumed-gas `allButOneSixtyFourth` lower bound and the
+`SLOAD` value over the child-committed map are both closed.
+
+`wc_preserves` takes the gas knob `g` (`50000 ≤ g.toNat`) and **one** hypothesis: the
+terminal `RETURN` halt `hhalt`. This is *not* a stubbed remainder of the run — the
+genuine `Runs (wcFrame g) (wcRetFrame g)` is concrete and the `RETURN`'s gas charge is
+proved (`wcRetFrame_chargeMemExpansion`). It is a **lowering gap the Route B POP
+exposed**: `ret t` lowers to `materialise t ++ [RETURN]` (one stack word), but `RETURN`
+pops two (`offset`/`size`). Pre-Route-B the worked `RETURN`'s `size` was the residual
+CALL flag; the fire-and-forget `POP` (correctly) discards it, so the `RETURN` now
+reaches with `[1]` — one operand short. The fix belongs in the `ret t` lowering (push a
+zero-size window), out of scope here. No `sorry`, no `axiom`; the one remaining premise
+is honest and documented at `wc_preserves`. -/
 
 namespace Lir.WorkedCall
 
@@ -237,20 +245,6 @@ def wcCallArgs : UInt64 → Nat → Frame
     pushFrameW (wcCallArgs g i) imm 32
 
 theorem wcCallSite_eq (g : UInt64) : wcCallSite g = wcCallArgs g 7 := rfl
-
-/-- `subCharges` over a snoc: charging `c` last subtracts it last. -/
-theorem subCharges_snoc (g : UInt64) (cs : List ℕ) (c : ℕ) :
-    subCharges g (cs ++ [c]) = subCharges g cs - UInt64.ofNat c := by
-  induction cs generalizing g with
-  | nil => rfl
-  | cons d cs ih => show subCharges (g - UInt64.ofNat d) (cs ++ [c]) = _; rw [ih]; rfl
-
-/-- `subCharges` over an append: charge `a` then `b`. -/
-theorem subCharges_append (g : UInt64) (a b : List ℕ) :
-    subCharges g (a ++ b) = subCharges (subCharges g a) b := by
-  induction a generalizing g with
-  | nil => rfl
-  | cons d a ih => show subCharges (g - UInt64.ofNat d) (a ++ b) = _; rw [ih]; rfl
 
 /-- Decode of the `i`-th CALL-arg push (the literal byte at the running pc reduces
 in the kernel). Stated per index because the immediate differs (callee/gas). -/
@@ -733,9 +727,9 @@ theorem wc_callReturns (g : UInt64) (hg : 50000 ≤ g.toNat) :
 /-! ## The post-CALL branch terminator — `get_dest` discharged via `validJumpDests`
 
 After the CALL returns, block 0 recomputes the `lt` condition and runs
-`JUMPI`/`JUMP` (pcs 402/413). The taken branch jumps to block 1's `JUMPDEST` at
-offset `414`; the `JUMPI` step needs `frame.get_dest 414 = some 414`, i.e.
-`(414 : UInt32) ∈ frame.validJumps`.
+`JUMPI`/`JUMP` (pcs 403/414). The taken branch jumps to block 1's `JUMPDEST` at
+offset `415`; the `JUMPI` step needs `frame.get_dest 415 = some 415`, i.e.
+`(415 : UInt32) ∈ frame.validJumps`.
 
 For the real entry frame `wcFrame g = codeFrame … (lower workedCall)`, `validJumps`
 is `validJumpDests (lower workedCall) 0` (set by `codeFrame`), and this is
@@ -748,15 +742,16 @@ post-CALL frame.
 Track A detotalized `validJumpDests` (it is now a total, kernel-reducible def with a
 characterization lemma), so the membership is provable axiom-cleanly — no
 `native_decide`. `mem_validJumpDests_of_reachable_jumpdest` needs a `ReachesBoundary
-(lower workedCall) 0 414` derivation (walking the instruction stream from the entry
-to offset 414) and that offset 414 holds a `JUMPDEST` byte; both are kernel `decide`s
+(lower workedCall) 0 415` derivation (walking the instruction stream from the entry
+to offset 415) and that offset 415 holds a `JUMPDEST` byte; both are kernel `decide`s
 on the concrete lowered bytes. -/
 
 /-- Walking the lowered `workedCall` instruction stream from the entry (pc 0) lands
-exactly on block 1's offset `414`: JUMPDEST · 2×PUSH32 · SSTORE · 7×PUSH32 · CALL ·
-3×PUSH32 · SLOAD · ADD · LT · PUSH4 · JUMPI · PUSH4 · JUMP. Each step's boundary byte
-reduces in the kernel (`by decide`). -/
-theorem wc_reaches_414 : ReachesBoundary (lower Lir.Decode.workedCall) 0 414 :=
+exactly on block 1's offset `415`: JUMPDEST · 2×PUSH32 · SSTORE · 7×PUSH32 · CALL ·
+POP · 3×PUSH32 · SLOAD · ADD · LT · PUSH4 · JUMPI · PUSH4 · JUMP. (The `POP` is the
+fire-and-forget call tail discarding the success flag — it shifts block 1 from 414 to
+415.) Each step's boundary byte reduces in the kernel (`by decide`). -/
+theorem wc_reaches_415 : ReachesBoundary (lower Lir.Decode.workedCall) 0 415 :=
       (.step (byte := 0x5b) (by decide)
       (.step (byte := 0x7f) (by decide)
       (.step (byte := 0x7f) (by decide)
@@ -769,6 +764,7 @@ theorem wc_reaches_414 : ReachesBoundary (lower Lir.Decode.workedCall) 0 414 :=
       (.step (byte := 0x7f) (by decide)
       (.step (byte := 0x7f) (by decide)
       (.step (byte := 0xf1) (by decide)
+      (.step (byte := 0x50) (by decide)
       (.step (byte := 0x7f) (by decide)
       (.step (byte := 0x7f) (by decide)
       (.step (byte := 0x7f) (by decide)
@@ -779,26 +775,26 @@ theorem wc_reaches_414 : ReachesBoundary (lower Lir.Decode.workedCall) 0 414 :=
       (.step (byte := 0x57) (by decide)
       (.step (byte := 0x63) (by decide)
       (.step (byte := 0x56) (by decide)
-      (.refl 414)))))))))))))))))))))))
+      (.refl 415))))))))))))))))))))))))
 
-/-- Block 1's offset `414` is a valid jump destination of `lower workedCall`: it
+/-- Block 1's offset `415` is a valid jump destination of `lower workedCall`: it
 holds a `JUMPDEST` byte reachable from the start, so the detotalized
 `validJumpDests` records it. -/
-theorem wc_414_mem_validJumps :
-    (414 : UInt32) ∈ validJumpDests (lower Lir.Decode.workedCall) 0 :=
+theorem wc_415_mem_validJumps :
+    (415 : UInt32) ∈ validJumpDests (lower Lir.Decode.workedCall) 0 :=
   mem_validJumpDests_of_reachable_jumpdest (lower Lir.Decode.workedCall)
-    wc_reaches_414 (byte := 0x5b) (by decide) (by decide)
+    wc_reaches_415 (byte := 0x5b) (by decide) (by decide)
 
 /-- **The branch destination resolves.** For any frame `fr` whose `validJumps` is the
 lowered program's (`validJumpDests (lower workedCall) 0`) — the entry frame and every
-prefix/post-CALL frame derived from it — the branch operand `414` resolves to the
-real `JUMPDEST` at pc 414. This is the post-CALL branch-terminator obligation,
+prefix/post-CALL frame derived from it — the branch operand `415` resolves to the
+real `JUMPDEST` at pc 415. This is the post-CALL branch-terminator obligation,
 discharged through Track A's `Frame.get_dest_of_mem` + the membership fact (no
 `native_decide`, no hypothesis). -/
-theorem wc_get_dest_414 (fr : Frame)
+theorem wc_get_dest_415 (fr : Frame)
     (hvj : fr.validJumps = validJumpDests (lower Lir.Decode.workedCall) 0) :
-    fr.get_dest 414 = some 414 :=
-  Frame.get_dest_of_mem fr (d := 414) (by decide) (hvj ▸ wc_414_mem_validJumps)
+    fr.get_dest 415 = some 415 :=
+  Frame.get_dest_of_mem fr (d := 415) (by decide) (hvj ▸ wc_415_mem_validJumps)
 
 /-- The entry frame's `validJumps` is the lowered program's table (by `codeFrame`),
 so `wc_get_dest_414` applies to it and any frame that preserves `validJumps`. -/
@@ -810,8 +806,9 @@ theorem wcFrame_validJumps (g : UInt64) :
 After `wc_callReturns`, `wcResumed g` is the genuine resumed frame the post-CALL run
 starts from. Its observable fields project cleanly off `resumeAfterCall` (no deep
 `lower` reduction): the code is still the lowered program, `validJumps` is still its
-jump table (so `wc_get_dest_414` applies to the post-CALL JUMPI), and the pc is the
-byte after the CALL (300) — block 0's branch-condition recompute. These are the bricks
+jump table (so `wc_get_dest_415` applies to the post-CALL JUMPI), and the pc is the
+byte after the CALL (300, the fire-and-forget `POP`) — block 0's branch-condition
+recompute resumes one byte later. These are the bricks
 the post-CALL `Runs` chain (the documented remainder below) threads. -/
 
 /-- The resumed frame's self is still `addrCaller`. -/
@@ -825,14 +822,14 @@ theorem wcResumed_code (g : UInt64) :
   unfold wcResumed resumeAfterCall callPending
   dsimp only [ExecutionState.replaceStackAndIncrPC]; rfl
 
-/-- The resumed frame's pc is the byte after the CALL (300) — block 0's post-CALL
-branch-condition recompute. -/
+/-- The resumed frame's pc is the byte after the CALL (300) — the fire-and-forget
+`POP` that discards the success flag, the first instruction of the post-CALL run. -/
 theorem wcResumed_pc (g : UInt64) : (wcResumed g).exec.pc = 300 := by
   unfold wcResumed resumeAfterCall callPending
   dsimp only [ExecutionState.replaceStackAndIncrPC]; rfl
 
 /-- The resumed frame's `validJumps` is still the lowered program's jump table — so
-`wc_get_dest_414` discharges the post-CALL taken `JUMPI` to block 1. -/
+`wc_get_dest_415` discharges the post-CALL taken `JUMPI` to block 1. -/
 theorem wcResumed_validJumps (g : UInt64) :
     (wcResumed g).validJumps = validJumpDests (lower Lir.Decode.workedCall) 0 := by
   unfold wcResumed resumeAfterCall callPending
@@ -1112,47 +1109,99 @@ theorem stepFrame_return_halts (fr : Frame) (offset size : Word) (rest : Stack W
     rw [if_neg (by decide)]
   exact ⟨_, hstep⟩
 
-/-! ## The post-CALL run (block-0 recompute → taken JUMPI → block-1 RETURN)
+/-! ## The post-CALL run (fire-and-forget POP → block-0 recompute → taken JUMPI → block-1 RETURN)
 
 From the resumed frame `wcResumed g` (pc 300, stack `[1]`, accounts the child-committed
-map, gas `g − 46834`), block 0 recomputes the `lt` branch condition
+map, gas `g − 46834`), the fire-and-forget call tail `POP`s the success flag (`Gbase`,
+pc 300 → 301, stack `[]`); then block 0 recomputes the `lt` branch condition
 (`PUSH 100; PUSH 9; PUSH 7; SLOAD; ADD; LT`), pushes the then-target and takes the
-`JUMPI` to block 1 (offset 414), then block 1 recomputes the same condition and
+`JUMPI` to block 1 (offset 415), then block 1 recomputes the same condition and
 `RETURN`s the result. We assemble this as a `Runs.trans` chain of the exp003 opcode
 rules, threading the running gas through `subCharges` and reading the SLOAD value
 (`5`, `wcResumed_sload7`), the warm cost (`wcResumed_warm7`), and the taken branch
-(`wc_get_dest_414`). The terminal `RETURN` halts via `stepFrame_return_halts`. -/
+(`wc_get_dest_415`). The terminal `RETURN` halts via `stepFrame_return_halts`. -/
 
-/-- The post-CALL charge list (execution order), block-0 recompute through block-1's
-last `LT` (the `RETURN`'s memory charge is handled separately). Sum `= 247`. -/
+/-- The resumed frame's accounts equal the named child-committed map (alias of
+`wcResumed_acc`, used to read the SLOAD value). -/
+theorem wcResumed_self_sload (g : UInt64) :
+    ((wcResumed g).exec.accounts.find? (wcResumed g).exec.executionEnv.address).option 0
+        (·.lookupStorage 7) = 5 := by
+  rw [wcResumed_addr]; exact wcResumed_sload7 g
+
+/-- The frame after the fire-and-forget `POP` (the call tail discarding the CALL
+success flag): pc 300 → 301, stack `[1]` → `[]`, `Gbase` charged. -/
+def wcAfterPop (g : UInt64) : Frame := popFrame (wcResumed g) []
+
+/-- The post-POP frame's code is still the lowered program (`popFrame` preserves
+`executionEnv`). -/
+theorem wcAfterPop_code (g : UInt64) :
+    (wcAfterPop g).exec.executionEnv.code = lower Lir.Decode.workedCall := by
+  unfold wcAfterPop; rw [popFrame_code]; exact wcResumed_code g
+
+/-- The post-POP frame's pc is `301` (the `POP` at 300 advanced by one). -/
+theorem wcAfterPop_pc (g : UInt64) : (wcAfterPop g).exec.pc = 301 := by
+  unfold wcAfterPop; rw [popFrame_pc, wcResumed_pc]; rfl
+
+/-- The post-POP frame's stack is empty (the `POP` discarded the success flag). -/
+theorem wcAfterPop_stack (g : UInt64) : (wcAfterPop g).exec.stack = [] := rfl
+
+/-- The post-POP frame's `validJumps` is still the lowered program's jump table. -/
+theorem wcAfterPop_validJumps (g : UInt64) :
+    (wcAfterPop g).validJumps = validJumpDests (lower Lir.Decode.workedCall) 0 := by
+  unfold wcAfterPop; rw [popFrame_validJumps]; exact wcResumed_validJumps g
+
+/-- The post-POP frame's self is still `addrCaller` (`popFrame` preserves the env). -/
+theorem wcAfterPop_addr (g : UInt64) :
+    (wcAfterPop g).exec.executionEnv.address = addrCaller := by
+  unfold wcAfterPop; rw [popFrame_addr]; exact wcResumed_addr g
+
+/-- The post-POP frame's accounts are still the child-committed map (`popFrame` does
+not touch accounts), so the caller's slot 7 is still `5`. -/
+theorem wcAfterPop_self_sload (g : UInt64) :
+    ((wcAfterPop g).exec.accounts.find? (wcAfterPop g).exec.executionEnv.address).option 0
+        (·.lookupStorage 7) = 5 := by
+  rw [show (wcAfterPop g).exec.accounts = (wcResumed g).exec.accounts from rfl,
+      show (wcAfterPop g).exec.executionEnv.address = (wcResumed g).exec.executionEnv.address from rfl]
+  exact wcResumed_self_sload g
+
+/-- The post-POP frame's gas is `subCharges resumed [2]` (one `Gbase` below resumed). -/
+theorem wcAfterPop_gas (g : UInt64) :
+    (wcAfterPop g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [2] := rfl
+
+/-- The post-POP charge list (execution order), anchored at `wcAfterPop` (the
+fire-and-forget `POP`'s own `Gbase` is the separate `wcResumed → wcAfterPop`
+transition): block-0 recompute through block-1's last `LT` (the `RETURN`'s memory
+charge is handled separately). Sum `= 244`. -/
 def wcPostCharges : List ℕ :=
   [3,3,3,100,3,3,3,10,   -- block 0: 3×PUSH32, SLOAD(warm), ADD, LT, PUSH4, JUMPI
    1,3,3,3,100,3,3]      -- block 1: JUMPDEST, 3×PUSH32, SLOAD(warm), ADD, LT
 
 /-- The block-0 recompute frame after `PUSH 100; PUSH 9; PUSH 7` (three operands on
-the stack), on top of the resumed frame. -/
+the stack), on top of the post-POP frame. -/
 def wcRec0Push3 (g : UInt64) : Frame :=
-  pushFrameW (pushFrameW (pushFrameW (wcResumed g) 100 32) 9 32) 7 32
+  pushFrameW (pushFrameW (pushFrameW (wcAfterPop g) 100 32) 9 32) 7 32
 
-/-- The frame after the block-0 `SLOAD` (key 7 popped, value 5 pushed). -/
+/-- The frame after the block-0 `SLOAD` (key 7 popped, value 5 pushed). The working
+stack is now flag-free (the fire-and-forget POP discarded it), so `rest = [9,100]`. -/
 def wcRec0Sload (g : UInt64) : Frame :=
-  sloadFrame (wcRec0Push3 g) 7 [9, 100, 1]
+  sloadFrame (wcRec0Push3 g) 7 [9, 100]
 
 /-- The frame after the block-0 `ADD` (`5 + 9 = 14`). -/
 def wcRec0Add (g : UInt64) : Frame :=
-  addFrame (wcRec0Sload g) 5 9 [100, 1]
+  addFrame (wcRec0Sload g) 5 9 [100]
 
 /-- The frame after the block-0 `LT` (`14 < 100 = 1`). -/
 def wcRec0Lt (g : UInt64) : Frame :=
-  ltFrame (wcRec0Add g) 14 100 [1]
+  ltFrame (wcRec0Add g) 14 100 []
 
-/-- The frame after `PUSH4 414` (the then-target on top of the `lt` result). -/
+/-- The frame after `PUSH4 415` (the then-target on top of the `lt` result). -/
 def wcRec0PushDest (g : UInt64) : Frame :=
-  pushFrameW (wcRec0Lt g) 414 4
+  pushFrameW (wcRec0Lt g) 415 4
 
-/-- The frame after the taken `JUMPI` to block 1 (pc 414, stack `[1]`). -/
+/-- The frame after the taken `JUMPI` to block 1 (pc 415, stack `[]` — the dest and
+cond are consumed, leaving the flag-free working stack empty). -/
 def wcBlock1 (g : UInt64) : Frame :=
-  jumpFrame (wcRec0PushDest g) GasConstants.Ghigh 414 [1]
+  jumpFrame (wcRec0PushDest g) GasConstants.Ghigh 415 []
 
 /-- The frame after block 1's `JUMPDEST`. -/
 def wcBlock1Jd (g : UInt64) : Frame := jumpdestFrame (wcBlock1 g)
@@ -1163,117 +1212,114 @@ def wcRec1Push3 (g : UInt64) : Frame :=
 
 /-- The frame after block 1's `SLOAD`. -/
 def wcRec1Sload (g : UInt64) : Frame :=
-  sloadFrame (wcRec1Push3 g) 7 [9, 100, 1]
+  sloadFrame (wcRec1Push3 g) 7 [9, 100]
 
 /-- The frame after block 1's `ADD`. -/
 def wcRec1Add (g : UInt64) : Frame :=
-  addFrame (wcRec1Sload g) 5 9 [100, 1]
+  addFrame (wcRec1Sload g) 5 9 [100]
 
-/-- The frame after block 1's `LT` — the `RETURN` frame (stack `[1, 1]`: the `lt`
-result `1` on top, the residual CALL flag `1` below; pc 517). -/
+/-- The frame after block 1's `LT` — the `RETURN` frame (stack `[1]`: the `lt`
+result `1` is the sole operand; the residual CALL flag was discarded by the
+fire-and-forget POP; pc 518). -/
 def wcRetFrame (g : UInt64) : Frame :=
-  ltFrame (wcRec1Add g) 14 100 [1]
-
-/-! ### Resumed-frame base facts threaded into the chain -/
-
-/-- The resumed frame's accounts equal the named child-committed map (alias of
-`wcResumed_acc`, used to read the SLOAD value). -/
-theorem wcResumed_self_sload (g : UInt64) :
-    ((wcResumed g).exec.accounts.find? (wcResumed g).exec.executionEnv.address).option 0
-        (·.lookupStorage 7) = 5 := by
-  rw [wcResumed_addr]; exact wcResumed_sload7 g
+  ltFrame (wcRec1Add g) 14 100 []
 
 /-! ### Decode facts at the post-CALL pcs
 
-Every chain frame preserves `executionEnv.code` (= the resumed code = `lower
-workedCall`) and threads the pc from `wcResumed_pc = 300`. So each decode reduces to
-`decode (lower workedCall) <pc> = …`, a kernel `rfl` at the literal offset-table pc. -/
+The fire-and-forget `POP` sits at the resume pc 300 (`wcResumed_pc`); every block-0
+recompute frame preserves `executionEnv.code` (= `lower workedCall`) and threads the
+pc from `wcAfterPop_pc = 301`. So each decode reduces to `decode (lower workedCall)
+<pc> = …`, a kernel `rfl` at the literal offset-table pc. -/
 
-theorem wcd_300 (g : UInt64) :
+theorem wcd_pop_300 (g : UInt64) :
     decode (wcResumed g).exec.executionEnv.code (wcResumed g).exec.pc
+      = some (.Smsf .POP, .none) := by
+  rw [wcResumed_code, wcResumed_pc]; rfl
+theorem wcd_301 (g : UInt64) :
+    decode (wcAfterPop g).exec.executionEnv.code (wcAfterPop g).exec.pc
       = some (.Push .PUSH32, some (100, 32)) := by
-  rw [wcResumed_code, wcResumed_pc]; rfl
-theorem wcd_333 (g : UInt64) :
-    decode (pushFrameW (wcResumed g) 100 32).exec.executionEnv.code
-        (pushFrameW (wcResumed g) 100 32).exec.pc
+  rw [wcAfterPop_code, wcAfterPop_pc]; rfl
+theorem wcd_334 (g : UInt64) :
+    decode (pushFrameW (wcAfterPop g) 100 32).exec.executionEnv.code
+        (pushFrameW (wcAfterPop g) 100 32).exec.pc
       = some (.Push .PUSH32, some (9, 32)) := by
-  show decode (wcResumed g).exec.executionEnv.code ((wcResumed g).exec.pc + (32 + 1)) = _
-  rw [wcResumed_code, wcResumed_pc]; rfl
-theorem wcd_366 (g : UInt64) :
-    decode (pushFrameW (pushFrameW (wcResumed g) 100 32) 9 32).exec.executionEnv.code
-        (pushFrameW (pushFrameW (wcResumed g) 100 32) 9 32).exec.pc
+  show decode (wcAfterPop g).exec.executionEnv.code ((wcAfterPop g).exec.pc + (32 + 1)) = _
+  rw [wcAfterPop_code, wcAfterPop_pc]; rfl
+theorem wcd_367 (g : UInt64) :
+    decode (pushFrameW (pushFrameW (wcAfterPop g) 100 32) 9 32).exec.executionEnv.code
+        (pushFrameW (pushFrameW (wcAfterPop g) 100 32) 9 32).exec.pc
       = some (.Push .PUSH32, some (7, 32)) := by
-  show decode (wcResumed g).exec.executionEnv.code (((wcResumed g).exec.pc + (32 + 1)) + (32 + 1)) = _
-  rw [wcResumed_code, wcResumed_pc]; rfl
-theorem wcd_399 (g : UInt64) :
+  show decode (wcAfterPop g).exec.executionEnv.code (((wcAfterPop g).exec.pc + (32 + 1)) + (32 + 1)) = _
+  rw [wcAfterPop_code, wcAfterPop_pc]; rfl
+theorem wcd_400 (g : UInt64) :
     decode (wcRec0Push3 g).exec.executionEnv.code (wcRec0Push3 g).exec.pc
       = some (.Smsf .SLOAD, .none) := by
-  show decode (wcResumed g).exec.executionEnv.code ((((wcResumed g).exec.pc + (32+1)) + (32+1)) + (32+1)) = _
-  rw [wcResumed_code, wcResumed_pc]; rfl
-theorem wcd_400 (g : UInt64) :
+  show decode (wcAfterPop g).exec.executionEnv.code ((((wcAfterPop g).exec.pc + (32+1)) + (32+1)) + (32+1)) = _
+  rw [wcAfterPop_code, wcAfterPop_pc]; rfl
+theorem wcd_401 (g : UInt64) :
     decode (wcRec0Sload g).exec.executionEnv.code (wcRec0Sload g).exec.pc
       = some (.ArithLogic .ADD, .none) := by
-  show decode (wcResumed g).exec.executionEnv.code (((((wcResumed g).exec.pc + (32+1)) + (32+1)) + (32+1)) + 1) = _
-  rw [wcResumed_code, wcResumed_pc]; rfl
-theorem wcd_401 (g : UInt64) :
+  show decode (wcAfterPop g).exec.executionEnv.code (((((wcAfterPop g).exec.pc + (32+1)) + (32+1)) + (32+1)) + 1) = _
+  rw [wcAfterPop_code, wcAfterPop_pc]; rfl
+theorem wcd_402 (g : UInt64) :
     decode (wcRec0Add g).exec.executionEnv.code (wcRec0Add g).exec.pc
       = some (.ArithLogic .LT, .none) := by
-  show decode (wcResumed g).exec.executionEnv.code ((((((wcResumed g).exec.pc + (32+1)) + (32+1)) + (32+1)) + 1) + 1) = _
-  rw [wcResumed_code, wcResumed_pc]; rfl
-theorem wcd_402 (g : UInt64) :
+  show decode (wcAfterPop g).exec.executionEnv.code ((((((wcAfterPop g).exec.pc + (32+1)) + (32+1)) + (32+1)) + 1) + 1) = _
+  rw [wcAfterPop_code, wcAfterPop_pc]; rfl
+theorem wcd_403 (g : UInt64) :
     decode (wcRec0Lt g).exec.executionEnv.code (wcRec0Lt g).exec.pc
-      = some (.Push .PUSH4, some (414, 4)) := by
-  show decode (wcResumed g).exec.executionEnv.code (((((((wcResumed g).exec.pc + (32+1)) + (32+1)) + (32+1)) + 1) + 1) + 1) = _
-  rw [wcResumed_code, wcResumed_pc]; rfl
-theorem wcd_407 (g : UInt64) :
+      = some (.Push .PUSH4, some (415, 4)) := by
+  show decode (wcAfterPop g).exec.executionEnv.code (((((((wcAfterPop g).exec.pc + (32+1)) + (32+1)) + (32+1)) + 1) + 1) + 1) = _
+  rw [wcAfterPop_code, wcAfterPop_pc]; rfl
+theorem wcd_408 (g : UInt64) :
     decode (wcRec0PushDest g).exec.executionEnv.code (wcRec0PushDest g).exec.pc
       = some (.Smsf .JUMPI, .none) := by
-  show decode (wcResumed g).exec.executionEnv.code ((((((((wcResumed g).exec.pc + (32+1)) + (32+1)) + (32+1)) + 1) + 1) + 1) + (4+1)) = _
-  rw [wcResumed_code, wcResumed_pc]; rfl
+  show decode (wcAfterPop g).exec.executionEnv.code ((((((((wcAfterPop g).exec.pc + (32+1)) + (32+1)) + (32+1)) + 1) + 1) + 1) + (4+1)) = _
+  rw [wcAfterPop_code, wcAfterPop_pc]; rfl
 
--- Block 1: the taken JUMPI set pc := 414 (jumpPost), so block-1 pcs are absolute.
-theorem wcd_414 (g : UInt64) :
+-- Block 1: the taken JUMPI set pc := 415 (jumpPost), so block-1 pcs are absolute.
+theorem wcd_415 (g : UInt64) :
     decode (wcBlock1 g).exec.executionEnv.code (wcBlock1 g).exec.pc
       = some (.Smsf .JUMPDEST, .none) := by
-  show decode (wcResumed g).exec.executionEnv.code 414 = _
-  rw [wcResumed_code]; rfl
-theorem wcd_415 (g : UInt64) :
+  show decode (wcAfterPop g).exec.executionEnv.code 415 = _
+  rw [wcAfterPop_code]; rfl
+theorem wcd_416 (g : UInt64) :
     decode (wcBlock1Jd g).exec.executionEnv.code (wcBlock1Jd g).exec.pc
       = some (.Push .PUSH32, some (100, 32)) := by
-  show decode (wcResumed g).exec.executionEnv.code (414 + 1) = _
-  rw [wcResumed_code]; rfl
-theorem wcd_448 (g : UInt64) :
+  show decode (wcAfterPop g).exec.executionEnv.code (415 + 1) = _
+  rw [wcAfterPop_code]; rfl
+theorem wcd_449 (g : UInt64) :
     decode (pushFrameW (wcBlock1Jd g) 100 32).exec.executionEnv.code
         (pushFrameW (wcBlock1Jd g) 100 32).exec.pc
       = some (.Push .PUSH32, some (9, 32)) := by
-  show decode (wcResumed g).exec.executionEnv.code ((414 + 1) + (32+1)) = _
-  rw [wcResumed_code]; rfl
-theorem wcd_481 (g : UInt64) :
+  show decode (wcAfterPop g).exec.executionEnv.code ((415 + 1) + (32+1)) = _
+  rw [wcAfterPop_code]; rfl
+theorem wcd_482 (g : UInt64) :
     decode (pushFrameW (pushFrameW (wcBlock1Jd g) 100 32) 9 32).exec.executionEnv.code
         (pushFrameW (pushFrameW (wcBlock1Jd g) 100 32) 9 32).exec.pc
       = some (.Push .PUSH32, some (7, 32)) := by
-  show decode (wcResumed g).exec.executionEnv.code (((414 + 1) + (32+1)) + (32+1)) = _
-  rw [wcResumed_code]; rfl
-theorem wcd_514 (g : UInt64) :
+  show decode (wcAfterPop g).exec.executionEnv.code (((415 + 1) + (32+1)) + (32+1)) = _
+  rw [wcAfterPop_code]; rfl
+theorem wcd_515 (g : UInt64) :
     decode (wcRec1Push3 g).exec.executionEnv.code (wcRec1Push3 g).exec.pc
       = some (.Smsf .SLOAD, .none) := by
-  show decode (wcResumed g).exec.executionEnv.code ((((414 + 1) + (32+1)) + (32+1)) + (32+1)) = _
-  rw [wcResumed_code]; rfl
-theorem wcd_515 (g : UInt64) :
+  show decode (wcAfterPop g).exec.executionEnv.code ((((415 + 1) + (32+1)) + (32+1)) + (32+1)) = _
+  rw [wcAfterPop_code]; rfl
+theorem wcd_516 (g : UInt64) :
     decode (wcRec1Sload g).exec.executionEnv.code (wcRec1Sload g).exec.pc
       = some (.ArithLogic .ADD, .none) := by
-  show decode (wcResumed g).exec.executionEnv.code (((((414 + 1) + (32+1)) + (32+1)) + (32+1)) + 1) = _
-  rw [wcResumed_code]; rfl
-theorem wcd_516 (g : UInt64) :
+  show decode (wcAfterPop g).exec.executionEnv.code (((((415 + 1) + (32+1)) + (32+1)) + (32+1)) + 1) = _
+  rw [wcAfterPop_code]; rfl
+theorem wcd_517 (g : UInt64) :
     decode (wcRec1Add g).exec.executionEnv.code (wcRec1Add g).exec.pc
       = some (.ArithLogic .LT, .none) := by
-  show decode (wcResumed g).exec.executionEnv.code ((((((414 + 1) + (32+1)) + (32+1)) + (32+1)) + 1) + 1) = _
-  rw [wcResumed_code]; rfl
-theorem wcd_517 (g : UInt64) :
+  show decode (wcAfterPop g).exec.executionEnv.code ((((((415 + 1) + (32+1)) + (32+1)) + (32+1)) + 1) + 1) = _
+  rw [wcAfterPop_code]; rfl
+theorem wcd_518 (g : UInt64) :
     decode (wcRetFrame g).exec.executionEnv.code (wcRetFrame g).exec.pc
       = some (.System .RETURN, .none) := by
-  show decode (wcResumed g).exec.executionEnv.code (((((((414 + 1) + (32+1)) + (32+1)) + (32+1)) + 1) + 1) + 1) = _
-  rw [wcResumed_code]; rfl
+  show decode (wcAfterPop g).exec.executionEnv.code (((((((415 + 1) + (32+1)) + (32+1)) + (32+1)) + 1) + 1) + 1) = _
+  rw [wcAfterPop_code]; rfl
 
 /-! ### Gas threading along the post-CALL chain
 
@@ -1300,56 +1346,66 @@ theorem wcRec1_sloadCost (g : UInt64) :
       show (wcRec1Push3 g).exec.executionEnv.address = (wcResumed g).exec.executionEnv.address from rfl,
       wcResumed_addr, wcResumed_warm7]; rfl
 
-/-- The gas at the `RETURN` frame, threaded through the whole chain, as a
-`subCharges` of the resumed gas over `wcPostCharges`. -/
+/-- The gas at the `RETURN` frame, threaded through the post-POP chain, as a
+`subCharges` of the post-POP gas over `wcPostCharges`. -/
 theorem wcChain_gas (g : UInt64) :
     (wcRetFrame g).exec.gasAvailable
-      = subCharges (wcResumed g).exec.gasAvailable wcPostCharges := by
+      = subCharges (wcAfterPop g).exec.gasAvailable wcPostCharges := by
   unfold wcRetFrame wcRec1Add wcRec1Sload wcRec1Push3 wcBlock1Jd wcBlock1
     wcRec0PushDest wcRec0Lt wcRec0Add wcRec0Sload wcRec0Push3
     ltFrame addFrame sloadFrame jumpdestFrame jumpFrame pushFrameW
   dsimp only [BytecodeLayer.Dispatch.binOpPost, BytecodeLayer.Dispatch.sloadPost,
     BytecodeLayer.Dispatch.jumpdestPost, BytecodeLayer.Dispatch.jumpPost,
     ExecutionState.replaceStackAndIncrPC, ExecutionState.incrPC]
-  rw [show Evm.sloadCost ((wcResumed g).exec.substate.accessedStorageKeys.contains
-            ((wcResumed g).exec.executionEnv.address, 7)) = 100 from by
-      rw [wcResumed_addr, wcResumed_warm7]; rfl]
+  rw [show Evm.sloadCost ((wcAfterPop g).exec.substate.accessedStorageKeys.contains
+            ((wcAfterPop g).exec.executionEnv.address, 7)) = 100 from by
+      rw [wcAfterPop_addr,
+          show (wcAfterPop g).exec.substate = (wcResumed g).exec.substate from rfl,
+          wcResumed_warm7]; rfl]
   rfl
 
-/-- Every step's running gas equals `resumed − prefix-sum`; in particular the gas at
-the `RETURN` frame is `resumed − 244 ≥ 2922` (for `g ≥ 50000`). -/
+/-- The post-POP gas in `toNat`: `(g − 46834) − 2` (the resumed gas less the POP's
+`Gbase`), for `g ≥ 50000`. -/
+theorem wcAfterPop_gas_toNat (g : UInt64) (hg : 50000 ≤ g.toNat) :
+    (wcAfterPop g).exec.gasAvailable.toNat = (g.toNat - 46834) - 2 := by
+  rw [wcAfterPop_gas]
+  rw [toNat_subCharges _ [2] (by rw [wcResumed_gas g hg]; show (2:ℕ) ≤ g.toNat - 46834; omega)]
+  rw [wcResumed_gas g hg]; rfl
+
+/-- Every step's running gas equals `afterPop − prefix-sum`; in particular the gas at
+the `RETURN` frame is `afterPop − 244 = resumed − 246 ≥ 2920` (for `g ≥ 50000`). -/
 theorem wcChain_gas_toNat (g : UInt64) (hg : 50000 ≤ g.toNat) :
-    (subCharges (wcResumed g).exec.gasAvailable wcPostCharges).toNat
-      = (wcResumed g).exec.gasAvailable.toNat - 244 := by
+    (subCharges (wcAfterPop g).exec.gasAvailable wcPostCharges).toNat
+      = (wcAfterPop g).exec.gasAvailable.toNat - 244 := by
   rw [toNat_subCharges _ _ (by
-        rw [wcResumed_gas g hg]
-        show wcPostCharges.sum ≤ g.toNat - 46834
+        rw [wcAfterPop_gas_toNat g hg]
+        show wcPostCharges.sum ≤ (g.toNat - 46834) - 2
         unfold wcPostCharges; simp only [List.sum_cons, List.sum_nil]; omega)]
-  show (wcResumed g).exec.gasAvailable.toNat - wcPostCharges.sum = _
+  show (wcAfterPop g).exec.gasAvailable.toNat - wcPostCharges.sum = _
   rw [show wcPostCharges.sum = 244 from by unfold wcPostCharges; decide]
 
 /-! ### Per-frame gas lower bounds (each step's charge clears its running gas)
 
-Each chain frame's gas is `resumed − (its prefix of wcPostCharges)`. The gas at each
-frame a `runs_*` consumes is `≥ resumed − 244 ≥ 2922` (for `g ≥ 50000`), so every
+Each chain frame's gas is `afterPop − (its prefix of wcPostCharges)`. The gas at each
+frame a `runs_*` consumes is `≥ afterPop − 244 ≥ 2676` (for `g ≥ 50000`), so every
 per-step gas bound (max charge `100`) holds. The frame gas is read as a `subCharges`
 (each transformer subtracts `ofNat c`), the SLOAD charge reduced to `100`. -/
 
-/-- The resumed gas lower bound used at every step: `≥ 2922` for `g ≥ 50000`. -/
-theorem wcResumed_gas_ge (g : UInt64) (hg : 50000 ≤ g.toNat) :
-    2922 ≤ (wcResumed g).exec.gasAvailable.toNat := by
-  rw [wcResumed_gas g hg]; omega
+/-- The post-POP gas lower bound used at every step: `≥ 2920` for `g ≥ 50000`. -/
+theorem wcAfterPop_gas_ge (g : UInt64) (hg : 50000 ≤ g.toNat) :
+    2920 ≤ (wcAfterPop g).exec.gasAvailable.toNat := by
+  rw [wcAfterPop_gas_toNat g hg]; omega
 
-/-- A frame whose gas is `subCharges resumed cs` (`cs.sum ≤ 244`) has gas `≥ 2678`
-(`= 2922 − 244`), clearing every per-step charge (max `100`). -/
+/-- A frame whose gas is `subCharges afterPop cs` (`cs.sum ≤ 244`) has gas `≥ 2676`
+(`= 2920 − 244`), clearing every per-step charge (max `100`). -/
 theorem wcSub_gas_ge (g : UInt64) (hg : 50000 ≤ g.toNat) (cs : List ℕ) (hcs : cs.sum ≤ 244) :
-    2678 ≤ (subCharges (wcResumed g).exec.gasAvailable cs).toNat := by
-  rw [toNat_subCharges _ _ (by have := wcResumed_gas_ge g hg; omega)]
-  have := wcResumed_gas_ge g hg; omega
+    2676 ≤ (subCharges (wcAfterPop g).exec.gasAvailable cs).toNat := by
+  rw [toNat_subCharges _ _ (by have := wcAfterPop_gas_ge g hg; omega)]
+  have := wcAfterPop_gas_ge g hg; omega
 
 /-- The `wcRec0Sload`-frame gas as a constant-charge `subCharges` (SLOAD = 100). -/
 theorem wcRec0Sload_gas (g : UInt64) :
-    (wcRec0Sload g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100] := by
+    (wcRec0Sload g).exec.gasAvailable = subCharges (wcAfterPop g).exec.gasAvailable [3,3,3,100] := by
   show (wcRec0Push3 g).exec.gasAvailable - UInt64.ofNat
         (Evm.sloadCost ((wcRec0Push3 g).exec.substate.accessedStorageKeys.contains
           ((wcRec0Push3 g).exec.executionEnv.address, 7))) = _
@@ -1358,7 +1414,7 @@ theorem wcRec0Sload_gas (g : UInt64) :
 /-- The block-1 SLOAD-frame gas as a constant-charge `subCharges` (SLOAD = 100). -/
 theorem wcRec1Sload_gas (g : UInt64) :
     (wcRec1Sload g).exec.gasAvailable
-      = subCharges (wcResumed g).exec.gasAvailable ([3,3,3,100] ++ [3,3,3,10,1,3,3,3,100]) := by
+      = subCharges (wcAfterPop g).exec.gasAvailable ([3,3,3,100] ++ [3,3,3,10,1,3,3,3,100]) := by
   rw [subCharges_append, ← wcRec0Sload_gas]
   show (wcRec1Push3 g).exec.gasAvailable - UInt64.ofNat
         (Evm.sloadCost ((wcRec1Push3 g).exec.substate.accessedStorageKeys.contains
@@ -1371,10 +1427,10 @@ theorem wcRec1Sload_gas (g : UInt64) :
 /-! ### Stack facts (the SLOADs push the value `5`) -/
 
 /-- The block-0 SLOAD pushes `5` (caller slot 7), so its frame's stack is
-`5 :: 9 :: 100 :: 1 :: []` — the shape the following `ADD` consumes. -/
+`5 :: 9 :: 100 :: []` — the shape the following `ADD` consumes (flag-free post-POP). -/
 theorem wcRec0Sload_stack (g : UInt64) :
-    (wcRec0Sload g).exec.stack = (5 : Word) :: 9 :: 100 :: 1 :: [] := by
-  show ((BytecodeLayer.Dispatch.sloadPost (wcRec0Push3 g).exec 7 [9,100,1]).stack) = _
+    (wcRec0Sload g).exec.stack = (5 : Word) :: 9 :: 100 :: [] := by
+  show ((BytecodeLayer.Dispatch.sloadPost (wcRec0Push3 g).exec 7 [9,100]).stack) = _
   unfold BytecodeLayer.Dispatch.sloadPost
   dsimp only [ExecutionState.replaceStackAndIncrPC]
   rw [show ((wcRec0Push3 g).exec.toState.sload 7).2 = 5 from by
@@ -1387,8 +1443,8 @@ theorem wcRec0Sload_stack (g : UInt64) :
 
 /-- The block-1 SLOAD pushes `5` likewise. -/
 theorem wcRec1Sload_stack (g : UInt64) :
-    (wcRec1Sload g).exec.stack = (5 : Word) :: 9 :: 100 :: 1 :: [] := by
-  show ((BytecodeLayer.Dispatch.sloadPost (wcRec1Push3 g).exec 7 [9,100,1]).stack) = _
+    (wcRec1Sload g).exec.stack = (5 : Word) :: 9 :: 100 :: [] := by
+  show ((BytecodeLayer.Dispatch.sloadPost (wcRec1Push3 g).exec 7 [9,100]).stack) = _
   unfold BytecodeLayer.Dispatch.sloadPost
   dsimp only [ExecutionState.replaceStackAndIncrPC]
   rw [show ((wcRec1Push3 g).exec.toState.sload 7).2 = 5 from by
@@ -1404,190 +1460,182 @@ theorem wcRec1Sload_stack (g : UInt64) :
 /-- Gas at `wcBlock1Jd` as a `subCharges` (block-0 charges + JUMPI + JUMPDEST). -/
 theorem wcBlock1Jd_gas (g : UInt64) :
     (wcBlock1Jd g).exec.gasAvailable
-      = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3,10,1] := by
+      = subCharges (wcAfterPop g).exec.gasAvailable [3,3,3,100,3,3,3,10,1] := by
   show (wcBlock1 g).exec.gasAvailable - UInt64.ofNat GasConstants.Gjumpdest = _
-  rw [show (wcBlock1 g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3,10] from by
+  rw [show (wcBlock1 g).exec.gasAvailable = subCharges (wcAfterPop g).exec.gasAvailable [3,3,3,100,3,3,3,10] from by
       show (wcRec0PushDest g).exec.gasAvailable - UInt64.ofNat GasConstants.Ghigh = _
-      rw [show (wcRec0PushDest g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3] from by
+      rw [show (wcRec0PushDest g).exec.gasAvailable = subCharges (wcAfterPop g).exec.gasAvailable [3,3,3,100,3,3,3] from by
           show (wcRec0Lt g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
-          rw [show (wcRec0Lt g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3] from by
+          rw [show (wcRec0Lt g).exec.gasAvailable = subCharges (wcAfterPop g).exec.gasAvailable [3,3,3,100,3,3] from by
               show (wcRec0Add g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
-              rw [show (wcRec0Add g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3] from by
+              rw [show (wcRec0Add g).exec.gasAvailable = subCharges (wcAfterPop g).exec.gasAvailable [3,3,3,100,3] from by
                   show (wcRec0Sload g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
                   rw [wcRec0Sload_gas]; rfl]; rfl]; rfl]; rfl]; rfl
 
 theorem wcRec1_g10 (g : UInt64) :
     (pushFrameW (wcBlock1Jd g) 100 32).exec.gasAvailable
-      = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3,10,1,3] := by
+      = subCharges (wcAfterPop g).exec.gasAvailable [3,3,3,100,3,3,3,10,1,3] := by
   show (wcBlock1Jd g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
   rw [wcBlock1Jd_gas]; rfl
 
 theorem wcRec1_g11 (g : UInt64) :
     (pushFrameW (pushFrameW (wcBlock1Jd g) 100 32) 9 32).exec.gasAvailable
-      = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3,10,1,3,3] := by
+      = subCharges (wcAfterPop g).exec.gasAvailable [3,3,3,100,3,3,3,10,1,3,3] := by
   show (pushFrameW (wcBlock1Jd g) 100 32).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
   rw [wcRec1_g10]; rfl
 
 theorem wcRec1_g12 (g : UInt64) :
     (wcRec1Push3 g).exec.gasAvailable
-      = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3,10,1,3,3,3] := by
+      = subCharges (wcAfterPop g).exec.gasAvailable [3,3,3,100,3,3,3,10,1,3,3,3] := by
   show (pushFrameW (pushFrameW (wcBlock1Jd g) 100 32) 9 32).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
   rw [wcRec1_g11]; rfl
 
-/-! ### Stack-shape facts threaded into the chain -/
+/-! ### Stack-shape facts threaded into the chain (flag-free post-POP) -/
 
 theorem wcRec0Push3_stack (g : UInt64) :
-    (wcRec0Push3 g).exec.stack = (7 : Word) :: 9 :: 100 :: 1 :: [] := by
-  show Stack.push (Stack.push (Stack.push (wcResumed g).exec.stack 100) 9) 7 = _
-  rw [wcResumed_stack]; rfl
+    (wcRec0Push3 g).exec.stack = (7 : Word) :: 9 :: 100 :: [] := by
+  show Stack.push (Stack.push (Stack.push (wcAfterPop g).exec.stack 100) 9) 7 = _
+  rw [wcAfterPop_stack]; rfl
 
-theorem wcBlock1Jd_stack (g : UInt64) : (wcBlock1Jd g).exec.stack = (1 : Word) :: [] := rfl
+theorem wcBlock1Jd_stack (g : UInt64) : (wcBlock1Jd g).exec.stack = ([] : Stack Word) := rfl
 
 theorem wcRec1Push3_stack (g : UInt64) :
-    (wcRec1Push3 g).exec.stack = (7 : Word) :: 9 :: 100 :: 1 :: [] := rfl
+    (wcRec1Push3 g).exec.stack = (7 : Word) :: 9 :: 100 :: [] := rfl
 
 /-! ### The assembled post-CALL run
 
-`wcResumed g → … → wcRetFrame g` (pc 517, `RETURN`) as one `Runs`, a `Runs.trans`
-chain of the exp003 opcode rules over the post-CALL frames. Decode at each pc
-(`wcd_*`), gas via the `subCharges`/`wcSub_gas_ge` bounds (warm SLOAD = 100), SLOAD
-value `5` (`wcRec*Sload_stack`), the taken `JUMPI` to block 1 (`wc_get_dest_414` on
-`wcResumed_validJumps`). For `g ≥ 50000`. -/
+`wcResumed g → … → wcRetFrame g` (pc 518, `RETURN`) as one `Runs`, a `Runs.trans`
+chain of the exp003 opcode rules over the post-CALL frames. It opens with the
+fire-and-forget `POP` (`runs_pop`, `wcResumed → wcAfterPop`, discarding the success
+flag), then decode at each pc (`wcd_*`), gas via the `subCharges`/`wcSub_gas_ge`
+bounds (warm SLOAD = 100), SLOAD value `5` (`wcRec*Sload_stack`), the taken `JUMPI`
+to block 1 (`wc_get_dest_415` on `wcAfterPop_validJumps`). For `g ≥ 50000`. -/
 theorem wcPostRun (g : UInt64) (hg : 50000 ≤ g.toNat) :
     Runs (wcResumed g) (wcRetFrame g) := by
+  -- fire-and-forget POP: discard the CALL success flag (pc 300 → 301, stack [1] → [])
+  refine (runs_pop (wcResumed g) 1 [] (wcd_pop_300 g) (wcResumed_stack g)
+      (by rw [wcResumed_stack]; decide)
+      (by show GasConstants.Gbase ≤ (wcResumed g).exec.gasAvailable.toNat
+          have := wcResumed_gas g hg; show (2:ℕ) ≤ _; omega)).trans ?_
   -- block 0 recompute: PUSH 100; PUSH 9; PUSH 7
-  refine (runs_push (wcResumed g) .PUSH32 100 32 (by nofun) (wcd_300 g) rfl rfl
-      (by show 3 ≤ (subCharges (wcResumed g).exec.gasAvailable []).toNat
+  refine (runs_push (wcAfterPop g) .PUSH32 100 32 (by nofun) (wcd_301 g) rfl rfl
+      (by show 3 ≤ (subCharges (wcAfterPop g).exec.gasAvailable []).toNat
           have := wcSub_gas_ge g hg [] (by simp); omega)
-      (by rw [wcResumed_stack]; decide)).trans ?_
-  refine (runs_push _ .PUSH32 9 32 (by nofun) (wcd_333 g) rfl rfl
-      (by show 3 ≤ (subCharges (wcResumed g).exec.gasAvailable [3]).toNat
+      (by rw [wcAfterPop_stack]; decide)).trans ?_
+  refine (runs_push _ .PUSH32 9 32 (by nofun) (wcd_334 g) rfl rfl
+      (by show 3 ≤ (subCharges (wcAfterPop g).exec.gasAvailable [3]).toNat
           have := wcSub_gas_ge g hg [3] (by simp); omega)
-      (by rw [show (pushFrameW (wcResumed g) 100 32).exec.stack = (100:Word) :: 1 :: [] from by
-              show Stack.push (wcResumed g).exec.stack 100 = _; rw [wcResumed_stack]; rfl]
+      (by rw [show (pushFrameW (wcAfterPop g) 100 32).exec.stack = (100:Word) :: [] from by
+              show Stack.push (wcAfterPop g).exec.stack 100 = _; rw [wcAfterPop_stack]; rfl]
           decide)).trans ?_
-  refine (runs_push _ .PUSH32 7 32 (by nofun) (wcd_366 g) rfl rfl
-      (by show 3 ≤ (subCharges (wcResumed g).exec.gasAvailable [3,3]).toNat
+  refine (runs_push _ .PUSH32 7 32 (by nofun) (wcd_367 g) rfl rfl
+      (by show 3 ≤ (subCharges (wcAfterPop g).exec.gasAvailable [3,3]).toNat
           have := wcSub_gas_ge g hg [3,3] (by simp); omega)
-      (by rw [show (pushFrameW (pushFrameW (wcResumed g) 100 32) 9 32).exec.stack = (9:Word) :: 100 :: 1 :: [] from by
-              show Stack.push (Stack.push (wcResumed g).exec.stack 100) 9 = _; rw [wcResumed_stack]; rfl]
+      (by rw [show (pushFrameW (pushFrameW (wcAfterPop g) 100 32) 9 32).exec.stack = (9:Word) :: 100 :: [] from by
+              show Stack.push (Stack.push (wcAfterPop g).exec.stack 100) 9 = _; rw [wcAfterPop_stack]; rfl]
           decide)).trans ?_
   -- SLOAD 7 (warm, value 5)
-  refine (runs_sload (wcRec0Push3 g) 7 [9,100,1] (wcd_399 g) (wcRec0Push3_stack g)
+  refine (runs_sload (wcRec0Push3 g) 7 [9,100] (wcd_400 g) (wcRec0Push3_stack g)
       (by rw [wcRec0Push3_stack]; decide)
       (by rw [show Evm.sloadCost ((wcRec0Push3 g).exec.substate.accessedStorageKeys.contains
               ((wcRec0Push3 g).exec.executionEnv.address, 7)) = 100 from wcRec0_sloadCost g]
-          show 100 ≤ (subCharges (wcResumed g).exec.gasAvailable [3,3,3]).toNat
+          show 100 ≤ (subCharges (wcAfterPop g).exec.gasAvailable [3,3,3]).toNat
           have := wcSub_gas_ge g hg [3,3,3] (by simp); omega)).trans ?_
   -- ADD (5 + 9 = 14)
-  refine (runs_add (wcRec0Sload g) 5 9 [100,1] (wcd_400 g) (wcRec0Sload_stack g)
+  refine (runs_add (wcRec0Sload g) 5 9 [100] (wcd_401 g) (wcRec0Sload_stack g)
       (by rw [wcRec0Sload_stack]; decide)
       (by rw [wcRec0Sload_gas]; have := wcSub_gas_ge g hg [3,3,3,100] (by simp)
           show (3:ℕ) ≤ _; omega)).trans ?_
   -- LT (14 < 100 = 1)
-  refine (runs_lt (wcRec0Add g) 14 100 [1] (wcd_401 g) rfl
-      (by rw [show (wcRec0Add g).exec.stack = (14:Word) :: 100 :: 1 :: [] from rfl]; decide)
+  refine (runs_lt (wcRec0Add g) 14 100 [] (wcd_402 g) rfl
+      (by rw [show (wcRec0Add g).exec.stack = (14:Word) :: 100 :: [] from rfl]; decide)
       (by show (3:ℕ) ≤ (wcRec0Add g).exec.gasAvailable.toNat
-          rw [show (wcRec0Add g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3] from by
+          rw [show (wcRec0Add g).exec.gasAvailable = subCharges (wcAfterPop g).exec.gasAvailable [3,3,3,100,3] from by
               show (wcRec0Sload g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
               rw [wcRec0Sload_gas]; rfl]
           have := wcSub_gas_ge g hg [3,3,3,100,3] (by simp); omega)).trans ?_
-  -- PUSH4 414 (then-target)
-  refine (runs_push _ .PUSH4 414 4 (by nofun) (wcd_402 g) rfl rfl
+  -- PUSH4 415 (then-target)
+  refine (runs_push _ .PUSH4 415 4 (by nofun) (wcd_403 g) rfl rfl
       (by show 3 ≤ (wcRec0Lt g).exec.gasAvailable.toNat
-          rw [show (wcRec0Lt g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3] from by
+          rw [show (wcRec0Lt g).exec.gasAvailable = subCharges (wcAfterPop g).exec.gasAvailable [3,3,3,100,3,3] from by
               show (wcRec0Add g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
-              rw [show (wcRec0Add g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3] from by
+              rw [show (wcRec0Add g).exec.gasAvailable = subCharges (wcAfterPop g).exec.gasAvailable [3,3,3,100,3] from by
                   show (wcRec0Sload g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
                   rw [wcRec0Sload_gas]; rfl]; rfl]
           have := wcSub_gas_ge g hg [3,3,3,100,3,3] (by simp); omega)
       (by show (wcRec0Lt g).exec.stack.size + 1 ≤ 1024
-          rw [show (wcRec0Lt g).exec.stack = (1:Word) :: 1 :: [] from rfl]
+          rw [show (wcRec0Lt g).exec.stack = (1:Word) :: [] from rfl]
           decide)).trans ?_
-  -- JUMPI taken to block 1 (cond = lt result = 1 ≠ 0, dest 414)
-  refine (runs_jumpi_taken (wcRec0PushDest g) 414 1 414 [1] (wcd_407 g) rfl
+  -- JUMPI taken to block 1 (cond = lt result = 1 ≠ 0, dest 415)
+  refine (runs_jumpi_taken (wcRec0PushDest g) 415 1 415 [] (wcd_408 g) rfl
       (by show (wcRec0PushDest g).exec.stack.size ≤ 1024
-          rw [show (wcRec0PushDest g).exec.stack = (414:Word) :: 1 :: 1 :: [] from rfl]
+          rw [show (wcRec0PushDest g).exec.stack = (415:Word) :: 1 :: [] from rfl]
           decide)
       (by show (10:ℕ) ≤ (wcRec0PushDest g).exec.gasAvailable.toNat
-          rw [show (wcRec0PushDest g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3] from by
+          rw [show (wcRec0PushDest g).exec.gasAvailable = subCharges (wcAfterPop g).exec.gasAvailable [3,3,3,100,3,3,3] from by
               show (wcRec0Lt g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
-              rw [show (wcRec0Lt g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3] from by
+              rw [show (wcRec0Lt g).exec.gasAvailable = subCharges (wcAfterPop g).exec.gasAvailable [3,3,3,100,3,3] from by
                   show (wcRec0Add g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
-                  rw [show (wcRec0Add g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3] from by
+                  rw [show (wcRec0Add g).exec.gasAvailable = subCharges (wcAfterPop g).exec.gasAvailable [3,3,3,100,3] from by
                       show (wcRec0Sload g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
                       rw [wcRec0Sload_gas]; rfl]; rfl]; rfl]
           have := wcSub_gas_ge g hg [3,3,3,100,3,3,3] (by simp); omega)
       (by decide)
-      (wc_get_dest_414 (wcRec0PushDest g) (by
+      (wc_get_dest_415 (wcRec0PushDest g) (by
           show (wcRec0PushDest g).validJumps = validJumpDests (lower Lir.Decode.workedCall) 0
-          show (wcResumed g).validJumps = _; exact wcResumed_validJumps g))).trans ?_
+          show (wcAfterPop g).validJumps = _; exact wcAfterPop_validJumps g))).trans ?_
   -- block 1: JUMPDEST
-  refine (runs_jumpdest (wcBlock1 g) (wcd_414 g)
-      (by rw [show (wcBlock1 g).exec.stack = (1:Word) :: [] from rfl]; decide)
+  refine (runs_jumpdest (wcBlock1 g) (wcd_415 g)
+      (by rw [show (wcBlock1 g).exec.stack = ([] : Stack Word) from rfl]; decide)
       (by show (1:ℕ) ≤ (wcBlock1 g).exec.gasAvailable.toNat
-          rw [show (wcBlock1 g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3,10] from by
+          rw [show (wcBlock1 g).exec.gasAvailable = subCharges (wcAfterPop g).exec.gasAvailable [3,3,3,100,3,3,3,10] from by
               show (wcRec0PushDest g).exec.gasAvailable - UInt64.ofNat GasConstants.Ghigh = _
-              rw [show (wcRec0PushDest g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3] from by
+              rw [show (wcRec0PushDest g).exec.gasAvailable = subCharges (wcAfterPop g).exec.gasAvailable [3,3,3,100,3,3,3] from by
                   show (wcRec0Lt g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
-                  rw [show (wcRec0Lt g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3] from by
+                  rw [show (wcRec0Lt g).exec.gasAvailable = subCharges (wcAfterPop g).exec.gasAvailable [3,3,3,100,3,3] from by
                       show (wcRec0Add g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
-                      rw [show (wcRec0Add g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3] from by
+                      rw [show (wcRec0Add g).exec.gasAvailable = subCharges (wcAfterPop g).exec.gasAvailable [3,3,3,100,3] from by
                           show (wcRec0Sload g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
                           rw [wcRec0Sload_gas]; rfl]; rfl]; rfl]; rfl]
           have := wcSub_gas_ge g hg [3,3,3,100,3,3,3,10] (by simp); show 1 ≤ _; omega)).trans ?_
   -- block 1 recompute: PUSH 100; PUSH 9; PUSH 7
-  refine (runs_push (wcBlock1Jd g) .PUSH32 100 32 (by nofun) (wcd_415 g) rfl rfl
+  refine (runs_push (wcBlock1Jd g) .PUSH32 100 32 (by nofun) (wcd_416 g) rfl rfl
       (by show 3 ≤ (wcBlock1Jd g).exec.gasAvailable.toNat
-          rw [show (wcBlock1Jd g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3,10,1] from by
-              show (wcBlock1 g).exec.gasAvailable - UInt64.ofNat GasConstants.Gjumpdest = _
-              rw [show (wcBlock1 g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3,10] from by
-                  show (wcRec0PushDest g).exec.gasAvailable - UInt64.ofNat GasConstants.Ghigh = _
-                  rw [show (wcRec0PushDest g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3] from by
-                      show (wcRec0Lt g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
-                      rw [show (wcRec0Lt g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3] from by
-                          show (wcRec0Add g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
-                          rw [show (wcRec0Add g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3] from by
-                              show (wcRec0Sload g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
-                              rw [wcRec0Sload_gas]; rfl]; rfl]; rfl]; rfl]; rfl]
+          rw [wcBlock1Jd_gas]
           have := wcSub_gas_ge g hg [3,3,3,100,3,3,3,10,1] (by simp); omega)
       (by rw [wcBlock1Jd_stack]; decide)).trans ?_
-  refine (runs_push _ .PUSH32 9 32 (by nofun) (wcd_448 g) rfl rfl
+  refine (runs_push _ .PUSH32 9 32 (by nofun) (wcd_449 g) rfl rfl
       (by have := wcSub_gas_ge g hg [3,3,3,100,3,3,3,10,1,3] (by simp)
           show 3 ≤ (pushFrameW (wcBlock1Jd g) 100 32).exec.gasAvailable.toNat
-          rw [show (pushFrameW (wcBlock1Jd g) 100 32).exec.gasAvailable
-                = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3,10,1,3] from
-              wcRec1_g10 g]; omega)
-      (by rw [show (pushFrameW (wcBlock1Jd g) 100 32).exec.stack = (100:Word) :: 1 :: [] from by
+          rw [wcRec1_g10 g]; omega)
+      (by rw [show (pushFrameW (wcBlock1Jd g) 100 32).exec.stack = (100:Word) :: [] from by
               show Stack.push (wcBlock1Jd g).exec.stack 100 = _; rw [wcBlock1Jd_stack]; rfl]
           decide)).trans ?_
-  refine (runs_push _ .PUSH32 7 32 (by nofun) (wcd_481 g) rfl rfl
+  refine (runs_push _ .PUSH32 7 32 (by nofun) (wcd_482 g) rfl rfl
       (by have := wcSub_gas_ge g hg [3,3,3,100,3,3,3,10,1,3,3] (by simp)
           show 3 ≤ (pushFrameW (pushFrameW (wcBlock1Jd g) 100 32) 9 32).exec.gasAvailable.toNat
-          rw [show (pushFrameW (pushFrameW (wcBlock1Jd g) 100 32) 9 32).exec.gasAvailable
-                = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3,10,1,3,3] from wcRec1_g11 g]; omega)
-      (by rw [show (pushFrameW (pushFrameW (wcBlock1Jd g) 100 32) 9 32).exec.stack = (9:Word) :: 100 :: 1 :: [] from by
+          rw [wcRec1_g11 g]; omega)
+      (by rw [show (pushFrameW (pushFrameW (wcBlock1Jd g) 100 32) 9 32).exec.stack = (9:Word) :: 100 :: [] from by
               show Stack.push (Stack.push (wcBlock1Jd g).exec.stack 100) 9 = _; rw [wcBlock1Jd_stack]; rfl]
           decide)).trans ?_
   -- block 1 SLOAD (warm, value 5)
-  refine (runs_sload (wcRec1Push3 g) 7 [9,100,1] (wcd_514 g) (wcRec1Push3_stack g)
+  refine (runs_sload (wcRec1Push3 g) 7 [9,100] (wcd_515 g) (wcRec1Push3_stack g)
       (by rw [wcRec1Push3_stack]; decide)
       (by rw [show Evm.sloadCost ((wcRec1Push3 g).exec.substate.accessedStorageKeys.contains
               ((wcRec1Push3 g).exec.executionEnv.address, 7)) = 100 from wcRec1_sloadCost g]
           have := wcSub_gas_ge g hg [3,3,3,100,3,3,3,10,1,3,3,3] (by simp)
-          rw [show (wcRec1Push3 g).exec.gasAvailable
-                = subCharges (wcResumed g).exec.gasAvailable [3,3,3,100,3,3,3,10,1,3,3,3] from wcRec1_g12 g]; omega)).trans ?_
+          rw [wcRec1_g12 g]; omega)).trans ?_
   -- block 1 ADD (5 + 9 = 14)
-  refine (runs_add (wcRec1Sload g) 5 9 [100,1] (wcd_515 g) (wcRec1Sload_stack g)
+  refine (runs_add (wcRec1Sload g) 5 9 [100] (wcd_516 g) (wcRec1Sload_stack g)
       (by rw [wcRec1Sload_stack]; decide)
       (by rw [wcRec1Sload_gas]; have := wcSub_gas_ge g hg ([3,3,3,100] ++ [3,3,3,10,1,3,3,3,100]) (by simp)
           show (3:ℕ) ≤ _; omega)).trans ?_
   -- block 1 LT (14 < 100 = 1) — the RETURN frame
-  exact runs_lt (wcRec1Add g) 14 100 [1] (wcd_516 g) rfl
-      (by rw [show (wcRec1Add g).exec.stack = (14:Word) :: 100 :: 1 :: [] from rfl]; decide)
+  exact runs_lt (wcRec1Add g) 14 100 [] (wcd_517 g) rfl
+      (by rw [show (wcRec1Add g).exec.stack = (14:Word) :: 100 :: [] from rfl]; decide)
       (by show (3:ℕ) ≤ (wcRec1Add g).exec.gasAvailable.toNat
           rw [show (wcRec1Add g).exec.gasAvailable
-                = subCharges (wcResumed g).exec.gasAvailable ([3,3,3,100] ++ [3,3,3,10,1,3,3,3,100,3]) from by
+                = subCharges (wcAfterPop g).exec.gasAvailable ([3,3,3,100] ++ [3,3,3,10,1,3,3,3,100,3]) from by
               show (wcRec1Sload g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
               rw [wcRec1Sload_gas]; rfl]
           have := wcSub_gas_ge g hg ([3,3,3,100] ++ [3,3,3,10,1,3,3,3,100,3]) (by simp); omega)
@@ -1606,36 +1654,38 @@ theorem wcRetFrame_activeWords (g : UInt64) : (wcRetFrame g).exec.activeWords = 
   unfold wcResumed resumeAfterCall callPending
   dsimp only [ExecutionState.replaceStackAndIncrPC]; rfl
 
-/-- The `RETURN` frame's stack is `[1, 1]` (the `lt` result `1` on top, the residual
-CALL success flag `1` below). -/
-theorem wcRetFrame_stack (g : UInt64) : (wcRetFrame g).exec.stack = (1 : Word) :: 1 :: [] := rfl
+/-- The `RETURN` frame's stack is `[1]` (the `lt` result `1` — the sole operand; the
+residual CALL flag was discarded by the fire-and-forget POP). -/
+theorem wcRetFrame_stack (g : UInt64) : (wcRetFrame g).exec.stack = (1 : Word) :: [] := rfl
 
-/-- **The `RETURN` halts.** At `wcRetFrame g` (pc 517, stack `[1,1]`), the
-memory-expansion charge for `offset = size = 1` succeeds (cost `3`, gas `≥ 2678`), so
-`stepFrame` halts. -/
-theorem wcRetFrame_halts (g : UInt64) (hg : 50000 ≤ g.toNat) :
-    ∃ halt, stepFrame (wcRetFrame g) = .halted halt := by
-  have hgas : (wcRetFrame g).exec.gasAvailable.toNat = (wcResumed g).exec.gasAvailable.toNat - 244 := by
-    rw [show (wcRetFrame g).exec.gasAvailable = subCharges (wcResumed g).exec.gasAvailable wcPostCharges
-          from wcChain_gas g]
-    exact wcChain_gas_toNat g hg
-  have hge : 3 ≤ (wcRetFrame g).exec.gasAvailable.toNat := by
-    rw [hgas]; have := wcResumed_gas_ge g hg; omega
-  -- chargeMemExpansion succeeds: M 0 1 1 = 1, charge Cₘ 1 − Cₘ 0 = 3 ≤ gas.
-  have hmem : chargeMemExpansion (wcRetFrame g).exec 1 1
-      = .ok { (wcRetFrame g).exec with gasAvailable := (wcRetFrame g).exec.gasAvailable - UInt64.ofNat 3 } := by
-    unfold chargeMemExpansion
-    rw [show Evm.memoryExpansionWords? (wcRetFrame g).exec.activeWords 1 1
-          = some (MachineState.M (wcRetFrame g).exec.activeWords 1 1) from by
-        rw [wcRetFrame_activeWords]; rfl]
-    show charge (Evm.Cₘ (MachineState.M (wcRetFrame g).exec.activeWords 1 1)
-        - Evm.Cₘ (wcRetFrame g).exec.activeWords) (wcRetFrame g).exec = _
-    rw [wcRetFrame_activeWords]
-    rw [show Evm.Cₘ (MachineState.M 0 1 1) - Evm.Cₘ 0 = 3 from by decide]
-    unfold charge
-    rw [if_neg (by have := hge; omega)]
-  exact stepFrame_return_halts (wcRetFrame g) 1 1 [] (wcd_517 g) (wcRetFrame_stack g)
-    (by rw [wcRetFrame_stack]; decide) _ hmem
+/-- The gas at the `RETURN` frame: `(g − 46834) − 246` (`= afterPop − 244`), `≥ 2676`
+for `g ≥ 50000` — comfortably covering the `RETURN`'s `Cₘ 1 − Cₘ 0 = 3` mem charge. -/
+theorem wcRetFrame_gas_ge (g : UInt64) (hg : 50000 ≤ g.toNat) :
+    3 ≤ (wcRetFrame g).exec.gasAvailable.toNat := by
+  rw [wcChain_gas g, wcChain_gas_toNat g hg]
+  have := wcAfterPop_gas_ge g hg; omega
+
+/-- **The `RETURN`'s memory-expansion charge succeeds.** At `wcRetFrame g` (pc 518),
+the `chargeMemExpansion` for a 1-byte window (`offset = size = 1`) charges
+`Cₘ 1 − Cₘ 0 = 3`, which the running gas (`≥ 2676`) covers. This is the gas half of
+the terminal `RETURN` halt; the operand half (a genuine `offset :: size :: rest` on
+the stack) is supplied by `wc_preserves`'s `hhalt` argument — see its docstring for
+why the fire-and-forget POP makes that operand half a hypothesis here. -/
+theorem wcRetFrame_chargeMemExpansion (g : UInt64) (hg : 50000 ≤ g.toNat) :
+    chargeMemExpansion (wcRetFrame g).exec 1 1
+      = .ok { (wcRetFrame g).exec with
+          gasAvailable := (wcRetFrame g).exec.gasAvailable - UInt64.ofNat 3 } := by
+  have hge := wcRetFrame_gas_ge g hg
+  unfold chargeMemExpansion
+  rw [show Evm.memoryExpansionWords? (wcRetFrame g).exec.activeWords 1 1
+        = some (MachineState.M (wcRetFrame g).exec.activeWords 1 1) from by
+      rw [wcRetFrame_activeWords]; rfl]
+  show charge (Evm.Cₘ (MachineState.M (wcRetFrame g).exec.activeWords 1 1)
+      - Evm.Cₘ (wcRetFrame g).exec.activeWords) (wcRetFrame g).exec = _
+  rw [wcRetFrame_activeWords]
+  rw [show Evm.Cₘ (MachineState.M 0 1 1) - Evm.Cₘ 0 = 3 from by decide]
+  unfold charge
+  rw [if_neg (by have := hge; omega)]
 
 /-! ## `lower_preserves` for `workedCall` (the bridge half)
 
@@ -1651,47 +1701,39 @@ The full execution of `workedCall` as one `Runs (wcFrame g) last`:
 ```
 
 `wc_prefix_runs` (proved above) is the real prefix; the CALL is a `Runs.call` node
-carrying the **concrete** `wc_callReturns` witness (no longer assumed); only the
-post-CALL run `hpost` and its halt `hhalt` remain hypotheses, discharged through the
-bridge with `lower_preserves_discharge`. The result holds for **any** assembled
-post-CALL run — and because the bridge composes any number of `Runs.call` nodes, a
-≥2-call worked program closes the same way (C4).
+carrying the **concrete** `wc_callReturns` witness (no longer assumed); the post-CALL
+run `hpost` is now also concrete (`wcPostRun` — the fire-and-forget `POP`, block-0
+recompute, taken `JUMPI` to block 1, block-1 recompute). Only the terminal-`RETURN`
+**operand shape** `hhalt` remains a hypothesis, discharged through the bridge with
+`lower_preserves_discharge`. The result holds for **any** terminal halt — and because
+the bridge composes any number of `Runs.call` nodes, a ≥2-call worked program closes
+the same way (C4).
 
-**The documented post-CALL remainder** (NOT stubbed). To make `wc_preserves`
-*fully* hypothesis-free, `hpost`/`hhalt` must be the genuine block-0 recompute run:
-from `wcResumed g` (pc 300, stack `[1]` — the CALL success flag — with the
-`wcResumed_*` fields above), run `PUSH32 100; PUSH32 9; PUSH32 7; SLOAD; ADD; LT;
-PUSH4 414; JUMPI` (the `lt` condition `(sload 7 + 9) < 100 = 1`, so the JUMPI is
-taken via `wc_get_dest_414`), then block 1's `JUMPDEST; PUSH32 100; PUSH32 9;
-PUSH32 7; SLOAD; ADD; LT; RETURN`. Three honest sub-pieces remain:
-1. **The resumed-gas lower bound.** The resumed gas is `callerCharged.gasAvailable +
-   childRemaining`; `callerCharged` retains `~1/64` of the pre-call gas
-   (`allButOneSixtyFourth`), so it is large for big `g`, but the bound requires the
-   `allButOneSixtyFourth` arithmetic over `callGasCap`.
-2. **The SLOAD value over the child-committed map.** `wcResumed g`'s accounts are the
-   child's committed map (`sstorePost (wcChildAfter2Push g) 7 5`); the caller's slot
-   `7` there is still `5` (block 0 wrote it; the child wrote `0xCA11EE`'s slot), so
-   `sload 7 = 5` and the recomputed `lt` is `1`. Needs a named storage-lens lemma over
-   that map.
-3. **A general `RETURN` halt.** The lowering's `ret t` materialises the value, so the
-   `RETURN` consumes `offset = 1, size = 1` (not the `0,0` of exp003's
-   `stepFrame_return_empty`); the halt needs a general `RETURN` step
-   (`∃ halt, stepFrame fr = .halted halt` from `chargeMemExpansion` succeeding),
-   provable in this layer but left as the documented next step. -/
+**Why the terminal `RETURN` halt is a hypothesis (the fire-and-forget POP exposes the
+`ret t` size-operand gap).** The lowering of `ret t` is `materialise t ++ [RETURN]`,
+which puts **one** word (`t`'s value) on the stack — but EVM `RETURN` pops **two**
+(`offset`, `size`). Pre-Route-B, the worked program's `RETURN` got its `size` operand
+from the residual CALL success flag left under the materialised value. Route B's
+fire-and-forget `POP` (correctly) discards that flag, so the block-1 `RETURN` now
+reaches with stack `[1]` (the materialised `lt` result alone) — one operand short. The
+genuine `Runs` to `wcRetFrame g` is concrete and proved (`wcPostRun`); the gas half of
+the halt is proved (`wcRetFrame_chargeMemExpansion`); the missing `size` operand is a
+*lowering* gap (`ret t` should `PUSH 0` a zero-size window, or `materialise` a real
+window), out of scope here. Until that lowering fix lands, the terminal halt
+`hhalt : stepFrame (wcRetFrame g) = .halted halt` is supplied by the caller. -/
 
-/-- **`lower_preserves` for `workedCall` — FULLY HYPOTHESIS-FREE.** Every piece is
-now concrete and supplied internally: the straight-line prefix (`wc_prefix_runs`), the
-single external CALL (`wc_callReturns` — the genuine child `drive`), the post-CALL
-block-0 recompute → taken `JUMPI` → block-1 recompute (`wcPostRun`), and the terminal
-`RETURN` halt (`wcRetFrame_halts`). For `g ≥ 50000` the top-level
-`messageCall (wcParams g)` delivers the `RETURN` frame's halt result. The `hcall` AND
-the `hpost`/`hhalt` hypotheses of the C3d–C3f shape are **all gone** — `wc_preserves`
-takes only the program (implicit) and the gas knob `g`. -/
-theorem wc_preserves (g : UInt64) (hg : 50000 ≤ g.toNat) :
-    ∃ halt, messageCall (wcParams g)
+/-- **`lower_preserves` for `workedCall`.** Every interior piece is concrete and
+supplied internally: the straight-line prefix (`wc_prefix_runs`), the single external
+CALL (`wc_callReturns` — the genuine child `drive`), and the whole post-CALL run
+(`wcPostRun` — the fire-and-forget `POP`, block-0 recompute → taken `JUMPI` → block-1
+recompute). For `g ≥ 50000` the top-level `messageCall (wcParams g)` delivers the
+`RETURN` frame's halt result. Only the terminal-`RETURN` halt `hhalt` is a hypothesis
+— the fire-and-forget `POP` discards the success flag the worked program's `ret t`
+lowering relied on for `RETURN`'s `size` operand (see the section docstring). -/
+theorem wc_preserves (g : UInt64) (hg : 50000 ≤ g.toNat)
+    {halt : FrameHalt} (hhalt : stepFrame (wcRetFrame g) = .halted halt) :
+    messageCall (wcParams g)
       = .ok (FrameResult.toCallResult (endFrame (wcRetFrame g) halt)) := by
-  obtain ⟨halt, hhalt⟩ := wcRetFrame_halts g hg
-  refine ⟨halt, ?_⟩
   have hruns : Runs (wcFrame g) (wcRetFrame g) :=
     (wc_prefix_runs g (by omega)).trans (Runs.call (wc_callReturns g hg) (wcPostRun g hg))
   exact lower_preserves_discharge Lir.Decode.workedCall (wcParams g)

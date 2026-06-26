@@ -1079,7 +1079,7 @@ def StmtTies (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (L : Label) 
 /-- **The per-block TERMINATOR genuine §7 ties** — exactly what `simTermStep_callfree` consumes:
 the successor-block presence (for edges) and the per-shape runtime ties (`hstop`/`hretties`/
 `hjump`/`hbranch`). (The structural pc/offset bounds are folded into `WellFormedLowered`.) -/
-def TermTies (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (o : V2.CallOracle)
+def TermTies (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (_o : V2.CallOracle)
     (self : AccountAddress) (L : Label) (b : Block) : Prop :=
   (∀ (L' : Label), (b.term = .jump L' ∨ (∃ c o', b.term = .branch c L' o')
       ∨ (∃ c t', b.term = .branch c t' L')) →

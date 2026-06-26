@@ -1,5 +1,5 @@
 import LirLean.Match
-import LirLean.WorkedCall
+import LirLean.Charges
 
 /-!
 # LirLean — the materialise gas-charge engine (Layer **B2** of the `lower_conforms` grind)
@@ -73,6 +73,7 @@ The `fuel`/recursion structure is identical to `materialiseExpr` so the two stay
 lockstep (`materialiseExpr_*`/`chargeOf_*` reduction lemmas below pair up). -/
 def chargeOf (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ) : Nat → Expr → List ℕ
   | _,      .imm _  => [Gverylow]
+  | _,      .callResult _ => [Gverylow, Gverylow]
   | 0,      _       => []
   | f + 1,  .tmp t  =>
       match defs t with
@@ -153,7 +154,7 @@ theorem chargeOf_tmp_none_eq_imm (defs : Tmp → Option Expr) (sloadChg : Tmp �
 /-! ## 3. The pure-arithmetic engine (sum / `subCharges` laws)
 
 These are the laws B1 threads to glue per-leaf subtractions into the whole-expression
-`subCharges`. `subCharges_append`/`subCharges_snoc` (`LirLean/WorkedCall.lean`,
+`subCharges`. `subCharges_append`/`subCharges_snoc` (`LirLean/Charges.lean`,
 proved by induction on the charge list) decompose a compound `chargeOf` into its
 operand sub-charges in execution order; `toNat_chargeOf` is the honest-gas envelope
 (`toNat_subCharges` specialised to a `chargeOf` list). -/
@@ -168,7 +169,7 @@ theorem subCharges_chargeOf_binop (defs : Tmp → Option Expr) (sloadChg : Tmp �
     subCharges g (chargeOf defs sloadChg f (.tmp b) ++ chargeOf defs sloadChg f (.tmp a) ++ [Gverylow])
       = subCharges (subCharges (subCharges g (chargeOf defs sloadChg f (.tmp b)))
           (chargeOf defs sloadChg f (.tmp a))) [Gverylow] := by
-  rw [WorkedCall.subCharges_append, WorkedCall.subCharges_append]
+  rw [subCharges_append, subCharges_append]
 
 /-- **The compound-charge decomposition for `.sload`.** Subtracting `sload k`'s
 charge list is: subtract key `k`'s charges, then the single `SLOAD` charge — the
@@ -177,7 +178,7 @@ theorem subCharges_chargeOf_sload (defs : Tmp → Option Expr) (sloadChg : Tmp �
     (f : Nat) (k : Tmp) (g : UInt64) :
     subCharges g (chargeOf defs sloadChg f (.tmp k) ++ [sloadChg k])
       = subCharges (subCharges g (chargeOf defs sloadChg f (.tmp k))) [sloadChg k] := by
-  rw [WorkedCall.subCharges_append]
+  rw [subCharges_append]
 
 /-- **The honest-gas envelope.** When the whole `chargeOf` list fits under `g`,
 materialising `e` lands the engine at `g.toNat - (chargeOf …).sum` — the exact gas

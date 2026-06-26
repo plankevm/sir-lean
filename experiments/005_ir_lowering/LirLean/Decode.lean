@@ -66,13 +66,16 @@ def code : ByteArray := lower workedCall
 
 /-! ## Block JUMPDEST offsets (the offset table is a concrete prefix sum)
 
-Block 0 starts at 0, block 1 at 414, block 2 at 518. These are exactly the
-immediates the `branch`/`jump` destination pushes must carry, checked below. -/
+Block 0 starts at 0, block 1 at 415, block 2 at 519. These are exactly the
+immediates the `branch`/`jump` destination pushes must carry, checked below.
+(The fire-and-forget `call` — `resultTmp = none` — appends a single `POP` after
+`CALL` to discard the success flag, so everything past the CALL shifts by one byte
+vs. the pre-Route-B layout.) -/
 
 example : offsetTable (defsOf workedCall) (recomputeFuel workedCall) workedCall.blocks 0 = 0 := by rfl
-example : offsetTable (defsOf workedCall) (recomputeFuel workedCall) workedCall.blocks 1 = 414 := by rfl
-example : offsetTable (defsOf workedCall) (recomputeFuel workedCall) workedCall.blocks 2 = 518 := by rfl
-example : code.size = 520 := by rfl
+example : offsetTable (defsOf workedCall) (recomputeFuel workedCall) workedCall.blocks 1 = 415 := by rfl
+example : offsetTable (defsOf workedCall) (recomputeFuel workedCall) workedCall.blocks 2 = 519 := by rfl
+example : code.size = 521 := by rfl
 
 /-! ## Decode round-trip at every emitted pc
 
@@ -95,6 +98,7 @@ example : decode code 200 = some (.Push .PUSH32, some (0, 32))       := by rfl  
 example : decode code 233 = some (.Push .PUSH32, some (0xCA11EE, 32)) := by rfl  -- CALL arg callee
 example : decode code 266 = some (.Push .PUSH32, some (0xFFFFFFFF, 32)) := by rfl -- CALL arg gasFwd
 example : decode code 299 = some (.System .CALL, none)               := by rfl
+example : decode code 300 = some (.Smsf .POP, none)                  := by rfl   -- discard CALL flag (resultTmp = none)
 
 /-! ### Block 0 — the `branch` condition recompute, then JUMPI/JUMP
 
@@ -104,44 +108,44 @@ PUSH32 100 (the `lt`'s right operand `t5`), then PUSH32 9 (`add`'s right operand
 `t3`), then PUSH32 7 (`sload`'s key `t1`), then SLOAD, ADD, LT — then
 `PUSH4 thenOff; JUMPI; PUSH4 elseOff; JUMP`. -/
 
-example : decode code 300 = some (.Push .PUSH32, some (100, 32))     := by rfl   -- lt operand (t5)
-example : decode code 333 = some (.Push .PUSH32, some (9, 32))       := by rfl   -- add operand (t3)
-example : decode code 366 = some (.Push .PUSH32, some (7, 32))       := by rfl   -- sload key (t1)
-example : decode code 399 = some (.Smsf .SLOAD, none)                := by rfl
-example : decode code 400 = some (.ArithLogic .ADD, none)            := by rfl
-example : decode code 401 = some (.ArithLogic .LT, none)             := by rfl
-example : decode code 402 = some (.Push .PUSH4, some (414, 4))       := by rfl   -- then-block offset
-example : decode code 407 = some (.Smsf .JUMPI, none)                := by rfl
-example : decode code 408 = some (.Push .PUSH4, some (518, 4))       := by rfl   -- else-block offset
-example : decode code 413 = some (.Smsf .JUMP, none)                 := by rfl
+example : decode code 301 = some (.Push .PUSH32, some (100, 32))     := by rfl   -- lt operand (t5)
+example : decode code 334 = some (.Push .PUSH32, some (9, 32))       := by rfl   -- add operand (t3)
+example : decode code 367 = some (.Push .PUSH32, some (7, 32))       := by rfl   -- sload key (t1)
+example : decode code 400 = some (.Smsf .SLOAD, none)                := by rfl
+example : decode code 401 = some (.ArithLogic .ADD, none)            := by rfl
+example : decode code 402 = some (.ArithLogic .LT, none)             := by rfl
+example : decode code 403 = some (.Push .PUSH4, some (415, 4))       := by rfl   -- then-block offset
+example : decode code 408 = some (.Smsf .JUMPI, none)                := by rfl
+example : decode code 409 = some (.Push .PUSH4, some (519, 4))       := by rfl   -- else-block offset
+example : decode code 414 = some (.Smsf .JUMP, none)                 := by rfl
 
 /-! ### Block 1 — JUMPDEST, the `ret` condition recompute, RETURN -/
 
-example : decode code 414 = some (.Smsf .JUMPDEST, none)             := by rfl
-example : decode code 415 = some (.Push .PUSH32, some (100, 32))     := by rfl  -- lt operand (t5)
-example : decode code 448 = some (.Push .PUSH32, some (9, 32))       := by rfl  -- add operand (t3)
-example : decode code 481 = some (.Push .PUSH32, some (7, 32))       := by rfl  -- sload key (t1)
-example : decode code 514 = some (.Smsf .SLOAD, none)                := by rfl
-example : decode code 515 = some (.ArithLogic .ADD, none)            := by rfl
-example : decode code 516 = some (.ArithLogic .LT, none)             := by rfl
-example : decode code 517 = some (.System .RETURN, none)             := by rfl
+example : decode code 415 = some (.Smsf .JUMPDEST, none)             := by rfl
+example : decode code 416 = some (.Push .PUSH32, some (100, 32))     := by rfl  -- lt operand (t5)
+example : decode code 449 = some (.Push .PUSH32, some (9, 32))       := by rfl  -- add operand (t3)
+example : decode code 482 = some (.Push .PUSH32, some (7, 32))       := by rfl  -- sload key (t1)
+example : decode code 515 = some (.Smsf .SLOAD, none)                := by rfl
+example : decode code 516 = some (.ArithLogic .ADD, none)            := by rfl
+example : decode code 517 = some (.ArithLogic .LT, none)             := by rfl
+example : decode code 518 = some (.System .RETURN, none)             := by rfl
 
 /-! ### Block 2 — JUMPDEST, STOP -/
 
-example : decode code 518 = some (.Smsf .JUMPDEST, none)             := by rfl
-example : decode code 519 = some (.System .STOP, none)               := by rfl
+example : decode code 519 = some (.Smsf .JUMPDEST, none)             := by rfl
+example : decode code 520 = some (.System .STOP, none)               := by rfl
 
 /-! ## The branch destinations are legal jump targets
 
-The two branch-destination immediates (414, 518) decode to `JUMPDEST` — proven
-axiom-cleanly by the `decode code 402 = PUSH4 414`, `decode code 408 = PUSH4 518`
-checks above together with `decode code 414 = JUMPDEST` and
-`decode code 518 = JUMPDEST`. So the lowered `JUMPI`/`JUMP` land on real
+The two branch-destination immediates (415, 519) decode to `JUMPDEST` — proven
+axiom-cleanly by the `decode code 403 = PUSH4 415`, `decode code 409 = PUSH4 519`
+checks above together with `decode code 415 = JUMPDEST` and
+`decode code 519 = JUMPDEST`. So the lowered `JUMPI`/`JUMP` land on real
 `JUMPDEST`s — a prerequisite for exp003's jump steps. (These four cheap `rfl` decode
 checks are the decode-level guarantee for the two destinations this program actually
 uses. `validJumpDests` itself is now a total well-founded def — Track A detotalized
 the former `partial def` and added a reachability characterization — and the actual
-branch terminator goes through it via `wc_get_dest_414`; these `rfl`s stay as the
+branch terminator goes through it via `wc_get_dest_415`; these `rfl`s stay as the
 self-contained, axiom-clean witness that the destinations decode to `JUMPDEST`.) -/
 
 /-! ## The generic `decode_lower` lemmas subsume the per-pc `rfl`s

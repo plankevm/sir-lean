@@ -16,7 +16,7 @@ theorem block_offset_validJump (prog : Program) (L : Label) (hL : L.idx < prog.b
       ∈ validJumpDests (lower prog) 0
 ```
 
-This generalises the concrete `nineteen_mem_validJumps` / `wc_reaches_414` walks (which
+This generalises the concrete `nineteen_mem_validJumps` / `wc_reaches_415` walks (which
 step the lowered byte stream instruction-by-instruction via `by decide`) from a fixed
 program to an **arbitrary** `lower prog`.
 
@@ -180,6 +180,13 @@ theorem segAligned_emitDest (off : Nat) : SegAligned (emitDest off) := by
   rw [show Evm.parseInstr Byte.push4 = .Push .PUSH4 from rfl]
   simp [offsetBytesBE, Evm.pushArgWidth]
 
+/-- The call-result rematerialisation `emitImm slot ++ [MLOAD]` is aligned: an aligned
+PUSH32 immediate followed by the zero-width `MLOAD` opcode. -/
+theorem segAligned_callResult (slot : Nat) :
+    SegAligned (emitImm (UInt256.ofNat slot) ++ [Byte.mload]) :=
+  (segAligned_emitImm (UInt256.ofNat slot)).append
+    (SegAligned.nonpush Byte.mload (by decide))
+
 /-- `materialiseExpr defs fuel e` is aligned: literal leaves are `emitImm`, the `.gas`
 leaf is the zero-width `GAS` opcode, and the binary/sload recursions append aligned
 sub-sequences then a single zero-width opcode. Induction on the `materialiseExpr`
@@ -193,6 +200,8 @@ theorem segAligned_materialiseExpr (defs : Tmp → Option Expr) :
   | 0,      .lt _ _ => .nil
   | 0,      .sload _ => .nil
   | 0,      .gas    => .nil
+  | 0,      .callResult slot => segAligned_callResult slot
+  | f + 1,  .callResult slot => segAligned_callResult slot
   | f + 1,  .tmp t  => by
       rw [show materialiseExpr defs (f+1) (.tmp t)
             = (match defs t with
@@ -246,7 +255,10 @@ theorem segAligned_emitStmt (defs : Tmp → Option Expr) (fuel : Nat) (s : Stmt)
             = emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
               ++ materialise defs fuel cs.callee
               ++ materialise defs fuel cs.gasFwd
-              ++ [Byte.call] from rfl]
+              ++ [Byte.call]
+              ++ (match cs.resultTmp with
+                  | some t => emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]
+                  | none   => [Byte.pop]) from rfl]
       have h := (segAligned_emitImm (0 : Word)).append (segAligned_emitImm 0)
       have h := h.append (segAligned_emitImm 0)
       have h := h.append (segAligned_emitImm 0)
@@ -254,7 +266,13 @@ theorem segAligned_emitStmt (defs : Tmp → Option Expr) (fuel : Nat) (s : Stmt)
       have h := h.append (segAligned_materialise defs fuel cs.callee)
       have h := h.append (segAligned_materialise defs fuel cs.gasFwd)
       have h := h.append (SegAligned.nonpush Byte.call (by decide))
-      exact h
+      -- The result-tail (MSTORE for `some`, POP for `none`) is aligned in both cases.
+      refine h.append ?_
+      cases cs.resultTmp with
+      | none => exact SegAligned.nonpush Byte.pop (by decide)
+      | some t =>
+          exact (segAligned_emitImm (UInt256.ofNat (slotOf t))).append
+            (SegAligned.nonpush Byte.mstore (by decide))
 
 /-- `emitTerm` is aligned: `ret` is a materialised operand then `RETURN`, `stop` is
 `STOP`, `jump` is `PUSH4 dest; JUMP`, `branch` is materialised cond then

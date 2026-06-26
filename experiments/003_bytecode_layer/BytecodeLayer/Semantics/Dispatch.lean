@@ -353,6 +353,48 @@ theorem stepFrame_gas (fr : Frame)
   dsimp only [bind, Except.bind, pure, Except.pure]
   rfl
 
+/-! ## POP (stack discard)
+
+The stack-discard brick. POP (`.Smsf .POP`) charges `Gbase = 2`, pops one operand
+off the top and pushes nothing, advancing pc by one. Track C's call lowering uses
+it for the fire-and-forget (`resultTmp = none`) call tail, discarding the CALL
+success flag. Pops one, pushes none; the overflow guard is trivial (the stack only
+shrinks). -/
+
+/-- The execution state POP leaves: charge `Gbase`, drop the top operand (leaving
+`rest`), advance pc by one. -/
+def popPost (exec : ExecutionState) (rest : Stack UInt256) : ExecutionState :=
+  ({ exec with gasAvailable := exec.gasAvailable - UInt64.ofNat Gbase }
+    ).replaceStackAndIncrPC rest
+
+/-- **POP discards the top operand, advances pc by one**, charging `Gbase = 2`.
+With `v :: rest` on the stack and enough gas, the step is `.next (popPost …)`.
+Guards discharged from `hstk`/`hsz`/`hgas`. -/
+theorem stepFrame_pop (fr : Frame) (v : UInt256) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .POP, .none))
+    (hstk : fr.exec.stack = v :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : Gbase ≤ fr.exec.gasAvailable.toNat) :
+    stepFrame fr = .next (popPost fr.exec rest) := by
+  unfold stepFrame
+  simp only [hdec]
+  dsimp only [Option.getD]
+  rw [if_neg (by decide)]
+  have hov : ¬ (fr.exec.stack.size - stackPopCount (.Smsf .POP)
+      + stackPushCount (.Smsf .POP) > 1024) := by
+    simp only [show stackPopCount (.Smsf .POP) = 1 from rfl,
+               show stackPushCount (.Smsf .POP) = 0 from rfl]
+    have := hsz; omega
+  rw [if_neg hov]
+  dsimp only [dispatch, smsfOp]
+  unfold charge
+  rw [if_neg (by have := hgas; omega)]
+  dsimp only [bind, Except.bind, pure, Except.pure]
+  rw [hstk]
+  dsimp only [Stack.pop, liftM, monadLift, MonadLift.monadLift, Option.option, bind,
+    Except.bind, pure, Except.pure]
+  rfl
+
 /-! ## JUMP / JUMPI (control flow)
 
 The conditional/unconditional jumps are the control-flow primitives the CFG

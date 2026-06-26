@@ -14,8 +14,11 @@ def BLAKE2 (d : ByteArray) : Except String ByteArray := do
   if d[212]! ∉ [0, 1].map Nat.toUInt8 then throw "error"
   return BLAKE2Compress d
 
+/-- `n` zero bytes. The C extern (`memset_zero`) is the runtime implementation; the
+pure Lean body is its faithful reference model (an `n`-length all-zero array), so byte
+facts about it (`size`, `get`) are provable theorems rather than axioms. -/
 @[extern "memset_zero"]
-opaque ByteArray.zeroes (n : USize) : ByteArray
+def ByteArray.zeroes (n : USize) : ByteArray := ⟨Array.replicate n.toNat 0⟩
 
 @[extern "keccak256"]
 opaque keccak256 (input : @& ByteArray) (len : USize) : ByteArray
