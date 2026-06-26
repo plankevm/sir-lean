@@ -749,6 +749,71 @@ theorem mstore_memory_size_mono (m : MachineState) (addr val : UInt256)
   have hDle : addr.toNat ≤ D.size := by rw [hDsz]; omega
   rw [copySlice_at_size D addr.toNat val hDle, hDsz]; omega
 
+/-! ### 4c. Grow-aware byte-level disjointness toolkit
+
+The pre-allocated disjointness `copySlice_extract_disjoint` only needs
+`addr + 32 ≤ dest.size` and `addr' + 32 ≤ dest.size` (it never uses that `dest`
+is `m.memory` specifically). So it already covers the *grown* destination
+`D = m.memory ++ zeroes ⟨addr - mem.size⟩` verbatim. The remaining new fact is
+that reading a window lying entirely in the **pre-existing** prefix of `D` is the
+same as reading it from `m.memory` (the grow padding is appended at/after
+`mem.size`, so a window with `s + 32 ≤ mem.size` never touches it). -/
+
+/-- Extracting a window lying entirely in the left summand of an append reads only
+the left summand: `(mem ++ z).extract s (s + 32) = mem.extract s (s + 32)` when
+`s + 32 ≤ mem.size`. -/
+theorem extract_append_left_window (mem z : ByteArray) (s : Nat) (h : s + 32 ≤ mem.size) :
+    (mem ++ z).extract s (s + 32) = mem.extract s (s + 32) := by
+  have hmd : mem.data.size = mem.size := ByteArray.size_data ..
+  apply ByteArray.ext
+  rw [ByteArray.data_extract, ByteArray.data_extract, ByteArray.data_append]
+  apply Array.ext
+  · simp only [Array.size_extract, Array.size_append, hmd]; omega
+  · intro i hi1 _
+    have hilt : i < 32 := by simp only [Array.size_extract] at hi1; omega
+    rw [Array.getElem_extract, Array.getElem_extract,
+        Array.getElem_append_left (by rw [hmd]; omega)]
+
+set_option maxHeartbeats 800000 in
+/-- **Grow-aware byte-level disjointness.** Writing a full 32-byte word at
+`[addr, addr+32)` into a destination `D` that merely *reaches* `addr`
+(`addr ≤ D.size`, the grow precondition — the write may extend `D` past its end)
+leaves a disjoint read window `[s, s+32)` lying inside `D` (`s + 32 ≤ D.size`)
+byte-identical. Unlike `copySlice_extract_disjoint`, the write window need *not* be
+pre-allocated; the `copySlice` data is `D.extract 0 addr ++ val ++ D.extract (addr+32) D.size`
+and on the disjoint read window the index lands in either the first or third summand,
+both reading `D` unchanged. -/
+theorem copySlice_at_extract_disjoint (D : ByteArray) (addr s : Nat) (val : UInt256)
+    (hw : addr ≤ D.size) (hr : s + 32 ≤ D.size)
+    (hdis : addr + 32 ≤ s ∨ s + 32 ≤ addr) :
+    (val.toByteArray.copySlice 0 D addr 32).extract s (s + 32) = D.extract s (s + 32) := by
+  have hsz : val.toByteArray.size = 32 := toByteArray_size val
+  have hd : val.toByteArray.data.size = 32 := by rw [← ByteArray.size]; exact hsz
+  have hDd : D.data.size = D.size := ByteArray.size_data ..
+  apply ByteArray.ext
+  rw [ByteArray.data_extract, ByteArray.data_extract, ByteArray.data_copySlice]
+  apply Array.ext
+  · simp only [Array.size_extract, Array.size_append, hd, hDd]; omega
+  · intro i hi1 _
+    have hilt : i < 32 := by simp only [Array.size_extract] at hi1; omega
+    rw [Array.getElem_extract, Array.getElem_extract]
+    have hAa : (D.data.extract 0 addr).size = addr := by rw [Array.size_extract, hDd]; omega
+    have hBa : (val.toByteArray.data.extract 0 (0 + 32)).size = 32 := by
+      rw [Array.size_extract, hd]; omega
+    have hABsz : (D.data.extract 0 addr ++ val.toByteArray.data.extract 0 (0 + 32)).size
+        = addr + 32 := by rw [Array.size_append, hAa, hBa]
+    rcases hdis with hge | hle
+    · -- read window is after the write: index lands in the third summand `D.extract (addr+32) …`
+      rw [Array.getElem_append_right (by rw [hABsz]; omega), Array.getElem_extract]
+      congr 1
+      rw [hABsz, show min 32 (val.toByteArray.data.size - 0) = 32 by rw [hd]; decide]
+      omega
+    · -- read window is before the write: index lands in the first summand `D.extract 0 addr`
+      rw [Array.getElem_append_left (by rw [hABsz]; omega),
+        Array.getElem_append_left (by rw [hAa]; omega), Array.getElem_extract]
+      congr 1
+      omega
+
 /-! ### 5. Cross-slot preservation of an already-covered disjoint slot
 
 `MemRealises`-style coverage is a pair (memory ≥ slot+32, activeWords*32 ≥ slot+32)
@@ -793,6 +858,61 @@ theorem mstore_preserves_slot (m : MachineState) (addr s val : UInt256)
   · have := mstore_activeWords_mono m addr val; omega
   · exact mstore_mload_disjoint m addr s val hwmem hsmem (by omega) hdis
 
+/-- **MSTORE preserves a covered, disjoint slot — GROW-aware.** Like
+`mstore_preserves_slot`, but the binding `MSTORE addr val` may *grow* memory past
+the read slot `s` (no `addr.toNat + 32 ≤ m.memory.size` premise). The read slot `s`
+must lie in the **pre-existing** memory (`s.toNat + 32 ≤ m.memory.size`), be active
+(`s.toNat + 32 ≤ m.activeWords.toNat * 32`), and have its window disjoint from the
+write window `[addr, addr+32)`. Realisability on the write offset is in the two
+shapes the grow path needs (`addr.toNat + 63 < 2 ^ 64` for the `UInt64`
+`activeWords` bookkeeping, `addr.toNat < 2 ^ numBits` for the `USize` memory pad).
+Returns the coverage+value bundle (memory ≥ `s+32`, active*32 ≥ `s+32`, readback
+preserved), mirroring `mstore_preserves_slot`.
+
+Key fact: the disjoint write at `[addr, addr+32)` (into the grown destination
+`D = m.memory ++ zeroes ⟨addr - mem.size⟩`) leaves the bytes in
+`[s, s+32) ⊆ pre-existing memory` unchanged — the grow padding is appended at/after
+`mem.size > s`, and `copySlice` writes only into `[addr, addr+32)`. -/
+theorem mstore_preserves_slot_grow (m : MachineState) (addr s val : UInt256)
+    (_haddr : addr.toNat + 63 < 2 ^ 64)
+    (hplat : addr.toNat < 2 ^ System.Platform.numBits)
+    (hsmem : s.toNat + 32 ≤ m.memory.size)
+    (hsact : s.toNat + 32 ≤ m.activeWords.toNat * 32)
+    (hdis : s.toNat + 32 ≤ addr.toNat ∨ addr.toNat + 32 ≤ s.toNat) :
+    s.toNat + 32 ≤ (m.mstore addr val).memory.size
+      ∧ s.toNat + 32 ≤ (m.mstore addr val).activeWords.toNat * 32
+      ∧ ((m.mstore addr val).mload s).1 = (m.mload s).1 := by
+  refine ⟨?_, ?_, ?_⟩
+  · exact le_trans hsmem (mstore_memory_size_mono m addr val hplat)
+  · have := mstore_activeWords_mono m addr val; omega
+  -- value: read both sides off the (size-preserving on the prefix) memories.
+  show ((m.mstore addr val).lookupMemory s) = (m.lookupMemory s)
+  unfold MachineState.mstore MachineState.lookupMemory
+  -- the written memory is a `copySlice` into the grown destination `D`.
+  have hmemEq : (m.writeWord addr val).memory
+      = val.toByteArray.copySlice 0
+          (m.memory ++ ffi.ByteArray.zeroes ⟨(addr.toNat - m.memory.size : Nat)⟩) addr.toNat 32 :=
+    writeWord_memory_grow m addr val
+  simp only [hmemEq, writeWord_activeWords]
+  set D := m.memory ++ ffi.ByteArray.zeroes ⟨(addr.toNat - m.memory.size : Nat)⟩ with hD
+  have hDsz : D.size = max m.memory.size addr.toNat := grow_dest_size m addr hplat
+  have hDle : addr.toNat ≤ D.size := by rw [hDsz]; omega
+  have hWsz : (val.toByteArray.copySlice 0 D addr.toNat 32).size = max D.size (addr.toNat + 32) :=
+    copySlice_at_size D addr.toNat val hDle
+  -- both `lookupMemory` guards are false (write only grows memory/activeWords; read slot
+  -- is pre-existing-covered and active).
+  have hactGe : m.activeWords.toNat ≤ (MachineState.M m.activeWords addr.toUInt64 32).toNat := by
+    rw [M_32]; exact umax_ge_left _ _
+  have hsD : s.toNat + 32 ≤ D.size := by rw [hDsz]; omega
+  rw [if_neg (by rw [not_or]; exact ⟨by rw [hWsz, hDsz]; omega, by omega⟩),
+      if_neg (by rw [not_or]; exact ⟨by omega, by omega⟩)]
+  -- both reads are the in-bounds `extract`; the written `extract` on the disjoint
+  -- pre-existing window collapses to `m.memory`'s.
+  rw [readWithPadding_inbounds _ _ (by rw [hWsz, hDsz]; omega),
+      readWithPadding_inbounds _ _ hsmem,
+      copySlice_at_extract_disjoint D addr.toNat s.toNat val hDle hsD hdis.symm,
+      extract_append_left_window m.memory _ s.toNat hsmem]
+
 /-! ## Axiom-cleanliness guard
 
 The three crux results must rest only on the standard `[propext, Classical.choice,
@@ -825,5 +945,9 @@ de-opaqued `ffi.ByteArray.zeroes` body is what makes this possible). -/
 /-- info: 'LirLean.MemAlgebra.mstore_preserves_slot' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms mstore_preserves_slot
+
+/-- info: 'LirLean.MemAlgebra.mstore_preserves_slot_grow' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms mstore_preserves_slot_grow
 
 end LirLean.MemAlgebra

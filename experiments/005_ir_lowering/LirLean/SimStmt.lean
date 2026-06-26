@@ -602,21 +602,6 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     -- `WellFormed` invariant the eventual caller discharges). Pins the result-slot for the new
     -- binding and the 32-aligned disjointness of distinct bound slots.
     (hslots : ∀ tw slot', defsOf prog tw = some (.callResult slot') → slot' = slotOf tw)
-    -- **Grow-aware MSTORE disjointness** (a pure memory-algebra fact, supplied as a runtime
-    -- tie like the SLOAD/GAS/memory-expansion observations): writing the success flag at the
-    -- result slot preserves the readback at every *covered*, window-disjoint slot `s`. The
-    -- binding MSTORE may grow memory *past* `s`, so this is strictly stronger than
-    -- `MemAlgebra.mstore_mload_disjoint` (which needs the write window pre-allocated). It is a
-    -- `MemAlgebra` deliverable (`copySlice_at_extract_disjoint`-shaped) outside this phase's
-    -- scope; threaded here as a supplied fact. Coverage preservation is proved inline
-    -- (`mstore_*_mono`); only the *value* needs this.
-    (hmstoreDisjoint : ∀ (slotT s : Nat) (flag : Word),
-      s + 32 ≤ resumeFr.exec.toMachineState.memory.size →
-      s + 32 ≤ resumeFr.exec.toMachineState.activeWords.toNat * 32 →
-      (slotT + 32 ≤ s ∨ s + 32 ≤ slotT) →
-      ((resumeFr.exec.toMachineState.mstore (UInt256.ofNat slotT) flag).mload
-          (UInt256.ofNat s)).1
-        = (resumeFr.exec.toMachineState.mload (UInt256.ofNat s)).1)
     -- the post-state scoping/realisability (downstream-supplied, as in `materialise_runs`):
     (hscoped' : ∀ t, st'.locals t ≠ none →
       (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.callResult slot))
@@ -870,25 +855,20 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         have hdisN : slot + 32 ≤ slot' ∨ slot' + 32 ≤ slot := by
           rw [hslotdef, hslot'def]
           exact LirLean.MemAlgebra.slot_windows_disjoint t.id tw.id htwne
-        -- coverage is preserved by the MSTORE monotone lemmas (no write-window pre-coverage
-        -- needed); value is preserved by the supplied grow-aware disjointness `hmstoreDisjoint`.
+        -- coverage AND value are preserved in one shot by the grow-aware MSTORE
+        -- preservation lemma (`mstore_preserves_slot_grow`): the binding MSTORE at the
+        -- result slot `slotOf t` may grow memory past the disjoint, covered slot `slotOf tw`,
+        -- yet leaves its coverage and readback intact. Window-disjointness is the 32-aligned
+        -- slot fact; the `slot' + 63 < 2^64` realisability clause carries over from `hreal`.
         rw [hendmem]
-        refine ⟨?_, ?_, hreal, ?_⟩
-        · -- memory.size ≥ slot' + 32 (size monotone under MSTORE)
-          rw [hslot'Eq] at hcm ⊢
-          exact le_trans hcm (LirLean.MemAlgebra.mstore_memory_size_mono
-            resumeFr.exec.toMachineState (UInt256.ofNat slot) flag hslotplat')
-        · -- activeWords*32 ≥ slot' + 32 (activeWords monotone under MSTORE)
-          rw [hslot'Eq] at ham ⊢
-          have := LirLean.MemAlgebra.mstore_activeWords_mono
-            resumeFr.exec.toMachineState (UInt256.ofNat slot) flag
-          have h32 := Nat.mul_le_mul_right 32 this
-          omega
-        · -- readback value preserved (grow-aware disjointness)
-          have hd : slot + 32 ≤ slot' ∨ slot' + 32 ≤ slot := hdisN
-          rw [hmstoreDisjoint slot slot' flag (by rw [hslot'Eq] at hcm; exact hcm)
-            (by rw [hslot'Eq] at ham; exact ham) hd]
-          exact hval
+        -- the disjointness in the lemma's orientation (`s + 32 ≤ addr ∨ addr + 32 ≤ s`):
+        have hdisN' : (UInt256.ofNat slot').toNat + 32 ≤ (UInt256.ofNat slot).toNat
+            ∨ (UInt256.ofNat slot).toNat + 32 ≤ (UInt256.ofNat slot').toNat := by
+          rw [hslotEq, hslot'Eq]; exact hdisN.symm
+        obtain ⟨hmem', hact', hval'⟩ :=
+          LirLean.MemAlgebra.mstore_preserves_slot_grow resumeFr.exec.toMachineState
+            (UInt256.ofNat slot) (UInt256.ofNat slot') flag hslot63' hslotplat' hcm ham hdisN'
+        exact ⟨hmem', hact', hreal, hval'.trans hval⟩
 
 end Lir
 
