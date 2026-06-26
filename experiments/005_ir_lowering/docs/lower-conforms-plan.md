@@ -54,8 +54,13 @@ assign (0 bytes, `setLocal`, preserve `Match`+`DefsSound`) *mechanical*; sstore 
 - **E1 `sim_term_halt`** — ret/stop → halting `last` frame; `halt_stop`/`halt_ret`. ret value-faithful is
   *hard* (value channel, deferred). stop *medium*.
 - **E2 ✶ `sim_term_edge`** — jump/branch land at successor entry; `sim_jump`/`sim_branch`. Needs E3.
-- **E3 ✶ `block_offset_validJump`** — every block offset ∈ `validJumpDests (lower prog)`; byte is
-  `JUMPDEST`, reachable skipping PUSH32 immediates. Generalizes `nineteen_mem_validJumps`. *hard; INDEPENDENT.*
+- **E3 ✶ `block_offset_validJump`** — **DONE** (`LirLean/JumpValid.lean`, axiom-clean). Every block
+  offset ∈ `validJumpDests (lower prog) 0`; byte is `JUMPDEST`, reachable skipping PUSH32/PUSH4
+  immediates. Generalized `nineteen_mem_validJumps`/`wc_reaches_414` from a fixed program to an
+  arbitrary `lower prog` via: a list-level `SegAligned` (instruction-aligned byte segment) predicate +
+  `reaches_of_segAligned` transport (the push-skipping discharged once); `segAligned_emit*` showing
+  every emission helper is aligned; `reaches_block_offset` (induction on block index, each block steps
+  `blockLen` bytes matching `offsetTable`'s prefix sum). *was hard; INDEPENDENT.*
 
 **Layer F** `sim_cfg` (induction on `RunFrom`: D1 + E1/E2/IH) → `lower_conforms` (compose via
 `runWithLog_drive`/`messageCall_runs`; realised oracles aligned by `realisedGas_monotone`/`callRealises_bridge`;
