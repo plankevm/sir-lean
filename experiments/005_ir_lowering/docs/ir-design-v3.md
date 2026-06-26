@@ -91,3 +91,39 @@ Get these two right and the monotonicity pathologies never need a second thought
 3. **calldata / returndata / value:** value-free, empty calldata/returndata first cut
    (mirrors v1 `workedCall`); **revert deferred**.
 4. **`Expr.gas`:** observed `gasRead` event, no accounting (was decided 2026-06-23, §3.4).
+
+## 7. The interaction model — SETTLED (this session)
+
+The correctness theorem is a **supplied-observation** model, *not* a lockstep simulation —
+chosen because it is the *correct* abstraction for an optimizing IR, not merely the easy one:
+
+- An optimizing lowering has **no step-correspondence** (one IR construct → many ops,
+  reordered/fused/eliminated), so lockstep / step-matching is the wrong tool.
+- The supplied-observation model constrains **observables only** (the gas-read sequence,
+  the call results, the final storage delta) — never intermediate steps — so it is
+  **robust to arbitrary lowerings** and decoupled from lowering internals.
+- It is **proof-level**: the bytecode run is a `Runs` *derivation*; "extract the
+  observations" is a function on that derivation. **No JIT, no runtime co-execution.**
+
+Gas and calls differ only in how many **IR-visible inputs** the supplied thing takes —
+both are supplied/abstract because they depend on bytecode state the IR deliberately lacks
+(gas counter; chain state). Neither is computed in the IR:
+
+- **Gas — a supplied SEQUENCE** (zero IR-visible inputs). Consumed stepwise (the head pops
+  as execution reaches each `GAS` — already "queried at the moment"). The IR may assume
+  only monotonicity. Realisability = the bytecode `Runs` derivation's GAS subsequence.
+- **Calls — a FUNCTION oracle** of the call's IR-visible inputs (callee, calldata),
+  queried at the call site, returning the `(world', success[, returndata])` bundle the
+  semantics **applies as a state change** (`world := world'`, bind `success`). This is
+  v1's `CallOracle`; instantiated to `messageCall`/`resumeAfterCall`, realisability is
+  by-construction (`rfl`). **No gas in the bundle** (V2 has no gas-in-state — post-call
+  gas reads come from the gas sequence) and **no `callResult` slot** (bind `success`
+  straight into `locals`; the slot was a v1 small-step/`Match` artifact).
+
+**The one realisability contract (the honest assumption):** the lowering must preserve the
+**observable interaction sequence** — the order/count of GAS-reads, the order of calls,
+and the final storage delta. (Storage *writes* may be reordered — only the final delta is
+observed.) Far weaker and more lowering-agnostic than step-matching.
+
+This isolates "is the lowering observably correct" from "what gas did it cost" — the latter
+is exactly what we refuse to reason about.
