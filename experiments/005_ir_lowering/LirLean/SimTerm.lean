@@ -199,6 +199,33 @@ change. These `rfl` lemmas expose exactly the clauses E2's `Corr` re-establishme
 @[simp] theorem jumpiFallthroughFrame_validJumps (fr : Frame) (rest : Stack Word) :
     (jumpiFallthroughFrame fr rest).validJumps = fr.validJumps := rfl
 
+/-! ### `toMachineState.memory` / `activeWords` reductions for the control-flow post-frames
+
+Control-flow steps (JUMP / JUMPDEST / JUMPI-fallthrough) charge gas and move the pc/stack but
+never touch memory — these `rfl` lemmas thread the `Corr.memAgree` memory value channel across
+block edges (the frames preserve both `memory` bytes and `activeWords`). -/
+
+@[simp] theorem jumpFrame_memory (fr : Frame) (cost : ℕ) (new_pc : UInt32) (rest : Stack Word) :
+    (jumpFrame fr cost new_pc rest).exec.toMachineState.memory = fr.exec.toMachineState.memory := rfl
+
+@[simp] theorem jumpFrame_activeWords (fr : Frame) (cost : ℕ) (new_pc : UInt32) (rest : Stack Word) :
+    (jumpFrame fr cost new_pc rest).exec.toMachineState.activeWords
+      = fr.exec.toMachineState.activeWords := rfl
+
+@[simp] theorem jumpdestFrame_memory (fr : Frame) :
+    (jumpdestFrame fr).exec.toMachineState.memory = fr.exec.toMachineState.memory := rfl
+
+@[simp] theorem jumpdestFrame_activeWords (fr : Frame) :
+    (jumpdestFrame fr).exec.toMachineState.activeWords = fr.exec.toMachineState.activeWords := rfl
+
+@[simp] theorem jumpiFallthroughFrame_memory (fr : Frame) (rest : Stack Word) :
+    (jumpiFallthroughFrame fr rest).exec.toMachineState.memory
+      = fr.exec.toMachineState.memory := rfl
+
+@[simp] theorem jumpiFallthroughFrame_activeWords (fr : Frame) (rest : Stack Word) :
+    (jumpiFallthroughFrame fr rest).exec.toMachineState.activeWords
+      = fr.exec.toMachineState.activeWords := rfl
+
 /-! ## E1 — `sim_term_halt` (the halting terminators `stop` / `ret`)
 
 A block whose terminator is `stop` or `ret t` runs (the `ret` value via B1 `materialise_runs`)
@@ -288,7 +315,7 @@ theorem sim_term_halt_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
   have hstkv : fr.exec.stack.size + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog)
       (.tmp t)).length ≤ 1024 := by rw [hszfr]; omega
   obtain ⟨frv, hmrv⟩ := materialise_runs sloadChg (recomputeFuel prog) st obs (.tmp t) vw fr
-    hdv hcorr.defsSound hcorr.wellScoped hcorr.storage hcorr.sloadReal hcorr.gasReal
+    hdv hcorr.defsSound hcorr.wellScoped hcorr.storage hcorr.sloadReal hcorr.gasReal hcorr.memAgree
     hevv hgas hstkv
   -- the RETURN-site facts at `frv` (value-channel structured hypotheses).
   obtain ⟨last, rest, output, cp, hlrun, hlhalt, hladdr, hlstore, hlkind, hlne⟩ :=
@@ -347,9 +374,12 @@ theorem corr_at_jumpdest_landing {prog : Program} {sloadChg : Tmp → ℕ} {obs 
     (hmod : fj.exec.executionEnv.canModifyState = true)
     (hstore : ∀ k, selfStorage fj k = st.world k)
     (hsound : DefsSound prog st)
-    (hscoped : ∀ t, st.locals t ≠ none → ¬ NonRecomputable prog t ∧ defsOf prog t ≠ none)
+    (hscoped : ∀ t, st.locals t ≠ none →
+      (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.callResult slot))
+      ∧ defsOf prog t ≠ none)
     (hsload : SloadRealises sloadChg st fj)
     (hgasr : GasRealises obs fj)
+    (hmem : MemRealises prog st fj)
     (hdec : decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none))
     (hgas : GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat) :
     Runs fj (jumpdestFrame fj) ∧ Corr prog sloadChg obs st (jumpdestFrame fj) succ 0 := by
@@ -365,7 +395,8 @@ theorem corr_at_jumpdest_landing {prog : Program} {sloadChg : Tmp → ℕ} {obs 
       defsSound := hsound
       wellScoped := hscoped
       sloadReal := ?_
-      gasReal := ?_ }
+      gasReal := ?_
+      memAgree := hmem.transport (by rw [jumpdestFrame_memory]) (by rw [jumpdestFrame_activeWords]) }
   · -- pc: (offsetTable succ.idx) + 1 = pcOf prog succ 0.
     rw [jumpdestFrame_pc, hpc, pcOf_zero prog succ bsucc hbsucc, UInt32.ofNat_add]
   · intro key; rw [jumpdestFrame_selfStorage]; exact hstore key
@@ -388,9 +419,12 @@ theorem jump_to_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     (hgmod : g.exec.executionEnv.canModifyState = true)
     (hgstore : ∀ k, selfStorage g k = st.world k)
     (hsound : DefsSound prog st)
-    (hscoped : ∀ t, st.locals t ≠ none → ¬ NonRecomputable prog t ∧ defsOf prog t ≠ none)
+    (hscoped : ∀ t, st.locals t ≠ none →
+      (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.callResult slot))
+      ∧ defsOf prog t ≠ none)
     (hsload : SloadRealises sloadChg st g)
     (hgasr : GasRealises obs g)
+    (hmem : MemRealises prog st g)
     (hvalid : g.validJumps = validJumpDests (lower prog) 0)
     (hdestword : dest.toUInt32?
         = some (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks succ.idx)))
@@ -446,10 +480,15 @@ theorem jump_to_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     rw [hfj, jumpFrame_addr]; rfl
   have hfjsload : SloadRealises sloadChg st fj := hsload.transport hfjaddr
   have hfjgasr : GasRealises obs fj := hgasr.transport hfjaddr
+  -- the memory value channel survives the PUSH4 + JUMP (neither touches memory/activeWords).
+  have hfjmem : MemRealises prog st fj :=
+    hmem.transport
+      (by rw [hfj, jumpFrame_memory]; rfl)
+      (by rw [hfj, jumpFrame_activeWords]; exact le_refl _)
   have hfjvalid : fj.validJumps = validJumpDests fj.exec.executionEnv.code 0 := by
     rw [hfjcode, hfj, jumpFrame_validJumps, pushFrameW_validJumps]; exact hvalid
   obtain ⟨hjdrun, hjdcorr⟩ := corr_at_jumpdest_landing (st := st) hbsucc hfjpc hfjcode hfjvalid hfjstk
-    hfjmod hfjstore hsound hscoped hfjsload hfjgasr hfjdec (by rw [hfj]; exact hgjd)
+    hfjmod hfjstore hsound hscoped hfjsload hfjgasr hfjmem hfjdec (by rw [hfj]; exact hgjd)
   exact ⟨jumpdestFrame fj, (hpush.trans hjump).trans hjdrun, hjdcorr⟩
 
 /-- **`sim_term_edge`, the `jump` arm.** From `Corr` at the terminator cursor `(L,
@@ -489,7 +528,7 @@ theorem sim_term_edge_jump {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word
     ∃ fr' L', L' = dst ∧ Runs fr fr' ∧ Corr prog sloadChg obs st fr' L' 0 := by
   obtain ⟨fr', hruns, hcorr'⟩ := jump_to_block (st := st) (g := fr) (dest := dest)
     hbdst hdstlt hcorr.code_eq hcorr.stack_nil hcorr.can_modify hcorr.storage hcorr.defsSound
-    hcorr.wellScoped hcorr.sloadReal hcorr.gasReal hvalid hdestword hdpush hdjump hdjd
+    hcorr.wellScoped hcorr.sloadReal hcorr.gasReal hcorr.memAgree hvalid hdestword hdpush hdjump hdjd
     hgpush hgjump hgjd
   exact ⟨fr', dst, rfl, hruns, hcorr'⟩
 
@@ -572,6 +611,8 @@ theorem sim_term_edge_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs : Wo
     intro k; rw [hmrc.storage k]; exact hcorr.storage k
   have hfrcsload : SloadRealises sloadChg st frc := hcorr.sloadReal.transport hfrcaddr
   have hfrcgasr : GasRealises obs frc := hcorr.gasReal.transport hfrcaddr
+  have hfrcmem : MemRealises prog st frc :=
+    hcorr.memAgree.transport hmrc.memBytes hmrc.memActive
   -- step: PUSH4 thenOff at `frc`.
   have hstk1 : frc.exec.stack.size + 1 ≤ 1024 := by rw [hfrcstk]; show (1:ℕ)+1≤1024; omega
   have hpushT : Runs frc (pushFrameW frc thenWord 4) :=
@@ -611,6 +652,10 @@ theorem sim_term_edge_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs : Wo
       rw [hgff, jumpiFallthroughFrame_addr]; rfl
     have hgffsload : SloadRealises sloadChg st gff := hfrcsload.transport hgffaddr
     have hgffgasr : GasRealises obs gff := hfrcgasr.transport hgffaddr
+    have hgffmem : MemRealises prog st gff :=
+      hfrcmem.transport
+        (by rw [hgff, jumpiFallthroughFrame_memory, hfrp, pushFrameW_memory])
+        (by rw [hgff, jumpiFallthroughFrame_activeWords, hfrp, pushFrameW_activeWords])
     have hgffvalid : gff.validJumps = validJumpDests (lower prog) 0 := by
       rw [hgff, jumpiFallthroughFrame_validJumps]
       show frp.validJumps = _; rw [hfrp, pushFrameW_validJumps]; exact hfrcvalid
@@ -624,7 +669,7 @@ theorem sim_term_edge_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs : Wo
         = some (.Smsf .JUMP, .none) := by rw [hgffcode, hgffpc, ← hfrccode]; exact hdjump
     obtain ⟨fr', hruns', hcorr'⟩ := jump_to_block (st := st) (g := gff) (dest := elseWord)
       hbelse helselt hgffcode hgffstk hgffmod hgffstore hcorr.defsSound hcorr.wellScoped
-      hgffsload hgffgasr hgffvalid helseword hdpushE' hdjump' hdjdE
+      hgffsload hgffgasr hgffmem hgffvalid helseword hdpushE' hdjump' hdjdE
       (by rw [hgff]; exact hgpushE) (by rw [hgff]; exact hgjumpE) (by rw [hgff]; exact hgjdE)
     exact ⟨fr', elseL, Or.inr ⟨rfl, rfl⟩, ((hmrc.runs.trans hpushT).trans hfall).trans hruns', hcorr'⟩
   · -- THEN arm: JUMPI taken jumps to `thenL`'s JUMPDEST.
@@ -659,10 +704,14 @@ theorem sim_term_edge_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs : Wo
       rw [hfj, jumpFrame_addr]; rfl
     have hfjsload : SloadRealises sloadChg st fj := hfrcsload.transport hfjaddr
     have hfjgasr : GasRealises obs fj := hfrcgasr.transport hfjaddr
+    have hfjmem : MemRealises prog st fj :=
+      hfrcmem.transport
+        (by rw [hfj, jumpFrame_memory, hfrp, pushFrameW_memory])
+        (by rw [hfj, jumpFrame_activeWords, hfrp, pushFrameW_activeWords])
     have hfjvalid : fj.validJumps = validJumpDests fj.exec.executionEnv.code 0 := by
       rw [hfjcode, hfj, jumpFrame_validJumps, hfrp, pushFrameW_validJumps]; exact hfrcvalid
     obtain ⟨hjdrun, hjdcorr⟩ := corr_at_jumpdest_landing (st := st) hbthen hfjpc hfjcode hfjvalid
-      hfjstk hfjmod hfjstore hcorr.defsSound hcorr.wellScoped hfjsload hfjgasr hfjdec
+      hfjstk hfjmod hfjstore hcorr.defsSound hcorr.wellScoped hfjsload hfjgasr hfjmem hfjdec
       (by rw [hfj]; exact hgjdT)
     exact ⟨jumpdestFrame fj, thenL, Or.inl ⟨hcw, rfl⟩,
       ((hmrc.runs.trans hpushT).trans htaken).trans hjdrun, hjdcorr⟩

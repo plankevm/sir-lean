@@ -117,13 +117,21 @@ structure Corr (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
   storage    : StorageAgree st fr
   /-- B3 — recompute-on-use soundness. -/
   defsSound  : DefsSound prog st
-  /-- Define-before-use scoping: every currently-bound tmp is recomputable and present
-  in the recompute environment (the `WellScoped` content `materialise_runs` consumes). -/
-  wellScoped : ∀ t, st.locals t ≠ none → ¬ NonRecomputable prog t ∧ defsOf prog t ≠ none
+  /-- Define-before-use scoping: every currently-bound tmp is either recomputable or a
+  call result registered in the recompute env, and present in it (the `WellScoped` content
+  `materialise_runs` consumes — relaxed to admit the memory value channel). -/
+  wellScoped : ∀ t, st.locals t ≠ none →
+    (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.callResult slot))
+    ∧ defsOf prog t ≠ none
   /-- B1 — SLOAD warmth-cost realisability. -/
   sloadReal  : SloadRealises sloadChg st fr
   /-- B1 — GAS value realisability. -/
   gasReal    : GasRealises obs fr
+  /-- The memory value channel: the frame's memory realises the IR's bound call-result
+  locals (coverage + readback value at each call-result slot). The memory analogue of
+  `sloadReal`/`gasReal`; supplied to the `materialise_runs` calls, preserved by
+  assign/sstore (they don't touch memory), vacuous at the empty-locals entry. -/
+  memAgree   : MemRealises prog st fr
 
 /-- **`validJumps` discharge.** From `Corr`, the frame's `validJumps` are exactly those of
 `lower prog` — `validJumpDests (lower prog) 0`. Combines the frame-invariant `validJumps_eq`
@@ -170,9 +178,12 @@ theorem sim_assign {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     (hcorr : Corr prog sloadChg obs st fr L pc)
     (hstep : EvalStmt prog o st T (.assign t e) st' T')
     (hsc : StepScoped prog st (.assign t e))
-    (hscoped' : ∀ t, st'.locals t ≠ none → ¬ NonRecomputable prog t ∧ defsOf prog t ≠ none)
+    (hscoped' : ∀ t, st'.locals t ≠ none →
+      (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.callResult slot))
+      ∧ defsOf prog t ≠ none)
     (hsload' : SloadRealises sloadChg st' fr)
-    (hgas' : GasRealises obs fr) :
+    (hgas' : GasRealises obs fr)
+    (hmem' : MemRealises prog st' fr) :
     Runs fr fr ∧ Corr prog sloadChg obs st' fr L (pc + 1) ∧ fr.exec.stack = [] := by
   refine ⟨Runs.refl fr, ?_, hcorr.stack_nil⟩
   -- pc advance: emitStmt of assign is empty, so the next cursor coincides.
@@ -195,7 +206,8 @@ theorem sim_assign {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       defsSound := hsound'
       wellScoped := hscoped'
       sloadReal := hsload'
-      gasReal := hgas' }
+      gasReal := hgas'
+      memAgree := hmem' }
   intro key
   rw [hworld]; exact hcorr.storage key
 
@@ -248,6 +260,23 @@ theorem sstore_executionEnv (s : Evm.State) (k v : Word) :
 @[simp] theorem sstoreFrame_stack (fr : Frame) (key value : Word) (rest : Stack Word) :
     (sstoreFrame fr key value rest).exec.stack = rest := by
   simp [sstoreFrame, sstorePost, Evm.ExecutionState.replaceStackAndIncrPC]
+
+/-- `SSTORE` writes storage, not memory: the post-frame's memory bytes are `fr`'s. (`State.sstore`
+touches accounts + substate only; `replaceStackAndIncrPC` touches stack/pc only.) -/
+@[simp] theorem sstoreFrame_memory (fr : Frame) (key value : Word) (rest : Stack Word) :
+    (sstoreFrame fr key value rest).exec.toMachineState.memory
+      = fr.exec.toMachineState.memory := by
+  show ((sstorePost fr.exec key value rest).toMachineState.memory) = _
+  unfold sstorePost Evm.ExecutionState.replaceStackAndIncrPC Evm.State.sstore
+  simp only [Option.option]
+
+/-- `SSTORE` leaves `activeWords` untouched (it does not access memory). -/
+@[simp] theorem sstoreFrame_activeWords (fr : Frame) (key value : Word) (rest : Stack Word) :
+    (sstoreFrame fr key value rest).exec.toMachineState.activeWords
+      = fr.exec.toMachineState.activeWords := by
+  show ((sstorePost fr.exec key value rest).toMachineState.activeWords) = _
+  unfold sstorePost Evm.ExecutionState.replaceStackAndIncrPC Evm.State.sstore
+  simp only [Option.option]
 
 /-! ## The SSTORE realisability side-condition
 
@@ -332,7 +361,7 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
   have hstkv : fr.exec.stack.size + (chargeOf defs sloadChg fuel (.tmp value)).length ≤ 1024 := by
     rw [hszfr]; omega
   obtain ⟨frv, hmrv⟩ := materialise_runs sloadChg fuel st obs (.tmp value) vw fr
-    hdv hcorr.defsSound hcorr.wellScoped hcorr.storage hcorr.sloadReal hcorr.gasReal
+    hdv hcorr.defsSound hcorr.wellScoped hcorr.storage hcorr.sloadReal hcorr.gasReal hcorr.memAgree
     hevv hgasv hstkv
   -- frv facts
   have hvcode : frv.exec.executionEnv.code = fr.exec.executionEnv.code := hmrv.code
@@ -352,7 +381,8 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
   obtain ⟨frk, hmrk⟩ := materialise_runs sloadChg fuel st obs (.tmp key) kw frv
     hdk' hcorr.defsSound hcorr.wellScoped
     (hcorr.storage.transport hmrv.storage) (hcorr.sloadReal.transport hmrv.addr)
-    (hcorr.gasReal.transport hmrv.addr) hevk hgask hstkk
+    (hcorr.gasReal.transport hmrv.addr) (hcorr.memAgree.transport hmrv.memBytes hmrv.memActive)
+    hevk hgask hstkk
   -- frk facts
   have hkcode : frk.exec.executionEnv.code = fr.exec.executionEnv.code := by
     rw [hmrk.code, hvcode]
@@ -394,7 +424,8 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         defsSound := ?_
         wellScoped := ?_
         sloadReal := ?_
-        gasReal := ?_ }
+        gasReal := ?_
+        memAgree := ?_ }
     · -- pc: (fr.pc + lv + lk) + 1 = ofNat (pcOf + (lv+lk+1)).
       rw [sstoreFrame_pc, hkpc, hcorr.pc_eq, hpcN,
           show ((1 : UInt8).toUInt32) = UInt32.ofNat 1 from rfl,
@@ -437,6 +468,17 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       have hgaddr' : g.exec.executionEnv.address = fr.exec.executionEnv.address := by
         rw [hgaddr, hfraddr, hkaddr]
       exact hcorr.gasReal g hgaddr'
+    · -- memory value channel: SSTORE preserves memory bytes + activeWords (writes storage,
+      -- not memory); `setStorage` leaves `locals`, so `MemRealises` transports through the chain.
+      intro tw slot v hdef hloc
+      have hloc' : st.locals tw = some v := by simpa [V2.IRState.setStorage] using hloc
+      have hmembytes : (sstoreFrame frk kw vw []).exec.toMachineState.memory
+          = fr.exec.toMachineState.memory := by
+        rw [sstoreFrame_memory, hmrk.memBytes, hmrv.memBytes]
+      have hmemact : fr.exec.toMachineState.activeWords.toNat
+          ≤ (sstoreFrame frk kw vw []).exec.toMachineState.activeWords.toNat := by
+        rw [sstoreFrame_activeWords]; exact le_trans hmrv.memActive hmrk.memActive
+      exact (hcorr.memAgree.transport hmembytes hmemact) tw slot v hdef hloc'
   · rw [sstoreFrame_stack]
 
 /-! ## Arm 3 — `call cs` (the `Runs.call` node)

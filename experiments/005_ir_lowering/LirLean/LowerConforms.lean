@@ -217,15 +217,17 @@ theorem simStmtStep_assign {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word
         Corr prog sloadChg obs st0 fr0 L pc →
         StepScoped prog st0 (.assign t e)
         ∧ (∀ t', st0'.locals t' ≠ none →
-              ¬ NonRecomputable prog t' ∧ defsOf prog t' ≠ none)
+              (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.callResult slot))
+              ∧ defsOf prog t' ≠ none)
         ∧ SloadRealises sloadChg st0' fr0
-        ∧ GasRealises obs fr0) :
+        ∧ GasRealises obs fr0
+        ∧ MemRealises prog st0' fr0) :
     SimStmtStep prog sloadChg obs o L b := by
   intro pc s st0 st0' T0 T0' fr0 hget hnc hcorr hstep
   obtain ⟨t, e, hse⟩ := hassign s (List.mem_iff_getElem?.mpr ⟨pc, hget⟩)
   subst hse
-  obtain ⟨hsc, hscoped', hsload', hgas'⟩ := hties pc t e st0 st0' fr0 hget hcorr
-  obtain ⟨_, hc', _⟩ := sim_assign hb hget hcorr hstep hsc hscoped' hsload' hgas'
+  obtain ⟨hsc, hscoped', hsload', hgas', hmem'⟩ := hties pc t e st0 st0' fr0 hget hcorr
+  obtain ⟨_, hc', _⟩ := sim_assign hb hget hcorr hstep hsc hscoped' hsload' hgas' hmem'
   exact ⟨fr0, Runs.refl fr0, hc', hcorr.stack_nil⟩
 
 /-! ### The `sstore`-arm discharge (decode-free via `sim_sstore_stmt_lowered`)
@@ -295,9 +297,11 @@ theorem simStmtStep_callfree {prog : Program} {sloadChg : Tmp → ℕ} {obs : Wo
         Corr prog sloadChg obs st0 fr0 L pc →
         StepScoped prog st0 (.assign t e)
         ∧ (∀ t', st0'.locals t' ≠ none →
-              ¬ NonRecomputable prog t' ∧ defsOf prog t' ≠ none)
+              (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.callResult slot))
+              ∧ defsOf prog t' ≠ none)
         ∧ SloadRealises sloadChg st0' fr0
-        ∧ GasRealises obs fr0)
+        ∧ GasRealises obs fr0
+        ∧ MemRealises prog st0' fr0)
     -- the genuine `sstore`-cursor ties (the §7 supplied-observation contract):
     (hsstore : ∀ (pc : Nat) (key value : Tmp) (kw vw : Word) (st0 : V2.IRState) (fr0 : Frame),
         b.stmts[pc]? = some (.sstore key value) →
@@ -316,15 +320,17 @@ theorem simStmtStep_callfree {prog : Program} {sloadChg : Tmp → ℕ} {obs : Wo
   cases hstep with
   | assignPure hne hv =>
     rename_i t e w
-    obtain ⟨hsc, hscoped', hsload', hgas'⟩ := hassign pc t e st0 (st0.setLocal t w) fr0 hget hcorr
+    obtain ⟨hsc, hscoped', hsload', hgas', hmem'⟩ :=
+      hassign pc t e st0 (st0.setLocal t w) fr0 hget hcorr
     obtain ⟨_, hc', _⟩ := sim_assign hb hget hcorr
-      (EvalStmt.assignPure (prog := prog) (o := o) (T := T0) hne hv) hsc hscoped' hsload' hgas'
+      (EvalStmt.assignPure (prog := prog) (o := o) (T := T0) hne hv) hsc hscoped' hsload' hgas' hmem'
     exact ⟨fr0, Runs.refl fr0, hc', hcorr.stack_nil⟩
   | assignGas =>
     rename_i ob t
-    obtain ⟨hsc, hscoped', hsload', hgas'⟩ := hassign pc t .gas st0 (st0.setLocal t ob) fr0 hget hcorr
+    obtain ⟨hsc, hscoped', hsload', hgas', hmem'⟩ :=
+      hassign pc t .gas st0 (st0.setLocal t ob) fr0 hget hcorr
     obtain ⟨_, hc', _⟩ := sim_assign hb hget hcorr
-      (EvalStmt.assignGas (prog := prog) (o := o) (T := T0') (t := t)) hsc hscoped' hsload' hgas'
+      (EvalStmt.assignGas (prog := prog) (o := o) (T := T0') (t := t)) hsc hscoped' hsload' hgas' hmem'
     exact ⟨fr0, Runs.refl fr0, hc', hcorr.stack_nil⟩
   | sstore hk hv =>
     rename_i key value kw vw
@@ -919,7 +925,8 @@ theorem entry_corr {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} {w₀ 
   have hgas' : GasConstants.Gjumpdest ≤ fe.exec.gasAvailable.toNat := by rw [hfe, codeFrame_gas]; exact hgas
   obtain ⟨hjdrun, hjdcorr⟩ :=
     corr_at_jumpdest_landing (st := { locals := fun _ => none, world := w₀ }) hbtl hpc hcode hvalid
-      hstk hcanmod hstore' (defsSound_entry prog w₀) (by intro t ht; simp at ht) hsload hgasr hdec hgas'
+      hstk hcanmod hstore' (defsSound_entry prog w₀) (by intro t ht; simp at ht) hsload hgasr
+      (by intro t slot v _ hloc; simp at hloc) hdec hgas'
   exact ⟨jumpdestFrame fe, hjdrun, hjdcorr⟩
 
 /-! ## `lower_conforms` — tying `sim_cfg` to the recording interpreter
@@ -1061,9 +1068,12 @@ def StmtTies (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (L : Label) 
       b.stmts[pc]? = some (.assign t e) →
       Corr prog sloadChg obs st0 fr0 L pc →
       StepScoped prog st0 (.assign t e)
-      ∧ (∀ t', st0'.locals t' ≠ none → ¬ NonRecomputable prog t' ∧ defsOf prog t' ≠ none)
+      ∧ (∀ t', st0'.locals t' ≠ none →
+            (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.callResult slot))
+            ∧ defsOf prog t' ≠ none)
       ∧ SloadRealises sloadChg st0' fr0
-      ∧ GasRealises obs fr0)
+      ∧ GasRealises obs fr0
+      ∧ MemRealises prog st0' fr0)
   ∧ (∀ (pc : Nat) (key value : Tmp) (kw vw : Word) (st0 : V2.IRState) (fr0 : Frame),
       b.stmts[pc]? = some (.sstore key value) →
       Corr prog sloadChg obs st0 fr0 L pc →

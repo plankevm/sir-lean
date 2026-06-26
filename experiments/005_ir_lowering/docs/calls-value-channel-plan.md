@@ -174,6 +174,39 @@ The headline conformance only projects `Observable.world` (return word NOT check
 (`wc_preserves` takes the RETURN halt as a hypothesis — honest, documented). **Close it in P7**
 (or a dedicated phase) once `sim_mstore`/`sim_mload` land. This is a genuine de-distortion.
 
+### Design lock — call-results are "memory-recomputable" (the gas analogy, with a twist)
+`materialise_runs`'s `.tmp t` arm splits bound tmps into recomputable (DefsSound) vs
+`NonRecomputable` (gas). Call-results are a THIRD kind:
+- **Excluded from `DefsSound`** (like gas: `evalExpr (.callResult _) = none`), so the
+  recompute path makes no claim about them.
+- **But value-STABLE**: re-emitting `PUSH slot; MLOAD` returns the SAME flag every time
+  (memory doesn't change), unlike `GAS` which returns a fresh value. ⇒ call-results may be
+  **multi-used** (gas may not) — though single-use is enough to drop `CallFree`; multi-use
+  is a free bonus of the stable channel, needs no `WellFormed` change.
+- Tied by a new realisability condition **`MemRealises`** carrying, for each bound
+  call-result tmp, **coverage + value**: `∀ t slot v, defsOf t = some (.callResult slot) →
+  st.locals t = some v → (ofNat slot).toNat + 32 ≤ fr…memory.size ∧ (ofNat slot).toNat <
+  fr…activeWords.toNat*32 ∧ (fr…mload (ofNat slot)).1 = v`. The memory analogue of
+  `GasRealises`/`SloadRealises`, threaded through `materialise_runs` with a `.transport`.
+  **Why coverage:** `MLOAD` is NOT a pure read — it grows `activeWords` (memory expansion),
+  which can retroactively un-zero an *uncovered* slot's read. Bound call-result slots are
+  always covered (the P5 MSTORE that binds them grows `activeWords` over the slot and
+  allocates the bytes), so coverage is honest and travels with the value.
+- **`MatRuns` memory clause** (the form that actually transports): **memory BYTES unchanged
+  + `activeWords` nondecreasing** — NOT "mload-value preserved" (false across MLOAD). Both
+  hold for every arm (imm/tmp/add/lt/sload/gas preserve both; MLOAD preserves bytes, grows
+  activeWords). For a covered slot, bytes-equal ⇒ size-equal ⇒ in-bounds preserved;
+  activeWords-nondecreasing ⇒ active preserved; covered+bytes-equal ⇒ value preserved. So
+  `MemRealises.transport` follows from the two-fact `MatRuns.memory` clause.
+- Handled **inline in the `.tmp t` arm**: when `defs t = some (.callResult slot)`, run
+  `PUSH slot; MLOAD` (sim_imm + sim_mload), value `= w` via `MemRealises`. The `.callResult`
+  arm of `materialise_runs` STAYS vacuous (never reached on a valid `evalExpr` run).
+- `materialise_runs`'s `wellScoped` premise is RELAXED to admit call-result tmps:
+  `bound t → (¬NonRecomputable t ∨ isCallResult t) ∧ defsOf t ≠ none`.
+- `MatRuns` gains a **memory clause** (mload-value at slots preserved by materialise sub-runs)
+  so `MemRealises.transport` threads. `Corr` gains a `memAgree : MemRealises …` field;
+  assign/sstore preserve it (they don't touch memory); entry is vacuous (empty locals).
+
 ### Revised sequencing
 P1a (pop) + green-restore + zeroes + MemAlgebra crux: **DONE / in-progress**. Next:
 finish MemAlgebra read-back → `sim_mstore`/`sim_mload` (P1b) → P2 decode anchors → P3 MemAgree
