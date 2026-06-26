@@ -385,7 +385,6 @@ theorem sim_term_edge_jump_lowered {prog : Program} {sloadChg : Tmp → ℕ} {ob
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hbdst : prog.blocks.toList[dst.idx]? = some bdst)
     (hdstlt : dst.idx < prog.blocks.size)
-    (hvalid : fr.validJumps = validJumpDests (lower prog) 0)
     -- pc bounds (the terminator + landing offsets fit a `UInt32`):
     (hbterm : termOf prog L + 5 < 2 ^ 32)
     (hboff : offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks dst.idx < 2 ^ 32)
@@ -433,8 +432,10 @@ theorem sim_term_edge_jump_lowered {prog : Program} {sloadChg : Tmp → ℕ} {ob
     decode_at_block_offset_jumpdest prog dst bdst hbdst (by rw [← hoff]; omega)
   -- the `hdestword` offset tie.
   have hdestword : dest.toUInt32? = some (UInt32.ofNat off) := ofNatMod_toUInt32? off
-  exact sim_term_edge_jump hcorr hterm hbdst hdstlt hvalid hdestword hdpush hdjump hdjd
-    hgpush hgjump hgjd
+  -- the `validJumps`-recording tie is discharged structurally from `Corr` (frame-invariant
+  -- `validJumps = validJumpDests code 0` + `code = lower prog`).
+  exact sim_term_edge_jump hcorr hterm hbdst hdstlt hcorr.validJumps_lower hdestword hdpush hdjump
+    hdjd hgpush hgjump hgjd
 
 end Lir
 
@@ -467,7 +468,6 @@ theorem sim_term_edge_branch_lowered {prog : Program} {sloadChg : Tmp → ℕ} {
     (hthenlt : thenL.idx < prog.blocks.size)
     (helselt : elseL.idx < prog.blocks.size)
     (hmrc : MatRuns (defsOf prog) sloadChg (recomputeFuel prog) (.tmp cond) cw fr frc)
-    (hfrcvalid : frc.validJumps = validJumpDests (lower prog) 0)
     -- pc bounds: cond-materialise length + the destinations / landings fit a `UInt32`.
     (hbterm : termOf prog L + (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp cond)).length
         + 11 < 2 ^ 32)
@@ -583,6 +583,11 @@ theorem sim_term_edge_branch_lowered {prog : Program} {sloadChg : Tmp → ℕ} {
   -- the two `hdestword` offset ties.
   have hthenword : thenW.toUInt32? = some (UInt32.ofNat thenOff) := ofNatMod_toUInt32? thenOff
   have helseword : elseW.toUInt32? = some (UInt32.ofNat elseOff) := ofNatMod_toUInt32? elseOff
+  -- the cond-materialise endpoint `frc` carries `fr`'s `validJumps` (`MatRuns.validJumps`),
+  -- which `Corr` pins to the lowered program's — the `validJumps`-recording tie discharged
+  -- structurally.
+  have hfrcvalid : frc.validJumps = validJumpDests (lower prog) 0 := by
+    rw [hmrc.validJumps]; exact hcorr.validJumps_lower
   exact sim_term_edge_branch hcorr hterm hc hbthen hbelse hthenlt helselt hmrc hfrcvalid
     hthenword helseword hdpushT hdjumpi hdpushE hdjump hdjdT hdjdE
     hgpushT hgjumpi hgjdT hgpushE hgjumpE hgjdE

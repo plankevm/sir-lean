@@ -45,3 +45,7 @@ import LirLean.V2.Call
 -- `V2.CallOracle` to v1's `evmCallOracle`; the realised bundle = the lowered CALL's
 -- observable effect (the call analogue of `GasRealises.monotoneGas`). Bytecode-coupled.
 import LirLean.V2.CallRealises
+-- Acyclicity ⇒ `MatFueled`: discharges `WellFormedLowered`'s recompute-fuel-sufficiency
+-- fields from a rank-based SSA acyclicity witness (`Acyclic (defsOf prog) rank`), so no
+-- `MatFueled` hypothesis survives for an acyclic program (`wellFormedLowered_of_acyclic`).
+import LirLean.Acyclic

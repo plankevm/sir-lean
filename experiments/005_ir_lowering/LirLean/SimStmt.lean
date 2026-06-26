@@ -103,6 +103,12 @@ structure Corr (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
   pc_eq      : fr.exec.pc = UInt32.ofNat (pcOf prog L pc)
   /-- `M2` — the frame runs the lowered program. -/
   code_eq    : fr.exec.executionEnv.code = lower prog
+  /-- `M2′` — the frame's recorded jump destinations are those of its own code. This is
+  a frame-invariant: `validJumps` is set once at frame creation from `code` (`codeFrame`)
+  and every non-call step preserves both fields together. Combined with `code_eq` it
+  discharges the `validJumps = validJumpDests (lower prog) 0` control-flow ties
+  structurally (see `Corr.validJumps_lower`). -/
+  validJumps_eq : fr.validJumps = validJumpDests fr.exec.executionEnv.code 0
   /-- `M5` — empty working stack at the statement boundary. -/
   stack_nil  : fr.exec.stack = []
   /-- Standing well-formedness: the call may modify state (top-level call). -/
@@ -118,6 +124,16 @@ structure Corr (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
   sloadReal  : SloadRealises sloadChg st fr
   /-- B1 — GAS value realisability. -/
   gasReal    : GasRealises obs fr
+
+/-- **`validJumps` discharge.** From `Corr`, the frame's `validJumps` are exactly those of
+`lower prog` — `validJumpDests (lower prog) 0`. Combines the frame-invariant `validJumps_eq`
+(`validJumps = validJumpDests code 0`) with `code_eq` (`code = lower prog`). This is the
+structural discharge of the former `validJumps`-recording ties of `TermTies`. -/
+theorem Corr.validJumps_lower {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
+    {st : V2.IRState} {fr : Frame} {L : Label} {pc : Nat}
+    (hcorr : Corr prog sloadChg obs st fr L pc) :
+    fr.validJumps = validJumpDests (lower prog) 0 := by
+  rw [hcorr.validJumps_eq, hcorr.code_eq]
 
 /-! ## `emitStmt`/byte-length reductions for the three statement shapes -/
 
@@ -172,6 +188,7 @@ theorem sim_assign {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
   refine
     { pc_eq := by rw [hcorr.pc_eq, hpc]
       code_eq := hcorr.code_eq
+      validJumps_eq := hcorr.validJumps_eq
       stack_nil := hcorr.stack_nil
       can_modify := hcorr.can_modify
       storage := ?_
@@ -209,6 +226,9 @@ theorem sstore_executionEnv (s : Evm.State) (k v : Word) :
     (sstoreFrame fr key value rest).exec.executionEnv.code = fr.exec.executionEnv.code := by
   show (fr.exec.sstore key value).executionEnv.code = fr.exec.executionEnv.code
   rw [sstore_executionEnv]
+
+@[simp] theorem sstoreFrame_validJumps (fr : Frame) (key value : Word) (rest : Stack Word) :
+    (sstoreFrame fr key value rest).validJumps = fr.validJumps := rfl
 
 @[simp] theorem sstoreFrame_addr (fr : Frame) (key value : Word) (rest : Stack Word) :
     (sstoreFrame fr key value rest).exec.executionEnv.address = fr.exec.executionEnv.address := by
@@ -336,6 +356,8 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
   -- frk facts
   have hkcode : frk.exec.executionEnv.code = fr.exec.executionEnv.code := by
     rw [hmrk.code, hvcode]
+  have hkvalid : frk.validJumps = fr.validJumps := by
+    rw [hmrk.validJumps, hmrv.validJumps]
   have hkaddr : frk.exec.executionEnv.address = fr.exec.executionEnv.address := by
     rw [hmrk.addr, hvaddr]
   have hkpc : frk.exec.pc = fr.exec.pc + UInt32.ofNat lv + UInt32.ofNat lk := by
@@ -365,6 +387,7 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     refine
       { pc_eq := ?_
         code_eq := ?_
+        validJumps_eq := ?_
         stack_nil := by rw [sstoreFrame_stack]
         can_modify := by rw [sstoreFrame_canMod, hkmod]
         storage := ?_
@@ -378,6 +401,8 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
           UInt32.ofNat_add, UInt32.ofNat_add, UInt32.ofNat_add]
       ac_rfl
     · rw [sstoreFrame_code, hkcode]; exact hcorr.code_eq
+    · -- M2′: validJumps tracks the (unchanged) code, threaded through frk and the SSTORE frame.
+      rw [sstoreFrame_validJumps, sstoreFrame_code, hkvalid, hkcode]; exact hcorr.validJumps_eq
     · -- M3 at the written cell.
       intro keyw
       rw [selfStorage_eq_storageAt, hfraddr]

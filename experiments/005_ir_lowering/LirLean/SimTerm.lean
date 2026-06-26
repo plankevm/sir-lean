@@ -152,6 +152,9 @@ change. These `rfl` lemmas expose exactly the clauses E2's `Corr` re-establishme
 @[simp] theorem jumpFrame_stack (fr : Frame) (cost : ℕ) (new_pc : UInt32) (rest : Stack Word) :
     (jumpFrame fr cost new_pc rest).exec.stack = rest := rfl
 
+@[simp] theorem jumpFrame_validJumps (fr : Frame) (cost : ℕ) (new_pc : UInt32) (rest : Stack Word) :
+    (jumpFrame fr cost new_pc rest).validJumps = fr.validJumps := rfl
+
 @[simp] theorem jumpdestFrame_code (fr : Frame) :
     (jumpdestFrame fr).exec.executionEnv.code = fr.exec.executionEnv.code := rfl
 
@@ -170,6 +173,9 @@ change. These `rfl` lemmas expose exactly the clauses E2's `Corr` re-establishme
 
 @[simp] theorem jumpdestFrame_stack (fr : Frame) :
     (jumpdestFrame fr).exec.stack = fr.exec.stack := rfl
+
+@[simp] theorem jumpdestFrame_validJumps (fr : Frame) :
+    (jumpdestFrame fr).validJumps = fr.validJumps := rfl
 
 @[simp] theorem jumpiFallthroughFrame_code (fr : Frame) (rest : Stack Word) :
     (jumpiFallthroughFrame fr rest).exec.executionEnv.code = fr.exec.executionEnv.code := rfl
@@ -336,6 +342,7 @@ theorem corr_at_jumpdest_landing {prog : Program} {sloadChg : Tmp → ℕ} {obs 
     (hpc : fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
             prog.blocks succ.idx))
     (hcode : fj.exec.executionEnv.code = lower prog)
+    (hvalid : fj.validJumps = validJumpDests fj.exec.executionEnv.code 0)
     (hstk : fj.exec.stack = [])
     (hmod : fj.exec.executionEnv.canModifyState = true)
     (hstore : ∀ k, selfStorage fj k = st.world k)
@@ -351,6 +358,7 @@ theorem corr_at_jumpdest_landing {prog : Program} {sloadChg : Tmp → ℕ} {obs 
   refine
     { pc_eq := ?_
       code_eq := by rw [jumpdestFrame_code]; exact hcode
+      validJumps_eq := by rw [jumpdestFrame_validJumps, jumpdestFrame_code]; exact hvalid
       stack_nil := by rw [jumpdestFrame_stack]; exact hstk
       can_modify := by rw [jumpdestFrame_canMod]; exact hmod
       storage := ?_
@@ -364,13 +372,6 @@ theorem corr_at_jumpdest_landing {prog : Program} {sloadChg : Tmp → ℕ} {obs 
   · exact hsload.transport (by rw [jumpdestFrame_addr])
   · exact hgasr.transport (by rw [jumpdestFrame_addr])
 
-/-! ### `validJumps` framing through `pushFrameW`
-
-The PUSH-of-destination leaves the frame's `validJumps` field untouched (it only rewrites
-`exec`), so `get_dest` at the post-push frame reads the same recorded destinations. -/
-
-@[simp] theorem pushFrameW_validJumps (fr : Frame) (w : Word) (width : UInt8) :
-    (pushFrameW fr w width).validJumps = fr.validJumps := rfl
 
 /-- **`PUSH4 dest ; JUMP ; ⟨land⟩ JUMPDEST` to a successor block.** From a frame `g` (running
 the lowered program, empty stack, modifiable, address/storage-lens agreeing with the carried
@@ -445,8 +446,10 @@ theorem jump_to_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     rw [hfj, jumpFrame_addr]; rfl
   have hfjsload : SloadRealises sloadChg st fj := hsload.transport hfjaddr
   have hfjgasr : GasRealises obs fj := hgasr.transport hfjaddr
-  obtain ⟨hjdrun, hjdcorr⟩ := corr_at_jumpdest_landing (st := st) hbsucc hfjpc hfjcode hfjstk hfjmod
-    hfjstore hsound hscoped hfjsload hfjgasr hfjdec (by rw [hfj]; exact hgjd)
+  have hfjvalid : fj.validJumps = validJumpDests fj.exec.executionEnv.code 0 := by
+    rw [hfjcode, hfj, jumpFrame_validJumps, pushFrameW_validJumps]; exact hvalid
+  obtain ⟨hjdrun, hjdcorr⟩ := corr_at_jumpdest_landing (st := st) hbsucc hfjpc hfjcode hfjvalid hfjstk
+    hfjmod hfjstore hsound hscoped hfjsload hfjgasr hfjdec (by rw [hfj]; exact hgjd)
   exact ⟨jumpdestFrame fj, (hpush.trans hjump).trans hjdrun, hjdcorr⟩
 
 /-- **`sim_term_edge`, the `jump` arm.** From `Corr` at the terminator cursor `(L,
@@ -656,8 +659,10 @@ theorem sim_term_edge_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs : Wo
       rw [hfj, jumpFrame_addr]; rfl
     have hfjsload : SloadRealises sloadChg st fj := hfrcsload.transport hfjaddr
     have hfjgasr : GasRealises obs fj := hfrcgasr.transport hfjaddr
-    obtain ⟨hjdrun, hjdcorr⟩ := corr_at_jumpdest_landing (st := st) hbthen hfjpc hfjcode hfjstk
-      hfjmod hfjstore hcorr.defsSound hcorr.wellScoped hfjsload hfjgasr hfjdec
+    have hfjvalid : fj.validJumps = validJumpDests fj.exec.executionEnv.code 0 := by
+      rw [hfjcode, hfj, jumpFrame_validJumps, hfrp, pushFrameW_validJumps]; exact hfrcvalid
+    obtain ⟨hjdrun, hjdcorr⟩ := corr_at_jumpdest_landing (st := st) hbthen hfjpc hfjcode hfjvalid
+      hfjstk hfjmod hfjstore hcorr.defsSound hcorr.wellScoped hfjsload hfjgasr hfjdec
       (by rw [hfj]; exact hgjdT)
     exact ⟨jumpdestFrame fj, thenL, Or.inl ⟨hcw, rfl⟩,
       ((hmrc.runs.trans hpushT).trans htaken).trans hjdrun, hjdcorr⟩

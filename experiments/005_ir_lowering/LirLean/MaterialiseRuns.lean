@@ -78,6 +78,26 @@ threads. -/
 @[simp] theorem pushFrameW_code (fr : Frame) (w : Word) (width : UInt8) :
     (pushFrameW fr w width).exec.executionEnv.code = fr.exec.executionEnv.code := rfl
 
+/-! Every materialise post-frame is `{ fr with exec := … }`, so the frame's
+`validJumps` field (set once at frame creation from the code) is preserved verbatim —
+these `rfl` lemmas thread the `MatRuns.validJumps` clause that ties `validJumps` to the
+frame's own code. -/
+
+@[simp] theorem pushFrameW_validJumps (fr : Frame) (w : Word) (width : UInt8) :
+    (pushFrameW fr w width).validJumps = fr.validJumps := rfl
+
+@[simp] theorem addFrame_validJumps (fr : Frame) (a b : Word) (rest : Stack Word) :
+    (addFrame fr a b rest).validJumps = fr.validJumps := rfl
+
+@[simp] theorem ltFrame_validJumps (fr : Frame) (a b : Word) (rest : Stack Word) :
+    (ltFrame fr a b rest).validJumps = fr.validJumps := rfl
+
+@[simp] theorem sloadFrame_validJumps (fr : Frame) (key : Word) (rest : Stack Word) :
+    (sloadFrame fr key rest).validJumps = fr.validJumps := rfl
+
+@[simp] theorem gasFrame_validJumps (fr : Frame) :
+    (gasFrame fr).validJumps = fr.validJumps := rfl
+
 @[simp] theorem pushFrameW_addr (fr : Frame) (w : Word) (width : UInt8) :
     (pushFrameW fr w width).exec.executionEnv.address = fr.exec.executionEnv.address := rfl
 
@@ -266,6 +286,7 @@ structure MatRuns (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ) (fuel : 
   runs       : Runs fr fr'
   stack      : fr'.exec.stack = fr.exec.stack.push w
   code       : fr'.exec.executionEnv.code = fr.exec.executionEnv.code
+  validJumps : fr'.validJumps = fr.validJumps
   addr       : fr'.exec.executionEnv.address = fr.exec.executionEnv.address
   canMod     : fr'.exec.executionEnv.canModifyState = fr.exec.executionEnv.canModifyState
   storage    : ∀ k, selfStorage fr' k = selfStorage fr k
@@ -359,6 +380,7 @@ theorem matRuns_imm (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ) (fuel 
     { runs := (sim_imm fr w hdec' hg3 hstk).1
       stack := (sim_imm fr w hdec' hg3 hstk).2
       code := rfl
+      validJumps := rfl
       addr := rfl
       canMod := rfl
       storage := fun _ => rfl
@@ -555,6 +577,7 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
             { runs := (sim_gas fr hdec' hsz1 hg2).1
               stack := by rw [gasFrame_stack, hwval]
               code := rfl
+              validJumps := rfl
               addr := rfl
               canMod := rfl
               storage := fun _ => rfl
@@ -638,6 +661,7 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
             { runs := hmrk.runs.trans hslrun
               stack := ?_
               code := ?_
+              validJumps := ?_
               addr := ?_
               canMod := ?_
               storage := ?_
@@ -646,6 +670,8 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
               gasToNat := ?_ }
           · rw [sloadFrame_stack, hval]
           · rw [sloadFrame_code, hkcode]
+          · show (sloadFrame frk key fr.exec.stack).validJumps = _
+            rw [sloadFrame_validJumps, hmrk.validJumps]
           · rw [sloadFrame_addr, hkaddr]
           · show (sloadFrame frk key fr.exec.stack).exec.executionEnv.canModifyState = _
             rw [show (sloadFrame frk key fr.exec.stack).exec.executionEnv.canModifyState
@@ -710,6 +736,7 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
                 { runs := hmr.runs
                   stack := hmr.stack
                   code := hmr.code
+                  validJumps := hmr.validJumps
                   addr := hmr.addr
                   canMod := hmr.canMod
                   storage := hmr.storage
@@ -801,6 +828,7 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
             { runs := (hmrb.runs.trans hmra.runs).trans hadrun
               stack := ?_
               code := ?_
+              validJumps := ?_
               addr := ?_
               canMod := ?_
               storage := ?_
@@ -809,6 +837,7 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
               gasToNat := ?_ }
           · rw [hadstk]
           · rw [addFrame_code, hacode]
+          · rw [addFrame_validJumps, hmra.validJumps, hmrb.validJumps]
           · rw [addFrame_addr, hmra.addr, hmrb.addr]
           · show (addFrame fra va vb fr.exec.stack).exec.executionEnv.canModifyState = _
             rw [show (addFrame fra va vb fr.exec.stack).exec.executionEnv.canModifyState
@@ -915,6 +944,7 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
             { runs := (hmrb.runs.trans hmra.runs).trans hadrun
               stack := ?_
               code := ?_
+              validJumps := ?_
               addr := ?_
               canMod := ?_
               storage := ?_
@@ -923,6 +953,7 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
               gasToNat := ?_ }
           · rw [hadstk]
           · rw [ltFrame_code, hacode]
+          · rw [ltFrame_validJumps, hmra.validJumps, hmrb.validJumps]
           · rw [ltFrame_addr, hmra.addr, hmrb.addr]
           · show (ltFrame fra va vb fr.exec.stack).exec.executionEnv.canModifyState = _
             rw [show (ltFrame fra va vb fr.exec.stack).exec.executionEnv.canModifyState
