@@ -10,15 +10,17 @@ push-sequence of an expression (`materialiseExpr defs fuel e`) reproduces, on th
 bytecode stack, the value the IR's `evalExpr` computes — and does so leaving the
 code, the self-storage and the gas-charge envelope (B2) all accounted for.
 
-This module proves **B1 for the pure-arithmetic fragment** — `imm` / `tmp` / `add` /
-`lt` (the `PureStream` predicate: the emitted byte stream contains no `SLOAD` and no
-`GAS`) — fully and axiom-cleanly. The induction mirrors `materialiseExpr`
+This module proves **B1 totally over `Expr`** — `imm` / `tmp` / `add` / `lt` / `sload`
+/ `gas` — fully and axiom-cleanly. The induction mirrors `materialiseExpr`
 constructor-for-constructor; the leaf/recursion steps are the `Match.lean` bricks
-`sim_imm` / `sim_add` / `sim_lt`; the `.tmp t` recursion consumes **B3** (`DefsSound`)
-to equate the recomputed value with `st.locals t`; the whole-expression gas contract is
-discharged through **B2** (`MaterialiseGasCharge` + `materialiseGasCharge_binop`). The
-`.sload`/`.gas` cases are *vacuous* under `PureStream` (their opcode byte would be in
-the stream) — they are the two honest interim gaps (below).
+`sim_imm` / `sim_add` / `sim_lt` / `sim_sload` / `sim_gas`; the `.tmp t` recursion
+consumes **B3** (`DefsSound`) to equate the recomputed value with `st.locals t`; the
+whole-expression gas contract is discharged through **B2** (`MaterialiseGasCharge` +
+`materialiseGasCharge_binop` / `materialiseGasCharge_sload` / `materialiseGasCharge_gas`).
+The two non-pure leaves `.sload` / `.gas` are closed under **explicit realisability
+side-conditions** (`SloadRealises` / `GasRealises` / `StorageAgree`, below) — the honest
+runtime ties the realised trace supplies downstream (Layers C/D/F); they are *not*
+excluded.
 
 ## The honest decode interface
 
@@ -36,26 +38,23 @@ by the post-frames' own pc advance (`UInt32.ofNat_add`), never re-deriving the l
 Layer A (`decode_at_offset_*`) is what discharges `MatDec` against `lower prog` at the
 call site; that wiring is the B1→A composition, downstream of this linchpin.
 
-## The two honest interim gaps
+## The two non-pure leaves, closed under explicit realisability ties
 
 **`.gas`.** `materialiseExpr … .gas = [GAS]`, and `sim_gas` pushes the frame's
-*current* `gasAvailable`, whereas `evalExpr st obs .gas = some obs` (the supplied
-value). The two agree only under the **realisability tie** `obs = UInt256.ofUInt64
-(the post-Gbase gas)`, a property of the *running frame* the induction threads — it
-does not hold uniformly. (The plan's gas-oracle realisability, `V2/Oracle.lean`, is
-the place that tie is supplied.)
+*post-`Gbase`* `gasAvailable`, whereas `evalExpr st obs .gas = some obs` (the supplied
+value). The two agree under the **realisability tie** `GasRealises obs fr` —
+`obs = UInt256.ofUInt64 (post-Gbase gas)` at the running frame — supplied as a
+hypothesis quantified over the running frame (the gas-oracle realisability, downstream).
 
-**`.sload`.** `materialiseExpr … (.sload k) = … ++ [SLOAD]`. The value channel is
-ready (`sim_sload` + `sloadFrame_storage_self` already expose the pushed value as the
-self-storage cell, and the `MatDec`/`chargeOf` `.sload` arms are in place). The gap is
-purely the **runtime SLOAD-cost resolution**: the B2 `sloadChg k` must equal
-`sloadCost (warm)` at the *internal* SLOAD frame, whose `accessedStorageKeys` and key
-word are run-dependent, and SLOAD mutates the accessed-key substate (so the
-substate-preservation a clean `MatRuns` carries does not hold across it). Closing it
-needs the `MatRuns` bundle extended with an accessed-key-evolution clause and a per-
-SLOAD warmth resolver threaded through — a self-contained extension, not a reopening
-of the value channel. Both gaps are factored *out* of the proof by `PureStream`, so the
-pure-arithmetic linchpin is `sorry`-free.
+**`.sload`.** `materialiseExpr … (.sload k) = … ++ [SLOAD]`. Fully closed: the value
+channel is `sim_sload` + the `sloadFrame` storage lens (`sloadFrame_stack`) tied to
+`st.world key` by `StorageAgree` (preserved across the materialisation by
+`MatRuns.storage`); the gas contract is `materialiseGasCharge_sload` with the B2
+`sloadChg k` resolved to the **actual** `sloadCost warm` at the *internal* SLOAD frame
+`frk` by `SloadRealises` (quantified over the frame, address agreement carried by
+`MatRuns.addr`). SLOAD's accessed-key substate evolution touches no `MatRuns` clause
+(it changes `accessedStorageKeys`, never a storage *value*, code, address, or
+pc-length), so the bundle survives it directly.
 
 No `sorry`, no `axiom`, no `native_decide`. Bytecode-coupled (imports `Match.lean`);
 nothing here touches `V2/Machine.lean` / `V2/Law.lean` (the frame-free spine).
@@ -124,29 +123,45 @@ threads. -/
 @[simp] theorem sloadFrame_pc (fr : Frame) (key : Word) (rest : Stack Word) :
     (sloadFrame fr key rest).exec.pc = fr.exec.pc + 1 := rfl
 
-/-! ## The pure-arithmetic fragment
+/-- `sloadFrame`'s stack is `rest` with the self-storage cell at `key` pushed (the
+value `sloadFrame_storage_self` exposes through the `M3` lens). -/
+@[simp] theorem sloadFrame_stack (fr : Frame) (key : Word) (rest : Stack Word) :
+    (sloadFrame fr key rest).exec.stack = rest.push (selfStorage fr key) := rfl
 
-`SLOAD` (runtime warmth-cost resolution) and `GAS` (the realisability tie) are the two
-constructs B1 does not close here (see the module docstring). `PureStream` excludes them
-by their emitted opcode byte; B1 is proved for `PureStream` materialise streams. -/
+/-- `SLOAD` charges exactly `sloadCost warm` at `fr` (`warm` the runtime warmth from
+`fr`'s accessed-storage-key substate). This is the runtime cost the B2 resolver
+`sloadChg k` must equal at the internal SLOAD frame. -/
+@[simp] theorem sloadFrame_gas (fr : Frame) (key : Word) (rest : Stack Word) :
+    (sloadFrame fr key rest).exec.gasAvailable
+      = fr.exec.gasAvailable - UInt64.ofNat (Evm.sloadCost
+          (fr.exec.substate.accessedStorageKeys.contains (fr.exec.executionEnv.address, key))) :=
+  rfl
 
-/-- The materialise stream is **pure arithmetic**: it emits no `SLOAD` and no `GAS`
-byte. This is the fragment B1 closes fully and axiom-cleanly (the value channel for
-`imm`/`tmp`/`add`/`lt`, with the **B2** gas contract). It propagates through the
-recompute recursion automatically — an `sload`/`gas` anywhere in the (recompute-)tree
-puts its opcode byte in the stream, falsifying `PureStream` — so the `.sload`/`.gas`
-cases are *vacuous* in the proof (the honest interim gap: see the module docstring). -/
-def PureStream (l : List UInt8) : Prop := Byte.sload ∉ l ∧ Byte.gas ∉ l
+/-! ### `gasFrame` accessor reductions
 
-theorem pureStream_append {l₁ l₂ : List UInt8} (h : PureStream (l₁ ++ l₂)) :
-    PureStream l₁ ∧ PureStream l₂ := by
-  obtain ⟨hs, hg⟩ := h
-  refine ⟨⟨?_, ?_⟩, ⟨?_, ?_⟩⟩ <;> intro hmem <;>
-    first
-      | exact hs (List.mem_append.mpr (Or.inl hmem))
-      | exact hs (List.mem_append.mpr (Or.inr hmem))
-      | exact hg (List.mem_append.mpr (Or.inl hmem))
-      | exact hg (List.mem_append.mpr (Or.inr hmem))
+`gasFrame fr` (the `GAS` post-frame) leaves `executionEnv` (code/address) and the
+account storage untouched; it charges `Gbase`, pushes `ofUInt64` of the *post-charge*
+gas, and advances pc by one. These `rfl` lemmas expose exactly those clauses. -/
+
+@[simp] theorem gasFrame_code (fr : Frame) :
+    (gasFrame fr).exec.executionEnv.code = fr.exec.executionEnv.code := rfl
+
+@[simp] theorem gasFrame_addr (fr : Frame) :
+    (gasFrame fr).exec.executionEnv.address = fr.exec.executionEnv.address := rfl
+
+@[simp] theorem gasFrame_selfStorage (fr : Frame) (k : Word) :
+    selfStorage (gasFrame fr) k = selfStorage fr k := rfl
+
+@[simp] theorem gasFrame_pc (fr : Frame) :
+    (gasFrame fr).exec.pc = fr.exec.pc + 1 := rfl
+
+@[simp] theorem gasFrame_stack (fr : Frame) :
+    (gasFrame fr).exec.stack
+      = fr.exec.stack.push (UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat Gbase)) :=
+  rfl
+
+@[simp] theorem gasFrame_gas (fr : Frame) :
+    (gasFrame fr).exec.gasAvailable = fr.exec.gasAvailable - UInt64.ofNat Gbase := rfl
 
 /-! ## The decode bundle `MatDec`
 
@@ -155,9 +170,10 @@ one `decode code … = …` clause per opcode `materialiseExpr defs fuel e` emit
 at the running program counter (`p` is the starting pc; the recursion advances it by
 the post-frames' own pc deltas via `UInt32.ofNat_add`). It mirrors `materialiseExpr`
 constructor-for-constructor — exactly the shape Layer A's `decode_at_offset_*`
-discharges over `lower prog`. The `.sload` clause also carries the runtime warmth
-resolution `sloadChg k = sloadCost warm` at the SLOAD frame (the B2 `sloadChg`
-resolver), kept abstract here and instantiated downstream. -/
+discharges over `lower prog`. The `.sload` clause carries the key-materialise decode
+facts plus the `SLOAD` opcode decode; the runtime warmth-cost resolution
+(`sloadChg k = sloadCost warm` at the SLOAD frame) is a *separate* realisability
+side-condition `SloadRealises`, supplied to `materialise_runs` directly. -/
 def MatDec (code : ByteArray) (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ) :
     Nat → UInt32 → Expr → Prop
   | _,      p, .imm w  => decode code p = some (.Push .PUSH32, some (w, 32))
@@ -370,28 +386,119 @@ theorem evalExpr_obs_irrel (st : V2.IRState) (obs obs' : Word) :
   | .sload _, _ => rfl
   | .gas,     h => absurd rfl h
 
-/-! ## The linchpin — `materialise_runs` (pure-arithmetic fragment)
+/-! ## The realisability side-conditions (`SLOAD` warmth / `GAS` value / storage lens)
 
-The induction mirrors `materialiseExpr` constructor-for-constructor. The `PureStream`
-hypothesis (no `SLOAD`/`GAS` byte emitted) keeps the proof to the value channel B1
-closes fully and axiom-cleanly: `imm` (leaf), `tmp` (recompute via **B3** `DefsSound`),
-`add`/`lt` (operands then op, via `sim_add`/`sim_lt` and the **B2** gluing law
-`materialiseGasCharge_binop`). An `sload`/`gas` anywhere in the recompute-tree falsifies
-`PureStream`, so those cases are vacuous — the honest interim gap (module docstring). -/
+The two non-pure leaves — `SLOAD` and `GAS` — each have one *runtime* fact the static
+materialisation cannot pin: the SLOAD warmth-cost (whether `(self, key)` is in the
+running frame's accessed-key substate) and the `GAS` value (the post-`Gbase` gas the
+running frame reports). These are not uniform over `Expr`; they are properties of the
+**realised trace** the downstream layers (C/D/F, the gas/state oracle's realisability)
+supply. We package each as an explicit, honestly-stated hypothesis on
+`materialise_runs`, quantified over the running frame so the recursion threads it
+unchanged into every sub-frame:
 
-/-- **B1 `materialise_runs` (pure-arithmetic fragment).** Running `materialiseExpr defsOf
-fuel e` from a frame `fr` whose code decodes as the bundle `MatDec` prescribes, with the
-IR state `st` recompute-sound (`DefsSound`, **B3**) and the emitted stream
-`SLOAD`/`GAS`-free (`PureStream`), reproduces `evalExpr st obs e = some w` on the
-bytecode stack and delivers the whole `MatRuns` bundle: the run, the pushed value
-(= `evalExpr`'s), code/address/self-storage preserved, pc advanced by the emitted byte
-length, and the **B2** gas contract `MaterialiseGasCharge`. The decode facts `MatDec` and
-the gas/stack room are the per-opcode preconditions the `sim_*`/B2 bricks consume; Layer
-A (`decode_at_offset_*`) discharges `MatDec` over `lower prog` at the call site. -/
+* **`SloadRealises`** — the B2 resolver `sloadChg k` equals the actual `sloadCost`
+  warmth-charge at *every* frame with the same self-address as `fr`. This is exactly
+  the warmth-cost tie at the internal SLOAD frame `frk` (reached after materialising
+  the key), whose address agrees with `fr` (carried by `MatRuns.addr`) and whose
+  substate is the realised one. The `.sload` arm is then **fully closed** against it —
+  value channel (storage lens), gas contract (`materialiseGasCharge_sload`), and the
+  accessed-key substate evolution (which touches no `MatRuns` clause: SLOAD changes
+  `accessedStorageKeys`, never a storage *value*, code, address, or pc-length).
+
+* **`GasRealises`** — the supplied gas word `obs` equals `UInt256.ofUInt64` of the
+  post-`Gbase` gas at *every* frame with the same self-address as `fr` (the realised
+  running-frame gas the gas oracle reports). The `.gas` arm is closed under it.
+
+* **`StorageAgree`** — the `M3` storage correspondence `selfStorage fr key = st.world
+  key`. Preserved across the whole materialisation by `MatRuns.storage` (every
+  post-frame leaves the self account's storage *values* untouched), so it threads as a
+  plain per-frame fact (re-established at each sub-frame via the `storage` clause). It
+  ties the SLOAD value channel (`selfStorage frk key`) to `evalExpr`'s `st.world key`.
+
+These are the honest realisability obligations, factored *out* of the static proof and
+discharged downstream by the realised trace — making `materialise_runs` **total over
+`Expr`** with `.sload`/`.gas` carrying their side-conditions rather than being excluded
+by a pure-stream restriction (retired: the general theorem strictly subsumes it). -/
+
+/-- The B2 SLOAD-cost resolver realisability: at every frame `g` sharing `fr`'s
+self-address, `sloadChg k` is the actual `sloadCost` warmth-charge for the bound key
+`st.locals k`. (Quantified over `g` so the recursion applies it at the internal SLOAD
+frame `frk`, whose address agrees with `fr` by `MatRuns.addr`.) -/
+def SloadRealises (sloadChg : Tmp → ℕ) (st : V2.IRState) (fr : Frame) : Prop :=
+  ∀ (g : Frame) (k : Tmp) (key : Word),
+    g.exec.executionEnv.address = fr.exec.executionEnv.address →
+    st.locals k = some key →
+    sloadChg k
+      = Evm.sloadCost (g.exec.substate.accessedStorageKeys.contains
+          (g.exec.executionEnv.address, key))
+
+/-- The `GAS` value realisability: at every frame `g` sharing `fr`'s self-address, the
+supplied gas word `obs` is `ofUInt64` of the post-`Gbase` gas `g` reports. (Quantified
+over `g` so the recursion applies it at the actual `GAS` running frame.) -/
+def GasRealises (obs : Word) (fr : Frame) : Prop :=
+  ∀ (g : Frame),
+    g.exec.executionEnv.address = fr.exec.executionEnv.address →
+    obs = UInt256.ofUInt64 (g.exec.gasAvailable - UInt64.ofNat Gbase)
+
+/-- The `M3` storage correspondence: the self account's stored value at `key` (through
+the observable lens) equals the IR world. Threaded as a plain per-frame fact —
+preserved across the materialisation by `MatRuns.storage`. -/
+def StorageAgree (st : V2.IRState) (fr : Frame) : Prop :=
+  ∀ key, selfStorage fr key = st.world key
+
+/-! ### Transport of the realisability side-conditions across a sub-frame
+
+`SloadRealises`/`GasRealises` are quantified over the running frame and only constrain
+frames sharing `fr`'s self-address, so they transport verbatim to any sub-frame `fr'`
+with `fr'.address = fr.address` (carried by `MatRuns.addr`). `StorageAgree` transports
+through the self-storage equality `MatRuns.storage` provides. These are exactly the
+clauses the `add`/`lt`/`sload` recursion needs to pass the side-conditions to its
+second/inner operand. -/
+
+theorem SloadRealises.transport {sloadChg : Tmp → ℕ} {st : V2.IRState} {fr fr' : Frame}
+    (h : SloadRealises sloadChg st fr)
+    (haddr : fr'.exec.executionEnv.address = fr.exec.executionEnv.address) :
+    SloadRealises sloadChg st fr' :=
+  fun g k key hg hl => h g k key (by rw [hg, haddr]) hl
+
+theorem GasRealises.transport {obs : Word} {fr fr' : Frame}
+    (h : GasRealises obs fr)
+    (haddr : fr'.exec.executionEnv.address = fr.exec.executionEnv.address) :
+    GasRealises obs fr' :=
+  fun g hg => h g (by rw [hg, haddr])
+
+theorem StorageAgree.transport {st : V2.IRState} {fr fr' : Frame}
+    (h : StorageAgree st fr)
+    (hstor : ∀ k, selfStorage fr' k = selfStorage fr k) :
+    StorageAgree st fr' :=
+  fun key => by rw [hstor key]; exact h key
+
+/-! ## The linchpin — `materialise_runs` (total over `Expr`)
+
+The induction mirrors `materialiseExpr` constructor-for-constructor. The value channel
+B1 closes: `imm` (leaf), `tmp` (recompute via **B3** `DefsSound`), `add`/`lt` (operands
+then op, via `sim_add`/`sim_lt` and the **B2** gluing law `materialiseGasCharge_binop`),
+`sload` (key then SLOAD, via `sim_sload` + the storage lens + `materialiseGasCharge_sload`,
+under `SloadRealises`/`StorageAgree`), and `gas` (via `sim_gas` + `materialiseGasCharge_gas`,
+under `GasRealises`). The three realisability side-conditions thread through the
+recursion unchanged (quantified over the running frame; address agreement is carried by
+`MatRuns.addr`, the storage agreement by `MatRuns.storage`). -/
+
+/-- **B1 `materialise_runs` (total over `Expr`).** Running `materialiseExpr defsOf fuel
+e` from a frame `fr` whose code decodes as the bundle `MatDec` prescribes, with the IR
+state `st` recompute-sound (`DefsSound`, **B3**), the storage lens agreeing
+(`StorageAgree`) and the SLOAD/GAS realisability ties holding (`SloadRealises` /
+`GasRealises`), reproduces `evalExpr st obs e = some w` on the bytecode stack and
+delivers the whole `MatRuns` bundle: the run, the pushed value (= `evalExpr`'s),
+code/address/self-storage preserved, pc advanced by the emitted byte length, and the
+**B2** gas contract `MaterialiseGasCharge`. The decode facts `MatDec` and the gas/stack
+room are the per-opcode preconditions the `sim_*`/B2 bricks consume; Layer A
+(`decode_at_offset_*`) discharges `MatDec` over `lower prog` at the call site, and the
+realised trace (Layers C/D/F) discharges the realisability side-conditions. -/
 theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
     (fuel : Nat) (st : V2.IRState) (obs : Word) :
     ∀ (e : Expr) (w : Word) (fr : Frame),
-      PureStream (materialiseExpr (defsOf prog) fuel e) →
       MatDec fr.exec.executionEnv.code (defsOf prog) sloadChg fuel fr.exec.pc e →
       DefsSound prog st →
       -- recompute-sound, define-before-use scoping: every currently-bound tmp is
@@ -399,6 +506,9 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
       -- the honest `WellScoped` content the plan documents (DefsSound's preservation
       -- side conditions); it makes the `.tmp` recursion total and value-faithful.
       (∀ t, st.locals t ≠ none → ¬ NonRecomputable prog t ∧ defsOf prog t ≠ none) →
+      StorageAgree st fr →
+      SloadRealises sloadChg st fr →
+      GasRealises obs fr →
       V2.evalExpr st obs e = some w →
       (chargeOf (defsOf prog) sloadChg fuel e).sum ≤ fr.exec.gasAvailable.toNat →
       fr.exec.stack.size + (chargeOf (defsOf prog) sloadChg fuel e).length ≤ 1024 →
@@ -406,7 +516,7 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
   set defs := defsOf prog with hdefs
   induction fuel with
   | zero =>
-      intro e w fr _ hdec _ _ heval hgas hstk
+      intro e w fr hdec _ _ _ _ _ heval hgas hstk
       cases e with
       | imm v =>
           refine ⟨pushFrameW fr v 32, ?_⟩
@@ -415,7 +525,7 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
             (by rw [chargeOf_imm] at hstk; simpa using hstk)
       | _ => exact absurd hdec (by simp [MatDec])
   | succ f ih =>
-      intro e w fr hpure hdec hsound hscoped heval hgas hstk
+      intro e w fr hdec hsound hscoped hstore hsload hgasreal heval hgas hstk
       cases e with
       | imm v =>
           refine ⟨pushFrameW fr v 32, ?_⟩
@@ -423,14 +533,136 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
           exact matRuns_imm defs sloadChg (f + 1) fr v hdec hgas
             (by rw [chargeOf_imm] at hstk; simpa using hstk)
       | gas =>
-          -- emits `GAS` ⇒ ¬PureStream; vacuous.
-          exact absurd (by simp [materialiseExpr] : Byte.gas ∈ materialiseExpr defs (f+1) .gas)
-            hpure.2
+          -- `GAS` leaf: `sim_gas` pushes `ofUInt64` of the post-`Gbase` gas; under
+          -- `GasRealises` that is `obs`, which is `evalExpr st obs .gas`.
+          have hdec' : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .GAS, .none) := by
+            rw [show MatDec fr.exec.executionEnv.code defs sloadChg (f+1) fr.exec.pc .gas
+                  = (decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .GAS, .none))
+                from rfl] at hdec
+            exact hdec
+          have hwval : w = UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat Gbase) := by
+            have : some w = some obs := by rw [← heval]; rfl
+            rw [Option.some.inj this]
+            exact hgasreal fr rfl
+          have hg2 : GasConstants.Gbase ≤ fr.exec.gasAvailable.toNat := by
+            rw [chargeOf_gas] at hgas; simpa [List.sum_cons] using hgas
+          have hsz1 : fr.exec.stack.size + 1 ≤ 1024 := by
+            rw [chargeOf_gas] at hstk; simpa using hstk
+          refine ⟨gasFrame fr, ?_⟩
+          refine
+            { runs := (sim_gas fr hdec' hsz1 hg2).1
+              stack := by rw [gasFrame_stack, hwval]
+              code := rfl
+              addr := rfl
+              storage := fun _ => rfl
+              pc := by
+                rw [gasFrame_pc, show (materialiseExpr defs (f+1) .gas).length = 1 from rfl,
+                    show (UInt32.ofNat 1) = 1 from rfl]
+              gasCharge := materialiseGasCharge_gas defs sloadChg f fr hdec' hsz1 hg2
+              gasToNat := ?_ }
+          show (fr.exec.gasAvailable - UInt64.ofNat Gbase).toNat = _
+          rw [chargeOf_gas]
+          have hg2' : (2 : ℕ) ≤ fr.exec.gasAvailable.toNat := by
+            rw [show Gbase = 2 from rfl] at hg2; exact hg2
+          rw [show Gbase = 2 from rfl,
+              BytecodeLayer.UInt64.toNat_sub_ofNat _ 2 hg2' (by omega)]
+          simp [List.sum_cons]
       | sload k =>
-          -- emits `SLOAD` ⇒ ¬PureStream; vacuous.
-          refine absurd ?_ hpure.1
-          rw [materialiseExpr_sload]
-          exact List.mem_append.mpr (Or.inr (by simp))
+          -- `SLOAD`: materialise the key `k` (recompute), then run `SLOAD`. Value =
+          -- `selfStorage frk key = st.world key` (storage lens + `StorageAgree`); gas =
+          -- `sloadCost warm` at `frk`, matched to `sloadChg k` by `SloadRealises`.
+          obtain ⟨key, hlk, hwsl⟩ :
+              ∃ key, st.locals k = some key ∧ w = st.world key := by
+            simp only [V2.evalExpr] at heval
+            cases hlk : st.locals k with
+            | none => simp [hlk] at heval
+            | some key => exact ⟨key, rfl, by simp [hlk] at heval; exact heval.symm⟩
+          subst hwsl
+          -- decode bundle decomposition (key materialise + SLOAD opcode).
+          obtain ⟨hdk, hop⟩ := hdec
+          have hcsl : chargeOf defs sloadChg (f + 1) (.sload k)
+              = chargeOf defs sloadChg f (.tmp k) ++ [sloadChg k] := chargeOf_sload defs sloadChg f k
+          -- evalExpr of the key tmp = its bound value.
+          have hevk : V2.evalExpr st obs (.tmp k) = some key := hlk
+          -- the whole-`sload` charge sum / length, split once.
+          have hsum_split : (chargeOf defs sloadChg (f + 1) (.sload k)).sum
+              = (chargeOf defs sloadChg f (.tmp k)).sum + sloadChg k := by
+            rw [hcsl]; simp only [List.sum_append, List.sum_cons, List.sum_nil]; omega
+          have hlen_split : (chargeOf defs sloadChg (f + 1) (.sload k)).length
+              = (chargeOf defs sloadChg f (.tmp k)).length + 1 := by
+            rw [hcsl]; simp only [List.length_append, List.length_singleton]
+          -- IH on the key tmp from `fr`.
+          have hgask : (chargeOf defs sloadChg f (.tmp k)).sum ≤ fr.exec.gasAvailable.toNat := by
+            rw [hsum_split] at hgas; omega
+          have hstkk : fr.exec.stack.size + (chargeOf defs sloadChg f (.tmp k)).length ≤ 1024 := by
+            rw [hlen_split] at hstk; omega
+          obtain ⟨frk, hmrk⟩ := ih (.tmp k) key fr hdk hsound hscoped hstore hsload hgasreal
+            hevk hgask hstkk
+          -- the internal SLOAD frame `frk`: key on top of `fr`'s stack, addr/code/storage
+          -- preserved. The SLOAD opcode runs here.
+          have hkcode : frk.exec.executionEnv.code = fr.exec.executionEnv.code := hmrk.code
+          have hkaddr : frk.exec.executionEnv.address = fr.exec.executionEnv.address := hmrk.addr
+          have hkpc : frk.exec.pc = fr.exec.pc + UInt32.ofNat (materialiseExpr defs f (.tmp k)).length :=
+            hmrk.pc
+          have hkstk : frk.exec.stack = key :: fr.exec.stack := by
+            rw [hmrk.stack]; rfl
+          have hkdec : decode frk.exec.executionEnv.code frk.exec.pc
+              = some (.Smsf .SLOAD, .none) := by
+            rw [hkcode, hkpc]; exact hop
+          -- the runtime warmth at `frk`, resolved to `sloadChg k` by `SloadRealises`.
+          have hwarm : sloadChg k
+              = Evm.sloadCost (frk.exec.substate.accessedStorageKeys.contains
+                  (frk.exec.executionEnv.address, key)) :=
+            hsload frk k key hkaddr hlk
+          -- stack-room and gas bound for the SLOAD step.
+          have hksz : frk.exec.stack.size ≤ 1024 := by
+            have hfrksz : frk.exec.stack.size = fr.exec.stack.size + 1 := by
+              rw [hkstk]; simp
+            have hpk1 : 1 ≤ (chargeOf defs sloadChg f (.tmp k)).length :=
+              chargeOf_length_pos_of_matDec _ defs sloadChg f fr.exec.pc (.tmp k) hdk
+            rw [hlen_split] at hstk; rw [hfrksz]; omega
+          have hksloadgas :
+              Evm.sloadCost (frk.exec.substate.accessedStorageKeys.contains
+                (frk.exec.executionEnv.address, key)) ≤ frk.exec.gasAvailable.toNat := by
+            rw [hmrk.gasToNat, ← hwarm]; rw [hsum_split] at hgas; omega
+          obtain ⟨hslrun, hslhd⟩ := sim_sload frk key fr.exec.stack hkdec hkstk hksz hksloadgas
+          -- the pushed value: the self-storage cell at `key` = `st.world key` (StorageAgree),
+          -- preserved from `fr` to `frk` by the storage clause.
+          have hval : selfStorage frk key = st.world key := by
+            rw [hmrk.storage key]; exact hstore key
+          refine ⟨sloadFrame frk key fr.exec.stack, ?_⟩
+          refine
+            { runs := hmrk.runs.trans hslrun
+              stack := ?_
+              code := ?_
+              addr := ?_
+              storage := ?_
+              pc := ?_
+              gasCharge := ?_
+              gasToNat := ?_ }
+          · rw [sloadFrame_stack, hval]
+          · rw [sloadFrame_code, hkcode]
+          · rw [sloadFrame_addr, hkaddr]
+          · intro k'; rw [sloadFrame_selfStorage, hmrk.storage]
+          · rw [sloadFrame_pc, hkpc, materialiseExpr_sload]
+            simp only [List.length_append, List.length_singleton]
+            rw [UInt32.ofNat_add, show (UInt32.ofNat 1) = 1 from rfl]
+            ac_rfl
+          · -- gas contract via the `sload` gluing law: `sloadChg k` matches the runtime cost.
+            refine materialiseGasCharge_sload defs sloadChg f k fr frk
+              (sloadFrame frk key fr.exec.stack) hmrk.gasCharge ?_
+            rw [sloadFrame_gas, hwarm]
+            rw [subCharges_singleton]
+          · -- gasToNat from the gas contract + toNat_chargeOf.
+            have hsum : (chargeOf defs sloadChg (f + 1) (.sload k)).sum
+                ≤ fr.exec.gasAvailable.toNat := hgas
+            have hc :
+                (sloadFrame frk key fr.exec.stack).exec.gasAvailable
+                  = subCharges fr.exec.gasAvailable (chargeOf defs sloadChg (f + 1) (.sload k)) :=
+              materialiseGasCharge_sload defs sloadChg f k fr frk
+                (sloadFrame frk key fr.exec.stack) hmrk.gasCharge
+                (by rw [sloadFrame_gas, hwarm, subCharges_singleton])
+            rw [hc]; exact toNat_chargeOf defs sloadChg (f + 1) (.sload k) _ hsum
       | tmp t =>
           -- recompute-on-use: descend into `defs t`.
           have hloc : st.locals t = some w := heval
@@ -445,8 +677,6 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
                 rw [matDec_tmp_some fr.exec.executionEnv.code defs sloadChg f fr.exec.pc t e' ht]
                   at hdec
                 exact hdec
-              have hpure' : PureStream (materialiseExpr defs f e') := by
-                rw [materialiseExpr_tmp_some defs f t e' ht] at hpure; exact hpure
               have hgas' : (chargeOf defs sloadChg f e').sum ≤ fr.exec.gasAvailable.toNat := by
                 rw [chargeOf_tmp_some defs sloadChg f t e' ht] at hgas; exact hgas
               have hstk' : fr.exec.stack.size + (chargeOf defs sloadChg f e').length ≤ 1024 := by
@@ -461,7 +691,8 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
                 hsound t e' w (by rw [← hdefs, ht]) hnr hloc
               have heval' : V2.evalExpr st obs e' = some w := by
                 rw [evalExpr_obs_irrel st obs 0 he'ng]; exact hdfs.symm
-              obtain ⟨fr', hmr⟩ := ih e' w fr hpure' htmd hsound hscoped heval' hgas' hstk'
+              obtain ⟨fr', hmr⟩ := ih e' w fr htmd hsound hscoped hstore hsload hgasreal
+                heval' hgas' hstk'
               refine ⟨fr', ?_⟩
               -- rewrite the `(f+1) (.tmp t)` bundle into the `f e'` one (defeq via defs t).
               have hmexp : materialiseExpr defs (f + 1) (.tmp t) = materialiseExpr defs f e' :=
@@ -495,9 +726,6 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
           subst hwadd
           -- decode bundle decomposition.
           obtain ⟨hdb, hda, hop⟩ := hdec
-          -- pure-stream / gas / stack decomposition (operand b then a then [Byte.add]).
-          rw [materialiseExpr_add] at hpure
-          obtain ⟨hpb, hpa⟩ := pureStream_append (pureStream_append hpure).1
           have hcadd : chargeOf defs sloadChg (f + 1) (.add a b)
               = chargeOf defs sloadChg f (.tmp b) ++ chargeOf defs sloadChg f (.tmp a)
                 ++ [Gverylow] := chargeOf_add defs sloadChg f a b
@@ -511,7 +739,8 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
           have hstkb : fr.exec.stack.size + (chargeOf defs sloadChg f (.tmp b)).length ≤ 1024 := by
             rw [hcadd] at hstk
             simp only [List.length_append] at hstk; omega
-          obtain ⟨frb, hmrb⟩ := ih (.tmp b) vb fr hpb hdb hsound hscoped hevb hgasb hstkb
+          obtain ⟨frb, hmrb⟩ := ih (.tmp b) vb fr hdb hsound hscoped hstore hsload hgasreal
+            hevb hgasb hstkb
           -- IH on operand a from `frb`.
           have hbcode : frb.exec.executionEnv.code = fr.exec.executionEnv.code := hmrb.code
           have hbpc : frb.exec.pc = fr.exec.pc + UInt32.ofNat (materialiseExpr defs f (.tmp b)).length :=
@@ -535,7 +764,9 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
             rw [hmrb.gasToNat]; rw [hsum_split] at hgas; omega
           have hstka : frb.exec.stack.size + (chargeOf defs sloadChg f (.tmp a)).length ≤ 1024 := by
             rw [hlen_split] at hstk; rw [hfrbsz]; omega
-          obtain ⟨fra, hmra⟩ := ih (.tmp a) va frb hpa hda' hsound hscoped heva hgasa hstka
+          obtain ⟨fra, hmra⟩ := ih (.tmp a) va frb hda' hsound hscoped
+            (hstore.transport hmrb.storage) (hsload.transport hmrb.addr) (hgasreal.transport hmrb.addr)
+            heva hgasa hstka
           -- the final ADD step.
           have hacode : fra.exec.executionEnv.code = fr.exec.executionEnv.code := by
             rw [hmra.code, hbcode]
@@ -605,9 +836,6 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
           subst hwlt
           -- decode bundle decomposition.
           obtain ⟨hdb, hda, hop⟩ := hdec
-          -- pure-stream / gas / stack decomposition (operand b then a then [Byte.lt]).
-          rw [materialiseExpr_lt] at hpure
-          obtain ⟨hpb, hpa⟩ := pureStream_append (pureStream_append hpure).1
           have hclt : chargeOf defs sloadChg (f + 1) (.lt a b)
               = chargeOf defs sloadChg f (.tmp b) ++ chargeOf defs sloadChg f (.tmp a)
                 ++ [Gverylow] := chargeOf_lt defs sloadChg f a b
@@ -621,7 +849,8 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
           have hstkb : fr.exec.stack.size + (chargeOf defs sloadChg f (.tmp b)).length ≤ 1024 := by
             rw [hclt] at hstk
             simp only [List.length_append] at hstk; omega
-          obtain ⟨frb, hmrb⟩ := ih (.tmp b) vb fr hpb hdb hsound hscoped hevb hgasb hstkb
+          obtain ⟨frb, hmrb⟩ := ih (.tmp b) vb fr hdb hsound hscoped hstore hsload hgasreal
+            hevb hgasb hstkb
           -- IH on operand a from `frb`.
           have hbcode : frb.exec.executionEnv.code = fr.exec.executionEnv.code := hmrb.code
           have hbpc : frb.exec.pc = fr.exec.pc + UInt32.ofNat (materialiseExpr defs f (.tmp b)).length :=
@@ -645,7 +874,9 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
             rw [hmrb.gasToNat]; rw [hsum_split] at hgas; omega
           have hstka : frb.exec.stack.size + (chargeOf defs sloadChg f (.tmp a)).length ≤ 1024 := by
             rw [hlen_split] at hstk; rw [hfrbsz]; omega
-          obtain ⟨fra, hmra⟩ := ih (.tmp a) va frb hpa hda' hsound hscoped heva hgasa hstka
+          obtain ⟨fra, hmra⟩ := ih (.tmp a) va frb hda' hsound hscoped
+            (hstore.transport hmrb.storage) (hsload.transport hmrb.addr) (hgasreal.transport hmrb.addr)
+            heva hgasa hstka
           -- the final LT step.
           have hacode : fra.exec.executionEnv.code = fr.exec.executionEnv.code := by
             rw [hmra.code, hbcode]
@@ -702,7 +933,8 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
 end Lir
 
 -- Build-enforced axiom-cleanliness guard for the B1 deliverable: the linchpin
--- `materialise_runs` (pure-arithmetic fragment) and its `.imm` leaf depend only on
+-- `materialise_runs` (now total over `Expr`, `.sload`/`.gas` under their realisability
+-- side-conditions) and its `.imm` leaf depend only on
 -- `[propext, Classical.choice, Quot.sound]`.
 #print axioms Lir.materialise_runs
 #print axioms Lir.matRuns_imm
