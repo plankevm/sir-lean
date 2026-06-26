@@ -15,6 +15,12 @@ import LirLean.Match
 -- Layer A of the `lower_conforms` grind: decode-at-cursor anchors (A1–A3) —
 -- statement-head / arbitrary-offset / terminator decode facts over `lower prog`.
 import LirLean.DecodeAnchors
+-- Layer B of the `lower_conforms` grind: B2 gas-charge envelope, B3 recompute
+-- soundness (DefsSound), and B1 `materialise_runs` (the linchpin — pure-arithmetic
+-- value channel + B2 gas contract).
+import LirLean.MaterialiseGas
+import LirLean.DefsSound
+import LirLean.MaterialiseRuns
 import LirLean.WorkedCall
 -- v2 (exp005) prototype — gas-free, observable, event-trace IR + preservation.
 import LirLean.V2.Machine
