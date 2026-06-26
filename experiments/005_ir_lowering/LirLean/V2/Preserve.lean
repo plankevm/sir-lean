@@ -1,4 +1,5 @@
 import LirLean.V2.Machine
+import LirLean.DefsSound
 import BytecodeLayer.Hoare
 import BytecodeLayer.Hoare.CallSequence
 import BytecodeLayer.Semantics.UInt64
@@ -466,6 +467,11 @@ def protoBlock2 : Block := { stmts := [], term := .stop }
 
 def protoIR : Program :=
   { entry := lbl 0, blocks := #[protoBlock0, protoBlock1, protoBlock2] }
+
+/-- `WellFormed` sanity check (B3): the prototype's only non-recomputable tmp is the
+single gas read `t7`, used exactly once (the `branch (tmp 7)` condition). Discharged via
+the decidable surrogate `WellFormedDec`, so the predicate is not vacuous/over-strong. -/
+example : Lir.WellFormed protoIR := Lir.wellFormed_of_dec (by decide)
 
 theorem protoIR_block0 : blockAt protoIR (lbl 0) = some protoBlock0 := rfl
 theorem protoIR_block1 : blockAt protoIR (lbl 1) = some protoBlock1 := rfl

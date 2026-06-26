@@ -1,4 +1,5 @@
 import LirLean.V2.Law
+import LirLean.DefsSound
 
 /-!
 # LirLean v2 — a worked external-`Stmt.call` example (gas-free, abstract oracle)
@@ -58,6 +59,11 @@ def callBlock : Block :=
 
 /-- The one-block program with one external call. Entry is block 0. -/
 def callIR : Program := { blocks := #[callBlock], entry := lbl 0 }
+
+/-- `WellFormed` sanity check (B3): the two non-recomputable tmps — the gas read `t1`
+(used once, as the call's `gasFwd`) and the call-result `t2` (used once, as `ret t2`) —
+are each used at most once. Discharged via the decidable surrogate `WellFormedDec`. -/
+example : Lir.WellFormed callIR := Lir.wellFormed_of_dec (by decide)
 
 private theorem callIR_block0 : blockAt callIR (lbl 0) = some callBlock := rfl
 

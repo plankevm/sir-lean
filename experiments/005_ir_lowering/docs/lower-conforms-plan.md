@@ -39,9 +39,16 @@ same value) but UNSOUND for `.gas` (re-emitting `GAS` reads a *fresh, different*
   `sim_imm`, recursion `sim_add/lt/sload`, `sim_gas`; `.tmp`→`defs` recursion needs **B3**. THE linchpin.
 - **B2 `materialise_gas_charge`** — gas charged = `subCharges` of a per-Expr charge-list (the honest-gas
   envelope). Deps: `toNat_subCharges` (exists). *medium, tedious; INDEPENDENT.*
-- **B3 ✶ `DefsSound`** — recompute env agrees with IR locals: `∀ t e, defs t = some e → locals t =
-  evalExpr st e`. Established at entry, preserved by `EvalStmt.assign`. Gated by the `WellFormed` decision
-  (gas-read recompute coherence).
+- **B3 ✶ `DefsSound`** — **DONE** (`LirLean/DefsSound.lean`, axiom-clean). `WellFormed prog` (single-use
+  of every gas-/call-defined tmp) formalised + decidable surrogate `WellFormedDec`; `protoIR`/`callIR`
+  checked `WellFormed` by `decide`, `guardIR` proved **¬WellFormed** (it multi-uses its first gas read —
+  the discriminating case the DUP-slot escape hatch would lift). `DefsSound prog st := ∀ t e w, defsOf
+  prog t = some e → ¬NonRecomputable prog t → st.locals t = some w → some w = evalExpr st 0 e` (ranges over
+  *recomputable, currently-assigned* tmps; non-recomputable gas/call tmps excluded — accounted by
+  `WellFormed` single-use). Vacuous at entry; **preserved by all four `EvalStmt` arms** (`defsSound_preserved`)
+  given honest per-step define-before-use / no-live-`sload`-across-a-write scoping side conditions (bundled
+  as `StepScoped`; a program-global `WellScoped` discharging them once by a topological-order argument is
+  follow-up). No `sorry`/`axiom`.
 
 **Layer C — per-Stmt** `sim_stmt`: one `EvalStmt` step ↔ one lowered-statement `Runs` segment.
 assign (0 bytes, `setLocal`, preserve `Match`+`DefsSound`) *mechanical*; sstore (2×B1 + `sim_sstore`)

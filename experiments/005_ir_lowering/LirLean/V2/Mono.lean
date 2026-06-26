@@ -1,4 +1,5 @@
 import LirLean.V2.Law
+import LirLean.DefsSound
 import BytecodeLayer.Hoare
 import BytecodeLayer.Hoare.CallSequence
 import BytecodeLayer.Hoare.GasMonotone
@@ -89,6 +90,19 @@ def guardBlock2 : Block := { stmts := [], term := .ret (tmp 0) }
 
 def guardIR : Program :=
   { entry := lbl 0, blocks := #[guardBlock0, guardBlock1, guardBlock2] }
+
+/-- `WellFormed` sanity check (B3) — **the discriminating case**. `guardIR`
+deliberately *multi-uses* its first gas read `t0`: once in the guard `lt t0 t3` and
+again in `ret t0` (`guardBlock2`). `t0` is gas-defined (non-recomputable) yet used
+**twice**, so `guardIR` is *not* `WellFormed` — recompute-on-use would re-emit `GAS`
+for the `ret`, reading a *fresh* value ≠ the guarded one. This proves the predicate is
+genuinely restrictive (not vacuously true), and flags that lifting `guardIR` to the
+general lowering needs the future DUP/binding-slot escape hatch noted in the plan. -/
+example : ¬ Lir.WellFormed guardIR := by
+  intro h
+  have hgas : Lir.isGasDef guardIR (tmp 0) := by unfold Lir.isGasDef; decide
+  have : Lir.useCount guardIR (tmp 0) ≤ 1 := h (tmp 0) (Or.inl hgas)
+  exact absurd this (by decide)
 
 theorem guardIR_block0 : blockAt guardIR (lbl 0) = some guardBlock0 := rfl
 theorem guardIR_block2 : blockAt guardIR (lbl 2) = some guardBlock2 := rfl
