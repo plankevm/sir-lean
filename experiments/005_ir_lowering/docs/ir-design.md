@@ -137,19 +137,49 @@ IRConf  ::= running Label (pc : Nat) IRState  -- inside block `Label`, at stmt `
           | halted  Halt                       -- STOP / RETURN word / reverted
 ```
 
-The step relation `IRStep (prog) : IRConf → IRConf → Prop` advances one statement
-or terminator. **Each statement carries the gas cost of the opcodes it lowers
-to**, so the IR gas counter tracks the EVM `gasAvailable` exactly (this is the
-invariant the preservation proof maintains). Gas accounting is the only subtle
-part: `sstore`'s cost is state-dependent (cold/warm, zero/non-zero) exactly as in
-exp003's `sstoreChargeOf`; `call` forwards a sub-budget. C1 fixes only the
-*shape*; the exact cost functions are pinned in C2 against exp003's constants.
+(In the as-built `LirLean/SmallStep.lean`, `gas` is a `UInt64`, not `Nat`, so it
+equals `fr.exec.gasAvailable` *exactly* — `M4` is a plain `UInt64` equality.)
 
-`call` semantics: an `IRStep` for `Stmt.call` consumes the call's gas, runs the
-callee as a **black box that returns a `CallResult`** (success flag + the callee's
-storage effect on its own account), and binds `resultTmp`. This is deliberately
-the shape of exp003's `CallReturns` (a black-box terminating child) so the two
-line up under lowering (see §5).
+The semantics advances one statement or terminator (via `evalExpr` +
+`IRState.charge` + `IRState.setStorage` and the per-construct `sim_*` lemmas in
+`LirLean/Match.lean`). **Each statement carries the gas cost of the opcodes it
+lowers to**, so the IR gas counter tracks the EVM `gasAvailable` exactly (this is
+the invariant the preservation proof maintains).
+
+### Gas is abstract — the `GasOracle` (`LirLean/Gas.lean`)
+
+The IR's gas accounting is **gas-agnostic**: every cost is a field of an abstract
+`GasOracle` (`verylow`/`base`/`mid`/`high` constants, `sload : Bool → Nat`,
+`sstore : ExecutionState → Word → Word → Nat`), not a hardcoded EVM constant. The
+cost sources (`gVerylow`/`gBase`/`gMid`/`gHigh`/`matCost`) read from this oracle
+parameter; `Expr.gas`'s *counter* semantics (remaining = initial − consumed) are
+oracle-independent and unchanged. The concrete EVM schedule is **one**
+instantiation, `evmOracle`, whose fields reduce by `rfl` to the existing
+`GasConstants.*` / `Evm.sloadCost` / `sstoreChargeOf` (so `sstore`'s
+state-dependent cold/warm/zero cost is exactly exp003's `sstoreChargeOf`; `call`
+forwards a sub-budget). Because the instantiation is *definitional*, the `sim_*`
+lemmas and `Match`'s `M4` go through unchanged at `evmOracle`.
+
+Two consequences are made explicit (instead of left implicit in the per-construct
+arithmetic):
+
+* **Monotone consumed gas** (`SmallStep.consumed_mono` / `consumed_charge`):
+  charging a `Nat` cost — under the per-step gas-sufficiency precondition the
+  `sim_*` lemmas already carry (which prevents `UInt64` underflow) — never
+  decreases `consumed init st := init.gas.toNat − st.gas.toNat`. "Gas only goes
+  up", for free.
+* **Reflexivity headline** (`Match.gas_reflects_lowered`): under `Match`, at
+  `evmOracle` the value the lowered `GAS` opcode pushes equals the IR's `Expr.gas`
+  value after the oracle's `GAS` charge — i.e. instantiate the oracle to the EVM
+  one and the IR's GAS is *reflexively equal* to the lowered bytecode's GAS.
+
+`call` semantics are themselves **abstract** — deferred to a `CallOracle`, the
+call analogue of the gas oracle (see §5, "Calls are abstract"). The IR treats an
+external call as a **black box that returns a `CallResult`** (success flag +
+post-storage world + restored gas) and threads its effect via `IRState.applyCall`;
+it does not model the call internals. This is deliberately the shape of exp003's
+`CallReturns` (a black-box terminating child) so the two line up *reflexively*
+under lowering at `evmCallOracle` (§5, `Match.call_reflects_lowered`).
 
 ---
 
@@ -286,6 +316,81 @@ So C3 has **no remaining multi-call blocker** — it is gated only on the merge 
 A's branch (which carries the index-free `Runs` + `Runs.call` + the new opcode
 rules) into this worktree's base, plus the C→A opcode-rule additions (PLAN.md).
 
+### Calls are abstract — the `CallOracle` (`LirLean/Call.lean`)
+
+The IR's external-CALL accounting is **call-agnostic**, the exact analogue of the
+gas-agnostic `GasOracle` (§3, "Gas is abstract"): the IR does **not** model a
+call's internals. It defers the call's *effect* to an abstract `CallOracle` with
+three projections, and reasons for **all** oracles:
+
+* `postStorage : CallResult → PendingCall → AccountAddress → Word → Word` — the
+  post-call storage world, through the same observable `find?/lookupStorage` lens
+  as `Match`'s `M3`;
+* `restoredGas : CallResult → PendingCall → UInt64` — the gas the caller resumes
+  with (`gasAfterReturn`);
+* `successWord : CallResult → PendingCall → Word` — the 0/1 success word the CALL
+  pushes (exp003's `x`).
+
+The field inputs are exactly the data exp003's `resumeAfterCall` reads (the child's
+`CallResult` and the suspended `PendingCall`), so the EVM schedule is **one**
+instantiation, `evmCallOracle`, whose fields are *defined* as the corresponding
+projections of `resumeAfterCall` — by construction the lowered bytecode's ext-call
+effect. (This mirrors how vyper-hol models an external call as a black box that
+returns a `CallResult`.) The IR-level transformer `IRState.applyCall oracle result
+pd self` (the call analogue of `IRState.charge`) threads that effect into the IR
+state: `storage ← postStorage` at the self address, `gas ← restoredGas`.
+
+* **Reflexivity headline** (`Match.call_reflects_lowered`, axiom-clean ⊆
+  {propext, Classical.choice, Quot.sound}): given a returning external CALL
+  (`CallReturns callFr resumeFr`, so `resumeFr = resumeAfterCall result pd`), at
+  `evmCallOracle` the IR call effect coincides — *by construction, `rfl`* — with
+  the lowered resume's observables: `postStorage` = `storageAt resumeFr` (the `M3`
+  lens, at every account/key), `restoredGas` = `resumeFr`'s `gasAvailable`, and
+  `successWord` = `callSuccessFlag result pd` = exp003's `x`. The companion
+  `applyCall_reflects_lowered` lands `IRState.applyCall evmCallOracle` exactly on
+  `resumeFr`'s self-storage and gas, **and pins the `callResult` slot to `x`**;
+  `bindCallResult_reflects_lowered` then shows binding it to `resultTmp` makes
+  `locals resultTmp = x`. This is the call analogue of `gas_reflects_lowered`:
+  instantiate the oracle to the EVM one and the IR's external-call effect — storage,
+  gas, **and the success word's value** — is *reflexively equal* to the lowered
+  bytecode's (the *binding* of that word into `locals` at `resultTmp` is the separate
+  `bindCallResult_reflects_lowered`, above).
+
+**The success-flag binding (`CallSpec.resultTmp`) — RESOLVED via a call-result
+slot.** `Match`'s `M5 stack_nil` (empty working stack at statement boundaries) is
+what makes recompute-on-use sound: every `tmp` is re-materialised from a pure `Expr`
+at use, so nothing need persist on the stack. But `resumeAfterCall` *pushes* the
+success word, and that 0/1 flag is the **one** value that is **not** recomputable
+from a pure `Expr` (it is dynamic — it depends on the child run). So it cannot live
+in `defs`/`locals` as a recompute-on-use value.
+
+The resolution makes the flag **first-class IR state** rather than a recomputable
+value (chosen over relaxing `M5` to carry a pending stack value, which would have
+invaded every per-construct `sim_*` brick):
+
+* `IRState` (`LirLean/SmallStep.lean`) gains a `callResult : Option Word` slot — the
+  home of the most recent CALL's success word, the one effect with no `Expr`.
+* `IRState.applyCall` writes the oracle's `successWord` into that slot alongside the
+  storage/gas effects (it has the word in hand).
+* `IRState.bindCallResult : Option Tmp → IRState` reads the slot **once** into
+  `locals` at the call's `resultTmp`. After that bind, a later use of `resultTmp` is
+  an *ordinary* `Expr.tmp`/`locals` read — recompute-on-use sees a bound local, never
+  a recomputation of the dynamic flag.
+
+This **keeps `M5 stack_nil` intact**: the flag travels through the `callResult` slot
+(pure IR state), and the lowered CALL's physical flag-on-stack is bridged by the
+`successWord` *reflexivity* (`call_reflects_lowered`), not threaded through `Match`.
+The lowering layer still leaves the physical flag on the EVM stack after `CALL`; a
+worked program either binds it (`resultTmp = some t`) or `POP`s it (`resultTmp =
+none`) — pinned per worked program, exactly the §6.4 `M5` note — but the **IR
+semantics** model the binding as the slot, so the recompute model is uniform.
+
+The reflexivity headline now reflects **all three** effects (post-storage, restored
+gas, and the success word's value). `applyCall_reflects_lowered` additionally pins
+the post-`applyCall` `callResult` slot to exp003's flag `x` (`callSuccessFlag`), and
+`bindCallResult_reflects_lowered` shows the composed `applyCall` + `bindCallResult`
+binds `resultTmp`'s local to exactly that `x` — closing the `resultTmp` story.
+
 ---
 
 ## 6. The preservation architecture (AS-BUILT)
@@ -373,7 +478,8 @@ what the `runs_*` rule wants — so the lemmas compose by `Runs.trans` independe
 - `sim_imm` → `runs_push (.PUSH32)`; leaves `w` on top (`evalExpr (.imm w)`).
 - `sim_add` / `sim_lt` → `runs_add` / `runs_lt`; top = `UInt256.add`/`.lt a b`.
 - `sim_sload` → `runs_sload`; top = `selfStorage fr key` (via `sloadFrame_storage_self`).
-- `sim_gas` → `runs_gas`; gas drops by `gBase`, top = post-charge gas.
+- `sim_gas` → `runs_gas`; gas drops by `gBase evmOracle` (= `Gbase`), top = post-charge gas.
+  `gas_reflects_lowered` restates the top value as the oracle-reflexivity equation.
 - `sim_sstore` → `runs_sstore`; the written cell reads back `value`, other cells unchanged.
 - `sim_jump` → `runs_jump`; pc set to the resolved target.
 - `sim_branch` → `runs_branch` (the CFG combinator; case-split on the runtime condition).
@@ -465,9 +571,14 @@ Notes that shape the obligations:
 - **Stack discipline (`M5`).** Because materialisation pushes exactly the operands
   a consuming opcode pops and the opcode pops them all, the stack returns to `[]`
   after each statement — so `M5` is re-established without a slot map. The one
-  exception is `Stmt.call`'s success flag; C3's worked programs either bind it
-  immediately (an `assign` from `resultTmp`, which under recompute-on-use is a no-op
-  that the next use re-materialises) or `POP` it — pinned per worked program.
+  physical exception is `Stmt.call`'s success flag, which the lowered `CALL` leaves
+  on the EVM stack; C3's worked programs either bind it (`resultTmp = some t`) or
+  `POP` it (`resultTmp = none`) — pinned per worked program. On the **IR** side that
+  flag is *not* a stack value at all: it is the `callResult` slot of `IRState`
+  (§5), written by `applyCall` and read into `locals` once by `bindCallResult` at
+  `resultTmp`. So `M5 stack_nil` holds for the IR/`Match` correspondence unchanged —
+  the dynamic, non-recomputable flag lives in state, and its bridge to the physical
+  stack flag is the `successWord` reflexivity, not `Match`.
 
 ---
 

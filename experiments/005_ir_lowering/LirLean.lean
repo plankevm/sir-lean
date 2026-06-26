@@ -10,6 +10,7 @@ import LirLean.Decode
 import LirLean.DecodeLower
 import LirLean.Layout
 import LirLean.SmallStep
+import LirLean.Call
 import LirLean.Match
 import LirLean.WorkedCall
 -- v2 (exp005) prototype — gas-free, observable, event-trace IR + preservation.

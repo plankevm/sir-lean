@@ -2,9 +2,8 @@
 
 This is the **constitution** for how experiment 003 proves things. It is the
 architecture that *emerged as correct* from experiment 001 — which is **not** the
-architecture 001 shipped under the "done" label. The orchestration loop
-([`../orchestration.prose`](../orchestration.prose)) enforces it; the prover and
-the per-aspect verifiers are derived from it.
+architecture 001 shipped under the "done" label. The orchestration that drove the
+work enforces it; the prover and the per-aspect verifiers are derived from it.
 
 Seed crystal to read first:
 [`001/ToyExternalCall/CallSound.lean`](../../001_toy_external_call/ToyExternalCall/CallSound.lean)

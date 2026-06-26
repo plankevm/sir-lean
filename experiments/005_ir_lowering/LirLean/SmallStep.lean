@@ -1,5 +1,7 @@
 import LirLean.IR
+import LirLean.Gas
 import Evm
+import BytecodeLayer.Semantics.UInt64
 
 /-!
 # LirLean — small-step, gas-aware IR semantics (C3)
@@ -18,8 +20,9 @@ preserved step-by-step by `rfl`-clean arithmetic — see `LirLean/Match.lean`.
 
 * `IRState.gas` is a `UInt64` (not `ℕ`) so it equals `fr.exec.gasAvailable`
   *exactly* — `M4` becomes a plain equality of `UInt64`s, and each construct's IR
-  charge is the same `UInt64.ofNat <constant>` subtraction the EVM post-frame
-  performs.
+  charge is the same `UInt64.ofNat <cost>` subtraction the EVM post-frame
+  performs. The *cost* itself comes from an abstract `GasOracle` (`LirLean/Gas.lean`);
+  the EVM schedule is the `evmOracle` instantiation, defeq to the old constants.
 * `IRState.storage : Word → Word` mirrors the self account's storage *through the
   observable lens* (`find?/lookupStorage`) that `M3` and exp003's
   `sstoreFrame_storage_self` / `sloadFrame_storage_self` use.
@@ -33,26 +36,44 @@ namespace Lir
 
 open Evm
 
-/-! ## Gas charges (the same constants the lowered opcodes charge) -/
+/-! ## Gas charges (read from the abstract `GasOracle`)
+
+Every IR cost is a field of the `GasOracle` parameter (`LirLean/Gas.lean`) rather
+than a hardcoded EVM constant: the IR's gas accounting is **gas-agnostic**. The
+EVM schedule is the `evmOracle` instantiation, at which each reader below reduces
+by `rfl` to the constant the lowered opcode charges (e.g. `gVerylow evmOracle =
+GasConstants.Gverylow` by `rfl`). -/
 
 /-- Gas charged by `add`/`lt`/(operand) materialisation per arithmetic op — the
-EVM `Gverylow = 3`. Mirrors `binOpPost`'s charge. -/
-def gVerylow : Nat := GasConstants.Gverylow
+oracle's `verylow`. At `evmOracle` this is `Gverylow = 3` (mirrors `binOpPost`). -/
+def gVerylow (oracle : GasOracle) : Nat := oracle.verylow
 
-/-- Gas charged by `GAS` — the EVM `Gbase = 2`. Mirrors `gasPost`'s charge. -/
-def gBase : Nat := GasConstants.Gbase
+/-- Gas charged by `GAS` — the oracle's `base`. At `evmOracle` this is `Gbase = 2`
+(mirrors `gasPost`). -/
+def gBase (oracle : GasOracle) : Nat := oracle.base
 
-/-- Gas charged by `JUMP` — the EVM `Gmid = 8`. Mirrors `jumpPost`'s charge. -/
-def gMid : Nat := GasConstants.Gmid
+/-- Gas charged by `JUMP` — the oracle's `mid`. At `evmOracle` this is `Gmid = 8`. -/
+def gMid (oracle : GasOracle) : Nat := oracle.mid
 
-/-- Gas charged by `JUMPI` — the EVM `Ghigh = 10`. Mirrors the jump posts. -/
-def gHigh : Nat := GasConstants.Ghigh
+/-- Gas charged by `JUMPI` — the oracle's `high`. At `evmOracle` this is `Ghigh = 10`. -/
+def gHigh (oracle : GasOracle) : Nat := oracle.high
 
 /-! ## The IR machine state -/
 
 /-- The IR register/storage/gas state. `storage` is the self account's storage
 read through the observable lens; `gas` is a `UInt64` so it equals
-`fr.exec.gasAvailable` exactly (the `M4` clause of `Match`). -/
+`fr.exec.gasAvailable` exactly (the `M4` clause of `Match`).
+
+`callResult` is the **call-result slot** — the home of the one value that is *not*
+recomputable from a pure `Expr`: the most recent external CALL's 0/1 success word
+(`docs/ir-design.md` §4, §5). Recompute-on-use materialises every `tmp` from its
+defining `Expr` at each use, but the success flag is dynamic (it depends on the
+child run), so it has no `Expr`. We therefore make it first-class IR state: a CALL
+writes it (`IRState.applyCall`), and the `resultTmp` binding reads it *once at the
+call* into `locals` (`IRState.bindCallResult`) — so a later use of `resultTmp` is a
+normal `locals`/`Expr.tmp` read, never a recomputation. This keeps `Match`'s
+`M5 stack_nil` intact (the slot is pure IR state; the lowered CALL's physical
+flag-on-stack is bridged by the `successWord` reflexivity, not by `Match`). -/
 structure IRState where
   /-- Register file: each temporary's bound value (if assigned). -/
   locals  : Tmp → Option Word
@@ -60,6 +81,10 @@ structure IRState where
   storage : Word → Word
   /-- Remaining gas — a `UInt64`, equal to `gasAvailable` under `Match`. -/
   gas     : UInt64
+  /-- The most recent external CALL's 0/1 success word, if a CALL has run. The one
+  value not recomputable from an `Expr`; written by `IRState.applyCall`, read once
+  into `locals` by `IRState.bindCallResult` at the call's `resultTmp`. -/
+  callResult : Option Word := none
 
 /-- An IR halt result (the terminator outcomes). -/
 inductive IRHalt where
@@ -101,6 +126,18 @@ def evalExpr (st : IRState) : Expr → Option Word
 def IRState.setLocal (st : IRState) (t : Tmp) (w : Word) : IRState :=
   { st with locals := fun t' => if t' = t then some w else st.locals t' }
 
+/-- **Bind the call-result slot into `locals` at a `resultTmp`.** The dynamic CALL
+success word lives in `callResult` (the one non-recomputable value); this binds it
+*once* to the call's `resultTmp` — after which it is an ordinary `locals` value that
+recompute-on-use materialises via `Expr.tmp`. When the spec binds no result
+(`resultTmp = none`) or no CALL has run (`callResult = none`), `locals` is
+unchanged. This is the read path for `CallSpec.resultTmp`. -/
+def IRState.bindCallResult (st : IRState) : Option Tmp → IRState
+  | none   => st
+  | some t => match st.callResult with
+              | none   => st
+              | some w => st.setLocal t w
+
 /-- Write a storage cell. -/
 def IRState.setStorage (st : IRState) (k v : Word) : IRState :=
   { st with storage := fun k' => if k' = k then v else st.storage k' }
@@ -109,6 +146,52 @@ def IRState.setStorage (st : IRState) (k v : Word) : IRState :=
 `gasAvailable - UInt64.ofNat c`. -/
 def IRState.charge (st : IRState) (c : Nat) : IRState :=
   { st with gas := st.gas - UInt64.ofNat c }
+
+/-! ## Monotone consumed-gas (the "gas only ever goes up" property)
+
+`consumed init st : ℕ` is how much gas has been spent getting from `init` to `st`
+(initial − remaining, in `ℕ`). The point of charging a `Nat` cost is that, under
+the per-step gas-sufficiency precondition the `sim_*` lemmas already carry (the
+`hgas` hypotheses, which prevent `UInt64` underflow), **consumed gas is
+monotonically non-decreasing**: each charge adds exactly its cost. This is the
+"monotonically increasing numbers" property made explicit (`consumed_charge`,
+`consumed_mono`) instead of left implicit in the per-construct arithmetic. -/
+
+/-- Gas consumed going from `init.gas` to `st.gas`, in `ℕ`. -/
+def consumed (init st : IRState) : Nat := init.gas.toNat - st.gas.toNat
+
+/-- **Remaining gas drops by exactly the cost.** Under the gas-sufficiency
+precondition (`c ≤ st.gas.toNat`, the same `hgas` the `sim_*` lemmas carry; with
+`c` in `UInt64` range), the post-charge counter is `st.gas.toNat - c` — no
+`UInt64` underflow. The `≤ st.gas.toNat` guard is exactly what rules it out. -/
+theorem charge_gas_toNat (st : IRState) (c : Nat)
+    (hc : c ≤ st.gas.toNat) (hlt : c < 2 ^ 64) :
+    (st.charge c).gas.toNat = st.gas.toNat - c := by
+  unfold IRState.charge
+  exact BytecodeLayer.UInt64.toNat_sub_ofNat st.gas c hc hlt
+
+/-- **Charging exactly accounts for the cost.** Under the gas-sufficiency
+precondition and `st` being downstream of `init` (`st.gas.toNat ≤ init.gas.toNat`,
+the standing `Match`/M4 invariant — gas only falls), consumed gas after charging
+`c` is the prior consumed plus `c`. -/
+theorem consumed_charge (init st : IRState) (c : Nat)
+    (hdown : st.gas.toNat ≤ init.gas.toNat)
+    (hc : c ≤ st.gas.toNat) (hlt : c < 2 ^ 64) :
+    consumed init (st.charge c) = consumed init st + c := by
+  unfold consumed
+  rw [charge_gas_toNat st c hc hlt]
+  omega
+
+/-- **Consumed gas is monotone along a charge.** Under the gas-sufficiency
+precondition, charging never decreases consumed gas — the "gas only goes up"
+property the IR enforces for free, made explicit. (No `init`-ordering needed: the
+counter falls, so consumed = `init − remaining` rises.) -/
+theorem consumed_mono (init st : IRState) (c : Nat)
+    (hc : c ≤ st.gas.toNat) (hlt : c < 2 ^ 64) :
+    consumed init st ≤ consumed init (st.charge c) := by
+  unfold consumed
+  rw [charge_gas_toNat st c hc hlt]
+  omega
 
 /-! ## Block / program accessors -/
 
@@ -129,18 +212,20 @@ opcode its own constant). The `Match` proof in `LirLean/Match.lean` checks these
 against the per-opcode `Runs` rules step by step, so we keep them as named sums
 rather than precomputed numbers. -/
 
-/-- Gas charged for materialising an expression onto the stack (the `Gverylow`
-per push/arith op the lowered byte-stream emits). Recurses through `tmp` like
-`materialiseExpr`. `fuel` bounds the recursion (well-formed SSA terminates). -/
-def matCost (defs : Tmp → Option Expr) : Nat → Expr → Nat
-  | _,     .imm _   => gVerylow                       -- one PUSH32
+/-- Gas charged for materialising an expression onto the stack (the oracle's
+`verylow` per push/arith op the lowered byte-stream emits, the `sload`/`base`
+costs for `SLOAD`/`GAS`). Recurses through `tmp` like `materialiseExpr`. `fuel`
+bounds the recursion (well-formed SSA terminates). At `evmOracle` it reduces to the
+old concrete sum. -/
+def matCost (oracle : GasOracle) (defs : Tmp → Option Expr) : Nat → Expr → Nat
+  | _,     .imm _   => gVerylow oracle                -- one PUSH32
   | 0,     _        => 0
   | f + 1, .tmp t   => match defs t with
-                       | some e => matCost defs f e
-                       | none   => gVerylow
-  | f + 1, .add a b => matCost defs f (.tmp b) + matCost defs f (.tmp a) + gVerylow
-  | f + 1, .lt  a b => matCost defs f (.tmp b) + matCost defs f (.tmp a) + gVerylow
-  | f + 1, .sload k => matCost defs f (.tmp k) + Evm.sloadCost true   -- warm self-cell
-  | _ + 1, .gas     => gBase
+                       | some e => matCost oracle defs f e
+                       | none   => gVerylow oracle
+  | f + 1, .add a b => matCost oracle defs f (.tmp b) + matCost oracle defs f (.tmp a) + gVerylow oracle
+  | f + 1, .lt  a b => matCost oracle defs f (.tmp b) + matCost oracle defs f (.tmp a) + gVerylow oracle
+  | f + 1, .sload k => matCost oracle defs f (.tmp k) + oracle.sload true   -- warm self-cell
+  | _ + 1, .gas     => gBase oracle
 
 end Lir

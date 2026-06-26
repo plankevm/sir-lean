@@ -125,7 +125,7 @@ whichever interface, ideally the shared one.
   Track A core is complete & reportable → `lean-review-report` launched.
 - NOTE (cleanup, defer to a review pass once `exp003-runs-call` stabilizes): A2's
   deletion left stale `messageCall_call_runs` refs in `docs/review-report.md` +
-  `review-report-followup.md` — regenerate via `review-report.prose`, don't hand-patch.
+  `review-report-followup.md` — regenerate via the `lean-review-report` agent, don't hand-patch.
 
 ### Track B — Nested EVM core over EVMYulLean  (worktree `nested-evmyul`)
 - [x] **B1** DONE (`exp004-nested` @ `20ad4c1`, green 1033 jobs). Vendored
@@ -145,10 +145,45 @@ whichever interface, ideally the shared one.
   axiom-clean). DONE: `seedFuel g = 4*(g+1)`; fuel-0 base cases (all 5 layers); the
   cornerstone `C'_pos_of_runnable` (every loop-continuing opcode burns ≥1 gas — ~140 ops;
   zero-cost ops all halt); positivity helpers; the headline `Θ_never_outOfFuel` stated.
-  REMAINING (continuation IN PROGRESS): (1) `Z→step→X` gas inversion, (2) `X` measure
-  descent, (3) cross-layer gas/depth conservation (nested analogue of flat
-  `gasFundsDescent`), (4) the final MUTUAL fuel-passing induction over `X/Ξ/Θ/call/step`
-  (the hardest single proof in the experiment).
+  PROGRESS (`21f3450`, green, axiom-clean): (1) gas-decrement chain DONE; (2) `X` measure
+  descent DONE; (3) cross-layer gas/depth conservation DONE (`Ccallgas_le_gas_of_cover`,
+  `call_depth_bound` ≤1024); (4) 4/5 propagation skeletons proved (Ξ/Θ-Code/call/Lambda
+  inductive steps of the strong-fuel-induction). **PAUSED for steer (3rd iteration).**
+  REMAINING: `step` skeleton + `X` inner loop-induction + precompiled-`Θ` arm + final
+  assembly. **KEY DESIGN FINDING: `seedFuel = 4*(g+1)` is INSUFFICIENT for nested** — gas
+  is only non-increasing (not strictly smaller) across a descent, so fuel must cover
+  ~4 hops × ≤1024 descents ⇒ the seed must be **DEPTH-AWARE**.
+  PROGRESS (`71b1217`, green, axiom-clean): the four named-remaining pieces all CLOSED —
+  `step` skeleton (`noOOF_step`/`noOOF_EvmYul_step`), `X` inner loop-induction
+  (`X_loop_noncallcreate`, the hard one), precompiled-`Θ` arm, AND an end-to-end
+  **non-nesting leaf headline** (`Θ_leaf_noOOF`/`Ξ_leaf_noOOF`/`X_leaf_noOOF`: a single
+  message call with no CREATE/CALL opcode is *unconditionally* never-`OutOfFuel` when
+  `gas+2 < fuel`). All `[propext, Classical.choice, Quot.sound]`.
+  REMAINING (fully-nested headline `Θ_never_outOfFuel`): only the MUTUAL DESCENT — (1)
+  extend the per-iteration gas descent to CALL/CREATE iterations, (2) the mutual fuel
+  strong-induction over the 6 layers with a depth-aware bound.
+  **KEY CORRECTION: the linear bound is ALSO insufficient** — each X-loop iteration can
+  spawn a child needing its own full budget ⇒ the sound bound is SUPER-LINEAR,
+  `B (k+1) gas = (gas+1)·(B k gas + c) + 2` over `k = 1025−depth` (~`(gas+1)^(1025−depth)`).
+  Size is irrelevant (fuel is a proof device, never run); only tractability matters.
+  DECISION (Eduardo, after 3rd partial): one more targeted iteration — B2f DONE
+  (`34961b0`, green, axiom-clean, 7 commits) but headline STILL OPEN (4th partial).
+  B2f closed all CALL-descent bricks: UInt256 no-wrap gas core (`gas_add_sub_le/lt`),
+  `call_result_gas_le/lt` (strict CALL descent mod one child-Θ-mono hyp), leaf
+  gas-monotonicity (`X_leaf_gas_le`, unconditional), CALL-arm arg-matching
+  (`pop7_stack_index`). REMAINING = two mutual inductions: (1) gas-monotonicity
+  (strong-induction on fuel; CALL path now mechanical, but **CREATE/`Lambda` gas
+  accounting is a different shape and was NOT examined** — the one true unknown), and
+  (2) never-OOF mutual induction with the super-linear `B`. ⇒ STOPPED per anti-thrash
+  rule; escalated to Eduardo (4th partial, design-sensitive).
+  B2g (`3c76a82`): CREATE/CREATE2/Lambda gas-descent bricks DONE — verdict CREATE tractable.
+  B2h (`5b1fd13`, **5th partial**): gas-monotonicity per-layer reductions DONE (the novel
+  structural work). HEADLINE STILL OPEN. Remaining: (1) gas-mono assembly fixpoint + the
+  precompiled-`Θ` arm brick (projection-plumbing obstacle, documented); (2) the never-OOF
+  mutual induction with super-linear `B` — **NOT STARTED**. **HELD for Eduardo's steer**
+  (5 partials; nested never-OOF is proving dramatically harder than flat's — a bake-off
+  finding in itself). Options for the morning: accept leaf+bricks as B's deliverable · scope
+  headline to CALL-only · keep grinding · try a cleaner measure for the induction.
 - [ ] **B3** Nested external-call core: a `{P} Ξ(child) {Q}` triple + call-site/frame
   rule; demonstrate **multiple** calls compose naturally (contrast with A's effort).
 - [ ] **B4** Expose an observables-only, fuel/frame-free semantics surface for IRs.
@@ -298,6 +333,158 @@ your own branch with clear messages; never touch another track's files; if block
 write the blocker into PLAN.md before stopping.
 
 ## Orchestration log
+- 2026-06-23 (NIGHT): **WOUND DOWN — both tracks blocked on Eduardo; heartbeat `f3ba5aed`
+  DELETED, nothing running.** Final overnight state: Track C v2 had 3 axiom-clean milestones
+  land (prototype, monotonicity, general gas-mono lemma — §3.4 fully proved); next C step
+  (call-events/general theorem) is blocked on the §7.5 returndata decision. Track B held
+  (5th partial). Did NOT launch the decision-free "wire `lower` into v2 witness" step —
+  judged better done together with the call-event step once returndata is settled (avoids
+  rework). HANDOFF.md finalized with the prioritized decision set. Clean stop.
+- 2026-06-23 (NIGHT): **General `Runs`-level gas-monotonicity lemma DONE & verified**
+  (`6adebb5`/`7af50a3`, exp005-ir; exp003 build green 1131, exp005 green 1133; `Runs.
+  gasAvailable_le`/`drive_gasRemaining_le_totalGas`/`CallReturns.gas_le` all confirmed
+  `[propext, Classical.choice, Quot.sound]` by me). Hypothesis-free incl. the `.call`
+  net-debit case (a `Runs.call` node already bundles the returning child). New module
+  `BytecodeLayer/Hoare/GasMonotone.lean` on the `Spec.lean` surface; only genuinely-new fact
+  was `drive_gasRemaining_le_totalGas` (exp003 had only the termination measure, not a gas
+  bound). **§3.4 "holds across calls" is now a real proof, not a remark.**
+- 2026-06-23 (NIGHT): **C-v2 two-read MONOTONICITY milestone DONE & verified** (`acbe05c`/
+  `02026ca`, exp005-ir; build green 1133, tree clean, no forbidden tokens, both
+  `lower_preserves_obs` and `lower_preserves_obs_mono` axiom-clean). `LirLean/V2/Mono.lean`:
+  the §3.4 monotone-oracle law + a sticky-gas-guard two-read example; bytecode side
+  **discharges** monotonicity (one-line `omega` off exact `subCharges` — "already-owned
+  machinery, no new gas theory"). **Verdict: the monotone-oracle law works as designed.**
+  Folded the agent's refinements into ir-design-v2 §3.4 (toNat-non-increasing order; only
+  `later≤earlier` determinable [strict = loop-termination non-goal]; guards lower via `GT`
+  for operand order; `gasReads` = the gasRead subsequence; general Runs-level lemma owed).
+  **Launched the general `Runs`-level gas-monotonicity-across-`.call` lemma** (decision-free;
+  makes "holds across calls" a real proof; prerequisite for the general theorem). Call-event
+  step STILL HELD on Eduardo's §7.5 returndata decision.
+- 2026-06-23 (NIGHT): **B2h landed — 5th PARTIAL, headline STILL OPEN. Track B HELD for
+  Eduardo's steer** (verified: `5b1fd13`, build green 1029/1030, tree clean, no forbidden
+  tokens, all new theorems `[propext, Classical.choice, Quot.sound]`). B2h proved the
+  **gas-monotonicity per-layer reduction chain** (the genuinely-novel structural work):
+  `step_{call,callcode,delegatecall,staticcall}_gas_le` + `step_gas_le` (unified dispatch) +
+  `X_loop_gas_le'` + `Θ_gas_le_code`/`Ξ_gas_le`/`Lambda_gas_le` + helpers. REMAINING for the
+  headline: (1) gas-mono mutual-induction ASSEMBLY (fixpoint `gas_mono n`) — **one brick
+  still missing**: the precompiled-`Θ` arm (projection-plumbing obstacle on EXPMOD/PointEval
+  `let gᵣ` blocks, documented); (2) the **never-OutOfFuel mutual induction with super-linear
+  `B` — NOT STARTED**. ⇒ Per the overnight rule, did NOT launch a 6th grind. **KEY BAKE-OFF
+  FINDING (for Eduardo): nested never-OutOfFuel is dramatically harder than flat's** — flat
+  (exp003) got `messageCall_never_outOfFuel` unconditionally with a clean linear bound; nested
+  has taken 5 iterations + a large brick library + TWO mutual inductions (one unstarted) + a
+  super-linear bound + precompile plumbing, and is STILL open. That asymmetry is itself a
+  concrete result for the flat-vs-nested verdict. Track B → bookkeeping only until steer.
+- 2026-06-23 (NIGHT): **C-v2 call-free prototype DONE & verified** (`ebc3efc`/`35bdd64`,
+  exp005-ir; build green 1132, tree clean, no forbidden tokens, `#print axioms
+  lower_preserves_obs` = `[propext, Classical.choice, Quot.sound]`). `LirLean/V2/{Machine,
+  Preserve}.lean`: gas-free `World`/`IRState`/`IRRun` + `gasRead` event + observable
+  `lower_preserves_obs` (`∃G₀,∀g≥G₀`, pc-free & gas-equality-free). **Verdict: the shape
+  works** — gas introspection cost ZERO gas machinery; event-realisability is a one-line
+  hyp; v1 untouched. Prototype-surfaced open decisions recorded in ir-design-v2 §7.5–7
+  (returndata word / revert→Outcome / evalExpr gas-trace / realisability-in-theorem /
+  RunFrom determinism). **Launched the two-read MONOTONICITY milestone** (validates §3.4's
+  monotone-oracle law via a sticky gas-guard example; discharges monotonicity from exp003
+  gas-descent). **HELD the call-event step** — needs Eduardo's §7.5 returndata decision.
+- 2026-06-23 (NIGHT): **Autonomous overnight mode (Eduardo asleep).** Directive: queue safe
+  forward work, otherwise BOOKKEEPING — verify each agent that lands, organize into clean
+  commits, produce/refresh reports, leave a tidy review surface. **No speculative refactors**
+  (they create review churn). Decision rules for landings while he sleeps:
+  - **C-v2 prototype lands** → verify (build green, axiom-clean, grep). If the design verdict
+    is POSITIVE → launch C-v2 step-2 (call-event milestone + first two-read monotonicity
+    example). If it hit fundamental friction → DO NOT build step-2 on a flawed base; document
+    the friction in PLAN.md + ir-design-v2 open-decisions, hold for morning steer.
+  - **B2h lands & headline `Θ_never_outOfFuel` CLOSED** → verify (`#print axioms` must be
+    `[propext, Classical.choice, Quot.sound]`); merge B→base; mark B2 ✅; spawn the Track B
+    `lean-review-report`; refresh EXPERIMENT-REPORT.md. 
+  - **B2h lands PARTIAL (5th)** → verify, commit, document the exact gap. **DO NOT launch a
+    6th B grind** (4 partials already; design-sensitive; needs his steer). Escalate via plan +
+    report for morning review; this track goes to bookkeeping only.
+  - **Reports**: keep EXPERIMENT-REPORT.md (base) + per-track reports current as tracks land.
+  - **Merges**: do NOT merge exp005-ir→base while the C-v2 prototype agent is mid-commit;
+    merge only once C-v2 reaches a stable verified commit (then fix master-report links).
+  - Loop is carried by background-agent completion notifications (self-sustaining while ≥1
+    agent runs) PLUS a **45-min cron heartbeat `f3ba5aed`** (every 45 min, session-only) so
+    the loop re-checks state even if an agent hangs. **On wind-down (all safe work done/
+    blocked on Eduardo): `CronDelete f3ba5aed`, finalize HANDOFF.md, then STOP.**
+  - Resume surface for the morning: **HANDOFF.md** (repo root) — kept current by the loop.
+  - Refreshed EXPERIMENT-REPORT.md to verified state (super-linear B finding; C v2 plan +
+    gas-introspection prior-art study linked).
+- 2026-06-23: **B2g CREATE de-risk DONE & verified — VERDICT: CREATE tractable** (`3c76a82`,
+  green, axiom-clean, 5 commits, clean tree). All CREATE/CREATE2/`Lambda` gas-descent bricks
+  closed (`create_gas_arith{,_lt}`, `create{,2}_result_gas_{le,lt}`, `C'_create{,2}_pos`,
+  `pop3/pop4_stack_index`). CREATE result gas = `.ofNat(gd.toNat − L(gd.toNat) + g'.toNat)`,
+  strict drop from the debit. Both CALL and CREATE bricks now exist ⇒ no CALL-only scoping
+  needed. Eduardo's steer was "push full headline (de-risk CREATE first)" → de-risk passed.
+  **Launched B2h** = the final mutual-induction assembly (both gas-monotonicity + never-OOF
+  with the super-linear `B`) to close `Θ_never_outOfFuel`.
+- 2026-06-23: **Track C v2 reformulation — plan written + prototype launched.** Eduardo's
+  design steer: IR semantics NOT gas-aware / NOT call-aware; external calls = "whatever the
+  bytecode does" (CompCert-style trace EVENTS, **not** an oracle); preservation on
+  observables; **keep gas introspection but DON'T model opcode gas costs** (gas = an observed
+  `gasRead` event, no counter). `docs/ir-design-v2.md` written (`04f37b3`, exp005-ir): gas/pc
+  leave the IR-facing surface (internal to the `Runs` witness), `Match.M4` deleted → caller-local
+  `G₀≤g` adequacy side-condition, `Match.M3`→observable `World`. **Launched C-v2 prototype**
+  (call-free: World + gas-free `IRRun` + `gasRead` event + observable-preservation on an
+  arith/storage/gas-branch example) to validate the shape before porting `workedCall`. v1
+  `wc_preserves` stays green as reference.
+- 2026-06-23: **B2f (4th iteration) landed PARTIAL & verified** (`34961b0`, green
+  1029/1030, axiom-clean, clean tree, 7 commits). Closed all CALL-descent bricks (no-wrap
+  UInt256 gas core, strict `call_result_gas_lt`, leaf gas-monotonicity, `pop7_stack_index`
+  arg-matching). Headline `Θ_never_outOfFuel` STILL OPEN. Remaining = the two mutual
+  inductions; **CREATE/`Lambda` gas accounting is the one unexamined unknown** (different
+  shape than CALL's UInt256 sum). Per anti-thrash rule, STOPPED and escalated to Eduardo
+  (4th partial). NOTE: Track C reformulation under discussion (gas/pc/call decoupling —
+  abstract IR machine + `CallOracle` + observables-only simulation; see Verity/Dafny-EVM
+  prior art) — `ir-design-v2` draft offered, pending Eduardo's go.
+- 2026-06-23: **B2 3rd iteration landed PARTIAL & verified** (`71b1217`, green, axiom-clean —
+  `#print axioms Θ_leaf_noOOF` = `[propext, Classical.choice, Quot.sound]`, zero
+  sorry/admit/axiom/native_decide, clean tree). Closed all four named-remaining pieces +
+  the **non-nesting leaf headline** (`Θ_leaf_noOOF` et al.). Fully-nested headline still
+  open (only the mutual call/create descent). Found the bound is **super-linear**, not
+  linear (per-iteration child multiplicity) — recursive `B` recorded. **Steer (Eduardo):
+  one more targeted iteration** — launched B2f with the recursive super-linear bound +
+  the two precise descent obligations. To keep the loop alive, also launched the **Track C
+  report refresh** (now DONE: `track-c-review.md` rewritten to the hypothesis-free state,
+  1130 green, 150 links resolve) and committed the **doc-comment sync** it surfaced
+  (`3236772` on `exp005-ir`: WorkedCall header + Decode `validJumpDests` no-longer-partial).
+  Track B full report still held until the headline closes (or B2f reports another partial).
+- 2026-06-22: **🎉 TRACK C DONE — `wc_preserves` FULLY HYPOTHESIS-FREE + axiom-clean**
+  (`5ee984d`; `#print axioms` = `[propext, Classical.choice, Quot.sound]`). A complete
+  verified IR→bytecode lowering through an external CALL + storage write + arithmetic +
+  gas-dependent branch, depending only on a gas knob `g ≥ 50000`. Post-CALL run closed
+  (resumed-gas bound, SLOAD-value/branch-taken, general `RETURN` halt). `wc_preserves_twoCall`
+  stays a generic multi-call shape lemma (no concrete 2-call program in `workedCall`; all
+  pieces proved). **Merged C→base** (`2482f14`, clean). Track C report predates the close
+  → refresh pending. Multi-call needed ZERO new theory — the `Runs.call` payoff.
+- 2026-06-22: **C child `CallReturns` CLOSED — kernel-cost wall defeated** (`54b2c7b`, green
+  1130). `wc_callReturns` is hypothesis-free (`g`-independent `wcStoredAccounts` +
+  `sstore_accounts_congr` dodges the deep-map reduction); `wc_preserves` no longer takes
+  `hcall`. ONLY the post-CALL run (`hpost`/`hhalt`) remains — final close launched (block-0
+  recompute → taken JUMPI → block-1 RETURN; needs a general `RETURN` halt lemma + resumed-gas
+  bound + SLOAD-value/branch-taken). After this, `wc_preserves`/`_twoCall` are FULLY
+  hypothesis-free. Still running: B2 mutual-induction crux.
+- 2026-06-22: **B2 items 1–2 DONE** (`f460066`, green, axiom-clean; a long 100-min run):
+  gas-decrement chain + `X` measure descent proved; item 3 down-payment. Launched the
+  **crux attempt** (item 3 finish + item 4 mutual induction, strong-induction-on-fuel
+  spine). DECISION: this is the make-or-break B2 run — if item 4 doesn't close, PAUSE B2
+  and flag for Eduardo's steer (it's design-sensitive + expensive; 3rd B2 iteration).
+  Still running: C child-`CallReturns` close.
+- 2026-06-22: **C branch terminator CLOSED + all report cleanups done** (`d4af049`, green
+  1129). The foundation blocker is gone (`wc_get_dest_414` via the detotalized
+  `validJumpDests`); `ir-design §6` synced to as-built, `Match` doc fixed, `maxHeartbeats`
+  hack REMOVED (default budget suffices). Only remaining hypothesis: the concrete child
+  `CallReturns` (kernel-cost, not foundations) — final close launched (childXfer/
+  sstoreChargeOf_child named-lemma pattern to dodge the deep-recursion wall). After this,
+  `wc_preserves`/`_twoCall` should be hypothesis-free. Still running: B2.
+- 2026-06-22: **`validJumpDests` DETOTALIZED + A→base merge #2 + C unblocked** (`07c8b8c`;
+  merges clean, base green 1130, C green 1129). `validJumpDestsAux` is now a total WF def
+  with a full jump-dest characterization (`mem_validJumpDests_of_reachable_jumpdest`,
+  `ReachesBoundary`, `Frame.get_dest_of_mem`); Conform still builds; upstreamable to
+  philogy. Launched the **C hypothesis-free close**: discharge the branch terminator (via
+  the new lemmas) + the concrete child `CallReturns` + the 3 report cleanups (ir-design §6
+  sync, Match doc, maxHeartbeats). Goal: `wc_preserves`/`wc_preserves_twoCall` fully
+  hypothesis-free ⇒ a complete verified single+multi-call lowering. Still running: B2.
 - 2026-06-22: **Track C review report DONE & committed** (`docs/track-c-review.md`, 561
   lines, on `exp005-ir`). Surfaced cleanup items for the C-close / cleanup sweep: (i)
   `ir-design.md §6` describes a generic `IRStep`/`lower_simulates_step` engine that was
