@@ -28,3 +28,7 @@ import LirLean.V2.Oracle
 -- v2 (exp005) the abstract external-call oracle worked example (v3 §3, §7): the
 -- frame-free `Stmt.call` arm run under an arbitrary `CallOracle` (no instantiation).
 import LirLean.V2.Call
+-- v2 (exp005) the CALL realisability bridge (v3 §3, §7): instantiate the abstract
+-- `V2.CallOracle` to v1's `evmCallOracle`; the realised bundle = the lowered CALL's
+-- observable effect (the call analogue of `GasRealises.monotoneGas`). Bytecode-coupled.
+import LirLean.V2.CallRealises
