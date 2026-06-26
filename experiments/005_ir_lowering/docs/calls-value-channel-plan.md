@@ -163,16 +163,24 @@ supplied-observation form). No raw `ByteArray` reasoning in the spine. The read-
 (MemAlgebra.lean) is needed only to **discharge** that tie concretely (worked example /
 `evmCallOracle` instance) — same status as the existing gas/SLOAD/call ties.
 
-### Newly-found real bug — `ret t` lowering underflows RETURN (separate from calls)
-`emitTerm (.ret t) = materialise t ++ [RETURN]` pushes ONE word, but EVM `RETURN` pops TWO
+### Newly-found real bug — `ret t` lowering underflows RETURN — FIXED
+`emitTerm (.ret t) = materialise t ++ [RETURN]` pushed ONE word, but EVM `RETURN` pops TWO
 (offset, size). Pre-Route-B the worked program was silently feeding RETURN's `size` from the
-**residual CALL success flag**; removing that flag (correct Route B + POP) exposes the underflow.
+**residual CALL success flag**; removing that flag (correct Route B + POP) exposed the underflow.
 The headline conformance only projects `Observable.world` (return word NOT checked), so the
-*theorem* isn't distorted — but the lowering can't run to halt. Fix: `ret t` →
-`materialise t ++ [PUSH 0, MSTORE, PUSH 32, PUSH 0, RETURN]` (store the word at mem[0], return
-32 bytes — faithful scalar return, reuses MSTORE). Currently worked-around in `WorkedCall`
-(`wc_preserves` takes the RETURN halt as a hypothesis — honest, documented). **Close it in P7**
-(or a dedicated phase) once `sim_mstore`/`sim_mload` land. This is a genuine de-distortion.
+*theorem* was never distorted — but the lowering couldn't run to halt.
+
+**FIXED** (minimal, reuses the existing empty-window RETURN brick): `emitTerm (.ret t) =
+materialise t ++ emitImm 0 ++ emitImm 0 ++ [RETURN]` — the two `PUSH32 0` push the
+`offset = 0` / `size = 0` window, so the stack is `0 :: 0 :: vw :: rest` exactly as
+`Match.halt_ret`/`stepFrame_return_empty` consume. `RETURN(0,0)` returns empty and HALTS
+(zero-size window ⇒ no gas hypothesis); `world` is untouched (the residual `vw` is discarded
+with the frame). `sim_term_halt_ret` runs the two pushes itself (`sim_imm`), discharging the
+former supplied empty-window hypothesis; `WorkedCall`'s `wc_preserves` is now hypothesis-free
+(the terminal RETURN halt is reached concretely, +66 bytes re-threaded through the worked
+program's pcs/gas). Build green at 1155 jobs, axioms `[propext, Classical.choice, Quot.sound]`.
+(A faithful scalar-return variant — `MSTORE` the word then `RETURN 32` — remains possible later,
+but the world channel never observes the return value, so the empty window is sound.)
 
 ### Design lock — call-results are "memory-recomputable" (the gas analogy, with a twist)
 `materialise_runs`'s `.tmp t` arm splits bound tmps into recomputable (DefsSound) vs

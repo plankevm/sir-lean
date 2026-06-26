@@ -66,16 +66,19 @@ def code : ByteArray := lower workedCall
 
 /-! ## Block JUMPDEST offsets (the offset table is a concrete prefix sum)
 
-Block 0 starts at 0, block 1 at 415, block 2 at 519. These are exactly the
+Block 0 starts at 0, block 1 at 415, block 2 at 585. These are exactly the
 immediates the `branch`/`jump` destination pushes must carry, checked below.
 (The fire-and-forget `call` — `resultTmp = none` — appends a single `POP` after
 `CALL` to discard the success flag, so everything past the CALL shifts by one byte
-vs. the pre-Route-B layout.) -/
+vs. the pre-Route-B layout. The `ret` block's terminator emits `materialise t ++
+PUSH32 0 ++ PUSH32 0 ++ RETURN`: the two zero window operands — offset/size for a
+well-formed `RETURN(0,0)` — add 66 bytes, shifting block 2 by 66 vs. the former
+single-word `ret` lowering.) -/
 
 example : offsetTable (defsOf workedCall) (recomputeFuel workedCall) workedCall.blocks 0 = 0 := by rfl
 example : offsetTable (defsOf workedCall) (recomputeFuel workedCall) workedCall.blocks 1 = 415 := by rfl
-example : offsetTable (defsOf workedCall) (recomputeFuel workedCall) workedCall.blocks 2 = 519 := by rfl
-example : code.size = 521 := by rfl
+example : offsetTable (defsOf workedCall) (recomputeFuel workedCall) workedCall.blocks 2 = 585 := by rfl
+example : code.size = 587 := by rfl
 
 /-! ## Decode round-trip at every emitted pc
 
@@ -116,10 +119,16 @@ example : decode code 401 = some (.ArithLogic .ADD, none)            := by rfl
 example : decode code 402 = some (.ArithLogic .LT, none)             := by rfl
 example : decode code 403 = some (.Push .PUSH4, some (415, 4))       := by rfl   -- then-block offset
 example : decode code 408 = some (.Smsf .JUMPI, none)                := by rfl
-example : decode code 409 = some (.Push .PUSH4, some (519, 4))       := by rfl   -- else-block offset
+example : decode code 409 = some (.Push .PUSH4, some (585, 4))       := by rfl   -- else-block offset
 example : decode code 414 = some (.Smsf .JUMP, none)                 := by rfl
 
-/-! ### Block 1 — JUMPDEST, the `ret` condition recompute, RETURN -/
+/-! ### Block 1 — JUMPDEST, the `ret` condition recompute, the two zero window pushes, RETURN
+
+`ret (t 6)` lowers to `materialise (t 6) ++ PUSH32 0 ++ PUSH32 0 ++ RETURN`: after the
+condition recompute (SLOAD/ADD/LT) the two `PUSH32 0` push the `offset`/`size` window operands
+so `RETURN(0,0)` is well-formed (returns empty, halts). The returned value is out of the
+world-channel scope, so the residual condition word below the window is discarded with the
+frame. -/
 
 example : decode code 415 = some (.Smsf .JUMPDEST, none)             := by rfl
 example : decode code 416 = some (.Push .PUSH32, some (100, 32))     := by rfl  -- lt operand (t5)
@@ -128,19 +137,21 @@ example : decode code 482 = some (.Push .PUSH32, some (7, 32))       := by rfl  
 example : decode code 515 = some (.Smsf .SLOAD, none)                := by rfl
 example : decode code 516 = some (.ArithLogic .ADD, none)            := by rfl
 example : decode code 517 = some (.ArithLogic .LT, none)             := by rfl
-example : decode code 518 = some (.System .RETURN, none)             := by rfl
+example : decode code 518 = some (.Push .PUSH32, some (0, 32))       := by rfl  -- RETURN offset window
+example : decode code 551 = some (.Push .PUSH32, some (0, 32))       := by rfl  -- RETURN size window
+example : decode code 584 = some (.System .RETURN, none)             := by rfl
 
 /-! ### Block 2 — JUMPDEST, STOP -/
 
-example : decode code 519 = some (.Smsf .JUMPDEST, none)             := by rfl
-example : decode code 520 = some (.System .STOP, none)               := by rfl
+example : decode code 585 = some (.Smsf .JUMPDEST, none)             := by rfl
+example : decode code 586 = some (.System .STOP, none)               := by rfl
 
 /-! ## The branch destinations are legal jump targets
 
-The two branch-destination immediates (415, 519) decode to `JUMPDEST` — proven
-axiom-cleanly by the `decode code 403 = PUSH4 415`, `decode code 409 = PUSH4 519`
+The two branch-destination immediates (415, 585) decode to `JUMPDEST` — proven
+axiom-cleanly by the `decode code 403 = PUSH4 415`, `decode code 409 = PUSH4 585`
 checks above together with `decode code 415 = JUMPDEST` and
-`decode code 519 = JUMPDEST`. So the lowered `JUMPI`/`JUMP` land on real
+`decode code 585 = JUMPDEST`. So the lowered `JUMPI`/`JUMP` land on real
 `JUMPDEST`s — a prerequisite for exp003's jump steps. (These four cheap `rfl` decode
 checks are the decode-level guarantee for the two destinations this program actually
 uses. `validJumpDests` itself is now a total well-founded def — Track A detotalized

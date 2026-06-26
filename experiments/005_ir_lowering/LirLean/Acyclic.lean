@@ -342,7 +342,7 @@ graph (the `RunFrom` recursion). -/
 
 open BytecodeLayer BytecodeLayer.System BytecodeLayer.Hoare BytecodeLayer.Interpreter Lir.V2 in
 /-- **`lower_conforms_acyclic_cfg` — general acyclic-CFG, `hir` discharged.** As
-`lower_conforms_acyclic`, but the IR run is **constructed** for any acyclic call-free gas-free CFG
+`lower_conforms_acyclic`, but the IR run is **constructed** for any acyclic gas-free CFG
 (`V2.irRun_exists`, from `CFGAcyclic prog` + `RunDefinable prog`) rather than assumed — so no
 `hir` hypothesis survives. The world equation is stated against the constructed run's existential
 observable `O`. -/
@@ -365,7 +365,7 @@ theorem lower_conforms_acyclic_cfg {prog : Program} {w₀ : V2.World} {self : Ac
       StmtTies prog sloadChg obs (realisedCall log self) L b)
     (htermties : ∀ (L : Label) (b : Block), blockAt prog L = some b →
       TermTies prog sloadChg obs (realisedCall log self) self L b)
-    -- the program is an acyclic call-free gas-free CFG with the edge-definability supply
+    -- the program is an acyclic gas-free CFG with the edge-definability supply
     -- (so `hir` builds via `V2.irRun_exists`):
     (hcfg : V2.CFGAcyclic prog)
     (hdef : V2.RunDefinable prog) :

@@ -593,24 +593,30 @@ theorem simTermStep_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).sum
             ≤ frT.exec.gasAvailable.toNat
         ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).length ≤ 1024
-        ∧ (∀ frv : Frame, Runs frT frv →
+        ∧ (∀ (vw : Word), st'.locals t = some vw →
+            ∀ frv : Frame, Runs frT frv →
             frv.exec.executionEnv.code = frT.exec.executionEnv.code →
             frv.exec.executionEnv.address = frT.exec.executionEnv.address →
             (∀ k, selfStorage frv k = selfStorage frT k) →
-            ∃ last rest output cp,
-              Runs frv last
-              ∧ stepFrame last = .halted (.success (returnEmptyPost last.exec rest) output)
-              ∧ last.exec.executionEnv.address = frT.exec.executionEnv.address
-              ∧ (∀ k, selfStorage last k = selfStorage frT k)
-              ∧ last.kind = .call cp
-              ∧ ¬ (last.exec.accounts == ∅) = true)) :
+            frv.exec.stack = vw :: frT.exec.stack →
+            ∃ cp,
+              decode frv.exec.executionEnv.code frv.exec.pc
+                  = some (.Push .PUSH32, some ((0 : Word), 32))
+              ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33)
+                  = some (.Push .PUSH32, some ((0 : Word), 32))
+              ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33 + UInt32.ofNat 33)
+                  = some (.System .RETURN, .none)
+              ∧ 3 ≤ frv.exec.gasAvailable.toNat
+              ∧ 3 ≤ (pushFrameW frv (0 : Word) 32).exec.gasAvailable.toNat
+              ∧ frv.kind = .call cp
+              ∧ ¬ (frv.exec.accounts == ∅) = true)) :
     SimTermStep prog sloadChg obs o self L b := by
   refine { halt := ?_, edge := ?_ }
   · -- halt arm: only the `ret` disjunct fires (the `stop` one contradicts `hterm`).
     intro st' frT hcorr _hdisj
     obtain ⟨hself, ⟨vw, hv⟩, hgas, hstk, hret⟩ := hties st' frT hcorr
     exact sim_term_halt_ret_lowered hb hcorr hterm hself hv
-      (hwf.matFueled_ret L b t hb hterm) (hwf.bound_ret L b t hb hterm) hgas hstk hret
+      (hwf.matFueled_ret L b t hb hterm) (hwf.bound_ret L b t hb hterm) hgas hstk (hret vw hv)
   · -- edge arm: vacuous (b.term = .ret t contradicts every jump/branch disjunct).
     intro st' frT succ hcorr hdisj
     rw [hterm] at hdisj
@@ -799,17 +805,23 @@ theorem simTermStep_callfree {prog : Program} {sloadChg : Tmp → ℕ} {obs : Wo
           ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).sum
               ≤ frT.exec.gasAvailable.toNat
           ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).length ≤ 1024
-          ∧ (∀ frv : Frame, Runs frT frv →
+          ∧ (∀ (vw : Word), st'.locals t = some vw →
+              ∀ frv : Frame, Runs frT frv →
               frv.exec.executionEnv.code = frT.exec.executionEnv.code →
               frv.exec.executionEnv.address = frT.exec.executionEnv.address →
               (∀ k, selfStorage frv k = selfStorage frT k) →
-              ∃ last rest output cp,
-                Runs frv last
-                ∧ stepFrame last = .halted (.success (returnEmptyPost last.exec rest) output)
-                ∧ last.exec.executionEnv.address = frT.exec.executionEnv.address
-                ∧ (∀ k, selfStorage last k = selfStorage frT k)
-                ∧ last.kind = .call cp
-                ∧ ¬ (last.exec.accounts == ∅) = true))
+              frv.exec.stack = vw :: frT.exec.stack →
+              ∃ cp,
+                decode frv.exec.executionEnv.code frv.exec.pc
+                    = some (.Push .PUSH32, some ((0 : Word), 32))
+                ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33)
+                    = some (.Push .PUSH32, some ((0 : Word), 32))
+                ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33 + UInt32.ofNat 33)
+                    = some (.System .RETURN, .none)
+                ∧ 3 ≤ frv.exec.gasAvailable.toNat
+                ∧ 3 ≤ (pushFrameW frv (0 : Word) 32).exec.gasAvailable.toNat
+                ∧ frv.kind = .call cp
+                ∧ ¬ (frv.exec.accounts == ∅) = true))
     (hjump : ∀ dst bdst, b.term = .jump dst →
         prog.blocks.toList[dst.idx]? = some bdst → dst.idx < prog.blocks.size →
         ∀ (st' : V2.IRState) (frT : Frame),
@@ -1278,17 +1290,23 @@ def TermTies (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (_o : V2.Cal
         ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).sum
             ≤ frT.exec.gasAvailable.toNat
         ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).length ≤ 1024
-        ∧ (∀ frv : Frame, Runs frT frv →
+        ∧ (∀ (vw : Word), st'.locals t = some vw →
+            ∀ frv : Frame, Runs frT frv →
             frv.exec.executionEnv.code = frT.exec.executionEnv.code →
             frv.exec.executionEnv.address = frT.exec.executionEnv.address →
             (∀ k, selfStorage frv k = selfStorage frT k) →
-            ∃ last rest output cp,
-              Runs frv last
-              ∧ stepFrame last = .halted (.success (returnEmptyPost last.exec rest) output)
-              ∧ last.exec.executionEnv.address = frT.exec.executionEnv.address
-              ∧ (∀ k, selfStorage last k = selfStorage frT k)
-              ∧ last.kind = .call cp
-              ∧ ¬ (last.exec.accounts == ∅) = true))
+            frv.exec.stack = vw :: frT.exec.stack →
+            ∃ cp,
+              decode frv.exec.executionEnv.code frv.exec.pc
+                  = some (.Push .PUSH32, some ((0 : Word), 32))
+              ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33)
+                  = some (.Push .PUSH32, some ((0 : Word), 32))
+              ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33 + UInt32.ofNat 33)
+                  = some (.System .RETURN, .none)
+              ∧ 3 ≤ frv.exec.gasAvailable.toNat
+              ∧ 3 ≤ (pushFrameW frv (0 : Word) 32).exec.gasAvailable.toNat
+              ∧ frv.kind = .call cp
+              ∧ ¬ (frv.exec.accounts == ∅) = true))
   ∧ (∀ dst bdst, b.term = .jump dst →
       prog.blocks.toList[dst.idx]? = some bdst → dst.idx < prog.blocks.size →
       ∀ (st' : V2.IRState) (frT : Frame),

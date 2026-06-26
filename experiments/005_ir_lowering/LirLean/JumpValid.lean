@@ -274,16 +274,17 @@ theorem segAligned_emitStmt (defs : Tmp → Option Expr) (fuel : Nat) (s : Stmt)
           exact (segAligned_emitImm (UInt256.ofNat (slotOf t))).append
             (SegAligned.nonpush Byte.mstore (by decide))
 
-/-- `emitTerm` is aligned: `ret` is a materialised operand then `RETURN`, `stop` is
-`STOP`, `jump` is `PUSH4 dest; JUMP`, `branch` is materialised cond then
-`PUSH4 thenOff; JUMPI; PUSH4 elseOff; JUMP`. -/
+/-- `emitTerm` is aligned: `ret` is a materialised operand then the two `PUSH32 0`
+window operands then `RETURN`, `stop` is `STOP`, `jump` is `PUSH4 dest; JUMP`,
+`branch` is materialised cond then `PUSH4 thenOff; JUMPI; PUSH4 elseOff; JUMP`. -/
 theorem segAligned_emitTerm (defs : Tmp → Option Expr) (fuel : Nat) (labelOff : Nat → Nat)
     (t : Term) : SegAligned (emitTerm defs fuel labelOff t) := by
   cases t with
   | ret tt =>
       rw [show emitTerm defs fuel labelOff (.ret tt)
-            = materialise defs fuel tt ++ [Byte.ret] from rfl]
-      exact (segAligned_materialise defs fuel tt).append
+            = materialise defs fuel tt ++ emitImm 0 ++ emitImm 0 ++ [Byte.ret] from rfl]
+      exact (((segAligned_materialise defs fuel tt).append
+              (segAligned_emitImm 0)).append (segAligned_emitImm 0)).append
             (SegAligned.nonpush Byte.ret (by decide))
   | stop =>
       rw [show emitTerm defs fuel labelOff .stop = [Byte.stop] from rfl]

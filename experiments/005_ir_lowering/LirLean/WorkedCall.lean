@@ -28,13 +28,13 @@ caller/callee world of exp003 (`BytecodeLayer.Programs`, whose `accts` carries t
   exactly as `CallerProgExample.caller_prefix_runs`.
 * `wc_call_step` — the CALL step at `wcCallSite g` (`stepFrame_call`).
 * `wc_preserves` — **`lower_preserves` for `workedCall`** (the bridge half): the
-  prefix, the genuine external CALL (`wc_callReturns`), and the whole post-CALL run
+  prefix, the genuine external CALL (`wc_callReturns`), the whole post-CALL run
   (`wcPostRun` — fire-and-forget `POP`, branch recompute, taken `JUMPI`, block-1
-  recompute) are all concrete; given the terminal `RETURN` halt `hhalt`, the top-level
-  `messageCall` pins to `wcRetFrame g`'s halt result. This consumes
-  `lower_preserves_discharge` over the assembled prefix + the `Runs.call` node, exactly
-  the `Examples.TwoCallExample.twoCall_messageCall` shape, specialised to the single
-  worked CALL of `workedCall`.
+  recompute, the two `RETURN`-window `PUSH32 0`), and the terminal `RETURN(0,0)` halt
+  are all concrete; the top-level `messageCall` pins to `wcRetFrame g`'s halt result —
+  hypothesis-free. This consumes `lower_preserves_discharge` over the assembled prefix +
+  the `Runs.call` node, exactly the `Examples.TwoCallExample.twoCall_messageCall` shape,
+  specialised to the single worked CALL of `workedCall`.
 
 ## The branch terminator — now CLOSED (Track A `validJumpDests` detotalization)
 
@@ -61,25 +61,25 @@ plus `sstore_accounts_congr`, so the post-SSTORE world / SSTORE charge / cold fl
 derived from cheap code-free field facts, never by whole-map reduction. `wc_preserves`
 no longer takes `hcall`.
 
-## Post-CALL run CLOSED; only the terminal-`RETURN` operand shape remains (Route B)
+## Post-CALL run CLOSED, terminal `RETURN` CLOSED — `wc_preserves` is hypothesis-free
 
 The whole interior post-CALL run is discharged in-file as `wcPostRun`: the
 fire-and-forget `POP` (Route B's `resultTmp = none` tail, discarding the CALL success
 flag via `runs_pop`), then the block-0 branch-condition recompute (`SLOAD; ADD; LT`,
 the taken `JUMPI` via `wc_get_dest_415` through Track A's detotalized `validJumpDests`),
-then block 1's recompute. The resumed-gas `allButOneSixtyFourth` lower bound and the
-`SLOAD` value over the child-committed map are both closed.
+then block 1's recompute, then the two `RETURN`-window `PUSH32 0`. The resumed-gas
+`allButOneSixtyFourth` lower bound and the `SLOAD` value over the child-committed map
+are both closed.
 
-`wc_preserves` takes the gas knob `g` (`50000 ≤ g.toNat`) and **one** hypothesis: the
-terminal `RETURN` halt `hhalt`. This is *not* a stubbed remainder of the run — the
-genuine `Runs (wcFrame g) (wcRetFrame g)` is concrete and the `RETURN`'s gas charge is
-proved (`wcRetFrame_chargeMemExpansion`). It is a **lowering gap the Route B POP
-exposed**: `ret t` lowers to `materialise t ++ [RETURN]` (one stack word), but `RETURN`
-pops two (`offset`/`size`). Pre-Route-B the worked `RETURN`'s `size` was the residual
-CALL flag; the fire-and-forget `POP` (correctly) discards it, so the `RETURN` now
-reaches with `[1]` — one operand short. The fix belongs in the `ret t` lowering (push a
-zero-size window), out of scope here. No `sorry`, no `axiom`; the one remaining premise
-is honest and documented at `wc_preserves`. -/
+The terminal `RETURN(0,0)` halt is now **also concrete**: the `ret t` lowering emits
+`materialise t ++ PUSH32 0 ++ PUSH32 0 ++ RETURN`, so the `RETURN` frame reaches with
+the empty-window stack `0 :: 0 :: [1]` and halts via `Match.halt_ret` /
+`stepFrame_return_empty` (zero-size window ⇒ no gas hypothesis). This **closes** the
+former lowering gap — `ret t` previously lowered to one stack word (`materialise t ++
+[RETURN]`) and borrowed `RETURN`'s `size` from the residual CALL flag, which Route B's
+fire-and-forget `POP` correctly discards, exposing the underflow. `wc_preserves` now
+takes only the gas knob `g` (`50000 ≤ g.toNat`) — no halt hypothesis. No `sorry`, no
+`axiom`. -/
 
 namespace Lir.WorkedCall
 
@@ -1059,56 +1059,6 @@ theorem wcResumed_warm7 (g : UInt64) :
   rw [show (wcChildAfter2Push g).executionEnv.address = AccountAddress.ofUInt256 0xCA11EE from rfl]
   decide
 
-/-! ## The general `RETURN` halt (materialised return window)
-
-The lowering's `ret t` emits `materialise t ++ [RETURN]`, so the `RETURN` consumes
-the materialised value as `offset` and the value below it as `size` — NOT the `0,0`
-that exp003's `stepFrame_return_empty` (and `Match.halt_ret`) need. We prove the
-**general** `RETURN` halt here: at any frame decoding to `RETURN` with
-`offset :: size :: rest` on the stack, if the memory-expansion charge succeeds
-(`chargeMemExpansion fr.exec offset size = .ok ec`, i.e. enough gas), then
-`stepFrame fr` halts. The bridge (`lower_preserves_discharge`) only needs the halt
-to *exist*, so we deliver `∃ halt, stepFrame fr = .halted halt`. The proof mirrors
-`stepFrame_return_empty` but routes through the genuine `chargeMemExpansion` success
-instead of the size-0 short-circuit. -/
-
-/-- **The general `RETURN` halt.** A frame decoding to `RETURN` with
-`offset :: size :: rest`, whose memory-expansion charge succeeds, halts. (Existence
-form: the bridge needs only `∃ halt, stepFrame fr = .halted halt`.) -/
-theorem stepFrame_return_halts (fr : Frame) (offset size : Word) (rest : Stack Word)
-    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.System .RETURN, .none))
-    (hstk : fr.exec.stack = offset :: size :: rest)
-    (hsz : fr.exec.stack.size ≤ 1024)
-    (ec : ExecutionState)
-    (hmem : chargeMemExpansion fr.exec offset size = .ok ec) :
-    ∃ halt, stepFrame fr = .halted halt := by
-  have hstep : stepFrame fr
-      = .halted (.success
-          (ExecutionState.replaceStackAndIncrPC
-            { ec with toMachineState :=
-                { ec.toMachineState with
-                    activeWords := MachineState.M ec.activeWords offset.toUInt64 size.toUInt64 } }
-            rest)
-          (ec.memory.readWithPadding offset.toNat size.toNat)) := by
-    unfold stepFrame
-    simp only [hdec]
-    dsimp only [Option.getD]
-    rw [if_neg (by decide)]
-    have hov : ¬ (fr.exec.stack.size - stackPopCount (.System .RETURN)
-        + stackPushCount (.System .RETURN) > 1024) := by
-      simp only [show stackPopCount (.System .RETURN) = 2 from rfl,
-                 show stackPushCount (.System .RETURN) = 0 from rfl]
-      have := hsz; omega
-    rw [if_neg hov]
-    dsimp only [dispatch, systemOp, haltOp, returnOrRevertOp]
-    rw [hstk]
-    dsimp only [Stack.pop2, liftM, monadLift, MonadLift.monadLift, Option.option, bind,
-      Except.bind, pure, Except.pure]
-    rw [hmem]
-    dsimp only [bind, Except.bind, pure, Except.pure]
-    rw [if_neg (by decide)]
-  exact ⟨_, hstep⟩
-
 /-! ## The post-CALL run (fire-and-forget POP → block-0 recompute → taken JUMPI → block-1 RETURN)
 
 From the resumed frame `wcResumed g` (pc 300, stack `[1]`, accounts the child-committed
@@ -1116,10 +1066,11 @@ map, gas `g − 46834`), the fire-and-forget call tail `POP`s the success flag (
 pc 300 → 301, stack `[]`); then block 0 recomputes the `lt` branch condition
 (`PUSH 100; PUSH 9; PUSH 7; SLOAD; ADD; LT`), pushes the then-target and takes the
 `JUMPI` to block 1 (offset 415), then block 1 recomputes the same condition and
-`RETURN`s the result. We assemble this as a `Runs.trans` chain of the exp003 opcode
-rules, threading the running gas through `subCharges` and reading the SLOAD value
-(`5`, `wcResumed_sload7`), the warm cost (`wcResumed_warm7`), and the taken branch
-(`wc_get_dest_415`). The terminal `RETURN` halts via `stepFrame_return_halts`. -/
+`PUSH32 0 PUSH32 0`'s the empty `RETURN` window over the result. We assemble this as a
+`Runs.trans` chain of the exp003 opcode rules, threading the running gas through
+`subCharges` and reading the SLOAD value (`5`, `wcResumed_sload7`), the warm cost
+(`wcResumed_warm7`), and the taken branch (`wc_get_dest_415`). The terminal
+`RETURN(0,0)` halts via the empty-window brick `Match.halt_ret`. -/
 
 /-- The resumed frame's accounts equal the named child-committed map (alias of
 `wcResumed_acc`, used to read the SLOAD value). -/
@@ -1218,11 +1169,20 @@ def wcRec1Sload (g : UInt64) : Frame :=
 def wcRec1Add (g : UInt64) : Frame :=
   addFrame (wcRec1Sload g) 5 9 [100]
 
-/-- The frame after block 1's `LT` — the `RETURN` frame (stack `[1]`: the `lt`
-result `1` is the sole operand; the residual CALL flag was discarded by the
-fire-and-forget POP; pc 518). -/
-def wcRetFrame (g : UInt64) : Frame :=
+/-- The frame after block 1's `LT` — the materialised `ret` value `1` (stack `[1]`:
+the `lt` result `1`; the residual CALL flag was discarded by the fire-and-forget POP;
+pc 518). The two zero window operands and `RETURN` follow it (`wcRetW1`/`wcRetW2`). -/
+def wcLt1Frame (g : UInt64) : Frame :=
   ltFrame (wcRec1Add g) 14 100 []
+
+/-- The frame after the first `PUSH32 0` (the `RETURN` offset window operand): pc
+551, stack `[0, 1]`. -/
+def wcRetW1 (g : UInt64) : Frame := pushFrameW (wcLt1Frame g) 0 32
+
+/-- The frame after the second `PUSH32 0` (the `RETURN` size window operand) — the
+`RETURN` frame: pc 584, stack `[0, 0, 1]` (the empty `0/0` window over the residual
+materialised value). -/
+def wcRetFrame (g : UInt64) : Frame := pushFrameW (wcRetW1 g) 0 32
 
 /-! ### Decode facts at the post-CALL pcs
 
@@ -1316,9 +1276,21 @@ theorem wcd_517 (g : UInt64) :
   show decode (wcAfterPop g).exec.executionEnv.code ((((((415 + 1) + (32+1)) + (32+1)) + (32+1)) + 1) + 1) = _
   rw [wcAfterPop_code]; rfl
 theorem wcd_518 (g : UInt64) :
+    decode (wcLt1Frame g).exec.executionEnv.code (wcLt1Frame g).exec.pc
+      = some (.Push .PUSH32, some (0, 32)) := by
+  show decode (wcAfterPop g).exec.executionEnv.code (((((((415 + 1) + (32+1)) + (32+1)) + (32+1)) + 1) + 1) + 1) = _
+  rw [wcAfterPop_code]; rfl
+theorem wcd_551 (g : UInt64) :
+    decode (wcRetW1 g).exec.executionEnv.code (wcRetW1 g).exec.pc
+      = some (.Push .PUSH32, some (0, 32)) := by
+  show decode (wcAfterPop g).exec.executionEnv.code
+      ((((((((415 + 1) + (32+1)) + (32+1)) + (32+1)) + 1) + 1) + 1) + (32+1)) = _
+  rw [wcAfterPop_code]; rfl
+theorem wcd_584 (g : UInt64) :
     decode (wcRetFrame g).exec.executionEnv.code (wcRetFrame g).exec.pc
       = some (.System .RETURN, .none) := by
-  show decode (wcAfterPop g).exec.executionEnv.code (((((((415 + 1) + (32+1)) + (32+1)) + (32+1)) + 1) + 1) + 1) = _
+  show decode (wcAfterPop g).exec.executionEnv.code
+      (((((((((415 + 1) + (32+1)) + (32+1)) + (32+1)) + 1) + 1) + 1) + (32+1)) + (32+1)) = _
   rw [wcAfterPop_code]; rfl
 
 /-! ### Gas threading along the post-CALL chain
@@ -1346,12 +1318,12 @@ theorem wcRec1_sloadCost (g : UInt64) :
       show (wcRec1Push3 g).exec.executionEnv.address = (wcResumed g).exec.executionEnv.address from rfl,
       wcResumed_addr, wcResumed_warm7]; rfl
 
-/-- The gas at the `RETURN` frame, threaded through the post-POP chain, as a
-`subCharges` of the post-POP gas over `wcPostCharges`. -/
+/-- The gas at the materialised-`ret`-value frame (block 1's `LT`), threaded through
+the post-POP chain, as a `subCharges` of the post-POP gas over `wcPostCharges`. -/
 theorem wcChain_gas (g : UInt64) :
-    (wcRetFrame g).exec.gasAvailable
+    (wcLt1Frame g).exec.gasAvailable
       = subCharges (wcAfterPop g).exec.gasAvailable wcPostCharges := by
-  unfold wcRetFrame wcRec1Add wcRec1Sload wcRec1Push3 wcBlock1Jd wcBlock1
+  unfold wcLt1Frame wcRec1Add wcRec1Sload wcRec1Push3 wcBlock1Jd wcBlock1
     wcRec0PushDest wcRec0Lt wcRec0Add wcRec0Sload wcRec0Push3
     ltFrame addFrame sloadFrame jumpdestFrame jumpFrame pushFrameW
   dsimp only [BytecodeLayer.Dispatch.binOpPost, BytecodeLayer.Dispatch.sloadPost,
@@ -1502,14 +1474,55 @@ theorem wcBlock1Jd_stack (g : UInt64) : (wcBlock1Jd g).exec.stack = ([] : Stack 
 theorem wcRec1Push3_stack (g : UInt64) :
     (wcRec1Push3 g).exec.stack = (7 : Word) :: 9 :: 100 :: [] := rfl
 
+/-! ### The two zero `RETURN`-window pushes (stack + gas facts)
+
+`ret (t 6)` lowers to `materialise (t 6) ++ PUSH32 0 ++ PUSH32 0 ++ RETURN`. The
+block-1 recompute leaves the `lt` result `1` (`wcLt1Frame g`, pc 518, stack `[1]`); the
+two `PUSH32 0` push the `offset = 0` / `size = 0` window operands (`wcRetW1`/`wcRetFrame`,
+pc 551/584). These stack/gas facts feed the two `runs_push` at the tail of `wcPostRun`. -/
+
+/-- The materialised-`ret`-value frame's stack is `[1]` (the `lt` result `1`; the
+residual CALL flag was discarded by the fire-and-forget POP). -/
+theorem wcLt1Frame_stack (g : UInt64) : (wcLt1Frame g).exec.stack = (1 : Word) :: [] := rfl
+
+/-- The gas at the materialised-`ret`-value frame: `afterPop − 244 ≥ 2676` for
+`g ≥ 50000` — comfortably covering the two `PUSH32 0` window pushes (`Gverylow = 3`
+each); the `RETURN(0,0)` itself charges no gas. -/
+theorem wcLt1Frame_gas_ge (g : UInt64) (hg : 50000 ≤ g.toNat) :
+    3 ≤ (wcLt1Frame g).exec.gasAvailable.toNat := by
+  rw [wcChain_gas g, wcChain_gas_toNat g hg]
+  have := wcAfterPop_gas_ge g hg; omega
+
+/-- The first window push's frame (`wcRetW1`, pc 551) has stack `[0, 1]`. -/
+theorem wcRetW1_stack (g : UInt64) : (wcRetW1 g).exec.stack = (0 : Word) :: 1 :: [] := by
+  show Stack.push (wcLt1Frame g).exec.stack 0 = _; rw [wcLt1Frame_stack]; rfl
+
+/-- The first window push's gas as a `subCharges` (one `Gverylow` below `wcLt1Frame`,
+i.e. `wcPostCharges ++ [3]` off `afterPop`). -/
+theorem wcRetW1_gas (g : UInt64) :
+    (wcRetW1 g).exec.gasAvailable
+      = subCharges (wcAfterPop g).exec.gasAvailable (wcPostCharges ++ [3]) := by
+  show (wcLt1Frame g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
+  rw [wcChain_gas g, subCharges_snoc]; rfl
+
+/-- The first window push leaves `≥ 3` gas (for the second `PUSH32 0`). -/
+theorem wcRetW1_gas_ge (g : UInt64) (hg : 50000 ≤ g.toNat) :
+    3 ≤ (wcRetW1 g).exec.gasAvailable.toNat := by
+  have hsum : (wcPostCharges ++ [3]).sum = 247 := by unfold wcPostCharges; decide
+  have hge := wcAfterPop_gas_ge g hg
+  rw [wcRetW1_gas g,
+      toNat_subCharges (wcAfterPop g).exec.gasAvailable (wcPostCharges ++ [3]) (by rw [hsum]; omega)]
+  rw [hsum]; omega
+
 /-! ### The assembled post-CALL run
 
-`wcResumed g → … → wcRetFrame g` (pc 518, `RETURN`) as one `Runs`, a `Runs.trans`
+`wcResumed g → … → wcRetFrame g` (pc 584, `RETURN`) as one `Runs`, a `Runs.trans`
 chain of the exp003 opcode rules over the post-CALL frames. It opens with the
 fire-and-forget `POP` (`runs_pop`, `wcResumed → wcAfterPop`, discarding the success
 flag), then decode at each pc (`wcd_*`), gas via the `subCharges`/`wcSub_gas_ge`
 bounds (warm SLOAD = 100), SLOAD value `5` (`wcRec*Sload_stack`), the taken `JUMPI`
-to block 1 (`wc_get_dest_415` on `wcAfterPop_validJumps`). For `g ≥ 50000`. -/
+to block 1 (`wc_get_dest_415` on `wcAfterPop_validJumps`), and finally the two
+`PUSH32 0` `RETURN`-window operands. For `g ≥ 50000`. -/
 theorem wcPostRun (g : UInt64) (hg : 50000 ≤ g.toNat) :
     Runs (wcResumed g) (wcRetFrame g) := by
   -- fire-and-forget POP: discard the CALL success flag (pc 300 → 301, stack [1] → [])
@@ -1630,62 +1643,28 @@ theorem wcPostRun (g : UInt64) (hg : 50000 ≤ g.toNat) :
       (by rw [wcRec1Sload_stack]; decide)
       (by rw [wcRec1Sload_gas]; have := wcSub_gas_ge g hg ([3,3,3,100] ++ [3,3,3,10,1,3,3,3,100]) (by simp)
           show (3:ℕ) ≤ _; omega)).trans ?_
-  -- block 1 LT (14 < 100 = 1) — the RETURN frame
-  exact runs_lt (wcRec1Add g) 14 100 [] (wcd_517 g) rfl
+  -- block 1 LT (14 < 100 = 1) — the materialised `ret` value `[1]`
+  refine (runs_lt (wcRec1Add g) 14 100 [] (wcd_517 g) rfl
       (by rw [show (wcRec1Add g).exec.stack = (14:Word) :: 100 :: [] from rfl]; decide)
       (by show (3:ℕ) ≤ (wcRec1Add g).exec.gasAvailable.toNat
           rw [show (wcRec1Add g).exec.gasAvailable
                 = subCharges (wcAfterPop g).exec.gasAvailable ([3,3,3,100] ++ [3,3,3,10,1,3,3,3,100,3]) from by
               show (wcRec1Sload g).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow = _
               rw [wcRec1Sload_gas]; rfl]
-          have := wcSub_gas_ge g hg ([3,3,3,100] ++ [3,3,3,10,1,3,3,3,100,3]) (by simp); omega)
+          have := wcSub_gas_ge g hg ([3,3,3,100] ++ [3,3,3,10,1,3,3,3,100,3]) (by simp); omega)).trans ?_
+  -- the `ret` window: PUSH32 0 (offset), PUSH32 0 (size)
+  refine (runs_push (wcLt1Frame g) .PUSH32 0 32 (by nofun) (wcd_518 g) rfl rfl
+      (by have := wcLt1Frame_gas_ge g hg; omega)
+      (by rw [wcLt1Frame_stack]; decide)).trans ?_
+  exact runs_push (wcRetW1 g) .PUSH32 0 32 (by nofun) (wcd_551 g) rfl rfl
+      (by have := wcRetW1_gas_ge g hg; omega)
+      (by rw [wcRetW1_stack]; decide)
 
-/-! ### The terminal `RETURN` halt
-
-The `RETURN` frame `wcRetFrame g` (pc 517) has stack `[1, 1]` (the `lt` result on top
-as `offset`, the residual CALL flag below as `size`). Its memory-expansion charge for
-`offset = size = 1` is `Cₘ 1 − Cₘ 0 = 3`, which the running gas (`≥ 2678`) covers, so
-`RETURN` halts (`stepFrame_return_halts`). -/
-
-/-- The `RETURN` frame's active words are `0` (default; every transformer and
-`resumeAfterCall`'s zero in/out windows leave them untouched). -/
-theorem wcRetFrame_activeWords (g : UInt64) : (wcRetFrame g).exec.activeWords = 0 := by
-  show (wcResumed g).exec.activeWords = 0
-  unfold wcResumed resumeAfterCall callPending
-  dsimp only [ExecutionState.replaceStackAndIncrPC]; rfl
-
-/-- The `RETURN` frame's stack is `[1]` (the `lt` result `1` — the sole operand; the
-residual CALL flag was discarded by the fire-and-forget POP). -/
-theorem wcRetFrame_stack (g : UInt64) : (wcRetFrame g).exec.stack = (1 : Word) :: [] := rfl
-
-/-- The gas at the `RETURN` frame: `(g − 46834) − 246` (`= afterPop − 244`), `≥ 2676`
-for `g ≥ 50000` — comfortably covering the `RETURN`'s `Cₘ 1 − Cₘ 0 = 3` mem charge. -/
-theorem wcRetFrame_gas_ge (g : UInt64) (hg : 50000 ≤ g.toNat) :
-    3 ≤ (wcRetFrame g).exec.gasAvailable.toNat := by
-  rw [wcChain_gas g, wcChain_gas_toNat g hg]
-  have := wcAfterPop_gas_ge g hg; omega
-
-/-- **The `RETURN`'s memory-expansion charge succeeds.** At `wcRetFrame g` (pc 518),
-the `chargeMemExpansion` for a 1-byte window (`offset = size = 1`) charges
-`Cₘ 1 − Cₘ 0 = 3`, which the running gas (`≥ 2676`) covers. This is the gas half of
-the terminal `RETURN` halt; the operand half (a genuine `offset :: size :: rest` on
-the stack) is supplied by `wc_preserves`'s `hhalt` argument — see its docstring for
-why the fire-and-forget POP makes that operand half a hypothesis here. -/
-theorem wcRetFrame_chargeMemExpansion (g : UInt64) (hg : 50000 ≤ g.toNat) :
-    chargeMemExpansion (wcRetFrame g).exec 1 1
-      = .ok { (wcRetFrame g).exec with
-          gasAvailable := (wcRetFrame g).exec.gasAvailable - UInt64.ofNat 3 } := by
-  have hge := wcRetFrame_gas_ge g hg
-  unfold chargeMemExpansion
-  rw [show Evm.memoryExpansionWords? (wcRetFrame g).exec.activeWords 1 1
-        = some (MachineState.M (wcRetFrame g).exec.activeWords 1 1) from by
-      rw [wcRetFrame_activeWords]; rfl]
-  show charge (Evm.Cₘ (MachineState.M (wcRetFrame g).exec.activeWords 1 1)
-      - Evm.Cₘ (wcRetFrame g).exec.activeWords) (wcRetFrame g).exec = _
-  rw [wcRetFrame_activeWords]
-  rw [show Evm.Cₘ (MachineState.M 0 1 1) - Evm.Cₘ 0 = 3 from by decide]
-  unfold charge
-  rw [if_neg (by have := hge; omega)]
+/-- The `RETURN` frame's stack is `0 :: 0 :: [1]` (the empty `0/0` window over the
+residual materialised value). -/
+theorem wcRetFrame_stack (g : UInt64) :
+    (wcRetFrame g).exec.stack = (0 : Word) :: 0 :: 1 :: [] := by
+  show Stack.push (wcRetW1 g).exec.stack 0 = _; rw [wcRetW1_stack]; rfl
 
 /-! ## `lower_preserves` for `workedCall` (the bridge half)
 
@@ -1703,39 +1682,42 @@ The full execution of `workedCall` as one `Runs (wcFrame g) last`:
 `wc_prefix_runs` (proved above) is the real prefix; the CALL is a `Runs.call` node
 carrying the **concrete** `wc_callReturns` witness (no longer assumed); the post-CALL
 run `hpost` is now also concrete (`wcPostRun` — the fire-and-forget `POP`, block-0
-recompute, taken `JUMPI` to block 1, block-1 recompute). Only the terminal-`RETURN`
-**operand shape** `hhalt` remains a hypothesis, discharged through the bridge with
-`lower_preserves_discharge`. The result holds for **any** terminal halt — and because
-the bridge composes any number of `Runs.call` nodes, a ≥2-call worked program closes
-the same way (C4).
+recompute, taken `JUMPI` to block 1, block-1 recompute, the two `RETURN`-window
+pushes). The terminal `RETURN(0,0)` halt is **also concrete** now, discharged through
+the bridge with `lower_preserves_discharge`. Because the bridge composes any number of
+`Runs.call` nodes, a ≥2-call worked program closes the same way (C4).
 
-**Why the terminal `RETURN` halt is a hypothesis (the fire-and-forget POP exposes the
-`ret t` size-operand gap).** The lowering of `ret t` is `materialise t ++ [RETURN]`,
-which puts **one** word (`t`'s value) on the stack — but EVM `RETURN` pops **two**
-(`offset`, `size`). Pre-Route-B, the worked program's `RETURN` got its `size` operand
-from the residual CALL success flag left under the materialised value. Route B's
-fire-and-forget `POP` (correctly) discards that flag, so the block-1 `RETURN` now
-reaches with stack `[1]` (the materialised `lt` result alone) — one operand short. The
-genuine `Runs` to `wcRetFrame g` is concrete and proved (`wcPostRun`); the gas half of
-the halt is proved (`wcRetFrame_chargeMemExpansion`); the missing `size` operand is a
-*lowering* gap (`ret t` should `PUSH 0` a zero-size window, or `materialise` a real
-window), out of scope here. Until that lowering fix lands, the terminal halt
-`hhalt : stepFrame (wcRetFrame g) = .halted halt` is supplied by the caller. -/
+**The former `ret t` lowering gap is CLOSED.** The lowering of `ret t` is now
+`materialise t ++ PUSH32 0 ++ PUSH32 0 ++ RETURN`: after the materialised value, the
+two `PUSH32 0` push the `offset = 0` / `size = 0` window, so the `RETURN` frame reaches
+with stack `0 :: 0 :: [1]` — exactly the empty-window shape `Match.halt_ret` /
+`stepFrame_return_empty` consume. `RETURN(0,0)` returns the empty output and halts with
+no gas hypothesis (zero-size window ⇒ zero mem charge); the residual `1` underneath is
+discarded with the frame. (Pre-fix, the worked `RETURN` borrowed its `size` from the
+residual CALL flag, which Route B's fire-and-forget `POP` correctly discards — exposing
+the one-operand-short underflow this fix repairs.) -/
 
 /-- **`lower_preserves` for `workedCall`.** Every interior piece is concrete and
 supplied internally: the straight-line prefix (`wc_prefix_runs`), the single external
-CALL (`wc_callReturns` — the genuine child `drive`), and the whole post-CALL run
+CALL (`wc_callReturns` — the genuine child `drive`), the whole post-CALL run
 (`wcPostRun` — the fire-and-forget `POP`, block-0 recompute → taken `JUMPI` → block-1
-recompute). For `g ≥ 50000` the top-level `messageCall (wcParams g)` delivers the
-`RETURN` frame's halt result. Only the terminal-`RETURN` halt `hhalt` is a hypothesis
-— the fire-and-forget `POP` discards the success flag the worked program's `ret t`
-lowering relied on for `RETURN`'s `size` operand (see the section docstring). -/
-theorem wc_preserves (g : UInt64) (hg : 50000 ≤ g.toNat)
-    {halt : FrameHalt} (hhalt : stepFrame (wcRetFrame g) = .halted halt) :
+recompute → the two `RETURN`-window `PUSH32 0`), and the terminal `RETURN(0,0)` halt
+itself (`halt_ret` on the empty `0 :: 0 :: [1]` window — `hhalt` is now proved, not a
+hypothesis). For `g ≥ 50000` the top-level `messageCall (wcParams g)` delivers the
+`RETURN` frame's halt result. -/
+theorem wc_preserves (g : UInt64) (hg : 50000 ≤ g.toNat) :
     messageCall (wcParams g)
-      = .ok (FrameResult.toCallResult (endFrame (wcRetFrame g) halt)) := by
+      = .ok (FrameResult.toCallResult (endFrame (wcRetFrame g)
+          (.success (returnEmptyPost (wcRetFrame g).exec (1 :: []))
+            ((wcRetFrame g).exec.memory.readWithPadding (0 : Word).toNat (0 : Word).toNat)))) := by
   have hruns : Runs (wcFrame g) (wcRetFrame g) :=
     (wc_prefix_runs g (by omega)).trans (Runs.call (wc_callReturns g hg) (wcPostRun g hg))
+  -- the empty-window RETURN halt at `wcRetFrame g` (pc 584, stack `0 :: 0 :: [1]`).
+  have hhalt : stepFrame (wcRetFrame g)
+      = .halted (.success (returnEmptyPost (wcRetFrame g).exec (1 :: []))
+          ((wcRetFrame g).exec.memory.readWithPadding (0 : Word).toNat (0 : Word).toNat)) :=
+    halt_ret (wcRetFrame g) (1 :: []) (wcd_584 g) (wcRetFrame_stack g)
+      (by rw [wcRetFrame_stack]; decide)
   exact lower_preserves_discharge Lir.Decode.workedCall (wcParams g)
     (wc_begin g) rfl hruns hhalt
 

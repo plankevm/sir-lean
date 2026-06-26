@@ -154,9 +154,16 @@ def emitStmt (defs : Tmp → Option Expr) (fuel : Nat) : Stmt → List UInt8
 
 /-- Emit the opcode bytes for a terminator, given the `defs` environment, fuel, and
 the resolved offset table `labelOff` (label index → byte offset of its
-`JUMPDEST`). -/
+`JUMPDEST`).
+
+`ret t` materialises `t`, then pushes the two zero `RETURN`-window operands
+(`offset = 0`, `size = 0`) so the `RETURN` is well-formed: `RETURN` pops **two** words,
+but `materialise t` leaves only one — without the two `PUSH32 0` the stack would
+underflow. `RETURN(0,0)` returns the empty output and halts; the returned scalar is out
+of the world-channel scope (only the storage delta is observed), so the residual
+materialised value below the window is discarded with the frame. -/
 def emitTerm (defs : Tmp → Option Expr) (fuel : Nat) (labelOff : Nat → Nat) : Term → List UInt8
-  | .ret t              => materialise defs fuel t ++ [Byte.ret]
+  | .ret t              => materialise defs fuel t ++ emitImm 0 ++ emitImm 0 ++ [Byte.ret]
   | .stop               => [Byte.stop]
   | .jump dst           => emitDest (labelOff dst.idx) ++ [Byte.jump]
   | .branch cond thenL elseL =>

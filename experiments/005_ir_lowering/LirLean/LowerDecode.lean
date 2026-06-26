@@ -173,9 +173,10 @@ set_option maxRecDepth 8192
 
 /-! ## Terminator-cursor `MatSeg` (the A3 analogue for `ret`'s operand)
 
-`emitTerm … (.ret t) = materialise t ++ [RETURN]`, anchored at `termOf prog L` (the terminator
-cursor `pcOf prog L b.stmts.length`). The operand materialisation is its prefix sub-list, so
-`MatSeg` holds at `termOf` via `flatBytes_at_termOf`. -/
+`emitTerm … (.ret t) = materialise t ++ PUSH32 0 ++ PUSH32 0 ++ [RETURN]`, anchored at
+`termOf prog L` (the terminator cursor `pcOf prog L b.stmts.length`). The operand
+materialisation is still the *prefix* sub-list (the two zero window operands and `RETURN`
+follow it), so `MatSeg` holds at `termOf` via `flatBytes_at_termOf`. -/
 
 /-- **`MatSeg` at the terminator cursor.** When `materialiseExpr defs fuel e`'s bytes are the
 sub-list of `emitTerm … b.term` starting at `offset`, they sit in `flatBytes prog` at
@@ -202,13 +203,19 @@ theorem ret_sub_value (prog : Program) (t : Tmp) :
           (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks) (.ret t))[0 + j]?
         = (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp t))[j]? := by
   intro j hj
-  show ((materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp t)) ++ [Byte.ret])[0 + j]? = _
-  rw [Nat.zero_add, List.getElem?_append_left hj]
+  show ((materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp t))
+          ++ emitImm 0 ++ emitImm 0 ++ [Byte.ret])[0 + j]? = _
+  rw [Nat.zero_add]
+  rw [List.getElem?_append_left (by rw [List.length_append, List.length_append]; omega),
+      List.getElem?_append_left (by rw [List.length_append]; omega),
+      List.getElem?_append_left hj]
 
 /-- **`ret` arm — `MatDec` decode discharged.** `sim_term_halt_ret` with its carried `hdv`
 (`MatDec` for the returned value) discharged generically over `lower prog` via
 `matDec_of_lower_term` (the `termOf` analogue of `matDec_of_lower`). The remaining hypotheses
-are the gas/stack envelopes and the value-channel RETURN-site tie (`hret`, the §7 contract).
+are the gas/stack envelopes and the RETURN-site tie (`hret`: the two `PUSH32 0` window operands
+decode/gas-cover after the materialise, `RETURN` decodes after them, and the frame is a
+top-level `.call` frame with non-empty accounts — the §7-style supplied observation).
 The `MatFueled` hypothesis is the recompute-fuel-sufficiency well-formedness condition. -/
 theorem sim_term_halt_ret_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {st : V2.IRState} {t : Tmp} {vw : Word}
@@ -228,26 +235,34 @@ theorem sim_term_halt_ret_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs
         frv.exec.executionEnv.code = fr.exec.executionEnv.code →
         frv.exec.executionEnv.address = fr.exec.executionEnv.address →
         (∀ k, selfStorage frv k = selfStorage fr k) →
-        ∃ last rest output cp,
-          Runs frv last
-          ∧ stepFrame last = .halted (.success (returnEmptyPost last.exec rest) output)
-          ∧ last.exec.executionEnv.address = fr.exec.executionEnv.address
-          ∧ (∀ k, selfStorage last k = selfStorage fr k)
-          ∧ last.kind = .call cp
-          ∧ ¬ (last.exec.accounts == ∅) = true) :
+        frv.exec.stack = vw :: fr.exec.stack →
+        ∃ cp,
+          decode frv.exec.executionEnv.code frv.exec.pc
+              = some (.Push .PUSH32, some ((0 : Word), 32))
+          ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33)
+              = some (.Push .PUSH32, some ((0 : Word), 32))
+          ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33 + UInt32.ofNat 33)
+              = some (.System .RETURN, .none)
+          ∧ 3 ≤ frv.exec.gasAvailable.toNat
+          ∧ 3 ≤ (pushFrameW frv (0 : Word) 32).exec.gasAvailable.toNat
+          ∧ frv.kind = .call cp
+          ∧ ¬ (frv.exec.accounts == ∅) = true) :
     ∃ last halt, Runs fr last ∧ stepFrame last = .halted halt
       ∧ (observe self (endFrame last halt)).world = st.world := by
   -- the `hdv` MatDec, discharged at the terminator cursor (`termOf = pcOf … b.stmts.length`).
   have hdv : MatDec fr.exec.executionEnv.code (defsOf prog) sloadChg (recomputeFuel prog)
       fr.exec.pc (.tmp t) := by
     rw [hcorr.code_eq, hcorr.pc_eq, pcOf_eq_termOf prog L b hb]
-    have hemit : (emitTerm (defsOf prog) (recomputeFuel prog)
-        (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks) b.term).length
-          = (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp t)).length + 1 := by
-      rw [hterm]; show ((materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp t)) ++ [Byte.ret]).length = _
-      rw [List.length_append]; rfl
+    have hemit : (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp t)).length + 1
+          ≤ (emitTerm (defsOf prog) (recomputeFuel prog)
+              (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks) b.term).length := by
+      rw [hterm]
+      show _ ≤ ((materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp t))
+                  ++ emitImm 0 ++ emitImm 0 ++ [Byte.ret]).length
+      simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil]
+      omega
     have hseg := matSeg_of_term prog L b 0 (.tmp t) hb (by rw [hterm]; exact ret_sub_value prog t)
-      (by rw [hemit]; omega)
+      (by omega)
     have := matDec_of_seg prog (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)
       (termOf prog L + 0) hwf (by rw [Nat.add_zero]; omega) (by rw [Nat.add_zero] at hseg ⊢; exact hseg)
     rw [Nat.add_zero] at this; exact this
