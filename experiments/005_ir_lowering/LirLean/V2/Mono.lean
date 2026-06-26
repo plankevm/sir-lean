@@ -116,11 +116,11 @@ private theorem q6_locals4 (w₀ : World) (g1 g2 : Word) :
 /-- The observable the IR run produces: world with `7 ↦ 5`, returning the first gas
 reading `g1`. -/
 def guardObsResult (w₀ : World) (g1 : Word) : Observable :=
-  { worldDelta := fun k => if k = (7 : Word) then (5 : Word) else w₀ k
+  { world := fun k => if k = (7 : Word) then (5 : Word) else w₀ k
     result := .returned g1 }
 
 private theorem q6_world (w₀ : World) (g1 g2 : Word) :
-    (q6 w₀ g1 g2).world = (guardObsResult w₀ g1).worldDelta := by
+    (q6 w₀ g1 g2).world = (guardObsResult w₀ g1).world := by
   funext k; show (if k = (7:Word) then (5:Word) else w₀ k) = _; rfl
 
 /-- **The gas-free IR run, using ONLY the monotonicity law.** For any initial world
@@ -158,7 +158,7 @@ theorem guard_IRRun (o : CallOracle) (w₀ : World) (g1 g2 : Word)
     rw [q6_locals4]; rw [lt_eq_zero_of_toNat_le hle]
   have hbranch :
       RunFrom guardIR o (q0 w₀) [g1, g2] (lbl 0)
-        { worldDelta := (q6 w₀ g1 g2).world, result := .returned g1 } :=
+        { world := (q6 w₀ g1 g2).world, result := .returned g1 } :=
     RunFrom.branchElse (b := guardBlock0) (thenL := lbl 1) (elseL := lbl 2)
       guardIR_block0 hss rfl hguard
       (RunFrom.ret (b := guardBlock2) (t := tmp 0) guardIR_block2 RunStmts.nil rfl
@@ -546,7 +546,7 @@ realising the two gas reads** AND the realised values **genuinely monotone**. No
   (the §3.4 "reads witnessed by the bytecode" clause, now for TWO reads);
 * `monotone` — those realised values satisfy the §3.4 law (`gReads_gasMonotone`),
   **discharged from the EVM gas-descent fact**, not assumed;
-* `world` — the completed call's storage agrees with `O.worldDelta` at `(addrA, 7)`;
+* `world` — the completed call's storage agrees with `O.world` at `(addrA, 7)`;
 * `success` — the call completed without reverting.
 
 All `Runs`/pc/stack/gas bookkeeping lives *inside* `g_messageCall`'s `Runs` witness. -/
@@ -558,7 +558,7 @@ def LoweredRunHasObsMono (g : UInt64) (T : Trace) (O : Observable) : Prop :=
   -- … and the lowered bytecode at gas g completes with O's observable.
   ∧ ∃ out σ,
       Outcome.ofCall (messageCall (guardParams g)) = .completed out σ
-      ∧ σ addrA 7 = O.worldDelta 7
+      ∧ σ addrA 7 = O.world 7
       ∧ (O.result = .stopped ∨ ∃ w, O.result = .returned w)
 
 /-- **The two-read gas-monotonicity milestone (`docs/ir-design-v2.md` §3.4, §4).**
@@ -596,7 +596,7 @@ theorem lower_preserves_obs_mono (o : CallOracle) (w₀ : World) :
         unfold Outcome.ofCall; rw [g_messageCall g hg]]
     unfold Outcome.ofResult
     rw [if_pos (g_success g)]
-  · -- σ addrA 7 = (guardObsResult w₀ (g1Read g)).worldDelta 7 = 5
+  · -- σ addrA 7 = (guardObsResult w₀ (g1Read g)).world 7 = 5
     rw [g_storageAt g]; rfl
   · -- O.result is a return
     exact Or.inr ⟨_, rfl⟩

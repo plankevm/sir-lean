@@ -89,7 +89,7 @@ oracle produced — both **read off the oracle**, never computed in the IR. -/
 /-- The observable of `callIR` under oracle `o`, world `w₀`, observed gas `obs`: the
 post-call world is the oracle's `world'`, the result is `returned (success)`. -/
 def callObsResult (o : CallOracle) (w₀ : World) (obs : Word) : Observable :=
-  { worldDelta := (o 42 obs w₀).1, result := .returned (o 42 obs w₀).2 }
+  { world := (o 42 obs w₀).1, result := .returned (o 42 obs w₀).2 }
 
 /-! ## The worked run -/
 
@@ -126,7 +126,7 @@ theorem call_IRRun (o : CallOracle) (w₀ : World) (obs : Word) :
   -- the terminator `ret t2` returns the success flag, in the oracle's world
   have hret :
       RunFrom callIR o (c0 w₀) [obs] (lbl 0)
-        { worldDelta := (c3 o w₀ obs).world, result := .returned (o 42 obs w₀).2 } :=
+        { world := (c3 o w₀ obs).world, result := .returned (o 42 obs w₀).2 } :=
     RunFrom.ret (b := callBlock) (t := tmp 2) callIR_block0 hss rfl (c3_result o w₀ obs)
   -- the post-call world is exactly the oracle's `world'`
   have hworld : (c3 o w₀ obs).world = (o 42 obs w₀).1 := by

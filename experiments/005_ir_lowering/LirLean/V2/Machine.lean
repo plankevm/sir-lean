@@ -24,9 +24,11 @@ Design decisions taken from `ir-design-v2.md`, verbatim:
   so the stream carries only gas reads — no `Event` wrapper.) There is deliberately
   no `matCost`/`gVerylow`/charge logic anywhere in v2.
 
-Contrast with v1 (`LirLean/SmallStep.lean`), which is gas-aware: `IRState.gas`,
-`IRState.charge`, `matCost`, and `evalExpr`'s `.gas := ofUInt64 st.gas`. v1 stays
-green untouched as the reference.
+v1 (`LirLean/SmallStep.lean`) is the bytecode-coupled reference line: also gas-free
+(no IR cost accounting), it carries `IRState.storage`/`locals`/`callResult` and the
+`Match`/`sim_*` simulation bricks against exp003's `Runs`. Its `evalExpr` has no
+value for `Expr.gas` (no counter to read); here `Expr.gas` is supplied by the gas
+stream. v1 stays green as the bytecode-side reference.
 -/
 
 namespace Lir.V2
@@ -205,10 +207,10 @@ inductive RunStmts (prog : Program) (o : CallOracle) :
 /-- The observable boundary of a finished IR run: the final world and the halt
 result. **No gas, no pc.** (`ir-design-v2.md` §4.) -/
 structure Observable where
-  /-- The final observable world (the storage delta, as the post-run lens). -/
-  worldDelta : World
+  /-- The final observable world (the full final storage, as the post-run lens). -/
+  world  : World
   /-- The halt result (`stop`/`return`). -/
-  result     : IRHalt
+  result : IRHalt
 
 /-- The CFG big-step driver. `IRRun prog w₀ T O`: starting at `prog.entry` with
 empty locals and world `w₀`, consuming the whole trace `T`, the program halts with
@@ -230,13 +232,13 @@ inductive RunFrom (prog : Program) (o : CallOracle) :
       (hss : RunStmts prog o st T b.stmts st' T')
       (hterm : b.term = .ret t)
       (hv : st'.locals t = some w) :
-      RunFrom prog o st T L { worldDelta := st'.world, result := .returned w }
+      RunFrom prog o st T L { world := st'.world, result := .returned w }
   /-- `stop`: run the block's statements, then halt. -/
   | stop {st st' : IRState} {T T' : Trace} {L : Label} {b : Block}
       (hb : blockAt prog L = some b)
       (hss : RunStmts prog o st T b.stmts st' T')
       (hterm : b.term = .stop) :
-      RunFrom prog o st T L { worldDelta := st'.world, result := .stopped }
+      RunFrom prog o st T L { world := st'.world, result := .stopped }
   /-- `branch cond thenL elseL`, condition non-zero ⇒ recurse into `thenL`. -/
   | branchThen {st st' : IRState} {T T' : Trace} {L : Label} {b : Block}
       {cond : Tmp} {cw : Word} {thenL elseL : Label} {O : Observable}

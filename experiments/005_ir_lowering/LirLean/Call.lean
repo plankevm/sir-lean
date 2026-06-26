@@ -7,9 +7,8 @@ import BytecodeLayer.Semantics.Dispatch
 /-!
 # LirLean — the abstract call oracle (`docs/ir-design.md` §5)
 
-The IR's external-CALL accounting is **call-agnostic**, the exact analogue of the
-gas-agnostic `GasOracle` (`LirLean/Gas.lean`): the IR does **not** model the
-internals of an external call. It defers the call's *effect* — the post-storage
+The IR's external-CALL accounting is **call-agnostic**: the IR does **not** model
+the internals of an external call. It defers the call's *effect* — the post-storage
 world, the gas restored to the caller, and the 0/1 success word — to an abstract
 `CallOracle`. The IR reasons for **all** oracles; lowering instantiates the oracle
 to **exactly what the lowered bytecode's CALL does** (the exp003 black-box
@@ -77,7 +76,7 @@ and the suspended `PendingCall`). Three projections, matching the three things
 * `successWord result pd` — the 0/1 success word the CALL pushes (`x`).
 
 The field types are chosen so `evmCallOracle` instantiates each by *projection*
-(definitional), exactly as `evmOracle`'s gas fields reduce to the EVM constants. -/
+(definitional) of the bytecode resume. -/
 structure CallOracle where
   /-- Post-call storage of `addr` at `key`, through the observable lens. -/
   postStorage : CallResult → PendingCall → AccountAddress → Word → Word
@@ -106,7 +105,7 @@ By stating each as a *projection of `resumeAfterCall`*, the reflexivity headline
 
 /-- **The concrete EVM external-CALL effect** — one instantiation of `CallOracle`,
 each field a projection of exp003's `resumeAfterCall`. By construction the lowered
-bytecode's ext-call effect (the analogue of `evmOracle` for gas). -/
+bytecode's ext-call effect. -/
 def evmCallOracle : CallOracle where
   postStorage := fun result pd addr key =>
     (resumeAfterCall result pd).exec.accounts.find? addr |>.option 0 (·.lookupStorage key)
@@ -132,13 +131,14 @@ theorem evmCallOracle_successWord_eq_x (result : CallResult) (pd : PendingCall) 
 
 /-! ## The IR-level call transformer (`IRState.applyCall`)
 
-`IRState.applyCall oracle result pd` is the IR-state analogue of `IRState.charge`
-(`LirLean/SmallStep.lean`): it threads the oracle's call effect into the IR state —
-storage becomes the oracle's `postStorage` lens (keyed on the self address), gas
-becomes the oracle's `restoredGas`. It is parametric over the oracle, so the IR
-small-step reasons for all instantiations; under lowering the oracle is
-`evmCallOracle` and the resulting state is *reflexively* the resumed frame's
-observable (`call_reflects_lowered`).
+`IRState.applyCall oracle result pd` threads the oracle's call effect into the IR
+state — storage becomes the oracle's `postStorage` lens (keyed on the self
+address). It is parametric over the oracle, so the IR small-step reasons for all
+instantiations; under lowering the oracle is `evmCallOracle` and the resulting state
+is *reflexively* the resumed frame's observable (`call_reflects_lowered`). The
+gas-free v1 state carries no gas counter, so the oracle's `restoredGas` projection
+is not applied to the state (it is still reflected at the bytecode boundary by
+`call_reflects_lowered`'s `restoredGas = gasAvailable` conjunct).
 
 The success word is the one effect that is **not** recomputable from a pure `Expr`
 (it is dynamic — it depends on the child run), so it cannot live in `defs`/`locals`
@@ -152,16 +152,14 @@ CALL's physical flag-on-stack is bridged by the `successWord` reflexivity, not b
 explicit step). -/
 
 /-- Thread the oracle's external-CALL effect into the IR state at self address
-`self`: storage follows the oracle's post-call lens, gas the oracle's restored
-value, and the `callResult` slot receives the oracle's 0/1 `successWord` (the one
-non-recomputable effect — see the module docstring on `bindCallResult`/`resultTmp`).
-`locals` is untouched here; binding the result to `resultTmp` is the separate
-`IRState.bindCallResult` step. -/
+`self`: storage follows the oracle's post-call lens, and the `callResult` slot
+receives the oracle's 0/1 `successWord` (the one non-recomputable effect — see the
+module docstring on `bindCallResult`/`resultTmp`). `locals` is untouched here;
+binding the result to `resultTmp` is the separate `IRState.bindCallResult` step. -/
 def IRState.applyCall (st : IRState) (oracle : CallOracle)
     (result : CallResult) (pd : PendingCall) (self : AccountAddress) : IRState :=
   { st with
       storage    := fun k => oracle.postStorage result pd self k
-      gas        := oracle.restoredGas result pd
       callResult := some (oracle.successWord result pd) }
 
 end Lir

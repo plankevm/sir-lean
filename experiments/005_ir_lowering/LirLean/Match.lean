@@ -26,13 +26,13 @@ the remaining C3 work (documented in `PLAN.md`).
 
 The genuinely-closeable core — proved here, green, no `sorry` — is the set of
 **atomic, frame-local simulation lemmas**: for each effecting construct, *given the
-frame's local decode + stack-shape + gas + storage correspondence*, there is a
+frame's local decode + stack-shape + storage correspondence*, there is a
 `Runs fr fr'` to the named exp003 post-frame whose result re-establishes the
-storage (`M3`), gas (`M4`) and value clauses. These are exactly the steps
-`lower_simulates_step` threads with `Runs.trans`; they wrap each `runs_*` rule with
-the IR-state correspondence so the simulation reads off the IR semantics
-(`evalExpr`, `IRState.charge`, `IRState.setStorage`). The `STOP`/`RETURN`
-terminators are handled by exposing the halt step the bridge consumes.
+storage (`M3`) and value clauses. These are exactly the steps `lower_simulates_step`
+threads with `Runs.trans`; they wrap each `runs_*` rule with the IR-state
+correspondence so the simulation reads off the IR semantics (`evalExpr`,
+`IRState.setStorage`). The `STOP`/`RETURN` terminators are handled by exposing the
+halt step the bridge consumes.
 -/
 
 namespace Lir
@@ -52,7 +52,6 @@ its defining expression at use. The clauses:
 * `M2` code: `fr` runs the lowered program;
 * `M3` storage: the IR self-storage equals the self account's storage through the
   observable `find?/lookupStorage` lens;
-* `M4` gas: the IR gas counter equals `gasAvailable` (honest gas);
 * `M5` stack: empty at the statement boundary.
 
 `M1` is parameterised by the offset-table address `pcOf`; the full program-global
@@ -128,8 +127,6 @@ structure Match (prog : Program) (L : Label) (pc : Nat) (st : IRState) (fr : Fra
   code_eq    : fr.exec.executionEnv.code = lower prog
   /-- `M3` — storage correspondence through the observable lens. -/
   storage_eq : ∀ k, selfStorage fr k = st.storage k
-  /-- `M4` — gas correspondence (honest gas). -/
-  gas_eq     : fr.exec.gasAvailable = st.gas
   /-- `M5` — empty working stack at the statement boundary. -/
   stack_nil  : fr.exec.stack = []
   /-- Standing well-formedness: the call may modify state (top-level call). -/
@@ -140,10 +137,11 @@ structure Match (prog : Program) (L : Label) (pc : Nat) (st : IRState) (fr : Fra
 Each lemma takes the EVM frame's **local** facts (decode at `fr.exec.pc`, stack
 shape, gas bound) — the very hypotheses the `runs_*` rule wants — and packages the
 resulting `Runs` together with the IR-side reading of the post-frame: the pushed
-value equals `evalExpr`, the gas drops by the IR charge, storage follows
-`IRState.setStorage`. These are the bricks `lower_simulates_step` threads with
-`Runs.trans`; they are stated frame-locally so they compose independent of `M1`'s
-program-global pc arithmetic. -/
+value equals `evalExpr`, storage follows `IRState.setStorage`. These are the bricks
+`lower_simulates_step` threads with `Runs.trans`; they are stated frame-locally so
+they compose independent of `M1`'s program-global pc arithmetic. (The frame's real
+EVM gas bound is still a hypothesis of each `runs_*` rule — that is the *bytecode*
+spec's honest gas, not an IR-side gas counter; the IR no longer accounts cost.) -/
 
 /-- **`Expr.imm` simulation.** A frame decoding to `PUSH32 w` runs one step to
 `pushFrameW fr w 32`, leaving `w` on top — the value `evalExpr st (.imm w) = some w`. -/
@@ -157,41 +155,15 @@ theorem sim_imm (fr : Frame) (w : Word)
   rfl
 
 /-- **`Expr.gas` simulation.** A frame decoding to `GAS` runs one step to
-`gasFrame fr`, pushing `UInt256.ofUInt64` of the post-charge gas — definitionally
-`evalExpr (st.charge (gBase evmOracle)) .gas`. The charge is the oracle's `base`
-cost specialised to `evmOracle`, which reduces to `GasConstants.Gbase` by `rfl`. -/
+`gasFrame fr`, dropping the frame's real EVM gas by `GasConstants.Gbase` (the
+*bytecode* spec's honest gas — the IR no longer accounts cost). -/
 theorem sim_gas (fr : Frame)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .GAS, .none))
     (hsz : fr.exec.stack.size + 1 ≤ 1024)
     (hgas : GasConstants.Gbase ≤ fr.exec.gasAvailable.toNat) :
     Runs fr (gasFrame fr)
-      ∧ (gasFrame fr).exec.gasAvailable = fr.exec.gasAvailable - UInt64.ofNat (gBase evmOracle) := by
+      ∧ (gasFrame fr).exec.gasAvailable = fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase := by
   exact ⟨runs_gas fr hdec hsz hgas, rfl⟩
-
-/-! ## Gas-oracle reflexivity headline (`docs/ir-design.md` §3)
-
-The deliverable that demonstrates the gas-agnostic design: **instantiate the
-oracle to `evmOracle` → the IR's `Expr.gas` value is *reflexively equal* to the
-value the lowered `GAS` opcode pushes.** The IR side reads its post-charge counter
-(`evalExpr (st.charge (gBase evmOracle)) .gas`); the EVM side is the word
-`gasFrame fr` leaves on top. Under `Match`'s gas clause (`M4`,
-`fr.exec.gasAvailable = st.gas`), and because `gBase evmOracle = GasConstants.Gbase`
-by `rfl`, the two coincide — by `rfl` once `M4` is rewritten. This is `sim_gas`'s
-value side, restated as the oracle-reflexivity equation. -/
-
-/-- **The gas-introspection reflexivity headline.** Under `Match` (so the IR gas
-counter equals `gasAvailable`, `M4`), at the EVM oracle the value the lowered
-`GAS` opcode pushes onto the stack is exactly the IR's `Expr.gas` value after the
-oracle's `GAS` charge — `evalExpr (st.charge (gBase evmOracle)) .gas`. The whole
-point of the `GasOracle` design: the lowered bytecode's GAS = the IR's GAS,
-*reflexively*, once the oracle is the EVM one. -/
-theorem gas_reflects_lowered (prog : Program) (L : Label) (pc : Nat)
-    (st : IRState) (fr : Frame) (h : Match prog L pc st fr) :
-    (gasFrame fr).exec.stack.head?
-      = evalExpr (st.charge (gBase evmOracle)) .gas := by
-  show some (UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase))
-    = some (UInt256.ofUInt64 (st.gas - UInt64.ofNat (gBase evmOracle)))
-  rw [h.gas_eq]; rfl
 
 /-- **`Expr.add` simulation.** A frame decoding to `ADD` with `a :: b :: rest`
 runs one step to `addFrame fr a b rest`, leaving `UInt256.add a b` on top — the
@@ -338,9 +310,9 @@ theorem sim_call {callFr resumeFr fr' : Frame}
 
 /-! ## Call-oracle reflexivity headline (`docs/ir-design.md` §5)
 
-The deliverable that demonstrates the call-agnostic design — the exact analogue of
-`gas_reflects_lowered`: **instantiate the oracle to `evmCallOracle` → the IR's
-call-effect is *reflexively equal* to the lowered bytecode's ext-call effect.** The
+The deliverable that demonstrates the call-agnostic design: **instantiate the
+oracle to `evmCallOracle` → the IR's call-effect is *reflexively equal* to the
+lowered bytecode's ext-call effect.** The
 IR side reads the oracle's projections (`postStorage` / `restoredGas` /
 `successWord`); the EVM side is the resumed frame `resumeAfterCall result pd`'s
 observables. Because `evmCallOracle`'s fields are *defined* as those very
@@ -369,8 +341,8 @@ coincides — *by construction* — with the lowered resume's observables:
   `resumeFr`'s stack, which is exp003's `x` (0 on failure/insufficient-funds/
   depth-limit, else 1).
 
-This is the call analogue of `gas_reflects_lowered`: instantiate the oracle to the
-EVM one and the IR's external-call effect is reflexively the lowered bytecode's. -/
+Instantiate the oracle to the EVM one and the IR's external-call effect is
+reflexively the lowered bytecode's. -/
 theorem call_reflects_lowered {callFr resumeFr : Frame}
     (hcall : CallReturns callFr resumeFr) :
     ∃ result pd, resumeFr = resumeAfterCall result pd
@@ -382,25 +354,24 @@ theorem call_reflects_lowered {callFr resumeFr : Frame}
   exact ⟨childRes.toCallResult, pending, rfl, fun _ _ => rfl, rfl, rfl⟩
 
 /-- **The IR call-transformer instantiation.** Threading the EVM oracle's call
-effect through `IRState.applyCall` (storage ← post-call lens, gas ← restored gas,
-`callResult` ← success word) lands exactly on the resumed frame's observables: under
-the projected `CallReturns`, the post-`applyCall` IR state agrees with `resumeFr`'s
-storage (at the self address, the `M3` lens), its gas, and the `callResult` slot is
-exactly exp003's CALL flag `x` (`callSuccessFlag`) — the dynamic, non-recomputable
-value, now first-class IR state. The `resultTmp` binding is the downstream
-`IRState.bindCallResult` step (`bindCallResult_reflects_lowered`). -/
+effect through `IRState.applyCall` (storage ← post-call lens, `callResult` ←
+success word) lands exactly on the resumed frame's observables: under the projected
+`CallReturns`, the post-`applyCall` IR state agrees with `resumeFr`'s storage (at
+the self address, the `M3` lens) and the `callResult` slot is exactly exp003's CALL
+flag `x` (`callSuccessFlag`) — the dynamic, non-recomputable value, now first-class
+IR state. The `resultTmp` binding is the downstream `IRState.bindCallResult` step
+(`bindCallResult_reflects_lowered`). -/
 theorem applyCall_reflects_lowered {callFr resumeFr : Frame}
     (st : IRState) (self : AccountAddress)
     (hcall : CallReturns callFr resumeFr) :
     ∃ result pd, resumeFr = resumeAfterCall result pd
       ∧ (st.applyCall evmCallOracle result pd self).storage
           = (fun key => storageAt resumeFr self key)
-      ∧ (st.applyCall evmCallOracle result pd self).gas = resumeFr.exec.gasAvailable
       ∧ (st.applyCall evmCallOracle result pd self).callResult
           = some (callSuccessFlag result pd) := by
   obtain ⟨cp, pending, child, childRes, _hstep, _henters, _hdrive, hresume⟩ := hcall
   subst hresume
-  exact ⟨childRes.toCallResult, pending, rfl, rfl, rfl, rfl⟩
+  exact ⟨childRes.toCallResult, pending, rfl, rfl, rfl⟩
 
 /-- **The `resultTmp` binding reads the success flag.** Composing the two steps —
 `applyCall` writes the slot, `bindCallResult` reads it into `locals` — the call's

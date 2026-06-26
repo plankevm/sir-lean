@@ -474,7 +474,7 @@ theorem protoIR_block1 : blockAt protoIR (lbl 1) = some protoBlock1 := rfl
 result `UInt256.lt 14 100`. Independent of the initial `w₀ 7` (the SSTORE overwrites
 it before the SLOAD). -/
 def protoObsResult (w₀ : World) : Observable :=
-  { worldDelta := fun k => if k = (7 : Word) then (5 : Word) else w₀ k
+  { world := fun k => if k = (7 : Word) then (5 : Word) else w₀ k
     result := .returned (UInt256.lt 14 100) }
 
 /-! ### The block-0 statement run, stepwise over named intermediate states
@@ -499,7 +499,7 @@ private theorem s9_locals6 (w₀ : World) (obs : Word) :
 private theorem s9_locals7 (w₀ : World) (obs : Word) :
     (s9 w₀ obs).locals (tmp 7) = some obs := by rfl
 private theorem s9_world (w₀ : World) (obs : Word) :
-    (s9 w₀ obs).world = (protoObsResult w₀).worldDelta := by
+    (s9 w₀ obs).world = (protoObsResult w₀).world := by
   funext k; show (if k = (7:Word) then (5:Word) else w₀ k) = _; rfl
 
 /-- **The gas-free IR run.** For any initial world `w₀` and any **non-zero**
@@ -532,7 +532,7 @@ theorem proto_IRRun (o : CallOracle) (w₀ : World) (obs : Word) (hobs : obs ≠
   -- branch on t7 = obs ≠ 0 → block 1 (ret t6); resulting O is `protoObsResult w₀`
   have hbranch :
       RunFrom protoIR o (s0 w₀) [obs] (lbl 0)
-        { worldDelta := (s9 w₀ obs).world, result := .returned (UInt256.lt 14 100) } :=
+        { world := (s9 w₀ obs).world, result := .returned (UInt256.lt 14 100) } :=
     RunFrom.branchThen (b := protoBlock0) (cw := obs) (thenL := lbl 1) (elseL := lbl 2)
       protoIR_block0 hss rfl (s9_locals7 w₀ obs) hobs
       (RunFrom.ret (b := protoBlock1) (t := tmp 6) protoIR_block1 RunStmts.nil rfl (s9_locals6 w₀ obs))
@@ -549,7 +549,7 @@ only:
 
 * `realises` — the gas word the IR consumed equals the bytecode `GAS` value at `g`
   (the §3.4 "events witnessed by the bytecode" clause);
-* `world` — the completed call's storage agrees with `O.worldDelta` at the observed
+* `world` — the completed call's storage agrees with `O.world` at the observed
   cell `(addrA, 7)` (M3 promoted to `World`);
 * `success` — the call **completed without reverting** (the `.completed` case of
   `Outcome`; both `stop` and `return _` map here — the documented `returned w` ↦
@@ -564,7 +564,7 @@ def LoweredRunHasObs (g : UInt64) (T : Trace) (O : Observable) : Prop :=
   -- and the lowered bytecode at gas g completes with O's observable
   ∧ ∃ out σ,
       Outcome.ofCall (messageCall (protoParams g)) = .completed out σ
-      ∧ σ addrA 7 = O.worldDelta 7
+      ∧ σ addrA 7 = O.world 7
       ∧ (O.result = .stopped ∨ ∃ w, O.result = .returned w)
 
 /-- **`lower_preserves_obs` for the call-free prototype (§4).** There is an adequacy
@@ -599,7 +599,7 @@ theorem lower_preserves_obs (o : CallOracle) (w₀ : World) :
         unfold Outcome.ofCall; rw [proto_messageCall g hg]]
     unfold Outcome.ofResult
     rw [if_pos (proto_success g)]
-  · -- σ addrA 7 = (protoObsResult w₀).worldDelta 7 = 5
+  · -- σ addrA 7 = (protoObsResult w₀).world 7 = 5
     rw [proto_storageAt g]; rfl
   · -- O.result is a return
     exact Or.inr ⟨_, rfl⟩

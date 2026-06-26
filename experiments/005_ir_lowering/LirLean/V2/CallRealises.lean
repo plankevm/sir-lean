@@ -111,7 +111,7 @@ theorem callRealises_bridge {callFr resumeFr : Frame} (self : AccountAddress)
 We reuse the abstract worked call run (`call_IRRun`, `LirLean/V2/Call.lean`) and the worked
 bytecode CALL scenario (`LirLean/WorkedCall.lean`). Instantiating the abstract oracle to
 `evmV2CallOracle` for the *realised* `workedCall` CALL data, the v2 IR run's `Observable`
-equals the lowered bytecode's post-CALL effect: its `worldDelta` is the resumed frame's
+equals the lowered bytecode's post-CALL effect: its `world` is the resumed frame's
 self-storage lens (the `M3` lens on `resumeAfterCall`) and its `result` returns the CALL
 flag `x`. This reaches `workedCall` parity in v2's gas-free observable form: **IR observable
 = lowered observable**.
@@ -134,7 +134,7 @@ and any initial world `w₀` / observed gas `obs`, running the worked v2 call pr
 under the *realised* oracle `wcV2Oracle g` (and consuming the single gas read `obs`)
 halts with an `Observable` whose:
 
-* `worldDelta` is the resumed bytecode frame's self-storage lens `storageAt (wcResumed g)
+* `world` is the resumed bytecode frame's self-storage lens `storageAt (wcResumed g)
   addrCaller` — the lowered CALL's post-storage observable (`Match`'s `M3` lens); and
 * `result` is `.returned (callSuccessFlag … )` — the CALL flag `x` the lowered bytecode
   pushes.
@@ -153,7 +153,7 @@ theorem wc_call_parity_v2 (g : UInt64) (hg : 50000 ≤ g.toNat) (w₀ : World) (
     let result := (Lir.WorkedCall.wcChildFrameRes g).toCallResult
     let pd := callPending (Lir.WorkedCall.wcCallSite g) 0xCA11EE 0xFFFFFFFF
     IRRun callIR (wcV2Oracle g) w₀ [obs]
-      { worldDelta := fun key => storageAt (Lir.WorkedCall.wcResumed g) addrCaller key
+      { world := fun key => storageAt (Lir.WorkedCall.wcResumed g) addrCaller key
       , result     := .returned (callSuccessFlag result pd) }
     ∧ callSuccessFlag result pd = 1
     ∧ (fun key => storageAt (Lir.WorkedCall.wcResumed g) addrCaller key) 7 = 5
@@ -166,7 +166,7 @@ theorem wc_call_parity_v2 (g : UInt64) (hg : 50000 ≤ g.toNat) (w₀ : World) (
   -- of `resumeAfterCall result pd` (`LirLean/Call.lean`). So the realised oracle's bundle
   -- equals the resumed frame's `storageAt` lens and the CALL flag `x`, by construction.
   have hrun := call_IRRun (wcV2Oracle g) w₀ obs
-  -- worldDelta: `(wcV2Oracle g 42 obs w₀).1 = fun key => postStorage result pd addrCaller key`
+  -- world: `(wcV2Oracle g 42 obs w₀).1 = fun key => postStorage result pd addrCaller key`
   -- (by `rfl`), and `postStorage result pd addrCaller key = storageAt (resumeAfterCall result
   -- pd) addrCaller key = storageAt (wcResumed g) addrCaller key` (all `rfl`).
   have hw : ((wcV2Oracle g) 42 obs w₀).1
@@ -192,7 +192,7 @@ theorem wc_call_parity_v2 (g : UInt64) (hg : 50000 ≤ g.toNat) (w₀ : World) (
   refine ⟨?_, hflag, hsload, hgas⟩
   -- rewrite `callObsResult`'s two fields and discharge with the abstract run
   have hobs : callObsResult (wcV2Oracle g) w₀ obs
-      = { worldDelta := fun key => storageAt (Lir.WorkedCall.wcResumed g) addrCaller key
+      = { world := fun key => storageAt (Lir.WorkedCall.wcResumed g) addrCaller key
         , result := .returned (callSuccessFlag result pd) } := by
     unfold callObsResult
     rw [hw, hr]
