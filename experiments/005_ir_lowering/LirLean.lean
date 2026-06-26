@@ -31,6 +31,10 @@ import LirLean.V2.Machine
 -- v2 (exp005) frame-free gas LAW + IRRun determinism (imports only LirLean.IR/Evm;
 -- zero BytecodeLayer/Frame/Runs): Trace.gasMonotone, MonotoneGas, RunFrom.det/IRRun.det.
 import LirLean.V2.Law
+-- v2 (exp005) IRRun EXISTENCE (the `hir` side): constructive `RunStmts`/`RunFrom`/`IRRun`
+-- existence for the gas-free, call-free, single-halting-block fragment (imports only
+-- LirLean.V2.Law; frame-free). The tractable floor of the `hir`-construction milestone.
+import LirLean.V2.IRRun
 import LirLean.V2.Preserve
 -- v2 (exp005) two-read gas-monotonicity milestone (§3.4); IR↔bytecode bridge that
 -- discharges the frame-free law from the bytecode's gas descent.

@@ -854,6 +854,25 @@ theorem codeFrame_gas (p : CallParams) (code : ByteArray) :
 theorem codeFrame_validJumps (p : CallParams) (code : ByteArray) :
     (codeFrame p code).validJumps = validJumpDests code 0 := rfl
 
+/-! ### Discharging the entry STORAGE tie definitionally
+
+`entry_corr`'s `hstore : StorageAgree { …, world := w₀ } (codeFrame p (lower prog))` ties the
+IR initial world `w₀` to the entry frame's self-storage lens. In `lower_conforms`/
+`lower_conforms_acyclic` the world `w₀` is **universally quantified** (a free choice), so this
+tie is not a runtime fact — it is *definitional*: choosing `w₀ := selfStorage (codeFrame …)`
+makes `StorageAgree` hold by `rfl`. The lemma below records that canonical choice, banking the
+`hstore` entry tie (the only entry-frame tie not intrinsic to the recording — `hsload`/`hgasr`
+constrain *every* same-address frame's warmth/gas, the supplied-observation correspondence,
+and so stay genuine). -/
+
+/-- **The entry STORAGE tie, definitionally.** Taking the IR initial world to be the entry
+frame's own self-storage lens (`selfStorage (codeFrame p code)`) discharges `StorageAgree` by
+reflexivity. The canonical `w₀` choice for the entry-frame storage tie. -/
+theorem entry_storageAgree_codeFrame (p : CallParams) (code : ByteArray) :
+    StorageAgree { locals := fun _ => none, world := selfStorage (codeFrame p code) }
+      (codeFrame p code) :=
+  fun _ => rfl
+
 /-- **`entry_corr` — the entry correspondence.** For an entry block `bentry` that is block `0`
 (`prog.entry.idx = 0`) and present, the top-level entry frame `codeFrame p (lower prog)` —
 running `lower prog` from pc 0 with empty stack, `p` modifiable — steps its leading `JUMPDEST`

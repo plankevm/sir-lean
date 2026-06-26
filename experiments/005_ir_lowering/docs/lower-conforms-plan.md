@@ -110,6 +110,30 @@ recording-correspondence ties (the trace-supplied gas/warmth/storage = the actua
 the IR-run hypothesis `hir` (no bytecode→IR `RunFrom` synthesis). No
 `sorry`/`axiom`/`native_decide`; axiom-clean `[propext, Classical.choice, Quot.sound]`.
 
+SELF-CONTAINMENT PASS (2026-06-26): two residuals of `lower_conforms_acyclic` discharged for the
+single-halting-block fragment, banked as corollaries (`LirLean/Acyclic.lean`).
+- **`hir` (constructed, not assumed)** — `LirLean/V2/IRRun.lean` builds the IR-run EXISTENCE
+  ladder (frame-free, imports only `V2.Law`): `evalStmt_exists` (gas-free non-call step total on
+  `StmtDefinable`), `runStmts_exists` (gas-free call-free list, threaded `StmtsDefinable`),
+  `runFrom_exists_stop`/`_ret` + `irRun_exists_stop`/`_ret` (single halting block — the DAG base
+  case, no CFG measure needed). `lower_conforms_acyclic_stop` delegates to `lower_conforms_acyclic`
+  with `hir` discharged by construction.
+- **`hstore` (definitional)** — the entry STORAGE tie is not a runtime fact: `w₀` is free, so
+  choosing `w₀ := selfStorage (codeFrame …)` makes `StorageAgree` hold by `rfl`
+  (`entry_storageAgree_codeFrame`, `LirLean/LowerConforms.lean`). `lower_conforms_acyclic_stop_canonical`
+  banks BOTH `hir` and `hstore`.
+- **DEEP / NOT EXTRACTABLE (precise blocker).** The gas envelopes (`StmtTies`/`TermTies`) and the
+  recording-correspondence (`SloadRealises`/`GasRealises`/`SstoreRealises` = recorded values) are
+  quantified `∀ st' frT, Corr … frT … → …` over *arbitrary* `Corr`-corresponding frames. `sim_cfg`
+  CONSUMES them to assemble `Runs`; `messageCall_runs` is forward-only (assembled `Runs` ⇒
+  `messageCall`). There is NO backward lemma extracting per-frame gas/warmth from `runWithLog =
+  some log`. Closing these needs a NEW forward-simulation aligning the IR run's per-cursor frames
+  with `drive`/`runWithLog`'s frames step-by-step (so the bytecode frame at each IR cursor IS the
+  recorded one, hence carries the recorded gas/warmth/storage). This same lemma supplies the
+  general (multi-block, gas-reading) `hir` trace `realisedGas log`. Multi-block `hir` *also* needs
+  a CFG-acyclicity *block*-rank measure (distinct from `Acyclic.lean`'s def-graph rank) — see
+  `V2/IRRun.lean`'s closing note (items 1–3).
+
 ## Deferred channels (separate milestones)
 - **Value channel** (`returned w` ↔ RETURN window): needs `ret` lowering → `MSTORE`+`RETURN(off,32)`, new
   `runs_mstore`, `output_eq_word`, faithful `observe.result`. Gated on a lowering change. Defer.
@@ -121,7 +145,11 @@ the IR-run hypothesis `hir` (no bytecode→IR `RunFrom` synthesis). No
 
 ## Missing scaffolding (multi-node)
 the assembly engine (D1+F1); B1+B2; B3 + gas-recompute coherence (`WellFormed`); A2/A3 anchors; E3
-jump-validity; `RunFrom` determinism/totality; a generic `paramsFor`.
+jump-validity; `RunFrom` determinism (DONE, `Law.lean`) / totality (single-block DONE,
+`V2/IRRun.lean`; multi-block needs a CFG block-rank measure); a generic `paramsFor` (DONE,
+`LowerConforms.lean`). **THE remaining deep node: a forward-simulation aligning IR-run frames with
+`drive`/`runWithLog` frames** — the source of the gas-envelope / SLOAD/GAS/SSTORE recording-
+correspondence ties AND the general `hir` trace (`realisedGas log`).
 
 ## Fan-out order (executing SEQUENTIALLY on warm `ir-convergence`)
 Independent leaves first: **A1–A3** (near-mechanical, unblocks B1/E) → **B2** (independent gas arith) →
