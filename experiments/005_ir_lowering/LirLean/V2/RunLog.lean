@@ -235,6 +235,46 @@ theorem realisedCall_eq_evmV2 {log : RunLog} {rec : CallRecord} {tl : List CallR
     realisedCall log self = evmV2CallOracle rec.result rec.pending self := by
   simp only [realisedCall, callOracleOf, hc]
 
+/-! ## The `observe` bridge: bytecode `FrameResult` → IR `Observable`
+(`docs/ir-design-v3.md` §8)
+
+The conformance diagram's last edge: a function mapping the **bytecode** result (a
+`FrameResult`) to the **IR's** `V2.Observable`. The IR observable is two fields:
+
+* `world` — the self-account storage lens. The whole v2 layer reads storage through
+  exp003's `find?/lookupStorage` lens (`Match.storageAt`/`selfStorage`,
+  `evmCallOracle.postStorage`); `observe`'s `world` is that same lens on the result's
+  committed `accounts` (`fr.toCallResult.accounts`) at the self address — the
+  `FrameResult` analogue of `Match.storageAt`.
+* `result` — the halt. The IR's `IRHalt` is `stopped`/`returned (w : Word)`; revert
+  is out of v2 scope (`Machine.lean`, `IRHalt` doc) and a successful frame's RETURN
+  output is a memory *byte window* (`endCall`'s `output : ByteArray`), not a `Word`,
+  so it does **not** reconstruct the IR's value-as-word `returned w` faithfully
+  (value-free scope, §6/§7). **Restriction (reported):** `observe` maps the result to
+  `.stopped` (the value-free success boundary); the faithful `output → Word` for
+  `returned` is deferred with the rest of the value channel. The `result` field of
+  `observe` is therefore **not** exercised by the worked-call corollary below, which
+  bridges the *world* component (the IR observable the realised oracle actually
+  determines). -/
+
+/-- The self account's storage at `key` read off a finished `FrameResult`, through
+exp003's observable `find?/lookupStorage` lens — the `FrameResult` analogue of
+`Match.storageAt` (which reads a `Frame`). Reads the result's committed
+`accounts` (`fr.toCallResult.accounts`), the map `resumeAfterCall` writes back into
+`exec.accounts`, so it agrees with `storageAt (resumeAfterCall …)` by construction. -/
+def resultStorageAt (fr : FrameResult) (addr : AccountAddress) (key : Word) : Word :=
+  fr.toCallResult.accounts.find? addr |>.option 0 (·.lookupStorage key)
+
+/-- **The `observe` bridge** (`docs/ir-design-v3.md` §8): map a bytecode `FrameResult`
+to the IR's `V2.Observable`, at self address `self`. The `world` is the self-account
+storage lens on the result's committed `accounts` (the same lens the rest of v2 uses —
+`Match.storageAt` / `evmCallOracle.postStorage`); the `result` is the value-free
+success boundary `.stopped` (see the restriction note above — the faithful RETURN
+`output → Word` for `.returned` is deferred with the value channel). -/
+def observe (self : AccountAddress) (fr : FrameResult) : Observable :=
+  { world  := fun key => resultStorageAt fr self key
+    result := .stopped }
+
 /-! ## Result adequacy: `driveLog` agrees with `drive`
 
 `driveLog` mirrors `drive` branch-for-branch, so its result projection is exactly
@@ -581,6 +621,88 @@ theorem runWithLog_messageCall {params : CallParams} {log : RunLog}
   rw [messageCall_eq_drive params frame hbc, hd]
   rfl
 
+/-! ## Concrete conformance through `observe` + the realised call oracle (`lower_conforms`, specialised)
+
+`wc_call_parity_v2` (`LirLean/V2/CallRealises.lean`) is `lower_conforms` for the worked
+program, but it states the IR observable's `world` *inline* (`storageAt (wcResumed g)
+addrCaller`). The corollary below re-expresses that world through the **`observe`
+bridge** of the *recorded bytecode result* and under the **realised call oracle**
+(`realisedCall`), stitching the three convergence pieces into one statement:
+
+* the **realised oracle** — `realisedCall` read off a `RunLog` whose single recorded
+  CALL is the worked call's `CallRecord` (the genuine child result + pending), which is
+  `wcV2Oracle g` by `realisedCall_eq_evmV2` (`rfl`-clean);
+* the **`observe` bridge** — applied to `wcChildFrameRes g`, the recorded child
+  `FrameResult` whose `.toCallResult` is the record's result, and which
+  `resumeAfterCall` writes back as the resumed frame's `exec.accounts` — so
+  `observe`'s self-storage lens *is* `storageAt (wcResumed g) addrCaller` by
+  construction;
+* the **IR run** — `IRRun callIR (realisedCall …) …` under the realised oracle, whose
+  produced observable is `wc_call_parity_v2`'s.
+
+**Scope (reported).** This is the *world* component of conformance — the IR observable
+the realised call oracle actually determines. The `result` field is `observe`'s
+restricted `.stopped` (the value-free boundary; see `observe`'s doc), so it is not
+claimed here. And the recorded `FrameResult` used is the genuine child result the worked
+CALL records (`wcChildFrameRes g`, the datum `realisedCall` is built from), not the
+top-level `runWithLog`'s `observable`: evaluating `runWithLog` over the *whole*
+`workedCall` program to a closed-form `RunLog` is the deferred general-`lower` step
+(threading account-preservation through the ~15 post-CALL frames). The corollary
+exercises `observe` + `realisedCall` + `IRRun` together on the concrete worked CALL. -/
+
+/-- The single-record run log for `workedCall`'s one external CALL at gas knob `g`: the
+recorded child `FrameResult` projected to a `CallResult`, with the worked pending call,
+as the sole `CallRecord`. `observable` is `wcChildFrameRes g` (the recorded child
+result); `gas` is left empty (the gas channel is `realisedGas`/`wc_call_parity_v2`'s
+single `obs`, exercised separately). `realisedCall` off this log is `wcV2Oracle g`. -/
+def wcRunLog (g : UInt64) : RunLog :=
+  { observable := Lir.WorkedCall.wcChildFrameRes g
+    gas        := []
+    calls      := [{ result  := (Lir.WorkedCall.wcChildFrameRes g).toCallResult
+                     pending := callPending (Lir.WorkedCall.wcCallSite g) 0xCA11EE 0xFFFFFFFF }] }
+
+/-- **`realisedCall (wcRunLog g) addrCaller = wcV2Oracle g`.** The realised call oracle
+read off the worked single-record log *is* the worked oracle, `rfl`/`simp`-clean via
+`realisedCall_eq_evmV2` (the record's `(result, pending)` are exactly `wcV2Oracle`'s). -/
+theorem realisedCall_wcRunLog (g : UInt64) :
+    realisedCall (wcRunLog g) addrCaller = wcV2Oracle g :=
+  realisedCall_eq_evmV2 (log := wcRunLog g) addrCaller rfl
+
+/-- **Concrete conformance through `observe` (`lower_conforms`, worked-program world
+component).** For `g ≥ 50000` and any initial world `w₀` / observed gas `obs`, running
+the worked IR program `callIR` under the **realised** call oracle `realisedCall
+(wcRunLog g) addrCaller` (and consuming the single gas read `obs`) halts with an
+`Observable` whose `world` is exactly `observe addrCaller (wcRunLog g).observable`'s
+world — the `observe` bridge of the recorded child bytecode result.
+
+This stitches the recorder's record (`wcRunLog`/`realisedCall`), the realised oracle
+(`realisedCall_wcRunLog` ⟶ `wcV2Oracle g`), and the `observe` bridge into one
+statement: the concrete IR run under the realised oracle = `observe` of the recorded
+bytecode result, on the world component. The two pins of the realised scenario (the
+CALL succeeds — flag `1`; the caller's slot `7` survives at `5`) ride along from
+`wc_call_parity_v2`. (`result`-field and full top-level-`runWithLog` recovery are the
+reported deferrals — see the section/`observe` docs.) -/
+theorem wc_observe_conforms (g : UInt64) (hg : 50000 ≤ g.toNat) (w₀ : World) (obs : Word) :
+    IRRun callIR (realisedCall (wcRunLog g) addrCaller) w₀ [obs]
+      { world  := (observe addrCaller (wcRunLog g).observable).world
+      , result := .returned (callSuccessFlag
+          (Lir.WorkedCall.wcChildFrameRes g).toCallResult
+          (callPending (Lir.WorkedCall.wcCallSite g) 0xCA11EE 0xFFFFFFFF)) }
+    ∧ callSuccessFlag (Lir.WorkedCall.wcChildFrameRes g).toCallResult
+        (callPending (Lir.WorkedCall.wcCallSite g) 0xCA11EE 0xFFFFFFFF) = 1
+    ∧ (observe addrCaller (wcRunLog g).observable).world 7 = 5 := by
+  -- `observe`'s world on the recorded child result *is* `wc_call_parity_v2`'s world:
+  -- `observe`'s lens reads `(wcChildFrameRes g).toCallResult.accounts`, which is exactly
+  -- `(resumeAfterCall … ).exec.accounts = (wcResumed g).exec.accounts` by `resumeAfterCall`,
+  -- so it is `storageAt (wcResumed g) addrCaller`, `rfl`-clean.
+  have hworld : (observe addrCaller (wcRunLog g).observable).world
+      = (fun key => storageAt (Lir.WorkedCall.wcResumed g) addrCaller key) := rfl
+  -- the realised oracle off the worked log is `wcV2Oracle g` (`rfl`/`simp`-clean).
+  rw [realisedCall_wcRunLog g, hworld]
+  -- now it is exactly `wc_call_parity_v2`'s statement (minus the gas/sload pin we don't restate).
+  obtain ⟨hrun, hflag, hsload, _hgas⟩ := wc_call_parity_v2 g hg w₀ obs
+  exact ⟨hrun, hflag, hsload⟩
+
 -- Build-enforced axiom-cleanliness guards: the recording interpreter's result
 -- adequacy and the constructive `realisedGas_monotone` depend only on
 -- `[propext, Classical.choice, Quot.sound]`.
@@ -589,5 +711,8 @@ theorem runWithLog_messageCall {params : CallParams} {log : RunLog}
 #print axioms realisedCall_eq_evmV2
 #print axioms runWithLog_drive
 #print axioms runWithLog_messageCall
+#print axioms observe
+#print axioms realisedCall_wcRunLog
+#print axioms wc_observe_conforms
 
 end Lir.V2
