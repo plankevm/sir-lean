@@ -79,11 +79,22 @@ realisability is carried as two structured `∀`-hypotheses at the Layer-D/E con
 (§7), discharged for a concrete program by a `b.term` case-split feeding the four `sim_term_*`
 lemmas. The entry `Corr` (`hentry`), call-freedom (`hcf`), and the IR run under the realised
 oracles (`hir`) are likewise carried hypotheses; `paramsFor`/`paramsFor_entersAsCode` give the
-canonical top-level instantiation (`EntersAsCode` via `codeFrame`/`beginCall_code`). CARRIED
-(realisability-discharge follow-up): the per-block `SimStmtStep`/`SimTermStep` bundles, the
-entry `Corr`, and the IR-run hypothesis — none discharged from `runWithLog` yet (would need a
-generic entry-`Corr` builder incl. the leading-JUMPDEST step, and a bytecode→IR `RunFrom`
-synthesis). No `sorry`/`axiom`/`native_decide`.
+canonical top-level instantiation (`EntersAsCode` via `codeFrame`/`beginCall_code`). REALISABILITY-DISCHARGE PASS (2026-06-26): the former entry `Corr` hypothesis is now
+**discharged** in-`lower_conforms` by `entry_corr` (the generic entry-`Corr` builder incl. the
+leading-JUMPDEST step: `decode_at_block_offset_jumpdest` + `corr_at_jumpdest_landing`). Its
+replacements are the structural entry facts (entry block = block 0, present, pc-bounded) and the
+GENUINE entry-frame realisability ties (`StorageAgree`/`SloadRealises`/`GasRealises` at the entry
+frame + `Gjumpdest` margin) — the minimal honest §7 surface. The `SimStmtStep`/`SimTermStep`
+bundles now have per-shape discharge builders: `simStmtStep_assign` (an assign-only call-free
+block, **fully closed** down to the per-cursor `StepScoped` + post-state realisability ties) and
+`simTermStep_stop` (a `stop`-terminator block, **fully closed** — STOP decode from A3, edge/ret
+arms vacuous — down to the genuine top-level-frame facts). CARRIED (the precise residual): the
+`sstore`/`ret`/`jump`/`branch` shapes still take their per-byte `MatDec`/decode + immediate
+round-trip + gas-envelope bundles (the generic A2/A3 reconstruction of `materialiseExpr`/
+`emitTerm` at the *runtime* cursors), and the per-intermediate-frame
+SLOAD/SSTORE/GAS recording-correspondence ties (the trace-supplied gas/warmth = the actual
+frames); the IR-run hypothesis `hir` (no bytecode→IR `RunFrom` synthesis). No
+`sorry`/`axiom`/`native_decide`.
 
 ## Deferred channels (separate milestones)
 - **Value channel** (`returned w` ↔ RETURN window): needs `ret` lowering → `MSTORE`+`RETURN(off,32)`, new

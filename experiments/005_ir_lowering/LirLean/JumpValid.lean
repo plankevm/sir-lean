@@ -448,6 +448,26 @@ theorem block_offset_validJump (prog : Program) (L : Label) (hL : L.idx < prog.b
   -- (offsetTable …).toUInt32 = UInt32.ofNat (offsetTable …)
   simpa [UInt32.ofNat] using hmem
 
+/-- **Decode of a block's leading `JUMPDEST`.** At the block offset `offsetTable … L.idx`
+(the byte `lower_byte_at_offset` pins to `Byte.jumpdest`), `decode (lower prog)` is the
+zero-width `JUMPDEST`. The byte a `jump`/`branch` lands on (the `corr_at_jumpdest_landing`
+step), and the entry block's leading `JUMPDEST` the top-level frame's entry `Corr` steps. -/
+theorem decode_at_block_offset_jumpdest (prog : Program) (L : Label) (b : Block)
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hbound : offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks L.idx < 2 ^ 32) :
+    Evm.decode (lower prog)
+        (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks L.idx))
+      = some (.Smsf .JUMPDEST, .none) := by
+  have hbyte : (flatBytes prog)[offsetTable (defsOf prog) (recomputeFuel prog)
+      prog.blocks L.idx]? = some Byte.jumpdest := by
+    have h := lower_byte_at_offset prog L b hb
+    rw [lower_eq_flatBytes] at h
+    rwa [bget] at h
+  have := decode_lower_nonpush prog
+    (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks L.idx) Byte.jumpdest
+    hbound hbyte (by decide)
+  simpa using this
+
 -- Build-enforced axiom-cleanliness guard: E3 depends only on
 -- `[propext, Classical.choice, Quot.sound]`.
 #print axioms block_offset_validJump
