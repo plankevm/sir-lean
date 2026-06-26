@@ -395,6 +395,128 @@ theorem stepFrame_pop (fr : Frame) (v : UInt256) (rest : Stack UInt256)
     Except.bind, pure, Except.pure]
   rfl
 
+/-! ## MSTORE / MLOAD (memory write / read)
+
+The memory bricks Track C's value channel threads. Both first **charge memory
+expansion** (`chargeMemExpansion exec addr 32`), then `Gverylow = 3`, before the
+write/read. The expansion charge is the `Cₘ`-difference of the new active-word
+count `words'` over the old: it is `none` (an `OutOfGas` halt) only when the
+offset/size overflow the addressable window, so the step lemmas take an explicit
+witness `hmem : memoryExpansionWords? activeWords addr 32 = some words'` pinning
+`words'`, and the gas guards then refer to the same `Cₘ words' - Cₘ activeWords`
+term. Memory expansion only ever grows the cost monotonically, so the two charges
+are discharged from `hgasMem` (the expansion charge fits) and `hgas` (`Gverylow`
+fits *after* the expansion charge). The post-state is the doubly-charged state with
+the write (`mstore`) applied / value (`mload`) pushed, pc advanced by one. -/
+
+/-- The active-word-expansion gas MSTORE/MLOAD charge before `Gverylow`, given the
+new active-word count `words'` the access expands memory to: `Cₘ words' - Cₘ
+activeWords`. Pulled out so the step lemmas' gas guards and resulting state refer to
+the same term. -/
+def memExpansionChargeOf (exec : ExecutionState) (words' : UInt64) : ℕ :=
+  Cₘ words' - Cₘ exec.activeWords
+
+/-- The execution state after the two MSTORE/MLOAD charges (memory expansion to
+`words'`, then `Gverylow`). The shared charged state both ops write/read from. -/
+def memChargedState (exec : ExecutionState) (words' : UInt64) : ExecutionState :=
+  let charged0 : ExecutionState :=
+    { exec with gasAvailable := exec.gasAvailable - UInt64.ofNat (memExpansionChargeOf exec words') }
+  { charged0 with gasAvailable := charged0.gasAvailable - UInt64.ofNat Gverylow }
+
+/-- The execution state MSTORE leaves: charge memory expansion (to `words'`) and
+`Gverylow`, write `val` at `addr` in memory, advance pc by one. The popped stack is
+`rest`. -/
+def mstorePost (exec : ExecutionState) (addr val : UInt256) (words' : UInt64)
+    (rest : Stack UInt256) : ExecutionState :=
+  let charged := memChargedState exec words'
+  ExecutionState.replaceStackAndIncrPC
+    { charged with toMachineState := charged.toMachineState.mstore addr val } rest
+
+/-- The execution state MLOAD leaves: charge memory expansion (to `words'`) and
+`Gverylow`, push the loaded value `(toMachineState.mload addr).1` and update the
+machine state to `(toMachineState.mload addr).2` (the active-words bump), advance pc
+by one. The popped stack is `rest`. -/
+def mloadPost (exec : ExecutionState) (addr : UInt256) (words' : UInt64)
+    (rest : Stack UInt256) : ExecutionState :=
+  let charged := memChargedState exec words'
+  let (v, machine') := charged.toMachineState.mload addr
+  ExecutionState.replaceStackAndIncrPC { charged with toMachineState := machine' } (rest.push v)
+
+/-- **MSTORE writes `val` at `addr` and advances pc by one**, charging memory
+expansion (to `words'`) and `Gverylow = 3`. The expansion witness `hmem` pins
+`words'`; the gas guards (`hgasMem` for the expansion charge, `hgas` for `Gverylow`
+on top of it) and the `none`/`StackOverflow` screens are discharged from the
+hypotheses, vacuity-propagation style. -/
+theorem stepFrame_mstore (fr : Frame) (addr val : UInt256) (words' : UInt64)
+    (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .MSTORE, .none))
+    (hstk : fr.exec.stack = addr :: val :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hmem : memoryExpansionWords? fr.exec.activeWords addr 32 = some words')
+    (hgasMem : memExpansionChargeOf fr.exec words' ≤ fr.exec.gasAvailable.toNat)
+    (hgas : Gverylow ≤ (fr.exec.gasAvailable - UInt64.ofNat (memExpansionChargeOf fr.exec words')).toNat) :
+    stepFrame fr = .next (mstorePost fr.exec addr val words' rest) := by
+  unfold stepFrame
+  simp only [hdec]
+  dsimp only [Option.getD]
+  rw [if_neg (by decide)]
+  have hov : ¬ (fr.exec.stack.size - stackPopCount (.Smsf .MSTORE)
+      + stackPushCount (.Smsf .MSTORE) > 1024) := by
+    simp only [show stackPopCount (.Smsf .MSTORE) = 2 from rfl,
+               show stackPushCount (.Smsf .MSTORE) = 0 from rfl]
+    have := hsz; omega
+  rw [if_neg hov]
+  dsimp only [dispatch, smsfOp]
+  rw [hstk]
+  dsimp only [Stack.pop2, liftM, monadLift, MonadLift.monadLift, Option.option, bind,
+    Except.bind, pure, Except.pure]
+  dsimp only [chargeMemExpansion]
+  rw [hmem]
+  dsimp only []
+  unfold charge
+  rw [if_neg (by have := hgasMem; dsimp only [memExpansionChargeOf] at this ⊢; omega)]
+  dsimp only [bind, Except.bind, pure, Except.pure]
+  rw [if_neg (by have := hgas; dsimp only [memExpansionChargeOf] at this ⊢; omega)]
+  dsimp only [mstorePost, memChargedState, memExpansionChargeOf]
+  rfl
+
+/-- **MLOAD loads the word at `addr`, pushes it, and advances pc by one**, charging
+memory expansion (to `words'`) and `Gverylow = 3`. The expansion witness `hmem` pins
+`words'`; the gas guards (`hgasMem`/`hgas`) and the `none`/`StackOverflow` screens are
+discharged from the hypotheses. -/
+theorem stepFrame_mload (fr : Frame) (addr : UInt256) (words' : UInt64)
+    (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .MLOAD, .none))
+    (hstk : fr.exec.stack = addr :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hmem : memoryExpansionWords? fr.exec.activeWords addr 32 = some words')
+    (hgasMem : memExpansionChargeOf fr.exec words' ≤ fr.exec.gasAvailable.toNat)
+    (hgas : Gverylow ≤ (fr.exec.gasAvailable - UInt64.ofNat (memExpansionChargeOf fr.exec words')).toNat) :
+    stepFrame fr = .next (mloadPost fr.exec addr words' rest) := by
+  unfold stepFrame
+  simp only [hdec]
+  dsimp only [Option.getD]
+  rw [if_neg (by decide)]
+  have hov : ¬ (fr.exec.stack.size - stackPopCount (.Smsf .MLOAD)
+      + stackPushCount (.Smsf .MLOAD) > 1024) := by
+    simp only [show stackPopCount (.Smsf .MLOAD) = 1 from rfl,
+               show stackPushCount (.Smsf .MLOAD) = 1 from rfl]
+    have := hsz; omega
+  rw [if_neg hov]
+  dsimp only [dispatch, smsfOp]
+  rw [hstk]
+  dsimp only [Stack.pop, liftM, monadLift, MonadLift.monadLift, Option.option, bind,
+    Except.bind, pure, Except.pure]
+  dsimp only [chargeMemExpansion]
+  rw [hmem]
+  dsimp only []
+  unfold charge
+  rw [if_neg (by have := hgasMem; dsimp only [memExpansionChargeOf] at this ⊢; omega)]
+  dsimp only [bind, Except.bind, pure, Except.pure]
+  rw [if_neg (by have := hgas; dsimp only [memExpansionChargeOf] at this ⊢; omega)]
+  dsimp only [mloadPost, memChargedState, memExpansionChargeOf]
+  rfl
+
 /-! ## JUMP / JUMPI (control flow)
 
 The conditional/unconditional jumps are the control-flow primitives the CFG

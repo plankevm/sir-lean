@@ -269,6 +269,55 @@ theorem sim_pop (fr : Frame) (v : Word) (rest : Stack Word)
       ∧ (popFrame fr rest).exec.stack = rest := by
   exact ⟨runs_pop fr v rest hdec hstk hsz hgas, rfl⟩
 
+/-! ## MSTORE / MLOAD simulation (the memory value channel)
+
+The memory bricks Track C's value channel (`docs/calls-value-channel-plan.md`)
+threads. `sim_mload` exposes the pushed word (the head of the resulting stack);
+`sim_mstore` exposes that the post-frame's memory is `fr`'s memory (on the
+doubly-charged state) with `val` written at `addr` (`mstore addr val`) — the read-back
+a later MLOAD lemma consumes. Both take the memory-expansion witness `hmem` (pinning
+`words'`) and the two honest *bytecode*-gas bounds (memory expansion + `Gverylow`),
+exactly the hypotheses `runs_mstore`/`runs_mload` want. Mirrors `sim_sstore`/`sim_sload`. -/
+
+/-- **`Expr.mload` simulation.** A frame decoding to `MLOAD` with `addr :: rest` runs
+one step to `mloadFrame fr addr words' rest`, leaving the word read from memory at
+`addr` on top — exposed through `mloadFrame_value`. -/
+theorem sim_mload (fr : Frame) (addr : Word) (words' : UInt64) (rest : Stack Word)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .MLOAD, .none))
+    (hstk : fr.exec.stack = addr :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hmem : memoryExpansionWords? fr.exec.activeWords addr 32 = some words')
+    (hgasMem : BytecodeLayer.Dispatch.memExpansionChargeOf fr.exec words'
+                ≤ fr.exec.gasAvailable.toNat)
+    (hgas : GasConstants.Gverylow
+              ≤ (fr.exec.gasAvailable
+                  - UInt64.ofNat (BytecodeLayer.Dispatch.memExpansionChargeOf fr.exec words')).toNat) :
+    Runs fr (mloadFrame fr addr words' rest)
+      ∧ (mloadFrame fr addr words' rest).exec.stack.head?
+          = some ((BytecodeLayer.Dispatch.memChargedState fr.exec words').toMachineState.mload addr).1 := by
+  exact ⟨runs_mload fr addr words' rest hdec hstk hsz hmem hgasMem hgas,
+    mloadFrame_value fr addr words' rest⟩
+
+/-- **`Stmt.mstore` simulation.** A frame decoding to `MSTORE` with
+`addr :: val :: rest` runs one step to `mstoreFrame fr addr val words' rest`; the
+post-frame's memory is `fr`'s (doubly-charged) machine state with `val` written at
+`addr` (`mstore addr val`) — the read-back a later `sim_mload` consumes. -/
+theorem sim_mstore (fr : Frame) (addr val : Word) (words' : UInt64) (rest : Stack Word)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .MSTORE, .none))
+    (hstk : fr.exec.stack = addr :: val :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hmem : memoryExpansionWords? fr.exec.activeWords addr 32 = some words')
+    (hgasMem : BytecodeLayer.Dispatch.memExpansionChargeOf fr.exec words'
+                ≤ fr.exec.gasAvailable.toNat)
+    (hgas : GasConstants.Gverylow
+              ≤ (fr.exec.gasAvailable
+                  - UInt64.ofNat (BytecodeLayer.Dispatch.memExpansionChargeOf fr.exec words')).toNat) :
+    Runs fr (mstoreFrame fr addr val words' rest)
+      ∧ (mstoreFrame fr addr val words' rest).exec.toMachineState
+          = (BytecodeLayer.Dispatch.memChargedState fr.exec words').toMachineState.mstore addr val := by
+  exact ⟨runs_mstore fr addr val words' rest hdec hstk hsz hmem hgasMem hgas,
+    mstoreFrame_memory fr addr val words' rest⟩
+
 /-! ## Terminator halt steps (consumed by the bridge `hhalt`)
 
 `STOP`/`RETURN` are **not** `runs_*` rules — the bridge `messageCall_runs` takes the
@@ -494,3 +543,8 @@ theorem lower_preserves_ret (prog : Program) (p : CallParams) {fr₀ last : Fram
   lower_preserves_discharge prog p hbegin hcode hruns (halt_ret last rest hdec hstk hsz)
 
 end Lir
+
+-- Build-enforced axiom-cleanliness guard for the memory value-channel simulation
+-- bricks: both MSTORE/MLOAD arms depend only on `[propext, Classical.choice, Quot.sound]`.
+#print axioms Lir.sim_mstore
+#print axioms Lir.sim_mload

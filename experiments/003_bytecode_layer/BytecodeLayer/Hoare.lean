@@ -313,6 +313,121 @@ theorem runs_pop (fr : Frame) (v : UInt256) (rest : Stack UInt256)
     Runs fr (popFrame fr rest) :=
   Runs.single (stepsTo_of_next (stepFrame_pop fr v rest hdec hstk hsz hgas))
 
+/-! ## MSTORE / MLOAD (memory write / read)
+
+The memory bricks Track C's value channel threads. Each is a one-step `Runs` to a
+named post-frame derived from the matching `Step.lean` characterization, under
+purely semantic preconditions (decode, stack shape, the memory-expansion witness
+`hmem` pinning `words'`, and the two gas bounds). MLOAD additionally carries a
+**value companion** (`mloadFrame_value`) exposing the pushed word as
+`(toMachineState.mload addr).1`, mirroring `sloadFrame_storage_self`. The accessor
+reductions (`mstoreFrame_*` / `mloadFrame_*`) mirror the `sstoreFrame_*` family so
+later layers can read off the post-frame's code/pc/stack by `simp`. -/
+
+/-- The frame after `MSTORE` (operands `addr`/`val` popped off the top): `val`
+written at `addr` in memory, pc + 1, memory-expansion (to `words'`) + `Gverylow`
+charged, via `mstorePost`. -/
+def mstoreFrame (fr : Frame) (addr val : UInt256) (words' : UInt64) (rest : Stack UInt256) : Frame :=
+  { fr with exec := BytecodeLayer.Dispatch.mstorePost fr.exec addr val words' rest }
+
+/-- The frame after `MLOAD` (operand `addr` popped off the top): the loaded word
+pushed onto `rest`, pc + 1, memory-expansion (to `words'`) + `Gverylow` charged, via
+`mloadPost`. -/
+def mloadFrame (fr : Frame) (addr : UInt256) (words' : UInt64) (rest : Stack UInt256) : Frame :=
+  { fr with exec := BytecodeLayer.Dispatch.mloadPost fr.exec addr words' rest }
+
+@[simp] theorem mstoreFrame_code (fr : Frame) (addr val : UInt256) (words' : UInt64)
+    (rest : Stack UInt256) :
+    (mstoreFrame fr addr val words' rest).exec.executionEnv.code = fr.exec.executionEnv.code := rfl
+
+@[simp] theorem mstoreFrame_validJumps (fr : Frame) (addr val : UInt256) (words' : UInt64)
+    (rest : Stack UInt256) :
+    (mstoreFrame fr addr val words' rest).validJumps = fr.validJumps := rfl
+
+@[simp] theorem mstoreFrame_canMod (fr : Frame) (addr val : UInt256) (words' : UInt64)
+    (rest : Stack UInt256) :
+    (mstoreFrame fr addr val words' rest).exec.executionEnv.canModifyState
+      = fr.exec.executionEnv.canModifyState := rfl
+
+@[simp] theorem mstoreFrame_pc (fr : Frame) (addr val : UInt256) (words' : UInt64)
+    (rest : Stack UInt256) :
+    (mstoreFrame fr addr val words' rest).exec.pc = fr.exec.pc + 1 := rfl
+
+@[simp] theorem mstoreFrame_stack (fr : Frame) (addr val : UInt256) (words' : UInt64)
+    (rest : Stack UInt256) :
+    (mstoreFrame fr addr val words' rest).exec.stack = rest := rfl
+
+@[simp] theorem mloadFrame_code (fr : Frame) (addr : UInt256) (words' : UInt64)
+    (rest : Stack UInt256) :
+    (mloadFrame fr addr words' rest).exec.executionEnv.code = fr.exec.executionEnv.code := rfl
+
+@[simp] theorem mloadFrame_validJumps (fr : Frame) (addr : UInt256) (words' : UInt64)
+    (rest : Stack UInt256) :
+    (mloadFrame fr addr words' rest).validJumps = fr.validJumps := rfl
+
+@[simp] theorem mloadFrame_canMod (fr : Frame) (addr : UInt256) (words' : UInt64)
+    (rest : Stack UInt256) :
+    (mloadFrame fr addr words' rest).exec.executionEnv.canModifyState
+      = fr.exec.executionEnv.canModifyState := rfl
+
+@[simp] theorem mloadFrame_pc (fr : Frame) (addr : UInt256) (words' : UInt64)
+    (rest : Stack UInt256) :
+    (mloadFrame fr addr words' rest).exec.pc = fr.exec.pc + 1 := rfl
+
+/-- **The MSTORE rule (effect).** From a frame decoding to `MSTORE` with
+`addr :: val :: rest` on the stack, the memory-expansion witness `hmem` (pinning
+`words'`) and enough gas for both charges, one step `Runs` to
+`mstoreFrame fr addr val words' rest` (memory holds `val` at `addr`). -/
+theorem runs_mstore (fr : Frame) (addr val : UInt256) (words' : UInt64) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .MSTORE, .none))
+    (hstk : fr.exec.stack = addr :: val :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hmem : memoryExpansionWords? fr.exec.activeWords addr 32 = some words')
+    (hgasMem : BytecodeLayer.Dispatch.memExpansionChargeOf fr.exec words'
+                ≤ fr.exec.gasAvailable.toNat)
+    (hgas : GasConstants.Gverylow
+              ≤ (fr.exec.gasAvailable
+                  - UInt64.ofNat (BytecodeLayer.Dispatch.memExpansionChargeOf fr.exec words')).toNat) :
+    Runs fr (mstoreFrame fr addr val words' rest) :=
+  Runs.single (stepsTo_of_next
+    (stepFrame_mstore fr addr val words' rest hdec hstk hsz hmem hgasMem hgas))
+
+/-- **The MLOAD rule (value).** From a frame decoding to `MLOAD` with `addr :: rest`
+on the stack, the memory-expansion witness `hmem` (pinning `words'`) and enough gas
+for both charges, one step `Runs` to `mloadFrame fr addr words' rest` (top = the
+loaded word at `addr`). -/
+theorem runs_mload (fr : Frame) (addr : UInt256) (words' : UInt64) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .MLOAD, .none))
+    (hstk : fr.exec.stack = addr :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hmem : memoryExpansionWords? fr.exec.activeWords addr 32 = some words')
+    (hgasMem : BytecodeLayer.Dispatch.memExpansionChargeOf fr.exec words'
+                ≤ fr.exec.gasAvailable.toNat)
+    (hgas : GasConstants.Gverylow
+              ≤ (fr.exec.gasAvailable
+                  - UInt64.ofNat (BytecodeLayer.Dispatch.memExpansionChargeOf fr.exec words')).toNat) :
+    Runs fr (mloadFrame fr addr words' rest) :=
+  Runs.single (stepsTo_of_next
+    (stepFrame_mload fr addr words' rest hdec hstk hsz hmem hgasMem hgas))
+
+/-- **MLOAD value companion** (mirrors `sloadFrame_storage_self`). The value MLOAD
+pushes — the head of `mloadFrame`'s resulting stack — is exactly the word read from
+memory at `addr` (`(toMachineState.mload addr).1`, on the doubly-charged state). The
+charges touch only `gasAvailable`, so this is the value read from `fr`'s memory. -/
+theorem mloadFrame_value (fr : Frame) (addr : UInt256) (words' : UInt64) (rest : Stack UInt256) :
+    (mloadFrame fr addr words' rest).exec.stack.head?
+      = some ((BytecodeLayer.Dispatch.memChargedState fr.exec words').toMachineState.mload addr).1 := by
+  show ((BytecodeLayer.Dispatch.mloadPost fr.exec addr words' rest).stack).head? = _
+  rfl
+
+/-- **MSTORE memory effect.** The machine state `mstoreFrame` leaves is exactly
+`fr`'s machine state (on the doubly-charged state) with `val` written at `addr`
+(`mstore addr val`) — the read-back a later MLOAD lemma consumes. -/
+theorem mstoreFrame_memory (fr : Frame) (addr val : UInt256) (words' : UInt64)
+    (rest : Stack UInt256) :
+    (mstoreFrame fr addr val words' rest).exec.toMachineState
+      = (BytecodeLayer.Dispatch.memChargedState fr.exec words').toMachineState.mstore addr val := rfl
+
 /-! ## Control-flow rules (JUMP / JUMPI) — the CFG combinator
 
 The conditional/unconditional jumps lift the `Step.lean` jump lemmas to `Runs`.
