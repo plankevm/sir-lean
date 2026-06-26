@@ -127,3 +127,63 @@ observed.) Far weaker and more lowering-agnostic than step-matching.
 
 This isolates "is the lowering observably correct" from "what gas did it cost" — the latter
 is exactly what we refuse to reason about.
+
+## 8. Aspirational target — shapes & theorems (regime (i): instrumented interpreter)
+
+**Decision (this session): regime (i).** The realised oracles are projections of an
+instrumented **`Type`-valued** interpreter (`runWithLog`), NOT extracted from the `Prop`
+relation `Runs`. Reason: `Prop` is proof-irrelevant, so it cannot be eliminated into `Type`
+(`realisedGas : Runs → GasOracle` does not typecheck — large elimination is restricted to
+subsingletons, and `Runs` has many derivations). The instrumented interpreter is `Type`,
+so its projections are honest functions and realisability is constructive/`rfl` — exactly
+how the *call* oracle already works (`evmV2CallOracle` = the `resumeAfterCall` projection).
+Full theory writeup: `docs/lessons/derivations-traces-and-proof-relevance.md`.
+
+```lean
+-- The oracles = the EVM facets the IR refuses to model.
+abbrev GasOracle  := List Word                          -- consumed stream; ZERO IR-visible inputs
+abbrev CallOracle := Word → Word → World → World × Word  -- callee → gasFwd → world ↦ (world', success)
+def    MonotoneGas (g : GasOracle) : Prop               -- the ONE law (engine-free), used only at gas-branches
+
+-- The IR run — permissive (NO law baked in); determinism makes it a function.
+def IRRun (prog : Program) (gas : GasOracle) (call : CallOracle) (w₀ : World) : Observable → Prop
+theorem IRRun.det : IRRun prog g c w₀ O → IRRun prog g c w₀ O' → O = O'
+
+-- regime (i): the instrumented executable interpreter — "runs the bytecode AND records
+-- the introspection points." Type-valued ⇒ realised oracles are projections (functions).
+structure RunLog where
+  observable : Observable
+  gas        : List Word         -- GAS reads, in order   → realisedGas
+  calls      : List CallRecord   -- call results, in order → realisedCall
+def runWithLog (code : Bytecode) (w₀ : World) (fuel : ℕ) : Option RunLog
+def realisedGas  (log : RunLog) : GasOracle  := log.gas
+def realisedCall (log : RunLog) : CallOracle := callOracleOf log.calls
+
+-- realisability = the engine meets the contracts (gas law DISCHARGED, not assumed):
+theorem realisedGas_monotone (log) : runWithLog code w₀ f = some log → MonotoneGas (realisedGas log)
+--   ↑ from Runs.gasAvailable_le (via adequacy runWithLog ↔ Runs)
+
+-- THE HEADLINE (conformance): ∀ IR programs, IR under the realised oracles = the spec.
+theorem lower_conforms (prog : Program) (w₀ : World) (log : RunLog) :
+    runWithLog (lower prog) w₀ fuel = some log →
+    IRRun prog (realisedGas log) (realisedCall log) w₀ log.observable
+
+-- THE AGNOSTIC CLASS: oracle-untouching fragments — proved once, ∀ oracles.
+theorem observable_oracle_agnostic (prog : NonGasNonCall) :
+    ∀ g g' c c' w₀ O, IRRun prog g c w₀ O ↔ IRRun prog g' c' w₀ O
+```
+
+**HAVE** (on `exp005-ir`): `GasOracle`/`MonotoneGas`, `CallOracle`, `IRRun`, `IRRun.det`;
+`realisedCall`+faithfulness (`evmV2CallOracle`/`callRealises_bridge`, `rfl`);
+`realisedGas_monotone` (relational `GasRealises.monotoneGas` from `Runs.gasAvailable_le`);
+`lower_conforms` on a concrete program (`wc_call_parity_v2`).
+
+**NEED**: the instrumented `runWithLog` (regime (i)) + adequacy `runWithLog ↔ Runs`;
+general `lower : Program → Bytecode` + its run; general `lower_conforms` (compose
+per-construct lowering correctness + the two realisability facts + `IRRun.det`);
+`observable_oracle_agnostic`.
+
+**First concrete step — the `Event → List Word` collapse.** Now that calls are a
+function-oracle (not trace entries), `Event` has only `gasRead` left, so `Trace ≅ List Word`
+and `GasOracle := List Word` directly. The `Event` wrapper is dead weight; collapsing it is
+the cheapest move toward the regime-(i) shapes.
