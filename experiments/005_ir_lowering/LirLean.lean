@@ -15,6 +15,10 @@ import LirLean.Match
 -- Layer A of the `lower_conforms` grind: decode-at-cursor anchors (A1–A3) —
 -- statement-head / arbitrary-offset / terminator decode facts over `lower prog`.
 import LirLean.DecodeAnchors
+-- Layer E of the `lower_conforms` grind: block terminators + control-flow edges —
+-- E1 `sim_term_halt` (stop/ret halt, world channel) + E2 `sim_term_edge` (jump/branch
+-- to the successor block's entry, re-establishing `Corr` at `(succ, 0)`).
+import LirLean.SimTerm
 -- Layer B of the `lower_conforms` grind: B2 gas-charge envelope, B3 recompute
 -- soundness (DefsSound), and B1 `materialise_runs` (the linchpin — pure-arithmetic
 -- value channel + B2 gas contract).
