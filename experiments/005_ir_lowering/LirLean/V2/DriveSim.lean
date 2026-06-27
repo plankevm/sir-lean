@@ -1,4 +1,6 @@
 import LirLean.LowerConforms
+import LirLean.V2.IRRun
+import LirLean.V2.DriveRuns
 
 /-!
 # LirLean v2 — drive-indexed forward simulation, cyclic-CFG construction (`DriveSim`, F1–F3)
@@ -107,6 +109,37 @@ theorem cleanHalts_forward {fr fj : Frame}
     (hclean : CleanHalts fr) (hreach : Runs fr fj) : CleanHalts fj := by
   obtain ⟨last, halt, hto, hhalt⟩ := hclean
   exact ⟨last, halt, Runs.linear_to_halt hhalt hto hreach, hhalt⟩
+
+/-! ## §2.2 — `hclean` discharged from the clean-halt outcome (`drive → Runs`)
+
+The entry `CleanHalts fr₀` is no longer a raw hypothesis: it is **derived** from the honest scope
+boundary — the recording interpreter reaching a clean `.halted` outcome,
+`runWithLog params (seedFuel params.gas) = some log`. `runWithLog_drive` (`V2/RunLog.lean`) pins
+the verified `drive (seedFuel params.gas) [] (running fr₀) = .ok log.observable`; the reverse
+construction `runs_of_drive_ok` (`V2/DriveRuns.lean`) reconstructs the halting `Runs fr₀ last` from
+that clean termination, under the `Runs`-modellability side condition (every reachable frame issues
+a code CALL or a halt — no CREATE / precompile-CALL, discharged structurally for `lower prog`). -/
+
+/-- **`hclean` from the clean-halt outcome.** From `runWithLog params (seedFuel params.gas) = some
+log` (the run reaches a clean `.halted` outcome), `beginCall params = .inl fr₀` (the entry frame),
+and the `Runs`-modellability of every reachable frame (`hmodel`), the entry frame `CleanHalts`. The
+`drive → Runs` reverse construction (`runs_of_drive_ok`) reconstructs the halting `Runs` from the
+verified `drive` outcome `runWithLog_drive` pins. -/
+theorem cleanHalts_of_runWithLog {params : Evm.CallParams} {fr₀ : Frame} {log : RunLog}
+    (hlog : runWithLog params (Evm.seedFuel params.gas) = some log)
+    (hbegin : Evm.beginCall params = .inl fr₀)
+    (hmodel : ∀ fr', Runs fr₀ fr' → BytecodeLayer.Interpreter.ModellableStep fr') :
+    CleanHalts fr₀ := by
+  obtain ⟨frame, hbc, hdrive⟩ := runWithLog_drive hlog
+  -- `beginCall` pins the entry frame: `frame = fr₀`.
+  rw [hbegin] at hbc
+  have hfeq : frame = fr₀ := (Sum.inl.injEq _ _).mp hbc.symm
+  rw [hfeq] at hdrive
+  -- the reverse construction yields the halting `Runs`.
+  obtain ⟨last, halt, hruns, hhalt, _⟩ :=
+    BytecodeLayer.Interpreter.runs_of_drive_ok (Evm.seedFuel params.gas) fr₀ log.observable
+      hdrive hmodel
+  exact ⟨last, halt, hruns, hhalt⟩
 
 /-! ## §3 — The strict `totalGas` descent across a block (the KEY new content)
 
@@ -422,6 +455,111 @@ def DriveStep (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (o : V2.Cal
     ∧ totalGas [] (.inl fr') < totalGas [] (.inl fr)
     ∧ (∀ O, RunFrom prog o st' T' succ O → RunFrom prog o st T L O))
 
+/-! ## §5.1 — `driveStep_of_block`: assemble a `DriveStep` from the per-block ties
+
+`DriveStep` is `runFrom_of_driveCorr`'s quantified hypothesis. `driveStep_of_block` discharges
+it **at one block** from: `DriveCorr` at `L`; the block present (`blockAt prog L = some b`); the
+per-block §7 ties (`SimStmtStep` for the statements, and — dispatched on `b.term` — the halt
+world-channel brick / the `jump`/`branch` edge bundles that `drive_step_block_*` consume); and the
+static **operand-definability** `RunDefinable` (`V2/IRRun.lean`) — a *benign* well-formedness
+("operands are defined"), **not** the loop restriction `CFGAcyclic`. The IR block run itself is
+built forward by `runStmts_exists` (`RunStmts b.stmts` to `stmtsPost st b.stmts`, trace unchanged),
+exactly the per-block forward body `runFrom_exists` runs; we then case on `b.term` and dispatch:
+
+* `stop` / `ret` → `drive_step_block_{stop,ret}`, packaged as the **halt** disjunct (LEFT);
+* `jump` / `branch` → `drive_step_block_{jump,branch}`, packaged as the **edge** disjunct (RIGHT).
+
+So `hstep` of `lower_conforms_cyclic` is no longer a raw hypothesis: it is produced uniformly from
+`RunDefinable` + the per-block ties (`lower_conforms_cyclic'` below). -/
+
+/-- **`driveStep_of_block`.** From `DriveCorr` at `L`, the block present, the per-statement tie
+`SimStmtStep`, the static operand-definability `RunDefinable`, and the terminator-shape ties
+(`hhalt` for `stop`/`ret`, `hjump`/`hbranch` for the edges — exactly the bundles
+`drive_step_block_*` consume), produce the per-block drive obligation `DriveStep`. The IR block
+run is `runStmts_exists`; the conclusion is the halt disjunct for `stop`/`ret`, the edge disjunct
+for `jump`/`branch`. -/
+theorem driveStep_of_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
+    {o : V2.CallOracle} {self : AccountAddress}
+    {st : V2.IRState} {fr : Frame} {L : Label} {T : Trace} {b : Block}
+    (hb : blockAt prog L = some b)
+    (hdrive : DriveCorr prog sloadChg obs st fr L)
+    (hsim : SimStmtStep prog sloadChg obs o L b)
+    (hdef : RunDefinable prog)
+    -- the halt world-channel brick (used only on `stop`/`ret`, exactly `sim_term_halt_*`):
+    (hhalt : ∀ frT : Frame, Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
+      ∃ last haltSig, Runs frT last ∧ stepFrame last = .halted haltSig
+        ∧ (observe self (endFrame last haltSig)).world = (stmtsPost st b.stmts).world)
+    -- the `jump` destination block's presence (static, replacing `CFGAcyclic.succ_present`):
+    (hjumpPresent : ∀ (dst : Label), b.term = .jump dst →
+      ∃ bdst : Block, prog.blocks.toList[dst.idx]? = some bdst)
+    -- the `jump` edge bundle (used only on `jump dst`, exactly `drive_step_block_jump`'s):
+    (hjump : ∀ (dst : Label), b.term = .jump dst →
+      ∀ frT : Frame, Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
+        ∃ fj : Frame, Runs frT fj
+          ∧ GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
+          ∧ fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
+              prog.blocks dst.idx)
+          ∧ fj.exec.executionEnv.code = lower prog
+          ∧ fj.validJumps = validJumpDests fj.exec.executionEnv.code 0
+          ∧ fj.exec.stack = []
+          ∧ fj.exec.executionEnv.canModifyState = true
+          ∧ (∀ k, selfStorage fj k = (stmtsPost st b.stmts).world k)
+          ∧ SloadRealises sloadChg (stmtsPost st b.stmts) fj
+          ∧ Lir.GasRealises obs fj
+          ∧ MemRealises prog (stmtsPost st b.stmts) fj
+          ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none))
+    -- the `branch` edge bundle (used only on `branch cond thenL elseL`):
+    (hbranch : ∀ (cond : Tmp) (thenL elseL : Label) (cw : Word),
+      b.term = .branch cond thenL elseL →
+      (stmtsPost st b.stmts).locals cond = some cw →
+      ∀ frT : Frame, Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
+        ∃ (succ : Label) (bsucc : Block) (fj : Frame),
+          ((succ = thenL ∧ cw ≠ 0) ∨ (succ = elseL ∧ cw = 0))
+          ∧ prog.blocks.toList[succ.idx]? = some bsucc
+          ∧ Runs frT fj
+          ∧ GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
+          ∧ fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
+              prog.blocks succ.idx)
+          ∧ fj.exec.executionEnv.code = lower prog
+          ∧ fj.validJumps = validJumpDests fj.exec.executionEnv.code 0
+          ∧ fj.exec.stack = []
+          ∧ fj.exec.executionEnv.canModifyState = true
+          ∧ (∀ k, selfStorage fj k = (stmtsPost st b.stmts).world k)
+          ∧ SloadRealises sloadChg (stmtsPost st b.stmts) fj
+          ∧ Lir.GasRealises obs fj
+          ∧ MemRealises prog (stmtsPost st b.stmts) fj
+          ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none)) :
+    DriveStep prog sloadChg obs o st fr L T := by
+  -- run the block's statements forward (gas-free / call-free, definable from any state).
+  have hrunstmts : V2.RunStmts prog o st T b.stmts (stmtsPost st b.stmts) T :=
+    runStmts_exists (hdef.stmts st L b hb)
+  set st' := stmtsPost st b.stmts with hst'
+  -- dispatch on the terminator shape.
+  cases hterm : b.term with
+  | stop =>
+    -- halt disjunct (LEFT) via `drive_step_block_stop`.
+    obtain ⟨_, _, O, _, _, _, hir, _⟩ :=
+      drive_step_block_stop (self := self) hsim hb hdrive hterm hrunstmts hhalt
+    exact Or.inl ⟨O, hir⟩
+  | ret t =>
+    -- halt disjunct (LEFT) via `drive_step_block_ret`; the operand is `RunDefinable.ret_def`.
+    obtain ⟨w, hv⟩ := hdef.ret_def st L b t hb hterm
+    obtain ⟨_, _, O, _, _, _, hir, _⟩ :=
+      drive_step_block_ret (self := self) hsim hb hdrive hterm hrunstmts hv hhalt
+    exact Or.inl ⟨O, hir⟩
+  | jump dst =>
+    -- edge disjunct (RIGHT) via `drive_step_block_jump`; `dst`'s presence via `hjumpPresent`.
+    obtain ⟨bdst, hbdst⟩ := hjumpPresent dst hterm
+    obtain ⟨fj, hfrrun, hdcorr, hlt, hcont⟩ :=
+      drive_step_block_jump hsim hb hbdst hdrive hterm hrunstmts (hjump dst hterm)
+    exact Or.inr ⟨st', T, dst, jumpdestFrame fj, hdcorr, hlt, hcont⟩
+  | branch cond thenL elseL =>
+    -- edge disjunct (RIGHT) via `drive_step_block_branch`; the condition is `RunDefinable`.
+    obtain ⟨cw, hc⟩ := hdef.branch_def st L b cond thenL elseL hb hterm
+    obtain ⟨succ, fj, hfrrun, hdcorr, hlt, hcont⟩ :=
+      drive_step_block_branch hsim hb hdrive hterm hrunstmts hc (hbranch cond thenL elseL cw hterm hc)
+    exact Or.inr ⟨st', T, succ, jumpdestFrame fj, hdcorr, hlt, hcont⟩
+
 /-! ## §6 — F2, the drive recursion: `runFrom_of_driveCorr`
 
 By strong induction on `totalGas [] (.inl fr)` (= `fr.exec.gasAvailable.toNat`,
@@ -498,6 +636,97 @@ theorem lower_conforms_cyclic {prog : Program} {sloadChg : Tmp → ℕ} {obs : W
   obtain ⟨last, haltSig, hlast, hhalt, hworld⟩ := sim_cfg hstmts hterm hentry hir
   exact ⟨O, ⟨last, haltSig, hlast, hhalt, hworld⟩, hir⟩
 
+/-! ### §7.1 — `lower_conforms_cyclic'`: `hstep` discharged from `RunDefinable` + the per-block ties
+
+`lower_conforms_cyclic` carries the raw per-boundary obligation `hstep : DriveCorr → DriveStep`.
+`lower_conforms_cyclic'` removes it: `hstep` is **produced** at every boundary by
+`driveStep_of_block` from the static operand-definability `RunDefinable` and the per-block ties
+(`SimStmtStep` for the statements, the halt world-channel brick, and the `jump`/`branch` edge
+bundles), each quantified over all `(st, L, b)`. So the only raw hypotheses left are the entry
+boundary, the entry `CleanHalts` (the honest scope), `RunDefinable`, and the per-block §7 ties —
+not a `DriveStep` placeholder. -/
+
+/-- **F3′ — `lower_conforms_cyclic'`.** As `lower_conforms_cyclic`, but with the raw `hstep`
+hypothesis replaced by the static operand-definability `RunDefinable` and the per-block tie
+families (`hhalt`/`hjumpPresent`/`hjump`/`hbranch`, quantified over all `(st, L, b)`):
+`driveStep_of_block` assembles the per-boundary `DriveStep` from them, so `hstep` is no longer
+supplied. -/
+theorem lower_conforms_cyclic' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
+    {o : V2.CallOracle} {self : AccountAddress}
+    {st₀ : V2.IRState} {T : Trace} {fr₀ : Frame}
+    (hentry : Corr prog sloadChg obs st₀ fr₀ prog.entry 0)
+    (hclean : CleanHalts fr₀)
+    -- static operand-definability (benign well-formedness — NOT `CFGAcyclic`):
+    (hdef : RunDefinable prog)
+    -- block presence at every reachable boundary (the CFG is closed; `Corr`'s `pc_eq` alone does
+    -- not pin `L` in range, so presence is supplied — vacuous wherever no `DriveCorr` is reached):
+    (hpresent : ∀ (st : V2.IRState) (fr : Frame) (L : Label),
+      DriveCorr prog sloadChg obs st fr L → ∃ b, blockAt prog L = some b)
+    -- the per-statement tie (`sim_cfg`'s + `driveStep_of_block`'s):
+    (hstmts : ∀ (L : Label) (b : Block), blockAt prog L = some b →
+      SimStmtStep prog sloadChg obs o L b)
+    (hterm : ∀ (L : Label) (b : Block), blockAt prog L = some b →
+      SimTermStep prog sloadChg obs o self L b)
+    -- the halt world-channel brick, at every block / post-statement frame:
+    (hhalt : ∀ (st : V2.IRState) (L : Label) (b : Block), blockAt prog L = some b →
+      ∀ frT : Frame, Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
+        ∃ last haltSig, Runs frT last ∧ stepFrame last = .halted haltSig
+          ∧ (observe self (endFrame last haltSig)).world = (stmtsPost st b.stmts).world)
+    -- the `jump` destination presence, at every block:
+    (hjumpPresent : ∀ (L : Label) (b : Block), blockAt prog L = some b →
+      ∀ (dst : Label), b.term = .jump dst →
+        ∃ bdst : Block, prog.blocks.toList[dst.idx]? = some bdst)
+    -- the `jump` edge bundle, at every block / post-statement frame:
+    (hjump : ∀ (st : V2.IRState) (L : Label) (b : Block), blockAt prog L = some b →
+      ∀ (dst : Label), b.term = .jump dst →
+      ∀ frT : Frame, Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
+        ∃ fj : Frame, Runs frT fj
+          ∧ GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
+          ∧ fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
+              prog.blocks dst.idx)
+          ∧ fj.exec.executionEnv.code = lower prog
+          ∧ fj.validJumps = validJumpDests fj.exec.executionEnv.code 0
+          ∧ fj.exec.stack = []
+          ∧ fj.exec.executionEnv.canModifyState = true
+          ∧ (∀ k, selfStorage fj k = (stmtsPost st b.stmts).world k)
+          ∧ SloadRealises sloadChg (stmtsPost st b.stmts) fj
+          ∧ Lir.GasRealises obs fj
+          ∧ MemRealises prog (stmtsPost st b.stmts) fj
+          ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none))
+    -- the `branch` edge bundle, at every block / post-statement frame:
+    (hbranch : ∀ (st : V2.IRState) (L : Label) (b : Block), blockAt prog L = some b →
+      ∀ (cond : Tmp) (thenL elseL : Label) (cw : Word),
+      b.term = .branch cond thenL elseL →
+      (stmtsPost st b.stmts).locals cond = some cw →
+      ∀ frT : Frame, Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
+        ∃ (succ : Label) (bsucc : Block) (fj : Frame),
+          ((succ = thenL ∧ cw ≠ 0) ∨ (succ = elseL ∧ cw = 0))
+          ∧ prog.blocks.toList[succ.idx]? = some bsucc
+          ∧ Runs frT fj
+          ∧ GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
+          ∧ fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
+              prog.blocks succ.idx)
+          ∧ fj.exec.executionEnv.code = lower prog
+          ∧ fj.validJumps = validJumpDests fj.exec.executionEnv.code 0
+          ∧ fj.exec.stack = []
+          ∧ fj.exec.executionEnv.canModifyState = true
+          ∧ (∀ k, selfStorage fj k = (stmtsPost st b.stmts).world k)
+          ∧ SloadRealises sloadChg (stmtsPost st b.stmts) fj
+          ∧ Lir.GasRealises obs fj
+          ∧ MemRealises prog (stmtsPost st b.stmts) fj
+          ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none)) :
+    ∃ O : V2.Observable,
+      (∃ last haltSig, Runs fr₀ last ∧ stepFrame last = .halted haltSig
+        ∧ (observe self (endFrame last haltSig)).world = O.world)
+      ∧ RunFrom prog o st₀ T prog.entry O := by
+  -- assemble the per-boundary `DriveStep` from `driveStep_of_block` at each reachable block.
+  refine lower_conforms_cyclic (self := self) hentry hclean ?_ hstmts hterm
+  intro st fr L T' hdrive
+  -- the block at `L` is present (supplied at every reachable boundary).
+  obtain ⟨b, hb⟩ := hpresent st fr L hdrive
+  exact driveStep_of_block (self := self) hb hdrive (hstmts L b hb) hdef
+    (hhalt st L b hb) (hjumpPresent L b hb) (hjump st L b hb) (hbranch st L b hb)
+
 end Lir.V2
 
 -- Build-enforced axiom-cleanliness guards for the cyclic-CFG deliverables: the forward clean-halt
@@ -506,11 +735,14 @@ end Lir.V2
 -- on `[propext, Classical.choice, Quot.sound]`.
 #print axioms Lir.V2.driveCorr_measure
 #print axioms Lir.V2.cleanHalts_forward
+#print axioms Lir.V2.cleanHalts_of_runWithLog
 #print axioms Lir.V2.jumpdestFrame_gas_lt
 #print axioms Lir.V2.totalGas_succ_lt
 #print axioms Lir.V2.drive_step_block_stop
 #print axioms Lir.V2.drive_step_block_ret
 #print axioms Lir.V2.drive_step_block_jump
 #print axioms Lir.V2.drive_step_block_branch
+#print axioms Lir.V2.driveStep_of_block
 #print axioms Lir.V2.runFrom_of_driveCorr
 #print axioms Lir.V2.lower_conforms_cyclic
+#print axioms Lir.V2.lower_conforms_cyclic'
