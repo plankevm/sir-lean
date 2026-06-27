@@ -535,7 +535,17 @@ by a pure-stream restriction (retired: the general theorem strictly subsumes it)
 /-- The B2 SLOAD-cost resolver realisability: at every frame `g` sharing `fr`'s
 self-address, `sloadChg k` is the actual `sloadCost` warmth-charge for the bound key
 `st.locals k`. (Quantified over `g` so the recursion applies it at the internal SLOAD
-frame `frk`, whose address agrees with `fr` by `MatRuns.addr`.) -/
+frame `frk`, whose address agrees with `fr` by `MatRuns.addr`.)
+
+⚠️ **KNOWN VACUITY (same defect as `GasRealises`).** After the first cold→warm access of a key,
+`accessedStorageKeys.contains` flips, so the warmth-charge for the *same* key changes (2100 → 100).
+This `∀ g`-universal forces the single resolver value `sloadChg k` to equal *both* charges — it
+cannot hold for any run that reads a key more than once. Carried through `Corr`, it makes the
+headline vacuous on the SLOAD-cost axis. The honest, non-vacuous replacement is the **positional**
+SLOAD twin `SloadLogAligned` (`V2/TieDischarge.lean`) — `sloadAcc = frs.map sloadWarmthOf ∧
+FramesRun frs` — selecting the warmth-charge per cursor from the realised run (the
+`sloadRecord_eq_sloadCost` value bridge is already discharged). Migrating `Corr` onto it is the same
+deep per-cursor thread flagged on `GasRealises`. -/
 def SloadRealises (sloadChg : Tmp → ℕ) (st : V2.IRState) (fr : Frame) : Prop :=
   ∀ (g : Frame) (k : Tmp) (key : Word),
     g.exec.executionEnv.address = fr.exec.executionEnv.address →
@@ -546,7 +556,21 @@ def SloadRealises (sloadChg : Tmp → ℕ) (st : V2.IRState) (fr : Frame) : Prop
 
 /-- The `GAS` value realisability: at every frame `g` sharing `fr`'s self-address, the
 supplied gas word `obs` is `ofUInt64` of the post-`Gbase` gas `g` reports. (Quantified
-over `g` so the recursion applies it at the actual `GAS` running frame.) -/
+over `g` so the recursion applies it at the actual `GAS` running frame.)
+
+⚠️ **KNOWN VACUITY (this universal is unsatisfiable for any genuine ≥2-read run).** Because a
+real EVM run's gas strictly descends, two distinct same-address GAS reads report two distinct
+words, and this `∀ g`-universal forces `obs` to equal both — it cannot hold. Carried through `Corr`
+and asserted at the entry frame (`entry_corr`/`lower_conforms*`'s `hgasr`), it makes the
+conformance headline **vacuous on the gas axis**: it assumes a *constant* gas, a falsehood. The
+honest, non-vacuous replacement is the **positional / streamed** tie `Lir.V2.GasRealises`
+(`V2/Oracle.lean`) — `T = frs.map gasReadOf ∧ FramesRun frs` — which is satisfiable by a real
+descending-gas run and assumes nothing about the values (monotonicity is *derived*, not assumed).
+The contrast is proved against a concrete run in `V2/HonestGasTie.lean`
+(`gasRealises_universal_unsatisfiable` refutes this form; `new_gasRealises_two_read_satisfiable`
+satisfies the honest one). Migrating `Corr`/the spine onto the positional form requires removing the
+single fixed `obs` in favour of a per-cursor gas stream selected positionally — the deep
+forward-simulation thread (see `V2/HonestGasTie.lean`'s module docstring and the handoff notes). -/
 def GasRealises (obs : Word) (fr : Frame) : Prop :=
   ∀ (g : Frame),
     g.exec.executionEnv.address = fr.exec.executionEnv.address →
