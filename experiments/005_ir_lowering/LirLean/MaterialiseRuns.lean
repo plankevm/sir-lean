@@ -345,6 +345,13 @@ structure MatRuns (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ) (fuel : 
   validJumps : fr'.validJumps = fr.validJumps
   addr       : fr'.exec.executionEnv.address = fr.exec.executionEnv.address
   canMod     : fr'.exec.executionEnv.canModifyState = fr.exec.executionEnv.canModifyState
+  /-- The account **map** is unchanged across the materialise sub-run: every materialise
+  post-frame (`pushFrameW`/`addFrame`/`ltFrame`/`sloadFrame`/`gasFrame`) leaves `exec.accounts`
+  untouched (`rfl`; PUSH/ADD/LT/SLOAD/GAS touch stack / pc / gas / substate, never `accounts`).
+  Together with `addr` this transports the `SelfPresent` world-invariant (the self account stays
+  present) the SSTORE presence side-condition needs — the §5-`SelfPresent` analogue of
+  `memBytes`/`memActive`. -/
+  accounts   : fr'.exec.accounts = fr.exec.accounts
   storage    : ∀ k, selfStorage fr' k = selfStorage fr k
   pc         : fr'.exec.pc = fr.exec.pc + UInt32.ofNat (materialiseExpr defs fuel e).length
   gasCharge  : MaterialiseGasCharge defs sloadChg fuel e fr fr'
@@ -459,6 +466,7 @@ theorem matRuns_imm (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ) (fuel 
       validJumps := rfl
       addr := rfl
       canMod := rfl
+      accounts := rfl
       storage := fun _ => rfl
       pc := ?_
       gasCharge := materialiseGasCharge_imm defs sloadChg fuel fr w hdec' hg3 hstk
@@ -840,6 +848,7 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
               validJumps := rfl
               addr := rfl
               canMod := rfl
+              accounts := rfl
               storage := fun _ => rfl
               pc := by
                 rw [gasFrame_pc, show (materialiseExpr defs (f+1) .gas).length = 1 from rfl,
@@ -926,6 +935,7 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
               validJumps := ?_
               addr := ?_
               canMod := ?_
+              accounts := ?_
               storage := ?_
               pc := ?_
               gasCharge := ?_
@@ -940,6 +950,9 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
           · show (sloadFrame frk key fr.exec.stack).exec.executionEnv.canModifyState = _
             rw [show (sloadFrame frk key fr.exec.stack).exec.executionEnv.canModifyState
                   = frk.exec.executionEnv.canModifyState from rfl, hmrk.canMod]
+          · show (sloadFrame frk key fr.exec.stack).exec.accounts = _
+            rw [show (sloadFrame frk key fr.exec.stack).exec.accounts
+                  = frk.exec.accounts from rfl, hmrk.accounts]
           · intro k'; rw [sloadFrame_selfStorage, hmrk.storage]
           · rw [sloadFrame_pc, hkpc, materialiseExpr_sload]
             simp only [List.length_append, List.length_singleton]
@@ -1123,6 +1136,7 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
                       validJumps := ?_
                       addr := ?_
                       canMod := ?_
+                      accounts := ?_
                       storage := ?_
                       pc := ?_
                       gasCharge := ?_
@@ -1142,6 +1156,9 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
                     rfl
                   · show (mloadFrame frp (UInt256.ofNat slot) frp.exec.activeWords
                       fr.exec.stack).exec.executionEnv.canModifyState = _
+                    rfl
+                  · show (mloadFrame frp (UInt256.ofNat slot) frp.exec.activeWords
+                      fr.exec.stack).exec.accounts = _
                     rfl
                   · intro k
                     show selfStorage (mloadFrame frp (UInt256.ofNat slot) frp.exec.activeWords
@@ -1217,6 +1234,7 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
                       validJumps := hmr.validJumps
                       addr := hmr.addr
                       canMod := hmr.canMod
+                      accounts := hmr.accounts
                       storage := hmr.storage
                       pc := by rw [hmexp]; exact hmr.pc
                       gasCharge := by
@@ -1312,6 +1330,7 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
               validJumps := ?_
               addr := ?_
               canMod := ?_
+              accounts := ?_
               storage := ?_
               pc := ?_
               gasCharge := ?_
@@ -1327,6 +1346,9 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
           · show (addFrame fra va vb fr.exec.stack).exec.executionEnv.canModifyState = _
             rw [show (addFrame fra va vb fr.exec.stack).exec.executionEnv.canModifyState
                   = fra.exec.executionEnv.canModifyState from rfl, hmra.canMod, hmrb.canMod]
+          · show (addFrame fra va vb fr.exec.stack).exec.accounts = _
+            rw [show (addFrame fra va vb fr.exec.stack).exec.accounts
+                  = fra.exec.accounts from rfl, hmra.accounts, hmrb.accounts]
           · intro k; rw [addFrame_selfStorage, hmra.storage, hmrb.storage]
           · rw [addFrame_pc, hapc, materialiseExpr_add]
             simp only [List.length_append, List.length_singleton]
@@ -1433,6 +1455,7 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
               validJumps := ?_
               addr := ?_
               canMod := ?_
+              accounts := ?_
               storage := ?_
               pc := ?_
               gasCharge := ?_
@@ -1448,6 +1471,9 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
           · show (ltFrame fra va vb fr.exec.stack).exec.executionEnv.canModifyState = _
             rw [show (ltFrame fra va vb fr.exec.stack).exec.executionEnv.canModifyState
                   = fra.exec.executionEnv.canModifyState from rfl, hmra.canMod, hmrb.canMod]
+          · show (ltFrame fra va vb fr.exec.stack).exec.accounts = _
+            rw [show (ltFrame fra va vb fr.exec.stack).exec.accounts
+                  = fra.exec.accounts from rfl, hmra.accounts, hmrb.accounts]
           · intro k; rw [ltFrame_selfStorage, hmra.storage, hmrb.storage]
           · rw [ltFrame_pc, hapc, materialiseExpr_lt]
             simp only [List.length_append, List.length_singleton]

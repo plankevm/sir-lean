@@ -223,6 +223,45 @@ theorem aligned_read_eq_obs {gasAcc : List Word} {frs : List Frame} {i : Nat} {f
   simp only [Option.map_some]
   rw [gasReadOf_gasFrame_eq_obs]
 
+/-! ### The single-`obs` collapse (the `Corr`-model–compatible alignment, DISCHARGED)
+
+The `Corr` invariant the whole `sim_*` block walk threads (`SimStmt.lean`) carries a **single
+fixed `obs : Word`** in `Lir.GasRealises obs fr` (`MaterialiseRuns.lean`), universal over every
+same-address frame: `∀ g, g.addr = fr.addr → obs = ofUInt64 (g.gasAvailable − Gbase)`. The IR's
+`evalExpr st obs .gas = some obs` reads that *same* `obs` for **every** `Expr.gas` (`Machine.lean`).
+So within the `Corr` model the realised gas value is one word for the whole run — the recorded list
+`log.gas` is positionally selected by `aligned_read_eq_obs` only when its aligned witnesses all
+report that one word (e.g. a run with a single top-level GAS read).
+
+`gasRealises_obs_of_witness` discharges exactly that: from the single-`obs` tie at a GAS cursor and
+an alignment whose witness frame at index `i` is that cursor's post-charge `gasFrame`, the
+positionally-selected recorded read `gasAcc[i]` **is** `obs`. This closes the GAS selection
+end-to-end *for the `Corr` model the construction actually uses* — the recorded read at the cursor's
+position is the cursor's `obs`. (The complementary direction — building the universal `obs`-form tie
+from a *multi-entry* aligned list with distinct reads — is impossible in the single-`obs` model and
+needs the `Corr` refactor to a per-cursor gas stream; reported as the standing obstacle.) -/
+
+/-- **The single-`obs` selection discharge.** At a GAS cursor frame `fr` carrying the `Corr`-model
+gas tie `Lir.GasRealises obs fr` (the universal-over-same-address form), if the alignment's witness
+frame at index `i` is `fr`'s post-charge `gasFrame fr` (which shares `fr`'s address, `rfl`), then the
+positionally-selected recorded read `gasAcc[i]` **is** `obs` — the cursor's gas observation. The §7
+GAS per-cursor selection, discharged end-to-end in the single-`obs` model the block walk threads:
+`aligned_read_eq_obs` gives `gasAcc[i] = ofUInt64 (fr.gas − Gbase)`, and the tie at the witness frame
+`gasFrame fr` (same address) gives that word `= obs`. -/
+theorem gasRealises_obs_of_witness {gasAcc : List Word} {frs : List Frame} {i : Nat}
+    {obs : Word} {fr : Frame}
+    (halign : GasLogAligned gasAcc frs)
+    (hwit : frs[i]? = some (gasFrame fr))
+    (htie : Lir.GasRealises obs fr) :
+    gasAcc[i]? = some obs := by
+  rw [aligned_read_eq_obs halign hwit]
+  -- the universal tie at the witness frame `gasFrame fr` (same address as `fr`, `rfl`):
+  -- `obs = ofUInt64 (gasFrame fr).gas − Gbase` and `(gasFrame fr).gas = fr.gas − Gbase`… but
+  -- `Lir.GasRealises`'s own clause at `g := fr` already pins `obs = ofUInt64 (fr.gas − Gbase)`.
+  have hobs : obs = UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat Gbase) :=
+    htie fr rfl
+  rw [hobs]
+
 /-! ## §4 — SLOAD: the recorded warmth-charge bridges `SloadRealises` (value channel)
 
 Piece 1 added the per-SLOAD warmth recording to the interpreter (`RunLog.sloads`,
@@ -250,6 +289,100 @@ theorem sloadRecord_discharges_obs (g : Frame) {key : Word}
       = Evm.sloadCost (g.exec.substate.accessedStorageKeys.contains
           (g.exec.executionEnv.address, key)) :=
   sloadRecord_eq_sloadCost g hkey
+
+/-! ### §4.1 — the SLOAD positional-alignment invariant `SloadLogAligned` (GAS twin)
+
+The exact SLOAD analogue of §3's `GasLogAligned`. The recorder logs each top-level SLOAD's
+warmth-charge `sloadWarmthOf current` at the **pre-step** frame `current` (the `sloadAcc` splice in
+`driveLog`, gated by `isSloadOp current && stack.isEmpty`). So the SLOAD witness list is the list
+of **pre-step** SLOAD frames the drive walk visits, and the invariant couples the recorder's
+`sloadAcc` to their reported warmth-charges: `sloadAcc = frs.map sloadWarmthOf` together with
+`FramesRun frs` (the SLOAD frames `Runs`-threaded in program order).
+
+Note the witness-frame asymmetry with GAS: GAS records `ofUInt64 exec.gasAvailable` (the
+**post**-charge gas), so its witness frame is `gasFrame current` (the post-charge frame); SLOAD
+records `sloadWarmthOf current` (read off `current`'s **pre**-step substate / stack), so its witness
+frame is `current` itself. The lockstep step (`sloadLogAligned_step_sload`) and the list→cursor
+bridge (`alignedSload_read_eq_obs`) mirror §3 one-for-one. -/
+
+/-- **The sload-log alignment invariant** (GAS twin of `GasLogAligned`). A `driveLog`
+`sloadAcc` accumulator is *aligned* with a witness list of SLOAD pre-step frames `frs` when it is
+exactly their reported warmth-charges (`sloadWarmthOf`, in program order) and the frames are
+`Runs`-threaded (`FramesRun frs`). The drive walk threads this alongside `DriveCorr`; the
+foundational steps below show one op preserves it. -/
+def SloadLogAligned (sloadAcc : List Nat) (frs : List Frame) : Prop :=
+  sloadAcc = frs.map sloadWarmthOf ∧ FramesRun frs
+
+/-- The empty `sloadAcc` is aligned with the empty witness list — the drive walk's seed. -/
+theorem sloadLogAligned_nil : SloadLogAligned [] [] := ⟨rfl, trivial⟩
+
+/-- **Foundational per-op step — the SLOAD-record arm** (twin of `gasLogAligned_step_gas`). At a
+top-level SLOAD `.next` step (`current.stack = []`, so the recorder's `isSloadOp && stack.isEmpty`
+gate fires), the recorder appends one warmth-charge `sloadWarmthOf current` and the witness list one
+frame `current`, in lockstep: the new accumulator `sloadAcc ++ [sloadWarmthOf current]` is aligned
+with `frs ++ [current]`, provided the current witness list ends at a frame from which `current` is
+reachable (`Runs`-threaded). The appended word is *definitionally* `sloadWarmthOf current` (the
+recorder logs exactly the witness frame's `sloadWarmthOf`, no `gasPost`-style post-step shift), so
+read-equality extends by `rfl`; `FramesRun` extends by `FramesRun.snoc`. -/
+theorem sloadLogAligned_step_sload {sloadAcc : List Nat} {frs : List Frame} {current last : Frame}
+    (halign : SloadLogAligned sloadAcc frs)
+    (hlast : frs.getLast? = some last)
+    (hreach : Runs last current) :
+    SloadLogAligned (sloadAcc ++ [sloadWarmthOf current]) (frs ++ [current]) := by
+  obtain ⟨hreads, hrun⟩ := halign
+  refine ⟨?_, FramesRun.snoc hrun hlast hreach⟩
+  rw [List.map_append, ← hreads]
+  simp only [List.map_cons, List.map_nil]
+
+/-- **Foundational per-op step — the no-record arm** (twin of `gasLogAligned_step_norecord`). Any
+step that is *not* a recorded top-level SLOAD read leaves the sload accumulator (and the witness
+list) unchanged, so alignment is preserved verbatim. The common case the walk-induction threads
+between SLOAD cursors (every non-SLOAD op, and SLOAD reads inside a descended CALL where
+`stack ≠ []`). -/
+theorem sloadLogAligned_step_norecord {sloadAcc : List Nat} {frs : List Frame}
+    (halign : SloadLogAligned sloadAcc frs) :
+    SloadLogAligned sloadAcc frs := halign
+
+/-- **The list→cursor SLOAD read bridge** (twin of `aligned_read_eq_obs`). The `i`-th entry of an
+aligned `sloadAcc` is the warmth-charge `SloadRealises` demands at the `i`-th SLOAD cursor frame:
+when the witness frame at `i` is an SLOAD frame `g` whose stack-head is the bound key, the recorded
+`sloadAcc[i]` is exactly `sloadCost (accessedStorageKeys.contains (self, key))`
+(`sloadRecord_eq_sloadCost`). The per-cursor SLOAD tie is thus the alignment's positional read,
+modulo the walk-induction that pairs cursor `i` with witness frame `i` (the §3 obstacle). -/
+theorem alignedSload_read_eq_obs {sloadAcc : List Nat} {frs : List Frame} {i : Nat} {g : Frame}
+    {key : Word}
+    (halign : SloadLogAligned sloadAcc frs)
+    (hwit : frs[i]? = some g)
+    (hkey : g.exec.stack.head? = some key) :
+    sloadAcc[i]? = some (Evm.sloadCost (g.exec.substate.accessedStorageKeys.contains
+        (g.exec.executionEnv.address, key))) := by
+  obtain ⟨hreads, _⟩ := halign
+  rw [hreads, List.getElem?_map, hwit]
+  simp only [Option.map_some]
+  rw [sloadRecord_eq_sloadCost g hkey]
+
+/-- **The SLOAD selection discharge** (twin of `gasRealises_obs_of_witness`). At an SLOAD cursor
+whose witness frame `g` (at index `i`) shares the cursor frame's self-address and pops the bound key
+`key = st.locals k`, the `Corr`-model SLOAD tie `SloadRealises sloadChg st fr` selects the recorded
+read: `sloadAcc[i] = sloadChg k`. The positionally-selected recorded warmth-charge **is** the IR
+resolver value `sloadChg k`. This closes the §7 SLOAD selection end-to-end in the `Corr` model the
+block walk threads: `alignedSload_read_eq_obs` gives `sloadAcc[i] = sloadCost (g.substate … key)`,
+and `SloadRealises` at `g` (same address, bound key) gives `sloadChg k = sloadCost (g.substate …
+key)`. (As for GAS, the converse — a multi-entry list with distinct charges — is the standing
+obstacle, needing the `Corr` per-cursor refactor.) -/
+theorem sloadRealises_charge_of_witness {sloadChg : Tmp → ℕ} {st : V2.IRState}
+    {sloadAcc : List Nat} {frs : List Frame} {i : Nat} {g fr : Frame} {k : Tmp} {key : Word}
+    (halign : SloadLogAligned sloadAcc frs)
+    (hwit : frs[i]? = some g)
+    (hkey : g.exec.stack.head? = some key)
+    (haddr : g.exec.executionEnv.address = fr.exec.executionEnv.address)
+    (hlk : st.locals k = some key)
+    (htie : SloadRealises sloadChg st fr) :
+    sloadAcc[i]? = some (sloadChg k) := by
+  rw [alignedSload_read_eq_obs halign hwit hkey]
+  -- the `Corr`-model tie at the witness frame `g` (same address as `fr`, bound key `key`):
+  -- `sloadChg k = sloadCost (g.substate.accessedStorageKeys.contains (g.address, key))`.
+  rw [htie g k key haddr hlk]
 
 /-! ## §5 — SSTORE: the account-presence world invariant `SelfPresent` (standalone discharge)
 
@@ -311,6 +444,30 @@ theorem selfPresent_gasFrame {fr : Frame}
 theorem selfPresent_pushFrameW {fr : Frame} (w : Word) (width : UInt8)
     (h : SelfPresent fr) : SelfPresent (pushFrameW fr w width) := h
 
+/-! ### `SelfPresent` threads through a whole materialise sub-run (`MatRuns`-threading, DONE)
+
+The per-op bricks above compose into the whole-materialisation transport via the **new
+`MatRuns.accounts` + `MatRuns.addr` clauses** (`MaterialiseRuns.lean`): a materialise sub-run leaves
+the account map (`MatRuns.accounts`) and the self address (`MatRuns.addr`) unchanged, so
+`SelfPresent` transports across the entire `materialise_runs` endpoint at once — the analogue of
+`MemRealises.transport` (which threads the memory value channel across the sub-run via
+`memBytes`/`memActive`). This is exactly the `MatRuns`-threading the §5 docstring flagged as the
+remaining SSTORE wiring; with the `accounts` clause banked it is now a one-line transport, not a
+deferred walk-induction. -/
+
+/-- **`SelfPresent` transports across a materialise sub-run.** From `SelfPresent fr` and a
+`MatRuns … fr fr'` materialise run, `SelfPresent fr'`: the account map is preserved
+(`MatRuns.accounts`) and the self address is preserved (`MatRuns.addr`), so the witnessed self
+account at `fr` is still found at `fr'`. The whole-sub-run analogue of the per-op `selfPresent_*`
+bricks — the `MatRuns`-threading the SSTORE presence discharge needs, completed via the new
+`MatRuns.accounts` clause. -/
+theorem selfPresent_matRuns {defs : Tmp → Option Expr} {sloadChg : Tmp → ℕ} {fuel : Nat}
+    {e : Expr} {w : Word} {fr fr' : Frame}
+    (h : SelfPresent fr) (hmr : MatRuns defs sloadChg fuel e w fr fr') :
+    SelfPresent fr' := by
+  obtain ⟨acc, hacc⟩ := h
+  exact ⟨acc, by rw [hmr.accounts, hmr.addr]; exact hacc⟩
+
 /-! ### `SelfPresent` at the entry `codeFrame` (world-wellformedness)
 
 The entry frame's accounts are `codeAccounts params` (`beginCall`'s value-transfer map) and
@@ -350,6 +507,69 @@ theorem selfPresent_codeFrame (params : Evm.CallParams) (code : ByteArray) {acc 
     · rw [accounts_find?_insert_of_ne _ _ (fun hc => hcr hc.symm)]
       exact ⟨_, hrec₁⟩
 
+/-! ## §6 — the strengthened boundary invariant `DriveCorrPlus` (the alignment + presence carrier)
+
+The drive recursion `runFrom_of_driveCorr` (`DriveSim.lean`) threads `DriveCorr` (the `Corr`
+boundary + the clean-halt measure) block-by-block. To discharge the §7 *selection* (the k-th cursor
+value = the k-th recorded entry) and the SSTORE presence in the SAME walk, the boundary invariant
+must additionally carry, at each block-entry frame:
+
+* `selfPresent` — the self account is present (`SelfPresent fr`), the SSTORE presence world-invariant
+  (§5), now transportable across each block's materialise sub-runs by `selfPresent_matRuns`;
+* `gasAligned` / `sloadAligned` — that the recorder's flat gas/sload accumulators *consumed so far*
+  are aligned (`GasLogAligned` / `SloadLogAligned`) with the GAS/SLOAD witness frames the walk has
+  visited, so the per-cursor read at the next GAS/SLOAD site is the matching recorded entry
+  (`gasRealises_obs_of_witness` / `sloadRealises_charge_of_witness`).
+
+`DriveCorrPlus` bundles exactly these onto `DriveCorr`. The accumulators-so-far are carried as
+explicit parameters (`gasAcc`/`sloadAcc`) with their witness lists (`gasFrs`/`sloadFrs`), since the
+block walk does not itself project the recorder — they are the prefix of `log.gas`/`log.sloads`
+consumed up to this boundary.
+
+**Entry satisfaction is proven** (`driveCorrPlus_entry`): at the entry frame the consumed prefixes
+are empty (`gasLogAligned_nil`/`sloadLogAligned_nil`) and `SelfPresent` holds by
+`selfPresent_codeFrame`. **Preservation through the block step is the standing obstacle**, for two
+independent reasons reported at the foot of this module: (a) the alignment witnesses can only be
+*selected* in the single-`obs` `Corr` model when the consumed gas prefix is constant
+(`gasRealises_obs_of_witness`), which the multi-distinct-read general case violates; (b)
+`SelfPresent`-forward across a block requires self-presence preservation along the *whole* `Runs`
+segment (including the `Runs.call` resume), which is not yet a lemma. -/
+
+/-- **The strengthened drive-boundary invariant.** `DriveCorr` (the `Corr` boundary + clean-halt
+measure) augmented with the SSTORE presence world-invariant `SelfPresent fr` and the gas/sload
+positional-alignment witnesses for the recorder prefixes consumed up to this boundary
+(`GasLogAligned gasAcc gasFrs` / `SloadLogAligned sloadAcc sloadFrs`). The carrier the drive walk
+would thread to discharge the §7 selection ties and the SSTORE presence in one recursion; the entry
+frame satisfies it (`driveCorrPlus_entry`). -/
+structure DriveCorrPlus (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
+    (st : V2.IRState) (fr : Frame) (L : Label)
+    (gasAcc : List Word) (gasFrs : List Frame)
+    (sloadAcc : List Nat) (sloadFrs : List Frame) : Prop where
+  /-- The base `DriveCorr` boundary (the `Corr` cursor + the clean-halt measure). -/
+  base : DriveCorr prog sloadChg obs st fr L
+  /-- The SSTORE presence world-invariant: the self account is present in `fr`'s accounts. -/
+  selfPresent : SelfPresent fr
+  /-- The gas accumulator consumed so far is positionally aligned with the GAS witness frames. -/
+  gasAligned : GasLogAligned gasAcc gasFrs
+  /-- The sload accumulator consumed so far is positionally aligned with the SLOAD witness frames. -/
+  sloadAligned : SloadLogAligned sloadAcc sloadFrs
+
+/-- **Entry satisfaction of `DriveCorrPlus`.** At the entry frame (a `DriveCorr` boundary whose
+frame is the call's `codeFrame` with the self account present), the strengthened invariant holds
+with **empty** consumed prefixes: the gas/sload alignments are the seeds
+(`gasLogAligned_nil`/`sloadLogAligned_nil`) and `SelfPresent` is `selfPresent_codeFrame`. This is the
+base case of the (would-be) strengthened drive recursion — the alignment witnesses start empty and
+the presence invariant starts established. -/
+theorem driveCorrPlus_entry {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
+    {st : V2.IRState} {params : Evm.CallParams} {code : ByteArray} {L : Label} {acc : Account}
+    (hbase : DriveCorr prog sloadChg obs st (codeFrame params code) L)
+    (hwf : params.accounts.find? params.recipient = some acc) :
+    DriveCorrPlus prog sloadChg obs st (codeFrame params code) L [] [] [] [] where
+  base := hbase
+  selfPresent := selfPresent_codeFrame params code hwf
+  gasAligned := gasLogAligned_nil
+  sloadAligned := sloadLogAligned_nil
+
 end Lir.V2
 
 -- Build-enforced axiom-cleanliness guards for the tie-discharge deliverables.
@@ -360,8 +580,15 @@ end Lir.V2
 #print axioms Lir.V2.FramesRun.snoc
 #print axioms Lir.V2.gasLogAligned_step_gas
 #print axioms Lir.V2.aligned_read_eq_obs
+#print axioms Lir.V2.gasRealises_obs_of_witness
 #print axioms Lir.V2.sloadRecord_discharges_obs
+#print axioms Lir.V2.sloadLogAligned_nil
+#print axioms Lir.V2.sloadLogAligned_step_sload
+#print axioms Lir.V2.alignedSload_read_eq_obs
+#print axioms Lir.V2.sloadRealises_charge_of_witness
 #print axioms Lir.V2.sstorePresence_of_self
 #print axioms Lir.V2.selfPresent_addFrame
 #print axioms Lir.V2.selfPresent_sloadFrame
+#print axioms Lir.V2.selfPresent_matRuns
 #print axioms Lir.V2.selfPresent_codeFrame
+#print axioms Lir.V2.driveCorrPlus_entry
