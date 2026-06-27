@@ -138,6 +138,92 @@ return. -/
 theorem Runs.single {fr fr' : Frame} (h : StepsTo fr fr') : Runs fr fr' :=
   Runs.step h (Runs.refl fr')
 
+/-! ## `Runs` linearity to a halt (the forward clean-halt split)
+
+`stepFrame` is a **function**, so a frame's next action is determined: at most one of
+`.next` / `.needsCall` / `.halted` fires. Consequently a `Runs` derivation that ends at a
+**halting** terminal is *linear* — any frame reachable on the way to that halt continues to
+the same halt. This is the forward closure that lets the drive recursion derive the
+successor's clean-halt from the source's, rather than supply it. -/
+
+/-- **`StepsTo` is deterministic.** `stepFrame` is a function, so the successor of a
+non-halting step is unique. -/
+theorem StepsTo.det {fr mid mid' : Frame} (h : StepsTo fr mid) (h' : StepsTo fr mid') :
+    mid = mid' := by
+  have hexec : mid.exec = mid'.exec := by
+    have := h.1.symm.trans h'.1
+    exact (Signal.next.injEq _ _).mp this
+  rw [h.2, h'.2, hexec]
+
+/-- **`CallReturns` is deterministic in the resumed frame.** The CALL step
+(`stepFrame`), the child's entry (`beginCall`), and its black-box terminating run
+(`drive … = .ok`) are each functional, so the resumed parent frame is unique. -/
+theorem CallReturns.det {callFr resumeFr resumeFr' : Frame}
+    (h : CallReturns callFr resumeFr) (h' : CallReturns callFr resumeFr') :
+    resumeFr = resumeFr' := by
+  obtain ⟨cp, pending, child, childRes, hstep, hbegin, hchild, hres⟩ := h
+  obtain ⟨cp', pending', child', childRes', hstep', hbegin', hchild', hres'⟩ := h'
+  -- the CALL step pins `(cp, pending)`.
+  rw [hstep] at hstep'
+  obtain ⟨hcp, hpending⟩ := Signal.needsCall.injEq .. |>.mp hstep'.symm
+  subst hcp; subst hpending
+  -- `beginCall` pins the child frame, the black-box run pins `childRes`.
+  have hchildeq : child = child' := by
+    have := hbegin.symm.trans hbegin'
+    exact (Sum.inl.injEq _ _).mp this
+  subst hchildeq
+  rw [hchild] at hchild'
+  have : childRes = childRes' := (Except.ok.injEq _ _).mp hchild'
+  subst this
+  rw [hres, hres']
+
+/-- **A halting `Runs` does not start with a non-halting step from `fr`.** If `fr`
+`Runs` to a halting `last` and `StepsTo fr mid`, then `mid` still `Runs` to `last`
+(the determined first step of the run *is* this step). -/
+theorem Runs.step_to_halt {fr mid last : Frame} {halt : FrameHalt}
+    (hrun : Runs fr last) (hhalt : stepFrame last = Signal.halted halt)
+    (hstep : StepsTo fr mid) : Runs mid last := by
+  cases hrun with
+  | refl _ =>
+    -- `fr = last` halts, but `StepsTo fr mid` says `stepFrame fr = .next _`.
+    rw [hstep.1] at hhalt; exact absurd hhalt (by nofun)
+  | step h' rest =>
+    -- both are the unique first step; identify the successors.
+    have := StepsTo.det hstep h'; subst this; exact rest
+  | call hcall _ =>
+    -- the run starts with a CALL, but `StepsTo` says `.next`.
+    obtain ⟨_, _, _, _, hstep', _⟩ := hcall
+    rw [hstep.1] at hstep'; exact absurd hstep' (by nofun)
+
+/-- **A halting `Runs` does not start with a CALL whose resume diverges.** If `fr`
+`Runs` to a halting `last` and `CallReturns fr resumeFr`, then `resumeFr` still
+`Runs` to `last`. -/
+theorem Runs.call_to_halt {fr resumeFr last : Frame} {halt : FrameHalt}
+    (hrun : Runs fr last) (hhalt : stepFrame last = Signal.halted halt)
+    (hcall : CallReturns fr resumeFr) : Runs resumeFr last := by
+  cases hrun with
+  | refl _ =>
+    obtain ⟨_, _, _, _, hstep, _⟩ := hcall
+    rw [hstep] at hhalt; exact absurd hhalt (by nofun)
+  | step h' _ =>
+    obtain ⟨_, _, _, _, hstep, _⟩ := hcall
+    rw [h'.1] at hstep; exact absurd hstep (by nofun)
+  | call hcall' rest =>
+    have := CallReturns.det hcall hcall'; subst this; exact rest
+
+/-- **`Runs` linearity to a halt.** If `fr` `Runs` to a **halting** terminal `last`,
+then every frame `fj` reachable from `fr` (`Runs fr fj`) continues to that same
+`last` (`Runs fj last`). Proved by induction on `Runs fr fj`, peeling the (uniquely
+determined) head of the halting run at each `step`/`call` node via `step_to_halt` /
+`call_to_halt`. -/
+theorem Runs.linear_to_halt {fr fj last : Frame} {halt : FrameHalt}
+    (hhalt : stepFrame last = Signal.halted halt)
+    (hto : Runs fr last) (hreach : Runs fr fj) : Runs fj last := by
+  induction hreach with
+  | refl _ => exact hto
+  | step hstep _ ih => exact ih (Runs.step_to_halt hto hhalt hstep)
+  | call hcall _ ih => exact ih (Runs.call_to_halt hto hhalt hcall)
+
 /-! ## Opcode rules
 
 Each opcode rule is a `Runs 1` lemma: under purely **semantic** preconditions
