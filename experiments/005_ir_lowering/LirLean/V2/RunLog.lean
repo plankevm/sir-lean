@@ -84,12 +84,15 @@ structure RunLog where
   observable : FrameResult
   /-- The `GAS` reads, in program order. -/
   gas : List Word
+  /-- The `SLOAD` warmth-charges (`sloadCost warm`), in program order — the realised
+  warmth/cost at each top-level SLOAD site (→ `realisedSload`). Parallel to `gas`. -/
+  sloads : List Nat
   /-- The returning external CALLs' records, in program order. -/
   calls : List CallRecord
 
-/-- The empty accumulator: no reads, no calls (the `observable` is filled in at the
-top-level return). The seed for `driveLog`'s recording. -/
-def RunAcc : Type := List Word × List CallRecord
+/-- The empty accumulator: no gas reads, no sload charges, no calls (the `observable` is
+filled in at the top-level return). The seed for `driveLog`'s recording. -/
+def RunAcc : Type := List Word × List Nat × List CallRecord
 
 /-! ## GAS-step detection
 
@@ -100,6 +103,32 @@ A `.next` step is a `GAS` read exactly when the decoded op at the running frame 
 turns a `.next` step into a recorded gas read. -/
 def isGasOp (fr : Frame) : Bool :=
   (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (Operation.STOP, .none)).1 == .Smsf .GAS
+
+/-! ## SLOAD-step detection and the recorded warmth-charge
+
+A `.next` step is an `SLOAD` read exactly when the decoded op at the running frame is
+`.Smsf .SLOAD`. The recorded datum is the warmth-cost `sloadCost warm` charged at that
+frame, where `warm = accessedStorageKeys.contains (self, key)` and `key` is the top of
+the stack (`sloadPost`) — exactly the value `SloadRealises` demands (the value-level
+bridge `sloadRecord_eq_sloadCost`). -/
+
+/-- `True` iff the op decoded at `fr`'s pc is `SLOAD` (`.Smsf .SLOAD`). The gate that
+turns a `.next` step into a recorded SLOAD warmth-charge (mirrors `isGasOp`). -/
+def isSloadOp (fr : Frame) : Bool :=
+  (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (Operation.STOP, .none)).1 == .Smsf .SLOAD
+
+/-- The warmth-charge `SLOAD` reports at (pre-step) frame `fr`: `sloadCost warm`, where
+`warm = accessedStorageKeys.contains (self, key)` and `key` is the top of `fr`'s stack
+(the key SLOAD pops — `sloadPost`). This is exactly the value `SloadRealises` demands at
+an SLOAD frame whose stack-head is the bound key (`sloadRecord_eq_sloadCost`). The
+`none`-head case (empty stack) is unreachable at a real SLOAD step (`stepFrame_sload`
+forces `stack = key :: rest`); it is `0`. -/
+def sloadWarmthOf (fr : Frame) : Nat :=
+  match fr.exec.stack.head? with
+    | some key =>
+        Evm.sloadCost (fr.exec.substate.accessedStorageKeys.contains
+          (fr.exec.executionEnv.address, key))
+    | none => 0
 
 /-! ## The recording interpreter `driveLog`
 
@@ -119,28 +148,30 @@ def recordCall (pending : Pending) (result : FrameResult) (callAcc : List CallRe
     | .call pd => callAcc ++ [{ result := result.toCallResult, pending := pd }]
     | .create _ => callAcc
 
-/-- The recording driver: `drive` with a `(gas, calls)` accumulator. Mirrors
-`drive`'s recursion branch-for-branch; records each `GAS` read's post-charge word
-and each returning external CALL's `(result, pending)`. -/
+/-- The recording driver: `drive` with a `(gas, sloads, calls)` accumulator. Mirrors
+`drive`'s recursion branch-for-branch; records each `GAS` read's post-charge word, each
+top-level `SLOAD`'s warmth-charge (`sloadCost warm`), and each returning external CALL's
+`(result, pending)`. The `sloadAcc` is threaded exactly like `gasAcc` and is erased by
+`.map (·.1)` (adequacy preserved by construction). -/
 def driveLog (fuel : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult)
-    (gasAcc : List Word) (callAcc : List CallRecord) :
-    Except ExecutionException (FrameResult × List Word × List CallRecord) :=
+    (gasAcc : List Word) (sloadAcc : List Nat) (callAcc : List CallRecord) :
+    Except ExecutionException (FrameResult × List Word × List Nat × List CallRecord) :=
   match fuel with
     | 0 => .error .OutOfFuel
     | fuel + 1 =>
       match state with
         | .inr result =>
           match stack with
-            | [] => .ok (result, gasAcc, callAcc)
+            | [] => .ok (result, gasAcc, sloadAcc, callAcc)
             | pending :: rest =>
               -- the `pending.resume result` match is byte-for-byte `drive`'s; the only
               -- difference is the accumulator carries a returning-CALL record (`recordCall`).
               match pending.resume result with
                 | .ok parent =>
-                  driveLog fuel rest (.inl parent) gasAcc (recordCall pending result callAcc)
+                  driveLog fuel rest (.inl parent) gasAcc sloadAcc (recordCall pending result callAcc)
                 | .error e =>
                   driveLog fuel rest (.inr (endFrame pending.frame (.exception e)))
-                    gasAcc (recordCall pending result callAcc)
+                    gasAcc sloadAcc (recordCall pending result callAcc)
         | .inl current =>
           match stepFrame current with
             | .next exec =>
@@ -151,19 +182,25 @@ def driveLog (fuel : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult)
               -- the realisability witness (`Oracle.GasRealises`, `Runs.gasAvailable_le`)
               -- threads exactly the top-level frame across `CallReturns` (children
               -- black-boxed). At `stack = []` the recorded reads are then non-increasing.
+              -- Symmetrically, record an SLOAD warmth-charge iff the op is `SLOAD` and this
+              -- is the top-level frame — the realised warmth at the top-level program's own
+              -- SLOAD sites, read off the **pre-step** frame `current` (`sloadWarmthOf`).
               if isGasOp current && stack.isEmpty then
                 driveLog fuel stack (.inl { current with exec := exec })
-                  (gasAcc ++ [UInt256.ofUInt64 exec.gasAvailable]) callAcc
+                  (gasAcc ++ [UInt256.ofUInt64 exec.gasAvailable]) sloadAcc callAcc
+              else if isSloadOp current && stack.isEmpty then
+                driveLog fuel stack (.inl { current with exec := exec })
+                  gasAcc (sloadAcc ++ [sloadWarmthOf current]) callAcc
               else
-                driveLog fuel stack (.inl { current with exec := exec }) gasAcc callAcc
-            | .halted halt => driveLog fuel stack (.inr (endFrame current halt)) gasAcc callAcc
+                driveLog fuel stack (.inl { current with exec := exec }) gasAcc sloadAcc callAcc
+            | .halted halt => driveLog fuel stack (.inr (endFrame current halt)) gasAcc sloadAcc callAcc
             | .needsCall params pending =>
               match beginCall params with
-                | .inl child => driveLog fuel (.call pending :: stack) (.inl child) gasAcc callAcc
-                | .inr result => driveLog fuel (.call pending :: stack) (.inr (.call result)) gasAcc callAcc
+                | .inl child => driveLog fuel (.call pending :: stack) (.inl child) gasAcc sloadAcc callAcc
+                | .inr result => driveLog fuel (.call pending :: stack) (.inr (.call result)) gasAcc sloadAcc callAcc
             | .needsCreate params pending =>
               match beginCreate params with
-                | .ok child => driveLog fuel (.create pending :: stack) (.inl child) gasAcc callAcc
+                | .ok child => driveLog fuel (.create pending :: stack) (.inl child) gasAcc sloadAcc callAcc
                 | .error _ =>
                   let exec := pending.frame.exec
                   let result : CreateResult :=
@@ -174,7 +211,7 @@ def driveLog (fuel : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult)
                       substate := exec.substate
                       success := false
                       output := .empty }
-                  driveLog fuel (.create pending :: stack) (.inr (.create result)) gasAcc callAcc
+                  driveLog fuel (.create pending :: stack) (.inr (.create result)) gasAcc sloadAcc callAcc
 
 /-! ## The top-level recording interpreter
 
@@ -194,8 +231,9 @@ def runWithLog (params : CallParams) (fuel : ℕ) : Option RunLog :=
   match beginCall params with
     | .inr _ => none
     | .inl frame =>
-      match driveLog fuel [] (.inl frame) [] [] with
-        | .ok (r, gas, calls) => some { observable := r, gas := gas, calls := calls }
+      match driveLog fuel [] (.inl frame) [] [] [] with
+        | .ok (r, gas, sloads, calls) =>
+            some { observable := r, gas := gas, sloads := sloads, calls := calls }
         | .error _ => none
 
 /-! ## Projections (`docs/ir-design-v3.md` §8)
@@ -207,6 +245,26 @@ is `Type`-valued. -/
 `GasOracle` (`= List Word`). The whole regime-(i) point: a function, not a `Prop`
 extraction. -/
 def realisedGas (log : RunLog) : GasOracle := log.gas
+
+/-- **The realised SLOAD-warmth oracle.** The recorded `SLOAD` warmth-charges
+(`sloadCost warm`), in program order — the realised warmth-cost stream the §7
+`SloadRealises` tie selects from (parallel to `realisedGas`). The per-cursor selection
+is the deferred alignment (parallel to GAS); this is the recorded value channel. -/
+def realisedSload (log : RunLog) : List Nat := log.sloads
+
+/-- **The SLOAD value-level bridge** (parallel to `gasReadOf_gasFrame_eq_obs`). At an
+SLOAD frame `g` whose stack-head is the bound key (`g.exec.stack.head? = some key`), the
+recorded warmth-charge `sloadWarmthOf g` is exactly the value `SloadRealises` demands at
+that frame: `sloadCost (accessedStorageKeys.contains (self, key))`. `simp`-clean (it is
+`sloadWarmthOf`'s `some`-branch unfolded). So once the (deferred) alignment selects that
+the SLOAD cursor's recorded charge is this site's `sloadWarmthOf`, the `sloadChg k =
+sloadCost …` conjunct of `SloadRealises` is discharged at the cursor frame. -/
+theorem sloadRecord_eq_sloadCost (g : Frame) {key : Word}
+    (hkey : g.exec.stack.head? = some key) :
+    sloadWarmthOf g
+      = Evm.sloadCost (g.exec.substate.accessedStorageKeys.contains
+          (g.exec.executionEnv.address, key)) := by
+  simp only [sloadWarmthOf, hkey]
 
 /-- The call oracle realised by a list of `CallRecord`s at self address `self`:
 the *first* record's `evmV2CallOracle` projection. For the single-CALL fragment
@@ -289,13 +347,13 @@ transition — the two are definitionally the same control flow, the splices onl
 touch the (erased) accumulator. -/
 theorem driveLog_drive :
     ∀ (f : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult)
-      (gasAcc : List Word) (callAcc : List CallRecord),
-      (driveLog f stack state gasAcc callAcc).map (·.1) = drive f stack state := by
+      (gasAcc : List Word) (sloadAcc : List Nat) (callAcc : List CallRecord),
+      (driveLog f stack state gasAcc sloadAcc callAcc).map (·.1) = drive f stack state := by
   intro f
   induction f with
-  | zero => intro stack state gasAcc callAcc; rfl
+  | zero => intro stack state gasAcc sloadAcc callAcc; rfl
   | succ n ih =>
-    intro stack state gasAcc callAcc
+    intro stack state gasAcc sloadAcc callAcc
     unfold driveLog drive
     -- Case on each scrutinee with `cases h : …` (substitutes *both* sides at once, so
     -- LHS and RHS never desync). Every branch reduces both sides to a recursive call
@@ -309,25 +367,27 @@ theorem driveLog_drive :
       | cons pending rest =>
         dsimp only
         cases h : pending.resume result with
-        | ok parent => dsimp only [h]; exact ih rest (.inl parent) _ _
-        | error e => dsimp only [h]; exact ih rest (.inr (endFrame pending.frame (.exception e))) _ _
+        | ok parent => dsimp only [h]; exact ih rest (.inl parent) _ _ _
+        | error e => dsimp only [h]; exact ih rest (.inr (endFrame pending.frame (.exception e))) _ _ _
     | inl current =>
       dsimp only
       cases h : stepFrame current with
       | next exec =>
         dsimp only [h]
-        split <;> exact ih stack (.inl { current with exec := exec }) _ _
-      | halted halt => dsimp only [h]; exact ih stack (.inr (endFrame current halt)) _ _
+        -- the nested recording `if`s (gas / sload / else) all reduce to the same recursive
+        -- `driveLog` call modulo the (erased) accumulators; split every arm, close by `ih`.
+        split <;> [skip; split] <;> exact ih stack (.inl { current with exec := exec }) _ _ _
+      | halted halt => dsimp only [h]; exact ih stack (.inr (endFrame current halt)) _ _ _
       | needsCall params pending =>
         dsimp only [h]
         cases hbc : beginCall params with
-        | inl child => dsimp only [hbc]; exact ih (.call pending :: stack) (.inl child) _ _
-        | inr result => dsimp only [hbc]; exact ih (.call pending :: stack) (.inr (.call result)) _ _
+        | inl child => dsimp only [hbc]; exact ih (.call pending :: stack) (.inl child) _ _ _
+        | inr result => dsimp only [hbc]; exact ih (.call pending :: stack) (.inr (.call result)) _ _ _
       | needsCreate params pending =>
         dsimp only [h]
         cases hbcr : beginCreate params with
-        | ok child => dsimp only [hbcr]; exact ih (.create pending :: stack) (.inl child) _ _
-        | error e => dsimp only [hbcr]; exact ih (.create pending :: stack) (.inr (.create _)) _ _
+        | ok child => dsimp only [hbcr]; exact ih (.create pending :: stack) (.inl child) _ _ _
+        | error e => dsimp only [hbcr]; exact ih (.create pending :: stack) (.inr (.create _)) _ _ _
 
 /-! ## Gas monotonicity: the recorded reads are non-increasing (`realisedGas_monotone`)
 
@@ -368,19 +428,19 @@ the `gasFundsDescent_conj*` descents, `resumeAfterCall_gas_le`); and an appended
 prior read (`pairwise_append`). Induction on fuel, mirroring `drive_gasRemaining_le_totalGas`. -/
 theorem driveLog_gas_inv :
     ∀ (f : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult)
-      (gasAcc : List Word) (callAcc : List CallRecord)
-      (r : FrameResult) (gasOut : List Word) (callsOut : List CallRecord),
-      driveLog f stack state gasAcc callAcc = .ok (r, gasOut, callsOut) →
+      (gasAcc : List Word) (sloadAcc : List Nat) (callAcc : List CallRecord)
+      (r : FrameResult) (gasOut : List Word) (sloadsOut : List Nat) (callsOut : List CallRecord),
+      driveLog f stack state gasAcc sloadAcc callAcc = .ok (r, gasOut, sloadsOut, callsOut) →
       gasAcc.Pairwise geToNat →
       (∀ x ∈ gasAcc, totalGas stack state ≤ x.toNat) →
       gasOut.Pairwise geToNat ∧ (∀ x ∈ gasOut, FrameResult.gasRemaining r ≤ x.toNat) := by
   intro f
   induction f with
   | zero =>
-    intro stack state gasAcc callAcc r gasOut callsOut h _ _
+    intro stack state gasAcc sloadAcc callAcc r gasOut sloadsOut callsOut h _ _
     simp [driveLog] at h
   | succ n ih =>
-    intro stack state gasAcc callAcc r gasOut callsOut h hpair hbound
+    intro stack state gasAcc sloadAcc callAcc r gasOut sloadsOut callsOut h hpair hbound
     unfold driveLog at h
     dsimp only at h
     cases state with
@@ -391,7 +451,7 @@ theorem driveLog_gas_inv :
         rw [hstk] at h hbound; dsimp only at h
         -- top-level result: `gasOut = gasAcc`, `r = result`; both clauses survive
         simp only [Except.ok.injEq, Prod.mk.injEq] at h
-        obtain ⟨hr, hg, _⟩ := h
+        obtain ⟨hr, hg, _, _⟩ := h
         subst hr; subst hg
         refine ⟨hpair, fun x hx => ?_⟩
         have := hbound x hx
@@ -421,7 +481,7 @@ theorem driveLog_gas_inv :
               simp only [activeGas, Pending.savedGas]; omega
           have hdesc : totalGas rest (.inl parent) ≤ totalGas (pending :: rest) (.inr result) := by
             rw [totalGas_cons]; simp only [totalGas, activeGas] at hcons ⊢; omega
-          exact ih rest (.inl parent) _ _ r gasOut callsOut h hpair (bound_mono hdesc hbound)
+          exact ih rest (.inl parent) _ _ _ r gasOut sloadsOut callsOut h hpair (bound_mono hdesc hbound)
         | error e =>
           rw [hres] at h; dsimp only at h
           -- exceptional resume: the delivered result carries gas 0
@@ -431,7 +491,7 @@ theorem driveLog_gas_inv :
           have hdesc : totalGas rest (.inr (endFrame pending.frame (.exception e)))
               ≤ totalGas (pending :: rest) (.inr result) := by
             rw [totalGas_cons]; simp only [totalGas, activeGas, hz]; omega
-          exact ih rest _ _ _ r gasOut callsOut h hpair (bound_mono hdesc hbound)
+          exact ih rest _ _ _ _ r gasOut sloadsOut callsOut h hpair (bound_mono hdesc hbound)
     | inl current =>
       dsimp only at h
       cases hstep : stepFrame current with
@@ -475,18 +535,25 @@ theorem driveLog_gas_inv :
             · exact bound_mono hdesc hbound x hx
             · simp only [List.mem_singleton] at hx; subst hx
               rw [hboundNat]
-          exact ih [] (.inl { current with exec := exec }) _ _ r gasOut callsOut h hpair' hbound'
-        · -- not a recorded read: `gasAcc` unchanged, bound drops by the step descent.
+          exact ih [] (.inl { current with exec := exec }) _ _ _ r gasOut sloadsOut callsOut h hpair' hbound'
+        · -- not a recorded GAS read: `gasAcc` unchanged either way (the SLOAD branch only
+          -- appends to the *sload* accumulator), bound drops by the step descent. Split the
+          -- inner SLOAD `if`; both arms leave `gasAcc` fixed, so the same `ih` closes them.
           rw [if_neg hg] at h
-          exact ih stack (.inl { current with exec := exec }) _ _ r gasOut callsOut h hpair
-            (bound_mono hdesc hbound)
+          by_cases hsl : isSloadOp current && stack.isEmpty
+          · rw [if_pos hsl] at h
+            exact ih stack (.inl { current with exec := exec }) _ _ _ r gasOut sloadsOut callsOut h hpair
+              (bound_mono hdesc hbound)
+          · rw [if_neg hsl] at h
+            exact ih stack (.inl { current with exec := exec }) _ _ _ r gasOut sloadsOut callsOut h hpair
+              (bound_mono hdesc hbound)
       | halted halt =>
         rw [hstep] at h; dsimp only at h
         have hle := endFrame_gasRemaining_le hstep
         have hdesc : totalGas stack (.inr (endFrame current halt))
             ≤ totalGas stack (.inl current) := by
           simp only [totalGas, activeGas]; omega
-        exact ih stack _ _ _ r gasOut callsOut h hpair (bound_mono hdesc hbound)
+        exact ih stack _ _ _ _ r gasOut sloadsOut callsOut h hpair (bound_mono hdesc hbound)
       | needsCall params pending =>
         rw [hstep] at h; dsimp only at h
         cases hbc : beginCall params with
@@ -496,7 +563,7 @@ theorem driveLog_gas_inv :
           have hdesc : totalGas (.call pending :: stack) (.inl child)
               ≤ totalGas stack (.inl current) := by
             rw [totalGas_cons]; simp only [totalGas, activeGas, Pending.savedGas] at hdrop ⊢; omega
-          exact ih (.call pending :: stack) (.inl child) _ _ r gasOut callsOut h hpair
+          exact ih (.call pending :: stack) (.inl child) _ _ _ r gasOut sloadsOut callsOut h hpair
             (bound_mono hdesc hbound)
         | inr result =>
           rw [hbc] at h; dsimp only at h
@@ -506,7 +573,7 @@ theorem driveLog_gas_inv :
             rw [totalGas_cons]
             simp only [totalGas, activeGas, FrameResult.gasRemaining, Pending.savedGas] at hdrop ⊢
             omega
-          exact ih (.call pending :: stack) (.inr (.call result)) _ _ r gasOut callsOut h hpair
+          exact ih (.call pending :: stack) (.inr (.call result)) _ _ _ r gasOut sloadsOut callsOut h hpair
             (bound_mono hdesc hbound)
       | needsCreate params pending =>
         rw [hstep] at h; dsimp only at h
@@ -517,7 +584,7 @@ theorem driveLog_gas_inv :
           have hdesc : totalGas (.create pending :: stack) (.inl child)
               ≤ totalGas stack (.inl current) := by
             rw [totalGas_cons]; simp only [totalGas, activeGas, Pending.savedGas] at hdrop ⊢; omega
-          exact ih (.create pending :: stack) (.inl child) _ _ r gasOut callsOut h hpair
+          exact ih (.create pending :: stack) (.inl child) _ _ _ r gasOut sloadsOut callsOut h hpair
             (bound_mono hdesc hbound)
         | error e =>
           rw [hbcr] at h; dsimp only at h
@@ -535,7 +602,7 @@ theorem driveLog_gas_inv :
             simp only [totalGas, activeGas, FrameResult.gasRemaining, UInt64.toNat_ofNat,
               Pending.savedGas] at hdrop ⊢
             omega
-          exact ih (.create pending :: stack) _ _ _ r gasOut callsOut h hpair
+          exact ih (.create pending :: stack) _ _ _ _ r gasOut sloadsOut callsOut h hpair
             (bound_mono hdesc hbound)
 
 /-! ## `realisedGas_monotone` — the headline (`docs/ir-design-v3.md` §8)
@@ -561,15 +628,15 @@ theorem realisedGas_monotone {params : CallParams} {fuel : ℕ} {log : RunLog}
   | inr result => rw [hbc] at h; simp at h
   | inl frame =>
     rw [hbc] at h; dsimp only at h
-    cases hdl : driveLog fuel [] (.inl frame) [] [] with
+    cases hdl : driveLog fuel [] (.inl frame) [] [] [] with
     | error e => rw [hdl] at h; simp at h
     | ok triple =>
-      obtain ⟨r, gas, calls⟩ := triple
+      obtain ⟨r, gas, sloads, calls⟩ := triple
       rw [hdl] at h
       simp only [Option.some.injEq] at h
-      -- `log = { observable := r, gas := gas, calls := calls }`, so `realisedGas log = gas`
+      -- `log = { observable := r, gas := gas, sloads := sloads, calls := calls }`, so `realisedGas log = gas`
       have hgas : realisedGas log = gas := by rw [← h]; rfl
-      obtain ⟨hpair, _⟩ := driveLog_gas_inv fuel [] (.inl frame) [] [] r gas calls hdl
+      obtain ⟨hpair, _⟩ := driveLog_gas_inv fuel [] (.inl frame) [] [] [] r gas sloads calls hdl
         (by simp) (by simp)
       show (realisedGas log).IsChain geToNat
       rw [hgas]
@@ -597,15 +664,15 @@ theorem runWithLog_drive {params : CallParams} {fuel : ℕ} {log : RunLog}
   | inr result => rw [hbc] at h; simp at h
   | inl frame =>
     rw [hbc] at h; dsimp only at h
-    cases hdl : driveLog fuel [] (.inl frame) [] [] with
+    cases hdl : driveLog fuel [] (.inl frame) [] [] [] with
     | error e => rw [hdl] at h; simp at h
     | ok triple =>
-      obtain ⟨r, gas, calls⟩ := triple
+      obtain ⟨r, gas, sloads, calls⟩ := triple
       rw [hdl] at h; simp only [Option.some.injEq] at h
       subst h
       refine ⟨frame, rfl, ?_⟩
       -- `drive fuel [] frame = (driveLog …).map (·.1) = (.ok (r,…)).map (·.1) = .ok r = observable`
-      have hd := driveLog_drive fuel [] (.inl frame) [] []
+      have hd := driveLog_drive fuel [] (.inl frame) [] [] []
       rw [hdl] at hd
       simpa only [Except.map] using hd.symm
 
@@ -658,6 +725,7 @@ single `obs`, exercised separately). `realisedCall` off this log is `wcV2Oracle 
 def wcRunLog (g : UInt64) : RunLog :=
   { observable := Lir.WorkedCall.wcChildFrameRes g
     gas        := []
+    sloads     := []
     calls      := [{ result  := (Lir.WorkedCall.wcChildFrameRes g).toCallResult
                      pending := callPending (Lir.WorkedCall.wcCallSite g) 0xCA11EE 0xFFFFFFFF }] }
 
@@ -708,6 +776,7 @@ theorem wc_observe_conforms (g : UInt64) (hg : 50000 ≤ g.toNat) (w₀ : World)
 -- `[propext, Classical.choice, Quot.sound]`.
 #print axioms driveLog_drive
 #print axioms realisedGas_monotone
+#print axioms sloadRecord_eq_sloadCost
 #print axioms realisedCall_eq_evmV2
 #print axioms runWithLog_drive
 #print axioms runWithLog_messageCall

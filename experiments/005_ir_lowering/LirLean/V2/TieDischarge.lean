@@ -30,11 +30,22 @@ The three value channels split cleanly by *how much* of them is alignment-free:
   DISCHARGED; per-cursor selection reduced to the alignment.**
 
 * **SLOAD** (`SloadRealises`, `MaterialiseRuns.lean`) — `sloadChg k` is the actual warmth cost at
-  the SLOAD cursor. The recorder logs **only** GAS reads and CALLs, not warmth, so `sloadChg`
-  cannot be a projection of the *current* `RunLog`: making `SloadRealises` definitional needs the
-  recorder to log the per-SLOAD warmth flag (a new `RunLog` field + a recording splice in
-  `driveLog` + the matching adequacy clause in `driveLog_drive`). Scoped, **not** done in this pass
-  (the invasive interpreter change is out of scope per the brief). **Status: SCOPED (cost below).**
+  the SLOAD cursor. The recorder now logs the per-SLOAD warmth-charge (`RunLog.sloads`, the
+  `sloadAcc` splice in `driveLog`, `realisedSload`, `sloadWarmthOf` — all in `V2/RunLog.lean`),
+  with adequacy preserved by construction (`driveLog_drive` erases the new accumulator exactly like
+  `gasAcc`). The value-level bridge `sloadRecord_eq_sloadCost` shows the recorded charge *is*
+  `SloadRealises`'s required `sloadCost (accessedStorageKeys.contains (self, key))` — the exact
+  GAS analogue (§4 below re-exposes it as `sloadRecord_discharges_obs`). **Status: arithmetic/value
+  bridge DISCHARGED; per-cursor selection reduced to the alignment (same as GAS).**
+
+* **SSTORE presence** (`SstoreRealises`'s third conjunct, `SimStmt.lean`) — `accounts.find? self =
+  some acc` is **not** a dispatch gate (SSTORE reads through `.option 0`), so it cannot come from a
+  step-inversion. §5 discharges it from the standalone world-wellformedness invariant `SelfPresent`
+  (self account present in the frame's accounts): preserved by every materialise post-frame
+  (`accounts` untouched, `rfl`) and holding at the entry `codeFrame` under world-wellformedness
+  (`selfPresent_codeFrame`); the point-of-use `sstorePresence_of_self` then yields exactly the
+  presence conjunct `sim_sstore` consumes at the internal SSTORE frame. **Status: world-invariant +
+  point-of-use discharge DONE; `MatRuns`-threading is the remaining wiring (parallel to §3).**
 
 ## Part 3 — the positional-alignment foundation (§3)
 
@@ -66,6 +77,8 @@ open GasConstants
 open BytecodeLayer
 open BytecodeLayer.Interpreter
 open BytecodeLayer.Hoare
+open BytecodeLayer.System
+open BytecodeLayer.Maps
 open Lir
 
 /-! ## §1 — CALL: the recorded-CALL projection is `evmV2CallOracle` (DISCHARGED)
@@ -210,6 +223,133 @@ theorem aligned_read_eq_obs {gasAcc : List Word} {frs : List Frame} {i : Nat} {f
   simp only [Option.map_some]
   rw [gasReadOf_gasFrame_eq_obs]
 
+/-! ## §4 — SLOAD: the recorded warmth-charge bridges `SloadRealises` (value channel)
+
+Piece 1 added the per-SLOAD warmth recording to the interpreter (`RunLog.sloads`,
+`driveLog`'s `sloadAcc`, `realisedSload`, `sloadWarmthOf`) with adequacy preserved by
+construction (`driveLog_drive` still erases every accumulator). The value-level bridge
+`sloadRecord_eq_sloadCost` (`V2/RunLog.lean`) shows the recorded charge at an SLOAD frame
+*is* `SloadRealises`'s required `sloadCost (accessedStorageKeys.contains (self, key))` —
+the exact analogue of `gasReadOf_gasFrame_eq_obs` for GAS. So the SLOAD value channel is
+now at the **same** maturity as GAS: arithmetic/value bridge DISCHARGED, per-cursor
+selection reduced to the (deferred) positional alignment (`GasLogAligned`'s SLOAD twin).
+
+We re-expose the bridge as the named SLOAD value-channel discharge and a per-cursor
+reduction lemma (parallel to `aligned_read_eq_obs`): once the alignment supplies that the
+SLOAD cursor's recorded charge is this site's `sloadWarmthOf`, the `sloadChg k =
+sloadCost …` conjunct of `SloadRealises` is `rfl`-discharged at that frame. -/
+
+/-- **SLOAD value-channel discharge** (parallel to `gasReadOf_gasFrame_eq_obs`). The
+recorded warmth-charge `sloadWarmthOf g` at an SLOAD frame `g` whose stack-head is the
+bound key is exactly `SloadRealises`'s demanded `sloadCost (accessedStorageKeys.contains
+(self, key))`. This is the value the recorder now logs (Piece 1); the per-cursor tie is
+its positional selection (the deferred alignment, as for GAS). -/
+theorem sloadRecord_discharges_obs (g : Frame) {key : Word}
+    (hkey : g.exec.stack.head? = some key) :
+    sloadWarmthOf g
+      = Evm.sloadCost (g.exec.substate.accessedStorageKeys.contains
+          (g.exec.executionEnv.address, key)) :=
+  sloadRecord_eq_sloadCost g hkey
+
+/-! ## §5 — SSTORE: the account-presence world invariant `SelfPresent` (standalone discharge)
+
+`SstoreRealises`'s third conjunct (`accounts.find? self = some acc`) is **not** a dispatch
+gate (SSTORE reads storage through `.option 0`, so it cannot come from step-inversion). It
+is a *world-wellformedness* fact: the executing (self) account is present in the frame's
+accounts throughout the run. We discharge it from a standalone invariant `SelfPresent`.
+
+`SelfPresent fr` says the self account is present in `fr`'s accounts. It holds at the entry
+`codeFrame` under world-wellformedness (the called account is present — code is loaded from
+it; `selfPresent_codeFrame`), and it is preserved by every materialise post-frame
+(`addFrame`/`ltFrame`/`sloadFrame`/`gasFrame`/`pushFrameW` — the `.next` building blocks the
+SSTORE arm's internal frame `frk` is reached through), each of which leaves `accounts`
+untouched (`rfl`). The remaining wiring — threading `SelfPresent` through the
+`materialise_runs`/`MatRuns` sub-runs alongside the existing clauses — is the analogue of
+§3's walk-induction (reported below). The **point-of-use** discharge `sstorePresence_of_self`
+turns `SelfPresent` at the SSTORE frame into exactly the presence conjunct
+`SstoreRealises`/`sim_sstore` consumes there (`hsstore frk … |>.2.2`). -/
+
+/-- **The self-account-presence world invariant.** The frame's self (executing) account is
+present in its account map. The standalone wellformedness fact discharging
+`SstoreRealises`'s presence conjunct (which is not a dispatch gate). -/
+def SelfPresent (fr : Frame) : Prop :=
+  ∃ acc : Account, fr.exec.accounts.find? fr.exec.executionEnv.address = some acc
+
+/-- **Point-of-use SSTORE-presence discharge.** From `SelfPresent g` at the SSTORE frame
+`g`, the presence conjunct `g.exec.accounts.find? g.exec.executionEnv.address = some acc`
+(with `acc` the witnessed account) holds — exactly the third component `sim_sstore` reads
+off `SstoreRealises` at the concrete internal frame `frk` (`hsstore frk … |>.2.2`). This is
+the world-invariant discharge of the non-gate presence side-condition. -/
+theorem sstorePresence_of_self {g : Frame} (h : SelfPresent g) :
+    ∃ acc : Account, g.exec.accounts.find? g.exec.executionEnv.address = some acc := h
+
+/-! ### `SelfPresent` is preserved by each materialise post-frame (the `.next` bricks)
+
+Each materialise post-frame is `{ fr with exec := <post> }` where `<post>`
+(`binOpPost`/`sloadPost`/`gasPost`/the PUSH state) touches only stack / pc / gas / substate
+— **never** `accounts` (`replaceStackAndIncrPC`, `State.sload = addAccessedStorageKey`). So
+both the account map and the self address are literally `fr`'s, and `SelfPresent` transports
+by `rfl`. These are the per-op preservation steps the (deferred) `MatRuns`-threading composes. -/
+
+/-- `SelfPresent` preserved across `addFrame` (`accounts`/`address` untouched). -/
+theorem selfPresent_addFrame {fr : Frame} (a b : Word) (rest : Stack Word)
+    (h : SelfPresent fr) : SelfPresent (addFrame fr a b rest) := h
+
+/-- `SelfPresent` preserved across `ltFrame`. -/
+theorem selfPresent_ltFrame {fr : Frame} (a b : Word) (rest : Stack Word)
+    (h : SelfPresent fr) : SelfPresent (ltFrame fr a b rest) := h
+
+/-- `SelfPresent` preserved across `sloadFrame` (SLOAD touches only `substate`/stack). -/
+theorem selfPresent_sloadFrame {fr : Frame} (key : Word) (rest : Stack Word)
+    (h : SelfPresent fr) : SelfPresent (sloadFrame fr key rest) := h
+
+/-- `SelfPresent` preserved across `gasFrame`. -/
+theorem selfPresent_gasFrame {fr : Frame}
+    (h : SelfPresent fr) : SelfPresent (gasFrame fr) := h
+
+/-- `SelfPresent` preserved across `pushFrameW` (PUSH touches only stack/pc/gas). -/
+theorem selfPresent_pushFrameW {fr : Frame} (w : Word) (width : UInt8)
+    (h : SelfPresent fr) : SelfPresent (pushFrameW fr w width) := h
+
+/-! ### `SelfPresent` at the entry `codeFrame` (world-wellformedness)
+
+The entry frame's accounts are `codeAccounts params` (`beginCall`'s value-transfer map) and
+the self address is `params.recipient`. The recipient is present whenever the pre-call world
+has it (`params.accounts.find? recipient = some _`) — the natural wellformedness assumption
+(you run code *from* an existing account): the credit branch re-inserts it. (`codeAccounts`
+may also create it when `value ≠ 0`; we take the present-in-`params.accounts` form, the one
+a wellformed top-level call satisfies.) -/
+
+/-- **`SelfPresent` at the entry frame** under world-wellformedness. If the called account
+`params.recipient` is present in the pre-call world, it is present in the entry
+`codeFrame`'s accounts (`codeAccounts` re-inserts the credited recipient), so
+`SelfPresent (codeFrame params code)`. The base case of the reachability invariant. -/
+theorem selfPresent_codeFrame (params : Evm.CallParams) (code : ByteArray) {acc : Account}
+    (hwf : params.accounts.find? params.recipient = some acc) :
+    SelfPresent (codeFrame params code) := by
+  -- `SelfPresent` only needs *existence*; show the recipient lookup is `some _` after the
+  -- credit (and after the caller-debit, which either overwrites at `recipient` or is `ne`).
+  show ∃ a, (codeAccounts params).find? params.recipient = some a
+  unfold codeAccounts
+  -- the recipient was present (`hwf`), so the credit `match` reduces to the credit insert.
+  simp only [hwf]
+  -- reading `recipient` back after the credit insert is `some _`.
+  have hrec₁ : (params.accounts.insert params.recipient
+        { acc with balance := acc.balance + params.value }).find? params.recipient
+      = some { acc with balance := acc.balance + params.value } :=
+    accounts_find?_insert_self params.accounts params.recipient _
+  -- the caller-debit `match` on `…find? caller`: `none` ⇒ the credited map; `some _` ⇒ debit insert.
+  cases hcal : (params.accounts.insert params.recipient
+      { acc with balance := acc.balance + params.value }).find? params.caller with
+  | none => exact ⟨_, hrec₁⟩
+  | some cacc =>
+    -- caller-debit insert: reading `recipient` is `some _` whether caller = recipient (overwrite)
+    -- or caller ≠ recipient (lookup unchanged) — case on the addresses.
+    by_cases hcr : params.caller = params.recipient
+    · rw [hcr]; exact ⟨_, accounts_find?_insert_self _ params.recipient _⟩
+    · rw [accounts_find?_insert_of_ne _ _ (fun hc => hcr hc.symm)]
+      exact ⟨_, hrec₁⟩
+
 end Lir.V2
 
 -- Build-enforced axiom-cleanliness guards for the tie-discharge deliverables.
@@ -220,3 +360,8 @@ end Lir.V2
 #print axioms Lir.V2.FramesRun.snoc
 #print axioms Lir.V2.gasLogAligned_step_gas
 #print axioms Lir.V2.aligned_read_eq_obs
+#print axioms Lir.V2.sloadRecord_discharges_obs
+#print axioms Lir.V2.sstorePresence_of_self
+#print axioms Lir.V2.selfPresent_addFrame
+#print axioms Lir.V2.selfPresent_sloadFrame
+#print axioms Lir.V2.selfPresent_codeFrame
