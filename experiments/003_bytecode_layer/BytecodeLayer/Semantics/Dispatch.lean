@@ -196,6 +196,66 @@ theorem stepFrame_sstore_oog (fr : Frame) (key newValue : UInt256) (rest : Stack
     dsimp only [sstoreChargeOf, Option.option] at h
     omega)]
 
+/-- **SSTORE stipend-gate halt.** With state-modifying context but the available
+gas at or below `Gcallstipend`, SSTORE refuses to run: `stepFrame` halts with
+`OutOfGas` before charging. The `.next`-success inversion (`stepFrame_sstore_inv`)
+turns on the contrapositive of this together with `stepFrame_sstore_oog`. -/
+theorem stepFrame_sstore_stipend (fr : Frame) (key newValue : UInt256) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .SSTORE, .none))
+    (_hstk : fr.exec.stack = key :: newValue :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hmod : fr.exec.executionEnv.canModifyState = true)
+    (hstip : fr.exec.gasAvailable.toNat ≤ Gcallstipend) :
+    stepFrame fr = .halted (.exception .OutOfGas) := by
+  unfold stepFrame
+  simp only [hdec]
+  dsimp only [Option.getD]
+  rw [if_neg (by decide)]
+  have hov : ¬ (fr.exec.stack.size - stackPopCount (.Smsf .SSTORE)
+      + stackPushCount (.Smsf .SSTORE) > 1024) := by
+    simp only [show stackPopCount (.Smsf .SSTORE) = 2 from rfl,
+               show stackPushCount (.Smsf .SSTORE) = 0 from rfl]
+    have := hsz; omega
+  rw [if_neg hov]
+  dsimp only [dispatch, smsfOp]
+  unfold requireStateMod
+  rw [if_pos hmod]
+  dsimp only [bind, Except.bind, pure, Except.pure]
+  rw [if_pos hstip]
+
+/-- **SSTORE success-inversion (the EIP-2200 gate).** A *successful* `.next` SSTORE
+step witnesses its own runtime gate: from `stepFrame fr = .next e` at an SSTORE-decoding
+frame with stack `key :: newValue :: rest` in state-modifying context, the
+`Gcallstipend` gate is open (`¬ gas ≤ Gcallstipend`) and the EIP-2200 charge fits
+(`sstoreChargeOf … ≤ gas`). These are exactly the two genuine runtime gates the
+dispatch CHECKS, so `.next` ⇒ they held — they are `SstoreRealises`'s gas payload
+(`MaterialiseRuns.lean`), no longer supplied. (The third `SstoreRealises` conjunct —
+the self account being *present* — is **not** a gate the dispatch checks: SSTORE reads
+the cell through `.option 0`, so `.next` does not witness presence; it must come from a
+world-wellformedness invariant, not from this inversion.) -/
+theorem stepFrame_sstore_inv (fr : Frame) (key newValue : UInt256) (rest : Stack UInt256)
+    {e : ExecutionState}
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .SSTORE, .none))
+    (hstk : fr.exec.stack = key :: newValue :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hmod : fr.exec.executionEnv.canModifyState = true)
+    (hnext : stepFrame fr = .next e) :
+    (¬ fr.exec.gasAvailable.toNat ≤ Gcallstipend)
+    ∧ sstoreChargeOf fr.exec key newValue ≤ fr.exec.gasAvailable.toNat := by
+  refine ⟨?_, ?_⟩
+  · intro hstip
+    rw [stepFrame_sstore_stipend fr key newValue rest hdec hstk hsz hmod hstip] at hnext
+    exact absurd hnext (by simp)
+  · by_contra hcost
+    have hoog : fr.exec.gasAvailable.toNat < sstoreChargeOf fr.exec key newValue := by omega
+    -- the stipend gate must be open, else the stipend-halt already contradicts `.next`.
+    have hstip : ¬ fr.exec.gasAvailable.toNat ≤ Gcallstipend := by
+      intro hstip
+      rw [stepFrame_sstore_stipend fr key newValue rest hdec hstk hsz hmod hstip] at hnext
+      exact absurd hnext (by simp)
+    rw [stepFrame_sstore_oog fr key newValue rest hdec hstk hsz hmod hstip hoog] at hnext
+    exact absurd hnext (by simp)
+
 /-! ## ADD / LT (binary arithmetic-logic)
 
 The first pure-stack arithmetic bricks Track C's expression lowering needs. Both
@@ -516,6 +576,133 @@ theorem stepFrame_mload (fr : Frame) (addr : UInt256) (words' : UInt64)
   rw [if_neg (by have := hgas; dsimp only [memExpansionChargeOf] at this ⊢; omega)]
   dsimp only [mloadPost, memChargedState, memExpansionChargeOf]
   rfl
+
+/-- **MSTORE memory-expansion out-of-gas.** With the expansion witness `words'` resolved
+but the expansion charge exceeding the remaining gas, `stepFrame` halts with `OutOfGas`
+at the first `charge`. The `.next`-success inversion turns on the contrapositive. -/
+theorem stepFrame_mstore_oogMem (fr : Frame) (addr val : UInt256) (words' : UInt64)
+    (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .MSTORE, .none))
+    (hstk : fr.exec.stack = addr :: val :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hmem : memoryExpansionWords? fr.exec.activeWords addr 32 = some words')
+    (hoog : fr.exec.gasAvailable.toNat < memExpansionChargeOf fr.exec words') :
+    stepFrame fr = .halted (.exception .OutOfGas) := by
+  unfold stepFrame
+  simp only [hdec]
+  dsimp only [Option.getD]
+  rw [if_neg (by decide)]
+  have hov : ¬ (fr.exec.stack.size - stackPopCount (.Smsf .MSTORE)
+      + stackPushCount (.Smsf .MSTORE) > 1024) := by
+    simp only [show stackPopCount (.Smsf .MSTORE) = 2 from rfl,
+               show stackPushCount (.Smsf .MSTORE) = 0 from rfl]
+    have := hsz; omega
+  rw [if_neg hov]
+  dsimp only [dispatch, smsfOp]
+  rw [hstk]
+  dsimp only [Stack.pop2, liftM, monadLift, MonadLift.monadLift, Option.option, bind,
+    Except.bind, pure, Except.pure]
+  dsimp only [chargeMemExpansion]
+  rw [hmem]
+  dsimp only []
+  unfold charge
+  rw [if_pos (by have := hoog; dsimp only [memExpansionChargeOf] at this ⊢; omega)]
+
+/-- **MSTORE `Gverylow` out-of-gas.** With the expansion charge cleared but `Gverylow`
+exceeding the post-expansion gas, `stepFrame` halts with `OutOfGas` at the second
+`charge`. The `.next`-success inversion turns on the contrapositive. -/
+theorem stepFrame_mstore_oogVL (fr : Frame) (addr val : UInt256) (words' : UInt64)
+    (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .MSTORE, .none))
+    (hstk : fr.exec.stack = addr :: val :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hmem : memoryExpansionWords? fr.exec.activeWords addr 32 = some words')
+    (hgasMem : memExpansionChargeOf fr.exec words' ≤ fr.exec.gasAvailable.toNat)
+    (hoog : (fr.exec.gasAvailable - UInt64.ofNat (memExpansionChargeOf fr.exec words')).toNat
+              < Gverylow) :
+    stepFrame fr = .halted (.exception .OutOfGas) := by
+  unfold stepFrame
+  simp only [hdec]
+  dsimp only [Option.getD]
+  rw [if_neg (by decide)]
+  have hov : ¬ (fr.exec.stack.size - stackPopCount (.Smsf .MSTORE)
+      + stackPushCount (.Smsf .MSTORE) > 1024) := by
+    simp only [show stackPopCount (.Smsf .MSTORE) = 2 from rfl,
+               show stackPushCount (.Smsf .MSTORE) = 0 from rfl]
+    have := hsz; omega
+  rw [if_neg hov]
+  dsimp only [dispatch, smsfOp]
+  rw [hstk]
+  dsimp only [Stack.pop2, liftM, monadLift, MonadLift.monadLift, Option.option, bind,
+    Except.bind, pure, Except.pure]
+  dsimp only [chargeMemExpansion]
+  rw [hmem]
+  dsimp only []
+  unfold charge
+  rw [if_neg (by have := hgasMem; dsimp only [memExpansionChargeOf] at this ⊢; omega)]
+  dsimp only [bind, Except.bind, pure, Except.pure]
+  rw [if_pos (by have := hoog; dsimp only [memExpansionChargeOf] at this ⊢; omega)]
+
+/-- **MSTORE success-inversion.** A *successful* `.next` MSTORE step witnesses its own
+memory-expansion bookkeeping: from `stepFrame fr = .next e` at an MSTORE-decoding frame
+with stack `addr :: val :: rest`, there is an expansion witness `words'`
+(`memoryExpansionWords? activeWords addr 32 = some words'`), both charges fit
+(`memExpansionChargeOf … ≤ gas`, `Gverylow ≤ post-expansion gas`), and the resulting
+state is exactly `mstorePost fr.exec addr val words' rest`. Pinning `e = mstorePost …`
+exposes the post-state as an MSTORE write at `addr`, so the `MemAlgebra` coverage/readback
+lemmas (`mstore_reads_back`, `mstore_memory_size`, `mstore_activeWords_covers`) discharge
+the `MemRealises` payload (slot in-bounds + active + readback = stored value) at the
+written slot — no longer supplied. The expansion witness `words'` is recovered by case-split
+(`none` halts with `OutOfGas`, contradicting `.next`); both charges by the contrapositive of
+the forward OOG halts (`stepFrame_mstore_oogMem`/`_oogVL`); and `e = mstorePost …` by the
+forward `stepFrame_mstore`. -/
+theorem stepFrame_mstore_inv (fr : Frame) (addr val : UInt256) (rest : Stack UInt256)
+    {e : ExecutionState}
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .MSTORE, .none))
+    (hstk : fr.exec.stack = addr :: val :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hnext : stepFrame fr = .next e) :
+    ∃ words', memoryExpansionWords? fr.exec.activeWords addr 32 = some words'
+      ∧ memExpansionChargeOf fr.exec words' ≤ fr.exec.gasAvailable.toNat
+      ∧ Gverylow ≤ (fr.exec.gasAvailable - UInt64.ofNat (memExpansionChargeOf fr.exec words')).toNat
+      ∧ e = mstorePost fr.exec addr val words' rest := by
+  -- the expansion witness `words'`: `none` would halt at `chargeMemExpansion`.
+  cases hmem : memoryExpansionWords? fr.exec.activeWords addr 32 with
+  | none =>
+    -- with no witness, `stepFrame` is the `OutOfGas` halt; contradiction with `.next`.
+    exfalso
+    rw [stepFrame] at hnext
+    simp only [hdec] at hnext
+    dsimp only [Option.getD] at hnext
+    rw [if_neg (by decide)] at hnext
+    have hov : ¬ (fr.exec.stack.size - stackPopCount (.Smsf .MSTORE)
+        + stackPushCount (.Smsf .MSTORE) > 1024) := by
+      simp only [show stackPopCount (.Smsf .MSTORE) = 2 from rfl,
+                 show stackPushCount (.Smsf .MSTORE) = 0 from rfl]
+      have := hsz; omega
+    rw [if_neg hov] at hnext
+    dsimp only [dispatch, smsfOp] at hnext
+    rw [hstk] at hnext
+    dsimp only [Stack.pop2, liftM, monadLift, MonadLift.monadLift, Option.option, bind,
+      Except.bind, pure, Except.pure] at hnext
+    dsimp only [chargeMemExpansion] at hnext
+    rw [hmem] at hnext
+    exact absurd hnext (by simp)
+  | some words' =>
+    -- both charges fit (contrapositive of the forward OOG halts).
+    have hgasMem : memExpansionChargeOf fr.exec words' ≤ fr.exec.gasAvailable.toNat := by
+      by_contra h
+      rw [stepFrame_mstore_oogMem fr addr val words' rest hdec hstk hsz hmem (by omega)] at hnext
+      exact absurd hnext (by simp)
+    have hgas : Gverylow ≤
+        (fr.exec.gasAvailable - UInt64.ofNat (memExpansionChargeOf fr.exec words')).toNat := by
+      by_contra h
+      rw [stepFrame_mstore_oogVL fr addr val words' rest hdec hstk hsz hmem hgasMem
+            (by omega)] at hnext
+      exact absurd hnext (by simp)
+    refine ⟨words', rfl, hgasMem, hgas, ?_⟩
+    rw [stepFrame_mstore fr addr val words' rest hdec hstk hsz hmem hgasMem hgas] at hnext
+    exact (Signal.next.injEq _ _).mp hnext.symm
 
 /-! ## JUMP / JUMPI (control flow)
 
