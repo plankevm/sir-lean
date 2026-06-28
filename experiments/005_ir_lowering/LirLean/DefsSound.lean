@@ -101,35 +101,29 @@ single-use so B1 materialises each exactly once (never via the `defsOf` recursio
 def NonRecomputable (prog : Program) (t : Tmp) : Prop :=
   isGasDef prog t ∨ isCallResult prog t
 
-/-! ## `WellFormed` — the DESIGN DECISION
+/-! ## `WellFormed` — the DESIGN DECISION (Phase B: gas is no longer restricted)
 
-Every non-recomputable tmp is **used at most once** across the program. The predicate is
-*discriminating*, not vacuous: `protoIR` and `callIR` satisfy it (checked by `decide` via
-`WellFormedDec` at their definitions), while `guardIR` — which deliberately reads its
-first gas value twice (the guard *and* the `ret`) — provably **does not** (`¬ WellFormed
-guardIR`, also at its definition). The not-yet-supported multi-use-gas program is exactly
-what the future DUP/binding-slot escape hatch (plan DESIGN DECISION) would lift. -/
+Every **call-result** tmp is used **at most once** across the program. (Gas tmps used to
+be restricted too — recompute-on-use would re-read a fresh `GAS` value — but **Phase B
+spills gas to memory**: a gas read is stashed once at its def-site and reused via `MLOAD`,
+so multi-use gas is now safe and is *not* a `WellFormed` obligation.) The predicate stays
+*discriminating*, not vacuous: `protoIR`/`callIR` satisfy it; a program whose CALL result is
+read twice does not. `guardIR` — which reads its first gas value twice (the guard *and* the
+`ret`) — is now **`WellFormed`** (gas multi-use is in scope), the demonstration that the
+Phase-B spill lifted the former restriction. -/
 
-/-- **The well-formedness condition** (`docs/lower-conforms-plan.md` DESIGN DECISION).
-Every tmp defined by `Expr.gas`, and every call-result tmp, is used **at most once**
-across the program — so recompute-on-use never re-reads a fresh/dynamic value. -/
+/-- **The well-formedness condition** (`docs/uniform-spill-alloc-plan.md` §6). Every
+**call-result** tmp is used at most once across the program. Gas tmps are unrestricted —
+Phase B routes them through the memory spill, so multi-use gas never re-reads a fresh value. -/
 def WellFormed (prog : Program) : Prop :=
-  ∀ t : Tmp, NonRecomputable prog t → useCount prog t ≤ 1
+  ∀ t : Tmp, isCallResult prog t → useCount prog t ≤ 1
 
 /-! ### A decidable surrogate for the concrete sanity check
 
 `WellFormed` quantifies over the infinite `Tmp` domain, so it is not directly
-`decide`-able. But the non-recomputable tmps form a **finite, syntactically computable**
-list: gas-assigned targets plus call-result tmps. `WellFormedDec` checks `useCount ≤ 1`
-over exactly that list, is `Decidable`, and **implies `WellFormed`** — so a `by decide`
-on `WellFormedDec prog` discharges `WellFormed prog`. -/
-
-/-- The gas-assigned tmps: targets `t` of an `assign t .gas` anywhere in the program. -/
-def gasAssignTmps (prog : Program) : List Tmp :=
-  prog.blocks.toList.flatMap (fun b =>
-    b.stmts.filterMap (fun
-      | .assign t .gas => some t
-      | _              => none))
+`decide`-able. But the call-result tmps form a **finite, syntactically computable** list.
+`WellFormedDec` checks `useCount ≤ 1` over exactly that list, is `Decidable`, and **implies
+`WellFormed`** — so a `by decide` on `WellFormedDec prog` discharges `WellFormed prog`. -/
 
 /-- The call-result tmps: every `cs.resultTmp` that is `some`. -/
 def callResultTmps (prog : Program) : List Tmp :=
@@ -138,47 +132,24 @@ def callResultTmps (prog : Program) : List Tmp :=
       | .call cs => cs.resultTmp
       | _        => none))
 
-/-- All syntactically non-recomputable tmps (a superset suffices, but this is exact up
-to the `defsOf`-vs-syntax distinction; see `nonRecomputable_mem_dec` below). -/
-def nonRecomputableTmps (prog : Program) : List Tmp :=
-  gasAssignTmps prog ++ callResultTmps prog
-
-/-- The decidable surrogate: every syntactically non-recomputable tmp is used ≤ once. -/
+/-- The decidable surrogate: every call-result tmp is used ≤ once. -/
 def WellFormedDec (prog : Program) : Prop :=
-  ∀ t ∈ nonRecomputableTmps prog, useCount prog t ≤ 1
+  ∀ t ∈ callResultTmps prog, useCount prog t ≤ 1
 
 instance (prog : Program) : Decidable (WellFormedDec prog) := by
   unfold WellFormedDec; infer_instance
 
-/-- Every `NonRecomputable` tmp is in `nonRecomputableTmps`. (`isGasDef` is the
-syntactic `∃ assign t .gas`, landing `t` directly in `gasAssignTmps`; `isCallResult`
-lands in `callResultTmps`.) -/
-theorem nonRecomputable_mem_dec {prog : Program} {t : Tmp}
-    (h : NonRecomputable prog t) : t ∈ nonRecomputableTmps prog := by
-  unfold nonRecomputableTmps
-  rw [List.mem_append]
-  cases h with
-  | inl hgas =>
-      left
-      -- isGasDef: `∃ b, assign t .gas ∈ b.stmts` ⇒ `t ∈ gasAssignTmps`.
-      obtain ⟨b, hb, hsmem⟩ := hgas
-      unfold gasAssignTmps
-      rw [List.mem_flatMap]
-      refine ⟨b, hb, ?_⟩
-      rw [List.mem_filterMap]
-      exact ⟨.assign t .gas, hsmem, rfl⟩
-  | inr hcall =>
-      right
-      obtain ⟨b, hb, cs, hcsmem, hres⟩ := hcall
-      unfold callResultTmps
-      rw [List.mem_flatMap]
-      refine ⟨b, hb, ?_⟩
-      rw [List.mem_filterMap]
-      exact ⟨.call cs, hcsmem, hres⟩
+/-- Every `isCallResult` tmp is in `callResultTmps`. -/
+theorem callResult_mem_dec {prog : Program} {t : Tmp}
+    (h : isCallResult prog t) : t ∈ callResultTmps prog := by
+  obtain ⟨b, hb, cs, hcsmem, hres⟩ := h
+  unfold callResultTmps
+  rw [List.mem_flatMap]
+  exact ⟨b, hb, by rw [List.mem_filterMap]; exact ⟨.call cs, hcsmem, hres⟩⟩
 
 /-- The decidable surrogate implies the real `WellFormed`. -/
 theorem wellFormed_of_dec {prog : Program} (h : WellFormedDec prog) : WellFormed prog :=
-  fun t hnr => h t (nonRecomputable_mem_dec hnr)
+  fun t hcr => h t (callResult_mem_dec hcr)
 
 /-! ## `DefsSound` — recompute env agrees with IR locals (B3)
 
