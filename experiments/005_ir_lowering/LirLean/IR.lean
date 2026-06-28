@@ -64,11 +64,13 @@ inductive Expr where
   | sload (key : Tmp)
   /-- Remaining gas (lowers to `GAS`) — gas introspection. -/
   | gas
-  /-- Lowering-only marker: "this tmp lives in EVM memory at `slot`; MLOAD it".
-  Used only by `defsOf`/`materialiseExpr` (Route B, the call-result value channel).
-  Never produced by a source program and never evaluated by the IR
-  (`V2.evalExpr (.callResult _) = none`). See `docs/calls-value-channel-plan.md`. -/
-  | callResult (slot : Nat)
+  /-- Lowering-only marker: "this tmp lives in EVM memory at `slot`; MLOAD it" — a
+  generic spill-load (the `.slot` half of the remat/spill policy). Today produced by
+  `allocate`/`defsOf` only for call results (Route B, the call-result value channel);
+  in later phases any spilled value (gas, sload) reuses it. Never produced by a source
+  program and never evaluated by the IR (`V2.evalExpr (.slot _) = none`). See
+  `docs/uniform-spill-alloc-plan.md` and `docs/calls-value-channel-plan.md`. -/
+  | slot (slot : Nat)
 deriving DecidableEq, Repr
 
 /-- A statement: a sequenced effect within a basic block. -/

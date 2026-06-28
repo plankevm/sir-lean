@@ -230,10 +230,10 @@ theorem seg_suffix (prog : Program) (base : ℕ) (pre suf : List UInt8)
 theorem ofNat_add' (a b : ℕ) : UInt32.ofNat a + UInt32.ofNat b = UInt32.ofNat (a + b) := by
   rw [UInt32.ofNat_add]
 
-/-- **`.callResult` leaf decode from a segment.** When `emitImm slot ++ [MLOAD]`'s bytes
+/-- **`.slot` leaf decode from a segment.** When `emitImm slot ++ [MLOAD]`'s bytes
 sit at `base`, decode at `base` is `PUSH32 slot` and decode at `base + 33` is `MLOAD` —
-exactly the `MatDec` `.callResult` clause (the Route B memory-readback marker). -/
-theorem callResult_leaf_decode (prog : Program) (base slot : ℕ)
+exactly the `MatDec` `.slot` clause (the Route B memory-readback marker). -/
+theorem slot_leaf_decode (prog : Program) (base slot : ℕ)
     (hbound : base + (emitImm (UInt256.ofNat slot) ++ [Byte.mload]).length ≤ 2 ^ 32)
     (hseg : ∀ j, j < (emitImm (UInt256.ofNat slot) ++ [Byte.mload]).length →
       (flatBytes prog)[base + j]? = (emitImm (UInt256.ofNat slot) ++ [Byte.mload])[j]?) :
@@ -261,7 +261,7 @@ constructor-for-constructor. For a concrete lowering it holds because `recompute
 any well-formed def-chain depth (the honest well-formedness tie; see `matDec_of_lower`). -/
 def MatFueled (defs : Tmp → Option Expr) : ℕ → Expr → Prop
   | _,      .imm _   => True
-  | _,      .callResult _ => True
+  | _,      .slot _ => True
   | 0,      _        => False
   | f + 1,  .tmp t   => match defs t with
                         | some e => MatFueled defs f e
@@ -303,11 +303,11 @@ theorem matDec_of_seg (prog : Program) (defs : Tmp → Option Expr) (sloadChg : 
         rw [this] at hbound; omega
       · intro j hj
         have := hseg j (by simpa [materialiseExpr] using hj); simpa [materialiseExpr] using this
-    | callResult slot =>
-      rw [matDec_callResult]
-      rw [materialiseExpr_callResult] at hbound
-      unfold MatSeg at hseg; rw [materialiseExpr_callResult] at hseg
-      exact callResult_leaf_decode prog base slot hbound hseg
+    | slot slot =>
+      rw [matDec_slot]
+      rw [materialiseExpr_slot] at hbound
+      unfold MatSeg at hseg; rw [materialiseExpr_slot] at hseg
+      exact slot_leaf_decode prog base slot hbound hseg
     | _ => exact absurd hwf (by simp [MatFueled])
   | succ f ih =>
     cases e with
@@ -317,11 +317,11 @@ theorem matDec_of_seg (prog : Program) (defs : Tmp → Option Expr) (sloadChg : 
       · have : (materialiseExpr defs (f + 1) (.imm w)).length = 33 := by simp [materialiseExpr_imm_length]
         rw [this] at hbound; omega
       · intro j hj; have := hseg j hj; simpa [materialiseExpr] using this
-    | callResult slot =>
-      rw [matDec_callResult]
-      rw [materialiseExpr_callResult] at hbound
-      unfold MatSeg at hseg; rw [materialiseExpr_callResult] at hseg
-      exact callResult_leaf_decode prog base slot hbound hseg
+    | slot slot =>
+      rw [matDec_slot]
+      rw [materialiseExpr_slot] at hbound
+      unfold MatSeg at hseg; rw [materialiseExpr_slot] at hseg
+      exact slot_leaf_decode prog base slot hbound hseg
     | gas =>
       show decode (lower prog) (UInt32.ofNat base) = some (.Smsf .GAS, .none)
       have hseg' : ∀ j, j < [Byte.gas].length → (flatBytes prog)[base + j]? = [Byte.gas][j]? := by

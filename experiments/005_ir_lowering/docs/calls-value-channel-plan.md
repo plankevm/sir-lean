@@ -1,5 +1,11 @@
 # Route B — calls compose into the block spine (memory value channel)
 
+> **Naming note (uniform-spill refactor, 2026-06-28):** the constructor this document
+> calls `Expr.callResult` was renamed to **`Expr.slot`** (a generic spill-load) in Phase A
+> of `docs/uniform-spill-alloc-plan.md` — the call-result use is now one client of a uniform
+> memory-slot mechanism. Read every `Expr.callResult` / `.callResult` *expression* below as
+> `Expr.slot` / `.slot`. (The unrelated `IRState.callResult` success-word field is unchanged.)
+
 **Goal.** Make `lower_conforms` genuinely general over **all** `Stmt.call`, deleting
 `CallFree`. The call-free theorem (`lower_conforms_acyclic_cfg`, commit `227cf6a`) is the
 honest base; this work removes the "call-free" distortion.

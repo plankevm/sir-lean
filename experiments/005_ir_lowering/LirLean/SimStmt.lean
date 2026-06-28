@@ -121,7 +121,7 @@ structure Corr (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
   call result registered in the recompute env, and present in it (the `WellScoped` content
   `materialise_runs` consumes — relaxed to admit the memory value channel). -/
   wellScoped : ∀ t, st.locals t ≠ none →
-    (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.callResult slot))
+    (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.slot slot))
     ∧ defsOf prog t ≠ none
   /-- B1 — SLOAD warmth-cost realisability. -/
   sloadReal  : SloadRealises sloadChg st fr
@@ -179,7 +179,7 @@ theorem sim_assign {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     (hstep : EvalStmt prog o st T (.assign t e) st' T')
     (hsc : StepScoped prog st (.assign t e))
     (hscoped' : ∀ t, st'.locals t ≠ none →
-      (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.callResult slot))
+      (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.slot slot))
       ∧ defsOf prog t ≠ none)
     (hsload' : SloadRealises sloadChg st' fr)
     (hgas' : GasRealises obs fr)
@@ -597,14 +597,14 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     (hdefs : DefsSound prog st)
     (hsc : StepScoped prog st (.call cs))
     (hmem : MemRealises prog st fr)
-    -- every registered call-result slot is `slotOf` (`defsOf` registers `(t, .callResult (slotOf
-    -- t))`; a source `assign` never carries the lowering-only `.callResult` marker — a
+    -- every registered call-result slot is `slotOf` (`defsOf` registers `(t, .slot (slotOf
+    -- t))`; a source `assign` never carries the lowering-only `.slot` marker — a
     -- `WellFormed` invariant the eventual caller discharges). Pins the result-slot for the new
     -- binding and the 32-aligned disjointness of distinct bound slots.
-    (hslots : ∀ tw slot', defsOf prog tw = some (.callResult slot') → slot' = slotOf tw)
+    (hslots : ∀ tw slot', defsOf prog tw = some (.slot slot') → slot' = slotOf tw)
     -- the post-state scoping/realisability (downstream-supplied, as in `materialise_runs`):
     (hscoped' : ∀ t, st'.locals t ≠ none →
-      (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.callResult slot))
+      (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.slot slot))
       ∧ defsOf prog t ≠ none)
     (hsload' : SloadRealises sloadChg st' resumeFr)
     (hgas' : GasRealises obs resumeFr)
@@ -806,7 +806,7 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       by_cases htw : tw = t
       · -- the just-bound call-result tmp `t`: `slot' = slotOf t = slot`, `v = flag`.
         subst htw
-        -- `defsOf prog tw = some (.callResult slot')`; the registered slot for `tw` is `slotOf tw`.
+        -- `defsOf prog tw = some (.slot slot')`; the registered slot for `tw` is `slotOf tw`.
         -- and `st'.locals tw = some flag`.
         have hvflag : v = flag := by
           have : st'.locals tw = some flag := by rw [hst', hr]; simp [V2.IRState.setLocal]

@@ -73,7 +73,7 @@ The `fuel`/recursion structure is identical to `materialiseExpr` so the two stay
 lockstep (`materialiseExpr_*`/`chargeOf_*` reduction lemmas below pair up). -/
 def chargeOf (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ) : Nat → Expr → List ℕ
   | _,      .imm _  => [Gverylow]
-  | _,      .callResult _ => [Gverylow, Gverylow]
+  | _,      .slot _ => [Gverylow, Gverylow]
   | 0,      _       => []
   | f + 1,  .tmp t  =>
       match defs t with

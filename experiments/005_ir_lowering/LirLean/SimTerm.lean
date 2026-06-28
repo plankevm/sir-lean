@@ -424,7 +424,7 @@ theorem corr_at_jumpdest_landing {prog : Program} {sloadChg : Tmp → ℕ} {obs 
     (hstore : ∀ k, selfStorage fj k = st.world k)
     (hsound : DefsSound prog st)
     (hscoped : ∀ t, st.locals t ≠ none →
-      (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.callResult slot))
+      (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.slot slot))
       ∧ defsOf prog t ≠ none)
     (hsload : SloadRealises sloadChg st fj)
     (hgasr : GasRealises obs fj)
@@ -469,7 +469,7 @@ theorem jump_to_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     (hgstore : ∀ k, selfStorage g k = st.world k)
     (hsound : DefsSound prog st)
     (hscoped : ∀ t, st.locals t ≠ none →
-      (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.callResult slot))
+      (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.slot slot))
       ∧ defsOf prog t ≠ none)
     (hsload : SloadRealises sloadChg st g)
     (hgasr : GasRealises obs g)

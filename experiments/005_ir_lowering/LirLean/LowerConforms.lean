@@ -179,15 +179,15 @@ structure WellFormedLowered (prog : Program) : Prop where
     ∧ offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks elseL.idx < 2 ^ 32
   /-- **Call-result slot registration.** Every tmp registered as a call result in `defsOf`
   carries its canonical slot `slotOf tw`. True structurally: `defsOf` registers each
-  `.call ⟨_, _, some t⟩` as `(t, .callResult (slotOf t))`, and a source `assign` never
-  carries the lowering-only `.callResult` marker (a `WellFormed` invariant, vacuous for real
-  IR — no source program writes a `.callResult` expression). This is `sim_call_stmt`'s
+  `.call ⟨_, _, some t⟩` as `(t, .slot (slotOf t))`, and a source `assign` never
+  carries the lowering-only `.slot` marker (a `WellFormed` invariant, vacuous for real
+  IR — no source program writes a `.slot` expression). This is `sim_call_stmt`'s
   `hslots`: it pins the result slot of the binding MSTORE and the 32-aligned disjointness of
   distinct bound call-result slots. (Call-result slot *addressability* — `slotOf t + 63 < 2^64`
   — is a property of the realised resume frame's memory, so it travels with the `CallRealises`
   tie, not here.) -/
-  slots_callResult : ∀ (tw : Tmp) (slot' : Nat),
-    defsOf prog tw = some (.callResult slot') → slot' = slotOf tw
+  slots_slot : ∀ (tw : Tmp) (slot' : Nat),
+    defsOf prog tw = some (.slot slot') → slot' = slotOf tw
 
 /-! ## Discharging `SimStmtStep` / `SimTermStep` for the call-free fragment
 
@@ -229,7 +229,7 @@ theorem simStmtStep_assign {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word
         Corr prog sloadChg obs st0 fr0 L pc →
         StepScoped prog st0 (.assign t e)
         ∧ (∀ t', st0'.locals t' ≠ none →
-              (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.callResult slot))
+              (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
               ∧ defsOf prog t' ≠ none)
         ∧ SloadRealises sloadChg st0' fr0
         ∧ GasRealises obs fr0
@@ -345,7 +345,7 @@ def CallRealises (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (o : V2.
                               t' (callSuccessFlag result pd)
               | none   => { st0 with world := fun key =>
                               evmCallOracle.postStorage result pd fr0.exec.executionEnv.address key }).locals t ≠ none →
-            (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.callResult slot))
+            (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.slot slot))
             ∧ defsOf prog t ≠ none)
     ∧ SloadRealises sloadChg
         (match cs.resultTmp with
@@ -376,7 +376,7 @@ def CallRealises (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (o : V2.
 
 /-- **`SimStmtStep` for a `.call`-only block (the call-arm discharge).** For a `.call cs`
 cursor, feeds `sim_call_stmt`: `WellFormedLowered` supplies the slot registration
-(`slots_callResult`) and addressability (`slots_addressable`), `Corr.memAgree` the pre-call
+(`slots_slot`) and addressability (`slots_addressable`), `Corr.memAgree` the pre-call
 `MemRealises`, and the §7 `CallRealises` tie supplies the realised external-CALL trace. The
 realised-oracle pinning makes the abstract call step the realised step. -/
 theorem simStmtStep_call {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
@@ -435,7 +435,7 @@ theorem simStmtStep_call {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
   exact sim_call_stmt hb hget hcorr.pc_eq hargslen hargs hcallpc hcallmem hcallactive
     hselfdef hcallreturns hresume hcallee hgasfwd hstepRes hresaddr hrescode hrescanmod
     hrespc hresstack hresmem hresactive hresvalidjumps hcorr.defsSound hsc hcorr.memAgree
-    (hwf.slots_callResult) hscoped' hsload' hgas' htail
+    (hwf.slots_slot) hscoped' hsload' hgas' htail
 
 /-! ### The combined statement discharge
 
@@ -461,7 +461,7 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         Corr prog sloadChg obs st0 fr0 L pc →
         StepScoped prog st0 (.assign t e)
         ∧ (∀ t', st0'.locals t' ≠ none →
-              (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.callResult slot))
+              (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
               ∧ defsOf prog t' ≠ none)
         ∧ SloadRealises sloadChg st0' fr0
         ∧ GasRealises obs fr0
@@ -1248,7 +1248,7 @@ def StmtTies (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (o : V2.Call
       Corr prog sloadChg obs st0 fr0 L pc →
       StepScoped prog st0 (.assign t e)
       ∧ (∀ t', st0'.locals t' ≠ none →
-            (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.callResult slot))
+            (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
             ∧ defsOf prog t' ≠ none)
       ∧ SloadRealises sloadChg st0' fr0
       ∧ GasRealises obs fr0

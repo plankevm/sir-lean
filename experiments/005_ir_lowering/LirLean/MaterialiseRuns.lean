@@ -241,7 +241,7 @@ side-condition `SloadRealises`, supplied to `materialise_runs` directly. -/
 def MatDec (code : ByteArray) (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ) :
     Nat → UInt32 → Expr → Prop
   | _,      p, .imm w  => decode code p = some (.Push .PUSH32, some (w, 32))
-  | _,      p, .callResult slot =>
+  | _,      p, .slot slot =>
       decode code p = some (.Push .PUSH32, some (UInt256.ofNat slot, 32))
       ∧ decode code (p + UInt32.ofNat (emitImm (UInt256.ofNat slot)).length)
           = some (.Smsf .MLOAD, .none)
@@ -280,9 +280,9 @@ def MatDec (code : ByteArray) (defs : Tmp → Option Expr) (sloadChg : Tmp → �
       = (decode code p = some (.Push .PUSH32, some (w, 32))) := by
   cases fuel <;> rfl
 
-@[simp] theorem matDec_callResult (code : ByteArray) (defs : Tmp → Option Expr)
+@[simp] theorem matDec_slot (code : ByteArray) (defs : Tmp → Option Expr)
     (sloadChg : Tmp → ℕ) (fuel : Nat) (p : UInt32) (slot : Nat) :
-    MatDec code defs sloadChg fuel p (.callResult slot)
+    MatDec code defs sloadChg fuel p (.slot slot)
       = (decode code p = some (.Push .PUSH32, some (UInt256.ofNat slot, 32))
          ∧ decode code (p + UInt32.ofNat (emitImm (UInt256.ofNat slot)).length)
              = some (.Smsf .MLOAD, .none)) := by
@@ -380,10 +380,10 @@ theorem materialiseExpr_imm_length (defs : Tmp → Option Expr) (fuel : Nat) (w 
     (materialiseExpr defs fuel (.imm w)).length = 33 := by
   cases fuel <;> simp [materialiseExpr, emitImm_length]
 
-/-- `materialiseExpr` of a `.callResult slot` is `PUSH32 slot; MLOAD` (fuel-independent;
+/-- `materialiseExpr` of a `.slot slot` is `PUSH32 slot; MLOAD` (fuel-independent;
 the Route B memory-readback marker). -/
-theorem materialiseExpr_callResult (defs : Tmp → Option Expr) (fuel : Nat) (slot : Nat) :
-    materialiseExpr defs fuel (.callResult slot)
+theorem materialiseExpr_slot (defs : Tmp → Option Expr) (fuel : Nat) (slot : Nat) :
+    materialiseExpr defs fuel (.slot slot)
       = emitImm (UInt256.ofNat slot) ++ [Byte.mload] := by
   cases fuel <;> rfl
 
@@ -424,12 +424,12 @@ theorem chargeOf_length_pos_of_matDec (code : ByteArray) (defs : Tmp → Option 
   | zero =>
       cases e with
       | imm w => rw [chargeOf_imm]; simp
-      | callResult slot => show 1 ≤ ([Gverylow, Gverylow] : List ℕ).length; simp
+      | slot slot => show 1 ≤ ([Gverylow, Gverylow] : List ℕ).length; simp
       | _ => exact absurd h (by simp [MatDec])
   | succ f =>
       cases e with
       | imm w => rw [chargeOf_imm]; simp
-      | callResult slot => show 1 ≤ ([Gverylow, Gverylow] : List ℕ).length; simp
+      | slot slot => show 1 ≤ ([Gverylow, Gverylow] : List ℕ).length; simp
       | gas => rw [chargeOf_gas]; simp
       | tmp t =>
           cases ht : defs t with
@@ -494,7 +494,7 @@ theorem evalExpr_obs_irrel (st : V2.IRState) (obs obs' : Word) :
   | .add _ _, _ => rfl
   | .lt _ _,  _ => rfl
   | .sload _, _ => rfl
-  | .callResult _, _ => rfl
+  | .slot _, _ => rfl
   | .gas,     h => absurd rfl h
 
 /-! ## The realisability side-conditions (`SLOAD` warmth / `GAS` value / storage lens)
@@ -613,7 +613,7 @@ theorem StorageAgree.transport {st : V2.IRState} {fr fr' : Frame}
 
 The memory analogue of `SloadRealises`/`GasRealises`/`StorageAgree`: the bytecode's memory
 **realises** the IR's bound call-result locals. For every call-result tmp `t` (registered as
-`.callResult slot` in `defsOf`) that the IR currently holds a value `v` for, the running frame
+`.slot slot` in `defsOf`) that the IR currently holds a value `v` for, the running frame
 carries, at byte offset `slot`:
 
 * **coverage** — `slot + 32 ≤ memory.size` (the 32-byte window is allocated),
@@ -630,10 +630,10 @@ so the coverage is honest and the value survives the materialise sub-runs (`MemR
 The active clause is stated as `slot + 32 ≤ activeWords.toNat * 32` (rather than the weaker
 `slot < activeWords.toNat * 32`): for a 32-aligned slot this is exactly "MLOAD at `slot` does
 *not* expand memory" (`memoryExpansionWords? activeWords slot 32 = some activeWords`), which is
-what pins the readback's gas charge to the abstract `[Gverylow, Gverylow]` (`chargeOf .callResult`)
+what pins the readback's gas charge to the abstract `[Gverylow, Gverylow]` (`chargeOf .slot`)
 — the memory analogue of `SloadRealises` resolving the SLOAD warmth cost. -/
 def MemRealises (prog : Program) (st : V2.IRState) (fr : Frame) : Prop :=
-  ∀ t slot v, defsOf prog t = some (.callResult slot) → st.locals t = some v →
+  ∀ t slot v, defsOf prog t = some (.slot slot) → st.locals t = some v →
     (UInt256.ofNat slot).toNat + 32 ≤ fr.exec.toMachineState.memory.size
     ∧ (UInt256.ofNat slot).toNat + 32 ≤ fr.exec.toMachineState.activeWords.toNat * 32
     ∧ slot + 63 < 2 ^ 64
@@ -805,10 +805,10 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
       -- env** (read back from memory, not recomputed), and present in the recompute env. This
       -- is the honest `WellScoped` content the plan documents (DefsSound's preservation side
       -- conditions), relaxed to admit the memory value channel. The call-result disjunct is
-      -- stated operationally — `defsOf t = some (.callResult slot)`, the env `materialiseExpr`
+      -- stated operationally — `defsOf t = some (.slot slot)`, the env `materialiseExpr`
       -- actually consults — so the `.tmp` recursion can route to the MLOAD readback faithfully.
       (∀ t, st.locals t ≠ none →
-        (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.callResult slot))
+        (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.slot slot))
         ∧ defsOf prog t ≠ none) →
       StorageAgree st fr →
       SloadRealises sloadChg st fr →
@@ -828,9 +828,9 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
           rw [show w = v from (Option.some.inj heval).symm]
           exact matRuns_imm defs sloadChg 0 fr v hdec hgas
             (by rw [chargeOf_imm] at hstk; simpa using hstk)
-      | callResult slot =>
-          -- `.callResult` is never produced by a source program and never `evalExpr`s
-          -- (it has no IR value: `V2.evalExpr st obs (.callResult _) = none`), so the
+      | slot slot =>
+          -- `.slot` is never produced by a source program and never `evalExpr`s
+          -- (it has no IR value: `V2.evalExpr st obs (.slot _) = none`), so the
           -- recompute hypothesis `heval : none = some w` is vacuous here.
           exact absurd heval (by simp [V2.evalExpr])
       | _ => exact absurd hdec (by simp [MatDec])
@@ -842,8 +842,8 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
           rw [show w = v from (Option.some.inj heval).symm]
           exact matRuns_imm defs sloadChg (f + 1) fr v hdec hgas
             (by rw [chargeOf_imm] at hstk; simpa using hstk)
-      | callResult slot =>
-          -- `.callResult` has no IR value (`V2.evalExpr st obs (.callResult _) = none`)
+      | slot slot =>
+          -- `.slot` has no IR value (`V2.evalExpr st obs (.slot _) = none`)
           -- and is never produced by a source program, so `heval : none = some w` is
           -- vacuous. (The MLOAD-readback path — Route B's `MemAgree` channel — is a
           -- future arm; it is never reached on a well-formed `evalExpr`-driven run.)
@@ -1008,25 +1008,25 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
                 (hscoped t (by rw [hloc]; simp)).2
           | some e' =>
               -- the recompute env binds `t` to `e'`. Two regimes:
-              --   * `e' = .callResult slot` — a CALL result; *not* recomputed but **read back**
+              --   * `e' = .slot slot` — a CALL result; *not* recomputed but **read back**
               --     from memory (`PUSH32 slot ; MLOAD`), value tied by `MemRealises`.
               --   * any other `e'` — the pure recompute path via `DefsSound` (B3).
-              rcases Classical.em (∃ slot, e' = .callResult slot) with ⟨slot, he'⟩ | hncr
+              rcases Classical.em (∃ slot, e' = .slot slot) with ⟨slot, he'⟩ | hncr
               · -- == the memory value-channel readback arm ==
                   -- `materialiseExpr defs (f+1) (.tmp t) = PUSH32 slot ++ [MLOAD]`.
-                  have hdeft : defsOf prog t = some (.callResult slot) := by rw [← hdefs, ht, he']
+                  have hdeft : defsOf prog t = some (.slot slot) := by rw [← hdefs, ht, he']
                   -- the decode bundle for the readback (PUSH32 slot, then MLOAD).
                   have hmd : MatDec fr.exec.executionEnv.code defs sloadChg (f + 1) fr.exec.pc
                       (.tmp t) := hdec
                   rw [matDec_tmp_some fr.exec.executionEnv.code defs sloadChg f fr.exec.pc t e' ht,
-                      he', matDec_callResult] at hmd
+                      he', matDec_slot] at hmd
                   obtain ⟨hdpush, hdmload⟩ := hmd
                   -- `MemRealises` gives coverage + readback value `= w` at `fr`.
                   obtain ⟨hcm, ham, hreal, hval⟩ := hmemreal t slot w hdeft hloc
                   -- the materialise length / charge of the readback.
                   have hmexp : materialiseExpr defs (f + 1) (.tmp t)
                       = emitImm (UInt256.ofNat slot) ++ [Byte.mload] := by
-                    rw [materialiseExpr_tmp_some defs f t e' ht, he', materialiseExpr_callResult]
+                    rw [materialiseExpr_tmp_some defs f t e' ht, he', materialiseExpr_slot]
                   have hchg : chargeOf defs sloadChg (f + 1) (.tmp t) = [Gverylow, Gverylow] := by
                     rw [chargeOf_tmp_some defs sloadChg f t e' ht, he']; cases f <;> rfl
                   -- gas / stack room for the two opcodes.
@@ -1055,7 +1055,7 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
                   -- == step 2: MLOAD at `slot` (covered ⇒ zero memory expansion) ==
                   -- The slot is covered + realistic, so `memoryExpansionWords? activeWords slot 32
                   -- = some activeWords` (the access does not expand memory): the readback charge is
-                  -- just `Gverylow`, matching `chargeOf .callResult = [Gverylow, Gverylow]`.
+                  -- just `Gverylow`, matching `chargeOf .slot = [Gverylow, Gverylow]`.
                   have hreal' : (UInt256.ofNat slot).toNat + 63 < 2 ^ 64 := by
                     rw [show (UInt256.ofNat slot).toNat = slot from by
                       rw [LirLean.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]]
@@ -1227,13 +1227,13 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
                   have hstk' : fr.exec.stack.size + (chargeOf defs sloadChg f e').length ≤ 1024 := by
                     rw [chargeOf_tmp_some defs sloadChg f t e' ht] at hstk; exact hstk
                   -- `t` is recomputable: the scoping `Or`'s call-result disjunct is excluded
-                  -- because `defsOf t = some e'` with `e'` not a `.callResult`.
+                  -- because `defsOf t = some e'` with `e'` not a `.slot`.
                   have hnr : ¬ NonRecomputable prog t := by
                     rcases (hscoped t (by rw [hloc]; simp)).1 with hnr | ⟨slot, hcrdef⟩
                     · exact hnr
                     · exfalso
                       apply hncr
-                      have : some e' = some (Expr.callResult slot) := by
+                      have : some e' = some (Expr.slot slot) := by
                         rw [← ht, hdefs]; exact hcrdef
                       exact ⟨slot, Option.some.inj this⟩
                   have he'ng : e' ≠ .gas := by

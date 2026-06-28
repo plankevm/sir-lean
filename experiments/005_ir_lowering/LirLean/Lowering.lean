@@ -101,7 +101,7 @@ that leaves `e`'s value on top. Operands of binary ops are pushed in reverse so
 the first operand ends up on top (`a` on top of `b`). -/
 def materialiseExpr (defs : Tmp → Option Expr) : Nat → Expr → List UInt8
   | _,      .imm w  => emitImm w
-  | _,      .callResult slot => emitImm (UInt256.ofNat slot) ++ [Byte.mload]
+  | _,      .slot slot => emitImm (UInt256.ofNat slot) ++ [Byte.mload]
   | 0,      _       => []                       -- fuel exhausted (ill-formed IR)
   | f + 1,  .tmp t  =>
       match defs t with
@@ -184,7 +184,7 @@ def defsOf (prog : Program) : Tmp → Option Expr :=
     prog.blocks.toList.flatMap (fun b =>
       b.stmts.filterMap (fun
         | .assign t e          => some (t, e)
-        | .call ⟨_, _, some t⟩ => some (t, Expr.callResult (slotOf t))
+        | .call ⟨_, _, some t⟩ => some (t, Expr.slot (slotOf t))
         | _                    => none))
   fun t => (pairs.find? (fun p => p.1 == t)).map (·.2)
 

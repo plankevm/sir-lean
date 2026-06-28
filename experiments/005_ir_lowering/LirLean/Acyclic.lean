@@ -55,7 +55,7 @@ def ExprRankLt (rank : Tmp → ℕ) : Expr → ℕ → Prop
   | .add a b, n => rank a + 1 < n ∧ rank b + 1 < n
   | .lt a b,  n => rank a + 1 < n ∧ rank b + 1 < n
   | .sload k, n => rank k + 1 < n
-  | .callResult _, _ => True   -- a memory-readback leaf (no sub-tmps); like `imm`
+  | .slot _, _ => True   -- a memory-readback leaf (no sub-tmps); like `imm`
 
 /-- `ExprRankLt` is monotone in the fuel bound: a need satisfied at `n` survives any larger
 `m ≥ n`. -/
@@ -68,7 +68,7 @@ theorem ExprRankLt.mono {rank : Tmp → ℕ} {e : Expr} {n m : ℕ}
   | add a b => exact ⟨Nat.lt_of_lt_of_le h.1 hnm, Nat.lt_of_lt_of_le h.2 hnm⟩
   | lt a b => exact ⟨Nat.lt_of_lt_of_le h.1 hnm, Nat.lt_of_lt_of_le h.2 hnm⟩
   | sload k => exact Nat.lt_of_lt_of_le h hnm
-  | callResult _ => trivial
+  | slot _ => trivial
 
 /-- **`Acyclic defs rank`** — the def-relation respects the rank: every defining body's
 top-level operands fit `ExprRankLt` below `rank t`, so unfolding a definition strictly
@@ -94,7 +94,7 @@ theorem matFueled_of_exprRankLt {defs : Tmp → Option Expr} {rank : Tmp → ℕ
     -- with zero fuel only literals survive; every non-leaf needs a `· < 0`, impossible.
     cases e with
     | imm _ => exact True.intro
-    | callResult _ => exact True.intro
+    | slot _ => exact True.intro
     | gas => exact absurd he (Nat.not_lt_zero _)
     | tmp t => exact absurd he (Nat.not_lt_zero _)
     | add a b => exact absurd he.1 (Nat.not_lt_zero _)
@@ -104,7 +104,7 @@ theorem matFueled_of_exprRankLt {defs : Tmp → Option Expr} {rank : Tmp → ℕ
     intro e he
     cases e with
     | imm _ => exact True.intro
-    | callResult _ => exact True.intro
+    | slot _ => exact True.intro
     | gas => exact True.intro
     | tmp t =>
       cases hdt : defs t with
@@ -180,8 +180,8 @@ structure AcyclicWellFormed (prog : Program) where
     ∧ offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks elseL.idx < 2 ^ 32
   /-- Call-result slot registration (a non-`MatFueled` `WellFormedLowered` field, verbatim):
   every registered call result carries its canonical `slotOf`. -/
-  slots_callResult : ∀ (tw : Tmp) (slot' : Nat),
-    defsOf prog tw = some (.callResult slot') → slot' = slotOf tw
+  slots_slot : ∀ (tw : Tmp) (slot' : Nat),
+    defsOf prog tw = some (.slot slot') → slot' = slotOf tw
 
 /-- **`WellFormedLowered` from acyclicity.** The two `MatFueled` fields are discharged from the
 `Acyclic` witness (`matFueled_tmp_of_acyclic`, since the lowering only materialises `.tmp`
@@ -198,7 +198,7 @@ theorem wellFormedLowered_of_acyclic {prog : Program} (h : AcyclicWellFormed pro
   bound_stop := h.bound_stop
   bound_jump := h.bound_jump
   bound_branch := h.bound_branch
-  slots_callResult := h.slots_callResult
+  slots_slot := h.slots_slot
 
 /-! ## The headline restated over acyclicity
 

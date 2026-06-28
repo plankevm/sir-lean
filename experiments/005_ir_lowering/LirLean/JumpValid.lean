@@ -182,7 +182,7 @@ theorem segAligned_emitDest (off : Nat) : SegAligned (emitDest off) := by
 
 /-- The call-result rematerialisation `emitImm slot ++ [MLOAD]` is aligned: an aligned
 PUSH32 immediate followed by the zero-width `MLOAD` opcode. -/
-theorem segAligned_callResult (slot : Nat) :
+theorem segAligned_slot (slot : Nat) :
     SegAligned (emitImm (UInt256.ofNat slot) ++ [Byte.mload]) :=
   (segAligned_emitImm (UInt256.ofNat slot)).append
     (SegAligned.nonpush Byte.mload (by decide))
@@ -200,8 +200,8 @@ theorem segAligned_materialiseExpr (defs : Tmp → Option Expr) :
   | 0,      .lt _ _ => .nil
   | 0,      .sload _ => .nil
   | 0,      .gas    => .nil
-  | 0,      .callResult slot => segAligned_callResult slot
-  | f + 1,  .callResult slot => segAligned_callResult slot
+  | 0,      .slot slot => segAligned_slot slot
+  | f + 1,  .slot slot => segAligned_slot slot
   | f + 1,  .tmp t  => by
       rw [show materialiseExpr defs (f+1) (.tmp t)
             = (match defs t with
