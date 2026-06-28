@@ -52,6 +52,17 @@ real two-read run whose two reads are *distinct*.
 
 `gas_tie_vacuity_resolved` states the contrast in one place against the same milestone run.
 
+## The SLOAD twin (Phase C, `docs/uniform-spill-alloc-plan.md`)
+
+The `SLOAD` warmth-cost universal `Lir.SloadRealises` (`MaterialiseRuns.lean`) carried the
+**identical** defect, and is recorded here as the gas twin: it is **machine-checked
+unsatisfiable** the moment a key is read cold-then-warm (the cost flips `2100 → 100`, forcing
+one resolver to equal both — `sloadRealises_universal_unsatisfiable`); and the honest positional
+`SloadLogAligned` form admits exactly that distinct two-charge list `[2100, 100]`
+(`new_sloadLogAligned_two_read_satisfiable`). `sload_tie_vacuity_resolved` is the one-statement
+contrast. These are the satisfiability re-audit witnesses for the Phase-C spill (the SLOAD value
+moves to `MemRealises`, the warmth-cost tie becomes per-cursor positional).
+
 No `sorry`/`axiom`/`native_decide`; axioms `[propext, Classical.choice, Quot.sound]`.
 -/
 
@@ -182,6 +193,116 @@ theorem spilled_gas_value_tie_realisable (fr : Frame) :
       = UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat Gbase) :=
   gasReadOf_gasFrame_eq_obs fr
 
+/-! ## SLOAD: the same vacuity, the same honest fix (Phase C subject)
+
+The `SLOAD` warmth-cost tie is the exact twin of the gas value tie, and carried the **same**
+defect. The spine's `Lir.SloadRealises sloadChg st fr` (`MaterialiseRuns.lean`) is a
+**universal over every same-address frame**:
+
+```
+Lir.SloadRealises sloadChg st fr  :=
+  ∀ g k key, g.addr = fr.addr → st.locals k = some key →
+    sloadChg k = sloadCost (g.substate.accessedStorageKeys.contains (g.addr, key))
+```
+
+The SLOAD cost is **warmth-dependent**: `sloadCost false = Gcoldsload = 2100` on the first
+(cold) read of a key, `sloadCost true = Gwarmaccess = 100` on every later (warm) read — the
+`accessedStorageKeys.contains` flag flips after the first access. So a run that reads the
+**same key twice** (cold then warm) supplies two same-address frames forcing the single
+resolver `sloadChg k` to equal *both* `2100` and `100`: the universal is
+**machine-checked unsatisfiable**. Carried through `Corr`, it poisons every headline at any
+cursor that re-reads a key.
+
+The honest fix is the **positional** SLOAD form `SloadLogAligned sloadAcc frs` (`SLOAD`'s twin
+of `Oracle.GasRealises`, `V2/TieDischarge.lean`): `sloadAcc = frs.map sloadWarmthOf ∧
+FramesRun frs` — the i-th supplied cost = the i-th bytecode SLOAD's *actual* warmth-charge, no
+constancy. A cold-then-warm two-read run is then *in scope*: it carries the distinct list
+`[2100, 100]`, which the positional form admits and the universal forbade. This mirrors the gas
+contrast above (`gas_tie_vacuity_resolved`) exactly. -/
+
+/-- **The OLD universal `Lir.SloadRealises` is unsatisfiable abstractly.** Given any two
+same-address frames `g₁` (the key is **cold** — `accessedStorageKeys` does not contain it) and
+`g₂` (the key is **warm** — it does), both reading the *same* bound key, the
+universal-over-same-address predicate forces `sloadChg k = 2100` (from `g₁`, cold) **and**
+`sloadChg k = 100` (from `g₂`, warm) — impossible for *every* `sloadChg`. A real run that reads
+the same key twice (cold then warm) supplies exactly such a `g₁`/`g₂`. This is the
+warmth-constant falsehood the §0 principle forbids; the `Corr.sloadReal` / entry `hsload`
+hypothesis cannot hold for any such run. -/
+theorem sloadRealises_universal_unsatisfiable {st : V2.IRState} {sloadChg : Tmp → ℕ}
+    {fr g₁ g₂ : Frame} {k : Tmp} {key : Word}
+    (haddr₁ : g₁.exec.executionEnv.address = fr.exec.executionEnv.address)
+    (haddr₂ : g₂.exec.executionEnv.address = fr.exec.executionEnv.address)
+    (hbound : st.locals k = some key)
+    -- `g₁` reads the key COLD (not yet accessed); `g₂` reads it WARM (already accessed):
+    (hcold : g₁.exec.substate.accessedStorageKeys.contains
+                (g₁.exec.executionEnv.address, key) = false)
+    (hwarm : g₂.exec.substate.accessedStorageKeys.contains
+                (g₂.exec.executionEnv.address, key) = true) :
+    ¬ Lir.SloadRealises sloadChg st fr := by
+  intro huniv
+  -- the universal at the cold frame forces `sloadChg k = sloadCost false = 2100`.
+  have h1 : sloadChg k = 2100 := by
+    have := huniv g₁ k key haddr₁ hbound
+    rw [hcold] at this
+    rw [this]; rfl
+  -- the universal at the warm frame forces `sloadChg k = sloadCost true = 100`.
+  have h2 : sloadChg k = 100 := by
+    have := huniv g₂ k key haddr₂ hbound
+    rw [hwarm] at this
+    rw [this]; rfl
+  -- `2100 = 100` is false.
+  rw [h1] at h2; exact absurd h2 (by decide)
+
+/-- **The NEW positional `SloadLogAligned` admits a cold-then-warm two-read run.** Given two
+`Runs`-threaded frames `g₁` (cold) and `g₂` (warm) reading the *same* key, the positional sload
+form carries the genuinely-distinct charge list `[2100, 100]` — exactly the multi-read case the
+universal could not satisfy. The honest content is only "supplied = actually-charged, in order"
+(`sloadAcc = [g₁, g₂].map sloadWarmthOf`), with the frames `Runs`-threaded (`FramesRun`). No
+warmth constancy is assumed; the two charges are *allowed* to differ, which is the whole point. -/
+theorem new_sloadLogAligned_two_read_satisfiable {g₁ g₂ : Frame} {key : Word}
+    (hrun : Runs g₁ g₂)
+    (hk₁ : g₁.exec.stack.head? = some key)
+    (hk₂ : g₂.exec.stack.head? = some key)
+    (hcold : g₁.exec.substate.accessedStorageKeys.contains
+                (g₁.exec.executionEnv.address, key) = false)
+    (hwarm : g₂.exec.substate.accessedStorageKeys.contains
+                (g₂.exec.executionEnv.address, key) = true) :
+    SloadLogAligned [2100, 100] [g₁, g₂]
+    ∧ (2100 : ℕ) ≠ 100 := by
+  refine ⟨⟨?_, ?_⟩, by decide⟩
+  · -- `[2100, 100] = [g₁, g₂].map sloadWarmthOf`: cold frame ↦ 2100, warm frame ↦ 100.
+    have hw₁ : sloadWarmthOf g₁ = 2100 := by
+      simp only [sloadWarmthOf, hk₁, hcold]; rfl
+    have hw₂ : sloadWarmthOf g₂ = 100 := by
+      simp only [sloadWarmthOf, hk₂, hwarm]; rfl
+    simp [List.map, hw₁, hw₂]
+  · -- `FramesRun [g₁, g₂]`: the two frames are `Runs`-threaded.
+    exact ⟨hrun, trivial⟩
+
+/-- **`sload_tie_vacuity_resolved`.** The SLOAD twin of `gas_tie_vacuity_resolved`, in one
+statement: (1) the honest positional `SloadLogAligned` of a cold-then-warm two-read run carries
+the genuinely-distinct charge list `[2100, 100]` (and those charges differ); while (2) the
+spine's single-resolver universal `Lir.SloadRealises` is **unsatisfiable** the moment a run
+reads the same key cold then warm (which every genuine same-key re-read does). Same kind of run;
+new form satisfied, old form refuted — exactly the gas contrast, on the SLOAD axis. -/
+theorem sload_tie_vacuity_resolved {g₁ g₂ : Frame} {key : Word}
+    (hrun : Runs g₁ g₂)
+    (hk₁ : g₁.exec.stack.head? = some key)
+    (hk₂ : g₂.exec.stack.head? = some key)
+    (hcold : g₁.exec.substate.accessedStorageKeys.contains
+                (g₁.exec.executionEnv.address, key) = false)
+    (hwarm : g₂.exec.substate.accessedStorageKeys.contains
+                (g₂.exec.executionEnv.address, key) = true) :
+    (SloadLogAligned [2100, 100] [g₁, g₂] ∧ (2100 : ℕ) ≠ 100)
+    ∧ (∀ {st : V2.IRState} {sloadChg : Tmp → ℕ} {fr : Frame} {k : Tmp},
+          g₁.exec.executionEnv.address = fr.exec.executionEnv.address →
+          g₂.exec.executionEnv.address = fr.exec.executionEnv.address →
+          st.locals k = some key →
+          ¬ Lir.SloadRealises sloadChg st fr) :=
+  ⟨new_sloadLogAligned_two_read_satisfiable hrun hk₁ hk₂ hcold hwarm,
+   fun haddr₁ haddr₂ hbound =>
+     sloadRealises_universal_unsatisfiable haddr₁ haddr₂ hbound hcold hwarm⟩
+
 end Lir.V2
 
 -- Build-enforced axiom-cleanliness guards for the vacuity / non-vacuity deliverables.
@@ -190,3 +311,6 @@ end Lir.V2
 #print axioms Lir.V2.new_gasRealises_two_read_satisfiable
 #print axioms Lir.V2.gas_tie_vacuity_resolved
 #print axioms Lir.V2.spilled_gas_value_tie_realisable
+#print axioms Lir.V2.sloadRealises_universal_unsatisfiable
+#print axioms Lir.V2.new_sloadLogAligned_two_read_satisfiable
+#print axioms Lir.V2.sload_tie_vacuity_resolved

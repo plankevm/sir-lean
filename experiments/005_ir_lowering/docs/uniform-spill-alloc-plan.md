@@ -231,10 +231,38 @@ shortcut; commit only green states.
   - green (1160 jobs); `stash_tail_runs`/`_covered`/`_gas`, `sim_assign_gas_lowered`,
     `sim_call_stmt`, and all four headlines axiom-clean `[propext, Classical.choice, Quot.sound]`.
 
-- **Phase C — sload through the spill (kills the scoping wart + cost smear).**
-  Default `allocate` maps sload-tmps to `.slot`; stash at def, load at use. Delete the
-  across-write `DefsSound` scoping side-condition on the cached path. Replace `Lir.SloadRealises`
-  (the universal) with the positional warmth-cost tie (`SloadLogAligned` infra). Remove `hsload`.
+- **Phase C — sload through the spill (kills the scoping wart + cost smear). IN PROGRESS.**
+  Default `allocate` maps sload-tmps to `.slot`; stash at def (`materialise k ++ SLOAD ++ PUSH slot
+  ++ MSTORE`), load at use (MLOAD). Delete the across-write `DefsSound` scoping side-condition on
+  the cached path. Replace `Lir.SloadRealises` (the universal) with the positional warmth-cost tie
+  (`SloadLogAligned` infra). Remove `hsload`.
+  - **Satisfiability re-audit BANKED (green, axiom-clean) — `V2/HonestGasTie.lean`.** Before
+    migrating the spine, the gas precedent's regression witnesses are mirrored for SLOAD: (1)
+    `sloadRealises_universal_unsatisfiable` — the `Lir.SloadRealises` universal is
+    **machine-checked unsatisfiable** under a cold-then-warm same-key re-read (the cost flips
+    `Gcoldsload 2100 → Gwarmaccess 100`, forcing one resolver to equal both); (2)
+    `new_sloadLogAligned_two_read_satisfiable` — the honest positional `SloadLogAligned` admits
+    exactly that distinct list `[2100, 100]`; (3) `sload_tie_vacuity_resolved` — the one-statement
+    contrast (new form satisfied, old form refuted), the SLOAD twin of `gas_tie_vacuity_resolved`.
+    These are the non-vacuity evidence + the satisfiability re-audit the design owes; no
+    full-`toMachineState` pin and no `∀`-over-frames in the positional form.
+  - **The mechanism + spine migration (the remaining work).** `defsOf` flips `assign t (.sload k)`
+    to `Expr.slot (slotOf t)` (mirrors the gas arm); `emitStmt .assign` then stashes `materialise k
+    ++ [SLOAD] ++ PUSH slot ++ MSTORE` (the existing alloc-native slot arm — already byte-correct).
+    `materialise_runs`'s `.sload` arm becomes **unreachable** (`e ≠ .sload`, via `defsOf_ne_sload`,
+    exactly like `.gas`), so `SloadRealises` leaves `materialise_runs`/`Corr` entirely; the def-site
+    SLOAD's warmth cost becomes a **per-cursor positional** hypothesis to a new `sim_assign_sload`
+    (the `sim_assign_gas` twin: `materialise k` via `materialise_runs` → `sim_sload` step →
+    `stash_tail_runs_covered`). `NonRecomputable`/`DefsSound` gain `isSloadDef` (an sload-spilled
+    tmp is excluded from the recompute env — `evalExpr (.slot) = none` — exactly like gas).
+    **Blocker for green-landing:** spilling sload **shifts the entire `workedCall` byte layout**
+    (the SLOAD bytes move from the use-site recompute to the def-site stash; `assign (t2) (sload
+    (t1))` sits *before* the CALL), so the 1752-line concrete `WorkedCall.lean` proof and the
+    `Decode.lean` offset checks (both in the headline import chain via `CallRealises`) must be
+    re-derived for the new layout. That re-derivation is the bounded mechanical step that gates the
+    spine flip; until it lands the `defsOf`/`Corr` changes are held back to keep the build green and
+    avoid introducing the *new* vacuity (the `hremat : defsOf t ≠ .slot` assign tie would become
+    unsatisfiable for a spilled-sload cursor without the `sim_assign_sload` dispatch branch).
 
 - **Phase D — `∀ SoundAlloc` headline + replaceable-pass pipeline + cleanup.**
   Generalize `Corr`/`sim_*`/`materialise_runs`/`DriveSim`/`LowerConforms` to quantify over any
