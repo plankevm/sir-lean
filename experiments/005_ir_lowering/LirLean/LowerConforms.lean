@@ -203,44 +203,15 @@ realisability surface rather than the opaque `SimStmtStep`/`SimTermStep` props.
 
 ### The `assign`-arm discharge (fully closed down to the genuine ties)
 
-The pure/gas `assign` arm needs *no* decode bundle — `emitStmt … (.assign _ _) = []`, so
-the lowered segment is `Runs.refl` and `sim_assign` consumes only the per-step scoping
-(`StepScoped`, the program-global `WellScoped` follow-up) and the post-state realisability
-ties (`wellScoped'`/`SloadRealises`/`GasRealises`), threaded over the same (unchanged)
-frame. `simStmtStep_assign` discharges `SimStmtStep` for an **assign-only** call-free block
-down to exactly those carried ties — a complete result for the pure-arithmetic /
-gas-introspection statement fragment (no storage writes). The `sstore` arm additionally
-needs the `MatDec` decode coverage over `materialiseExpr` at the runtime cursors (the
-generic A2 reconstruction — the documented remaining milestone), and so is carried whole. -/
-
-/-- **`SimStmtStep` for an assign-only call-free block.** If every statement of `b` is an
-`Stmt.assign`, then — given, at every cursor, the per-step scoping (`StepScoped`) and the
-post-state realisability ties (the genuine recording-correspondence side-conditions:
-`wellScoped`, `SloadRealises`, `GasRealises` over the post-state at the *same* frame, since
-the assign emits no bytes) — `SimStmtStep` holds. Every obligation routes through
-`sim_assign`; nothing is decoded (the assign lowering is empty). -/
-theorem simStmtStep_assign {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {o : V2.CallOracle} {L : Label} {b : Block}
-    (hb : prog.blocks.toList[L.idx]? = some b)
-    (hassign : ∀ s ∈ b.stmts, ∃ t e, s = .assign t e)
-    -- the genuine per-cursor ties (the §7 supplied-observation contract at each step):
-    (hties : ∀ (pc : Nat) (t : Tmp) (e : Expr) (st0 st0' : V2.IRState) (fr0 : Frame),
-        b.stmts[pc]? = some (.assign t e) →
-        Corr prog sloadChg obs st0 fr0 L pc →
-        StepScoped prog st0 (.assign t e)
-        ∧ (∀ t', st0'.locals t' ≠ none →
-              (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
-              ∧ defsOf prog t' ≠ none)
-        ∧ SloadRealises sloadChg st0' fr0
-        ∧ GasRealises obs fr0
-        ∧ MemRealises prog st0' fr0) :
-    SimStmtStep prog sloadChg obs o L b := by
-  intro pc s st0 st0' T0 T0' fr0 hget hcorr hstep
-  obtain ⟨t, e, hse⟩ := hassign s (List.mem_iff_getElem?.mpr ⟨pc, hget⟩)
-  subst hse
-  obtain ⟨hsc, hscoped', hsload', hgas', hmem'⟩ := hties pc t e st0 st0' fr0 hget hcorr
-  obtain ⟨_, hc', _⟩ := sim_assign hb hget hcorr hstep hsc hscoped' hsload' hgas' hmem'
-  exact ⟨fr0, Runs.refl fr0, hc', hcorr.stack_nil⟩
+A **rematerialised** `assign` needs *no* decode bundle — `emitStmt … (.assign _ _) = []`
+when the target is not spilled, so the lowered segment is `Runs.refl` and `sim_assign`
+consumes only the per-step scoping (`StepScoped`) and the post-state realisability ties. A
+**spilled gas** `assign t .gas` (Phase B) emits the `[GAS] ++ PUSH ++ MSTORE` stash and is
+discharged by `sim_assign_gas` (the gas value lands in `slotOf t`, tied by `MemRealises`).
+Both arms are folded into the general `simStmtStep_block` below; the old assign-only
+specialisation is retired (superseded, and it baked in the now-false "every assign emits
+nothing"). The `sstore` arm additionally needs the `MatDec` decode coverage over
+`materialiseExpr` at the runtime cursors, and so is carried whole. -/
 
 /-! ### The `sstore`-arm discharge (decode-free via `sim_sstore_stmt_lowered`)
 
@@ -455,17 +426,46 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {o : V2.CallOracle} {L : Label} {b : Block}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hwf : WellFormedLowered prog)
-    -- the genuine `assign`-cursor ties (post-state realisability at the unchanged frame):
+    -- the genuine **rematerialised** `assign`-cursor ties (target not spilled; post-state
+    -- realisability at the unchanged frame — empty emit ⇒ `Runs.refl`):
     (hassign : ∀ (pc : Nat) (t : Tmp) (e : Expr) (st0 st0' : V2.IRState) (fr0 : Frame),
         b.stmts[pc]? = some (.assign t e) →
         Corr prog sloadChg obs st0 fr0 L pc →
-        StepScoped prog st0 (.assign t e)
+        (∀ n, defsOf prog t ≠ some (.slot n))
+        ∧ StepScoped prog st0 (.assign t e)
         ∧ (∀ t', st0'.locals t' ≠ none →
               (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
               ∧ defsOf prog t' ≠ none)
         ∧ SloadRealises sloadChg st0' fr0
         ∧ GasRealises obs fr0
         ∧ MemRealises prog st0' fr0)
+    -- the genuine **spilled gas** `assign t .gas`-cursor ties (Phase B): the gas value lives in
+    -- `slotOf t`, written by the `[GAS] ++ PUSH ++ MSTORE` stash; `hgasassign` supplies the
+    -- slot registration, the post-state scoping/SLOAD ties, and the supplied stash run — the
+    -- honest positional one-read tie (the stored value is the consumed read `ob`):
+    (hgasassign : ∀ (pc : Nat) (t : Tmp) (ob : Word) (st0 : V2.IRState) (fr0 : Frame),
+        b.stmts[pc]? = some (.assign t .gas) →
+        Corr prog sloadChg obs st0 fr0 L pc →
+        defsOf prog t = some (.slot (slotOf t))
+        ∧ StepScoped prog st0 (.assign t .gas)
+        ∧ (∀ tw slot', defsOf prog tw = some (.slot slot') → slot' = slotOf tw)
+        ∧ (∀ t', (st0.setLocal t ob).locals t' ≠ none →
+              (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
+              ∧ defsOf prog t' ≠ none)
+        ∧ SloadRealises sloadChg (st0.setLocal t ob) fr0
+        ∧ ((slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
+          ∧ ∃ endFr,
+              Runs fr0 endFr
+            ∧ endFr.exec.toMachineState
+                = fr0.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) ob
+            ∧ endFr.exec.pc = fr0.exec.pc + UInt32.ofNat (emitStmt (defsOf prog)
+                  (recomputeFuel prog) (.assign t .gas)).length
+            ∧ endFr.exec.executionEnv.code = fr0.exec.executionEnv.code
+            ∧ endFr.validJumps = fr0.validJumps
+            ∧ endFr.exec.executionEnv.address = fr0.exec.executionEnv.address
+            ∧ endFr.exec.executionEnv.canModifyState = fr0.exec.executionEnv.canModifyState
+            ∧ (∀ k, selfStorage endFr k = selfStorage fr0 k)
+            ∧ endFr.exec.stack = []))
     -- the genuine `sstore`-cursor ties (the §7 supplied-observation contract):
     (hsstore : ∀ (pc : Nat) (key value : Tmp) (kw vw : Word) (st0 : V2.IRState) (fr0 : Frame),
         b.stmts[pc]? = some (.sstore key value) →
@@ -488,18 +488,16 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
   cases hstep with
   | assignPure hne hv =>
     rename_i t e w
-    obtain ⟨hsc, hscoped', hsload', hgas', hmem'⟩ :=
+    obtain ⟨hremat, hsc, hscoped', hsload', hgas', hmem'⟩ :=
       hassign pc t e st0 (st0.setLocal t w) fr0 hget hcorr
-    obtain ⟨_, hc', _⟩ := sim_assign hb hget hcorr
+    obtain ⟨_, hc', _⟩ := sim_assign hb hget hremat hcorr
       (EvalStmt.assignPure (prog := prog) (o := o) (T := T0) hne hv) hsc hscoped' hsload' hgas' hmem'
     exact ⟨fr0, Runs.refl fr0, hc', hcorr.stack_nil⟩
   | assignGas =>
     rename_i ob t
-    obtain ⟨hsc, hscoped', hsload', hgas', hmem'⟩ :=
-      hassign pc t .gas st0 (st0.setLocal t ob) fr0 hget hcorr
-    obtain ⟨_, hc', _⟩ := sim_assign hb hget hcorr
-      (EvalStmt.assignGas (prog := prog) (o := o) (T := T0') (t := t)) hsc hscoped' hsload' hgas' hmem'
-    exact ⟨fr0, Runs.refl fr0, hc', hcorr.stack_nil⟩
+    obtain ⟨hslotdef, hsc, hslots, hscoped', hsload', hstash⟩ :=
+      hgasassign pc t ob st0 fr0 hget hcorr
+    exact sim_assign_gas hb hget hslotdef hcorr hsc hslots hscoped' hsload' hstash
   | sstore hk hv =>
     rename_i key value kw vw
     obtain ⟨hsc, hgas, hstk, ⟨acc, hsr⟩, hnz⟩ := hsstore pc key value kw vw st0 fr0 hget hcorr hk hv
@@ -1246,13 +1244,37 @@ def StmtTies (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (o : V2.Call
   (∀ (pc : Nat) (t : Tmp) (e : Expr) (st0 st0' : V2.IRState) (fr0 : Frame),
       b.stmts[pc]? = some (.assign t e) →
       Corr prog sloadChg obs st0 fr0 L pc →
-      StepScoped prog st0 (.assign t e)
+      (∀ n, defsOf prog t ≠ some (.slot n))
+      ∧ StepScoped prog st0 (.assign t e)
       ∧ (∀ t', st0'.locals t' ≠ none →
             (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
             ∧ defsOf prog t' ≠ none)
       ∧ SloadRealises sloadChg st0' fr0
       ∧ GasRealises obs fr0
       ∧ MemRealises prog st0' fr0)
+  ∧ (∀ (pc : Nat) (t : Tmp) (ob : Word) (st0 : V2.IRState) (fr0 : Frame),
+      b.stmts[pc]? = some (.assign t .gas) →
+      Corr prog sloadChg obs st0 fr0 L pc →
+      defsOf prog t = some (.slot (slotOf t))
+      ∧ StepScoped prog st0 (.assign t .gas)
+      ∧ (∀ tw slot', defsOf prog tw = some (.slot slot') → slot' = slotOf tw)
+      ∧ (∀ t', (st0.setLocal t ob).locals t' ≠ none →
+            (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
+            ∧ defsOf prog t' ≠ none)
+      ∧ SloadRealises sloadChg (st0.setLocal t ob) fr0
+      ∧ ((slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
+        ∧ ∃ endFr,
+            Runs fr0 endFr
+          ∧ endFr.exec.toMachineState
+              = fr0.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) ob
+          ∧ endFr.exec.pc = fr0.exec.pc + UInt32.ofNat (emitStmt (defsOf prog)
+                (recomputeFuel prog) (.assign t .gas)).length
+          ∧ endFr.exec.executionEnv.code = fr0.exec.executionEnv.code
+          ∧ endFr.validJumps = fr0.validJumps
+          ∧ endFr.exec.executionEnv.address = fr0.exec.executionEnv.address
+          ∧ endFr.exec.executionEnv.canModifyState = fr0.exec.executionEnv.canModifyState
+          ∧ (∀ k, selfStorage endFr k = selfStorage fr0 k)
+          ∧ endFr.exec.stack = []))
   ∧ (∀ (pc : Nat) (key value : Tmp) (kw vw : Word) (st0 : V2.IRState) (fr0 : Frame),
       b.stmts[pc]? = some (.sstore key value) →
       Corr prog sloadChg obs st0 fr0 L pc →
@@ -1396,8 +1418,8 @@ theorem lower_conforms_wf {prog : Program} {w₀ : V2.World} {self : AccountAddr
   have hstmts : ∀ (L : Label) (b : Block), blockAt prog L = some b →
       SimStmtStep prog sloadChg obs (realisedCall log self) L b := by
     intro L b hbat
-    obtain ⟨hassign, hsstore, hcallties⟩ := hstmtties L b hbat
-    exact simStmtStep_block (toList_of_blockAt hbat) hwf hassign hsstore hcallties
+    obtain ⟨hassign, hgasassign, hsstore, hcallties⟩ := hstmtties L b hbat
+    exact simStmtStep_block (toList_of_blockAt hbat) hwf hassign hgasassign hsstore hcallties
   -- build the per-block `SimTermStep` from `WellFormedLowered` + the terminator §7 ties.
   have hterm : ∀ (L : Label) (b : Block), blockAt prog L = some b →
       SimTermStep prog sloadChg obs (realisedCall log self) self L b := by
@@ -1412,14 +1434,13 @@ end Lir
 -- Build-enforced axiom-cleanliness guards for the Layer-F deliverables: the whole-CFG
 -- simulation `sim_cfg`, the headline `lower_conforms` (general over calls, world channel), the entry
 -- correspondence builder `entry_corr` (discharges the former `hentry`), and the
--- `SimStmtStep`/`SimTermStep` discharge builders (`simStmtStep_assign`, `simTermStep_stop`)
+-- `SimStmtStep`/`SimTermStep` discharge builders (`simStmtStep_block`, `simTermStep_stop`)
 -- all depend only on `[propext, Classical.choice, Quot.sound]`.
 #print axioms Lir.sim_cfg
 #print axioms Lir.lower_conforms
 #print axioms Lir.lower_conforms_wf
 #print axioms Lir.paramsFor_entersAsCode
 #print axioms Lir.entry_corr
-#print axioms Lir.simStmtStep_assign
 #print axioms Lir.simStmtStep_sstore
 #print axioms Lir.simStmtStep_call
 #print axioms Lir.simStmtStep_block

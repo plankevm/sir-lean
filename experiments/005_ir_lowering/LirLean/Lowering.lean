@@ -176,7 +176,16 @@ materialise their operands then emit the consuming opcode.
   top — the `callerProg` order), then `CALL`. The 0/1 success flag CALL pushes is
   left on the stack for a following `assign`/use of `resultTmp`. -/
 def emitStmt (defs : Tmp → Option Expr) (fuel : Nat) : Stmt → List UInt8
-  | .assign _ _ => []                            -- recompute-on-use: no bytes here
+  | .assign t e =>
+      -- **Alloc-native def-site.** A tmp the allocation spills (`defs t = some (.slot n)`:
+      -- gas, in Phase B) is computed **once** here and stashed to its memory slot
+      -- (`materialise(e) ++ PUSH n ++ MSTORE`); for gas, `materialise .gas = [GAS]`, so the
+      -- stash is `[GAS] ++ PUSH n ++ MSTORE`. A rematerialised tmp emits **no** bytes — its
+      -- value is recomputed at each use.
+      match defs t with
+      | some (.slot n) =>
+          materialiseExpr defs fuel e ++ emitImm (UInt256.ofNat n) ++ [Byte.mstore]
+      | _ => []
   | .sstore key value =>
       materialise defs fuel value ++ materialise defs fuel key ++ [Byte.sstore]
   | .call cs =>
@@ -216,15 +225,63 @@ Recompute-on-use needs each tmp's defining expression. We build it from a
 single-block / single-path worked programs this is exact; richer scoping is a C3
 refinement. -/
 
-/-- The program-global `Tmp → Option Expr` map: the last `assign` to each tmp. -/
+/-- The program-global `Tmp → Option Expr` map: the last `assign` to each tmp, with the
+two **non-recomputable** defining expressions routed to the spill-load `Expr.slot`:
+
+* a **gas** assign `assign t .gas` registers `t` as `Expr.slot (slotOf t)` — the gas value
+  is read **once** at the def-site stash (`emitStmt .assign`) and reused from memory on each
+  use, never re-emitting `GAS` (Phase B; `docs/uniform-spill-alloc-plan.md` §6);
+* a **call result** `call ⟨_, _, some t⟩` registers `t` as `Expr.slot (slotOf t)` (Route B,
+  stashed by `emitStmt .call`).
+
+Every other (pure) assign keeps its expression for rematerialisation. -/
 def defsOf (prog : Program) : Tmp → Option Expr :=
   let pairs : List (Tmp × Expr) :=
     prog.blocks.toList.flatMap (fun b =>
       b.stmts.filterMap (fun
+        | .assign t .gas       => some (t, Expr.slot (slotOf t))
         | .assign t e          => some (t, e)
         | .call ⟨_, _, some t⟩ => some (t, Expr.slot (slotOf t))
         | _                    => none))
   fun t => (pairs.find? (fun p => p.1 == t)).map (·.2)
+
+/-- `defsOf` never registers a tmp as the bare `Expr.gas`: a gas assign is routed to the
+spill-load `Expr.slot (slotOf t)` (Phase B), and no other `defsOf` arm produces `.gas`. So
+the recompute env's `.gas` body has been retired — every gas tmp is a memory slot. -/
+theorem defsOf_ne_gas (prog : Program) (t : Tmp) : defsOf prog t ≠ some .gas := by
+  unfold defsOf
+  cases hf : (List.find? (fun p => p.1 == t)
+      (prog.blocks.toList.flatMap (fun b =>
+        b.stmts.filterMap (fun
+          | .assign t .gas       => some (t, Expr.slot (slotOf t))
+          | .assign t e          => some (t, e)
+          | .call ⟨_, _, some t⟩ => some (t, Expr.slot (slotOf t))
+          | _                    => none)))) with
+  | none => simp
+  | some pr =>
+      simp only [Option.map_some, ne_eq, Option.some.injEq]
+      have hmem := List.mem_of_find?_eq_some hf
+      obtain ⟨b, _, hbmem⟩ := List.mem_flatMap.mp hmem
+      obtain ⟨s, _, hsmap⟩ := List.mem_filterMap.mp hbmem
+      -- `pr.2` is one of the filterMap outputs; none is `.gas`.
+      cases s with
+      | assign t' e' =>
+          cases e' with
+          | gas => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
+          | imm w => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
+          | tmp t'' => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
+          | add a b => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
+          | lt a b => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
+          | sload k => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
+          | slot n => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
+      | sstore _ _ => simp at hsmap
+      | call cs =>
+          obtain ⟨callee, gasFwd, rt⟩ := cs
+          cases rt with
+          | none => simp at hsmap
+          | some t'' =>
+              simp only [Option.some.injEq] at hsmap
+              rw [← hsmap]; simp
 
 /-! ## Allocation: the default policy
 

@@ -145,9 +145,32 @@ theorem Corr.validJumps_lower {prog : Program} {sloadChg : Tmp → ℕ} {obs : W
 
 /-! ## `emitStmt`/byte-length reductions for the three statement shapes -/
 
-/-- `assign` emits no bytes. -/
-@[simp] theorem emitStmt_assign (defs : Tmp → Option Expr) (fuel : Nat) (t : Tmp) (e : Expr) :
-    emitStmt defs fuel (.assign t e) = [] := rfl
+/-- A **rematerialised** `assign` (the tmp is not spilled to a slot) emits no bytes. -/
+theorem emitStmt_assign_remat (defs : Tmp → Option Expr) (fuel : Nat) (t : Tmp) (e : Expr)
+    (h : ∀ n, defs t ≠ some (.slot n)) :
+    emitStmt defs fuel (.assign t e) = [] := by
+  show (match defs t with
+        | some (.slot n) =>
+            materialiseExpr defs fuel e ++ emitImm (UInt256.ofNat n) ++ [Byte.mstore]
+        | _ => []) = []
+  cases hd : defs t with
+  | none => rfl
+  | some loc => cases loc with
+    | slot n => exact absurd hd (h n)
+    | _ => rfl
+
+/-- A **spilled** `assign` (the tmp lives in `slot n`) stashes `materialise e ++ PUSH n ++
+MSTORE` — computed once at the def-site. For gas (`e = .gas`, `materialise .gas = [GAS]`)
+this is the `[GAS] ++ PUSH n ++ MSTORE` stash. -/
+theorem emitStmt_assign_slot (defs : Tmp → Option Expr) (fuel : Nat) (t : Tmp) (e : Expr)
+    {n : Nat} (h : defs t = some (.slot n)) :
+    emitStmt defs fuel (.assign t e)
+      = materialiseExpr defs fuel e ++ emitImm (UInt256.ofNat n) ++ [Byte.mstore] := by
+  show (match defs t with
+        | some (.slot n) =>
+            materialiseExpr defs fuel e ++ emitImm (UInt256.ofNat n) ++ [Byte.mstore]
+        | _ => []) = _
+  rw [h]
 
 /-- `sstore` lowers to `materialise value ++ materialise key ++ [SSTORE]`. -/
 @[simp] theorem emitStmt_sstore (defs : Tmp → Option Expr) (fuel : Nat) (key value : Tmp) :
@@ -165,16 +188,20 @@ so `M1`/`M2`/`M3`/`M5`/`canModify` survive verbatim and `DefsSound` is re-establ
 ties (`SloadRealises`/`GasRealises` over `st'`) are the honest downstream-supplied
 side-conditions, threaded in as for `materialise_runs`. -/
 
-/-- **`sim_stmt`, the `assign` arm.** From `Corr` at `(L, pc)` and an `EvalStmt` step of
-`assign t e`, the *same* frame `fr` is in correspondence with the post-state `st'` at
-cursor `(L, pc+1)`: the lowered segment is empty (`Runs.refl`), the working stack stays
-`[]`. Given the per-step B3 scoping (`StepScoped`) and the post-state realisability ties.
--/
+/-- **`sim_stmt`, the rematerialised `assign` arm.** From `Corr` at `(L, pc)` and an
+`EvalStmt` step of `assign t e` whose target is **not** spilled to a slot (`hremat`), the
+*same* frame `fr` is in correspondence with the post-state `st'` at cursor `(L, pc+1)`: the
+lowered segment is empty (`Runs.refl`), the working stack stays `[]`. Given the per-step B3
+scoping (`StepScoped`) and the post-state realisability ties.
+
+The spilled (gas) arm — `defsOf prog t = some (.slot n)`, which emits the `[GAS] ++ PUSH n
+++ MSTORE` stash — is `sim_assign_gas` below. -/
 theorem sim_assign {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {o : V2.CallOracle} {st st' : V2.IRState} {T T' : Trace} {t : Tmp} {e : Expr}
     {L : Label} {b : Block} {pc : Nat} {fr : Frame}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some (.assign t e))
+    (hremat : ∀ n, defsOf prog t ≠ some (.slot n))
     (hcorr : Corr prog sloadChg obs st fr L pc)
     (hstep : EvalStmt prog o st T (.assign t e) st' T')
     (hsc : StepScoped prog st (.assign t e))
@@ -186,9 +213,10 @@ theorem sim_assign {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     (hmem' : MemRealises prog st' fr) :
     Runs fr fr ∧ Corr prog sloadChg obs st' fr L (pc + 1) ∧ fr.exec.stack = [] := by
   refine ⟨Runs.refl fr, ?_, hcorr.stack_nil⟩
-  -- pc advance: emitStmt of assign is empty, so the next cursor coincides.
+  -- pc advance: emitStmt of a rematerialised assign is empty, so the next cursor coincides.
   have hpc : pcOf prog L (pc + 1) = pcOf prog L pc := by
-    rw [pcOf_succ prog L b pc (.assign t e) hb hs, emitStmt_assign]; simp
+    rw [pcOf_succ prog L b pc (.assign t e) hb hs,
+        emitStmt_assign_remat (defsOf prog) (recomputeFuel prog) t e hremat]; simp
   -- DefsSound survives via B3.
   have hsound' : DefsSound prog st' := defsSound_preserved hstep hsc hcorr.defsSound
   -- world is untouched by the assign (both arms only setLocal), so M3 survives.
@@ -869,6 +897,155 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
           LirLean.MemAlgebra.mstore_preserves_slot_grow resumeFr.exec.toMachineState
             (UInt256.ofNat slot) (UInt256.ofNat slot') flag hslot63' hslotplat' hcm ham hdisN'
         exact ⟨hmem', hact', hreal, hval'.trans hval⟩
+
+/-! ## Arm 1′ — `assign t .gas` through the spill (Phase B, the gas value channel)
+
+A **gas-defined** tmp is no longer rematerialised — it is spilled to its memory slot
+`slotOf t` (`defsOf prog t = some (.slot (slotOf t))`, `emitStmt .assign` emits the stash
+`[GAS] ++ PUSH (slotOf t) ++ MSTORE`). The gas value is read **once**, at this clean
+statement boundary (empty stack), and reused from memory (`MLOAD`) on every use — so it is
+multi-use-safe and the `GAS` opcode runs exactly once per gas read.
+
+The value tie is **local and positional** (no `∀`-over-frames, no constancy): the single
+`GAS` opcode at the def-site reports `ofUInt64 (fr.gas − Gbase)`, and the IR binds `t` to the
+*consumed* read `obs`; the genuine descending-gas run provides `obs = ofUInt64 (fr.gas −
+Gbase)` (`hgasval`) — one read, one frame. This replaces the vacuous universal
+`Lir.GasRealises obs fr` entirely: the gas value lives in the slot, tied by `MemRealises`.
+
+Mirroring `sim_call_stmt`'s Route-B result arm, the GAS;PUSH;MSTORE stash run and its frame
+pins are taken as a supplied tail hypothesis `hstash` (the honest runtime ties the caller
+discharges, exactly as the call's `htail`); the value stored is `obs` (the positional tie
+folds in). The arm re-establishes the full `Corr` at `pc+1`, including `MemRealises` for the
+just-bound gas slot (coverage + readback `= obs`) and preservation of every other bound slot
+across the (disjoint) gas-slot MSTORE. -/
+
+/-- **`sim_stmt`, the spilled `assign t .gas` arm (Phase B).** From `Corr` at `(L, pc)`, an
+`EvalStmt.assignGas` step binding `t := obs`, the positional gas value tie `obs = ofUInt64
+(fr.gas − Gbase)` (`hgasval`), and the supplied GAS;PUSH;MSTORE stash run `hstash` (writing
+`obs` to `slotOf t`), running the lowered stash reaches a frame `endFr` in `Corr` with
+`st.setLocal t obs` at `(L, pc+1)`, stack `[]`. The gas value lives in `slotOf t`, tied by
+`MemRealises`; no gas universal is used. -/
+theorem sim_assign_gas {prog : Program} {sloadChg : Tmp → ℕ} {obs ob : Word}
+    {st : V2.IRState} {t : Tmp}
+    {L : Label} {b : Block} {pc : Nat} {fr : Frame}
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hs : b.stmts[pc]? = some (.assign t .gas))
+    (hslotdef : defsOf prog t = some (.slot (slotOf t)))
+    (hcorr : Corr prog sloadChg obs st fr L pc)
+    (hsc : StepScoped prog st (.assign t .gas))
+    -- every registered slot is `slotOf` (the `WellFormed` invariant; pins disjointness):
+    (hslots : ∀ tw slot', defsOf prog tw = some (.slot slot') → slot' = slotOf tw)
+    -- the post-state scoping/realisability (downstream-supplied); the bound gas read is `ob`:
+    (hscoped' : ∀ t', (st.setLocal t ob).locals t' ≠ none →
+      (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
+      ∧ defsOf prog t' ≠ none)
+    (hsload' : SloadRealises sloadChg (st.setLocal t ob) fr)
+    -- the supplied GAS;PUSH;MSTORE stash run + its pins (the honest runtime tie, as the call
+    -- arm's `htail`); `slotOf t` addressable, and `endFr` writes the **consumed gas read** `ob`
+    -- at `slotOf t` — the honest positional one-read value tie (no constancy, no `∀`-frames):
+    (hstash :
+        (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
+        ∧ ∃ endFr,
+            Runs fr endFr
+          ∧ endFr.exec.toMachineState
+              = fr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) ob
+          ∧ endFr.exec.pc = fr.exec.pc + UInt32.ofNat (emitStmt (defsOf prog) (recomputeFuel prog)
+                (.assign t .gas)).length
+          ∧ endFr.exec.executionEnv.code = fr.exec.executionEnv.code
+          ∧ endFr.validJumps = fr.validJumps
+          ∧ endFr.exec.executionEnv.address = fr.exec.executionEnv.address
+          ∧ endFr.exec.executionEnv.canModifyState = fr.exec.executionEnv.canModifyState
+          ∧ (∀ k, selfStorage endFr k = selfStorage fr k)
+          ∧ endFr.exec.stack = []) :
+    ∃ endFr, Runs fr endFr ∧ Corr prog sloadChg obs (st.setLocal t ob) endFr L (pc + 1)
+      ∧ endFr.exec.stack = [] := by
+  classical
+  obtain ⟨hslot63, hslotplat, endFr, hendrun, hendmem, hendpc, hendcode,
+    hendvalid, hendaddr, hendcanmod, hendstorage, hendstk⟩ := hstash
+  set slot := slotOf t with hsdef
+  set st' := st.setLocal t ob with hst'def
+  refine ⟨endFr, hendrun, ?_, hendstk⟩
+  -- slot addressability collapses (`(ofNat slot).toNat = slot`).
+  have hslotlt256 : slot < 2 ^ 256 := by
+    have : (2 : Nat) ^ 64 ≤ 2 ^ 256 := Nat.pow_le_pow_right (by norm_num) (by norm_num)
+    omega
+  have hslotEq : (UInt256.ofNat slot).toNat = slot := by
+    rw [LirLean.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt hslotlt256]
+  have hslot63' : (UInt256.ofNat slot).toNat + 63 < 2 ^ 64 := by rw [hslotEq]; exact hslot63
+  have hslotplat' : (UInt256.ofNat slot).toNat < 2 ^ System.Platform.numBits := by
+    rw [hslotEq]; exact hslotplat
+  -- DefsSound survives the gas rebind (B3): `t` is non-recomputable (gas), excluded.
+  have hsound' : DefsSound prog st' := by
+    obtain ⟨_, hgasArm⟩ := hsc
+    obtain ⟨hgasdef, hscope⟩ := hgasArm rfl
+    exact defsSound_preserved_assignGas hgasdef hscope hcorr.defsSound
+  -- pc advance.
+  have hpcN : pcOf prog L (pc + 1)
+      = pcOf prog L pc + (emitStmt (defsOf prog) (recomputeFuel prog) (.assign t .gas)).length :=
+    pcOf_succ prog L b pc (.assign t .gas) hb hs
+  refine
+    { pc_eq := by rw [hendpc, hcorr.pc_eq, hpcN, UInt32.ofNat_add]
+      code_eq := by rw [hendcode]; exact hcorr.code_eq
+      validJumps_eq := by rw [hendvalid, hendcode]; exact hcorr.validJumps_eq
+      stack_nil := hendstk
+      can_modify := by rw [hendcanmod]; exact hcorr.can_modify
+      storage := ?_
+      defsSound := hsound'
+      wellScoped := hscoped'
+      sloadReal := by exact hsload'.transport hendaddr
+      gasReal := ?_
+      memAgree := ?_ }
+  · -- M3: the stash writes memory, not storage; self-lens preserved (`hendstorage`).
+    intro key
+    show selfStorage endFr key = st'.world key
+    rw [hendstorage key]; exact hcorr.storage key
+  · -- the (legacy) universal gas tie transports verbatim by address (`hendaddr`); it is no
+    -- longer load-bearing for gas (the value lives in the slot, tied by `memAgree`).
+    exact hcorr.gasReal.transport hendaddr
+  · -- memAgree: the just-bound gas slot holds `ob` (the consumed read); other bound slots
+    -- survive the disjoint MSTORE.
+    intro tw slot' v hdef hloc
+    by_cases htw : tw = t
+    · -- the just-bound gas tmp `t`: `slot' = slotOf t = slot`, `v = ob`.
+      subst htw
+      have hvob : v = ob := by
+        have : st'.locals tw = some ob := by rw [hst'def]; simp [V2.IRState.setLocal]
+        rw [this] at hloc; exact (Option.some.inj hloc).symm
+      have hslot'eq : slot' = slot := by rw [show slot = slotOf tw from rfl]; exact hslots tw slot' hdef
+      subst hslot'eq; subst hvob
+      refine ⟨?_, ?_, hslot63, ?_⟩
+      · rw [hendmem]
+        have := LirLean.MemAlgebra.mstore_memory_size fr.exec.toMachineState
+          (UInt256.ofNat slot) v (by rw [hslotEq]; exact hslotplat)
+        rw [hslotEq] at this; show (UInt256.ofNat slot).toNat + 32 ≤ _; rw [hslotEq]; exact this
+      · rw [hendmem]
+        have := LirLean.MemAlgebra.mstore_activeWords_covers fr.exec.toMachineState
+          (UInt256.ofNat slot) v hslot63'
+        rw [hslotEq] at this; show (UInt256.ofNat slot).toNat + 32 ≤ _; rw [hslotEq]; exact this
+      · rw [hendmem]
+        exact LirLean.MemAlgebra.mstore_reads_back fr.exec.toMachineState
+          (UInt256.ofNat slot) v hslot63' hslotplat'
+    · -- another bound tmp `tw ≠ t`: unchanged value; its slot survives the disjoint MSTORE.
+      have hloc0 : st.locals tw = some v := by
+        rw [hst'def] at hloc; simpa [V2.IRState.setLocal, htw] using hloc
+      obtain ⟨hcm, ham, hreal, hval⟩ := hcorr.memAgree tw slot' v hdef hloc0
+      have hslot'lt256 : slot' < 2 ^ 256 := by
+        have : (2 : Nat) ^ 64 ≤ 2 ^ 256 := Nat.pow_le_pow_right (by norm_num) (by norm_num)
+        omega
+      have hslot'Eq : (UInt256.ofNat slot').toNat = slot' := by
+        rw [LirLean.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt hslot'lt256]
+      have hslot'def : slot' = slotOf tw := hslots tw slot' hdef
+      have htwne : t.id ≠ tw.id := fun h => htw (by cases t; cases tw; cases h; rfl)
+      have hdisN : slot + 32 ≤ slot' ∨ slot' + 32 ≤ slot := by
+        rw [hsdef, hslot'def]; exact LirLean.MemAlgebra.slot_windows_disjoint t.id tw.id htwne
+      rw [hendmem]
+      have hdisN' : (UInt256.ofNat slot').toNat + 32 ≤ (UInt256.ofNat slot).toNat
+          ∨ (UInt256.ofNat slot).toNat + 32 ≤ (UInt256.ofNat slot').toNat := by
+        rw [hslotEq, hslot'Eq]; exact hdisN.symm
+      obtain ⟨hmem', hact', hval'⟩ :=
+        LirLean.MemAlgebra.mstore_preserves_slot_grow fr.exec.toMachineState
+          (UInt256.ofNat slot) (UInt256.ofNat slot') ob hslot63' hslotplat' hcm ham hdisN'
+      exact ⟨hmem', hact', hreal, hval'.trans hval⟩
 
 end Lir
 

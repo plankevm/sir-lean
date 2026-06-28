@@ -1238,7 +1238,8 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
                       exact ⟨slot, Option.some.inj this⟩
                   have he'ng : e' ≠ .gas := by
                     rintro rfl
-                    exact hnr (Or.inl (show isGasDef prog t by rw [isGasDef, ← hdefs, ht]))
+                    -- `defs t = some .gas` is impossible: gas tmps are spilled to `.slot`.
+                    exact defsOf_ne_gas prog t (by rw [← hdefs]; exact ht)
                   have hdfs : some w = V2.evalExpr st 0 e' :=
                     hsound t e' w (by rw [← hdefs, ht]) hnr hloc
                   have heval' : V2.evalExpr st obs e' = some w := by

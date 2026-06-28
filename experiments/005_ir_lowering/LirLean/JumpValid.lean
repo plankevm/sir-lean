@@ -243,7 +243,28 @@ then `SSTORE`, `call` is five `emitImm 0`, two materialised operands, then `CALL
 theorem segAligned_emitStmt (defs : Tmp → Option Expr) (fuel : Nat) (s : Stmt) :
     SegAligned (emitStmt defs fuel s) := by
   cases s with
-  | assign t e => exact .nil
+  | assign t e =>
+      -- alloc-native: a spilled (`.slot n`) tmp stashes `materialise e ++ PUSH n ++ MSTORE`;
+      -- a rematerialised tmp emits nothing.
+      rw [show emitStmt defs fuel (.assign t e)
+            = (match defs t with
+               | some (.slot n) =>
+                   materialiseExpr defs fuel e ++ emitImm (UInt256.ofNat n) ++ [Byte.mstore]
+               | _ => []) from rfl]
+      cases defs t with
+      | none => exact .nil
+      | some loc =>
+          cases loc with
+          | imm => exact .nil
+          | tmp => exact .nil
+          | add => exact .nil
+          | lt => exact .nil
+          | sload => exact .nil
+          | gas => exact .nil
+          | slot n =>
+              exact ((segAligned_materialiseExpr defs fuel e).append
+                      (segAligned_emitImm (UInt256.ofNat n))).append
+                    (SegAligned.nonpush Byte.mstore (by decide))
   | sstore key value =>
       rw [show emitStmt defs fuel (.sstore key value)
             = materialise defs fuel value ++ materialise defs fuel key ++ [Byte.sstore] from rfl]

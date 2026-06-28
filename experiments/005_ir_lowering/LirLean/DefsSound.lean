@@ -86,10 +86,14 @@ def isCallResult (prog : Program) (t : Tmp) : Prop :=
   ∃ b ∈ prog.blocks.toList, ∃ cs : CallSpec,
     Stmt.call cs ∈ b.stmts ∧ cs.resultTmp = some t
 
-/-- Is `t` defined by `Expr.gas` in the program's recompute environment? Phrased on
-`defsOf` (the env `materialiseExpr` actually consults) so it lines up with B1. -/
+/-- Is `t` the target of an `assign t .gas` somewhere in the program? Phrased
+**syntactically** (on the source statements) rather than on `defsOf`: after Phase B a
+gas-defined tmp is registered in `defsOf` as the spill-load `Expr.slot (slotOf t)` (it is
+stashed once and read back from memory, never re-emitting `GAS`), so the old
+`defsOf prog t = some .gas` characterisation no longer fires. The syntactic form is what
+`gasAssignTmps`/`WellFormedDec` already use, and what the gas value-channel keys on. -/
 def isGasDef (prog : Program) (t : Tmp) : Prop :=
-  defsOf prog t = some .gas
+  ∃ b ∈ prog.blocks.toList, Stmt.assign t .gas ∈ b.stmts
 
 /-- A tmp whose value recompute-on-use would **not** reproduce: gas-defined or a
 call result. `DefsSound` ranges over the complement; `WellFormed` bounds these to
@@ -146,9 +150,9 @@ def WellFormedDec (prog : Program) : Prop :=
 instance (prog : Program) : Decidable (WellFormedDec prog) := by
   unfold WellFormedDec; infer_instance
 
-/-- Every `NonRecomputable` tmp is in `nonRecomputableTmps`. (`isGasDef` is via `defsOf`,
-which `find?`-selects a gas assign ⇒ the tmp has an `assign _ .gas` ⇒ it is in
-`gasAssignTmps`; `isCallResult` lands in `callResultTmps` directly.) -/
+/-- Every `NonRecomputable` tmp is in `nonRecomputableTmps`. (`isGasDef` is the
+syntactic `∃ assign t .gas`, landing `t` directly in `gasAssignTmps`; `isCallResult`
+lands in `callResultTmps`.) -/
 theorem nonRecomputable_mem_dec {prog : Program} {t : Tmp}
     (h : NonRecomputable prog t) : t ∈ nonRecomputableTmps prog := by
   unfold nonRecomputableTmps
@@ -156,40 +160,13 @@ theorem nonRecomputable_mem_dec {prog : Program} {t : Tmp}
   cases h with
   | inl hgas =>
       left
-      -- isGasDef: defsOf prog t = some .gas ⇒ a `(t, .gas)` pair was found ⇒ assign t .gas exists.
-      unfold isGasDef defsOf at hgas
-      -- hgas : (pairs.find? key).map (·.2) = some .gas
-      obtain ⟨pr, hfound, hpe⟩ := Option.map_eq_some_iff.mp hgas
-      have hmem := List.mem_of_find?_eq_some hfound
-      have hkey' : pr.1 = t := by
-        have := List.find?_some hfound
-        simpa using this
-      -- pr = (t, .gas) ∈ pairs ⇒ assign t .gas exists ⇒ t ∈ gasAssignTmps.
-      obtain ⟨b, hb, hbmem⟩ := List.mem_flatMap.mp hmem
-      obtain ⟨s, hs, hsmap⟩ := List.mem_filterMap.mp hbmem
+      -- isGasDef: `∃ b, assign t .gas ∈ b.stmts` ⇒ `t ∈ gasAssignTmps`.
+      obtain ⟨b, hb, hsmem⟩ := hgas
       unfold gasAssignTmps
       rw [List.mem_flatMap]
       refine ⟨b, hb, ?_⟩
       rw [List.mem_filterMap]
-      refine ⟨s, hs, ?_⟩
-      cases s with
-      | assign t' e' =>
-          simp only [] at hsmap
-          have hpair : (t', e') = pr := Option.some.inj hsmap
-          have ht' : t' = t := by rw [← hkey', ← hpair]
-          have he' : e' = .gas := by rw [← hpe, ← hpair]
-          subst ht'; subst he'; rfl
-      | sstore _ _ => simp at hsmap
-      | call cs =>
-          -- `defsOf`'s `.call` arm yields `some (_, .slot _)` (or `none`); either way
-          -- `pr.2 = .gas` is impossible, since a call never registers a `.gas` body.
-          obtain ⟨callee, gasFwd, rt⟩ := cs
-          cases rt with
-          | none => simp at hsmap
-          | some t' =>
-              simp only [Option.some.injEq] at hsmap
-              rw [← hsmap] at hpe
-              exact absurd hpe (by simp)
+      exact ⟨.assign t .gas, hsmem, rfl⟩
   | inr hcall =>
       right
       obtain ⟨b, hb, cs, hcsmem, hres⟩ := hcall
@@ -363,15 +340,15 @@ argument is identical to the pure case: rebinding `t` is stable on any prior
 agreement, given define-before-use (`hscope`). This is exactly how `WellFormed`'s
 single-use accounting lands: the gas value is never recomputed via `defsOf`.
 
-The hypothesis `hgasdef : defsOf prog t = some .gas` is the consistency fact that `t`
-is the program's gas definition (true on the concrete programs by `decide`). -/
+The hypothesis `hgasdef : isGasDef prog t` is the consistency fact that `t` is a gas
+definition of the program (`∃ b, assign t .gas ∈ b.stmts`). -/
 
 /-- **Preservation of `DefsSound` across `assign t .gas`.** The gas-bound tmp is
 excluded from `DefsSound` (it is `NonRecomputable`); other tmps are stable under
 rebinding `t`, given define-before-use. -/
 theorem defsSound_preserved_assignGas {prog : Program} {st : IRState}
     {t : Tmp} {obs : Word}
-    (hgasdef : defsOf prog t = some .gas)
+    (hgasdef : isGasDef prog t)
     (hscope : ∀ t₀ e₀, defsOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0)
     (hsound : DefsSound prog st) :
     DefsSound prog (st.setLocal t obs) := by
@@ -379,7 +356,7 @@ theorem defsSound_preserved_assignGas {prog : Program} {st : IRState}
   by_cases heq : t₀ = t
   · -- t₀ = t is gas-defined ⇒ NonRecomputable, contradicting hnr₀.
     subst heq
-    exact absurd (Or.inl (show isGasDef prog t₀ from hgasdef)) hnr₀
+    exact absurd (Or.inl hgasdef) hnr₀
   · have hl' : st.locals t₀ = some w₀ := by
       rw [setLocal_locals_ne heq] at hlocal₀; exact hlocal₀
     have hprev : some w₀ = evalExpr st 0 e₀ := hsound t₀ e₀ w₀ hdef₀ hnr₀ hl'
@@ -520,7 +497,7 @@ def StepScoped (prog : Program) (st : IRState) : Stmt → Prop
         defsOf prog t = some e ∧ usesInExpr t e = 0 ∧
         (∀ t₀ e₀, defsOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0))
       ∧ (e = .gas →
-        defsOf prog t = some .gas ∧
+        isGasDef prog t ∧
         (∀ t₀ e₀, defsOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0))
   | .sstore _ _ =>
       ∀ t₀ e₀, defsOf prog t₀ = some e₀ → ¬ NonRecomputable prog t₀ →
