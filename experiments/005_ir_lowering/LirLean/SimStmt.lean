@@ -26,9 +26,10 @@ V2-native fusion of:
 * `M3` storage through `StorageAgree` (`selfStorage fr key = st.world key`, the
   `find?/lookupStorage` lens both sides read);
 * `DefsSound prog st` (B3) — recompute-on-use soundness;
-* the **B1 realisability side-conditions** `SloadRealises sloadChg st fr` /
-  `GasRealises obs fr` — the honest runtime ties (SLOAD warmth-cost, GAS value) the
-  realised trace supplies, threaded so the `materialise_runs` calls discharge.
+* the **B1 realisability side-condition** `SloadRealises sloadChg st fr` — the honest SLOAD
+  warmth-cost tie the realised trace supplies, threaded so the `materialise_runs` calls discharge.
+  (There is **no** gas universal: gas is spilled, so its value lives in a memory slot tied by
+  `memAgree`/`MemRealises`, the honest positional one-read value at the def-site — Phase B.)
 
 The bundle is *re-establishable at `pc+1`*: each arm shows the post-frame satisfies
 `Corr … st' fr' L (pc+1)`. The pc advance is `pcOf_succ` (one more statement's
@@ -125,8 +126,6 @@ structure Corr (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
     ∧ defsOf prog t ≠ none
   /-- B1 — SLOAD warmth-cost realisability. -/
   sloadReal  : SloadRealises sloadChg st fr
-  /-- B1 — GAS value realisability. -/
-  gasReal    : GasRealises obs fr
   /-- The memory value channel: the frame's memory realises the IR's bound call-result
   locals (coverage + readback value at each call-result slot). The memory analogue of
   `sloadReal`/`gasReal`; supplied to the `materialise_runs` calls, preserved by
@@ -209,7 +208,6 @@ theorem sim_assign {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.slot slot))
       ∧ defsOf prog t ≠ none)
     (hsload' : SloadRealises sloadChg st' fr)
-    (hgas' : GasRealises obs fr)
     (hmem' : MemRealises prog st' fr) :
     Runs fr fr ∧ Corr prog sloadChg obs st' fr L (pc + 1) ∧ fr.exec.stack = [] := by
   refine ⟨Runs.refl fr, ?_, hcorr.stack_nil⟩
@@ -234,7 +232,6 @@ theorem sim_assign {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       defsSound := hsound'
       wellScoped := hscoped'
       sloadReal := hsload'
-      gasReal := hgas'
       memAgree := hmem' }
   intro key
   rw [hworld]; exact hcorr.storage key
@@ -389,7 +386,7 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
   have hstkv : fr.exec.stack.size + (chargeOf defs sloadChg fuel (.tmp value)).length ≤ 1024 := by
     rw [hszfr]; omega
   obtain ⟨frv, hmrv⟩ := materialise_runs sloadChg fuel st obs (.tmp value) vw fr
-    hdv hcorr.defsSound hcorr.wellScoped hcorr.storage hcorr.sloadReal hcorr.gasReal hcorr.memAgree
+    hdv hcorr.defsSound hcorr.wellScoped hcorr.storage hcorr.sloadReal (by nofun) hcorr.memAgree
     hevv hgasv hstkv
   -- frv facts
   have hvcode : frv.exec.executionEnv.code = fr.exec.executionEnv.code := hmrv.code
@@ -409,7 +406,7 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
   obtain ⟨frk, hmrk⟩ := materialise_runs sloadChg fuel st obs (.tmp key) kw frv
     hdk' hcorr.defsSound hcorr.wellScoped
     (hcorr.storage.transport hmrv.storage) (hcorr.sloadReal.transport hmrv.addr)
-    (hcorr.gasReal.transport hmrv.addr) (hcorr.memAgree.transport hmrv.memBytes hmrv.memActive)
+    (by nofun) (hcorr.memAgree.transport hmrv.memBytes hmrv.memActive)
     hevk hgask hstkk
   -- frk facts
   have hkcode : frk.exec.executionEnv.code = fr.exec.executionEnv.code := by
@@ -452,7 +449,6 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         defsSound := ?_
         wellScoped := ?_
         sloadReal := ?_
-        gasReal := ?_
         memAgree := ?_ }
     · -- pc: (fr.pc + lv + lk) + 1 = ofNat (pcOf + (lv+lk+1)).
       rw [sstoreFrame_pc, hkpc, hcorr.pc_eq, hpcN,
@@ -491,11 +487,6 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       have hgaddr' : g.exec.executionEnv.address = fr.exec.executionEnv.address := by
         rw [hgaddr, hfraddr, hkaddr]
       exact hcorr.sloadReal g kt keyk hgaddr' hloc'
-    · -- GAS realisability over the post-frame: same self address as `fr`.
-      intro g hgaddr
-      have hgaddr' : g.exec.executionEnv.address = fr.exec.executionEnv.address := by
-        rw [hgaddr, hfraddr, hkaddr]
-      exact hcorr.gasReal g hgaddr'
     · -- memory value channel: SSTORE preserves memory bytes + activeWords (writes storage,
       -- not memory); `setStorage` leaves `locals`, so `MemRealises` transports through the chain.
       intro tw slot v hdef hloc
@@ -635,7 +626,6 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.slot slot))
       ∧ defsOf prog t ≠ none)
     (hsload' : SloadRealises sloadChg st' resumeFr)
-    (hgas' : GasRealises obs resumeFr)
     -- the Route-B tail's realisability (decode anchors + gas + memory-expansion witness),
     -- supplied at the resume frame — the honest runtime ties the eventual caller discharges:
     (htail : ∀ flag : Word, resumeFr.exec.stack = flag :: [] →
@@ -729,7 +719,6 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         defsSound := hsound'
         wellScoped := hscoped'
         sloadReal := ?_
-        gasReal := ?_
         memAgree := ?_ }
     · -- M1
       rw [popFrame_pc, hrespc, hcallpc, hfrpc, hpcN,
@@ -749,7 +738,6 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       exact hM3 key
     · -- SLOAD realisability: POP preserves env; transport `hsload'` to the popped frame.
       exact hsload'.transport (by rw [popFrame_addr])
-    · intro g hgaddr; exact hgas' g (by rw [hgaddr, popFrame_addr])
     · -- memAgree: `st'.locals = st.locals`, POP preserves memory bytes + activeWords.
       have hloceq : st' = { st with world := fun key => evmCallOracle.postStorage result pd self key } := by
         rw [hst', hr]
@@ -793,7 +781,6 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         defsSound := hsound'
         wellScoped := hscoped'
         sloadReal := ?_
-        gasReal := ?_
         memAgree := ?_ }
     · -- M1
       rw [hendpc, hrespc, hcallpc, hfrpc, hpcN,
@@ -826,7 +813,6 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
           exact hsload' g' k' key' hg' hl'
         · exact hsload' g' k' key' hg' hl'
       exact hsl.transport hendaddr g kt keyk hgaddr hloc
-    · intro g hgaddr; exact hgas' g (by rw [hgaddr, hendaddr])
     · -- memAgree: the heart. New slot binds flag; other call-result slots preserved.
       -- `endFr.memory = resumeFr.memory.mstore slot flag` (`hendmem`).
       intro tw slot' v hdef hloc
@@ -993,15 +979,11 @@ theorem sim_assign_gas {prog : Program} {sloadChg : Tmp → ℕ} {obs ob : Word}
       defsSound := hsound'
       wellScoped := hscoped'
       sloadReal := by exact hsload'.transport hendaddr
-      gasReal := ?_
       memAgree := ?_ }
   · -- M3: the stash writes memory, not storage; self-lens preserved (`hendstorage`).
     intro key
     show selfStorage endFr key = st'.world key
     rw [hendstorage key]; exact hcorr.storage key
-  · -- the (legacy) universal gas tie transports verbatim by address (`hendaddr`); it is no
-    -- longer load-bearing for gas (the value lives in the slot, tied by `memAgree`).
-    exact hcorr.gasReal.transport hendaddr
   · -- memAgree: the just-bound gas slot holds `ob` (the consumed read); other bound slots
     -- survive the disjoint MSTORE.
     intro tw slot' v hdef hloc

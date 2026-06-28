@@ -226,7 +226,6 @@ theorem lower_conforms_acyclic {prog : Program} {w₀ : V2.World} {self : Accoun
     (hstore : StorageAgree { locals := fun _ => none, world := w₀ } (codeFrame p (lower prog)))
     (hsload : SloadRealises sloadChg { locals := fun _ => none, world := w₀ }
                 (codeFrame p (lower prog)))
-    (hgasr : GasRealises obs (codeFrame p (lower prog)))
     (hgasj : GasConstants.Gjumpdest ≤ p.gas.toNat)
     -- WELL-FORMEDNESS via acyclicity (replaces `WellFormedLowered`; no `MatFueled` carried):
     (hwf : AcyclicWellFormed prog)
@@ -236,7 +235,7 @@ theorem lower_conforms_acyclic {prog : Program} {w₀ : V2.World} {self : Accoun
       TermTies prog sloadChg obs (realisedCall log self) self L b)
     (hir : V2.IRRun prog (realisedCall log self) w₀ (realisedGas log) O) :
     O.world = (observe self log.observable).world :=
-  lower_conforms_wf hwl hp hmod hentry0 hbentry hbound hstore hsload hgasr hgasj
+  lower_conforms_wf hwl hp hmod hentry0 hbentry hbound hstore hsload hgasj
     (wellFormedLowered_of_acyclic hwf) hstmtties htermties hir
 
 /-! ## `hir` discharged — the single-`stop`-block world-channel theorem
@@ -269,7 +268,6 @@ theorem lower_conforms_acyclic_stop {prog : Program} {w₀ : V2.World} {self : A
     (hstore : StorageAgree { locals := fun _ => none, world := w₀ } (codeFrame p (lower prog)))
     (hsload : SloadRealises sloadChg { locals := fun _ => none, world := w₀ }
                 (codeFrame p (lower prog)))
-    (hgasr : GasRealises obs (codeFrame p (lower prog)))
     (hgasj : GasConstants.Gjumpdest ≤ p.gas.toNat)
     (hwf : AcyclicWellFormed prog)
     (hstmtties : ∀ (L : Label) (b : Block), blockAt prog L = some b →
@@ -281,7 +279,7 @@ theorem lower_conforms_acyclic_stop {prog : Program} {w₀ : V2.World} {self : A
     (hdef : V2.StmtsDefinable { locals := fun _ => none, world := w₀ } bentry.stmts) :
     (V2.stmtsPost { locals := fun _ => none, world := w₀ } bentry.stmts).world
       = (observe self log.observable).world :=
-  lower_conforms_acyclic hwl hp hmod hentry0 hbentry hbound hstore hsload hgasr hgasj
+  lower_conforms_acyclic hwl hp hmod hentry0 hbentry hbound hstore hsload hgasj
     hwf hstmtties htermties
     (V2.irRun_exists_stop (o := realisedCall log self) (T := realisedGas log)
       hbentry hterm hdef)
@@ -292,7 +290,7 @@ discharged.** As `lower_conforms_acyclic_stop`, but the IR initial world is fixe
 frame's own self-storage lens `selfStorage (codeFrame p (lower prog))`, which discharges the
 entry STORAGE tie `hstore` **definitionally** (`entry_storageAgree_codeFrame`, by `rfl`). So
 *both* `hir` (constructed) and `hstore` (definitional) residuals are eliminated — the surviving
-entry-frame ties are exactly the genuine recording-correspondence ones (`hsload`/`hgasr`, which
+entry-frame ties are exactly the genuine recording-correspondence ones (`hsload`, which
 constrain every same-address frame's warmth/gas). -/
 theorem lower_conforms_acyclic_stop_canonical {prog : Program} {self : AccountAddress}
     {p : CallParams} {log : RunLog} {bentry : Block}
@@ -306,7 +304,6 @@ theorem lower_conforms_acyclic_stop_canonical {prog : Program} {self : AccountAd
     (hsload : SloadRealises sloadChg
                 { locals := fun _ => none, world := selfStorage (codeFrame p (lower prog)) }
                 (codeFrame p (lower prog)))
-    (hgasr : GasRealises obs (codeFrame p (lower prog)))
     (hgasj : GasConstants.Gjumpdest ≤ p.gas.toNat)
     (hwf : AcyclicWellFormed prog)
     (hstmtties : ∀ (L : Label) (b : Block), blockAt prog L = some b →
@@ -322,7 +319,7 @@ theorem lower_conforms_acyclic_stop_canonical {prog : Program} {self : AccountAd
         bentry.stmts).world
       = (observe self log.observable).world :=
   lower_conforms_acyclic_stop hwl hp hmod hentry0 hbentry hbound
-    (entry_storageAgree_codeFrame p (lower prog)) hsload hgasr hgasj
+    (entry_storageAgree_codeFrame p (lower prog)) hsload hgasj
     hwf hstmtties htermties hterm hdef
 
 /-! ## `hir` discharged for the general acyclic CFG — the multi-block world-channel theorem
@@ -358,7 +355,6 @@ theorem lower_conforms_acyclic_cfg {prog : Program} {w₀ : V2.World} {self : Ac
     (hstore : StorageAgree { locals := fun _ => none, world := w₀ } (codeFrame p (lower prog)))
     (hsload : SloadRealises sloadChg { locals := fun _ => none, world := w₀ }
                 (codeFrame p (lower prog)))
-    (hgasr : GasRealises obs (codeFrame p (lower prog)))
     (hgasj : GasConstants.Gjumpdest ≤ p.gas.toNat)
     (hwf : AcyclicWellFormed prog)
     (hstmtties : ∀ (L : Label) (b : Block), blockAt prog L = some b →
@@ -373,7 +369,7 @@ theorem lower_conforms_acyclic_cfg {prog : Program} {w₀ : V2.World} {self : Ac
   obtain ⟨O, hir⟩ :=
     V2.irRun_exists (o := realisedCall log self) (w₀ := w₀) (T := realisedGas log)
       hcfg hdef hbentry
-  exact ⟨O, lower_conforms_acyclic hwl hp hmod hentry0 hbentry hbound hstore hsload hgasr hgasj
+  exact ⟨O, lower_conforms_acyclic hwl hp hmod hentry0 hbentry hbound hstore hsload hgasj
     hwf hstmtties htermties hir⟩
 
 end Lir

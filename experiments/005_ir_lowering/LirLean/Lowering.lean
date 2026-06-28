@@ -311,7 +311,7 @@ def allocate (prog : Program) : Alloc := fun t => (defsOf prog t).map locOfExpr
 keystone — `emit (allocate prog) prog` consumes `(allocate prog).toDefs = defsOf prog`. -/
 theorem allocate_toDefs (prog : Program) : (allocate prog).toDefs = defsOf prog := by
   funext t
-  simp only [Alloc.toDefs, allocate, Option.map_map, Function.comp]
+  simp only [Alloc.toDefs, allocate, Option.map_map]
   cases defsOf prog t with
   | none => rfl
   | some e => simp [toDef_locOfExpr]

@@ -1,28 +1,35 @@
 import LirLean.V2.TieDischarge
 
 /-!
-# LirLean v2 — the honest (non-vacuous) gas realisability, contrasted with the spine's
+# LirLean v2 — gas realisability regression witnesses (the retired universal vs. the honest form)
 
-This module makes the **vacuity defect** of the spine's `Corr`-carried gas tie precise, and
-exhibits the **honest positional form** that replaces it, both *proved* — the vacuity abstractly
-(for any genuine ≥2-distinct-read run), and the non-vacuity concretely against a real
-descending-gas run (the two-read milestone `g1Read g`/`g2Read g` of `V2/Mono.lean`, exposed through
-`gReads_realisable`).
+**Phase B resolved the gas vacuity at the source** (`docs/uniform-spill-alloc-plan.md` §6): gas is
+now spilled to memory, so the conformance spine carries **no** gas universal — the gas value lives
+in its slot and is tied by `MemRealises`, with the per-gas-cursor positional value (the consumed
+read) supplied at the `assign` def-site (`sim_assign_gas`). The headline hypotheses
+(`entry_corr`/`lower_conforms*`) no longer carry any `hgasr`.
 
-## The defect (`MaterialiseRuns.lean`, `Lir.GasRealises`)
+This module is now the **regression record**: it keeps the two *proved* facts that motivated the
+fix — (1) the OLD `Lir.GasRealises` universal (still defined in `MaterialiseRuns.lean`, but used
+only here and in `V2/TieDischarge.lean`'s positional discharge, never in the spine) is
+**unsatisfiable** for any genuine ≥2-distinct-read run; and (2) the honest **positional**
+`Oracle.GasRealises` IS satisfiable by a real descending-gas run — checked against the two-read
+milestone `g1Read g`/`g2Read g` of `V2/Mono.lean` (exposed through `gReads_realisable`). These stand
+as the non-vacuity evidence for the design and guard against any regression to a constant-gas tie.
 
-The spine carries a **single fixed** gas word `obs : Word` through `Corr`, with the realisability
-predicate stated as a **universal over every same-address frame**:
+## The retired universal (`MaterialiseRuns.lean`, `Lir.GasRealises`)
+
+The former spine tie carried a **single fixed** gas word `obs : Word`, stated as a **universal over
+every same-address frame**:
 
 ```
 Lir.GasRealises obs fr  :=  ∀ g, g.addr = fr.addr → obs = ofUInt64 (g.gasAvailable − Gbase)
 ```
 
 A real EVM run's gas **strictly descends**, so two distinct GAS reads at the *same* address report
-two *distinct* words. The universal then forces one word to equal both — it is
-**unsatisfiable**. Carried at the entry frame (`entry_corr`/`lower_conforms*`'s `hgasr`
-hypothesis), it makes the conformance headline **vacuous on the gas axis**: the hypothesis it
-quantifies over cannot hold for any run that reads gas more than once.
+two *distinct* words. The universal then forces one word to equal both — it is **unsatisfiable**,
+so carrying it at the entry frame made the headline vacuous on the gas axis. (Phase B removed it
+from the spine entirely; the def survives only as this regression witness's subject.)
 
 `gasRealises_universal_unsatisfiable` proves this abstractly: a *single* later same-address frame
 whose GAS-output word differs already refutes the universal, for every `obs`.

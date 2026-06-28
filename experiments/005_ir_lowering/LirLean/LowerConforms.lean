@@ -326,7 +326,6 @@ def CallRealises (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (o : V2.
           | none   => { st0 with world := fun key =>
                           evmCallOracle.postStorage result pd fr0.exec.executionEnv.address key })
         resumeFr
-    ∧ GasRealises obs resumeFr
     -- the Route-B tail's realisability (decode anchors + gas + memory-expansion witness):
     ∧ (∀ flag : Word, resumeFr.exec.stack = flag :: [] →
         (∀ (t : Tmp), cs.resultTmp = some t →
@@ -363,7 +362,7 @@ theorem simStmtStep_call {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       ∧ fr0'.exec.stack = [] := by
   obtain ⟨result, pd, callFr, resumeFr, argsLen, hsc, hosame, hargslen, hargs, hcallpc, hcallmem,
     hcallactive, hcallreturns, hresume, hresaddr, hrescode, hrescanmod, hrespc, hresstack,
-    hresmem, hresactive, hresvalidjumps, hscoped', hsload', hgas', htail⟩ := hcall hcorr
+    hresmem, hresactive, hresvalidjumps, hscoped', hsload', htail⟩ := hcall hcorr
   set self := fr0.exec.executionEnv.address with hselfdef
   -- the realised post-state (with `callSuccessFlag`, matching `CallRealises`'s ties).
   set stRes : V2.IRState := (match cs.resultTmp with
@@ -406,7 +405,7 @@ theorem simStmtStep_call {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
   exact sim_call_stmt hb hget hcorr.pc_eq hargslen hargs hcallpc hcallmem hcallactive
     hselfdef hcallreturns hresume hcallee hgasfwd hstepRes hresaddr hrescode hrescanmod
     hrespc hresstack hresmem hresactive hresvalidjumps hcorr.defsSound hsc hcorr.memAgree
-    (hwf.slots_slot) hscoped' hsload' hgas' htail
+    (hwf.slots_slot) hscoped' hsload' htail
 
 /-! ### The combined statement discharge
 
@@ -437,7 +436,6 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
               (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
               ∧ defsOf prog t' ≠ none)
         ∧ SloadRealises sloadChg st0' fr0
-        ∧ GasRealises obs fr0
         ∧ MemRealises prog st0' fr0)
     -- the genuine **spilled gas** `assign t .gas`-cursor ties (Phase B): the gas value lives in
     -- `slotOf t`, written by the `[GAS] ++ PUSH ++ MSTORE` stash; `hgasassign` supplies the
@@ -488,10 +486,10 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
   cases hstep with
   | assignPure hne hv =>
     rename_i t e w
-    obtain ⟨hremat, hsc, hscoped', hsload', hgas', hmem'⟩ :=
+    obtain ⟨hremat, hsc, hscoped', hsload', hmem'⟩ :=
       hassign pc t e st0 (st0.setLocal t w) fr0 hget hcorr
     obtain ⟨_, hc', _⟩ := sim_assign hb hget hremat hcorr
-      (EvalStmt.assignPure (prog := prog) (o := o) (T := T0) hne hv) hsc hscoped' hsload' hgas' hmem'
+      (EvalStmt.assignPure (prog := prog) (o := o) (T := T0) hne hv) hsc hscoped' hsload' hmem'
     exact ⟨fr0, Runs.refl fr0, hc', hcorr.stack_nil⟩
   | assignGas =>
     rename_i ob t
@@ -1060,9 +1058,10 @@ theorem entry_storageAgree_codeFrame (p : CallParams) (code : ByteArray) :
 (`prog.entry.idx = 0`) and present, the top-level entry frame `codeFrame p (lower prog)` —
 running `lower prog` from pc 0 with empty stack, `p` modifiable — steps its leading `JUMPDEST`
 (`runs_jumpdest`) to a frame in `Corr`-correspondence with the empty-locals entry state at
-`(prog.entry, 0)`. The genuine ties (`StorageAgree`/`SloadRealises`/`GasRealises` at the entry
-frame, and the `Gjumpdest` margin) are the entry-frame realisability contract; `DefsSound` /
-`wellScoped` are vacuous at empty locals. -/
+`(prog.entry, 0)`. The genuine ties (`StorageAgree`/`SloadRealises` at the entry frame, and the
+`Gjumpdest` margin) are the entry-frame realisability contract; `DefsSound` / `wellScoped` are
+vacuous at empty locals. (The gas value channel is now `MemRealises` at the gas def-sites, not
+an entry-frame universal — Phase B.) -/
 theorem entry_corr {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} {w₀ : V2.World}
     {p : CallParams} {bentry : Block}
     (hmod : p.canModifyState = true)
@@ -1072,7 +1071,6 @@ theorem entry_corr {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} {w₀ 
     (hstore : StorageAgree { locals := fun _ => none, world := w₀ } (codeFrame p (lower prog)))
     (hsload : SloadRealises sloadChg { locals := fun _ => none, world := w₀ }
                 (codeFrame p (lower prog)))
-    (hgasr : GasRealises obs (codeFrame p (lower prog)))
     (hgas : GasConstants.Gjumpdest ≤ p.gas.toNat) :
     ∃ fr₀, Runs (codeFrame p (lower prog)) fr₀
       ∧ Corr prog sloadChg obs { locals := fun _ => none, world := w₀ } fr₀ prog.entry 0 := by
@@ -1102,7 +1100,7 @@ theorem entry_corr {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} {w₀ 
   have hgas' : GasConstants.Gjumpdest ≤ fe.exec.gasAvailable.toNat := by rw [hfe, codeFrame_gas]; exact hgas
   obtain ⟨hjdrun, hjdcorr⟩ :=
     corr_at_jumpdest_landing (st := { locals := fun _ => none, world := w₀ }) hbtl hpc hcode hvalid
-      hstk hcanmod hstore' (defsSound_entry prog w₀) (by intro t ht; simp at ht) hsload hgasr
+      hstk hcanmod hstore' (defsSound_entry prog w₀) (by intro t ht; simp at ht) hsload
       (by intro t slot v _ hloc; simp at hloc) hdec hgas'
   exact ⟨jumpdestFrame fe, hjdrun, hjdcorr⟩
 
@@ -1168,12 +1166,12 @@ theorem lower_conforms {prog : Program} {w₀ : V2.World} {self : AccountAddress
     (hbound : offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks prog.entry.idx < 2 ^ 32)
     -- the GENUINE entry-frame realisability ties (the §7 supplied-observation contract at the
     -- entry frame): the IR initial world `w₀` is the entry frame's storage lens, and the entry
-    -- SLOAD-warmth / GAS observations hold; plus the `Gjumpdest` gas margin:
+    -- SLOAD-warmth observation holds; plus the `Gjumpdest` gas margin. (The gas value channel is
+    -- now `MemRealises` at the gas def-sites — there is NO entry-frame gas universal, Phase B.)
     (hstore : StorageAgree { locals := fun _ => none, world := w₀ }
                 (codeFrame p (lower prog)))
     (hsload : SloadRealises sloadChg { locals := fun _ => none, world := w₀ }
                 (codeFrame p (lower prog)))
-    (hgasr : GasRealises obs (codeFrame p (lower prog)))
     (hgasj : GasConstants.Gjumpdest ≤ p.gas.toNat)
     -- the per-block simulations (the realisability contract over `lower prog`):
     (hstmts : ∀ (L : Label) (b : Block), blockAt prog L = some b →
@@ -1188,7 +1186,7 @@ theorem lower_conforms {prog : Program} {w₀ : V2.World} {self : AccountAddress
   -- `entry_corr`: the leading-`JUMPDEST` step lands the entry frame in `Corr` at `(entry, 0)`.
   obtain ⟨fr₀, hjdruns, hentry⟩ :=
     entry_corr (sloadChg := sloadChg) (obs := obs) (w₀ := w₀) hmod hentry0 hbentry hbound
-      hstore hsload hgasr hgasj
+      hstore hsload hgasj
   -- `sim_cfg`: from the entry `Corr`, the lowered run halts with world = O.world.
   obtain ⟨last, haltSig, hruns, hhalt, hworld⟩ :=
     sim_cfg (self := self) hstmts hterm hentry hir
@@ -1250,7 +1248,6 @@ def StmtTies (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (o : V2.Call
             (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
             ∧ defsOf prog t' ≠ none)
       ∧ SloadRealises sloadChg st0' fr0
-      ∧ GasRealises obs fr0
       ∧ MemRealises prog st0' fr0)
   ∧ (∀ (pc : Nat) (t : Tmp) (ob : Word) (st0 : V2.IRState) (fr0 : Frame),
       b.stmts[pc]? = some (.assign t .gas) →
@@ -1402,7 +1399,6 @@ theorem lower_conforms_wf {prog : Program} {w₀ : V2.World} {self : AccountAddr
     (hstore : StorageAgree { locals := fun _ => none, world := w₀ } (codeFrame p (lower prog)))
     (hsload : SloadRealises sloadChg { locals := fun _ => none, world := w₀ }
                 (codeFrame p (lower prog)))
-    (hgasr : GasRealises obs (codeFrame p (lower prog)))
     (hgasj : GasConstants.Gjumpdest ≤ p.gas.toNat)
     -- WELL-FORMEDNESS: the folded structural side-conditions.
     (hwf : WellFormedLowered prog)
@@ -1426,7 +1422,7 @@ theorem lower_conforms_wf {prog : Program} {w₀ : V2.World} {self : AccountAddr
     intro L b hbat
     obtain ⟨hsucc, hstop, hretties, hjump, hbranch⟩ := htermties L b hbat
     exact simTermStep_block (toList_of_blockAt hbat) hwf hsucc hstop hretties hjump hbranch
-  exact lower_conforms hwl hp hmod hentry0 hbentry hbound hstore hsload hgasr hgasj
+  exact lower_conforms hwl hp hmod hentry0 hbentry hbound hstore hsload hgasj
     hstmts hterm hir
 
 end Lir
