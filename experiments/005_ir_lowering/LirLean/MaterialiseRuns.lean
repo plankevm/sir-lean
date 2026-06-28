@@ -774,16 +774,19 @@ The induction mirrors `materialiseExpr` constructor-for-constructor. The value c
 B1 closes: `imm` (leaf), `tmp` (recompute via **B3** `DefsSound`), `add`/`lt` (operands
 then op, via `sim_add`/`sim_lt` and the **B2** gluing law `materialiseGasCharge_binop`),
 `sload` (key then SLOAD, via `sim_sload` + the storage lens + `materialiseGasCharge_sload`,
-under `SloadRealises`/`StorageAgree`), and `gas` (via `sim_gas` + `materialiseGasCharge_gas`,
-under `GasRealises`). The three realisability side-conditions thread through the
+under `SloadRealises`/`StorageAgree`). The `gas` arm is **unreachable** — gas is spilled, so a
+bare `Expr.gas` is never materialised (uses go via `.slot`/MLOAD; the def-site stash is run by
+`sim_assign_gas`) — and is discharged by `e ≠ .gas` (preserved across the `.tmp` recursion by
+`defsOf_ne_gas`), NOT by any gas universal. The realisability side-conditions thread through the
 recursion unchanged (quantified over the running frame; address agreement is carried by
 `MatRuns.addr`, the storage agreement by `MatRuns.storage`). -/
 
 /-- **B1 `materialise_runs` (total over `Expr`).** Running `materialiseExpr defsOf fuel
 e` from a frame `fr` whose code decodes as the bundle `MatDec` prescribes, with the IR
 state `st` recompute-sound (`DefsSound`, **B3**), the storage lens agreeing
-(`StorageAgree`) and the SLOAD/GAS realisability ties holding (`SloadRealises` /
-`GasRealises`), reproduces `evalExpr st obs e = some w` on the bytecode stack and
+(`StorageAgree`) and the SLOAD realisability tie holding (`SloadRealises`), and the
+materialised expression not a bare gas read (`e ≠ .gas`, the unreachable spilled-gas arm),
+reproduces `evalExpr st obs e = some w` on the bytecode stack and
 delivers the whole `MatRuns` bundle: the run, the pushed value (= `evalExpr`'s),
 code/address/self-storage preserved, pc advanced by the emitted byte length, and the
 **B2** gas contract `MaterialiseGasCharge`. The decode facts `MatDec` and the gas/stack
