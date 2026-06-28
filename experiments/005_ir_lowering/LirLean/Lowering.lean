@@ -72,15 +72,53 @@ def offsetBytesBE (n : Nat) : List UInt8 :=
 def wordBytesBE (w : Word) : List UInt8 :=
   (List.range 32).map (fun i => UInt8.ofNat ((w >>> (UInt256.ofNat ((31 - i) * 8))).toNat))
 
+/-! ## Allocation policy — where each tmp lives (`Loc` / `Alloc`)
+
+The lowering's per-value decision is a single *policy* choice — **rematerialise or
+spill** (`docs/uniform-spill-alloc-plan.md` §2.1). `Loc` names the two answers; an
+`Alloc` is the per-tmp policy. Today the policy reproduces the recompute-on-use
+behaviour exactly (pure exprs ⇒ `remat`, call results ⇒ `slot`); later phases route
+gas/sload to `slot` too. The mechanism (`emit`) is uniform and consults only the
+`Alloc`.
+
+`Alloc` is `Tmp → Option Loc` (partial) rather than the total `Tmp → Loc` of the
+design sketch: a tmp with **no** definition (used but never assigned — impossible in
+a `WellFormed` program) has *no* location, mirroring `defsOf`'s `none`. This keeps
+`allocate` a faithful re-presentation of `defsOf` (`allocate_toDefs`). A later phase
+can switch to the total shape once undefined tmps are ruled out by `WellFormed`. -/
+
+/-- Where a tmp's value lives: rematerialise its defining expression on each use, or
+spill it to a fixed memory slot and `MLOAD` on use. -/
+inductive Loc where
+  /-- Recompute the defining expression `e` at each use (pure, cheap, stable values). -/
+  | remat (e : Expr)
+  /-- The value lives in EVM memory at `slot n`; load it (`PUSH n; MLOAD`) on use. -/
+  | slot  (n : Nat)
+deriving DecidableEq, Repr
+
+/-- A per-tmp allocation policy. Partial (`Option`): a tmp with no definition has no
+location (the `defsOf … = none` case). -/
+abbrev Alloc := Tmp → Option Loc
+
+/-- The defining-expression a `Loc` materialises as: `remat e` recomputes `e`; a
+`slot n` is the generic spill-load `Expr.slot n` (`PUSH n; MLOAD`). -/
+def Loc.toDef : Loc → Expr
+  | .remat e => e
+  | .slot  n => .slot n
+
+/-- View an `Alloc` as the `defs : Tmp → Option Expr` environment the byte mechanism
+consumes: each located tmp materialises its `Loc.toDef`. -/
+def Alloc.toDefs (a : Alloc) : Tmp → Option Expr := fun t => (a t).map Loc.toDef
+
 /-! ## Operand materialisation (recompute-on-use)
 
 The IR is a register machine; lowering materialises each operand onto the EVM
 stack by re-emitting the push-sequence of its defining expression. We thread a
-`defs : Tmp → Option Expr` environment recording each `assign`'s right-hand side,
-and `materialise` walks it. This is the "recompute-on-use" scheme of
-`docs/ir-design.md` §4: an `assign` itself emits **no** bytes; the work happens at
-the consuming opcode, exactly as exp003's programs push a literal immediately
-before consuming it.
+`defs : Tmp → Option Expr` environment recording each tmp's location (an `Alloc`,
+read through `Alloc.toDefs`), and `materialise` walks it. This is the
+"recompute-on-use" scheme of `docs/ir-design.md` §4: an `assign` itself emits **no**
+bytes; the work happens at the consuming opcode, exactly as exp003's programs push a
+literal immediately before consuming it.
 
 `fuel` bounds the recursion structurally (an IR with cyclic tmp definitions is
 ill-formed; well-formed SSA-ish programs terminate). It is a lowering convenience,
@@ -188,6 +226,39 @@ def defsOf (prog : Program) : Tmp → Option Expr :=
         | _                    => none))
   fun t => (pairs.find? (fun p => p.1 == t)).map (·.2)
 
+/-! ## Allocation: the default policy
+
+`allocate prog` is the **policy** half of `lower = encode ∘ emit (allocate prog)`.
+The Phase-A default reproduces `defsOf` exactly: a call result (recorded by `defsOf`
+as the spill-load `Expr.slot (slotOf t)`) becomes a `Loc.slot`; every other defined
+tmp (`imm`/`add`/`lt`/`sload`/`gas`) becomes a `Loc.remat` of its defining
+expression. Future phases route gas/sload to `slot` as well (the `SoundAlloc` floor;
+`docs/uniform-spill-alloc-plan.md` §3). -/
+
+/-- Classify a defining expression into a `Loc`: an `Expr.slot` (the generic
+spill-load) is already a `Loc.slot`; everything else rematerialises. -/
+def locOfExpr : Expr → Loc
+  | .slot n => .slot n
+  | e       => .remat e
+
+/-- `Loc.toDef` is a left inverse of `locOfExpr` on every expression. -/
+@[simp] theorem toDef_locOfExpr (e : Expr) : (locOfExpr e).toDef = e := by
+  cases e <;> rfl
+
+/-- The default allocation: classify each tmp's `defsOf` definition into a `Loc`.
+Undefined tmps get no location (`none`). -/
+def allocate (prog : Program) : Alloc := fun t => (defsOf prog t).map locOfExpr
+
+/-- `allocate` is a faithful re-presentation of `defsOf`: viewing it back through
+`Alloc.toDefs` recovers `defsOf` exactly. This is the Phase-A "no behaviour change"
+keystone — `emit (allocate prog) prog` consumes `(allocate prog).toDefs = defsOf prog`. -/
+theorem allocate_toDefs (prog : Program) : (allocate prog).toDefs = defsOf prog := by
+  funext t
+  simp only [Alloc.toDefs, allocate, Option.map_map, Function.comp]
+  cases defsOf prog t with
+  | none => rfl
+  | some e => simp [toDef_locOfExpr]
+
 /-! ## Block layout (two-pass offset table) -/
 
 /-- Bytes of one block, *excluding* the leading `JUMPDEST`, given the `defs`
@@ -209,16 +280,31 @@ block lengths over `blocks[0..i)`. -/
 def offsetTable (defs : Tmp → Option Expr) (fuel : Nat) (blocks : Array Block) (i : Nat) : Nat :=
   ((blocks.toList.take i).map (blockLen defs fuel)).sum
 
-/-- **The lowering.** `lower prog` is the concatenation, in block order, of each
-block lowered as `JUMPDEST :: emitBlockBody`. Branch destinations are resolved via
-`offsetTable`. The result is a `ByteArray` that `Evm.decode` reads back as the
-intended opcode stream (verified executably in `LirLean/Decode.lean`). -/
-def lower (prog : Program) : ByteArray :=
-  let defs := defsOf prog
+/-! ## The composition: `lower = encode ∘ emit (allocate prog)`
+
+The lowering factors into a **mechanism** (`emit`, alloc-driven byte assembly) and a
+**backend** (`encode`, the offset-table-resolved byte concatenation + `ByteArray`
+wrap). `emit a prog` consumes the allocation through `Alloc.toDefs`, so the existing
+`materialise`/`emitStmt`/`emitTerm`/`emitBlockBody`/`offsetTable` machinery is reused
+verbatim. With `a := allocate prog` (whose `toDefs = defsOf prog`, `allocate_toDefs`)
+the emitted bytes are exactly the old `lower`'s (`lower_eq_flatBytes`, no longer
+`rfl` but a one-line bridge). -/
+
+/-- **Mechanism.** The flat byte list of a program under allocation `a`: each block
+lowered as `JUMPDEST :: emitBlockBody`, with branch destinations resolved via
+`offsetTable`. Reads the allocation through `Alloc.toDefs`. -/
+def emit (a : Alloc) (prog : Program) : List UInt8 :=
+  let defs := a.toDefs
   let fuel := recomputeFuel prog
   let labelOff := offsetTable defs fuel prog.blocks
-  let bytes : List UInt8 :=
-    prog.blocks.toList.flatMap (fun b => Byte.jumpdest :: emitBlockBody defs fuel labelOff b)
-  ⟨bytes.toArray⟩
+  prog.blocks.toList.flatMap (fun b => Byte.jumpdest :: emitBlockBody defs fuel labelOff b)
+
+/-- **Backend.** Wrap an emitted byte list as the `ByteArray` `Evm.decode` reads. -/
+def encode (bytes : List UInt8) : ByteArray := ⟨bytes.toArray⟩
+
+/-- **The lowering.** `lower = encode ∘ emit (allocate prog)`: allocate (policy),
+emit (mechanism), encode (backend). The result is a `ByteArray` that `Evm.decode`
+reads back as the intended opcode stream (verified executably in `LirLean/Decode.lean`). -/
+def lower (prog : Program) : ByteArray := encode (emit (allocate prog) prog)
 
 end Lir

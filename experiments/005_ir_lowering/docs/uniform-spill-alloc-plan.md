@@ -163,12 +163,20 @@ Discipline: no `sorry`/`axiom`/`native_decide`; `lake build` green and axioms ex
 `[propext, Classical.choice, Quot.sound]` at each committed checkpoint; honest interim over any
 shortcut; commit only green states.
 
-- **Phase A — structural reskin, NO behavior change (theorem-preserving).**
+- **Phase A — structural reskin, NO behavior change (theorem-preserving). ✅ DONE (2026-06-28).**
   Introduce `Loc`/`Alloc`; factor `lower` into `encode ∘ emit (allocate prog) prog` such that the
-  emitted bytes are **definitionally the old `lower`** (so downstream proofs are untouched).
-  `allocate` reproduces `defsOf` exactly (pure ⇒ `remat`, call result ⇒ `slot`). Rename
-  `Expr.callResult` → `Expr.slot` (generic spill-load) with a full call-site sweep. Build green,
-  all headline theorems unchanged. *Lowest risk; sets the structure.*
+  emitted bytes are the old `lower`'s (bridged by `allocate_toDefs`/`emit_allocate_eq_flatBytes`;
+  `lower_eq_flatBytes` is now a one-rw lemma rather than `rfl`, so downstream proofs are untouched).
+  `allocate` reproduces `defsOf` exactly (pure ⇒ `remat`, call result ⇒ `slot`). Renamed
+  `Expr.callResult` → `Expr.slot` (generic spill-load) with a full sweep. Build green (1159 jobs),
+  all headline theorems unchanged + axiom-clean. *Lowest risk; sets the structure.*
+  - **Deviation:** `Alloc := Tmp → Option Loc` (partial), not the total `Tmp → Loc` of §2.1 —
+    so the `defsOf … = none` (undefined-tmp) case round-trips exactly and no downstream theorem
+    changes. The total shape is adoptable once `WellFormed` rules out undefined tmps (a later phase).
+  - **Reused, not removed:** `defsOf`/`materialiseExpr`/`emitStmt`/`emitTerm`/`emitBlockBody`/
+    `offsetTable` are the *mechanism* `emit` drives (via `Alloc.toDefs`) and remain the canonical
+    object every downstream layout/sim proof reasons about; only the old monolithic `lower` body is
+    gone. Generalising those internals to consult `Alloc` directly is Phase B/C/D work.
 
 - **Phase B — gas through the spill (kills the gas vacuity).**
   Default `allocate` maps gas-tmps to `.slot`; `emitStmt .assign t .gas` emits the stash; uses load

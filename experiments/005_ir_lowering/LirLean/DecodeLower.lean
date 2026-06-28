@@ -38,16 +38,28 @@ open Evm
 
 /-- The flat byte list `lower prog` wraps: the per-block `JUMPDEST :: body`
 concatenation, before `toArray`/`ByteArray`. `lower prog = ⟨(flatBytes prog).toArray⟩`
-definitionally (`lower_eq_flatBytes`), so byte-indexing `lower prog` is list-indexing
-`flatBytes prog`. -/
+(`lower_eq_flatBytes`), so byte-indexing `lower prog` is list-indexing `flatBytes prog`.
+
+Stated in terms of `defsOf` (not `allocate`/`emit`) so every downstream layout proof
+that decomposes `flatBytes` over `offsetTable (defsOf …) …` is unchanged; the bridge
+to the factored `lower` is `allocate_toDefs`. -/
 def flatBytes (prog : Program) : List UInt8 :=
   let defs := defsOf prog
   let fuel := recomputeFuel prog
   let labelOff := offsetTable defs fuel prog.blocks
   prog.blocks.toList.flatMap (fun b => Byte.jumpdest :: emitBlockBody defs fuel labelOff b)
 
-/-- `lower prog` is the `ByteArray` wrapping `flatBytes prog`. -/
-theorem lower_eq_flatBytes (prog : Program) : lower prog = ⟨(flatBytes prog).toArray⟩ := rfl
+/-- `emit (allocate prog) prog` is `flatBytes prog`: `emit` runs the same per-block
+assembly over `(allocate prog).toDefs`, which is `defsOf prog` (`allocate_toDefs`). -/
+theorem emit_allocate_eq_flatBytes (prog : Program) :
+    emit (allocate prog) prog = flatBytes prog := by
+  unfold emit flatBytes; rw [allocate_toDefs]
+
+/-- `lower prog` is the `ByteArray` wrapping `flatBytes prog`. The factored
+`lower = encode ∘ emit (allocate prog)` emits exactly the old bytes via
+`emit_allocate_eq_flatBytes`. -/
+theorem lower_eq_flatBytes (prog : Program) : lower prog = ⟨(flatBytes prog).toArray⟩ := by
+  unfold lower encode; rw [emit_allocate_eq_flatBytes]
 
 /-! ## Foundation: list-backed `ByteArray` indexing -/
 
