@@ -1,6 +1,7 @@
 import LirLean.MatDecLower
 import LirLean.SimStmt
 import LirLean.SimTerm
+import LirLean.StashTail
 
 /-!
 # LirLean — discharging the carried decode bundles via `matDec_of_lower`
@@ -607,4 +608,139 @@ theorem sim_term_edge_branch_lowered {prog : Program} {sloadChg : Tmp → ℕ} {
     hthenword helseword hdpushT hdjumpi hdpushE hdjump hdjdT hdjdE
     hgpushT hgjumpi hgjdT hgpushE hgjumpE hgjdE
 
+/-! ## `assign t .gas` arm — the §7 `hstash` run **discharged** (P1)
+
+The gas spill stash `[GAS] ++ PUSH32 (slotOf t) ++ MSTORE` is the byte stream of `emitStmt …
+(.assign t .gas)` at cursor `(L, pc)`. `sim_assign_gas` previously took the *entire* stash run
+(plus its memory shape + 8 frame pins) as the supplied §7 hypothesis `hstash`. Here we **build**
+it: the three decode anchors are read off the byte layout (A2 `decode_at_offset_nonpush` for
+`GAS`/`MSTORE`, `imm_leaf_decode` for `PUSH32`), and `stash_tail_gas` (`StashTail.lean`) runs the
+three opcodes, producing exactly the honest memory-channel tie `sim_assign_gas` now consumes (the
+`.memory` bytes + `.activeWords` of `fr….mstore (slotOf t) (ofUInt64 (fr.gas − Gbase))` — the
+realised one-read gas value, `gasReadOf (gasFrame fr)`). The opaque run + the false
+full-`toMachineState` equality are **gone**; the residual is the honest runtime gas/memory-witness
+side-conditions a real descending-gas run supplies (the `GAS`/`PUSH`/`MSTORE` gas bounds + the
+`memoryExpansionWords?` witness), plus the addressability + post-state realisability — all
+genuinely satisfiable, none vacuous. -/
+
+/-- **`sim_assign_gas` with the stash run discharged (`_lowered`, P1).** Replaces the supplied
+`hstash` run with the honest runtime gas/witness side-conditions; the GAS;PUSH;MSTORE run and its
+memory-channel tie are constructed internally (decode from the byte layout + `stash_tail_gas`).
+The bound gas read is `ofUInt64 (fr.gas − Gbase)` — the realised `GAS` output. -/
+theorem sim_assign_gas_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
+    {st : V2.IRState} {t : Tmp}
+    {L : Label} {b : Block} {pc : Nat} {fr : Frame} {words' : UInt64}
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hs : b.stmts[pc]? = some (.assign t .gas))
+    (hslotdef : defsOf prog t = some (.slot (slotOf t)))
+    (hcorr : Corr prog sloadChg obs st fr L pc)
+    (hsc : StepScoped prog st (.assign t .gas))
+    (hslots : ∀ tw slot', defsOf prog tw = some (.slot slot') → slot' = slotOf tw)
+    -- addressability of `slotOf t` (a genuine `slotOf` side-condition):
+    (hslot63 : slotOf t + 63 < 2 ^ 64)
+    (hslotplat : slotOf t < 2 ^ System.Platform.numBits)
+    -- the statement's bytes fit a `UInt32` cursor:
+    (hbound : pcOf prog L pc + 34 < 2 ^ 32)
+    -- honest runtime gas / memory-expansion-witness side-conditions (the descending-gas run
+    -- supplies them — exactly the `sim_mstore`/`sim_gas` gas guards, NOT vacuous):
+    (hgasGas : GasConstants.Gbase ≤ fr.exec.gasAvailable.toNat)
+    (hgasPush : 3 ≤ (gasFrame fr).exec.gasAvailable.toNat)
+    (hmem : memoryExpansionWords?
+      (pushFrameW (gasFrame fr) (UInt256.ofNat (slotOf t)) 32).exec.activeWords
+      (UInt256.ofNat (slotOf t)) 32 = some words')
+    (hgasMem : BytecodeLayer.Dispatch.memExpansionChargeOf
+      (pushFrameW (gasFrame fr) (UInt256.ofNat (slotOf t)) 32).exec words'
+        ≤ (pushFrameW (gasFrame fr) (UInt256.ofNat (slotOf t)) 32).exec.gasAvailable.toNat)
+    (hgasMstore : GasConstants.Gverylow
+      ≤ ((pushFrameW (gasFrame fr) (UInt256.ofNat (slotOf t)) 32).exec.gasAvailable
+          - UInt64.ofNat (BytecodeLayer.Dispatch.memExpansionChargeOf
+              (pushFrameW (gasFrame fr) (UInt256.ofNat (slotOf t)) 32).exec words')).toNat)
+    -- the post-state scoping / SLOAD realisability (downstream-supplied; the bound read is the
+    -- realised `GAS` output `ofUInt64 (fr.gas − Gbase)`):
+    (hscoped' : ∀ t', (st.setLocal t
+          (UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase))).locals t' ≠ none →
+        (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
+        ∧ defsOf prog t' ≠ none)
+    (hsload' : SloadRealises sloadChg (st.setLocal t
+          (UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase))) fr) :
+    ∃ endFr, Runs fr endFr
+      ∧ Corr prog sloadChg obs (st.setLocal t
+          (UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase))) endFr L (pc + 1)
+      ∧ endFr.exec.stack = [] := by
+  set defs := defsOf prog with hdefs
+  set fuel := recomputeFuel prog with hfuel
+  set slot := slotOf t with hslotvar
+  -- the gas stash byte stream: `[GAS] ++ emitImm (ofNat slot) ++ [MSTORE]`, length 35.
+  have hgasmat : materialiseExpr defs fuel .gas = [Byte.gas] := by
+    have hf1 : 1 ≤ fuel := by rw [hfuel]; unfold recomputeFuel; omega
+    obtain ⟨f, hf⟩ := Nat.exists_eq_add_of_lt hf1
+    rw [show fuel = f + 1 from by omega]; rfl
+  have hemit : emitStmt defs fuel (.assign t .gas)
+      = [Byte.gas] ++ emitImm (UInt256.ofNat slot) ++ [Byte.mstore] := by
+    rw [emitStmt_assign_slot defs fuel t .gas hslotdef, hgasmat]
+  have hemitlen : (emitStmt defs fuel (.assign t .gas)).length = 35 := by
+    rw [hemit]; simp only [List.length_append, List.length_singleton, emitImm_length]
+  -- byte-segment facts in `flatBytes prog` at the cursor `pcOf prog L pc`.
+  have hseg : ∀ k, k < 35 →
+      (flatBytes prog)[pcOf prog L pc + k]? = (emitStmt defs fuel (.assign t .gas))[k]? := by
+    intro k hk
+    exact flatBytes_at_pcOf_offset prog L b pc (.assign t .gas) k hb hs (by rw [hemitlen]; omega)
+  -- decode the three opcodes over `lower prog`.
+  -- GAS at offset 0.
+  have hdgas : decode (lower prog) (UInt32.ofNat (pcOf prog L pc)) = some (.Smsf .GAS, .none) := by
+    have h := decode_at_offset_nonpush prog L b pc (.assign t .gas) 0 Byte.gas hb hs
+      (by rw [hemitlen]; omega) (by rw [hemit]; rfl) (by omega) (by decide)
+    simpa using h
+  -- PUSH32 (ofNat slot) at offset 1 (its 32 immediate bytes round-trip via `imm_leaf_decode`).
+  have hdpush : decode (lower prog) (UInt32.ofNat (pcOf prog L pc + 1))
+      = some (.Push .PUSH32, some (UInt256.ofNat slot, 32)) := by
+    apply imm_leaf_decode prog (pcOf prog L pc + 1) (UInt256.ofNat slot) (by omega)
+    intro j hj
+    have hk := hseg (1 + j) (by rw [emitImm_length] at hj; omega)
+    rw [show pcOf prog L pc + (1 + j) = pcOf prog L pc + 1 + j from by ring] at hk
+    rw [hk, hemit]
+    rw [List.getElem?_append_left (by rw [List.length_append, List.length_singleton]; omega),
+        List.getElem?_append_right (by simp), show (1 + j - [Byte.gas].length) = j from by simp]
+  -- MSTORE at offset 34.
+  have hdmstore : decode (lower prog) (UInt32.ofNat (pcOf prog L pc + 34))
+      = some (.Smsf .MSTORE, .none) := by
+    have h := decode_at_offset_nonpush prog L b pc (.assign t .gas) 34 Byte.mstore hb hs
+      (by rw [hemitlen]; omega)
+      (by rw [hemit]
+          rw [List.getElem?_append_right (by simp [emitImm_length]),
+              show 34 - ([Byte.gas] ++ emitImm (UInt256.ofNat slot)).length = 0 from by
+                simp [emitImm_length]]
+          rfl)
+      (by omega) (by decide)
+    simpa using h
+  -- assemble the stash run via `stash_tail_gas`, anchored at `fr` (`pc_eq`/`code_eq`).
+  have hfrpc : fr.exec.pc = UInt32.ofNat (pcOf prog L pc) := hcorr.pc_eq
+  have hfrcode : fr.exec.executionEnv.code = lower prog := hcorr.code_eq
+  have hdgas' : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .GAS, .none) := by
+    rw [hfrcode, hfrpc]; exact hdgas
+  have hdpush' : decode fr.exec.executionEnv.code (fr.exec.pc + UInt32.ofNat 1)
+      = some (.Push .PUSH32, some (UInt256.ofNat slot, 32)) := by
+    rw [hfrcode, hfrpc, ofNat_add']; exact hdpush
+  have hdmstore' : decode fr.exec.executionEnv.code (fr.exec.pc + UInt32.ofNat 1 + UInt32.ofNat 33)
+      = some (.Smsf .MSTORE, .none) := by
+    rw [hfrcode, hfrpc, ofNat_add', ofNat_add',
+        show pcOf prog L pc + 1 + 33 = pcOf prog L pc + 34 from by omega]
+    exact hdmstore
+  obtain ⟨endFr, hrun, hmembytes, hmemactive, hpc, hcode, hvalid, haddr, hcanmod, haccounts,
+      hstorage, hstkEnd⟩ :=
+    stash_tail_gas fr slot words' hcorr.stack_nil hdgas' hdpush' hdmstore' hgasGas hgasPush
+      hmem hgasMem hgasMstore
+  -- feed `sim_assign_gas` the constructed stash bundle (honest memory-channel tie shape).
+  refine sim_assign_gas hb hs hslotdef hcorr hsc hslots hscoped' hsload' ?_
+  refine ⟨hslot63, hslotplat, endFr, hrun, hmembytes, hmemactive, ?_, hcode, hvalid, haddr,
+    hcanmod, hstorage, hstkEnd⟩
+  -- pc: `stash_tail_gas` advances by 35 = the emit length.
+  rw [hpc, hemitlen]
+
 end Lir
+
+-- Build-enforced axiom-cleanliness guard for the P1 gas-stash discharge: `sim_assign_gas_lowered`
+-- constructs the GAS;PUSH;MSTORE stash run internally (decode layout + `stash_tail_gas`),
+-- replacing the supplied opaque `hstash` run; it depends only on `[propext, Classical.choice,
+-- Quot.sound]`.
+#print axioms Lir.sim_assign_gas_lowered

@@ -332,8 +332,13 @@ def CallRealises (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (o : V2.
           (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
           ∧ ∃ endFr,
               Runs resumeFr endFr
-            ∧ endFr.exec.toMachineState
-                = resumeFr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) flag
+            -- honest memory channel (`.memory` bytes + `.activeWords`, NOT the over-constrained
+            -- full `toMachineState` — gas is a `MachineState` field a real run never preserves;
+            -- this is exactly what `stash_tail_runs` constructs):
+            ∧ endFr.exec.toMachineState.memory
+                = (resumeFr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) flag).memory
+            ∧ endFr.exec.toMachineState.activeWords
+                = (resumeFr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) flag).activeWords
             ∧ endFr.exec.pc = resumeFr.exec.pc + UInt32.ofNat 34
             ∧ endFr.exec.executionEnv.code = resumeFr.exec.executionEnv.code
             ∧ endFr.validJumps = resumeFr.validJumps
@@ -437,33 +442,41 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
               ∧ defsOf prog t' ≠ none)
         ∧ SloadRealises sloadChg st0' fr0
         ∧ MemRealises prog st0' fr0)
-    -- the genuine **spilled gas** `assign t .gas`-cursor ties (Phase B): the gas value lives in
-    -- `slotOf t`, written by the `[GAS] ++ PUSH ++ MSTORE` stash; `hgasassign` supplies the
-    -- slot registration, the post-state scoping/SLOAD ties, and the supplied stash run — the
-    -- honest positional one-read tie (the stored value is the consumed read `ob`):
+    -- the genuine **spilled gas** `assign t .gas`-cursor ties (Phase B, P1): the gas value lives
+    -- in `slotOf t`, written by the `[GAS] ++ PUSH ++ MSTORE` stash. **The stash run is no longer
+    -- supplied** — `sim_assign_gas_lowered` (P1) *constructs* it from the decode layout +
+    -- `stash_tail_gas`; `hgasassign` now supplies only the honest residual: the slot registration,
+    -- the **positional gas value tie** `ob = ofUInt64 (fr0.gas − Gbase)` (the realised one-read
+    -- `GAS` output — no `∀`-frames, no constancy), the addressability + pc-bound, the runtime
+    -- gas/memory-expansion-witness side-conditions (the descending-gas run supplies them), and the
+    -- post-state scoping/SLOAD ties:
     (hgasassign : ∀ (pc : Nat) (t : Tmp) (ob : Word) (st0 : V2.IRState) (fr0 : Frame),
         b.stmts[pc]? = some (.assign t .gas) →
         Corr prog sloadChg obs st0 fr0 L pc →
         defsOf prog t = some (.slot (slotOf t))
         ∧ StepScoped prog st0 (.assign t .gas)
         ∧ (∀ tw slot', defsOf prog tw = some (.slot slot') → slot' = slotOf tw)
+        -- the positional gas value tie: the consumed read is the realised `GAS` output:
+        ∧ ob = UInt256.ofUInt64 (fr0.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase)
         ∧ (∀ t', (st0.setLocal t ob).locals t' ≠ none →
               (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
               ∧ defsOf prog t' ≠ none)
         ∧ SloadRealises sloadChg (st0.setLocal t ob) fr0
         ∧ ((slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
-          ∧ ∃ endFr,
-              Runs fr0 endFr
-            ∧ endFr.exec.toMachineState
-                = fr0.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) ob
-            ∧ endFr.exec.pc = fr0.exec.pc + UInt32.ofNat (emitStmt (defsOf prog)
-                  (recomputeFuel prog) (.assign t .gas)).length
-            ∧ endFr.exec.executionEnv.code = fr0.exec.executionEnv.code
-            ∧ endFr.validJumps = fr0.validJumps
-            ∧ endFr.exec.executionEnv.address = fr0.exec.executionEnv.address
-            ∧ endFr.exec.executionEnv.canModifyState = fr0.exec.executionEnv.canModifyState
-            ∧ (∀ k, selfStorage endFr k = selfStorage fr0 k)
-            ∧ endFr.exec.stack = []))
+          ∧ pcOf prog L pc + 34 < 2 ^ 32
+          ∧ GasConstants.Gbase ≤ fr0.exec.gasAvailable.toNat
+          ∧ 3 ≤ (gasFrame fr0).exec.gasAvailable.toNat
+          ∧ ∃ words' : UInt64,
+              memoryExpansionWords?
+                (pushFrameW (gasFrame fr0) (UInt256.ofNat (slotOf t)) 32).exec.activeWords
+                (UInt256.ofNat (slotOf t)) 32 = some words'
+            ∧ BytecodeLayer.Dispatch.memExpansionChargeOf
+                (pushFrameW (gasFrame fr0) (UInt256.ofNat (slotOf t)) 32).exec words'
+                  ≤ (pushFrameW (gasFrame fr0) (UInt256.ofNat (slotOf t)) 32).exec.gasAvailable.toNat
+            ∧ GasConstants.Gverylow
+                ≤ ((pushFrameW (gasFrame fr0) (UInt256.ofNat (slotOf t)) 32).exec.gasAvailable
+                    - UInt64.ofNat (BytecodeLayer.Dispatch.memExpansionChargeOf
+                        (pushFrameW (gasFrame fr0) (UInt256.ofNat (slotOf t)) 32).exec words')).toNat))
     -- the genuine `sstore`-cursor ties (the §7 supplied-observation contract):
     (hsstore : ∀ (pc : Nat) (key value : Tmp) (kw vw : Word) (st0 : V2.IRState) (fr0 : Frame),
         b.stmts[pc]? = some (.sstore key value) →
@@ -493,9 +506,13 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     exact ⟨fr0, Runs.refl fr0, hc', hcorr.stack_nil⟩
   | assignGas =>
     rename_i ob t
-    obtain ⟨hslotdef, hsc, hslots, hscoped', hsload', hstash⟩ :=
+    obtain ⟨hslotdef, hsc, hslots, hobeq, hscoped', hsload',
+      hslot63, hslotplat, hpcbound, hgasGas, hgasPush, words', hmem, hgasMem, hgasMstore⟩ :=
       hgasassign pc t ob st0 fr0 hget hcorr
-    exact sim_assign_gas hb hget hslotdef hcorr hsc hslots hscoped' hsload' hstash
+    -- the positional gas value tie pins the consumed read to the realised `GAS` output.
+    subst hobeq
+    exact sim_assign_gas_lowered hb hget hslotdef hcorr hsc hslots hslot63 hslotplat hpcbound
+      hgasGas hgasPush hmem hgasMem hgasMstore hscoped' hsload'
   | sstore hk hv =>
     rename_i key value kw vw
     obtain ⟨hsc, hgas, hstk, ⟨acc, hsr⟩, hnz⟩ := hsstore pc key value kw vw st0 fr0 hget hcorr hk hv
@@ -1255,23 +1272,28 @@ def StmtTies (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (o : V2.Call
       defsOf prog t = some (.slot (slotOf t))
       ∧ StepScoped prog st0 (.assign t .gas)
       ∧ (∀ tw slot', defsOf prog tw = some (.slot slot') → slot' = slotOf tw)
+      -- the positional gas value tie: the consumed read is the realised `GAS` output (P1; the
+      -- stash run is no longer in the tie — `sim_assign_gas_lowered` constructs it):
+      ∧ ob = UInt256.ofUInt64 (fr0.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase)
       ∧ (∀ t', (st0.setLocal t ob).locals t' ≠ none →
             (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
             ∧ defsOf prog t' ≠ none)
       ∧ SloadRealises sloadChg (st0.setLocal t ob) fr0
       ∧ ((slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
-        ∧ ∃ endFr,
-            Runs fr0 endFr
-          ∧ endFr.exec.toMachineState
-              = fr0.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) ob
-          ∧ endFr.exec.pc = fr0.exec.pc + UInt32.ofNat (emitStmt (defsOf prog)
-                (recomputeFuel prog) (.assign t .gas)).length
-          ∧ endFr.exec.executionEnv.code = fr0.exec.executionEnv.code
-          ∧ endFr.validJumps = fr0.validJumps
-          ∧ endFr.exec.executionEnv.address = fr0.exec.executionEnv.address
-          ∧ endFr.exec.executionEnv.canModifyState = fr0.exec.executionEnv.canModifyState
-          ∧ (∀ k, selfStorage endFr k = selfStorage fr0 k)
-          ∧ endFr.exec.stack = []))
+        ∧ pcOf prog L pc + 34 < 2 ^ 32
+        ∧ GasConstants.Gbase ≤ fr0.exec.gasAvailable.toNat
+        ∧ 3 ≤ (gasFrame fr0).exec.gasAvailable.toNat
+        ∧ ∃ words' : UInt64,
+            memoryExpansionWords?
+              (pushFrameW (gasFrame fr0) (UInt256.ofNat (slotOf t)) 32).exec.activeWords
+              (UInt256.ofNat (slotOf t)) 32 = some words'
+          ∧ BytecodeLayer.Dispatch.memExpansionChargeOf
+              (pushFrameW (gasFrame fr0) (UInt256.ofNat (slotOf t)) 32).exec words'
+                ≤ (pushFrameW (gasFrame fr0) (UInt256.ofNat (slotOf t)) 32).exec.gasAvailable.toNat
+          ∧ GasConstants.Gverylow
+              ≤ ((pushFrameW (gasFrame fr0) (UInt256.ofNat (slotOf t)) 32).exec.gasAvailable
+                  - UInt64.ofNat (BytecodeLayer.Dispatch.memExpansionChargeOf
+                      (pushFrameW (gasFrame fr0) (UInt256.ofNat (slotOf t)) 32).exec words')).toNat))
   ∧ (∀ (pc : Nat) (key value : Tmp) (kw vw : Word) (st0 : V2.IRState) (fr0 : Frame),
       b.stmts[pc]? = some (.sstore key value) →
       Corr prog sloadChg obs st0 fr0 L pc →

@@ -634,10 +634,16 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
         ∧ ∃ endFr,
             Runs resumeFr endFr
-          -- the MSTORE tail writes `flag` at `slotOf t` onto `resumeFr`'s machine state
-          -- (the push + gas-charges leave the memory bytes / activeWords of `resumeFr`):
-          ∧ endFr.exec.toMachineState
-              = resumeFr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) flag
+          -- the MSTORE tail writes `flag` at `slotOf t` onto `resumeFr`'s machine state. The
+          -- honest channel is the `.memory` bytes + `.activeWords` (NOT the full `toMachineState`:
+          -- the push + gas-charges drop gas, a `MachineState` field a real run never preserves —
+          -- the full equality is over-constrained / unsatisfiable; only the bytes + activeWords,
+          -- which `MemRealises`/`Corr` read, are honest and true). This is exactly what
+          -- `stash_tail_runs` constructs:
+          ∧ endFr.exec.toMachineState.memory
+              = (resumeFr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) flag).memory
+          ∧ endFr.exec.toMachineState.activeWords
+              = (resumeFr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) flag).activeWords
           ∧ endFr.exec.pc = resumeFr.exec.pc + UInt32.ofNat 34
           ∧ endFr.exec.executionEnv.code = resumeFr.exec.executionEnv.code
           ∧ endFr.validJumps = resumeFr.validJumps
@@ -747,7 +753,7 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         tw slot v hdef hloc
   | some t =>
     -- PUSH slot; MSTORE tail: `endFr` writes `mem[slotOf t] = flag`, stack `[]`.
-    obtain ⟨hslot63, hslotplat, endFr, hendrun, hendmem, hendpc, hendcode,
+    obtain ⟨hslot63, hslotplat, endFr, hendrun, hendmembytes, hendmemactive, hendpc, hendcode,
       hendvalid, hendaddr, hendcanmod, hendstorage, hendstk⟩ := htailSome t hr
     set flag := callSuccessFlag result pd with hflag
     set slot := slotOf t with hslotdef
@@ -833,21 +839,21 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         -- coverage + readback at the just-written slot.
         refine ⟨?_, ?_, hslot63, ?_⟩
         · -- memory.size ≥ slot + 32
-          rw [hendmem]
+          rw [hendmembytes]
           have := LirLean.MemAlgebra.mstore_memory_size resumeFr.exec.toMachineState
             (UInt256.ofNat slot) flag (by rw [hslotEq]; exact hslotplat)
           rw [hslotEq] at this
           show (UInt256.ofNat slot).toNat + 32 ≤ _
           rw [hslotEq]; exact this
         · -- activeWords*32 ≥ slot + 32
-          rw [hendmem]
+          rw [hendmemactive]
           have := LirLean.MemAlgebra.mstore_activeWords_covers resumeFr.exec.toMachineState
             (UInt256.ofNat slot) flag hslot63'
           rw [hslotEq] at this
           show (UInt256.ofNat slot).toNat + 32 ≤ _
           rw [hslotEq]; exact this
-        · -- readback = flag
-          rw [hendmem]
+        · -- readback = flag (`endFr` agrees with `resumeFr….mstore` on memory + activeWords).
+          rw [LirLean.MemAlgebra.mload_congr (UInt256.ofNat slot) hendmembytes hendmemactive]
           exact LirLean.MemAlgebra.mstore_reads_back resumeFr.exec.toMachineState
             (UInt256.ofNat slot) flag hslot63' hslotplat'
       · -- another bound tmp `tw ≠ t`: its `st.locals tw` value is unchanged; if it's a
@@ -874,7 +880,6 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         -- result slot `slotOf t` may grow memory past the disjoint, covered slot `slotOf tw`,
         -- yet leaves its coverage and readback intact. Window-disjointness is the 32-aligned
         -- slot fact; the `slot' + 63 < 2^64` realisability clause carries over from `hreal`.
-        rw [hendmem]
         -- the disjointness in the lemma's orientation (`s + 32 ≤ addr ∨ addr + 32 ≤ s`):
         have hdisN' : (UInt256.ofNat slot').toNat + 32 ≤ (UInt256.ofNat slot).toNat
             ∨ (UInt256.ofNat slot).toNat + 32 ≤ (UInt256.ofNat slot').toNat := by
@@ -882,7 +887,13 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         obtain ⟨hmem', hact', hval'⟩ :=
           LirLean.MemAlgebra.mstore_preserves_slot_grow resumeFr.exec.toMachineState
             (UInt256.ofNat slot) (UInt256.ofNat slot') flag hslot63' hslotplat' hcm ham hdisN'
-        exact ⟨hmem', hact', hreal, hval'.trans hval⟩
+        -- `endFr` agrees with `resumeFr….mstore slot flag` on memory + activeWords (supplied), so
+        -- the disjoint slot `slot'` keeps coverage + readback on `endFr`.
+        refine ⟨?_, ?_, hreal, ?_⟩
+        · rw [hendmembytes]; exact hmem'
+        · rw [hendmemactive]; exact hact'
+        · rw [LirLean.MemAlgebra.mload_congr (UInt256.ofNat slot') hendmembytes hendmemactive]
+          exact hval'.trans hval
 
 /-! ## Arm 1′ — `assign t .gas` through the spill (Phase B, the gas value channel)
 
@@ -928,13 +939,21 @@ theorem sim_assign_gas {prog : Program} {sloadChg : Tmp → ℕ} {obs ob : Word}
     (hsload' : SloadRealises sloadChg (st.setLocal t ob) fr)
     -- the supplied GAS;PUSH;MSTORE stash run + its pins (the honest runtime tie, as the call
     -- arm's `htail`); `slotOf t` addressable, and `endFr` writes the **consumed gas read** `ob`
-    -- at `slotOf t` — the honest positional one-read value tie (no constancy, no `∀`-frames):
+    -- at `slotOf t` — the honest positional one-read value tie (no constancy, no `∀`-frames).
+    -- The memory channel is stated as the `.memory` bytes + `.activeWords` (NOT the full
+    -- `toMachineState`): the gas the stash drops is a `MachineState` field a real run never
+    -- preserves, so the full-`toMachineState` equality is over-constrained / unsatisfiable —
+    -- only the bytes + activeWords (which `MemRealises`/`Corr` read) are honest and true. This is
+    -- exactly what `stash_tail_gas` (`StashTail.lean`) constructs; `sim_assign_gas_lowered`
+    -- discharges it from decode + gas facts:
     (hstash :
         (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
         ∧ ∃ endFr,
             Runs fr endFr
-          ∧ endFr.exec.toMachineState
-              = fr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) ob
+          ∧ endFr.exec.toMachineState.memory
+              = (fr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) ob).memory
+          ∧ endFr.exec.toMachineState.activeWords
+              = (fr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) ob).activeWords
           ∧ endFr.exec.pc = fr.exec.pc + UInt32.ofNat (emitStmt (defsOf prog) (recomputeFuel prog)
                 (.assign t .gas)).length
           ∧ endFr.exec.executionEnv.code = fr.exec.executionEnv.code
@@ -946,7 +965,7 @@ theorem sim_assign_gas {prog : Program} {sloadChg : Tmp → ℕ} {obs ob : Word}
     ∃ endFr, Runs fr endFr ∧ Corr prog sloadChg obs (st.setLocal t ob) endFr L (pc + 1)
       ∧ endFr.exec.stack = [] := by
   classical
-  obtain ⟨hslot63, hslotplat, endFr, hendrun, hendmem, hendpc, hendcode,
+  obtain ⟨hslot63, hslotplat, endFr, hendrun, hendmembytes, hendmemactive, hendpc, hendcode,
     hendvalid, hendaddr, hendcanmod, hendstorage, hendstk⟩ := hstash
   set slot := slotOf t with hsdef
   set st' := st.setLocal t ob with hst'def
@@ -996,15 +1015,17 @@ theorem sim_assign_gas {prog : Program} {sloadChg : Tmp → ℕ} {obs ob : Word}
       have hslot'eq : slot' = slot := by rw [show slot = slotOf tw from rfl]; exact hslots tw slot' hdef
       subst hslot'eq; subst hvob
       refine ⟨?_, ?_, hslot63, ?_⟩
-      · rw [hendmem]
+      · rw [hendmembytes]
         have := LirLean.MemAlgebra.mstore_memory_size fr.exec.toMachineState
           (UInt256.ofNat slot) v (by rw [hslotEq]; exact hslotplat)
         rw [hslotEq] at this; show (UInt256.ofNat slot).toNat + 32 ≤ _; rw [hslotEq]; exact this
-      · rw [hendmem]
+      · rw [hendmemactive]
         have := LirLean.MemAlgebra.mstore_activeWords_covers fr.exec.toMachineState
           (UInt256.ofNat slot) v hslot63'
         rw [hslotEq] at this; show (UInt256.ofNat slot).toNat + 32 ≤ _; rw [hslotEq]; exact this
-      · rw [hendmem]
+      · -- readback: `endFr`'s machine state agrees with `fr….mstore slot v` on memory + activeWords
+        -- (both supplied), so `mload`'s value coincides (`mload_congr`); then `mstore_reads_back`.
+        rw [LirLean.MemAlgebra.mload_congr (UInt256.ofNat slot) hendmembytes hendmemactive]
         exact LirLean.MemAlgebra.mstore_reads_back fr.exec.toMachineState
           (UInt256.ofNat slot) v hslot63' hslotplat'
     · -- another bound tmp `tw ≠ t`: unchanged value; its slot survives the disjoint MSTORE.
@@ -1020,14 +1041,19 @@ theorem sim_assign_gas {prog : Program} {sloadChg : Tmp → ℕ} {obs ob : Word}
       have htwne : t.id ≠ tw.id := fun h => htw (by cases t; cases tw; cases h; rfl)
       have hdisN : slot + 32 ≤ slot' ∨ slot' + 32 ≤ slot := by
         rw [hsdef, hslot'def]; exact LirLean.MemAlgebra.slot_windows_disjoint t.id tw.id htwne
-      rw [hendmem]
       have hdisN' : (UInt256.ofNat slot').toNat + 32 ≤ (UInt256.ofNat slot).toNat
           ∨ (UInt256.ofNat slot).toNat + 32 ≤ (UInt256.ofNat slot').toNat := by
         rw [hslotEq, hslot'Eq]; exact hdisN.symm
       obtain ⟨hmem', hact', hval'⟩ :=
         LirLean.MemAlgebra.mstore_preserves_slot_grow fr.exec.toMachineState
           (UInt256.ofNat slot) (UInt256.ofNat slot') ob hslot63' hslotplat' hcm ham hdisN'
-      exact ⟨hmem', hact', hreal, hval'.trans hval⟩
+      -- `endFr` agrees with `fr….mstore slot ob` on memory + activeWords (both supplied), so the
+      -- disjoint slot `slot'` keeps its coverage (size/active) and readback value on `endFr`.
+      refine ⟨?_, ?_, hreal, ?_⟩
+      · rw [hendmembytes]; exact hmem'
+      · rw [hendmemactive]; exact hact'
+      · rw [LirLean.MemAlgebra.mload_congr (UInt256.ofNat slot') hendmembytes hendmemactive]
+        exact hval'.trans hval
 
 end Lir
 

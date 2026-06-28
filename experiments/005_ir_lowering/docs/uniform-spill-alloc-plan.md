@@ -194,15 +194,42 @@ shortcut; commit only green states.
   `¬ WellFormed` to **`WellFormed`** by `decide`. `HonestGasTie.lean` reframed as the regression
   record (vacuity-of-universal + satisfiability-of-positional witnesses kept), plus
   `spilled_gas_value_tie_realisable` (the per-def-site slot value = the real `GAS` output).
-  - **Deviation / honest scope:** `sim_assign_gas` takes the GAS;PUSH;MSTORE stash run + its
-    frame pins as a **supplied hypothesis** (`hstash`), exactly as `sim_call_stmt` takes the
-    call-result MSTORE tail (`htail`) — i.e. the def-site stash's memory-expansion-charge
-    bookkeeping is a per-cursor supplied runtime tie, not yet built from the recorder. It is the
-    **non-vacuous positional shape** (stores the consumed read `ob` at one frame; satisfiable by a
-    real run, witnessed by `spilled_gas_value_tie_realisable`/`gasReadOf_gasFrame_eq_obs`), NOT a
-    universal/constancy. The MemRealises value channel + Corr re-establishment + universal removal
-    are fully discharged green; only the GAS;PUSH;MSTORE *run construction* (memChargedState charge
-    arithmetic) is the supplied-tail residual, identical in status to the call arm's `htail`.
+  - **Deviation / honest scope (SUPERSEDED by P1, below):** `sim_assign_gas` took the
+    GAS;PUSH;MSTORE stash run + its frame pins as a **supplied hypothesis** (`hstash`), exactly as
+    `sim_call_stmt` takes the call-result MSTORE tail (`htail`).
+
+- **P1 — the uniform stash-tail forward lemma + gas-`hstash` discharge. ✅ DONE (2026-06-28).**
+  The keystone of the discharge effort. `LirLean/StashTail.lean` proves the `PUSH32 slot ; MSTORE`
+  stash tail **once**, parameterized over the stashed value `v` and residual stack `rest`, as a
+  forward `Runs` lemma over `lower prog`:
+  - **`stash_tail_runs`** (core): `PUSH32 slot ; MSTORE` from `stack = v :: rest` with the slot
+    addressable + the honest runtime gas facts (expansion witness + the two `sim_mstore` gas
+    bounds) → `Runs fr endFr`, the memory channel, pc + 34, frame pins, `stack = rest`.
+  - **`stash_tail_gas`** (GAS-prefix): composes one `GAS` step, stashing the realised output
+    `ofUInt64 (fr.gas − Gbase) = gasReadOf (gasFrame fr)` — the honest positional one-read value
+    (no `∀`-frames, no constancy). pc + 35.
+  - **`stash_tail_runs_covered`**: covered-slot specialization (zero expansion charge) — Phase C's
+    cached-SLOAD reuse. Reusable for gas / call / sload via the `v`/`rest`/prefix parameters.
+  - **Finding (fixed):** the old `hstash`/`htail` ties asserted `endFr.exec.toMachineState =
+    fr….mstore …`. Because `gasAvailable` is a `MachineState` field, that equality also pins gas —
+    which a real descending-gas run never preserves, so the ties were **over-constrained
+    (effectively unsatisfiable)**. The lemmas (and the reshaped `sim_assign_gas`/`sim_call_stmt`
+    ties) expose only the **honest** content `MemRealises`/`Corr` actually read: the `.memory`
+    bytes + `.activeWords` of `fr….mstore (ofNat slot) v` (gas-independent, true on a real run).
+  - **Discharge:** `sim_assign_gas_lowered` (`LirLean/LowerDecode.lean`) **constructs** the gas
+    stash run internally — decode anchors from the byte layout (A2 `decode_at_offset_nonpush` for
+    GAS/MSTORE, `imm_leaf_decode` for PUSH32) + `stash_tail_gas` — so the spine's gas arm
+    (`StmtTies`/`simStmtStep_block`/`LowerConforms`) **no longer supplies the opaque `hstash`
+    run**. The §7 gas tie now supplies only the honest residual: the positional value tie `ob =
+    ofUInt64 (fr.gas − Gbase)`, addressability + pc-bound, and the `sim_gas`/`sim_mstore` runtime
+    gas + `memoryExpansionWords?` witness — all genuinely satisfiable, none vacuous.
+  - **Call arm:** `sim_call_stmt`'s `htail` is reshaped to the same honest memory+activeWords
+    form (over-constraint removed); the call tail's `PUSH32 slot ; MSTORE` part is dischargeable by
+    the *same* `stash_tail_runs` (`v = flag`, `rest = []`), but the CALL trace itself stays
+    supplied (the `CallReturns` node is genuine §7), so the call arm keeps its `htail` (now
+    honest/satisfiable). The full call-tail `_lowered` constructor is left for the spine phase.
+  - green (1160 jobs); `stash_tail_runs`/`_covered`/`_gas`, `sim_assign_gas_lowered`,
+    `sim_call_stmt`, and all four headlines axiom-clean `[propext, Classical.choice, Quot.sound]`.
 
 - **Phase C — sload through the spill (kills the scoping wart + cost smear).**
   Default `allocate` maps sload-tmps to `.slot`; stash at def, load at use. Delete the
