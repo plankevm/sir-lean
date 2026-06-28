@@ -161,6 +161,27 @@ theorem gas_tie_vacuity_resolved (g : UInt64) (hg : 30000 ≤ g.toNat) :
    g1Read_ne_g2Read g hg,
    fun haddr hne => gasRealises_universal_unsatisfiable haddr hne⟩
 
+/-! ## The Phase-B spilled-gas value tie is satisfiable per def-site by a real run
+
+Phase B's `sim_assign_gas` ties the gas slot's stored value `ob` (the IR-bound consumed read) to
+the **single** `GAS` opcode at the def-site frame: a real run produces `ob = ofUInt64 (fr.gas −
+Gbase)` = `gasReadOf (gasFrame fr)` (`gasReadOf_gasFrame_eq_obs`). This is the honest **positional
+one-read** value tie the slot/`MemRealises` channel carries — *one frame, one read*, trivially
+realisable by every genuine descending-gas run (NOT a `∀`-over-frames constancy). Two distinct
+gas reads at two def-sites store two distinct slot values — exactly what the deleted universal
+forbade. -/
+
+/-- **The Phase-B per-def-site gas value tie is realisable.** For *any* frame `fr` (with enough gas
+for the `GAS` charge), the value a real run stores into the gas slot — `ofUInt64 (fr.gas − Gbase)` —
+is exactly the def-site `GAS` opcode's output `gasReadOf (gasFrame fr)`. This is `sim_assign_gas`'s
+stored value `ob` for a genuine run: a single read at a single frame, satisfiable for every frame
+(no constancy). Two def-sites with descending gas store two *distinct* values (`g1Read ≠ g2Read`
+specialises this) — the multi-read case the old universal could not satisfy. -/
+theorem spilled_gas_value_tie_realisable (fr : Frame) :
+    gasReadOf (gasFrame fr)
+      = UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat Gbase) :=
+  gasReadOf_gasFrame_eq_obs fr
+
 end Lir.V2
 
 -- Build-enforced axiom-cleanliness guards for the vacuity / non-vacuity deliverables.
@@ -168,3 +189,4 @@ end Lir.V2
 #print axioms Lir.V2.gasRealises_universal_unsatisfiable
 #print axioms Lir.V2.new_gasRealises_two_read_satisfiable
 #print axioms Lir.V2.gas_tie_vacuity_resolved
+#print axioms Lir.V2.spilled_gas_value_tie_realisable

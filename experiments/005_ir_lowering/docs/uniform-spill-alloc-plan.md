@@ -178,13 +178,31 @@ shortcut; commit only green states.
     object every downstream layout/sim proof reasons about; only the old monolithic `lower` body is
     gone. Generalising those internals to consult `Alloc` directly is Phase B/C/D work.
 
-- **Phase B — gas through the spill (kills the gas vacuity).**
-  Default `allocate` maps gas-tmps to `.slot`; `emitStmt .assign t .gas` emits the stash; uses load
-  from the slot. Generalize `MemRealises` to cover gas slots; replace `Lir.GasRealises` (the
-  universal) with the positional one-read tie via the existing alignment infra
-  (`V2/TieDischarge.lean`, `V2/Oracle.lean`). Remove `hgasr` from the headlines. Gas is now an
-  in-scope, honestly-tied, multi-use-safe observable. Retire `HonestGasTie.lean`'s "documented
-  vacuity" once the real fix lands (keep the satisfiability witnesses as tests).
+- **Phase B — gas through the spill (kills the gas vacuity). ✅ DONE (2026-06-28).**
+  `defsOf` maps a gas assign to `Expr.slot (slotOf t)`; `emitStmt .assign` is **alloc-native** —
+  a slot-allocated tmp's `assign` stashes `materialise e ++ PUSH n ++ MSTORE` (for gas, `[GAS] ++
+  PUSH ++ MSTORE`), rematerialised tmps still emit nothing. Uses load from the slot via the existing
+  `Expr.slot` ⇒ `PUSH;MLOAD` path. `MemRealises` already covers any `defsOf t = .slot` tmp, so it
+  now carries the gas value too; the new `sim_assign_gas` (mirroring the call-result Route-B tail)
+  runs the stash and re-establishes `Corr`, with the gas slot holding the **consumed read `ob`** —
+  the honest **positional one-read** value tie (one frame, one read), supplied as the stash
+  hypothesis. The vacuous universal `Lir.GasRealises`/`gasReal`/`hgasr` is **removed from the entire
+  conformance spine** (`Corr`, `materialise_runs` — its `.gas` arm is now `absurd rfl hne` via
+  `e ≠ .gas`, unreachable since gas is never materialised — every `sim_*`, `CallRealises`,
+  `StmtTies`, `entry_corr`, and all headlines). `WellFormed` is relaxed to restrict only call
+  results, so multi-use gas is in scope: `guardIR` (reads its first gas value twice) flips from
+  `¬ WellFormed` to **`WellFormed`** by `decide`. `HonestGasTie.lean` reframed as the regression
+  record (vacuity-of-universal + satisfiability-of-positional witnesses kept), plus
+  `spilled_gas_value_tie_realisable` (the per-def-site slot value = the real `GAS` output).
+  - **Deviation / honest scope:** `sim_assign_gas` takes the GAS;PUSH;MSTORE stash run + its
+    frame pins as a **supplied hypothesis** (`hstash`), exactly as `sim_call_stmt` takes the
+    call-result MSTORE tail (`htail`) — i.e. the def-site stash's memory-expansion-charge
+    bookkeeping is a per-cursor supplied runtime tie, not yet built from the recorder. It is the
+    **non-vacuous positional shape** (stores the consumed read `ob` at one frame; satisfiable by a
+    real run, witnessed by `spilled_gas_value_tie_realisable`/`gasReadOf_gasFrame_eq_obs`), NOT a
+    universal/constancy. The MemRealises value channel + Corr re-establishment + universal removal
+    are fully discharged green; only the GAS;PUSH;MSTORE *run construction* (memChargedState charge
+    arithmetic) is the supplied-tail residual, identical in status to the call arm's `htail`.
 
 - **Phase C — sload through the spill (kills the scoping wart + cost smear).**
   Default `allocate` maps sload-tmps to `.slot`; stash at def, load at use. Delete the
