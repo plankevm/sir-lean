@@ -246,23 +246,42 @@ shortcut; commit only green states.
     contrast (new form satisfied, old form refuted), the SLOAD twin of `gas_tie_vacuity_resolved`.
     These are the non-vacuity evidence + the satisfiability re-audit the design owes; no
     full-`toMachineState` pin and no `∀`-over-frames in the positional form.
-  - **The mechanism + spine migration (the remaining work).** `defsOf` flips `assign t (.sload k)`
-    to `Expr.slot (slotOf t)` (mirrors the gas arm); `emitStmt .assign` then stashes `materialise k
-    ++ [SLOAD] ++ PUSH slot ++ MSTORE` (the existing alloc-native slot arm — already byte-correct).
-    `materialise_runs`'s `.sload` arm becomes **unreachable** (`e ≠ .sload`, via `defsOf_ne_sload`,
-    exactly like `.gas`), so `SloadRealises` leaves `materialise_runs`/`Corr` entirely; the def-site
-    SLOAD's warmth cost becomes a **per-cursor positional** hypothesis to a new `sim_assign_sload`
-    (the `sim_assign_gas` twin: `materialise k` via `materialise_runs` → `sim_sload` step →
-    `stash_tail_runs_covered`). `NonRecomputable`/`DefsSound` gain `isSloadDef` (an sload-spilled
-    tmp is excluded from the recompute env — `evalExpr (.slot) = none` — exactly like gas).
-    **Blocker for green-landing:** spilling sload **shifts the entire `workedCall` byte layout**
-    (the SLOAD bytes move from the use-site recompute to the def-site stash; `assign (t2) (sload
-    (t1))` sits *before* the CALL), so the 1752-line concrete `WorkedCall.lean` proof and the
-    `Decode.lean` offset checks (both in the headline import chain via `CallRealises`) must be
-    re-derived for the new layout. That re-derivation is the bounded mechanical step that gates the
-    spine flip; until it lands the `defsOf`/`Corr` changes are held back to keep the build green and
-    avoid introducing the *new* vacuity (the `hremat : defsOf t ≠ .slot` assign tie would become
-    unsatisfiable for a spilled-sload cursor without the `sim_assign_sload` dispatch branch).
+  - **Step 1 BANKED (green, axiom-clean) — WorkedCall decoupled from the headline cone.** The
+    prerequisite layering-inversion fix landed (commit `exp005 Step 1`): the WorkedCall-coupled
+    worked examples (`wcV2Oracle`, `wc_call_parity_v2`; `wcRunLog`, `realisedCall_wcRunLog`,
+    `wc_observe_conforms`) moved out of `V2/CallRealises.lean` + `V2/RunLog.lean` into the new leaf
+    `V2/WorkedCallParity.lean`. **Verified via transitive-import cone analysis:** none of the four
+    headlines (`lower_conforms`, `lower_conforms_acyclic_cfg`, `lower_conforms_cyclic`,
+    `lower_conforms_cyclic'`) now transitively import `LirLean.WorkedCall` *or*
+    `LirLean.V2.WorkedCallParity`. WorkedCall is a leaf example; `RunLog` stays in the cone but
+    carries only general recorder defs. So the earlier parenthetical "both in the headline import
+    chain via CallRealises" is **no longer true** — WorkedCall/Decode are now leaves.
+  - **Step 2 mechanism VERIFIED CONE-COMPATIBLE (not yet committed — leaves break).** Flipping
+    `defsOf`'s `assign t (.sload k)` arm to `Expr.slot (slotOf t)` (one-line mirror of the gas arm;
+    `emitStmt .assign`'s existing alloc-native `.slot` arm then stashes `materialise k ++ [SLOAD] ++
+    PUSH slot ++ MSTORE` — already byte-correct) was applied and the **entire headline cone built
+    green** (`LowerConforms`, `Acyclic`, `V2/DriveSim` and all their dependencies, incl.
+    `DecodeAnchors`/`DecodeLower`/`MatDecLower`/`JumpValid`/`MaterialiseRuns`/`SimStmt`/`SimTerm`).
+    The general `materialiseExpr`/`MatDec`/`chargeOf`/`Corr` machinery absorbs the sload→slot flip
+    exactly as it already absorbs gas→slot — the cone does **not** depend on sload being recomputed.
+    The breakage is confined to **three byte-layout leaf examples** whose concrete `workedCall`
+    offsets shift (the def-site stash relocates the SLOAD bytes before the CALL):
+    `LirLean/Decode.lean` (34 `rfl` decode anchors), `LirLean/WorkedCall.lean` (36, the 1752-line
+    `Runs` proof), and `LirLean/V2/WorkedCallParity.lean` (36, downstream). None feeds a headline.
+  - **Remaining Step 2 work (the actual goal).** Two independent large pieces gate a green commit:
+    (a) **leaves** — re-derive the shifted `workedCall` offsets in `Decode.lean` + `WorkedCall.lean`
+    (the dominant cost is `WorkedCall`'s offset-coupled `Runs` proof, not the `rfl` anchors), or
+    excise them from the default target as superseded worked examples; (b) **the universal removal
+    proper** — drop `Corr.sloadReal : SloadRealises …` and re-wire `Corr` onto the per-cursor
+    positional `realisedSload log` warmth-cost tie (`SloadLogAligned`/`alignedSload_read_eq_obs`/
+    `sloadRealises_charge_of_witness`, all already proven in `V2/TieDischarge.lean`). (b) touches ~97
+    references across 10 spine files (`SimStmt`/`SimStmts`/`SimTerm`/`MaterialiseRuns`/`DriveSim`/
+    `LowerConforms`/`Acyclic`/`MatDecLower`/`MaterialiseGas`/`RunLog`) plus `NonRecomputable`/
+    `DefsSound` gaining `isSloadDef`, and a new `sim_assign_sload` dispatch branch (the
+    `sim_assign_gas` twin: `materialise k` via `materialise_runs` → `sim_sload` → `stash_tail_runs_
+    covered`). The mechanism (a-prerequisite) is held back un-committed because, on its own, it
+    delivers no headline benefit (the headlines still carry `sloadChg` + the universal until (b)
+    lands) while breaking three worked examples — so the tree is kept at the green Step-1 checkpoint.
 
 - **Phase D — `∀ SoundAlloc` headline + replaceable-pass pipeline + cleanup.**
   Generalize `Corr`/`sim_*`/`materialise_runs`/`DriveSim`/`LowerConforms` to quantify over any
