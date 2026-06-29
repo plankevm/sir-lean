@@ -1,6 +1,7 @@
 import LirLean.LowerConforms
 import LirLean.V2.IRRun
 import LirLean.V2.DriveRuns
+import LirLean.V2.Modellable
 
 /-!
 # LirLean v2 — drive-indexed forward simulation, cyclic-CFG construction (`DriveSim`, F1–F3)
@@ -121,24 +122,37 @@ that clean termination, under the `Runs`-modellability side condition (every rea
 a code CALL or a halt — no CREATE / precompile-CALL, discharged structurally for `lower prog`). -/
 
 /-- **`hclean` from the clean-halt outcome.** From `runWithLog params (seedFuel params.gas) = some
-log` (the run reaches a clean `.halted` outcome), `beginCall params = .inl fr₀` (the entry frame),
-and the `Runs`-modellability of every reachable frame (`hmodel`), the entry frame `CleanHalts`. The
-`drive → Runs` reverse construction (`runs_of_drive_ok`) reconstructs the halting `Runs` from the
-verified `drive` outcome `runWithLog_drive` pins. -/
+log` (the run reaches a clean `.halted` outcome) and `beginCall params = .inl fr₀` (the entry
+frame), the entry frame `CleanHalts`. The `drive → Runs` reverse construction (`runs_of_drive_ok`)
+reconstructs the halting `Runs` from the verified `drive` outcome `runWithLog_drive` pins, under the
+`Runs`-modellability of every reachable frame — which is **no longer a raw supplied universal**: it
+is **produced** by `lower_modellable` (`V2/Modellable.lean`) from the two per-frame clauses
+
+* `NotCreate` — the current op is never `CREATE`/`CREATE2`. **Structural** for `lower prog` (it
+  emits no CREATE/CREATE2 opcode); supplied here per reachable frame (`hnc`) because pinning it at
+  an arbitrary reachable pc needs the full instruction-boundary invariant.
+* `CallsCode` — every `.needsCall` targets a *code* account, not a precompile `1..10`. The **honest
+  residual**: a runtime condition on the program's reachable call targets, NOT a lowering property
+  (vacuous for any call-free program). Supplied here as `hcc`.
+
+`lower_modellable` discharges the `runs_of_drive_ok` modellability universal from `hnc`/`hcc` via
+the proved structural reductions (`stepFrame_needsCreate_isCreate`,
+`beginCall_isCode_of_codeSource_ne_precompiled`). -/
 theorem cleanHalts_of_runWithLog {params : Evm.CallParams} {fr₀ : Frame} {log : RunLog}
     (hlog : runWithLog params (Evm.seedFuel params.gas) = some log)
     (hbegin : Evm.beginCall params = .inl fr₀)
-    (hmodel : ∀ fr', Runs fr₀ fr' → BytecodeLayer.Interpreter.ModellableStep fr') :
+    (hnc : ∀ fr', Runs fr₀ fr' → BytecodeLayer.Interpreter.NotCreate fr')
+    (hcc : ∀ fr', Runs fr₀ fr' → BytecodeLayer.Interpreter.CallsCode fr') :
     CleanHalts fr₀ := by
   obtain ⟨frame, hbc, hdrive⟩ := runWithLog_drive hlog
   -- `beginCall` pins the entry frame: `frame = fr₀`.
   rw [hbegin] at hbc
   have hfeq : frame = fr₀ := (Sum.inl.injEq _ _).mp hbc.symm
   rw [hfeq] at hdrive
-  -- the reverse construction yields the halting `Runs`.
+  -- the reverse construction yields the halting `Runs`; modellability is PRODUCED, not supplied.
   obtain ⟨last, halt, hruns, hhalt, _⟩ :=
     BytecodeLayer.Interpreter.runs_of_drive_ok (Evm.seedFuel params.gas) fr₀ log.observable
-      hdrive hmodel
+      hdrive (BytecodeLayer.Interpreter.lower_modellable hnc hcc)
   exact ⟨last, halt, hruns, hhalt⟩
 
 /-! ## §3 — The strict `totalGas` descent across a block (the KEY new content)
