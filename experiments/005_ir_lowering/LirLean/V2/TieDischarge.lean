@@ -416,6 +416,85 @@ the world-invariant discharge of the non-gate presence side-condition. -/
 theorem sstorePresence_of_self {g : Frame} (h : SelfPresent g) :
     ∃ acc : Account, g.exec.accounts.find? g.exec.executionEnv.address = some acc := h
 
+/-! ### `SelfPresent ⇒ accounts ≠ ∅` (the non-emptiness conjunct of the halt ties)
+
+The halt wrappers (`driveCorrPlus_step_stop`/`_ret`) must emit the `¬ (accounts == ∅)` conjunct
+of the §7 terminator bundle. It is *derived* — not supplied — from `SelfPresent` (the self account
+is present in the map, so the map cannot be empty). The single new account-map fact is
+`find?_some_ne_empty`: a `find?` hit forces the underlying red-black tree to be non-`nil`, and an
+empty map's tree IS `nil`, so the structural `BEq` (`RBNode.all₂ (·==·) tree nil`) is `false`.
+
+`AccountMap = Batteries.RBMap AccountAddress Account compare`, whose `BEq` runs `RBNode.all₂`
+(`Batteries/Data/RBMap/Basic.lean:232`): a `StateT`-over-`Option` walk of the left tree against the
+right tree's *stream*. Against the empty (`nil`) right tree the stream is empty, so the first visited
+node's `next?` returns `none` and short-circuits the whole walk to `none` — never matching
+`some (_, .nil)`. `forM_from_nil` proves exactly this short-circuit; `all2_nil_false` packages it. -/
+
+open Batteries in
+/-- The `all₂` `StateT (RBNode.Stream β) Option` walk of `t` against the **empty** stream is `none`
+for a non-`nil` `t` (and `some (⟨⟩, .nil)` for `nil`): from the empty initial state, the first node
+visited calls `next?` on `.nil` (`= none`) and short-circuits. Proved by structural induction on
+`t`, casing the left child (the leftmost-first descent of `RBNode.forM`). -/
+theorem forM_from_nil {α β : Type} (R : α → β → Bool) (t : RBNode α) :
+    StateT.run (s := (RBNode.Stream.nil : RBNode.Stream β))
+      (t.forM (fun a s => do
+        let (b, s) ← s.next?
+        bif R a b then pure (⟨⟩, s) else none))
+    = (match t with
+        | .nil => some ((⟨⟩ : PUnit), (RBNode.Stream.nil : RBNode.Stream β))
+        | _ => none) := by
+  induction t with
+  | nil => rfl
+  | node c l v r ihl ihr =>
+    show (StateT.run (RBNode.forM _ l) RBNode.Stream.nil >>= fun x =>
+           StateT.run ((fun a s => _) v) x.2 >>= fun y =>
+             StateT.run (RBNode.forM _ r) y.2) = none
+    cases l with
+    | nil =>
+      rw [show StateT.run (RBNode.forM (fun a s => do
+              let (b, s) ← s.next?; bif R a b then pure (⟨⟩, s) else none)
+              (RBNode.nil : RBNode α)) RBNode.Stream.nil
+            = some ((⟨⟩ : PUnit), (RBNode.Stream.nil : RBNode.Stream β)) from ihl]
+      rfl
+    | node c' l' v' r' => rw [ihl]; rfl
+
+open Batteries in
+/-- `RBNode.all₂ R t nil = false` for any non-`nil` `t`: the empty right tree's stream is empty, so
+the walk (`forM_from_nil`) short-circuits to `none`, which does not match `some (_, .nil)`. -/
+theorem all2_nil_false {α β : Type} (R : α → β → Bool) (t : RBNode α) (hne : t ≠ .nil) :
+    RBNode.all₂ R t RBNode.nil = false := by
+  unfold RBNode.all₂
+  have hrun := forM_from_nil R t
+  rw [show (RBNode.nil : RBNode β).toStream = RBNode.Stream.nil from rfl]
+  cases t with
+  | nil => exact absurd rfl hne
+  | node c l v r => rw [hrun]
+
+open Batteries in
+/-- **The new account-map fact.** A `find?` hit (`m.find? addr = some acc`) forces `m`'s underlying
+tree non-`nil`, and the empty map's tree IS `nil`, so the structural `BEq` (`RBNode.all₂ (·==·)
+tree nil`, `all2_nil_false`) is `false`: `¬ (m == ∅)`. Pure account-map fact — does NOT re-supply
+`SelfPresent` (it only consumes the `find? = some` witness `SelfPresent` provides). -/
+theorem find?_some_ne_empty (m : Evm.AccountMap) (addr : Evm.AccountAddress) (acc : Evm.Account)
+    (h : m.find? addr = some acc) : ¬ (m == (∅ : Evm.AccountMap)) = true := by
+  intro hbeq
+  -- a `find?` hit forces the underlying red-black tree non-`nil` (`find? nil = none`).
+  have htree : m.1 ≠ .nil := by
+    intro hc
+    rw [RBMap.find?, RBMap.findEntry?, RBSet.findP?, hc] at h
+    simp [RBNode.find?] at h
+  -- `(m == ∅)` IS `RBNode.all₂ (·==·) m.1 nil`, which is `false` for non-`nil` `m.1`.
+  have hbeq2 : RBNode.all₂ (· == ·) m.1 RBNode.nil = true := hbeq
+  rw [all2_nil_false _ m.1 htree] at hbeq2
+  exact Bool.noConfusion hbeq2
+
+/-- **Thin bridge: `SelfPresent ⇒ accounts ≠ ∅`.** The exact non-emptiness conjunct the halt
+wrappers emit (T1 directly, T2 at the return endpoint `frv` after the P3 hop). -/
+theorem accounts_ne_empty_of_selfPresent {fr : Frame} (h : SelfPresent fr) :
+    ¬ (fr.exec.accounts == (∅ : Evm.AccountMap)) = true := by
+  obtain ⟨acc, hf⟩ := h
+  exact find?_some_ne_empty _ _ _ hf
+
 /-! ### `SelfPresent` is preserved by each materialise post-frame (the `.next` bricks)
 
 Each materialise post-frame is `{ fr with exec := <post> }` where `<post>`
@@ -1933,6 +2012,128 @@ theorem driveCorrPlus_run_stmts {prog : Program} {sloadChg : Tmp → ℕ} {obs :
     intro pc tt k stpc stpc' Tpc Tpc' _ hsteppc
     exact driveCorrPlus_sload_value hsteppc
 
+/-! ## §8 — the halt wrappers (Tier 2 / C4): `driveCorrPlus_step_stop` / `_ret`
+
+The halt-arm analogues of `drive_step_block_stop`/`drive_step_block_ret` (`DriveSim.lean`), but
+threading `DriveCorrPlus` through the committed L2.0 walk `driveCorrPlus_run_stmts` (C3) and EMITTING
+the §7 terminator ties in **Route-4b indexed form** — bound to the SPECIFIC terminator frame `frT`
+the L2.0 walk reaches, NOT a universal `∀ st' frT, Corr → …` (which is unprovable: `SelfPresent`
+holds only at the reached `frT`, and `Corr`-at-terminator does NOT imply `SelfPresent`).
+
+The ONE genuinely-derived conjunct is `¬ (accounts == ∅)` — from `SelfPresent` via
+`accounts_ne_empty_of_selfPresent` (T1: at `frT`; T2: at the return endpoint `frv`, transported by
+the P3 hop `selfPresent_runs_of_call`). The remaining conjuncts (`kind = .call`, the `ret` value
+channel, gas envelopes, the RETURN-epilogue decode bundle) stay **supplied** — they are structural /
+gas-descent facts, indexed to the reached frame(s) so genuinely satisfiable, NOT vacuous and NOT the
+forbidden universal. `self` is set to `frT.exec.executionEnv.address`, so the `self = addr` conjunct
+is `rfl`; the entry-self equality `frT.address = fr0.address` is a downstream F2 address-invariance
+concern, NOT these wrappers. No successor invariant — halt arms bottom out the recursion. -/
+
+/-- **`driveCorrPlus` halt wrapper, `stop` arm (T1).** From `DriveCorrPlus` at the boundary, the
+block, the IR block run, the supplied `SimStmtStep`, and the P3 call edge `CallPreservesSelf`: reach
+the terminator frame `frT` (`Runs fr frT`, `Corr` at the terminator cursor) carrying `SelfPresent
+frT`, and emit the T1 bundle indexed to `frT`: `self = addr` (`rfl`), `kind = .call` (supplied
+`hkind`, indexed to the reached `(frT, hruns, hcorrT)` — structural, a top-level lowered run executes
+in a `.call` frame), and `¬ (accounts == ∅)` (DERIVED from `SelfPresent frT`). -/
+theorem driveCorrPlus_step_stop {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
+    {o : V2.CallOracle} {st st' : V2.IRState} {T T' : Trace} {L : Label} {b : Block} {fr : Frame}
+    {gasAcc : List Word} {gasFrs : List Frame} {sloadAcc : List Nat} {sloadFrs : List Frame}
+    (hdc : DriveCorrPlus prog sloadChg obs st fr L gasAcc gasFrs sloadAcc sloadFrs)
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hbterm : b.term = .stop)
+    (hrun : V2.RunStmts prog o st T b.stmts st' T')
+    (hsim : SimStmtStep prog sloadChg obs o L b)
+    (hcall : CallPreservesSelf)
+    -- `kind = .call cp` at the reached terminator frame (supplied — structural, indexed to the
+    -- reached `(frT, hruns, hcorrT)`; a real top-level lowered run executes in the `.call` codeFrame).
+    (hkind : ∀ frT, Runs fr frT → Corr prog sloadChg obs st' frT L b.stmts.length →
+      ∃ cp, frT.kind = Evm.FrameKind.call cp) :
+    ∃ frT, Runs fr frT
+      ∧ Corr prog sloadChg obs st' frT L b.stmts.length
+      ∧ SelfPresent frT
+      ∧ (frT.exec.executionEnv.address = frT.exec.executionEnv.address
+          ∧ (∃ cp, frT.kind = Evm.FrameKind.call cp)
+          ∧ ¬ (frT.exec.accounts == (∅ : Evm.AccountMap)) = true) := by
+  obtain ⟨frT, hruns, hcorrT, _hstk, hself, _, _, _, _⟩ :=
+    driveCorrPlus_run_stmts hdc hb hrun hsim hcall
+  exact ⟨frT, hruns, hcorrT, hself,
+    rfl, hkind frT hruns hcorrT, accounts_ne_empty_of_selfPresent hself⟩
+
+/-- **`driveCorrPlus` halt wrapper, `ret` arm (T2).** As `driveCorrPlus_step_stop`, with `b.term =
+.ret t`: reach the terminator frame `frT` carrying `SelfPresent frT`, and emit the T2 bundle indexed
+to `frT`. The `ret` value channel (`hv`) and gas envelopes (`hgas`) stay supplied (value-binding /
+gas-descent facts); the RETURN-epilogue bundle is supplied per-`frv` (`hretsite`: PUSH32/PUSH32/
+RETURN decode + gas margins + `kind = .call`), but its `¬ (accounts == ∅)` conjunct is **DERIVED** at
+the return endpoint `frv` via the P3 hop `selfPresent_runs_of_call hcall hselfT hrunsFrv` (transport
+`SelfPresent frT` along `Runs frT frv`) + `accounts_ne_empty_of_selfPresent`. -/
+theorem driveCorrPlus_step_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
+    {o : V2.CallOracle} {st st' : V2.IRState} {T T' : Trace} {L : Label} {b : Block} {t : Tmp}
+    {fr : Frame} {gasAcc : List Word} {gasFrs : List Frame} {sloadAcc : List Nat}
+    {sloadFrs : List Frame}
+    (hdc : DriveCorrPlus prog sloadChg obs st fr L gasAcc gasFrs sloadAcc sloadFrs)
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hbterm : b.term = .ret t)
+    (hrun : V2.RunStmts prog o st T b.stmts st' T')
+    (hsim : SimStmtStep prog sloadChg obs o L b)
+    (hcall : CallPreservesSelf)
+    -- the `ret` value channel (supplied — the IR `.ret t` step that fired binds `t`).
+    (hv : ∃ vw, st'.locals t = some vw)
+    -- the gas envelopes at the reached terminator cursor (supplied — gas-descent fact).
+    (hgas : ∀ frT, Corr prog sloadChg obs st' frT L b.stmts.length →
+      (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).sum ≤ frT.exec.gasAvailable.toNat
+      ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).length ≤ 1024)
+    -- the RETURN-epilogue decode/gas/kind bundle, per return endpoint `frv` (supplied — concrete
+    -- lowered RETURN bytes; indexed to the reached `(frT, frv)`). The `accounts ≠ ∅` conjunct is
+    -- REMOVED from this supplied bundle and DERIVED below via P3 + `find?_some_ne_empty`.
+    (hretsite : ∀ frT, Runs fr frT → Corr prog sloadChg obs st' frT L b.stmts.length →
+      ∀ vw, st'.locals t = some vw → ∀ frv, Runs frT frv →
+      frv.exec.executionEnv.code = frT.exec.executionEnv.code →
+      frv.exec.executionEnv.address = frT.exec.executionEnv.address →
+      (∀ k, selfStorage frv k = selfStorage frT k) →
+      frv.exec.stack = vw :: frT.exec.stack →
+      ∃ cp,
+        decode frv.exec.executionEnv.code frv.exec.pc = some (.Push .PUSH32, some ((0 : Word), 32))
+        ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33)
+            = some (.Push .PUSH32, some ((0 : Word), 32))
+        ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33 + UInt32.ofNat 33)
+            = some (.System .RETURN, .none)
+        ∧ 3 ≤ frv.exec.gasAvailable.toNat
+        ∧ 3 ≤ (pushFrameW frv (0 : Word) 32).exec.gasAvailable.toNat
+        ∧ frv.kind = Evm.FrameKind.call cp) :
+    ∃ frT, Runs fr frT
+      ∧ Corr prog sloadChg obs st' frT L b.stmts.length
+      ∧ SelfPresent frT
+      ∧ (frT.exec.executionEnv.address = frT.exec.executionEnv.address
+          ∧ (∃ vw, st'.locals t = some vw)
+          ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).sum
+              ≤ frT.exec.gasAvailable.toNat
+          ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).length ≤ 1024
+          ∧ (∀ vw, st'.locals t = some vw → ∀ frv, Runs frT frv →
+              frv.exec.executionEnv.code = frT.exec.executionEnv.code →
+              frv.exec.executionEnv.address = frT.exec.executionEnv.address →
+              (∀ k, selfStorage frv k = selfStorage frT k) →
+              frv.exec.stack = vw :: frT.exec.stack →
+              ∃ cp,
+                decode frv.exec.executionEnv.code frv.exec.pc
+                    = some (.Push .PUSH32, some ((0 : Word), 32))
+                ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33)
+                    = some (.Push .PUSH32, some ((0 : Word), 32))
+                ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33 + UInt32.ofNat 33)
+                    = some (.System .RETURN, .none)
+                ∧ 3 ≤ frv.exec.gasAvailable.toNat
+                ∧ 3 ≤ (pushFrameW frv (0 : Word) 32).exec.gasAvailable.toNat
+                ∧ frv.kind = Evm.FrameKind.call cp
+                ∧ ¬ (frv.exec.accounts == (∅ : Evm.AccountMap)) = true)) := by
+  obtain ⟨frT, hruns, hcorrT, _hstk, hselfT, _, _, _, _⟩ :=
+    driveCorrPlus_run_stmts hdc hb hrun hsim hcall
+  refine ⟨frT, hruns, hcorrT, hselfT,
+    rfl, hv, (hgas frT hcorrT).1, (hgas frT hcorrT).2, ?_⟩
+  intro vw hvw frv hrunsFrv hcode haddr hstor hstk2
+  obtain ⟨cp, hd1, hd2, hdret, hg1, hg2, hkindv⟩ :=
+    hretsite frT hruns hcorrT vw hvw frv hrunsFrv hcode haddr hstor hstk2
+  exact ⟨cp, hd1, hd2, hdret, hg1, hg2, hkindv,
+    accounts_ne_empty_of_selfPresent (selfPresent_runs_of_call hcall hselfT hrunsFrv)⟩
+
 end Lir.V2
 
 -- Build-enforced axiom-cleanliness guards for the tie-discharge deliverables.
@@ -1979,3 +2180,10 @@ end Lir.V2
 #print axioms Lir.V2.driveCorrPlus_sload_value
 #print axioms Lir.V2.driveCorrPlus_sload_value_world
 #print axioms Lir.V2.driveCorrPlus_run_stmts
+-- C4: the new account-map non-emptiness fact + the two halt wrappers (T1/T2).
+#print axioms Lir.V2.forM_from_nil
+#print axioms Lir.V2.all2_nil_false
+#print axioms Lir.V2.find?_some_ne_empty
+#print axioms Lir.V2.accounts_ne_empty_of_selfPresent
+#print axioms Lir.V2.driveCorrPlus_step_stop
+#print axioms Lir.V2.driveCorrPlus_step_ret
