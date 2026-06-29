@@ -2786,6 +2786,180 @@ theorem driveCorrPlus_step_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
   exact ⟨cp, hd1, hd2, hdret, hg1, hg2, hkindv,
     accounts_ne_empty_of_selfPresent (selfPresent_runs_of_call hcall hselfT hrunsFrv)⟩
 
+/-! ## §9 — the EDGE wrappers (Tier 2 / C5): `driveCorrPlus_step_jump` / `_branch`
+
+The non-halt (`jump`/`branch`) analogues of `drive_step_block_jump`/`drive_step_block_branch`
+(`DriveSim.lean`), but threading `DriveCorrPlus` instead of the bare `DriveCorr`: where the
+`DriveCorr` versions re-establish only `DriveCorr` at the successor block, these RE-ESTABLISH
+`DriveCorrPlus` at the successor's entry frame `jumpdestFrame fj`. The bytecode construction is
+IDENTICAL to the `DriveCorr` versions (statement-run via `sim_stmts_block`, the supplied §7 edge
+bundle `hjump`/`hbranch` delivering the `JUMPDEST` landing `fj` with `Runs frT fj`,
+`corr_at_jumpdest_landing` re-establishing `Corr` at the successor cursor, `cleanHalts_forward`
+deriving the successor clean-halt, `totalGas_succ_lt` the strict descent, and the
+`RunFrom.jump`/`.branchThen`/`.branchElse` IR continuation).
+
+The ONLY two additions, both at the re-established successor boundary:
+* **`SelfPresent (jumpdestFrame fj)`** via `selfPresent_runs_of_call hcall hdc.selfPresent hfrrun`
+  — the P3 hop across the SAME `Runs fr (jumpdestFrame fj)` the wrapper already assembles. This is
+  NOT circular: it consumes the boundary's `SelfPresent fr` (given) and the genuinely-constructed
+  bytecode run, producing presence at a DIFFERENT frame.
+* the **alignment** carried VERBATIM — the successor `DriveCorrPlus` uses the SAME
+  `gasAcc`/`gasFrs`/`sloadAcc`/`sloadFrs` and is closed by `hdc.gasAligned`/`hdc.sloadAligned`. This
+  is HONEST preservation, NOT a no-record-in-epilogue claim: it carries the same consumed-prefix
+  forward. Advancing the prefix (`gasLogAligned_step_gas` at gas cursors) is the SEPARATE deferred
+  EXTENSION, correctly NOT claimed here (matching `driveCorrPlus_run_stmts` and the C1 `*_matRuns`
+  preservation-only docstrings).
+
+The successor `DriveCorrPlus` is bound EXISTENTIALLY to the reached `jumpdestFrame fj` (Route-4b
+indexed), NEVER the forbidden universal `∀ st' frT, Corr → DriveCorrPlus`. The supplied
+`hjump`/`hbranch` bundles transcribe VERBATIM from `drive_step_block_jump`/`_branch` (satisfiable
+per concrete program from `jump_to_block` / `sim_term_edge_branch` internals + the `ReachesBoundary`
+walk), exactly as the `DriveCorr` versions consume them. `hcall : CallPreservesSelf` is the same
+`.success` ext-call self seam the halt wrappers already supply (R1). -/
+
+/-- **`driveCorrPlus` edge wrapper, `jump` arm (L2.3 / T3 / D2).** The `DriveCorrPlus` lifting of
+`drive_step_block_jump`. From `DriveCorrPlus` at the boundary `L`, the block `b` with `b.term =
+.jump dst`, the IR `RunStmts` to `st'`, the supplied `SimStmtStep` (folding S1/S5/S6), the P3 call
+edge `CallPreservesSelf`, and the supplied §7 jump bundle `hjump` (VERBATIM from
+`drive_step_block_jump`): run the block's statements then the lowered `PUSH4 dest ; JUMP ; ⟨land⟩
+JUMPDEST` epilogue to the successor `dst`'s entry frame `jumpdestFrame fj`, RE-ESTABLISHING
+`DriveCorrPlus` at `dst` (base via `corr_at_jumpdest_landing` + `cleanHalts_forward`; `SelfPresent`
+via the P3 hop along `Runs fr (jumpdestFrame fj)`; alignment carried VERBATIM with the SAME
+prefixes), the strict `totalGas` descent, and the IR continuation via `RunFrom.jump`. -/
+theorem driveCorrPlus_step_jump {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
+    {o : V2.CallOracle} {st st' : V2.IRState} {T : Trace}
+    {L : Label} {b : Block} {dst : Label} {bdst : Block} {fr : Frame}
+    {gasAcc : List Word} {gasFrs : List Frame} {sloadAcc : List Nat} {sloadFrs : List Frame}
+    (hdc : DriveCorrPlus prog sloadChg obs st fr L gasAcc gasFrs sloadAcc sloadFrs)
+    (hb : blockAt prog L = some b)
+    (hbdst : prog.blocks.toList[dst.idx]? = some bdst)
+    (hbterm : b.term = .jump dst)
+    (hrun : V2.RunStmts prog o st T b.stmts st' T)
+    (hsim : SimStmtStep prog sloadChg obs o L b)
+    (hcall : CallPreservesSelf)
+    -- the terminator §7 jump bundle (supplied, VERBATIM from `drive_step_block_jump`): the
+    -- post-statement `Corr`-frame `frT` runs the lowered `PUSH4 dest ; JUMP ; ⟨land⟩ JUMPDEST` to
+    -- the successor's `JUMPDEST` landing `fj`, with the `Gjumpdest` margin (so the descent is
+    -- provable). Dischargeable for a concrete program exactly as `sim_term_edge_jump`.
+    (hjump : ∀ frT : Frame, Corr prog sloadChg obs st' frT L b.stmts.length →
+      ∃ fj : Frame, Runs frT fj
+        ∧ GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
+        ∧ fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
+            prog.blocks dst.idx)
+        ∧ fj.exec.executionEnv.code = lower prog
+        ∧ fj.validJumps = validJumpDests fj.exec.executionEnv.code 0
+        ∧ fj.exec.stack = []
+        ∧ fj.exec.executionEnv.canModifyState = true
+        ∧ (∀ k, selfStorage fj k = st'.world k)
+        ∧ MemRealises prog st' fj
+        ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none)) :
+    ∃ fj : Frame,
+        Runs fr (jumpdestFrame fj)
+      ∧ DriveCorrPlus prog sloadChg obs st' (jumpdestFrame fj) dst
+          gasAcc gasFrs sloadAcc sloadFrs
+      ∧ totalGas [] (.inl (jumpdestFrame fj)) < totalGas [] (.inl fr)
+      ∧ (∀ O, RunFrom prog o st' T dst O → RunFrom prog o st T L O) := by
+  -- Layer D: run the block's statements to the terminator cursor (uses the BASE `Corr`).
+  obtain ⟨frT, hrunsT, hcorrT, _⟩ := sim_stmts_block hsim hdc.base.corr hrun
+  -- Layer E: the supplied jump bundle delivers the `JUMPDEST` landing `fj`.
+  obtain ⟨fj, hfjrun, hfjgas, hfjpc, hfjcode, hfjvalid, hfjstk, hfjmod, hfjstore,
+    hfjmem, hfjdec⟩ := hjump frT hcorrT
+  -- the `JUMPDEST` step lands at `(dst, 0)`, re-establishing `Corr`.
+  obtain ⟨hjdrun, hjdcorr⟩ := corr_at_jumpdest_landing hbdst hfjpc hfjcode hfjvalid hfjstk
+    hfjmod hfjstore hcorrT.defsSound hcorrT.wellScoped hfjmem hfjdec hfjgas
+  -- the bytecode forward run to the successor entry frame `jumpdestFrame fj`.
+  have hfrrun : Runs fr (jumpdestFrame fj) := (hrunsT.trans hfjrun).trans hjdrun
+  -- DERIVE the successor clean-halt from the boundary's (the forward split).
+  have hcleanSucc : CleanHalts (jumpdestFrame fj) :=
+    cleanHalts_forward hdc.base.cleanHalts hfrrun
+  -- re-establish `DriveCorrPlus` at the successor: base from the landing, `SelfPresent` via the
+  -- P3 hop along the SAME `hfrrun`, alignment carried VERBATIM from the boundary.
+  refine ⟨fj, hfrrun,
+    { base := ⟨hjdcorr, hcleanSucc⟩
+      selfPresent := selfPresent_runs_of_call hcall hdc.selfPresent hfrrun
+      gasAligned := hdc.gasAligned
+      sloadAligned := hdc.sloadAligned },
+    totalGas_succ_lt (hrunsT.trans hfjrun) hfjgas, ?_⟩
+  -- the IR continuation: prepend this block's `RunStmts` + the `jump` terminator.
+  intro O hO
+  exact RunFrom.jump hb hrun hbterm hO
+
+/-- **`driveCorrPlus` edge wrapper, `branch` arm (L2.4 / T4 / D3).** The `DriveCorrPlus` lifting of
+`drive_step_block_branch`. From `DriveCorrPlus` at `L` (block `b`, `b.term = .branch cond thenL
+elseL`), the block's IR `RunStmts` to `st'` (trace `T → T'`), the bound condition `st'.locals cond
+= some cw`, the supplied `SimStmtStep`, the P3 call edge `CallPreservesSelf`, and the supplied §7
+branch bundle `hbranch` (VERBATIM from `drive_step_block_branch`): run the statements then the
+cond-materialise + `JUMPI` to the TAKEN successor `succ`'s entry frame `jumpdestFrame fj` (`succ =
+thenL` when `cw ≠ 0`, `succ = elseL` when `cw = 0`), RE-ESTABLISHING `DriveCorrPlus` at `succ`
+(base via `corr_at_jumpdest_landing` + `cleanHalts_forward`; `SelfPresent` via the P3 hop along
+`Runs fr (jumpdestFrame fj)`; alignment carried VERBATIM), the strict `totalGas` descent, and the
+IR continuation via `RunFrom.branchThen` / `.branchElse`. The cond-materialise sub-run is inside
+the supplied `hbranch`'s `Runs frT fj`, so P3 threads `SelfPresent` across the whole `fr →
+jumpdestFrame fj` at once — no separate materialise threading is needed. -/
+theorem driveCorrPlus_step_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
+    {o : V2.CallOracle} {st st' : V2.IRState} {T T' : Trace}
+    {L : Label} {b : Block} {cond : Tmp} {cw : Word} {thenL elseL : Label} {fr : Frame}
+    {gasAcc : List Word} {gasFrs : List Frame} {sloadAcc : List Nat} {sloadFrs : List Frame}
+    (hdc : DriveCorrPlus prog sloadChg obs st fr L gasAcc gasFrs sloadAcc sloadFrs)
+    (hb : blockAt prog L = some b)
+    (hbterm : b.term = .branch cond thenL elseL)
+    (hrun : V2.RunStmts prog o st T b.stmts st' T')
+    (hc : st'.locals cond = some cw)
+    (hsim : SimStmtStep prog sloadChg obs o L b)
+    (hcall : CallPreservesSelf)
+    -- the terminator §7 branch bundle (supplied, VERBATIM from `drive_step_block_branch`): the
+    -- post-statement `Corr`-frame `frT` runs the lowered cond-materialise + `JUMPI` to the TAKEN
+    -- successor's `JUMPDEST` landing `fj`, with the taken successor `succ` resolved by `cw`.
+    -- Dischargeable for a concrete program exactly as `sim_term_edge_branch`.
+    (hbranch : ∀ frT : Frame, Corr prog sloadChg obs st' frT L b.stmts.length →
+      ∃ (succ : Label) (bsucc : Block) (fj : Frame),
+        ((succ = thenL ∧ cw ≠ 0) ∨ (succ = elseL ∧ cw = 0))
+        ∧ prog.blocks.toList[succ.idx]? = some bsucc
+        ∧ Runs frT fj
+        ∧ GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
+        ∧ fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
+            prog.blocks succ.idx)
+        ∧ fj.exec.executionEnv.code = lower prog
+        ∧ fj.validJumps = validJumpDests fj.exec.executionEnv.code 0
+        ∧ fj.exec.stack = []
+        ∧ fj.exec.executionEnv.canModifyState = true
+        ∧ (∀ k, selfStorage fj k = st'.world k)
+        ∧ MemRealises prog st' fj
+        ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none)) :
+    ∃ (succ : Label) (fj : Frame),
+        Runs fr (jumpdestFrame fj)
+      ∧ DriveCorrPlus prog sloadChg obs st' (jumpdestFrame fj) succ
+          gasAcc gasFrs sloadAcc sloadFrs
+      ∧ totalGas [] (.inl (jumpdestFrame fj)) < totalGas [] (.inl fr)
+      ∧ (∀ O, RunFrom prog o st' T' succ O → RunFrom prog o st T L O) := by
+  -- Layer D: run the block's statements to the terminator cursor (uses the BASE `Corr`).
+  obtain ⟨frT, hrunsT, hcorrT, _⟩ := sim_stmts_block hsim hdc.base.corr hrun
+  -- Layer E: the supplied branch bundle resolves the taken successor `succ` and its landing `fj`.
+  obtain ⟨succ, bsucc, fj, hdir, hbsucc, hfjrun, hfjgas, hfjpc, hfjcode, hfjvalid, hfjstk,
+    hfjmod, hfjstore, hfjmem, hfjdec⟩ := hbranch frT hcorrT
+  -- the `JUMPDEST` step lands at `(succ, 0)`, re-establishing `Corr`.
+  obtain ⟨hjdrun, hjdcorr⟩ := corr_at_jumpdest_landing hbsucc hfjpc hfjcode hfjvalid hfjstk
+    hfjmod hfjstore hcorrT.defsSound hcorrT.wellScoped hfjmem hfjdec hfjgas
+  -- the bytecode forward run to the successor entry frame `jumpdestFrame fj`.
+  have hfrrun : Runs fr (jumpdestFrame fj) := (hrunsT.trans hfjrun).trans hjdrun
+  -- DERIVE the successor clean-halt from the boundary's (the forward split).
+  have hcleanSucc : CleanHalts (jumpdestFrame fj) :=
+    cleanHalts_forward hdc.base.cleanHalts hfrrun
+  -- re-establish `DriveCorrPlus` at the taken successor, exactly as in the `jump` arm.
+  refine ⟨succ, fj, hfrrun,
+    { base := ⟨hjdcorr, hcleanSucc⟩
+      selfPresent := selfPresent_runs_of_call hcall hdc.selfPresent hfrrun
+      gasAligned := hdc.gasAligned
+      sloadAligned := hdc.sloadAligned },
+    totalGas_succ_lt (hrunsT.trans hfjrun) hfjgas, ?_⟩
+  -- the IR continuation: prepend this block's `RunStmts` + the firing `branch` terminator.
+  intro O hO
+  rcases hdir with ⟨hsucc, hnz⟩ | ⟨hsucc, hz⟩
+  · subst hsucc
+    exact RunFrom.branchThen hb hrun hbterm hc hnz hO
+  · subst hsucc; subst hz
+    exact RunFrom.branchElse hb hrun hbterm hc hO
+
 end Lir.V2
 
 -- Build-enforced axiom-cleanliness guards for the tie-discharge deliverables.
@@ -2852,3 +3026,5 @@ end Lir.V2
 #print axioms Lir.V2.accounts_ne_empty_of_selfPresent
 #print axioms Lir.V2.driveCorrPlus_step_stop
 #print axioms Lir.V2.driveCorrPlus_step_ret
+#print axioms Lir.V2.driveCorrPlus_step_jump
+#print axioms Lir.V2.driveCorrPlus_step_branch
