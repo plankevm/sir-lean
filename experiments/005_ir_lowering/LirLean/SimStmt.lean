@@ -1037,8 +1037,10 @@ the slot, tied by `MemRealises`, and its warmth cost is the single def-site read
 `SloadLogAligned` selection, NOT the single-resolver universal).
 
 Mirroring `sim_assign_gas`, the def-site stash run and its frame pins are taken as a supplied tail
-hypothesis `hstash` (the honest runtime ties the caller discharges; `sim_assign_sload_lowered`
-constructs it from decode + the SLOAD/MSTORE gas facts). The value stored is `w` (the loaded
+hypothesis `hstash` (the honest runtime tie the caller supplies, as the call arm's `htail`;
+satisfiable by a real run via `stash_tail_runs_covered` — there is no `sim_assign_sload_lowered`
+constructor yet, since the variable-length `materialise k` prefix has no spine decode primitive; its
+construction is deferred to the P5 forward-from-real-run discharge). The value stored is `w` (the loaded
 storage value). The arm re-establishes the full `Corr` at `pc+1`, including `MemRealises` for the
 just-bound sload slot (coverage + readback `= w`) and preservation of every other bound slot across
 the (disjoint) sload-slot MSTORE. -/
@@ -1069,7 +1071,8 @@ theorem sim_assign_sload {prog : Program} {sloadChg : Tmp → ℕ} {obs w : Word
     -- `slotOf t` addressable, and `endFr` writes the **loaded value** `w` at `slotOf t` — the
     -- honest positional one-read value tie (no constancy, no `∀`-frames). The memory channel is the
     -- `.memory` bytes + `.activeWords` (NOT the full `toMachineState`: the stash drops gas, a
-    -- `MachineState` field a real run never preserves). `sim_assign_sload_lowered` discharges it:
+    -- `MachineState` field a real run never preserves). Supplied here (satisfiable via
+    -- `stash_tail_runs_covered`); discharged from the real run in the P5 forward-simulation step:
     (hstash :
         (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
         ∧ ∃ endFr,

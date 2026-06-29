@@ -435,10 +435,13 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         ∧ MemRealises prog st0' fr0)
     -- the genuine **spilled sload** `assign t (.sload k)`-cursor ties (Phase C): the SLOAD value
     -- (and its cold/warm warmth charge) lives in `slotOf t`, written once by the def-site stash
-    -- `materialise k ++ [SLOAD] ++ PUSH slot ++ MSTORE`. **The stash run is no longer supplied** —
-    -- `sim_assign_sload_lowered` *constructs* it from the decode layout + `stash_tail_runs_covered`;
-    -- `hsloadassign` supplies the slot registration, the loaded-value tie, the addressability +
-    -- pc-bound, the runtime SLOAD/MSTORE gas + coverage side-conditions, and the post-state scoping.
+    -- `materialise k ++ [SLOAD] ++ PUSH slot ++ MSTORE`. The stash run is **supplied** here (as the
+    -- call arm's `htail` is) — a real, satisfiable `Runs` witness whose producer is
+    -- `stash_tail_runs_covered` (no `sim_assign_sload_lowered` constructor exists yet: the
+    -- variable-length `materialise k` prefix has no spine decode primitive — deferred to the P5
+    -- forward-from-real-run discharge). `hsloadassign` supplies that stash run, the slot
+    -- registration, the loaded-value tie, the addressability + pc-bound, the runtime SLOAD/MSTORE
+    -- gas + coverage side-conditions, and the post-state scoping.
     (hsloadassign : ∀ (pc : Nat) (t k : Tmp) (w : Word) (st0 : V2.IRState) (fr0 : Frame),
         b.stmts[pc]? = some (.assign t (.sload k)) →
         Corr prog sloadChg obs st0 fr0 L pc →
