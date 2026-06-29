@@ -19,7 +19,10 @@ same value, modulo the world, which `sstore` is sequenced before its readers). I
 **unsound** for:
 
 * `Expr.gas` — re-emitting `GAS` reads a *fresh, different* value (the IR binds the
-  *consumed* read via `EvalStmt.assignGas`, not a recomputable expression); and
+  *consumed* read via `EvalStmt.assignGas`, not a recomputable expression);
+* `Expr.sload k` — re-emitting `SLOAD` re-reads the cell at a *different warmth* (the
+  second access is warm, 100, not cold, 2100), mis-charging; the value is correct but the
+  cost smears, so an sload-defined tmp is spilled too (Phase C); and
 * a **call-result tmp** (`CallSpec.resultTmp`) — bound to the dynamic CALL success
   flag by `EvalStmt.call`, not recomputable at all.
 
@@ -95,11 +98,22 @@ stashed once and read back from memory, never re-emitting `GAS`), so the old
 def isGasDef (prog : Program) (t : Tmp) : Prop :=
   ∃ b ∈ prog.blocks.toList, Stmt.assign t .gas ∈ b.stmts
 
-/-- A tmp whose value recompute-on-use would **not** reproduce: gas-defined or a
-call result. `DefsSound` ranges over the complement; `WellFormed` bounds these to
-single-use so B1 materialises each exactly once (never via the `defsOf` recursion). -/
+/-- Is `t` the target of an `assign t (.sload k)` somewhere in the program? Phrased
+**syntactically** (on the source statements) rather than on `defsOf`, mirroring `isGasDef`:
+after Phase C an sload-defined tmp is registered in `defsOf` as the spill-load
+`Expr.slot (slotOf t)` (the SLOAD value + its warmth charge is read once at the def-site stash
+and reused from memory via `MLOAD`), so a `defsOf prog t = some (.sload _)` characterisation no
+longer fires. This is the predicate keying the SLOAD value/warmth channel. -/
+def isSloadDef (prog : Program) (t : Tmp) : Prop :=
+  ∃ b ∈ prog.blocks.toList, ∃ k : Tmp, Stmt.assign t (.sload k) ∈ b.stmts
+
+/-- A tmp whose value/charge recompute-on-use would **not** reproduce: gas-defined,
+sload-defined, or a call result. `DefsSound` ranges over the complement; `WellFormed`
+bounds the call results to single-use so B1 materialises each exactly once (never via the
+`defsOf` recursion). Gas and sload are spilled to memory (Phase B/C), so multi-use of them
+re-reads the stashed value (`MLOAD`), never a fresh opcode — they are unrestricted. -/
 def NonRecomputable (prog : Program) (t : Tmp) : Prop :=
-  isGasDef prog t ∨ isCallResult prog t
+  isGasDef prog t ∨ isSloadDef prog t ∨ isCallResult prog t
 
 /-! ## `WellFormed` — the DESIGN DECISION (Phase B: gas is no longer restricted)
 
@@ -335,6 +349,41 @@ theorem defsSound_preserved_assignGas {prog : Program} {st : IRState}
     rw [evalExpr_setLocal_of_unused hunused]
     exact hprev
 
+/-! ### `assignSload` — the sload-bound tmp (handled via `NonRecomputable`)
+
+`assign t (.sload k)` fires `EvalStmt.assignPure` (sload is a pure IR expression: it reads
+`st.world (st.locals k)`), giving `st' = st.setLocal t w` with `w = evalExpr st 0 (.sload k)`.
+After Phase C the target `t` is sload-defined, so `defsOf prog t = some (.slot (slotOf t))`
+and `NonRecomputable prog t` holds (`isSloadDef`) — `DefsSound` makes no claim about `t` (the
+`t₀ = t` case is discharged by the `NonRecomputable` exclusion, exactly as for gas/call). For
+`t₀ ≠ t` the argument is the same stable-rebinding one given define-before-use (`hscope`). The
+SLOAD value (and its warmth charge) is never recomputed via `defsOf` — it lives in `slotOf t`,
+read once at the def-site stash and reused via `MLOAD`.
+
+The hypothesis `hsloaddef : isSloadDef prog t` is the consistency fact that `t` is an sload
+definition of the program (`∃ b k, assign t (.sload k) ∈ b.stmts`). -/
+
+/-- **Preservation of `DefsSound` across `assign t (.sload k)`.** The sload-bound tmp is
+excluded from `DefsSound` (it is `NonRecomputable`); other tmps are stable under rebinding `t`,
+given define-before-use. -/
+theorem defsSound_preserved_assignSload {prog : Program} {st : IRState}
+    {t : Tmp} {w : Word}
+    (hsloaddef : isSloadDef prog t)
+    (hscope : ∀ t₀ e₀, defsOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0)
+    (hsound : DefsSound prog st) :
+    DefsSound prog (st.setLocal t w) := by
+  intro t₀ e₀ w₀ hdef₀ hnr₀ hlocal₀
+  by_cases heq : t₀ = t
+  · -- t₀ = t is sload-defined ⇒ NonRecomputable, contradicting hnr₀.
+    subst heq
+    exact absurd (Or.inr (Or.inl hsloaddef)) hnr₀
+  · have hl' : st.locals t₀ = some w₀ := by
+      rw [setLocal_locals_ne heq] at hlocal₀; exact hlocal₀
+    have hprev : some w₀ = evalExpr st 0 e₀ := hsound t₀ e₀ w₀ hdef₀ hnr₀ hl'
+    have hunused : usesInExpr t e₀ = 0 := hscope t₀ e₀ hdef₀ (by rw [hl']; simp)
+    rw [evalExpr_setLocal_of_unused hunused]
+    exact hprev
+
 /-! ### `sstore` — a world write (the `sload`-recompute hazard)
 
 `sstore key value` writes one storage cell: `st' = st.setStorage kw vw`, leaving
@@ -442,7 +491,7 @@ theorem defsSound_preserved_call {prog : Program} {st : IRState} {cs : CallSpec}
     by_cases heq : t₀ = t
     · -- t₀ = t is a call result ⇒ NonRecomputable, contradicting hnr₀.
       subst heq
-      exact absurd (Or.inr (hisresult t₀ hrt)) hnr₀
+      exact absurd (Or.inr (Or.inr (hisresult t₀ hrt))) hnr₀
     · have hl' : ({ st with world := world' }).locals t₀ = some w₀ := by
         rw [setLocal_locals_ne heq] at hlocal₀; exact hlocal₀
       have hprev : some w₀ = evalExpr { st with world := world' } 0 e₀ :=
@@ -464,11 +513,14 @@ the follow-up. With the bundle, `DefsSound` is preserved by every `EvalStmt` ste
 shape. (Each arm reuses the precise hypotheses of its dedicated lemma above.) -/
 def StepScoped (prog : Program) (st : IRState) : Stmt → Prop
   | .assign t e =>
-      (e ≠ .gas →
+      (e ≠ .gas → (∀ key, e ≠ .sload key) →
         defsOf prog t = some e ∧ usesInExpr t e = 0 ∧
         (∀ t₀ e₀, defsOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0))
       ∧ (e = .gas →
         isGasDef prog t ∧
+        (∀ t₀ e₀, defsOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0))
+      ∧ (∀ key, e = .sload key →
+        isSloadDef prog t ∧
         (∀ t₀ e₀, defsOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0))
   | .sstore _ _ =>
       ∀ t₀ e₀, defsOf prog t₀ = some e₀ → ¬ NonRecomputable prog t₀ →
@@ -490,11 +542,32 @@ theorem defsSound_preserved {prog : Program} {o : CallOracle}
     DefsSound prog st' := by
   cases hstep with
   | assignPure hne hv =>
-      obtain ⟨hpure, _⟩ := hsc
-      obtain ⟨hself, hnoself, hscope⟩ := hpure hne
-      exact defsSound_preserved_assignPure hv hself hnoself hscope hsound
+      rename_i t e w
+      obtain ⟨hpure, _, hsload⟩ := hsc
+      -- split on whether `e` is a spilled `.sload` (handled via `NonRecomputable`) or a
+      -- genuine rematerialised pure expression.
+      cases e with
+      | sload key =>
+          obtain ⟨hsloaddef, hscope⟩ := hsload key rfl
+          exact defsSound_preserved_assignSload hsloaddef hscope hsound
+      | imm v =>
+          obtain ⟨hself, hnoself, hscope⟩ := hpure hne (by nofun)
+          exact defsSound_preserved_assignPure hv hself hnoself hscope hsound
+      | tmp t' =>
+          obtain ⟨hself, hnoself, hscope⟩ := hpure hne (by nofun)
+          exact defsSound_preserved_assignPure hv hself hnoself hscope hsound
+      | add a b =>
+          obtain ⟨hself, hnoself, hscope⟩ := hpure hne (by nofun)
+          exact defsSound_preserved_assignPure hv hself hnoself hscope hsound
+      | lt a b =>
+          obtain ⟨hself, hnoself, hscope⟩ := hpure hne (by nofun)
+          exact defsSound_preserved_assignPure hv hself hnoself hscope hsound
+      | slot n =>
+          obtain ⟨hself, hnoself, hscope⟩ := hpure hne (by nofun)
+          exact defsSound_preserved_assignPure hv hself hnoself hscope hsound
+      | gas => exact absurd rfl hne
   | assignGas =>
-      obtain ⟨_, hgas⟩ := hsc
+      obtain ⟨_, hgas, _⟩ := hsc
       obtain ⟨hgasdef, hscope⟩ := hgas rfl
       exact defsSound_preserved_assignGas hgasdef hscope hsound
   | sstore hk hv =>

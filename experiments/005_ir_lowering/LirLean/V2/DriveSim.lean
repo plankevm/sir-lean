@@ -303,7 +303,6 @@ theorem drive_step_block_jump {prog : Program} {sloadChg : Tmp → ℕ} {obs : W
         ∧ fj.exec.stack = []
         ∧ fj.exec.executionEnv.canModifyState = true
         ∧ (∀ k, selfStorage fj k = st'.world k)
-        ∧ SloadRealises sloadChg st' fj
         ∧ MemRealises prog st' fj
         ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none)) :
     ∃ fj : Frame,
@@ -315,10 +314,10 @@ theorem drive_step_block_jump {prog : Program} {sloadChg : Tmp → ℕ} {obs : W
   obtain ⟨frT, hrunsT, hcorrT, _⟩ := sim_stmts_block hsim hdrive.corr hrunstmts
   -- Layer E: the supplied jump bundle delivers the `JUMPDEST` landing `fj`.
   obtain ⟨fj, hfjrun, hfjgas, hfjpc, hfjcode, hfjvalid, hfjstk, hfjmod, hfjstore,
-    hfjsload, hfjmem, hfjdec⟩ := hjump frT hcorrT
+    hfjmem, hfjdec⟩ := hjump frT hcorrT
   -- the `JUMPDEST` step lands at `(dst, 0)`, re-establishing `Corr`.
   obtain ⟨hjdrun, hjdcorr⟩ := corr_at_jumpdest_landing hbdst hfjpc hfjcode hfjvalid hfjstk
-    hfjmod hfjstore hcorrT.defsSound hcorrT.wellScoped hfjsload hfjmem hfjdec hfjgas
+    hfjmod hfjstore hcorrT.defsSound hcorrT.wellScoped hfjmem hfjdec hfjgas
   -- the bytecode forward run to the successor entry frame `jumpdestFrame fj`.
   have hfrrun : Runs fr (jumpdestFrame fj) := (hrunsT.trans hfjrun).trans hjdrun
   -- DERIVE the successor clean-halt from `fr`'s (the forward split — was supplied).
@@ -389,7 +388,6 @@ theorem drive_step_block_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs :
         ∧ fj.exec.stack = []
         ∧ fj.exec.executionEnv.canModifyState = true
         ∧ (∀ k, selfStorage fj k = st'.world k)
-        ∧ SloadRealises sloadChg st' fj
         ∧ MemRealises prog st' fj
         ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none)) :
     ∃ (succ : Label) (fj : Frame),
@@ -402,10 +400,10 @@ theorem drive_step_block_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs :
   -- Layer E: the supplied branch bundle resolves the taken successor `succ` and its
   -- `JUMPDEST` landing `fj`.
   obtain ⟨succ, bsucc, fj, hdir, hbsucc, hfjrun, hfjgas, hfjpc, hfjcode, hfjvalid, hfjstk,
-    hfjmod, hfjstore, hfjsload, hfjmem, hfjdec⟩ := hbranch frT hcorrT
+    hfjmod, hfjstore, hfjmem, hfjdec⟩ := hbranch frT hcorrT
   -- the `JUMPDEST` step lands at `(succ, 0)`, re-establishing `Corr`.
   obtain ⟨hjdrun, hjdcorr⟩ := corr_at_jumpdest_landing hbsucc hfjpc hfjcode hfjvalid hfjstk
-    hfjmod hfjstore hcorrT.defsSound hcorrT.wellScoped hfjsload hfjmem hfjdec hfjgas
+    hfjmod hfjstore hcorrT.defsSound hcorrT.wellScoped hfjmem hfjdec hfjgas
   -- the bytecode forward run to the successor entry frame `jumpdestFrame fj`.
   have hfrrun : Runs fr (jumpdestFrame fj) := (hrunsT.trans hfjrun).trans hjdrun
   -- DERIVE the successor clean-halt from `fr`'s (the forward split).
@@ -502,7 +500,6 @@ theorem driveStep_of_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word
           ∧ fj.exec.stack = []
           ∧ fj.exec.executionEnv.canModifyState = true
           ∧ (∀ k, selfStorage fj k = (stmtsPost st b.stmts).world k)
-          ∧ SloadRealises sloadChg (stmtsPost st b.stmts) fj
             ∧ MemRealises prog (stmtsPost st b.stmts) fj
           ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none))
     -- the `branch` edge bundle (used only on `branch cond thenL elseL`):
@@ -522,7 +519,6 @@ theorem driveStep_of_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word
           ∧ fj.exec.stack = []
           ∧ fj.exec.executionEnv.canModifyState = true
           ∧ (∀ k, selfStorage fj k = (stmtsPost st b.stmts).world k)
-          ∧ SloadRealises sloadChg (stmtsPost st b.stmts) fj
             ∧ MemRealises prog (stmtsPost st b.stmts) fj
           ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none)) :
     DriveStep prog sloadChg obs o st fr L T := by
@@ -685,7 +681,6 @@ theorem lower_conforms_cyclic' {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
           ∧ fj.exec.stack = []
           ∧ fj.exec.executionEnv.canModifyState = true
           ∧ (∀ k, selfStorage fj k = (stmtsPost st b.stmts).world k)
-          ∧ SloadRealises sloadChg (stmtsPost st b.stmts) fj
             ∧ MemRealises prog (stmtsPost st b.stmts) fj
           ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none))
     -- the `branch` edge bundle, at every block / post-statement frame:
@@ -706,7 +701,6 @@ theorem lower_conforms_cyclic' {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
           ∧ fj.exec.stack = []
           ∧ fj.exec.executionEnv.canModifyState = true
           ∧ (∀ k, selfStorage fj k = (stmtsPost st b.stmts).world k)
-          ∧ SloadRealises sloadChg (stmtsPost st b.stmts) fj
             ∧ MemRealises prog (stmtsPost st b.stmts) fj
           ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none)) :
     ∃ O : V2.Observable,

@@ -231,7 +231,7 @@ shortcut; commit only green states.
   - green (1160 jobs); `stash_tail_runs`/`_covered`/`_gas`, `sim_assign_gas_lowered`,
     `sim_call_stmt`, and all four headlines axiom-clean `[propext, Classical.choice, Quot.sound]`.
 
-- **Phase C — sload through the spill (kills the scoping wart + cost smear). IN PROGRESS.**
+- **Phase C — sload through the spill (kills the scoping wart + cost smear). ✅ DONE.**
   Default `allocate` maps sload-tmps to `.slot`; stash at def (`materialise k ++ SLOAD ++ PUSH slot
   ++ MSTORE`), load at use (MLOAD). Delete the across-write `DefsSound` scoping side-condition on
   the cached path. Replace `Lir.SloadRealises` (the universal) with the positional warmth-cost tie
@@ -282,6 +282,37 @@ shortcut; commit only green states.
     covered`). The mechanism (a-prerequisite) is held back un-committed because, on its own, it
     delivers no headline benefit (the headlines still carry `sloadChg` + the universal until (b)
     lands) while breaking three worked examples — so the tree is kept at the green Step-1 checkpoint.
+  - **Step 3 LANDED (green, axiom-clean) — the `SloadRealises` universal is GONE from `Corr`/the
+    spine.** Both (a) and (b) are done:
+    - **(b) the universal removal.** `Corr.sloadReal : SloadRealises` is **deleted**; `materialise_runs`
+      now takes `(∀ k, e ≠ .sload k)` (the `.sload` arm is unreachable — sload is spilled, uses go via
+      `.slot`/MLOAD, preserved across the `.tmp` recursion by `defsOf_ne_sload`), exactly mirroring the
+      Phase-B gas `e ≠ .gas`. The SLOAD **value** tie is now `MemRealises` (the slot holds the frozen
+      `st.world key`); the SLOAD **warmth-cost** tie is the single cold/warm def-site read (the
+      positional `realisedSload`/`SloadLogAligned` selection via `sloadRealises_charge_of_witness`, NOT
+      the single-resolver universal). `sloadChg` STAYS as the charge resolver in
+      `chargeOf`/`MatDec`/`MatRuns` (only the universal it fed is gone). `hsload` removed from
+      `entry_corr`/`lower_conforms`(`_wf`/`_acyclic`*/`_cyclic`*)/`corr_at_jumpdest_landing`/`jump_to_block`/
+      the DriveSim jump/branch bundles. `NonRecomputable` gains `isSloadDef`; `DefsSound` gains
+      `defsSound_preserved_assignSload` and a split `StepScoped .assign` arm. New
+      `sim_assign_sload` dispatch arm (the `sim_assign_gas` twin: the def-site stash run + frame pins
+      are the honest supplied tie — `stash_tail_runs_covered` is how a concrete caller builds the
+      `endFr` witness — and the value `w = st.world key` is stashed at `slotOf t`, tied by
+      `MemRealises`). The across-write `DefsSound` sload hazard is gone on the spilled path (a frozen
+      MLOAD copy can't be corrupted by a later SSTORE). Every introduced sload tie is satisfiable by a
+      real run — `.memory`+`.activeWords` shape (NEVER full `.toMachineState`, which pins gas), and no
+      `∀`-over-frames; confirmed by the cold-then-warm `sload_tie_vacuity_resolved` witness.
+    - **(a) leaves.** `LirLean/Decode.lean`, `LirLean/WorkedCall.lean`, `LirLean/V2/WorkedCallParity.lean`
+      are SUPERSEDED worked examples (byte layout stale under the sload spill) and EXCLUDED from the
+      default build target: the lib switched from the submodule glob to `roots := [`LirLean]`, and the
+      three leaf imports were removed from `LirLean.lean` (with superseded notes). Excluding them
+      weakens NO theorem — none is in a headline cone. Re-derivation deferred.
+    - **Build: green (1157 jobs).** The four headlines (`lower_conforms`, `lower_conforms_acyclic_cfg`,
+      `lower_conforms_cyclic`, `lower_conforms_cyclic'`), `sim_assign_sload`, `Corr`, and the SLOAD
+      regression witnesses (`sloadRealises_universal_unsatisfiable`,
+      `new_sloadLogAligned_two_read_satisfiable`, `sload_tie_vacuity_resolved`, kept in the cone via an
+      explicit `LirLean.V2.HonestGasTie` import) are all axiom-clean `[propext, Classical.choice,
+      Quot.sound]`. No `sorry`/`axiom`/`native_decide`/`admit`.
 
 - **Phase D — `∀ SoundAlloc` headline + replaceable-pass pipeline + cleanup.**
   Generalize `Corr`/`sim_*`/`materialise_runs`/`DriveSim`/`LowerConforms` to quantify over any

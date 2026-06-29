@@ -226,11 +226,16 @@ single-block / single-path worked programs this is exact; richer scoping is a C3
 refinement. -/
 
 /-- The program-global `Tmp → Option Expr` map: the last `assign` to each tmp, with the
-two **non-recomputable** defining expressions routed to the spill-load `Expr.slot`:
+three **non-recomputable** defining expressions routed to the spill-load `Expr.slot`:
 
 * a **gas** assign `assign t .gas` registers `t` as `Expr.slot (slotOf t)` — the gas value
   is read **once** at the def-site stash (`emitStmt .assign`) and reused from memory on each
   use, never re-emitting `GAS` (Phase B; `docs/uniform-spill-alloc-plan.md` §6);
+* an **sload** assign `assign t (.sload k)` registers `t` as `Expr.slot (slotOf t)` — the
+  SLOAD value (and its cold/warm warmth charge) is read **once** at the def-site stash
+  (`materialise k ++ [SLOAD] ++ PUSH slot ++ MSTORE`) and reused from memory (`MLOAD`) on
+  each use, never re-emitting `SLOAD` (Phase C; `docs/uniform-spill-alloc-plan.md` §6). This
+  retires the `SloadRealises` warmth universal: the warmth cost is the single def-site read;
 * a **call result** `call ⟨_, _, some t⟩` registers `t` as `Expr.slot (slotOf t)` (Route B,
   stashed by `emitStmt .call`).
 
@@ -240,6 +245,7 @@ def defsOf (prog : Program) : Tmp → Option Expr :=
     prog.blocks.toList.flatMap (fun b =>
       b.stmts.filterMap (fun
         | .assign t .gas       => some (t, Expr.slot (slotOf t))
+        | .assign t (.sload _) => some (t, Expr.slot (slotOf t))
         | .assign t e          => some (t, e)
         | .call ⟨_, _, some t⟩ => some (t, Expr.slot (slotOf t))
         | _                    => none))
@@ -254,6 +260,7 @@ theorem defsOf_ne_gas (prog : Program) (t : Tmp) : defsOf prog t ≠ some .gas :
       (prog.blocks.toList.flatMap (fun b =>
         b.stmts.filterMap (fun
           | .assign t .gas       => some (t, Expr.slot (slotOf t))
+          | .assign t (.sload _) => some (t, Expr.slot (slotOf t))
           | .assign t e          => some (t, e)
           | .call ⟨_, _, some t⟩ => some (t, Expr.slot (slotOf t))
           | _                    => none)))) with
@@ -273,6 +280,47 @@ theorem defsOf_ne_gas (prog : Program) (t : Tmp) : defsOf prog t ≠ some .gas :
           | add a b => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
           | lt a b => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
           | sload k => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
+          | slot n => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
+      | sstore _ _ => simp at hsmap
+      | call cs =>
+          obtain ⟨callee, gasFwd, rt⟩ := cs
+          cases rt with
+          | none => simp at hsmap
+          | some t'' =>
+              simp only [Option.some.injEq] at hsmap
+              rw [← hsmap]; simp
+
+/-- `defsOf` never registers a tmp as a bare `Expr.sload _`: an sload assign is routed to the
+spill-load `Expr.slot (slotOf t)` (Phase C), and no other `defsOf` arm produces `.sload`. So
+the recompute env's `.sload` body has been retired — every sload tmp is a memory slot, read
+once at the def-site (cold/warm warmth charged once) and reused via `MLOAD`. -/
+theorem defsOf_ne_sload (prog : Program) (t : Tmp) (k : Tmp) :
+    defsOf prog t ≠ some (.sload k) := by
+  unfold defsOf
+  cases hf : (List.find? (fun p => p.1 == t)
+      (prog.blocks.toList.flatMap (fun b =>
+        b.stmts.filterMap (fun
+          | .assign t .gas       => some (t, Expr.slot (slotOf t))
+          | .assign t (.sload _) => some (t, Expr.slot (slotOf t))
+          | .assign t e          => some (t, e)
+          | .call ⟨_, _, some t⟩ => some (t, Expr.slot (slotOf t))
+          | _                    => none)))) with
+  | none => simp
+  | some pr =>
+      simp only [Option.map_some, ne_eq, Option.some.injEq]
+      have hmem := List.mem_of_find?_eq_some hf
+      obtain ⟨b, _, hbmem⟩ := List.mem_flatMap.mp hmem
+      obtain ⟨s, _, hsmap⟩ := List.mem_filterMap.mp hbmem
+      -- `pr.2` is one of the filterMap outputs; none is `.sload`.
+      cases s with
+      | assign t' e' =>
+          cases e' with
+          | gas => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
+          | imm w => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
+          | tmp t'' => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
+          | add a b => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
+          | lt a b => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
+          | sload k' => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
           | slot n => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
       | sstore _ _ => simp at hsmap
       | call cs =>

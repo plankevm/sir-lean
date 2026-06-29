@@ -655,14 +655,12 @@ theorem sim_assign_gas_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
       ≤ ((pushFrameW (gasFrame fr) (UInt256.ofNat (slotOf t)) 32).exec.gasAvailable
           - UInt64.ofNat (BytecodeLayer.Dispatch.memExpansionChargeOf
               (pushFrameW (gasFrame fr) (UInt256.ofNat (slotOf t)) 32).exec words')).toNat)
-    -- the post-state scoping / SLOAD realisability (downstream-supplied; the bound read is the
-    -- realised `GAS` output `ofUInt64 (fr.gas − Gbase)`):
+    -- the post-state scoping (downstream-supplied; the bound read is the realised `GAS` output
+    -- `ofUInt64 (fr.gas − Gbase)`):
     (hscoped' : ∀ t', (st.setLocal t
           (UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase))).locals t' ≠ none →
         (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
-        ∧ defsOf prog t' ≠ none)
-    (hsload' : SloadRealises sloadChg (st.setLocal t
-          (UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase))) fr) :
+        ∧ defsOf prog t' ≠ none) :
     ∃ endFr, Runs fr endFr
       ∧ Corr prog sloadChg obs (st.setLocal t
           (UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase))) endFr L (pc + 1)
@@ -731,7 +729,7 @@ theorem sim_assign_gas_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
     stash_tail_gas fr slot words' hcorr.stack_nil hdgas' hdpush' hdmstore' hgasGas hgasPush
       hmem hgasMem hgasMstore
   -- feed `sim_assign_gas` the constructed stash bundle (honest memory-channel tie shape).
-  refine sim_assign_gas hb hs hslotdef hcorr hsc hslots hscoped' hsload' ?_
+  refine sim_assign_gas hb hs hslotdef hcorr hsc hslots hscoped' ?_
   refine ⟨hslot63, hslotplat, endFr, hrun, hmembytes, hmemactive, ?_, hcode, hvalid, haddr,
     hcanmod, hstorage, hstkEnd⟩
   -- pc: `stash_tail_gas` advances by 35 = the emit length.

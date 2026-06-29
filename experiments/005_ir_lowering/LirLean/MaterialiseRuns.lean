@@ -18,10 +18,11 @@ constructor-for-constructor; the leaf/recursion steps are the `Match.lean` brick
 consumes **B3** (`DefsSound`) to equate the recomputed value with `st.locals t`; the
 whole-expression gas contract is discharged through **B2** (`MaterialiseGasCharge` +
 `materialiseGasCharge_binop` / `materialiseGasCharge_sload` / `materialiseGasCharge_gas`).
-The two non-pure leaves `.sload` / `.gas` are closed under **explicit realisability
-side-conditions** (`SloadRealises` / `GasRealises` / `StorageAgree`, below) — the honest
-runtime ties the realised trace supplies downstream (Layers C/D/F); they are *not*
-excluded.
+The two non-pure leaves `.sload` / `.gas` are **spilled** (Phase B/C): a bare `.gas` / `.sload`
+is never materialised (uses go via `.slot`/MLOAD; the def-site stash is run by
+`sim_assign_gas`/`sim_assign_sload`), so those arms are **unreachable** here — discharged by
+`e ≠ .gas` / `∀ k, e ≠ .sload k`. The only live runtime tie left is `StorageAgree` (the storage
+lens). The former `GasRealises`/`SloadRealises` universals are retired to regression witnesses.
 
 ## The honest decode interface
 
@@ -39,23 +40,17 @@ by the post-frames' own pc advance (`UInt32.ofNat_add`), never re-deriving the l
 Layer A (`decode_at_offset_*`) is what discharges `MatDec` against `lower prog` at the
 call site; that wiring is the B1→A composition, downstream of this linchpin.
 
-## The two non-pure leaves, closed under explicit realisability ties
+## The two non-pure leaves are spilled (unreachable here)
 
-**`.gas`.** `materialiseExpr … .gas = [GAS]`, and `sim_gas` pushes the frame's
-*post-`Gbase`* `gasAvailable`, whereas `evalExpr st obs .gas = some obs` (the supplied
-value). The two agree under the **realisability tie** `GasRealises obs fr` —
-`obs = UInt256.ofUInt64 (post-Gbase gas)` at the running frame — supplied as a
-hypothesis quantified over the running frame (the gas-oracle realisability, downstream).
-
-**`.sload`.** `materialiseExpr … (.sload k) = … ++ [SLOAD]`. Fully closed: the value
-channel is `sim_sload` + the `sloadFrame` storage lens (`sloadFrame_stack`) tied to
-`st.world key` by `StorageAgree` (preserved across the materialisation by
-`MatRuns.storage`); the gas contract is `materialiseGasCharge_sload` with the B2
-`sloadChg k` resolved to the **actual** `sloadCost warm` at the *internal* SLOAD frame
-`frk` by `SloadRealises` (quantified over the frame, address agreement carried by
-`MatRuns.addr`). SLOAD's accessed-key substate evolution touches no `MatRuns` clause
-(it changes `accessedStorageKeys`, never a storage *value*, code, address, or
-pc-length), so the bundle survives it directly.
+**`.gas`** (Phase B) and **`.sload`** (Phase C) are routed to memory slots by `defsOf`
+(`Expr.slot (slotOf t)`): the value (and, for sload, its cold/warm warmth charge) is read once
+at the `assign` def-site stash (`[GAS]`/`materialise k ++ [SLOAD]`, then `PUSH slot ; MSTORE`) and
+reused via `MLOAD`. So a *bare* `.gas`/`.sload k` is never materialised by this recursion — those
+arms are unreachable (`e ≠ .gas`, `∀ k, e ≠ .sload k`, both preserved across the `.tmp` recursion
+by `defsOf_ne_gas`/`defsOf_ne_sload`). The def-site stash runs (with the value tied by
+`MemRealises` and, for sload, the warmth via the positional `SloadLogAligned`) live in
+`sim_assign_gas`/`sim_assign_sload` (`SimStmt.lean`), NOT here. The former `GasRealises`/
+`SloadRealises` universals are retired to the `V2/HonestGasTie.lean` regression witnesses.
 
 No `sorry`, no `axiom`, no `native_decide`. Bytecode-coupled (imports `Match.lean`);
 nothing here touches `V2/Machine.lean` / `V2/Law.lean` (the frame-free spine).
@@ -497,55 +492,44 @@ theorem evalExpr_obs_irrel (st : V2.IRState) (obs obs' : Word) :
   | .slot _, _ => rfl
   | .gas,     h => absurd rfl h
 
-/-! ## The realisability side-conditions (`SLOAD` warmth / `GAS` value / storage lens)
+/-! ## The realisability side-conditions (storage lens; the retired SLOAD/GAS universals)
 
-The two non-pure leaves — `SLOAD` and `GAS` — each have one *runtime* fact the static
-materialisation cannot pin: the SLOAD warmth-cost (whether `(self, key)` is in the
-running frame's accessed-key substate) and the `GAS` value (the post-`Gbase` gas the
-running frame reports). These are not uniform over `Expr`; they are properties of the
-**realised trace** the downstream layers (C/D/F, the gas/state oracle's realisability)
-supply. We package each as an explicit, honestly-stated hypothesis on
-`materialise_runs`, quantified over the running frame so the recursion threads it
-unchanged into every sub-frame:
+**Phase B/C**: gas AND sload are now **spilled** — a bare `Expr.gas` / `Expr.sload _` is never
+materialised (uses go through `.slot`/MLOAD; the def-site stash is run by `sim_assign_gas` /
+`sim_assign_sload`). So the `.gas` and `.sload` arms of `materialise_runs` are **unreachable**,
+discharged by `e ≠ .gas` and `∀ k, e ≠ .sload k` (both preserved across the `.tmp` recursion by
+`defsOf_ne_gas`/`defsOf_ne_sload`). The two former realisability universals are retired:
 
-* **`SloadRealises`** — the B2 resolver `sloadChg k` equals the actual `sloadCost`
-  warmth-charge at *every* frame with the same self-address as `fr`. This is exactly
-  the warmth-cost tie at the internal SLOAD frame `frk` (reached after materialising
-  the key), whose address agrees with `fr` (carried by `MatRuns.addr`) and whose
-  substate is the realised one. The `.sload` arm is then **fully closed** against it —
-  value channel (storage lens), gas contract (`materialiseGasCharge_sload`), and the
-  accessed-key substate evolution (which touches no `MatRuns` clause: SLOAD changes
-  `accessedStorageKeys`, never a storage *value*, code, address, or pc-length).
+* **`SloadRealises`** (RETIRED, Phase C) — the old `∀ g`-universal forcing `sloadChg k` to equal
+  the runtime `sloadCost` warmth at every same-address frame. Unsatisfiable on any cold-then-warm
+  same-key re-read (2100 ≠ 100). No longer carried: the SLOAD value lives in the slot (tied by
+  `MemRealises`), and the warmth cost is the single cold/warm def-site read (the positional
+  `SloadLogAligned` selection). Survives only as the `V2/HonestGasTie.lean` /
+  `V2/TieDischarge.lean` regression witness.
 
-* **`GasRealises`** — the supplied gas word `obs` equals `UInt256.ofUInt64` of the
-  post-`Gbase` gas at *every* frame with the same self-address as `fr` (the realised
-  running-frame gas the gas oracle reports). The `.gas` arm is closed under it.
+* **`GasRealises`** (RETIRED, Phase B) — the analogous `∀ g`-gas-value universal; same story.
 
-* **`StorageAgree`** — the `M3` storage correspondence `selfStorage fr key = st.world
-  key`. Preserved across the whole materialisation by `MatRuns.storage` (every
-  post-frame leaves the self account's storage *values* untouched), so it threads as a
-  plain per-frame fact (re-established at each sub-frame via the `storage` clause). It
-  ties the SLOAD value channel (`selfStorage frk key`) to `evalExpr`'s `st.world key`.
+* **`StorageAgree`** — the still-live `M3` storage correspondence `selfStorage fr key = st.world
+  key`. Preserved across the whole materialisation by `MatRuns.storage` (every post-frame leaves
+  the self account's storage *values* untouched), threading as a plain per-frame fact. It ties the
+  storage lens to `evalExpr`'s world read (consumed by the `sstore` value/key materialise calls). -/
 
-These are the honest realisability obligations, factored *out* of the static proof and
-discharged downstream by the realised trace — making `materialise_runs` **total over
-`Expr`** with `.sload`/`.gas` carrying their side-conditions rather than being excluded
-by a pure-stream restriction (retired: the general theorem strictly subsumes it). -/
-
-/-- The B2 SLOAD-cost resolver realisability: at every frame `g` sharing `fr`'s
+/-- The OLD B2 SLOAD-cost resolver realisability universal: at every frame `g` sharing `fr`'s
 self-address, `sloadChg k` is the actual `sloadCost` warmth-charge for the bound key
-`st.locals k`. (Quantified over `g` so the recursion applies it at the internal SLOAD
-frame `frk`, whose address agrees with `fr` by `MatRuns.addr`.)
+`st.locals k`.
 
-⚠️ **KNOWN VACUITY (same defect as `GasRealises`).** After the first cold→warm access of a key,
-`accessedStorageKeys.contains` flips, so the warmth-charge for the *same* key changes (2100 → 100).
-This `∀ g`-universal forces the single resolver value `sloadChg k` to equal *both* charges — it
-cannot hold for any run that reads a key more than once. Carried through `Corr`, it makes the
-headline vacuous on the SLOAD-cost axis. The honest, non-vacuous replacement is the **positional**
-SLOAD twin `SloadLogAligned` (`V2/TieDischarge.lean`) — `sloadAcc = frs.map sloadWarmthOf ∧
-FramesRun frs` — selecting the warmth-charge per cursor from the realised run (the
-`sloadRecord_eq_sloadCost` value bridge is already discharged). Migrating `Corr` onto it is the same
-deep per-cursor thread flagged on `GasRealises`. -/
+**RETIRED FROM THE CONFORMANCE SPINE (Phase C).** This `∀ g`-universal is unsatisfiable for any
+genuine ≥2-read run of the same key: after the first cold→warm access `accessedStorageKeys.contains`
+flips, so the warmth-charge for the *same* key changes (2100 → 100), and the universal forces the
+single resolver value `sloadChg k` to equal *both* charges — it cannot hold. It is **no longer
+carried by `Corr`/`materialise_runs`/the headlines**: sload is spilled to memory, so the SLOAD
+value lives in the slot (tied by `MemRealises`, the honest positional one-read value supplied at
+the `assign` def-site by `sim_assign_sload`), and the warmth charge is the single cold/warm read at
+that def-site (the positional `SloadLogAligned` selection via `sloadRealises_charge_of_witness`, not
+this universal). This def survives ONLY as the subject of the regression witnesses in
+`V2/HonestGasTie.lean` (`sloadRealises_universal_unsatisfiable`) and the positional discharge
+`V2/TieDischarge.lean` (`sloadRealises_charge_of_witness`); the honest replacement is the positional
+SLOAD twin `SloadLogAligned` (`V2/TieDischarge.lean`), satisfiable by a real cold-then-warm run. -/
 def SloadRealises (sloadChg : Tmp → ℕ) (st : V2.IRState) (fr : Frame) : Prop :=
   ∀ (g : Frame) (k : Tmp) (key : Word),
     g.exec.executionEnv.address = fr.exec.executionEnv.address →
@@ -577,26 +561,13 @@ preserved across the materialisation by `MatRuns.storage`. -/
 def StorageAgree (st : V2.IRState) (fr : Frame) : Prop :=
   ∀ key, selfStorage fr key = st.world key
 
-/-! ### Transport of the realisability side-conditions across a sub-frame
+/-! ### Transport of the storage side-condition across a sub-frame
 
-`SloadRealises`/`GasRealises` are quantified over the running frame and only constrain
-frames sharing `fr`'s self-address, so they transport verbatim to any sub-frame `fr'`
-with `fr'.address = fr.address` (carried by `MatRuns.addr`). `StorageAgree` transports
-through the self-storage equality `MatRuns.storage` provides. These are exactly the
-clauses the `add`/`lt`/`sload` recursion needs to pass the side-conditions to its
-second/inner operand. -/
-
-theorem SloadRealises.transport {sloadChg : Tmp → ℕ} {st : V2.IRState} {fr fr' : Frame}
-    (h : SloadRealises sloadChg st fr)
-    (haddr : fr'.exec.executionEnv.address = fr.exec.executionEnv.address) :
-    SloadRealises sloadChg st fr' :=
-  fun g k key hg hl => h g k key (by rw [hg, haddr]) hl
-
-theorem GasRealises.transport {obs : Word} {fr fr' : Frame}
-    (h : GasRealises obs fr)
-    (haddr : fr'.exec.executionEnv.address = fr.exec.executionEnv.address) :
-    GasRealises obs fr' :=
-  fun g hg => h g (by rw [hg, haddr])
+`StorageAgree` transports through the self-storage equality `MatRuns.storage` provides — the
+clause the `add`/`lt`/`sstore` recursion needs to pass the storage tie to its second/inner
+operand. (The `SloadRealises`/`GasRealises` `.transport` lemmas are retired with their
+universals: gas and sload are spilled, so neither is carried by `Corr`/`materialise_runs`
+anymore — Phase B/C.) -/
 
 theorem StorageAgree.transport {st : V2.IRState} {fr fr' : Frame}
     (h : StorageAgree st fr)
@@ -771,21 +742,21 @@ theorem memoryExpansionWords?_ofNat_32_of_covered (aw : UInt64) {slot : Nat}
 /-! ## The linchpin — `materialise_runs` (total over `Expr`)
 
 The induction mirrors `materialiseExpr` constructor-for-constructor. The value channel
-B1 closes: `imm` (leaf), `tmp` (recompute via **B3** `DefsSound`), `add`/`lt` (operands
-then op, via `sim_add`/`sim_lt` and the **B2** gluing law `materialiseGasCharge_binop`),
-`sload` (key then SLOAD, via `sim_sload` + the storage lens + `materialiseGasCharge_sload`,
-under `SloadRealises`/`StorageAgree`). The `gas` arm is **unreachable** — gas is spilled, so a
-bare `Expr.gas` is never materialised (uses go via `.slot`/MLOAD; the def-site stash is run by
-`sim_assign_gas`) — and is discharged by `e ≠ .gas` (preserved across the `.tmp` recursion by
-`defsOf_ne_gas`), NOT by any gas universal. The realisability side-conditions thread through the
-recursion unchanged (quantified over the running frame; address agreement is carried by
-`MatRuns.addr`, the storage agreement by `MatRuns.storage`). -/
+B1 closes: `imm` (leaf), `tmp` (recompute via **B3** `DefsSound`, or MLOAD-readback of a
+`.slot`-spilled tmp via `MemRealises`), `add`/`lt` (operands then op, via `sim_add`/`sim_lt`
+and the **B2** gluing law `materialiseGasCharge_binop`). The `gas` AND `sload` arms are
+**unreachable** — both are spilled, so a bare `Expr.gas` / `Expr.sload _` is never materialised
+(uses go via `.slot`/MLOAD; the def-site stash is run by `sim_assign_gas`/`sim_assign_sload`) —
+discharged by `e ≠ .gas` and `∀ k, e ≠ .sload k` (preserved across the `.tmp` recursion by
+`defsOf_ne_gas`/`defsOf_ne_sload`), NOT by any gas/sload warmth universal. The storage tie
+threads through the recursion unchanged (address agreement carried by `MatRuns.addr`, the
+storage agreement by `MatRuns.storage`). -/
 
 /-- **B1 `materialise_runs` (total over `Expr`).** Running `materialiseExpr defsOf fuel
 e` from a frame `fr` whose code decodes as the bundle `MatDec` prescribes, with the IR
 state `st` recompute-sound (`DefsSound`, **B3**), the storage lens agreeing
-(`StorageAgree`) and the SLOAD realisability tie holding (`SloadRealises`), and the
-materialised expression not a bare gas read (`e ≠ .gas`, the unreachable spilled-gas arm),
+(`StorageAgree`), and the materialised expression neither a bare gas read nor a bare sload
+(`e ≠ .gas`, `∀ k, e ≠ .sload k` — the unreachable spilled arms),
 reproduces `evalExpr st obs e = some w` on the bytecode stack and
 delivers the whole `MatRuns` bundle: the run, the pushed value (= `evalExpr`'s),
 code/address/self-storage preserved, pc advanced by the emitted byte length, and the
@@ -809,12 +780,14 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
         (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.slot slot))
         ∧ defsOf prog t ≠ none) →
       StorageAgree st fr →
-      SloadRealises sloadChg st fr →
-      -- **Phase B**: gas is spilled — a bare `Expr.gas` is **never materialised** (uses go
-      -- through `.slot`/MLOAD; the def-site stash is run by `sim_assign_gas`, not here). So the
-      -- `.gas` arm of this recursion is unreachable, discharged by `e ≠ .gas` (preserved by the
-      -- recursion via `defsOf_ne_gas`) — NOT by the retired universal `GasRealises` tie.
+      -- **Phase B/C**: gas AND sload are spilled — a bare `Expr.gas` / `Expr.sload _` is **never
+      -- materialised** (uses go through `.slot`/MLOAD; the def-site stash is run by
+      -- `sim_assign_gas` / `sim_assign_sload`, not here). So the `.gas` and `.sload` arms of this
+      -- recursion are unreachable, discharged by `e ≠ .gas` and `∀ k, e ≠ .sload k` (both preserved
+      -- by the recursion via `defsOf_ne_gas`/`defsOf_ne_sload`) — NOT by the retired universals
+      -- `GasRealises`/`SloadRealises`.
       e ≠ .gas →
+      (∀ k, e ≠ .sload k) →
       MemRealises prog st fr →
       V2.evalExpr st obs e = some w →
       (chargeOf (defsOf prog) sloadChg fuel e).sum ≤ fr.exec.gasAvailable.toNat →
@@ -837,7 +810,7 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
           exact absurd heval (by simp [V2.evalExpr])
       | _ => exact absurd hdec (by simp [MatDec])
   | succ f ih =>
-      intro e w fr hdec hsound hscoped hstore hsload hne hmemreal heval hgas hstk
+      intro e w fr hdec hsound hscoped hstore hne hnsl hmemreal heval hgas hstk
       cases e with
       | imm v =>
           refine ⟨pushFrameW fr v 32, ?_⟩
@@ -856,114 +829,11 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
           -- unreachable; `hne : .gas ≠ .gas` is the contradiction (NO universal gas tie).
           exact absurd rfl hne
       | sload k =>
-          -- `SLOAD`: materialise the key `k` (recompute), then run `SLOAD`. Value =
-          -- `selfStorage frk key = st.world key` (storage lens + `StorageAgree`); gas =
-          -- `sloadCost warm` at `frk`, matched to `sloadChg k` by `SloadRealises`.
-          obtain ⟨key, hlk, hwsl⟩ :
-              ∃ key, st.locals k = some key ∧ w = st.world key := by
-            simp only [V2.evalExpr] at heval
-            cases hlk : st.locals k with
-            | none => simp [hlk] at heval
-            | some key => exact ⟨key, rfl, by simp [hlk] at heval; exact heval.symm⟩
-          subst hwsl
-          -- decode bundle decomposition (key materialise + SLOAD opcode).
-          obtain ⟨hdk, hop⟩ := hdec
-          have hcsl : chargeOf defs sloadChg (f + 1) (.sload k)
-              = chargeOf defs sloadChg f (.tmp k) ++ [sloadChg k] := chargeOf_sload defs sloadChg f k
-          -- evalExpr of the key tmp = its bound value.
-          have hevk : V2.evalExpr st obs (.tmp k) = some key := hlk
-          -- the whole-`sload` charge sum / length, split once.
-          have hsum_split : (chargeOf defs sloadChg (f + 1) (.sload k)).sum
-              = (chargeOf defs sloadChg f (.tmp k)).sum + sloadChg k := by
-            rw [hcsl]; simp only [List.sum_append, List.sum_cons, List.sum_nil]; omega
-          have hlen_split : (chargeOf defs sloadChg (f + 1) (.sload k)).length
-              = (chargeOf defs sloadChg f (.tmp k)).length + 1 := by
-            rw [hcsl]; simp only [List.length_append, List.length_singleton]
-          -- IH on the key tmp from `fr`.
-          have hgask : (chargeOf defs sloadChg f (.tmp k)).sum ≤ fr.exec.gasAvailable.toNat := by
-            rw [hsum_split] at hgas; omega
-          have hstkk : fr.exec.stack.size + (chargeOf defs sloadChg f (.tmp k)).length ≤ 1024 := by
-            rw [hlen_split] at hstk; omega
-          obtain ⟨frk, hmrk⟩ := ih (.tmp k) key fr hdk hsound hscoped hstore hsload (by nofun)
-            hmemreal hevk hgask hstkk
-          -- the internal SLOAD frame `frk`: key on top of `fr`'s stack, addr/code/storage
-          -- preserved. The SLOAD opcode runs here.
-          have hkcode : frk.exec.executionEnv.code = fr.exec.executionEnv.code := hmrk.code
-          have hkaddr : frk.exec.executionEnv.address = fr.exec.executionEnv.address := hmrk.addr
-          have hkpc : frk.exec.pc = fr.exec.pc + UInt32.ofNat (materialiseExpr defs f (.tmp k)).length :=
-            hmrk.pc
-          have hkstk : frk.exec.stack = key :: fr.exec.stack := by
-            rw [hmrk.stack]; rfl
-          have hkdec : decode frk.exec.executionEnv.code frk.exec.pc
-              = some (.Smsf .SLOAD, .none) := by
-            rw [hkcode, hkpc]; exact hop
-          -- the runtime warmth at `frk`, resolved to `sloadChg k` by `SloadRealises`.
-          have hwarm : sloadChg k
-              = Evm.sloadCost (frk.exec.substate.accessedStorageKeys.contains
-                  (frk.exec.executionEnv.address, key)) :=
-            hsload frk k key hkaddr hlk
-          -- stack-room and gas bound for the SLOAD step.
-          have hksz : frk.exec.stack.size ≤ 1024 := by
-            have hfrksz : frk.exec.stack.size = fr.exec.stack.size + 1 := by
-              rw [hkstk]; simp
-            have hpk1 : 1 ≤ (chargeOf defs sloadChg f (.tmp k)).length :=
-              chargeOf_length_pos_of_matDec _ defs sloadChg f fr.exec.pc (.tmp k) hdk
-            rw [hlen_split] at hstk; rw [hfrksz]; omega
-          have hksloadgas :
-              Evm.sloadCost (frk.exec.substate.accessedStorageKeys.contains
-                (frk.exec.executionEnv.address, key)) ≤ frk.exec.gasAvailable.toNat := by
-            rw [hmrk.gasToNat, ← hwarm]; rw [hsum_split] at hgas; omega
-          obtain ⟨hslrun, hslhd⟩ := sim_sload frk key fr.exec.stack hkdec hkstk hksz hksloadgas
-          -- the pushed value: the self-storage cell at `key` = `st.world key` (StorageAgree),
-          -- preserved from `fr` to `frk` by the storage clause.
-          have hval : selfStorage frk key = st.world key := by
-            rw [hmrk.storage key]; exact hstore key
-          refine ⟨sloadFrame frk key fr.exec.stack, ?_⟩
-          refine
-            { runs := hmrk.runs.trans hslrun
-              stack := ?_
-              code := ?_
-              validJumps := ?_
-              addr := ?_
-              canMod := ?_
-              accounts := ?_
-              storage := ?_
-              pc := ?_
-              gasCharge := ?_
-              gasToNat := ?_
-              memBytes := by rw [sloadFrame_memory]; exact hmrk.memBytes
-              memActive := le_trans hmrk.memActive (by rw [sloadFrame_activeWords]) }
-          · rw [sloadFrame_stack, hval]
-          · rw [sloadFrame_code, hkcode]
-          · show (sloadFrame frk key fr.exec.stack).validJumps = _
-            rw [sloadFrame_validJumps, hmrk.validJumps]
-          · rw [sloadFrame_addr, hkaddr]
-          · show (sloadFrame frk key fr.exec.stack).exec.executionEnv.canModifyState = _
-            rw [show (sloadFrame frk key fr.exec.stack).exec.executionEnv.canModifyState
-                  = frk.exec.executionEnv.canModifyState from rfl, hmrk.canMod]
-          · show (sloadFrame frk key fr.exec.stack).exec.accounts = _
-            rw [show (sloadFrame frk key fr.exec.stack).exec.accounts
-                  = frk.exec.accounts from rfl, hmrk.accounts]
-          · intro k'; rw [sloadFrame_selfStorage, hmrk.storage]
-          · rw [sloadFrame_pc, hkpc, materialiseExpr_sload]
-            simp only [List.length_append, List.length_singleton]
-            rw [UInt32.ofNat_add, show (UInt32.ofNat 1) = 1 from rfl]
-            ac_rfl
-          · -- gas contract via the `sload` gluing law: `sloadChg k` matches the runtime cost.
-            refine materialiseGasCharge_sload defs sloadChg f k fr frk
-              (sloadFrame frk key fr.exec.stack) hmrk.gasCharge ?_
-            rw [sloadFrame_gas, hwarm]
-            rw [subCharges_singleton]
-          · -- gasToNat from the gas contract + toNat_chargeOf.
-            have hsum : (chargeOf defs sloadChg (f + 1) (.sload k)).sum
-                ≤ fr.exec.gasAvailable.toNat := hgas
-            have hc :
-                (sloadFrame frk key fr.exec.stack).exec.gasAvailable
-                  = subCharges fr.exec.gasAvailable (chargeOf defs sloadChg (f + 1) (.sload k)) :=
-              materialiseGasCharge_sload defs sloadChg f k fr frk
-                (sloadFrame frk key fr.exec.stack) hmrk.gasCharge
-                (by rw [sloadFrame_gas, hwarm, subCharges_singleton])
-            rw [hc]; exact toNat_chargeOf defs sloadChg (f + 1) (.sload k) _ hsum
+          -- **Phase C**: a bare `Expr.sload k` is never materialised (sload is spilled — uses go
+          -- via `.slot`/MLOAD, the def-site stash `materialise k ++ [SLOAD] ++ PUSH slot ++ MSTORE`
+          -- is run by `sim_assign_sload`). This arm is therefore unreachable; `hnsl k : .sload k ≠
+          -- .sload k` is the contradiction (NO universal SLOAD warmth tie).
+          exact absurd rfl (hnsl k)
       | tmp t =>
           -- recompute-on-use: descend into `defs t`.
           have hloc : st.locals t = some w := heval
@@ -1207,11 +1077,16 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
                     rintro rfl
                     -- `defs t = some .gas` is impossible: gas tmps are spilled to `.slot`.
                     exact defsOf_ne_gas prog t (by rw [← hdefs]; exact ht)
+                  have he'nsl : ∀ k, e' ≠ .sload k := by
+                    intro k
+                    rintro rfl
+                    -- `defs t = some (.sload k)` is impossible: sload tmps are spilled to `.slot`.
+                    exact defsOf_ne_sload prog t k (by rw [← hdefs]; exact ht)
                   have hdfs : some w = V2.evalExpr st 0 e' :=
                     hsound t e' w (by rw [← hdefs, ht]) hnr hloc
                   have heval' : V2.evalExpr st obs e' = some w := by
                     rw [evalExpr_obs_irrel st obs 0 he'ng]; exact hdfs.symm
-                  obtain ⟨fr', hmr⟩ := ih e' w fr htmd hsound hscoped hstore hsload he'ng
+                  obtain ⟨fr', hmr⟩ := ih e' w fr htmd hsound hscoped hstore he'ng he'nsl
                     hmemreal heval' hgas' hstk'
                   refine ⟨fr', ?_⟩
                   -- rewrite the `(f+1) (.tmp t)` bundle into the `f e'` one (defeq via defs t).
@@ -1264,7 +1139,7 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
           have hstkb : fr.exec.stack.size + (chargeOf defs sloadChg f (.tmp b)).length ≤ 1024 := by
             rw [hcadd] at hstk
             simp only [List.length_append] at hstk; omega
-          obtain ⟨frb, hmrb⟩ := ih (.tmp b) vb fr hdb hsound hscoped hstore hsload (by nofun)
+          obtain ⟨frb, hmrb⟩ := ih (.tmp b) vb fr hdb hsound hscoped hstore (by nofun) (by nofun)
             hmemreal hevb hgasb hstkb
           -- IH on operand a from `frb`.
           have hbcode : frb.exec.executionEnv.code = fr.exec.executionEnv.code := hmrb.code
@@ -1290,7 +1165,7 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
           have hstka : frb.exec.stack.size + (chargeOf defs sloadChg f (.tmp a)).length ≤ 1024 := by
             rw [hlen_split] at hstk; rw [hfrbsz]; omega
           obtain ⟨fra, hmra⟩ := ih (.tmp a) va frb hda' hsound hscoped
-            (hstore.transport hmrb.storage) (hsload.transport hmrb.addr) (by nofun)
+            (hstore.transport hmrb.storage) (by nofun) (by nofun)
             (hmemreal.transport hmrb.memBytes hmrb.memActive)
             heva hgasa hstka
           -- the final ADD step.
@@ -1389,7 +1264,7 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
           have hstkb : fr.exec.stack.size + (chargeOf defs sloadChg f (.tmp b)).length ≤ 1024 := by
             rw [hclt] at hstk
             simp only [List.length_append] at hstk; omega
-          obtain ⟨frb, hmrb⟩ := ih (.tmp b) vb fr hdb hsound hscoped hstore hsload (by nofun)
+          obtain ⟨frb, hmrb⟩ := ih (.tmp b) vb fr hdb hsound hscoped hstore (by nofun) (by nofun)
             hmemreal hevb hgasb hstkb
           -- IH on operand a from `frb`.
           have hbcode : frb.exec.executionEnv.code = fr.exec.executionEnv.code := hmrb.code
@@ -1415,7 +1290,7 @@ theorem materialise_runs {prog : Program} (sloadChg : Tmp → ℕ)
           have hstka : frb.exec.stack.size + (chargeOf defs sloadChg f (.tmp a)).length ≤ 1024 := by
             rw [hlen_split] at hstk; rw [hfrbsz]; omega
           obtain ⟨fra, hmra⟩ := ih (.tmp a) va frb hda' hsound hscoped
-            (hstore.transport hmrb.storage) (hsload.transport hmrb.addr) (by nofun)
+            (hstore.transport hmrb.storage) (by nofun) (by nofun)
             (hmemreal.transport hmrb.memBytes hmrb.memActive)
             heva hgasa hstka
           -- the final LT step.

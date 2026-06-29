@@ -6,7 +6,12 @@
 -- API. See docs/ir-design.md.
 import LirLean.IR
 import LirLean.Lowering
-import LirLean.Decode
+-- NOTE: `LirLean.Decode` (decode round-trip anchors) is a byte-coupled *leaf example* —
+-- nothing in the headline cone imports it. Its `rfl`/`decide` byte checks are stale under
+-- the Phase-C sload spill (the SLOAD def-site stash shifted byte offsets). It is SUPERSEDED
+-- by the general `lower_conforms` and EXCLUDED from the default build target (the lib uses an
+-- explicit `roots := [`LirLean]` rather than the submodule glob; see lakefile + the Phase-C
+-- bullet in docs/uniform-spill-alloc-plan.md). Re-derivation of its anchors is deferred.
 import LirLean.DecodeLower
 import LirLean.Layout
 import LirLean.SmallStep
@@ -25,7 +30,10 @@ import LirLean.SimTerm
 import LirLean.MaterialiseGas
 import LirLean.DefsSound
 import LirLean.MaterialiseRuns
-import LirLean.WorkedCall
+-- NOTE: `LirLean.WorkedCall` (a 1752-line concrete `Runs` proof) is a byte-coupled *leaf
+-- example* — nothing in the headline cone imports it (decoupled in `e9bc04d`). Its byte layout
+-- is stale under the Phase-C sload spill; it is SUPERSEDED by the general `lower_conforms` and
+-- EXCLUDED from the default build target. Re-derivation deferred (see docs/uniform-spill-alloc-plan.md).
 -- v2 (exp005) prototype — gas-free, observable, event-trace IR + preservation.
 import LirLean.V2.Machine
 -- v2 (exp005) frame-free gas LAW + IRRun determinism (imports only LirLean.IR/Evm;
@@ -49,11 +57,20 @@ import LirLean.V2.Call
 -- `V2.CallOracle` to v1's `evmCallOracle`; the realised bundle = the lowered CALL's
 -- observable effect (the call analogue of `GasRealises.monotoneGas`). Bytecode-coupled.
 import LirLean.V2.CallRealises
--- v2 (exp005) with-CALL parity worked example (v3 §3, §7): instantiates the general
--- `callRealises_bridge` to the concrete `workedCall` bytecode scenario. A *leaf example*
--- coupling `LirLean.WorkedCall` — deliberately kept OFF the headline import cone.
-import LirLean.V2.WorkedCallParity
+-- NOTE: `LirLean.V2.WorkedCallParity` (the with-CALL parity worked example coupling the
+-- byte-coupled `LirLean.WorkedCall`) is a *leaf example* — deliberately OFF the headline cone.
+-- SUPERSEDED by the general `callRealises_bridge` / `lower_conforms`; EXCLUDED from the default
+-- build target under the Phase-C sload spill (stale byte layout). Re-derivation deferred.
 -- Acyclicity ⇒ `MatFueled`: discharges `WellFormedLowered`'s recompute-fuel-sufficiency
 -- fields from a rank-based SSA acyclicity witness (`Acyclic (defsOf prog) rank`), so no
 -- `MatFueled` hypothesis survives for an acyclic program (`wellFormedLowered_of_acyclic`).
 import LirLean.Acyclic
+-- The CYCLIC world-channel headlines (`lower_conforms_cyclic`/`_cyclic'`): the drive-recursion
+-- simulation for any (possibly cyclic) CFG. Pulls in the full spine (LowerConforms, RunLog, …).
+import LirLean.V2.DriveSim
+-- The §7 tie-discharge positional foundation (`SloadLogAligned`/`sloadRealises_charge_of_witness`)
+-- and the RETIRED-universal regression witnesses (`sloadRealises_universal_unsatisfiable`,
+-- `new_sloadLogAligned_two_read_satisfiable`, `sload_tie_vacuity_resolved` — the cold-then-warm
+-- non-vacuity proof). Kept in the build cone so the retired `SloadRealises`/`GasRealises` universals
+-- remain machine-checked as the regression witnesses they were demoted to (Phase B/C).
+import LirLean.V2.HonestGasTie
