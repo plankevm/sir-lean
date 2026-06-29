@@ -468,6 +468,62 @@ theorem selfPresent_matRuns {defs : Tmp → Option Expr} {sloadChg : Tmp → ℕ
   obtain ⟨acc, hacc⟩ := h
   exact ⟨acc, by rw [hmr.accounts, hmr.addr]; exact hacc⟩
 
+/-! ### The GAS/SLOAD alignment-threading composites across a materialise sub-run (C1 / L1.1 / L1.2)
+
+The GAS/SLOAD twins of `selfPresent_matRuns`: they transport the recorder-alignment state across a
+whole `MatRuns … fr fr'` materialise sub-run, in exactly the form the per-op step lemmas
+(`gasLogAligned_step_gas` / `sloadLogAligned_step_sload`) consume at the *next* op after the sub-run
+— those need `frs.getLast? = some last ∧ Runs last <next-op frame>`, and the caller forms the
+`Runs last <next-op frame>` half as `Runs.trans (this lemma's `Runs last fr') (step fr' → next)`.
+
+**HONEST SCOPE (read this).** These lemmas do exactly two things:
+
+  (i) **alignment-PRESERVATION** — the *pre*-sub-run `GasLogAligned gasAcc gasFrs` (resp.
+      `SloadLogAligned …`) fact is carried VERBATIM to the conclusion. The conclusion re-states the
+      SAME `gasAcc`/`gasFrs`, so the alignment conjunct (and the `getLast?` conjunct) is the input
+      returned unchanged — a deliberate, near-trivial repackaging for single-call ergonomics in
+      L2.0, NOT a worked result. We flag it as such.
+
+  (ii) **reachability-THREADING** — the only load-bearing content: a witness frame `last` that
+      reaches the sub-run START `fr` (`Runs last fr`) is shown to reach its END `fr'`
+      (`Runs last fr'`) via `Runs.trans last→fr→fr'` using `MatRuns.runs` (`MaterialiseRuns.lean`).
+
+We make **NO** claim that the recorder fired no GAS/SLOAD byte inside the sub-run: `Expr` has both
+`.gas` and `.sload`, so `materialise` *can* emit those bytes; byte-freeness for SPILLED operands is a
+separate completeness obligation DEFERRED to L2.0/C3. Because the conclusion re-states the SAME
+`gasAcc`/`gasFrs` (not the post-sub-run recorder accumulator), it cannot and does not certify the
+post-sub-run recorder state — there is no circularity smuggling that discharge here. The proof uses
+ONLY `MatRuns.runs` + `Runs.trans`; it never inspects `materialise` structure or the
+`MatRuns.gas*`/`code`/`pc` clauses. -/
+
+/-- **GAS-alignment transport across a materialise sub-run (L1.1).** Carries `GasLogAligned`
+verbatim (alignment-PRESERVATION) and extends the witness reachability `Runs last fr` to
+`Runs last fr'` across `MatRuns … fr fr'` (reachability-THREADING, via `Runs.trans` through
+`MatRuns.runs`). The alignment and `getLast?` conjuncts are the inputs returned unchanged —
+near-trivial repackaging for the next-op step lemma `gasLogAligned_step_gas`; this lemma makes NO
+no-record-inside / byte-freeness claim (that stays deferred to L2.0/C3). -/
+theorem gasLogAligned_matRuns {defs : Tmp → Option Expr} {sloadChg : Tmp → ℕ} {fuel : Nat}
+    {e : Expr} {w : Word} {fr fr' : Frame} {gasAcc : List Word} {gasFrs : List Frame} {last : Frame}
+    (halign : GasLogAligned gasAcc gasFrs) (hmr : MatRuns defs sloadChg fuel e w fr fr')
+    (hlast : gasFrs.getLast? = some last) (hreach : Runs last fr) :
+    GasLogAligned gasAcc gasFrs ∧ gasFrs.getLast? = some last ∧ Runs last fr' :=
+  ⟨halign, hlast, Runs.trans hreach hmr.runs⟩
+
+/-- **SLOAD-alignment transport across a materialise sub-run (L1.2).** Exact twin of
+`gasLogAligned_matRuns`: carries `SloadLogAligned` verbatim (alignment-PRESERVATION) and extends
+`Runs last fr` to `Runs last fr'` across `MatRuns … fr fr'` (reachability-THREADING, via `Runs.trans`
+through `MatRuns.runs`). Only the alignment predicate (over `List Nat`) and accumulator type differ;
+the alignment and `getLast?` conjuncts are the inputs returned unchanged — near-trivial repackaging
+for the next-op step lemma `sloadLogAligned_step_sload`; NO no-record-inside / byte-freeness claim
+(deferred to L2.0/C3). -/
+theorem sloadLogAligned_matRuns {defs : Tmp → Option Expr} {sloadChg : Tmp → ℕ} {fuel : Nat}
+    {e : Expr} {w : Word} {fr fr' : Frame} {sloadAcc : List Nat} {sloadFrs : List Frame}
+    {last : Frame}
+    (halign : SloadLogAligned sloadAcc sloadFrs) (hmr : MatRuns defs sloadChg fuel e w fr fr')
+    (hlast : sloadFrs.getLast? = some last) (hreach : Runs last fr) :
+    SloadLogAligned sloadAcc sloadFrs ∧ sloadFrs.getLast? = some last ∧ Runs last fr' :=
+  ⟨halign, hlast, Runs.trans hreach hmr.runs⟩
+
 /-! ### `SelfPresent`-forward along a whole `Runs` segment (incl. the `Runs.call` resume)
 
 `selfPresent_matRuns` transports `SelfPresent` across one materialise sub-run. The drive walk
@@ -669,6 +725,8 @@ end Lir.V2
 #print axioms Lir.V2.selfPresent_addFrame
 #print axioms Lir.V2.selfPresent_sloadFrame
 #print axioms Lir.V2.selfPresent_matRuns
+#print axioms Lir.V2.gasLogAligned_matRuns
+#print axioms Lir.V2.sloadLogAligned_matRuns
 #print axioms Lir.V2.resumeAfterCall_address
 #print axioms Lir.V2.resumeAfterCall_accounts
 #print axioms Lir.V2.selfPresent_runs
