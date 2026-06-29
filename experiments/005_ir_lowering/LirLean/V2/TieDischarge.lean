@@ -1858,12 +1858,15 @@ The centerpiece walk `L2.0 driveCorrPlus_run_stmts` (below) is decomposed by the
   * the **self-presence** edge, threaded by P3 (`selfPresent_runs_of_call`, supplied `CallPreservesSelf`);
   * the **alignment** witnesses, carried VERBATIM from the `DriveCorrPlus` boundary (the per-cursor
     structural extension `gasLogAligned_step_gas`/`sloadLogAligned_step_sload` is the deferred gas/sload
-    structural walk, NOT this value-only body);
+    structural walk, NOT tonight's preservation walk);
   * the **value channels** — the only genuinely-new, no-P3, no-trace↔recorder-bridge content tonight:
-    **S7** (assign-remat `MemRealises` transport) and **S2** (the sload value tie).
+    **S7** (assign-remat `MemRealises` transport) and **S2** (the sload value tie). These are kept
+    SEPARATE from the walk (see below).
 
-We prove S7/S2 here as cursor-LOCAL facts (a single `Corr` cursor + its `EvalStmt` step), exactly the
-altitude `SimStmtStep`/`sim_assign` consume; the walk emits them per cursor (Route 4b — the indexed
+We prove S7/S2 here as standalone cursor-LOCAL lemmas (a single `Corr` cursor + its `EvalStmt` step),
+exactly the altitude `SimStmtStep`/`sim_assign` consume. They are functions of the per-cursor
+`Corr`/`EvalStmt` ALONE, not of the run, so they are NOT bundled into `driveCorrPlus_run_stmts` (doing
+so would buy nothing): the downstream Route-4b assembly applies them per cursor directly (the indexed
 form bound to the run's reached `(stpc, frpc)`, NOT the universal free-`ob` `StmtTies` predicate, which
 ranges over all cursors and is unreconstructable from a single run).
 
@@ -1954,31 +1957,33 @@ theorem driveCorrPlus_sload_value_world {prog : Program} {o : V2.CallOracle}
     | some key =>
       exact ⟨key, rfl, by simp [V2.evalExpr, hk]⟩
 
-/-! ### L2.0 — the `DriveCorrPlus` statement-walk, VALUE-CHANNEL form (C3 partial)
+/-! ### L2.0 — the `DriveCorrPlus` statement-walk, PRESERVATION form (C3 partial)
 
 `driveCorrPlus_run_stmts` mirrors `sim_stmts_block` (consuming `SimStmtStep` for the Runs+Corr+stack
-triple), threads `SelfPresent` via P3, carries the alignment VERBATIM, and EMITS the no-bridge value
-channels S7/S2 as per-cursor families (Route 4b — bound to whatever `(stpc, frpc)` the caller hands at
-each cursor, NOT the universal free-`ob` `StmtTies`). The structural/call ties S1/S5/S6 are inside the
-supplied `SimStmtStep`; S3 (gas positional value) and S4 (gas runtime envelopes) stay supplied
-(`hgasval`/`hgasenv`) — they are trace↔recorder-bridge / clean-halt-forward facts, NOT value-only
-have-blocks (documented above). Every supplied parameter is satisfiable and non-vacuous. -/
+triple), threads `SelfPresent` via P3, and carries the alignment VERBATIM to the terminator frame. It is
+a pure PRESERVATION lemma — it produces only what the walk itself establishes from the run. The no-bridge
+per-cursor value channels are kept SEPARATE as the standalone cursor lemmas
+`driveCorrPlus_assign_remat_memRealises` (S7) and `driveCorrPlus_sload_value` (S2): they are functions of
+the supplied per-cursor `Corr`/`EvalStmt` alone, NOT of the run, so bundling them into the walk would buy
+nothing (the C8 Route-4b assembly applies them per cursor directly). The structural/call ties S1/S5/S6 are
+inside the supplied `SimStmtStep`; S3/S4 (gas positional value / runtime envelopes) are trace↔recorder /
+clean-halt-forward facts produced downstream. Every supplied parameter is satisfiable and non-vacuous. -/
 
-/-- **L2.0 (partial — value channels only).** From `DriveCorrPlus` at a block boundary, the block, the
-IR block run, and the supplied per-statement simulation `SimStmtStep` (folding S1/S5/S6) + the P3 call
-edge `CallPreservesSelf`: reach a terminator frame `frT` with `Runs fr frT`, `Corr` at the terminator
-cursor, empty stack, `SelfPresent frT`, the alignment carried VERBATIM, AND the no-bridge value channels
-**S7** (assign-remat `MemRealises`, `driveCorrPlus_assign_remat_memRealises`) and **S2** (sload value,
-`driveCorrPlus_sload_value`) emitted per cursor in Route-4b indexed form (bound to the caller's reached
-`(stpc, frpc)` at each cursor). The gas positional value (S3, `hgasval`) and gas runtime envelopes (S4)
-stay supplied — trace↔recorder-bridge / clean-halt-forward facts, not value-only. -/
+/-- **L2.0 (partial — preservation).** From `DriveCorrPlus` at a block boundary, the block, the IR block
+run, and the supplied per-statement simulation `SimStmtStep` (folding S1/S5/S6) + the P3 call edge
+`CallPreservesSelf`: reach a terminator frame `frT` with `Runs fr frT`, `Corr` at the terminator cursor,
+empty stack, `SelfPresent frT`, and the alignment carried VERBATIM. This is the walk's genuine
+preservation content. The no-bridge value channels S7/S2 are the standalone cursor lemmas
+`driveCorrPlus_assign_remat_memRealises` / `driveCorrPlus_sload_value` (applied per cursor by the C8
+assembly), NOT bundled here. S3/S4 (gas positional value / runtime envelopes) are downstream
+trace↔recorder-bridge / clean-halt-forward facts. -/
 theorem driveCorrPlus_run_stmts {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {o : V2.CallOracle} {st st' : V2.IRState} {T T' : Trace} {L : Label} {b : Block} {fr : Frame}
     {gasAcc : List Word} {gasFrs : List Frame} {sloadAcc : List Nat} {sloadFrs : List Frame}
     (hdc : DriveCorrPlus prog sloadChg obs st fr L gasAcc gasFrs sloadAcc sloadFrs)
     -- `b` is pinned by `hrun`/`hsim` (both run over `b.stmts`); `_hb` ties `b` to `prog.blocks[L.idx]?`,
     -- kept for signature stability — the deferred structural channels (S1/S5/S6 positioning via
-    -- `blockAt`) consume it, the value-only body does not.
+    -- `blockAt`) consume it, the preservation body does not.
     (_hb : prog.blocks.toList[L.idx]? = some b)
     (hrun : V2.RunStmts prog o st T b.stmts st' T')
     (hsim : SimStmtStep prog sloadChg obs o L b)
@@ -1988,29 +1993,12 @@ theorem driveCorrPlus_run_stmts {prog : Program} {sloadChg : Tmp → ℕ} {obs :
       ∧ frT.exec.stack = []
       ∧ SelfPresent frT
       ∧ GasLogAligned gasAcc gasFrs
-      ∧ SloadLogAligned sloadAcc sloadFrs
-      -- S7 (assign-remat value channel), per cursor (Route 4b indexed):
-      ∧ (∀ (pc : Nat) (tt : Tmp) (e : Expr) (stpc stpc' : V2.IRState) (Tpc Tpc' : Trace) (frpc : Frame),
-          b.stmts[pc]? = some (.assign tt e) → e ≠ .gas → (∀ n, defsOf prog tt ≠ some (.slot n)) →
-          Corr prog sloadChg obs stpc frpc L pc →
-          EvalStmt prog o stpc Tpc (.assign tt e) stpc' Tpc' →
-          MemRealises prog stpc' frpc)
-      -- S2 (sload value channel), per cursor (Route 4b indexed):
-      ∧ (∀ (pc : Nat) (tt k : Tmp) (stpc stpc' : V2.IRState) (Tpc Tpc' : Trace),
-          b.stmts[pc]? = some (.assign tt (.sload k)) →
-          EvalStmt prog o stpc Tpc (.assign tt (.sload k)) stpc' Tpc' →
-          ∃ w, V2.evalExpr stpc 0 (.sload k) = some w) := by
+      ∧ SloadLogAligned sloadAcc sloadFrs := by
   -- (1) the Runs + Corr-at-terminator + stack-nil triple — VERBATIM from `sim_stmts_block`.
   obtain ⟨frT, hruns, hcorrT, hstk⟩ := sim_stmts_block hsim hdc.base.corr hrun
   -- (2) `SelfPresent frT` via P3 (supplied `CallPreservesSelf`), from the boundary self-presence.
   have hself : SelfPresent frT := selfPresent_runs_of_call hcall hdc.selfPresent hruns
-  refine ⟨frT, hruns, hcorrT, hstk, hself, hdc.gasAligned, hdc.sloadAligned, ?_, ?_⟩
-  · -- S7: each cursor's assign-remat realisability, the genuine no-bridge content.
-    intro pc tt e stpc stpc' Tpc Tpc' frpc _ hne hns hcorrpc hsteppc
-    exact driveCorrPlus_assign_remat_memRealises hcorrpc hsteppc hne hns
-  · -- S2: each cursor's sload value tie, read off the run's own `assignPure`.
-    intro pc tt k stpc stpc' Tpc Tpc' _ hsteppc
-    exact driveCorrPlus_sload_value hsteppc
+  exact ⟨frT, hruns, hcorrT, hstk, hself, hdc.gasAligned, hdc.sloadAligned⟩
 
 /-! ## §8 — the halt wrappers (Tier 2 / C4): `driveCorrPlus_step_stop` / `_ret`
 
@@ -2054,7 +2042,7 @@ theorem driveCorrPlus_step_stop {prog : Program} {sloadChg : Tmp → ℕ} {obs :
       ∧ (frT.exec.executionEnv.address = frT.exec.executionEnv.address
           ∧ (∃ cp, frT.kind = Evm.FrameKind.call cp)
           ∧ ¬ (frT.exec.accounts == (∅ : Evm.AccountMap)) = true) := by
-  obtain ⟨frT, hruns, hcorrT, _hstk, hself, _, _, _, _⟩ :=
+  obtain ⟨frT, hruns, hcorrT, _hstk, hself, _, _⟩ :=
     driveCorrPlus_run_stmts hdc hb hrun hsim hcall
   exact ⟨frT, hruns, hcorrT, hself,
     rfl, hkind frT hruns hcorrT, accounts_ne_empty_of_selfPresent hself⟩
@@ -2124,7 +2112,7 @@ theorem driveCorrPlus_step_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
                 ∧ 3 ≤ (pushFrameW frv (0 : Word) 32).exec.gasAvailable.toNat
                 ∧ frv.kind = Evm.FrameKind.call cp
                 ∧ ¬ (frv.exec.accounts == (∅ : Evm.AccountMap)) = true)) := by
-  obtain ⟨frT, hruns, hcorrT, _hstk, hselfT, _, _, _, _⟩ :=
+  obtain ⟨frT, hruns, hcorrT, _hstk, hselfT, _, _⟩ :=
     driveCorrPlus_run_stmts hdc hb hrun hsim hcall
   refine ⟨frT, hruns, hcorrT, hselfT,
     rfl, hv, (hgas frT hcorrT).1, (hgas frT hcorrT).2, ?_⟩
