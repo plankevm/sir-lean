@@ -49,6 +49,10 @@ import LirLean.V2.Call
 -- `V2.CallOracle` to v1's `evmCallOracle`; the realised bundle = the lowered CALL's
 -- observable effect (the call analogue of `GasRealises.monotoneGas`). Bytecode-coupled.
 import LirLean.V2.CallRealises
+-- v2 (exp005) with-CALL parity worked example (v3 §3, §7): instantiates the general
+-- `callRealises_bridge` to the concrete `workedCall` bytecode scenario. A *leaf example*
+-- coupling `LirLean.WorkedCall` — deliberately kept OFF the headline import cone.
+import LirLean.V2.WorkedCallParity
 -- Acyclicity ⇒ `MatFueled`: discharges `WellFormedLowered`'s recompute-fuel-sufficiency
 -- fields from a rank-based SSA acyclicity witness (`Acyclic (defsOf prog) rank`), so no
 -- `MatFueled` hypothesis survives for an acyclic program (`wellFormedLowered_of_acyclic`).
