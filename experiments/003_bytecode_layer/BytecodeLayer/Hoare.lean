@@ -195,6 +195,27 @@ theorem Runs.step_to_halt {fr mid last : Frame} {halt : FrameHalt}
     obtain ⟨_, _, _, _, hstep', _⟩ := hcall
     rw [hstep.1] at hstep'; exact absurd hstep' (by nofun)
 
+/-- **Single deterministic step left-cancellation.** If `fr` `Runs` to `fr'` and
+`StepsTo fr mid` is the (deterministic, non-call) head step, then either the run
+already factors through `mid` (`Runs mid fr'`) or the run was empty (`fr = fr'`,
+the un-cancellable edge case). This is the exact MIRROR of `step_to_halt`: same
+three-case inversion, same `StepsTo.det` brick — only the halting hypothesis is
+dropped, so the empty-run arm surfaces as the `fr = fr'` disjunct instead of a
+contradiction. The `.call` arm is impossible (`.next ≠ .needsCall`). -/
+theorem Runs.step_cancel {fr mid fr' : Frame}
+    (hrun : Runs fr fr') (hstep : StepsTo fr mid) : Runs mid fr' ∨ fr = fr' := by
+  cases hrun with
+  | refl _ =>
+    -- empty run: `fr = fr'`, the genuinely un-cancellable edge.
+    exact Or.inr rfl
+  | step h' rest =>
+    -- both are the unique first step; identify the successors, run continues.
+    have := StepsTo.det hstep h'; subst this; exact Or.inl rest
+  | call hcall _ =>
+    -- the run starts with a CALL, but `StepsTo` says `.next`.
+    obtain ⟨_, _, _, _, hstep', _⟩ := hcall
+    rw [hstep.1] at hstep'; exact absurd hstep' (by nofun)
+
 /-- **A halting `Runs` does not start with a CALL whose resume diverges.** If `fr`
 `Runs` to a halting `last` and `CallReturns fr resumeFr`, then `resumeFr` still
 `Runs` to `last`. -/
@@ -320,6 +341,21 @@ def sloadFrame (fr : Frame) (key : UInt256) (rest : Stack UInt256) : Frame :=
 pc + 1, `Gbase` charged. -/
 def gasFrame (fr : Frame) : Frame :=
   { fr with exec := BytecodeLayer.Dispatch.gasPost fr.exec }
+
+/-- **Gas-specialized front cancellation.** A run `Runs fr fr'` whose head is the
+`GAS` opcode (decode/stack/gas envelope) factors as `Runs (gasFrame fr) fr'`. The
+`StepsTo fr (gasFrame fr)` head is built from `stepFrame_gas` (note
+`gasFrame fr = { fr with exec := gasPost fr.exec }`, the `stepsTo_of_next`
+successor), then `step_cancel` resolves; the empty-run disjunct is discharged by
+`hne : fr ≠ fr'` (SATISFIABLE — `GAS` is non-terminal, so a non-empty lowered
+statement run from `fr` lands at a strictly-advanced `fr' ≠ fr`). -/
+theorem Runs.gas_cancel {fr fr' : Frame}
+    (hrun : Runs fr fr')
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .GAS, .none))
+    (hsz : fr.exec.stack.size + 1 ≤ 1024)
+    (hgas : GasConstants.Gbase ≤ fr.exec.gasAvailable.toNat)
+    (hne : fr ≠ fr') : Runs (gasFrame fr) fr' :=
+  (Runs.step_cancel hrun (stepsTo_of_next (stepFrame_gas fr hdec hsz hgas))).resolve_right hne
 
 /-- **The ADD rule.** From a frame decoding to `ADD` with `a :: b :: rest` on the
 stack, enough gas (`Gverylow`) and stack room, one step `Runs` to `addFrame fr a b
@@ -712,3 +748,8 @@ theorem sstoreFrame_storage_frame (fr : Frame) (key newValue : UInt256) (rest : 
     · rw [accounts_find?_insert_of_ne _ _ ha]
 
 end BytecodeLayer.Hoare
+
+-- Axiom guards for the RUNSFACTOR additions: the ONLY allowed axioms are
+-- `[propext, Classical.choice, Quot.sound]`.
+#print axioms BytecodeLayer.Hoare.Runs.step_cancel
+#print axioms BytecodeLayer.Hoare.Runs.gas_cancel
