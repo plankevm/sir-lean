@@ -468,6 +468,85 @@ theorem selfPresent_matRuns {defs : Tmp → Option Expr} {sloadChg : Tmp → ℕ
   obtain ⟨acc, hacc⟩ := h
   exact ⟨acc, by rw [hmr.accounts, hmr.addr]; exact hacc⟩
 
+/-! ### `SelfPresent`-forward along a whole `Runs` segment (incl. the `Runs.call` resume)
+
+`selfPresent_matRuns` transports `SelfPresent` across one materialise sub-run. The drive walk
+glues those sub-runs (and returning external CALLs) into a single `Runs fr fr'` segment between
+block boundaries, so the SSTORE-presence discharge needs `SelfPresent` **forward-closed along the
+whole `Runs`** — including the `Runs.call` resume node, where the resumed *caller* frame's account
+map is the child's returned `result.accounts` (the shared world state threaded back through
+`resumeAfterCall`), not the caller's pre-call map.
+
+The `Runs` relation (`BytecodeLayer/Hoare.lean`) has three constructors — `refl` / `step`
+(`StepsTo`, one non-halting opcode) / `call` (`CallReturns`, one returning external CALL). The
+forward closure is an induction on the derivation (the template is `Runs.gasAvailable_le`): `refl`
+is `rfl`, and each `step`/`call` rung is a *local* one-edge preservation. We name those two edges as
+predicates so the drive walk discharges them with the facts it already has (the materialise bricks
+for `step`, the returning-call world-threading for `call`):
+
+* `StepPreservesSelf` — a single non-halting opcode step preserves the self account's presence.
+  **Satisfiable, not vacuous**: every `.next` opcode the lowering emits leaves `accounts` either
+  untouched (`binOp`/`pushOp`/… via `replaceStackAndIncrPC`) or inserts *at* the self account
+  (`SSTORE`); none ever erases it. For the lowered program the drive walk supplies this per edge
+  from the materialise bricks (`selfPresent_addFrame`/`…`/`selfPresent_matRuns`).
+* `CallPreservesSelf` — a returning external CALL preserves the *caller's* self account presence.
+  **Satisfiable, not vacuous**: the resume preserves the self *address* (`resumeAfterCall` rebuilds
+  the caller frame, touching only stack/pc/gas/accounts/substate — `resumeAfterCall_address`), and
+  the returned `result.accounts` retains the caller's account (its checkpoint on revert/exception is
+  the caller's own pre-call map; on success the shared world keeps the caller present — the caller is
+  not the callee). The structural address half is banked below; the `result.accounts`-presence half
+  is the returning-world fact the drive walk supplies per CALL edge.
+
+The general lemma `selfPresent_runs` threads both across an arbitrary `Runs`; the address-transport
+helpers `resumeAfterCall_address`/`resumeAfterCall_accounts` are the `rfl` facts the `call` edge
+reduces to. -/
+
+/-- The resumed frame's self address is the *caller's* self address: `resumeAfterCall` rebuilds
+`pd.frame` (the suspended caller) touching only stack/pc/gas/accounts/substate, leaving
+`executionEnv` (hence `.address`) untouched. The structural half of the `Runs.call` resume's
+self-presence transport. -/
+theorem resumeAfterCall_address (result : Evm.CallResult) (pd : Evm.PendingCall) :
+    (Evm.resumeAfterCall result pd).exec.executionEnv.address
+      = pd.frame.exec.executionEnv.address := rfl
+
+/-- The resumed frame's account map is the child's returned `result.accounts` (the shared world
+state threaded back). The structural half of the `Runs.call` resume's self-presence transport:
+self-presence at the resumed frame is exactly `result.accounts.find? (caller self) = some _`. -/
+theorem resumeAfterCall_accounts (result : Evm.CallResult) (pd : Evm.PendingCall) :
+    (Evm.resumeAfterCall result pd).exec.accounts = result.accounts := rfl
+
+/-- **Local per-step self-presence preservation.** One non-halting opcode step (`StepsTo`) keeps
+the self account present. Satisfiable for the lowered program — every `.next` opcode either leaves
+`accounts` untouched or inserts at the self account, never erasing it — and supplied per edge by the
+materialise bricks (`selfPresent_matRuns` & the `selfPresent_*` post-frame lemmas). -/
+def StepPreservesSelf : Prop :=
+  ∀ ⦃fr fr' : Frame⦄, StepsTo fr fr' → SelfPresent fr → SelfPresent fr'
+
+/-- **Local per-call self-presence preservation.** One returning external CALL (`CallReturns`)
+keeps the *caller's* self account present. Satisfiable, not vacuous: the resume keeps the self
+address (`resumeAfterCall_address`) and the returned `result.accounts` retains the caller (the
+checkpoint on revert/exception is the caller's own pre-call map; on success the shared world keeps
+the caller present — the caller is not the callee). The structural address half is banked; the
+`result.accounts`-presence half is the returning-world fact supplied per CALL edge. -/
+def CallPreservesSelf : Prop :=
+  ∀ ⦃callFr resumeFr : Frame⦄, CallReturns callFr resumeFr → SelfPresent callFr → SelfPresent resumeFr
+
+/-- **`SelfPresent` is forward-closed along a whole `Runs` segment.** From `SelfPresent fr` and
+`Runs fr fr'`, `SelfPresent fr'` — given the two local one-edge preservation facts
+(`StepPreservesSelf` for opcode steps, `CallPreservesSelf` for returning external CALLs, *including
+the `Runs.call` resume node*). Proved by induction on the `Runs` derivation (the template is
+`Runs.gasAvailable_le`): `refl` carries `h` unchanged; `step`/`call` apply the corresponding local
+edge then recurse. This is the threading the SSTORE-presence discharge needs across the drive walk:
+a later SSTORE cursor inherits the entry frame's self-presence through every block step and returning
+call. Both edge hypotheses are satisfiable (not vacuous) — see `StepPreservesSelf`/`CallPreservesSelf`
+— so this introduces no unsatisfiable assumption. -/
+theorem selfPresent_runs (hstep : StepPreservesSelf) (hcall : CallPreservesSelf)
+    {fr fr' : Frame} (h : SelfPresent fr) (hruns : Runs fr fr') : SelfPresent fr' := by
+  induction hruns with
+  | refl _ => exact h
+  | step hs _ ih => exact ih (hstep hs h)
+  | call hc _ ih => exact ih (hcall hc h)
+
 /-! ### `SelfPresent` at the entry `codeFrame` (world-wellformedness)
 
 The entry frame's accounts are `codeAccounts params` (`beginCall`'s value-transfer map) and
@@ -590,5 +669,8 @@ end Lir.V2
 #print axioms Lir.V2.selfPresent_addFrame
 #print axioms Lir.V2.selfPresent_sloadFrame
 #print axioms Lir.V2.selfPresent_matRuns
+#print axioms Lir.V2.resumeAfterCall_address
+#print axioms Lir.V2.resumeAfterCall_accounts
+#print axioms Lir.V2.selfPresent_runs
 #print axioms Lir.V2.selfPresent_codeFrame
 #print axioms Lir.V2.driveCorrPlus_entry
