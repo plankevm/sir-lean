@@ -1769,6 +1769,170 @@ theorem driveCorrPlus_entry {prog : Program} {sloadChg : Tmp → ℕ} {obs : Wor
   gasAligned := gasLogAligned_nil
   sloadAligned := sloadLogAligned_nil
 
+/-! ## §7 — the no-bridge VALUE channels of the `DriveCorrPlus` walk (C3 / Group B)
+
+The centerpiece walk `L2.0 driveCorrPlus_run_stmts` (below) is decomposed by the architect into
+
+  * the **structure** (`Runs` + `Corr` at the terminator + working-stack-nil), reused VERBATIM from
+    `sim_stmts_block` consuming the per-statement bytecode simulation `SimStmtStep` (which internally
+    re-establishes the stash/sstore/call ties S1/S5/S6 — the serialized spine, supplied here);
+  * the **self-presence** edge, threaded by P3 (`selfPresent_runs_of_call`, supplied `CallPreservesSelf`);
+  * the **alignment** witnesses, carried VERBATIM from the `DriveCorrPlus` boundary (the per-cursor
+    structural extension `gasLogAligned_step_gas`/`sloadLogAligned_step_sload` is the deferred gas/sload
+    structural walk, NOT this value-only body);
+  * the **value channels** — the only genuinely-new, no-P3, no-trace↔recorder-bridge content tonight:
+    **S7** (assign-remat `MemRealises` transport) and **S2** (the sload value tie).
+
+We prove S7/S2 here as cursor-LOCAL facts (a single `Corr` cursor + its `EvalStmt` step), exactly the
+altitude `SimStmtStep`/`sim_assign` consume; the walk emits them per cursor (Route 4b — the indexed
+form bound to the run's reached `(stpc, frpc)`, NOT the universal free-`ob` `StmtTies` predicate, which
+ranges over all cursors and is unreconstructable from a single run).
+
+**The two channels that STAY SUPPLIED tonight** (satisfiable, documented, NON-vacuous):
+  * **S3 (gas positional value)** `stpc'.locals t = ofUInt64 (frpc.gas − Gbase)` — NOT a value-only
+    have-block: it is the TRACE↔RECORDER bridge (`EvalStmt.assignGas` peels `ob` as the HEAD of the gas
+    trace, while `aligned_read_eq_obs` gives the recorder's `gasAcc[i]`; tying them needs a NEW carried
+    invariant `IR-trace-consumed = gasAcc` plus the gas-channel structural walk threading
+    `gasFrs[i] = gasFrame frpc`). Supplied as `hgasval`; satisfiable — it is exactly what
+    `aligned_read_eq_obs` yields once the gas walk threads the witness pairing (`gasReadOf_gasFrame_eq_obs`
+    is `rfl`), inhabited by any top-level GAS read.
+  * **S1/S5/S6** — folded inside the supplied `SimStmtStep` (the serialized post-P3 spine).
+  * **S4 (gas runtime envelopes)** — the lower-bound envelopes need the clean-halt FORWARD split
+    (`cleanHalts_forward` to the cursor, then the GAS op runs), not pure descent; supplied alongside S3.
+-/
+
+/-- **S7 core (NEW): `MemRealises` survives a non-spilled `setLocal`.** Binding a tmp `t` that is NOT
+spilled to a memory slot (`∀ n, defsOf prog t ≠ some (.slot n)`) leaves the memory value channel
+intact: for every spilled `t'` with `(st.setLocal t w).locals t' = some v`, necessarily `t' ≠ t` (else
+`t` would be spilled, contradicting `hns`), so `(st.setLocal t w).locals t' = st.locals t'` and the
+coverage+readback at `t'`'s slot is the input `MemRealises`'s. The honest content of the assign-remat
+channel: the frame `fr` is UNCHANGED by a rematerialised assign (its lowered emit is empty,
+`Runs.refl`), only the IR state moves, so `MemRealises` transports by this `setLocal` stability. -/
+theorem memRealises_setLocal_nonspilled {prog : Program} {st : V2.IRState} {fr : Frame}
+    {t : Tmp} {w : Word}
+    (h : MemRealises prog st fr) (hns : ∀ n, defsOf prog t ≠ some (.slot n)) :
+    MemRealises prog (st.setLocal t w) fr := by
+  intro t' slot v hdef hloc
+  -- `t' ≠ t`: otherwise `t' = t` is spilled (`hdef` at the slot), contradicting `hns`.
+  have hne : t' ≠ t := by
+    rintro rfl
+    exact hns slot hdef
+  -- read the bound value back through `setLocal` of the distinct tmp `t`.
+  have hloc' : st.locals t' = some v := by
+    have : (st.setLocal t w).locals t' = st.locals t' := by
+      show (if t' = t then some w else st.locals t') = st.locals t'
+      rw [if_neg hne]
+    rwa [this] at hloc
+  exact h t' slot v hdef hloc'
+
+/-- **S7 (assign-remat value channel), cursor-local.** At a cursor holding a rematerialised assign
+`assign t e` (target NOT spilled, `hns`) whose IR step is the non-gas `EvalStmt.assignPure` (so the
+post-state is `st.setLocal t w`), the post-state realises the frame's memory: `MemRealises prog st' fr`.
+The frame is the SAME `fr` the cursor's `Corr` carries (a rematerialised assign emits no bytes), so this
+is `memRealises_setLocal_nonspilled` applied to `Corr.memAgree`. No recorder, no P3 — the genuine
+no-bridge content of S7 (Route 4b indexed form). -/
+theorem driveCorrPlus_assign_remat_memRealises {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
+    {o : V2.CallOracle} {st st' : V2.IRState} {T T' : Trace} {t : Tmp} {e : Expr} {L : Label}
+    {pc : Nat} {fr : Frame}
+    (hcorr : Corr prog sloadChg obs st fr L pc)
+    (hstep : EvalStmt prog o st T (.assign t e) st' T')
+    (hne : e ≠ .gas)
+    (hns : ∀ n, defsOf prog t ≠ some (.slot n)) :
+    MemRealises prog st' fr := by
+  -- invert the step: non-gas assign ⇒ `assignPure`, `st' = st.setLocal t w`.
+  cases hstep with
+  | assignPure _ _ =>
+    exact memRealises_setLocal_nonspilled hcorr.memAgree hns
+  | assignGas => exact absurd rfl hne
+
+/-- **S2 (sload value channel), cursor-local.** At a cursor holding `assign t (.sload k)` whose IR step
+is `EvalStmt`, the IR genuinely binds a value: `∃ w, evalExpr st 0 (.sload k) = some w`. This is the
+`hv` field of the `assignPure` the run already performed (`.sload k ≠ .gas`), echoing the run's own
+successful IR step — NON-vacuous (the run is the witness that `k` is bound and `w = st.world key`). No
+recorder, no P3. -/
+theorem driveCorrPlus_sload_value {prog : Program} {o : V2.CallOracle}
+    {st st' : V2.IRState} {T T' : Trace} {t k : Tmp}
+    (hstep : EvalStmt prog o st T (.assign t (.sload k)) st' T') :
+    ∃ w, V2.evalExpr st 0 (.sload k) = some w := by
+  cases hstep with
+  | assignPure _ hv => exact ⟨_, hv⟩
+
+/-- **S2 envelope: the sload key is bound, the value is the world read.** A sharper readout of the same
+`assignPure`: the IR run's sload at this cursor binds `k`'s key and the loaded word is `st.world key` —
+the value `MemRealises` will position at `t`'s slot. Non-vacuous (the run is its own witness). -/
+theorem driveCorrPlus_sload_value_world {prog : Program} {o : V2.CallOracle}
+    {st st' : V2.IRState} {T T' : Trace} {t k : Tmp}
+    (hstep : EvalStmt prog o st T (.assign t (.sload k)) st' T') :
+    ∃ key, st.locals k = some key ∧ V2.evalExpr st 0 (.sload k) = some (st.world key) := by
+  cases hstep with
+  | assignPure _ hv =>
+    -- `evalExpr st 0 (.sload k) = (do let key ← st.locals k; pure (st.world key))`.
+    -- `hv : evalExpr st 0 (.sload k) = some w` forces `st.locals k = some key` and `w = st.world key`.
+    cases hk : st.locals k with
+    | none =>
+      exfalso
+      simp [V2.evalExpr, hk] at hv
+    | some key =>
+      exact ⟨key, rfl, by simp [V2.evalExpr, hk]⟩
+
+/-! ### L2.0 — the `DriveCorrPlus` statement-walk, VALUE-CHANNEL form (C3 partial)
+
+`driveCorrPlus_run_stmts` mirrors `sim_stmts_block` (consuming `SimStmtStep` for the Runs+Corr+stack
+triple), threads `SelfPresent` via P3, carries the alignment VERBATIM, and EMITS the no-bridge value
+channels S7/S2 as per-cursor families (Route 4b — bound to whatever `(stpc, frpc)` the caller hands at
+each cursor, NOT the universal free-`ob` `StmtTies`). The structural/call ties S1/S5/S6 are inside the
+supplied `SimStmtStep`; S3 (gas positional value) and S4 (gas runtime envelopes) stay supplied
+(`hgasval`/`hgasenv`) — they are trace↔recorder-bridge / clean-halt-forward facts, NOT value-only
+have-blocks (documented above). Every supplied parameter is satisfiable and non-vacuous. -/
+
+/-- **L2.0 (partial — value channels only).** From `DriveCorrPlus` at a block boundary, the block, the
+IR block run, and the supplied per-statement simulation `SimStmtStep` (folding S1/S5/S6) + the P3 call
+edge `CallPreservesSelf`: reach a terminator frame `frT` with `Runs fr frT`, `Corr` at the terminator
+cursor, empty stack, `SelfPresent frT`, the alignment carried VERBATIM, AND the no-bridge value channels
+**S7** (assign-remat `MemRealises`, `driveCorrPlus_assign_remat_memRealises`) and **S2** (sload value,
+`driveCorrPlus_sload_value`) emitted per cursor in Route-4b indexed form (bound to the caller's reached
+`(stpc, frpc)` at each cursor). The gas positional value (S3, `hgasval`) and gas runtime envelopes (S4)
+stay supplied — trace↔recorder-bridge / clean-halt-forward facts, not value-only. -/
+theorem driveCorrPlus_run_stmts {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
+    {o : V2.CallOracle} {st st' : V2.IRState} {T T' : Trace} {L : Label} {b : Block} {fr : Frame}
+    {gasAcc : List Word} {gasFrs : List Frame} {sloadAcc : List Nat} {sloadFrs : List Frame}
+    (hdc : DriveCorrPlus prog sloadChg obs st fr L gasAcc gasFrs sloadAcc sloadFrs)
+    -- `b` is pinned by `hrun`/`hsim` (both run over `b.stmts`); `_hb` ties `b` to `prog.blocks[L.idx]?`,
+    -- kept for signature stability — the deferred structural channels (S1/S5/S6 positioning via
+    -- `blockAt`) consume it, the value-only body does not.
+    (_hb : prog.blocks.toList[L.idx]? = some b)
+    (hrun : V2.RunStmts prog o st T b.stmts st' T')
+    (hsim : SimStmtStep prog sloadChg obs o L b)
+    (hcall : CallPreservesSelf) :
+    ∃ frT, Runs fr frT
+      ∧ Corr prog sloadChg obs st' frT L b.stmts.length
+      ∧ frT.exec.stack = []
+      ∧ SelfPresent frT
+      ∧ GasLogAligned gasAcc gasFrs
+      ∧ SloadLogAligned sloadAcc sloadFrs
+      -- S7 (assign-remat value channel), per cursor (Route 4b indexed):
+      ∧ (∀ (pc : Nat) (tt : Tmp) (e : Expr) (stpc stpc' : V2.IRState) (Tpc Tpc' : Trace) (frpc : Frame),
+          b.stmts[pc]? = some (.assign tt e) → e ≠ .gas → (∀ n, defsOf prog tt ≠ some (.slot n)) →
+          Corr prog sloadChg obs stpc frpc L pc →
+          EvalStmt prog o stpc Tpc (.assign tt e) stpc' Tpc' →
+          MemRealises prog stpc' frpc)
+      -- S2 (sload value channel), per cursor (Route 4b indexed):
+      ∧ (∀ (pc : Nat) (tt k : Tmp) (stpc stpc' : V2.IRState) (Tpc Tpc' : Trace),
+          b.stmts[pc]? = some (.assign tt (.sload k)) →
+          EvalStmt prog o stpc Tpc (.assign tt (.sload k)) stpc' Tpc' →
+          ∃ w, V2.evalExpr stpc 0 (.sload k) = some w) := by
+  -- (1) the Runs + Corr-at-terminator + stack-nil triple — VERBATIM from `sim_stmts_block`.
+  obtain ⟨frT, hruns, hcorrT, hstk⟩ := sim_stmts_block hsim hdc.base.corr hrun
+  -- (2) `SelfPresent frT` via P3 (supplied `CallPreservesSelf`), from the boundary self-presence.
+  have hself : SelfPresent frT := selfPresent_runs_of_call hcall hdc.selfPresent hruns
+  refine ⟨frT, hruns, hcorrT, hstk, hself, hdc.gasAligned, hdc.sloadAligned, ?_, ?_⟩
+  · -- S7: each cursor's assign-remat realisability, the genuine no-bridge content.
+    intro pc tt e stpc stpc' Tpc Tpc' frpc _ hne hns hcorrpc hsteppc
+    exact driveCorrPlus_assign_remat_memRealises hcorrpc hsteppc hne hns
+  · -- S2: each cursor's sload value tie, read off the run's own `assignPure`.
+    intro pc tt k stpc stpc' Tpc Tpc' _ hsteppc
+    exact driveCorrPlus_sload_value hsteppc
+
 end Lir.V2
 
 -- Build-enforced axiom-cleanliness guards for the tie-discharge deliverables.
@@ -1809,3 +1973,9 @@ end Lir.V2
 #print axioms Lir.V2.resumeAfterCall_self_of_accounts
 #print axioms Lir.V2.endCall_revert_accounts
 #print axioms Lir.V2.endCall_exception_accounts
+-- C3: the no-bridge VALUE channels of the L2.0 statement-walk.
+#print axioms Lir.V2.memRealises_setLocal_nonspilled
+#print axioms Lir.V2.driveCorrPlus_assign_remat_memRealises
+#print axioms Lir.V2.driveCorrPlus_sload_value
+#print axioms Lir.V2.driveCorrPlus_sload_value_world
+#print axioms Lir.V2.driveCorrPlus_run_stmts
