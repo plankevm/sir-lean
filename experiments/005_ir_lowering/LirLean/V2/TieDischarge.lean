@@ -1615,6 +1615,98 @@ theorem sloadLogAligned_matRuns {defs : Tmp → Option Expr} {sloadChg : Tmp →
     SloadLogAligned sloadAcc sloadFrs ∧ sloadFrs.getLast? = some last ∧ Runs last fr' :=
   ⟨halign, hlast, Runs.trans hreach hmr.runs⟩
 
+/-! ### The per-cursor GAS-channel ADVANCE bricks (STEP 1 — the structural advance)
+
+The two standalone per-cursor lemmas that EXTEND (resp. carry) the gas alignment at a statement
+cursor, threading `FramesRun.snoc` reachability from the block boundary. They are the honest content
+of STEP 1: at a `.assign t .gas` cursor the gas accumulator GROWS by one word (the GAS-op's reported
+gas, `driveCorrPlus_gas_cursor_advance`); at every other cursor the gas accumulator is carried
+VERBATIM while reachability threads to the cursor's end frame (`driveCorrPlus_norecord_cursor_advance`).
+
+**Why these are SEPARATE bricks, not a mutation of `driveCorrPlus_run_stmts`.** That walk obtains its
+`Runs fr frT` from `sim_stmts_block`, a black box that exposes neither the per-cursor frames nor which
+cursors are GAS cursors nor the GAS-op `.next` step at each. So it has no handle to ADVANCE the
+witness list `gasFrs` — which is exactly why L2.0 carries the alignment verbatim. To advance the gas
+channel one must re-do the per-cursor induction (the would-be `driveCorrPlus_run_stmts_gasadvance`,
+reported as the standing obstacle). These bricks are the per-cursor steps that re-architected walk
+would dispatch to; they are unconditionally green and reusable in isolation.
+
+**Non-vacuity / non-circularity.** `driveCorrPlus_gas_cursor_advance` PRODUCES the extended
+`GasLogAligned` from the GAS-op facts (it routes only through `gasLogAligned_step_gas`, whose appended
+word is the recorder's literal splice `gasReadOf (gasFrame fr0)`); it never takes an extended-alignment
+hypothesis and returns it. The non-gas brick makes NO no-record-inside claim (a non-gas statement can
+still materialise a `.gas` operand inside its segment — byte-freeness for spilled operands is the
+DEFERRED completeness obligation flagged on `gasLogAligned_matRuns`); it only carries alignment
+verbatim and threads reachability via `Runs.trans`. -/
+
+/-- **The per-cursor GAS ADVANCE brick (STEP 1, must-land).** At a statement cursor whose `Corr` frame
+is `fr0` and which decodes to the `GAS` op (`hdec`), under the gas envelope `Gbase ≤ fr0.gas` (`hgas`,
+the supplied S4 lower bound — CONSUMED here, not produced) and a witness list ending at a frame `last`
+from which `fr0` is reachable (`hlast`/`hreach` threaded from the boundary), the gas alignment EXTENDS:
+the new accumulator `gasAcc ++ [ofUInt64 (gasFrame fr0).gas]` is aligned with `gasFrs ++ [gasFrame fr0]`,
+the GAS step `Runs fr0 (gasFrame fr0)` holds, and the snoc witness list ends at `gasFrame fr0`.
+
+The stack-size bound `fr0.stack.size + 1 ≤ 1024` is recovered from `Corr.stack_nil` (empty stack). The
+GAS step + reachability is `sim_gas`; the alignment extension is `gasLogAligned_step_gas` at `fr0` with
+`hstep` supplied by `Dispatch.stepFrame_gas`. The appended word is the recorder's literal splice
+(`gasReadOf (gasFrame fr0) = ofUInt64 (gasFrame fr0).gas`), so the EXTENSION is genuine — NOT a free
+word, NOT a re-supply of the extended alignment. -/
+theorem driveCorrPlus_gas_cursor_advance {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
+    {st : V2.IRState} {L : Label} {pc : Nat} {fr0 last : Frame}
+    {gasAcc : List Word} {gasFrs : List Frame}
+    (halign : GasLogAligned gasAcc gasFrs)
+    (hlast : gasFrs.getLast? = some last)
+    (hreach : Runs last fr0)
+    (hcorr : Corr prog sloadChg obs st fr0 L pc)
+    (hdec : decode fr0.exec.executionEnv.code fr0.exec.pc = some (.Smsf .GAS, .none))
+    (hgas : GasConstants.Gbase ≤ fr0.exec.gasAvailable.toNat) :
+    Runs fr0 (gasFrame fr0)
+      ∧ GasLogAligned (gasAcc ++ [UInt256.ofUInt64 (gasFrame fr0).exec.gasAvailable])
+          (gasFrs ++ [gasFrame fr0])
+      ∧ (gasFrs ++ [gasFrame fr0]).getLast? = some (gasFrame fr0) := by
+  -- (1) stack-size bound from `Corr.stack_nil`.
+  have hsz : fr0.exec.stack.size + 1 ≤ 1024 := by
+    rw [hcorr.stack_nil]; decide
+  -- (2) the GAS step `Runs fr0 (gasFrame fr0)`.
+  have hrun : Runs fr0 (gasFrame fr0) := (sim_gas fr0 hdec hsz hgas).1
+  -- (3) `Runs last (gasFrame fr0)` for `FramesRun.snoc`, via `hreach` then the GAS step.
+  have hreach' : Runs last (gasFrame fr0) := Runs.trans hreach hrun
+  -- (4) `stepFrame fr0 = .next (gasPost fr0.exec)`, so `gasLogAligned_step_gas`'s `exec` is the
+  --     post-charge exec and its appended word is `ofUInt64 (gasFrame fr0).gas`.
+  have hstep : stepFrame fr0 = .next (BytecodeLayer.Dispatch.gasPost fr0.exec) :=
+    BytecodeLayer.Dispatch.stepFrame_gas fr0 hdec hsz hgas
+  have halign' :
+      GasLogAligned (gasAcc ++ [UInt256.ofUInt64 (BytecodeLayer.Dispatch.gasPost fr0.exec).gasAvailable])
+        (gasFrs ++ [gasFrame fr0]) :=
+    gasLogAligned_step_gas halign hlast hreach' hdec hsz hgas hstep
+  -- `(gasFrame fr0).exec.gasAvailable = (gasPost fr0.exec).gasAvailable` (`rfl`), so the produced
+  -- accumulator is exactly the brick's stated extension.
+  refine ⟨hrun, halign', ?_⟩
+  simp [List.getLast?_concat]
+
+/-- **The per-cursor NON-GAS (no-record) brick (STEP 1, must-land).** At a statement cursor whose
+statement is NOT `assign _ .gas` (`hnotgas`), the cursor records no top-level GAS read at its own
+boundary, so the gas alignment is carried VERBATIM (`gasLogAligned_step_norecord` = identity) and
+reachability threads `Runs last fr0` to `Runs last fr0'` across the cursor's segment (`hsim_seg`) via
+`Runs.trans`. Pure repackaging, the GAS twin of `gasLogAligned_matRuns`.
+
+**HONEST-SCOPE CAVEAT** (mirroring the `gasLogAligned_matRuns` disclaimer): this lemma makes NO claim
+that the segment `Runs fr0 fr0'` fired no GAS byte internally — a non-gas STATEMENT can still
+materialise a `.gas` operand. In the SPILLED regime gas is read once at the def-site stash (NOT inside
+materialise), so the top-level recorder gate (`stack.isEmpty`) does not fire inside the segment — but
+BYTE-FREENESS is a separate completeness obligation DEFERRED (same status as `gasLogAligned_matRuns`).
+The lemma only carries alignment verbatim + threads reachability; it does not and cannot certify the
+post-segment recorder state. Sound and non-circular, but explicitly NOT a no-record-inside proof. -/
+theorem driveCorrPlus_norecord_cursor_advance {s : Stmt} {fr0 fr0' last : Frame}
+    {gasAcc : List Word} {gasFrs : List Frame}
+    (halign : GasLogAligned gasAcc gasFrs)
+    (hlast : gasFrs.getLast? = some last)
+    (hreach : Runs last fr0)
+    (_hnotgas : ∀ t, s ≠ .assign t .gas)
+    (hsim_seg : Runs fr0 fr0') :
+    GasLogAligned gasAcc gasFrs ∧ gasFrs.getLast? = some last ∧ Runs last fr0' :=
+  ⟨gasLogAligned_step_norecord halign, hlast, Runs.trans hreach hsim_seg⟩
+
 /-! ### `SelfPresent`-forward along a whole `Runs` segment (incl. the `Runs.call` resume)
 
 `selfPresent_matRuns` transports `SelfPresent` across one materialise sub-run. The drive walk
@@ -2144,6 +2236,9 @@ end Lir.V2
 #print axioms Lir.V2.selfPresent_matRuns
 #print axioms Lir.V2.gasLogAligned_matRuns
 #print axioms Lir.V2.sloadLogAligned_matRuns
+-- STEP 1: the per-cursor GAS-channel advance bricks (gas-cursor EXTEND + non-gas VERBATIM-thread).
+#print axioms Lir.V2.driveCorrPlus_gas_cursor_advance
+#print axioms Lir.V2.driveCorrPlus_norecord_cursor_advance
 #print axioms Lir.V2.resumeAfterCall_address
 #print axioms Lir.V2.resumeAfterCall_accounts
 #print axioms Lir.V2.selfPresent_runs
