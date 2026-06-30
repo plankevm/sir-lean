@@ -815,15 +815,124 @@ took the *entire* stash run (plus its memory shape + frame pins) as the supplied
 key prefix), the `Match` `sim_sload` brick (the SLOAD step), and `stash_tail_runs` (the PUSH;MSTORE
 tail) — via the SLOAD-prefix `stash_tail_sload` forward lemma. The `MatDec` for the key and the
 SLOAD/PUSH/MSTORE decode anchors are read off the byte layout (`matDec_of_lower` /
-`decode_at_offset_nonpush` / `imm_leaf_decode`); the opaque run is **gone**, the residual is the
-honest runtime SLOAD-warmth/PUSH/MSTORE gas + memory-expansion-witness side-conditions, the
-activeWords-flatness residual (`hawk`: materialising the key did not expand memory — the normal
-sload-key case), the slot addressability, and the post-state scoping — none vacuous.
+`decode_at_offset_nonpush` / `imm_leaf_decode` — factored into the reusable `decode_sloadstash`);
+the opaque run is **gone**. `sim_assign_sload_lowered` still *consumes* the runtime
+SLOAD-warmth/PUSH/MSTORE gas + memory-expansion-witness side-conditions as `hresid` (keyed on the
+post-materialise frame `frk`); but at the conformance walk (`simStmtStep_block`) those are DERIVED
+from the per-cursor clean-halt witness via `sload_envelope_of_cleanHalt` — only the activeWords-
+flatness `hawk` (materialising the key did not expand memory — a memory-shape fact), the key-prefix
+gas/stack fold, the slot addressability, and the post-state scoping remain supplied. -/
 
-The "no spine decode primitive / no `sim_assign_sload_lowered` constructor exists yet" comment at
-`LowerConforms.lean` predates B1 `materialise_runs`: the pieces DO compose, the materialise-key
-decode bundle (`MatDec`/`matDec_of_lower`) supplies the inter-piece anchoring, and no new spine
-primitive was needed. -/
+/-- **SLOAD-stash tail decode anchors (reusable).** For the spilled-sload stash
+`materialise k ++ [SLOAD] ++ PUSH32 (slotOf t) ++ MSTORE`, the three TAIL opcodes (`SLOAD` at the
+post-materialise frame `frk`, `PUSH32` at `sloadFrame frk keyVal []`, `MSTORE` at
+`pushFrameW (sloadFrame frk keyVal []) (ofNat slot) 32`) decode at their successor frames. Keyed on
+the `MatRuns` witness `hmrk` (which pins `frk.code = lower prog` and `frk.pc = pcOf … + lk`), so it
+applies inside the `∀ frk, MatRuns … → …` residual the clean-halt extractor consumes — letting the
+§7 SLOAD tie DERIVE its tail gas/mem envelope from a clean-halt witness (`sload_envelope_of_cleanHalt`)
+instead of supplying it. The key-prefix `hgasKey`/`hstkKey` and the activeWords-flatness `hawk`
+stay supplied (not single-step inversions). -/
+theorem decode_sloadstash {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
+    {st : V2.IRState} {t k : Tmp} {L : Label} {b : Block} {pc : Nat} {fr frk : Frame}
+    {f : Nat} {keyVal : Word}
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hs : b.stmts[pc]? = some (.assign t (.sload k)))
+    (hslotdef : defsOf prog t = some (.slot (slotOf t)))
+    (hfuel : recomputeFuel prog = f + 1)
+    (hbound : pcOf prog L pc
+        + ((materialiseExpr (defsOf prog) f (.tmp k)).length + 35) < 2 ^ 32)
+    (hcorr : Corr prog sloadChg obs st fr L pc)
+    (hmrk : MatRuns (defsOf prog) sloadChg f (.tmp k) keyVal fr frk) :
+    decode frk.exec.executionEnv.code frk.exec.pc = some (.Smsf .SLOAD, .none)
+    ∧ decode (sloadFrame frk keyVal []).exec.executionEnv.code
+        (sloadFrame frk keyVal []).exec.pc
+        = some (.Push .PUSH32, some (UInt256.ofNat (slotOf t), 32))
+    ∧ decode (pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat (slotOf t)) 32).exec.executionEnv.code
+        (pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat (slotOf t)) 32).exec.pc
+        = some (.Smsf .MSTORE, .none) := by
+  set defs := defsOf prog with hdefs
+  set slot := slotOf t with hslotvar
+  set lk := (materialiseExpr defs f (.tmp k)).length with hlk
+  -- the spilled-sload emit (at `recomputeFuel = f+1`): `materialise k ++ [SLOAD] ++ PUSH ++ MSTORE`.
+  have hemit : emitStmt defs (recomputeFuel prog) (.assign t (.sload k))
+      = materialiseExpr defs f (.tmp k) ++ [Byte.sload]
+          ++ emitImm (UInt256.ofNat slot) ++ [Byte.mstore] := by
+    rw [hfuel, emitStmt_assign_slot defs (f + 1) t (.sload k) hslotdef, materialiseExpr_sload]
+  have hemitlen : (emitStmt defs (recomputeFuel prog) (.assign t (.sload k))).length = lk + 35 := by
+    rw [hemit]
+    simp only [List.length_append, List.length_singleton, emitImm_length, hlk]
+  have hseg : ∀ j, j < lk + 35 →
+      (flatBytes prog)[pcOf prog L pc + j]?
+        = (emitStmt defs (recomputeFuel prog) (.assign t (.sload k)))[j]? := by
+    intro j hj
+    exact flatBytes_at_pcOf_offset prog L b pc (.assign t (.sload k)) j hb hs
+      (by rw [← hdefs, hemitlen]; omega)
+  -- frk facts (code / pc) from the `MatRuns` witness.
+  have hkcode : frk.exec.executionEnv.code = lower prog := by rw [hmrk.code, hcorr.code_eq]
+  have hkpc : frk.exec.pc = UInt32.ofNat (pcOf prog L pc + lk) := by
+    rw [hmrk.pc, hcorr.pc_eq, ← hlk, UInt32.ofNat_add]
+  -- == the three tail bytes / decode anchors (frk-relative) ==
+  have hsloadByte : (emitStmt defs (recomputeFuel prog) (.assign t (.sload k)))[lk]? = some Byte.sload := by
+    rw [hemit]
+    rw [List.getElem?_append_left
+          (by simp only [List.length_append, List.length_singleton, emitImm_length]; omega),
+        List.getElem?_append_left
+          (by simp only [List.length_append, List.length_singleton]; omega),
+        @List.getElem?_append_right _ (materialiseExpr defs f (.tmp k)) [Byte.sload] lk
+          (Nat.le_of_eq hlk.symm)]
+    simp only [← hlk, Nat.sub_self]
+    rfl
+  have hdsload : decode frk.exec.executionEnv.code frk.exec.pc = some (.Smsf .SLOAD, .none) := by
+    rw [hkcode, hkpc]
+    have := nonpush_leaf_decode prog (pcOf prog L pc) lk Byte.sload
+      (emitStmt defs (recomputeFuel prog) (.assign t (.sload k))) (by omega)
+      hsloadByte (by decide) (fun j hj => hseg j (by rw [hemitlen] at hj; omega))
+    simpa using this
+  have hdpush : decode frk.exec.executionEnv.code (frk.exec.pc + UInt32.ofNat 1)
+      = some (.Push .PUSH32, some (UInt256.ofNat slot, 32)) := by
+    rw [hkcode, hkpc, ofNat_add']
+    apply imm_leaf_decode prog (pcOf prog L pc + lk + 1) (UInt256.ofNat slot) (by omega)
+    intro j hj
+    have hjlen : j < (emitImm (UInt256.ofNat slot)).length := hj
+    rw [emitImm_length] at hjlen
+    have hjj := hseg (lk + 1 + j) (by omega)
+    rw [show pcOf prog L pc + (lk + 1 + j) = pcOf prog L pc + lk + 1 + j from by ring] at hjj
+    rw [hjj, hemit]
+    rw [List.getElem?_append_left (by simp only [List.length_append, List.length_singleton, emitImm_length]; omega),
+        @List.getElem?_append_right _ (materialiseExpr defs f (.tmp k) ++ [Byte.sload])
+          (emitImm (UInt256.ofNat slot)) (lk + 1 + j)
+          (by simp only [List.length_append, List.length_singleton]; omega),
+        List.length_append, List.length_singleton,
+        show lk + 1 + j - (lk + 1) = j from by omega]
+  have hmstoreByte : (emitStmt defs (recomputeFuel prog) (.assign t (.sload k)))[lk + 34]? = some Byte.mstore := by
+    rw [hemit]
+    rw [@List.getElem?_append_right _
+          (materialiseExpr defs f (.tmp k) ++ [Byte.sload] ++ emitImm (UInt256.ofNat slot))
+          [Byte.mstore] (lk + 34)
+          (by simp only [List.length_append, List.length_singleton, emitImm_length]; omega),
+        List.length_append, List.length_append, List.length_singleton, emitImm_length,
+        show lk + 34 - (lk + 1 + 33) = 0 from by omega]
+    rfl
+  have hdmstore : decode frk.exec.executionEnv.code (frk.exec.pc + UInt32.ofNat 1 + UInt32.ofNat 33)
+      = some (.Smsf .MSTORE, .none) := by
+    rw [hkcode, hkpc, ofNat_add', ofNat_add']
+    have := nonpush_leaf_decode prog (pcOf prog L pc) (lk + 34) Byte.mstore
+      (emitStmt defs (recomputeFuel prog) (.assign t (.sload k))) (by omega)
+      hmstoreByte (by decide) (fun j hj => hseg j (by rw [hemitlen] at hj; omega))
+    rw [show pcOf prog L pc + lk + 1 + 33 = pcOf prog L pc + (lk + 34) from by omega]
+    simpa using this
+  -- == transport to the successor frames (`sloadFrame` / `pushFrameW`) ==
+  refine ⟨hdsload, ?_, ?_⟩
+  · -- PUSH32 at `sloadFrame frk keyVal []`: code = frk's, pc = frk.pc + 1.
+    rw [sloadFrame_code, sloadFrame_pc,
+        show frk.exec.pc + (1 : UInt32) = frk.exec.pc + UInt32.ofNat 1 from rfl]
+    exact hdpush
+  · -- MSTORE at `pushFrameW (sloadFrame frk keyVal []) (ofNat slot) 32`: pc = frk.pc + 1 + 33.
+    rw [pushFrameW_code, pushFrameW_pc, sloadFrame_code, sloadFrame_pc,
+        show ((32 : UInt8) + 1).toUInt32 = UInt32.ofNat 33 from rfl,
+        show frk.exec.pc + (1 : UInt32) + UInt32.ofNat 33
+          = frk.exec.pc + UInt32.ofNat 1 + UInt32.ofNat 33 from rfl]
+    exact hdmstore
 
 /-- **`sim_assign_sload` with the stash run discharged (`_lowered`, P-walk).** Replaces the
 supplied `hstash` run with the honest runtime gas/witness side-conditions; the
@@ -832,7 +941,7 @@ supplied `hstash` run with the honest runtime gas/witness side-conditions; the
 `stash_tail_sload`). The bound value is the loaded storage word `w`. -/
 theorem sim_assign_sload_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs w : Word}
     {st : V2.IRState} {t k : Tmp}
-    {L : Label} {b : Block} {pc : Nat} {fr : Frame} {words' : UInt64} {f : Nat}
+    {L : Label} {b : Block} {pc : Nat} {fr : Frame} {f : Nat}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some (.assign t (.sload k)))
     (hslotdef : defsOf prog t = some (.slot (slotOf t)))
@@ -864,7 +973,8 @@ theorem sim_assign_sload_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs 
               (match st.locals k with | some keyVal => keyVal | none => 0)))
             ≤ frk.exec.gasAvailable.toNat
         ∧ 3 ≤ (sloadFrame frk (match st.locals k with | some keyVal => keyVal | none => 0) []).exec.gasAvailable.toNat
-        ∧ memoryExpansionWords?
+        ∧ ∃ words' : UInt64,
+          memoryExpansionWords?
             (pushFrameW (sloadFrame frk (match st.locals k with | some keyVal => keyVal | none => 0) [])
               (UInt256.ofNat (slotOf t)) 32).exec.activeWords (UInt256.ofNat (slotOf t)) 32 = some words'
         ∧ BytecodeLayer.Dispatch.memExpansionChargeOf
@@ -929,70 +1039,25 @@ theorem sim_assign_sload_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs 
   obtain ⟨frk, hmrk⟩ := materialise_runs sloadChg f st obs (.tmp k) keyVal fr
     hdk hcorr.defsSound hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
     hevk hgasKey hstkKey
-  -- frk facts (code / pc).
-  have hkcode : frk.exec.executionEnv.code = lower prog := by rw [hmrk.code, hcorr.code_eq]
-  have hkpc : frk.exec.pc = UInt32.ofNat (pcOf prog L pc + lk) := by
-    rw [hmrk.pc, hcorr.pc_eq, ← hlk, UInt32.ofNat_add]
-  -- the SLOAD byte sits at emit offset `lk` (read off `hemit`).
-  have hsloadByte : (emitStmt defs (recomputeFuel prog) (.assign t (.sload k)))[lk]? = some Byte.sload := by
-    rw [hemit]
-    -- peel `[mstore]`, then `emitImm`, then read `[sload]` at the relative index `lk - lk = 0`.
-    rw [List.getElem?_append_left
-          (by simp only [List.length_append, List.length_singleton, emitImm_length]; omega),
-        List.getElem?_append_left
-          (by simp only [List.length_append, List.length_singleton]; omega),
-        @List.getElem?_append_right _ (materialiseExpr defs f (.tmp k)) [Byte.sload] lk
-          (Nat.le_of_eq hlk.symm)]
-    simp only [← hlk, Nat.sub_self]
-    rfl
-  -- the SLOAD decode anchor at offset `lk`.
-  have hdsload : decode frk.exec.executionEnv.code frk.exec.pc = some (.Smsf .SLOAD, .none) := by
-    rw [hkcode, hkpc]
-    have := nonpush_leaf_decode prog (pcOf prog L pc) lk Byte.sload
-      (emitStmt defs (recomputeFuel prog) (.assign t (.sload k))) (by omega)
-      hsloadByte (by decide) (fun j hj => hseg j (by rw [hemitlen] at hj; omega))
-    simpa using this
-  -- the PUSH32 slot decode anchor at offset `lk + 1`.
+  -- the three tail decode anchors (reusable `decode_sloadstash`), in successor-frame form.
+  obtain ⟨hdsloadS, hdpushS, hdmstoreS⟩ :=
+    decode_sloadstash (t := t) hb hs hslotdef hfuel hbound hcorr hmrk
+  -- bridge the PUSH/MSTORE anchors to the `frk`-relative form `stash_tail_sload` consumes.
+  have hdsload : decode frk.exec.executionEnv.code frk.exec.pc = some (.Smsf .SLOAD, .none) := hdsloadS
   have hdpush : decode frk.exec.executionEnv.code (frk.exec.pc + UInt32.ofNat 1)
       = some (.Push .PUSH32, some (UInt256.ofNat slot, 32)) := by
-    rw [hkcode, hkpc, ofNat_add']
-    apply imm_leaf_decode prog (pcOf prog L pc + lk + 1) (UInt256.ofNat slot) (by omega)
-    intro j hj
-    have hjlen : j < (emitImm (UInt256.ofNat slot)).length := hj
-    rw [emitImm_length] at hjlen
-    have hjj := hseg (lk + 1 + j) (by omega)
-    rw [show pcOf prog L pc + (lk + 1 + j) = pcOf prog L pc + lk + 1 + j from by ring] at hjj
-    rw [hjj, hemit]
-    -- peel `[mstore]`, then read `emitImm` at the relative index `(lk+1+j) - (lk+1) = j`.
-    rw [List.getElem?_append_left (by simp only [List.length_append, List.length_singleton, emitImm_length]; omega),
-        @List.getElem?_append_right _ (materialiseExpr defs f (.tmp k) ++ [Byte.sload])
-          (emitImm (UInt256.ofNat slot)) (lk + 1 + j)
-          (by simp only [List.length_append, List.length_singleton]; omega),
-        List.length_append, List.length_singleton,
-        show lk + 1 + j - (lk + 1) = j from by omega]
-  -- the MSTORE byte sits at emit offset `lk + 34` (read off `hemit`).
-  have hmstoreByte : (emitStmt defs (recomputeFuel prog) (.assign t (.sload k)))[lk + 34]? = some Byte.mstore := by
-    rw [hemit]
-    -- the index `lk+34` is exactly the length of `A ++ [sload] ++ emitImm`, so peel into `[mstore]`.
-    rw [@List.getElem?_append_right _
-          (materialiseExpr defs f (.tmp k) ++ [Byte.sload] ++ emitImm (UInt256.ofNat slot))
-          [Byte.mstore] (lk + 34)
-          (by simp only [List.length_append, List.length_singleton, emitImm_length]; omega),
-        List.length_append, List.length_append, List.length_singleton, emitImm_length,
-        show lk + 34 - (lk + 1 + 33) = 0 from by omega]
-    rfl
-  -- the MSTORE decode anchor at offset `lk + 34`.
+    have h := hdpushS; rw [sloadFrame_code, sloadFrame_pc] at h
+    rwa [show frk.exec.pc + UInt32.ofNat 1 = frk.exec.pc + 1 from rfl]
   have hdmstore : decode frk.exec.executionEnv.code (frk.exec.pc + UInt32.ofNat 1 + UInt32.ofNat 33)
       = some (.Smsf .MSTORE, .none) := by
-    rw [hkcode, hkpc, ofNat_add', ofNat_add']
-    have := nonpush_leaf_decode prog (pcOf prog L pc) (lk + 34) Byte.mstore
-      (emitStmt defs (recomputeFuel prog) (.assign t (.sload k))) (by omega)
-      hmstoreByte (by decide) (fun j hj => hseg j (by rw [hemitlen] at hj; omega))
-    rw [show pcOf prog L pc + lk + 1 + 33 = pcOf prog L pc + (lk + 34) from by omega]
-    simpa using this
+    have h := hdmstoreS
+    rw [pushFrameW_code, pushFrameW_pc, sloadFrame_code, sloadFrame_pc,
+        show ((32 : UInt8) + 1).toUInt32 = UInt32.ofNat 33 from rfl] at h
+    rwa [show frk.exec.pc + UInt32.ofNat 1 + UInt32.ofNat 33 = frk.exec.pc + 1 + UInt32.ofNat 33
+          from by rw [show frk.exec.pc + UInt32.ofNat 1 = frk.exec.pc + 1 from rfl]]
   -- the runtime side-conditions at `frk` (the descending-gas run supplies them).
   rw [hmatchkey] at hresid
-  obtain ⟨hawk, hgasSload, hgasPush, hmem, hgasMem, hgasMstore⟩ := hresid frk hmrk
+  obtain ⟨hawk, hgasSload, hgasPush, words', hmem, hgasMem, hgasMstore⟩ := hresid frk hmrk
   -- the loaded-value tie: `selfStorage fr keyVal = st.world keyVal = w` (StorageAgree).
   have hwvalSelf : selfStorage fr keyVal = w := by rw [hcorr.storage keyVal, hkw]
   -- == build the stash run via `stash_tail_sload` ==

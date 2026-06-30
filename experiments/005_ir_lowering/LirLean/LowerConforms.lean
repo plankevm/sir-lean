@@ -152,6 +152,20 @@ structure WellFormedLowered (prog : Program) : Prop where
     pcOf prog L pc
       + ((materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp value)).length
         + (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp key)).length) < 2 ^ 32
+  /-- **Spilled-`sload` key fuel-sufficiency.** At every `assign t (.sload k)` cursor of every
+  present block, the key `k` materialises within the reduced recompute fuel `recomputeFuel prog -
+  1` (the spilled-sload emit recurses on the key at one less fuel, `materialiseExpr_sload`). The
+  analogue of `matFueled_sstore`, indexed to the reduced fuel `f` of `sim_assign_sload_lowered`. -/
+  matFueled_sload : ∀ (L : Label) (b : Block) (pc : Nat) (t k : Tmp),
+    prog.blocks.toList[L.idx]? = some b → b.stmts[pc]? = some (.assign t (.sload k)) →
+    1 ≤ recomputeFuel prog
+    ∧ MatFueled (defsOf prog) (recomputeFuel prog - 1) (.tmp k)
+  /-- **Spilled-`sload` pc bound.** The whole stash (key materialise + the 35-byte
+  `SLOAD;PUSH32;MSTORE` tail) fits a 32-bit pc. -/
+  bound_sload : ∀ (L : Label) (b : Block) (pc : Nat) (t k : Tmp),
+    prog.blocks.toList[L.idx]? = some b → b.stmts[pc]? = some (.assign t (.sload k)) →
+    pcOf prog L pc
+      + ((materialiseExpr (defsOf prog) (recomputeFuel prog - 1) (.tmp k)).length + 35) < 2 ^ 32
   /-- `ret` operand fuel-sufficiency, at every `ret`-terminated present block. -/
   matFueled_ret : ∀ (L : Label) (b : Block) (t : Tmp),
     prog.blocks.toList[L.idx]? = some b → b.term = .ret t →
@@ -436,16 +450,15 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         ∧ MemRealises prog st0' fr0)
     -- the genuine **spilled sload** `assign t (.sload k)`-cursor ties (Phase C): the SLOAD value
     -- (and its cold/warm warmth charge) lives in `slotOf t`, written once by the def-site stash
-    -- `materialise k ++ [SLOAD] ++ PUSH slot ++ MSTORE`. The stash run is **supplied** here (as the
-    -- call arm's `htail` is) — a real, satisfiable `Runs` witness. The constructor
-    -- `sim_assign_sload_lowered` (`LowerDecode.lean`) now *builds* this run from the decode layout
-    -- (`materialise_runs` + `sim_sload` + `stash_tail_runs`, via `stash_tail_sload`) — so the
-    -- variable-length `materialise k` prefix turned out to need NO new spine decode primitive (the
-    -- `MatDec`/`matDec_of_seg` bundle supplies the inter-piece anchoring). Rewiring this tie to the
-    -- constructor's residual shape (drop the `Runs`, supply the gas/activeWords-flatness residuals,
-    -- mirroring `hgasassign`) is the remaining P5 step. For now `hsloadassign` still supplies the
-    -- stash run, the slot registration, the loaded-value tie, the addressability + pc-bound, the
-    -- runtime SLOAD/MSTORE gas + coverage side-conditions, and the post-state scoping.
+    -- `materialise k ++ [SLOAD] ++ PUSH slot ++ MSTORE`. `sim_assign_sload_lowered`
+    -- (`LowerDecode.lean`) *builds* the run from the decode layout, and **the tail runtime envelope
+    -- (SLOAD warmth + PUSH/MSTORE gas + memory-expansion witness) is no longer supplied** — it is
+    -- DERIVED from the per-cursor clean-halt witness `hcs` via `sload_envelope_of_cleanHalt` (keyed
+    -- on the post-materialise frame `frk`). `hsloadassign` now supplies only the honest residual:
+    -- the slot registration, the loaded-value tie, the addressability, the **key-prefix** gas/stack
+    -- envelope `hgasKey`/`hstkKey` (a fold over the materialise — NOT a single-step inversion), the
+    -- **activeWords-flatness** `hawk` (materialising the key expanded no memory — a memory-shape
+    -- fact, not clean-halt-derivable), and the post-state scoping.
     (hsloadassign : ∀ (pc : Nat) (t k : Tmp) (w : Word) (st0 : V2.IRState) (fr0 : Frame),
         b.stmts[pc]? = some (.assign t (.sload k)) →
         Corr prog sloadChg obs st0 fr0 L pc →
@@ -456,21 +469,17 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         ∧ (∀ t', (st0.setLocal t w).locals t' ≠ none →
               (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
               ∧ defsOf prog t' ≠ none)
-        ∧ ((slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
-          ∧ ∃ endFr,
-              Runs fr0 endFr
-            ∧ endFr.exec.toMachineState.memory
-                = (fr0.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) w).memory
-            ∧ endFr.exec.toMachineState.activeWords
-                = (fr0.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) w).activeWords
-            ∧ endFr.exec.pc = fr0.exec.pc + UInt32.ofNat (emitStmt (defsOf prog) (recomputeFuel prog)
-                  (.assign t (.sload k))).length
-            ∧ endFr.exec.executionEnv.code = fr0.exec.executionEnv.code
-            ∧ endFr.validJumps = fr0.validJumps
-            ∧ endFr.exec.executionEnv.address = fr0.exec.executionEnv.address
-            ∧ endFr.exec.executionEnv.canModifyState = fr0.exec.executionEnv.canModifyState
-            ∧ (∀ kk, selfStorage endFr kk = selfStorage fr0 kk)
-            ∧ endFr.exec.stack = []))
+        ∧ (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
+        -- the key-prefix gas/stack envelope (the materialise fold — supplied):
+        ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog - 1) (.tmp k)).sum
+            ≤ fr0.exec.gasAvailable.toNat
+        ∧ fr0.exec.stack.size
+            + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog - 1) (.tmp k)).length ≤ 1024
+        -- the activeWords-flatness `hawk` at the post-materialise frame (a memory-shape fact):
+        ∧ (∀ frk : Frame,
+            MatRuns (defsOf prog) sloadChg (recomputeFuel prog - 1) (.tmp k)
+                (match st0.locals k with | some keyVal => keyVal | none => 0) fr0 frk →
+            frk.exec.toMachineState.activeWords = fr0.exec.toMachineState.activeWords))
     -- the genuine **spilled gas** `assign t .gas`-cursor ties (Phase B, P1): the gas value lives
     -- in `slotOf t`, written by the `[GAS] ++ PUSH ++ MSTORE` stash. **The stash run is no longer
     -- supplied** — `sim_assign_gas_lowered` (P1) *constructs* it from the decode layout +
@@ -519,11 +528,25 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     -- split on whether `e` is a spilled `.sload k` (Phase C) or a rematerialised pure expr.
     cases e with
     | sload k =>
-      obtain ⟨hslotdef, hsc, hslots, hwval, hscoped', hstash⟩ :=
+      obtain ⟨hslotdef, hsc, hslots, hwval, hscoped', hslot63, hslotplat, hgasKey, hstkKey, hawk⟩ :=
         hsloadassign pc t k w st0 fr0 hget hcorr
-      obtain ⟨endFr, hrun, hc', hstk'⟩ :=
-        sim_assign_sload hb hget hslotdef hcorr hsc hslots hwval hscoped' hstash
-      exact ⟨endFr, hrun, hc', hstk'⟩
+      -- the reduced fuel `f = recomputeFuel prog - 1` (the key materialises at `f`).
+      obtain ⟨hfuelpos, hwfk⟩ := hwf.matFueled_sload L b pc t k hb hget
+      have hfuel : recomputeFuel prog = (recomputeFuel prog - 1) + 1 := by omega
+      -- the SLOAD tail runtime envelope is DERIVED from the clean-halt witness via the extractor;
+      -- only the activeWords-flatness `hawk` (memory-shape) stays supplied.
+      refine sim_assign_sload_lowered hb hget hslotdef hcorr hsc hslots hwval hfuel hwfk
+        hslot63 hslotplat (hwf.bound_sload L b pc t k hb hget) hgasKey hstkKey ?_ hscoped'
+      intro frk hmrk
+      -- the per-cursor clean-halt witness threads to `frk` inside the extractor.
+      obtain ⟨hdecSLOAD, hdecPUSH, hdecMSTORE⟩ :=
+        decode_sloadstash (t := t) hb hget hslotdef hfuel (hwf.bound_sload L b pc t k hb hget) hcorr hmrk
+      exact ⟨hawk frk hmrk,
+        CleanHaltExtract.sload_envelope_of_cleanHalt
+          (f := recomputeFuel prog - 1) (ekey := .tmp k)
+          (wkey := (match st0.locals k with | some keyVal => keyVal | none => 0))
+          fr0 frk (match st0.locals k with | some keyVal => keyVal | none => 0) (slotOf t)
+          hcs hcorr.stack_nil hmrk rfl hdecSLOAD hdecPUSH hdecMSTORE⟩
     | imm v =>
       obtain ⟨hremat, hsc, hscoped', hmem'⟩ :=
         hassign pc t (.imm v) st0 (st0.setLocal t w) fr0 hget hcorr
@@ -1342,21 +1365,19 @@ def StmtTies (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (o : V2.Call
       ∧ (∀ t', (st0.setLocal t w).locals t' ≠ none →
             (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
             ∧ defsOf prog t' ≠ none)
-      ∧ ((slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
-        ∧ ∃ endFr,
-            Runs fr0 endFr
-          ∧ endFr.exec.toMachineState.memory
-              = (fr0.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) w).memory
-          ∧ endFr.exec.toMachineState.activeWords
-              = (fr0.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) w).activeWords
-          ∧ endFr.exec.pc = fr0.exec.pc + UInt32.ofNat (emitStmt (defsOf prog) (recomputeFuel prog)
-                (.assign t (.sload k))).length
-          ∧ endFr.exec.executionEnv.code = fr0.exec.executionEnv.code
-          ∧ endFr.validJumps = fr0.validJumps
-          ∧ endFr.exec.executionEnv.address = fr0.exec.executionEnv.address
-          ∧ endFr.exec.executionEnv.canModifyState = fr0.exec.executionEnv.canModifyState
-          ∧ (∀ kk, selfStorage endFr kk = selfStorage fr0 kk)
-          ∧ endFr.exec.stack = []))
+      -- the SLOAD tail runtime envelope is **no longer in the tie** — it is DERIVED from the
+      -- per-cursor clean-halt witness via `sload_envelope_of_cleanHalt`. Only the slot
+      -- addressability, the key-prefix gas/stack fold (`hgasKey`/`hstkKey`), and the
+      -- activeWords-flatness (`hawk`, a memory-shape fact) remain supplied:
+      ∧ (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
+      ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog - 1) (.tmp k)).sum
+          ≤ fr0.exec.gasAvailable.toNat
+      ∧ fr0.exec.stack.size
+          + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog - 1) (.tmp k)).length ≤ 1024
+      ∧ (∀ frk : Frame,
+          MatRuns (defsOf prog) sloadChg (recomputeFuel prog - 1) (.tmp k)
+              (match st0.locals k with | some keyVal => keyVal | none => 0) fr0 frk →
+          frk.exec.toMachineState.activeWords = fr0.exec.toMachineState.activeWords))
   ∧ (∀ (pc : Nat) (t : Tmp) (ob : Word) (st0 : V2.IRState) (fr0 : Frame),
       b.stmts[pc]? = some (.assign t .gas) →
       Corr prog sloadChg obs st0 fr0 L pc →

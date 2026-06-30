@@ -1038,10 +1038,10 @@ the slot, tied by `MemRealises`, and its warmth cost is the single def-site read
 `SloadLogAligned` selection, NOT the single-resolver universal).
 
 Mirroring `sim_assign_gas`, the def-site stash run and its frame pins are taken as a supplied tail
-hypothesis `hstash` (the honest runtime tie the caller supplies, as the call arm's `htail`;
-satisfiable by a real run via `stash_tail_runs_covered` — there is no `sim_assign_sload_lowered`
-constructor yet, since the variable-length `materialise k` prefix has no spine decode primitive; its
-construction is deferred to the P5 forward-from-real-run discharge). The value stored is `w` (the loaded
+hypothesis `hstash`. The `_lowered` wrapper `sim_assign_sload_lowered` (`LowerDecode.lean`)
+*constructs* this run from the decode layout (`materialise_runs` + `sim_sload` + `stash_tail_sload`,
+the `MatDec`/`matDec_of_seg` bundle anchoring the variable-length `materialise k` prefix) and feeds
+it here, so callers no longer supply the opaque run. The value stored is `w` (the loaded
 storage value). The arm re-establishes the full `Corr` at `pc+1`, including `MemRealises` for the
 just-bound sload slot (coverage + readback `= w`) and preservation of every other bound slot across
 the (disjoint) sload-slot MSTORE. -/

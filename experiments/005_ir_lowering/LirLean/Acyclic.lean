@@ -148,15 +148,23 @@ structure AcyclicWellFormed (prog : Program) where
   rank : Tmp → ℕ
   /-- The def-relation respects the rank (no cycles, structural cost accounted). -/
   acyclic : Acyclic (defsOf prog) rank
-  /-- Every tmp's rank fits the recompute fuel — so `MatFueled … (recomputeFuel prog) (.tmp t)`
-  holds for every `t`. -/
-  rank_lt_fuel : ∀ t, rank t < recomputeFuel prog
+  /-- Every tmp's rank fits the recompute fuel **with one unit of slack** — so
+  `MatFueled … (recomputeFuel prog) (.tmp t)` holds for every `t`, AND so does the **reduced**-fuel
+  `MatFueled … (recomputeFuel prog - 1) (.tmp t)` the spilled-`sload` key materialise consumes (the
+  SLOAD opcode costs one fuel unit, so the key recurses at `recomputeFuel - 1`). The `+1` slack is
+  benign: `recomputeFuel = (Σ stmt counts) + 1` generously over-bounds any def-chain depth. -/
+  rank_lt_fuel : ∀ t, rank t + 1 < recomputeFuel prog
   /-- `sstore` pc bound (a non-`MatFueled` `WellFormedLowered` field, carried verbatim). -/
   bound_sstore : ∀ (L : Label) (b : Block) (pc : Nat) (key value : Tmp),
     prog.blocks.toList[L.idx]? = some b → b.stmts[pc]? = some (.sstore key value) →
     pcOf prog L pc
       + ((materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp value)).length
         + (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp key)).length) < 2 ^ 32
+  /-- spilled-`sload` pc bound (carried verbatim into `WellFormedLowered.bound_sload`). -/
+  bound_sload : ∀ (L : Label) (b : Block) (pc : Nat) (t k : Tmp),
+    prog.blocks.toList[L.idx]? = some b → b.stmts[pc]? = some (.assign t (.sload k)) →
+    pcOf prog L pc
+      + ((materialiseExpr (defsOf prog) (recomputeFuel prog - 1) (.tmp k)).length + 35) < 2 ^ 32
   /-- `ret` pc bound. -/
   bound_ret : ∀ (L : Label) (b : Block) (t : Tmp),
     prog.blocks.toList[L.idx]? = some b → b.term = .ret t →
@@ -190,10 +198,16 @@ operands); the pc/offset bounds carry over verbatim. So an `AcyclicWellFormed` p
 theorem wellFormedLowered_of_acyclic {prog : Program} (h : AcyclicWellFormed prog) :
     WellFormedLowered prog where
   matFueled_sstore := fun _ _ _ key value _ _ =>
-    ⟨matFueled_tmp_of_acyclic h.acyclic (h.rank_lt_fuel value),
-     matFueled_tmp_of_acyclic h.acyclic (h.rank_lt_fuel key)⟩
+    ⟨matFueled_tmp_of_acyclic h.acyclic (by have := h.rank_lt_fuel value; omega),
+     matFueled_tmp_of_acyclic h.acyclic (by have := h.rank_lt_fuel key; omega)⟩
   bound_sstore := h.bound_sstore
-  matFueled_ret := fun _ _ t _ _ => matFueled_tmp_of_acyclic h.acyclic (h.rank_lt_fuel t)
+  matFueled_sload := fun _ _ _ _ k _ _ =>
+    -- `recomputeFuel ≥ 1` (it is `Σ + 1`) and `rank k + 1 < recomputeFuel` gives the reduced-fuel
+    -- `MatFueled … (recomputeFuel - 1) (.tmp k)` (the SLOAD costs one fuel unit).
+    ⟨by have := h.rank_lt_fuel k; omega,
+     matFueled_tmp_of_acyclic h.acyclic (by have := h.rank_lt_fuel k; omega)⟩
+  bound_sload := h.bound_sload
+  matFueled_ret := fun _ _ t _ _ => matFueled_tmp_of_acyclic h.acyclic (by have := h.rank_lt_fuel t; omega)
   bound_ret := h.bound_ret
   bound_stop := h.bound_stop
   bound_jump := h.bound_jump
