@@ -2816,6 +2816,135 @@ theorem stepFrame_needsCall_inv {fr : Frame} {p : CallParams} {pd : PendingCall}
   obtain ⟨s, hs⟩ := BytecodeLayer.Dispatch.stepFrame_needsCall_systemOp h
   exact systemOp_needsCall_inv hs
 
+/-! ### CREATE-site inversion facts (the create twins of the CALL-site facts)
+
+The structural CREATE-site facts inverting `stepFrame → systemOp → createArm`'s `.needsCreate` arm.
+In that arm `createArm` builds `pd.frame := { fr with exec := exec }` (same `kind`, same
+`exec.accounts`) and `cp.accounts := accountsWithBump := exec.accounts.insert self { … }` (a single
+nonce-bump `insert`, so presence at any `a` survives — Brick A). The `exec` here is the post-charge
+state (`chargeMemExpansion`/`createCost` are accounts-verbatim), so the facts are stated against the
+issuing `fr.exec.accounts`. These are the create analogues of `callArm_needsCall_inv` /
+`stepFrame_needsCall_inv`; they replace the old false-universal no-CREATE seam — the CREATE-fault arm
+now returns the caller checkpoint (`pd.frame.exec.accounts`), so it preserves presence. -/
+
+/-- **`createArm` `.needsCreate` structural inversion.** The issued child params' accounts retain
+presence at any `a` present in the issuing `exec.accounts` (`accountsWithBump` is one `insert`), the
+suspended parent frame keeps `fr`'s `kind`, and its running map is exactly `exec.accounts` (the
+create-fault checkpoint world the caller resumes into). -/
+theorem createArm_needsCreate_inv
+    {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
+    {value initOffset initSize : UInt256} {salt : Option ByteArray}
+    {cp : CreateParams} {pd : PendingCreate}
+    (h : createArm fr exec stack value initOffset initSize salt = .ok (.needsCreate cp pd)) :
+    (∀ a, Lir.V2.AccPresent a exec.accounts → Lir.V2.AccPresent a cp.accounts)
+      ∧ pd.frame.kind = fr.kind ∧ pd.frame.exec.accounts = exec.accounts := by
+  rw [createArm] at h
+  simp only [bind, Except.bind, pure, Except.pure] at h
+  split at h
+  · -- nonce overflow: `.next`, not `.needsCreate`
+    revert h
+    cases hr : resumeAfterCreate _ _ with
+    | error e => intro h; simp at h
+    | ok f => intro h; simp at h
+  · split at h
+    · -- the `.needsCreate` branch: `cp.accounts = accountsWithBump`, `pd.frame = { fr with exec := exec }`
+      simp only [Except.ok.injEq, Signal.needsCreate.injEq] at h
+      obtain ⟨hcp, hpd⟩ := h
+      subst hcp hpd
+      refine ⟨?_, rfl, rfl⟩
+      intro a ha
+      -- `cp.accounts = exec.accounts.insert self { selfAccount with nonce := … }` (single insert).
+      exact Lir.V2.accounts_find?_insert_mono _ _ _ _ ha
+    · revert h
+      cases hr : resumeAfterCreate _ _ with
+      | error e => intro h; simp at h
+      | ok f => intro h; simp at h
+
+/-- **`systemOp` `.needsCreate` structural inversion.** Lifts `createArm_needsCreate_inv` through the
+CREATE-family `systemOp` reduction (the only `.needsCreate` source), transporting presence back
+through the accounts-verbatim `chargeMemExpansion`/create-cost charge. -/
+theorem systemOp_needsCreate_inv {op : Operation.SystemOp} {fr : Frame} {exec : ExecutionState}
+    {cp : CreateParams} {pd : PendingCreate}
+    (h : systemOp op fr exec = .ok (.needsCreate cp pd)) :
+    (∀ a, Lir.V2.AccPresent a exec.accounts → Lir.V2.AccPresent a cp.accounts)
+      ∧ pd.frame.kind = fr.kind ∧ pd.frame.exec.accounts = exec.accounts := by
+  cases op with
+  | STOP | RETURN | REVERT | SELFDESTRUCT | INVALID =>
+    exact absurd (by unfold systemOp at h; exact h)
+      (BytecodeLayer.System.haltOp_never_needsCreate (by tauto))
+  | CALL | CALLCODE | DELEGATECALL | STATICCALL =>
+    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, hc⟩ :=
+      BytecodeLayer.System.systemOp_callArm_reduce (by tauto) h
+    exact absurd hc BytecodeLayer.System.callArm_never_needsCreate
+  | CREATE =>
+    -- Unfold `systemOp`'s CREATE arm to expose `createArm fr ec …` on the charged `ec`, tracking
+    -- `ec.accounts = exec.accounts` through the accounts-verbatim `chargeMemExpansion`/`createCost`.
+    unfold systemOp at h
+    simp only [bind, Except.bind] at h
+    cases hr : requireStateMod exec with
+    | error e => rw [hr] at h; simp at h
+    | ok _ =>
+      rw [hr] at h; simp only [] at h
+      cases hp : exec.stack.pop3 with
+      | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      | some v =>
+        obtain ⟨s, val, io, is⟩ := v; rw [hp] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+        split at h
+        · simp at h
+        · cases hm : chargeMemExpansion exec io is with
+          | error e => rw [hm] at h; simp [pure, Except.pure] at h
+          | ok em =>
+            rw [hm] at h; simp only [pure, Except.pure] at h
+            cases hc : charge (createCost is) em with
+            | error e => rw [hc] at h; simp at h
+            | ok ec =>
+              rw [hc] at h; simp only [] at h
+              obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+              obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
+              have hem : ec.accounts = exec.accounts := by rw [hcacc, hmacc]
+              obtain ⟨hacc, hkind, hpdacc⟩ := createArm_needsCreate_inv h
+              refine ⟨fun a ha => hacc a (hem ▸ ha), hkind, by rw [hpdacc, hem]⟩
+  | CREATE2 =>
+    unfold systemOp at h
+    simp only [bind, Except.bind] at h
+    cases hr : requireStateMod exec with
+    | error e => rw [hr] at h; simp at h
+    | ok _ =>
+      rw [hr] at h; simp only [] at h
+      cases hp : exec.stack.pop4 with
+      | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      | some v =>
+        obtain ⟨s, val, io, is, salt⟩ := v; rw [hp] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+        split at h
+        · simp at h
+        · cases hm : chargeMemExpansion exec io is with
+          | error e => rw [hm] at h; simp [pure, Except.pure] at h
+          | ok em =>
+            rw [hm] at h; simp only [pure, Except.pure] at h
+            cases hc : charge (create2Cost is) em with
+            | error e => rw [hc] at h; simp at h
+            | ok ec =>
+              rw [hc] at h; simp only [] at h
+              obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+              obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
+              have hem : ec.accounts = exec.accounts := by rw [hcacc, hmacc]
+              obtain ⟨hacc, hkind, hpdacc⟩ := createArm_needsCreate_inv h
+              refine ⟨fun a ha => hacc a (hem ▸ ha), hkind, by rw [hpdacc, hem]⟩
+
+/-- **`stepFrame` `.needsCreate` structural inversion (the create twin of `stepFrame_needsCall_inv`).**
+The issued child params keep presence at any `a` present in the issuing `fr.exec.accounts`, the
+suspended parent frame keeps `fr`'s `kind`, and its running map is exactly `fr.exec.accounts` — the
+caller-checkpoint world the CREATE-fault arm resumes into. Via `stepFrame_needsCreate_systemOp` then
+`systemOp_needsCreate_inv`. -/
+theorem stepFrame_needsCreate_inv {fr : Frame} {cp : CreateParams} {pd : PendingCreate}
+    (h : stepFrame fr = .needsCreate cp pd) :
+    (∀ a, Lir.V2.AccPresent a fr.exec.accounts → Lir.V2.AccPresent a cp.accounts)
+      ∧ pd.frame.kind = fr.kind ∧ pd.frame.exec.accounts = fr.exec.accounts := by
+  obtain ⟨s, hs⟩ := BytecodeLayer.Dispatch.stepFrame_needsCreate_systemOp h
+  exact systemOp_needsCreate_inv hs
+
 /-! ### Halt-success account-presence (`hhalt`)
 
 A `.halted (.success e o)` from `stepFrame` comes only from `haltOp` (INVALID/overflow screens halt
@@ -3075,6 +3204,48 @@ theorem beginCall_inl_checkpoint (cp : Evm.CallParams) {child : Evm.Frame}
     simp only [Sum.inl.injEq] at hbc
     exact ⟨cp.createdAccounts, cp.substate, by rw [← hbc]⟩
 
+/-- **`beginCreate` threads presence at `a` into the init-code child.** When a CREATE descends into a
+child (`beginCreate params = .ok child`), the child's running `exec.accounts` is `accountsWithNew` —
+either `params.accounts` verbatim (`none`) or a creator-debit then new-account-credit `insert` chain
+(`some`); every branch is verbatim or an `insert`, so presence at any `a` present in `params.accounts`
+survives (Brick A). The create twin of `beginCall_inl_accounts_present`. -/
+theorem beginCreate_ok_accounts_present (a : Evm.AccountAddress) (params : Evm.CreateParams)
+    {child : Evm.Frame} (hbc : Evm.beginCreate params = .ok child)
+    (h : AccPresent a params.accounts) :
+    AccPresent a child.exec.accounts := by
+  rw [Evm.beginCreate] at hbc
+  simp only [Option.option] at hbc
+  split at hbc
+  · simp only [Except.ok.injEq] at hbc
+    rw [← hbc]
+    -- `child.exec.accounts = accountsWithNew = match params.accounts.find? creator with …`.
+    show AccPresent a
+      (match params.accounts.find? params.caller with
+        | none => params.accounts
+        | some ac =>
+          (params.accounts.insert params.caller
+            { ac with balance := ac.balance - params.value }).insert _ _)
+    cases hcr : params.accounts.find? params.caller with
+    | none => simp only [hcr]; exact h
+    | some ac =>
+      simp only [hcr]
+      exact accounts_find?_insert_mono _ _ _ _ (accounts_find?_insert_mono _ _ _ _ h)
+  · simp at hbc
+
+/-- **`beginCreate`'s init-code child carries `params.accounts` as its kind checkpoint.** The child's
+`kind := .create newAddress ⟨_, params.accounts, _⟩`; so the checkpoint that `endCreate` failure and
+the CREATE-fault arm roll back to is exactly `params.accounts`. The create twin of
+`beginCall_inl_checkpoint`. -/
+theorem beginCreate_ok_checkpoint (params : Evm.CreateParams) {child : Evm.Frame}
+    (hbc : Evm.beginCreate params = .ok child) :
+    ∃ addr created sub, child.kind = .create addr ⟨created, params.accounts, sub⟩ := by
+  rw [Evm.beginCreate] at hbc
+  simp only [Option.option] at hbc
+  split at hbc
+  · simp only [Except.ok.injEq] at hbc
+    exact ⟨_, _, _, by rw [← hbc]⟩
+  · simp at hbc
+
 /-- **Local per-step self-presence preservation.** One non-halting opcode step (`StepsTo`) keeps
 the self account present. Satisfiable for the lowered program — every `.next` opcode either leaves
 `accounts` untouched or inserts at the self account, never erasing it — and supplied per edge by the
@@ -3117,9 +3288,11 @@ The presence invariant `DrivePresent a` threads three facts simultaneously, beca
 * the kind checkpoint of **every** pending ancestor on the stack (each will become a running frame
   on delivery, and may itself roll back).
 
-The seam excluding the two `∅`-producing arms (`beginCall`'s precompile `.inr` and `drive`'s CREATE
-fault) is supplied per-arm as the `hmono`/`hprec`/`hncr` closers — each genuinely satisfiable, never
-vacuous (documented at `callPreservesSelf`). -/
+The only remaining erase-risk arm is `beginCall`'s precompile `.inr` (closed per-arm by the supplied
+`hprec`); `drive`'s CREATE-begin fault no longer erases (it returns the caller checkpoint, the
+faithful soft-failure map), so the CREATE step is proven in place via `stepFrame_needsCreate_inv` with
+no supplied seam — each supplied closer (`hmono`/`hprec`/…) genuinely satisfiable, never vacuous
+(documented at `callPreservesSelf`). -/
 
 /-- Presence at `a` in a frame's kind checkpoint accounts (what `endCall .revert/.exception` and
 `endCreate` failure restore). -/
@@ -3140,42 +3313,6 @@ def DrivePresent (a : Evm.AccountAddress) (stack : List Evm.Pending) :
   | .inl current => AccPresent a current.exec.accounts ∧ CheckpointPresent a current
       ∧ StackPresent a stack
   | .inr result => AccPresent a result.toCallResult.accounts ∧ StackPresent a stack
-
-/-- **One `drive`-recursion transition** (`(stack, state) ⤳ (stack', state')`): exactly the recursive
-calls of `drive`. Used to scope the no-CREATE seam to the frames a run actually visits (honest: the
-seam is satisfiable for a CREATE-free child run, the `NotCreate`/`ModellableStep` seam, rather than
-the false universal `∀ fr, stepFrame fr ≠ needsCreate`). -/
-inductive EngineStep : List Evm.Pending → (Evm.Frame ⊕ Evm.FrameResult) →
-    List Evm.Pending → (Evm.Frame ⊕ Evm.FrameResult) → Prop where
-  | resume {stack : List Evm.Pending} {pending : Evm.Pending} {result : Evm.FrameResult}
-      {parent : Evm.Frame} (h : pending.resume result = .ok parent) :
-      EngineStep (pending :: stack) (.inr result) stack (.inl parent)
-  | resumeErr {stack : List Evm.Pending} {pending : Evm.Pending} {result : Evm.FrameResult}
-      {e : Evm.ExecutionException} (h : pending.resume result = .error e) :
-      EngineStep (pending :: stack) (.inr result) stack
-        (.inr (Evm.endFrame pending.frame (.exception e)))
-  | next {stack : List Evm.Pending} {current : Evm.Frame} {exec : Evm.ExecutionState}
-      (h : Evm.stepFrame current = .next exec) :
-      EngineStep stack (.inl current) stack (.inl { current with exec := exec })
-  | halt {stack : List Evm.Pending} {current : Evm.Frame} {halt : Evm.FrameHalt}
-      (h : Evm.stepFrame current = .halted halt) :
-      EngineStep stack (.inl current) stack (.inr (Evm.endFrame current halt))
-  | call {stack : List Evm.Pending} {current child : Evm.Frame} {params : Evm.CallParams}
-      {pending : Evm.PendingCall} (h : Evm.stepFrame current = .needsCall params pending)
-      (hbc : Evm.beginCall params = .inl child) :
-      EngineStep stack (.inl current) (.call pending :: stack) (.inl child)
-  | callImm {stack : List Evm.Pending} {current : Evm.Frame} {params : Evm.CallParams}
-      {pending : Evm.PendingCall} {immediate : Evm.CallResult}
-      (h : Evm.stepFrame current = .needsCall params pending)
-      (hbc : Evm.beginCall params = .inr immediate) :
-      EngineStep stack (.inl current) (.call pending :: stack) (.inr (.call immediate))
-
-/-- Reflexive–transitive reachability under `EngineStep` from a fixed start configuration. -/
-inductive EngineReaches (s0 : List Evm.Pending) (t0 : Evm.Frame ⊕ Evm.FrameResult) :
-    List Evm.Pending → (Evm.Frame ⊕ Evm.FrameResult) → Prop where
-  | refl : EngineReaches s0 t0 s0 t0
-  | tail {s1 t1 s2 t2} (h : EngineReaches s0 t0 s1 t1) (step : EngineStep s1 t1 s2 t2) :
-      EngineReaches s0 t0 s2 t2
 
 /-- `endFrame` (a `.call`-kind halt) preserves presence at `a` given running-map presence (the
 `.success` swap is killed by `accMono_emptySwap`) and checkpoint presence (the `.revert/.exception`
@@ -3296,15 +3433,17 @@ yields `AccPresent a` in the result accounts at the end, given:
   `charge` is accounts-verbatim — and `pending.frame := { current with exec := … }`, same `kind`).
   Satisfiable & local (the `callArm` framing); supplied to keep the drive induction self-contained
   rather than re-diving the `stepFrame → dispatch → systemOp → callArm` chain;
-* `hhalt` — the halting-opcode account-verbatim fact (STOP/RETURN/REVERT don't touch accounts);
-* `hncr` — the no-CREATE seam, **scoped to the frames the run actually visits** (`EngineReaches`-
-  reachable from the start `(s0, t0)`): satisfiable for a CREATE-free child run (the `NotCreate` seam),
-  *not* the false universal `∀ fr`. Genuinely needed — `drive`'s CREATE-fault arm sets `accounts := ∅`.
+* `hhalt` — the halting-opcode account-verbatim fact (STOP/RETURN/REVERT don't touch accounts).
 
-The universally-true seams are `∀`-quantified (constant across the recursion); `hncr` is reachability-
-scoped via the `EngineReaches s0 t0 stack state` accumulator threaded by `ih`. Both `endCall` **and**
-`endCreate` are presence-preserving (success = `insert`, failure = checkpoint), so no frame-kind
-exclusion is needed at the halt/resume arms. -/
+The CREATE arm needs **no** seam: `drive`'s CREATE-begin-fault arm now returns the caller checkpoint
+(`pending.frame.exec.accounts`, the issuing frame's running map — the faithful soft-failure behaviour,
+*not* the prior emptied map), so it preserves presence directly; and the CREATE descent threads
+presence into the child the same way the CALL descent does. Both sub-arms are proven in place via the
+universally-true CREATE-site inversion `stepFrame_needsCreate_inv` (the create twin of
+`stepFrame_needsCall_inv`) — so no frame-kind exclusion / no-CREATE side-condition is needed. All
+supplied seams are `∀`-quantified (constant across the recursion); both `endCall` **and** `endCreate`
+are presence-preserving (success = `insert`, failure = checkpoint), so no kind exclusion is needed at
+the halt/resume arms either. -/
 theorem drive_accounts_find_mono (a : Evm.AccountAddress)
     (hmono : ∀ (fr : Evm.Frame) (exec' : Evm.ExecutionState),
       Evm.stepFrame fr = .next exec' → AccPresent a fr.exec.accounts → AccPresent a exec'.accounts)
@@ -3316,23 +3455,16 @@ theorem drive_accounts_find_mono (a : Evm.AccountAddress)
       Evm.stepFrame fr = .needsCall cp pd → pd.frame.kind = fr.kind)
     (hhalt : ∀ (fr : Evm.Frame) (e : Evm.ExecutionState) (o : ByteArray),
       Evm.stepFrame fr = .halted (.success e o) → AccPresent a fr.exec.accounts →
-        AccPresent a e.accounts)
-    (s0 : List Evm.Pending) (t0 : Evm.Frame ⊕ Evm.FrameResult)
-    -- the no-CREATE seam, **scoped to the frames the run actually visits** (`EngineReaches`-reachable
-    -- from the start `(s0, t0)`): satisfiable for a CREATE-free child run (the `NotCreate` seam), not
-    -- the false universal `∀ fr`. Genuinely needed (the CREATE-fault arm sets `accounts := ∅`).
-    (hncr : ∀ (stack : List Evm.Pending) (fr : Evm.Frame), EngineReaches s0 t0 stack (.inl fr) →
-      ∀ (cp : Evm.CreateParams) (pd : Evm.PendingCreate), Evm.stepFrame fr ≠ .needsCreate cp pd) :
+        AccPresent a e.accounts) :
     ∀ (f : ℕ) (stack : List Evm.Pending) (state : Evm.Frame ⊕ Evm.FrameResult)
       (res : Evm.FrameResult),
       Evm.drive f stack state = .ok res → DrivePresent a stack state →
-      EngineReaches s0 t0 stack state →
       AccPresent a res.toCallResult.accounts := by
   intro f
   induction f with
-  | zero => intro stack state res h _ _; simp [Evm.drive] at h
+  | zero => intro stack state res h _; simp [Evm.drive] at h
   | succ n ih =>
-    intro stack state res hdrive hpres hreach
+    intro stack state res hdrive hpres
     unfold Evm.drive at hdrive
     cases state with
     | inr result =>
@@ -3350,7 +3482,6 @@ theorem drive_accounts_find_mono (a : Evm.AccountAddress)
         | ok parent =>
           rw [hres] at hdrive; dsimp only at hdrive
           refine ih rest (.inl parent) res hdrive ⟨?_, ?_, hrest⟩
-            (hreach.tail (.resume hres))
           · -- parent.exec.accounts presence: for `.call`, `= result.accounts` (resumeAfterCall);
             -- for `.create`, `= result.accounts` (resumeAfterCreate), both present by `hresult`.
             cases pending with
@@ -3382,7 +3513,6 @@ theorem drive_accounts_find_mono (a : Evm.AccountAddress)
           rw [hres] at hdrive; dsimp only at hdrive
           -- resume faulted: parent halts exceptionally; deliver `endFrame pending.frame (.exception e)`.
           refine ih rest (.inr (Evm.endFrame pending.frame (.exception e))) res hdrive ⟨?_, hrest⟩
-            (hreach.tail (.resumeErr hres))
           -- `endFrame .exception` rolls back to the checkpoint (present `hpend`); no `.success` arg.
           refine endFrame_accPresent a pending.frame (.exception e) hpend ?_
           intro e' o' hcon; exact absurd hcon (by nofun)
@@ -3393,7 +3523,6 @@ theorem drive_accounts_find_mono (a : Evm.AccountAddress)
       | next exec =>
         rw [hstep] at hdrive; dsimp only at hdrive
         refine ih stack (.inl { current with exec := exec }) res hdrive ⟨?_, ?_, hstk⟩
-          (hreach.tail (.next hstep))
         · show AccPresent a exec.accounts; exact hmono current exec hstep hrun
         · -- `.next` updates only `exec`; `kind` (hence checkpoint) unchanged.
           show CheckpointPresent a { current with exec := exec }
@@ -3401,7 +3530,6 @@ theorem drive_accounts_find_mono (a : Evm.AccountAddress)
       | halted halt =>
         rw [hstep] at hdrive; dsimp only at hdrive
         refine ih stack (.inr (Evm.endFrame current halt)) res hdrive ⟨?_, hstk⟩
-          (hreach.tail (.halt hstep))
         -- `endFrame current halt`: presence-preserving for either kind (`endFrame_accPresent`);
         -- on `.success`, the running map at halt is `hrun`.
         refine endFrame_accPresent a current halt hck ?_
@@ -3414,7 +3542,6 @@ theorem drive_accounts_find_mono (a : Evm.AccountAddress)
         | inl child =>
           rw [hbc] at hdrive; dsimp only at hdrive
           refine ih (.call pending :: stack) (.inl child) res hdrive ⟨?_, ?_, ?_, hstk⟩
-            (hreach.tail (.call hstep hbc))
           · exact beginCall_inl_accounts_present a params hbc hcpacc
           · obtain ⟨created, sub, hkind⟩ := beginCall_inl_checkpoint params hbc
             unfold CheckpointPresent; rw [hkind]; exact hcpacc
@@ -3424,19 +3551,49 @@ theorem drive_accounts_find_mono (a : Evm.AccountAddress)
         | inr immediate =>
           rw [hbc] at hdrive; dsimp only at hdrive
           refine ih (.call pending :: stack) (.inr (.call immediate)) res hdrive ⟨?_, ?_, hstk⟩
-            (hreach.tail (.callImm hstep hbc))
           · show AccPresent a immediate.accounts; exact hprec params immediate hbc hcpacc
           · show CheckpointPresent a pending.frame
             unfold CheckpointPresent; rw [hpf]
             unfold CheckpointPresent at hck; exact hck
       | needsCreate params pending =>
-        exact absurd hstep (hncr stack current hreach params pending)
+        rw [hstep] at hdrive; dsimp only at hdrive
+        -- CREATE-site inversion (the create twin of `hcall_acc`/`hcall_kind`): `params.accounts`
+        -- keeps presence from the issuing running map, the suspended `pending.frame` keeps the
+        -- issuing `kind`, and its running map is exactly `current.exec.accounts`.
+        obtain ⟨hcr_acc, hcr_kind, hcr_pdacc⟩ := Evm.stepFrame_needsCreate_inv hstep
+        have hcpacc : AccPresent a params.accounts := hcr_acc a hrun
+        cases hbcr : Evm.beginCreate params with
+        | ok child =>
+          rw [hbcr] at hdrive; dsimp only at hdrive
+          refine ih (.create pending :: stack) (.inl child) res hdrive ⟨?_, ?_, ?_, hstk⟩
+          · -- child running map: `accountsWithNew` (verbatim or ≤2 inserts over `params.accounts`).
+            exact beginCreate_ok_accounts_present a params hbcr hcpacc
+          · -- child checkpoint: the `.create _ ⟨_, params.accounts, _⟩` node carries `params.accounts`.
+            obtain ⟨addr, created, sub, hkind⟩ := beginCreate_ok_checkpoint params hbcr
+            unfold CheckpointPresent; rw [hkind]; exact hcpacc
+          · -- pending ancestor checkpoint: same `kind` as `current`, present by `hck`.
+            show CheckpointPresent a pending.frame
+            unfold CheckpointPresent; rw [hcr_kind]
+            unfold CheckpointPresent at hck; exact hck
+        | error e =>
+          rw [hbcr] at hdrive; dsimp only at hdrive
+          -- CREATE-begin fault: the faithful soft-failure result returns the caller checkpoint
+          -- `pending.frame.exec.accounts = current.exec.accounts` (present by `hrun`).
+          refine ih (.create pending :: stack)
+            (.inr (.create _)) res hdrive ⟨?_, ?_, hstk⟩
+          · -- `result.toCallResult.accounts = result.accounts = pending.frame.exec.accounts`.
+            show AccPresent a pending.frame.exec.accounts
+            rw [hcr_pdacc]; exact hrun
+          · -- pending ancestor checkpoint: same `kind` as `current`, present by `hck`.
+            show CheckpointPresent a pending.frame
+            unfold CheckpointPresent; rw [hcr_kind]
+            unfold CheckpointPresent at hck; exact hck
 
 /-- **The `.success` shape of `CallPreservesSelf`, discharged via Brick D.** A returning external
-CALL keeps the *caller's* self present, given the child-drive no-erase seam (the same
-`hmono`/`hprec`/`hcall_acc`/`hcall_kind`/`hhalt` closers as `drive_accounts_find_mono`, the CALL-site
-self-address framing `hcall_self`, and the reachability-scoped no-CREATE seam `hncr` instantiated at
-the child run `([], inl child)`).
+CALL keeps the *caller's* self present, given the same `hmono`/`hprec`/`hcall_acc`/`hcall_kind`/`hhalt`
+closers as `drive_accounts_find_mono` plus the CALL-site self-address framing `hcall_self`. The CREATE
+arm needs no seam — `drive_accounts_find_mono` now proves it in place (faithful caller-checkpoint
+fault + descent threading via `stepFrame_needsCreate_inv`).
 
 The child run `drive (seedFuel cp.gas) [] (running child) = .ok childRes` *starts* present at the
 caller's self address `a` (`beginCall` threads `cp.accounts` presence into the child's running map and
@@ -3460,14 +3617,6 @@ theorem callPreservesSelf_success
       Evm.stepFrame fr = .needsCall cp pd →
         pd.frame.exec.executionEnv.address = fr.exec.executionEnv.address)
     {callFr resumeFr : Frame} (hcr : CallReturns callFr resumeFr)
-    -- the no-CREATE seam, scoped to the **child run's** reachable frames (satisfiable for a
-    -- CREATE-free lowered child — the `NotCreate` seam — not the false universal `∀ fr`). Phrased over
-    -- the CALL's params/child via the `CallReturns` shape so it names exactly the run that executes.
-    (hncr : ∀ (cp : Evm.CallParams) (pd : Evm.PendingCall) (child : Evm.Frame),
-      Evm.stepFrame callFr = .needsCall cp pd → Evm.beginCall cp = .inl child →
-      ∀ (stack : List Evm.Pending) (fr : Evm.Frame),
-        EngineReaches [] (Sum.inl child) stack (.inl fr) →
-        ∀ (cpc : Evm.CreateParams) (pdc : Evm.PendingCreate), Evm.stepFrame fr ≠ .needsCreate cpc pdc)
     (hself : SelfPresent callFr) :
     SelfPresent resumeFr := by
   obtain ⟨cp, pending, child, childRes, hstep, _hcode, hchild, hresume⟩ := hcr
@@ -3495,14 +3644,12 @@ theorem callPreservesSelf_success
     (fun fr c pd h => hcall_acc fr c pd h a)
     hcall_kind
     (fun fr e o h => hhalt fr e o h a)
-    [] (Sum.inl child)
-    (hncr cp pending child hstep hbc)
-    (seedFuel cp.gas) [] (Sum.inl child) childRes hchild hchildPres EngineReaches.refl
+    (seedFuel cp.gas) [] (Sum.inl child) childRes hchild hchildPres
   -- Close `SelfPresent resumeFr` via the landed resume-self bridge.
   rw [hresume]
   exact resumeAfterCall_self_of_accounts childRes.toCallResult pending hmono'
 
-/-- **`CallPreservesSelf`, discharged modulo the child-drive no-erase seam.** Every shape of a
+/-- **`CallPreservesSelf`, discharged modulo the precompile no-erase seam.** Every shape of a
 returning external CALL keeps the caller's self present: `.success` via `callPreservesSelf_success`
 (Brick D), `.revert`/`.exception` structurally (folded in — `callPreservesSelf_success` covers the
 whole `CallReturns` once the child run terminates, since `childRes` already carries whichever shape).
@@ -3513,15 +3660,17 @@ The seam hypotheses are each genuinely satisfiable (never vacuous) and remain **
   the issuing exec; halting opcodes don't touch accounts) — true for **all** frames, so trivially
   satisfiable (`hmono` is the unproven Brick C, but holds for every frame);
 * `hprec` is the precompile-preservation fact (precompiles only insert) — satisfiable, vacuous for
-  call-free IR;
-* `hncr` is the no-CREATE seam **scoped to the child run's reachable frames** (`EngineReaches`):
-  satisfiable for a CREATE-free lowered child (the `NotCreate`/`ModellableStep` seam, `DriveSim.lean`),
-  *not* the false universal `∀ fr`. Genuinely needed — `drive`'s CREATE-fault arm sets `accounts := ∅`.
+  call-free IR.
 
-`CallPreservesSelf` is *not* unconditionally true (the precompile/CREATE `∅`-arms really can erase, and
-`CallReturns` does not by itself rule them out across the child run). The strict improvement over the
+The no-CREATE seam is **gone**: `drive`'s CREATE-begin-fault arm now returns the caller checkpoint
+(`pending.frame.exec.accounts`, the faithful soft-failure map — not the prior emptied map), so
+`drive_accounts_find_mono` proves the whole CREATE step (fault + descent) presence-preserving in place
+via `stepFrame_needsCreate_inv`.
+
+`CallPreservesSelf` is *not* unconditionally true (the precompile `.inr` `∅`-arm really can erase, and
+`CallReturns` does not by itself rule it out across the child run). The strict improvement over the
 prior fully-supplied `CallPreservesSelf`: its `.success` monotonicity is now *discharged* engine-level
-(Brick D), only the structural no-erase guard remains. -/
+(Brick D), and the CREATE no-erase guard is *eliminated* (the faithful fault arm preserves presence). -/
 theorem callPreservesSelf
     (hmono : ∀ (fr : Evm.Frame) (exec' : Evm.ExecutionState),
       Evm.stepFrame fr = .next exec' → ∀ a, AccPresent a fr.exec.accounts → AccPresent a exec'.accounts)
@@ -3536,17 +3685,10 @@ theorem callPreservesSelf
         AccPresent a e.accounts)
     (hcall_self : ∀ (fr : Evm.Frame) (cp : Evm.CallParams) (pd : Evm.PendingCall),
       Evm.stepFrame fr = .needsCall cp pd →
-        pd.frame.exec.executionEnv.address = fr.exec.executionEnv.address)
-    -- the no-CREATE seam, scoped per CALL edge to that call's child run (the `NotCreate` seam).
-    (hncr : ∀ (callFr : Evm.Frame) (cp : Evm.CallParams) (pd : Evm.PendingCall) (child : Evm.Frame),
-      Evm.stepFrame callFr = .needsCall cp pd → Evm.beginCall cp = .inl child →
-      ∀ (stack : List Evm.Pending) (fr : Evm.Frame),
-        EngineReaches [] (Sum.inl child) stack (.inl fr) →
-        ∀ (cpc : Evm.CreateParams) (pdc : Evm.PendingCreate), Evm.stepFrame fr ≠ .needsCreate cpc pdc) :
+        pd.frame.exec.executionEnv.address = fr.exec.executionEnv.address) :
     CallPreservesSelf := by
   intro callFr resumeFr hcr hself
-  exact callPreservesSelf_success hmono hprec hcall_acc hcall_kind hhalt hcall_self hcr
-    (hncr callFr) hself
+  exact callPreservesSelf_success hmono hprec hcall_acc hcall_kind hhalt hcall_self hcr hself
 
 /-- **`CallPreservesSelf`, with the five universally-true CALL-seam facts DISCHARGED engine-level.**
 The arbitrary-`a` account-monotonicity bricks (this cycle) prove engine-level, for *every* frame:
@@ -3557,21 +3699,16 @@ The arbitrary-`a` account-monotonicity bricks (this cycle) prove engine-level, f
 * `hhalt` — `Evm.stepFrame_halted_success_accMono` (STOP/RETURN/SELFDESTRUCT keep accounts present —
   no erase).
 
-So `callPreservesSelf`'s seven supplied hypotheses collapse to **two**: the genuinely-conditional
+So `callPreservesSelf`'s six supplied hypotheses collapse to **one**: the genuinely-conditional
 `hprec` (precompile `.inr` output map — opaque for a live precompile, vacuous for the call-free /
-non-precompile-targeting lowered IR) and the no-CREATE seam `hncr` (the CREATE-fault arm sets
-`accounts := ∅`, a real erase — scoped to the child run's `EngineReaches`-reachable frames, satisfiable
-for a CREATE-free lowered child, *not* the false universal `∀ fr`). Both remain **supplied**, each
-genuinely satisfiable and non-vacuous; this is *not* a hypothesis-free `CallPreservesSelf` (the
-precompile/CREATE `∅`-arms really can erase). -/
+non-precompile-targeting lowered IR). The former no-CREATE seam `hncr` is **eliminated**: the CREATE-
+begin-fault arm now returns the caller checkpoint (the faithful soft-failure map, not the prior empty
+map), so `drive_accounts_find_mono` discharges the whole CREATE step engine-level via
+`stepFrame_needsCreate_inv`. `hprec` remains **supplied**, genuinely satisfiable and non-vacuous; this
+is *not* a hypothesis-free `CallPreservesSelf` (the precompile `.inr` `∅`-arm really can erase). -/
 theorem callPreservesSelf_modGuards
     (hprec : ∀ (cp : Evm.CallParams) (imm : Evm.CallResult),
-      Evm.beginCall cp = .inr imm → ∀ a, AccPresent a cp.accounts → AccPresent a imm.accounts)
-    (hncr : ∀ (callFr : Evm.Frame) (cp : Evm.CallParams) (pd : Evm.PendingCall) (child : Evm.Frame),
-      Evm.stepFrame callFr = .needsCall cp pd → Evm.beginCall cp = .inl child →
-      ∀ (stack : List Evm.Pending) (fr : Evm.Frame),
-        EngineReaches [] (Sum.inl child) stack (.inl fr) →
-        ∀ (cpc : Evm.CreateParams) (pdc : Evm.PendingCreate), Evm.stepFrame fr ≠ .needsCreate cpc pdc) :
+      Evm.beginCall cp = .inr imm → ∀ a, AccPresent a cp.accounts → AccPresent a imm.accounts) :
     CallPreservesSelf :=
   callPreservesSelf
     (fun fr exec' h a hp => Evm.stepFrame_next_accMono h a hp)
@@ -3580,7 +3717,6 @@ theorem callPreservesSelf_modGuards
     (fun fr cp pd h => (Evm.stepFrame_needsCall_inv h).2.1)
     (fun fr e o h a hp => Evm.stepFrame_halted_success_accMono h a hp)
     (fun fr cp pd h => congrArg ExecutionEnv.address (Evm.stepFrame_needsCall_inv h).2.2)
-    hncr
 
 /-- **`SelfPresent` is forward-closed along a whole `Runs` segment.** From `SelfPresent fr` and
 `Runs fr fr'`, `SelfPresent fr'` — given the two local one-edge preservation facts
@@ -4202,7 +4338,7 @@ end Lir.V2
 #print axioms Lir.V2.endCall_revert_accounts
 #print axioms Lir.V2.endCall_exception_accounts
 -- CALLMONO: account-presence monotone across a whole `drive` run (Brick D) — the `.success` shape
--- of `CallPreservesSelf` discharged (modulo the documented satisfiable child-drive no-erase seam).
+-- of `CallPreservesSelf` discharged (the CREATE no-erase seam now eliminated; only `hprec` supplied).
 #print axioms Lir.V2.accounts_find?_insert_mono
 #print axioms Lir.V2.accPresent_ne_empty
 #print axioms Lir.V2.beginCall_inl_accounts_present
@@ -4213,7 +4349,8 @@ end Lir.V2
 #print axioms Lir.V2.callPreservesSelf
 -- HMONO: the five engine-level CALL-seam facts now PROVEN at an arbitrary tracked address `a`
 -- (Brick C `stepFrame_next_accMono` + the `.needsCall` inversion bundle + halt-success presence),
--- and `callPreservesSelf_modGuards` instantiating them (callPreservesSelf reduced 7 → 2 supplied hyps).
+-- plus the `.needsCreate` inversion bundle that eliminates the no-CREATE seam, and
+-- `callPreservesSelf_modGuards` instantiating them (callPreservesSelf reduced 7 → 1 supplied hyp).
 #print axioms Evm.stepFrame_next_accMono
 #print axioms Evm.dispatch_next_accMono
 #print axioms Evm.systemOp_next_accMono
@@ -4225,6 +4362,11 @@ end Lir.V2
 #print axioms Evm.stepFrame_needsCall_inv
 #print axioms Evm.callArm_needsCall_inv
 #print axioms Evm.systemOp_needsCall_inv
+#print axioms Evm.stepFrame_needsCreate_inv
+#print axioms Evm.createArm_needsCreate_inv
+#print axioms Evm.systemOp_needsCreate_inv
+#print axioms Lir.V2.beginCreate_ok_accounts_present
+#print axioms Lir.V2.beginCreate_ok_checkpoint
 #print axioms Evm.stepFrame_halted_success_accMono
 #print axioms Evm.haltOp_success_accMono
 #print axioms Evm.selfdestructOp_success_accMono
