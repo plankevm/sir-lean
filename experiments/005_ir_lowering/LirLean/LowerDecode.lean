@@ -2,6 +2,7 @@ import LirLean.MatDecLower
 import LirLean.SimStmt
 import LirLean.SimTerm
 import LirLean.StashTail
+import LirLean.CleanHaltExtract
 
 /-!
 # LirLean — discharging the carried decode bundles via `matDec_of_lower`
@@ -410,6 +411,7 @@ open GasConstants
 open BytecodeLayer.Hoare
 open BytecodeLayer.Dispatch
 open Lir.V2
+open Lir.CleanHaltExtract
 set_option maxRecDepth 8192
 
 /-- **`sim_term_edge_jump` with the decode bundle discharged.** The PUSH4 destination, the
@@ -475,6 +477,132 @@ theorem sim_term_edge_jump_lowered {prog : Program} {sloadChg : Tmp → ℕ} {ob
   -- `validJumps = validJumpDests code 0` + `code = lower prog`).
   exact sim_term_edge_jump hcorr hterm hbdst hdstlt hcorr.validJumps_lower hdestword hdpush hdjump
     hdjd hgpush hgjump hgjd
+
+/-- **`jump_landing_of_cleanHalt` — the pre-`JUMPDEST` landing producer.** From `Corr` at the
+terminator cursor `(L, b.stmts.length)` with `b.term = .jump dst`, and a threaded
+`CleanHaltsNonException frT` witness, run the lowered `PUSH4 destOffset ; JUMP` and deliver the
+landing frame `fj` sitting **on** the successor block's `JUMPDEST` byte (decode `fj = JUMPDEST`),
+*before* the `JUMPDEST` step. The three gas guards (`3 ≤ frT.gas` for PUSH4, `Gmid ≤ frp.gas` for
+JUMP, `Gjumpdest ≤ fj.gas` for the landing) are **produced** from `hcs` by threading the clean-halt
+forward across the two-step run (`next_push_of_cleanHalt`/`next_jump_of_cleanHalt`/
+`next_jumpdest_of_cleanHalt` in `CleanHaltExtract`). This is exactly the headline `hjump` bundle —
+the `Plus` thread needs the pre-step landing, which `jump_to_block` (which steps *through* the
+`JUMPDEST`) does not expose. -/
+theorem jump_landing_of_cleanHalt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
+    {st : V2.IRState} {L : Label} {b : Block} {dst : Label} {bdst : Block} (frT : Frame)
+    (hcorr : Corr prog sloadChg obs st frT L b.stmts.length)
+    (hterm : b.term = .jump dst)
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hbdst : prog.blocks.toList[dst.idx]? = some bdst)
+    (hdstlt : dst.idx < prog.blocks.size)
+    (hbterm : termOf prog L + 5 < 2 ^ 32)
+    (hboff : offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks dst.idx < 2 ^ 32)
+    (hcs : CleanHaltsNonException frT) :
+    ∃ fj : Frame, Runs frT fj
+      ∧ GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
+      ∧ fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks dst.idx)
+      ∧ fj.exec.executionEnv.code = lower prog
+      ∧ fj.validJumps = validJumpDests fj.exec.executionEnv.code 0
+      ∧ fj.exec.stack = []
+      ∧ fj.exec.executionEnv.canModifyState = true
+      ∧ (∀ k, selfStorage fj k = st.world k)
+      ∧ MemRealises prog st fj
+      ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none) := by
+  set off := offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks dst.idx with hoff
+  set dest : Word := UInt256.ofNat (off % 2 ^ 32) with hdest
+  set new_pc := UInt32.ofNat off with hnew
+  -- (1) DERIVE the decode bundle exactly as `sim_term_edge_jump_lowered`.
+  have hemitT : emitTerm (defsOf prog) (recomputeFuel prog)
+      (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks) b.term
+        = emitDest off ++ [Byte.jump] := by rw [hterm]; rfl
+  have hedlen : (emitDest off).length = 5 := by simp [emitDest, offsetBytesBE]
+  have htermlen : (emitTerm (defsOf prog) (recomputeFuel prog)
+      (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks) b.term).length = 6 := by
+    rw [hemitT, List.length_append, hedlen]; rfl
+  have hdpush : decode frT.exec.executionEnv.code frT.exec.pc
+      = some (.Push .PUSH4, some (dest, 4)) := by
+    rw [hcorr.code_eq, hcorr.pc_eq, pcOf_eq_termOf prog L b hb,
+        show termOf prog L = termOf prog L + 0 from by omega]
+    exact term_dest_decode prog L b 0 off hb
+      (by intro j hj; rw [hemitT]; rw [Nat.zero_add, List.getElem?_append_left hj])
+      (by rw [htermlen, hedlen]; omega) (by omega)
+  have hdjump : decode frT.exec.executionEnv.code (frT.exec.pc + UInt32.ofNat 5)
+      = some (.Smsf .JUMP, .none) := by
+    rw [hcorr.code_eq, hcorr.pc_eq, pcOf_eq_termOf prog L b hb, ofNat_add']
+    have hbyte0 : (emitTerm (defsOf prog) (recomputeFuel prog)
+        (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks) b.term)[5]? = some Byte.jump := by
+      rw [hemitT, List.getElem?_append_right (by rw [hedlen]), hedlen]; rfl
+    exact decode_at_term_nonpush prog L b 5 Byte.jump hb (by rw [htermlen]; omega) hbyte0
+      (by rw [show termOf prog L + 5 = termOf prog L + 5 from rfl]; omega) (by decide)
+  have hdjd : decode (lower prog) (UInt32.ofNat off) = some (.Smsf .JUMPDEST, .none) :=
+    decode_at_block_offset_jumpdest prog dst bdst hbdst (by rw [← hoff]; omega)
+  have hdestword : dest.toUInt32? = some (UInt32.ofNat off) := ofNatMod_toUInt32? off
+  -- frame-local facts (`Corr` accessors).
+  have hgcode : frT.exec.executionEnv.code = lower prog := hcorr.code_eq
+  have hgstk : frT.exec.stack = [] := hcorr.stack_nil
+  have hvalid : frT.validJumps = validJumpDests (lower prog) 0 := hcorr.validJumps_lower
+  -- (2) FORWARD `PUSH4 ; JUMP` construction (mirror `jump_to_block`, stop at `fj`).
+  have hstk1 : frT.exec.stack.size + 1 ≤ 1024 := by rw [hgstk]; show (0 : ℕ)+1≤1024; omega
+  -- (3a) PUSH4 gas brick: `3 ≤ frT.gas`, from `hcs`.
+  have hgpush : 3 ≤ frT.exec.gasAvailable.toNat := by
+    have := (next_push_of_cleanHalt frT .PUSH4 dest 4 hcs (by decide) hdpush
+      (by decide) (by decide) hstk1).1
+    have hvl : Gverylow = 3 := rfl; omega
+  have hpush : Runs frT (pushFrameW frT dest 4) :=
+    runs_push frT .PUSH4 dest 4 (by nofun) hdpush rfl rfl hgpush hstk1
+  set frp := pushFrameW frT dest 4 with hfrp
+  have hpcode : frp.exec.executionEnv.code = frT.exec.executionEnv.code := rfl
+  have hppc : frp.exec.pc = frT.exec.pc + UInt32.ofNat 5 := by
+    show frT.exec.pc + ((4 : UInt8) + 1).toUInt32 = _
+    rw [show ((4 : UInt8) + 1).toUInt32 = UInt32.ofNat 5 from by decide]
+  have hpstk : frp.exec.stack = dest :: frT.exec.stack := rfl
+  have hpjdec : decode frp.exec.executionEnv.code frp.exec.pc = some (.Smsf .JUMP, .none) := by
+    rw [hpcode, hppc]; exact hdjump
+  have hpjsz : frp.exec.stack.size ≤ 1024 := by
+    rw [hpstk, hgstk]; show (1 : ℕ) ≤ 1024; omega
+  have hgetdest : frp.get_dest dest = some new_pc := by
+    refine Frame.get_dest_of_mem _ hdestword ?_
+    show new_pc ∈ frp.validJumps
+    rw [hfrp, pushFrameW_validJumps, hvalid, hnew]
+    simpa using block_offset_validJump prog dst hdstlt
+  -- thread the clean-halt forward across `frT → frp`.
+  have hcsP : CleanHaltsNonException frp := cleanHaltsNonException_forward hcs hpush
+  -- (3b) JUMP gas brick: `Gmid ≤ frp.gas`, from `hcsP`.
+  have hgjump : GasConstants.Gmid ≤ frp.exec.gasAvailable.toNat :=
+    (next_jump_of_cleanHalt frp dest new_pc frT.exec.stack hcsP hpjdec hpstk hpjsz hgetdest).1
+  have hjump : Runs frp (jumpFrame frp GasConstants.Gmid new_pc frT.exec.stack) :=
+    runs_jump frp dest new_pc frT.exec.stack hpjdec hpstk hpjsz hgjump hgetdest
+  set fj := jumpFrame frp GasConstants.Gmid new_pc frT.exec.stack with hfj
+  have hfjpc : fj.exec.pc = new_pc := rfl
+  have hfjcode : fj.exec.executionEnv.code = lower prog := by
+    rw [hfj, jumpFrame_code, hpcode]; exact hgcode
+  have hfjstk : fj.exec.stack = [] := by rw [hfj, jumpFrame_stack]; exact hgstk
+  have hfjmod : fj.exec.executionEnv.canModifyState = true := by
+    rw [hfj, jumpFrame_canMod]; exact hcorr.can_modify
+  have hfjstore : ∀ k, selfStorage fj k = st.world k := by
+    intro k; rw [hfj, jumpFrame_selfStorage]; exact hcorr.storage k
+  have hfjdec : decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none) := by
+    rw [hfjcode, hfjpc, hnew]; exact hdjd
+  have hfjmem : MemRealises prog st fj :=
+    hcorr.memAgree.transport
+      (by rw [hfj, jumpFrame_memory]; rfl)
+      (by rw [hfj, jumpFrame_activeWords]; exact le_refl _)
+  have hfjvalid : fj.validJumps = validJumpDests fj.exec.executionEnv.code 0 := by
+    rw [hfjcode, hfj, jumpFrame_validJumps, pushFrameW_validJumps]; exact hvalid
+  -- the two-step forward run `frT → frp → fj`.
+  have hfrun : Runs frT fj := hpush.trans hjump
+  -- (3c) JUMPDEST gas brick: `Gjumpdest ≤ fj.gas`, from the clean-halt threaded to `fj`.
+  have hcsJ : CleanHaltsNonException fj := cleanHaltsNonException_forward hcs hfrun
+  have hfjsz : fj.exec.stack.size ≤ 1024 := by rw [hfjstk]; show (0 : ℕ) ≤ 1024; omega
+  have hgjd : GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat :=
+    (next_jumpdest_of_cleanHalt fj hcsJ hfjdec hfjsz).1
+  -- (4) assemble.
+  exact ⟨fj, hfrun, hgjd, hfjpc, hfjcode, hfjvalid, hfjstk, hfjmod, hfjstore, hfjmem, hfjdec⟩
+
+-- Build-enforced axiom-cleanliness guard for the pre-`JUMPDEST` landing producer: the three gas
+-- guards are produced from the threaded `CleanHaltsNonException frT` (§4 `next_*_of_cleanHalt`
+-- bricks), not supplied; it depends only on `[propext, Classical.choice, Quot.sound]`.
+#print axioms Lir.jump_landing_of_cleanHalt
 
 end Lir
 
