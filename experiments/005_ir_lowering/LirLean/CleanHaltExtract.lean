@@ -1004,6 +1004,108 @@ theorem next_jumpdest_of_cleanHalt (fr : Frame)
   have hg := stepFrame_jumpdest_inv fr hdec hsz hnext
   exact ⟨hg, stepFrame_jumpdest fr hdec hsz hg⟩
 
+/-! ## §5 — `JUMPI` clean-halt gas envelopes (`branch` terminator landing bricks)
+
+The lowered `branch` terminator is `materialise cond ; PUSH4 thenOff ; JUMPI ; PUSH4 elseOff ;
+JUMP`. The `JUMPI` arm needs its `Ghigh` envelope discharged from the threaded clean-halt — at
+the post-PUSH4 frame `frp` (with `thenWord :: cw :: rest` on the stack). `JUMPI` charges `Ghigh`
+*before* popping its two operands (`stackPopCount (.Smsf .JUMPI) = 2`), so a single OOG companion
+covers **both** the taken (`cw ≠ 0`) and fall-through (`cw = 0`) arms: only `hsz` is needed for
+OOG, the runtime `cw` selects the success-arm continuation. -/
+
+/-- **JUMPI out-of-gas.** With `Ghigh` exceeding the available gas, `stepFrame` halts with
+`OutOfGas` at the `charge` (which fires before the two-operand pop). Companion of the forward
+`stepFrame_jumpi_taken`/`stepFrame_jumpi_fallthrough`; needs only `hsz` (the charge precedes the
+pop, so it is condition-independent). -/
+theorem stepFrame_jumpi_oog (fr : Frame)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMPI, .none))
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hoog : fr.exec.gasAvailable.toNat < Ghigh) :
+    stepFrame fr = .halted (.exception .OutOfGas) := by
+  unfold stepFrame
+  simp only [hdec]
+  dsimp only [Option.getD]
+  rw [if_neg (by decide)]
+  have hov : ¬ (fr.exec.stack.size - stackPopCount (.Smsf .JUMPI)
+      + stackPushCount (.Smsf .JUMPI) > 1024) := by
+    simp only [show stackPopCount (.Smsf .JUMPI) = 2 from rfl,
+               show stackPushCount (.Smsf .JUMPI) = 0 from rfl]
+    have := hsz; omega
+  rw [if_neg hov]
+  dsimp only [dispatch, smsfOp]
+  unfold charge
+  rw [if_pos (by have := hoog; omega)]
+  dsimp only [bind, Except.bind, pure, Except.pure]
+
+/-- **JUMPI `.next`-inversion.** A successful `.next` JUMPI step witnesses `Ghigh ≤ gas`.
+Contrapositive of `stepFrame_jumpi_oog`; condition-independent. -/
+theorem stepFrame_jumpi_inv (fr : Frame) {e : ExecutionState}
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMPI, .none))
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hnext : stepFrame fr = .next e) :
+    Ghigh ≤ fr.exec.gasAvailable.toNat := by
+  by_contra h
+  rw [stepFrame_jumpi_oog fr hdec hsz (by omega)] at hnext
+  exact absurd hnext (by simp)
+
+/-- **JUMPI taken step dichotomy.** A JUMPI-decoding frame (operands `dest :: cond :: rest`, a
+non-zero condition `hcond`, valid-destination witness `hdest`) either continues to
+`jumpPost … new_pc rest` or halts with an exception (OOG when `gas < Ghigh`). -/
+theorem stepFrame_jumpi_taken_dichotomy (fr : Frame) (dest cond : UInt256) (new_pc : UInt32)
+    (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMPI, .none))
+    (hstk : fr.exec.stack = dest :: cond :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hcond : cond ≠ 0)
+    (hdest : fr.get_dest dest = some new_pc) :
+    (∃ e', stepFrame fr = .next e') ∨ (∃ ex, stepFrame fr = .halted (.exception ex)) := by
+  by_cases hgas : Ghigh ≤ fr.exec.gasAvailable.toNat
+  · exact Or.inl ⟨_, stepFrame_jumpi_taken fr dest cond new_pc rest hdec hstk hsz hgas hcond hdest⟩
+  · exact Or.inr ⟨_, stepFrame_jumpi_oog fr hdec hsz (by omega)⟩
+
+/-- **JUMPI fall-through step dichotomy.** A JUMPI-decoding frame (operands `dest :: 0 :: rest`,
+zero condition) either continues to `jumpiFallthroughPost … rest` or halts with an exception
+(OOG when `gas < Ghigh`). No destination requirement (the jump is not taken). -/
+theorem stepFrame_jumpi_fallthrough_dichotomy (fr : Frame) (dest : UInt256) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMPI, .none))
+    (hstk : fr.exec.stack = dest :: (0 : UInt256) :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024) :
+    (∃ e', stepFrame fr = .next e') ∨ (∃ ex, stepFrame fr = .halted (.exception ex)) := by
+  by_cases hgas : Ghigh ≤ fr.exec.gasAvailable.toNat
+  · exact Or.inl ⟨_, stepFrame_jumpi_fallthrough fr dest rest hdec hstk hsz hgas⟩
+  · exact Or.inr ⟨_, stepFrame_jumpi_oog fr hdec hsz (by omega)⟩
+
+/-- **JUMPI taken: clean-halt ⟹ `Ghigh ≤ gas`** (and the continuing `.next` step to `jumpPost`).
+The non-zero condition `hcond` and valid-destination `hdest` select the taken success arm. -/
+theorem next_jumpi_taken_of_cleanHalt (fr : Frame) (dest cond : UInt256) (new_pc : UInt32)
+    (rest : Stack UInt256)
+    (hcs : CleanHaltsNonException fr)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMPI, .none))
+    (hstk : fr.exec.stack = dest :: cond :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hcond : cond ≠ 0)
+    (hdest : fr.get_dest dest = some new_pc) :
+    Ghigh ≤ fr.exec.gasAvailable.toNat
+      ∧ stepFrame fr = .next (jumpPost fr.exec Ghigh new_pc rest) := by
+  obtain ⟨e', hnext⟩ := next_of_cleanHalt_continuing hcs
+    (stepFrame_jumpi_taken_dichotomy fr dest cond new_pc rest hdec hstk hsz hcond hdest)
+  have hg := stepFrame_jumpi_inv fr hdec hsz hnext
+  exact ⟨hg, stepFrame_jumpi_taken fr dest cond new_pc rest hdec hstk hsz hg hcond hdest⟩
+
+/-- **JUMPI fall-through: clean-halt ⟹ `Ghigh ≤ gas`** (and the continuing `.next` step to
+`jumpiFallthroughPost`). The zero condition selects the fall-through success arm. -/
+theorem next_jumpi_fallthrough_of_cleanHalt (fr : Frame) (dest : UInt256) (rest : Stack UInt256)
+    (hcs : CleanHaltsNonException fr)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMPI, .none))
+    (hstk : fr.exec.stack = dest :: (0 : UInt256) :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024) :
+    Ghigh ≤ fr.exec.gasAvailable.toNat
+      ∧ stepFrame fr = .next (jumpiFallthroughPost fr.exec rest) := by
+  obtain ⟨e', hnext⟩ := next_of_cleanHalt_continuing hcs
+    (stepFrame_jumpi_fallthrough_dichotomy fr dest rest hdec hstk hsz)
+  have hg := stepFrame_jumpi_inv fr hdec hsz hnext
+  exact ⟨hg, stepFrame_jumpi_fallthrough fr dest rest hdec hstk hsz hg⟩
+
 end Lir.CleanHaltExtract
 
 -- Axiom-cleanliness guards (§0 — predicate lives in `LirLean/CleanHalt.lean`).
@@ -1058,3 +1160,10 @@ end Lir.CleanHaltExtract
 #print axioms Lir.CleanHaltExtract.stepFrame_jumpdest_dichotomy
 #print axioms Lir.CleanHaltExtract.next_jump_of_cleanHalt
 #print axioms Lir.CleanHaltExtract.next_jumpdest_of_cleanHalt
+-- Axiom-cleanliness guards (§5 — JUMPI terminator-landing bricks).
+#print axioms Lir.CleanHaltExtract.stepFrame_jumpi_oog
+#print axioms Lir.CleanHaltExtract.stepFrame_jumpi_inv
+#print axioms Lir.CleanHaltExtract.stepFrame_jumpi_taken_dichotomy
+#print axioms Lir.CleanHaltExtract.stepFrame_jumpi_fallthrough_dichotomy
+#print axioms Lir.CleanHaltExtract.next_jumpi_taken_of_cleanHalt
+#print axioms Lir.CleanHaltExtract.next_jumpi_fallthrough_of_cleanHalt

@@ -208,6 +208,8 @@ theorem wellFormedLowered_of_acyclic {prog : Program} (h : AcyclicWellFormed pro
      matFueled_tmp_of_acyclic h.acyclic (by have := h.rank_lt_fuel k; omega)⟩
   bound_sload := h.bound_sload
   matFueled_ret := fun _ _ t _ _ => matFueled_tmp_of_acyclic h.acyclic (by have := h.rank_lt_fuel t; omega)
+  matFueled_branch := fun _ _ cond _ _ _ _ =>
+    matFueled_tmp_of_acyclic h.acyclic (by have := h.rank_lt_fuel cond; omega)
   bound_ret := h.bound_ret
   bound_stop := h.bound_stop
   bound_jump := h.bound_jump

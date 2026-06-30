@@ -170,6 +170,12 @@ structure WellFormedLowered (prog : Program) : Prop where
   matFueled_ret : ∀ (L : Label) (b : Block) (t : Tmp),
     prog.blocks.toList[L.idx]? = some b → b.term = .ret t →
     MatFueled (defsOf prog) (recomputeFuel prog) (.tmp t)
+  /-- `branch` condition fuel-sufficiency, at every `branch`-terminated present block. The
+  cond-materialise of `branch_landing_of_cleanHalt` recomputes `cond` within the full
+  `recomputeFuel`; the `matFueled_ret` analogue for the terminator condition. -/
+  matFueled_branch : ∀ (L : Label) (b : Block) (cond : Tmp) (thenL elseL : Label),
+    prog.blocks.toList[L.idx]? = some b → b.term = .branch cond thenL elseL →
+    MatFueled (defsOf prog) (recomputeFuel prog) (.tmp cond)
   /-- `ret` pc bound: the RETURN-value operand bytes fit a 32-bit pc. -/
   bound_ret : ∀ (L : Label) (b : Block) (t : Tmp),
     prog.blocks.toList[L.idx]? = some b → b.term = .ret t →

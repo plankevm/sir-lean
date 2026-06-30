@@ -4451,6 +4451,7 @@ theorem driveCorrPlus_step_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs
     -- successor's `JUMPDEST` landing `fj`, with the taken successor `succ` resolved by `cw`.
     -- Dischargeable for a concrete program exactly as `sim_term_edge_branch`.
     (hbranch : ∀ frT : Frame, Corr prog sloadChg obs st' frT L b.stmts.length →
+      CleanHaltsNonException frT →
       ∃ (succ : Label) (bsucc : Block) (fj : Frame),
         ((succ = thenL ∧ cw ≠ 0) ∨ (succ = elseL ∧ cw = 0))
         ∧ prog.blocks.toList[succ.idx]? = some bsucc
@@ -4474,8 +4475,10 @@ theorem driveCorrPlus_step_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs
   -- Layer D: run the block's statements to the terminator cursor (uses the BASE `Corr`).
   obtain ⟨frT, hrunsT, hcorrT, _⟩ := sim_stmts_block hsim hdc.base.corr hdc.base.cleanHalts hrun
   -- Layer E: the supplied branch bundle resolves the taken successor `succ` and its landing `fj`.
+  -- The clean-halt at the terminator cursor `frT` is the boundary's, forwarded along `fr → frT`.
   obtain ⟨succ, bsucc, fj, hdir, hbsucc, hfjrun, hfjgas, hfjpc, hfjcode, hfjvalid, hfjstk,
     hfjmod, hfjstore, hfjmem, hfjdec⟩ := hbranch frT hcorrT
+      (cleanHaltsNonException_forward hdc.base.cleanHalts hrunsT)
   -- the `JUMPDEST` step lands at `(succ, 0)`, re-establishing `Corr`.
   obtain ⟨hjdrun, hjdcorr⟩ := corr_at_jumpdest_landing hbsucc hfjpc hfjcode hfjvalid hfjstk
     hfjmod hfjstore hcorrT.defsSound hcorrT.wellScoped hfjmem hfjdec hfjgas
@@ -4579,6 +4582,7 @@ theorem driveStepPlus_of_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
       (stmtsPost st b.stmts).locals cond = some cw →
       ∀ frT : Frame,
         Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
+        CleanHaltsNonException frT →
         ∃ (succ : Label) (bsucc : Block) (fj : Frame),
           ((succ = thenL ∧ cw ≠ 0) ∨ (succ = elseL ∧ cw = 0))
           ∧ prog.blocks.toList[succ.idx]? = some bsucc
@@ -4723,6 +4727,7 @@ theorem lower_conforms_cyclic_tiefree {prog : Program} {sloadChg : Tmp → ℕ} 
       (stmtsPost st b.stmts).locals cond = some cw →
       ∀ frT : Frame,
         Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
+        CleanHaltsNonException frT →
         ∃ (succ : Label) (bsucc : Block) (fj : Frame),
           ((succ = thenL ∧ cw ≠ 0) ∨ (succ = elseL ∧ cw = 0))
           ∧ prog.blocks.toList[succ.idx]? = some bsucc
@@ -4780,10 +4785,16 @@ the `JUMPDEST` step), with its three gas guards produced from the threaded `Clea
 frT`; the destination presence (`hjumpPresent`) and the folded pc/offset bounds
 (`WellFormedLowered.bound_jump`) supply its remaining structural inputs.
 
-The `branch` edge universal `hbranch` plus the presence facts `hpresent`/`hjumpPresent` stay
-HONESTLY SUPPLIED: `hbranch`'s pre-JUMPDEST landing producer (the cond-materialise + JUMPI split
-ahead of the same landing) is the heavier follow-on, not yet built; the presence facts are static
-CFG well-formedness. They are left as named hypotheses, not faked. -/
+The `branch` edge universal `hbranch` is **also** DISCHARGED here: `branch_landing_of_cleanHalt`
+(`LowerDecode.lean`) is the green producer for the TAKEN-successor pre-JUMPDEST landing (the
+cond-materialise + JUMPI split ahead of the same `jump`-arm landing); its gas guards are produced
+from the threaded `CleanHaltsNonException frT`, its presence / pc-offset bounds / fuel-sufficiency
+from `hbranchPresent` / `WellFormedLowered.bound_branch` / `WellFormedLowered.matFueled_branch`.
+
+Still HONESTLY SUPPLIED (static CFG well-formedness + the non-gas-derivable structural folds, NOT
+faked): the block-presence facts `hpresent`/`hjumpPresent`/`hbranchPresent`, and the cond-materialise
+stack-room fold `hstkBranch` (the `hstkKey` analogue — a charge-length bound the gas thread cannot
+produce). -/
 theorem lower_conforms_cyclic_assembled {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {o : V2.CallOracle} {self : AccountAddress}
     {st₀ : V2.IRState} {T : Trace} {params : Evm.CallParams} {code : ByteArray} {acc : Account}
@@ -4806,29 +4817,20 @@ theorem lower_conforms_cyclic_assembled {prog : Program} {sloadChg : Tmp → ℕ
     (hjumpPresent : ∀ (L : Label) (b : Block), blockAt prog L = some b →
       ∀ (dst : Label), b.term = .jump dst →
         ∃ bdst : Block, prog.blocks.toList[dst.idx]? = some bdst)
-    -- the `branch` edge bundle stays HONESTLY SUPPLIED (the branch arm's pre-JUMPDEST landing
-    -- producer is the heavier follow-on; the `jump` arm's `hjump` is DISCHARGED below from
-    -- `jump_landing_of_cleanHalt` + the folded `WellFormedLowered.bound_jump`).
-    (hbranch : ∀ (st : V2.IRState) (L : Label) (b : Block), blockAt prog L = some b →
-      ∀ (cond : Tmp) (thenL elseL : Label) (cw : Word),
-      b.term = .branch cond thenL elseL →
-      (stmtsPost st b.stmts).locals cond = some cw →
-      ∀ frT : Frame,
-        Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
-        ∃ (succ : Label) (bsucc : Block) (fj : Frame),
-          ((succ = thenL ∧ cw ≠ 0) ∨ (succ = elseL ∧ cw = 0))
-          ∧ prog.blocks.toList[succ.idx]? = some bsucc
-          ∧ Runs frT fj
-          ∧ GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
-          ∧ fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
-              prog.blocks succ.idx)
-          ∧ fj.exec.executionEnv.code = lower prog
-          ∧ fj.validJumps = validJumpDests fj.exec.executionEnv.code 0
-          ∧ fj.exec.stack = []
-          ∧ fj.exec.executionEnv.canModifyState = true
-          ∧ (∀ k, selfStorage fj k = (stmtsPost st b.stmts).world k)
-            ∧ MemRealises prog (stmtsPost st b.stmts) fj
-          ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none)) :
+    -- the `branch` successor presence (static CFG well-formedness, the `hjumpPresent` analogue for
+    -- both branch targets):
+    (hbranchPresent : ∀ (L : Label) (b : Block), blockAt prog L = some b →
+      ∀ (cond : Tmp) (thenL elseL : Label), b.term = .branch cond thenL elseL →
+        (∃ bthen : Block, prog.blocks.toList[thenL.idx]? = some bthen)
+        ∧ (∃ belse : Block, prog.blocks.toList[elseL.idx]? = some belse))
+    -- the `branch` cond-materialise stack-room fold (the structural `hstkKey`/`hstk` analogue —
+    -- NOT gas-derivable; a static charge-length bound). `branch_landing_of_cleanHalt` produces the
+    -- rest of the `branch` edge bundle (gas guards from the threaded clean-halt; presence /
+    -- bounds / fuel-sufficiency from `hbranchPresent` / `WellFormedLowered.bound_branch` /
+    -- `WellFormedLowered.matFueled_branch`).
+    (hstkBranch : ∀ (L : Label) (b : Block), blockAt prog L = some b →
+      ∀ (cond : Tmp) (thenL elseL : Label), b.term = .branch cond thenL elseL →
+        (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp cond)).length ≤ 1024) :
     ∃ O : V2.Observable,
       (∃ last haltSig, Runs (codeFrame params code) last ∧ stepFrame last = .halted haltSig
         ∧ (observe self (endFrame last haltSig)).world = O.world)
@@ -4873,6 +4875,48 @@ theorem lower_conforms_cyclic_assembled {prog : Program} {sloadChg : Tmp → ℕ
     obtain ⟨hpc5, hoff⟩ := hwfl.bound_jump L b dst (toList_of_blockAt hbat) hbterm
     exact jump_landing_of_cleanHalt frT hcorrT hbterm (toList_of_blockAt hbat) hbdst hdstlt
       hpc5 hoff hcsT
+  -- DISCHARGE the `branch` edge bundle from `branch_landing_of_cleanHalt`: the two successor
+  -- presences (`hbranchPresent`) give `bthen`/`belse` + the `idx < size` bounds; the folded
+  -- `WellFormedLowered.bound_branch` / `matFueled_branch` supply the pc/offset bounds and the
+  -- cond-materialise fuel-sufficiency; the structural stack-room fold is `hstkBranch`. The clean-
+  -- halt at the terminator cursor is forwarded along the statements run inside `driveCorrPlus_step_branch`.
+  have hbranch : ∀ (st : V2.IRState) (L : Label) (b : Block), blockAt prog L = some b →
+      ∀ (cond : Tmp) (thenL elseL : Label) (cw : Word),
+      b.term = .branch cond thenL elseL →
+      (stmtsPost st b.stmts).locals cond = some cw →
+      ∀ frT : Frame,
+        Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
+        CleanHaltsNonException frT →
+        ∃ (succ : Label) (bsucc : Block) (fj : Frame),
+          ((succ = thenL ∧ cw ≠ 0) ∨ (succ = elseL ∧ cw = 0))
+          ∧ prog.blocks.toList[succ.idx]? = some bsucc
+          ∧ Runs frT fj
+          ∧ GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
+          ∧ fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
+              prog.blocks succ.idx)
+          ∧ fj.exec.executionEnv.code = lower prog
+          ∧ fj.validJumps = validJumpDests fj.exec.executionEnv.code 0
+          ∧ fj.exec.stack = []
+          ∧ fj.exec.executionEnv.canModifyState = true
+          ∧ (∀ k, selfStorage fj k = (stmtsPost st b.stmts).world k)
+            ∧ MemRealises prog (stmtsPost st b.stmts) fj
+          ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none) := by
+    intro st L b hbat cond thenL elseL cw hbterm hc frT hcorrT hcsT
+    obtain ⟨⟨bthen, hbthen⟩, ⟨belse, hbelse⟩⟩ := hbranchPresent L b hbat cond thenL elseL hbterm
+    have hthenlt : thenL.idx < prog.blocks.size := by
+      simpa using (List.getElem?_eq_some_iff.mp hbthen).1
+    have helselt : elseL.idx < prog.blocks.size := by
+      simpa using (List.getElem?_eq_some_iff.mp hbelse).1
+    obtain ⟨hbt, hbthenoff, hbelseoff⟩ := hwfl.bound_branch L b cond thenL elseL
+      (toList_of_blockAt hbat) hbterm
+    -- the cond-materialise stack-room fold, with `frT.stack = []` from `Corr`.
+    have hstkCond : frT.exec.stack.size
+        + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp cond)).length ≤ 1024 := by
+      rw [hcorrT.stack_nil]
+      simpa using hstkBranch L b hbat cond thenL elseL hbterm
+    exact branch_landing_of_cleanHalt frT hcorrT hbterm (toList_of_blockAt hbat) hc hbthen hbelse
+      hthenlt helselt hbt hbthenoff hbelseoff
+      (hwfl.matFueled_branch L b cond thenL elseL (toList_of_blockAt hbat) hbterm) hstkCond hcsT
   exact lower_conforms_cyclic_tiefree hbase hwf hdef hcall hpresent hstmts hterm
     hjumpPresent hjump hbranch
 

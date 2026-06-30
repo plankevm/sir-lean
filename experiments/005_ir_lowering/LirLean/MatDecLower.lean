@@ -466,4 +466,51 @@ theorem matDec_of_lower (prog : Program) (sloadChg : Tmp → ℕ) (L : Label) (b
   matDec_of_seg prog (defsOf prog) sloadChg (recomputeFuel prog) e (pcOf prog L pc + offset)
     hwf (by omega) (matSeg_of_stmt prog L b pc s offset e hb hs hsub hin)
 
+/-! ## `matDec_of_term` — `MatDec` at a terminator cursor
+
+The terminator analogue of `matDec_of_lower`: when `materialiseExpr defs fuel e`'s bytes are
+the sub-list of `emitTerm … b.term` starting at `offset`, they sit in `flatBytes prog` at
+`termOf prog L + offset` (via the terminator byte anchor `flatBytes_at_termOf`), so `MatSeg`
+holds there. The branch's cond materialise is exactly this at `offset = 0`. -/
+
+/-- **`MatSeg` at a terminator cursor.** When `materialiseExpr defs fuel e`'s bytes are the
+sub-list of `emitTerm … b.term` starting at `offset`, they sit in `flatBytes prog` at
+`termOf prog L + offset` — built from `flatBytes_at_termOf`. -/
+theorem matSeg_of_term (prog : Program) (L : Label) (b : Block) (offset : ℕ) (e : Expr)
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hsub : ∀ j, j < (materialiseExpr (defsOf prog) (recomputeFuel prog) e).length →
+        (emitTerm (defsOf prog) (recomputeFuel prog)
+            (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks) b.term)[offset + j]?
+          = (materialiseExpr (defsOf prog) (recomputeFuel prog) e)[j]?)
+    (hin : offset + (materialiseExpr (defsOf prog) (recomputeFuel prog) e).length
+        ≤ (emitTerm (defsOf prog) (recomputeFuel prog)
+            (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks) b.term).length) :
+    MatSeg prog (termOf prog L + offset) (defsOf prog) (recomputeFuel prog) e := by
+  intro j hj
+  have hanchor := flatBytes_at_termOf prog L b (offset + j) hb (by omega)
+  rw [show termOf prog L + (offset + j) = termOf prog L + offset + j from by ring] at hanchor
+  rw [hanchor]; exact hsub j hj
+
+/-- **`matDec_of_term` (terminator headline).** For an operand `e` whose materialise bytes form
+the sub-list of `emitTerm … b.term` at byte `offset`, `MatDec (lower prog) … (UInt32.ofNat
+(termOf prog L + offset)) e` holds — given fuel-sufficiency (`MatFueled`) and the pc bound. The
+branch's cond materialise is this at `offset = 0`. -/
+theorem matDec_of_term (prog : Program) (sloadChg : Tmp → ℕ) (L : Label) (b : Block)
+    (offset : ℕ) (e : Expr)
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hsub : ∀ j, j < (materialiseExpr (defsOf prog) (recomputeFuel prog) e).length →
+        (emitTerm (defsOf prog) (recomputeFuel prog)
+            (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks) b.term)[offset + j]?
+          = (materialiseExpr (defsOf prog) (recomputeFuel prog) e)[j]?)
+    (hin : offset + (materialiseExpr (defsOf prog) (recomputeFuel prog) e).length
+        ≤ (emitTerm (defsOf prog) (recomputeFuel prog)
+            (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks) b.term).length)
+    (hwf : MatFueled (defsOf prog) (recomputeFuel prog) e)
+    (hbound : termOf prog L + offset
+        + (materialiseExpr (defsOf prog) (recomputeFuel prog) e).length ≤ 2 ^ 32) :
+    MatDec (lower prog) (defsOf prog) sloadChg (recomputeFuel prog)
+      (UInt32.ofNat (termOf prog L + offset)) e :=
+  matDec_of_seg prog (defsOf prog) sloadChg (recomputeFuel prog) e (termOf prog L + offset)
+    hwf (by omega) (matSeg_of_term prog L b offset e hb hsub hin)
+
 end Lir
