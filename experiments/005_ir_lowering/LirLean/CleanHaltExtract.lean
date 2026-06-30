@@ -873,6 +873,137 @@ theorem sload_envelope_of_cleanHalt
       [] hcsPush hdecMSTORE hstkM' hszM
   exact ⟨hgasSload, hgasPush', words', hmem, hgasMem, hgasMstore⟩
 
+/-! ## §4 — JUMP / JUMPDEST clean-halt envelopes (the terminator landing)
+
+The lowered `jump`/`branch` terminators step `PUSH4 destOff ; JUMP` (and JUMPI for `branch`).
+The pre-`JUMPDEST` landing frame `fj` (the JUMP successor frame, sitting *on* the landing
+`JUMPDEST` byte) needs its `Gjumpdest` envelope discharged: the threaded clean-halt at `fj`
+forces the `JUMPDEST` step to continue, so `Gjumpdest ≤ fj.gas`. The JUMP gas envelope
+`Gmid ≤ frp.gas` (at the post-PUSH4 frame `frp`) is what lets the `JUMP` step run at all.
+
+These mirror the §1/§2 charge-only bricks. JUMP charges `Gmid` *before* popping (no `hstk` for
+OOG, only `hsz`); the success arm carries the valid-destination witness `hdest`. JUMPDEST is a
+pop-0/push-0 no-op charging `Gjumpdest`. -/
+
+/-- **JUMP out-of-gas.** With `Gmid` exceeding the available gas, `stepFrame` halts with
+`OutOfGas` at the `charge` (which fires before the pop). Companion of the forward
+`stepFrame_jump`; needs only `hsz` (the charge precedes the destination pop). -/
+theorem stepFrame_jump_oog (fr : Frame)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMP, .none))
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hoog : fr.exec.gasAvailable.toNat < Gmid) :
+    stepFrame fr = .halted (.exception .OutOfGas) := by
+  unfold stepFrame
+  simp only [hdec]
+  dsimp only [Option.getD]
+  rw [if_neg (by decide)]
+  have hov : ¬ (fr.exec.stack.size - stackPopCount (.Smsf .JUMP)
+      + stackPushCount (.Smsf .JUMP) > 1024) := by
+    simp only [show stackPopCount (.Smsf .JUMP) = 1 from rfl,
+               show stackPushCount (.Smsf .JUMP) = 0 from rfl]
+    have := hsz; omega
+  rw [if_neg hov]
+  dsimp only [dispatch, smsfOp]
+  unfold charge
+  rw [if_pos (by have := hoog; omega)]
+  dsimp only [bind, Except.bind, pure, Except.pure]
+
+/-- **JUMP `.next`-inversion.** A successful `.next` JUMP step witnesses `Gmid ≤ gas`.
+Contrapositive of `stepFrame_jump_oog`. -/
+theorem stepFrame_jump_inv (fr : Frame) {e : ExecutionState}
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMP, .none))
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hnext : stepFrame fr = .next e) :
+    Gmid ≤ fr.exec.gasAvailable.toNat := by
+  by_contra h
+  rw [stepFrame_jump_oog fr hdec hsz (by omega)] at hnext
+  exact absurd hnext (by simp)
+
+/-- **JUMPDEST out-of-gas.** With `Gjumpdest` exceeding the available gas, `stepFrame` halts with
+`OutOfGas`. Companion of the forward `stepFrame_jumpdest`; pop-0/push-0 no-op. -/
+theorem stepFrame_jumpdest_oog (fr : Frame)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMPDEST, .none))
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hoog : fr.exec.gasAvailable.toNat < Gjumpdest) :
+    stepFrame fr = .halted (.exception .OutOfGas) := by
+  unfold stepFrame
+  simp only [hdec]
+  dsimp only [Option.getD]
+  rw [if_neg (by decide)]
+  have hov : ¬ (fr.exec.stack.size - stackPopCount (.Smsf .JUMPDEST)
+      + stackPushCount (.Smsf .JUMPDEST) > 1024) := by
+    simp only [show stackPopCount (.Smsf .JUMPDEST) = 0 from rfl,
+               show stackPushCount (.Smsf .JUMPDEST) = 0 from rfl]
+    have := hsz; omega
+  rw [if_neg hov]
+  dsimp only [dispatch, smsfOp]
+  unfold charge
+  rw [if_pos (by have := hoog; omega)]
+  dsimp only [bind, Except.bind, pure, Except.pure]
+
+/-- **JUMPDEST `.next`-inversion.** A successful `.next` JUMPDEST step witnesses `Gjumpdest ≤ gas`. -/
+theorem stepFrame_jumpdest_inv (fr : Frame) {e : ExecutionState}
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMPDEST, .none))
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hnext : stepFrame fr = .next e) :
+    Gjumpdest ≤ fr.exec.gasAvailable.toNat := by
+  by_contra h
+  rw [stepFrame_jumpdest_oog fr hdec hsz (by omega)] at hnext
+  exact absurd hnext (by simp)
+
+/-- **JUMP step dichotomy.** A JUMP-decoding frame (with the destination operand `dest :: rest`
+and valid-destination witness `hdest`) either continues to `jumpPost … new_pc rest` or halts with
+an exception (OOG when `gas < Gmid`). -/
+theorem stepFrame_jump_dichotomy (fr : Frame) (dest : UInt256) (new_pc : UInt32)
+    (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMP, .none))
+    (hstk : fr.exec.stack = dest :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hdest : fr.get_dest dest = some new_pc) :
+    (∃ e', stepFrame fr = .next e') ∨ (∃ ex, stepFrame fr = .halted (.exception ex)) := by
+  by_cases hgas : Gmid ≤ fr.exec.gasAvailable.toNat
+  · exact Or.inl ⟨_, stepFrame_jump fr dest new_pc rest hdec hstk hsz hgas hdest⟩
+  · exact Or.inr ⟨_, stepFrame_jump_oog fr hdec hsz (by omega)⟩
+
+/-- **JUMPDEST step dichotomy.** A JUMPDEST-decoding frame either continues to `jumpdestPost …`
+or halts with an exception (OOG when `gas < Gjumpdest`). -/
+theorem stepFrame_jumpdest_dichotomy (fr : Frame)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMPDEST, .none))
+    (hsz : fr.exec.stack.size ≤ 1024) :
+    (∃ e', stepFrame fr = .next e') ∨ (∃ ex, stepFrame fr = .halted (.exception ex)) := by
+  by_cases hgas : Gjumpdest ≤ fr.exec.gasAvailable.toNat
+  · exact Or.inl ⟨_, stepFrame_jumpdest fr hdec hsz hgas⟩
+  · exact Or.inr ⟨_, stepFrame_jumpdest_oog fr hdec hsz (by omega)⟩
+
+/-- **JUMP: clean-halt ⟹ `Gmid ≤ gas`** (and the continuing `.next` step to `jumpPost`). The
+valid-destination witness `hdest` is needed for the success arm of the dichotomy. -/
+theorem next_jump_of_cleanHalt (fr : Frame) (dest : UInt256) (new_pc : UInt32)
+    (rest : Stack UInt256)
+    (hcs : CleanHaltsNonException fr)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMP, .none))
+    (hstk : fr.exec.stack = dest :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hdest : fr.get_dest dest = some new_pc) :
+    Gmid ≤ fr.exec.gasAvailable.toNat
+      ∧ stepFrame fr = .next (jumpPost fr.exec Gmid new_pc rest) := by
+  obtain ⟨e', hnext⟩ :=
+    next_of_cleanHalt_continuing hcs (stepFrame_jump_dichotomy fr dest new_pc rest hdec hstk hsz hdest)
+  have hg := stepFrame_jump_inv fr hdec hsz hnext
+  exact ⟨hg, stepFrame_jump fr dest new_pc rest hdec hstk hsz hg hdest⟩
+
+/-- **JUMPDEST: clean-halt ⟹ `Gjumpdest ≤ gas`** (and the continuing `.next` step to
+`jumpdestPost`). The bound the terminator landing's pre-`JUMPDEST` frame needs. -/
+theorem next_jumpdest_of_cleanHalt (fr : Frame)
+    (hcs : CleanHaltsNonException fr)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMPDEST, .none))
+    (hsz : fr.exec.stack.size ≤ 1024) :
+    Gjumpdest ≤ fr.exec.gasAvailable.toNat
+      ∧ stepFrame fr = .next (jumpdestPost fr.exec) := by
+  obtain ⟨e', hnext⟩ :=
+    next_of_cleanHalt_continuing hcs (stepFrame_jumpdest_dichotomy fr hdec hsz)
+  have hg := stepFrame_jumpdest_inv fr hdec hsz hnext
+  exact ⟨hg, stepFrame_jumpdest fr hdec hsz hg⟩
+
 end Lir.CleanHaltExtract
 
 -- Axiom-cleanliness guards (§0 — predicate lives in `LirLean/CleanHalt.lean`).
@@ -918,3 +1049,12 @@ end Lir.CleanHaltExtract
 #print axioms Lir.CleanHaltExtract.gas_envelope_of_cleanHalt
 #print axioms Lir.CleanHaltExtract.stepsTo_sloadFrame
 #print axioms Lir.CleanHaltExtract.sload_envelope_of_cleanHalt
+-- Axiom-cleanliness guards (§4 — JUMP/JUMPDEST terminator-landing bricks).
+#print axioms Lir.CleanHaltExtract.stepFrame_jump_oog
+#print axioms Lir.CleanHaltExtract.stepFrame_jump_inv
+#print axioms Lir.CleanHaltExtract.stepFrame_jumpdest_oog
+#print axioms Lir.CleanHaltExtract.stepFrame_jumpdest_inv
+#print axioms Lir.CleanHaltExtract.stepFrame_jump_dichotomy
+#print axioms Lir.CleanHaltExtract.stepFrame_jumpdest_dichotomy
+#print axioms Lir.CleanHaltExtract.next_jump_of_cleanHalt
+#print axioms Lir.CleanHaltExtract.next_jumpdest_of_cleanHalt
