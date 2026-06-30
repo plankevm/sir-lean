@@ -4773,6 +4773,104 @@ theorem lower_conforms_cyclic_tiefree {prog : Program} {sloadChg : Tmp → ℕ} 
   obtain ⟨last, haltSig, hlast, hhalt, hworld⟩ := sim_cfg hstmts hterm hbase.corr hir
   exact ⟨O, ⟨last, haltSig, hlast, hhalt, hworld⟩, hir⟩
 
+/-- **`lower_conforms_cyclic_assembled` — the headline with `hstmts`/`hterm` BUILT, not supplied.**
+Same conclusion as `lower_conforms_cyclic_tiefree`, but the two opaque `∀-L-b` per-block
+simulation universals are replaced by their honest builder inputs:
+
+* `hwfl : WellFormedLowered prog` — the purely-structural fuel/pc/offset/slot side-conditions
+  (`LowerConforms.lean:142`); and
+* `hstmtties`/`htermties` — the genuine §7 per-block recording-correspondence ties (`Lir.StmtTies`
+  / `Lir.TermTies`), i.e. exactly the per-cursor / per-terminator runtime ties that
+  `simStmtStep_block` / `simTermStep_block` consume (assign post-state realisability, the spilled
+  sload/gas stash data, the SSTORE/CALL realisation seams, the RETURN-epilogue / stop frame facts,
+  and the successor-block presence for edges).
+
+The opaque `SimStmtStep`/`SimTermStep` universals (2 of the headline's 4) are thereby DISCHARGED
+through `simStmtStep_block` / `simTermStep_block`. The remaining two headline edge universals
+`hjump`/`hbranch` (the `Plus`-thread *pre-JUMPDEST landing* `Runs frT fj` bundles) plus the
+presence facts `hpresent`/`hjumpPresent` stay HONESTLY SUPPLIED: those are the genuine
+forward-from-real-run edge-landing residual — `driveStepPlus_of_block` consumes a frame `fj`
+sitting ON the successor's `JUMPDEST` byte, and no green producer for that pre-step landing exists
+(the `sim_term_edge_*_lowered` producers in `LowerDecode.lean` yield the POST-`JUMPDEST` `Corr` at
+the successor entry, which is the `sim_cfg`/`simTermStep_block` shape folded into `htermties` here,
+not the `Plus`-thread landing). They are left as named hypotheses, not faked. -/
+theorem lower_conforms_cyclic_assembled {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
+    {o : V2.CallOracle} {self : AccountAddress}
+    {st₀ : V2.IRState} {T : Trace} {params : Evm.CallParams} {code : ByteArray} {acc : Account}
+    (hbase : DriveCorr prog sloadChg obs st₀ (codeFrame params code) prog.entry)
+    (hwf : params.accounts.find? params.recipient = some acc)
+    (hdef : RunDefinable prog)
+    (hcall : CallPreservesSelf)
+    (hpresent : ∀ (st : V2.IRState) (fr : Frame) (L : Label)
+        (gasAcc : List Word) (gasFrs : List Frame) (sloadAcc : List Nat) (sloadFrs : List Frame),
+      DriveCorrPlus prog sloadChg obs st fr L gasAcc gasFrs sloadAcc sloadFrs →
+      ∃ b, blockAt prog L = some b)
+    -- WELL-FORMEDNESS: the folded structural side-conditions (replaces the structural part of
+    -- `hstmts`/`hterm`):
+    (hwfl : WellFormedLowered prog)
+    -- the GENUINE §7 per-block ties (replaces the runtime part of the opaque `hstmts`/`hterm`):
+    (hstmtties : ∀ (L : Label) (b : Block), blockAt prog L = some b →
+      StmtTies prog sloadChg obs o L b)
+    (htermties : ∀ (L : Label) (b : Block), blockAt prog L = some b →
+      TermTies prog sloadChg obs o self L b)
+    (hjumpPresent : ∀ (L : Label) (b : Block), blockAt prog L = some b →
+      ∀ (dst : Label), b.term = .jump dst →
+        ∃ bdst : Block, prog.blocks.toList[dst.idx]? = some bdst)
+    (hjump : ∀ (st : V2.IRState) (L : Label) (b : Block), blockAt prog L = some b →
+      ∀ (dst : Label), b.term = .jump dst →
+      ∀ frT : Frame,
+        Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
+        ∃ fj : Frame, Runs frT fj
+          ∧ GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
+          ∧ fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
+              prog.blocks dst.idx)
+          ∧ fj.exec.executionEnv.code = lower prog
+          ∧ fj.validJumps = validJumpDests fj.exec.executionEnv.code 0
+          ∧ fj.exec.stack = []
+          ∧ fj.exec.executionEnv.canModifyState = true
+          ∧ (∀ k, selfStorage fj k = (stmtsPost st b.stmts).world k)
+            ∧ MemRealises prog (stmtsPost st b.stmts) fj
+          ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none))
+    (hbranch : ∀ (st : V2.IRState) (L : Label) (b : Block), blockAt prog L = some b →
+      ∀ (cond : Tmp) (thenL elseL : Label) (cw : Word),
+      b.term = .branch cond thenL elseL →
+      (stmtsPost st b.stmts).locals cond = some cw →
+      ∀ frT : Frame,
+        Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
+        ∃ (succ : Label) (bsucc : Block) (fj : Frame),
+          ((succ = thenL ∧ cw ≠ 0) ∨ (succ = elseL ∧ cw = 0))
+          ∧ prog.blocks.toList[succ.idx]? = some bsucc
+          ∧ Runs frT fj
+          ∧ GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
+          ∧ fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
+              prog.blocks succ.idx)
+          ∧ fj.exec.executionEnv.code = lower prog
+          ∧ fj.validJumps = validJumpDests fj.exec.executionEnv.code 0
+          ∧ fj.exec.stack = []
+          ∧ fj.exec.executionEnv.canModifyState = true
+          ∧ (∀ k, selfStorage fj k = (stmtsPost st b.stmts).world k)
+            ∧ MemRealises prog (stmtsPost st b.stmts) fj
+          ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none)) :
+    ∃ O : V2.Observable,
+      (∃ last haltSig, Runs (codeFrame params code) last ∧ stepFrame last = .halted haltSig
+        ∧ (observe self (endFrame last haltSig)).world = O.world)
+      ∧ RunFrom prog o st₀ T prog.entry O := by
+  -- build the per-block `SimStmtStep` from `WellFormedLowered` + the §7 statement ties.
+  have hstmts : ∀ (L : Label) (b : Block), blockAt prog L = some b →
+      SimStmtStep prog sloadChg obs o L b := by
+    intro L b hbat
+    obtain ⟨hassign, hsloadassign, hgasassign, hsstore, hcallties⟩ := hstmtties L b hbat
+    exact simStmtStep_block (toList_of_blockAt hbat) hwfl hassign hsloadassign hgasassign hsstore
+      hcallties
+  -- build the per-block `SimTermStep` from `WellFormedLowered` + the §7 terminator ties.
+  have hterm : ∀ (L : Label) (b : Block), blockAt prog L = some b →
+      SimTermStep prog sloadChg obs o self L b := by
+    intro L b hbat
+    obtain ⟨hsucc, hstop, hretties, hjmp, hbr⟩ := htermties L b hbat
+    exact simTermStep_block (toList_of_blockAt hbat) hwfl hsucc hstop hretties hjmp hbr
+  exact lower_conforms_cyclic_tiefree hbase hwf hdef hcall hpresent hstmts hterm
+    hjumpPresent hjump hbranch
+
 end Lir.V2
 
 -- Build-enforced axiom-cleanliness guards for the tie-discharge deliverables.
@@ -4876,3 +4974,5 @@ end Lir.V2
 #print axioms Lir.V2.driveStepPlus_of_block
 #print axioms Lir.V2.runFrom_of_driveCorrPlus
 #print axioms Lir.V2.lower_conforms_cyclic_tiefree
+-- ASSEMBLE: the headline with `hstmts`/`hterm` built from `WellFormedLowered` + the §7 ties.
+#print axioms Lir.V2.lower_conforms_cyclic_assembled
