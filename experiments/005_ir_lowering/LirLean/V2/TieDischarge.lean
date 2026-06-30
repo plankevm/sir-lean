@@ -1842,6 +1842,1170 @@ theorem accMono_emptySwap (a : Evm.AccountAddress) (m m₀ : Evm.AccountMap)
     (h : AccPresent a m) : AccPresent a (if m == (∅ : Evm.AccountMap) then m₀ else m) := by
   rw [if_neg (accPresent_ne_empty a m h)]; exact h
 
+/-! ### CALLMONO Brick C — `.next` account-presence monotone at an *arbitrary* `a` (engine level)
+
+The arbitrary-`a` twin of the `SelfAt` dispatch family (`Evm.stepFrame_next_self` and friends). The
+generalisation is strictly *simpler* than the self proof: the tracked address `a` is a fixed
+parameter, independent of `executionEnv`, so every `henv`/`hcenv` obligation of the self family
+**vanishes**. Every `.next` arm collapses to one of two closers:
+
+* `accMono_of_accounts_eq a (h : exec'.accounts = exec.accounts)` — the verbatim-accounts arms (all
+  but SSTORE/TSTORE/SELFDESTRUCT-on-halt), where `charge`/`chargeMemExpansion`/`replaceStackAndIncrPC`
+  preserve accounts;
+* `accounts_find?_insert_mono` (Brick A) — the insert-at-self arms (SSTORE/TSTORE), where the write is
+  an `insert` at the self key and presence at any `a` survives.
+
+CALL/CREATE `.next` (the funds/depth fallback) resume with `result.accounts = exec.accounts` (the
+captured caller map; `charge`/`chargeMemExpansion` preserve accounts), so they too are
+`accMono_of_accounts_eq`. -/
+
+end Lir.V2
+
+namespace Evm
+open GasConstants
+
+/-- `replaceStackAndIncrPC` preserves the account map (it touches only `stack`/`pc`). -/
+theorem replaceStackAndIncrPC_accounts {e : ExecutionState} (s : Stack UInt256) (pcΔ : UInt8) :
+    (ExecutionState.replaceStackAndIncrPC e s pcΔ).accounts = e.accounts := rfl
+
+open Lir.V2 (AccPresent accMono_of_accounts_eq) in
+/-- Presence at `a` survives `replaceStackAndIncrPC` of a state whose accounts equal a present base —
+the arbitrary-`a` twin of `selfAt_replaceOfBase`, with the `executionEnv` half dropped. The base
+accounts equality `hacc` is given up to defeq (`e.accounts` is read through `replaceStackAndIncrPC`). -/
+theorem accMono_replaceOfBase {base e : ExecutionState} (s : Stack UInt256) (pcΔ : UInt8)
+    {a : AccountAddress} (hacc : e.accounts = base.accounts)
+    (h : AccPresent a base.accounts) :
+    AccPresent a (ExecutionState.replaceStackAndIncrPC e s pcΔ).accounts := by
+  refine accMono_of_accounts_eq a ?_ h
+  rw [replaceStackAndIncrPC_accounts, hacc]
+
+/-- **`State.sstore` keeps presence at an arbitrary `a`.** The `none` branch is verbatim; the `some`
+branch inserts at the self key, and presence at any `a` survives the insert (Brick A). The
+arbitrary-`a` twin of `sstore_self_present`. -/
+theorem sstore_accMono (st : State) (key val : UInt256) (a : AccountAddress)
+    (h : Lir.V2.AccPresent a st.accounts) :
+    Lir.V2.AccPresent a (st.sstore key val).accounts := by
+  unfold State.sstore
+  simp only [State.lookupAccount, Option.option]
+  cases hr : st.accounts.find? st.executionEnv.address with
+  | none => simpa only [hr] using h
+  | some acc =>
+    simp only [hr]
+    exact Lir.V2.accounts_find?_insert_mono _ _ _ _ h
+
+/-- **`State.tstore` keeps presence at an arbitrary `a`.** Same shape as `sstore_accMono`. -/
+theorem tstore_accMono (st : State) (key val : UInt256) (a : AccountAddress)
+    (h : Lir.V2.AccPresent a st.accounts) :
+    Lir.V2.AccPresent a (st.tstore key val).accounts := by
+  unfold State.tstore
+  simp only [State.lookupAccount, Option.option]
+  cases hr : st.accounts.find? st.executionEnv.address with
+  | none => simpa only [hr] using h
+  | some acc =>
+    simp only [hr]
+    exact Lir.V2.accounts_find?_insert_mono _ _ _ _ h
+
+open Lir.V2 (AccPresent accMono_of_accounts_eq) in
+/-- The accounts-verbatim post-`charge`/`replaceStackAndIncrPC` shape, at an arbitrary `a`. The
+arbitrary-`a` twin of `dispatch_simple_arm_next_self`; the `henv` obligation is gone. -/
+theorem dispatch_simple_arm_next_accMono {exec echarged e exec' : ExecutionState}
+    {s : Stack UInt256} {pcΔ : UInt8} {cost : ℕ} {a : AccountAddress}
+    (hc : charge cost exec = .ok echarged)
+    (hbase_acc : e.accounts = echarged.accounts)
+    (heq : exec' = ExecutionState.replaceStackAndIncrPC e s pcΔ)
+    (h : AccPresent a exec.accounts) : AccPresent a exec'.accounts := by
+  subst heq
+  obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
+  refine accMono_of_accounts_eq a ?_ h
+  rw [replaceStackAndIncrPC_accounts, hbase_acc, hcacc]
+
+open Lir.V2 (AccPresent accMono_of_accounts_eq) in
+/-- A `pushOp` `.next` preserves presence at `a`. -/
+theorem pushOp_next_accMono {v : ExecutionState → UInt256} {exec exec' : ExecutionState} {cost : ℕ}
+    {a : AccountAddress} (h : pushOp v exec cost = .ok (.next exec')) (hp : AccPresent a exec.accounts) :
+    AccPresent a exec'.accounts := by
+  unfold pushOp at h
+  simp only [bind, Except.bind] at h
+  cases hc : charge cost exec with
+  | error e => rw [hc] at h; simp at h
+  | ok ec =>
+    rw [hc] at h
+    exact dispatch_simple_arm_next_accMono hc rfl (continueWith_next h) hp
+
+open Lir.V2 (AccPresent accMono_of_accounts_eq) in
+/-- A `unStateOp` `.next` whose world-op `f` leaves `accounts` fixed preserves presence at `a`. -/
+theorem unStateOp_next_accMono {f : Evm.State → UInt256 → Evm.State × UInt256}
+    {cost : ExecutionState → UInt256 → ℕ} {exec exec' : ExecutionState} {a : AccountAddress}
+    (hf : ∀ (st : Evm.State) (x : UInt256), (f st x).1.accounts = st.accounts)
+    (h : unStateOp f cost exec = .ok (.next exec')) (hp : AccPresent a exec.accounts) :
+    AccPresent a exec'.accounts := by
+  unfold unStateOp at h
+  simp only [bind, Except.bind] at h
+  cases hpop : exec.stack.pop with
+  | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+  | some v =>
+    obtain ⟨st1, x⟩ := v; rw [hpop] at h
+    simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+    cases hc : charge (cost exec x) exec with
+    | error e => rw [hc] at h; simp at h
+    | ok ec =>
+      rw [hc] at h
+      simp only [] at h
+      rw [continueWith_next h]
+      obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
+      refine accMono_of_accounts_eq a ?_ hp
+      show (f ec.toState x).1.accounts = exec.accounts
+      rw [hf ec.toState x, hcacc]
+
+open Lir.V2 (AccPresent) in
+/-- A `charge`-then-`SSTORE`-write `.next` preserves presence at `a`. -/
+theorem charge_sstore_next_accMono {cost : ℕ} {exec exec' : ExecutionState} {key newVal : UInt256}
+    {st : Stack UInt256} {a : AccountAddress}
+    (h : (charge cost exec).bind (fun ec => continueWith
+        (ExecutionState.replaceStackAndIncrPC { ec with toState := ec.toState.sstore key newVal } st))
+      = .ok (.next exec'))
+    (hp : AccPresent a exec.accounts) : AccPresent a exec'.accounts := by
+  cases hc : charge cost exec with
+  | error e => rw [hc] at h; simp [bind, Except.bind] at h
+  | ok ec =>
+    rw [hc] at h; simp only [bind, Except.bind] at h
+    rw [continueWith_next h]
+    rw [replaceStackAndIncrPC_accounts]
+    show AccPresent a (ec.toState.sstore key newVal).accounts
+    refine sstore_accMono ec.toState key newVal a ?_
+    obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
+    show AccPresent a ec.accounts
+    exact Lir.V2.accMono_of_accounts_eq a hcacc hp
+
+open Lir.V2 (AccPresent) in
+/-- The `TSTORE` twin of `charge_sstore_next_accMono`. -/
+theorem charge_tstore_next_accMono {cost : ℕ} {exec exec' : ExecutionState} {key val : UInt256}
+    {st : Stack UInt256} {a : AccountAddress}
+    (h : (charge cost exec).bind (fun ec => continueWith
+        (ExecutionState.replaceStackAndIncrPC { ec with toState := ec.toState.tstore key val } st))
+      = .ok (.next exec'))
+    (hp : AccPresent a exec.accounts) : AccPresent a exec'.accounts := by
+  cases hc : charge cost exec with
+  | error e => rw [hc] at h; simp [bind, Except.bind] at h
+  | ok ec =>
+    rw [hc] at h; simp only [bind, Except.bind] at h
+    rw [continueWith_next h]
+    rw [replaceStackAndIncrPC_accounts]
+    show AccPresent a (ec.toState.tstore key val).accounts
+    refine tstore_accMono ec.toState key val a ?_
+    obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
+    show AccPresent a ec.accounts
+    exact Lir.V2.accMono_of_accounts_eq a hcacc hp
+
+open Lir.V2 (AccPresent accMono_of_accounts_eq) in
+/-- `unOp` `.next` preserves presence at `a`. -/
+theorem unOp_next_accMono {f : UInt256 → UInt256} {exec exec' : ExecutionState} {cost : ℕ}
+    {a : AccountAddress} (h : unOp f exec cost = .ok (.next exec')) (hp : AccPresent a exec.accounts) :
+    AccPresent a exec'.accounts := by
+  unfold unOp at h
+  simp only [bind, Except.bind] at h
+  cases hc : charge cost exec with
+  | error e => rw [hc] at h; simp at h
+  | ok ec =>
+    rw [hc] at h; simp only [] at h
+    cases hpop : ec.stack.pop with
+    | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+    | some v =>
+      obtain ⟨stk, x⟩ := v; rw [hpop] at h
+      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      exact dispatch_simple_arm_next_accMono hc rfl (continueWith_next h) hp
+
+open Lir.V2 (AccPresent accMono_of_accounts_eq) in
+/-- `binOp` `.next` preserves presence at `a`. -/
+theorem binOp_next_accMono {f : UInt256 → UInt256 → UInt256} {exec exec' : ExecutionState} {cost : ℕ}
+    {a : AccountAddress} (h : binOp f exec cost = .ok (.next exec')) (hp : AccPresent a exec.accounts) :
+    AccPresent a exec'.accounts := by
+  unfold binOp at h
+  simp only [bind, Except.bind] at h
+  cases hc : charge cost exec with
+  | error e => rw [hc] at h; simp at h
+  | ok ec =>
+    rw [hc] at h; simp only [] at h
+    cases hpop : ec.stack.pop2 with
+    | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+    | some v =>
+      obtain ⟨stk, x, y⟩ := v; rw [hpop] at h
+      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      exact dispatch_simple_arm_next_accMono hc rfl (continueWith_next h) hp
+
+open Lir.V2 (AccPresent accMono_of_accounts_eq) in
+/-- `ternOp` `.next` preserves presence at `a`. -/
+theorem ternOp_next_accMono {f : UInt256 → UInt256 → UInt256 → UInt256} {exec exec' : ExecutionState}
+    {cost : ℕ} {a : AccountAddress} (h : ternOp f exec cost = .ok (.next exec'))
+    (hp : AccPresent a exec.accounts) : AccPresent a exec'.accounts := by
+  unfold ternOp at h
+  simp only [bind, Except.bind] at h
+  cases hc : charge cost exec with
+  | error e => rw [hc] at h; simp at h
+  | ok ec =>
+    rw [hc] at h; simp only [] at h
+    cases hpop : ec.stack.pop3 with
+    | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+    | some v =>
+      obtain ⟨stk, x, y, z⟩ := v; rw [hpop] at h
+      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      exact dispatch_simple_arm_next_accMono hc rfl (continueWith_next h) hp
+
+open Lir.V2 (AccPresent accMono_of_accounts_eq) in
+/-- `dup` `.next` preserves presence at `a`. -/
+theorem dup_next_accMono {n : ℕ} {exec exec' : ExecutionState} {a : AccountAddress}
+    (h : dup n exec = .ok (.next exec')) (hp : AccPresent a exec.accounts) :
+    AccPresent a exec'.accounts := by
+  unfold dup at h
+  simp only [bind, Except.bind] at h
+  cases hc : charge Gverylow exec with
+  | error e => rw [hc] at h; simp at h
+  | ok ec =>
+    rw [hc] at h; simp only [] at h
+    cases hd : ec.stack[n-1]? with
+    | none => rw [hd] at h; simp [throw, throwThe, MonadExceptOf.throw] at h
+    | some x =>
+      rw [hd] at h; simp only [] at h
+      exact dispatch_simple_arm_next_accMono hc rfl (continueWith_next h) hp
+
+open Lir.V2 (AccPresent accMono_of_accounts_eq) in
+/-- `swap` `.next` preserves presence at `a`. -/
+theorem swap_next_accMono {n : ℕ} {exec exec' : ExecutionState} {a : AccountAddress}
+    (h : swap n exec = .ok (.next exec')) (hp : AccPresent a exec.accounts) :
+    AccPresent a exec'.accounts := by
+  unfold swap at h
+  simp only [bind, Except.bind] at h
+  cases hc : charge Gverylow exec with
+  | error e => rw [hc] at h; simp at h
+  | ok ec =>
+    rw [hc] at h; simp only [] at h
+    split at h
+    · exact dispatch_simple_arm_next_accMono hc rfl (continueWith_next h) hp
+    · simp [throw, throwThe, MonadExceptOf.throw] at h
+
+open Lir.V2 (AccPresent accMono_of_accounts_eq) in
+/-- `logArm` `.next` preserves presence at `a` (`logOp` touches only `substate`/`activeWords`). -/
+theorem logArm_next_accMono {exec exec' : ExecutionState} {stk : Stack UInt256} {offset size : UInt256}
+    {topics : Array UInt256} {a : AccountAddress}
+    (h : logArm exec stk offset size topics = .ok (.next exec')) (hp : AccPresent a exec.accounts) :
+    AccPresent a exec'.accounts := by
+  unfold logArm at h
+  simp only [bind, Except.bind, pure, Except.pure] at h
+  cases hr : requireStateMod exec with
+  | error e => rw [hr] at h; simp at h
+  | ok _ =>
+    rw [hr] at h; simp only [] at h
+    cases hm : chargeMemExpansion exec offset size with
+    | error e => rw [hm] at h; simp at h
+    | ok em =>
+      rw [hm] at h; simp only [] at h
+      cases hc : charge (logCost topics.size size) em with
+      | error e => rw [hc] at h; simp at h
+      | ok ec =>
+        rw [hc] at h; simp only [] at h
+        rw [continueWith_next h]
+        obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+        obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
+        refine accMono_of_accounts_eq a ?_ hp
+        show (ec.logOp offset size topics).accounts = exec.accounts
+        show ec.accounts = exec.accounts; rw [hcacc, hmacc]
+
+open Lir.V2 (AccPresent accMono_of_accounts_eq) in
+/-- **`callArm` `.next` (fallback) preserves presence at `a`.** The funds/depth fallback resumes via
+`resumeAfterCall failed pending`, whose `.exec.accounts = failed.accounts = exec.accounts` (the
+captured caller map; `charge` preserves accounts). So presence at `a` transports verbatim. The
+arbitrary-`a` twin of `callArm_next_self` — the `executionEnv` tracking is gone. -/
+theorem callArm_next_accMono
+    {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
+    {gas caller recipient codeAddress value apparentValue inOffset inSize outOffset outSize : UInt256}
+    {permission : Bool} {exec' : ExecutionState} {a : AccountAddress}
+    (h : callArm fr exec stack gas caller recipient codeAddress value apparentValue
+          inOffset inSize outOffset outSize permission = .ok (.next exec'))
+    (hp : AccPresent a exec.accounts) : AccPresent a exec'.accounts := by
+  rw [callArm] at h
+  cases hw : (memoryExpansionWords? exec.activeWords inOffset inSize >>=
+      (memoryExpansionWords? · outOffset outSize)) with
+  | none => rw [hw] at h; simp [throw, throwThe, MonadExceptOf.throw] at h
+  | some words' =>
+    rw [hw] at h
+    simp only [bind, Except.bind] at h
+    cases he1 : charge (Cₘ words' - Cₘ exec.activeWords) exec with
+    | error e => rw [he1] at h; simp at h
+    | ok e1 =>
+      rw [he1] at h
+      simp only [] at h
+      obtain ⟨he1acc, _⟩ := Lir.V2.charge_accounts_env he1
+      set ca : AccountAddress := AccountAddress.ofUInt256 codeAddress with hca
+      set rc : AccountAddress := AccountAddress.ofUInt256 recipient with hrc
+      set extraCost := callExtraCost ca rc value e1.accounts e1.substate with hextra
+      set gasCap := callGasCap ca rc value gas e1.accounts e1.gasAvailable e1.substate with hgcap
+      set childGas := if value = 0 then gasCap else gasCap + Gcallstipend with hcg
+      cases he2 : charge (gasCap + extraCost) e1 with
+      | error e => rw [he2] at h; simp at h
+      | ok e2 =>
+        rw [he2] at h
+        simp only [] at h
+        split at h
+        · -- needsCall branch: contradiction
+          simp only [Except.ok.injEq] at h
+          exact absurd h (by simp)
+        · -- next (fallback) branch
+          simp only [Except.ok.injEq, Signal.next.injEq] at h
+          subst h
+          -- `exec' = (resumeAfterCall failed pending).exec`; its accounts = failed.accounts = e1.accounts.
+          show AccPresent a (resumeAfterCall _ _).exec.accounts
+          rw [Lir.V2.resumeAfterCall_accounts]
+          -- `failed.accounts = accounts = e1.accounts` (post-mem-charge); `e1.accounts = exec.accounts`.
+          exact accMono_of_accounts_eq a he1acc hp
+
+open Lir.V2 (AccPresent accMono_of_accounts_eq) in
+/-- **`createArm` `.next` (fallback) preserves presence at `a`.** Both fallback arms resume via
+`resumeAfterCreate failed pending`, whose `.exec.accounts = failed.accounts = exec.accounts`. The
+arbitrary-`a` twin of `createArm_next_self`. -/
+theorem createArm_next_accMono
+    {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
+    {value initOffset initSize : UInt256} {salt : Option ByteArray} {exec' : ExecutionState}
+    {a : AccountAddress}
+    (h : createArm fr exec stack value initOffset initSize salt = .ok (.next exec'))
+    (hp : AccPresent a exec.accounts) : AccPresent a exec'.accounts := by
+  rw [createArm] at h
+  simp only [bind, Except.bind, pure, Except.pure] at h
+  have key : ∀ (f : Frame),
+      resumeAfterCreate
+        { address := default
+          createdAccounts := exec.createdAccounts
+          accounts := exec.accounts
+          gasRemaining := .ofNat (allButOneSixtyFourth exec.gasAvailable.toNat)
+          substate := exec.toState.substate
+          success := false
+          output := .empty }
+        { frame := { fr with exec := exec }
+          stack := stack
+          callerAccounts := exec.accounts
+          value := value
+          initOffset := initOffset.toUInt64
+          initSize := initSize.toUInt64
+          initCodeSize := (exec.memory.readWithPadding initOffset.toNat initSize.toNat).size }
+        = .ok f →
+      AccPresent a f.exec.accounts := by
+    intro f hf
+    unfold resumeAfterCreate at hf
+    simp only [bind, Except.bind, pure, Except.pure] at hf
+    split at hf
+    · exact absurd hf (by simp)
+    · simp only [Except.ok.injEq] at hf
+      rw [← hf]
+      -- resumed `.exec.accounts = result.accounts = exec.accounts`.
+      show AccPresent a (ExecutionState.replaceStackAndIncrPC _ _ _).accounts
+      rw [replaceStackAndIncrPC_accounts]
+      exact hp
+  split at h
+  · -- nonce-overflow fallback
+    revert h
+    cases hr : resumeAfterCreate _ _ with
+    | error e => intro h; simp at h
+    | ok f =>
+      intro h
+      simp only [Except.ok.injEq, Signal.next.injEq] at h
+      subst h
+      exact key f hr
+  · split at h
+    · -- successful guard: `.needsCreate`, contradiction with `.next`
+      simp only [Except.ok.injEq] at h; exact absurd h (by simp)
+    · -- funds/depth/size fallback
+      revert h
+      cases hr : resumeAfterCreate _ _ with
+      | error e => intro h; simp at h
+      | ok f =>
+        intro h
+        simp only [Except.ok.injEq, Signal.next.injEq] at h
+        subst h
+        exact key f hr
+
+open Lir.V2 (AccPresent accMono_of_accounts_eq) in
+/-- **A `.next` System op preserves presence at `a`.** Halt ops never `.next`; CALL family reduces to
+`callArm`; CREATE/CREATE2 reduce to `createArm` on the charged state (charges accounts-verbatim). -/
+theorem systemOp_next_accMono {op : Operation.SystemOp} {fr : Frame} {exec exec' : ExecutionState}
+    {a : AccountAddress}
+    (h : systemOp op fr exec = .ok (.next exec')) (hp : AccPresent a exec.accounts) :
+    AccPresent a exec'.accounts := by
+  cases op with
+  | STOP | RETURN | REVERT | SELFDESTRUCT | INVALID =>
+    exact absurd (by unfold systemOp at h; exact h)
+      (BytecodeLayer.System.haltOp_not_next' (by tauto))
+  | CALL | CALLCODE | DELEGATECALL | STATICCALL =>
+    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, hc⟩ :=
+      BytecodeLayer.System.systemOp_callArm_reduce (by tauto) h
+    exact callArm_next_accMono hc hp
+  | CREATE =>
+    unfold systemOp at h
+    simp only [bind, Except.bind] at h
+    cases hr : requireStateMod exec with
+    | error e => rw [hr] at h; simp at h
+    | ok _ =>
+      rw [hr] at h; simp only [] at h
+      cases hpop : exec.stack.pop3 with
+      | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      | some v =>
+        obtain ⟨s, val, io, is⟩ := v; rw [hpop] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+        split at h
+        · simp at h
+        · cases hm : chargeMemExpansion exec io is with
+          | error e => rw [hm] at h; simp [pure, Except.pure] at h
+          | ok em =>
+            rw [hm] at h; simp only [pure, Except.pure] at h
+            cases hc : charge (createCost is) em with
+            | error e => rw [hc] at h; simp at h
+            | ok ec =>
+              rw [hc] at h; simp only [] at h
+              obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+              obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
+              refine createArm_next_accMono h ?_
+              exact accMono_of_accounts_eq a (by rw [hcacc, hmacc]) hp
+  | CREATE2 =>
+    unfold systemOp at h
+    simp only [bind, Except.bind] at h
+    cases hr : requireStateMod exec with
+    | error e => rw [hr] at h; simp at h
+    | ok _ =>
+      rw [hr] at h; simp only [] at h
+      cases hpop : exec.stack.pop4 with
+      | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      | some v =>
+        obtain ⟨s, val, io, is, salt⟩ := v; rw [hpop] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+        split at h
+        · simp at h
+        · cases hm : chargeMemExpansion exec io is with
+          | error e => rw [hm] at h; simp [pure, Except.pure] at h
+          | ok em =>
+            rw [hm] at h; simp only [pure, Except.pure] at h
+            cases hc : charge (create2Cost is) em with
+            | error e => rw [hc] at h; simp at h
+            | ok ec =>
+              rw [hc] at h; simp only [] at h
+              obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+              obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
+              refine createArm_next_accMono h ?_
+              exact accMono_of_accounts_eq a (by rw [hcacc, hmacc]) hp
+
+open Lir.V2 (AccPresent accMono_of_accounts_eq) in
+/-- **A `.next` `smsfOp` preserves presence at `a`.** Memory/stack/flow arms are accounts-verbatim;
+SLOAD/TLOAD are `unStateOp` read-only on accounts; SSTORE/TSTORE write at the self key (insert-mono). -/
+theorem smsfOp_next_accMono {op : Operation.SmsfOp} {fr : Frame} {exec exec' : ExecutionState}
+    {a : AccountAddress}
+    (h : smsfOp op fr exec = .ok (.next exec')) (hp : AccPresent a exec.accounts) :
+    AccPresent a exec'.accounts := by
+  unfold smsfOp at h
+  cases op with
+  | POP =>
+    simp only [bind, Except.bind] at h
+    cases hc : charge Gbase exec with
+    | error e => rw [hc] at h; simp at h
+    | ok ec =>
+      rw [hc] at h; simp only [] at h
+      cases hpop : ec.stack.pop with
+      | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      | some v =>
+        obtain ⟨st, x⟩ := v; rw [hpop] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+        exact dispatch_simple_arm_next_accMono hc rfl (continueWith_next h) hp
+  | MLOAD =>
+    simp only [bind, Except.bind] at h
+    cases hpop : exec.stack.pop with
+    | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+    | some v =>
+      obtain ⟨st, addr⟩ := v; rw [hpop] at h
+      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      cases hm : chargeMemExpansion exec addr 32 with
+      | error e => rw [hm] at h; simp [pure, Except.pure] at h
+      | ok em =>
+        rw [hm] at h; simp only [pure, Except.pure] at h
+        cases hc : charge Gverylow em with
+        | error e => rw [hc] at h; simp at h
+        | ok ec =>
+          rw [hc] at h; simp only [] at h
+          rw [continueWith_next h]
+          obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+          obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
+          exact accMono_replaceOfBase _ _ (show ec.accounts = exec.accounts by rw [hcacc, hmacc]) hp
+  | MSTORE =>
+    simp only [bind, Except.bind] at h
+    cases hpop : exec.stack.pop2 with
+    | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+    | some v =>
+      obtain ⟨st, addr, val⟩ := v; rw [hpop] at h
+      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      cases hm : chargeMemExpansion exec addr 32 with
+      | error e => rw [hm] at h; simp [pure, Except.pure] at h
+      | ok em =>
+        rw [hm] at h; simp only [pure, Except.pure] at h
+        cases hc : charge Gverylow em with
+        | error e => rw [hc] at h; simp at h
+        | ok ec =>
+          rw [hc] at h; simp only [] at h
+          rw [continueWith_next h]
+          obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+          obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
+          exact accMono_replaceOfBase _ _ (show ec.accounts = exec.accounts by rw [hcacc, hmacc]) hp
+  | MSTORE8 =>
+    simp only [bind, Except.bind] at h
+    cases hpop : exec.stack.pop2 with
+    | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+    | some v =>
+      obtain ⟨st, addr, val⟩ := v; rw [hpop] at h
+      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      cases hm : chargeMemExpansion exec addr 1 with
+      | error e => rw [hm] at h; simp [pure, Except.pure] at h
+      | ok em =>
+        rw [hm] at h; simp only [pure, Except.pure] at h
+        cases hc : charge Gverylow em with
+        | error e => rw [hc] at h; simp at h
+        | ok ec =>
+          rw [hc] at h; simp only [] at h
+          rw [continueWith_next h]
+          obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+          obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
+          exact accMono_replaceOfBase _ _ (show ec.accounts = exec.accounts by rw [hcacc, hmacc]) hp
+  | SLOAD =>
+    refine unStateOp_next_accMono ?_ h hp
+    intro st x; rfl
+  | SSTORE =>
+    simp only [bind, Except.bind, pure, Except.pure] at h
+    cases hr : requireStateMod exec with
+    | error e => rw [hr] at h; simp at h
+    | ok _ =>
+      rw [hr] at h; simp only [] at h
+      split at h
+      · simp at h
+      · cases hpop : exec.stack.pop2 with
+        | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+        | some v =>
+          obtain ⟨st, key, newVal⟩ := v; rw [hpop] at h
+          simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+          exact charge_sstore_next_accMono h hp
+  | TLOAD =>
+    refine unStateOp_next_accMono ?_ h hp
+    intro st x; rfl
+  | TSTORE =>
+    simp only [bind, Except.bind, pure, Except.pure] at h
+    cases hr : requireStateMod exec with
+    | error e => rw [hr] at h; simp at h
+    | ok _ =>
+      rw [hr] at h; simp only [] at h
+      cases hc : charge tstoreCost exec with
+      | error e => rw [hc] at h; simp at h
+      | ok ec =>
+        rw [hc] at h; simp only [] at h
+        cases hpop : ec.stack.pop2 with
+        | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+        | some v =>
+          obtain ⟨st, key, val⟩ := v; rw [hpop] at h
+          simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+          rw [continueWith_next h]
+          rw [replaceStackAndIncrPC_accounts]
+          show AccPresent a (ec.toState.tstore key val).accounts
+          refine tstore_accMono ec.toState key val a ?_
+          obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
+          exact accMono_of_accounts_eq a hcacc hp
+  | MSIZE => exact pushOp_next_accMono h hp
+  | GAS => exact pushOp_next_accMono h hp
+  | PC => exact pushOp_next_accMono h hp
+  | JUMP =>
+    simp only [bind, Except.bind] at h
+    cases hc : charge Gmid exec with
+    | error e => rw [hc] at h; simp at h
+    | ok ec =>
+      rw [hc] at h; simp only [] at h
+      cases hpop : ec.stack.pop with
+      | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      | some v =>
+        obtain ⟨st, dest⟩ := v; rw [hpop] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+        obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
+        cases hd : fr.get_dest dest with
+        | none => rw [hd] at h; simp at h
+        | some newpc =>
+          rw [hd] at h; simp only [] at h
+          rw [continueWith_next h]
+          exact accMono_of_accounts_eq a hcacc hp
+  | JUMPI =>
+    simp only [bind, Except.bind] at h
+    cases hc : charge Ghigh exec with
+    | error e => rw [hc] at h; simp at h
+    | ok ec =>
+      rw [hc] at h; simp only [] at h
+      cases hpop : ec.stack.pop2 with
+      | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      | some v =>
+        obtain ⟨st, dest, cond⟩ := v; rw [hpop] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+        obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
+        split at h
+        · cases hd : fr.get_dest dest with
+          | none => rw [hd] at h; simp at h
+          | some newpc =>
+            rw [hd] at h; simp only [] at h
+            rw [continueWith_next h]; exact accMono_of_accounts_eq a hcacc hp
+        · rw [continueWith_next h]; exact accMono_of_accounts_eq a hcacc hp
+  | JUMPDEST =>
+    simp only [bind, Except.bind] at h
+    cases hc : charge Gjumpdest exec with
+    | error e => rw [hc] at h; simp at h
+    | ok ec =>
+      rw [hc] at h; simp only [] at h
+      rw [continueWith_next h]
+      obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
+      exact accMono_of_accounts_eq a hcacc hp
+  | MCOPY =>
+    simp only [bind, Except.bind] at h
+    cases hpop : exec.stack.pop3 with
+    | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+    | some v =>
+      obtain ⟨st, dest, src, sz⟩ := v; rw [hpop] at h
+      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      cases hm : chargeMemExpansion exec (max dest src) sz with
+      | error e => rw [hm] at h; simp [pure, Except.pure] at h
+      | ok em =>
+        rw [hm] at h; simp only [pure, Except.pure] at h
+        cases hc : charge (Gverylow + copyCost sz) em with
+        | error e => rw [hc] at h; simp at h
+        | ok ec =>
+          rw [hc] at h; simp only [] at h
+          rw [continueWith_next h]
+          obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+          obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
+          exact accMono_replaceOfBase _ _ (show ec.accounts = exec.accounts by rw [hcacc, hmacc]) hp
+
+open Lir.V2 (AccPresent accMono_of_accounts_eq) in
+/-- **`dispatch` `.next` preserves presence at `a` (engine level).** The arbitrary-`a` twin of
+`dispatch_next_self`. -/
+theorem dispatch_next_accMono {op : Operation} {arg : Option (UInt256 × UInt8)} {fr : Frame}
+    {exec exec' : ExecutionState} {a : AccountAddress}
+    (h : dispatch op arg fr exec = .ok (.next exec')) (hp : AccPresent a exec.accounts) :
+    AccPresent a exec'.accounts := by
+  unfold dispatch at h
+  cases op with
+  | System s => exact systemOp_next_accMono h hp
+  | Smsf s => exact smsfOp_next_accMono h hp
+  | KECCAK256 =>
+    simp only [bind, Except.bind] at h
+    cases hpop : exec.stack.pop2 with
+    | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+    | some v =>
+      obtain ⟨stk, off, sz⟩ := v; rw [hpop] at h
+      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      cases hm : chargeMemExpansion exec off sz with
+      | error er => rw [hm] at h; simp [pure, Except.pure] at h
+      | ok em =>
+        rw [hm] at h; simp only [pure, Except.pure] at h
+        cases hc : charge (keccakCost sz) em with
+        | error er => rw [hc] at h; simp at h
+        | ok ec =>
+          rw [hc] at h; simp only [] at h
+          rw [continueWith_next h]
+          obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+          obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
+          exact accMono_replaceOfBase _ _ (show ec.accounts = exec.accounts by rw [hcacc, hmacc]) hp
+  | ArithLogic ar =>
+    cases ar with
+    | ADD | SUB | SIGNEXTEND | LT | GT | SLT | SGT | EQ | AND | OR | XOR | BYTE | SHL | SHR | SAR
+    | MUL | DIV | SDIV | MOD | SMOD => exact binOp_next_accMono h hp
+    | ADDMOD | MULMOD => exact ternOp_next_accMono h hp
+    | ISZERO | NOT => exact unOp_next_accMono h hp
+    | EXP =>
+      simp only [bind, Except.bind] at h
+      cases hpop : exec.stack.pop2 with
+      | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      | some v =>
+        obtain ⟨stk, b, e⟩ := v; rw [hpop] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+        cases hc : charge (expCost e) exec with
+        | error er => rw [hc] at h; simp at h
+        | ok ec =>
+          rw [hc] at h; simp only [] at h
+          exact dispatch_simple_arm_next_accMono hc rfl (continueWith_next h) hp
+  | Env e =>
+    cases e with
+    | ADDRESS | ORIGIN | CALLER | CALLVALUE | CALLDATASIZE | CODESIZE | GASPRICE | RETURNDATASIZE =>
+      exact pushOp_next_accMono h hp
+    | BALANCE => exact unStateOp_next_accMono (fun _ _ => rfl) h hp
+    | CALLDATALOAD => exact unStateOp_next_accMono (fun _ _ => rfl) h hp
+    | EXTCODESIZE => exact unStateOp_next_accMono (fun _ _ => rfl) h hp
+    | EXTCODEHASH =>
+      refine unStateOp_next_accMono ?_ h hp
+      intro st x
+      show (State.extCodeHash st x).1.accounts = st.accounts
+      unfold State.extCodeHash
+      dsimp only
+      split <;> rfl
+    | CALLDATACOPY =>
+      simp only [bind, Except.bind] at h
+      cases hpop : exec.stack.pop3 with
+      | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      | some v =>
+        obtain ⟨stk, x, y, z⟩ := v; rw [hpop] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+        cases hm : chargeMemExpansion exec x z with
+        | error er => rw [hm] at h; simp [pure, Except.pure] at h
+        | ok em =>
+          rw [hm] at h; simp only [pure, Except.pure] at h
+          cases hc : charge (Gverylow + copyCost z) em with
+          | error er => rw [hc] at h; simp at h
+          | ok ec =>
+            rw [hc] at h; simp only [] at h
+            rw [continueWith_next h]
+            obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+            obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
+            refine accMono_of_accounts_eq a ?_ hp
+            show (ec.calldatacopy x y z).accounts = exec.accounts
+            show ec.accounts = exec.accounts; rw [hcacc, hmacc]
+    | CODECOPY =>
+      simp only [bind, Except.bind] at h
+      cases hpop : exec.stack.pop3 with
+      | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      | some v =>
+        obtain ⟨stk, x, y, z⟩ := v; rw [hpop] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+        cases hm : chargeMemExpansion exec x z with
+        | error er => rw [hm] at h; simp [pure, Except.pure] at h
+        | ok em =>
+          rw [hm] at h; simp only [pure, Except.pure] at h
+          cases hc : charge (Gverylow + copyCost z) em with
+          | error er => rw [hc] at h; simp at h
+          | ok ec =>
+            rw [hc] at h; simp only [] at h
+            rw [continueWith_next h]
+            obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+            obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
+            refine accMono_of_accounts_eq a ?_ hp
+            show (ec.codeCopy x y z).accounts = exec.accounts
+            show ec.accounts = exec.accounts; rw [hcacc, hmacc]
+    | EXTCODECOPY =>
+      simp only [bind, Except.bind] at h
+      cases hpop : exec.stack.pop4 with
+      | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      | some v =>
+        obtain ⟨stk, addr, x, y, z⟩ := v; rw [hpop] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+        cases hm : chargeMemExpansion exec x z with
+        | error er => rw [hm] at h; simp [pure, Except.pure] at h
+        | ok em =>
+          rw [hm] at h; simp only [pure, Except.pure] at h
+          cases hc : charge (accessCost (AccountAddress.ofUInt256 addr) em.substate + copyCost z) em with
+          | error er => rw [hc] at h; simp at h
+          | ok ec =>
+            rw [hc] at h; simp only [] at h
+            rw [continueWith_next h]
+            obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+            obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
+            refine accMono_of_accounts_eq a ?_ hp
+            show (ec.extCodeCopy' addr x y z).accounts = exec.accounts
+            show ec.accounts = exec.accounts; rw [hcacc, hmacc]
+    | RETURNDATACOPY =>
+      simp only [bind, Except.bind] at h
+      cases hpop : exec.stack.pop3 with
+      | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      | some v =>
+        obtain ⟨stk, x, y, z⟩ := v; rw [hpop] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+        split at h
+        · simp [throw, throwThe, MonadExceptOf.throw] at h
+        · cases hm : chargeMemExpansion exec x z with
+          | error er => rw [hm] at h; simp [pure, Except.pure] at h
+          | ok em =>
+            rw [hm] at h; simp only [pure, Except.pure] at h
+            cases hc : charge (Gverylow + copyCost z) em with
+            | error er => rw [hc] at h; simp at h
+            | ok ec =>
+              rw [hc] at h; simp only [] at h
+              rw [continueWith_next h]
+              obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+              obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
+              exact accMono_replaceOfBase _ _ (show ec.accounts = exec.accounts by rw [hcacc, hmacc]) hp
+  | Block b =>
+    cases b with
+    | COINBASE | TIMESTAMP | NUMBER | PREVRANDAO | GASLIMIT | CHAINID | SELFBALANCE | BASEFEE
+    | BLOBBASEFEE => exact pushOp_next_accMono h hp
+    | BLOCKHASH => exact unStateOp_next_accMono (fun _ _ => rfl) h hp
+    | BLOBHASH =>
+      simp only [bind, Except.bind] at h
+      cases hpop : exec.stack.pop with
+      | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      | some v =>
+        obtain ⟨stk, i⟩ := v; rw [hpop] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+        cases hc : charge HASH_OPCODE_GAS exec with
+        | error er => rw [hc] at h; simp at h
+        | ok ec =>
+          rw [hc] at h; simp only [] at h
+          exact dispatch_simple_arm_next_accMono hc rfl (continueWith_next h) hp
+  | Push p =>
+    cases p with
+    | PUSH0 => exact pushOp_next_accMono h hp
+    | _ =>
+      simp only [bind, Except.bind] at h
+      cases hc : charge Gverylow exec with
+      | error er => rw [hc] at h; simp at h
+      | ok ec =>
+        rw [hc] at h; simp only [] at h
+        cases harg : arg with
+        | none => rw [harg] at h; simp [throw, throwThe, MonadExceptOf.throw] at h
+        | some w =>
+          obtain ⟨av, aw⟩ := w; rw [harg] at h
+          simp only [] at h
+          exact dispatch_simple_arm_next_accMono hc rfl (continueWith_next h) hp
+  | Dup d => exact dup_next_accMono h hp
+  | Swap s => exact swap_next_accMono h hp
+  | Log l =>
+    cases l with
+    | LOG0 =>
+      simp only [bind, Except.bind] at h
+      cases hpop : exec.stack.pop2 with
+      | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      | some v =>
+        obtain ⟨stk, off, sz⟩ := v; rw [hpop] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+        exact logArm_next_accMono h hp
+    | LOG1 =>
+      simp only [bind, Except.bind] at h
+      cases hpop : exec.stack.pop3 with
+      | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      | some v =>
+        obtain ⟨stk, off, sz, t1⟩ := v; rw [hpop] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+        exact logArm_next_accMono h hp
+    | LOG2 =>
+      simp only [bind, Except.bind] at h
+      cases hpop : exec.stack.pop4 with
+      | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      | some v =>
+        obtain ⟨stk, off, sz, t1, t2⟩ := v; rw [hpop] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+        exact logArm_next_accMono h hp
+    | LOG3 =>
+      simp only [bind, Except.bind] at h
+      cases hpop : exec.stack.pop5 with
+      | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      | some v =>
+        obtain ⟨stk, off, sz, t1, t2, t3⟩ := v; rw [hpop] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+        exact logArm_next_accMono h hp
+    | LOG4 =>
+      simp only [bind, Except.bind] at h
+      cases hpop : exec.stack.pop6 with
+      | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      | some v =>
+        obtain ⟨stk, off, sz, t1, t2, t3, t4⟩ := v; rw [hpop] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+        exact logArm_next_accMono h hp
+
+open Lir.V2 (AccPresent) in
+/-- **A `.next` `stepFrame` preserves presence at an arbitrary `a` (Brick C / `hmono`).** The
+arbitrary-`a` twin of `stepFrame_next_self`; the deliverable consumed at `callPreservesSelf`'s
+`hmono` slot. -/
+theorem stepFrame_next_accMono {fr : Frame} {exec' : ExecutionState}
+    (h : stepFrame fr = .next exec') (a : AccountAddress) (hp : AccPresent a fr.exec.accounts) :
+    AccPresent a exec'.accounts := by
+  rw [stepFrame] at h
+  generalize hdp : (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (Operation.STOP, .none)) = dp
+    at h
+  obtain ⟨op, arg⟩ := dp
+  simp only at h
+  split at h
+  · exact absurd h (by simp)
+  · split at h
+    · exact absurd h (by simp)
+    · cases hdisp : dispatch op arg fr fr.exec with
+      | ok signal =>
+        rw [hdisp] at h
+        cases signal with
+        | next e =>
+          simp only [Signal.next.injEq] at h; subst h
+          exact dispatch_next_accMono hdisp hp
+        | halted hl => simp only at h; exact absurd h (by simp)
+        | needsCall p pc => simp only at h; exact absurd h (by simp)
+        | needsCreate p pc => simp only at h; exact absurd h (by simp)
+      | error e => rw [hdisp] at h; exact absurd h (by simp)
+
+/-! ### CALL-site inversion facts (`hcall_acc` / `hcall_kind` / `hcall_self`)
+
+The three structural CALL-site facts supplied to `callPreservesSelf`, all inverting
+`stepFrame → systemOp → callArm`'s `.needsCall` arm. In that arm `callArm` builds
+`pd.frame := { fr with exec := e2 }` and `cp.accounts := accounts` where `accounts := e1.accounts`
+(the post-mem-charge map, `= exec.accounts` since `charge` preserves accounts); `e2`'s execution
+environment equals `exec`'s. So all three are universally true. -/
+
+/-- **`callArm` `.needsCall` structural inversion.** The issued child params' accounts equal the
+issuing `exec.accounts`, the suspended parent frame keeps `fr`'s `kind`, and its execution
+environment equals `exec`'s. -/
+theorem callArm_needsCall_inv
+    {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
+    {gas caller recipient codeAddress value apparentValue inOffset inSize outOffset outSize : UInt256}
+    {permission : Bool} {p : CallParams} {pd : PendingCall}
+    (h : callArm fr exec stack gas caller recipient codeAddress value apparentValue
+          inOffset inSize outOffset outSize permission = .ok (.needsCall p pd)) :
+    p.accounts = exec.accounts ∧ pd.frame.kind = fr.kind
+      ∧ pd.frame.exec.executionEnv = exec.executionEnv := by
+  rw [callArm] at h
+  cases hw : (memoryExpansionWords? exec.activeWords inOffset inSize >>=
+      (memoryExpansionWords? · outOffset outSize)) with
+  | none => rw [hw] at h; simp [throw, throwThe, MonadExceptOf.throw] at h
+  | some words' =>
+    rw [hw] at h
+    simp only [bind, Except.bind] at h
+    cases he1 : charge (Cₘ words' - Cₘ exec.activeWords) exec with
+    | error e => rw [he1] at h; simp at h
+    | ok e1 =>
+      rw [he1] at h
+      simp only [] at h
+      obtain ⟨he1acc, he1env⟩ := Lir.V2.charge_accounts_env he1
+      set ca : AccountAddress := AccountAddress.ofUInt256 codeAddress with hca
+      set rc : AccountAddress := AccountAddress.ofUInt256 recipient with hrc
+      set extraCost := callExtraCost ca rc value e1.accounts e1.substate with hextra
+      set gasCap := callGasCap ca rc value gas e1.accounts e1.gasAvailable e1.substate with hgcap
+      set childGas := if value = 0 then gasCap else gasCap + Gcallstipend with hcg
+      cases he2 : charge (gasCap + extraCost) e1 with
+      | error e => rw [he2] at h; simp at h
+      | ok e2 =>
+        rw [he2] at h
+        simp only [] at h
+        obtain ⟨he2acc, he2env⟩ := Lir.V2.charge_accounts_env he2
+        split at h
+        · -- needsCall branch
+          simp only [Except.ok.injEq, Signal.needsCall.injEq] at h
+          obtain ⟨hp, hpd⟩ := h
+          subst hp hpd
+          refine ⟨?_, rfl, ?_⟩
+          · show e1.accounts = exec.accounts; exact he1acc
+          · show e2.executionEnv = exec.executionEnv; rw [he2env, he1env]
+        · -- next (fallback): not a needsCall
+          simp only [Except.ok.injEq] at h; exact absurd h (by simp)
+
+/-- **`systemOp` `.needsCall` structural inversion.** Lifts `callArm_needsCall_inv` through the
+CALL-family `systemOp` reduction (the only `.needsCall` source). -/
+theorem systemOp_needsCall_inv {op : Operation.SystemOp} {fr : Frame} {exec : ExecutionState}
+    {p : CallParams} {pd : PendingCall}
+    (h : systemOp op fr exec = .ok (.needsCall p pd)) :
+    p.accounts = exec.accounts ∧ pd.frame.kind = fr.kind
+      ∧ pd.frame.exec.executionEnv = exec.executionEnv := by
+  cases op with
+  | STOP | RETURN | REVERT | SELFDESTRUCT | INVALID =>
+    exact absurd (by unfold systemOp at h; exact h)
+      (BytecodeLayer.System.haltOp_never_needsCall (by tauto))
+  | CALL | CALLCODE | DELEGATECALL | STATICCALL =>
+    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, hc⟩ :=
+      BytecodeLayer.System.systemOp_callArm_reduce (by tauto) h
+    exact callArm_needsCall_inv hc
+  | CREATE =>
+    obtain ⟨_, _, _, _, _, _, _, hcr⟩ :=
+      BytecodeLayer.System.systemOp_createArm_reduce (by tauto) h
+    exact absurd hcr BytecodeLayer.System.createArm_never_needsCall
+  | CREATE2 =>
+    obtain ⟨_, _, _, _, _, _, _, hcr⟩ :=
+      BytecodeLayer.System.systemOp_createArm_reduce (by tauto) h
+    exact absurd hcr BytecodeLayer.System.createArm_never_needsCall
+
+/-- **`stepFrame` `.needsCall` structural inversion (the bundle behind `hcall_acc`/`hcall_kind`/
+`hcall_self`).** Via `stepFrame_needsCall_systemOp` then `systemOp_needsCall_inv`. -/
+theorem stepFrame_needsCall_inv {fr : Frame} {p : CallParams} {pd : PendingCall}
+    (h : stepFrame fr = .needsCall p pd) :
+    p.accounts = fr.exec.accounts ∧ pd.frame.kind = fr.kind
+      ∧ pd.frame.exec.executionEnv = fr.exec.executionEnv := by
+  obtain ⟨s, hs⟩ := BytecodeLayer.Dispatch.stepFrame_needsCall_systemOp h
+  exact systemOp_needsCall_inv hs
+
+/-! ### Halt-success account-presence (`hhalt`)
+
+A `.halted (.success e o)` from `stepFrame` comes only from `haltOp` (INVALID/overflow screens halt
+only with `.exception`; the non-`System` dispatcher arms never halt). The three success-producing
+`haltOp` arms keep presence at `a`: STOP (accounts verbatim), RETURN (verbatim through
+`chargeMemExpansion`/`replaceStackAndIncrPC`), SELFDESTRUCT (`accountMap'` is verbatim or ≤2 inserts at
+the recipient/self — no erase). -/
+
+open Lir.V2 (AccPresent accMono_of_accounts_eq accounts_find?_insert_mono) in
+/-- **`selfdestructOp` `.halted .success` preserves presence at `a`.** `accountMap'` is a nested
+match whose branches are `exec.accounts` (verbatim) or ≤2 `insert`s (at `r` and `self`); presence at
+any `a` survives every branch (`accounts_find?_insert_mono`). No erase. -/
+theorem selfdestructOp_success_accMono {exec e : ExecutionState} {o : ByteArray}
+    {a : AccountAddress}
+    (h : selfdestructOp exec = .ok (.halted (.success e o)))
+    (hp : AccPresent a exec.accounts) : AccPresent a e.accounts := by
+  unfold selfdestructOp at h
+  simp only [bind, Except.bind, pure, Except.pure] at h
+  cases hr : requireStateMod exec with
+  | error er => rw [hr] at h; simp at h
+  | ok _ =>
+    rw [hr] at h; simp only [] at h
+    cases hpop : exec.stack.pop with
+    | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+    | some v =>
+      obtain ⟨stack, recipientWord⟩ := v; rw [hpop] at h
+      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      revert h
+      generalize hcost : selfdestructCost _ _ = cost
+      intro h
+      cases hc : charge cost exec with
+      | error er => rw [hc] at h; simp at h
+      | ok ec =>
+        rw [hc] at h
+        simp only [Except.ok.injEq, Signal.halted.injEq, FrameHalt.success.injEq] at h
+        obtain ⟨he, _⟩ := h
+        obtain ⟨hcacc, hcenv⟩ := Lir.V2.charge_accounts_env hc
+        -- presence transports through the charge first.
+        have hpc : AccPresent a ec.accounts := accMono_of_accounts_eq a hcacc hp
+        -- `e = exec'.replaceStackAndIncrPC stack`; reduce `.accounts` to `accountMap'`.
+        rw [← he, replaceStackAndIncrPC_accounts]
+        -- `exec'.accounts = accountMap'`; case the createdAccounts guard, then the nested matches.
+        -- Every leaf is either `ec.accounts` (verbatim) or ≤2 `insert`s; presence at `a` survives.
+        dsimp only [Evm.State.lookupAccount]
+        split
+        all_goals
+          cases hself : ec.accounts.find? exec.executionEnv.address with
+          | none => simp only [hself, dbgTrace]; exact hpc
+          | some selfAccount =>
+            simp only [hself]
+            cases hrec : ec.accounts.find? (AccountAddress.ofUInt256 recipientWord) with
+            | none =>
+              simp only [hrec]
+              split
+              · exact hpc
+              · exact accounts_find?_insert_mono _ _ _ _ (accounts_find?_insert_mono _ _ _ _ hpc)
+            | some recipientAccount =>
+              simp only [hrec]
+              split
+              · exact accounts_find?_insert_mono _ _ _ _ (accounts_find?_insert_mono _ _ _ _ hpc)
+              · first
+                | exact accounts_find?_insert_mono _ _ _ _ (accounts_find?_insert_mono _ _ _ _ hpc)
+                | exact hpc
+
+open Lir.V2 (AccPresent accMono_of_accounts_eq) in
+/-- **`returnOrRevertOp` `.halted .success` preserves presence at `a`.** Accounts pass through
+`chargeMemExpansion` (verbatim) and `replaceStackAndIncrPC` (verbatim). -/
+theorem returnOrRevertOp_success_accMono {op : Operation.SystemOp} {exec e : ExecutionState}
+    {o : ByteArray} {a : AccountAddress}
+    (h : returnOrRevertOp op exec = .ok (.halted (.success e o)))
+    (hp : AccPresent a exec.accounts) : AccPresent a e.accounts := by
+  unfold returnOrRevertOp at h
+  simp only [bind, Except.bind, pure, Except.pure] at h
+  cases hpop : exec.stack.pop2 with
+  | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+  | some v =>
+    obtain ⟨stack, offset, size⟩ := v; rw [hpop] at h
+    simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+    cases hm : chargeMemExpansion exec offset size with
+    | error er => rw [hm] at h; simp at h
+    | ok em =>
+      rw [hm] at h; simp only [] at h
+      obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+      split at h
+      · -- REVERT: `.halted (.revert …)`, not `.success`
+        simp only [Except.ok.injEq] at h; exact absurd h (by simp)
+      · -- RETURN: `.halted (.success exec' output)`; `exec'.accounts = em.accounts = exec.accounts`.
+        simp only [Except.ok.injEq, Signal.halted.injEq, FrameHalt.success.injEq] at h
+        obtain ⟨he, _⟩ := h
+        rw [← he, replaceStackAndIncrPC_accounts]
+        show AccPresent a em.accounts
+        exact accMono_of_accounts_eq a hmacc hp
+
+open Lir.V2 (AccPresent accMono_of_accounts_eq) in
+/-- **`haltOp` `.halted .success` preserves presence at `a`.** STOP keeps accounts verbatim; RETURN
+via `returnOrRevertOp_success_accMono`; SELFDESTRUCT via `selfdestructOp_success_accMono`. REVERT/
+INVALID never produce `.success`. -/
+theorem haltOp_success_accMono {op : Operation.SystemOp} {exec e : ExecutionState} {o : ByteArray}
+    {a : AccountAddress}
+    (h : haltOp op exec = .ok (.halted (.success e o)))
+    (hp : AccPresent a exec.accounts) : AccPresent a e.accounts := by
+  unfold haltOp at h
+  cases op with
+  | STOP =>
+    simp only [Except.ok.injEq, Signal.halted.injEq, FrameHalt.success.injEq] at h
+    obtain ⟨he, _⟩ := h; rw [← he]; exact hp
+  | RETURN => exact returnOrRevertOp_success_accMono h hp
+  | REVERT =>
+    -- REVERT yields `.halted (.revert …)`, never `.success`.
+    exact returnOrRevertOp_success_accMono h hp
+  | SELFDESTRUCT => exact selfdestructOp_success_accMono h hp
+  | INVALID => simp [throw, throwThe, MonadExceptOf.throw] at h
+  | CALL | CALLCODE | DELEGATECALL | STATICCALL | CREATE | CREATE2 =>
+    simp [throw, throwThe, MonadExceptOf.throw] at h
+
+open Lir.V2 (AccPresent) in
+/-- **`systemOp` `.halted .success` preserves presence at `a`.** Only `haltOp` produces a `.success`
+halt (CALL/CREATE never halt). -/
+theorem systemOp_success_accMono {op : Operation.SystemOp} {fr : Frame} {exec e : ExecutionState}
+    {o : ByteArray} {a : AccountAddress}
+    (h : systemOp op fr exec = .ok (.halted (.success e o)))
+    (hp : AccPresent a exec.accounts) : AccPresent a e.accounts := by
+  cases op with
+  | STOP | RETURN | REVERT | SELFDESTRUCT | INVALID =>
+    unfold systemOp at h
+    exact haltOp_success_accMono h hp
+  | CALL | CALLCODE | DELEGATECALL | STATICCALL =>
+    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, hc⟩ :=
+      BytecodeLayer.System.systemOp_callArm_reduce (by tauto) h
+    exact absurd hc (BytecodeLayer.System.callArm_neverHalts _)
+  | CREATE =>
+    obtain ⟨_, _, _, _, _, _, _, hcr⟩ :=
+      BytecodeLayer.System.systemOp_createArm_reduce (by tauto) h
+    exact absurd hcr (BytecodeLayer.System.createArm_neverHalts _)
+  | CREATE2 =>
+    obtain ⟨_, _, _, _, _, _, _, hcr⟩ :=
+      BytecodeLayer.System.systemOp_createArm_reduce (by tauto) h
+    exact absurd hcr (BytecodeLayer.System.createArm_neverHalts _)
+
+open Lir.V2 (AccPresent) in
+/-- **`stepFrame` `.halted .success` preserves presence at `a` (`hhalt`).** Decode + screen
+(INVALID/overflow halt only with `.exception`), then the `.success` halt comes from `dispatch`, which
+for a `System` op is `systemOp` (non-`System` arms never halt). -/
+theorem stepFrame_halted_success_accMono {fr : Frame} {e : ExecutionState} {o : ByteArray}
+    (h : stepFrame fr = .halted (.success e o)) (a : AccountAddress)
+    (hp : AccPresent a fr.exec.accounts) : AccPresent a e.accounts := by
+  rw [stepFrame] at h
+  generalize hdp : (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (Operation.STOP, .none)) = dp
+    at h
+  obtain ⟨op, arg⟩ := dp
+  simp only at h
+  split at h
+  · -- INVALID screen: `.halted (.exception .InvalidInstruction)`, not `.success`
+    exact absurd h (by simp)
+  · split at h
+    · -- overflow screen: `.halted (.exception .StackOverflow)`, not `.success`
+      exact absurd h (by simp)
+    · cases hdisp : dispatch op arg fr fr.exec with
+      | ok signal =>
+        rw [hdisp] at h
+        cases signal with
+        | next ex => simp only at h; exact absurd h (by simp)
+        | halted hl =>
+          simp only [Signal.halted.injEq] at h; subst h
+          -- the `.halted .success` from `dispatch` is a `System` op's `systemOp` signal
+          cases op with
+          | System s =>
+            rw [dispatch] at hdisp
+            exact systemOp_success_accMono hdisp hp
+          | _ =>
+            exact absurd hdisp
+              (BytecodeLayer.System.dispatch_neverHalts (by
+                intro s hc; exact absurd hc (by simp)) _)
+        | needsCall p pc => simp only at h; exact absurd h (by simp)
+        | needsCreate p pc => simp only at h; exact absurd h (by simp)
+      | error er => rw [hdisp] at h; exact absurd h (by simp)
+
+end Evm
+
+namespace Lir.V2
+
+open Evm
+open GasConstants
+open BytecodeLayer
+open BytecodeLayer.Interpreter
+open BytecodeLayer.Hoare
+open BytecodeLayer.System
+open BytecodeLayer.Maps
+open Lir
+
 /-- **`beginCall` threads presence at `a` into the code child.** When a CALL begins as a code child
 (`beginCall cp = .inl child`), the child's running `exec.accounts` is `accountsAfterTransfer` — a
 credit (recipient) then debit (caller) `insert` chain over `cp.accounts`; each branch is either
@@ -2383,6 +3547,40 @@ theorem callPreservesSelf
   intro callFr resumeFr hcr hself
   exact callPreservesSelf_success hmono hprec hcall_acc hcall_kind hhalt hcall_self hcr
     (hncr callFr) hself
+
+/-- **`CallPreservesSelf`, with the five universally-true CALL-seam facts DISCHARGED engine-level.**
+The arbitrary-`a` account-monotonicity bricks (this cycle) prove engine-level, for *every* frame:
+
+* `hmono` — `Evm.stepFrame_next_accMono` (Brick C, the `.next` account-presence mono);
+* `hcall_acc` / `hcall_kind` / `hcall_self` — `Evm.stepFrame_needsCall_inv` (the CALL-site framing:
+  child params' accounts = issuing accounts, suspended frame keeps `kind` and execution-env address);
+* `hhalt` — `Evm.stepFrame_halted_success_accMono` (STOP/RETURN/SELFDESTRUCT keep accounts present —
+  no erase).
+
+So `callPreservesSelf`'s seven supplied hypotheses collapse to **two**: the genuinely-conditional
+`hprec` (precompile `.inr` output map — opaque for a live precompile, vacuous for the call-free /
+non-precompile-targeting lowered IR) and the no-CREATE seam `hncr` (the CREATE-fault arm sets
+`accounts := ∅`, a real erase — scoped to the child run's `EngineReaches`-reachable frames, satisfiable
+for a CREATE-free lowered child, *not* the false universal `∀ fr`). Both remain **supplied**, each
+genuinely satisfiable and non-vacuous; this is *not* a hypothesis-free `CallPreservesSelf` (the
+precompile/CREATE `∅`-arms really can erase). -/
+theorem callPreservesSelf_modGuards
+    (hprec : ∀ (cp : Evm.CallParams) (imm : Evm.CallResult),
+      Evm.beginCall cp = .inr imm → ∀ a, AccPresent a cp.accounts → AccPresent a imm.accounts)
+    (hncr : ∀ (callFr : Evm.Frame) (cp : Evm.CallParams) (pd : Evm.PendingCall) (child : Evm.Frame),
+      Evm.stepFrame callFr = .needsCall cp pd → Evm.beginCall cp = .inl child →
+      ∀ (stack : List Evm.Pending) (fr : Evm.Frame),
+        EngineReaches [] (Sum.inl child) stack (.inl fr) →
+        ∀ (cpc : Evm.CreateParams) (pdc : Evm.PendingCreate), Evm.stepFrame fr ≠ .needsCreate cpc pdc) :
+    CallPreservesSelf :=
+  callPreservesSelf
+    (fun fr exec' h a hp => Evm.stepFrame_next_accMono h a hp)
+    hprec
+    (fun fr cp pd h a hp => (Evm.stepFrame_needsCall_inv h).1 ▸ hp)
+    (fun fr cp pd h => (Evm.stepFrame_needsCall_inv h).2.1)
+    (fun fr e o h a hp => Evm.stepFrame_halted_success_accMono h a hp)
+    (fun fr cp pd h => congrArg ExecutionEnv.address (Evm.stepFrame_needsCall_inv h).2.2)
+    hncr
 
 /-- **`SelfPresent` is forward-closed along a whole `Runs` segment.** From `SelfPresent fr` and
 `Runs fr fr'`, `SelfPresent fr'` — given the two local one-edge preservation facts
@@ -3013,6 +4211,25 @@ end Lir.V2
 #print axioms Lir.V2.drive_accounts_find_mono
 #print axioms Lir.V2.callPreservesSelf_success
 #print axioms Lir.V2.callPreservesSelf
+-- HMONO: the five engine-level CALL-seam facts now PROVEN at an arbitrary tracked address `a`
+-- (Brick C `stepFrame_next_accMono` + the `.needsCall` inversion bundle + halt-success presence),
+-- and `callPreservesSelf_modGuards` instantiating them (callPreservesSelf reduced 7 → 2 supplied hyps).
+#print axioms Evm.stepFrame_next_accMono
+#print axioms Evm.dispatch_next_accMono
+#print axioms Evm.systemOp_next_accMono
+#print axioms Evm.smsfOp_next_accMono
+#print axioms Evm.callArm_next_accMono
+#print axioms Evm.createArm_next_accMono
+#print axioms Evm.sstore_accMono
+#print axioms Evm.tstore_accMono
+#print axioms Evm.stepFrame_needsCall_inv
+#print axioms Evm.callArm_needsCall_inv
+#print axioms Evm.systemOp_needsCall_inv
+#print axioms Evm.stepFrame_halted_success_accMono
+#print axioms Evm.haltOp_success_accMono
+#print axioms Evm.selfdestructOp_success_accMono
+#print axioms Evm.returnOrRevertOp_success_accMono
+#print axioms Lir.V2.callPreservesSelf_modGuards
 -- C3: the no-bridge VALUE channels of the L2.0 statement-walk.
 #print axioms Lir.V2.memRealises_setLocal_nonspilled
 #print axioms Lir.V2.driveCorrPlus_assign_remat_memRealises
