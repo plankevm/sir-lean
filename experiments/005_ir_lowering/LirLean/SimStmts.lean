@@ -56,15 +56,19 @@ discharged inside. It is what the list induction consumes at each `cons`. -/
 
 /-- **The per-statement simulation step** (Layer C, all statements, abstracted over cursor).
 For statement `s` at cursor `(L, pc)` of block `b`, any frame `fr0` in
-`Corr`-correspondence with `st0` at `pc` and any `EvalStmt` step `s : st0 → st0'` are
-matched by a `Runs fr0 fr0'` re-establishing `Corr` at `pc+1` with `fr0'.exec.stack = []`.
-Discharged for a concrete program by case-splitting `s` and feeding `sim_assign` /
-`sim_sstore_stmt` / `sim_call_stmt` their structured-hypothesis bundles. -/
+`Corr`-correspondence with `st0` at `pc` that **clean-halts non-exceptionally**
+(`CleanHaltsNonException fr0` — the remaining run reaches a `.success`/`.revert` terminal) and
+any `EvalStmt` step `s : st0 → st0'` are matched by a `Runs fr0 fr0'` re-establishing `Corr` at
+`pc+1` with `fr0'.exec.stack = []`. Discharged for a concrete program by case-splitting `s` and
+feeding `sim_assign` / `sim_sstore_stmt` / `sim_call_stmt` their structured-hypothesis bundles —
+the per-cursor `CleanHaltsNonException fr0` is what lets the GAS/SLOAD arms DERIVE their runtime
+gas/mem envelopes from the §7 extractor (`CleanHaltExtract`) rather than supply them. -/
 def SimStmtStep (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (o : V2.CallOracle)
     (L : Label) (b : Block) : Prop :=
   ∀ (pc : Nat) (s : Stmt) (st0 st0' : V2.IRState) (T0 T0' : Trace) (fr0 : Frame),
     b.stmts[pc]? = some s →
     Corr prog sloadChg obs st0 fr0 L pc →
+    CleanHaltsNonException fr0 →
     EvalStmt prog o st0 T0 s st0' T0' →
     ∃ fr0', Runs fr0 fr0' ∧ Corr prog sloadChg obs st0' fr0' L (pc + 1)
       ∧ fr0'.exec.stack = []
@@ -89,6 +93,7 @@ theorem sim_stmts_drop {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {ss : List Stmt} {st st' : V2.IRState} {T T' : Trace} {pc : Nat} {fr : Frame}
     (hss : ss = b.stmts.drop pc)
     (hcorr : Corr prog sloadChg obs st fr L pc)
+    (hcs : CleanHaltsNonException fr)
     (hrun : V2.RunStmts prog o st T ss st' T') :
     ∃ fr', Runs fr fr' ∧ Corr prog sloadChg obs st' fr' L (pc + ss.length)
       ∧ fr'.exec.stack = [] := by
@@ -106,9 +111,11 @@ theorem sim_stmts_drop {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       rw [hdrop, List.drop_one, List.tail_cons] at hdd
       exact hdd
     -- Layer C: one step matches a Runs segment re-establishing Corr at pc+1, stack = [].
-    obtain ⟨fr1, hruns1, hcorr1, _⟩ := hsim pc s st0 st1 T0 T1 fr hget hcorr hh
+    obtain ⟨fr1, hruns1, hcorr1, _⟩ := hsim pc s st0 st1 T0 T1 fr hget hcorr hcs hh
+    -- DERIVE the tail's clean-halt witness from the head's, across the head `Runs` segment.
+    have hcs1 : CleanHaltsNonException fr1 := cleanHaltsNonException_forward hcs hruns1
     -- recurse on the tail at cursor pc+1.
-    obtain ⟨fr2, hruns2, hcorr2, hstk2⟩ := ih htail hcorr1
+    obtain ⟨fr2, hruns2, hcorr2, hstk2⟩ := ih htail hcorr1 hcs1
     refine ⟨fr2, hruns1.trans hruns2, ?_, hstk2⟩
     -- cursor arithmetic: pc + (1 + ss0.length) = (pc+1) + ss0.length.
     have hlen : pc + (s :: ss0).length = (pc + 1) + ss0.length := by
@@ -125,11 +132,12 @@ theorem sim_stmts {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {L : Label} {b : Block} {pc : Nat} {fr : Frame}
     (hsim : SimStmtStep prog sloadChg obs o L b)
     (hcorr : Corr prog sloadChg obs st fr L pc)
+    (hcs : CleanHaltsNonException fr)
     (hrun : V2.RunStmts prog o st T ss st' T')
     (hss : ss = b.stmts.drop pc) :
     ∃ fr', Runs fr fr' ∧ Corr prog sloadChg obs st' fr' L (pc + ss.length)
       ∧ fr'.exec.stack = [] :=
-  sim_stmts_drop hsim hss hcorr hrun
+  sim_stmts_drop hsim hss hcorr hcs hrun
 
 /-- **`sim_stmts` (whole-block form).** The `pc = 0` instance: a whole block body
 `b.stmts`, run by `V2.RunStmts` from a `Corr`-corresponding frame at the block's entry
@@ -141,10 +149,11 @@ theorem sim_stmts_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {L : Label} {b : Block} {fr : Frame}
     (hsim : SimStmtStep prog sloadChg obs o L b)
     (hcorr : Corr prog sloadChg obs st fr L 0)
+    (hcs : CleanHaltsNonException fr)
     (hrun : V2.RunStmts prog o st T b.stmts st' T') :
     ∃ fr', Runs fr fr' ∧ Corr prog sloadChg obs st' fr' L b.stmts.length
       ∧ fr'.exec.stack = [] := by
-  have h := sim_stmts_drop hsim (by simp) hcorr hrun
+  have h := sim_stmts_drop hsim (by simp) hcorr hcs hrun
   simpa using h
 
 end Lir

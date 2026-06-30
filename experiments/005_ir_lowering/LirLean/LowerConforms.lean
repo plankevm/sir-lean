@@ -245,7 +245,7 @@ theorem simStmtStep_sstore {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word
             + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).length + 1 ≤ 1024
         ∧ (∃ acc, SstoreRealises fr0 kw vw acc) ∧ vw ≠ 0) :
     SimStmtStep prog sloadChg obs o L b := by
-  intro pc s st0 st0' T0 T0' fr0 hget hcorr hstep
+  intro pc s st0 st0' T0 T0' fr0 hget hcorr hcs hstep
   obtain ⟨key, value, hse⟩ := hsstore s (List.mem_iff_getElem?.mpr ⟨pc, hget⟩)
   subst hse
   -- read off the `EvalStmt.sstore` witnesses (operands + post-state).
@@ -521,7 +521,7 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         b.stmts[pc]? = some (.call cs) →
         CallRealises prog sloadChg obs o L b pc cs st0 fr0) :
     SimStmtStep prog sloadChg obs o L b := by
-  intro pc s st0 st0' T0 T0' fr0 hget hcorr hstep
+  intro pc s st0 st0' T0 T0' fr0 hget hcorr hcs hstep
   -- `s` is at a present cursor; case on the `EvalStmt` step (assign / sstore / call).
   cases hstep with
   | assignPure hne hv =>
@@ -988,6 +988,7 @@ theorem sim_cfg {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} {o : V2.C
       SimTermStep prog sloadChg obs o self L b)
     {st : V2.IRState} {T : Trace} {L : Label} {O : V2.Observable} {fr : Frame}
     (hcorr : Corr prog sloadChg obs st fr L 0)
+    (hcs : CleanHaltsNonException fr)
     (hrun : V2.RunFrom prog o st T L O) :
     ∃ last haltSig, Runs fr last ∧ stepFrame last = .halted haltSig
       ∧ (observe self (endFrame last haltSig)).world = O.world := by
@@ -995,41 +996,48 @@ theorem sim_cfg {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} {o : V2.C
   | @ret st st' T T' L b t w hb hss hterm' hv =>
     -- Layer D: run the block's statements to the terminator cursor.
     obtain ⟨frT, hrunsT, hcorrT, _⟩ :=
-      sim_stmts_block (hstmts L b hb) hcorr hss
+      sim_stmts_block (hstmts L b hb) hcorr hcs hss
     -- Layer E: `ret` halts with world = st'.world (the IR ret halt's world).
     obtain ⟨last, haltSig, hlast, hhalt, hworld⟩ :=
       (hterm L b hb).halt st' frT hcorrT (Or.inr ⟨t, hterm'⟩)
     exact ⟨last, haltSig, hrunsT.trans hlast, hhalt, hworld⟩
   | @stop st st' T T' L b hb hss hterm' =>
     obtain ⟨frT, hrunsT, hcorrT, _⟩ :=
-      sim_stmts_block (hstmts L b hb) hcorr hss
+      sim_stmts_block (hstmts L b hb) hcorr hcs hss
     obtain ⟨last, haltSig, hlast, hhalt, hworld⟩ :=
       (hterm L b hb).halt st' frT hcorrT (Or.inl hterm')
     exact ⟨last, haltSig, hrunsT.trans hlast, hhalt, hworld⟩
   | @branchThen st st' T T' L b cond cw thenL elseL O hb hss hterm' hc hnz hrest ih =>
     obtain ⟨frT, hrunsT, hcorrT, _⟩ :=
-      sim_stmts_block (hstmts L b hb) hcorr hss
+      sim_stmts_block (hstmts L b hb) hcorr hcs hss
     -- Layer E (edge): step to `thenL`'s entry, re-establishing `Corr` at `(thenL, 0)`.
     obtain ⟨fr', hruns', hcorr'⟩ :=
       (hterm L b hb).edge st' frT thenL hcorrT
         (Or.inr (Or.inl ⟨cond, elseL, cw, hterm', hc, hnz⟩))
+    -- DERIVE the successor's clean-halt from `fr`'s, across the block + edge run.
+    have hcs' : CleanHaltsNonException fr' :=
+      cleanHaltsNonException_forward hcs (hrunsT.trans hruns')
     -- IH on the recursion into `thenL`, from the re-established `Corr`.
-    obtain ⟨last, haltSig, hlast, hhalt, hworld⟩ := ih hcorr'
+    obtain ⟨last, haltSig, hlast, hhalt, hworld⟩ := ih hcorr' hcs'
     exact ⟨last, haltSig, (hrunsT.trans hruns').trans hlast, hhalt, hworld⟩
   | @branchElse st st' T T' L b cond thenL elseL O hb hss hterm' hc hrest ih =>
     obtain ⟨frT, hrunsT, hcorrT, _⟩ :=
-      sim_stmts_block (hstmts L b hb) hcorr hss
+      sim_stmts_block (hstmts L b hb) hcorr hcs hss
     obtain ⟨fr', hruns', hcorr'⟩ :=
       (hterm L b hb).edge st' frT elseL hcorrT
         (Or.inr (Or.inr ⟨cond, thenL, hterm', hc⟩))
-    obtain ⟨last, haltSig, hlast, hhalt, hworld⟩ := ih hcorr'
+    have hcs' : CleanHaltsNonException fr' :=
+      cleanHaltsNonException_forward hcs (hrunsT.trans hruns')
+    obtain ⟨last, haltSig, hlast, hhalt, hworld⟩ := ih hcorr' hcs'
     exact ⟨last, haltSig, (hrunsT.trans hruns').trans hlast, hhalt, hworld⟩
   | @jump st st' T T' L b dst O hb hss hterm' hrest ih =>
     obtain ⟨frT, hrunsT, hcorrT, _⟩ :=
-      sim_stmts_block (hstmts L b hb) hcorr hss
+      sim_stmts_block (hstmts L b hb) hcorr hcs hss
     obtain ⟨fr', hruns', hcorr'⟩ :=
       (hterm L b hb).edge st' frT dst hcorrT (Or.inl hterm')
-    obtain ⟨last, haltSig, hlast, hhalt, hworld⟩ := ih hcorr'
+    have hcs' : CleanHaltsNonException fr' :=
+      cleanHaltsNonException_forward hcs (hrunsT.trans hruns')
+    obtain ⟨last, haltSig, hlast, hhalt, hworld⟩ := ih hcorr' hcs'
     exact ⟨last, haltSig, (hrunsT.trans hruns').trans hlast, hhalt, hworld⟩
 
 /-! ## `paramsFor` — the canonical top-level params running `lower prog`
@@ -1248,6 +1256,10 @@ theorem lower_conforms {prog : Program} {w₀ : V2.World} {self : AccountAddress
     (hstore : StorageAgree { locals := fun _ => none, world := w₀ }
                 (codeFrame p (lower prog)))
     (hgasj : GasConstants.Gjumpdest ≤ p.gas.toNat)
+    -- the honest non-exception scope boundary: the entry code frame's run reaches a
+    -- `.success`/`.revert` terminal (not a genuine OOG/exception, which the gas-agnostic IR cannot
+    -- model). This is what lets `sim_cfg`'s per-cursor §7 ties DERIVE their gas/mem envelopes.
+    (hcs : CleanHaltsNonException (codeFrame p (lower prog)))
     -- the per-block simulations (the realisability contract over `lower prog`):
     (hstmts : ∀ (L : Label) (b : Block), blockAt prog L = some b →
       SimStmtStep prog sloadChg obs (realisedCall log self) L b)
@@ -1262,9 +1274,11 @@ theorem lower_conforms {prog : Program} {w₀ : V2.World} {self : AccountAddress
   obtain ⟨fr₀, hjdruns, hentry⟩ :=
     entry_corr (sloadChg := sloadChg) (obs := obs) (w₀ := w₀) hmod hentry0 hbentry hbound
       hstore hgasj
+  -- forward the entry clean-halt across the leading `JUMPDEST` to the `Corr` entry frame `fr₀`.
+  have hcs₀ : CleanHaltsNonException fr₀ := cleanHaltsNonException_forward hcs hjdruns
   -- `sim_cfg`: from the entry `Corr`, the lowered run halts with world = O.world.
   obtain ⟨last, haltSig, hruns, hhalt, hworld⟩ :=
-    sim_cfg (self := self) hstmts hterm hentry hir
+    sim_cfg (self := self) hstmts hterm hentry hcs₀ hir
   -- the `messageCall` bridge, two ways: the assembled `Runs` halt (entry JUMPDEST then the CFG
   -- run), and the recorder.
   have hmc_runs : messageCall p = .ok (FrameResult.toCallResult (endFrame last haltSig)) :=
@@ -1501,6 +1515,10 @@ theorem lower_conforms_wf {prog : Program} {w₀ : V2.World} {self : AccountAddr
     (hbound : offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks prog.entry.idx < 2 ^ 32)
     (hstore : StorageAgree { locals := fun _ => none, world := w₀ } (codeFrame p (lower prog)))
     (hgasj : GasConstants.Gjumpdest ≤ p.gas.toNat)
+    -- the honest non-exception scope boundary: the entry code frame reaches a `.success`/`.revert`
+    -- terminal (not OOG/exception). This is what lets the per-cursor §7 ties DERIVE their runtime
+    -- gas/mem envelopes from the clean-halt extractor.
+    (hcs : CleanHaltsNonException (codeFrame p (lower prog)))
     -- WELL-FORMEDNESS: the folded structural side-conditions.
     (hwf : WellFormedLowered prog)
     -- the GENUINE §7 per-block recording-correspondence ties (statement + terminator):
@@ -1524,7 +1542,7 @@ theorem lower_conforms_wf {prog : Program} {w₀ : V2.World} {self : AccountAddr
     intro L b hbat
     obtain ⟨hsucc, hstop, hretties, hjump, hbranch⟩ := htermties L b hbat
     exact simTermStep_block (toList_of_blockAt hbat) hwf hsucc hstop hretties hjump hbranch
-  exact lower_conforms hwl hp hmod hentry0 hbentry hbound hstore hgasj
+  exact lower_conforms hwl hp hmod hentry0 hbentry hbound hstore hgasj hcs
     hstmts hterm hir
 
 end Lir

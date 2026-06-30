@@ -18,15 +18,18 @@ the cyclic-general headline `lower_conforms_cyclic` (F3) — **`CFGAcyclic` reti
 
 ## What this file delivers (F1 foundation + F2/F3 — the full cyclic construction)
 
-* **`CleanHalts` / `DriveCorr`** (§2) — the boundary invariant relating a block-entry bytecode
-  frame (stack `[]`) to an IR cursor `(L, st)`: `Corr prog … st fr L 0` together with the frame's
-  remaining run reaching a clean `.halted` outcome (`CleanHalts fr`), whose `totalGas [] (.inl
-  fr) = fr.exec.gasAvailable.toNat` (`driveCorr_measure`) is the recursion measure.
-* **`cleanHalts_forward`** (§2.1) — the **forward clean-halt split** (the former wall, now
-  DERIVED). `stepFrame` is a function, so the halting `Runs` path is *linear* (`Runs.linear_to_
-  halt`, exp003 `BytecodeLayer/Hoare.lean`): every frame reachable on the way to a halt continues
-  to the *same* halt. So `CleanHalts` is forward-closed along `Runs` — a block successor inherits
-  its predecessor's clean-halt, no longer supplied.
+* **`DriveCorr`** (§2) — the boundary invariant relating a block-entry bytecode frame (stack `[]`)
+  to an IR cursor `(L, st)`: `Corr prog … st fr L 0` together with the frame's remaining run
+  reaching a clean **non-exception** `.halted` outcome (`CleanHaltsNonException fr`), whose
+  `totalGas [] (.inl fr) = fr.exec.gasAvailable.toNat` (`driveCorr_measure`) is the recursion
+  measure. The clean-halt predicates live in `LirLean/CleanHalt.lean`.
+* **`cleanHaltsNonException_forward`** (`LirLean/CleanHalt.lean`) — the **forward clean-halt
+  split** (the former wall, now DERIVED). `stepFrame` is a function, so the halting `Runs` path is
+  *linear* (`Runs.linear_to_halt`, exp003 `BytecodeLayer/Hoare.lean`): every frame reachable on the
+  way to a halt continues to the *same* halt. So `CleanHaltsNonException` is forward-closed along
+  `Runs` — a block successor inherits its predecessor's non-exception clean-halt, no longer
+  supplied. The predicate and forward split live in `CleanHalt.lean` (upstream of both this walk
+  and the `SimStmts` induction).
 * **`jumpdestFrame_gas_lt` / `totalGas_succ_lt`** (§3) — the **strict `totalGas` descent**: a
   `JUMPDEST` step (cost `Gjumpdest = 1 ≥ 1`) drops `gasAvailable.toNat` by exactly one, so the
   post-`JUMPDEST` successor entry frame's `totalGas` is strictly below the source block-entry
@@ -40,7 +43,7 @@ the cyclic-general headline `lower_conforms_cyclic` (F3) — **`CFGAcyclic` reti
     world, AND the IR `RunFrom prog o st T L { world := st'.world, result := … }`;
   - **edge** (`jump`/`branch`): the successor block's entry frame `jumpdestFrame fj` re-establishing
     `DriveCorr` at the taken `succ` with **strictly smaller `totalGas`** (and the successor
-    clean-halt now DERIVED via `cleanHalts_forward`), AND the IR one-block continuation `∀ O,
+    clean-halt now DERIVED via `cleanHaltsNonException_forward`), AND the IR one-block continuation `∀ O,
     RunFrom … st' T' succ O → RunFrom … st T L O` (prepend this block's `RunStmts` + the firing
     terminator). The branch direction is fixed by the **bytecode** — the same condition word `cw =
     st'.locals cond` chooses both the bytecode edge and the IR `RunFrom.branch*` edge (the §7 tie).
@@ -52,8 +55,9 @@ the cyclic-general headline `lower_conforms_cyclic` (F3) — **`CFGAcyclic` reti
 * **`lower_conforms_cyclic`** (§7, **F3**) — feed F2's `∃ O, RunFrom …` into the EXISTING
   cycle-agnostic `sim_cfg` to recover the world equation, **general over CYCLIC CFGs** (no
   `CFGAcyclic`/`RunDefinable`). The per-block ties (`SimStmtStep`/`SimTermStep`, the `DriveStep`
-  bundle) stay **supplied** per the RE-SCOPE (charged later); the entry `CleanHalts` is the honest
-  scope boundary (the run reaches `.halted` — `runWithLog … = some log`).
+  bundle) stay **supplied** per the RE-SCOPE (charged later); the entry `CleanHaltsNonException` is
+  the honest scope boundary (the run reaches a `.success`/`.revert` terminal — `runWithLog … = some
+  log` plus the non-exception scope premise).
 
 Bytecode-coupled (imports the Layer C–E bricks via `LowerConforms`); nothing here touches
 `V2/Machine.lean` / `V2/Law.lean` / `V2/MemAlgebra.lean`. No `sorry`/`axiom`/`native_decide`.
@@ -67,35 +71,11 @@ open BytecodeLayer.Hoare
 open BytecodeLayer.Interpreter
 open Lir
 
-/-! ## §2 — `CleanHalts` and the boundary invariant `DriveCorr` -/
+/-! ## §2 — the boundary invariant `DriveCorr` (clean-halt predicates: `LirLean/CleanHalt.lean`)
 
-/-- **Clean-halt of a frame's remaining run.** `fr` reaches, by a run of opcode steps and
-returning external calls (`Runs`), a frame `last` that **halts** (`stepFrame last = .halted
-halt`). The bytecode side of the F2 base case (`STOP`/`RETURN`), and the standing
-well-foundedness witness threaded through the drive recursion. -/
-def CleanHalts (fr : Frame) : Prop :=
-  ∃ last halt, Runs fr last ∧ stepFrame last = .halted halt
-
-/-- A `FrameHalt` is **non-exception** iff it is not an `.exception`. -/
-def HaltNonException : Evm.FrameHalt → Prop
-  | .exception _ => False
-  | _ => True
-
-/-- A `.success` terminal is non-exception. -/
-theorem haltNonException_success (e : Evm.ExecutionState) (o : ByteArray) :
-    HaltNonException (.success e o) := trivial
-
-/-- A `.revert` terminal is non-exception. -/
-theorem haltNonException_revert (g : UInt64) (o : ByteArray) :
-    HaltNonException (.revert g o) := trivial
-
-/-- **Clean-halt to a non-exception terminal.** `fr` reaches, by a `Runs` path, a frame `last`
-that halts to a **non-exception** outcome (`.success` or `.revert`, NOT `.exception`). This is the
-form the drive thread's §7 ties need: the conformance walk reaches its terminal cleanly (a
-`RETURN`/`STOP` epilogue, or a `REVERT` — never a genuine OOG/exception, which the gas-agnostic IR
-cannot model). It forgets to the weaker `CleanHalts` (`cleanHaltsNonException_toCleanHalts`). -/
-def CleanHaltsNonException (fr : Frame) : Prop :=
-  ∃ last halt, Runs fr last ∧ stepFrame last = .halted halt ∧ HaltNonException halt
+`CleanHalts` / `CleanHaltsNonException` and their forward splits live in `LirLean/CleanHalt.lean`
+(upstream of both this drive walk and the `SimStmts` per-statement induction, so they are visible
+to the whole tower). `open Lir.V2` (this namespace) brings them into scope here. -/
 
 /-- **The drive-boundary invariant `DriveCorr`.** At a block-entry frame (working stack `[]`),
 the bytecode frame `fr` is `Corr`-aligned with the IR cursor `(L, st)` at the entry cursor
@@ -117,49 +97,6 @@ quantity that strictly descends across each block. -/
 theorem driveCorr_measure (fr : Frame) :
     totalGas [] (.inl fr) = fr.exec.gasAvailable.toNat := by
   simp only [totalGas, activeGas, List.map_nil, List.sum_nil, Nat.add_zero]
-
-/-! ## §2.1 — The forward clean-halt split (the wall, now DERIVED)
-
-`CleanHalts fr` means `fr` reaches, by a `Runs` path, a halting terminal `last`. Since
-`stepFrame` is a **function**, that halting `Runs` path is *linear* (`Runs.linear_to_halt`,
-exp003 `BytecodeLayer/Hoare.lean`): every frame `fj` reachable on the way to `last`
-(`Runs fr fj`) continues to the **same** `last`. So clean-halting is forward-closed along
-`Runs`: a block successor inherits its predecessor's clean-halt, no longer supplied. -/
-
-/-- **The forward clean-halt split.** If `fr` clean-halts (at terminal `last`) and `Runs fr
-fj`, then `fj` clean-halts — reaching the **same** `last`. The drive recursion threads a
-single whole-run clean-halt witness from the entry frame and propagates it to each block
-successor through this lemma, rather than supplying a fresh `CleanHalts` per edge. -/
-theorem cleanHalts_forward {fr fj : Frame}
-    (hclean : CleanHalts fr) (hreach : Runs fr fj) : CleanHalts fj := by
-  obtain ⟨last, halt, hto, hhalt⟩ := hclean
-  exact ⟨last, halt, Runs.linear_to_halt hhalt hto hreach, hhalt⟩
-
-/-- **The forward non-exception clean-halt split.** The `CleanHaltsNonException` analogue of
-`cleanHalts_forward`: if `fr` clean-halts non-exceptionally (at terminal `last`) and `Runs fr fj`,
-then `fj` clean-halts non-exceptionally — reaching the **same** `last` (so the same non-exception
-witness). The drive recursion threads a single whole-run non-exception clean-halt witness from the
-entry frame and propagates it to each block successor through this lemma. -/
-theorem cleanHaltsNonException_forward {fr fj : Frame}
-    (hclean : CleanHaltsNonException fr) (hreach : Runs fr fj) : CleanHaltsNonException fj := by
-  obtain ⟨last, halt, hto, hhalt, hne⟩ := hclean
-  exact ⟨last, halt, Runs.linear_to_halt hhalt hto hreach, hhalt, hne⟩
-
-/-- **Forget the non-exception witness.** A non-exception clean-halt is in particular a clean-halt,
-so the existing `CleanHalts` consumers (the `totalGas` measure, the drive recursion) still see the
-weak form. -/
-theorem cleanHaltsNonException_toCleanHalts {fr : Frame}
-    (h : CleanHaltsNonException fr) : CleanHalts fr := by
-  obtain ⟨last, halt, hto, hhalt, _⟩ := h
-  exact ⟨last, halt, hto, hhalt⟩
-
-/-- **`.success` clean-halt ⟹ `CleanHaltsNonException`.** The success-only case (the drive
-thread's `RETURN`/`STOP` epilogue) is the canonical non-exception clean-halt; kept derivable so
-success-specific callers can build the witness. -/
-theorem cleanHaltsNonException_of_success {fr last : Frame} {e : Evm.ExecutionState}
-    {o : ByteArray} (hto : Runs fr last) (hhalt : stepFrame last = .halted (.success e o)) :
-    CleanHaltsNonException fr :=
-  ⟨last, .success e o, hto, hhalt, haltNonException_success e o⟩
 
 /-! ## §2.2 — `hclean` discharged from the clean-halt outcome (`drive → Runs`)
 
@@ -302,7 +239,7 @@ theorem drive_step_block_stop {prog : Program} {sloadChg : Tmp → ℕ} {obs : W
       ∧ (observe self (endFrame last haltSig)).world = O.world
       ∧ RunFrom prog o st T L O ∧ O = { world := st'.world, result := .stopped } := by
   -- Layer D: run the block's statements to the terminator cursor.
-  obtain ⟨frT, hrunsT, hcorrT, _⟩ := sim_stmts_block hsim hdrive.corr hrunstmts
+  obtain ⟨frT, hrunsT, hcorrT, _⟩ := sim_stmts_block hsim hdrive.corr hdrive.cleanHalts hrunstmts
   -- Layer E (halt): a clean `.halted` frame whose world is `st'.world`.
   obtain ⟨last, haltSig, hlast, hstep, hworld⟩ := hterm frT hcorrT
   exact ⟨last, haltSig, _, hrunsT.trans hlast, hstep, hworld,
@@ -327,7 +264,7 @@ theorem drive_step_block_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : Wo
     ∃ last haltSig O, Runs fr last ∧ stepFrame last = .halted haltSig
       ∧ (observe self (endFrame last haltSig)).world = O.world
       ∧ RunFrom prog o st T L O ∧ O = { world := st'.world, result := .returned w } := by
-  obtain ⟨frT, hrunsT, hcorrT, _⟩ := sim_stmts_block hsim hdrive.corr hrunstmts
+  obtain ⟨frT, hrunsT, hcorrT, _⟩ := sim_stmts_block hsim hdrive.corr hdrive.cleanHalts hrunstmts
   obtain ⟨last, haltSig, hlast, hstep, hworld⟩ := hterm frT hcorrT
   exact ⟨last, haltSig, _, hrunsT.trans hlast, hstep, hworld,
     RunFrom.ret hb hrunstmts hbterm hv, rfl⟩
@@ -372,7 +309,7 @@ theorem drive_step_block_jump {prog : Program} {sloadChg : Tmp → ℕ} {obs : W
     -- with enough gas at the landing. The data `jump_to_block` + `corr_at_jumpdest_landing`
     -- consume, exposing `fj` (so the descent is provable) — discharged for a concrete program
     -- exactly as `sim_term_edge_jump`. The successor clean-halt is NO LONGER supplied: it is
-    -- DERIVED via `cleanHalts_forward` from `fr`'s clean-halt (`hdrive.cleanHalts`).
+    -- DERIVED via `cleanHaltsNonException_forward` from `fr`'s clean-halt (`hdrive.cleanHalts`).
     (hjump : ∀ frT : Frame, Corr prog sloadChg obs st' frT L b.stmts.length →
       ∃ fj : Frame, Runs frT fj
         ∧ GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
@@ -391,7 +328,7 @@ theorem drive_step_block_jump {prog : Program} {sloadChg : Tmp → ℕ} {obs : W
       ∧ totalGas [] (.inl (jumpdestFrame fj)) < totalGas [] (.inl fr)
       ∧ (∀ O, RunFrom prog o st' T dst O → RunFrom prog o st T L O) := by
   -- Layer D: run the block's statements to the terminator cursor.
-  obtain ⟨frT, hrunsT, hcorrT, _⟩ := sim_stmts_block hsim hdrive.corr hrunstmts
+  obtain ⟨frT, hrunsT, hcorrT, _⟩ := sim_stmts_block hsim hdrive.corr hdrive.cleanHalts hrunstmts
   -- Layer E: the supplied jump bundle delivers the `JUMPDEST` landing `fj`.
   obtain ⟨fj, hfjrun, hfjgas, hfjpc, hfjcode, hfjvalid, hfjstk, hfjmod, hfjstore,
     hfjmem, hfjdec⟩ := hjump frT hcorrT
@@ -418,7 +355,7 @@ fixes the bytecode edge (the §7 condition tie). The taken successor's bytecode 
 `JUMPDEST` entry frame `jumpdestFrame fj` (the THEN arm via `runs_jumpi_taken` +
 `corr_at_jumpdest_landing`; the ELSE fall-through via `jumpiFallthroughFrame` + `jump_to_block`,
 whose tail is also a `corr_at_jumpdest_landing` landing), so `totalGas_succ_lt` gives the same
-strict descent and `cleanHalts_forward` derives the successor's clean-halt. The IR continuation is
+strict descent and `cleanHaltsNonException_forward` derives the successor's clean-halt. The IR continuation is
 `RunFrom.branchThen` / `RunFrom.branchElse` on the supplied `cw`. The terminator §7 bundle
 (`hbranch`) is the `branch` analogue of `hjump`: it resolves the taken successor `succ` (with its
 direction witness) and exposes the `JUMPDEST` landing `fj`, exactly the data
@@ -434,7 +371,7 @@ when `cw ≠ 0`, `succ = elseL` when `cw = 0`), with:
 * `Runs fr (jumpdestFrame fj)` — the bytecode forward run to the next boundary;
 * `DriveCorr … st' (jumpdestFrame fj) succ` — the re-established boundary at the taken `succ`
   (`Corr` via `corr_at_jumpdest_landing`; the successor clean-halt DERIVED via
-  `cleanHalts_forward` from `fr`'s);
+  `cleanHaltsNonException_forward` from `fr`'s);
 * `totalGas [] (.inl (jumpdestFrame fj)) < totalGas [] (.inl fr)` — the **strict descent**;
 * the IR continuation `∀ O, RunFrom … st' T' succ O → RunFrom … st T L O` (prepend this block's
   `RunStmts` + the firing `branch` terminator via `RunFrom.branchThen` / `.branchElse`).
@@ -454,7 +391,7 @@ theorem drive_step_block_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs :
     -- cond-materialise + `JUMPI` to the TAKEN successor's `JUMPDEST` landing `fj`, with the taken
     -- successor `succ` resolved by `cw` (`thenL` if `cw ≠ 0`, `elseL` if `cw = 0`) and present.
     -- This is the data `sim_term_edge_branch` produces, exposing `fj` (so the descent is provable).
-    -- The successor clean-halt is DERIVED (not supplied) via `cleanHalts_forward`.
+    -- The successor clean-halt is DERIVED (not supplied) via `cleanHaltsNonException_forward`.
     (hbranch : ∀ frT : Frame, Corr prog sloadChg obs st' frT L b.stmts.length →
       ∃ (succ : Label) (bsucc : Block) (fj : Frame),
         ((succ = thenL ∧ cw ≠ 0) ∨ (succ = elseL ∧ cw = 0))
@@ -476,7 +413,7 @@ theorem drive_step_block_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs :
       ∧ totalGas [] (.inl (jumpdestFrame fj)) < totalGas [] (.inl fr)
       ∧ (∀ O, RunFrom prog o st' T' succ O → RunFrom prog o st T L O) := by
   -- Layer D: run the block's statements to the terminator cursor.
-  obtain ⟨frT, hrunsT, hcorrT, _⟩ := sim_stmts_block hsim hdrive.corr hrunstmts
+  obtain ⟨frT, hrunsT, hcorrT, _⟩ := sim_stmts_block hsim hdrive.corr hdrive.cleanHalts hrunstmts
   -- Layer E: the supplied branch bundle resolves the taken successor `succ` and its
   -- `JUMPDEST` landing `fj`.
   obtain ⟨succ, bsucc, fj, hdir, hbsucc, hfjrun, hfjgas, hfjpc, hfjcode, hfjvalid, hfjstk,
@@ -707,7 +644,7 @@ theorem lower_conforms_cyclic {prog : Program} {sloadChg : Tmp → ℕ} {obs : W
   obtain ⟨O, hir⟩ :=
     runFrom_of_driveCorr hstep st₀ fr₀ prog.entry T ⟨hentry, hclean⟩
   -- the EXISTING cycle-agnostic `sim_cfg`: tie the constructed run to the bytecode halt world.
-  obtain ⟨last, haltSig, hlast, hhalt, hworld⟩ := sim_cfg hstmts hterm hentry hir
+  obtain ⟨last, haltSig, hlast, hhalt, hworld⟩ := sim_cfg hstmts hterm hentry hclean hir
   exact ⟨O, ⟨last, haltSig, hlast, hhalt, hworld⟩, hir⟩
 
 /-! ### §7.1 — `lower_conforms_cyclic'`: `hstep` discharged from `RunDefinable` + the per-block ties
@@ -799,15 +736,11 @@ theorem lower_conforms_cyclic' {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
 
 end Lir.V2
 
--- Build-enforced axiom-cleanliness guards for the cyclic-CFG deliverables: the forward clean-halt
--- split (`cleanHalts_forward`), the strict `totalGas` descent, the four per-block drive steps, the
--- F2 recursion (`runFrom_of_driveCorr`) and the F3 assembly (`lower_conforms_cyclic`) depend only
--- on `[propext, Classical.choice, Quot.sound]`.
+-- Build-enforced axiom-cleanliness guards for the cyclic-CFG deliverables: the strict `totalGas`
+-- descent, the four per-block drive steps, the F2 recursion (`runFrom_of_driveCorr`) and the F3
+-- assembly (`lower_conforms_cyclic`) depend only on `[propext, Classical.choice, Quot.sound]`.
+-- (The forward clean-halt split lives in `LirLean/CleanHalt.lean`, guarded there.)
 #print axioms Lir.V2.driveCorr_measure
-#print axioms Lir.V2.cleanHalts_forward
-#print axioms Lir.V2.cleanHaltsNonException_forward
-#print axioms Lir.V2.cleanHaltsNonException_toCleanHalts
-#print axioms Lir.V2.cleanHaltsNonException_of_success
 #print axioms Lir.V2.cleanHalts_of_runWithLog
 #print axioms Lir.V2.jumpdestFrame_gas_lt
 #print axioms Lir.V2.totalGas_succ_lt

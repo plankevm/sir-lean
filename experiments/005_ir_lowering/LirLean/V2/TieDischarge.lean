@@ -3993,7 +3993,7 @@ theorem driveCorrPlus_run_stmts {prog : Program} {sloadChg : Tmp → ℕ} {obs :
       ∧ GasLogAligned gasAcc gasFrs
       ∧ SloadLogAligned sloadAcc sloadFrs := by
   -- (1) the Runs + Corr-at-terminator + stack-nil triple — VERBATIM from `sim_stmts_block`.
-  obtain ⟨frT, hruns, hcorrT, hstk⟩ := sim_stmts_block hsim hdc.base.corr hrun
+  obtain ⟨frT, hruns, hcorrT, hstk⟩ := sim_stmts_block hsim hdc.base.corr hdc.base.cleanHalts hrun
   -- (2) `SelfPresent frT` via P3 (supplied `CallPreservesSelf`), from the boundary self-presence.
   have hself : SelfPresent frT := selfPresent_runs_of_call hcall hdc.selfPresent hruns
   exact ⟨frT, hruns, hcorrT, hstk, hself, hdc.gasAligned, hdc.sloadAligned⟩
@@ -4111,6 +4111,7 @@ theorem driveCorrPlus_run_stmts_gasadvance_drop {prog : Program} {sloadChg : Tmp
     {gasAcc : List Word} {gasFrs : List Frame}
     (hss : ss = b.stmts.drop pc)
     (hcorr : Corr prog sloadChg obs st fr L pc)
+    (hcs : CleanHaltsNonException fr)
     (halign : GasLogAligned gasAcc gasFrs)
     (hreach : GasReach gasFrs fr)
     (hrun : V2.RunStmts prog o st T ss st' T') :
@@ -4134,7 +4135,9 @@ theorem driveCorrPlus_run_stmts_gasadvance_drop {prog : Program} {sloadChg : Tmp
       rw [hdrop, List.drop_one, List.tail_cons] at hdd
       exact hdd
     -- Layer C: the per-cursor segment + Corr at pc+1 + stack-nil.
-    obtain ⟨fr1, hruns1, hcorr1, hstk1⟩ := hsim pc s st0 st1 T0 T1 fr hget hcorr hh
+    obtain ⟨fr1, hruns1, hcorr1, hstk1⟩ := hsim pc s st0 st1 T0 T1 fr hget hcorr hcs hh
+    -- DERIVE the tail's clean-halt witness from the head's across the cursor segment.
+    have hcs1 : CleanHaltsNonException fr1 := cleanHaltsNonException_forward hcs hruns1
     -- the per-cursor GAS classification, indexed to the reached `(fr, fr1)`.
     have hcl : GasCursorClass s fr fr1 :=
       hclass pc s st0 st1 T0 T1 fr fr1 hget hcorr hh hruns1 hcorr1 hstk1
@@ -4166,7 +4169,7 @@ theorem driveCorrPlus_run_stmts_gasadvance_drop {prog : Program} {sloadChg : Tmp
         exact ⟨gasAcc, gasFrs, halign, hreach.trans hruns1⟩
     -- recurse on the tail at cursor pc+1 with the advanced alignment.
     obtain ⟨frT, gasAccF, gasFrsF, hrunsT, hcorrT, hstkT, halignF, hreachF⟩ :=
-      ih htail hcorr1 halign' hreach'
+      ih htail hcorr1 hcs1 halign' hreach'
     refine ⟨frT, gasAccF, gasFrsF, hruns1.trans hrunsT, ?_, hstkT, halignF, hreachF⟩
     -- cursor arithmetic: pc + (1 + ss0.length) = (pc+1) + ss0.length.
     have hlen : pc + (s :: ss0).length = (pc + 1) + ss0.length := by
@@ -4199,7 +4202,7 @@ theorem driveCorrPlus_run_stmts_gasadvance {prog : Program} {sloadChg : Tmp → 
       ∧ GasReach gasFrsF frT
       ∧ SloadLogAligned sloadAcc sloadFrs := by
   obtain ⟨frT, gasAccF, gasFrsF, hrunsT, hcorrT, hstkT, halignF, hreachF⟩ :=
-    driveCorrPlus_run_stmts_gasadvance_drop hsim hclass (by simp) hdc.base.corr
+    driveCorrPlus_run_stmts_gasadvance_drop hsim hclass (by simp) hdc.base.corr hdc.base.cleanHalts
       gasLogAligned_nil (by intro last hl; simp at hl) hrun
   simp only [Nat.zero_add] at hcorrT
   exact ⟨frT, gasAccF, gasFrsF, hrunsT, hcorrT, hstkT, halignF, hreachF, hdc.sloadAligned⟩
@@ -4414,7 +4417,7 @@ theorem driveCorrPlus_step_jump {prog : Program} {sloadChg : Tmp → ℕ} {obs :
       ∧ totalGas [] (.inl (jumpdestFrame fj)) < totalGas [] (.inl fr)
       ∧ (∀ O, RunFrom prog o st' T dst O → RunFrom prog o st T L O) := by
   -- Layer D: run the block's statements to the terminator cursor (uses the BASE `Corr`).
-  obtain ⟨frT, hrunsT, hcorrT, _⟩ := sim_stmts_block hsim hdc.base.corr hrun
+  obtain ⟨frT, hrunsT, hcorrT, _⟩ := sim_stmts_block hsim hdc.base.corr hdc.base.cleanHalts hrun
   -- Layer E: the supplied jump bundle delivers the `JUMPDEST` landing `fj`.
   obtain ⟨fj, hfjrun, hfjgas, hfjpc, hfjcode, hfjvalid, hfjstk, hfjmod, hfjstore,
     hfjmem, hfjdec⟩ := hjump frT hcorrT
@@ -4487,7 +4490,7 @@ theorem driveCorrPlus_step_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs
       ∧ totalGas [] (.inl (jumpdestFrame fj)) < totalGas [] (.inl fr)
       ∧ (∀ O, RunFrom prog o st' T' succ O → RunFrom prog o st T L O) := by
   -- Layer D: run the block's statements to the terminator cursor (uses the BASE `Corr`).
-  obtain ⟨frT, hrunsT, hcorrT, _⟩ := sim_stmts_block hsim hdc.base.corr hrun
+  obtain ⟨frT, hrunsT, hcorrT, _⟩ := sim_stmts_block hsim hdc.base.corr hdc.base.cleanHalts hrun
   -- Layer E: the supplied branch bundle resolves the taken successor `succ` and its landing `fj`.
   obtain ⟨succ, bsucc, fj, hdir, hbsucc, hfjrun, hfjgas, hfjpc, hfjcode, hfjvalid, hfjstk,
     hfjmod, hfjstore, hfjmem, hfjdec⟩ := hbranch frT hcorrT
@@ -4770,7 +4773,7 @@ theorem lower_conforms_cyclic_tiefree {prog : Program} {sloadChg : Tmp → ℕ} 
   obtain ⟨O, hir⟩ :=
     runFrom_of_driveCorrPlus hstep st₀ (codeFrame params code) prog.entry T [] [] [] [] hentryPlus
   -- the EXISTING cycle-agnostic `sim_cfg`: tie the constructed run to the bytecode halt world.
-  obtain ⟨last, haltSig, hlast, hhalt, hworld⟩ := sim_cfg hstmts hterm hbase.corr hir
+  obtain ⟨last, haltSig, hlast, hhalt, hworld⟩ := sim_cfg hstmts hterm hbase.corr hbase.cleanHalts hir
   exact ⟨O, ⟨last, haltSig, hlast, hhalt, hworld⟩, hir⟩
 
 /-- **`lower_conforms_cyclic_assembled` — the headline with `hstmts`/`hterm` BUILT, not supplied.**

@@ -36,6 +36,7 @@ import LirLean.BoundaryReach
 import LirLean.MaterialiseGas
 import LirLean.DefsSound
 import LirLean.MaterialiseRuns
+import LirLean.CleanHalt
 -- NOTE: `LirLean.WorkedCall` (a 1752-line concrete `Runs` proof) is a byte-coupled *leaf
 -- example* — nothing in the headline cone imports it (decoupled in `e9bc04d`). Its byte layout
 -- is stale under the Phase-C sload spill; it is SUPERSEDED by the general `lower_conforms` and
