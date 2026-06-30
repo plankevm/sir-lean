@@ -17,6 +17,19 @@ def UInt256.toByteArray (val : UInt256) : ByteArray :=
   let b := BE val.toNat
   ffi.ByteArray.zeroes ⟨32 - b.size⟩ ++ b
 
+/-- The big-endian byte array of `n` has at most `k` bytes when `n < 256 ^ k`
+(`BE = List.toByteArray ∘ toBytesBigEndian`, so its size is the digit count). -/
+theorem BE_size_le {k n : ℕ} (h : n < 256 ^ k) : (BE n).size ≤ k := by
+  unfold BE
+  simp only [Function.comp_apply, List.size_toByteArray]
+  exact toBytesBigEndian_length_le h
+
+/-- `ffi.ByteArray.zeroes` produces an array whose size is its `USize` argument
+(reflected to `Nat`) — its reference body is `Array.replicate n.toNat 0`. -/
+theorem zeroes_size (u : USize) : (ffi.ByteArray.zeroes u).size = u.toNat := by
+  unfold ffi.ByteArray.zeroes
+  simp [ByteArray.size, Array.size_replicate]
+
 abbrev Literal := UInt256
 
 -- 2^160 https://www.wolframalpha.com/input?i=2%5E160
@@ -42,6 +55,38 @@ def toByteArray (a : AccountAddress) : ByteArray :=
   let b := BE a
   ffi.ByteArray.zeroes ⟨20 - b.size⟩ ++ b
 
+/-- An address fits in 20 bytes: `a < 2^160 = 256^20`, so `BE a` has ≤ 20 bytes. -/
+theorem BE_size_le_20 (a : AccountAddress) : (BE a.val).size ≤ 20 := by
+  apply BE_size_le
+  have : a.val < AccountAddress.size := a.isLt
+  unfold AccountAddress.size at this
+  norm_num
+  omega
+
+/-- The left zero-padding makes `toByteArray` exactly 20 bytes: the pad supplies
+`20 - (BE a).size` and `BE a` supplies `(BE a).size`, summing to 20 since the
+address fits in 20 bytes (`BE_size_le_20`). -/
+theorem toByteArray_size (a : AccountAddress) : a.toByteArray.size = 20 := by
+  have hle := BE_size_le_20 a
+  unfold AccountAddress.toByteArray
+  simp only [ByteArray.size_append, zeroes_size]
+  have hb : (⟨20 - ↑(BE ↑a).size⟩ : USize).toNat = 20 - (BE ↑a).size := by
+    show ((20 : BitVec System.Platform.numBits) - ↑(BE ↑a).size).toNat = 20 - (BE ↑a).size
+    have h32 : (2:Nat) ^ 32 ≤ 2 ^ System.Platform.numBits :=
+      Nat.pow_le_pow_right (by norm_num) System.Platform.le_numBits
+    have h20 : (BitVec.toNat (20 : BitVec System.Platform.numBits)) = 20 := by
+      rw [show (20 : BitVec System.Platform.numBits) = BitVec.ofNat _ 20 from rfl,
+          BitVec.toNat_ofNat]
+      exact Nat.mod_eq_of_lt (by omega)
+    have hsz : ((↑(BE ↑a).size : BitVec System.Platform.numBits)).toNat = (BE ↑a).size := by
+      rw [BitVec.natCast_eq_ofNat, BitVec.toNat_ofNat]
+      exact Nat.mod_eq_of_lt (by omega)
+    have hle' : (↑(BE ↑a).size : BitVec System.Platform.numBits) ≤ (20 : BitVec _) := by
+      rw [BitVec.le_def, h20, hsz]; omega
+    rw [BitVec.toNat_sub_of_le hle', h20, hsz]
+  rw [hb]
+  omega
+
 end AccountAddress
 
 instance : Repr ByteArray where
@@ -54,6 +99,10 @@ instance : DecidableEq Identifier := inferInstanceAs (DecidableEq String)
 instance : Repr Identifier := inferInstanceAs (Repr String)
 
 end Evm
+
+-- Axiom guards: the byte-size lemmas stay within the standard logical kernel.
+#print axioms Evm.BE_size_le
+#print axioms Evm.AccountAddress.toByteArray_size
 
 /--
 TODO(rework later to a sane version)

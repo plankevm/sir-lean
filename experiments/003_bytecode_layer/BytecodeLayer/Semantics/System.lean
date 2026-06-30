@@ -1166,11 +1166,8 @@ theorem beginCreate_ok_gas {params : CreateParams} {child : Frame}
     (h : beginCreate params = .ok child) :
     child.exec.gasAvailable = params.gas := by
   rw [beginCreate] at h
-  simp only [Option.option] at h
-  split at h
-  · rw [Except.ok.injEq] at h
-    subst h; rfl
-  · simp at h
+  simp only [Option.option, Except.ok.injEq] at h
+  subst h; rfl
 
 /-- **`createArm` `.needsCreate` inversion (child gas).** The child created by a
 CREATE/CREATE2 descent is forwarded exactly `allButOneSixtyFourth exec.gas`

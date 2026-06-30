@@ -3214,23 +3214,21 @@ theorem beginCreate_ok_accounts_present (a : Evm.AccountAddress) (params : Evm.C
     (h : AccPresent a params.accounts) :
     AccPresent a child.exec.accounts := by
   rw [Evm.beginCreate] at hbc
-  simp only [Option.option] at hbc
-  split at hbc
-  · simp only [Except.ok.injEq] at hbc
-    rw [← hbc]
-    -- `child.exec.accounts = accountsWithNew = match params.accounts.find? creator with …`.
-    show AccPresent a
-      (match params.accounts.find? params.caller with
-        | none => params.accounts
-        | some ac =>
-          (params.accounts.insert params.caller
-            { ac with balance := ac.balance - params.value }).insert _ _)
-    cases hcr : params.accounts.find? params.caller with
-    | none => simp only [hcr]; exact h
-    | some ac =>
-      simp only [hcr]
-      exact accounts_find?_insert_mono _ _ _ _ (accounts_find?_insert_mono _ _ _ _ h)
-  · simp at hbc
+  simp only [Option.option, Except.ok.injEq] at hbc
+  rw [← hbc]
+  -- `child.exec.accounts = accountsWithNew = match params.accounts.find? creator with …`
+  -- (`contractAddressBytes` is now total, so `beginCreate` takes the `.ok` path unconditionally).
+  show AccPresent a
+    (match params.accounts.find? params.caller with
+      | none => params.accounts
+      | some ac =>
+        (params.accounts.insert params.caller
+          { ac with balance := ac.balance - params.value }).insert _ _)
+  cases hcr : params.accounts.find? params.caller with
+  | none => simp only [hcr]; exact h
+  | some ac =>
+    simp only [hcr]
+    exact accounts_find?_insert_mono _ _ _ _ (accounts_find?_insert_mono _ _ _ _ h)
 
 /-- **`beginCreate`'s init-code child carries `params.accounts` as its kind checkpoint.** The child's
 `kind := .create newAddress ⟨_, params.accounts, _⟩`; so the checkpoint that `endCreate` failure and
@@ -3240,11 +3238,9 @@ theorem beginCreate_ok_checkpoint (params : Evm.CreateParams) {child : Evm.Frame
     (hbc : Evm.beginCreate params = .ok child) :
     ∃ addr created sub, child.kind = .create addr ⟨created, params.accounts, sub⟩ := by
   rw [Evm.beginCreate] at hbc
-  simp only [Option.option] at hbc
-  split at hbc
-  · simp only [Except.ok.injEq] at hbc
-    exact ⟨_, _, _, by rw [← hbc]⟩
-  · simp at hbc
+  simp only [Option.option, Except.ok.injEq] at hbc
+  -- `contractAddressBytes` is now total, so `beginCreate` takes the `.ok` path unconditionally.
+  exact ⟨_, _, _, by rw [← hbc]⟩
 
 /-- **Local per-step self-presence preservation.** One non-halting opcode step (`StepsTo`) keeps
 the self account present. Satisfiable for the lowered program — every `.next` opcode either leaves

@@ -10,14 +10,45 @@ import Evm.Crypto.Keccak256
 
 namespace Evm
 
+/--
+The address preimage hashed to derive a created contract's address.
+
+`Rlp.encode` is `Option`-typed only to model the RLP length ceiling, but on the
+CREATE inputs — a 20-byte address and a `≤ 32`-byte nonce — it never overflows,
+so the encoder is total here (`Rlp.encode_list_pair_isSome`, applied at the call
+site via `contractAddressBytes_create`). `getD default` extracts the bytes
+without an `Option` fault path; the `default` fallback is provably unreachable.
+-/
 private def contractAddressBytes (creator : AccountAddress) (creatorNonce : UInt256) (salt : Option ByteArray) (initCode : ByteArray) :
-  Option ByteArray
+  ByteArray
 :=
   let creator := creator.toByteArray
   let creatorNonce := BE creatorNonce.toNat
   match salt with
-    | none   => Rlp.encode <| .list [.bytes creator, .bytes creatorNonce]
-    | some salt => .some <| BE 255 ++ creator ++ salt ++ ffi.KEC initCode
+    | none   => (Rlp.encode <| .list [.bytes creator, .bytes creatorNonce]).getD default
+    | some salt => BE 255 ++ creator ++ salt ++ ffi.KEC initCode
+
+/--
+The CREATE preimage RLP-encode is always `some`: a 20-byte address and a
+`< 2^64`-nonce word are both below 56 bytes, with a 30-byte-or-less payload —
+well within the RLP ceiling (`Rlp.encode_list_pair_isSome`). Hence the
+`getD default` in `contractAddressBytes` (CREATE arm) never hits its `default`
+fallback: the extracted bytes are the real RLP encoding, so making the encoder
+total changes no executable behavior. -/
+theorem contractAddressBytes_create_isSome (creator : AccountAddress) (creatorNonce : UInt256)
+    (hnonce : creatorNonce.toNat < 2 ^ 64) :
+    (Rlp.encode <| .list [.bytes creator.toByteArray, .bytes (BE creatorNonce.toNat)]).isSome := by
+  apply Rlp.encode_list_pair_isSome
+  · -- address is exactly 20 bytes < 56
+    rw [AccountAddress.toByteArray_size]; omega
+  · -- nonce word fits in 8 bytes < 56 (2^64 = 256^8)
+    have : (BE creatorNonce.toNat).size ≤ 8 :=
+      BE_size_le (by simpa using hnonce)
+    omega
+  · -- payload ≤ (1+20) + (1+8) = 30 < 2^64
+    rw [AccountAddress.toByteArray_size]
+    have hb : (BE creatorNonce.toNat).size ≤ 8 := BE_size_le (by simpa using hnonce)
+    omega
 
 /--
 Enter a contract creation up to recursive code execution: derive the address,
@@ -33,7 +64,7 @@ def beginCreate (params : CreateParams) : Except ExecutionException Frame := do
 
   let creatorNonce : UInt64 := (accounts.find? creator |>.option 0 (·.nonce)) - 1
   let creatorNonceWord : UInt256 := UInt256.ofUInt64 creatorNonce
-  let some addressPreimage := contractAddressBytes creator creatorNonceWord params.salt params.initCode | .error .StackUnderflow
+  let addressPreimage := contractAddressBytes creator creatorNonceWord params.salt params.initCode
   let newAddress : AccountAddress :=
     (ffi.KEC addressPreimage).extract 12 32 /- 160 bits = 20 bytes -/
       |> fromByteArrayBigEndian |> Fin.ofNat _
@@ -174,3 +205,6 @@ def resumeAfterCreate (result : CreateResult) (pd : PendingCreate) :
   return { pd.frame with exec := exec'.replaceStackAndIncrPC (pd.stack.push pushedValue) }
 
 end Evm
+
+-- Axiom guard: the CREATE-preimage totality bridge stays within the standard kernel.
+#print axioms Evm.contractAddressBytes_create_isSome

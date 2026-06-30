@@ -720,6 +720,37 @@ private def toBytes' : ℕ → List UInt8
 
 def toBytesBigEndian : ℕ → List UInt8 := List.reverse ∘ toBytes'
 
+/-- `toBytes' n` (little-endian byte digits of `n`) has at most `k` digits when
+`n < 256 ^ k`. Strong induction on `k` via the `n / 256` recursion of `toBytes'`. -/
+theorem toBytes'_length_le : ∀ (k n : ℕ), n < 256 ^ k → (toBytes' n).length ≤ k := by
+  intro k
+  induction k with
+  | zero =>
+    intro n h
+    simp only [pow_zero, Nat.lt_one_iff] at h
+    subst h
+    simp [toBytes']
+  | succ k ih =>
+    intro n h
+    match n with
+    | 0 => simp [toBytes']
+    | Nat.succ m =>
+      rw [toBytes']
+      simp only [List.length_cons]
+      have hdiv : (Nat.succ m) / UInt8.size < 256 ^ k := by
+        have hstep : (Nat.succ m) / 256 < 256 ^ (k + 1) / 256 :=
+          Nat.div_lt_div_of_lt_of_dvd ⟨256 ^ k, by ring⟩ h
+        have huint : UInt8.size = 256 := rfl
+        rw [huint]
+        simpa [pow_succ, Nat.mul_div_cancel] using hstep
+      have hih := ih _ hdiv
+      omega
+
+/-- The big-endian byte expansion of `n` has at most `k` bytes when `n < 256 ^ k`. -/
+theorem toBytesBigEndian_length_le {k n : ℕ} (h : n < 256 ^ k) :
+    (toBytesBigEndian n).length ≤ k := by
+  simpa [toBytesBigEndian] using toBytes'_length_le k n h
+
 -- | Zero-pad a list of bytes up to some length, adding the zeroes on the right.
 private def zeroPadBytes (n : ℕ) (bs : List UInt8) : List UInt8 :=
   bs ++ (List.replicate (n - bs.length)) 0
