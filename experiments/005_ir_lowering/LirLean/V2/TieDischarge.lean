@@ -3998,6 +3998,226 @@ theorem driveCorrPlus_run_stmts {prog : Program} {sloadChg : Tmp → ℕ} {obs :
   have hself : SelfPresent frT := selfPresent_runs_of_call hcall hdc.selfPresent hruns
   exact ⟨frT, hruns, hcorrT, hstk, hself, hdc.gasAligned, hdc.sloadAligned⟩
 
+/-! ### L2.0g — the GAS-ADVANCING `DriveCorrPlus` statement-walk (S3 producer)
+
+`driveCorrPlus_run_stmts` (above) is PRESERVATION-only: it black-boxes the per-cursor frames through
+`sim_stmts_block`, so it cannot grow the gas witness list `gasFrs` — it carries the alignment
+VERBATIM, leaving S3 (the gas positional VALUE) SUPPLIED. This section writes the re-architected walk
+`driveCorrPlus_run_stmts_gasadvance` that PEELS each cursor (mirroring `sim_stmts_drop`'s induction)
+and threads the gas alignment, GROWING it at each GAS cursor — so the S3 value tie is PRODUCED from
+the real `lower prog` run rather than supplied.
+
+The per-cursor dispatch is the classification hypothesis `GasCursorClass`: at each cursor the walk is
+told whether the statement is `assign t .gas` (a GAS cursor, with the GAS-op decode + gas envelope +
+the strictly-advancing `fr0 ≠ fr1` that lets `Runs.gas_cancel` factor the GAS head out) or NOT (the
+no-record arm). This is the honest per-cursor input the architect's plan dispatches on; it is
+satisfiable (a real lowered `assign t .gas` decodes to `GAS` at the segment head — `emitStmt_assign_slot`
+puts `materialise .gas = [GAS]` first — and the GAS op strictly advances the pc) and NON-vacuous (the
+GAS arm CONSUMES the supplied S4 lower bound to fire the brick, the non-GAS arm consumes nothing).
+
+The threaded reachability invariant is `GasReach`: the witness tail `Runs`-reaches the current cursor
+frame (vacuous at the empty seed, `Runs last fr0` once non-empty). The seedable gas snoc
+`gasLogAligned_step_gas_seed` handles BOTH the first GAS cursor (empty `gasFrs`, `FramesRun []`-seed)
+and the snoc case (non-empty, via `FramesRun.snoc`), so the walk needs no special first-cursor arm. -/
+
+/-- **`FramesRun` extends on the right, SEEDABLE.** Unlike `FramesRun.snoc` (which needs a non-empty
+list to supply `getLast?`), this admits the empty seed: appending `g` to `[]` gives `[g]`
+(`FramesRun [g] = True`), and to a non-empty list reachable-from-its-last gives the snoc. The
+hypothesis is `GasReach`-style: every `last` that is the list's `getLast?` reaches `g`. -/
+theorem FramesRun.snoc_seed {frs : List Frame} {g : Frame}
+    (hrun : FramesRun frs) (hreach : ∀ last, frs.getLast? = some last → Runs last g) :
+    FramesRun (frs ++ [g]) := by
+  cases frs with
+  | nil => exact trivial
+  | cons a tl =>
+    -- a non-empty list has `getLast? = some last` for some `last` (`getLast?_isSome`).
+    obtain ⟨last, hlast⟩ : ∃ last, (a :: tl).getLast? = some last := by
+      cases h : (a :: tl).getLast? with
+      | none => simp [List.getLast?_eq_none_iff] at h
+      | some last => exact ⟨last, rfl⟩
+    exact FramesRun.snoc hrun hlast (hreach _ hlast)
+
+/-- **The seedable per-op GAS-record step.** As `gasLogAligned_step_gas`, but the reachability
+hypothesis is the `GasReach`-style `∀ last, frs.getLast? = some last → Runs last (gasFrame current)`,
+so it covers BOTH the empty seed (`frs = []`, vacuous reachability, `FramesRun []`) and the snoc case.
+The appended word is the recorder's literal splice `gasReadOf (gasFrame current)`; the witness list
+grows by `gasFrame current`. -/
+theorem gasLogAligned_step_gas_seed {gasAcc : List Word} {frs : List Frame} {current : Frame}
+    {exec : ExecutionState}
+    (halign : GasLogAligned gasAcc frs)
+    (hreach : ∀ last, frs.getLast? = some last → Runs last (gasFrame current))
+    (hdec : decode current.exec.executionEnv.code current.exec.pc = some (.Smsf .GAS, .none))
+    (hsz : current.exec.stack.size + 1 ≤ 1024)
+    (hgas : GasConstants.Gbase ≤ current.exec.gasAvailable.toNat)
+    (hstep : stepFrame current = .next exec) :
+    GasLogAligned (gasAcc ++ [UInt256.ofUInt64 exec.gasAvailable]) (frs ++ [gasFrame current]) := by
+  obtain ⟨hreads, hrun⟩ := halign
+  refine ⟨?_, FramesRun.snoc_seed hrun hreach⟩
+  rw [List.map_append, ← hreads]
+  simp only [List.map_cons, List.map_nil]
+  rw [gasRecord_eq_gasReadOf current hdec hsz hgas hstep]
+
+/-- **The per-cursor GAS-channel reachability invariant.** The witness tail `Runs`-reaches the cursor
+frame: vacuously true at the empty seed (`frs = []`), and `Runs last fr0` once `frs` is non-empty.
+Threaded alongside `GasLogAligned` so the GAS arm can `FramesRun.snoc_seed` the new witness frame. -/
+def GasReach (frs : List Frame) (fr0 : Frame) : Prop :=
+  ∀ last, frs.getLast? = some last → Runs last fr0
+
+/-- `GasReach` transports forward along a `Runs fr0 fr0'` segment (`Runs.trans`). -/
+theorem GasReach.trans {frs : List Frame} {fr0 fr0' : Frame}
+    (h : GasReach frs fr0) (hseg : Runs fr0 fr0') : GasReach frs fr0' :=
+  fun last hl => Runs.trans (h last hl) hseg
+
+/-- **The per-cursor GAS classification (the walk's per-cursor dispatch input).** At cursor `pc`
+holding statement `s`, with `Corr` frame `fr0` and the per-cursor lowered segment `Runs fr0 fr1`
+(from `SimStmtStep`), the walk is told the cursor is EITHER a GAS cursor or not:
+
+* **`gas` arm** — `s = .assign t .gas` (`hs`), the segment head decodes to `GAS` at `fr0` (`hdec`),
+  the gas envelope `Gbase ≤ fr0.gas` holds (`hgas`, the S4 lower bound CONSUMED here), and the GAS op
+  strictly advances (`hne : fr0 ≠ fr1`, satisfiable since `GAS` is non-terminal). These are exactly
+  the inputs `Runs.gas_cancel` + `gasLogAligned_step_gas_seed` consume.
+* **`notgas` arm** — `∀ t, s ≠ .assign t .gas` (`hnotgas`): the no-record arm, carrying the alignment
+  verbatim.
+
+A real lowered run satisfies this at every cursor (the GAS arm at spilled-gas def-sites whose stash
+head is `[GAS]`, the non-GAS arm elsewhere); it is the per-cursor classification the (former)
+black-box walk could not see. -/
+inductive GasCursorClass (s : Stmt) (fr0 fr1 : Frame) : Prop where
+  | gas (t : Tmp) (hs : s = .assign t .gas)
+      (hdec : decode fr0.exec.executionEnv.code fr0.exec.pc = some (.Smsf .GAS, .none))
+      (hgas : GasConstants.Gbase ≤ fr0.exec.gasAvailable.toNat)
+      (hne : fr0 ≠ fr1) : GasCursorClass s fr0 fr1
+  | notgas (hnotgas : ∀ t, s ≠ .assign t .gas) : GasCursorClass s fr0 fr1
+
+/-- **L2.0g (general suffix form) — the GAS-advancing statement walk.** Mirrors `sim_stmts_drop`'s
+induction over the block suffix, but threads the gas alignment `GasLogAligned gasAcc gasFrs` together
+with the cursor-reachability `GasReach gasFrs fr` — GROWING the witness list at each GAS cursor. The
+per-cursor dispatch `GasCursorClass` (supplied uniformly over the block as `hclass`) tells the walk,
+for the SPECIFIC per-cursor frames the run reaches, whether to apply the gas snoc or carry verbatim.
+
+Output: the terminator frame `frT` (`Runs fr frT`, `Corr` at the terminator, stack-nil) together with
+the ADVANCED alignment `GasLogAligned gasAccF gasFrsF` whose witness list `gasFrsF` extends `gasFrs`
+and reaches `frT` (`GasReach gasFrsF frT`). The advanced accumulator `gasAccF` is the recorder's
+literal gas-read splices, so S3 is now PRODUCED (read off the witness pairing), not supplied. -/
+theorem driveCorrPlus_run_stmts_gasadvance_drop {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
+    {o : V2.CallOracle} {L : Label} {b : Block}
+    (hsim : SimStmtStep prog sloadChg obs o L b)
+    (hclass : ∀ (pc : Nat) (s : Stmt) (st0 st0' : V2.IRState) (T0 T0' : Trace) (fr0 fr1 : Frame),
+      b.stmts[pc]? = some s → Corr prog sloadChg obs st0 fr0 L pc →
+      EvalStmt prog o st0 T0 s st0' T0' → Runs fr0 fr1 →
+      Corr prog sloadChg obs st0' fr1 L (pc + 1) → fr1.exec.stack = [] →
+      GasCursorClass s fr0 fr1)
+    {ss : List Stmt} {st st' : V2.IRState} {T T' : Trace} {pc : Nat} {fr : Frame}
+    {gasAcc : List Word} {gasFrs : List Frame}
+    (hss : ss = b.stmts.drop pc)
+    (hcorr : Corr prog sloadChg obs st fr L pc)
+    (halign : GasLogAligned gasAcc gasFrs)
+    (hreach : GasReach gasFrs fr)
+    (hrun : V2.RunStmts prog o st T ss st' T') :
+    ∃ frT gasAccF gasFrsF, Runs fr frT
+      ∧ Corr prog sloadChg obs st' frT L (pc + ss.length)
+      ∧ frT.exec.stack = []
+      ∧ GasLogAligned gasAccF gasFrsF
+      ∧ GasReach gasFrsF frT := by
+  induction hrun generalizing pc fr gasAcc gasFrs with
+  | nil =>
+    exact ⟨fr, gasAcc, gasFrs, Runs.refl fr, by simpa using hcorr, hcorr.stack_nil,
+      halign, hreach⟩
+  | @cons st0 st1 st2 T0 T1 T2 s ss0 hh ht ih =>
+    -- the head statement `s` sits at cursor `pc`; the tail `ss0` is `b.stmts.drop (pc+1)`.
+    have hdrop : b.stmts.drop pc = s :: ss0 := hss.symm
+    have hget : b.stmts[pc]? = some s := by
+      have h0 : (b.stmts.drop pc)[0]? = some s := by rw [hdrop]; rfl
+      rwa [List.getElem?_drop, Nat.add_zero] at h0
+    have htail : ss0 = b.stmts.drop (pc + 1) := by
+      have hdd : (b.stmts.drop pc).drop 1 = b.stmts.drop (pc + 1) := List.drop_drop ..
+      rw [hdrop, List.drop_one, List.tail_cons] at hdd
+      exact hdd
+    -- Layer C: the per-cursor segment + Corr at pc+1 + stack-nil.
+    obtain ⟨fr1, hruns1, hcorr1, hstk1⟩ := hsim pc s st0 st1 T0 T1 fr hget hcorr hh
+    -- the per-cursor GAS classification, indexed to the reached `(fr, fr1)`.
+    have hcl : GasCursorClass s fr fr1 :=
+      hclass pc s st0 st1 T0 T1 fr fr1 hget hcorr hh hruns1 hcorr1 hstk1
+    -- dispatch: advance (GAS) or carry verbatim (non-GAS).
+    obtain ⟨gasAcc', gasFrs', halign', hreach'⟩ :
+        ∃ gasAcc' gasFrs', GasLogAligned gasAcc' gasFrs' ∧ GasReach gasFrs' fr1 := by
+      cases hcl with
+      | gas t hs hdec hgas hne =>
+        -- stack-size bound from `Corr.stack_nil` at the cursor frame `fr`.
+        have hsz : fr.exec.stack.size + 1 ≤ 1024 := by rw [hcorr.stack_nil]; decide
+        -- `stepFrame fr = .next (gasPost fr.exec)`, the GAS step.
+        have hstep : stepFrame fr = .next (BytecodeLayer.Dispatch.gasPost fr.exec) :=
+          BytecodeLayer.Dispatch.stepFrame_gas fr hdec hsz hgas
+        -- extend the alignment by `gasFrame fr` (seedable: empty or snoc).
+        have halignG :
+            GasLogAligned (gasAcc ++ [UInt256.ofUInt64 (BytecodeLayer.Dispatch.gasPost fr.exec).gasAvailable])
+              (gasFrs ++ [gasFrame fr]) := by
+          refine gasLogAligned_step_gas_seed halign ?_ hdec hsz hgas hstep
+          intro last hl; exact Runs.trans (hreach last hl) ((sim_gas fr hdec hsz hgas).1)
+        -- the GAS head is cancelled from the per-cursor segment: `Runs (gasFrame fr) fr1`.
+        have hgcancel : Runs (gasFrame fr) fr1 := Runs.gas_cancel hruns1 hdec hsz hgas hne
+        -- the new witness tail (`gasFrame fr`) reaches `fr1`.
+        refine ⟨_, _, halignG, ?_⟩
+        intro last hl
+        rw [List.getLast?_concat, Option.some.injEq] at hl
+        subst hl; exact hgcancel
+      | notgas hnotgas =>
+        -- carry verbatim; thread reachability forward across the cursor segment.
+        exact ⟨gasAcc, gasFrs, halign, hreach.trans hruns1⟩
+    -- recurse on the tail at cursor pc+1 with the advanced alignment.
+    obtain ⟨frT, gasAccF, gasFrsF, hrunsT, hcorrT, hstkT, halignF, hreachF⟩ :=
+      ih htail hcorr1 halign' hreach'
+    refine ⟨frT, gasAccF, gasFrsF, hruns1.trans hrunsT, ?_, hstkT, halignF, hreachF⟩
+    -- cursor arithmetic: pc + (1 + ss0.length) = (pc+1) + ss0.length.
+    have hlen : pc + (s :: ss0).length = (pc + 1) + ss0.length := by
+      simp only [List.length_cons]; omega
+    rwa [hlen]
+
+/-- **L2.0g (whole-block form) — the GAS-advancing walk from `DriveCorrPlus`.** The `pc = 0`,
+empty-seed instance: from `DriveCorrPlus` at the block boundary (seed `gasAcc = gasFrs = []`,
+`GasReach []` vacuous), the block run, the per-statement simulation `SimStmtStep`, and the per-cursor
+classification `hclass`, reach the terminator frame `frT` carrying the ADVANCED gas alignment
+`GasLogAligned gasAccF gasFrsF` (witness list grown at each GAS cursor) with `GasReach gasFrsF frT`.
+The SLOAD alignment is carried VERBATIM from the boundary (its advance is the deferred SLOAD twin).
+S3 is now PRODUCED from `gasFrsF` via `aligned_read_eq_obs` (see `driveCorrPlus_gasval_of_witness`),
+not supplied. -/
+theorem driveCorrPlus_run_stmts_gasadvance {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
+    {o : V2.CallOracle} {st st' : V2.IRState} {T T' : Trace} {L : Label} {b : Block} {fr : Frame}
+    {sloadAcc : List Nat} {sloadFrs : List Frame}
+    (hdc : DriveCorrPlus prog sloadChg obs st fr L [] [] sloadAcc sloadFrs)
+    (hrun : V2.RunStmts prog o st T b.stmts st' T')
+    (hsim : SimStmtStep prog sloadChg obs o L b)
+    (hclass : ∀ (pc : Nat) (s : Stmt) (st0 st0' : V2.IRState) (T0 T0' : Trace) (fr0 fr1 : Frame),
+      b.stmts[pc]? = some s → Corr prog sloadChg obs st0 fr0 L pc →
+      EvalStmt prog o st0 T0 s st0' T0' → Runs fr0 fr1 →
+      Corr prog sloadChg obs st0' fr1 L (pc + 1) → fr1.exec.stack = [] →
+      GasCursorClass s fr0 fr1) :
+    ∃ frT gasAccF gasFrsF, Runs fr frT
+      ∧ Corr prog sloadChg obs st' frT L b.stmts.length
+      ∧ frT.exec.stack = []
+      ∧ GasLogAligned gasAccF gasFrsF
+      ∧ GasReach gasFrsF frT
+      ∧ SloadLogAligned sloadAcc sloadFrs := by
+  obtain ⟨frT, gasAccF, gasFrsF, hrunsT, hcorrT, hstkT, halignF, hreachF⟩ :=
+    driveCorrPlus_run_stmts_gasadvance_drop hsim hclass (by simp) hdc.base.corr
+      gasLogAligned_nil (by intro last hl; simp at hl) hrun
+  simp only [Nat.zero_add] at hcorrT
+  exact ⟨frT, gasAccF, gasFrsF, hrunsT, hcorrT, hstkT, halignF, hreachF, hdc.sloadAligned⟩
+
+/-- **S3 PRODUCED — the gas positional VALUE at a GAS witness frame.** From the ADVANCED alignment
+`GasLogAligned gasAccF gasFrsF` the gas walk delivers, the positional read at a GAS witness frame is
+its `obs` value: at index `i` whose witness is `gasFrame fr`, `gasAccF[i] = ofUInt64 (fr.gas − Gbase)`
+(`aligned_read_eq_obs`). This is the S3 tie (`stpc'.locals t = ofUInt64 (frpc.gas − Gbase)`) read off
+the produced alignment — the trace↔recorder bridge the former walk left SUPPLIED, now DERIVED from the
+real `lower prog` run's witness pairing. `gasReadOf_gasFrame_eq_obs` (the `rfl` value bridge) is folded
+inside `aligned_read_eq_obs`. -/
+theorem driveCorrPlus_gasval_of_witness {gasAccF : List Word} {gasFrsF : List Frame} {i : Nat}
+    {fr : Frame}
+    (halign : GasLogAligned gasAccF gasFrsF)
+    (hwit : gasFrsF[i]? = some (gasFrame fr)) :
+    gasAccF[i]? = some (UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat Gbase)) :=
+  aligned_read_eq_obs halign hwit
+
 /-! ## §8 — the halt wrappers (Tier 2 / C4): `driveCorrPlus_step_stop` / `_ret`
 
 The halt-arm analogues of `drive_step_block_stop`/`drive_step_block_ret` (`DriveSim.lean`), but
@@ -4378,6 +4598,12 @@ end Lir.V2
 #print axioms Lir.V2.driveCorrPlus_sload_value
 #print axioms Lir.V2.driveCorrPlus_sload_value_world
 #print axioms Lir.V2.driveCorrPlus_run_stmts
+-- L2.0g: the GAS-advancing walk (S3 producer) + its seedable bricks + the S3 read-off.
+#print axioms Lir.V2.FramesRun.snoc_seed
+#print axioms Lir.V2.gasLogAligned_step_gas_seed
+#print axioms Lir.V2.driveCorrPlus_run_stmts_gasadvance_drop
+#print axioms Lir.V2.driveCorrPlus_run_stmts_gasadvance
+#print axioms Lir.V2.driveCorrPlus_gasval_of_witness
 -- C4: the new account-map non-emptiness fact + the two halt wrappers (T1/T2).
 #print axioms Lir.V2.forM_from_nil
 #print axioms Lir.V2.all2_nil_false
