@@ -16,6 +16,7 @@ import LirLean.DecodeLower
 import LirLean.Layout
 import LirLean.SmallStep
 import LirLean.Call
+import LirLean.Create
 import LirLean.Match
 -- Layer A of the `lower_conforms` grind: decode-at-cursor anchors (A1–A3) —
 -- statement-head / arbitrary-offset / terminator decode facts over `lower prog`.
