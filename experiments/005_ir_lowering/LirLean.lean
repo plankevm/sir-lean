@@ -80,3 +80,7 @@ import LirLean.V2.DriveSim
 -- non-vacuity proof). Kept in the build cone so the retired `SloadRealises`/`GasRealises` universals
 -- remain machine-checked as the regression witnesses they were demoted to (Phase B/C).
 import LirLean.V2.HonestGasTie
+-- Track 1 (EXTRACTOR): clean-halting ⟹ per-cursor gas/mem envelopes. The forward-from-real-run
+-- producer that discharges the §7 ties' supplied gas/mem side-conditions from the drive thread's
+-- entry clean-halt (`CleanHaltsSuccess` + per-op `.next`-inversion + the stash envelope family).
+import LirLean.CleanHaltExtract
