@@ -76,16 +76,40 @@ well-foundedness witness threaded through the drive recursion. -/
 def CleanHalts (fr : Frame) : Prop :=
   ∃ last halt, Runs fr last ∧ stepFrame last = .halted halt
 
+/-- A `FrameHalt` is **non-exception** iff it is not an `.exception`. -/
+def HaltNonException : Evm.FrameHalt → Prop
+  | .exception _ => False
+  | _ => True
+
+/-- A `.success` terminal is non-exception. -/
+theorem haltNonException_success (e : Evm.ExecutionState) (o : ByteArray) :
+    HaltNonException (.success e o) := trivial
+
+/-- A `.revert` terminal is non-exception. -/
+theorem haltNonException_revert (g : UInt64) (o : ByteArray) :
+    HaltNonException (.revert g o) := trivial
+
+/-- **Clean-halt to a non-exception terminal.** `fr` reaches, by a `Runs` path, a frame `last`
+that halts to a **non-exception** outcome (`.success` or `.revert`, NOT `.exception`). This is the
+form the drive thread's §7 ties need: the conformance walk reaches its terminal cleanly (a
+`RETURN`/`STOP` epilogue, or a `REVERT` — never a genuine OOG/exception, which the gas-agnostic IR
+cannot model). It forgets to the weaker `CleanHalts` (`cleanHaltsNonException_toCleanHalts`). -/
+def CleanHaltsNonException (fr : Frame) : Prop :=
+  ∃ last halt, Runs fr last ∧ stepFrame last = .halted halt ∧ HaltNonException halt
+
 /-- **The drive-boundary invariant `DriveCorr`.** At a block-entry frame (working stack `[]`),
 the bytecode frame `fr` is `Corr`-aligned with the IR cursor `(L, st)` at the entry cursor
-`(L, 0)`, and `fr`'s remaining run clean-halts. The recursion measure is `fr`'s `totalGas`
-(`totalGas [] (.inl fr) = fr.exec.gasAvailable.toNat`, `driveCorr_measure`). -/
+`(L, 0)`, and `fr`'s remaining run clean-halts to a **non-exception** terminal. The recursion
+measure is `fr`'s `totalGas` (`totalGas [] (.inl fr) = fr.exec.gasAvailable.toNat`,
+`driveCorr_measure`). The non-exception strengthening (over the bare `CleanHalts`) is what lets the
+per-cursor §7 extractor (`CleanHaltExtract`) DERIVE each lowered opcode's gas/mem envelope — a
+genuine OOG/exception run, un-modellable by the gas-agnostic IR, is the honest scope boundary. -/
 structure DriveCorr (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
     (st : V2.IRState) (fr : Frame) (L : Label) : Prop where
   /-- The `Corr` boundary at the block-entry cursor `(L, 0)`. -/
   corr : Corr prog sloadChg obs st fr L 0
-  /-- `fr`'s remaining bytecode run reaches a clean `.halted` outcome (the measure is finite). -/
-  cleanHalts : CleanHalts fr
+  /-- `fr`'s remaining bytecode run reaches a clean **non-exception** `.halted` outcome. -/
+  cleanHalts : CleanHaltsNonException fr
 
 /-- **The drive measure is `gasAvailable`.** At a block-entry frame (empty pending stack), the
 `totalGas` measure of `Measure.lean` collapses to the frame's own `gasAvailable.toNat` — the
@@ -111,22 +135,51 @@ theorem cleanHalts_forward {fr fj : Frame}
   obtain ⟨last, halt, hto, hhalt⟩ := hclean
   exact ⟨last, halt, Runs.linear_to_halt hhalt hto hreach, hhalt⟩
 
+/-- **The forward non-exception clean-halt split.** The `CleanHaltsNonException` analogue of
+`cleanHalts_forward`: if `fr` clean-halts non-exceptionally (at terminal `last`) and `Runs fr fj`,
+then `fj` clean-halts non-exceptionally — reaching the **same** `last` (so the same non-exception
+witness). The drive recursion threads a single whole-run non-exception clean-halt witness from the
+entry frame and propagates it to each block successor through this lemma. -/
+theorem cleanHaltsNonException_forward {fr fj : Frame}
+    (hclean : CleanHaltsNonException fr) (hreach : Runs fr fj) : CleanHaltsNonException fj := by
+  obtain ⟨last, halt, hto, hhalt, hne⟩ := hclean
+  exact ⟨last, halt, Runs.linear_to_halt hhalt hto hreach, hhalt, hne⟩
+
+/-- **Forget the non-exception witness.** A non-exception clean-halt is in particular a clean-halt,
+so the existing `CleanHalts` consumers (the `totalGas` measure, the drive recursion) still see the
+weak form. -/
+theorem cleanHaltsNonException_toCleanHalts {fr : Frame}
+    (h : CleanHaltsNonException fr) : CleanHalts fr := by
+  obtain ⟨last, halt, hto, hhalt, _⟩ := h
+  exact ⟨last, halt, hto, hhalt⟩
+
+/-- **`.success` clean-halt ⟹ `CleanHaltsNonException`.** The success-only case (the drive
+thread's `RETURN`/`STOP` epilogue) is the canonical non-exception clean-halt; kept derivable so
+success-specific callers can build the witness. -/
+theorem cleanHaltsNonException_of_success {fr last : Frame} {e : Evm.ExecutionState}
+    {o : ByteArray} (hto : Runs fr last) (hhalt : stepFrame last = .halted (.success e o)) :
+    CleanHaltsNonException fr :=
+  ⟨last, .success e o, hto, hhalt, haltNonException_success e o⟩
+
 /-! ## §2.2 — `hclean` discharged from the clean-halt outcome (`drive → Runs`)
 
-The entry `CleanHalts fr₀` is no longer a raw hypothesis: it is **derived** from the honest scope
-boundary — the recording interpreter reaching a clean `.halted` outcome,
-`runWithLog params (seedFuel params.gas) = some log`. `runWithLog_drive` (`V2/RunLog.lean`) pins
-the verified `drive (seedFuel params.gas) [] (running fr₀) = .ok log.observable`; the reverse
-construction `runs_of_drive_ok` (`V2/DriveRuns.lean`) reconstructs the halting `Runs fr₀ last` from
-that clean termination, under the `Runs`-modellability side condition (every reachable frame issues
-a code CALL or a halt — no CREATE / precompile-CALL, discharged structurally for `lower prog`). -/
+The entry `CleanHaltsNonException fr₀` is no longer a raw hypothesis: it is **derived** from the
+honest scope boundary — the recording interpreter reaching a clean `.halted` outcome,
+`runWithLog params (seedFuel params.gas) = some log`, *plus* the non-exception scope premise `hne`
+(the recorded outcome is `.success`/`.revert`, not OOG/exception). `runWithLog_drive`
+(`V2/RunLog.lean`) pins the verified `drive (seedFuel params.gas) [] (running fr₀) = .ok
+log.observable`; the reverse construction `runs_of_drive_ok` (`V2/DriveRuns.lean`) reconstructs the
+halting `Runs fr₀ last` from that clean termination, under the `Runs`-modellability side condition
+(every reachable frame issues a code CALL or a halt — no CREATE / precompile-CALL, discharged
+structurally for `lower prog`). -/
 
 /-- **`hclean` from the clean-halt outcome.** From `runWithLog params (seedFuel params.gas) = some
 log` (the run reaches a clean `.halted` outcome) and `beginCall params = .inl fr₀` (the entry
-frame), the entry frame `CleanHalts`. The `drive → Runs` reverse construction (`runs_of_drive_ok`)
-reconstructs the halting `Runs` from the verified `drive` outcome `runWithLog_drive` pins, under the
-`Runs`-modellability of every reachable frame — which is **no longer a raw supplied universal**: it
-is **produced** by `lower_modellable` (`V2/Modellable.lean`) from the two per-frame clauses
+frame), the entry frame `CleanHaltsNonException`. The `drive → Runs` reverse construction
+(`runs_of_drive_ok`) reconstructs the halting `Runs` from the verified `drive` outcome
+`runWithLog_drive` pins, under the `Runs`-modellability of every reachable frame — which is **no
+longer a raw supplied universal**: it is **produced** by `lower_modellable` (`V2/Modellable.lean`)
+from the two per-frame clauses
 
 * `NotCreate` — the current op is never `CREATE`/`CREATE2`. This is **no longer supplied**: it is
   **discharged structurally** by `notCreate_of_atReachableBoundary` from the strictly-weaker
@@ -140,14 +193,22 @@ is **produced** by `lower_modellable` (`V2/Modellable.lean`) from the two per-fr
 
 `lower_modellable` discharges the `runs_of_drive_ok` modellability universal from `hrb`/`hcc` via
 the proved structural reductions (`notCreate_of_atReachableBoundary`,
-`stepFrame_needsCreate_isCreate`, `beginCall_isCode_of_codeSource_ne_precompiled`). -/
+`stepFrame_needsCreate_isCreate`, `beginCall_isCode_of_codeSource_ne_precompiled`).
+
+The **non-exception scope premise** `hne` is the visible, approved scope boundary: the recorded
+interpreter outcome routes *any* halt (including `.exception`) to `.ok`, so the reverse
+construction alone cannot tell a `.success`/`.revert` terminal from an OOG/exception one. `hne`
+records that the run's (linearly-unique) terminal is non-exception — exactly the runs the
+gas-agnostic IR can model. It is discharged trivially for any program proved to reach a
+`.success`/`.revert` epilogue. -/
 theorem cleanHalts_of_runWithLog {prog : Lir.Program} {params : Evm.CallParams} {fr₀ : Frame}
     {log : RunLog}
     (hlog : runWithLog params (Evm.seedFuel params.gas) = some log)
     (hbegin : Evm.beginCall params = .inl fr₀)
     (hrb : ∀ fr', Runs fr₀ fr' → BytecodeLayer.Interpreter.AtReachableBoundary prog fr')
-    (hcc : ∀ fr', Runs fr₀ fr' → BytecodeLayer.Interpreter.CallsCode fr') :
-    CleanHalts fr₀ := by
+    (hcc : ∀ fr', Runs fr₀ fr' → BytecodeLayer.Interpreter.CallsCode fr')
+    (hne : ∀ last halt, Runs fr₀ last → stepFrame last = .halted halt → HaltNonException halt) :
+    CleanHaltsNonException fr₀ := by
   obtain ⟨frame, hbc, hdrive⟩ := runWithLog_drive hlog
   -- `beginCall` pins the entry frame: `frame = fr₀`.
   rw [hbegin] at hbc
@@ -158,7 +219,7 @@ theorem cleanHalts_of_runWithLog {prog : Lir.Program} {params : Evm.CallParams} 
   obtain ⟨last, halt, hruns, hhalt, _⟩ :=
     BytecodeLayer.Interpreter.runs_of_drive_ok (Evm.seedFuel params.gas) fr₀ log.observable
       hdrive (BytecodeLayer.Interpreter.lower_modellable hrb hcc)
-  exact ⟨last, halt, hruns, hhalt⟩
+  exact ⟨last, halt, hruns, hhalt, hne last halt hruns hhalt⟩
 
 /-! ## §3 — The strict `totalGas` descent across a block (the KEY new content)
 
@@ -340,8 +401,8 @@ theorem drive_step_block_jump {prog : Program} {sloadChg : Tmp → ℕ} {obs : W
   -- the bytecode forward run to the successor entry frame `jumpdestFrame fj`.
   have hfrrun : Runs fr (jumpdestFrame fj) := (hrunsT.trans hfjrun).trans hjdrun
   -- DERIVE the successor clean-halt from `fr`'s (the forward split — was supplied).
-  have hcleanSucc : CleanHalts (jumpdestFrame fj) :=
-    cleanHalts_forward hdrive.cleanHalts hfrrun
+  have hcleanSucc : CleanHaltsNonException (jumpdestFrame fj) :=
+    cleanHaltsNonException_forward hdrive.cleanHalts hfrrun
   refine ⟨fj, hfrrun, ⟨hjdcorr, hcleanSucc⟩, ?_, ?_⟩
   · -- strict `totalGas` descent across the block (the JUMPDEST drop).
     exact totalGas_succ_lt (hrunsT.trans hfjrun) hfjgas
@@ -426,8 +487,8 @@ theorem drive_step_block_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs :
   -- the bytecode forward run to the successor entry frame `jumpdestFrame fj`.
   have hfrrun : Runs fr (jumpdestFrame fj) := (hrunsT.trans hfjrun).trans hjdrun
   -- DERIVE the successor clean-halt from `fr`'s (the forward split).
-  have hcleanSucc : CleanHalts (jumpdestFrame fj) :=
-    cleanHalts_forward hdrive.cleanHalts hfrrun
+  have hcleanSucc : CleanHaltsNonException (jumpdestFrame fj) :=
+    cleanHaltsNonException_forward hdrive.cleanHalts hfrrun
   refine ⟨succ, fj, hfrrun, ⟨hjdcorr, hcleanSucc⟩, totalGas_succ_lt (hrunsT.trans hfjrun) hfjgas,
     ?_⟩
   -- the IR continuation: prepend this block's `RunStmts` + the firing `branch` terminator.
@@ -625,9 +686,11 @@ to the bytecode halt's world. -/
 theorem lower_conforms_cyclic {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {o : V2.CallOracle} {self : AccountAddress}
     {st₀ : V2.IRState} {T : Trace} {fr₀ : Frame}
-    -- the entry boundary: `Corr` at `(prog.entry, 0)` + the run clean-halts (honest scope).
+    -- the entry boundary: `Corr` at `(prog.entry, 0)` + the run clean-halts NON-EXCEPTIONALLY
+    -- (honest scope: the run reaches a `.success`/`.revert` terminal — not a genuine
+    -- OOG/exception, which the gas-agnostic IR cannot model).
     (hentry : Corr prog sloadChg obs st₀ fr₀ prog.entry 0)
-    (hclean : CleanHalts fr₀)
+    (hclean : CleanHaltsNonException fr₀)
     -- the per-block drive obligation at every reachable boundary (the §7 ties, supplied):
     (hstep : ∀ (st : V2.IRState) (fr : Frame) (L : Label) (T : Trace),
       DriveCorr prog sloadChg obs st fr L → DriveStep prog sloadChg obs o st fr L T)
@@ -666,7 +729,7 @@ theorem lower_conforms_cyclic' {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
     {o : V2.CallOracle} {self : AccountAddress}
     {st₀ : V2.IRState} {T : Trace} {fr₀ : Frame}
     (hentry : Corr prog sloadChg obs st₀ fr₀ prog.entry 0)
-    (hclean : CleanHalts fr₀)
+    (hclean : CleanHaltsNonException fr₀)
     -- static operand-definability (benign well-formedness — NOT `CFGAcyclic`):
     (hdef : RunDefinable prog)
     -- block presence at every reachable boundary (the CFG is closed; `Corr`'s `pc_eq` alone does
@@ -742,6 +805,9 @@ end Lir.V2
 -- on `[propext, Classical.choice, Quot.sound]`.
 #print axioms Lir.V2.driveCorr_measure
 #print axioms Lir.V2.cleanHalts_forward
+#print axioms Lir.V2.cleanHaltsNonException_forward
+#print axioms Lir.V2.cleanHaltsNonException_toCleanHalts
+#print axioms Lir.V2.cleanHaltsNonException_of_success
 #print axioms Lir.V2.cleanHalts_of_runWithLog
 #print axioms Lir.V2.jumpdestFrame_gas_lt
 #print axioms Lir.V2.totalGas_succ_lt

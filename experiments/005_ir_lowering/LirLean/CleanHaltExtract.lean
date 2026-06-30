@@ -49,7 +49,7 @@ open BytecodeLayer
 open BytecodeLayer.Hoare
 open BytecodeLayer.Dispatch
 
-/-! ## §0 — `CleanHaltsNonException`: the non-exception strengthening of `CleanHalts`
+/-! ## §0 — `CleanHaltsNonException` (defined in `V2/DriveSim.lean`)
 
 `CleanHalts` allows the run to reach **any** `.halted` outcome, including `.exception` (a genuine
 OOG/exception run, which the gas-agnostic IR cannot model). The §7 ties only ever fire on a run
@@ -58,52 +58,13 @@ that reaches its terminal **cleanly** — a `.success` (`RETURN`/`STOP` epilogue
 core argument needs: the terminal is **not** `.exception`. A continuing op's only `.halted` is
 `.exception`, so a cursor frame can never coincide with a non-exception terminal — it must step.
 
-So we strengthen along `terminal ≠ .exception` (which keeps REVERT runs in conformance scope); the
-success-only case stays derivable via `cleanHaltsNonException_of_success`. -/
+`CleanHaltsNonException` (and its forward split `cleanHaltsNonException_forward`, the weakening
+`cleanHaltsNonException_toCleanHalts`, and the success special case
+`cleanHaltsNonException_of_success`) live in `V2/DriveSim.lean` — they are the type of the
+`DriveCorr.cleanHalts` field this extractor consumes, so they must sit upstream of the drive walk.
+Open `Lir.V2` brings them into scope here. -/
 
-/-- A `FrameHalt` is **non-exception** iff it is not an `.exception`. -/
-def HaltNonException : FrameHalt → Prop
-  | .exception _ => False
-  | _ => True
-
-/-- A `.success` terminal is non-exception. -/
-theorem haltNonException_success (e : ExecutionState) (o : ByteArray) :
-    HaltNonException (.success e o) := trivial
-
-/-- A `.revert` terminal is non-exception. -/
-theorem haltNonException_revert (g : UInt64) (o : ByteArray) :
-    HaltNonException (.revert g o) := trivial
-
-/-- **Clean-halt to a non-exception terminal.** `fr` reaches, by a `Runs` path, a frame `last`
-that halts to a **non-exception** outcome (`.success` or `.revert`). This is the form the §7 ties
-actually need: the conformance walk's drive thread reaches its terminal cleanly (a `RETURN`/`STOP`
-epilogue, or a `REVERT` — never a genuine OOG/exception, which the gas-agnostic IR cannot model).
-It forgets to the weaker `CleanHalts` (`cleanHaltsNonException_toCleanHalts`). -/
-def CleanHaltsNonException (fr : Frame) : Prop :=
-  ∃ last halt, Runs fr last ∧ stepFrame last = .halted halt ∧ HaltNonException halt
-
-/-- **The forward clean-halt split.** Mirror of `cleanHalts_forward` (`V2/DriveSim.lean`): if `fr`
-clean-halts non-exceptionally (at terminal `last`) and `Runs fr fj`, then `fj` clean-halts
-non-exceptionally — reaching the **same** `last` via `Runs.linear_to_halt`. -/
-theorem cleanHaltsNonException_forward {fr fj : Frame}
-    (h : CleanHaltsNonException fr) (hr : Runs fr fj) : CleanHaltsNonException fj := by
-  obtain ⟨last, halt, hto, hhalt, hne⟩ := h
-  exact ⟨last, halt, Runs.linear_to_halt hhalt hto hr, hhalt, hne⟩
-
-/-- **Forget the non-exception witness.** A clean-halt-to-non-exception is in particular a
-clean-halt, so existing `CleanHalts` consumers still see the weak form. -/
-theorem cleanHaltsNonException_toCleanHalts {fr : Frame}
-    (h : CleanHaltsNonException fr) : Lir.V2.CleanHalts fr := by
-  obtain ⟨last, halt, hto, hhalt, _⟩ := h
-  exact ⟨last, halt, hto, hhalt⟩
-
-/-- **`CleanHaltsSuccess` ⟹ `CleanHaltsNonException`.** The success-only form (the drive thread's
-`RETURN`/`STOP` epilogue) is the canonical non-exception clean-halt; kept as a derived special
-case so success-specific callers can supply the stronger fact. -/
-theorem cleanHaltsNonException_of_success {fr last : Frame} {e : ExecutionState} {o : ByteArray}
-    (hto : Runs fr last) (hhalt : stepFrame last = .halted (.success e o)) :
-    CleanHaltsNonException fr :=
-  ⟨last, .success e o, hto, hhalt, haltNonException_success e o⟩
+open Lir.V2 (CleanHaltsNonException cleanHaltsNonException_forward HaltNonException)
 
 /-! ## §1 — per-op OOG / `.next`-inversion bricks
 
@@ -627,10 +588,10 @@ theorem sload_envelope_of_cleanHalt
 
 end Lir.CleanHaltExtract
 
--- Axiom-cleanliness guards (§0).
-#print axioms Lir.CleanHaltExtract.cleanHaltsNonException_forward
-#print axioms Lir.CleanHaltExtract.cleanHaltsNonException_toCleanHalts
-#print axioms Lir.CleanHaltExtract.cleanHaltsNonException_of_success
+-- Axiom-cleanliness guards (§0 — predicate lives in `V2/DriveSim.lean`).
+#print axioms Lir.V2.cleanHaltsNonException_forward
+#print axioms Lir.V2.cleanHaltsNonException_toCleanHalts
+#print axioms Lir.V2.cleanHaltsNonException_of_success
 -- Axiom-cleanliness guards (§1).
 #print axioms Lir.CleanHaltExtract.stepFrame_gas_oog
 #print axioms Lir.CleanHaltExtract.stepFrame_gas_inv

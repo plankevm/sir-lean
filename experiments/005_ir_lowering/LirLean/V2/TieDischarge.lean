@@ -4424,8 +4424,8 @@ theorem driveCorrPlus_step_jump {prog : Program} {sloadChg : Tmp → ℕ} {obs :
   -- the bytecode forward run to the successor entry frame `jumpdestFrame fj`.
   have hfrrun : Runs fr (jumpdestFrame fj) := (hrunsT.trans hfjrun).trans hjdrun
   -- DERIVE the successor clean-halt from the boundary's (the forward split).
-  have hcleanSucc : CleanHalts (jumpdestFrame fj) :=
-    cleanHalts_forward hdc.base.cleanHalts hfrrun
+  have hcleanSucc : CleanHaltsNonException (jumpdestFrame fj) :=
+    cleanHaltsNonException_forward hdc.base.cleanHalts hfrrun
   -- re-establish `DriveCorrPlus` at the successor: base from the landing, `SelfPresent` via the
   -- P3 hop along the SAME `hfrrun`, alignment carried VERBATIM from the boundary.
   refine ⟨fj, hfrrun,
@@ -4497,8 +4497,8 @@ theorem driveCorrPlus_step_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs
   -- the bytecode forward run to the successor entry frame `jumpdestFrame fj`.
   have hfrrun : Runs fr (jumpdestFrame fj) := (hrunsT.trans hfjrun).trans hjdrun
   -- DERIVE the successor clean-halt from the boundary's (the forward split).
-  have hcleanSucc : CleanHalts (jumpdestFrame fj) :=
-    cleanHalts_forward hdc.base.cleanHalts hfrrun
+  have hcleanSucc : CleanHaltsNonException (jumpdestFrame fj) :=
+    cleanHaltsNonException_forward hdc.base.cleanHalts hfrrun
   -- re-establish `DriveCorrPlus` at the taken successor, exactly as in the `jump` arm.
   refine ⟨succ, fj, hfrrun,
     { base := ⟨hjdcorr, hcleanSucc⟩
