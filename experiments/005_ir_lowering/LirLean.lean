@@ -25,6 +25,11 @@ import LirLean.DecodeAnchors
 -- E1 `sim_term_halt` (stop/ret halt, world channel) + E2 `sim_term_edge` (jump/branch
 -- to the successor block's entry, re-establishing `Corr` at `(succ, 0)`).
 import LirLean.SimTerm
+-- The boundary-reachability bricks (BOUNDARY): the converse of
+-- `mem_validJumpDests_of_reachable_jumpdest` (a recorded jump destination is a reachable
+-- boundary) and intermediate-boundary reachability from a `SegAligned` whole-program segment.
+-- Feed the whole-run `AtReachableBoundary` invariant (`V2/BoundaryReach.lean`).
+import LirLean.BoundaryReach
 -- Layer B of the `lower_conforms` grind: B2 gas-charge envelope, B3 recompute
 -- soundness (DefsSound), and B1 `materialise_runs` (the linchpin — pure-arithmetic
 -- value channel + B2 gas contract).
