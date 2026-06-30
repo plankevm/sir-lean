@@ -1,19 +1,35 @@
 import LirLean.NoCreateBytes
 
 /-!
-# LirLean — boundary-reachability of valid jump destinations and segment prefixes
+# LirLean — boundary-reachability bricks for the whole-run `AtReachableBoundary` invariant
 
-This module supplies the two reachability bricks the whole-run boundary invariant
-(`AtReachableBoundary`, `V2/Modellable.lean`) needs beyond `JumpValid.lean`:
+The whole-run boundary invariant the modellability producer needs is
+`∀ fr', Runs (codeFrame params (lower prog)) fr' → AtReachableBoundary prog fr'`
+(`hrb` of `BytecodeLayer.Interpreter.lower_modellable`, `V2/Modellable.lean`):
+every `Runs`-reachable frame sits at an instruction boundary reachable from `0` and in range.
+Proving it is a `Runs`-induction whose `step`/`call` cases need three reachability facts beyond
+`JumpValid.lean` / `NoCreateBytes.lean`; this module supplies all three:
 
-* **the converse of `mem_validJumpDests_of_reachable_jumpdest`** — every recorded jump
-  destination `x ∈ validJumpDests c 0` is itself a `ReachesBoundary c 0` boundary (it was
-  pushed at a boundary the scan reached). This is what turns a taken `JUMP`/`JUMPI` (whose
-  `new_pc ∈ fr.validJumps`) back into a `ReachesBoundary` witness.
-* **intermediate-boundary reachability from a `SegAligned` whole-program segment** — if a
-  prefix of the aligned segment is itself aligned and ends at offset `n`, the boundary walk
-  reaches `n`. This is what turns a *sequential* `stepFrame` advance (pc → next instruction
-  boundary) back into a `ReachesBoundary` witness.
+* **`reachesBoundary_of_mem_validJumpDests`** — the *converse* of
+  `mem_validJumpDests_of_reachable_jumpdest`: every recorded jump destination
+  `x ∈ validJumpDests c 0` is itself a `ReachesBoundary c 0` boundary (it was pushed at a boundary
+  the scan reached). Turns a taken `JUMP`/`JUMPI` (`new_pc ∈ fr.validJumps`) back into a
+  `ReachesBoundary` witness.
+* **`reachesBoundary_nextInstr`** — the *sequential* (fall-through) advance: a reached boundary
+  whose byte decodes extends to the next instruction's boundary `nextInstrPosNat n (parseInstr
+  byte)`. Turns a non-jump `stepFrame` advance back into a `ReachesBoundary` witness.
+* **`decode_reachable_boundary_loweringOp`** — at any reachable in-range boundary the decoded op
+  is one of the 16 lowering opcodes (`IsLoweringOp`). The `SegAlignedLowering` allow-list transport
+  (mirrors `NoCreateBytes`); it *scopes* the per-step pc-advance case analysis to the emitted set.
+
+REMAINING (the `Runs`-induction itself, not yet landed): the per-step pc inversion
+`stepFrame fr = .next e → e.pc.toNat` is either `nextInstrPosNat n (decoded op)` (sequential) or a
+`fr.validJumps` member (taken JUMP/JUMPI), case-analysed over the 16 `IsLoweringOp` arms (the
+`stepFrame_next_self` / `dispatch_next_self` template of `V2/TieDischarge.lean`, mirrored for the
+pc component); plus the in-range `e.pc.toNat < (flatBytes prog).length` preservation. With those,
+the base case (`codeFrame` pc = 0, `ReachesBoundary.refl`) and the `call` case
+(`resumeAfterCall` pc = call-site pc + 1, the byte after CALL) close the induction via the three
+bricks above.
 
 No `sorry`, no `axiom`, no `native_decide`.
 -/
