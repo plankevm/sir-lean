@@ -819,9 +819,11 @@ SLOAD/PUSH/MSTORE decode anchors are read off the byte layout (`matDec_of_lower`
 the opaque run is **gone**. `sim_assign_sload_lowered` still *consumes* the runtime
 SLOAD-warmth/PUSH/MSTORE gas + memory-expansion-witness side-conditions as `hresid` (keyed on the
 post-materialise frame `frk`); but at the conformance walk (`simStmtStep_block`) those are DERIVED
-from the per-cursor clean-halt witness via `sload_envelope_of_cleanHalt` — only the activeWords-
+from the per-cursor clean-halt witness via `sload_envelope_of_cleanHalt` — and the key-prefix gas
+fold is likewise DERIVED from that witness via `materialise_runs_of_cleanHalt`. Only the activeWords-
 flatness `hawk` (materialising the key did not expand memory — a memory-shape fact), the key-prefix
-gas/stack fold, the slot addressability, and the post-state scoping remain supplied. -/
+**stack-room** fold `hstkKey` (a stack-depth-profile argument, not gas-derivable), the slot
+addressability, and the post-state scoping remain supplied. -/
 
 /-- **SLOAD-stash tail decode anchors (reusable).** For the spilled-sload stash
 `materialise k ++ [SLOAD] ++ PUSH32 (slotOf t) ++ MSTORE`, the three TAIL opcodes (`SLOAD` at the
@@ -830,8 +832,9 @@ post-materialise frame `frk`, `PUSH32` at `sloadFrame frk keyVal []`, `MSTORE` a
 the `MatRuns` witness `hmrk` (which pins `frk.code = lower prog` and `frk.pc = pcOf … + lk`), so it
 applies inside the `∀ frk, MatRuns … → …` residual the clean-halt extractor consumes — letting the
 §7 SLOAD tie DERIVE its tail gas/mem envelope from a clean-halt witness (`sload_envelope_of_cleanHalt`)
-instead of supplying it. The key-prefix `hgasKey`/`hstkKey` and the activeWords-flatness `hawk`
-stay supplied (not single-step inversions). -/
+instead of supplying it. The key-prefix gas fold is likewise DERIVED (`materialise_runs_of_cleanHalt`);
+only the key-prefix **stack-room** fold `hstkKey` (a stack-depth-profile argument) and the
+activeWords-flatness `hawk` stay supplied. -/
 theorem decode_sloadstash {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {st : V2.IRState} {t k : Tmp} {L : Label} {b : Block} {pc : Nat} {fr frk : Frame}
     {f : Nat} {keyVal : Word}
@@ -959,8 +962,10 @@ theorem sim_assign_sload_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs 
     (hslotplat : slotOf t < 2 ^ System.Platform.numBits)
     -- the statement's bytes fit a `UInt32` cursor:
     (hbound : pcOf prog L pc + ((materialiseExpr (defsOf prog) f (.tmp k)).length + 35) < 2 ^ 32)
-    -- the key materialises (B1) within the gas / stack envelope at `fr`:
-    (hgasKey : (chargeOf (defsOf prog) sloadChg f (.tmp k)).sum ≤ fr.exec.gasAvailable.toNat)
+    -- the key materialises (B1) within the stack envelope at `fr`; the key-prefix gas envelope is
+    -- DERIVED from the clean-halt witness via `materialise_runs_of_cleanHalt` (the gas fold), not
+    -- supplied. (The stack-room fold is a separate structural argument and stays supplied as `hstkKey`.)
+    (hcs : CleanHaltsNonException fr)
     (hstkKey : fr.exec.stack.size + (chargeOf (defsOf prog) sloadChg f (.tmp k)).length ≤ 1024)
     -- honest runtime side-conditions at the post-materialise frame `frk`. They reference the
     -- materialise endpoint via the universally-bound `frk` (the descending-gas run supplies them):
@@ -1035,10 +1040,11 @@ theorem sim_assign_sload_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs 
   have hdk : MatDec fr.exec.executionEnv.code defs sloadChg f fr.exec.pc (.tmp k) := by
     rw [hcorr.code_eq, hcorr.pc_eq]
     exact matDec_of_seg prog defs sloadChg f (.tmp k) (pcOf prog L pc) hwfk (by omega) hsegk
-  -- run B1.
-  obtain ⟨frk, hmrk⟩ := materialise_runs sloadChg f st obs (.tmp k) keyVal fr
+  -- run B1, with the key-prefix gas envelope DERIVED from the clean-halt witness (the gas fold) —
+  -- the entry cursor is `fr` (stack `[]`); `materialise_runs_of_cleanHalt` consumes `hcs` directly.
+  obtain ⟨frk, hmrk, _hgasKey_derived⟩ := materialise_runs_of_cleanHalt sloadChg f st obs (.tmp k) keyVal fr
     hdk hcorr.defsSound hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
-    hevk hgasKey hstkKey
+    hevk hcs hstkKey
   -- the three tail decode anchors (reusable `decode_sloadstash`), in successor-frame form.
   obtain ⟨hdsloadS, hdpushS, hdmstoreS⟩ :=
     decode_sloadstash (t := t) hb hs hslotdef hfuel hbound hcorr hmrk

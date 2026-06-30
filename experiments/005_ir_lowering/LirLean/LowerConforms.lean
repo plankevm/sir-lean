@@ -453,11 +453,13 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     -- (`LowerDecode.lean`) *builds* the run from the decode layout, and **the tail runtime envelope
     -- (SLOAD warmth + PUSH/MSTORE gas + memory-expansion witness) is no longer supplied** — it is
     -- DERIVED from the per-cursor clean-halt witness `hcs` via `sload_envelope_of_cleanHalt` (keyed
-    -- on the post-materialise frame `frk`). `hsloadassign` now supplies only the honest residual:
-    -- the slot registration, the loaded-value tie, the addressability, the **key-prefix** gas/stack
-    -- envelope `hgasKey`/`hstkKey` (a fold over the materialise — NOT a single-step inversion), the
-    -- **activeWords-flatness** `hawk` (materialising the key expanded no memory — a memory-shape
-    -- fact, not clean-halt-derivable), and the post-state scoping.
+    -- on the post-materialise frame `frk`); **and the key-prefix gas fold is also DERIVED** from
+    -- `hcs` via `materialise_runs_of_cleanHalt` (the gas charge-descent fold). `hsloadassign` now
+    -- supplies only the honest residual: the slot registration, the loaded-value tie, the
+    -- addressability, the **key-prefix stack-room fold** `hstkKey` (a stack-depth-profile argument —
+    -- NOT gas-derivable; the stack goes up and down over the materialise so the peak bound is not a
+    -- charge-accumulation), the **activeWords-flatness** `hawk` (materialising the key expanded no
+    -- memory — a memory-shape fact, not clean-halt-derivable), and the post-state scoping.
     (hsloadassign : ∀ (pc : Nat) (t k : Tmp) (w : Word) (st0 : V2.IRState) (fr0 : Frame),
         b.stmts[pc]? = some (.assign t (.sload k)) →
         Corr prog sloadChg obs st0 fr0 L pc →
@@ -469,9 +471,8 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
               (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
               ∧ defsOf prog t' ≠ none)
         ∧ (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
-        -- the key-prefix gas/stack envelope (the materialise fold — supplied):
-        ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog - 1) (.tmp k)).sum
-            ≤ fr0.exec.gasAvailable.toNat
+        -- key-prefix gas fold DROPPED: DERIVED from `hcs` via `materialise_runs_of_cleanHalt`.
+        -- The key-prefix stack-room fold stays supplied (separate stack-depth-profile argument):
         ∧ fr0.exec.stack.size
             + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog - 1) (.tmp k)).length ≤ 1024
         -- the activeWords-flatness `hawk` at the post-materialise frame (a memory-shape fact):
@@ -526,15 +527,16 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     -- split on whether `e` is a spilled `.sload k` (Phase C) or a rematerialised pure expr.
     cases e with
     | sload k =>
-      obtain ⟨hslotdef, hsc, hslots, hwval, hscoped', hslot63, hslotplat, hgasKey, hstkKey, hawk⟩ :=
+      obtain ⟨hslotdef, hsc, hslots, hwval, hscoped', hslot63, hslotplat, hstkKey, hawk⟩ :=
         hsloadassign pc t k w st0 fr0 hget hcorr
       -- the reduced fuel `f = recomputeFuel prog - 1` (the key materialises at `f`).
       obtain ⟨hfuelpos, hwfk⟩ := hwf.matFueled_sload L b pc t k hb hget
       have hfuel : recomputeFuel prog = (recomputeFuel prog - 1) + 1 := by omega
-      -- the SLOAD tail runtime envelope is DERIVED from the clean-halt witness via the extractor;
-      -- only the activeWords-flatness `hawk` (memory-shape) stays supplied.
+      -- the SLOAD tail runtime envelope AND the key-prefix gas fold are DERIVED from the clean-halt
+      -- witness `hcs`; only the key-prefix stack-room fold `hstkKey` and the activeWords-flatness
+      -- `hawk` (memory-shape) stay supplied.
       refine sim_assign_sload_lowered hb hget hslotdef hcorr hsc hslots hwval hfuel hwfk
-        hslot63 hslotplat (hwf.bound_sload L b pc t k hb hget) hgasKey hstkKey ?_ hscoped'
+        hslot63 hslotplat (hwf.bound_sload L b pc t k hb hget) hcs hstkKey ?_ hscoped'
       intro frk hmrk
       -- the per-cursor clean-halt witness threads to `frk` inside the extractor.
       obtain ⟨hdecSLOAD, hdecPUSH, hdecMSTORE⟩ :=
@@ -1364,12 +1366,12 @@ def StmtTies (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (o : V2.Call
             (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
             ∧ defsOf prog t' ≠ none)
       -- the SLOAD tail runtime envelope is **no longer in the tie** — it is DERIVED from the
-      -- per-cursor clean-halt witness via `sload_envelope_of_cleanHalt`. Only the slot
-      -- addressability, the key-prefix gas/stack fold (`hgasKey`/`hstkKey`), and the
-      -- activeWords-flatness (`hawk`, a memory-shape fact) remain supplied:
+      -- per-cursor clean-halt witness via `sload_envelope_of_cleanHalt`; **and the key-prefix gas
+      -- fold is also DERIVED** from that witness via `materialise_runs_of_cleanHalt`. Only the slot
+      -- addressability, the key-prefix **stack-room** fold (`hstkKey` — a stack-depth-profile
+      -- argument, not gas-derivable), and the activeWords-flatness (`hawk`, a memory-shape fact)
+      -- remain supplied:
       ∧ (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
-      ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog - 1) (.tmp k)).sum
-          ≤ fr0.exec.gasAvailable.toNat
       ∧ fr0.exec.stack.size
           + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog - 1) (.tmp k)).length ≤ 1024
       ∧ (∀ frk : Frame,
