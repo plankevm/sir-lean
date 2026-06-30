@@ -371,6 +371,224 @@ theorem next_mstore_of_cleanSuccess (fr : Frame) (addr val : UInt256) (rest : St
   obtain ⟨words', hmem, hgasMem, hgas, he⟩ := stepFrame_mstore_inv fr addr val rest hdec hstk hsz hnext
   exact ⟨words', hmem, hgasMem, hgas, by rw [hnext, he]⟩
 
+/-! ## §3 — the envelope family (the deliverable)
+
+For the GAS cursor, `sim_assign_gas_lowered`'s residual is the 5-conjunct gas/mem envelope over the
+3-step stash `GAS ; PUSH32 (slotOf t) ; MSTORE` at frames `fr`, `gasFrame fr`,
+`pushFrameW (gasFrame fr) (ofNat slot) 32`. `gas_envelope_of_cleanSuccess` produces it from
+`CleanHaltsSuccess fr` + the three frame-local decode anchors, threading the clean-halt forward
+across each `StepsTo` (`fr → gasFrame fr → pushFrameW …`). The decode anchors are the **structural**
+facts `sim_assign_gas_lowered` already derives internally (`hdgas'`/`hdpush'`/`hdmstore'`); the gas
+bounds are no longer supplied — they are produced here. -/
+
+/-- `StepsTo fr (gasFrame fr)` from the GAS gas guard (`Gbase ≤ gas`). The successor `gasFrame fr`
+is `{ fr with exec := gasPost fr.exec }`. -/
+theorem stepsTo_gasFrame (fr : Frame)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .GAS, .none))
+    (hsz : fr.exec.stack.size + 1 ≤ 1024)
+    (hgas : Gbase ≤ fr.exec.gasAvailable.toNat) :
+    StepsTo fr (gasFrame fr) :=
+  stepsTo_of_next (stepFrame_gas fr hdec hsz hgas)
+
+/-- `StepsTo fr (pushFrameW fr imm w)` from a generic PUSH gas guard. -/
+theorem stepsTo_pushFrameW (fr : Frame) (p : Operation.PushOp) (imm : UInt256) (w : UInt8)
+    (hp0 : p ≠ .PUSH0)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Push p, some (imm, w)))
+    (hpop : stackPopCount (.Push p) = 0) (hpush : stackPushCount (.Push p) = 1)
+    (hgas : Gverylow ≤ fr.exec.gasAvailable.toNat)
+    (hsz : fr.exec.stack.size + 1 ≤ 1024) :
+    StepsTo fr (pushFrameW fr imm w) :=
+  stepsTo_of_next (stepFrame_push fr p imm w hp0 hdec hpop hpush hgas hsz)
+
+/-- **GAS envelope from clean-success.** From `CleanHaltsSuccess fr` (block-entry stack `[]`) and
+the three frame-local decode anchors of the gas stash, produce the exact gas/mem residual
+`sim_assign_gas_lowered` consumes: `Gbase ≤ fr.gas`, `3 ≤ (gasFrame fr).gas`, and the MSTORE
+expansion witness `words'` + both memory charges at `pushFrameW (gasFrame fr) (ofNat slot) 32`.
+
+The bound gas value the `GAS` op pushes (so the MSTORE writes) is
+`ofUInt64 (fr.gas − Gbase)` — the realised GAS output, which fixes the MSTORE operand
+`addr = ofNat slot`, `val = that value`, `rest = []`. -/
+theorem gas_envelope_of_cleanSuccess (fr : Frame) (slot : Nat)
+    (hcs : CleanHaltsSuccess fr)
+    (hstk0 : fr.exec.stack = [])
+    (hdecGAS : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .GAS, .none))
+    (hdecPUSH : decode (gasFrame fr).exec.executionEnv.code (gasFrame fr).exec.pc
+        = some (.Push .PUSH32, some (UInt256.ofNat slot, 32)))
+    (hdecMSTORE :
+        decode (pushFrameW (gasFrame fr) (UInt256.ofNat slot) 32).exec.executionEnv.code
+          (pushFrameW (gasFrame fr) (UInt256.ofNat slot) 32).exec.pc
+        = some (.Smsf .MSTORE, .none)) :
+    Gbase ≤ fr.exec.gasAvailable.toNat
+    ∧ 3 ≤ (gasFrame fr).exec.gasAvailable.toNat
+    ∧ ∃ words',
+        memoryExpansionWords?
+          (pushFrameW (gasFrame fr) (UInt256.ofNat slot) 32).exec.activeWords
+          (UInt256.ofNat slot) 32 = some words'
+        ∧ memExpansionChargeOf (pushFrameW (gasFrame fr) (UInt256.ofNat slot) 32).exec words'
+            ≤ (pushFrameW (gasFrame fr) (UInt256.ofNat slot) 32).exec.gasAvailable.toNat
+        ∧ Gverylow ≤ ((pushFrameW (gasFrame fr) (UInt256.ofNat slot) 32).exec.gasAvailable
+            - UInt64.ofNat (memExpansionChargeOf
+                (pushFrameW (gasFrame fr) (UInt256.ofNat slot) 32).exec words')).toNat := by
+  -- stack-size facts along the stash.
+  have hsz0 : fr.exec.stack.size + 1 ≤ 1024 := by rw [hstk0]; decide
+  -- (a) GAS at `fr`.
+  obtain ⟨hgasGas, hgasNext⟩ := next_gas_of_cleanSuccess fr hcs hdecGAS hsz0
+  -- forward the clean-halt across `fr → gasFrame fr`.
+  have hstepGas : StepsTo fr (gasFrame fr) := stepsTo_gasFrame fr hdecGAS hsz0 hgasGas
+  have hcsGas : CleanHaltsSuccess (gasFrame fr) :=
+    cleanHaltsSuccess_forward hcs (Runs.single hstepGas)
+  -- the GAS frame's stack is `[gasval]` (size 1), so PUSH has stack room.
+  have hstkGas : (gasFrame fr).exec.stack
+      = UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat Gbase) :: [] := by
+    show (BytecodeLayer.Dispatch.gasPost fr.exec).stack = _
+    dsimp only [BytecodeLayer.Dispatch.gasPost, ExecutionState.replaceStackAndIncrPC, Stack.push]
+    rw [hstk0]
+  have hszGas : (gasFrame fr).exec.stack.size + 1 ≤ 1024 := by
+    rw [hstkGas]; simp [Stack.size]
+  -- (b) PUSH32 at `gasFrame fr`.
+  obtain ⟨hgasPush, hpushNext⟩ :=
+    next_push_of_cleanSuccess (gasFrame fr) .PUSH32 (UInt256.ofNat slot) 32 hcsGas
+      (by decide) hdecPUSH (by decide) (by decide) hszGas
+  have hgasPush' : 3 ≤ (gasFrame fr).exec.gasAvailable.toNat := by
+    have : Gverylow = 3 := rfl; omega
+  -- forward the clean-halt across `gasFrame fr → pushFrameW (gasFrame fr) (ofNat slot) 32`.
+  have hstepPush : StepsTo (gasFrame fr) (pushFrameW (gasFrame fr) (UInt256.ofNat slot) 32) :=
+    stepsTo_pushFrameW (gasFrame fr) .PUSH32 (UInt256.ofNat slot) 32 (by decide) hdecPUSH
+      (by decide) (by decide) hgasPush hszGas
+  have hcsPush : CleanHaltsSuccess (pushFrameW (gasFrame fr) (UInt256.ofNat slot) 32) :=
+    cleanHaltsSuccess_forward hcsGas (Runs.single hstepPush)
+  -- the MSTORE frame's stack is `[ofNat slot, gasval]` (size 2).
+  have hstkM : (pushFrameW (gasFrame fr) (UInt256.ofNat slot) 32).exec.stack
+      = UInt256.ofNat slot
+        :: UInt256.ofUInt64 ((fr.exec.gasAvailable - UInt64.ofNat Gbase)) :: [] := by
+    show (({ (gasFrame fr).exec with
+        gasAvailable := (gasFrame fr).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow }
+      ).replaceStackAndIncrPC ((gasFrame fr).exec.stack.push (UInt256.ofNat slot)) (pcΔ := 33)).stack
+      = _
+    dsimp only [ExecutionState.replaceStackAndIncrPC, Stack.push]
+    rw [hstkGas]
+  have hszM : (pushFrameW (gasFrame fr) (UInt256.ofNat slot) 32).exec.stack.size ≤ 1024 := by
+    rw [hstkM]; simp [Stack.size]
+  -- (c) MSTORE at `pushFrameW …`: the expansion witness + both charges.
+  obtain ⟨words', hmem, hgasMem, hgasMstore, _⟩ :=
+    next_mstore_of_cleanSuccess (pushFrameW (gasFrame fr) (UInt256.ofNat slot) 32)
+      (UInt256.ofNat slot) (UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat Gbase)) []
+      hcsPush hdecMSTORE hstkM hszM
+  exact ⟨hgasGas, hgasPush', words', hmem, hgasMem, hgasMstore⟩
+
+/-- `StepsTo fr (sloadFrame fr key rest)` from the SLOAD warmth gas guard. -/
+theorem stepsTo_sloadFrame (fr : Frame) (key : UInt256) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .SLOAD, .none))
+    (hstk : fr.exec.stack = key :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hgas : sloadCost (fr.exec.substate.accessedStorageKeys.contains
+              (fr.exec.executionEnv.address, key)) ≤ fr.exec.gasAvailable.toNat) :
+    StepsTo fr (sloadFrame fr key rest) :=
+  stepsTo_of_next (stepFrame_sload fr key rest hdec hstk hsz hgas)
+
+/-- **SLOAD envelope from clean-success.** For the spilled-sload cursor, the residual
+`sim_assign_sload_lowered` consumes is keyed on the **post-materialise** frame `frk` (the key
+prefix is variable-length; B1 `materialise_runs` produces `frk` and the `MatRuns` Runs threading
+`CleanHaltsSuccess` to it). At `frk` (stack `[keyVal]`) the tail `SLOAD ; PUSH32 ; MSTORE`
+clean-halts, so this lemma produces the gas conjuncts `hgasSload`/`hgasPush`/`hmem`/`hgasMem`/
+`hgasMstore` of `hresid` — everything but the **structural** activeWords-flatness `hawk`
+(`frk.activeWords = fr.activeWords`: the key materialise expanded no memory — the normal sload-key
+case, independent of gas), which stays a supplied structural residual.
+
+Inputs: `CleanHaltsSuccess fr`, the entry stack-nil, the `MatRuns` thread to `frk` (which pins
+`frk.stack = [keyVal]`), and the three frame-local tail decode anchors at `frk`. -/
+theorem sload_envelope_of_cleanSuccess
+    {defs : Tmp → Option Expr} {sloadChg : Tmp → ℕ} {f : Nat} {ekey : Expr} {wkey : Word}
+    (fr frk : Frame) (keyVal : UInt256) (slot : Nat)
+    (hcs : CleanHaltsSuccess fr)
+    (hstk0 : fr.exec.stack = [])
+    (hmrk : MatRuns defs sloadChg f ekey wkey fr frk)
+    (hkeyval : wkey = keyVal)
+    (hdecSLOAD : decode frk.exec.executionEnv.code frk.exec.pc = some (.Smsf .SLOAD, .none))
+    (hdecPUSH : decode (sloadFrame frk keyVal []).exec.executionEnv.code
+          (sloadFrame frk keyVal []).exec.pc
+        = some (.Push .PUSH32, some (UInt256.ofNat slot, 32)))
+    (hdecMSTORE :
+        decode (pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat slot) 32).exec.executionEnv.code
+          (pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat slot) 32).exec.pc
+        = some (.Smsf .MSTORE, .none)) :
+    sloadCost (frk.exec.substate.accessedStorageKeys.contains
+        (frk.exec.executionEnv.address, keyVal)) ≤ frk.exec.gasAvailable.toNat
+    ∧ 3 ≤ (sloadFrame frk keyVal []).exec.gasAvailable.toNat
+    ∧ ∃ words',
+        memoryExpansionWords?
+          (pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat slot) 32).exec.activeWords
+          (UInt256.ofNat slot) 32 = some words'
+        ∧ memExpansionChargeOf
+            (pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat slot) 32).exec words'
+            ≤ (pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat slot) 32).exec.gasAvailable.toNat
+        ∧ Gverylow ≤ ((pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat slot) 32).exec.gasAvailable
+            - UInt64.ofNat (memExpansionChargeOf
+                (pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat slot) 32).exec words')).toNat := by
+  -- thread the clean-halt to `frk` along the materialise Runs (B1).
+  have hcsK : CleanHaltsSuccess frk := cleanHaltsSuccess_forward hcs hmrk.runs
+  -- `frk`'s stack is `[keyVal]` (B1 leaves the key on top of the entry stack `[]`).
+  have hstkK : frk.exec.stack = keyVal :: [] := by
+    rw [hmrk.stack, hstk0, ← hkeyval]; rfl
+  have hszK : frk.exec.stack.size ≤ 1024 := by rw [hstkK]; simp [Stack.size]
+  -- (a) SLOAD at `frk`.
+  obtain ⟨hgasSload, hsloadNext⟩ := next_sload_of_cleanSuccess frk keyVal [] hcsK hdecSLOAD hstkK hszK
+  -- forward the clean-halt across `frk → sloadFrame frk keyVal []`.
+  have hstepSload : StepsTo frk (sloadFrame frk keyVal []) :=
+    stepsTo_sloadFrame frk keyVal [] hdecSLOAD hstkK hszK hgasSload
+  have hcsSload : CleanHaltsSuccess (sloadFrame frk keyVal []) :=
+    cleanHaltsSuccess_forward hcsK (Runs.single hstepSload)
+  -- the SLOAD frame's stack is `[v]` (size 1) for the loaded value `v`.
+  have hstkSload : (sloadFrame frk keyVal []).exec.stack
+      = (Evm.State.sload
+          ({ frk.exec with gasAvailable := frk.exec.gasAvailable
+              - UInt64.ofNat (sloadCost (frk.exec.substate.accessedStorageKeys.contains
+                  (frk.exec.executionEnv.address, keyVal))) }.toState) keyVal).2 :: [] := by
+    show (BytecodeLayer.Dispatch.sloadPost frk.exec keyVal []).stack = _
+    dsimp only [BytecodeLayer.Dispatch.sloadPost, ExecutionState.replaceStackAndIncrPC, Stack.push]
+  have hszSload : (sloadFrame frk keyVal []).exec.stack.size + 1 ≤ 1024 := by
+    rw [hstkSload]; simp [Stack.size]
+  -- (b) PUSH32 at `sloadFrame frk keyVal []`.
+  obtain ⟨hgasPush, hpushNext⟩ :=
+    next_push_of_cleanSuccess (sloadFrame frk keyVal []) .PUSH32 (UInt256.ofNat slot) 32 hcsSload
+      (by decide) hdecPUSH (by decide) (by decide) hszSload
+  have hgasPush' : 3 ≤ (sloadFrame frk keyVal []).exec.gasAvailable.toNat := by
+    have : Gverylow = 3 := rfl; omega
+  -- forward the clean-halt across `sloadFrame … → pushFrameW (sloadFrame …) (ofNat slot) 32`.
+  have hstepPush : StepsTo (sloadFrame frk keyVal [])
+      (pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat slot) 32) :=
+    stepsTo_pushFrameW (sloadFrame frk keyVal []) .PUSH32 (UInt256.ofNat slot) 32 (by decide)
+      hdecPUSH (by decide) (by decide) hgasPush hszSload
+  have hcsPush : CleanHaltsSuccess (pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat slot) 32) :=
+    cleanHaltsSuccess_forward hcsSload (Runs.single hstepPush)
+  -- the MSTORE frame's stack is `[ofNat slot, v]` (size 2).
+  have hstkM : (pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat slot) 32).exec.stack
+      = UInt256.ofNat slot :: (sloadFrame frk keyVal []).exec.stack := by
+    show (({ (sloadFrame frk keyVal []).exec with
+        gasAvailable := (sloadFrame frk keyVal []).exec.gasAvailable - UInt64.ofNat GasConstants.Gverylow }
+      ).replaceStackAndIncrPC ((sloadFrame frk keyVal []).exec.stack.push (UInt256.ofNat slot))
+        (pcΔ := 33)).stack = _
+    dsimp only [ExecutionState.replaceStackAndIncrPC, Stack.push]
+  have hstkM' : (pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat slot) 32).exec.stack
+      = UInt256.ofNat slot
+        :: (Evm.State.sload
+              ({ frk.exec with gasAvailable := frk.exec.gasAvailable
+                  - UInt64.ofNat (sloadCost (frk.exec.substate.accessedStorageKeys.contains
+                      (frk.exec.executionEnv.address, keyVal))) }.toState) keyVal).2 :: [] := by
+    rw [hstkM, hstkSload]
+  have hszM : (pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat slot) 32).exec.stack.size ≤ 1024 := by
+    rw [hstkM']; simp [Stack.size]
+  -- (c) MSTORE at `pushFrameW …`: the expansion witness + both charges.
+  obtain ⟨words', hmem, hgasMem, hgasMstore, _⟩ :=
+    next_mstore_of_cleanSuccess (pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat slot) 32)
+      (UInt256.ofNat slot)
+      (Evm.State.sload
+        ({ frk.exec with gasAvailable := frk.exec.gasAvailable
+            - UInt64.ofNat (sloadCost (frk.exec.substate.accessedStorageKeys.contains
+                (frk.exec.executionEnv.address, keyVal))) }.toState) keyVal).2
+      [] hcsPush hdecMSTORE hstkM' hszM
+  exact ⟨hgasSload, hgasPush', words', hmem, hgasMem, hgasMstore⟩
+
 end Lir.CleanHaltExtract
 
 -- Axiom-cleanliness guards (§0).
@@ -394,3 +612,9 @@ end Lir.CleanHaltExtract
 #print axioms Lir.CleanHaltExtract.next_push_of_cleanSuccess
 #print axioms Lir.CleanHaltExtract.next_sload_of_cleanSuccess
 #print axioms Lir.CleanHaltExtract.next_mstore_of_cleanSuccess
+-- Axiom-cleanliness guards (§3).
+#print axioms Lir.CleanHaltExtract.stepsTo_gasFrame
+#print axioms Lir.CleanHaltExtract.stepsTo_pushFrameW
+#print axioms Lir.CleanHaltExtract.gas_envelope_of_cleanSuccess
+#print axioms Lir.CleanHaltExtract.stepsTo_sloadFrame
+#print axioms Lir.CleanHaltExtract.sload_envelope_of_cleanSuccess
