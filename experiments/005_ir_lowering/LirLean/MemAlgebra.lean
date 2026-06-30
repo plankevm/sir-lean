@@ -749,6 +749,31 @@ theorem mstore_memory_size_mono (m : MachineState) (addr val : UInt256)
   have hDle : addr.toNat ≤ D.size := by rw [hDsz]; omega
   rw [copySlice_at_size D addr.toNat val hDle, hDsz]; omega
 
+/-- **4d. `mstore`'s memory bytes are a function of the input memory only.** `mstore`
+writes `val` via `writeWord`/`writeBytes` (which touches only `memory`); the trailing
+`activeWords` bump never reads or writes bytes. So two states sharing `memory` reach the
+same post-`mstore` memory — the transport that anchors a stash whose value-channel mstore
+runs at a frame sharing `fr`'s memory bytes (e.g. after a memory-byte-preserving prefix). -/
+theorem mstore_memory_congr (m m' : MachineState) (addr val : UInt256)
+    (h : m.memory = m'.memory) :
+    (m.mstore addr val).memory = (m'.mstore addr val).memory := by
+  show (m.writeWord addr val).memory = (m'.writeWord addr val).memory
+  show (Evm.writeBytes val.toByteArray 0 m addr.toNat 32).memory
+     = (Evm.writeBytes val.toByteArray 0 m' addr.toNat 32).memory
+  unfold Evm.writeBytes
+  simp only [h]
+
+/-- **4e. `mstore`'s `activeWords` is a function of the input `activeWords` only.**
+`writeWord` leaves `activeWords` untouched, then `mstore` sets it to
+`M activeWords addr 32`. So two states sharing `activeWords` reach the same
+post-`mstore` `activeWords`. -/
+theorem mstore_activeWords_congr (m m' : MachineState) (addr val : UInt256)
+    (h : m.activeWords = m'.activeWords) :
+    (m.mstore addr val).activeWords = (m'.mstore addr val).activeWords := by
+  show MachineState.M (m.writeWord addr val).activeWords addr.toUInt64 32
+     = MachineState.M (m'.writeWord addr val).activeWords addr.toUInt64 32
+  rw [writeWord_activeWords, writeWord_activeWords, h]
+
 /-! ### 4c. Grow-aware byte-level disjointness toolkit
 
 The pre-allocated disjointness `copySlice_extract_disjoint` only needs
