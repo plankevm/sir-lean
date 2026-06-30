@@ -189,6 +189,208 @@ theorem stepFrame_sload_inv (fr : Frame) (key : UInt256) (rest : Stack UInt256)
   rw [stepFrame_sload_oog fr key rest hdec hstk hsz (by omega)] at hnext
   exact absurd hnext (by simp)
 
+/-! ### ADD / LT / MLOAD OOG / inversion bricks (the FoldLemma additions)
+
+The aggregate gas-FOLD residuals (`materialise_runs_of_cleanHalt`) descend the materialise run
+through `ADD`/`LT` (binary-op tails) and the `MLOAD` readback of a `.slot`-spilled tmp. Those ops
+have a forward `stepFrame_add`/`stepFrame_lt`/`stepFrame_mload` in 003 but no inversion/OOG lemma,
+so we build them here, copying the GAS/PUSH/SLOAD pattern above: the `binOp` charges `Gverylow`
+*before* popping (no `hstk` needed for OOG); `MLOAD` mirrors the MSTORE `memExpansion + Gverylow`
+double-charge (`stepFrame_mstore_oogMem`/`_oogVL` shape). -/
+
+/-- **ADD out-of-gas.** With `Gverylow` exceeding the available gas, `stepFrame` halts with
+`OutOfGas` at the `binOp` charge (which fires before the pop). Companion of `stepFrame_add`. -/
+theorem stepFrame_add_oog (fr : Frame) (a b : UInt256) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.ArithLogic .ADD, .none))
+    (_hstk : fr.exec.stack = a :: b :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hoog : fr.exec.gasAvailable.toNat < Gverylow) :
+    stepFrame fr = .halted (.exception .OutOfGas) := by
+  unfold stepFrame
+  simp only [hdec]
+  dsimp only [Option.getD]
+  rw [if_neg (by nofun)]
+  have hov : ¬ (fr.exec.stack.size - stackPopCount (.ArithLogic .ADD)
+      + stackPushCount (.ArithLogic .ADD) > 1024) := by
+    simp only [show stackPopCount (.ArithLogic .ADD) = 2 from rfl,
+               show stackPushCount (.ArithLogic .ADD) = 1 from rfl]
+    have := hsz; omega
+  rw [if_neg hov]
+  dsimp only [dispatch, binOp]
+  unfold charge
+  rw [if_pos (by have := hoog; omega)]
+  dsimp only [bind, Except.bind, pure, Except.pure]
+
+/-- **ADD `.next`-inversion.** A successful `.next` ADD step witnesses `Gverylow ≤ gas`. -/
+theorem stepFrame_add_inv (fr : Frame) (a b : UInt256) (rest : Stack UInt256)
+    {e : ExecutionState}
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.ArithLogic .ADD, .none))
+    (hstk : fr.exec.stack = a :: b :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hnext : stepFrame fr = .next e) :
+    Gverylow ≤ fr.exec.gasAvailable.toNat := by
+  by_contra h
+  rw [stepFrame_add_oog fr a b rest hdec hstk hsz (by omega)] at hnext
+  exact absurd hnext (by simp)
+
+/-- **LT out-of-gas.** Mirror of `stepFrame_add_oog` for `LT`. -/
+theorem stepFrame_lt_oog (fr : Frame) (a b : UInt256) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.ArithLogic .LT, .none))
+    (_hstk : fr.exec.stack = a :: b :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hoog : fr.exec.gasAvailable.toNat < Gverylow) :
+    stepFrame fr = .halted (.exception .OutOfGas) := by
+  unfold stepFrame
+  simp only [hdec]
+  dsimp only [Option.getD]
+  rw [if_neg (by nofun)]
+  have hov : ¬ (fr.exec.stack.size - stackPopCount (.ArithLogic .LT)
+      + stackPushCount (.ArithLogic .LT) > 1024) := by
+    simp only [show stackPopCount (.ArithLogic .LT) = 2 from rfl,
+               show stackPushCount (.ArithLogic .LT) = 1 from rfl]
+    have := hsz; omega
+  rw [if_neg hov]
+  dsimp only [dispatch, binOp]
+  unfold charge
+  rw [if_pos (by have := hoog; omega)]
+  dsimp only [bind, Except.bind, pure, Except.pure]
+
+/-- **LT `.next`-inversion.** A successful `.next` LT step witnesses `Gverylow ≤ gas`. -/
+theorem stepFrame_lt_inv (fr : Frame) (a b : UInt256) (rest : Stack UInt256)
+    {e : ExecutionState}
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.ArithLogic .LT, .none))
+    (hstk : fr.exec.stack = a :: b :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hnext : stepFrame fr = .next e) :
+    Gverylow ≤ fr.exec.gasAvailable.toNat := by
+  by_contra h
+  rw [stepFrame_lt_oog fr a b rest hdec hstk hsz (by omega)] at hnext
+  exact absurd hnext (by simp)
+
+/-- **MLOAD no-expansion-witness OOG.** When `memoryExpansionWords?` is `none`, `MLOAD` halts at
+`chargeMemExpansion` with `OutOfGas`. Mirror of `stepFrame_mstore` `none` arm (the readback
+analogue). -/
+theorem stepFrame_mload_oogNone (fr : Frame) (addr : UInt256) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .MLOAD, .none))
+    (hstk : fr.exec.stack = addr :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hmem : memoryExpansionWords? fr.exec.activeWords addr 32 = none) :
+    stepFrame fr = .halted (.exception .OutOfGas) := by
+  unfold stepFrame
+  simp only [hdec]
+  dsimp only [Option.getD]
+  rw [if_neg (by decide)]
+  have hov : ¬ (fr.exec.stack.size - stackPopCount (.Smsf .MLOAD)
+      + stackPushCount (.Smsf .MLOAD) > 1024) := by
+    simp only [show stackPopCount (.Smsf .MLOAD) = 1 from rfl,
+               show stackPushCount (.Smsf .MLOAD) = 1 from rfl]
+    have := hsz; omega
+  rw [if_neg hov]
+  dsimp only [dispatch, smsfOp]
+  rw [hstk]
+  dsimp only [Stack.pop, liftM, monadLift, MonadLift.monadLift, Option.option, bind,
+    Except.bind, pure, Except.pure]
+  dsimp only [chargeMemExpansion]
+  rw [hmem]
+
+/-- **MLOAD memory-expansion out-of-gas.** With the expansion witness `words'` resolved but the
+expansion charge exceeding the remaining gas, `MLOAD` halts with `OutOfGas` at the first `charge`.
+Mirror of `stepFrame_mstore_oogMem`. -/
+theorem stepFrame_mload_oogMem (fr : Frame) (addr : UInt256) (words' : UInt64)
+    (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .MLOAD, .none))
+    (hstk : fr.exec.stack = addr :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hmem : memoryExpansionWords? fr.exec.activeWords addr 32 = some words')
+    (hoog : fr.exec.gasAvailable.toNat < memExpansionChargeOf fr.exec words') :
+    stepFrame fr = .halted (.exception .OutOfGas) := by
+  unfold stepFrame
+  simp only [hdec]
+  dsimp only [Option.getD]
+  rw [if_neg (by decide)]
+  have hov : ¬ (fr.exec.stack.size - stackPopCount (.Smsf .MLOAD)
+      + stackPushCount (.Smsf .MLOAD) > 1024) := by
+    simp only [show stackPopCount (.Smsf .MLOAD) = 1 from rfl,
+               show stackPushCount (.Smsf .MLOAD) = 1 from rfl]
+    have := hsz; omega
+  rw [if_neg hov]
+  dsimp only [dispatch, smsfOp]
+  rw [hstk]
+  dsimp only [Stack.pop, liftM, monadLift, MonadLift.monadLift, Option.option, bind,
+    Except.bind, pure, Except.pure]
+  dsimp only [chargeMemExpansion]
+  rw [hmem]
+  dsimp only []
+  unfold charge
+  rw [if_pos (by have := hoog; dsimp only [memExpansionChargeOf] at this ⊢; omega)]
+
+/-- **MLOAD `Gverylow` out-of-gas.** With the expansion charge cleared but `Gverylow` exceeding the
+post-expansion gas, `MLOAD` halts with `OutOfGas` at the second `charge`. Mirror of
+`stepFrame_mstore_oogVL`. -/
+theorem stepFrame_mload_oogVL (fr : Frame) (addr : UInt256) (words' : UInt64)
+    (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .MLOAD, .none))
+    (hstk : fr.exec.stack = addr :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hmem : memoryExpansionWords? fr.exec.activeWords addr 32 = some words')
+    (hgasMem : memExpansionChargeOf fr.exec words' ≤ fr.exec.gasAvailable.toNat)
+    (hoog : (fr.exec.gasAvailable - UInt64.ofNat (memExpansionChargeOf fr.exec words')).toNat
+              < Gverylow) :
+    stepFrame fr = .halted (.exception .OutOfGas) := by
+  unfold stepFrame
+  simp only [hdec]
+  dsimp only [Option.getD]
+  rw [if_neg (by decide)]
+  have hov : ¬ (fr.exec.stack.size - stackPopCount (.Smsf .MLOAD)
+      + stackPushCount (.Smsf .MLOAD) > 1024) := by
+    simp only [show stackPopCount (.Smsf .MLOAD) = 1 from rfl,
+               show stackPushCount (.Smsf .MLOAD) = 1 from rfl]
+    have := hsz; omega
+  rw [if_neg hov]
+  dsimp only [dispatch, smsfOp]
+  rw [hstk]
+  dsimp only [Stack.pop, liftM, monadLift, MonadLift.monadLift, Option.option, bind,
+    Except.bind, pure, Except.pure]
+  dsimp only [chargeMemExpansion]
+  rw [hmem]
+  dsimp only []
+  unfold charge
+  rw [if_neg (by have := hgasMem; dsimp only [memExpansionChargeOf] at this ⊢; omega)]
+  dsimp only [bind, Except.bind, pure, Except.pure]
+  rw [if_pos (by have := hoog; dsimp only [memExpansionChargeOf] at this ⊢; omega)]
+
+/-- **MLOAD success-inversion.** A `.next` MLOAD step witnesses its memory-expansion bookkeeping:
+an expansion witness `words'`, both charges fit, and `e = mloadPost …`. Mirror of
+`stepFrame_mstore_inv`. -/
+theorem stepFrame_mload_inv (fr : Frame) (addr : UInt256) (rest : Stack UInt256)
+    {e : ExecutionState}
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .MLOAD, .none))
+    (hstk : fr.exec.stack = addr :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hnext : stepFrame fr = .next e) :
+    ∃ words', memoryExpansionWords? fr.exec.activeWords addr 32 = some words'
+      ∧ memExpansionChargeOf fr.exec words' ≤ fr.exec.gasAvailable.toNat
+      ∧ Gverylow ≤ (fr.exec.gasAvailable - UInt64.ofNat (memExpansionChargeOf fr.exec words')).toNat
+      ∧ e = mloadPost fr.exec addr words' rest := by
+  cases hmem : memoryExpansionWords? fr.exec.activeWords addr 32 with
+  | none =>
+    exfalso
+    rw [stepFrame_mload_oogNone fr addr rest hdec hstk hsz hmem] at hnext
+    exact absurd hnext (by simp)
+  | some words' =>
+    have hgasMem : memExpansionChargeOf fr.exec words' ≤ fr.exec.gasAvailable.toNat := by
+      by_contra h
+      rw [stepFrame_mload_oogMem fr addr words' rest hdec hstk hsz hmem (by omega)] at hnext
+      exact absurd hnext (by simp)
+    have hgas : Gverylow ≤
+        (fr.exec.gasAvailable - UInt64.ofNat (memExpansionChargeOf fr.exec words')).toNat := by
+      by_contra h
+      rw [stepFrame_mload_oogVL fr addr words' rest hdec hstk hsz hmem hgasMem (by omega)] at hnext
+      exact absurd hnext (by simp)
+    refine ⟨words', rfl, hgasMem, hgas, ?_⟩
+    rw [stepFrame_mload fr addr words' rest hdec hstk hsz hmem hgasMem hgas] at hnext
+    exact (Signal.next.injEq _ _).mp hnext.symm
+
 /-! ## §2 — the `.next` extractor (the glue)
 
 `CleanHaltsNonException fr` reaches a `.halted halt` terminal with `halt ≠ .exception`. For a frame
@@ -365,6 +567,92 @@ theorem next_mstore_of_cleanHalt (fr : Frame) (addr val : UInt256) (rest : Stack
   obtain ⟨e', hnext⟩ :=
     next_of_cleanHalt_continuing hcs (stepFrame_mstore_dichotomy fr addr val rest hdec hstk hsz)
   obtain ⟨words', hmem, hgasMem, hgas, he⟩ := stepFrame_mstore_inv fr addr val rest hdec hstk hsz hnext
+  exact ⟨words', hmem, hgasMem, hgas, by rw [hnext, he]⟩
+
+/-! ### ADD / LT / MLOAD step dichotomies + `next_*_of_cleanHalt` (FoldLemma)
+
+The aggregate gas FOLD descends through ADD/LT (binary-op tails) and the MLOAD readback. Each is a
+continuing op, so `CleanHaltsNonException` forces a `.next` step (the dichotomy excludes
+`.needsCall`/`.needsCreate`), and the inversion reads off the gas bound. -/
+
+/-- **ADD step dichotomy.** -/
+theorem stepFrame_add_dichotomy (fr : Frame) (a b : UInt256) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.ArithLogic .ADD, .none))
+    (hstk : fr.exec.stack = a :: b :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024) :
+    (∃ e', stepFrame fr = .next e') ∨ (∃ ex, stepFrame fr = .halted (.exception ex)) := by
+  by_cases hgas : Gverylow ≤ fr.exec.gasAvailable.toNat
+  · exact Or.inl ⟨_, stepFrame_add fr a b rest hdec hstk hsz hgas⟩
+  · exact Or.inr ⟨_, stepFrame_add_oog fr a b rest hdec hstk hsz (by omega)⟩
+
+/-- **LT step dichotomy.** -/
+theorem stepFrame_lt_dichotomy (fr : Frame) (a b : UInt256) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.ArithLogic .LT, .none))
+    (hstk : fr.exec.stack = a :: b :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024) :
+    (∃ e', stepFrame fr = .next e') ∨ (∃ ex, stepFrame fr = .halted (.exception ex)) := by
+  by_cases hgas : Gverylow ≤ fr.exec.gasAvailable.toNat
+  · exact Or.inl ⟨_, stepFrame_lt fr a b rest hdec hstk hsz hgas⟩
+  · exact Or.inr ⟨_, stepFrame_lt_oog fr a b rest hdec hstk hsz (by omega)⟩
+
+/-- **MLOAD step dichotomy.** Casing on the expansion witness and the two charges (mirror of
+`stepFrame_mstore_dichotomy`). -/
+theorem stepFrame_mload_dichotomy (fr : Frame) (addr : UInt256) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .MLOAD, .none))
+    (hstk : fr.exec.stack = addr :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024) :
+    (∃ e', stepFrame fr = .next e') ∨ (∃ ex, stepFrame fr = .halted (.exception ex)) := by
+  cases hmem : memoryExpansionWords? fr.exec.activeWords addr 32 with
+  | none => exact Or.inr ⟨.OutOfGas, stepFrame_mload_oogNone fr addr rest hdec hstk hsz hmem⟩
+  | some words' =>
+    by_cases hgasMem : memExpansionChargeOf fr.exec words' ≤ fr.exec.gasAvailable.toNat
+    · by_cases hgas : Gverylow ≤
+          (fr.exec.gasAvailable - UInt64.ofNat (memExpansionChargeOf fr.exec words')).toNat
+      · exact Or.inl ⟨_, stepFrame_mload fr addr words' rest hdec hstk hsz hmem hgasMem hgas⟩
+      · exact Or.inr ⟨.OutOfGas,
+          stepFrame_mload_oogVL fr addr words' rest hdec hstk hsz hmem hgasMem (by omega)⟩
+    · exact Or.inr ⟨.OutOfGas, stepFrame_mload_oogMem fr addr words' rest hdec hstk hsz hmem (by omega)⟩
+
+/-- **ADD: clean-halt ⟹ `Gverylow ≤ gas`** (and the continuing `.next` step). -/
+theorem next_add_of_cleanHalt (fr : Frame) (a b : UInt256) (rest : Stack UInt256)
+    (hcs : CleanHaltsNonException fr)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.ArithLogic .ADD, .none))
+    (hstk : fr.exec.stack = a :: b :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024) :
+    Gverylow ≤ fr.exec.gasAvailable.toNat
+      ∧ stepFrame fr = .next (binOpPost fr.exec UInt256.add a b rest) := by
+  obtain ⟨e', hnext⟩ :=
+    next_of_cleanHalt_continuing hcs (stepFrame_add_dichotomy fr a b rest hdec hstk hsz)
+  have hg := stepFrame_add_inv fr a b rest hdec hstk hsz hnext
+  exact ⟨hg, stepFrame_add fr a b rest hdec hstk hsz hg⟩
+
+/-- **LT: clean-halt ⟹ `Gverylow ≤ gas`** (and the continuing `.next` step). -/
+theorem next_lt_of_cleanHalt (fr : Frame) (a b : UInt256) (rest : Stack UInt256)
+    (hcs : CleanHaltsNonException fr)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.ArithLogic .LT, .none))
+    (hstk : fr.exec.stack = a :: b :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024) :
+    Gverylow ≤ fr.exec.gasAvailable.toNat
+      ∧ stepFrame fr = .next (binOpPost fr.exec UInt256.lt a b rest) := by
+  obtain ⟨e', hnext⟩ :=
+    next_of_cleanHalt_continuing hcs (stepFrame_lt_dichotomy fr a b rest hdec hstk hsz)
+  have hg := stepFrame_lt_inv fr a b rest hdec hstk hsz hnext
+  exact ⟨hg, stepFrame_lt fr a b rest hdec hstk hsz hg⟩
+
+/-- **MLOAD: clean-halt ⟹ the expansion witness + both charges** (and the `.next` step). Reuses
+`stepFrame_mload_inv` on the continuing step the dichotomy produces. -/
+theorem next_mload_of_cleanHalt (fr : Frame) (addr : UInt256) (rest : Stack UInt256)
+    (hcs : CleanHaltsNonException fr)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .MLOAD, .none))
+    (hstk : fr.exec.stack = addr :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024) :
+    ∃ words', memoryExpansionWords? fr.exec.activeWords addr 32 = some words'
+      ∧ memExpansionChargeOf fr.exec words' ≤ fr.exec.gasAvailable.toNat
+      ∧ Gverylow ≤ (fr.exec.gasAvailable - UInt64.ofNat (memExpansionChargeOf fr.exec words')).toNat
+      ∧ stepFrame fr = .next (mloadPost fr.exec addr words' rest) := by
+  obtain ⟨e', hnext⟩ :=
+    next_of_cleanHalt_continuing hcs (stepFrame_mload_dichotomy fr addr rest hdec hstk hsz)
+  obtain ⟨words', hmem, hgasMem, hgas, he⟩ := stepFrame_mload_inv fr addr rest hdec hstk hsz hnext
   exact ⟨words', hmem, hgasMem, hgas, by rw [hnext, he]⟩
 
 /-! ## §3 — the envelope family (the deliverable)
@@ -609,6 +897,21 @@ end Lir.CleanHaltExtract
 #print axioms Lir.CleanHaltExtract.next_push_of_cleanHalt
 #print axioms Lir.CleanHaltExtract.next_sload_of_cleanHalt
 #print axioms Lir.CleanHaltExtract.next_mstore_of_cleanHalt
+-- Axiom-cleanliness guards (§1.5/§2 — FoldLemma ADD/LT/MLOAD bricks).
+#print axioms Lir.CleanHaltExtract.stepFrame_add_oog
+#print axioms Lir.CleanHaltExtract.stepFrame_add_inv
+#print axioms Lir.CleanHaltExtract.stepFrame_lt_oog
+#print axioms Lir.CleanHaltExtract.stepFrame_lt_inv
+#print axioms Lir.CleanHaltExtract.stepFrame_mload_oogNone
+#print axioms Lir.CleanHaltExtract.stepFrame_mload_oogMem
+#print axioms Lir.CleanHaltExtract.stepFrame_mload_oogVL
+#print axioms Lir.CleanHaltExtract.stepFrame_mload_inv
+#print axioms Lir.CleanHaltExtract.stepFrame_add_dichotomy
+#print axioms Lir.CleanHaltExtract.stepFrame_lt_dichotomy
+#print axioms Lir.CleanHaltExtract.stepFrame_mload_dichotomy
+#print axioms Lir.CleanHaltExtract.next_add_of_cleanHalt
+#print axioms Lir.CleanHaltExtract.next_lt_of_cleanHalt
+#print axioms Lir.CleanHaltExtract.next_mload_of_cleanHalt
 -- Axiom-cleanliness guards (§3).
 #print axioms Lir.CleanHaltExtract.stepsTo_gasFrame
 #print axioms Lir.CleanHaltExtract.stepsTo_pushFrameW

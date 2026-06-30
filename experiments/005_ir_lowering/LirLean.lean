@@ -85,3 +85,8 @@ import LirLean.V2.HonestGasTie
 -- producer that discharges the §7 ties' supplied gas/mem side-conditions from the drive thread's
 -- entry clean-halt (`CleanHaltsSuccess` + per-op `.next`-inversion + the stash envelope family).
 import LirLean.CleanHaltExtract
+-- FoldLemma: the gas-dropping twin of B1. Derives B1's whole-expression gas envelope
+-- (`materialise_charge_le_of_cleanHalt`) from a single entry `CleanHaltsNonException` witness via a
+-- charge-descent fold (reusing B1 for frame production + the extractor's per-op `.next`-inversion),
+-- and re-exports B1's bundle with the gas bound as a derived conjunct (`materialise_runs_of_cleanHalt`).
+import LirLean.MaterialiseCleanHalt
