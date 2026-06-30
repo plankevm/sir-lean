@@ -1,4 +1,4 @@
-import LirLean.LowerDecode
+import LirLean.MatDecLower
 import LirLean.CleanHalt
 
 /-!

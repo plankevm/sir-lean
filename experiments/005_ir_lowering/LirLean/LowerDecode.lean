@@ -125,9 +125,10 @@ theorem sstore_op_decode (prog : Program) (L : Label) (b : Block) (pc : ℕ) (ke
 
 `sim_sstore_stmt_lowered` is `sim_sstore_stmt` with the three carried decode hypotheses
 (`hdv`/`hdk`/`hdop`) discharged generically over `lower prog` via `matDec_of_lower` (operands)
-and `sstore_op_decode` (the consuming SSTORE). The remaining hypotheses are exactly the gas /
-stack envelopes and the runtime `SstoreRealises` recording-correspondence tie (§7) — the
-honest residual. The two `MatFueled` hypotheses are the recompute-fuel-sufficiency
+and `sstore_op_decode` (the consuming SSTORE). The gas envelope is **DERIVED** downstream (the
+`CleanHaltsNonException fr` witness is threaded to `sim_sstore_stmt`'s two-frame fold); the
+remaining honest residual is the stack envelope and the runtime `SstoreRealises`
+recording-correspondence tie (§7). The two `MatFueled` hypotheses are the recompute-fuel-sufficiency
 well-formedness condition (discharged by `recomputeFuel` for well-formed programs). -/
 theorem sim_sstore_stmt_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {st : V2.IRState} {key value : Tmp} {kw vw : Word}
@@ -144,10 +145,9 @@ theorem sim_sstore_stmt_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs :
     (hbound : pcOf prog L pc
         + ((materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp value)).length
           + (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp key)).length) < 2^32)
-    -- gas / stack envelopes + the runtime SSTORE recording-correspondence tie (kept explicit):
-    (hgas : (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp value)).sum
-              + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).sum
-              ≤ fr.exec.gasAvailable.toNat)
+    -- gas envelope: DERIVED downstream from the clean-halt witness (threaded to `sim_sstore_stmt`);
+    -- stack envelope + the runtime SSTORE recording-correspondence tie kept explicit:
+    (hcs : CleanHaltsNonException fr)
     (hstk : (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp value)).length
               + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).length
               + 1 ≤ 1024)
@@ -184,7 +184,7 @@ theorem sim_sstore_stmt_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs :
     rw [hcorr.code_eq, hcorr.pc_eq, ofNat_add', ofNat_add',
         show pcOf prog L pc + lv + lk = pcOf prog L pc + (lv + lk) from by omega]
     exact sstore_op_decode prog L b pc key value hb hs (by omega)
-  exact sim_sstore_stmt hb hs hcorr hk hv hsc hdv hdk hdop hgas hstk hsstore hnz
+  exact sim_sstore_stmt hb hs hcorr hk hv hsc hdv hdk hdop hcs hstk hsstore hnz
 
 end Lir
 

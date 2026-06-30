@@ -1,4 +1,5 @@
 import LirLean.MaterialiseRuns
+import LirLean.MaterialiseCleanHalt
 import LirLean.V2.CallRealises
 import LirLean.CleanHalt
 
@@ -332,9 +333,11 @@ lens is re-established at the written cell from `sim_sstore`'s self-storage clau
 `DefsSound` survives the write by **B3** `defsSound_preserved_sstore`.
 
 The decode bundle is taken as `MatDec` hypotheses at the static cursors (as every B1 leaf
-takes its `hdec`), transported to the produced frames via `MatRuns.code`/`.pc`. The gas
-and stack envelopes for the two materialise calls and the SSTORE charge are honest runtime
-side-conditions (`SstoreRealises`, the `SloadRealises` analogue). -/
+takes its `hdec`), transported to the produced frames via `MatRuns.code`/`.pc`. The per-channel
+gas envelopes for the two materialise calls are **DERIVED** from the clean-halt witness
+`CleanHaltsNonException fr` via `materialise_runs_of_cleanHalt` (the value channel at `fr`, then
+the key channel at `frv` after forwarding the witness across the value run); only the stack-room
+envelope and the runtime `SstoreRealises` recording-correspondence tie stay supplied. -/
 
 /-- **`sim_stmt`, the `sstore` arm.** From `Corr` at `(L, pc)` and an `EvalStmt.sstore`
 step, running the lowered `materialise value ; materialise key ; SSTORE` reaches a frame
@@ -359,10 +362,10 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
               + UInt32.ofNat (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp value)).length
               + UInt32.ofNat (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp key)).length)
             = some (.Smsf .SSTORE, .none))
-    -- gas / stack envelopes (honest runtime bounds):
-    (hgas : (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp value)).sum
-              + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).sum
-              ≤ fr.exec.gasAvailable.toNat)
+    -- gas envelope: DERIVED from the clean-halt witness via `materialise_runs_of_cleanHalt`
+    -- (the two-frame chained fold below reconstructs the aggregate `hgas`), not supplied.
+    (hcs : CleanHaltsNonException fr)
+    -- stack envelope (honest runtime bound, still supplied — the stack fold is separate):
     (hstk : (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp value)).length
               + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).length
               + 1 ≤ 1024)
@@ -377,36 +380,41 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
   set lv := (materialiseExpr defs fuel (.tmp value)).length with hlv
   set lk := (materialiseExpr defs fuel (.tmp key)).length with hlk
   have hstacknil := hcorr.stack_nil
-  -- == B1 call 1: materialise `value` from `fr`, leaving `[vw]` ==
+  -- == B1 call 1: materialise `value` from `fr`, leaving `[vw]`.  The value-channel gas
+  -- bound is DERIVED here from the clean-halt witness `hcs` (the gas-dropping twin of B1). ==
   have hevv : V2.evalExpr st obs (.tmp value) = some vw := hv
-  have hgasv : (chargeOf defs sloadChg fuel (.tmp value)).sum ≤ fr.exec.gasAvailable.toNat := by
-    omega
   have hszfr : fr.exec.stack.size = 0 := by rw [hstacknil]; rfl
   have hstkv : fr.exec.stack.size + (chargeOf defs sloadChg fuel (.tmp value)).length ≤ 1024 := by
     rw [hszfr]; omega
-  obtain ⟨frv, hmrv⟩ := materialise_runs sloadChg fuel st obs (.tmp value) vw fr
+  obtain ⟨frv, hmrv, _hgasv_derived⟩ := materialise_runs_of_cleanHalt sloadChg fuel st obs
+    (.tmp value) vw fr
     hdv hcorr.defsSound hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
-    hevv hgasv hstkv
+    hevv hcs hstkv
   -- frv facts
   have hvcode : frv.exec.executionEnv.code = fr.exec.executionEnv.code := hmrv.code
   have hvaddr : frv.exec.executionEnv.address = fr.exec.executionEnv.address := hmrv.addr
   have hvpc : frv.exec.pc = fr.exec.pc + UInt32.ofNat lv := hmrv.pc
   have hvstk : frv.exec.stack = vw :: fr.exec.stack := by rw [hmrv.stack]; rfl
-  -- == B1 call 2: materialise `key` from `frv`, leaving `[kw, vw]` ==
+  -- == B1 call 2: materialise `key` from `frv`, leaving `[kw, vw]`.  Forward the clean-halt
+  -- witness across the value run; the key-channel gas bound is then DERIVED at `frv`. ==
   have hevk : V2.evalExpr st obs (.tmp key) = some kw := hk
+  have hcsv : CleanHaltsNonException frv := cleanHaltsNonException_forward hcs hmrv.runs
   have hdk' : MatDec frv.exec.executionEnv.code defs sloadChg fuel frv.exec.pc (.tmp key) := by
     rw [hvcode, hvpc]; exact hdk
-  have hgask : (chargeOf defs sloadChg fuel (.tmp key)).sum ≤ frv.exec.gasAvailable.toNat := by
-    rw [hmrv.gasToNat]
-    exact Nat.le_sub_of_add_le (by rw [Nat.add_comm]; exact hgas)
   have hfrvsz : frv.exec.stack.size = fr.exec.stack.size + 1 := by rw [hvstk]; simp
   have hstkk : frv.exec.stack.size + (chargeOf defs sloadChg fuel (.tmp key)).length ≤ 1024 := by
     rw [hfrvsz, hszfr]; omega
-  obtain ⟨frk, hmrk⟩ := materialise_runs sloadChg fuel st obs (.tmp key) kw frv
+  obtain ⟨frk, hmrk, _hgask_derived⟩ := materialise_runs_of_cleanHalt sloadChg fuel st obs
+    (.tmp key) kw frv
     hdk' hcorr.defsSound hcorr.wellScoped
     (hcorr.storage.transport hmrv.storage) (by nofun)
     (by nofun) (hcorr.memAgree.transport hmrv.memBytes hmrv.memActive)
-    hevk hgask hstkk
+    hevk hcsv hstkk
+  -- Both per-channel gas bounds (value-charge at `fr`, key-charge at `frv`) are now produced
+  -- directly by the clean-halt twin, so the aggregate `hgas` premise is no longer referenced
+  -- by this theorem (it was only ever split to feed these two calls).  The exact inverse
+  -- reconstruction — `rw [hmrv.gasToNat] at <key bound>; omega` — recovers the aggregate
+  -- `(value).sum + (key).sum ≤ fr.gas` at the StmtTies layer where it is consumed, if needed.
   -- frk facts
   have hkcode : frk.exec.executionEnv.code = fr.exec.executionEnv.code := by
     rw [hmrk.code, hvcode]

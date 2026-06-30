@@ -253,9 +253,8 @@ theorem simStmtStep_sstore {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word
         Corr prog sloadChg obs st0 fr0 L pc →
         st0.locals key = some kw → st0.locals value = some vw →
         StepScoped prog st0 (.sstore key value)
-        ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp value)).sum
-            + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).sum
-            ≤ fr0.exec.gasAvailable.toNat
+        -- gas aggregate DROPPED: now DERIVED from the threaded clean-halt witness `hcs`
+        -- via `sim_sstore_stmt`'s two-frame chained fold.
         ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp value)).length
             + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).length + 1 ≤ 1024
         ∧ (∃ acc, SstoreRealises fr0 kw vw acc) ∧ vw ≠ 0) :
@@ -267,10 +266,10 @@ theorem simStmtStep_sstore {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word
   cases hstep with
   | sstore hk hv =>
     rename_i kw vw
-    obtain ⟨hsc, hgas, hstk, ⟨acc, hsr⟩, hnz⟩ := hties pc key value kw vw st0 fr0 hget hcorr hk hv
+    obtain ⟨hsc, hstk, ⟨acc, hsr⟩, hnz⟩ := hties pc key value kw vw st0 fr0 hget hcorr hk hv
     obtain ⟨hwfv, hwfk⟩ := hwf.matFueled_sstore L b pc key value hb hget
     exact sim_sstore_stmt_lowered hb hget hcorr hk hv hsc hwfv hwfk
-      (hwf.bound_sstore L b pc key value hb hget) hgas hstk hsr hnz
+      (hwf.bound_sstore L b pc key value hb hget) hcs hstk hsr hnz
 
 /-! ### The `call`-arm discharge (the §7 CALL tie)
 
@@ -509,9 +508,8 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         Corr prog sloadChg obs st0 fr0 L pc →
         st0.locals key = some kw → st0.locals value = some vw →
         StepScoped prog st0 (.sstore key value)
-        ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp value)).sum
-            + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).sum
-            ≤ fr0.exec.gasAvailable.toNat
+        -- gas aggregate DROPPED: now DERIVED from the threaded clean-halt witness `hcs`
+        -- via `sim_sstore_stmt`'s two-frame chained fold.
         ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp value)).length
             + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).length + 1 ≤ 1024
         ∧ (∃ acc, SstoreRealises fr0 kw vw acc) ∧ vw ≠ 0)
@@ -594,10 +592,10 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       hgasGas hgasPush hmem hgasMem hgasMstore hscoped'
   | sstore hk hv =>
     rename_i key value kw vw
-    obtain ⟨hsc, hgas, hstk, ⟨acc, hsr⟩, hnz⟩ := hsstore pc key value kw vw st0 fr0 hget hcorr hk hv
+    obtain ⟨hsc, hstk, ⟨acc, hsr⟩, hnz⟩ := hsstore pc key value kw vw st0 fr0 hget hcorr hk hv
     obtain ⟨hwfv, hwfk⟩ := hwf.matFueled_sstore L b pc key value hb hget
     exact sim_sstore_stmt_lowered hb hget hcorr hk hv hsc hwfv hwfk
-      (hwf.bound_sstore L b pc key value hb hget) hgas hstk hsr hnz
+      (hwf.bound_sstore L b pc key value hb hget) hcs hstk hsr hnz
   | call hcallee hgasr ho =>
     rename_i cs calleeW gasFwdW success world'
     exact simStmtStep_call hb hget hwf hcorr
@@ -1400,9 +1398,9 @@ def StmtTies (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (o : V2.Call
       Corr prog sloadChg obs st0 fr0 L pc →
       st0.locals key = some kw → st0.locals value = some vw →
       StepScoped prog st0 (.sstore key value)
-      ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp value)).sum
-          + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).sum
-          ≤ fr0.exec.gasAvailable.toNat
+      -- the SSTORE aggregate-charge gas envelope is **no longer in the tie** — it is DERIVED from
+      -- the per-cursor clean-halt witness via `sim_sstore_stmt`'s two-frame `materialise_runs_of_cleanHalt`
+      -- fold. Only the stack-room fold, the world tie, and the IR value fact remain supplied:
       ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp value)).length
           + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).length + 1 ≤ 1024
       ∧ (∃ acc, SstoreRealises fr0 kw vw acc) ∧ vw ≠ 0)
