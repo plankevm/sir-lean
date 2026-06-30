@@ -4514,6 +4514,265 @@ theorem driveCorrPlus_step_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs
   · subst hsucc; subst hz
     exact RunFrom.branchElse hb hrun hbterm hc hO
 
+/-! ## §10 — the `DriveCorrPlus` recursion (C8) and the tie-free headline (C9)
+
+The four proven `driveCorrPlus_step_*` wrappers are the per-block leaves of a recursion that
+threads the strengthened `DriveCorrPlus` invariant — exactly the `DriveCorr` tower of `DriveSim.lean`
+(`driveStep_of_block` → `runFrom_of_driveCorr` → `lower_conforms_cyclic`), but lifted so that the
+gas-positional / self-presence channels the `Plus` invariant carries are **re-established at every
+reached boundary** rather than supplied per edge.
+
+* **`DriveStepPlus`** — the `Plus` analogue of `DriveStep`: at a `DriveCorrPlus` boundary, either the
+  block halts (the IR `RunFrom`, halt disjunct) or it takes an edge to a strictly-smaller successor
+  whose re-established invariant is `DriveCorrPlus` (NOT the bare `DriveCorr`). Threading the `Plus`
+  invariant through the recursion is what discharges the gas-advance (S3) / `SelfPresent` /
+  `accounts ≠ ∅` channels uniformly, instead of supplying them at each boundary.
+* **`driveStepPlus_of_block`** (C8) — assembles `DriveStepPlus` at one block by dispatching `b.term`
+  to the four proven `driveCorrPlus_step_*` wrappers. The IR block run is `runStmts_exists` (from the
+  static `RunDefinable`), exactly as `driveStep_of_block`.
+* **`runFrom_of_driveCorrPlus`** — the `Plus` analogue of `runFrom_of_driveCorr`: strong induction on
+  the bytecode `totalGas` measure, recursing at the strictly-smaller successor `DriveCorrPlus`.
+* **`lower_conforms_cyclic_tiefree`** (C9) — feeds the `Plus`-constructed `RunFrom` into the existing
+  `sim_cfg`, recovering the world equation with the gas / self channels DISCHARGED through the `Plus`
+  thread. The genuinely-runtime residuals stay SUPPLIED (documented at C9). -/
+
+/-- **The `Plus` per-block drive obligation.** As `DriveStep`, but the edge arm re-establishes the
+strengthened `DriveCorrPlus` invariant (with its `Plus` accumulators) at the successor rather than
+the bare `DriveCorr`. The halt arm is the IR `RunFrom` (the block bottoms out); the edge arm is a
+strictly-smaller successor `DriveCorrPlus` plus the IR continuation. `runFrom_of_driveCorrPlus`
+recurses on it; the gas / self channels thread through the successor invariant. -/
+def DriveStepPlus (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (o : V2.CallOracle)
+    (st : V2.IRState) (fr : Frame) (L : Label) (T : Trace) : Prop :=
+  -- halt arm: the block bottoms out, IR halts at `O`.
+  (∃ O : V2.Observable, RunFrom prog o st T L O)
+  ∨
+  -- edge arm: a strictly-smaller successor boundary re-establishing `DriveCorrPlus`.
+  (∃ (st' : V2.IRState) (T' : Trace) (succ : Label) (fr' : Frame)
+      (gasAcc' : List Word) (gasFrs' : List Frame) (sloadAcc' : List Nat) (sloadFrs' : List Frame),
+      DriveCorrPlus prog sloadChg obs st' fr' succ gasAcc' gasFrs' sloadAcc' sloadFrs'
+    ∧ totalGas [] (.inl fr') < totalGas [] (.inl fr)
+    ∧ (∀ O, RunFrom prog o st' T' succ O → RunFrom prog o st T L O))
+
+/-- **C8 — `driveStepPlus_of_block`.** From `DriveCorrPlus` at `L`, the block present, the static
+operand-definability `RunDefinable`, the per-statement simulation `SimStmtStep`, the P3 call edge
+`CallPreservesSelf`, and the per-terminator supplied §7 bundles (the halt world-channel /
+RETURN-epilogue / jump / branch edge data — exactly what the `driveCorrPlus_step_*` wrappers
+consume, quantified by terminator shape), produce `DriveStepPlus` at this block. The IR block run is
+`runStmts_exists` (`RunDefinable`); the conclusion is the halt disjunct for `stop`/`ret` (built by
+`RunFrom.stop`/`.ret`) and the edge disjunct (the re-established successor `DriveCorrPlus`) for
+`jump`/`branch`, dispatched on `b.term`. -/
+theorem driveStepPlus_of_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
+    {o : V2.CallOracle} {st : V2.IRState} {fr : Frame} {L : Label} {T : Trace} {b : Block}
+    {gasAcc : List Word} {gasFrs : List Frame} {sloadAcc : List Nat} {sloadFrs : List Frame}
+    (hb : blockAt prog L = some b)
+    (hdc : DriveCorrPlus prog sloadChg obs st fr L gasAcc gasFrs sloadAcc sloadFrs)
+    (hsim : SimStmtStep prog sloadChg obs o L b)
+    (hdef : RunDefinable prog)
+    (hcall : CallPreservesSelf)
+    -- the `jump` destination block's presence (static, replacing `CFGAcyclic.succ_present`):
+    (hjumpPresent : ∀ (dst : Label), b.term = .jump dst →
+      ∃ bdst : Block, prog.blocks.toList[dst.idx]? = some bdst)
+    -- the `jump` edge bundle (used only on `jump dst`, exactly `driveCorrPlus_step_jump`'s):
+    (hjump : ∀ (dst : Label), b.term = .jump dst →
+      ∀ frT : Frame,
+        Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
+        ∃ fj : Frame, Runs frT fj
+          ∧ GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
+          ∧ fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
+              prog.blocks dst.idx)
+          ∧ fj.exec.executionEnv.code = lower prog
+          ∧ fj.validJumps = validJumpDests fj.exec.executionEnv.code 0
+          ∧ fj.exec.stack = []
+          ∧ fj.exec.executionEnv.canModifyState = true
+          ∧ (∀ k, selfStorage fj k = (stmtsPost st b.stmts).world k)
+            ∧ MemRealises prog (stmtsPost st b.stmts) fj
+          ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none))
+    -- the `branch` edge bundle (used only on `branch cond thenL elseL`):
+    (hbranch : ∀ (cond : Tmp) (thenL elseL : Label) (cw : Word),
+      b.term = .branch cond thenL elseL →
+      (stmtsPost st b.stmts).locals cond = some cw →
+      ∀ frT : Frame,
+        Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
+        ∃ (succ : Label) (bsucc : Block) (fj : Frame),
+          ((succ = thenL ∧ cw ≠ 0) ∨ (succ = elseL ∧ cw = 0))
+          ∧ prog.blocks.toList[succ.idx]? = some bsucc
+          ∧ Runs frT fj
+          ∧ GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
+          ∧ fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
+              prog.blocks succ.idx)
+          ∧ fj.exec.executionEnv.code = lower prog
+          ∧ fj.validJumps = validJumpDests fj.exec.executionEnv.code 0
+          ∧ fj.exec.stack = []
+          ∧ fj.exec.executionEnv.canModifyState = true
+          ∧ (∀ k, selfStorage fj k = (stmtsPost st b.stmts).world k)
+            ∧ MemRealises prog (stmtsPost st b.stmts) fj
+          ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none)) :
+    DriveStepPlus prog sloadChg obs o st fr L T := by
+  -- the toList form of the block presence (the wrappers' `_hb`/`hb` argument shape).
+  have hbtl : prog.blocks.toList[L.idx]? = some b := toList_of_blockAt hb
+  -- run the block's statements forward (gas-free / call-free, definable from any state).
+  have hrun : V2.RunStmts prog o st T b.stmts (stmtsPost st b.stmts) T :=
+    runStmts_exists (hdef.stmts st L b hb)
+  -- dispatch on the terminator shape.
+  cases hterm : b.term with
+  | stop =>
+    -- halt disjunct (LEFT): the IR `RunFrom.stop`. The `driveCorrPlus_step_stop` wrapper additionally
+    -- discharges `SelfPresent`/`accounts ≠ ∅` at the reached terminator (threaded via the `Plus`
+    -- invariant); the IR `RunFrom` itself is `RunFrom.stop`.
+    exact Or.inl ⟨_, RunFrom.stop hb hrun hterm⟩
+  | ret t =>
+    -- halt disjunct (LEFT): the IR `RunFrom.ret`; the operand is `RunDefinable.ret_def`.
+    obtain ⟨w, hv⟩ := hdef.ret_def st L b t hb hterm
+    exact Or.inl ⟨_, RunFrom.ret hb hrun hterm hv⟩
+  | jump dst =>
+    -- edge disjunct (RIGHT) via `driveCorrPlus_step_jump`; `dst`'s presence via `hjumpPresent`.
+    obtain ⟨bdst, hbdst⟩ := hjumpPresent dst hterm
+    obtain ⟨fj, hfrrun, hdcorr', hlt, hcont⟩ :=
+      driveCorrPlus_step_jump hdc hb hbdst hterm hrun hsim hcall (hjump dst hterm)
+    exact Or.inr ⟨stmtsPost st b.stmts, T, dst, jumpdestFrame fj, _, _, _, _, hdcorr', hlt, hcont⟩
+  | branch cond thenL elseL =>
+    -- edge disjunct (RIGHT) via `driveCorrPlus_step_branch`; the condition is `RunDefinable`.
+    obtain ⟨cw, hc⟩ := hdef.branch_def st L b cond thenL elseL hb hterm
+    obtain ⟨succ, fj, hfrrun, hdcorr', hlt, hcont⟩ :=
+      driveCorrPlus_step_branch hdc hb hterm hrun hc hsim hcall
+        (hbranch cond thenL elseL cw hterm hc)
+    exact Or.inr ⟨stmtsPost st b.stmts, T, succ, jumpdestFrame fj, _, _, _, _, hdcorr', hlt, hcont⟩
+
+/-- **`runFrom_of_driveCorrPlus`.** The `Plus` analogue of `runFrom_of_driveCorr`: from
+`DriveCorrPlus … st fr L …` and the `Plus` per-block drive obligation `DriveStepPlus` at **every**
+reachable boundary, the IR `RunFrom prog o st T L` exists for some observable `O`. Proved by strong
+induction on the bytecode `totalGas` measure (which strictly descends per block,
+`totalGas_succ_lt`), so it holds for **cyclic** CFGs — no `CFGAcyclic`. The edge arm recurses at the
+strictly-smaller successor's `DriveCorrPlus`; the gas / self channels thread through the successor
+invariant. -/
+theorem runFrom_of_driveCorrPlus {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
+    {o : V2.CallOracle}
+    (hstep : ∀ (st : V2.IRState) (fr : Frame) (L : Label) (T : Trace)
+      (gasAcc : List Word) (gasFrs : List Frame) (sloadAcc : List Nat) (sloadFrs : List Frame),
+      DriveCorrPlus prog sloadChg obs st fr L gasAcc gasFrs sloadAcc sloadFrs →
+      DriveStepPlus prog sloadChg obs o st fr L T) :
+    ∀ (st : V2.IRState) (fr : Frame) (L : Label) (T : Trace)
+      (gasAcc : List Word) (gasFrs : List Frame) (sloadAcc : List Nat) (sloadFrs : List Frame),
+      DriveCorrPlus prog sloadChg obs st fr L gasAcc gasFrs sloadAcc sloadFrs →
+      ∃ O, RunFrom prog o st T L O := by
+  -- strong induction on the bytecode `totalGas` measure of the boundary frame.
+  intro st fr L T gasAcc gasFrs sloadAcc sloadFrs hdc
+  induction hmeasure : totalGas [] (.inl fr) using Nat.strong_induction_on
+    generalizing st fr L T gasAcc gasFrs sloadAcc sloadFrs with
+  | _ n ih =>
+    subst hmeasure
+    rcases hstep st fr L T gasAcc gasFrs sloadAcc sloadFrs hdc with
+      ⟨O, hir⟩ | ⟨st', T', succ, fr', gasAcc', gasFrs', sloadAcc', sloadFrs', hdc', hlt, hcont⟩
+    · -- halt arm: the block bottoms out.
+      exact ⟨O, hir⟩
+    · -- edge arm: recurse at the strictly-smaller successor `DriveCorrPlus`, then prepend the block.
+      obtain ⟨O, hO⟩ := ih (totalGas [] (.inl fr')) hlt st' fr' succ T'
+        gasAcc' gasFrs' sloadAcc' sloadFrs' hdc' rfl
+      exact ⟨O, hcont O hO⟩
+
+/-- **C9 — `lower_conforms_cyclic_tiefree`.** The tie-free headline. Given the entry `DriveCorrPlus`
+(assembled at the entry frame by `driveCorrPlus_entry`), the static operand-definability
+`RunDefinable`, the per-boundary block presence, the per-statement simulation `SimStmtStep`, the P3
+call edge `CallPreservesSelf`, and the per-terminator supplied §7 edge bundles, the world equation
+holds for the `Plus`-constructed run's existential observable — **general over CYCLIC CFGs** (no
+`CFGAcyclic`/`RunDefinable`-as-acyclicity; the `totalGas` measure replaces static block-rank).
+
+`driveStepPlus_of_block` assembles `DriveStepPlus` at every reached boundary from the supplied data,
+threading the strengthened `DriveCorrPlus` invariant; `runFrom_of_driveCorrPlus` builds the IR
+`RunFrom`; the existing cycle-agnostic `sim_cfg` ties it to the bytecode halt's world.
+
+**DISCHARGED through the `Plus` thread** (vs `lower_conforms_cyclic`, which supplies a raw `hstep`):
+the gas-advance positional channel (S3, via `driveCorrPlus_step_*`'s carried alignment), the SSTORE
+self-presence (`SelfPresent`) and `accounts ≠ ∅` invariants re-established at every reached boundary.
+**Still SUPPLIED** (genuinely-runtime residuals, NOT the gas/self ties): the `sim_cfg` per-block
+ties `hstmts`/`hterm` (the serialized S1/S5/S6 spine + the world-channel halt brick), the P3
+`CallPreservesSelf` `.success` ext-call self seam, and the per-terminator edge bundles
+`hjumpPresent`/`hjump`/`hbranch` (concrete lowered PUSH/JUMP epilogue data). -/
+theorem lower_conforms_cyclic_tiefree {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
+    {o : V2.CallOracle} {self : AccountAddress}
+    {st₀ : V2.IRState} {T : Trace} {params : Evm.CallParams} {code : ByteArray} {acc : Account}
+    -- the entry boundary: a `DriveCorr` at `(prog.entry, 0)` whose frame is the call's `codeFrame`,
+    -- with the self account present (`hwf`). `driveCorrPlus_entry` lifts it to `DriveCorrPlus`.
+    (hbase : DriveCorr prog sloadChg obs st₀ (codeFrame params code) prog.entry)
+    (hwf : params.accounts.find? params.recipient = some acc)
+    -- static operand-definability (benign well-formedness — NOT `CFGAcyclic`):
+    (hdef : RunDefinable prog)
+    -- the P3 call edge (the `.success` ext-call self seam — supplied):
+    (hcall : CallPreservesSelf)
+    -- block presence at every reachable `DriveCorrPlus` boundary:
+    (hpresent : ∀ (st : V2.IRState) (fr : Frame) (L : Label)
+        (gasAcc : List Word) (gasFrs : List Frame) (sloadAcc : List Nat) (sloadFrs : List Frame),
+      DriveCorrPlus prog sloadChg obs st fr L gasAcc gasFrs sloadAcc sloadFrs →
+      ∃ b, blockAt prog L = some b)
+    -- the per-statement tie (`sim_cfg`'s + `driveStepPlus_of_block`'s):
+    (hstmts : ∀ (L : Label) (b : Block), blockAt prog L = some b →
+      SimStmtStep prog sloadChg obs o L b)
+    (hterm : ∀ (L : Label) (b : Block), blockAt prog L = some b →
+      SimTermStep prog sloadChg obs o self L b)
+    -- the `jump` destination presence, at every block (`st`-free — the destination is static):
+    (hjumpPresent : ∀ (L : Label) (b : Block), blockAt prog L = some b →
+      ∀ (dst : Label), b.term = .jump dst →
+        ∃ bdst : Block, prog.blocks.toList[dst.idx]? = some bdst)
+    -- the `jump` edge bundle, at every block / post-statement frame:
+    (hjump : ∀ (st : V2.IRState) (L : Label) (b : Block), blockAt prog L = some b →
+      ∀ (dst : Label), b.term = .jump dst →
+      ∀ frT : Frame,
+        Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
+        ∃ fj : Frame, Runs frT fj
+          ∧ GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
+          ∧ fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
+              prog.blocks dst.idx)
+          ∧ fj.exec.executionEnv.code = lower prog
+          ∧ fj.validJumps = validJumpDests fj.exec.executionEnv.code 0
+          ∧ fj.exec.stack = []
+          ∧ fj.exec.executionEnv.canModifyState = true
+          ∧ (∀ k, selfStorage fj k = (stmtsPost st b.stmts).world k)
+            ∧ MemRealises prog (stmtsPost st b.stmts) fj
+          ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none))
+    -- the `branch` edge bundle, at every block / post-statement frame:
+    (hbranch : ∀ (st : V2.IRState) (L : Label) (b : Block), blockAt prog L = some b →
+      ∀ (cond : Tmp) (thenL elseL : Label) (cw : Word),
+      b.term = .branch cond thenL elseL →
+      (stmtsPost st b.stmts).locals cond = some cw →
+      ∀ frT : Frame,
+        Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
+        ∃ (succ : Label) (bsucc : Block) (fj : Frame),
+          ((succ = thenL ∧ cw ≠ 0) ∨ (succ = elseL ∧ cw = 0))
+          ∧ prog.blocks.toList[succ.idx]? = some bsucc
+          ∧ Runs frT fj
+          ∧ GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
+          ∧ fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
+              prog.blocks succ.idx)
+          ∧ fj.exec.executionEnv.code = lower prog
+          ∧ fj.validJumps = validJumpDests fj.exec.executionEnv.code 0
+          ∧ fj.exec.stack = []
+          ∧ fj.exec.executionEnv.canModifyState = true
+          ∧ (∀ k, selfStorage fj k = (stmtsPost st b.stmts).world k)
+            ∧ MemRealises prog (stmtsPost st b.stmts) fj
+          ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none)) :
+    ∃ O : V2.Observable,
+      (∃ last haltSig, Runs (codeFrame params code) last ∧ stepFrame last = .halted haltSig
+        ∧ (observe self (endFrame last haltSig)).world = O.world)
+      ∧ RunFrom prog o st₀ T prog.entry O := by
+  -- the entry `DriveCorrPlus` (empty consumed prefixes) via `driveCorrPlus_entry`.
+  have hentryPlus : DriveCorrPlus prog sloadChg obs st₀ (codeFrame params code) prog.entry [] [] [] [] :=
+    driveCorrPlus_entry hbase hwf
+  -- assemble the per-boundary `DriveStepPlus` from `driveStepPlus_of_block` at each reached block.
+  have hstep : ∀ (st : V2.IRState) (fr : Frame) (L : Label) (T : Trace)
+      (gasAcc : List Word) (gasFrs : List Frame) (sloadAcc : List Nat) (sloadFrs : List Frame),
+      DriveCorrPlus prog sloadChg obs st fr L gasAcc gasFrs sloadAcc sloadFrs →
+      DriveStepPlus prog sloadChg obs o st fr L T := by
+    intro st fr L T' gasAcc gasFrs sloadAcc sloadFrs hdc
+    obtain ⟨b, hb⟩ := hpresent st fr L gasAcc gasFrs sloadAcc sloadFrs hdc
+    exact driveStepPlus_of_block hb hdc (hstmts L b hb) hdef hcall
+      (hjumpPresent L b hb) (hjump st L b hb) (hbranch st L b hb)
+  -- the `Plus` recursion builds the IR `RunFrom` from the entry `DriveCorrPlus`.
+  obtain ⟨O, hir⟩ :=
+    runFrom_of_driveCorrPlus hstep st₀ (codeFrame params code) prog.entry T [] [] [] [] hentryPlus
+  -- the EXISTING cycle-agnostic `sim_cfg`: tie the constructed run to the bytecode halt world.
+  obtain ⟨last, haltSig, hlast, hhalt, hworld⟩ := sim_cfg hstmts hterm hbase.corr hir
+  exact ⟨O, ⟨last, haltSig, hlast, hhalt, hworld⟩, hir⟩
+
 end Lir.V2
 
 -- Build-enforced axiom-cleanliness guards for the tie-discharge deliverables.
@@ -4613,3 +4872,7 @@ end Lir.V2
 #print axioms Lir.V2.driveCorrPlus_step_ret
 #print axioms Lir.V2.driveCorrPlus_step_jump
 #print axioms Lir.V2.driveCorrPlus_step_branch
+-- C8/C9: the `DriveCorrPlus` recursion assembly + the tie-free headline.
+#print axioms Lir.V2.driveStepPlus_of_block
+#print axioms Lir.V2.runFrom_of_driveCorrPlus
+#print axioms Lir.V2.lower_conforms_cyclic_tiefree
