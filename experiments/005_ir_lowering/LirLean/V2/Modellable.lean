@@ -1,4 +1,5 @@
 import LirLean.V2.DriveRuns
+import LirLean.NoCreateBytes
 
 /-!
 # LirLean v2 — `ModellableStep` over `lower prog` (P2: discharge the supplied modellability hypothesis)
@@ -12,15 +13,19 @@ no CREATE node, no precompile-CALL node (`Runs` models neither). `cleanHalts_of_
 This module replaces it with a **proved producing lemma**. The work splits along the two clauses
 of `ModellableStep`:
 
-* **Clause 1 — no CREATE (`stepFrame fr ≠ .needsCreate …`).** This is **fully structural** and
-  needs no program hypothesis at all: a `.needsCreate` signal is produced *only* by the
-  `CREATE`/`CREATE2` arms of `systemOp` (every other `dispatch` arm goes through
-  `continueWith`/`charge`/`throw`, i.e. `.next` / `.halted`, never `.needsCreate`). So
-  `stepFrame fr = .needsCreate …` forces the decoded op to be `.System .CREATE` /
-  `.System .CREATE2` (`stepFrame_needsCreate_isCreate`). For a frame running `lower prog` whose
-  current pc decodes to one of the opcodes the lowering actually emits (all non-CREATE), clause 1
-  holds by contradiction. We expose the structural half as `noNeedsCreate_of_decode_ne_create`:
-  if the frame's current op is neither `CREATE` nor `CREATE2`, it never `.needsCreate`s.
+* **Clause 1 — no CREATE (`stepFrame fr ≠ .needsCreate …`).** **Fully structural** and now
+  **discharged**, not supplied: a `.needsCreate` signal is produced *only* by the `CREATE`/`CREATE2`
+  arms of `systemOp` (every other `dispatch` arm goes through `continueWith`/`charge`/`throw`, i.e.
+  `.next` / `.halted`, never `.needsCreate`), so `stepFrame fr = .needsCreate …` forces the decoded
+  op to be `.System .CREATE` / `.System .CREATE2` (`stepFrame_needsCreate_isCreate`). The
+  complementary fact — a frame running `lower prog` at a reachable instruction boundary *never reads
+  a CREATE-family opcode* — is the structural content of `LirLean/NoCreateBytes.lean`: the lowering
+  emits only 16 non-CREATE opcodes at any instruction head (`SegAlignedSafe`, the no-CREATE-head
+  strengthening of `JumpValid.lean`'s `SegAligned`), transported along the `ReachesBoundary` walk
+  (`decode_reachable_boundary_some`). `notCreate_of_atReachableBoundary` combines the two to prove
+  `NotCreate fr'` from the per-frame `AtReachableBoundary prog fr'` premise (`fr'` runs `lower prog`
+  at a reachable boundary) — so clause 1 no longer needs `NotCreate` as a raw supplied universal;
+  only the *pc-reachability* residual remains.
 
 * **Clause 2 — no precompile-CALL.** `beginCall cp = .inr _` holds **iff** `cp.codeSource =
   .Precompiled _`, and in a `.needsCall` produced by `callArm`, `cp.codeSource =
@@ -29,14 +34,15 @@ of `ModellableStep`:
   address is a precompile (`1..10`). So clause 2 is **genuinely runtime-dependent**: a `lower prog`
   whose IR `Stmt.call` materialises a precompile address as its callee *would* produce a
   precompile-CALL. This is NOT a structural property of the lowering — it is a side condition on
-  the program's reachable call targets. We capture exactly that residual as the predicate
-  `NoReachablePrecompileCall` and prove `ModellableStep` from clause 1 (structural) ∧ that residual.
+  the program's reachable call targets, captured by the residual `CallsCode` and proven through
+  `beginCall_isCode_of_codeSource_ne_precompiled`.
 
-So the producing lemma `lower_modellable` discharges clause 1 for free and consumes only the honest
-residual (no reachable precompile-CALL). `cleanHalts_of_runWithLog` then takes that residual in
-place of the raw `ModellableStep` universal — a strictly weaker, satisfiable, precisely-scoped
-hypothesis (it is *vacuously* true for any IR program with no calls, and for any program whose call
-targets are ordinary contract accounts). See the module-level note in `DriveSim.lean`.
+So the producing lemma `lower_modellable` discharges clause 1 structurally (from `AtReachableBoundary`)
+and consumes only the honest residuals: the pc-reachability premise and `CallsCode` (no reachable
+precompile-CALL). `cleanHalts_of_runWithLog` then takes those in place of the raw `ModellableStep`
+universal — strictly weaker, satisfiable, precisely-scoped hypotheses (`CallsCode` is *vacuously*
+true for any IR program with no calls, and for any program whose call targets are ordinary contract
+accounts). See the module-level note in `DriveSim.lean`.
 
 No `sorry`/`axiom`/`native_decide`. -/
 
@@ -392,6 +398,36 @@ the program's reachable CALL targets are ordinary contract accounts, not precomp
 def NotCreate (fr : Frame) : Prop :=
   currentOp fr ≠ .System .CREATE ∧ currentOp fr ≠ .System .CREATE2
 
+/-- **`AtReachableBoundary prog fr`** — the structural-reachability premise: `fr` runs
+`lower prog` and its current pc is an instruction boundary reachable from the program start,
+strictly before the program end and within the `UInt32` address space. This is *exactly* the
+"reachable pc is a `lower prog` instruction boundary" invariant the no-CREATE clause needs
+(`docs/uniform-spill-alloc-plan.md`); it is the residual whole-run reachability fact, strictly
+weaker than the raw `NotCreate` it discharges (`notCreate_of_atReachableBoundary`). -/
+def AtReachableBoundary (prog : Lir.Program) (fr : Frame) : Prop :=
+  ∃ boundary : Nat,
+    fr.exec.executionEnv.code = Lir.lower prog
+    ∧ fr.exec.pc = UInt32.ofNat boundary
+    ∧ Evm.ReachesBoundary (Lir.lower prog) 0 boundary
+    ∧ boundary < (Lir.flatBytes prog).length
+    ∧ boundary < 2 ^ 32
+
+/-- **`NotCreate` discharged structurally from `AtReachableBoundary`.** A frame running
+`lower prog` at a reachable instruction boundary has a non-CREATE current op: the structural
+no-CREATE fact (`Lir.decode_reachable_boundary_notCreate`) pins the decoded op off the
+CREATE-family, and `currentOp` reads exactly that decoded op (the boundary is in range, so
+`decode` is `some`). This is the **structural discharge** of the first modellability clause —
+no program-specific hypothesis, only the reachable-boundary invariant. -/
+theorem notCreate_of_atReachableBoundary {prog : Lir.Program} {fr : Frame}
+    (h : AtReachableBoundary prog fr) : NotCreate fr := by
+  obtain ⟨pc, hcode, hpc, hreach, hin, hbnd⟩ := h
+  -- the boundary decodes to a concrete non-CREATE opcode (`decode_reachable_boundary_some`).
+  obtain ⟨op, arg, hval, hsafe1, hsafe2⟩ :=
+    Lir.decode_reachable_boundary_some prog pc hreach hin hbnd
+  -- `currentOp fr = (decode (lower prog) (UInt32.ofNat pc)).getD (.STOP, .none) |>.1 = op`.
+  have hcoeq : currentOp fr = op := by rw [currentOp, hcode, hpc, hval]; rfl
+  exact ⟨hcoeq ▸ hsafe1, hcoeq ▸ hsafe2⟩
+
 /-- The second reachability clause: every `.needsCall` `fr` issues targets a *code* account, not a
 precompile. The **honest residual** — a runtime fact about the program's reachable call targets,
 NOT structurally guaranteed by the lowering (an IR `Stmt.call` whose callee materialises a
@@ -422,17 +458,21 @@ the universal `runs_of_drive_ok` consumes; it discharges the raw `ModellableStep
 `cleanHalts_of_runWithLog` to the strictly weaker, satisfiable, decode-level `NotCreate`/`CallsCode`
 side conditions.
 
-The split is honest: `NotCreate` is structurally true for `lower prog` (it never emits a CREATE/
-CREATE2 opcode), but pinning it for an *arbitrary* reachable pc needs the full "reachable pc is a
-`lower prog` instruction boundary" invariant (the `ReachesBoundary` walk of `JumpValid.lean`); we
-expose it as a per-frame premise rather than fabricate that whole-run invariant here. `CallsCode`
-is the genuinely-runtime residual (no reachable precompile-targeted CALL), which is NOT a property
-of the lowering and must be supplied (it is vacuous for call-free programs). -/
-theorem lower_modellable {fr₀ : Frame}
-    (hnc : ∀ fr', Runs fr₀ fr' → NotCreate fr')
+The split is honest: `NotCreate` is now **discharged structurally** from the strictly-weaker
+`AtReachableBoundary prog` premise (`notCreate_of_atReachableBoundary`: a frame running `lower
+prog` at a reachable instruction boundary never reads a CREATE-family opcode — the
+`ReachesBoundary` walk of `JumpValid.lean` ⨯ the `SegAlignedSafe` no-CREATE-head transport of
+`NoCreateBytes.lean`). The residual premise is no longer `NotCreate fr'` itself but the per-frame
+"`fr'` runs `lower prog` at a reachable boundary" reachability fact — the genuine whole-run pc
+invariant, which is a property of *which frames `Runs` reaches*, not of the lowering's opcode set
+(that part is now proved). `CallsCode` remains the genuinely-runtime residual (no reachable
+precompile-targeted CALL), which is NOT a property of the lowering and must be supplied (it is
+vacuous for call-free programs). -/
+theorem lower_modellable {prog : Lir.Program} {fr₀ : Frame}
+    (hrb : ∀ fr', Runs fr₀ fr' → AtReachableBoundary prog fr')
     (hcc : ∀ fr', Runs fr₀ fr' → CallsCode fr') :
     ∀ fr', Runs fr₀ fr' → ModellableStep fr' :=
-  fun fr' hr => modellableStep_of (hnc fr' hr) (hcc fr' hr)
+  fun fr' hr => modellableStep_of (notCreate_of_atReachableBoundary (hrb fr' hr)) (hcc fr' hr)
 
 end BytecodeLayer.Interpreter
 
@@ -445,5 +485,6 @@ end BytecodeLayer.Interpreter
 #print axioms BytecodeLayer.Interpreter.systemOp_needsCreate_isCreate
 #print axioms BytecodeLayer.Interpreter.stepFrame_needsCreate_isCreate
 #print axioms BytecodeLayer.Interpreter.beginCall_isCode_of_codeSource_ne_precompiled
+#print axioms BytecodeLayer.Interpreter.notCreate_of_atReachableBoundary
 #print axioms BytecodeLayer.Interpreter.modellableStep_of
 #print axioms BytecodeLayer.Interpreter.lower_modellable
