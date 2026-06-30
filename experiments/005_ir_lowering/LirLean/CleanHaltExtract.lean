@@ -1,5 +1,5 @@
 import LirLean.LowerDecode
-import LirLean.V2.DriveSim
+import LirLean.CleanHalt
 
 /-!
 # CleanHalt extractor — clean-halting ⟹ per-cursor gas/mem envelopes (Track 1)
@@ -60,9 +60,8 @@ core argument needs: the terminal is **not** `.exception`. A continuing op's onl
 
 `CleanHaltsNonException` (and its forward split `cleanHaltsNonException_forward`, the weakening
 `cleanHaltsNonException_toCleanHalts`, and the success special case
-`cleanHaltsNonException_of_success`) live in `V2/DriveSim.lean` — they are the type of the
-`DriveCorr.cleanHalts` field this extractor consumes, so they must sit upstream of the drive walk.
-Open `Lir.V2` brings them into scope here. -/
+`cleanHaltsNonException_of_success`) live in `LirLean/CleanHalt.lean` — upstream of both this
+extractor and the drive walk. Open `Lir.V2` brings them into scope here. -/
 
 open Lir.V2 (CleanHaltsNonException cleanHaltsNonException_forward HaltNonException)
 
@@ -588,7 +587,7 @@ theorem sload_envelope_of_cleanHalt
 
 end Lir.CleanHaltExtract
 
--- Axiom-cleanliness guards (§0 — predicate lives in `V2/DriveSim.lean`).
+-- Axiom-cleanliness guards (§0 — predicate lives in `LirLean/CleanHalt.lean`).
 #print axioms Lir.V2.cleanHaltsNonException_forward
 #print axioms Lir.V2.cleanHaltsNonException_toCleanHalts
 #print axioms Lir.V2.cleanHaltsNonException_of_success

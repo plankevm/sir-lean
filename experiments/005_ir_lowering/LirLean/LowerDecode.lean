@@ -646,6 +646,86 @@ side-conditions a real descending-gas run supplies (the `GAS`/`PUSH`/`MSTORE` ga
 `memoryExpansionWords?` witness), plus the addressability + post-state realisability — all
 genuinely satisfiable, none vacuous. -/
 
+/-- **GAS-stash decode anchors (reusable).** From the block/cursor anchoring (`hb`/`hs`), the slot
+registration (`hslotdef`), and `Corr`'s `pc_eq`/`code_eq`, the three lowered opcodes of the gas
+stash `GAS ; PUSH32 (slotOf t) ; MSTORE` decode at their successor frames: `GAS` at `fr`, `PUSH32`
+at `gasFrame fr`, `MSTORE` at `pushFrameW (gasFrame fr) (ofNat slot) 32`. This is the **structural**
+decode coverage both `sim_assign_gas_lowered` (via `stash_tail_gas`, `fr`-relative) and the
+clean-halt extractor `gas_envelope_of_cleanHalt` (successor-frame form) consume — factored out so
+the §7 GAS tie can DERIVE its runtime envelope from a clean-halt witness instead of supplying it. -/
+theorem decode_gasstash {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
+    {st : V2.IRState} {t : Tmp} {L : Label} {b : Block} {pc : Nat} {fr : Frame}
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hs : b.stmts[pc]? = some (.assign t .gas))
+    (hslotdef : defsOf prog t = some (.slot (slotOf t)))
+    (hbound : pcOf prog L pc + 34 < 2 ^ 32)
+    (hcorr : Corr prog sloadChg obs st fr L pc) :
+    decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .GAS, .none)
+    ∧ decode (gasFrame fr).exec.executionEnv.code (gasFrame fr).exec.pc
+        = some (.Push .PUSH32, some (UInt256.ofNat (slotOf t), 32))
+    ∧ decode (pushFrameW (gasFrame fr) (UInt256.ofNat (slotOf t)) 32).exec.executionEnv.code
+        (pushFrameW (gasFrame fr) (UInt256.ofNat (slotOf t)) 32).exec.pc
+        = some (.Smsf .MSTORE, .none) := by
+  set defs := defsOf prog with hdefs
+  set fuel := recomputeFuel prog with hfuel
+  set slot := slotOf t with hslotvar
+  -- the gas stash byte stream: `[GAS] ++ emitImm (ofNat slot) ++ [MSTORE]`, length 35.
+  have hgasmat : materialiseExpr defs fuel .gas = [Byte.gas] := by
+    have hf1 : 1 ≤ fuel := by rw [hfuel]; unfold recomputeFuel; omega
+    obtain ⟨f, hf⟩ := Nat.exists_eq_add_of_lt hf1
+    rw [show fuel = f + 1 from by omega]; rfl
+  have hemit : emitStmt defs fuel (.assign t .gas)
+      = [Byte.gas] ++ emitImm (UInt256.ofNat slot) ++ [Byte.mstore] := by
+    rw [emitStmt_assign_slot defs fuel t .gas hslotdef, hgasmat]
+  have hemitlen : (emitStmt defs fuel (.assign t .gas)).length = 35 := by
+    rw [hemit]; simp only [List.length_append, List.length_singleton, emitImm_length]
+  -- byte-segment facts in `flatBytes prog` at the cursor `pcOf prog L pc`.
+  have hseg : ∀ k, k < 35 →
+      (flatBytes prog)[pcOf prog L pc + k]? = (emitStmt defs fuel (.assign t .gas))[k]? := by
+    intro k hk
+    exact flatBytes_at_pcOf_offset prog L b pc (.assign t .gas) k hb hs (by rw [hemitlen]; omega)
+  -- decode the three opcodes over `lower prog` (offsets 0 / 1 / 34).
+  have hdgas : decode (lower prog) (UInt32.ofNat (pcOf prog L pc)) = some (.Smsf .GAS, .none) := by
+    have h := decode_at_offset_nonpush prog L b pc (.assign t .gas) 0 Byte.gas hb hs
+      (by rw [hemitlen]; omega) (by rw [hemit]; rfl) (by omega) (by decide)
+    simpa using h
+  have hdpush : decode (lower prog) (UInt32.ofNat (pcOf prog L pc + 1))
+      = some (.Push .PUSH32, some (UInt256.ofNat slot, 32)) := by
+    apply imm_leaf_decode prog (pcOf prog L pc + 1) (UInt256.ofNat slot) (by omega)
+    intro j hj
+    have hk := hseg (1 + j) (by rw [emitImm_length] at hj; omega)
+    rw [show pcOf prog L pc + (1 + j) = pcOf prog L pc + 1 + j from by ring] at hk
+    rw [hk, hemit]
+    rw [List.getElem?_append_left (by rw [List.length_append, List.length_singleton]; omega),
+        List.getElem?_append_right (by simp), show (1 + j - [Byte.gas].length) = j from by simp]
+  have hdmstore : decode (lower prog) (UInt32.ofNat (pcOf prog L pc + 34))
+      = some (.Smsf .MSTORE, .none) := by
+    have h := decode_at_offset_nonpush prog L b pc (.assign t .gas) 34 Byte.mstore hb hs
+      (by rw [hemitlen]; omega)
+      (by rw [hemit]
+          rw [List.getElem?_append_right (by simp [emitImm_length]),
+              show 34 - ([Byte.gas] ++ emitImm (UInt256.ofNat slot)).length = 0 from by
+                simp [emitImm_length]]
+          rfl)
+      (by omega) (by decide)
+    simpa using h
+  -- transport to the successor frames via `Corr`'s `pc_eq`/`code_eq` and the frame simp lemmas.
+  have hfrpc : fr.exec.pc = UInt32.ofNat (pcOf prog L pc) := hcorr.pc_eq
+  have hfrcode : fr.exec.executionEnv.code = lower prog := hcorr.code_eq
+  -- the successor-frame pc/code, in `UInt32.ofNat (offset)` form.
+  have hgcode : (gasFrame fr).exec.executionEnv.code = lower prog := by rw [gasFrame_code, hfrcode]
+  have hgpc : (gasFrame fr).exec.pc = UInt32.ofNat (pcOf prog L pc + 1) := by
+    rw [gasFrame_pc, hfrpc, show (1 : UInt32) = UInt32.ofNat 1 from rfl, ofNat_add']
+  have hmcode : (pushFrameW (gasFrame fr) (UInt256.ofNat slot) 32).exec.executionEnv.code
+      = lower prog := by rw [pushFrameW_code, hgcode]
+  have hmpc : (pushFrameW (gasFrame fr) (UInt256.ofNat slot) 32).exec.pc
+      = UInt32.ofNat (pcOf prog L pc + 34) := by
+    rw [pushFrameW_pc, hgpc, show ((32 : UInt8) + 1).toUInt32 = UInt32.ofNat 33 from rfl,
+        ofNat_add', show pcOf prog L pc + 1 + 33 = pcOf prog L pc + 34 from by omega]
+  exact ⟨by rw [hfrcode, hfrpc]; exact hdgas,
+    by rw [hgcode, hgpc]; exact hdpush,
+    by rw [hmcode, hmpc]; exact hdmstore⟩
+
 /-- **`sim_assign_gas` with the stash run discharged (`_lowered`, P1).** Replaces the supplied
 `hstash` run with the honest runtime gas/witness side-conditions; the GAS;PUSH;MSTORE run and its
 memory-channel tie are constructed internally (decode from the byte layout + `stash_tail_gas`).
@@ -691,7 +771,7 @@ theorem sim_assign_gas_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
   set defs := defsOf prog with hdefs
   set fuel := recomputeFuel prog with hfuel
   set slot := slotOf t with hslotvar
-  -- the gas stash byte stream: `[GAS] ++ emitImm (ofNat slot) ++ [MSTORE]`, length 35.
+  -- the gas stash emit length (35), used for the final pc advance.
   have hgasmat : materialiseExpr defs fuel .gas = [Byte.gas] := by
     have hf1 : 1 ≤ fuel := by rw [hfuel]; unfold recomputeFuel; omega
     obtain ⟨f, hf⟩ := Nat.exists_eq_add_of_lt hf1
@@ -701,52 +781,20 @@ theorem sim_assign_gas_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
     rw [emitStmt_assign_slot defs fuel t .gas hslotdef, hgasmat]
   have hemitlen : (emitStmt defs fuel (.assign t .gas)).length = 35 := by
     rw [hemit]; simp only [List.length_append, List.length_singleton, emitImm_length]
-  -- byte-segment facts in `flatBytes prog` at the cursor `pcOf prog L pc`.
-  have hseg : ∀ k, k < 35 →
-      (flatBytes prog)[pcOf prog L pc + k]? = (emitStmt defs fuel (.assign t .gas))[k]? := by
-    intro k hk
-    exact flatBytes_at_pcOf_offset prog L b pc (.assign t .gas) k hb hs (by rw [hemitlen]; omega)
-  -- decode the three opcodes over `lower prog`.
-  -- GAS at offset 0.
-  have hdgas : decode (lower prog) (UInt32.ofNat (pcOf prog L pc)) = some (.Smsf .GAS, .none) := by
-    have h := decode_at_offset_nonpush prog L b pc (.assign t .gas) 0 Byte.gas hb hs
-      (by rw [hemitlen]; omega) (by rw [hemit]; rfl) (by omega) (by decide)
-    simpa using h
-  -- PUSH32 (ofNat slot) at offset 1 (its 32 immediate bytes round-trip via `imm_leaf_decode`).
-  have hdpush : decode (lower prog) (UInt32.ofNat (pcOf prog L pc + 1))
-      = some (.Push .PUSH32, some (UInt256.ofNat slot, 32)) := by
-    apply imm_leaf_decode prog (pcOf prog L pc + 1) (UInt256.ofNat slot) (by omega)
-    intro j hj
-    have hk := hseg (1 + j) (by rw [emitImm_length] at hj; omega)
-    rw [show pcOf prog L pc + (1 + j) = pcOf prog L pc + 1 + j from by ring] at hk
-    rw [hk, hemit]
-    rw [List.getElem?_append_left (by rw [List.length_append, List.length_singleton]; omega),
-        List.getElem?_append_right (by simp), show (1 + j - [Byte.gas].length) = j from by simp]
-  -- MSTORE at offset 34.
-  have hdmstore : decode (lower prog) (UInt32.ofNat (pcOf prog L pc + 34))
-      = some (.Smsf .MSTORE, .none) := by
-    have h := decode_at_offset_nonpush prog L b pc (.assign t .gas) 34 Byte.mstore hb hs
-      (by rw [hemitlen]; omega)
-      (by rw [hemit]
-          rw [List.getElem?_append_right (by simp [emitImm_length]),
-              show 34 - ([Byte.gas] ++ emitImm (UInt256.ofNat slot)).length = 0 from by
-                simp [emitImm_length]]
-          rfl)
-      (by omega) (by decide)
-    simpa using h
-  -- assemble the stash run via `stash_tail_gas`, anchored at `fr` (`pc_eq`/`code_eq`).
-  have hfrpc : fr.exec.pc = UInt32.ofNat (pcOf prog L pc) := hcorr.pc_eq
-  have hfrcode : fr.exec.executionEnv.code = lower prog := hcorr.code_eq
-  have hdgas' : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .GAS, .none) := by
-    rw [hfrcode, hfrpc]; exact hdgas
+  -- the three GAS-stash decode anchors (reusable `decode_gasstash`), in successor-frame form.
+  obtain ⟨hdgas', hdpushG, hdmstoreG⟩ := decode_gasstash hb hs hslotdef hbound hcorr
+  -- bridge the PUSH/MSTORE anchors to the `fr`-relative form `stash_tail_gas` consumes.
   have hdpush' : decode fr.exec.executionEnv.code (fr.exec.pc + UInt32.ofNat 1)
       = some (.Push .PUSH32, some (UInt256.ofNat slot, 32)) := by
-    rw [hfrcode, hfrpc, ofNat_add']; exact hdpush
+    have h := hdpushG; rw [gasFrame_code, gasFrame_pc] at h
+    rwa [show fr.exec.pc + UInt32.ofNat 1 = fr.exec.pc + 1 from rfl]
   have hdmstore' : decode fr.exec.executionEnv.code (fr.exec.pc + UInt32.ofNat 1 + UInt32.ofNat 33)
       = some (.Smsf .MSTORE, .none) := by
-    rw [hfrcode, hfrpc, ofNat_add', ofNat_add',
-        show pcOf prog L pc + 1 + 33 = pcOf prog L pc + 34 from by omega]
-    exact hdmstore
+    have h := hdmstoreG
+    rw [pushFrameW_code, pushFrameW_pc, gasFrame_code, gasFrame_pc,
+        show ((32 : UInt8) + 1).toUInt32 = UInt32.ofNat 33 from rfl] at h
+    rwa [show fr.exec.pc + UInt32.ofNat 1 + UInt32.ofNat 33 = fr.exec.pc + 1 + UInt32.ofNat 33
+          from by rw [show fr.exec.pc + UInt32.ofNat 1 = fr.exec.pc + 1 from rfl]]
   obtain ⟨endFr, hrun, hmembytes, hmemactive, hpc, hcode, hvalid, haddr, hcanmod, haccounts,
       hstorage, hstkEnd⟩ :=
     stash_tail_gas fr slot words' hcorr.stack_nil hdgas' hdpush' hdmstore' hgasGas hgasPush
