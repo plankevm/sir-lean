@@ -197,7 +197,7 @@ theorem drive_gasRemaining_le_totalGas :
             (.inr (.create
               { address := 0
                 createdAccounts := pending.frame.exec.createdAccounts
-                accounts := ∅
+                accounts := pending.frame.exec.accounts
                 gasRemaining := 0
                 substate := pending.frame.exec.substate
                 success := false

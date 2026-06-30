@@ -206,7 +206,7 @@ def driveLog (fuel : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult)
                   let result : CreateResult :=
                     { address := 0
                       createdAccounts := exec.createdAccounts
-                      accounts := ∅
+                      accounts := exec.accounts
                       gasRemaining := 0
                       substate := exec.substate
                       success := false
@@ -593,7 +593,7 @@ theorem driveLog_gas_inv :
               (.inr (.create
                 { address := 0
                   createdAccounts := pending.frame.exec.createdAccounts
-                  accounts := ∅
+                  accounts := pending.frame.exec.accounts
                   gasRemaining := 0
                   substate := pending.frame.exec.substate
                   success := false

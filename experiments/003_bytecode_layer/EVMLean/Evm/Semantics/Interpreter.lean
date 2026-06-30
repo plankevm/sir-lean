@@ -61,13 +61,20 @@ def drive (fuel : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult) :
               match beginCreate params with
                 | .ok child => drive fuel (.create pending :: stack) (.inl child)
                 | .error _ =>
-                  -- Historical behavior: a faulting CREATE completes with a
-                  -- zeroed result and an emptied account map.
+                  -- A CREATE that fails to BEGIN is a SOFT failure (faithful to
+                  -- real EVM / yellow paper): the result pushes 0 and the CALLER
+                  -- world is left UNCHANGED — so we hand back the caller's
+                  -- pre-CREATE checkpoint map `pending.frame.exec.accounts`,
+                  -- which `resumeAfterCreate` writes straight back into the
+                  -- resumed caller's `accounts`. (Patched from the prior
+                  -- "Historical behavior" emptied-map `accounts := ∅`, which
+                  -- unfaithfully wiped the caller world on a soft failure;
+                  -- conformance is now to this documented, upstreamable leanevm.)
                   let exec := pending.frame.exec
                   let result : CreateResult :=
                     { address := 0
                       createdAccounts := exec.createdAccounts
-                      accounts := ∅
+                      accounts := exec.accounts
                       gasRemaining := 0
                       substate := exec.substate
                       success := false
