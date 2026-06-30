@@ -100,7 +100,6 @@ theorem drive_gasRemaining_le_totalGas :
   | succ n ih =>
     intro stack state r h
     unfold drive at h
-    dsimp only at h
     cases state with
     | inr result =>
       dsimp only at h
@@ -182,32 +181,13 @@ theorem drive_gasRemaining_le_totalGas :
           omega
       | needsCreate params pending =>
         rw [hstep] at h; dsimp only at h
-        cases hbcr : beginCreate params with
-        | ok child =>
-          rw [hbcr] at h; dsimp only at h
-          have hrec := ih (.create pending :: stack) (.inl child) r h
-          have hdrop := gasFundsDescent_conj4' current params pending child stack hstep hbcr
-          rw [totalGas_cons] at hrec
-          simp only [totalGas, activeGas, Pending.savedGas] at hrec ⊢
-          simp only [activeGas, Pending.savedGas] at hdrop
-          omega
-        | error e =>
-          rw [hbcr] at h; dsimp only at h
-          have hrec := ih (.create pending :: stack)
-            (.inr (.create
-              { address := 0
-                createdAccounts := pending.frame.exec.createdAccounts
-                accounts := pending.frame.exec.accounts
-                gasRemaining := 0
-                substate := pending.frame.exec.substate
-                success := false
-                output := .empty })) r h
-          have hdrop := gasFundsDescent_conj5b current params pending stack hstep
-          rw [totalGas_cons] at hrec
-          simp only [totalGas, activeGas, FrameResult.gasRemaining, UInt64.toNat_ofNat,
-            Pending.savedGas] at hrec ⊢
-          simp only [activeGas, Pending.savedGas] at hdrop
-          omega
+        -- `beginCreate` is total: the descent into `beginCreate params` is unconditional.
+        have hrec := ih (.create pending :: stack) (.inl (beginCreate params)) r h
+        have hdrop := gasFundsDescent_conj4' current params pending (beginCreate params) stack hstep rfl
+        rw [totalGas_cons] at hrec
+        simp only [totalGas, activeGas, Pending.savedGas] at hrec ⊢
+        simp only [activeGas, Pending.savedGas] at hdrop
+        omega
 
 /-- **The net-debit fact (top-level child run).** A child `drive` run that terminates
 returns no more gas than the gas it was funded with: `r.gasRemaining ≤ fr.exec.gas`.

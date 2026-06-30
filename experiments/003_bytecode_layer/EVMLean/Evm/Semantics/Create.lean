@@ -54,8 +54,14 @@ theorem contractAddressBytes_create_isSome (creator : AccountAddress) (creatorNo
 Enter a contract creation up to recursive code execution: derive the address,
 apply occupied-address checks, initialise the account, and construct the child
 environment.
+
+Total: the only former `.error` path was the `contractAddressBytes = none`
+address-derivation guard, now removed — `contractAddressBytes` is total
+(`contractAddressBytes_create_isSome`: the CREATE preimage always RLP-encodes to
+`some`, CREATE2's preimage is unconditional). So `beginCreate` always begins a
+child; there is no soft CREATE-begin fault.
 -/
-def beginCreate (params : CreateParams) : Except ExecutionException Frame := do
+def beginCreate (params : CreateParams) : Frame :=
   let accounts := params.accounts
   let creator := params.caller
 
@@ -115,19 +121,18 @@ def beginCreate (params : CreateParams) : Except ExecutionException Frame := do
     , blobVersionedHashes := params.blobVersionedHashes
     , chainId   := params.chainId
     }
-  .ok
-    { kind := .create newAddress ⟨createdAccounts, accounts, substateWithNew⟩
-      validJumps := validJumpDests initCode 0
-      exec :=
-        { (default : ExecutionState) with
-            accounts := accountsWithNew
-            originalAccounts := params.originalAccounts
-            executionEnv := env
-            substate := substateWithNew
-            createdAccounts := createdAccounts
-            gasAvailable := params.gas
-            blocks := params.blocks
-            genesisBlockHeader := params.genesisBlockHeader } }
+  { kind := .create newAddress ⟨createdAccounts, accounts, substateWithNew⟩,
+    validJumps := validJumpDests initCode 0,
+    exec :=
+      { (default : ExecutionState) with
+          accounts := accountsWithNew
+          originalAccounts := params.originalAccounts
+          executionEnv := env
+          substate := substateWithNew
+          createdAccounts := createdAccounts
+          gasAvailable := params.gas
+          blocks := params.blocks
+          genesisBlockHeader := params.genesisBlockHeader } }
 
 /--
 Finish a contract creation after init-code execution: charge code deposit,

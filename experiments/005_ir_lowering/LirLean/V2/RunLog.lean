@@ -199,19 +199,8 @@ def driveLog (fuel : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult)
                 | .inl child => driveLog fuel (.call pending :: stack) (.inl child) gasAcc sloadAcc callAcc
                 | .inr result => driveLog fuel (.call pending :: stack) (.inr (.call result)) gasAcc sloadAcc callAcc
             | .needsCreate params pending =>
-              match beginCreate params with
-                | .ok child => driveLog fuel (.create pending :: stack) (.inl child) gasAcc sloadAcc callAcc
-                | .error _ =>
-                  let exec := pending.frame.exec
-                  let result : CreateResult :=
-                    { address := 0
-                      createdAccounts := exec.createdAccounts
-                      accounts := exec.accounts
-                      gasRemaining := 0
-                      substate := exec.substate
-                      success := false
-                      output := .empty }
-                  driveLog fuel (.create pending :: stack) (.inr (.create result)) gasAcc sloadAcc callAcc
+              -- `beginCreate` is total (mirrors `drive`): the descent is unconditional.
+              driveLog fuel (.create pending :: stack) (.inl (beginCreate params)) gasAcc sloadAcc callAcc
 
 /-! ## The top-level recording interpreter
 
@@ -385,9 +374,7 @@ theorem driveLog_drive :
         | inr result => dsimp only [hbc]; exact ih (.call pending :: stack) (.inr (.call result)) _ _ _
       | needsCreate params pending =>
         dsimp only [h]
-        cases hbcr : beginCreate params with
-        | ok child => dsimp only [hbcr]; exact ih (.create pending :: stack) (.inl child) _ _ _
-        | error e => dsimp only [hbcr]; exact ih (.create pending :: stack) (.inr (.create _)) _ _ _
+        exact ih (.create pending :: stack) (.inl (beginCreate params)) _ _ _
 
 /-! ## Gas monotonicity: the recorded reads are non-increasing (`realisedGas_monotone`)
 
@@ -442,7 +429,6 @@ theorem driveLog_gas_inv :
   | succ n ih =>
     intro stack state gasAcc sloadAcc callAcc r gasOut sloadsOut callsOut h hpair hbound
     unfold driveLog at h
-    dsimp only at h
     cases state with
     | inr result =>
       dsimp only at h
@@ -577,33 +563,13 @@ theorem driveLog_gas_inv :
             (bound_mono hdesc hbound)
       | needsCreate params pending =>
         rw [hstep] at h; dsimp only at h
-        cases hbcr : beginCreate params with
-        | ok child =>
-          rw [hbcr] at h; dsimp only at h
-          have hdrop := gasFundsDescent_conj4' current params pending child stack hstep hbcr
-          have hdesc : totalGas (.create pending :: stack) (.inl child)
-              ≤ totalGas stack (.inl current) := by
-            rw [totalGas_cons]; simp only [totalGas, activeGas, Pending.savedGas] at hdrop ⊢; omega
-          exact ih (.create pending :: stack) (.inl child) _ _ _ r gasOut sloadsOut callsOut h hpair
-            (bound_mono hdesc hbound)
-        | error e =>
-          rw [hbcr] at h; dsimp only at h
-          have hdrop := gasFundsDescent_conj5b current params pending stack hstep
-          have hdesc : totalGas (.create pending :: stack)
-              (.inr (.create
-                { address := 0
-                  createdAccounts := pending.frame.exec.createdAccounts
-                  accounts := pending.frame.exec.accounts
-                  gasRemaining := 0
-                  substate := pending.frame.exec.substate
-                  success := false
-                  output := .empty })) ≤ totalGas stack (.inl current) := by
-            rw [totalGas_cons]
-            simp only [totalGas, activeGas, FrameResult.gasRemaining, UInt64.toNat_ofNat,
-              Pending.savedGas] at hdrop ⊢
-            omega
-          exact ih (.create pending :: stack) _ _ _ _ r gasOut sloadsOut callsOut h hpair
-            (bound_mono hdesc hbound)
+        -- `beginCreate` is total: unconditional descent into `beginCreate params`.
+        have hdrop := gasFundsDescent_conj4' current params pending (beginCreate params) stack hstep rfl
+        have hdesc : totalGas (.create pending :: stack) (.inl (beginCreate params))
+            ≤ totalGas stack (.inl current) := by
+          rw [totalGas_cons]; simp only [totalGas, activeGas, Pending.savedGas] at hdrop ⊢; omega
+        exact ih (.create pending :: stack) (.inl (beginCreate params)) _ _ _ r gasOut sloadsOut callsOut h hpair
+          (bound_mono hdesc hbound)
 
 /-! ## `realisedGas_monotone` — the headline (`docs/ir-design-v3.md` §8)
 

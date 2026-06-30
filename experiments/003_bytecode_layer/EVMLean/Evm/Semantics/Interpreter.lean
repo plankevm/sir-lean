@@ -58,28 +58,10 @@ def drive (fuel : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult) :
                 | .inl child => drive fuel (.call pending :: stack) (.inl child)
                 | .inr result => drive fuel (.call pending :: stack) (.inr (.call result))
             | .needsCreate params pending =>
-              match beginCreate params with
-                | .ok child => drive fuel (.create pending :: stack) (.inl child)
-                | .error _ =>
-                  -- A CREATE that fails to BEGIN is a SOFT failure (faithful to
-                  -- real EVM / yellow paper): the result pushes 0 and the CALLER
-                  -- world is left UNCHANGED — so we hand back the caller's
-                  -- pre-CREATE checkpoint map `pending.frame.exec.accounts`,
-                  -- which `resumeAfterCreate` writes straight back into the
-                  -- resumed caller's `accounts`. (Patched from the prior
-                  -- "Historical behavior" emptied-map `accounts := ∅`, which
-                  -- unfaithfully wiped the caller world on a soft failure;
-                  -- conformance is now to this documented, upstreamable leanevm.)
-                  let exec := pending.frame.exec
-                  let result : CreateResult :=
-                    { address := 0
-                      createdAccounts := exec.createdAccounts
-                      accounts := exec.accounts
-                      gasRemaining := 0
-                      substate := exec.substate
-                      success := false
-                      output := .empty }
-                  drive fuel (.create pending :: stack) (.inr (.create result))
+              -- `beginCreate` is total (its sole former `.error` path, a dead
+              -- address-derivation guard, is removed): a CREATE always begins a
+              -- child, so the descent is unconditional.
+              drive fuel (.create pending :: stack) (.inl (beginCreate params))
 
 /--
 The driver's step budget for a top-level execution with gas limit `gas` —
@@ -93,8 +75,7 @@ def messageCall (params : CallParams) : Except ExecutionException CallResult :=
     | .inr result => .ok result
     | .inl frame => FrameResult.toCallResult <$> drive (seedFuel params.gas) [] (.inl frame)
 
-def createContract (params : CreateParams) : Except ExecutionException CreateResult := do
-  let frame ← beginCreate params
-  FrameResult.toCreateResult <$> drive (seedFuel params.gas) [] (.inl frame)
+def createContract (params : CreateParams) : Except ExecutionException CreateResult :=
+  FrameResult.toCreateResult <$> drive (seedFuel params.gas) [] (.inl (beginCreate params))
 
 end Evm

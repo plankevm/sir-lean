@@ -114,14 +114,10 @@ def gasFundsDescent : Prop :=
   (∀ (fr : Frame) (params : CallParams) (pending : PendingCall) (result : CallResult) (_stack : List Pending),
       stepFrame fr = .needsCall params pending → beginCall params = .inr result →
       FrameResult.gasRemaining (.call result) + Pending.savedGas (.call pending) + 2 ≤ activeGas (.inl fr))
-  ∧ -- (4') needsCreate descent into a child
+  ∧ -- (4') needsCreate descent into a child (`beginCreate` is now total)
   (∀ (fr : Frame) (params : CreateParams) (pending : PendingCreate) (child : Frame) (_stack : List Pending),
-      stepFrame fr = .needsCreate params pending → beginCreate params = .ok child →
+      stepFrame fr = .needsCreate params pending → beginCreate params = child →
       activeGas (.inl child) + Pending.savedGas (.create pending) + 2 ≤ activeGas (.inl fr))
-  ∧ -- (5b) needsCreate failure (zeroed result)
-  (∀ (fr : Frame) (params : CreateParams) (pending : PendingCreate) (_stack : List Pending),
-      stepFrame fr = .needsCreate params pending →
-      Pending.savedGas (.create pending) + 2 ≤ activeGas (.inl fr))
 
 /-- **The general measure bound.** `μ stack state ≤ f → drive f stack state ≠
 OutOfFuel`. By induction on `f`, with the per-transition decrease for every
@@ -129,7 +125,7 @@ OutOfFuel`. By induction on `f`, with the per-transition decrease for every
 theorem mu_bound (hd : gasFundsDescent) :
     ∀ (f : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult),
       μ stack state ≤ f → drive f stack state ≠ .error .OutOfFuel := by
-  obtain ⟨hd3, hd4, hd5, hd4', hd5'⟩ := hd
+  obtain ⟨hd3, hd4, hd5, hd4'⟩ := hd
   intro f
   induction f with
   | zero =>
@@ -138,7 +134,6 @@ theorem mu_bound (hd : gasFundsDescent) :
   | succ n ih =>
     intro stack state hf
     conv_lhs => unfold drive
-    dsimp only
     cases state with
     | inr result =>
       dsimp only
@@ -230,21 +225,12 @@ theorem mu_bound (hd : gasFundsDescent) :
           omega
       | needsCreate params pending =>
         dsimp only
-        cases hbcr : beginCreate params with
-        | ok child =>
-          dsimp only
-          apply ih
-          have hdrop := hd4' current params pending child stack hstep hbcr
-          simp only [μ, tagBit, totalGas, activeGas, Pending.savedGas, List.length_cons, List.map_cons, List.sum_cons] at hf ⊢
-          simp only [activeGas, Pending.savedGas] at hdrop
-          omega
-        | error e =>
-          dsimp only
-          apply ih
-          have hdrop := hd5' current params pending stack hstep
-          simp only [μ, tagBit, totalGas, activeGas, FrameResult.gasRemaining, UInt64.toNat_ofNat, Pending.savedGas, List.length_cons, List.map_cons, List.sum_cons] at hf ⊢
-          simp only [activeGas, Pending.savedGas] at hdrop
-          omega
+        -- `beginCreate` is total: the descent into `beginCreate params` is unconditional.
+        apply ih
+        have hdrop := hd4' current params pending (beginCreate params) stack hstep rfl
+        simp only [μ, tagBit, totalGas, activeGas, Pending.savedGas, List.length_cons, List.map_cons, List.sum_cons] at hf ⊢
+        simp only [activeGas, Pending.savedGas] at hdrop
+        omega
 
 /-- **General `messageCall` never out-of-fuel**, modulo `gasFundsDescent`. The
 measure starts at `μ [] (.inl frame) = 2 * p.gas.toNat + 2 ≤ seedFuel p.gas`. -/

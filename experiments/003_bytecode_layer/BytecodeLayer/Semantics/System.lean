@@ -1160,14 +1160,14 @@ theorem createArm_needsCreate_savedGas
       | error e => intro h; simp at h
       | ok f => intro h; simp at h
 
-/-- **`beginCreate` gas.** When `beginCreate` succeeds, the child frame's gas is
-exactly the forwarded `params.gas`. -/
-theorem beginCreate_ok_gas {params : CreateParams} {child : Frame}
-    (h : beginCreate params = .ok child) :
-    child.exec.gasAvailable = params.gas := by
-  rw [beginCreate] at h
-  simp only [Option.option, Except.ok.injEq] at h
-  subst h; rfl
+/-- **`beginCreate` gas.** The child frame `beginCreate` produces is forwarded
+exactly `params.gas`. (`beginCreate` is now total — no `.ok` hypothesis.) -/
+theorem beginCreate_gas {params : CreateParams} :
+    (beginCreate params).exec.gasAvailable = params.gas := by
+  rw [beginCreate]
+
+-- Axiom guard: the totalised `beginCreate` gas fact stays within the standard kernel.
+#print axioms beginCreate_gas
 
 /-- **`createArm` `.needsCreate` inversion (child gas).** The child created by a
 CREATE/CREATE2 descent is forwarded exactly `allButOneSixtyFourth exec.gas`

@@ -123,20 +123,9 @@ theorem drive_append_framing :
       | needsCreate params pending =>
         rw [hstep] at h
         dsimp only at h ⊢
-        cases hbcr : beginCreate params with
-        | ok child =>
-          rw [hbcr] at h
-          dsimp only at h ⊢
-          have := ih (.create pending :: top) (.inl child) res h bot
-          rw [List.cons_append] at this
-          exact this
-        | error e =>
-          rw [hbcr] at h
-          dsimp only at h ⊢
-          have := ih (.create pending :: top)
-            (.inr (.create _)) res h bot
-          rw [List.cons_append] at this
-          exact this
+        have := ih (.create pending :: top) (.inl (beginCreate params)) res h bot
+        rw [List.cons_append] at this
+        exact this
 
 /-! ## The generic descent equation -/
 

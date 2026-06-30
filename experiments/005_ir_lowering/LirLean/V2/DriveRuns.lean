@@ -103,17 +103,9 @@ theorem drive_append_framing_lt :
           exact ⟨j, by omega, hj⟩
       | needsCreate params pending =>
         rw [hstep] at h; dsimp only at h ⊢
-        cases hbcr : beginCreate params with
-        | ok child =>
-          rw [hbcr] at h; dsimp only at h ⊢
-          obtain ⟨j, hjlt, hj⟩ := ih (.create pending :: top) (.inl child) res h bot
-          rw [List.cons_append] at hj
-          exact ⟨j, by omega, hj⟩
-        | error e =>
-          rw [hbcr] at h; dsimp only at h ⊢
-          obtain ⟨j, hjlt, hj⟩ := ih (.create pending :: top) (.inr (.create _)) res h bot
-          rw [List.cons_append] at hj
-          exact ⟨j, by omega, hj⟩
+        obtain ⟨j, hjlt, hj⟩ := ih (.create pending :: top) (.inl (beginCreate params)) res h bot
+        rw [List.cons_append] at hj
+        exact ⟨j, by omega, hj⟩
 
 /-- **Bounded CALL-boundary descent.** As `drive_descend_eq`, but the resumed-parent run is at a
 fuel `j` **strictly below** the parent's descent fuel `f`. The strict bound (from the non-empty
@@ -187,9 +179,7 @@ theorem drive_error_oof :
         | inr result => rw [hbc] at h; dsimp only at h; exact ih (.call pending :: stack) (.inr (.call result)) e h
       | needsCreate params pending =>
         rw [hstep] at h; dsimp only at h
-        cases hbcr : beginCreate params with
-        | ok child => rw [hbcr] at h; dsimp only at h; exact ih (.create pending :: stack) (.inl child) e h
-        | error ex => rw [hbcr] at h; dsimp only at h; exact ih (.create pending :: stack) (.inr (.create _)) e h
+        exact ih (.create pending :: stack) (.inl (beginCreate params)) e h
 
 /-! ## Child-run extraction
 
@@ -257,15 +247,8 @@ theorem framed_oof_of_standalone_oof :
           rwa [List.cons_append] at this
       | needsCreate params pending =>
         simp only [hstep] at h ⊢
-        cases hbcr : beginCreate params with
-        | ok child =>
-          simp only [hbcr] at h ⊢
-          have := ih (.inl child) (.create pending :: top) bot h
-          rwa [List.cons_append] at this
-        | error e =>
-          simp only [hbcr] at h ⊢
-          have := ih (.inr (.create _)) (.create pending :: top) bot h
-          rwa [List.cons_append] at this
+        have := ih (.inl (beginCreate params)) (.create pending :: top) bot h
+        rwa [List.cons_append] at this
 
 /-- **Framed non-OOF gives standalone non-OOF.** Contrapositive of
 `framed_oof_of_standalone_oof` at `top := []`: a framed child run that does not run out of fuel

@@ -177,9 +177,7 @@ theorem drive_fuel_succ (f : ℕ) (stack : List Pending) (state : Frame ⊕ Fram
         | inr result => rw [hbc] at h; dsimp only at h ⊢; exact ih (.call pending :: stack) (.inr (.call result)) h
       | needsCreate params pending =>
         rw [hstep] at h; dsimp only at h ⊢
-        cases hbcr : beginCreate params with
-        | ok child => rw [hbcr] at h; dsimp only at h ⊢; exact ih (.create pending :: stack) (.inl child) h
-        | error e => rw [hbcr] at h; dsimp only at h ⊢; exact ih (.create pending :: stack) (.inr (.create _)) h
+        exact ih (.create pending :: stack) (.inl (beginCreate params)) h
 
 /-- **Fuel monotonicity of `drive`.** If a run halts within fuel `f` (does not
 return `OutOfFuel`), then it halts to the **same** result at every larger fuel

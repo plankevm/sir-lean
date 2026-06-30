@@ -88,24 +88,10 @@ theorem gasFundsDescent_conj5a
   simp only [FrameResult.gasRemaining, activeGas, Pending.savedGas]
   omega
 
-/-- **Conjunct (5b).** A `.needsCreate` that fails the guard (zeroed result):
-saved parent gas + 2 ≤ pre-step gas. -/
-theorem gasFundsDescent_conj5b
-    (fr : Frame) (params : CreateParams) (pending : PendingCreate) (_stack : List Pending)
-    (hstep : stepFrame fr = .needsCreate params pending) :
-    Pending.savedGas (.create pending) + 2 ≤ activeGas (.inl fr) := by
-  obtain ⟨s, hsop⟩ := stepFrame_needsCreate_systemOp hstep
-  have hgas := systemOp_needsCreate_savedGas hsop
-  simp only [Pending.savedGas, activeGas]
-  have hsub : pending.frame.exec.gasAvailable.toNat
-      - allButOneSixtyFourth pending.frame.exec.gasAvailable.toNat
-      ≤ pending.frame.exec.gasAvailable.toNat := Nat.sub_le _ _
-  omega
-
 /-! ## Conjunct (4') — `needsCreate` descent
 
 For a CREATE/CREATE2 descent `stepFrame fr = .needsCreate params pending` with
-`beginCreate params = .ok child`, the kind-aware `Pending.savedGas` makes the
+`beginCreate params = child` (total), the kind-aware `Pending.savedGas` makes the
 descent conserve the measure (plus the `createCost ≥ 2` slack):
 
 * the suspended parent's frame keeps the full charged gas `g`, so
@@ -128,12 +114,12 @@ the (kind-aware) saved parent holds `g − allButOneSixtyFourth g`, and the
 `createCost` charged before `createArm` covers the `+2`. -/
 theorem gasFundsDescent_conj4'
     (fr : Frame) (params : CreateParams) (pending : PendingCreate) (child : Frame) (_stack : List Pending)
-    (hstep : stepFrame fr = .needsCreate params pending) (hbcr : beginCreate params = .ok child) :
+    (hstep : stepFrame fr = .needsCreate params pending) (hbcr : beginCreate params = child) :
     activeGas (.inl child) + Pending.savedGas (.create pending) + 2 ≤ activeGas (.inl fr) := by
   obtain ⟨s, hsop⟩ := stepFrame_needsCreate_systemOp hstep
   have hsaved := systemOp_needsCreate_savedGas hsop
   have hchild := systemOp_needsCreate_childGas hsop
-  have hcg : child.exec.gasAvailable = params.gas := beginCreate_ok_gas hbcr
+  have hcg : child.exec.gasAvailable = params.gas := by rw [← hbcr]; exact beginCreate_gas
   -- `params.gas = .ofNat (allButOneSixtyFourth pd.gas)`, and the round-trip is exact.
   have habf_le : allButOneSixtyFourth pending.frame.exec.gasAvailable.toNat
       ≤ pending.frame.exec.gasAvailable.toNat := by unfold allButOneSixtyFourth; omega
@@ -150,7 +136,7 @@ theorem gasFundsDescent_conj4'
 hold; the create descent (4') is sound under the kind-aware `Pending.savedGas`. -/
 theorem gasFundsDescent_holds : gasFundsDescent :=
   ⟨gasFundsDescent_conj3, gasFundsDescent_conj4, gasFundsDescent_conj5a,
-    gasFundsDescent_conj4', gasFundsDescent_conj5b⟩
+    gasFundsDescent_conj4'⟩
 
 /-- **General `messageCall` never out-of-fuel — unconditional.** No
 `gasFundsDescent`, no `Frame`/fuel hypothesis: for every `CallParams`, the message
