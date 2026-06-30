@@ -4379,6 +4379,7 @@ theorem driveCorrPlus_step_jump {prog : Program} {sloadChg : Tmp → ℕ} {obs :
     -- the successor's `JUMPDEST` landing `fj`, with the `Gjumpdest` margin (so the descent is
     -- provable). Dischargeable for a concrete program exactly as `sim_term_edge_jump`.
     (hjump : ∀ frT : Frame, Corr prog sloadChg obs st' frT L b.stmts.length →
+      CleanHaltsNonException frT →
       ∃ fj : Frame, Runs frT fj
         ∧ GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
         ∧ fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
@@ -4398,9 +4399,10 @@ theorem driveCorrPlus_step_jump {prog : Program} {sloadChg : Tmp → ℕ} {obs :
       ∧ (∀ O, RunFrom prog o st' T dst O → RunFrom prog o st T L O) := by
   -- Layer D: run the block's statements to the terminator cursor (uses the BASE `Corr`).
   obtain ⟨frT, hrunsT, hcorrT, _⟩ := sim_stmts_block hsim hdc.base.corr hdc.base.cleanHalts hrun
-  -- Layer E: the supplied jump bundle delivers the `JUMPDEST` landing `fj`.
+  -- Layer E: the supplied jump bundle delivers the `JUMPDEST` landing `fj`. The clean-halt at the
+  -- terminator cursor `frT` is the boundary's, forwarded along the statements run `fr → frT`.
   obtain ⟨fj, hfjrun, hfjgas, hfjpc, hfjcode, hfjvalid, hfjstk, hfjmod, hfjstore,
-    hfjmem, hfjdec⟩ := hjump frT hcorrT
+    hfjmem, hfjdec⟩ := hjump frT hcorrT (cleanHaltsNonException_forward hdc.base.cleanHalts hrunsT)
   -- the `JUMPDEST` step lands at `(dst, 0)`, re-establishing `Corr`.
   obtain ⟨hjdrun, hjdcorr⟩ := corr_at_jumpdest_landing hbdst hfjpc hfjcode hfjvalid hfjstk
     hfjmod hfjstore hcorrT.defsSound hcorrT.wellScoped hfjmem hfjdec hfjgas
@@ -4559,6 +4561,7 @@ theorem driveStepPlus_of_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
     (hjump : ∀ (dst : Label), b.term = .jump dst →
       ∀ frT : Frame,
         Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
+        CleanHaltsNonException frT →
         ∃ fj : Frame, Runs frT fj
           ∧ GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
           ∧ fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
@@ -4701,6 +4704,7 @@ theorem lower_conforms_cyclic_tiefree {prog : Program} {sloadChg : Tmp → ℕ} 
       ∀ (dst : Label), b.term = .jump dst →
       ∀ frT : Frame,
         Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
+        CleanHaltsNonException frT →
         ∃ fj : Frame, Runs frT fj
           ∧ GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
           ∧ fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
@@ -4769,14 +4773,17 @@ simulation universals are replaced by their honest builder inputs:
   and the successor-block presence for edges).
 
 The opaque `SimStmtStep`/`SimTermStep` universals (2 of the headline's 4) are thereby DISCHARGED
-through `simStmtStep_block` / `simTermStep_block`. The remaining two headline edge universals
-`hjump`/`hbranch` (the `Plus`-thread *pre-JUMPDEST landing* `Runs frT fj` bundles) plus the
-presence facts `hpresent`/`hjumpPresent` stay HONESTLY SUPPLIED: those are the genuine
-forward-from-real-run edge-landing residual — `driveStepPlus_of_block` consumes a frame `fj`
-sitting ON the successor's `JUMPDEST` byte, and no green producer for that pre-step landing exists
-(the `sim_term_edge_*_lowered` producers in `LowerDecode.lean` yield the POST-`JUMPDEST` `Corr` at
-the successor entry, which is the `sim_cfg`/`simTermStep_block` shape folded into `htermties` here,
-not the `Plus`-thread landing). They are left as named hypotheses, not faked. -/
+through `simStmtStep_block` / `simTermStep_block`. The `jump` edge universal `hjump` is **also**
+DISCHARGED here: `jump_landing_of_cleanHalt` (`LowerDecode.lean`) is the green producer for the
+`Plus`-thread *pre-JUMPDEST landing* frame `fj` (sitting ON the successor's `JUMPDEST` byte, BEFORE
+the `JUMPDEST` step), with its three gas guards produced from the threaded `CleanHaltsNonException
+frT`; the destination presence (`hjumpPresent`) and the folded pc/offset bounds
+(`WellFormedLowered.bound_jump`) supply its remaining structural inputs.
+
+The `branch` edge universal `hbranch` plus the presence facts `hpresent`/`hjumpPresent` stay
+HONESTLY SUPPLIED: `hbranch`'s pre-JUMPDEST landing producer (the cond-materialise + JUMPI split
+ahead of the same landing) is the heavier follow-on, not yet built; the presence facts are static
+CFG well-formedness. They are left as named hypotheses, not faked. -/
 theorem lower_conforms_cyclic_assembled {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {o : V2.CallOracle} {self : AccountAddress}
     {st₀ : V2.IRState} {T : Trace} {params : Evm.CallParams} {code : ByteArray} {acc : Account}
@@ -4799,21 +4806,9 @@ theorem lower_conforms_cyclic_assembled {prog : Program} {sloadChg : Tmp → ℕ
     (hjumpPresent : ∀ (L : Label) (b : Block), blockAt prog L = some b →
       ∀ (dst : Label), b.term = .jump dst →
         ∃ bdst : Block, prog.blocks.toList[dst.idx]? = some bdst)
-    (hjump : ∀ (st : V2.IRState) (L : Label) (b : Block), blockAt prog L = some b →
-      ∀ (dst : Label), b.term = .jump dst →
-      ∀ frT : Frame,
-        Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
-        ∃ fj : Frame, Runs frT fj
-          ∧ GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
-          ∧ fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
-              prog.blocks dst.idx)
-          ∧ fj.exec.executionEnv.code = lower prog
-          ∧ fj.validJumps = validJumpDests fj.exec.executionEnv.code 0
-          ∧ fj.exec.stack = []
-          ∧ fj.exec.executionEnv.canModifyState = true
-          ∧ (∀ k, selfStorage fj k = (stmtsPost st b.stmts).world k)
-            ∧ MemRealises prog (stmtsPost st b.stmts) fj
-          ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none))
+    -- the `branch` edge bundle stays HONESTLY SUPPLIED (the branch arm's pre-JUMPDEST landing
+    -- producer is the heavier follow-on; the `jump` arm's `hjump` is DISCHARGED below from
+    -- `jump_landing_of_cleanHalt` + the folded `WellFormedLowered.bound_jump`).
     (hbranch : ∀ (st : V2.IRState) (L : Label) (b : Block), blockAt prog L = some b →
       ∀ (cond : Tmp) (thenL elseL : Label) (cw : Word),
       b.term = .branch cond thenL elseL →
@@ -4851,6 +4846,33 @@ theorem lower_conforms_cyclic_assembled {prog : Program} {sloadChg : Tmp → ℕ
     intro L b hbat
     obtain ⟨hsucc, hstop, hretties, hjmp, hbr⟩ := htermties L b hbat
     exact simTermStep_block (toList_of_blockAt hbat) hwfl hsucc hstop hretties hjmp hbr
+  -- DISCHARGE the `jump` edge bundle from the pre-`JUMPDEST` landing producer: the destination
+  -- presence (`hjumpPresent`) gives `bdst` + `dst.idx < size`, and `WellFormedLowered.bound_jump`
+  -- supplies the two pc/offset bounds. `jump_landing_of_cleanHalt` then produces the landing `fj`
+  -- with all three gas guards from the threaded `CleanHaltsNonException frT`.
+  have hjump : ∀ (st : V2.IRState) (L : Label) (b : Block), blockAt prog L = some b →
+      ∀ (dst : Label), b.term = .jump dst →
+      ∀ frT : Frame,
+        Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
+        CleanHaltsNonException frT →
+        ∃ fj : Frame, Runs frT fj
+          ∧ GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
+          ∧ fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
+              prog.blocks dst.idx)
+          ∧ fj.exec.executionEnv.code = lower prog
+          ∧ fj.validJumps = validJumpDests fj.exec.executionEnv.code 0
+          ∧ fj.exec.stack = []
+          ∧ fj.exec.executionEnv.canModifyState = true
+          ∧ (∀ k, selfStorage fj k = (stmtsPost st b.stmts).world k)
+            ∧ MemRealises prog (stmtsPost st b.stmts) fj
+          ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none) := by
+    intro st L b hbat dst hbterm frT hcorrT hcsT
+    obtain ⟨bdst, hbdst⟩ := hjumpPresent L b hbat dst hbterm
+    have hdstlt : dst.idx < prog.blocks.size := by
+      simpa using (List.getElem?_eq_some_iff.mp hbdst).1
+    obtain ⟨hpc5, hoff⟩ := hwfl.bound_jump L b dst (toList_of_blockAt hbat) hbterm
+    exact jump_landing_of_cleanHalt frT hcorrT hbterm (toList_of_blockAt hbat) hbdst hdstlt
+      hpc5 hoff hcsT
   exact lower_conforms_cyclic_tiefree hbase hwf hdef hcall hpresent hstmts hterm
     hjumpPresent hjump hbranch
 
