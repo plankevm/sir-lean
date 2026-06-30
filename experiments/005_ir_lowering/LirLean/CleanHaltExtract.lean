@@ -8,9 +8,9 @@ The conformance walk's per-cursor §7 ties (`StmtTies`/`TermTies`) currently *su
 gas / memory-expansion envelopes each lowered opcode needs at a block-entry frame. Those
 envelopes are not free hypotheses: a frame that **clean-halts** (its remaining `Runs` reaches a
 `.halted` outcome) cannot have faulted on its next step, so its next opcode's gas guard held.
-This module is the **producer**: from `CleanHaltsSuccess fr` (the frame reaches a clean
-`.halted (.success …)` outcome) it extracts, per lowered opcode, the gas + memory-expansion
-envelope the §7 ties consume.
+This module is the **producer**: from `CleanHaltsNonException fr` (the frame reaches a clean
+`.halted` outcome that is **not** an `.exception` — `.success` or `.revert`) it extracts, per
+lowered opcode, the gas + memory-expansion envelope the §7 ties consume.
 
 The lowered opcode set (`Lowering.lean` `materialiseExpr`/`emitStmt`/`emitTerm`) is exactly
 `PUSH32`/`PUSH4`/`MLOAD`/`ADD`/`LT`/`SLOAD`/`GAS`/`MSTORE`/`SSTORE`/`CALL`/`POP`/`STOP`/`JUMP`/
@@ -18,22 +18,24 @@ The lowered opcode set (`Lowering.lean` `materialiseExpr`/`emitStmt`/`emitTerm`)
 
 ## What this file delivers (bottom-up)
 
-* **`CleanHaltsSuccess`** (§0) — the *success* strengthening of `CleanHalts` (the §7 ties only
-  ever fire on a `.success` terminal); `cleanHaltsSuccess_forward` (forward-closed along `Runs`,
-  mirroring `cleanHalts_forward`) and `cleanHaltsSuccess_toCleanHalts` (forget the witness so
-  existing `CleanHalts` consumers still see the weak form).
+* **`CleanHaltsNonException`** (§0) — the *non-exception* strengthening of `CleanHalts` (the §7
+  ties only ever fire on a run that reaches its terminal cleanly — `.success` or `.revert`, never
+  a genuine OOG/exception); `cleanHaltsNonException_forward` (forward-closed along `Runs`,
+  mirroring `cleanHalts_forward`) and `cleanHaltsNonException_toCleanHalts` (forget the witness so
+  existing `CleanHalts` consumers still see the weak form). `cleanHaltsNonException_of_success`
+  keeps the success-only case derivable.
 * **per-op OOG / `.next`-inversion bricks** (§1) — for the charge-only ops with no inversion in
   003 (`GAS`/`PUSH`/`SLOAD`/`ADD`/`LT`): `op_oog` (`¬gas ⟹ .halted (.exception OutOfGas)`) and
   `op_inv` (`.next ⟹ gas bound`), the `stepFrame`-unfold + `charge` `if_pos`/contrapositive
   pattern. `MSTORE`/`MLOAD`/`SSTORE` inversions are **reused** from 003 `Dispatch.lean`.
 * **the `.next` extractor** (§2) — `halted_runs_eq` (a halted frame `Runs` only to itself) and the
-  per-op `next_*_of_cleanSuccess` specialisations: `CleanHaltsSuccess fr` + the op's decode ⟹
-  `∃ e', stepFrame fr = .next e'` (the success terminal forces a continuing step, since the op's
-  only `.halted` is `.exception`).
-* **the envelope family** (§3) — `gas_envelope_of_cleanSuccess` / `sload_envelope_of_cleanSuccess`:
+  per-op `next_*_of_cleanHalt` specialisations: `CleanHaltsNonException fr` + the op's decode ⟹
+  `∃ e', stepFrame fr = .next e'` (the non-exception terminal forces a continuing step, since the
+  op's only `.halted` is `.exception`).
+* **the envelope family** (§3) — `gas_envelope_of_cleanHalt` / `sload_envelope_of_cleanHalt`:
   the full residual `sim_assign_gas_lowered` / `sim_assign_sload_lowered` consume, produced from
-  `CleanHaltsSuccess` + the decode anchors, by threading the clean-halt forward across each stash
-  step (`GAS`→`gasFrame`, `materialise`→`frk`, `SLOAD`→`sloadFrame`, `PUSH`→`pushFrameW`).
+  `CleanHaltsNonException` + the decode anchors, by threading the clean-halt forward across each
+  stash step (`GAS`→`gasFrame`, `materialise`→`frk`, `SLOAD`→`sloadFrame`, `PUSH`→`pushFrameW`).
 
 No `sorry`/`axiom`/`native_decide`. Every top-level result carries a `#print axioms` guard line.
 -/
@@ -47,30 +49,61 @@ open BytecodeLayer
 open BytecodeLayer.Hoare
 open BytecodeLayer.Dispatch
 
-/-! ## §0 — `CleanHaltsSuccess`: the success strengthening of `CleanHalts` -/
+/-! ## §0 — `CleanHaltsNonException`: the non-exception strengthening of `CleanHalts`
 
-/-- **Clean-halt to a `.success` terminal.** `fr` reaches, by a `Runs` path, a frame `last`
-that halts **successfully** (`stepFrame last = .halted (.success e o)`). This is the form the §7
-ties actually need (the conformance walk's drive thread halts on `.success` — a `RETURN`/`STOP`
-epilogue, never a revert/exception), and it forgets to the weaker `CleanHalts`
-(`cleanHaltsSuccess_toCleanHalts`). -/
-def CleanHaltsSuccess (fr : Frame) : Prop :=
-  ∃ last e o, Runs fr last ∧ stepFrame last = .halted (.success e o)
+`CleanHalts` allows the run to reach **any** `.halted` outcome, including `.exception` (a genuine
+OOG/exception run, which the gas-agnostic IR cannot model). The §7 ties only ever fire on a run
+that reaches its terminal **cleanly** — a `.success` (`RETURN`/`STOP` epilogue) *or* a `.revert`
+(a revert reaches its terminal with gas to spare). Both share the one property the extractor's
+core argument needs: the terminal is **not** `.exception`. A continuing op's only `.halted` is
+`.exception`, so a cursor frame can never coincide with a non-exception terminal — it must step.
 
-/-- **The forward clean-halt-success split.** Mirror of `cleanHalts_forward`
-(`V2/DriveSim.lean`): if `fr` clean-halts-successfully (at terminal `last`) and `Runs fr fj`,
-then `fj` clean-halts-successfully — reaching the **same** `last` via `Runs.linear_to_halt`. -/
-theorem cleanHaltsSuccess_forward {fr fj : Frame}
-    (h : CleanHaltsSuccess fr) (hr : Runs fr fj) : CleanHaltsSuccess fj := by
-  obtain ⟨last, e, o, hto, hhalt⟩ := h
-  exact ⟨last, e, o, Runs.linear_to_halt hhalt hto hr, hhalt⟩
+So we strengthen along `terminal ≠ .exception` (which keeps REVERT runs in conformance scope); the
+success-only case stays derivable via `cleanHaltsNonException_of_success`. -/
 
-/-- **Forget the success witness.** A clean-halt-to-`.success` is in particular a clean-halt, so
-existing `CleanHalts` consumers still see the weak form. -/
-theorem cleanHaltsSuccess_toCleanHalts {fr : Frame}
-    (h : CleanHaltsSuccess fr) : Lir.V2.CleanHalts fr := by
-  obtain ⟨last, e, o, hto, hhalt⟩ := h
-  exact ⟨last, _, hto, hhalt⟩
+/-- A `FrameHalt` is **non-exception** iff it is not an `.exception`. -/
+def HaltNonException : FrameHalt → Prop
+  | .exception _ => False
+  | _ => True
+
+/-- A `.success` terminal is non-exception. -/
+theorem haltNonException_success (e : ExecutionState) (o : ByteArray) :
+    HaltNonException (.success e o) := trivial
+
+/-- A `.revert` terminal is non-exception. -/
+theorem haltNonException_revert (g : UInt64) (o : ByteArray) :
+    HaltNonException (.revert g o) := trivial
+
+/-- **Clean-halt to a non-exception terminal.** `fr` reaches, by a `Runs` path, a frame `last`
+that halts to a **non-exception** outcome (`.success` or `.revert`). This is the form the §7 ties
+actually need: the conformance walk's drive thread reaches its terminal cleanly (a `RETURN`/`STOP`
+epilogue, or a `REVERT` — never a genuine OOG/exception, which the gas-agnostic IR cannot model).
+It forgets to the weaker `CleanHalts` (`cleanHaltsNonException_toCleanHalts`). -/
+def CleanHaltsNonException (fr : Frame) : Prop :=
+  ∃ last halt, Runs fr last ∧ stepFrame last = .halted halt ∧ HaltNonException halt
+
+/-- **The forward clean-halt split.** Mirror of `cleanHalts_forward` (`V2/DriveSim.lean`): if `fr`
+clean-halts non-exceptionally (at terminal `last`) and `Runs fr fj`, then `fj` clean-halts
+non-exceptionally — reaching the **same** `last` via `Runs.linear_to_halt`. -/
+theorem cleanHaltsNonException_forward {fr fj : Frame}
+    (h : CleanHaltsNonException fr) (hr : Runs fr fj) : CleanHaltsNonException fj := by
+  obtain ⟨last, halt, hto, hhalt, hne⟩ := h
+  exact ⟨last, halt, Runs.linear_to_halt hhalt hto hr, hhalt, hne⟩
+
+/-- **Forget the non-exception witness.** A clean-halt-to-non-exception is in particular a
+clean-halt, so existing `CleanHalts` consumers still see the weak form. -/
+theorem cleanHaltsNonException_toCleanHalts {fr : Frame}
+    (h : CleanHaltsNonException fr) : Lir.V2.CleanHalts fr := by
+  obtain ⟨last, halt, hto, hhalt, _⟩ := h
+  exact ⟨last, halt, hto, hhalt⟩
+
+/-- **`CleanHaltsSuccess` ⟹ `CleanHaltsNonException`.** The success-only form (the drive thread's
+`RETURN`/`STOP` epilogue) is the canonical non-exception clean-halt; kept as a derived special
+case so success-specific callers can supply the stronger fact. -/
+theorem cleanHaltsNonException_of_success {fr last : Frame} {e : ExecutionState} {o : ByteArray}
+    (hto : Runs fr last) (hhalt : stepFrame last = .halted (.success e o)) :
+    CleanHaltsNonException fr :=
+  ⟨last, .success e o, hto, hhalt, haltNonException_success e o⟩
 
 /-! ## §1 — per-op OOG / `.next`-inversion bricks
 
@@ -198,12 +231,13 @@ theorem stepFrame_sload_inv (fr : Frame) (key : UInt256) (rest : Stack UInt256)
 
 /-! ## §2 — the `.next` extractor (the glue)
 
-`CleanHaltsSuccess fr` reaches a `.halted (.success …)` terminal. For a frame decoding to one of
-the charge-only continuing ops, that forces a *continuing* (`.next`) step: a halted frame `Runs`
-only to itself (`halted_runs_eq`), and the op's only `.halted` is `.exception` (never `.success`),
-so `fr` is not the terminal — it must step. The per-op `next_*_of_cleanSuccess` then read off the
-`.next`-inversion to yield the gas bound. The bound `hcont` of the abstract glue is **discharged**
-per op by the op's `*_oog` lemma (its only halt is `.exception`). -/
+`CleanHaltsNonException fr` reaches a `.halted halt` terminal with `halt ≠ .exception`. For a frame
+decoding to one of the charge-only continuing ops, that forces a *continuing* (`.next`) step: a
+halted frame `Runs` only to itself (`halted_runs_eq`), and the op's only `.halted` is `.exception`
+(never `.success`/`.revert`), so `fr` is not the terminal — it must step. The per-op
+`next_*_of_cleanHalt` then read off the `.next`-inversion to yield the gas bound. The bound `hcont`
+of the abstract glue is **discharged** per op by the op's `*_oog` lemma (its only halt is
+`.exception`). -/
 
 /-- **A halted frame `Runs` only to itself.** If `stepFrame fr = .halted h` and `Runs fr last`,
 then `fr = last`: the run cannot take a `step` (needs `.next`) or a `call` (needs `.needsCall`),
@@ -217,27 +251,29 @@ theorem halted_runs_eq {fr last : Frame} {h : FrameHalt}
     obtain ⟨_, _, _, _, hstep, _⟩ := hcall
     rw [hstep] at hhalt; exact absurd hhalt (by nofun)
 
-/-- **The abstract `.next` extractor.** From `CleanHaltsSuccess fr` and the per-op *step
+/-- **The abstract `.next` extractor.** From `CleanHaltsNonException fr` and the per-op *step
 dichotomy* — `fr` either continues (`.next e'`) or halts with an **exception** (`hdich`) — `fr`
 takes a continuing step. The exception-halt arm is excluded because `fr`'s clean-halt terminal is
-a `.success`: a halted `fr` reaches only itself (`halted_runs_eq`), so an exception halt at `fr`
-would force the success terminal to be that same exception halt — impossible. Every charge-only
-lowered op satisfies the dichotomy (forward lemma when the gas guard holds, `*_oog` otherwise), so
-`.needsCall`/`.needsCreate` never arise — those are the CALL/CREATE ops, excluded by the op decode
-the specialisations supply. -/
-theorem next_of_cleanSuccess_continuing {fr : Frame}
-    (hcs : CleanHaltsSuccess fr)
+**non-exception**: a halted `fr` reaches only itself (`halted_runs_eq`), so an exception halt at
+`fr` would force the non-exception terminal `halt` to be that same exception halt — contradicting
+`halt.IsNonException`. Every charge-only lowered op satisfies the dichotomy (forward lemma when the
+gas guard holds, `*_oog` otherwise), so `.needsCall`/`.needsCreate` never arise — those are the
+CALL/CREATE ops, excluded by the op decode the specialisations supply. -/
+theorem next_of_cleanHalt_continuing {fr : Frame}
+    (hcs : CleanHaltsNonException fr)
     (hdich : (∃ e', stepFrame fr = .next e') ∨ (∃ ex, stepFrame fr = .halted (.exception ex))) :
     ∃ e', stepFrame fr = .next e' := by
-  obtain ⟨last, e, o, hto, hhalt⟩ := hcs
+  obtain ⟨last, halt, hto, hhalt, hne⟩ := hcs
   rcases hdich with hnext | ⟨ex, hexc⟩
   · exact hnext
-  · -- exception halt at `fr`: `fr` reaches only itself, so the success terminal is this halt.
+  · -- exception halt at `fr`: `fr` reaches only itself, so the terminal `halt` is this exception.
     exfalso
     have hfreq : fr = last := halted_runs_eq hexc hto
     subst hfreq
     rw [hexc] at hhalt
-    exact absurd ((Signal.halted.injEq _ _).mp hhalt) (by nofun)
+    have : halt = .exception ex := ((Signal.halted.injEq _ _).mp hhalt).symm
+    rw [this] at hne
+    exact hne
 
 /-- **GAS step dichotomy.** A GAS-decoding frame (stack room) either continues or halts with an
 exception: by gas trichotomy, `Gbase ≤ gas` ⟹ `.next (gasPost …)` (forward `stepFrame_gas`),
@@ -311,39 +347,39 @@ theorem stepFrame_mstore_dichotomy (fr : Frame) (addr val : UInt256) (rest : Sta
     · exact Or.inr ⟨.OutOfGas,
         stepFrame_mstore_oogMem fr addr val words' rest hdec hstk hsz hmem (by omega)⟩
 
-/-! ### Per-op `.next`-from-clean-success specialisations
+/-! ### Per-op `.next`-from-clean-halt specialisations
 
 Combine the step dichotomy (excludes `.needsCall`/`.needsCreate`) with the abstract extractor to
-turn `CleanHaltsSuccess fr` + the op decode into a continuing `.next` step, then read off the
+turn `CleanHaltsNonException fr` + the op decode into a continuing `.next` step, then read off the
 inversion to land the gas bound. -/
 
-/-- **GAS: clean-success ⟹ `Gbase ≤ gas`.** -/
-theorem next_gas_of_cleanSuccess (fr : Frame)
-    (hcs : CleanHaltsSuccess fr)
+/-- **GAS: clean-halt ⟹ `Gbase ≤ gas`.** -/
+theorem next_gas_of_cleanHalt (fr : Frame)
+    (hcs : CleanHaltsNonException fr)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .GAS, .none))
     (hsz : fr.exec.stack.size + 1 ≤ 1024) :
     Gbase ≤ fr.exec.gasAvailable.toNat ∧ stepFrame fr = .next (gasPost fr.exec) := by
   obtain ⟨e', hnext⟩ :=
-    next_of_cleanSuccess_continuing hcs (stepFrame_gas_dichotomy fr hdec hsz)
+    next_of_cleanHalt_continuing hcs (stepFrame_gas_dichotomy fr hdec hsz)
   have hg := stepFrame_gas_inv fr hdec hsz hnext
   exact ⟨hg, stepFrame_gas fr hdec hsz hg⟩
 
-/-- **PUSH: clean-success ⟹ `Gverylow ≤ gas`.** -/
-theorem next_push_of_cleanSuccess (fr : Frame) (p : Operation.PushOp) (imm : UInt256) (w : UInt8)
-    (hcs : CleanHaltsSuccess fr) (hp0 : p ≠ .PUSH0)
+/-- **PUSH: clean-halt ⟹ `Gverylow ≤ gas`.** -/
+theorem next_push_of_cleanHalt (fr : Frame) (p : Operation.PushOp) (imm : UInt256) (w : UInt8)
+    (hcs : CleanHaltsNonException fr) (hp0 : p ≠ .PUSH0)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Push p, some (imm, w)))
     (hpop : stackPopCount (.Push p) = 0) (hpush : stackPushCount (.Push p) = 1)
     (hsz : fr.exec.stack.size + 1 ≤ 1024) :
     Gverylow ≤ fr.exec.gasAvailable.toNat
       ∧ stepFrame fr = .next (pushFrameW fr imm w).exec := by
   obtain ⟨e', hnext⟩ :=
-    next_of_cleanSuccess_continuing hcs (stepFrame_push_dichotomy fr p imm w hp0 hdec hpop hpush hsz)
+    next_of_cleanHalt_continuing hcs (stepFrame_push_dichotomy fr p imm w hp0 hdec hpop hpush hsz)
   have hg := stepFrame_push_inv fr p imm w hp0 hdec hpop hpush hsz hnext
   exact ⟨hg, stepFrame_push fr p imm w hp0 hdec hpop hpush hg hsz⟩
 
-/-- **SLOAD: clean-success ⟹ `sloadCost warm ≤ gas`.** -/
-theorem next_sload_of_cleanSuccess (fr : Frame) (key : UInt256) (rest : Stack UInt256)
-    (hcs : CleanHaltsSuccess fr)
+/-- **SLOAD: clean-halt ⟹ `sloadCost warm ≤ gas`.** -/
+theorem next_sload_of_cleanHalt (fr : Frame) (key : UInt256) (rest : Stack UInt256)
+    (hcs : CleanHaltsNonException fr)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .SLOAD, .none))
     (hstk : fr.exec.stack = key :: rest)
     (hsz : fr.exec.stack.size ≤ 1024) :
@@ -351,14 +387,14 @@ theorem next_sload_of_cleanSuccess (fr : Frame) (key : UInt256) (rest : Stack UI
         (fr.exec.executionEnv.address, key)) ≤ fr.exec.gasAvailable.toNat
       ∧ stepFrame fr = .next (sloadPost fr.exec key rest) := by
   obtain ⟨e', hnext⟩ :=
-    next_of_cleanSuccess_continuing hcs (stepFrame_sload_dichotomy fr key rest hdec hstk hsz)
+    next_of_cleanHalt_continuing hcs (stepFrame_sload_dichotomy fr key rest hdec hstk hsz)
   have hg := stepFrame_sload_inv fr key rest hdec hstk hsz hnext
   exact ⟨hg, stepFrame_sload fr key rest hdec hstk hsz hg⟩
 
-/-- **MSTORE: clean-success ⟹ the expansion witness + both charges.** Reuses 003
+/-- **MSTORE: clean-halt ⟹ the expansion witness + both charges.** Reuses 003
 `stepFrame_mstore_inv` on the continuing step the dichotomy produces. -/
-theorem next_mstore_of_cleanSuccess (fr : Frame) (addr val : UInt256) (rest : Stack UInt256)
-    (hcs : CleanHaltsSuccess fr)
+theorem next_mstore_of_cleanHalt (fr : Frame) (addr val : UInt256) (rest : Stack UInt256)
+    (hcs : CleanHaltsNonException fr)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .MSTORE, .none))
     (hstk : fr.exec.stack = addr :: val :: rest)
     (hsz : fr.exec.stack.size ≤ 1024) :
@@ -367,7 +403,7 @@ theorem next_mstore_of_cleanSuccess (fr : Frame) (addr val : UInt256) (rest : St
       ∧ Gverylow ≤ (fr.exec.gasAvailable - UInt64.ofNat (memExpansionChargeOf fr.exec words')).toNat
       ∧ stepFrame fr = .next (mstorePost fr.exec addr val words' rest) := by
   obtain ⟨e', hnext⟩ :=
-    next_of_cleanSuccess_continuing hcs (stepFrame_mstore_dichotomy fr addr val rest hdec hstk hsz)
+    next_of_cleanHalt_continuing hcs (stepFrame_mstore_dichotomy fr addr val rest hdec hstk hsz)
   obtain ⟨words', hmem, hgasMem, hgas, he⟩ := stepFrame_mstore_inv fr addr val rest hdec hstk hsz hnext
   exact ⟨words', hmem, hgasMem, hgas, by rw [hnext, he]⟩
 
@@ -375,8 +411,8 @@ theorem next_mstore_of_cleanSuccess (fr : Frame) (addr val : UInt256) (rest : St
 
 For the GAS cursor, `sim_assign_gas_lowered`'s residual is the 5-conjunct gas/mem envelope over the
 3-step stash `GAS ; PUSH32 (slotOf t) ; MSTORE` at frames `fr`, `gasFrame fr`,
-`pushFrameW (gasFrame fr) (ofNat slot) 32`. `gas_envelope_of_cleanSuccess` produces it from
-`CleanHaltsSuccess fr` + the three frame-local decode anchors, threading the clean-halt forward
+`pushFrameW (gasFrame fr) (ofNat slot) 32`. `gas_envelope_of_cleanHalt` produces it from
+`CleanHaltsNonException fr` + the three frame-local decode anchors, threading the clean-halt forward
 across each `StepsTo` (`fr → gasFrame fr → pushFrameW …`). The decode anchors are the **structural**
 facts `sim_assign_gas_lowered` already derives internally (`hdgas'`/`hdpush'`/`hdmstore'`); the gas
 bounds are no longer supplied — they are produced here. -/
@@ -400,7 +436,7 @@ theorem stepsTo_pushFrameW (fr : Frame) (p : Operation.PushOp) (imm : UInt256) (
     StepsTo fr (pushFrameW fr imm w) :=
   stepsTo_of_next (stepFrame_push fr p imm w hp0 hdec hpop hpush hgas hsz)
 
-/-- **GAS envelope from clean-success.** From `CleanHaltsSuccess fr` (block-entry stack `[]`) and
+/-- **GAS envelope from clean-halt.** From `CleanHaltsNonException fr` (block-entry stack `[]`) and
 the three frame-local decode anchors of the gas stash, produce the exact gas/mem residual
 `sim_assign_gas_lowered` consumes: `Gbase ≤ fr.gas`, `3 ≤ (gasFrame fr).gas`, and the MSTORE
 expansion witness `words'` + both memory charges at `pushFrameW (gasFrame fr) (ofNat slot) 32`.
@@ -408,8 +444,8 @@ expansion witness `words'` + both memory charges at `pushFrameW (gasFrame fr) (o
 The bound gas value the `GAS` op pushes (so the MSTORE writes) is
 `ofUInt64 (fr.gas − Gbase)` — the realised GAS output, which fixes the MSTORE operand
 `addr = ofNat slot`, `val = that value`, `rest = []`. -/
-theorem gas_envelope_of_cleanSuccess (fr : Frame) (slot : Nat)
-    (hcs : CleanHaltsSuccess fr)
+theorem gas_envelope_of_cleanHalt (fr : Frame) (slot : Nat)
+    (hcs : CleanHaltsNonException fr)
     (hstk0 : fr.exec.stack = [])
     (hdecGAS : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .GAS, .none))
     (hdecPUSH : decode (gasFrame fr).exec.executionEnv.code (gasFrame fr).exec.pc
@@ -432,11 +468,11 @@ theorem gas_envelope_of_cleanSuccess (fr : Frame) (slot : Nat)
   -- stack-size facts along the stash.
   have hsz0 : fr.exec.stack.size + 1 ≤ 1024 := by rw [hstk0]; decide
   -- (a) GAS at `fr`.
-  obtain ⟨hgasGas, hgasNext⟩ := next_gas_of_cleanSuccess fr hcs hdecGAS hsz0
+  obtain ⟨hgasGas, hgasNext⟩ := next_gas_of_cleanHalt fr hcs hdecGAS hsz0
   -- forward the clean-halt across `fr → gasFrame fr`.
   have hstepGas : StepsTo fr (gasFrame fr) := stepsTo_gasFrame fr hdecGAS hsz0 hgasGas
-  have hcsGas : CleanHaltsSuccess (gasFrame fr) :=
-    cleanHaltsSuccess_forward hcs (Runs.single hstepGas)
+  have hcsGas : CleanHaltsNonException (gasFrame fr) :=
+    cleanHaltsNonException_forward hcs (Runs.single hstepGas)
   -- the GAS frame's stack is `[gasval]` (size 1), so PUSH has stack room.
   have hstkGas : (gasFrame fr).exec.stack
       = UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat Gbase) :: [] := by
@@ -447,7 +483,7 @@ theorem gas_envelope_of_cleanSuccess (fr : Frame) (slot : Nat)
     rw [hstkGas]; simp [Stack.size]
   -- (b) PUSH32 at `gasFrame fr`.
   obtain ⟨hgasPush, hpushNext⟩ :=
-    next_push_of_cleanSuccess (gasFrame fr) .PUSH32 (UInt256.ofNat slot) 32 hcsGas
+    next_push_of_cleanHalt (gasFrame fr) .PUSH32 (UInt256.ofNat slot) 32 hcsGas
       (by decide) hdecPUSH (by decide) (by decide) hszGas
   have hgasPush' : 3 ≤ (gasFrame fr).exec.gasAvailable.toNat := by
     have : Gverylow = 3 := rfl; omega
@@ -455,8 +491,8 @@ theorem gas_envelope_of_cleanSuccess (fr : Frame) (slot : Nat)
   have hstepPush : StepsTo (gasFrame fr) (pushFrameW (gasFrame fr) (UInt256.ofNat slot) 32) :=
     stepsTo_pushFrameW (gasFrame fr) .PUSH32 (UInt256.ofNat slot) 32 (by decide) hdecPUSH
       (by decide) (by decide) hgasPush hszGas
-  have hcsPush : CleanHaltsSuccess (pushFrameW (gasFrame fr) (UInt256.ofNat slot) 32) :=
-    cleanHaltsSuccess_forward hcsGas (Runs.single hstepPush)
+  have hcsPush : CleanHaltsNonException (pushFrameW (gasFrame fr) (UInt256.ofNat slot) 32) :=
+    cleanHaltsNonException_forward hcsGas (Runs.single hstepPush)
   -- the MSTORE frame's stack is `[ofNat slot, gasval]` (size 2).
   have hstkM : (pushFrameW (gasFrame fr) (UInt256.ofNat slot) 32).exec.stack
       = UInt256.ofNat slot
@@ -471,7 +507,7 @@ theorem gas_envelope_of_cleanSuccess (fr : Frame) (slot : Nat)
     rw [hstkM]; simp [Stack.size]
   -- (c) MSTORE at `pushFrameW …`: the expansion witness + both charges.
   obtain ⟨words', hmem, hgasMem, hgasMstore, _⟩ :=
-    next_mstore_of_cleanSuccess (pushFrameW (gasFrame fr) (UInt256.ofNat slot) 32)
+    next_mstore_of_cleanHalt (pushFrameW (gasFrame fr) (UInt256.ofNat slot) 32)
       (UInt256.ofNat slot) (UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat Gbase)) []
       hcsPush hdecMSTORE hstkM hszM
   exact ⟨hgasGas, hgasPush', words', hmem, hgasMem, hgasMstore⟩
@@ -486,21 +522,21 @@ theorem stepsTo_sloadFrame (fr : Frame) (key : UInt256) (rest : Stack UInt256)
     StepsTo fr (sloadFrame fr key rest) :=
   stepsTo_of_next (stepFrame_sload fr key rest hdec hstk hsz hgas)
 
-/-- **SLOAD envelope from clean-success.** For the spilled-sload cursor, the residual
+/-- **SLOAD envelope from clean-halt.** For the spilled-sload cursor, the residual
 `sim_assign_sload_lowered` consumes is keyed on the **post-materialise** frame `frk` (the key
 prefix is variable-length; B1 `materialise_runs` produces `frk` and the `MatRuns` Runs threading
-`CleanHaltsSuccess` to it). At `frk` (stack `[keyVal]`) the tail `SLOAD ; PUSH32 ; MSTORE`
+`CleanHaltsNonException` to it). At `frk` (stack `[keyVal]`) the tail `SLOAD ; PUSH32 ; MSTORE`
 clean-halts, so this lemma produces the gas conjuncts `hgasSload`/`hgasPush`/`hmem`/`hgasMem`/
 `hgasMstore` of `hresid` — everything but the **structural** activeWords-flatness `hawk`
 (`frk.activeWords = fr.activeWords`: the key materialise expanded no memory — the normal sload-key
 case, independent of gas), which stays a supplied structural residual.
 
-Inputs: `CleanHaltsSuccess fr`, the entry stack-nil, the `MatRuns` thread to `frk` (which pins
+Inputs: `CleanHaltsNonException fr`, the entry stack-nil, the `MatRuns` thread to `frk` (which pins
 `frk.stack = [keyVal]`), and the three frame-local tail decode anchors at `frk`. -/
-theorem sload_envelope_of_cleanSuccess
+theorem sload_envelope_of_cleanHalt
     {defs : Tmp → Option Expr} {sloadChg : Tmp → ℕ} {f : Nat} {ekey : Expr} {wkey : Word}
     (fr frk : Frame) (keyVal : UInt256) (slot : Nat)
-    (hcs : CleanHaltsSuccess fr)
+    (hcs : CleanHaltsNonException fr)
     (hstk0 : fr.exec.stack = [])
     (hmrk : MatRuns defs sloadChg f ekey wkey fr frk)
     (hkeyval : wkey = keyVal)
@@ -526,18 +562,18 @@ theorem sload_envelope_of_cleanSuccess
             - UInt64.ofNat (memExpansionChargeOf
                 (pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat slot) 32).exec words')).toNat := by
   -- thread the clean-halt to `frk` along the materialise Runs (B1).
-  have hcsK : CleanHaltsSuccess frk := cleanHaltsSuccess_forward hcs hmrk.runs
+  have hcsK : CleanHaltsNonException frk := cleanHaltsNonException_forward hcs hmrk.runs
   -- `frk`'s stack is `[keyVal]` (B1 leaves the key on top of the entry stack `[]`).
   have hstkK : frk.exec.stack = keyVal :: [] := by
     rw [hmrk.stack, hstk0, ← hkeyval]; rfl
   have hszK : frk.exec.stack.size ≤ 1024 := by rw [hstkK]; simp [Stack.size]
   -- (a) SLOAD at `frk`.
-  obtain ⟨hgasSload, hsloadNext⟩ := next_sload_of_cleanSuccess frk keyVal [] hcsK hdecSLOAD hstkK hszK
+  obtain ⟨hgasSload, hsloadNext⟩ := next_sload_of_cleanHalt frk keyVal [] hcsK hdecSLOAD hstkK hszK
   -- forward the clean-halt across `frk → sloadFrame frk keyVal []`.
   have hstepSload : StepsTo frk (sloadFrame frk keyVal []) :=
     stepsTo_sloadFrame frk keyVal [] hdecSLOAD hstkK hszK hgasSload
-  have hcsSload : CleanHaltsSuccess (sloadFrame frk keyVal []) :=
-    cleanHaltsSuccess_forward hcsK (Runs.single hstepSload)
+  have hcsSload : CleanHaltsNonException (sloadFrame frk keyVal []) :=
+    cleanHaltsNonException_forward hcsK (Runs.single hstepSload)
   -- the SLOAD frame's stack is `[v]` (size 1) for the loaded value `v`.
   have hstkSload : (sloadFrame frk keyVal []).exec.stack
       = (Evm.State.sload
@@ -550,7 +586,7 @@ theorem sload_envelope_of_cleanSuccess
     rw [hstkSload]; simp [Stack.size]
   -- (b) PUSH32 at `sloadFrame frk keyVal []`.
   obtain ⟨hgasPush, hpushNext⟩ :=
-    next_push_of_cleanSuccess (sloadFrame frk keyVal []) .PUSH32 (UInt256.ofNat slot) 32 hcsSload
+    next_push_of_cleanHalt (sloadFrame frk keyVal []) .PUSH32 (UInt256.ofNat slot) 32 hcsSload
       (by decide) hdecPUSH (by decide) (by decide) hszSload
   have hgasPush' : 3 ≤ (sloadFrame frk keyVal []).exec.gasAvailable.toNat := by
     have : Gverylow = 3 := rfl; omega
@@ -559,8 +595,8 @@ theorem sload_envelope_of_cleanSuccess
       (pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat slot) 32) :=
     stepsTo_pushFrameW (sloadFrame frk keyVal []) .PUSH32 (UInt256.ofNat slot) 32 (by decide)
       hdecPUSH (by decide) (by decide) hgasPush hszSload
-  have hcsPush : CleanHaltsSuccess (pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat slot) 32) :=
-    cleanHaltsSuccess_forward hcsSload (Runs.single hstepPush)
+  have hcsPush : CleanHaltsNonException (pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat slot) 32) :=
+    cleanHaltsNonException_forward hcsSload (Runs.single hstepPush)
   -- the MSTORE frame's stack is `[ofNat slot, v]` (size 2).
   have hstkM : (pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat slot) 32).exec.stack
       = UInt256.ofNat slot :: (sloadFrame frk keyVal []).exec.stack := by
@@ -580,7 +616,7 @@ theorem sload_envelope_of_cleanSuccess
     rw [hstkM']; simp [Stack.size]
   -- (c) MSTORE at `pushFrameW …`: the expansion witness + both charges.
   obtain ⟨words', hmem, hgasMem, hgasMstore, _⟩ :=
-    next_mstore_of_cleanSuccess (pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat slot) 32)
+    next_mstore_of_cleanHalt (pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat slot) 32)
       (UInt256.ofNat slot)
       (Evm.State.sload
         ({ frk.exec with gasAvailable := frk.exec.gasAvailable
@@ -592,8 +628,9 @@ theorem sload_envelope_of_cleanSuccess
 end Lir.CleanHaltExtract
 
 -- Axiom-cleanliness guards (§0).
-#print axioms Lir.CleanHaltExtract.cleanHaltsSuccess_forward
-#print axioms Lir.CleanHaltExtract.cleanHaltsSuccess_toCleanHalts
+#print axioms Lir.CleanHaltExtract.cleanHaltsNonException_forward
+#print axioms Lir.CleanHaltExtract.cleanHaltsNonException_toCleanHalts
+#print axioms Lir.CleanHaltExtract.cleanHaltsNonException_of_success
 -- Axiom-cleanliness guards (§1).
 #print axioms Lir.CleanHaltExtract.stepFrame_gas_oog
 #print axioms Lir.CleanHaltExtract.stepFrame_gas_inv
@@ -603,18 +640,18 @@ end Lir.CleanHaltExtract
 #print axioms Lir.CleanHaltExtract.stepFrame_sload_inv
 -- Axiom-cleanliness guards (§2).
 #print axioms Lir.CleanHaltExtract.halted_runs_eq
-#print axioms Lir.CleanHaltExtract.next_of_cleanSuccess_continuing
+#print axioms Lir.CleanHaltExtract.next_of_cleanHalt_continuing
 #print axioms Lir.CleanHaltExtract.stepFrame_gas_dichotomy
 #print axioms Lir.CleanHaltExtract.stepFrame_push_dichotomy
 #print axioms Lir.CleanHaltExtract.stepFrame_sload_dichotomy
 #print axioms Lir.CleanHaltExtract.stepFrame_mstore_dichotomy
-#print axioms Lir.CleanHaltExtract.next_gas_of_cleanSuccess
-#print axioms Lir.CleanHaltExtract.next_push_of_cleanSuccess
-#print axioms Lir.CleanHaltExtract.next_sload_of_cleanSuccess
-#print axioms Lir.CleanHaltExtract.next_mstore_of_cleanSuccess
+#print axioms Lir.CleanHaltExtract.next_gas_of_cleanHalt
+#print axioms Lir.CleanHaltExtract.next_push_of_cleanHalt
+#print axioms Lir.CleanHaltExtract.next_sload_of_cleanHalt
+#print axioms Lir.CleanHaltExtract.next_mstore_of_cleanHalt
 -- Axiom-cleanliness guards (§3).
 #print axioms Lir.CleanHaltExtract.stepsTo_gasFrame
 #print axioms Lir.CleanHaltExtract.stepsTo_pushFrameW
-#print axioms Lir.CleanHaltExtract.gas_envelope_of_cleanSuccess
+#print axioms Lir.CleanHaltExtract.gas_envelope_of_cleanHalt
 #print axioms Lir.CleanHaltExtract.stepsTo_sloadFrame
-#print axioms Lir.CleanHaltExtract.sload_envelope_of_cleanSuccess
+#print axioms Lir.CleanHaltExtract.sload_envelope_of_cleanHalt
