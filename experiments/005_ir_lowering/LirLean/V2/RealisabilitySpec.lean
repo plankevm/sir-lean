@@ -1015,8 +1015,12 @@ a use-site non-invalidation premise — a USE of an invalidated tmp is where IR-
 divergence would be REAL (the lowered code rematerialises fresh, the IR reads stale), so
 the static checks must exclude it; `RevalidatesPerBlock`-conforming programs whose
 within-block uses precede the invalidating rebind (or follow the healing reassign, as
-`exProg`'s branch use of `t8` does) are the honest domain. DERIVED-status obligation
-(a lemma about the semantics; nothing supplied to the flagship). -/
+`exProg`'s branch use of `t8` does) are the honest domain. NOTE (round-3 review): the
+ties' own mid-block `Corr` antecedents are themselves subject to criterion (1)'s carrier
+swap — arms at stale-window cursors are un-fireable by the reshaped walk (strong `Corr`
+is false at those real states), so the R10a→R11 assembly routes those cursors through
+the re-plumbed sim lemmas or a scoped-`Corr` restatement of the arms. DERIVED-status
+obligation (a lemma about the semantics; nothing supplied to the flagship). -/
 theorem defsSoundS_preserved_step {prog : Program} {o : CallOracle}
     {st st' : IRState} {T T' : Trace} {s : Stmt} {I : Tmp → Prop}
     {L : Label} {b : Block} {pc : Nat}

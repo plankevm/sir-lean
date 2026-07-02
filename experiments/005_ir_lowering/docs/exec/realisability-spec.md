@@ -1,10 +1,10 @@
 # Track E — Realisability Spec Skeleton: design rationale (2026-07-02)
 
 Deliverable: `LirLean/V2/RealisabilitySpec.lean` (namespace `Lir.V2`), registered as the
-NON-DEFAULT `lean_lib Nightly` in `lakefile.lean`. All `def`s/`structure`s are REAL; the 23
-`sorry`s are exactly the theorem proofs (R-obligations + 2 mirror-adequacy lemmas) — tracked
-debt by design. `lake build Nightly` = 1159 jobs green (23 sorry warnings); default
-`lake build` = 1164 jobs, untouched and sorry-free.
+NON-DEFAULT `lean_lib Nightly` in `lakefile.lean`. All `def`s/`structure`s are REAL; the
+`sorry`s are exactly the theorem proofs (R-obligations + mirror-adequacy lemmas) — tracked
+debt by design; current count 25 after the round-3 fix added R0b + the revalidates anchor
+(see §8 for the authoritative build record). Default `lake build` = untouched and sorry-free.
 
 Statement sources: `docs/execution-plan-2026-07-02.md` (Track E), `docs/
 target-architecture-2026-07-02.md` §2/§3/§5, `docs/fleet-2026-07-02/flagship-signature.md`
