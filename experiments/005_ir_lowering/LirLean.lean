@@ -91,3 +91,8 @@ import LirLean.CleanHaltExtract
 -- charge-descent fold (reusing B1 for frame production + the extractor's per-op `.next`-inversion),
 -- and re-exports B1's bundle with the gas bound as a derived conjunct (`materialise_runs_of_cleanHalt`).
 import LirLean.MaterialiseCleanHalt
+-- AUDIT NET (Track A, 2026-07-02): #guard_msgs-pinned axiom + flagship-signature guards.
+-- Must stay the LAST import of this root. Directly imports the guarded modules (incl.
+-- V2.TieDischarge), so the headline cone stays in the default target independent of the
+-- other root imports. See docs/exec/audit-net.md.
+import LirLean.Audit
