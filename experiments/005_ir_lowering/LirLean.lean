@@ -44,26 +44,20 @@ import LirLean.CleanHalt
 -- ARCHIVED under `_attic/WorkedCall.lean` (no longer in-tree). Re-derivation deferred (see docs/uniform-spill-alloc-plan.md).
 -- v2 (exp005) prototype — gas-free, observable, event-trace IR + preservation.
 import LirLean.V2.Machine
--- v2 (exp005) frame-free gas LAW + IRRun determinism (imports only LirLean.IR/Evm;
--- zero BytecodeLayer/Frame/Runs): Trace.gasMonotone, MonotoneGas, RunFrom.det/IRRun.det.
+-- v2 (exp005) frame-free IRRun determinism (imports only LirLean.IR/Evm; zero
+-- BytecodeLayer/Frame/Runs): EvalStmt.det → RunStmts.det → RunFrom.det → IRRun.det.
 import LirLean.V2.Law
 -- v2 (exp005) IRRun EXISTENCE (the `hir` side): constructive `RunStmts`/`RunFrom`/`IRRun`
 -- existence for the gas-free, call-free, single-halting-block fragment (imports only
 -- LirLean.V2.Law; frame-free). The tractable floor of the `hir`-construction milestone.
 import LirLean.V2.IRRun
 import LirLean.V2.Preserve
--- v2 (exp005) two-read gas-monotonicity milestone (§3.4); IR↔bytecode bridge that
--- discharges the frame-free law from the bytecode's gas descent.
-import LirLean.V2.Mono
--- v2 (exp005) the gas-oracle interface, law-first (v3 §2, §4–5, S1): the IR↔bytecode
--- bridge — GasRealises side-condition over Frame/Runs, realises→law discharge.
-import LirLean.V2.Oracle
 -- v2 (exp005) the abstract external-call oracle worked example (v3 §3, §7): the
 -- frame-free `Stmt.call` arm run under an arbitrary `CallOracle` (no instantiation).
 import LirLean.V2.Call
 -- v2 (exp005) the CALL realisability bridge (v3 §3, §7): instantiate the abstract
 -- `V2.CallOracle` to v1's `evmCallOracle`; the realised bundle = the lowered CALL's
--- observable effect (the call analogue of `GasRealises.monotoneGas`). Bytecode-coupled.
+-- observable effect. Bytecode-coupled.
 import LirLean.V2.CallRealises
 -- NOTE: `WorkedCallParity` (the with-CALL parity worked example coupling the byte-coupled
 -- `WorkedCall`) is a *leaf example* — deliberately OFF the headline cone. SUPERSEDED by the
@@ -76,12 +70,11 @@ import LirLean.Acyclic
 -- The CYCLIC world-channel headlines (`lower_conforms_cyclic`/`_cyclic'`): the drive-recursion
 -- simulation for any (possibly cyclic) CFG. Pulls in the full spine (LowerConforms, RunLog, …).
 import LirLean.V2.DriveSim
--- The §7 tie-discharge positional foundation (`SloadLogAligned`/`sloadRealises_charge_of_witness`)
--- and the RETIRED-universal regression witnesses (`sloadRealises_universal_unsatisfiable`,
--- `new_sloadLogAligned_two_read_satisfiable`, `sload_tie_vacuity_resolved` — the cold-then-warm
--- non-vacuity proof). Kept in the build cone so the retired `SloadRealises`/`GasRealises` universals
--- remain machine-checked as the regression witnesses they were demoted to (Phase B/C).
-import LirLean.V2.HonestGasTie
+-- The §7 tie-discharge layer: the headlines (`lower_conforms_cyclic_tiefree`/`_assembled`,
+-- `callPreservesSelf_modGuards`) and the positional alignment foundation (`GasLogAligned`/
+-- `SloadLogAligned`, `FramesRun.snoc`). Previously reached the build cone only via the
+-- deleted `V2/HonestGasTie.lean`'s import; imported directly since Phase 2.
+import LirLean.V2.TieDischarge
 -- Track 1 (EXTRACTOR): clean-halting ⟹ per-cursor gas/mem envelopes. The forward-from-real-run
 -- producer that discharges the §7 ties' supplied gas/mem side-conditions from the drive thread's
 -- entry clean-halt (`CleanHaltsSuccess` + per-op `.next`-inversion + the stash envelope family).
