@@ -706,4 +706,386 @@ theorem runFromLeft_exists {prog : Program} {o : CallOracle} {st : IRState}
     {T : Trace} {L : Label} {O : Observable}
     (h : RunFrom prog o st T L O) : ∃ Tleft, RunFromLeft prog o st T L O Tleft := sorry
 
+/-! ## §5 — The Phase-3 obligations R1–R11 (every proof `sorry` = tracked debt)
+
+Landing order (each step green, monotonically fewer sorries; target-architecture §5):
+R0 (the §3 reshape, done above as statements) → R9 → R2 → R8 → R5/R4 → R6 →
+gasfree co-flagship → R7 → R1 → R3 → R10 → R11 → R12. Substantial proofs: R1, R3, R6;
+everything else is static folds and assembly. -/
+
+/-- **R1 — the gas recorder bridge** (the riskiest obligation; the trace↔recorder
+positional bridge). At a gas-assign cursor, the un-consumed gas suffix's head is the
+machine GAS output at the cursor frame.
+
+SATISFIABILITY ANALYSIS (why each hypothesis is load-bearing): the coupling's restart
+equation pins `gS` to `fr`'s deterministic future; `Corr` pins `fr`'s pc/code to the GAS
+byte of `lower prog`; and the CLEAN-HALT antecedent is what blocks the one remaining
+refutation — an OOG-at-GAS frame satisfies the coupling with the run ending in an
+exception whose recorded suffix is `gS = []`, refuting the head equation. Under clean
+halt the first restart step IS the recorded top-level GAS read, and `driveLog` records
+exactly `UInt256.ofUInt64 exec.gasAvailable` of the post-charge state (= `gasAvailable −
+Gbase`, the `StmtTies` :1318 word, verbatim). DERIVED-status obligation: never supplied. -/
+theorem gas_suffix_head_realised {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
+    {L : Label} {b : Block} {pc : Nat} {t : Tmp} {st : IRState} {fr : Frame}
+    {gS : List Word} {sS : List Nat} {cS : List CallRecord}
+    (hb : blockAt prog L = some b)
+    (hcur : b.stmts[pc]? = some (.assign t .gas))
+    (hcorr : Lir.Corr prog sloadChg 0 st fr L pc)
+    (hcp : RecorderCoupled log fr gS sS cS)
+    (hch : CleanHaltsNonException fr) :
+    gS.head? = some (UInt256.ofUInt64
+      (fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase)) := sorry
+
+/-- **R2 — the clean scope read off the log** (replaces the `∀ last halt` universal `hne`
+of `cleanHalts_of_runWithLog` with the decidable `log.clean`). The recorded outcome routes
+every halt to `.ok`, so distinguishing a `.success`/`.revert` terminal from an exception
+takes the `endCall` fingerprint `success ∨ gasRemaining ≠ 0` — exactly `RunLog.clean`
+(with the documented zero-gas-revert cut). `hrb`/`hcc` are carried in the
+`cleanHalts_of_runWithLog` shapes because the `Runs`↔`drive` identification may need
+modellability; both are in the flagship's context anyway (R6 / `hseams.callsCode`) —
+possibly droppable, kept until the proof says so. DERIVED-status obligation. -/
+theorem haltNonException_of_cleanLog {prog : Lir.Program} {params : CallParams}
+    {fr₀ : Frame} {log : RunLog}
+    (hrun : runWithLog params (seedFuel params.gas) = some log)
+    (hbegin : beginCall params = .inl fr₀)
+    (hclean : log.clean)
+    (hrb : ∀ fr', Runs fr₀ fr' → AtReachableBoundary prog fr')
+    (hcc : ∀ fr', Runs fr₀ fr' → CallsCode fr') :
+    ∀ last halt, Runs fr₀ last → stepFrame last = .halted halt →
+      HaltNonException halt := sorry
+
+/-- **R3 — call realisation from the log.** At a call cursor, the coupled frame's recorded
+CALL supplies the whole `CallRealises` bundle at the REALISED oracle: kernel from the head
+`CallRecord` (`realisedCall_eq_evmV2`, rfl-clean once the record is pinned), plumbing from
+`materialise_runs` + the `resumeAfterCall` rfl-pins + the Route-B tail (`stash_tail_runs`).
+Under `SingleCall` the head of the coupled `callSuffix` IS this cursor's call (the whole
+log records at most one). The address antecedent is what identifies `realisedCall log
+self` with `evmV2CallOracle … fr0.address`. DERIVED-status obligation (with `hseams`-style
+context available to the R10 assembly if the plumbing needs it).
+
+**R3′ (tracked design decision, not a statement):** for multi-CALL programs the
+function-shaped `CallOracle` is wrong (two dynamic calls with identical IR-visible inputs
+can differ); the honest completion makes calls a CONSUMED STREAM of records — exactly the
+gas channel's positional solution, and the coupling already carries `callSuffix` for it.
+That generalization touches `EvalStmt.call` (IR spec surface) and is deliberately deferred;
+`SingleCall` (and its loop caveat, see its docstring) is the recorded interim scope. -/
+theorem callRealises_of_recorded {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
+    {self : AccountAddress} {L : Label} {b : Block} {pc : Nat} {cs : CallSpec}
+    {st0 : IRState} {fr0 : Frame}
+    {gS : List Word} {sS : List Nat} {cS : List CallRecord}
+    (hsingle : SingleCall prog)
+    (hb : blockAt prog L = some b)
+    (hcur : b.stmts[pc]? = some (.call cs))
+    (hcp : RecorderCoupled log fr0 gS sS cS)
+    (hch : CleanHaltsNonException fr0)
+    (haddr : fr0.exec.executionEnv.address = self) :
+    Lir.CallRealises prog sloadChg 0 (realisedCall log self) L b pc cs st0 fr0 := sorry
+
+/-- **R4 — SSTORE realisation, point-wise at the concrete frame** (the honest replacement
+of the unsatisfiable `∃ acc, SstoreRealises …` tie conjunct — header lesson 3). At the
+REAL internal SSTORE frame `g` (stack `kw :: vw :: []`, SSTORE decoded, nonzero write,
+modifiable), the three `SstoreRealises` conclusions hold AT `g`: the stipend gate and the
+EIP-2200 charge bound are DERIVED from the clean-halt witness (an under-gassed SSTORE would
+exception, contradicting `hch`), and the presence conjunct is exactly `hsp` (the threaded
+`SelfPresent`, decision 4 wired at last). NOTE (recorded blast radius): Phase 3 must also
+re-plumb `sim_sstore_stmt`'s `hsstore : SstoreRealises …` input to this point-wise form —
+part of the R0 reshape's edit set, not performable here (no edits to existing files). -/
+theorem sstoreRealises_at_frame {g : Frame} {kw vw : Word}
+    (hsp : SelfPresent g)
+    (hch : CleanHaltsNonException g)
+    (hstk : g.exec.stack = kw :: vw :: [])
+    (hdec : decode g.exec.executionEnv.code g.exec.pc = some (.Smsf .SSTORE, .none))
+    (hnz : vw ≠ 0)
+    (hmod : g.exec.executionEnv.canModifyState = true) :
+    (¬ g.exec.gasAvailable.toNat ≤ GasConstants.Gcallstipend)
+    ∧ sstoreChargeOf g.exec kw vw ≤ g.exec.gasAvailable.toNat
+    ∧ ∃ acc, g.exec.accounts.find? g.exec.executionEnv.address = some acc := sorry
+
+/-- **R5 — terminator ties from the walk vocabulary.** `TermTies'` holds at every present
+block: its arms' antecedents are exactly what `DriveCorrLog` supplies at real boundaries
+(Corr, clean-halt, self-presence, address/kind pins), and the conclusions are derived —
+non-emptiness via `accounts_ne_empty_of_selfPresent`; the gas guards via the clean-halt
+landing extractors (`jump_landing_of_cleanHalt`/`branch_landing_of_cleanHalt` patterns);
+the ret epilogue decode facts via `DecodeAnchors` at the pc-pinned cursor; the `frv`
+kind/presence facts via `Runs`-preservation seeded from the antecedent pins (+`hprec` for
+the returning-call edges, hence the seam hypothesis). DERIVED-status obligation. -/
+theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
+    {self : AccountAddress} {L : Label} {b : Block}
+    (hwl : WellLowered prog)
+    (hprec : ∀ (cp : CallParams) (imm : CallResult), beginCall cp = .inr imm →
+      ∀ a, AccPresent a cp.accounts → AccPresent a imm.accounts)
+    (hb : blockAt prog L = some b) :
+    TermTies' prog sloadChg log self L b := sorry
+
+/-- **R6 — the boundary walk** (the `hrb` residue; the Track-A discharge target). Every
+`Runs`-reachable frame of a `lower prog` entry sits at a reachable instruction boundary of
+`lower prog` — the pc-reachability invariant that structurally discharges the no-CREATE
+modellability clause (`notCreate_of_atReachableBoundary`) and scopes the future
+data-segment design. One of the three substantial proofs. DERIVED-status obligation. -/
+theorem runs_atReachableBoundary {prog : Lir.Program} {params : CallParams} {fr₀ : Frame}
+    (hbegin : beginCall params = .inl fr₀)
+    (hcode : params.codeSource = .Code (lower prog)) :
+    ∀ fr', Runs fr₀ fr' → AtReachableBoundary prog fr' := sorry
+
+/-! ### R7 — the recorder-coupling edge lemmas (entry + the four preservation edges)
+
+These are what make `RecorderCoupled` a THREADABLE invariant: established once at entry,
+preserved across every top-level step shape the drive walk takes. All DERIVED-status. -/
+
+/-- **R7a — entry coupling**: a successful `runWithLog` couples the entry frame to the
+WHOLE log (all three suffixes = the full streams; prefixes `[]`). Near-`rfl` from
+unfolding `runWithLog` (its `driveLog` equation IS the restart equation at `fr₀`). -/
+theorem recorderCoupled_entry {params : CallParams} {log : RunLog} {fr₀ : Frame}
+    (hrun : runWithLog params (seedFuel params.gas) = some log)
+    (hbegin : beginCall params = .inl fr₀) :
+    RecorderCoupled log fr₀ log.gas log.sloads log.calls := sorry
+
+/-- **R7b — the GAS step consumes the gas-suffix head**: a top-level `.next` step at a GAS
+op advances the coupling to the tail and pins the consumed head to the post-charge
+`gasAvailable` (exactly what `driveLog` recorded at this step). -/
+theorem recorderCoupled_step_gas {log : RunLog} {fr : Frame} {exec : ExecutionState}
+    {g : Word} {gS : List Word} {sS : List Nat} {cS : List CallRecord}
+    (hcp : RecorderCoupled log fr (g :: gS) sS cS)
+    (hgas : isGasOp fr = true)
+    (hstep : stepFrame fr = .next exec) :
+    RecorderCoupled log { fr with exec := exec } gS sS cS
+    ∧ g = UInt256.ofUInt64 exec.gasAvailable := sorry
+
+/-- **R7c — the SLOAD step consumes the sload-suffix head** (the R7b twin): pins the
+consumed warmth-charge to `sloadWarmthOf fr` (the PRE-step frame, as recorded). -/
+theorem recorderCoupled_sload {log : RunLog} {fr : Frame} {exec : ExecutionState}
+    {n : Nat} {gS : List Word} {sS : List Nat} {cS : List CallRecord}
+    (hcp : RecorderCoupled log fr gS (n :: sS) cS)
+    (hsl : isSloadOp fr = true)
+    (hstep : stepFrame fr = .next exec) :
+    RecorderCoupled log { fr with exec := exec } gS sS cS
+    ∧ n = sloadWarmthOf fr := sorry
+
+/-- **R7d — any other top-level `.next` step preserves all three suffixes** (nothing is
+recorded off the GAS/SLOAD gates). -/
+theorem recorderCoupled_step_other {log : RunLog} {fr : Frame} {exec : ExecutionState}
+    {gS : List Word} {sS : List Nat} {cS : List CallRecord}
+    (hcp : RecorderCoupled log fr gS sS cS)
+    (hng : isGasOp fr = false) (hns : isSloadOp fr = false)
+    (hstep : stepFrame fr = .next exec) :
+    RecorderCoupled log { fr with exec := exec } gS sS cS := sorry
+
+/-- **R7e — a returning external CALL consumes exactly one `CallRecord` and NO gas/sload
+entries** (children are black-boxed by the recorder's `stack.isEmpty` gate, exactly as
+`Runs.call` black-boxes them). The record's `(result, pending)` pinning to this call's
+data is delivered inside R3 via restart determinism, not restated here. -/
+theorem recorderCoupled_call {log : RunLog} {fr resumeFr : Frame}
+    {gS : List Word} {sS : List Nat} {rec : CallRecord} {cS : List CallRecord}
+    (hcp : RecorderCoupled log fr gS sS (rec :: cS))
+    (hcr : CallReturns fr resumeFr) :
+    RecorderCoupled log resumeFr gS sS cS := sorry
+
+/-- **R8 — presence threading** (the named replacement of the inside-out `hpresent`
+hypothesis, which quantified over the walk invariant). Trivial-looking on purpose: reached
+successors are present because the CFG is closed; `DriveCorrLog.present` is its consumer,
+`ClosedCFG.entry_present` its seed. DERIVED-status obligation. -/
+theorem present_of_closed {prog : Program} {L : Label} {b : Block} {dst : Label}
+    (hclosed : ClosedCFG prog)
+    (hb : blockAt prog L = some b)
+    (hdst : b.term = .jump dst
+      ∨ (∃ c e, b.term = .branch c dst e)
+      ∨ (∃ c t, b.term = .branch c t dst)) :
+    ∃ b', blockAt prog dst = some b' := sorry
+
+/-! ## §6 — the concrete non-vacuity witness (R9's anchor; R12's subject)
+
+`exProg` exercises every interesting feature at once: a gas read feeding a forwarded-gas
+CALL (gas introspection coupled to the call channel), a spilled SLOAD, a nonzero SSTORE, a
+single syntactic CALL (outside the loop — see `SingleCall`'s loop caveat), and a genuine
+CYCLE (block 1 loops on a gas-derived condition until gas drops below the threshold — the
+cyclic-driver domain no per-cursor gas function could handle). Block/tmp layout:
+
+* block 0: `t0 := 5; t1 := gas; t2 := sload t0; t3 := 1; sstore t0 t3; t4 := 0x100;`
+  `t5 := call(callee := t4, gasFwd := t1); jump L1`
+* block 1 (the loop): `t6 := gas; t7 := 1000; t8 := (t6 < t7); branch t8 L2 L1`
+* block 2: `stop` -/
+
+/-- The R12 witness program (see the §6 docstring for the layout rationale). REAL
+definition — the flagship's antecedent must be machine-checkably TRUE somewhere
+(HonestGasTie's replacement role, target-architecture §4.1). -/
+def exProg : Program :=
+  { blocks := #[
+      { stmts := [
+          .assign ⟨0⟩ (.imm 5),
+          .assign ⟨1⟩ .gas,
+          .assign ⟨2⟩ (.sload ⟨0⟩),
+          .assign ⟨3⟩ (.imm 1),
+          .sstore ⟨0⟩ ⟨3⟩,
+          .assign ⟨4⟩ (.imm 0x100),
+          .call { callee := ⟨4⟩, gasFwd := ⟨1⟩, resultTmp := some ⟨5⟩ } ],
+        term := .jump ⟨1⟩ },
+      { stmts := [
+          .assign ⟨6⟩ .gas,
+          .assign ⟨7⟩ (.imm 1000),
+          .assign ⟨8⟩ (.lt ⟨6⟩ ⟨7⟩) ],
+        term := .branch ⟨8⟩ ⟨2⟩ ⟨1⟩ },
+      { stmts := [], term := .stop } ],
+    entry := ⟨0⟩ }
+
+/-- `exProg` is single-CALL — a PROVED (non-sorry) anchor: the scope premise is decidably
+true for the witness. -/
+theorem singleCall_exProg : SingleCall exProg := by unfold SingleCall; decide
+
+/-- **R9 — the static checker, stated existentially with a non-vacuity anchor.** A
+PREMATURE checker `def` would be worse than debt (a wrong-but-real `lowerCheck` misleads;
+a `fun _ => false` checker is the vacuity dual — sound and useless). The obligation is:
+some Boolean checker is SOUND for `WellLowered` AND accepts the witness program — the
+second conjunct is the anti-vacuity guard (it forces `WellLowered exProg` to actually
+hold, `RunDefinableG` included). The checker DEFINITION is the debt. -/
+theorem wellLowered_check_exists :
+    ∃ check : Program → Bool,
+      (∀ prog, check prog = true → WellLowered prog) ∧ check exProg = true := sorry
+
+/-- **R10a — the statement ties, BUILT from the run** (the assembly obligation the
+current headline lacks a producer for). For ANY `(st0, fr0, suffixes)` satisfying the
+arms' antecedents — including OFF-RUN adversarial instances — the conclusions hold,
+because they are computed from `fr0` and restart determinism (the coupling forces any
+witness to reproduce the recorded future) or are static facts of `prog`; this
+off-run-robustness is exactly the satisfiability analysis that makes the §3 reshape
+non-vacuous. `hnzw` is NOT needed here: the sstore arm carries `NonzeroSstores fr0` as its
+own antecedent (threaded by the walk). DERIVED-status obligation. -/
+theorem stmtTies'_of_runWithLog {prog : Program} {params : CallParams} {log : RunLog}
+    {fr₀ : Frame}
+    (hcode : params.codeSource = .Code (lower prog))
+    (hmod : params.canModifyState = true)
+    (hwl : WellLowered prog)
+    (hsingle : SingleCall prog)
+    (hrun : runWithLog params (seedFuel params.gas) = some log)
+    (hclean : log.clean)
+    (hseams : PrecompileSeams prog params)
+    (hbegin : beginCall params = .inl fr₀) :
+    ∀ (sloadChg : Tmp → ℕ) (L : Label) (b : Block), blockAt prog L = some b →
+      StmtTies' prog sloadChg log params.recipient L b := sorry
+
+/-- **R10b — the terminator ties, BUILT** (the `runWithLog`-context restatement of R5;
+kept separate so the R11 assembly consumes one hypothesis shape per tie). -/
+theorem termTies'_of_runWithLog {prog : Program} {params : CallParams} {log : RunLog}
+    (hwl : WellLowered prog)
+    (hseams : PrecompileSeams prog params) :
+    ∀ (sloadChg : Tmp → ℕ) (L : Label) (b : Block), blockAt prog L = some b →
+      TermTies' prog sloadChg log params.recipient L b := sorry
+
+/-- **R11 — THE FLAGSHIP.** Run the lowered bytecode once with the recording interpreter;
+feed the recorded gas reads and call records into the executable IR semantics; the IR run
+exists at the PINNED oracles (`realisedGas log` / `realisedCall log recipient`, from the
+PINNED entry state) and produces the same observable world.
+
+Hypothesis ledger (the honest surface, nothing else): two definitional pins
+(`hcode`/`hmod`), two decidable entry facts (`hself`/`hgas`), one static checkable bundle
+(`hwl`), two decidable scope premises (`hsingle`/`hclean`), ONE runtime premise (`hrun`),
+one two-field honest seam structure (`hseams`), and one named scope seam (`hnzw` — the
+nonzero-write cut the fleet sketch missed; without it the sstore simulation cannot fire).
+The current headline's `DriveCorr`/`CallPreservesSelf`/`hpresent`/tie/`{T}`/`obs`
+hypotheses are all gone: derived (R1–R10), definitional (`entryState`), or dead (the
+phantom). -/
+theorem lowering_conforms {prog : Program} {params : CallParams} {log : RunLog}
+    {acc : Account}
+    (hcode : params.codeSource = .Code (lower prog))
+    (hmod : params.canModifyState = true)
+    (hself : params.accounts.find? params.recipient = some acc)
+    (hgas : GasConstants.Gjumpdest ≤ params.gas.toNat)
+    (hwl : WellLowered prog)
+    (hsingle : SingleCall prog)
+    (hrun : runWithLog params (seedFuel params.gas) = some log)
+    (hclean : log.clean)
+    (hseams : PrecompileSeams prog params)
+    (hnzw : ∀ fr₀, beginCall params = .inl fr₀ → NonzeroSstores fr₀) :
+    ∃ O : Observable,
+      RunFrom prog (realisedCall log params.recipient)
+        (entryState params) (realisedGas log) prog.entry O
+      ∧ Conforms params.recipient log O := sorry
+
+/-- **R11-all — the exact-consumption strengthening**: the same flagship with the IR run
+consuming the ENTIRE recorded gas stream (`RunFromAll`, leftover `[]`) — closes the
+drop-the-suffix vacuity channel (§4). -/
+theorem lowering_conforms_all {prog : Program} {params : CallParams} {log : RunLog}
+    {acc : Account}
+    (hcode : params.codeSource = .Code (lower prog))
+    (hmod : params.canModifyState = true)
+    (hself : params.accounts.find? params.recipient = some acc)
+    (hgas : GasConstants.Gjumpdest ≤ params.gas.toNat)
+    (hwl : WellLowered prog)
+    (hsingle : SingleCall prog)
+    (hrun : runWithLog params (seedFuel params.gas) = some log)
+    (hclean : log.clean)
+    (hseams : PrecompileSeams prog params)
+    (hnzw : ∀ fr₀, beginCall params = .inl fr₀ → NonzeroSstores fr₀) :
+    ∃ O : Observable,
+      RunFromAll prog (realisedCall log params.recipient)
+        (entryState params) (realisedGas log) prog.entry O
+      ∧ Conforms params.recipient log O := sorry
+
+/-- **The gas-free CO-FLAGSHIP** (target-architecture decision 2 — prove it FIRST). The
+flagship restricted to `NoGasReads prog`: the gas suffix plays no role, so it needs no R1
+(the riskiest obligation) — the de-risking checkpoint, and the theorem external readers
+can compare to prior art (Verity/vyper-hol scope: no fork's verified semantics models gas
+introspection at all). -/
+theorem lowering_conforms_gasfree {prog : Program} {params : CallParams} {log : RunLog}
+    {acc : Account}
+    (hng : NoGasReads prog)
+    (hcode : params.codeSource = .Code (lower prog))
+    (hmod : params.canModifyState = true)
+    (hself : params.accounts.find? params.recipient = some acc)
+    (hgas : GasConstants.Gjumpdest ≤ params.gas.toNat)
+    (hwl : WellLowered prog)
+    (hsingle : SingleCall prog)
+    (hrun : runWithLog params (seedFuel params.gas) = some log)
+    (hclean : log.clean)
+    (hseams : PrecompileSeams prog params)
+    (hnzw : ∀ fr₀, beginCall params = .inl fr₀ → NonzeroSstores fr₀) :
+    ∃ O : Observable,
+      RunFrom prog (realisedCall log params.recipient)
+        (entryState params) (realisedGas log) prog.entry O
+      ∧ Conforms params.recipient log O := sorry
+
+/-- Co-flagship companion: a gas-read-free program's recorded gas stream is empty (the
+recorder's GAS gate never fires at a reachable top-level boundary — needs the R6-flavoured
+boundary walk to know every reachable op is an emitted one). -/
+theorem realisedGas_nil_of_noGasReads {prog : Program} {params : CallParams} {log : RunLog}
+    (hcode : params.codeSource = .Code (lower prog))
+    (hng : NoGasReads prog)
+    (hwl : WellLowered prog)
+    (hrun : runWithLog params (seedFuel params.gas) = some log) :
+    realisedGas log = [] := sorry
+
+/-- **R12a — the flagship's antecedent is TRUE somewhere** (the machine-checked
+non-vacuity guard; HonestGasTie's replacement role). Some concrete top-level call params
+run `lower exProg` cleanly with every flagship hypothesis satisfied. The `params` witness
+is deliberately EXISTENTIAL: a literal `CallParams` needs BlockHeader/ProcessedBlocks
+plumbing that belongs to the R12 grind, not the spec. -/
+theorem r12_hypotheses_inhabited :
+    ∃ (params : CallParams) (log : RunLog) (acc : Account),
+      params.codeSource = .Code (lower exProg)
+      ∧ params.canModifyState = true
+      ∧ params.accounts.find? params.recipient = some acc
+      ∧ GasConstants.Gjumpdest ≤ params.gas.toNat
+      ∧ runWithLog params (seedFuel params.gas) = some log
+      ∧ log.clean
+      ∧ PrecompileSeams exProg params
+      ∧ (∀ fr₀, beginCall params = .inl fr₀ → NonzeroSstores fr₀) := sorry
+
+/-- **R12b — end-to-end at the witness**: `lowering_conforms` instantiated at `exProg`
+(gas-read + sload + nonzero-sstore + call + loop, all at once — the verifereum
+`deploy_result_correct`-shaped concrete instance no fork has for this feature set). -/
+theorem r12_end_to_end :
+    ∃ (params : CallParams) (log : RunLog),
+      params.codeSource = .Code (lower exProg)
+      ∧ runWithLog params (seedFuel params.gas) = some log
+      ∧ ∃ O : Observable,
+          RunFrom exProg (realisedCall log params.recipient)
+            (entryState params) (realisedGas log) exProg.entry O
+          ∧ Conforms params.recipient log O := sorry
+
+/-! ## §7 — audit note
+
+NO `#print axioms` guards live here BY DESIGN: every sorry'd declaration carries `sorryAx`
+until its obligation lands, so axiom guards would only pin the debt's existence. The
+default-target audit net (`Audit.lean`, Track A) must NOT cover this Nightly lib; the
+guards migrate there obligation-by-obligation as the sorries are discharged. -/
+
 end Lir.V2
