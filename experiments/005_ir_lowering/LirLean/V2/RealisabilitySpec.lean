@@ -58,6 +58,28 @@ theorem PROOFS are `sorry`d. This module is deliberately registered in the NON-D
    docstring note, i.e. not a hypothesis. Fixed with the decidable LOG-side premise
    `hone : log.calls.length ≤ 1` on R3/R10a and all three flagships — exactly the domain
    on which the head-projection oracle is correct.
+8. **NEW (round-3 review): the inherited SCOPING conjuncts carried the same refutable-∀
+   disease as the value conjuncts.** `Lir.StepScoped`'s live-scope clause
+   (`DefsSound.lean:514`) demands, at an `assign t _` cursor, that NO currently-bound
+   tmp's registered def reads `t` — a free-∀ over the live set, refuted BY THE FILE'S OWN
+   WITNESS at `exProg`'s second loop-iteration entry (block 1, pc 0: `t6 := gas` rebinds
+   `t6` while `t8` is bound from iteration 1 with `defsOf exProg t8 = some (.lt t6 t7)`),
+   a real on-run state fully consistent with `Corr`/`RecorderCoupled`/
+   `CleanHaltsNonException`. Mechanism: the clause is define-before-use, and a LOOP
+   re-binds tmps with live dependents by construction. The root cause is deeper than the
+   ties: on the loop-EXIT iteration, between the `t6` rebind and `t8`'s reassign,
+   recompute-on-use `DefsSound` is ITSELF false at the real mid-block states (`t8` holds
+   the stale `0` while `evalExpr (.lt t6 t7) = 1` — machine-checked at
+   `not_defsSound_stale`). The LOWERING is not misbehaving — rematerialisation is
+   exercised only at USE sites, and a bound-but-unused stale dependent is harmless to the
+   lowered code; the INVARIANT was overclaiming. Fix (route (i), shadowing-aware): the
+   ties' scoping conclusions are the STATIC residue `StepScopedS` (and `CallRealisesS`
+   for the call arm); staleness is tracked by an explicit invalidation set
+   (`ReadsOf`/`invalStep`/`DefsSoundS`); and the forced machinery reshape is the NEW
+   tracked obligation R0b — the current sim machinery (`Corr.defsSound` at every
+   statement cursor) cannot traverse a loop-exit iteration of a rebinding program. The
+   witness `exProg` STAYS AS IS: it exercises rebinding-with-live-dependents by
+   construction, which is exactly why it caught this.
 
 ## The two scope seams added beyond the fleet sketch
 
@@ -255,6 +277,184 @@ def DefsConsistent (prog : Program) : Prop :=
     ∧ (∀ (cs : CallSpec) (t : Tmp), b.stmts[pc]? = some (.call cs) → cs.resultTmp = some t →
       defsOf prog t = some (.slot (slotOf t)))
 
+/-! ### Shadowing-aware scoping (header lesson 8 — the round-3 reshape)
+
+`Lir.StepScoped`'s live-scope clause is a free-∀ over the CURRENT live set ("no bound
+tmp's registered def reads the assign target") — define-before-use, which a LOOP violates
+by construction on its second iteration (rebinding with live dependents; `exProg` block 1).
+The shadowing-aware replacement (design route (i), carrier shape (b) — an explicit
+invalidation set):
+
+* `ReadsOf` — the STATIC registered-reader relation;
+* `invalStep` — the per-statement invalidation-set transfer: rebinding `t` invalidates
+  every registered reader of `t`; the rebound `t` itself is re-validated (unless its own
+  def reads it). Liveness-INSENSITIVE by design: invalidating a reader that is not even
+  bound is harmless (the invariant below claims nothing about unbound tmps), and it keeps
+  the transfer a pure function of the program text and the statement — no state parameter,
+  which is what makes the R0b preservation lemma side-condition-free;
+* `DefsSoundS` — `DefsSound` restricted to the complement of the invalidation set: a
+  stale-but-unused binding is CLAIMED NOTHING ABOUT until its reassign re-validates it
+  (mid-block staleness of a bound-but-unused dependent is harmless to the lowered code:
+  rematerialisation is exercised only at USE sites);
+* `StepScopedS` — the static residue of `Lir.StepScoped` once the live-scope clauses move
+  into the invalidation bookkeeping: state-FREE, derivable from `WellLowered`
+  (`defsCons` + cursor membership), hence immune to the lesson-8 refutation;
+* `RevalidatesPerBlock` — the static boundary criterion the R0b reshape rests on: folding
+  `invalStep` over any present block's statements from the empty set lands back on the
+  empty set, so the strong `DefsSound` (= `DefsSoundS` at `∅`, `defsSoundS_empty_iff`) is
+  re-established at every block boundary — exactly where the ties consume `Corr`.
+
+**Why carrier shape (b) over shape (a)** (a "validSince"/not-invalidated-since-binding
+predicate over the walk): validity-since-binding is HISTORY-indexed — it cannot be stated
+on a single `(prog, st)` pair without walk data, so it would carry the same set implicitly;
+making the set explicit data with a STATIC transfer function costs one definition and buys
+(i) a preservation lemma with no per-state side conditions (R0b — the live-scope demands
+are gone, not relocated into hypotheses), and (ii) a decidable-in-principle boundary
+criterion (`RevalidatesPerBlock`, the R9 checker's territory). A SEMANTIC invalidation
+predicate ("live but stale") is NOT an option: it would make the scoped invariant a
+tautology ("every non-stale binding recomputes"). -/
+
+/-- `t'` is a **registered reader** of `t`: `t'`'s `defsOf`-registered def reads `t`.
+Static (a fact of the program text); the invalidation unit of `invalStep`. -/
+def ReadsOf (prog : Program) (t t' : Tmp) : Prop :=
+  ∃ e', defsOf prog t' = some e' ∧ usesInExpr t e' ≠ 0
+
+/-- **The invalidation-set transfer** of one statement. Rebinding `t` (an assign target or
+a call result) invalidates every registered reader of `t`; `t` itself is re-validated by
+the rebind (unless its own def reads it — a self-reading target stays invalid, harmlessly:
+recompute-on-use never reproduces it, and no side condition is demanded anywhere).
+`sstore` and result-free calls transfer the set unchanged: a world write invalidates NO
+registered recompute — `defsOf` never registers a `.sload` (gas/sload/call results are all
+routed to `.slot`, `Lowering.lean`), so no registered def reads the world. -/
+def invalStep (prog : Program) (I : Tmp → Prop) : Stmt → (Tmp → Prop)
+  | .assign t e => fun t' =>
+      if t' = t then usesInExpr t e ≠ 0 else (I t' ∨ ReadsOf prog t t')
+  | .sstore _ _ => I
+  | .call cs =>
+      match cs.resultTmp with
+      | some t => fun t' => if t' = t then False else (I t' ∨ ReadsOf prog t t')
+      | none => I
+
+/-- **Shadowing-aware recompute soundness**: `Lir.DefsSound` restricted to the tmps
+OUTSIDE the invalidation set `I`. A stale-but-unused dependent (inside `I`) is claimed
+nothing about — the lesson-8 repair: the un-scoped `DefsSound` is FALSE at `exProg`'s
+real mid-block loop-exit states (`not_defsSound_stale`), while `DefsSoundS` at the
+`invalStep`-threaded set is preserved with no per-state side conditions (R0b). -/
+def DefsSoundS (prog : Program) (I : Tmp → Prop) (st : IRState) : Prop :=
+  ∀ (t : Tmp) (e : Expr) (w : Word),
+    defsOf prog t = some e → ¬ Lir.NonRecomputable prog t → ¬ I t →
+    st.locals t = some w → some w = evalExpr st 0 e
+
+/-- At the EMPTY invalidation set, `DefsSoundS` is exactly the strong `DefsSound` — the
+bridge between the mid-block scoped invariant and the block-boundary `Corr.defsSound` the
+ties consume. PROVED (not debt). -/
+theorem defsSoundS_empty_iff (prog : Program) (st : IRState) :
+    DefsSoundS prog (fun _ => False) st ↔ Lir.DefsSound prog st :=
+  ⟨fun h t e w hd hn hl => h t e w hd hn not_false hl,
+   fun h t e w hd hn _ hl => h t e w hd hn hl⟩
+
+/-- **The static per-step scoping residue** — `Lir.StepScoped` minus the refutable
+live-scope clauses (which moved into the invalidation bookkeeping) and minus pure-assign's
+`usesInExpr t e = 0` self-read clause (absorbed: a self-reading rebind leaves its target
+in the invalidation set instead of demanding a side condition). State-FREE: every clause
+is a fact of the program text — the registration clause from `DefsConsistent` at the
+cursor, `isGasDef`/`isSloadDef`/`isCallResult` from cursor membership, and the sstore
+clause from `defsOf`'s structure (it never registers a `.sload`; true of ALL programs,
+the `defsOf_ne_gas` twin). DERIVED status inside the ties: computable from `hwl` + the
+cursor, never a live-set demand. -/
+def StepScopedS (prog : Program) : Stmt → Prop
+  | .assign t e =>
+      (e ≠ .gas → (∀ key, e ≠ .sload key) → defsOf prog t = some e)
+      ∧ (e = .gas → Lir.isGasDef prog t)
+      ∧ (∀ key, e = .sload key → Lir.isSloadDef prog t)
+  | .sstore _ _ =>
+      ∀ (t₀ : Tmp) (e₀ : Expr), defsOf prog t₀ = some e₀ → ∀ key, e₀ ≠ .sload key
+  | .call cs => ∀ t, cs.resultTmp = some t → Lir.isCallResult prog t
+
+/-- **The per-block boundary re-validation criterion** (R0b's static half): folding the
+invalidation transfer over any present block's statements from the EMPTY set lands back
+on the empty set — every within-block invalidation is healed by a reassign before the
+block ends, so the strong `DefsSound` is re-established at every block boundary (where
+the ties consume `Corr.defsSound`). Static; decidable in principle once the tmp universe
+is listed (the `Tmp → Prop` fold gets a `List Tmp` executable twin in the R9 checker).
+TRUE of `exProg` (`revalidatesPerBlock_exProg`). -/
+def RevalidatesPerBlock (prog : Program) : Prop :=
+  ∀ (L : Label) (b : Block), blockAt prog L = some b →
+    ∀ t', ¬ (b.stmts.foldl (invalStep prog) (fun _ => False)) t'
+
+/-- **The shadowing-aware CALL realisability tie** — `Lir.CallRealises`
+(`LowerConforms.lean:261`) with its embedded `Lir.StepScoped prog st0 (.call cs)`
+conjunct replaced by the static `StepScopedS prog (.call cs)` (header lesson 8: the
+embedded live-scope clause for the result tmp is refutable WITHIN the R10a hypothesis
+envelope for any `WellLowered` program whose call result has a registered reader — not
+at `exProg` itself, whose `t5` has none, but the disease shape is identical). Everything
+else is VERBATIM the in-tree kernel: the realised `(result, pd)` oracle pinning, the
+arg-push run + its pins, the returning `CallReturns` + resume-frame pins, the post-state
+scoping fold (derivable: prior-live tmps from the `Corr` antecedent's `wellScoped`,
+locals untouched by the world swap; the result tmp from `DefsConsistent`'s call clause),
+and the Route-B tail. The `obs` phantom is pinned to `0` (as everywhere in this file).
+The copy is deliberate, recorded Phase-3 unification debt: the R0b reshape re-plumbs
+`sim_call_stmt`'s input to this form and retires the in-tree original (this track edits
+no existing files). -/
+def CallRealisesS (prog : Program) (sloadChg : Tmp → ℕ) (o : V2.CallOracle)
+    (L : Label) (_b : Block) (pc : Nat) (cs : CallSpec) (st0 : IRState) (fr0 : Frame) :
+    Prop :=
+  Lir.Corr prog sloadChg 0 st0 fr0 L pc →
+  ∃ (result : Evm.CallResult) (pd : Evm.PendingCall) (callFr resumeFr : Frame)
+      (argsLen : Nat),
+    -- the STATIC per-step scoping of the call statement (lesson 8; was `StepScoped`):
+    StepScopedS prog (.call cs)
+    -- the realised oracle pinning (so the abstract call step is the realised one):
+    ∧ o = evmV2CallOracle result pd fr0.exec.executionEnv.address
+    -- the arg-push run + its pins (the realised arg materialisation):
+    ∧ argsLen = (emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
+        ++ materialise (defsOf prog) (recomputeFuel prog) cs.callee
+        ++ materialise (defsOf prog) (recomputeFuel prog) cs.gasFwd).length
+    ∧ Runs fr0 callFr
+    ∧ callFr.exec.pc = fr0.exec.pc + UInt32.ofNat argsLen
+    ∧ callFr.exec.toMachineState.memory = fr0.exec.toMachineState.memory
+    ∧ fr0.exec.toMachineState.activeWords.toNat ≤ callFr.exec.toMachineState.activeWords.toNat
+    -- the returning external CALL + realised resume:
+    ∧ CallReturns callFr resumeFr
+    ∧ resumeFr = Evm.resumeAfterCall result pd
+    ∧ resumeFr.exec.executionEnv.address = fr0.exec.executionEnv.address
+    ∧ resumeFr.exec.executionEnv.code = lower prog
+    ∧ resumeFr.exec.executionEnv.canModifyState = true
+    ∧ resumeFr.exec.pc = callFr.exec.pc + 1
+    ∧ resumeFr.exec.stack = callSuccessFlag result pd :: []
+    ∧ resumeFr.exec.toMachineState.memory = callFr.exec.toMachineState.memory
+    ∧ callFr.exec.toMachineState.activeWords.toNat
+        ≤ resumeFr.exec.toMachineState.activeWords.toNat
+    ∧ resumeFr.validJumps = validJumpDests resumeFr.exec.executionEnv.code 0
+    -- the post-state scoping fold (derivable — see the docstring):
+    ∧ (∀ t, (match cs.resultTmp with
+              | some t' => { st0 with world := fun key =>
+                              evmCallOracle.postStorage result pd fr0.exec.executionEnv.address key }.setLocal
+                              t' (callSuccessFlag result pd)
+              | none   => { st0 with world := fun key =>
+                              evmCallOracle.postStorage result pd fr0.exec.executionEnv.address key }).locals t ≠ none →
+            (¬ Lir.NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.slot slot))
+            ∧ defsOf prog t ≠ none)
+    -- the Route-B tail's realisability (decode anchors + gas + memory-expansion witness):
+    ∧ (∀ flag : Word, resumeFr.exec.stack = flag :: [] →
+        (∀ (t : Tmp), cs.resultTmp = some t →
+          (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
+          ∧ ∃ endFr,
+              Runs resumeFr endFr
+            ∧ endFr.exec.toMachineState.memory
+                = (resumeFr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) flag).memory
+            ∧ endFr.exec.toMachineState.activeWords
+                = (resumeFr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) flag).activeWords
+            ∧ endFr.exec.pc = resumeFr.exec.pc + UInt32.ofNat 34
+            ∧ endFr.exec.executionEnv.code = resumeFr.exec.executionEnv.code
+            ∧ endFr.validJumps = resumeFr.validJumps
+            ∧ endFr.exec.executionEnv.address = resumeFr.exec.executionEnv.address
+            ∧ endFr.exec.executionEnv.canModifyState = resumeFr.exec.executionEnv.canModifyState
+            ∧ (∀ k, selfStorage endFr k = selfStorage resumeFr k)
+            ∧ endFr.exec.stack = [])
+        ∧ (cs.resultTmp = none →
+            Runs resumeFr (popFrame resumeFr [])))
+
 /-- **The static well-formedness bundle** (the flagship's `hwl`) — a function of the program
 text only, intended to be checker-dischargeable (R9). Folds the current headline's
 `hwfl`/`hdef`/`hentry0`/presence/offset/stack-fold hypotheses into one named structure.
@@ -351,7 +551,8 @@ free-`∀` value variables, the walk invariant carries ONE real coupling field �
 the recording interpreter at the current top-level boundary frame reproduces the run's final
 observable and exactly the un-consumed suffixes of the recorded streams*. The tie value
 conjuncts then pin themselves to the SUFFIX HEAD, which the antecedent (restart determinism)
-links to the run — no free variable survives.
+links to the run — no free VALUE variable survives. (The SCOPING conjuncts carried their own
+copy of the disease, invisible to this §: the round-3 repair is header lesson 8 / `StepScopedS`.)
 
 Design notes (each load-bearing):
 
@@ -430,7 +631,7 @@ structure DriveCorrLog (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
   /-- The §2 recorder-restart coupling at the un-consumed suffixes. -/
   coupled : RecorderCoupled log fr gasSuffix sloadSuffix callSuffix
 
-/-! ## §3 — The reshaped ties `StmtTies'` / `TermTies'` (R0 as statements; NO free-∀)
+/-! ## §3 — The reshaped ties `StmtTies'` / `TermTies'` (R0 as statements; no free value-∀)
 
 The five statement arms and four terminator arms of the current `StmtTies`/`TermTies`
 (`LowerConforms.lean:1273-1423`), re-stated so that every formerly-free value variable is
@@ -467,11 +668,27 @@ pinned by an antecedent:
   sub-claim 4's strengthening) and makes them derivable by the
   `jump_landing_of_cleanHalt`/`branch_landing_of_cleanHalt` extractors;
 * successor-presence conjuncts are gone from the ties (they live in `ClosedCFG`; the
-  jump/branch arms take presence as antecedents, supplied by the walk from R8).
+  jump/branch arms take presence as antecedents, supplied by the walk from R8);
+* **(round 3, header lesson 8)** every `Lir.StepScoped` conclusion (arms 1–4) is replaced
+  by the static `StepScopedS`, and the call arm's `Lir.CallRealises` by `CallRealisesS`:
+  the embedded live-scope clauses ("no bound tmp's registered def reads the target") were
+  refutable at `exProg`'s own second loop iteration — block 1, pc 0 (`t6 := gas` vs the
+  live `t8 ↦ lt t6 t7`) and pc 1 (`t7 := 1000` vs the same `t8`) — at real on-run states
+  consistent with every antecedent. Staleness accounting moved to the invalidation set
+  (`invalStep`/`DefsSoundS`, R0b); the ties now claim only the static residue.
 
 SUPPLIED status of both defs: never supplied to the flagship — R10 BUILDS them from the
-run (`stmtTies'_of_runWithLog`/`termTies'_of_runWithLog`); the arms' conclusions are
-computed from `fr0`/`frT` and restart determinism. -/
+run (`stmtTies'_of_runWithLog`/`termTies'_of_runWithLog`). PRECISION NOTE on the arms'
+conclusions (the round-2 review's overclaim fix — they are NOT all "computed from `fr0`
+and restart determinism"): each conclusion is one of (i) a static fact of `prog`,
+derivable from `hwl` + the cursor (the `StepScopedS`/registration/canonicity/
+addressability/stack-fold/pc-bound conjuncts), (ii) a fact carried over from the arm's
+own antecedents (the `setLocal`-scoping folds from `Corr.wellScoped` + `DefsConsistent`;
+the post-assign `MemRealises` from `Corr.memAgree`; the sstore `vw ≠ 0` from the threaded
+`NonzeroSstores` seam), or (iii) a value/trace fact computed from `fr0`/`frT` + restart
+determinism under the clean-halt antecedent (the `gS.head?` equation, the CALL kernel,
+the gas guards, the epilogue anchors). No conclusion depends on a variable that is not
+antecedent-pinned or static — that is the honest residue of the "no free-∀" slogan. -/
 
 /-- **The reshaped per-block STATEMENT ties** (the R0 statement-side). See the section
 docstring for the reshape rationale, arm by arm. `self` is consumed by the call arm's
@@ -480,8 +697,8 @@ realised-oracle pin. DERIVED (R10): built from `hrun`/`hclean`/`hseams` + `WellL
 def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
     (self : AccountAddress) (L : Label) (b : Block) : Prop :=
   -- (1) plain assign (neither `.gas` nor `.sload _`): post-state PINNED by the `evalExpr`
-  -- antecedent; conclusions are the not-spilled fact, the per-step scoping, and the
-  -- pinned-post-state scoping/memory ties.
+  -- antecedent; conclusions are the not-spilled fact, the STATIC per-step scoping
+  -- (`StepScopedS`, lesson 8), and the pinned-post-state scoping/memory ties.
   (∀ (pc : Nat) (t : Tmp) (e : Expr) (w : Word) (st0 : IRState) (fr0 : Frame)
       (gS : List Word) (sS : List Nat) (cS : List CallRecord),
       b.stmts[pc]? = some (.assign t e) →
@@ -491,7 +708,7 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
       CleanHaltsNonException fr0 →
       evalExpr st0 0 e = some w →
       (∀ n, defsOf prog t ≠ some (.slot n))
-      ∧ Lir.StepScoped prog st0 (.assign t e)
+      ∧ StepScopedS prog (.assign t e)
       ∧ (∀ t', (st0.setLocal t w).locals t' ≠ none →
             (¬ Lir.NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
             ∧ defsOf prog t' ≠ none)
@@ -508,7 +725,7 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
       CleanHaltsNonException fr0 →
       st0.locals k = some kv →
       defsOf prog t = some (.slot (slotOf t))
-      ∧ Lir.StepScoped prog st0 (.assign t (.sload k))
+      ∧ StepScopedS prog (.assign t (.sload k))
       ∧ (∀ tw slot', defsOf prog tw = some (.slot slot') → slot' = slotOf tw)
       ∧ evalExpr st0 0 (.sload k) = some (st0.world kv)
       ∧ (∀ t', (st0.setLocal t (st0.world kv)).locals t' ≠ none →
@@ -531,7 +748,7 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
       RecorderCoupled log fr0 gS sS cS →
       CleanHaltsNonException fr0 →
       defsOf prog t = some (.slot (slotOf t))
-      ∧ Lir.StepScoped prog st0 (.assign t .gas)
+      ∧ StepScopedS prog (.assign t .gas)
       ∧ (∀ tw slot', defsOf prog tw = some (.slot slot') → slot' = slotOf tw)
       ∧ gS.head? = some (UInt256.ofUInt64
           (fr0.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase))
@@ -541,7 +758,7 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
             ∧ defsOf prog t' ≠ none)
       ∧ ((slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
         ∧ pcOf prog L pc + 34 < 2 ^ 32))
-  -- (4) sstore: `StepScoped` + the stack-room fold + `vw ≠ 0` — the latter ONLY under the
+  -- (4) sstore: `StepScopedS` + the stack-room fold + `vw ≠ 0` — the latter ONLY under the
   -- threaded `NonzeroSstores fr0` antecedent (see section docstring). The unsatisfiable
   -- `∃ acc, SstoreRealises …` conjunct is GONE (its content is R4, point-wise).
   ∧ (∀ (pc : Nat) (key value : Tmp) (kw vw : Word) (st0 : IRState) (fr0 : Frame)
@@ -552,12 +769,14 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
       CleanHaltsNonException fr0 →
       NonzeroSstores fr0 →
       st0.locals key = some kw → st0.locals value = some vw →
-      Lir.StepScoped prog st0 (.sstore key value)
+      StepScopedS prog (.sstore key value)
       ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp value)).length
           + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).length + 1 ≤ 1024
       ∧ vw ≠ 0)
-  -- (5) call: `CallRealises` at the realised oracle, kept shape-wise (it is itself
-  -- `Corr → ∃ …`), but under the coupling/clean-halt/address antecedents — without the
+  -- (5) call: `CallRealisesS` at the realised oracle (lesson 8: the in-tree
+  -- `CallRealises` embeds `StepScoped (.call cs)`, whose live-scope clause is refutable
+  -- in-envelope for reader-carrying programs), kept shape-wise (it is itself
+  -- `Corr → ∃ …`), under the coupling/clean-halt/address antecedents — without the
   -- clean halt an adversarial OOG-at-CALL frame refutes the `CallReturns` existential; the
   -- address pin is what lets `realisedCall log self` coincide with
   -- `evmV2CallOracle … fr0.address`. The head-of-`callSuffix` pinning arrives via R3
@@ -568,7 +787,7 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
       RecorderCoupled log fr0 gS sS cS →
       CleanHaltsNonException fr0 →
       fr0.exec.executionEnv.address = self →
-      Lir.CallRealises prog sloadChg 0 (realisedCall log self) L b pc cs st0 fr0)
+      CallRealisesS prog sloadChg (realisedCall log self) L b pc cs st0 fr0)
 
 /-- **The reshaped per-block TERMINATOR ties** (the R0 terminator-side). See the section
 docstring: address/kind/self-presence demands are ANTECEDENTS (supplied by `DriveCorrLog`),
@@ -766,9 +985,47 @@ theorem runFromLeft_exists {prog : Program} {o : CallOracle} {st : IRState}
 /-! ## §5 — The Phase-3 obligations R1–R11 (every proof `sorry` = tracked debt)
 
 Landing order (each step green, monotonically fewer sorries; target-architecture §5):
-R0 (the §3 reshape, done above as statements) → R9 → R2 → R8 → R5/R4 → R6 →
-gasfree co-flagship → R7 → R1 → R3 → R10 → R11 → R12. Substantial proofs: R1, R3, R6;
-everything else is static folds and assembly. -/
+R0 (the §3 reshape, done above as statements; R0b below is its MACHINERY criterion —
+land it before the R10 builders, which need the reshaped mid-block walk) → R9 → R2 →
+R8 → R5/R4 → R6 → gasfree co-flagship → R7 → R1 → R3 → R10 → R11 → R12. Substantial
+proofs: R0b (the sim-machinery reshape it gates), R1, R3, R6; everything else is static
+folds and assembly. -/
+
+/-- **R0b — the shadowing-aware machinery-reshape criterion** (header lesson 8; NEW
+round-3 tracked obligation). One `EvalStmt` step of a PROGRAM statement preserves the
+scoped invariant along the `invalStep` transfer — with NO per-state side conditions: the
+live-scope demands of the retired `Lir.StepScoped` are GONE (absorbed by the set), not
+relocated into hypotheses. The site premises (`hb`/`hs`) + `DefsConsistent` pin the
+statement's registration (a foreign, non-program statement could rebind against `defsOf`
+and refute the unpinned version — that drill was run on THIS statement too).
+
+THE MACHINERY FINDING THIS TRACKS (why the reshape is an obligation, not an option): the
+CURRENT sim machinery carries the un-scoped `DefsSound` at every statement cursor
+(`Corr.defsSound`, `SimStmt.lean`) and so CANNOT traverse a loop-exit iteration of a
+rebinding program — at `exProg`'s loop-exit iteration, between the `t6 := gas` rebind
+(block 1, pc 0) and `t8`'s reassign (pc 2), the real mid-block state has `t8` stale and
+`Corr` is FALSE there (`not_defsSound_stale` is the machine-check; the second-iteration
+ENTRY states are fine, which is why the block-boundary `DriveCorrLog` survives). The
+Phase-3 R0 reshape must therefore: (1) replace `Corr.defsSound` by `DefsSoundS` at an
+`invalStep`-threaded set for the MID-BLOCK cursors of the `SimStmtStep` spine; (2)
+re-establish the strong invariant at block boundaries via `RevalidatesPerBlock` +
+`defsSoundS_empty_iff` (the boundaries are where the ties consume `Corr`); (3) re-plumb
+the per-arm sim lemmas' `StepScoped`/`SstoreRealises`-style inputs to `StepScopedS` +
+a use-site non-invalidation premise — a USE of an invalidated tmp is where IR-vs-lowered
+divergence would be REAL (the lowered code rematerialises fresh, the IR reads stale), so
+the static checks must exclude it; `RevalidatesPerBlock`-conforming programs whose
+within-block uses precede the invalidating rebind (or follow the healing reassign, as
+`exProg`'s branch use of `t8` does) are the honest domain. DERIVED-status obligation
+(a lemma about the semantics; nothing supplied to the flagship). -/
+theorem defsSoundS_preserved_step {prog : Program} {o : CallOracle}
+    {st st' : IRState} {T T' : Trace} {s : Stmt} {I : Tmp → Prop}
+    {L : Label} {b : Block} {pc : Nat}
+    (hcons : DefsConsistent prog)
+    (hb : blockAt prog L = some b)
+    (hs : b.stmts[pc]? = some s)
+    (hstep : EvalStmt prog o st T s st' T')
+    (hsound : DefsSoundS prog I st) :
+    DefsSoundS prog (invalStep prog I s) st' := sorry
 
 /-- **R1 — the gas recorder bridge** (the riskiest obligation; the trace↔recorder
 positional bridge). At a gas-assign cursor, the un-consumed gas suffix's head is the
@@ -812,9 +1069,17 @@ theorem haltNonException_of_cleanLog {prog : Lir.Program} {params : CallParams}
       HaltNonException halt := sorry
 
 /-- **R3 — call realisation from the log.** At a call cursor, the coupled frame's recorded
-CALL supplies the whole `CallRealises` bundle at the REALISED oracle: kernel from the head
-`CallRecord` (`realisedCall_eq_evmV2`, rfl-clean once the record is pinned), plumbing from
-`materialise_runs` + the `resumeAfterCall` rfl-pins + the Route-B tail (`stash_tail_runs`).
+CALL supplies the `CallRealisesS` bundle at the REALISED oracle — the round-3 restatement
+(header lesson 8): NOT the in-tree `Lir.CallRealises` verbatim (whose embedded
+`StepScoped (.call cs)` live-scope clause is refutable within this theorem's own
+hypothesis envelope for a `WellLowered` program whose call result has a registered
+reader), but the value/trace KERNEL + the shadowing-aware static scoping (`StepScopedS`)
++ the static bundle the round-2 statement was MISSING (`hwl` — it is what derives the
+`StepScopedS` residue, the result-tmp slot registration of the post-state fold, and the
+Route-B slot addressability; the round-2 reviewer's "R3 carries no static bundle at all").
+Kernel sources: the head `CallRecord` (`realisedCall_eq_evmV2`, rfl-clean once the record
+is pinned), plumbing from `materialise_runs` + the `resumeAfterCall` rfl-pins + the
+Route-B tail (`stash_tail_runs`).
 Under `SingleCall` + the DYNAMIC at-most-one premise `hone : log.calls.length ≤ 1` the
 head of the coupled `callSuffix` IS this cursor's call (the whole log records at most one
 — `hone` is what makes that true of the RUN and not just the text: without it a
@@ -833,6 +1098,7 @@ theorem callRealises_of_recorded {prog : Program} {sloadChg : Tmp → ℕ} {log 
     {self : AccountAddress} {L : Label} {b : Block} {pc : Nat} {cs : CallSpec}
     {st0 : IRState} {fr0 : Frame}
     {gS : List Word} {sS : List Nat} {cS : List CallRecord}
+    (hwl : WellLowered prog)
     (hsingle : SingleCall prog)
     (hone : log.calls.length ≤ 1)
     (hb : blockAt prog L = some b)
@@ -840,7 +1106,7 @@ theorem callRealises_of_recorded {prog : Program} {sloadChg : Tmp → ℕ} {log 
     (hcp : RecorderCoupled log fr0 gS sS cS)
     (hch : CleanHaltsNonException fr0)
     (haddr : fr0.exec.executionEnv.address = self) :
-    Lir.CallRealises prog sloadChg 0 (realisedCall log self) L b pc cs st0 fr0 := sorry
+    CallRealisesS prog sloadChg (realisedCall log self) L b pc cs st0 fr0 := sorry
 
 /-- **R4 — SSTORE realisation, point-wise at the concrete frame** (the honest replacement
 of the unsatisfiable `∃ acc, SstoreRealises …` tie conjunct — header lesson 3). At the
@@ -992,6 +1258,44 @@ def exProg : Program :=
 true for the witness. -/
 theorem singleCall_exProg : SingleCall exProg := by unfold SingleCall; decide
 
+/-- `exProg` re-validates per block (R0b's static-boundary anchor). The only within-block
+invalidation is `t6 := gas` (and the value-coincident `t7 := 1000`) staleing `t8` — its
+sole registered reader — healed two statements later by `t8 := lt t6 t7`; no registered
+reader of `t8` exists (the branch USE of `t8` is not a registered def), and block 0's
+targets have no registered readers at all. TRACKED DEBT (a finite fold evaluation over
+`Tmp → Prop`; becomes a `decide` once the R9 checker gives the fold its `List Tmp`
+executable twin). -/
+theorem revalidatesPerBlock_exProg : RevalidatesPerBlock exProg := sorry
+
+/-- The lesson-8 stale state: `exProg`'s loop-EXIT iteration, mid-block 1, after the
+`t6 := gas` rebind (fresh read `500 < 1000`) and before `t8`'s reassign — `t8` still
+holds the previous iteration's `0` (that iteration's gas read was `≥ 1000`). The
+`t0`–`t5` bindings are block-0 values (the gas/sload/call-result words chosen
+representatively; they are `NonRecomputable`/spilled, so `DefsSound` is silent about
+them either way). -/
+def staleSt : IRState :=
+  { locals := fun t =>
+      if t = ⟨0⟩ then some 5 else if t = ⟨1⟩ then some 2000
+      else if t = ⟨2⟩ then some 0 else if t = ⟨3⟩ then some 1
+      else if t = ⟨4⟩ then some 0x100 else if t = ⟨5⟩ then some 1
+      else if t = ⟨6⟩ then some 500 else if t = ⟨7⟩ then some 1000
+      else if t = ⟨8⟩ then some 0 else none
+    world := fun _ => 0 }
+
+/-- **The machinery finding, machine-checked** (header lesson 8; R0b's motivation): the
+un-scoped `DefsSound` — hence `Corr`, whose `defsSound` field it is — is FALSE at the
+real mid-block state of `exProg`'s loop-exit iteration: `t8` is bound to the stale `0`
+while its registered def `.lt t6 t7` recomputes to `1` under the rebound `t6`. PROVED
+(not debt) — the refutation is the point. The scoped invariant is untouched here: `t8`
+is exactly the tmp `invalStep` puts in the set at the `t6` rebind. -/
+theorem not_defsSound_stale : ¬ Lir.DefsSound exProg staleSt := by
+  intro h
+  have hnr : ¬ Lir.NonRecomputable exProg ⟨8⟩ := by
+    unfold Lir.NonRecomputable Lir.isGasDef Lir.isSloadDef Lir.isCallResult
+    rintro (⟨b, hb, hmem⟩ | ⟨b, hb, k, hmem⟩ | ⟨b, hb, cs, hmem, hres⟩) <;>
+      (simp [exProg] at hb; rcases hb with rfl | rfl | rfl <;> simp_all)
+  exact absurd (h ⟨8⟩ (.lt ⟨6⟩ ⟨7⟩) 0 (by decide) hnr (by decide)) (by decide)
+
 /-- **R9 — the static checker, stated existentially with a non-vacuity anchor.** A
 PREMATURE checker `def` would be worse than debt (a wrong-but-real `lowerCheck` misleads;
 a `fun _ => false` checker is the vacuity dual — sound and useless). The obligation is:
@@ -1005,10 +1309,12 @@ theorem wellLowered_check_exists :
 /-- **R10a — the statement ties, BUILT from the run** (the assembly obligation the
 current headline lacks a producer for). For ANY `(st0, fr0, suffixes)` satisfying the
 arms' antecedents — including OFF-RUN adversarial instances — the conclusions hold,
-because they are computed from `fr0` and restart determinism (the coupling forces any
-witness to reproduce the recorded future) or are static facts of `prog`; this
-off-run-robustness is exactly the satisfiability analysis that makes the §3 reshape
-non-vacuous. `hnzw` is NOT needed here: the sstore arm carries `NonzeroSstores fr0` as its
+because each is (i) a static fact of `prog` derivable from `hwl` + the cursor, (ii)
+carried over from the arm's own antecedents (`Corr`'s `wellScoped`/`memAgree` channels,
+the threaded `NonzeroSstores` seam), or (iii) computed from `fr0` and restart determinism
+(the coupling forces any witness to reproduce the recorded future) — the §3 docstring's
+precision note. This off-run-robustness is exactly the satisfiability analysis that
+makes the §3 reshape non-vacuous. `hnzw` is NOT needed here: the sstore arm carries `NonzeroSstores fr0` as its
 own antecedent (threaded by the walk). DERIVED-status obligation. -/
 theorem stmtTies'_of_runWithLog {prog : Program} {params : CallParams} {log : RunLog}
     {fr₀ : Frame}
