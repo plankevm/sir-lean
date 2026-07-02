@@ -88,6 +88,15 @@ OWNS: new files under `LirLean/V2/` (or `LirLean/Realise/`), one `lean_lib` bloc
 (decl-by-decl, names unchanged — subdirectory-first; exp003 promotion is post-Phase-3).
 (3) Split the TieDischarge remnant at namespace boundaries → `Drive/{SelfPresent,
 CallPreservesSelf,Headline}.lean`. Update `Audit.lean` guards in the same commits.
+(4) **Descent shaping (CREATE prep, settled 2026-07-02):** while organizing the moved
+invariants, group the per-kind CALL/CREATE descent lemmas (`stepFrame_needsCall_inv` /
+`_needsCreate_inv`, `beginCall`/`beginCreate` presence+checkpoint, `resumeAfterCall`/
+`resumeAfterCreate` accounts facts) under ONE `DescentKind`-parameterized interface
+(needs/begin/resume projections + laws; `DescentReturns k` generalizing `CallReturns`) with
+CALL and CREATE as its two instances. Organization of existing green lemmas, NOT new proofs —
+this is what makes first-class CREATE (Phase 3.5 below) an instantiation instead of a second
+Call.lean ecosystem. The `hprec` seam is the CALL instance's begin-immediate law; CREATE's
+analogue is trivial post-RLP-totality.
 
 ## Wave 3 — Track D, Spec/ extraction (after C)
 Per `fleet-2026-07-02/reorg-legibility.md` §1/§5 Step 3: `Spec/{IR,Semantics,Lowering,Layout,
@@ -101,6 +110,27 @@ re-run the linter; sync living docs (PLAN/HANDOFF/remediation-plan → pointers 
 target-architecture); FINAL AUDIT FLEET over the merged result (did we actually reduce the
 supplied surface? is anything new refutable? are the moves faithful?). Then Phase 3 proper
 (the R-obligation grind) starts against `RealisabilitySpec.lean`.
+
+## Post-Phase-3 roadmap (order settled 2026-07-02)
+
+- **Phase 3.5 — first-class CREATE** (settled: not instantiating it was a scope decision now
+  reversed; unified machinery, not duplication). On top of the Wave-2 `DescentKind` interface:
+  `Stmt.create` + `CreateSpec` in the IR (inputs: `LirLean/Create.lean`'s existing
+  `CreateOracle`/`evmCreateOracle` + the 4 spec-authoring guardrails in
+  `docs/create-crosscheck.md`, verdict "GO"); lowering emits CREATE/CREATE2; the simulation
+  instantiates the descent machinery (`DescentReturns .create`, one more `DescentRecord`
+  arm in the recorder, one more realises-bundle instance). `NoCreateBytes` is then RETIRED —
+  replaced by the localized "descents occur exactly at emitted descent sites" predicate over
+  the R6 boundary walk (which survives: it is the instruction-alignment fact, also needed for
+  data segments). The multi-descent recorder question is the same as the multi-CALL one (R3');
+  solve them together (descents as a consumed stream).
+- **Alloc generalization** (may run parallel to 3.5): retire the `slotOf` pins for
+  `Placement`/`ValidPlacement` if not already done inside Phase 3's reshape.
+- **Memory** (object-granular, UB-as-stuckness) → **data segments** (data-after-code,
+  CODECOPY; needs memory first) — per `fleet-2026-07-02/future-proofing.md` §3/§5.
+- **exp003 promotion**: `Engine/` + recorder + Asm algebra graduate to the exp003 surface
+  (`Exec`/`Recorder`/`Invariants`/`Asm`/`CyclicSim`) once Phase 3 has shown which shapes the
+  closure consumes. IR #2 starts against that surface.
 
 ## Worktree & cache protocol
 Worktrees are created by the lead with `.lake` caches CLONED from `.worktrees/ir-lowering`

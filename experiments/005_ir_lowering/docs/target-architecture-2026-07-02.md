@@ -174,6 +174,19 @@ Settled design directions:
   composing with the flagship because it concludes in `RunFrom`. Needed: a trace-remap discipline
   for passes that change gas-read counts (or the cheap syntactic rule "passes may not
   duplicate/eliminate `.gas` reads"); a composition lemma (cheap, post-Phase-3).
+- **CREATE goes first-class (settled 2026-07-02, supersedes the "keep parked" course-correction):**
+  CALL and CREATE are the same interpreter shape — a *descent* (`.needsX` → `beginX` child frame ⊕
+  immediate → child run → `resumeX`). Build ONE `DescentKind` interface (needs/begin/resume +
+  presence/checkpoint/accMono laws; `DescentReturns k` generalizing `CallReturns`; one `RunsEv`
+  descend event; `CallRecord` → `DescentRecord`; one realises-bundle shape × 2 instances) instead
+  of duplicating the CALL ecosystem. The per-kind engine lemmas ALL exist green (needsCall/
+  needsCreate inversions, beginCreate presence/checkpoint, resume facts) — the interface is
+  organization, shaped during the Wave-2 Engine/ split. IR surface (`Stmt.create` + lowering +
+  sim) lands post-Phase-3 (Phase 3.5, execution-plan): inputs are the existing `CreateOracle`
+  layer (Create.lean) + create-crosscheck.md's GO guardrails. `NoCreateBytes` is then retired in
+  favor of the localized "descents exactly at emitted sites" predicate over the R6 boundary walk.
+  (2026-07-02 search verified: no stranded CREATE implementation exists anywhere — Stmt.create/
+  CreateSpec/lowering were never built; greenfield on a prepared base.)
 - **Sequencing: close Phase 3 on the toy IR first**, with two generality guards smuggled in:
   (1) ValidPlacement instead of slotOf pins; (2) boundary walk designed with the data-suffix in
   mind. Then alloc-generalization → memory → data segments. Defer any `IRLang` typeclass until
