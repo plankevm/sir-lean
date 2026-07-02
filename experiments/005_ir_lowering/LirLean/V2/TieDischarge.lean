@@ -43,7 +43,7 @@ The three value channels split cleanly by *how much* of them is alignment-free:
   step-inversion. §5 discharges it from the standalone world-wellformedness invariant `SelfPresent`
   (self account present in the frame's accounts): preserved by every materialise post-frame
   (`accounts` untouched, `rfl`) and holding at the entry `codeFrame` under world-wellformedness
-  (`selfPresent_codeFrame`); the point-of-use `sstorePresence_of_self` then yields exactly the
+  (`selfPresent_codeFrame`); the point-of-use discharge (`SelfPresent` at the SSTORE frame) yields exactly the
   presence conjunct `sim_sstore` consumes at the internal SSTORE frame. **Status: world-invariant +
   point-of-use discharge DONE; `MatRuns`-threading is the remaining wiring (parallel to §3).**
 
@@ -209,6 +209,7 @@ fr)` is the `obs` value the cursor tie demands. The reduction to alignment is th
 the witness frame `frs[i]` for the `i`-th GAS cursor (the alignment's positional pairing) and read
 off its `gasReadOf` as that cursor's `obs`. -/
 
+-- RETAINED for Phase 3 realisability closure (audit §3)
 /-- **The list→cursor read bridge.** The `i`-th entry of an aligned accumulator is the `obs` value
 the §7 tie demands at the `i`-th GAS cursor frame `gasFrame fr` — i.e. `GasLogAligned`'s positional
 read at a GAS site is exactly `Lir.GasRealises`'s required word there. The per-cursor tie is thus
@@ -241,6 +242,7 @@ position is the cursor's `obs`. (The complementary direction — building the un
 from a *multi-entry* aligned list with distinct reads — is impossible in the single-`obs` model and
 needs the `Corr` refactor to a per-cursor gas stream; reported as the standing obstacle.) -/
 
+-- RETAINED for Phase 3 realisability closure (audit §3)
 /-- **The single-`obs` selection discharge.** At a GAS cursor frame `fr` carrying the `Corr`-model
 gas tie `Lir.GasRealises obs fr` (the universal-over-same-address form), if the alignment's witness
 frame at index `i` is `fr`'s post-charge `gasFrame fr` (which shares `fr`'s address, `rfl`), then the
@@ -334,15 +336,6 @@ theorem sloadLogAligned_step_sload {sloadAcc : List Nat} {frs : List Frame} {cur
   rw [List.map_append, ← hreads]
   simp only [List.map_cons, List.map_nil]
 
-/-- **Foundational per-op step — the no-record arm** (twin of `gasLogAligned_step_norecord`). Any
-step that is *not* a recorded top-level SLOAD read leaves the sload accumulator (and the witness
-list) unchanged, so alignment is preserved verbatim. The common case the walk-induction threads
-between SLOAD cursors (every non-SLOAD op, and SLOAD reads inside a descended CALL where
-`stack ≠ []`). -/
-theorem sloadLogAligned_step_norecord {sloadAcc : List Nat} {frs : List Frame}
-    (halign : SloadLogAligned sloadAcc frs) :
-    SloadLogAligned sloadAcc frs := halign
-
 /-- **The list→cursor SLOAD read bridge** (twin of `aligned_read_eq_obs`). The `i`-th entry of an
 aligned `sloadAcc` is the warmth-charge `SloadRealises` demands at the `i`-th SLOAD cursor frame:
 when the witness frame at `i` is an SLOAD frame `g` whose stack-head is the bound key, the recorded
@@ -361,6 +354,7 @@ theorem alignedSload_read_eq_obs {sloadAcc : List Nat} {frs : List Frame} {i : N
   simp only [Option.map_some]
   rw [sloadRecord_eq_sloadCost g hkey]
 
+-- RETAINED for Phase 3 realisability closure (audit §3)
 /-- **The SLOAD selection discharge** (twin of `gasRealises_obs_of_witness`). At an SLOAD cursor
 whose witness frame `g` (at index `i`) shares the cursor frame's self-address and pops the bound key
 `key = st.locals k`, the `Corr`-model SLOAD tie `SloadRealises sloadChg st fr` selects the recorded
@@ -398,8 +392,7 @@ it; `selfPresent_codeFrame`), and it is preserved by every materialise post-fram
 SSTORE arm's internal frame `frk` is reached through), each of which leaves `accounts`
 untouched (`rfl`). The remaining wiring — threading `SelfPresent` through the
 `materialise_runs`/`MatRuns` sub-runs alongside the existing clauses — is the analogue of
-§3's walk-induction (reported below). The **point-of-use** discharge `sstorePresence_of_self`
-turns `SelfPresent` at the SSTORE frame into exactly the presence conjunct
+§3's walk-induction (reported below). The **point-of-use** discharge turns `SelfPresent` at the SSTORE frame into exactly the presence conjunct
 `SstoreRealises`/`sim_sstore` consumes there (`hsstore frk … |>.2.2`). -/
 
 /-- **The self-account-presence world invariant.** The frame's self (executing) account is
@@ -408,17 +401,9 @@ present in its account map. The standalone wellformedness fact discharging
 def SelfPresent (fr : Frame) : Prop :=
   ∃ acc : Account, fr.exec.accounts.find? fr.exec.executionEnv.address = some acc
 
-/-- **Point-of-use SSTORE-presence discharge.** From `SelfPresent g` at the SSTORE frame
-`g`, the presence conjunct `g.exec.accounts.find? g.exec.executionEnv.address = some acc`
-(with `acc` the witnessed account) holds — exactly the third component `sim_sstore` reads
-off `SstoreRealises` at the concrete internal frame `frk` (`hsstore frk … |>.2.2`). This is
-the world-invariant discharge of the non-gate presence side-condition. -/
-theorem sstorePresence_of_self {g : Frame} (h : SelfPresent g) :
-    ∃ acc : Account, g.exec.accounts.find? g.exec.executionEnv.address = some acc := h
-
 /-! ### `SelfPresent ⇒ accounts ≠ ∅` (the non-emptiness conjunct of the halt ties)
 
-The halt wrappers (`driveCorrPlus_step_stop`/`_ret`) must emit the `¬ (accounts == ∅)` conjunct
+The halt terminator arms (built directly in `driveStepPlus_of_block`) must emit the `¬ (accounts == ∅)` conjunct
 of the §7 terminator bundle. It is *derived* — not supplied — from `SelfPresent` (the self account
 is present in the map, so the map cannot be empty). The single new account-map fact is
 `find?_some_ne_empty`: a `find?` hit forces the underlying red-black tree to be non-`nil`, and an
@@ -430,6 +415,7 @@ right tree's *stream*. Against the empty (`nil`) right tree the stream is empty,
 node's `next?` returns `none` and short-circuits the whole walk to `none` — never matching
 `some (_, .nil)`. `forM_from_nil` proves exactly this short-circuit; `all2_nil_false` packages it. -/
 
+-- RELOCATE to exp003 (audit §7)
 open Batteries in
 /-- The `all₂` `StateT (RBNode.Stream β) Option` walk of `t` against the **empty** stream is `none`
 for a non-`nil` `t` (and `some (⟨⟩, .nil)` for `nil`): from the empty initial state, the first node
@@ -458,6 +444,7 @@ theorem forM_from_nil {α β : Type} (R : α → β → Bool) (t : RBNode α) :
       rfl
     | node c' l' v' r' => rw [ihl]; rfl
 
+-- RELOCATE to exp003 (audit §7)
 open Batteries in
 /-- `RBNode.all₂ R t nil = false` for any non-`nil` `t`: the empty right tree's stream is empty, so
 the walk (`forM_from_nil`) short-circuits to `none`, which does not match `some (_, .nil)`. -/
@@ -470,6 +457,7 @@ theorem all2_nil_false {α β : Type} (R : α → β → Bool) (t : RBNode α) (
   | nil => exact absurd rfl hne
   | node c l v r => rw [hrun]
 
+-- RELOCATE to exp003 (audit §7)
 open Batteries in
 /-- **The new account-map fact.** A `find?` hit (`m.find? addr = some acc`) forces `m`'s underlying
 tree non-`nil`, and the empty map's tree IS `nil`, so the structural `BEq` (`RBNode.all₂ (·==·)
@@ -488,6 +476,7 @@ theorem find?_some_ne_empty (m : Evm.AccountMap) (addr : Evm.AccountAddress) (ac
   rw [all2_nil_false _ m.1 htree] at hbeq2
   exact Bool.noConfusion hbeq2
 
+-- RELOCATE to exp003 (audit §7)
 /-- **Thin bridge: `SelfPresent ⇒ accounts ≠ ∅`.** The exact non-emptiness conjunct the halt
 wrappers emit (T1 directly, T2 at the return endpoint `frv` after the P3 hop). -/
 theorem accounts_ne_empty_of_selfPresent {fr : Frame} (h : SelfPresent fr) :
@@ -495,37 +484,9 @@ theorem accounts_ne_empty_of_selfPresent {fr : Frame} (h : SelfPresent fr) :
   obtain ⟨acc, hf⟩ := h
   exact find?_some_ne_empty _ _ _ hf
 
-/-! ### `SelfPresent` is preserved by each materialise post-frame (the `.next` bricks)
-
-Each materialise post-frame is `{ fr with exec := <post> }` where `<post>`
-(`binOpPost`/`sloadPost`/`gasPost`/the PUSH state) touches only stack / pc / gas / substate
-— **never** `accounts` (`replaceStackAndIncrPC`, `State.sload = addAccessedStorageKey`). So
-both the account map and the self address are literally `fr`'s, and `SelfPresent` transports
-by `rfl`. These are the per-op preservation steps the (deferred) `MatRuns`-threading composes. -/
-
-/-- `SelfPresent` preserved across `addFrame` (`accounts`/`address` untouched). -/
-theorem selfPresent_addFrame {fr : Frame} (a b : Word) (rest : Stack Word)
-    (h : SelfPresent fr) : SelfPresent (addFrame fr a b rest) := h
-
-/-- `SelfPresent` preserved across `ltFrame`. -/
-theorem selfPresent_ltFrame {fr : Frame} (a b : Word) (rest : Stack Word)
-    (h : SelfPresent fr) : SelfPresent (ltFrame fr a b rest) := h
-
-/-- `SelfPresent` preserved across `sloadFrame` (SLOAD touches only `substate`/stack). -/
-theorem selfPresent_sloadFrame {fr : Frame} (key : Word) (rest : Stack Word)
-    (h : SelfPresent fr) : SelfPresent (sloadFrame fr key rest) := h
-
-/-- `SelfPresent` preserved across `gasFrame`. -/
-theorem selfPresent_gasFrame {fr : Frame}
-    (h : SelfPresent fr) : SelfPresent (gasFrame fr) := h
-
-/-- `SelfPresent` preserved across `pushFrameW` (PUSH touches only stack/pc/gas). -/
-theorem selfPresent_pushFrameW {fr : Frame} (w : Word) (width : UInt8)
-    (h : SelfPresent fr) : SelfPresent (pushFrameW fr w width) := h
-
 /-! ### `StepPreservesSelf` is DISCHARGED — every `.next` opcode keeps the self account present
 
-The materialise bricks above (`selfPresent_addFrame`/…) certify the *Lir* post-frames. The
+The materialise post-frames leave the self account present (`accounts`/self address untouched, `rfl`). The
 `Runs`-level `StepPreservesSelf` edge ranges over the **engine** `stepFrame`, so it needs the
 account-presence preservation proved for *every* `.next`-producing opcode `Evm.stepFrame` can take —
 not just the ones the lowering emits. We prove that fully generally here, so `StepPreservesSelf`
@@ -1535,181 +1496,9 @@ open BytecodeLayer.System
 open BytecodeLayer.Maps
 open Lir
 
-/-! ### `SelfPresent` threads through a whole materialise sub-run (`MatRuns`-threading, DONE)
-
-The per-op bricks above compose into the whole-materialisation transport via the **new
-`MatRuns.accounts` + `MatRuns.addr` clauses** (`MaterialiseRuns.lean`): a materialise sub-run leaves
-the account map (`MatRuns.accounts`) and the self address (`MatRuns.addr`) unchanged, so
-`SelfPresent` transports across the entire `materialise_runs` endpoint at once — the analogue of
-`MemRealises.transport` (which threads the memory value channel across the sub-run via
-`memBytes`/`memActive`). This is exactly the `MatRuns`-threading the §5 docstring flagged as the
-remaining SSTORE wiring; with the `accounts` clause banked it is now a one-line transport, not a
-deferred walk-induction. -/
-
-/-- **`SelfPresent` transports across a materialise sub-run.** From `SelfPresent fr` and a
-`MatRuns … fr fr'` materialise run, `SelfPresent fr'`: the account map is preserved
-(`MatRuns.accounts`) and the self address is preserved (`MatRuns.addr`), so the witnessed self
-account at `fr` is still found at `fr'`. The whole-sub-run analogue of the per-op `selfPresent_*`
-bricks — the `MatRuns`-threading the SSTORE presence discharge needs, completed via the new
-`MatRuns.accounts` clause. -/
-theorem selfPresent_matRuns {defs : Tmp → Option Expr} {sloadChg : Tmp → ℕ} {fuel : Nat}
-    {e : Expr} {w : Word} {fr fr' : Frame}
-    (h : SelfPresent fr) (hmr : MatRuns defs sloadChg fuel e w fr fr') :
-    SelfPresent fr' := by
-  obtain ⟨acc, hacc⟩ := h
-  exact ⟨acc, by rw [hmr.accounts, hmr.addr]; exact hacc⟩
-
-/-! ### The GAS/SLOAD alignment-threading composites across a materialise sub-run (C1 / L1.1 / L1.2)
-
-The GAS/SLOAD twins of `selfPresent_matRuns`: they transport the recorder-alignment state across a
-whole `MatRuns … fr fr'` materialise sub-run, in exactly the form the per-op step lemmas
-(`gasLogAligned_step_gas` / `sloadLogAligned_step_sload`) consume at the *next* op after the sub-run
-— those need `frs.getLast? = some last ∧ Runs last <next-op frame>`, and the caller forms the
-`Runs last <next-op frame>` half as `Runs.trans (this lemma's `Runs last fr') (step fr' → next)`.
-
-**HONEST SCOPE (read this).** These lemmas do exactly two things:
-
-  (i) **alignment-PRESERVATION** — the *pre*-sub-run `GasLogAligned gasAcc gasFrs` (resp.
-      `SloadLogAligned …`) fact is carried VERBATIM to the conclusion. The conclusion re-states the
-      SAME `gasAcc`/`gasFrs`, so the alignment conjunct (and the `getLast?` conjunct) is the input
-      returned unchanged — a deliberate, near-trivial repackaging for single-call ergonomics in
-      L2.0, NOT a worked result. We flag it as such.
-
-  (ii) **reachability-THREADING** — the only load-bearing content: a witness frame `last` that
-      reaches the sub-run START `fr` (`Runs last fr`) is shown to reach its END `fr'`
-      (`Runs last fr'`) via `Runs.trans last→fr→fr'` using `MatRuns.runs` (`MaterialiseRuns.lean`).
-
-We make **NO** claim that the recorder fired no GAS/SLOAD byte inside the sub-run: `Expr` has both
-`.gas` and `.sload`, so `materialise` *can* emit those bytes; byte-freeness for SPILLED operands is a
-separate completeness obligation DEFERRED to L2.0/C3. Because the conclusion re-states the SAME
-`gasAcc`/`gasFrs` (not the post-sub-run recorder accumulator), it cannot and does not certify the
-post-sub-run recorder state — there is no circularity smuggling that discharge here. The proof uses
-ONLY `MatRuns.runs` + `Runs.trans`; it never inspects `materialise` structure or the
-`MatRuns.gas*`/`code`/`pc` clauses. -/
-
-/-- **GAS-alignment transport across a materialise sub-run (L1.1).** Carries `GasLogAligned`
-verbatim (alignment-PRESERVATION) and extends the witness reachability `Runs last fr` to
-`Runs last fr'` across `MatRuns … fr fr'` (reachability-THREADING, via `Runs.trans` through
-`MatRuns.runs`). The alignment and `getLast?` conjuncts are the inputs returned unchanged —
-near-trivial repackaging for the next-op step lemma `gasLogAligned_step_gas`; this lemma makes NO
-no-record-inside / byte-freeness claim (that stays deferred to L2.0/C3). -/
-theorem gasLogAligned_matRuns {defs : Tmp → Option Expr} {sloadChg : Tmp → ℕ} {fuel : Nat}
-    {e : Expr} {w : Word} {fr fr' : Frame} {gasAcc : List Word} {gasFrs : List Frame} {last : Frame}
-    (halign : GasLogAligned gasAcc gasFrs) (hmr : MatRuns defs sloadChg fuel e w fr fr')
-    (hlast : gasFrs.getLast? = some last) (hreach : Runs last fr) :
-    GasLogAligned gasAcc gasFrs ∧ gasFrs.getLast? = some last ∧ Runs last fr' :=
-  ⟨halign, hlast, Runs.trans hreach hmr.runs⟩
-
-/-- **SLOAD-alignment transport across a materialise sub-run (L1.2).** Exact twin of
-`gasLogAligned_matRuns`: carries `SloadLogAligned` verbatim (alignment-PRESERVATION) and extends
-`Runs last fr` to `Runs last fr'` across `MatRuns … fr fr'` (reachability-THREADING, via `Runs.trans`
-through `MatRuns.runs`). Only the alignment predicate (over `List Nat`) and accumulator type differ;
-the alignment and `getLast?` conjuncts are the inputs returned unchanged — near-trivial repackaging
-for the next-op step lemma `sloadLogAligned_step_sload`; NO no-record-inside / byte-freeness claim
-(deferred to L2.0/C3). -/
-theorem sloadLogAligned_matRuns {defs : Tmp → Option Expr} {sloadChg : Tmp → ℕ} {fuel : Nat}
-    {e : Expr} {w : Word} {fr fr' : Frame} {sloadAcc : List Nat} {sloadFrs : List Frame}
-    {last : Frame}
-    (halign : SloadLogAligned sloadAcc sloadFrs) (hmr : MatRuns defs sloadChg fuel e w fr fr')
-    (hlast : sloadFrs.getLast? = some last) (hreach : Runs last fr) :
-    SloadLogAligned sloadAcc sloadFrs ∧ sloadFrs.getLast? = some last ∧ Runs last fr' :=
-  ⟨halign, hlast, Runs.trans hreach hmr.runs⟩
-
-/-! ### The per-cursor GAS-channel ADVANCE bricks (STEP 1 — the structural advance)
-
-The two standalone per-cursor lemmas that EXTEND (resp. carry) the gas alignment at a statement
-cursor, threading `FramesRun.snoc` reachability from the block boundary. They are the honest content
-of STEP 1: at a `.assign t .gas` cursor the gas accumulator GROWS by one word (the GAS-op's reported
-gas, `driveCorrPlus_gas_cursor_advance`); at every other cursor the gas accumulator is carried
-VERBATIM while reachability threads to the cursor's end frame (`driveCorrPlus_norecord_cursor_advance`).
-
-**Why these are SEPARATE bricks, not a mutation of `driveCorrPlus_run_stmts`.** That walk obtains its
-`Runs fr frT` from `sim_stmts_block`, a black box that exposes neither the per-cursor frames nor which
-cursors are GAS cursors nor the GAS-op `.next` step at each. So it has no handle to ADVANCE the
-witness list `gasFrs` — which is exactly why L2.0 carries the alignment verbatim. To advance the gas
-channel one must re-do the per-cursor induction (the would-be `driveCorrPlus_run_stmts_gasadvance`,
-reported as the standing obstacle). These bricks are the per-cursor steps that re-architected walk
-would dispatch to; they are unconditionally green and reusable in isolation.
-
-**Non-vacuity / non-circularity.** `driveCorrPlus_gas_cursor_advance` PRODUCES the extended
-`GasLogAligned` from the GAS-op facts (it routes only through `gasLogAligned_step_gas`, whose appended
-word is the recorder's literal splice `gasReadOf (gasFrame fr0)`); it never takes an extended-alignment
-hypothesis and returns it. The non-gas brick makes NO no-record-inside claim (a non-gas statement can
-still materialise a `.gas` operand inside its segment — byte-freeness for spilled operands is the
-DEFERRED completeness obligation flagged on `gasLogAligned_matRuns`); it only carries alignment
-verbatim and threads reachability via `Runs.trans`. -/
-
-/-- **The per-cursor GAS ADVANCE brick (STEP 1, must-land).** At a statement cursor whose `Corr` frame
-is `fr0` and which decodes to the `GAS` op (`hdec`), under the gas envelope `Gbase ≤ fr0.gas` (`hgas`,
-the supplied S4 lower bound — CONSUMED here, not produced) and a witness list ending at a frame `last`
-from which `fr0` is reachable (`hlast`/`hreach` threaded from the boundary), the gas alignment EXTENDS:
-the new accumulator `gasAcc ++ [ofUInt64 (gasFrame fr0).gas]` is aligned with `gasFrs ++ [gasFrame fr0]`,
-the GAS step `Runs fr0 (gasFrame fr0)` holds, and the snoc witness list ends at `gasFrame fr0`.
-
-The stack-size bound `fr0.stack.size + 1 ≤ 1024` is recovered from `Corr.stack_nil` (empty stack). The
-GAS step + reachability is `sim_gas`; the alignment extension is `gasLogAligned_step_gas` at `fr0` with
-`hstep` supplied by `Dispatch.stepFrame_gas`. The appended word is the recorder's literal splice
-(`gasReadOf (gasFrame fr0) = ofUInt64 (gasFrame fr0).gas`), so the EXTENSION is genuine — NOT a free
-word, NOT a re-supply of the extended alignment. -/
-theorem driveCorrPlus_gas_cursor_advance {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st : V2.IRState} {L : Label} {pc : Nat} {fr0 last : Frame}
-    {gasAcc : List Word} {gasFrs : List Frame}
-    (halign : GasLogAligned gasAcc gasFrs)
-    (hlast : gasFrs.getLast? = some last)
-    (hreach : Runs last fr0)
-    (hcorr : Corr prog sloadChg obs st fr0 L pc)
-    (hdec : decode fr0.exec.executionEnv.code fr0.exec.pc = some (.Smsf .GAS, .none))
-    (hgas : GasConstants.Gbase ≤ fr0.exec.gasAvailable.toNat) :
-    Runs fr0 (gasFrame fr0)
-      ∧ GasLogAligned (gasAcc ++ [UInt256.ofUInt64 (gasFrame fr0).exec.gasAvailable])
-          (gasFrs ++ [gasFrame fr0])
-      ∧ (gasFrs ++ [gasFrame fr0]).getLast? = some (gasFrame fr0) := by
-  -- (1) stack-size bound from `Corr.stack_nil`.
-  have hsz : fr0.exec.stack.size + 1 ≤ 1024 := by
-    rw [hcorr.stack_nil]; decide
-  -- (2) the GAS step `Runs fr0 (gasFrame fr0)`.
-  have hrun : Runs fr0 (gasFrame fr0) := (sim_gas fr0 hdec hsz hgas).1
-  -- (3) `Runs last (gasFrame fr0)` for `FramesRun.snoc`, via `hreach` then the GAS step.
-  have hreach' : Runs last (gasFrame fr0) := Runs.trans hreach hrun
-  -- (4) `stepFrame fr0 = .next (gasPost fr0.exec)`, so `gasLogAligned_step_gas`'s `exec` is the
-  --     post-charge exec and its appended word is `ofUInt64 (gasFrame fr0).gas`.
-  have hstep : stepFrame fr0 = .next (BytecodeLayer.Dispatch.gasPost fr0.exec) :=
-    BytecodeLayer.Dispatch.stepFrame_gas fr0 hdec hsz hgas
-  have halign' :
-      GasLogAligned (gasAcc ++ [UInt256.ofUInt64 (BytecodeLayer.Dispatch.gasPost fr0.exec).gasAvailable])
-        (gasFrs ++ [gasFrame fr0]) :=
-    gasLogAligned_step_gas halign hlast hreach' hdec hsz hgas hstep
-  -- `(gasFrame fr0).exec.gasAvailable = (gasPost fr0.exec).gasAvailable` (`rfl`), so the produced
-  -- accumulator is exactly the brick's stated extension.
-  refine ⟨hrun, halign', ?_⟩
-  simp [List.getLast?_concat]
-
-/-- **The per-cursor NON-GAS (no-record) brick (STEP 1, must-land).** At a statement cursor whose
-statement is NOT `assign _ .gas` (`hnotgas`), the cursor records no top-level GAS read at its own
-boundary, so the gas alignment is carried VERBATIM (`gasLogAligned_step_norecord` = identity) and
-reachability threads `Runs last fr0` to `Runs last fr0'` across the cursor's segment (`hsim_seg`) via
-`Runs.trans`. Pure repackaging, the GAS twin of `gasLogAligned_matRuns`.
-
-**HONEST-SCOPE CAVEAT** (mirroring the `gasLogAligned_matRuns` disclaimer): this lemma makes NO claim
-that the segment `Runs fr0 fr0'` fired no GAS byte internally — a non-gas STATEMENT can still
-materialise a `.gas` operand. In the SPILLED regime gas is read once at the def-site stash (NOT inside
-materialise), so the top-level recorder gate (`stack.isEmpty`) does not fire inside the segment — but
-BYTE-FREENESS is a separate completeness obligation DEFERRED (same status as `gasLogAligned_matRuns`).
-The lemma only carries alignment verbatim + threads reachability; it does not and cannot certify the
-post-segment recorder state. Sound and non-circular, but explicitly NOT a no-record-inside proof. -/
-theorem driveCorrPlus_norecord_cursor_advance {s : Stmt} {fr0 fr0' last : Frame}
-    {gasAcc : List Word} {gasFrs : List Frame}
-    (halign : GasLogAligned gasAcc gasFrs)
-    (hlast : gasFrs.getLast? = some last)
-    (hreach : Runs last fr0)
-    (_hnotgas : ∀ t, s ≠ .assign t .gas)
-    (hsim_seg : Runs fr0 fr0') :
-    GasLogAligned gasAcc gasFrs ∧ gasFrs.getLast? = some last ∧ Runs last fr0' :=
-  ⟨gasLogAligned_step_norecord halign, hlast, Runs.trans hreach hsim_seg⟩
-
 /-! ### `SelfPresent`-forward along a whole `Runs` segment (incl. the `Runs.call` resume)
 
-`selfPresent_matRuns` transports `SelfPresent` across one materialise sub-run. The drive walk
+`SelfPresent` transports across one materialise sub-run (account map + self address preserved). The drive walk
 glues those sub-runs (and returning external CALLs) into a single `Runs fr fr'` segment between
 block boundaries, so the SSTORE-presence discharge needs `SelfPresent` **forward-closed along the
 whole `Runs`** — including the `Runs.call` resume node, where the resumed *caller* frame's account
@@ -3243,7 +3032,7 @@ theorem beginCreate_ok_checkpoint (params : Evm.CreateParams) {child : Evm.Frame
 /-- **Local per-step self-presence preservation.** One non-halting opcode step (`StepsTo`) keeps
 the self account present. Satisfiable for the lowered program — every `.next` opcode either leaves
 `accounts` untouched or inserts at the self account, never erasing it — and supplied per edge by the
-materialise bricks (`selfPresent_matRuns` & the `selfPresent_*` post-frame lemmas). -/
+materialise-frame preservation (each `.next` post-frame leaves `accounts`/self address untouched). -/
 def StepPreservesSelf : Prop :=
   ∀ ⦃fr fr' : Frame⦄, StepsTo fr fr' → SelfPresent fr → SelfPresent fr'
 
@@ -3771,7 +3560,7 @@ value = the k-th recorded entry) and the SSTORE presence in the SAME walk, the b
 must additionally carry, at each block-entry frame:
 
 * `selfPresent` — the self account is present (`SelfPresent fr`), the SSTORE presence world-invariant
-  (§5), now transportable across each block's materialise sub-runs by `selfPresent_matRuns`;
+  (§5), transportable across each block's materialise sub-runs (account map + self address preserved);
 * `gasAligned` / `sloadAligned` — that the recorder's flat gas/sload accumulators *consumed so far*
   are aligned (`GasLogAligned` / `SloadLogAligned`) with the GAS/SLOAD witness frames the walk has
   visited, so the per-cursor read at the next GAS/SLOAD site is the matching recorded entry
@@ -3828,7 +3617,7 @@ theorem driveCorrPlus_entry {prog : Program} {sloadChg : Tmp → ℕ} {obs : Wor
 
 /-! ## §7 — the no-bridge VALUE channels of the `DriveCorrPlus` walk (C3 / Group B)
 
-The centerpiece walk `L2.0 driveCorrPlus_run_stmts` (below) is decomposed by the architect into
+The centerpiece L2.0 statement-walk is decomposed by the architect into
 
   * the **structure** (`Runs` + `Corr` at the terminator + working-stack-nil), reused VERBATIM from
     `sim_stmts_block` consuming the per-statement bytecode simulation `SimStmtStep` (which internally
@@ -3843,7 +3632,7 @@ The centerpiece walk `L2.0 driveCorrPlus_run_stmts` (below) is decomposed by the
 
 We prove S7/S2 here as standalone cursor-LOCAL lemmas (a single `Corr` cursor + its `EvalStmt` step),
 exactly the altitude `SimStmtStep`/`sim_assign` consume. They are functions of the per-cursor
-`Corr`/`EvalStmt` ALONE, not of the run, so they are NOT bundled into `driveCorrPlus_run_stmts` (doing
+`Corr`/`EvalStmt` ALONE, not of the run, so they are NOT bundled into the walk (doing
 so would buy nothing): the downstream Route-4b assembly applies them per cursor directly (the indexed
 form bound to the run's reached `(stpc, frpc)`, NOT the universal free-`ob` `StmtTies` predicate, which
 ranges over all cursors and is unreconstructable from a single run).
@@ -3853,14 +3642,15 @@ ranges over all cursors and is unreconstructable from a single run).
     have-block: it is the TRACE↔RECORDER bridge (`EvalStmt.assignGas` peels `ob` as the HEAD of the gas
     trace, while `aligned_read_eq_obs` gives the recorder's `gasAcc[i]`; tying them needs a NEW carried
     invariant `IR-trace-consumed = gasAcc` plus the gas-channel structural walk threading
-    `gasFrs[i] = gasFrame frpc`). Supplied as `hgasval`; satisfiable — it is exactly what
-    `aligned_read_eq_obs` yields once the gas walk threads the witness pairing (`gasReadOf_gasFrame_eq_obs`
-    is `rfl`), inhabited by any top-level GAS read.
+    `gasFrs[i] = gasFrame frpc`). Supplied as `hgasval`; satisfiable — supplied via `SimStmtStep` (the `StmtTies` gas conjunct), NOT discharged by any carried alignment;
+    the `Plus` invariant threads ONLY `SelfPresent`, the gas/sload alignment witnesses being carried
+    VERBATIM. Inhabited by any top-level GAS read.
   * **S1/S5/S6** — folded inside the supplied `SimStmtStep` (the serialized post-P3 spine).
   * **S4 (gas runtime envelopes)** — the lower-bound envelopes need the clean-halt FORWARD split
     (`cleanHalts_forward` to the cursor, then the GAS op runs), not pure descent; supplied alongside S3.
 -/
 
+-- RETAINED for Phase 3 realisability closure (audit §3)
 /-- **S7 core (NEW): `MemRealises` survives a non-spilled `setLocal`.** Binding a tmp `t` that is NOT
 spilled to a memory slot (`∀ n, defsOf prog t ≠ some (.slot n)`) leaves the memory value channel
 intact: for every spilled `t'` with `(st.setLocal t w).locals t' = some v`, necessarily `t' ≠ t` (else
@@ -3885,6 +3675,7 @@ theorem memRealises_setLocal_nonspilled {prog : Program} {st : V2.IRState} {fr :
     rwa [this] at hloc
   exact h t' slot v hdef hloc'
 
+-- RETAINED for Phase 3 realisability closure (audit §3)
 /-- **S7 (assign-remat value channel), cursor-local.** At a cursor holding a rematerialised assign
 `assign t e` (target NOT spilled, `hns`) whose IR step is the non-gas `EvalStmt.assignPure` (so the
 post-state is `st.setLocal t w`), the post-state realises the frame's memory: `MemRealises prog st' fr`.
@@ -3905,6 +3696,7 @@ theorem driveCorrPlus_assign_remat_memRealises {prog : Program} {sloadChg : Tmp 
     exact memRealises_setLocal_nonspilled hcorr.memAgree hns
   | assignGas => exact absurd rfl hne
 
+-- RETAINED for Phase 3 realisability closure (audit §3)
 /-- **S2 (sload value channel), cursor-local.** At a cursor holding `assign t (.sload k)` whose IR step
 is `EvalStmt`, the IR genuinely binds a value: `∃ w, evalExpr st 0 (.sload k) = some w`. This is the
 `hv` field of the `assignPure` the run already performed (`.sload k ≠ .gas`), echoing the run's own
@@ -3917,6 +3709,7 @@ theorem driveCorrPlus_sload_value {prog : Program} {o : V2.CallOracle}
   cases hstep with
   | assignPure _ hv => exact ⟨_, hv⟩
 
+-- RETAINED for Phase 3 realisability closure (audit §3)
 /-- **S2 envelope: the sload key is bound, the value is the world read.** A sharper readout of the same
 `assignPure`: the IR run's sload at this cursor binds `k`'s key and the loaded word is `st.world key` —
 the value `MemRealises` will position at `t`'s slot. Non-vacuous (the run is its own witness). -/
@@ -3935,57 +3728,13 @@ theorem driveCorrPlus_sload_value_world {prog : Program} {o : V2.CallOracle}
     | some key =>
       exact ⟨key, rfl, by simp [V2.evalExpr, hk]⟩
 
-/-! ### L2.0 — the `DriveCorrPlus` statement-walk, PRESERVATION form (C3 partial)
-
-`driveCorrPlus_run_stmts` mirrors `sim_stmts_block` (consuming `SimStmtStep` for the Runs+Corr+stack
-triple), threads `SelfPresent` via P3, and carries the alignment VERBATIM to the terminator frame. It is
-a pure PRESERVATION lemma — it produces only what the walk itself establishes from the run. The no-bridge
-per-cursor value channels are kept SEPARATE as the standalone cursor lemmas
-`driveCorrPlus_assign_remat_memRealises` (S7) and `driveCorrPlus_sload_value` (S2): they are functions of
-the supplied per-cursor `Corr`/`EvalStmt` alone, NOT of the run, so bundling them into the walk would buy
-nothing (the C8 Route-4b assembly applies them per cursor directly). The structural/call ties S1/S5/S6 are
-inside the supplied `SimStmtStep`; S3/S4 (gas positional value / runtime envelopes) are trace↔recorder /
-clean-halt-forward facts produced downstream. Every supplied parameter is satisfiable and non-vacuous. -/
-
-/-- **L2.0 (partial — preservation).** From `DriveCorrPlus` at a block boundary, the block, the IR block
-run, and the supplied per-statement simulation `SimStmtStep` (folding S1/S5/S6) + the P3 call edge
-`CallPreservesSelf`: reach a terminator frame `frT` with `Runs fr frT`, `Corr` at the terminator cursor,
-empty stack, `SelfPresent frT`, and the alignment carried VERBATIM. This is the walk's genuine
-preservation content. The no-bridge value channels S7/S2 are the standalone cursor lemmas
-`driveCorrPlus_assign_remat_memRealises` / `driveCorrPlus_sload_value` (applied per cursor by the C8
-assembly), NOT bundled here. S3/S4 (gas positional value / runtime envelopes) are downstream
-trace↔recorder-bridge / clean-halt-forward facts. -/
-theorem driveCorrPlus_run_stmts {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {o : V2.CallOracle} {st st' : V2.IRState} {T T' : Trace} {L : Label} {b : Block} {fr : Frame}
-    {gasAcc : List Word} {gasFrs : List Frame} {sloadAcc : List Nat} {sloadFrs : List Frame}
-    (hdc : DriveCorrPlus prog sloadChg obs st fr L gasAcc gasFrs sloadAcc sloadFrs)
-    -- `b` is pinned by `hrun`/`hsim` (both run over `b.stmts`); `_hb` ties `b` to `prog.blocks[L.idx]?`,
-    -- kept for signature stability — the deferred structural channels (S1/S5/S6 positioning via
-    -- `blockAt`) consume it, the preservation body does not.
-    (_hb : prog.blocks.toList[L.idx]? = some b)
-    (hrun : V2.RunStmts prog o st T b.stmts st' T')
-    (hsim : SimStmtStep prog sloadChg obs o L b)
-    (hcall : CallPreservesSelf) :
-    ∃ frT, Runs fr frT
-      ∧ Corr prog sloadChg obs st' frT L b.stmts.length
-      ∧ frT.exec.stack = []
-      ∧ SelfPresent frT
-      ∧ GasLogAligned gasAcc gasFrs
-      ∧ SloadLogAligned sloadAcc sloadFrs := by
-  -- (1) the Runs + Corr-at-terminator + stack-nil triple — VERBATIM from `sim_stmts_block`.
-  obtain ⟨frT, hruns, hcorrT, hstk⟩ := sim_stmts_block hsim hdc.base.corr hdc.base.cleanHalts hrun
-  -- (2) `SelfPresent frT` via P3 (supplied `CallPreservesSelf`), from the boundary self-presence.
-  have hself : SelfPresent frT := selfPresent_runs_of_call hcall hdc.selfPresent hruns
-  exact ⟨frT, hruns, hcorrT, hstk, hself, hdc.gasAligned, hdc.sloadAligned⟩
-
 /-! ### L2.0g — the GAS-ADVANCING `DriveCorrPlus` statement-walk (S3 producer)
 
-`driveCorrPlus_run_stmts` (above) is PRESERVATION-only: it black-boxes the per-cursor frames through
+The L2.0 statement-walk is PRESERVATION-only: it black-boxes the per-cursor frames through
 `sim_stmts_block`, so it cannot grow the gas witness list `gasFrs` — it carries the alignment
-VERBATIM, leaving S3 (the gas positional VALUE) SUPPLIED. This section writes the re-architected walk
-`driveCorrPlus_run_stmts_gasadvance` that PEELS each cursor (mirroring `sim_stmts_drop`'s induction)
-and threads the gas alignment, GROWING it at each GAS cursor — so the S3 value tie is PRODUCED from
-the real `lower prog` run rather than supplied.
+VERBATIM, leaving S3 (the gas positional VALUE) SUPPLIED. The GAS-advancing walk decls that PEELED each cursor to GROW the alignment have been REMOVED (audit:
+dead producers off the headline path); the seedable per-cursor gas bricks below
+(`FramesRun.snoc_seed`, `gasLogAligned_step_gas_seed`, `GasReach`, `GasCursorClass`) are RETAINED salvage — for the deferred SLOAD/gas advance.
 
 The per-cursor dispatch is the classification hypothesis `GasCursorClass`: at each cursor the walk is
 told whether the statement is `assign t .gas` (a GAS cursor, with the GAS-op decode + gas envelope +
@@ -4069,260 +3818,6 @@ inductive GasCursorClass (s : Stmt) (fr0 fr1 : Frame) : Prop where
       (hne : fr0 ≠ fr1) : GasCursorClass s fr0 fr1
   | notgas (hnotgas : ∀ t, s ≠ .assign t .gas) : GasCursorClass s fr0 fr1
 
-/-- **L2.0g (general suffix form) — the GAS-advancing statement walk.** Mirrors `sim_stmts_drop`'s
-induction over the block suffix, but threads the gas alignment `GasLogAligned gasAcc gasFrs` together
-with the cursor-reachability `GasReach gasFrs fr` — GROWING the witness list at each GAS cursor. The
-per-cursor dispatch `GasCursorClass` (supplied uniformly over the block as `hclass`) tells the walk,
-for the SPECIFIC per-cursor frames the run reaches, whether to apply the gas snoc or carry verbatim.
-
-Output: the terminator frame `frT` (`Runs fr frT`, `Corr` at the terminator, stack-nil) together with
-the ADVANCED alignment `GasLogAligned gasAccF gasFrsF` whose witness list `gasFrsF` extends `gasFrs`
-and reaches `frT` (`GasReach gasFrsF frT`). The advanced accumulator `gasAccF` is the recorder's
-literal gas-read splices, so S3 is now PRODUCED (read off the witness pairing), not supplied. -/
-theorem driveCorrPlus_run_stmts_gasadvance_drop {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {o : V2.CallOracle} {L : Label} {b : Block}
-    (hsim : SimStmtStep prog sloadChg obs o L b)
-    (hclass : ∀ (pc : Nat) (s : Stmt) (st0 st0' : V2.IRState) (T0 T0' : Trace) (fr0 fr1 : Frame),
-      b.stmts[pc]? = some s → Corr prog sloadChg obs st0 fr0 L pc →
-      EvalStmt prog o st0 T0 s st0' T0' → Runs fr0 fr1 →
-      Corr prog sloadChg obs st0' fr1 L (pc + 1) → fr1.exec.stack = [] →
-      GasCursorClass s fr0 fr1)
-    {ss : List Stmt} {st st' : V2.IRState} {T T' : Trace} {pc : Nat} {fr : Frame}
-    {gasAcc : List Word} {gasFrs : List Frame}
-    (hss : ss = b.stmts.drop pc)
-    (hcorr : Corr prog sloadChg obs st fr L pc)
-    (hcs : CleanHaltsNonException fr)
-    (halign : GasLogAligned gasAcc gasFrs)
-    (hreach : GasReach gasFrs fr)
-    (hrun : V2.RunStmts prog o st T ss st' T') :
-    ∃ frT gasAccF gasFrsF, Runs fr frT
-      ∧ Corr prog sloadChg obs st' frT L (pc + ss.length)
-      ∧ frT.exec.stack = []
-      ∧ GasLogAligned gasAccF gasFrsF
-      ∧ GasReach gasFrsF frT := by
-  induction hrun generalizing pc fr gasAcc gasFrs with
-  | nil =>
-    exact ⟨fr, gasAcc, gasFrs, Runs.refl fr, by simpa using hcorr, hcorr.stack_nil,
-      halign, hreach⟩
-  | @cons st0 st1 st2 T0 T1 T2 s ss0 hh ht ih =>
-    -- the head statement `s` sits at cursor `pc`; the tail `ss0` is `b.stmts.drop (pc+1)`.
-    have hdrop : b.stmts.drop pc = s :: ss0 := hss.symm
-    have hget : b.stmts[pc]? = some s := by
-      have h0 : (b.stmts.drop pc)[0]? = some s := by rw [hdrop]; rfl
-      rwa [List.getElem?_drop, Nat.add_zero] at h0
-    have htail : ss0 = b.stmts.drop (pc + 1) := by
-      have hdd : (b.stmts.drop pc).drop 1 = b.stmts.drop (pc + 1) := List.drop_drop ..
-      rw [hdrop, List.drop_one, List.tail_cons] at hdd
-      exact hdd
-    -- Layer C: the per-cursor segment + Corr at pc+1 + stack-nil.
-    obtain ⟨fr1, hruns1, hcorr1, hstk1⟩ := hsim pc s st0 st1 T0 T1 fr hget hcorr hcs hh
-    -- DERIVE the tail's clean-halt witness from the head's across the cursor segment.
-    have hcs1 : CleanHaltsNonException fr1 := cleanHaltsNonException_forward hcs hruns1
-    -- the per-cursor GAS classification, indexed to the reached `(fr, fr1)`.
-    have hcl : GasCursorClass s fr fr1 :=
-      hclass pc s st0 st1 T0 T1 fr fr1 hget hcorr hh hruns1 hcorr1 hstk1
-    -- dispatch: advance (GAS) or carry verbatim (non-GAS).
-    obtain ⟨gasAcc', gasFrs', halign', hreach'⟩ :
-        ∃ gasAcc' gasFrs', GasLogAligned gasAcc' gasFrs' ∧ GasReach gasFrs' fr1 := by
-      cases hcl with
-      | gas t hs hdec hgas hne =>
-        -- stack-size bound from `Corr.stack_nil` at the cursor frame `fr`.
-        have hsz : fr.exec.stack.size + 1 ≤ 1024 := by rw [hcorr.stack_nil]; decide
-        -- `stepFrame fr = .next (gasPost fr.exec)`, the GAS step.
-        have hstep : stepFrame fr = .next (BytecodeLayer.Dispatch.gasPost fr.exec) :=
-          BytecodeLayer.Dispatch.stepFrame_gas fr hdec hsz hgas
-        -- extend the alignment by `gasFrame fr` (seedable: empty or snoc).
-        have halignG :
-            GasLogAligned (gasAcc ++ [UInt256.ofUInt64 (BytecodeLayer.Dispatch.gasPost fr.exec).gasAvailable])
-              (gasFrs ++ [gasFrame fr]) := by
-          refine gasLogAligned_step_gas_seed halign ?_ hdec hsz hgas hstep
-          intro last hl; exact Runs.trans (hreach last hl) ((sim_gas fr hdec hsz hgas).1)
-        -- the GAS head is cancelled from the per-cursor segment: `Runs (gasFrame fr) fr1`.
-        have hgcancel : Runs (gasFrame fr) fr1 := Runs.gas_cancel hruns1 hdec hsz hgas hne
-        -- the new witness tail (`gasFrame fr`) reaches `fr1`.
-        refine ⟨_, _, halignG, ?_⟩
-        intro last hl
-        rw [List.getLast?_concat, Option.some.injEq] at hl
-        subst hl; exact hgcancel
-      | notgas hnotgas =>
-        -- carry verbatim; thread reachability forward across the cursor segment.
-        exact ⟨gasAcc, gasFrs, halign, hreach.trans hruns1⟩
-    -- recurse on the tail at cursor pc+1 with the advanced alignment.
-    obtain ⟨frT, gasAccF, gasFrsF, hrunsT, hcorrT, hstkT, halignF, hreachF⟩ :=
-      ih htail hcorr1 hcs1 halign' hreach'
-    refine ⟨frT, gasAccF, gasFrsF, hruns1.trans hrunsT, ?_, hstkT, halignF, hreachF⟩
-    -- cursor arithmetic: pc + (1 + ss0.length) = (pc+1) + ss0.length.
-    have hlen : pc + (s :: ss0).length = (pc + 1) + ss0.length := by
-      simp only [List.length_cons]; omega
-    rwa [hlen]
-
-/-- **L2.0g (whole-block form) — the GAS-advancing walk from `DriveCorrPlus`.** The `pc = 0`,
-empty-seed instance: from `DriveCorrPlus` at the block boundary (seed `gasAcc = gasFrs = []`,
-`GasReach []` vacuous), the block run, the per-statement simulation `SimStmtStep`, and the per-cursor
-classification `hclass`, reach the terminator frame `frT` carrying the ADVANCED gas alignment
-`GasLogAligned gasAccF gasFrsF` (witness list grown at each GAS cursor) with `GasReach gasFrsF frT`.
-The SLOAD alignment is carried VERBATIM from the boundary (its advance is the deferred SLOAD twin).
-S3 is now PRODUCED from `gasFrsF` via `aligned_read_eq_obs` (see `driveCorrPlus_gasval_of_witness`),
-not supplied. -/
-theorem driveCorrPlus_run_stmts_gasadvance {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {o : V2.CallOracle} {st st' : V2.IRState} {T T' : Trace} {L : Label} {b : Block} {fr : Frame}
-    {sloadAcc : List Nat} {sloadFrs : List Frame}
-    (hdc : DriveCorrPlus prog sloadChg obs st fr L [] [] sloadAcc sloadFrs)
-    (hrun : V2.RunStmts prog o st T b.stmts st' T')
-    (hsim : SimStmtStep prog sloadChg obs o L b)
-    (hclass : ∀ (pc : Nat) (s : Stmt) (st0 st0' : V2.IRState) (T0 T0' : Trace) (fr0 fr1 : Frame),
-      b.stmts[pc]? = some s → Corr prog sloadChg obs st0 fr0 L pc →
-      EvalStmt prog o st0 T0 s st0' T0' → Runs fr0 fr1 →
-      Corr prog sloadChg obs st0' fr1 L (pc + 1) → fr1.exec.stack = [] →
-      GasCursorClass s fr0 fr1) :
-    ∃ frT gasAccF gasFrsF, Runs fr frT
-      ∧ Corr prog sloadChg obs st' frT L b.stmts.length
-      ∧ frT.exec.stack = []
-      ∧ GasLogAligned gasAccF gasFrsF
-      ∧ GasReach gasFrsF frT
-      ∧ SloadLogAligned sloadAcc sloadFrs := by
-  obtain ⟨frT, gasAccF, gasFrsF, hrunsT, hcorrT, hstkT, halignF, hreachF⟩ :=
-    driveCorrPlus_run_stmts_gasadvance_drop hsim hclass (by simp) hdc.base.corr hdc.base.cleanHalts
-      gasLogAligned_nil (by intro last hl; simp at hl) hrun
-  simp only [Nat.zero_add] at hcorrT
-  exact ⟨frT, gasAccF, gasFrsF, hrunsT, hcorrT, hstkT, halignF, hreachF, hdc.sloadAligned⟩
-
-/-- **S3 PRODUCED — the gas positional VALUE at a GAS witness frame.** From the ADVANCED alignment
-`GasLogAligned gasAccF gasFrsF` the gas walk delivers, the positional read at a GAS witness frame is
-its `obs` value: at index `i` whose witness is `gasFrame fr`, `gasAccF[i] = ofUInt64 (fr.gas − Gbase)`
-(`aligned_read_eq_obs`). This is the S3 tie (`stpc'.locals t = ofUInt64 (frpc.gas − Gbase)`) read off
-the produced alignment — the trace↔recorder bridge the former walk left SUPPLIED, now DERIVED from the
-real `lower prog` run's witness pairing. `gasReadOf_gasFrame_eq_obs` (the `rfl` value bridge) is folded
-inside `aligned_read_eq_obs`. -/
-theorem driveCorrPlus_gasval_of_witness {gasAccF : List Word} {gasFrsF : List Frame} {i : Nat}
-    {fr : Frame}
-    (halign : GasLogAligned gasAccF gasFrsF)
-    (hwit : gasFrsF[i]? = some (gasFrame fr)) :
-    gasAccF[i]? = some (UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat Gbase)) :=
-  aligned_read_eq_obs halign hwit
-
-/-! ## §8 — the halt wrappers (Tier 2 / C4): `driveCorrPlus_step_stop` / `_ret`
-
-The halt-arm analogues of `drive_step_block_stop`/`drive_step_block_ret` (`DriveSim.lean`), but
-threading `DriveCorrPlus` through the committed L2.0 walk `driveCorrPlus_run_stmts` (C3) and EMITTING
-the §7 terminator ties in **Route-4b indexed form** — bound to the SPECIFIC terminator frame `frT`
-the L2.0 walk reaches, NOT a universal `∀ st' frT, Corr → …` (which is unprovable: `SelfPresent`
-holds only at the reached `frT`, and `Corr`-at-terminator does NOT imply `SelfPresent`).
-
-The ONE genuinely-derived conjunct is `¬ (accounts == ∅)` — from `SelfPresent` via
-`accounts_ne_empty_of_selfPresent` (T1: at `frT`; T2: at the return endpoint `frv`, transported by
-the P3 hop `selfPresent_runs_of_call`). The remaining conjuncts (`kind = .call`, the `ret` value
-channel, gas envelopes, the RETURN-epilogue decode bundle) stay **supplied** — they are structural /
-gas-descent facts, indexed to the reached frame(s) so genuinely satisfiable, NOT vacuous and NOT the
-forbidden universal. `self` is set to `frT.exec.executionEnv.address`, so the `self = addr` conjunct
-is `rfl`; the entry-self equality `frT.address = fr0.address` is a downstream F2 address-invariance
-concern, NOT these wrappers. No successor invariant — halt arms bottom out the recursion. -/
-
-/-- **`driveCorrPlus` halt wrapper, `stop` arm (T1).** From `DriveCorrPlus` at the boundary, the
-block, the IR block run, the supplied `SimStmtStep`, and the P3 call edge `CallPreservesSelf`: reach
-the terminator frame `frT` (`Runs fr frT`, `Corr` at the terminator cursor) carrying `SelfPresent
-frT`, and emit the T1 bundle indexed to `frT`: `self = addr` (`rfl`), `kind = .call` (supplied
-`hkind`, indexed to the reached `(frT, hruns, hcorrT)` — structural, a top-level lowered run executes
-in a `.call` frame), and `¬ (accounts == ∅)` (DERIVED from `SelfPresent frT`). -/
-theorem driveCorrPlus_step_stop {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {o : V2.CallOracle} {st st' : V2.IRState} {T T' : Trace} {L : Label} {b : Block} {fr : Frame}
-    {gasAcc : List Word} {gasFrs : List Frame} {sloadAcc : List Nat} {sloadFrs : List Frame}
-    (hdc : DriveCorrPlus prog sloadChg obs st fr L gasAcc gasFrs sloadAcc sloadFrs)
-    (hb : prog.blocks.toList[L.idx]? = some b)
-    (hbterm : b.term = .stop)
-    (hrun : V2.RunStmts prog o st T b.stmts st' T')
-    (hsim : SimStmtStep prog sloadChg obs o L b)
-    (hcall : CallPreservesSelf)
-    -- `kind = .call cp` at the reached terminator frame (supplied — structural, indexed to the
-    -- reached `(frT, hruns, hcorrT)`; a real top-level lowered run executes in the `.call` codeFrame).
-    (hkind : ∀ frT, Runs fr frT → Corr prog sloadChg obs st' frT L b.stmts.length →
-      ∃ cp, frT.kind = Evm.FrameKind.call cp) :
-    ∃ frT, Runs fr frT
-      ∧ Corr prog sloadChg obs st' frT L b.stmts.length
-      ∧ SelfPresent frT
-      ∧ (frT.exec.executionEnv.address = frT.exec.executionEnv.address
-          ∧ (∃ cp, frT.kind = Evm.FrameKind.call cp)
-          ∧ ¬ (frT.exec.accounts == (∅ : Evm.AccountMap)) = true) := by
-  obtain ⟨frT, hruns, hcorrT, _hstk, hself, _, _⟩ :=
-    driveCorrPlus_run_stmts hdc hb hrun hsim hcall
-  exact ⟨frT, hruns, hcorrT, hself,
-    rfl, hkind frT hruns hcorrT, accounts_ne_empty_of_selfPresent hself⟩
-
-/-- **`driveCorrPlus` halt wrapper, `ret` arm (T2).** As `driveCorrPlus_step_stop`, with `b.term =
-.ret t`: reach the terminator frame `frT` carrying `SelfPresent frT`, and emit the T2 bundle indexed
-to `frT`. The `ret` value channel (`hv`) and gas envelopes (`hgas`) stay supplied (value-binding /
-gas-descent facts); the RETURN-epilogue bundle is supplied per-`frv` (`hretsite`: PUSH32/PUSH32/
-RETURN decode + gas margins + `kind = .call`), but its `¬ (accounts == ∅)` conjunct is **DERIVED** at
-the return endpoint `frv` via the P3 hop `selfPresent_runs_of_call hcall hselfT hrunsFrv` (transport
-`SelfPresent frT` along `Runs frT frv`) + `accounts_ne_empty_of_selfPresent`. -/
-theorem driveCorrPlus_step_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {o : V2.CallOracle} {st st' : V2.IRState} {T T' : Trace} {L : Label} {b : Block} {t : Tmp}
-    {fr : Frame} {gasAcc : List Word} {gasFrs : List Frame} {sloadAcc : List Nat}
-    {sloadFrs : List Frame}
-    (hdc : DriveCorrPlus prog sloadChg obs st fr L gasAcc gasFrs sloadAcc sloadFrs)
-    (hb : prog.blocks.toList[L.idx]? = some b)
-    (hbterm : b.term = .ret t)
-    (hrun : V2.RunStmts prog o st T b.stmts st' T')
-    (hsim : SimStmtStep prog sloadChg obs o L b)
-    (hcall : CallPreservesSelf)
-    -- the `ret` value channel (supplied — the IR `.ret t` step that fired binds `t`).
-    (hv : ∃ vw, st'.locals t = some vw)
-    -- the gas envelopes at the reached terminator cursor (supplied — gas-descent fact).
-    (hgas : ∀ frT, Corr prog sloadChg obs st' frT L b.stmts.length →
-      (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).sum ≤ frT.exec.gasAvailable.toNat
-      ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).length ≤ 1024)
-    -- the RETURN-epilogue decode/gas/kind bundle, per return endpoint `frv` (supplied — concrete
-    -- lowered RETURN bytes; indexed to the reached `(frT, frv)`). The `accounts ≠ ∅` conjunct is
-    -- REMOVED from this supplied bundle and DERIVED below via P3 + `find?_some_ne_empty`.
-    (hretsite : ∀ frT, Runs fr frT → Corr prog sloadChg obs st' frT L b.stmts.length →
-      ∀ vw, st'.locals t = some vw → ∀ frv, Runs frT frv →
-      frv.exec.executionEnv.code = frT.exec.executionEnv.code →
-      frv.exec.executionEnv.address = frT.exec.executionEnv.address →
-      (∀ k, selfStorage frv k = selfStorage frT k) →
-      frv.exec.stack = vw :: frT.exec.stack →
-      ∃ cp,
-        decode frv.exec.executionEnv.code frv.exec.pc = some (.Push .PUSH32, some ((0 : Word), 32))
-        ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33)
-            = some (.Push .PUSH32, some ((0 : Word), 32))
-        ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33 + UInt32.ofNat 33)
-            = some (.System .RETURN, .none)
-        ∧ 3 ≤ frv.exec.gasAvailable.toNat
-        ∧ 3 ≤ (pushFrameW frv (0 : Word) 32).exec.gasAvailable.toNat
-        ∧ frv.kind = Evm.FrameKind.call cp) :
-    ∃ frT, Runs fr frT
-      ∧ Corr prog sloadChg obs st' frT L b.stmts.length
-      ∧ SelfPresent frT
-      ∧ (frT.exec.executionEnv.address = frT.exec.executionEnv.address
-          ∧ (∃ vw, st'.locals t = some vw)
-          ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).sum
-              ≤ frT.exec.gasAvailable.toNat
-          ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).length ≤ 1024
-          ∧ (∀ vw, st'.locals t = some vw → ∀ frv, Runs frT frv →
-              frv.exec.executionEnv.code = frT.exec.executionEnv.code →
-              frv.exec.executionEnv.address = frT.exec.executionEnv.address →
-              (∀ k, selfStorage frv k = selfStorage frT k) →
-              frv.exec.stack = vw :: frT.exec.stack →
-              ∃ cp,
-                decode frv.exec.executionEnv.code frv.exec.pc
-                    = some (.Push .PUSH32, some ((0 : Word), 32))
-                ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33)
-                    = some (.Push .PUSH32, some ((0 : Word), 32))
-                ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33 + UInt32.ofNat 33)
-                    = some (.System .RETURN, .none)
-                ∧ 3 ≤ frv.exec.gasAvailable.toNat
-                ∧ 3 ≤ (pushFrameW frv (0 : Word) 32).exec.gasAvailable.toNat
-                ∧ frv.kind = Evm.FrameKind.call cp
-                ∧ ¬ (frv.exec.accounts == (∅ : Evm.AccountMap)) = true)) := by
-  obtain ⟨frT, hruns, hcorrT, _hstk, hselfT, _, _⟩ :=
-    driveCorrPlus_run_stmts hdc hb hrun hsim hcall
-  refine ⟨frT, hruns, hcorrT, hselfT,
-    rfl, hv, (hgas frT hcorrT).1, (hgas frT hcorrT).2, ?_⟩
-  intro vw hvw frv hrunsFrv hcode haddr hstor hstk2
-  obtain ⟨cp, hd1, hd2, hdret, hg1, hg2, hkindv⟩ :=
-    hretsite frT hruns hcorrT vw hvw frv hrunsFrv hcode haddr hstor hstk2
-  exact ⟨cp, hd1, hd2, hdret, hg1, hg2, hkindv,
-    accounts_ne_empty_of_selfPresent (selfPresent_runs_of_call hcall hselfT hrunsFrv)⟩
-
 /-! ## §9 — the EDGE wrappers (Tier 2 / C5): `driveCorrPlus_step_jump` / `_branch`
 
 The non-halt (`jump`/`branch`) analogues of `drive_step_block_jump`/`drive_step_block_branch`
@@ -4344,8 +3839,7 @@ The ONLY two additions, both at the re-established successor boundary:
   `gasAcc`/`gasFrs`/`sloadAcc`/`sloadFrs` and is closed by `hdc.gasAligned`/`hdc.sloadAligned`. This
   is HONEST preservation, NOT a no-record-in-epilogue claim: it carries the same consumed-prefix
   forward. Advancing the prefix (`gasLogAligned_step_gas` at gas cursors) is the SEPARATE deferred
-  EXTENSION, correctly NOT claimed here (matching `driveCorrPlus_run_stmts` and the C1 `*_matRuns`
-  preservation-only docstrings).
+  EXTENSION, correctly NOT claimed here (matching the preservation-only stance of the L2.0 statement-walk).
 
 The successor `DriveCorrPlus` is bound EXISTENTIALLY to the reached `jumpdestFrame fj` (Route-4b
 indexed), NEVER the forbidden universal `∀ st' frT, Corr → DriveCorrPlus`. The supplied
@@ -4606,9 +4100,8 @@ theorem driveStepPlus_of_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
   -- dispatch on the terminator shape.
   cases hterm : b.term with
   | stop =>
-    -- halt disjunct (LEFT): the IR `RunFrom.stop`. The `driveCorrPlus_step_stop` wrapper additionally
-    -- discharges `SelfPresent`/`accounts ≠ ∅` at the reached terminator (threaded via the `Plus`
-    -- invariant); the IR `RunFrom` itself is `RunFrom.stop`.
+    -- halt disjunct (LEFT): the IR `RunFrom.stop`. `SelfPresent`/`accounts ≠ ∅` at the reached terminator are threaded via the `Plus`
+    -- invariant; the IR `RunFrom` itself is `RunFrom.stop`.
     exact Or.inl ⟨_, RunFrom.stop hb hrun hterm⟩
   | ret t =>
     -- halt disjunct (LEFT): the IR `RunFrom.ret`; the operand is `RunDefinable.ret_def`.
@@ -4671,11 +4164,12 @@ holds for the `Plus`-constructed run's existential observable — **general over
 threading the strengthened `DriveCorrPlus` invariant; `runFrom_of_driveCorrPlus` builds the IR
 `RunFrom`; the existing cycle-agnostic `sim_cfg` ties it to the bytecode halt's world.
 
-**DISCHARGED through the `Plus` thread** (vs `lower_conforms_cyclic`, which supplies a raw `hstep`):
-the gas-advance positional channel (S3, via `driveCorrPlus_step_*`'s carried alignment), the SSTORE
-self-presence (`SelfPresent`) and `accounts ≠ ∅` invariants re-established at every reached boundary.
-**Still SUPPLIED** (genuinely-runtime residuals, NOT the gas/self ties): the `sim_cfg` per-block
-ties `hstmts`/`hterm` (the serialized S1/S5/S6 spine + the world-channel halt brick), the P3
+**Re-established through the `Plus` thread** (vs `lower_conforms_cyclic`, which supplies a raw
+`hstep`): the SSTORE self-presence (`SelfPresent`) and `accounts ≠ ∅` invariants re-established at every reached boundary.
+The `Plus` invariant threads ONLY `SelfPresent` (the gas/sload alignment witnesses are carried
+VERBATIM, never advanced). **Still SUPPLIED** (genuinely-runtime residuals): the gas positional value
+**S3** supplied via `SimStmtStep` (the `StmtTies` gas conjunct), NOT discharged by any carried
+alignment; the `sim_cfg` per-block ties `hstmts`/`hterm` (the serialized S1/S5/S6 spine + the world-channel halt brick), the P3
 `CallPreservesSelf` `.success` ext-call self seam, and the per-terminator edge bundles
 `hjumpPresent`/`hjump`/`hbranch` (concrete lowered PUSH/JUMP epilogue data). -/
 theorem lower_conforms_cyclic_tiefree {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
@@ -4936,15 +4430,6 @@ end Lir.V2
 #print axioms Lir.V2.sloadLogAligned_step_sload
 #print axioms Lir.V2.alignedSload_read_eq_obs
 #print axioms Lir.V2.sloadRealises_charge_of_witness
-#print axioms Lir.V2.sstorePresence_of_self
-#print axioms Lir.V2.selfPresent_addFrame
-#print axioms Lir.V2.selfPresent_sloadFrame
-#print axioms Lir.V2.selfPresent_matRuns
-#print axioms Lir.V2.gasLogAligned_matRuns
-#print axioms Lir.V2.sloadLogAligned_matRuns
--- STEP 1: the per-cursor GAS-channel advance bricks (gas-cursor EXTEND + non-gas VERBATIM-thread).
-#print axioms Lir.V2.driveCorrPlus_gas_cursor_advance
-#print axioms Lir.V2.driveCorrPlus_norecord_cursor_advance
 #print axioms Lir.V2.resumeAfterCall_address
 #print axioms Lir.V2.resumeAfterCall_accounts
 #print axioms Lir.V2.selfPresent_runs
@@ -5003,20 +4488,14 @@ end Lir.V2
 #print axioms Lir.V2.driveCorrPlus_assign_remat_memRealises
 #print axioms Lir.V2.driveCorrPlus_sload_value
 #print axioms Lir.V2.driveCorrPlus_sload_value_world
-#print axioms Lir.V2.driveCorrPlus_run_stmts
--- L2.0g: the GAS-advancing walk (S3 producer) + its seedable bricks + the S3 read-off.
+-- L2.0g: the seedable GAS-alignment bricks (GAS-advancing walk decls + S3 read-off removed, audit).
 #print axioms Lir.V2.FramesRun.snoc_seed
 #print axioms Lir.V2.gasLogAligned_step_gas_seed
-#print axioms Lir.V2.driveCorrPlus_run_stmts_gasadvance_drop
-#print axioms Lir.V2.driveCorrPlus_run_stmts_gasadvance
-#print axioms Lir.V2.driveCorrPlus_gasval_of_witness
--- C4: the new account-map non-emptiness fact + the two halt wrappers (T1/T2).
+-- C4: the account-map non-emptiness facts + the edge wrappers (jump/branch).
 #print axioms Lir.V2.forM_from_nil
 #print axioms Lir.V2.all2_nil_false
 #print axioms Lir.V2.find?_some_ne_empty
 #print axioms Lir.V2.accounts_ne_empty_of_selfPresent
-#print axioms Lir.V2.driveCorrPlus_step_stop
-#print axioms Lir.V2.driveCorrPlus_step_ret
 #print axioms Lir.V2.driveCorrPlus_step_jump
 #print axioms Lir.V2.driveCorrPlus_step_branch
 -- C8/C9: the `DriveCorrPlus` recursion assembly + the tie-free headline.

@@ -25,8 +25,7 @@ honestly splits into:
 
 * the **leaf** "running subtracts it" steps, which *are* standalone — `imm`/`gas`
   land on a named post-frame (`pushFrameW`/`gasFrame`) whose `gasAvailable` is a
-  one-element `subCharges` directly from the `sim_*` companion (`charge_runs_imm`,
-  `charge_runs_gas`);
+  one-element `subCharges` directly from the `sim_*` companion (`charge_runs_imm`);
 * the **compound** case, whose gas fact is a corollary of B1's frame chain glued by
   `subCharges_append` — delivered here as the **gluing lemma** `subCharges_chargeOf_*`
   (the goal shape B1 faces, in `subCharges`/`chargeOf` terms) rather than a
@@ -144,13 +143,6 @@ theorem chargeOf_imm_const (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ)
     chargeOf defs sloadChg fuel (.imm w) = chargeOf defs sloadChg fuel (.imm w') := by
   rw [chargeOf_imm, chargeOf_imm]
 
-/-- An undefined tmp materialises the conservative `0` literal, charging exactly the
-same `[Gverylow]` as a real literal — width-stability extends to the fallback leaf. -/
-theorem chargeOf_tmp_none_eq_imm (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ)
-    (f : Nat) (t : Tmp) (w : Word) (h : defs t = none) :
-    chargeOf defs sloadChg (f + 1) (.tmp t) = chargeOf defs sloadChg (f + 1) (.imm w) := by
-  rw [chargeOf_tmp_none defs sloadChg f t h, chargeOf_imm]
-
 /-! ## 3. The pure-arithmetic engine (sum / `subCharges` laws)
 
 These are the laws B1 threads to glue per-leaf subtractions into the whole-expression
@@ -170,15 +162,6 @@ theorem subCharges_chargeOf_binop (defs : Tmp → Option Expr) (sloadChg : Tmp �
       = subCharges (subCharges (subCharges g (chargeOf defs sloadChg f (.tmp b)))
           (chargeOf defs sloadChg f (.tmp a))) [Gverylow] := by
   rw [subCharges_append, subCharges_append]
-
-/-- **The compound-charge decomposition for `.sload`.** Subtracting `sload k`'s
-charge list is: subtract key `k`'s charges, then the single `SLOAD` charge — the
-order B1's `Runs` chain (mat `k`; SLOAD) descends gas. -/
-theorem subCharges_chargeOf_sload (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ)
-    (f : Nat) (k : Tmp) (g : UInt64) :
-    subCharges g (chargeOf defs sloadChg f (.tmp k) ++ [sloadChg k])
-      = subCharges (subCharges g (chargeOf defs sloadChg f (.tmp k))) [sloadChg k] := by
-  rw [subCharges_append]
 
 /-- **The honest-gas envelope.** When the whole `chargeOf` list fits under `g`,
 materialising `e` lands the engine at `g.toNat - (chargeOf …).sum` — the exact gas
@@ -220,22 +203,6 @@ theorem charge_runs_imm (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ) (f
   rw [chargeOf_imm, subCharges_singleton]
   rfl
 
-/-- **`Expr.gas` running subtracts `chargeOf`.** A frame decoding to `GAS` runs one
-step to `gasFrame fr` (the `materialiseExpr defs (f+1) .gas = [GAS]` endpoint), whose
-`gasAvailable` is exactly `subCharges (gas fr) (chargeOf … .gas)` = `gas fr - Gbase`.
-The full B2 form for this leaf, standalone from `sim_gas`. -/
-theorem charge_runs_gas (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ) (f : Nat)
-    (fr : Frame)
-    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .GAS, .none))
-    (hsz : fr.exec.stack.size + 1 ≤ 1024)
-    (hgas : GasConstants.Gbase ≤ fr.exec.gasAvailable.toNat) :
-    Runs fr (gasFrame fr)
-      ∧ (gasFrame fr).exec.gasAvailable
-          = subCharges fr.exec.gasAvailable (chargeOf defs sloadChg (f + 1) .gas) := by
-  refine ⟨(sim_gas fr hdec hsz hgas).1, ?_⟩
-  rw [chargeOf_gas, subCharges_singleton]
-  exact (sim_gas fr hdec hsz hgas).2
-
 /-! ## 5. The per-opcode single-charge steps (the bricks B1's compound cases thread)
 
 For the compound constructs (`add`/`lt`/`sload`), B1's `Runs` chain ends in the
@@ -255,17 +222,6 @@ theorem charge_binOpPost_gas (fr : Frame) (op : UInt256 → UInt256 → UInt256)
       = subCharges fr.exec.gasAvailable [Gverylow] := by
   rw [subCharges_singleton]; rfl
 
-/-- The op-charge step for `SLOAD`: the final `SLOAD` opcode subtracts the trailing
-`[sloadCost warm]`, with `warm` the runtime warmth at `fr` — exactly the `sloadChg k`
-B1 instantiates `chargeOf` with. Stated through `sloadPost` (the `sloadFrame`
-post-state). -/
-theorem charge_sloadPost_gas (fr : Frame) (key : Word) (rest : Stack Word) :
-    (BytecodeLayer.Dispatch.sloadPost fr.exec key rest).gasAvailable
-      = subCharges fr.exec.gasAvailable
-          [Evm.sloadCost (fr.exec.substate.accessedStorageKeys.contains
-            (fr.exec.executionEnv.address, key))] := by
-  rw [subCharges_singleton]; rfl
-
 /-! ## 6. `section B1_contract` — the goal shape B1 faces (the honest split, made precise)
 
 The full B2 statement — *running* `materialiseExpr defs fuel e` subtracts exactly
@@ -283,9 +239,8 @@ mirroring `materialiseExpr`. At each node B1 already has the operand sub-`Runs`
 `materialise_gas_charge_contract` packages that target as a predicate on a candidate
 endpoint, so B1 can state its conclusion against it without B2 having to name B1's
 frame chain. This is the honest B2 deliverable: `chargeOf` + the arithmetic that
-turns B1's per-step gas facts into the whole-expression `subCharges`. The leaf cases
-(`charge_runs_imm`/`charge_runs_gas`) discharge this predicate **fully and
-standalone** today. -/
+turns B1's per-step gas facts into the whole-expression `subCharges`. The leaf case
+`charge_runs_imm` discharges this predicate **fully and standalone** today. -/
 section B1_contract
 
 /-- The B2 conclusion as a predicate on a materialise endpoint frame `fr'` reached
@@ -304,15 +259,6 @@ theorem materialiseGasCharge_imm (defs : Tmp → Option Expr) (sloadChg : Tmp �
     (hstk : fr.exec.stack.size + 1 ≤ 1024) :
     MaterialiseGasCharge defs sloadChg fuel (.imm w) fr (pushFrameW fr w 32) :=
   (charge_runs_imm defs sloadChg fuel fr w hdec hgas hstk).2
-
-/-- The `gas` leaf discharges the contract standalone (from `charge_runs_gas`). -/
-theorem materialiseGasCharge_gas (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ)
-    (f : Nat) (fr : Frame)
-    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .GAS, .none))
-    (hsz : fr.exec.stack.size + 1 ≤ 1024)
-    (hgas : GasConstants.Gbase ≤ fr.exec.gasAvailable.toNat) :
-    MaterialiseGasCharge defs sloadChg (f + 1) .gas fr (gasFrame fr) :=
-  (charge_runs_gas defs sloadChg f fr hdec hsz hgas).2
 
 /-- **The compound gluing law (the B1 corollary engine).** Given the operand
 sub-charge endpoints `frb` (after materialising `b`) and `fra` (after `a`, from
@@ -335,30 +281,6 @@ theorem materialiseGasCharge_binop
   exact ⟨by rw [MaterialiseGasCharge, chargeOf_add]; exact key,
          by rw [MaterialiseGasCharge, chargeOf_lt]; exact key⟩
 
-/-- **The `sload` compound gluing law.** Given the key sub-charge endpoint `frk`
-(after materialising `k`) satisfying the contract, and the `SLOAD` op-step gas fact
-(subtracting `[sloadChg k]` from `frk`), the `sload` endpoint satisfies the whole
-contract. B1 instantiates `sloadChg k` with the runtime `sloadCost` at `frk` (via
-`charge_sloadPost_gas`). -/
-theorem materialiseGasCharge_sload
-    (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ) (f : Nat) (k : Tmp)
-    (fr frk fr' : Frame)
-    (hk : MaterialiseGasCharge defs sloadChg f (.tmp k) fr frk)
-    (hop : fr'.exec.gasAvailable = subCharges frk.exec.gasAvailable [sloadChg k]) :
-    MaterialiseGasCharge defs sloadChg (f + 1) (.sload k) fr fr' := by
-  rw [MaterialiseGasCharge, chargeOf_sload, subCharges_chargeOf_sload, ← hk, hop]
-
-/-- **The `tmp` recompute gluing law.** Materialising `.tmp t` with `defs t = some e`
-*is* materialising `e` (`materialiseExpr`/`chargeOf` both recurse), so the endpoint's
-contract for `.tmp t` is the contract for `e` — the recompute-on-use step, in gas
-terms. -/
-theorem materialiseGasCharge_tmp_some
-    (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ) (f : Nat) (t : Tmp) (e : Expr)
-    (he : defs t = some e) (fr fr' : Frame)
-    (hrec : MaterialiseGasCharge defs sloadChg f e fr fr') :
-    MaterialiseGasCharge defs sloadChg (f + 1) (.tmp t) fr fr' := by
-  rw [MaterialiseGasCharge, chargeOf_tmp_some defs sloadChg f t e he]; exact hrec
-
 end B1_contract
 
 end Lir
@@ -366,7 +288,5 @@ end Lir
 -- Build-enforced axiom-cleanliness guard for the B2 deliverable: the gas-charge
 -- engine depends only on `[propext, Classical.choice, Quot.sound]`.
 #print axioms Lir.charge_runs_imm
-#print axioms Lir.charge_runs_gas
 #print axioms Lir.materialiseGasCharge_binop
-#print axioms Lir.materialiseGasCharge_sload
 #print axioms Lir.toNat_chargeOf

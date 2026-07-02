@@ -319,11 +319,26 @@ shortcut; commit only green states.
   `SoundAlloc a` (current behavior = one instance). Land the default `allocate` pipeline (§5).
   Sweep dead code (the old per-construct special cases, retired universals, stale comments). Mark
   v1/v2 gas/sload docs superseded; update `ir-design-v3.md` cross-refs.
+  > **Note (2026-07-02, gas-decision.md + remediation-plan-2026-07-02.md).** Per `docs/gas-decision.md`
+  > gas is now a **log-fed exact-equality oracle** (like an external call), and the gas-monotonicity
+  > law is dropped. The spill/remat reskin (Phases A–C, DONE) *did* kill the vacuous gas/sload
+  > universals — but the remaining honesty gap is no longer a "vacuous universal" problem: it is the
+  > **realisability closure** (build the per-cursor `StmtTies`/`TermTies` ties for `lower prog` from
+  > `runWithLog` and instantiate the headline end-to-end), tracked as **Phase 3 of the remediation
+  > plan**. Treat that closure — not further universal-removal — as the successor of this Phase D
+  > cleanup for the gas/sload axes.
 
 Each phase runs the established loop: an implementation subagent → an independent review subagent →
 self-review against the diff, before moving to the next.
 
 ## 7. Open questions / notes
+
+> **Note (2026-07-02).** Per `docs/gas-decision.md`, gas is now a **log-fed exact-equality oracle**
+> (the recorder captures the machine `GAS` output, feeds it into the IR oracle, and equality is
+> proved — handled exactly like an external call); the gas-monotonicity law is dropped. This plan's
+> Phases A–C already removed the vacuous gas/sload *universals*; the remaining work on those axes is
+> the **realisability closure** (Phase 3 of `docs/remediation-plan-2026-07-02.md`), which supersedes
+> this doc's original "vacuous-universal removal" framing.
 
 - **Default policy** confirmed: spill-the-effectful (gas/call/sload spilled, arithmetic
   rematerialized) — exercises both remat and spill paths from day one.

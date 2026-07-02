@@ -234,49 +234,6 @@ specialisation is retired (superseded, and it baked in the now-false "every assi
 nothing"). The `sstore` arm additionally needs the `MatDec` decode coverage over
 `materialiseExpr` at the runtime cursors, and so is carried whole. -/
 
-/-! ### The `sstore`-arm discharge (decode-free via `sim_sstore_stmt_lowered`)
-
-For an `sstore`-only call-free block, every statement routes through `sim_sstore_stmt_lowered`
-— the decode bundle (the operand `MatDec`s + the consuming `SSTORE`) is already discharged
-generically over `lower prog` inside the wrapper. The structural side-conditions (`MatFueled`
-×2 + the pc bound) are pulled from `WellFormedLowered`; the only residual is the genuine runtime
-SSTORE recording-correspondence tie (`SstoreRealises` + the non-zero-value `hnz`, the §7
-supplied-observation contract at the internal SSTORE frame). -/
-
-/-- **`SimStmtStep` for an `sstore`-only call-free block.** If every statement of `b` is an
-`Stmt.sstore`, then — given `WellFormedLowered` (the structural fuel/pc side-conditions) and,
-at every cursor, the genuine runtime SSTORE ties (gas/stack envelopes, `SstoreRealises`, and the
-non-zero written value) — `SimStmtStep` holds. The decode is discharged inside
-`sim_sstore_stmt_lowered`. -/
-theorem simStmtStep_sstore {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {o : V2.CallOracle} {L : Label} {b : Block}
-    (hb : prog.blocks.toList[L.idx]? = some b)
-    (hwf : WellFormedLowered prog)
-    (hsstore : ∀ s ∈ b.stmts, ∃ key value, s = .sstore key value)
-    -- the genuine per-cursor runtime SSTORE ties (the §7 supplied-observation contract):
-    (hties : ∀ (pc : Nat) (key value : Tmp) (kw vw : Word) (st0 : V2.IRState) (fr0 : Frame),
-        b.stmts[pc]? = some (.sstore key value) →
-        Corr prog sloadChg obs st0 fr0 L pc →
-        st0.locals key = some kw → st0.locals value = some vw →
-        StepScoped prog st0 (.sstore key value)
-        -- gas aggregate DROPPED: now DERIVED from the threaded clean-halt witness `hcs`
-        -- via `sim_sstore_stmt`'s two-frame chained fold.
-        ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp value)).length
-            + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).length + 1 ≤ 1024
-        ∧ (∃ acc, SstoreRealises fr0 kw vw acc) ∧ vw ≠ 0) :
-    SimStmtStep prog sloadChg obs o L b := by
-  intro pc s st0 st0' T0 T0' fr0 hget hcorr hcs hstep
-  obtain ⟨key, value, hse⟩ := hsstore s (List.mem_iff_getElem?.mpr ⟨pc, hget⟩)
-  subst hse
-  -- read off the `EvalStmt.sstore` witnesses (operands + post-state).
-  cases hstep with
-  | sstore hk hv =>
-    rename_i kw vw
-    obtain ⟨hsc, hstk, ⟨acc, hsr⟩, hnz⟩ := hties pc key value kw vw st0 fr0 hget hcorr hk hv
-    obtain ⟨hwfv, hwfk⟩ := hwf.matFueled_sstore L b pc key value hb hget
-    exact sim_sstore_stmt_lowered hb hget hcorr hk hv hsc hwfv hwfk
-      (hwf.bound_sstore L b pc key value hb hget) hcs hstk hsr hnz
-
 /-! ### The `call`-arm discharge (the §7 CALL tie)
 
 For a `.call cs` cursor, `simStmtStep_call` feeds `sim_call_stmt` (`SimStmt.lean` Arm 3,
@@ -420,7 +377,7 @@ theorem simStmtStep_call {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       cases cs.resultTmp <;> rw [← hw', ← hs']
   rw [hst0eq]
   exact sim_call_stmt hb hget hcorr.pc_eq hargslen hargs hcallpc hcallmem hcallactive
-    hselfdef hcallreturns hresume hcallee hgasfwd hstepRes hresaddr hrescode hrescanmod
+    hcallreturns hresume hstepRes hresaddr hrescode hrescanmod
     hrespc hresstack hresmem hresactive hresvalidjumps hcorr.defsSound hsc hcorr.memAgree
     (hwf.slots_slot) hscoped' htail
 
@@ -1064,40 +1021,6 @@ theorem sim_cfg {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} {o : V2.C
     obtain ⟨last, haltSig, hlast, hhalt, hworld⟩ := ih hcorr' hcs'
     exact ⟨last, haltSig, (hrunsT.trans hruns').trans hlast, hhalt, hworld⟩
 
-/-! ## `paramsFor` — the canonical top-level params running `lower prog`
-
-`paramsFor prog accounts gas` is the `CallParams` that runs `lower prog` as a top-level code
-call over `accounts` at gas `gas`, with the self/caller/origin pinned to `selfAddr` (the
-storage lens `observe`/`Corr` read). It is the generic analogue of `WorkedCall.wcParams`, with
-the program and the world (as the `accounts` map carrying the self account's storage) free.
-`lower_conforms` is stated over an *abstract* `p : CallParams` with `EntersAsCode p fr₀`; the
-canonical instantiation is `p := paramsFor …`, whose `EntersAsCode` is `paramsFor_entersAsCode`
-(`beginCall_code`, the entry frame is `codeFrame (paramsFor …) (lower prog)`). The IR world
-`w₀` is the self account's storage lens through `selfStorage`/`storageAt` (the `StorageAgree`
-clause of the carried entry `Corr`), so it is determined by `accounts` rather than threaded
-separately. -/
-
-/-- **The canonical top-level params for `lower prog`.** Runs `lower prog` as a `.Code` call
-over `accounts` at gas `gas`, self = caller = origin = recipient = `selfAddr`. The generic
-analogue of `WorkedCall.wcParams`. -/
-def paramsFor (prog : Program) (selfAddr : AccountAddress) (accounts : AccountMap)
-    (gas : UInt64) : CallParams :=
-  { blobVersionedHashes := [], createdAccounts := ∅, genesisBlockHeader := default,
-    blocks := #[], accounts := accounts, originalAccounts := ∅, substate := default,
-    caller := selfAddr, origin := selfAddr, recipient := selfAddr,
-    codeSource := .Code (lower prog), gas := gas, gasPrice := 0, value := 0,
-    apparentValue := 0, calldata := .empty, depth := 0, blockHeader := default,
-    chainId := 0, canModifyState := true }
-
-/-- **`paramsFor` enters as code.** `beginCall (paramsFor …)` descends into
-`codeFrame (paramsFor …) (lower prog)` — the entry frame `lower_conforms`'s `hbegin` consumes
-when instantiated at `p := paramsFor …`. -/
-theorem paramsFor_entersAsCode (prog : Program) (selfAddr : AccountAddress)
-    (accounts : AccountMap) (gas : UInt64) :
-    EntersAsCode (paramsFor prog selfAddr accounts gas)
-      (codeFrame (paramsFor prog selfAddr accounts gas) (lower prog)) :=
-  beginCall_code (paramsFor prog selfAddr accounts gas) (lower prog) rfl
-
 /-! ## `entry_corr` — the entry correspondence builder (the leading-JUMPDEST step)
 
 `sim_cfg` is seeded at `Corr prog … { locals := fun _ => none, world := w₀ } fr₀ prog.entry 0`
@@ -1133,9 +1056,6 @@ theorem codeFrame_stack (p : CallParams) (code : ByteArray) :
 
 theorem codeFrame_code (p : CallParams) (code : ByteArray) :
     (codeFrame p code).exec.executionEnv.code = code := rfl
-
-theorem codeFrame_addr (p : CallParams) (code : ByteArray) :
-    (codeFrame p code).exec.executionEnv.address = p.recipient := rfl
 
 theorem codeFrame_canMod (p : CallParams) (code : ByteArray) :
     (codeFrame p code).exec.executionEnv.canModifyState = p.canModifyState := rfl
@@ -1247,7 +1167,7 @@ folded into the spine via `sim_call_stmt` (Route B). -/
 /-- **`lower_conforms` (general over calls, world channel — under the realisability contract).**
 For a program `prog`, initial world `w₀`, self address `self`, observable IR run `O` and run log
 `log`: if the recording run `runWithLog p (seedFuel p.gas)` over the top-level params `p`
-(canonically `paramsFor prog self accounts gas`) succeeds with `log`, where `p` is a top-level
+succeeds with `log`, where `p` is a top-level
 `.Code (lower prog)` modifiable call (`hp`/`hmod`), the entry block is block 0 and present
 (`hentry0`/`hbentry`/`hbound`), the genuine entry-frame realisability ties hold
 (`hstore`/`hsload`/`hgasr`/`hgasj`), the per-block simulations (`hstmts`/`hterm`) hold, and the
@@ -1264,8 +1184,8 @@ theorem lower_conforms {prog : Program} {w₀ : V2.World} {self : AccountAddress
     {sloadChg : Tmp → ℕ} {obs : Word}
     -- the recording run succeeded over the lowered program at the seed fuel:
     (hwl : runWithLog p (seedFuel p.gas) = some log)
-    -- the lowered program is entered as a top-level `.Code (lower prog)` call (the canonical
-    -- instantiation is `p := paramsFor prog self accounts gas`); `p` may modify state:
+    -- the lowered program is entered as a top-level `.Code (lower prog)` call; `p` may modify
+    -- state:
     (hp : p.codeSource = .Code (lower prog))
     (hmod : p.canModifyState = true)
     -- the entry block is block 0 (its leading `JUMPDEST` is at byte 0 = the entry frame's pc),
@@ -1567,9 +1487,7 @@ end Lir
 #print axioms Lir.sim_cfg
 #print axioms Lir.lower_conforms
 #print axioms Lir.lower_conforms_wf
-#print axioms Lir.paramsFor_entersAsCode
 #print axioms Lir.entry_corr
-#print axioms Lir.simStmtStep_sstore
 #print axioms Lir.simStmtStep_call
 #print axioms Lir.simStmtStep_block
 #print axioms Lir.simTermStep_stop

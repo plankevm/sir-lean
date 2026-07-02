@@ -1,5 +1,7 @@
 # Track C — local plan (High-level IR → EVM bytecode, lowering preserved)
 
+> **STATUS BANNER (2026-07-02).** For the CURRENT state read, in order: `docs/audit-2026-07-02.md` (adversarial audit), `docs/remediation-plan-2026-07-02.md` (the fix plan), `docs/gas-decision.md` (gas settled as a log-fed exact-equality oracle). Two corrections that override the dated log below: (1) the current headline is the **CONDITIONAL** cyclic conformance theorem `lower_conforms_cyclic_assembled` — it *supplies* the per-block `StmtTies`/`TermTies` ties and `hcall` as hypotheses; the realisability closure (remediation Phase 3) is pending. (2) Gas became a **log-fed exact-equality oracle** and the gas-monotonicity law was **dropped** (gas-decision.md); gas introspection is NOT a delivered first-class reasoning feature. **The dated progress log below is HISTORICAL** — it records the v1 `wc_preserves` and v2 monotone-oracle iterations that the audit/gas-decision have since superseded.
+
 Worktree: `../evm-semantics-wt/ir-lowering` · Branch: `exp005-ir` · Base: `exp003-fuel-layer-cleanup`
 Master index: repo-root `currentplan.md`.
 
@@ -7,8 +9,17 @@ Master index: repo-root `currentplan.md`.
 Define an *interesting* high-level IR, lower it to EVM bytecode, and prove the
 lowering preserves semantics — reusing exp003's reasoning layer (`Runs` + boundary
 bridges). The IR's job is to exercise the three primitives we actually need:
-**storage arithmetic, external calls, and branching**. Branching is what makes
-**gas introspection** reasoning meaningful (a `GAS`-dependent branch).
+**storage arithmetic, external calls, and branching**.
+
+> **Correction (gas-decision.md, 2026-07-02).** This section originally framed a
+> `GAS`-dependent branch as "the headline reason the IR needs gas introspection",
+> with a gas-monotonicity law as the intended payload. **That framing is superseded.**
+> Per `docs/gas-decision.md`, gas became a **log-fed exact-equality oracle** (the
+> recorder captures the machine `GAS` output and it is fed into the IR oracle, then
+> proved equal — handled exactly like an external call), and the gas-monotonicity law
+> was **dropped as proved-but-unused**. Gas introspection is therefore NOT a delivered
+> first-class reasoning feature. The current headline is the **conditional cyclic
+> conformance theorem** `lower_conforms_cyclic_assembled` (see `docs/audit-2026-07-02.md`).
 
 ## Starting material
 - exp002 `experiments/002_ssa_cfg/SirLean/` — an existing SSA/CFG IR

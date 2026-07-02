@@ -5,6 +5,30 @@ Full chronological record: `currentplan.md` (orchestration log). This is your re
 
 ---
 
+## CURRENT STATUS (2026-07-02) — supersedes the 2026-06-23 snapshot below
+
+The overnight snapshot below is **stale**. What has changed since:
+
+- **The gas-monotonicity law is DROPPED.** The v2 "monotone gas oracle" (presented below as an
+  achievement — `Runs.gasAvailable_le`, `lower_preserves_obs_mono`, `realisedGas_monotone`,
+  `GasRealises.monotoneGas`) is **proved-but-unused** and is being removed. Gas is now just a
+  **log-fed exact-equality oracle** (the recorder captures the machine `GAS` output and it is fed
+  into the IR oracle, then proved equal — handled exactly like an external call). See
+  `experiments/005_ir_lowering/docs/gas-decision.md`.
+- **The current Track C headline is the CONDITIONAL cyclic conformance theorem**
+  `lower_conforms_cyclic_assembled` (a general, arbitrary-cyclic-CFG, axiom-clean world-conformance
+  theorem). It is conditional: it *supplies* the per-block `StmtTies`/`TermTies` ties + `hcall` as
+  hypotheses (ties are INPUTS, not outputs) and has no concrete end-to-end instantiation. Track C is
+  no longer "blocked on the returndata decision".
+- **Next milestone: the realisability closure** — build the ties for `lower prog` from `runWithLog`
+  and add one concrete instantiation, making the headline unconditional. This is **Phase 3 of
+  `experiments/005_ir_lowering/docs/remediation-plan-2026-07-02.md`**. Full current picture:
+  `experiments/005_ir_lowering/docs/audit-2026-07-02.md`.
+
+---
+
+--- historical (2026-06-23) ---
+
 ## TL;DR — what happened overnight
 
 Both proof/prototype tracks ran to clean, verified stopping points; **both are now blocked on

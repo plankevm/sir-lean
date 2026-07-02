@@ -572,7 +572,7 @@ Route-B tail* reaches `endFr` in **full correspondence** `Corr prog sloadChg obs
 lands on the next statement (M1), and `memAgree` ties the bound call-result slot's memory to
 `st'.locals`. -/
 theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st st' : V2.IRState} {T : Trace} {cs : CallSpec} {calleeW gasFwdW : Word}
+    {st st' : V2.IRState} {T : Trace} {cs : CallSpec}
     {L : Label} {b : Block} {pc : Nat} {argsLen : Nat}
     {fr callFr resumeFr : Frame} {result : Evm.CallResult} {pd : Evm.PendingCall}
     {self : AccountAddress}
@@ -590,12 +590,9 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     (hcallmem : callFr.exec.toMachineState.memory = fr.exec.toMachineState.memory)
     (hcallactive : fr.exec.toMachineState.activeWords.toNat
       ≤ callFr.exec.toMachineState.activeWords.toNat)
-    (_hself : self = fr.exec.executionEnv.address)
     -- the returning external CALL and the realised-oracle IR step:
     (hcall : CallReturns callFr resumeFr)
     (hresume : resumeFr = Evm.resumeAfterCall result pd)
-    (_hcallee : st.locals cs.callee = some calleeW)
-    (_hgasfwd : st.locals cs.gasFwd = some gasFwdW)
     (hstep : EvalStmt prog (evmV2CallOracle result pd self) st T (.call cs) st' T)
     -- realised-call frame pins (resumeAfterCall keeps the caller's executionEnv; the caller
     -- is our lowered top-level frame — honest properties of the realised returning call):

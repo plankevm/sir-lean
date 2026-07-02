@@ -255,20 +255,6 @@ post-frame's code/pc/stack/gas/addr by `simp`. -/
     (popFrame fr rest).exec.gasAvailable
       = fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase := rfl
 
-/-- **`Stmt.call` (fire-and-forget) POP simulation.** A frame decoding to `POP`
-with `v :: rest` runs one step to `popFrame fr rest`, discarding the top operand
-`v` (the CALL success flag, for `resultTmp = none`) and leaving `rest` — `Gbase`
-charged, pc + 1. Mirrors `sim_sload`; the post-stack `= rest` companion is the
-shape the call-tail re-establishes (`M5`). -/
-theorem sim_pop (fr : Frame) (v : Word) (rest : Stack Word)
-    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .POP, .none))
-    (hstk : fr.exec.stack = v :: rest)
-    (hsz : fr.exec.stack.size ≤ 1024)
-    (hgas : GasConstants.Gbase ≤ fr.exec.gasAvailable.toNat) :
-    Runs fr (popFrame fr rest)
-      ∧ (popFrame fr rest).exec.stack = rest := by
-  exact ⟨runs_pop fr v rest hdec hstk hsz hgas, rfl⟩
-
 /-! ## MSTORE / MLOAD simulation (the memory value channel)
 
 The memory bricks Track C's value channel (`docs/calls-value-channel-plan.md`)
@@ -343,43 +329,6 @@ theorem halt_ret (fr : Frame) (rest : Stack Word)
       (fr.exec.memory.readWithPadding (0 : Word).toNat (0 : Word).toNat)) :=
   stepFrame_return_empty fr rest hdec hstk hsz
 
-/-! ## Terminator control-flow steps (JUMP / branch)
-
-`Term.jump` and `Term.branch` lower to `PUSH4 dest; JUMP` / `… JUMPI …`. The push of
-the destination is a `runs_push`; the jump itself the `runs_jump` / `runs_branch`
-rule. These wrappers expose the control-flow `Runs` step keyed on the resolved
-destination, ready to thread into the engine. -/
-
-/-- **`Term.jump` simulation.** A frame decoding to `JUMP` with `dest :: rest`,
-`dest` resolving to a valid target `new_pc`, runs one step to `jumpFrame fr Gmid
-new_pc rest` (pc set to `new_pc`). -/
-theorem sim_jump (fr : Frame) (dest : Word) (new_pc : UInt32) (rest : Stack Word)
-    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMP, .none))
-    (hstk : fr.exec.stack = dest :: rest)
-    (hsz : fr.exec.stack.size ≤ 1024)
-    (hgas : GasConstants.Gmid ≤ fr.exec.gasAvailable.toNat)
-    (hdest : fr.get_dest dest = some new_pc) :
-    Runs fr (jumpFrame fr GasConstants.Gmid new_pc rest)
-      ∧ (jumpFrame fr GasConstants.Gmid new_pc rest).exec.pc = new_pc := by
-  exact ⟨runs_jump fr dest new_pc rest hdec hstk hsz hgas hdest, rfl⟩
-
-/-- **`Term.branch` simulation.** A frame decoding to `JUMPI` with
-`dest :: cond :: rest`, given the `Runs` continuation for whichever arm the
-condition selects, composes into one `Runs fr fr'` for the whole branch — exactly
-`runs_branch` (the CFG combinator). This is the brick the IR `branch` threads,
-case-splitting on the runtime `cond`. -/
-theorem sim_branch {fr fr' : Frame} {dest cond : Word} {rest : Stack Word}
-    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .JUMPI, .none))
-    (hstk : fr.exec.stack = dest :: cond :: rest)
-    (hsz : fr.exec.stack.size ≤ 1024)
-    (hgas : GasConstants.Ghigh ≤ fr.exec.gasAvailable.toNat)
-    (branch :
-      (∃ new_pc, cond ≠ 0 ∧ fr.get_dest dest = some new_pc
-        ∧ Runs (jumpFrame fr GasConstants.Ghigh new_pc rest) fr')
-      ∨ (cond = 0 ∧ Runs (jumpiFallthroughFrame fr rest) fr')) :
-    Runs fr fr' :=
-  runs_branch hdec hstk hsz hgas branch
-
 /-! ## `Stmt.call` simulation (the `Runs.call` node)
 
 A `Stmt.call` lowers to seven CALL-arg pushes then `CALL`. Under lowering it is a
@@ -442,46 +391,6 @@ theorem call_reflects_lowered {callFr resumeFr : Frame}
   obtain ⟨cp, pending, child, childRes, _hstep, _henters, _hdrive, hresume⟩ := hcall
   subst hresume
   exact ⟨childRes.toCallResult, pending, rfl, fun _ _ => rfl, rfl, rfl⟩
-
-/-- **The IR call-transformer instantiation.** Threading the EVM oracle's call
-effect through `IRState.applyCall` (storage ← post-call lens, `callResult` ←
-success word) lands exactly on the resumed frame's observables: under the projected
-`CallReturns`, the post-`applyCall` IR state agrees with `resumeFr`'s storage (at
-the self address, the `M3` lens) and the `callResult` slot is exactly exp003's CALL
-flag `x` (`callSuccessFlag`) — the dynamic, non-recomputable value, now first-class
-IR state. The `resultTmp` binding is the downstream `IRState.bindCallResult` step
-(`bindCallResult_reflects_lowered`). -/
-theorem applyCall_reflects_lowered {callFr resumeFr : Frame}
-    (st : IRState) (self : AccountAddress)
-    (hcall : CallReturns callFr resumeFr) :
-    ∃ result pd, resumeFr = resumeAfterCall result pd
-      ∧ (st.applyCall evmCallOracle result pd self).storage
-          = (fun key => storageAt resumeFr self key)
-      ∧ (st.applyCall evmCallOracle result pd self).callResult
-          = some (callSuccessFlag result pd) := by
-  obtain ⟨cp, pending, child, childRes, _hstep, _henters, _hdrive, hresume⟩ := hcall
-  subst hresume
-  exact ⟨childRes.toCallResult, pending, rfl, rfl, rfl⟩
-
-/-- **The `resultTmp` binding reads the success flag.** Composing the two steps —
-`applyCall` writes the slot, `bindCallResult` reads it into `locals` — the call's
-`resultTmp` ends up bound to exactly exp003's CALL flag `x` (`callSuccessFlag`),
-under the projected `CallReturns`. This closes the `resultTmp` story: a later use of
-`resultTmp` is now an ordinary `Expr.tmp`/`locals` read (recompute-on-use sees a
-bound local), never a recomputation of the dynamic flag. `M5 stack_nil` is untouched
-— the flag travelled through the `callResult` slot, not the IR-side stack. -/
-theorem bindCallResult_reflects_lowered {callFr resumeFr : Frame}
-    (st : IRState) (self : AccountAddress) (t : Tmp)
-    (hcall : CallReturns callFr resumeFr) :
-    ∃ result pd, resumeFr = resumeAfterCall result pd
-      ∧ ((st.applyCall evmCallOracle result pd self).bindCallResult (some t)).locals t
-          = some (callSuccessFlag result pd) := by
-  obtain ⟨cp, pending, child, childRes, _hstep, _henters, _hdrive, hresume⟩ := hcall
-  subst hresume
-  refine ⟨childRes.toCallResult, pending, rfl, ?_⟩
-  show (IRState.setLocal _ t (callSuccessFlag childRes.toCallResult pending)).locals t = _
-  unfold IRState.setLocal
-  simp
 
 /-! ## Top-level preservation discharge (`lower_preserves`, the bridge half)
 

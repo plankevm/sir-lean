@@ -3,6 +3,8 @@
 *Definitive dependency-closure report for `Lir.V2.lower_conforms_cyclic_assembled`.*
 *Synthesized from 9 cluster maps; every node carries `file:line` where known. All paths are relative to `experiments/005_ir_lowering/` unless prefixed `003_bytecode_layer/` or `EVMLean/`.*
 
+> **Read alongside:** `docs/audit-2026-07-02.md` (honesty/quality audit), `docs/remediation-plan-2026-07-02.md` (the fix plan), and `docs/gas-decision.md` (gas is now a log-fed exact-equality oracle; the monotonicity law is dropped). Two facts below are qualified by those docs: (1) the headline is **CONDITIONAL** (see §1), and (2) the gas channel is being reduced to an opaque log-fed oracle (see §1 / §2).
+
 ---
 
 ## 1. Headline & conclusion
@@ -24,6 +26,10 @@ This is the cyclic IR→EVM conformance headline. It states that the **bytecode 
 That is: there exists an IR observable `O` such that (a) the lowered bytecode, run from the entry code-frame, `Runs` to a frame `last` that cleanly halts, and the **observed world of that halt equals `O.world`**; and (b) `O` is genuinely produced by an IR `RunFrom` at `prog.entry` under the call oracle `o`. The headline both *matches the world* and *constructs the IR run* — it does not assume the IR run as a hypothesis (contrast §4).
 
 **Build status (already verified):** green + axiom-clean. `TieDischarge.lean:5027` carries `#print axioms Lir.V2.lower_conforms_cyclic_assembled`, and every `#print axioms` guard across the closure (`TieDischarge.lean:5004-5027`, plus the guards in `Acyclic.lean`, `IRRun.lean`, `CleanHalt.lean`, `LowerDecode.lean:585,1053`, `Modellable.lean`) asserts dependence only on the three standard Lean axioms **`[propext, Classical.choice, Quot.sound]`**. No `sorry`, no `native_decide`, no project-introduced axiom anywhere in the closure.
+
+> **⚠ CONDITIONAL headline (audit-2026-07-02.md §1/§3).** `lower_conforms_cyclic_assembled` (`TieDischarge.lean:4798`) **supplies** the per-block runtime ties `hstmtties : ∀ L b, StmtTies …` and `htermties : ∀ L b, TermTies …` (:4813/:4815) **and** `hcall : CallPreservesSelf` (:4804) **as hypotheses**. Nothing in the default build discharges these from an actual run of `lower prog` (from the recorder `runWithLog`), and there is **no concrete end-to-end instantiation** of the headline on a real `lower prog`. So the theorem currently reads: *"IF the lowering realises the per-cursor ties (IR gas = machine gas, SSTORE realises, CALL realises) AND self-presence is preserved, THEN the world conforms."* The runtime ties are **INPUTS, not outputs.** The **realisability closure** that would make the headline unconditional (build `hstmtties`/`htermties` for `lower prog` from `runWithLog`, plus one concrete instantiation) is planned as **Phase 3 of `docs/remediation-plan-2026-07-02.md`** and is the main thing still missing.
+
+> **⚠ Gas channel being reduced to an opaque oracle (gas-decision.md).** Per the settled gas decision, gas is handled exactly like an external call: a **log-fed exact-equality oracle** — the recorder (`runWithLog`) captures the machine's `GAS` output and it is fed into the IR oracle, then proved equal. Gas introspection is **not** a delivered first-class reasoning feature. The gas-monotonicity law (`Trace.gasMonotone` / `MonotoneGas` in `Law.lean`, `realisedGas_monotone` in `RunLog.lean`, `GasRealises.monotoneGas` in `Oracle.lean`, `lower_preserves_obs_mono` in `Mono.lean`) is **proved-but-unused and is being removed** (`Mono.lean`/`Oracle.lean` deleted, `Law.lean` narrowed) — see gas-decision.md §2 and remediation-plan Phase 2. The surviving gas guarantee is the per-cursor **exact-equality** `StmtTies.gas` conjunct only.
 
 ---
 
@@ -83,6 +89,8 @@ The closure decomposes into six strata. Nodes are classified by the `kind` field
 | `StmtTies.assign / .sload / .gas / .sstore / .call` | `LowerConforms.lean:1355,1364,1387,1404,1415` | runtime-tie (call = oracle edge) |
 | `TermTies` | `LowerConforms.lean:1422` | runtime-tie (6 conjuncts) |
 | `TermTies.succ / .stop / .ret / .jump / .branch` | `LowerConforms.lean:1424,1427,1433,1458,1472` | structural / scope-premise / runtime-tie |
+
+> **Note (conditional / gas).** `StmtTies`/`TermTies` are **supplied as hypotheses** by the headline (§1 caveat) — the realisability closure that would build them from `runWithLog` is remediation-plan Phase 3. The `StmtTies.gas` conjunct (:1387/:1398) is now an **exact-equality log-fed oracle tie** (`ob = ofUInt64(fr.gas − Gbase)`), NOT a monotonicity property; the gas-monotonicity nodes (`Trace.gasMonotone`/`MonotoneGas`/`realisedGas_monotone`/`GasRealises.monotoneGas`/`lower_preserves_obs_mono`) are being removed per `gas-decision.md`.
 | `simStmtStep_block` | `LowerConforms.lean:441` | builder: `WellFormedLowered` + `StmtTies` ⇒ `SimStmtStep` |
 | `simTermStep_block` | `LowerConforms.lean:883` | builder: `WellFormedLowered` + `TermTies` ⇒ `SimTermStep` |
 | `SimStmtStep` | `SimStmts.lean:66` | per-statement simulation predicate |

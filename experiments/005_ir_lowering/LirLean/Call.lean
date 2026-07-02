@@ -45,8 +45,7 @@ an ordinary `Expr.tmp` read. This **keeps `Match`'s `M5 stack_nil`**: the slot i
 pure IR state, and the lowered CALL's physical flag-on-stack is bridged by the
 `successWord` reflexivity (`call_reflects_lowered`), not threaded through `Match`.
 The reflexivity headline reflects all three effects (post-storage, restored gas, and
-the success word's value); `applyCall_reflects_lowered` additionally pins the
-`callResult` slot to exp003's `x`. This matches the gas oracle's altitude: a clean
+the success word's value). This matches the gas oracle's altitude: a clean
 abstraction + a reflexivity equation.
 -/
 

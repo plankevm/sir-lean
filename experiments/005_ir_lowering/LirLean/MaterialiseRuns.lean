@@ -17,7 +17,7 @@ constructor-for-constructor; the leaf/recursion steps are the `Match.lean` brick
 `sim_imm` / `sim_add` / `sim_lt` / `sim_sload` / `sim_gas`; the `.tmp t` recursion
 consumes **B3** (`DefsSound`) to equate the recomputed value with `st.locals t`; the
 whole-expression gas contract is discharged through **B2** (`MaterialiseGasCharge` +
-`materialiseGasCharge_binop` / `materialiseGasCharge_sload` / `materialiseGasCharge_gas`).
+`materialiseGasCharge_binop`).
 The two non-pure leaves `.sload` / `.gas` are **spilled** (Phase B/C): a bare `.gas` / `.sload`
 is never materialised (uses go via `.slot`/MLOAD; the def-site stash is run by
 `sim_assign_gas`/`sim_assign_sload`), so those arms are **unreachable** here — discharged by

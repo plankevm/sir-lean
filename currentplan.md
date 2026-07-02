@@ -189,6 +189,16 @@ whichever interface, ideally the shared one.
 - [ ] **B4** Expose an observables-only, fuel/frame-free semantics surface for IRs.
 
 ### Track C — IR + lowering + preservation  (worktree `ir-lowering`)
+> **UPDATE (2026-07-02).** Track C evolved well past the v1 `wc_preserves` "hypothesis-free"
+> milestone recorded below. The current headline is `lower_conforms_cyclic_assembled` — a
+> general (arbitrary cyclic CFG) conformance theorem that is **CONDITIONAL**: it *supplies* the
+> per-block `StmtTies`/`TermTies` runtime ties and `hcall` as hypotheses, with **no end-to-end
+> instantiation**; the realisability closure is pending. Gas is now a **log-fed exact-equality
+> oracle** and the gas-monotonicity law was **dropped**. So the "DONE / hypothesis-free" / v2
+> monotone-oracle claims in the C rows and orchestration log below are HISTORICAL. See
+> `experiments/005_ir_lowering/docs/audit-2026-07-02.md`,
+> `experiments/005_ir_lowering/docs/remediation-plan-2026-07-02.md`, and
+> `experiments/005_ir_lowering/docs/gas-decision.md`.
 - [x] **C1** DONE (`exp005-ir` @ `505c83b`, green 1105 jobs). Fresh `LirLean` IR
   (NOT extending `SirLean`: UInt32, no CALL, no gas, dead SSA weight). First-class
   `sload/sstore/add/lt`, `Stmt.call`, `Term.branch`, `Expr.gas`. `docs/ir-design.md`

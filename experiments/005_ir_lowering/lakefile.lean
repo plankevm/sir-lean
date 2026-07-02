@@ -16,9 +16,10 @@ package «ir_lowering» where
 @[default_target]
 lean_lib «LirLean» where
   -- Root-based target (NOT the submodule glob): only modules transitively imported by the
-  -- `LirLean` root build. This EXCLUDES the byte-coupled *leaf examples* `LirLean.Decode`,
-  -- `LirLean.WorkedCall`, `LirLean.V2.WorkedCallParity` — superseded worked examples whose byte
-  -- layout is stale under the Phase-C sload spill (re-derivation deferred). The four headlines
+  -- `LirLean` root build. The byte-coupled *leaf examples* `Decode`, `WorkedCall`,
+  -- `WorkedCallParity` — superseded worked examples whose byte layout is stale under the Phase-C
+  -- sload spill (re-derivation deferred) — have been ARCHIVED under `_attic/` (no longer in-tree
+  -- as `LirLean` modules). The four headlines
   -- (`lower_conforms`/`lower_conforms_acyclic_cfg`/`lower_conforms_cyclic`/`_cyclic'`) and the
   -- whole spine remain in the cone and built. See docs/uniform-spill-alloc-plan.md (Phase C).
   roots := #[`LirLean]
