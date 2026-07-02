@@ -1,5 +1,7 @@
 import LirLean.V2.CallRealises
-import LirLean.V2.Oracle
+-- NOTE: `BytecodeLayer.Hoare.GasMonotone` is a LIVE import even with the gas-monotonicity
+-- law deleted — `DriveSim.lean` uses `Runs.gasAvailable_le` in code, and this import is the
+-- only path bringing that module into DriveSim's cone.
 import BytecodeLayer.Hoare.GasMonotone
 
 /-!
@@ -14,8 +16,7 @@ interpreter that runs the bytecode AND records the introspection points** — so
 realisability is *constructive* (a function), not a `Prop` relation. `Prop` is
 proof-irrelevant, so it cannot be eliminated into `Type` (`realisedGas : Runs →
 GasOracle` does not typecheck); the recording interpreter is `Type`, so its
-projections (`realisedGas`/`realisedCall`) are honest functions and
-`realisedGas_monotone` is the constructive realisability the regime is for.
+projections (`realisedGas`/`realisedCall`) are honest functions.
 
 ## The recording approach — a **parallel** interpreter (`driveLog`)
 
@@ -26,7 +27,7 @@ branch at a time, threading a `RunLog` accumulator:
 
 * on a `GAS` step (`stepFrame current = .next exec'` with the op at `current`
   decoding to `.Smsf .GAS`) it records `UInt256.ofUInt64 exec'.gasAvailable` — the
-  *post-charge* gas the `GAS` opcode reports, exactly `Oracle.gasReadOf` of the
+  *post-charge* gas the `GAS` opcode reports, exactly `gasReadOf` of the
   post-step frame;
 * on a returning external CALL (a `.inr (.call childRes)` result delivered to a
   suspended `.call pending`) it records the `(childRes, pending)` pair as a
@@ -36,12 +37,7 @@ branch at a time, threading a `RunLog` accumulator:
 
 Because `driveLog` mirrors `drive` branch-for-branch, **result adequacy** is
 `rfl`-driven by induction on fuel: `(driveLog … acc).map (·.1) = drive …`
-(`driveLog_drive`). And the recorded gas list is monotone non-increasing because
-each recorded read is the machine's post-charge `gasAvailable`, and that quantity
-is non-increasing across the *whole* run — the **same** `totalGas` descent the
-gas-conservation lemma `drive_gasRemaining_le_totalGas` is built on, here threaded
-alongside the log (`driveLog_gas_inv`). This is the constructive
-`realisedGas_monotone`.
+(`driveLog_drive`).
 
 Bytecode-coupled (references `Frame`/`drive`/`CallResult`/`evmV2CallOracle`), so it
 lives here in the bridge layer, never in the frame-free `Machine.lean`/`Law.lean`.
@@ -54,6 +50,24 @@ open BytecodeLayer
 open BytecodeLayer.System
 open BytecodeLayer.Interpreter
 open BytecodeLayer.Hoare
+
+-- RELOCATED from V2/Oracle.lean (Phase 2): the two defs the §7 tie-discharge layer
+-- (`V2/TieDischarge.lean` — `GasLogAligned`, `FramesRun.snoc`/`.snoc_seed`,
+-- `gasRecord_eq_gasReadOf`, `gasReadOf_gasFrame_eq_obs`) still consumes. The rest of
+-- the gas-law interface (`GasRealises`, `.monotoneGas`, the guard theorems) was
+-- deleted with the gas-monotonicity law (docs/gas-decision.md).
+
+/-- The `Word` a `GAS` opcode at (post-charge) frame `fr` reports: `ofUInt64` of the
+frame's `gasAvailable`. The realisability bridge between a gas read and a frame. -/
+def gasReadOf (fr : Frame) : Word := UInt256.ofUInt64 fr.exec.gasAvailable
+
+/-- The GAS-frames are threaded by `Runs` in program order: each is reachable from the
+previous (so the machine genuinely ran between the two reads). A `Runs`-chain over the
+witness list. -/
+def FramesRun : List Frame → Prop
+  | [] => True
+  | [_] => True
+  | a :: b :: rest => Runs a b ∧ FramesRun (b :: rest)
 
 /-! ## The per-call record
 
@@ -179,7 +193,7 @@ def driveLog (fuel : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult)
               -- top-level frame (`stack = []`). A descended CALL'd contract's *internal*
               -- GAS reads are not the IR program's observable gas sequence — the IR is a
               -- single contract, its `Expr.gas` reads are its own (top-level) frame's, and
-              -- the realisability witness (`Oracle.GasRealises`, `Runs.gasAvailable_le`)
+              -- the realisability witness (`Runs.gasAvailable_le`)
               -- threads exactly the top-level frame across `CallReturns` (children
               -- black-boxed). At `stack = []` the recorded reads are then non-increasing.
               -- Symmetrically, record an SLOAD warmth-charge iff the op is `SLOAD` and this
@@ -376,238 +390,6 @@ theorem driveLog_drive :
         dsimp only [h]
         exact ih (.create pending :: stack) (.inl (beginCreate params)) _ _ _
 
-/-! ## Gas monotonicity: the recorded reads are non-increasing (`realisedGas_monotone`)
-
-This is the constructive realisability the whole regime is for. The recorded gas
-reads are monotone NON-increasing on `.toNat` because **each recorded read is the
-machine's post-charge `gasAvailable`**, and that quantity never increases across the
-*whole* run — the **same** `totalGas` descent the gas-conservation lemma
-`drive_gasRemaining_le_totalGas` is built on (`StepsTo.gas_le` per step, the
-`gasFundsDescent_conj*` descents, `resumeAfterCall_gas_le`/`endFrame_gasRemaining_le`
-deliveries — including across `.call` nodes).
-
-We prove it as a **`Pairwise`** invariant (stronger than `IsChain`, and append-friendly:
-`pairwise_append`): every earlier read relates to every later one, threaded with the
-upper bound `totalGas stack state` (every recorded read is `≥` the current total gas,
-since reads only ever decrease). `Pairwise.isChain` then yields `MonotoneGas`. The
-branch structure mirrors `drive_gasRemaining_le_totalGas` exactly; each per-transition
-`totalGas`-descent fact is reused verbatim. -/
-
-/-- The non-increasing relation on gas words (`.toNat` order), the body of
-`MonotoneGas`/`Trace.gasMonotone`. -/
-abbrev geToNat (earlier later : Word) : Prop := later.toNat ≤ earlier.toNat
-
-/-- Re-establish the lower-bound clause under a `totalGas` descent: if every read is
-`≥` the old bound `B` and the new bound `B' ≤ B`, then every read is `≥ B'`. The glue
-between adjacent transitions (the accumulator is unchanged, only the bound drops). -/
-theorem bound_mono {gasAcc : List Word} {B B' : ℕ} (hle : B' ≤ B)
-    (hb : ∀ x ∈ gasAcc, B ≤ x.toNat) : ∀ x ∈ gasAcc, B' ≤ x.toNat :=
-  fun x hx => Nat.le_trans hle (hb x hx)
-
-/-- **The gas invariant for `driveLog`.** If `driveLog` succeeds with output gas list
-`gasOut`, and the accumulator `gasAcc` is already `Pairwise`-non-increasing with every
-entry `≥` the current `totalGas`, then `gasOut` is `Pairwise`-non-increasing with every
-entry `≥` the final result's `gasRemaining`. The two invariant clauses survive every
-transition: the bound drops monotonically by the **same** per-transition `totalGas`
-descents `drive_gasRemaining_le_totalGas` uses (`StepsTo.gas_le`, `endFrame_gasRemaining_le`,
-the `gasFundsDescent_conj*` descents, `resumeAfterCall_gas_le`); and an appended GAS read
-(only at `stack = []`, where `totalGas = activeGas`) is `≤` the bound, hence `≤` every
-prior read (`pairwise_append`). Induction on fuel, mirroring `drive_gasRemaining_le_totalGas`. -/
-theorem driveLog_gas_inv :
-    ∀ (f : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult)
-      (gasAcc : List Word) (sloadAcc : List Nat) (callAcc : List CallRecord)
-      (r : FrameResult) (gasOut : List Word) (sloadsOut : List Nat) (callsOut : List CallRecord),
-      driveLog f stack state gasAcc sloadAcc callAcc = .ok (r, gasOut, sloadsOut, callsOut) →
-      gasAcc.Pairwise geToNat →
-      (∀ x ∈ gasAcc, totalGas stack state ≤ x.toNat) →
-      gasOut.Pairwise geToNat ∧ (∀ x ∈ gasOut, FrameResult.gasRemaining r ≤ x.toNat) := by
-  intro f
-  induction f with
-  | zero =>
-    intro stack state gasAcc sloadAcc callAcc r gasOut sloadsOut callsOut h _ _
-    simp [driveLog] at h
-  | succ n ih =>
-    intro stack state gasAcc sloadAcc callAcc r gasOut sloadsOut callsOut h hpair hbound
-    unfold driveLog at h
-    cases state with
-    | inr result =>
-      dsimp only at h
-      cases hstk : stack with
-      | nil =>
-        rw [hstk] at h hbound; dsimp only at h
-        -- top-level result: `gasOut = gasAcc`, `r = result`; both clauses survive
-        simp only [Except.ok.injEq, Prod.mk.injEq] at h
-        obtain ⟨hr, hg, _, _⟩ := h
-        subst hr; subst hg
-        refine ⟨hpair, fun x hx => ?_⟩
-        have := hbound x hx
-        simpa only [totalGas, activeGas, List.map_nil, List.sum_nil, Nat.add_zero] using this
-      | cons pending rest =>
-        rw [hstk] at h; rw [hstk] at hbound; dsimp only at h
-        -- delivery: `gasAcc` unchanged; the `totalGas` descent across the resume keeps
-        -- the bound (each case the corresponding `drive_gasRemaining_le_totalGas` brick).
-        cases hres : pending.resume result with
-        | ok parent =>
-          rw [hres] at h; dsimp only at h
-          -- parent gas ≤ savedGas pending + result.gasRemaining (delivery bound)
-          have hcons : activeGas (.inl parent)
-              ≤ Pending.savedGas pending + FrameResult.gasRemaining result := by
-            cases pending with
-            | call pd =>
-              simp only [Pending.resume] at hres
-              simp only [Except.ok.injEq] at hres; subst hres
-              have hb := resumeAfterCall_gas_le result.toCallResult pd
-              rw [toCallResult_gasRemaining] at hb
-              simp only [activeGas, Pending.savedGas]; omega
-            | create pd =>
-              simp only [Pending.resume] at hres
-              have hb := resumeAfterCreate_gas_le_savedGas (result := result.toCreateResult)
-                (pd := pd) hres
-              rw [toCreateResult_gasRemaining] at hb
-              simp only [activeGas, Pending.savedGas]; omega
-          have hdesc : totalGas rest (.inl parent) ≤ totalGas (pending :: rest) (.inr result) := by
-            rw [totalGas_cons]; simp only [totalGas, activeGas] at hcons ⊢; omega
-          exact ih rest (.inl parent) _ _ _ r gasOut sloadsOut callsOut h hpair (bound_mono hdesc hbound)
-        | error e =>
-          rw [hres] at h; dsimp only at h
-          -- exceptional resume: the delivered result carries gas 0
-          have hz : FrameResult.gasRemaining (endFrame pending.frame (.exception e)) = 0 := by
-            unfold endFrame; cases pending.frame.kind <;>
-              simp [FrameResult.gasRemaining, endCall, endCreate, UInt64.toNat_ofNat]
-          have hdesc : totalGas rest (.inr (endFrame pending.frame (.exception e)))
-              ≤ totalGas (pending :: rest) (.inr result) := by
-            rw [totalGas_cons]; simp only [totalGas, activeGas, hz]; omega
-          exact ih rest _ _ _ _ r gasOut sloadsOut callsOut h hpair (bound_mono hdesc hbound)
-    | inl current =>
-      dsimp only at h
-      cases hstep : stepFrame current with
-      | next exec =>
-        rw [hstep] at h; dsimp only at h
-        -- one opcode step never raises gas (`StepsTo.gas_le`); the active component drops.
-        have hle : exec.gasAvailable.toNat ≤ current.exec.gasAvailable.toNat :=
-          StepsTo.gas_le (stepsTo_of_next hstep)
-        have hdesc : totalGas stack (.inl { current with exec := exec })
-            ≤ totalGas stack (.inl current) := by
-          simp only [totalGas, activeGas]; omega
-        by_cases hg : isGasOp current && stack.isEmpty
-        · -- a recorded top-level GAS read: `stack = []`, so `totalGas = activeGas`.
-          rw [if_pos hg] at h
-          have hempty : stack = [] := by
-            simpa using (Bool.and_elim_right hg)
-          -- the appended read `r₀ = ofUInt64 exec.gasAvailable`, `r₀.toNat = exec.gasAvailable.toNat`
-          set r₀ := UInt256.ofUInt64 exec.gasAvailable with hr₀
-          have hr₀nat : r₀.toNat = exec.gasAvailable.toNat := toNat_ofUInt64 exec.gasAvailable
-          subst hempty
-          -- the new bound = activeGas of post-step frame = r₀.toNat
-          have hboundNat : totalGas [] (.inl { current with exec := exec }) = r₀.toNat := by
-            simp only [totalGas, activeGas, List.map_nil, List.sum_nil, Nat.add_zero, hr₀nat]
-          -- (P1)' the appended list is still Pairwise: new read ≤ every prior read
-          have hpair' : (gasAcc ++ [r₀]).Pairwise geToNat := by
-            rw [List.pairwise_append]
-            refine ⟨hpair, List.pairwise_singleton .., fun x hx y hy => ?_⟩
-            -- x ∈ gasAcc, y = r₀: need r₀.toNat ≤ x.toNat
-            simp only [List.mem_singleton] at hy; subst hy
-            -- x ≥ old totalGas (= current gas, stack []) ≥ exec gas = r₀.toNat
-            have hxb := hbound x hx
-            simp only [totalGas, activeGas, List.map_nil, List.sum_nil, Nat.add_zero] at hxb
-            show r₀.toNat ≤ x.toNat
-            rw [hr₀nat]; omega
-          -- (P2)' the new bound ≤ every entry of the appended list
-          have hbound' : ∀ x ∈ gasAcc ++ [r₀],
-              totalGas [] (.inl { current with exec := exec }) ≤ x.toNat := by
-            intro x hx
-            rw [List.mem_append] at hx
-            rcases hx with hx | hx
-            · exact bound_mono hdesc hbound x hx
-            · simp only [List.mem_singleton] at hx; subst hx
-              rw [hboundNat]
-          exact ih [] (.inl { current with exec := exec }) _ _ _ r gasOut sloadsOut callsOut h hpair' hbound'
-        · -- not a recorded GAS read: `gasAcc` unchanged either way (the SLOAD branch only
-          -- appends to the *sload* accumulator), bound drops by the step descent. Split the
-          -- inner SLOAD `if`; both arms leave `gasAcc` fixed, so the same `ih` closes them.
-          rw [if_neg hg] at h
-          by_cases hsl : isSloadOp current && stack.isEmpty
-          · rw [if_pos hsl] at h
-            exact ih stack (.inl { current with exec := exec }) _ _ _ r gasOut sloadsOut callsOut h hpair
-              (bound_mono hdesc hbound)
-          · rw [if_neg hsl] at h
-            exact ih stack (.inl { current with exec := exec }) _ _ _ r gasOut sloadsOut callsOut h hpair
-              (bound_mono hdesc hbound)
-      | halted halt =>
-        rw [hstep] at h; dsimp only at h
-        have hle := endFrame_gasRemaining_le hstep
-        have hdesc : totalGas stack (.inr (endFrame current halt))
-            ≤ totalGas stack (.inl current) := by
-          simp only [totalGas, activeGas]; omega
-        exact ih stack _ _ _ _ r gasOut sloadsOut callsOut h hpair (bound_mono hdesc hbound)
-      | needsCall params pending =>
-        rw [hstep] at h; dsimp only at h
-        cases hbc : beginCall params with
-        | inl child =>
-          rw [hbc] at h; dsimp only at h
-          have hdrop := gasFundsDescent_conj4 current params pending child stack hstep hbc
-          have hdesc : totalGas (.call pending :: stack) (.inl child)
-              ≤ totalGas stack (.inl current) := by
-            rw [totalGas_cons]; simp only [totalGas, activeGas, Pending.savedGas] at hdrop ⊢; omega
-          exact ih (.call pending :: stack) (.inl child) _ _ _ r gasOut sloadsOut callsOut h hpair
-            (bound_mono hdesc hbound)
-        | inr result =>
-          rw [hbc] at h; dsimp only at h
-          have hdrop := gasFundsDescent_conj5a current params pending result stack hstep hbc
-          have hdesc : totalGas (.call pending :: stack) (.inr (.call result))
-              ≤ totalGas stack (.inl current) := by
-            rw [totalGas_cons]
-            simp only [totalGas, activeGas, FrameResult.gasRemaining, Pending.savedGas] at hdrop ⊢
-            omega
-          exact ih (.call pending :: stack) (.inr (.call result)) _ _ _ r gasOut sloadsOut callsOut h hpair
-            (bound_mono hdesc hbound)
-      | needsCreate params pending =>
-        rw [hstep] at h; dsimp only at h
-        -- `beginCreate` is total: unconditional descent into `beginCreate params`.
-        have hdrop := gasFundsDescent_conj4' current params pending (beginCreate params) stack hstep rfl
-        have hdesc : totalGas (.create pending :: stack) (.inl (beginCreate params))
-            ≤ totalGas stack (.inl current) := by
-          rw [totalGas_cons]; simp only [totalGas, activeGas, Pending.savedGas] at hdrop ⊢; omega
-        exact ih (.create pending :: stack) (.inl (beginCreate params)) _ _ _ r gasOut sloadsOut callsOut h hpair
-          (bound_mono hdesc hbound)
-
-/-! ## `realisedGas_monotone` — the headline (`docs/ir-design-v3.md` §8)
-
-The constructive realisability: the realised gas oracle (a *function* — `log.gas`)
-is `MonotoneGas`, discharged from `driveLog_gas_inv` (which is, in turn, the same
-`totalGas` gas-descent the never-OutOfFuel proof needed). The empty accumulator
-trivially satisfies the invariant's two clauses, so a successful top-level
-`runWithLog` hands the whole recorded gas list as a monotone-non-increasing stream. -/
-
-/-- **`realisedGas_monotone` (`docs/ir-design-v3.md` §8).** If `runWithLog` succeeds
-with log `log`, the realised gas oracle `realisedGas log = log.gas` is `MonotoneGas`
-(monotone non-increasing on `.toNat`). Discharged from `driveLog_gas_inv` — the
-recorded reads are the run's post-charge `gasAvailable` values, which never increase
-(`StepsTo.gas_le` / the `totalGas` descents). This is constructive realisability: the
-oracle is a projection of a `Type`-valued interpreter, and its law is *proved*, not
-assumed. -/
-theorem realisedGas_monotone {params : CallParams} {fuel : ℕ} {log : RunLog}
-    (h : runWithLog params fuel = some log) : MonotoneGas (realisedGas log) := by
-  unfold runWithLog at h
-  -- the empty accumulator trivially satisfies the invariant's two clauses
-  cases hbc : beginCall params with
-  | inr result => rw [hbc] at h; simp at h
-  | inl frame =>
-    rw [hbc] at h; dsimp only at h
-    cases hdl : driveLog fuel [] (.inl frame) [] [] [] with
-    | error e => rw [hdl] at h; simp at h
-    | ok triple =>
-      obtain ⟨r, gas, sloads, calls⟩ := triple
-      rw [hdl] at h
-      simp only [Option.some.injEq] at h
-      -- `log = { observable := r, gas := gas, sloads := sloads, calls := calls }`, so `realisedGas log = gas`
-      have hgas : realisedGas log = gas := by rw [← h]; rfl
-      obtain ⟨hpair, _⟩ := driveLog_gas_inv fuel [] (.inl frame) [] [] [] r gas sloads calls hdl
-        (by simp) (by simp)
-      show (realisedGas log).IsChain geToNat
-      rw [hgas]
-      exact hpair.isChain
-
 /-! ## Adequacy: `runWithLog` agrees with the verified semantics (`drive`/`messageCall`)
 
 The recording interpreter's `observable` is exactly the value the **verified** engine
@@ -661,10 +443,8 @@ module). It therefore lives in `LirLean/V2/WorkedCallParity.lean`, built on the 
 recorder defs above (`wcRunLog`, `realisedCall`, `observe`). -/
 
 -- Build-enforced axiom-cleanliness guards: the recording interpreter's result
--- adequacy and the constructive `realisedGas_monotone` depend only on
--- `[propext, Classical.choice, Quot.sound]`.
+-- adequacy depends only on `[propext, Classical.choice, Quot.sound]`.
 #print axioms driveLog_drive
-#print axioms realisedGas_monotone
 #print axioms sloadRecord_eq_sloadCost
 #print axioms realisedCall_eq_evmV2
 #print axioms runWithLog_drive

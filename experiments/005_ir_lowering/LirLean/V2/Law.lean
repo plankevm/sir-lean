@@ -1,83 +1,28 @@
 import LirLean.V2.Machine
 
 /-!
-# LirLean v2 — the frame-free gas LAW and IR-run determinism
+# LirLean v2 — IR-run determinism
 
-This module is the **frame-free core law** layer (`docs/ir-design-v2.md` §3.4,
-`docs/ir-design-v3.md` §2, §4). It imports ONLY the IR core (`LirLean.V2.Machine`,
-hence `LirLean.IR`/`Evm`) — **no `BytecodeLayer`, no `Frame`, no `Runs`**. Everything
-here is a statement about `Trace`s and `IRRun`s alone; the realisability *witness*
-that ties these to a bytecode `Runs` lives in the IR↔bytecode bridge
-(`LirLean/V2/Realisability.lean`), never here.
+This module is the **frame-free determinism** layer (`docs/ir-design-v3.md` §4). It
+imports ONLY the IR core (`LirLean.V2.Machine`, hence `LirLean.IR`/`Evm`) — **no
+`BytecodeLayer`, no `Frame`, no `Runs`**. Everything here is a statement about
+`Trace`s and `IRRun`s alone.
 
-It carries:
+It carries **`RunFrom`/`IRRun` determinism** (§4 item 2) — same program/start/trace ⇒
+the *same* `Observable`. The prototype's `RunFrom` is acyclic-by-construction; structural
+induction closes it (`EvalStmt.det` → `RunStmts.det` → `RunFrom.det` → `IRRun.det`).
+This unlocks the `∀ O, IRRun … O → O = …` ("*the* observable") headline shape.
 
-1. **The monotonicity law** (`Trace.gasMonotone`, §3.4) and its interface name
-   `MonotoneGas` (§2) — the gas-read stream, monotone non-increasing on `.toNat`,
-   in program order. The *only* gas fact the IR semantics may assume, never any
-   per-opcode cost. Plus the pure-`GasOracle` lemmas about it (`gasMonotone_pair`) and the
-   arithmetic the IR side uses to discharge a guard under the law
-   (`lt_eq_zero_of_toNat_le`).
-
-2. **`RunFrom`/`IRRun` determinism** (§4 item 2) — same program/start/trace ⇒ the
-   *same* `Observable`. The prototype's `RunFrom` is acyclic-by-construction; structural
-   induction closes it (`EvalStmt.det` → `RunStmts.det` → `RunFrom.det` → `IRRun.det`).
-   This unlocks the `∀ O, IRRun … O → O = …` ("*the* observable") headline shape.
+The gas-monotonicity law that used to live here (`Trace.gasMonotone`/`MonotoneGas`,
+with `gasMonotone_pair`/`lt_eq_zero_of_toNat_le`) was deleted per `docs/gas-decision.md`:
+proved-but-unused — gas is a log-fed exact-equality oracle, not a law-governed stream.
 -/
 
 namespace Lir.V2
 
 open Evm
 
-/-! ## 1. The monotonicity law on the gas stream (`docs/ir-design-v2.md` §3.4)
-
-The ONE law the gas oracle carries. The stream *is* the gas-read values in program
-order (`GasOracle = List Word`; there is no wrapper to extract from), so the law is the
-chain "non-increasing on `.toNat`" stated directly over the list: each later read is `≤`
-the one before. We state `≤` on the `toNat` of the words — the robust EVM "gas remaining"
-order — which makes the discharge from the machine's `gasAvailable.toNat` descent
-immediate. -/
-
-/-- **The monotonicity law (§3.4).** The gas reads, in program order, are
-monotone non-increasing: each consecutive pair `(earlier, later)` satisfies
-`later.toNat ≤ earlier.toNat` (gas remaining only goes down). This is the *only* gas
-fact the IR semantics is allowed to assume — never any per-opcode cost. -/
-def Trace.gasMonotone (T : Trace) : Prop :=
-  T.IsChain (fun earlier later => later.toNat ≤ earlier.toNat)
-
-/-- **The one gas law (`docs/ir-design-v3.md` §2, §8).** The interface name for
-`Trace.gasMonotone`: the gas-read stream `g`, in program order, monotone non-increasing
-on `.toNat`. We alias rather than redefine so every existing fact (`gasMonotone_pair`, …)
-transfers verbatim. `Word`-valued throughout; `ℕ` appears ONLY via `.toNat`. -/
-abbrev MonotoneGas (g : GasOracle) : Prop := Trace.gasMonotone g
-
-/-- For a two-read stream the law is exactly `g2 ≤ g1` (the case the milestone uses). -/
-theorem gasMonotone_pair {g1 g2 : Word} :
-    Trace.gasMonotone [g1, g2] ↔ g2.toNat ≤ g1.toNat :=
-  -- `IsChain` on a pair is the relation
-  List.isChain_pair
-
-/-! ## 2. Using the law: `lt` of two monotone reads is `0`
-
-`UInt256.lt a b = if a < b then 1 else 0`, and `<`/`≤` on `UInt256` are the `toBitVec`
-(= `toNat`) order. So once monotonicity gives `g2.toNat ≤ g1.toNat` the "gas went up"
-guard `lt g1 g2 = (g1 < g2)` is forced to `0`. This is the sole place the law is used
-on the IR side. -/
-
-/-- `b ≤ a` (on `toNat`) forces `UInt256.lt a b = 0` — the guard `lt g1 g2` is `0` when
-`g2 ≤ g1`, i.e. the "did gas increase" test is false under monotonicity. -/
-theorem lt_eq_zero_of_toNat_le {a b : Word} (h : b.toNat ≤ a.toNat) :
-    UInt256.lt a b = 0 := by
-  have hnlt : ¬ (a < b) := by
-    intro hlt
-    -- a < b is a.toBitVec < b.toBitVec, i.e. a.toNat < b.toNat
-    have hbv : a.toBitVec.toNat < b.toBitVec.toNat := hlt
-    simp only [← UInt256.toNat_eq_toBitVec_toNat] at hbv
-    omega
-  unfold UInt256.lt UInt256.fromBool
-  rw [decide_eq_false hnlt, if_neg (by simp)]
-
-/-! ## 3. `RunFrom` determinism (`docs/ir-design-v3.md` §4 item 2)
+/-! ## `RunFrom` determinism (`docs/ir-design-v3.md` §4 item 2)
 
 The prototype's `RunFrom` is acyclic-by-construction and its statement/block accessors are
 functional, so the run is deterministic in the trace. We prove it bottom-up:
