@@ -41,6 +41,23 @@ theorem PROOFS are `sorry`d. This module is deliberately registered in the NON-D
    an ANTECEDENT, mirroring the sstore arm), and the ret arm's `∃ vw, st'.locals t = some vw`
    conclusion (same refutation — the epilogue block is stated under a `∀ vw`-antecedent
    instead, as the original's inner block already was).
+6. **NEW (independent review drill): the `defsOf`-consistency hole.** `defsOf`
+   (`Lowering.lean`) is a FIRST-find over program order while `emitStmt` keys its spill
+   stash on `defsOf t`, so a program that redefines a tmp with mixed pure/spill defs
+   (e.g. `[.assign t (.imm 1), .assign t .gas]`) emits NO GAS byte at the shadowed def yet
+   `EvalStmt.assignGas` demands a gas-stream head — refuting the flagship INSIDE its
+   hypothesis envelope (`RunDefinableG`'s gas arm is unconditionally true). The per-cursor
+   fact was already consumed by the walk (`defsSound_preserved_assignPure`'s `hself`,
+   `DefsSound.lean`) but lived only in per-lemma side conditions — a free-∀-ADJACENT
+   disease instance: a scope assumption absent from the statement's hypothesis surface.
+   Fixed statically: `WellLowered.defsCons` (`DefsConsistent`, decidable, R9-checkable).
+7. **NEW (independent review drill): `SingleCall` is syntactic but the realised oracle is
+   dynamic.** `callOracleOf` replays only the HEAD `CallRecord`, so a syntactically-single
+   call inside a loop that fires per iteration with differing child outcomes refutes
+   R3/`Conforms` at the second iteration — the loop caveat previously recorded only as a
+   docstring note, i.e. not a hypothesis. Fixed with the decidable LOG-side premise
+   `hone : log.calls.length ≤ 1` on R3/R10a and all three flagships — exactly the domain
+   on which the head-projection oracle is correct.
 
 ## The two scope seams added beyond the fleet sketch
 
@@ -211,6 +228,33 @@ structure RunDefinableG (prog : Program) : Prop where
     RunStmts prog o st T b.stmts st' T' →
     ∃ cw, st'.locals cond = some cw
 
+/-- **Static `defsOf`-cursor consistency** (header lesson 6 — the review drill's shadowing
+hole). Every def-site in the program text agrees with `defsOf`'s registration for its
+target: a pure assign registers its own RHS; a gas/sload assign and a call result register
+the spill slot `.slot (slotOf t)`.
+
+GROUND TRUTH this pins (`Lowering.lean`): `defsOf` is a **FIRST-find over program order**
+(`pairs.find?` returns the first match — NOTE its docstring says "the last assign", a
+discrepancy flagged for a Wave-4 sweep; that file is not this track's edit surface), while
+`emitStmt` keys its spill stash on `defsOf t`. A tmp redefined with mixed pure/spill defs
+(e.g. `[.assign t (.imm 1), .assign t .gas]`) therefore emits NO GAS byte at the shadowed
+def while `EvalStmt.assignGas` still demands a gas-stream head — the flagship refutation of
+header lesson 6. This field excludes exactly that mismatch (including pure/pure shadowing
+with a DIFFERENT RHS, which breaks recompute-on-use the same way); single-assignment
+programs (`exProg`) satisfy it trivially, so benign programs stay in scope. It is the
+static lift of the per-cursor `hself` side condition the DefsSound walk already consumes
+(`defsSound_preserved_assignPure`, `DefsSound.lean:269`). SUPPLIED status: static,
+decidable per program (the R9 checker's territory). -/
+def DefsConsistent (prog : Program) : Prop :=
+  ∀ (L : Label) (b : Block) (pc : Nat), blockAt prog L = some b →
+    (∀ (t : Tmp) (e : Expr), b.stmts[pc]? = some (.assign t e) →
+      defsOf prog t = some (match e with
+        | .gas => .slot (slotOf t)
+        | .sload _ => .slot (slotOf t)
+        | e' => e'))
+    ∧ (∀ (cs : CallSpec) (t : Tmp), b.stmts[pc]? = some (.call cs) → cs.resultTmp = some t →
+      defsOf prog t = some (.slot (slotOf t)))
+
 /-- **The static well-formedness bundle** (the flagship's `hwl`) — a function of the program
 text only, intended to be checker-dischargeable (R9). Folds the current headline's
 `hwfl`/`hdef`/`hentry0`/presence/offset/stack-fold hypotheses into one named structure.
@@ -223,6 +267,11 @@ structure WellLowered (prog : Program) : Prop where
   wf : Lir.WellFormedLowered prog
   /-- Gas/call-aware operand definability (replaces the unsatisfiable `RunDefinable`). -/
   defs : RunDefinableG prog
+  /-- Static `defsOf`-cursor consistency (header lesson 6): every def-site agrees with
+  `defsOf`'s first-find registration — excludes the spill-stash/shadowing mismatch that
+  refutes the flagship (`RunDefinableG` alone does NOT: its gas arm is unconditionally
+  true, which is what opened the hole). -/
+  defsCons : DefsConsistent prog
   /-- The entry block is block 0 (its leading `JUMPDEST` is byte 0 = the entry frame's pc). -/
   entry0 : prog.entry.idx = 0
   /-- Static CFG closure (entry/jump/branch presence + offset bounds). -/
@@ -245,7 +294,12 @@ targets-code residual (`V2/Modellable.lean`; NOT a lowering property — an IR c
 callee materialises a precompile address would violate it; vacuous for call-free programs).
 SUPPLIED status: the irreducible seam structure — both fields are satisfiable and
 non-vacuous, and neither is dischargeable from the program text. (`prog` is carried for
-signature stability — a future refinement scopes `callsCode` by the program's call sites.) -/
+signature stability — a future refinement scopes `callsCode` by the program's call sites.)
+NON-VACUITY GUARD: `noErase` quantifies over ALL `CallParams` (a global engine fact), so
+the flagship's whole hypothesis set is satisfiable only if the current exp003 `beginCall`
+precompile stub actually preserves account presence — R12a deliberately DOUBLES as the
+machine-check of that engine fact (its `PrecompileSeams exProg params` conjunct); a failure
+there is diagnosed as a SEAM problem with the engine stub, not an `exProg` problem. -/
 structure PrecompileSeams (prog : Program) (params : CallParams) : Prop where
   /-- Precompile no-erase (`hprec`): an immediate `.inr` result preserves account presence. -/
   noErase : ∀ (cp : CallParams) (imm : CallResult), beginCall cp = .inr imm →
@@ -258,9 +312,12 @@ at most one `Stmt.call`. FORCED by `callOracleOf` reading only the head `CallRec
 (`V2/RunLog.lean`): the function-shaped `CallOracle` cannot distinguish two dynamic calls
 with identical IR-visible inputs but different EVM outcomes. R3′ records the tracked
 generalization decision (calls as a consumed stream, mirroring the gas channel).
-NOTE (recorded, not enforced here): a syntactically-single call INSIDE A LOOP can still
-fire dynamically more than once; the R10/R11 grind must confirm the loop-free-call or
-strengthen this premise — tracked with R3′. SUPPLIED status: static, decidable. -/
+LOOP CAVEAT, CLOSED AT THE THEOREM SURFACE (header lesson 7): a syntactically-single call
+INSIDE A LOOP can still fire dynamically more than once, and the head-projection oracle is
+then wrong from the second firing on. This def stays syntactic; the DYNAMIC at-most-one
+premise is the separate decidable log-side hypothesis `hone : log.calls.length ≤ 1`
+carried by R3/R10a and the flagships (read off the run like `hclean`; satisfied by
+`exProg`, whose call sits outside the loop). SUPPLIED status: static, decidable. -/
 def SingleCall (prog : Program) : Prop :=
   (prog.blocks.toList.map (fun b =>
     (b.stmts.filter (fun s => match s with | .call _ => true | _ => false)).length)).sum ≤ 1
@@ -758,10 +815,13 @@ theorem haltNonException_of_cleanLog {prog : Lir.Program} {params : CallParams}
 CALL supplies the whole `CallRealises` bundle at the REALISED oracle: kernel from the head
 `CallRecord` (`realisedCall_eq_evmV2`, rfl-clean once the record is pinned), plumbing from
 `materialise_runs` + the `resumeAfterCall` rfl-pins + the Route-B tail (`stash_tail_runs`).
-Under `SingleCall` the head of the coupled `callSuffix` IS this cursor's call (the whole
-log records at most one). The address antecedent is what identifies `realisedCall log
-self` with `evmV2CallOracle … fr0.address`. DERIVED-status obligation (with `hseams`-style
-context available to the R10 assembly if the plumbing needs it).
+Under `SingleCall` + the DYNAMIC at-most-one premise `hone : log.calls.length ≤ 1` the
+head of the coupled `callSuffix` IS this cursor's call (the whole log records at most one
+— `hone` is what makes that true of the RUN and not just the text: without it a
+syntactically-single call in a loop fires per iteration and the head-projection oracle is
+refuted at the second firing, header lesson 7). The address antecedent is what identifies
+`realisedCall log self` with `evmV2CallOracle … fr0.address`. DERIVED-status obligation
+(with `hseams`-style context available to the R10 assembly if the plumbing needs it).
 
 **R3′ (tracked design decision, not a statement):** for multi-CALL programs the
 function-shaped `CallOracle` is wrong (two dynamic calls with identical IR-visible inputs
@@ -774,6 +834,7 @@ theorem callRealises_of_recorded {prog : Program} {sloadChg : Tmp → ℕ} {log 
     {st0 : IRState} {fr0 : Frame}
     {gS : List Word} {sS : List Nat} {cS : List CallRecord}
     (hsingle : SingleCall prog)
+    (hone : log.calls.length ≤ 1)
     (hb : blockAt prog L = some b)
     (hcur : b.stmts[pc]? = some (.call cs))
     (hcp : RecorderCoupled log fr0 gS sS cS)
@@ -957,6 +1018,7 @@ theorem stmtTies'_of_runWithLog {prog : Program} {params : CallParams} {log : Ru
     (hsingle : SingleCall prog)
     (hrun : runWithLog params (seedFuel params.gas) = some log)
     (hclean : log.clean)
+    (hone : log.calls.length ≤ 1)
     (hseams : PrecompileSeams prog params)
     (hbegin : beginCall params = .inl fr₀) :
     ∀ (sloadChg : Tmp → ℕ) (L : Label) (b : Block), blockAt prog L = some b →
@@ -977,7 +1039,9 @@ PINNED entry state) and produces the same observable world.
 
 Hypothesis ledger (the honest surface, nothing else): two definitional pins
 (`hcode`/`hmod`), two decidable entry facts (`hself`/`hgas`), one static checkable bundle
-(`hwl`), two decidable scope premises (`hsingle`/`hclean`), ONE runtime premise (`hrun`),
+(`hwl`), three decidable scope premises (`hsingle`/`hone`/`hclean` — `hone` is the
+dynamic at-most-one-call twin of the syntactic `hsingle`, header lesson 7), ONE runtime
+premise (`hrun`),
 one two-field honest seam structure (`hseams`), and one named scope seam (`hnzw` — the
 nonzero-write cut the fleet sketch missed; without it the sstore simulation cannot fire).
 The current headline's `DriveCorr`/`CallPreservesSelf`/`hpresent`/tie/`{T}`/`obs`
@@ -993,6 +1057,7 @@ theorem lowering_conforms {prog : Program} {params : CallParams} {log : RunLog}
     (hsingle : SingleCall prog)
     (hrun : runWithLog params (seedFuel params.gas) = some log)
     (hclean : log.clean)
+    (hone : log.calls.length ≤ 1)
     (hseams : PrecompileSeams prog params)
     (hnzw : ∀ fr₀, beginCall params = .inl fr₀ → NonzeroSstores fr₀) :
     ∃ O : Observable,
@@ -1013,6 +1078,7 @@ theorem lowering_conforms_all {prog : Program} {params : CallParams} {log : RunL
     (hsingle : SingleCall prog)
     (hrun : runWithLog params (seedFuel params.gas) = some log)
     (hclean : log.clean)
+    (hone : log.calls.length ≤ 1)
     (hseams : PrecompileSeams prog params)
     (hnzw : ∀ fr₀, beginCall params = .inl fr₀ → NonzeroSstores fr₀) :
     ∃ O : Observable,
@@ -1036,6 +1102,7 @@ theorem lowering_conforms_gasfree {prog : Program} {params : CallParams} {log : 
     (hsingle : SingleCall prog)
     (hrun : runWithLog params (seedFuel params.gas) = some log)
     (hclean : log.clean)
+    (hone : log.calls.length ≤ 1)
     (hseams : PrecompileSeams prog params)
     (hnzw : ∀ fr₀, beginCall params = .inl fr₀ → NonzeroSstores fr₀) :
     ∃ O : Observable,
@@ -1066,6 +1133,7 @@ theorem r12_hypotheses_inhabited :
       ∧ GasConstants.Gjumpdest ≤ params.gas.toNat
       ∧ runWithLog params (seedFuel params.gas) = some log
       ∧ log.clean
+      ∧ log.calls.length ≤ 1
       ∧ PrecompileSeams exProg params
       ∧ (∀ fr₀, beginCall params = .inl fr₀ → NonzeroSstores fr₀) := sorry
 
