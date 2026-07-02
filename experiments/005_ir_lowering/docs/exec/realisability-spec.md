@@ -97,10 +97,9 @@ antecedents (the address pin is what identifies `realisedCall log self` with
 - The optional `Bool`-valued `RunLog.cleanb` twin was omitted (the `clean` branches are
   `Bool`/`DecidableEq` facts; the executable twin belongs to the R9 checker work).
 - `singleCall_exProg` is PROVED (`by unfold SingleCall; decide`) — a free non-sorry anchor.
-- A **loop caveat** on `SingleCall` is recorded in its docstring: a syntactically-single
-  call inside a loop can fire dynamically more than once; `exProg` deliberately keeps its
-  call outside the loop, and the R10/R11 grind must confirm or strengthen the premise
-  (tracked with R3′).
+- The **loop caveat** on `SingleCall` (a syntactically-single call inside a loop fires
+  dynamically per iteration) was initially recorded only as a docstring note; the review
+  fix round (§7) closed it at the theorem surface with the log-side premise `hone`.
 
 ## 2. `RecorderCoupled` — field-by-field satisfiability argument
 
@@ -164,8 +163,8 @@ needs `BlockHeader`/`ProcessedBlocks` plumbing that belongs to the R12 grind, no
    pinned residual fuel)? Chosen because `driveLog`'s fuel is monotone-irrelevant past
    sufficiency and the restart is consumed only through determinism; a pinned-fuel variant
    would thread arithmetic through every edge lemma for no statement gain.
-4. The `SingleCall` loop caveat and the zero-gas-revert cut — both are honest scope
-   reductions; confirm they are acceptable seams rather than silent losses.
+4. The single-call scope (`hsingle` + `hone`, post-§7) and the zero-gas-revert cut — both
+   are honest scope reductions; confirm they are acceptable seams rather than silent losses.
 5. `recorderCoupled_call` (R7e) does not pin `rec` to the call's `(result, pending)`; the
    pin is delivered inside R3 via restart determinism. Confirm that split is provable.
 
@@ -181,3 +180,49 @@ needs `BlockHeader`/`ProcessedBlocks` plumbing that belongs to the R12 grind, no
   lesson-mentions in docstrings; zero declaration references.
 - No `#print axioms` in the Nightly module by design (§7 of the file): sorry'd decls carry
   `sorryAx`; guards migrate to `Audit.lean` obligation-by-obligation as sorries close.
+
+## 7. Review fix round (2026-07-02) — two blockers, refuted-and-repaired
+
+The independent review re-ran the adversarial drill and refuted two statements INSIDE
+their hypothesis envelopes. Both fixes landed (commit `ff7e2ab`); both are one-field /
+one-premise, exactly as the review prescribed.
+
+**Blocker 1 — the `defsOf`-consistency hole (header lesson 6).** `defsOf` is a
+FIRST-find over program order (its `Lowering.lean` docstring says "last" — a discrepancy
+flagged for a Wave-4 sweep; not this track's edit surface), and `emitStmt` keys its spill
+stash on `defsOf t`. So `[.assign t0 (.imm 1), .assign t0 .gas]` registers `t0 ↦ .imm 1`,
+emits NO GAS byte at the shadowed gas assign, yet `EvalStmt.assignGas` demands a
+gas-stream head from the empty `realisedGas log` — refuting `lowering_conforms` (and
+`_all`/`_gasfree`/`stmtTies'_of_runWithLog`) with every hypothesis satisfied:
+`RunDefinableG`'s gas arm is unconditionally true, i.e. the very generalization that
+opened the gas domain (finding A) opened this hole. The per-cursor fact was ALREADY
+consumed by the walk (`defsSound_preserved_assignPure`'s `hself`) but lived only in
+per-lemma side conditions — a free-∀-ADJACENT disease instance: a scope assumption absent
+from the statement's hypothesis surface. Fix: static decidable `DefsConsistent prog`
+(every def-site agrees with `defsOf`'s first-find registration; pure assign ↦ own RHS,
+gas/sload/call-result ↦ `.slot (slotOf t)`; also excludes pure/pure shadowing with a
+different RHS, which breaks recompute-on-use the same way) as the new field
+`WellLowered.defsCons`. Satisfiability re-checked: TRUE at every `exProg` def-site
+(scratch `#eval` over all blocks, `defsOf exProg t` vs the field's match — `true`);
+single-assignment programs satisfy it trivially, so benign programs stay in scope.
+
+**Blocker 2 — syntactic `SingleCall` vs the dynamic head-projection oracle (header
+lesson 7).** `callOracleOf` replays only the HEAD `CallRecord`, so a syntactically-single
+call inside a loop that fires per iteration with differing child outcomes refutes R3 (and
+the flagships' `Conforms` channel) at the second iteration — and the previous skeleton
+knew it only as a docstring caveat, which is not a hypothesis. Fix: the decidable
+LOG-side premise `hone : log.calls.length ≤ 1` (read off the run, `hclean`'s pattern;
+exactly the domain on which head-projection is correct per the skeptic report) added to
+R3, R10a, and all three flagships, plus the matching conjunct in R12a's inhabitation
+(satisfied by `exProg` — its call is outside the loop). `SingleCall` stays syntactic;
+R3′ remains the tracked stream-generalization decision.
+
+**Minors folded in:** `PrecompileSeams`'s docstring now records that R12a doubles as the
+machine-check that `noErase` is TRUE of the current exp003 `beginCall` precompile stub
+(a failure there diagnoses a SEAM/engine problem, not an `exProg` problem);
+`DefsConsistent`'s docstring carries the first-find-semantics note and the Lowering.lean
+docstring-discrepancy flag.
+
+Post-fix build: `lake build Nightly` green (1159 jobs, exactly 23 sorry warnings — no new
+sorries; the fixes are hypothesis/field additions, not new debt); default `lake build`
+green (1164 jobs, untouched).
