@@ -1,5 +1,4 @@
 import LirLean.LowerConforms
-import LirLean.V2.IRRun
 
 /-!
 # LirLean — `Acyclic` well-formedness ⇒ `MatFueled` (recompute-fuel sufficiency)
@@ -35,6 +34,13 @@ for `MatFueled defs f e`, by strong induction on the fuel `f`.
 
 No `sorry`, no `axiom`, no `native_decide`. Imports `LowerConforms` only to phrase the
 `WellFormedLowered.matFueled_*` discharge; the core is a pure fuel/rank argument over `Expr`.
+
+**Note (2026-07-03).** The `## The headline restated over acyclicity` section — the four
+`lower_conforms_acyclic*` theorems that supplied the vacuous `StmtTies`/`TermTies` — was
+DELETED with the rest of the vacuous conformance surface (`docs/final-audit-2026-07-03.md`).
+The acyclicity ⇒ `WellFormedLowered` core below is RETAINED as Phase-3 salvage: it is the
+decidable static discharge of `WellLowered.wf` (R9). It is currently unreferenced in the
+default build (its only consumers were the deleted headlines).
 -/
 
 namespace Lir
@@ -216,176 +222,4 @@ theorem wellFormedLowered_of_acyclic {prog : Program} (h : AcyclicWellFormed pro
   bound_branch := h.bound_branch
   slots_slot := h.slots_slot
 
-/-! ## The headline restated over acyclicity
-
-`lower_conforms_wf` (`LowerConforms.lean`) consumes `WellFormedLowered` (which carries the
-`MatFueled` recompute-fuel fields). `lower_conforms_acyclic` restates it over the acyclicity
-witness `AcyclicWellFormed`, so the `MatFueled` side-conditions are entirely **gone** from the
-top-level hypothesis set — replaced by `Acyclic (defsOf prog) rank` + `rank < recomputeFuel`.
-It delegates to `lower_conforms_wf` through `wellFormedLowered_of_acyclic`. -/
-
-open BytecodeLayer BytecodeLayer.System BytecodeLayer.Hoare BytecodeLayer.Interpreter Lir.V2 in
-/-- **`lower_conforms_acyclic` — the acyclicity-based world-channel compiler-correctness
-headline.** Identical to `lower_conforms_wf` except the structural well-formedness is supplied
-as an `AcyclicWellFormed` witness (a topological rank bounding the def-graph and fitting the
-recompute fuel, plus the pc/offset bounds) rather than `WellFormedLowered` — so no `MatFueled`
-hypothesis survives. -/
-theorem lower_conforms_acyclic {prog : Program} {w₀ : V2.World} {self : AccountAddress}
-    {O : V2.Observable} {p : CallParams} {log : RunLog} {bentry : Block}
-    {sloadChg : Tmp → ℕ} {obs : Word}
-    (hwl : runWithLog p (seedFuel p.gas) = some log)
-    (hp : p.codeSource = .Code (lower prog))
-    (hmod : p.canModifyState = true)
-    (hentry0 : prog.entry.idx = 0)
-    (hbentry : blockAt prog prog.entry = some bentry)
-    (hbound : offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks prog.entry.idx < 2 ^ 32)
-    (hstore : StorageAgree { locals := fun _ => none, world := w₀ } (codeFrame p (lower prog)))
-    (hgasj : GasConstants.Gjumpdest ≤ p.gas.toNat)
-    -- the honest non-exception scope boundary (the entry code frame reaches `.success`/`.revert`):
-    (hcs : CleanHaltsNonException (codeFrame p (lower prog)))
-    -- WELL-FORMEDNESS via acyclicity (replaces `WellFormedLowered`; no `MatFueled` carried):
-    (hwf : AcyclicWellFormed prog)
-    (hstmtties : ∀ (L : Label) (b : Block), blockAt prog L = some b →
-      StmtTies prog sloadChg obs (realisedCall log self) L b)
-    (htermties : ∀ (L : Label) (b : Block), blockAt prog L = some b →
-      TermTies prog sloadChg obs (realisedCall log self) self L b)
-    (hir : V2.IRRun prog (realisedCall log self) w₀ (realisedGas log) O) :
-    O.world = (observe self log.observable).world :=
-  lower_conforms_wf hwl hp hmod hentry0 hbentry hbound hstore hgasj hcs
-    (wellFormedLowered_of_acyclic hwf) hstmtties htermties hir
-
-/-! ## `hir` discharged — the single-`stop`-block world-channel theorem
-
-For the base case of CFG totality — a program whose entry block is a `stop`-terminated,
-gas-free/call-free, definable straight-line block — the IR run `hir` is no longer a carried
-hypothesis: it is **constructed** by `V2.irRun_exists_stop` (`V2/IRRun.lean`) and its
-observable is pinned (the IR is deterministic, but here we simply *use* the constructed run's
-observable as the theorem's `O`). So `lower_conforms_acyclic_stop` is a fully closed instance
-of the world-channel headline with the `hir` residual **eliminated** — the remaining
-hypotheses are the recording run, the structural entry facts, the GENUINE entry-frame ties and
-per-block §7 ties, and well-formedness. (The general multi-block `hir` construction needs a
-CFG-acyclicity *block*-rank measure; see `V2/IRRun.lean`'s closing note.) -/
-
-open BytecodeLayer BytecodeLayer.System BytecodeLayer.Hoare BytecodeLayer.Interpreter Lir.V2 in
-/-- **`lower_conforms_acyclic_stop` — single-`stop`-block, `hir` discharged.** As
-`lower_conforms_acyclic`, but the entry block is `stop`-terminated, gas-free/call-free, and
-its statements are `StmtsDefinable` from the empty-locals/`w₀` start (`hdef`). The IR run is
-**constructed** (`irRun_exists_stop`) rather than assumed, so no `hir` hypothesis survives; the
-world equation is stated against the constructed run's post-statement world. -/
-theorem lower_conforms_acyclic_stop {prog : Program} {w₀ : V2.World} {self : AccountAddress}
-    {p : CallParams} {log : RunLog} {bentry : Block}
-    {sloadChg : Tmp → ℕ} {obs : Word}
-    (hwl : runWithLog p (seedFuel p.gas) = some log)
-    (hp : p.codeSource = .Code (lower prog))
-    (hmod : p.canModifyState = true)
-    (hentry0 : prog.entry.idx = 0)
-    (hbentry : blockAt prog prog.entry = some bentry)
-    (hbound : offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks prog.entry.idx < 2 ^ 32)
-    (hstore : StorageAgree { locals := fun _ => none, world := w₀ } (codeFrame p (lower prog)))
-    (hgasj : GasConstants.Gjumpdest ≤ p.gas.toNat)
-    (hcs : CleanHaltsNonException (codeFrame p (lower prog)))
-    (hwf : AcyclicWellFormed prog)
-    (hstmtties : ∀ (L : Label) (b : Block), blockAt prog L = some b →
-      StmtTies prog sloadChg obs (realisedCall log self) L b)
-    (htermties : ∀ (L : Label) (b : Block), blockAt prog L = some b →
-      TermTies prog sloadChg obs (realisedCall log self) self L b)
-    -- the entry block is a `stop`-terminated, definable straight-line block (so `hir` builds):
-    (hterm : bentry.term = .stop)
-    (hdef : V2.StmtsDefinable { locals := fun _ => none, world := w₀ } bentry.stmts) :
-    (V2.stmtsPost { locals := fun _ => none, world := w₀ } bentry.stmts).world
-      = (observe self log.observable).world :=
-  lower_conforms_acyclic hwl hp hmod hentry0 hbentry hbound hstore hgasj hcs
-    hwf hstmtties htermties
-    (V2.irRun_exists_stop (o := realisedCall log self) (T := realisedGas log)
-      hbentry hterm hdef)
-
-open BytecodeLayer BytecodeLayer.System BytecodeLayer.Hoare BytecodeLayer.Interpreter Lir.V2 in
-/-- **`lower_conforms_acyclic_stop_canonical` — single-`stop`-block, `hir` AND `hstore`
-discharged.** As `lower_conforms_acyclic_stop`, but the IR initial world is fixed to the entry
-frame's own self-storage lens `selfStorage (codeFrame p (lower prog))`, which discharges the
-entry STORAGE tie `hstore` **definitionally** (`entry_storageAgree_codeFrame`, by `rfl`). So
-*both* `hir` (constructed) and `hstore` (definitional) residuals are eliminated — the surviving
-entry-frame ties are exactly the genuine recording-correspondence ones (`hsload`, which
-constrain every same-address frame's warmth/gas). -/
-theorem lower_conforms_acyclic_stop_canonical {prog : Program} {self : AccountAddress}
-    {p : CallParams} {log : RunLog} {bentry : Block}
-    {sloadChg : Tmp → ℕ} {obs : Word}
-    (hwl : runWithLog p (seedFuel p.gas) = some log)
-    (hp : p.codeSource = .Code (lower prog))
-    (hmod : p.canModifyState = true)
-    (hentry0 : prog.entry.idx = 0)
-    (hbentry : blockAt prog prog.entry = some bentry)
-    (hbound : offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks prog.entry.idx < 2 ^ 32)
-    (hgasj : GasConstants.Gjumpdest ≤ p.gas.toNat)
-    (hcs : CleanHaltsNonException (codeFrame p (lower prog)))
-    (hwf : AcyclicWellFormed prog)
-    (hstmtties : ∀ (L : Label) (b : Block), blockAt prog L = some b →
-      StmtTies prog sloadChg obs (realisedCall log self) L b)
-    (htermties : ∀ (L : Label) (b : Block), blockAt prog L = some b →
-      TermTies prog sloadChg obs (realisedCall log self) self L b)
-    (hterm : bentry.term = .stop)
-    (hdef : V2.StmtsDefinable
-              { locals := fun _ => none, world := selfStorage (codeFrame p (lower prog)) }
-              bentry.stmts) :
-    (V2.stmtsPost
-        { locals := fun _ => none, world := selfStorage (codeFrame p (lower prog)) }
-        bentry.stmts).world
-      = (observe self log.observable).world :=
-  lower_conforms_acyclic_stop hwl hp hmod hentry0 hbentry hbound
-    (entry_storageAgree_codeFrame p (lower prog)) hgasj hcs
-    hwf hstmtties htermties hterm hdef
-
-/-! ## `hir` discharged for the general acyclic CFG — the multi-block world-channel theorem
-
-`lower_conforms_acyclic_stop`/`_canonical` discharge `hir` only for a *single halt block*.
-`lower_conforms_acyclic_cfg` discharges it for **any acyclic call-free gas-free CFG**: the IR run
-is **constructed** by `V2.irRun_exists` (`V2/IRRun.lean`) from a control-flow `CFGAcyclic` rank
-witness plus the state-threaded edge-definability supply `RunDefinable`, rather than assumed. So
-no `hir` hypothesis survives; the world equation holds for the *constructed* run's (existential)
-observable. The surviving hypotheses are exactly the recording run, the structural entry facts,
-the GENUINE entry-frame ties + per-block §7 ties, def-graph well-formedness (`AcyclicWellFormed`),
-and the new control-flow `CFGAcyclic` + `RunDefinable` — NO `hir`.
-
-The two acyclicity witnesses are independent and complementary: `AcyclicWellFormed` ranks the
-*def-graph* (value channel, recompute-fuel sufficiency); `CFGAcyclic` ranks the *control-flow*
-graph (the `RunFrom` recursion). -/
-
-open BytecodeLayer BytecodeLayer.System BytecodeLayer.Hoare BytecodeLayer.Interpreter Lir.V2 in
-/-- **`lower_conforms_acyclic_cfg` — general acyclic-CFG, `hir` discharged.** As
-`lower_conforms_acyclic`, but the IR run is **constructed** for any acyclic gas-free CFG
-(`V2.irRun_exists`, from `CFGAcyclic prog` + `RunDefinable prog`) rather than assumed — so no
-`hir` hypothesis survives. The world equation is stated against the constructed run's existential
-observable `O`. -/
-theorem lower_conforms_acyclic_cfg {prog : Program} {w₀ : V2.World} {self : AccountAddress}
-    {p : CallParams} {log : RunLog} {bentry : Block}
-    {sloadChg : Tmp → ℕ} {obs : Word}
-    (hwl : runWithLog p (seedFuel p.gas) = some log)
-    (hp : p.codeSource = .Code (lower prog))
-    (hmod : p.canModifyState = true)
-    (hentry0 : prog.entry.idx = 0)
-    (hbentry : blockAt prog prog.entry = some bentry)
-    (hbound : offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks prog.entry.idx < 2 ^ 32)
-    (hstore : StorageAgree { locals := fun _ => none, world := w₀ } (codeFrame p (lower prog)))
-    (hgasj : GasConstants.Gjumpdest ≤ p.gas.toNat)
-    (hcs : CleanHaltsNonException (codeFrame p (lower prog)))
-    (hwf : AcyclicWellFormed prog)
-    (hstmtties : ∀ (L : Label) (b : Block), blockAt prog L = some b →
-      StmtTies prog sloadChg obs (realisedCall log self) L b)
-    (htermties : ∀ (L : Label) (b : Block), blockAt prog L = some b →
-      TermTies prog sloadChg obs (realisedCall log self) self L b)
-    -- the program is an acyclic gas-free CFG with the edge-definability supply
-    -- (so `hir` builds via `V2.irRun_exists`):
-    (hcfg : V2.CFGAcyclic prog)
-    (hdef : V2.RunDefinable prog) :
-    ∃ O : V2.Observable, O.world = (observe self log.observable).world := by
-  obtain ⟨O, hir⟩ :=
-    V2.irRun_exists (o := realisedCall log self) (w₀ := w₀) (T := realisedGas log)
-      hcfg hdef hbentry
-  exact ⟨O, lower_conforms_acyclic hwl hp hmod hentry0 hbentry hbound hstore hgasj hcs
-    hwf hstmtties htermties hir⟩
-
 end Lir
-
--- Build-enforced axiom-cleanliness guards for the acyclicity→`MatFueled` discharge: the core
--- fuel/rank lemma and the `WellFormedLowered` constructor depend only on
--- `[propext, Classical.choice, Quot.sound]`.
