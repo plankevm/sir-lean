@@ -1,5 +1,7 @@
 # LirLean v2 — observable-level lowering preservation (gas/pc-free IR, calls as events)
 
+> **SUPERSEDED (2026-07-03):** superseded by `ir-design-v3.md` (the v1/v2 convergence); plan of record is `target-architecture-2026-07-02.md` + `execution-plan-2026-07-02.md`. The `V2/Mono.lean` two-read monotonicity milestone validated below was deleted in Phase 2 with the rest of the gas-law apparatus (Mono/Oracle/HonestGasTie) — see `gas-decision.md`.
+
 **Status:** PLANNING (2026-06-23). Supersedes the `ir-design.md` §3/§6 semantics &
 preservation strategy. The v1 `wc_preserves` (fully hypothesis-free, axiom-clean) stays
 as the reference "old boundary" until v2 reaches parity.

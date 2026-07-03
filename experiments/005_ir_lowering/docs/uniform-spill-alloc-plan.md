@@ -4,6 +4,12 @@
 ad-hoc per-construct gas/call/sload handling in `Lowering.lean` and the vacuous gas/sload
 universals in `MaterialiseRuns.lean`.*
 
+> **UPDATE (2026-07-03):** the migration has since been executed (the gas/sload universals are
+> retired in the tree — see the `SimStmt.lean`/`MaterialiseRuns.lean` headers), and
+> `V2/HonestGasTie.lean` — the regression-witness file referenced below — was **deleted** in
+> Phase 2 along with the rest of the gas-law apparatus (Mono/Oracle/HonestGasTie). Plan of
+> record is `target-architecture-2026-07-02.md` + `execution-plan-2026-07-02.md`.
+
 ## 0. Why this exists (the finding that triggered it)
 
 The conformance spine carried a **vacuous** gas/sload realisability tie:

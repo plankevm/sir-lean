@@ -1,5 +1,7 @@
 # Plan: proving the general `lower_conforms` (the C grind)
 
+> **SUPERSEDED (2026-07-03):** plan of record is `target-architecture-2026-07-02.md` + `execution-plan-2026-07-02.md`; the gas-law apparatus (Mono/Oracle/HonestGasTie) was deleted in Phase 2. The "GENUINE entry-frame realisability ties" (`GasRealises`/`SloadRealises`) referenced below were later shown **unsatisfiable** as universals (see `uniform-spill-alloc-plan.md` §0 and the target-architecture doc).
+
 > **Update (2026-06-26):** the "general" theorem this plan delivered was actually
 > **call-free** (`CallFree` gate). That distortion is now removed — calls compose via a
 > memory value channel and `CallFree` is **deleted**; `lower_conforms` is general over all

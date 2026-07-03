@@ -39,7 +39,9 @@ lowering); the §7 *statement* stays observation-based (would survive an optimiz
 Read of `RunLog.lean`/`IRRun.lean`/`Law.lean`/`LowerConforms.lean` confirms feasibility:
 - **Measure = `totalGas`** (`Interpreter/Measure.lean`), strictly **descends per block** (every
   block runs ≥ a `JUMPDEST`, cost ≥ 1) and across CALL sub-runs (`gasFundsDescent_*`,
-  `resumeAfterCall_gas_le`) — already proved for the never-OOF result (`driveLog_gas_inv`). This,
+  `resumeAfterCall_gas_le`) — already proved for the never-OOF result (`driveLog_gas_inv`;
+  *note 2026-07-03: that recorder-side lemma was deleted in Phase 2 with RunLog's
+  gas-monotonicity section — the exp003 descent lemmas named here survive*). This,
   not the trace length, is what bounds the IR run (a gas-free loop with no `GAS` read isn't
   trace-bounded). 
 - **`RunFrom.det`/`RunStmts.det`/`EvalStmt.det` exist** (`V2/Law.lean`) — but they give

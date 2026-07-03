@@ -1,5 +1,7 @@
 # ir-design-v3 — convergence: observe-don't-model, one law each, realisability witness
 
+> **UPDATE (2026-07-03):** the gas "one law" below (`realisedGas_monotone` / `GasRealises.monotoneGas`) was dropped as proved-but-unused (`gas-decision.md` — gas is a log-fed exact-equality oracle) and the apparatus (Mono/Oracle/HonestGasTie + RunLog's gas-monotonicity section) was deleted in Phase 2. Plan of record is `target-architecture-2026-07-02.md` + `execution-plan-2026-07-02.md`; the observe-don't-model principle itself survives.
+
 > Supersedes the *parallel-exploration* framing of v1 (`ir-design.md`, the "oracle /
 > cost-accounting" line, branch `main`) and v2 (`ir-design-v2.md`, the "gas-free
 > observable" line, branch `exp005-ir`). v3 is the **convergence**: keep v2's gas-free

@@ -1,5 +1,7 @@
 # exp005 Remediation Plan — 2026-07-02
 
+> **SUPERSEDED (2026-07-03):** plan of record is `target-architecture-2026-07-02.md` + `execution-plan-2026-07-02.md`; the gas-law apparatus (Mono/Oracle/HonestGasTie) was deleted in Phase 2 (commit `7685131` — open decision #1 resolved as option (b), `HonestGasTie.lean` deleted with it).
+
 *Synthesized from the audit (`audit-2026-07-02.md`), a 7-agent planning fleet, and three prior-art forks (Verity, verifereum, vyper-hol). Governs the fix for: the conditional headline, the dropped gas motivation, and the vestigial scaffolding. Read `gas-decision.md` first.*
 
 Branch: `exp005-honesty-cleanup` (off `ir-convergence` @ a9335aa). Build: `cd experiments/005_ir_lowering && lake build` (target `LirLean`, ~1164 jobs). Baseline green/sorry-free/axiom-clean.
