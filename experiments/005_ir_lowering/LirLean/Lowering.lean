@@ -1,4 +1,4 @@
-import LirLean.IR
+import LirLean.Spec.IR
 import Evm
 
 /-!

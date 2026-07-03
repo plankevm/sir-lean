@@ -1,5 +1,5 @@
 import LirLean.Lowering
-import LirLean.V2.Machine
+import LirLean.Spec.Semantics
 
 /-!
 # LirLean — `WellFormed` + `DefsSound` (Layer B3 of the `lower_conforms` grind)

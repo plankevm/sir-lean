@@ -4,7 +4,7 @@
 -- round-trip checks (`LirLean/Decode.lean`); C3 adds the small-step semantics and
 -- the lowering-preservation proof against exp003's `Runs` / `messageCall_runs`
 -- API. See docs/ir-design.md.
-import LirLean.IR
+import LirLean.Spec.IR
 import LirLean.Lowering
 -- NOTE: `Decode` (decode round-trip anchors) is a byte-coupled *leaf example* —
 -- nothing in the headline cone imports it. Its `rfl`/`decide` byte checks are stale under
@@ -43,7 +43,7 @@ import LirLean.Engine.CleanHalt
 -- is stale under the Phase-C sload spill; it is SUPERSEDED by the general `lower_conforms` and
 -- ARCHIVED under `_attic/WorkedCall.lean` (no longer in-tree). Re-derivation deferred (see docs/uniform-spill-alloc-plan.md).
 -- v2 (exp005) prototype — gas-free, observable, event-trace IR + preservation.
-import LirLean.V2.Machine
+import LirLean.Spec.Semantics
 -- v2 (exp005) frame-free IRRun determinism (imports only LirLean.IR/Evm; zero
 -- BytecodeLayer/Frame/Runs): EvalStmt.det → RunStmts.det → RunFrom.det → IRRun.det.
 import LirLean.V2.Law

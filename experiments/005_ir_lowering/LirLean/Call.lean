@@ -1,4 +1,4 @@
-import LirLean.IR
+import LirLean.Spec.IR
 import LirLean.SmallStep
 import Evm
 import BytecodeLayer.Hoare

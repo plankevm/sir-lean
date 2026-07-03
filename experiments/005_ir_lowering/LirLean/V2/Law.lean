@@ -1,10 +1,10 @@
-import LirLean.V2.Machine
+import LirLean.Spec.Semantics
 
 /-!
 # LirLean v2 — IR-run determinism
 
 This module is the **frame-free determinism** layer (`docs/ir-design-v3.md` §4). It
-imports ONLY the IR core (`LirLean.V2.Machine`, hence `LirLean.IR`/`Evm`) — **no
+imports ONLY the IR core (`LirLean.Spec.Semantics`, hence `LirLean.Spec.IR`/`Evm`) — **no
 `BytecodeLayer`, no `Frame`, no `Runs`**. Everything here is a statement about
 `Trace`s and `IRRun`s alone.
 

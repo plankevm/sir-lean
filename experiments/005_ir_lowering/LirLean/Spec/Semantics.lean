@@ -1,4 +1,4 @@
-import LirLean.IR
+import LirLean.Spec.IR
 import Evm
 
 /-!
@@ -130,7 +130,7 @@ def evalExpr (st : IRState) (obs : Word) : Expr → Option Word
 
 `blockAt prog L` is the block at label `L` (if present) — the same projection as
 v1's `Lir.Program.blockAt`, kept v2-local so this module depends only on
-`IR.lean` (not the gas-aware `SmallStep.lean`). -/
+`Spec/IR.lean` (not the gas-aware `SmallStep.lean`). -/
 
 /-- The block at label `L`, if present. -/
 def blockAt (prog : Program) (L : Label) : Option Block :=

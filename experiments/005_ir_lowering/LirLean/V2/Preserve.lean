@@ -1,4 +1,4 @@
-import LirLean.V2.Machine
+import LirLean.Spec.Semantics
 import LirLean.DefsSound
 import BytecodeLayer.Hoare
 import BytecodeLayer.Hoare.CallSequence
