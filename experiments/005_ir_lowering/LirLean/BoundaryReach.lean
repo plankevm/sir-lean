@@ -25,7 +25,7 @@ Proving it is a `Runs`-induction whose `step`/`call` cases need three reachabili
 REMAINING (the `Runs`-induction itself, not yet landed): the per-step pc inversion
 `stepFrame fr = .next e → e.pc.toNat` is either `nextInstrPosNat n (decoded op)` (sequential) or a
 `fr.validJumps` member (taken JUMP/JUMPI), case-analysed over the 16 `IsLoweringOp` arms (the
-`stepFrame_next_self` / `dispatch_next_self` template of `V2/TieDischarge.lean`, mirrored for the
+`stepFrame_next_accMono` dispatch-walk template of `V2/TieDischarge.lean`, mirrored for the
 pc component); plus the in-range `e.pc.toNat < (flatBytes prog).length` preservation. With those,
 the base case (`codeFrame` pc = 0, `ReachesBoundary.refl`) and the `call` case
 (`resumeAfterCall` pc = call-site pc + 1, the byte after CALL) close the induction via the three
