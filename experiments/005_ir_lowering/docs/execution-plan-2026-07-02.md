@@ -7,6 +7,11 @@ post-Phase-3; (2) parallel tracks run in separate git worktrees with CLONED `.la
 one fix round); (4) after each wave the lead's main thread merges all track branches into
 `exp005-honesty-cleanup`, resolves conflicts, full-builds, and only then launches the next wave.*
 
+> **STATUS (2026-07-03).** Waves 1–4 executed (HEAD `53c2063`). The Lean file paths cited inline
+> below (`TieDischarge.lean`, `RunLog.lean`, `Mono`/`Oracle`/`HonestGasTie`) reflect the
+> PRE-execution tree and have since moved or been deleted — see the redirect map in
+> `headline-transitive-chain.md`. Internal line numbers are left as provenance-at-time-of-writing.
+
 ## Global constraints (every track, every wave)
 
 - Build green: `cd experiments/005_ir_lowering && lake build` (background the command if >8 min;

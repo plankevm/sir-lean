@@ -3,13 +3,22 @@
 *Definitive dependency-closure report for `Lir.V2.lower_conforms_cyclic_assembled`.*
 *Synthesized from 9 cluster maps; every node carries `file:line` where known. All paths are relative to `experiments/005_ir_lowering/` unless prefixed `003_bytecode_layer/` or `EVMLean/`.*
 
-> **Read alongside:** `docs/audit-2026-07-02.md` (honesty/quality audit), `docs/remediation-plan-2026-07-02.md` (the fix plan), and `docs/gas-decision.md` (gas is now a log-fed exact-equality oracle; the monotonicity law is dropped). Two facts below are qualified by those docs: (1) the headline is **CONDITIONAL** (see §1), and (2) the gas channel is being reduced to an opaque log-fed oracle (see §1 / §2).
+> **Read alongside:** `docs/audit-2026-07-02.md` (honesty/quality audit), `docs/remediation-plan-2026-07-02.md` (the fix plan, now **superseded** by `docs/target-architecture-2026-07-02.md` + `docs/execution-plan-2026-07-02.md`), and `docs/gas-decision.md` (gas is now a log-fed exact-equality oracle; the monotonicity law is dropped). Two facts below are qualified by those docs: (1) the headline is **CONDITIONAL** — and its supplied ties were since confirmed **unsatisfiable**, i.e. VACUOUS (see `target-architecture-2026-07-02.md` §1) — (see §1), and (2) the gas channel is being reduced to an opaque log-fed oracle (see §1 / §2).
+
+> **UPDATE (2026-07-03) — file homes moved; line numbers below are ROTTED.** Waves 1–4 of the honesty cleanup executed a structural reorg (HEAD `53c2063`) AFTER this report was pinned. The authoritative pinned surface for the headline cone is now **`LirLean/Audit.lean`** (the `#guard_msgs`-wrapped axiom/signature net); trust it over any `file:line` below. Decl homes per the **redirect map**:
+> - `LirLean/IR.lean` → `LirLean/Spec/IR.lean`; `LirLean/Lowering.lean` → `LirLean/Spec/Lowering.lean`; `LirLean/Semantics.lean` / `V2/Machine.lean` → `LirLean/Spec/Semantics.lean`.
+> - `V2/TieDischarge.lean` is **DISSOLVED**: the headline/drive decls (`lower_conforms_cyclic_assembled`, `lower_conforms_cyclic_tiefree`, `DriveCorrPlus`, `runFrom_of_driveCorrPlus`, `driveStepPlus_of_block`, `driveCorrPlus_*`) → `LirLean/V2/Drive/Headline.lean`; `CallPreservesSelf`/`callPreservesSelf_modGuards`/`stepPreservesSelf` → `LirLean/V2/Drive/CallPreservesSelf.lean`; `SelfPresent`/`sstorePresence_of_self` → `LirLean/V2/Drive/SelfPresent.lean`; the engine bricks (`drive_accounts_find_mono`, `stepFrame_next_self`/`_next_accMono`, `stepFrame_needsCall_inv`/`_needsCreate_inv`, `AccPresent`) → `LirLean/Engine/{AccountMap,StepWalk,Descent,DriveMono}.lean`.
+> - `V2/RunLog.lean` is **DELETED**: `recordCall`/`driveLog`/`runWithLog`/`callOracleOf`/`realisedCall`/`RunLog`/`CallRecord` → `LirLean/Spec/Recorder.lean`; `driveLog_drive`/`runWithLog_drive`/`realisedCall_eq_evmV2` → `LirLean/RecorderLemmas.lean`; the gas-monotonicity section (`geToNat`/`bound_mono`/`driveLog_gas_inv`/`realisedGas_monotone`) is **DELETED**.
+> - `V2/{Mono,Oracle,HonestGasTie}.lean` are **DELETED** whole (`Oracle.GasRealises` survives only as a relocated retired witness in `LirLean/MaterialiseRuns.lean`); `V2/Law.lean` narrowed to 4 `.det` lemmas (its `Trace.gasMonotone`/`MonotoneGas` decls **DELETED**).
+> - New: `LirLean/Audit.lean` (guard net) + `LirLean/V2/RealisabilitySpec.lean` (non-default `Nightly` lib, R0–R12 sorry-skeleton). The ~226 scattered `#print axioms` were removed; the 22 `#guard_msgs`-wrapped ones (14 in `Audit.lean`, 8 in `MemAlgebra.lean`) are the net.
+>
+> The `TieDischarge.lean:NNNN` / `RunLog.lean:NNNN` citations throughout this file are doubly dead (file gone + numbers meaningless); they are kept as provenance-at-time-of-writing, not as navigable references.
 
 ---
 
 ## 1. Headline & conclusion
 
-**`Lir.V2.lower_conforms_cyclic_assembled`** — `LirLean/V2/TieDischarge.lean:4798`
+**`Lir.V2.lower_conforms_cyclic_assembled`** — `LirLean/V2/Drive/Headline.lean` (pinned in `LirLean/Audit.lean`; the `TieDischarge.lean:4798` below is the rotted pre-reorg citation)
 
 This is the cyclic IR→EVM conformance headline. It states that the **bytecode produced by lowering an IR program conforms to that program's gas-free IR world** — i.e. the observable *world channel* (the account/storage map exposed by the halted bytecode frame) coincides with the world produced by running the IR over the CFG, for **general (cyclic) control-flow graphs**.
 

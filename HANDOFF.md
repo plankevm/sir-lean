@@ -5,6 +5,22 @@ Full chronological record: `currentplan.md` (orchestration log). This is your re
 
 ---
 
+> **UPDATE (2026-07-03).** Waves 1–4 of the honesty cleanup executed the structural reorg
+> (HEAD `53c2063`). File homes below have MOVED — consult the redirect map in
+> `experiments/005_ir_lowering/docs/headline-transitive-chain.md`:
+> (a) `LirLean/Spec/{IR,Semantics,Lowering,Recorder,Seams,Conformance}` extraction;
+> (b) `LirLean/Engine/*` + `LirLean/V2/Drive/{SelfPresent,CallPreservesSelf,Headline}` split,
+> with `V2/TieDischarge.lean` **DISSOLVED** and `V2/RunLog.lean` **deleted** (recorder →
+> `Spec/Recorder.lean`); (c) Phase-2 **deletion** of `V2/{Mono,Oracle,HonestGasTie}.lean` +
+> the gas-monotonicity law; (d) `LirLean/Audit.lean` guard net + `LirLean/V2/RealisabilitySpec.lean`
+> (non-default `Nightly` lib) holding the R0–R12 sorry-skeleton. The headline
+> `lower_conforms_cyclic_assembled` now lives at `LirLean/V2/Drive/Headline.lean`. Plan-of-record:
+> `experiments/005_ir_lowering/docs/target-architecture-2026-07-02.md` +
+> `execution-plan-2026-07-02.md` (the remediation plan is superseded). The final audit fleet
+> (`experiments/005_ir_lowering/docs/final-audit-2026-07-03.md`, being written) is the gate before Phase 3.
+
+---
+
 ## CURRENT STATUS (2026-07-02) — supersedes the 2026-06-23 snapshot below
 
 The overnight snapshot below is **stale**. What has changed since:

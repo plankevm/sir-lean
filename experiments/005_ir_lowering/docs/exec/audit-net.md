@@ -3,6 +3,19 @@
 Deliverables: `LirLean/Audit.lean` (guard file, wired as the LAST import of the `LirLean`
 root), the Batteries `runLinter` baseline freeze (`scripts/nolints.json`), and this record.
 
+> **UPDATE (2026-07-03).** Waves 1–4 of the honesty cleanup executed the structural reorg
+> (HEAD `53c2063`) after this record was written. The `Source` column below has been resynced to
+> the post-reorg homes: `V2/TieDischarge.lean` is **DISSOLVED** — the headline decls
+> (`lower_conforms_cyclic_assembled`, `lower_conforms_cyclic_tiefree`) moved to
+> `LirLean/V2/Drive/Headline.lean`, and `callPreservesSelf_modGuards`/`stepPreservesSelf` to
+> `LirLean/V2/Drive/CallPreservesSelf.lean`. `V2/RunLog.lean` was deleted (recorder →
+> `LirLean/Spec/Recorder.lean`); `V2/{Mono,Oracle,HonestGasTie}.lean` were deleted (§5's merge
+> note is now resolved — see the dated note there). `LirLean/V2/RealisabilitySpec.lean` (non-default
+> `Nightly` lib) now carries the R0–R12 sorry-skeleton. Full redirect map:
+> `../headline-transitive-chain.md`. Plan-of-record: `../target-architecture-2026-07-02.md` +
+> `../execution-plan-2026-07-02.md`; the final audit fleet (`../final-audit-2026-07-03.md`, being
+> written) gates Phase 3.
+
 ## 1. Guard inventory
 
 `LirLean/Audit.lean` pins, via `#guard_msgs in #print axioms` (idiom precedent:
@@ -13,15 +26,15 @@ a hard build error.
 
 | Declaration | Source |
 |---|---|
-| `Lir.V2.lower_conforms_cyclic_assembled` | `LirLean/V2/TieDischarge.lean` |
-| `Lir.V2.lower_conforms_cyclic_tiefree` | `LirLean/V2/TieDischarge.lean` |
+| `Lir.V2.lower_conforms_cyclic_assembled` | `LirLean/V2/Drive/Headline.lean` |
+| `Lir.V2.lower_conforms_cyclic_tiefree` | `LirLean/V2/Drive/Headline.lean` |
 | `Lir.lower_conforms_wf` | `LirLean/LowerConforms.lean` |
-| `Lir.V2.callPreservesSelf_modGuards` | `LirLean/V2/TieDischarge.lean` |
+| `Lir.V2.callPreservesSelf_modGuards` | `LirLean/V2/Drive/CallPreservesSelf.lean` |
 | `Lir.materialise_runs_of_cleanHalt` | `LirLean/MaterialiseCleanHalt.lean` |
 | `Lir.V2.cleanHalts_of_runWithLog` | `LirLean/V2/DriveSim.lean` |
 | `Lir.jump_landing_of_cleanHalt` | `LirLean/LowerDecode.lean` |
 | `Lir.branch_landing_of_cleanHalt` | `LirLean/LowerDecode.lean` |
-| `Lir.V2.stepPreservesSelf` | `LirLean/V2/TieDischarge.lean` |
+| `Lir.V2.stepPreservesSelf` | `LirLean/V2/Drive/CallPreservesSelf.lean` |
 | `Lir.sim_assign_sload_lowered` | `LirLean/LowerDecode.lean` |
 
 The 252 scattered per-file `#print axioms` commands were deliberately left in place
@@ -81,3 +94,8 @@ import deliberately survives that deletion, keeping the headline cone in the def
 `LirLean` target regardless of what happens to the other root imports. The expected merge
 conflict at `LirLean.lean` is trivial; the only invariant to defend is that
 `import LirLean.Audit` stays LAST.
+
+> **RESOLVED (2026-07-03).** This merge concern is now moot. `LirLean.V2.HonestGasTie` was
+> **deleted** in Phase 2 and `V2/TieDischarge.lean` was dissolved; the `LirLean.lean` root is now
+> a clean import list. `Audit.lean` reaches the headline cone via its direct imports of the
+> `LirLean/V2/Drive/*` modules and remains the LAST import of the root.

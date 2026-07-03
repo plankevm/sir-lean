@@ -6,6 +6,11 @@ kill the vacuous/circular material, track dischargeable gaps as honest sorries. 
 SUPERSEDES the priority framing of `remediation-plan-2026-07-02.md` (its phases survive, re-ordered
 and amended below) and sharpens `audit-2026-07-02.md` §3.*
 
+> **STATUS (2026-07-03).** Waves 1–4 executed (HEAD `53c2063`). The Lean file paths cited inline
+> below (`TieDischarge.lean`, `RunLog.lean`, `Mono`/`Oracle`/`HonestGasTie`) reflect the
+> PRE-execution tree and have since moved or been deleted — see the redirect map in
+> `headline-transitive-chain.md`. Internal line numbers are left as provenance-at-time-of-writing.
+
 ---
 
 ## 1. The headline finding: the conditional headline is VACUOUS, not merely conditional

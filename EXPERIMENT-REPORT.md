@@ -3,6 +3,19 @@
 **Status: LIVING DOCUMENT, updated as tracks land.** Operational state + milestones live
 in `currentplan.md`; this file is the *results* synthesis for a human reader.
 
+> **UPDATE (2026-07-03).** exp005 (Track C) — waves 1–4 of the honesty cleanup executed the
+> structural reorg (HEAD `53c2063`); the Lean file homes cited below have MOVED (redirect map:
+> `experiments/005_ir_lowering/docs/headline-transitive-chain.md`):
+> (a) `LirLean/Spec/{IR,Semantics,Lowering,Recorder,Seams,Conformance}` extraction;
+> (b) `LirLean/Engine/*` + `LirLean/V2/Drive/{SelfPresent,CallPreservesSelf,Headline}` split,
+> `V2/TieDischarge.lean` **DISSOLVED** (headline → `LirLean/V2/Drive/Headline.lean`) and
+> `V2/RunLog.lean` **deleted** (recorder → `LirLean/Spec/Recorder.lean`); (c) Phase-2
+> **deletion** of `V2/{Mono,Oracle,HonestGasTie}.lean` + the gas-monotonicity law;
+> (d) `LirLean/Audit.lean` guard net + `LirLean/V2/RealisabilitySpec.lean` (`Nightly` lib) R0–R12
+> sorry-skeleton. Plan-of-record: `experiments/005_ir_lowering/docs/target-architecture-2026-07-02.md`
+> + `execution-plan-2026-07-02.md` (remediation plan superseded); the final audit fleet
+> (`experiments/005_ir_lowering/docs/final-audit-2026-07-03.md`, being written) gates Phase 3.
+
 ## The point of this experiment
 
 We are building toward a **verified compiler** from a high-level IR to EVM bytecode. To do
@@ -44,7 +57,7 @@ and **why the CFG-combinator control-flow design** was chosen over alternatives.
   polymorphism is entirely removed; the nested `Θ/Ξ` is plain EVM — the clean base for the
   bake-off and convergence.
 - **IR→bytecode lowering conformance (Track C) — now a general but CONDITIONAL theorem.**
-  The current headline is `lower_conforms_cyclic_assembled` (`LirLean/V2/TieDischarge.lean:4798`):
+  The current headline is `lower_conforms_cyclic_assembled` (`LirLean/V2/Drive/Headline.lean`):
   a general (arbitrary cyclic CFG), axiom-clean, gas-free *world*-conformance theorem. It is
   **conditional** — it *supplies* the per-block runtime ties `hstmtties : ∀ L b, StmtTies …`,
   `htermties`, and `hcall : CallPreservesSelf` as hypotheses (the ties are INPUTS, not outputs),

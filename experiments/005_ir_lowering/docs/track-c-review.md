@@ -11,13 +11,22 @@ directory (`experiments/005_ir_lowering/docs/`); source modules are one level up
 > drift items the old report surfaced have been (mostly) reconciled in `ir-design.md`.
 > See §6 and §7.
 
+> **UPDATE (2026-07-03) — this reviews the retired v1 worked-call demo.** The mainline is
+> now the v2 cyclic conformance headline (`lower_conforms_cyclic_assembled`, at
+> `../LirLean/V2/Drive/Headline.lean`, pinned in `../LirLean/Audit.lean`); see
+> `docs/target-architecture-2026-07-02.md` + `docs/execution-plan-2026-07-02.md` (plan of
+> record) and `docs/headline-transitive-chain.md` (redirect map). The v1 artifacts this
+> report links (`WorkedCall.lean`, `Decode.lean`) have since moved to `../_attic/` — the
+> `../LirLean/WorkedCall.lean` / `../LirLean/Decode.lean` links below are 404s kept as
+> historical provenance; the still-live `Spec/{IR,Lowering}` links have been repointed.
+
 ---
 
 ## TL;DR
 
-Track C defines a fresh high-level IR ([`LirLean`](../LirLean/IR.lean#L54)) with
+Track C defines a fresh high-level IR ([`LirLean`](../LirLean/Spec/IR.lean#L54)) with
 **storage arithmetic, external calls, branching, and gas introspection**, lowers it
-to `Evm.decode`-compatible EVM bytecode ([`lower`](../LirLean/Lowering.lean#L197)),
+to `Evm.decode`-compatible EVM bytecode ([`lower`](../LirLean/Spec/Lowering.lean#L319)),
 and proves the lowering preserves semantics by reusing exp003's `Runs` /
 `messageCall_runs` reasoning layer — *no new boundary theory*. The headline
 [`wc_preserves`](../LirLean/WorkedCall.lean#L1688) is now **FULLY HYPOTHESIS-FREE**:
@@ -75,8 +84,8 @@ Eight source modules, layered so each rests only on the ones below it.
 
 | Module | Role | Headline export(s) |
 |---|---|---|
-| [`IR.lean`](../LirLean/IR.lean) | IR datatypes (grammar) | [`Expr`](../LirLean/IR.lean#L54), [`Stmt`](../LirLean/IR.lean#L70), [`Term`](../LirLean/IR.lean#L82), [`CallSpec`](../LirLean/IR.lean#L43) |
-| [`Lowering.lean`](../LirLean/Lowering.lean) | `lower : Program → ByteArray` (recompute-on-use, two-pass offsets) | [`lower`](../LirLean/Lowering.lean#L197) |
+| [`IR.lean`](../LirLean/Spec/IR.lean) | IR datatypes (grammar) | [`Expr`](../LirLean/Spec/IR.lean#L54), [`Stmt`](../LirLean/Spec/IR.lean#L77), [`Term`](../LirLean/Spec/IR.lean#L89), [`CallSpec`](../LirLean/Spec/IR.lean#L43) |
+| [`Lowering.lean`](../LirLean/Spec/Lowering.lean) | `lower : Program → ByteArray` (recompute-on-use, two-pass offsets) | [`lower`](../LirLean/Spec/Lowering.lean#L319) |
 | [`SmallStep.lean`](../LirLean/SmallStep.lean) | small-step, gas-aware IR semantics | [`IRState`](../LirLean/SmallStep.lean#L56), [`evalExpr`](../LirLean/SmallStep.lean#L90) |
 | [`DecodeLower.lean`](../LirLean/DecodeLower.lean) | generic decode-from-lowering bricks (the `bget`/`bextract` foundation) | [`decode_nonpush_of_list`](../LirLean/DecodeLower.lean#L88), [`decode_lower_push`](../LirLean/DecodeLower.lean#L139) |
 | [`Layout.lean`](../LirLean/Layout.lean) | offset-table byte-layout arithmetic (prefix-sum, symbolic) | [`stmt_byte_anchor`](../LirLean/Layout.lean#L163) |
@@ -125,7 +134,7 @@ terminators, which lowers cleanly (block → `JUMPDEST`-led run; terminator →
 ### 3.2 The grammar
 
 The IR is a **register (temporary) machine** — stack-free — over named `Tmp`s,
-organised as a CFG. Verbatim ([`IR.lean`](../LirLean/IR.lean#L54)):
+organised as a CFG. Verbatim ([`IR.lean`](../LirLean/Spec/IR.lean#L54)):
 
 ```lean
 inductive Expr where
@@ -149,7 +158,7 @@ inductive Term where
 ```
 
 The external-call payload is the value-free, calldata-free shape exp003's bridge
-already supports ([`CallSpec`](../LirLean/IR.lean#L43)):
+already supports ([`CallSpec`](../LirLean/Spec/IR.lean#L43)):
 
 ```lean
 structure CallSpec where
@@ -201,7 +210,7 @@ this as-built (it no longer claims a generic `lower_simulates_step` engine — s
 
 ## 4. The lowering (§4)
 
-[`lower`](../LirLean/Lowering.lean#L197) is a two-pass, fixed-width emission:
+[`lower`](../LirLean/Spec/Lowering.lean#L319) is a two-pass, fixed-width emission:
 
 ```lean
 def lower (prog : Program) : ByteArray :=
@@ -217,20 +226,20 @@ Three design choices, all argued well:
 
 - **Recompute-on-use.** Operands are materialised onto the stack by re-emitting the
   push-sequence of each tmp's defining expression
-  ([`materialiseExpr`](../LirLean/Lowering.lean#L95)); an `assign` itself emits **no**
-  bytes ([`emitStmt`](../LirLean/Lowering.lean#L132)). This mirrors exp003's
+  ([`materialiseExpr`](../LirLean/Spec/Lowering.lean#L140)); an `assign` itself emits **no**
+  bytes ([`emitStmt`](../LirLean/Spec/Lowering.lean#L178)). This mirrors exp003's
   hand-written programs (push a literal immediately before consuming it) and — the key
   payoff — it lets the `Match` invariant **drop the register↔slot map entirely**
   (§5.1). Its cost is code size and that it is correct only when each tmp has a single
-  global definition ([`defsOf`](../LirLean/Lowering.lean#L164) takes the last `assign`).
+  global definition ([`defsOf`](../LirLean/Spec/Lowering.lean#L243) takes the last `assign`).
 - **Two-pass, fixed-width destinations.** Every destination push is a `PUSH4`
-  ([`emitDest`](../LirLean/Lowering.lean#L90)), so block lengths are independent of
+  ([`emitDest`](../LirLean/Spec/Lowering.lean#L135)), so block lengths are independent of
   the resolved offset table and layout is a simple prefix sum
-  ([`offsetTable`](../LirLean/Lowering.lean#L190)) — no fixpoint over
+  ([`offsetTable`](../LirLean/Spec/Lowering.lean#L291)) — no fixpoint over
   push-width-vs-offset. This is exactly what makes the offset table *provably* correct
   (the `Layout` lemmas, §5.2).
-- **Per-construct templates** ([`emitStmt`](../LirLean/Lowering.lean#L132),
-  [`emitTerm`](../LirLean/Lowering.lean#L147)) match the opcode `runs_*` rules exp003
+- **Per-construct templates** ([`emitStmt`](../LirLean/Spec/Lowering.lean#L178),
+  [`emitTerm`](../LirLean/Spec/Lowering.lean#L212)) match the opcode `runs_*` rules exp003
   provides, so the simulation reads off cleanly.
 
 Decode-compatibility is **build-enforced** in [`Decode.lean`](../LirLean/Decode.lean):
@@ -630,10 +639,10 @@ checks themselves are leaves no theorem consumes).
   preservation theorem over arbitrary `prog` is still not stated (the layout/decode
   bricks already support a symbolic statement — see Recommendations).
 - **CALL surface is value-free / calldata-free / zero memory window**
-  ([`CallSpec`](../LirLean/IR.lean#L43)); no value transfer, no return-data binding
+  ([`CallSpec`](../LirLean/Spec/IR.lean#L43)); no value transfer, no return-data binding
   beyond the success flag.
 - **`defsOf` is program-global, last-`assign`-wins**
-  ([`Lowering.lean`](../LirLean/Lowering.lean#L164)); correct for single-block /
+  ([`Lowering.lean`](../LirLean/Spec/Lowering.lean#L243)); correct for single-block /
   single-definition SSA-ish programs, not for general re-assignment or block-local
   scoping.
 - **Gas knob `g ≥ 50000`.** The single remaining assumption; benign (a concrete cost
