@@ -251,86 +251,6 @@ def defsOf (prog : Program) : Tmp → Option Expr :=
         | _                    => none))
   fun t => (pairs.find? (fun p => p.1 == t)).map (·.2)
 
-/-- `defsOf` never registers a tmp as the bare `Expr.gas`: a gas assign is routed to the
-spill-load `Expr.slot (slotOf t)` (Phase B), and no other `defsOf` arm produces `.gas`. So
-the recompute env's `.gas` body has been retired — every gas tmp is a memory slot. -/
-theorem defsOf_ne_gas (prog : Program) (t : Tmp) : defsOf prog t ≠ some .gas := by
-  unfold defsOf
-  cases hf : (List.find? (fun p => p.1 == t)
-      (prog.blocks.toList.flatMap (fun b =>
-        b.stmts.filterMap (fun
-          | .assign t .gas       => some (t, Expr.slot (slotOf t))
-          | .assign t (.sload _) => some (t, Expr.slot (slotOf t))
-          | .assign t e          => some (t, e)
-          | .call ⟨_, _, some t⟩ => some (t, Expr.slot (slotOf t))
-          | _                    => none)))) with
-  | none => simp
-  | some pr =>
-      simp only [Option.map_some, ne_eq, Option.some.injEq]
-      have hmem := List.mem_of_find?_eq_some hf
-      obtain ⟨b, _, hbmem⟩ := List.mem_flatMap.mp hmem
-      obtain ⟨s, _, hsmap⟩ := List.mem_filterMap.mp hbmem
-      -- `pr.2` is one of the filterMap outputs; none is `.gas`.
-      cases s with
-      | assign t' e' =>
-          cases e' with
-          | gas => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
-          | imm w => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
-          | tmp t'' => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
-          | add a b => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
-          | lt a b => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
-          | sload k => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
-          | slot n => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
-      | sstore _ _ => simp at hsmap
-      | call cs =>
-          obtain ⟨callee, gasFwd, rt⟩ := cs
-          cases rt with
-          | none => simp at hsmap
-          | some t'' =>
-              simp only [Option.some.injEq] at hsmap
-              rw [← hsmap]; simp
-
-/-- `defsOf` never registers a tmp as a bare `Expr.sload _`: an sload assign is routed to the
-spill-load `Expr.slot (slotOf t)` (Phase C), and no other `defsOf` arm produces `.sload`. So
-the recompute env's `.sload` body has been retired — every sload tmp is a memory slot, read
-once at the def-site (cold/warm warmth charged once) and reused via `MLOAD`. -/
-theorem defsOf_ne_sload (prog : Program) (t : Tmp) (k : Tmp) :
-    defsOf prog t ≠ some (.sload k) := by
-  unfold defsOf
-  cases hf : (List.find? (fun p => p.1 == t)
-      (prog.blocks.toList.flatMap (fun b =>
-        b.stmts.filterMap (fun
-          | .assign t .gas       => some (t, Expr.slot (slotOf t))
-          | .assign t (.sload _) => some (t, Expr.slot (slotOf t))
-          | .assign t e          => some (t, e)
-          | .call ⟨_, _, some t⟩ => some (t, Expr.slot (slotOf t))
-          | _                    => none)))) with
-  | none => simp
-  | some pr =>
-      simp only [Option.map_some, ne_eq, Option.some.injEq]
-      have hmem := List.mem_of_find?_eq_some hf
-      obtain ⟨b, _, hbmem⟩ := List.mem_flatMap.mp hmem
-      obtain ⟨s, _, hsmap⟩ := List.mem_filterMap.mp hbmem
-      -- `pr.2` is one of the filterMap outputs; none is `.sload`.
-      cases s with
-      | assign t' e' =>
-          cases e' with
-          | gas => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
-          | imm w => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
-          | tmp t'' => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
-          | add a b => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
-          | lt a b => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
-          | sload k' => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
-          | slot n => simp only [Option.some.injEq] at hsmap; rw [← hsmap]; simp
-      | sstore _ _ => simp at hsmap
-      | call cs =>
-          obtain ⟨callee, gasFwd, rt⟩ := cs
-          cases rt with
-          | none => simp at hsmap
-          | some t'' =>
-              simp only [Option.some.injEq] at hsmap
-              rw [← hsmap]; simp
-
 /-! ## Allocation: the default policy
 
 `allocate prog` is the **policy** half of `lower = encode ∘ emit (allocate prog)`.
@@ -346,23 +266,9 @@ def locOfExpr : Expr → Loc
   | .slot n => .slot n
   | e       => .remat e
 
-/-- `Loc.toDef` is a left inverse of `locOfExpr` on every expression. -/
-@[simp] theorem toDef_locOfExpr (e : Expr) : (locOfExpr e).toDef = e := by
-  cases e <;> rfl
-
 /-- The default allocation: classify each tmp's `defsOf` definition into a `Loc`.
 Undefined tmps get no location (`none`). -/
 def allocate (prog : Program) : Alloc := fun t => (defsOf prog t).map locOfExpr
-
-/-- `allocate` is a faithful re-presentation of `defsOf`: viewing it back through
-`Alloc.toDefs` recovers `defsOf` exactly. This is the Phase-A "no behaviour change"
-keystone — `emit (allocate prog) prog` consumes `(allocate prog).toDefs = defsOf prog`. -/
-theorem allocate_toDefs (prog : Program) : (allocate prog).toDefs = defsOf prog := by
-  funext t
-  simp only [Alloc.toDefs, allocate, Option.map_map]
-  cases defsOf prog t with
-  | none => rfl
-  | some e => simp [toDef_locOfExpr]
 
 /-! ## Block layout (two-pass offset table) -/
 

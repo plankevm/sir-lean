@@ -5,7 +5,7 @@
 -- the lowering-preservation proof against exp003's `Runs` / `messageCall_runs`
 -- API. See docs/ir-design.md.
 import LirLean.Spec.IR
-import LirLean.Lowering
+import LirLean.LoweringLemmas
 -- NOTE: `Decode` (decode round-trip anchors) is a byte-coupled *leaf example* —
 -- nothing in the headline cone imports it. Its `rfl`/`decide` byte checks are stale under
 -- the Phase-C sload spill (the SLOAD def-site stash shifted byte offsets). It is SUPERSEDED

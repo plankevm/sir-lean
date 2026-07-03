@@ -1,4 +1,4 @@
-import LirLean.Lowering
+import LirLean.LoweringLemmas
 import Evm
 
 /-!

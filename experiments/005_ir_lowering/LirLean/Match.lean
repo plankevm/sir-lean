@@ -1,6 +1,6 @@
 import LirLean.SmallStep
 import LirLean.Call
-import LirLean.Lowering
+import LirLean.LoweringLemmas
 import LirLean.Layout
 import BytecodeLayer.Hoare
 import BytecodeLayer.Hoare.CallSequence
