@@ -1,4 +1,4 @@
-import LirLean.V2.TieDischarge
+import LirLean.V2.Drive.Headline
 
 /-!
 # LirLean v2 — the REALISABILITY SPEC skeleton (Phase-3 target statements; Nightly-only)

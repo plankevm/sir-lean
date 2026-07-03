@@ -8,7 +8,7 @@ Pure `Evm.AccountMap` facts, zero IR / zero recorder / zero `SelfPresent`: the R
 non-emptiness prims (`forM_from_nil` / `all2_nil_false` / `find?_some_ne_empty`) and the
 arbitrary-address presence layer (`AccPresent` / `AccMono` + Bricks A/B and their closers)
 that the accMono dispatch walk (`Engine/StepWalk.lean`) and the drive-run monotonicity
-(`Engine/DriveMono.lean`) consume. Extracted verbatim from `V2/TieDischarge.lean`
+(`Engine/DriveMono.lean`) consume. Extracted verbatim from the former `V2/TieDischarge.lean` monolith
 (names and namespaces unchanged); exp003 promotion is post-Phase-3.
 
 `AccountMap = Batteries.RBMap AccountAddress Account compare`, whose `BEq` runs `RBNode.all₂`

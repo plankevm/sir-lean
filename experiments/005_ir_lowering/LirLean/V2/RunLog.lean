@@ -52,7 +52,7 @@ open BytecodeLayer.Interpreter
 open BytecodeLayer.Hoare
 
 -- RELOCATED from V2/Oracle.lean (Phase 2): the two defs the §7 tie-discharge layer
--- (`V2/TieDischarge.lean` — `GasLogAligned`, `FramesRun.snoc`/`.snoc_seed`,
+-- (`V2/Drive/SelfPresent.lean` — `GasLogAligned`, `FramesRun.snoc`/`.snoc_seed`,
 -- `gasRecord_eq_gasReadOf`, `gasReadOf_gasFrame_eq_obs`) still consumes. The rest of
 -- the gas-law interface (`GasRealises`, `.monotoneGas`, the guard theorems) was
 -- deleted with the gas-monotonicity law (docs/gas-decision.md).

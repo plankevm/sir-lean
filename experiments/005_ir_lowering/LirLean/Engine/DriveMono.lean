@@ -3,7 +3,7 @@ import LirLean.Engine.Descent
 /-!
 # `LirLean.Engine.DriveMono` — account-presence monotone across a whole `drive` run
 
-Brick D, extracted verbatim from `V2/TieDischarge.lean` (names and namespaces unchanged;
+Brick D, extracted verbatim from the former `V2/TieDischarge.lean` monolith (names and namespaces unchanged;
 zero IR / zero recorder / zero `SelfPresent`): the drive-run presence invariant
 (`CheckpointPresent` / `StackPresent` / `DrivePresent`), the `endFrame` presence closers
 (`endFrame_call_accPresent` / `endFrame_create_accPresent` / `endFrame_accPresent`), and

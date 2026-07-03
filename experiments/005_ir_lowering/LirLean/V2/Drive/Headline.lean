@@ -2,74 +2,35 @@ import LirLean.V2.DriveSim
 import LirLean.V2.Drive.CallPreservesSelf
 
 /-!
-# LirLean v2 — discharging the §7 *value* ties from the recorded run (`TieDischarge`)
+# LirLean v2 — the `DriveCorrPlus` walk and the tie-supplied headlines (`Drive/Headline`)
 
-The cyclic construction (`V2/DriveSim.lean`) still **supplies** the per-cursor §7 ties
-(`SimStmtStep`/`SimTermStep` packing `GasRealises`/`SloadRealises`/`MemRealises` + the per-edge
-bundles). This module banks the pieces of those ties that are **derivable** from the realised
-`runWithLog`/`drive` execution, and lays the **positional-alignment foundation** the remaining
-ties (GAS, SLOAD warmth) reduce to.
+§6–§10 of the former `V2/TieDischarge.lean` monolith (decl names and namespaces unchanged):
 
-The three value channels split cleanly by *how much* of them is alignment-free:
+* **§6** — the strengthened boundary invariant `DriveCorrPlus` (the alignment + presence
+  carrier over `DriveSim.lean`'s `DriveCorr`) and its entry construction.
+* **§7** — the no-bridge VALUE channels of the `DriveCorrPlus` walk
+  (`memRealises_setLocal_nonspilled`, `driveCorrPlus_assign_remat_memRealises`,
+  `driveCorrPlus_sload_value`/`_world`).
+* **§8 (L2.0g)** — the seedable GAS-alignment bricks (`FramesRun.snoc_seed`,
+  `gasLogAligned_step_gas_seed`, `GasReach`).
+* **§9** — the edge wrappers `driveCorrPlus_step_jump`/`_branch`.
+* **§10** — the `DriveCorrPlus` recursion (`DriveStepPlus`, `driveStepPlus_of_block`,
+  `runFrom_of_driveCorrPlus`) and the headlines `lower_conforms_cyclic_tiefree` /
+  `lower_conforms_cyclic_assembled`.
 
-* **CALL** (`realisedCall_projection`, §1) — already a clean recorded-CALL projection: when the
-  log recorded a CALL, `realisedCall log self` **is** `evmV2CallOracle` at that record
-  (`realisedCall_eq_evmV2`, `simp`-clean). The `o = evmV2CallOracle …` conjunct of `CallRealises`
-  is therefore *discharged*, not supplied (the rest of `CallRealises` — the `Runs`/`CallReturns`
-  resume-frame pins — is the structural call trace the drive walk's CALL-boundary produces, not a
-  value tie). **Status: DISCHARGED (value channel).**
+**Honest status (audit 2026-07-02, `docs/target-architecture-2026-07-02.md`):** the
+headlines are CONDITIONAL on supplied `StmtTies`/`TermTies` (via `WellFormedLowered` for
+`_assembled`), which were shown unsatisfiable as supplied — the plan of record replaces this
+surface with the Phase-3 flagship (`V2/RealisabilitySpec.lean`); these theorems remain the
+green machinery that reshape starts from, not a conformance claim.
 
-* **GAS** (§2) — the *arithmetic* is alignment-free and `rfl`: the recorder appends
-  `UInt256.ofUInt64 exec.gasAvailable` at a top-level GAS `.next` step, where `exec` is the
-  post-charge exec `gasPost current.exec`; that word is **exactly** `gasReadOf (gasFrame current)`
-  (`gasRecord_eq_gasReadOf`), and `gasReadOf (gasFrame fr)` is exactly the word the `obs`-form
-  `Lir.GasRealises` (`MaterialiseRuns.lean`) demands at the pre-charge frame `fr`
-  (`gasReadOf_gasFrame_eq_obs`). What is **not** alignment-free is *which* recorded read pairs with
-  *which* cursor: `realisedGas log = log.gas` is a flat program-order list, and the `obs`-form
-  `Lir.GasRealises obs fr` (universal over every same-address frame) needs the alignment to know
-  the cursor's `obs` is the matching list entry. That is Part 3 (§3). **Status: arithmetic bridge
-  DISCHARGED; per-cursor selection reduced to the alignment.**
-
-* **SLOAD** (`SloadRealises`, `MaterialiseRuns.lean`) — `sloadChg k` is the actual warmth cost at
-  the SLOAD cursor. The recorder now logs the per-SLOAD warmth-charge (`RunLog.sloads`, the
-  `sloadAcc` splice in `driveLog`, `realisedSload`, `sloadWarmthOf` — all in `V2/RunLog.lean`),
-  with adequacy preserved by construction (`driveLog_drive` erases the new accumulator exactly like
-  `gasAcc`). The value-level bridge `sloadRecord_eq_sloadCost` shows the recorded charge *is*
-  `SloadRealises`'s required `sloadCost (accessedStorageKeys.contains (self, key))` — the exact
-  GAS analogue (§4 below re-exposes it as `sloadRecord_discharges_obs`). **Status: arithmetic/value
-  bridge DISCHARGED; per-cursor selection reduced to the alignment (same as GAS).**
-
-* **SSTORE presence** (`SstoreRealises`'s third conjunct, `SimStmt.lean`) — `accounts.find? self =
-  some acc` is **not** a dispatch gate (SSTORE reads through `.option 0`), so it cannot come from a
-  step-inversion. §5 discharges it from the standalone world-wellformedness invariant `SelfPresent`
-  (self account present in the frame's accounts): preserved by every materialise post-frame
-  (`accounts` untouched, `rfl`) and holding at the entry `codeFrame` under world-wellformedness
-  (`selfPresent_codeFrame`); the point-of-use discharge (`SelfPresent` at the SSTORE frame) yields exactly the
-  presence conjunct `sim_sstore` consumes at the internal SSTORE frame. **Status: world-invariant +
-  point-of-use discharge DONE; `MatRuns`-threading is the remaining wiring (parallel to §3).**
-
-## Part 3 — the positional-alignment foundation (§3)
-
-The ties are per-cursor `(L, pc)`; the recorder logs a flat program-order list (`log.gas`). The
-drive walk (`drive_step_block_*`, threading `DriveCorr` cursor-by-cursor) visits exactly those
-cursors in order, and the recorder's top-level gate (`isGasOp current && stack.isEmpty`) means the
-recorded reads are the **top-level** program's GAS reads in that same order.
-
-The alignment substrate already exists frame-side: `Oracle.GasRealises T frs` (`V2/Oracle.lean`)
-is the **list-level** realisability — `T = frs.map gasReadOf` (positional read-equality) together
-with `FramesRun frs` (the GAS-frames `Runs`-threaded in program order). What is missing is the
-bridge to the **recorder**: that `log.gas` (the `driveLog` accumulator) **is** `frs.map gasReadOf`
-for the GAS-frames `frs` the drive walk visits. §3 defines that coupling (`GasLogAligned`) and
-proves the **foundational per-op step**: a top-level GAS `.next` step grows the accumulator by
-exactly `gasReadOf (gasFrame current)` and the witness list by `gasFrame current`, preserving
-alignment (`gasLogAligned_step_gas`); a non-recording step leaves the accumulator fixed
-(`gasLogAligned_step_norecord`). The remaining obstacle (reported below) is the full
-walk-induction threading `GasLogAligned` through the `driveLog`/`drive` recursion alongside the
-`DriveCorr` cursor — and then projecting the *list*-level `Oracle.GasRealises` back to the
-*per-cursor* `obs`-form `Lir.GasRealises` at each GAS cursor.
+The value-channel discharges + `SelfPresent` live in `Drive/SelfPresent.lean`; the
+`callPreservesSelf` chain in `Drive/CallPreservesSelf.lean`; the pure engine theory in
+`LirLean/Engine/`.
 
 No `sorry`/`axiom`/`native_decide`; axioms `[propext, Classical.choice, Quot.sound]`.
 -/
+
 
 namespace Lir.V2
 

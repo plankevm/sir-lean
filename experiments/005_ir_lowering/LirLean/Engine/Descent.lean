@@ -5,7 +5,7 @@ import LirLean.Engine.StepWalk
 
 The structural facts of the interpreter's two *descents* (`.needsCall` → `beginCall` →
 child run → `resumeAfterCall`; `.needsCreate` → `beginCreate` → child run →
-`resumeAfterCreate`), extracted verbatim from `V2/TieDischarge.lean` (names and namespaces
+`resumeAfterCreate`), extracted verbatim from the former `V2/TieDischarge.lean` monolith (names and namespaces
 unchanged; zero IR / zero recorder / zero `SelfPresent`):
 
 * the CALL-site inversions (`callArm_needsCall_inv` / `systemOp_needsCall_inv` /

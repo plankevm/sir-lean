@@ -2,7 +2,8 @@ import LirLean.LowerConforms
 import LirLean.LowerDecode
 import LirLean.MaterialiseCleanHalt
 import LirLean.V2.DriveSim
-import LirLean.V2.TieDischarge
+import LirLean.V2.Drive.CallPreservesSelf
+import LirLean.V2.Drive.Headline
 
 /-!
 # Audit net (Track A, 2026-07-02)

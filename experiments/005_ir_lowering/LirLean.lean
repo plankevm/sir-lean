@@ -70,11 +70,12 @@ import LirLean.Acyclic
 -- The CYCLIC world-channel headlines (`lower_conforms_cyclic`/`_cyclic'`): the drive-recursion
 -- simulation for any (possibly cyclic) CFG. Pulls in the full spine (LowerConforms, RunLog, …).
 import LirLean.V2.DriveSim
--- The §7 tie-discharge layer: the headlines (`lower_conforms_cyclic_tiefree`/`_assembled`,
--- `callPreservesSelf_modGuards`) and the positional alignment foundation (`GasLogAligned`/
--- `SloadLogAligned`, `FramesRun.snoc`). Previously reached the build cone only via the
--- deleted `V2/HonestGasTie.lean`'s import; imported directly since Phase 2.
-import LirLean.V2.TieDischarge
+-- The tie-discharge layer, dissolved into `V2/Drive/` (engine split, Wave 2): the headlines
+-- (`lower_conforms_cyclic_tiefree`/`_assembled` in `Drive/Headline`), the seam-carrying
+-- `callPreservesSelf` chain (`Drive/CallPreservesSelf`), and the positional alignment
+-- foundation (`GasLogAligned`/`SloadLogAligned`, `FramesRun.snoc` in `Drive/SelfPresent`) —
+-- all over the pure engine theory in `LirLean/Engine/`.
+import LirLean.V2.Drive.Headline
 -- Track 1 (EXTRACTOR): clean-halting ⟹ per-cursor gas/mem envelopes. The forward-from-real-run
 -- producer that discharges the §7 ties' supplied gas/mem side-conditions from the drive thread's
 -- entry clean-halt (`CleanHaltsSuccess` + per-op `.next`-inversion + the stash envelope family).
@@ -86,6 +87,6 @@ import LirLean.CleanHaltExtract
 import LirLean.MaterialiseCleanHalt
 -- AUDIT NET (Track A, 2026-07-02): #guard_msgs-pinned axiom + flagship-signature guards.
 -- Must stay the LAST import of this root. Directly imports the guarded modules (incl.
--- V2.TieDischarge), so the headline cone stays in the default target independent of the
+-- V2.Drive.Headline), so the headline cone stays in the default target independent of the
 -- other root imports. See docs/exec/audit-net.md.
 import LirLean.Audit

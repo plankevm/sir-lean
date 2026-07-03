@@ -5,7 +5,7 @@ import BytecodeLayer.Hoare.CallSequence
 # `LirLean.Engine.StepWalk` — the ONE dispatch walk: env-equality + account-presence mono
 
 The engine-level per-opcode `.next` induction (CALLMONO Brick C) and its frame-level wrappers,
-extracted verbatim from `V2/TieDischarge.lean` (names and namespaces unchanged; zero IR / zero
+extracted verbatim from the former `V2/TieDischarge.lean` monolith (names and namespaces unchanged; zero IR / zero
 recorder / zero `SelfPresent`):
 
 * the accounts/env framing prims (`charge_accounts_env`, `chargeMemExpansion_accounts_env`,
