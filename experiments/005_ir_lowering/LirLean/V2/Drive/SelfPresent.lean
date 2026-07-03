@@ -363,8 +363,9 @@ def SelfPresent (fr : Frame) : Prop :=
 
 /-! ### `SelfPresent ⇒ accounts ≠ ∅` (the non-emptiness conjunct of the halt ties)
 
-The halt terminator arms (built directly in `driveStepPlus_of_block`) must emit the `¬ (accounts == ∅)` conjunct
-of the §7 terminator bundle. It is *derived* — not supplied — from `SelfPresent` (the self account
+The halt terminator arms (formerly built in the since-deleted `driveStepPlus_of_block`) must emit
+the `¬ (accounts == ∅)` conjunct of the §7 terminator bundle. It is *derived* — not supplied — from
+`SelfPresent` (the self account
 is present in the map, so the map cannot be empty). The account-map fact is
 `find?_some_ne_empty` (a `find?` hit forces `¬ (m == ∅)`), a pure engine brick that lives in
 `Engine/AccountMap.lean` together with its RBMap prims (`forM_from_nil`/`all2_nil_false`). -/
