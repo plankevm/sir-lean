@@ -526,962 +526,25 @@ theorem chargeMemExpansion_accounts_env {e e' : ExecutionState} {off sz : UInt25
 def SelfAt (exec : ExecutionState) : Prop :=
   ∃ acc : Account, exec.accounts.find? exec.executionEnv.address = some acc
 
-/-- `replaceStackAndIncrPC` preserves `SelfAt` (touches only `stack`/`pc`). -/
-theorem selfAt_replaceStackAndIncrPC {e : ExecutionState} (s : Stack Word) (pcΔ : UInt8)
-    (h : SelfAt e) : SelfAt (ExecutionState.replaceStackAndIncrPC e s pcΔ) := h
-
 end Lir.V2
 
-/-! ### `SelfAt` preservation through each `.next` dispatch arm (engine level)
+/-! ### The engine-level `.next` combinator inversion
 
-We work in the `Evm` namespace to reach the dispatch/`systemOp`/`smsfOp` definitions directly. The
-two account-writing opcodes (`SSTORE`, `TSTORE`) write through `State.sstore`/`State.tstore`, whose
-`none` branch returns the state verbatim and whose `some` branch is `setAccount self … = insert self`.
-Both are presence-preserving at the self address; we prove that for `State.sstore`/`State.tstore`
-once. -/
+`continueWith` is the shared exit of every simple dispatch arm; its `.next` carries the argument
+verbatim. The per-arm preservation facts themselves live in the strengthened accMono dispatch walk
+below (env-equality + presence-mono in ONE induction); `SelfAt` preservation is its `a := self`
+corollary `stepFrame_next_self`. -/
 
 namespace Evm
 
 open GasConstants
 
-/-- `State.sstore` keeps the self account present and the execution environment fixed: the `none`
-branch returns the state verbatim; the `some` branch inserts at the self address. -/
-theorem sstore_self_present (st : State) (key val : UInt256)
-    (h : ∃ acc, st.accounts.find? st.executionEnv.address = some acc) :
-    (∃ acc, (st.sstore key val).accounts.find? (st.sstore key val).executionEnv.address = some acc) := by
-  obtain ⟨acc, ha⟩ := h
-  -- `State.sstore`'s `lookupAccount self |>.option self (fun acc ↦ …)` with `ha = some acc`
-  -- reduces to the `some` branch: `setAccount self (acc.updateStorage …)` + a substate update.
-  -- Both leave `executionEnv` fixed and set `accounts := insert self …`; reading self back is `some`.
-  refine ⟨acc.updateStorage key val, ?_⟩
-  unfold State.sstore
-  simp only [State.lookupAccount, ha, Option.option]
-  exact BytecodeLayer.Maps.accounts_find?_insert_self _ _ _
-
-/-- `State.tstore` keeps the self account present and the execution environment fixed (it touches
-only `accounts` at the self address, via `updateAccount self`, in the `some` branch; `none` is
-verbatim). -/
-theorem tstore_self_present (st : State) (key val : UInt256)
-    (h : ∃ acc, st.accounts.find? st.executionEnv.address = some acc) :
-    (∃ acc, (st.tstore key val).accounts.find? (st.tstore key val).executionEnv.address = some acc) := by
-  obtain ⟨acc, ha⟩ := h
-  refine ⟨acc.updateTransientStorage key val, ?_⟩
-  unfold State.tstore
-  simp only [State.lookupAccount, ha, Option.option]
-  exact BytecodeLayer.Maps.accounts_find?_insert_self _ _ _
-
-/-! ### Combinator-level self-presence preservation (the non-`System`, non-storage `.next` arms)
-
-Every simple dispatch arm ends `continueWith (replaceStackAndIncrPC e …)` for an `e` that is the
-post-`charge` state with at most `memory`/`activeWords`/`substate`/`toMachineState` updated — never
-`accounts` or `executionEnv`. So each preserves `SelfAt`. We prove the shared shapes once. -/
-
-open Lir.V2 (SelfAt) in
 /-- A `.next` produced by `continueWith` carries its argument verbatim: `continueWith e = .ok (.next
 e')` forces `e' = e`. -/
 theorem continueWith_next {e e' : ExecutionState} (h : continueWith e = .ok (.next e')) : e' = e := by
   unfold continueWith at h
   simp only [Except.ok.injEq, Signal.next.injEq] at h
   exact h.symm
-
-end Evm
-
-namespace Lir.V2
-open Evm GasConstants BytecodeLayer.Maps
-
-/-- `SelfAt` survives `replaceStackAndIncrPC` of a state whose `accounts`/`executionEnv` equal a
-`SelfAt` base. -/
-theorem selfAt_replaceOfBase {base e : ExecutionState} (s : Stack Word) (pcΔ : UInt8)
-    (hacc : e.accounts = base.accounts) (henv : e.executionEnv = base.executionEnv)
-    (h : SelfAt base) : SelfAt (ExecutionState.replaceStackAndIncrPC e s pcΔ) := by
-  obtain ⟨acc, ha⟩ := h
-  exact ⟨acc, by
-    show e.accounts.find? e.executionEnv.address = some acc
-    rw [hacc, henv]; exact ha⟩
-
-end Lir.V2
-
-namespace Evm
-open GasConstants
-
-/-- The resumed CALL frame keeps the self account present whenever the returned `result.accounts`
-contains the caller self address. `resumeAfterCall` sets `exec.accounts := result.accounts` and
-leaves `executionEnv` (hence `.address`) at the suspended caller's value — both by `rfl`. -/
-theorem resumeAfterCall_selfAt (result : CallResult) (pd : PendingCall)
-    (h : ∃ acc, result.accounts.find? pd.frame.exec.executionEnv.address = some acc) :
-    ∃ acc, (resumeAfterCall result pd).exec.accounts.find?
-        (resumeAfterCall result pd).exec.executionEnv.address = some acc := h
-
-/-- The resumed CREATE frame keeps the self account present whenever the returned `result.accounts`
-contains the caller self address. Same `rfl` shape as `resumeAfterCall_selfAt` once
-`resumeAfterCreate` succeeds (it can throw `OutOfGas`, in which case there is no resumed frame). -/
-theorem resumeAfterCreate_selfAt (result : CreateResult) (pd : PendingCreate) {f : Frame}
-    (hres : resumeAfterCreate result pd = .ok f)
-    (h : ∃ acc, result.accounts.find? pd.frame.exec.executionEnv.address = some acc) :
-    ∃ acc, f.exec.accounts.find? f.exec.executionEnv.address = some acc := by
-  unfold resumeAfterCreate at hres
-  simp only [bind, Except.bind, pure, Except.pure] at hres
-  split at hres
-  · exact absurd hres (by simp)
-  · simp only [Except.ok.injEq] at hres; subst hres; exact h
-
-/-- **`callArm` `.next` (fallback) preserves self-presence.** On the funds/depth fallback `callArm`
-resumes the parent via `resumeAfterCall failed pending`, whose `failed.accounts = e1.accounts =
-exec.accounts` (the captured caller map; `charge` preserves accounts) and whose `pending.frame.exec`
-shares `exec`'s execution environment (`charge` preserves it). So the resumed self lookup is the
-caller's own, present by hypothesis. -/
-theorem callArm_next_self
-    {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
-    {gas caller recipient codeAddress value apparentValue inOffset inSize outOffset outSize : UInt256}
-    {permission : Bool} {exec' : ExecutionState}
-    (h : callArm fr exec stack gas caller recipient codeAddress value apparentValue
-          inOffset inSize outOffset outSize permission = .ok (.next exec'))
-    (hself : ∃ acc, exec.accounts.find? exec.executionEnv.address = some acc) :
-    ∃ acc, exec'.accounts.find? exec'.executionEnv.address = some acc := by
-  rw [callArm] at h
-  cases hw : (memoryExpansionWords? exec.activeWords inOffset inSize >>=
-      (memoryExpansionWords? · outOffset outSize)) with
-  | none => rw [hw] at h; simp [throw, throwThe, MonadExceptOf.throw] at h
-  | some words' =>
-    rw [hw] at h
-    simp only [bind, Except.bind] at h
-    cases he1 : charge (Cₘ words' - Cₘ exec.activeWords) exec with
-    | error e => rw [he1] at h; simp at h
-    | ok e1 =>
-      rw [he1] at h
-      simp only [] at h
-      obtain ⟨he1acc, he1env⟩ := Lir.V2.charge_accounts_env he1
-      set ca : AccountAddress := AccountAddress.ofUInt256 codeAddress with hca
-      set rc : AccountAddress := AccountAddress.ofUInt256 recipient with hrc
-      set extraCost := callExtraCost ca rc value e1.accounts e1.substate with hextra
-      set gasCap := callGasCap ca rc value gas e1.accounts e1.gasAvailable e1.substate with hgcap
-      set childGas := if value = 0 then gasCap else gasCap + Gcallstipend with hcg
-      cases he2 : charge (gasCap + extraCost) e1 with
-      | error e => rw [he2] at h; simp at h
-      | ok e2 =>
-        rw [he2] at h
-        simp only [] at h
-        obtain ⟨he2acc, he2env⟩ := Lir.V2.charge_accounts_env he2
-        split at h
-        · -- needsCall branch: contradiction
-          simp only [Except.ok.injEq] at h
-          exact absurd h (by simp)
-        · -- next (fallback) branch
-          simp only [Except.ok.injEq, Signal.next.injEq] at h
-          subst h
-          -- `exec'` is `(resumeAfterCall failed pending).exec`; reduce via `resumeAfterCall_selfAt`.
-          apply resumeAfterCall_selfAt
-          -- `failed.accounts = e1.accounts`; `pending.frame.exec.executionEnv = e2.executionEnv`.
-          show ∃ acc, e1.accounts.find? e2.executionEnv.address = some acc
-          obtain ⟨acc, hacc⟩ := hself
-          exact ⟨acc, by rw [he2env, he1env, he1acc]; exact hacc⟩
-
-/-- **`createArm` `.next` (fallback) preserves self-presence.** Both `.next` arms resume the parent
-via `resumeAfterCreate failed pending`, whose `failed.accounts = exec.accounts` (captured before any
-charge) and whose `pending.frame.exec` shares `exec`'s execution environment; so the resumed self
-lookup is the caller's own. -/
-theorem createArm_next_self
-    {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
-    {value initOffset initSize : UInt256} {salt : Option ByteArray} {exec' : ExecutionState}
-    (h : createArm fr exec stack value initOffset initSize salt = .ok (.next exec'))
-    (hself : ∃ acc, exec.accounts.find? exec.executionEnv.address = some acc) :
-    ∃ acc, exec'.accounts.find? exec'.executionEnv.address = some acc := by
-  rw [createArm] at h
-  simp only [bind, Except.bind, pure, Except.pure] at h
-  -- The `failed` CreateResult (accounts = exec.accounts) and `pending` (frame.exec = exec) are the
-  -- shared let-bound values of both `.next` arms; a `resumeAfterCreate failed pending = .ok f`
-  -- resumes with the caller self present, via `resumeAfterCreate_selfAt`.
-  have key : ∀ (f : Frame),
-      resumeAfterCreate
-        { address := default
-          createdAccounts := exec.createdAccounts
-          accounts := exec.accounts
-          gasRemaining := .ofNat (allButOneSixtyFourth exec.gasAvailable.toNat)
-          substate := exec.toState.substate
-          success := false
-          output := .empty }
-        { frame := { fr with exec := exec }
-          stack := stack
-          callerAccounts := exec.accounts
-          value := value
-          initOffset := initOffset.toUInt64
-          initSize := initSize.toUInt64
-          initCodeSize := (exec.memory.readWithPadding initOffset.toNat initSize.toNat).size }
-        = .ok f →
-      ∃ acc, f.exec.accounts.find? f.exec.executionEnv.address = some acc := by
-    intro f hf
-    exact resumeAfterCreate_selfAt _ _ hf hself
-  -- Case on the two guards (nonce overflow; funds/depth/size) — both fall through to a
-  -- `resumeAfterCreate failed pending` `.next`; the third is the `.needsCreate` descent.
-  split at h
-  · -- nonce-overflow fallback
-    revert h
-    cases hr : resumeAfterCreate _ _ with
-    | error e => intro h; simp at h
-    | ok f =>
-      intro h
-      simp only [Except.ok.injEq, Signal.next.injEq] at h
-      subst h
-      exact key f hr
-  · split at h
-    · -- successful guard: `.needsCreate`, contradiction with `.next`
-      simp only [Except.ok.injEq] at h; exact absurd h (by simp)
-    · -- funds/depth/size fallback
-      revert h
-      cases hr : resumeAfterCreate _ _ with
-      | error e => intro h; simp at h
-      | ok f =>
-        intro h
-        simp only [Except.ok.injEq, Signal.next.injEq] at h
-        subst h
-        exact key f hr
-
-/-- **A `.next` System op preserves self-presence.** STOP/RETURN/REVERT/SELFDESTRUCT/INVALID never
-emit `.next` (they `haltOp`); the CALL family reduces (`systemOp_callArm_reduce`) to `callArm` on the
-*same* `exec` (so `callArm_next_self` consumes `SelfAt exec` directly); CREATE/CREATE2 reduce to
-`createArm` on the charged `ec`, whose `accounts`/`executionEnv` equal `exec`'s
-(`chargeMemExpansion`/`charge` preserve both), so `createArm_next_self` consumes the transported
-`SelfAt ec`. -/
-theorem systemOp_next_self {op : Operation.SystemOp} {fr : Frame} {exec : ExecutionState}
-    {exec' : ExecutionState}
-    (h : systemOp op fr exec = .ok (.next exec'))
-    (hself : ∃ acc, exec.accounts.find? exec.executionEnv.address = some acc) :
-    ∃ acc, exec'.accounts.find? exec'.executionEnv.address = some acc := by
-  cases op with
-  | STOP | RETURN | REVERT | SELFDESTRUCT | INVALID =>
-    exact absurd (by unfold systemOp at h; exact h)
-      (BytecodeLayer.System.haltOp_not_next' (by tauto))
-  | CALL | CALLCODE | DELEGATECALL | STATICCALL =>
-    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, hc⟩ :=
-      BytecodeLayer.System.systemOp_callArm_reduce (by tauto) h
-    exact callArm_next_self hc hself
-  | CREATE =>
-    -- Reduce `systemOp .CREATE` to `createArm fr ec …` while exposing `ec.accounts = exec.accounts`
-    -- and `ec.executionEnv = exec.executionEnv` (both charges preserve them).
-    unfold systemOp at h
-    simp only [bind, Except.bind] at h
-    cases hr : requireStateMod exec with
-    | error e => rw [hr] at h; simp at h
-    | ok _ =>
-      rw [hr] at h; simp only [] at h
-      cases hp : exec.stack.pop3 with
-      | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      | some v =>
-        obtain ⟨s, val, io, is⟩ := v; rw [hp] at h
-        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        split at h
-        · simp at h
-        · cases hm : chargeMemExpansion exec io is with
-          | error e => rw [hm] at h; simp [pure, Except.pure] at h
-          | ok em =>
-            rw [hm] at h; simp only [pure, Except.pure] at h
-            cases hc : charge (createCost is) em with
-            | error e => rw [hc] at h; simp at h
-            | ok ec =>
-              rw [hc] at h; simp only [] at h
-              obtain ⟨hmacc, hmenv⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
-              obtain ⟨hcacc, hcenv⟩ := Lir.V2.charge_accounts_env hc
-              refine createArm_next_self h ?_
-              obtain ⟨acc, ha⟩ := hself
-              exact ⟨acc, by rw [hcacc, hmacc, hcenv, hmenv]; exact ha⟩
-  | CREATE2 =>
-    unfold systemOp at h
-    simp only [bind, Except.bind] at h
-    cases hr : requireStateMod exec with
-    | error e => rw [hr] at h; simp at h
-    | ok _ =>
-      rw [hr] at h; simp only [] at h
-      cases hp : exec.stack.pop4 with
-      | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      | some v =>
-        obtain ⟨s, val, io, is, salt⟩ := v; rw [hp] at h
-        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        split at h
-        · simp at h
-        · cases hm : chargeMemExpansion exec io is with
-          | error e => rw [hm] at h; simp [pure, Except.pure] at h
-          | ok em =>
-            rw [hm] at h; simp only [pure, Except.pure] at h
-            cases hc : charge (create2Cost is) em with
-            | error e => rw [hc] at h; simp at h
-            | ok ec =>
-              rw [hc] at h; simp only [] at h
-              obtain ⟨hmacc, hmenv⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
-              obtain ⟨hcacc, hcenv⟩ := Lir.V2.charge_accounts_env hc
-              refine createArm_next_self h ?_
-              obtain ⟨acc, ha⟩ := hself
-              exact ⟨acc, by rw [hcacc, hmacc, hcenv, hmenv]; exact ha⟩
-
-open Lir.V2 (SelfAt charge_accounts_env selfAt_replaceOfBase) in
-/-- `unOp`/`binOp`/`ternOp`/`pushOp`/EXP/KECCAK256/copy/BLOBHASH all `charge` (preserving
-accounts/env) then `continueWith (replaceStackAndIncrPC e …)` of a state `e` whose accounts/env
-equal the charged state's — so `.next` preserves `SelfAt`. We capture that common post-charge
-`replaceStackAndIncrPC` shape once. -/
-theorem dispatch_simple_arm_next_self {exec echarged e exec' : ExecutionState}
-    {s : Stack UInt256} {pcΔ : UInt8} {cost : ℕ}
-    (hc : charge cost exec = .ok echarged)
-    (hbase_acc : e.accounts = echarged.accounts) (hbase_env : e.executionEnv = echarged.executionEnv)
-    (heq : exec' = ExecutionState.replaceStackAndIncrPC e s pcΔ)
-    (hself : SelfAt exec) : SelfAt exec' := by
-  subst heq
-  obtain ⟨hcacc, hcenv⟩ := charge_accounts_env hc
-  exact selfAt_replaceOfBase s pcΔ (by rw [hbase_acc, hcacc]) (by rw [hbase_env, hcenv]) hself
-
-/-- A `pushOp` `.next` preserves `SelfAt`: `charge` then `replaceStackAndIncrPC` of the charged
-state. -/
-theorem pushOp_next_self {v : ExecutionState → UInt256} {exec exec' : ExecutionState} {cost : ℕ}
-    (h : pushOp v exec cost = .ok (.next exec')) (hself : Lir.V2.SelfAt exec) :
-    Lir.V2.SelfAt exec' := by
-  unfold pushOp at h
-  simp only [bind, Except.bind] at h
-  cases hc : charge cost exec with
-  | error e => rw [hc] at h; simp at h
-  | ok ec =>
-    rw [hc] at h
-    exact dispatch_simple_arm_next_self hc rfl rfl (continueWith_next h) hself
-
-open Lir.V2 (SelfAt charge_accounts_env selfAt_replaceOfBase) in
-/-- A `unStateOp` `.next` whose world-op `f` leaves `accounts`/`executionEnv` fixed preserves
-`SelfAt` (the dispatch's `unStateOp` arms — BALANCE/EXTCODESIZE/EXTCODEHASH/CALLDATALOAD/BLOCKHASH/
-SLOAD/TLOAD — all read-only on `accounts` via `addAccessedAccount`/`addAccessedStorageKey`/pure
-reads). -/
-theorem unStateOp_next_self {f : Evm.State → UInt256 → Evm.State × UInt256}
-    {cost : ExecutionState → UInt256 → ℕ} {exec exec' : ExecutionState}
-    (hf : ∀ (st : Evm.State) (a : UInt256), (f st a).1.accounts = st.accounts
-        ∧ (f st a).1.executionEnv = st.executionEnv)
-    (h : unStateOp f cost exec = .ok (.next exec')) (hself : SelfAt exec) :
-    SelfAt exec' := by
-  unfold unStateOp at h
-  simp only [bind, Except.bind] at h
-  cases hp : exec.stack.pop with
-  | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-  | some v =>
-    obtain ⟨st1, a⟩ := v; rw [hp] at h
-    simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-    cases hc : charge (cost exec a) exec with
-    | error e => rw [hc] at h; simp at h
-    | ok ec =>
-      rw [hc] at h
-      simp only [] at h
-      rw [continueWith_next h]
-      obtain ⟨hcacc, hcenv⟩ := charge_accounts_env hc
-      obtain ⟨hfacc, hfenv⟩ := hf ec.toState a
-      -- `exec' = replaceStackAndIncrPC { ec with toState := (f ec.toState a).1 } …`
-      refine selfAt_replaceOfBase _ _ ?_ ?_ hself
-      · show (f ec.toState a).1.accounts = exec.accounts; rw [hfacc, hcacc]
-      · show (f ec.toState a).1.executionEnv = exec.executionEnv; rw [hfenv, hcenv]
-
-open Lir.V2 (SelfAt charge_accounts_env selfAt_replaceStackAndIncrPC) in
-/-- A `charge`-then-`SSTORE`-write `.next` preserves `SelfAt`, for **any** charge cost: `charge`
-keeps `accounts`/`executionEnv`, then `State.sstore` writes at the self address. Abstracting the
-cost dodges spelling the EIP-2200 `sstoreCost` term. -/
-theorem charge_sstore_next_self {cost : ℕ} {exec exec' : ExecutionState} {key newVal : UInt256}
-    {st : Stack UInt256}
-    (h : (charge cost exec).bind (fun ec => continueWith
-        (ExecutionState.replaceStackAndIncrPC { ec with toState := ec.toState.sstore key newVal } st))
-      = .ok (.next exec'))
-    (hself : SelfAt exec) : SelfAt exec' := by
-  cases hc : charge cost exec with
-  | error e => rw [hc] at h; simp [bind, Except.bind] at h
-  | ok ec =>
-    rw [hc] at h; simp only [bind, Except.bind] at h
-    rw [continueWith_next h]
-    refine selfAt_replaceStackAndIncrPC _ _ ?_
-    obtain ⟨hcacc, hcenv⟩ := charge_accounts_env hc
-    refine sstore_self_present ec.toState key newVal ?_
-    obtain ⟨acc, ha⟩ := hself; exact ⟨acc, by rw [hcacc, hcenv]; exact ha⟩
-
-open Lir.V2 (SelfAt charge_accounts_env selfAt_replaceStackAndIncrPC) in
-/-- The `TSTORE` twin of `charge_sstore_next_self`. -/
-theorem charge_tstore_next_self {cost : ℕ} {exec exec' : ExecutionState} {key val : UInt256}
-    {st : Stack UInt256}
-    (h : (charge cost exec).bind (fun ec => continueWith
-        (ExecutionState.replaceStackAndIncrPC { ec with toState := ec.toState.tstore key val } st))
-      = .ok (.next exec'))
-    (hself : SelfAt exec) : SelfAt exec' := by
-  cases hc : charge cost exec with
-  | error e => rw [hc] at h; simp [bind, Except.bind] at h
-  | ok ec =>
-    rw [hc] at h; simp only [bind, Except.bind] at h
-    rw [continueWith_next h]
-    refine selfAt_replaceStackAndIncrPC _ _ ?_
-    obtain ⟨hcacc, hcenv⟩ := charge_accounts_env hc
-    refine tstore_self_present ec.toState key val ?_
-    obtain ⟨acc, ha⟩ := hself; exact ⟨acc, by rw [hcacc, hcenv]; exact ha⟩
-
-open Lir.V2 (SelfAt charge_accounts_env chargeMemExpansion_accounts_env
-  selfAt_replaceOfBase selfAt_replaceStackAndIncrPC) in
-/-- **A `.next` `smsfOp` preserves self-presence.** The memory/stack/flow arms
-(POP/MLOAD/MSTORE/MSTORE8/MSIZE/PC/JUMP/JUMPI/JUMPDEST/MCOPY/GAS) leave `accounts`/`executionEnv`
-untouched; SLOAD/TLOAD are `unStateOp` read-only on accounts; SSTORE/TSTORE write *at the self
-address* (`State.sstore`/`State.tstore` — `none` verbatim, `some` insert-at-self). -/
-theorem smsfOp_next_self {op : Operation.SmsfOp} {fr : Frame} {exec exec' : ExecutionState}
-    (h : smsfOp op fr exec = .ok (.next exec')) (hself : SelfAt exec) : SelfAt exec' := by
-  unfold smsfOp at h
-  cases op with
-  | POP =>
-    simp only [bind, Except.bind] at h
-    cases hc : charge Gbase exec with
-    | error e => rw [hc] at h; simp at h
-    | ok ec =>
-      rw [hc] at h; simp only [] at h
-      cases hp : ec.stack.pop with
-      | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      | some v =>
-        obtain ⟨st, x⟩ := v; rw [hp] at h
-        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        exact dispatch_simple_arm_next_self hc rfl rfl (continueWith_next h) hself
-  | MLOAD =>
-    simp only [bind, Except.bind] at h
-    cases hp : exec.stack.pop with
-    | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-    | some v =>
-      obtain ⟨st, addr⟩ := v; rw [hp] at h
-      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      cases hm : chargeMemExpansion exec addr 32 with
-      | error e => rw [hm] at h; simp [pure, Except.pure] at h
-      | ok em =>
-        rw [hm] at h; simp only [pure, Except.pure] at h
-        cases hc : charge Gverylow em with
-        | error e => rw [hc] at h; simp at h
-        | ok ec =>
-          rw [hc] at h; simp only [] at h
-          rw [continueWith_next h]
-          obtain ⟨hmacc, hmenv⟩ := chargeMemExpansion_accounts_env hm
-          obtain ⟨hcacc, hcenv⟩ := charge_accounts_env hc
-          exact selfAt_replaceOfBase _ _ (by rw [hcacc, hmacc]) (by rw [hcenv, hmenv]) hself
-  | MSTORE =>
-    simp only [bind, Except.bind] at h
-    cases hp : exec.stack.pop2 with
-    | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-    | some v =>
-      obtain ⟨st, addr, val⟩ := v; rw [hp] at h
-      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      cases hm : chargeMemExpansion exec addr 32 with
-      | error e => rw [hm] at h; simp [pure, Except.pure] at h
-      | ok em =>
-        rw [hm] at h; simp only [pure, Except.pure] at h
-        cases hc : charge Gverylow em with
-        | error e => rw [hc] at h; simp at h
-        | ok ec =>
-          rw [hc] at h; simp only [] at h
-          rw [continueWith_next h]
-          obtain ⟨hmacc, hmenv⟩ := chargeMemExpansion_accounts_env hm
-          obtain ⟨hcacc, hcenv⟩ := charge_accounts_env hc
-          exact selfAt_replaceOfBase _ _ (by rw [hcacc, hmacc]) (by rw [hcenv, hmenv]) hself
-  | MSTORE8 =>
-    simp only [bind, Except.bind] at h
-    cases hp : exec.stack.pop2 with
-    | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-    | some v =>
-      obtain ⟨st, addr, val⟩ := v; rw [hp] at h
-      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      cases hm : chargeMemExpansion exec addr 1 with
-      | error e => rw [hm] at h; simp [pure, Except.pure] at h
-      | ok em =>
-        rw [hm] at h; simp only [pure, Except.pure] at h
-        cases hc : charge Gverylow em with
-        | error e => rw [hc] at h; simp at h
-        | ok ec =>
-          rw [hc] at h; simp only [] at h
-          rw [continueWith_next h]
-          obtain ⟨hmacc, hmenv⟩ := chargeMemExpansion_accounts_env hm
-          obtain ⟨hcacc, hcenv⟩ := charge_accounts_env hc
-          exact selfAt_replaceOfBase _ _ (by rw [hcacc, hmacc]) (by rw [hcenv, hmenv]) hself
-  | SLOAD =>
-    refine unStateOp_next_self ?_ h hself
-    intro st a; exact ⟨rfl, rfl⟩
-  | SSTORE =>
-    simp only [bind, Except.bind, pure, Except.pure] at h
-    cases hr : requireStateMod exec with
-    | error e => rw [hr] at h; simp at h
-    | ok _ =>
-      rw [hr] at h; simp only [] at h
-      split at h
-      · simp at h
-      · cases hp : exec.stack.pop2 with
-        | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        | some v =>
-          obtain ⟨st, key, newVal⟩ := v; rw [hp] at h
-          simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-          exact charge_sstore_next_self h hself
-  | TLOAD =>
-    refine unStateOp_next_self ?_ h hself
-    intro st a; exact ⟨rfl, rfl⟩
-  | TSTORE =>
-    simp only [bind, Except.bind, pure, Except.pure] at h
-    cases hr : requireStateMod exec with
-    | error e => rw [hr] at h; simp at h
-    | ok _ =>
-      rw [hr] at h; simp only [] at h
-      cases hc : charge tstoreCost exec with
-      | error e => rw [hc] at h; simp at h
-      | ok ec =>
-        rw [hc] at h; simp only [] at h
-        cases hp : ec.stack.pop2 with
-        | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        | some v =>
-          obtain ⟨st, key, val⟩ := v; rw [hp] at h
-          simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-          rw [continueWith_next h]
-          obtain ⟨hcacc, hcenv⟩ := charge_accounts_env hc
-          refine selfAt_replaceStackAndIncrPC _ _ ?_
-          refine tstore_self_present ec.toState key val ?_
-          obtain ⟨acc, ha⟩ := hself; exact ⟨acc, by rw [hcacc, hcenv]; exact ha⟩
-  | MSIZE => exact pushOp_next_self h hself
-  | GAS => exact pushOp_next_self h hself
-  | PC => exact pushOp_next_self h hself
-  | JUMP =>
-    simp only [bind, Except.bind] at h
-    cases hc : charge Gmid exec with
-    | error e => rw [hc] at h; simp at h
-    | ok ec =>
-      rw [hc] at h; simp only [] at h
-      cases hp : ec.stack.pop with
-      | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      | some v =>
-        obtain ⟨st, dest⟩ := v; rw [hp] at h
-        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        obtain ⟨hcacc, hcenv⟩ := charge_accounts_env hc
-        cases hd : fr.get_dest dest with
-        | none => rw [hd] at h; simp at h
-        | some newpc =>
-          rw [hd] at h; simp only [] at h
-          rw [continueWith_next h]
-          obtain ⟨acc, ha⟩ := hself
-          exact ⟨acc, by
-            show ec.accounts.find? ec.executionEnv.address = some acc
-            rw [hcacc, hcenv]; exact ha⟩
-  | JUMPI =>
-    simp only [bind, Except.bind] at h
-    cases hc : charge Ghigh exec with
-    | error e => rw [hc] at h; simp at h
-    | ok ec =>
-      rw [hc] at h; simp only [] at h
-      cases hp : ec.stack.pop2 with
-      | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      | some v =>
-        obtain ⟨st, dest, cond⟩ := v; rw [hp] at h
-        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        obtain ⟨hcacc, hcenv⟩ := charge_accounts_env hc
-        have hself' : ∃ acc, ec.accounts.find? ec.executionEnv.address = some acc := by
-          obtain ⟨acc, ha⟩ := hself; exact ⟨acc, by rw [hcacc, hcenv]; exact ha⟩
-        split at h
-        · cases hd : fr.get_dest dest with
-          | none => rw [hd] at h; simp at h
-          | some newpc =>
-            rw [hd] at h; simp only [] at h
-            rw [continueWith_next h]; exact hself'
-        · rw [continueWith_next h]; exact hself'
-  | JUMPDEST =>
-    simp only [bind, Except.bind] at h
-    cases hc : charge Gjumpdest exec with
-    | error e => rw [hc] at h; simp at h
-    | ok ec =>
-      rw [hc] at h; simp only [] at h
-      rw [continueWith_next h]
-      obtain ⟨hcacc, hcenv⟩ := charge_accounts_env hc
-      obtain ⟨acc, ha⟩ := hself
-      exact ⟨acc, by
-        show ec.accounts.find? ec.executionEnv.address = some acc
-        rw [hcacc, hcenv]; exact ha⟩
-  | MCOPY =>
-    simp only [bind, Except.bind] at h
-    cases hp : exec.stack.pop3 with
-    | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-    | some v =>
-      obtain ⟨st, dest, src, sz⟩ := v; rw [hp] at h
-      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      cases hm : chargeMemExpansion exec (max dest src) sz with
-      | error e => rw [hm] at h; simp [pure, Except.pure] at h
-      | ok em =>
-        rw [hm] at h; simp only [pure, Except.pure] at h
-        cases hc : charge (Gverylow + copyCost sz) em with
-        | error e => rw [hc] at h; simp at h
-        | ok ec =>
-          rw [hc] at h; simp only [] at h
-          rw [continueWith_next h]
-          obtain ⟨hmacc, hmenv⟩ := chargeMemExpansion_accounts_env hm
-          obtain ⟨hcacc, hcenv⟩ := charge_accounts_env hc
-          exact selfAt_replaceOfBase _ _ (by rw [hcacc, hmacc]) (by rw [hcenv, hmenv]) hself
-
-open Lir.V2 (SelfAt charge_accounts_env selfAt_replaceOfBase) in
-/-- `unOp` `.next` preserves `SelfAt`: `charge` then `replaceStackAndIncrPC` of the charged state. -/
-theorem unOp_next_self {f : UInt256 → UInt256} {exec exec' : ExecutionState} {cost : ℕ}
-    (h : unOp f exec cost = .ok (.next exec')) (hself : SelfAt exec) : SelfAt exec' := by
-  unfold unOp at h
-  simp only [bind, Except.bind] at h
-  cases hc : charge cost exec with
-  | error e => rw [hc] at h; simp at h
-  | ok ec =>
-    rw [hc] at h; simp only [] at h
-    cases hp : ec.stack.pop with
-    | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-    | some v =>
-      obtain ⟨stk, a⟩ := v; rw [hp] at h
-      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      exact dispatch_simple_arm_next_self hc rfl rfl (continueWith_next h) hself
-
-open Lir.V2 (SelfAt charge_accounts_env selfAt_replaceOfBase) in
-/-- `binOp` `.next` preserves `SelfAt`. -/
-theorem binOp_next_self {f : UInt256 → UInt256 → UInt256} {exec exec' : ExecutionState} {cost : ℕ}
-    (h : binOp f exec cost = .ok (.next exec')) (hself : SelfAt exec) : SelfAt exec' := by
-  unfold binOp at h
-  simp only [bind, Except.bind] at h
-  cases hc : charge cost exec with
-  | error e => rw [hc] at h; simp at h
-  | ok ec =>
-    rw [hc] at h; simp only [] at h
-    cases hp : ec.stack.pop2 with
-    | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-    | some v =>
-      obtain ⟨stk, a, b⟩ := v; rw [hp] at h
-      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      exact dispatch_simple_arm_next_self hc rfl rfl (continueWith_next h) hself
-
-open Lir.V2 (SelfAt charge_accounts_env selfAt_replaceOfBase) in
-/-- `ternOp` `.next` preserves `SelfAt`. -/
-theorem ternOp_next_self {f : UInt256 → UInt256 → UInt256 → UInt256} {exec exec' : ExecutionState}
-    {cost : ℕ} (h : ternOp f exec cost = .ok (.next exec')) (hself : SelfAt exec) : SelfAt exec' := by
-  unfold ternOp at h
-  simp only [bind, Except.bind] at h
-  cases hc : charge cost exec with
-  | error e => rw [hc] at h; simp at h
-  | ok ec =>
-    rw [hc] at h; simp only [] at h
-    cases hp : ec.stack.pop3 with
-    | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-    | some v =>
-      obtain ⟨stk, a, b, c⟩ := v; rw [hp] at h
-      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      exact dispatch_simple_arm_next_self hc rfl rfl (continueWith_next h) hself
-
-open Lir.V2 (SelfAt charge_accounts_env selfAt_replaceOfBase) in
-/-- `dup` `.next` preserves `SelfAt` (charge then `replaceStackAndIncrPC`). -/
-theorem dup_next_self {n : ℕ} {exec exec' : ExecutionState}
-    (h : dup n exec = .ok (.next exec')) (hself : SelfAt exec) : SelfAt exec' := by
-  unfold dup at h
-  simp only [bind, Except.bind] at h
-  cases hc : charge Gverylow exec with
-  | error e => rw [hc] at h; simp at h
-  | ok ec =>
-    rw [hc] at h; simp only [] at h
-    cases hd : ec.stack[n-1]? with
-    | none => rw [hd] at h; simp [throw, throwThe, MonadExceptOf.throw] at h
-    | some x =>
-      rw [hd] at h; simp only [] at h
-      exact dispatch_simple_arm_next_self hc rfl rfl (continueWith_next h) hself
-
-open Lir.V2 (SelfAt charge_accounts_env selfAt_replaceOfBase) in
-/-- `swap` `.next` preserves `SelfAt`. -/
-theorem swap_next_self {n : ℕ} {exec exec' : ExecutionState}
-    (h : swap n exec = .ok (.next exec')) (hself : SelfAt exec) : SelfAt exec' := by
-  unfold swap at h
-  simp only [bind, Except.bind] at h
-  cases hc : charge Gverylow exec with
-  | error e => rw [hc] at h; simp at h
-  | ok ec =>
-    rw [hc] at h; simp only [] at h
-    split at h
-    · exact dispatch_simple_arm_next_self hc rfl rfl (continueWith_next h) hself
-    · simp [throw, throwThe, MonadExceptOf.throw] at h
-
-open Lir.V2 (SelfAt charge_accounts_env chargeMemExpansion_accounts_env selfAt_replaceOfBase) in
-/-- `logArm` `.next` preserves `SelfAt`: `requireStateMod`, two charges, then `logOp` (touches only
-`substate`/`activeWords`) and `replaceStackAndIncrPC` — `accounts`/`executionEnv` untouched. -/
-theorem logArm_next_self {exec exec' : ExecutionState} {stk : Stack UInt256} {offset size : UInt256}
-    {topics : Array UInt256}
-    (h : logArm exec stk offset size topics = .ok (.next exec')) (hself : SelfAt exec) :
-    SelfAt exec' := by
-  unfold logArm at h
-  simp only [bind, Except.bind, pure, Except.pure] at h
-  cases hr : requireStateMod exec with
-  | error e => rw [hr] at h; simp at h
-  | ok _ =>
-    rw [hr] at h; simp only [] at h
-    cases hm : chargeMemExpansion exec offset size with
-    | error e => rw [hm] at h; simp at h
-    | ok em =>
-      rw [hm] at h; simp only [] at h
-      cases hc : charge (logCost topics.size size) em with
-      | error e => rw [hc] at h; simp at h
-      | ok ec =>
-        rw [hc] at h; simp only [] at h
-        rw [continueWith_next h]
-        obtain ⟨hmacc, hmenv⟩ := chargeMemExpansion_accounts_env hm
-        obtain ⟨hcacc, hcenv⟩ := charge_accounts_env hc
-        -- `exec' = replaceStackAndIncrPC (ec.logOp …) stk`; `logOp` keeps accounts/env.
-        refine selfAt_replaceOfBase _ _ ?_ ?_ hself
-        · show (ec.logOp offset size topics).accounts = exec.accounts
-          show ec.accounts = exec.accounts; rw [hcacc, hmacc]
-        · show (ec.logOp offset size topics).executionEnv = exec.executionEnv
-          show ec.executionEnv = exec.executionEnv; rw [hcenv, hmenv]
-
-open Lir.V2 (SelfAt charge_accounts_env chargeMemExpansion_accounts_env selfAt_replaceOfBase) in
-/-- **`dispatch` `.next` preserves self-presence (engine level).** Every `.next`-producing opcode of
-`dispatch` keeps the self account present: System ops via `systemOp_next_self`, storage/memory/flow via
-`smsfOp_next_self`, the arithmetic/`pushOp`/`unStateOp`/`dup`/`swap`/log/`EXP`/`KECCAK256`/copy arms via
-their combinator lemmas — all either leave `accounts`/`executionEnv` untouched or insert at the self
-address (`SSTORE`/`TSTORE`). This is the dispatch-level half of `StepPreservesSelf`. -/
-theorem dispatch_next_self {op : Operation} {arg : Option (UInt256 × UInt8)} {fr : Frame}
-    {exec exec' : ExecutionState}
-    (h : dispatch op arg fr exec = .ok (.next exec')) (hself : SelfAt exec) : SelfAt exec' := by
-  unfold dispatch at h
-  cases op with
-  | System s => exact systemOp_next_self h hself
-  | Smsf s => exact smsfOp_next_self h hself
-  | KECCAK256 =>
-    simp only [bind, Except.bind] at h
-    cases hp : exec.stack.pop2 with
-    | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-    | some v =>
-      obtain ⟨stk, off, sz⟩ := v; rw [hp] at h
-      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      cases hm : chargeMemExpansion exec off sz with
-      | error er => rw [hm] at h; simp [pure, Except.pure] at h
-      | ok em =>
-        rw [hm] at h; simp only [pure, Except.pure] at h
-        cases hc : charge (keccakCost sz) em with
-        | error er => rw [hc] at h; simp at h
-        | ok ec =>
-          rw [hc] at h; simp only [] at h
-          rw [continueWith_next h]
-          obtain ⟨hmacc, hmenv⟩ := chargeMemExpansion_accounts_env hm
-          obtain ⟨hcacc, hcenv⟩ := charge_accounts_env hc
-          refine selfAt_replaceOfBase _ _ ?_ ?_ hself
-          · show ec.accounts = exec.accounts; rw [hcacc, hmacc]
-          · show ec.executionEnv = exec.executionEnv; rw [hcenv, hmenv]
-  | ArithLogic a =>
-    cases a with
-    | ADD | SUB | SIGNEXTEND | LT | GT | SLT | SGT | EQ | AND | OR | XOR | BYTE | SHL | SHR | SAR
-    | MUL | DIV | SDIV | MOD | SMOD => exact binOp_next_self h hself
-    | ADDMOD | MULMOD => exact ternOp_next_self h hself
-    | ISZERO | NOT => exact unOp_next_self h hself
-    | EXP =>
-      simp only [bind, Except.bind] at h
-      cases hp : exec.stack.pop2 with
-      | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      | some v =>
-        obtain ⟨stk, b, e⟩ := v; rw [hp] at h
-        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        cases hc : charge (expCost e) exec with
-        | error er => rw [hc] at h; simp at h
-        | ok ec =>
-          rw [hc] at h; simp only [] at h
-          exact dispatch_simple_arm_next_self hc rfl rfl (continueWith_next h) hself
-  | Env e =>
-    cases e with
-    | ADDRESS | ORIGIN | CALLER | CALLVALUE | CALLDATASIZE | CODESIZE | GASPRICE | RETURNDATASIZE =>
-      exact pushOp_next_self h hself
-    | BALANCE => exact unStateOp_next_self (fun _ _ => ⟨rfl, rfl⟩) h hself
-    | CALLDATALOAD => exact unStateOp_next_self (fun _ _ => ⟨rfl, rfl⟩) h hself
-    | EXTCODESIZE => exact unStateOp_next_self (fun _ _ => ⟨rfl, rfl⟩) h hself
-    | EXTCODEHASH =>
-      refine unStateOp_next_self ?_ h hself
-      intro st a
-      -- `State.extCodeHash`'s first component is `st.addAccessedAccount _` in both branches
-      -- (substate-only); `accounts`/`executionEnv` are untouched.
-      show (State.extCodeHash st a).1.accounts = st.accounts
-        ∧ (State.extCodeHash st a).1.executionEnv = st.executionEnv
-      unfold State.extCodeHash
-      dsimp only
-      split <;> exact ⟨rfl, rfl⟩
-    | CALLDATACOPY =>
-      simp only [bind, Except.bind] at h
-      cases hp : exec.stack.pop3 with
-      | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      | some v =>
-        obtain ⟨stk, a, b, c⟩ := v; rw [hp] at h
-        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        cases hm : chargeMemExpansion exec a c with
-        | error er => rw [hm] at h; simp [pure, Except.pure] at h
-        | ok em =>
-          rw [hm] at h; simp only [pure, Except.pure] at h
-          cases hc : charge (Gverylow + copyCost c) em with
-          | error er => rw [hc] at h; simp at h
-          | ok ec =>
-            rw [hc] at h; simp only [] at h
-            rw [continueWith_next h]
-            obtain ⟨hmacc, hmenv⟩ := chargeMemExpansion_accounts_env hm
-            obtain ⟨hcacc, hcenv⟩ := charge_accounts_env hc
-            refine selfAt_replaceOfBase _ _ ?_ ?_ hself
-            · show (ec.calldatacopy a b c).accounts = exec.accounts
-              show ec.accounts = exec.accounts; rw [hcacc, hmacc]
-            · show (ec.calldatacopy a b c).executionEnv = exec.executionEnv
-              show ec.executionEnv = exec.executionEnv; rw [hcenv, hmenv]
-    | CODECOPY =>
-      simp only [bind, Except.bind] at h
-      cases hp : exec.stack.pop3 with
-      | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      | some v =>
-        obtain ⟨stk, a, b, c⟩ := v; rw [hp] at h
-        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        cases hm : chargeMemExpansion exec a c with
-        | error er => rw [hm] at h; simp [pure, Except.pure] at h
-        | ok em =>
-          rw [hm] at h; simp only [pure, Except.pure] at h
-          cases hc : charge (Gverylow + copyCost c) em with
-          | error er => rw [hc] at h; simp at h
-          | ok ec =>
-            rw [hc] at h; simp only [] at h
-            rw [continueWith_next h]
-            obtain ⟨hmacc, hmenv⟩ := chargeMemExpansion_accounts_env hm
-            obtain ⟨hcacc, hcenv⟩ := charge_accounts_env hc
-            refine selfAt_replaceOfBase _ _ ?_ ?_ hself
-            · show (ec.codeCopy a b c).accounts = exec.accounts
-              show ec.accounts = exec.accounts; rw [hcacc, hmacc]
-            · show (ec.codeCopy a b c).executionEnv = exec.executionEnv
-              show ec.executionEnv = exec.executionEnv; rw [hcenv, hmenv]
-    | EXTCODECOPY =>
-      simp only [bind, Except.bind] at h
-      cases hp : exec.stack.pop4 with
-      | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      | some v =>
-        obtain ⟨stk, addr, a, b, c⟩ := v; rw [hp] at h
-        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        cases hm : chargeMemExpansion exec a c with
-        | error er => rw [hm] at h; simp [pure, Except.pure] at h
-        | ok em =>
-          rw [hm] at h; simp only [pure, Except.pure] at h
-          cases hc : charge (accessCost (AccountAddress.ofUInt256 addr) em.substate + copyCost c) em with
-          | error er => rw [hc] at h; simp at h
-          | ok ec =>
-            rw [hc] at h; simp only [] at h
-            rw [continueWith_next h]
-            obtain ⟨hmacc, hmenv⟩ := chargeMemExpansion_accounts_env hm
-            obtain ⟨hcacc, hcenv⟩ := charge_accounts_env hc
-            refine selfAt_replaceOfBase _ _ ?_ ?_ hself
-            · show (ec.extCodeCopy' addr a b c).accounts = exec.accounts
-              show ec.accounts = exec.accounts; rw [hcacc, hmacc]
-            · show (ec.extCodeCopy' addr a b c).executionEnv = exec.executionEnv
-              show ec.executionEnv = exec.executionEnv; rw [hcenv, hmenv]
-    | RETURNDATACOPY =>
-      simp only [bind, Except.bind] at h
-      cases hp : exec.stack.pop3 with
-      | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      | some v =>
-        obtain ⟨stk, a, b, c⟩ := v; rw [hp] at h
-        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        split at h
-        · simp [throw, throwThe, MonadExceptOf.throw] at h
-        · cases hm : chargeMemExpansion exec a c with
-          | error er => rw [hm] at h; simp [pure, Except.pure] at h
-          | ok em =>
-            rw [hm] at h; simp only [pure, Except.pure] at h
-            cases hc : charge (Gverylow + copyCost c) em with
-            | error er => rw [hc] at h; simp at h
-            | ok ec =>
-              rw [hc] at h; simp only [] at h
-              rw [continueWith_next h]
-              obtain ⟨hmacc, hmenv⟩ := chargeMemExpansion_accounts_env hm
-              obtain ⟨hcacc, hcenv⟩ := charge_accounts_env hc
-              refine selfAt_replaceOfBase _ _ ?_ ?_ hself
-              · show ec.accounts = exec.accounts; rw [hcacc, hmacc]
-              · show ec.executionEnv = exec.executionEnv; rw [hcenv, hmenv]
-  | Block b =>
-    cases b with
-    | COINBASE | TIMESTAMP | NUMBER | PREVRANDAO | GASLIMIT | CHAINID | SELFBALANCE | BASEFEE
-    | BLOBBASEFEE => exact pushOp_next_self h hself
-    | BLOCKHASH => exact unStateOp_next_self (fun _ _ => ⟨rfl, rfl⟩) h hself
-    | BLOBHASH =>
-      simp only [bind, Except.bind] at h
-      cases hp : exec.stack.pop with
-      | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      | some v =>
-        obtain ⟨stk, i⟩ := v; rw [hp] at h
-        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        cases hc : charge HASH_OPCODE_GAS exec with
-        | error er => rw [hc] at h; simp at h
-        | ok ec =>
-          rw [hc] at h; simp only [] at h
-          exact dispatch_simple_arm_next_self hc rfl rfl (continueWith_next h) hself
-  | Push p =>
-    cases p with
-    | PUSH0 => exact pushOp_next_self h hself
-    | _ =>
-      simp only [bind, Except.bind] at h
-      cases hc : charge Gverylow exec with
-      | error er => rw [hc] at h; simp at h
-      | ok ec =>
-        rw [hc] at h; simp only [] at h
-        cases harg : arg with
-        | none => rw [harg] at h; simp [throw, throwThe, MonadExceptOf.throw] at h
-        | some w =>
-          obtain ⟨av, aw⟩ := w; rw [harg] at h
-          simp only [] at h
-          exact dispatch_simple_arm_next_self hc rfl rfl (continueWith_next h) hself
-  | Dup d => exact dup_next_self h hself
-  | Swap s => exact swap_next_self h hself
-  | Log l =>
-    cases l with
-    | LOG0 =>
-      simp only [bind, Except.bind] at h
-      cases hp : exec.stack.pop2 with
-      | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      | some v =>
-        obtain ⟨stk, off, sz⟩ := v; rw [hp] at h
-        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        exact logArm_next_self h hself
-    | LOG1 =>
-      simp only [bind, Except.bind] at h
-      cases hp : exec.stack.pop3 with
-      | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      | some v =>
-        obtain ⟨stk, off, sz, t1⟩ := v; rw [hp] at h
-        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        exact logArm_next_self h hself
-    | LOG2 =>
-      simp only [bind, Except.bind] at h
-      cases hp : exec.stack.pop4 with
-      | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      | some v =>
-        obtain ⟨stk, off, sz, t1, t2⟩ := v; rw [hp] at h
-        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        exact logArm_next_self h hself
-    | LOG3 =>
-      simp only [bind, Except.bind] at h
-      cases hp : exec.stack.pop5 with
-      | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      | some v =>
-        obtain ⟨stk, off, sz, t1, t2, t3⟩ := v; rw [hp] at h
-        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        exact logArm_next_self h hself
-    | LOG4 =>
-      simp only [bind, Except.bind] at h
-      cases hp : exec.stack.pop6 with
-      | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      | some v =>
-        obtain ⟨stk, off, sz, t1, t2, t3, t4⟩ := v; rw [hp] at h
-        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        exact logArm_next_self h hself
-
-open Lir.V2 (SelfAt) in
-/-- **A `.next` `stepFrame` preserves self-presence (the engine-level `StepPreservesSelf` brick).**
-`stepFrame` decodes, screens `INVALID`/stack-overflow (both `.halted`, never `.next`), then forwards
-to `dispatch`; a `.next` is exactly a `dispatch … = .ok (.next exec')`, discharged by
-`dispatch_next_self`. The template is `stepFrame_next_lt`. -/
-theorem stepFrame_next_self {fr : Frame} {exec' : ExecutionState}
-    (h : stepFrame fr = .next exec') (hself : SelfAt fr.exec) : SelfAt exec' := by
-  rw [stepFrame] at h
-  generalize hdp : (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (Operation.STOP, .none)) = dp
-    at h
-  obtain ⟨op, arg⟩ := dp
-  simp only at h
-  split at h
-  · exact absurd h (by simp)  -- INVALID ⇒ .halted
-  · split at h
-    · exact absurd h (by simp) -- stack overflow ⇒ .halted
-    · cases hdisp : dispatch op arg fr fr.exec with
-      | ok signal =>
-        rw [hdisp] at h
-        cases signal with
-        | next e =>
-          simp only [Signal.next.injEq] at h; subst h
-          exact dispatch_next_self hdisp hself
-        | halted hl => simp only at h; exact absurd h (by simp)
-        | needsCall p pc => simp only at h; exact absurd h (by simp)
-        | needsCreate p pc => simp only at h; exact absurd h (by simp)
-      | error e => rw [hdisp] at h; exact absurd h (by simp)
 
 end Evm
 
@@ -1518,8 +581,9 @@ for `step`, the returning-call world-threading for `call`):
   `replaceStackAndIncrPC`, and the CALL/CREATE `.next` fallbacks via `resumeAfterCall`/`resumeAfterCreate`
   whose `result.accounts = exec.accounts`) or inserts *at* the self account (`SSTORE`/`TSTORE` via
   `State.sstore`/`State.tstore`); none ever erases it, and the execution environment (hence the self
-  address) is preserved throughout. The engine-level brick is `Evm.stepFrame_next_self`
-  (`dispatch_next_self`/`systemOp_next_self`/`smsfOp_next_self` per arm); `selfPresent_runs`'s first
+  address) is preserved throughout. The engine-level brick is `Evm.stepFrame_next_self`, the
+  `a := self` corollary of the strengthened accMono dispatch walk (`stepFrame_next_accMono` for the
+  presence half, `stepFrame_next_execEnvAddr` for the address transport); `selfPresent_runs`'s first
   hypothesis is satisfied by `stepPreservesSelf` outright.
 * `CallPreservesSelf` — a returning external CALL preserves the *caller's* self account presence.
   **Satisfiable, not vacuous**: the resume preserves the self *address* (`resumeAfterCall` rebuilds
@@ -1565,14 +629,14 @@ theorem endCall_exception_accounts (checkpoint : Evm.Checkpoint) (e : Evm.Execut
 /-- **The revert/exception sub-case of `CallPreservesSelf`, structurally discharged.** When the child
 returns a result whose accounts are the caller's pre-call checkpoint map (the revert/exception shapes,
 via `endCall_revert_accounts`/`endCall_exception_accounts`), and the caller self was present there, the
-resumed frame keeps the self account present. Reduces to `resumeAfterCall_selfAt`: address is preserved
-(`rfl`) and the returned accounts contain the caller self. This is the half of `CallPreservesSelf` that
+resumed frame keeps the self account present. Definitional: `resumeAfterCall` sets `exec.accounts :=
+result.accounts` and leaves `executionEnv` (hence `.address`) at the suspended caller's value — the
+hypothesis IS the conclusion up to `rfl`. This is the half of `CallPreservesSelf` that
 does **not** depend on the open `drive_accounts_find_mono`; the `.success` shape still does (and so the
 full `CallPreservesSelf` stays supplied — satisfiable, not vacuous). -/
 theorem resumeAfterCall_self_of_accounts (result : Evm.CallResult) (pd : Evm.PendingCall)
     (h : ∃ acc, result.accounts.find? pd.frame.exec.executionEnv.address = some acc) :
-    SelfPresent (Evm.resumeAfterCall result pd) :=
-  Evm.resumeAfterCall_selfAt result pd h
+    SelfPresent (Evm.resumeAfterCall result pd) := h
 
 /-! ### CALLMONO — account-presence at an *arbitrary* tracked address `a`
 
@@ -1582,9 +646,9 @@ the *child* drive run, where the running self address is the *callee's* — i.e.
 address `a` that is *not* the running frame's self. We therefore generalise `SelfAt` to an arbitrary
 `a` (`AccPresent a`) and prove account-presence monotone across each engine step (`AccMono a`).
 
-The two account framing facts (`Brick A`/`Brick B`) are pure `AccountMap` lemmas; they generalise the
-self-specific closers `sstore_self_present`/`tstore_self_present` (insert *at* `a`) and the
-`SelfPresent ⇒ ≠ ∅` non-emptiness bridge (the `==∅` swap is harmless on a present `a`) to an
+The two account framing facts (`Brick A`/`Brick B`) are pure `AccountMap` lemmas; they cover the
+SSTORE/TSTORE insert-at-self writes (presence at *any* `a` survives an insert) and the
+`SelfPresent ⇒ ≠ ∅` non-emptiness bridge (the `==∅` swap is harmless on a present `a`) at an
 arbitrary tracked `a`. -/
 
 /-- Account `a` is present in the map `m`. The arbitrary-address generalisation of `SelfAt` (which
@@ -1618,8 +682,8 @@ theorem accPresent_ne_empty (a : Evm.AccountAddress) (m : Evm.AccountMap)
   exact find?_some_ne_empty _ _ _ ha
 
 /-- **`accMono` closer for a verbatim-accounts step.** When `exec'.accounts = exec.accounts`, presence
-at `a` transports unchanged. The arbitrary-`a` twin of `selfAt_replaceOfBase`'s accounts-verbatim
-discharge (most `.next` arms route through `charge`/`chargeMemExpansion`, which preserve accounts). -/
+at `a` transports unchanged (most `.next` arms route through `charge`/`chargeMemExpansion`, which
+preserve accounts). -/
 theorem accMono_of_accounts_eq (a : Evm.AccountAddress) {m m' : Evm.AccountMap}
     (h : m' = m) : AccMono a m m' := by
   intro hp; rw [h]; exact hp
@@ -1662,9 +726,9 @@ theorem replaceStackAndIncrPC_accounts {e : ExecutionState} (s : Stack UInt256) 
     (ExecutionState.replaceStackAndIncrPC e s pcΔ).accounts = e.accounts := rfl
 
 open Lir.V2 (AccPresent accMono_of_accounts_eq) in
-/-- Presence at `a` survives `replaceStackAndIncrPC` of a state whose accounts equal a present base —
-the arbitrary-`a` twin of `selfAt_replaceOfBase`, with the `executionEnv` half dropped. The base
-accounts equality `hacc` is given up to defeq (`e.accounts` is read through `replaceStackAndIncrPC`). -/
+/-- Presence at `a` survives `replaceStackAndIncrPC` of a state whose accounts equal a present base.
+The base accounts equality `hacc` is given up to defeq (`e.accounts` is read through
+`replaceStackAndIncrPC`). -/
 theorem accMono_replaceOfBase {base e : ExecutionState} (s : Stack UInt256) (pcΔ : UInt8)
     {a : AccountAddress} (hacc : e.accounts = base.accounts)
     (h : AccPresent a base.accounts) :
@@ -1673,8 +737,7 @@ theorem accMono_replaceOfBase {base e : ExecutionState} (s : Stack UInt256) (pc�
   rw [replaceStackAndIncrPC_accounts, hacc]
 
 /-- **`State.sstore` keeps presence at an arbitrary `a`.** The `none` branch is verbatim; the `some`
-branch inserts at the self key, and presence at any `a` survives the insert (Brick A). The
-arbitrary-`a` twin of `sstore_self_present`. -/
+branch inserts at the self key, and presence at any `a` survives the insert (Brick A). -/
 theorem sstore_accMono (st : State) (key val : UInt256) (a : AccountAddress)
     (h : Lir.V2.AccPresent a st.accounts) :
     Lir.V2.AccPresent a (st.sstore key val).accounts := by
@@ -2648,6 +1711,17 @@ theorem stepFrame_next_accMono {fr : Frame} {exec' : ExecutionState}
         | needsCreate p pc => simp only at h; exact absurd h (by simp)
       | error e => rw [hdisp] at h; exact absurd h (by simp)
 
+open Lir.V2 (SelfAt) in
+/-- **A `.next` `stepFrame` preserves self-presence (the engine-level `StepPreservesSelf` brick).**
+The `a := self` corollary of the dispatch walk: presence at the (fixed) caller self address
+transports by `stepFrame_next_accMono`, and the self address itself is preserved by
+`stepFrame_next_execEnvAddr`. -/
+theorem stepFrame_next_self {fr : Frame} {exec' : ExecutionState}
+    (h : stepFrame fr = .next exec') (hself : SelfAt fr.exec) : SelfAt exec' := by
+  obtain ⟨acc, ha⟩ := hself
+  obtain ⟨acc', ha'⟩ := stepFrame_next_accMono h fr.exec.executionEnv.address ⟨acc, ha⟩
+  exact ⟨acc', by rw [stepFrame_next_execEnvAddr h]; exact ha'⟩
+
 /-! ### CALL-site inversion facts (`hcall_acc` / `hcall_kind` / `hcall_self`)
 
 The three structural CALL-site facts supplied to `callPreservesSelf`, all inverting
@@ -3334,9 +2408,9 @@ theorem resumeAfterCreate_kind (result : Evm.FrameResult) (pd : Evm.PendingCreat
 `fuel` following `drive`'s recursion (template: `drive_fuel_succ`). `DrivePresent a` at the start
 yields `AccPresent a` in the result accounts at the end, given:
 
-* `hmono` — the per-`.next`-step account-presence mono at `a` (Brick C; supplied & satisfiable: the
-  self instance is the proven `stepFrame_next_self`, the arbitrary-`a` generalisation differs only in
-  SSTORE/TSTORE via `accounts_find?_insert_mono`);
+* `hmono` — the per-`.next`-step account-presence mono at `a` (Brick C; supplied & satisfiable:
+  proven outright as `stepFrame_next_accMono`, the presence half of the dispatch walk, whose
+  SSTORE/TSTORE arms close via `accounts_find?_insert_mono`);
 * `hprec` — `beginCall`'s precompile `.inr` arm preserves presence at `a` (satisfiable: precompiles
   only insert; vacuous for call-free IR);
 * `hcall_acc`/`hcall_kind` — the CALL-site boundary facts: the issued `params.accounts` retains
@@ -4566,15 +3640,10 @@ end Lir.V2
 #print axioms Lir.V2.selfPresent_codeFrame
 #print axioms Lir.V2.driveCorrPlus_entry
 -- StepPreservesSelf is now DISCHARGED (a theorem, not a supplied edge): the engine-level brick
--- `stepFrame_next_self` and its dispatch/systemOp/smsfOp sub-lemmas, plus the call-resume structural
--- halves, are all axiom-clean.
+-- `stepFrame_next_self` (the `a := self` corollary of the dispatch walk), plus the call-resume
+-- structural halves, are all axiom-clean.
 #print axioms Lir.V2.stepPreservesSelf
 #print axioms Evm.stepFrame_next_self
-#print axioms Evm.dispatch_next_self
-#print axioms Evm.systemOp_next_self
-#print axioms Evm.smsfOp_next_self
-#print axioms Evm.sstore_self_present
-#print axioms Evm.resumeAfterCall_selfAt
 #print axioms Lir.V2.resumeAfterCall_self_of_accounts
 #print axioms Lir.V2.endCall_revert_accounts
 #print axioms Lir.V2.endCall_exception_accounts
