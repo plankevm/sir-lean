@@ -259,7 +259,7 @@ arg-push run reaching the CALL-site frame `callFr` with its pc/memory pins, the 
 and the Route-B tail's realisability. The genuine runtime call observation (the analogue of
 `SstoreRealises`), supplied per cursor and quantified over the corresponding frame. -/
 def CallRealises (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (o : V2.CallOracle)
-    (L : Label) (b : Block) (pc : Nat) (cs : CallSpec) (st0 : V2.IRState) (fr0 : Frame) : Prop :=
+    (L : Label) (pc : Nat) (cs : CallSpec) (st0 : V2.IRState) (fr0 : Frame) : Prop :=
   Corr prog sloadChg obs st0 fr0 L pc →
   ∃ (result : Evm.CallResult) (pd : Evm.PendingCall) (callFr resumeFr : Frame) (argsLen : Nat),
     -- the per-step scoping of the call statement (the §7 call scoping):
@@ -331,7 +331,7 @@ theorem simStmtStep_call {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     (hwf : WellFormedLowered prog)
     (hcorr : Corr prog sloadChg obs st0 fr0 L pc)
     (hstep : EvalStmt prog o st0 T0 (.call cs) st0' T0')
-    (hcall : CallRealises prog sloadChg obs o L b pc cs st0 fr0) :
+    (hcall : CallRealises prog sloadChg obs o L pc cs st0 fr0) :
     ∃ fr0', Runs fr0 fr0' ∧ Corr prog sloadChg obs st0' fr0' L (pc + 1)
       ∧ fr0'.exec.stack = [] := by
   obtain ⟨result, pd, callFr, resumeFr, argsLen, hsc, hosame, hargslen, hargs, hcallpc, hcallmem,
@@ -480,7 +480,7 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     -- the genuine `call`-cursor tie (the §7 realised-CALL trace):
     (hcallties : ∀ (pc : Nat) (cs : CallSpec) (st0 : V2.IRState) (fr0 : Frame),
         b.stmts[pc]? = some (.call cs) →
-        CallRealises prog sloadChg obs o L b pc cs st0 fr0) :
+        CallRealises prog sloadChg obs o L pc cs st0 fr0) :
     SimStmtStep prog sloadChg obs o L b := by
   intro pc s st0 st0' T0 T0' fr0 hget hcorr hcs hstep
   -- `s` is at a present cursor; case on the `EvalStmt` step (assign / sstore / call).

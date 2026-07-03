@@ -38,8 +38,6 @@
  ["docBlame", "Lir.V2.protoBytecode"],
  ["docBlame", "Lir.V2.protoIR"],
  ["docBlame", "Lir.V2.protoObs"],
- ["unusedArguments", "Lir.CallRealises"],
- ["unusedArguments", "Lir.TermTies"],
  ["unusedArguments", "Lir.instReprBlock.repr"],
  ["unusedArguments", "Lir.instReprCallSpec.repr"],
  ["unusedArguments", "Lir.instReprLabel.repr"],
