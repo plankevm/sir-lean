@@ -1631,22 +1631,26 @@ theorem accMono_emptySwap (a : Evm.AccountAddress) (m m₀ : Evm.AccountMap)
     (h : AccPresent a m) : AccPresent a (if m == (∅ : Evm.AccountMap) then m₀ else m) := by
   rw [if_neg (accPresent_ne_empty a m h)]; exact h
 
-/-! ### CALLMONO Brick C — `.next` account-presence monotone at an *arbitrary* `a` (engine level)
+/-! ### CALLMONO Brick C — the ONE dispatch walk: env-equality + account-presence mono (engine level)
 
-The arbitrary-`a` twin of the `SelfAt` dispatch family (`Evm.stepFrame_next_self` and friends). The
-generalisation is strictly *simpler* than the self proof: the tracked address `a` is a fixed
-parameter, independent of `executionEnv`, so every `henv`/`hcenv` obligation of the self family
-**vanishes**. Every `.next` arm collapses to one of two closers:
+The single per-opcode `.next` induction, carrying BOTH facts every `.next` arm satisfies:
 
-* `accMono_of_accounts_eq a (h : exec'.accounts = exec.accounts)` — the verbatim-accounts arms (all
-  but SSTORE/TSTORE/SELFDESTRUCT-on-halt), where `charge`/`chargeMemExpansion`/`replaceStackAndIncrPC`
-  preserve accounts;
-* `accounts_find?_insert_mono` (Brick A) — the insert-at-self arms (SSTORE/TSTORE), where the write is
-  an `insert` at the self key and presence at any `a` survives.
+* `exec'.executionEnv = exec.executionEnv` — **every** `.next` opcode leaves the execution
+  environment untouched (`replaceStackAndIncrPC`/`charge`/`chargeMemExpansion` and the CALL/CREATE
+  fallback resumes all preserve it). This half is *unconditional* (not under a presence
+  hypothesis) — it supports the standalone `stepFrame_next_execEnvAddr`.
+* `∀ a, AccPresent a exec.accounts → AccPresent a exec'.accounts` — presence at an arbitrary
+  tracked `a` is monotone. Every arm collapses to one of two closers:
+  * `accMono_of_accounts_eq a (h : exec'.accounts = exec.accounts)` — the verbatim-accounts arms
+    (all but SSTORE/TSTORE), where `charge`/`chargeMemExpansion`/`replaceStackAndIncrPC` preserve
+    accounts;
+  * `accounts_find?_insert_mono` (Brick A) — the insert-at-self arms (SSTORE/TSTORE), where the
+    write is an `insert` at the self key and presence at any `a` survives.
 
 CALL/CREATE `.next` (the funds/depth fallback) resume with `result.accounts = exec.accounts` (the
-captured caller map; `charge`/`chargeMemExpansion` preserve accounts), so they too are
-`accMono_of_accounts_eq`. -/
+captured caller map) and the suspended caller's `executionEnv`, so both halves transport verbatim.
+The self-address instance (`a := self`, transported along the env half) is `stepFrame_next_self`
+below — the former standalone `SelfAt` walk is subsumed by this one induction. -/
 
 end Lir.V2
 
@@ -1695,39 +1699,48 @@ theorem tstore_accMono (st : State) (key val : UInt256) (a : AccountAddress)
     exact Lir.V2.accounts_find?_insert_mono _ _ _ _ h
 
 open Lir.V2 (AccPresent accMono_of_accounts_eq) in
-/-- The accounts-verbatim post-`charge`/`replaceStackAndIncrPC` shape, at an arbitrary `a`. The
-arbitrary-`a` twin of `dispatch_simple_arm_next_self`; the `henv` obligation is gone. -/
+/-- The accounts-verbatim post-`charge`/`replaceStackAndIncrPC` shape: env-equality + presence
+monotone at every `a`, captured once for the simple dispatch arms. -/
 theorem dispatch_simple_arm_next_accMono {exec echarged e exec' : ExecutionState}
-    {s : Stack UInt256} {pcΔ : UInt8} {cost : ℕ} {a : AccountAddress}
+    {s : Stack UInt256} {pcΔ : UInt8} {cost : ℕ}
     (hc : charge cost exec = .ok echarged)
     (hbase_acc : e.accounts = echarged.accounts)
-    (heq : exec' = ExecutionState.replaceStackAndIncrPC e s pcΔ)
-    (h : AccPresent a exec.accounts) : AccPresent a exec'.accounts := by
+    (hbase_env : e.executionEnv = echarged.executionEnv)
+    (heq : exec' = ExecutionState.replaceStackAndIncrPC e s pcΔ) :
+    exec'.executionEnv = exec.executionEnv
+      ∧ ∀ a, AccPresent a exec.accounts → AccPresent a exec'.accounts := by
   subst heq
-  obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
-  refine accMono_of_accounts_eq a ?_ h
-  rw [replaceStackAndIncrPC_accounts, hbase_acc, hcacc]
+  obtain ⟨hcacc, hcenv⟩ := Lir.V2.charge_accounts_env hc
+  refine ⟨?_, fun a h => ?_⟩
+  · show e.executionEnv = exec.executionEnv
+    rw [hbase_env, hcenv]
+  · refine accMono_of_accounts_eq a ?_ h
+    rw [replaceStackAndIncrPC_accounts, hbase_acc, hcacc]
 
 open Lir.V2 (AccPresent accMono_of_accounts_eq) in
-/-- A `pushOp` `.next` preserves presence at `a`. -/
+/-- A `pushOp` `.next` preserves the execution environment and presence at every `a`. -/
 theorem pushOp_next_accMono {v : ExecutionState → UInt256} {exec exec' : ExecutionState} {cost : ℕ}
-    {a : AccountAddress} (h : pushOp v exec cost = .ok (.next exec')) (hp : AccPresent a exec.accounts) :
-    AccPresent a exec'.accounts := by
+    (h : pushOp v exec cost = .ok (.next exec')) :
+    exec'.executionEnv = exec.executionEnv
+      ∧ ∀ a, AccPresent a exec.accounts → AccPresent a exec'.accounts := by
   unfold pushOp at h
   simp only [bind, Except.bind] at h
   cases hc : charge cost exec with
   | error e => rw [hc] at h; simp at h
   | ok ec =>
     rw [hc] at h
-    exact dispatch_simple_arm_next_accMono hc rfl (continueWith_next h) hp
+    exact dispatch_simple_arm_next_accMono hc rfl rfl (continueWith_next h)
 
 open Lir.V2 (AccPresent accMono_of_accounts_eq) in
-/-- A `unStateOp` `.next` whose world-op `f` leaves `accounts` fixed preserves presence at `a`. -/
+/-- A `unStateOp` `.next` whose world-op `f` leaves `accounts`/`executionEnv` fixed preserves the
+execution environment and presence at every `a`. -/
 theorem unStateOp_next_accMono {f : Evm.State → UInt256 → Evm.State × UInt256}
-    {cost : ExecutionState → UInt256 → ℕ} {exec exec' : ExecutionState} {a : AccountAddress}
-    (hf : ∀ (st : Evm.State) (x : UInt256), (f st x).1.accounts = st.accounts)
-    (h : unStateOp f cost exec = .ok (.next exec')) (hp : AccPresent a exec.accounts) :
-    AccPresent a exec'.accounts := by
+    {cost : ExecutionState → UInt256 → ℕ} {exec exec' : ExecutionState}
+    (hf : ∀ (st : Evm.State) (x : UInt256), (f st x).1.accounts = st.accounts
+        ∧ (f st x).1.executionEnv = st.executionEnv)
+    (h : unStateOp f cost exec = .ok (.next exec')) :
+    exec'.executionEnv = exec.executionEnv
+      ∧ ∀ a, AccPresent a exec.accounts → AccPresent a exec'.accounts := by
   unfold unStateOp at h
   simp only [bind, Except.bind] at h
   cases hpop : exec.stack.pop with
@@ -1741,56 +1754,85 @@ theorem unStateOp_next_accMono {f : Evm.State → UInt256 → Evm.State × UInt2
       rw [hc] at h
       simp only [] at h
       rw [continueWith_next h]
-      obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
-      refine accMono_of_accounts_eq a ?_ hp
-      show (f ec.toState x).1.accounts = exec.accounts
-      rw [hf ec.toState x, hcacc]
+      obtain ⟨hcacc, hcenv⟩ := Lir.V2.charge_accounts_env hc
+      obtain ⟨hfacc, hfenv⟩ := hf ec.toState x
+      refine ⟨?_, fun a hp => ?_⟩
+      · show (f ec.toState x).1.executionEnv = exec.executionEnv
+        rw [hfenv, hcenv]
+      · refine accMono_of_accounts_eq a ?_ hp
+        show (f ec.toState x).1.accounts = exec.accounts
+        rw [hfacc, hcacc]
 
 open Lir.V2 (AccPresent) in
-/-- A `charge`-then-`SSTORE`-write `.next` preserves presence at `a`. -/
+/-- A `charge`-then-`SSTORE`-write `.next` preserves the execution environment and presence at
+every `a` (`State.sstore` writes only `accounts`/`substate`: the `none` branch is verbatim, the
+`some` branch is `setAccount`/`addAccessedStorageKey`/substate updates — `executionEnv` fixed). -/
 theorem charge_sstore_next_accMono {cost : ℕ} {exec exec' : ExecutionState} {key newVal : UInt256}
-    {st : Stack UInt256} {a : AccountAddress}
+    {st : Stack UInt256}
     (h : (charge cost exec).bind (fun ec => continueWith
         (ExecutionState.replaceStackAndIncrPC { ec with toState := ec.toState.sstore key newVal } st))
-      = .ok (.next exec'))
-    (hp : AccPresent a exec.accounts) : AccPresent a exec'.accounts := by
+      = .ok (.next exec')) :
+    exec'.executionEnv = exec.executionEnv
+      ∧ ∀ a, AccPresent a exec.accounts → AccPresent a exec'.accounts := by
   cases hc : charge cost exec with
   | error e => rw [hc] at h; simp [bind, Except.bind] at h
   | ok ec =>
     rw [hc] at h; simp only [bind, Except.bind] at h
     rw [continueWith_next h]
-    rw [replaceStackAndIncrPC_accounts]
-    show AccPresent a (ec.toState.sstore key newVal).accounts
-    refine sstore_accMono ec.toState key newVal a ?_
-    obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
-    show AccPresent a ec.accounts
-    exact Lir.V2.accMono_of_accounts_eq a hcacc hp
+    obtain ⟨hcacc, hcenv⟩ := Lir.V2.charge_accounts_env hc
+    have henvs : (ec.toState.sstore key newVal).executionEnv = ec.toState.executionEnv := by
+      unfold State.sstore
+      simp only [State.lookupAccount, Option.option]
+      cases hr : ec.toState.accounts.find? ec.toState.executionEnv.address with
+      | none => rfl
+      | some acc => rfl
+    refine ⟨?_, fun a hp => ?_⟩
+    · show (ec.toState.sstore key newVal).executionEnv = exec.executionEnv
+      rw [henvs]
+      exact hcenv
+    · rw [replaceStackAndIncrPC_accounts]
+      show AccPresent a (ec.toState.sstore key newVal).accounts
+      refine sstore_accMono ec.toState key newVal a ?_
+      show AccPresent a ec.accounts
+      exact Lir.V2.accMono_of_accounts_eq a hcacc hp
 
 open Lir.V2 (AccPresent) in
 /-- The `TSTORE` twin of `charge_sstore_next_accMono`. -/
 theorem charge_tstore_next_accMono {cost : ℕ} {exec exec' : ExecutionState} {key val : UInt256}
-    {st : Stack UInt256} {a : AccountAddress}
+    {st : Stack UInt256}
     (h : (charge cost exec).bind (fun ec => continueWith
         (ExecutionState.replaceStackAndIncrPC { ec with toState := ec.toState.tstore key val } st))
-      = .ok (.next exec'))
-    (hp : AccPresent a exec.accounts) : AccPresent a exec'.accounts := by
+      = .ok (.next exec')) :
+    exec'.executionEnv = exec.executionEnv
+      ∧ ∀ a, AccPresent a exec.accounts → AccPresent a exec'.accounts := by
   cases hc : charge cost exec with
   | error e => rw [hc] at h; simp [bind, Except.bind] at h
   | ok ec =>
     rw [hc] at h; simp only [bind, Except.bind] at h
     rw [continueWith_next h]
-    rw [replaceStackAndIncrPC_accounts]
-    show AccPresent a (ec.toState.tstore key val).accounts
-    refine tstore_accMono ec.toState key val a ?_
-    obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
-    show AccPresent a ec.accounts
-    exact Lir.V2.accMono_of_accounts_eq a hcacc hp
+    obtain ⟨hcacc, hcenv⟩ := Lir.V2.charge_accounts_env hc
+    have henvs : (ec.toState.tstore key val).executionEnv = ec.toState.executionEnv := by
+      unfold State.tstore
+      simp only [State.lookupAccount, Option.option]
+      cases hr : ec.toState.accounts.find? ec.toState.executionEnv.address with
+      | none => rfl
+      | some acc => rfl
+    refine ⟨?_, fun a hp => ?_⟩
+    · show (ec.toState.tstore key val).executionEnv = exec.executionEnv
+      rw [henvs]
+      exact hcenv
+    · rw [replaceStackAndIncrPC_accounts]
+      show AccPresent a (ec.toState.tstore key val).accounts
+      refine tstore_accMono ec.toState key val a ?_
+      show AccPresent a ec.accounts
+      exact Lir.V2.accMono_of_accounts_eq a hcacc hp
 
 open Lir.V2 (AccPresent accMono_of_accounts_eq) in
-/-- `unOp` `.next` preserves presence at `a`. -/
+/-- `unOp` `.next` preserves the execution environment and presence at every `a`. -/
 theorem unOp_next_accMono {f : UInt256 → UInt256} {exec exec' : ExecutionState} {cost : ℕ}
-    {a : AccountAddress} (h : unOp f exec cost = .ok (.next exec')) (hp : AccPresent a exec.accounts) :
-    AccPresent a exec'.accounts := by
+    (h : unOp f exec cost = .ok (.next exec')) :
+    exec'.executionEnv = exec.executionEnv
+      ∧ ∀ a, AccPresent a exec.accounts → AccPresent a exec'.accounts := by
   unfold unOp at h
   simp only [bind, Except.bind] at h
   cases hc : charge cost exec with
@@ -1802,13 +1844,14 @@ theorem unOp_next_accMono {f : UInt256 → UInt256} {exec exec' : ExecutionState
     | some v =>
       obtain ⟨stk, x⟩ := v; rw [hpop] at h
       simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      exact dispatch_simple_arm_next_accMono hc rfl (continueWith_next h) hp
+      exact dispatch_simple_arm_next_accMono hc rfl rfl (continueWith_next h)
 
 open Lir.V2 (AccPresent accMono_of_accounts_eq) in
-/-- `binOp` `.next` preserves presence at `a`. -/
+/-- `binOp` `.next` preserves the execution environment and presence at every `a`. -/
 theorem binOp_next_accMono {f : UInt256 → UInt256 → UInt256} {exec exec' : ExecutionState} {cost : ℕ}
-    {a : AccountAddress} (h : binOp f exec cost = .ok (.next exec')) (hp : AccPresent a exec.accounts) :
-    AccPresent a exec'.accounts := by
+    (h : binOp f exec cost = .ok (.next exec')) :
+    exec'.executionEnv = exec.executionEnv
+      ∧ ∀ a, AccPresent a exec.accounts → AccPresent a exec'.accounts := by
   unfold binOp at h
   simp only [bind, Except.bind] at h
   cases hc : charge cost exec with
@@ -1820,13 +1863,14 @@ theorem binOp_next_accMono {f : UInt256 → UInt256 → UInt256} {exec exec' : E
     | some v =>
       obtain ⟨stk, x, y⟩ := v; rw [hpop] at h
       simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      exact dispatch_simple_arm_next_accMono hc rfl (continueWith_next h) hp
+      exact dispatch_simple_arm_next_accMono hc rfl rfl (continueWith_next h)
 
 open Lir.V2 (AccPresent accMono_of_accounts_eq) in
-/-- `ternOp` `.next` preserves presence at `a`. -/
+/-- `ternOp` `.next` preserves the execution environment and presence at every `a`. -/
 theorem ternOp_next_accMono {f : UInt256 → UInt256 → UInt256 → UInt256} {exec exec' : ExecutionState}
-    {cost : ℕ} {a : AccountAddress} (h : ternOp f exec cost = .ok (.next exec'))
-    (hp : AccPresent a exec.accounts) : AccPresent a exec'.accounts := by
+    {cost : ℕ} (h : ternOp f exec cost = .ok (.next exec')) :
+    exec'.executionEnv = exec.executionEnv
+      ∧ ∀ a, AccPresent a exec.accounts → AccPresent a exec'.accounts := by
   unfold ternOp at h
   simp only [bind, Except.bind] at h
   cases hc : charge cost exec with
@@ -1838,13 +1882,14 @@ theorem ternOp_next_accMono {f : UInt256 → UInt256 → UInt256 → UInt256} {e
     | some v =>
       obtain ⟨stk, x, y, z⟩ := v; rw [hpop] at h
       simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      exact dispatch_simple_arm_next_accMono hc rfl (continueWith_next h) hp
+      exact dispatch_simple_arm_next_accMono hc rfl rfl (continueWith_next h)
 
 open Lir.V2 (AccPresent accMono_of_accounts_eq) in
-/-- `dup` `.next` preserves presence at `a`. -/
-theorem dup_next_accMono {n : ℕ} {exec exec' : ExecutionState} {a : AccountAddress}
-    (h : dup n exec = .ok (.next exec')) (hp : AccPresent a exec.accounts) :
-    AccPresent a exec'.accounts := by
+/-- `dup` `.next` preserves the execution environment and presence at every `a`. -/
+theorem dup_next_accMono {n : ℕ} {exec exec' : ExecutionState}
+    (h : dup n exec = .ok (.next exec')) :
+    exec'.executionEnv = exec.executionEnv
+      ∧ ∀ a, AccPresent a exec.accounts → AccPresent a exec'.accounts := by
   unfold dup at h
   simp only [bind, Except.bind] at h
   cases hc : charge Gverylow exec with
@@ -1855,13 +1900,14 @@ theorem dup_next_accMono {n : ℕ} {exec exec' : ExecutionState} {a : AccountAdd
     | none => rw [hd] at h; simp [throw, throwThe, MonadExceptOf.throw] at h
     | some x =>
       rw [hd] at h; simp only [] at h
-      exact dispatch_simple_arm_next_accMono hc rfl (continueWith_next h) hp
+      exact dispatch_simple_arm_next_accMono hc rfl rfl (continueWith_next h)
 
 open Lir.V2 (AccPresent accMono_of_accounts_eq) in
-/-- `swap` `.next` preserves presence at `a`. -/
-theorem swap_next_accMono {n : ℕ} {exec exec' : ExecutionState} {a : AccountAddress}
-    (h : swap n exec = .ok (.next exec')) (hp : AccPresent a exec.accounts) :
-    AccPresent a exec'.accounts := by
+/-- `swap` `.next` preserves the execution environment and presence at every `a`. -/
+theorem swap_next_accMono {n : ℕ} {exec exec' : ExecutionState}
+    (h : swap n exec = .ok (.next exec')) :
+    exec'.executionEnv = exec.executionEnv
+      ∧ ∀ a, AccPresent a exec.accounts → AccPresent a exec'.accounts := by
   unfold swap at h
   simp only [bind, Except.bind] at h
   cases hc : charge Gverylow exec with
@@ -1869,15 +1915,17 @@ theorem swap_next_accMono {n : ℕ} {exec exec' : ExecutionState} {a : AccountAd
   | ok ec =>
     rw [hc] at h; simp only [] at h
     split at h
-    · exact dispatch_simple_arm_next_accMono hc rfl (continueWith_next h) hp
+    · exact dispatch_simple_arm_next_accMono hc rfl rfl (continueWith_next h)
     · simp [throw, throwThe, MonadExceptOf.throw] at h
 
 open Lir.V2 (AccPresent accMono_of_accounts_eq) in
-/-- `logArm` `.next` preserves presence at `a` (`logOp` touches only `substate`/`activeWords`). -/
+/-- `logArm` `.next` preserves the execution environment and presence at every `a` (`logOp` touches
+only `substate`/`activeWords`). -/
 theorem logArm_next_accMono {exec exec' : ExecutionState} {stk : Stack UInt256} {offset size : UInt256}
-    {topics : Array UInt256} {a : AccountAddress}
-    (h : logArm exec stk offset size topics = .ok (.next exec')) (hp : AccPresent a exec.accounts) :
-    AccPresent a exec'.accounts := by
+    {topics : Array UInt256}
+    (h : logArm exec stk offset size topics = .ok (.next exec')) :
+    exec'.executionEnv = exec.executionEnv
+      ∧ ∀ a, AccPresent a exec.accounts → AccPresent a exec'.accounts := by
   unfold logArm at h
   simp only [bind, Except.bind, pure, Except.pure] at h
   cases hr : requireStateMod exec with
@@ -1893,24 +1941,29 @@ theorem logArm_next_accMono {exec exec' : ExecutionState} {stk : Stack UInt256} 
       | ok ec =>
         rw [hc] at h; simp only [] at h
         rw [continueWith_next h]
-        obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
-        obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
-        refine accMono_of_accounts_eq a ?_ hp
-        show (ec.logOp offset size topics).accounts = exec.accounts
-        show ec.accounts = exec.accounts; rw [hcacc, hmacc]
+        obtain ⟨hmacc, hmenv⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+        obtain ⟨hcacc, hcenv⟩ := Lir.V2.charge_accounts_env hc
+        refine ⟨?_, fun a hp => ?_⟩
+        · show (ec.logOp offset size topics).executionEnv = exec.executionEnv
+          show ec.executionEnv = exec.executionEnv; rw [hcenv, hmenv]
+        · refine accMono_of_accounts_eq a ?_ hp
+          show (ec.logOp offset size topics).accounts = exec.accounts
+          show ec.accounts = exec.accounts; rw [hcacc, hmacc]
 
 open Lir.V2 (AccPresent accMono_of_accounts_eq) in
-/-- **`callArm` `.next` (fallback) preserves presence at `a`.** The funds/depth fallback resumes via
-`resumeAfterCall failed pending`, whose `.exec.accounts = failed.accounts = exec.accounts` (the
-captured caller map; `charge` preserves accounts). So presence at `a` transports verbatim. The
-arbitrary-`a` twin of `callArm_next_self` — the `executionEnv` tracking is gone. -/
+/-- **`callArm` `.next` (fallback) preserves the execution environment and presence at every `a`.**
+The funds/depth fallback resumes via `resumeAfterCall failed pending`, whose `.exec.accounts =
+failed.accounts = exec.accounts` (the captured caller map; `charge` preserves accounts) and whose
+`.exec.executionEnv` is the suspended caller's (`pending.frame.exec = e2`, whose env equals
+`exec`'s since `charge` preserves it). -/
 theorem callArm_next_accMono
     {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
     {gas caller recipient codeAddress value apparentValue inOffset inSize outOffset outSize : UInt256}
-    {permission : Bool} {exec' : ExecutionState} {a : AccountAddress}
+    {permission : Bool} {exec' : ExecutionState}
     (h : callArm fr exec stack gas caller recipient codeAddress value apparentValue
-          inOffset inSize outOffset outSize permission = .ok (.next exec'))
-    (hp : AccPresent a exec.accounts) : AccPresent a exec'.accounts := by
+          inOffset inSize outOffset outSize permission = .ok (.next exec')) :
+    exec'.executionEnv = exec.executionEnv
+      ∧ ∀ a, AccPresent a exec.accounts → AccPresent a exec'.accounts := by
   rw [callArm] at h
   cases hw : (memoryExpansionWords? exec.activeWords inOffset inSize >>=
       (memoryExpansionWords? · outOffset outSize)) with
@@ -1923,7 +1976,7 @@ theorem callArm_next_accMono
     | ok e1 =>
       rw [he1] at h
       simp only [] at h
-      obtain ⟨he1acc, _⟩ := Lir.V2.charge_accounts_env he1
+      obtain ⟨he1acc, he1env⟩ := Lir.V2.charge_accounts_env he1
       set ca : AccountAddress := AccountAddress.ofUInt256 codeAddress with hca
       set rc : AccountAddress := AccountAddress.ofUInt256 recipient with hrc
       set extraCost := callExtraCost ca rc value e1.accounts e1.substate with hextra
@@ -1934,6 +1987,7 @@ theorem callArm_next_accMono
       | ok e2 =>
         rw [he2] at h
         simp only [] at h
+        obtain ⟨he2acc, he2env⟩ := Lir.V2.charge_accounts_env he2
         split at h
         · -- needsCall branch: contradiction
           simp only [Except.ok.injEq] at h
@@ -1941,22 +1995,26 @@ theorem callArm_next_accMono
         · -- next (fallback) branch
           simp only [Except.ok.injEq, Signal.next.injEq] at h
           subst h
-          -- `exec' = (resumeAfterCall failed pending).exec`; its accounts = failed.accounts = e1.accounts.
-          show AccPresent a (resumeAfterCall _ _).exec.accounts
-          rw [Lir.V2.resumeAfterCall_accounts]
-          -- `failed.accounts = accounts = e1.accounts` (post-mem-charge); `e1.accounts = exec.accounts`.
-          exact accMono_of_accounts_eq a he1acc hp
+          -- `exec' = (resumeAfterCall failed pending).exec`; accounts = failed.accounts = e1.accounts,
+          -- env = pending.frame.exec.executionEnv = e2.executionEnv = exec.executionEnv.
+          refine ⟨?_, fun a hp => ?_⟩
+          · show e2.executionEnv = exec.executionEnv
+            rw [he2env, he1env]
+          · show AccPresent a (resumeAfterCall _ _).exec.accounts
+            rw [Lir.V2.resumeAfterCall_accounts]
+            exact accMono_of_accounts_eq a he1acc hp
 
 open Lir.V2 (AccPresent accMono_of_accounts_eq) in
-/-- **`createArm` `.next` (fallback) preserves presence at `a`.** Both fallback arms resume via
-`resumeAfterCreate failed pending`, whose `.exec.accounts = failed.accounts = exec.accounts`. The
-arbitrary-`a` twin of `createArm_next_self`. -/
+/-- **`createArm` `.next` (fallback) preserves the execution environment and presence at every
+`a`.** Both fallback arms resume via `resumeAfterCreate failed pending`, whose `.exec.accounts =
+failed.accounts = exec.accounts` and whose `.exec.executionEnv` is the suspended caller's
+(`pending.frame.exec = exec`, env untouched by the resume). -/
 theorem createArm_next_accMono
     {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
     {value initOffset initSize : UInt256} {salt : Option ByteArray} {exec' : ExecutionState}
-    {a : AccountAddress}
-    (h : createArm fr exec stack value initOffset initSize salt = .ok (.next exec'))
-    (hp : AccPresent a exec.accounts) : AccPresent a exec'.accounts := by
+    (h : createArm fr exec stack value initOffset initSize salt = .ok (.next exec')) :
+    exec'.executionEnv = exec.executionEnv
+      ∧ ∀ a, AccPresent a exec.accounts → AccPresent a exec'.accounts := by
   rw [createArm] at h
   simp only [bind, Except.bind, pure, Except.pure] at h
   have key : ∀ (f : Frame),
@@ -1976,7 +2034,8 @@ theorem createArm_next_accMono
           initSize := initSize.toUInt64
           initCodeSize := (exec.memory.readWithPadding initOffset.toNat initSize.toNat).size }
         = .ok f →
-      AccPresent a f.exec.accounts := by
+      f.exec.executionEnv = exec.executionEnv
+        ∧ ∀ a, AccPresent a exec.accounts → AccPresent a f.exec.accounts := by
     intro f hf
     unfold resumeAfterCreate at hf
     simp only [bind, Except.bind, pure, Except.pure] at hf
@@ -1984,6 +2043,7 @@ theorem createArm_next_accMono
     · exact absurd hf (by simp)
     · simp only [Except.ok.injEq] at hf
       rw [← hf]
+      refine ⟨rfl, fun a hp => ?_⟩
       -- resumed `.exec.accounts = result.accounts = exec.accounts`.
       show AccPresent a (ExecutionState.replaceStackAndIncrPC _ _ _).accounts
       rw [replaceStackAndIncrPC_accounts]
@@ -2012,12 +2072,13 @@ theorem createArm_next_accMono
         exact key f hr
 
 open Lir.V2 (AccPresent accMono_of_accounts_eq) in
-/-- **A `.next` System op preserves presence at `a`.** Halt ops never `.next`; CALL family reduces to
-`callArm`; CREATE/CREATE2 reduce to `createArm` on the charged state (charges accounts-verbatim). -/
+/-- **A `.next` System op preserves the execution environment and presence at every `a`.** Halt ops
+never `.next`; CALL family reduces to `callArm`; CREATE/CREATE2 reduce to `createArm` on the charged
+state (charges accounts/env-verbatim). -/
 theorem systemOp_next_accMono {op : Operation.SystemOp} {fr : Frame} {exec exec' : ExecutionState}
-    {a : AccountAddress}
-    (h : systemOp op fr exec = .ok (.next exec')) (hp : AccPresent a exec.accounts) :
-    AccPresent a exec'.accounts := by
+    (h : systemOp op fr exec = .ok (.next exec')) :
+    exec'.executionEnv = exec.executionEnv
+      ∧ ∀ a, AccPresent a exec.accounts → AccPresent a exec'.accounts := by
   cases op with
   | STOP | RETURN | REVERT | SELFDESTRUCT | INVALID =>
     exact absurd (by unfold systemOp at h; exact h)
@@ -2025,7 +2086,7 @@ theorem systemOp_next_accMono {op : Operation.SystemOp} {fr : Frame} {exec exec'
   | CALL | CALLCODE | DELEGATECALL | STATICCALL =>
     obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, hc⟩ :=
       BytecodeLayer.System.systemOp_callArm_reduce (by tauto) h
-    exact callArm_next_accMono hc hp
+    exact callArm_next_accMono hc
   | CREATE =>
     unfold systemOp at h
     simp only [bind, Except.bind] at h
@@ -2048,10 +2109,12 @@ theorem systemOp_next_accMono {op : Operation.SystemOp} {fr : Frame} {exec exec'
             | error e => rw [hc] at h; simp at h
             | ok ec =>
               rw [hc] at h; simp only [] at h
-              obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
-              obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
-              refine createArm_next_accMono h ?_
-              exact accMono_of_accounts_eq a (by rw [hcacc, hmacc]) hp
+              obtain ⟨hmacc, hmenv⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+              obtain ⟨hcacc, hcenv⟩ := Lir.V2.charge_accounts_env hc
+              obtain ⟨henv, hmono⟩ := createArm_next_accMono h
+              refine ⟨?_, fun a hp => ?_⟩
+              · rw [henv, hcenv, hmenv]
+              · exact hmono a (accMono_of_accounts_eq a (by rw [hcacc, hmacc]) hp)
   | CREATE2 =>
     unfold systemOp at h
     simp only [bind, Except.bind] at h
@@ -2074,18 +2137,21 @@ theorem systemOp_next_accMono {op : Operation.SystemOp} {fr : Frame} {exec exec'
             | error e => rw [hc] at h; simp at h
             | ok ec =>
               rw [hc] at h; simp only [] at h
-              obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
-              obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
-              refine createArm_next_accMono h ?_
-              exact accMono_of_accounts_eq a (by rw [hcacc, hmacc]) hp
+              obtain ⟨hmacc, hmenv⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+              obtain ⟨hcacc, hcenv⟩ := Lir.V2.charge_accounts_env hc
+              obtain ⟨henv, hmono⟩ := createArm_next_accMono h
+              refine ⟨?_, fun a hp => ?_⟩
+              · rw [henv, hcenv, hmenv]
+              · exact hmono a (accMono_of_accounts_eq a (by rw [hcacc, hmacc]) hp)
 
 open Lir.V2 (AccPresent accMono_of_accounts_eq) in
-/-- **A `.next` `smsfOp` preserves presence at `a`.** Memory/stack/flow arms are accounts-verbatim;
-SLOAD/TLOAD are `unStateOp` read-only on accounts; SSTORE/TSTORE write at the self key (insert-mono). -/
+/-- **A `.next` `smsfOp` preserves the execution environment and presence at every `a`.**
+Memory/stack/flow arms are accounts/env-verbatim; SLOAD/TLOAD are `unStateOp` read-only on
+accounts/env; SSTORE/TSTORE write at the self key (insert-mono), env untouched. -/
 theorem smsfOp_next_accMono {op : Operation.SmsfOp} {fr : Frame} {exec exec' : ExecutionState}
-    {a : AccountAddress}
-    (h : smsfOp op fr exec = .ok (.next exec')) (hp : AccPresent a exec.accounts) :
-    AccPresent a exec'.accounts := by
+    (h : smsfOp op fr exec = .ok (.next exec')) :
+    exec'.executionEnv = exec.executionEnv
+      ∧ ∀ a, AccPresent a exec.accounts → AccPresent a exec'.accounts := by
   unfold smsfOp at h
   cases op with
   | POP =>
@@ -2099,7 +2165,7 @@ theorem smsfOp_next_accMono {op : Operation.SmsfOp} {fr : Frame} {exec exec' : E
       | some v =>
         obtain ⟨st, x⟩ := v; rw [hpop] at h
         simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        exact dispatch_simple_arm_next_accMono hc rfl (continueWith_next h) hp
+        exact dispatch_simple_arm_next_accMono hc rfl rfl (continueWith_next h)
   | MLOAD =>
     simp only [bind, Except.bind] at h
     cases hpop : exec.stack.pop with
@@ -2116,9 +2182,11 @@ theorem smsfOp_next_accMono {op : Operation.SmsfOp} {fr : Frame} {exec exec' : E
         | ok ec =>
           rw [hc] at h; simp only [] at h
           rw [continueWith_next h]
-          obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
-          obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
-          exact accMono_replaceOfBase _ _ (show ec.accounts = exec.accounts by rw [hcacc, hmacc]) hp
+          obtain ⟨hmacc, hmenv⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+          obtain ⟨hcacc, hcenv⟩ := Lir.V2.charge_accounts_env hc
+          exact ⟨show ec.executionEnv = exec.executionEnv by rw [hcenv, hmenv],
+            fun a hp => accMono_replaceOfBase _ _
+              (show ec.accounts = exec.accounts by rw [hcacc, hmacc]) hp⟩
   | MSTORE =>
     simp only [bind, Except.bind] at h
     cases hpop : exec.stack.pop2 with
@@ -2135,9 +2203,11 @@ theorem smsfOp_next_accMono {op : Operation.SmsfOp} {fr : Frame} {exec exec' : E
         | ok ec =>
           rw [hc] at h; simp only [] at h
           rw [continueWith_next h]
-          obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
-          obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
-          exact accMono_replaceOfBase _ _ (show ec.accounts = exec.accounts by rw [hcacc, hmacc]) hp
+          obtain ⟨hmacc, hmenv⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+          obtain ⟨hcacc, hcenv⟩ := Lir.V2.charge_accounts_env hc
+          exact ⟨show ec.executionEnv = exec.executionEnv by rw [hcenv, hmenv],
+            fun a hp => accMono_replaceOfBase _ _
+              (show ec.accounts = exec.accounts by rw [hcacc, hmacc]) hp⟩
   | MSTORE8 =>
     simp only [bind, Except.bind] at h
     cases hpop : exec.stack.pop2 with
@@ -2154,12 +2224,14 @@ theorem smsfOp_next_accMono {op : Operation.SmsfOp} {fr : Frame} {exec exec' : E
         | ok ec =>
           rw [hc] at h; simp only [] at h
           rw [continueWith_next h]
-          obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
-          obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
-          exact accMono_replaceOfBase _ _ (show ec.accounts = exec.accounts by rw [hcacc, hmacc]) hp
+          obtain ⟨hmacc, hmenv⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+          obtain ⟨hcacc, hcenv⟩ := Lir.V2.charge_accounts_env hc
+          exact ⟨show ec.executionEnv = exec.executionEnv by rw [hcenv, hmenv],
+            fun a hp => accMono_replaceOfBase _ _
+              (show ec.accounts = exec.accounts by rw [hcacc, hmacc]) hp⟩
   | SLOAD =>
-    refine unStateOp_next_accMono ?_ h hp
-    intro st x; rfl
+    refine unStateOp_next_accMono ?_ h
+    intro st x; exact ⟨rfl, rfl⟩
   | SSTORE =>
     simp only [bind, Except.bind, pure, Except.pure] at h
     cases hr : requireStateMod exec with
@@ -2173,10 +2245,10 @@ theorem smsfOp_next_accMono {op : Operation.SmsfOp} {fr : Frame} {exec exec' : E
         | some v =>
           obtain ⟨st, key, newVal⟩ := v; rw [hpop] at h
           simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-          exact charge_sstore_next_accMono h hp
+          exact charge_sstore_next_accMono h
   | TLOAD =>
-    refine unStateOp_next_accMono ?_ h hp
-    intro st x; rfl
+    refine unStateOp_next_accMono ?_ h
+    intro st x; exact ⟨rfl, rfl⟩
   | TSTORE =>
     simp only [bind, Except.bind, pure, Except.pure] at h
     cases hr : requireStateMod exec with
@@ -2193,14 +2265,24 @@ theorem smsfOp_next_accMono {op : Operation.SmsfOp} {fr : Frame} {exec exec' : E
           obtain ⟨st, key, val⟩ := v; rw [hpop] at h
           simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
           rw [continueWith_next h]
-          rw [replaceStackAndIncrPC_accounts]
-          show AccPresent a (ec.toState.tstore key val).accounts
-          refine tstore_accMono ec.toState key val a ?_
-          obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
-          exact accMono_of_accounts_eq a hcacc hp
-  | MSIZE => exact pushOp_next_accMono h hp
-  | GAS => exact pushOp_next_accMono h hp
-  | PC => exact pushOp_next_accMono h hp
+          obtain ⟨hcacc, hcenv⟩ := Lir.V2.charge_accounts_env hc
+          have henvs : (ec.toState.tstore key val).executionEnv = ec.toState.executionEnv := by
+            unfold State.tstore
+            simp only [State.lookupAccount, Option.option]
+            cases hf : ec.toState.accounts.find? ec.toState.executionEnv.address with
+            | none => rfl
+            | some acc => rfl
+          refine ⟨?_, fun a hp => ?_⟩
+          · show (ec.toState.tstore key val).executionEnv = exec.executionEnv
+            rw [henvs]
+            exact hcenv
+          · rw [replaceStackAndIncrPC_accounts]
+            show AccPresent a (ec.toState.tstore key val).accounts
+            refine tstore_accMono ec.toState key val a ?_
+            exact accMono_of_accounts_eq a hcacc hp
+  | MSIZE => exact pushOp_next_accMono h
+  | GAS => exact pushOp_next_accMono h
+  | PC => exact pushOp_next_accMono h
   | JUMP =>
     simp only [bind, Except.bind] at h
     cases hc : charge Gmid exec with
@@ -2212,13 +2294,13 @@ theorem smsfOp_next_accMono {op : Operation.SmsfOp} {fr : Frame} {exec exec' : E
       | some v =>
         obtain ⟨st, dest⟩ := v; rw [hpop] at h
         simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
+        obtain ⟨hcacc, hcenv⟩ := Lir.V2.charge_accounts_env hc
         cases hd : fr.get_dest dest with
         | none => rw [hd] at h; simp at h
         | some newpc =>
           rw [hd] at h; simp only [] at h
           rw [continueWith_next h]
-          exact accMono_of_accounts_eq a hcacc hp
+          exact ⟨hcenv, fun a hp => accMono_of_accounts_eq a hcacc hp⟩
   | JUMPI =>
     simp only [bind, Except.bind] at h
     cases hc : charge Ghigh exec with
@@ -2230,14 +2312,16 @@ theorem smsfOp_next_accMono {op : Operation.SmsfOp} {fr : Frame} {exec exec' : E
       | some v =>
         obtain ⟨st, dest, cond⟩ := v; rw [hpop] at h
         simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
+        obtain ⟨hcacc, hcenv⟩ := Lir.V2.charge_accounts_env hc
         split at h
         · cases hd : fr.get_dest dest with
           | none => rw [hd] at h; simp at h
           | some newpc =>
             rw [hd] at h; simp only [] at h
-            rw [continueWith_next h]; exact accMono_of_accounts_eq a hcacc hp
-        · rw [continueWith_next h]; exact accMono_of_accounts_eq a hcacc hp
+            rw [continueWith_next h]
+            exact ⟨hcenv, fun a hp => accMono_of_accounts_eq a hcacc hp⟩
+        · rw [continueWith_next h]
+          exact ⟨hcenv, fun a hp => accMono_of_accounts_eq a hcacc hp⟩
   | JUMPDEST =>
     simp only [bind, Except.bind] at h
     cases hc : charge Gjumpdest exec with
@@ -2245,8 +2329,8 @@ theorem smsfOp_next_accMono {op : Operation.SmsfOp} {fr : Frame} {exec exec' : E
     | ok ec =>
       rw [hc] at h; simp only [] at h
       rw [continueWith_next h]
-      obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
-      exact accMono_of_accounts_eq a hcacc hp
+      obtain ⟨hcacc, hcenv⟩ := Lir.V2.charge_accounts_env hc
+      exact ⟨hcenv, fun a hp => accMono_of_accounts_eq a hcacc hp⟩
   | MCOPY =>
     simp only [bind, Except.bind] at h
     cases hpop : exec.stack.pop3 with
@@ -2263,21 +2347,25 @@ theorem smsfOp_next_accMono {op : Operation.SmsfOp} {fr : Frame} {exec exec' : E
         | ok ec =>
           rw [hc] at h; simp only [] at h
           rw [continueWith_next h]
-          obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
-          obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
-          exact accMono_replaceOfBase _ _ (show ec.accounts = exec.accounts by rw [hcacc, hmacc]) hp
+          obtain ⟨hmacc, hmenv⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+          obtain ⟨hcacc, hcenv⟩ := Lir.V2.charge_accounts_env hc
+          exact ⟨show ec.executionEnv = exec.executionEnv by rw [hcenv, hmenv],
+            fun a hp => accMono_replaceOfBase _ _
+              (show ec.accounts = exec.accounts by rw [hcacc, hmacc]) hp⟩
 
 open Lir.V2 (AccPresent accMono_of_accounts_eq) in
-/-- **`dispatch` `.next` preserves presence at `a` (engine level).** The arbitrary-`a` twin of
-`dispatch_next_self`. -/
+/-- **`dispatch` `.next` preserves the execution environment and presence at every `a` (engine
+level).** The one dispatch walk: every `.next`-producing opcode keeps `executionEnv` fixed and
+account-presence monotone at every tracked address. -/
 theorem dispatch_next_accMono {op : Operation} {arg : Option (UInt256 × UInt8)} {fr : Frame}
-    {exec exec' : ExecutionState} {a : AccountAddress}
-    (h : dispatch op arg fr exec = .ok (.next exec')) (hp : AccPresent a exec.accounts) :
-    AccPresent a exec'.accounts := by
+    {exec exec' : ExecutionState}
+    (h : dispatch op arg fr exec = .ok (.next exec')) :
+    exec'.executionEnv = exec.executionEnv
+      ∧ ∀ a, AccPresent a exec.accounts → AccPresent a exec'.accounts := by
   unfold dispatch at h
   cases op with
-  | System s => exact systemOp_next_accMono h hp
-  | Smsf s => exact smsfOp_next_accMono h hp
+  | System s => exact systemOp_next_accMono h
+  | Smsf s => exact smsfOp_next_accMono h
   | KECCAK256 =>
     simp only [bind, Except.bind] at h
     cases hpop : exec.stack.pop2 with
@@ -2294,15 +2382,17 @@ theorem dispatch_next_accMono {op : Operation} {arg : Option (UInt256 × UInt8)}
         | ok ec =>
           rw [hc] at h; simp only [] at h
           rw [continueWith_next h]
-          obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
-          obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
-          exact accMono_replaceOfBase _ _ (show ec.accounts = exec.accounts by rw [hcacc, hmacc]) hp
+          obtain ⟨hmacc, hmenv⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+          obtain ⟨hcacc, hcenv⟩ := Lir.V2.charge_accounts_env hc
+          exact ⟨show ec.executionEnv = exec.executionEnv by rw [hcenv, hmenv],
+            fun a hp => accMono_replaceOfBase _ _
+              (show ec.accounts = exec.accounts by rw [hcacc, hmacc]) hp⟩
   | ArithLogic ar =>
     cases ar with
     | ADD | SUB | SIGNEXTEND | LT | GT | SLT | SGT | EQ | AND | OR | XOR | BYTE | SHL | SHR | SAR
-    | MUL | DIV | SDIV | MOD | SMOD => exact binOp_next_accMono h hp
-    | ADDMOD | MULMOD => exact ternOp_next_accMono h hp
-    | ISZERO | NOT => exact unOp_next_accMono h hp
+    | MUL | DIV | SDIV | MOD | SMOD => exact binOp_next_accMono h
+    | ADDMOD | MULMOD => exact ternOp_next_accMono h
+    | ISZERO | NOT => exact unOp_next_accMono h
     | EXP =>
       simp only [bind, Except.bind] at h
       cases hpop : exec.stack.pop2 with
@@ -2314,21 +2404,22 @@ theorem dispatch_next_accMono {op : Operation} {arg : Option (UInt256 × UInt8)}
         | error er => rw [hc] at h; simp at h
         | ok ec =>
           rw [hc] at h; simp only [] at h
-          exact dispatch_simple_arm_next_accMono hc rfl (continueWith_next h) hp
+          exact dispatch_simple_arm_next_accMono hc rfl rfl (continueWith_next h)
   | Env e =>
     cases e with
     | ADDRESS | ORIGIN | CALLER | CALLVALUE | CALLDATASIZE | CODESIZE | GASPRICE | RETURNDATASIZE =>
-      exact pushOp_next_accMono h hp
-    | BALANCE => exact unStateOp_next_accMono (fun _ _ => rfl) h hp
-    | CALLDATALOAD => exact unStateOp_next_accMono (fun _ _ => rfl) h hp
-    | EXTCODESIZE => exact unStateOp_next_accMono (fun _ _ => rfl) h hp
+      exact pushOp_next_accMono h
+    | BALANCE => exact unStateOp_next_accMono (fun _ _ => ⟨rfl, rfl⟩) h
+    | CALLDATALOAD => exact unStateOp_next_accMono (fun _ _ => ⟨rfl, rfl⟩) h
+    | EXTCODESIZE => exact unStateOp_next_accMono (fun _ _ => ⟨rfl, rfl⟩) h
     | EXTCODEHASH =>
-      refine unStateOp_next_accMono ?_ h hp
+      refine unStateOp_next_accMono ?_ h
       intro st x
       show (State.extCodeHash st x).1.accounts = st.accounts
+        ∧ (State.extCodeHash st x).1.executionEnv = st.executionEnv
       unfold State.extCodeHash
       dsimp only
-      split <;> rfl
+      split <;> exact ⟨rfl, rfl⟩
     | CALLDATACOPY =>
       simp only [bind, Except.bind] at h
       cases hpop : exec.stack.pop3 with
@@ -2345,11 +2436,14 @@ theorem dispatch_next_accMono {op : Operation} {arg : Option (UInt256 × UInt8)}
           | ok ec =>
             rw [hc] at h; simp only [] at h
             rw [continueWith_next h]
-            obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
-            obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
-            refine accMono_of_accounts_eq a ?_ hp
-            show (ec.calldatacopy x y z).accounts = exec.accounts
-            show ec.accounts = exec.accounts; rw [hcacc, hmacc]
+            obtain ⟨hmacc, hmenv⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+            obtain ⟨hcacc, hcenv⟩ := Lir.V2.charge_accounts_env hc
+            refine ⟨?_, fun a hp => ?_⟩
+            · show (ec.calldatacopy x y z).executionEnv = exec.executionEnv
+              show ec.executionEnv = exec.executionEnv; rw [hcenv, hmenv]
+            · refine accMono_of_accounts_eq a ?_ hp
+              show (ec.calldatacopy x y z).accounts = exec.accounts
+              show ec.accounts = exec.accounts; rw [hcacc, hmacc]
     | CODECOPY =>
       simp only [bind, Except.bind] at h
       cases hpop : exec.stack.pop3 with
@@ -2366,11 +2460,14 @@ theorem dispatch_next_accMono {op : Operation} {arg : Option (UInt256 × UInt8)}
           | ok ec =>
             rw [hc] at h; simp only [] at h
             rw [continueWith_next h]
-            obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
-            obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
-            refine accMono_of_accounts_eq a ?_ hp
-            show (ec.codeCopy x y z).accounts = exec.accounts
-            show ec.accounts = exec.accounts; rw [hcacc, hmacc]
+            obtain ⟨hmacc, hmenv⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+            obtain ⟨hcacc, hcenv⟩ := Lir.V2.charge_accounts_env hc
+            refine ⟨?_, fun a hp => ?_⟩
+            · show (ec.codeCopy x y z).executionEnv = exec.executionEnv
+              show ec.executionEnv = exec.executionEnv; rw [hcenv, hmenv]
+            · refine accMono_of_accounts_eq a ?_ hp
+              show (ec.codeCopy x y z).accounts = exec.accounts
+              show ec.accounts = exec.accounts; rw [hcacc, hmacc]
     | EXTCODECOPY =>
       simp only [bind, Except.bind] at h
       cases hpop : exec.stack.pop4 with
@@ -2387,11 +2484,14 @@ theorem dispatch_next_accMono {op : Operation} {arg : Option (UInt256 × UInt8)}
           | ok ec =>
             rw [hc] at h; simp only [] at h
             rw [continueWith_next h]
-            obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
-            obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
-            refine accMono_of_accounts_eq a ?_ hp
-            show (ec.extCodeCopy' addr x y z).accounts = exec.accounts
-            show ec.accounts = exec.accounts; rw [hcacc, hmacc]
+            obtain ⟨hmacc, hmenv⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+            obtain ⟨hcacc, hcenv⟩ := Lir.V2.charge_accounts_env hc
+            refine ⟨?_, fun a hp => ?_⟩
+            · show (ec.extCodeCopy' addr x y z).executionEnv = exec.executionEnv
+              show ec.executionEnv = exec.executionEnv; rw [hcenv, hmenv]
+            · refine accMono_of_accounts_eq a ?_ hp
+              show (ec.extCodeCopy' addr x y z).accounts = exec.accounts
+              show ec.accounts = exec.accounts; rw [hcacc, hmacc]
     | RETURNDATACOPY =>
       simp only [bind, Except.bind] at h
       cases hpop : exec.stack.pop3 with
@@ -2410,14 +2510,16 @@ theorem dispatch_next_accMono {op : Operation} {arg : Option (UInt256 × UInt8)}
             | ok ec =>
               rw [hc] at h; simp only [] at h
               rw [continueWith_next h]
-              obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
-              obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
-              exact accMono_replaceOfBase _ _ (show ec.accounts = exec.accounts by rw [hcacc, hmacc]) hp
+              obtain ⟨hmacc, hmenv⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+              obtain ⟨hcacc, hcenv⟩ := Lir.V2.charge_accounts_env hc
+              exact ⟨show ec.executionEnv = exec.executionEnv by rw [hcenv, hmenv],
+                fun a hp => accMono_replaceOfBase _ _
+                  (show ec.accounts = exec.accounts by rw [hcacc, hmacc]) hp⟩
   | Block b =>
     cases b with
     | COINBASE | TIMESTAMP | NUMBER | PREVRANDAO | GASLIMIT | CHAINID | SELFBALANCE | BASEFEE
-    | BLOBBASEFEE => exact pushOp_next_accMono h hp
-    | BLOCKHASH => exact unStateOp_next_accMono (fun _ _ => rfl) h hp
+    | BLOBBASEFEE => exact pushOp_next_accMono h
+    | BLOCKHASH => exact unStateOp_next_accMono (fun _ _ => ⟨rfl, rfl⟩) h
     | BLOBHASH =>
       simp only [bind, Except.bind] at h
       cases hpop : exec.stack.pop with
@@ -2429,10 +2531,10 @@ theorem dispatch_next_accMono {op : Operation} {arg : Option (UInt256 × UInt8)}
         | error er => rw [hc] at h; simp at h
         | ok ec =>
           rw [hc] at h; simp only [] at h
-          exact dispatch_simple_arm_next_accMono hc rfl (continueWith_next h) hp
+          exact dispatch_simple_arm_next_accMono hc rfl rfl (continueWith_next h)
   | Push p =>
     cases p with
-    | PUSH0 => exact pushOp_next_accMono h hp
+    | PUSH0 => exact pushOp_next_accMono h
     | _ =>
       simp only [bind, Except.bind] at h
       cases hc : charge Gverylow exec with
@@ -2444,9 +2546,9 @@ theorem dispatch_next_accMono {op : Operation} {arg : Option (UInt256 × UInt8)}
         | some w =>
           obtain ⟨av, aw⟩ := w; rw [harg] at h
           simp only [] at h
-          exact dispatch_simple_arm_next_accMono hc rfl (continueWith_next h) hp
-  | Dup d => exact dup_next_accMono h hp
-  | Swap s => exact swap_next_accMono h hp
+          exact dispatch_simple_arm_next_accMono hc rfl rfl (continueWith_next h)
+  | Dup d => exact dup_next_accMono h
+  | Swap s => exact swap_next_accMono h
   | Log l =>
     cases l with
     | LOG0 =>
@@ -2456,7 +2558,7 @@ theorem dispatch_next_accMono {op : Operation} {arg : Option (UInt256 × UInt8)}
       | some v =>
         obtain ⟨stk, off, sz⟩ := v; rw [hpop] at h
         simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        exact logArm_next_accMono h hp
+        exact logArm_next_accMono h
     | LOG1 =>
       simp only [bind, Except.bind] at h
       cases hpop : exec.stack.pop3 with
@@ -2464,7 +2566,7 @@ theorem dispatch_next_accMono {op : Operation} {arg : Option (UInt256 × UInt8)}
       | some v =>
         obtain ⟨stk, off, sz, t1⟩ := v; rw [hpop] at h
         simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        exact logArm_next_accMono h hp
+        exact logArm_next_accMono h
     | LOG2 =>
       simp only [bind, Except.bind] at h
       cases hpop : exec.stack.pop4 with
@@ -2472,7 +2574,7 @@ theorem dispatch_next_accMono {op : Operation} {arg : Option (UInt256 × UInt8)}
       | some v =>
         obtain ⟨stk, off, sz, t1, t2⟩ := v; rw [hpop] at h
         simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        exact logArm_next_accMono h hp
+        exact logArm_next_accMono h
     | LOG3 =>
       simp only [bind, Except.bind] at h
       cases hpop : exec.stack.pop5 with
@@ -2480,7 +2582,7 @@ theorem dispatch_next_accMono {op : Operation} {arg : Option (UInt256 × UInt8)}
       | some v =>
         obtain ⟨stk, off, sz, t1, t2, t3⟩ := v; rw [hpop] at h
         simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        exact logArm_next_accMono h hp
+        exact logArm_next_accMono h
     | LOG4 =>
       simp only [bind, Except.bind] at h
       cases hpop : exec.stack.pop6 with
@@ -2488,11 +2590,39 @@ theorem dispatch_next_accMono {op : Operation} {arg : Option (UInt256 × UInt8)}
       | some v =>
         obtain ⟨stk, off, sz, t1, t2, t3, t4⟩ := v; rw [hpop] at h
         simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        exact logArm_next_accMono h hp
+        exact logArm_next_accMono h
+
+/-- **A `.next` `stepFrame` preserves the execution environment.** `stepFrame` decodes, screens
+`INVALID`/stack-overflow (both `.halted`, never `.next`), then forwards to `dispatch`; a `.next`
+is exactly a `dispatch … = .ok (.next exec')`, whose env half is the walk's first conjunct. The
+full-`executionEnv` equality is strictly stronger than the address projection the SelfAt
+transport needs. -/
+theorem stepFrame_next_execEnvAddr {fr : Frame} {exec' : ExecutionState}
+    (h : stepFrame fr = .next exec') : exec'.executionEnv = fr.exec.executionEnv := by
+  rw [stepFrame] at h
+  generalize hdp : (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (Operation.STOP, .none)) = dp
+    at h
+  obtain ⟨op, arg⟩ := dp
+  simp only at h
+  split at h
+  · exact absurd h (by simp)
+  · split at h
+    · exact absurd h (by simp)
+    · cases hdisp : dispatch op arg fr fr.exec with
+      | ok signal =>
+        rw [hdisp] at h
+        cases signal with
+        | next e =>
+          simp only [Signal.next.injEq] at h; subst h
+          exact (dispatch_next_accMono hdisp).1
+        | halted hl => simp only at h; exact absurd h (by simp)
+        | needsCall p pc => simp only at h; exact absurd h (by simp)
+        | needsCreate p pc => simp only at h; exact absurd h (by simp)
+      | error e => rw [hdisp] at h; exact absurd h (by simp)
 
 open Lir.V2 (AccPresent) in
 /-- **A `.next` `stepFrame` preserves presence at an arbitrary `a` (Brick C / `hmono`).** The
-arbitrary-`a` twin of `stepFrame_next_self`; the deliverable consumed at `callPreservesSelf`'s
+presence half of the dispatch walk; the deliverable consumed at `callPreservesSelf`'s
 `hmono` slot. -/
 theorem stepFrame_next_accMono {fr : Frame} {exec' : ExecutionState}
     (h : stepFrame fr = .next exec') (a : AccountAddress) (hp : AccPresent a fr.exec.accounts) :
@@ -2512,7 +2642,7 @@ theorem stepFrame_next_accMono {fr : Frame} {exec' : ExecutionState}
         cases signal with
         | next e =>
           simp only [Signal.next.injEq] at h; subst h
-          exact dispatch_next_accMono hdisp hp
+          exact (dispatch_next_accMono hdisp).2 a hp
         | halted hl => simp only at h; exact absurd h (by simp)
         | needsCall p pc => simp only at h; exact absurd h (by simp)
         | needsCreate p pc => simp only at h; exact absurd h (by simp)
@@ -4463,6 +4593,7 @@ end Lir.V2
 -- plus the `.needsCreate` inversion bundle that eliminates the no-CREATE seam, and
 -- `callPreservesSelf_modGuards` instantiating them (callPreservesSelf reduced 7 → 1 supplied hyp).
 #print axioms Evm.stepFrame_next_accMono
+#print axioms Evm.stepFrame_next_execEnvAddr
 #print axioms Evm.dispatch_next_accMono
 #print axioms Evm.systemOp_next_accMono
 #print axioms Evm.smsfOp_next_accMono
