@@ -1,5 +1,5 @@
 import LirLean.Match
-import LirLean.Charges
+import LirLean.Engine.Charges
 import LirLean.Decode
 import BytecodeLayer.Programs
 import BytecodeLayer.Hoare.Sequence

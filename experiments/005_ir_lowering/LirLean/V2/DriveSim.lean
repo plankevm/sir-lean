@@ -1,6 +1,6 @@
 import LirLean.LowerConforms
 import LirLean.V2.IRRun
-import LirLean.V2.DriveRuns
+import LirLean.Engine.DriveRuns
 import LirLean.V2.Modellable
 
 /-!
@@ -22,13 +22,13 @@ the cyclic-general headline `lower_conforms_cyclic` (F3) — **`CFGAcyclic` reti
   to an IR cursor `(L, st)`: `Corr prog … st fr L 0` together with the frame's remaining run
   reaching a clean **non-exception** `.halted` outcome (`CleanHaltsNonException fr`), whose
   `totalGas [] (.inl fr) = fr.exec.gasAvailable.toNat` (`driveCorr_measure`) is the recursion
-  measure. The clean-halt predicates live in `LirLean/CleanHalt.lean`.
-* **`cleanHaltsNonException_forward`** (`LirLean/CleanHalt.lean`) — the **forward clean-halt
+  measure. The clean-halt predicates live in `LirLean/Engine/CleanHalt.lean`.
+* **`cleanHaltsNonException_forward`** (`LirLean/Engine/CleanHalt.lean`) — the **forward clean-halt
   split** (the former wall, now DERIVED). `stepFrame` is a function, so the halting `Runs` path is
   *linear* (`Runs.linear_to_halt`, exp003 `BytecodeLayer/Hoare.lean`): every frame reachable on the
   way to a halt continues to the *same* halt. So `CleanHaltsNonException` is forward-closed along
   `Runs` — a block successor inherits its predecessor's non-exception clean-halt, no longer
-  supplied. The predicate and forward split live in `CleanHalt.lean` (upstream of both this walk
+  supplied. The predicate and forward split live in `Engine/CleanHalt.lean` (upstream of both this walk
   and the `SimStmts` induction).
 * **`jumpdestFrame_gas_lt` / `totalGas_succ_lt`** (§3) — the **strict `totalGas` descent**: a
   `JUMPDEST` step (cost `Gjumpdest = 1 ≥ 1`) drops `gasAvailable.toNat` by exactly one, so the
@@ -60,7 +60,7 @@ the cyclic-general headline `lower_conforms_cyclic` (F3) — **`CFGAcyclic` reti
   log` plus the non-exception scope premise).
 
 Bytecode-coupled (imports the Layer C–E bricks via `LowerConforms`); nothing here touches
-`V2/Machine.lean` / `V2/Law.lean` / `V2/MemAlgebra.lean`. No `sorry`/`axiom`/`native_decide`.
+`V2/Machine.lean` / `V2/Law.lean` / `Engine/MemAlgebra.lean`. No `sorry`/`axiom`/`native_decide`.
 -/
 
 namespace Lir.V2
@@ -71,9 +71,9 @@ open BytecodeLayer.Hoare
 open BytecodeLayer.Interpreter
 open Lir
 
-/-! ## §2 — the boundary invariant `DriveCorr` (clean-halt predicates: `LirLean/CleanHalt.lean`)
+/-! ## §2 — the boundary invariant `DriveCorr` (clean-halt predicates: `LirLean/Engine/CleanHalt.lean`)
 
-`CleanHalts` / `CleanHaltsNonException` and their forward splits live in `LirLean/CleanHalt.lean`
+`CleanHalts` / `CleanHaltsNonException` and their forward splits live in `LirLean/Engine/CleanHalt.lean`
 (upstream of both this drive walk and the `SimStmts` per-statement induction, so they are visible
 to the whole tower). `open Lir.V2` (this namespace) brings them into scope here. -/
 
@@ -105,7 +105,7 @@ honest scope boundary — the recording interpreter reaching a clean `.halted` o
 `runWithLog params (seedFuel params.gas) = some log`, *plus* the non-exception scope premise `hne`
 (the recorded outcome is `.success`/`.revert`, not OOG/exception). `runWithLog_drive`
 (`V2/RunLog.lean`) pins the verified `drive (seedFuel params.gas) [] (running fr₀) = .ok
-log.observable`; the reverse construction `runs_of_drive_ok` (`V2/DriveRuns.lean`) reconstructs the
+log.observable`; the reverse construction `runs_of_drive_ok` (`Engine/DriveRuns.lean`) reconstructs the
 halting `Runs fr₀ last` from that clean termination, under the `Runs`-modellability side condition
 (every reachable frame issues a code CALL or a halt — no CREATE / precompile-CALL, discharged
 structurally for `lower prog`). -/
@@ -739,7 +739,7 @@ end Lir.V2
 -- Build-enforced axiom-cleanliness guards for the cyclic-CFG deliverables: the strict `totalGas`
 -- descent, the four per-block drive steps, the F2 recursion (`runFrom_of_driveCorr`) and the F3
 -- assembly (`lower_conforms_cyclic`) depend only on `[propext, Classical.choice, Quot.sound]`.
--- (The forward clean-halt split lives in `LirLean/CleanHalt.lean`, guarded there.)
+-- (The forward clean-halt split lives in `LirLean/Engine/CleanHalt.lean`, guarded there.)
 #print axioms Lir.V2.driveCorr_measure
 #print axioms Lir.V2.cleanHalts_of_runWithLog
 #print axioms Lir.V2.jumpdestFrame_gas_lt

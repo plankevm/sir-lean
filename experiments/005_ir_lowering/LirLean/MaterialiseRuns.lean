@@ -1,7 +1,7 @@
 import LirLean.Match
 import LirLean.MaterialiseGas
 import LirLean.DefsSound
-import LirLean.MemAlgebra
+import LirLean.Engine.MemAlgebra
 
 /-!
 # LirLean — `materialise_runs` (Layer **B1** of the `lower_conforms` grind)
@@ -505,7 +505,7 @@ discharged by `e ≠ .gas` and `∀ k, e ≠ .sload k` (both preserved across th
   same-key re-read (2100 ≠ 100). No longer carried: the SLOAD value lives in the slot (tied by
   `MemRealises`), and the warmth cost is the single cold/warm def-site read (the positional
   `SloadLogAligned` selection). Survives only as the `V2/HonestGasTie.lean` /
-  `V2/TieDischarge.lean` regression witness.
+  `V2/Drive/SelfPresent.lean` regression witness.
 
 * **`GasRealises`** (RETIRED, Phase B) — the analogous `∀ g`-gas-value universal; same story.
 
@@ -528,8 +528,8 @@ the `assign` def-site by `sim_assign_sload`), and the warmth charge is the singl
 that def-site (the positional `SloadLogAligned` selection via `sloadRealises_charge_of_witness`, not
 this universal). This def survives ONLY as the subject of the regression witnesses in
 `V2/HonestGasTie.lean` (`sloadRealises_universal_unsatisfiable`) and the positional discharge
-`V2/TieDischarge.lean` (`sloadRealises_charge_of_witness`); the honest replacement is the positional
-SLOAD twin `SloadLogAligned` (`V2/TieDischarge.lean`), satisfiable by a real cold-then-warm run. -/
+`V2/Drive/SelfPresent.lean` (`sloadRealises_charge_of_witness`); the honest replacement is the positional
+SLOAD twin `SloadLogAligned` (`V2/Drive/SelfPresent.lean`), satisfiable by a real cold-then-warm run. -/
 def SloadRealises (sloadChg : Tmp → ℕ) (st : V2.IRState) (fr : Frame) : Prop :=
   ∀ (g : Frame) (k : Tmp) (key : Word),
     g.exec.executionEnv.address = fr.exec.executionEnv.address →
@@ -548,7 +548,7 @@ by `Corr`/`materialise_runs`/the headlines**: gas is spilled to memory, so its v
 slot and is tied by `MemRealises` (the honest positional one-read value supplied at the `assign`
 def-site, `sim_assign_gas`). This def survives ONLY as the subject of the regression witnesses in
 `V2/HonestGasTie.lean` (`gasRealises_universal_unsatisfiable`) and the positional discharge
-`V2/TieDischarge.lean` (`gasRealises_obs_of_witness`); the honest replacement is the positional
+`V2/Drive/SelfPresent.lean` (`gasRealises_obs_of_witness`); the honest replacement is the positional
 `Lir.V2.GasRealises` (`V2/Oracle.lean`), satisfiable by a real descending-gas run. -/
 def GasRealises (obs : Word) (fr : Frame) : Prop :=
   ∀ (g : Frame),
