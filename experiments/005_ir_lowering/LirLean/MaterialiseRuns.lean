@@ -1,7 +1,7 @@
 import LirLean.Match
 import LirLean.MaterialiseGas
 import LirLean.DefsSound
-import LirLean.MemAlgebra
+import LirLean.Engine.MemAlgebra
 
 /-!
 # LirLean — `materialise_runs` (Layer **B1** of the `lower_conforms` grind)
