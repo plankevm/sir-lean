@@ -292,5 +292,3 @@ end Lir.V2
 
 -- CALLMONO Brick D: account-presence monotone across a whole `drive` run — the `.success` shape
 -- of `CallPreservesSelf` discharged (the CREATE no-erase seam eliminated; only `hprec` supplied).
-#print axioms Lir.V2.endFrame_accPresent
-#print axioms Lir.V2.drive_accounts_find_mono

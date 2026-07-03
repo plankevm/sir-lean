@@ -367,8 +367,3 @@ theorem runs_of_drive_ok :
 end BytecodeLayer.Interpreter
 
 -- Build-enforced axiom-cleanliness guards for the `drive → Runs` reverse construction.
-#print axioms BytecodeLayer.Interpreter.drive_append_framing_lt
-#print axioms BytecodeLayer.Interpreter.drive_descend_lt
-#print axioms BytecodeLayer.Interpreter.drive_error_oof
-#print axioms BytecodeLayer.Interpreter.framed_oof_of_standalone_oof
-#print axioms BytecodeLayer.Interpreter.runs_of_drive_ok

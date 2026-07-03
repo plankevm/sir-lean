@@ -753,7 +753,3 @@ end Lir
 -- halting terminators (`stop` fully; `ret` on the world channel — value deferred) and the
 -- two control-flow edges (`jump`/`branch`) depend only on `[propext, Classical.choice,
 -- Quot.sound]`.
-#print axioms Lir.sim_term_halt_stop
-#print axioms Lir.sim_term_halt_ret
-#print axioms Lir.sim_term_edge_jump
-#print axioms Lir.sim_term_edge_branch

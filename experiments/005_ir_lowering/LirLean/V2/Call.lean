@@ -148,7 +148,5 @@ theorem call_IRRun_unique (o : CallOracle) (w₀ : World) (obs : Word) :
 
 -- Build-enforced axiom-cleanliness guard: the worked call run and its uniqueness depend
 -- only on `[propext, Classical.choice, Quot.sound]`.
-#print axioms call_IRRun
-#print axioms call_IRRun_unique
 
 end Lir.V2

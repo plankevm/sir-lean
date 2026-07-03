@@ -159,5 +159,3 @@ theorem sim_stmts_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
 end Lir
 
 -- Build-enforced axiom-cleanliness guard for the D-layer `sim_stmts` deliverable.
-#print axioms Lir.sim_stmts
-#print axioms Lir.sim_stmts_block

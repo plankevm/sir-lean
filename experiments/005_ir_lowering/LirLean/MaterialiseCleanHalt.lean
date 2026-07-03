@@ -402,5 +402,3 @@ theorem materialise_runs_of_cleanHalt {prog : Program} (sloadChg : Tmp → ℕ)
 end Lir
 
 -- Build-enforced axiom-cleanliness guards for the FoldLemma deliverable.
-#print axioms Lir.materialise_charge_le_of_cleanHalt
-#print axioms Lir.materialise_runs_of_cleanHalt

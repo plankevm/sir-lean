@@ -1331,24 +1331,6 @@ theorem stepFrame_halted_success_accMono {fr : Frame} {e : ExecutionState} {o : 
 
 end Evm
 
-#print axioms Lir.V2.resumeAfterCall_address
-#print axioms Lir.V2.resumeAfterCall_accounts
-#print axioms Lir.V2.endCall_revert_accounts
-#print axioms Lir.V2.endCall_exception_accounts
 -- HMONO: the engine-level CALL-seam facts PROVEN at an arbitrary tracked address `a`
 -- (Brick C `stepFrame_next_accMono` + halt-success presence); `stepFrame_next_self` is the
 -- `a := self` corollary of the walk.
-#print axioms Evm.stepFrame_next_self
-#print axioms Evm.stepFrame_next_accMono
-#print axioms Evm.stepFrame_next_execEnvAddr
-#print axioms Evm.dispatch_next_accMono
-#print axioms Evm.systemOp_next_accMono
-#print axioms Evm.smsfOp_next_accMono
-#print axioms Evm.callArm_next_accMono
-#print axioms Evm.createArm_next_accMono
-#print axioms Evm.sstore_accMono
-#print axioms Evm.tstore_accMono
-#print axioms Evm.stepFrame_halted_success_accMono
-#print axioms Evm.haltOp_success_accMono
-#print axioms Evm.selfdestructOp_success_accMono
-#print axioms Evm.returnOrRevertOp_success_accMono

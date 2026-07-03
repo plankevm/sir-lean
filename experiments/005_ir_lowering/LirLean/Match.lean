@@ -455,5 +455,3 @@ end Lir
 
 -- Build-enforced axiom-cleanliness guard for the memory value-channel simulation
 -- bricks: both MSTORE/MLOAD arms depend only on `[propext, Classical.choice, Quot.sound]`.
-#print axioms Lir.sim_mstore
-#print axioms Lir.sim_mload

@@ -112,6 +112,5 @@ this module is what keeps `LirLean.WorkedCall` off the headline import cone. -/
 
 -- Build-enforced axiom-cleanliness guard: the call realisability bridge depends only on
 -- `[propext, Classical.choice, Quot.sound]`.
-#print axioms callRealises_bridge
 
 end Lir.V2

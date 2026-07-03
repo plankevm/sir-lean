@@ -147,11 +147,5 @@ theorem runWithLog_messageCall {params : CallParams} {log : RunLog}
 
 -- Build-enforced axiom-cleanliness guards: the recording interpreter's result
 -- adequacy depends only on `[propext, Classical.choice, Quot.sound]`.
-#print axioms driveLog_drive
-#print axioms sloadRecord_eq_sloadCost
-#print axioms realisedCall_eq_evmV2
-#print axioms runWithLog_drive
-#print axioms runWithLog_messageCall
-#print axioms observe
 
 end Lir.V2

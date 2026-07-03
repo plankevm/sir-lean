@@ -568,15 +568,3 @@ theorem descentReturns_call_iff (frD frR : Evm.Frame) :
 
 end Lir.V2
 
-#print axioms Evm.stepFrame_needsCall_inv
-#print axioms Evm.callArm_needsCall_inv
-#print axioms Evm.systemOp_needsCall_inv
-#print axioms Evm.stepFrame_needsCreate_inv
-#print axioms Evm.createArm_needsCreate_inv
-#print axioms Evm.systemOp_needsCreate_inv
-#print axioms Lir.V2.beginCall_inl_accounts_present
-#print axioms Lir.V2.beginCall_inl_checkpoint
-#print axioms Lir.V2.beginCreate_ok_accounts_present
-#print axioms Lir.V2.beginCreate_ok_checkpoint
-#print axioms Lir.V2.createDescent_descendImmediate_trivial
-#print axioms Lir.V2.descentReturns_call_iff

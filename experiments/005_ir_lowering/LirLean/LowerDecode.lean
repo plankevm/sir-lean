@@ -582,7 +582,6 @@ theorem jump_landing_of_cleanHalt {prog : Program} {sloadChg : Tmp → ℕ} {obs
 -- Build-enforced axiom-cleanliness guard for the pre-`JUMPDEST` landing producer: the three gas
 -- guards are produced from the threaded `CleanHaltsNonException frT` (§4 `next_*_of_cleanHalt`
 -- bricks), not supplied; it depends only on `[propext, Classical.choice, Quot.sound]`.
-#print axioms Lir.jump_landing_of_cleanHalt
 
 end Lir
 
@@ -1050,7 +1049,6 @@ theorem branch_landing_of_cleanHalt {prog : Program} {sloadChg : Tmp → ℕ} {o
 -- Build-enforced axiom-cleanliness guard for the `branch` pre-`JUMPDEST` landing producer: the
 -- cond-materialise charge + JUMPI/PUSH4/JUMP/JUMPDEST gas guards are produced from the threaded
 -- `CleanHaltsNonException frT` (§4/§5 bricks), not supplied.
-#print axioms Lir.branch_landing_of_cleanHalt
 
 /-! ## `assign t .gas` arm — the §7 `hstash` run **discharged** (P1)
 
@@ -1507,11 +1505,9 @@ end Lir
 -- constructs the GAS;PUSH;MSTORE stash run internally (decode layout + `stash_tail_gas`),
 -- replacing the supplied opaque `hstash` run; it depends only on `[propext, Classical.choice,
 -- Quot.sound]`.
-#print axioms Lir.sim_assign_gas_lowered
 
 -- Build-enforced axiom-cleanliness guard for the P-walk SLOAD-stash discharge:
 -- `sim_assign_sload_lowered` constructs the `materialise k ; SLOAD ; PUSH ; MSTORE` stash run
 -- internally (decode layout + `materialise_runs` + `sim_sload` + `stash_tail_runs`, via
 -- `stash_tail_sload`), replacing the supplied opaque `hstash` run; it depends only on
 -- `[propext, Classical.choice, Quot.sound]`.
-#print axioms Lir.sim_assign_sload_lowered

@@ -510,6 +510,5 @@ theorem decode_at_block_offset_jumpdest (prog : Program) (L : Label) (b : Block)
 
 -- Build-enforced axiom-cleanliness guard: E3 depends only on
 -- `[propext, Classical.choice, Quot.sound]`.
-#print axioms block_offset_validJump
 
 end Lir

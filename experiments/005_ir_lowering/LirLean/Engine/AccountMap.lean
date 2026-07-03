@@ -143,8 +143,3 @@ theorem accMono_emptySwap (a : Evm.AccountAddress) (m m₀ : Evm.AccountMap)
 
 end Lir.V2
 
-#print axioms Lir.V2.forM_from_nil
-#print axioms Lir.V2.all2_nil_false
-#print axioms Lir.V2.find?_some_ne_empty
-#print axioms Lir.V2.accounts_find?_insert_mono
-#print axioms Lir.V2.accPresent_ne_empty

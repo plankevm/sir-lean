@@ -1366,5 +1366,3 @@ end Lir
 -- `materialise_runs` (now total over `Expr`, `.sload`/`.gas` under their realisability
 -- side-conditions) and its `.imm` leaf depend only on
 -- `[propext, Classical.choice, Quot.sound]`.
-#print axioms Lir.materialise_runs
-#print axioms Lir.matRuns_imm

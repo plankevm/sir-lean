@@ -430,19 +430,3 @@ theorem selfPresent_codeFrame (params : Evm.CallParams) (code : ByteArray) {acc 
 end Lir.V2
 
 -- Build-enforced axiom-cleanliness guards for the value-channel discharges.
-#print axioms Lir.V2.realisedCall_projection
-#print axioms Lir.V2.gasRecord_eq_gasReadOf
-#print axioms Lir.V2.gasReadOf_gasFrame_eq_obs
-#print axioms Lir.V2.gasLogAligned_nil
-#print axioms Lir.V2.FramesRun.snoc
-#print axioms Lir.V2.gasLogAligned_step_gas
-#print axioms Lir.V2.aligned_read_eq_obs
-#print axioms Lir.V2.gasRealises_obs_of_witness
-#print axioms Lir.V2.sloadRecord_discharges_obs
-#print axioms Lir.V2.sloadLogAligned_nil
-#print axioms Lir.V2.sloadLogAligned_step_sload
-#print axioms Lir.V2.alignedSload_read_eq_obs
-#print axioms Lir.V2.sloadRealises_charge_of_witness
-#print axioms Lir.V2.selfPresent_codeFrame
-#print axioms Lir.V2.resumeAfterCall_self_of_accounts
-#print axioms Lir.V2.accounts_ne_empty_of_selfPresent

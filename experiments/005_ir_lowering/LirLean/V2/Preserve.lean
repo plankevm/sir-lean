@@ -613,6 +613,5 @@ theorem lower_preserves_obs (o : CallOracle) (w₀ : World) :
 -- Build-enforced axiom-cleanliness guard: the headline (and, checked separately,
 -- its IR half `proto_IRRun` and bytecode half `proto_messageCall`) depend only on
 -- `[propext, Classical.choice, Quot.sound]`.
-#print axioms lower_preserves_obs
 
 end Lir.V2

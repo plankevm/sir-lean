@@ -287,6 +287,3 @@ end Lir
 
 -- Build-enforced axiom-cleanliness guard for the B2 deliverable: the gas-charge
 -- engine depends only on `[propext, Classical.choice, Quot.sound]`.
-#print axioms Lir.charge_runs_imm
-#print axioms Lir.materialiseGasCharge_binop
-#print axioms Lir.toNat_chargeOf

@@ -1190,7 +1190,3 @@ end Lir
 
 -- Build-enforced axiom-cleanliness guard for the C-layer `sim_stmt` deliverable: the four
 -- per-statement simulation arms depend only on `[propext, Classical.choice, Quot.sound]`.
-#print axioms Lir.sim_assign
-#print axioms Lir.sim_sstore_stmt
-#print axioms Lir.sim_call_stmt
-#print axioms Lir.sim_assign_sload

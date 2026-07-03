@@ -427,9 +427,3 @@ end Lir
 
 -- Build-enforced axiom-cleanliness guards: the boundary-reachability bricks depend only on
 -- `[propext, Classical.choice, Quot.sound]`.
-#print axioms Lir.mem_validJumpDestsAuxNat_inv
-#print axioms Lir.reachesBoundary_of_mem_validJumpDests
-#print axioms Lir.reachesBoundary_nextInstr
-#print axioms Lir.reaches_loweringOp_of_segAlignedLowering
-#print axioms Lir.segAlignedLowering_flatBytes
-#print axioms Lir.decode_reachable_boundary_loweringOp

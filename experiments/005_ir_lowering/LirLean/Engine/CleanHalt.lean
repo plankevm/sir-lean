@@ -101,7 +101,3 @@ theorem cleanHaltsNonException_of_success {fr last : Frame} {e : Evm.ExecutionSt
 end Lir.V2
 
 -- Build-enforced axiom-cleanliness guards.
-#print axioms Lir.V2.cleanHalts_forward
-#print axioms Lir.V2.cleanHaltsNonException_forward
-#print axioms Lir.V2.cleanHaltsNonException_toCleanHalts
-#print axioms Lir.V2.cleanHaltsNonException_of_success

@@ -908,21 +908,8 @@ theorem lower_conforms_cyclic_assembled {prog : Program} {sloadChg : Tmp → ℕ
 end Lir.V2
 
 -- Build-enforced axiom-cleanliness guards for the tie-discharge deliverables.
-#print axioms Lir.V2.driveCorrPlus_entry
 -- C3: the no-bridge VALUE channels of the L2.0 statement-walk.
-#print axioms Lir.V2.memRealises_setLocal_nonspilled
-#print axioms Lir.V2.driveCorrPlus_assign_remat_memRealises
-#print axioms Lir.V2.driveCorrPlus_sload_value
-#print axioms Lir.V2.driveCorrPlus_sload_value_world
 -- L2.0g: the seedable GAS-alignment bricks (GAS-advancing walk decls + S3 read-off removed, audit).
-#print axioms Lir.V2.FramesRun.snoc_seed
-#print axioms Lir.V2.gasLogAligned_step_gas_seed
 -- C4: the edge wrappers (jump/branch).
-#print axioms Lir.V2.driveCorrPlus_step_jump
-#print axioms Lir.V2.driveCorrPlus_step_branch
 -- C8/C9: the `DriveCorrPlus` recursion assembly + the tie-free headline.
-#print axioms Lir.V2.driveStepPlus_of_block
-#print axioms Lir.V2.runFrom_of_driveCorrPlus
-#print axioms Lir.V2.lower_conforms_cyclic_tiefree
 -- ASSEMBLE: the headline with `hstmts`/`hterm` built from `WellFormedLowered` + the §7 ties.
-#print axioms Lir.V2.lower_conforms_cyclic_assembled

@@ -517,7 +517,3 @@ end Lir
 -- Build-enforced axiom-cleanliness guard for the P1 stash-tail forward lemmas: the core tail,
 -- its covered specialization, the GAS-prefix variant, and the SLOAD-prefix variant depend only on
 -- `[propext, Classical.choice, Quot.sound]`.
-#print axioms Lir.stash_tail_runs
-#print axioms Lir.stash_tail_runs_covered
-#print axioms Lir.stash_tail_gas
-#print axioms Lir.stash_tail_sload

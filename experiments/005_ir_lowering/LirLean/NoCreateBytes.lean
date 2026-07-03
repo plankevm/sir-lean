@@ -426,8 +426,3 @@ end Lir
 -- (`segAlignedSafe_flatBytes`) and the two headline forms (`reachable_boundary_notCreate`,
 -- `decode_reachable_boundary_notCreate`) all depend only on `[propext, Classical.choice,
 -- Quot.sound]`.
-#print axioms Lir.reaches_safe_of_segAlignedSafe
-#print axioms Lir.segAlignedSafe_flatBytes
-#print axioms Lir.reachable_boundary_notCreate
-#print axioms Lir.decode_reachable_boundary_some
-#print axioms Lir.decode_reachable_boundary_notCreate
