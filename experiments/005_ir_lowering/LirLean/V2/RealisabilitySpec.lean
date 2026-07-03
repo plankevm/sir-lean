@@ -1305,7 +1305,20 @@ theorem sstoreRealises_at_frame {g : Frame} {kw vw : Word}
     (hmod : g.exec.executionEnv.canModifyState = true) :
     (¬ g.exec.gasAvailable.toNat ≤ GasConstants.Gcallstipend)
     ∧ sstoreChargeOf g.exec kw vw ≤ g.exec.gasAvailable.toNat
-    ∧ ∃ acc, g.exec.accounts.find? g.exec.executionEnv.address = some acc := sorry
+    ∧ ∃ acc, g.exec.accounts.find? g.exec.executionEnv.address = some acc := by
+  have hsz : g.exec.stack.size ≤ 1024 := by
+    have hsize : g.exec.stack.size = 2 := by rw [hstk]; rfl
+    omega
+  have hdich : (∃ e', stepFrame g = .next e')
+      ∨ (∃ ex, stepFrame g = .halted (.exception ex)) := by
+    by_cases hstip : g.exec.gasAvailable.toNat ≤ GasConstants.Gcallstipend
+    · exact Or.inr ⟨_, stepFrame_sstore_stipend g kw vw [] hdec hstk hsz hmod hstip⟩
+    · by_cases hcost : sstoreChargeOf g.exec kw vw ≤ g.exec.gasAvailable.toNat
+      · exact Or.inl ⟨_, stepFrame_sstore g kw vw [] hdec hstk hsz hmod hstip hcost⟩
+      · exact Or.inr ⟨_, stepFrame_sstore_oog g kw vw [] hdec hstk hsz hmod hstip (by omega)⟩
+  obtain ⟨e', hnext⟩ := Lir.CleanHaltExtract.next_of_cleanHalt_continuing hch hdich
+  obtain ⟨h1, h2⟩ := stepFrame_sstore_inv g kw vw [] hdec hstk hsz hmod hnext
+  exact ⟨h1, h2, hsp⟩
 
 /-- **R5 — terminator ties from the walk vocabulary.** `TermTies'` holds at every present
 block: its arms' antecedents are exactly what `DriveCorrLog` supplies at real boundaries
@@ -1314,7 +1327,37 @@ non-emptiness via `accounts_ne_empty_of_selfPresent`; the gas guards via the cle
 landing extractors (`jump_landing_of_cleanHalt`/`branch_landing_of_cleanHalt` patterns);
 the ret epilogue decode facts via `DecodeAnchors` at the pc-pinned cursor; the `frv`
 kind/presence facts via `Runs`-preservation seeded from the antecedent pins (+`hprec` for
-the returning-call edges, hence the seam hypothesis). DERIVED-status obligation. -/
+the returning-call edges, hence the seam hypothesis). DERIVED-status obligation.
+
+**BLOCKER (Phase-3 Round-2 effects track — R5 stays `sorry`, honest partial).** `TermTies'`
+is a single conjunctive theorem and TWO of its arms are not closeable with the current
+`(hwl, hprec, hb)` signature; a partial `refine ⟨stop, ret, jump, sorry⟩` would bury a
+*refutable* conjunct, so nothing is landed.
+  * **branch arm — REFUTABLE (over-specified universal).** The six gas guards demand
+    well-gassing along BOTH JUMPI directions off the single pre-JUMPI frame
+    `pushFrameW frc thenW 4`: the taken landing (`jumpFrame … thenOff`) AND the fallthrough
+    chain (`jumpiFallthroughFrame …`, then PUSH4 elseW, JUMP to elseL). A single
+    `CleanHaltsNonException frT` witness only exercises the direction actually taken
+    (`branch_landing_of_cleanHalt` case-splits on `cw` and only builds one successor's
+    guards). Concrete refutation: `cw ≠ 0`, gas provisioned exactly for the taken path
+    (then-block `stop`, clean `.success`); the guard `3 ≤ (jumpiFallthroughFrame …).gas`
+    then reads `3 ≤ preJumpi.gas − Ghigh = Gjumpdest = 1`, FALSE (JUMPI charges Ghigh on
+    both arms). Same failure mode as R6/B1 and the memory's "supplied ties unsatisfiable".
+  * **ret arm — seam GAP.** Conjuncts 1–2 (charge envelope, ≤1024) close via
+    `materialise_runs_of_cleanHalt` + `hwl.stack.ret`; conjunct-3 decode/gas facts close
+    via `DecodeAnchors`/`next_push_of_cleanHalt`. But the final `¬ (frv.exec.accounts == ∅)`
+    needs `SelfPresent frv` bridged from the antecedent `SelfPresent frT` across the
+    adversarial `Runs frT frv` via `selfPresent_runs` (CallPreservesSelf.lean:235), which
+    consumes the full `CallPreservesSelf` (line 94) — NOT supplied (`hprec` is only the
+    precompile no-erase closer, not the CALL-edge preservation), and `frv` is not derivably
+    call-free from the pins.
+  * The **stop arm** (`accounts_ne_empty_of_selfPresent hsp`), and — via a Nightly-only
+    inline port of the LowerDecode bricks — the **jump arm** and ret conjuncts 1–2 are
+    individually provable, but do not add up to a closed R5.
+  Statement-level fixes for a future round (each out of this round's "no added hypothesis /
+  no weakening" scope): (a) restrict the branch arm to the *taken*-direction guards only, and
+  (b) thread `CallPreservesSelf` (or a call-free-`Runs` restriction on the ret `frv`) into
+  the signature. -/
 theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
     {self : AccountAddress} {L : Label} {b : Block}
     (hwl : WellLowered prog)
@@ -1330,7 +1373,8 @@ modellability clause (`notCreate_of_atReachableBoundary`) and scopes the future
 data-segment design. One of the three substantial proofs. DERIVED-status obligation. -/
 theorem runs_atReachableBoundary {prog : Lir.Program} {params : CallParams} {fr₀ : Frame}
     (hbegin : beginCall params = .inl fr₀)
-    (hcode : params.codeSource = .Code (lower prog)) :
+    (hcode : params.codeSource = .Code (lower prog))
+    (hne : 0 < prog.blocks.size) :
     ∀ fr', Runs fr₀ fr' → AtReachableBoundary prog fr' := sorry
 
 /-! #### R7 machinery — the `driveLog` accumulator homomorphism (spine-owned)
@@ -1435,16 +1479,17 @@ private theorem isGasOp_false_of_isSloadOp {fr : Frame} (h : isSloadOp fr = true
   decide
 /-! ### R6 status — the geometry track's findings (Track A / the `hrb` residue)
 
-**R6 as stated above is REFUTABLE**, and the two missing side conditions are pinned below as
+**R6 WITHOUT a size side condition is REFUTABLE**, so its statement above now carries
+`hne : 0 < prog.blocks.size` (blocker B1). The remaining side conditions are pinned below as
 real, machine-checked lemmas (no `sorry`, no weakening of R6 itself — R6's own `sorry` above is
 left untouched; these are the honest partial the geometry track lands).
 
-* **Blocker B1 — the zero-block program (a CONCRETE counterexample, `not_runs_atReachableBoundary`).**
+* **Blocker B1 — the zero-block program (a CONCRETE counterexample, `not_runs_atReachableBoundary`), NOW FIXED on the statement.**
   For `prog.blocks = #[]`, `flatBytes prog = []` so `(flatBytes prog).length = 0`. `beginCall`
   still returns `.inl fr₀` (the `.Code` branch is total, pc `0`), and `Runs.refl fr₀` reaches
   `fr₀`, yet `AtReachableBoundary` demands `boundary < 0` — false. R6 therefore needs
-  `0 < prog.blocks.size` on its statement; the refutation below proves R6's exact `∀`-form is
-  false without it.
+  `0 < prog.blocks.size` on its statement (now added as `hne`); the refutation below proves R6's
+  exact side-condition-free `∀`-form is false, justifying `hne`.
 * **Blocker B2 — the oversized program / pc wrap.** The engine pc is `UInt32`, so every reachable
   boundary is `< 2 ^ 32`; but `ReachesBoundary`/`validJumpDests` are `Nat` walks that, for
   `(flatBytes prog).length > 2 ^ 32`, reach boundaries `≥ 2 ^ 32`. Matching the `Nat` walk back to
@@ -1705,7 +1750,11 @@ theorem present_of_closed {prog : Program} {L : Label} {b : Block} {dst : Label}
     (hdst : b.term = .jump dst
       ∨ (∃ c e, b.term = .branch c dst e)
       ∨ (∃ c t, b.term = .branch c t dst)) :
-    ∃ b', blockAt prog dst = some b' := sorry
+    ∃ b', blockAt prog dst = some b' := by
+  rcases hdst with hj | ⟨c, e, hbr⟩ | ⟨c, t, hbr⟩
+  · exact (hclosed.jump_closed L b dst hb hj).1
+  · exact (hclosed.branch_closed L b c dst e hb hbr).1.1
+  · exact (hclosed.branch_closed L b c t dst hb hbr).2.1
 
 /-! ## §6 — the concrete non-vacuity witness (R9's anchor; R12's subject)
 
