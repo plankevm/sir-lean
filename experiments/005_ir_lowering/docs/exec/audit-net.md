@@ -16,6 +16,33 @@ root), the Batteries `runLinter` baseline freeze (`scripts/nolints.json`), and t
 > `../execution-plan-2026-07-02.md`; the final audit fleet (`../final-audit-2026-07-03.md`, being
 > written) gates Phase 3.
 
+> **UPDATE (2026-07-03, second) — the guarded surface changed: vacuous-headline guards REMOVED,
+> net repointed to salvage.** The 2026-07-03 banner above (and §1/§2 below) describes the net as it
+> stood when it pinned `lower_conforms_cyclic_assembled` & co. That is now stale. In commits
+> "delete vacuous conformance surface 1/4..4/4" (`ba42b63..7b763dc`) the vacuous cyclic conformance
+> headline and its apparatus were **DELETED**, so the guards that pinned them were necessarily
+> removed from `Audit.lean`:
+> - the `#print axioms` guards on `lower_conforms_cyclic_assembled` / `_tiefree`, on
+>   `Lir.lower_conforms_wf`, and on the four `Spec` re-export decls (`RealisabilityObligations`,
+>   `lower_conforms_cyclic_of_obligations`, the two `_assembled`/`_tiefree` aliases) are **GONE**
+>   (the guarded decls no longer exist);
+> - the flagship **`#check` signature-freeze** (§2 below) is **REMOVED** — it froze the now-deleted
+>   assembled headline; it will be re-pointed to the R11 flagship (`Lir.V2.lowering_conforms`) once
+>   that is proven.
+>
+> The net now pins **8 salvage lemmas + `Lir.Spec.callPreservesSelf_of_precompiles`** (the still-live
+> Phase-3 salvage: `memRealises_setLocal_nonspilled`, `driveCorrPlus_assign_remat_memRealises`,
+> `driveCorrPlus_sload_value`/`_world`, `FramesRun.snoc_seed`, `gasLogAligned_step_gas_seed`,
+> `GasReach.trans`, `GasCursorClass`, plus the precompile self-preservation lemma). The **§1 guard
+> inventory table and §2 signature-freeze section below are HISTORICAL** — they document the pre-
+> deletion net, not the current one.
+>
+> **KNOWN EXCEPTION (fleet follow-up #2).** `Engine/MemAlgebra.lean` (~948–976) retains **8**
+> `#guard_msgs in #print axioms` commands *outside* `Audit.lean`. These are intentional local guards
+> — they still fail-hard on any axiom/`sorry`/native-decide drift in the MemAlgebra cone — and are
+> recorded here so that "Audit.lean is the net" is not read as *exclusive*. They were deliberately
+> left in place rather than folded into `Audit.lean`.
+
 ## 1. Guard inventory
 
 `LirLean/Audit.lean` pins, via `#guard_msgs in #print axioms` (idiom precedent:

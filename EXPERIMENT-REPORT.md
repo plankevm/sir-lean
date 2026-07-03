@@ -15,6 +15,17 @@ in `currentplan.md`; this file is the *results* synthesis for a human reader.
 > sorry-skeleton. Plan-of-record: `experiments/005_ir_lowering/docs/target-architecture-2026-07-02.md`
 > + `execution-plan-2026-07-02.md` (remediation plan superseded); the final audit fleet
 > (`experiments/005_ir_lowering/docs/final-audit-2026-07-03.md`, being written) gates Phase 3.
+>
+> **CORRECTION (2026-07-03, later).** The banner above says the headline was moved to
+> `LirLean/V2/Drive/Headline.lean`. That relocation was **undone**: in commits "delete vacuous
+> conformance surface 1/4..4/4" the vacuous headline `lower_conforms_cyclic_assembled` and the whole
+> vacuous apparatus (`_tiefree`, `lower_conforms_wf`, the `lower_conforms_acyclic*` family,
+> `StmtTies`/`TermTies`, the Plus assembly, and the `Spec` re-export layer) were **DELETED**, not
+> moved. `LirLean/V2/RealisabilitySpec.lean` (Nightly, R0–R12; ties DERIVED from the run) is now the
+> **sole conformance surface**; the `Lir.V2.DriveCorrPlus` structure and the value/gas channels in
+> `V2/Drive/Headline.lean` are retained as Phase-3 salvage (unreferenced in the default build). The
+> table row / narrative below still name `lower_conforms_cyclic_assembled` as "the current headline"
+> — read that as **historical**.
 
 ## The point of this experiment
 

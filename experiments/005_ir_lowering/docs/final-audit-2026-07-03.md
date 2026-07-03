@@ -158,3 +158,29 @@ with satisfiable reshapes, added the missing static consistency guard (`DefsCons
 all staleness accounting into an explicit invalidation set, and disclaimed every remaining seam
 and every `sorry` accurately. No new vacuity, no silent weakening, cone frozen. CLEAN to enter
 Phase 3, modulo the four hygiene items above.
+
+## Post-audit actions (2026-07-03)
+
+The four non-blocking follow-ups above were triaged the same day; three are actioned, one is Phase-3
+work:
+
+- **#1 (stale docstring references to deleted modules) — DONE.** The dangling comment references to
+  `V2/{HonestGasTie,Oracle,Mono,RunLog}.lean` were swept from the in-code docstrings (commit
+  `76278be`).
+- **#3 (the prior VACUOUS headline retained) — DONE, by DELETION.** Rather than rename/quarantine it,
+  the vacuous cyclic conformance headline `lower_conforms_cyclic_assembled` **and its whole apparatus**
+  were **DELETED** (commits "delete vacuous conformance surface 1/4..4/4", `ba42b63..7b763dc`): also
+  `_tiefree`, `lower_conforms_wf`, the `lower_conforms_acyclic*` family, `StmtTies`/`TermTies`, the
+  Plus assembly, and the `Spec` `RealisabilityObligations`/`_of_obligations`/re-export layer
+  (`Spec/Conformance.lean` is now a disclaimer stub). `LirLean/V2/RealisabilitySpec.lean` (Nightly,
+  R0–R12) is now the sole conformance surface. `Audit.lean` was repointed: the deleted-decl guards and
+  the flagship `#check` signature-freeze were removed; the net now pins 8 salvage lemmas +
+  `Lir.Spec.callPreservesSelf_of_precompiles`. Retained Phase-3 salvage: `Lir.V2.DriveCorrPlus` + the
+  value/gas channels in `V2/Drive/Headline.lean`, the acyclicity ⇒ `WellFormedLowered` core in
+  `Acyclic.lean`, and `Lir.CallRealises` / `Lir.WellFormedLowered` / `Lir.toList_of_blockAt`.
+- **#2 (MemAlgebra 8-axiom guards outside `Audit.lean`) — DONE, by DOCUMENTING.** The intentional-
+  local-guard exception is now recorded in `docs/exec/audit-net.md` (they still fail-hard on drift;
+  noted so "Audit.lean is the net" is not read as exclusive).
+- **#4 (RunFromAll suffix-drop strengthening) — OPEN, Phase-3 work.** Unchanged: the Phase-3 landing
+  order must prove the `lowering_conforms_all` strengthening (and its two `RunFromLeft` adequacy
+  sorries), not only the `RunFrom` flagship.

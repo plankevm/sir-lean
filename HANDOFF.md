@@ -13,11 +13,21 @@ Full chronological record: `currentplan.md` (orchestration log). This is your re
 > with `V2/TieDischarge.lean` **DISSOLVED** and `V2/RunLog.lean` **deleted** (recorder →
 > `Spec/Recorder.lean`); (c) Phase-2 **deletion** of `V2/{Mono,Oracle,HonestGasTie}.lean` +
 > the gas-monotonicity law; (d) `LirLean/Audit.lean` guard net + `LirLean/V2/RealisabilitySpec.lean`
-> (non-default `Nightly` lib) holding the R0–R12 sorry-skeleton. The headline
-> `lower_conforms_cyclic_assembled` now lives at `LirLean/V2/Drive/Headline.lean`. Plan-of-record:
+> (non-default `Nightly` lib) holding the R0–R12 sorry-skeleton. Plan-of-record:
 > `experiments/005_ir_lowering/docs/target-architecture-2026-07-02.md` +
 > `execution-plan-2026-07-02.md` (the remediation plan is superseded). The final audit fleet
 > (`experiments/005_ir_lowering/docs/final-audit-2026-07-03.md`, being written) is the gate before Phase 3.
+>
+> **CORRECTION (2026-07-03, later).** This banner earlier said the headline
+> `lower_conforms_cyclic_assembled` "now lives at `LirLean/V2/Drive/Headline.lean`". That relocation
+> was **undone**: in commits "delete vacuous conformance surface 1/4..4/4" the vacuous headline
+> `lower_conforms_cyclic_assembled` **and the whole vacuous apparatus** (`_tiefree`,
+> `lower_conforms_wf`, the `lower_conforms_acyclic*` family, `StmtTies`/`TermTies`, the Plus
+> assembly, and the `Spec` `RealisabilityObligations`/`_of_obligations`/re-export layer) were
+> **DELETED** — not moved. `LirLean/V2/RealisabilitySpec.lean` (Nightly, R0–R12) is now the **sole
+> conformance surface**; ties are DERIVED from the run (R10a/R10b), not supplied. The
+> `Lir.V2.DriveCorrPlus` structure and the §7/§8 value/gas channels in `V2/Drive/Headline.lean` are
+> **retained as Phase-3 salvage** (present but unreferenced in the default build).
 
 ---
 
