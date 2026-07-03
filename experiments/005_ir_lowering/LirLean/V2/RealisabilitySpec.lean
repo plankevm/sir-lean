@@ -991,6 +991,35 @@ R8 → R5/R4 → R6 → gasfree co-flagship → R7 → R1 → R3 → R10 → R11
 proofs: R0b (the sim-machinery reshape it gates), R1, R3, R6; everything else is static
 folds and assembly. -/
 
+/-! #### R0b machinery — world-irrelevance of non-`sload` `evalExpr` (the `.sload` spill
+exclusion itself is the reused `Lir.defsOf_ne_sload`). -/
+
+/-- `evalExpr` over a non-`sload` expression is unchanged by a storage write. -/
+private theorem evalExpr_setStorage_noSload {st : IRState} {kw vw obs : Word} :
+    ∀ {e : Expr}, (∀ k, e ≠ .sload k) →
+      evalExpr (st.setStorage kw vw) obs e = evalExpr st obs e
+  | .imm _, _ => rfl
+  | .gas, _ => rfl
+  | .tmp _, _ => rfl
+  | .add _ _, _ => rfl
+  | .lt _ _, _ => rfl
+  | .slot _, _ => rfl
+  | .sload k, h => absurd rfl (h k)
+
+/-- `evalExpr` over a non-`sload` expression ignores the world entirely (the
+world-replacement analogue, for the `call` arm). -/
+private theorem evalExpr_world_noSload {locals : Tmp → Option Word} {w w' : World}
+    {obs : Word} :
+    ∀ {e : Expr}, (∀ k, e ≠ .sload k) →
+      evalExpr ⟨locals, w'⟩ obs e = evalExpr ⟨locals, w⟩ obs e
+  | .imm _, _ => rfl
+  | .gas, _ => rfl
+  | .tmp _, _ => rfl
+  | .add _ _, _ => rfl
+  | .lt _ _, _ => rfl
+  | .slot _, _ => rfl
+  | .sload k, h => absurd rfl (h k)
+
 /-- **R0b — the shadowing-aware machinery-reshape criterion** (header lesson 8; NEW
 round-3 tracked obligation). One `EvalStmt` step of a PROGRAM statement preserves the
 scoped invariant along the `invalStep` transfer — with NO per-state side conditions: the
@@ -1029,7 +1058,107 @@ theorem defsSoundS_preserved_step {prog : Program} {o : CallOracle}
     (hs : b.stmts[pc]? = some s)
     (hstep : EvalStmt prog o st T s st' T')
     (hsound : DefsSoundS prog I st) :
-    DefsSoundS prog (invalStep prog I s) st' := sorry
+    DefsSoundS prog (invalStep prog I s) st' := by
+  have hbmem : b ∈ prog.blocks.toList := List.mem_of_getElem? (Lir.toList_of_blockAt hb)
+  have hsmem : s ∈ b.stmts := List.mem_of_getElem? hs
+  cases hstep with
+  | assignPure hne hv =>
+    rename_i t e w
+    intro t₀ e₀ w₀ hdef₀ hnr₀ hninval hlocal₀
+    have hie : invalStep prog I (.assign t e) t₀
+        = if t₀ = t then usesInExpr t e ≠ 0 else (I t₀ ∨ ReadsOf prog t t₀) := rfl
+    rw [hie] at hninval
+    by_cases heq : t₀ = t
+    · subst t₀
+      rw [if_pos rfl] at hninval
+      have hself0 : usesInExpr t e = 0 := not_not.mp hninval
+      by_cases hsl : ∃ k, e = .sload k
+      · obtain ⟨k, rfl⟩ := hsl
+        exact absurd (Or.inr (Or.inl ⟨b, hbmem, k, hsmem⟩)) hnr₀
+      · have hself : defsOf prog t = some e := by
+          have hc := (hcons L b pc hb).1 t e hs
+          rcases e with _ | _ | _ | _ | _ | _ | _ <;>
+            first | exact hc | exact absurd rfl hne | exact absurd ⟨_, rfl⟩ hsl
+        have he0 : e₀ = e := Option.some.inj (hdef₀.symm.trans hself)
+        subst he0
+        have hw : (st.setLocal t w).locals t = some w := by simp [IRState.setLocal]
+        have hww : w₀ = w := Option.some.inj (hlocal₀.symm.trans hw)
+        subst hww
+        rw [Lir.evalExpr_setLocal_of_unused hself0]
+        exact hv.symm
+    · rw [if_neg heq] at hninval
+      have hnotI : ¬ I t₀ := fun h => hninval (Or.inl h)
+      have hunused : usesInExpr t e₀ = 0 := by
+        by_contra hu; exact hninval (Or.inr ⟨e₀, hdef₀, hu⟩)
+      have hl' : st.locals t₀ = some w₀ := by
+        have hh : (st.setLocal t w).locals t₀ = st.locals t₀ := by
+          simp [IRState.setLocal, heq]
+        rw [hh] at hlocal₀; exact hlocal₀
+      have hprev : some w₀ = evalExpr st 0 e₀ := hsound t₀ e₀ w₀ hdef₀ hnr₀ hnotI hl'
+      rw [Lir.evalExpr_setLocal_of_unused hunused]
+      exact hprev
+  | assignGas =>
+    rename_i obs t
+    intro t₀ e₀ w₀ hdef₀ hnr₀ hninval hlocal₀
+    have hie : invalStep prog I (.assign t .gas) t₀
+        = if t₀ = t then usesInExpr t .gas ≠ 0 else (I t₀ ∨ ReadsOf prog t t₀) := rfl
+    rw [hie] at hninval
+    by_cases heq : t₀ = t
+    · subst heq
+      exact absurd (Or.inl ⟨b, hbmem, hsmem⟩) hnr₀
+    · rw [if_neg heq] at hninval
+      have hnotI : ¬ I t₀ := fun h => hninval (Or.inl h)
+      have hunused : usesInExpr t e₀ = 0 := by
+        by_contra hu; exact hninval (Or.inr ⟨e₀, hdef₀, hu⟩)
+      have hl' : st.locals t₀ = some w₀ := by
+        have hh : (st.setLocal t obs).locals t₀ = st.locals t₀ := by
+          simp [IRState.setLocal, heq]
+        rw [hh] at hlocal₀; exact hlocal₀
+      have hprev : some w₀ = evalExpr st 0 e₀ := hsound t₀ e₀ w₀ hdef₀ hnr₀ hnotI hl'
+      rw [Lir.evalExpr_setLocal_of_unused hunused]
+      exact hprev
+  | sstore hk hv =>
+    rename_i key value kw vw
+    intro t₀ e₀ w₀ hdef₀ hnr₀ hninval hlocal₀
+    have hie : invalStep prog I (.sstore key value) t₀ = I t₀ := rfl
+    rw [hie] at hninval
+    have hl' : st.locals t₀ = some w₀ := hlocal₀
+    have hprev : some w₀ = evalExpr st 0 e₀ := hsound t₀ e₀ w₀ hdef₀ hnr₀ hninval hl'
+    have hns : ∀ k, e₀ ≠ .sload k := fun k he => Lir.defsOf_ne_sload prog t₀ k (he ▸ hdef₀)
+    rw [evalExpr_setStorage_noSload hns]
+    exact hprev
+  | call hcallee hgas ho =>
+    rename_i cs calleeW gasFwdW success world'
+    intro t₀ e₀ w₀ hdef₀ hnr₀ hninval hlocal₀
+    have hns : ∀ k, e₀ ≠ .sload k := fun k he => Lir.defsOf_ne_sload prog t₀ k (he ▸ hdef₀)
+    cases hrt : cs.resultTmp with
+    | none =>
+      have hie : invalStep prog I (.call cs) t₀ = I t₀ := by simp only [invalStep, hrt]
+      rw [hie] at hninval
+      simp only [hrt] at hlocal₀
+      have hl' : st.locals t₀ = some w₀ := hlocal₀
+      have hprev : some w₀ = evalExpr st 0 e₀ := hsound t₀ e₀ w₀ hdef₀ hnr₀ hninval hl'
+      calc some w₀ = evalExpr st 0 e₀ := hprev
+        _ = evalExpr { st with world := world' } 0 e₀ := (evalExpr_world_noSload hns).symm
+    | some t =>
+      have hie : invalStep prog I (.call cs) t₀
+          = if t₀ = t then False else (I t₀ ∨ ReadsOf prog t t₀) := by
+        simp only [invalStep, hrt]
+      rw [hie] at hninval
+      simp only [hrt] at hlocal₀
+      by_cases heq : t₀ = t
+      · subst heq
+        exact absurd (Or.inr (Or.inr ⟨b, hbmem, cs, hsmem, hrt⟩)) hnr₀
+      · rw [if_neg heq] at hninval
+        have hnotI : ¬ I t₀ := fun h => hninval (Or.inl h)
+        have hunused : usesInExpr t e₀ = 0 := by
+          by_contra hu; exact hninval (Or.inr ⟨e₀, hdef₀, hu⟩)
+        have hl' : st.locals t₀ = some w₀ := by
+          simpa [IRState.setLocal, heq] using hlocal₀
+        have hprev : some w₀ = evalExpr st 0 e₀ := hsound t₀ e₀ w₀ hdef₀ hnr₀ hnotI hl'
+        rw [Lir.evalExpr_setLocal_of_unused hunused]
+        calc some w₀ = evalExpr st 0 e₀ := hprev
+          _ = evalExpr { st with world := world' } 0 e₀ := (evalExpr_world_noSload hns).symm
 
 /-- **R1 — the gas recorder bridge** (the riskiest obligation; the trace↔recorder
 positional bridge). At a gas-assign cursor, the un-consumed gas suffix's head is the
@@ -1158,6 +1287,107 @@ theorem runs_atReachableBoundary {prog : Lir.Program} {params : CallParams} {fr�
     (hcode : params.codeSource = .Code (lower prog)) :
     ∀ fr', Runs fr₀ fr' → AtReachableBoundary prog fr' := sorry
 
+/-! #### R7 machinery — the `driveLog` accumulator homomorphism (spine-owned)
+
+`driveLog`'s three accumulators are WRITE-ONLY until the final `.inr []` read: every
+recursive call only appends (gas/sload append a singleton, `recordCall` appends at the
+tail). So a run from a nonempty seed is the empty-seed run with the seeds prepended to
+every recorded stream. This is the linchpin of the R7 preservation family: it lets each
+step lemma peel the recorded head off the empty-seed restart. -/
+
+/-- `recordCall` appends its record at the tail, so prepending an accumulator commutes
+with it: `recordCall pending result (c0 ++ x) = c0 ++ recordCall pending result x` at
+`x = []`. -/
+private theorem recordCall_append (pending : Pending) (result : FrameResult)
+    (c0 : List CallRecord) :
+    recordCall pending result c0 = c0 ++ recordCall pending result [] := by
+  cases pending with
+  | call pd => simp [recordCall]
+  | create _ => simp [recordCall]
+
+/-- **The accumulator homomorphism of `driveLog`.** Running from a nonempty seed
+`(g0, s0, c0)` is the empty-seed run with the seeds prepended to each recorded stream. By
+induction on fuel, branch-for-branch as `driveLog_drive`; the recording branches shift by
+`List.append_assoc`, every other branch threads the IH with the seeds unchanged. -/
+private theorem driveLog_acc_hom :
+    ∀ (fuel : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult)
+      (g0 : List Word) (s0 : List Nat) (c0 : List CallRecord),
+      driveLog fuel stack state g0 s0 c0
+        = (driveLog fuel stack state [] [] []).map
+            (fun x => (x.1, g0 ++ x.2.1, s0 ++ x.2.2.1, c0 ++ x.2.2.2)) := by
+  intro fuel
+  induction fuel with
+  | zero => intro stack state g0 s0 c0; rfl
+  | succ n ih =>
+    intro stack state g0 s0 c0
+    unfold driveLog
+    cases state with
+    | inr result =>
+      dsimp only
+      cases stack with
+      | nil => simp [Except.map]
+      | cons pending rest =>
+        dsimp only
+        cases hres : pending.resume result with
+        | ok parent =>
+          dsimp only [hres]
+          rw [ih rest (.inl parent) g0 s0 (recordCall pending result c0),
+              ih rest (.inl parent) [] [] (recordCall pending result [])]
+          cases hb : driveLog n rest (.inl parent) [] [] [] with
+          | error e => simp [Except.map]
+          | ok val =>
+            simp [Except.map, recordCall_append pending result c0, List.append_assoc]
+        | error e =>
+          dsimp only [hres]
+          rw [ih rest (.inr (endFrame pending.frame (.exception e))) g0 s0
+                (recordCall pending result c0),
+              ih rest (.inr (endFrame pending.frame (.exception e))) [] []
+                (recordCall pending result [])]
+          cases hb : driveLog n rest (.inr (endFrame pending.frame (.exception e))) [] [] [] with
+          | error e' => simp [Except.map]
+          | ok val =>
+            simp [Except.map, recordCall_append pending result c0, List.append_assoc]
+    | inl current =>
+      dsimp only
+      cases hstep : stepFrame current with
+      | next exec =>
+        dsimp only [hstep]
+        split_ifs with hc1 hc2
+        · rw [ih stack (.inl { current with exec := exec })
+                (g0 ++ [UInt256.ofUInt64 exec.gasAvailable]) s0 c0,
+              ih stack (.inl { current with exec := exec })
+                ([] ++ [UInt256.ofUInt64 exec.gasAvailable]) [] []]
+          cases hb : driveLog n stack (.inl { current with exec := exec }) [] [] [] with
+          | error e => simp [Except.map]
+          | ok val => simp [Except.map, List.append_assoc]
+        · rw [ih stack (.inl { current with exec := exec }) g0 (s0 ++ [sloadWarmthOf current]) c0,
+              ih stack (.inl { current with exec := exec }) [] ([] ++ [sloadWarmthOf current]) []]
+          cases hb : driveLog n stack (.inl { current with exec := exec }) [] [] [] with
+          | error e => simp [Except.map]
+          | ok val => simp [Except.map, List.append_assoc]
+        · rw [ih stack (.inl { current with exec := exec }) g0 s0 c0]
+      | halted halt =>
+        dsimp only [hstep]
+        rw [ih stack (.inr (endFrame current halt)) g0 s0 c0]
+      | needsCall params pending =>
+        dsimp only [hstep]
+        cases hbc : beginCall params with
+        | inl child => dsimp only [hbc]; rw [ih (.call pending :: stack) (.inl child) g0 s0 c0]
+        | inr result =>
+          dsimp only [hbc]; rw [ih (.call pending :: stack) (.inr (.call result)) g0 s0 c0]
+      | needsCreate params pending =>
+        dsimp only [hstep]
+        rw [ih (.create pending :: stack) (.inl (beginCreate params)) g0 s0 c0]
+
+/-- The gas-op gate and the sload-op gate are mutually exclusive: a frame decoding to
+`SLOAD` does not decode to `GAS`. Lets R7c know the gas-`if` in `driveLog` fails first. -/
+private theorem isGasOp_false_of_isSloadOp {fr : Frame} (h : isSloadOp fr = true) :
+    isGasOp fr = false := by
+  have h' : (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (Operation.STOP, .none)).1
+      = Operation.Smsf .SLOAD := by simpa [isSloadOp] using h
+  simp only [isGasOp, h']
+  decide
+
 /-! ### R7 — the recorder-coupling edge lemmas (entry + the four preservation edges)
 
 These are what make `RecorderCoupled` a THREADABLE invariant: established once at entry,
@@ -1169,7 +1399,18 @@ unfolding `runWithLog` (its `driveLog` equation IS the restart equation at `fr�
 theorem recorderCoupled_entry {params : CallParams} {log : RunLog} {fr₀ : Frame}
     (hrun : runWithLog params (seedFuel params.gas) = some log)
     (hbegin : beginCall params = .inl fr₀) :
-    RecorderCoupled log fr₀ log.gas log.sloads log.calls := sorry
+    RecorderCoupled log fr₀ log.gas log.sloads log.calls := by
+  unfold runWithLog at hrun
+  rw [hbegin] at hrun
+  dsimp only at hrun
+  cases hdl : driveLog (seedFuel params.gas) [] (.inl fr₀) [] [] [] with
+  | error e => rw [hdl] at hrun; simp at hrun
+  | ok triple =>
+    obtain ⟨r, gas, sloads, calls⟩ := triple
+    rw [hdl] at hrun
+    simp only [Option.some.injEq] at hrun
+    subst hrun
+    exact ⟨⟨seedFuel params.gas, hdl⟩, ⟨[], rfl⟩, ⟨[], rfl⟩, ⟨[], rfl⟩⟩
 
 /-- **R7b — the GAS step consumes the gas-suffix head**: a top-level `.next` step at a GAS
 op advances the coupling to the tail and pins the consumed head to the post-charge
@@ -1180,7 +1421,32 @@ theorem recorderCoupled_step_gas {log : RunLog} {fr : Frame} {exec : ExecutionSt
     (hgas : isGasOp fr = true)
     (hstep : stepFrame fr = .next exec) :
     RecorderCoupled log { fr with exec := exec } gS sS cS
-    ∧ g = UInt256.ofUInt64 exec.gasAvailable := sorry
+    ∧ g = UInt256.ofUInt64 exec.gasAvailable := by
+  obtain ⟨⟨f, hf⟩, hgp, hsp, hcpp⟩ := hcp
+  cases f with
+  | zero => simp [driveLog] at hf
+  | succ m =>
+    unfold driveLog at hf
+    simp only [hstep, hgas, List.isEmpty_nil, Bool.and_true, List.nil_append] at hf
+    rw [driveLog_acc_hom m [] (.inl { fr with exec := exec })
+      [UInt256.ofUInt64 exec.gasAvailable] [] []] at hf
+    cases hX : driveLog m [] (.inl { fr with exec := exec }) [] [] [] with
+    | error e => rw [hX] at hf; simp [Except.map] at hf
+    | ok val =>
+      obtain ⟨obs', gS', sS', cS'⟩ := val
+      rw [hX] at hf
+      have hf2 : (Except.ok (obs', UInt256.ofUInt64 exec.gasAvailable :: gS', sS', cS')
+          : Except ExecutionException (FrameResult × List Word × List Nat × List CallRecord))
+          = .ok (log.observable, g :: gS, sS, cS) := hf
+      injection hf2 with hf3
+      injection hf3 with hobs hf4
+      injection hf4 with hgc hf5
+      injection hf5 with hs hc
+      injection hgc with hgeq hgSeq
+      subst hobs; subst hgSeq; subst hs; subst hc
+      refine ⟨⟨⟨m, hX⟩, ?_, hsp, hcpp⟩, hgeq.symm⟩
+      obtain ⟨pre, hpre⟩ := hgp
+      exact ⟨pre ++ [g], by rw [hpre, List.append_assoc, List.singleton_append]⟩
 
 /-- **R7c — the SLOAD step consumes the sload-suffix head** (the R7b twin): pins the
 consumed warmth-charge to `sloadWarmthOf fr` (the PRE-step frame, as recorded). -/
@@ -1190,7 +1456,33 @@ theorem recorderCoupled_sload {log : RunLog} {fr : Frame} {exec : ExecutionState
     (hsl : isSloadOp fr = true)
     (hstep : stepFrame fr = .next exec) :
     RecorderCoupled log { fr with exec := exec } gS sS cS
-    ∧ n = sloadWarmthOf fr := sorry
+    ∧ n = sloadWarmthOf fr := by
+  have hng : isGasOp fr = false := isGasOp_false_of_isSloadOp hsl
+  obtain ⟨⟨f, hf⟩, hgp, hsp, hcpp⟩ := hcp
+  cases f with
+  | zero => simp [driveLog] at hf
+  | succ m =>
+    unfold driveLog at hf
+    simp only [hstep, hng, hsl, List.isEmpty_nil, Bool.and_true, Bool.false_and,
+      List.nil_append] at hf
+    rw [driveLog_acc_hom m [] (.inl { fr with exec := exec }) [] [sloadWarmthOf fr] []] at hf
+    cases hX : driveLog m [] (.inl { fr with exec := exec }) [] [] [] with
+    | error e => rw [hX] at hf; simp [Except.map] at hf
+    | ok val =>
+      obtain ⟨obs', gS', sS', cS'⟩ := val
+      rw [hX] at hf
+      have hf2 : (Except.ok (obs', gS', sloadWarmthOf fr :: sS', cS')
+          : Except ExecutionException (FrameResult × List Word × List Nat × List CallRecord))
+          = .ok (log.observable, gS, n :: sS, cS) := hf
+      injection hf2 with hf3
+      injection hf3 with hobs hf4
+      injection hf4 with hgSeq hf5
+      injection hf5 with hsc hc
+      injection hsc with hneq hsSeq
+      subst hobs; subst hgSeq; subst hsSeq; subst hc
+      refine ⟨⟨⟨m, hX⟩, hgp, ?_, hcpp⟩, hneq.symm⟩
+      obtain ⟨pre, hpre⟩ := hsp
+      exact ⟨pre ++ [n], by rw [hpre, List.append_assoc, List.singleton_append]⟩
 
 /-- **R7d — any other top-level `.next` step preserves all three suffixes** (nothing is
 recorded off the GAS/SLOAD gates). -/
@@ -1199,12 +1491,40 @@ theorem recorderCoupled_step_other {log : RunLog} {fr : Frame} {exec : Execution
     (hcp : RecorderCoupled log fr gS sS cS)
     (hng : isGasOp fr = false) (hns : isSloadOp fr = false)
     (hstep : stepFrame fr = .next exec) :
-    RecorderCoupled log { fr with exec := exec } gS sS cS := sorry
+    RecorderCoupled log { fr with exec := exec } gS sS cS := by
+  obtain ⟨⟨f, hf⟩, hgp, hsp, hcpp⟩ := hcp
+  cases f with
+  | zero => simp [driveLog] at hf
+  | succ m =>
+    unfold driveLog at hf
+    simp only [hstep, hng, hns, List.isEmpty_nil, Bool.false_and] at hf
+    exact ⟨⟨m, hf⟩, hgp, hsp, hcpp⟩
 
 /-- **R7e — a returning external CALL consumes exactly one `CallRecord` and NO gas/sload
 entries** (children are black-boxed by the recorder's `stack.isEmpty` gate, exactly as
 `Runs.call` black-boxes them). The record's `(result, pending)` pinning to this call's
-data is delivered inside R3 via restart determinism, not restated here. -/
+data is delivered inside R3 via restart determinism, not restated here.
+
+BLOCKED — recorder-model asymmetry (escalated, NOT a proof-difficulty artifact). The
+gas/sload records ARE gated by `stack.isEmpty` (`Recorder.lean:202,205`), so the "NO
+gas/sload entries" half is sound: during the restart from `fr` the child runs on the
+nonempty stack `[.call pending]`, so its gas/sload reads are not recorded. But `recordCall`
+is UNGATED (`Recorder.lean:183-188`): it fires on EVERY `pending :: rest` delivery, at any
+nesting depth. So if the external callee `child` itself issues returning CALLs, each appends
+a `CallRecord` — in stack order the callee's inner calls complete first, so the head of the
+recorded call-suffix at `fr` is the callee's FIRST inner call, and the `fr → resumeFr`
+segment consumes `childInnerRecords ++ [outerRec]`, i.e. `1 + (child's own call count)`
+records, NOT exactly one. The "consumes exactly one `CallRecord`" conclusion (`rec :: cS →
+cS`) is therefore FALSE in general — provable only when the callee records no calls of its
+own (in the flagship this is guaranteed by `hone : log.calls.length ≤ 1`, but R7e's signature
+carries neither `hone` nor any local surrogate).
+Resolutions (all outside spine's edit surface / statement-preserving envelope): (A) gate
+`recordCall` by the RESUMED stack being empty in `Spec/Recorder.lean` (design-correct,
+matches the docstring; edits an existing file); (B) thread `hone`/"child records no calls"
+into R7e (added hypothesis); (C) weaken to `∃ childRecs, RecorderCoupled … cS' ∧ rec :: cS =
+childRecs ++ [rec] ++ cS'` (weakened conclusion). Per the no-weaken/no-added-hypothesis rule
+this is left OPEN pending the recordCall-gating decision; the shared machinery it needs
+(`driveLog_acc_hom`, `isGasOp_false_of_isSloadOp`) has landed above. -/
 theorem recorderCoupled_call {log : RunLog} {fr resumeFr : Frame}
     {gS : List Word} {sS : List Nat} {rec : CallRecord} {cS : List CallRecord}
     (hcp : RecorderCoupled log fr gS sS (rec :: cS))
