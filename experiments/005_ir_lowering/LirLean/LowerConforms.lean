@@ -45,7 +45,7 @@ CALL's success flag (`MSTORE` to the result slot, or `POP`), re-establishing `st
 `Stmt.call` no longer breaks the induction — `lower_conforms` carries no call-free side
 condition. The channel is the **world** (storage) component: `observe`'s `result`
 is the value-free `.stopped` boundary (the RETURN value channel is the tracked deferral,
-`V2/RunLog.lean` `observe` doc). `sim_cfg`'s conclusion asserts the world component of
+`Spec/Recorder.lean` `observe` doc). `sim_cfg`'s conclusion asserts the world component of
 `observe self (endFrame last halt)`.
 
 No `sorry`, no `axiom`, no `native_decide`. Bytecode-coupled (imports the Layer-E bricks);

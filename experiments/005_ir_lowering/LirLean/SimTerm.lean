@@ -24,7 +24,7 @@ land at exactly the frame's running pc.
 
 ## Scope — WORLD channel only (value channel deferred)
 
-`observe self fr` (`V2/RunLog.lean`) returns `{ world := resultStorageAt fr self, result :=
+`observe self fr` (`Spec/Recorder.lean`) returns `{ world := resultStorageAt fr self, result :=
 .stopped }`: its `world` is the self-account storage lens of the finished `FrameResult`, its
 `result` is the **value-free** success boundary `.stopped`. So:
 
@@ -32,7 +32,7 @@ land at exactly the frame's running pc.
   halt `{ world := st.world, result := .stopped }` (`RunFrom.stop`).
 * **`ret t`** — only the **world** (storage delta) is asserted: `observe`'s `result` is
   `.stopped`, while the IR's `RunFrom.ret` halt gives `.returned w`. The RETURN **value
-  channel is DEFERRED** (a tracked follow-up, `V2/RunLog.lean` `observe` doc). We still run
+  channel is DEFERRED** (a tracked follow-up, `Spec/Recorder.lean` `observe` doc). We still run
   `materialise t` (B1, `materialise_runs`) for the RETURN, but the returned word is **not**
   asserted; only the storage lens (`world`) is matched.
 
@@ -283,7 +283,7 @@ The `observe` **world** of the finished result is `st.world` (the storage lens, 
 across the materialise + two pushes by `MatRuns.storage` / `pushFrameW_selfStorage`, tied
 through `Corr`'s `StorageAgree`). The `result` is **NOT** asserted — `observe`'s result is
 `.stopped`, while the IR `RunFrom.ret` gives `.returned vw`; the RETURN value channel is a
-tracked follow-up (`V2/RunLog.lean` `observe` doc).
+tracked follow-up (`Spec/Recorder.lean` `observe` doc).
 
 The decode (`hdv`) / gas (`hgas`) / stack (`hstk`) bundle for the materialise is the per-leaf
 B1 interface (as in `sim_sstore_stmt`). The two PUSH32 0 + RETURN decode/gas envelopes and the

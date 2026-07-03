@@ -4,7 +4,7 @@ import LirLean.Match
 /-!
 # LirLean v2 — the **call realisability bridge** (`docs/ir-design-v3.md` §3, §7)
 
-`LirLean/V2/Oracle.lean` discharged the *gas* oracle's realisability: the abstract
+The now-deleted `LirLean/V2/Oracle.lean` discharged the *gas* oracle's realisability: the abstract
 gas reads are *realised* by a witnessing bytecode `Runs`, and the §3.4 law is a
 **consequence** of that realisation (`GasRealises.monotoneGas` ⟵ `Runs.gasAvailable_le`),
 never an axiom. This module is the **call** analogue: the abstract `V2.CallOracle`

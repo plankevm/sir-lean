@@ -93,12 +93,13 @@ theorem gasReadOf_gasFrame_eq_obs (fr : Frame) :
 /-! ## §3 — the positional-alignment foundation (Part 3, STARTED)
 
 The coupling between the recorder's gas accumulator and the GAS-frames the drive walk visits, and
-the foundational per-op step that advances both in lockstep. We reuse `Oracle.GasRealises`'s
-witness shape (`T = frs.map gasReadOf ∧ FramesRun frs`) directly. -/
+the foundational per-op step that advances both in lockstep. We reuse the now-deleted
+`V2/Oracle.lean` `GasRealises` witness shape (`T = frs.map gasReadOf ∧ FramesRun frs`) directly. -/
 
 /-- **The gas-log alignment invariant.** A `driveLog` accumulator `gasAcc` is *aligned* with a
 witness list of GAS-frames `frs` (the post-charge frames at each recorded GAS site, in program
-order, `Runs`-threaded) when it is exactly their reported words. This is `Oracle.GasRealises` read
+order, `Runs`-threaded) when it is exactly their reported words. This is the now-deleted
+`V2/Oracle.lean` `GasRealises` read
 as an invariant on the recorder's accumulator: `gasAcc = frs.map gasReadOf` (positional
 read-equality) together with `FramesRun frs` (the frames `Runs`-threaded). The drive walk threads
 this alongside the `DriveCorr` cursor; §3's foundational steps show one op preserves it. -/
@@ -160,7 +161,7 @@ theorem gasLogAligned_step_norecord {gasAcc : List Word} {frs : List Frame}
 
 /-! ### Projecting list-level alignment back to a per-cursor `obs` tie
 
-`Oracle.GasRealises (frs.map gasReadOf) frs` (which `GasLogAligned gasAcc frs` packages, with
+The now-deleted `V2/Oracle.lean` `GasRealises (frs.map gasReadOf) frs` (which `GasLogAligned gasAcc frs` packages, with
 `gasAcc = frs.map gasReadOf`) is the *list*-level realisability. The §7 per-cursor tie is the
 `obs`-form `Lir.GasRealises obs fr` at each GAS cursor `fr`. The bridge for a single read is
 `gasReadOf_gasFrame_eq_obs`: at the GAS cursor frame, the matching list entry `gasReadOf (gasFrame
@@ -228,7 +229,7 @@ theorem gasRealises_obs_of_witness {gasAcc : List Word} {frs : List Frame} {i : 
 Piece 1 added the per-SLOAD warmth recording to the interpreter (`RunLog.sloads`,
 `driveLog`'s `sloadAcc`, `realisedSload`, `sloadWarmthOf`) with adequacy preserved by
 construction (`driveLog_drive` still erases every accumulator). The value-level bridge
-`sloadRecord_eq_sloadCost` (`V2/RunLog.lean`) shows the recorded charge at an SLOAD frame
+`sloadRecord_eq_sloadCost` (`RecorderLemmas.lean`) shows the recorded charge at an SLOAD frame
 *is* `SloadRealises`'s required `sloadCost (accessedStorageKeys.contains (self, key))` —
 the exact analogue of `gasReadOf_gasFrame_eq_obs` for GAS. So the SLOAD value channel is
 now at the **same** maturity as GAS: arithmetic/value bridge DISCHARGED, per-cursor

@@ -4,8 +4,8 @@ import LirLean.DefsSound
 /-!
 # LirLean v2 — a worked external-`Stmt.call` example (gas-free, abstract oracle)
 
-The call-free prototype (`LirLean/V2/Preserve.lean`) and the two-read milestone
-(`LirLean/V2/Mono.lean`) exercise the gas channel — the supplied gas-read *sequence*.
+The call-free prototype (`LirLean/V2/Preserve.lean`) and the now-deleted two-read milestone
+(`LirLean/V2/Mono.lean`) exercised the gas channel — the supplied gas-read *sequence*.
 This file is the companion for the **call channel**: the `Stmt.call` `EvalStmt` arm of
 `LirLean/V2/Machine.lean`, run under an **arbitrary abstract `CallOracle`**
 (`docs/ir-design-v3.md` §3, §7).

@@ -50,7 +50,8 @@ arms are unreachable (`e ≠ .gas`, `∀ k, e ≠ .sload k`, both preserved acro
 by `defsOf_ne_gas`/`defsOf_ne_sload`). The def-site stash runs (with the value tied by
 `MemRealises` and, for sload, the warmth via the positional `SloadLogAligned`) live in
 `sim_assign_gas`/`sim_assign_sload` (`SimStmt.lean`), NOT here. The former `GasRealises`/
-`SloadRealises` universals are retired to the `V2/HonestGasTie.lean` regression witnesses.
+`SloadRealises` universals were deleted with `V2/HonestGasTie.lean`'s regression witnesses (the
+unsatisfiability lesson is recorded in `RealisabilitySpec.lean`'s header + `docs/gas-decision.md`).
 
 No `sorry`, no `axiom`, no `native_decide`. Bytecode-coupled (imports `Match.lean`);
 nothing here touches `V2/Machine.lean` / `V2/Law.lean` (the frame-free spine).
@@ -504,8 +505,9 @@ discharged by `e ≠ .gas` and `∀ k, e ≠ .sload k` (both preserved across th
   the runtime `sloadCost` warmth at every same-address frame. Unsatisfiable on any cold-then-warm
   same-key re-read (2100 ≠ 100). No longer carried: the SLOAD value lives in the slot (tied by
   `MemRealises`), and the warmth cost is the single cold/warm def-site read (the positional
-  `SloadLogAligned` selection). Survives only as the `V2/HonestGasTie.lean` /
-  `V2/Drive/SelfPresent.lean` regression witness.
+  `SloadLogAligned` selection). Survives only as the `V2/Drive/SelfPresent.lean` regression witness
+  (`sloadRealises_charge_of_witness`); the `V2/HonestGasTie.lean` unsatisfiability witness is deleted
+  (lesson in `RealisabilitySpec.lean`'s header + `docs/gas-decision.md`).
 
 * **`GasRealises`** (RETIRED, Phase B) — the analogous `∀ g`-gas-value universal; same story.
 
@@ -526,9 +528,10 @@ carried by `Corr`/`materialise_runs`/the headlines**: sload is spilled to memory
 value lives in the slot (tied by `MemRealises`, the honest positional one-read value supplied at
 the `assign` def-site by `sim_assign_sload`), and the warmth charge is the single cold/warm read at
 that def-site (the positional `SloadLogAligned` selection via `sloadRealises_charge_of_witness`, not
-this universal). This def survives ONLY as the subject of the regression witnesses in
-`V2/HonestGasTie.lean` (`sloadRealises_universal_unsatisfiable`) and the positional discharge
-`V2/Drive/SelfPresent.lean` (`sloadRealises_charge_of_witness`); the honest replacement is the positional
+this universal). This def survives ONLY as the subject of the positional discharge
+`V2/Drive/SelfPresent.lean` (`sloadRealises_charge_of_witness`); its unsatisfiability witness
+(`sloadRealises_universal_unsatisfiable`) is deleted with `V2/HonestGasTie.lean` (lesson in
+`RealisabilitySpec.lean`'s header + `docs/gas-decision.md`). The honest replacement is the positional
 SLOAD twin `SloadLogAligned` (`V2/Drive/SelfPresent.lean`), satisfiable by a real cold-then-warm run. -/
 def SloadRealises (sloadChg : Tmp → ℕ) (st : V2.IRState) (fr : Frame) : Prop :=
   ∀ (g : Frame) (k : Tmp) (key : Word),
@@ -546,10 +549,11 @@ genuine ≥2-distinct-read run (a real EVM run's gas strictly descends, so two s
 report two distinct words, and the universal forces `obs` to equal both). It is **no longer carried
 by `Corr`/`materialise_runs`/the headlines**: gas is spilled to memory, so its value lives in the
 slot and is tied by `MemRealises` (the honest positional one-read value supplied at the `assign`
-def-site, `sim_assign_gas`). This def survives ONLY as the subject of the regression witnesses in
-`V2/HonestGasTie.lean` (`gasRealises_universal_unsatisfiable`) and the positional discharge
-`V2/Drive/SelfPresent.lean` (`gasRealises_obs_of_witness`); the honest replacement is the positional
-`Lir.V2.GasRealises` (`V2/Oracle.lean`), satisfiable by a real descending-gas run. -/
+def-site, `sim_assign_gas`). This def survives ONLY as the subject of the positional discharge
+`V2/Drive/SelfPresent.lean` (`gasRealises_obs_of_witness`); its unsatisfiability witness
+(`gasRealises_universal_unsatisfiable`) is deleted with `V2/HonestGasTie.lean` (lesson in
+`RealisabilitySpec.lean`'s header + `docs/gas-decision.md`). The honest replacement is the positional
+`GasLogAligned` (`V2/Drive/SelfPresent.lean`), satisfiable by a real descending-gas run. -/
 def GasRealises (obs : Word) (fr : Frame) : Prop :=
   ∀ (g : Frame),
     g.exec.executionEnv.address = fr.exec.executionEnv.address →

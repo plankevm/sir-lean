@@ -104,7 +104,7 @@ The entry `CleanHaltsNonException fr₀` is no longer a raw hypothesis: it is **
 honest scope boundary — the recording interpreter reaching a clean `.halted` outcome,
 `runWithLog params (seedFuel params.gas) = some log`, *plus* the non-exception scope premise `hne`
 (the recorded outcome is `.success`/`.revert`, not OOG/exception). `runWithLog_drive`
-(`V2/RunLog.lean`) pins the verified `drive (seedFuel params.gas) [] (running fr₀) = .ok
+(`RecorderLemmas.lean`) pins the verified `drive (seedFuel params.gas) [] (running fr₀) = .ok
 log.observable`; the reverse construction `runs_of_drive_ok` (`Engine/DriveRuns.lean`) reconstructs the
 halting `Runs fr₀ last` from that clean termination, under the `Runs`-modellability side condition
 (every reachable frame issues a code CALL or a halt — no CREATE / precompile-CALL, discharged
