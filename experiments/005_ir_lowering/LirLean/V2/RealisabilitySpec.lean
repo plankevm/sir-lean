@@ -15,7 +15,7 @@ theorem PROOFS are `sorry`d. This module is deliberately registered in the NON-D
 1. **The retired `Lir.GasRealises` universal** (HonestGasTie's finding, Phase 2): a single
    fixed gas word, universally quantified over frames pinned only by address, is
    unsatisfiable — one adversarial frame with a different `gasAvailable` refutes it.
-2. **The free-`∀` disease in the current `StmtTies`/`TermTies`**
+2. **The free-`∀` disease in the former `StmtTies`/`TermTies`**
    (`docs/fleet-2026-07-02/skeptic-f1-verdict.md`): a variable universally quantified in the
    tie, pinned to a run-specific value in the conclusion, with no antecedent linking it to
    the run (`ob` in the gas conjunct, `w` in the sload conjunct, `st0'` in the assign
@@ -116,7 +116,7 @@ scope seams. -/
 /-- The IR entry state of a top-level call: empty locals, world = the recipient's storage
 lens of the pre-call accounts (the `find?/lookupStorage` lens `resultStorageAt`/`observe`
 read, applied to `params.accounts`). Replaces the supplied entry `StorageAgree` hypothesis
-of `lower_conforms_wf` BY DEFINITION — the entry world *is* the params' lens (the pin is
+of the since-deleted `lower_conforms_wf` BY DEFINITION — the entry world *is* the params' lens (the pin is
 then `rfl`-flavoured at the entry `codeFrame`, whose `accounts` are `params.accounts`).
 DERIVED status: definitional (nothing to discharge). -/
 def entryState (params : CallParams) : IRState :=
@@ -633,9 +633,9 @@ structure DriveCorrLog (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
 
 /-! ## §3 — The reshaped ties `StmtTies'` / `TermTies'` (R0 as statements; no free value-∀)
 
-The five statement arms and four terminator arms of the current `StmtTies`/`TermTies`
-(`LowerConforms.lean:1273-1423`), re-stated so that every formerly-free value variable is
-pinned by an antecedent:
+The five statement arms and four terminator arms of the former `StmtTies`/`TermTies`
+(since-deleted; formerly `LowerConforms.lean:1273-1423`), re-stated so that every formerly-free
+value variable is pinned by an antecedent:
 
 * every arm's antecedent block is: cursor statement + `Corr` (phantom `obs := 0`) +
   `RecorderCoupled` + `CleanHaltsNonException`; the suffix variables are ∀-bound but
@@ -1042,7 +1042,7 @@ refutation — an OOG-at-GAS frame satisfies the coupling with the run ending in
 exception whose recorded suffix is `gS = []`, refuting the head equation. Under clean
 halt the first restart step IS the recorded top-level GAS read, and `driveLog` records
 exactly `UInt256.ofUInt64 exec.gasAvailable` of the post-charge state (= `gasAvailable −
-Gbase`, the `StmtTies` :1318 word, verbatim). DERIVED-status obligation: never supplied. -/
+Gbase`, the former `StmtTies` gas word — now the `StmtTies'` gas arm — verbatim). DERIVED-status obligation: never supplied. -/
 theorem gas_suffix_head_realised {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
     {L : Label} {b : Block} {pc : Nat} {t : Tmp} {st : IRState} {fr : Frame}
     {gS : List Word} {sS : List Nat} {cS : List CallRecord}

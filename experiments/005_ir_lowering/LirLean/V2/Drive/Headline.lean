@@ -62,9 +62,9 @@ explicit parameters (`gasAcc`/`sloadAcc`) with their witness lists (`gasFrs`/`sl
 block walk does not itself project the recorder — they are the prefix of `log.gas`/`log.sloads`
 consumed up to this boundary.
 
-**Entry satisfaction is proven** (`driveCorrPlus_entry`): at the entry frame the consumed prefixes
-are empty (`gasLogAligned_nil`/`sloadLogAligned_nil`) and `SelfPresent` holds by
-`selfPresent_codeFrame`. **Preservation through the block step is the standing obstacle**, for two
+**Entry satisfaction was proven** (in the since-deleted `driveCorrPlus_entry`): at the entry frame
+the consumed prefixes are empty (`gasLogAligned_nil`/`sloadLogAligned_nil`) and `SelfPresent` holds by
+`selfPresent_codeFrame`. **Preservation through the block step was the standing obstacle**, for two
 independent reasons reported at the foot of this module: (a) the alignment witnesses can only be
 *selected* in the single-`obs` `Corr` model when the consumed gas prefix is constant
 (`gasRealises_obs_of_witness`), which the multi-distinct-read general case violates; (b)
@@ -110,15 +110,16 @@ We prove S7/S2 here as standalone cursor-LOCAL lemmas (a single `Corr` cursor + 
 exactly the altitude `SimStmtStep`/`sim_assign` consume. They are functions of the per-cursor
 `Corr`/`EvalStmt` ALONE, not of the run, so they are NOT bundled into the walk (doing
 so would buy nothing): the downstream Route-4b assembly applies them per cursor directly (the indexed
-form bound to the run's reached `(stpc, frpc)`, NOT the universal free-`ob` `StmtTies` predicate, which
-ranges over all cursors and is unreconstructable from a single run).
+form bound to the run's reached `(stpc, frpc)`, NOT the universal free-`ob` predicate of the former
+`StmtTies` (since reshaped into the run-DERIVED `StmtTies'` in `V2/RealisabilitySpec.lean`), which
+ranged over all cursors and is unreconstructable from a single run).
 
 **The two channels that STAY SUPPLIED tonight** (satisfiable, documented, NON-vacuous):
   * **S3 (gas positional value)** `stpc'.locals t = ofUInt64 (frpc.gas − Gbase)` — NOT a value-only
     have-block: it is the TRACE↔RECORDER bridge (`EvalStmt.assignGas` peels `ob` as the HEAD of the gas
     trace, while `aligned_read_eq_obs` gives the recorder's `gasAcc[i]`; tying them needs a NEW carried
     invariant `IR-trace-consumed = gasAcc` plus the gas-channel structural walk threading
-    `gasFrs[i] = gasFrame frpc`). Supplied as `hgasval`; satisfiable — supplied via `SimStmtStep` (the `StmtTies` gas conjunct), NOT discharged by any carried alignment;
+    `gasFrs[i] = gasFrame frpc`). Supplied as `hgasval`; satisfiable — supplied via `SimStmtStep` (the former `StmtTies` gas conjunct, now the `StmtTies'` gas arm), NOT discharged by any carried alignment;
     the `Plus` invariant threads ONLY `SelfPresent`, the gas/sload alignment witnesses being carried
     VERBATIM. Inhabited by any top-level GAS read.
   * **S1/S5/S6** — folded inside the supplied `SimStmtStep` (the serialized post-P3 spine).

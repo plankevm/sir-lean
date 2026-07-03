@@ -123,7 +123,7 @@ The per-shape `_lowered` wrappers (`sim_sstore_stmt_lowered`, `sim_term_halt_ret
   honest well-formedness tie: `recomputeFuel` exceeds the def-chain depth of every materialised
   tmp. It is **discharged structurally** from a rank-based SSA acyclicity witness in
   `Acyclic.lean` (`wellFormedLowered_of_acyclic`), so an acyclic program carries no `MatFueled`
-  hypothesis (`lower_conforms_acyclic`);
+  hypothesis (as the since-deleted `lower_conforms_acyclic` embodied);
 * **program-size pc/offset bounds** — every static cursor / block offset fits a 32-bit pc
   (`< 2^32`). These are pure facts about `offsetTable` / `termOf` / `pcOf` and the size of
   `lower prog`.
@@ -1069,8 +1069,8 @@ theorem codeFrame_validJumps (p : CallParams) (code : ByteArray) :
 /-! ### Discharging the entry STORAGE tie definitionally
 
 `entry_corr`'s `hstore : StorageAgree { …, world := w₀ } (codeFrame p (lower prog))` ties the
-IR initial world `w₀` to the entry frame's self-storage lens. In `lower_conforms`/
-`lower_conforms_acyclic` the world `w₀` is **universally quantified** (a free choice), so this
+IR initial world `w₀` to the entry frame's self-storage lens. In `lower_conforms` (and the
+since-deleted `lower_conforms_acyclic`) the world `w₀` is **universally quantified** (a free choice), so this
 tie is not a runtime fact — it is *definitional*: choosing `w₀ := selfStorage (codeFrame …)`
 makes `StorageAgree` hold by `rfl`. The lemma below records that canonical choice, banking the
 `hstore` entry tie (the only entry-frame tie not intrinsic to the recording — `hsload`/`hgasr`

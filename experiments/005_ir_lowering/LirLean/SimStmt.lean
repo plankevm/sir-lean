@@ -414,7 +414,8 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
   -- directly by the clean-halt twin, so the aggregate `hgas` premise is no longer referenced
   -- by this theorem (it was only ever split to feed these two calls).  The exact inverse
   -- reconstruction — `rw [hmrv.gasToNat] at <key bound>; omega` — recovers the aggregate
-  -- `(value).sum + (key).sum ≤ fr.gas` at the StmtTies layer where it is consumed, if needed.
+  -- `(value).sum + (key).sum ≤ fr.gas` at the ties layer (the former `StmtTies`, now `StmtTies'`)
+  -- where it is consumed, if needed.
   -- frk facts
   have hkcode : frk.exec.executionEnv.code = fr.exec.executionEnv.code := by
     rw [hmrk.code, hvcode]

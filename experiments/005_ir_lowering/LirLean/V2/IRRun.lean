@@ -239,8 +239,9 @@ structure CFGAcyclic (prog : Program) where
 post-statement state. To fire it needs, at each block reached, the operand-definedness the
 single-block lemmas needed *plus* the branch condition bound at the post-statement state. We
 supply this for **every** state (a sound over-approximation of "every reachable state"): the
-existence claim is then state-uniform, exactly matching how `StmtTies`/`TermTies` in
-`LowerConforms.lean` are quantified over all `(L, b)`.
+existence claim is then state-uniform, exactly matching how the former `StmtTies`/`TermTies`
+(since reshaped into the run-DERIVED `StmtTies'`/`TermTies'` in `V2/RealisabilitySpec.lean`)
+were quantified over all `(L, b)`.
 
 `RunDefinable prog` bundles, for every present block:
 * `stmts` — the block's statements are `StmtsDefinable` from any state (the §2 fold);

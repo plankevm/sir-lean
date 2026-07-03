@@ -4,7 +4,8 @@ import LirLean.Engine.CleanHalt
 /-!
 # CleanHalt extractor — clean-halting ⟹ per-cursor gas/mem envelopes (Track 1)
 
-The conformance walk's per-cursor §7 ties (`StmtTies`/`TermTies`) currently *supply* the
+The conformance walk's per-cursor §7 ties (the former `StmtTies`/`TermTies`, since reshaped
+into the run-DERIVED `StmtTies'`/`TermTies'` in `V2/RealisabilitySpec.lean`) *supply* the
 gas / memory-expansion envelopes each lowered opcode needs at a block-entry frame. Those
 envelopes are not free hypotheses: a frame that **clean-halts** (its remaining `Runs` reaches a
 `.halted` outcome) cannot have faulted on its next step, so its next opcode's gas guard held.
