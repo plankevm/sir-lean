@@ -1160,29 +1160,6 @@ theorem defsSoundS_preserved_step {prog : Program} {o : CallOracle}
         calc some w₀ = evalExpr st 0 e₀ := hprev
           _ = evalExpr { st with world := world' } 0 e₀ := (evalExpr_world_noSload hns).symm
 
-/-- **R1 — the gas recorder bridge** (the riskiest obligation; the trace↔recorder
-positional bridge). At a gas-assign cursor, the un-consumed gas suffix's head is the
-machine GAS output at the cursor frame.
-
-SATISFIABILITY ANALYSIS (why each hypothesis is load-bearing): the coupling's restart
-equation pins `gS` to `fr`'s deterministic future; `Corr` pins `fr`'s pc/code to the GAS
-byte of `lower prog`; and the CLEAN-HALT antecedent is what blocks the one remaining
-refutation — an OOG-at-GAS frame satisfies the coupling with the run ending in an
-exception whose recorded suffix is `gS = []`, refuting the head equation. Under clean
-halt the first restart step IS the recorded top-level GAS read, and `driveLog` records
-exactly `UInt256.ofUInt64 exec.gasAvailable` of the post-charge state (= `gasAvailable −
-Gbase`, the former `StmtTies` gas word — now the `StmtTies'` gas arm — verbatim). DERIVED-status obligation: never supplied. -/
-theorem gas_suffix_head_realised {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
-    {L : Label} {b : Block} {pc : Nat} {t : Tmp} {st : IRState} {fr : Frame}
-    {gS : List Word} {sS : List Nat} {cS : List CallRecord}
-    (hb : blockAt prog L = some b)
-    (hcur : b.stmts[pc]? = some (.assign t .gas))
-    (hcorr : Lir.Corr prog sloadChg 0 st fr L pc)
-    (hcp : RecorderCoupled log fr gS sS cS)
-    (hch : CleanHaltsNonException fr) :
-    gS.head? = some (UInt256.ofUInt64
-      (fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase)) := sorry
-
 /-- **A halting `Runs` is refl.** If `fr` halts (`stepFrame fr = .halted h`) then the only
 `Runs fr fr'` is the reflexive one, so `fr = fr'`. Pure engine inversion (the `.step`/`.call`
 arms demand `.next`/`.needsCall`, contradicting `.halted`). -/
@@ -1611,6 +1588,93 @@ theorem recorderCoupled_step_gas {log : RunLog} {fr : Frame} {exec : ExecutionSt
       refine ⟨⟨⟨m, hX⟩, ?_, hsp, hcpp⟩, hgeq.symm⟩
       obtain ⟨pre, hpre⟩ := hgp
       exact ⟨pre ++ [g], by rw [hpre, List.append_assoc, List.singleton_append]⟩
+
+/-- **Gas-suffix nonemptiness at a GAS step.** If the coupling holds at `fr`, the op is
+`GAS`, and the step continues (`.next exec`), the recorded gas suffix is nonempty — its
+head is the datum `driveLog` is about to record. This is the *front half* of
+`recorderCoupled_step_gas` (R7b), split out so `gas_suffix_head_realised` (R1) can expose
+the `cons` structurally and then pin the head *value* through R7b proper. -/
+private theorem gasSuffix_nonempty {log : RunLog} {fr : Frame} {exec : ExecutionState}
+    {gS : List Word} {sS : List Nat} {cS : List CallRecord}
+    (hcp : RecorderCoupled log fr gS sS cS)
+    (hgas : isGasOp fr = true) (hstep : stepFrame fr = .next exec) :
+    ∃ g gS', gS = g :: gS' := by
+  obtain ⟨⟨f, hf⟩, _, _, _⟩ := hcp
+  cases f with
+  | zero => simp [driveLog] at hf
+  | succ m =>
+    unfold driveLog at hf
+    simp only [hstep, hgas, List.isEmpty_nil, Bool.and_true, List.nil_append] at hf
+    rw [driveLog_acc_hom m [] (.inl { fr with exec := exec })
+      [UInt256.ofUInt64 exec.gasAvailable] [] []] at hf
+    cases hX : driveLog m [] (.inl { fr with exec := exec }) [] [] [] with
+    | error e => rw [hX] at hf; simp [Except.map] at hf
+    | ok val =>
+      obtain ⟨obs', gS', sS', cS'⟩ := val
+      rw [hX] at hf
+      have hf2 : (Except.ok (obs', UInt256.ofUInt64 exec.gasAvailable :: gS', sS', cS')
+          : Except ExecutionException (FrameResult × List Word × List Nat × List CallRecord))
+          = .ok (log.observable, gS, sS, cS) := hf
+      injection hf2 with hf3
+      injection hf3 with _ hf4
+      injection hf4 with hgc _
+      exact ⟨_, _, hgc.symm⟩
+
+/-- **R1 — the gas recorder bridge** (the riskiest obligation; the trace↔recorder
+positional bridge). At a gas-assign cursor, the un-consumed gas suffix's head is the
+machine GAS output at the cursor frame.
+
+SATISFIABILITY ANALYSIS (why each hypothesis is load-bearing): the coupling's restart
+equation pins `gS` to `fr`'s deterministic future; `Corr` (+ the two well-formedness side
+conditions, below) pins `fr`'s pc/code to the GAS byte of `lower prog`; and the CLEAN-HALT
+antecedent is what blocks the one remaining refutation — an OOG-at-GAS frame satisfies the
+coupling with the run ending in an exception whose recorded suffix is `gS = []`, refuting
+the head equation. Under clean halt the first restart step IS the recorded top-level GAS
+read, and `driveLog` records exactly `UInt256.ofUInt64 exec.gasAvailable` of the
+post-charge state (= `gasAvailable − Gbase`, the former `StmtTies` gas word — now the
+`StmtTies'` gas arm — verbatim).
+
+SIDE-CONDITION ADDITIONS (`hslotdef`/`hpcbound`, R6-style well-formedness — surfaced for
+review, NOT a weakening): deriving the GAS decode from `Corr` requires that the gas assign
+is actually *spilled to a slot* (`emitStmt` emits `[]` for a non-slotted `.assign t .gas`,
+so the byte at the cursor would be the *next* op — the head equation is refutable without
+it) and that the stash's pc range is in-bounds (`decode_gasstash`'s `+ 34 < 2^32`). Neither
+is derivable from `Corr` (which pins only pc/code/stack, never the def-site byte, and never
+a pc bound). Both are *exactly the sibling output conjuncts of the `StmtTies'` gas arm this
+lemma feeds* (see the gas arm of `StmtTies'`), and the sole consumer
+`stmtTies'_of_runWithLog` (R10a) carries `hwl : WellLowered prog`, whose `defsCons`
+(`DefsConsistent`) discharges `hslotdef` while proving that very arm — so R10a has both
+facts in hand at this call site. This mirrors the interface of `decode_gasstash` /
+`sim_assign_gas_lowered` and of the closed `defsSoundS_preserved_step` (R0b), which takes
+`DefsConsistent`. DERIVED-status obligation: never supplied. -/
+theorem gas_suffix_head_realised {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
+    {L : Label} {b : Block} {pc : Nat} {t : Tmp} {st : IRState} {fr : Frame}
+    {gS : List Word} {sS : List Nat} {cS : List CallRecord}
+    (hb : blockAt prog L = some b)
+    (hcur : b.stmts[pc]? = some (.assign t .gas))
+    (hslotdef : defsOf prog t = some (.slot (slotOf t)))
+    (hpcbound : pcOf prog L pc + 34 < 2 ^ 32)
+    (hcorr : Lir.Corr prog sloadChg 0 st fr L pc)
+    (hcp : RecorderCoupled log fr gS sS cS)
+    (hch : CleanHaltsNonException fr) :
+    gS.head? = some (UInt256.ofUInt64
+      (fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase)) := by
+  obtain ⟨hdecGAS, _, _⟩ :=
+    decode_gasstash (Lir.toList_of_blockAt hb) hcur hslotdef hpcbound hcorr
+  have hgas : isGasOp fr = true := by unfold isGasOp; rw [hdecGAS]; rfl
+  have hsz : fr.exec.stack.size + 1 ≤ 1024 := by rw [hcorr.stack_nil]; simp [Stack.size]
+  obtain ⟨_, hstep⟩ := Lir.CleanHaltExtract.next_gas_of_cleanHalt fr hch hdecGAS hsz
+  -- `hstep : stepFrame fr = .next (gasPost fr.exec)`.
+  obtain ⟨g, gS', hcons⟩ := gasSuffix_nonempty hcp hgas hstep
+  rw [hcons] at hcp
+  -- R7b pins the consumed head to `ofUInt64 (gasPost fr.exec).gasAvailable`.
+  obtain ⟨_, hgval⟩ := recorderCoupled_step_gas hcp hgas hstep
+  rw [hcons]
+  show some g = _
+  rw [hgval]
+  -- `(gasPost fr.exec).gasAvailable = fr.exec.gasAvailable - UInt64.ofNat Gbase` (rfl: the
+  -- `GAS` post-frame charges `Gbase`, `replaceStackAndIncrPC` leaves `gasAvailable`).
+  rfl
 
 /-- **R7c — the SLOAD step consumes the sload-suffix head** (the R7b twin): pins the
 consumed warmth-charge to `sloadWarmthOf fr` (the PRE-step frame, as recorded). -/
