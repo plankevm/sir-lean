@@ -76,6 +76,12 @@ import LirLean.V2.DriveSim
 -- foundation (`GasLogAligned`/`SloadLogAligned`, `FramesRun.snoc` in `Drive/SelfPresent`) —
 -- all over the pure engine theory in `LirLean/Engine/`.
 import LirLean.V2.Drive.Headline
+-- The reviewer-facing `Lir.Spec` audit surface (Wave 3, spec-extract): the tracked-debt
+-- seam register (`Spec/Seams.lean`) + the conditional-headline re-exports and the
+-- `RealisabilityObligations` bundle (`Spec/Conformance.lean`). Pattern C — downstream of
+-- the proof modules by design.
+import LirLean.Spec.Seams
+import LirLean.Spec.Conformance
 -- Track 1 (EXTRACTOR): clean-halting ⟹ per-cursor gas/mem envelopes. The forward-from-real-run
 -- producer that discharges the §7 ties' supplied gas/mem side-conditions from the drive thread's
 -- entry clean-halt (`CleanHaltsSuccess` + per-op `.next`-inversion + the stash envelope family).

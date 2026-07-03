@@ -4,6 +4,7 @@ import LirLean.MaterialiseCleanHalt
 import LirLean.V2.DriveSim
 import LirLean.V2.Drive.CallPreservesSelf
 import LirLean.V2.Drive.Headline
+import LirLean.Spec.Conformance
 
 /-!
 # Audit net (Track A, 2026-07-02)
@@ -101,4 +102,27 @@ info: @Lir.V2.lower_conforms_cyclic_assembled : ∀ {prog : Lir.Program} {sloadC
 -/
 #guard_msgs in
 #check @Lir.V2.lower_conforms_cyclic_assembled
+
+/-! ## The `Lir.Spec` audit surface (Wave 3, spec-extract)
+
+Axiom guards on the `Spec/Seams.lean` + `Spec/Conformance.lean` re-export layer. No
+signature freeze here: the existing `#check` freeze above already pins the flagship's
+shape, and the aliases / forwarders below are defeq-tied to it (they fail to elaborate
+on drift). -/
+
+/-- info: 'Lir.Spec.lower_conforms_cyclic_assembled' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms Lir.Spec.lower_conforms_cyclic_assembled
+
+/-- info: 'Lir.Spec.lower_conforms_cyclic_tiefree' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms Lir.Spec.lower_conforms_cyclic_tiefree
+
+/-- info: 'Lir.Spec.lower_conforms_cyclic_of_obligations' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms Lir.Spec.lower_conforms_cyclic_of_obligations
+
+/-- info: 'Lir.Spec.callPreservesSelf_of_precompiles' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in
+#print axioms Lir.Spec.callPreservesSelf_of_precompiles
 
