@@ -397,6 +397,175 @@ theorem resumeAfterCreate_kind (result : Evm.FrameResult) (pd : Evm.PendingCreat
   · simp only [Except.ok.injEq] at hres; rw [← hres]
 
 
+/-! ### The `DescentKind` interface — CALL and CREATE as ONE descent shape
+
+CALL and CREATE are the same interpreter shape — a *descent*: a `stepFrame` signal
+(`.needsCall`/`.needsCreate`), a begin (`beginCall`, child frame ⊕ immediate result;
+`beginCreate`, total — always a child), a black-box child `drive` run, and a resume
+(`resumeAfterCall`, total; `resumeAfterCreate`, can fault). `DescentKind` packages the
+per-kind data + the presence/checkpoint/kind laws proven above, so the descent machinery
+(Phase 3.5's first-class CREATE) instantiates ONE interface instead of duplicating the
+CALL ecosystem. The `resume` field is `Except`-valued because `resumeAfterCreate` faults;
+the CALL instance wraps `resumeAfterCall` in `.ok` (which is why `descentReturns_call_iff`
+is a lemma rather than `rfl`).
+
+Organization of existing green lemmas: every law field is `:=`-wired (with 1-line adapters
+where the per-kind lemma is *stronger* than the common weakening — the CALL inversion's
+equality conclusions stay untouched under their own names). No consumer is re-plumbed:
+`Runs.call` and the `callPreservesSelf` chain keep consuming `CallReturns`;
+`DescentReturns createDescent` has no consumer yet by design. -/
+
+/-- A descent kind: the data of one CALL-family interpreter descent
+(signal → begin → child run → resume) together with the account-presence /
+checkpoint / kind laws every kind satisfies. -/
+structure DescentKind where
+  /-- descent parameters (`CallParams` / `CreateParams`). -/
+  Params : Type
+  /-- the suspended parent (`PendingCall` / `PendingCreate`). -/
+  Pending : Type
+  /-- the descent's result (`CallResult` / `CreateResult`). -/
+  Result : Type
+  /-- the `stepFrame` signal announcing the descent (`.needsCall` / `.needsCreate`). -/
+  signal : Params → Pending → Evm.Signal
+  /-- descend into a child frame, or resolve immediately —
+  `beginCall` / (`.inl ∘ beginCreate`, total post-RLP). -/
+  descend : Params → Evm.Frame ⊕ Result
+  /-- resume the suspended parent — `(.ok ∘ resumeAfterCall ·)` (total) /
+  `resumeAfterCreate` (can fault), hence `Except`-valued at the common shape. -/
+  resume : Result → Pending → Except Evm.ExecutionException Evm.Frame
+  /-- project the child run's `FrameResult` (`.toCallResult` / `.toCreateResult`). -/
+  toResult : Evm.FrameResult → Result
+  /-- the descent's gas seed (`CallParams.gas` / `CreateParams.gas`). -/
+  gasOf : Params → UInt64
+  /-- the suspended parent frame (`PendingCall.frame` / `PendingCreate.frame`). -/
+  pendingFrame : Pending → Evm.Frame
+  /-- the accounts issued to the descent (`CallParams.accounts` / `CreateParams.accounts`). -/
+  paramsAccounts : Params → Evm.AccountMap
+  /-- the result's world accounts (`CallResult.accounts` / `CreateResult.accounts`). -/
+  resultAccounts : Result → Evm.AccountMap
+  /-- the suspended parent keeps the issuing frame's `kind`. -/
+  needs_kind : ∀ {fr : Evm.Frame} {p : Params} {pd : Pending},
+    Evm.stepFrame fr = signal p pd → (pendingFrame pd).kind = fr.kind
+  /-- presence at any `a` transports from the issuing frame's running map into the
+  issued `paramsAccounts`. -/
+  needs_accPresent : ∀ {fr : Evm.Frame} {p : Params} {pd : Pending},
+    Evm.stepFrame fr = signal p pd →
+      ∀ a, AccPresent a fr.exec.accounts → AccPresent a (paramsAccounts p)
+  /-- a code descent threads presence at any `a` into the child's running map. -/
+  descend_present : ∀ {p : Params} {child : Evm.Frame},
+    descend p = .inl child →
+      ∀ a, AccPresent a (paramsAccounts p) → AccPresent a child.exec.accounts
+  /-- a code descent pins the child's kind checkpoint to the issued `paramsAccounts`
+  (stated as presence transport into the checkpoint accounts, the common weakening of
+  `beginCall_inl_checkpoint` / `beginCreate_ok_checkpoint`). -/
+  descend_checkpoint : ∀ {p : Params} {child : Evm.Frame},
+    descend p = .inl child →
+      ∀ a, AccPresent a (paramsAccounts p) →
+        (match child.kind with
+         | .call ck => AccPresent a ck.accounts
+         | .create _ ck => AccPresent a ck.accounts)
+  /-- a successful resume takes the result's accounts as the resumed running map
+  (presence transport, the common weakening of `resumeAfterCall_accounts` /
+  `resumeAfterCreate_exec_accounts_present`). -/
+  resume_accounts : ∀ {r : Result} {pd : Pending} {fr' : Evm.Frame},
+    resume r pd = .ok fr' →
+      ∀ a, AccPresent a (resultAccounts r) → AccPresent a fr'.exec.accounts
+
+/-- **The CALL descent.** `signal = .needsCall`, `descend = beginCall` (precompile/empty
+resolves immediately via `.inr`), `resume = .ok ∘ resumeAfterCall` (total). Laws are the
+CALL-site inversion / begin / resume lemmas above, weakened to the common shape (the
+stronger equality forms keep their names untouched). -/
+def callDescent : DescentKind where
+  Params := Evm.CallParams
+  Pending := Evm.PendingCall
+  Result := Evm.CallResult
+  signal := .needsCall
+  descend := Evm.beginCall
+  resume := fun r pd => .ok (Evm.resumeAfterCall r pd)
+  toResult := Evm.FrameResult.toCallResult
+  gasOf := Evm.CallParams.gas
+  pendingFrame := Evm.PendingCall.frame
+  paramsAccounts := Evm.CallParams.accounts
+  resultAccounts := Evm.CallResult.accounts
+  needs_kind := fun h => (Evm.stepFrame_needsCall_inv h).2.1
+  needs_accPresent := fun h a hp => (Evm.stepFrame_needsCall_inv h).1 ▸ hp
+  descend_present := fun h a hp => beginCall_inl_accounts_present a _ h hp
+  descend_checkpoint := fun h a hp => by
+    obtain ⟨created, sub, hk⟩ := beginCall_inl_checkpoint _ h
+    rw [hk]; exact hp
+  resume_accounts := fun h a hp => by
+    injection h with h; rw [← h]; exact hp
+
+/-- **The CREATE descent.** `signal = .needsCreate`, `descend = .inl ∘ beginCreate`
+(total post-RLP — no immediate arm), `resume = resumeAfterCreate` (can fault). Laws are
+the CREATE-site inversion / begin / resume lemmas above. -/
+def createDescent : DescentKind where
+  Params := Evm.CreateParams
+  Pending := Evm.PendingCreate
+  Result := Evm.CreateResult
+  signal := .needsCreate
+  descend := fun p => .inl (Evm.beginCreate p)
+  resume := Evm.resumeAfterCreate
+  toResult := Evm.FrameResult.toCreateResult
+  gasOf := Evm.CreateParams.gas
+  pendingFrame := Evm.PendingCreate.frame
+  paramsAccounts := Evm.CreateParams.accounts
+  resultAccounts := fun r => r.accounts
+  needs_kind := fun h => (Evm.stepFrame_needsCreate_inv h).2.1
+  needs_accPresent := fun h a hp => (Evm.stepFrame_needsCreate_inv h).1 a hp
+  descend_present := fun h a hp => by
+    injection h with h
+    exact beginCreate_ok_accounts_present a _ h hp
+  descend_checkpoint := fun h a hp => by
+    injection h with h
+    obtain ⟨addr, created, sub, hk⟩ := beginCreate_ok_checkpoint _ h
+    rw [hk]; exact hp
+  resume_accounts := fun {r pd fr'} h a hp =>
+    resumeAfterCreate_exec_accounts_present a (.create r) pd fr' h hp
+
+/-- **The begin-immediate no-erase law.** A descent resolving immediately (`descend = .inr`)
+preserves presence at any `a` from the issued `paramsAccounts` into the immediate result's
+accounts. For `callDescent` this is **verbatim the `hprec` seam** (`beginCall`'s precompile
+`.inr` arm — the one surviving supplied hypothesis of the `callPreservesSelf` chain, quoted
+by `V2/RealisabilitySpec.lean`); for `createDescent` it is a theorem
+(`createDescent_descendImmediate_trivial` — `beginCreate` never resolves immediately). -/
+def DescentKind.DescendImmediateNoErase (k : DescentKind) : Prop :=
+  ∀ (p : k.Params) (imm : k.Result), k.descend p = .inr imm →
+    ∀ a, AccPresent a (k.paramsAccounts p) → AccPresent a (k.resultAccounts imm)
+
+/-- **CREATE's begin-immediate law is trivial** (the post-RLP-totality analogue of the CALL
+seam): `createDescent.descend` is `.inl ∘ beginCreate` — there is no `.inr` arm. -/
+theorem createDescent_descendImmediate_trivial :
+    createDescent.DescendImmediateNoErase := by
+  intro p imm h
+  exact absurd h (by simp [createDescent])
+
+/-- **`DescentReturns k`: one returning descent of kind `k`** — the kind-generic shape of
+`CallReturns` (`BytecodeLayer/Hoare.lean`): the signal at `frD`, a code descent into
+`child`, the child's black-box terminating `drive` run, and a successful resume at `frR`.
+`DescentReturns callDescent` IS `CallReturns` (`descentReturns_call_iff`);
+`DescentReturns createDescent` is the CREATE analogue (no consumer yet by design —
+Phase 3.5 instantiates it). -/
+def DescentReturns (k : DescentKind) (frD frR : Evm.Frame) : Prop :=
+  ∃ (p : k.Params) (pd : k.Pending) (child : Evm.Frame) (childRes : Evm.FrameResult),
+      Evm.stepFrame frD = k.signal p pd
+    ∧ k.descend p = .inl child
+    ∧ drive (seedFuel (k.gasOf p)) [] (running child) = .ok childRes
+    ∧ k.resume (k.toResult childRes) pd = .ok frR
+
+/-- **Erasure: the CALL instance of `DescentReturns` is exactly `CallReturns`.** Conjuncts
+1–3 are definitional (`EntersAsCode` is an abbrev for `beginCall p = .inl child`); conjunct 4
+differs only by the `.ok` wrapper the uniform `Except`-valued `resume` forces on the total
+CALL side (`Except.ok` injectivity + symmetry). -/
+theorem descentReturns_call_iff (frD frR : Evm.Frame) :
+    DescentReturns callDescent frD frR ↔ CallReturns frD frR := by
+  constructor
+  · rintro ⟨p, pd, child, childRes, hsig, hdesc, hdrive, hres⟩
+    injection hres with hres
+    exact ⟨p, pd, child, childRes, hsig, hdesc, hdrive, hres.symm⟩
+  · rintro ⟨p, pd, child, childRes, hsig, henters, hdrive, hres⟩
+    exact ⟨p, pd, child, childRes, hsig, henters, hdrive, by rw [hres]; rfl⟩
+
 end Lir.V2
 
 #print axioms Evm.stepFrame_needsCall_inv
@@ -409,3 +578,5 @@ end Lir.V2
 #print axioms Lir.V2.beginCall_inl_checkpoint
 #print axioms Lir.V2.beginCreate_ok_accounts_present
 #print axioms Lir.V2.beginCreate_ok_checkpoint
+#print axioms Lir.V2.createDescent_descendImmediate_trivial
+#print axioms Lir.V2.descentReturns_call_iff
