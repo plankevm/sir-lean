@@ -1183,6 +1183,18 @@ theorem gas_suffix_head_realised {prog : Program} {sloadChg : Tmp → ℕ} {log 
     gS.head? = some (UInt256.ofUInt64
       (fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase)) := sorry
 
+/-- **A halting `Runs` is refl.** If `fr` halts (`stepFrame fr = .halted h`) then the only
+`Runs fr fr'` is the reflexive one, so `fr = fr'`. Pure engine inversion (the `.step`/`.call`
+arms demand `.next`/`.needsCall`, contradicting `.halted`). -/
+theorem runs_halt_eq {fr fr' : Frame} {h : FrameHalt}
+    (hh : stepFrame fr = .halted h) (hr : Runs fr fr') : fr = fr' := by
+  cases hr with
+  | refl _ => rfl
+  | step hstep _ => rw [hstep.1] at hh; exact absurd hh (by nofun)
+  | call hcall _ =>
+      obtain ⟨_, _, _, _, hstep, _⟩ := hcall
+      rw [hstep] at hh; exact absurd hh (by nofun)
+
 /-- **R2 — the clean scope read off the log** (replaces the `∀ last halt` universal `hne`
 of `cleanHalts_of_runWithLog` with the decidable `log.clean`). The recorded outcome routes
 every halt to `.ok`, so distinguishing a `.success`/`.revert` terminal from an exception
@@ -1199,7 +1211,41 @@ theorem haltNonException_of_cleanLog {prog : Lir.Program} {params : CallParams}
     (hrb : ∀ fr', Runs fr₀ fr' → AtReachableBoundary prog fr')
     (hcc : ∀ fr', Runs fr₀ fr' → CallsCode fr') :
     ∀ last halt, Runs fr₀ last → stepFrame last = .halted halt →
-      HaltNonException halt := sorry
+      HaltNonException halt := by
+  obtain ⟨frame, hbc, hdrive⟩ := runWithLog_drive hrun
+  rw [hbegin] at hbc
+  have hfeq : frame = fr₀ := (Sum.inl.injEq _ _).mp hbc.symm
+  rw [hfeq] at hdrive
+  obtain ⟨last₀, halt₀, hto₀, hhalt₀, hobs⟩ :=
+    runs_of_drive_ok (seedFuel params.gas) fr₀ log.observable hdrive
+      (lower_modellable hrb hcc)
+  intro last halt hreach hhalt
+  -- the halting terminal is unique: `last = last₀`, `halt = halt₀`.
+  have hlast : last = last₀ :=
+    runs_halt_eq hhalt (Runs.linear_to_halt hhalt₀ hto₀ hreach)
+  subst hlast
+  rw [hhalt] at hhalt₀
+  have hheq : halt = halt₀ := (Signal.halted.injEq _ _).mp hhalt₀
+  subst hheq
+  -- non-exception terminals close by `trivial`; the exception one contradicts `hclean`.
+  cases halt with
+  | success e o => trivial
+  | revert g o => trivial
+  | exception ex =>
+      exfalso
+      unfold RunLog.clean at hclean
+      rw [hobs] at hclean
+      unfold endFrame at hclean
+      cases hk : last.kind with
+      | call checkpoint =>
+          rw [hk] at hclean
+          simp only [endCall] at hclean
+          rcases hclean with h | h
+          · exact absurd h (by decide)
+          · exact absurd h (by decide)
+      | create address checkpoint =>
+          rw [hk] at hclean
+          exact hclean
 
 /-- **R3 — call realisation from the log.** At a call cursor, the coupled frame's recorded
 CALL supplies the `CallRealisesS` bundle at the REALISED oracle — the round-3 restatement
@@ -1582,6 +1628,82 @@ def exProg : Program :=
 true for the witness. -/
 theorem singleCall_exProg : SingleCall exProg := by unfold SingleCall; decide
 
+-- `Block`/`Program` derive only `Repr` in `Spec/IR.lean`; the concrete-witness proofs below
+-- (and R9's singleton checker) need decidable equality. Their fields already derive it.
+deriving instance DecidableEq for Block
+deriving instance DecidableEq for Program
+
+/-- **`defsOf exProg` in closed form.** The two-pass `find?` over the flattened def-pairs
+reduces (definitionally) to `find?` over the concrete 9-element pair list: t0↦imm5, t1/t2↦slot
+(gas/sload spilled), t3↦imm1, t4↦imm0x100, t5↦slot (call result), t6↦slot (gas spilled),
+t7↦imm1000, t8↦lt t6 t7 — the sole reading def. -/
+theorem defsOf_exProg_eq : defsOf exProg = fun t =>
+    (([ (⟨0⟩, Expr.imm 5), (⟨1⟩, Expr.slot (slotOf ⟨1⟩)), (⟨2⟩, Expr.slot (slotOf ⟨2⟩)),
+        (⟨3⟩, Expr.imm 1), (⟨4⟩, Expr.imm 0x100), (⟨5⟩, Expr.slot (slotOf ⟨5⟩)),
+        (⟨6⟩, Expr.slot (slotOf ⟨6⟩)), (⟨7⟩, Expr.imm 1000),
+        (⟨8⟩, Expr.lt ⟨6⟩ ⟨7⟩) ] : List (Tmp × Expr)).find?
+      (fun p => p.1 == t)).map (·.2) := rfl
+
+/-- **The only registered readers in `exProg`.** A `ReadsOf` fact holds iff the reader is `t8`
+and the read tmp is `t6` or `t7` (`t8`'s def `lt t6 t7` is the sole def reading any tmp). -/
+theorem defsOf_exProg_reads {t t' : Tmp} (h : ReadsOf exProg t t') :
+    (t = ⟨6⟩ ∨ t = ⟨7⟩) ∧ t' = ⟨8⟩ := by
+  obtain ⟨e', hd, hu⟩ := h
+  rw [defsOf_exProg_eq, Option.map_eq_some_iff] at hd
+  obtain ⟨p, hfind, hp2⟩ := hd
+  have hp1 := List.find?_some hfind
+  rw [beq_iff_eq] at hp1
+  have hmem := List.mem_of_find?_eq_some hfind
+  subst hp2
+  simp only [List.mem_cons, List.mem_singleton, List.not_mem_nil, or_false] at hmem
+  rcases hmem with rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl
+  all_goals (try (exfalso; revert hu; simp only [usesInExpr]; decide))
+  -- only the `t8 := lt t6 t7` pair survives; `hp1 : ⟨8⟩ = t'`, `hu : usesInExpr t (lt t6 t7) ≠ 0`.
+  refine ⟨?_, hp1.symm⟩
+  by_contra hc
+  push_neg at hc
+  obtain ⟨h6, h7⟩ := hc
+  apply hu
+  simp only [usesInExpr, if_neg (fun he : (⟨6⟩ : Tmp) = t => h6 he.symm),
+    if_neg (fun he : (⟨7⟩ : Tmp) = t => h7 he.symm)]
+
+/-- No `exProg` def reads a tmp other than `t6`/`t7`. -/
+theorem not_readsOf_exProg {t : Tmp} (h6 : t ≠ ⟨6⟩) (h7 : t ≠ ⟨7⟩) (t' : Tmp) :
+    ¬ ReadsOf exProg t t' := by
+  intro h
+  rcases (defsOf_exProg_reads h).1 with rfl | rfl
+  · exact h6 rfl
+  · exact h7 rfl
+
+/-- One `invalStep` over a pure assign whose target has no registered reader (and whose own
+expr does not read the target) preserves point-wise falsity of the invalidation set. -/
+theorem invalStep_false_assign {I : Tmp → Prop} {t : Tmp} {e : Expr}
+    (hI : ∀ t', ¬ I t') (hu : usesInExpr t e = 0)
+    (hr : ∀ t', ¬ ReadsOf exProg t t') :
+    ∀ t', ¬ invalStep exProg I (.assign t e) t' := by
+  intro t' h
+  simp only [invalStep] at h
+  by_cases hc : t' = t
+  · rw [if_pos hc] at h; exact h hu
+  · rw [if_neg hc] at h; exact h.elim (hI t') (hr t')
+
+/-- `sstore` transfers the invalidation set unchanged, so it preserves point-wise falsity. -/
+theorem invalStep_false_sstore {I : Tmp → Prop} {k v : Tmp}
+    (hI : ∀ t', ¬ I t') : ∀ t', ¬ invalStep exProg I (.sstore k v) t' := by
+  intro t' h; simp only [invalStep] at h; exact hI t' h
+
+/-- One `invalStep` over a result-bearing call whose result tmp has no registered reader
+preserves point-wise falsity. -/
+theorem invalStep_false_call {I : Tmp → Prop} {cs : CallSpec} {t : Tmp}
+    (hres : cs.resultTmp = some t)
+    (hI : ∀ t', ¬ I t') (hr : ∀ t', ¬ ReadsOf exProg t t') :
+    ∀ t', ¬ invalStep exProg I (.call cs) t' := by
+  intro t' h
+  simp only [invalStep, hres] at h
+  by_cases hc : t' = t
+  · rw [if_pos hc] at h; exact h
+  · rw [if_neg hc] at h; exact h.elim (hI t') (hr t')
+
 /-- `exProg` re-validates per block (R0b's static-boundary anchor). The only within-block
 invalidation is `t6 := gas` (and the value-coincident `t7 := 1000`) staleing `t8` — its
 sole registered reader — healed two statements later by `t8 := lt t6 t7`; no registered
@@ -1589,7 +1711,73 @@ reader of `t8` exists (the branch USE of `t8` is not a registered def), and bloc
 targets have no registered readers at all. TRACKED DEBT (a finite fold evaluation over
 `Tmp → Prop`; becomes a `decide` once the R9 checker gives the fold its `List Tmp`
 executable twin). -/
-theorem revalidatesPerBlock_exProg : RevalidatesPerBlock exProg := sorry
+theorem revalidatesPerBlock_exProg : RevalidatesPerBlock exProg := by
+  rintro ⟨idx⟩ b hL
+  rcases idx with _ | _ | _ | n
+  · -- block 0: every target has no registered reader; each step preserves falsity.
+    have hb : b = Block.mk [ .assign ⟨0⟩ (.imm 5), .assign ⟨1⟩ .gas, .assign ⟨2⟩ (.sload ⟨0⟩),
+        .assign ⟨3⟩ (.imm 1), .sstore ⟨0⟩ ⟨3⟩, .assign ⟨4⟩ (.imm 0x100),
+        .call ⟨⟨4⟩, ⟨1⟩, some ⟨5⟩⟩ ] (.jump ⟨1⟩) := by
+      have hd : blockAt exProg ⟨0⟩ = some (Block.mk [ .assign ⟨0⟩ (.imm 5), .assign ⟨1⟩ .gas,
+          .assign ⟨2⟩ (.sload ⟨0⟩), .assign ⟨3⟩ (.imm 1), .sstore ⟨0⟩ ⟨3⟩, .assign ⟨4⟩ (.imm 0x100),
+          .call ⟨⟨4⟩, ⟨1⟩, some ⟨5⟩⟩ ] (.jump ⟨1⟩)) := by decide
+      rw [hd] at hL; exact ((Option.some.injEq _ _).mp hL).symm
+    subst hb
+    have h0 : ∀ t', ¬ (fun _ : Tmp => False) t' := fun _ h => h
+    have h1 := invalStep_false_assign h0 (show usesInExpr ⟨0⟩ (.imm 5) = 0 by decide)
+      (not_readsOf_exProg (t := ⟨0⟩) (by decide) (by decide))
+    have h2 := invalStep_false_assign h1 (show usesInExpr ⟨1⟩ Expr.gas = 0 by decide)
+      (not_readsOf_exProg (t := ⟨1⟩) (by decide) (by decide))
+    have h3 := invalStep_false_assign h2 (show usesInExpr ⟨2⟩ (.sload ⟨0⟩) = 0 by decide)
+      (not_readsOf_exProg (t := ⟨2⟩) (by decide) (by decide))
+    have h4 := invalStep_false_assign h3 (show usesInExpr ⟨3⟩ (.imm 1) = 0 by decide)
+      (not_readsOf_exProg (t := ⟨3⟩) (by decide) (by decide))
+    have h5 := invalStep_false_sstore (k := ⟨0⟩) (v := ⟨3⟩) h4
+    have h6 := invalStep_false_assign h5 (show usesInExpr ⟨4⟩ (.imm 0x100) = 0 by decide)
+      (not_readsOf_exProg (t := ⟨4⟩) (by decide) (by decide))
+    have h7 := invalStep_false_call
+      (cs := ⟨⟨4⟩, ⟨1⟩, some ⟨5⟩⟩) (t := ⟨5⟩) rfl h6
+      (not_readsOf_exProg (t := ⟨5⟩) (by decide) (by decide))
+    simpa only [List.foldl_cons, List.foldl_nil] using h7
+  · -- block 1 (the loop): the `t6`/`t7` rebinds stale `t8`, healed by the `t8` reassign.
+    have hb : b = Block.mk [ .assign ⟨6⟩ .gas, .assign ⟨7⟩ (.imm 1000),
+        .assign ⟨8⟩ (.lt ⟨6⟩ ⟨7⟩) ] (.branch ⟨8⟩ ⟨2⟩ ⟨1⟩) := by
+      have hd : blockAt exProg ⟨1⟩ = some (Block.mk [ .assign ⟨6⟩ .gas, .assign ⟨7⟩ (.imm 1000),
+          .assign ⟨8⟩ (.lt ⟨6⟩ ⟨7⟩) ] (.branch ⟨8⟩ ⟨2⟩ ⟨1⟩)) := by decide
+      rw [hd] at hL; exact ((Option.some.injEq _ _).mp hL).symm
+    subst hb
+    intro t'
+    simp only [List.foldl_cons, List.foldl_nil, invalStep]
+    intro h
+    by_cases h8 : t' = ⟨8⟩
+    · rw [if_pos h8] at h; revert h; decide
+    · rw [if_neg h8] at h
+      rcases h with h | h
+      · by_cases h7 : t' = ⟨7⟩
+        · rw [if_pos h7] at h; revert h; decide
+        · rw [if_neg h7] at h
+          rcases h with h | h
+          · by_cases h6 : t' = ⟨6⟩
+            · rw [if_pos h6] at h; revert h; decide
+            · rw [if_neg h6] at h
+              rcases h with h | h
+              · exact h
+              · exact h8 (defsOf_exProg_reads h).2
+          · exact h8 (defsOf_exProg_reads h).2
+      · rcases (defsOf_exProg_reads h).1 with h' | h' <;> exact absurd h' (by decide)
+  · -- block 2: no statements, the fold is the empty (false) set.
+    have hb : b = Block.mk [] .stop := by
+      have hd : blockAt exProg ⟨2⟩ = some (Block.mk [] .stop) := by decide
+      rw [hd] at hL; exact ((Option.some.injEq _ _).mp hL).symm
+    subst hb
+    intro t' h; exact h
+  · -- out of bounds: `exProg` has exactly three blocks.
+    exfalso
+    simp only [blockAt] at hL
+    rw [Array.getElem?_eq_none (show exProg.blocks.size ≤ n + 1 + 1 + 1 by
+      have h3 : exProg.blocks.size = 3 := by decide
+      omega)] at hL
+    simp at hL
 
 /-- The lesson-8 stale state: `exProg`'s loop-EXIT iteration, mid-block 1, after the
 `t6 := gas` rebind (fresh read `500 < 1000`) and before `t8`'s reassign — `t8` still
