@@ -1,5 +1,4 @@
 import LirLean.DecodeLower
-import LirLean.SmallStep
 
 /-!
 # LirLean — byte-layout arithmetic of `lower` (the offset-table prefix sum, C3)

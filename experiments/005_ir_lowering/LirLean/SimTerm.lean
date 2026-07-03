@@ -1,7 +1,7 @@
 import LirLean.SimStmts
 import LirLean.JumpValid
 import LirLean.DecodeAnchors
-import LirLean.V2.RunLog
+import LirLean.RecorderLemmas
 
 /-!
 # LirLean — `sim_term` (Layer **E** of the general `lower_conforms` grind)
