@@ -11,7 +11,9 @@ The overnight snapshot below is **stale**. What has changed since:
 
 - **The gas-monotonicity law is DROPPED.** The v2 "monotone gas oracle" (presented below as an
   achievement — `Runs.gasAvailable_le`, `lower_preserves_obs_mono`, `realisedGas_monotone`,
-  `GasRealises.monotoneGas`) is **proved-but-unused** and is being removed. Gas is now just a
+  `GasRealises.monotoneGas`) was **proved-but-unused** and has been **removed** (Phase 2:
+  `V2/Mono.lean`/`V2/Oracle.lean`/`V2/HonestGasTie.lean` deleted, RunLog's gas-monotonicity
+  section dropped, `V2/Law.lean` narrowed to determinism). Gas is now just a
   **log-fed exact-equality oracle** (the recorder captures the machine `GAS` output and it is fed
   into the IR oracle, then proved equal — handled exactly like an external call). See
   `experiments/005_ir_lowering/docs/gas-decision.md`.
@@ -19,11 +21,15 @@ The overnight snapshot below is **stale**. What has changed since:
   `lower_conforms_cyclic_assembled` (a general, arbitrary-cyclic-CFG, axiom-clean world-conformance
   theorem). It is conditional: it *supplies* the per-block `StmtTies`/`TermTies` ties + `hcall` as
   hypotheses (ties are INPUTS, not outputs) and has no concrete end-to-end instantiation. Track C is
-  no longer "blocked on the returndata decision".
+  no longer "blocked on the returndata decision". **Correction (2026-07-03):** the supplied ties
+  were since confirmed **unsatisfiable** — the headline is **vacuous as stated**, not merely
+  conditional (see `experiments/005_ir_lowering/docs/target-architecture-2026-07-02.md`).
 - **Next milestone: the realisability closure** — build the ties for `lower prog` from `runWithLog`
-  and add one concrete instantiation, making the headline unconditional. This is **Phase 3 of
-  `experiments/005_ir_lowering/docs/remediation-plan-2026-07-02.md`**. Full current picture:
-  `experiments/005_ir_lowering/docs/audit-2026-07-02.md`.
+  and add one concrete instantiation, making the headline unconditional. **Plan of record
+  (2026-07-03): `experiments/005_ir_lowering/docs/target-architecture-2026-07-02.md` +
+  `execution-plan-2026-07-02.md`** (flagship reshape + the R0–R12 sorry-skeleton in
+  `LirLean/V2/RealisabilitySpec.lean`, non-default `Nightly` lib); the remediation plan is
+  superseded. Audit background: `experiments/005_ir_lowering/docs/audit-2026-07-02.md`.
 
 ---
 

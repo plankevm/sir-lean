@@ -199,6 +199,12 @@ whichever interface, ideally the shared one.
 > `experiments/005_ir_lowering/docs/audit-2026-07-02.md`,
 > `experiments/005_ir_lowering/docs/remediation-plan-2026-07-02.md`, and
 > `experiments/005_ir_lowering/docs/gas-decision.md`.
+> **Correction (2026-07-03):** the supplied ties were since confirmed **unsatisfiable** — the
+> conditional headline is **vacuous as stated**; the gas-law apparatus
+> (`V2/Mono`/`Oracle`/`HonestGasTie` + RunLog's gas-monotonicity section) was **deleted** in
+> Phase 2; the remediation plan is superseded — plan of record is
+> `experiments/005_ir_lowering/docs/target-architecture-2026-07-02.md` +
+> `execution-plan-2026-07-02.md` (R0–R12 skeleton in `LirLean/V2/RealisabilitySpec.lean`).
 - [x] **C1** DONE (`exp005-ir` @ `505c83b`, green 1105 jobs). Fresh `LirLean` IR
   (NOT extending `SirLean`: UInt32, no CALL, no gas, dead SSA weight). First-class
   `sload/sstore/add/lt`, `Stmt.call`, `Term.branch`, `Expr.gas`. `docs/ir-design.md`

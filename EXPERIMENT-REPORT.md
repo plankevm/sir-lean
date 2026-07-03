@@ -28,7 +28,7 @@ flat-vs-nested choice is purely about ergonomics/conformance, not correctness.
 |---|---|---|---|
 | **A** | exp003 flat reasoning layer: `Runs` with a `call` constructor, multi-call composition, CFG combinator, opcode rules | **[track-a-review.md](experiments/003_bytecode_layer/docs/track-a-review.md)** ✓ | **Core complete + merged to base** (1130 jobs, axiom-clean). Backlog: gas-introspection, `CREATE`, symbolic worlds |
 | **B** | exp004 nested EVM core: EVMYulLean monomorphized to EVM-only, nested never-`OutOfFuel`, `Ξ`-triple | **[track-b-review.md](experiments/004_nested_evmyul/docs/track-b-review.md)** ✓ | B0 (mono) green; **fully-nested headline `Θ_never_outOfFuel` CLOSED + axiom-clean** (`exp004-nested`) — the 5-layer never-`OutOfFuel` mutual induction over `Θ/Ξ/X/step/call`, plus the `gas_mono` mutual induction and a ~250-line `step`/`Z` depth-preservation keystone, all proved + independently verified. Fuel bound is **LINEAR-PRODUCT** `B(g,e)=(1025−e)·(g+c)` (depth factor; linear in gas) — the earlier *super-linear* estimate was wrong. |
-| **C** | exp005 `LirLean` IR → bytecode lowering + semantics preservation | **[track-c-review.md](experiments/005_ir_lowering/docs/track-c-review.md)**; **[audit-2026-07-02.md](experiments/005_ir_lowering/docs/audit-2026-07-02.md)** + **[remediation-plan-2026-07-02.md](experiments/005_ir_lowering/docs/remediation-plan-2026-07-02.md)** | **Current headline: `lower_conforms_cyclic_assembled` — a general (arbitrary cyclic CFG) world-conformance theorem that is CONDITIONAL.** It *supplies* the per-block `StmtTies`/`TermTies` runtime ties + `hcall` as hypotheses and has **no end-to-end instantiation**; the realisability closure (remediation Phase 3) is pending. Gas is now a **log-fed exact-equality oracle** (monotonicity law dropped). The v1 `wc_preserves` "hypothesis-free" milestone and the v2 monotone-oracle work below are superseded/historical. |
+| **C** | exp005 `LirLean` IR → bytecode lowering + semantics preservation | **[track-c-review.md](experiments/005_ir_lowering/docs/track-c-review.md)**; **[audit-2026-07-02.md](experiments/005_ir_lowering/docs/audit-2026-07-02.md)** + **[target-architecture-2026-07-02.md](experiments/005_ir_lowering/docs/target-architecture-2026-07-02.md)** | **Current headline: `lower_conforms_cyclic_assembled` — a general (arbitrary cyclic CFG) world-conformance theorem that is CONDITIONAL, and whose supplied ties were confirmed UNSATISFIABLE (vacuous as stated).** It *supplies* the per-block `StmtTies`/`TermTies` runtime ties + `hcall` as hypotheses and has **no end-to-end instantiation**; the realisability rebuild follows [target-architecture-2026-07-02.md](experiments/005_ir_lowering/docs/target-architecture-2026-07-02.md) + [execution-plan-2026-07-02.md](experiments/005_ir_lowering/docs/execution-plan-2026-07-02.md) (R0–R12 skeleton in `LirLean/V2/RealisabilitySpec.lean`). Gas is now a **log-fed exact-equality oracle** (monotonicity law dropped; the apparatus was deleted in Phase 2). The v1 `wc_preserves` "hypothesis-free" milestone and the v2 monotone-oracle work below are superseded/historical. |
 
 Each per-track report argues the design decisions + alternatives — notably **why `call` is
 a `Runs` constructor** (it's what makes the regular-language multi-call composition work)
@@ -48,8 +48,12 @@ and **why the CFG-combinator control-flow design** was chosen over alternatives.
   a general (arbitrary cyclic CFG), axiom-clean, gas-free *world*-conformance theorem. It is
   **conditional** — it *supplies* the per-block runtime ties `hstmtties : ∀ L b, StmtTies …`,
   `htermties`, and `hcall : CallPreservesSelf` as hypotheses (the ties are INPUTS, not outputs),
-  and there is **no concrete end-to-end instantiation** on a real `lower prog`. The realisability
-  closure that turns it unconditional is **Phase 3 of the remediation plan**. (The earlier v1
+  and there is **no concrete end-to-end instantiation** on a real `lower prog` — and the supplied
+  ties were since confirmed **unsatisfiable** (2026-07-03), so the headline is vacuous as stated.
+  The realisability rebuild that replaces it is governed by
+  **[target-architecture-2026-07-02.md](experiments/005_ir_lowering/docs/target-architecture-2026-07-02.md)** +
+  **[execution-plan-2026-07-02.md](experiments/005_ir_lowering/docs/execution-plan-2026-07-02.md)**
+  (the remediation plan is superseded). (The earlier v1
   `wc_preserves` "fully hypothesis-free" milestone was a single concrete `workedCall` program;
   the general cyclic headline superseded it, at the cost of re-introducing the supplied ties.)
   Gas is now a **log-fed exact-equality oracle** (handled like an external call), and the
