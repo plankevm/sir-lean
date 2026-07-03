@@ -1158,6 +1158,125 @@ theorem runs_atReachableBoundary {prog : Lir.Program} {params : CallParams} {fr�
     (hcode : params.codeSource = .Code (lower prog)) :
     ∀ fr', Runs fr₀ fr' → AtReachableBoundary prog fr' := sorry
 
+/-! ### R6 status — the geometry track's findings (Track A / the `hrb` residue)
+
+**R6 as stated above is REFUTABLE**, and the two missing side conditions are pinned below as
+real, machine-checked lemmas (no `sorry`, no weakening of R6 itself — R6's own `sorry` above is
+left untouched; these are the honest partial the geometry track lands).
+
+* **Blocker B1 — the zero-block program (a CONCRETE counterexample, `not_runs_atReachableBoundary`).**
+  For `prog.blocks = #[]`, `flatBytes prog = []` so `(flatBytes prog).length = 0`. `beginCall`
+  still returns `.inl fr₀` (the `.Code` branch is total, pc `0`), and `Runs.refl fr₀` reaches
+  `fr₀`, yet `AtReachableBoundary` demands `boundary < 0` — false. R6 therefore needs
+  `0 < prog.blocks.size` on its statement; the refutation below proves R6's exact `∀`-form is
+  false without it.
+* **Blocker B2 — the oversized program / pc wrap.** The engine pc is `UInt32`, so every reachable
+  boundary is `< 2 ^ 32`; but `ReachesBoundary`/`validJumpDests` are `Nat` walks that, for
+  `(flatBytes prog).length > 2 ^ 32`, reach boundaries `≥ 2 ^ 32`. Matching the `Nat` walk back to
+  the `UInt32` pc (taken-jump arm) and the no-wrap of the sequential/CALL advance both reduce to
+  the program-size bound `(flatBytes prog).length ≤ 2 ^ 32` — natural (offsets are emitted as
+  4-byte `PUSH4`) but absent from the statement and not derivable for a schematic `prog`.
+
+The reusable geometry the `Runs`-induction is assembled from is landed green below:
+`lower_size_eq`, the nonemptiness brick `flatBytes_length_pos` (→ B1's positive half), the entry
+seed `atReachableBoundary_entry` (BASE, under `0 < prog.blocks.size`), and the `Runs`-induction
+combinator `atReachableBoundary_of_runs` (parameterised on the per-`StepsTo`/`CallReturns` edge
+lemmas — the STEP-PC dispatch walk + NEXT-IN-RANGE terminal-op geometry, the remaining engineering).
+-/
+
+/-- The zero-block witness program: `flatBytes` is `[]`, so no boundary is in range. -/
+def emptyProg : Lir.Program := { blocks := #[], entry := ⟨0⟩ }
+
+/-- A minimal code-call into `lower emptyProg` (every field defaulted; only `codeSource` matters):
+`beginCall` on it takes the total `.Code` branch, so it produces an `.inl` entry frame at pc `0`. -/
+def emptyParams : CallParams :=
+  { blobVersionedHashes := [], createdAccounts := ∅, genesisBlockHeader := default,
+    blocks := #[], accounts := ∅, originalAccounts := ∅, substate := default,
+    caller := 0, origin := 0, recipient := 0,
+    codeSource := .Code (lower emptyProg), gas := 0, gasPrice := 0, value := 0,
+    apparentValue := 0, calldata := .empty, depth := 0, blockHeader := default,
+    chainId := 0, canModifyState := true }
+
+/-- **Blocker B1, machine-checked: R6's exact `∀`-form is FALSE.** The zero-block program
+`emptyProg` entered by `emptyParams` (`beginCall = .inl _`, `Runs.refl` reaches the entry frame)
+has NO reachable in-range boundary (`(flatBytes emptyProg).length = 0`), so `AtReachableBoundary`
+cannot hold at the entry frame. Hence R6 needs `0 < prog.blocks.size` on its statement (the honest
+side condition the geometry track surfaces — mirrors `not_defsSound_stale`, the refutation is the
+point). -/
+theorem not_runs_atReachableBoundary :
+    ¬ (∀ (prog : Lir.Program) (params : CallParams) (fr₀ : Frame),
+        beginCall params = .inl fr₀ →
+        params.codeSource = .Code (lower prog) →
+        ∀ fr', Runs fr₀ fr' → AtReachableBoundary prog fr') := by
+  intro H
+  have hbc : beginCall emptyParams = .inl (codeFrame emptyParams (lower emptyProg)) :=
+    beginCall_code emptyParams (lower emptyProg) rfl
+  have hrb := H emptyProg emptyParams _ hbc rfl _ (Runs.refl _)
+  obtain ⟨boundary, _, _, _, hlt, _⟩ := hrb
+  have hlen : (Lir.flatBytes emptyProg).length = 0 := by simp [Lir.flatBytes, emptyProg]
+  omega
+
+/-- `(lower prog).size` is the length of the flat byte list (`lower` wraps `flatBytes` in a
+`ByteArray`). The one-step bridge between the `ByteArray`-level engine bound (`j < c.size`, e.g.
+from `reachesBoundary_of_mem_validJumpDests`) and the `List`-level range field of
+`AtReachableBoundary` (`boundary < (flatBytes prog).length`). -/
+theorem lower_size_eq (prog : Lir.Program) : (lower prog).size = (Lir.flatBytes prog).length := by
+  rw [Lir.lower_eq_flatBytes]; simp [ByteArray.size]
+
+/-- **The lowered program is non-empty when the CFG is.** Each block contributes at least its
+leading `JUMPDEST` byte, so a non-empty block array gives a non-empty `flatBytes`. The positive
+half of blocker B1 (the entry seed's `0 < length` field). -/
+theorem flatBytes_length_pos (prog : Lir.Program) (h : 0 < prog.blocks.size) :
+    0 < (Lir.flatBytes prog).length := by
+  unfold Lir.flatBytes
+  have hne : prog.blocks.toList ≠ [] := by
+    intro hnil
+    have : prog.blocks.toList.length = 0 := by rw [hnil]; rfl
+    rw [Array.length_toList] at this; omega
+  cases hb : prog.blocks.toList with
+  | nil => exact absurd hb hne
+  | cons b rest =>
+    rw [List.flatMap_cons, List.cons_append, List.length_cons]
+    omega
+
+/-- **BASE — the entry frame sits at a reachable in-range boundary.** For a code call into
+`lower prog` whose CFG is non-empty (blocker B1's side condition), the entry frame
+(`= codeFrame params (lower prog)`) is at pc `0`, which is `ReachesBoundary … 0 0` (`.refl`) and
+in range (`flatBytes_length_pos`) — the seed of the `Runs`-induction. -/
+theorem atReachableBoundary_entry {prog : Lir.Program} {params : CallParams} {fr₀ : Frame}
+    (hbegin : beginCall params = .inl fr₀)
+    (hcode : params.codeSource = .Code (lower prog))
+    (hne : 0 < prog.blocks.size) :
+    AtReachableBoundary prog fr₀ := by
+  have hfr : fr₀ = codeFrame params (lower prog) := by
+    have hc : beginCall params = .inl (codeFrame params (lower prog)) :=
+      beginCall_code params (lower prog) hcode
+    exact (Sum.inl.injEq _ _).mp (hbegin.symm.trans hc)
+  refine ⟨0, ?_, ?_, ?_, ?_, ?_⟩
+  · rw [hfr]; exact codeFrame_code params (lower prog)
+  · rw [hfr, codeFrame_pc]; rfl
+  · exact .refl 0
+  · exact flatBytes_length_pos prog hne
+  · decide
+
+/-- **The `Runs`-induction combinator (master lemma).** `AtReachableBoundary prog` is preserved
+across a whole `Runs` derivation once it is preserved across each single `StepsTo` (`hstep`) and
+each returning external `CallReturns` (`hcall`). This is the assembly of R6: seed with
+`atReachableBoundary_entry` (BASE), then thread `hstep`/`hcall` (STEP / CALL — the pc-shape dispatch
+walk + terminal-op in-range geometry). Stated edge-parametrically so the two remaining edge lemmas
+are the only geometry left to land. -/
+theorem atReachableBoundary_of_runs {prog : Lir.Program}
+    (hstep : ∀ {fr mid : Frame}, StepsTo fr mid →
+        AtReachableBoundary prog fr → AtReachableBoundary prog mid)
+    (hcall : ∀ {fr rf : Frame}, CallReturns fr rf →
+        AtReachableBoundary prog fr → AtReachableBoundary prog rf)
+    {fr fr' : Frame} (hr : Runs fr fr') :
+    AtReachableBoundary prog fr → AtReachableBoundary prog fr' := by
+  induction hr with
+  | refl _ => exact id
+  | step h _ ih => exact fun hfr => ih (hstep h hfr)
+  | call hc _ ih => exact fun hfr => ih (hcall hc hfr)
+
 /-! ### R7 — the recorder-coupling edge lemmas (entry + the four preservation edges)
 
 These are what make `RecorderCoupled` a THREADABLE invariant: established once at entry,
