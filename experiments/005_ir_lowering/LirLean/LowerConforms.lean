@@ -476,7 +476,7 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         -- via `sim_sstore_stmt`'s two-frame chained fold.
         ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp value)).length
             + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).length + 1 ≤ 1024
-        ∧ (∃ acc, SstoreRealises fr0 kw vw acc) ∧ vw ≠ 0)
+        ∧ (∃ acc, SstoreRealises fr0 kw vw acc))
     -- the genuine `call`-cursor tie (the §7 realised-CALL trace):
     (hcallties : ∀ (pc : Nat) (cs : CallSpec) (st0 : V2.IRState) (fr0 : Frame),
         b.stmts[pc]? = some (.call cs) →
@@ -557,10 +557,10 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       hgasGas hgasPush hmem hgasMem hgasMstore hscoped'
   | sstore hk hv =>
     rename_i key value kw vw
-    obtain ⟨hsc, hstk, ⟨acc, hsr⟩, hnz⟩ := hsstore pc key value kw vw st0 fr0 hget hcorr hk hv
+    obtain ⟨hsc, hstk, ⟨acc, hsr⟩⟩ := hsstore pc key value kw vw st0 fr0 hget hcorr hk hv
     obtain ⟨hwfv, hwfk⟩ := hwf.matFueled_sstore L b pc key value hb hget
     exact sim_sstore_stmt_lowered hb hget hcorr hk hv hsc hwfv hwfk
-      (hwf.bound_sstore L b pc key value hb hget) hcs hstk hsr hnz
+      (hwf.bound_sstore L b pc key value hb hget) hcs hstk hsr
   | call hcallee hgasr ho =>
     rename_i cs calleeW gasFwdW success world'
     exact simStmtStep_call hb hget hwf hcorr

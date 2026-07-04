@@ -2,6 +2,7 @@ import LirLean.SmallStep
 import LirLean.Call
 import LirLean.LoweringLemmas
 import LirLean.Layout
+import LirLean.StorageErase
 import BytecodeLayer.Hoare
 import BytecodeLayer.Hoare.CallSequence
 
@@ -38,6 +39,7 @@ halt step the bridge consumes.
 namespace Lir
 open Evm
 open BytecodeLayer.Hoare
+open BytecodeLayer.Maps
 open BytecodeLayer.Dispatch
 open BytecodeLayer.System
 
@@ -204,10 +206,62 @@ theorem sim_sload (fr : Frame) (key : Word) (rest : Stack Word)
       ∧ (sloadFrame fr key rest).exec.stack.head? = some (selfStorage fr key) := by
   exact ⟨runs_sload fr key rest hdec hstk hsz hgas, sloadFrame_storage_self fr key rest⟩
 
+/-- **SSTORE effect, value-agnostic.** Reading the self account's storage at
+`key` after `sstoreFrame` returns `newValue` — for *every* `newValue`, including
+`0` (a slot clear, which `Account.updateStorage` implements as an `RBMap.erase`;
+the read-back then hits `Evm.Storage.findD_erase_self`). -/
+theorem sstoreFrame_storage_self' (fr : Frame) (key newValue : Word) (rest : Stack Word)
+    (acc : Account)
+    (hself : fr.exec.accounts.find? fr.exec.executionEnv.address = some acc) :
+    ((sstoreFrame fr key newValue rest).exec.accounts.find? fr.exec.executionEnv.address
+      |>.option 0 (·.lookupStorage key)) = newValue := by
+  rw [sstoreFrame_accounts fr key newValue rest acc hself, accounts_find?_insert_self]
+  show (acc.updateStorage key newValue).lookupStorage key = newValue
+  unfold Account.updateStorage Account.lookupStorage
+  by_cases h0 : newValue = 0
+  · subst h0
+    rw [if_pos (by decide)]
+    exact Evm.Storage.findD_erase_self acc.storage key
+  · rw [if_neg (by
+      show ¬ ((newValue == (default : UInt256)) = true)
+      rw [show (default : UInt256) = 0 from rfl]
+      intro hc; exact h0 ((UInt256.beq_iff_eq newValue 0).mp hc))]
+    exact storage_findD_insert_self _ _ _ _
+
+/-- **SSTORE framing, value-agnostic.** Any cell other than `(self, key)` is
+unchanged after `sstoreFrame`, for *every* `newValue` including `0` (the erase
+branch, read back through `Evm.Storage.findD_erase_of_ne`). -/
+theorem sstoreFrame_storage_frame' (fr : Frame) (key newValue : Word) (rest : Stack Word)
+    (acc : Account)
+    (hself : fr.exec.accounts.find? fr.exec.executionEnv.address = some acc)
+    (a' : AccountAddress) (k' : UInt256)
+    (hframe : a' ≠ fr.exec.executionEnv.address ∨ k' ≠ key) :
+    ((sstoreFrame fr key newValue rest).exec.accounts.find? a' |>.option 0 (·.lookupStorage k'))
+      = (fr.exec.accounts.find? a' |>.option 0 (·.lookupStorage k')) := by
+  rw [sstoreFrame_accounts fr key newValue rest acc hself]
+  rcases hframe with ha | hk
+  · rw [accounts_find?_insert_of_ne _ _ ha]
+  · by_cases ha : a' = fr.exec.executionEnv.address
+    · subst ha
+      rw [accounts_find?_insert_self, hself]
+      show (acc.updateStorage key newValue).lookupStorage k' = acc.lookupStorage k'
+      unfold Account.updateStorage Account.lookupStorage
+      by_cases h0 : newValue = 0
+      · subst h0
+        rw [if_pos (by decide)]
+        exact Evm.Storage.findD_erase_of_ne acc.storage hk
+      · rw [if_neg (by
+          show ¬ ((newValue == (default : UInt256)) = true)
+          rw [show (default : UInt256) = 0 from rfl]
+          intro hc; exact h0 ((UInt256.beq_iff_eq newValue 0).mp hc))]
+        exact storage_findD_insert_of_ne _ _ _ hk
+    · rw [accounts_find?_insert_of_ne _ _ ha]
+
 /-- **`Stmt.sstore` simulation.** A frame decoding to `SSTORE` with
 `key :: value :: rest` runs one step to `sstoreFrame fr key value rest`; reading
-back `(self, key)` returns `value` (for `value ≠ 0`), re-establishing `M3` at the
-written cell, and any other cell is unchanged (the frame clause). -/
+back `(self, key)` returns `value` (for *every* `value`, zero writes included),
+re-establishing `M3` at the written cell, and any other cell is unchanged (the
+frame clause). -/
 theorem sim_sstore (fr : Frame) (key value : Word) (rest : Stack Word) (acc : Account)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .SSTORE, .none))
     (hstk : fr.exec.stack = key :: value :: rest)
@@ -215,17 +269,16 @@ theorem sim_sstore (fr : Frame) (key value : Word) (rest : Stack Word) (acc : Ac
     (hmod : fr.exec.executionEnv.canModifyState = true)
     (hstip : ¬ fr.exec.gasAvailable.toNat ≤ GasConstants.Gcallstipend)
     (hcost : sstoreChargeOf fr.exec key value ≤ fr.exec.gasAvailable.toNat)
-    (hself : fr.exec.accounts.find? fr.exec.executionEnv.address = some acc)
-    (hnz : value ≠ 0) :
+    (hself : fr.exec.accounts.find? fr.exec.executionEnv.address = some acc) :
     Runs fr (sstoreFrame fr key value rest)
       ∧ storageAt (sstoreFrame fr key value rest) fr.exec.executionEnv.address key = value
       ∧ ∀ k', k' ≠ key →
           storageAt (sstoreFrame fr key value rest) fr.exec.executionEnv.address k'
             = storageAt fr fr.exec.executionEnv.address k' := by
   refine ⟨runs_sstore fr key value rest hdec hstk hsz hmod hstip hcost, ?_, ?_⟩
-  · exact sstoreFrame_storage_self fr key value rest acc hself hnz
+  · exact sstoreFrame_storage_self' fr key value rest acc hself
   · intro k' hk'
-    exact sstoreFrame_storage_frame fr key value rest acc hself hnz
+    exact sstoreFrame_storage_frame' fr key value rest acc hself
       fr.exec.executionEnv.address k' (Or.inr hk')
 
 /-! ### `popFrame` accessor reductions

@@ -152,7 +152,7 @@ theorem sim_sstore_stmt_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs :
     (hstk : (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp value)).length
               + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).length
               + 1 ≤ 1024)
-    (hsstore : SstoreRealises fr kw vw acc) (hnz : vw ≠ 0) :
+    (hsstore : SstoreRealises fr kw vw acc) :
     ∃ fr', Runs fr fr'
       ∧ Corr prog sloadChg obs (st.setStorage kw vw) fr' L (pc + 1)
       ∧ fr'.exec.stack = [] := by
@@ -185,7 +185,7 @@ theorem sim_sstore_stmt_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs :
     rw [hcorr.code_eq, hcorr.pc_eq, ofNat_add', ofNat_add',
         show pcOf prog L pc + lv + lk = pcOf prog L pc + (lv + lk) from by omega]
     exact sstore_op_decode prog L b pc key value hb hs (by omega)
-  exact sim_sstore_stmt hb hs hcorr hk hv hsc hdv hdk hdop hcs hstk hsstore hnz
+  exact sim_sstore_stmt hb hs hcorr hk hv hsc hdv hdk hdop hcs hstk hsstore
 
 end Lir
 

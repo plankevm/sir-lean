@@ -83,18 +83,18 @@ theorem PROOFS are `sorry`d. This module is deliberately registered in the NON-D
    witness `exProg` STAYS AS IS: it exercises rebinding-with-live-dependents by
    construction, which is exactly why it caught this.
 
-## The two scope seams added beyond the fleet sketch
+## The scope seam added beyond the fleet sketch
 
 * **`RunLog.clean` conservatively excludes zero-gas reverts**: exp003's `endCall` maps an
   `.exception` to `success := false, gasRemaining := 0, output := .empty`, so a genuine
   zero-gas revert is indistinguishable from an exception ON THE LOG. `clean` demands
   `success ∨ gasRemaining ≠ 0` — sound (hypothesis false ⇒ theorem silent, never unsound),
   and it cuts the zero-gas-revert corner out of scope. Tracked decision.
-* **`NonzeroSstores`**: `sim_sstore_stmt` requires `vw ≠ 0` (the nonzero-write scope of
-  `EvalStmt.sstore`, `V2/Machine.lean`), and no fleet report surfaced this in the flagship
-  signature. It is a named scope seam (the flagship's `hnzw`), threaded through the walk
-  invariant (`DriveCorrLog.nonzeroSstores`) — either `sim_sstore` gets extended to zero
-  writes or SSTOREs get recorded in the log; until then the seam is honest and explicit.
+
+(The former nonzero-SSTORE scope seam is GONE: `sim_sstore` now covers zero writes /
+slot clears — the read-back of a cleared slot goes through `Evm.Storage.findD_erase_self`
+in `LirLean/StorageErase.lean` — so the seam predicate and the flagship's named
+nonzero-write hypothesis were removed.)
 
 Every declaration's docstring states what is SUPPLIED (hypothesis surface of the flagship /
 honest seam) vs DERIVED (an R-obligation discharges it from the run or the program text).
@@ -565,20 +565,6 @@ def NoGasReads (prog : Program) : Prop :=
   ∀ (L : Label) (b : Block), blockAt prog L = some b →
     ∀ (pc : Nat) (t : Tmp) (e : Expr), b.stmts[pc]? = some (.assign t e) → e ≠ .gas
 
-/-- **The nonzero-SSTORE scope seam** (the flagship's `hnzw`; header scope-seam 2): every
-`Runs`-reachable frame sitting at an SSTORE opcode with operands `kw :: vw :: rest` on the
-stack writes a nonzero value. Needed because `sim_sstore_stmt`'s `hnz : vw ≠ 0` is the
-nonzero-write scope of `EvalStmt.sstore` (zero writes are out of the current simulation's
-scope). `Runs`-monotone (a suffix frame's reachable set is a subset), so the walk threads it
-(`DriveCorrLog.nonzeroSstores`). SUPPLIED status: honest scope seam; tracked decision —
-either extend `sim_sstore` to zero writes or record SSTOREs in the log. The op/stack shapes
-mirror `sim_sstore_stmt`'s `hdop`/stack facts verbatim. -/
-def NonzeroSstores (fr₀ : Frame) : Prop :=
-  ∀ (fr' : Frame) (kw vw : Word) (rest : Stack Word),
-    Runs fr₀ fr' →
-    decode fr'.exec.executionEnv.code fr'.exec.pc = some (.Smsf .SSTORE, .none) →
-    fr'.exec.stack = kw :: vw :: rest → vw ≠ 0
-
 /-! ## §2 — The recorder-restart coupling (the hard design piece)
 
 The tie reshape's carrier (target-architecture §3, SETTLED as option (i)): instead of the
@@ -637,8 +623,6 @@ every top-level block-entry boundary of the drive walk:
   KILLS the unsatisfiable `TermTies` stop/ret address/kind/nonempty conjuncts (those demands
   become antecedents supplied by this invariant, and non-emptiness is DERIVED via
   `accounts_ne_empty_of_selfPresent`);
-* `nonzeroSstores` — the threaded scope seam (entry-seeded from the flagship's `hnzw`,
-  preserved by `Runs`-monotonicity); it supplies the sstore arm's antecedent;
 * `coupled` — the §2 recorder coupling at the un-consumed suffixes.
 
 SUPPLIED status: never supplied — established at entry (R7 entry + `entry_corr` +
@@ -661,8 +645,6 @@ structure DriveCorrLog (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
   addrPin : fr.exec.executionEnv.address = self
   /-- The frame is a call frame (rfl-preserved along the walk). -/
   kindPin : ∃ cp, fr.kind = .call cp
-  /-- The threaded nonzero-SSTORE scope seam (entry-seeded from `hnzw`; `Runs`-monotone). -/
-  nonzeroSstores : NonzeroSstores fr
   /-- The §2 recorder-restart coupling at the un-consumed suffixes. -/
   coupled : RecorderCoupled log fr gasSuffix sloadSuffix callSuffix
 
@@ -686,10 +668,9 @@ value variable is pinned by an antecedent:
   arm no longer fires on `.gas`/`.sload` (killing the static contradiction with `defsOf`'s
   spilling);
 * the sstore arm DROPS `∃ acc, SstoreRealises fr0 kw vw acc` entirely (header lesson 3 —
-  unsatisfiable); its content returns point-wise at the concrete frame (R4). Its `vw ≠ 0`
-  conclusion is kept but under the threaded `NonzeroSstores fr0` antecedent (without it, an
-  adversarial coupled zero-writing frame refutes the conclusion — the log does not record
-  SSTOREs, so the coupling alone cannot pin the written value);
+  unsatisfiable); its content returns point-wise at the concrete frame (R4). Zero writes
+  (slot clears) are now in scope — `sim_sstore` covers `vw = 0` — so the arm has no
+  nonzero-write conclusion and no nonzero-write scope antecedent;
 * the `TermTies` stop/ret address/kind demands become ANTECEDENTS (supplied by
   `DriveCorrLog`'s rfl-preserved pins), and non-emptiness is the only stop conclusion
   (derivable via `accounts_ne_empty_of_selfPresent`); the ret arm's bare
@@ -719,8 +700,7 @@ and restart determinism"): each conclusion is one of (i) a static fact of `prog`
 derivable from `hwl` + the cursor (the `StepScopedS`/registration/canonicity/
 addressability/stack-fold/pc-bound conjuncts), (ii) a fact carried over from the arm's
 own antecedents (the `setLocal`-scoping folds from `Corr.wellScoped` + `DefsConsistent`;
-the post-assign `MemRealises` from `Corr.memAgree`; the sstore `vw ≠ 0` from the threaded
-`NonzeroSstores` seam), or (iii) a value/trace fact computed from `fr0`/`frT` + restart
+the post-assign `MemRealises` from `Corr.memAgree`), or (iii) a value/trace fact computed from `fr0`/`frT` + restart
 determinism under the clean-halt antecedent (the `gS.head?` equation, the CALL kernel,
 the gas guards, the epilogue anchors). No conclusion depends on a variable that is not
 antecedent-pinned or static — that is the honest residue of the "no free-∀" slogan. -/
@@ -793,8 +773,9 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
             ∧ defsOf prog t' ≠ none)
       ∧ ((slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
         ∧ pcOf prog L pc + 34 < 2 ^ 32))
-  -- (4) sstore: `StepScopedS` + the stack-room fold + `vw ≠ 0` — the latter ONLY under the
-  -- threaded `NonzeroSstores fr0` antecedent (see section docstring). The unsatisfiable
+  -- (4) sstore: `StepScopedS` + the stack-room fold. Zero writes (slot clears) are IN scope
+  -- now — `sim_sstore` covers `vw = 0` via `Evm.Storage.findD_erase_self` — so the arm has
+  -- no nonzero-write conclusion and no nonzero-write scope antecedent. The unsatisfiable
   -- `∃ acc, SstoreRealises …` conjunct is GONE (its content is R4, point-wise).
   ∧ (∀ (pc : Nat) (key value : Tmp) (kw vw : Word) (st0 : IRState) (fr0 : Frame)
       (gS : List Word) (sS : List Nat) (cS : List CallRecord),
@@ -802,12 +783,10 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
       Lir.Corr prog sloadChg 0 st0 fr0 L pc →
       RecorderCoupled log fr0 gS sS cS →
       CleanHaltsNonException fr0 →
-      NonzeroSstores fr0 →
       st0.locals key = some kw → st0.locals value = some vw →
       StepScopedS prog (.sstore key value)
       ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp value)).length
-          + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).length + 1 ≤ 1024
-      ∧ vw ≠ 0)
+          + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).length + 1 ≤ 1024)
   -- (5) call: `CallRealisesS` at the realised oracle (lesson 8: the in-tree
   -- `CallRealises` embeds `StepScoped (.call cs)`, whose live-scope clause is refutable
   -- in-envelope for reader-carrying programs), kept shape-wise (it is itself
@@ -1386,8 +1365,8 @@ theorem callRealises_of_recorded {prog : Program} {sloadChg : Tmp → ℕ} {log 
 
 /-- **R4 — SSTORE realisation, point-wise at the concrete frame** (the honest replacement
 of the unsatisfiable `∃ acc, SstoreRealises …` tie conjunct — header lesson 3). At the
-REAL internal SSTORE frame `g` (stack `kw :: vw :: []`, SSTORE decoded, nonzero write,
-modifiable), the three `SstoreRealises` conclusions hold AT `g`: the stipend gate and the
+REAL internal SSTORE frame `g` (stack `kw :: vw :: []`, SSTORE decoded, modifiable — any
+write, zero included), the three `SstoreRealises` conclusions hold AT `g`: the stipend gate and the
 EIP-2200 charge bound are DERIVED from the clean-halt witness (an under-gassed SSTORE would
 exception, contradicting `hch`), and the presence conjunct is exactly `hsp` (the threaded
 `SelfPresent`, decision 4 wired at last). NOTE (recorded blast radius): Phase 3 must also
@@ -1398,7 +1377,6 @@ theorem sstoreRealises_at_frame {g : Frame} {kw vw : Word}
     (hch : CleanHaltsNonException g)
     (hstk : g.exec.stack = kw :: vw :: [])
     (hdec : decode g.exec.executionEnv.code g.exec.pc = some (.Smsf .SSTORE, .none))
-    (hnz : vw ≠ 0)
     (hmod : g.exec.executionEnv.canModifyState = true) :
     (¬ g.exec.gasAvailable.toNat ≤ GasConstants.Gcallstipend)
     ∧ sstoreChargeOf g.exec kw vw ≤ g.exec.gasAvailable.toNat
@@ -3502,12 +3480,11 @@ theorem wellLowered_check_exists :
 current headline lacks a producer for). For ANY `(st0, fr0, suffixes)` satisfying the
 arms' antecedents — including OFF-RUN adversarial instances — the conclusions hold,
 because each is (i) a static fact of `prog` derivable from `hwl` + the cursor, (ii)
-carried over from the arm's own antecedents (`Corr`'s `wellScoped`/`memAgree` channels,
-the threaded `NonzeroSstores` seam), or (iii) computed from `fr0` and restart determinism
+carried over from the arm's own antecedents (`Corr`'s `wellScoped`/`memAgree` channels),
+or (iii) computed from `fr0` and restart determinism
 (the coupling forces any witness to reproduce the recorded future) — the §3 docstring's
 precision note. This off-run-robustness is exactly the satisfiability analysis that
-makes the §3 reshape non-vacuous. `hnzw` is NOT needed here: the sstore arm carries `NonzeroSstores fr0` as its
-own antecedent (threaded by the walk). DERIVED-status obligation. -/
+makes the §3 reshape non-vacuous. DERIVED-status obligation. -/
 theorem stmtTies'_of_runWithLog {prog : Program} {params : CallParams} {log : RunLog}
     {fr₀ : Frame}
     (hcode : params.codeSource = .Code (lower prog))
@@ -3586,8 +3563,8 @@ Hypothesis ledger (the honest surface, nothing else): two definitional pins
 (`hwl`), three decidable scope premises (`hsingle`/`hone`/`hclean` — `hone` is the
 dynamic at-most-one-call twin of the syntactic `hsingle`, header lesson 7), ONE runtime
 premise (`hrun`),
-one two-field honest seam structure (`hseams`), and one named scope seam (`hnzw` — the
-nonzero-write cut the fleet sketch missed; without it the sstore simulation cannot fire).
+and one two-field honest seam structure (`hseams`). (The former named nonzero-write scope
+seam is GONE — `sim_sstore` now covers zero writes / slot clears.)
 The current headline's `DriveCorr`/`CallPreservesSelf`/`hpresent`/tie/`{T}`/`obs`
 hypotheses are all gone: derived (R1–R10), definitional (`entryState`), or dead (the
 phantom). -/
@@ -3602,8 +3579,7 @@ theorem lower_conforms {prog : Program} {params : CallParams} {log : RunLog}
     (hrun : runWithLog params (seedFuel params.gas) = some log)
     (hclean : log.clean)
     (hone : log.calls.length ≤ 1)
-    (hseams : PrecompileAssumptions prog params)
-    (hnzw : ∀ fr₀, beginCall params = .inl fr₀ → NonzeroSstores fr₀) :
+    (hseams : PrecompileAssumptions prog params) :
     ∃ O : Observable,
       RunFrom prog (realisedCall log params.recipient)
         (entryState params) (realisedGas log) prog.entry O
@@ -3651,8 +3627,7 @@ theorem lower_conforms_exact {prog : Program} {params : CallParams} {log : RunLo
     (hrun : runWithLog params (seedFuel params.gas) = some log)
     (hclean : log.clean)
     (hone : log.calls.length ≤ 1)
-    (hseams : PrecompileAssumptions prog params)
-    (hnzw : ∀ fr₀, beginCall params = .inl fr₀ → NonzeroSstores fr₀) :
+    (hseams : PrecompileAssumptions prog params) :
     ∃ O : Observable,
       RunFromAll prog (realisedCall log params.recipient)
         (entryState params) (realisedGas log) prog.entry O
@@ -3690,8 +3665,7 @@ theorem lower_conforms_gasfree {prog : Program} {params : CallParams} {log : Run
     (hrun : runWithLog params (seedFuel params.gas) = some log)
     (hclean : log.clean)
     (hone : log.calls.length ≤ 1)
-    (hseams : PrecompileAssumptions prog params)
-    (hnzw : ∀ fr₀, beginCall params = .inl fr₀ → NonzeroSstores fr₀) :
+    (hseams : PrecompileAssumptions prog params) :
     ∃ O : Observable,
       RunFrom prog (realisedCall log params.recipient)
         (entryState params) (realisedGas log) prog.entry O
@@ -3736,8 +3710,7 @@ theorem exProg_satisfies_hypotheses :
       ∧ runWithLog params (seedFuel params.gas) = some log
       ∧ log.clean
       ∧ log.calls.length ≤ 1
-      ∧ PrecompileAssumptions exProg params
-      ∧ (∀ fr₀, beginCall params = .inl fr₀ → NonzeroSstores fr₀) := sorry
+      ∧ PrecompileAssumptions exProg params := sorry
 
 /-- **R12b — end-to-end at the witness**: `lower_conforms` instantiated at `exProg`
 (gas-read + sload + nonzero-sstore + call + loop, all at once — the verifereum
@@ -3755,11 +3728,11 @@ theorem exProg_nonvacuity :
   -- R12a carries every flagship premise except the two closed static ones
   -- (`wellLowered_exProg`, `singleCall_exProg`), which we supply directly (same module).
   -- Green now (R12a is a skeleton leaf); axiom-clean once R11 + R12a land.
-  obtain ⟨params, log, _acc, hcode, hmod, hself, hgas, hrun, hclean, hone, hseams, hnzw⟩ :=
+  obtain ⟨params, log, _acc, hcode, hmod, hself, hgas, hrun, hclean, hone, hseams⟩ :=
     exProg_satisfies_hypotheses
   refine ⟨params, log, hcode, hrun, ?_⟩
   exact lower_conforms hcode hmod hself hgas
-    wellLowered_exProg singleCall_exProg hrun hclean hone hseams hnzw
+    wellLowered_exProg singleCall_exProg hrun hclean hone hseams
 
 /-! ## §7 — audit note
 

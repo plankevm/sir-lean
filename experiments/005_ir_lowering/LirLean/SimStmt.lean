@@ -369,7 +369,7 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     (hstk : (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp value)).length
               + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).length
               + 1 ≤ 1024)
-    (hsstore : SstoreRealises fr kw vw acc) (hnz : vw ≠ 0) :
+    (hsstore : SstoreRealises fr kw vw acc) :
     ∃ fr', Runs fr fr'
       ∧ Corr prog sloadChg obs (st.setStorage kw vw) fr' L (pc + 1)
       ∧ fr'.exec.stack = [] := by
@@ -435,7 +435,7 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     rw [hmrk.canMod, hmrv.canMod]; exact hcorr.can_modify
   obtain ⟨hstip, hcost, hself⟩ := hsstore frk hkaddr hkstk
   obtain ⟨hsrun, hswrite, hsframe⟩ :=
-    sim_sstore frk kw vw [] acc hkdec hkstk hksz hkmod hstip hcost hself hnz
+    sim_sstore frk kw vw [] acc hkdec hkstk hksz hkmod hstip hcost hself
   -- assemble the Runs and re-establish Corr
   refine ⟨sstoreFrame frk kw vw [], (hmrv.runs.trans hmrk.runs).trans hsrun, ?_, ?_⟩
   · -- re-establish `Corr` at `(L, pc+1)` for `st.setStorage kw vw`.
