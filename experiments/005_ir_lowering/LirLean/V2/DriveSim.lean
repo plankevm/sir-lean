@@ -247,8 +247,9 @@ theorem drive_step_block_stop {prog : Program} {sloadChg : Tmp → ℕ} {obs : W
 
 /-- **`drive_step_block`, the `ret` arm.** As `drive_step_block_stop`, with `b.term = .ret t` and
 the operand `st'.locals t = some w` bound at the post-statement state: the IR halts returning `w`
-(`RunFrom.ret`), and the bytecode's `observe` *world* matches `st'.world` (the value channel is the
-tracked deferral — `observe`'s result is `.stopped`, asserted only on the world). -/
+(`RunFrom.ret`), and the bytecode's `observe` *world* matches `st'.world`. (The world channel is
+what this driver arm forwards; the returned-value channel — now live in `observe` and proven by
+`sim_term_halt_ret` — rides the `Conforms` result conjunct downstream, not this world-only brick.) -/
 theorem drive_step_block_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {self : AccountAddress} {st st' : V2.IRState} {T T' : Trace} {C C' : CallStream}
     {L : Label} {b : Block} {t : Tmp} {w : Word} {fr : Frame}

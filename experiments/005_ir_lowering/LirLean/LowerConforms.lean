@@ -631,15 +631,28 @@ theorem simTermStep_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
             frv.exec.executionEnv.address = frT.exec.executionEnv.address →
             (∀ k, selfStorage frv k = selfStorage frT k) →
             frv.exec.stack = vw :: frT.exec.stack →
-            ∃ cp,
+            ∃ cp wms,
               decode frv.exec.executionEnv.code frv.exec.pc
                   = some (.Push .PUSH32, some ((0 : Word), 32))
               ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33)
+                  = some (.Smsf .MSTORE, .none)
+              ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33 + 1)
+                  = some (.Push .PUSH32, some ((32 : Word), 32))
+              ∧ decode frv.exec.executionEnv.code
+                    (frv.exec.pc + UInt32.ofNat 33 + 1 + UInt32.ofNat 33)
                   = some (.Push .PUSH32, some ((0 : Word), 32))
-              ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33 + UInt32.ofNat 33)
+              ∧ decode frv.exec.executionEnv.code
+                    (frv.exec.pc + UInt32.ofNat 33 + 1 + UInt32.ofNat 33 + UInt32.ofNat 33)
                   = some (.System .RETURN, .none)
               ∧ 3 ≤ frv.exec.gasAvailable.toNat
-              ∧ 3 ≤ (pushFrameW frv (0 : Word) 32).exec.gasAvailable.toNat
+              ∧ memoryExpansionWords? frv.exec.activeWords (0 : Word) 32 = some wms
+              ∧ memExpansionChargeOf (pushFrameW frv (0 : Word) 32).exec wms
+                  ≤ (pushFrameW frv (0 : Word) 32).exec.gasAvailable.toNat
+              ∧ GasConstants.Gverylow ≤ ((pushFrameW frv (0 : Word) 32).exec.gasAvailable
+                  - UInt64.ofNat (memExpansionChargeOf (pushFrameW frv (0 : Word) 32).exec wms)).toNat
+              ∧ 3 ≤ (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []).exec.gasAvailable.toNat
+              ∧ 3 ≤ (pushFrameW (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms [])
+                        (32 : Word) 32).exec.gasAvailable.toNat
               ∧ frv.kind = .call cp
               ∧ ¬ (frv.exec.accounts == ∅) = true)) :
     SimTermStep prog sloadChg obs self L b := by
@@ -647,8 +660,11 @@ theorem simTermStep_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
   · -- halt arm: only the `ret` disjunct fires (the `stop` one contradicts `hterm`).
     intro st' frT hcorr _hdisj
     obtain ⟨hself, ⟨vw, hv⟩, hgas, hstk, hret⟩ := hties st' frT hcorr
-    exact sim_term_halt_ret_lowered hb hcorr hterm hself hv
-      (hwf.matFueled_ret L b t hb hterm) (hwf.bound_ret L b t hb hterm) hgas hstk (hret vw hv)
+    -- `sim_term_halt_ret_lowered` proves both channels; `SimTermStep.halt` forwards the world one.
+    obtain ⟨last, haltSig, hruns, hstep, hworld, _hresult⟩ :=
+      sim_term_halt_ret_lowered hb hcorr hterm hself hv
+        (hwf.matFueled_ret L b t hb hterm) (hwf.bound_ret L b t hb hterm) hgas hstk (hret vw hv)
+    exact ⟨last, haltSig, hruns, hstep, hworld⟩
   · -- edge arm: vacuous (b.term = .ret t contradicts every jump/branch disjunct).
     intro st' frT succ hcorr hdisj
     rw [hterm] at hdisj
@@ -843,15 +859,28 @@ theorem simTermStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
               frv.exec.executionEnv.address = frT.exec.executionEnv.address →
               (∀ k, selfStorage frv k = selfStorage frT k) →
               frv.exec.stack = vw :: frT.exec.stack →
-              ∃ cp,
+              ∃ cp wms,
                 decode frv.exec.executionEnv.code frv.exec.pc
                     = some (.Push .PUSH32, some ((0 : Word), 32))
                 ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33)
+                    = some (.Smsf .MSTORE, .none)
+                ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33 + 1)
+                    = some (.Push .PUSH32, some ((32 : Word), 32))
+                ∧ decode frv.exec.executionEnv.code
+                      (frv.exec.pc + UInt32.ofNat 33 + 1 + UInt32.ofNat 33)
                     = some (.Push .PUSH32, some ((0 : Word), 32))
-                ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33 + UInt32.ofNat 33)
+                ∧ decode frv.exec.executionEnv.code
+                      (frv.exec.pc + UInt32.ofNat 33 + 1 + UInt32.ofNat 33 + UInt32.ofNat 33)
                     = some (.System .RETURN, .none)
                 ∧ 3 ≤ frv.exec.gasAvailable.toNat
-                ∧ 3 ≤ (pushFrameW frv (0 : Word) 32).exec.gasAvailable.toNat
+                ∧ memoryExpansionWords? frv.exec.activeWords (0 : Word) 32 = some wms
+                ∧ memExpansionChargeOf (pushFrameW frv (0 : Word) 32).exec wms
+                    ≤ (pushFrameW frv (0 : Word) 32).exec.gasAvailable.toNat
+                ∧ GasConstants.Gverylow ≤ ((pushFrameW frv (0 : Word) 32).exec.gasAvailable
+                    - UInt64.ofNat (memExpansionChargeOf (pushFrameW frv (0 : Word) 32).exec wms)).toNat
+                ∧ 3 ≤ (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []).exec.gasAvailable.toNat
+                ∧ 3 ≤ (pushFrameW (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms [])
+                          (32 : Word) 32).exec.gasAvailable.toNat
                 ∧ frv.kind = .call cp
                 ∧ ¬ (frv.exec.accounts == ∅) = true))
     (hjump : ∀ dst bdst, b.term = .jump dst →

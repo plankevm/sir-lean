@@ -211,10 +211,12 @@ theorem ret_sub_value (prog : Program) (t : Tmp) :
         = (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp t))[j]? := by
   intro j hj
   show ((materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp t))
-          ++ emitImm 0 ++ emitImm 0 ++ [Byte.ret])[0 + j]? = _
+          ++ emitImm 0 ++ [Byte.mstore] ++ emitImm 32 ++ emitImm 0 ++ [Byte.ret])[0 + j]? = _
   rw [Nat.zero_add]
-  rw [List.getElem?_append_left (by rw [List.length_append, List.length_append]; omega),
-      List.getElem?_append_left (by rw [List.length_append]; omega),
+  rw [List.getElem?_append_left (by simp only [List.length_append]; omega),
+      List.getElem?_append_left (by simp only [List.length_append]; omega),
+      List.getElem?_append_left (by simp only [List.length_append]; omega),
+      List.getElem?_append_left (by simp only [List.length_append]; omega),
       List.getElem?_append_left hj]
 
 /-- **`ret` arm — `MatDec` decode discharged.** `sim_term_halt_ret` with its carried `hdv`
@@ -243,19 +245,32 @@ theorem sim_term_halt_ret_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs
         frv.exec.executionEnv.address = fr.exec.executionEnv.address →
         (∀ k, selfStorage frv k = selfStorage fr k) →
         frv.exec.stack = vw :: fr.exec.stack →
-        ∃ cp,
+        ∃ cp wms,
           decode frv.exec.executionEnv.code frv.exec.pc
               = some (.Push .PUSH32, some ((0 : Word), 32))
           ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33)
+              = some (.Smsf .MSTORE, .none)
+          ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33 + 1)
+              = some (.Push .PUSH32, some ((32 : Word), 32))
+          ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33 + 1 + UInt32.ofNat 33)
               = some (.Push .PUSH32, some ((0 : Word), 32))
-          ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33 + UInt32.ofNat 33)
+          ∧ decode frv.exec.executionEnv.code
+                (frv.exec.pc + UInt32.ofNat 33 + 1 + UInt32.ofNat 33 + UInt32.ofNat 33)
               = some (.System .RETURN, .none)
           ∧ 3 ≤ frv.exec.gasAvailable.toNat
-          ∧ 3 ≤ (pushFrameW frv (0 : Word) 32).exec.gasAvailable.toNat
+          ∧ memoryExpansionWords? frv.exec.activeWords (0 : Word) 32 = some wms
+          ∧ memExpansionChargeOf (pushFrameW frv (0 : Word) 32).exec wms
+              ≤ (pushFrameW frv (0 : Word) 32).exec.gasAvailable.toNat
+          ∧ GasConstants.Gverylow ≤ ((pushFrameW frv (0 : Word) 32).exec.gasAvailable
+              - UInt64.ofNat (memExpansionChargeOf (pushFrameW frv (0 : Word) 32).exec wms)).toNat
+          ∧ 3 ≤ (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []).exec.gasAvailable.toNat
+          ∧ 3 ≤ (pushFrameW (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms [])
+                    (32 : Word) 32).exec.gasAvailable.toNat
           ∧ frv.kind = .call cp
           ∧ ¬ (frv.exec.accounts == ∅) = true) :
     ∃ last halt, Runs fr last ∧ stepFrame last = .halted halt
-      ∧ (observe self (endFrame last halt)).world = st.world := by
+      ∧ (observe self (endFrame last halt)).world = st.world
+      ∧ (observe self (endFrame last halt)).result = .returned vw := by
   -- the `hdv` MatDec, discharged at the terminator cursor (`termOf = pcOf … b.stmts.length`).
   have hdv : MatDec fr.exec.executionEnv.code (defsOf prog) sloadChg (recomputeFuel prog)
       fr.exec.pc (.tmp t) := by
@@ -266,7 +281,7 @@ theorem sim_term_halt_ret_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs
               (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks) b.term).length := by
       rw [hterm]
       show _ ≤ ((materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp t))
-                  ++ emitImm 0 ++ emitImm 0 ++ [Byte.ret]).length
+                  ++ emitImm 0 ++ [Byte.mstore] ++ emitImm 32 ++ emitImm 0 ++ [Byte.ret]).length
       simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil]
       omega
     exact matDec_of_term prog sloadChg L b 0 (.tmp t) hb

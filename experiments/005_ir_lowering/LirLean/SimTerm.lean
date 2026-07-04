@@ -2,6 +2,8 @@ import LirLean.SimStmts
 import LirLean.JumpValid
 import LirLean.DecodeAnchors
 import LirLean.RecorderLemmas
+import LirLean.StashTail
+import LirLean.Engine.MemAlgebra
 
 /-!
 # LirLean — `sim_term` (Layer **E** of the general `lower_conforms` grind)
@@ -47,13 +49,14 @@ the per-statement layers take their `hself`/decode bundles.
 
 ## Scope — `ret`/`branch` stack-shape + destination resolution as structured hypotheses
 
-* **`ret t`** — the lowering is `materialise t ++ PUSH32 0 ++ PUSH32 0 ++ [RETURN]`
-  (`emitTerm`): `materialise t` leaves `vw`, then the two `PUSH32 0` push the `offset = 0` /
-  `size = 0` window the empty-window halt brick (`halt_ret`/`stepFrame_return_empty`) consumes
-  (`0 :: 0 :: rest`). The `ret` arm runs those two pushes ITSELF (via `sim_imm`), so the former
-  supplied empty-window stack hypothesis is now **discharged internally** — only the two PUSH32
-  0 + RETURN decode/gas envelopes and the top-level-frame facts remain as the structured `hret`
-  bundle (the §7 supplied observation), exactly where the concrete program pins them.
+* **`ret t`** — the lowering is `materialise t ++ PUSH32 0 ++ MSTORE ++ PUSH32 32 ++ PUSH32 0
+  ++ [RETURN]` (`emitTerm`): `materialise t` leaves `vw`; `PUSH32 0; MSTORE` stashes `vw` to
+  `mem[0]`; `PUSH32 32; PUSH32 0; RETURN` returns that 32-byte window (`vw`'s big-endian bytes,
+  the halt brick `stepFrame_return_word` consumes). The `ret` arm runs the whole epilogue ITSELF
+  (via `sim_imm` / `runs_mstore`), so both the world AND the returned-value channels are proven:
+  `observe`'s result decodes the window back to `.returned vw`. Only the epilogue decode/gas
+  envelopes (incl. the MSTORE memory witness) and the top-level-frame facts remain as the
+  structured `hret` bundle (the §7 supplied observation), where the concrete program pins them.
 * **`jump`/`branch`** — the JUMP/JUMPI destination must resolve (`fr.get_dest dest = some
   new_pc`). E3 (`block_offset_validJump`) gives `UInt32.ofNat (offsetTable … dst.idx) ∈
   validJumpDests (lower prog) 0`; tying that to `fr.get_dest dest` needs the frame's
@@ -74,6 +77,7 @@ open GasConstants
 open BytecodeLayer.Hoare
 open BytecodeLayer.Dispatch
 open Lir.V2
+open LirLean.MemAlgebra
 
 /-! ## The terminator cursor = the offset-table terminator anchor -/
 
@@ -100,7 +104,7 @@ accounts), taken as structured hypotheses. -/
 hexec output` where the halt exec's committed accounts equal the frame's own non-empty
 accounts (`hacc_eq`), the `observe` world of the finished result is the frame's storage lens
 `storageAt fr self`. (`stop` halts with `hexec = fr.exec` directly; `ret` halts with `hexec =
-returnEmptyPost fr.exec rest`, which leaves `accounts` untouched — the `hacc_eq` is `rfl` in
+returnWordPost fr.exec rest`, which leaves `accounts` untouched — the `hacc_eq` is `rfl` in
 both.) -/
 theorem resultStorageAt_endFrame_success (fr : Frame) (hexec : Evm.ExecutionState)
     (output : ByteArray) (self : AccountAddress) (key : Word) (cp : Evm.Checkpoint)
@@ -125,6 +129,17 @@ theorem resultStorageAt_endFrame_success (fr : Frame) (hexec : Evm.ExecutionStat
       = fr.exec.accounts
     rw [hne', if_neg (by simp), hacc_eq]
   rw [hacc]
+
+/-- **The result-channel bridge.** For a `.call`-kind frame `fr` halting `.success hexec
+output`, the finished result's `output` is exactly the halt's `output` (`endCall`'s
+`.success` branch keeps it unconditionally). This is the return-data half of `observe`:
+`STOP` / empty-`RETURN` gives `.empty`; a word-`RETURN` gives the 32-byte window. -/
+theorem resultOutput_endFrame_success (fr : Frame) (hexec : Evm.ExecutionState)
+    (output : ByteArray) (cp : Evm.Checkpoint) (hkind : fr.kind = .call cp) :
+    (endFrame fr (.success hexec output)).toCallResult.output = output := by
+  unfold Evm.endFrame
+  rw [hkind]
+  rfl
 
 /-! ## Frame-accessor reductions for the control-flow post-frames
 
@@ -257,38 +272,41 @@ theorem sim_term_halt_stop {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word
       ∧ (observe self (endFrame last halt)).world = st.world
       ∧ (observe self (endFrame last halt)).result = .stopped := by
   refine ⟨fr, .success fr.exec .empty, Runs.refl fr,
-    halt_stop fr hdec (by rw [hcorr.stack_nil]; show (0 : ℕ) ≤ 1024; omega), ?_, rfl⟩
-  -- world channel: observe's world is the frame's storage lens = st.world.
-  funext key
-  show (observe self (endFrame fr (.success fr.exec .empty))).world key = st.world key
-  show resultStorageAt (endFrame fr (.success fr.exec .empty)) self key = st.world key
-  rw [resultStorageAt_endFrame_success fr fr.exec .empty self key cp hkind rfl hne]
-  -- storageAt fr self = selfStorage fr (self = fr's own address) = st.world (StorageAgree).
-  rw [hself]
-  show selfStorage fr key = st.world key
-  exact hcorr.storage key
+    halt_stop fr hdec (by rw [hcorr.stack_nil]; show (0 : ℕ) ≤ 1024; omega), ?_, ?_⟩
+  · -- world channel: observe's world is the frame's storage lens = st.world.
+    funext key
+    show (observe self (endFrame fr (.success fr.exec .empty))).world key = st.world key
+    show resultStorageAt (endFrame fr (.success fr.exec .empty)) self key = st.world key
+    rw [resultStorageAt_endFrame_success fr fr.exec .empty self key cp hkind rfl hne]
+    -- storageAt fr self = selfStorage fr (self = fr's own address) = st.world (StorageAgree).
+    rw [hself]
+    show selfStorage fr key = st.world key
+    exact hcorr.storage key
+  · -- result channel: the `STOP` output is `.empty`, so `observe`'s result is `.stopped`.
+    rw [observe_result, resultOutput_endFrame_success fr fr.exec .empty cp hkind]
+    rfl
 
-/-- **`sim_term_halt`, the `ret` arm (world channel only — value DEFERRED).** From `Corr` at
+/-- **`sim_term_halt`, the `ret` arm (FULL observable — world AND value).** From `Corr` at
 the terminator cursor `(L, b.stmts.length)` with `b.term = .ret t` and `st.locals t = some
-vw`, running the lowered `materialise t ++ PUSH32 0 ++ PUSH32 0 ++ RETURN` (B1
-`materialise_runs`, the genuine value run, followed by the two zero window operands) reaches a
-frame with the empty-window `0 :: 0 :: vw :: rest` stack and **halts** on `RETURN`. The
-`materialise t` leaves `vw`; the two `PUSH32 0` (run here via `sim_imm`, the B1 `.imm` leaf)
-push the `offset=0`/`size=0` window the `RETURN` consumes — so the former supplied empty-window
-stack hypothesis (`hretstk`) is now **discharged internally** (the lowering grew by `emitImm 0
-++ emitImm 0`, +66 bytes, and we run those two pushes ourselves). `RETURN(0,0)` returns the
-empty output and halts; the residual `vw` underneath is discarded with the frame.
+vw`, running the lowered `materialise t ++ PUSH32 0 ++ MSTORE ++ PUSH32 32 ++ PUSH32 0 ++
+RETURN` (B1 `materialise_runs` for the value, then the stash + return-window opcodes) reaches
+a frame that **halts** on `RETURN(0, 32)`. The `materialise t` leaves `vw`; `PUSH32 0; MSTORE`
+stashes `vw` to `mem[0]`; `PUSH32 32; PUSH32 0; RETURN` returns that 32-byte window.
 
-The `observe` **world** of the finished result is `st.world` (the storage lens, preserved
-across the materialise + two pushes by `MatRuns.storage` / `pushFrameW_selfStorage`, tied
-through `Corr`'s `StorageAgree`). The `result` is **NOT** asserted — `observe`'s result is
-`.stopped`, while the IR `RunFrom.ret` gives `.returned vw`; the RETURN value channel is a
-tracked follow-up (`Spec/Recorder.lean` `observe` doc).
+Both channels are established:
+* **world** — the finished result's self-storage lens is `st.world` (preserved across the
+  materialise, the two pushes, the MSTORE, and the two pushes by `pushFrameW_selfStorage` /
+  `mstoreFrame` accounts-invariance, tied through `Corr`'s `StorageAgree`);
+* **result** — the returned bytes are `mem[0..32) = vw.toByteArray`
+  (`readWithPadding_written_grow`), non-empty, so `observe`'s result decodes back to
+  `.returned vw` (`uInt256OfByteArray_toByteArray`). This is the genuine value channel: the
+  bytecode's halt result *matches* the IR `RunFrom.ret`'s `.returned vw`.
 
 The decode (`hdv`) / gas (`hgas`) / stack (`hstk`) bundle for the materialise is the per-leaf
-B1 interface (as in `sim_sstore_stmt`). The two PUSH32 0 + RETURN decode/gas envelopes and the
-top-level-frame `kind`/non-empty facts are the honest structured hypotheses (`hret`), supplied
-at the materialise endpoint `frv` — exactly where the concrete program pins them. -/
+B1 interface. The `PUSH32 0; MSTORE; PUSH32 32; PUSH32 0; RETURN` decode/gas envelopes (incl.
+the MSTORE memory-expansion witness `wms`) and the top-level-frame `kind`/non-empty facts are
+the honest structured hypotheses (`hret`), supplied at the materialise endpoint `frv` — exactly
+where the concrete program pins them. -/
 theorem sim_term_halt_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {st : V2.IRState} {t : Tmp} {vw : Word}
     {L : Label} {b : Block} {fr : Frame} {self : AccountAddress}
@@ -302,30 +320,45 @@ theorem sim_term_halt_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     (hgas : (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).sum
               ≤ fr.exec.gasAvailable.toNat)
     (hstk : (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).length ≤ 1024)
-    -- RETURN-site structured hypotheses on the materialise endpoint `frv`: the two PUSH32 0
-    -- window operands decode/gas-cover, RETURN decodes after them, and the frame is a
-    -- top-level `.call` frame with non-empty committed accounts (the honest top-level facts).
+    -- RETURN-site structured hypotheses on the materialise endpoint `frv`: the stash
+    -- (`PUSH32 0; MSTORE`) + return-window (`PUSH32 32; PUSH32 0; RETURN`) opcodes
+    -- decode/gas-cover, and the frame is a top-level `.call` frame with non-empty accounts.
     (hret : ∀ frv : Frame, Runs fr frv →
         frv.exec.executionEnv.code = fr.exec.executionEnv.code →
         frv.exec.executionEnv.address = fr.exec.executionEnv.address →
         (∀ k, selfStorage frv k = selfStorage fr k) →
         frv.exec.stack = vw :: fr.exec.stack →
-        ∃ cp,
-          -- decode of the two zero window pushes and the RETURN that follows them:
+        ∃ cp wms,
+          -- decodes of the stash + return-window opcodes, at their exact frame pcs:
           decode frv.exec.executionEnv.code frv.exec.pc
               = some (.Push .PUSH32, some ((0 : Word), 32))
           ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33)
+              = some (.Smsf .MSTORE, .none)
+          ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33 + 1)
+              = some (.Push .PUSH32, some ((32 : Word), 32))
+          ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33 + 1 + UInt32.ofNat 33)
               = some (.Push .PUSH32, some ((0 : Word), 32))
-          ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33 + UInt32.ofNat 33)
+          ∧ decode frv.exec.executionEnv.code
+                (frv.exec.pc + UInt32.ofNat 33 + 1 + UInt32.ofNat 33 + UInt32.ofNat 33)
               = some (.System .RETURN, .none)
-          -- gas margins for the two PUSH32 0 (Gverylow each, via `sim_imm`'s `3 ≤ …`):
+          -- gas margin for the first `PUSH32 0`:
           ∧ 3 ≤ frv.exec.gasAvailable.toNat
-          ∧ 3 ≤ (pushFrameW frv (0 : Word) 32).exec.gasAvailable.toNat
-          -- top-level-frame facts at `frv` (transported across the two pushes by `pushFrameW`):
+          -- MSTORE(0, vw) memory-expansion witness + both charges (the value stash):
+          ∧ memoryExpansionWords? frv.exec.activeWords (0 : Word) 32 = some wms
+          ∧ memExpansionChargeOf (pushFrameW frv (0 : Word) 32).exec wms
+              ≤ (pushFrameW frv (0 : Word) 32).exec.gasAvailable.toNat
+          ∧ GasConstants.Gverylow ≤ ((pushFrameW frv (0 : Word) 32).exec.gasAvailable
+              - UInt64.ofNat (memExpansionChargeOf (pushFrameW frv (0 : Word) 32).exec wms)).toNat
+          -- gas margins for `PUSH32 32` (post-MSTORE) and the last `PUSH32 0`:
+          ∧ 3 ≤ (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []).exec.gasAvailable.toNat
+          ∧ 3 ≤ (pushFrameW (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms [])
+                    (32 : Word) 32).exec.gasAvailable.toNat
+          -- top-level-frame facts at `frv` (transported across the epilogue):
           ∧ frv.kind = .call cp
           ∧ ¬ (frv.exec.accounts == ∅) = true) :
     ∃ last halt, Runs fr last ∧ stepFrame last = .halted halt
-      ∧ (observe self (endFrame last halt)).world = st.world := by
+      ∧ (observe self (endFrame last halt)).world = st.world
+      ∧ (observe self (endFrame last halt)).result = .returned vw := by
   -- B1: run `materialise t`, reaching `frv` with `vw` pushed, storage lens preserved.
   have hevv : V2.evalExpr st obs (.tmp t) = some vw := hv
   have hszfr : fr.exec.stack.size = 0 := by rw [hcorr.stack_nil]; rfl
@@ -334,56 +367,106 @@ theorem sim_term_halt_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
   obtain ⟨frv, hmrv⟩ := materialise_runs sloadChg (recomputeFuel prog) st obs (.tmp t) vw fr
     hdv hcorr.defsSound hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
     hevv hgas hstkv
-  -- the RETURN-site facts at `frv` (the two PUSH32 0 decode/gas + top-level frame facts).
-  obtain ⟨cp, hd1, hd2, hdret, hg1, hg2, hkind, hne⟩ :=
+  obtain ⟨cp, wms, hd0, hdms, hd32, hd0', hdret, hg0, hmemms, hgasMem, hgasV, hg32, hg0'', hkind, hne⟩ :=
     hret frv hmrv.runs hmrv.code hmrv.addr hmrv.storage hmrv.stack
   -- stack at `frv` is `vw :: fr.stack = [vw]` (the boundary stack is empty).
   have hfrvstk : frv.exec.stack = vw :: ([] : Stack Word) := by
     rw [hmrv.stack, hcorr.stack_nil]; rfl
-  -- run the first PUSH32 0: stack `0 :: vw :: []`, pc `frv.pc + 33`.
+  -- (1) `PUSH32 0` → `f1` (stack `0 :: vw :: []`, pc `frv.pc + 33`).
   have hsz1 : frv.exec.stack.size + 1 ≤ 1024 := by rw [hfrvstk]; show (1 : ℕ) + 1 ≤ 1024; omega
-  obtain ⟨hr1, hs1⟩ := sim_imm frv (0 : Word) hd1 hg1 hsz1
+  obtain ⟨hr1, hs1⟩ := sim_imm frv (0 : Word) hd0 hg0 hsz1
   set f1 := pushFrameW frv (0 : Word) 32 with hf1
-  have hf1stk : f1.exec.stack = (0 : Word) :: vw :: ([] : Stack Word) := by
-    rw [hs1, hfrvstk]; rfl
-  have hf1pc : f1.exec.pc = frv.exec.pc + UInt32.ofNat 33 := by
-    rw [hf1, pushFrameW_pc, push32_pcΔ]
+  have hf1stk : f1.exec.stack = (0 : Word) :: vw :: ([] : Stack Word) := by rw [hs1, hfrvstk]; rfl
+  have hf1pc : f1.exec.pc = frv.exec.pc + UInt32.ofNat 33 := by rw [hf1, pushFrameW_pc, push32_pcΔ]
   have hf1code : f1.exec.executionEnv.code = frv.exec.executionEnv.code := rfl
-  -- run the second PUSH32 0: stack `0 :: 0 :: vw :: []`, pc `frv.pc + 33 + 33`.
-  have hd1' : decode f1.exec.executionEnv.code f1.exec.pc
-      = some (.Push .PUSH32, some ((0 : Word), 32)) := by rw [hf1code, hf1pc]; exact hd2
-  have hsz2 : f1.exec.stack.size + 1 ≤ 1024 := by rw [hf1stk]; show (2 : ℕ) + 1 ≤ 1024; omega
-  obtain ⟨hr2, hs2⟩ := sim_imm f1 (0 : Word) hd1' hg2 hsz2
-  set f2 := pushFrameW f1 (0 : Word) 32 with hf2
-  have hf2stk : f2.exec.stack = (0 : Word) :: (0 : Word) :: vw :: ([] : Stack Word) := by
-    rw [hs2, hf1stk]; rfl
-  have hf2pc : f2.exec.pc = frv.exec.pc + UInt32.ofNat 33 + UInt32.ofNat 33 := by
-    rw [hf2, pushFrameW_pc, push32_pcΔ, hf1pc]
+  have hf1active : f1.exec.activeWords = frv.exec.activeWords := rfl
+  -- (2) `MSTORE(0, vw)` → `fms` (memory holds `vw` at 0, stack `[]`, pc `frv.pc + 33 + 1`).
+  have hdms' : decode f1.exec.executionEnv.code f1.exec.pc = some (.Smsf .MSTORE, .none) := by
+    rw [hf1code, hf1pc]; exact hdms
+  have hf1sz : f1.exec.stack.size ≤ 1024 := by rw [hf1stk]; show (2 : ℕ) ≤ 1024; omega
+  have hmemms' : memoryExpansionWords? f1.exec.activeWords (0 : Word) 32 = some wms := by
+    rw [hf1active]; exact hmemms
+  have hr_ms := runs_mstore f1 (0 : Word) vw wms [] hdms' hf1stk hf1sz hmemms' hgasMem hgasV
+  set fms := mstoreFrame f1 (0 : Word) vw wms [] with hfms
+  have hfmscode : fms.exec.executionEnv.code = frv.exec.executionEnv.code := rfl
+  have hfmspc : fms.exec.pc = frv.exec.pc + UInt32.ofNat 33 + 1 := by rw [hfms, mstoreFrame_pc, hf1pc]
+  have hfmsstk : fms.exec.stack = ([] : Stack Word) := by rw [hfms, mstoreFrame_stack]
+  -- (3) `PUSH32 32` → `f2` (stack `32 :: []`, pc `frv.pc + 33 + 1 + 33`).
+  have hd32' : decode fms.exec.executionEnv.code fms.exec.pc
+      = some (.Push .PUSH32, some ((32 : Word), 32)) := by rw [hfmscode, hfmspc]; exact hd32
+  have hfmssz : fms.exec.stack.size + 1 ≤ 1024 := by rw [hfmsstk]; show (0 : ℕ) + 1 ≤ 1024; omega
+  obtain ⟨hr3, hs3⟩ := sim_imm fms (32 : Word) hd32' hg32 hfmssz
+  set f2 := pushFrameW fms (32 : Word) 32 with hf2
+  have hf2stk : f2.exec.stack = (32 : Word) :: ([] : Stack Word) := by rw [hs3, hfmsstk]; rfl
+  have hf2pc : f2.exec.pc = frv.exec.pc + UInt32.ofNat 33 + 1 + UInt32.ofNat 33 := by
+    rw [hf2, pushFrameW_pc, push32_pcΔ, hfmspc]
   have hf2code : f2.exec.executionEnv.code = frv.exec.executionEnv.code := rfl
-  -- RETURN at `f2`: the empty-window halt brick consumes `0 :: 0 :: [vw]`.
-  have hdret' : decode f2.exec.executionEnv.code f2.exec.pc
-      = some (.System .RETURN, .none) := by rw [hf2code, hf2pc]; exact hdret
-  have hf2sz : f2.exec.stack.size ≤ 1024 := by rw [hf2stk]; show (3 : ℕ) ≤ 1024; omega
-  have hhalt := halt_ret f2 (vw :: ([] : Stack Word)) hdret' hf2stk hf2sz
-  refine ⟨f2, _, ((hmrv.runs.trans hr1).trans hr2), hhalt, ?_⟩
-  -- top-level frame facts transport across the two pushes (`pushFrameW` keeps kind/accounts).
-  have hf2kind : f2.kind = .call cp := hkind
-  have hf2acc : ¬ (f2.exec.accounts == ∅) = true := hne
-  -- world channel: observe's world is `f2`'s storage lens = st.world.
-  funext key
-  show resultStorageAt (endFrame f2 (.success (returnEmptyPost f2.exec (vw :: []))
-        (f2.exec.memory.readWithPadding (0 : Word).toNat (0 : Word).toNat))) self key = st.world key
-  have hretacc : (returnEmptyPost f2.exec (vw :: ([] : Stack Word))).accounts = f2.exec.accounts := rfl
-  rw [resultStorageAt_endFrame_success f2 (returnEmptyPost f2.exec (vw :: []))
-        (f2.exec.memory.readWithPadding (0 : Word).toNat (0 : Word).toNat) self key cp
-        hf2kind hretacc hf2acc]
-  -- storageAt f2 self = selfStorage f2 = selfStorage frv = selfStorage fr = st.world.
-  have hf2addr : f2.exec.executionEnv.address = fr.exec.executionEnv.address := by
-    rw [hf2, pushFrameW_addr, hf1, pushFrameW_addr]; exact hmrv.addr
-  rw [hself, ← hf2addr]
-  show selfStorage f2 key = st.world key
-  rw [hf2, pushFrameW_selfStorage, hf1, pushFrameW_selfStorage, hmrv.storage key]
-  exact hcorr.storage key
+  -- (4) `PUSH32 0` → `f3` (stack `0 :: 32 :: []`, pc `frv.pc + 33 + 1 + 33 + 33`).
+  have hd0'' : decode f2.exec.executionEnv.code f2.exec.pc
+      = some (.Push .PUSH32, some ((0 : Word), 32)) := by rw [hf2code, hf2pc]; exact hd0'
+  have hf2sz : f2.exec.stack.size + 1 ≤ 1024 := by rw [hf2stk]; show (1 : ℕ) + 1 ≤ 1024; omega
+  obtain ⟨hr4, hs4⟩ := sim_imm f2 (0 : Word) hd0'' hg0'' hf2sz
+  set f3 := pushFrameW f2 (0 : Word) 32 with hf3
+  have hf3stk : f3.exec.stack = (0 : Word) :: (32 : Word) :: ([] : Stack Word) := by
+    rw [hs4, hf2stk]; rfl
+  have hf3pc : f3.exec.pc = frv.exec.pc + UInt32.ofNat 33 + 1 + UInt32.ofNat 33 + UInt32.ofNat 33 := by
+    rw [hf3, pushFrameW_pc, push32_pcΔ, hf2pc]
+  have hf3code : f3.exec.executionEnv.code = frv.exec.executionEnv.code := rfl
+  -- (5) `RETURN(0, 32)`: the `[0, 32)` window is already active (post-MSTORE), so zero charge.
+  have hdret' : decode f3.exec.executionEnv.code f3.exec.pc
+      = some (.System .RETURN, .none) := by rw [hf3code, hf3pc]; exact hdret
+  have hf3sz : f3.exec.stack.size ≤ 1024 := by rw [hf3stk]; show (2 : ℕ) ≤ 1024; omega
+  -- `f3.activeWords = M frv.activeWords 0 32` (the MSTORE bump, invariant across the pushes).
+  have hf3active : f3.exec.activeWords = MachineState.M frv.exec.activeWords 0 32 := by
+    have e1 : f3.exec.toMachineState.activeWords = fms.exec.toMachineState.activeWords := by
+      rw [hf3, pushFrameW_activeWords, hf2, pushFrameW_activeWords]
+    have e2 : fms.exec.toMachineState.activeWords = MachineState.M frv.exec.activeWords 0 32 := by
+      rw [hfms, mstoreFrame_activeWords_eq]
+      show MachineState.M f1.exec.toMachineState.activeWords (0 : Word).toUInt64 32
+            = MachineState.M frv.exec.activeWords 0 32
+      rw [show f1.exec.toMachineState.activeWords = frv.exec.activeWords from rfl,
+          show ((0 : Word).toUInt64 = (0 : UInt64)) from by decide]
+    show f3.exec.toMachineState.activeWords = _
+    rw [e1, e2]
+  have hmemret : memoryExpansionWords? f3.exec.activeWords (0 : Word) (32 : Word)
+      = some f3.exec.activeWords := by rw [hf3active]; exact memExpWords_zero32_covered _
+  have hhalt := stepFrame_return_word f3 ([] : Stack Word) hdret' hf3stk hf3sz hmemret
+  refine ⟨f3, _, ((((hmrv.runs.trans hr1).trans hr_ms).trans hr3).trans hr4), hhalt, ?_, ?_⟩
+  -- top-level frame facts transport across the epilogue (`pushFrameW`/`mstoreFrame` keep kind/accounts).
+  · -- world channel: observe's world is `f3`'s storage lens = st.world.
+    have hf3kind : f3.kind = .call cp := hkind
+    have hf3acc : ¬ (f3.exec.accounts == ∅) = true := hne
+    funext key
+    show resultStorageAt (endFrame f3 (.success (returnWordPost f3.exec [])
+          (f3.exec.memory.readWithPadding (0 : Word).toNat (32 : Word).toNat))) self key = st.world key
+    have hretacc : (returnWordPost f3.exec ([] : Stack Word)).accounts = f3.exec.accounts := rfl
+    rw [resultStorageAt_endFrame_success f3 (returnWordPost f3.exec [])
+          (f3.exec.memory.readWithPadding (0 : Word).toNat (32 : Word).toNat) self key cp
+          hf3kind hretacc hf3acc]
+    have hf3addr : f3.exec.executionEnv.address = fr.exec.executionEnv.address := by
+      rw [hf3, pushFrameW_addr, hf2, pushFrameW_addr, hfms, mstoreFrame_addr, hf1, pushFrameW_addr]
+      exact hmrv.addr
+    rw [hself, ← hf3addr]
+    show selfStorage f3 key = st.world key
+    rw [hf3, pushFrameW_selfStorage, hf2, pushFrameW_selfStorage]
+    rw [show selfStorage fms key = selfStorage f1 key from rfl]
+    rw [hf1, pushFrameW_selfStorage, hmrv.storage key]
+    exact hcorr.storage key
+  · -- result channel: the returned window is `vw.toByteArray`, decoding back to `.returned vw`.
+    have hf3kind : f3.kind = .call cp := hkind
+    have houtput : f3.exec.memory.readWithPadding (0 : Word).toNat (32 : Word).toNat = vw.toByteArray := by
+      have hmem3 : f3.exec.toMachineState.memory = (f1.exec.toMachineState.writeWord (0 : Word) vw).memory := by
+        rw [hf3, pushFrameW_memory, hf2, pushFrameW_memory, hfms, mstoreFrame_memBytes_eq]; rfl
+      rw [show f3.exec.memory = f3.exec.toMachineState.memory from rfl, hmem3,
+          show ((32 : Word).toNat = 32) from by decide]
+      exact readWithPadding_written_grow f1.exec.toMachineState (0 : Word) vw
+        (by rw [show ((0 : Word).toNat = 0) from by decide]; positivity)
+    have hne_empty : vw.toByteArray.isEmpty = false := by
+      have hsz : vw.toByteArray.size = 32 := toByteArray_size vw
+      simp [ByteArray.isEmpty, hsz]
+    rw [observe_result, resultOutput_endFrame_success f3 (returnWordPost f3.exec [])
+          (f3.exec.memory.readWithPadding (0 : Word).toNat (32 : Word).toNat) cp hf3kind, houtput,
+        hne_empty, if_neg (by simp), uInt256OfByteArray_toByteArray]
 
 /-! ## E2 — `sim_term_edge` (the control-flow terminators `jump` / `branch`)
 

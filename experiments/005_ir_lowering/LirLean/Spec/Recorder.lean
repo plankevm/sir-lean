@@ -312,15 +312,15 @@ The conformance diagram's last edge: a function mapping the **bytecode** result 
   committed `accounts` (`fr.toCallResult.accounts`) at the self address — the
   `FrameResult` analogue of `Match.storageAt`.
 * `result` — the halt. The IR's `IRHalt` is `stopped`/`returned (w : Word)`; revert
-  is out of v2 scope (`Machine.lean`, `IRHalt` doc) and a successful frame's RETURN
-  output is a memory *byte window* (`endCall`'s `output : ByteArray`), not a `Word`,
-  so it does **not** reconstruct the IR's value-as-word `returned w` faithfully
-  (value-free scope, §6/§7). **Restriction (reported):** `observe` maps the result to
-  `.stopped` (the value-free success boundary); the faithful `output → Word` for
-  `returned` is deferred with the rest of the value channel. The `result` field of
-  `observe` is therefore **not** exercised by the worked-call corollary below, which
-  bridges the *world* component (the IR observable the realised oracle actually
-  determines). -/
+  is out of v2 scope (`Machine.lean`, `IRHalt` doc). This channel is now **live**: it
+  reads the finished frame's RETURN output (`fr.toCallResult.output : ByteArray`) — the
+  faithful inverse of the `ret` lowering, which stashes the returned word to `mem[0]`
+  and `RETURN(0, 32)`s it (`emitTerm .ret`). An **empty** output is the `STOP` /
+  empty-`RETURN` success boundary (`.stopped`); a **non-empty** output is a genuine
+  `RETURN t`, decoded big-endian back to the returned word (`uInt256OfByteArray`,
+  round-tripping the 32-byte window — `MemAlgebra.uInt256OfByteArray_toByteArray`). Revert
+  is out of clean scope, so the `.returned` branch is only reached for genuine RETURN
+  frames. -/
 
 /-- The self account's storage at `key` read off a finished `FrameResult`, through
 exp003's observable `find?/lookupStorage` lens — the `FrameResult` analogue of
@@ -333,12 +333,21 @@ def resultStorageAt (fr : FrameResult) (addr : AccountAddress) (key : Word) : Wo
 /-- **The `observe` bridge** (`docs/ir-design-v3.md` §8): map a bytecode `FrameResult`
 to the IR's `V2.Observable`, at self address `self`. The `world` is the self-account
 storage lens on the result's committed `accounts` (the same lens the rest of v2 uses —
-`Match.storageAt` / `evmCallOracle.postStorage`); the `result` is the value-free
-success boundary `.stopped` (see the restriction note above — the faithful RETURN
-`output → Word` for `.returned` is deferred with the value channel). -/
+`Match.storageAt` / `evmCallOracle.postStorage`); the `result` reads the finished frame's
+RETURN output (`fr.toCallResult.output`) — empty ⇒ `.stopped`, else the 32-byte window
+decoded big-endian to the returned word (`.returned (uInt256OfByteArray output)`), the
+faithful inverse of the `ret` lowering. -/
 def observe (self : AccountAddress) (fr : FrameResult) : Observable :=
   { world  := fun key => resultStorageAt fr self key
-    result := .stopped }
+    result := let out := fr.toCallResult.output
+              if out.isEmpty then .stopped else .returned (uInt256OfByteArray out) }
+
+/-- `observe`'s result channel, unfolded: empty output ⇒ `.stopped`, else the returned
+window decoded big-endian. -/
+theorem observe_result (self : AccountAddress) (fr : FrameResult) :
+    (observe self fr).result =
+      (if fr.toCallResult.output.isEmpty then .stopped
+        else .returned (uInt256OfByteArray fr.toCallResult.output)) := rfl
 
 /-! The `workedCall` instance of the `observe`-bridged conformance (`wcRunLog`,
 `realisedCall_wcRunLog`, `wc_observe_conforms`) is a *leaf example* — it couples

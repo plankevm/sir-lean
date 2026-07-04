@@ -299,9 +299,12 @@ theorem segAlignedSafe_emitTerm (defs : Tmp → Option Expr) (fuel : Nat) (label
   cases t with
   | ret tt =>
       rw [show emitTerm defs fuel labelOff (.ret tt)
-            = materialise defs fuel tt ++ emitImm 0 ++ emitImm 0 ++ [Byte.ret] from rfl]
-      exact (((segAlignedSafe_materialise defs fuel tt).append
-              (segAlignedSafe_emitImm 0)).append (segAlignedSafe_emitImm 0)).append
+            = materialise defs fuel tt ++ emitImm 0 ++ [Byte.mstore] ++ emitImm 32
+                ++ emitImm 0 ++ [Byte.ret] from rfl]
+      exact (((((segAlignedSafe_materialise defs fuel tt).append
+              (segAlignedSafe_emitImm 0)).append
+              (SegAlignedSafe.nonpush Byte.mstore (by decide) (by decide))).append
+              (segAlignedSafe_emitImm 32)).append (segAlignedSafe_emitImm 0)).append
             (SegAlignedSafe.nonpush Byte.ret (by decide) (by decide))
   | stop =>
       rw [show emitTerm defs fuel labelOff .stop = [Byte.stop] from rfl]

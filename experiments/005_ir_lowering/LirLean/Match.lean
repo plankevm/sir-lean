@@ -371,16 +371,97 @@ theorem halt_stop (fr : Frame)
     stepFrame fr = .halted (.success fr.exec .empty) :=
   stepFrame_stop fr hdec hstk
 
-/-- **`Term.ret` halt** (empty return window — the C3 `RETURN` shape: the lowering
-pushes `0 0` for `offset`/`size`). A frame decoding to `RETURN` with `0 :: 0 ::
-rest` halts successfully — the `hhalt` the bridge consumes for `IRHalt.returned`. -/
-theorem halt_ret (fr : Frame) (rest : Stack Word)
+/-! ### The RETURN-word halt (the full-observable `ret` shape)
+
+The full-observable `ret` lowering (`emitTerm .ret`) is `materialise t ++ PUSH32 0 ++
+MSTORE ++ PUSH32 32 ++ PUSH32 0 ++ RETURN`: it stashes the returned word `vw` to
+`mem[0]` then `RETURN(0, 32)` returns that 32-byte window (`vw`'s big-endian bytes).
+The halt brick therefore returns a **non-empty** 32-byte output — the return-data
+observable `observe` reads back as `returned vw`. -/
+
+/-- The execution state RETURN(0, 32) leaves before halting **when offset `0` / size `32`
+is already covered by `activeWords`** (the post-`MSTORE(0, …)` shape): the memory charge is
+`Cₘ activeWords - Cₘ activeWords = 0` (a no-op on gas), the `activeWords` bump `M _ 0 32`,
+and the popped stack. The size-32 analogue of `returnEmptyPost`; its `.accounts` are
+`exec.accounts` by `rfl`. -/
+def returnWordPost (exec : ExecutionState) (rest : Stack Word) : ExecutionState :=
+  let charged : ExecutionState := { exec with gasAvailable := exec.gasAvailable - UInt64.ofNat 0 }
+  ExecutionState.replaceStackAndIncrPC
+    { charged with
+        toMachineState :=
+          { charged.toMachineState with
+              activeWords := MachineState.M charged.activeWords (0 : Word).toUInt64 (32 : Word).toUInt64 } }
+    rest
+
+/-- **`Term.ret` halt (word return window).** A frame decoding to `RETURN` with
+`0 :: 32 :: rest` on the stack and offset `0`/size `32` **already covered** by
+`activeWords` (`hmem`: `memoryExpansionWords? activeWords 0 32 = some activeWords`, so the
+memory charge is `0` — the post-`MSTORE(0,…)` shape) halts successfully, returning the
+32-byte window `memory.readWithPadding 0 32`. This is the `hhalt` the bridge consumes for
+`IRHalt.returned vw`; the returned bytes are `vw`'s (`readWithPadding_written_grow`). The
+size-32 analogue of `stepFrame_return_empty`. -/
+theorem stepFrame_return_word (fr : Frame) (rest : Stack Word)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.System .RETURN, .none))
-    (hstk : fr.exec.stack = (0 : Word) :: (0 : Word) :: rest)
-    (hsz : fr.exec.stack.size ≤ 1024) :
-    stepFrame fr = .halted (.success (returnEmptyPost fr.exec rest)
-      (fr.exec.memory.readWithPadding (0 : Word).toNat (0 : Word).toNat)) :=
-  stepFrame_return_empty fr rest hdec hstk hsz
+    (hstk : fr.exec.stack = (0 : Word) :: (32 : Word) :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hmem : memoryExpansionWords? fr.exec.activeWords (0 : Word) (32 : Word)
+              = some fr.exec.activeWords) :
+    stepFrame fr = .halted (.success (returnWordPost fr.exec rest)
+      (fr.exec.memory.readWithPadding (0 : Word).toNat (32 : Word).toNat)) := by
+  unfold stepFrame
+  simp only [hdec]
+  dsimp only [Option.getD]
+  rw [if_neg (by decide)]
+  have hov : ¬ (fr.exec.stack.size - stackPopCount (.System .RETURN)
+      + stackPushCount (.System .RETURN) > 1024) := by
+    simp only [show stackPopCount (.System .RETURN) = 2 from rfl,
+               show stackPushCount (.System .RETURN) = 0 from rfl]
+    have := hsz; omega
+  rw [if_neg hov]
+  dsimp only [dispatch, systemOp, haltOp, returnOrRevertOp]
+  rw [hstk]
+  dsimp only [Stack.pop2, liftM, monadLift, MonadLift.monadLift, Option.option, bind,
+    Except.bind, pure, Except.pure]
+  dsimp only [chargeMemExpansion]
+  rw [hmem]
+  dsimp only []
+  rw [Nat.sub_self]
+  unfold charge
+  rw [if_neg (by simp)]
+  dsimp only [bind, Except.bind, pure, Except.pure]
+  rw [if_neg (by decide)]
+  dsimp only [returnWordPost]
+
+/-! ### `activeWords` evaluation helpers for the RETURN-window coverage `hmem`
+
+At the RETURN frame the lowering has just executed `MSTORE(0, vw)`, so `activeWords`
+is `M A 0 32` (the `mstore` bump). `RETURN(0, 32)`'s coverage witness therefore needs
+`memoryExpansionWords? (M A 0 32) 0 32 = some (M A 0 32)` — the size-32 memory access at
+offset 0 is a no-op because the window is already active (`M`-idempotence). -/
+
+/-- `M · 0 32` is idempotent (both fold `x ↦ max x 1`). -/
+theorem M_zero32_idem (a : UInt64) :
+    MachineState.M (MachineState.M a 0 32) 0 32 = MachineState.M a 0 32 := by
+  have h : ∀ b : UInt64, MachineState.M b 0 32 = max b 1 := fun b => rfl
+  rw [h a, h (max a 1)]
+  simp only [UInt64.max_def]
+  by_cases hc : a ≤ 1 <;> simp [hc]
+
+/-- **`memoryExpansionWords?` at an already-active `[0, 32)` window is a no-op.** For
+`activeWords = M a 0 32` (the post-`MSTORE(0,…)` shape), the size-32 access at offset 0
+expands to the same `activeWords` (`M`-idempotence) — the zero-charge coverage witness
+`stepFrame_return_word` consumes. -/
+theorem memExpWords_zero32_covered (a : UInt64) :
+    memoryExpansionWords? (MachineState.M a 0 32) (0 : Word) (32 : Word)
+      = some (MachineState.M a 0 32) := by
+  unfold memoryExpansionWords?
+  rw [if_neg (by decide)]
+  dsimp only [bind, Option.bind]
+  rw [show ((0 : Word).toUInt64? = some 0) from by decide,
+      show ((32 : Word).toUInt64? = some 32) from by decide]
+  dsimp only []
+  rw [if_neg (by decide)]
+  rw [M_zero32_idem]
 
 /-! ## `Stmt.call` simulation (the `Runs.call` node)
 
@@ -457,7 +538,7 @@ that consumes A's `messageCall_runs`, specialised to the two IR terminators.
 
 `lower_preserves_discharge` is the construct-agnostic bridge; `lower_preserves_stop`
 / `lower_preserves_ret` are the two terminator instances, supplying the halt from
-`halt_stop` / `halt_ret`. The single-call worked program assembles its `Runs` and
+`halt_stop` / `stepFrame_return_word`. The single-call worked program assembles its `Runs` and
 applies the matching one. -/
 
 /-- **The boundary discharge.** A top-level call entering the lowered code as code
@@ -488,21 +569,25 @@ theorem lower_preserves_stop (prog : Program) (p : CallParams) {fr₀ last : Fra
       (endFrame last (.success last.exec .empty))) :=
   lower_preserves_discharge prog p hbegin hcode hruns (halt_stop last hdec hstk)
 
-/-- **`Term.ret` preservation** (empty return window). When the assembled `Runs`
-lands on a `RETURN` frame `last` with `0 :: 0 :: rest` (`IRHalt.returned`), the
-discharge pins `messageCall` to `last`'s success `endFrame`. The halt is `halt_ret`. -/
+/-- **`Term.ret` preservation** (word return window). When the assembled `Runs`
+lands on a `RETURN` frame `last` with `0 :: 32 :: rest` and the `[0, 32)` window already
+active (`hmem`, the post-`MSTORE(0,…)` shape — `IRHalt.returned`), the discharge pins
+`messageCall` to `last`'s success `endFrame`, returning the 32-byte window. The halt is
+`stepFrame_return_word`. -/
 theorem lower_preserves_ret (prog : Program) (p : CallParams) {fr₀ last : Frame}
     (rest : Stack Word)
     (hbegin : EntersAsCode p fr₀)
     (hcode  : fr₀.exec.executionEnv.code = lower prog)
     (hruns  : Runs fr₀ last)
     (hdec   : decode last.exec.executionEnv.code last.exec.pc = some (.System .RETURN, .none))
-    (hstk   : last.exec.stack = (0 : Word) :: (0 : Word) :: rest)
-    (hsz    : last.exec.stack.size ≤ 1024) :
+    (hstk   : last.exec.stack = (0 : Word) :: (32 : Word) :: rest)
+    (hsz    : last.exec.stack.size ≤ 1024)
+    (hmem   : memoryExpansionWords? last.exec.activeWords (0 : Word) (32 : Word)
+                = some last.exec.activeWords) :
     messageCall p = .ok (FrameResult.toCallResult
-      (endFrame last (.success (returnEmptyPost last.exec rest)
-        (last.exec.memory.readWithPadding (0 : Word).toNat (0 : Word).toNat)))) :=
-  lower_preserves_discharge prog p hbegin hcode hruns (halt_ret last rest hdec hstk hsz)
+      (endFrame last (.success (returnWordPost last.exec rest)
+        (last.exec.memory.readWithPadding (0 : Word).toNat (32 : Word).toNat)))) :=
+  lower_preserves_discharge prog p hbegin hcode hruns (stepFrame_return_word last rest hdec hstk hsz hmem)
 
 end Lir
 
