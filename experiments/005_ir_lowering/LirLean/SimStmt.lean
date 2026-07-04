@@ -50,7 +50,7 @@ The bundle is *re-establishable at `pc+1`*: each arm shows the post-frame satisf
   survives the write by **B3** `defsSound_preserved_sstore`.
 * **`call cs`** — lowered `5×(PUSH 0) ++ materialise callee ++ materialise gasFwd ++
   [CALL]` → a `Runs.call` node (`sim_call`) carrying a `CallReturns` witness; the IR
-  `EvalStmt.call` applies the oracle bundle, tied to the `CallReturns` via
+  `EvalStmt.call` pops the call-stream head, tied to the `CallReturns` via
   `callRealises_bridge`. `DefsSound` survives by **B3** `defsSound_preserved_call`.
 
 No `sorry`, no `axiom`, no `native_decide`. Bytecode-coupled (imports `Match.lean` via
@@ -198,13 +198,13 @@ scoping (`StepScoped`) and the post-state realisability ties.
 The spilled (gas) arm — `defsOf prog t = some (.slot n)`, which emits the `[GAS] ++ PUSH n
 ++ MSTORE` stash — is `sim_assign_gas` below. -/
 theorem sim_assign {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {o : V2.CallOracle} {st st' : V2.IRState} {T T' : Trace} {t : Tmp} {e : Expr}
+    {st st' : V2.IRState} {T T' : Trace} {C C' : CallStream} {t : Tmp} {e : Expr}
     {L : Label} {b : Block} {pc : Nat} {fr : Frame}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some (.assign t e))
     (hremat : ∀ n, defsOf prog t ≠ some (.slot n))
     (hcorr : Corr prog sloadChg obs st fr L pc)
-    (hstep : EvalStmt prog o st T (.assign t e) st' T')
+    (hstep : EvalStmt prog st T C (.assign t e) st' T' C')
     (hsc : StepScoped prog st (.assign t e))
     (hscoped' : ∀ t, st'.locals t ≠ none →
       (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.slot slot))
@@ -369,7 +369,7 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     (hstk : (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp value)).length
               + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).length
               + 1 ≤ 1024)
-    (hsstore : SstoreRealises fr kw vw acc) (hnz : vw ≠ 0) :
+    (hsstore : SstoreRealises fr kw vw acc) :
     ∃ fr', Runs fr fr'
       ∧ Corr prog sloadChg obs (st.setStorage kw vw) fr' L (pc + 1)
       ∧ fr'.exec.stack = [] := by
@@ -435,7 +435,7 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     rw [hmrk.canMod, hmrv.canMod]; exact hcorr.can_modify
   obtain ⟨hstip, hcost, hself⟩ := hsstore frk hkaddr hkstk
   obtain ⟨hsrun, hswrite, hsframe⟩ :=
-    sim_sstore frk kw vw [] acc hkdec hkstk hksz hkmod hstip hcost hself hnz
+    sim_sstore frk kw vw [] acc hkdec hkstk hksz hkmod hstip hcost hself
   -- assemble the Runs and re-establish Corr
   refine ⟨sstoreFrame frk kw vw [], (hmrv.runs.trans hmrk.runs).trans hsrun, ?_, ?_⟩
   · -- re-establish `Corr` at `(L, pc+1)` for `st.setStorage kw vw`.
@@ -509,13 +509,14 @@ arg-push prefix reaches the CALL-site frame `callFr`; under lowering the CALL is
 `Runs.call` node carrying a `CallReturns callFr resumeFr` witness (the CALL step, the child
 entering as code, the black-box child run, the resumed parent); the tail then consumes the
 success flag CALL left on the stack — `MSTORE`-ing it to the result slot (`some t`) or
-`POP`-ing it (`none`). The IR `EvalStmt.call` queries the oracle and applies its
-`(world', success)` bundle.
+`POP`-ing it (`none`). The IR `EvalStmt.call` pops the consumed call-stream head and applies
+its `(world', success)` entry.
 
-We instantiate the abstract oracle to the **realised** `evmV2CallOracle result pd self`
-(`LirLean/V2/CallRealises.lean`): `world' = postStorage result pd self = storageAt resumeFr
-self` (the `M3` lens) and `success = successWord result pd = callSuccessFlag result pd`
-(exp003's CALL flag `x`). With that tie the post-`EvalStmt` IR world *is* the resumed
+The realised post-state `st'` is **supplied** (as `hst'`): the consumed head IS this call's
+recorded `evmV2CallEntry result pd self` (`LirLean/V2/CallRealises.lean`), so `world' =
+postStorage result pd self = storageAt resumeFr self` (the `M3` lens) and `success =
+successWord result pd = callSuccessFlag result pd` (exp003's CALL flag `x`). With that pin the
+post-`EvalStmt` IR world *is* the resumed
 frame's storage lens, so `M3` (`StorageAgree`) is re-established at `endFr` (the tail
 touches storage in neither branch); `DefsSound` survives the world-replacement +
 result-binding by **B3** `defsSound_preserved_call`; code/canModifyState/validJumps are
@@ -566,14 +567,14 @@ callFr`), pinned by its pc (`hcallpc`) and a `MatRuns`-style memory pin
 to `fr` (`hcallmem` bytes-equal, `hcallactive` `activeWords`-nondecreasing). Given a
 returning external CALL (`CallReturns callFr resumeFr`) with the realised resume frame pinned
 (`hrespc`/`hresstack` — the empty-boundary collapse `pd.stack = []`, `hresmem`/`hresactive` —
-zero in/out windows preserve caller memory) and the IR step taken under the **realised**
-oracle (so `resumeFr = resumeAfterCall result pd`), running the whole lowered call *and its
+zero in/out windows preserve caller memory) and the IR post-state pinned to the **realised**
+call effect (`hst'`, so `resumeFr = resumeAfterCall result pd`), running the whole lowered call *and its
 Route-B tail* reaches `endFr` in **full correspondence** `Corr prog sloadChg obs st' endFr L
 (pc+1)`, with the working stack back to `[]`. The tail consumes the success flag (M5), the pc
 lands on the next statement (M1), and `memAgree` ties the bound call-result slot's memory to
 `st'.locals`. -/
 theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st st' : V2.IRState} {T : Trace} {cs : CallSpec}
+    {st st' : V2.IRState} {cs : CallSpec}
     {L : Label} {b : Block} {pc : Nat} {argsLen : Nat}
     {fr callFr resumeFr : Frame} {result : Evm.CallResult} {pd : Evm.PendingCall}
     {self : AccountAddress}
@@ -591,10 +592,14 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     (hcallmem : callFr.exec.toMachineState.memory = fr.exec.toMachineState.memory)
     (hcallactive : fr.exec.toMachineState.activeWords.toNat
       ≤ callFr.exec.toMachineState.activeWords.toNat)
-    -- the returning external CALL and the realised-oracle IR step:
+    -- the returning external CALL and the realised IR post-state (the step's effect — the
+    -- consumed call-stream head IS this call's recorded result, pinned by the caller's tie):
     (hcall : CallReturns callFr resumeFr)
     (hresume : resumeFr = Evm.resumeAfterCall result pd)
-    (hstep : EvalStmt prog (evmV2CallOracle result pd self) st T (.call cs) st' T)
+    (hst' : st' = (match cs.resultTmp with
+        | some t => { st with world := fun key => evmCallOracle.postStorage result pd self key }.setLocal
+                      t (callSuccessFlag result pd)
+        | none   => { st with world := fun key => evmCallOracle.postStorage result pd self key }))
     -- realised-call frame pins (resumeAfterCall keeps the caller's executionEnv; the caller
     -- is our lowered top-level frame — honest properties of the realised returning call):
     (hresaddr : resumeFr.exec.executionEnv.address = self)
@@ -673,19 +678,8 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         ++ (match cs.resultTmp with
             | some t => emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]
             | none   => [Byte.pop]) := rfl
-  -- the IR post-state `st'` projections (invert the realised oracle step once).
-  have hst' : st' = (match cs.resultTmp with
-      | some t => { st with world := fun key => evmCallOracle.postStorage result pd self key }.setLocal
-                    t (callSuccessFlag result pd)
-      | none   => { st with world := fun key => evmCallOracle.postStorage result pd self key }) := by
-    cases hstep with
-    | call hc hg ho =>
-      rw [show evmV2CallOracle result pd self _ _ st.world
-            = ((fun key => evmCallOracle.postStorage result pd self key),
-               evmCallOracle.successWord result pd) from rfl] at ho
-      injection ho with hw' hs'
-      subst hw'; subst hs'
-      cases cs.resultTmp <;> simp [hsuccW]
+  -- the IR post-state `st'` is the realised effect (supplied as `hst'` — the consumed
+  -- call-stream head IS this call's recorded result, pinned by the caller's tie).
   -- DefsSound survives world-replacement + result-binding (B3).
   obtain ⟨hnoSload, hisresult, hscopeCall⟩ := hsc
   have hsound' : DefsSound prog st' := by

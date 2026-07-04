@@ -224,20 +224,20 @@ whose `observe self` **world** is `st'.world`, AND the IR halts: `RunFrom prog o
 .stopped⟩` (constructed here via `RunFrom.stop`). The terminator world-channel brick is supplied as
 `hterm` (exactly `sim_term_halt_stop`'s conclusion). -/
 theorem drive_step_block_stop {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {o : V2.CallOracle} {self : AccountAddress} {st st' : V2.IRState} {T T' : Trace}
+    {self : AccountAddress} {st st' : V2.IRState} {T T' : Trace} {C C' : CallStream}
     {L : Label} {b : Block} {fr : Frame}
-    (hsim : SimStmtStep prog sloadChg obs o L b)
+    (hsim : SimStmtStep prog sloadChg obs L b)
     (hb : blockAt prog L = some b)
     (hdrive : DriveCorr prog sloadChg obs st fr L)
     (hbterm : b.term = .stop)
-    (hrunstmts : V2.RunStmts prog o st T b.stmts st' T')
+    (hrunstmts : V2.RunStmts prog st T C b.stmts st' T' C')
     -- the terminator world-channel brick (supplied — `sim_term_halt_stop`):
     (hterm : ∀ frT : Frame, Corr prog sloadChg obs st' frT L b.stmts.length →
       ∃ last haltSig, Runs frT last ∧ stepFrame last = .halted haltSig
         ∧ (observe self (endFrame last haltSig)).world = st'.world) :
     ∃ last haltSig O, Runs fr last ∧ stepFrame last = .halted haltSig
       ∧ (observe self (endFrame last haltSig)).world = O.world
-      ∧ RunFrom prog o st T L O ∧ O = { world := st'.world, result := .stopped } := by
+      ∧ RunFrom prog st T C L O ∧ O = { world := st'.world, result := .stopped } := by
   -- Layer D: run the block's statements to the terminator cursor.
   obtain ⟨frT, hrunsT, hcorrT, _⟩ := sim_stmts_block hsim hdrive.corr hdrive.cleanHalts hrunstmts
   -- Layer E (halt): a clean `.halted` frame whose world is `st'.world`.
@@ -247,23 +247,24 @@ theorem drive_step_block_stop {prog : Program} {sloadChg : Tmp → ℕ} {obs : W
 
 /-- **`drive_step_block`, the `ret` arm.** As `drive_step_block_stop`, with `b.term = .ret t` and
 the operand `st'.locals t = some w` bound at the post-statement state: the IR halts returning `w`
-(`RunFrom.ret`), and the bytecode's `observe` *world* matches `st'.world` (the value channel is the
-tracked deferral — `observe`'s result is `.stopped`, asserted only on the world). -/
+(`RunFrom.ret`), and the bytecode's `observe` *world* matches `st'.world`. (The world channel is
+what this driver arm forwards; the returned-value channel — now live in `observe` and proven by
+`sim_term_halt_ret` — rides the `Conforms` result conjunct downstream, not this world-only brick.) -/
 theorem drive_step_block_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {o : V2.CallOracle} {self : AccountAddress} {st st' : V2.IRState} {T T' : Trace}
+    {self : AccountAddress} {st st' : V2.IRState} {T T' : Trace} {C C' : CallStream}
     {L : Label} {b : Block} {t : Tmp} {w : Word} {fr : Frame}
-    (hsim : SimStmtStep prog sloadChg obs o L b)
+    (hsim : SimStmtStep prog sloadChg obs L b)
     (hb : blockAt prog L = some b)
     (hdrive : DriveCorr prog sloadChg obs st fr L)
     (hbterm : b.term = .ret t)
-    (hrunstmts : V2.RunStmts prog o st T b.stmts st' T')
+    (hrunstmts : V2.RunStmts prog st T C b.stmts st' T' C')
     (hv : st'.locals t = some w)
     (hterm : ∀ frT : Frame, Corr prog sloadChg obs st' frT L b.stmts.length →
       ∃ last haltSig, Runs frT last ∧ stepFrame last = .halted haltSig
         ∧ (observe self (endFrame last haltSig)).world = st'.world) :
     ∃ last haltSig O, Runs fr last ∧ stepFrame last = .halted haltSig
       ∧ (observe self (endFrame last haltSig)).world = O.world
-      ∧ RunFrom prog o st T L O ∧ O = { world := st'.world, result := .returned w } := by
+      ∧ RunFrom prog st T C L O ∧ O = { world := st'.world, result := .returned w } := by
   obtain ⟨frT, hrunsT, hcorrT, _⟩ := sim_stmts_block hsim hdrive.corr hdrive.cleanHalts hrunstmts
   obtain ⟨last, haltSig, hlast, hstep, hworld⟩ := hterm frT hcorrT
   exact ⟨last, haltSig, _, hrunsT.trans hlast, hstep, hworld,
@@ -296,14 +297,14 @@ The decode/gas/jump-validity bundle for the terminator and the `Gjumpdest` margi
 are supplied as the structured `hjump` hypothesis (the §7 ties), exactly as `sim_term_edge_jump`
 takes them; `hjump` is dischargeable for a concrete program from `jump_to_block`'s internals. -/
 theorem drive_step_block_jump {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {o : V2.CallOracle} {st st' : V2.IRState} {T : Trace}
+    {st st' : V2.IRState} {T : Trace} {C C' : CallStream}
     {L : Label} {b : Block} {dst : Label} {bdst : Block} {fr : Frame}
-    (hsim : SimStmtStep prog sloadChg obs o L b)
+    (hsim : SimStmtStep prog sloadChg obs L b)
     (hb : blockAt prog L = some b)
     (hbdst : prog.blocks.toList[dst.idx]? = some bdst)
     (hdrive : DriveCorr prog sloadChg obs st fr L)
     (hterm : b.term = .jump dst)
-    (hrunstmts : V2.RunStmts prog o st T b.stmts st' T)
+    (hrunstmts : V2.RunStmts prog st T C b.stmts st' T C')
     -- the terminator §7 bundle (supplied): the post-statement `Corr`-frame `frT` runs the
     -- lowered `PUSH4 dest ; JUMP ; ⟨land⟩ JUMPDEST` to the successor's `JUMPDEST` landing `fj`,
     -- with enough gas at the landing. The data `jump_to_block` + `corr_at_jumpdest_landing`
@@ -326,7 +327,7 @@ theorem drive_step_block_jump {prog : Program} {sloadChg : Tmp → ℕ} {obs : W
         Runs fr (jumpdestFrame fj)
       ∧ DriveCorr prog sloadChg obs st' (jumpdestFrame fj) dst
       ∧ totalGas [] (.inl (jumpdestFrame fj)) < totalGas [] (.inl fr)
-      ∧ (∀ O, RunFrom prog o st' T dst O → RunFrom prog o st T L O) := by
+      ∧ (∀ O, RunFrom prog st' T C' dst O → RunFrom prog st T C L O) := by
   -- Layer D: run the block's statements to the terminator cursor.
   obtain ⟨frT, hrunsT, hcorrT, _⟩ := sim_stmts_block hsim hdrive.corr hdrive.cleanHalts hrunstmts
   -- Layer E: the supplied jump bundle delivers the `JUMPDEST` landing `fj`.
@@ -379,13 +380,13 @@ when `cw ≠ 0`, `succ = elseL` when `cw = 0`), with:
 The cond-materialise/`JUMPI`/landing bundle is supplied as `hbranch` (the §7 ties), exactly as
 `sim_term_edge_branch` takes them; it resolves the taken successor and exposes `fj`. -/
 theorem drive_step_block_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {o : V2.CallOracle} {st st' : V2.IRState} {T T' : Trace}
+    {st st' : V2.IRState} {T T' : Trace} {C C' : CallStream}
     {L : Label} {b : Block} {cond : Tmp} {cw : Word} {thenL elseL : Label} {fr : Frame}
-    (hsim : SimStmtStep prog sloadChg obs o L b)
+    (hsim : SimStmtStep prog sloadChg obs L b)
     (hb : blockAt prog L = some b)
     (hdrive : DriveCorr prog sloadChg obs st fr L)
     (hterm : b.term = .branch cond thenL elseL)
-    (hrunstmts : V2.RunStmts prog o st T b.stmts st' T')
+    (hrunstmts : V2.RunStmts prog st T C b.stmts st' T' C')
     (hc : st'.locals cond = some cw)
     -- the terminator §7 bundle (supplied): the post-statement `Corr`-frame `frT` runs the lowered
     -- cond-materialise + `JUMPI` to the TAKEN successor's `JUMPDEST` landing `fj`, with the taken
@@ -411,7 +412,7 @@ theorem drive_step_block_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs :
         Runs fr (jumpdestFrame fj)
       ∧ DriveCorr prog sloadChg obs st' (jumpdestFrame fj) succ
       ∧ totalGas [] (.inl (jumpdestFrame fj)) < totalGas [] (.inl fr)
-      ∧ (∀ O, RunFrom prog o st' T' succ O → RunFrom prog o st T L O) := by
+      ∧ (∀ O, RunFrom prog st' T' C' succ O → RunFrom prog st T C L O) := by
   -- Layer D: run the block's statements to the terminator cursor.
   obtain ⟨frT, hrunsT, hcorrT, _⟩ := sim_stmts_block hsim hdrive.corr hdrive.cleanHalts hrunstmts
   -- Layer E: the supplied branch bundle resolves the taken successor `succ` and its
@@ -457,16 +458,16 @@ block_{stop,ret}` (halt) and `drive_step_block_{jump,branch}` (edge) discharge; 
 The trace `T'` / IR state `st'` of the edge are existential here (the F1 steps realise them from
 the supplied IR block run); the recursion only consumes the `totalGas` descent and the two
 `RunFrom` pieces. -/
-def DriveStep (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (o : V2.CallOracle)
-    (st : V2.IRState) (fr : Frame) (L : Label) (T : Trace) : Prop :=
+def DriveStep (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
+    (st : V2.IRState) (fr : Frame) (L : Label) (T : Trace) (C : CallStream) : Prop :=
   -- halt arm: the block bottoms out, IR halts at `O` matching the bytecode world.
-  (∃ O : V2.Observable, RunFrom prog o st T L O)
+  (∃ O : V2.Observable, RunFrom prog st T C L O)
   ∨
   -- edge arm: a strictly-smaller successor boundary + the IR continuation.
-  (∃ (st' : V2.IRState) (T' : Trace) (succ : Label) (fr' : Frame),
+  (∃ (st' : V2.IRState) (T' : Trace) (C' : CallStream) (succ : Label) (fr' : Frame),
       DriveCorr prog sloadChg obs st' fr' succ
     ∧ totalGas [] (.inl fr') < totalGas [] (.inl fr)
-    ∧ (∀ O, RunFrom prog o st' T' succ O → RunFrom prog o st T L O))
+    ∧ (∀ O, RunFrom prog st' T' C' succ O → RunFrom prog st T C L O))
 
 /-! ## §5.1 — `driveStep_of_block`: assemble a `DriveStep` from the per-block ties
 
@@ -492,11 +493,11 @@ So `hstep` of `lower_conforms_cyclic` is no longer a raw hypothesis: it is produ
 run is `runStmts_exists`; the conclusion is the halt disjunct for `stop`/`ret`, the edge disjunct
 for `jump`/`branch`. -/
 theorem driveStep_of_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {o : V2.CallOracle} {self : AccountAddress}
-    {st : V2.IRState} {fr : Frame} {L : Label} {T : Trace} {b : Block}
+    {self : AccountAddress}
+    {st : V2.IRState} {fr : Frame} {L : Label} {T : Trace} {C : CallStream} {b : Block}
     (hb : blockAt prog L = some b)
     (hdrive : DriveCorr prog sloadChg obs st fr L)
-    (hsim : SimStmtStep prog sloadChg obs o L b)
+    (hsim : SimStmtStep prog sloadChg obs L b)
     (hdef : RunDefinable prog)
     -- the halt world-channel brick (used only on `stop`/`ret`, exactly `sim_term_halt_*`):
     (hhalt : ∀ frT : Frame, Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
@@ -538,9 +539,10 @@ theorem driveStep_of_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word
           ∧ (∀ k, selfStorage fj k = (stmtsPost st b.stmts).world k)
             ∧ MemRealises prog (stmtsPost st b.stmts) fj
           ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none)) :
-    DriveStep prog sloadChg obs o st fr L T := by
-  -- run the block's statements forward (gas-free / call-free, definable from any state).
-  have hrunstmts : V2.RunStmts prog o st T b.stmts (stmtsPost st b.stmts) T :=
+    DriveStep prog sloadChg obs st fr L T C := by
+  -- run the block's statements forward (gas-free / call-free, definable from any state — so both
+  -- the gas trace `T` AND the call stream `C` are threaded unchanged).
+  have hrunstmts : V2.RunStmts prog st T C b.stmts (stmtsPost st b.stmts) T C :=
     runStmts_exists (hdef.stmts st L b hb)
   set st' := stmtsPost st b.stmts with hst'
   -- dispatch on the terminator shape.
@@ -561,13 +563,13 @@ theorem driveStep_of_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word
     obtain ⟨bdst, hbdst⟩ := hjumpPresent dst hterm
     obtain ⟨fj, hfrrun, hdcorr, hlt, hcont⟩ :=
       drive_step_block_jump hsim hb hbdst hdrive hterm hrunstmts (hjump dst hterm)
-    exact Or.inr ⟨st', T, dst, jumpdestFrame fj, hdcorr, hlt, hcont⟩
+    exact Or.inr ⟨st', T, C, dst, jumpdestFrame fj, hdcorr, hlt, hcont⟩
   | branch cond thenL elseL =>
     -- edge disjunct (RIGHT) via `drive_step_block_branch`; the condition is `RunDefinable`.
     obtain ⟨cw, hc⟩ := hdef.branch_def st L b cond thenL elseL hb hterm
     obtain ⟨succ, fj, hfrrun, hdcorr, hlt, hcont⟩ :=
       drive_step_block_branch hsim hb hdrive hterm hrunstmts hc (hbranch cond thenL elseL cw hterm hc)
-    exact Or.inr ⟨st', T, succ, jumpdestFrame fj, hdcorr, hlt, hcont⟩
+    exact Or.inr ⟨st', T, C, succ, jumpdestFrame fj, hdcorr, hlt, hcont⟩
 
 /-! ## §6 — F2, the drive recursion: `runFrom_of_driveCorr`
 
@@ -584,23 +586,22 @@ express and what retires it. -/
 some observable `O`. Proved by strong induction on the bytecode `totalGas` measure (which strictly
 descends per block, `totalGas_succ_lt`), so it holds for **cyclic** CFGs — no `CFGAcyclic`. -/
 theorem runFrom_of_driveCorr {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {o : V2.CallOracle}
-    (hstep : ∀ (st : V2.IRState) (fr : Frame) (L : Label) (T : Trace),
-      DriveCorr prog sloadChg obs st fr L → DriveStep prog sloadChg obs o st fr L T) :
-    ∀ (st : V2.IRState) (fr : Frame) (L : Label) (T : Trace),
-      DriveCorr prog sloadChg obs st fr L → ∃ O, RunFrom prog o st T L O := by
+    (hstep : ∀ (st : V2.IRState) (fr : Frame) (L : Label) (T : Trace) (C : CallStream),
+      DriveCorr prog sloadChg obs st fr L → DriveStep prog sloadChg obs st fr L T C) :
+    ∀ (st : V2.IRState) (fr : Frame) (L : Label) (T : Trace) (C : CallStream),
+      DriveCorr prog sloadChg obs st fr L → ∃ O, RunFrom prog st T C L O := by
   -- strong induction on the bytecode `totalGas` measure of the boundary frame.
-  intro st fr L T hdrive
-  -- generalise the goal over `(st, L, T)` so the IH applies at the successor's data.
+  intro st fr L T C hdrive
+  -- generalise the goal over `(st, L, T, C)` so the IH applies at the successor's data.
   induction hmeasure : totalGas [] (.inl fr) using Nat.strong_induction_on
-    generalizing st fr L T with
+    generalizing st fr L T C with
   | _ n ih =>
     subst hmeasure
-    rcases hstep st fr L T hdrive with ⟨O, hir⟩ | ⟨st', T', succ, fr', hdrive', hlt, hcont⟩
+    rcases hstep st fr L T C hdrive with ⟨O, hir⟩ | ⟨st', T', C', succ, fr', hdrive', hlt, hcont⟩
     · -- halt arm: the block bottoms out.
       exact ⟨O, hir⟩
     · -- edge arm: recurse at the strictly-smaller successor, then prepend the block.
-      obtain ⟨O, hO⟩ := ih (totalGas [] (.inl fr')) hlt st' fr' succ T' hdrive' rfl
+      obtain ⟨O, hO⟩ := ih (totalGas [] (.inl fr')) hlt st' fr' succ T' C' hdrive' rfl
       exact ⟨O, hcont O hO⟩
 
 /-! ## §7 — F3, `lower_conforms_cyclic`: feed F2's `RunFrom` into `sim_cfg`
@@ -621,28 +622,28 @@ observable — **general over CYCLIC CFGs** (no `CFGAcyclic`/`RunDefinable`; `ru
 entry `Corr` + the entry `CleanHalts`; F2 yields `∃ O, RunFrom … prog.entry O`; `sim_cfg` ties it
 to the bytecode halt's world. -/
 theorem lower_conforms_cyclic {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {o : V2.CallOracle} {self : AccountAddress}
-    {st₀ : V2.IRState} {T : Trace} {fr₀ : Frame}
+    {self : AccountAddress}
+    {st₀ : V2.IRState} {T : Trace} {C : CallStream} {fr₀ : Frame}
     -- the entry boundary: `Corr` at `(prog.entry, 0)` + the run clean-halts NON-EXCEPTIONALLY
     -- (honest scope: the run reaches a `.success`/`.revert` terminal — not a genuine
     -- OOG/exception, which the gas-agnostic IR cannot model).
     (hentry : Corr prog sloadChg obs st₀ fr₀ prog.entry 0)
     (hclean : CleanHaltsNonException fr₀)
     -- the per-block drive obligation at every reachable boundary (the §7 ties, supplied):
-    (hstep : ∀ (st : V2.IRState) (fr : Frame) (L : Label) (T : Trace),
-      DriveCorr prog sloadChg obs st fr L → DriveStep prog sloadChg obs o st fr L T)
+    (hstep : ∀ (st : V2.IRState) (fr : Frame) (L : Label) (T : Trace) (C : CallStream),
+      DriveCorr prog sloadChg obs st fr L → DriveStep prog sloadChg obs st fr L T C)
     -- the `sim_cfg` per-block ties (supplied — charged later):
     (hstmts : ∀ (L : Label) (b : Block), blockAt prog L = some b →
-      SimStmtStep prog sloadChg obs o L b)
+      SimStmtStep prog sloadChg obs L b)
     (hterm : ∀ (L : Label) (b : Block), blockAt prog L = some b →
-      SimTermStep prog sloadChg obs o self L b) :
+      SimTermStep prog sloadChg obs self L b) :
     ∃ O : V2.Observable,
       (∃ last haltSig, Runs fr₀ last ∧ stepFrame last = .halted haltSig
         ∧ (observe self (endFrame last haltSig)).world = O.world)
-      ∧ RunFrom prog o st₀ T prog.entry O := by
+      ∧ RunFrom prog st₀ T C prog.entry O := by
   -- F2: build the IR `RunFrom` from the entry `DriveCorr` (cyclic-general, totalGas-measured).
   obtain ⟨O, hir⟩ :=
-    runFrom_of_driveCorr hstep st₀ fr₀ prog.entry T ⟨hentry, hclean⟩
+    runFrom_of_driveCorr hstep st₀ fr₀ prog.entry T C ⟨hentry, hclean⟩
   -- the EXISTING cycle-agnostic `sim_cfg`: tie the constructed run to the bytecode halt world.
   obtain ⟨last, haltSig, hlast, hhalt, hworld⟩ := sim_cfg hstmts hterm hentry hclean hir
   exact ⟨O, ⟨last, haltSig, hlast, hhalt, hworld⟩, hir⟩
@@ -663,8 +664,8 @@ families (`hhalt`/`hjumpPresent`/`hjump`/`hbranch`, quantified over all `(st, L,
 `driveStep_of_block` assembles the per-boundary `DriveStep` from them, so `hstep` is no longer
 supplied. -/
 theorem lower_conforms_cyclic' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {o : V2.CallOracle} {self : AccountAddress}
-    {st₀ : V2.IRState} {T : Trace} {fr₀ : Frame}
+    {self : AccountAddress}
+    {st₀ : V2.IRState} {T : Trace} {C : CallStream} {fr₀ : Frame}
     (hentry : Corr prog sloadChg obs st₀ fr₀ prog.entry 0)
     (hclean : CleanHaltsNonException fr₀)
     -- static operand-definability (benign well-formedness — NOT `CFGAcyclic`):
@@ -675,9 +676,9 @@ theorem lower_conforms_cyclic' {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
       DriveCorr prog sloadChg obs st fr L → ∃ b, blockAt prog L = some b)
     -- the per-statement tie (`sim_cfg`'s + `driveStep_of_block`'s):
     (hstmts : ∀ (L : Label) (b : Block), blockAt prog L = some b →
-      SimStmtStep prog sloadChg obs o L b)
+      SimStmtStep prog sloadChg obs L b)
     (hterm : ∀ (L : Label) (b : Block), blockAt prog L = some b →
-      SimTermStep prog sloadChg obs o self L b)
+      SimTermStep prog sloadChg obs self L b)
     -- the halt world-channel brick, at every block / post-statement frame:
     (hhalt : ∀ (st : V2.IRState) (L : Label) (b : Block), blockAt prog L = some b →
       ∀ frT : Frame, Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
@@ -725,10 +726,10 @@ theorem lower_conforms_cyclic' {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
     ∃ O : V2.Observable,
       (∃ last haltSig, Runs fr₀ last ∧ stepFrame last = .halted haltSig
         ∧ (observe self (endFrame last haltSig)).world = O.world)
-      ∧ RunFrom prog o st₀ T prog.entry O := by
+      ∧ RunFrom prog st₀ T C prog.entry O := by
   -- assemble the per-boundary `DriveStep` from `driveStep_of_block` at each reachable block.
   refine lower_conforms_cyclic (self := self) hentry hclean ?_ hstmts hterm
-  intro st fr L T' hdrive
+  intro st fr L T' C' hdrive
   -- the block at `L` is present (supplied at every reachable boundary).
   obtain ⟨b, hb⟩ := hpresent st fr L hdrive
   exact driveStep_of_block (self := self) hb hdrive (hstmts L b hb) hdef

@@ -277,6 +277,24 @@ theorem fromByteArray_toByteArray (val : UInt256) :
     List.reverse_append, List.reverse_replicate]
   rw [fromBytes'_append_zeroes, List.reverse_reverse, fromBytes'_toBytes']
 
+/-- `uInt256OfByteArray` reads a byte array big-endian: it is `.ofNat` of the
+big-endian decode (`fromByteArrayBigEndian`). Unfolds the little-endian
+`fromBytes' ∘ reverse` back to the big-endian reading through
+`ByteArray.toList = .data.toList`. -/
+theorem uInt256OfByteArray_eq (arr : ByteArray) :
+    uInt256OfByteArray arr = UInt256.ofNat (fromByteArrayBigEndian arr) := by
+  unfold uInt256OfByteArray fromByteArrayBigEndian fromBytesBigEndian
+  rw [Function.comp, toList_eq_data_toList]
+
+/-- **The return-word round-trip.** Decoding the 32-byte big-endian encoding of a
+word (`uInt256OfByteArray val.toByteArray`) recovers `val` — the faithful inverse of
+the RETURN lowering `MSTORE(0, vw); RETURN(0, 32)`. Composes the big-endian read
+(`uInt256OfByteArray_eq`), the encoder round-trip (`fromByteArray_toByteArray`), and
+`ofNat ∘ toNat = id`. -/
+theorem uInt256OfByteArray_toByteArray (val : UInt256) :
+    uInt256OfByteArray val.toByteArray = val := by
+  rw [uInt256OfByteArray_eq, fromByteArray_toByteArray, ofNat_toNat]
+
 /-! ## `UInt256.toByteArray` is exactly 32 bytes -/
 
 /-- `(BE n).size ≤ 32` for any 256-bit value `n` (`n < 2 ^ 256`). -/

@@ -203,14 +203,18 @@ def emitStmt (defs : Tmp → Option Expr) (fuel : Nat) : Stmt → List UInt8
 the resolved offset table `labelOff` (label index → byte offset of its
 `JUMPDEST`).
 
-`ret t` materialises `t`, then pushes the two zero `RETURN`-window operands
-(`offset = 0`, `size = 0`) so the `RETURN` is well-formed: `RETURN` pops **two** words,
-but `materialise t` leaves only one — without the two `PUSH32 0` the stack would
-underflow. `RETURN(0,0)` returns the empty output and halts; the returned scalar is out
-of the world-channel scope (only the storage delta is observed), so the residual
-materialised value below the window is discarded with the frame. -/
+`ret t` materialises `t` (leaving the returned word `vw` on top), stashes it to
+memory at offset `0` (`PUSH32 0; MSTORE` — stack `0 :: vw`, `MSTORE` pops `addr = 0`,
+`val = vw`), then returns that 32-byte window (`PUSH32 32; PUSH32 0; RETURN` — stack
+`0 :: 32`, `RETURN` pops `offset = 0`, `size = 32`). So `RETURN(0, 32)` returns exactly
+`vw`'s big-endian bytes — the returned value is now the observed halt result (`observe`
+reads it back as `returned vw`), not discarded. The tail after `materialise t` is
+`PUSH32 0 ++ MSTORE ++ PUSH32 32 ++ PUSH32 0 ++ RETURN`, i.e. `33 + 1 + 33 + 33 + 1 = 101`
+bytes. -/
 def emitTerm (defs : Tmp → Option Expr) (fuel : Nat) (labelOff : Nat → Nat) : Term → List UInt8
-  | .ret t              => materialise defs fuel t ++ emitImm 0 ++ emitImm 0 ++ [Byte.ret]
+  | .ret t              => materialise defs fuel t
+                             ++ emitImm 0 ++ [Byte.mstore]
+                             ++ emitImm 32 ++ emitImm 0 ++ [Byte.ret]
   | .stop               => [Byte.stop]
   | .jump dst           => emitDest (labelOff dst.idx) ++ [Byte.jump]
   | .branch cond thenL elseL =>

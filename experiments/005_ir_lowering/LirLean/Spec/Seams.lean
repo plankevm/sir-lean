@@ -16,9 +16,9 @@ Each seam below is a **supplied** hypothesis of the conditional headline
 named, typed, and drift-proof — each re-export is a definitional forwarder that
 typechecks only while the underlying declaration keeps its shape.
 
-The call-oracle kernel (`Lir.V2.CallOracle` / `BytecodeLayer.Hoare.CallReturns`) is
+The call-stream kernel (`Lir.V2.CallStream` / `BytecodeLayer.Hoare.CallReturns`) is
 NOT re-registered here: it is already first-class spec surface via `Spec/Semantics.lean`
-(the IR-side `CallOracle`) and exp003's `Hoare.lean` (the bytecode-side `CallReturns`).
+(the IR-side `CallStream`) and exp003's `Hoare.lean` (the bytecode-side `CallReturns`).
 -/
 
 namespace Lir.Spec

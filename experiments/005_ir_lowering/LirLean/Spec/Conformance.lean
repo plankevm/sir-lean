@@ -15,8 +15,9 @@ stated** — a register of debt, not a claim of truth. See `docs/final-audit-202
 
 **The sole conformance surface is now `LirLean/V2/RealisabilitySpec.lean`** — the reshaped
 R0–R12 obligation skeleton (the `Nightly` sorry-carrying lib), whose ties are DERIVED from the
-run (R10a/R10b) rather than supplied. Scope note preserved: `Lir.V2.callOracleOf` reads only
-the *first* `CallRecord` of the log — the realised call oracle is single-CALL scope.
+run (R10a/R10b) rather than supplied. Scope note: `Lir.V2.callStreamOf` maps the WHOLE recorded
+`CallRecord` list to the consumed `CallStream` (`realisedCall`), so calls are a positional
+multi-CALL stream — no single-CALL scope.
 
 This file is retained as a stub so the canonical conformance path resolves to this honest
 notice rather than a missing module.

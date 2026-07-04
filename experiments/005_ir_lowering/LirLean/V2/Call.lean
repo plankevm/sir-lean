@@ -2,28 +2,29 @@ import LirLean.V2.Law
 import LirLean.DefsSound
 
 /-!
-# LirLean v2 — a worked external-`Stmt.call` example (gas-free, abstract oracle)
+# LirLean v2 — a worked external-`Stmt.call` example (gas-free, consumed call stream)
 
 The call-free prototype (`LirLean/V2/Preserve.lean`) and the now-deleted two-read milestone
 (`LirLean/V2/Mono.lean`) exercised the gas channel — the supplied gas-read *sequence*.
 This file is the companion for the **call channel**: the `Stmt.call` `EvalStmt` arm of
-`LirLean/V2/Machine.lean`, run under an **arbitrary abstract `CallOracle`**
-(`docs/ir-design-v3.md` §3, §7).
+`LirLean/V2/Machine.lean`, run consuming an **arbitrary supplied `CallStream` head**
+(`docs/ir-design-v3.md` §3, §7, R3′).
 
 It is **frame-free** — it imports only `LirLean.V2.Law` (hence `Machine`/`IR`/`Evm`), no
-`BytecodeLayer`/`Frame`/`Runs`. The oracle stays a parameter; the v1 `evmCallOracle`
-instantiation (the realisability witness) is a separate, later piece.
+`BytecodeLayer`/`Frame`/`Runs`. The stream head stays a parameter; the realised stream
+(`callStreamOf log.calls self`, off v1's `evmCallOracle`) is a separate, later piece.
 
 The point it makes (the §7 interaction model, on the call side):
 
-* a call is a **function oracle** of the call's IR-visible inputs (here: callee address
-  and gas-to-forward), queried at the call site, returning the `(world', success)`
-  bundle the semantics **applies as a state change** — `world := world'`, and the success
-  flag bound straight into `locals` at `resultTmp` (**no `callResult` slot**);
-* it is **gas-free** — the bundle carries no restored gas; the call touches no gas
+* a call **pops the head `(world', success)` of the call stream** — a positional recorded
+  result, NOT a function of the call's IR-visible inputs — and **applies it as a state
+  change**: `world := world'`, and the success flag bound straight into `locals` at
+  `resultTmp` (**no `callResult` slot**);
+* it is **gas-free** — the entry carries no restored gas; the call touches no gas
   notion. Post-call gas reads, if any, still come from the gas sequence;
-* the two channels **coexist**: the program also reads `Expr.gas` (a gas read) and
-  feeds that observed word to the call as the gas-to-forward input.
+* the two channels **coexist and are independent**: the program also reads `Expr.gas` (a gas
+  read, popping the gas stream) and feeds that observed word to the call as the
+  gas-to-forward input, while the call pops the call stream.
 
 The example mirrors the prototype's `proto_IRRun` style — hand-assembled `EvalStmt`s
 chained into a `RunStmts`, closed by a `RunFrom.ret`.
@@ -43,7 +44,7 @@ One block (the entry), with one external `Stmt.call`. In order:
 ```text
 t0 := 42            -- the callee address (an immediate, for concreteness)
 t1 := gas           -- gas-to-forward = the observed GAS value (a gas read)
-call(callee=t0, gasFwd=t1, result=t2)   -- query the oracle, bind success → t2
+call(callee=t0, gasFwd=t1, result=t2)   -- pop the call-stream head, bind success → t2
 ret t2              -- return the success flag
 ```
 
@@ -75,76 +76,68 @@ private def c0 (w₀ : World) : IRState := { locals := fun _ => none, world := w
 private def c1 (w₀ : World) : IRState := (c0 w₀).setLocal (tmp 0) 42
 /-- After `t1 := gas` (consumes the gas read `obs`; `t1 := obs`). -/
 private def c2 (w₀ : World) (obs : Word) : IRState := (c1 w₀).setLocal (tmp 1) obs
-/-- After the call: world replaced by the oracle's `world'`, `t2 := success`. -/
-private def c3 (o : CallOracle) (w₀ : World) (obs : Word) : IRState :=
-  match (o 42 obs w₀) with
-  | (world', success) => { (c2 w₀ obs) with world := world' }.setLocal (tmp 2) success
+/-- After the call: world replaced by the popped stream head's `world'`, `t2 := success`. -/
+private def c3 (w₀ : World) (obs : Word) (w' : World) (s' : Word) : IRState :=
+  { (c2 w₀ obs) with world := w' }.setLocal (tmp 2) s'
 
 private theorem c2_callee (w₀ : World) (obs : Word) : (c2 w₀ obs).locals (tmp 0) = some 42 := rfl
 private theorem c2_gasFwd (w₀ : World) (obs : Word) : (c2 w₀ obs).locals (tmp 1) = some obs := rfl
-private theorem c2_world (w₀ : World) (obs : Word) : (c2 w₀ obs).world = w₀ := rfl
-private theorem c3_result (o : CallOracle) (w₀ : World) (obs : Word) :
-    (c3 o w₀ obs).locals (tmp 2) = some (o 42 obs w₀).2 := by
-  unfold c3; rw [show (o 42 obs w₀) = ((o 42 obs w₀).1, (o 42 obs w₀).2) from rfl]; rfl
+private theorem c3_result (w₀ : World) (obs : Word) (w' : World) (s' : Word) :
+    (c3 w₀ obs w' s').locals (tmp 2) = some s' := by
+  simp [c3, V2.IRState.setLocal]
 
 /-! ## The observable
 
-The whole run halts returning the success flag the oracle produced, in the world the
-oracle produced — both **read off the oracle**, never computed in the IR. -/
+The whole run halts returning the success flag the call stream supplied, in the world the
+call stream supplied — both **read off the consumed stream head**, never computed in the IR. -/
 
-/-- The observable of `callIR` under oracle `o`, world `w₀`, observed gas `obs`: the
-post-call world is the oracle's `world'`, the result is `returned (success)`. -/
-def callObsResult (o : CallOracle) (w₀ : World) (obs : Word) : Observable :=
-  { world := (o 42 obs w₀).1, result := .returned (o 42 obs w₀).2 }
+/-- The observable of `callIR` on world `w₀`, observed gas `obs`, and call-stream head
+`(w', s')`: the post-call world is the head's `w'`, the result is `returned s'`. -/
+def callObsResult (_w₀ : World) (_obs : Word) (w' : World) (s' : Word) : Observable :=
+  { world := w', result := .returned s' }
 
 /-! ## The worked run -/
 
-/-- **The gas-free IR run, with one external call, under an arbitrary oracle.** For any
-oracle `o`, initial world `w₀` and observed gas `obs`, `callIR` consuming the single
-gas read `obs` halts with `callObsResult o w₀ obs`: the gas read feeds the call's
-gas-to-forward input, the oracle's `(world', success)` bundle is applied as the state
-change, and the success flag is returned. The oracle is held abstract throughout. -/
-theorem call_IRRun (o : CallOracle) (w₀ : World) (obs : Word) :
-    IRRun callIR o w₀ [obs] (callObsResult o w₀ obs) := by
+/-- **The gas-free IR run, with one external call, consuming an arbitrary call-stream head.**
+For any initial world `w₀`, observed gas `obs`, and supplied call-result head `(w', s')`,
+`callIR` consuming the single gas read `obs` and the single call-result `(w', s')` halts with
+`callObsResult w₀ obs w' s'`: the gas read feeds the call's gas-to-forward input, the popped
+head `(w', s')` is applied as the state change, and the success flag is returned. The head is
+held abstract throughout — it is *positional*, not a function of the visible inputs. -/
+theorem call_IRRun (w₀ : World) (obs : Word) (w' : World) (s' : Word) :
+    IRRun callIR w₀ [obs] [(w', s')] (callObsResult w₀ obs w' s') := by
   -- the three block-0 statements
-  have e0 : EvalStmt callIR o (c0 w₀) [obs]
-      (.assign (tmp 0) (.imm 42)) (c1 w₀) [obs] :=
+  have e0 : EvalStmt callIR (c0 w₀) [obs] [(w', s')]
+      (.assign (tmp 0) (.imm 42)) (c1 w₀) [obs] [(w', s')] :=
     EvalStmt.assignPure (by nofun) rfl
-  have e1 : EvalStmt callIR o (c1 w₀) [obs]
-      (.assign (tmp 1) .gas) (c2 w₀ obs) [] := EvalStmt.assignGas
-  have e2 : EvalStmt callIR o (c2 w₀ obs) []
+  have e1 : EvalStmt callIR (c1 w₀) [obs] [(w', s')]
+      (.assign (tmp 1) .gas) (c2 w₀ obs) [] [(w', s')] := EvalStmt.assignGas
+  have e2 : EvalStmt callIR (c2 w₀ obs) [] [(w', s')]
       (.call { callee := tmp 0, gasFwd := tmp 1, resultTmp := some (tmp 2) })
-      (c3 o w₀ obs) [] := by
-    have ho : o 42 obs (c2 w₀ obs).world = ((o 42 obs w₀).1, (o 42 obs w₀).2) := by
-      rw [c2_world]
-    have h := EvalStmt.call (prog := callIR) (o := o) (st := c2 w₀ obs) (T := [])
+      (c3 w₀ obs w' s') [] [] := by
+    have h := EvalStmt.call (prog := callIR) (st := c2 w₀ obs) (T := ([] : Trace))
+      (C := ([] : CallStream)) (world' := w') (success := s')
       (cs := { callee := tmp 0, gasFwd := tmp 1, resultTmp := some (tmp 2) })
-      (c2_callee w₀ obs) (c2_gasFwd w₀ obs) ho
-    -- the post-state of the constructor is definitionally `c3 o w₀ obs`
-    have hpost :
-        (match (some (tmp 2)) with
-          | some t => { (c2 w₀ obs) with world := (o 42 obs w₀).1 }.setLocal t (o 42 obs w₀).2
-          | none   => { (c2 w₀ obs) with world := (o 42 obs w₀).1 }) = c3 o w₀ obs := by
-      unfold c3; rw [show (o 42 obs w₀) = ((o 42 obs w₀).1, (o 42 obs w₀).2) from rfl]
-    rw [← hpost]; exact h
-  have hss : RunStmts callIR o (c0 w₀) [obs] callBlock.stmts (c3 o w₀ obs) [] :=
+      (c2_callee w₀ obs) (c2_gasFwd w₀ obs)
+    -- the post-state of the constructor is definitionally `c3 w₀ obs w' s'`.
+    exact h
+  have hss : RunStmts callIR (c0 w₀) [obs] [(w', s')] callBlock.stmts (c3 w₀ obs w' s') [] [] :=
     .cons e0 (.cons e1 (.cons e2 .nil))
-  -- the terminator `ret t2` returns the success flag, in the oracle's world
+  -- the terminator `ret t2` returns the success flag, in the head's world.
   have hret :
-      RunFrom callIR o (c0 w₀) [obs] (lbl 0)
-        { world := (c3 o w₀ obs).world, result := .returned (o 42 obs w₀).2 } :=
-    RunFrom.ret (b := callBlock) (t := tmp 2) callIR_block0 hss rfl (c3_result o w₀ obs)
-  -- the post-call world is exactly the oracle's `world'`
-  have hworld : (c3 o w₀ obs).world = (o 42 obs w₀).1 := by
-    unfold c3; rw [show (o 42 obs w₀) = ((o 42 obs w₀).1, (o 42 obs w₀).2) from rfl]; rfl
+      RunFrom callIR (c0 w₀) [obs] [(w', s')] (lbl 0)
+        { world := (c3 w₀ obs w' s').world, result := .returned s' } :=
+    RunFrom.ret (b := callBlock) (t := tmp 2) callIR_block0 hss rfl (c3_result w₀ obs w' s')
+  -- the post-call world is exactly the head's `w'`.
+  have hworld : (c3 w₀ obs w' s').world = w' := rfl
   rw [hworld] at hret
   exact hret
 
 /-- The §4 "*the* observable" shape on the call side: by `IRRun.det`, the observable
-above is the **only** one `callIR` yields on this trace under `o`. -/
-theorem call_IRRun_unique (o : CallOracle) (w₀ : World) (obs : Word) :
-    ∀ O, IRRun callIR o w₀ [obs] O → O = callObsResult o w₀ obs :=
-  fun _ hO => IRRun.det hO (call_IRRun o w₀ obs)
+above is the **only** one `callIR` yields on this gas trace and call stream. -/
+theorem call_IRRun_unique (w₀ : World) (obs : Word) (w' : World) (s' : Word) :
+    ∀ O, IRRun callIR w₀ [obs] [(w', s')] O → O = callObsResult w₀ obs w' s' :=
+  fun _ hO => IRRun.det hO (call_IRRun w₀ obs w' s')
 
 -- Build-enforced axiom-cleanliness guard: the worked call run and its uniqueness depend
 -- only on `[propext, Classical.choice, Quot.sound]`.
