@@ -1260,7 +1260,34 @@ function-shaped `CallOracle` is wrong (two dynamic calls with identical IR-visib
 can differ); the honest completion makes calls a CONSUMED STREAM of records — exactly the
 gas channel's positional solution, and the coupling already carries `callSuffix` for it.
 That generalization touches `EvalStmt.call` (IR spec surface) and is deliberately deferred;
-`SingleCall` (and its loop caveat, see its docstring) is the recorded interim scope. -/
+`SingleCall` (and its loop caveat, see its docstring) is the recorded interim scope.
+
+**STATUS (Phase-3 Round-3, R3 — honest partial; theorem stays `sorry`).** Piece A (oracle
+identification from the recorder) is now LANDED, real and axiom-clean, as
+`recorderCoupled_call_extract` (above): it PRODUCES the `CallReturns callFr resumeFr` witness and
+the `rec = {result := childRes.toCallResult, pending}` record identity from the coupling at the
+CALL cursor — the seedFuel-vs-restart-fuel reconciliation the plan under-specified is discharged
+via `child_terminates` + `drive_fuel_mono` (Piece A is genuinely, not just nominally, unblocked by
+R7e). `recorderCoupled_stepsTo_other` lands the Piece-A step-1 arg-push transport atom. With
+`hone` collapsing `log.calls` to `[rec]` (`realisedCall_eq_evmV2`), Piece A discharges the
+`o = evmV2CallOracle result pd …` conjunct and supplies `CallReturns` + `resumeFr`.
+
+**BLOCKER — Piece B (the machine run) has no in-tree producer.** The bundle's arg-push run
+conjuncts (`Runs fr0 callFr` + the pc/mem/activeWords pins + `decode callFr = CALL`) require a
+`materialise`-driver that BUILDS the run from `Corr`/`hwl` (the five `emitImm 0` pushes then two
+`materialise_runs_of_cleanHalt` calls, threading `MatDec`/`DefsSound`/`StorageAgree`/`MemRealises`
+/`evalExpr`/stack-room from `Corr.memAgree`/`Corr.defsSound` + `hwl`). In-tree this run is only
+ever SUPPLIED to `sim_call_stmt` (`SimStmt.lean:589` `hargs : Runs fr callFr`); no producing lemma
+exists, so it must be written from scratch (~200 lines, precedent: the branch cond driver
+`LowerDecode.lean:747`). Landing that driver also locates `callFr` and gives
+`stepFrame callFr = .needsCall …` (feeding `recorderCoupled_call_extract`) and the Route-B tail
+(`stash_tail_runs`). Secondary risk (plan §3.2): several `resumeAfterCall` frame-pins
+(`resumeFr.exec.pc = callFr.exec.pc + 1`, `.stack`, `.memory`) may need a bytecode-layer
+computation lemma about `resumeAfterCall` — that would live in the DEFAULT target, so per the
+track rules it is STOP-and-report, not an in-`Nightly` edit. A partial `refine` supplying only the
+Piece-A/C conjuncts would bury the Piece-B `sorry` in a mid-bundle position (a fake close the
+review's statement-diff would flag), so R3 stays a single top-level `sorry` with Piece A landed as
+the two helpers above. -/
 theorem callRealises_of_recorded {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
     {self : AccountAddress} {L : Label} {b : Block} {pc : Nat} {cs : CallSpec}
     {st0 : IRState} {fr0 : Frame}
@@ -2490,6 +2517,110 @@ theorem recorderCoupled_call {log : RunLog} {fr resumeFr : Frame}
       refine ⟨⟨j, hb⟩, hgp, hsp, ?_⟩
       obtain ⟨pre, hpre⟩ := hcpp
       exact ⟨pre ++ [rec], by rw [hpre]; simp [List.append_assoc]⟩
+
+/-- **R7e′ — the coupling's CALL extraction** (R3's Piece-A atom; the *producing* companion of
+`recorderCoupled_call`, which only consumes). At a top-level boundary frame `callFr` whose next
+step is a returning external CALL (`stepFrame callFr = .needsCall cp pending`, `beginCall cp =
+.inl child`), if the coupled call-suffix is `rec :: cS`, then that record is EXACTLY this CALL's
+`{result := childRes.toCallResult, pending}`, the machine-side `CallReturns callFr resumeFr`
+witness holds at the realised resume frame `resumeFr = resumeAfterCall childRes.toCallResult
+pending`, and the coupling survives at `resumeFr` on the tail `cS`.
+
+The `CallReturns` witness is genuinely PRODUCED here, not supplied: `child_terminates`
+(`messageCall_never_outOfFuel`) gives the child's standalone seed-fuel termination
+`drive (seedFuel cp.gas) [] (running child) = .ok childRes`, and `drive_fuel_mono` reconciles it
+with the coupling's shared-restart-fuel child result — closing the seedFuel-vs-restart-fuel gap
+that blocks reading `CallReturns` off the coupling alone (the reason `recorderCoupled_call` had to
+take it as a hypothesis). The record identity is peeled from the restart equation exactly as in
+`recorderCoupled_call`'s body (`driveLog_frame_nonempty` black-boxes the child, the `rest = []`
+delivery records the one record, `driveLog_acc_hom` peels it), only here the head equation is
+re-exposed instead of discarded. This is what makes `realisedCall log self` identifiable with the
+realised oracle at R3's call cursor (via `realisedCall_eq_evmV2` once `hone` collapses
+`log.calls` to `[rec]`). -/
+theorem recorderCoupled_call_extract {log : RunLog} {callFr : Frame}
+    {cp : CallParams} {pending : PendingCall} {child : Frame}
+    {gS : List Word} {sS : List Nat} {rec : CallRecord} {cS : List CallRecord}
+    (hcp : RecorderCoupled log callFr gS sS (rec :: cS))
+    (hstep : stepFrame callFr = .needsCall cp pending)
+    (hcode : beginCall cp = .inl child) :
+    ∃ childRes : FrameResult,
+        CallReturns callFr (Evm.resumeAfterCall childRes.toCallResult pending)
+      ∧ rec = { result := childRes.toCallResult, pending := pending }
+      ∧ RecorderCoupled log (Evm.resumeAfterCall childRes.toCallResult pending) gS sS cS := by
+  obtain ⟨childRes, hchild_seed⟩ := child_terminates hcode
+  have hcr : CallReturns callFr (Evm.resumeAfterCall childRes.toCallResult pending) :=
+    ⟨cp, pending, child, childRes, hstep, hcode, hchild_seed, rfl⟩
+  refine ⟨childRes, hcr, ?_, recorderCoupled_call hcp hcr⟩
+  -- The record identity: peel the restart equation (as `recorderCoupled_call`, but keep the head).
+  obtain ⟨⟨fuel', hrestart⟩, _, _, _⟩ := hcp
+  cases fuel' with
+  | zero => simp [driveLog] at hrestart
+  | succ m =>
+    have hdescent : driveLog (m + 1) [] (.inl callFr) [] [] []
+        = driveLog m (.call pending :: []) (.inl child) [] [] [] := by
+      conv_lhs => unfold driveLog
+      simp only [hstep, hcode]
+    rw [hdescent] at hrestart
+    have hdrive : drive m (.call pending :: []) (.inl child) = .ok log.observable := by
+      have hd := driveLog_drive m (.call pending :: []) (.inl child) [] [] []
+      rw [hrestart] at hd
+      simpa only [Except.map] using hd.symm
+    have hne : drive m (.call pending :: []) (running child) ≠ .error .OutOfFuel := by
+      rw [hdrive]; simp
+    have hchildm_ne : drive m [] (running child) ≠ .error .OutOfFuel :=
+      child_ne_oof_of_framed m child pending [] hne
+    have hchildm : drive m [] (running child) = .ok childRes := by
+      have h1 := drive_fuel_mono (Nat.le_max_left m (seedFuel cp.gas)) [] (running child) hchildm_ne
+      have h2 := drive_fuel_mono (Nat.le_max_right m (seedFuel cp.gas)) [] (running child)
+        (by rw [hchild_seed]; simp)
+      rw [hchild_seed] at h2
+      rw [← h1, h2]
+    obtain ⟨j, hframe⟩ := driveLog_frame_nonempty (.call pending :: []) rfl [] [] []
+      m [] (.inl child) childRes hchildm
+    rw [List.nil_append] at hframe
+    rw [hframe] at hrestart
+    have hdeliv : driveLog (j + 1) (.call pending :: []) (.inr childRes) [] [] []
+        = driveLog j [] (.inl (Evm.resumeAfterCall childRes.toCallResult pending)) [] []
+            [{ result := childRes.toCallResult, pending := pending }] := by
+      conv_lhs => unfold driveLog
+      simp only [Pending.resume, List.isEmpty_nil, if_true, recordCall, List.nil_append]
+    rw [hdeliv] at hrestart
+    rw [driveLog_acc_hom j [] (.inl (Evm.resumeAfterCall childRes.toCallResult pending)) [] []
+      [{ result := childRes.toCallResult, pending := pending }]] at hrestart
+    cases hbok : driveLog j [] (.inl (Evm.resumeAfterCall childRes.toCallResult pending)) [] [] []
+      with
+    | error e => rw [hbok] at hrestart; simp [Except.map] at hrestart
+    | ok val =>
+      obtain ⟨obs'', gS'', sS'', cS''⟩ := val
+      rw [hbok] at hrestart
+      have heq : (Except.ok (obs'', [] ++ gS'', [] ++ sS'',
+          [{ result := childRes.toCallResult, pending := pending }] ++ cS'')
+          : Except ExecutionException (FrameResult × List Word × List Nat × List CallRecord))
+          = .ok (log.observable, gS, sS, rec :: cS) := hrestart
+      simp only [List.nil_append, List.singleton_append] at heq
+      injection heq with heq2
+      injection heq2 with _ heq3
+      injection heq3 with _ heq4
+      injection heq4 with _ heq5
+      injection heq5 with hrecEq _
+      exact hrecEq.symm
+
+/-- **R7d′ — coupling transport across one non-gas/non-sload `.next` step** (R3's Piece-A
+arg-push atom; the `StepsTo` rephrasing of `recorderCoupled_step_other`). The CALL-argument push
+prefix (`emitImm 0`×5, then the `callee`/`gasFwd` materialisations — `PUSH32`/`MLOAD`/`ADD`/`LT`,
+never `GAS`/`SLOAD`) advances by `StepsTo` steps that record nothing, so the coupling is carried
+frame-for-frame from the statement cursor to the CALL cursor `callFr`. Folded over the arg-push
+`Runs` (once its per-frame `isGasOp`/`isSloadOp = false` facts are in hand from the lowering
+decode) this is Piece-A step 1. -/
+theorem recorderCoupled_stepsTo_other {log : RunLog} {fr fr' : Frame}
+    {gS : List Word} {sS : List Nat} {cS : List CallRecord}
+    (hcp : RecorderCoupled log fr gS sS cS)
+    (hng : isGasOp fr = false) (hns : isSloadOp fr = false)
+    (hstep : StepsTo fr fr') :
+    RecorderCoupled log fr' gS sS cS := by
+  obtain ⟨hs, hfr'⟩ := hstep
+  rw [hfr']
+  exact recorderCoupled_step_other hcp hng hns hs
 
 /-- **R8 — presence threading** (the named replacement of the inside-out `hpresent`
 hypothesis, which quantified over the walk invariant). Trivial-looking on purpose: reached
