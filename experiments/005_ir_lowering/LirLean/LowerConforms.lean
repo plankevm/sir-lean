@@ -21,9 +21,9 @@ induction — they are per-block and per-intermediate-frame, so they cannot be s
 front — we abstract them into **two** structured hypotheses at exactly the altitude of the
 Layer-D / Layer-E conclusions:
 
-* `SimStmtStep prog sloadChg obs o L b` (Layer D, `SimStmts.lean`) — the per-statement
+* `SimStmtStep prog sloadChg obs L b` (Layer D, `SimStmts.lean`) — the per-statement
   simulation, already the unit Layer D consumes.
-* `SimTermStep prog sloadChg obs o self L b` (Layer E, here) — the per-terminator
+* `SimTermStep prog sloadChg obs self L b` (Layer E, here) — the per-terminator
   simulation: from `Corr` at the terminator cursor and the block's `RunStmts`-post IR state,
   either **halt** with a frame whose `observe` *world* matches the IR halt's world (the `stop`
   / `ret` arms, E1), or **run to the taken successor's entry** re-establishing `Corr` at
@@ -34,7 +34,7 @@ IR run's terminator facts. Discharging it for a concrete program is a mechanical
 `b.term` feeding `sim_term_halt_stop` / `sim_term_halt_ret` / `sim_term_edge_jump` /
 `sim_term_edge_branch` their structured-hypothesis bundles (the A1–A3 decode anchors, the E3
 jump-validity, the gas envelopes) — exactly as `SimStmtStep` is discharged for the statement
-arms. This is the **realisability contract**: `sim_cfg` runs the IR under the oracles the
+arms. This is the **realisability contract**: `sim_cfg` runs the IR under the streams the
 lowered bytecode realises, and carries the per-block realisability as `SimStmtStep` /
 `SimTermStep` (the `docs/ir-design-v3.md` §7 supplied-observation model).
 
@@ -64,7 +64,7 @@ open Lir.V2
 
 /-! ## The per-terminator simulation hypothesis `SimTermStep`
 
-`SimTermStep prog sloadChg obs o self L b` packages Layer E's call-free conclusion uniformly
+`SimTermStep prog sloadChg obs self L b` packages Layer E's call-free conclusion uniformly
 over the four IR terminators, matching `V2.RunFrom`'s constructor shape. It is what the CFG
 induction consumes after Layer D has run the block's statements to the terminator cursor.
 
@@ -94,7 +94,7 @@ The halt case carries the IR halt observable `O` so the world equation is stated
 same `O` the `RunFrom` halt constructor produces; the edge case carries the IR-resolved
 successor `succ` so the re-established `Corr` is at the block the `RunFrom` recursion enters. -/
 structure SimTermStep (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
-    (o : V2.CallOracle) (selfAddr : AccountAddress) (L : Label) (b : Block) : Prop where
+    (selfAddr : AccountAddress) (L : Label) (b : Block) : Prop where
   /-- **Halt arm** (`stop` / `ret`). From `Corr` at the terminator cursor and a halting IR
   terminator with halt-world `wHalt` (`st'.world`), a halting frame matching the world. -/
   halt : ∀ (st' : V2.IRState) (frT : Frame),
@@ -245,27 +245,36 @@ observation). `CallRealises` bundles exactly that supply, quantified over the cu
 the structural side-conditions (slot registration + addressability) come from
 `WellFormedLowered`, and the pre-call `MemRealises` comes from `Corr.memAgree`.
 
-The realised step is pinned via `o = evmV2CallOracle result pd self` (in the headline,
-`o = realisedCall log self` *is* that realised oracle, `realisedCall_eq_evmV2` — `rfl`-clean
-when the log recorded the CALL), so the abstract `EvalStmt prog o` call step *is* the realised
-step `sim_call_stmt` consumes. -/
+The realised step is pinned via the post-state `st0' = evmV2CallEntry result pd self`-effect (in
+the walk, the consumed call-stream head at this cursor IS that recorded entry, `realisedCall_cons`
+— `rfl`-clean per record), so the `EvalStmt` call step's post-state *is* the realised effect
+`sim_call_stmt` consumes. Positional: distinct dynamic calls pin distinct heads, so no single-call
+restriction. -/
 
 /-- **The §7 CALL realisability tie.** For a `.call cs` cursor with frame `fr0` in `Corr`
-correspondence, `CallRealises` supplies the realised external-CALL trace `sim_call_stmt`
-consumes: the recorded `(result, pd)` and self address, the realised-oracle identification
-`o = evmV2CallOracle result pd self` (so the abstract call step is the realised step), the
-arg-push run reaching the CALL-site frame `callFr` with its pc/memory pins, the returning CALL
-(`CallReturns callFr resumeFr`) with the resume-frame pins, the post-state realisability ties,
-and the Route-B tail's realisability. The genuine runtime call observation (the analogue of
-`SstoreRealises`), supplied per cursor and quantified over the corresponding frame. -/
-def CallRealises (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (o : V2.CallOracle)
-    (L : Label) (pc : Nat) (cs : CallSpec) (st0 : V2.IRState) (fr0 : Frame) : Prop :=
+correspondence and IR post-state `st0'`, `CallRealises` supplies the realised external-CALL trace
+`sim_call_stmt` consumes: the recorded `(result, pd)` and self address, the realised post-state
+pin `st0' = evmV2CallEntry result pd self`-effect (so the call step's post-state is the realised
+one), the arg-push run reaching the CALL-site frame `callFr` with its pc/memory pins, the
+returning CALL (`CallReturns callFr resumeFr`) with the resume-frame pins, the post-state
+realisability ties, and the Route-B tail's realisability. The genuine runtime call observation
+(the analogue of `SstoreRealises`), supplied per cursor and quantified over the corresponding
+frame. -/
+def CallRealises (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
+    (L : Label) (pc : Nat) (cs : CallSpec) (st0 st0' : V2.IRState) (fr0 : Frame) : Prop :=
   Corr prog sloadChg obs st0 fr0 L pc →
   ∃ (result : Evm.CallResult) (pd : Evm.PendingCall) (callFr resumeFr : Frame) (argsLen : Nat),
     -- the per-step scoping of the call statement (the §7 call scoping):
     StepScoped prog st0 (.call cs)
-    -- the realised oracle pinning (so the abstract call step is the realised one):
-    ∧ o = evmV2CallOracle result pd fr0.exec.executionEnv.address
+    -- the realised post-state pin: the consumed call-stream head IS this call's recorded
+    -- `evmV2CallEntry` effect (the positional multi-call tie replacing the old function-oracle
+    -- equation — no single-call restriction, distinct calls consume distinct heads):
+    ∧ st0' = (match cs.resultTmp with
+        | some t' => { st0 with world := fun key =>
+                        evmCallOracle.postStorage result pd fr0.exec.executionEnv.address key }.setLocal
+                        t' (callSuccessFlag result pd)
+        | none   => { st0 with world := fun key =>
+                        evmCallOracle.postStorage result pd fr0.exec.executionEnv.address key })
     -- the arg-push run + its pins (`MatRuns`-style, the realised arg materialisation):
     ∧ argsLen = (emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
         ++ materialise (defsOf prog) (recomputeFuel prog) cs.callee
@@ -322,62 +331,29 @@ def CallRealises (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (o : V2.
 cursor, feeds `sim_call_stmt`: `WellFormedLowered` supplies the slot registration
 (`slots_slot`) and addressability (`slots_addressable`), `Corr.memAgree` the pre-call
 `MemRealises`, and the §7 `CallRealises` tie supplies the realised external-CALL trace. The
-realised-oracle pinning makes the abstract call step the realised step. -/
+tie's post-state pin (`hst'`) makes the call step's effect the realised one — the consumed
+call-stream head IS this call's recorded result, so the tie alone (not the abstract step's
+own head) supplies the effect `sim_call_stmt` re-establishes. -/
 theorem simStmtStep_call {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {o : V2.CallOracle} {L : Label} {b : Block} {pc : Nat} {cs : CallSpec}
-    {st0 st0' : V2.IRState} {T0 T0' : Trace} {fr0 : Frame}
+    {L : Label} {b : Block} {pc : Nat} {cs : CallSpec}
+    {st0 st0' : V2.IRState} {fr0 : Frame}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hget : b.stmts[pc]? = some (.call cs))
     (hwf : WellFormedLowered prog)
     (hcorr : Corr prog sloadChg obs st0 fr0 L pc)
-    (hstep : EvalStmt prog o st0 T0 (.call cs) st0' T0')
-    (hcall : CallRealises prog sloadChg obs o L pc cs st0 fr0) :
+    (hcall : CallRealises prog sloadChg obs L pc cs st0 st0' fr0) :
     ∃ fr0', Runs fr0 fr0' ∧ Corr prog sloadChg obs st0' fr0' L (pc + 1)
       ∧ fr0'.exec.stack = [] := by
-  obtain ⟨result, pd, callFr, resumeFr, argsLen, hsc, hosame, hargslen, hargs, hcallpc, hcallmem,
+  obtain ⟨result, pd, callFr, resumeFr, argsLen, hsc, hst', hargslen, hargs, hcallpc, hcallmem,
     hcallactive, hcallreturns, hresume, hresaddr, hrescode, hrescanmod, hrespc, hresstack,
     hresmem, hresactive, hresvalidjumps, hscoped', htail⟩ := hcall hcorr
-  set self := fr0.exec.executionEnv.address with hselfdef
-  -- the realised post-state (with `callSuccessFlag`, matching `CallRealises`'s ties).
-  set stRes : V2.IRState := (match cs.resultTmp with
-    | some t' => { st0 with world := fun key => evmCallOracle.postStorage result pd self key }.setLocal
-                  t' (callSuccessFlag result pd)
-    | none   => { st0 with world := fun key => evmCallOracle.postStorage result pd self key }) with hstRes
-  -- the realised IR step into `stRes` (oracle pinned by `hosame`, success word reflexively
-  -- the CALL flag): built fresh so `sim_call_stmt`'s post-state IS `stRes`.
-  obtain ⟨calleeW, gasFwdW, hcallee, hgasfwd⟩ : ∃ cw gw, st0.locals cs.callee = some cw
-      ∧ st0.locals cs.gasFwd = some gw := by
-    cases hstep with
-    | call hcallee hgasr _ => exact ⟨_, _, hcallee, hgasr⟩
-  have hsuccW : evmCallOracle.successWord result pd = callSuccessFlag result pd :=
-    evmCallOracle_successWord_eq_x result pd
-  have hores : evmV2CallOracle result pd self calleeW gasFwdW st0.world
-      = ((fun key => evmCallOracle.postStorage result pd self key), callSuccessFlag result pd) := by
-    show ((fun key => evmCallOracle.postStorage result pd self key),
-          evmCallOracle.successWord result pd) = _
-    rw [hsuccW]
-  have hstepRes : EvalStmt prog (evmV2CallOracle result pd self) st0 T0 (.call cs) stRes T0 := by
-    have h := EvalStmt.call (prog := prog) (o := evmV2CallOracle result pd self) (T := T0)
-      hcallee hgasfwd hores
-    -- `EvalStmt.call`'s post-state matches `stRes` (the `match cs.resultTmp` shapes coincide).
-    cases hr : cs.resultTmp with
-    | some t' => rw [hstRes, hr]; rw [hr] at h; exact h
-    | none    => rw [hstRes, hr]; rw [hr] at h; exact h
-  -- the abstract step has the SAME post-state as `stRes` (the realised oracle ignores its
-  -- argument words, so `hstep`'s own callee/gasFwd reads don't matter; success word reflexive).
-  have hst0eq : st0' = stRes := by
-    cases hstep with
-    | call hcallee0 hgasr0 ho =>
-      rw [hosame] at ho
-      rw [show evmV2CallOracle result pd self _ _ st0.world
-            = ((fun key => evmCallOracle.postStorage result pd self key),
-               evmCallOracle.successWord result pd) from rfl] at ho
-      injection ho with hw' hs'
-      rw [hstRes, ← hsuccW]
-      cases cs.resultTmp <;> rw [← hw', ← hs']
-  rw [hst0eq]
+  -- the tie's post-state scoping fold is stated over the realised effect (= `st0'` by `hst'`);
+  -- rewrite it to `st0'.locals`, the form `sim_call_stmt` consumes.
+  rw [← hst'] at hscoped'
+  -- feed `sim_call_stmt` the tie's realised post-state pin `hst'` directly; `self` unifies to
+  -- `fr0.exec.executionEnv.address` (the address the tie's pins and `hst'` name).
   exact sim_call_stmt hb hget hcorr.pc_eq hargslen hargs hcallpc hcallmem hcallactive
-    hcallreturns hresume hstepRes hresaddr hrescode hrescanmod
+    hcallreturns hresume hst' hresaddr hrescode hrescanmod
     hrespc hresstack hresmem hresactive hresvalidjumps hcorr.defsSound hsc hcorr.memAgree
     (hwf.slots_slot) hscoped' htail
 
@@ -396,7 +372,7 @@ genuine runtime ties (assign post-state realisability; sstore gas/`SstoreRealise
 the realised CALL trace) are the explicit §7 hypotheses. The three arms are exhaustive over
 `EvalStmt`, so NO call-free side condition is needed. -/
 theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {o : V2.CallOracle} {L : Label} {b : Block}
+    {L : Label} {b : Block}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hwf : WellFormedLowered prog)
     -- the genuine **rematerialised** `assign`-cursor ties (target not spilled; post-state
@@ -477,12 +453,13 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp value)).length
             + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).length + 1 ≤ 1024
         ∧ (∃ acc, SstoreRealises fr0 kw vw acc))
-    -- the genuine `call`-cursor tie (the §7 realised-CALL trace):
-    (hcallties : ∀ (pc : Nat) (cs : CallSpec) (st0 : V2.IRState) (fr0 : Frame),
+    -- the genuine `call`-cursor tie (the §7 realised-CALL trace), keyed on the step post-state
+    -- `st0'` (the consumed call-stream head's effect — the positional multi-call pin):
+    (hcallties : ∀ (pc : Nat) (cs : CallSpec) (st0 st0' : V2.IRState) (fr0 : Frame),
         b.stmts[pc]? = some (.call cs) →
-        CallRealises prog sloadChg obs o L pc cs st0 fr0) :
-    SimStmtStep prog sloadChg obs o L b := by
-  intro pc s st0 st0' T0 T0' fr0 hget hcorr hcs hstep
+        CallRealises prog sloadChg obs L pc cs st0 st0' fr0) :
+    SimStmtStep prog sloadChg obs L b := by
+  intro pc s st0 st0' T0 T0' C0 C0' fr0 hget hcorr hcs hstep
   -- `s` is at a present cursor; case on the `EvalStmt` step (assign / sstore / call).
   cases hstep with
   | assignPure hne hv =>
@@ -514,31 +491,31 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       obtain ⟨hremat, hsc, hscoped', hmem'⟩ :=
         hassign pc t (.imm v) st0 (st0.setLocal t w) fr0 hget hcorr
       obtain ⟨_, hc', _⟩ := sim_assign hb hget hremat hcorr
-        (EvalStmt.assignPure (prog := prog) (o := o) (T := T0) hne hv) hsc hscoped' hmem'
+        (EvalStmt.assignPure (prog := prog) (T := T0) (C := C0) hne hv) hsc hscoped' hmem'
       exact ⟨fr0, Runs.refl fr0, hc', hcorr.stack_nil⟩
     | tmp t' =>
       obtain ⟨hremat, hsc, hscoped', hmem'⟩ :=
         hassign pc t (.tmp t') st0 (st0.setLocal t w) fr0 hget hcorr
       obtain ⟨_, hc', _⟩ := sim_assign hb hget hremat hcorr
-        (EvalStmt.assignPure (prog := prog) (o := o) (T := T0) hne hv) hsc hscoped' hmem'
+        (EvalStmt.assignPure (prog := prog) (T := T0) (C := C0) hne hv) hsc hscoped' hmem'
       exact ⟨fr0, Runs.refl fr0, hc', hcorr.stack_nil⟩
     | add a b =>
       obtain ⟨hremat, hsc, hscoped', hmem'⟩ :=
         hassign pc t (.add a b) st0 (st0.setLocal t w) fr0 hget hcorr
       obtain ⟨_, hc', _⟩ := sim_assign hb hget hremat hcorr
-        (EvalStmt.assignPure (prog := prog) (o := o) (T := T0) hne hv) hsc hscoped' hmem'
+        (EvalStmt.assignPure (prog := prog) (T := T0) (C := C0) hne hv) hsc hscoped' hmem'
       exact ⟨fr0, Runs.refl fr0, hc', hcorr.stack_nil⟩
     | lt a b =>
       obtain ⟨hremat, hsc, hscoped', hmem'⟩ :=
         hassign pc t (.lt a b) st0 (st0.setLocal t w) fr0 hget hcorr
       obtain ⟨_, hc', _⟩ := sim_assign hb hget hremat hcorr
-        (EvalStmt.assignPure (prog := prog) (o := o) (T := T0) hne hv) hsc hscoped' hmem'
+        (EvalStmt.assignPure (prog := prog) (T := T0) (C := C0) hne hv) hsc hscoped' hmem'
       exact ⟨fr0, Runs.refl fr0, hc', hcorr.stack_nil⟩
     | slot n =>
       obtain ⟨hremat, hsc, hscoped', hmem'⟩ :=
         hassign pc t (.slot n) st0 (st0.setLocal t w) fr0 hget hcorr
       obtain ⟨_, hc', _⟩ := sim_assign hb hget hremat hcorr
-        (EvalStmt.assignPure (prog := prog) (o := o) (T := T0) hne hv) hsc hscoped' hmem'
+        (EvalStmt.assignPure (prog := prog) (T := T0) (C := C0) hne hv) hsc hscoped' hmem'
       exact ⟨fr0, Runs.refl fr0, hc', hcorr.stack_nil⟩
     | gas => exact absurd rfl hne
   | assignGas =>
@@ -561,11 +538,11 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     obtain ⟨hwfv, hwfk⟩ := hwf.matFueled_sstore L b pc key value hb hget
     exact sim_sstore_stmt_lowered hb hget hcorr hk hv hsc hwfv hwfk
       (hwf.bound_sstore L b pc key value hb hget) hcs hstk hsr
-  | call hcallee hgasr ho =>
+  | call hcallee hgasr =>
     rename_i cs calleeW gasFwdW success world'
-    exact simStmtStep_call hb hget hwf hcorr
-      (EvalStmt.call (prog := prog) (o := o) (T := T0) hcallee hgasr ho)
-      (hcallties pc cs st0 fr0 hget)
+    -- the step post-state `st0'` is the consumed head's effect; `hcallties` pins it to the
+    -- realised `evmV2CallEntry` effect (the positional multi-call tie).
+    exact simStmtStep_call hb hget hwf hcorr (hcallties pc cs st0 _ fr0 hget)
 
 /-! ### The `stop`-terminator discharge (fully closed down to the genuine frame facts)
 
@@ -583,7 +560,7 @@ genuine top-level-frame facts at every terminator-cursor frame (self address `= 
 `.call`-kind, non-empty committed accounts) and the pc bound — `SimTermStep` holds. The `STOP`
 decode is discharged from A3; the `edge`/`ret` arms are vacuous. -/
 theorem simTermStep_stop {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {o : V2.CallOracle} {self : AccountAddress} {L : Label} {b : Block}
+    {self : AccountAddress} {L : Label} {b : Block}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hterm : b.term = .stop)
     (hbound : termOf prog L < 2 ^ 32)
@@ -593,7 +570,7 @@ theorem simTermStep_stop {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         self = frT.exec.executionEnv.address
         ∧ (∃ cp, frT.kind = .call cp)
         ∧ ¬ (frT.exec.accounts == ∅) = true) :
-    SimTermStep prog sloadChg obs o self L b := by
+    SimTermStep prog sloadChg obs self L b := by
   refine { halt := ?_, edge := ?_ }
   · -- halt arm: only the `stop` disjunct fires (the `ret` one contradicts `hterm`).
     intro st' frT hcorr hdisj
@@ -636,7 +613,7 @@ ties (`hself`, the returned-value binding, gas/stack envelopes, the RETURN-site 
 `SimTermStep` holds. The decode is discharged inside `sim_term_halt_ret_lowered`; the
 `edge`/`stop` arms are vacuous. -/
 theorem simTermStep_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {o : V2.CallOracle} {self : AccountAddress} {L : Label} {b : Block} {t : Tmp}
+    {self : AccountAddress} {L : Label} {b : Block} {t : Tmp}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hterm : b.term = .ret t)
     (hwf : WellFormedLowered prog)
@@ -665,7 +642,7 @@ theorem simTermStep_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
               ∧ 3 ≤ (pushFrameW frv (0 : Word) 32).exec.gasAvailable.toNat
               ∧ frv.kind = .call cp
               ∧ ¬ (frv.exec.accounts == ∅) = true)) :
-    SimTermStep prog sloadChg obs o self L b := by
+    SimTermStep prog sloadChg obs self L b := by
   refine { halt := ?_, edge := ?_ }
   · -- halt arm: only the `ret` disjunct fires (the `stop` one contradicts `hterm`).
     intro st' frT hcorr _hdisj
@@ -691,7 +668,7 @@ then — given `WellFormedLowered` and, at every terminator-cursor frame, the ge
 ties (the gas envelopes) — `SimTermStep` holds. The decode and the `validJumps` tie are
 discharged inside `sim_term_edge_jump_lowered`; the `halt` arm is vacuous. -/
 theorem simTermStep_jump {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {o : V2.CallOracle} {self : AccountAddress} {L : Label} {b : Block}
+    {self : AccountAddress} {L : Label} {b : Block}
     {dst : Label} {bdst : Block}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hterm : b.term = .jump dst)
@@ -714,7 +691,7 @@ theorem simTermStep_jump {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
                 GasConstants.Gmid
                 (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks dst.idx))
                 frT.exec.stack).exec.gasAvailable.toNat) :
-    SimTermStep prog sloadChg obs o self L b := by
+    SimTermStep prog sloadChg obs self L b := by
   obtain ⟨hbt, hbo⟩ := hwf.bound_jump L b dst hb hterm
   refine { halt := ?_, edge := ?_ }
   · -- halt arm: vacuous (b.term = .jump dst contradicts stop/ret).
@@ -753,7 +730,7 @@ frame, the genuine control-flow ties (the cond-materialise `MatRuns`, the gas en
 `SimTermStep` holds. The cw-tied conclusion of `sim_term_edge_branch_lowered` reconciles the
 `SimTermStep.edge` disjunct's chosen `succ` with the runtime-resolved branch. -/
 theorem simTermStep_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {o : V2.CallOracle} {self : AccountAddress} {L : Label} {b : Block}
+    {self : AccountAddress} {L : Label} {b : Block}
     {cond : Tmp} {thenL elseL : Label} {bthen belse : Block}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hterm : b.term = .branch cond thenL elseL)
@@ -793,7 +770,7 @@ theorem simTermStep_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word
               (jumpiFallthroughFrame (pushFrameW frc
                 (UInt256.ofNat ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32)) 4)
                 ([] : Stack Word)).exec.stack).exec.gasAvailable.toNat) :
-    SimTermStep prog sloadChg obs o self L b := by
+    SimTermStep prog sloadChg obs self L b := by
   obtain ⟨hbt, hbthenoff, hbelseoff⟩ := hwf.bound_branch L b cond thenL elseL hb hterm
   refine { halt := ?_, edge := ?_ }
   · -- halt arm: vacuous (b.term = .branch contradicts stop/ret).
@@ -838,7 +815,7 @@ fuel/pc/offset side-conditions; the per-shape genuine §7 ties are supplied by t
 `hjump`/`hbranch` hypotheses (each consumed only on its matching terminator shape). The successor
 blocks (for the edges) are supplied by `hsucc`. -/
 theorem simTermStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {o : V2.CallOracle} {self : AccountAddress} {L : Label} {b : Block}
+    {self : AccountAddress} {L : Label} {b : Block}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hwf : WellFormedLowered prog)
     -- successor-block presence for the edges (vacuous on halts):
@@ -923,7 +900,7 @@ theorem simTermStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
                 (jumpiFallthroughFrame (pushFrameW frc
                   (UInt256.ofNat ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32)) 4)
                   ([] : Stack Word)).exec.stack).exec.gasAvailable.toNat) :
-    SimTermStep prog sloadChg obs o self L b := by
+    SimTermStep prog sloadChg obs self L b := by
   -- dispatch on the terminator shape.
   cases hb' : b.term with
   | stop => exact simTermStep_stop hb hb' (hwf.bound_stop L b hb hb') (hstop hb')
@@ -961,20 +938,20 @@ simulations, the lowered bytecode runs from `fr` to a halting frame `last` whose
 Induction on the `RunFrom` derivation: Layer D runs each block's statements; `SimTermStep`
 either halts (matching the world, the `stop`/`ret` base cases) or steps to the taken
 successor's entry where the IH applies (the `jump`/`branch` recursion). -/
-theorem sim_cfg {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} {o : V2.CallOracle}
+theorem sim_cfg {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {self : AccountAddress}
     (hstmts : ∀ (L : Label) (b : Block), blockAt prog L = some b →
-      SimStmtStep prog sloadChg obs o L b)
+      SimStmtStep prog sloadChg obs L b)
     (hterm : ∀ (L : Label) (b : Block), blockAt prog L = some b →
-      SimTermStep prog sloadChg obs o self L b)
-    {st : V2.IRState} {T : Trace} {L : Label} {O : V2.Observable} {fr : Frame}
+      SimTermStep prog sloadChg obs self L b)
+    {st : V2.IRState} {T : Trace} {C : CallStream} {L : Label} {O : V2.Observable} {fr : Frame}
     (hcorr : Corr prog sloadChg obs st fr L 0)
     (hcs : CleanHaltsNonException fr)
-    (hrun : V2.RunFrom prog o st T L O) :
+    (hrun : V2.RunFrom prog st T C L O) :
     ∃ last haltSig, Runs fr last ∧ stepFrame last = .halted haltSig
       ∧ (observe self (endFrame last haltSig)).world = O.world := by
   induction hrun generalizing fr with
-  | @ret st st' T T' L b t w hb hss hterm' hv =>
+  | @ret st st' T T' C C' L b t w hb hss hterm' hv =>
     -- Layer D: run the block's statements to the terminator cursor.
     obtain ⟨frT, hrunsT, hcorrT, _⟩ :=
       sim_stmts_block (hstmts L b hb) hcorr hcs hss
@@ -982,13 +959,13 @@ theorem sim_cfg {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} {o : V2.C
     obtain ⟨last, haltSig, hlast, hhalt, hworld⟩ :=
       (hterm L b hb).halt st' frT hcorrT (Or.inr ⟨t, hterm'⟩)
     exact ⟨last, haltSig, hrunsT.trans hlast, hhalt, hworld⟩
-  | @stop st st' T T' L b hb hss hterm' =>
+  | @stop st st' T T' C C' L b hb hss hterm' =>
     obtain ⟨frT, hrunsT, hcorrT, _⟩ :=
       sim_stmts_block (hstmts L b hb) hcorr hcs hss
     obtain ⟨last, haltSig, hlast, hhalt, hworld⟩ :=
       (hterm L b hb).halt st' frT hcorrT (Or.inl hterm')
     exact ⟨last, haltSig, hrunsT.trans hlast, hhalt, hworld⟩
-  | @branchThen st st' T T' L b cond cw thenL elseL O hb hss hterm' hc hnz hrest ih =>
+  | @branchThen st st' T T' C C' L b cond cw thenL elseL O hb hss hterm' hc hnz hrest ih =>
     obtain ⟨frT, hrunsT, hcorrT, _⟩ :=
       sim_stmts_block (hstmts L b hb) hcorr hcs hss
     -- Layer E (edge): step to `thenL`'s entry, re-establishing `Corr` at `(thenL, 0)`.
@@ -1001,7 +978,7 @@ theorem sim_cfg {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} {o : V2.C
     -- IH on the recursion into `thenL`, from the re-established `Corr`.
     obtain ⟨last, haltSig, hlast, hhalt, hworld⟩ := ih hcorr' hcs'
     exact ⟨last, haltSig, (hrunsT.trans hruns').trans hlast, hhalt, hworld⟩
-  | @branchElse st st' T T' L b cond thenL elseL O hb hss hterm' hc hrest ih =>
+  | @branchElse st st' T T' C C' L b cond thenL elseL O hb hss hterm' hc hrest ih =>
     obtain ⟨frT, hrunsT, hcorrT, _⟩ :=
       sim_stmts_block (hstmts L b hb) hcorr hcs hss
     obtain ⟨fr', hruns', hcorr'⟩ :=
@@ -1011,7 +988,7 @@ theorem sim_cfg {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} {o : V2.C
       cleanHaltsNonException_forward hcs (hrunsT.trans hruns')
     obtain ⟨last, haltSig, hlast, hhalt, hworld⟩ := ih hcorr' hcs'
     exact ⟨last, haltSig, (hrunsT.trans hruns').trans hlast, hhalt, hworld⟩
-  | @jump st st' T T' L b dst O hb hss hterm' hrest ih =>
+  | @jump st st' T T' C C' L b dst O hb hss hterm' hrest ih =>
     obtain ⟨frT, hrunsT, hcorrT, _⟩ :=
       sim_stmts_block (hstmts L b hb) hcorr hcs hss
     obtain ⟨fr', hruns', hcorr'⟩ :=
@@ -1137,7 +1114,7 @@ theorem entry_corr {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} {w₀ 
 
 The headline. From a successful `runWithLog` over the lowered program, recover:
 
-1. **the IR run** — `IRRun prog (realisedGas log) (realisedCall log self) w₀ O` for *some*
+1. **the IR run** — `IRRun prog w₀ (realisedGas log) (realisedCall log self) O` for *some*
    observable `O`. We do **not** synthesise the `RunFrom` derivation from the bytecode
    (`runWithLog` records the *bytecode* trace, not the IR one); instead we carry the IR run as
    a structured hypothesis (`hir`) — the **IR side** of the conformance diagram, supplied for
@@ -1206,11 +1183,12 @@ theorem lower_conforms {prog : Program} {w₀ : V2.World} {self : AccountAddress
     (hcs : CleanHaltsNonException (codeFrame p (lower prog)))
     -- the per-block simulations (the realisability contract over `lower prog`):
     (hstmts : ∀ (L : Label) (b : Block), blockAt prog L = some b →
-      SimStmtStep prog sloadChg obs (realisedCall log self) L b)
+      SimStmtStep prog sloadChg obs L b)
     (hterm : ∀ (L : Label) (b : Block), blockAt prog L = some b →
-      SimTermStep prog sloadChg obs (realisedCall log self) self L b)
-    -- the IR run under the realised oracles (the IR side of the conformance diagram):
-    (hir : V2.IRRun prog (realisedCall log self) w₀ (realisedGas log) O) :
+      SimTermStep prog sloadChg obs self L b)
+    -- the IR run under the realised streams (the IR side of the conformance diagram): the gas
+    -- trace `realisedGas log` and the consumed call stream `realisedCall log self`:
+    (hir : V2.IRRun prog w₀ (realisedGas log) (realisedCall log self) O) :
     O.world = (observe self log.observable).world := by
   -- the lowered program enters as code from `codeFrame p (lower prog)` (`beginCall_code`).
   have hbegin : EntersAsCode p (codeFrame p (lower prog)) := beginCall_code p (lower prog) hp

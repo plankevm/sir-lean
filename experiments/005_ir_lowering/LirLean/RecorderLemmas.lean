@@ -5,7 +5,7 @@ import LirLean.Spec.Recorder
 
 The proof companions of the recording interpreter (`LirLean/Spec/Recorder.lean`,
 the former `V2/RunLog.lean`): the SLOAD/CALL value-level bridges
-(`sloadRecord_eq_sloadCost` / `realisedCall_eq_evmV2`) and the adequacy chain
+(`sloadRecord_eq_sloadCost` / `realisedCall_cons`) and the adequacy chain
 (`driveLog_drive` → `runWithLog_drive` → `runWithLog_messageCall`). Extracted so
 `Spec/Recorder.lean` stays a definitions-only spec-core file (Wave 3,
 `docs/fleet-2026-07-02/reorg-legibility.md` §5 Step 3); the former direct importers
@@ -35,15 +35,17 @@ theorem sloadRecord_eq_sloadCost (g : Frame) {key : Word}
           (g.exec.executionEnv.address, key)) := by
   simp only [sloadWarmthOf, hkey]
 
-/-- **`realisedCall` faithfulness.** When the log recorded a CALL (`log.calls = rec ::
-_`), the realised call oracle *is* `evmV2CallOracle` at that record's `(result, pending)`
-— the `resumeAfterCall` projection of `LirLean/V2/CallRealises.lean`. `rfl`-clean, so
-`callRealises_bridge` ties its `(world', success)` bundle to the lowered CALL's
-observable by construction (the call-side realisability). -/
-theorem realisedCall_eq_evmV2 {log : RunLog} {rec : CallRecord} {tl : List CallRecord}
+/-- **`realisedCall` faithfulness (head/cons projection).** When the log recorded a CALL
+(`log.calls = rec :: tl`), the realised call stream is `evmV2CallEntry` at that record's
+`(result, pending)` — the `resumeAfterCall` projection of `LirLean/V2/CallRealises.lean` —
+CONSED onto the stream of the remaining records. `rfl`-clean, so `callRealises_bridge` ties
+this head's `(world', success)` entry to the lowered CALL's observable by construction (the
+call-side realisability), positionally per record. -/
+theorem realisedCall_cons {log : RunLog} {rec : CallRecord} {tl : List CallRecord}
     (self : AccountAddress) (hc : log.calls = rec :: tl) :
-    realisedCall log self = evmV2CallOracle rec.result rec.pending self := by
-  simp only [realisedCall, callOracleOf, hc]
+    realisedCall log self
+      = evmV2CallEntry rec.result rec.pending self :: callStreamOf tl self := by
+  simp only [realisedCall, callStreamOf, hc, List.map_cons]
 
 /-! ## Result adequacy: `driveLog` agrees with `drive`
 

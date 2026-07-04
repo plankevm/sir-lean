@@ -8,8 +8,8 @@ import LirLean.Engine.AccountMap
 The recorder/IR-coupled half of the former `V2/TieDischarge.lean` §1–§5 (decl names and
 namespaces unchanged):
 
-* **§1 CALL** — `realisedCall_projection`: the recorded-CALL projection IS `evmV2CallOracle`
-  (the `o = evmV2CallOracle …` conjunct of `CallRealises`, discharged from the recording).
+* **§1 CALL** — `realisedCall_projection`: the recorded-CALL projection heads `evmV2CallEntry`
+  (the positional head-of-stream pin of `CallRealises`, discharged from the recording).
 * **§2 GAS** — the alignment-free arithmetic bridge (`gasRecord_eq_gasReadOf`,
   `gasReadOf_gasFrame_eq_obs`).
 * **§3 GAS alignment** — the positional-alignment foundation `GasLogAligned` + the per-op
@@ -40,20 +40,23 @@ open BytecodeLayer.System
 open BytecodeLayer.Maps
 open Lir
 
-/-! ## §1 — CALL: the recorded-CALL projection is `evmV2CallOracle` (DISCHARGED)
+/-! ## §1 — CALL: the recorded-CALL projection heads `evmV2CallEntry` (DISCHARGED)
 
-`realisedCall log self` is, when the log recorded a CALL, exactly `evmV2CallOracle` at that record
-(`realisedCall_eq_evmV2`). So `CallRealises`'s realised-oracle conjunct `o = evmV2CallOracle …` is
-produced from the recording, not supplied. We re-expose it as the named value-channel discharge. -/
+`realisedCall log self` is, when the log recorded a CALL, `evmV2CallEntry` at the head record
+CONSED onto the remaining stream (`realisedCall_cons`). So the head of the consumed call stream
+at this cursor is produced from the recording, not supplied — positionally, per record. We
+re-expose it as the named value-channel discharge. -/
 
 /-- **CALL value-channel discharge.** With the run's recorded CALLs led by `rec`, the realised
-oracle is `evmV2CallOracle rec.result rec.pending self` — the `resumeAfterCall` projection. This is
-the `o = evmV2CallOracle …` conjunct of `CallRealises`, *discharged* from the recording
-(`realisedCall_eq_evmV2`, `simp`-clean), not supplied. -/
+call stream is `evmV2CallEntry rec.result rec.pending self :: callStreamOf tl self` — the head is
+the `resumeAfterCall` projection of *this* cursor's CALL. This is the positional head-of-stream
+pin of `CallRealises`, *discharged* from the recording (`realisedCall_cons`, `simp`-clean), not
+supplied. -/
 theorem realisedCall_projection {log : RunLog} {rec : CallRecord} {tl : List CallRecord}
     (self : AccountAddress) (hc : log.calls = rec :: tl) :
-    realisedCall log self = evmV2CallOracle rec.result rec.pending self :=
-  realisedCall_eq_evmV2 self hc
+    realisedCall log self
+      = evmV2CallEntry rec.result rec.pending self :: callStreamOf tl self :=
+  realisedCall_cons self hc
 
 /-! ## §2 — GAS: the arithmetic bridge (alignment-free, DISCHARGED)
 

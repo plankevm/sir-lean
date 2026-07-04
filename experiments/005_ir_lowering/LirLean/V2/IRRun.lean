@@ -76,9 +76,9 @@ def stmtPost (st : IRState) : Stmt → IRState
 steps to `stmtPost st s` with the trace unchanged. The trace `T` is arbitrary and preserved:
 no read is consumed (the only consuming statement, `assign t .gas`, is excluded by
 `StmtDefinable`). -/
-theorem evalStmt_exists {prog : Program} {o : CallOracle} {st : IRState} {T : Trace}
+theorem evalStmt_exists {prog : Program} {st : IRState} {T : Trace} {C : CallStream}
     {s : Stmt} (hdef : StmtDefinable st s) :
-    EvalStmt prog o st T s (stmtPost st s) T := by
+    EvalStmt prog st T C s (stmtPost st s) T C := by
   cases s with
   | assign t e =>
     obtain ⟨hne, w, hw⟩ := hdef
@@ -116,9 +116,9 @@ def stmtsPost (st : IRState) : List Stmt → IRState
 /-- **`RunStmts` existence (gas-free, call-free fragment).** A `StmtsDefinable` statement list
 runs to `stmtsPost st ss` with the trace unchanged. By induction on the list; each head fires
 via `evalStmt_exists`, the tail by the IH at the head's post-state. -/
-theorem runStmts_exists {prog : Program} {o : CallOracle} {st : IRState} {T : Trace}
+theorem runStmts_exists {prog : Program} {st : IRState} {T : Trace} {C : CallStream}
     {ss : List Stmt} (hdef : StmtsDefinable st ss) :
-    RunStmts prog o st T ss (stmtsPost st ss) T := by
+    RunStmts prog st T C ss (stmtsPost st ss) T C := by
   induction ss generalizing st with
   | nil => exact RunStmts.nil
   | cons s ss ih =>
@@ -136,48 +136,48 @@ state. -/
 /-- **`RunFrom` existence for a `stop`-terminated block.** From a present block `b` whose
 statements are gas-free/call-free and definable, and whose terminator is `stop`, `RunFrom`
 halts at the post-statement world with `.stopped`. -/
-theorem runFrom_exists_stop {prog : Program} {o : CallOracle} {st : IRState} {T : Trace}
+theorem runFrom_exists_stop {prog : Program} {st : IRState} {T : Trace} {C : CallStream}
     {L : Label} {b : Block}
     (hb : blockAt prog L = some b)
     (hterm : b.term = .stop)
     (hdef : StmtsDefinable st b.stmts) :
-    RunFrom prog o st T L { world := (stmtsPost st b.stmts).world, result := .stopped } :=
+    RunFrom prog st T C L { world := (stmtsPost st b.stmts).world, result := .stopped } :=
   RunFrom.stop hb (runStmts_exists hdef) hterm
 
 /-- **`RunFrom` existence for a `ret`-terminated block.** As `runFrom_exists_stop`, with the
 `ret t` operand bound at the post-statement state (`hv`); halts returning that value. -/
-theorem runFrom_exists_ret {prog : Program} {o : CallOracle} {st : IRState} {T : Trace}
+theorem runFrom_exists_ret {prog : Program} {st : IRState} {T : Trace} {C : CallStream}
     {L : Label} {b : Block} {t : Tmp} {w : Word}
     (hb : blockAt prog L = some b)
     (hterm : b.term = .ret t)
     (hdef : StmtsDefinable st b.stmts)
     (hv : (stmtsPost st b.stmts).locals t = some w) :
-    RunFrom prog o st T L { world := (stmtsPost st b.stmts).world, result := .returned w } :=
+    RunFrom prog st T C L { world := (stmtsPost st b.stmts).world, result := .returned w } :=
   RunFrom.ret hb (runStmts_exists hdef) hterm hv
 
 /-- **`IRRun` existence for a single `stop`-block program.** If the entry block is present,
 gas-free/call-free, definable from the empty-locals/`w₀` start, and `stop`-terminated, the
-program has an IR run for *any* call oracle `o` and *any* trace `T` — the trace is unconsumed
+program has an IR run for *any* call stream `C` and *any* trace `T` — the trace is unconsumed
 (no gas reads). The produced observable is `⟨post-world, .stopped⟩`. -/
-theorem irRun_exists_stop {prog : Program} {o : CallOracle} {w₀ : World} {T : Trace}
+theorem irRun_exists_stop {prog : Program} {w₀ : World} {T : Trace} {C : CallStream}
     {bentry : Block}
     (hb : blockAt prog prog.entry = some bentry)
     (hterm : bentry.term = .stop)
     (hdef : StmtsDefinable { locals := fun _ => none, world := w₀ } bentry.stmts) :
-    IRRun prog o w₀ T
+    IRRun prog w₀ T C
       { world := (stmtsPost { locals := fun _ => none, world := w₀ } bentry.stmts).world
         result := .stopped } :=
   runFrom_exists_stop hb hterm hdef
 
 /-- **`IRRun` existence for a single `ret`-block program.** As `irRun_exists_stop`, with the
 `ret` operand bound at the post-statement state; the observable returns that value. -/
-theorem irRun_exists_ret {prog : Program} {o : CallOracle} {w₀ : World} {T : Trace}
+theorem irRun_exists_ret {prog : Program} {w₀ : World} {T : Trace} {C : CallStream}
     {bentry : Block} {t : Tmp} {w : Word}
     (hb : blockAt prog prog.entry = some bentry)
     (hterm : bentry.term = .ret t)
     (hdef : StmtsDefinable { locals := fun _ => none, world := w₀ } bentry.stmts)
     (hv : (stmtsPost { locals := fun _ => none, world := w₀ } bentry.stmts).locals t = some w) :
-    IRRun prog o w₀ T
+    IRRun prog w₀ T C
       { world := (stmtsPost { locals := fun _ => none, world := w₀ } bentry.stmts).world
         result := .returned w } :=
   runFrom_exists_ret hb hterm hdef hv
@@ -289,17 +289,17 @@ runs to *some* observable `O`. By strong induction on `blockRank L`: halts botto
 `jump`/`branch` recurse at the strictly-smaller-rank, still-present successor
 (`CFGAcyclic.decreasing` + `succ_present`). The observable is existential (it depends on the
 dynamic branch choices), not a closed form. The trace `T` is threaded unchanged (gas-free). -/
-theorem runFrom_exists {prog : Program} {o : CallOracle}
+theorem runFrom_exists {prog : Program}
     (hac : CFGAcyclic prog) (hdef : RunDefinable prog) :
-    ∀ (n : ℕ) (st : IRState) (T : Trace) (L : Label) (b : Block),
+    ∀ (n : ℕ) (st : IRState) (T : Trace) (C : CallStream) (L : Label) (b : Block),
       blockAt prog L = some b → hac.blockRank L = n →
-      ∃ O, RunFrom prog o st T L O := by
+      ∃ O, RunFrom prog st T C L O := by
   intro n
   induction n using Nat.strong_induction_on with
   | _ n ih =>
-    intro st T L b hb hrank
+    intro st T C L b hb hrank
     -- Run this block's statements (gas-free/call-free, definable from any state).
-    have hss := runStmts_exists (prog := prog) (o := o) (T := T) (hdef.stmts st L b hb)
+    have hss := runStmts_exists (prog := prog) (T := T) (C := C) (hdef.stmts st L b hb)
     set st' := stmtsPost st b.stmts with hst'
     -- Case on the terminator.
     cases hterm : b.term with
@@ -314,7 +314,7 @@ theorem runFrom_exists {prog : Program} {o : CallOracle}
         have := hac.decreasing L b hb; rw [hterm] at this; exact this
       obtain ⟨b', hb'⟩ := hac.succ_present L b hb dst (by simp [hterm, Term.succs])
       obtain ⟨O, hO⟩ :=
-        ih (hac.blockRank dst) (hrank ▸ hlt) st' T dst b' hb' rfl
+        ih (hac.blockRank dst) (hrank ▸ hlt) st' T C dst b' hb' rfl
       exact ⟨O, RunFrom.jump hb hss hterm hO⟩
     | branch cond thenL elseL =>
       obtain ⟨cw, hc⟩ := hdef.branch_def st L b cond thenL elseL hb hterm
@@ -326,25 +326,25 @@ theorem runFrom_exists {prog : Program} {o : CallOracle}
       by_cases hz : cw = 0
       · -- else-edge
         obtain ⟨O, hO⟩ :=
-          ih (hac.blockRank elseL) (hrank ▸ hltElse) st' T elseL bE hbE rfl
+          ih (hac.blockRank elseL) (hrank ▸ hltElse) st' T C elseL bE hbE rfl
         exact ⟨O, RunFrom.branchElse hb hss hterm (hz ▸ hc) hO⟩
       · -- then-edge
         obtain ⟨O, hO⟩ :=
-          ih (hac.blockRank thenL) (hrank ▸ hltThen) st' T thenL bT hbT rfl
+          ih (hac.blockRank thenL) (hrank ▸ hltThen) st' T C thenL bT hbT rfl
         exact ⟨O, RunFrom.branchThen hb hss hterm hc hz hO⟩
 
 /-- **`IRRun` existence for a general acyclic CFG** (the general `hir` discharge). An acyclic,
 call-free, gas-free program with a present entry block and the run-definability supply has an IR
-run for *any* call oracle `o` and *any* trace `T` (the trace is unconsumed — no gas reads). The
+run for *any* call stream `C` and *any* trace `T` (the trace is unconsumed — no gas reads). The
 observable is existential. Specialises `runFrom_exists` at the entry block from the
 empty-locals/`w₀` start. -/
-theorem irRun_exists {prog : Program} {o : CallOracle} {w₀ : World} {T : Trace}
+theorem irRun_exists {prog : Program} {w₀ : World} {T : Trace} {C : CallStream}
     {bentry : Block}
     (hac : CFGAcyclic prog) (hdef : RunDefinable prog)
     (hb : blockAt prog prog.entry = some bentry) :
-    ∃ O, IRRun prog o w₀ T O :=
+    ∃ O, IRRun prog w₀ T C O :=
   runFrom_exists hac hdef (hac.blockRank prog.entry)
-    { locals := fun _ => none, world := w₀ } T prog.entry bentry hb rfl
+    { locals := fun _ => none, world := w₀ } T C prog.entry bentry hb rfl
 
 /-! ## Remaining work for fully general `hir` construction (precise)
 

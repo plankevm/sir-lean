@@ -534,9 +534,9 @@ def StepScoped (prog : Program) (st : IRState) : Stmt → Prop
 
 /-- **`DefsSound` is preserved by `EvalStmt`** (the B3 headline preservation), given the
 per-step scoping bundle `StepScoped`. Dispatches to the four per-arm lemmas. -/
-theorem defsSound_preserved {prog : Program} {o : CallOracle}
-    {st st' : IRState} {T T' : Trace} {s : Stmt}
-    (hstep : EvalStmt prog o st T s st' T')
+theorem defsSound_preserved {prog : Program}
+    {st st' : IRState} {T T' : Trace} {C C' : CallStream} {s : Stmt}
+    (hstep : EvalStmt prog st T C s st' T' C')
     (hsc : StepScoped prog st s)
     (hsound : DefsSound prog st) :
     DefsSound prog st' := by
@@ -572,7 +572,7 @@ theorem defsSound_preserved {prog : Program} {o : CallOracle}
       exact defsSound_preserved_assignGas hgasdef hscope hsound
   | sstore hk hv =>
       exact defsSound_preserved_sstore hsc hsound
-  | call hcallee hgas ho =>
+  | call hcallee hgas =>
       obtain ⟨hnoSload, hisresult, hscope⟩ := hsc
       exact defsSound_preserved_call hnoSload hisresult hscope hsound
 

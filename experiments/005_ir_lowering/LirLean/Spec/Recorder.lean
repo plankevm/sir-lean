@@ -32,7 +32,8 @@ branch at a time, threading a `RunLog` accumulator:
 * on the **top-level** program's own returning external CALL (a `.inr (.call childRes)`
   result delivered to a suspended `.call pending` with the resumed pending stack empty)
   it records the `(childRes, pending)` pair as a `CallRecord` — the minimal data from
-  which `realisedCall` reproduces `evmV2CallOracle`'s `(world', success)` projection; a
+  which `realisedCall` reproduces this CALL's `evmV2CallEntry` `(world', success)` stream
+  entry; a
   descended callee's inner CALL is black-boxed (gated out), exactly as its inner gas/sload
   reads are;
 * it carries the run's final observable (the top-level `FrameResult`).
@@ -41,7 +42,7 @@ Because `driveLog` mirrors `drive` branch-for-branch, **result adequacy** is
 `rfl`-driven by induction on fuel: `(driveLog … acc).map (·.1) = drive …`
 (`driveLog_drive`).
 
-Bytecode-coupled (references `Frame`/`drive`/`CallResult`/`evmV2CallOracle`), so it
+Bytecode-coupled (references `Frame`/`drive`/`CallResult`/`evmV2CallEntry`), so it
 lives here in the bridge layer, never in the frame-free `Machine.lean`/`Law.lean`.
 -/
 
@@ -74,13 +75,13 @@ def FramesRun : List Frame → Prop
 /-! ## The per-call record
 
 The minimal datum a returning external CALL contributes to the log: the child's
-`CallResult` and the suspended `PendingCall`. From these `realisedCall` reproduces
-`evmV2CallOracle result pd self` (the `resumeAfterCall` projection of
-`LirLean/V2/CallRealises.lean`) — the `(postStorage, successWord)` bundle, by
+`CallResult` and the suspended `PendingCall`. From these `callStreamOf` reproduces this
+record's `evmV2CallEntry result pd self` (the `resumeAfterCall` projection of
+`LirLean/V2/CallRealises.lean`) — the `(postStorage, successWord)` stream entry, by
 construction. -/
 
 /-- One external CALL's recorded data: the child's `CallResult` and the parent's
-`PendingCall`. The minimal pair `realisedCall` reads to reproduce `evmV2CallOracle`. -/
+`PendingCall`. The minimal pair `callStreamOf` reads to reproduce `evmV2CallEntry`. -/
 structure CallRecord where
   /-- The child call's result (`drive`'s `childRes.toCallResult`). -/
   result : CallResult
@@ -283,22 +284,21 @@ def realisedGas (log : RunLog) : GasOracle := log.gas
 is the deferred alignment (parallel to GAS); this is the recorded value channel. -/
 def realisedSload (log : RunLog) : List Nat := log.sloads
 
-/-- The call oracle realised by a list of `CallRecord`s at self address `self`:
-the *first* record's `evmV2CallOracle` projection. For the single-CALL fragment
-(the present scope) this is the realised call effect; a multi-CALL run would key on
-the call site, which the per-record `pending` carries. Aligned with
-`evmV2CallOracle` by construction. -/
-def callOracleOf (calls : List CallRecord) (self : AccountAddress) : CallOracle :=
-  match calls with
-    | [] => fun _ _ w => (w, 0)   -- no CALL recorded: identity world, success 0
-    | rec :: _ => evmV2CallOracle rec.result rec.pending self
+/-- The call stream realised by a list of `CallRecord`s at self address `self`: the
+per-record `evmV2CallEntry` projection, in recorded order (mirrors `realisedGas log :=
+log.gas`). Each entry is a `(post-call world, success)` pair the `Stmt.call` step consumes
+head-first — *positional*, keyed on the record, so multi-CALL runs are covered with no
+single-call collapse. Aligned with `evmV2CallEntry` by construction. -/
+def callStreamOf (calls : List CallRecord) (self : AccountAddress) : CallStream :=
+  calls.map (fun rec => evmV2CallEntry rec.result rec.pending self)
 
-/-- **The realised call oracle** (`docs/ir-design-v3.md` §8): the `CallOracle` read
-off the log's recorded CALLs, at self address `self`. Aligned with `evmV2CallOracle`
-(`LirLean/V2/CallRealises.lean`) — for a recorded CALL it *is* that oracle's
-`resumeAfterCall` projection, so the call-side realisability is `rfl`-clean. -/
-def realisedCall (log : RunLog) (self : AccountAddress) : CallOracle :=
-  callOracleOf log.calls self
+/-- **The realised call stream** (`docs/ir-design-v3.md` §8, R3′): the `CallStream` read
+off the log's recorded CALLs, at self address `self` — the FULL stream, consumed head-first
+by `Stmt.call`. Aligned with `evmV2CallEntry` (`LirLean/V2/CallRealises.lean`) — each
+recorded CALL *is* that entry's `resumeAfterCall` projection, so the call-side realisability
+is `rfl`-clean. -/
+def realisedCall (log : RunLog) (self : AccountAddress) : CallStream :=
+  callStreamOf log.calls self
 
 /-! ## The `observe` bridge: bytecode `FrameResult` → IR `Observable`
 (`docs/ir-design-v3.md` §8)

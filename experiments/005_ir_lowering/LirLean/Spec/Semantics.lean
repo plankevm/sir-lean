@@ -61,11 +61,11 @@ deriving DecidableEq, Repr
 
 /-! ## The gas oracle (§7–§8, `docs/ir-design-v3.md`)
 
-Calls became a **function oracle** (`CallOracle`, below), so they are no longer
-trace entries; the only thing the run still *consumes as a stream* is the gas-read
-sequence. There is nothing left to wrap: the gas trace is exactly the list of the
-`Word`s a `GAS` opcode reports, consumed in order (`ir-design-v3.md` §8). The old
-`Event`/`Trace` wrapper was pure dead weight and has been collapsed away. -/
+The run consumes **two** sibling streams, head-first: the gas-read sequence (here) and
+the external-call result sequence (`CallStream`, below). Neither is wrapped in an `Event`;
+each is a bare list consumed in program order. The gas trace is exactly the list of the
+`Word`s a `GAS` opcode reports (`ir-design-v3.md` §8); the old `Event`/`Trace` wrapper was
+pure dead weight and has been collapsed away. -/
 
 /-- The supplied gas-read stream: the `Word`s a `GAS` opcode reports, in program
 order, consumed head-first as execution reaches each `GAS`. **An observed value
@@ -77,23 +77,26 @@ the many `T : Trace` signatures below read as before; the canonical name in new 
 signature positions is `GasOracle`, and the element type is `Word`. -/
 abbrev Trace := GasOracle
 
-/-! ## The external-call oracle (§3, §7 — SETTLED)
+/-! ## The external-call stream (§3, §7 — SETTLED)
 
-A call is **not** a trace entry. It is a **function oracle** of the call's IR-visible
-inputs, *queried at the call site*, returning the bundle the semantics **applies as a
-state change** (`docs/ir-design-v3.md` §7). This is the supplied-observation model for
-chain state, exactly mirroring how the gas sequence supplies the gas counter the IR
-deliberately lacks.
+A call is a **consumed stream entry**, exactly like a gas read — NOT a function oracle. The
+run threads a `CallStream` (a list of recorded call-results) alongside the gas `Trace`, and a
+`Stmt.call` **pops the head** and applies it as a state change (`docs/ir-design-v3.md` §7,
+R3′). This is the supplied-observation model for chain state, mirroring how the gas sequence
+supplies the gas counter the IR deliberately lacks — and, crucially, it is *positional*: two
+dynamic calls with identical IR-visible inputs but different EVM outcomes consume DIFFERENT
+stream heads, so multi-call runs need no single-call restriction (the fatal flaw of the old
+function oracle, which returned the same result for the same visible inputs).
 
-Minimal value-free / calldata-free first cut (§6 decision 3): the oracle takes the
-callee address word, the gas-to-forward word, and the current `World`, and returns the
+Minimal value-free / calldata-free first cut (§6 decision 3): each stream entry is the
 post-call `World` together with the `0`/`1` success flag. **Gas-free**: there is no
 restored-gas field — V2 has no gas in state, so post-call gas reads come from the gas
-sequence, not the bundle (§7). Returndata / value / calldata are deferred (§7).
+sequence, not the entry (§7). Returndata / value / calldata are deferred (§7).
 
-It is held abstract — a PARAMETER threaded through the run, never instantiated here. The
-v1 `evmCallOracle` instantiation (the realisability witness) is a later piece. -/
-abbrev CallOracle := Word → Word → World → (World × Word)
+The stream is held abstract — a value threaded through the run, never instantiated here. The
+realised stream (`callStreamOf log.calls self`, off v1's `evmCallOracle` projections) is a
+later piece (`LirLean/Spec/Recorder.lean`). -/
+abbrev CallStream := List (World × Word)
 
 /-! ## Helpers on `IRState` -/
 
@@ -139,69 +142,66 @@ def blockAt (prog : Program) (L : Label) : Option Block :=
 /-! ## The gas-free big-step semantics
 
 A big-step relation (simpler than small-step for the prototype, §3, "your call").
-Three judgements, all threading a `Trace` left-to-right:
+Three judgements, all threading a `Trace` **and** a `CallStream` left-to-right:
 
-* `EvalStmt` — one statement maps `(st, T) → (st', T')`, consuming the next gas read
-  iff the statement's expression is `Expr.gas`. (The call-free fragment has
-  only `assign`/`sstore`; `Stmt.call` is rejected — out of scope.)
+* `EvalStmt` — one statement maps `(st, T, C) → (st', T', C')`, consuming the next gas read
+  iff the statement is `assign t .gas`, and the next call-result iff it is `Stmt.call`.
 * `RunStmts` — the reflexive/transitive closure over a statement list.
 * `IRRun` — the CFG driver: run the entry block's statements, then its terminator;
   `branch`/`jump` recurse into the target block; `ret`/`stop` halt with an
   `Observable`.
 
-An `assign t e` consuming a gas read happens exactly when `e = .gas`;
-otherwise the stream is unchanged. This is the §3.4 mechanism: the value of
-`Expr.gas` is *drawn from the gas stream*, asserted nothing about.
+An `assign t e` consuming a gas read happens exactly when `e = .gas`; a `Stmt.call`
+consumes a call-result. Otherwise both streams are unchanged. This is the §3.4 mechanism:
+the value of `Expr.gas` is *drawn from the gas stream*, and the call's `(world', success)`
+effect is *drawn from the call stream* — asserted nothing about, positional. The two
+channels are independent: `assign t .gas` pops gas and leaves the call stream; `Stmt.call`
+pops a call-result and leaves the gas stream (§7). -/
 
-The call oracle `o : CallOracle` is a separate explicit parameter (alongside `prog` and
-distinct from the gas stream): the gas channel is the consumed read sequence, the call
-channel is a queried function. A `Stmt.call` consults `o` at the call site and applies
-the returned `(world', success)` bundle as a state change — it does **not** touch the
-stream (calls are not stream entries, §7). -/
-
-/-- The gas read a statement consumes, and the resulting state, under the call oracle
-`o`. The only stream-consuming statement is `assign t .gas`, which pops one read `obs`
-and binds `t := obs`. `Stmt.call` queries `o` and applies its bundle (no stream change).
-All other `assign`/`sstore` leave the stream unchanged. -/
-inductive EvalStmt (prog : Program) (o : CallOracle) :
-    IRState → Trace → Stmt → IRState → Trace → Prop where
+/-- One statement's step, consuming the head of the gas trace (`assign t .gas`) or the head
+of the call stream (`Stmt.call`) and leaving the other channel unchanged; `assign`/`sstore`
+of non-gas expressions touch neither channel. -/
+inductive EvalStmt (prog : Program) :
+    IRState → Trace → CallStream → Stmt → IRState → Trace → CallStream → Prop where
   /-- `t := e` for a **non-gas** expression `e`: evaluate `e` (no event), bind `t`.
   The `obs` argument of `evalExpr` is irrelevant here (it is only read by `.gas`),
-  so we pin it to `0`. -/
-  | assignPure {st : IRState} {T : Trace} {t : Tmp} {e : Expr} {w : Word}
+  so we pin it to `0`. Neither channel is consumed. -/
+  | assignPure {st : IRState} {T : Trace} {C : CallStream} {t : Tmp} {e : Expr} {w : Word}
       (hne : e ≠ .gas) (hv : evalExpr st 0 e = some w) :
-      EvalStmt prog o st T (.assign t e) (st.setLocal t w) T
-  /-- `t := gas`: consume the next gas read `obs` from the stream, bind `t := obs`. -/
-  | assignGas {st : IRState} {obs : Word} {T : Trace} {t : Tmp} :
-      EvalStmt prog o st (obs :: T) (.assign t .gas) (st.setLocal t obs) T
-  /-- `storage[key] := value` (non-zero value — the observable write the bytecode
-  side establishes). -/
-  | sstore {st : IRState} {T : Trace} {key value : Tmp} {kw vw : Word}
+      EvalStmt prog st T C (.assign t e) (st.setLocal t w) T C
+  /-- `t := gas`: consume the next gas read `obs` from the gas stream, bind `t := obs`; the
+  call stream is unchanged. -/
+  | assignGas {st : IRState} {obs : Word} {T : Trace} {C : CallStream} {t : Tmp} :
+      EvalStmt prog st (obs :: T) C (.assign t .gas) (st.setLocal t obs) T C
+  /-- `storage[key] := value` — the observable write the bytecode side establishes; neither
+  channel is consumed. -/
+  | sstore {st : IRState} {T : Trace} {C : CallStream} {key value : Tmp} {kw vw : Word}
       (hk : st.locals key = some kw) (hv : st.locals value = some vw) :
-      EvalStmt prog o st T (.sstore key value) (st.setStorage kw vw) T
-  /-- `call cs`: read the callee and gas-to-forward words from `locals` (an undefined
-  tmp ⇒ the rule does not fire, mirroring `sstore`), query the oracle
-  `o calleeW gasFwdW st.world = (world', success)`, and apply the bundle as a state
-  change: set `world := world'` and bind the success flag at `cs.resultTmp` if present.
-  Gas-free (no gas notion touched) and trace-preserving (calls are not events, §7). -/
-  | call {st : IRState} {T : Trace} {cs : CallSpec} {calleeW gasFwdW success : Word}
-      {world' : World}
+      EvalStmt prog st T C (.sstore key value) (st.setStorage kw vw) T C
+  /-- `call cs`: read the callee and gas-to-forward words from `locals` (an undefined tmp ⇒
+  the rule does not fire, mirroring `sstore`), **pop the head `(world', success)` of the call
+  stream**, and apply it as a state change: set `world := world'` and bind the success flag at
+  `cs.resultTmp` if present. The gas stream is unchanged. Positional: the head IS this call's
+  recorded result — no function of the visible inputs, so distinct dynamic calls consume
+  distinct heads (multi-call, §7, R3′). -/
+  | call {st : IRState} {T : Trace} {C : CallStream} {cs : CallSpec}
+      {calleeW gasFwdW success : Word} {world' : World}
       (hcallee : st.locals cs.callee = some calleeW)
-      (hgas : st.locals cs.gasFwd = some gasFwdW)
-      (ho : o calleeW gasFwdW st.world = (world', success)) :
-      EvalStmt prog o st T (.call cs)
+      (hgas : st.locals cs.gasFwd = some gasFwdW) :
+      EvalStmt prog st T ((world', success) :: C) (.call cs)
         (match cs.resultTmp with
           | some t => { st with world := world' }.setLocal t success
           | none   => { st with world := world' })
-        T
+        T C
 
-/-- Run a statement list left-to-right, threading the trace, under the call oracle `o`. -/
-inductive RunStmts (prog : Program) (o : CallOracle) :
-    IRState → Trace → List Stmt → IRState → Trace → Prop where
-  | nil {st : IRState} {T : Trace} : RunStmts prog o st T [] st T
-  | cons {st st' st'' : IRState} {T T' T'' : Trace} {s : Stmt} {ss : List Stmt}
-      (hh : EvalStmt prog o st T s st' T') (ht : RunStmts prog o st' T' ss st'' T'') :
-      RunStmts prog o st T (s :: ss) st'' T''
+/-- Run a statement list left-to-right, threading the gas trace and the call stream. -/
+inductive RunStmts (prog : Program) :
+    IRState → Trace → CallStream → List Stmt → IRState → Trace → CallStream → Prop where
+  | nil {st : IRState} {T : Trace} {C : CallStream} : RunStmts prog st T C [] st T C
+  | cons {st st' st'' : IRState} {T T' T'' : Trace} {C C' C'' : CallStream}
+      {s : Stmt} {ss : List Stmt}
+      (hh : EvalStmt prog st T C s st' T' C') (ht : RunStmts prog st' T' C' ss st'' T'' C'') :
+      RunStmts prog st T C (s :: ss) st'' T'' C''
 
 /-! ### The observable boundary (§4) -/
 
@@ -213,9 +213,9 @@ structure Observable where
   /-- The halt result (`stop`/`return`). -/
   result : IRHalt
 
-/-- The CFG big-step driver. `IRRun prog w₀ T O`: starting at `prog.entry` with
-empty locals and world `w₀`, consuming the whole trace `T`, the program halts with
-observable `O`. The terminators:
+/-- The CFG big-step driver. `IRRun prog w₀ T C O`: starting at `prog.entry` with
+empty locals and world `w₀`, consuming the whole gas trace `T` and call stream `C`, the
+program halts with observable `O`. The terminators:
 
 * `ret t` halts with `returned (the value of t)`;
 * `stop` halts with `stopped`;
@@ -225,53 +225,54 @@ observable `O`. The terminators:
 `branch`/`jump` are bounded by the program's acyclic shape in the prototype (the
 example program's blocks form a DAG), so the inductive relation is well-founded by
 construction at use sites — no fuel parameter is threaded. -/
-inductive RunFrom (prog : Program) (o : CallOracle) :
-    IRState → Trace → Label → Observable → Prop where
+inductive RunFrom (prog : Program) :
+    IRState → Trace → CallStream → Label → Observable → Prop where
   /-- `ret t`: run the block's statements, then halt returning `t`'s value. -/
-  | ret {st st' : IRState} {T T' : Trace} {L : Label} {b : Block} {t : Tmp} {w : Word}
+  | ret {st st' : IRState} {T T' : Trace} {C C' : CallStream} {L : Label} {b : Block}
+      {t : Tmp} {w : Word}
       (hb : blockAt prog L = some b)
-      (hss : RunStmts prog o st T b.stmts st' T')
+      (hss : RunStmts prog st T C b.stmts st' T' C')
       (hterm : b.term = .ret t)
       (hv : st'.locals t = some w) :
-      RunFrom prog o st T L { world := st'.world, result := .returned w }
+      RunFrom prog st T C L { world := st'.world, result := .returned w }
   /-- `stop`: run the block's statements, then halt. -/
-  | stop {st st' : IRState} {T T' : Trace} {L : Label} {b : Block}
+  | stop {st st' : IRState} {T T' : Trace} {C C' : CallStream} {L : Label} {b : Block}
       (hb : blockAt prog L = some b)
-      (hss : RunStmts prog o st T b.stmts st' T')
+      (hss : RunStmts prog st T C b.stmts st' T' C')
       (hterm : b.term = .stop) :
-      RunFrom prog o st T L { world := st'.world, result := .stopped }
+      RunFrom prog st T C L { world := st'.world, result := .stopped }
   /-- `branch cond thenL elseL`, condition non-zero ⇒ recurse into `thenL`. -/
-  | branchThen {st st' : IRState} {T T' : Trace} {L : Label} {b : Block}
+  | branchThen {st st' : IRState} {T T' : Trace} {C C' : CallStream} {L : Label} {b : Block}
       {cond : Tmp} {cw : Word} {thenL elseL : Label} {O : Observable}
       (hb : blockAt prog L = some b)
-      (hss : RunStmts prog o st T b.stmts st' T')
+      (hss : RunStmts prog st T C b.stmts st' T' C')
       (hterm : b.term = .branch cond thenL elseL)
       (hc : st'.locals cond = some cw) (hnz : cw ≠ 0)
-      (hrest : RunFrom prog o st' T' thenL O) :
-      RunFrom prog o st T L O
+      (hrest : RunFrom prog st' T' C' thenL O) :
+      RunFrom prog st T C L O
   /-- `branch cond thenL elseL`, condition zero ⇒ recurse into `elseL`. -/
-  | branchElse {st st' : IRState} {T T' : Trace} {L : Label} {b : Block}
+  | branchElse {st st' : IRState} {T T' : Trace} {C C' : CallStream} {L : Label} {b : Block}
       {cond : Tmp} {thenL elseL : Label} {O : Observable}
       (hb : blockAt prog L = some b)
-      (hss : RunStmts prog o st T b.stmts st' T')
+      (hss : RunStmts prog st T C b.stmts st' T' C')
       (hterm : b.term = .branch cond thenL elseL)
       (hc : st'.locals cond = some 0)
-      (hrest : RunFrom prog o st' T' elseL O) :
-      RunFrom prog o st T L O
+      (hrest : RunFrom prog st' T' C' elseL O) :
+      RunFrom prog st T C L O
   /-- `jump dst` ⇒ recurse into `dst`. -/
-  | jump {st st' : IRState} {T T' : Trace} {L : Label} {b : Block} {dst : Label}
-      {O : Observable}
+  | jump {st st' : IRState} {T T' : Trace} {C C' : CallStream} {L : Label} {b : Block}
+      {dst : Label} {O : Observable}
       (hb : blockAt prog L = some b)
-      (hss : RunStmts prog o st T b.stmts st' T')
+      (hss : RunStmts prog st T C b.stmts st' T' C')
       (hterm : b.term = .jump dst)
-      (hrest : RunFrom prog o st' T' dst O) :
-      RunFrom prog o st T L O
+      (hrest : RunFrom prog st' T' C' dst O) :
+      RunFrom prog st T C L O
 
 /-- **The top-level gas-free IR run** (`ir-design-v2.md` §4). Start at `prog.entry`
-with empty locals and world `w₀`, consume the whole trace `T`, halt with `O`, under the
-call oracle `o`. The oracle is threaded as an explicit parameter alongside `prog`, kept
-separate from the consumed gas `Trace` (calls are a queried function, not events). -/
-def IRRun (prog : Program) (o : CallOracle) (w₀ : World) (T : Trace) (O : Observable) : Prop :=
-  RunFrom prog o { locals := fun _ => none, world := w₀ } T prog.entry O
+with empty locals and world `w₀`, consume the whole gas trace `T` and call stream `C`, halt
+with `O`. Both streams are threaded alongside `prog`, consumed head-first (gas by
+`assign t .gas`, calls by `Stmt.call`). -/
+def IRRun (prog : Program) (w₀ : World) (T : Trace) (C : CallStream) (O : Observable) : Prop :=
+  RunFrom prog { locals := fun _ => none, world := w₀ } T C prog.entry O
 
 end Lir.V2
