@@ -3272,6 +3272,49 @@ theorem termTies'_of_runWithLog {prog : Program} {params : CallParams} {log : Ru
     ∀ (sloadChg : Tmp → ℕ) (L : Label) (b : Block), blockAt prog L = some b →
       TermTies' prog sloadChg log params.recipient L b := sorry
 
+/-- **The `Conforms` channel — CLOSED assembly** (the flagship's world-channel conclusion,
+factored out and reused by all three flagships). Given the run's terminal world equation
+(the coupled driver's output: SOME halting terminal `(last, haltSig)` reachable from the
+entry frame whose `observe`-world equals `O.world`) together with the modellability facts
+`hrb`/`hcc`, the recorded `log.observable` is exactly that terminal's `endFrame`, so
+`O.world = (observe self log.observable).world` — i.e. `Conforms self log O`.
+
+Pure re-use of R2's internal machinery (`runWithLog_drive` + `runs_of_drive_ok` +
+`runs_halt_eq` + `Runs.linear_to_halt`), exactly as `haltNonException_of_cleanLog` uses it:
+the drive-adequacy pins `log.observable = endFrame last₀ halt₀` for the run's ACTUAL
+terminal, and halting-terminal uniqueness identifies `(last, haltSig)` with
+`(last₀, halt₀)`. This is the "static folds and assembly" half of R11 — genuinely closeable
+now (axiom-clean), independent of the missing run-producer. The flagships feed it `hrb` (R6
+boundary walk) and `hcc` (`hseams.callsCode`); the world equation comes from the run. -/
+theorem conforms_of_worldeq {prog : Lir.Program} {params : CallParams} {fr₀ : Frame}
+    {log : RunLog} {self : AccountAddress} {O : Observable}
+    (hrun : runWithLog params (seedFuel params.gas) = some log)
+    (hbegin : beginCall params = .inl fr₀)
+    (hrb : ∀ fr', Runs fr₀ fr' → AtReachableBoundary prog fr')
+    (hcc : ∀ fr', Runs fr₀ fr' → CallsCode fr')
+    (hworld : ∃ last haltSig, Runs fr₀ last ∧ stepFrame last = .halted haltSig
+        ∧ (observe self (endFrame last haltSig)).world = O.world) :
+    Conforms self log O := by
+  obtain ⟨frame, hbc, hdrive⟩ := runWithLog_drive hrun
+  rw [hbegin] at hbc
+  have hfeq : frame = fr₀ := (Sum.inl.injEq _ _).mp hbc.symm
+  rw [hfeq] at hdrive
+  obtain ⟨last₀, halt₀, hto₀, hhalt₀, hobs⟩ :=
+    runs_of_drive_ok (seedFuel params.gas) fr₀ log.observable hdrive
+      (lower_modellable hrb hcc)
+  obtain ⟨last, haltSig, hreach, hhalt, hweq⟩ := hworld
+  -- the halting terminal is unique: `last = last₀`, `haltSig = halt₀`.
+  have hlast : last = last₀ :=
+    runs_halt_eq hhalt (Runs.linear_to_halt hhalt₀ hto₀ hreach)
+  subst hlast
+  rw [hhalt] at hhalt₀
+  have hheq : haltSig = halt₀ := (Signal.halted.injEq _ _).mp hhalt₀
+  subst hheq
+  -- `log.observable = endFrame last haltSig`, so the recorded world is the terminal's world.
+  unfold Conforms
+  rw [hobs]
+  exact hweq.symm
+
 /-- **R11 — THE FLAGSHIP.** Run the lowered bytecode once with the recording interpreter;
 feed the recorded gas reads and call records into the executable IR semantics; the IR run
 exists at the PINNED oracles (`realisedGas log` / `realisedCall log recipient`, from the
@@ -3303,7 +3346,35 @@ theorem lowering_conforms {prog : Program} {params : CallParams} {log : RunLog}
     ∃ O : Observable,
       RunFrom prog (realisedCall log params.recipient)
         (entryState params) (realisedGas log) prog.entry O
-      ∧ Conforms params.recipient log O := sorry
+      ∧ Conforms params.recipient log O := by
+  -- Entry frame (from run adequacy) and the CALL-targets-code face of the seam.
+  obtain ⟨fr₀, hbegin, _⟩ := runWithLog_drive hrun
+  have hcc : ∀ fr', Runs fr₀ fr' → CallsCode fr' :=
+    fun fr' hr => hseams.callsCode fr' ⟨fr₀, hbegin, hr⟩
+  -- THE BLOCKER (Route-A, NOT a citable leaf): the coupled run-producer
+  -- `runFrom_of_driveCorrLog` (does not exist anywhere in the tree; target-architecture
+  -- §5.3). It walks the `RecorderCoupled` invariant across the F2 recursion (that is what
+  -- the R7 edges were gated for), instantiating the Layer-C sim lemmas ONLY at the coupled
+  -- walk-frames, and yields — at the pinned oracles `realisedCall log recipient` /
+  -- `entryState params` / `realisedGas log` — the IR `RunFrom`, the terminal world equation,
+  -- AND the boundary walk `hrb`. It is NOT assembly over closed/citable leaves:
+  --   • `lower_conforms_cyclic'` (the only in-tree run-producer) needs an UNCONDITIONAL
+  --     all-frames `SimStmtStep`, which the reshaped `StmtTies'` cannot supply — its arm
+  --     conclusions hold only under the load-bearing `RecorderCoupled` antecedent (§3), so
+  --     the coupling-free path is exactly the vacuity the reshape exists to kill;
+  --   • R6 `runs_atReachableBoundary` cannot be cited to produce `hrb` on its own: its B2
+  --     side condition `(flatBytes prog).length ≤ 2^32` has no producer from `hwl` (no
+  --     `WellFormedLowered` field asserts it directly — only per-cursor bounds).
+  -- Everything DOWNSTREAM of this `obtain` is real, axiom-clean assembly: `conforms_of_worldeq`
+  -- (CLOSED, above) discharges the `Conforms` conjunct from the terminal world equation.
+  obtain ⟨O, hrb, hworld, hrunfrom⟩ :
+      ∃ O : Observable,
+        (∀ fr', Runs fr₀ fr' → AtReachableBoundary prog fr')
+        ∧ (∃ last haltSig, Runs fr₀ last ∧ stepFrame last = .halted haltSig
+            ∧ (observe params.recipient (endFrame last haltSig)).world = O.world)
+        ∧ RunFrom prog (realisedCall log params.recipient)
+            (entryState params) (realisedGas log) prog.entry O := sorry
+  exact ⟨O, hrunfrom, conforms_of_worldeq hrun hbegin hrb hcc hworld⟩
 
 /-- **R11-all — the exact-consumption strengthening**: the same flagship with the IR run
 consuming the ENTIRE recorded gas stream (`RunFromAll`, leftover `[]`) — closes the
@@ -3324,7 +3395,22 @@ theorem lowering_conforms_all {prog : Program} {params : CallParams} {log : RunL
     ∃ O : Observable,
       RunFromAll prog (realisedCall log params.recipient)
         (entryState params) (realisedGas log) prog.entry O
-      ∧ Conforms params.recipient log O := sorry
+      ∧ Conforms params.recipient log O := by
+  -- As R11, but the packaged blocker yields the exact-consumption `RunFromAll` (leftover
+  -- `[]`). The coupled driver produces it directly: its walk consumes the WHOLE recorded
+  -- suffix by construction of `RecorderCoupled.restart`, so the leftover is `[]` — it cannot
+  -- be bolted on afterward via `runFromLeft_exists`, which only produces SOME leftover.
+  obtain ⟨fr₀, hbegin, _⟩ := runWithLog_drive hrun
+  have hcc : ∀ fr', Runs fr₀ fr' → CallsCode fr' :=
+    fun fr' hr => hseams.callsCode fr' ⟨fr₀, hbegin, hr⟩
+  obtain ⟨O, hrb, hworld, hrunfrom⟩ :
+      ∃ O : Observable,
+        (∀ fr', Runs fr₀ fr' → AtReachableBoundary prog fr')
+        ∧ (∃ last haltSig, Runs fr₀ last ∧ stepFrame last = .halted haltSig
+            ∧ (observe params.recipient (endFrame last haltSig)).world = O.world)
+        ∧ RunFromAll prog (realisedCall log params.recipient)
+            (entryState params) (realisedGas log) prog.entry O := sorry
+  exact ⟨O, hrunfrom, conforms_of_worldeq hrun hbegin hrb hcc hworld⟩
 
 /-- **The gas-free CO-FLAGSHIP** (target-architecture decision 2 — prove it FIRST). The
 flagship restricted to `NoGasReads prog`: the gas suffix plays no role, so it needs no R1
@@ -3348,7 +3434,22 @@ theorem lowering_conforms_gasfree {prog : Program} {params : CallParams} {log : 
     ∃ O : Observable,
       RunFrom prog (realisedCall log params.recipient)
         (entryState params) (realisedGas log) prog.entry O
-      ∧ Conforms params.recipient log O := sorry
+      ∧ Conforms params.recipient log O := by
+  -- The gas-free restriction (`hng : NoGasReads prog`) avoids R1 (no gas arm fires) and,
+  -- via `realisedGas_nil_of_noGasReads`, makes the RunFrom trace empty — but it does NOT
+  -- avoid the coupled-driver blocker: the sload/sstore/call arms still need the coupling.
+  -- So the shell is identical to R11's; `hng` de-risks the driver internals, not the shell.
+  obtain ⟨fr₀, hbegin, _⟩ := runWithLog_drive hrun
+  have hcc : ∀ fr', Runs fr₀ fr' → CallsCode fr' :=
+    fun fr' hr => hseams.callsCode fr' ⟨fr₀, hbegin, hr⟩
+  obtain ⟨O, hrb, hworld, hrunfrom⟩ :
+      ∃ O : Observable,
+        (∀ fr', Runs fr₀ fr' → AtReachableBoundary prog fr')
+        ∧ (∃ last haltSig, Runs fr₀ last ∧ stepFrame last = .halted haltSig
+            ∧ (observe params.recipient (endFrame last haltSig)).world = O.world)
+        ∧ RunFrom prog (realisedCall log params.recipient)
+            (entryState params) (realisedGas log) prog.entry O := sorry
+  exact ⟨O, hrunfrom, conforms_of_worldeq hrun hbegin hrb hcc hworld⟩
 
 /-- Co-flagship companion: a gas-read-free program's recorded gas stream is empty (the
 recorder's GAS gate never fires at a reachable top-level boundary — needs the R6-flavoured
