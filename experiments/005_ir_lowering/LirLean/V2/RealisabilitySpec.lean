@@ -1,5 +1,6 @@
 import LirLean.V2.Drive.Headline
 import LirLean.Acyclic
+import LirLean.BoundaryReach
 
 /-!
 # LirLean v2 — the REALISABILITY SPEC skeleton (Phase-3 target statements; Nightly-only)
@@ -1948,10 +1949,10 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
 -- epilogue decode, and self-presence bridge is derived, and `CallPreservesSelf` is discharged
 -- from `hprec` via the axiom-clean `callPreservesSelf_modGuards`.
 
--- **R6 — the boundary walk** (`runs_atReachableBoundary`) is RELOCATED below
--- `atReachableBoundary_entry`/`atReachableBoundary_of_runs` (its wiring bricks), which are
--- defined later in this file. Statement FIXED there with the B1/B2 side conditions; see the
--- `§ R6 status` block and the theorem itself.
+-- **R6 — the boundary walk** (`runs_atReachableBoundary`) is RELOCATED below its wiring bricks
+-- (`atReachableBoundaryVJ_entry` / `atReachableBoundaryVJ_step` / `atReachableBoundaryVJ_call`
+-- / `atReachableBoundaryVJ_of_runs`), which are defined later in this file. Statement FIXED
+-- there with the B1/B2 side conditions; see the `§ R6 status` block and the theorem itself.
 
 /-! #### R7 machinery — the `driveLog` accumulator homomorphism (spine-owned)
 
@@ -2083,9 +2084,10 @@ left untouched; these are the honest partial the geometry track lands).
 
 The reusable geometry the `Runs`-induction is assembled from is landed green below:
 `lower_size_eq`, the nonemptiness brick `flatBytes_length_pos` (→ B1's positive half), the entry
-seed `atReachableBoundary_entry` (BASE, under `0 < prog.blocks.size`), and the `Runs`-induction
-combinator `atReachableBoundary_of_runs` (parameterised on the per-`StepsTo`/`CallReturns` edge
-lemmas — the STEP-PC dispatch walk + NEXT-IN-RANGE terminal-op geometry, the remaining engineering).
+seed `atReachableBoundaryVJ_entry` (BASE, under `0 < prog.blocks.size`), and the `Runs`-induction
+combinator `atReachableBoundaryVJ_of_runs` threading the two edge lemmas
+`atReachableBoundaryVJ_step` / `atReachableBoundaryVJ_call` (whose only residue is the STEP-PC
+dispatch walk + NEXT-IN-RANGE terminal-op geometry + CALL-site inversion — the three engine bricks).
 -/
 
 /-- The zero-block witness program: `flatBytes` is `[]`, so no boundary is in range. -/
@@ -2163,23 +2165,136 @@ theorem atReachableBoundary_entry {prog : Lir.Program} {params : CallParams} {fr
   · exact flatBytes_length_pos prog hne
   · decide
 
-/-- **The `Runs`-induction combinator (master lemma).** `AtReachableBoundary prog` is preserved
-across a whole `Runs` derivation once it is preserved across each single `StepsTo` (`hstep`) and
-each returning external `CallReturns` (`hcall`). This is the assembly of R6: seed with
-`atReachableBoundary_entry` (BASE), then thread `hstep`/`hcall` (STEP / CALL — the pc-shape dispatch
-walk + terminal-op in-range geometry). Stated edge-parametrically so the two remaining edge lemmas
-are the only geometry left to land. -/
-theorem atReachableBoundary_of_runs {prog : Lir.Program}
-    (hstep : ∀ {fr mid : Frame}, StepsTo fr mid →
-        AtReachableBoundary prog fr → AtReachableBoundary prog mid)
-    (hcall : ∀ {fr rf : Frame}, CallReturns fr rf →
-        AtReachableBoundary prog fr → AtReachableBoundary prog rf)
+/-- **The strengthened boundary invariant (in-file).** `AtReachableBoundary` PLUS the
+`Frame.validJumps` fact it omits — that the frame's jump table is exactly
+`validJumpDests (lower prog) 0`. The taken-JUMP edge needs this: the landing pc is a *member*
+of `validJumps`, and to re-establish `ReachesBoundary` from it (via
+`reachesBoundary_of_mem_validJumpDests`) the table must be pinned to `validJumpDests`, which
+`AtReachableBoundary` (Modellable.lean:407) does not carry. So the naive
+`AtReachableBoundary`-only combinator is a **dead route** (the taken-jump arm is unprovable
+without this conjunct); R6 threads `AtReachableBoundaryVJ` instead. `validJumps` is a `Frame`
+field set to `validJumpDests code 0` at frame creation (`codeFrame_validJumps`) and untouched
+by every `StepsTo`/`CallReturns` (only `exec` moves), so it threads cleanly through the walk. -/
+def AtReachableBoundaryVJ (prog : Lir.Program) (fr : Frame) : Prop :=
+  AtReachableBoundary prog fr ∧ fr.validJumps = validJumpDests (Lir.lower prog) 0
+
+/-- **BASE (strengthened) — the entry frame satisfies the strengthened invariant.** The
+`AtReachableBoundary` half is `atReachableBoundary_entry`; the `validJumps` conjunct is
+`codeFrame_validJumps` (the entry frame is `codeFrame params (lower prog)`, whose jump table is
+`validJumpDests (lower prog) 0` by construction). -/
+theorem atReachableBoundaryVJ_entry {prog : Lir.Program} {params : CallParams} {fr₀ : Frame}
+    (hbegin : beginCall params = .inl fr₀)
+    (hcode : params.codeSource = .Code (lower prog))
+    (hne : 0 < prog.blocks.size) :
+    AtReachableBoundaryVJ prog fr₀ := by
+  have hfr : fr₀ = codeFrame params (lower prog) := by
+    have hc : beginCall params = .inl (codeFrame params (lower prog)) :=
+      beginCall_code params (lower prog) hcode
+    exact (Sum.inl.injEq _ _).mp (hbegin.symm.trans hc)
+  refine ⟨atReachableBoundary_entry hbegin hcode hne, ?_⟩
+  rw [hfr, codeFrame_validJumps]
+
+/-- **R6 STEP edge.** One `stepFrame` from a reachable in-range boundary of `lower prog` lands
+at another (with the `validJumps` conjunct preserved). Everything is discharged in-file EXCEPT
+two pure-engine geometry bricks whose home is a default-target file (see the R6 default-target
+brief): **B-pc** (the `.next` dispatch walk: the step either advances to the sequential
+successor `nextInstrPosNat b (parseInstr byte)` or lands in `validJumps`), and **B-inrange**
+(the block-layout fact that a sequential-advancing instruction's successor stays in range).
+The taken-jump arm is FULLY discharged here (free, via `reachesBoundary_of_mem_validJumpDests`
++ the `validJumps` conjunct). -/
+theorem atReachableBoundaryVJ_step {prog : Lir.Program} {fr mid : Frame}
+    (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32)
+    (h : StepsTo fr mid) (hinv : AtReachableBoundaryVJ prog fr) :
+    AtReachableBoundaryVJ prog mid := by
+  obtain ⟨⟨b, hcode, hpc, hreach, hin, hbnd⟩, hvj⟩ := hinv
+  -- code + `validJumps` preservation (real — only `exec` moves):
+  have hmcode : mid.exec.executionEnv.code = Lir.lower prog := by
+    rw [stepFrame_next_execEnvAddr h.1, hcode]
+  have hmvj : mid.validJumps = validJumpDests (Lir.lower prog) 0 := by
+    rw [h.2]; exact hvj
+  -- the boundary byte at `b` is a lowering opcode (real):
+  obtain ⟨byte, hget, hop⟩ := Lir.reachable_boundary_loweringByte prog b hreach hin
+  -- ── BRICK B-pc (home `LirLean/BoundaryReach.lean` / `LirLean/Engine/StepWalk.lean`) ──
+  -- the `.next` `stepFrame` dispatch walk over the 16 `IsLoweringOp` arms: from the boundary
+  -- `b` the successor pc is either the sequential `nextInstrPosNat b (parseInstr byte)` or a
+  -- `validJumps` member (taken JUMP/JUMPI). Template `stepFrame_next_accMono`. The instance R6
+  -- consumes (general statement in the default-target brief).
+  have hBpc : mid.exec.pc = UInt32.ofNat (Evm.nextInstrPosNat b (Evm.parseInstr byte))
+      ∨ mid.exec.pc ∈ fr.validJumps := sorry
+  refine ⟨?_, hmvj⟩
+  rcases hBpc with hseq | hjmp
+  · -- sequential advance
+    -- ── BRICK B-inrange (home `LirLean/BoundaryReach.lean` / `LirLean/Layout.lean`) ──
+    -- blocks end in terminators ⇒ a sequential-advancing instruction is never the program's
+    -- last, so its successor boundary stays `< (flatBytes prog).length`. SegAligned/emitBlock
+    -- layout decomposition.
+    have hInR : Evm.nextInstrPosNat b (Evm.parseInstr byte) < (Lir.flatBytes prog).length := sorry
+    exact ⟨Evm.nextInstrPosNat b (Evm.parseInstr byte), hmcode, hseq,
+      Lir.reachesBoundary_nextInstr hreach hget, hInR, lt_of_lt_of_le hInR hsize⟩
+  · -- taken jump: the landing pc is a `validJumps` member ⇒ a reachable in-range boundary (FREE)
+    rw [hvj] at hjmp
+    obtain ⟨j, hjreach, hxj, hjlt⟩ :=
+      Lir.reachesBoundary_of_mem_validJumpDests (Lir.lower prog) hjmp
+    rw [lower_size_eq] at hjlt
+    exact ⟨j, hmcode, by rw [hxj], hjreach, hjlt, lt_of_lt_of_le hjlt hsize⟩
+
+/-- **R6 CALL edge.** A returning external CALL from a reachable in-range boundary of
+`lower prog` resumes at another (with the `validJumps` conjunct preserved). The
+`resumeAfterCall` pins (code / pc = call-site + 1 / validJumps) are discharged in-file by
+unfolding; everything else is real EXCEPT two engine bricks (see the R6 default-target brief):
+**B-call** (extend `stepFrame_needsCall_inv`: a `.needsCall` at a lowering-op boundary decodes
+`CALL` — the only CALL-family op the lowering emits — and the pending parent frame keeps the
+call-site pc and jump table), and **B-inrange** (a lowered CALL is mid-block, so its 1-byte
+successor is in range). -/
+theorem atReachableBoundaryVJ_call {prog : Lir.Program} {fr rf : Frame}
+    (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32)
+    (h : CallReturns fr rf) (hinv : AtReachableBoundaryVJ prog fr) :
+    AtReachableBoundaryVJ prog rf := by
+  obtain ⟨⟨b, hcode, hpc, hreach, hin, hbnd⟩, hvj⟩ := hinv
+  obtain ⟨cp, pending, child, childRes, hncall, _hEnters, _hDrive, hrf⟩ := h
+  obtain ⟨byte, hget, hop⟩ := Lir.reachable_boundary_loweringByte prog b hreach hin
+  -- ── BRICK B-call (home `LirLean/Engine/Descent.lean`) ──
+  -- extension of `stepFrame_needsCall_inv` to the pc / jump-table / decoded-op it omits.
+  have hBcall : Evm.parseInstr byte = Operation.CALL
+      ∧ pending.frame.exec.pc = fr.exec.pc
+      ∧ pending.frame.validJumps = fr.validJumps := sorry
+  obtain ⟨hopCall, hppc, hpvj⟩ := hBcall
+  -- ── BRICK B-inrange (CALL instance; same home as the STEP B-inrange) ──
+  have hInR : b + 1 < (Lir.flatBytes prog).length := sorry
+  -- `resumeAfterCall` pins (real, by unfolding the def):
+  have hrenv : rf.exec.executionEnv = pending.frame.exec.executionEnv := by
+    rw [hrf]; rfl
+  have hrcode : rf.exec.executionEnv.code = Lir.lower prog := by
+    rw [hrenv, (Evm.stepFrame_needsCall_inv hncall).2.2, hcode]
+  have hrvj : rf.validJumps = validJumpDests (Lir.lower prog) 0 := by
+    rw [hrf, show (Evm.resumeAfterCall childRes.toCallResult pending).validJumps
+          = pending.frame.validJumps from rfl, hpvj, hvj]
+  have hrpc : rf.exec.pc = pending.frame.exec.pc + 1 := by
+    rw [hrf]; rfl
+  have hbnd1 : b + 1 < 2 ^ 32 := lt_of_lt_of_le hInR hsize
+  refine ⟨⟨b + 1, hrcode, ?_, ?_, hInR, hbnd1⟩, hrvj⟩
+  · -- pc = ofNat (b + 1)
+    rw [hrpc, hppc, hpc]; exact Lir.ofNat_add' b 1
+  · -- ReachesBoundary 0 (b + 1)
+    have hr := Lir.reachesBoundary_nextInstr hreach hget
+    rw [hopCall] at hr
+    have hnn : Evm.nextInstrPosNat b Operation.CALL = b + 1 := by
+      simp [Evm.nextInstrPosNat, Evm.pushArgWidth]
+    rwa [hnn] at hr
+
+/-- **The `Runs`-induction combinator (master lemma).** `AtReachableBoundaryVJ prog` is
+preserved across a whole `Runs` derivation, threading through each single `StepsTo`
+(`atReachableBoundaryVJ_step`) and each returning external `CallReturns`
+(`atReachableBoundaryVJ_call`). The assembly of R6: seed with `atReachableBoundaryVJ_entry`
+(BASE), then thread the two edges. -/
+theorem atReachableBoundaryVJ_of_runs {prog : Lir.Program}
+    (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32)
     {fr fr' : Frame} (hr : Runs fr fr') :
-    AtReachableBoundary prog fr → AtReachableBoundary prog fr' := by
+    AtReachableBoundaryVJ prog fr → AtReachableBoundaryVJ prog fr' := by
   induction hr with
   | refl _ => exact id
-  | step h _ ih => exact fun hfr => ih (hstep h hfr)
-  | call hc _ ih => exact fun hfr => ih (hcall hc hfr)
+  | step h _ ih => exact fun hfr => ih (atReachableBoundaryVJ_step hsize h hfr)
+  | call hc _ ih => exact fun hfr => ih (atReachableBoundaryVJ_call hsize hc hfr)
 
 /-- **R6 — the boundary walk** (the `hrb` residue; the Track-A discharge target). Every
 `Runs`-reachable frame of a `lower prog` entry sits at a reachable instruction boundary of
@@ -2200,14 +2315,24 @@ with the two well-formedness side conditions the geometry track surfaced:
   32-bit address space (the same bound the per-cursor `WellFormedLowered.bound_*` fields
   assert). An upper bound all real programs satisfy — not vacuity-inducing.
 
-HONEST PARTIAL: the entry seed (`atReachableBoundary_entry`, consuming B1) and the
-`Runs`-induction combinator (`atReachableBoundary_of_runs`) are wired here; the two edge
-lemmas `hstep`/`hcall` remain the blocker — they need per-opcode `stepFrame` pc-geometry
-bricks (next-pc = `nextInstrPosNat`/`validJumps`-member over the 16 `IsLoweringOp` arms, plus
-the "blocks end in terminators ⇒ next instruction in range" in-range preservation, and the
-`resumeAfterCall` pc = call-site pc + 1 fact) whose natural home is the default-target
-`BoundaryReach.lean`/`NoCreateBytes.lean`, OUTSIDE this task's edit surface. B2 is threaded
-into `hstep`/`hcall` (it is `decode_reachable_boundary_loweringOp`'s `hbound`). -/
+HONEST PARTIAL (re-architected): the reduction is now REAL and fully assembled here from the
+strengthened invariant `AtReachableBoundaryVJ` (`AtReachableBoundary` + the `validJumps`
+conjunct the taken-jump edge needs; the old `AtReachableBoundary`-only route was a DEAD end).
+Seed = `atReachableBoundaryVJ_entry` (B1), combinator = `atReachableBoundaryVJ_of_runs`, edges
+= `atReachableBoundaryVJ_step` / `atReachableBoundaryVJ_call`. Everything is discharged with
+real proofs EXCEPT three pure-engine geometry bricks (marked `sorry` inside the two edges),
+whose home is a default-target file OUTSIDE this task's edit surface:
+* **B-pc** (`BoundaryReach.lean` / `Engine/StepWalk.lean`) — the `.next` `stepFrame` dispatch
+  walk: from a lowering-op boundary the successor pc is the sequential `nextInstrPosNat` OR a
+  `validJumps` member. Template `stepFrame_next_accMono`.
+* **B-inrange** (`BoundaryReach.lean` / `Layout.lean`) — blocks end in terminators, so a
+  sequential-advancing (or CALL) instruction's successor boundary stays `< length`. The
+  hardest brick (SegAligned/emitBlock layout decomposition).
+* **B-call** (`Engine/Descent.lean`) — extend `stepFrame_needsCall_inv` with the decoded op
+  (`= CALL`), the pending-frame pc (`= call-site pc`) and jump table (`= call-site validJumps`).
+Once these three land, R6 is axiom-clean (`[propext, Classical.choice, Quot.sound]`) by citing
+them. B2 (`hsize`) is threaded into both edges (the `boundary' < length ⟹ boundary' < 2^32`
+reconciliation and the taken-jump/`UInt32.ofNat` no-wrap). -/
 theorem runs_atReachableBoundary {prog : Lir.Program} {params : CallParams} {fr₀ : Frame}
     (hbegin : beginCall params = .inl fr₀)
     (hcode : params.codeSource = .Code (lower prog))
@@ -2215,14 +2340,8 @@ theorem runs_atReachableBoundary {prog : Lir.Program} {params : CallParams} {fr�
     (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32) :
     ∀ fr', Runs fr₀ fr' → AtReachableBoundary prog fr' := by
   intro fr' hr
-  -- STEP edge (BLOCKED — default-target pc-geometry brick, see docstring). B2 (`hsize`) feeds
-  -- the in-range/`< 2^32` reconciliation of the per-opcode advance.
-  have hstep : ∀ {fr mid : Frame}, StepsTo fr mid →
-      AtReachableBoundary prog fr → AtReachableBoundary prog mid := sorry
-  -- CALL edge (BLOCKED — `resumeAfterCall` pc = call-site pc + 1, same dependency).
-  have hcall : ∀ {fr rf : Frame}, CallReturns fr rf →
-      AtReachableBoundary prog fr → AtReachableBoundary prog rf := sorry
-  exact atReachableBoundary_of_runs hstep hcall hr (atReachableBoundary_entry hbegin hcode hne)
+  exact (atReachableBoundaryVJ_of_runs hsize hr
+    (atReachableBoundaryVJ_entry hbegin hcode hne)).1
 
 /-! ### R7 — the recorder-coupling edge lemmas (entry + the four preservation edges)
 
