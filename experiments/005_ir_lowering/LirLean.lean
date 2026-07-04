@@ -12,6 +12,7 @@ import LirLean.LoweringLemmas
 
 -- Decode / pc-offset / jumpdest layer.
 import LirLean.DecodeLower
+import LirLean.SegAligned
 import LirLean.Layout
 import LirLean.DecodeAnchors
 import LirLean.BoundaryReach
