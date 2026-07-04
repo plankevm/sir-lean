@@ -29,10 +29,12 @@ branch at a time, threading a `RunLog` accumulator:
   decoding to `.Smsf .GAS`) it records `UInt256.ofUInt64 exec'.gasAvailable` — the
   *post-charge* gas the `GAS` opcode reports, exactly `gasReadOf` of the
   post-step frame;
-* on a returning external CALL (a `.inr (.call childRes)` result delivered to a
-  suspended `.call pending`) it records the `(childRes, pending)` pair as a
-  `CallRecord` — the minimal data from which `realisedCall` reproduces
-  `evmV2CallOracle`'s `(world', success)` projection;
+* on the **top-level** program's own returning external CALL (a `.inr (.call childRes)`
+  result delivered to a suspended `.call pending` with the resumed pending stack empty)
+  it records the `(childRes, pending)` pair as a `CallRecord` — the minimal data from
+  which `realisedCall` reproduces `evmV2CallOracle`'s `(world', success)` projection; a
+  descended callee's inner CALL is black-boxed (gated out), exactly as its inner gas/sload
+  reads are;
 * it carries the run's final observable (the top-level `FrameResult`).
 
 Because `driveLog` mirrors `drive` branch-for-branch, **result adequacy** is
@@ -92,7 +94,8 @@ structure CallRecord where
 
 * `observable` — the run's final top-level `FrameResult` (the bytecode boundary);
 * `gas` — the `GAS` reads, in program order (→ `realisedGas`);
-* `calls` — the returning external CALLs' data, in program order (→ `realisedCall`). -/
+* `calls` — the top-level returning external CALLs' data, in program order
+  (→ `realisedCall`). -/
 structure RunLog where
   /-- The run's final result (the top-level `FrameResult` the run produced). -/
   observable : FrameResult
@@ -101,7 +104,7 @@ structure RunLog where
   /-- The `SLOAD` warmth-charges (`sloadCost warm`), in program order — the realised
   warmth/cost at each top-level SLOAD site (→ `realisedSload`). Parallel to `gas`. -/
   sloads : List Nat
-  /-- The returning external CALLs' records, in program order. -/
+  /-- The top-level returning external CALLs' records, in program order. -/
   calls : List CallRecord
 
 /-- The empty accumulator: no gas reads, no sload charges, no calls (the `observable` is
@@ -163,10 +166,13 @@ def recordCall (pending : Pending) (result : FrameResult) (callAcc : List CallRe
     | .create _ => callAcc
 
 /-- The recording driver: `drive` with a `(gas, sloads, calls)` accumulator. Mirrors
-`drive`'s recursion branch-for-branch; records each `GAS` read's post-charge word, each
-top-level `SLOAD`'s warmth-charge (`sloadCost warm`), and each returning external CALL's
-`(result, pending)`. The `sloadAcc` is threaded exactly like `gasAcc` and is erased by
-`.map (·.1)` (adequacy preserved by construction). -/
+`drive`'s recursion branch-for-branch; records each top-level `GAS` read's post-charge
+word, each top-level `SLOAD`'s warmth-charge (`sloadCost warm`), and each top-level
+returning external CALL's `(result, pending)`. All three records gate on the top-level
+frame: gas/sload on `stack.isEmpty` (the running frame is the top-level one), the CALL
+record on `rest.isEmpty` (the resumed pending stack is empty — the top-level program's own
+CALL, not a descended callee's inner CALL). The `sloadAcc` is threaded exactly like
+`gasAcc` and is erased by `.map (·.1)` (adequacy preserved by construction). -/
 def driveLog (fuel : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult)
     (gasAcc : List Word) (sloadAcc : List Nat) (callAcc : List CallRecord) :
     Except ExecutionException (FrameResult × List Word × List Nat × List CallRecord) :=
@@ -179,13 +185,21 @@ def driveLog (fuel : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult)
             | [] => .ok (result, gasAcc, sloadAcc, callAcc)
             | pending :: rest =>
               -- the `pending.resume result` match is byte-for-byte `drive`'s; the only
-              -- difference is the accumulator carries a returning-CALL record (`recordCall`).
+              -- difference is the accumulator carries a returning-CALL record (`recordCall`),
+              -- and only for the TOP-LEVEL program's own returning CALLs. The record is gated
+              -- on `rest.isEmpty` (the resumed pending stack), mirroring the gas/sload
+              -- `stack.isEmpty` gates below: the top-level program's own CALL returns with
+              -- `rest = []`, while a descended callee's inner CALL returns with `rest` nonempty
+              -- (it still carries the parent's suspended `.call`), so it is black-boxed exactly
+              -- as the callee's inner gas/sload reads are.
               match pending.resume result with
                 | .ok parent =>
-                  driveLog fuel rest (.inl parent) gasAcc sloadAcc (recordCall pending result callAcc)
+                  driveLog fuel rest (.inl parent) gasAcc sloadAcc
+                    (if rest.isEmpty then recordCall pending result callAcc else callAcc)
                 | .error e =>
                   driveLog fuel rest (.inr (endFrame pending.frame (.exception e)))
-                    gasAcc sloadAcc (recordCall pending result callAcc)
+                    gasAcc sloadAcc
+                    (if rest.isEmpty then recordCall pending result callAcc else callAcc)
         | .inl current =>
           match stepFrame current with
             | .next exec =>
@@ -199,6 +213,11 @@ def driveLog (fuel : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult)
               -- Symmetrically, record an SLOAD warmth-charge iff the op is `SLOAD` and this
               -- is the top-level frame — the realised warmth at the top-level program's own
               -- SLOAD sites, read off the **pre-step** frame `current` (`sloadWarmthOf`).
+              -- The CALL record above is gated identically: a descended callee resumes its
+              -- own inner CALLs on a nonempty pending stack (`rest ⊇ [.call parent] ≠ []`),
+              -- so those inner calls are excluded exactly as the callee's inner gas/sload
+              -- reads are — only the top-level program's own CALL (resumed at `rest = []`) is
+              -- recorded.
               if isGasOp current && stack.isEmpty then
                 driveLog fuel stack (.inl { current with exec := exec })
                   (gasAcc ++ [UInt256.ofUInt64 exec.gasAvailable]) sloadAcc callAcc

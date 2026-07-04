@@ -1393,22 +1393,30 @@ private theorem driveLog_acc_hom :
         cases hres : pending.resume result with
         | ok parent =>
           dsimp only [hres]
-          rw [ih rest (.inl parent) g0 s0 (recordCall pending result c0),
-              ih rest (.inl parent) [] [] (recordCall pending result [])]
-          cases hb : driveLog n rest (.inl parent) [] [] [] with
-          | error e => simp [Except.map]
-          | ok val =>
-            simp [Except.map, recordCall_append pending result c0, List.append_assoc]
+          split_ifs with hre
+          · -- `rest.isEmpty`: the top-level CALL record fires (old proof body verbatim).
+            rw [ih rest (.inl parent) g0 s0 (recordCall pending result c0),
+                ih rest (.inl parent) [] [] (recordCall pending result [])]
+            cases hb : driveLog n rest (.inl parent) [] [] [] with
+            | error e => simp [Except.map]
+            | ok val =>
+              simp [Except.map, recordCall_append pending result c0, List.append_assoc]
+          · -- `rest` nonempty (descended callee's inner CALL): the record is a gated no-op,
+            -- the callAcc is threaded unchanged — the append-homomorphism at an unchanged
+            -- accumulator (identical shape to the `halted` arm below).
+            rw [ih rest (.inl parent) g0 s0 c0]
         | error e =>
           dsimp only [hres]
-          rw [ih rest (.inr (endFrame pending.frame (.exception e))) g0 s0
-                (recordCall pending result c0),
-              ih rest (.inr (endFrame pending.frame (.exception e))) [] []
-                (recordCall pending result [])]
-          cases hb : driveLog n rest (.inr (endFrame pending.frame (.exception e))) [] [] [] with
-          | error e' => simp [Except.map]
-          | ok val =>
-            simp [Except.map, recordCall_append pending result c0, List.append_assoc]
+          split_ifs with hre
+          · rw [ih rest (.inr (endFrame pending.frame (.exception e))) g0 s0
+                  (recordCall pending result c0),
+                ih rest (.inr (endFrame pending.frame (.exception e))) [] []
+                  (recordCall pending result [])]
+            cases hb : driveLog n rest (.inr (endFrame pending.frame (.exception e))) [] [] [] with
+            | error e' => simp [Except.map]
+            | ok val =>
+              simp [Except.map, recordCall_append pending result c0, List.append_assoc]
+          · rw [ih rest (.inr (endFrame pending.frame (.exception e))) g0 s0 c0]
     | inl current =>
       dsimp only
       cases hstep : stepFrame current with
@@ -1811,36 +1819,178 @@ theorem recorderCoupled_step_other {log : RunLog} {fr : Frame} {exec : Execution
     simp only [hstep, hng, hns, List.isEmpty_nil, Bool.false_and] at hf
     exact ⟨⟨m, hf⟩, hgp, hsp, hcpp⟩
 
-/-- **R7e — a returning external CALL consumes exactly one `CallRecord` and NO gas/sload
-entries** (children are black-boxed by the recorder's `stack.isEmpty` gate, exactly as
-`Runs.call` black-boxes them). The record's `(result, pending)` pinning to this call's
-data is delivered inside R3 via restart determinism, not restated here.
+/-- **Recorder framing with a nonempty bottom stack** (the recorder-composition lemma R7e
+needs). When the top segment `st` on stack `top` drains to `.ok res` (the child's black-box
+run, via `drive`), running the RECORDER `driveLog` with a nonempty `bot` appended at the
+bottom records NOTHING during that segment: every recording gate — gas/sload on
+`stack.isEmpty`, the returning-CALL record on `rest.isEmpty` (post-gate `Spec/Recorder.lean`)
+— fails because the nonempty `bot` keeps `stack`/`rest` nonempty throughout. So the
+accumulator `(g0, s0, c0)` is threaded UNCHANGED up to the point `res` is delivered into
+`bot`. This is the `driveLog` analogue of `drive_append_framing_lt`, with the
+accumulator-invariance the `rest.isEmpty` gate buys. By induction on fuel, branch-for-branch
+as `drive_append_framing_lt`; every recording gate is discharged by `hbot`. -/
+private theorem driveLog_frame_nonempty (bot : List Pending) (hbot : bot.isEmpty = false)
+    (g0 : List Word) (s0 : List Nat) (c0 : List CallRecord) :
+    ∀ (f : ℕ) (top : List Pending) (st : Frame ⊕ FrameResult) (res : FrameResult),
+      drive f top st = .ok res →
+      ∃ j, driveLog f (top ++ bot) st g0 s0 c0
+          = driveLog (j + 1) bot (.inr res) g0 s0 c0 := by
+  have hbne : ∀ (t : List Pending), (t ++ bot).isEmpty = false := by
+    intro t; cases t with
+    | nil => exact hbot
+    | cons _ _ => rfl
+  intro f
+  induction f with
+  | zero => intro top st res h; simp [drive] at h
+  | succ n ih =>
+    intro top st res h
+    unfold drive at h
+    unfold driveLog
+    cases st with
+    | inr result =>
+      cases top with
+      | nil =>
+        dsimp only at h ⊢
+        cases h
+        exact ⟨n, rfl⟩
+      | cons pending rest =>
+        rw [List.cons_append]
+        dsimp only at h ⊢
+        cases hres : pending.resume result with
+        | ok parent =>
+          rw [hres] at h; dsimp only at h
+          simp only [hres]
+          split_ifs with he
+          · rw [hbne rest] at he; simp at he
+          · exact ih rest (.inl parent) res h
+        | error e =>
+          rw [hres] at h; dsimp only at h
+          simp only [hres]
+          split_ifs with he
+          · rw [hbne rest] at he; simp at he
+          · exact ih rest (.inr (endFrame pending.frame (.exception e))) res h
+    | inl current =>
+      dsimp only at h ⊢
+      cases hstep : stepFrame current with
+      | next exec =>
+        rw [hstep] at h; dsimp only at h
+        dsimp only
+        split_ifs with hc1 hc2
+        · rw [hbne top] at hc1; simp at hc1
+        · rw [hbne top] at hc2; simp at hc2
+        · exact ih top (.inl { current with exec := exec }) res h
+      | halted halt =>
+        rw [hstep] at h; dsimp only at h
+        dsimp only
+        exact ih top (.inr (endFrame current halt)) res h
+      | needsCall params pending =>
+        rw [hstep] at h; dsimp only at h
+        dsimp only
+        cases hbc : beginCall params with
+        | inl child =>
+          rw [hbc] at h; dsimp only at h
+          dsimp only
+          rw [← List.cons_append]
+          exact ih (.call pending :: top) (.inl child) res h
+        | inr result =>
+          rw [hbc] at h; dsimp only at h
+          dsimp only
+          rw [← List.cons_append]
+          exact ih (.call pending :: top) (.inr (.call result)) res h
+      | needsCreate params pending =>
+        rw [hstep] at h; dsimp only at h
+        dsimp only
+        rw [← List.cons_append]
+        exact ih (.create pending :: top) (.inl (beginCreate params)) res h
 
-BLOCKED — recorder-model asymmetry (escalated, NOT a proof-difficulty artifact). The
-gas/sload records ARE gated by `stack.isEmpty` (`Recorder.lean:202,205`), so the "NO
-gas/sload entries" half is sound: during the restart from `fr` the child runs on the
-nonempty stack `[.call pending]`, so its gas/sload reads are not recorded. But `recordCall`
-is UNGATED (`Recorder.lean:183-188`): it fires on EVERY `pending :: rest` delivery, at any
-nesting depth. So if the external callee `child` itself issues returning CALLs, each appends
-a `CallRecord` — in stack order the callee's inner calls complete first, so the head of the
-recorded call-suffix at `fr` is the callee's FIRST inner call, and the `fr → resumeFr`
-segment consumes `childInnerRecords ++ [outerRec]`, i.e. `1 + (child's own call count)`
-records, NOT exactly one. The "consumes exactly one `CallRecord`" conclusion (`rec :: cS →
-cS`) is therefore FALSE in general — provable only when the callee records no calls of its
-own (in the flagship this is guaranteed by `hone : log.calls.length ≤ 1`, but R7e's signature
-carries neither `hone` nor any local surrogate).
-Resolutions (all outside spine's edit surface / statement-preserving envelope): (A) gate
-`recordCall` by the RESUMED stack being empty in `Spec/Recorder.lean` (design-correct,
-matches the docstring; edits an existing file); (B) thread `hone`/"child records no calls"
-into R7e (added hypothesis); (C) weaken to `∃ childRecs, RecorderCoupled … cS' ∧ rec :: cS =
-childRecs ++ [rec] ++ cS'` (weakened conclusion). Per the no-weaken/no-added-hypothesis rule
-this is left OPEN pending the recordCall-gating decision; the shared machinery it needs
-(`driveLog_acc_hom`, `isGasOp_false_of_isSloadOp`) has landed above. -/
+/-- **R7e — a returning external CALL consumes exactly one `CallRecord` and NO gas/sload
+entries** (children are black-boxed by the recorder's gates — gas/sload by `stack.isEmpty`,
+the returning-CALL record by `rest.isEmpty` — exactly as `Runs.call` black-boxes them).
+
+RESOLVED — resolution (A) taken (the Phase-3 course-correction, `docs/…recorder-fix`): the
+returning-CALL record in `Spec/Recorder.lean`'s delivery branch is now gated on the resumed
+pending stack being empty (`rest.isEmpty`), so it fires ONLY for the top-level program's own
+returning CALL, matching the gas/sload `stack.isEmpty` gates and the recorder's docstrings.
+With that gate this statement is TRUE AS WRITTEN — it carries no `hone` and needs none: the
+gate excludes a descended callee's inner calls STRUCTURALLY (they resume on a nonempty `rest`),
+regardless of the child's own call count, so the earlier "1 + child call count" asymmetry is
+gone. (The orthogonal `hone` premises on R3/R10a/the flagships guard the multiple-TOP-level-
+calls case, where `callOracleOf` reads only the head record; they are untouched.)
+
+Proof: unpack the restart from `fr` (`hcp.restart`) one CALL step — `fr` descends into
+`child` on the pending stack `[.call pending]` (`hstep`/`hcode`). The child terminates within
+the restart's fuel (`child_ne_oof_of_framed` from the framed run's success, result reconciled
+with `hcr`'s black-box `childRes` by `drive_fuel_mono`). `driveLog_frame_nonempty` then shows
+the inline child records nothing on the nonempty stack, and the outer delivery (`rest = []`)
+records exactly `[outerRec]` and resumes at `resumeFr`. `driveLog_acc_hom` peels that single
+seeded record, exposing the restart of `resumeFr` at suffixes `(gS, sS, cS)` — the coupling. -/
 theorem recorderCoupled_call {log : RunLog} {fr resumeFr : Frame}
     {gS : List Word} {sS : List Nat} {rec : CallRecord} {cS : List CallRecord}
     (hcp : RecorderCoupled log fr gS sS (rec :: cS))
     (hcr : CallReturns fr resumeFr) :
-    RecorderCoupled log resumeFr gS sS cS := sorry
+    RecorderCoupled log resumeFr gS sS cS := by
+  obtain ⟨cp, pending, child, childRes, hstep, hcode, hchild, hresume⟩ := hcr
+  have hcode' : beginCall cp = .inl child := hcode
+  obtain ⟨⟨fuel', hrestart⟩, hgp, hsp, hcpp⟩ := hcp
+  cases fuel' with
+  | zero => simp [driveLog] at hrestart
+  | succ m =>
+    -- Unfold the restart's first (CALL) step: `fr` descends into `child` on `[.call pending]`.
+    have hdescent : driveLog (m + 1) [] (.inl fr) [] [] []
+        = driveLog m (.call pending :: []) (.inl child) [] [] [] := by
+      conv_lhs => unfold driveLog
+      simp only [hstep, hcode']
+    rw [hdescent] at hrestart
+    -- The child terminates within fuel `m` (the framed restart succeeded).
+    have hdrive : drive m (.call pending :: []) (.inl child) = .ok log.observable := by
+      have hd := driveLog_drive m (.call pending :: []) (.inl child) [] [] []
+      rw [hrestart] at hd
+      simpa only [Except.map] using hd.symm
+    have hne : drive m (.call pending :: []) (running child) ≠ .error .OutOfFuel := by
+      rw [hdrive]; simp
+    have hchildm_ne : drive m [] (running child) ≠ .error .OutOfFuel :=
+      child_ne_oof_of_framed m child pending [] hne
+    -- Reconcile the framed child result with `hcr`'s black-box `childRes` via fuel monotonicity.
+    have hchildm : drive m [] (running child) = .ok childRes := by
+      have h1 := drive_fuel_mono (Nat.le_max_left m (seedFuel cp.gas)) [] (running child) hchildm_ne
+      have h2 := drive_fuel_mono (Nat.le_max_right m (seedFuel cp.gas)) [] (running child)
+        (by rw [hchild]; simp)
+      rw [hchild] at h2
+      rw [← h1, h2]
+    -- Frame the recorder: the inline child records nothing; the outer delivery records `[outerRec]`.
+    obtain ⟨j, hframe⟩ := driveLog_frame_nonempty (.call pending :: []) rfl [] [] []
+      m [] (.inl child) childRes hchildm
+    rw [List.nil_append] at hframe
+    rw [hframe] at hrestart
+    -- Reduce the outer CALL delivery (`rest = []`): record `[outerRec]`, resume at `resumeFr`.
+    have hdeliv : driveLog (j + 1) (.call pending :: []) (.inr childRes) [] [] []
+        = driveLog j [] (.inl resumeFr) [] []
+            [{ result := childRes.toCallResult, pending := pending }] := by
+      conv_lhs => unfold driveLog
+      simp only [Pending.resume, List.isEmpty_nil, if_true, recordCall, List.nil_append, hresume]
+    rw [hdeliv] at hrestart
+    -- Peel the single seeded record via the accumulator homomorphism.
+    rw [driveLog_acc_hom j [] (.inl resumeFr) [] []
+      [{ result := childRes.toCallResult, pending := pending }]] at hrestart
+    cases hb : driveLog j [] (.inl resumeFr) [] [] [] with
+    | error e => rw [hb] at hrestart; simp [Except.map] at hrestart
+    | ok val =>
+      obtain ⟨obs'', gS'', sS'', cS''⟩ := val
+      rw [hb] at hrestart
+      have heq : (Except.ok (obs'', [] ++ gS'', [] ++ sS'',
+          [{ result := childRes.toCallResult, pending := pending }] ++ cS'')
+          : Except ExecutionException (FrameResult × List Word × List Nat × List CallRecord))
+          = .ok (log.observable, gS, sS, rec :: cS) := hrestart
+      simp only [List.nil_append, List.singleton_append] at heq
+      injection heq with heq2
+      injection heq2 with hobs heq3
+      injection heq3 with hgeq heq4
+      injection heq4 with hseq heq5
+      injection heq5 with _ hcs
+      subst hobs; subst hgeq; subst hseq; subst hcs
+      refine ⟨⟨j, hb⟩, hgp, hsp, ?_⟩
+      obtain ⟨pre, hpre⟩ := hcpp
+      exact ⟨pre ++ [rec], by rw [hpre]; simp [List.append_assoc]⟩
 
 /-- **R8 — presence threading** (the named replacement of the inside-out `hpresent`
 hypothesis, which quantified over the walk invariant). Trivial-looking on purpose: reached
