@@ -22,6 +22,14 @@ inherited by every track's worktree).
 > sorry-skeleton. Plan-of-record: `experiments/005_ir_lowering/docs/target-architecture-2026-07-02.md`
 > + `execution-plan-2026-07-02.md` (remediation plan superseded); the final audit fleet
 > (`experiments/005_ir_lowering/docs/final-audit-2026-07-03.md`, being written) gates Phase 3.
+>
+> **PHASE 3 (2026-07-04).** Final audit CLEAN; the R0–R12 proof grind is underway. **13 of ~34
+> tracked obligations remain** in `LirLean/V2/RealisabilitySpec.lean`: CLOSED axiom-clean = R0b,
+> R7a–e, R1, R2, R4, R5, R8, R9 + `exProg` witnesses; OPEN = R3 + R6 (the two hard leaves), the
+> assembly (R10a/b, R11, R11-all, gasfree co-flagship, R12a/b) and RunFromLeft adequacy. Default
+> `LirLean` GREEN + sorry-free; `Nightly` green with 13 tracked sorries. Recorder course-correction
+> (Option B, `rest.isEmpty` gate) closed R7e unconditionally. Arc summary:
+> `experiments/005_ir_lowering/docs/achievements-since-main.md`.
 
 ---
 

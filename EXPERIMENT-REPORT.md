@@ -26,6 +26,15 @@ in `currentplan.md`; this file is the *results* synthesis for a human reader.
 > `V2/Drive/Headline.lean` are retained as Phase-3 salvage (unreferenced in the default build). The
 > table row / narrative below still name `lower_conforms_cyclic_assembled` as "the current headline"
 > — read that as **historical**.
+>
+> **PHASE 3 (2026-07-04).** Final audit CLEAN (`docs/final-audit-2026-07-03.md`); the R0–R12 proof
+> grind is underway. **13 of ~34 tracked obligations remain** in `LirLean/V2/RealisabilitySpec.lean`:
+> CLOSED axiom-clean = R0b, R7a–e, R1 (the "riskiest" gas bridge), R2, R4, R5, R8, R9 + the `exProg`
+> non-vacuity witnesses; OPEN = the two hard leaves R3 (call realisation) + R6 (boundary walk), the
+> assembly (R10a/b, R11 flagship, R11-all, gasfree co-flagship, R12a/b) and RunFromLeft adequacy.
+> Default `LirLean` GREEN + sorry-free; `Nightly` green with the 13 tracked sorries. A recorder
+> course-correction (Option B, gate `recordCall` on `rest.isEmpty`) closed R7e unconditionally. Arc
+> summary for a human reader: `experiments/005_ir_lowering/docs/achievements-since-main.md`.
 
 ## The point of this experiment
 

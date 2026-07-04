@@ -28,6 +28,15 @@ Full chronological record: `currentplan.md` (orchestration log). This is your re
 > conformance surface**; ties are DERIVED from the run (R10a/R10b), not supplied. The
 > `Lir.V2.DriveCorrPlus` structure and the §7/§8 value/gas channels in `V2/Drive/Headline.lean` are
 > **retained as Phase-3 salvage** (present but unreferenced in the default build).
+>
+> **PHASE 3 (2026-07-04).** The final audit returned CLEAN and Phase 3 (the R0–R12 proof grind) is
+> underway. **13 of ~34 tracked obligations remain** (`RealisabilitySpec.lean`): CLOSED axiom-clean =
+> R0b, R7a–e, R1 (the "riskiest" gas bridge), R2, R4, R5, R8, R9 + the `exProg` non-vacuity
+> witnesses; OPEN = the two hard leaves R3 (call realisation) + R6 (boundary walk), the assembly
+> (R10a/b, R11, R11-all, gasfree co-flagship, R12a/b) and RunFromLeft adequacy. Default `LirLean`
+> stays GREEN + sorry-free; `Nightly` green with the 13 tracked sorries. A recorder course-correction
+> (gate `recordCall` on `rest.isEmpty`, Option B) landed and closed R7e unconditionally. Arc summary:
+> `experiments/005_ir_lowering/docs/achievements-since-main.md`.
 
 ---
 
