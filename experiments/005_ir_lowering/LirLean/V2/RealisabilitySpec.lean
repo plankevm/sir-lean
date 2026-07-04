@@ -3,14 +3,14 @@ import LirLean.Acyclic
 import LirLean.BoundaryReach
 
 /-!
-# LirLean v2 — the REALISABILITY SPEC skeleton (Phase-3 target statements; Nightly-only)
+# LirLean v2 — the REALISABILITY SPEC skeleton (Phase-3 target statements; WIP-only)
 
 **EVERY `sorry` IN THIS FILE IS TRACKED DEBT.** This module is the reviewable Phase-3
 specification: the flagship `lower_conforms` (R11) is the target statement of the whole
 experiment, and the obligations R1–R12 are the named gaps between the green machinery in the
 tree and that flagship. All `def`s/`structure`s here are REAL (complete, no `sorry`); only
 theorem PROOFS are `sorry`d. This module is deliberately registered in the NON-DEFAULT
-`Nightly` lean_lib — the default `LirLean` target stays sorry-free and does not import it.
+`WIP` lean_lib — the default `LirLean` target stays sorry-free and does not import it.
 
 ## The vacuity lessons this file is shaped by
 
@@ -1290,7 +1290,7 @@ The `rfl` companions of the default-target `resumeAfterCall_address`/`_memory`/`
 stack/pc/gas/accounts/substate/toMachineState and leaving `executionEnv` (hence `.code`) and
 the `Frame.validJumps` field untouched; the pc advances by the default `pcΔ = 1` (past the CALL
 byte) and the pushed word is exactly `callSuccessFlag result pd` (= the oracle's `successWord`,
-`evmCallOracle_successWord_eq_x`). These are `Nightly`-local facts ABOUT the default-target
+`evmCallOracle_successWord_eq_x`). These are `WIP`-local facts ABOUT the default-target
 `resumeAfterCall` def; they do NOT edit it. They discharge conjuncts 11/13/14/17 of R3's bundle
 *once* the strengthened CALL-dispatch inversion supplies the `pd.frame.exec`/`pd.stack`/
 `pd.{in,out}Size` framing (the Group-B residue — see R3's STATUS note, blocked on the default
@@ -1357,7 +1357,7 @@ exists, so it must be written from scratch (~200 lines, precedent: the branch co
 (`stash_tail_runs`). Secondary risk (plan §3.2): several `resumeAfterCall` frame-pins
 (`resumeFr.exec.pc = callFr.exec.pc + 1`, `.stack`, `.memory`) may need a bytecode-layer
 computation lemma about `resumeAfterCall` — that would live in the DEFAULT target, so per the
-track rules it is STOP-and-report, not an in-`Nightly` edit. A partial `refine` supplying only the
+track rules it is STOP-and-report, not an in-`WIP` edit. A partial `refine` supplying only the
 Piece-A/C conjuncts would bury the Piece-B `sorry` in a mid-bundle position (a fake close the
 review's statement-diff would flag), so R3 stays a single top-level `sorry` with Piece A landed as
 the two helpers above. -/
@@ -3868,7 +3868,7 @@ theorem exProg_nonvacuity :
 
 NO `#print axioms` guards live here BY DESIGN: every sorry'd declaration carries `sorryAx`
 until its obligation lands, so axiom guards would only pin the debt's existence. The
-default-target audit net (`Audit.lean`, Track A) must NOT cover this Nightly lib; the
+default-target audit net (`Audit.lean`, Track A) must NOT cover this WIP lib; the
 guards migrate there obligation-by-obligation as the sorries are discharged. -/
 
 end Lir.V2

@@ -24,9 +24,9 @@ lean_lib «LirLean» where
   -- whole spine remain in the cone and built. See docs/uniform-spill-alloc-plan.md (Phase C).
   roots := #[`LirLean]
 
--- NON-DEFAULT nightly lib: the Phase-3 realisability spec skeleton (sorry-carrying BY
+-- NON-DEFAULT work-in-progress lib: the Phase-3 realisability spec skeleton (sorry-carrying BY
 -- DESIGN — every sorry there is tracked debt; see the module header docstring). Deliberately
 -- NOT a default target and NOT imported by the `LirLean` root, so the default build stays
--- sorry-free. Build with `lake build Nightly`.
-lean_lib «Nightly» where
+-- sorry-free. Build with `lake build WIP`.
+lean_lib «WIP» where
   roots := #[`LirLean.V2.RealisabilitySpec]

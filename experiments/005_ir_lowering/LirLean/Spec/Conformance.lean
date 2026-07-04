@@ -14,7 +14,7 @@ stated** — a register of debt, not a claim of truth. See `docs/final-audit-202
 `docs/target-architecture-2026-07-02.md` §1, and `docs/fleet-2026-07-02/skeptic-f1-verdict.md`.
 
 **The sole conformance surface is now `LirLean/V2/RealisabilitySpec.lean`** — the reshaped
-R0–R12 obligation skeleton (the `Nightly` sorry-carrying lib), whose ties are DERIVED from the
+R0–R12 obligation skeleton (the `WIP` sorry-carrying lib), whose ties are DERIVED from the
 run (R10a/R10b) rather than supplied. Scope note: `Lir.V2.callStreamOf` maps the WHOLE recorded
 `CallRecord` list to the consumed `CallStream` (`realisedCall`), so calls are a positional
 multi-CALL stream — no single-CALL scope.
