@@ -136,13 +136,6 @@ materialising a literal is *independent of its value and of the push width* — 
 honest-gas envelope is width-stable. This is what lets the C-grind treat the
 PUSH32-fattened lowering as gas-equivalent to a hypothetical narrow one. -/
 
-/-- The literal charge is the constant `[Gverylow]`, independent of the word — the
-PUSH32-width-stability fact (PUSH32 costs `Gverylow`, same as PUSH1). -/
-theorem chargeOf_imm_const (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ)
-    (fuel : Nat) (w w' : Word) :
-    chargeOf defs sloadChg fuel (.imm w) = chargeOf defs sloadChg fuel (.imm w') := by
-  rw [chargeOf_imm, chargeOf_imm]
-
 /-! ## 3. The pure-arithmetic engine (sum / `subCharges` laws)
 
 These are the laws B1 threads to glue per-leaf subtractions into the whole-expression

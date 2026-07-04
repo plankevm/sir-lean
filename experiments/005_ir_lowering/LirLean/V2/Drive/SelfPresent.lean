@@ -47,17 +47,6 @@ CONSED onto the remaining stream (`realisedCall_cons`). So the head of the consu
 at this cursor is produced from the recording, not supplied — positionally, per record. We
 re-expose it as the named value-channel discharge. -/
 
-/-- **CALL value-channel discharge.** With the run's recorded CALLs led by `rec`, the realised
-call stream is `evmV2CallEntry rec.result rec.pending self :: callStreamOf tl self` — the head is
-the `resumeAfterCall` projection of *this* cursor's CALL. This is the positional head-of-stream
-pin of `CallRealises`, *discharged* from the recording (`realisedCall_cons`, `simp`-clean), not
-supplied. -/
-theorem realisedCall_projection {log : RunLog} {rec : CallRecord} {tl : List CallRecord}
-    (self : AccountAddress) (hc : log.calls = rec :: tl) :
-    realisedCall log self
-      = evmV2CallEntry rec.result rec.pending self :: callStreamOf tl self :=
-  realisedCall_cons self hc
-
 /-! ## §2 — GAS: the arithmetic bridge (alignment-free, DISCHARGED)
 
 The recorded read at a top-level GAS `.next` step and the word the per-cursor `obs`-form

@@ -64,15 +64,6 @@ inductive IRHalt where
   | returned (w : Word)
 deriving DecidableEq, Repr
 
-/-- An IR machine configuration: either running inside a block at a statement
-cursor, or halted with a result. -/
-inductive IRConf where
-  /-- Inside block `L`, about to execute statement index `pc` (or, when `pc`
-  reaches the block length, its terminator) of `L`. -/
-  | running (L : Label) (pc : Nat) (st : IRState)
-  /-- Halted with `h`. -/
-  | halted  (h : IRHalt)
-
 /-! ## Expression evaluation
 
 `evalExpr st e` is the IR value of `e` in state `st`. It is total via `Option`
@@ -122,10 +113,5 @@ def IRState.setStorage (st : IRState) (k v : Word) : IRState :=
 /-- The block at label `L`, if present. -/
 def Program.blockAt (prog : Program) (L : Label) : Option Block :=
   prog.blocks[L.idx]?
-
-/-- The statement at cursor `(L, pc)`, if present. -/
-def Program.stmtAt (prog : Program) (L : Label) (pc : Nat) : Option Stmt := do
-  let b ← prog.blockAt L
-  b.stmts[pc]?
 
 end Lir

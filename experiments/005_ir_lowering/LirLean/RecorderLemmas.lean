@@ -135,19 +135,3 @@ theorem runWithLog_drive {params : CallParams} {fuel : ℕ} {log : RunLog}
       rw [hdl] at hd
       simpa only [Except.map] using hd.symm
 
-/-- **Adequacy of `runWithLog` against `messageCall`.** When run at the seed fuel
-`seedFuel params.gas` (the budget `messageCall` itself uses), a successful recording run
-pins the verified top-level boundary `messageCall params` to the recorded `observable`'s
-call result. The honest tie between the instrumented interpreter and the exported
-semantics. -/
-theorem runWithLog_messageCall {params : CallParams} {log : RunLog}
-    (h : runWithLog params (seedFuel params.gas) = some log) :
-    messageCall params = .ok log.observable.toCallResult := by
-  obtain ⟨frame, hbc, hd⟩ := runWithLog_drive h
-  rw [messageCall_eq_drive params frame hbc, hd]
-  rfl
-
--- Build-enforced axiom-cleanliness guards: the recording interpreter's result
--- adequacy depends only on `[propext, Classical.choice, Quot.sound]`.
-
-end Lir.V2

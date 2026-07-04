@@ -63,22 +63,6 @@ theorem sstore_sub_key (defs : Tmp → Option Expr) (fuel : Nat) (key value : Tm
 [SLOAD]`). The key materialisation (at the *reduced* fuel `f`) is the prefix sub-list at offset
 `0`; the trailing `SLOAD ; PUSH slot ; MSTORE` are read off the subsequent offsets. -/
 
-/-- `materialise k` (at the reduced fuel `f`) is the prefix sub-list of the spilled-sload
-`assign` statement bytes (offset 0). -/
-theorem assign_sload_sub_key (defs : Tmp → Option Expr) (f : Nat) (t k : Tmp) {n : Nat}
-    (h : defs t = some (.slot n)) :
-    ∀ j, j < (materialiseExpr defs f (.tmp k)).length →
-      (emitStmt defs (f + 1) (.assign t (.sload k)))[0 + j]?
-        = (materialiseExpr defs f (.tmp k))[j]? := by
-  intro j hj
-  rw [emitStmt_assign_slot defs (f + 1) t (.sload k) h, materialiseExpr_sload]
-  show ((materialiseExpr defs f (.tmp k) ++ [Byte.sload])
-          ++ emitImm (UInt256.ofNat n) ++ [Byte.mstore])[0 + j]? = _
-  rw [Nat.zero_add,
-      List.getElem?_append_left (by rw [List.length_append, List.length_append]; omega),
-      List.getElem?_append_left (by rw [List.length_append]; omega),
-      List.getElem?_append_left hj]
-
 end Lir
 
 namespace Lir

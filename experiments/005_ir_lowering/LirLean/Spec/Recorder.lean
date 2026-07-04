@@ -108,10 +108,6 @@ structure RunLog where
   /-- The top-level returning external CALLs' records, in program order. -/
   calls : List CallRecord
 
-/-- The empty accumulator: no gas reads, no sload charges, no calls (the `observable` is
-filled in at the top-level return). The seed for `driveLog`'s recording. -/
-def RunAcc : Type := List Word × List Nat × List CallRecord
-
 /-! ## GAS-step detection
 
 A `.next` step is a `GAS` read exactly when the decoded op at the running frame is
@@ -151,7 +147,7 @@ def sloadWarmthOf (fr : Frame) : Nat :=
 /-! ## The recording interpreter `driveLog`
 
 A parallel copy of `drive` (`EVMLean/Evm/Semantics/Interpreter.lean`) threading a
-`RunAcc = (gas, calls)` accumulator. **Every branch is byte-for-byte `drive`'s own
+`(gas, calls)` accumulator. **Every branch is byte-for-byte `drive`'s own
 branch**, with two recording points spliced in: the `GAS` `.next` step (append the
 post-charge gas word) and the returning-`.call` delivery (append the
 `(result, pending)` record). On success it returns `(r, gas, calls)`; the gas /
