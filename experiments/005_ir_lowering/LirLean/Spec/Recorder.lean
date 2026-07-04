@@ -158,7 +158,16 @@ call lists are in program order (appended at each point). -/
 
 /-- Append a returning-CALL record for a `.call` delivery; a `.create` delivery
 contributes nothing. Factored out of `driveLog` so the delivery branch's
-`pending.resume result` match is byte-for-byte `drive`'s (adequacy aligns). -/
+`pending.resume result` match is byte-for-byte `drive`'s (adequacy aligns).
+
+GATE (2026-07-03, recorder-fix): `recordCall` itself is unconditional — it just
+appends — but both `driveLog` delivery call sites now invoke it ONLY under the
+`rest.isEmpty` guard (the resumed pending stack is empty). So a record is added
+exactly for the **top-level** program's own returning CALL, never for a descended
+callee's inner CALL (which resumes on a nonempty `rest`, still carrying the
+parent's suspended `.call`). This matches the gas/sload `stack.isEmpty` gates:
+only top-level calls record. See the `driveLog` docstring and its delivery-branch
+comment for the gate placement. -/
 def recordCall (pending : Pending) (result : FrameResult) (callAcc : List CallRecord) :
     List CallRecord :=
   match pending with

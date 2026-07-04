@@ -1907,15 +1907,18 @@ private theorem driveLog_frame_nonempty (bot : List Pending) (hbot : bot.isEmpty
 entries** (children are black-boxed by the recorder's gates — gas/sload by `stack.isEmpty`,
 the returning-CALL record by `rest.isEmpty` — exactly as `Runs.call` black-boxes them).
 
-RESOLVED — resolution (A) taken (the Phase-3 course-correction, `docs/…recorder-fix`): the
-returning-CALL record in `Spec/Recorder.lean`'s delivery branch is now gated on the resumed
-pending stack being empty (`rest.isEmpty`), so it fires ONLY for the top-level program's own
-returning CALL, matching the gas/sload `stack.isEmpty` gates and the recorder's docstrings.
-With that gate this statement is TRUE AS WRITTEN — it carries no `hone` and needs none: the
-gate excludes a descended callee's inner calls STRUCTURALLY (they resume on a nonempty `rest`),
-regardless of the child's own call count, so the earlier "1 + child call count" asymmetry is
-gone. (The orthogonal `hone` premises on R3/R10a/the flagships guard the multiple-TOP-level-
-calls case, where `callOracleOf` reads only the head record; they are untouched.)
+RESOLVED (2026-07-03, recorder-fix) — resolution (A) taken (the Phase-3 course-correction):
+the returning-CALL record in `Spec/Recorder.lean`'s delivery branch is now gated on the
+resumed pending stack being empty (`rest.isEmpty`), so it fires ONLY for the top-level
+program's own returning CALL, matching the gas/sload `stack.isEmpty` gates and the recorder's
+docstrings. With that gate this statement is TRUE AS WRITTEN — it carries no `hone` and needs
+none (the single-call `hone` hypothesis was DROPPED): the gate excludes a descended callee's
+inner calls STRUCTURALLY (they resume on a nonempty `rest`), regardless of the child's own
+call count, so the earlier "1 + child call count" escalation/asymmetry note is gone, and
+`realisedCall` is faithful even when the top-level call's callee itself calls — which is what
+unblocks the R3′ multi-call generalization. (The orthogonal `hone` premises on
+R3/R10a/the flagships guard the multiple-TOP-level-calls case, where `callOracleOf` reads
+only the head record; they are untouched.)
 
 Proof: unpack the restart from `fr` (`hcp.restart`) one CALL step — `fr` descends into
 `child` on the pending stack `[.call pending]` (`hstep`/`hcode`). The child terminates within
