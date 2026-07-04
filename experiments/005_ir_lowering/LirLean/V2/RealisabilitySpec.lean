@@ -985,13 +985,28 @@ def RunFromAll (prog : Program) (o : CallOracle) (st : IRState) (T : Trace) (L :
 checked, not assumed). -/
 theorem runFrom_of_runFromLeft {prog : Program} {o : CallOracle} {st : IRState}
     {T Tleft : Trace} {L : Label} {O : Observable}
-    (h : RunFromLeft prog o st T L O Tleft) : RunFrom prog o st T L O := sorry
+    (h : RunFromLeft prog o st T L O Tleft) : RunFrom prog o st T L O := by
+  induction h with
+  | ret hb hss hterm hv => exact .ret hb hss hterm hv
+  | stop hb hss hterm => exact .stop hb hss hterm
+  | branchThen hb hss hterm hc hnz _hrest ih => exact .branchThen hb hss hterm hc hnz ih
+  | branchElse hb hss hterm hc _hrest ih => exact .branchElse hb hss hterm hc ih
+  | jump hb hss hterm _hrest ih => exact .jump hb hss hterm ih
 
 /-- Mirror adequacy, completion direction: every run has SOME leftover decomposition.
 TRACKED DEBT (structural induction on `RunFrom`). -/
 theorem runFromLeft_exists {prog : Program} {o : CallOracle} {st : IRState}
     {T : Trace} {L : Label} {O : Observable}
-    (h : RunFrom prog o st T L O) : ∃ Tleft, RunFromLeft prog o st T L O Tleft := sorry
+    (h : RunFrom prog o st T L O) : ∃ Tleft, RunFromLeft prog o st T L O Tleft := by
+  induction h with
+  | ret hb hss hterm hv => exact ⟨_, .ret hb hss hterm hv⟩
+  | stop hb hss hterm => exact ⟨_, .stop hb hss hterm⟩
+  | branchThen hb hss hterm hc hnz _hrest ih =>
+      obtain ⟨Tleft, hl⟩ := ih; exact ⟨Tleft, .branchThen hb hss hterm hc hnz hl⟩
+  | branchElse hb hss hterm hc _hrest ih =>
+      obtain ⟨Tleft, hl⟩ := ih; exact ⟨Tleft, .branchElse hb hss hterm hc hl⟩
+  | jump hb hss hterm _hrest ih =>
+      obtain ⟨Tleft, hl⟩ := ih; exact ⟨Tleft, .jump hb hss hterm hl⟩
 
 /-! ## §5 — The Phase-3 obligations R1–R11 (every proof `sorry` = tracked debt)
 
