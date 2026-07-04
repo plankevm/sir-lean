@@ -3387,7 +3387,17 @@ theorem r12_end_to_end :
       ∧ ∃ O : Observable,
           RunFrom exProg (realisedCall log params.recipient)
             (entryState params) (realisedGas log) exProg.entry O
-          ∧ Conforms params.recipient log O := sorry
+          ∧ Conforms params.recipient log O := by
+  -- The witness params/log come from R12a (`r12_hypotheses_inhabited`); the inner
+  -- existential is EXACTLY R11's (`lowering_conforms`) conclusion at `prog := exProg`.
+  -- R12a carries every flagship premise except the two closed static ones
+  -- (`wellLowered_exProg`, `singleCall_exProg`), which we supply directly (same module).
+  -- Green now (R12a is a skeleton leaf); axiom-clean once R11 + R12a land.
+  obtain ⟨params, log, _acc, hcode, hmod, hself, hgas, hrun, hclean, hone, hseams, hnzw⟩ :=
+    r12_hypotheses_inhabited
+  refine ⟨params, log, hcode, hrun, ?_⟩
+  exact lowering_conforms hcode hmod hself hgas
+    wellLowered_exProg singleCall_exProg hrun hclean hone hseams hnzw
 
 /-! ## §7 — audit note
 
