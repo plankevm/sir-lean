@@ -36,14 +36,6 @@ the run); its flagship signature should be frozen here once R11 is proven. See
 #guard_msgs in
 #print axioms Lir.V2.cleanHalts_of_runWithLog
 
-/-- info: 'Lir.jump_landing_of_cleanHalt' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
-#print axioms Lir.jump_landing_of_cleanHalt
-
-/-- info: 'Lir.branch_landing_of_cleanHalt' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in
-#print axioms Lir.branch_landing_of_cleanHalt
-
 /-- info: 'Lir.V2.stepPreservesSelf' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms Lir.V2.stepPreservesSelf

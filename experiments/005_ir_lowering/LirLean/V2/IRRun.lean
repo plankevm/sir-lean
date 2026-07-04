@@ -125,119 +125,12 @@ theorem runStmts_exists {prog : Program} {st : IRState} {T : Trace} {C : CallStr
     obtain ⟨hhead, htail⟩ := hdef
     exact RunStmts.cons (evalStmt_exists hhead) (ih htail)
 
-/-! ## `RunFrom`/`IRRun` existence for a single halting block
-
-The base case of CFG totality: a program whose entry block is a **halt** terminator
-(`stop` or `ret t`). No outgoing edges, so the `RunFrom` recursion bottoms out in one
-constructor application — no CFG-acyclicity measure is needed. The block's statements run via
-`runStmts_exists`; the `ret` arm additionally needs its operand bound at the post-statement
-state. -/
-
-/-- **`RunFrom` existence for a `stop`-terminated block.** From a present block `b` whose
-statements are gas-free/call-free and definable, and whose terminator is `stop`, `RunFrom`
-halts at the post-statement world with `.stopped`. -/
-theorem runFrom_exists_stop {prog : Program} {st : IRState} {T : Trace} {C : CallStream}
-    {L : Label} {b : Block}
-    (hb : blockAt prog L = some b)
-    (hterm : b.term = .stop)
-    (hdef : StmtsDefinable st b.stmts) :
-    RunFrom prog st T C L { world := (stmtsPost st b.stmts).world, result := .stopped } :=
-  RunFrom.stop hb (runStmts_exists hdef) hterm
-
-/-- **`RunFrom` existence for a `ret`-terminated block.** As `runFrom_exists_stop`, with the
-`ret t` operand bound at the post-statement state (`hv`); halts returning that value. -/
-theorem runFrom_exists_ret {prog : Program} {st : IRState} {T : Trace} {C : CallStream}
-    {L : Label} {b : Block} {t : Tmp} {w : Word}
-    (hb : blockAt prog L = some b)
-    (hterm : b.term = .ret t)
-    (hdef : StmtsDefinable st b.stmts)
-    (hv : (stmtsPost st b.stmts).locals t = some w) :
-    RunFrom prog st T C L { world := (stmtsPost st b.stmts).world, result := .returned w } :=
-  RunFrom.ret hb (runStmts_exists hdef) hterm hv
-
-/-- **`IRRun` existence for a single `stop`-block program.** If the entry block is present,
-gas-free/call-free, definable from the empty-locals/`w₀` start, and `stop`-terminated, the
-program has an IR run for *any* call stream `C` and *any* trace `T` — the trace is unconsumed
-(no gas reads). The produced observable is `⟨post-world, .stopped⟩`. -/
-theorem irRun_exists_stop {prog : Program} {w₀ : World} {T : Trace} {C : CallStream}
-    {bentry : Block}
-    (hb : blockAt prog prog.entry = some bentry)
-    (hterm : bentry.term = .stop)
-    (hdef : StmtsDefinable { locals := fun _ => none, world := w₀ } bentry.stmts) :
-    IRRun prog w₀ T C
-      { world := (stmtsPost { locals := fun _ => none, world := w₀ } bentry.stmts).world
-        result := .stopped } :=
-  runFrom_exists_stop hb hterm hdef
-
-/-- **`IRRun` existence for a single `ret`-block program.** As `irRun_exists_stop`, with the
-`ret` operand bound at the post-statement state; the observable returns that value. -/
-theorem irRun_exists_ret {prog : Program} {w₀ : World} {T : Trace} {C : CallStream}
-    {bentry : Block} {t : Tmp} {w : Word}
-    (hb : blockAt prog prog.entry = some bentry)
-    (hterm : bentry.term = .ret t)
-    (hdef : StmtsDefinable { locals := fun _ => none, world := w₀ } bentry.stmts)
-    (hv : (stmtsPost { locals := fun _ => none, world := w₀ } bentry.stmts).locals t = some w) :
-    IRRun prog w₀ T C
-      { world := (stmtsPost { locals := fun _ => none, world := w₀ } bentry.stmts).world
-        result := .returned w } :=
-  runFrom_exists_ret hb hterm hdef hv
-
-/-! ## CFG-acyclicity: the *block* topological rank (the DAG measure)
-
-The single-block lemmas above bottom out in one constructor application because a halt block has
-no outgoing edges. The general acyclic CFG needs a measure that *strictly decreases across every
-control-flow edge*, so the `RunFrom` recursion through `jump`/`branch` is well-founded — the
-**block** analogue of `Acyclic.lean`'s **def-graph** rank (this is control flow, not the
-recompute-on-use def order; the two are entirely separate orders on a program).
-
-`TermRankLt rank term n` bounds the rank of every successor label of `term` strictly below `n`
-(halts have no successors, hence are vacuously fine). `CFGAcyclic prog` packages a
-`blockRank : Label → ℕ` under which every present block's terminator satisfies `TermRankLt` below
-that block's rank — i.e. taking any edge strictly decreases rank, so the CFG has **no loops**.
-
-This mirrors `Acyclic.lean` verbatim in spirit: `ExprRankLt`/`Acyclic` ↦ `TermRankLt`/`CFGAcyclic`,
-the def edge ↦ the control-flow edge. -/
-
-/-- **`TermRankLt rank term n`** — every successor label of `term` ranks strictly below `n`. A
-halt (`ret`/`stop`) has no successors (vacuously `True`); `jump dst` needs `rank dst < n`;
-`branch _ thenL elseL` needs both targets below `n`. The control-flow analogue of
-`Lir.ExprRankLt`. -/
-def TermRankLt (rank : Label → ℕ) : Term → ℕ → Prop
-  | .ret _, _ => True
-  | .stop, _ => True
-  | .jump dst, n => rank dst < n
-  | .branch _ thenL elseL, n => rank thenL < n ∧ rank elseL < n
-
-/-- The successor labels of a terminator (the control-flow edge targets). A halt has none. -/
-def _root_.Lir.Term.succs : Term → List Label
-  | .ret _ => []
-  | .stop => []
-  | .jump dst => [dst]
-  | .branch _ thenL elseL => [thenL, elseL]
-
-/-- **`CFGAcyclic prog`** — a topological rank on the *control-flow* graph: every present block's
-terminator sends every edge to a strictly-smaller rank, and every edge target is itself a present
-block. So following any `jump`/`branch` edge strictly decreases `blockRank` and stays inside the
-program, witnessing the CFG is a DAG (NO loops). The control-flow analogue of `Lir.Acyclic`
-(which ranks the def-graph). Both single-block example programs satisfy it trivially — a
-`stop`/`ret` entry block has no edges, so any `blockRank` works (`TermRankLt` is vacuously `True`
-on a halt) and `succ_present` is vacuous. -/
-structure CFGAcyclic (prog : Program) where
-  /-- A topological rank on the control-flow graph. -/
-  blockRank : Label → ℕ
-  /-- Every present block's terminator decreases rank across each edge (no loops). -/
-  decreasing : ∀ (L : Label) (b : Block),
-    blockAt prog L = some b → TermRankLt blockRank b.term (blockRank L)
-  /-- Every edge target of a present block is itself a present block (the CFG is closed: no
-  dangling jumps). Needed so the `RunFrom` recursion always lands on a runnable block. -/
-  succ_present : ∀ (L : Label) (b : Block), blockAt prog L = some b →
-    ∀ S ∈ b.term.succs, ∃ b', blockAt prog S = some b'
-
 /-! ## Run-definability: the state-threaded definability supply
 
-`runFrom_exists` runs each block's statements then recurses at the successor with the threaded
-post-statement state. To fire it needs, at each block reached, the operand-definedness the
-single-block lemmas needed *plus* the branch condition bound at the post-statement state. We
+The cyclic drive walk (`V2/DriveSim.lean`) runs each block's statements then continues at the
+successor with the threaded post-statement state. To fire it needs, at each block reached, the
+operand-definedness of the statement fold *plus* the branch condition bound at the post-statement
+state. We
 supply this for **every** state (a sound over-approximation of "every reachable state"): the
 existence claim is then state-uniform, exactly matching how the former `StmtTies`/`TermTies`
 (since reshaped into the run-DERIVED `StmtTies'`/`TermTies'` in `V2/RealisabilitySpec.lean`)
@@ -254,7 +147,8 @@ halts). The post-statement state is `stmtsPost st b.stmts`, threaded from the ca
 /-- **`RunDefinable prog`** — the state-uniform definability supply that lets `RunFrom` fire at
 every present block: statements `StmtsDefinable` from any state, plus the halt/branch operands
 bound at the post-statement state. Quantified over all states (a sound over-approximation of the
-reachable ones), matching the all-`(L,b)` quantification of the §7 ties. -/
+reachable ones), matching the all-`(L,b)` quantification of the §7 ties. Consumed by the cyclic
+drive simulation (`V2/DriveSim.lean`). -/
 structure RunDefinable (prog : Program) where
   /-- Every present block's statements are `StmtsDefinable` from any starting state. -/
   stmts : ∀ (st : IRState) (L : Label) (b : Block),
@@ -264,108 +158,13 @@ structure RunDefinable (prog : Program) where
     blockAt prog L = some b → b.term = .ret t →
     ∃ w, (stmtsPost st b.stmts).locals t = some w
   /-- A `branch cond _ _` block's condition is bound at its post-statement state, from any start.
-  (The 0-vs-nonzero split — which edge is taken — is decided inside `runFrom_exists`.) -/
+  (The 0-vs-nonzero split — which edge is taken — is decided by the drive walk.) -/
   branch_def : ∀ (st : IRState) (L : Label) (b : Block) (cond : Tmp) (thenL elseL : Label),
     blockAt prog L = some b → b.term = .branch cond thenL elseL →
     ∃ cw, (stmtsPost st b.stmts).locals cond = some cw
 
-/-! ## `RunFrom`/`IRRun` existence for a general acyclic CFG
-
-By strong induction on `blockRank L`. At block `L` (present, `b`): run the statements via
-`runStmts_exists` to `stmtsPost st b.stmts`, then case on the terminator:
-
-* `stop` / `ret t` — halt (base case, one constructor, no recursion);
-* `jump dst` — `CFGAcyclic.decreasing` gives `blockRank dst < blockRank L`, so the strong-IH
-  applies at `dst` with the threaded post-state, yielding the tail run;
-* `branch cond thenL elseL` — the condition is bound (`RunDefinable.branch_def`); split on
-  `cw = 0` and recurse via the strong-IH at the taken edge (`elseL` if `0`, else `thenL`), each
-  strictly smaller by `decreasing`.
-
-The trace is unchanged throughout (gas-free fragment: `runStmts_exists` preserves it). -/
-
-/-- **`RunFrom` existence for a general acyclic CFG.** From any state `st` and a *present* label
-`L` of an acyclic call-free gas-free program with the run-definability supply, the block at `L`
-runs to *some* observable `O`. By strong induction on `blockRank L`: halts bottom out;
-`jump`/`branch` recurse at the strictly-smaller-rank, still-present successor
-(`CFGAcyclic.decreasing` + `succ_present`). The observable is existential (it depends on the
-dynamic branch choices), not a closed form. The trace `T` is threaded unchanged (gas-free). -/
-theorem runFrom_exists {prog : Program}
-    (hac : CFGAcyclic prog) (hdef : RunDefinable prog) :
-    ∀ (n : ℕ) (st : IRState) (T : Trace) (C : CallStream) (L : Label) (b : Block),
-      blockAt prog L = some b → hac.blockRank L = n →
-      ∃ O, RunFrom prog st T C L O := by
-  intro n
-  induction n using Nat.strong_induction_on with
-  | _ n ih =>
-    intro st T C L b hb hrank
-    -- Run this block's statements (gas-free/call-free, definable from any state).
-    have hss := runStmts_exists (prog := prog) (T := T) (C := C) (hdef.stmts st L b hb)
-    set st' := stmtsPost st b.stmts with hst'
-    -- Case on the terminator.
-    cases hterm : b.term with
-    | stop =>
-      exact ⟨{ world := st'.world, result := .stopped }, RunFrom.stop hb hss hterm⟩
-    | ret t =>
-      obtain ⟨w, hv⟩ := hdef.ret_def st L b t hb hterm
-      exact ⟨{ world := st'.world, result := .returned w }, RunFrom.ret hb hss hterm hv⟩
-    | jump dst =>
-      -- `dst` is present and strictly smaller rank.
-      have hlt : hac.blockRank dst < hac.blockRank L := by
-        have := hac.decreasing L b hb; rw [hterm] at this; exact this
-      obtain ⟨b', hb'⟩ := hac.succ_present L b hb dst (by simp [hterm, Term.succs])
-      obtain ⟨O, hO⟩ :=
-        ih (hac.blockRank dst) (hrank ▸ hlt) st' T C dst b' hb' rfl
-      exact ⟨O, RunFrom.jump hb hss hterm hO⟩
-    | branch cond thenL elseL =>
-      obtain ⟨cw, hc⟩ := hdef.branch_def st L b cond thenL elseL hb hterm
-      have hdec := hac.decreasing L b hb
-      rw [hterm] at hdec
-      obtain ⟨hltThen, hltElse⟩ := hdec
-      obtain ⟨bT, hbT⟩ := hac.succ_present L b hb thenL (by simp [hterm, Term.succs])
-      obtain ⟨bE, hbE⟩ := hac.succ_present L b hb elseL (by simp [hterm, Term.succs])
-      by_cases hz : cw = 0
-      · -- else-edge
-        obtain ⟨O, hO⟩ :=
-          ih (hac.blockRank elseL) (hrank ▸ hltElse) st' T C elseL bE hbE rfl
-        exact ⟨O, RunFrom.branchElse hb hss hterm (hz ▸ hc) hO⟩
-      · -- then-edge
-        obtain ⟨O, hO⟩ :=
-          ih (hac.blockRank thenL) (hrank ▸ hltThen) st' T C thenL bT hbT rfl
-        exact ⟨O, RunFrom.branchThen hb hss hterm hc hz hO⟩
-
-/-- **`IRRun` existence for a general acyclic CFG** (the general `hir` discharge). An acyclic,
-call-free, gas-free program with a present entry block and the run-definability supply has an IR
-run for *any* call stream `C` and *any* trace `T` (the trace is unconsumed — no gas reads). The
-observable is existential. Specialises `runFrom_exists` at the entry block from the
-empty-locals/`w₀` start. -/
-theorem irRun_exists {prog : Program} {w₀ : World} {T : Trace} {C : CallStream}
-    {bentry : Block}
-    (hac : CFGAcyclic prog) (hdef : RunDefinable prog)
-    (hb : blockAt prog prog.entry = some bentry) :
-    ∃ O, IRRun prog w₀ T C O :=
-  runFrom_exists hac hdef (hac.blockRank prog.entry)
-    { locals := fun _ => none, world := w₀ } T C prog.entry bentry hb rfl
-
-/-! ## Remaining work for fully general `hir` construction (precise)
-
-The acyclic CFG case is now closed (`runFrom_exists`/`irRun_exists`). What remains for the *fully*
-general `hir = IRRun … (realisedGas log) …`:
-
-1. **Gas-read supply** — `assign t .gas` consumes a trace read, so a program with gas reads needs
-   the trace `T` to carry exactly one read per `gas` assign reached, in order. The gas-free
-   fragment here sidesteps this (`RunDefinable` excludes `assign t .gas` via `StmtDefinable`); the
-   general case threads `T` through the fold (each `gas` assign popping the head), and `hir`'s
-   trace must be `realisedGas log` — tying totality to the **recorded** read count, i.e. to the
-   forward-simulation correspondence. This couples `hir`'s trace to the recording, so the fully
-   general `hir` is *not* independent of the recording-correspondence; it shares the bytecode↔IR
-   alignment blocker (see `LowerConforms.lean`).
-2. **Reachable-state definability** — `RunDefinable` is quantified over *all* states (a sound
-   over-approximation). Tightening it to the *reachable* states (the ones actually threaded along
-   the run) would weaken the hypothesis but needs a reachability predicate over the CFG; the
-   all-states form is the honest, immediately-usable version and matches the §7 ties' shape. -/
-
 end Lir.V2
 
--- Build-enforced axiom-cleanliness guards for the IR-run existence ladder: the gas-free,
--- call-free `EvalStmt`/`RunStmts`/`RunFrom`/`IRRun` existence lemmas (single-block and the
--- general acyclic-CFG case) depend only on `[propext, Classical.choice, Quot.sound]`.
+-- Build-enforced axiom-cleanliness guards for the IR-run definability ladder: the gas-free,
+-- call-free `EvalStmt`/`RunStmts` existence lemmas and the `RunDefinable` supply depend only on
+-- `[propext, Classical.choice, Quot.sound]`.

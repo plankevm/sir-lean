@@ -171,7 +171,7 @@ structure WellFormedLowered (prog : Program) : Prop where
     prog.blocks.toList[L.idx]? = some b → b.term = .ret t →
     MatFueled (defsOf prog) (recomputeFuel prog) (.tmp t)
   /-- `branch` condition fuel-sufficiency, at every `branch`-terminated present block. The
-  cond-materialise of `branch_landing_of_cleanHalt` recomputes `cond` within the full
+  cond-materialise of the branch pre-`JUMPDEST` landing recomputes `cond` within the full
   `recomputeFuel`; the `matFueled_ret` analogue for the terminator condition. -/
   matFueled_branch : ∀ (L : Label) (b : Block) (cond : Tmp) (thenL elseL : Label),
     prog.blocks.toList[L.idx]? = some b → b.term = .branch cond thenL elseL →
@@ -1082,14 +1082,6 @@ makes `StorageAgree` hold by `rfl`. The lemma below records that canonical choic
 `hstore` entry tie (the only entry-frame tie not intrinsic to the recording — `hsload`/`hgasr`
 constrain *every* same-address frame's warmth/gas, the supplied-observation correspondence,
 and so stay genuine). -/
-
-/-- **The entry STORAGE tie, definitionally.** Taking the IR initial world to be the entry
-frame's own self-storage lens (`selfStorage (codeFrame p code)`) discharges `StorageAgree` by
-reflexivity. The canonical `w₀` choice for the entry-frame storage tie. -/
-theorem entry_storageAgree_codeFrame (p : CallParams) (code : ByteArray) :
-    StorageAgree { locals := fun _ => none, world := selfStorage (codeFrame p code) }
-      (codeFrame p code) :=
-  fun _ => rfl
 
 /-- **`entry_corr` — the entry correspondence.** For an entry block `bentry` that is block `0`
 (`prog.entry.idx = 0`) and present, the top-level entry frame `codeFrame p (lower prog)` —

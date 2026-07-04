@@ -680,7 +680,7 @@ value variable is pinned by an antecedent:
 * the jump/branch gas-guard conclusions are kept verbatim but now under the
   `CleanHaltsNonException frT` antecedent, which blocks the zero-gas refutation (skeptic
   sub-claim 4's strengthening) and makes them derivable by the
-  `jump_landing_of_cleanHalt`/`branch_landing_of_cleanHalt` extractors;
+  the jump pre-`JUMPDEST` landing/the branch pre-`JUMPDEST` landing extractors;
 * successor-presence conjuncts are gone from the ties (they live in `ClosedCFG`; the
   jump/branch arms take presence as antecedents, supplied by the walk from R8);
 * **(round 3, header lesson 8)** every `Lir.StepScoped` conclusion (arms 1–4) is replaced
@@ -875,7 +875,7 @@ def TermTies' (prog : Program) (sloadChg : Tmp → ℕ) (_log : RunLog)
               ∧ frv.kind = .call cp
               ∧ ¬ (frv.exec.accounts == ∅) = true))
   -- (jump) the 3-step gas guards, now under the clean-halt antecedent (derivable via
-  -- `jump_landing_of_cleanHalt`); destination presence is an antecedent (from `ClosedCFG`).
+  -- the jump pre-`JUMPDEST` landing); destination presence is an antecedent (from `ClosedCFG`).
   ∧ (∀ dst bdst, b.term = .jump dst →
       prog.blocks.toList[dst.idx]? = some bdst → dst.idx < prog.blocks.size →
       ∀ (st' : IRState) (frT : Frame),
@@ -896,7 +896,7 @@ def TermTies' (prog : Program) (sloadChg : Tmp → ℕ) (_log : RunLog)
                 frT.exec.stack).exec.gasAvailable.toNat)
   -- (branch) the cond-materialise `MatRuns` existence + 6 gas guards, verbatim from the
   -- current tie but under the clean-halt antecedent (derivable via
-  -- `branch_landing_of_cleanHalt` + `materialise_runs_of_cleanHalt`); the condition value
+  -- the branch pre-`JUMPDEST` landing + `materialise_runs_of_cleanHalt`); the condition value
   -- `cw` was always antecedent-pinned; target presence is an antecedent (from `ClosedCFG`).
   ∧ (∀ cond thenL elseL bthen belse, b.term = .branch cond thenL elseL →
       prog.blocks.toList[thenL.idx]? = some bthen →
@@ -913,7 +913,7 @@ def TermTies' (prog : Program) (sloadChg : Tmp → ℕ) (_log : RunLog)
                 ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32))
               4).exec.gasAvailable.toNat
           -- (taken direction, `cw ≠ 0`) the JUMPDEST landing at `thenL` — only witnessed when
-          -- the run actually takes the then-branch (`branch_landing_of_cleanHalt` then-arm).
+          -- the run actually takes the then-branch (the branch pre-`JUMPDEST` landing then-arm).
           ∧ (cw ≠ 0 → GasConstants.Gjumpdest ≤ (jumpFrame (pushFrameW frc
               (UInt256.ofNat
                 ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32)) 4)
@@ -921,7 +921,7 @@ def TermTies' (prog : Program) (sloadChg : Tmp → ℕ) (_log : RunLog)
               (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx))
               ([] : Stack Word)).exec.gasAvailable.toNat)
           -- (fall-through direction, `cw = 0`) the PUSH4/JUMP/JUMPDEST chain to `elseL` — only
-          -- witnessed when the run actually falls through (`branch_landing_of_cleanHalt` else-arm).
+          -- witnessed when the run actually falls through (the branch pre-`JUMPDEST` landing else-arm).
           ∧ (cw = 0 →
               3 ≤ (jumpiFallthroughFrame (pushFrameW frc
                   (UInt256.ofNat
@@ -1434,7 +1434,7 @@ set_option maxRecDepth 8192 in
 block: its arms' antecedents are exactly what `DriveCorrLog` supplies at real boundaries
 (Corr, clean-halt, self-presence, address/kind pins), and the conclusions are derived —
 non-emptiness via `accounts_ne_empty_of_selfPresent`; the gas guards via the clean-halt
-landing extractors (`jump_landing_of_cleanHalt`/`branch_landing_of_cleanHalt` patterns,
+landing extractors (the jump pre-`JUMPDEST` landing/the branch pre-`JUMPDEST` landing patterns,
 ported inline); the ret charge-sum via `materialise_charge_le_of_cleanHalt`; the ret epilogue
 decode facts via `imm_leaf_decode`/`decode_at_term_nonpush` at the pc-pinned cursor; the `frv`
 kind/presence facts via `runs_kind` / `selfPresent_runs_of_call` seeded from the antecedent
@@ -1447,7 +1447,7 @@ pins. DERIVED-status obligation.
     `Ghigh` on both arms, so the not-taken guards are refutable — e.g. `3 ≤ (jumpiFallthrough
     …).gas = Gjumpdest = 1` is FALSE when gas is provisioned for the taken path). The taken
     guards (`g1`/`g2` unconditional, both provable; `g3` under `cw ≠ 0`; `g4∧g5∧g6` under
-    `cw = 0`) are the exact case-split of `branch_landing_of_cleanHalt`; NO witnessed
+    `cw = 0`) are the exact case-split of the branch pre-`JUMPDEST` landing; NO witnessed
     conformance content is dropped — only the unwitnessable not-taken over-demand.
   * **ret charge-sum moved under the return-value guard.** The charge fold
     `materialise_charge_le_of_cleanHalt` needs the operand value, and the IR `ret t`
