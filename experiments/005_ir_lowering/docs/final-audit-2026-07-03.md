@@ -184,3 +184,29 @@ work:
 - **#4 (RunFromAll suffix-drop strengthening) — OPEN, Phase-3 work.** Unchanged: the Phase-3 landing
   order must prove the `lowering_conforms_all` strengthening (and its two `RunFromLeft` adequacy
   sorries), not only the `RunFrom` flagship.
+
+### Recorder course-correction (2026-07-03, branch `p3/recorder`, commit `82e7453`)
+
+A Phase-3 correctness fix landed after the audit above, on the recorder rather than the audited
+`exp005-honesty-cleanup` surface. **Finding:** the returning-CALL record (`recordCall` in
+`Spec/Recorder.lean`, invoked in `driveLog`'s `.call` delivery branch) was **UNGATED** — it
+recorded a *descended callee's* inner returning CALLs too, contradicting both its own docstrings
+("the top-level program's own returning external CALLs") and the sibling gas/sload gates, which
+already fire only on the top-level frame (`stack.isEmpty`).
+
+**Fix (Option B).** The returning-CALL record is now gated on the resumed pending stack being empty
+(`rest.isEmpty`), so it fires ONLY for the top-level program's own returning CALL — mirroring the
+gas/sload `stack.isEmpty` gates. A descended callee's inner CALLs resume on a nonempty `rest` and are
+now black-boxed structurally, exactly as `Runs.call` black-boxes them. `recordCall` itself is
+unchanged; only its two call sites are gated. (`Spec/Recorder.lean`, `V2/RealisabilitySpec.lean`;
+default `lake build` stays sorry-free, `Nightly` green.)
+
+**Consequence.** R7e (`recorderCoupled_call`) now holds **UNCONDITIONALLY** — the single-call
+`hone` hypothesis was dropped, statement unchanged — via the new recorder-composition lemma
+`driveLog_frame_nonempty` (a nonempty bottom stack fails every gate, so the inline child records
+nothing), fuel-reconciled with the black-box child run and peeled by `driveLog_acc_hom`.
+Axiom-clean. `realisedCall` is now faithful even when the top-level call's callee *itself* calls,
+which unblocks the R3' multi-call generalization. The orthogonal `hone : log.calls.length ≤ 1`
+premises on R3/R10a/the flagships (guarding *multiple top-level* calls, where `callOracleOf` reads
+only the head record) are untouched. Rationale for choosing the gate over the Nightly-only stopgap
+is recorded in `docs/recorder-model-note.md`.

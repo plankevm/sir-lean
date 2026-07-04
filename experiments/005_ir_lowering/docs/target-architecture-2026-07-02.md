@@ -265,3 +265,25 @@ calls, residual trust confined to named seams.
   true as build facts but must not be read as conformance facts — the honest status is: the walk
   machinery is real and salvageable; the tie interface it was fed is unsatisfiable; Phase 3 with
   R0 is where the theorem becomes true-and-meaningful.
+
+## 12. Update — recorder model corrected (2026-07-03, branch `p3/recorder`)
+
+The §3 recorder-suffix coupling assumed the recorder records exactly the **top-level** program's own
+introspection points, in program order. Phase-3 work found this was true of the gas/sload records
+(gated on `stack.isEmpty`) but **NOT** of the returning-CALL record: `recordCall` (`Spec/Recorder.lean`)
+was **ungated** and also recorded a descended callee's inner returning CALLs — a model bug that
+contradicted the recorder's own docstrings.
+
+- **Fix (commit `82e7453`).** Gate the returning-CALL record on `rest.isEmpty` (the resumed pending
+  stack empty), so it fires only for the top-level program's own returning CALL, matching the
+  gas/sload gates. Descended callees' inner CALLs resume on a nonempty `rest` and are now black-boxed
+  structurally, as `Runs.call` already black-boxes them. This is "Option B" (gate the recorder) over
+  the Nightly-only stopgap of leaving `recordCall` ungated and carrying an extra `hone` premise on
+  R7e; rationale in `docs/recorder-model-note.md`.
+- **Effect on the R-obligation ladder.** R7e (`recorderCoupled_call`) now holds UNCONDITIONALLY
+  (`hone` dropped, statement unchanged, axiom-clean), via the new `driveLog_frame_nonempty`
+  recorder-composition lemma. With `realisedCall` now faithful even when the top-level call's callee
+  itself calls, **R3' (the multi-call generalization, §5) now builds on the corrected recorder** —
+  the recorder is faithful per-record before R3' generalizes the *consumption* of the record stream.
+  The orthogonal `hone : log.calls.length ≤ 1` premises (multiple TOP-level calls, where
+  `callOracleOf` reads only the head record) are a separate, still-open decision — untouched here.
