@@ -1,6 +1,6 @@
 import LirLean.V2.Drive.Headline
-import LirLean.Acyclic
-import LirLean.BoundaryReach
+import LirLean.Assembly.Acyclic
+import LirLean.Decode.BoundaryReach
 import LirLean.V2.Realisability.Surface
 
 /-!

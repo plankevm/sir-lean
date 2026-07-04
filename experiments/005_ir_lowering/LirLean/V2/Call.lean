@@ -1,5 +1,5 @@
 import LirLean.V2.Law
-import LirLean.DefsSound
+import LirLean.Materialise.DefsSound
 
 /-!
 # LirLean v2 — a worked external-`Stmt.call` example (gas-free, consumed call stream)

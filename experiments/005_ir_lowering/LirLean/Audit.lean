@@ -1,7 +1,7 @@
-import LirLean.LowerConforms
-import LirLean.LowerDecode
-import LirLean.MaterialiseCleanHalt
-import LirLean.V2.DriveSim
+import LirLean.Assembly.LowerConforms
+import LirLean.Assembly.LowerDecode
+import LirLean.Materialise.MaterialiseCleanHalt
+import LirLean.V2.Drive.DriveSim
 import LirLean.V2.Drive.CallPreservesSelf
 import LirLean.Spec.Seams
 

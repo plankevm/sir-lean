@@ -8,31 +8,31 @@
 -- Spec core (reviewer-facing datatypes/semantics/lowering; Wave 3 spec-extract).
 import LirLean.Spec.IR
 import LirLean.Spec.Semantics
-import LirLean.LoweringLemmas
+import LirLean.Decode.LoweringLemmas
 
 -- Decode / pc-offset / jumpdest layer.
-import LirLean.DecodeLower
-import LirLean.SegAligned
-import LirLean.Layout
-import LirLean.DecodeAnchors
-import LirLean.BoundaryReach
+import LirLean.Decode.DecodeLower
+import LirLean.Decode.SegAligned
+import LirLean.Decode.Layout
+import LirLean.Decode.DecodeAnchors
+import LirLean.Decode.BoundaryReach
 
 -- v1 reference semantics + CALL/CREATE bricks + match.
-import LirLean.SmallStep
-import LirLean.Call
-import LirLean.Create
-import LirLean.Match
+import LirLean.Frame.SmallStep
+import LirLean.Frame.Call
+import LirLean.Frame.Create
+import LirLean.Frame.Match
 
 -- Materialise (spill/recompute value channel) + clean-halt extractor.
-import LirLean.MaterialiseGas
-import LirLean.DefsSound
-import LirLean.MaterialiseRuns
+import LirLean.Materialise.MaterialiseGas
+import LirLean.Materialise.DefsSound
+import LirLean.Materialise.MaterialiseRuns
 import LirLean.Engine.CleanHalt
-import LirLean.CleanHaltExtract
-import LirLean.MaterialiseCleanHalt
+import LirLean.Materialise.CleanHaltExtract
+import LirLean.Materialise.MaterialiseCleanHalt
 
 -- Per-statement / terminator simulation.
-import LirLean.SimTerm
+import LirLean.Sim.SimTerm
 
 -- v2 (exp005) gas-free IR: determinism, existence, preservation, abstract CALL oracle.
 import LirLean.V2.Law
@@ -41,8 +41,8 @@ import LirLean.V2.Call
 import LirLean.V2.CallRealises
 
 -- Cyclic-CFG drive simulation + the assembled/tie-free headlines (over Engine/, Drive/).
-import LirLean.Acyclic
-import LirLean.V2.DriveSim
+import LirLean.Assembly.Acyclic
+import LirLean.V2.Drive.DriveSim
 import LirLean.V2.Drive.Headline
 
 -- Reviewer-facing `Lir.Spec` audit surface (Wave 3): seam register + conditional-headline

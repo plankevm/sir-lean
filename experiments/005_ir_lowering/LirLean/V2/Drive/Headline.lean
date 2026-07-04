@@ -1,4 +1,4 @@
-import LirLean.V2.DriveSim
+import LirLean.V2.Drive.DriveSim
 import LirLean.V2.Drive.CallPreservesSelf
 
 /-!

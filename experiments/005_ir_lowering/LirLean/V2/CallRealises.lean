@@ -1,5 +1,5 @@
 import LirLean.V2.Call
-import LirLean.Match
+import LirLean.Frame.Match
 
 /-!
 # LirLean v2 — the **call realisability bridge** (`docs/ir-design-v3.md` §3, §7)
