@@ -95,6 +95,32 @@ def CallReturns (callFr resumeFr : Frame) : Prop :=
      ∧ drive (seedFuel cp.gas) [] (running child) = .ok childRes
      ∧ resumeFr = resumeAfterCall childRes.toCallResult pending
 
+/-! ## The bundled `CreateReturns` predicate (SPIKE: CREATE twin of `CallReturns`)
+
+`CreateReturns createFr resumeFr` bundles the facts of one CREATE/CREATE2 that returns
+*and successfully resumes*. Two structural differences from `CallReturns`:
+
+* **entry is simpler** — `beginCreate` is *total* (returns a `Frame`, never a
+  precompile/immediate `.inr`), so there is no `EntersAsCode` code/precompile split; the
+  child is just `beginCreate cp`.
+* **resume is harder** — `resumeAfterCreate` is `Except`-typed (it can `throw .OutOfGas` on
+  the 63/64 retention guard, exp003 `Create.lean:200`). So `CreateReturns` must carry the
+  **`.ok resumeFr` witness** of that guard (`resumeAfterCreate … = .ok resumeFr`); the OOG
+  branch is *not* a `Runs.create` node (it delivers an exception halt through the drive
+  stack, a control flow `Runs` does not resume). This is R4 in the plan. -/
+
+/-- `createFr` issues a CREATE whose init child runs to completion and *successfully*
+resumes at `resumeFr`. Bundles: the CREATE step (`stepFrame createFr = .needsCreate cp
+pending`), the init child's black-box terminating run from the total `beginCreate cp`
+(`drive (seedFuel cp.gas) [] (running (beginCreate cp)) = .ok childRes`), and the 63/64
+retention guard passing with resumed frame `resumeFr` (`resumeAfterCreate
+childRes.toCreateResult pending = .ok resumeFr`). -/
+def CreateReturns (createFr resumeFr : Frame) : Prop :=
+  ∃ cp pending childRes,
+       stepFrame createFr = .needsCreate cp pending
+     ∧ drive (seedFuel cp.gas) [] (running (beginCreate cp)) = .ok childRes
+     ∧ resumeAfterCreate childRes.toCreateResult pending = .ok resumeFr
+
 /-! ## The composition relation
 
 `Runs fr fr'` is the reflexive–transitive closure of `StepsTo` **extended with an
@@ -121,6 +147,11 @@ inductive Runs : Frame → Frame → Prop where
   (`CallReturns callFr resumeFr`), then the rest of the block `resumeFr → fr'`. -/
   | call {callFr resumeFr fr' : Frame} (hcall : CallReturns callFr resumeFr)
       (rest : Runs resumeFr fr') : Runs callFr fr'
+  /-- A CREATE at `createFr` that returns and successfully resumes at `resumeFr`
+  (`CreateReturns createFr resumeFr`), then the rest of the block `resumeFr → fr'`
+  (SPIKE: the CREATE twin of the `call` node). -/
+  | create {createFr resumeFr fr' : Frame} (hc : CreateReturns createFr resumeFr)
+      (rest : Runs resumeFr fr') : Runs createFr fr'
 
 /-- **The sequencing rule.** Compose a block `fr → mid` with the block that
 follows it `mid → fr'` into one block `fr → fr'`. This is the whole point: a
@@ -132,6 +163,7 @@ theorem Runs.trans {fr mid fr' : Frame}
   | refl _ => exact h₂
   | step hstep _ ih => exact Runs.step hstep (ih h₂)
   | call hcall _ ih => exact Runs.call hcall (ih h₂)
+  | create hc _ ih => exact Runs.create hc (ih h₂)
 
 /-- A single opcode step is a one-instruction block. The atom the opcode rules
 return. -/
@@ -177,6 +209,23 @@ theorem CallReturns.det {callFr resumeFr resumeFr' : Frame}
   subst this
   rw [hres, hres']
 
+/-- **`CreateReturns` is deterministic in the resumed frame** (SPIKE). The CREATE step,
+the total `beginCreate`, the child's black-box run, and the (successful) `resumeAfterCreate`
+are each functional, so the resumed frame is unique. -/
+theorem CreateReturns.det {createFr resumeFr resumeFr' : Frame}
+    (h : CreateReturns createFr resumeFr) (h' : CreateReturns createFr resumeFr') :
+    resumeFr = resumeFr' := by
+  obtain ⟨cp, pending, childRes, hstep, hchild, hres⟩ := h
+  obtain ⟨cp', pending', childRes', hstep', hchild', hres'⟩ := h'
+  rw [hstep] at hstep'
+  obtain ⟨hcp, hpending⟩ := Signal.needsCreate.injEq .. |>.mp hstep'.symm
+  subst hcp; subst hpending
+  rw [hchild] at hchild'
+  have : childRes = childRes' := (Except.ok.injEq _ _).mp hchild'
+  subst this
+  rw [hres] at hres'
+  exact (Except.ok.injEq _ _).mp hres'
+
 /-- **A halting `Runs` does not start with a non-halting step from `fr`.** If `fr`
 `Runs` to a halting `last` and `StepsTo fr mid`, then `mid` still `Runs` to `last`
 (the determined first step of the run *is* this step). -/
@@ -193,6 +242,10 @@ theorem Runs.step_to_halt {fr mid last : Frame} {halt : FrameHalt}
   | call hcall _ =>
     -- the run starts with a CALL, but `StepsTo` says `.next`.
     obtain ⟨_, _, _, _, hstep', _⟩ := hcall
+    rw [hstep.1] at hstep'; exact absurd hstep' (by nofun)
+  | create hc _ =>
+    -- the run starts with a CREATE, but `StepsTo` says `.next`.
+    obtain ⟨_, _, _, hstep', _⟩ := hc
     rw [hstep.1] at hstep'; exact absurd hstep' (by nofun)
 
 /-- **Single deterministic step left-cancellation.** If `fr` `Runs` to `fr'` and
@@ -215,6 +268,10 @@ theorem Runs.step_cancel {fr mid fr' : Frame}
     -- the run starts with a CALL, but `StepsTo` says `.next`.
     obtain ⟨_, _, _, _, hstep', _⟩ := hcall
     rw [hstep.1] at hstep'; exact absurd hstep' (by nofun)
+  | create hc _ =>
+    -- the run starts with a CREATE, but `StepsTo` says `.next`.
+    obtain ⟨_, _, _, hstep', _⟩ := hc
+    rw [hstep.1] at hstep'; exact absurd hstep' (by nofun)
 
 /-- **A halting `Runs` does not start with a CALL whose resume diverges.** If `fr`
 `Runs` to a halting `last` and `CallReturns fr resumeFr`, then `resumeFr` still
@@ -231,6 +288,32 @@ theorem Runs.call_to_halt {fr resumeFr last : Frame} {halt : FrameHalt}
     rw [h'.1] at hstep; exact absurd hstep (by nofun)
   | call hcall' rest =>
     have := CallReturns.det hcall hcall'; subst this; exact rest
+  | create hc' _ =>
+    -- run starts with a CREATE, but `CallReturns fr` says `.needsCall`.
+    obtain ⟨_, _, _, _, hstepCall, _⟩ := hcall
+    obtain ⟨_, _, _, hstepCreate, _⟩ := hc'
+    rw [hstepCall] at hstepCreate; exact absurd hstepCreate (by nofun)
+
+/-- **A halting `Runs` does not start with a CREATE whose resume diverges** (SPIKE).
+If `fr` `Runs` to a halting `last` and `CreateReturns fr resumeFr`, then `resumeFr` still
+`Runs` to `last`. Mirror of `call_to_halt`; the `call` arm is impossible
+(`.needsCreate ≠ .needsCall`). -/
+theorem Runs.create_to_halt {fr resumeFr last : Frame} {halt : FrameHalt}
+    (hrun : Runs fr last) (hhalt : stepFrame last = Signal.halted halt)
+    (hc : CreateReturns fr resumeFr) : Runs resumeFr last := by
+  cases hrun with
+  | refl _ =>
+    obtain ⟨_, _, _, hstep, _⟩ := hc
+    rw [hstep] at hhalt; exact absurd hhalt (by nofun)
+  | step h' _ =>
+    obtain ⟨_, _, _, hstep, _⟩ := hc
+    rw [h'.1] at hstep; exact absurd hstep (by nofun)
+  | call hcall' _ =>
+    obtain ⟨_, _, _, _, hstepCall, _⟩ := hcall'
+    obtain ⟨_, _, _, hstepCreate, _⟩ := hc
+    rw [hstepCall] at hstepCreate; exact absurd hstepCreate (by nofun)
+  | create hc' rest =>
+    have := CreateReturns.det hc hc'; subst this; exact rest
 
 /-- **`Runs` linearity to a halt.** If `fr` `Runs` to a **halting** terminal `last`,
 then every frame `fj` reachable from `fr` (`Runs fr fj`) continues to that same
@@ -244,6 +327,7 @@ theorem Runs.linear_to_halt {fr fj last : Frame} {halt : FrameHalt}
   | refl _ => exact hto
   | step hstep _ ih => exact ih (Runs.step_to_halt hto hhalt hstep)
   | call hcall _ ih => exact ih (Runs.call_to_halt hto hhalt hcall)
+  | create hc _ ih => exact ih (Runs.create_to_halt hto hhalt hc)
 
 /-! ## Opcode rules
 

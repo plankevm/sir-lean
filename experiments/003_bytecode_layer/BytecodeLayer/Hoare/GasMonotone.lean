@@ -234,6 +234,36 @@ theorem CallReturns.gas_le {callFr resumeFr : Frame} (h : CallReturns callFr res
   -- chain (a)–(d).
   omega
 
+/-! ## 3b. A `CreateReturns` node nets a debit on the caller (SPIKE)
+
+The CREATE analog of `CallReturns.gas_le`, assembled from the same three facts but with the
+create-kind helpers: the create descent inequality (`gasFundsDescent_conj4'`, with the
+kind-aware saved gas `g − allButOneSixtyFourth g`), the child net-debit
+(`drive_gasRemaining_le_of_running`), and the *successful* create delivery bound
+(`resumeAfterCreate_gas_le_savedGas`, keyed on the `.ok` witness `CreateReturns` carries). -/
+
+/-- **A returning CREATE nets a debit on the caller** (SPIKE). If `CreateReturns createFr
+resumeFr`, then `resumeFr.exec.gasAvailable.toNat ≤ createFr.exec.gasAvailable.toNat`. The
+allButOneSixtyFourth forwarded to the child returns to the parent on delivery, exactly what
+`Pending.savedGas (.create _)` withheld, so the chain closes by `omega`. -/
+theorem CreateReturns.gas_le {createFr resumeFr : Frame} (h : CreateReturns createFr resumeFr) :
+    resumeFr.exec.gasAvailable.toNat ≤ createFr.exec.gasAvailable.toNat := by
+  obtain ⟨cp, pending, childRes, hstep, hchild, hok⟩ := h
+  -- (a) descent: child gas + saved-parent gas + 2 ≤ caller gas.
+  have hdesc := gasFundsDescent_conj4' createFr cp pending (beginCreate cp) [] hstep rfl
+  simp only [activeGas, Pending.savedGas] at hdesc
+  -- (b) child returns no more than it was funded.
+  have hchildGas : FrameResult.gasRemaining childRes ≤ (beginCreate cp).exec.gasAvailable.toNat :=
+    drive_gasRemaining_le_of_running hchild
+  -- (c) the child was funded `cp.gas`.
+  have hchildFunded : (beginCreate cp).exec.gasAvailable.toNat = cp.gas.toNat := by
+    rw [beginCreate_gas]
+  -- (d) resumed parent gas ≤ (saved − allButOneSixtyFourth saved) + child-returned gas.
+  have hresume := resumeAfterCreate_gas_le_savedGas hok
+  rw [toCreateResult_gasRemaining] at hresume
+  -- chain (a)–(d).
+  omega
+
 /-! ## 4. `Runs` never increases gas — the §3.4 "holds across calls" lemma -/
 
 /-- **`Runs` gas monotonicity (`docs/ir-design-v2.md` §3.4).** Across any flat
@@ -254,6 +284,7 @@ theorem Runs.gasAvailable_le {fr last : Frame} (h : Runs fr last) :
   | refl _ => exact Nat.le_refl _
   | step hstep _ ih => exact le_trans ih (StepsTo.gas_le hstep)
   | call hcall _ ih => exact le_trans ih (CallReturns.gas_le hcall)
+  | create hc _ ih => exact le_trans ih (CreateReturns.gas_le hc)
 
 -- Build-enforced axiom-cleanliness guards: the headline and its two load-bearing
 -- supporting lemmas depend only on `[propext, Classical.choice, Quot.sound]`.

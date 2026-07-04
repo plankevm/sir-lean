@@ -34,6 +34,46 @@ multi-call composition guarantee is `messageCall_runs_calls` below.
 namespace BytecodeLayer.Hoare
 open Evm BytecodeLayer.Interpreter BytecodeLayer.System
 
+/-! ## SPIKE — CREATE descent bricks for the `Runs.create` reconciliation arm
+
+The CALL arm of `Runs.drive_reconcile` splices a returning child via `driveG_needsCall_code`
++ `drive_descend_eq`. CREATE needs the twin bricks. `driveG_needsCreate` is *simpler* than
+`driveG_needsCall_code` (`beginCreate` is total — no code/precompile split), but
+`drive_descend_create_eq` is *harder*: `Pending.resume (.create pd)` is `resumeAfterCreate …`
+which is `Except`-typed, so the descent equation is conditioned on the `.ok parent` witness
+(the 63/64 guard passing) — supplied by `CreateReturns`. -/
+
+/-- **A `.needsCreate` descent** (SPIKE). `beginCreate` is total, so `drive` unconditionally
+descends into `beginCreate params`, suspending the parent as `.create pending`. -/
+theorem driveG_needsCreate (n : ℕ) (ps : List Pending) (current : Frame)
+    (params : CreateParams) (pending : PendingCreate)
+    (hstep : stepFrame current = .needsCreate params pending) :
+    drive (n + 1) ps (running current)
+      = drive n (.create pending :: ps) (running (beginCreate params)) := by
+  conv_lhs => unfold drive
+  dsimp only
+  rw [hstep]
+
+/-- **Generic CREATE-boundary descent equation** (SPIKE). The CREATE twin of
+`drive_descend_eq`, conditioned on the *successful* resume witness `hok :
+resumeAfterCreate res.toCreateResult pd = .ok parent`: a terminating init child run splices
+into the parent resumed at `parent`, for some residual fuel `j`. Obtained by
+`drive_append_framing` then peeling the single `.create` resume step (which, via `hok`,
+takes the `.ok` branch). -/
+theorem drive_descend_create_eq (f : ℕ) (child : Frame) (res : FrameResult)
+    (pd : PendingCreate) (ps : List Pending) (parent : Frame)
+    (h : drive f [] (running child) = .ok res)
+    (hok : resumeAfterCreate res.toCreateResult pd = .ok parent) :
+    ∃ j, drive f (.create pd :: ps) (running child)
+      = drive j ps (running parent) := by
+  obtain ⟨j, hj⟩ := drive_append_framing f [] (.inl child) res h (.create pd :: ps)
+  rw [List.nil_append] at hj
+  refine ⟨j, ?_⟩
+  rw [hj]
+  conv_lhs => unfold drive
+  dsimp only [Pending.resume]
+  rw [hok]
+
 /-! ## Lemma 1 — fuel-agnostic agreement of terminating runs -/
 
 /-- **Two terminating runs agree.** If `drive` at fuels `a` and `b` over the same
@@ -114,6 +154,29 @@ theorem Runs.drive_reconcile {fr last : Frame} (h : Runs fr last) :
         rw [← hj]
         exact (drive_fuel_mono (show a' ≤ m by omega) (.call pending :: []) (running child)
           ha).symm
+      rw [hdesc] at ha ⊢
+      exact ih ha hb
+  | @create createFr resumeFr fr' hc _ ih =>
+    -- SPIKE: CREATE twin of the `call` arm. Simpler entry (`beginCreate` total), but the
+    -- descent uses the `.ok resumeFr` witness `CreateReturns` carries (the 63/64 guard).
+    intro a b ha hb
+    obtain ⟨cp, pending, childRes, hstep, hchild, hok⟩ := hc
+    cases a with
+    | zero => simp [drive] at ha
+    | succ a' =>
+      rw [driveG_needsCreate a' [] createFr cp pending hstep] at ha ⊢
+      set m := max a' (seedFuel cp.gas) with hm
+      have hchild_m : drive m [] (running (beginCreate cp)) = .ok childRes := by
+        rw [drive_fuel_mono (show seedFuel cp.gas ≤ m by omega) [] (running (beginCreate cp))
+          (by rw [hchild]; nofun)]
+        exact hchild
+      obtain ⟨j, hj⟩ := drive_descend_create_eq m (beginCreate cp) childRes pending [] resumeFr
+        hchild_m hok
+      have hdesc : drive a' (.create pending :: []) (running (beginCreate cp))
+          = drive j [] (running resumeFr) := by
+        rw [← hj]
+        exact (drive_fuel_mono (show a' ≤ m by omega) (.create pending :: [])
+          (running (beginCreate cp)) ha).symm
       rw [hdesc] at ha ⊢
       exact ih ha hb
 
