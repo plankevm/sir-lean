@@ -1235,6 +1235,39 @@ theorem haltNonException_of_cleanLog {prog : Lir.Program} {params : CallParams}
           rw [hk] at hclean
           exact hclean
 
+/-! ### R3 resume-frame structural pins (`resumeAfterCall_{code,validJumps,pc,stack}`)
+
+The `rfl` companions of the default-target `resumeAfterCall_address`/`_memory`/`_activeWords`
+(`Engine/StepWalk.lean`, `Engine/MemAlgebra.lean`), for the resume-frame conjuncts of
+`CallRealisesS` (§3, conjuncts 11/17/13/14). `resumeAfterCall` rebuilds `pd.frame` as
+`{ pd.frame with exec := exec'.replaceStackAndIncrPC (pd.stack.push x) }`, touching only
+stack/pc/gas/accounts/substate/toMachineState and leaving `executionEnv` (hence `.code`) and
+the `Frame.validJumps` field untouched; the pc advances by the default `pcΔ = 1` (past the CALL
+byte) and the pushed word is exactly `callSuccessFlag result pd` (= the oracle's `successWord`,
+`evmCallOracle_successWord_eq_x`). These are `Nightly`-local facts ABOUT the default-target
+`resumeAfterCall` def; they do NOT edit it. They discharge conjuncts 11/13/14/17 of R3's bundle
+*once* the strengthened CALL-dispatch inversion supplies the `pd.frame.exec`/`pd.stack`/
+`pd.{in,out}Size` framing (the Group-B residue — see R3's STATUS note, blocked on the default
+target). -/
+
+/-- Resumed frame keeps the caller's `code` (env untouched by `resumeAfterCall`). -/
+theorem resumeAfterCall_code (result : Evm.CallResult) (pd : Evm.PendingCall) :
+    (Evm.resumeAfterCall result pd).exec.executionEnv.code
+      = pd.frame.exec.executionEnv.code := rfl
+
+/-- Resumed frame keeps the caller's `validJumps` (`Frame.validJumps` field untouched). -/
+theorem resumeAfterCall_validJumps (result : Evm.CallResult) (pd : Evm.PendingCall) :
+    (Evm.resumeAfterCall result pd).validJumps = pd.frame.validJumps := rfl
+
+/-- Resumed frame's pc is the caller's advanced by one (default `pcΔ = 1`, past the CALL byte). -/
+theorem resumeAfterCall_pc (result : Evm.CallResult) (pd : Evm.PendingCall) :
+    (Evm.resumeAfterCall result pd).exec.pc = pd.frame.exec.pc + 1 := rfl
+
+/-- Resumed frame's stack is the caller's with the CALL success flag pushed. -/
+theorem resumeAfterCall_stack (result : Evm.CallResult) (pd : Evm.PendingCall) :
+    (Evm.resumeAfterCall result pd).exec.stack
+      = pd.stack.push (callSuccessFlag result pd) := rfl
+
 /-- **R3 — call realisation from the log.** At a call cursor, the coupled frame's recorded
 CALL supplies the `CallRealisesS` bundle at the REALISED oracle — the round-3 restatement
 (header lesson 8): NOT the in-tree `Lir.CallRealises` verbatim (whose embedded
