@@ -6,7 +6,7 @@ import LirLean.BoundaryReach
 # LirLean v2 — the REALISABILITY SPEC skeleton (Phase-3 target statements; Nightly-only)
 
 **EVERY `sorry` IN THIS FILE IS TRACKED DEBT.** This module is the reviewable Phase-3
-specification: the flagship `lowering_conforms` (R11) is the target statement of the whole
+specification: the flagship `lower_conforms` (R11) is the target statement of the whole
 experiment, and the obligations R1–R12 are the named gaps between the green machinery in the
 tree and that flagship. All `def`s/`structure`s here are REAL (complete, no `sorry`); only
 theorem PROOFS are `sorry`d. This module is deliberately registered in the NON-DEFAULT
@@ -515,7 +515,7 @@ structure WellLowered (prog : Program) : Prop where
     blockAt prog L = some b → b.stmts[pc]? = some (.assign t (.slot n)) → False
 
 /-- A frame reachable from the call's entry frame: `beginCall params` began a frame and
-`Runs` reaches `fr'` from it. The quantifier shape `PrecompileSeams.callsCode` needs (and
+`Runs` reaches `fr'` from it. The quantifier shape `PrecompileAssumptions.callsCode` needs (and
 exactly the `hcc` shape `cleanHalts_of_runWithLog` consumes, once `hbegin` is split off).
 The fleet sketch named this `ReachableFrom` without defining it; this is the definition. -/
 def ReachableFrom (params : CallParams) (fr' : Frame) : Prop :=
@@ -533,9 +533,9 @@ signature stability — a future refinement scopes `callsCode` by the program's 
 NON-VACUITY GUARD: `noErase` quantifies over ALL `CallParams` (a global engine fact), so
 the flagship's whole hypothesis set is satisfiable only if the current exp003 `beginCall`
 precompile stub actually preserves account presence — R12a deliberately DOUBLES as the
-machine-check of that engine fact (its `PrecompileSeams exProg params` conjunct); a failure
+machine-check of that engine fact (its `PrecompileAssumptions exProg params` conjunct); a failure
 there is diagnosed as a SEAM problem with the engine stub, not an `exProg` problem. -/
-structure PrecompileSeams (prog : Program) (params : CallParams) : Prop where
+structure PrecompileAssumptions (prog : Program) (params : CallParams) : Prop where
   /-- Precompile no-erase (`hprec`): an immediate `.inr` result preserves account presence. -/
   noErase : ∀ (cp : CallParams) (imm : CallResult), beginCall cp = .inr imm →
     ∀ a, AccPresent a cp.accounts → AccPresent a imm.accounts
@@ -1007,7 +1007,7 @@ inductive RunFromLeft (prog : Program) (o : CallOracle) :
       RunFromLeft prog o st T L O Tleft
 
 /-- **Exact whole-stream consumption**: the run consumes the ENTIRE supplied trace
-(leftover `[]`). The flagship's strengthened conclusion (`lowering_conforms_all`) uses this
+(leftover `[]`). The flagship's strengthened conclusion (`lower_conforms_exact`) uses this
 with `T := realisedGas log`, closing the positional-equality gap over the un-consumed
 suffix. -/
 def RunFromAll (prog : Program) (o : CallOracle) (st : IRState) (T : Trace) (L : Label)
@@ -3517,7 +3517,7 @@ theorem stmtTies'_of_runWithLog {prog : Program} {params : CallParams} {log : Ru
     (hrun : runWithLog params (seedFuel params.gas) = some log)
     (hclean : log.clean)
     (hone : log.calls.length ≤ 1)
-    (hseams : PrecompileSeams prog params)
+    (hseams : PrecompileAssumptions prog params)
     (hbegin : beginCall params = .inl fr₀) :
     ∀ (sloadChg : Tmp → ℕ) (L : Label) (b : Block), blockAt prog L = some b →
       StmtTies' prog sloadChg log params.recipient L b := sorry
@@ -3526,7 +3526,7 @@ theorem stmtTies'_of_runWithLog {prog : Program} {params : CallParams} {log : Ru
 kept separate so the R11 assembly consumes one hypothesis shape per tie). -/
 theorem termTies'_of_runWithLog {prog : Program} {params : CallParams} {log : RunLog}
     (hwl : WellLowered prog)
-    (hseams : PrecompileSeams prog params) :
+    (hseams : PrecompileAssumptions prog params) :
     ∀ (sloadChg : Tmp → ℕ) (L : Label) (b : Block), blockAt prog L = some b →
       TermTies' prog sloadChg log params.recipient L b := by
   intro sloadChg L b hb
@@ -3591,7 +3591,7 @@ nonzero-write cut the fleet sketch missed; without it the sstore simulation cann
 The current headline's `DriveCorr`/`CallPreservesSelf`/`hpresent`/tie/`{T}`/`obs`
 hypotheses are all gone: derived (R1–R10), definitional (`entryState`), or dead (the
 phantom). -/
-theorem lowering_conforms {prog : Program} {params : CallParams} {log : RunLog}
+theorem lower_conforms {prog : Program} {params : CallParams} {log : RunLog}
     {acc : Account}
     (hcode : params.codeSource = .Code (lower prog))
     (hmod : params.canModifyState = true)
@@ -3602,7 +3602,7 @@ theorem lowering_conforms {prog : Program} {params : CallParams} {log : RunLog}
     (hrun : runWithLog params (seedFuel params.gas) = some log)
     (hclean : log.clean)
     (hone : log.calls.length ≤ 1)
-    (hseams : PrecompileSeams prog params)
+    (hseams : PrecompileAssumptions prog params)
     (hnzw : ∀ fr₀, beginCall params = .inl fr₀ → NonzeroSstores fr₀) :
     ∃ O : Observable,
       RunFrom prog (realisedCall log params.recipient)
@@ -3640,7 +3640,7 @@ theorem lowering_conforms {prog : Program} {params : CallParams} {log : RunLog}
 /-- **R11-all — the exact-consumption strengthening**: the same flagship with the IR run
 consuming the ENTIRE recorded gas stream (`RunFromAll`, leftover `[]`) — closes the
 drop-the-suffix vacuity channel (§4). -/
-theorem lowering_conforms_all {prog : Program} {params : CallParams} {log : RunLog}
+theorem lower_conforms_exact {prog : Program} {params : CallParams} {log : RunLog}
     {acc : Account}
     (hcode : params.codeSource = .Code (lower prog))
     (hmod : params.canModifyState = true)
@@ -3651,7 +3651,7 @@ theorem lowering_conforms_all {prog : Program} {params : CallParams} {log : RunL
     (hrun : runWithLog params (seedFuel params.gas) = some log)
     (hclean : log.clean)
     (hone : log.calls.length ≤ 1)
-    (hseams : PrecompileSeams prog params)
+    (hseams : PrecompileAssumptions prog params)
     (hnzw : ∀ fr₀, beginCall params = .inl fr₀ → NonzeroSstores fr₀) :
     ∃ O : Observable,
       RunFromAll prog (realisedCall log params.recipient)
@@ -3678,7 +3678,7 @@ flagship restricted to `NoGasReads prog`: the gas suffix plays no role, so it ne
 (the riskiest obligation) — the de-risking checkpoint, and the theorem external readers
 can compare to prior art (Verity/vyper-hol scope: no fork's verified semantics models gas
 introspection at all). -/
-theorem lowering_conforms_gasfree {prog : Program} {params : CallParams} {log : RunLog}
+theorem lower_conforms_gasfree {prog : Program} {params : CallParams} {log : RunLog}
     {acc : Account}
     (hng : NoGasReads prog)
     (hcode : params.codeSource = .Code (lower prog))
@@ -3690,7 +3690,7 @@ theorem lowering_conforms_gasfree {prog : Program} {params : CallParams} {log : 
     (hrun : runWithLog params (seedFuel params.gas) = some log)
     (hclean : log.clean)
     (hone : log.calls.length ≤ 1)
-    (hseams : PrecompileSeams prog params)
+    (hseams : PrecompileAssumptions prog params)
     (hnzw : ∀ fr₀, beginCall params = .inl fr₀ → NonzeroSstores fr₀) :
     ∃ O : Observable,
       RunFrom prog (realisedCall log params.recipient)
@@ -3727,7 +3727,7 @@ non-vacuity guard; HonestGasTie's replacement role). Some concrete top-level cal
 run `lower exProg` cleanly with every flagship hypothesis satisfied. The `params` witness
 is deliberately EXISTENTIAL: a literal `CallParams` needs BlockHeader/ProcessedBlocks
 plumbing that belongs to the R12 grind, not the spec. -/
-theorem r12_hypotheses_inhabited :
+theorem exProg_satisfies_hypotheses :
     ∃ (params : CallParams) (log : RunLog) (acc : Account),
       params.codeSource = .Code (lower exProg)
       ∧ params.canModifyState = true
@@ -3736,13 +3736,13 @@ theorem r12_hypotheses_inhabited :
       ∧ runWithLog params (seedFuel params.gas) = some log
       ∧ log.clean
       ∧ log.calls.length ≤ 1
-      ∧ PrecompileSeams exProg params
+      ∧ PrecompileAssumptions exProg params
       ∧ (∀ fr₀, beginCall params = .inl fr₀ → NonzeroSstores fr₀) := sorry
 
-/-- **R12b — end-to-end at the witness**: `lowering_conforms` instantiated at `exProg`
+/-- **R12b — end-to-end at the witness**: `lower_conforms` instantiated at `exProg`
 (gas-read + sload + nonzero-sstore + call + loop, all at once — the verifereum
 `deploy_result_correct`-shaped concrete instance no fork has for this feature set). -/
-theorem r12_end_to_end :
+theorem exProg_nonvacuity :
     ∃ (params : CallParams) (log : RunLog),
       params.codeSource = .Code (lower exProg)
       ∧ runWithLog params (seedFuel params.gas) = some log
@@ -3750,15 +3750,15 @@ theorem r12_end_to_end :
           RunFrom exProg (realisedCall log params.recipient)
             (entryState params) (realisedGas log) exProg.entry O
           ∧ Conforms params.recipient log O := by
-  -- The witness params/log come from R12a (`r12_hypotheses_inhabited`); the inner
-  -- existential is EXACTLY R11's (`lowering_conforms`) conclusion at `prog := exProg`.
+  -- The witness params/log come from R12a (`exProg_satisfies_hypotheses`); the inner
+  -- existential is EXACTLY R11's (`lower_conforms`) conclusion at `prog := exProg`.
   -- R12a carries every flagship premise except the two closed static ones
   -- (`wellLowered_exProg`, `singleCall_exProg`), which we supply directly (same module).
   -- Green now (R12a is a skeleton leaf); axiom-clean once R11 + R12a land.
   obtain ⟨params, log, _acc, hcode, hmod, hself, hgas, hrun, hclean, hone, hseams, hnzw⟩ :=
-    r12_hypotheses_inhabited
+    exProg_satisfies_hypotheses
   refine ⟨params, log, hcode, hrun, ?_⟩
-  exact lowering_conforms hcode hmod hself hgas
+  exact lower_conforms hcode hmod hself hgas
     wellLowered_exProg singleCall_exProg hrun hclean hone hseams hnzw
 
 /-! ## §7 — audit note
