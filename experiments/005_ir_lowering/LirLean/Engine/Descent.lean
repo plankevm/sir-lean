@@ -134,7 +134,8 @@ theorem createArm_needsCreate_inv
     {cp : CreateParams} {pd : PendingCreate}
     (h : createArm fr exec stack value initOffset initSize salt = .ok (.needsCreate cp pd)) :
     (∀ a, Lir.V2.AccPresent a exec.accounts → Lir.V2.AccPresent a cp.accounts)
-      ∧ pd.frame.kind = fr.kind ∧ pd.frame.exec.accounts = exec.accounts := by
+      ∧ pd.frame.kind = fr.kind ∧ pd.frame.exec.accounts = exec.accounts
+      ∧ pd.frame.exec.executionEnv = exec.executionEnv := by
   rw [createArm] at h
   simp only [bind, Except.bind, pure, Except.pure] at h
   split at h
@@ -148,7 +149,7 @@ theorem createArm_needsCreate_inv
       simp only [Except.ok.injEq, Signal.needsCreate.injEq] at h
       obtain ⟨hcp, hpd⟩ := h
       subst hcp hpd
-      refine ⟨?_, rfl, rfl⟩
+      refine ⟨?_, rfl, rfl, rfl⟩
       intro a ha
       -- `cp.accounts = exec.accounts.insert self { selfAccount with nonce := … }` (single insert).
       exact Lir.V2.accounts_find?_insert_mono _ _ _ _ ha
@@ -164,7 +165,8 @@ theorem systemOp_needsCreate_inv {op : Operation.SystemOp} {fr : Frame} {exec : 
     {cp : CreateParams} {pd : PendingCreate}
     (h : systemOp op fr exec = .ok (.needsCreate cp pd)) :
     (∀ a, Lir.V2.AccPresent a exec.accounts → Lir.V2.AccPresent a cp.accounts)
-      ∧ pd.frame.kind = fr.kind ∧ pd.frame.exec.accounts = exec.accounts := by
+      ∧ pd.frame.kind = fr.kind ∧ pd.frame.exec.accounts = exec.accounts
+      ∧ pd.frame.exec.executionEnv = exec.executionEnv := by
   cases op with
   | STOP | RETURN | REVERT | SELFDESTRUCT | INVALID =>
     exact absurd (by unfold systemOp at h; exact h)
@@ -197,11 +199,13 @@ theorem systemOp_needsCreate_inv {op : Operation.SystemOp} {fr : Frame} {exec : 
             | error e => rw [hc] at h; simp at h
             | ok ec =>
               rw [hc] at h; simp only [] at h
-              obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
-              obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
+              obtain ⟨hmacc, hmenv⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+              obtain ⟨hcacc, hcenv⟩ := Lir.V2.charge_accounts_env hc
               have hem : ec.accounts = exec.accounts := by rw [hcacc, hmacc]
-              obtain ⟨hacc, hkind, hpdacc⟩ := createArm_needsCreate_inv h
-              refine ⟨fun a ha => hacc a (hem ▸ ha), hkind, by rw [hpdacc, hem]⟩
+              have hemenv : ec.executionEnv = exec.executionEnv := by rw [hcenv, hmenv]
+              obtain ⟨hacc, hkind, hpdacc, hpdenv⟩ := createArm_needsCreate_inv h
+              refine ⟨fun a ha => hacc a (hem ▸ ha), hkind, by rw [hpdacc, hem],
+                by rw [hpdenv, hemenv]⟩
   | CREATE2 =>
     unfold systemOp at h
     simp only [bind, Except.bind] at h
@@ -224,11 +228,13 @@ theorem systemOp_needsCreate_inv {op : Operation.SystemOp} {fr : Frame} {exec : 
             | error e => rw [hc] at h; simp at h
             | ok ec =>
               rw [hc] at h; simp only [] at h
-              obtain ⟨hmacc, _⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
-              obtain ⟨hcacc, _⟩ := Lir.V2.charge_accounts_env hc
+              obtain ⟨hmacc, hmenv⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
+              obtain ⟨hcacc, hcenv⟩ := Lir.V2.charge_accounts_env hc
               have hem : ec.accounts = exec.accounts := by rw [hcacc, hmacc]
-              obtain ⟨hacc, hkind, hpdacc⟩ := createArm_needsCreate_inv h
-              refine ⟨fun a ha => hacc a (hem ▸ ha), hkind, by rw [hpdacc, hem]⟩
+              have hemenv : ec.executionEnv = exec.executionEnv := by rw [hcenv, hmenv]
+              obtain ⟨hacc, hkind, hpdacc, hpdenv⟩ := createArm_needsCreate_inv h
+              refine ⟨fun a ha => hacc a (hem ▸ ha), hkind, by rw [hpdacc, hem],
+                by rw [hpdenv, hemenv]⟩
 
 /-- **`stepFrame` `.needsCreate` structural inversion (the create twin of `stepFrame_needsCall_inv`).**
 The issued child params keep presence at any `a` present in the issuing `fr.exec.accounts`, the
@@ -238,7 +244,8 @@ third conjunct is now slack — it fed the removed CREATE-begin-fault arm; `begi
 theorem stepFrame_needsCreate_inv {fr : Frame} {cp : CreateParams} {pd : PendingCreate}
     (h : stepFrame fr = .needsCreate cp pd) :
     (∀ a, Lir.V2.AccPresent a fr.exec.accounts → Lir.V2.AccPresent a cp.accounts)
-      ∧ pd.frame.kind = fr.kind ∧ pd.frame.exec.accounts = fr.exec.accounts := by
+      ∧ pd.frame.kind = fr.kind ∧ pd.frame.exec.accounts = fr.exec.accounts
+      ∧ pd.frame.exec.executionEnv = fr.exec.executionEnv := by
   obtain ⟨s, hs⟩ := BytecodeLayer.Dispatch.stepFrame_needsCreate_systemOp h
   exact systemOp_needsCreate_inv hs
 
@@ -395,6 +402,19 @@ theorem resumeAfterCreate_kind (result : Evm.FrameResult) (pd : Evm.PendingCreat
   split at hres
   · exact absurd hres (by simp)
   · simp only [Except.ok.injEq] at hres; rw [← hres]
+
+/-- `resumeAfterCreate` on `.ok` rebuilds `pd.frame` with the same `executionEnv` (it touches only
+`exec`'s stack/pc/gas/accounts/substate via `replaceStackAndIncrPC` over `pd.frame.exec`), so the
+resumed self *address* is the suspended creator's. The create twin of `resumeAfterCall_address`. -/
+theorem resumeAfterCreate_execEnv (result : Evm.FrameResult) (pd : Evm.PendingCreate)
+    (parent : Evm.Frame) (hres : Evm.resumeAfterCreate result.toCreateResult pd = .ok parent) :
+    parent.exec.executionEnv = pd.frame.exec.executionEnv := by
+  unfold Evm.resumeAfterCreate at hres
+  simp only [bind, Except.bind, pure, Except.pure] at hres
+  split at hres
+  · exact absurd hres (by simp)
+  · simp only [Except.ok.injEq] at hres; rw [← hres]
+    rfl
 
 
 /-! ### The `DescentKind` interface — CALL and CREATE as ONE descent shape

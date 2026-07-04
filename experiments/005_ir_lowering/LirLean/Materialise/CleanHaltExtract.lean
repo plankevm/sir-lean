@@ -403,8 +403,8 @@ of the abstract glue is **discharged** per op by the op's `*_oog` lemma (its onl
 `.exception`). -/
 
 /-- **A halted frame `Runs` only to itself.** If `stepFrame fr = .halted h` and `Runs fr last`,
-then `fr = last`: the run cannot take a `step` (needs `.next`) or a `call` (needs `.needsCall`),
-so it is `refl`. -/
+then `fr = last`: the run cannot take a `step` (needs `.next`), a `call` (needs `.needsCall`), or a
+`create` (needs `.needsCreate`), so it is `refl`. -/
 theorem halted_runs_eq {fr last : Frame} {h : FrameHalt}
     (hhalt : stepFrame fr = .halted h) (hrun : Runs fr last) : fr = last := by
   cases hrun with
@@ -412,6 +412,9 @@ theorem halted_runs_eq {fr last : Frame} {h : FrameHalt}
   | step hstep _ => rw [hstep.1] at hhalt; exact absurd hhalt (by nofun)
   | call hcall _ =>
     obtain ⟨_, _, _, _, hstep, _⟩ := hcall
+    rw [hstep] at hhalt; exact absurd hhalt (by nofun)
+  | create hc _ =>
+    obtain ⟨_, _, _, hstep, _⟩ := hc
     rw [hstep] at hhalt; exact absurd hhalt (by nofun)
 
 /-- **The abstract `.next` extractor.** From `CleanHaltsNonException fr` and the per-op *step

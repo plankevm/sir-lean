@@ -2,6 +2,7 @@ import LirLean.V2.Drive.Headline
 import LirLean.Assembly.Acyclic
 import LirLean.Decode.BoundaryReach
 import LirLean.V2.Realisability.Surface
+import LirLean.V2.Modellable
 
 /-!
 # LirLean v2 — Realisability spec, MACHINERY (§5)
@@ -198,8 +199,8 @@ theorem defsSoundS_preserved_step {prog : Program}
           _ = evalExpr { st with world := world' } 0 e₀ := (evalExpr_world_noSload hns).symm
 
 /-- **A halting `Runs` is refl.** If `fr` halts (`stepFrame fr = .halted h`) then the only
-`Runs fr fr'` is the reflexive one, so `fr = fr'`. Pure engine inversion (the `.step`/`.call`
-arms demand `.next`/`.needsCall`, contradicting `.halted`). -/
+`Runs fr fr'` is the reflexive one, so `fr = fr'`. Pure engine inversion (the `.step`/`.call`/`.create`
+arms demand `.next`/`.needsCall`/`.needsCreate`, contradicting `.halted`). -/
 theorem runs_halt_eq {fr fr' : Frame} {h : FrameHalt}
     (hh : stepFrame fr = .halted h) (hr : Runs fr fr') : fr = fr' := by
   cases hr with
@@ -207,6 +208,9 @@ theorem runs_halt_eq {fr fr' : Frame} {h : FrameHalt}
   | step hstep _ => rw [hstep.1] at hh; exact absurd hh (by nofun)
   | call hcall _ =>
       obtain ⟨_, _, _, _, hstep, _⟩ := hcall
+      rw [hstep] at hh; exact absurd hh (by nofun)
+  | create hc _ =>
+      obtain ⟨_, _, _, hstep, _⟩ := hc
       rw [hstep] at hh; exact absurd hh (by nofun)
 
 /-- **R2 — the clean scope read off the log** (replaces the `∀ last halt` universal `hne`
@@ -397,8 +401,10 @@ theorem sstoreRealises_at_frame {g : Frame} {kw vw : Word}
   exact ⟨h1, h2, hsp⟩
 
 /-- **Kind preservation across `Runs`.** A `Runs` derivation only advances `exec` (opcode
-steps, `StepsTo.kind_eq`) or resumes a returning CALL (`resumeAfterCall` rebuilds the caller
-frame keeping its `kind`, `stepFrame_needsCall_inv`), so the frame `kind` is invariant.
+steps, `StepsTo.kind_eq`), resumes a returning CALL (`resumeAfterCall` rebuilds the caller
+frame keeping its `kind`, `stepFrame_needsCall_inv`), or resumes a returning CREATE
+(`resumeAfterCreate` rebuilds the creator frame keeping its `kind`, `resumeAfterCreate_kind` +
+`stepFrame_needsCreate_inv`), so the frame `kind` is invariant.
 Template: `selfPresent_runs` / `Runs.gasAvailable_le`. -/
 theorem runs_kind {fr fr' : Frame} (h : Runs fr fr') : fr'.kind = fr.kind := by
   induction h with
@@ -408,6 +414,10 @@ theorem runs_kind {fr fr' : Frame} (h : Runs fr fr') : fr'.kind = fr.kind := by
       obtain ⟨cp, pending, child, childRes, hstep, _, _, hresume⟩ := hc
       rw [ih, hresume]
       exact (Evm.stepFrame_needsCall_inv hstep).2.1
+  | create hc _ ih =>
+      obtain ⟨cp, pending, childRes, hstep, _, hresume⟩ := hc
+      rw [ih, resumeAfterCreate_kind childRes pending _ hresume]
+      exact (Evm.stepFrame_needsCreate_inv hstep).2.1
 
 set_option maxRecDepth 8192 in
 /-- **R5 — terminator ties from the walk vocabulary.** `TermTies'` holds at every present
@@ -457,7 +467,6 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
     (hb : blockAt prog L = some b) :
     TermTies' prog sloadChg log self L b := by
   have hbt : prog.blocks.toList[L.idx]? = some b := Lir.toList_of_blockAt hb
-  have hcps : CallPreservesSelf := callPreservesSelf_modGuards hprec
   refine ⟨?_, ?_, ?_, ?_⟩
   · -- STOP arm: non-emptiness from the threaded `SelfPresent`.
     intro _hterm st frT hcorr _hch hsp _haddr _hkind
@@ -700,7 +709,7 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
     obtain ⟨cp, hcpeq⟩ := hkind
     refine ⟨cp, wms, hd0, hdms, hd32, hd0', hdret, hgv1, hmemFrv, hgasMemF1, hgasVF1, hg32, hg0'', ?_, ?_⟩
     · rw [runs_kind hruns]; exact hcpeq
-    · exact accounts_ne_empty_of_selfPresent (selfPresent_runs_of_call hcps hsp hruns)
+    · exact accounts_ne_empty_of_selfPresent (selfPresent_runs_of_call hprec hsp hruns)
   · -- JUMP arm.
     intro dst bdst hterm hbdst hdstlt st frT hcorr hch
     obtain ⟨hbterm, hboff⟩ := hwl.wf.bound_jump L b dst hbt hterm
@@ -1382,11 +1391,28 @@ theorem atReachableBoundaryVJ_call {prog : Lir.Program} {fr rf : Frame}
       simp [Evm.nextInstrPosNat, Evm.pushArgWidth]
     rwa [hnn] at hr
 
+/-- **The CREATE edge is vacuous for a lowered program.** A `Runs.create` node needs
+`stepFrame fr = .needsCreate …` (`CreateReturns`), which forces `currentOp fr ∈ {CREATE, CREATE2}`
+(`stepFrame_needsCreate_isCreate`). But `fr` at a reachable in-range boundary decodes to an
+`IsLoweringOp` opcode (`decode_reachable_boundary_loweringOp`), and the lowering emits neither
+CREATE nor CREATE2 (`IsLoweringOp` is the 16-op allow-list). So the hypotheses are contradictory —
+the create arm cannot arise in a lowered run, and needs no boundary-geometry brick. -/
+theorem atReachableBoundaryVJ_create {prog : Lir.Program} {fr rf : Frame}
+    (h : CreateReturns fr rf) (hinv : AtReachableBoundaryVJ prog fr) :
+    AtReachableBoundaryVJ prog rf := by
+  exfalso
+  obtain ⟨_cp, _pending, _childRes, hncreate, _, _⟩ := h
+  obtain ⟨⟨b, hcode, hpc, hreach, hin, hbnd⟩, _hvj⟩ := hinv
+  obtain ⟨op, arg, hdecode, hlow⟩ := Lir.decode_reachable_boundary_loweringOp prog b hreach hin hbnd
+  have hcoeq : currentOp fr = op := by rw [currentOp, hcode, hpc, hdecode]; rfl
+  rcases stepFrame_needsCreate_isCreate hncreate with h1 | h1 <;>
+    · rw [hcoeq] at h1; rw [h1] at hlow; exact absurd hlow (by decide)
+
 /-- **The `Runs`-induction combinator (master lemma).** `AtReachableBoundaryVJ prog` is
 preserved across a whole `Runs` derivation, threading through each single `StepsTo`
-(`atReachableBoundaryVJ_step`) and each returning external `CallReturns`
-(`atReachableBoundaryVJ_call`). The assembly of R6: seed with `atReachableBoundaryVJ_entry`
-(BASE), then thread the two edges. -/
+(`atReachableBoundaryVJ_step`), each returning external `CallReturns` (`atReachableBoundaryVJ_call`),
+and each returning `CreateReturns` (`atReachableBoundaryVJ_create`, vacuous — no CREATE bytes are
+emitted). The assembly of R6: seed with `atReachableBoundaryVJ_entry` (BASE), then thread the edges. -/
 theorem atReachableBoundaryVJ_of_runs {prog : Lir.Program}
     (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32)
     {fr fr' : Frame} (hr : Runs fr fr') :
@@ -1395,6 +1421,7 @@ theorem atReachableBoundaryVJ_of_runs {prog : Lir.Program}
   | refl _ => exact id
   | step h _ ih => exact fun hfr => ih (atReachableBoundaryVJ_step hsize h hfr)
   | call hc _ ih => exact fun hfr => ih (atReachableBoundaryVJ_call hsize hc hfr)
+  | create hc _ ih => exact fun hfr => ih (atReachableBoundaryVJ_create hc hfr)
 
 /-- **R6 — the boundary walk** (the `hrb` residue; the Track-A discharge target). Every
 `Runs`-reachable frame of a `lower prog` entry sits at a reachable instruction boundary of

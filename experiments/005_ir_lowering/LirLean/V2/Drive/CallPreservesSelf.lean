@@ -223,31 +223,123 @@ theorem callPreservesSelf_modGuards
     (fun fr e o h a hp => Evm.stepFrame_halted_success_accMono h a hp)
     (fun fr cp pd h => congrArg ExecutionEnv.address (Evm.stepFrame_needsCall_inv h).2.2)
 
+/-! ### The CREATE resume edge (`CreatePreservesSelf`), discharged engine-level
+
+The `Runs.create` node (`BytecodeLayer/Hoare.lean`) resumes the *creator* frame after a returning
+CREATE. `CreatePreservesSelf` is the create twin of `CallPreservesSelf`: a returning CREATE preserves
+the creator's self-account presence. Unlike CALL it needs **no** structural revert/exception split —
+`resumeAfterCreate`'s only success shape rewrites `exec.accounts := result.accounts` (present by the
+child-run monotonicity, Brick D) and leaves `executionEnv` (hence the self address) at the suspended
+creator's (`resumeAfterCreate_execEnv`). The CREATE-site address/presence framing is engine-level
+(`stepFrame_needsCreate_inv`, `beginCreate` total), so `CreatePreservesSelf` collapses to the SAME
+single surviving seam as CALL — the precompile no-erase fact `hprec` (a child CALL inside the init run
+may hit a precompile) — with no *new* seam introduced. -/
+
+/-- **Local per-create self-presence preservation.** One returning CREATE (`CreateReturns`) keeps the
+*creator's* self account present. The create twin of `CallPreservesSelf`. -/
+def CreatePreservesSelf : Prop :=
+  ∀ ⦃createFr resumeFr : Frame⦄, CreateReturns createFr resumeFr → SelfPresent createFr →
+    SelfPresent resumeFr
+
+/-- **`CreatePreservesSelf`, discharged modulo the same precompile seam as CALL.** A returning CREATE
+keeps the creator's self present. The tracked address is the creator's self `a`; it is present in the
+creator's running map (`hself`), hence in the issued `cp.accounts` (`stepFrame_needsCreate_inv`), hence
+the init child drive *starts* present at `a` (`beginCreate_ok_accounts_present`, `beginCreate` total).
+Brick D (`drive_accounts_find_mono`) carries presence to the child result; `resumeAfterCreate` on `.ok`
+sets `exec.accounts := result.accounts` (`resumeAfterCreate_exec_accounts_present`) and keeps the self
+address (`resumeAfterCreate_execEnv`), so the resumed creator frame is `SelfPresent`. The five closers
+are the SAME as `callPreservesSelf`'s (all universally-true framing facts, `hprec` the sole genuine
+seam). -/
+theorem createPreservesSelf
+    (hmono : ∀ (fr : Evm.Frame) (exec' : Evm.ExecutionState),
+      Evm.stepFrame fr = .next exec' → ∀ a, AccPresent a fr.exec.accounts → AccPresent a exec'.accounts)
+    (hprec : ∀ (cp : Evm.CallParams) (imm : Evm.CallResult),
+      Evm.beginCall cp = .inr imm → ∀ a, AccPresent a cp.accounts → AccPresent a imm.accounts)
+    (hcall_acc : ∀ (fr : Evm.Frame) (cp : Evm.CallParams) (pd : Evm.PendingCall),
+      Evm.stepFrame fr = .needsCall cp pd → ∀ a, AccPresent a fr.exec.accounts → AccPresent a cp.accounts)
+    (hcall_kind : ∀ (fr : Evm.Frame) (cp : Evm.CallParams) (pd : Evm.PendingCall),
+      Evm.stepFrame fr = .needsCall cp pd → pd.frame.kind = fr.kind)
+    (hhalt : ∀ (fr : Evm.Frame) (e : Evm.ExecutionState) (o : ByteArray),
+      Evm.stepFrame fr = .halted (.success e o) → ∀ a, AccPresent a fr.exec.accounts →
+        AccPresent a e.accounts) :
+    CreatePreservesSelf := by
+  intro createFr resumeFr hcr hself
+  obtain ⟨cp, pending, childRes, hstep, hchild, hresume⟩ := hcr
+  -- the tracked address: the creator's self (= the resumed self, `resumeAfterCreate_execEnv`).
+  set a : Evm.AccountAddress := createFr.exec.executionEnv.address with ha
+  -- the creator's self is present in `createFr.exec.accounts` (`hself`, definitionally at `a`).
+  have hcaller : AccPresent a createFr.exec.accounts := hself
+  -- CREATE-site framing: presence transports to `cp.accounts` (nonce-bump `insert`, Brick A).
+  obtain ⟨hcr_acc, hcr_kind, _hcr_pdacc, hcr_env⟩ := Evm.stepFrame_needsCreate_inv hstep
+  have hcp : AccPresent a cp.accounts := hcr_acc a hcaller
+  -- the init child drive starts present at `a` (`beginCreate` total).
+  have hchildPres : DrivePresent a [] (Sum.inl (Evm.beginCreate cp)) := by
+    refine ⟨beginCreate_ok_accounts_present a cp rfl hcp, ?_, trivial⟩
+    obtain ⟨addr, created, sub, hkind⟩ := beginCreate_ok_checkpoint cp rfl
+    unfold CheckpointPresent; rw [hkind]; exact hcp
+  -- Brick D: presence at `a` is monotone across the child drive run.
+  have hmono' := drive_accounts_find_mono a
+    (fun fr exec' h => hmono fr exec' h a)
+    (fun c imm h => hprec c imm h a)
+    (fun fr c pd h => hcall_acc fr c pd h a)
+    hcall_kind
+    (fun fr e o h => hhalt fr e o h a)
+    (seedFuel cp.gas) [] (Sum.inl (Evm.beginCreate cp)) childRes hchild hchildPres
+  -- the resume keeps presence (`.ok` rewrites `accounts := result.accounts`) and the self address.
+  have hpres : AccPresent a resumeFr.exec.accounts :=
+    resumeAfterCreate_exec_accounts_present a childRes pending resumeFr hresume hmono'
+  -- close `SelfPresent resumeFr`: its self is the creator's `a` (`resumeAfterCreate_execEnv`).
+  have haddr : resumeFr.exec.executionEnv.address = a := by
+    rw [resumeAfterCreate_execEnv childRes pending resumeFr hresume, hcr_env]
+  show ∃ acc, resumeFr.exec.accounts.find? resumeFr.exec.executionEnv.address = some acc
+  rw [haddr]; exact hpres
+
+/-- **`CreatePreservesSelf` with the four universally-true closers discharged engine-level** (create
+twin of `callPreservesSelf_modGuards`): the whole chain reduces to the ONE surviving seam `hprec`
+(a precompile CALL inside the init run preserves presence — the exact same fact CALL supplies). -/
+theorem createPreservesSelf_modGuards
+    (hprec : ∀ (cp : Evm.CallParams) (imm : Evm.CallResult),
+      Evm.beginCall cp = .inr imm → ∀ a, AccPresent a cp.accounts → AccPresent a imm.accounts) :
+    CreatePreservesSelf :=
+  createPreservesSelf
+    (fun fr exec' h a hp => Evm.stepFrame_next_accMono h a hp)
+    hprec
+    (fun fr cp pd h a hp => (Evm.stepFrame_needsCall_inv h).1 ▸ hp)
+    (fun fr cp pd h => (Evm.stepFrame_needsCall_inv h).2.1)
+    (fun fr e o h a hp => Evm.stepFrame_halted_success_accMono h a hp)
+
 /-- **`SelfPresent` is forward-closed along a whole `Runs` segment.** From `SelfPresent fr` and
-`Runs fr fr'`, `SelfPresent fr'` — given the two local one-edge preservation facts
-(`StepPreservesSelf` for opcode steps, `CallPreservesSelf` for returning external CALLs, *including
-the `Runs.call` resume node*). Proved by induction on the `Runs` derivation (the template is
-`Runs.gasAvailable_le`): `refl` carries `h` unchanged; `step`/`call` apply the corresponding local
-edge then recurse. This is the threading the SSTORE-presence discharge needs across the drive walk:
-a later SSTORE cursor inherits the entry frame's self-presence through every block step and returning
-call. Both edge hypotheses are satisfiable (not vacuous) — see `StepPreservesSelf`/`CallPreservesSelf`
-— so this introduces no unsatisfiable assumption. -/
+`Runs fr fr'`, `SelfPresent fr'` — given the three local one-edge preservation facts
+(`StepPreservesSelf` for opcode steps, `CallPreservesSelf` for returning external CALLs, and
+`CreatePreservesSelf` for returning CREATEs, *including the `Runs.call`/`Runs.create` resume nodes*).
+Proved by induction on the `Runs` derivation (the template is `Runs.gasAvailable_le`): `refl` carries
+`h` unchanged; `step`/`call`/`create` apply the corresponding local edge then recurse. This is the
+threading the SSTORE-presence discharge needs across the drive walk: a later SSTORE cursor inherits the
+entry frame's self-presence through every block step and returning descent. All three edge hypotheses
+are satisfiable (not vacuous) — see `StepPreservesSelf`/`CallPreservesSelf`/`CreatePreservesSelf` — so
+this introduces no unsatisfiable assumption. -/
 theorem selfPresent_runs (hstep : StepPreservesSelf) (hcall : CallPreservesSelf)
+    (hcreate : CreatePreservesSelf)
     {fr fr' : Frame} (h : SelfPresent fr) (hruns : Runs fr fr') : SelfPresent fr' := by
   induction hruns with
   | refl _ => exact h
   | step hs _ ih => exact ih (hstep hs h)
   | call hc _ ih => exact ih (hcall hc h)
+  | create hc _ ih => exact ih (hcreate hc h)
 
 /-- **`selfPresent_runs` with the step edge already discharged.** Since `stepPreservesSelf` is a
-proven theorem (not a supplied edge), the only remaining hypothesis is the CALL edge
-`CallPreservesSelf` (the call-tie seam — genuinely-open in its `.success` shape, supplied & satisfiable;
-its revert/exception shapes are structurally discharged by `resumeAfterCall_self_of_accounts`). This is
-the form the drive walk consumes: thread self-presence across a whole `Runs` with only the returning
-external CALL fact to supply. -/
-theorem selfPresent_runs_of_call (hcall : CallPreservesSelf)
+proven theorem (not a supplied edge), the remaining hypotheses are the CALL edge `CallPreservesSelf`
+and the CREATE edge `CreatePreservesSelf` — both discharged from the single precompile seam `hprec`
+(`callPreservesSelf_modGuards` / `createPreservesSelf_modGuards`), so this is the form the drive walk
+consumes: thread self-presence across a whole `Runs` with only the precompile no-erase fact to supply.
+The revert/exception CALL shapes are structurally closed by `resumeAfterCall_self_of_accounts`; the
+CREATE resume by `resumeAfterCreate_exec_accounts_present` (`.ok` rewrites `accounts`). -/
+theorem selfPresent_runs_of_call
+    (hprec : ∀ (cp : Evm.CallParams) (imm : Evm.CallResult),
+      Evm.beginCall cp = .inr imm → ∀ a, AccPresent a cp.accounts → AccPresent a imm.accounts)
     {fr fr' : Frame} (h : SelfPresent fr) (hruns : Runs fr fr') : SelfPresent fr' :=
-  selfPresent_runs stepPreservesSelf hcall h hruns
+  selfPresent_runs stepPreservesSelf (callPreservesSelf_modGuards hprec)
+    (createPreservesSelf_modGuards hprec) h hruns
 
 end Lir.V2
 
