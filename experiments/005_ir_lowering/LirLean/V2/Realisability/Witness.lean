@@ -229,8 +229,8 @@ is exactly the tmp `invalStep` puts in the set at the `t6` rebind. -/
 theorem not_defsSound_stale : ¬ Lir.DefsSound exProg staleSt := by
   intro h
   have hnr : ¬ Lir.NonRecomputable exProg ⟨8⟩ := by
-    unfold Lir.NonRecomputable Lir.isGasDef Lir.isSloadDef Lir.isCallResult
-    rintro (⟨b, hb, hmem⟩ | ⟨b, hb, k, hmem⟩ | ⟨b, hb, cs, hmem, hres⟩) <;>
+    unfold Lir.NonRecomputable Lir.isGasDef Lir.isSloadDef Lir.isCallResult Lir.isCreateResult
+    rintro (⟨b, hb, hmem⟩ | ⟨b, hb, k, hmem⟩ | ⟨b, hb, cs, hmem, hres⟩ | ⟨b, hb, cs, hmem, hres⟩) <;>
       (simp [exProg] at hb; rcases hb with rfl | rfl | rfl <;> simp_all)
   exact absurd (h ⟨8⟩ (.lt ⟨6⟩ ⟨7⟩) 0 (by decide) hnr (by decide)) (by decide)
 
@@ -265,12 +265,13 @@ writes locals via `setLocal` (pure/gas assign, call-with-result) or leaves them 
 (`sstore`, result-free call touch only `world`), so a bound tmp stays bound. Induction on the
 run. -/
 theorem runStmts_preserves_bound {prog : Program}
-    {st st' : IRState} {T T' : Trace} {C C' : CallStream} {ss : List Stmt} (t : Tmp)
-    (h : RunStmts prog st T C ss st' T' C') :
+    {st st' : IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
+    {ss : List Stmt} (t : Tmp)
+    (h : RunStmts prog st T C D ss st' T' C' D') :
     (∃ w, st.locals t = some w) → ∃ w', st'.locals t = some w' := by
   induction h with
   | nil => exact id
-  | @cons st stm st'' T Tm T'' C Cm C'' s ss hh ht ih =>
+  | @cons st stm st'' T Tm T'' C Cm C'' D Dm D'' s ss hh ht ih =>
     intro hbound
     apply ih
     cases hh with
@@ -281,18 +282,23 @@ theorem runStmts_preserves_bound {prog : Program}
       split
       · exact setLocal_bound hbound
       · exact hbound
+    | create hvalue hoff hsize =>
+      split
+      · exact setLocal_bound hbound
+      · exact hbound
 
 /-- **Lemma B — an assigned tmp is bound at the run's end.** An `assign t e` occurring
 anywhere in the statement list binds `t` (via `setLocal`, both the pure and gas arms) at its
 own step; Lemma A then carries that boundness through the remaining suffix. Induction on the
 run, splitting the membership at the head. -/
 theorem runStmts_binds_assign {prog : Program}
-    {st st' : IRState} {T T' : Trace} {C C' : CallStream} {ss : List Stmt} {t : Tmp} {e : Expr}
-    (h : RunStmts prog st T C ss st' T' C') :
+    {st st' : IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
+    {ss : List Stmt} {t : Tmp} {e : Expr}
+    (h : RunStmts prog st T C D ss st' T' C' D') :
     (Stmt.assign t e) ∈ ss → ∃ w, st'.locals t = some w := by
   induction h with
   | nil => intro hmem; simp at hmem
-  | @cons st stm st'' T Tm T'' C Cm C'' s ss hh ht ih =>
+  | @cons st stm st'' T Tm T'' C Cm C'' D Dm D'' s ss hh ht ih =>
     intro hmem
     rcases List.mem_cons.mp hmem with heq | hmem'
     · subst heq
@@ -465,7 +471,7 @@ private theorem chargeOf_length_indep (defs : Tmp → Option Expr) (s1 s2 : Tmp 
 set_option maxRecDepth 8000 in
 private theorem runDefinableG_exProg : RunDefinableG exProg where
   stmts := by
-    intro st st' T T' C C' L b pc s hb hget hrun
+    intro st st' T T' C C' D D' L b pc s hb hget hrun
     obtain ⟨idx⟩ := L
     rcases blockAt_exProg_inv hb with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩
     · rcases pc with _|_|_|_|_|_|_|pc <;>
@@ -498,12 +504,12 @@ private theorem runDefinableG_exProg : RunDefinableG exProg where
         exact Or.inr ⟨UInt256.lt w6 w7, by simp [evalExpr, h6, h7]⟩
     · simp only [exBlk2, List.getElem?_nil, reduceCtorEq] at hget
   ret_def := by
-    intro st st' T T' C C' L b t hb hterm _
+    intro st st' T T' C C' D D' L b t hb hterm _
     obtain ⟨idx⟩ := L
     rcases blockAt_exProg_inv hb with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ <;>
       simp only [exBlk0, exBlk1, exBlk2, reduceCtorEq] at hterm
   branch_def := by
-    intro st st' T T' C C' L b cond thenL elseL hb hterm hrun
+    intro st st' T T' C C' D D' L b cond thenL elseL hb hterm hrun
     obtain ⟨idx⟩ := L
     rcases blockAt_exProg_inv hb with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ <;>
       simp only [exBlk0, exBlk1, exBlk2, reduceCtorEq, Term.branch.injEq] at hterm

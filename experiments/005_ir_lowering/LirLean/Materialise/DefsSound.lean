@@ -92,6 +92,14 @@ def isCallResult (prog : Program) (t : Tmp) : Prop :=
   ∃ b ∈ prog.blocks.toList, ∃ cs : CallSpec,
     Stmt.call cs ∈ b.stmts ∧ cs.resultTmp = some t
 
+/-- Is `t` the `resultTmp` of some `Stmt.create` in the program? The twin of `isCallResult`:
+a CREATE binds the pushed deployed-address word into `resultTmp`, which — like a CALL success
+flag — is a dynamic value NOT reproducible by `evalExpr` recompute-on-use, hence
+non-recomputable. -/
+def isCreateResult (prog : Program) (t : Tmp) : Prop :=
+  ∃ b ∈ prog.blocks.toList, ∃ cs : CreateSpec,
+    Stmt.create cs ∈ b.stmts ∧ cs.resultTmp = some t
+
 /-- Is `t` the target of an `assign t .gas` somewhere in the program? Phrased
 **syntactically** (on the source statements) rather than on `defsOf`: after Phase B a
 gas-defined tmp is registered in `defsOf` as the spill-load `Expr.slot (slotOf t)` (it is
@@ -116,7 +124,7 @@ bounds the call results to single-use so B1 materialises each exactly once (neve
 `defsOf` recursion). Gas and sload are spilled to memory (Phase B/C), so multi-use of them
 re-reads the stashed value (`MLOAD`), never a fresh opcode — they are unrestricted. -/
 def NonRecomputable (prog : Program) (t : Tmp) : Prop :=
-  isGasDef prog t ∨ isSloadDef prog t ∨ isCallResult prog t
+  isGasDef prog t ∨ isSloadDef prog t ∨ isCallResult prog t ∨ isCreateResult prog t
 
 /-! ## `WellFormed` — the DESIGN DECISION (Phase B: gas is no longer restricted)
 
@@ -494,7 +502,60 @@ theorem defsSound_preserved_call {prog : Program} {st : IRState} {cs : CallSpec}
     by_cases heq : t₀ = t
     · -- t₀ = t is a call result ⇒ NonRecomputable, contradicting hnr₀.
       subst heq
-      exact absurd (Or.inr (Or.inr (hisresult t₀ hrt))) hnr₀
+      exact absurd (Or.inr (Or.inr (Or.inl (hisresult t₀ hrt)))) hnr₀
+    · have hl' : ({ st with world := world' }).locals t₀ = some w₀ := by
+        rw [setLocal_locals_ne heq] at hlocal₀; exact hlocal₀
+      have hprev : some w₀ = evalExpr { st with world := world' } 0 e₀ :=
+        hworld t₀ e₀ w₀ hdef₀ hnr₀ hl'
+      have hunused : usesInExpr t e₀ = 0 :=
+        hscope t hrt t₀ e₀ hdef₀ (by rw [show st.locals t₀ = some w₀ from hl']; simp)
+      rw [evalExpr_setLocal_of_unused hunused]
+      exact hprev
+
+/-! ### `create` — world replacement + create-result binding (the `call` twin)
+
+`create cs` (`EvalStmt.create`) is structurally the same hazard as `call cs`: the whole
+`world` is replaced by the create stream's `world'` and, if `cs.resultTmp = some t`, `t` is
+bound to the deployed-address-or-`0` word `addrW`. The preservation argument is *verbatim* the
+call one — world-replacement needs `hnoSload` (no live recomputable `sload`-tmp across the
+create), and the result binding is excluded because the bound tmp is `isCreateResult`, hence
+`NonRecomputable` (the fourth disjunct). The only difference from `defsSound_preserved_call` is
+that the result-tmp side condition is `isCreateResult prog t` rather than `isCallResult` (a
+CREATE result is not a CALL result). -/
+
+/-- **Preservation of `DefsSound` across `create cs`.** The world is replaced by the create
+stream's `world'` and (if present) the create-result tmp is bound to `addrW`. Twin of
+`defsSound_preserved_call`; the result-tmp obligation `hisresult` is `isCreateResult prog t`
+(the create sibling of `isCallResult`), injecting into `NonRecomputable`'s fourth disjunct. -/
+theorem defsSound_preserved_create {prog : Program} {st : IRState} {cs : CreateSpec}
+    {world' : World} {addrW : Word}
+    (hnoSload : ∀ t₀ e₀, defsOf prog t₀ = some e₀ → ¬ NonRecomputable prog t₀ →
+        st.locals t₀ ≠ none → ∀ key, e₀ ≠ .sload key)
+    (hisresult : ∀ t, cs.resultTmp = some t → isCreateResult prog t)
+    (hscope : ∀ t, cs.resultTmp = some t →
+        ∀ t₀ e₀, defsOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0)
+    (hsound : DefsSound prog st) :
+    DefsSound prog
+      (match cs.resultTmp with
+        | some t => { st with world := world' }.setLocal t addrW
+        | none   => { st with world := world' }) := by
+  -- DefsSound survives the bare world replacement (identical to the call case).
+  have hworld : DefsSound prog { st with world := world' } := by
+    intro t₀ e₀ w₀ hdef₀ hnr₀ hlocal₀
+    have hl' : st.locals t₀ = some w₀ := hlocal₀
+    have hprev : some w₀ = evalExpr st 0 e₀ := hsound t₀ e₀ w₀ hdef₀ hnr₀ hl'
+    have hns : ∀ key, e₀ ≠ .sload key := hnoSload t₀ e₀ hdef₀ hnr₀ (by rw [hl']; simp)
+    calc some w₀ = evalExpr st 0 e₀ := hprev
+      _ = evalExpr { st with world := world' } 0 e₀ :=
+            (evalExpr_world_irrel_of_noSload hns).symm
+  cases hrt : cs.resultTmp with
+  | none => simpa [hrt] using hworld
+  | some t =>
+    intro t₀ e₀ w₀ hdef₀ hnr₀ hlocal₀
+    by_cases heq : t₀ = t
+    · -- t₀ = t is a create result ⇒ NonRecomputable (fourth disjunct), contradicting hnr₀.
+      subst heq
+      exact absurd (Or.inr (Or.inr (Or.inr (hisresult t₀ hrt)))) hnr₀
     · have hl' : ({ st with world := world' }).locals t₀ = some w₀ := by
         rw [setLocal_locals_ne heq] at hlocal₀; exact hlocal₀
       have hprev : some w₀ = evalExpr { st with world := world' } 0 e₀ :=
@@ -534,18 +595,22 @@ def StepScoped (prog : Program) (st : IRState) : Stmt → Prop
       ∧ (∀ t, cs.resultTmp = some t → isCallResult prog t)
       ∧ (∀ t, cs.resultTmp = some t →
           ∀ t₀ e₀, defsOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0)
-  | .create _ =>
-      -- **Step-1 placeholder** (a real total Prop, no `sorry`): CREATE has no
-      -- `EvalStmt` arm yet (that lands in Step 2), so no per-step scoping obligation
-      -- is imposed here. The real `.create` bundle (mirroring `.call`) lands with the
-      -- semantics arm (`docs/create/BUILD-PLAN.md` §2 Steps 2/6).
-      True
+  | .create cs =>
+      -- The `.create` bundle, mirroring `.call` (`docs/create/BUILD-PLAN.md` §2 Step 2):
+      -- no live recomputable `sload`-tmp across the world-replacing create; the create-result
+      -- tmp is genuinely a create result (`isCreateResult`, the twin of `isCallResult`, hence
+      -- `NonRecomputable`); and define-before-use for the result tmp.
+      (∀ t₀ e₀, defsOf prog t₀ = some e₀ → ¬ NonRecomputable prog t₀ →
+        st.locals t₀ ≠ none → ∀ key, e₀ ≠ .sload key)
+      ∧ (∀ t, cs.resultTmp = some t → isCreateResult prog t)
+      ∧ (∀ t, cs.resultTmp = some t →
+          ∀ t₀ e₀, defsOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0)
 
 /-- **`DefsSound` is preserved by `EvalStmt`** (the B3 headline preservation), given the
 per-step scoping bundle `StepScoped`. Dispatches to the four per-arm lemmas. -/
 theorem defsSound_preserved {prog : Program}
-    {st st' : IRState} {T T' : Trace} {C C' : CallStream} {s : Stmt}
-    (hstep : EvalStmt prog st T C s st' T' C')
+    {st st' : IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream} {s : Stmt}
+    (hstep : EvalStmt prog st T C D s st' T' C' D')
     (hsc : StepScoped prog st s)
     (hsound : DefsSound prog st) :
     DefsSound prog st' := by
@@ -584,5 +649,8 @@ theorem defsSound_preserved {prog : Program}
   | call hcallee hgas =>
       obtain ⟨hnoSload, hisresult, hscope⟩ := hsc
       exact defsSound_preserved_call hnoSload hisresult hscope hsound
+  | create hvalue hoff hsize =>
+      obtain ⟨hnoSload, hisresult, hscope⟩ := hsc
+      exact defsSound_preserved_create hnoSload hisresult hscope hsound
 
 end Lir

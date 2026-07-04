@@ -98,6 +98,23 @@ realised stream (`callStreamOf log.calls self`, off v1's `evmCallOracle` project
 later piece (`LirLean/Spec/Recorder.lean`). -/
 abbrev CallStream := List (World × Word)
 
+/-! ## The external-CREATE stream (R2 = option A — SETTLED, `docs/create/stream-decision.md`)
+
+CREATE threads a **fourth channel** alongside the gas `Trace` and the `CallStream`, a
+byte-for-byte twin of the latter and fully independent of it. Ordering across kinds lives in
+the sequential statement walk (`RunStmts`/`RunFrom` thread each stream left-to-right; each
+`Stmt` pops only its own kind's head), NOT in the stream — so two per-kind channels reconstruct
+any `CALL; CREATE; CALL` interleaving correctly (stream-decision.md §1). Every existing
+constructor threads `D` **unchanged** (inert), exactly as it threads `T` past a `.call` or `C`
+past an `assignGas`; only the new `EvalStmt.create` pops it. -/
+
+/-- The supplied external-CREATE result stream — twin of `CallStream` (:99). Each entry is the
+post-create `World` paired with the deployed-address-or-`0` word CREATE pushes
+(`createAddrOrZero`, `Frame/Create.lean:75`), exactly as `CallStream`'s carries the `0`/`1`
+success flag. Positional, consumed head-first by `EvalStmt.create`; independent of the gas
+`Trace` and the `CallStream`. -/
+abbrev CreateStream := List (World × Word)
+
 /-! ## Helpers on `IRState` -/
 
 /-- Bind a temporary to a value. -/
@@ -162,46 +179,73 @@ pops a call-result and leaves the gas stream (§7). -/
 of the call stream (`Stmt.call`) and leaving the other channel unchanged; `assign`/`sstore`
 of non-gas expressions touch neither channel. -/
 inductive EvalStmt (prog : Program) :
-    IRState → Trace → CallStream → Stmt → IRState → Trace → CallStream → Prop where
+    IRState → Trace → CallStream → CreateStream → Stmt →
+    IRState → Trace → CallStream → CreateStream → Prop where
   /-- `t := e` for a **non-gas** expression `e`: evaluate `e` (no event), bind `t`.
   The `obs` argument of `evalExpr` is irrelevant here (it is only read by `.gas`),
-  so we pin it to `0`. Neither channel is consumed. -/
-  | assignPure {st : IRState} {T : Trace} {C : CallStream} {t : Tmp} {e : Expr} {w : Word}
+  so we pin it to `0`. No channel is consumed. -/
+  | assignPure {st : IRState} {T : Trace} {C : CallStream} {D : CreateStream}
+      {t : Tmp} {e : Expr} {w : Word}
       (hne : e ≠ .gas) (hv : evalExpr st 0 e = some w) :
-      EvalStmt prog st T C (.assign t e) (st.setLocal t w) T C
+      EvalStmt prog st T C D (.assign t e) (st.setLocal t w) T C D
   /-- `t := gas`: consume the next gas read `obs` from the gas stream, bind `t := obs`; the
-  call stream is unchanged. -/
-  | assignGas {st : IRState} {obs : Word} {T : Trace} {C : CallStream} {t : Tmp} :
-      EvalStmt prog st (obs :: T) C (.assign t .gas) (st.setLocal t obs) T C
-  /-- `storage[key] := value` — the observable write the bytecode side establishes; neither
+  call and create streams are unchanged. -/
+  | assignGas {st : IRState} {obs : Word} {T : Trace} {C : CallStream} {D : CreateStream} {t : Tmp} :
+      EvalStmt prog st (obs :: T) C D (.assign t .gas) (st.setLocal t obs) T C D
+  /-- `storage[key] := value` — the observable write the bytecode side establishes; no
   channel is consumed. -/
-  | sstore {st : IRState} {T : Trace} {C : CallStream} {key value : Tmp} {kw vw : Word}
+  | sstore {st : IRState} {T : Trace} {C : CallStream} {D : CreateStream}
+      {key value : Tmp} {kw vw : Word}
       (hk : st.locals key = some kw) (hv : st.locals value = some vw) :
-      EvalStmt prog st T C (.sstore key value) (st.setStorage kw vw) T C
+      EvalStmt prog st T C D (.sstore key value) (st.setStorage kw vw) T C D
   /-- `call cs`: read the callee and gas-to-forward words from `locals` (an undefined tmp ⇒
   the rule does not fire, mirroring `sstore`), **pop the head `(world', success)` of the call
   stream**, and apply it as a state change: set `world := world'` and bind the success flag at
-  `cs.resultTmp` if present. The gas stream is unchanged. Positional: the head IS this call's
-  recorded result — no function of the visible inputs, so distinct dynamic calls consume
-  distinct heads (multi-call, §7, R3′). -/
-  | call {st : IRState} {T : Trace} {C : CallStream} {cs : CallSpec}
+  `cs.resultTmp` if present. The gas and create streams are unchanged. Positional: the head IS
+  this call's recorded result — no function of the visible inputs, so distinct dynamic calls
+  consume distinct heads (multi-call, §7, R3′). -/
+  | call {st : IRState} {T : Trace} {C : CallStream} {D : CreateStream} {cs : CallSpec}
       {calleeW gasFwdW success : Word} {world' : World}
       (hcallee : st.locals cs.callee = some calleeW)
       (hgas : st.locals cs.gasFwd = some gasFwdW) :
-      EvalStmt prog st T ((world', success) :: C) (.call cs)
+      EvalStmt prog st T ((world', success) :: C) D (.call cs)
         (match cs.resultTmp with
           | some t => { st with world := world' }.setLocal t success
           | none   => { st with world := world' })
-        T C
+        T C D
+  /-- `create cs`: read the value / init-code window words from `locals` (an undefined tmp ⇒
+  the rule does not fire, mirroring `.call`), **pop the head `(world', addrW)` of the CREATE
+  stream**, set `world := world'`, and bind the deployed-address-or-`0` word `addrW` at
+  `cs.resultTmp` if present. The gas `Trace` and the `CallStream` are unchanged. Positional:
+  the head IS this create's recorded result. First cut is the empty-init case
+  (`value = initOffset = initSize = 0`, `Frame/Create.lean:31`), but the guards read the tmps so
+  CREATE2 (`salt = some`) needs no reshape — only an extra salt read (`docs/create/BUILD-PLAN.md`
+  §4). Structurally identical to `.call` — pop the head, `world := world'`, bind at `resultTmp` —
+  differing only in *which* channel is popped and *which* locals are read as guards; this
+  structural identity keeps every existing arm's `D`-threading inert. -/
+  | create {st : IRState} {T : Trace} {C : CallStream} {D : CreateStream}
+      {cs : CreateSpec} {valueW initOffW initSizeW addrW : Word} {world' : World}
+      (hvalue : st.locals cs.value = some valueW)
+      (hoff   : st.locals cs.initOffset = some initOffW)
+      (hsize  : st.locals cs.initSize = some initSizeW) :
+      EvalStmt prog st T C ((world', addrW) :: D) (.create cs)
+        (match cs.resultTmp with
+          | some t => { st with world := world' }.setLocal t addrW
+          | none   => { st with world := world' })
+        T C D
 
-/-- Run a statement list left-to-right, threading the gas trace and the call stream. -/
+/-- Run a statement list left-to-right, threading the gas trace, the call stream and the
+create stream. -/
 inductive RunStmts (prog : Program) :
-    IRState → Trace → CallStream → List Stmt → IRState → Trace → CallStream → Prop where
-  | nil {st : IRState} {T : Trace} {C : CallStream} : RunStmts prog st T C [] st T C
+    IRState → Trace → CallStream → CreateStream → List Stmt →
+    IRState → Trace → CallStream → CreateStream → Prop where
+  | nil {st : IRState} {T : Trace} {C : CallStream} {D : CreateStream} :
+      RunStmts prog st T C D [] st T C D
   | cons {st st' st'' : IRState} {T T' T'' : Trace} {C C' C'' : CallStream}
-      {s : Stmt} {ss : List Stmt}
-      (hh : EvalStmt prog st T C s st' T' C') (ht : RunStmts prog st' T' C' ss st'' T'' C'') :
-      RunStmts prog st T C (s :: ss) st'' T'' C''
+      {D D' D'' : CreateStream} {s : Stmt} {ss : List Stmt}
+      (hh : EvalStmt prog st T C D s st' T' C' D')
+      (ht : RunStmts prog st' T' C' D' ss st'' T'' C'' D'') :
+      RunStmts prog st T C D (s :: ss) st'' T'' C'' D''
 
 /-! ### The observable boundary (§4) -/
 
@@ -226,53 +270,55 @@ program halts with observable `O`. The terminators:
 example program's blocks form a DAG), so the inductive relation is well-founded by
 construction at use sites — no fuel parameter is threaded. -/
 inductive RunFrom (prog : Program) :
-    IRState → Trace → CallStream → Label → Observable → Prop where
+    IRState → Trace → CallStream → CreateStream → Label → Observable → Prop where
   /-- `ret t`: run the block's statements, then halt returning `t`'s value. -/
-  | ret {st st' : IRState} {T T' : Trace} {C C' : CallStream} {L : Label} {b : Block}
-      {t : Tmp} {w : Word}
+  | ret {st st' : IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
+      {L : Label} {b : Block} {t : Tmp} {w : Word}
       (hb : blockAt prog L = some b)
-      (hss : RunStmts prog st T C b.stmts st' T' C')
+      (hss : RunStmts prog st T C D b.stmts st' T' C' D')
       (hterm : b.term = .ret t)
       (hv : st'.locals t = some w) :
-      RunFrom prog st T C L { world := st'.world, result := .returned w }
+      RunFrom prog st T C D L { world := st'.world, result := .returned w }
   /-- `stop`: run the block's statements, then halt. -/
-  | stop {st st' : IRState} {T T' : Trace} {C C' : CallStream} {L : Label} {b : Block}
+  | stop {st st' : IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
+      {L : Label} {b : Block}
       (hb : blockAt prog L = some b)
-      (hss : RunStmts prog st T C b.stmts st' T' C')
+      (hss : RunStmts prog st T C D b.stmts st' T' C' D')
       (hterm : b.term = .stop) :
-      RunFrom prog st T C L { world := st'.world, result := .stopped }
+      RunFrom prog st T C D L { world := st'.world, result := .stopped }
   /-- `branch cond thenL elseL`, condition non-zero ⇒ recurse into `thenL`. -/
-  | branchThen {st st' : IRState} {T T' : Trace} {C C' : CallStream} {L : Label} {b : Block}
-      {cond : Tmp} {cw : Word} {thenL elseL : Label} {O : Observable}
+  | branchThen {st st' : IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
+      {L : Label} {b : Block} {cond : Tmp} {cw : Word} {thenL elseL : Label} {O : Observable}
       (hb : blockAt prog L = some b)
-      (hss : RunStmts prog st T C b.stmts st' T' C')
+      (hss : RunStmts prog st T C D b.stmts st' T' C' D')
       (hterm : b.term = .branch cond thenL elseL)
       (hc : st'.locals cond = some cw) (hnz : cw ≠ 0)
-      (hrest : RunFrom prog st' T' C' thenL O) :
-      RunFrom prog st T C L O
+      (hrest : RunFrom prog st' T' C' D' thenL O) :
+      RunFrom prog st T C D L O
   /-- `branch cond thenL elseL`, condition zero ⇒ recurse into `elseL`. -/
-  | branchElse {st st' : IRState} {T T' : Trace} {C C' : CallStream} {L : Label} {b : Block}
-      {cond : Tmp} {thenL elseL : Label} {O : Observable}
+  | branchElse {st st' : IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
+      {L : Label} {b : Block} {cond : Tmp} {thenL elseL : Label} {O : Observable}
       (hb : blockAt prog L = some b)
-      (hss : RunStmts prog st T C b.stmts st' T' C')
+      (hss : RunStmts prog st T C D b.stmts st' T' C' D')
       (hterm : b.term = .branch cond thenL elseL)
       (hc : st'.locals cond = some 0)
-      (hrest : RunFrom prog st' T' C' elseL O) :
-      RunFrom prog st T C L O
+      (hrest : RunFrom prog st' T' C' D' elseL O) :
+      RunFrom prog st T C D L O
   /-- `jump dst` ⇒ recurse into `dst`. -/
-  | jump {st st' : IRState} {T T' : Trace} {C C' : CallStream} {L : Label} {b : Block}
-      {dst : Label} {O : Observable}
+  | jump {st st' : IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
+      {L : Label} {b : Block} {dst : Label} {O : Observable}
       (hb : blockAt prog L = some b)
-      (hss : RunStmts prog st T C b.stmts st' T' C')
+      (hss : RunStmts prog st T C D b.stmts st' T' C' D')
       (hterm : b.term = .jump dst)
-      (hrest : RunFrom prog st' T' C' dst O) :
-      RunFrom prog st T C L O
+      (hrest : RunFrom prog st' T' C' D' dst O) :
+      RunFrom prog st T C D L O
 
 /-- **The top-level gas-free IR run** (`ir-design-v2.md` §4). Start at `prog.entry`
-with empty locals and world `w₀`, consume the whole gas trace `T` and call stream `C`, halt
-with `O`. Both streams are threaded alongside `prog`, consumed head-first (gas by
-`assign t .gas`, calls by `Stmt.call`). -/
-def IRRun (prog : Program) (w₀ : World) (T : Trace) (C : CallStream) (O : Observable) : Prop :=
-  RunFrom prog { locals := fun _ => none, world := w₀ } T C prog.entry O
+with empty locals and world `w₀`, consume the whole gas trace `T`, call stream `C` and create
+stream `D`, halt with `O`. All three streams are threaded alongside `prog`, consumed head-first
+(gas by `assign t .gas`, calls by `Stmt.call`, creates by `Stmt.create`). -/
+def IRRun (prog : Program) (w₀ : World) (T : Trace) (C : CallStream) (D : CreateStream)
+    (O : Observable) : Prop :=
+  RunFrom prog { locals := fun _ => none, world := w₀ } T C D prog.entry O
 
 end Lir.V2

@@ -360,17 +360,20 @@ theorem simStmtStep_call {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
 /-! ### The combined statement discharge
 
 `simStmtStep_block` case-splits a general block's statements per shape into the
-`assign` / `sstore` / `call` arms — so `SimStmtStep` is CONSTRUCTIBLE for *any* block, given
-`WellFormedLowered` and the per-shape genuine ties (including the §7 `CallRealises` tie for the
-call arm). The three arms are exhaustive over `EvalStmt`. -/
+`assign` / `sstore` / `call` arms — so `SimStmtStep` is CONSTRUCTIBLE for any create-free
+block, given `WellFormedLowered` and the per-shape genuine ties (including the §7 `CallRealises`
+tie for the call arm). The `create` arm is discharged vacuously via the create-free side
+condition `hnocreate` (the create-reflection is Step 5, `docs/create/BUILD-PLAN.md`). -/
 
-/-- **`SimStmtStep` for any block (general over calls).** Dispatches each statement on its
-shape: `assign` via `sim_assign` (no decode), `sstore` via `sim_sstore_stmt_lowered` (decode
-discharged inside), `call` via `simStmtStep_call` (`sim_call_stmt` + the §7 `CallRealises`
-tie). `WellFormedLowered` supplies the structural fuel/pc/slot side-conditions; the per-shape
-genuine runtime ties (assign post-state realisability; sstore gas/`SstoreRealises`/non-zero;
-the realised CALL trace) are the explicit §7 hypotheses. The three arms are exhaustive over
-`EvalStmt`, so NO call-free side condition is needed. -/
+/-- **`SimStmtStep` for any create-free block (general over calls).** Dispatches each statement
+on its shape: `assign` via `sim_assign` (no decode), `sstore` via `sim_sstore_stmt_lowered`
+(decode discharged inside), `call` via `simStmtStep_call` (`sim_call_stmt` + the §7
+`CallRealises` tie). `WellFormedLowered` supplies the structural fuel/pc/slot side-conditions;
+the per-shape genuine runtime ties (assign post-state realisability; sstore
+gas/`SstoreRealises`/non-zero; the realised CALL trace) are the explicit §7 hypotheses. A
+`.create` statement is excluded by `hnocreate` — the create-reflection (`sim_create` +
+`create_reflects_lowered`) lands in Step 5, at which point a create-permitting sibling builder
+supplies the §7 `CreateRealises` tie. -/
 theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {L : Label} {b : Block}
     (hb : prog.blocks.toList[L.idx]? = some b)
@@ -457,10 +460,15 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     -- `st0'` (the consumed call-stream head's effect — the positional multi-call pin):
     (hcallties : ∀ (pc : Nat) (cs : CallSpec) (st0 st0' : V2.IRState) (fr0 : Frame),
         b.stmts[pc]? = some (.call cs) →
-        CallRealises prog sloadChg obs L pc cs st0 st0' fr0) :
+        CallRealises prog sloadChg obs L pc cs st0 st0' fr0)
+    -- CREATE is create-free here (first landing): the `.create` reflection (`sim_create` +
+    -- `create_reflects_lowered`) is Step 5 (`docs/create/BUILD-PLAN.md`), so this builder covers
+    -- the create-free fragment — exactly as it once carried a call-free side condition before
+    -- Route B. A create-permitting builder (with a §7 `CreateRealises` tie) lands with Step 5.
+    (hnocreate : ∀ (pc : Nat) (cs : CreateSpec), b.stmts[pc]? ≠ some (.create cs)) :
     SimStmtStep prog sloadChg obs L b := by
-  intro pc s st0 st0' T0 T0' C0 C0' fr0 hget hcorr hcs hstep
-  -- `s` is at a present cursor; case on the `EvalStmt` step (assign / sstore / call).
+  intro pc s st0 st0' T0 T0' C0 C0' D0 D0' fr0 hget hcorr hcs hstep
+  -- `s` is at a present cursor; case on the `EvalStmt` step (assign / sstore / call / create).
   cases hstep with
   | assignPure hne hv =>
     rename_i t e w
@@ -491,31 +499,31 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       obtain ⟨hremat, hsc, hscoped', hmem'⟩ :=
         hassign pc t (.imm v) st0 (st0.setLocal t w) fr0 hget hcorr
       obtain ⟨_, hc', _⟩ := sim_assign hb hget hremat hcorr
-        (EvalStmt.assignPure (prog := prog) (T := T0) (C := C0) hne hv) hsc hscoped' hmem'
+        (EvalStmt.assignPure (prog := prog) (T := T0) (C := C0) (D := D0) hne hv) hsc hscoped' hmem'
       exact ⟨fr0, Runs.refl fr0, hc', hcorr.stack_nil⟩
     | tmp t' =>
       obtain ⟨hremat, hsc, hscoped', hmem'⟩ :=
         hassign pc t (.tmp t') st0 (st0.setLocal t w) fr0 hget hcorr
       obtain ⟨_, hc', _⟩ := sim_assign hb hget hremat hcorr
-        (EvalStmt.assignPure (prog := prog) (T := T0) (C := C0) hne hv) hsc hscoped' hmem'
+        (EvalStmt.assignPure (prog := prog) (T := T0) (C := C0) (D := D0) hne hv) hsc hscoped' hmem'
       exact ⟨fr0, Runs.refl fr0, hc', hcorr.stack_nil⟩
     | add a b =>
       obtain ⟨hremat, hsc, hscoped', hmem'⟩ :=
         hassign pc t (.add a b) st0 (st0.setLocal t w) fr0 hget hcorr
       obtain ⟨_, hc', _⟩ := sim_assign hb hget hremat hcorr
-        (EvalStmt.assignPure (prog := prog) (T := T0) (C := C0) hne hv) hsc hscoped' hmem'
+        (EvalStmt.assignPure (prog := prog) (T := T0) (C := C0) (D := D0) hne hv) hsc hscoped' hmem'
       exact ⟨fr0, Runs.refl fr0, hc', hcorr.stack_nil⟩
     | lt a b =>
       obtain ⟨hremat, hsc, hscoped', hmem'⟩ :=
         hassign pc t (.lt a b) st0 (st0.setLocal t w) fr0 hget hcorr
       obtain ⟨_, hc', _⟩ := sim_assign hb hget hremat hcorr
-        (EvalStmt.assignPure (prog := prog) (T := T0) (C := C0) hne hv) hsc hscoped' hmem'
+        (EvalStmt.assignPure (prog := prog) (T := T0) (C := C0) (D := D0) hne hv) hsc hscoped' hmem'
       exact ⟨fr0, Runs.refl fr0, hc', hcorr.stack_nil⟩
     | slot n =>
       obtain ⟨hremat, hsc, hscoped', hmem'⟩ :=
         hassign pc t (.slot n) st0 (st0.setLocal t w) fr0 hget hcorr
       obtain ⟨_, hc', _⟩ := sim_assign hb hget hremat hcorr
-        (EvalStmt.assignPure (prog := prog) (T := T0) (C := C0) hne hv) hsc hscoped' hmem'
+        (EvalStmt.assignPure (prog := prog) (T := T0) (C := C0) (D := D0) hne hv) hsc hscoped' hmem'
       exact ⟨fr0, Runs.refl fr0, hc', hcorr.stack_nil⟩
     | gas => exact absurd rfl hne
   | assignGas =>
@@ -543,6 +551,11 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     -- the step post-state `st0'` is the consumed head's effect; `hcallties` pins it to the
     -- realised `evmV2CallEntry` effect (the positional multi-call tie).
     exact simStmtStep_call hb hget hwf hcorr (hcallties pc cs st0 _ fr0 hget)
+  | create hvalue hoff hsize =>
+    -- create-free fragment: the create-reflection is Step 5, so a `.create` at a present cursor
+    -- contradicts `hnocreate`.
+    rename_i cs valueW initOffW initSizeW addrW world'
+    exact absurd hget (hnocreate pc cs)
 
 /-! ### The `stop`-terminator discharge (fully closed down to the genuine frame facts)
 
@@ -973,14 +986,15 @@ theorem sim_cfg {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       SimStmtStep prog sloadChg obs L b)
     (hterm : ∀ (L : Label) (b : Block), blockAt prog L = some b →
       SimTermStep prog sloadChg obs self L b)
-    {st : V2.IRState} {T : Trace} {C : CallStream} {L : Label} {O : V2.Observable} {fr : Frame}
+    {st : V2.IRState} {T : Trace} {C : CallStream} {D : CreateStream}
+    {L : Label} {O : V2.Observable} {fr : Frame}
     (hcorr : Corr prog sloadChg obs st fr L 0)
     (hcs : CleanHaltsNonException fr)
-    (hrun : V2.RunFrom prog st T C L O) :
+    (hrun : V2.RunFrom prog st T C D L O) :
     ∃ last haltSig, Runs fr last ∧ stepFrame last = .halted haltSig
       ∧ (observe self (endFrame last haltSig)).world = O.world := by
   induction hrun generalizing fr with
-  | @ret st st' T T' C C' L b t w hb hss hterm' hv =>
+  | @ret st st' T T' C C' D D' L b t w hb hss hterm' hv =>
     -- Layer D: run the block's statements to the terminator cursor.
     obtain ⟨frT, hrunsT, hcorrT, _⟩ :=
       sim_stmts_block (hstmts L b hb) hcorr hcs hss
@@ -988,13 +1002,13 @@ theorem sim_cfg {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     obtain ⟨last, haltSig, hlast, hhalt, hworld⟩ :=
       (hterm L b hb).halt st' frT hcorrT (Or.inr ⟨t, hterm'⟩)
     exact ⟨last, haltSig, hrunsT.trans hlast, hhalt, hworld⟩
-  | @stop st st' T T' C C' L b hb hss hterm' =>
+  | @stop st st' T T' C C' D D' L b hb hss hterm' =>
     obtain ⟨frT, hrunsT, hcorrT, _⟩ :=
       sim_stmts_block (hstmts L b hb) hcorr hcs hss
     obtain ⟨last, haltSig, hlast, hhalt, hworld⟩ :=
       (hterm L b hb).halt st' frT hcorrT (Or.inl hterm')
     exact ⟨last, haltSig, hrunsT.trans hlast, hhalt, hworld⟩
-  | @branchThen st st' T T' C C' L b cond cw thenL elseL O hb hss hterm' hc hnz hrest ih =>
+  | @branchThen st st' T T' C C' D D' L b cond cw thenL elseL O hb hss hterm' hc hnz hrest ih =>
     obtain ⟨frT, hrunsT, hcorrT, _⟩ :=
       sim_stmts_block (hstmts L b hb) hcorr hcs hss
     -- Layer E (edge): step to `thenL`'s entry, re-establishing `Corr` at `(thenL, 0)`.
@@ -1007,7 +1021,7 @@ theorem sim_cfg {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     -- IH on the recursion into `thenL`, from the re-established `Corr`.
     obtain ⟨last, haltSig, hlast, hhalt, hworld⟩ := ih hcorr' hcs'
     exact ⟨last, haltSig, (hrunsT.trans hruns').trans hlast, hhalt, hworld⟩
-  | @branchElse st st' T T' C C' L b cond thenL elseL O hb hss hterm' hc hrest ih =>
+  | @branchElse st st' T T' C C' D D' L b cond thenL elseL O hb hss hterm' hc hrest ih =>
     obtain ⟨frT, hrunsT, hcorrT, _⟩ :=
       sim_stmts_block (hstmts L b hb) hcorr hcs hss
     obtain ⟨fr', hruns', hcorr'⟩ :=
@@ -1017,7 +1031,7 @@ theorem sim_cfg {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       cleanHaltsNonException_forward hcs (hrunsT.trans hruns')
     obtain ⟨last, haltSig, hlast, hhalt, hworld⟩ := ih hcorr' hcs'
     exact ⟨last, haltSig, (hrunsT.trans hruns').trans hlast, hhalt, hworld⟩
-  | @jump st st' T T' C C' L b dst O hb hss hterm' hrest ih =>
+  | @jump st st' T T' C C' D D' L b dst O hb hss hterm' hrest ih =>
     obtain ⟨frT, hrunsT, hcorrT, _⟩ :=
       sim_stmts_block (hstmts L b hb) hcorr hcs hss
     obtain ⟨fr', hruns', hcorr'⟩ :=

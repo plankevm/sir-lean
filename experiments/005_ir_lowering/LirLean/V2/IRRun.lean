@@ -79,8 +79,8 @@ steps to `stmtPost st s` with the trace unchanged. The trace `T` is arbitrary an
 no read is consumed (the only consuming statement, `assign t .gas`, is excluded by
 `StmtDefinable`). -/
 theorem evalStmt_exists {prog : Program} {st : IRState} {T : Trace} {C : CallStream}
-    {s : Stmt} (hdef : StmtDefinable st s) :
-    EvalStmt prog st T C s (stmtPost st s) T C := by
+    {D : CreateStream} {s : Stmt} (hdef : StmtDefinable st s) :
+    EvalStmt prog st T C D s (stmtPost st s) T C D := by
   cases s with
   | assign t e =>
     obtain ⟨hne, w, hw⟩ := hdef
@@ -120,8 +120,8 @@ def stmtsPost (st : IRState) : List Stmt → IRState
 runs to `stmtsPost st ss` with the trace unchanged. By induction on the list; each head fires
 via `evalStmt_exists`, the tail by the IH at the head's post-state. -/
 theorem runStmts_exists {prog : Program} {st : IRState} {T : Trace} {C : CallStream}
-    {ss : List Stmt} (hdef : StmtsDefinable st ss) :
-    RunStmts prog st T C ss (stmtsPost st ss) T C := by
+    {D : CreateStream} {ss : List Stmt} (hdef : StmtsDefinable st ss) :
+    RunStmts prog st T C D ss (stmtsPost st ss) T C D := by
   induction ss generalizing st with
   | nil => exact RunStmts.nil
   | cons s ss ih =>

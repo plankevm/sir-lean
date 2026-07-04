@@ -89,12 +89,13 @@ is false at those real states), so the R10a→R11 assembly routes those cursors 
 the re-plumbed sim lemmas or a scoped-`Corr` restatement of the arms. DERIVED-status
 obligation (a lemma about the semantics; nothing supplied to the flagship). -/
 theorem defsSoundS_preserved_step {prog : Program}
-    {st st' : IRState} {T T' : Trace} {C C' : CallStream} {s : Stmt} {I : Tmp → Prop}
+    {st st' : IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
+    {s : Stmt} {I : Tmp → Prop}
     {L : Label} {b : Block} {pc : Nat}
     (hcons : DefsConsistent prog)
     (hb : blockAt prog L = some b)
     (hs : b.stmts[pc]? = some s)
-    (hstep : EvalStmt prog st T C s st' T' C')
+    (hstep : EvalStmt prog st T C D s st' T' C' D')
     (hsound : DefsSoundS prog I st) :
     DefsSoundS prog (invalStep prog I s) st' := by
   have hbmem : b ∈ prog.blocks.toList := List.mem_of_getElem? (Lir.toList_of_blockAt hb)
@@ -186,7 +187,42 @@ theorem defsSoundS_preserved_step {prog : Program}
       simp only [hrt] at hlocal₀
       by_cases heq : t₀ = t
       · subst heq
-        exact absurd (Or.inr (Or.inr ⟨b, hbmem, cs, hsmem, hrt⟩)) hnr₀
+        exact absurd (Or.inr (Or.inr (Or.inl ⟨b, hbmem, cs, hsmem, hrt⟩))) hnr₀
+      · rw [if_neg heq] at hninval
+        have hnotI : ¬ I t₀ := fun h => hninval (Or.inl h)
+        have hunused : usesInExpr t e₀ = 0 := by
+          by_contra hu; exact hninval (Or.inr ⟨e₀, hdef₀, hu⟩)
+        have hl' : st.locals t₀ = some w₀ := by
+          simpa [IRState.setLocal, heq] using hlocal₀
+        have hprev : some w₀ = evalExpr st 0 e₀ := hsound t₀ e₀ w₀ hdef₀ hnr₀ hnotI hl'
+        rw [Lir.evalExpr_setLocal_of_unused hunused]
+        calc some w₀ = evalExpr st 0 e₀ := hprev
+          _ = evalExpr { st with world := world' } 0 e₀ := (evalExpr_world_noSload hns).symm
+  | create hvalue hoff hsize =>
+    -- verbatim twin of the `call` arm: the create pops the create stream and applies its head
+    -- (world replacement + result-tmp binding) exactly as the call arm applies the call head.
+    rename_i cs valueW initOffW initSizeW addrW world'
+    intro t₀ e₀ w₀ hdef₀ hnr₀ hninval hlocal₀
+    have hns : ∀ k, e₀ ≠ .sload k := fun k he => Lir.defsOf_ne_sload prog t₀ k (he ▸ hdef₀)
+    cases hrt : cs.resultTmp with
+    | none =>
+      have hie : invalStep prog I (.create cs) t₀ = I t₀ := by simp only [invalStep, hrt]
+      rw [hie] at hninval
+      simp only [hrt] at hlocal₀
+      have hl' : st.locals t₀ = some w₀ := hlocal₀
+      have hprev : some w₀ = evalExpr st 0 e₀ := hsound t₀ e₀ w₀ hdef₀ hnr₀ hninval hl'
+      calc some w₀ = evalExpr st 0 e₀ := hprev
+        _ = evalExpr { st with world := world' } 0 e₀ := (evalExpr_world_noSload hns).symm
+    | some t =>
+      have hie : invalStep prog I (.create cs) t₀
+          = if t₀ = t then False else (I t₀ ∨ ReadsOf prog t t₀) := by
+        simp only [invalStep, hrt]
+      rw [hie] at hninval
+      simp only [hrt] at hlocal₀
+      by_cases heq : t₀ = t
+      · subst heq
+        -- the create result tmp is `isCreateResult`, hence `NonRecomputable` (fourth disjunct).
+        exact absurd (Or.inr (Or.inr (Or.inr ⟨b, hbmem, cs, hsmem, hrt⟩))) hnr₀
       · rw [if_neg heq] at hninval
         have hnotI : ¬ I t₀ := fun h => hninval (Or.inl h)
         have hunused : usesInExpr t e₀ = 0 := by

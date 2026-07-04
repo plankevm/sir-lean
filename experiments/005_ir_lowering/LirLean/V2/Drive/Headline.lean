@@ -160,10 +160,11 @@ The frame is the SAME `fr` the cursor's `Corr` carries (a rematerialised assign 
 is `memRealises_setLocal_nonspilled` applied to `Corr.memAgree`. No recorder, no P3 — the genuine
 no-bridge content of S7 (Route 4b indexed form). -/
 theorem driveCorrPlus_assign_remat_memRealises {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st st' : V2.IRState} {T T' : Trace} {C C' : CallStream} {t : Tmp} {e : Expr} {L : Label}
+    {st st' : V2.IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
+    {t : Tmp} {e : Expr} {L : Label}
     {pc : Nat} {fr : Frame}
     (hcorr : Corr prog sloadChg obs st fr L pc)
-    (hstep : EvalStmt prog st T C (.assign t e) st' T' C')
+    (hstep : EvalStmt prog st T C D (.assign t e) st' T' C' D')
     (hne : e ≠ .gas)
     (hns : ∀ n, defsOf prog t ≠ some (.slot n)) :
     MemRealises prog st' fr := by
@@ -180,8 +181,8 @@ is `EvalStmt`, the IR genuinely binds a value: `∃ w, evalExpr st 0 (.sload k) 
 successful IR step — NON-vacuous (the run is the witness that `k` is bound and `w = st.world key`). No
 recorder, no P3. -/
 theorem driveCorrPlus_sload_value {prog : Program}
-    {st st' : V2.IRState} {T T' : Trace} {C C' : CallStream} {t k : Tmp}
-    (hstep : EvalStmt prog st T C (.assign t (.sload k)) st' T' C') :
+    {st st' : V2.IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream} {t k : Tmp}
+    (hstep : EvalStmt prog st T C D (.assign t (.sload k)) st' T' C' D') :
     ∃ w, V2.evalExpr st 0 (.sload k) = some w := by
   cases hstep with
   | assignPure _ hv => exact ⟨_, hv⟩
@@ -191,8 +192,8 @@ theorem driveCorrPlus_sload_value {prog : Program}
 `assignPure`: the IR run's sload at this cursor binds `k`'s key and the loaded word is `st.world key` —
 the value `MemRealises` will position at `t`'s slot. Non-vacuous (the run is its own witness). -/
 theorem driveCorrPlus_sload_value_world {prog : Program}
-    {st st' : V2.IRState} {T T' : Trace} {C C' : CallStream} {t k : Tmp}
-    (hstep : EvalStmt prog st T C (.assign t (.sload k)) st' T' C') :
+    {st st' : V2.IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream} {t k : Tmp}
+    (hstep : EvalStmt prog st T C D (.assign t (.sload k)) st' T' C' D') :
     ∃ key, st.locals k = some key ∧ V2.evalExpr st 0 (.sload k) = some (st.world key) := by
   cases hstep with
   | assignPure _ hv =>

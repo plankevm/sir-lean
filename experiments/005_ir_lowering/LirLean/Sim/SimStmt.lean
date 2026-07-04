@@ -198,13 +198,14 @@ scoping (`StepScoped`) and the post-state realisability ties.
 The spilled (gas) arm — `defsOf prog t = some (.slot n)`, which emits the `[GAS] ++ PUSH n
 ++ MSTORE` stash — is `sim_assign_gas` below. -/
 theorem sim_assign {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st st' : V2.IRState} {T T' : Trace} {C C' : CallStream} {t : Tmp} {e : Expr}
+    {st st' : V2.IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
+    {t : Tmp} {e : Expr}
     {L : Label} {b : Block} {pc : Nat} {fr : Frame}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some (.assign t e))
     (hremat : ∀ n, defsOf prog t ≠ some (.slot n))
     (hcorr : Corr prog sloadChg obs st fr L pc)
-    (hstep : EvalStmt prog st T C (.assign t e) st' T' C')
+    (hstep : EvalStmt prog st T C D (.assign t e) st' T' C' D')
     (hsc : StepScoped prog st (.assign t e))
     (hscoped' : ∀ t, st'.locals t ≠ none →
       (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.slot slot))

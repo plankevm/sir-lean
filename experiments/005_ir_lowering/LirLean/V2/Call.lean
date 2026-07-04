@@ -105,27 +105,28 @@ For any initial world `w₀`, observed gas `obs`, and supplied call-result head 
 head `(w', s')` is applied as the state change, and the success flag is returned. The head is
 held abstract throughout — it is *positional*, not a function of the visible inputs. -/
 theorem call_IRRun (w₀ : World) (obs : Word) (w' : World) (s' : Word) :
-    IRRun callIR w₀ [obs] [(w', s')] (callObsResult w₀ obs w' s') := by
-  -- the three block-0 statements
-  have e0 : EvalStmt callIR (c0 w₀) [obs] [(w', s')]
-      (.assign (tmp 0) (.imm 42)) (c1 w₀) [obs] [(w', s')] :=
+    IRRun callIR w₀ [obs] [(w', s')] [] (callObsResult w₀ obs w' s') := by
+  -- the three block-0 statements (the create stream `[]` is threaded inertly throughout)
+  have e0 : EvalStmt callIR (c0 w₀) [obs] [(w', s')] []
+      (.assign (tmp 0) (.imm 42)) (c1 w₀) [obs] [(w', s')] [] :=
     EvalStmt.assignPure (by nofun) rfl
-  have e1 : EvalStmt callIR (c1 w₀) [obs] [(w', s')]
-      (.assign (tmp 1) .gas) (c2 w₀ obs) [] [(w', s')] := EvalStmt.assignGas
-  have e2 : EvalStmt callIR (c2 w₀ obs) [] [(w', s')]
+  have e1 : EvalStmt callIR (c1 w₀) [obs] [(w', s')] []
+      (.assign (tmp 1) .gas) (c2 w₀ obs) [] [(w', s')] [] := EvalStmt.assignGas
+  have e2 : EvalStmt callIR (c2 w₀ obs) [] [(w', s')] []
       (.call { callee := tmp 0, gasFwd := tmp 1, resultTmp := some (tmp 2) })
-      (c3 w₀ obs w' s') [] [] := by
+      (c3 w₀ obs w' s') [] [] [] := by
     have h := EvalStmt.call (prog := callIR) (st := c2 w₀ obs) (T := ([] : Trace))
-      (C := ([] : CallStream)) (world' := w') (success := s')
+      (C := ([] : CallStream)) (D := ([] : CreateStream)) (world' := w') (success := s')
       (cs := { callee := tmp 0, gasFwd := tmp 1, resultTmp := some (tmp 2) })
       (c2_callee w₀ obs) (c2_gasFwd w₀ obs)
     -- the post-state of the constructor is definitionally `c3 w₀ obs w' s'`.
     exact h
-  have hss : RunStmts callIR (c0 w₀) [obs] [(w', s')] callBlock.stmts (c3 w₀ obs w' s') [] [] :=
+  have hss : RunStmts callIR (c0 w₀) [obs] [(w', s')] [] callBlock.stmts
+      (c3 w₀ obs w' s') [] [] [] :=
     .cons e0 (.cons e1 (.cons e2 .nil))
   -- the terminator `ret t2` returns the success flag, in the head's world.
   have hret :
-      RunFrom callIR (c0 w₀) [obs] [(w', s')] (lbl 0)
+      RunFrom callIR (c0 w₀) [obs] [(w', s')] [] (lbl 0)
         { world := (c3 w₀ obs w' s').world, result := .returned s' } :=
     RunFrom.ret (b := callBlock) (t := tmp 2) callIR_block0 hss rfl (c3_result w₀ obs w' s')
   -- the post-call world is exactly the head's `w'`.
@@ -136,7 +137,7 @@ theorem call_IRRun (w₀ : World) (obs : Word) (w' : World) (s' : Word) :
 /-- The §4 "*the* observable" shape on the call side: by `IRRun.det`, the observable
 above is the **only** one `callIR` yields on this gas trace and call stream. -/
 theorem call_IRRun_unique (w₀ : World) (obs : Word) (w' : World) (s' : Word) :
-    ∀ O, IRRun callIR w₀ [obs] [(w', s')] O → O = callObsResult w₀ obs w' s' :=
+    ∀ O, IRRun callIR w₀ [obs] [(w', s')] [] O → O = callObsResult w₀ obs w' s' :=
   fun _ hO => IRRun.det hO (call_IRRun w₀ obs w' s')
 
 -- Build-enforced axiom-cleanliness guard: the worked call run and its uniqueness depend
