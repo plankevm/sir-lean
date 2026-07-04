@@ -36,7 +36,6 @@ import LirLean.SimTerm
 -- v2 (exp005) gas-free IR: determinism, existence, preservation, abstract CALL oracle.
 import LirLean.V2.Law
 import LirLean.V2.IRRun
-import LirLean.V2.Preserve
 import LirLean.V2.Call
 import LirLean.V2.CallRealises
 

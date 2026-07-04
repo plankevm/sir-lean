@@ -121,7 +121,7 @@ Every **call-result** tmp is used **at most once** across the program. (Gas tmps
 be restricted too — recompute-on-use would re-read a fresh `GAS` value — but **Phase B
 spills gas to memory**: a gas read is stashed once at its def-site and reused via `MLOAD`,
 so multi-use gas is now safe and is *not* a `WellFormed` obligation.) The predicate stays
-*discriminating*, not vacuous: `protoIR`/`callIR` satisfy it; a program whose CALL result is
+*discriminating*, not vacuous: `callIR` satisfies it; a program whose CALL result is
 read twice does not. `guardIR` — which reads its first gas value twice (the guard *and* the
 `ret`) — is now **`WellFormed`** (gas multi-use is in scope), the demonstration that the
 Phase-B spill lifted the former restriction. -/
