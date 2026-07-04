@@ -198,6 +198,11 @@ def emitStmt (defs : Tmp → Option Expr) (fuel : Nat) : Stmt → List UInt8
       ++ (match cs.resultTmp with
           | some t => emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]   -- PUSH slot; MSTORE
           | none   => [Byte.pop])                                          -- discard flag
+  | .create _ =>
+      -- **Step-1 placeholder** (a real total definition, no `sorry`): CREATE emits
+      -- no bytes yet. The real CREATE/CREATE2 lowering (arg pushes + `0xf0`/`0xf5`
+      -- + result stash) lands in Step 4 (`docs/create/BUILD-PLAN.md` §2 Step 4).
+      []
 
 /-- Emit the opcode bytes for a terminator, given the `defs` environment, fuel, and
 the resolved offset table `labelOff` (label index → byte offset of its

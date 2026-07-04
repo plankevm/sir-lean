@@ -324,6 +324,10 @@ theorem segAlignedP_emitStmt (defs : Tmp → Option Expr) (fuel : Nat) (s : Stmt
       | some t =>
           exact (segAlignedP_emitImm (UInt256.ofNat (slotOf t))).append
             (SegAlignedP.nonpush Byte.mstore (by decide) (by decide))
+  | create cs =>
+      -- Step-1 placeholder: `emitStmt … (.create _) = []` (see `Spec/Lowering.lean`).
+      rw [show emitStmt defs fuel (.create cs) = [] from rfl]
+      exact .nil
 
 theorem segAlignedP_emitTerm (defs : Tmp → Option Expr) (fuel : Nat) (labelOff : Nat → Nat)
     (t : Term) : SegAlignedP IsLoweringOp (emitTerm defs fuel labelOff t) := by

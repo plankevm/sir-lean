@@ -62,6 +62,9 @@ def usesInStmt (t : Tmp) : Stmt → Nat
   | .assign _ e      => usesInExpr t e
   | .sstore key val  => (if key = t then 1 else 0) + (if val = t then 1 else 0)
   | .call cs         => (if cs.callee = t then 1 else 0) + (if cs.gasFwd = t then 1 else 0)
+  | .create cs       => (if cs.value = t then 1 else 0) + (if cs.initOffset = t then 1 else 0)
+                          + (if cs.initSize = t then 1 else 0)
+                          + (match cs.salt with | some s => if s = t then 1 else 0 | none => 0)
 
 /-- Number of reads of tmp `t` inside terminator `term`. -/
 def usesInTerm (t : Tmp) : Term → Nat
@@ -531,6 +534,12 @@ def StepScoped (prog : Program) (st : IRState) : Stmt → Prop
       ∧ (∀ t, cs.resultTmp = some t → isCallResult prog t)
       ∧ (∀ t, cs.resultTmp = some t →
           ∀ t₀ e₀, defsOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0)
+  | .create _ =>
+      -- **Step-1 placeholder** (a real total Prop, no `sorry`): CREATE has no
+      -- `EvalStmt` arm yet (that lands in Step 2), so no per-step scoping obligation
+      -- is imposed here. The real `.create` bundle (mirroring `.call`) lands with the
+      -- semantics arm (`docs/create/BUILD-PLAN.md` §2 Steps 2/6).
+      True
 
 /-- **`DefsSound` is preserved by `EvalStmt`** (the B3 headline preservation), given the
 per-step scoping bundle `StepScoped`. Dispatches to the four per-arm lemmas. -/

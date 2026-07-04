@@ -136,6 +136,11 @@ def StmtDefinableG (st : IRState) : Stmt → Prop
   | .assign _ e => e = .gas ∨ ∃ w, evalExpr st 0 e = some w
   | .sstore key value => (∃ kw, st.locals key = some kw) ∧ (∃ vw, st.locals value = some vw)
   | .call cs => (∃ cw, st.locals cs.callee = some cw) ∧ (∃ gw, st.locals cs.gasFwd = some gw)
+  | .create _ =>
+      -- Step-1 placeholder (real total Prop): CREATE has no `EvalStmt` arm yet
+      -- (Step 2), so nothing is demanded. The real operand demands (value /
+      -- initOffset / initSize bound) land with the semantics arm.
+      True
 
 /-- **Gas/call-aware run-definability** — the honest replacement of `RunDefinable`
 (unsatisfiable on the gas/call domain, header lesson 4). Definability is threaded along
@@ -249,6 +254,12 @@ def invalStep (prog : Program) (I : Tmp → Prop) : Stmt → (Tmp → Prop)
       match cs.resultTmp with
       | some t => fun t' => if t' = t then False else (I t' ∨ ReadsOf prog t t')
       | none => I
+  | .create cs =>
+      -- CREATE binds its `resultTmp` (the pushed address) exactly as a call binds its
+      -- success flag, so the invalidation transfer is the `.call` transfer verbatim.
+      match cs.resultTmp with
+      | some t => fun t' => if t' = t then False else (I t' ∨ ReadsOf prog t t')
+      | none => I
 
 /-- **Shadowing-aware recompute soundness**: `Lir.DefsSound` restricted to the tmps
 OUTSIDE the invalidation set `I`. A stale-but-unused dependent (inside `I`) is claimed
@@ -285,6 +296,11 @@ def StepScopedS (prog : Program) : Stmt → Prop
   | .sstore _ _ =>
       ∀ (t₀ : Tmp) (e₀ : Expr), defsOf prog t₀ = some e₀ → ∀ key, e₀ ≠ .sload key
   | .call cs => ∀ t, cs.resultTmp = some t → Lir.isCallResult prog t
+  | .create _ =>
+      -- Step-1 placeholder (real total Prop): the create-result registration clause
+      -- (twin of the `.call` clause, once `isCreateResult` exists) lands with the
+      -- recorder/realisation step (`docs/create/BUILD-PLAN.md` §2 Step 6).
+      True
 
 /-- **The per-block boundary re-validation criterion** (R0b's static half): folding the
 invalidation transfer over any present block's statements from the EMPTY set lands back

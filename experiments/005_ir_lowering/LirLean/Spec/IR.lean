@@ -49,6 +49,27 @@ structure CallSpec where
   resultTmp : Option Tmp
 deriving DecidableEq, Repr
 
+/-- The external-CREATE / CREATE2 payload — the twin of `CallSpec`. C1 models
+exp003's empty-init-code create (`beginCreate`, `Create.lean:31`): the value to
+endow, and the init-code memory window (`initOffset`/`initSize`) are carried as
+temporaries but fixed to zero for the first cut, so the richer (nonzero init-code)
+shape needs no re-shape later. `salt` distinguishes CREATE (`none`) from CREATE2
+(`some`) **from day one** — the single field that makes CREATE2 a lowering delta,
+not a rebuild. `resultTmp` receives the deployed-address-or-`0` word CREATE pushes
+(`createAddrOrZero`, `Frame/Create.lean:75`). -/
+structure CreateSpec where
+  /-- Temporary holding the value (wei) to endow the new contract with. -/
+  value : Tmp
+  /-- Temporary holding the init-code memory offset. -/
+  initOffset : Tmp
+  /-- Temporary holding the init-code memory size. -/
+  initSize : Tmp
+  /-- The CREATE2 salt, if this is a CREATE2 (`none` = CREATE). -/
+  salt : Option Tmp
+  /-- Where to bind the pushed deployed-address-or-`0` word, if anywhere. -/
+  resultTmp : Option Tmp
+deriving DecidableEq, Repr
+
 /-- A pure expression. `gas` is first-class — the IR can observe remaining gas and
 later branch on it (`docs/ir-design.md` §2 "Why `gas` belongs in the IR"). -/
 inductive Expr where
@@ -83,6 +104,10 @@ inductive Stmt where
   exp003's `messageCall_call_runs` supports only **one** of these between two
   call-free `Runs` segments — see `docs/ir-design.md` §5. -/
   | call   (cs : CallSpec)
+  /-- An external CREATE / CREATE2 (see `CreateSpec`). The twin of `Stmt.call`;
+  the reference layer (`beginCreate`/`resumeAfterCreate`) already unifies both
+  kinds — see `docs/create/BUILD-PLAN.md`. -/
+  | create (cs : CreateSpec)
 deriving DecidableEq, Repr
 
 /-- A block terminator: the control-flow edge(s) leaving a block. -/

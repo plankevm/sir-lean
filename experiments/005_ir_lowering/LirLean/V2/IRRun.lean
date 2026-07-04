@@ -62,6 +62,7 @@ def StmtDefinable (st : IRState) : Stmt → Prop
   | .assign _ e => e ≠ .gas ∧ ∃ w, evalExpr st 0 e = some w
   | .sstore key value => (∃ kw, st.locals key = some kw) ∧ (∃ vw, st.locals value = some vw)
   | .call _ => False
+  | .create _ => False
 
 /-- The post-state a gas-free, non-call definable statement steps to: `assign` binds the
 evaluated value; `sstore` writes the cell. (A total function on the fragment; the `call`
@@ -71,6 +72,7 @@ def stmtPost (st : IRState) : Stmt → IRState
   | .sstore key value =>
       st.setStorage (st.locals key |>.getD 0) (st.locals value |>.getD 0)
   | .call _ => st
+  | .create _ => st
 
 /-- **`EvalStmt` existence (gas-free, non-call fragment).** A `StmtDefinable` statement
 steps to `stmtPost st s` with the trace unchanged. The trace `T` is arbitrary and preserved:
@@ -93,6 +95,7 @@ theorem evalStmt_exists {prog : Program} {st : IRState} {T : Trace} {C : CallStr
     rw [this]
     exact EvalStmt.sstore hk hv
   | call cs => exact absurd hdef (by simp [StmtDefinable])
+  | create cs => exact absurd hdef (by simp [StmtDefinable])
 
 /-! ## `RunStmts` existence for the gas-free, call-free fragment
 
