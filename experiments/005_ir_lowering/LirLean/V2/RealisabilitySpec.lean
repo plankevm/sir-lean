@@ -479,6 +479,39 @@ structure WellLowered (prog : Program) : Prop where
   closed : ClosedCFG prog
   /-- The static per-cursor stack-room folds. -/
   stack : StackRoomOK prog
+  /-- **Gas-stash pc bound** (R1's `hpcbound`). At every spilled-`.gas` cursor the
+  `[GAS] ++ PUSH ++ MSTORE` stash's pc range fits a 32-bit pc (`decode_gasstash`'s
+  `+ 34 < 2^32`). Absent from `WellFormedLowered` (which carries no gas-stash bound); a
+  static, decidable, checker-dischargeable well-formedness fact — the sibling of
+  `bound_sstore`/`bound_sload`, keyed to the gas stash. SUPPLIED status: static per program. -/
+  gasBound : ∀ (L : Label) (b : Block) (pc : Nat) (t : Tmp),
+    blockAt prog L = some b → b.stmts[pc]? = some (.assign t .gas) →
+    pcOf prog L pc + 34 < 2 ^ 32
+  /-- **Spill-slot addressability** at every gas/sload cursor: the target tmp's slot is byte-
+  and platform-addressable (`slotOf t = t.id * 32`, a bound on tmp ids). Not derivable from
+  the program's control structure; in-tree it is always *supplied* to the sim lemmas
+  (`SimStmt.lean:630`, `LowerConforms.lean:436/467`). SUPPLIED status: static, decidable. -/
+  slotAddr : ∀ (L : Label) (b : Block) (pc : Nat) (t : Tmp),
+    blockAt prog L = some b →
+    (b.stmts[pc]? = some (.assign t .gas)
+      ∨ ∃ k, b.stmts[pc]? = some (.assign t (.sload k))) →
+    slotOf t + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
+  /-- **The ret epilogue's pc-bound seam** (R5's `hretEmit`). The 67-byte `PUSH32;PUSH32;
+  RETURN` epilogue after the return-value materialise fits a 32-bit pc.
+  `WellFormedLowered.bound_ret` only bounds `termOf + |materialise t|` (the operand), not the
+  epilogue (a default-target under-specification not editable here); a static, satisfiable,
+  checker-dischargeable well-formedness fact, genuinely true of every real ret block. -/
+  retEpilogueBound : ∀ (L : Label) (b : Block) (t : Tmp),
+    blockAt prog L = some b → b.term = .ret t →
+    termOf prog L + (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp t)).length + 66
+      < 2 ^ 32
+  /-- **No `.slot` source RHS** (the arm-1 direction of `slots_slot`): a source `assign t e`
+  never carries the lowering-only `.slot` marker. Vacuous for real IR (no source program
+  writes a `.slot` expression — the `WellFormed` invariant `slots_slot`'s docstring cites);
+  static and decidable. Excludes the degenerate `defsOf t = .slot n` a pure-assign cursor
+  could otherwise register (which would refute the pure-assign arm's not-spilled conclusion). -/
+  noSlotSource : ∀ (L : Label) (b : Block) (pc : Nat) (t : Tmp) (n : Nat),
+    blockAt prog L = some b → b.stmts[pc]? = some (.assign t (.slot n)) → False
 
 /-- A frame reachable from the call's entry frame: `beginCall params` began a frame and
 `Runs` reaches `fr'` from it. The quantifier shape `PrecompileSeams.callsCode` needs (and
@@ -3211,6 +3244,60 @@ private theorem stackRoomOK_exProg : StackRoomOK exProg where
     rcases blockAt_exProg_inv hb with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ <;>
       simp only [exBlk0, exBlk1, exBlk2, reduceCtorEq] at hterm
 
+-- `exProg` satisfies the gas-stash pc bound at each spilled-`.gas` cursor (`decide` on the
+-- concrete `pcOf`, as in `bound_sstore`).
+set_option maxRecDepth 8000 in
+set_option linter.unusedSimpArgs false in
+private theorem gasBound_exProg : ∀ (L : Label) (b : Block) (pc : Nat) (t : Tmp),
+    blockAt exProg L = some b → b.stmts[pc]? = some (.assign t .gas) →
+    pcOf exProg L pc + 34 < 2 ^ 32 := by
+  rintro ⟨idx⟩ b pc t hb hs
+  rcases blockAt_exProg_inv hb with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ <;>
+    rcases pc with _|_|_|_|_|_|_|pc <;>
+    simp only [exBlk0, exBlk1, exBlk2, List.getElem?_cons_zero, List.getElem?_cons_succ,
+      List.getElem?_nil, Option.some.injEq, reduceCtorEq, Stmt.assign.injEq,
+      Expr.imm.injEq, Expr.sload.injEq, Expr.lt.injEq, and_false, false_and, and_true] at hs <;>
+    decide
+
+-- `exProg` satisfies spill-slot addressability at each gas/sload cursor.
+private theorem slotAddr_exProg : ∀ (L : Label) (b : Block) (pc : Nat) (t : Tmp),
+    blockAt exProg L = some b →
+    (b.stmts[pc]? = some (.assign t .gas)
+      ∨ ∃ k, b.stmts[pc]? = some (.assign t (.sload k))) →
+    slotOf t + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits := by
+  have hbig : (2:Nat)^32 ≤ 2 ^ System.Platform.numBits := by
+    apply Nat.pow_le_pow_right (by norm_num); cases System.Platform.numBits_eq <;> omega
+  rintro ⟨idx⟩ b pc t hb (hs | ⟨k, hs⟩) <;>
+    rcases blockAt_exProg_inv hb with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ <;>
+    rcases pc with _|_|_|_|_|_|_|pc <;>
+    simp only [exBlk0, exBlk1, exBlk2, List.getElem?_cons_zero, List.getElem?_cons_succ,
+      List.getElem?_nil, Option.some.injEq, reduceCtorEq, Stmt.assign.injEq,
+      Expr.imm.injEq, Expr.sload.injEq, Expr.lt.injEq, and_false, false_and, and_true] at hs <;>
+    first
+      | (subst hs; exact ⟨by decide, lt_of_lt_of_le (by decide) hbig⟩)
+      | (obtain ⟨rfl, rfl⟩ := hs; exact ⟨by decide, lt_of_lt_of_le (by decide) hbig⟩)
+
+-- `exProg` has no `ret`-terminated block (all blocks jump/branch/stop), so the ret epilogue
+-- bound is vacuous.
+private theorem retEpilogueBound_exProg : ∀ (L : Label) (b : Block) (t : Tmp),
+    blockAt exProg L = some b → b.term = .ret t →
+    termOf exProg L
+      + (materialiseExpr (defsOf exProg) (recomputeFuel exProg) (.tmp t)).length + 66 < 2 ^ 32 := by
+  rintro ⟨idx⟩ b t hb hterm
+  rcases blockAt_exProg_inv hb with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ <;>
+    simp only [exBlk0, exBlk1, exBlk2, reduceCtorEq] at hterm
+
+-- `exProg` has no `.slot`-source assign (no source program writes the lowering-only marker).
+set_option linter.unusedSimpArgs false in
+private theorem noSlotSource_exProg : ∀ (L : Label) (b : Block) (pc : Nat) (t : Tmp) (n : Nat),
+    blockAt exProg L = some b → b.stmts[pc]? = some (.assign t (.slot n)) → False := by
+  rintro ⟨idx⟩ b pc t n hb hs
+  rcases blockAt_exProg_inv hb with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ <;>
+    rcases pc with _|_|_|_|_|_|_|pc <;>
+    simp only [exBlk0, exBlk1, exBlk2, List.getElem?_cons_zero, List.getElem?_cons_succ,
+      List.getElem?_nil, Option.some.injEq, reduceCtorEq, Stmt.assign.injEq,
+      Expr.slot.injEq, and_false, false_and] at hs
+
 /-- **`WellLowered exProg`** — the anti-vacuity anchor R9's second conjunct forces. Every field
 discharged above from the acyclicity core + the concrete `exProg` layout + the `RunStmts`
 binding inversion. -/
@@ -3221,6 +3308,10 @@ private theorem wellLowered_exProg : WellLowered exProg where
   entry0 := rfl
   closed := closedCFG_exProg
   stack := stackRoomOK_exProg
+  gasBound := gasBound_exProg
+  slotAddr := slotAddr_exProg
+  retEpilogueBound := retEpilogueBound_exProg
+  noSlotSource := noSlotSource_exProg
 
 /-- **R9 — the static checker, stated existentially with a non-vacuity anchor.** A
 PREMATURE checker `def` would be worse than debt (a wrong-but-real `lowerCheck` misleads;
@@ -3270,7 +3361,10 @@ theorem termTies'_of_runWithLog {prog : Program} {params : CallParams} {log : Ru
     (hwl : WellLowered prog)
     (hseams : PrecompileSeams prog params) :
     ∀ (sloadChg : Tmp → ℕ) (L : Label) (b : Block), blockAt prog L = some b →
-      TermTies' prog sloadChg log params.recipient L b := sorry
+      TermTies' prog sloadChg log params.recipient L b := by
+  intro sloadChg L b hb
+  exact termTies'_of_walk hwl hseams.noErase
+    (fun t hterm => hwl.retEpilogueBound L b t hb hterm) hb
 
 /-- **R11 — THE FLAGSHIP.** Run the lowered bytecode once with the recording interpreter;
 feed the recorded gas reads and call records into the executable IR semantics; the IR run
