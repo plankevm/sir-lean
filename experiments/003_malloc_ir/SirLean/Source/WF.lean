@@ -64,7 +64,7 @@ def MemoryRange.WF (r : MemoryRange) : Prop :=
 def MemoryRange.Disjoint (a b : MemoryRange) : Prop :=
      a.endExclusive ≤ b.start ∨ b.endExclusive ≤ a.start
 
-theorem MemoryRange.Disjoint_comm (a b : MemoryRange) : a.Disjoint b ↔ b.Disjoint a := by
+theorem MemoryRange.Disjoint_comm (a b : MemoryRange) : a.Disjoint b → b.Disjoint a := by
   grind [Disjoint]
 
 def OccupiedRanges.Fresh (ranges : OccupiedRanges) (r : MemoryRange) : Prop :=

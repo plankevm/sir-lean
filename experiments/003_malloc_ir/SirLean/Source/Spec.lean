@@ -22,24 +22,17 @@ theorem Allocator.sound_ensures_ranges_WF :
   induction provenance
   case empty => simp
   case alloc oldRanges size addr prevProv halloc ih =>
-    simp
-    apply List.pairwise_append.mpr
-    simp
-    constructor
-    . exact ih
-    . {
-      let new_alloc_fresh := (sound oldRanges size addr prevProv halloc).left
-      simp at new_alloc_fresh
-      simp [OccupiedRanges.Fresh] at new_alloc_fresh
-      intro r' r'_mem
-      exact (MemoryRange.Disjoint_comm r' ⟨addr, size⟩).mpr (new_alloc_fresh r' r'_mem)
-    }
+    simp [List.pairwise_append] at ih ⊢
+    exact ⟨ih, fun r' r'_mem =>
+      let is_fresh := (sound oldRanges size addr prevProv halloc).left r' r'_mem
+      MemoryRange.Disjoint_comm ⟨addr, size⟩ r' is_fresh
+    ⟩
 
 def Allocator.bump : Allocator :=
   fun occupied size =>
     let r := occupied.back?.getD ⟨0, 0⟩
     let new_start := r.endExclusive
-    if new_start + size.toNat ≤ Word.size then
+    if new_start < Word.size ∧ new_start + size.toNat ≤ Word.size then
       .some (.ofNat new_start)
     else
       .none
