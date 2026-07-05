@@ -136,8 +136,10 @@ entry coupling suffixes (`recorderCoupled_entry`). Near-`rfl` (`realisedGas`/`re
 `realisedCreate`/`callStreamOf`/`createStreamOf` unfold). TRACTABILITY: now. -/
 theorem streamsAligned_entry (self : AccountAddress) (log : RunLog) :
     StreamsAligned self log log.gas log.calls
-      (realisedGas log) (realisedCall log self) (realisedCreate log self) := by
-  sorry
+      (realisedGas log) (realisedCall log self) (realisedCreate log self) :=
+  -- `realisedGas log ≡ log.gas`, `realisedCall log self ≡ callStreamOf log.calls self`,
+  -- `realisedCreate log self ≡ createStreamOf log.creates self` all by definition.
+  ⟨rfl, rfl, rfl⟩
 
 /-- **P1b — the entry coupled boundary.** From the flagship hypotheses, assemble the entry
 `DriveCorrLog` at `prog.entry` on the whole recorder suffixes. Fires: `entry_corr` (`Corr`,
