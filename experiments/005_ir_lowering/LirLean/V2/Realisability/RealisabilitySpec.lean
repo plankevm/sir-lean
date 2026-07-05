@@ -189,9 +189,10 @@ theorem conforms_of_worldeq {params : CallParams} {fr₀ : Frame}
   exact ⟨hweq.symm, hreq.symm⟩
 
 /-- **R11 — THE FLAGSHIP.** Run the lowered bytecode once with the recording interpreter;
-feed the recorded gas reads and call records into the executable IR semantics; the IR run
-exists at the PINNED streams (`realisedGas log` / `realisedCall log recipient`, from the
-PINNED entry state) and produces the same observable world.
+feed the recorded gas reads, call records AND create records into the executable IR
+semantics; the IR run exists at the PINNED streams (`realisedGas log` /
+`realisedCall log recipient` / `realisedCreate log recipient`, from the PINNED entry
+state) and produces the same observable world.
 
 Hypothesis ledger (the honest surface, nothing else): two definitional pins
 (`hcode`/`hmod`), two decidable entry facts (`hself`/`hgas`), one static checkable bundle
@@ -214,7 +215,7 @@ theorem lower_conforms {prog : Program} {params : CallParams} {log : RunLog}
     (hseams : PrecompileAssumptions prog params) :
     ∃ O : Observable,
       RunFrom prog (entryState params) (realisedGas log)
-        (realisedCall log params.recipient) ([] : CreateStream) prog.entry O
+        (realisedCall log params.recipient) (realisedCreate log params.recipient) prog.entry O
       ∧ Conforms params.recipient log O := by
   -- Entry frame (from run adequacy) and the CALL-targets-code face of the seam.
   obtain ⟨fr₀, hbegin, _⟩ := runWithLog_drive hrun
@@ -243,7 +244,7 @@ theorem lower_conforms {prog : Program} {params : CallParams} {log : RunLog}
             ∧ (observe params.recipient (endFrame last haltSig)).world = O.world
             ∧ (observe params.recipient (endFrame last haltSig)).result = O.result)
         ∧ RunFrom prog (entryState params) (realisedGas log)
-            (realisedCall log params.recipient) ([] : CreateStream) prog.entry O := sorry
+            (realisedCall log params.recipient) (realisedCreate log params.recipient) prog.entry O := sorry
   exact ⟨O, hrunfrom, conforms_of_worldeq hrun hbegin hcr hcc hworld⟩
 
 /-- **R11-all — the exact-consumption strengthening**: the same flagship with the IR run
@@ -261,7 +262,7 @@ theorem lower_conforms_exact {prog : Program} {params : CallParams} {log : RunLo
     (hseams : PrecompileAssumptions prog params) :
     ∃ O : Observable,
       RunFromAll prog (entryState params) (realisedGas log)
-        (realisedCall log params.recipient) ([] : CreateStream) prog.entry O
+        (realisedCall log params.recipient) (realisedCreate log params.recipient) prog.entry O
       ∧ Conforms params.recipient log O := by
   -- As R11, but the packaged blocker yields the exact-consumption `RunFromAll` (BOTH leftovers
   -- `[]`). The coupled driver produces it directly: its walk consumes the WHOLE recorded gas
@@ -277,7 +278,7 @@ theorem lower_conforms_exact {prog : Program} {params : CallParams} {log : RunLo
             ∧ (observe params.recipient (endFrame last haltSig)).world = O.world
             ∧ (observe params.recipient (endFrame last haltSig)).result = O.result)
         ∧ RunFromAll prog (entryState params) (realisedGas log)
-            (realisedCall log params.recipient) ([] : CreateStream) prog.entry O := sorry
+            (realisedCall log params.recipient) (realisedCreate log params.recipient) prog.entry O := sorry
   exact ⟨O, hrunfrom, conforms_of_worldeq hrun hbegin hcr hcc hworld⟩
 
 /-- **The gas-free CO-FLAGSHIP** (target-architecture decision 2 — prove it FIRST). The
@@ -298,7 +299,7 @@ theorem lower_conforms_gasfree {prog : Program} {params : CallParams} {log : Run
     (hseams : PrecompileAssumptions prog params) :
     ∃ O : Observable,
       RunFrom prog (entryState params) (realisedGas log)
-        (realisedCall log params.recipient) ([] : CreateStream) prog.entry O
+        (realisedCall log params.recipient) (realisedCreate log params.recipient) prog.entry O
       ∧ Conforms params.recipient log O := by
   -- The gas-free restriction (`hng : NoGasReads prog`) avoids R1 (no gas arm fires) and,
   -- via `realisedGas_nil_of_noGasReads`, makes the RunFrom trace empty — but it does NOT
@@ -314,7 +315,7 @@ theorem lower_conforms_gasfree {prog : Program} {params : CallParams} {log : Run
             ∧ (observe params.recipient (endFrame last haltSig)).world = O.world
             ∧ (observe params.recipient (endFrame last haltSig)).result = O.result)
         ∧ RunFrom prog (entryState params) (realisedGas log)
-            (realisedCall log params.recipient) ([] : CreateStream) prog.entry O := sorry
+            (realisedCall log params.recipient) (realisedCreate log params.recipient) prog.entry O := sorry
   exact ⟨O, hrunfrom, conforms_of_worldeq hrun hbegin hcr hcc hworld⟩
 
 /-- Co-flagship companion: a gas-read-free program's recorded gas stream is empty (the
@@ -351,7 +352,7 @@ theorem exProg_nonvacuity :
       ∧ runWithLog params (seedFuel params.gas) = some log
       ∧ ∃ O : Observable,
           RunFrom exProg (entryState params) (realisedGas log)
-            (realisedCall log params.recipient) ([] : CreateStream) exProg.entry O
+            (realisedCall log params.recipient) (realisedCreate log params.recipient) exProg.entry O
           ∧ Conforms params.recipient log O := by
   -- The witness params/log come from R12a (`exProg_satisfies_hypotheses`); the inner
   -- existential is EXACTLY R11's (`lower_conforms`) conclusion at `prog := exProg`.
