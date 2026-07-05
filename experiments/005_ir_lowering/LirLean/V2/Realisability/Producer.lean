@@ -142,12 +142,28 @@ theorem streamsAligned_entry (self : AccountAddress) (log : RunLog) :
   ⟨rfl, rfl, rfl⟩
 
 /-- **P1b — the entry coupled boundary.** From the flagship hypotheses, assemble the entry
-`DriveCorrLog` at `prog.entry` on the whole recorder suffixes. Fires: `entry_corr` (`Corr`,
-with `StorageAgree` from the definitional `entryState`), `cleanHalts_of_runWithLog` (clean-halt
-scope), `ClosedCFG.entry_present` (presence), `selfPresent_codeFrame` + `selfPresent_runs`
-(self-presence to `fr₀`), the `codeFrame` address/kind pins, and `recorderCoupled_entry`
-(coupling). Assembly, but the `entryState`↔`entry_corr` `StorageAgree` reconciliation and the
-address/kind transport across `entry_corr`'s internal `Runs` need care. TRACTABILITY: now. -/
+`DriveCorrLog` at `prog.entry` on the whole recorder suffixes, at the entry block's
+POST-`JUMPDEST` landing frame `fr₀'` (with the bytecode `Runs fr₀ fr₀'` witness). Fires:
+`corr_at_jumpdest_landing` (`Corr`, with `StorageAgree` reconciled from the definitional
+`entryState` against the `codeFrame`'s `codeAccounts` storage lens — balance credit/debit leave
+storage untouched), `cleanHalts_of_runWithLog` (clean-halt scope, then
+`cleanHaltsNonException_forward` to the landing), `ClosedCFG.entry_present` (presence),
+`selfPresent_codeFrame` (self-presence, transported across the `JUMPDEST` step whose
+`jumpdestPost` leaves `accounts`/`executionEnv` untouched), the `codeFrame` address/kind pins
+(preserved by the `JUMPDEST` step, which only moves `exec.pc`/`gas`), and `recorderCoupled_entry`
++ `recorderCoupled_stepsTo_other` (coupling, carried across the non-gas/non-sload `JUMPDEST`
+step).
+
+STATEMENT CORRECTION (reported to the lead): the skeleton originally pinned the `DriveCorrLog`
+frame to the beginCall frame `fr₀` (`= codeFrame params (lower prog)`, pc `= offsetTable
+entry.idx = 0`). That is UNPROVABLE: `Corr`'s `pc_eq` at cursor `(prog.entry, 0)` demands
+`pc = pcOf prog prog.entry 0 = offsetTable entry.idx + 1` (`pcOf_zero`, the `+1` skipping the
+leading `JUMPDEST`), which `codeFrame.pc = 0` does not meet — every `DriveCorrLog` boundary frame
+is a POST-`JUMPDEST` landing (cf. the edge disjunct of `driveLogStep_of_block`, which lands at
+`jumpdestFrame fj`). The corrected conclusion returns that landing `fr₀'` together with `Runs fr₀
+fr₀'` (exactly the "transport across the internal `Runs`" the plan note anticipates), which R11
+bridges to the beginCall frame via `Runs.trans`. Also threads the create-resolves seam `hcreate`
+(present already on R11) that `cleanHalts_of_runWithLog` needs. TRACTABILITY: now. -/
 theorem driveCorrLog_entry {prog : Program} {sloadChg : Tmp → ℕ} {params : CallParams}
     {log : RunLog} {acc : Account} {fr₀ : Frame}
     (hcode : params.codeSource = .Code (lower prog))
@@ -159,11 +175,105 @@ theorem driveCorrLog_entry {prog : Program} {sloadChg : Tmp → ℕ} {params : C
     (hclean : log.clean)
     (hseams : PrecompileAssumptions prog params)
     (hbegin : beginCall params = .inl fr₀)
+    (hcreate : ∀ fr', ReachableFrom params fr' → CreateResolves fr')
     (hne : ∀ last halt, Runs fr₀ last → stepFrame last = .halted halt → HaltNonException halt) :
-    ∃ st₀ : IRState, st₀ = entryState params
-      ∧ DriveCorrLog prog sloadChg log params.recipient st₀ fr₀ prog.entry
+    ∃ fr₀' : Frame, Runs fr₀ fr₀'
+      ∧ DriveCorrLog prog sloadChg log params.recipient (entryState params) fr₀' prog.entry
           log.gas log.sloads log.calls := by
-  sorry
+  -- the beginCall frame is the entry `codeFrame`.
+  have hfr : fr₀ = codeFrame params (lower prog) :=
+    (Sum.inl.injEq _ _).mp (hbegin.symm.trans (beginCall_code params (lower prog) hcode))
+  subst hfr
+  -- entry block, present and offset-0.
+  obtain ⟨bentry, hbentry⟩ := hwl.closed.entry_present
+  have hbtl : prog.blocks.toList[prog.entry.idx]? = some bentry := toList_of_blockAt hbentry
+  have hbound : offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks prog.entry.idx < 2 ^ 32 :=
+    hwl.closed.entry_bound
+  have hoff0 : offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks prog.entry.idx = 0 := by
+    unfold offsetTable; rw [hwl.entry0]; simp
+  -- the entry `codeFrame` field reductions.
+  have hpc : (codeFrame params (lower prog)).exec.pc
+      = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks prog.entry.idx) := by
+    rw [codeFrame_pc, hoff0]; rfl
+  have hcodeF : (codeFrame params (lower prog)).exec.executionEnv.code = lower prog :=
+    codeFrame_code params (lower prog)
+  have hvalid : (codeFrame params (lower prog)).validJumps
+      = validJumpDests (codeFrame params (lower prog)).exec.executionEnv.code 0 := by
+    rw [codeFrame_validJumps, codeFrame_code]
+  have hstk : (codeFrame params (lower prog)).exec.stack = [] := codeFrame_stack params (lower prog)
+  have hmodF : (codeFrame params (lower prog)).exec.executionEnv.canModifyState = true := by
+    rw [codeFrame_canMod]; exact hmod
+  have hgasF : GasConstants.Gjumpdest ≤ (codeFrame params (lower prog)).exec.gasAvailable.toNat := by
+    rw [codeFrame_gas]; exact hgas
+  have hsz : (codeFrame params (lower prog)).exec.stack.size ≤ 1024 := by
+    rw [hstk]; show (0 : ℕ) ≤ 1024; omega
+  have hdec : decode (codeFrame params (lower prog)).exec.executionEnv.code
+      (codeFrame params (lower prog)).exec.pc = some (.Smsf .JUMPDEST, .none) := by
+    rw [hcodeF, hpc]; exact decode_at_block_offset_jumpdest prog prog.entry bentry hbtl hbound
+  -- the entry STORAGE tie: reconcile `entryState`'s params-storage lens with `codeFrame`'s
+  -- `codeAccounts` lens (balance credit/debit leave the recipient's storage untouched).
+  have hstore : StorageAgree (entryState params) (codeFrame params (lower prog)) := by
+    intro k
+    have hrhs : (entryState params).world k = acc.lookupStorage k := by
+      show (params.accounts.find? params.recipient).option 0 (fun a => a.lookupStorage k)
+          = acc.lookupStorage k
+      rw [hself]; rfl
+    show ((codeAccounts params).find? params.recipient).option 0 (fun a => a.lookupStorage k)
+        = (entryState params).world k
+    rw [hrhs]
+    unfold codeAccounts
+    rw [hself]
+    have hm1rec : (params.accounts.insert params.recipient
+          { acc with balance := acc.balance + params.value }).find? params.recipient
+        = some { acc with balance := acc.balance + params.value } :=
+      BytecodeLayer.Maps.accounts_find?_insert_self _ _ _
+    cases hcal : (params.accounts.insert params.recipient
+        { acc with balance := acc.balance + params.value }).find? params.caller with
+    | none => simp only [hcal]; rw [hm1rec]; rfl
+    | some cacc =>
+      simp only [hcal]
+      by_cases hcr : params.caller = params.recipient
+      · have hcacc : cacc = { acc with balance := acc.balance + params.value } := by
+          rw [hcr, hm1rec] at hcal; exact (Option.some.injEq _ _).mp hcal.symm
+        subst hcacc
+        rw [hcr, BytecodeLayer.Maps.accounts_find?_insert_self]; rfl
+      · rw [BytecodeLayer.Maps.accounts_find?_insert_of_ne _ _ (fun h => hcr h.symm), hm1rec]; rfl
+  -- `Corr` at the post-`JUMPDEST` landing `jumpdestFrame (codeFrame …)` at `(prog.entry, 0)`.
+  obtain ⟨hjdrun, hjdcorr⟩ :=
+    corr_at_jumpdest_landing (prog := prog) (sloadChg := sloadChg) (obs := 0)
+      (st := entryState params) hbtl hpc hcodeF hvalid hstk hmodF hstore
+      (by unfold entryState; exact defsSound_entry prog _)
+      (by intro t ht; simp [entryState] at ht)
+      (by intro t slot v _ hloc; simp [entryState] at hloc) hdec hgasF
+  refine ⟨jumpdestFrame (codeFrame params (lower prog)), hjdrun, ?_⟩
+  -- the entry clean-halt scope (via modellability), forwarded to the landing.
+  have hcc : ∀ fr', Runs (codeFrame params (lower prog)) fr' → CallsCode fr' :=
+    fun fr' hr => hseams.callsCode fr' ⟨_, hbegin, hr⟩
+  have hcr : ∀ fr', Runs (codeFrame params (lower prog)) fr' → CreateResolves fr' :=
+    fun fr' hr => hcreate fr' ⟨_, hbegin, hr⟩
+  have hclean₀ : CleanHaltsNonException (codeFrame params (lower prog)) :=
+    cleanHalts_of_runWithLog (prog := prog) hrun hbegin hcr hcc hne
+  -- entry coupling, carried across the `JUMPDEST` step.
+  have hcp₀ : RecorderCoupled log (codeFrame params (lower prog)) log.gas log.sloads log.calls :=
+    recorderCoupled_entry hrun hbegin
+  have hstepsTo : StepsTo (codeFrame params (lower prog))
+      (jumpdestFrame (codeFrame params (lower prog))) :=
+    stepsTo_of_next (stepFrame_jumpdest (codeFrame params (lower prog)) hdec hsz hgasF)
+  have hnotgas : isGasOp (codeFrame params (lower prog)) = false := by
+    unfold isGasOp; rw [hdec]; rfl
+  have hnotsload : isSloadOp (codeFrame params (lower prog)) = false := by
+    unfold isSloadOp; rw [hdec]; rfl
+  -- self-presence at the entry frame, transported across the `JUMPDEST` step.
+  have hsp₀ : SelfPresent (codeFrame params (lower prog)) :=
+    selfPresent_codeFrame params (lower prog) hself
+  exact
+    { corr := hjdcorr
+      cleanHalts := cleanHaltsNonException_forward hclean₀ hjdrun
+      present := ⟨bentry, hbentry⟩
+      selfPresent := by obtain ⟨a, ha⟩ := hsp₀; exact ⟨a, ha⟩
+      addrPin := rfl
+      kindPin := ⟨⟨params.createdAccounts, params.accounts, params.substate⟩, rfl⟩
+      coupled := recorderCoupled_stepsTo_other hcp₀ hnotgas hnotsload hstepsTo }
 
 /-! ## §2 — the per-statement COUPLED steps (the crux; reason (a))
 
