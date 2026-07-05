@@ -29,4 +29,4 @@ lean_lib «LirLean» where
 -- NOT a default target and NOT imported by the `LirLean` root, so the default build stays
 -- sorry-free. Build with `lake build WIP`.
 lean_lib «WIP» where
-  roots := #[`LirLean.V2.Realisability.RealisabilitySpec]
+  roots := #[`LirLean.V2.Realisability.RealisabilitySpec, `LirLean.V2.Realisability.Producer]
