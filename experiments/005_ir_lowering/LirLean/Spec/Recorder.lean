@@ -88,6 +88,15 @@ structure CallRecord where
   /-- The suspended parent call (carries the resume data `resumeAfterCall` needs). -/
   pending : PendingCall
 
+/-- One external CREATE's recorded data: the child's `CreateResult` and the parent's
+`PendingCreate` — the CREATE twin of `CallRecord`. The minimal pair `createStreamOf` reads to
+reproduce `evmV2CreateEntry` (`LirLean/V2/CallRealises.lean`). -/
+structure CreateRecord where
+  /-- The init child's result (`drive`'s `childRes.toCreateResult`). -/
+  result : CreateResult
+  /-- The suspended parent create (carries the resume data `resumeAfterCreate` needs). -/
+  pending : PendingCreate
+
 /-! ## The run log (`docs/ir-design-v3.md` §8) -/
 
 /-- **The instrumented run log** — the introspection points a bytecode run records.
@@ -107,6 +116,10 @@ structure RunLog where
   sloads : List Nat
   /-- The top-level returning external CALLs' records, in program order. -/
   calls : List CallRecord
+  /-- The top-level returning external CREATEs' records, in program order
+  (→ `realisedCreate`). Parallel to `calls` — the fourth threaded channel (option A,
+  `docs/create/stream-decision.md`). -/
+  creates : List CreateRecord
 
 /-! ## GAS-step detection
 
@@ -171,6 +184,17 @@ def recordCall (pending : Pending) (result : FrameResult) (callAcc : List CallRe
     | .call pd => callAcc ++ [{ result := result.toCallResult, pending := pd }]
     | .create _ => callAcc
 
+/-- Append a returning-CREATE record for a `.create` delivery — the CREATE twin of
+`recordCall`, un-dropping the create delivery `recordCall` leaves in the CALL channel
+(a `.call` delivery contributes nothing to the CREATE channel, exactly as a `.create`
+delivery contributes nothing to the CALL channel). Gated identically in `driveLog` on
+`rest.isEmpty` (top-level only). -/
+def recordCreate (pending : Pending) (result : FrameResult) (createAcc : List CreateRecord) :
+    List CreateRecord :=
+  match pending with
+    | .call _ => createAcc
+    | .create pd => createAcc ++ [{ result := result.toCreateResult, pending := pd }]
+
 /-- The recording driver: `drive` with a `(gas, sloads, calls)` accumulator. Mirrors
 `drive`'s recursion branch-for-branch; records each top-level `GAS` read's post-charge
 word, each top-level `SLOAD`'s warmth-charge (`sloadCost warm`), and each top-level
@@ -180,32 +204,39 @@ record on `rest.isEmpty` (the resumed pending stack is empty — the top-level p
 CALL, not a descended callee's inner CALL). The `sloadAcc` is threaded exactly like
 `gasAcc` and is erased by `.map (·.1)` (adequacy preserved by construction). -/
 def driveLog (fuel : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult)
-    (gasAcc : List Word) (sloadAcc : List Nat) (callAcc : List CallRecord) :
-    Except ExecutionException (FrameResult × List Word × List Nat × List CallRecord) :=
+    (gasAcc : List Word) (sloadAcc : List Nat) (callAcc : List CallRecord)
+    (createAcc : List CreateRecord) :
+    Except ExecutionException
+      (FrameResult × List Word × List Nat × List CallRecord × List CreateRecord) :=
   match fuel with
     | 0 => .error .OutOfFuel
     | fuel + 1 =>
       match state with
         | .inr result =>
           match stack with
-            | [] => .ok (result, gasAcc, sloadAcc, callAcc)
+            | [] => .ok (result, gasAcc, sloadAcc, callAcc, createAcc)
             | pending :: rest =>
               -- the `pending.resume result` match is byte-for-byte `drive`'s; the only
-              -- difference is the accumulator carries a returning-CALL record (`recordCall`),
-              -- and only for the TOP-LEVEL program's own returning CALLs. The record is gated
-              -- on `rest.isEmpty` (the resumed pending stack), mirroring the gas/sload
-              -- `stack.isEmpty` gates below: the top-level program's own CALL returns with
-              -- `rest = []`, while a descended callee's inner CALL returns with `rest` nonempty
-              -- (it still carries the parent's suspended `.call`), so it is black-boxed exactly
-              -- as the callee's inner gas/sload reads are.
+              -- difference is the accumulator carries a returning-CALL record (`recordCall`)
+              -- and a returning-CREATE record (`recordCreate`), and only for the TOP-LEVEL
+              -- program's own returning descents. Both records are gated on `rest.isEmpty`
+              -- (the resumed pending stack), mirroring the gas/sload `stack.isEmpty` gates
+              -- below: the top-level program's own descent returns with `rest = []`, while a
+              -- descended callee's inner descent returns with `rest` nonempty (it still
+              -- carries the parent's suspended `.call`), so it is black-boxed exactly as the
+              -- callee's inner gas/sload reads are. `recordCall`/`recordCreate` are duals: a
+              -- `.call` delivery records only into `callAcc`, a `.create` delivery only into
+              -- `createAcc`.
               match pending.resume result with
                 | .ok parent =>
                   driveLog fuel rest (.inl parent) gasAcc sloadAcc
                     (if rest.isEmpty then recordCall pending result callAcc else callAcc)
+                    (if rest.isEmpty then recordCreate pending result createAcc else createAcc)
                 | .error e =>
                   driveLog fuel rest (.inr (endFrame pending.frame (.exception e)))
                     gasAcc sloadAcc
                     (if rest.isEmpty then recordCall pending result callAcc else callAcc)
+                    (if rest.isEmpty then recordCreate pending result createAcc else createAcc)
         | .inl current =>
           match stepFrame current with
             | .next exec =>
@@ -219,27 +250,27 @@ def driveLog (fuel : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult)
               -- Symmetrically, record an SLOAD warmth-charge iff the op is `SLOAD` and this
               -- is the top-level frame — the realised warmth at the top-level program's own
               -- SLOAD sites, read off the **pre-step** frame `current` (`sloadWarmthOf`).
-              -- The CALL record above is gated identically: a descended callee resumes its
-              -- own inner CALLs on a nonempty pending stack (`rest ⊇ [.call parent] ≠ []`),
-              -- so those inner calls are excluded exactly as the callee's inner gas/sload
-              -- reads are — only the top-level program's own CALL (resumed at `rest = []`) is
-              -- recorded.
+              -- The CALL/CREATE records above are gated identically: a descended callee
+              -- resumes its own inner descents on a nonempty pending stack
+              -- (`rest ⊇ [.call parent] ≠ []`), so those inner descents are excluded exactly
+              -- as the callee's inner gas/sload reads are — only the top-level program's own
+              -- descent (resumed at `rest = []`) is recorded.
               if isGasOp current && stack.isEmpty then
                 driveLog fuel stack (.inl { current with exec := exec })
-                  (gasAcc ++ [UInt256.ofUInt64 exec.gasAvailable]) sloadAcc callAcc
+                  (gasAcc ++ [UInt256.ofUInt64 exec.gasAvailable]) sloadAcc callAcc createAcc
               else if isSloadOp current && stack.isEmpty then
                 driveLog fuel stack (.inl { current with exec := exec })
-                  gasAcc (sloadAcc ++ [sloadWarmthOf current]) callAcc
+                  gasAcc (sloadAcc ++ [sloadWarmthOf current]) callAcc createAcc
               else
-                driveLog fuel stack (.inl { current with exec := exec }) gasAcc sloadAcc callAcc
-            | .halted halt => driveLog fuel stack (.inr (endFrame current halt)) gasAcc sloadAcc callAcc
+                driveLog fuel stack (.inl { current with exec := exec }) gasAcc sloadAcc callAcc createAcc
+            | .halted halt => driveLog fuel stack (.inr (endFrame current halt)) gasAcc sloadAcc callAcc createAcc
             | .needsCall params pending =>
               match beginCall params with
-                | .inl child => driveLog fuel (.call pending :: stack) (.inl child) gasAcc sloadAcc callAcc
-                | .inr result => driveLog fuel (.call pending :: stack) (.inr (.call result)) gasAcc sloadAcc callAcc
+                | .inl child => driveLog fuel (.call pending :: stack) (.inl child) gasAcc sloadAcc callAcc createAcc
+                | .inr result => driveLog fuel (.call pending :: stack) (.inr (.call result)) gasAcc sloadAcc callAcc createAcc
             | .needsCreate params pending =>
               -- `beginCreate` is total (mirrors `drive`): the descent is unconditional.
-              driveLog fuel (.create pending :: stack) (.inl (beginCreate params)) gasAcc sloadAcc callAcc
+              driveLog fuel (.create pending :: stack) (.inl (beginCreate params)) gasAcc sloadAcc callAcc createAcc
 
 /-! ## The top-level recording interpreter
 
@@ -259,9 +290,10 @@ def runWithLog (params : CallParams) (fuel : ℕ) : Option RunLog :=
   match beginCall params with
     | .inr _ => none
     | .inl frame =>
-      match driveLog fuel [] (.inl frame) [] [] [] with
-        | .ok (r, gas, sloads, calls) =>
-            some { observable := r, gas := gas, sloads := sloads, calls := calls }
+      match driveLog fuel [] (.inl frame) [] [] [] [] with
+        | .ok (r, gas, sloads, calls, creates) =>
+            some { observable := r, gas := gas, sloads := sloads, calls := calls,
+                   creates := creates }
         | .error _ => none
 
 /-! ## Projections (`docs/ir-design-v3.md` §8)
@@ -295,6 +327,21 @@ recorded CALL *is* that entry's `resumeAfterCall` projection, so the call-side r
 is `rfl`-clean. -/
 def realisedCall (log : RunLog) (self : AccountAddress) : CallStream :=
   callStreamOf log.calls self
+
+/-- The create stream realised by a list of `CreateRecord`s at self address `self`: the
+per-record `evmV2CreateEntry` projection, in recorded order (the CREATE twin of
+`callStreamOf`). Each entry is a `(post-create world, deployed-address-or-0)` pair the
+`Stmt.create` step consumes head-first — *positional*, keyed on the record, so multi-CREATE
+runs are covered. Aligned with `evmV2CreateEntry` by construction. -/
+def createStreamOf (creates : List CreateRecord) (self : AccountAddress) : CreateStream :=
+  creates.map (fun rec => evmV2CreateEntry rec.result rec.pending self)
+
+/-- **The realised create stream** (the CREATE twin of `realisedCall`): the `CreateStream` read
+off the log's recorded CREATEs, at self address `self` — the FULL stream, consumed head-first
+by `Stmt.create`. Aligned with `evmV2CreateEntry` (`LirLean/V2/CallRealises.lean`) — each
+recorded CREATE *is* that entry's `resumeAfterCreate` projection. -/
+def realisedCreate (log : RunLog) (self : AccountAddress) : CreateStream :=
+  createStreamOf log.creates self
 
 /-! ## The `observe` bridge: bytecode `FrameResult` → IR `Observable`
 (`docs/ir-design-v3.md` §8)

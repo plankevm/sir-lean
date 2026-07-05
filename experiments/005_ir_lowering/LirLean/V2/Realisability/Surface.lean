@@ -523,9 +523,15 @@ entry and preserves it across steps/calls; the ties CONSUME it as an antecedent.
 structure RecorderCoupled (log : RunLog) (fr : Frame)
     (gasSuffix : List Word) (sloadSuffix : List Nat) (callSuffix : List CallRecord) : Prop where
   /-- The load-bearing restart equation: some fuel replays `fr`'s future to exactly
-  `(log.observable, gasSuffix, sloadSuffix, callSuffix)`. -/
-  restart : ∃ fuel', driveLog fuel' [] (.inl fr) [] [] []
-      = .ok (log.observable, gasSuffix, sloadSuffix, callSuffix)
+  `(log.observable, gasSuffix, sloadSuffix, callSuffix, log.creates)`. The create channel is
+  pinned to the FULL `log.creates` (no suffix variable): the R7 walk only traverses
+  gas/sload/call/halt edges — none records a CREATE — so no create is ever consumed before a
+  coupled boundary frame, and the future's create stream is invariantly the whole `log.creates`
+  (established at entry, preserved by every edge). A create-suffix parameter (the Step-6
+  `createSuffix`/`createPrefix` twin) is only needed once the walk itself steps through a
+  top-level CREATE (Step 8, when `exProg` exercises one). -/
+  restart : ∃ fuel', driveLog fuel' [] (.inl fr) [] [] [] []
+      = .ok (log.observable, gasSuffix, sloadSuffix, callSuffix, log.creates)
   /-- The gas suffix is a suffix of the recorded gas stream. -/
   gasPrefix : ∃ pre, log.gas = pre ++ gasSuffix
   /-- The sload suffix is a suffix of the recorded sload stream. -/

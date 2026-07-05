@@ -61,13 +61,14 @@ transition — the two are definitionally the same control flow, the splices onl
 touch the (erased) accumulator. -/
 theorem driveLog_drive :
     ∀ (f : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult)
-      (gasAcc : List Word) (sloadAcc : List Nat) (callAcc : List CallRecord),
-      (driveLog f stack state gasAcc sloadAcc callAcc).map (·.1) = drive f stack state := by
+      (gasAcc : List Word) (sloadAcc : List Nat) (callAcc : List CallRecord)
+      (createAcc : List CreateRecord),
+      (driveLog f stack state gasAcc sloadAcc callAcc createAcc).map (·.1) = drive f stack state := by
   intro f
   induction f with
-  | zero => intro stack state gasAcc sloadAcc callAcc; rfl
+  | zero => intro stack state gasAcc sloadAcc callAcc createAcc; rfl
   | succ n ih =>
-    intro stack state gasAcc sloadAcc callAcc
+    intro stack state gasAcc sloadAcc callAcc createAcc
     unfold driveLog drive
     -- Case on each scrutinee with `cases h : …` (substitutes *both* sides at once, so
     -- LHS and RHS never desync). Every branch reduces both sides to a recursive call
@@ -81,8 +82,8 @@ theorem driveLog_drive :
       | cons pending rest =>
         dsimp only
         cases h : pending.resume result with
-        | ok parent => dsimp only [h]; exact ih rest (.inl parent) _ _ _
-        | error e => dsimp only [h]; exact ih rest (.inr (endFrame pending.frame (.exception e))) _ _ _
+        | ok parent => dsimp only [h]; exact ih rest (.inl parent) _ _ _ _
+        | error e => dsimp only [h]; exact ih rest (.inr (endFrame pending.frame (.exception e))) _ _ _ _
     | inl current =>
       dsimp only
       cases h : stepFrame current with
@@ -90,16 +91,16 @@ theorem driveLog_drive :
         dsimp only [h]
         -- the nested recording `if`s (gas / sload / else) all reduce to the same recursive
         -- `driveLog` call modulo the (erased) accumulators; split every arm, close by `ih`.
-        split <;> [skip; split] <;> exact ih stack (.inl { current with exec := exec }) _ _ _
-      | halted halt => dsimp only [h]; exact ih stack (.inr (endFrame current halt)) _ _ _
+        split <;> [skip; split] <;> exact ih stack (.inl { current with exec := exec }) _ _ _ _
+      | halted halt => dsimp only [h]; exact ih stack (.inr (endFrame current halt)) _ _ _ _
       | needsCall params pending =>
         dsimp only [h]
         cases hbc : beginCall params with
-        | inl child => dsimp only [hbc]; exact ih (.call pending :: stack) (.inl child) _ _ _
-        | inr result => dsimp only [hbc]; exact ih (.call pending :: stack) (.inr (.call result)) _ _ _
+        | inl child => dsimp only [hbc]; exact ih (.call pending :: stack) (.inl child) _ _ _ _
+        | inr result => dsimp only [hbc]; exact ih (.call pending :: stack) (.inr (.call result)) _ _ _ _
       | needsCreate params pending =>
         dsimp only [h]
-        exact ih (.create pending :: stack) (.inl (beginCreate params)) _ _ _
+        exact ih (.create pending :: stack) (.inl (beginCreate params)) _ _ _ _
 
 /-! ## Adequacy: `runWithLog` agrees with the verified semantics (`drive`/`messageCall`)
 
@@ -123,15 +124,26 @@ theorem runWithLog_drive {params : CallParams} {fuel : ℕ} {log : RunLog}
   | inr result => rw [hbc] at h; simp at h
   | inl frame =>
     rw [hbc] at h; dsimp only at h
-    cases hdl : driveLog fuel [] (.inl frame) [] [] [] with
+    cases hdl : driveLog fuel [] (.inl frame) [] [] [] [] with
     | error e => rw [hdl] at h; simp at h
     | ok triple =>
-      obtain ⟨r, gas, sloads, calls⟩ := triple
+      obtain ⟨r, gas, sloads, calls, creates⟩ := triple
       rw [hdl] at h; simp only [Option.some.injEq] at h
       subst h
       refine ⟨frame, rfl, ?_⟩
       -- `drive fuel [] frame = (driveLog …).map (·.1) = (.ok (r,…)).map (·.1) = .ok r = observable`
-      have hd := driveLog_drive fuel [] (.inl frame) [] [] []
+      have hd := driveLog_drive fuel [] (.inl frame) [] [] [] []
       rw [hdl] at hd
       simpa only [Except.map] using hd.symm
+
+/-- **`realisedCreate` faithfulness (head/cons projection)** — the CREATE twin of
+`realisedCall_cons`. When the log recorded a CREATE (`log.creates = rec :: tl`), the realised
+create stream is `evmV2CreateEntry` at that record CONSED onto the stream of the remaining
+records. `rfl`-clean (`simp … List.map_cons`), so `createRealises_bridge` ties this head's
+`(world', addr)` entry to the lowered CREATE's observable by construction. -/
+theorem realisedCreate_cons {log : RunLog} {rec : CreateRecord} {tl : List CreateRecord}
+    (self : AccountAddress) (hc : log.creates = rec :: tl) :
+    realisedCreate log self
+      = evmV2CreateEntry rec.result rec.pending self :: createStreamOf tl self := by
+  simp only [realisedCreate, createStreamOf, hc, List.map_cons]
 

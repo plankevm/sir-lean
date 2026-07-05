@@ -1117,21 +1117,30 @@ private theorem recordCall_append (pending : Pending) (result : FrameResult)
   | call pd => simp [recordCall]
   | create _ => simp [recordCall]
 
+/-- `recordCreate` appends its record at the tail (CREATE twin of `recordCall_append`), so
+prepending an accumulator commutes with it at `[]`. -/
+private theorem recordCreate_append (pending : Pending) (result : FrameResult)
+    (d0 : List CreateRecord) :
+    recordCreate pending result d0 = d0 ++ recordCreate pending result [] := by
+  cases pending with
+  | call _ => simp [recordCreate]
+  | create pd => simp [recordCreate]
+
 /-- **The accumulator homomorphism of `driveLog`.** Running from a nonempty seed
 `(g0, s0, c0)` is the empty-seed run with the seeds prepended to each recorded stream. By
 induction on fuel, branch-for-branch as `driveLog_drive`; the recording branches shift by
 `List.append_assoc`, every other branch threads the IH with the seeds unchanged. -/
 private theorem driveLog_acc_hom :
     ∀ (fuel : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult)
-      (g0 : List Word) (s0 : List Nat) (c0 : List CallRecord),
-      driveLog fuel stack state g0 s0 c0
-        = (driveLog fuel stack state [] [] []).map
-            (fun x => (x.1, g0 ++ x.2.1, s0 ++ x.2.2.1, c0 ++ x.2.2.2)) := by
+      (g0 : List Word) (s0 : List Nat) (c0 : List CallRecord) (d0 : List CreateRecord),
+      driveLog fuel stack state g0 s0 c0 d0
+        = (driveLog fuel stack state [] [] [] []).map
+            (fun x => (x.1, g0 ++ x.2.1, s0 ++ x.2.2.1, c0 ++ x.2.2.2.1, d0 ++ x.2.2.2.2)) := by
   intro fuel
   induction fuel with
-  | zero => intro stack state g0 s0 c0; rfl
+  | zero => intro stack state g0 s0 c0 d0; rfl
   | succ n ih =>
-    intro stack state g0 s0 c0
+    intro stack state g0 s0 c0 d0
     unfold driveLog
     cases state with
     | inr result =>
@@ -1144,29 +1153,33 @@ private theorem driveLog_acc_hom :
         | ok parent =>
           dsimp only [hres]
           split_ifs with hre
-          · -- `rest.isEmpty`: the top-level CALL record fires (old proof body verbatim).
-            rw [ih rest (.inl parent) g0 s0 (recordCall pending result c0),
-                ih rest (.inl parent) [] [] (recordCall pending result [])]
-            cases hb : driveLog n rest (.inl parent) [] [] [] with
+          · -- `rest.isEmpty`: the top-level CALL/CREATE records fire (old proof body verbatim).
+            rw [ih rest (.inl parent) g0 s0 (recordCall pending result c0)
+                  (recordCreate pending result d0),
+                ih rest (.inl parent) [] [] (recordCall pending result [])
+                  (recordCreate pending result [])]
+            cases hb : driveLog n rest (.inl parent) [] [] [] [] with
             | error e => simp [Except.map]
             | ok val =>
-              simp [Except.map, recordCall_append pending result c0, List.append_assoc]
-          · -- `rest` nonempty (descended callee's inner CALL): the record is a gated no-op,
-            -- the callAcc is threaded unchanged — the append-homomorphism at an unchanged
-            -- accumulator (identical shape to the `halted` arm below).
-            rw [ih rest (.inl parent) g0 s0 c0]
+              simp [Except.map, recordCall_append pending result c0,
+                recordCreate_append pending result d0, List.append_assoc]
+          · -- `rest` nonempty (descended callee's inner descent): the records are gated no-ops,
+            -- the call/create accumulators threaded unchanged — the append-homomorphism at an
+            -- unchanged accumulator (identical shape to the `halted` arm below).
+            rw [ih rest (.inl parent) g0 s0 c0 d0]
         | error e =>
           dsimp only [hres]
           split_ifs with hre
           · rw [ih rest (.inr (endFrame pending.frame (.exception e))) g0 s0
-                  (recordCall pending result c0),
+                  (recordCall pending result c0) (recordCreate pending result d0),
                 ih rest (.inr (endFrame pending.frame (.exception e))) [] []
-                  (recordCall pending result [])]
-            cases hb : driveLog n rest (.inr (endFrame pending.frame (.exception e))) [] [] [] with
+                  (recordCall pending result []) (recordCreate pending result [])]
+            cases hb : driveLog n rest (.inr (endFrame pending.frame (.exception e))) [] [] [] [] with
             | error e' => simp [Except.map]
             | ok val =>
-              simp [Except.map, recordCall_append pending result c0, List.append_assoc]
-          · rw [ih rest (.inr (endFrame pending.frame (.exception e))) g0 s0 c0]
+              simp [Except.map, recordCall_append pending result c0,
+                recordCreate_append pending result d0, List.append_assoc]
+          · rw [ih rest (.inr (endFrame pending.frame (.exception e))) g0 s0 c0 d0]
     | inl current =>
       dsimp only
       cases hstep : stepFrame current with
@@ -1174,30 +1187,30 @@ private theorem driveLog_acc_hom :
         dsimp only [hstep]
         split_ifs with hc1 hc2
         · rw [ih stack (.inl { current with exec := exec })
-                (g0 ++ [UInt256.ofUInt64 exec.gasAvailable]) s0 c0,
+                (g0 ++ [UInt256.ofUInt64 exec.gasAvailable]) s0 c0 d0,
               ih stack (.inl { current with exec := exec })
-                ([] ++ [UInt256.ofUInt64 exec.gasAvailable]) [] []]
-          cases hb : driveLog n stack (.inl { current with exec := exec }) [] [] [] with
+                ([] ++ [UInt256.ofUInt64 exec.gasAvailable]) [] [] []]
+          cases hb : driveLog n stack (.inl { current with exec := exec }) [] [] [] [] with
           | error e => simp [Except.map]
           | ok val => simp [Except.map, List.append_assoc]
-        · rw [ih stack (.inl { current with exec := exec }) g0 (s0 ++ [sloadWarmthOf current]) c0,
-              ih stack (.inl { current with exec := exec }) [] ([] ++ [sloadWarmthOf current]) []]
-          cases hb : driveLog n stack (.inl { current with exec := exec }) [] [] [] with
+        · rw [ih stack (.inl { current with exec := exec }) g0 (s0 ++ [sloadWarmthOf current]) c0 d0,
+              ih stack (.inl { current with exec := exec }) [] ([] ++ [sloadWarmthOf current]) [] []]
+          cases hb : driveLog n stack (.inl { current with exec := exec }) [] [] [] [] with
           | error e => simp [Except.map]
           | ok val => simp [Except.map, List.append_assoc]
-        · rw [ih stack (.inl { current with exec := exec }) g0 s0 c0]
+        · rw [ih stack (.inl { current with exec := exec }) g0 s0 c0 d0]
       | halted halt =>
         dsimp only [hstep]
-        rw [ih stack (.inr (endFrame current halt)) g0 s0 c0]
+        rw [ih stack (.inr (endFrame current halt)) g0 s0 c0 d0]
       | needsCall params pending =>
         dsimp only [hstep]
         cases hbc : beginCall params with
-        | inl child => dsimp only [hbc]; rw [ih (.call pending :: stack) (.inl child) g0 s0 c0]
+        | inl child => dsimp only [hbc]; rw [ih (.call pending :: stack) (.inl child) g0 s0 c0 d0]
         | inr result =>
-          dsimp only [hbc]; rw [ih (.call pending :: stack) (.inr (.call result)) g0 s0 c0]
+          dsimp only [hbc]; rw [ih (.call pending :: stack) (.inr (.call result)) g0 s0 c0 d0]
       | needsCreate params pending =>
         dsimp only [hstep]
-        rw [ih (.create pending :: stack) (.inl (beginCreate params)) g0 s0 c0]
+        rw [ih (.create pending :: stack) (.inl (beginCreate params)) g0 s0 c0 d0]
 
 /-- The gas-op gate and the sload-op gate are mutually exclusive: a frame decoding to
 `SLOAD` does not decode to `GAS`. Lets R7c know the gas-`if` in `driveLog` fails first. -/
@@ -1518,10 +1531,10 @@ theorem recorderCoupled_entry {params : CallParams} {log : RunLog} {fr₀ : Fram
   unfold runWithLog at hrun
   rw [hbegin] at hrun
   dsimp only at hrun
-  cases hdl : driveLog (seedFuel params.gas) [] (.inl fr₀) [] [] [] with
+  cases hdl : driveLog (seedFuel params.gas) [] (.inl fr₀) [] [] [] [] with
   | error e => rw [hdl] at hrun; simp at hrun
   | ok triple =>
-    obtain ⟨r, gas, sloads, calls⟩ := triple
+    obtain ⟨r, gas, sloads, calls, creates⟩ := triple
     rw [hdl] at hrun
     simp only [Option.some.injEq] at hrun
     subst hrun
@@ -1544,21 +1557,23 @@ theorem recorderCoupled_step_gas {log : RunLog} {fr : Frame} {exec : ExecutionSt
     unfold driveLog at hf
     simp only [hstep, hgas, List.isEmpty_nil, Bool.and_true, List.nil_append] at hf
     rw [driveLog_acc_hom m [] (.inl { fr with exec := exec })
-      [UInt256.ofUInt64 exec.gasAvailable] [] []] at hf
-    cases hX : driveLog m [] (.inl { fr with exec := exec }) [] [] [] with
+      [UInt256.ofUInt64 exec.gasAvailable] [] [] []] at hf
+    cases hX : driveLog m [] (.inl { fr with exec := exec }) [] [] [] [] with
     | error e => rw [hX] at hf; simp [Except.map] at hf
     | ok val =>
-      obtain ⟨obs', gS', sS', cS'⟩ := val
+      obtain ⟨obs', gS', sS', cS', dS'⟩ := val
       rw [hX] at hf
-      have hf2 : (Except.ok (obs', UInt256.ofUInt64 exec.gasAvailable :: gS', sS', cS')
-          : Except ExecutionException (FrameResult × List Word × List Nat × List CallRecord))
-          = .ok (log.observable, g :: gS, sS, cS) := hf
+      have hf2 : (Except.ok (obs', UInt256.ofUInt64 exec.gasAvailable :: gS', sS', cS', dS')
+          : Except ExecutionException
+              (FrameResult × List Word × List Nat × List CallRecord × List CreateRecord))
+          = .ok (log.observable, g :: gS, sS, cS, log.creates) := hf
       injection hf2 with hf3
       injection hf3 with hobs hf4
       injection hf4 with hgc hf5
-      injection hf5 with hs hc
+      injection hf5 with hs hcd
+      injection hcd with hc hd
       injection hgc with hgeq hgSeq
-      subst hobs; subst hgSeq; subst hs; subst hc
+      subst hobs; subst hgSeq; subst hs; subst hc; subst hd
       refine ⟨⟨⟨m, hX⟩, ?_, hsp, hcpp⟩, hgeq.symm⟩
       obtain ⟨pre, hpre⟩ := hgp
       exact ⟨pre ++ [g], by rw [hpre, List.append_assoc, List.singleton_append]⟩
@@ -1580,15 +1595,16 @@ private theorem gasSuffix_nonempty {log : RunLog} {fr : Frame} {exec : Execution
     unfold driveLog at hf
     simp only [hstep, hgas, List.isEmpty_nil, Bool.and_true, List.nil_append] at hf
     rw [driveLog_acc_hom m [] (.inl { fr with exec := exec })
-      [UInt256.ofUInt64 exec.gasAvailable] [] []] at hf
-    cases hX : driveLog m [] (.inl { fr with exec := exec }) [] [] [] with
+      [UInt256.ofUInt64 exec.gasAvailable] [] [] []] at hf
+    cases hX : driveLog m [] (.inl { fr with exec := exec }) [] [] [] [] with
     | error e => rw [hX] at hf; simp [Except.map] at hf
     | ok val =>
-      obtain ⟨obs', gS', sS', cS'⟩ := val
+      obtain ⟨obs', gS', sS', cS', dS'⟩ := val
       rw [hX] at hf
-      have hf2 : (Except.ok (obs', UInt256.ofUInt64 exec.gasAvailable :: gS', sS', cS')
-          : Except ExecutionException (FrameResult × List Word × List Nat × List CallRecord))
-          = .ok (log.observable, gS, sS, cS) := hf
+      have hf2 : (Except.ok (obs', UInt256.ofUInt64 exec.gasAvailable :: gS', sS', cS', dS')
+          : Except ExecutionException
+              (FrameResult × List Word × List Nat × List CallRecord × List CreateRecord))
+          = .ok (log.observable, gS, sS, cS, log.creates) := hf
       injection hf2 with hf3
       injection hf3 with _ hf4
       injection hf4 with hgc _
@@ -1667,21 +1683,23 @@ theorem recorderCoupled_sload {log : RunLog} {fr : Frame} {exec : ExecutionState
     unfold driveLog at hf
     simp only [hstep, hng, hsl, List.isEmpty_nil, Bool.and_true, Bool.false_and,
       List.nil_append] at hf
-    rw [driveLog_acc_hom m [] (.inl { fr with exec := exec }) [] [sloadWarmthOf fr] []] at hf
-    cases hX : driveLog m [] (.inl { fr with exec := exec }) [] [] [] with
+    rw [driveLog_acc_hom m [] (.inl { fr with exec := exec }) [] [sloadWarmthOf fr] [] []] at hf
+    cases hX : driveLog m [] (.inl { fr with exec := exec }) [] [] [] [] with
     | error e => rw [hX] at hf; simp [Except.map] at hf
     | ok val =>
-      obtain ⟨obs', gS', sS', cS'⟩ := val
+      obtain ⟨obs', gS', sS', cS', dS'⟩ := val
       rw [hX] at hf
-      have hf2 : (Except.ok (obs', gS', sloadWarmthOf fr :: sS', cS')
-          : Except ExecutionException (FrameResult × List Word × List Nat × List CallRecord))
-          = .ok (log.observable, gS, n :: sS, cS) := hf
+      have hf2 : (Except.ok (obs', gS', sloadWarmthOf fr :: sS', cS', dS')
+          : Except ExecutionException
+              (FrameResult × List Word × List Nat × List CallRecord × List CreateRecord))
+          = .ok (log.observable, gS, n :: sS, cS, log.creates) := hf
       injection hf2 with hf3
       injection hf3 with hobs hf4
       injection hf4 with hgSeq hf5
-      injection hf5 with hsc hc
+      injection hf5 with hsc hcd
       injection hsc with hneq hsSeq
-      subst hobs; subst hgSeq; subst hsSeq; subst hc
+      injection hcd with hc hd
+      subst hobs; subst hgSeq; subst hsSeq; subst hc; subst hd
       refine ⟨⟨⟨m, hX⟩, hgp, ?_, hcpp⟩, hneq.symm⟩
       obtain ⟨pre, hpre⟩ := hsp
       exact ⟨pre ++ [n], by rw [hpre, List.append_assoc, List.singleton_append]⟩
@@ -1713,11 +1731,11 @@ accumulator `(g0, s0, c0)` is threaded UNCHANGED up to the point `res` is delive
 accumulator-invariance the `rest.isEmpty` gate buys. By induction on fuel, branch-for-branch
 as `drive_append_framing_lt`; every recording gate is discharged by `hbot`. -/
 private theorem driveLog_frame_nonempty (bot : List Pending) (hbot : bot.isEmpty = false)
-    (g0 : List Word) (s0 : List Nat) (c0 : List CallRecord) :
+    (g0 : List Word) (s0 : List Nat) (c0 : List CallRecord) (d0 : List CreateRecord) :
     ∀ (f : ℕ) (top : List Pending) (st : Frame ⊕ FrameResult) (res : FrameResult),
       drive f top st = .ok res →
-      ∃ j, driveLog f (top ++ bot) st g0 s0 c0
-          = driveLog (j + 1) bot (.inr res) g0 s0 c0 := by
+      ∃ j, driveLog f (top ++ bot) st g0 s0 c0 d0
+          = driveLog (j + 1) bot (.inr res) g0 s0 c0 d0 := by
   have hbne : ∀ (t : List Pending), (t ++ bot).isEmpty = false := by
     intro t; cases t with
     | nil => exact hbot
@@ -1820,14 +1838,14 @@ theorem recorderCoupled_call {log : RunLog} {fr resumeFr : Frame}
   | zero => simp [driveLog] at hrestart
   | succ m =>
     -- Unfold the restart's first (CALL) step: `fr` descends into `child` on `[.call pending]`.
-    have hdescent : driveLog (m + 1) [] (.inl fr) [] [] []
-        = driveLog m (.call pending :: []) (.inl child) [] [] [] := by
+    have hdescent : driveLog (m + 1) [] (.inl fr) [] [] [] []
+        = driveLog m (.call pending :: []) (.inl child) [] [] [] [] := by
       conv_lhs => unfold driveLog
       simp only [hstep, hcode']
     rw [hdescent] at hrestart
     -- The child terminates within fuel `m` (the framed restart succeeded).
     have hdrive : drive m (.call pending :: []) (.inl child) = .ok log.observable := by
-      have hd := driveLog_drive m (.call pending :: []) (.inl child) [] [] []
+      have hd := driveLog_drive m (.call pending :: []) (.inl child) [] [] [] []
       rw [hrestart] at hd
       simpa only [Except.map] using hd.symm
     have hne : drive m (.call pending :: []) (running child) ≠ .error .OutOfFuel := by
@@ -1842,36 +1860,39 @@ theorem recorderCoupled_call {log : RunLog} {fr resumeFr : Frame}
       rw [hchild] at h2
       rw [← h1, h2]
     -- Frame the recorder: the inline child records nothing; the outer delivery records `[outerRec]`.
-    obtain ⟨j, hframe⟩ := driveLog_frame_nonempty (.call pending :: []) rfl [] [] []
+    obtain ⟨j, hframe⟩ := driveLog_frame_nonempty (.call pending :: []) rfl [] [] [] []
       m [] (.inl child) childRes hchildm
     rw [List.nil_append] at hframe
     rw [hframe] at hrestart
     -- Reduce the outer CALL delivery (`rest = []`): record `[outerRec]`, resume at `resumeFr`.
-    have hdeliv : driveLog (j + 1) (.call pending :: []) (.inr childRes) [] [] []
+    have hdeliv : driveLog (j + 1) (.call pending :: []) (.inr childRes) [] [] [] []
         = driveLog j [] (.inl resumeFr) [] []
-            [{ result := childRes.toCallResult, pending := pending }] := by
+            [{ result := childRes.toCallResult, pending := pending }] [] := by
       conv_lhs => unfold driveLog
-      simp only [Pending.resume, List.isEmpty_nil, if_true, recordCall, List.nil_append, hresume]
+      simp only [Pending.resume, List.isEmpty_nil, if_true, recordCall, recordCreate,
+        List.nil_append, hresume]
     rw [hdeliv] at hrestart
     -- Peel the single seeded record via the accumulator homomorphism.
     rw [driveLog_acc_hom j [] (.inl resumeFr) [] []
-      [{ result := childRes.toCallResult, pending := pending }]] at hrestart
-    cases hb : driveLog j [] (.inl resumeFr) [] [] [] with
+      [{ result := childRes.toCallResult, pending := pending }] []] at hrestart
+    cases hb : driveLog j [] (.inl resumeFr) [] [] [] [] with
     | error e => rw [hb] at hrestart; simp [Except.map] at hrestart
     | ok val =>
-      obtain ⟨obs'', gS'', sS'', cS''⟩ := val
+      obtain ⟨obs'', gS'', sS'', cS'', dS''⟩ := val
       rw [hb] at hrestart
       have heq : (Except.ok (obs'', [] ++ gS'', [] ++ sS'',
-          [{ result := childRes.toCallResult, pending := pending }] ++ cS'')
-          : Except ExecutionException (FrameResult × List Word × List Nat × List CallRecord))
-          = .ok (log.observable, gS, sS, rec :: cS) := hrestart
+          [{ result := childRes.toCallResult, pending := pending }] ++ cS'', [] ++ dS'')
+          : Except ExecutionException
+              (FrameResult × List Word × List Nat × List CallRecord × List CreateRecord))
+          = .ok (log.observable, gS, sS, rec :: cS, log.creates) := hrestart
       simp only [List.nil_append, List.singleton_append] at heq
       injection heq with heq2
       injection heq2 with hobs heq3
       injection heq3 with hgeq heq4
       injection heq4 with hseq heq5
-      injection heq5 with _ hcs
-      subst hobs; subst hgeq; subst hseq; subst hcs
+      injection heq5 with hcons hd
+      injection hcons with _ hcs
+      subst hobs; subst hgeq; subst hseq; subst hcs; subst hd
       refine ⟨⟨j, hb⟩, hgp, hsp, ?_⟩
       obtain ⟨pre, hpre⟩ := hcpp
       exact ⟨pre ++ [rec], by rw [hpre]; simp [List.append_assoc]⟩
@@ -1914,13 +1935,13 @@ theorem recorderCoupled_call_extract {log : RunLog} {callFr : Frame}
   cases fuel' with
   | zero => simp [driveLog] at hrestart
   | succ m =>
-    have hdescent : driveLog (m + 1) [] (.inl callFr) [] [] []
-        = driveLog m (.call pending :: []) (.inl child) [] [] [] := by
+    have hdescent : driveLog (m + 1) [] (.inl callFr) [] [] [] []
+        = driveLog m (.call pending :: []) (.inl child) [] [] [] [] := by
       conv_lhs => unfold driveLog
       simp only [hstep, hcode]
     rw [hdescent] at hrestart
     have hdrive : drive m (.call pending :: []) (.inl child) = .ok log.observable := by
-      have hd := driveLog_drive m (.call pending :: []) (.inl child) [] [] []
+      have hd := driveLog_drive m (.call pending :: []) (.inl child) [] [] [] []
       rw [hrestart] at hd
       simpa only [Except.map] using hd.symm
     have hne : drive m (.call pending :: []) (running child) ≠ .error .OutOfFuel := by
@@ -1933,34 +1954,37 @@ theorem recorderCoupled_call_extract {log : RunLog} {callFr : Frame}
         (by rw [hchild_seed]; simp)
       rw [hchild_seed] at h2
       rw [← h1, h2]
-    obtain ⟨j, hframe⟩ := driveLog_frame_nonempty (.call pending :: []) rfl [] [] []
+    obtain ⟨j, hframe⟩ := driveLog_frame_nonempty (.call pending :: []) rfl [] [] [] []
       m [] (.inl child) childRes hchildm
     rw [List.nil_append] at hframe
     rw [hframe] at hrestart
-    have hdeliv : driveLog (j + 1) (.call pending :: []) (.inr childRes) [] [] []
+    have hdeliv : driveLog (j + 1) (.call pending :: []) (.inr childRes) [] [] [] []
         = driveLog j [] (.inl (Evm.resumeAfterCall childRes.toCallResult pending)) [] []
-            [{ result := childRes.toCallResult, pending := pending }] := by
+            [{ result := childRes.toCallResult, pending := pending }] [] := by
       conv_lhs => unfold driveLog
-      simp only [Pending.resume, List.isEmpty_nil, if_true, recordCall, List.nil_append]
+      simp only [Pending.resume, List.isEmpty_nil, if_true, recordCall, recordCreate,
+        List.nil_append]
     rw [hdeliv] at hrestart
     rw [driveLog_acc_hom j [] (.inl (Evm.resumeAfterCall childRes.toCallResult pending)) [] []
-      [{ result := childRes.toCallResult, pending := pending }]] at hrestart
-    cases hbok : driveLog j [] (.inl (Evm.resumeAfterCall childRes.toCallResult pending)) [] [] []
+      [{ result := childRes.toCallResult, pending := pending }] []] at hrestart
+    cases hbok : driveLog j [] (.inl (Evm.resumeAfterCall childRes.toCallResult pending)) [] [] [] []
       with
     | error e => rw [hbok] at hrestart; simp [Except.map] at hrestart
     | ok val =>
-      obtain ⟨obs'', gS'', sS'', cS''⟩ := val
+      obtain ⟨obs'', gS'', sS'', cS'', dS''⟩ := val
       rw [hbok] at hrestart
       have heq : (Except.ok (obs'', [] ++ gS'', [] ++ sS'',
-          [{ result := childRes.toCallResult, pending := pending }] ++ cS'')
-          : Except ExecutionException (FrameResult × List Word × List Nat × List CallRecord))
-          = .ok (log.observable, gS, sS, rec :: cS) := hrestart
+          [{ result := childRes.toCallResult, pending := pending }] ++ cS'', [] ++ dS'')
+          : Except ExecutionException
+              (FrameResult × List Word × List Nat × List CallRecord × List CreateRecord))
+          = .ok (log.observable, gS, sS, rec :: cS, log.creates) := hrestart
       simp only [List.nil_append, List.singleton_append] at heq
       injection heq with heq2
       injection heq2 with _ heq3
       injection heq3 with _ heq4
       injection heq4 with _ heq5
-      injection heq5 with hrecEq _
+      injection heq5 with hcons _
+      injection hcons with hrecEq _
       exact hrecEq.symm
 
 /-- **R7d′ — coupling transport across one non-gas/non-sload `.next` step** (R3's Piece-A

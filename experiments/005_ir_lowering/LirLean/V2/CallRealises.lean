@@ -99,6 +99,57 @@ theorem callRealises_bridge {callFr resumeFr : Frame} (self : AccountAddress)
     show evmCallOracle.successWord result pd = callSuccessFlag result pd
     exact hsucc
 
+/-! ## Step 6 — the realised `V2.CreateStream` entry off v1's `evmCreateOracle`
+
+The CREATE twin of `evmV2CallEntry`/`callRealises_bridge`. A `V2.CreateStream` entry is a
+`(World × Word)` — (post-create world, deployed-address-or-0 word). The realised entry reads
+off v1's `evmCreateOracle` projections: the post-create `World` is the self account's storage
+lens, and the pushed word is `createAddrOrZero` (the CREATE analogue of `callSuccessFlag`).
+The bridge is off `create_reflects_lowered` (the R3 non-`rfl` storage side, discharged in
+`Frame/Match.lean`), exactly as the call bridge is off `call_reflects_lowered`. -/
+
+/-- **The realised v2 create-stream entry** (twin of `evmV2CallEntry`). The `(World × Word)` a
+recorded bytecode CREATE `(result, pd)` at self address `self` contributes to the consumed
+create stream: the post-create self-storage lens (`evmCreateOracle.postStorage result pd self`)
+paired with the deployed-address-or-`0` word (`evmCreateOracle.addressWord result pd`).
+Positional — the entry is fixed by the bytecode's `resumeAfterCreate` data, indexed by the
+record, NOT a function of the create's IR-visible inputs. -/
+def evmV2CreateEntry (result : CreateResult) (pd : PendingCreate) (self : AccountAddress) :
+    World × Word :=
+  ( (fun key => evmCreateOracle.postStorage result pd self key)
+  , evmCreateOracle.addressWord result pd )
+
+/-- **The create realisability bridge** (twin of `callRealises_bridge`). Given a returning,
+successfully-resumed CREATE (`CreateReturns createFr resumeFr`, so `resumeAfterCreate result pd
+= .ok resumeFr` for the projected child result / pending create), the entry `evmV2CreateEntry
+result pd self` is exactly the lowered CREATE's observable effect:
+
+* its `.1` (post-create `World`) is the resumed frame's self-storage lens
+  (`storageAt resumeFr self`, the `M3` lens — `Match.create_reflects_lowered`'s `postStorage`
+  projection, via the 63/64-guarded `accounts := result.accounts` unfold, R3); and
+* its `.2` (pushed word) is the deployed-address-or-`0` (`createAddrOrZero result pd`, via
+  `evmCreateOracle_addressWord_eq`).
+
+The CREATE analogue of `callRealises_bridge`: the IR's create effect *is* the lowered
+bytecode's, by realisation, never assumed. The storage half rides `create_reflects_lowered`'s
+short unfold (the create-specific cost CALL got for free); the address half is `rfl`-clean. -/
+theorem createRealises_bridge {createFr resumeFr : Frame} (self : AccountAddress)
+    (hc : CreateReturns createFr resumeFr) :
+    ∃ result pd, resumeAfterCreate result pd = .ok resumeFr
+      ∧ (evmV2CreateEntry result pd self).1
+          = (fun key => storageAt resumeFr self key)
+      ∧ (evmV2CreateEntry result pd self).2
+          = createAddrOrZero result pd := by
+  obtain ⟨result, pd, hres, hstore, haddr⟩ := create_reflects_lowered hc
+  refine ⟨result, pd, hres, ?_, ?_⟩
+  · -- world' = postStorage self = storageAt resumeFr self, pointwise via `hstore`
+    show (fun key => evmCreateOracle.postStorage result pd self key)
+        = (fun key => storageAt resumeFr self key)
+    funext key; exact hstore self key
+  · -- pushed word = addressWord = createAddrOrZero (by `haddr`, which is `rfl`)
+    show evmCreateOracle.addressWord result pd = createAddrOrZero result pd
+    exact haddr
+
 /-! The `workedCall` instance of this bridge (`wcV2Oracle`, `wc_call_parity_v2`) is a *leaf
 example*, not a headline dependency, so it lives in `LirLean/V2/WorkedCallParity.lean` (which
 imports both this module and the offset-coupled `LirLean/WorkedCall.lean`). Keeping it out of
