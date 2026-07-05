@@ -21,6 +21,14 @@ def VarCtx.set (vars : VarCtx) (key : VarId) (value : Word) : VarCtx :=
 def VarCtx.get (vars : VarCtx) (key : VarId) (is_present : key ∈ vars) : Word :=
   (vars.get? key).get is_present
 
+def VarCtx.fromInputs (inputs : Array VarId) (values : List Word) : Option VarCtx := do
+  guard (inputs.size = values.length)
+  (inputs.toList.zip values).foldlM
+    (fun vars (var, value) => some (vars.set var value))
+    VarCtx.empty
+
+def VarCtx.resolveOutputs (vars : VarCtx) (outputs : Array VarId) : Option (List Word) :=
+  outputs.toList.mapM fun out => vars.get? out
 
 structure MemoryRange where
   addr: Word
@@ -49,33 +57,12 @@ def Heap.alloc (size : Word) : StateT Heap Option Word :=
     let occupied' := heap.occupied.push { addr := addr, size := size }
     return (addr, { heap with occupied := occupied' })
 
-
-structure Env where
+structure Runtime where
   heap: Heap
-  vars : VarCtx
   world : World
 
-
-def VarCtx.transfer_var (start_vars vars : VarCtx) : VarId × VarId → Option VarCtx
-  | (out, inp) => (start_vars.get? out).map fun out_val => vars.set inp out_val
-
-def VarCtx.transfer_block_io (start_vars : VarCtx) (outputs inputs : Array VarId) : Option VarCtx :=
-  do
-    -- `Array.zip` would silently truncate on a size mismatch
-    guard (outputs.size = inputs.size)
-    (outputs.zip inputs).foldlM start_vars.transfer_var start_vars
-
-def Env.transfer_block_io (env : Env) (outputs inputs : Array VarId) : Option Env := do
-  let vars' ← env.vars.transfer_block_io outputs inputs
-  some { env with vars := vars' }
-
-
-
-structure ExitCode where
-  code: Word
-
 inductive Continuation where
-  | exited (code : ExitCode)
+  | exited
   | goto (bb : BasicBlockId)
 
 end Sir.Source

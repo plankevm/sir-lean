@@ -23,28 +23,22 @@ def Op.refs : Op → Array VarId
   | .sstore addr value => #[addr, value]
 
 def EndOp.refs : EndOp → Array VarId
-  | .exit exit_code_var => #[exit_code_var]
+  | .exit => #[]
   | .jump _ => #[]
   | .jump_if j => #[j.cond]
 
 def BasicBlock.successors (bb : BasicBlock): Array BasicBlockId :=
   match bb.last with
-  | .exit _ => #[]
+  | .exit => #[]
   | .jump to => #[to]
   | .jump_if j => #[j.dst_if_zero, j.dst_if_non_zero]
 
 def BasicBlock.defs (bb : BasicBlock) : Array VarId := bb.inputs ++ bb.ops.flatMap Op.defs
 
-def BasicBlock.outputs_last_match (bb : BasicBlock) : Prop :=
-  match bb.last with
-  | .exit _ => bb.outputs.isEmpty = true
-  | .jump _ | .jump_if _ => True
-
 def BasicBlock.defs_up_to (bb : BasicBlock) (i : Fin bb.ops.size) : Array VarId :=
   bb.inputs ++ (bb.ops.take i).flatMap Op.defs
 
 structure BasicBlock.LocalWF (bb : BasicBlock) : Prop where
-  outputs_last_match : bb.outputs_last_match
   op_refs_valid : ∀ opi : Fin bb.ops.size, ∀ ref ∈ bb.ops[opi].refs, ref ∈ bb.defs_up_to opi
   last_refs_valid : ∀ ref ∈ bb.last.refs, ref ∈ bb.defs
   outputs_valid : ∀ out ∈ bb.outputs, out ∈ bb.defs

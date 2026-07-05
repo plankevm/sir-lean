@@ -27,7 +27,7 @@ structure JumpIf where
 deriving DecidableEq, Repr
 
 inductive EndOp where
-  | exit (exit_code_var : VarId)
+  | exit
   | jump (dst : BasicBlockId)
   | jump_if (j : JumpIf)
 deriving DecidableEq, Repr
