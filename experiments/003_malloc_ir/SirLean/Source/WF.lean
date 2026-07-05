@@ -66,12 +66,7 @@ def MemoryRange.Disjoint (a b : MemoryRange) : Prop :=
 
 def OccupiedMemory.Fresh (ranges : OccupiedMemory) (r : MemoryRange) : Prop :=
   let ranges : Array MemoryRange := ranges
-  ∀ r' ∈ ranges, ¬MemoryRange.Disjoint r r'
-
-
-
-
-
+  ∀ r' ∈ ranges, MemoryRange.Disjoint r r'
 
 def OccupiedMemory.WF (ranges : OccupiedMemory) : Prop :=
   let ranges : Array MemoryRange := ranges
