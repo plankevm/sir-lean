@@ -34,13 +34,13 @@ structure MemoryRange where
   addr: Word
   size: Word
 
-def OccupiedMemory := Array MemoryRange
+def OccupiedRanges := Array MemoryRange
 
-def Allocator : Type := OccupiedMemory → Word → Option Word
+def Allocator : Type := OccupiedRanges → Word → Option Word
 
 structure Heap where
   bytes: Word → UInt8
-  occupied: OccupiedMemory
+  occupied: OccupiedRanges
   allocator : Allocator
 
 def Heap.read (heap : Heap) := heap.bytes

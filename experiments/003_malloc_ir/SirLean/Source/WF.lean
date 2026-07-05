@@ -64,17 +64,20 @@ def MemoryRange.WF (r : MemoryRange) : Prop :=
 def MemoryRange.Disjoint (a b : MemoryRange) : Prop :=
      a.endExclusive ≤ b.start ∨ b.endExclusive ≤ a.start
 
-def OccupiedMemory.Fresh (ranges : OccupiedMemory) (r : MemoryRange) : Prop :=
+theorem MemoryRange.Disjoint_comm (a b : MemoryRange) : a.Disjoint b ↔ b.Disjoint a := by
+  grind [Disjoint]
+
+def OccupiedRanges.Fresh (ranges : OccupiedRanges) (r : MemoryRange) : Prop :=
   let ranges : Array MemoryRange := ranges
   ∀ r' ∈ ranges, MemoryRange.Disjoint r r'
 
-def OccupiedMemory.WF (ranges : OccupiedMemory) : Prop :=
+def OccupiedRanges.WF (ranges : OccupiedRanges) : Prop :=
   let ranges : Array MemoryRange := ranges
   ranges.toList.Pairwise MemoryRange.Disjoint
 
-inductive Allocator.Provenance (allocator : Allocator) : OccupiedMemory → Prop where
+inductive Allocator.Provenance (allocator : Allocator) : OccupiedRanges → Prop where
   | empty : Allocator.Provenance allocator #[]
-  | alloc {ranges : OccupiedMemory} {size addr : Word} :
+  | alloc {ranges : OccupiedRanges} {size addr : Word} :
     Allocator.Provenance allocator ranges →
     allocator ranges size = some addr →
     Allocator.Provenance allocator (ranges.push ⟨addr, size⟩)

@@ -7,26 +7,33 @@ instance (a b : MemoryRange) : Decidable (a.Disjoint b) := by
   unfold MemoryRange.Disjoint
   infer_instance
 
-instance (ranges : OccupiedMemory) (r : MemoryRange) : Decidable (ranges.Fresh r) := by
-  unfold OccupiedMemory.Fresh
+instance (ranges : OccupiedRanges) (r : MemoryRange) : Decidable (ranges.Fresh r) := by
+  unfold OccupiedRanges.Fresh
   infer_instance
 
-theorem OccupiedMemory.empty_WF : OccupiedMemory.WF #[] := by simp [WF]
+theorem OccupiedRanges.empty_WF : OccupiedRanges.WF #[] := by simp [WF]
 
-theorem Allocator.sound_ensures_WF_occupied :
+theorem Allocator.sound_ensures_ranges_WF :
     ∀ allocator : Allocator, allocator.Sound →
-    ∀ ranges : OccupiedMemory,
+    ∀ ranges : OccupiedRanges,
     allocator.Provenance ranges → ranges.WF := by
   intro allocator sound ranges provenance
-  simp [OccupiedMemory.WF]
-  cases provenance with
-  | empty => sorry
-  | alloc h => by
-    sorry
-
-
-
-
+  simp [OccupiedRanges.WF]
+  induction provenance
+  case empty => simp
+  case alloc oldRanges size addr prevProv halloc ih =>
+    simp
+    apply List.pairwise_append.mpr
+    simp
+    constructor
+    . exact ih
+    . {
+      let new_alloc_fresh := (sound oldRanges size addr prevProv halloc).left
+      simp at new_alloc_fresh
+      simp [OccupiedRanges.Fresh] at new_alloc_fresh
+      intro r' r'_mem
+      exact (MemoryRange.Disjoint_comm r' ⟨addr, size⟩).mpr (new_alloc_fresh r' r'_mem)
+    }
 
 def Allocator.bump : Allocator :=
   fun occupied size =>
@@ -41,7 +48,7 @@ def Allocator.bump : Allocator :=
 --   intro ranges size addr _ h
 --   unfold Allocator.bump at h
 --   split at h
---   · simp [OccupiedMemory.Fresh, MemoryRange.Disjoint]
+--   · simp [OccupiedRanges.Fresh, MemoryRange.Disjoint]
 --
 --
 --
