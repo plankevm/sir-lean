@@ -116,21 +116,19 @@ frame), the entry frame `CleanHaltsNonException`. The `drive → Runs` reverse c
 (`runs_of_drive_ok`) reconstructs the halting `Runs` from the verified `drive` outcome
 `runWithLog_drive` pins, under the `Runs`-modellability of every reachable frame — which is **no
 longer a raw supplied universal**: it is **produced** by `lower_modellable` (`V2/Modellable.lean`)
-from the two per-frame clauses
+from the two per-frame residuals
 
-* `NotCreate` — the current op is never `CREATE`/`CREATE2`. This is **no longer supplied**: it is
-  **discharged structurally** by `notCreate_of_atReachableBoundary` from the strictly-weaker
-  `AtReachableBoundary prog` premise (`hrb`) — a frame running `lower prog` at a reachable
-  instruction boundary never reads a CREATE-family opcode (the `SegAlignedSafe` no-CREATE-head
-  transport of `NoCreateBytes.lean`). The residual `hrb` is the per-frame *pc-reachability* fact
-  (which boundary `Runs` lands on), not the opcode-set fact (that part is now proved).
+* `CreateResolves` — every reachable CREATE whose init child terminates resumes successfully (the
+  63/64 retention guard passing). The former "no CREATE at all" clause is **RETIRED**: `emitStmt
+  .create` now emits real `CREATE`/`CREATE2` bytes and CREATE is **modelled** by `Runs.create`
+  (`runs_of_drive_ok`'s `.needsCreate` arm). `CreateResolves` is the honest R4 residual — a gas
+  retention fact, NOT a lowering property (vacuous for any create-free program). Supplied as `hcr`.
 * `CallsCode` — every `.needsCall` targets a *code* account, not a precompile `1..10`. The **honest
   residual**: a runtime condition on the program's reachable call targets, NOT a lowering property
   (vacuous for any call-free program). Supplied here as `hcc`.
 
-`lower_modellable` discharges the `runs_of_drive_ok` modellability universal from `hrb`/`hcc` via
-the proved structural reductions (`notCreate_of_atReachableBoundary`,
-`stepFrame_needsCreate_isCreate`, `beginCall_isCode_of_codeSource_ne_precompiled`).
+`lower_modellable` discharges the `runs_of_drive_ok` modellability universal from `hcr`/`hcc` via
+the proved reductions (`modellableStep_of`, `beginCall_isCode_of_codeSource_ne_precompiled`).
 
 The **non-exception scope premise** `hne` is the visible, approved scope boundary: the recorded
 interpreter outcome routes *any* halt (including `.exception`) to `.ok`, so the reverse
@@ -142,7 +140,7 @@ theorem cleanHalts_of_runWithLog {prog : Lir.Program} {params : Evm.CallParams} 
     {log : RunLog}
     (hlog : runWithLog params (Evm.seedFuel params.gas) = some log)
     (hbegin : Evm.beginCall params = .inl fr₀)
-    (hrb : ∀ fr', Runs fr₀ fr' → BytecodeLayer.Interpreter.AtReachableBoundary prog fr')
+    (hcr : ∀ fr', Runs fr₀ fr' → BytecodeLayer.Interpreter.CreateResolves fr')
     (hcc : ∀ fr', Runs fr₀ fr' → BytecodeLayer.Interpreter.CallsCode fr')
     (hne : ∀ last halt, Runs fr₀ last → stepFrame last = .halted halt → HaltNonException halt) :
     CleanHaltsNonException fr₀ := by
@@ -152,10 +150,11 @@ theorem cleanHalts_of_runWithLog {prog : Lir.Program} {params : Evm.CallParams} 
   have hfeq : frame = fr₀ := (Sum.inl.injEq _ _).mp hbc.symm
   rw [hfeq] at hdrive
   -- the reverse construction yields the halting `Runs`; modellability is PRODUCED, not supplied —
-  -- the no-CREATE clause now discharged structurally from `hrb`.
+  -- CREATE is now MODELLED (`Runs.create`), the exclusion RETIRED; the two honest residuals
+  -- `CreateResolves` (no CREATE OOG-fault on resume) and `CallsCode` (no precompile CALL) remain.
   obtain ⟨last, halt, hruns, hhalt, _⟩ :=
     BytecodeLayer.Interpreter.runs_of_drive_ok (Evm.seedFuel params.gas) fr₀ log.observable
-      hdrive (BytecodeLayer.Interpreter.lower_modellable hrb hcc)
+      hdrive (BytecodeLayer.Interpreter.lower_modellable hcr hcc)
   exact ⟨last, halt, hruns, hhalt, hne last halt hruns hhalt⟩
 
 /-! ## §3 — The strict `totalGas` descent across a block (the KEY new content)

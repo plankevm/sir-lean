@@ -1,5 +1,5 @@
 import LirLean.Engine.DriveRuns
-import LirLean.Decode.NoCreateBytes
+import LirLean.Decode.BoundaryReach
 
 /-!
 # LirLean v2 — `ModellableStep` over `lower prog` (P2: discharge the supplied modellability hypothesis)
@@ -13,19 +13,15 @@ no CREATE node, no precompile-CALL node (`Runs` models neither). `cleanHalts_of_
 This module replaces it with a **proved producing lemma**. The work splits along the two clauses
 of `ModellableStep`:
 
-* **Clause 1 — no CREATE (`stepFrame fr ≠ .needsCreate …`).** **Fully structural** and now
-  **discharged**, not supplied: a `.needsCreate` signal is produced *only* by the `CREATE`/`CREATE2`
-  arms of `systemOp` (every other `dispatch` arm goes through `continueWith`/`charge`/`throw`, i.e.
-  `.next` / `.halted`, never `.needsCreate`), so `stepFrame fr = .needsCreate …` forces the decoded
-  op to be `.System .CREATE` / `.System .CREATE2` (`stepFrame_needsCreate_isCreate`). The
-  complementary fact — a frame running `lower prog` at a reachable instruction boundary *never reads
-  a CREATE-family opcode* — is the structural content of `LirLean/NoCreateBytes.lean`: the lowering
-  emits only 16 non-CREATE opcodes at any instruction head (`SegAlignedSafe`, the no-CREATE-head
-  strengthening of `JumpValid.lean`'s `SegAligned`), transported along the `ReachesBoundary` walk
-  (`decode_reachable_boundary_some`). `notCreate_of_atReachableBoundary` combines the two to prove
-  `NotCreate fr'` from the per-frame `AtReachableBoundary prog fr'` premise (`fr'` runs `lower prog`
-  at a reachable boundary) — so clause 1 no longer needs `NotCreate` as a raw supplied universal;
-  only the *pc-reachability* residual remains.
+* **Clause 1 — CREATE resumes successfully (`CreateResolves`).** The former "no CREATE at all"
+  clause is **RETIRED**: `emitStmt .create` now emits real `CREATE`/`CREATE2` bytes and CREATE is
+  **modelled** by `Runs.create` (`runs_of_drive_ok`'s `.needsCreate` arm builds a `CreateReturns`
+  node). What remains is the honest R4 residual `CreateResolves` — a `.needsCreate` whose init
+  child terminates resumes successfully (the 63/64 retention guard, `Create.lean:200`, passing).
+  This is NOT structural for `lower prog` (the guard can `throw .OutOfGas` on a `UInt64` overflow
+  of the retained gas), so it is a genuine runtime side condition, vacuous for create-free
+  programs. The OOG resume-fault delivers an exception halt through the drive stack — a control
+  flow `Runs` does not resume — so `CreateResolves` rules it out on every reachable create frame.
 
 * **Clause 2 — no precompile-CALL.** `beginCall cp = .inr _` holds **iff** `cp.codeSource =
   .Precompiled _`, and in a `.needsCall` produced by `callArm`, `cp.codeSource =
@@ -37,12 +33,12 @@ of `ModellableStep`:
   the program's reachable call targets, captured by the residual `CallsCode` and proven through
   `beginCall_isCode_of_codeSource_ne_precompiled`.
 
-So the producing lemma `lower_modellable` discharges clause 1 structurally (from `AtReachableBoundary`)
-and consumes only the honest residuals: the pc-reachability premise and `CallsCode` (no reachable
-precompile-CALL). `cleanHalts_of_runWithLog` then takes those in place of the raw `ModellableStep`
-universal — strictly weaker, satisfiable, precisely-scoped hypotheses (`CallsCode` is *vacuously*
-true for any IR program with no calls, and for any program whose call targets are ordinary contract
-accounts). See the module-level note in `DriveSim.lean`.
+So the producing lemma `lower_modellable` consumes only the two honest residuals: `CreateResolves`
+(no reachable CREATE OOG-faults on resume) and `CallsCode` (no reachable precompile-CALL).
+`cleanHalts_of_runWithLog` then takes those in place of the raw `ModellableStep` universal —
+satisfiable, precisely-scoped hypotheses (each *vacuously* true for any IR program with no
+creates / no calls respectively, and for any program whose creates are ordinary and whose call
+targets are ordinary contract accounts). See the module-level note in `DriveSim.lean`.
 
 No `sorry`/`axiom`/`native_decide`. -/
 
@@ -393,11 +389,6 @@ threads it over every `Runs`-reachable frame, given those two facts at each reac
 instruction boundary) and `CallsCode` (the **honest residual**, the genuine runtime condition that
 the program's reachable CALL targets are ordinary contract accounts, not precompiles `1..10`). -/
 
-/-- The first reachability clause: `fr`'s current op is not a CREATE-family op. **Structural** for
-`lower prog` (no CREATE/CREATE2 opcode is ever emitted at an instruction boundary). -/
-def NotCreate (fr : Frame) : Prop :=
-  currentOp fr ≠ .System .CREATE ∧ currentOp fr ≠ .System .CREATE2
-
 /-- **`AtReachableBoundary prog fr`** — the structural-reachability premise: `fr` runs
 `lower prog` and its current pc is an instruction boundary reachable from the program start,
 strictly before the program end and within the `UInt32` address space. This is *exactly* the
@@ -412,22 +403,6 @@ def AtReachableBoundary (prog : Lir.Program) (fr : Frame) : Prop :=
     ∧ boundary < (Lir.flatBytes prog).length
     ∧ boundary < 2 ^ 32
 
-/-- **`NotCreate` discharged structurally from `AtReachableBoundary`.** A frame running
-`lower prog` at a reachable instruction boundary has a non-CREATE current op: the structural
-no-CREATE fact (`Lir.decode_reachable_boundary_notCreate`) pins the decoded op off the
-CREATE-family, and `currentOp` reads exactly that decoded op (the boundary is in range, so
-`decode` is `some`). This is the **structural discharge** of the first modellability clause —
-no program-specific hypothesis, only the reachable-boundary invariant. -/
-theorem notCreate_of_atReachableBoundary {prog : Lir.Program} {fr : Frame}
-    (h : AtReachableBoundary prog fr) : NotCreate fr := by
-  obtain ⟨pc, hcode, hpc, hreach, hin, hbnd⟩ := h
-  -- the boundary decodes to a concrete non-CREATE opcode (`decode_reachable_boundary_some`).
-  obtain ⟨op, arg, hval, hsafe1, hsafe2⟩ :=
-    Lir.decode_reachable_boundary_some prog pc hreach hin hbnd
-  -- `currentOp fr = (decode (lower prog) (UInt32.ofNat pc)).getD (.STOP, .none) |>.1 = op`.
-  have hcoeq : currentOp fr = op := by rw [currentOp, hcode, hpc, hval]; rfl
-  exact ⟨hcoeq ▸ hsafe1, hcoeq ▸ hsafe2⟩
-
 /-- The second reachability clause: every `.needsCall` `fr` issues targets a *code* account, not a
 precompile. The **honest residual** — a runtime fact about the program's reachable call targets,
 NOT structurally guaranteed by the lowering (an IR `Stmt.call` whose callee materialises a
@@ -435,49 +410,53 @@ precompile address `1..10` would violate it). Vacuous for any call-free program.
 def CallsCode (fr : Frame) : Prop :=
   ∀ cp pending, stepFrame fr = .needsCall cp pending → ∀ p, cp.codeSource ≠ .Precompiled p
 
-/-- **`ModellableStep` from the two per-frame clauses.** A frame whose current op is not CREATE-
-family (`NotCreate`) and whose CALLs all target code (`CallsCode`) is `ModellableStep`: the no-
-CREATE clause is `stepFrame_needsCreate_isCreate` contrapositive; the no-precompile-CALL clause is
+/-- **`CreateResolves fr`** — the create-resolves residual (the honest R4 seam). A `.needsCreate cp
+pending` whose init child terminates (`drive (seedFuel cp.gas) [] (running (beginCreate cp)) = .ok
+childRes`) resumes **successfully** (`resumeAfterCreate childRes.toCreateResult pending = .ok
+resumeFr`) — the 63/64 retention guard (`Create.lean:200`) passing. This is the create clause of
+`ModellableStep`; it is NOT structural for `lower prog` (the guard can `throw .OutOfGas` on a
+`UInt64` overflow of the retained gas), so it is a genuine runtime side condition — vacuous for any
+create-free program, satisfiable for empty-init CREATEs at ordinary gas. Replaces the retired
+`NotCreate` clause: CREATE is now **modelled** by `Runs.create`, not excluded. -/
+def CreateResolves (fr : Frame) : Prop :=
+  ∀ cp pending childRes, stepFrame fr = .needsCreate cp pending →
+    drive (seedFuel cp.gas) [] (running (beginCreate cp)) = .ok childRes →
+    ∃ resumeFr, resumeAfterCreate childRes.toCreateResult pending = .ok resumeFr
+
+/-- **`ModellableStep` from the two per-frame residuals.** A frame whose CREATEs resume
+successfully (`CreateResolves`) and whose CALLs all target code (`CallsCode`) is `ModellableStep`:
+the create clause is `CreateResolves` verbatim; the no-precompile-CALL clause is
 `beginCall_isCode_of_codeSource_ne_precompiled` fed `CallsCode`. -/
-theorem modellableStep_of {fr : Frame} (hnc : NotCreate fr) (hcc : CallsCode fr) :
+theorem modellableStep_of {fr : Frame} (hcr : CreateResolves fr) (hcc : CallsCode fr) :
     ModellableStep fr := by
-  refine ⟨?_, ?_⟩
-  · -- clause 1: never `.needsCreate`.
-    intro cp pending hcontra
-    rcases stepFrame_needsCreate_isCreate hcontra with hco | hco
-    · exact hnc.1 hco
-    · exact hnc.2 hco
-  · -- clause 2: a `.needsCall` never begins as a precompile.
-    intro cp pending result hstep
-    exact beginCall_isCode_of_codeSource_ne_precompiled (hcc cp pending hstep) result
+  refine ⟨hcr, ?_⟩
+  -- clause 2: a `.needsCall` never begins as a precompile.
+  intro cp pending result hstep
+  exact beginCall_isCode_of_codeSource_ne_precompiled (hcc cp pending hstep) result
 
 /-- **The producing lemma — `lower_modellable`.** For an entry frame `fr₀` (canonically running
-`lower prog`), if every `Runs`-reachable frame is `NotCreate` (structural for `lower prog`) and
-`CallsCode` (the honest residual), then every reachable frame is `ModellableStep`. This is exactly
-the universal `runs_of_drive_ok` consumes; it discharges the raw `ModellableStep` universal in
-`cleanHalts_of_runWithLog` to the strictly weaker, satisfiable, decode-level `NotCreate`/`CallsCode`
-side conditions.
+`lower prog`), if every `Runs`-reachable frame `CreateResolves` (the honest R4 residual — CREATEs
+resume successfully) and `CallsCode` (the precompile residual), then every reachable frame is
+`ModellableStep`. This is exactly the universal `runs_of_drive_ok` consumes; it discharges the raw
+`ModellableStep` universal in `cleanHalts_of_runWithLog` to the two satisfiable, precisely-scoped
+runtime side conditions.
 
-The split is honest: `NotCreate` is now **discharged structurally** from the strictly-weaker
-`AtReachableBoundary prog` premise (`notCreate_of_atReachableBoundary`: a frame running `lower
-prog` at a reachable instruction boundary never reads a CREATE-family opcode — the
-`ReachesBoundary` walk of `JumpValid.lean` ⨯ the `SegAlignedSafe` no-CREATE-head transport of
-`NoCreateBytes.lean`). The residual premise is no longer `NotCreate fr'` itself but the per-frame
-"`fr'` runs `lower prog` at a reachable boundary" reachability fact — the genuine whole-run pc
-invariant, which is a property of *which frames `Runs` reaches*, not of the lowering's opcode set
-(that part is now proved). `CallsCode` remains the genuinely-runtime residual (no reachable
-precompile-targeted CALL), which is NOT a property of the lowering and must be supplied (it is
-vacuous for call-free programs). -/
-theorem lower_modellable {prog : Lir.Program} {fr₀ : Frame}
-    (hrb : ∀ fr', Runs fr₀ fr' → AtReachableBoundary prog fr')
+The split is honest: the former "no CREATE at all" clause is **RETIRED** — CREATE is now modelled
+by `Runs.create` (`runs_of_drive_ok`'s `.needsCreate` arm), so there is no structural no-CREATE
+discharge left. The two residuals are `CreateResolves` (no CREATE OOG-faults on resume — a genuine
+gas-retention fact, vacuous for create-free programs) and `CallsCode` (no reachable
+precompile-targeted CALL, vacuous for call-free programs). Neither is a property of the lowering's
+opcode set; both are supplied. -/
+theorem lower_modellable {fr₀ : Frame}
+    (hcr : ∀ fr', Runs fr₀ fr' → CreateResolves fr')
     (hcc : ∀ fr', Runs fr₀ fr' → CallsCode fr') :
     ∀ fr', Runs fr₀ fr' → ModellableStep fr' :=
-  fun fr' hr => modellableStep_of (notCreate_of_atReachableBoundary (hrb fr' hr)) (hcc fr' hr)
+  fun fr' hr => modellableStep_of (hcr fr' hr) (hcc fr' hr)
 
 end BytecodeLayer.Interpreter
 
--- Build-enforced axiom-cleanliness guards for the `ModellableStep` producing chain: the structural
--- no-CREATE reduction (`stepFrame_needsCreate_isCreate`), the precompile-CALL characterization
+-- Build-enforced axiom-cleanliness guards for the `ModellableStep` producing chain: the create-
+-- resolves residual (`CreateResolves`), the precompile-CALL characterization
 -- (`beginCall_isCode_of_codeSource_ne_precompiled`), the per-frame reduction (`modellableStep_of`)
 -- and the producing lemma (`lower_modellable`) all depend only on `[propext, Classical.choice,
 -- Quot.sound]`.

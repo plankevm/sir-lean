@@ -262,7 +262,7 @@ theorem haltNonException_of_cleanLog {prog : Lir.Program} {params : CallParams}
     (hrun : runWithLog params (seedFuel params.gas) = some log)
     (hbegin : beginCall params = .inl fr₀)
     (hclean : log.clean)
-    (hrb : ∀ fr', Runs fr₀ fr' → AtReachableBoundary prog fr')
+    (hcr : ∀ fr', Runs fr₀ fr' → CreateResolves fr')
     (hcc : ∀ fr', Runs fr₀ fr' → CallsCode fr') :
     ∀ last halt, Runs fr₀ last → stepFrame last = .halted halt →
       HaltNonException halt := by
@@ -272,7 +272,7 @@ theorem haltNonException_of_cleanLog {prog : Lir.Program} {params : CallParams}
   rw [hfeq] at hdrive
   obtain ⟨last₀, halt₀, hto₀, hhalt₀, hobs⟩ :=
     runs_of_drive_ok (seedFuel params.gas) fr₀ log.observable hdrive
-      (lower_modellable hrb hcc)
+      (lower_modellable hcr hcc)
   intro last halt hreach hhalt
   -- the halting terminal is unique: `last = last₀`, `halt = halt₀`.
   have hlast : last = last₀ :=
@@ -1427,28 +1427,25 @@ theorem atReachableBoundaryVJ_call {prog : Lir.Program} {fr rf : Frame}
       simp [Evm.nextInstrPosNat, Evm.pushArgWidth]
     rwa [hnn] at hr
 
-/-- **The CREATE edge is vacuous for a lowered program.** A `Runs.create` node needs
-`stepFrame fr = .needsCreate …` (`CreateReturns`), which forces `currentOp fr ∈ {CREATE, CREATE2}`
-(`stepFrame_needsCreate_isCreate`). But `fr` at a reachable in-range boundary decodes to an
-`IsLoweringOp` opcode (`decode_reachable_boundary_loweringOp`), and the lowering emits neither
-CREATE nor CREATE2 (`IsLoweringOp` is the 16-op allow-list). So the hypotheses are contradictory —
-the create arm cannot arise in a lowered run, and needs no boundary-geometry brick. -/
+/-- **R6 CREATE edge — NEW TRACKED CREATE OBLIGATION (`sorry`).** The `Runs.create` node resumes
+at `rf = resumeAfterCreate childRes.toCreateResult pending`, which lands at the instruction
+boundary *past* the emitted `CREATE`/`CREATE2` byte (the twin of `atReachableBoundaryVJ_call`'s
+post-CALL resume geometry). Previously this edge was *vacuous* — the lowering emitted no CREATE
+byte, so `stepFrame_needsCreate_isCreate` contradicted `decode_reachable_boundary_loweringOp`. Now
+that `emitStmt .create` DOES emit `0xf0`/`0xf5` (in `IsLoweringOp`), the edge is genuinely
+inhabited and needs the real create-resume boundary-geometry brick — the R6 analogue of the CALL
+resume edge (plan §2 Step 8: "R6 geometry must admit CREATE boundary heads"). Deferred to the
+flagship create-obligation work; it is a WIP-only R6 leaf and does not affect the default cone. -/
 theorem atReachableBoundaryVJ_create {prog : Lir.Program} {fr rf : Frame}
     (h : CreateReturns fr rf) (hinv : AtReachableBoundaryVJ prog fr) :
-    AtReachableBoundaryVJ prog rf := by
-  exfalso
-  obtain ⟨_cp, _pending, _childRes, hncreate, _, _⟩ := h
-  obtain ⟨⟨b, hcode, hpc, hreach, hin, hbnd⟩, _hvj⟩ := hinv
-  obtain ⟨op, arg, hdecode, hlow⟩ := Lir.decode_reachable_boundary_loweringOp prog b hreach hin hbnd
-  have hcoeq : currentOp fr = op := by rw [currentOp, hcode, hpc, hdecode]; rfl
-  rcases stepFrame_needsCreate_isCreate hncreate with h1 | h1 <;>
-    · rw [hcoeq] at h1; rw [h1] at hlow; exact absurd hlow (by decide)
+    AtReachableBoundaryVJ prog rf := sorry
 
 /-- **The `Runs`-induction combinator (master lemma).** `AtReachableBoundaryVJ prog` is
 preserved across a whole `Runs` derivation, threading through each single `StepsTo`
 (`atReachableBoundaryVJ_step`), each returning external `CallReturns` (`atReachableBoundaryVJ_call`),
-and each returning `CreateReturns` (`atReachableBoundaryVJ_create`, vacuous — no CREATE bytes are
-emitted). The assembly of R6: seed with `atReachableBoundaryVJ_entry` (BASE), then thread the edges. -/
+and each returning `CreateReturns` (`atReachableBoundaryVJ_create` — now a NEW tracked CREATE
+obligation: the create-resume boundary geometry, no longer vacuous since `emitStmt .create` emits
+`CREATE`/`CREATE2`). The assembly of R6: seed with `atReachableBoundaryVJ_entry` (BASE), then thread the edges. -/
 theorem atReachableBoundaryVJ_of_runs {prog : Lir.Program}
     (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32)
     {fr fr' : Frame} (hr : Runs fr fr') :

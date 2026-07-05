@@ -33,7 +33,7 @@ is executable byte emission only.
 Opcode bytes (confirmed against `EVMLean/Evm/Instr.lean`):
 `STOP 0x00`, `ADD 0x01`, `LT 0x10`, `SLOAD 0x54`, `SSTORE 0x55`, `JUMP 0x56`,
 `JUMPI 0x57`, `GAS 0x5a`, `JUMPDEST 0x5b`, `PUSH1 0x60`, `PUSH4 0x63`,
-`PUSH32 0x7f`, `CALL 0xf1`, `RETURN 0xf3`.
+`PUSH32 0x7f`, `CREATE 0xf0`, `CALL 0xf1`, `CREATE2 0xf5`, `RETURN 0xf3`.
 -/
 
 namespace Lir
@@ -57,7 +57,9 @@ def gas      : UInt8 := 0x5a
 def jumpdest : UInt8 := 0x5b
 def push4    : UInt8 := 0x63
 def push32   : UInt8 := 0x7f
+def create   : UInt8 := 0xf0
 def call     : UInt8 := 0xf1
+def create2  : UInt8 := 0xf5
 def ret      : UInt8 := 0xf3
 end Byte
 
@@ -198,11 +200,19 @@ def emitStmt (defs : Tmp → Option Expr) (fuel : Nat) : Stmt → List UInt8
       ++ (match cs.resultTmp with
           | some t => emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]   -- PUSH slot; MSTORE
           | none   => [Byte.pop])                                          -- discard flag
-  | .create _ =>
-      -- **Step-1 placeholder** (a real total definition, no `sorry`): CREATE emits
-      -- no bytes yet. The real CREATE/CREATE2 lowering (arg pushes + `0xf0`/`0xf5`
-      -- + result stash) lands in Step 4 (`docs/create/BUILD-PLAN.md` §2 Step 4).
-      []
+  | .create cs =>
+      -- CREATE / CREATE2 (empty-init first cut: value/initOffset/initSize = 0 via `emitImm 0`).
+      -- Push the three create args, then — if `cs.salt = some s` — materialise the salt and emit
+      -- `CREATE2` (0xf5); else emit `CREATE` (0xf0). The pushed deployed-address-or-0 word is
+      -- stashed to `slotOf t` (byte-identical to the CALL result stash) if `resultTmp = some t`,
+      -- else discarded (`POP`). See `docs/create/BUILD-PLAN.md` §2 Step 4.
+      emitImm 0 ++ emitImm 0 ++ emitImm 0
+      ++ (match cs.salt with
+          | some s => materialise defs fuel s ++ [Byte.create2]
+          | none   => [Byte.create])
+      ++ (match cs.resultTmp with
+          | some t => emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]   -- PUSH slot; MSTORE
+          | none   => [Byte.pop])                                          -- discard address
 
 /-- Emit the opcode bytes for a terminator, given the `defs` environment, fuel, and
 the resolved offset table `labelOff` (label index → byte offset of its
@@ -257,6 +267,7 @@ def defsOf (prog : Program) : Tmp → Option Expr :=
         | .assign t (.sload _) => some (t, Expr.slot (slotOf t))
         | .assign t e          => some (t, e)
         | .call ⟨_, _, some t⟩ => some (t, Expr.slot (slotOf t))
+        | .create ⟨_, _, _, _, some t⟩ => some (t, Expr.slot (slotOf t))
         | _                    => none))
   fun t => (pairs.find? (fun p => p.1 == t)).map (·.2)
 

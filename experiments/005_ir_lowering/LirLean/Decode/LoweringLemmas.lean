@@ -47,7 +47,13 @@ theorem defsOf_ne_gas (prog : Program) (t : Tmp) : defsOf prog t ≠ some .gas :
       | some t'' =>
           simp only [Option.some.injEq] at hsmap
           rw [← hsmap] at hpr; simp at hpr
-  | create cs => simp at hsmap
+  | create cs =>
+      obtain ⟨value, initOffset, initSize, salt, rt⟩ := cs
+      cases rt with
+      | none => simp at hsmap
+      | some t'' =>
+          simp only [Option.some.injEq] at hsmap
+          rw [← hsmap] at hpr; simp at hpr
 
 /-- `defsOf` never registers a tmp as a bare `Expr.sload _`: an sload assign is routed to the
 spill-load `Expr.slot (slotOf t)` (Phase C), and no other `defsOf` arm produces `.sload`. So
@@ -81,7 +87,13 @@ theorem defsOf_ne_sload (prog : Program) (t : Tmp) (k : Tmp) :
       | some t'' =>
           simp only [Option.some.injEq] at hsmap
           rw [← hsmap] at hpr; simp at hpr
-  | create cs => simp at hsmap
+  | create cs =>
+      obtain ⟨value, initOffset, initSize, salt, rt⟩ := cs
+      cases rt with
+      | none => simp at hsmap
+      | some t'' =>
+          simp only [Option.some.injEq] at hsmap
+          rw [← hsmap] at hpr; simp at hpr
 
 /-- `Loc.toDef` is a left inverse of `locOfExpr` on every expression. -/
 @[simp] theorem toDef_locOfExpr (e : Expr) : (locOfExpr e).toDef = e := by

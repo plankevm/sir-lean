@@ -1,4 +1,4 @@
-import LirLean.Decode.NoCreateBytes
+import LirLean.Decode.JumpValid
 
 /-!
 # LirLean — boundary-reachability bricks for the whole-run `AtReachableBoundary` invariant
@@ -8,7 +8,7 @@ The whole-run boundary invariant the modellability producer needs is
 (`hrb` of `BytecodeLayer.Interpreter.lower_modellable`, `V2/Modellable.lean`):
 every `Runs`-reachable frame sits at an instruction boundary reachable from `0` and in range.
 Proving it is a `Runs`-induction whose `step`/`call` cases need three reachability facts beyond
-`JumpValid.lean` / `NoCreateBytes.lean`; this module supplies all three:
+`JumpValid.lean`; this module supplies all three:
 
 * **`reachesBoundary_of_mem_validJumpDests`** — the *converse* of
   `mem_validJumpDests_of_reachable_jumpdest`: every recorded jump destination

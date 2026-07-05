@@ -158,11 +158,11 @@ terminal, and halting-terminal uniqueness identifies `(last, haltSig)` with
 `(last₀, halt₀)`. This is the "static folds and assembly" half of R11 — genuinely closeable
 now (axiom-clean), independent of the missing run-producer. The flagships feed it `hrb` (R6
 boundary walk) and `hcc` (`hseams.callsCode`); the world equation comes from the run. -/
-theorem conforms_of_worldeq {prog : Lir.Program} {params : CallParams} {fr₀ : Frame}
+theorem conforms_of_worldeq {params : CallParams} {fr₀ : Frame}
     {log : RunLog} {self : AccountAddress} {O : Observable}
     (hrun : runWithLog params (seedFuel params.gas) = some log)
     (hbegin : beginCall params = .inl fr₀)
-    (hrb : ∀ fr', Runs fr₀ fr' → AtReachableBoundary prog fr')
+    (hcr : ∀ fr', Runs fr₀ fr' → CreateResolves fr')
     (hcc : ∀ fr', Runs fr₀ fr' → CallsCode fr')
     (hworld : ∃ last haltSig, Runs fr₀ last ∧ stepFrame last = .halted haltSig
         ∧ (observe self (endFrame last haltSig)).world = O.world
@@ -174,7 +174,7 @@ theorem conforms_of_worldeq {prog : Lir.Program} {params : CallParams} {fr₀ : 
   rw [hfeq] at hdrive
   obtain ⟨last₀, halt₀, hto₀, hhalt₀, hobs⟩ :=
     runs_of_drive_ok (seedFuel params.gas) fr₀ log.observable hdrive
-      (lower_modellable hrb hcc)
+      (lower_modellable hcr hcc)
   obtain ⟨last, haltSig, hreach, hhalt, hweq, hreq⟩ := hworld
   -- the halting terminal is unique: `last = last₀`, `haltSig = halt₀`.
   have hlast : last = last₀ :=
@@ -236,15 +236,15 @@ theorem lower_conforms {prog : Program} {params : CallParams} {log : RunLog}
   --     `WellFormedLowered` field asserts it directly — only per-cursor bounds).
   -- Everything DOWNSTREAM of this `obtain` is real, axiom-clean assembly: `conforms_of_worldeq`
   -- (CLOSED, above) discharges the `Conforms` conjunct from the terminal world equation.
-  obtain ⟨O, hrb, hworld, hrunfrom⟩ :
+  obtain ⟨O, hcr, hworld, hrunfrom⟩ :
       ∃ O : Observable,
-        (∀ fr', Runs fr₀ fr' → AtReachableBoundary prog fr')
+        (∀ fr', Runs fr₀ fr' → CreateResolves fr')
         ∧ (∃ last haltSig, Runs fr₀ last ∧ stepFrame last = .halted haltSig
             ∧ (observe params.recipient (endFrame last haltSig)).world = O.world
             ∧ (observe params.recipient (endFrame last haltSig)).result = O.result)
         ∧ RunFrom prog (entryState params) (realisedGas log)
             (realisedCall log params.recipient) ([] : CreateStream) prog.entry O := sorry
-  exact ⟨O, hrunfrom, conforms_of_worldeq hrun hbegin hrb hcc hworld⟩
+  exact ⟨O, hrunfrom, conforms_of_worldeq hrun hbegin hcr hcc hworld⟩
 
 /-- **R11-all — the exact-consumption strengthening**: the same flagship with the IR run
 consuming the ENTIRE recorded gas stream (`RunFromAll`, leftover `[]`) — closes the
@@ -270,15 +270,15 @@ theorem lower_conforms_exact {prog : Program} {params : CallParams} {log : RunLo
   obtain ⟨fr₀, hbegin, _⟩ := runWithLog_drive hrun
   have hcc : ∀ fr', Runs fr₀ fr' → CallsCode fr' :=
     fun fr' hr => hseams.callsCode fr' ⟨fr₀, hbegin, hr⟩
-  obtain ⟨O, hrb, hworld, hrunfrom⟩ :
+  obtain ⟨O, hcr, hworld, hrunfrom⟩ :
       ∃ O : Observable,
-        (∀ fr', Runs fr₀ fr' → AtReachableBoundary prog fr')
+        (∀ fr', Runs fr₀ fr' → CreateResolves fr')
         ∧ (∃ last haltSig, Runs fr₀ last ∧ stepFrame last = .halted haltSig
             ∧ (observe params.recipient (endFrame last haltSig)).world = O.world
             ∧ (observe params.recipient (endFrame last haltSig)).result = O.result)
         ∧ RunFromAll prog (entryState params) (realisedGas log)
             (realisedCall log params.recipient) ([] : CreateStream) prog.entry O := sorry
-  exact ⟨O, hrunfrom, conforms_of_worldeq hrun hbegin hrb hcc hworld⟩
+  exact ⟨O, hrunfrom, conforms_of_worldeq hrun hbegin hcr hcc hworld⟩
 
 /-- **The gas-free CO-FLAGSHIP** (target-architecture decision 2 — prove it FIRST). The
 flagship restricted to `NoGasReads prog`: the gas suffix plays no role, so it needs no R1
@@ -307,15 +307,15 @@ theorem lower_conforms_gasfree {prog : Program} {params : CallParams} {log : Run
   obtain ⟨fr₀, hbegin, _⟩ := runWithLog_drive hrun
   have hcc : ∀ fr', Runs fr₀ fr' → CallsCode fr' :=
     fun fr' hr => hseams.callsCode fr' ⟨fr₀, hbegin, hr⟩
-  obtain ⟨O, hrb, hworld, hrunfrom⟩ :
+  obtain ⟨O, hcr, hworld, hrunfrom⟩ :
       ∃ O : Observable,
-        (∀ fr', Runs fr₀ fr' → AtReachableBoundary prog fr')
+        (∀ fr', Runs fr₀ fr' → CreateResolves fr')
         ∧ (∃ last haltSig, Runs fr₀ last ∧ stepFrame last = .halted haltSig
             ∧ (observe params.recipient (endFrame last haltSig)).world = O.world
             ∧ (observe params.recipient (endFrame last haltSig)).result = O.result)
         ∧ RunFrom prog (entryState params) (realisedGas log)
             (realisedCall log params.recipient) ([] : CreateStream) prog.entry O := sorry
-  exact ⟨O, hrunfrom, conforms_of_worldeq hrun hbegin hrb hcc hworld⟩
+  exact ⟨O, hrunfrom, conforms_of_worldeq hrun hbegin hcr hcc hworld⟩
 
 /-- Co-flagship companion: a gas-read-free program's recorded gas stream is empty (the
 recorder's GAS gate never fires at a reachable top-level boundary — needs the R6-flavoured

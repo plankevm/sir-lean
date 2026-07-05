@@ -194,13 +194,15 @@ The lowering emits exactly these 16 opcodes at any instruction head. It is the s
 three per-head predicates (every one of the 16 is non-CREATE, and anything implies `True`), so the
 emit-ladder is proven ONCE here and the weaker towers follow by `SegAlignedP.mono`. -/
 
-/-- The 16 opcodes the lowering ever emits at an instruction head (`STOP, ADD, LT, POP, MLOAD,
-MSTORE, SLOAD, SSTORE, JUMP, JUMPI, GAS, JUMPDEST, PUSH4, PUSH32, CALL, RETURN`). -/
+/-- The 18 opcodes the lowering ever emits at an instruction head (`STOP, ADD, LT, POP, MLOAD,
+MSTORE, SLOAD, SSTORE, JUMP, JUMPI, GAS, JUMPDEST, PUSH4, PUSH32, CALL, RETURN`, plus `CREATE`
+/`CREATE2` now that `emitStmt .create` emits them). -/
 def IsLoweringOp (op : Operation) : Prop :=
   op = .STOP ∨ op = .ADD ∨ op = .LT ∨ op = .POP ∨ op = .MLOAD
     ∨ op = .MSTORE ∨ op = .SLOAD ∨ op = .SSTORE ∨ op = .JUMP
     ∨ op = .JUMPI ∨ op = .GAS ∨ op = .JUMPDEST ∨ op = .PUSH4
     ∨ op = .PUSH32 ∨ op = .CALL ∨ op = .RETURN
+    ∨ op = .System .CREATE ∨ op = .System .CREATE2
 
 instance (op : Operation) : Decidable (IsLoweringOp op) := by unfold IsLoweringOp; infer_instance
 
@@ -325,9 +327,32 @@ theorem segAlignedP_emitStmt (defs : Tmp → Option Expr) (fuel : Nat) (s : Stmt
           exact (segAlignedP_emitImm (UInt256.ofNat (slotOf t))).append
             (SegAlignedP.nonpush Byte.mstore (by decide) (by decide))
   | create cs =>
-      -- Step-1 placeholder: `emitStmt … (.create _) = []` (see `Spec/Lowering.lean`).
-      rw [show emitStmt defs fuel (.create cs) = [] from rfl]
-      exact .nil
+      rw [show emitStmt defs fuel (.create cs)
+            = emitImm 0 ++ emitImm 0 ++ emitImm 0
+              ++ (match cs.salt with
+                  | some s => materialise defs fuel s ++ [Byte.create2]
+                  | none   => [Byte.create])
+              ++ (match cs.resultTmp with
+                  | some t => emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]
+                  | none   => [Byte.pop]) from rfl]
+      have hmid : SegAlignedP IsLoweringOp
+          (match cs.salt with
+            | some s => materialise defs fuel s ++ [Byte.create2]
+            | none   => [Byte.create]) := by
+        cases cs.salt with
+        | none => exact SegAlignedP.nonpush Byte.create (by decide) (by decide)
+        | some s =>
+            exact (segAlignedP_materialise defs fuel s).append
+              (SegAlignedP.nonpush Byte.create2 (by decide) (by decide))
+      have h := (segAlignedP_emitImm (0 : Word)).append (segAlignedP_emitImm 0)
+      have h := h.append (segAlignedP_emitImm 0)
+      have h := h.append hmid
+      refine h.append ?_
+      cases cs.resultTmp with
+      | none => exact SegAlignedP.nonpush Byte.pop (by decide) (by decide)
+      | some t =>
+          exact (segAlignedP_emitImm (UInt256.ofNat (slotOf t))).append
+            (SegAlignedP.nonpush Byte.mstore (by decide) (by decide))
 
 theorem segAlignedP_emitTerm (defs : Tmp → Option Expr) (fuel : Nat) (labelOff : Nat → Nat)
     (t : Term) : SegAlignedP IsLoweringOp (emitTerm defs fuel labelOff t) := by
@@ -395,13 +420,5 @@ theorem segAlignedP_flatBytes (prog : Program) :
   | cons b rest ih =>
       rw [List.flatMap_cons]
       exact (segAlignedP_loweredBlock defs fuel lo b).append ih
-
-/-- Every lowering opcode is non-CREATE / non-CREATE2 — the pointwise implication that derives the
-`SegAlignedSafe` tower from the `IsLoweringOp` tower via `SegAlignedP.mono`. -/
-theorem notCreate_of_isLoweringOp {op : Operation} (h : IsLoweringOp op) :
-    op ≠ .System .CREATE ∧ op ≠ .System .CREATE2 := by
-  unfold IsLoweringOp at h
-  rcases h with h | h | h | h | h | h | h | h | h | h | h | h | h | h | h | h <;>
-    subst h <;> exact ⟨by decide, by decide⟩
 
 end Lir
