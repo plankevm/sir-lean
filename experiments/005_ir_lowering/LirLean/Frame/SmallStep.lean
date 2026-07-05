@@ -55,6 +55,12 @@ structure IRState where
   value not recomputable from an `Expr`; written by `IRState.applyCall`, read once
   into `locals` by `IRState.bindCallResult` at the call's `resultTmp`. -/
   callResult : Option Word := none
+  /-- The most recent external CREATE/CREATE2's deployed-address-or-`0` word, if a
+  CREATE has run. The `callResult`-analogue slot for the CREATE line: like the CALL
+  success word it is dynamic (depends on the child run), hence not recomputable from
+  an `Expr`; written by `IRState.applyCreate` (`Frame/Create.lean`), read once into
+  `locals` by `IRState.bindCreateResult` at the create's `resultTmp`. -/
+  createResult : Option Word := none
 
 /-- An IR halt result (the terminator outcomes). -/
 inductive IRHalt where
@@ -101,6 +107,19 @@ unchanged. This is the read path for `CallSpec.resultTmp`. -/
 def IRState.bindCallResult (st : IRState) : Option Tmp → IRState
   | none   => st
   | some t => match st.callResult with
+              | none   => st
+              | some w => st.setLocal t w
+
+/-- **Bind the create-result slot into `locals` at a `resultTmp`.** The CREATE twin
+of `bindCallResult`: the dynamic deployed-address-or-`0` word lives in `createResult`
+(the one non-recomputable value the CREATE pushes); this binds it *once* to the
+create's `resultTmp` — after which it is an ordinary `locals` value that
+recompute-on-use materialises via `Expr.tmp`. When the spec binds no result
+(`resultTmp = none`) or no CREATE has run (`createResult = none`), `locals` is
+unchanged. This is the read path for `CreateSpec.resultTmp`. -/
+def IRState.bindCreateResult (st : IRState) : Option Tmp → IRState
+  | none   => st
+  | some t => match st.createResult with
               | none   => st
               | some w => st.setLocal t w
 

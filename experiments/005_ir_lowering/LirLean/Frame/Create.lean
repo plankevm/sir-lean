@@ -107,4 +107,31 @@ formula, by `rfl`. -/
 theorem evmCreateOracle_addressWord_eq (result : CreateResult) (pd : PendingCreate) :
     evmCreateOracle.addressWord result pd = createAddrOrZero result pd := rfl
 
+/-! ## The IR-level create transformer (`IRState.applyCreate`)
+
+The CREATE twin of `IRState.applyCall` (`Frame/Call.lean:158`). `applyCreate oracle
+result pd self` threads the oracle's create effect into the IR state — storage
+becomes the oracle's `postStorage` lens (keyed on the self address), and the dynamic
+deployed-address-or-`0` word the CREATE pushes is folded into the dedicated
+`createResult` slot of `IRState`. Exactly as with CALL, that word is **not**
+recomputable from a pure `Expr` (it depends on the child run), so it cannot live in
+`defs`/`locals` as a recompute-on-use value; `IRState.bindCreateResult` reads it once
+into `locals` at the create's `resultTmp` (after which a later use is an ordinary
+`Expr.tmp` read). `locals` is untouched here (the bind is the separate, explicit
+step). It is parametric over the oracle, so the IR small-step reasons for all
+instantiations; under lowering the oracle is `evmCreateOracle` and the resulting
+state is *reflexively* the resumed frame's observable. -/
+
+/-- Thread the oracle's contract-creation effect into the IR state at self address
+`self`: storage follows the oracle's post-create lens, and the `createResult` slot
+receives the oracle's deployed-address-or-`0` `addressWord` (the one non-recomputable
+effect the CREATE pushes — see the module docstring on `bindCreateResult`/`resultTmp`).
+`locals` is untouched here; binding the result to `resultTmp` is the separate
+`IRState.bindCreateResult` step. -/
+def IRState.applyCreate (st : IRState) (oracle : CreateOracle)
+    (result : CreateResult) (pd : PendingCreate) (self : AccountAddress) : IRState :=
+  { st with
+      storage      := fun k => oracle.postStorage result pd self k
+      createResult := some (oracle.addressWord result pd) }
+
 end Lir
