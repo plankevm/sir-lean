@@ -287,11 +287,115 @@ edge. None of these factor through the unconditional `SimStmtStep`.
 `sloadChg` is fixed to a chosen value once inside the walk (the sim bricks are `∀ sloadChg`;
 the producer picks the canonical one). We leave it a parameter here. -/
 
+/-- **Read-implies-bound.** If an expression `E` evaluates to `some _` and it reads `t`
+(`usesInExpr t E ≠ 0`), then `t` is bound (`st.locals t ≠ none`). The value channel of
+`evalExpr` short-circuits to `none` on any unbound operand. REAL; no sorry. -/
+private theorem evalExpr_reads_bound {st : IRState} {t : Tmp} :
+    ∀ {E : Expr} {W : Word}, evalExpr st 0 E = some W → usesInExpr t E ≠ 0 →
+      st.locals t ≠ none := by
+  intro E W heval hu hnone
+  cases E with
+  | imm _  => simp [usesInExpr] at hu
+  | gas    => simp [usesInExpr] at hu
+  | slot _ => simp [usesInExpr] at hu
+  | tmp t' =>
+      simp only [usesInExpr] at hu
+      by_cases ht' : t' = t
+      · subst ht'; simp only [evalExpr] at heval; rw [hnone] at heval
+        simp at heval
+      · simp [ht'] at hu
+  | sload k =>
+      simp only [evalExpr] at heval
+      simp only [usesInExpr] at hu
+      have hk_bound : st.locals k ≠ none := by intro h; rw [h] at heval; simp at heval
+      by_cases hk : k = t
+      · subst hk; exact hk_bound hnone
+      · simp [hk] at hu
+  | add a b =>
+      simp only [evalExpr] at heval
+      simp only [usesInExpr] at hu
+      have ha : st.locals a ≠ none := by intro h; rw [h] at heval; simp at heval
+      have hb : st.locals b ≠ none := by
+        intro h; rw [h] at heval; cases hla : st.locals a <;> simp [hla] at heval
+      by_cases hat : a = t
+      · subst hat; exact ha hnone
+      · by_cases hbt : b = t
+        · subst hbt; exact hb hnone
+        · simp [hat, hbt] at hu
+  | lt a b =>
+      simp only [evalExpr] at heval
+      simp only [usesInExpr] at hu
+      have ha : st.locals a ≠ none := by intro h; rw [h] at heval; simp at heval
+      have hb : st.locals b ≠ none := by
+        intro h; rw [h] at heval; cases hla : st.locals a <;> simp [hla] at heval
+      by_cases hat : a = t
+      · subst hat; exact ha hnone
+      · by_cases hbt : b = t
+        · subst hbt; exact hb hnone
+        · simp [hat, hbt] at hu
+
+/-- **DefsSound self-repair across a recomputable pure rebind.** For a RECOMPUTABLE target
+`t` (`¬ NonRecomputable`) the strong `DefsSound` is preserved by `t := e` with no live-scope
+side conditions: `DefsSound` at `st` already forces `t`'s current binding (if any) to equal
+the recompute `w`, so either the rebind is a no-op (loop re-entry) or `t` was unbound (so no
+reader of `t` could have been soundly bound). This is exactly why the plain-assign arm needs
+neither the self-read (`usesInExpr t e = 0`) nor the define-before-use scoping clauses that
+`StepScopedS` deliberately dropped (header lesson 8). REAL; no sorry. -/
+private theorem defsSound_setLocal_recomputable {prog : Program} {st : IRState}
+    {t : Tmp} {e : Expr} {w : Word}
+    (hnr : ¬ NonRecomputable prog t)
+    (hdef : defsOf prog t = some e)
+    (hv : evalExpr st 0 e = some w)
+    (hsound : DefsSound prog st) :
+    DefsSound prog (st.setLocal t w) := by
+  -- `DefsSound` pins `t`'s current binding: it is either absent or already `w`.
+  have hst_cases : st.locals t = none ∨ st.locals t = some w := by
+    cases hlt : st.locals t with
+    | none => exact Or.inl rfl
+    | some v =>
+        have hev : some v = evalExpr st 0 e := hsound t e v hdef hnr hlt
+        rw [hv] at hev
+        right; exact hev
+  rcases hst_cases with hstn | hstw
+  · -- `t` unbound: no bound reader of `t`, so recompute is unchanged for every sound tmp.
+    intro t₀ e₀ w₀ hdef₀ hnr₀ hlocal₀
+    by_cases heqt : t₀ = t
+    · subst t₀
+      have he₀ : e₀ = e := Option.some.inj (hdef₀.symm.trans hdef)
+      subst e₀
+      have hw₀ : w₀ = w := by
+        have h1 : (st.setLocal t w).locals t = some w := by simp [IRState.setLocal]
+        rw [h1] at hlocal₀; exact (Option.some.inj hlocal₀).symm
+      subst w₀
+      have hu : usesInExpr t e = 0 := by
+        by_contra hu; exact (evalExpr_reads_bound hv hu) hstn
+      rw [evalExpr_setLocal_of_unused hu, hv]
+    · have hl' : st.locals t₀ = some w₀ := by
+        simp only [IRState.setLocal, if_neg heqt] at hlocal₀; exact hlocal₀
+      have hprev : some w₀ = evalExpr st 0 e₀ := hsound t₀ e₀ w₀ hdef₀ hnr₀ hl'
+      have hu : usesInExpr t e₀ = 0 := by
+        by_contra hu; exact (evalExpr_reads_bound hprev.symm hu) hstn
+      rw [evalExpr_setLocal_of_unused hu]; exact hprev
+  · -- `t` already bound to `w`: the rebind is a no-op, so `DefsSound` carries over verbatim.
+    have heq : st.setLocal t w = st := by
+      have hfun : (fun t' => if t' = t then some w else st.locals t') = st.locals := by
+        funext t'; by_cases h : t' = t
+        · subst h; rw [if_pos rfl]; exact hstw.symm
+        · rw [if_neg h]
+      show { st with locals := fun t' => if t' = t then some w else st.locals t' } = st
+      rw [hfun]
+    rw [heq]; exact hsound
+
 /-- **P2-assignPure — the plain-assign coupled step** (neither `.gas` nor `.sload`). Fires
-`StmtTies'` arm (1) (not-spilled + `StepScopedS` + post-state scoping + `MemRealises`), the
-in-tree `sim_assign` (pure) brick for the bytecode `Runs`, and `recorderCoupled_step_other`
-(R7d) — no stream head consumed (`EvalStmt.assignPure`, all suffixes/streams unchanged). The
-simplest arm; the sim brick and the R7d edge both already exist green. TRACTABILITY: now. -/
+`StmtTies'` arm (1) (not-spilled + `StepScopedS` + post-state scoping + `MemRealises`), builds
+the `EvalStmt.assignPure` (consuming no stream head — all suffixes/streams unchanged), the
+reflexive bytecode `Runs` (a rematerialised assign emits no bytes, `emitStmt_assign_remat`),
+and re-establishes `Corr` at `(L, pc+1)`. The coupling and alignment ride across UNCHANGED
+(the frame does not move). The one non-trivial `Corr` clause — strong `DefsSound` at the
+post-state — is discharged by `defsSound_setLocal_recomputable`: the arm's `wellScoped`
+conclusion at `t` plus the not-spilled clause give `¬ NonRecomputable t`, which makes the
+rebind DefsSound-self-repairing (no live-scope clause required). The simplest arm.
+TRACTABILITY: now. -/
 theorem simStmt_coupled_assignPure {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
     {self : AccountAddress} {L : Label} {b : Block} {pc : Nat}
     {t : Tmp} {e : Expr} {w : Word} {st : IRState} {fr : Frame}
@@ -308,7 +412,39 @@ theorem simStmt_coupled_assignPure {prog : Program} {sloadChg : Tmp → ℕ} {lo
     (hv : evalExpr st 0 e = some w)
     (hties : StmtTies' prog sloadChg log self L b) :
     CoupledAdvance prog sloadChg log self L pc st fr T C D (.assign t e) := by
-  sorry
+  -- Fire `StmtTies'` arm (1) at this cursor with the coupling + clean-halt in hand.
+  obtain ⟨hslot, hstepS, hscoped', hmem'⟩ :=
+    hties.1 pc t e w st fr gS sS cS hcur hne hns hcorr hcp hch hv
+  -- The registered def and the recomputability of the (non-spilled) target.
+  have hdef : defsOf prog t = some e := hstepS.1 hne hns
+  have hnr : ¬ NonRecomputable prog t := by
+    have hd := (hscoped' t (by simp [IRState.setLocal])).1
+    rcases hd with h | ⟨n, hn⟩
+    · exact h
+    · exact absurd hn (hslot n)
+  -- The IR cursor advances by a zero-length emit, so the byte offset is unchanged.
+  have hbt : prog.blocks.toList[L.idx]? = some b := toList_of_blockAt hb
+  have hpc : pcOf prog L (pc + 1) = pcOf prog L pc := by
+    rw [pcOf_succ prog L b pc (.assign t e) hbt hcur,
+        emitStmt_assign_remat (defsOf prog) (recomputeFuel prog) t e hslot]
+    simp
+  -- The post-state's strong `DefsSound` (self-repair; no live-scope clause).
+  have hsound' : DefsSound prog (st.setLocal t w) :=
+    defsSound_setLocal_recomputable hnr hdef hv hcorr.defsSound
+  -- Package: `st' = st.setLocal t w`, `fr' = fr`, streams/suffixes UNCHANGED.
+  refine ⟨st.setLocal t w, fr, T, C, D, gS, sS, cS,
+    EvalStmt.assignPure (prog := prog) (T := T) (C := C) (D := D) hne hv,
+    Runs.refl fr, ?_, hcorr.stack_nil, hcp, hal⟩
+  exact
+    { pc_eq := by rw [hpc]; exact hcorr.pc_eq
+      code_eq := hcorr.code_eq
+      validJumps_eq := hcorr.validJumps_eq
+      stack_nil := hcorr.stack_nil
+      can_modify := hcorr.can_modify
+      storage := hcorr.storage
+      defsSound := hsound'
+      wellScoped := hscoped'
+      memAgree := hmem' }
 
 /-- **P2-gas — the spilled-`.gas` coupled step (THE R1 CONJUNCT at work).** Fires `StmtTies'`
 arm (3) whose gas-suffix head equation IS `gas_suffix_head_realised` (R1), the in-tree
