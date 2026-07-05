@@ -667,8 +667,10 @@ tracked DECISION. TRACTABILITY: blocked-on-decision (needs the seam wired). -/
 theorem createResolves_reachable {params : CallParams} {fr₀ : Frame}
     (hbegin : beginCall params = .inl fr₀)
     (hseam : ∀ fr', ReachableFrom params fr' → CreateResolves fr') :
-    ∀ fr', Runs fr₀ fr' → CreateResolves fr' := by
-  sorry
+    ∀ fr', Runs fr₀ fr' → CreateResolves fr' :=
+  -- Every `Runs fr₀`-reachable frame is `ReachableFrom params` (`⟨fr₀, hbegin, hr⟩`), so the
+  -- seam applies directly — the same `ReachableFrom` witness `driveCorrLog_entry` uses.
+  fun fr' hr => hseam fr' ⟨fr₀, hbegin, hr⟩
 
 /-- **R11 — `runFrom_of_driveCorrLog`, THE COUPLED RUN-PRODUCER.** The packaged existential the
 flagship `lower_conforms` (`RealisabilitySpec.lean:240-247`) and its siblings `obtain`. Assembles:
