@@ -1,4 +1,5 @@
 import SirLean.Source.IR
+import SirLean.Source.State
 
 namespace Sir.Source
 
@@ -52,5 +53,34 @@ structure ControlFlowGraph.WF (cfg: ControlFlowGraph) : Prop where
   entry_in_bounds : cfg.entry.idx < cfg.blocks.size
   entry_no_inputs : cfg.blocks[cfg.entry.idx].inputs.isEmpty = true
   blocks_wf : ∀ bb ∈ cfg.blocks, bb.WF cfg.blocks
+
+def MemoryRange.start (r : MemoryRange) : Nat := r.addr.toNat
+def MemoryRange.length (r : MemoryRange) : Nat := r.size.toNat
+def MemoryRange.endExclusive (r : MemoryRange) : Nat := r.start + r.length
+
+def MemoryRange.WF (r : MemoryRange) : Prop :=
+  r.endExclusive ≤ UInt32.size
+
+def MemoryRange.Disjoint (a b : MemoryRange) : Prop :=
+     a.endExclusive ≤ b.start ∨ b.endExclusive ≤ a.start
+
+def OccupiedMemory.Fresh (ranges : OccupiedMemory) (r : MemoryRange) : Prop :=
+  let ranges : Array MemoryRange := ranges
+  ∀ r' ∈ ranges, ¬MemoryRange.Disjoint r r'
+
+
+
+
+
+
+def OccupiedMemory.WF (ranges : OccupiedMemory) : Prop :=
+  let ranges : Array MemoryRange := ranges
+  ranges.toList.Pairwise MemoryRange.Disjoint
+
+def Allocator.Sound (allocator : Allocator) : Prop :=
+   ∀ ranges size addr,
+     ranges.WF →
+     allocator ranges size = some addr →
+     OccupiedMemory.Fresh ranges { addr := addr, size := size }
 
 end Sir.Source
