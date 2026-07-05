@@ -72,10 +72,19 @@ def OccupiedMemory.WF (ranges : OccupiedMemory) : Prop :=
   let ranges : Array MemoryRange := ranges
   ranges.toList.Pairwise MemoryRange.Disjoint
 
+inductive Allocator.Provenance (allocator : Allocator) : OccupiedMemory → Prop where
+  | empty : Allocator.Provenance allocator #[]
+  | alloc {ranges : OccupiedMemory} {size addr : Word} :
+    Allocator.Provenance allocator ranges →
+    allocator ranges size = some addr →
+    Allocator.Provenance allocator (ranges.push ⟨addr, size⟩)
+
 def Allocator.Sound (allocator : Allocator) : Prop :=
    ∀ ranges size addr,
-     ranges.WF →
+     allocator.Provenance ranges →
      allocator ranges size = some addr →
-     OccupiedMemory.Fresh ranges { addr := addr, size := size }
+     let r' := ⟨addr, size⟩
+     ranges.Fresh r' ∧ r'.WF
+
 
 end Sir.Source

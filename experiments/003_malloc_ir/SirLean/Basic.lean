@@ -4,6 +4,8 @@ namespace Sir
 
 abbrev Word := UInt32
 
+def Word.size := UInt32.size
+
 structure VarId where
   id : Nat
 deriving DecidableEq, Repr
