@@ -1065,6 +1065,169 @@ theorem recorderCoupled_matRuns {prog : Program} (sloadChg : Tmp → ℕ)
                 (charge_binOpPost_gas fra UInt256.lt va vb fr.exec.stack)).2
             rw [hc]; exact toNat_chargeOf defs sloadChg (f + 1) (.lt a b) _ hsum
 
+/-- **S3 — `sim_sstore_stmt'`, the WIP re-plumb of `sim_sstore_stmt`.** Same conclusion as the
+in-tree `sim_sstore_stmt` (`Sim/SimStmt.lean`), but (i) DROPS the unsatisfiable `∀`-quantified
+`hsstore : SstoreRealises fr kw vw acc` — its three runtime facts are derived POINT-WISE at the
+internal SSTORE frame `frk` from the threaded `SelfPresent fr` + clean-halt via
+`sstoreRealises_at_frame` (R4); and (ii) THREADS the recorder coupling
+`RecorderCoupled log fr gS sS cS` across the two `materialise` runs (S1 `recorderCoupled_matRuns`,
+value then key) and the SSTORE frame itself (S2, one `recorderCoupled_step_other`, R7d — SSTORE is
+neither GAS nor SLOAD), returning it at the post-frame. The `Corr` re-establishment body is verbatim
+`sim_sstore_stmt`. REAL; no sorry. -/
+theorem sim_sstore_stmt' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} {log : RunLog}
+    {st : IRState} {key value : Tmp} {kw vw : Word}
+    {L : Label} {b : Block} {pc : Nat} {fr : Frame}
+    {gS : List Word} {sS : List Nat} {cS : List CallRecord}
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hs : b.stmts[pc]? = some (.sstore key value))
+    (hcorr : Lir.Corr prog sloadChg obs st fr L pc)
+    (hk : st.locals key = some kw) (hv : st.locals value = some vw)
+    (hsc : Lir.StepScoped prog st (.sstore key value))
+    (hdv : MatDec fr.exec.executionEnv.code (defsOf prog) sloadChg (recomputeFuel prog)
+            fr.exec.pc (.tmp value))
+    (hdk : MatDec fr.exec.executionEnv.code (defsOf prog) sloadChg (recomputeFuel prog)
+            (fr.exec.pc + UInt32.ofNat
+              (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp value)).length) (.tmp key))
+    (hdop : decode fr.exec.executionEnv.code
+            (fr.exec.pc
+              + UInt32.ofNat (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp value)).length
+              + UInt32.ofNat (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp key)).length)
+            = some (.Smsf .SSTORE, .none))
+    (hcs : CleanHaltsNonException fr)
+    (hsp : SelfPresent fr)
+    (hcp : RecorderCoupled log fr gS sS cS)
+    (hstk : (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp value)).length
+              + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).length
+              + 1 ≤ 1024) :
+    ∃ fr', Runs fr fr'
+      ∧ Lir.Corr prog sloadChg obs (st.setStorage kw vw) fr' L (pc + 1)
+      ∧ fr'.exec.stack = []
+      ∧ RecorderCoupled log fr' gS sS cS := by
+  classical
+  set defs := defsOf prog with hdefs
+  set fuel := recomputeFuel prog with hfuel
+  set lv := (materialiseExpr defs fuel (.tmp value)).length with hlv
+  set lk := (materialiseExpr defs fuel (.tmp key)).length with hlk
+  have hstacknil := hcorr.stack_nil
+  -- == B1 call 1: materialise `value` from `fr`, leaving `[vw]`, carrying the coupling ==
+  have hevv : V2.evalExpr st obs (.tmp value) = some vw := hv
+  have hszfr : fr.exec.stack.size = 0 := by rw [hstacknil]; rfl
+  have hstkv : fr.exec.stack.size + (chargeOf defs sloadChg fuel (.tmp value)).length ≤ 1024 := by
+    rw [hszfr]; omega
+  have hgasv : (chargeOf defs sloadChg fuel (.tmp value)).sum ≤ fr.exec.gasAvailable.toNat :=
+    materialise_charge_le_of_cleanHalt sloadChg fuel st obs (.tmp value) vw fr
+      hdv hcorr.defsSound hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
+      hevv hcs hstkv
+  obtain ⟨frv, hmrv, hcpv⟩ := recorderCoupled_matRuns sloadChg fuel st obs log gS sS cS
+    (.tmp value) vw fr
+    hdv hcorr.defsSound hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
+    hevv hgasv hstkv hcp
+  have hvcode : frv.exec.executionEnv.code = fr.exec.executionEnv.code := hmrv.code
+  have hvaddr : frv.exec.executionEnv.address = fr.exec.executionEnv.address := hmrv.addr
+  have hvpc : frv.exec.pc = fr.exec.pc + UInt32.ofNat lv := hmrv.pc
+  have hvstk : frv.exec.stack = vw :: fr.exec.stack := by rw [hmrv.stack]; rfl
+  -- == B1 call 2: materialise `key` from `frv`, leaving `[kw, vw]`, carrying the coupling ==
+  have hevk : V2.evalExpr st obs (.tmp key) = some kw := hk
+  have hcsv : CleanHaltsNonException frv := cleanHaltsNonException_forward hcs hmrv.runs
+  have hdk' : MatDec frv.exec.executionEnv.code defs sloadChg fuel frv.exec.pc (.tmp key) := by
+    rw [hvcode, hvpc]; exact hdk
+  have hfrvsz : frv.exec.stack.size = fr.exec.stack.size + 1 := by rw [hvstk]; simp
+  have hstkk : frv.exec.stack.size + (chargeOf defs sloadChg fuel (.tmp key)).length ≤ 1024 := by
+    rw [hfrvsz, hszfr]; omega
+  have hgask : (chargeOf defs sloadChg fuel (.tmp key)).sum ≤ frv.exec.gasAvailable.toNat :=
+    materialise_charge_le_of_cleanHalt sloadChg fuel st obs (.tmp key) kw frv
+      hdk' hcorr.defsSound hcorr.wellScoped
+      (hcorr.storage.transport hmrv.storage) (by nofun) (by nofun)
+      (hcorr.memAgree.transport hmrv.memBytes hmrv.memActive) hevk hcsv hstkk
+  obtain ⟨frk, hmrk, hcpk⟩ := recorderCoupled_matRuns sloadChg fuel st obs log gS sS cS
+    (.tmp key) kw frv
+    hdk' hcorr.defsSound hcorr.wellScoped
+    (hcorr.storage.transport hmrv.storage) (by nofun) (by nofun)
+    (hcorr.memAgree.transport hmrv.memBytes hmrv.memActive) hevk hgask hstkk hcpv
+  have hkcode : frk.exec.executionEnv.code = fr.exec.executionEnv.code := by
+    rw [hmrk.code, hvcode]
+  have hkvalid : frk.validJumps = fr.validJumps := by
+    rw [hmrk.validJumps, hmrv.validJumps]
+  have hkaddr : frk.exec.executionEnv.address = fr.exec.executionEnv.address := by
+    rw [hmrk.addr, hvaddr]
+  have hkpc : frk.exec.pc = fr.exec.pc + UInt32.ofNat lv + UInt32.ofNat lk := by
+    rw [hmrk.pc, hvpc]
+  have hkstk : frk.exec.stack = kw :: vw :: [] := by
+    rw [hmrk.stack, hvstk, hstacknil]; rfl
+  have hkdec : decode frk.exec.executionEnv.code frk.exec.pc = some (.Smsf .SSTORE, .none) := by
+    rw [hkcode, hkpc]; exact hdop
+  have hksz : frk.exec.stack.size ≤ 1024 := by rw [hkstk]; simp
+  have hkmod : frk.exec.executionEnv.canModifyState = true := by
+    rw [hmrk.canMod, hmrv.canMod]; exact hcorr.can_modify
+  -- == the point-wise SSTORE realisation at `frk` (R4), from the transported `SelfPresent` ==
+  have hspv : SelfPresent frv := by
+    obtain ⟨a, ha⟩ := hsp; exact ⟨a, by rw [hmrv.accounts, hmrv.addr]; exact ha⟩
+  have hspk : SelfPresent frk := by
+    obtain ⟨a, ha⟩ := hspv; exact ⟨a, by rw [hmrk.accounts, hmrk.addr]; exact ha⟩
+  have hcsk : CleanHaltsNonException frk := cleanHaltsNonException_forward hcsv hmrk.runs
+  obtain ⟨hstip, hcost, acc, hself⟩ :=
+    sstoreRealises_at_frame hspk hcsk hkstk hkdec hkmod
+  obtain ⟨hsrun, hswrite, hsframe⟩ :=
+    sim_sstore frk kw vw [] acc hkdec hkstk hksz hkmod hstip hcost hself
+  -- == coupling across the SSTORE frame (S2 — SSTORE is neither GAS nor SLOAD, non-recording) ==
+  have hcpf : RecorderCoupled log (sstoreFrame frk kw vw []) gS sS cS :=
+    recorderCoupled_step_other hcpk
+      (by unfold isGasOp; rw [hkdec]; rfl) (by unfold isSloadOp; rw [hkdec]; rfl)
+      (stepFrame_sstore frk kw vw [] hkdec hkstk hksz hkmod hstip hcost)
+  refine ⟨sstoreFrame frk kw vw [], (hmrv.runs.trans hmrk.runs).trans hsrun, ?_, ?_, hcpf⟩
+  · -- re-establish `Corr` at `(L, pc+1)` for `st.setStorage kw vw` (verbatim `sim_sstore_stmt`).
+    have hfraddr : (sstoreFrame frk kw vw []).exec.executionEnv.address
+        = frk.exec.executionEnv.address := sstoreFrame_addr frk kw vw []
+    have hemit : (emitStmt defs fuel (.sstore key value)).length = lv + lk + 1 := by
+      rw [emitStmt_sstore]; simp only [List.length_append, List.length_singleton, hlv, hlk]
+    have hpcN : pcOf prog L (pc + 1) = pcOf prog L pc + (lv + lk + 1) := by
+      rw [pcOf_succ prog L b pc (.sstore key value) hb hs, hemit]
+    refine
+      { pc_eq := ?_
+        code_eq := ?_
+        validJumps_eq := ?_
+        stack_nil := by rw [sstoreFrame_stack]
+        can_modify := by rw [sstoreFrame_canMod, hkmod]
+        storage := ?_
+        defsSound := ?_
+        wellScoped := ?_
+        memAgree := ?_ }
+    · rw [sstoreFrame_pc, hkpc, hcorr.pc_eq, hpcN,
+          show ((1 : UInt8).toUInt32) = UInt32.ofNat 1 from rfl,
+          UInt32.ofNat_add, UInt32.ofNat_add, UInt32.ofNat_add]
+      ac_rfl
+    · rw [sstoreFrame_code, hkcode]; exact hcorr.code_eq
+    · rw [sstoreFrame_validJumps, sstoreFrame_code, hkvalid, hkcode]; exact hcorr.validJumps_eq
+    · intro keyw
+      rw [selfStorage_eq_storageAt, hfraddr]
+      show storageAt (sstoreFrame frk kw vw []) frk.exec.executionEnv.address keyw
+        = (st.setStorage kw vw).world keyw
+      by_cases hk0 : keyw = kw
+      · subst hk0
+        rw [hswrite]
+        show vw = (if keyw = keyw then vw else st.world keyw)
+        simp
+      · rw [hsframe keyw hk0]
+        show storageAt frk frk.exec.executionEnv.address keyw
+          = (st.setStorage kw vw).world keyw
+        rw [show storageAt frk frk.exec.executionEnv.address keyw = selfStorage frk keyw from rfl,
+            hmrk.storage keyw, hmrv.storage keyw, hcorr.storage keyw]
+        show st.world keyw = (if keyw = kw then vw else st.world keyw)
+        simp [hk0]
+    · exact defsSound_preserved_sstore hsc hcorr.defsSound
+    · intro tw htw
+      exact hcorr.wellScoped tw (by simpa [V2.IRState.setStorage] using htw)
+    · intro tw slot v hdef hloc
+      have hloc' : st.locals tw = some v := by simpa [V2.IRState.setStorage] using hloc
+      have hmembytes : (sstoreFrame frk kw vw []).exec.toMachineState.memory
+          = fr.exec.toMachineState.memory := by
+        rw [sstoreFrame_memory, hmrk.memBytes, hmrv.memBytes]
+      have hmemact : fr.exec.toMachineState.activeWords.toNat
+          ≤ (sstoreFrame frk kw vw []).exec.toMachineState.activeWords.toNat := by
+        rw [sstoreFrame_activeWords]; exact le_trans hmrv.memActive hmrk.memActive
+      exact (hcorr.memAgree.transport hmembytes hmemact) tw slot v hdef hloc'
+  · rw [sstoreFrame_stack]
+
 /-- **P2-sstore — the SSTORE coupled step.** Fires `StmtTies'` arm (4) (`StepScopedS` +
 stack-room), the in-tree `sim_sstore_stmt` brick fed the point-wise `sstoreRealises_at_frame`
 (R4 — the honest replacement of the unsatisfiable `∃ acc, SstoreRealises` conjunct, discharged
@@ -1087,7 +1250,54 @@ theorem simStmt_coupled_sstore {prog : Program} {sloadChg : Tmp → ℕ} {log : 
     (hk : st.locals key = some kw) (hvv : st.locals value = some vw)
     (hties : StmtTies' prog sloadChg log self L b) :
     CoupledAdvance prog sloadChg log self L pc st fr T C D (.sstore key value) := by
-  sorry
+  classical
+  have hbt : prog.blocks.toList[L.idx]? = some b := toList_of_blockAt hb
+  -- ties arm (4): `StepScopedS` + the stack-room fold (fired with coupling + clean-halt).
+  obtain ⟨hstepS, hstkbound⟩ :=
+    hties.2.2.2.1 pc key value kw vw st fr gS sS cS hcur hcorr hcp hch hk hvv
+  -- `StepScopedS` ⟹ the per-state `StepScoped` the sstore B3 preservation consumes (the static
+  -- form quantifies over ALL registered defs, so it dominates the state-gated one).
+  have hsc : Lir.StepScoped prog st (.sstore key value) := by
+    intro t₀ e₀ hdef _ _ keyk; exact hstepS t₀ e₀ hdef keyk
+  -- well-formedness: the two operand fuel-sufficiency facts + the statement pc bound (`hwl.wf`).
+  obtain ⟨hwfv, hwfk⟩ := hwl.wf.matFueled_sstore L b pc key value hbt hcur
+  have hbound := hwl.wf.bound_sstore L b pc key value hbt hcur
+  set defs := defsOf prog with hdefs
+  set fuel := recomputeFuel prog with hfuel
+  set lv := (materialiseExpr defs fuel (.tmp value)).length with hlv
+  set lk := (materialiseExpr defs fuel (.tmp key)).length with hlk
+  have hemit : emitStmt defs fuel (.sstore key value)
+      = materialiseExpr defs fuel (.tmp value) ++ materialiseExpr defs fuel (.tmp key)
+        ++ [Byte.sstore] := emitStmt_sstore ..
+  have hlen : (emitStmt defs fuel (.sstore key value)).length = lv + lk + 1 := by
+    rw [hemit]; simp only [List.length_append, List.length_singleton]; omega
+  -- decode bundle at the static cursors (`matDec_of_lower` / `sstore_op_decode`), as in the
+  -- in-tree `sim_sstore_stmt_lowered` decode-discharge (Layer A over `lower prog`).
+  have hdv : MatDec fr.exec.executionEnv.code defs sloadChg fuel fr.exec.pc (.tmp value) := by
+    rw [hcorr.code_eq, hcorr.pc_eq]
+    have := matDec_of_lower prog sloadChg L b pc (.sstore key value) 0 (.tmp value)
+      hbt hcur (by simpa using sstore_sub_value defs fuel key value)
+      (by rw [← hdefs, ← hfuel, hlen]; omega) hwfv (by rw [← hdefs, ← hfuel, Nat.add_zero]; omega)
+    simpa using this
+  have hdk : MatDec fr.exec.executionEnv.code defs sloadChg fuel
+      (fr.exec.pc + UInt32.ofNat lv) (.tmp key) := by
+    rw [hcorr.code_eq, hcorr.pc_eq, ofNat_add']
+    exact matDec_of_lower prog sloadChg L b pc (.sstore key value) lv (.tmp key)
+      hbt hcur (sstore_sub_key defs fuel key value) (by rw [← hdefs, ← hfuel, hlen]; omega) hwfk
+      (by rw [← hdefs, ← hfuel]; omega)
+  have hdop : decode fr.exec.executionEnv.code
+      (fr.exec.pc + UInt32.ofNat lv + UInt32.ofNat lk) = some (.Smsf .SSTORE, .none) := by
+    rw [hcorr.code_eq, hcorr.pc_eq, ofNat_add', ofNat_add',
+        show pcOf prog L pc + lv + lk = pcOf prog L pc + (lv + lk) from by omega]
+    exact sstore_op_decode prog L b pc key value hbt hcur (by omega)
+  -- fire S3 (`sim_sstore_stmt'`): the two-frame materialise fold + the point-wise R4 realisation
+  -- + the coupling transported to the post-frame.
+  obtain ⟨fr', hruns, hcorr', hstacknil', hcpf⟩ :=
+    sim_sstore_stmt' hbt hcur hcorr hk hvv hsc hdv hdk hdop hch hsp hcp hstkbound
+  -- S4 — assemble the `CoupledAdvance`: `EvalStmt.sstore` consumes NO stream head (T/C/D and
+  -- gS/sS/cS ride unchanged), so the alignment `hal` carries over verbatim.
+  exact ⟨st.setStorage kw vw, fr', T, C, D, gS, sS, cS,
+    EvalStmt.sstore hk hvv, hruns, hcorr', hstacknil', hcpf, hal⟩
 
 /-- **P2-call — the external-CALL coupled step (the R3/Piece-B-gated arm).** Fires `StmtTies'`
 arm (5) / `CallRealisesS` (R3 `callRealises_of_recorded`, whose Piece A is green via
