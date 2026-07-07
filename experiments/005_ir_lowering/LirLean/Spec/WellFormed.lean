@@ -299,6 +299,118 @@ def DefEnvOrdered (prog : Program) : Prop :=
     ∀ t' : Tmp, usesInExpr t' e ≠ 0 →
       ∃ j, j < i ∧ ∃ loc : Loc, (defEnv prog)[j]? = some (t', loc)
 
+/-! ## §S2 (c) — `matCache` last-wins vs `defsOf`/`find?` first-find (Phase 2A step S2)
+
+`matCache` is a `Function.update` left-fold over `defEnv prog`, so its value at `t` is the
+bytes of the **last** `defEnv` entry for `t`; `defsOf`/`find?` (S2 alignment,
+`defsOf_eq_defEnv_find`) reads the **first**. They agree ONLY under SSA single-binding: every
+`defEnv` entry for a given tmp id must carry the SAME `Loc`. That is exactly the
+`DefsConsistent` content — every def-site of a tmp registers `defsOf`'s value — so the
+`Loc` is the canonical `allocate prog t` at every entry, hence last = first. This is the
+hypothesis the S3 bridge's per-tmp step needs.
+
+`DefsConsistent` constrains only `assign` and `call`-result def-sites; a `create`-result
+def-site is a Step-1 placeholder with no `DefsConsistent` conjunct yet (mirroring
+`StmtDefinableG`/`StepScopedS`'s `.create => True`), so the same-`Loc` argument takes the
+create-result registration as an explicit hypothesis `hcreate` — the exact twin of
+`DefsConsistent`'s call-result conjunct, to be folded into `DefsConsistent` when the CREATE
+semantics arm lands. -/
+
+/-- **Every `defEnv` entry carries the canonical `allocate` `Loc`.** Under `DefsConsistent`
+(and the create-result twin `hcreate`), any `defEnv` entry `(t, loc)` has `loc = allocate
+prog t`: the def-site's registration in `defsOf` (`DefsConsistent`) fixes the `Loc` up to
+`locOfExpr`, which is exactly `allocate`. -/
+theorem defEnv_entry_eq_allocate (prog : Program)
+    (hdc : DefsConsistent prog)
+    (hcreate : ∀ (L : Label) (b : Block) (pc : Nat) (cs : CreateSpec) (t : Tmp),
+      blockAt prog L = some b → b.stmts[pc]? = some (.create cs) → cs.resultTmp = some t →
+      defsOf prog t = some (.slot (slotOf t)))
+    {t : Tmp} {loc : Loc} (hmem : (t, loc) ∈ defEnv prog) :
+    allocate prog t = some loc := by
+  rw [defEnv] at hmem
+  obtain ⟨b, hbmem, hbmap⟩ := List.mem_flatMap.mp hmem
+  obtain ⟨s, hsmem, hsmap⟩ := List.mem_filterMap.mp hbmap
+  obtain ⟨i, hi, hbget⟩ := List.mem_iff_getElem.mp hbmem
+  obtain ⟨j, hj, hsget⟩ := List.mem_iff_getElem.mp hsmem
+  have hblockAt : blockAt prog ⟨i⟩ = some b := by
+    show prog.blocks[i]? = some b
+    rw [← Array.getElem?_toList, List.getElem?_eq_getElem hi, hbget]
+  have hstmt : b.stmts[j]? = some s := by
+    rw [List.getElem?_eq_getElem hj, hsget]
+  cases s with
+  | assign t' e =>
+    cases e with
+    | gas =>
+      simp only [Option.some.injEq, Prod.mk.injEq] at hsmap
+      obtain ⟨ht, hloc⟩ := hsmap; subst ht; subst hloc
+      have hd := (hdc ⟨i⟩ b j hblockAt).1 t' .gas hstmt
+      simp only [allocate, hd, Option.map_some, locOfExpr]
+    | sload k =>
+      simp only [Option.some.injEq, Prod.mk.injEq] at hsmap
+      obtain ⟨ht, hloc⟩ := hsmap; subst ht; subst hloc
+      have hd := (hdc ⟨i⟩ b j hblockAt).1 t' (.sload k) hstmt
+      simp only [allocate, hd, Option.map_some, locOfExpr]
+    | imm w =>
+      simp only [Option.some.injEq, Prod.mk.injEq] at hsmap
+      obtain ⟨ht, hloc⟩ := hsmap; subst ht; subst hloc
+      have hd := (hdc ⟨i⟩ b j hblockAt).1 t' (.imm w) hstmt
+      simp only [allocate, hd, Option.map_some]
+    | tmp t'' =>
+      simp only [Option.some.injEq, Prod.mk.injEq] at hsmap
+      obtain ⟨ht, hloc⟩ := hsmap; subst ht; subst hloc
+      have hd := (hdc ⟨i⟩ b j hblockAt).1 t' (.tmp t'') hstmt
+      simp only [allocate, hd, Option.map_some]
+    | add a c =>
+      simp only [Option.some.injEq, Prod.mk.injEq] at hsmap
+      obtain ⟨ht, hloc⟩ := hsmap; subst ht; subst hloc
+      have hd := (hdc ⟨i⟩ b j hblockAt).1 t' (.add a c) hstmt
+      simp only [allocate, hd, Option.map_some]
+    | lt a c =>
+      simp only [Option.some.injEq, Prod.mk.injEq] at hsmap
+      obtain ⟨ht, hloc⟩ := hsmap; subst ht; subst hloc
+      have hd := (hdc ⟨i⟩ b j hblockAt).1 t' (.lt a c) hstmt
+      simp only [allocate, hd, Option.map_some]
+    | slot n =>
+      simp only [Option.some.injEq, Prod.mk.injEq] at hsmap
+      obtain ⟨ht, hloc⟩ := hsmap; subst ht; subst hloc
+      have hd := (hdc ⟨i⟩ b j hblockAt).1 t' (.slot n) hstmt
+      simp only [allocate, hd, Option.map_some, locOfExpr]
+  | sstore _ _ => simp at hsmap
+  | call cs =>
+    obtain ⟨callee, gasFwd, rt⟩ := cs
+    cases rt with
+    | none => simp at hsmap
+    | some t'' =>
+      simp only [Option.some.injEq, Prod.mk.injEq] at hsmap
+      obtain ⟨ht, hloc⟩ := hsmap; subst ht; subst hloc
+      have hd := (hdc ⟨i⟩ b j hblockAt).2 ⟨callee, gasFwd, some t''⟩ t'' hstmt rfl
+      simp only [allocate, hd, Option.map_some, locOfExpr]
+  | create cs =>
+    obtain ⟨value, initOffset, initSize, salt, rt⟩ := cs
+    cases rt with
+    | none => simp at hsmap
+    | some t'' =>
+      simp only [Option.some.injEq, Prod.mk.injEq] at hsmap
+      obtain ⟨ht, hloc⟩ := hsmap; subst ht; subst hloc
+      have hd := hcreate ⟨i⟩ b j ⟨value, initOffset, initSize, salt, some t''⟩ t'' hblockAt hstmt rfl
+      simp only [allocate, hd, Option.map_some, locOfExpr]
+
+/-- **`matCache` last-wins agrees with `find?` first-find — the SSA single-binding crux.**
+All `defEnv` entries for one tmp id carry the SAME `Loc` (each is the canonical `allocate prog
+t`, `defEnv_entry_eq_allocate`), so the last-wins `matCache` fold and the first-find `defsOf`
+select the same `Loc`. This is the hypothesis the S3 fold↔fuel bridge's per-tmp step needs. -/
+theorem matCache_last_eq_first (prog : Program)
+    (hdc : DefsConsistent prog)
+    (hcreate : ∀ (L : Label) (b : Block) (pc : Nat) (cs : CreateSpec) (t : Tmp),
+      blockAt prog L = some b → b.stmts[pc]? = some (.create cs) → cs.resultTmp = some t →
+      defsOf prog t = some (.slot (slotOf t)))
+    {t : Tmp} {loc₁ loc₂ : Loc}
+    (h₁ : (t, loc₁) ∈ defEnv prog) (h₂ : (t, loc₂) ∈ defEnv prog) :
+    loc₁ = loc₂ :=
+  Option.some.inj
+    ((defEnv_entry_eq_allocate prog hdc hcreate h₁).symm.trans
+      (defEnv_entry_eq_allocate prog hdc hcreate h₂))
+
 /-! ## §1B new — the two scalar budgets -/
 
 /-- **The pc budget** — the whole lowered program fits a 32-bit program counter. The scalar

@@ -131,6 +131,51 @@ theorem rematOf_ne_sload (prog : Program) (t : Tmp) (k : Tmp) :
 @[simp] theorem toDef_locOfExpr (e : Expr) : (locOfExpr e).toDef = e := by
   cases e <;> rfl
 
+/-! ## §S2 (c) — `defEnv` ↔ `defsOf` alignment (Phase 2A step S2)
+
+`defsOf` is a global `find?` over the program-order `pairs` list; `defEnv` is that SAME
+list carrying `Loc` instead of `Expr` (each `Loc` re-flattens to its `Expr` via `Loc.toDef`,
+`toDef_locOfExpr`). So `defsOf` is exactly `defEnv`'s `find?`-view, mapped through `Loc.toDef`
+— proven here unconditionally (definitional up to the map/find? fusion lemmas). This is the
+alignment the S3 fold↔fuel bridge rests on. -/
+
+/-- **`defsOf`'s internal `pairs` list is `defEnv prog` mapped through `Loc.toDef`.** Stated
+as a function equality with `defsOf` on the left so that unfolding it exposes `defsOf`'s own
+`find?`-over-`pairs`; the RHS carries the `defEnv.map`-form of the same list, so `congr`
+reduces the whole thing to the per-statement `filterMap` identity (each `Loc` re-flattens to
+its `Expr` by `toDef_locOfExpr`). -/
+theorem defsOf_eq_find_defEnv_map (prog : Program) :
+    defsOf prog
+      = fun t => (((defEnv prog).map (fun p => (p.1, p.2.toDef))).find?
+          (fun p => p.1 == t)).map (fun p => p.2) := by
+  funext t
+  simp only [defsOf]
+  -- Both sides are `Option.map (·.2) (find? (·.1==t) _)`; only the scanned list differs.
+  congr 1
+  congr 1
+  -- `defsOf`'s `pairs` = `(defEnv prog).map (·.1, ·.2.toDef)`.
+  rw [defEnv, List.map_flatMap]
+  simp only [List.map_filterMap]
+  congr 1
+  funext b
+  congr 1
+  funext s
+  cases s with
+  | assign t' e => cases e <;> rfl
+  | sstore _ _ => rfl
+  | call cs => obtain ⟨_, _, rt⟩ := cs; cases rt <;> rfl
+  | create cs => obtain ⟨_, _, _, _, rt⟩ := cs; cases rt <;> rfl
+
+/-- **`defsOf` is `defEnv`'s `find?`-view.** `defsOf prog t` is the first `defEnv` entry for
+`t`, read back through `Loc.toDef`. Unconditional: both sides scan the identical
+program-order list; the only difference is the `Expr`/`Loc` codomain, bridged by `Loc.toDef`
+(`toDef_locOfExpr`). This is the alignment the S3 fold↔fuel bridge rests on. -/
+theorem defsOf_eq_defEnv_find (prog : Program) (t : Tmp) :
+    defsOf prog t
+      = ((defEnv prog).find? (fun p => p.1 == t)).map (fun p => p.2.toDef) := by
+  rw [congrFun (defsOf_eq_find_defEnv_map prog) t, List.find?_map, Option.map_map]
+  rfl
+
 /-- `allocate` is a faithful re-presentation of `defsOf`: viewing it back through
 `Alloc.toDefs` recovers `defsOf` exactly. This is the Phase-A "no behaviour change"
 keystone — `emit (allocate prog) prog` consumes `(allocate prog).toDefs = defsOf prog`. -/
