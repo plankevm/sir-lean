@@ -514,4 +514,66 @@ theorem matFueled_of_acyclic (prog : Program) {rank : Tmp → ℕ}
   · intro _ _ cond _ _ _ _
     exact Lir.matFueled_tmp_of_acyclic hac (by have := hfuel cond; omega)
 
+/-! ## `slots_slot` from `NoSlotSource` -/
+
+/-- **`slots_slot` from `NoSlotSource`.** Every tmp that `defsOf` registers as a
+`.slot slot'` carries its canonical `slotOf`. `defsOf` only ever emits `.slot (slotOf t)`
+(the gas/sload spill routes and the call/create result routes), with ONE exception: it echoes
+a source `.assign t (.slot n)` verbatim as `(t, .slot n)` — which `NoSlotSource` excludes. So
+under `NoSlotSource` the registration is canonical: the `WellFormedLowered.slots_slot` field,
+DERIVED (from a `WellFormed`-level field) rather than supplied. -/
+theorem slots_slot_of_noSlotSource (prog : Program) (hns : NoSlotSource prog) :
+    ∀ (tw : Tmp) (slot' : Nat), defsOf prog tw = some (.slot slot') → slot' = slotOf tw := by
+  intro tw slot' hd
+  simp only [defsOf] at hd
+  obtain ⟨pr, hf, hpr⟩ := Option.map_eq_some_iff.mp hd
+  have hkey := List.find?_some hf
+  rw [beq_iff_eq] at hkey
+  have hmem := List.mem_of_find?_eq_some hf
+  obtain ⟨b, hbmem, hbmap⟩ := List.mem_flatMap.mp hmem
+  obtain ⟨s, hsmem, hsmap⟩ := List.mem_filterMap.mp hbmap
+  -- `pr` is the filterMap output for `s`; `pr.2 = .slot slot'`, `pr.1 = tw`.
+  -- The canonical (slot-emitting) arms all yield `pr = (t', .slot (slotOf t'))`.
+  have canon : ∀ t' : Tmp, pr = (t', Expr.slot (slotOf t')) → slot' = slotOf tw := by
+    intro t' hpair
+    rw [hpair] at hpr hkey
+    have hkey2 : t' = tw := hkey
+    have hpr2 : Expr.slot (slotOf t') = Expr.slot slot' := hpr
+    subst hkey2
+    injection hpr2 with hpr3
+    exact hpr3.symm
+  cases s with
+  | assign t' e' =>
+      cases e' with
+      | gas =>
+          apply canon t'; simp only [Option.some.injEq] at hsmap; exact hsmap.symm
+      | sload k' =>
+          apply canon t'; simp only [Option.some.injEq] at hsmap; exact hsmap.symm
+      | slot n =>
+          -- the only non-canonical route: a source `.assign t' (.slot n)`, excluded by `NoSlotSource`.
+          exfalso
+          obtain ⟨i, hi, hbget⟩ := List.mem_iff_getElem.mp hbmem
+          obtain ⟨j, hj, hsget⟩ := List.mem_iff_getElem.mp hsmem
+          exact hns ⟨i⟩ b j t' n
+            (by show prog.blocks[i]? = some b
+                rw [← Array.getElem?_toList, List.getElem?_eq_getElem hi, hbget])
+            (by rw [List.getElem?_eq_getElem hj, hsget])
+      | imm w => simp only [Option.some.injEq] at hsmap; rw [← hsmap] at hpr; simp at hpr
+      | tmp t'' => simp only [Option.some.injEq] at hsmap; rw [← hsmap] at hpr; simp at hpr
+      | add a b => simp only [Option.some.injEq] at hsmap; rw [← hsmap] at hpr; simp at hpr
+      | lt a b => simp only [Option.some.injEq] at hsmap; rw [← hsmap] at hpr; simp at hpr
+  | sstore _ _ => simp at hsmap
+  | call cs =>
+      obtain ⟨callee, gasFwd, rt⟩ := cs
+      cases rt with
+      | none => simp at hsmap
+      | some t'' =>
+          apply canon t''; simp only [Option.some.injEq] at hsmap; exact hsmap.symm
+  | create cs =>
+      obtain ⟨value, initOffset, initSize, salt, rt⟩ := cs
+      cases rt with
+      | none => simp at hsmap
+      | some t'' =>
+          apply canon t''; simp only [Option.some.injEq] at hsmap; exact hsmap.symm
+
 end Lir.V2
