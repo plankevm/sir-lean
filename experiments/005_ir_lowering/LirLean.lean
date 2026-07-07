@@ -49,6 +49,10 @@ import LirLean.V2.Drive.Headline
 -- (`codeFits`/`stackFits`) — the trusted-surface statement vocabulary (Spec hoist §1C).
 import LirLean.Spec.WellFormed
 
+-- The §1B budget-derivation lemmas (1B-lemmas): `codeFits`/`stackFits`/acyclicity ⇒ the
+-- per-cursor pc/offset/stack/fuel bound families of `WellFormedLowered`/`ClosedCFG`/`WellLowered`.
+import LirLean.Spec.BudgetDerivations
+
 -- Reviewer-facing `Lir.Spec` audit surface (Wave 3): seam register + conditional-headline
 -- re-exports + the `RealisabilityObligations` bundle (Pattern C — downstream of the proofs).
 import LirLean.Spec.Seams
