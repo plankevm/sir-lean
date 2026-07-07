@@ -54,7 +54,7 @@ The bundle is *re-establishable at `pc+1`*: each arm shows the post-frame satisf
   `callRealises_bridge`. `DefsSound` survives by **B3** `defsSound_preserved_call`.
 
 No `sorry`, no `axiom`, no `native_decide`. Bytecode-coupled (imports `Match.lean` via
-`MaterialiseRuns.lean`); nothing here touches `V2/Machine.lean` / `V2/Law.lean`.
+`MaterialiseRuns.lean`); nothing here touches `Spec/Semantics.lean` / `V2/Law.lean`.
 -/
 
 namespace Lir

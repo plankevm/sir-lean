@@ -66,7 +66,7 @@ the per-statement layers take their `hself`/decode bundles.
   the call site, mirroring how `materialise_runs` takes `MatDec`.
 
 No `sorry`, no `axiom`, no `native_decide`. Bytecode-coupled (imports `Match.lean`,
-`JumpValid.lean`); nothing here touches `V2/Machine.lean` / `V2/Law.lean` (the frame-free
+`JumpValid.lean`); nothing here touches `Spec/Semantics.lean` / `V2/Law.lean` (the frame-free
 spine).
 -/
 

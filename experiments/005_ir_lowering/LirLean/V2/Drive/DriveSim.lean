@@ -60,7 +60,7 @@ the cyclic-general headline `lower_conforms_cyclic` (F3) — **`CFGAcyclic` reti
   log` plus the non-exception scope premise).
 
 Bytecode-coupled (imports the Layer C–E bricks via `LowerConforms`); nothing here touches
-`V2/Machine.lean` / `V2/Law.lean` / `Engine/MemAlgebra.lean`. No `sorry`/`axiom`/`native_decide`.
+`Spec/Semantics.lean` / `V2/Law.lean` / `Engine/MemAlgebra.lean`. No `sorry`/`axiom`/`native_decide`.
 -/
 
 namespace Lir.V2
@@ -476,8 +476,11 @@ def DriveStep (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
 it **at one block** from: `DriveCorr` at `L`; the block present (`blockAt prog L = some b`); the
 per-block §7 ties (`SimStmtStep` for the statements, and — dispatched on `b.term` — the halt
 world-channel brick / the `jump`/`branch` edge bundles that `drive_step_block_*` consume); and the
-static **operand-definability** `RunDefinable` (`V2/IRRun.lean`) — a *benign* well-formedness
-("operands are defined"), **not** the loop restriction `CFGAcyclic`. The IR block run itself is
+static **operand-definability** `RunDefinable` (`V2/IRRun.lean`). Note this is **not** benign:
+`StmtDefinable` is `False` for `.call`/`.create` and excludes `.gas`, so `RunDefinable prog` is
+UNSATISFIABLE for any program touching those channels — it silently restricts the caller to the
+PURE fragment (the honest gas/call-aware replacement is `RunDefinableG`, Surface.lean:153). The
+IR block run itself is
 built forward by `runStmts_exists` (`RunStmts b.stmts` to `stmtsPost st b.stmts`, trace unchanged),
 exactly the per-block forward body `runFrom_exists` runs; we then case on `b.term` and dispatch:
 
@@ -674,7 +677,10 @@ theorem lower_conforms_cyclic' {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
     {st₀ : V2.IRState} {T : Trace} {C : CallStream} {D : CreateStream} {fr₀ : Frame}
     (hentry : Corr prog sloadChg obs st₀ fr₀ prog.entry 0)
     (hclean : CleanHaltsNonException fr₀)
-    -- static operand-definability (benign well-formedness — NOT `CFGAcyclic`):
+    -- static operand-definability `RunDefinable` (`V2/IRRun.lean`). NOT benign: `StmtDefinable`
+    -- is `False` for `.call`/`.create` and excludes `.gas`, so this premise is UNSATISFIABLE for
+    -- any program using those channels — it restricts `lower_conforms_cyclic'` to the PURE
+    -- fragment. The honest gas/call-aware replacement is `RunDefinableG` (Surface.lean:153).
     (hdef : RunDefinable prog)
     -- block presence at every reachable boundary (the CFG is closed; `Corr`'s `pc_eq` alone does
     -- not pin `L` in range, so presence is supplied — vacuous wherever no `DriveCorr` is reached):

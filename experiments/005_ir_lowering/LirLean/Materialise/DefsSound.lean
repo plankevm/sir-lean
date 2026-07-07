@@ -34,7 +34,7 @@ recomputable tmps**; the non-recomputable ones are accounted by `WellFormed`'s
 single-use (B1 materialises each at its unique site, never via the `defsOf` recursion).
 
 Pure-IR (frame-free): this module depends only on `IR.lean`, `Lowering.lean` and
-`V2/Machine.lean`. -/
+`Spec/Semantics.lean`. -/
 
 namespace Lir
 

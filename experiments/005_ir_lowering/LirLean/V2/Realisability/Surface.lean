@@ -879,7 +879,7 @@ def TermTies' (prog : Program) (sloadChg : Tmp → ℕ) (_log : RunLog)
 
 /-! ## §4 — Exact stream consumption: `RunFromLeft` / `RunFromAll`
 
-`RunFrom`'s two halt constructors DROP the leftover trace `T'` (`V2/Machine.lean`), so a
+`RunFrom`'s two halt constructors DROP the leftover trace `T'` (`Spec/Semantics.lean`), so a
 bare `RunFrom … (realisedGas log) …` conclusion only speaks about the consumed PREFIX —
 the last drop-the-suffix vacuity channel. `RunFromLeft` mirrors `RunFrom` constructor-for-
 constructor with one extra `Trace` index exposing the leftover at the halt; `RunFromAll`
@@ -889,7 +889,7 @@ adequacy lemmas make the mirror-faithfulness itself tracked debt. -/
 /-- `RunFrom` with the leftover streams exposed: `RunFromLeft prog st T C D L O Tleft Cleft
 Dleft` is `RunFrom prog st T C D L O` where the halt constructor's un-consumed gas trace is
 `Tleft`, call stream `Cleft` and create stream `Dleft`. Constructor-for-constructor mirror of
-`RunFrom` (`V2/Machine.lean`); the halt arms return their `T'`/`C'`/`D'` instead of dropping them,
+`RunFrom` (`Spec/Semantics.lean`); the halt arms return their `T'`/`C'`/`D'` instead of dropping them,
 the edge arms thread them. -/
 inductive RunFromLeft (prog : Program) :
     IRState → Trace → CallStream → CreateStream → Label → Observable →

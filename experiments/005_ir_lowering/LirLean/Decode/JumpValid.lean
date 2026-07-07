@@ -36,14 +36,14 @@ proving the walk REACHES it correctly past all preceding blocks' PUSH-laden byte
 * **`SegAligned`** — a *list-level* notion: a byte list is a concatenation of complete
   instructions (each opcode byte followed by exactly `pushArgWidth` immediate bytes).
   This abstracts "the boundary walk over these bytes lands exactly at their end". It is the
-  predicate-free instance of the parameterized `SegAlignedP` (`LirLean/SegAligned.lean`),
+  predicate-free instance of the parameterized `SegAlignedP` (`Decode/SegAligned.lean`),
   which also carries the composition bricks, both transports and the emit-ladder — all proven
-  once and shared with the `SegAlignedSafe`/`SegAlignedLowering` towers.
+  once and shared with the `SegAlignedLowering` tower.
 * **`reaches_of_segAligned`** — the transport: if the bytecode `c` matches an aligned
   segment `seg` over `[base, base + seg.length)`, the boundary walk reaches
   `base + seg.length` from `base`. The predicate-free `reaches_end_of_segAlignedP`.
 * **`segAligned_loweredBlock`** — each lowered block `JUMPDEST :: emitBlockBody` is aligned:
-  the shared `IsLoweringOp` emit-ladder (`LirLean/SegAligned.lean`) weakened by
+  the shared `IsLoweringOp` emit-ladder (`Decode/SegAligned.lean`) weakened by
   `SegAlignedP.mono`. The push-skipping is discharged once, there.
 * **`reaches_block_offset`** — the boundary walk reaches block `i`'s offset, by induction
   on `i`: each lowered block `JUMPDEST :: emitBlockBody` is aligned, so the walk steps
@@ -74,12 +74,11 @@ theorem ReachesBoundary.trans {c : ByteArray} {a m n : Nat}
 /-! ## List-level instruction alignment (the base tower)
 
 `SegAligned` is the predicate-free instance of the parameterized `SegAlignedP`
-(`LirLean/SegAligned.lean`): a byte list that is a concatenation of complete EVM
+(`Decode/SegAligned.lean`): a byte list that is a concatenation of complete EVM
 instructions — each opcode byte `b` followed by exactly `(pushArgWidth (parseInstr b)).toNat`
-immediate bytes — with **no** constraint on the head opcodes (`P = fun _ => True`). The two
-strengthened towers (`SegAlignedSafe` in `NoCreateBytes`, `SegAlignedLowering` in
-`BoundaryReach`) are the other two instances; all share the one emit-ladder + transports proven
-once in `LirLean/SegAligned.lean`. -/
+immediate bytes — with **no** constraint on the head opcodes (`P = fun _ => True`). The
+strengthened `SegAlignedLowering` tower (in `BoundaryReach`) is the other instance; both share
+the one emit-ladder + transports proven once in `Decode/SegAligned.lean`. -/
 
 /-- The base instruction-alignment notion: `SegAlignedP` with the trivial head predicate. -/
 abbrev SegAligned : List UInt8 → Prop := SegAlignedP (fun _ => True)

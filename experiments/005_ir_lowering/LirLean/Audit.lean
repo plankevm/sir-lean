@@ -19,7 +19,7 @@ antecedents are unsatisfiable for essentially every nonempty program
 (`docs/final-audit-2026-07-03.md`, `docs/target-architecture-2026-07-02.md` §1). Their
 axiom-footprint guards and the flagship signature-freeze `#check` were removed with them, so
 this net now pins the salvage layer only. The plan-of-record conformance surface is
-`LirLean/V2/RealisabilitySpec.lean` (the `WIP` R0–R12 sorry-skeleton, ties DERIVED from
+`LirLean/V2/Realisability/RealisabilitySpec.lean` (the `WIP` R0–R12 sorry-skeleton, ties DERIVED from
 the run); its flagship signature should be frozen here once R11 is proven. See
 `docs/exec/audit-net.md`.
 -/

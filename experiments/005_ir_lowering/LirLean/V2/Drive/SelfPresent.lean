@@ -181,7 +181,7 @@ theorem aligned_read_eq_obs {gasAcc : List Word} {frs : List Frame} {i : Nat} {f
 The `Corr` invariant the whole `sim_*` block walk threads (`SimStmt.lean`) carries a **single
 fixed `obs : Word`** in `Lir.GasRealises obs fr` (`MaterialiseRuns.lean`), universal over every
 same-address frame: `∀ g, g.addr = fr.addr → obs = ofUInt64 (g.gasAvailable − Gbase)`. The IR's
-`evalExpr st obs .gas = some obs` reads that *same* `obs` for **every** `Expr.gas` (`Machine.lean`).
+`evalExpr st obs .gas = some obs` reads that *same* `obs` for **every** `Expr.gas` (`Spec/Semantics.lean`).
 So within the `Corr` model the realised gas value is one word for the whole run — the recorded list
 `log.gas` is positionally selected by `aligned_read_eq_obs` only when its aligned witnesses all
 report that one word (e.g. a run with a single top-level GAS read).

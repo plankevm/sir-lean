@@ -34,7 +34,7 @@ free decode hypothesis.
 bytes of an `emitStmt`'s operand are a sub-segment of the statement's flat bytes
 (`flatBytes_at_pcOf_offset`), so `MatSeg` holds at `pcOf prog L pc + offset`.
 
-No `sorry`, no `axiom`, no `native_decide`. Nothing here touches `V2/Machine.lean` /
+No `sorry`, no `axiom`, no `native_decide`. Nothing here touches `Spec/Semantics.lean` /
 `V2/Law.lean` (the frame-free spine).
 -/
 

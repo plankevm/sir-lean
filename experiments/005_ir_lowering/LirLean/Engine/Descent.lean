@@ -547,7 +547,7 @@ def createDescent : DescentKind where
 preserves presence at any `a` from the issued `paramsAccounts` into the immediate result's
 accounts. For `callDescent` this is **verbatim the `hprec` seam** (`beginCall`'s precompile
 `.inr` arm — the one surviving supplied hypothesis of the `callPreservesSelf` chain, quoted
-by `V2/RealisabilitySpec.lean`); for `createDescent` it is a theorem
+by `V2/Realisability/RealisabilitySpec.lean`); for `createDescent` it is a theorem
 (`createDescent_descendImmediate_trivial` — `beginCreate` never resolves immediately). -/
 def DescentKind.DescendImmediateNoErase (k : DescentKind) : Prop :=
   ∀ (p : k.Params) (imm : k.Result), k.descend p = .inr imm →

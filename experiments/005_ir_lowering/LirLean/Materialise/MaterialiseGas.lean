@@ -43,7 +43,7 @@ that per-key cost; B1 instantiates it with the actual `sloadCost` at each SLOAD
 frame. The pure laws below are uniform in `sloadChg`.
 
 No `sorry`, no `axiom`, no `native_decide`. Bytecode-coupled (imports `Match.lean`);
-nothing here touches `V2/Machine.lean` / `V2/Law.lean` (the frame-free spine).
+nothing here touches `Spec/Semantics.lean` / `V2/Law.lean` (the frame-free spine).
 -/
 
 namespace Lir

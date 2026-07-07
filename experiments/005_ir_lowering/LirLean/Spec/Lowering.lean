@@ -22,9 +22,9 @@ single-call IR surface lowers:
   shape exp003's `messageCall_call_runs` already supports);
 * `Term.branch` (lowered structurally — `PUSH4 thenOff; JUMPI; PUSH4 elseOff; JUMP`).
 
-Decode-compatibility is **build-enforced** by the `example`/`#eval` round-trip
-checks in `LirLean/Decode.lean`: `Evm.decode (lower worked) pc = expected` for a
-worked single-call program, asserted `by decide`/`by rfl` over every emitted pc.
+Decode-compatibility is established by the decode-anchor theorems (A1/A2/A3) in
+`Decode/DecodeAnchors.lean`: `Evm.decode (lower prog) pc = expected` at every
+statement head, intra-statement cursor, and terminator offset.
 
 No theorem about the *semantics* (the simulation / preservation statement) is
 proved here — that is C3. Nothing in this file is `sorry`- or `axiom`-backed; it
@@ -335,7 +335,8 @@ def encode (bytes : List UInt8) : ByteArray := ⟨bytes.toArray⟩
 
 /-- **The lowering.** `lower = encode ∘ emit (allocate prog)`: allocate (policy),
 emit (mechanism), encode (backend). The result is a `ByteArray` that `Evm.decode`
-reads back as the intended opcode stream (verified executably in `LirLean/Decode.lean`). -/
+reads back as the intended opcode stream (established by the decode-anchor theorems in
+`Decode/DecodeAnchors.lean`). -/
 def lower (prog : Program) : ByteArray := encode (emit (allocate prog) prog)
 
 end Lir

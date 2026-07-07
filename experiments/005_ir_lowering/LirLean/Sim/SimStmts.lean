@@ -37,7 +37,7 @@ concrete program is a mechanical case split feeding each arm its bundle.
 (`MatDec`-coverage-as-hypothesis is the same standard `sim_sstore_stmt` itself adopts — see
 its `hdv`/`hdk`/`hdop` arguments.)
 
-No `sorry`, no `axiom`, no `native_decide`. Nothing here touches `V2/Machine.lean` /
+No `sorry`, no `axiom`, no `native_decide`. Nothing here touches `Spec/Semantics.lean` /
 `V2/Law.lean` (the frame-free spine).
 -/
 

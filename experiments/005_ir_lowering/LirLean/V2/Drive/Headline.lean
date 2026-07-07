@@ -20,7 +20,7 @@ edge wrappers `driveCorrPlus_step_jump`/`_branch`), §10 (the `DriveCorrPlus` re
 `driveCorrPlus_entry`, and the headlines `lower_conforms_cyclic_tiefree` /
 `lower_conforms_cyclic_assembled` were REMOVED. They assembled a conditional headline from the
 supplied `StmtTies`/`TermTies`, which were shown unsatisfiable — the headline was VACUOUS. The
-plan-of-record conformance surface is the Phase-3 flagship (`V2/RealisabilitySpec.lean`); the
+plan-of-record conformance surface is the Phase-3 flagship (`V2/Realisability/RealisabilitySpec.lean`); the
 `DriveCorrPlus` carrier + the §7/§8 value/gas-channel lemmas below are RETAINED as the green
 machinery its R0 reshape starts from (currently unreferenced in the default build).
 
@@ -111,7 +111,7 @@ exactly the altitude `SimStmtStep`/`sim_assign` consume. They are functions of t
 `Corr`/`EvalStmt` ALONE, not of the run, so they are NOT bundled into the walk (doing
 so would buy nothing): the downstream Route-4b assembly applies them per cursor directly (the indexed
 form bound to the run's reached `(stpc, frpc)`, NOT the universal free-`ob` predicate of the former
-`StmtTies` (since reshaped into the run-DERIVED `StmtTies'` in `V2/RealisabilitySpec.lean`), which
+`StmtTies` (since reshaped into the run-DERIVED `StmtTies'` in `V2/Realisability/RealisabilitySpec.lean`), which
 ranged over all cursors and is unreconstructable from a single run).
 
 **The two channels that STAY SUPPLIED tonight** (satisfiable, documented, NON-vacuous):

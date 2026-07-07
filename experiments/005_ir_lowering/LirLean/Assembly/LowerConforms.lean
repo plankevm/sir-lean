@@ -2,12 +2,17 @@ import LirLean.Assembly.LowerDecode
 import LirLean.Materialise.CleanHaltExtract
 
 /-!
-# LirLean — `sim_cfg` + `lower_conforms` (Layer **F** of the general `lower_conforms` grind)
+# LirLean — `sim_cfg` (Layer **F**: whole-CFG world-channel simulation)
 
-The capstone of the **world-channel** `lower_conforms` grind (general over calls). It threads the
-per-block bricks of Layers C–E into a whole-CFG simulation (`sim_cfg`, by induction on
-`V2.RunFrom`) and then ties that to the instrumented recording interpreter `runWithLog`
-(`lower_conforms`).
+The capstone of the **world-channel** simulation grind (general over calls): it threads the
+per-block bricks of Layers C–E into a whole-CFG simulation `sim_cfg` (:983), by induction on
+`V2.RunFrom`, abstracted over the per-block `SimStmtStep`/`SimTermStep` ties.
+
+This file's payoff is `sim_cfg`. The tie from `sim_cfg` to the instrumented recording interpreter
+`runWithLog` — the actual conformance headline — is **NOT** here: the local `lower_conforms` that
+once closed that tie was deleted in the vacuous-ties purge (b144af8). The LIVE flagship is
+`lower_conforms` at `V2/Realisability/RealisabilitySpec.lean:206` (R11); see the §-block at the
+bottom of this file.
 
 ## The two structured per-block hypotheses
 
@@ -42,14 +47,14 @@ lowered bytecode realises, and carries the per-block realisability as `SimStmtSt
 
 Layer D now ranges over **all** statements: Route B's `sim_call_stmt` consumes the lowered
 CALL's success flag (`MSTORE` to the result slot, or `POP`), re-establishing `stack = []`, so a
-`Stmt.call` no longer breaks the induction — `lower_conforms` carries no call-free side
+`Stmt.call` no longer breaks the induction — `sim_cfg` carries no call-free side
 condition. The channel is the **world** (storage) component: `observe`'s `result`
 is the value-free `.stopped` boundary (the RETURN value channel is the tracked deferral,
 `Spec/Recorder.lean` `observe` doc). `sim_cfg`'s conclusion asserts the world component of
 `observe self (endFrame last halt)`.
 
 No `sorry`, no `axiom`, no `native_decide`. Bytecode-coupled (imports the Layer-E bricks);
-nothing here touches `V2/Machine.lean` / `V2/Law.lean` (the frame-free spine).
+nothing here touches `Spec/Semantics.lean` / `V2/Law.lean` (the frame-free spine).
 -/
 
 namespace Lir
@@ -1145,36 +1150,20 @@ theorem entry_corr {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} {w₀ 
       (by intro t slot v _ hloc; simp at hloc) hdec hgas'
   exact ⟨jumpdestFrame fe, hjdrun, hjdcorr⟩
 
-/-! ## `lower_conforms` — tying `sim_cfg` to the recording interpreter
+/-! ## The recorder tie lives at the flagship, not here
 
-The headline. From a successful `runWithLog` over the lowered program, recover:
+This file once closed a local `lower_conforms` that tied `sim_cfg` to the instrumented recording
+interpreter `runWithLog` and claimed the world equation was "**fully discharged** here". That
+theorem was **deleted in the vacuous-ties purge (b144af8)**: the per-block simulation hypotheses
+it consumed (`hstmts`/`hterm`) were unsatisfiable in the shape supplied for a lowered program, so
+it discharged nothing.
 
-1. **the IR run** — `IRRun prog w₀ (realisedGas log) (realisedCall log self) O` for *some*
-   observable `O`. We do **not** synthesise the `RunFrom` derivation from the bytecode
-   (`runWithLog` records the *bytecode* trace, not the IR one); instead we carry the IR run as
-   a structured hypothesis (`hir`) — the **IR side** of the conformance diagram, supplied for
-   the program under study and itself the subject of the IR-determinism / supplied-observation
-   contract (`docs/ir-design-v3.md` §7). This is the honest realisability hypothesis: the IR
-   run *under the realised oracles* the bytecode produces.
-2. **the world equation** — `O.world = (observe self log.observable).world`. This is the
-   load-bearing conformance edge, and it is **fully discharged** here from `sim_cfg`:
-   `runWithLog_messageCall` pins `messageCall = .ok log.observable.toCallResult`; `sim_cfg` +
-   `messageCall_runs` pins `messageCall = .ok (toCallResult (endFrame last haltSig))`; equating
-   the two `toCallResult`s (`observe` reads only `.toCallResult`) gives `observe self
-   log.observable = observe self (endFrame last haltSig)`, whose world is `O.world` by
-   `sim_cfg` and `IRRun.det`.
-
-The former entry `Corr` hypothesis is now **discharged** in-proof by `entry_corr` (the
-leading-`JUMPDEST` step from the top-level frame), so `lower_conforms` no longer carries it:
-its replacements are the structural entry facts (`hentry0`/`hbentry`/`hbound` — the entry block
-is block 0, present, pc-bounded) plus the *genuine* entry-frame realisability ties
-(`hstore`/`hsload`/`hgasr`/`hgasj`). The per-block simulations (`hstmts`/`hterm`) and the IR
-run (`hir`) remain the carried structured hypotheses — the supplied-observation realisability
-contract (`hstmts`/`hterm` are themselves now dischargeable per shape by `simStmtStep_block`
-/ `simTermStep_block`, down to the per-cursor genuine ties — including the §7 `CallRealises`
-tie for `.call` — and the per-shape decode bundles). `runWithLog` at the seed fuel makes the
-`messageCall` bridge exact. There is **no** call-free side condition: the call statement is
-folded into the spine via `sim_call_stmt` (Route B). -/
+**This file no longer contains a discharged headline.** Its payoff is `sim_cfg` (:983) — the
+whole-CFG world-channel simulation, abstracted over the per-block `SimStmtStep`/`SimTermStep`
+ties. The LIVE conformance headline — the tie from a successful `runWithLog` to the IR `RunFrom`
+and the load-bearing world equation — is the flagship `lower_conforms` at
+`V2/Realisability/RealisabilitySpec.lean:206` (R11). Its remaining obligation is the coupled
+run-producer documented there (Route A); consult that file for the honest hypothesis ledger. -/
 
 
 /-- `prog.blocks.toList[L.idx]? = some b` from `blockAt prog L = some b` (the reverse of
