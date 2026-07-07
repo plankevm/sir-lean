@@ -479,7 +479,7 @@ world-channel brick / the `jump`/`branch` edge bundles that `drive_step_block_*`
 static **operand-definability** `RunDefinable` (`V2/IRRun.lean`). Note this is **not** benign:
 `StmtDefinable` is `False` for `.call`/`.create` and excludes `.gas`, so `RunDefinable prog` is
 UNSATISFIABLE for any program touching those channels — it silently restricts the caller to the
-PURE fragment (the honest gas/call-aware replacement is `RunDefinableG`, Surface.lean:153). The
+PURE fragment (the honest gas/call-aware replacement is `RunDefinableG`, Spec/WellFormed.lean). The
 IR block run itself is
 built forward by `runStmts_exists` (`RunStmts b.stmts` to `stmtsPost st b.stmts`, trace unchanged),
 exactly the per-block forward body `runFrom_exists` runs; we then case on `b.term` and dispatch:
@@ -680,7 +680,7 @@ theorem lower_conforms_cyclic' {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
     -- static operand-definability `RunDefinable` (`V2/IRRun.lean`). NOT benign: `StmtDefinable`
     -- is `False` for `.call`/`.create` and excludes `.gas`, so this premise is UNSATISFIABLE for
     -- any program using those channels — it restricts `lower_conforms_cyclic'` to the PURE
-    -- fragment. The honest gas/call-aware replacement is `RunDefinableG` (Surface.lean:153).
+    -- fragment. The honest gas/call-aware replacement is `RunDefinableG` (Spec/WellFormed.lean).
     (hdef : RunDefinable prog)
     -- block presence at every reachable boundary (the CFG is closed; `Corr`'s `pc_eq` alone does
     -- not pin `L` in range, so presence is supplied — vacuous wherever no `DriveCorr` is reached):
