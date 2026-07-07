@@ -524,7 +524,7 @@ set_option maxRecDepth 8000 in
 private theorem defsConsistent_exProg : DefsConsistent exProg := by
   intro L b pc hb
   obtain ⟨idx⟩ := L
-  refine ⟨fun t e hassign => ?_, fun cs t hcall hres => ?_⟩
+  refine ⟨fun t e hassign => ?_, fun cs t hcall hres => ?_, fun cs t hcreate _ => ?_⟩
   · rcases blockAt_exProg_inv hb with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ <;>
       rcases pc with _|_|_|_|_|_|_|pc <;>
       simp only [exBlk0, exBlk1, exBlk2, List.getElem?_cons_zero, List.getElem?_cons_succ,
@@ -535,6 +535,11 @@ private theorem defsConsistent_exProg : DefsConsistent exProg := by
       simp only [exBlk0, exBlk1, exBlk2, List.getElem?_cons_zero, List.getElem?_cons_succ,
         List.getElem?_nil, Option.some.injEq, reduceCtorEq, Stmt.call.injEq] at hcall <;>
       (subst hcall; injection hres with hres'; subst hres'; decide)
+  -- create-result arm: `exProg` has no `.create` statements, so `hcreate` is refuted.
+  · rcases blockAt_exProg_inv hb with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ <;>
+      rcases pc with _|_|_|_|_|_|_|pc <;>
+      simp only [exBlk0, exBlk1, exBlk2, List.getElem?_cons_zero, List.getElem?_cons_succ,
+        List.getElem?_nil, Option.some.injEq, reduceCtorEq, Stmt.create.injEq] at hcreate
 
 -- `exProg` has a closed CFG: entry present + bounded, jump/branch targets present, in-bounds,
 -- offset-bounded (all concrete).

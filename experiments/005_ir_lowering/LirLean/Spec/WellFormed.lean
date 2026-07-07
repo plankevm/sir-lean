@@ -114,8 +114,8 @@ structure RunDefinableG (prog : Program) : Prop where
 
 /-- **Static `defsOf`-cursor consistency** (header lesson 6 — the review drill's shadowing
 hole). Every def-site in the program text agrees with `defsOf`'s registration for its
-target: a pure assign registers its own RHS; a gas/sload assign and a call result register
-the spill slot `.slot (slotOf t)`.
+target: a pure assign registers its own RHS; a gas/sload assign and a call/create result
+register the spill slot `.slot (slotOf t)`.
 
 GROUND TRUTH this pins (`Lowering.lean`): `defsOf` is a **FIRST-find over program order**
 (`pairs.find?` returns the first match — NOTE its docstring says "the last assign", a
@@ -137,6 +137,8 @@ def DefsConsistent (prog : Program) : Prop :=
         | .sload _ => .slot (slotOf t)
         | e' => e'))
     ∧ (∀ (cs : CallSpec) (t : Tmp), b.stmts[pc]? = some (.call cs) → cs.resultTmp = some t →
+      defsOf prog t = some (.slot (slotOf t)))
+    ∧ (∀ (cs : CreateSpec) (t : Tmp), b.stmts[pc]? = some (.create cs) → cs.resultTmp = some t →
       defsOf prog t = some (.slot (slotOf t)))
 
 /-! ## Shadowing-aware scoping (header lesson 8 — the round-3 reshape)
@@ -309,22 +311,16 @@ bytes of the **last** `defEnv` entry for `t`; `defsOf`/`find?` (S2 alignment,
 `Loc` is the canonical `allocate prog t` at every entry, hence last = first. This is the
 hypothesis the S3 bridge's per-tmp step needs.
 
-`DefsConsistent` constrains only `assign` and `call`-result def-sites; a `create`-result
-def-site is a Step-1 placeholder with no `DefsConsistent` conjunct yet (mirroring
-`StmtDefinableG`/`StepScopedS`'s `.create => True`), so the same-`Loc` argument takes the
-create-result registration as an explicit hypothesis `hcreate` — the exact twin of
-`DefsConsistent`'s call-result conjunct, to be folded into `DefsConsistent` when the CREATE
-semantics arm lands. -/
+`DefsConsistent` now constrains `assign`, `call`-result AND `create`-result def-sites (the
+create-result conjunct, phase-2A P1, is the exact twin of the call-result conjunct), so the
+same-`Loc` argument reads the create-result registration straight off `DefsConsistent` — the
+prior explicit `hcreate` hypothesis is gone. -/
 
-/-- **Every `defEnv` entry carries the canonical `allocate` `Loc`.** Under `DefsConsistent`
-(and the create-result twin `hcreate`), any `defEnv` entry `(t, loc)` has `loc = allocate
-prog t`: the def-site's registration in `defsOf` (`DefsConsistent`) fixes the `Loc` up to
-`locOfExpr`, which is exactly `allocate`. -/
+/-- **Every `defEnv` entry carries the canonical `allocate` `Loc`.** Under `DefsConsistent`,
+any `defEnv` entry `(t, loc)` has `loc = allocate prog t`: the def-site's registration in
+`defsOf` (`DefsConsistent`) fixes the `Loc` up to `locOfExpr`, which is exactly `allocate`. -/
 theorem defEnv_entry_eq_allocate (prog : Program)
     (hdc : DefsConsistent prog)
-    (hcreate : ∀ (L : Label) (b : Block) (pc : Nat) (cs : CreateSpec) (t : Tmp),
-      blockAt prog L = some b → b.stmts[pc]? = some (.create cs) → cs.resultTmp = some t →
-      defsOf prog t = some (.slot (slotOf t)))
     {t : Tmp} {loc : Loc} (hmem : (t, loc) ∈ defEnv prog) :
     allocate prog t = some loc := by
   rw [defEnv] at hmem
@@ -383,7 +379,7 @@ theorem defEnv_entry_eq_allocate (prog : Program)
     | some t'' =>
       simp only [Option.some.injEq, Prod.mk.injEq] at hsmap
       obtain ⟨ht, hloc⟩ := hsmap; subst ht; subst hloc
-      have hd := (hdc ⟨i⟩ b j hblockAt).2 ⟨callee, gasFwd, some t''⟩ t'' hstmt rfl
+      have hd := (hdc ⟨i⟩ b j hblockAt).2.1 ⟨callee, gasFwd, some t''⟩ t'' hstmt rfl
       simp only [allocate, hd, Option.map_some, locOfExpr]
   | create cs =>
     obtain ⟨value, initOffset, initSize, salt, rt⟩ := cs
@@ -392,7 +388,7 @@ theorem defEnv_entry_eq_allocate (prog : Program)
     | some t'' =>
       simp only [Option.some.injEq, Prod.mk.injEq] at hsmap
       obtain ⟨ht, hloc⟩ := hsmap; subst ht; subst hloc
-      have hd := hcreate ⟨i⟩ b j ⟨value, initOffset, initSize, salt, some t''⟩ t'' hblockAt hstmt rfl
+      have hd := (hdc ⟨i⟩ b j hblockAt).2.2 ⟨value, initOffset, initSize, salt, some t''⟩ t'' hstmt rfl
       simp only [allocate, hd, Option.map_some, locOfExpr]
 
 /-- **`matCache` last-wins agrees with `find?` first-find — the SSA single-binding crux.**
@@ -401,15 +397,12 @@ t`, `defEnv_entry_eq_allocate`), so the last-wins `matCache` fold and the first-
 select the same `Loc`. This is the hypothesis the S3 fold↔fuel bridge's per-tmp step needs. -/
 theorem matCache_last_eq_first (prog : Program)
     (hdc : DefsConsistent prog)
-    (hcreate : ∀ (L : Label) (b : Block) (pc : Nat) (cs : CreateSpec) (t : Tmp),
-      blockAt prog L = some b → b.stmts[pc]? = some (.create cs) → cs.resultTmp = some t →
-      defsOf prog t = some (.slot (slotOf t)))
     {t : Tmp} {loc₁ loc₂ : Loc}
     (h₁ : (t, loc₁) ∈ defEnv prog) (h₂ : (t, loc₂) ∈ defEnv prog) :
     loc₁ = loc₂ :=
   Option.some.inj
-    ((defEnv_entry_eq_allocate prog hdc hcreate h₁).symm.trans
-      (defEnv_entry_eq_allocate prog hdc hcreate h₂))
+    ((defEnv_entry_eq_allocate prog hdc h₁).symm.trans
+      (defEnv_entry_eq_allocate prog hdc h₂))
 
 /-! ## §1B new — the two scalar budgets -/
 
