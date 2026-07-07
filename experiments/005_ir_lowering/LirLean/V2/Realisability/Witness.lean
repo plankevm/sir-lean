@@ -648,6 +648,43 @@ private theorem noSlotSource_exProg : ∀ (L : Label) (b : Block) (pc : Nat) (t 
       List.getElem?_nil, Option.some.injEq, reduceCtorEq, Stmt.assign.injEq,
       Expr.slot.injEq, and_false, false_and] at hs
 
+/-- `exProg`'s CFG is closed at the presence + in-bounds level (`CFGClosed`) — the projection
+of `closedCFG_exProg` that drops the offset-bound halves (those are DERIVED from `codeFits`
+via B1a in the 1B-reshape bridge, not carried by `IRWellFormed`). -/
+private theorem cfgClosed_exProg : CFGClosed exProg where
+  entry_present := closedCFG_exProg.entry_present
+  jump_closed := fun L b dst hb hterm =>
+    let ⟨hp, hbd, _⟩ := closedCFG_exProg.jump_closed L b dst hb hterm
+    ⟨hp, hbd⟩
+  branch_closed := fun L b cond thenL elseL hb hterm =>
+    let ⟨⟨hp1, hbd1, _⟩, hp2, hbd2, _⟩ := closedCFG_exProg.branch_closed L b cond thenL elseL hb hterm
+    ⟨⟨hp1, hbd1⟩, hp2, hbd2⟩
+
+/-- **`IRWellFormed exProg`** — the static, program-text-only well-formedness antecedent of the
+reshaped flagships. Each field reuses a witness proved above: the gas/call-aware definability,
+the `defsOf`-consistency, block-0 entry, the presence/in-bounds CFG closure, the fuel-fitting
+acyclic rank (`rankExProg` + `acyclic_exProg` + the `rank_lt_fuel` slack), the per-block
+re-validation, no `.slot` source, and spill-slot addressability. -/
+theorem irWellFormed_exProg : IRWellFormed exProg where
+  defineBeforeUse := runDefinableG_exProg
+  defsConsistent := defsConsistent_exProg
+  entry0 := rfl
+  cfgClosed := cfgClosed_exProg
+  acyclicDefs := ⟨rankExProg, acyclic_exProg, acyclicWellFormedExProg.rank_lt_fuel⟩
+  revalidates := revalidatesPerBlock_exProg
+  noSlotSource := noSlotSource_exProg
+  slotAddr := slotAddr_exProg
+
+set_option maxRecDepth 8000 in
+/-- **`codeFits exProg`** — the whole lowered `exProg` fits a 32-bit pc (R6's `hsize`
+half-blocker, now a supplied budget premise). Concrete `flatBytes` byte arithmetic. -/
+theorem codeFits_exProg : codeFits exProg := by unfold codeFits; decide
+
+set_option maxRecDepth 8000 in
+/-- **`stackFits exProg`** — every operand materialise of `exProg` fits the 1024-slot stack.
+Concrete `maxChargeDepth`. -/
+theorem stackFits_exProg : stackFits exProg := by unfold stackFits; decide
+
 /-- **`WellLowered exProg`** — the anti-vacuity anchor R9's second conjunct forces. Every field
 discharged above from the acyclicity core + the concrete `exProg` layout + the `RunStmts`
 binding inversion.

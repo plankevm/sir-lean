@@ -21,7 +21,6 @@ Beyond the relocation this module introduces (plan §1B B2):
   distillation of the ~15 per-cursor quantified `WellFormedLowered` bounds;
 * `CFGClosed`, the presence + in-bounds half of `ClosedCFG` (its offset-bound halves are
   DERIVED from `codeFits` in stage 1B-lemmas, not carried);
-* `defRank`, the SSA def-order rank candidate witnessing `Acyclic`;
 * the `IRWellFormed` bundle (Eduardo's name — NOT `WellFormed`, which is a different
   single-use def at `Materialise/DefsSound.lean:143`).
 
@@ -334,21 +333,14 @@ def maxChargeDepth (prog : Program) : Nat :=
 that DERIVES (stage 1B-lemmas) every per-cursor `StackRoomOK` fold. -/
 def stackFits (prog : Program) : Prop := maxChargeDepth prog ≤ 1024
 
-/-- **The SSA def-order rank** — a candidate rank witnessing `Acyclic (defsOf prog)`: a tmp's
-rank is its SSA id, so in a define-before-use program every def's operands (earlier tmps,
-smaller id) rank strictly below their target. This is the natural topological order on the
-recompute-on-use def-graph; whether it actually witnesses `Acyclic` for a given `prog` is the
-`IRWellFormed.acyclicDefs` obligation (discharged per-program in stage 1B-lemmas). -/
-def defRank (_prog : Program) : Tmp → Nat := fun t => t.id
-
 /-! ## §1B new — the `IRWellFormed` bundle -/
 
 /-- **IR well-formedness** — the static, program-text-only well-formedness of a source
-program, the soundness antecedent of the lowering claim (`WellFormed → codeFits →
-stackFits → WellFormedLowered`, stage 1B-reshape). Every field is a fact of the program
-text, decidable-in-principle per program (R9's checker's territory). NAME: `IRWellFormed`
-(Eduardo's decision) — NOT `WellFormed`, which is a different single-use def at
-`Materialise/DefsSound.lean:143`. -/
+program, the soundness antecedent of the lowering claim (`IRWellFormed → codeFits →
+stackFits → WellLowered`, stage 1B-reshape `wellFormedLowered_of_IRWellFormed`). Every
+field is a fact of the program text, decidable-in-principle per program (R9's checker's
+territory). NAME: `IRWellFormed` (Eduardo's decision) — NOT `WellFormed`, which is a
+different single-use def at `Materialise/DefsSound.lean:143`. -/
 structure IRWellFormed (prog : Program) : Prop where
   /-- Gas/call-aware operand definability (replaces the unsatisfiable `RunDefinable`). -/
   defineBeforeUse : RunDefinableG prog
@@ -358,11 +350,27 @@ structure IRWellFormed (prog : Program) : Prop where
   entry0          : prog.entry.idx = 0
   /-- Static CFG closure (presence + in-bounds; offset bounds are DERIVED from `codeFits`). -/
   cfgClosed       : CFGClosed prog
-  /-- The recompute-on-use def-graph is acyclic under `defRank` (fuel-sufficiency witness). -/
-  acyclicDefs     : Acyclic (defsOf prog) (defRank prog)
+  /-- The recompute-on-use def-graph is acyclic under a **fuel-fitting** topological rank:
+  some `rank` orders the def-graph (`Acyclic`) with every rank one below the recompute fuel
+  (`rank t + 1 < recomputeFuel prog`). The existential is essential — the SSA-id rank
+  (`t.id`) is unbounded over `Tmp` and so never fits `recomputeFuel = #stmts + 1`, whereas a
+  genuine chain-depth rank does (`Spec/BudgetDerivations.lean` B1c note). This is exactly the
+  `(rank, acyclic, rank_lt_fuel)` content `matFueled_of_acyclic` consumes to discharge every
+  `MatFueled` field of `WellFormedLowered`. -/
+  acyclicDefs     : ∃ rank : Tmp → ℕ,
+    Lir.Acyclic (defsOf prog) rank ∧ ∀ t, rank t + 1 < recomputeFuel prog
   /-- Every within-block invalidation is healed by a reassign before the block ends. -/
   revalidates     : RevalidatesPerBlock prog
   /-- No source assign carries the lowering-only `.slot` marker. TEMPORARY: removed in Phase 2A. -/
   noSlotSource    : NoSlotSource prog
+  /-- **Spill-slot addressability** at every gas/sload cursor: the target tmp's canonical slot
+  `slotOf t = t.id * 32` is byte- and platform-addressable. A bound on the tmp ids that carry
+  a spilled def; not derivable from the control structure or the two budgets, so it is a
+  supplied static well-formedness field (the `WellLowered.slotAddr` obligation). -/
+  slotAddr        : ∀ (L : Label) (b : Block) (pc : Nat) (t : Tmp),
+    blockAt prog L = some b →
+    (b.stmts[pc]? = some (.assign t .gas)
+      ∨ ∃ k, b.stmts[pc]? = some (.assign t (.sload k))) →
+    slotOf t + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
 
 end Lir.V2
