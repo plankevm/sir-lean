@@ -61,6 +61,25 @@ theorem emit_allocate_eq_flatBytes (prog : Program) :
 theorem lower_eq_flatBytes (prog : Program) : lower prog = ⟨(flatBytes prog).toArray⟩ := by
   unfold lower encode; rw [emit_allocate_eq_flatBytes]
 
+/-! ## Fold-based flat byte list (Phase 2A P4)
+
+`flatBytesF prog` is the fold twin of `flatBytes prog`: the per-block
+`JUMPDEST :: emitBlockBodyF` concatenation built from the fold cache `matCache prog` and
+the `allocate prog` policy, with branch destinations resolved via `offsetTableF`. `lowerF`
+wraps it as a `ByteArray`. Added ALONGSIDE the old `flatBytes`/`lower`; because the fold is
+byte-different from the fuel lowering on ill-formed inputs, `lowerF ≠ lower` in general (the
+swap that makes them equal is P7). Geometry over `flatBytesF`/`lowerF` is UNCONDITIONAL. -/
+def flatBytesF (prog : Program) : List UInt8 :=
+  let cache := matCache prog
+  let alloc := allocate prog
+  let labelOff := offsetTableF cache alloc prog.blocks
+  prog.blocks.toList.flatMap (fun b => Byte.jumpdest :: emitBlockBodyF cache alloc labelOff b)
+
+/-- The fold lowering: the `ByteArray` wrapping `flatBytesF prog`. -/
+def lowerF (prog : Program) : ByteArray := ⟨(flatBytesF prog).toArray⟩
+
+theorem lowerF_eq_flatBytesF (prog : Program) : lowerF prog = ⟨(flatBytesF prog).toArray⟩ := rfl
+
 /-! ## Foundation: list-backed `ByteArray` indexing -/
 
 /-- The byte `ByteArray.get?` reads from a list-backed array is the list's element.
@@ -155,5 +174,23 @@ theorem decode_lower_push (prog : Program) (n : Nat) (byte : UInt8) (w : UInt8) 
               ⟨((flatBytes prog).toArray).extract (n + 1) (n + 1 + w.toNat)⟩ = imm) :
     Evm.decode (lower prog) (UInt32.ofNat n) = some (Evm.parseInstr byte, some (imm, w)) := by
   rw [lower_eq_flatBytes]; exact decode_push_of_list _ n byte w imm hn hb hp hw himm
+
+/-! ## Fold specialisations over `lowerF prog` -/
+
+/-- Non-push decode specialised to `lowerF prog`. -/
+theorem decode_lowerF_nonpush (prog : Program) (n : Nat) (byte : UInt8)
+    (hn : n < 2 ^ 32) (hb : (flatBytesF prog)[n]? = some byte)
+    (hnp : Evm.pushArgWidth (Evm.parseInstr byte) = 0) :
+    Evm.decode (lowerF prog) (UInt32.ofNat n) = some (Evm.parseInstr byte, .none) := by
+  rw [lowerF_eq_flatBytesF]; exact decode_nonpush_of_list _ n byte hn hb hnp
+
+/-- Push decode specialised to `lowerF prog`. -/
+theorem decode_lowerF_push (prog : Program) (n : Nat) (byte : UInt8) (w : UInt8) (imm : UInt256)
+    (hn : n < 2 ^ 32) (hb : (flatBytesF prog)[n]? = some byte)
+    (hp : Evm.pushArgWidth (Evm.parseInstr byte) = w) (hw : w > 0)
+    (himm : Evm.uInt256OfByteArray
+              ⟨((flatBytesF prog).toArray).extract (n + 1) (n + 1 + w.toNat)⟩ = imm) :
+    Evm.decode (lowerF prog) (UInt32.ofNat n) = some (Evm.parseInstr byte, some (imm, w)) := by
+  rw [lowerF_eq_flatBytesF]; exact decode_push_of_list _ n byte w imm hn hb hp hw himm
 
 end Lir

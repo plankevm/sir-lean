@@ -425,4 +425,225 @@ theorem segAlignedP_flatBytes (prog : Program) :
       rw [List.flatMap_cons]
       exact (segAlignedP_loweredBlock defs fuel lo b).append ih
 
+/-! ## §6 — the fold emits `IsLoweringOp`-aligned byte streams (Phase 2A P4, UNCONDITIONAL)
+
+The fold twin of §5, proven DIRECTLY over `matCache`/`matExpr`/`matStep` by structural induction
+— NO fuel, NO `materialiseExpr` bridge. The engine is `segAlignedP_matExpr` (operand lookups
+discharged by the pointwise-alignment hypothesis on the cache) plus `matFold_aligned` (list
+induction: `matStep` preserves pointwise-alignment), giving `segAlignedP_matCache` UNCONDITIONALLY
+(the initial cache `emitImm 0` is aligned). The `emitStmtF`/`emitTermF`/`emitBlockBodyF`/`flatBytesF`
+ladder then reuses `SegAlignedP.append` over the identical opcode shape. -/
+
+/-- **The fold value channel is aligned pointwise.** If every operand's cached bytes are
+`IsLoweringOp`-aligned, then `matExpr cache e` is aligned for every expression `e`. Case analysis
+on `e`; operand lookups discharged by `hcache`, composites glued by `SegAlignedP.append`. -/
+theorem segAlignedP_matExpr (cache : Tmp → List UInt8)
+    (hcache : ∀ t, SegAlignedP IsLoweringOp (cache t)) :
+    ∀ e, SegAlignedP IsLoweringOp (matExpr cache e) := by
+  intro e
+  cases e with
+  | imm w => exact segAlignedP_emitImm w
+  | tmp t => exact hcache t
+  | add a b =>
+      rw [matExpr_add]
+      exact ((hcache b).append (hcache a)).append
+            (SegAlignedP.nonpush Byte.add (by decide) (by decide))
+  | lt a b =>
+      rw [matExpr_lt]
+      exact ((hcache b).append (hcache a)).append
+            (SegAlignedP.nonpush Byte.lt (by decide) (by decide))
+  | sload k =>
+      rw [matExpr_sload]
+      exact (hcache k).append (SegAlignedP.nonpush Byte.sload (by decide) (by decide))
+  | gas =>
+      rw [matExpr_gas]
+      exact SegAlignedP.nonpush Byte.gas (by decide) (by decide)
+  | slot n =>
+      rw [matExpr_slot]
+      exact segAlignedP_slot n
+
+/-- A `Loc`'s materialised bytes under an aligned cache are aligned. -/
+theorem segAlignedP_matLoc (cache : Tmp → List UInt8)
+    (hcache : ∀ t, SegAlignedP IsLoweringOp (cache t)) :
+    ∀ loc, SegAlignedP IsLoweringOp (matLoc cache loc)
+  | .remat e => segAlignedP_matExpr cache hcache e
+  | .slot n  => segAlignedP_slot n
+
+/-- **`matStep` preserves pointwise-alignment.** Extending an aligned cache by binding one tmp to
+its `Loc`'s (aligned) bytes keeps the cache pointwise-aligned — the update is aligned at the bound
+key (`segAlignedP_matLoc`) and unchanged elsewhere. -/
+theorem matStep_aligned (c : Tmp → List UInt8)
+    (hc : ∀ t, SegAlignedP IsLoweringOp (c t)) (p : Tmp × Loc) :
+    ∀ t, SegAlignedP IsLoweringOp (matStep c p t) := by
+  intro t
+  simp only [matStep, Function.update_apply]
+  by_cases h : t = p.1
+  · rw [if_pos h]; exact segAlignedP_matLoc c hc p.2
+  · rw [if_neg h]; exact hc t
+
+/-- **The fold preserves pointwise-alignment.** From an aligned initial cache, the whole `matFold`
+over any def-env is pointwise-aligned. List induction, `matStep_aligned` at each step. -/
+theorem matFold_aligned (init : Tmp → List UInt8)
+    (hinit : ∀ t, SegAlignedP IsLoweringOp (init t)) (l : List (Tmp × Loc)) :
+    ∀ t, SegAlignedP IsLoweringOp (matFold init l t) := by
+  induction l generalizing init with
+  | nil => simpa [matFold] using hinit
+  | cons p rest ih =>
+      rw [matFold_cons]
+      exact ih (matStep init p) (matStep_aligned init hinit p)
+
+/-- **`matCache prog` is pointwise `IsLoweringOp`-aligned, UNCONDITIONALLY.** The initial cache
+`fun _ => emitImm 0` is aligned, and the fold preserves alignment. No well-formedness hypothesis. -/
+theorem segAlignedP_matCache (prog : Program) :
+    ∀ t, SegAlignedP IsLoweringOp (matCache prog t) := by
+  unfold matCache
+  exact matFold_aligned _ (fun _ => segAlignedP_emitImm 0) (defEnv prog)
+
+/-- Fold twin of `segAlignedP_emitStmt`. Operand lookups discharged by `hcache`; the `assign`
+def-site uses `segAlignedP_matExpr`. -/
+theorem segAlignedP_emitStmtF (cache : Tmp → List UInt8)
+    (hcache : ∀ t, SegAlignedP IsLoweringOp (cache t)) (alloc : Alloc) (s : Stmt) :
+    SegAlignedP IsLoweringOp (emitStmtF cache alloc s) := by
+  cases s with
+  | assign t e =>
+      rw [show emitStmtF cache alloc (.assign t e)
+            = (match alloc t with
+               | some (.slot n) => matExpr cache e ++ emitImm (UInt256.ofNat n) ++ [Byte.mstore]
+               | _ => []) from rfl]
+      cases alloc t with
+      | none => exact .nil
+      | some loc =>
+          cases loc with
+          | remat => exact .nil
+          | slot n =>
+              exact ((segAlignedP_matExpr cache hcache e).append
+                      (segAlignedP_emitImm (UInt256.ofNat n))).append
+                    (SegAlignedP.nonpush Byte.mstore (by decide) (by decide))
+  | sstore key value =>
+      rw [show emitStmtF cache alloc (.sstore key value)
+            = cache value ++ cache key ++ [Byte.sstore] from rfl]
+      exact ((hcache value).append (hcache key)).append
+            (SegAlignedP.nonpush Byte.sstore (by decide) (by decide))
+  | call cs =>
+      rw [show emitStmtF cache alloc (.call cs)
+            = emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
+              ++ cache cs.callee
+              ++ cache cs.gasFwd
+              ++ [Byte.call]
+              ++ (match cs.resultTmp with
+                  | some t => emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]
+                  | none   => [Byte.pop]) from rfl]
+      have h := (segAlignedP_emitImm (0 : Word)).append (segAlignedP_emitImm 0)
+      have h := h.append (segAlignedP_emitImm 0)
+      have h := h.append (segAlignedP_emitImm 0)
+      have h := h.append (segAlignedP_emitImm 0)
+      have h := h.append (hcache cs.callee)
+      have h := h.append (hcache cs.gasFwd)
+      have h := h.append (SegAlignedP.nonpush Byte.call (by decide) (by decide))
+      refine h.append ?_
+      cases cs.resultTmp with
+      | none => exact SegAlignedP.nonpush Byte.pop (by decide) (by decide)
+      | some t =>
+          exact (segAlignedP_emitImm (UInt256.ofNat (slotOf t))).append
+            (SegAlignedP.nonpush Byte.mstore (by decide) (by decide))
+  | create cs =>
+      rw [show emitStmtF cache alloc (.create cs)
+            = emitImm 0 ++ emitImm 0 ++ emitImm 0
+              ++ (match cs.salt with
+                  | some s => cache s ++ [Byte.create2]
+                  | none   => [Byte.create])
+              ++ (match cs.resultTmp with
+                  | some t => emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]
+                  | none   => [Byte.pop]) from rfl]
+      have hmid : SegAlignedP IsLoweringOp
+          (match cs.salt with
+            | some s => cache s ++ [Byte.create2]
+            | none   => [Byte.create]) := by
+        cases cs.salt with
+        | none => exact SegAlignedP.nonpush Byte.create (by decide) (by decide)
+        | some s =>
+            exact (hcache s).append (SegAlignedP.nonpush Byte.create2 (by decide) (by decide))
+      have h := (segAlignedP_emitImm (0 : Word)).append (segAlignedP_emitImm 0)
+      have h := h.append (segAlignedP_emitImm 0)
+      have h := h.append hmid
+      refine h.append ?_
+      cases cs.resultTmp with
+      | none => exact SegAlignedP.nonpush Byte.pop (by decide) (by decide)
+      | some t =>
+          exact (segAlignedP_emitImm (UInt256.ofNat (slotOf t))).append
+            (SegAlignedP.nonpush Byte.mstore (by decide) (by decide))
+
+/-- Fold twin of `segAlignedP_emitTerm`. -/
+theorem segAlignedP_emitTermF (cache : Tmp → List UInt8)
+    (hcache : ∀ t, SegAlignedP IsLoweringOp (cache t)) (labelOff : Nat → Nat) (t : Term) :
+    SegAlignedP IsLoweringOp (emitTermF cache labelOff t) := by
+  cases t with
+  | ret tt =>
+      rw [show emitTermF cache labelOff (.ret tt)
+            = cache tt ++ emitImm 0 ++ [Byte.mstore] ++ emitImm 32
+                ++ emitImm 0 ++ [Byte.ret] from rfl]
+      exact (((((hcache tt).append
+              (segAlignedP_emitImm 0)).append
+              (SegAlignedP.nonpush Byte.mstore (by decide) (by decide))).append
+              (segAlignedP_emitImm 32)).append (segAlignedP_emitImm 0)).append
+            (SegAlignedP.nonpush Byte.ret (by decide) (by decide))
+  | stop =>
+      rw [show emitTermF cache labelOff .stop = [Byte.stop] from rfl]
+      exact SegAlignedP.nonpush Byte.stop (by decide) (by decide)
+  | jump dst =>
+      rw [show emitTermF cache labelOff (.jump dst)
+            = emitDest (labelOff dst.idx) ++ [Byte.jump] from rfl]
+      exact (segAlignedP_emitDest _).append
+        (SegAlignedP.nonpush Byte.jump (by decide) (by decide))
+  | branch cond thenL elseL =>
+      rw [show emitTermF cache labelOff (.branch cond thenL elseL)
+            = cache cond
+              ++ emitDest (labelOff thenL.idx) ++ [Byte.jumpi]
+              ++ emitDest (labelOff elseL.idx) ++ [Byte.jump] from rfl]
+      exact ((((hcache cond).append
+              (segAlignedP_emitDest _)).append
+              (SegAlignedP.nonpush Byte.jumpi (by decide) (by decide))).append
+              (segAlignedP_emitDest _)).append
+            (SegAlignedP.nonpush Byte.jump (by decide) (by decide))
+
+/-- Fold twin of `segAlignedP_emitBlockBody`. -/
+theorem segAlignedP_emitBlockBodyF (cache : Tmp → List UInt8)
+    (hcache : ∀ t, SegAlignedP IsLoweringOp (cache t)) (alloc : Alloc)
+    (labelOff : Nat → Nat) (b : Block) :
+    SegAlignedP IsLoweringOp (emitBlockBodyF cache alloc labelOff b) := by
+  unfold emitBlockBodyF
+  refine SegAlignedP.append ?_ (segAlignedP_emitTermF cache hcache labelOff b.term)
+  induction b.stmts with
+  | nil => exact .nil
+  | cons s rest ih =>
+      rw [List.flatMap_cons]
+      exact (segAlignedP_emitStmtF cache hcache alloc s).append ih
+
+/-- Fold twin of `segAlignedP_loweredBlock`. -/
+theorem segAlignedP_loweredBlockF (cache : Tmp → List UInt8)
+    (hcache : ∀ t, SegAlignedP IsLoweringOp (cache t)) (alloc : Alloc)
+    (labelOff : Nat → Nat) (b : Block) :
+    SegAlignedP IsLoweringOp (Byte.jumpdest :: emitBlockBodyF cache alloc labelOff b) := by
+  have hjd : SegAlignedP IsLoweringOp [Byte.jumpdest] :=
+    SegAlignedP.nonpush Byte.jumpdest (by decide) (by decide)
+  have := hjd.append (segAlignedP_emitBlockBodyF cache hcache alloc labelOff b)
+  simpa using this
+
+/-- **The whole fold flat byte stream `flatBytesF prog` is `IsLoweringOp`-aligned, UNCONDITIONALLY.**
+The fold twin of `segAlignedP_flatBytes`: the `flatMap` of per-block `JUMPDEST :: emitBlockBodyF`,
+each aligned (`segAlignedP_loweredBlockF`, cache aligned by `segAlignedP_matCache`), glued by
+`SegAlignedP.append`. No well-formedness hypothesis. -/
+theorem segAlignedP_flatBytesF (prog : Program) :
+    SegAlignedP IsLoweringOp (flatBytesF prog) := by
+  have hcache : ∀ t, SegAlignedP IsLoweringOp (matCache prog t) := segAlignedP_matCache prog
+  unfold flatBytesF
+  set cache := matCache prog
+  set alloc := allocate prog
+  set lo := offsetTableF cache alloc prog.blocks
+  induction prog.blocks.toList with
+  | nil => exact .nil
+  | cons b rest ih =>
+      rw [List.flatMap_cons]
+      exact (segAlignedP_loweredBlockF cache hcache alloc lo b).append ih
+
 end Lir
