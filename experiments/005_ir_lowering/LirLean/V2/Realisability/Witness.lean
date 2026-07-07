@@ -75,6 +75,8 @@ and the read tmp is `t6` or `t7` (`t8`'s def `lt t6 t7` is the sole def reading 
 theorem defsOf_exProg_reads {t t' : Tmp} (h : ReadsOf exProg t t') :
     (t = ⟨6⟩ ∨ t = ⟨7⟩) ∧ t' = ⟨8⟩ := by
   obtain ⟨e', hd, hu⟩ := h
+  -- `ReadsOf` now carries the `rematOf`-spine fact; lift it to `defsOf`'s closed form.
+  replace hd : defsOf exProg t' = some e' := Lir.defsOf_of_rematOf hd
   rw [defsOf_exProg_eq, Option.map_eq_some_iff] at hd
   obtain ⟨p, hfind, hp2⟩ := hd
   have hp1 := List.find?_some hfind

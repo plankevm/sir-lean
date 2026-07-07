@@ -118,7 +118,9 @@ theorem defsSoundS_preserved_step {prog : Program}
           have hc := (hcons L b pc hb).1 t e hs
           rcases e with _ | _ | _ | _ | _ | _ | _ <;>
             first | exact hc | exact absurd rfl hne | exact absurd ⟨_, rfl⟩ hsl
-        have he0 : e₀ = e := Option.some.inj (hdef₀.symm.trans hself)
+        -- `hdef₀` is the `rematOf`-spine fact; lift it to `defsOf` to match `hself`.
+        have hdd : defsOf prog t = some e₀ := Lir.defsOf_of_rematOf hdef₀
+        have he0 : e₀ = e := Option.some.inj (hdd.symm.trans hself)
         subst he0
         have hw : (st.setLocal t w).locals t = some w := by simp [IRState.setLocal]
         have hww : w₀ = w := Option.some.inj (hlocal₀.symm.trans hw)
@@ -163,13 +165,13 @@ theorem defsSoundS_preserved_step {prog : Program}
     rw [hie] at hninval
     have hl' : st.locals t₀ = some w₀ := hlocal₀
     have hprev : some w₀ = evalExpr st 0 e₀ := hsound t₀ e₀ w₀ hdef₀ hnr₀ hninval hl'
-    have hns : ∀ k, e₀ ≠ .sload k := fun k he => Lir.defsOf_ne_sload prog t₀ k (he ▸ hdef₀)
+    have hns : ∀ k, e₀ ≠ .sload k := fun k he => Lir.rematOf_ne_sload prog t₀ k (he ▸ hdef₀)
     rw [evalExpr_setStorage_noSload hns]
     exact hprev
   | call hcallee hgas =>
     rename_i cs calleeW gasFwdW success world'
     intro t₀ e₀ w₀ hdef₀ hnr₀ hninval hlocal₀
-    have hns : ∀ k, e₀ ≠ .sload k := fun k he => Lir.defsOf_ne_sload prog t₀ k (he ▸ hdef₀)
+    have hns : ∀ k, e₀ ≠ .sload k := fun k he => Lir.rematOf_ne_sload prog t₀ k (he ▸ hdef₀)
     cases hrt : cs.resultTmp with
     | none =>
       have hie : invalStep prog I (.call cs) t₀ = I t₀ := by simp only [invalStep, hrt]
@@ -203,7 +205,7 @@ theorem defsSoundS_preserved_step {prog : Program}
     -- (world replacement + result-tmp binding) exactly as the call arm applies the call head.
     rename_i cs valueW initOffW initSizeW addrW world'
     intro t₀ e₀ w₀ hdef₀ hnr₀ hninval hlocal₀
-    have hns : ∀ k, e₀ ≠ .sload k := fun k he => Lir.defsOf_ne_sload prog t₀ k (he ▸ hdef₀)
+    have hns : ∀ k, e₀ ≠ .sload k := fun k he => Lir.rematOf_ne_sload prog t₀ k (he ▸ hdef₀)
     cases hrt : cs.resultTmp with
     | none =>
       have hie : invalStep prog I (.create cs) t₀ = I t₀ := by simp only [invalStep, hrt]

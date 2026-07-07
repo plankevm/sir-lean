@@ -15,6 +15,22 @@ identical, facts survive" hides one real subtlety (the unconditional geometry to
 be *re-proven over the new emission*, not transferred by rewrite, because new ≠ old on
 ill-formed inputs).
 
+> **2026-07-07 — SCOPE: FULL FUEL PURGE (project lead).** `lower`/`emit` are redefined
+> over the structural fold; `recomputeFuel`, the fuel parameter, `MatFueled`, the rank
+> apparatus (`Assembly/Acyclic.lean`), and `Expr.slot` are removed ENTIRELY. The prior
+> run established the crux: the UNCONDITIONAL geometry tower (`segAlignedP_flatBytes`,
+> `DecodeAnchors`, `JumpValid`, `Layout`) cannot transfer via a conditional byte bridge
+> (§2.2), so it is RE-PROVEN directly over the fold — mechanical (identical block/opcode
+> shape; `SegAlignedP.append` reused; only the leaf induction is redone) and provably
+> **unconditional** (the fold is total: `foldl` over a finite list, undefined-tmp →
+> `emitImm 0`, so `SegAligned` over the fold needs NO well-formedness). The old
+> monolithic S1 ("delete `Expr.slot` + retype + remove fuel in one shot") is ATOMIC and
+> is REPLACED by the green-incremental sequence in §4 (below), honoring obligations
+> (a)-(e): rematOf spine-decouple → bridge + alignment + DefEnvOrdered adequacy →
+> redefine-lower-over-fold + geometry re-proof → value/sim migration → delete old +
+> shrink `IRWellFormed` LAST. Semantics (`Spec/Semantics.lean` execution relations)
+> untouched except the removal of the now-dead `evalExpr .slot` arm.
+
 ---
 
 ## 1. The crux: is program order a valid topological order? — RESOLVED: YES
@@ -249,45 +265,140 @@ lose their consumer and go.
 
 ---
 
-## 4. Green-incremental step sequence (expand-contract where feasible)
+## 4. Green-incremental step sequence (FULL PURGE — corrected 2026-07-07)
 
-Ordering principle: land `Expr.slot`→`Loc` FIRST (byte-unconditional, §2.4), then the
-fuel→fold swap (byte-conditional). Each step builds green (`lake build` + `WIP`).
+S0 has LANDED (commit `f364dde`): `defEnv`, `matExpr`/`matLoc`/`matStep`/`matFold`/
+`matCache`, the reduction lemmas, and `DefEnvOrdered` (`WellFormed.lean:296`) exist
+ALONGSIDE the old machinery, green, wired into nothing. The sequence below BUILDS ON
+THESE. Ordering principle (sound, non-atomic): decouple the soundness spine from
+`defsOf`'s codomain FIRST (so the later `defsOf → Alloc` retype does not churn spine
+statements), prove the bridge/alignment/adequacy lemmas ALONGSIDE the old, then swap
+`lower`/`emit` to the fold, migrate the value/sim tower via the bridge, and delete the
+old machinery + shrink `IRWellFormed` LAST. Each step is a landable green commit
+(`lake build` = the `LirLean` cone green + sorry-free; `lake build WIP` keeps ONLY its
+pre-existing tracked sorries). NO monolithic delete-everything step.
 
-- **S0 — def-env carrier + fold, alongside old.** Add `defEnv`, `matExpr`/`matLoc`/
-  `matCache`, `DefEnvOrdered` in `Spec/Lowering.lean`/`Spec/WellFormed.lean`. Do NOT touch
-  `materialiseExpr`/`lower` yet. Green: builds; no consumer changed.
-- **S1 — `Expr.slot` → `Loc` retype (fuel KEPT).** Retype `materialiseExpr`/`MatDec`/
-  `chargeOf`/`MatFueled` from `defs : Tmp → Option Expr` to `Alloc`; move the slot-load to
-  the `.tmp` lookup arm; delete `Expr.slot` (`IR.lean:94`), `evalExpr .slot` arm
-  (`Semantics.lean:147`), `Loc.toDef`/`Alloc.toDefs` (`Lowering.lean:107-113`), and every
-  `.slot` dead arm (24 files). Bridge `lower' = lower` is definitional/unconditional.
-  Green gate: `lake build` byte facts unchanged (spot-check `lower_eq_flatBytes`,
-  `segAlignedP_flatBytes` still hold); `WIP` only pre-existing sorries.
-- **S2 — geometry tower over the fold, alongside old.** Introduce `flatBytesNew`/
-  `emitNew` on `matCache`; re-prove `segAlignedP_matExpr` + anchors + `JumpValid`/`Layout`
-  for the new emission (UNCONDITIONAL). Green: new lemmas green; old still consumed.
-- **S3 — byte-equality bridge.** Prove `matCache_eq_materialiseExpr` (§2.3) under
-  `DefEnvOrdered`, hence `lowerNew prog = lower prog` conditional. Green gate: the bridge
-  lemma green, no new sorry.
-- **S4 — migrate `MatDec`/`MatRuns`/`chargeOf` + `Sim/` to the fold.** Retype to the
-  fuel-free forms; transfer conditional sim facts via S3 bridge. Green gate: `Sim/`,
-  `Materialise/` green; conclusions identical.
-- **S5 — swap `lower`/`flatBytes` to the fold; delete old + fuel.** Redefine `lower`/
-  `flatBytes` = the `New` versions; delete `materialiseExpr`-fuel, `recomputeFuel`,
-  `MatFueled`, `Acyclic`/`ExprRankLt`/`matFueled_of_*`, `AcyclicWellFormed`. Green gate:
-  full `lake build` green + sorry-free; `#print axioms` guards intact.
-- **S6 — shrink `IRWellFormed`/`WellFormedLowered` + producer/flagship.** Swap
-  `acyclicDefs`→`defEnvOrdered`, drop `noSlotSource`, drop the four `MatFueled` fields;
-  rewrite `wellFormedLowered_of_IRWellFormed` (`RealisabilitySpec.lean:124-161`, drop the
-  `obtain ⟨rank,…⟩`/`matFueled_of_acyclic`/`slots_slot_of_noSlotSource` lines); update
-  `exProg` witness (`Witness.lean:472-705`, `decide` the new field). Green gate: `WIP`
-  green with only pre-existing sorries; `exProg` witness green.
+Obligations (a)-(e) map onto the steps as annotated.
 
-If S2's unconditional re-proof of geometry proves heavier than budgeted, S2+S5 may be
-merged into one atomic emission-swap (re-prove geometry directly on the swapped `lower`),
-accepting a larger single step — call this out rather than gate on a rewrite that cannot
-hold unconditionally.
+- **S1 — (a) `rematOf` spine-decouple.** Introduce `rematOf : Program → Tmp → Option Expr`,
+  the **non-slot projection** of `defsOf` (`rematOf prog t = match defsOf prog t with
+  | some (.slot _) => none | some e => some e | none => none`; once `defsOf` is Loc-valued
+  it re-bases to `some (.remat e) => some e | _ => none`, same value). Migrate the
+  soundness spine — `DefsSound` (`DefsSound.lean:209`), the `DefsConsistent` recompute arm
+  (`WellFormed.lean:135`), `DefsSoundS`/`ReadsOf`/`StepScopedS` (`WellFormed.lean:181-256`),
+  and the `defsSound_preserved_*` walk (`DefsSound.lean:301-655`) — from `defsOf t = some e`
+  onto `rematOf t = some e`. Provide the `rematOf` twins of the spill-routing exhaustiveness
+  facts (`rematOf_ne_gas`/`rematOf_ne_sload`, replacing `defsOf_ne_gas`/`_ne_sload` at their
+  spine consumers: `Machinery.lean:166/172/206`, `Producer.lean:792/796`,
+  `MaterialiseCleanHalt.lean:195/198`, `MaterialiseRuns.lean:1110/1115`). Behaviour-preserving
+  (`rematOf`-view is a sound weakening: `evalExpr st 0 (.slot n) = none`, so `defsOf`-view
+  never made a satisfiable claim at a slot entry with a bound tmp). `Expr.slot` and `fuel`
+  still exist. Green gate: `lake build` green; `WIP` pre-existing sorries only.
+
+- **S2 — (c) `defEnv ↔ defsOf` alignment.** Prove `defsOf` is `defEnv`'s `find?`-view:
+  `defsOf prog t = ((defEnv prog).find? (·.1 == t)).map (Loc.toDef ∘ ·.2)` (definitional —
+  same `filterMap`/order). CRUX: `defEnv` is NOT deduplicated (one entry per assign / call /
+  create-result stmt), `matCache` is a `Function.update` fold so it takes the **last** entry,
+  while `defsOf`/`find?` take the **first**; they agree ONLY under SSA single-binding. PROVE
+  `matCache prog t = matLoc (…) (first-find entry for t)` from `DefsConsistent` (all entries
+  for a tmp id carry the same `Loc`, so last = first). Green: alignment lemmas green,
+  alongside old.
+
+- **S3 — (b) the fold↔fuel byte bridge (BRIDGE-FIRST).** Prove, under `DefEnvOrdered prog`
+  (+ the S2 alignment): `matCache prog t = materialiseExpr (defsOf prog) (recomputeFuel prog)
+  (.tmp t)` for every `t` (present → induction along the topo-ordered `defEnv`, operands
+  resolved earlier in the fold equal their `materialiseExpr` by IH; absent → both sides are
+  the `emitImm 0` fallback), hence `matExpr (matCache prog) e = materialiseExpr (defsOf prog)
+  (recomputeFuel prog) e`; the `.slot`/`Loc.slot` arm is definitionally the same
+  `emitImm (ofNat n) ++ [MLOAD]`; fuel-sufficiency is subsumed by `defEnv` length. Derive the
+  `matCache = materialise` corollary and, from it, the byte corollary `flatBytesFold prog =
+  flatBytes prog` (with `flatBytesFold`/`emitFold`/`lowerFold` the fold-based twins introduced
+  here). Green gate: bridge + corollaries green, no new sorry.
+
+- **S4 — (d) `DefEnvOrdered` adequacy.** Prove `DefEnvOrdered exProg` by `decide`/`rfl`
+  (mirrors `acyclic_exProg`, `Witness.lean:363`; non-vacuity witness). Prove
+  `defEnvOrdered_subsumes_acyclic : DefEnvOrdered prog → ∃ rank, Lir.Acyclic (defsOf prog)
+  rank` with `rank t := 2 * (first-index of t in defEnv prog)` (so an operand at earlier
+  index `j < i` gives `rank · + 1 = 2j+1 < 2i = rank t`, the strict-by-2 `ExprRankLt` needs;
+  the `.gas`/`.sload` `ExprRankLt` arms never fire because `defsOf` routes them to `.slot`
+  — discharged by `rematOf_ne_gas`/`_ne_sload`; `.imm`/`.slot` arms are `True`). This GATES
+  the later `acyclicDefs → defEnvOrdered` swap: `DefEnvOrdered` genuinely subsumes the
+  `Acyclic` content. Green.
+
+- **S5 — (e.i) fold-emit twins + geometry re-proof (UNCONDITIONAL), alongside old.**
+  Re-prove the whole geometry tower over `flatBytesFold`/`lowerFold` (new lemma names):
+  `segAlignedP_matExpr` / `segAlignedP_matCache` by a `matFold` INVARIANT induction ("every
+  value the cache returns is `SegAlignedP IsLoweringOp`" — the `emitImm 0` init is aligned,
+  and `matStep` preserves it: `matLoc` is either `matExpr c e` (aligned by the fold IH on
+  operand caches) or the slot-load `segAlignedP_slot`); then `SegAligned` per-block +
+  `flatBytes`, `DecodeAnchors`, `JumpValid`, `Layout`, `BoundaryReach` by REUSING
+  `SegAlignedP.append` verbatim over the identical `JUMPDEST :: body` block shape. NO
+  well-formedness hyp anywhere (the fold is total). Green: new geometry green; old still
+  consumed.
+
+- **S6 — (e.ii) charge-fold twin + its bridge.** Introduce `chargeCache`/`chargeFold` (the
+  gas-list twin of `matCache`, structurally identical fold over `defEnv`) and its bridge
+  `chargeCache prog t = chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)` under
+  `DefEnvOrdered` + S2 alignment (mirrors S3). Re-establish the length-lockstep
+  `(chargeCache prog t).length`-vs-`(matCache prog t).length` the `StackRoomOK`/
+  `maxChargeDepth` folds read. Green: charge twins green, alongside old.
+
+- **S7 — (e.iii) migrate the value/sim tower onto the fold (via the S3/S6 bridges).**
+  RESTATE `MatDec`/`MatRuns`/`chargeOf`-consuming lemmas over `matCache`/`chargeCache`
+  (fuel-free), proving each via the bridge + the existing proof: `MaterialiseGas`,
+  `MatDecLower`, `MaterialiseRuns`, `StashTail`, `CleanHaltExtract`,
+  `MaterialiseCleanHalt`, then `Sim/SimStmt`, `Sim/SimTerm`, `Sim/SimStmts`, then the WIP
+  `Assembly/LowerDecode`, `Assembly/LowerConforms`, `Spec/BudgetDerivations`,
+  `V2/Drive/DriveSim`, and the WIP `Surface`/`Machinery`/`Producer`/`Witness` instantiations
+  (their `chargeOf (defsOf prog) … (recomputeFuel prog - 1)` / `MatRuns (defsOf prog) …`
+  become `chargeCache`/`matCache`; the `defsOf prog t = some (.slot …)` patterns are
+  UNCHANGED once `defsOf` is Loc-valued — same `.slot` constructor). Statement CONCLUSIONS
+  unchanged; this is signature/threading. Land per file-group, each green
+  (`WIP` pre-existing sorries only). **This is the bulk and the producer-coupled surface —
+  the branch is quiescent, which is why this window is safe.**
+
+- **S8 — (e.iv) swap definitions + `defsOf → Alloc` retype.** Redefine `lower`/`flatBytes`/
+  `emit` to the fold versions (rename `*Fold` → canonical, redirect the geometry consumers
+  from the old lemma names to the re-proven ones); retype `defsOf : Program → Alloc`
+  (returns `Loc` directly, oracle/spilled temps ↦ `Loc.slot (slotOf t)`, pure ↦
+  `Loc.remat e`); re-base `rematOf` off the new `defsOf`; retype the `DefsConsistent` slot
+  arm / `ReadsOf` / `StepScopedS` / `invalStep` / `DefsSoundS` / `slots_slot` residual
+  `defsOf`-references to `Loc` (`.slot`/`.remat` — minimal textual churn: the spine already
+  reads `rematOf`). Green gate: full `lake build` green; `#print axioms` guards intact.
+
+- **S9 — (e.iv cont.) shrink `IRWellFormed` / `WellFormedLowered` / `WellLowered` + flagship.**
+  `IRWellFormed` (`WellFormed.lean:359`): replace `acyclicDefs` with `defEnvOrdered :
+  DefEnvOrdered prog` (wired via S4 subsumption where a consumer still needs `Acyclic`), drop
+  `noSlotSource`. `WellFormedLowered` (`LowerConforms.lean:148`): drop the four `MatFueled`
+  fields (`matFueled_sstore/sload/ret/branch`), restate `bound_sstore/sload/ret/stop/jump/
+  branch` + `slots_slot` fuel-free (`materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp
+  ·)` → `matCache prog ·`; `offsetTable (defsOf) (recomputeFuel)` → the fold offset table).
+  `WellLowered` (`Surface.lean:149`): drop `noSlotSource` (`:198`). Rewrite
+  `wellFormedLowered_of_IRWellFormed` (`RealisabilitySpec.lean:124-161`): drop the
+  `obtain ⟨rank,…⟩ := hwf.acyclicDefs` / `matFueled_of_acyclic` / `slots_slot_of_noSlotSource`
+  lines. Update the `exProg` witness (`Witness.lean:363-705`): `defEnvOrdered_exProg` by
+  `decide`; drop `acyclic_exProg`/`acyclicWellFormedExProg`/`noSlotSource_exProg`. Green gate:
+  `WIP` green, ONLY pre-existing sorries; `exProg` witness green.
+
+- **S10 — (e.iv cont.) delete the orphaned old machinery.** With all consumers migrated,
+  DELETE: `Expr.slot` (`IR.lean:94`) + `evalExpr .slot` arm (`Semantics.lean:147`, `evalExpr`
+  becomes total-and-pure) + every dead `.slot` arm (`usesInExpr`,
+  `evalExpr_setLocal_of_unused`/`_setStorage_of_noSload`/`_world_irrel_of_noSload`,
+  `defsSound_preserved`'s `| slot n =>` case, `matExpr`'s `.slot` arm, `matExpr_slot`,
+  `ExprRankLt .slot`, `MatFueled .slot`); `materialiseExpr` + `materialise` + `recomputeFuel`
+  (`Lowering.lean:142-165`); `MatFueled` + `matFueled_tmp_some/none` (`MatDecLower.lean:262`);
+  `Assembly/Acyclic.lean` whole (`ExprRankLt`/`Acyclic`/`AcyclicWellFormed`/
+  `matFueled_of_exprRankLt`/`matFueled_tmp_of_acyclic`/`wellFormedLowered_of_acyclic`) + the
+  now-orphaned S4 subsumption lemma; `Loc.toDef`/`Alloc.toDefs`/`allocate`/`locOfExpr`
+  (`Lowering.lean:107-113,285-291`, byte path is `defEnv`-native) + `allocate_toDefs`/
+  `toDef_locOfExpr` (`LoweringLemmas.lean`); `NoSlotSource` (`WellFormed.lean:283`). Green
+  gate: full `lake build` green + sorry-free; `WIP` pre-existing sorries only; `#print axioms`
+  guards intact.
+
+If S5's unconditional geometry re-proof over the fold proves heavier than budgeted, it may
+be split per geometry file (SegAligned → DecodeAnchors → JumpValid → Layout → BoundaryReach),
+each a green sub-commit — but it must NOT be folded into the S8 definition-swap (a rewrite
+`lowerFold = lower` that cannot hold unconditionally would strand the geometry tower).
 
 ---
 
