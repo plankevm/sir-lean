@@ -282,6 +282,28 @@ The IR one-block step for an edge is a *continuation*: given a `RunFrom` from th
 Layer E `corr_at_jumpdest_landing` tail, which exposes the `JUMPDEST` landing `fj`, so the strict
 `totalGas` descent (`totalGas_succ_lt`) is **proven**, not assumed. -/
 
+/-- **The JUMPDEST-landing bundle** shared by every edge terminator (`jump`/`branch`, across
+`drive_step_block_{jump,branch}`, `driveStep_of_block`, and `lower_conforms_cyclic''`). Packages
+what running a block's lowered terminator (`PUSH4 dest ; JUMP` for `jump`, cond-materialise +
+`JUMPI` for `branch`) delivers at the taken successor's `JUMPDEST` landing `fj` (reached from the
+post-statement frame `frT`): the forward run, the `Gjumpdest` gas margin at the landing, the
+landing pc (`target`'s block offset), the code / valid-jumps / stack / can-modify pins, the
+storage lens against `st'`, the pre-entry `MemRealises`, and the `JUMPDEST` decode. Named so a
+clause reorder does not ripple across the (previously positional) destructurings. -/
+structure JumpdestLanding (prog : Program) (st' : V2.IRState) (frT fj : Frame) (target : Label) :
+    Prop where
+  runs       : Runs frT fj
+  gas        : GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
+  pc         : fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
+                 prog.blocks target.idx)
+  code       : fj.exec.executionEnv.code = lower prog
+  validJumps : fj.validJumps = validJumpDests fj.exec.executionEnv.code 0
+  stack      : fj.exec.stack = []
+  canMod     : fj.exec.executionEnv.canModifyState = true
+  storage    : ∀ k, selfStorage fj k = st'.world k
+  mem        : MemRealises prog st' fj
+  jumpdest   : decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none)
+
 /-- **`drive_step_block`, the `jump` arm.** From `DriveCorr` at `L` (block `b`, `b.term = .jump
 dst`) and the block's IR `RunStmts` (gas-free, trace unchanged) to `st'`, running the lowered
 statements (`sim_stmts_block`) then the supplied `PUSH4; JUMP; ⟨land⟩ JUMPDEST` (the Layer E
@@ -315,17 +337,7 @@ theorem drive_step_block_jump {prog : Program} {sloadChg : Tmp → ℕ} {obs : W
     -- exactly as `sim_term_edge_jump`. The successor clean-halt is NO LONGER supplied: it is
     -- DERIVED via `cleanHaltsNonException_forward` from `fr`'s clean-halt (`hdrive.cleanHalts`).
     (hjump : ∀ frT : Frame, Corr prog sloadChg obs st' frT L b.stmts.length →
-      ∃ fj : Frame, Runs frT fj
-        ∧ GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
-        ∧ fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
-            prog.blocks dst.idx)
-        ∧ fj.exec.executionEnv.code = lower prog
-        ∧ fj.validJumps = validJumpDests fj.exec.executionEnv.code 0
-        ∧ fj.exec.stack = []
-        ∧ fj.exec.executionEnv.canModifyState = true
-        ∧ (∀ k, selfStorage fj k = st'.world k)
-        ∧ MemRealises prog st' fj
-        ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none)) :
+      ∃ fj : Frame, JumpdestLanding prog st' frT fj dst) :
     ∃ fj : Frame,
         Runs fr (jumpdestFrame fj)
       ∧ DriveCorr prog sloadChg obs st' (jumpdestFrame fj) dst
@@ -400,17 +412,7 @@ theorem drive_step_block_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs :
       ∃ (succ : Label) (bsucc : Block) (fj : Frame),
         ((succ = thenL ∧ cw ≠ 0) ∨ (succ = elseL ∧ cw = 0))
         ∧ prog.blocks.toList[succ.idx]? = some bsucc
-        ∧ Runs frT fj
-        ∧ GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
-        ∧ fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
-            prog.blocks succ.idx)
-        ∧ fj.exec.executionEnv.code = lower prog
-        ∧ fj.validJumps = validJumpDests fj.exec.executionEnv.code 0
-        ∧ fj.exec.stack = []
-        ∧ fj.exec.executionEnv.canModifyState = true
-        ∧ (∀ k, selfStorage fj k = st'.world k)
-        ∧ MemRealises prog st' fj
-        ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none)) :
+        ∧ JumpdestLanding prog st' frT fj succ) :
     ∃ (succ : Label) (fj : Frame),
         Runs fr (jumpdestFrame fj)
       ∧ DriveCorr prog sloadChg obs st' (jumpdestFrame fj) succ
@@ -518,17 +520,7 @@ theorem driveStep_of_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word
     -- the `jump` edge bundle (used only on `jump dst`, exactly `drive_step_block_jump`'s):
     (hjump : ∀ (dst : Label), b.term = .jump dst →
       ∀ frT : Frame, Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
-        ∃ fj : Frame, Runs frT fj
-          ∧ GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
-          ∧ fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
-              prog.blocks dst.idx)
-          ∧ fj.exec.executionEnv.code = lower prog
-          ∧ fj.validJumps = validJumpDests fj.exec.executionEnv.code 0
-          ∧ fj.exec.stack = []
-          ∧ fj.exec.executionEnv.canModifyState = true
-          ∧ (∀ k, selfStorage fj k = (stmtsPost st b.stmts).world k)
-            ∧ MemRealises prog (stmtsPost st b.stmts) fj
-          ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none))
+        ∃ fj : Frame, JumpdestLanding prog (stmtsPost st b.stmts) frT fj dst)
     -- the `branch` edge bundle (used only on `branch cond thenL elseL`):
     (hbranch : ∀ (cond : Tmp) (thenL elseL : Label) (cw : Word),
       b.term = .branch cond thenL elseL →
@@ -537,17 +529,7 @@ theorem driveStep_of_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word
         ∃ (succ : Label) (bsucc : Block) (fj : Frame),
           ((succ = thenL ∧ cw ≠ 0) ∨ (succ = elseL ∧ cw = 0))
           ∧ prog.blocks.toList[succ.idx]? = some bsucc
-          ∧ Runs frT fj
-          ∧ GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
-          ∧ fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
-              prog.blocks succ.idx)
-          ∧ fj.exec.executionEnv.code = lower prog
-          ∧ fj.validJumps = validJumpDests fj.exec.executionEnv.code 0
-          ∧ fj.exec.stack = []
-          ∧ fj.exec.executionEnv.canModifyState = true
-          ∧ (∀ k, selfStorage fj k = (stmtsPost st b.stmts).world k)
-            ∧ MemRealises prog (stmtsPost st b.stmts) fj
-          ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none)) :
+          ∧ JumpdestLanding prog (stmtsPost st b.stmts) frT fj succ) :
     DriveStep prog sloadChg obs st fr L T C D := by
   -- run the block's statements forward (gas-free / call-free / create-free, definable from any
   -- state — so the gas trace `T`, the call stream `C` AND the create stream `D` are threaded
@@ -708,17 +690,7 @@ theorem lower_conforms_cyclic' {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
     (hjump : ∀ (st : V2.IRState) (L : Label) (b : Block), blockAt prog L = some b →
       ∀ (dst : Label), b.term = .jump dst →
       ∀ frT : Frame, Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
-        ∃ fj : Frame, Runs frT fj
-          ∧ GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
-          ∧ fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
-              prog.blocks dst.idx)
-          ∧ fj.exec.executionEnv.code = lower prog
-          ∧ fj.validJumps = validJumpDests fj.exec.executionEnv.code 0
-          ∧ fj.exec.stack = []
-          ∧ fj.exec.executionEnv.canModifyState = true
-          ∧ (∀ k, selfStorage fj k = (stmtsPost st b.stmts).world k)
-            ∧ MemRealises prog (stmtsPost st b.stmts) fj
-          ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none))
+        ∃ fj : Frame, JumpdestLanding prog (stmtsPost st b.stmts) frT fj dst)
     -- the `branch` edge bundle, at every block / post-statement frame:
     (hbranch : ∀ (st : V2.IRState) (L : Label) (b : Block), blockAt prog L = some b →
       ∀ (cond : Tmp) (thenL elseL : Label) (cw : Word),
@@ -728,17 +700,7 @@ theorem lower_conforms_cyclic' {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
         ∃ (succ : Label) (bsucc : Block) (fj : Frame),
           ((succ = thenL ∧ cw ≠ 0) ∨ (succ = elseL ∧ cw = 0))
           ∧ prog.blocks.toList[succ.idx]? = some bsucc
-          ∧ Runs frT fj
-          ∧ GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
-          ∧ fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
-              prog.blocks succ.idx)
-          ∧ fj.exec.executionEnv.code = lower prog
-          ∧ fj.validJumps = validJumpDests fj.exec.executionEnv.code 0
-          ∧ fj.exec.stack = []
-          ∧ fj.exec.executionEnv.canModifyState = true
-          ∧ (∀ k, selfStorage fj k = (stmtsPost st b.stmts).world k)
-            ∧ MemRealises prog (stmtsPost st b.stmts) fj
-          ∧ decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none)) :
+          ∧ JumpdestLanding prog (stmtsPost st b.stmts) frT fj succ) :
     ∃ O : V2.Observable,
       (∃ last haltSig, Runs fr₀ last ∧ stepFrame last = .halted haltSig
         ∧ (observe self (endFrame last haltSig)).world = O.world)

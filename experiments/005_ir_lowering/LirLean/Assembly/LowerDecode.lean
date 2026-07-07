@@ -783,7 +783,7 @@ theorem sim_assign_gas_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
   -- feed `sim_assign_gas` the constructed stash bundle (honest memory-channel tie shape).
   refine sim_assign_gas hb hs hslotdef hcorr hsc hslots hscoped' ?_
   refine ⟨hslot63, hslotplat, endFr, hrun, hmembytes, hmemactive, ?_, hcode, hvalid, haddr,
-    hcanmod, hstorage, hstkEnd⟩
+    hcanmod, haccounts, hstorage, hstkEnd⟩
   -- pc: `stash_tail_gas` advances by 35 = the emit length.
   rw [hpc, hemitlen]
 
@@ -1048,14 +1048,14 @@ theorem sim_assign_sload_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs 
   -- the loaded-value tie: `selfStorage fr keyVal = st.world keyVal = w` (StorageAgree).
   have hwvalSelf : selfStorage fr keyVal = w := by rw [hcorr.storage keyVal, hkw]
   -- == build the stash run via `stash_tail_sload` ==
-  obtain ⟨endFr, hrun, hmembytes, hmemactive, hpc, hcode, hvalid, haddr, hcanmod,
+  obtain ⟨endFr, hrun, hmembytes, hmemactive, hpc, hcode, hvalid, haddr, hcanmod, haccounts,
       hstorage, hstkEnd⟩ :=
     stash_tail_sload fr frk k keyVal w slot words' hcorr.stack_nil hmrk hawk hwvalSelf
       hdsload hdpush hdmstore hgasSload hgasPush hmem hgasMem hgasMstore
   -- feed `sim_assign_sload` the constructed stash bundle.
   refine sim_assign_sload hb hs hslotdef hcorr hsc hslots hwval hscoped' ?_
   refine ⟨hslot63, hslotplat, endFr, hrun, hmembytes, hmemactive, ?_, hcode, hvalid, haddr,
-    hcanmod, hstorage, hstkEnd⟩
+    hcanmod, haccounts, hstorage, hstkEnd⟩
   -- pc: the stash advances by `lk + 35`; the emit length (at `recomputeFuel = f+1`) is `lk + 35`.
   rw [hpc]
   congr 2

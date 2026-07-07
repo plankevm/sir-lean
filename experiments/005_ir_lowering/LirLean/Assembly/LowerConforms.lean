@@ -312,23 +312,11 @@ def CallRealises (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
     -- the Route-B tail's realisability (decode anchors + gas + memory-expansion witness):
     ∧ (∀ flag : Word, resumeFr.exec.stack = flag :: [] →
         (∀ (t : Tmp), cs.resultTmp = some t →
+          -- `slotOf t` addressable, then the MSTORE tail (`stash_tail_runs`) writes `flag` at
+          -- `slotOf t` onto `resumeFr` — the `StashRuns` endpoint bundle (honest
+          -- `.memory`/`.activeWords` channel, pc + 34, frame pins, working stack back to `[]`):
           (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
-          ∧ ∃ endFr,
-              Runs resumeFr endFr
-            -- honest memory channel (`.memory` bytes + `.activeWords`, NOT the over-constrained
-            -- full `toMachineState` — gas is a `MachineState` field a real run never preserves;
-            -- this is exactly what `stash_tail_runs` constructs):
-            ∧ endFr.exec.toMachineState.memory
-                = (resumeFr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) flag).memory
-            ∧ endFr.exec.toMachineState.activeWords
-                = (resumeFr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) flag).activeWords
-            ∧ endFr.exec.pc = resumeFr.exec.pc + UInt32.ofNat 34
-            ∧ endFr.exec.executionEnv.code = resumeFr.exec.executionEnv.code
-            ∧ endFr.validJumps = resumeFr.validJumps
-            ∧ endFr.exec.executionEnv.address = resumeFr.exec.executionEnv.address
-            ∧ endFr.exec.executionEnv.canModifyState = resumeFr.exec.executionEnv.canModifyState
-            ∧ (∀ k, selfStorage endFr k = selfStorage resumeFr k)
-            ∧ endFr.exec.stack = [])
+          ∧ ∃ endFr, StashRuns resumeFr endFr (slotOf t) flag 34 [])
         ∧ (cs.resultTmp = none →
             Runs resumeFr (popFrame resumeFr [])))
 

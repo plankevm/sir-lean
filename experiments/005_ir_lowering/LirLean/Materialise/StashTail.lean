@@ -171,20 +171,7 @@ theorem stash_tail_runs (fr : Frame) (slot : Nat) (v : Word) (rest : Stack Word)
       ≤ ((pushFrameW fr (UInt256.ofNat slot) 32).exec.gasAvailable
           - UInt64.ofNat (BytecodeLayer.Dispatch.memExpansionChargeOf
               (pushFrameW fr (UInt256.ofNat slot) 32).exec words')).toNat) :
-    ∃ endFr,
-        Runs fr endFr
-      ∧ endFr.exec.toMachineState.memory
-          = (fr.exec.toMachineState.mstore (UInt256.ofNat slot) v).memory
-      ∧ endFr.exec.toMachineState.activeWords
-          = (fr.exec.toMachineState.mstore (UInt256.ofNat slot) v).activeWords
-      ∧ endFr.exec.pc = fr.exec.pc + UInt32.ofNat 34
-      ∧ endFr.exec.executionEnv.code = fr.exec.executionEnv.code
-      ∧ endFr.validJumps = fr.validJumps
-      ∧ endFr.exec.executionEnv.address = fr.exec.executionEnv.address
-      ∧ endFr.exec.executionEnv.canModifyState = fr.exec.executionEnv.canModifyState
-      ∧ endFr.exec.accounts = fr.exec.accounts
-      ∧ (∀ k, selfStorage endFr k = selfStorage fr k)
-      ∧ endFr.exec.stack = rest := by
+    ∃ endFr, StashRuns fr endFr slot v 34 rest := by
   -- == step 1: PUSH32 slot ==
   obtain ⟨hpushrun, _⟩ := sim_imm fr (UInt256.ofNat slot) hdpush hgasPush hsz
   set frp := pushFrameW fr (UInt256.ofNat slot) 32 with hfrp
@@ -265,20 +252,7 @@ theorem stash_tail_runs_covered (fr : Frame) (slot : Nat) (v : Word) (rest : Sta
     (hreal : slot + 63 < 2 ^ 64)
     (hgasMstore : GasConstants.Gverylow
       ≤ ((pushFrameW fr (UInt256.ofNat slot) 32).exec.gasAvailable).toNat) :
-    ∃ endFr,
-        Runs fr endFr
-      ∧ endFr.exec.toMachineState.memory
-          = (fr.exec.toMachineState.mstore (UInt256.ofNat slot) v).memory
-      ∧ endFr.exec.toMachineState.activeWords
-          = (fr.exec.toMachineState.mstore (UInt256.ofNat slot) v).activeWords
-      ∧ endFr.exec.pc = fr.exec.pc + UInt32.ofNat 34
-      ∧ endFr.exec.executionEnv.code = fr.exec.executionEnv.code
-      ∧ endFr.validJumps = fr.validJumps
-      ∧ endFr.exec.executionEnv.address = fr.exec.executionEnv.address
-      ∧ endFr.exec.executionEnv.canModifyState = fr.exec.executionEnv.canModifyState
-      ∧ endFr.exec.accounts = fr.exec.accounts
-      ∧ (∀ k, selfStorage endFr k = selfStorage fr k)
-      ∧ endFr.exec.stack = rest := by
+    ∃ endFr, StashRuns fr endFr slot v 34 rest := by
   -- coverage on `frp` (PUSH leaves activeWords untouched ⇒ same coverage as `fr`).
   set frp := pushFrameW fr (UInt256.ofNat slot) 32 with hfrp
   have hfrpaw : frp.exec.activeWords = fr.exec.toMachineState.activeWords := rfl
@@ -337,22 +311,8 @@ theorem stash_tail_gas (fr : Frame) (slot : Nat)
       ≤ ((pushFrameW (gasFrame fr) (UInt256.ofNat slot) 32).exec.gasAvailable
           - UInt64.ofNat (BytecodeLayer.Dispatch.memExpansionChargeOf
               (pushFrameW (gasFrame fr) (UInt256.ofNat slot) 32).exec words')).toNat) :
-    ∃ endFr,
-        Runs fr endFr
-      ∧ endFr.exec.toMachineState.memory
-          = (fr.exec.toMachineState.mstore (UInt256.ofNat slot)
-              (UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase))).memory
-      ∧ endFr.exec.toMachineState.activeWords
-          = (fr.exec.toMachineState.mstore (UInt256.ofNat slot)
-              (UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase))).activeWords
-      ∧ endFr.exec.pc = fr.exec.pc + UInt32.ofNat 35
-      ∧ endFr.exec.executionEnv.code = fr.exec.executionEnv.code
-      ∧ endFr.validJumps = fr.validJumps
-      ∧ endFr.exec.executionEnv.address = fr.exec.executionEnv.address
-      ∧ endFr.exec.executionEnv.canModifyState = fr.exec.executionEnv.canModifyState
-      ∧ endFr.exec.accounts = fr.exec.accounts
-      ∧ (∀ k, selfStorage endFr k = selfStorage fr k)
-      ∧ endFr.exec.stack = [] := by
+    ∃ endFr, StashRuns fr endFr slot
+        (UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase)) 35 [] := by
   -- == step 0: GAS opcode, pushing `ofUInt64 (fr.gas − Gbase)` onto the empty stack ==
   have hszgas : fr.exec.stack.size + 1 ≤ 1024 := by rw [hstk]; simp
   obtain ⟨hgasrun, _⟩ := sim_gas fr hdgas hszgas hgasGas
@@ -447,20 +407,8 @@ theorem stash_tail_sload {defs : Tmp → Option Expr} {sloadChg : Tmp → ℕ} {
       ≤ ((pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat slot) 32).exec.gasAvailable
           - UInt64.ofNat (BytecodeLayer.Dispatch.memExpansionChargeOf
               (pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat slot) 32).exec words')).toNat) :
-    ∃ endFr,
-        Runs fr endFr
-      ∧ endFr.exec.toMachineState.memory
-          = (fr.exec.toMachineState.mstore (UInt256.ofNat slot) w).memory
-      ∧ endFr.exec.toMachineState.activeWords
-          = (fr.exec.toMachineState.mstore (UInt256.ofNat slot) w).activeWords
-      ∧ endFr.exec.pc = fr.exec.pc
-          + UInt32.ofNat ((materialiseExpr defs fuel (.tmp k)).length + 35)
-      ∧ endFr.exec.executionEnv.code = fr.exec.executionEnv.code
-      ∧ endFr.validJumps = fr.validJumps
-      ∧ endFr.exec.executionEnv.address = fr.exec.executionEnv.address
-      ∧ endFr.exec.executionEnv.canModifyState = fr.exec.executionEnv.canModifyState
-      ∧ (∀ kk, selfStorage endFr kk = selfStorage fr kk)
-      ∧ endFr.exec.stack = [] := by
+    ∃ endFr, StashRuns fr endFr slot w
+        ((materialiseExpr defs fuel (.tmp k)).length + 35) [] := by
   -- key value on top of the boundary stack after materialising `k`.
   have hkstk : frk.exec.stack = keyVal :: [] := by rw [hmrk.stack, hstk]; rfl
   have hksz : frk.exec.stack.size ≤ 1024 := by rw [hkstk]; simp
@@ -488,7 +436,8 @@ theorem stash_tail_sload {defs : Tmp → Option Expr} {sloadChg : Tmp → ℕ} {
       hstorage, hstkEnd⟩ :=
     stash_tail_runs frs slot w [] words' hsstk hdpush' hdmstore' hssz hgasPush
       hmem hgasMem hgasMstore
-  refine ⟨endFr, (hmrk.runs.trans hsloadrun).trans hrun, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, hstkEnd⟩
+  refine ⟨endFr, (hmrk.runs.trans hsloadrun).trans hrun, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
+    hstkEnd⟩
   · -- memory bytes: tail writes `w` at `slot` over `frs`'s memory = `frk`'s = `fr`'s (memBytes).
     rw [hmemBytes]
     apply LirLean.MemAlgebra.mstore_memory_congr
@@ -511,6 +460,11 @@ theorem stash_tail_sload {defs : Tmp → Option Expr} {sloadChg : Tmp → ℕ} {
     rw [show (sloadFrame frk keyVal []).exec.executionEnv.canModifyState
           = frk.exec.executionEnv.canModifyState from rfl]
     exact hmrk.canMod
+  · -- accounts: SLOAD/PUSH/MSTORE never touch `accounts`; `frk`'s = `fr`'s (`MatRuns`).
+    rw [haccounts, hfrs]
+    show (sloadFrame frk keyVal []).exec.accounts = _
+    rw [show (sloadFrame frk keyVal []).exec.accounts = frk.exec.accounts from rfl]
+    exact hmrk.accounts
   · intro kk; rw [hstorage kk]; rw [hfrs, sloadFrame_selfStorage]; exact hmrk.storage kk
 end Lir
 
