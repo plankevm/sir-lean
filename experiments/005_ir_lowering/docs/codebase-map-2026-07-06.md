@@ -631,8 +631,7 @@ Spec/Semantics.lean:27); the stale flagship path in Conformance.lean:16 and Audi
 `LirLean/Decode.lean`; DecodeLower.lean:7-28 narrating superseded C3 state; "16 lowering
 opcodes" counts after CREATE/CREATE2 made it 18 (SegAligned.lean:14/:29, BoundaryReach.lean:23-30,
 :118-124 — the enumerated allow-list is now factually wrong); SegAligned.lean:13/:67 +
-JumpValid.lean:41/:80 citing the deleted NoCreateBytes tower; MemAlgebra.lean:966-994's nine bare
-`#print axioms` that enforce nothing post-53c2063; Headline.lean *named* Headline while
+JumpValid.lean:41/:80 citing the deleted NoCreateBytes tower; Headline.lean *named* Headline while
 containing salvage only; Law.lean named for deleted laws (it is Determinism.lean);
 "Build-enforced guard" trailer comments after guard consolidation (Frame/Match.lean:664,
 Engine/CleanHalt.lean:103).
