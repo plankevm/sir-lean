@@ -1,5 +1,6 @@
 import LirLean.V2.Call
 import LirLean.Frame.Match
+import LirLean.Spec.CallEntry
 
 /-!
 # LirLean v2 — the **call realisability bridge** (`docs/ir-design-v3.md` §3, §7)
@@ -46,20 +47,11 @@ open BytecodeLayer.Hoare
 
 /-! ## Step 2a — the realised `V2.CallStream` entry off v1's `evmCallOracle`
 
-`evmV2CallEntry result pd self` is a single `V2.CallStream` entry *realised* by the bytecode
-CALL data `(result, pd)` at self address `self`: the post-call self-storage lens paired with
-the 0/1 success word. `restoredGas` is dropped — v2 has no gas in state, so the restored-gas
-field is irrelevant to the gas-free machine (§7). -/
-
-/-- **The realised v2 call-stream entry.** The `(World × Word)` a recorded bytecode CALL
-`(result, pd)` at self address `self` contributes to the consumed call stream: the post-call
-self-storage lens (`evmCallOracle.postStorage result pd self`) paired with the success word
-(`evmCallOracle.successWord result pd`). Positional — the entry is fixed by the bytecode's
-`resumeAfterCall`, indexed by the record, NOT a function of the call's IR-visible inputs. -/
-def evmV2CallEntry (result : CallResult) (pd : PendingCall) (self : AccountAddress) :
-    World × Word :=
-  ( (fun key => evmCallOracle.postStorage result pd self key)
-  , evmCallOracle.successWord result pd )
+`evmV2CallEntry result pd self` (now hoisted to the trusted surface `Spec/CallEntry.lean`) is a
+single `V2.CallStream` entry *realised* by the bytecode CALL data `(result, pd)` at self address
+`self`: the post-call self-storage lens paired with the 0/1 success word. `restoredGas` is
+dropped — v2 has no gas in state, so the restored-gas field is irrelevant to the gas-free
+machine (§7). -/
 
 /-! ## Step 2a — the realisability bridge lemma (the call analogue of `monotoneGas`)
 
@@ -106,18 +98,8 @@ The CREATE twin of `evmV2CallEntry`/`callRealises_bridge`. A `V2.CreateStream` e
 off v1's `evmCreateOracle` projections: the post-create `World` is the self account's storage
 lens, and the pushed word is `createAddrOrZero` (the CREATE analogue of `callSuccessFlag`).
 The bridge is off `create_reflects_lowered` (the R3 non-`rfl` storage side, discharged in
-`Frame/Match.lean`), exactly as the call bridge is off `call_reflects_lowered`. -/
-
-/-- **The realised v2 create-stream entry** (twin of `evmV2CallEntry`). The `(World × Word)` a
-recorded bytecode CREATE `(result, pd)` at self address `self` contributes to the consumed
-create stream: the post-create self-storage lens (`evmCreateOracle.postStorage result pd self`)
-paired with the deployed-address-or-`0` word (`evmCreateOracle.addressWord result pd`).
-Positional — the entry is fixed by the bytecode's `resumeAfterCreate` data, indexed by the
-record, NOT a function of the create's IR-visible inputs. -/
-def evmV2CreateEntry (result : CreateResult) (pd : PendingCreate) (self : AccountAddress) :
-    World × Word :=
-  ( (fun key => evmCreateOracle.postStorage result pd self key)
-  , evmCreateOracle.addressWord result pd )
+`Frame/Match.lean`), exactly as the call bridge is off `call_reflects_lowered`. The realised
+entry `evmV2CreateEntry` itself now lives on the trusted surface (`Spec/CallEntry.lean`). -/
 
 /-- **The create realisability bridge** (twin of `callRealises_bridge`). Given a returning,
 successfully-resumed CREATE (`CreateReturns createFr resumeFr`, so `resumeAfterCreate result pd

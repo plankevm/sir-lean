@@ -2,6 +2,7 @@ import LirLean.V2.Drive.Headline
 import LirLean.Assembly.Acyclic
 import LirLean.Decode.BoundaryReach
 import LirLean.Spec.WellFormed
+import LirLean.Spec.Conformance
 
 /-!
 # LirLean v2 — Realisability spec, SURFACE (§1–§4)
@@ -22,48 +23,14 @@ open BytecodeLayer.Dispatch
 
 /-! ## §1 — Helper definitions (all REAL; no sorry)
 
-The flagship's hypothesis vocabulary: the entry state, the log-side clean-scope predicate,
-observable agreement, the static well-formedness bundle, the honest oracle seams, and the
-scope seams. -/
-
-/-- The IR entry state of a top-level call: empty locals, world = the recipient's storage
-lens of the pre-call accounts (the `find?/lookupStorage` lens `resultStorageAt`/`observe`
-read, applied to `params.accounts`). Replaces the supplied entry `StorageAgree` hypothesis
-of the since-deleted `lower_conforms_wf` BY DEFINITION — the entry world *is* the params' lens (the pin is
-then `rfl`-flavoured at the entry `codeFrame`, whose `accounts` are `params.accounts`).
-DERIVED status: definitional (nothing to discharge). -/
-def entryState (params : CallParams) : IRState :=
-  { locals := fun _ => none
-    world  := fun k => (params.accounts.find? params.recipient).option 0 (·.lookupStorage k) }
-
-/-- **The log-side clean-scope predicate** (the flagship's `hclean`). The recorded run
-halted cleanly: a top-level `.call` result that either succeeded or reverted with gas left.
-
-Ground truth (`endCall`, exp003 `Evm/Semantics/Call.lean`): `.success → success := true`;
-`.revert g o → success := false, gasRemaining := g`; `.exception → success := false,
-gasRemaining := 0, output := .empty`. So an exception is distinguishable from a revert ON
-THE LOG only via `gasRemaining ≠ 0` — **a genuine zero-gas revert is conservatively
-excluded** (scope cut; sound: the hypothesis is then false and the flagship silent). The
-fleet sketch's `ResultNonException` does not exist in the tree; this is its honest
-decidable-on-the-log replacement. A `.create` observable is out of scope (top-level frames
-here are calls). SUPPLIED status: a decidable premise read off the log (both branches are
-`Bool`/`DecidableEq` facts). R2 turns it into the `∀ last halt`-universal
-`cleanHalts_of_runWithLog` consumes. -/
-def RunLog.clean (log : RunLog) : Prop :=
-  match log.observable with
-    | .call r   => r.success = true ∨ r.gasRemaining ≠ 0
-    | .create _ => False
-
-/-- **Full observable agreement** (the flagship's conclusion edge). The IR observable
-agrees with the `observe` of the recorded bytecode result on **both** channels: the
-world (self-account storage lens) AND the halt result — `observe`'s result is now live
-(empty output ⇒ `.stopped`, else the RETURN window decoded back to `.returned w`; the
-faithful inverse of the `ret` lowering, `Spec/Recorder.lean` `observe`). So `Conforms`
-says the contract *behaves* the same, not merely that storage matches. DERIVED status:
-the conclusion, not a premise. -/
-def Conforms (self : AccountAddress) (log : RunLog) (O : Observable) : Prop :=
-  O.world = (observe self log.observable).world
-  ∧ O.result = (observe self log.observable).result
+The flagship's hypothesis vocabulary that has NOT yet been hoisted to the trusted surface:
+the static well-formedness bundle, the shadowing-aware CALL tie, the honest oracle seams,
+and the scope seams. The sorry-free vocabulary already lifted into `Spec/` — `entryState`,
+`RunLog.clean`, `Conforms`, `NoGasReads` (`Spec/Conformance.lean`), the `RunFromLeft`/
+`RunFromAll` mirror (`Spec/Semantics.lean`), and `evmV2CallEntry`/`evmV2CreateEntry`
+(`Spec/CallEntry.lean`) — is `open`ed via the imports above. Still stranded here (blocked on
+the `CallsCode`/`AccPresent` relocations, plan §1D/§1E): `PrecompileAssumptions`,
+`ReachableFrom`, `WellFormedLowered`. -/
 
 /-- **Static CFG closure** — entry present and pc-bounded, every jump/branch target present,
 in-bounds, and offset-bounded. Folds the current headline's `hentry0`-adjacent presence
@@ -258,14 +225,6 @@ structure PrecompileAssumptions (prog : Program) (params : CallParams) : Prop wh
   /-- Every reachable frame's CALLs target code accounts, never a precompile. -/
   callsCode : ∀ fr', ReachableFrom params fr' → CallsCode fr'
 
-
-/-- **Gas-introspection-free scope** (the co-flagship's `hng`): no statement reads `.gas`.
-Static, decidable. Under it the realised gas stream plays no role (companion sorry:
-`realisedGas_nil_of_noGasReads`), so the co-flagship needs no R1 — the de-risking
-checkpoint (target-architecture decision 2). -/
-def NoGasReads (prog : Program) : Prop :=
-  ∀ (L : Label) (b : Block), blockAt prog L = some b →
-    ∀ (pc : Nat) (t : Tmp) (e : Expr), b.stmts[pc]? = some (.assign t e) → e ≠ .gas
 
 /-! ## §2 — The recorder-restart coupling (the hard design piece)
 
@@ -656,109 +615,5 @@ def TermTies' (prog : Program) (sloadChg : Tmp → ℕ) (_log : RunLog)
                     (UInt256.ofNat
                       ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32)) 4)
                     ([] : Stack Word)).exec.stack).exec.gasAvailable.toNat))
-
-/-! ## §4 — Exact stream consumption: `RunFromLeft` / `RunFromAll`
-
-`RunFrom`'s two halt constructors DROP the leftover trace `T'` (`Spec/Semantics.lean`), so a
-bare `RunFrom … (realisedGas log) …` conclusion only speaks about the consumed PREFIX —
-the last drop-the-suffix vacuity channel. `RunFromLeft` mirrors `RunFrom` constructor-for-
-constructor with one extra `Trace` index exposing the leftover at the halt; `RunFromAll`
-pins it to `[]` (the strengthening the target architecture marks "worth taking"). The two
-adequacy lemmas make the mirror-faithfulness itself tracked debt. -/
-
-/-- `RunFrom` with the leftover streams exposed: `RunFromLeft prog st T C D L O Tleft Cleft
-Dleft` is `RunFrom prog st T C D L O` where the halt constructor's un-consumed gas trace is
-`Tleft`, call stream `Cleft` and create stream `Dleft`. Constructor-for-constructor mirror of
-`RunFrom` (`Spec/Semantics.lean`); the halt arms return their `T'`/`C'`/`D'` instead of dropping them,
-the edge arms thread them. -/
-inductive RunFromLeft (prog : Program) :
-    IRState → Trace → CallStream → CreateStream → Label → Observable →
-    Trace → CallStream → CreateStream → Prop where
-  /-- `ret t`: run the block's statements, halt returning `t`'s value; leftovers = `T'`/`C'`/`D'`. -/
-  | ret {st st' : IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
-      {L : Label} {b : Block} {t : Tmp} {w : Word}
-      (hb : blockAt prog L = some b)
-      (hss : RunStmts prog st T C D b.stmts st' T' C' D')
-      (hterm : b.term = .ret t)
-      (hv : st'.locals t = some w) :
-      RunFromLeft prog st T C D L { world := st'.world, result := .returned w } T' C' D'
-  /-- `stop`: run the block's statements, halt; leftovers = `T'`/`C'`/`D'`. -/
-  | stop {st st' : IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
-      {L : Label} {b : Block}
-      (hb : blockAt prog L = some b)
-      (hss : RunStmts prog st T C D b.stmts st' T' C' D')
-      (hterm : b.term = .stop) :
-      RunFromLeft prog st T C D L { world := st'.world, result := .stopped } T' C' D'
-  /-- `branch`, condition non-zero ⇒ recurse into `thenL`, threading the leftovers. -/
-  | branchThen {st st' : IRState} {T T' Tleft : Trace} {C C' Cleft : CallStream}
-      {D D' Dleft : CreateStream} {L : Label}
-      {b : Block} {cond : Tmp} {cw : Word} {thenL elseL : Label} {O : Observable}
-      (hb : blockAt prog L = some b)
-      (hss : RunStmts prog st T C D b.stmts st' T' C' D')
-      (hterm : b.term = .branch cond thenL elseL)
-      (hc : st'.locals cond = some cw) (hnz : cw ≠ 0)
-      (hrest : RunFromLeft prog st' T' C' D' thenL O Tleft Cleft Dleft) :
-      RunFromLeft prog st T C D L O Tleft Cleft Dleft
-  /-- `branch`, condition zero ⇒ recurse into `elseL`, threading the leftovers. -/
-  | branchElse {st st' : IRState} {T T' Tleft : Trace} {C C' Cleft : CallStream}
-      {D D' Dleft : CreateStream} {L : Label}
-      {b : Block} {cond : Tmp} {thenL elseL : Label} {O : Observable}
-      (hb : blockAt prog L = some b)
-      (hss : RunStmts prog st T C D b.stmts st' T' C' D')
-      (hterm : b.term = .branch cond thenL elseL)
-      (hc : st'.locals cond = some 0)
-      (hrest : RunFromLeft prog st' T' C' D' elseL O Tleft Cleft Dleft) :
-      RunFromLeft prog st T C D L O Tleft Cleft Dleft
-  /-- `jump dst` ⇒ recurse into `dst`, threading the leftovers. -/
-  | jump {st st' : IRState} {T T' Tleft : Trace} {C C' Cleft : CallStream}
-      {D D' Dleft : CreateStream} {L : Label}
-      {b : Block} {dst : Label} {O : Observable}
-      (hb : blockAt prog L = some b)
-      (hss : RunStmts prog st T C D b.stmts st' T' C' D')
-      (hterm : b.term = .jump dst)
-      (hrest : RunFromLeft prog st' T' C' D' dst O Tleft Cleft Dleft) :
-      RunFromLeft prog st T C D L O Tleft Cleft Dleft
-
-/-- **Exact whole-stream consumption**: the run consumes the ENTIRE supplied gas trace, call
-stream AND create stream (all three leftovers `[]`). The flagship's strengthened conclusion
-(`lower_conforms_exact`) uses this with `T := realisedGas log` / `C := realisedCall log self` /
-`D := realisedCreate log self`, closing the positional-equality gap over ALL un-consumed
-suffixes. -/
-def RunFromAll (prog : Program) (st : IRState) (T : Trace) (C : CallStream) (D : CreateStream)
-    (L : Label) (O : Observable) : Prop :=
-  RunFromLeft prog st T C D L O [] [] []
-
-/-- Mirror adequacy, forgetful direction: a leftover-indexed run is a run. TRACKED DEBT
-(structural induction; stated so the mirror-faithfulness of `RunFromLeft` is itself
-checked, not assumed). -/
-theorem runFrom_of_runFromLeft {prog : Program} {st : IRState}
-    {T Tleft : Trace} {C Cleft : CallStream} {D Dleft : CreateStream} {L : Label} {O : Observable}
-    (h : RunFromLeft prog st T C D L O Tleft Cleft Dleft) : RunFrom prog st T C D L O := by
-  induction h with
-  | ret hb hss hterm hv => exact .ret hb hss hterm hv
-  | stop hb hss hterm => exact .stop hb hss hterm
-  | branchThen hb hss hterm hc hnz _hrest ih => exact .branchThen hb hss hterm hc hnz ih
-  | branchElse hb hss hterm hc _hrest ih => exact .branchElse hb hss hterm hc ih
-  | jump hb hss hterm _hrest ih => exact .jump hb hss hterm ih
-
-/-- Mirror adequacy, completion direction: every run has SOME leftover decomposition.
-TRACKED DEBT (structural induction on `RunFrom`). -/
-theorem runFromLeft_exists {prog : Program} {st : IRState}
-    {T : Trace} {C : CallStream} {D : CreateStream} {L : Label} {O : Observable}
-    (h : RunFrom prog st T C D L O) :
-    ∃ Tleft Cleft Dleft, RunFromLeft prog st T C D L O Tleft Cleft Dleft := by
-  induction h with
-  | ret hb hss hterm hv => exact ⟨_, _, _, .ret hb hss hterm hv⟩
-  | stop hb hss hterm => exact ⟨_, _, _, .stop hb hss hterm⟩
-  | branchThen hb hss hterm hc hnz _hrest ih =>
-      obtain ⟨Tleft, Cleft, Dleft, hl⟩ := ih
-      exact ⟨Tleft, Cleft, Dleft, .branchThen hb hss hterm hc hnz hl⟩
-  | branchElse hb hss hterm hc _hrest ih =>
-      obtain ⟨Tleft, Cleft, Dleft, hl⟩ := ih
-      exact ⟨Tleft, Cleft, Dleft, .branchElse hb hss hterm hc hl⟩
-  | jump hb hss hterm _hrest ih =>
-      obtain ⟨Tleft, Cleft, Dleft, hl⟩ := ih
-      exact ⟨Tleft, Cleft, Dleft, .jump hb hss hterm hl⟩
-
 
 end Lir.V2
