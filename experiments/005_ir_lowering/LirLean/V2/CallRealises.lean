@@ -8,13 +8,13 @@ The now-deleted `LirLean/V2/Oracle.lean` discharged the *gas* stream's realisabi
 gas reads are *realised* by a witnessing bytecode `Runs`, and the §3.4 law is a
 **consequence** of that realisation (`GasRealises.monotoneGas` ⟵ `Runs.gasAvailable_le`),
 never an axiom. This module is the **call** analogue: an abstract `V2.CallStream` entry
-(`LirLean/V2/Machine.lean`) is *realised* by v1's concrete `evmCallOracle`
-(`LirLean/Call.lean`), and the `(world', success)` entry is shown — by construction — to
+(`Spec/Semantics.lean`) is *realised* by v1's concrete `evmCallOracle`
+(`Frame/Call.lean`), and the `(world', success)` entry is shown — by construction — to
 equal the lowered bytecode CALL's observable effect.
 
 This file is **bytecode-coupled** (it references `CallResult`/`PendingCall`/`evmCallOracle`
 and v1's `Match` facts), so it lives here rather than in the frame-free
-`Machine.lean`/`Law.lean`, exactly as `Oracle.lean` is the gas-side bridge.
+`Spec/Semantics.lean`/`V2/Law.lean`, exactly as `Oracle.lean` is the gas-side bridge.
 
 ## What is realised (the §7 interaction model, on the call side)
 

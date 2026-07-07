@@ -136,7 +136,7 @@ operand-definedness of the statement fold *plus* the branch condition bound at t
 state. We
 supply this for **every** state (a sound over-approximation of "every reachable state"): the
 existence claim is then state-uniform, exactly matching how the former `StmtTies`/`TermTies`
-(since reshaped into the run-DERIVED `StmtTies'`/`TermTies'` in `V2/RealisabilitySpec.lean`)
+(since reshaped into the run-DERIVED `StmtTies'`/`TermTies'` in `V2/Realisability/RealisabilitySpec.lean`)
 were quantified over all `(L, b)`.
 
 `RunDefinable prog` bundles, for every present block:

@@ -15,7 +15,7 @@ Design decisions taken from `ir-design-v2.md`, verbatim:
 * **`World` is IR-native** (§3.1). For the call-free C1 scope it is exactly the
   self-account storage lens `Word → Word` — the same projection v1's
   `IRState.storage` carried, and the same `selfStorage`/`storageAt` lens the
-  bytecode side reads (`LirLean/Match.lean`). The abstraction lens to a `Frame`
+  bytecode side reads (`Frame/Match.lean`). The abstraction lens to a `Frame`
   is *not* part of the IR; it lives in the preservation proof.
 * **The gas stream** (§3.3–3.4, `ir-design-v3.md` §8). `GasOracle := List Word` —
   the `Word`s a `GAS` opcode reports, consumed in order. `Expr.gas` **consumes**
@@ -24,7 +24,7 @@ Design decisions taken from `ir-design-v2.md`, verbatim:
   so the stream carries only gas reads — no `Event` wrapper.) There is deliberately
   no `matCost`/`gVerylow`/charge logic anywhere in v2.
 
-v1 (`LirLean/SmallStep.lean`) is the bytecode-coupled reference line: also gas-free
+v1 (`Frame/SmallStep.lean`) is the bytecode-coupled reference line: also gas-free
 (no IR cost accounting), it carries `IRState.storage`/`locals`/`callResult` and the
 `Match`/`sim_*` simulation bricks against exp003's `Runs`. Its `evalExpr` has no
 value for `Expr.gas` (no counter to read); here `Expr.gas` is supplied by the gas
@@ -150,7 +150,7 @@ def evalExpr (st : IRState) (obs : Word) : Expr → Option Word
 
 `blockAt prog L` is the block at label `L` (if present) — the same projection as
 v1's `Lir.Program.blockAt`, kept v2-local so this module depends only on
-`Spec/IR.lean` (not the gas-aware `SmallStep.lean`). -/
+`Spec/IR.lean` (not the gas-aware `Frame/SmallStep.lean`). -/
 
 /-- The block at label `L`, if present. -/
 def blockAt (prog : Program) (L : Label) : Option Block :=

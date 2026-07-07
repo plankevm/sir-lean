@@ -7,7 +7,7 @@ import LirLean.Materialise.DefsSound
 The call-free prototype (`LirLean/V2/Preserve.lean`) and the now-deleted two-read milestone
 (`LirLean/V2/Mono.lean`) exercised the gas channel — the supplied gas-read *sequence*.
 This file is the companion for the **call channel**: the `Stmt.call` `EvalStmt` arm of
-`LirLean/V2/Machine.lean`, run consuming an **arbitrary supplied `CallStream` head**
+`Spec/Semantics.lean`, run consuming an **arbitrary supplied `CallStream` head**
 (`docs/ir-design-v3.md` §3, §7, R3′).
 
 It is **frame-free** — it imports only `LirLean.V2.Law` (hence `Machine`/`IR`/`Evm`), no

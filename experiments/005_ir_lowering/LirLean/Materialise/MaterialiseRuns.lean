@@ -30,7 +30,7 @@ lens). The former `GasRealises`/`SloadRealises` universals are retired to regres
 correctly at its running cursor. Deriving those decode facts generically from the
 offset-table byte layout (Layer A) requires, for every `PUSH32 w`, that the 32
 big-endian immediate bytes `uInt256OfByteArray` back to `w` — a per-literal fact the
-worked program discharges by `decide`/`rfl` (`LirLean/Decode.lean`) but which has no
+worked program discharges by `decide`/`rfl` but which has no
 uniform closed form over an arbitrary `w`. We therefore take the decode facts as a
 **structured hypothesis** `MatDec` that mirrors `materialiseExpr`'s recursion exactly
 (one decode clause per emitted opcode, at the cursor that opcode runs at) — precisely
@@ -54,7 +54,7 @@ by `defsOf_ne_gas`/`defsOf_ne_sload`). The def-site stash runs (with the value t
 unsatisfiability lesson is recorded in `RealisabilitySpec.lean`'s header + `docs/gas-decision.md`).
 
 No `sorry`, no `axiom`, no `native_decide`. Bytecode-coupled (imports `Match.lean`);
-nothing here touches `V2/Machine.lean` / `V2/Law.lean` (the frame-free spine).
+nothing here touches `Spec/Semantics.lean` / `V2/Law.lean` (the frame-free spine).
 -/
 
 namespace Lir

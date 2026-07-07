@@ -26,7 +26,7 @@ whose **Layer A** turns an offset-table address `pcOf prog L pc` (or a byte curs
   terminator's byte offset.
 
 These compose with the per-opcode decode bricks `sim_*` in `Match.lean`; nothing here
-touches `V2/Machine.lean` or `V2/Law.lean` (the frame-free spine).
+touches `Spec/Semantics.lean` or `V2/Law.lean` (the frame-free spine).
 
 No `sorry`, no `axiom`, no `native_decide`.
 -/
@@ -186,8 +186,7 @@ At the statement cursor `pcOf prog L pc`, `decode (lower prog)` yields the head 
 of the statement's lowering. A statement's head byte is either a zero-width opcode (a
 `SLOAD`/`SSTORE`/… should the lowering ever lead with one) or — for the materialised
 operand pushes that begin `sstore`/`call` — a `PUSH`. We provide both shapes; the
-caller picks by computing the concrete head byte (a `decide`/`rfl`, as in
-`LirLean/Decode.lean`). -/
+caller picks by computing the concrete head byte (a `decide`/`rfl`). -/
 
 /-- **A1, non-push head.** If the statement at cursor `(L, pc)` leads with a
 zero-width opcode `byte` (`(emitStmt … s)[0] = byte`, `pushArgWidth (parseInstr byte)

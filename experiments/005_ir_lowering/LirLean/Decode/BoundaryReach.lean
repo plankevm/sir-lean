@@ -19,14 +19,14 @@ Proving it is a `Runs`-induction whose `step`/`call` cases need three reachabili
   whose byte decodes extends to the next instruction's boundary `nextInstrPosNat n (parseInstr
   byte)`. Turns a non-jump `stepFrame` advance back into a `ReachesBoundary` witness.
 * **`decode_reachable_boundary_loweringOp`** — at any reachable in-range boundary the decoded op
-  is one of the 16 lowering opcodes (`IsLoweringOp`). The `SegAlignedLowering` allow-list transport;
+  is one of the 18 lowering opcodes (`IsLoweringOp`). The `SegAlignedLowering` allow-list transport;
   `SegAlignedLowering`, `IsLoweringOp` and the whole-program alignment
   (`segAlignedP_flatBytes`) are the strongest instance of the shared `SegAlignedP` tower
-  (`LirLean/SegAligned.lean`). It *scopes* the per-step pc-advance case analysis to the emitted set.
+  (`Decode/SegAligned.lean`). It *scopes* the per-step pc-advance case analysis to the emitted set.
 
 REMAINING (the `Runs`-induction itself, not yet landed): the per-step pc inversion
 `stepFrame fr = .next e → e.pc.toNat` is either `nextInstrPosNat n (decoded op)` (sequential) or a
-`fr.validJumps` member (taken JUMP/JUMPI), case-analysed over the 16 `IsLoweringOp` arms (the
+`fr.validJumps` member (taken JUMP/JUMPI), case-analysed over the 18 `IsLoweringOp` arms (the
 `stepFrame_next_accMono` dispatch-walk template of `Engine/StepWalk.lean`, mirrored for the
 pc component); plus the in-range `e.pc.toNat < (flatBytes prog).length` preservation. With those,
 the base case (`codeFrame` pc = 0, `ReachesBoundary.refl`) and the `call` case
@@ -113,22 +113,22 @@ theorem reachesBoundary_nextInstr {c : ByteArray} {start n : Nat} {byte : UInt8}
     ReachesBoundary c start (nextInstrPosNat n (Evm.parseInstr byte)) :=
   ReachesBoundary.trans hreach (ReachesBoundary.step hget (ReachesBoundary.refl _))
 
-/-! ## §3 — every reachable-boundary head is one of the 16 lowering opcodes
+/-! ## §3 — every reachable-boundary head is one of the 18 lowering opcodes
 
-The lowering emits exactly the 16 opcodes
+The lowering emits exactly the 18 opcodes
 `{STOP, ADD, LT, POP, MLOAD, MSTORE, SLOAD, SSTORE, JUMP, JUMPI, GAS, JUMPDEST, PUSH4,
-PUSH32, CALL, RETURN}` at any instruction head. That allow-list (`IsLoweringOp`) is the tightest
-of the three per-head predicates, so `LirLean/SegAligned.lean` proves the whole-program alignment
+PUSH32, CALL, RETURN, CREATE, CREATE2}` at any instruction head. That allow-list (`IsLoweringOp`)
+is the tightest per-head predicate, so `Decode/SegAligned.lean` proves the whole-program alignment
 and interior transport there once; here we only instantiate them. This *scopes* the per-step
-pc-advance analysis: at any reachable boundary the decoded op is one of these 16, so the whole-run
+pc-advance analysis: at any reachable boundary the decoded op is one of these 18, so the whole-run
 boundary invariant's step case only needs those arms. -/
 
 /-- Alignment with `IsLoweringOp` instruction heads — the strongest instance of the shared
-parameterized tower (`SegAlignedP`, `LirLean/SegAligned.lean`). -/
+parameterized tower (`SegAlignedP`, `Decode/SegAligned.lean`). -/
 abbrev SegAlignedLowering : List UInt8 → Prop := SegAlignedP IsLoweringOp
 
 /-- **The transport.** A boundary `n` reached from `base` and strictly inside a
-`SegAlignedLowering` segment matching `c` reads a byte whose op is one of the 16 lowering
+`SegAlignedLowering` segment matching `c` reads a byte whose op is one of the 18 lowering
 opcodes. The interior transport (`reaches_P_of_segAlignedP`) at `IsLoweringOp`. -/
 theorem reaches_loweringOp_of_segAlignedLowering (c : ByteArray) (seg : List UInt8)
     (hseg : SegAlignedLowering seg) :
@@ -138,7 +138,7 @@ theorem reaches_loweringOp_of_segAlignedLowering (c : ByteArray) (seg : List UIn
   reaches_P_of_segAlignedP c seg hseg
 
 /-- The whole flat byte stream is allow-listed: `segAlignedP_flatBytes` at `IsLoweringOp`
-(`LirLean/SegAligned.lean`). -/
+(`Decode/SegAligned.lean`). -/
 theorem segAlignedLowering_flatBytes (prog : Program) : SegAlignedLowering (flatBytes prog) :=
   segAlignedP_flatBytes prog
 
@@ -159,7 +159,7 @@ theorem reachable_boundary_loweringByte (prog : Program) (n : Nat)
 /-- **A reachable in-range boundary decodes to a lowering opcode.** The `decode`-level form:
 at every boundary `n` reachable from `0` (strictly before the program end, within `UInt32`),
 `decode (lower prog) n` reads an op satisfying `IsLoweringOp`. This *scopes* the whole-run
-boundary invariant's per-step pc analysis to the 16 emitted opcodes. -/
+boundary invariant's per-step pc analysis to the 18 emitted opcodes. -/
 theorem decode_reachable_boundary_loweringOp (prog : Program) (n : Nat)
     (hreach : ReachesBoundary (lower prog) 0 n) (hn : n < (flatBytes prog).length)
     (hbound : n < 2 ^ 32) :

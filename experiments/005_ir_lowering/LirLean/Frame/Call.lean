@@ -20,7 +20,7 @@ This mirrors how vyper-hol models external calls (the call is a black box that
 returns a `CallResult`) and matches the gas-oracle altitude precisely: an abstract
 oracle (IR reasons for all instantiations) + an `evmCallOracle` instantiation
 (defeq / by-construction the lowered call's projection) + a reflexivity headline
-under `Match` (`Lir.call_reflects_lowered` in `LirLean/Match.lean`).
+under `Match` (`Lir.call_reflects_lowered` in `Frame/Match.lean`).
 
 ## What the oracle captures (and the one thing it cannot)
 
@@ -38,7 +38,7 @@ third as a word. The success word is the ONE value that is genuinely *not*
 recomputable from a pure `Expr` (it is dynamic — it depends on the child run), so it
 cannot live in `defs`/`locals` as a recompute-on-use value. **The resolution
 (`docs/ir-design.md` §5):** give it a dedicated `callResult` slot in `IRState`
-(`LirLean/SmallStep.lean`). `IRState.applyCall` writes the oracle's `successWord`
+(`Frame/SmallStep.lean`). `IRState.applyCall` writes the oracle's `successWord`
 there alongside the storage/gas effects, and `IRState.bindCallResult` reads it
 *once* into `locals` at the call's `resultTmp` — after which a use of `resultTmp` is
 an ordinary `Expr.tmp` read. This **keeps `Match`'s `M5 stack_nil`**: the slot is
@@ -142,7 +142,7 @@ is not applied to the state (it is still reflected at the bytecode boundary by
 The success word is the one effect that is **not** recomputable from a pure `Expr`
 (it is dynamic — it depends on the child run), so it cannot live in `defs`/`locals`
 as a recompute-on-use value. We therefore fold it into the dedicated `callResult`
-slot of `IRState` (`LirLean/SmallStep.lean`): `applyCall` writes the oracle's
+slot of `IRState` (`Frame/SmallStep.lean`): `applyCall` writes the oracle's
 `successWord` there, and `IRState.bindCallResult` reads it once into `locals` at the
 call's `resultTmp` (after which a later use is an ordinary `Expr.tmp` read). This
 keeps `Match`'s `M5 stack_nil` intact — the slot is pure IR state, and the lowered

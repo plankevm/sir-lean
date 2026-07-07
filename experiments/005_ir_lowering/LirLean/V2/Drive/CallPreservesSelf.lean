@@ -12,7 +12,7 @@ theorem, `stepPreservesSelf`, via `Engine/StepWalk.lean`'s `stepFrame_next_self`
 (`drive_accounts_find_mono`), the assembled `callPreservesSelf`, and
 `callPreservesSelf_modGuards` — which reduces the whole chain to the ONE surviving supplied
 hypothesis `hprec` (`beginCall`'s precompile `.inr` arm preserves presence; the seam quoted
-verbatim by `V2/RealisabilitySpec.lean`). `selfPresent_runs`/`selfPresent_runs_of_call`
+verbatim by `V2/Realisability/RealisabilitySpec.lean`). `selfPresent_runs`/`selfPresent_runs_of_call`
 thread `SelfPresent` across an arbitrary `Runs` derivation.
 
 No `sorry`/`axiom`/`native_decide`; axioms `[propext, Classical.choice, Quot.sound]`.

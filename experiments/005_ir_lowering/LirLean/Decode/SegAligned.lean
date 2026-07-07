@@ -4,34 +4,38 @@ import Evm
 /-!
 # LirLean — the predicate-parameterized instruction-alignment tower
 
-`JumpValid.lean`, `NoCreateBytes.lean` and `BoundaryReach.lean` each once carried a private
+`JumpValid.lean` and `BoundaryReach.lean` each once carried a private
 copy of the *same* inductive — an instruction-aligned byte list (each opcode byte followed by
 exactly `pushArgWidth` immediate bytes) — differing **only** by a per-head predicate `P` on the
 decoded opcode:
 
 * `SegAligned`         (`JumpValid`)      — `P = fun _ => True`;
-* `SegAlignedSafe`     (`NoCreateBytes`)  — `P op = op ≠ CREATE ∧ op ≠ CREATE2`;
-* `SegAlignedLowering` (`BoundaryReach`)  — `P = IsLoweringOp` (the 16 emitted opcodes).
+* `SegAlignedLowering` (`BoundaryReach`)  — `P = IsLoweringOp` (the 18 emitted opcodes).
+
+(A third `SegAlignedSafe` / `NoCreateBytes` tower — `P op = op ≠ CREATE ∧ op ≠ CREATE2` — was
+DELETED once `emitStmt .create` made CREATE/CREATE2 emitted opcodes: "the lowered code contains
+no CREATE bytes" is no longer true.)
 
 The entire supporting ladder (composition + the two boundary-walk transports + the
-lowering-emits-aligned lemmas + the whole-program lift) was re-proven three times, line-for-line
-identical modulo the predicate argument. This module collapses that triplication:
+lowering-emits-aligned lemmas + the whole-program lift) was re-proven per tower, line-for-line
+identical modulo the predicate argument. This module collapses that duplication:
 
 * **`SegAlignedP P`** — the one parameterized inductive.
 * **`SegAlignedP.mono`** — weaken the predicate pointwise (`P → Q` gives
-  `SegAlignedP P → SegAlignedP Q`); the lever that derives the two weaker towers from the strongest.
+  `SegAlignedP P → SegAlignedP Q`); the lever that derives the weaker `SegAligned` (`True`) tower
+  from the strongest.
 * **`SegAlignedP.append/nonpush/push`** — composition, generic in `P`.
 * **`reaches_end_of_segAlignedP`** — the predicate-free "walk reaches the segment end" transport
   (the old `reaches_of_segAligned`). `P` is ignored; alignment alone drives it.
 * **`reaches_P_of_segAlignedP`** — the interior transport: any boundary reached *strictly inside* a
-  matched segment reads a head byte satisfying `P` (the merged
-  `reaches_safe_of_segAlignedSafe` / `reaches_loweringOp_of_segAlignedLowering`).
+  matched segment reads a head byte satisfying `P` (generalising
+  `reaches_loweringOp_of_segAlignedLowering`).
 * **`IsLoweringOp`** (+ `Decidable`) and the **emit-ladder proven ONCE** at `P := IsLoweringOp`
   (the tightest predicate; each concrete opcode discharged by `decide`), culminating in
   `segAlignedP_flatBytes : SegAlignedP IsLoweringOp (flatBytes prog)`.
 
-The three named towers are then thin `abbrev`s of `SegAlignedP _`, and their whole-program /
-transport facts are one-line `.mono` corollaries — see `JumpValid`/`NoCreateBytes`/`BoundaryReach`.
+The two named towers are then thin `abbrev`s of `SegAlignedP _`, and their whole-program /
+transport facts are one-line `.mono` corollaries — see `JumpValid`/`BoundaryReach`.
 
 No `sorry`, no `axiom`, no `native_decide`.
 -/
@@ -64,8 +68,8 @@ inductive SegAlignedP (P : Operation → Prop) : List UInt8 → Prop where
       SegAlignedP P (byte :: (imm ++ rest))
 
 /-- **Predicate monotonicity.** If `P` implies `Q` pointwise, a `P`-aligned segment is `Q`-aligned.
-The lever deriving `SegAligned` (`True`) and `SegAlignedSafe` (`notCreate`) from the strongest
-`SegAlignedLowering` (`IsLoweringOp`). Induction on the alignment derivation. -/
+The lever deriving `SegAligned` (`True`) from the strongest `SegAlignedLowering` (`IsLoweringOp`).
+Induction on the alignment derivation. -/
 theorem SegAlignedP.mono {P Q : Operation → Prop} (h : ∀ op, P op → Q op) :
     ∀ {seg : List UInt8}, SegAlignedP P seg → SegAlignedP Q seg := by
   intro seg hseg
@@ -190,9 +194,9 @@ theorem reaches_P_of_segAlignedP {P : Operation → Prop} (c : ByteArray) (seg :
 
 /-! ## §4 — the tightest predicate: `IsLoweringOp`
 
-The lowering emits exactly these 16 opcodes at any instruction head. It is the strongest of the
-three per-head predicates (every one of the 16 is non-CREATE, and anything implies `True`), so the
-emit-ladder is proven ONCE here and the weaker towers follow by `SegAlignedP.mono`. -/
+The lowering emits exactly these 18 opcodes at any instruction head. It is the strongest of the
+per-head predicates (anything implies `True`), so the emit-ladder is proven ONCE here and the
+weaker `SegAligned` tower follows by `SegAlignedP.mono`. -/
 
 /-- The 18 opcodes the lowering ever emits at an instruction head (`STOP, ADD, LT, POP, MLOAD,
 MSTORE, SLOAD, SSTORE, JUMP, JUMPI, GAS, JUMPDEST, PUSH4, PUSH32, CALL, RETURN`, plus `CREATE`
@@ -209,7 +213,7 @@ instance (op : Operation) : Decidable (IsLoweringOp op) := by unfold IsLoweringO
 /-! ## §5 — the lowering emits `IsLoweringOp`-aligned byte streams (the ladder, proven ONCE)
 
 Every emission helper produces a `SegAlignedP IsLoweringOp` segment: each emitted opcode is a
-concrete lowering byte (`decide` discharges `IsLoweringOp (parseInstr byte)` for each of the 16),
+concrete lowering byte (`decide` discharges `IsLoweringOp (parseInstr byte)` for each of the 18),
 and the immediate widths match `pushArgWidth` by construction. -/
 
 theorem segAlignedP_emitImm (w : Word) : SegAlignedP IsLoweringOp (emitImm w) := by

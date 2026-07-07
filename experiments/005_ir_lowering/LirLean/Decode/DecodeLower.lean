@@ -4,8 +4,8 @@ import Evm
 /-!
 # LirLean — generic decode-from-lowering infrastructure (`decode_lower`, C3)
 
-`LirLean/Decode.lean` proves `Evm.decode (lower workedCall) pc = expected` at every
-emitted pc of one *worked* program by kernel `rfl`. That is the C2 acceptance bar,
+A concrete *worked* program's decode facts — `Evm.decode (lower workedCall) pc = expected`
+at every emitted pc — can be closed by kernel `rfl`. That is the C2 acceptance bar,
 but it is per-program: each new program reproves ≈40 `rfl`s. This module factors out
 the **program-independent core** of that reasoning so a decode fact follows from a
 purely *local* statement about the lowered byte list — the byte at the offset and
