@@ -290,6 +290,105 @@ def locOfExpr : Expr → Loc
 Undefined tmps get no location (`none`). -/
 def allocate (prog : Program) : Alloc := fun t => (defsOf prog t).map locOfExpr
 
+/-! ## Ordered def-environment + structural fold (Phase 2A carrier)
+
+`defsOf` is a **global `find?`** over program order, so it gives `materialiseExpr` no
+structural measure — hence the `fuel`/`recomputeFuel`/`MatFueled`/rank apparatus. This
+section adds the fuel-free replacement (design `docs/phase2a-valuechannel-design.md` §3):
+
+* `defEnv prog` — the **ordered** carrier: the very program-order `(tmp, Loc)` pairs
+  `defsOf` scans internally, in `blocks`-then-`stmts` order (no sort; program order is a
+  valid topological order for `DefEnvOrdered` programs, §1.2);
+* `matExpr`/`matLoc` — byte-for-byte twins of `materialiseExpr`'s constructor arms, but
+  resolving operand tmps against a byte-`cache` instead of recursing under fuel;
+* `matCache prog` — the **structural left-fold** of `matStep` over `defEnv prog`, building
+  the per-tmp byte cache (undefined-tmp fallback `emitImm 0`, matching the old `none` leaf).
+
+Added ALONGSIDE the old machinery (S0); `materialiseExpr`/`lower`/`MatDec`/`MatFueled` are
+untouched here and migrated in later steps. -/
+
+/-- The ordered def-environment: the program-order `(tmp, Loc)` pairs in the exact
+`blocks`-then-`stmts` scan order `defsOf` uses. Each spilled def (gas / sload / call /
+create result) carries `Loc.slot (slotOf t)`; every other (pure) assign carries the
+`locOfExpr`-classified `Loc.remat` of its defining expression. This is the ordered carrier
+the fold walks; `defsOf` is its `find?`-view (bridged in a later step). -/
+def defEnv (prog : Program) : List (Tmp × Loc) :=
+  prog.blocks.toList.flatMap (fun b =>
+    b.stmts.filterMap (fun
+      | .assign t .gas       => some (t, Loc.slot (slotOf t))
+      | .assign t (.sload _) => some (t, Loc.slot (slotOf t))
+      | .assign t e          => some (t, locOfExpr e)
+      | .call ⟨_, _, some t⟩ => some (t, Loc.slot (slotOf t))
+      | .create ⟨_, _, _, _, some t⟩ => some (t, Loc.slot (slotOf t))
+      | _                    => none))
+
+/-- Materialise an expression's value onto the stack, resolving operand tmps against a
+byte-`cache` — the fold-based twin of `materialiseExpr` (no fuel: recursion is replaced by
+cache lookup). Byte-identical to `materialiseExpr` on each constructor arm (reverse operand
+order on `add`/`lt` so the first operand ends up on top). -/
+def matExpr (cache : Tmp → List UInt8) : Expr → List UInt8
+  | .imm w   => emitImm w
+  | .tmp t   => cache t
+  | .add a b => cache b ++ cache a ++ [Byte.add]
+  | .lt  a b => cache b ++ cache a ++ [Byte.lt]
+  | .sload k => cache k ++ [Byte.sload]
+  | .gas     => [Byte.gas]
+  | .slot n  => emitImm (UInt256.ofNat n) ++ [Byte.mload]
+
+/-- The bytes a `Loc` materialises to under a byte-`cache`: `remat e` runs `matExpr`;
+`slot n` is the spill-load `PUSH n; MLOAD` (byte-identical to `materialiseExpr`'s
+`Expr.slot` arm, `Lowering.lean` above). -/
+def matLoc (cache : Tmp → List UInt8) : Loc → List UInt8
+  | .remat e => matExpr cache e
+  | .slot n  => emitImm (UInt256.ofNat n) ++ [Byte.mload]
+
+/-- One fold step: extend the cache by binding `p.1` to the bytes `matLoc` emits for its
+`Loc` under the cache built so far. -/
+def matStep (c : Tmp → List UInt8) (p : Tmp × Loc) : Tmp → List UInt8 :=
+  Function.update c p.1 (matLoc c p.2)
+
+/-- The cache fold over a def-env prefix from an initial cache — the reusable core of
+`matCache`, with `init` explicit so later steps induct along the def-env. -/
+def matFold (init : Tmp → List UInt8) (l : List (Tmp × Loc)) : Tmp → List UInt8 :=
+  l.foldl matStep init
+
+/-- The per-tmp byte cache: a structural left-fold of `matStep` over `defEnv prog`, with
+the undefined-tmp fallback `emitImm 0` (matching `materialiseExpr`'s `none`-leaf). Fuel-free;
+structural termination via `foldl` over a finite list. -/
+def matCache (prog : Program) : Tmp → List UInt8 :=
+  matFold (fun _ => emitImm 0) (defEnv prog)
+
+/-! ### Reduction lemmas (definitional; keep S3/S4 fold-proofs mechanical) -/
+
+@[simp] theorem matExpr_imm (cache : Tmp → List UInt8) (w : Word) :
+    matExpr cache (.imm w) = emitImm w := rfl
+@[simp] theorem matExpr_tmp (cache : Tmp → List UInt8) (t : Tmp) :
+    matExpr cache (.tmp t) = cache t := rfl
+@[simp] theorem matExpr_add (cache : Tmp → List UInt8) (a b : Tmp) :
+    matExpr cache (.add a b) = cache b ++ cache a ++ [Byte.add] := rfl
+@[simp] theorem matExpr_lt (cache : Tmp → List UInt8) (a b : Tmp) :
+    matExpr cache (.lt a b) = cache b ++ cache a ++ [Byte.lt] := rfl
+@[simp] theorem matExpr_sload (cache : Tmp → List UInt8) (k : Tmp) :
+    matExpr cache (.sload k) = cache k ++ [Byte.sload] := rfl
+@[simp] theorem matExpr_gas (cache : Tmp → List UInt8) :
+    matExpr cache .gas = [Byte.gas] := rfl
+@[simp] theorem matExpr_slot (cache : Tmp → List UInt8) (n : Nat) :
+    matExpr cache (.slot n) = emitImm (UInt256.ofNat n) ++ [Byte.mload] := rfl
+
+@[simp] theorem matLoc_remat (cache : Tmp → List UInt8) (e : Expr) :
+    matLoc cache (.remat e) = matExpr cache e := rfl
+@[simp] theorem matLoc_slot (cache : Tmp → List UInt8) (n : Nat) :
+    matLoc cache (.slot n) = emitImm (UInt256.ofNat n) ++ [Byte.mload] := rfl
+
+@[simp] theorem matFold_nil (init : Tmp → List UInt8) :
+    matFold init [] = init := rfl
+@[simp] theorem matFold_cons (init : Tmp → List UInt8) (p : Tmp × Loc)
+    (l : List (Tmp × Loc)) :
+    matFold init (p :: l) = matFold (matStep init p) l := rfl
+
+theorem matCache_eq (prog : Program) :
+    matCache prog = matFold (fun _ => emitImm 0) (defEnv prog) := rfl
+
 /-! ## Block layout (two-pass offset table) -/
 
 /-- Bytes of one block, *excluding* the leading `JUMPDEST`, given the `defs`
