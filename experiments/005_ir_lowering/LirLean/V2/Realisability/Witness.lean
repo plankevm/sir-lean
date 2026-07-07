@@ -374,6 +374,33 @@ private theorem acyclic_exProg : Lir.Acyclic (defsOf exProg) rankExProg := by
   rcases hmem with rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl <;>
     (subst hp1; unfold Lir.ExprRankLt rankExProg <;> decide)
 
+/-- **`exProg` is `DefEnvOrdered`** (non-vacuity of the fuel-free ordering field; the P2
+counterpart of `acyclic_exProg`). `defEnv exProg` is the concrete 9-entry program-order list;
+the only tmp-referencing rematerialised entry is `t8 ↦ lt t6 t7` (index 8), whose operands
+`t6`/`t7` sit at the earlier indices 6/7. Every other entry is a `slot` spill (gas / sload /
+call-result) or an operand-free `imm`. -/
+theorem defEnvOrdered_exProg : DefEnvOrdered exProg := by
+  have hde : defEnv exProg =
+      [ (⟨0⟩, Lir.Loc.remat (Expr.imm 5)), (⟨1⟩, Lir.Loc.slot (Lir.slotOf ⟨1⟩)),
+        (⟨2⟩, Lir.Loc.slot (Lir.slotOf ⟨2⟩)), (⟨3⟩, Lir.Loc.remat (Expr.imm 1)),
+        (⟨4⟩, Lir.Loc.remat (Expr.imm 0x100)), (⟨5⟩, Lir.Loc.slot (Lir.slotOf ⟨5⟩)),
+        (⟨6⟩, Lir.Loc.slot (Lir.slotOf ⟨6⟩)), (⟨7⟩, Lir.Loc.remat (Expr.imm 1000)),
+        (⟨8⟩, Lir.Loc.remat (Expr.lt ⟨6⟩ ⟨7⟩)) ] := rfl
+  intro i t e hget t' hu
+  rw [hde] at hget ⊢
+  rcases i with _|_|_|_|_|_|_|_|_|i <;>
+    simp only [List.getElem?_cons_zero, List.getElem?_cons_succ, List.getElem?_nil,
+      Option.some.injEq, Prod.mk.injEq, Lir.Loc.remat.injEq, reduceCtorEq,
+      and_false] at hget
+  all_goals obtain ⟨rfl, rfl⟩ := hget
+  all_goals try (exact absurd rfl hu)
+  -- Sole surviving goal: the index-8 entry `t8 ↦ lt t6 t7`.
+  by_cases h6 : (⟨6⟩ : Tmp) = t'
+  · subst h6; exact ⟨6, by omega, _, rfl⟩
+  · by_cases h7 : (⟨7⟩ : Tmp) = t'
+    · subst h7; exact ⟨7, by omega, _, rfl⟩
+    · exact absurd (by simp only [usesInExpr, if_neg h6, if_neg h7]) hu
+
 -- `exProg` is `AcyclicWellFormed`: the rank witness above, the fuel slack, and the concrete
 -- program-size pc/offset bounds (all `< 2 ^ 32`). The `bound_*` fields `decide` concrete
 -- `offsetTable`/`materialiseExpr` byte arithmetic — a deep (structural) reduction, hence the
