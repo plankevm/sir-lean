@@ -632,28 +632,13 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     -- supplied at the resume frame — the honest runtime ties the eventual caller discharges:
     (htail : ∀ flag : Word, resumeFr.exec.stack = flag :: [] →
       (∀ (t : Tmp), cs.resultTmp = some t →
-        -- `slotOf t` is addressable (the "slots are addressable" side condition):
+        -- `slotOf t` is addressable (the "slots are addressable" side condition), then the
+        -- MSTORE tail (`stash_tail_runs`) writes `flag` at `slotOf t` onto `resumeFr` — the honest
+        -- `.memory`/`.activeWords` channel (not the over-constrained full `toMachineState`), the pc
+        -- advanced by 34, the frame pins, and the working stack back to `[]` (the `StashRuns`
+        -- endpoint bundle):
         (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
-        ∧ ∃ endFr,
-            Runs resumeFr endFr
-          -- the MSTORE tail writes `flag` at `slotOf t` onto `resumeFr`'s machine state. The
-          -- honest channel is the `.memory` bytes + `.activeWords` (NOT the full `toMachineState`:
-          -- the push + gas-charges drop gas, a `MachineState` field a real run never preserves —
-          -- the full equality is over-constrained / unsatisfiable; only the bytes + activeWords,
-          -- which `MemRealises`/`Corr` read, are honest and true). This is exactly what
-          -- `stash_tail_runs` constructs:
-          ∧ endFr.exec.toMachineState.memory
-              = (resumeFr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) flag).memory
-          ∧ endFr.exec.toMachineState.activeWords
-              = (resumeFr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) flag).activeWords
-          ∧ endFr.exec.pc = resumeFr.exec.pc + UInt32.ofNat 34
-          ∧ endFr.exec.executionEnv.code = resumeFr.exec.executionEnv.code
-          ∧ endFr.validJumps = resumeFr.validJumps
-          ∧ endFr.exec.executionEnv.address = resumeFr.exec.executionEnv.address
-          ∧ endFr.exec.executionEnv.canModifyState = resumeFr.exec.executionEnv.canModifyState
-          -- the MSTORE tail writes memory, not storage: the self-lens is preserved:
-          ∧ (∀ k, selfStorage endFr k = selfStorage resumeFr k)
-          ∧ endFr.exec.stack = [])
+        ∧ ∃ endFr, StashRuns resumeFr endFr (slotOf t) flag 34 [])
       ∧ (cs.resultTmp = none →
           Runs resumeFr (popFrame resumeFr []))) :
     ∃ endFr, Runs fr endFr ∧ Corr prog sloadChg obs st' endFr L (pc + 1)
@@ -742,7 +727,7 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
   | some t =>
     -- PUSH slot; MSTORE tail: `endFr` writes `mem[slotOf t] = flag`, stack `[]`.
     obtain ⟨hslot63, hslotplat, endFr, hendrun, hendmembytes, hendmemactive, hendpc, hendcode,
-      hendvalid, hendaddr, hendcanmod, hendstorage, hendstk⟩ := htailSome t hr
+      hendvalid, hendaddr, hendcanmod, _, hendstorage, hendstk⟩ := htailSome t hr
     set flag := callSuccessFlag result pd with hflag
     set slot := slotOf t with hslotdef
     refine ⟨endFr, hruns0.trans hendrun, ?_, hendstk⟩
@@ -916,25 +901,13 @@ theorem sim_assign_gas {prog : Program} {sloadChg : Tmp → ℕ} {obs ob : Word}
     -- discharges it from decode + gas facts:
     (hstash :
         (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
-        ∧ ∃ endFr,
-            Runs fr endFr
-          ∧ endFr.exec.toMachineState.memory
-              = (fr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) ob).memory
-          ∧ endFr.exec.toMachineState.activeWords
-              = (fr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) ob).activeWords
-          ∧ endFr.exec.pc = fr.exec.pc + UInt32.ofNat (emitStmt (defsOf prog) (recomputeFuel prog)
-                (.assign t .gas)).length
-          ∧ endFr.exec.executionEnv.code = fr.exec.executionEnv.code
-          ∧ endFr.validJumps = fr.validJumps
-          ∧ endFr.exec.executionEnv.address = fr.exec.executionEnv.address
-          ∧ endFr.exec.executionEnv.canModifyState = fr.exec.executionEnv.canModifyState
-          ∧ (∀ k, selfStorage endFr k = selfStorage fr k)
-          ∧ endFr.exec.stack = []) :
+        ∧ ∃ endFr, StashRuns fr endFr (slotOf t) ob
+            (emitStmt (defsOf prog) (recomputeFuel prog) (.assign t .gas)).length []) :
     ∃ endFr, Runs fr endFr ∧ Corr prog sloadChg obs (st.setLocal t ob) endFr L (pc + 1)
       ∧ endFr.exec.stack = [] := by
   classical
   obtain ⟨hslot63, hslotplat, endFr, hendrun, hendmembytes, hendmemactive, hendpc, hendcode,
-    hendvalid, hendaddr, hendcanmod, hendstorage, hendstk⟩ := hstash
+    hendvalid, hendaddr, hendcanmod, _, hendstorage, hendstk⟩ := hstash
   set slot := slotOf t with hsdef
   set st' := st.setLocal t ob with hst'def
   refine ⟨endFr, hendrun, ?_, hendstk⟩
@@ -1077,25 +1050,13 @@ theorem sim_assign_sload {prog : Program} {sloadChg : Tmp → ℕ} {obs w : Word
     -- `stash_tail_runs_covered`); discharged from the real run in the P5 forward-simulation step:
     (hstash :
         (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
-        ∧ ∃ endFr,
-            Runs fr endFr
-          ∧ endFr.exec.toMachineState.memory
-              = (fr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) w).memory
-          ∧ endFr.exec.toMachineState.activeWords
-              = (fr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) w).activeWords
-          ∧ endFr.exec.pc = fr.exec.pc + UInt32.ofNat (emitStmt (defsOf prog) (recomputeFuel prog)
-                (.assign t (.sload k))).length
-          ∧ endFr.exec.executionEnv.code = fr.exec.executionEnv.code
-          ∧ endFr.validJumps = fr.validJumps
-          ∧ endFr.exec.executionEnv.address = fr.exec.executionEnv.address
-          ∧ endFr.exec.executionEnv.canModifyState = fr.exec.executionEnv.canModifyState
-          ∧ (∀ kk, selfStorage endFr kk = selfStorage fr kk)
-          ∧ endFr.exec.stack = []) :
+        ∧ ∃ endFr, StashRuns fr endFr (slotOf t) w
+            (emitStmt (defsOf prog) (recomputeFuel prog) (.assign t (.sload k))).length []) :
     ∃ endFr, Runs fr endFr ∧ Corr prog sloadChg obs (st.setLocal t w) endFr L (pc + 1)
       ∧ endFr.exec.stack = [] := by
   classical
   obtain ⟨hslot63, hslotplat, endFr, hendrun, hendmembytes, hendmemactive, hendpc, hendcode,
-    hendvalid, hendaddr, hendcanmod, hendstorage, hendstk⟩ := hstash
+    hendvalid, hendaddr, hendcanmod, _, hendstorage, hendstk⟩ := hstash
   set slot := slotOf t with hsdef
   set st' := st.setLocal t w with hst'def
   refine ⟨endFr, hendrun, ?_, hendstk⟩

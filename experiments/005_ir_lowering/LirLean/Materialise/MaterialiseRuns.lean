@@ -365,6 +365,33 @@ structure MatRuns (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ) (fuel : 
   memActive  : fr.exec.toMachineState.activeWords.toNat
                  ≤ fr'.exec.toMachineState.activeWords.toNat
 
+/-! ## The stash-endpoint bundle (`StashRuns`)
+
+`StashRuns fr endFr slot v pcΔ rest` packages everything a def-site **stash** run delivers about
+the endpoint `endFr` reached from `fr` by running a `… ; PUSH32 slot ; MSTORE` stash (writing `v`
+at `slot`): the run, the **honest** memory channel (`.memory` bytes + `.activeWords`, equal to the
+`mstore slot v` write — NOT the full `toMachineState`, whose gas the push/charges drop is a field a
+real run never preserves), the pc advanced by `pcΔ`, the frame pins (code / valid-jumps / address /
+can-modify / accounts / self-storage), and the working stack left at `rest`. The stash-tail forward
+lemmas (`stash_tail_runs`/`_covered`/`_gas`/`_sload`) produce it; `sim_assign_gas`/`sim_assign_sload`
+and the §7 `CallRealises` call tie consume it. Mirrors `MatRuns` (the materialise-endpoint bundle);
+named so a clause reorder does not ripple across the (previously positional) destructurings. -/
+structure StashRuns (fr endFr : Frame) (slot : Nat) (v : Word) (pcΔ : Nat) (rest : Stack Word) :
+    Prop where
+  runs        : Runs fr endFr
+  memory      : endFr.exec.toMachineState.memory
+                  = (fr.exec.toMachineState.mstore (UInt256.ofNat slot) v).memory
+  activeWords : endFr.exec.toMachineState.activeWords
+                  = (fr.exec.toMachineState.mstore (UInt256.ofNat slot) v).activeWords
+  pc          : endFr.exec.pc = fr.exec.pc + UInt32.ofNat pcΔ
+  code        : endFr.exec.executionEnv.code = fr.exec.executionEnv.code
+  validJumps  : endFr.validJumps = fr.validJumps
+  addr        : endFr.exec.executionEnv.address = fr.exec.executionEnv.address
+  canMod      : endFr.exec.executionEnv.canModifyState = fr.exec.executionEnv.canModifyState
+  accounts    : endFr.exec.accounts = fr.exec.accounts
+  storage     : ∀ k, selfStorage endFr k = selfStorage fr k
+  stack       : endFr.exec.stack = rest
+
 /-! ## Small arithmetic facts -/
 
 /-- `(emitImm w).length = 33` (a `PUSH32` opcode byte + 32 immediate bytes). -/
