@@ -53,6 +53,10 @@ import LirLean.Spec.WellFormed
 -- per-cursor pc/offset/stack/fuel bound families of `WellFormedLowered`/`ClosedCFG`/`WellLowered`.
 import LirLean.Spec.BudgetDerivations
 
+-- Phase 2A P5a: the fuel-free charge fold twin's fixpoint `chargeCache_unfold` + the
+-- chargeCache↔matCache length lockstep (twin of `matCache_unfold`, over the fold; no bridge).
+import LirLean.Materialise.MatFoldChannel
+
 -- Reviewer-facing `Lir.Spec` audit surface (Wave 3): seam register + conditional-headline
 -- re-exports + the `RealisabilityObligations` bundle (Pattern C — downstream of the proofs).
 import LirLean.Spec.Seams
