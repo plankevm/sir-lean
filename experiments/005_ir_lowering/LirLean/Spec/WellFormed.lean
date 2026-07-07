@@ -786,6 +786,69 @@ def maxChargeDepth (prog : Program) : Nat :=
 that DERIVES (stage 1B-lemmas) every per-cursor `StackRoomOK` fold. -/
 def stackFits (prog : Program) : Prop := maxChargeDepth prog ≤ 1024
 
+/-! ## §P5d — fuel-free budget-fold twins (over `chargeCache` lengths)
+
+The fuel-free twins of the stack-room budget folds (`StackRoomOK`/`chargeDepth`/`maxChargeDepth`/
+`stackFits`), restated over the P5a charge fold `chargeCache` (`Materialise/MaterialiseGas.lean`)
+instead of `chargeOf … (recomputeFuel …)`. The `.tmp`-only operand shape lets the fuel-free
+depth key on the `Tmp` directly (`chargeCache prog sc : Tmp → List ℕ`). Every fold's charge-list
+LENGTH is `sloadChg`-independent (`chargeCache_length_sloadChg_eq`, P5a), so the depths read the
+LENGTH at `sloadChg := fun _ => 0`. Added ALONGSIDE the fuel versions; the fuel ones are deleted
+only at the swap (P7/P8). The derivation `stackBoundsF_of_stackFitsF` (the twin of B1b
+`stackBounds_of_stackFits`) lives in `Spec/BudgetDerivations.lean` (with the generic max helpers). -/
+
+/-- Fuel-free twin of `chargeDepth`: the charge-fold stack depth an operand `t` pushes, read at
+`sloadChg := fun _ => 0` (the LENGTH is `sloadChg`-independent, `chargeCache_length_sloadChg_eq`). -/
+def chargeDepthF (prog : Program) (t : Tmp) : Nat :=
+  (chargeCache prog (fun _ => 0) t).length
+
+/-- Fuel-free twin of `stmtChargeDepth`: the operand stack depth a statement's materialise
+pushes over the charge fold (sload key; sstore's value + key + the SSTORE slot). -/
+def stmtChargeDepthF (prog : Program) : Stmt → Nat
+  | .assign _ (.sload k) => chargeDepthF prog k
+  | .assign _ _          => 0
+  | .sstore key value    => chargeDepthF prog value + chargeDepthF prog key + 1
+  | .call _              => 0
+  | .create _            => 0
+
+/-- Fuel-free twin of `termChargeDepth`: the `branch` condition / `ret` operand charge depth. -/
+def termChargeDepthF (prog : Program) : Term → Nat
+  | .branch cond _ _ => chargeDepthF prog cond
+  | .ret t           => chargeDepthF prog t
+  | .stop            => 0
+  | .jump _          => 0
+
+/-- Fuel-free twin of `maxChargeDepth`: the maximum operand charge depth over all cursors. -/
+def maxChargeDepthF (prog : Program) : Nat :=
+  prog.blocks.foldl (fun acc b =>
+    max acc (max (termChargeDepthF prog b.term)
+                 (b.stmts.foldl (fun a s => max a (stmtChargeDepthF prog s)) 0))) 0
+
+/-- Fuel-free twin of `stackFits`: every operand materialise fits the 1024-slot EVM stack. -/
+def stackFitsF (prog : Program) : Prop := maxChargeDepthF prog ≤ 1024
+
+/-- **Fuel-free twin of `StackRoomOK`** — the per-cursor `chargeCache`-length ≤ 1024 folds,
+quantified `∀ sloadChg` (the LENGTH is `sloadChg`-independent, `chargeCache_length_sloadChg_eq`).
+Derived from `stackFitsF` by `stackBoundsF_of_stackFitsF`. -/
+structure StackRoomOKF (prog : Program) : Prop where
+  /-- The `branch` cond-materialise stack fold. -/
+  branch : ∀ (sloadChg : Tmp → ℕ) (L : Label) (b : Block) (cond : Tmp) (thenL elseL : Label),
+    blockAt prog L = some b → b.term = .branch cond thenL elseL →
+    (chargeCache prog sloadChg cond).length ≤ 1024
+  /-- The spilled-sload key-prefix stack fold. -/
+  sloadKey : ∀ (sloadChg : Tmp → ℕ) (L : Label) (b : Block) (pc : Nat) (t k : Tmp),
+    blockAt prog L = some b → b.stmts[pc]? = some (.assign t (.sload k)) →
+    (chargeCache prog sloadChg k).length ≤ 1024
+  /-- The `sstore` two-operand stack fold. -/
+  sstore : ∀ (sloadChg : Tmp → ℕ) (L : Label) (b : Block) (pc : Nat) (key value : Tmp),
+    blockAt prog L = some b → b.stmts[pc]? = some (.sstore key value) →
+    (chargeCache prog sloadChg value).length
+      + (chargeCache prog sloadChg key).length + 1 ≤ 1024
+  /-- The `ret` operand stack fold. -/
+  ret : ∀ (sloadChg : Tmp → ℕ) (L : Label) (b : Block) (t : Tmp),
+    blockAt prog L = some b → b.term = .ret t →
+    (chargeCache prog sloadChg t).length ≤ 1024
+
 /-! ## §1B new — the `IRWellFormed` bundle -/
 
 /-- **IR well-formedness** — the static, program-text-only well-formedness of a source

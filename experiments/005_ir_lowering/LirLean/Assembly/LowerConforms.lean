@@ -215,6 +215,51 @@ structure WellFormedLowered (prog : Program) : Prop where
   slots_slot : ∀ (tw : Tmp) (slot' : Nat),
     defsOf prog tw = some (.slot slot') → slot' = slotOf tw
 
+/-- **Fuel-free twin of `WellFormedLowered`** (Phase 2A P5d). The `bound_*` pc/offset facts,
+restated over the fold emission: each `materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp ·)`
+LENGTH becomes `(matCache prog ·).length` (P5a length lockstep), and `pcOf`/`termOf`/`offsetTable`
+become the fold-emit twins `pcOfF`/`termOfF`/`offsetTableF` (`allocate`/`matCache`-keyed, P4).
+The four `matFueled_*` fields of `WellFormedLowered` VANISH — the fold always fully expands, so
+there is no fuel-sufficiency obligation. `slots_slot` is unchanged (it is over the `Loc`-valued
+`defsOf`, fuel-independent). Added ALONGSIDE `WellFormedLowered`; the fuel version is dropped at
+the shrink (P8). The derivation from `codeFits` over `flatBytesF` (the B1a twin) is a later step —
+this step re-establishes the fuel-free STATEMENTS. -/
+structure WellFormedLoweredF (prog : Program) : Prop where
+  /-- `sstore` pc bound: the statement's operand bytes fit a 32-bit pc. -/
+  bound_sstore : ∀ (L : Label) (b : Block) (pc : Nat) (key value : Tmp),
+    prog.blocks.toList[L.idx]? = some b → b.stmts[pc]? = some (.sstore key value) →
+    pcOfF prog L pc
+      + ((matCache prog value).length + (matCache prog key).length) < 2 ^ 32
+  /-- Spilled-`sload` pc bound: the key materialise + the 35-byte `SLOAD; PUSH32; MSTORE`
+  tail fits a 32-bit pc. -/
+  bound_sload : ∀ (L : Label) (b : Block) (pc : Nat) (t k : Tmp),
+    prog.blocks.toList[L.idx]? = some b → b.stmts[pc]? = some (.assign t (.sload k)) →
+    pcOfF prog L pc + ((matCache prog k).length + 35) < 2 ^ 32
+  /-- `ret` pc bound: the RETURN-value operand bytes fit a 32-bit pc. -/
+  bound_ret : ∀ (L : Label) (b : Block) (t : Tmp),
+    prog.blocks.toList[L.idx]? = some b → b.term = .ret t →
+    termOfF prog L + (matCache prog t).length ≤ 2 ^ 32
+  /-- `stop` pc bound: the terminator cursor fits a 32-bit pc. -/
+  bound_stop : ∀ (L : Label) (b : Block),
+    prog.blocks.toList[L.idx]? = some b → b.term = .stop →
+    termOfF prog L < 2 ^ 32
+  /-- `jump` pc/offset bounds: the `PUSH4; JUMP` bytes and the destination offset fit. -/
+  bound_jump : ∀ (L : Label) (b : Block) (dst : Label),
+    prog.blocks.toList[L.idx]? = some b → b.term = .jump dst →
+    termOfF prog L + 5 < 2 ^ 32
+    ∧ offsetTableF (matCache prog) (allocate prog) prog.blocks dst.idx < 2 ^ 32
+  /-- `branch` pc/offset bounds: the cond-materialise + two `PUSH4; J…` bytes and both
+  successor offsets fit. -/
+  bound_branch : ∀ (L : Label) (b : Block) (cond : Tmp) (thenL elseL : Label),
+    prog.blocks.toList[L.idx]? = some b → b.term = .branch cond thenL elseL →
+    termOfF prog L + (matCache prog cond).length + 11 < 2 ^ 32
+    ∧ offsetTableF (matCache prog) (allocate prog) prog.blocks thenL.idx < 2 ^ 32
+    ∧ offsetTableF (matCache prog) (allocate prog) prog.blocks elseL.idx < 2 ^ 32
+  /-- **Call-result slot registration** — unchanged from `WellFormedLowered` (over the
+  `Loc`-valued `defsOf`, fuel-independent). -/
+  slots_slot : ∀ (tw : Tmp) (slot' : Nat),
+    defsOf prog tw = some (.slot slot') → slot' = slotOf tw
+
 /-! ## Discharging `SimStmtStep` / `SimTermStep` for the call-free fragment
 
 `SimStmtStep`/`SimTermStep` are the per-block realisability bundles `sim_cfg` consumes.

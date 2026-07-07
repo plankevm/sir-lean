@@ -475,6 +475,77 @@ theorem stackBounds_of_stackFits (prog : Program) (h : stackFits prog) : StackRo
     simp only [termChargeDepth] at hst
     omega
 
+/-! ## B1b twin (Phase 2A P5d) — the fuel-free `StackRoomOKF` folds from `stackFitsF`
+
+The fuel-free twin of B1b: from `stackFitsF prog` (`maxChargeDepthF prog ≤ 1024`) every
+`StackRoomOKF` fold holds. Reuses the generic `foldl`-max helpers above; each fold's
+`chargeCache`-length is `sloadChg`-independent (`chargeCache_length_sloadChg_eq`, P5a), so it reads
+`chargeDepthF` (= the length at `sloadChg := fun _ => 0`), which `maxChargeDepthF` maxes over the
+cursor. Proved ALONGSIDE `stackBounds_of_stackFits`; the fuel version is dropped at P8. -/
+
+/-- Fuel-free twin of `termChargeDepth_le_max`. -/
+theorem termChargeDepthF_le_maxF (prog : Program) (b : Block) (hb : b ∈ prog.blocks.toList) :
+    termChargeDepthF prog b.term ≤ maxChargeDepthF prog := by
+  unfold maxChargeDepthF
+  rw [← Array.foldl_toList]
+  refine le_trans ?_ (le_foldl_max_of_mem
+    (fun b => max (termChargeDepthF prog b.term)
+      (b.stmts.foldl (fun a s => max a (stmtChargeDepthF prog s)) 0)) prog.blocks.toList 0 hb)
+  exact le_max_left _ _
+
+/-- Fuel-free twin of `stmtChargeDepth_le_max`. -/
+theorem stmtChargeDepthF_le_maxF (prog : Program) (b : Block) (s : Stmt)
+    (hb : b ∈ prog.blocks.toList) (hs : s ∈ b.stmts) :
+    stmtChargeDepthF prog s ≤ maxChargeDepthF prog := by
+  unfold maxChargeDepthF
+  rw [← Array.foldl_toList]
+  refine le_trans ?_ (le_foldl_max_of_mem
+    (fun b => max (termChargeDepthF prog b.term)
+      (b.stmts.foldl (fun a s => max a (stmtChargeDepthF prog s)) 0)) prog.blocks.toList 0 hb)
+  refine le_trans ?_ (le_max_right _ _)
+  exact le_foldl_max_of_mem (fun s => stmtChargeDepthF prog s) b.stmts 0 hs
+
+/-- **B1b twin — the fuel-free static stack-room bounds.** From `stackFitsF prog` every
+`StackRoomOKF` fold holds. The twin of `stackBounds_of_stackFits`. -/
+theorem stackBoundsF_of_stackFitsF (prog : Program) (h : stackFitsF prog) : StackRoomOKF prog where
+  branch := by
+    intro sloadChg L b cond thenL elseL hb hterm
+    have hmem : b ∈ prog.blocks.toList := List.mem_of_getElem? (Lir.toList_of_blockAt hb)
+    rw [chargeCache_length_sloadChg_eq prog sloadChg (fun _ => 0)]
+    have hst := termChargeDepthF_le_maxF prog b hmem
+    rw [hterm] at hst
+    have hb1024 : maxChargeDepthF prog ≤ 1024 := h
+    simp only [termChargeDepthF, chargeDepthF] at hst
+    omega
+  sloadKey := by
+    intro sloadChg L b pc t k hb hs
+    have hmem : b ∈ prog.blocks.toList := List.mem_of_getElem? (Lir.toList_of_blockAt hb)
+    have hsmem : (Stmt.assign t (.sload k)) ∈ b.stmts := List.mem_of_getElem? hs
+    rw [chargeCache_length_sloadChg_eq prog sloadChg (fun _ => 0)]
+    have hst := stmtChargeDepthF_le_maxF prog b (.assign t (.sload k)) hmem hsmem
+    have hb1024 : maxChargeDepthF prog ≤ 1024 := h
+    simp only [stmtChargeDepthF, chargeDepthF] at hst
+    omega
+  sstore := by
+    intro sloadChg L b pc key value hb hs
+    have hmem : b ∈ prog.blocks.toList := List.mem_of_getElem? (Lir.toList_of_blockAt hb)
+    have hsmem : (Stmt.sstore key value) ∈ b.stmts := List.mem_of_getElem? hs
+    rw [chargeCache_length_sloadChg_eq prog sloadChg (fun _ => 0) value,
+        chargeCache_length_sloadChg_eq prog sloadChg (fun _ => 0) key]
+    have hst := stmtChargeDepthF_le_maxF prog b (.sstore key value) hmem hsmem
+    have hb1024 : maxChargeDepthF prog ≤ 1024 := h
+    simp only [stmtChargeDepthF, chargeDepthF] at hst
+    omega
+  ret := by
+    intro sloadChg L b t hb hterm
+    have hmem : b ∈ prog.blocks.toList := List.mem_of_getElem? (Lir.toList_of_blockAt hb)
+    rw [chargeCache_length_sloadChg_eq prog sloadChg (fun _ => 0)]
+    have hst := termChargeDepthF_le_maxF prog b hmem
+    rw [hterm] at hst
+    have hb1024 : maxChargeDepthF prog ≤ 1024 := h
+    simp only [termChargeDepthF, chargeDepthF] at hst
+    omega
+
 /-! ## B1c — the `matFueled_*` family from acyclicity -/
 
 /-- **B1c — recompute-fuel sufficiency from acyclicity.** Given an `Acyclic (defsOf prog) rank`
