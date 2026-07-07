@@ -709,4 +709,616 @@ theorem matDecC_of_seg (prog : Program) (hdc : DefsConsistent prog) (hord : DefE
         | (simp only [matDecMeasure]; omega)
         | (exact matDecMeasure_remat_lt prog hdc hord (by assumption))
 
+/-! ## §P5c — the value-channel linchpin over the fold: `MatRunsC` / `materialise_runsC`
+
+The fuel-free twin of `MatRuns` / `materialise_runs` (`MaterialiseRuns.lean`), stated and proved
+DIRECTLY over the fold. `matExpr (matCache prog) e` reconstructs `evalExpr st obs e` on the EVM
+stack, via a per-tmp recursion along `defEnv` (`matDecMeasure`, well-founded by `DefEnvOrdered`)
+that unfolds `.tmp t` through `matCache_unfold` — NO `MatFueled`, NO `matCache = materialiseExpr`
+bridge. The `.imm`/`.add`/`.lt` arms reuse `sim_imm`/`sim_add`/`sim_lt` verbatim; the `.tmp t`
+readback arm reuses the `MemRealises` MLOAD channel; the `.gas`/`.sload`/`.slot` arms are
+unreachable (spilled / no IR value). The gas contract reads `chargeExpr sloadChg (chargeCache …)`
+in lockstep with the bytes (P5a). -/
+
+section ValueChannel
+
+open GasConstants
+open BytecodeLayer.Hoare
+open BytecodeLayer.Dispatch
+
+/-! ### Charge-list positivity (the `chargeOf_length_pos_of_matDec` twin, cache-driven) -/
+
+/-- `chargeExpr` emits at least one charge whenever the cache is everywhere non-empty. -/
+theorem chargeExpr_length_pos {sloadChg : Tmp → ℕ} {cache : Tmp → List ℕ}
+    (hc : ∀ t, 1 ≤ (cache t).length) (e : Expr) :
+    1 ≤ (chargeExpr sloadChg cache e).length := by
+  cases e with
+  | imm w => simp [chargeExpr_imm]
+  | tmp t => rw [chargeExpr_tmp]; exact hc t
+  | gas => simp [chargeExpr_gas]
+  | slot n => simp [chargeExpr_slot]
+  | add a b => simp only [chargeExpr_add, List.length_append, List.length_singleton]; omega
+  | lt a b => simp only [chargeExpr_lt, List.length_append, List.length_singleton]; omega
+  | sload k => simp only [chargeExpr_sload, List.length_append, List.length_singleton]; omega
+
+/-- One `chargeStep` preserves the everywhere-non-empty cache invariant. -/
+theorem chargeStep_length_pos {sloadChg : Tmp → ℕ} {c : Tmp → List ℕ}
+    (hc : ∀ t, 1 ≤ (c t).length) (p : Tmp × Loc) :
+    ∀ t, 1 ≤ (chargeStep sloadChg c p t).length := by
+  intro t
+  simp only [chargeStep, Function.update_apply]
+  by_cases ht : t = p.1
+  · simp only [if_pos ht]
+    cases p.2 with
+    | remat e => exact chargeExpr_length_pos hc e
+    | slot n => simp [chargeLoc_slot]
+  · simp only [if_neg ht]; exact hc t
+
+/-- The whole `chargeFold` preserves the everywhere-non-empty cache invariant. -/
+theorem chargeFold_length_pos {sloadChg : Tmp → ℕ} :
+    ∀ (l : List (Tmp × Loc)) (c : Tmp → List ℕ), (∀ t, 1 ≤ (c t).length) →
+      ∀ t, 1 ≤ (chargeFold sloadChg c l t).length
+  | [], _, hc, t => hc t
+  | p :: l, c, hc, t => by
+      rw [chargeFold_cons]; exact chargeFold_length_pos l _ (chargeStep_length_pos hc p) t
+
+/-- **`chargeCache` is everywhere non-empty** (the `chargeOf_length_pos_of_matDec` twin): every
+tmp materialises at least one opcode, so its charge list carries at least one entry. -/
+theorem chargeCache_length_pos (prog : Program) (sloadChg : Tmp → ℕ) (t : Tmp) :
+    1 ≤ (chargeCache prog sloadChg t).length := by
+  rw [chargeCache_eq_chargeFold]
+  exact chargeFold_length_pos (defEnv prog) chargeInit (fun _ => by simp [chargeInit]) t
+
+/-! ### `allocate` → `defsOf` bridges (route the `.tmp t` arm to the recompute / readback env) -/
+
+/-- A spilled allocation is a spilled `defsOf` entry. -/
+theorem defsOf_of_allocate_slot (prog : Program) {t : Tmp} {n : Nat}
+    (h : allocate prog t = some (Loc.slot n)) : defsOf prog t = some (.slot n) := by
+  have h2 := congrFun (allocate_toDefs prog) t
+  simp only [Alloc.toDefs, h, Option.map_some] at h2
+  exact h2.symm
+
+/-- A rematerialised allocation is a non-`.slot` `defsOf` entry. -/
+theorem defsOf_of_allocate_remat (prog : Program) {t : Tmp} {e : Expr}
+    (h : allocate prog t = some (Loc.remat e)) :
+    defsOf prog t = some e ∧ ∀ n, e ≠ .slot n := by
+  have hdef : defsOf prog t = some e := by
+    have h2 := congrFun (allocate_toDefs prog) t
+    simp only [Alloc.toDefs, h, Option.map_some] at h2
+    exact h2.symm
+  refine ⟨hdef, ?_⟩
+  rintro n rfl
+  have hcontra : allocate prog t = some (Loc.slot n) := by
+    show (defsOf prog t).map locOfExpr = some (Loc.slot n)
+    rw [hdef]; rfl
+  rw [hcontra] at h; exact absurd h (by nofun)
+
+/-! ### The binop gas-charge gluing (the `materialiseGasCharge_binop` twin, over raw charge lists) -/
+
+/-- Gluing the two operand sub-charge endpoints and the final op-charge into the whole binop
+`subCharges` (the fuel-free `materialiseGasCharge_binop` core; pure `subCharges_append`). -/
+theorem gasCharge_binop_glue (g : UInt64) (cb ca : List ℕ) (frb fra fr' : Frame)
+    (hb : frb.exec.gasAvailable = subCharges g cb)
+    (ha : fra.exec.gasAvailable = subCharges frb.exec.gasAvailable ca)
+    (hf : fr'.exec.gasAvailable = subCharges fra.exec.gasAvailable [Gverylow]) :
+    fr'.exec.gasAvailable = subCharges g (cb ++ ca ++ [Gverylow]) := by
+  rw [hf, ha, hb, subCharges_append, subCharges_append]
+
+/-! ### The endpoint bundle `MatRunsC` (the `MatRuns` twin, fuel-free) -/
+
+/-- The fold-based materialise endpoint bundle: everything running `matExpr (matCache prog) e`
+from `fr` delivers about the endpoint `fr'`. Byte length and gas contract read the fold caches
+(`matCache` / `chargeCache`); the frame pins are identical to `MatRuns`. -/
+structure MatRunsC (prog : Program) (sloadChg : Tmp → ℕ) (e : Expr) (w : Word) (fr fr' : Frame) :
+    Prop where
+  runs       : Runs fr fr'
+  stack      : fr'.exec.stack = fr.exec.stack.push w
+  code       : fr'.exec.executionEnv.code = fr.exec.executionEnv.code
+  validJumps : fr'.validJumps = fr.validJumps
+  addr       : fr'.exec.executionEnv.address = fr.exec.executionEnv.address
+  canMod     : fr'.exec.executionEnv.canModifyState = fr.exec.executionEnv.canModifyState
+  accounts   : fr'.exec.accounts = fr.exec.accounts
+  storage    : ∀ k, selfStorage fr' k = selfStorage fr k
+  pc         : fr'.exec.pc = fr.exec.pc + UInt32.ofNat (matExpr (matCache prog) e).length
+  gasCharge  : fr'.exec.gasAvailable
+                 = subCharges fr.exec.gasAvailable (chargeExpr sloadChg (chargeCache prog sloadChg) e)
+  gasToNat   : fr'.exec.gasAvailable.toNat
+                 = fr.exec.gasAvailable.toNat
+                     - (chargeExpr sloadChg (chargeCache prog sloadChg) e).sum
+  memBytes   : fr'.exec.toMachineState.memory = fr.exec.toMachineState.memory
+  memActive  : fr.exec.toMachineState.activeWords.toNat
+                 ≤ fr'.exec.toMachineState.activeWords.toNat
+
+/-! ### `materialise_runsC` — the crux (P5c) -/
+
+/-- **P5c — `materialise_runsC` (total over `Expr`, fuel-free).** Running `matExpr (matCache prog)
+e` from a frame `fr` whose code decodes as `MatDecC` prescribes, with the IR state recompute-sound
+(`DefsSound`), define-before-use-scoped, storage-agreeing, memory-realising, and the materialised
+expression neither a bare gas read nor a bare sload, reproduces `evalExpr st obs e = some w` on the
+bytecode stack and delivers the whole `MatRunsC` bundle. The `.tmp t` arm resolves through
+`allocate prog t` (`matCache_unfold`): a `.remat e'` recomputes (recurse via `matDecMeasure_remat_lt`),
+a `.slot n` reads the memory spill back (`MemRealises`), an undefined tmp is ruled out by scoping.
+NO `MatFueled`; NO `matCache = materialiseExpr` bridge. -/
+theorem materialise_runsC {prog : Program} (hdc : DefsConsistent prog) (hord : DefEnvOrdered prog)
+    (sloadChg : Tmp → ℕ) (st : IRState) (obs : Word)
+    (e : Expr) (w : Word) (fr : Frame)
+    (hdec : MatDecC prog hdc hord fr.exec.executionEnv.code fr.exec.pc e)
+    (hsound : DefsSound prog st)
+    (hscoped : ∀ t, st.locals t ≠ none →
+      (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.slot slot))
+      ∧ defsOf prog t ≠ none)
+    (hstore : StorageAgree st fr)
+    (hne : e ≠ .gas)
+    (hnsl : ∀ k, e ≠ .sload k)
+    (hmemreal : MemRealises prog st fr)
+    (heval : evalExpr st obs e = some w)
+    (hgas : (chargeExpr sloadChg (chargeCache prog sloadChg) e).sum ≤ fr.exec.gasAvailable.toNat)
+    (hstk : fr.exec.stack.size + (chargeExpr sloadChg (chargeCache prog sloadChg) e).length ≤ 1024) :
+    ∃ fr', MatRunsC prog sloadChg e w fr fr' := by
+  match e, hdec, hne, hnsl, heval, hgas, hstk with
+  | .imm v, hdec, _, _, heval, hgas, hstk =>
+      have hdec' : decode fr.exec.executionEnv.code fr.exec.pc
+          = some (.Push .PUSH32, some (v, 32)) := by rw [matDecC_imm] at hdec; exact hdec
+      have hvw : v = w := Option.some.inj heval
+      subst hvw
+      have hg3 : 3 ≤ fr.exec.gasAvailable.toNat := by
+        simp only [chargeExpr_imm, List.sum_cons, List.sum_nil] at hgas
+        simpa [show (Gverylow : ℕ) = 3 from rfl] using hgas
+      have hstk1 : fr.exec.stack.size + 1 ≤ 1024 := by
+        simp only [chargeExpr_imm, List.length_cons, List.length_nil] at hstk; omega
+      refine ⟨pushFrameW fr v 32,
+        { runs := (sim_imm fr v hdec' hg3 hstk1).1
+          stack := (sim_imm fr v hdec' hg3 hstk1).2
+          code := rfl, validJumps := rfl, addr := rfl, canMod := rfl
+          accounts := rfl, storage := fun _ => rfl
+          pc := ?_, gasCharge := ?_, gasToNat := ?_
+          memBytes := rfl, memActive := le_refl _ }⟩
+      · rw [pushFrameW_pc, push32_pcΔ]; simp [matExpr_imm, emitImm_length]
+      · rw [chargeExpr_imm]
+        show (fr.exec.gasAvailable - UInt64.ofNat Gverylow) = subCharges fr.exec.gasAvailable [Gverylow]
+        rw [subCharges_singleton]
+      · rw [chargeExpr_imm]
+        show (fr.exec.gasAvailable - UInt64.ofNat Gverylow).toNat = _
+        have h3 : (3 : ℕ) ≤ fr.exec.gasAvailable.toNat := hg3
+        rw [show (Gverylow : ℕ) = 3 from rfl,
+            BytecodeLayer.UInt64.toNat_sub_ofNat _ 3 h3 (by omega)]
+        simp [List.sum_cons]
+  | .slot n, _, _, _, heval, _, _ => exact absurd heval (by simp [evalExpr])
+  | .gas, _, hne, _, _, _, _ => exact absurd rfl hne
+  | .sload k, _, _, hnsl, _, _, _ => exact absurd rfl (hnsl k)
+  | .tmp t, hdec, _, _, heval, hgas, hstk =>
+      have hloc : st.locals t = some w := heval
+      cases hal : allocate prog t with
+      | none =>
+          exfalso
+          have hdn : defsOf prog t = none := by
+            have h2 := congrFun (allocate_toDefs prog) t
+            simp only [Alloc.toDefs, hal, Option.map_none] at h2; exact h2.symm
+          exact (hscoped t (by rw [hloc]; simp)).2 hdn
+      | some loc =>
+          cases loc with
+          | remat e' =>
+              -- == the pure recompute path (DefsSound) ==
+              have hmc : matCache prog t = matExpr (matCache prog) e' :=
+                matCache_remat prog hdc hord (mem_defEnv_of_allocate prog hdc hal)
+              have hcc : chargeCache prog sloadChg t
+                  = chargeExpr sloadChg (chargeCache prog sloadChg) e' :=
+                chargeCache_remat prog sloadChg hdc hord (mem_defEnv_of_allocate prog hdc hal)
+              obtain ⟨hdeft, hnsslot⟩ := defsOf_of_allocate_remat prog hal
+              have htmd : MatDecC prog hdc hord fr.exec.executionEnv.code fr.exec.pc e' := by
+                rw [matDecC_tmp_remat prog hdc hord fr.exec.executionEnv.code fr.exec.pc t e' hal]
+                  at hdec
+                exact hdec
+              have he'ng : e' ≠ .gas := by rintro rfl; exact defsOf_ne_gas prog t hdeft
+              have he'nsl : ∀ k, e' ≠ .sload k := by
+                intro k; rintro rfl; exact defsOf_ne_sload prog t k hdeft
+              have hnr : ¬ NonRecomputable prog t := by
+                rcases (hscoped t (by rw [hloc]; simp)).1 with hnr | ⟨s, hcrdef⟩
+                · exact hnr
+                · exfalso; rw [hdeft] at hcrdef; injection hcrdef with hcr; exact hnsslot s hcr
+              have hdfs : some w = evalExpr st 0 e' :=
+                hsound t e' w (rematOf_of_defsOf hdeft hnsslot) hnr hloc
+              have heval' : evalExpr st obs e' = some w := by
+                rw [evalExpr_obs_irrel st obs 0 he'ng]; exact hdfs.symm
+              have hgas' : (chargeExpr sloadChg (chargeCache prog sloadChg) e').sum
+                  ≤ fr.exec.gasAvailable.toNat := by
+                have hx := hgas; simp only [chargeExpr_tmp] at hx; rw [hcc] at hx; exact hx
+              have hstk' : fr.exec.stack.size
+                  + (chargeExpr sloadChg (chargeCache prog sloadChg) e').length ≤ 1024 := by
+                have hx := hstk; simp only [chargeExpr_tmp] at hx; rw [hcc] at hx; exact hx
+              obtain ⟨fr', hmr⟩ := materialise_runsC hdc hord sloadChg st obs e' w fr htmd hsound
+                hscoped hstore he'ng he'nsl hmemreal heval' hgas' hstk'
+              have hpcE : matExpr (matCache prog) (Expr.tmp t) = matExpr (matCache prog) e' := by
+                simp only [matExpr_tmp]; exact hmc
+              have hchgE : chargeExpr sloadChg (chargeCache prog sloadChg) (Expr.tmp t)
+                  = chargeExpr sloadChg (chargeCache prog sloadChg) e' := by
+                simp only [chargeExpr_tmp]; exact hcc
+              exact ⟨fr',
+                { runs := hmr.runs, stack := hmr.stack, code := hmr.code
+                  validJumps := hmr.validJumps, addr := hmr.addr, canMod := hmr.canMod
+                  accounts := hmr.accounts, storage := hmr.storage
+                  pc := by rw [hpcE]; exact hmr.pc
+                  gasCharge := by rw [hchgE]; exact hmr.gasCharge
+                  gasToNat := by rw [hchgE]; exact hmr.gasToNat
+                  memBytes := hmr.memBytes, memActive := hmr.memActive }⟩
+          | slot n =>
+              -- == the memory value-channel readback arm (PUSH n ; MLOAD) ==
+              have hdeft : defsOf prog t = some (.slot n) := defsOf_of_allocate_slot prog hal
+              have hmd := hdec
+              rw [matDecC_tmp_slot prog hdc hord fr.exec.executionEnv.code fr.exec.pc t n hal] at hmd
+              obtain ⟨hdpush, hdmload⟩ := hmd
+              have hmexp : matExpr (matCache prog) (Expr.tmp t)
+                  = emitImm (UInt256.ofNat n) ++ [Byte.mload] := by
+                simp only [matExpr_tmp]
+                exact matCache_slot prog hdc hord (mem_defEnv_of_allocate prog hdc hal)
+              have hchg : chargeExpr sloadChg (chargeCache prog sloadChg) (Expr.tmp t)
+                  = [Gverylow, Gverylow] := by
+                simp only [chargeExpr_tmp]
+                exact chargeCache_slot prog sloadChg hdc hord (mem_defEnv_of_allocate prog hdc hal)
+              obtain ⟨hcm, ham, hreal, hval⟩ := hmemreal t n w hdeft hloc
+              have hsum2 : (chargeExpr sloadChg (chargeCache prog sloadChg) (Expr.tmp t)).sum
+                  = Gverylow + Gverylow := by rw [hchg]; simp [List.sum_cons]
+              have hgv3 : (Gverylow : ℕ) = 3 := rfl
+              have hgasPush : 3 ≤ fr.exec.gasAvailable.toNat := by rw [hsum2, hgv3] at hgas; omega
+              have hszfr : fr.exec.stack.size + 1 ≤ 1024 := by
+                rw [hchg] at hstk; simp only [List.length_cons, List.length_nil] at hstk; omega
+              -- step 1: PUSH32 n
+              obtain ⟨hpushrun, hpushstk⟩ := sim_imm fr (UInt256.ofNat n) hdpush hgasPush hszfr
+              set frp := pushFrameW fr (UInt256.ofNat n) 32 with hfrp
+              have hfrpcode : frp.exec.executionEnv.code = fr.exec.executionEnv.code := rfl
+              have hfrpmem : frp.exec.toMachineState.memory = fr.exec.toMachineState.memory := rfl
+              have hfrpaw : frp.exec.toMachineState.activeWords
+                  = fr.exec.toMachineState.activeWords := rfl
+              have hfrppc : frp.exec.pc = fr.exec.pc + UInt32.ofNat 33 := by
+                rw [hfrp, pushFrameW_pc, push32_pcΔ]
+              have hfrpstk : frp.exec.stack = (UInt256.ofNat n) :: fr.exec.stack := by
+                rw [hpushstk]; rfl
+              have hfrpsz : frp.exec.stack.size ≤ 1024 := by rw [hfrpstk]; simp; omega
+              -- step 2: MLOAD at `n` (covered ⇒ zero memory expansion)
+              have hreal' : (UInt256.ofNat n).toNat + 63 < 2 ^ 64 := by
+                rw [show (UInt256.ofNat n).toNat = n from by
+                  rw [LirLean.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]]
+                exact hreal
+              have hMeq : MachineState.M frp.exec.toMachineState.activeWords
+                  (UInt256.ofNat n).toUInt64 32 = frp.exec.toMachineState.activeWords := by
+                rw [hfrpaw]; exact M_32_eq_self_of_covered _ _ ham hreal'
+              have hnoexp : memoryExpansionWords? frp.exec.activeWords (UInt256.ofNat n) 32
+                  = some frp.exec.activeWords := by
+                show memoryExpansionWords? frp.exec.toMachineState.activeWords _ _ = _
+                rw [hfrpaw]
+                exact memoryExpansionWords?_ofNat_32_of_covered _ ham hreal
+              have hzcost : BytecodeLayer.Dispatch.memExpansionChargeOf frp.exec
+                  frp.exec.activeWords = 0 := by
+                show Evm.Cₘ frp.exec.activeWords - Evm.Cₘ frp.exec.activeWords = 0
+                omega
+              have hmloaddec : decode frp.exec.executionEnv.code frp.exec.pc
+                  = some (.Smsf .MLOAD, .none) := by
+                rw [hfrpcode, hfrppc]
+                have hemitlen : (emitImm (UInt256.ofNat n)).length = 33 := emitImm_length _
+                rw [show fr.exec.pc + UInt32.ofNat 33
+                      = fr.exec.pc + UInt32.ofNat (emitImm (UInt256.ofNat n)).length from by
+                      rw [hemitlen]]
+                exact hdmload
+              have hgMem : BytecodeLayer.Dispatch.memExpansionChargeOf frp.exec
+                  frp.exec.activeWords ≤ frp.exec.gasAvailable.toNat := by rw [hzcost]; omega
+              have hfrpgasN : frp.exec.gasAvailable.toNat
+                  = fr.exec.gasAvailable.toNat - Gverylow := by
+                show (fr.exec.gasAvailable - UInt64.ofNat Gverylow).toNat = _
+                rw [BytecodeLayer.UInt64.toNat_sub_ofNat _ Gverylow (by rw [hgv3]; omega)
+                  (by rw [hgv3]; omega)]
+              have hgMl : GasConstants.Gverylow
+                  ≤ (frp.exec.gasAvailable
+                      - UInt64.ofNat (BytecodeLayer.Dispatch.memExpansionChargeOf frp.exec
+                          frp.exec.activeWords)).toNat := by
+                rw [hzcost, BytecodeLayer.UInt64.toNat_sub_ofNat frp.exec.gasAvailable 0
+                      (Nat.zero_le _) (by norm_num), Nat.sub_zero, hfrpgasN, hgv3]
+                rw [hsum2, hgv3] at hgas; omega
+              obtain ⟨hmloadrun, hmloadhd⟩ :=
+                sim_mload frp (UInt256.ofNat n) frp.exec.activeWords fr.exec.stack
+                  hmloaddec hfrpstk hfrpsz hnoexp hgMem hgMl
+              set frm := mloadFrame frp (UInt256.ofNat n) frp.exec.activeWords fr.exec.stack
+                with hfrm
+              have hmval : ((BytecodeLayer.Dispatch.memChargedState frp.exec
+                  frp.exec.activeWords).toMachineState.mload (UInt256.ofNat n)).1 = w := by
+                rw [LirLean.MemAlgebra.mload_congr (UInt256.ofNat n)
+                      (show (BytecodeLayer.Dispatch.memChargedState frp.exec
+                          frp.exec.activeWords).toMachineState.memory
+                        = fr.exec.toMachineState.memory from by rw [← hfrpmem]; rfl)
+                      (show (BytecodeLayer.Dispatch.memChargedState frp.exec
+                          frp.exec.activeWords).toMachineState.activeWords
+                        = fr.exec.toMachineState.activeWords from by rw [← hfrpaw]; rfl)]
+                exact hval
+              have hfrmstk : frm.exec.stack = fr.exec.stack.push w := by
+                show (mloadFrame frp (UInt256.ofNat n) frp.exec.activeWords
+                  fr.exec.stack).exec.stack = _
+                rw [← hmval]; rfl
+              have hfrmmem : frm.exec.toMachineState.memory = fr.exec.toMachineState.memory := by
+                show (mloadFrame frp (UInt256.ofNat n) frp.exec.activeWords
+                  fr.exec.stack).exec.toMachineState.memory = _
+                rw [show (mloadFrame frp (UInt256.ofNat n) frp.exec.activeWords
+                      fr.exec.stack).exec.toMachineState.memory
+                    = frp.exec.toMachineState.memory from rfl, hfrpmem]
+              have hfrmaw : frm.exec.toMachineState.activeWords
+                  = fr.exec.toMachineState.activeWords := by
+                show (mloadFrame frp (UInt256.ofNat n) frp.exec.activeWords
+                  fr.exec.stack).exec.toMachineState.activeWords = _
+                rw [show (mloadFrame frp (UInt256.ofNat n) frp.exec.activeWords
+                      fr.exec.stack).exec.toMachineState.activeWords
+                    = MachineState.M frp.exec.toMachineState.activeWords
+                        (UInt256.ofNat n).toUInt64 32 from rfl, hMeq, hfrpaw]
+              have hexp0 : frp.exec.gasAvailable
+                  - UInt64.ofNat (memExpansionChargeOf frp.exec frp.exec.activeWords)
+                  = frp.exec.gasAvailable := by
+                apply UInt64.toNat_inj.mp
+                rw [BytecodeLayer.UInt64.toNat_sub_ofNat _ _
+                  (by rw [hzcost]; omega) (by rw [hzcost]; norm_num), hzcost, Nat.sub_zero]
+              have hfrmgas : frm.exec.gasAvailable
+                  = (fr.exec.gasAvailable - UInt64.ofNat Gverylow) - UInt64.ofNat Gverylow := by
+                show ((BytecodeLayer.Dispatch.memChargedState frp.exec
+                  frp.exec.activeWords).gasAvailable) = _
+                show ((frp.exec.gasAvailable - UInt64.ofNat (memExpansionChargeOf frp.exec
+                  frp.exec.activeWords)) - UInt64.ofNat Gverylow) = _
+                rw [hexp0, hfrp]; rfl
+              refine ⟨frm,
+                { runs := hpushrun.trans hmloadrun
+                  stack := hfrmstk
+                  code := ?_, validJumps := ?_, addr := ?_, canMod := ?_, accounts := ?_
+                  storage := ?_, pc := ?_, gasCharge := ?_, gasToNat := ?_
+                  memBytes := hfrmmem
+                  memActive := by rw [hfrmaw] }⟩
+              · show (mloadFrame frp (UInt256.ofNat n) frp.exec.activeWords
+                  fr.exec.stack).exec.executionEnv.code = _
+                rw [show (mloadFrame frp (UInt256.ofNat n) frp.exec.activeWords
+                      fr.exec.stack).exec.executionEnv.code = frp.exec.executionEnv.code from rfl,
+                    hfrpcode]
+              · show (mloadFrame frp (UInt256.ofNat n) frp.exec.activeWords
+                  fr.exec.stack).validJumps = _
+                rfl
+              · show (mloadFrame frp (UInt256.ofNat n) frp.exec.activeWords
+                  fr.exec.stack).exec.executionEnv.address = _
+                rfl
+              · show (mloadFrame frp (UInt256.ofNat n) frp.exec.activeWords
+                  fr.exec.stack).exec.executionEnv.canModifyState = _
+                rfl
+              · show (mloadFrame frp (UInt256.ofNat n) frp.exec.activeWords
+                  fr.exec.stack).exec.accounts = _
+                rfl
+              · intro k
+                show selfStorage (mloadFrame frp (UInt256.ofNat n) frp.exec.activeWords
+                  fr.exec.stack) k = _
+                rfl
+              · show (mloadFrame frp (UInt256.ofNat n) frp.exec.activeWords
+                  fr.exec.stack).exec.pc = _
+                rw [show (mloadFrame frp (UInt256.ofNat n) frp.exec.activeWords
+                      fr.exec.stack).exec.pc = frp.exec.pc + 1 from rfl, hfrppc, hmexp]
+                rw [List.length_append, emitImm_length,
+                    show ([Byte.mload] : List UInt8).length = 1 from rfl,
+                    show (33 : ℕ) + 1 = 34 from rfl,
+                    show (UInt32.ofNat 34) = UInt32.ofNat 33 + 1 from by decide]
+                ac_rfl
+              · rw [hchg]
+                show frm.exec.gasAvailable = subCharges fr.exec.gasAvailable [Gverylow, Gverylow]
+                rw [hfrmgas]
+                show (fr.exec.gasAvailable - UInt64.ofNat Gverylow) - UInt64.ofNat Gverylow
+                  = subCharges fr.exec.gasAvailable [Gverylow, Gverylow]
+                rfl
+              · rw [hsum2, hfrmgas]
+                have h2 : (fr.exec.gasAvailable - UInt64.ofNat Gverylow).toNat
+                    = fr.exec.gasAvailable.toNat - Gverylow :=
+                  BytecodeLayer.UInt64.toNat_sub_ofNat _ Gverylow
+                    (by rw [hgv3]; omega) (by rw [hgv3]; omega)
+                rw [BytecodeLayer.UInt64.toNat_sub_ofNat _ Gverylow
+                      (by rw [h2, hgv3]; omega) (by rw [hgv3]; omega), h2]
+                rw [hsum2, hgv3] at hgas; omega
+  | .add a b, hdec, _, _, heval, hgas, hstk =>
+      obtain ⟨va, hla, vb, hlb, hwadd⟩ :
+          ∃ va, st.locals a = some va ∧ ∃ vb, st.locals b = some vb ∧ w = UInt256.add va vb := by
+        simp only [evalExpr] at heval
+        cases hla : st.locals a with
+        | none => simp [hla] at heval
+        | some va =>
+            cases hlb : st.locals b with
+            | none => simp [hla, hlb] at heval
+            | some vb => refine ⟨va, rfl, vb, rfl, ?_⟩; simp [hla, hlb] at heval; exact heval.symm
+      subst hwadd
+      rw [matDecC_add] at hdec
+      obtain ⟨hdb, hda, hop⟩ := hdec
+      have hcadd := chargeExpr_add sloadChg (chargeCache prog sloadChg) a b
+      have hevb : evalExpr st obs (.tmp b) = some vb := hlb
+      have heva : evalExpr st obs (.tmp a) = some va := hla
+      have hgasb : (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp b)).sum
+          ≤ fr.exec.gasAvailable.toNat := by
+        have hx := hgas; rw [hcadd] at hx
+        simp only [List.sum_append] at hx
+        show (chargeCache prog sloadChg b).sum ≤ _; omega
+      have hstkb : fr.exec.stack.size
+          + (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp b)).length ≤ 1024 := by
+        have hx := hstk; rw [hcadd] at hx
+        simp only [List.length_append] at hx
+        show fr.exec.stack.size + (chargeCache prog sloadChg b).length ≤ 1024; omega
+      obtain ⟨frb, hmrb⟩ := materialise_runsC hdc hord sloadChg st obs (.tmp b) vb fr hdb hsound
+        hscoped hstore (by nofun) (by nofun) hmemreal hevb hgasb hstkb
+      have hbcode : frb.exec.executionEnv.code = fr.exec.executionEnv.code := hmrb.code
+      have hbpc : frb.exec.pc = fr.exec.pc + UInt32.ofNat (matCache prog b).length := by
+        have := hmrb.pc; simpa only [matExpr_tmp] using this
+      have hda' : MatDecC prog hdc hord frb.exec.executionEnv.code frb.exec.pc (.tmp a) := by
+        rw [hbcode, hbpc]; exact hda
+      have hsum_split : (chargeExpr sloadChg (chargeCache prog sloadChg) (.add a b)).sum
+          = (chargeCache prog sloadChg b).sum + (chargeCache prog sloadChg a).sum + Gverylow := by
+        rw [hcadd]; simp only [List.sum_append, List.sum_cons, List.sum_nil]; omega
+      have hlen_split : (chargeExpr sloadChg (chargeCache prog sloadChg) (.add a b)).length
+          = (chargeCache prog sloadChg b).length + (chargeCache prog sloadChg a).length + 1 := by
+        rw [hcadd]; simp only [List.length_append, List.length_singleton]
+      have hfrbsz : frb.exec.stack.size = fr.exec.stack.size + 1 := by
+        rw [hmrb.stack]; simp [Stack.push]
+      have hgasa : (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp a)).sum
+          ≤ frb.exec.gasAvailable.toNat := by
+        rw [hmrb.gasToNat]; show (chargeCache prog sloadChg a).sum ≤ _
+        rw [hsum_split] at hgas; simp only [chargeExpr_tmp] at hgas ⊢; omega
+      have hstka : frb.exec.stack.size
+          + (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp a)).length ≤ 1024 := by
+        have hpb1 : 1 ≤ (chargeCache prog sloadChg b).length := chargeCache_length_pos prog sloadChg b
+        rw [hlen_split] at hstk; rw [hfrbsz]
+        show fr.exec.stack.size + 1 + (chargeCache prog sloadChg a).length ≤ 1024; omega
+      obtain ⟨fra, hmra⟩ := materialise_runsC hdc hord sloadChg st obs (.tmp a) va frb hda' hsound
+        hscoped (hstore.transport hmrb.storage) (by nofun) (by nofun)
+        (hmemreal.transport hmrb.memBytes hmrb.memActive) heva hgasa hstka
+      have hacode : fra.exec.executionEnv.code = fr.exec.executionEnv.code := by
+        rw [hmra.code, hbcode]
+      have hapc : fra.exec.pc
+          = fr.exec.pc + UInt32.ofNat (matCache prog b).length
+              + UInt32.ofNat (matCache prog a).length := by
+        have := hmra.pc; simp only [matExpr_tmp] at this; rw [this, hbpc]
+      have hastk : fra.exec.stack = va :: vb :: fr.exec.stack := by
+        rw [hmra.stack, hmrb.stack]; rfl
+      have hadec : decode fra.exec.executionEnv.code fra.exec.pc
+          = some (.ArithLogic .ADD, .none) := by rw [hacode, hapc]; exact hop
+      have haszle : fra.exec.stack.size ≤ 1024 := by
+        have hfrasz : fra.exec.stack.size = fr.exec.stack.size + 2 := by rw [hastk]; simp
+        have hpa1 : 1 ≤ (chargeCache prog sloadChg a).length := chargeCache_length_pos prog sloadChg a
+        rw [hlen_split] at hstk; rw [hfrasz]; omega
+      have hagas : GasConstants.Gverylow ≤ fra.exec.gasAvailable.toNat := by
+        rw [hmra.gasToNat, hmrb.gasToNat]
+        simp only [chargeExpr_tmp]; rw [hsum_split] at hgas; omega
+      obtain ⟨hadrun, hadstk⟩ := sim_add fra va vb fr.exec.stack hadec hastk haszle hagas
+      have hgc : (addFrame fra va vb fr.exec.stack).exec.gasAvailable
+          = subCharges fr.exec.gasAvailable
+              (chargeExpr sloadChg (chargeCache prog sloadChg) (.add a b)) := by
+        rw [hcadd]
+        exact gasCharge_binop_glue fr.exec.gasAvailable (chargeCache prog sloadChg b)
+          (chargeCache prog sloadChg a) frb fra (addFrame fra va vb fr.exec.stack)
+          hmrb.gasCharge hmra.gasCharge (charge_binOpPost_gas fra UInt256.add va vb fr.exec.stack)
+      refine ⟨addFrame fra va vb fr.exec.stack,
+        { runs := (hmrb.runs.trans hmra.runs).trans hadrun
+          stack := ?_, code := ?_, validJumps := ?_, addr := ?_, canMod := ?_, accounts := ?_
+          storage := ?_, pc := ?_, gasCharge := hgc, gasToNat := ?_
+          memBytes := by rw [addFrame_memory]; exact hmra.memBytes.trans hmrb.memBytes
+          memActive := le_trans hmrb.memActive
+            (le_trans hmra.memActive (by rw [addFrame_activeWords])) }⟩
+      · rw [hadstk]
+      · rw [addFrame_code, hacode]
+      · rw [addFrame_validJumps, hmra.validJumps, hmrb.validJumps]
+      · rw [addFrame_addr, hmra.addr, hmrb.addr]
+      · show (addFrame fra va vb fr.exec.stack).exec.executionEnv.canModifyState = _
+        rw [show (addFrame fra va vb fr.exec.stack).exec.executionEnv.canModifyState
+              = fra.exec.executionEnv.canModifyState from rfl, hmra.canMod, hmrb.canMod]
+      · show (addFrame fra va vb fr.exec.stack).exec.accounts = _
+        rw [show (addFrame fra va vb fr.exec.stack).exec.accounts
+              = fra.exec.accounts from rfl, hmra.accounts, hmrb.accounts]
+      · intro k; rw [addFrame_selfStorage, hmra.storage, hmrb.storage]
+      · rw [addFrame_pc, hapc, matExpr_add]
+        simp only [List.length_append, List.length_singleton]
+        rw [UInt32.ofNat_add, UInt32.ofNat_add, show (UInt32.ofNat 1 : UInt32) = 1 from rfl]
+        ac_rfl
+      · rw [hgc]; exact toNat_subCharges fr.exec.gasAvailable _ hgas
+  | .lt a b, hdec, _, _, heval, hgas, hstk =>
+      obtain ⟨va, hla, vb, hlb, hwlt⟩ :
+          ∃ va, st.locals a = some va ∧ ∃ vb, st.locals b = some vb ∧ w = UInt256.lt va vb := by
+        simp only [evalExpr] at heval
+        cases hla : st.locals a with
+        | none => simp [hla] at heval
+        | some va =>
+            cases hlb : st.locals b with
+            | none => simp [hla, hlb] at heval
+            | some vb => refine ⟨va, rfl, vb, rfl, ?_⟩; simp [hla, hlb] at heval; exact heval.symm
+      subst hwlt
+      rw [matDecC_lt] at hdec
+      obtain ⟨hdb, hda, hop⟩ := hdec
+      have hclt := chargeExpr_lt sloadChg (chargeCache prog sloadChg) a b
+      have hevb : evalExpr st obs (.tmp b) = some vb := hlb
+      have heva : evalExpr st obs (.tmp a) = some va := hla
+      have hgasb : (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp b)).sum
+          ≤ fr.exec.gasAvailable.toNat := by
+        have hx := hgas; rw [hclt] at hx
+        simp only [List.sum_append] at hx
+        show (chargeCache prog sloadChg b).sum ≤ _; omega
+      have hstkb : fr.exec.stack.size
+          + (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp b)).length ≤ 1024 := by
+        have hx := hstk; rw [hclt] at hx
+        simp only [List.length_append] at hx
+        show fr.exec.stack.size + (chargeCache prog sloadChg b).length ≤ 1024; omega
+      obtain ⟨frb, hmrb⟩ := materialise_runsC hdc hord sloadChg st obs (.tmp b) vb fr hdb hsound
+        hscoped hstore (by nofun) (by nofun) hmemreal hevb hgasb hstkb
+      have hbcode : frb.exec.executionEnv.code = fr.exec.executionEnv.code := hmrb.code
+      have hbpc : frb.exec.pc = fr.exec.pc + UInt32.ofNat (matCache prog b).length := by
+        have := hmrb.pc; simpa only [matExpr_tmp] using this
+      have hda' : MatDecC prog hdc hord frb.exec.executionEnv.code frb.exec.pc (.tmp a) := by
+        rw [hbcode, hbpc]; exact hda
+      have hsum_split : (chargeExpr sloadChg (chargeCache prog sloadChg) (.lt a b)).sum
+          = (chargeCache prog sloadChg b).sum + (chargeCache prog sloadChg a).sum + Gverylow := by
+        rw [hclt]; simp only [List.sum_append, List.sum_cons, List.sum_nil]; omega
+      have hlen_split : (chargeExpr sloadChg (chargeCache prog sloadChg) (.lt a b)).length
+          = (chargeCache prog sloadChg b).length + (chargeCache prog sloadChg a).length + 1 := by
+        rw [hclt]; simp only [List.length_append, List.length_singleton]
+      have hfrbsz : frb.exec.stack.size = fr.exec.stack.size + 1 := by
+        rw [hmrb.stack]; simp [Stack.push]
+      have hgasa : (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp a)).sum
+          ≤ frb.exec.gasAvailable.toNat := by
+        rw [hmrb.gasToNat]; show (chargeCache prog sloadChg a).sum ≤ _
+        rw [hsum_split] at hgas; simp only [chargeExpr_tmp] at hgas ⊢; omega
+      have hstka : frb.exec.stack.size
+          + (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp a)).length ≤ 1024 := by
+        have hpb1 : 1 ≤ (chargeCache prog sloadChg b).length := chargeCache_length_pos prog sloadChg b
+        rw [hlen_split] at hstk; rw [hfrbsz]
+        show fr.exec.stack.size + 1 + (chargeCache prog sloadChg a).length ≤ 1024; omega
+      obtain ⟨fra, hmra⟩ := materialise_runsC hdc hord sloadChg st obs (.tmp a) va frb hda' hsound
+        hscoped (hstore.transport hmrb.storage) (by nofun) (by nofun)
+        (hmemreal.transport hmrb.memBytes hmrb.memActive) heva hgasa hstka
+      have hacode : fra.exec.executionEnv.code = fr.exec.executionEnv.code := by
+        rw [hmra.code, hbcode]
+      have hapc : fra.exec.pc
+          = fr.exec.pc + UInt32.ofNat (matCache prog b).length
+              + UInt32.ofNat (matCache prog a).length := by
+        have := hmra.pc; simp only [matExpr_tmp] at this; rw [this, hbpc]
+      have hastk : fra.exec.stack = va :: vb :: fr.exec.stack := by
+        rw [hmra.stack, hmrb.stack]; rfl
+      have hadec : decode fra.exec.executionEnv.code fra.exec.pc
+          = some (.ArithLogic .LT, .none) := by rw [hacode, hapc]; exact hop
+      have haszle : fra.exec.stack.size ≤ 1024 := by
+        have hfrasz : fra.exec.stack.size = fr.exec.stack.size + 2 := by rw [hastk]; simp
+        have hpa1 : 1 ≤ (chargeCache prog sloadChg a).length := chargeCache_length_pos prog sloadChg a
+        rw [hlen_split] at hstk; rw [hfrasz]; omega
+      have hagas : GasConstants.Gverylow ≤ fra.exec.gasAvailable.toNat := by
+        rw [hmra.gasToNat, hmrb.gasToNat]
+        simp only [chargeExpr_tmp]; rw [hsum_split] at hgas; omega
+      obtain ⟨hadrun, hadstk⟩ := sim_lt fra va vb fr.exec.stack hadec hastk haszle hagas
+      have hgc : (ltFrame fra va vb fr.exec.stack).exec.gasAvailable
+          = subCharges fr.exec.gasAvailable
+              (chargeExpr sloadChg (chargeCache prog sloadChg) (.lt a b)) := by
+        rw [hclt]
+        exact gasCharge_binop_glue fr.exec.gasAvailable (chargeCache prog sloadChg b)
+          (chargeCache prog sloadChg a) frb fra (ltFrame fra va vb fr.exec.stack)
+          hmrb.gasCharge hmra.gasCharge (charge_binOpPost_gas fra UInt256.lt va vb fr.exec.stack)
+      refine ⟨ltFrame fra va vb fr.exec.stack,
+        { runs := (hmrb.runs.trans hmra.runs).trans hadrun
+          stack := ?_, code := ?_, validJumps := ?_, addr := ?_, canMod := ?_, accounts := ?_
+          storage := ?_, pc := ?_, gasCharge := hgc, gasToNat := ?_
+          memBytes := by rw [ltFrame_memory]; exact hmra.memBytes.trans hmrb.memBytes
+          memActive := le_trans hmrb.memActive
+            (le_trans hmra.memActive (by rw [ltFrame_activeWords])) }⟩
+      · rw [hadstk]
+      · rw [ltFrame_code, hacode]
+      · rw [ltFrame_validJumps, hmra.validJumps, hmrb.validJumps]
+      · rw [ltFrame_addr, hmra.addr, hmrb.addr]
+      · show (ltFrame fra va vb fr.exec.stack).exec.executionEnv.canModifyState = _
+        rw [show (ltFrame fra va vb fr.exec.stack).exec.executionEnv.canModifyState
+              = fra.exec.executionEnv.canModifyState from rfl, hmra.canMod, hmrb.canMod]
+      · show (ltFrame fra va vb fr.exec.stack).exec.accounts = _
+        rw [show (ltFrame fra va vb fr.exec.stack).exec.accounts
+              = fra.exec.accounts from rfl, hmra.accounts, hmrb.accounts]
+      · intro k; rw [ltFrame_selfStorage, hmra.storage, hmrb.storage]
+      · rw [ltFrame_pc, hapc, matExpr_lt]
+        simp only [List.length_append, List.length_singleton]
+        rw [UInt32.ofNat_add, UInt32.ofNat_add, show (UInt32.ofNat 1 : UInt32) = 1 from rfl]
+        ac_rfl
+      · rw [hgc]; exact toNat_subCharges fr.exec.gasAvailable _ hgas
+  termination_by matDecMeasure prog e
+  decreasing_by
+    all_goals
+      first
+        | (simp only [matDecMeasure]; omega)
+        | (exact matDecMeasure_remat_lt prog hdc hord (by assumption))
+
+end ValueChannel
+
 end Lir.V2
