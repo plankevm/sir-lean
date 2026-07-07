@@ -45,6 +45,10 @@ import LirLean.Assembly.Acyclic
 import LirLean.V2.Drive.DriveSim
 import LirLean.V2.Drive.Headline
 
+-- IR well-formedness vocabulary + the `IRWellFormed` bundle and the two scalar budgets
+-- (`codeFits`/`stackFits`) — the trusted-surface statement vocabulary (Spec hoist §1C).
+import LirLean.Spec.WellFormed
+
 -- Reviewer-facing `Lir.Spec` audit surface (Wave 3): seam register + conditional-headline
 -- re-exports + the `RealisabilityObligations` bundle (Pattern C — downstream of the proofs).
 import LirLean.Spec.Seams
