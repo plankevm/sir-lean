@@ -2,7 +2,6 @@ import LirLean.Decode.SegAligned
 import LirLean.Decode.Layout
 import LirLean.Decode.DecodeLower
 import LirLean.Decode.DecodeAnchors
-import LirLean.Frame.Match
 import Evm
 
 /-!

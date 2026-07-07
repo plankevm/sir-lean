@@ -127,10 +127,4 @@ def IRState.bindCreateResult (st : IRState) : Option Tmp → IRState
 def IRState.setStorage (st : IRState) (k v : Word) : IRState :=
   { st with storage := fun k' => if k' = k then v else st.storage k' }
 
-/-! ## Block / program accessors -/
-
-/-- The block at label `L`, if present. -/
-def Program.blockAt (prog : Program) (L : Label) : Option Block :=
-  prog.blocks[L.idx]?
-
 end Lir
