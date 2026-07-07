@@ -496,6 +496,247 @@ theorem defEnvOrdered_subsumes_acyclic {prog : Program} (h : DefEnvOrdered prog)
     have hb := defEnv_operand_findIdx_lt h hget (t' := b) (by simp [usesInExpr])
     simp only [ExprRankLt]; exact ⟨by omega, by omega⟩
 
+/-! ## §P3 — the fold fixpoint `matCache_unfold` (Phase 2A P3, design §2.3)
+
+The single load-bearing internal fold lemma: for a `t` PRESENT in `defEnv prog`,
+`matCache prog t = matLoc (matCache prog) (canonical Loc of t)`; for an ABSENT `t`,
+`matCache prog t = emitImm 0`. It is a **fold-to-fold** fixpoint — NOT a fold↔fuel bridge
+(unsound, design §2.2 / header) — and it is the node that replaces the deleted
+`matFueled_of_acyclic`: the induction is well-founded on the def-env FIRST index
+(`DefEnvOrdered`: every operand of a `.remat` entry occurs strictly earlier,
+`defEnv_operand_findIdx_lt`), with SSA single-binding (`matCache_last_eq_first`, P1) aligning
+the last-occurrence entries. Obligation-3 foundation; everything downstream (the value channel
+P5, the sims P6) consumes it. NO reference to `materialiseExpr` anywhere. -/
+
+/-- The initial byte-cache the `matCache` fold starts from (the undefined-tmp fallback
+`emitImm 0`). Named so the def-env inductions can range over `matFold` prefixes below the
+top-level `matCache`. -/
+def matInit : Tmp → List UInt8 := fun _ => emitImm 0
+
+@[simp] theorem matCache_eq_matFold (prog : Program) :
+    matCache prog = matFold matInit (defEnv prog) := rfl
+
+/-- **Operand-locality of `matExpr`.** `matExpr` reads its cache only at the tmps the
+expression uses, so two caches agreeing on every used tmp emit identical bytes. -/
+theorem matExpr_congr {c c' : Tmp → List UInt8} {e : Expr}
+    (h : ∀ t, usesInExpr t e ≠ 0 → c t = c' t) : matExpr c e = matExpr c' e := by
+  cases e with
+  | imm w => rfl
+  | gas => rfl
+  | slot n => rfl
+  | tmp t => simp only [matExpr_tmp]; exact h t (by simp [usesInExpr])
+  | add a b =>
+      simp only [matExpr_add]
+      rw [h a (by simp [usesInExpr]), h b (by simp [usesInExpr])]
+  | lt a b =>
+      simp only [matExpr_lt]
+      rw [h a (by simp [usesInExpr]), h b (by simp [usesInExpr])]
+  | sload k => simp only [matExpr_sload]; rw [h k (by simp [usesInExpr])]
+
+/-- **A `matFold` that never rebinds `t` leaves `t` at its initial value.** -/
+theorem matFold_notMem {t : Tmp} :
+    ∀ (l : List (Tmp × Loc)) (c : Tmp → List UInt8),
+      t ∉ l.map Prod.fst → matFold c l t = c t
+  | [], _, _ => rfl
+  | p :: l, c, h => by
+      simp only [List.map_cons, List.mem_cons, not_or] at h
+      rw [matFold_cons, matFold_notMem l (matStep c p) h.2]
+      exact Function.update_of_ne h.1 _ _
+
+/-- **Last-occurrence split of a `matFold` value.** For any list, either `t` is never a key
+(and the fold's value at `t` is the initial one), or the list splits at `t`'s LAST occurrence
+and the fold's value at `t` is `matLoc` of that entry's `Loc` under the prefix-fold. This is
+the reusable readout of the last-wins `Function.update` fold. -/
+theorem matFold_split (c : Tmp → List UInt8) (t : Tmp) :
+    ∀ (l : List (Tmp × Loc)),
+      (t ∉ l.map Prod.fst ∧ matFold c l t = c t) ∨
+      (∃ pre loc post, l = pre ++ (t, loc) :: post ∧ t ∉ post.map Prod.fst ∧
+         matFold c l t = matLoc (matFold c pre) loc) := by
+  intro l
+  induction l using List.reverseRecOn with
+  | nil => exact Or.inl ⟨by simp, rfl⟩
+  | append_singleton l x ih =>
+      have hval : matFold c (l ++ [x]) t
+          = if t = x.1 then matLoc (matFold c l) x.2 else matFold c l t := by
+        have hfold : matFold c (l ++ [x]) = matStep (matFold c l) x := by
+          simp only [matFold, List.foldl_append]; rfl
+        rw [hfold]; simp only [matStep, Function.update_apply]
+      by_cases hx : t = x.1
+      · refine Or.inr ⟨l, x.2, [], ?_, by simp, ?_⟩
+        · have hxe : x = (t, x.2) := by rw [hx]
+          rw [hxe]
+        · rw [hval, if_pos hx]
+      · cases ih with
+        | inl h =>
+            refine Or.inl ⟨?_, ?_⟩
+            · simp only [List.map_append, List.map_cons, List.map_nil, List.mem_append,
+                List.mem_singleton, not_or]
+              exact ⟨h.1, hx⟩
+            · rw [hval, if_neg hx]; exact h.2
+        | inr h =>
+            obtain ⟨pre, loc, post, heq, hpost, hvv⟩ := h
+            refine Or.inr ⟨pre, loc, post ++ [x], ?_, ?_, ?_⟩
+            · rw [heq, List.append_assoc, List.cons_append]
+            · simp only [List.map_append, List.map_cons, List.map_nil, List.mem_append,
+                List.mem_singleton, not_or]
+              exact ⟨hpost, hx⟩
+            · rw [hval, if_neg hx]; exact hvv
+
+/-- **The `defEnv` entry at `t`'s FIRST index carries `t`'s canonical `Loc`.** Under
+`DefsConsistent` every entry for `t` is the same `Loc` (`matCache_last_eq_first`), so the
+`findIdx` (first) entry — the one `defsOf`/`defEnv_operand_findIdx_lt` read — is `(t, loc)`. -/
+theorem defEnv_findIdx_entry (prog : Program) (hdc : DefsConsistent prog)
+    {t' : Tmp} {loc : Loc} (hmem : (t', loc) ∈ defEnv prog) :
+    (defEnv prog)[(defEnv prog).findIdx (fun p => p.1 == t')]? = some (t', loc) := by
+  have hd : defsOf prog t' = some loc.toDef := by
+    have ha := defEnv_entry_eq_allocate prog hdc hmem
+    have h2 := congrFun (allocate_toDefs prog) t'
+    simp only [Alloc.toDefs, ha, Option.map_some] at h2
+    exact h2.symm
+  rw [defsOf_eq_defEnv_find, List.find?_eq_getElem?_findIdx, Option.map_eq_some_iff] at hd
+  obtain ⟨⟨tt, locc⟩, hget, _htoDef⟩ := hd
+  have htt : tt = t' := by
+    have := List.findIdx_of_getElem?_eq_some hget; simpa using this
+  subst htt
+  have hmemcc : (tt, locc) ∈ defEnv prog := List.mem_of_getElem? hget
+  have hll : locc = loc := matCache_last_eq_first prog hdc hmemcc hmem
+  rw [hget, hll]
+
+/-- **An operand of a `.remat` entry at position `i` occurs somewhere in the prefix `take i`.**
+Directly `DefEnvOrdered` (operand at some `j < i`), landed to a `take`-prefix membership. -/
+theorem operand_mem_take {prog : Program} (hord : DefEnvOrdered prog)
+    {i : Nat} {t' t'' : Tmp} {e : Expr}
+    (hget : (defEnv prog)[i]? = some (t', Loc.remat e)) (hu : usesInExpr t'' e ≠ 0) :
+    t'' ∈ ((defEnv prog).take i).map Prod.fst := by
+  obtain ⟨j, hji, locj, hj⟩ := hord i t' e hget t'' hu
+  have hjt : ((defEnv prog).take i)[j]? = some (t'', locj) := by
+    rw [List.getElem?_take, if_pos hji]; exact hj
+  exact List.mem_map_of_mem (List.mem_of_getElem? hjt)
+
+/-- **Prefix stability of `matCache`** — the induction engine of `matCache_unfold`. Any
+def-env prefix that already contains an occurrence of `t'` agrees with the full `matCache` at
+`t'`. Well-founded on `t'`'s first index (`DefEnvOrdered` via `defEnv_operand_findIdx_lt`);
+SSA single-binding (`matCache_last_eq_first`) makes the two last-occurrence entries carry the
+same `Loc`, and operand-locality (`matExpr_congr`) closes the `.remat` step. -/
+theorem matFold_take_eq_matCache (prog : Program)
+    (hdc : DefsConsistent prog) (hord : DefEnvOrdered prog) :
+    ∀ (t' : Tmp) (p : Nat), t' ∈ ((defEnv prog).take p).map Prod.fst →
+      matFold matInit ((defEnv prog).take p) t' = matCache prog t' := by
+  have key : ∀ (n : Nat) (t' : Tmp),
+      (defEnv prog).findIdx (fun p => p.1 == t') = n →
+      ∀ (p : Nat), t' ∈ ((defEnv prog).take p).map Prod.fst →
+        matFold matInit ((defEnv prog).take p) t' = matCache prog t' := by
+    intro n
+    induction n using Nat.strong_induction_on with
+    | _ n ih =>
+      intro t' hn p hmem
+      have hmemFull : t' ∈ (defEnv prog).map Prod.fst := by
+        obtain ⟨y, hy, hy2⟩ := List.mem_map.mp hmem
+        exact List.mem_map.mpr ⟨y, List.take_subset p _ hy, hy2⟩
+      rcases matFold_split matInit t' ((defEnv prog).take p) with hA | hA
+      · exact absurd hmem hA.1
+      obtain ⟨preA, locA, postA, hsplitA, _hpostA, hvalA⟩ := hA
+      rcases matFold_split matInit t' (defEnv prog) with hB | hB
+      · exact absurd hmemFull hB.1
+      obtain ⟨preB, locB, postB, hsplitB, _hpostB, hvalB⟩ := hB
+      have hmemA : (t', locA) ∈ defEnv prog :=
+        List.take_subset p _ (by rw [hsplitA]; simp)
+      have hmemB : (t', locB) ∈ defEnv prog := by rw [hsplitB]; simp
+      have hll : locA = locB := matCache_last_eq_first prog hdc hmemA hmemB
+      rw [hvalA, matCache_eq_matFold, hvalB, ← hll]
+      have hpreA : preA = (defEnv prog).take preA.length := by
+        have h1 : preA <+: (defEnv prog).take p := by
+          rw [hsplitA]; exact List.prefix_append _ _
+        exact List.prefix_iff_eq_take.mp (h1.trans (List.take_prefix p _))
+      have hpreB : preB = (defEnv prog).take preB.length := by
+        have h1 : preB <+: defEnv prog := by rw [hsplitB]; exact List.prefix_append _ _
+        exact List.prefix_iff_eq_take.mp h1
+      have hlenA : preA.length < p := by
+        have hlen : ((defEnv prog).take p).length ≤ p := by
+          rw [List.length_take]; exact Nat.min_le_left _ _
+        rw [hsplitA] at hlen
+        simp only [List.length_append, List.length_cons] at hlen
+        omega
+      have hgetA : (defEnv prog)[preA.length]? = some (t', locA) := by
+        have h0 : ((defEnv prog).take p)[preA.length]? = some (t', locA) := by
+          rw [hsplitA, List.getElem?_append_right (Nat.le_refl _)]; simp
+        rwa [List.getElem?_take_of_lt hlenA] at h0
+      have hgetB : (defEnv prog)[preB.length]? = some (t', locB) := by
+        rw [hsplitB, List.getElem?_append_right (Nat.le_refl _)]; simp
+      cases locA with
+      | slot n => rfl
+      | remat e =>
+          simp only [matLoc_remat]
+          apply matExpr_congr
+          intro t'' hu
+          have hlt : (defEnv prog).findIdx (fun p => p.1 == t'') < n := by
+            rw [← hn]
+            exact defEnv_operand_findIdx_lt hord (defEnv_findIdx_entry prog hdc hmemA) hu
+          have hmemA'' : t'' ∈ ((defEnv prog).take preA.length).map Prod.fst :=
+            operand_mem_take hord hgetA hu
+          have hgetB' : (defEnv prog)[preB.length]? = some (t', Loc.remat e) := by
+            rw [hgetB, hll]
+          have hmemB'' : t'' ∈ ((defEnv prog).take preB.length).map Prod.fst :=
+            operand_mem_take hord hgetB' hu
+          have hAeq := ih _ hlt t'' rfl preA.length hmemA''
+          have hBeq := ih _ hlt t'' rfl preB.length hmemB''
+          rw [← hpreA] at hAeq
+          rw [← hpreB] at hBeq
+          rw [hAeq, hBeq]
+  intro t' p hmem
+  exact key _ t' rfl p hmem
+
+/-- **`matCache_unfold` — the fold fixpoint.** For a `t` present in `defEnv prog`, the cached
+bytes of `t` are `matLoc` of its (unique, SSA-canonical) `Loc` resolved under the FULL cache.
+The replacement for `matFueled_of_acyclic`: proved from the prefix-stability engine, NO
+fold↔fuel bridge. -/
+theorem matCache_unfold (prog : Program) (hdc : DefsConsistent prog) (hord : DefEnvOrdered prog)
+    {t : Tmp} {loc : Loc} (hmem : (t, loc) ∈ defEnv prog) :
+    matCache prog t = matLoc (matCache prog) loc := by
+  rcases matFold_split matInit t (defEnv prog) with hB | hB
+  · exact absurd (List.mem_map.mpr ⟨(t, loc), hmem, rfl⟩) hB.1
+  obtain ⟨preB, locB, postB, hsplitB, _hpostB, hvalB⟩ := hB
+  have hmemB : (t, locB) ∈ defEnv prog := by rw [hsplitB]; simp
+  have hll : loc = locB := matCache_last_eq_first prog hdc hmem hmemB
+  rw [matCache_eq_matFold, hvalB, hll]
+  have hpreB : preB = (defEnv prog).take preB.length := by
+    have h1 : preB <+: defEnv prog := by rw [hsplitB]; exact List.prefix_append _ _
+    exact List.prefix_iff_eq_take.mp h1
+  have hgetB : (defEnv prog)[preB.length]? = some (t, locB) := by
+    rw [hsplitB, List.getElem?_append_right (Nat.le_refl _)]; simp
+  cases locB with
+  | slot n => rfl
+  | remat e =>
+      simp only [matLoc_remat]
+      apply matExpr_congr
+      intro t'' hu
+      have hgetB' : (defEnv prog)[preB.length]? = some (t, Loc.remat e) := hgetB
+      have hmem'' : t'' ∈ ((defEnv prog).take preB.length).map Prod.fst :=
+        operand_mem_take hord hgetB' hu
+      have heq := matFold_take_eq_matCache prog hdc hord t'' preB.length hmem''
+      rw [← hpreB] at heq
+      rw [heq, matCache_eq_matFold]
+
+/-- **Corollary — rematerialised tmp.** The cache bytes of a `.remat e` tmp are the
+byte-assembly of `e` under the full cache. -/
+theorem matCache_remat (prog : Program) (hdc : DefsConsistent prog) (hord : DefEnvOrdered prog)
+    {t : Tmp} {e : Expr} (hmem : (t, Loc.remat e) ∈ defEnv prog) :
+    matCache prog t = matExpr (matCache prog) e := by
+  rw [matCache_unfold prog hdc hord hmem, matLoc_remat]
+
+/-- **Corollary — spilled tmp.** The cache bytes of a `.slot n` tmp are the slot readback
+`PUSH n; MLOAD`. -/
+theorem matCache_slot (prog : Program) (hdc : DefsConsistent prog) (hord : DefEnvOrdered prog)
+    {t : Tmp} {n : Nat} (hmem : (t, Loc.slot n) ∈ defEnv prog) :
+    matCache prog t = emitImm (UInt256.ofNat n) ++ [Byte.mload] := by
+  rw [matCache_unfold prog hdc hord hmem, matLoc_slot]
+
+/-- **Corollary — absent tmp.** A tmp with no `defEnv` entry falls back to `emitImm 0`
+(the fold's undefined-tmp leaf), matching `materialiseExpr`'s `none`-leaf. -/
+theorem matCache_absent (prog : Program) {t : Tmp}
+    (hmem : t ∉ (defEnv prog).map Prod.fst) : matCache prog t = emitImm 0 := by
+  rw [matCache_eq_matFold, matFold_notMem (defEnv prog) matInit hmem]; rfl
+
 /-! ## §1B new — the two scalar budgets -/
 
 /-- **The pc budget** — the whole lowered program fits a 32-bit program counter. The scalar
