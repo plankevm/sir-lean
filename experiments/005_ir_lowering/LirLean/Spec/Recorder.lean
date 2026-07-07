@@ -1,8 +1,4 @@
 import LirLean.Spec.CallEntry
--- NOTE: `BytecodeLayer.Hoare.GasMonotone` is a LIVE import even with the gas-monotonicity
--- law deleted — `DriveSim.lean` uses `Runs.gasAvailable_le` in code, and this import is the
--- only path bringing that module into DriveSim's cone.
-import BytecodeLayer.Hoare.GasMonotone
 
 /-!
 # LirLean v2 — the instrumented recording interpreter `runWithLog` (regime (i))
@@ -53,24 +49,6 @@ open BytecodeLayer
 open BytecodeLayer.System
 open BytecodeLayer.Interpreter
 open BytecodeLayer.Hoare
-
--- RELOCATED from V2/Oracle.lean (Phase 2): the two defs the §7 tie-discharge layer
--- (`V2/Drive/SelfPresent.lean` — `GasLogAligned`, `FramesRun.snoc`/`.snoc_seed`,
--- `gasRecord_eq_gasReadOf`, `gasReadOf_gasFrame_eq_obs`) still consumes. The rest of
--- the gas-law interface (`GasRealises`, `.monotoneGas`, the guard theorems) was
--- deleted with the gas-monotonicity law (docs/gas-decision.md).
-
-/-- The `Word` a `GAS` opcode at (post-charge) frame `fr` reports: `ofUInt64` of the
-frame's `gasAvailable`. The realisability bridge between a gas read and a frame. -/
-def gasReadOf (fr : Frame) : Word := UInt256.ofUInt64 fr.exec.gasAvailable
-
-/-- The GAS-frames are threaded by `Runs` in program order: each is reachable from the
-previous (so the machine genuinely ran between the two reads). A `Runs`-chain over the
-witness list. -/
-def FramesRun : List Frame → Prop
-  | [] => True
-  | [_] => True
-  | a :: b :: rest => Runs a b ∧ FramesRun (b :: rest)
 
 /-! ## The per-call record
 

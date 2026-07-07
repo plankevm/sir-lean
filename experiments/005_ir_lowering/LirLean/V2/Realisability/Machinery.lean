@@ -2,7 +2,7 @@ import LirLean.V2.Drive.Headline
 import LirLean.Assembly.Acyclic
 import LirLean.Decode.BoundaryReach
 import LirLean.V2.Realisability.Surface
-import LirLean.V2.Modellable
+import LirLean.Engine.Modellable
 
 /-!
 # LirLean v2 — Realisability spec, MACHINERY (§5)

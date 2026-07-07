@@ -201,4 +201,54 @@ theorem stmt_byte_anchor (prog : Program) (L : Label) (b : Block) (pc : Nat) (s 
       show sp - ((b.stmts.take pc).flatMap (emitStmt defs fuel)).length = 0 from by rw [hsp]; omega]
   rw [List.getElem?_append_left (by omega)]
 
+/-! ## The offset-table statement cursor `pcOf` and its byte anchor (generic `M1`)
+
+`pcOf prog L pc` is the byte offset the resolved offset table assigns to cursor
+`(L, pc)`: the block's `JUMPDEST` (`offsetTable … L.idx`), skip the `JUMPDEST` (`+1`),
+then the byte length of the emitted statements `0 .. pc` of block `L`. It lives here
+(pure byte-offset geometry over `lower prog`) rather than on the `Match` side; `Match`'s
+`M1` clause pins `fr.exec.pc` to it. These lemmas wire the offset-table arithmetic into a
+decode fact at the *symbolic* `pcOf` address, over an arbitrary program — the
+program-global `M1` discharge the simulation engine needs at each statement step. -/
+
+/-- `prog.blockAt L = some b` from the `toList` index witness (the form `Layout`'s
+lemmas take). -/
+theorem blockAt_of_toList (prog : Program) (L : Label) (b : Block)
+    (hb : prog.blocks.toList[L.idx]? = some b) : prog.blockAt L = some b := by
+  unfold Program.blockAt; rw [← Array.getElem?_toList]; exact hb
+
+/-- The byte offset the offset table assigns to cursor `(L, pc)` of `prog`: the
+block's `JUMPDEST` (`offsetTable … L.idx`), skip the `JUMPDEST` (`+1`), then the
+byte length of the emitted statements `0 .. pc` of block `L`. A prefix sum, so it
+is computable; `Match`'s `M1` pins `fr.exec.pc` to this. -/
+def pcOf (prog : Program) (L : Label) (pc : Nat) : Nat :=
+  let defs := defsOf prog
+  let fuel := recomputeFuel prog
+  offsetTable defs fuel prog.blocks L.idx + 1
+    + (((prog.blockAt L).map (fun b =>
+          ((b.stmts.take pc).flatMap (emitStmt defs fuel)).length)).getD 0)
+
+/-- `pcOf prog L pc` unfolds to the offset-table anchor index (the `Layout` form)
+when block `L` is present — the `getD 0` collapses to the block's stmt-prefix length. -/
+theorem pcOf_eq_anchor (prog : Program) (L : Label) (b : Block) (pc : Nat)
+    (hb : prog.blocks.toList[L.idx]? = some b) :
+    pcOf prog L pc
+      = offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks L.idx + 1
+        + ((b.stmts.take pc).flatMap (emitStmt (defsOf prog) (recomputeFuel prog))).length := by
+  unfold pcOf; rw [blockAt_of_toList prog L b hb]; rfl
+
+/-- **The statement-cursor byte (generic `M1`).** The byte `flatBytes prog` holds at
+`pcOf prog L pc` is the head byte of the statement at that cursor — `(emitStmt … s)[0]`.
+The composition of `pcOf_eq_anchor` (pc = offset-table anchor) and
+`stmt_byte_anchor` (anchor byte = `emitStmt` head). The `decode_lower_*` lemmas
+turn this into a decode fact for the construct. -/
+theorem flatBytes_at_pcOf (prog : Program) (L : Label) (b : Block) (pc : Nat) (s : Stmt)
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hs : b.stmts[pc]? = some s)
+    (hne : emitStmt (defsOf prog) (recomputeFuel prog) s ≠ []) :
+    (flatBytes prog)[pcOf prog L pc]?
+      = (emitStmt (defsOf prog) (recomputeFuel prog) s)[0]? := by
+  rw [pcOf_eq_anchor prog L b pc hb]
+  exact stmt_byte_anchor prog L b pc s hb hs hne
+
 end Lir

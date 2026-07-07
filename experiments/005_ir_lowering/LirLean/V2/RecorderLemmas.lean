@@ -21,6 +21,26 @@ open BytecodeLayer.System
 open BytecodeLayer.Interpreter
 open BytecodeLayer.Hoare
 
+-- RELOCATED from `Spec/Recorder.lean` (originally `V2/Oracle.lean`): the two defs the §7
+-- tie-discharge layer (`V2/Drive/SelfPresent.lean` — `GasLogAligned`,
+-- `FramesRun.snoc`/`.snoc_seed`, `gasRecord_eq_gasReadOf`, `gasReadOf_gasFrame_eq_obs`)
+-- still consumes. Recorder-proof machinery, not spec-core, so it lives here rather than in
+-- the trusted `Spec/` cone. The rest of the gas-law interface (`GasRealises`,
+-- `.monotoneGas`, the guard theorems) was deleted with the gas-monotonicity law
+-- (docs/gas-decision.md).
+
+/-- The `Word` a `GAS` opcode at (post-charge) frame `fr` reports: `ofUInt64` of the
+frame's `gasAvailable`. The realisability bridge between a gas read and a frame. -/
+def gasReadOf (fr : Frame) : Word := UInt256.ofUInt64 fr.exec.gasAvailable
+
+/-- The GAS-frames are threaded by `Runs` in program order: each is reachable from the
+previous (so the machine genuinely ran between the two reads). A `Runs`-chain over the
+witness list. -/
+def FramesRun : List Frame → Prop
+  | [] => True
+  | [_] => True
+  | a :: b :: rest => Runs a b ∧ FramesRun (b :: rest)
+
 /-- **The SLOAD value-level bridge** (parallel to `gasReadOf_gasFrame_eq_obs`). At an
 SLOAD frame `g` whose stack-head is the bound key (`g.exec.stack.head? = some key`), the
 recorded warmth-charge `sloadWarmthOf g` is exactly the value `SloadRealises` demands at

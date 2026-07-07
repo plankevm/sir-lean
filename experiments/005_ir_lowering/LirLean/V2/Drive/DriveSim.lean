@@ -1,7 +1,11 @@
 import LirLean.Assembly.LowerConforms
 import LirLean.V2.IRRun
 import LirLean.Engine.DriveRuns
-import LirLean.V2.Modellable
+import LirLean.Engine.Modellable
+-- `Runs.gasAvailable_le` (used below in the gas-descent measure) lives here; imported
+-- directly rather than plumbed through `Spec/Recorder.lean` (keeps the trusted spec cone
+-- free of this exp003 gas-monotonicity dependency).
+import BytecodeLayer.Hoare.GasMonotone
 
 /-!
 # LirLean v2 — drive-indexed forward simulation, cyclic-CFG construction (`DriveSim`, F1–F3)

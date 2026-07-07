@@ -3,6 +3,7 @@ import LirLean.Assembly.Acyclic
 import LirLean.Decode.BoundaryReach
 import LirLean.Spec.WellFormed
 import LirLean.Spec.Conformance
+import LirLean.Spec.Seams
 
 /-!
 # LirLean v2 — Realisability spec, SURFACE (§1–§4)
@@ -205,11 +206,13 @@ def ReachableFrom (params : CallParams) (fr' : Frame) : Prop :=
   ∃ fr₀, beginCall params = .inl fr₀ ∧ Runs fr₀ fr'
 
 /-- **The honest oracle seams** (the flagship's `hseams`) — the precompile boundary, both
-faces. `noErase` is verbatim the `hprec` hypothesis of `callPreservesSelf_modGuards`
-(a live precompile's `.inr` result map genuinely can erase accounts — opaque, honestly
-supplied; vacuous for non-precompile-targeting programs). `callsCode` is the reachable-CALL
-targets-code residual (`V2/Modellable.lean`; NOT a lowering property — an IR call whose
-callee materialises a precompile address would violate it; vacuous for call-free programs).
+faces. `noErase` is the `hprec` hypothesis of `callPreservesSelf_modGuards`, its type bound
+*definitionally* to the trusted register's `Lir.Spec.PrecompilesPreservePresence`
+(`Spec/Seams.lean`) so the two cannot drift (a live precompile's `.inr` result map genuinely
+can erase accounts — opaque, honestly supplied; vacuous for non-precompile-targeting
+programs). `callsCode` is the reachable-CALL targets-code residual (`Engine/Modellable.lean`;
+NOT a lowering property — an IR call whose callee materialises a precompile address would
+violate it; vacuous for call-free programs).
 SUPPLIED status: the irreducible seam structure — both fields are satisfiable and
 non-vacuous, and neither is dischargeable from the program text. (`prog` is carried for
 signature stability — a future refinement scopes `callsCode` by the program's call sites.)
@@ -219,9 +222,9 @@ precompile stub actually preserves account presence — R12a deliberately DOUBLE
 machine-check of that engine fact (its `PrecompileAssumptions exProg params` conjunct); a failure
 there is diagnosed as a SEAM problem with the engine stub, not an `exProg` problem. -/
 structure PrecompileAssumptions (prog : Program) (params : CallParams) : Prop where
-  /-- Precompile no-erase (`hprec`): an immediate `.inr` result preserves account presence. -/
-  noErase : ∀ (cp : CallParams) (imm : CallResult), beginCall cp = .inr imm →
-    ∀ a, AccPresent a cp.accounts → AccPresent a imm.accounts
+  /-- Precompile no-erase (`hprec`): an immediate `.inr` result preserves account presence.
+  Bound definitionally to the trusted register's `Lir.Spec.PrecompilesPreservePresence`. -/
+  noErase : Lir.Spec.PrecompilesPreservePresence
   /-- Every reachable frame's CALLs target code accounts, never a precompile. -/
   callsCode : ∀ fr', ReachableFrom params fr' → CallsCode fr'
 

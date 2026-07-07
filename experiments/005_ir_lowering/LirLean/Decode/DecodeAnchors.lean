@@ -1,6 +1,5 @@
 import LirLean.Decode.Layout
 import LirLean.Decode.DecodeLower
-import LirLean.Frame.Match
 
 /-!
 # LirLean — decode-at-cursor anchor lemmas (Layer A of the `lower_conforms` grind)
@@ -13,7 +12,7 @@ whose **Layer A** turns an offset-table address `pcOf prog L pc` (or a byte curs
 * **A1 `decode_at_stmt_head`** — at `pcOf prog L pc` the decode yields the head opcode
   of the statement at that cursor (`(emitStmt … s)[0]`). Two corollaries cover the two
   possible head shapes (non-push / push), each a composition of `flatBytes_at_pcOf`
-  (`Match.lean`, the prefix-sum byte anchor) with `decode_lower_{nonpush,push}`
+  (`Layout.lean`, the prefix-sum byte anchor) with `decode_lower_{nonpush,push}`
   (`DecodeLower.lean`).
 * **A2 `decode_at_offset`** — decode at an arbitrary cursor `pcOf prog L pc + k`
   *inside* a statement's emitted bytes (the byte being `(emitStmt … s)[k]`). This is
@@ -128,18 +127,18 @@ theorem term_byte_anchor (prog : Program) (L : Label) (b : Block) (k : Nat)
   rw [List.getElem?_append_right (by rw [← hsp]; omega),
       show sp + k - (b.stmts.flatMap (emitStmt defs fuel)).length = k from by rw [hsp]; omega]
 
-/-! ## `pcOf`-level byte facts (the `Match.flatBytes_at_pcOf` family)
+/-! ## `pcOf`-level byte facts (the `Layout.flatBytes_at_pcOf` family)
 
-`Match.pcOf prog L pc` is the offset-table address of a *statement* cursor. We lift
+`Layout.pcOf prog L pc` is the offset-table address of a *statement* cursor. We lift
 the two layout bricks above to it: the byte at `pcOf prog L pc + k` is
 `(emitStmt … s)[k]` (A2's byte half), and — defining `termOf` for the terminator
 offset — the byte at `termOf prog L b + k` is `(emitTerm … b.term)[k]` (A3's byte
-half). These specialise `Match.flatBytes_at_pcOf` (the `k = 0` statement instance)
+half). These specialise `Layout.flatBytes_at_pcOf` (the `k = 0` statement instance)
 to arbitrary cursors. -/
 
 /-- The byte at the statement cursor `pcOf prog L pc` plus offset `k` is the `k`-th
 byte of `emitStmt … s` — the `pcOf`-level form of `stmt_byte_anchor_k`. The `k = 0`
-case is `Match.flatBytes_at_pcOf`. -/
+case is `Layout.flatBytes_at_pcOf`. -/
 theorem flatBytes_at_pcOf_offset (prog : Program) (L : Label) (b : Block) (pc : Nat) (s : Stmt)
     (k : Nat)
     (hb : prog.blocks.toList[L.idx]? = some b)
@@ -152,7 +151,7 @@ theorem flatBytes_at_pcOf_offset (prog : Program) (L : Label) (b : Block) (pc : 
 
 /-- The byte offset of block `L = b`'s terminator in `flatBytes prog`: after the
 block's `JUMPDEST` (`offsetTable … L.idx + 1`) and *all* its emitted statements. The
-`Match.pcOf` analogue for the block's `Term`. -/
+`Layout.pcOf` analogue for the block's `Term`. -/
 def termOf (prog : Program) (L : Label) : Nat :=
   let defs := defsOf prog
   let fuel := recomputeFuel prog
