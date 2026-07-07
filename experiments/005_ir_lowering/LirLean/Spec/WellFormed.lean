@@ -284,6 +284,21 @@ def NoSlotSource (prog : Program) : Prop :=
   ∀ (L : Label) (b : Block) (pc : Nat) (t : Tmp) (n : Nat),
     blockAt prog L = some b → b.stmts[pc]? = some (.assign t (.slot n)) → False
 
+/-- **The program-order def-env is a valid ordered list** — every rematerialised entry
+`(t, Loc.remat e)` at position `i` references only tmps that appear at an EARLIER position
+`j < i` in `defEnv prog`. This is exactly define-before-use (SSA) on the static def-graph:
+the program-order carrier is a valid topological order (design §1.2, grounded in
+`RunDefinableG` self-contained blocks + `DefsConsistent` first-find). It strictly implies
+the old `Acyclic (defsOf prog) rank` (a topological order is acyclic), but carries no
+existential rank and no fuel-fitting side condition — it is the fuel-free replacement of
+`acyclicDefs` (design §1.3 / D4), to be wired into `IRWellFormed` in a later step.
+Decidable per program (`decide`/`rfl` for `exProg`, mirroring `acyclic_exProg`). -/
+def DefEnvOrdered (prog : Program) : Prop :=
+  ∀ (i : Nat) (t : Tmp) (e : Expr),
+    (defEnv prog)[i]? = some (t, Loc.remat e) →
+    ∀ t' : Tmp, usesInExpr t' e ≠ 0 →
+      ∃ j, j < i ∧ ∃ loc : Loc, (defEnv prog)[j]? = some (t', loc)
+
 /-! ## §1B new — the two scalar budgets -/
 
 /-- **The pc budget** — the whole lowered program fits a 32-bit program counter. The scalar
