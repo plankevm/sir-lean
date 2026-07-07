@@ -179,7 +179,7 @@ tautology ("every non-stale binding recomputes"). -/
 /-- `t'` is a **registered reader** of `t`: `t'`'s `defsOf`-registered def reads `t`.
 Static (a fact of the program text); the invalidation unit of `invalStep`. -/
 def ReadsOf (prog : Program) (t t' : Tmp) : Prop :=
-  ∃ e', defsOf prog t' = some e' ∧ usesInExpr t e' ≠ 0
+  ∃ e', rematOf prog t' = some e' ∧ usesInExpr t e' ≠ 0
 
 /-- **The invalidation-set transfer** of one statement. Rebinding `t` (an assign target or
 a call result) invalidates every registered reader of `t`; `t` itself is re-validated by
@@ -210,7 +210,7 @@ real mid-block loop-exit states (`not_defsSound_stale`), while `DefsSoundS` at t
 `invalStep`-threaded set is preserved with no per-state side conditions (R0b). -/
 def DefsSoundS (prog : Program) (I : Tmp → Prop) (st : IRState) : Prop :=
   ∀ (t : Tmp) (e : Expr) (w : Word),
-    defsOf prog t = some e → ¬ Lir.NonRecomputable prog t → ¬ I t →
+    rematOf prog t = some e → ¬ Lir.NonRecomputable prog t → ¬ I t →
     st.locals t = some w → some w = evalExpr st 0 e
 
 /-- At the EMPTY invalidation set, `DefsSoundS` is exactly the strong `DefsSound` — the
@@ -232,11 +232,11 @@ the `defsOf_ne_gas` twin). DERIVED status inside the ties: computable from `hwl`
 cursor, never a live-set demand. -/
 def StepScopedS (prog : Program) : Stmt → Prop
   | .assign t e =>
-      (e ≠ .gas → (∀ key, e ≠ .sload key) → defsOf prog t = some e)
+      (e ≠ .gas → (∀ key, e ≠ .sload key) → rematOf prog t = some e)
       ∧ (e = .gas → Lir.isGasDef prog t)
       ∧ (∀ key, e = .sload key → Lir.isSloadDef prog t)
   | .sstore _ _ =>
-      ∀ (t₀ : Tmp) (e₀ : Expr), defsOf prog t₀ = some e₀ → ∀ key, e₀ ≠ .sload key
+      ∀ (t₀ : Tmp) (e₀ : Expr), rematOf prog t₀ = some e₀ → ∀ key, e₀ ≠ .sload key
   | .call cs => ∀ t, cs.resultTmp = some t → Lir.isCallResult prog t
   | .create _ =>
       -- Step-1 placeholder (real total Prop): the create-result registration clause

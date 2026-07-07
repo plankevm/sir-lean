@@ -344,7 +344,7 @@ neither the self-read (`usesInExpr t e = 0`) nor the define-before-use scoping c
 private theorem defsSound_setLocal_recomputable {prog : Program} {st : IRState}
     {t : Tmp} {e : Expr} {w : Word}
     (hnr : ¬ NonRecomputable prog t)
-    (hdef : defsOf prog t = some e)
+    (hdef : rematOf prog t = some e)
     (hv : evalExpr st 0 e = some w)
     (hsound : DefsSound prog st) :
     DefsSound prog (st.setLocal t w) := by
@@ -416,7 +416,7 @@ theorem simStmt_coupled_assignPure {prog : Program} {sloadChg : Tmp → ℕ} {lo
   obtain ⟨hslot, hstepS, hscoped', hmem'⟩ :=
     hties.1 pc t e w st fr gS sS cS hcur hne hns hcorr hcp hch hv
   -- The registered def and the recomputability of the (non-spilled) target.
-  have hdef : defsOf prog t = some e := hstepS.1 hne hns
+  have hdef : rematOf prog t = some e := hstepS.1 hne hns
   have hnr : ¬ NonRecomputable prog t := by
     have hd := (hscoped' t (by simp [IRState.setLocal])).1
     rcases hd with h | ⟨n, hn⟩
@@ -795,7 +795,8 @@ theorem recorderCoupled_matRuns {prog : Program} (sloadChg : Tmp → ℕ)
                     rintro rfl
                     exact defsOf_ne_sload prog t k (by rw [← hdefs]; exact ht)
                   have hdfs : some w = evalExpr st 0 e' :=
-                    hsound t e' w (by rw [← hdefs, ht]) hnr hloc
+                    hsound t e' w (rematOf_of_defsOf (by rw [← hdefs, ht]) (fun n h => hncr ⟨n, h⟩))
+                      hnr hloc
                   have heval' : evalExpr st obs e' = some w := by
                     rw [evalExpr_obs_irrel st obs 0 he'ng]; exact hdfs.symm
                   obtain ⟨fr', hmr, hcp'⟩ := ih e' w fr htmd hsound hscoped hstore he'ng he'nsl

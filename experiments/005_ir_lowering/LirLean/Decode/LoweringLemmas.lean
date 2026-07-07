@@ -95,6 +95,38 @@ theorem defsOf_ne_sload (prog : Program) (t : Tmp) (k : Tmp) :
           simp only [Option.some.injEq] at hsmap
           rw [← hsmap] at hpr; simp at hpr
 
+/-! ## `rematOf` — the non-`.slot` projection of `defsOf` (Phase 2A spine decouple) -/
+
+/-- Every `rematOf` binding is a `defsOf` binding: `rematOf` only *drops* the spilled
+(`.slot`) entries, it never invents one. -/
+theorem defsOf_of_rematOf {prog : Program} {t : Tmp} {e : Expr}
+    (h : rematOf prog t = some e) : defsOf prog t = some e := by
+  rw [rematOf] at h
+  split at h
+  · exact absurd h (by nofun)
+  · rename_i e' heq; rw [heq]; exact h
+  · exact absurd h (by nofun)
+
+/-- A non-`.slot` `defsOf` binding is a `rematOf` binding: on the rematerialised entries the
+two views coincide. -/
+theorem rematOf_of_defsOf {prog : Program} {t : Tmp} {e : Expr}
+    (hd : defsOf prog t = some e) (hns : ∀ n, e ≠ .slot n) : rematOf prog t = some e := by
+  unfold rematOf; rw [hd]
+  cases e with
+  | slot n => exact absurd rfl (hns n)
+  | _ => rfl
+
+/-- `rematOf` never registers a tmp as the bare `Expr.gas` (the `defsOf` twin, lifted through
+`defsOf_of_rematOf`): gas tmps are spilled to `.slot` and dropped by `rematOf`. -/
+theorem rematOf_ne_gas (prog : Program) (t : Tmp) : rematOf prog t ≠ some .gas :=
+  fun h => defsOf_ne_gas prog t (defsOf_of_rematOf h)
+
+/-- `rematOf` never registers a tmp as a bare `Expr.sload _` (the `defsOf` twin, lifted
+through `defsOf_of_rematOf`): sload tmps are spilled to `.slot` and dropped by `rematOf`. -/
+theorem rematOf_ne_sload (prog : Program) (t : Tmp) (k : Tmp) :
+    rematOf prog t ≠ some (.sload k) :=
+  fun h => defsOf_ne_sload prog t k (defsOf_of_rematOf h)
+
 /-- `Loc.toDef` is a left inverse of `locOfExpr` on every expression. -/
 @[simp] theorem toDef_locOfExpr (e : Expr) : (locOfExpr e).toDef = e := by
   cases e <;> rfl

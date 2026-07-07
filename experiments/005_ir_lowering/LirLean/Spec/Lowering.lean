@@ -271,6 +271,21 @@ def defsOf (prog : Program) : Tmp → Option Expr :=
         | _                    => none))
   fun t => (pairs.find? (fun p => p.1 == t)).map (·.2)
 
+/-- **The rematerialisation view of `defsOf`** — the non-`.slot` projection: the defining
+expression of a tmp *when that tmp is rematerialised* (pure `imm`/`tmp`/`add`/`lt`), and
+`none` when it is spilled (gas / sload / call / create result, all routed by `defsOf` to
+`Expr.slot (slotOf t)`). This decouples the recompute-soundness spine (`DefsSound`,
+`DefsSoundS`, `ReadsOf`, `StepScopedS`, the `defsSound_preserved_*` walk) from `defsOf`'s
+codomain: the spine feeds these expressions to `evalExpr`, and `evalExpr st 0 (.slot n) =
+none`, so a spilled entry never carried a satisfiable recompute claim anyway. Once `defsOf`
+becomes `Alloc`-valued (Phase 2A later step) this re-bases to `some (.remat e) => some e |
+_ => none`, the SAME value — so the spine statements do not churn under the retype. -/
+def rematOf (prog : Program) (t : Tmp) : Option Expr :=
+  match defsOf prog t with
+  | some (.slot _) => none
+  | some e         => some e
+  | none           => none
+
 /-! ## Allocation: the default policy
 
 `allocate prog` is the **policy** half of `lower = encode ∘ emit (allocate prog)`.

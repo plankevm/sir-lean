@@ -197,7 +197,8 @@ theorem materialise_charge_le_of_cleanHalt {prog : Program} (sloadChg : Tmp → 
                     intro k; rintro rfl
                     exact defsOf_ne_sload prog t k (by rw [← hdefs]; exact ht)
                   have hdfs : some w = V2.evalExpr st 0 e' :=
-                    hsound t e' w (by rw [← hdefs, ht]) hnr hloc
+                    hsound t e' w (rematOf_of_defsOf (by rw [← hdefs, ht]) (fun n h => hncr ⟨n, h⟩))
+                      hnr hloc
                   have heval' : V2.evalExpr st obs e' = some w := by
                     rw [evalExpr_obs_irrel st obs 0 he'ng]; exact hdfs.symm
                   have hbound := ih e' w fr htmd hsound hscoped hstore he'ng he'nsl
