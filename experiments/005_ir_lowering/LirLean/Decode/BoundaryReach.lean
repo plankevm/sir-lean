@@ -174,6 +174,41 @@ theorem decode_reachable_boundary_loweringOp (prog : Program) (n : Nat)
       decode_lower_push prog n byte (Evm.pushArgWidth (Evm.parseInstr byte)) _
         hbound hbyte rfl hwpos rfl, hop⟩
 
+/-! ## Fold boundary-reach twins (Phase 2A P4)
+
+Fold twins of §3/§4, over `lowerF`/`flatBytesF`. The whole-program allow-list comes from
+`segAlignedP_flatBytesF` (UNCONDITIONAL); the interior transport is the same generic
+`reaches_loweringOp_of_segAlignedLowering`. -/
+
+/-- Fold twin of `segAlignedLowering_flatBytes`. -/
+theorem segAlignedLoweringF_flatBytes (prog : Program) : SegAlignedLowering (flatBytesF prog) :=
+  segAlignedP_flatBytesF prog
+
+/-- Fold twin of `reachable_boundary_loweringByte`. -/
+theorem reachable_boundary_loweringByteF (prog : Program) (n : Nat)
+    (hreach : ReachesBoundary (lowerF prog) 0 n) (hn : n < (flatBytesF prog).length) :
+    ∃ byte, (lowerF prog).get? n = some byte ∧ IsLoweringOp (Evm.parseInstr byte) := by
+  have hmatch : ∀ j, j < (flatBytesF prog).length →
+      (lowerF prog).get? (0 + j) = (flatBytesF prog)[j]? := by
+    intro j _; rw [Nat.zero_add]; exact lowerF_get?_eq prog j
+  exact reaches_loweringOp_of_segAlignedLowering (lowerF prog) (flatBytesF prog)
+    (segAlignedLoweringF_flatBytes prog) 0 hmatch n hreach (by rwa [Nat.zero_add])
+
+/-- Fold twin of `decode_reachable_boundary_loweringOp`. -/
+theorem decode_reachable_boundary_loweringOpF (prog : Program) (n : Nat)
+    (hreach : ReachesBoundary (lowerF prog) 0 n) (hn : n < (flatBytesF prog).length)
+    (hbound : n < 2 ^ 32) :
+    ∃ op arg, Evm.decode (lowerF prog) (UInt32.ofNat n) = some (op, arg) ∧ IsLoweringOp op := by
+  obtain ⟨byte, hget, hop⟩ := reachable_boundary_loweringByteF prog n hreach hn
+  have hbyte : (flatBytesF prog)[n]? = some byte := by rw [← lowerF_get?_eq]; exact hget
+  by_cases hw : Evm.pushArgWidth (Evm.parseInstr byte) = 0
+  · exact ⟨Evm.parseInstr byte, .none,
+      decode_lowerF_nonpush prog n byte hbound hbyte hw, hop⟩
+  · have hwpos : Evm.pushArgWidth (Evm.parseInstr byte) > 0 := UInt8.pos_iff_ne_zero.mpr hw
+    exact ⟨Evm.parseInstr byte, _,
+      decode_lowerF_push prog n byte (Evm.pushArgWidth (Evm.parseInstr byte)) _
+        hbound hbyte rfl hwpos rfl, hop⟩
+
 end Lir
 
 -- Build-enforced axiom-cleanliness guards: the boundary-reachability bricks depend only on
