@@ -453,4 +453,64 @@ reads back as the intended opcode stream (established by the decode-anchor theor
 `Decode/DecodeAnchors.lean`). -/
 def lower (prog : Program) : ByteArray := encode (emit (allocate prog) prog)
 
+/-! ## Fold-based emission (Phase 2A P4) — twins over `matCache`
+
+The `*F` twins consume the fold byte-`cache` (`matCache prog`) and the `Alloc` directly,
+instead of `materialiseExpr` under fuel: each `materialise defs fuel t` becomes the cache
+lookup `cache t`, each `materialiseExpr defs fuel e` becomes `matExpr cache e`, and the
+def-site slot lookup reads the `Alloc`. Byte-for-byte the intended fold lowering (the swap,
+P7, makes `lower` this). Added ALONGSIDE the old fuel emission; geometry over these twins is
+UNCONDITIONAL (the fold is total). -/
+
+/-- Fold twin of `emitStmt`: operands resolve against the byte-`cache`; the `assign` def-site
+consults the `Alloc` for its spill slot. -/
+def emitStmtF (cache : Tmp → List UInt8) (alloc : Alloc) : Stmt → List UInt8
+  | .assign t e =>
+      match alloc t with
+      | some (.slot n) => matExpr cache e ++ emitImm (UInt256.ofNat n) ++ [Byte.mstore]
+      | _ => []
+  | .sstore key value =>
+      cache value ++ cache key ++ [Byte.sstore]
+  | .call cs =>
+      emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
+      ++ cache cs.callee
+      ++ cache cs.gasFwd
+      ++ [Byte.call]
+      ++ (match cs.resultTmp with
+          | some t => emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]
+          | none   => [Byte.pop])
+  | .create cs =>
+      emitImm 0 ++ emitImm 0 ++ emitImm 0
+      ++ (match cs.salt with
+          | some s => cache s ++ [Byte.create2]
+          | none   => [Byte.create])
+      ++ (match cs.resultTmp with
+          | some t => emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]
+          | none   => [Byte.pop])
+
+/-- Fold twin of `emitTerm`: operands resolve against the byte-`cache`. -/
+def emitTermF (cache : Tmp → List UInt8) (labelOff : Nat → Nat) : Term → List UInt8
+  | .ret t              => cache t
+                             ++ emitImm 0 ++ [Byte.mstore]
+                             ++ emitImm 32 ++ emitImm 0 ++ [Byte.ret]
+  | .stop               => [Byte.stop]
+  | .jump dst           => emitDest (labelOff dst.idx) ++ [Byte.jump]
+  | .branch cond thenL elseL =>
+      cache cond
+      ++ emitDest (labelOff thenL.idx) ++ [Byte.jumpi]
+      ++ emitDest (labelOff elseL.idx) ++ [Byte.jump]
+
+/-- Fold twin of `emitBlockBody`. -/
+def emitBlockBodyF (cache : Tmp → List UInt8) (alloc : Alloc)
+    (labelOff : Nat → Nat) (b : Block) : List UInt8 :=
+  (b.stmts.flatMap (emitStmtF cache alloc)) ++ emitTermF cache labelOff b.term
+
+/-- Fold twin of `blockLen`. -/
+def blockLenF (cache : Tmp → List UInt8) (alloc : Alloc) (b : Block) : Nat :=
+  1 + (emitBlockBodyF cache alloc (fun _ => 0) b).length
+
+/-- Fold twin of `offsetTable`. -/
+def offsetTableF (cache : Tmp → List UInt8) (alloc : Alloc) (blocks : Array Block) (i : Nat) : Nat :=
+  ((blocks.toList.take i).map (blockLenF cache alloc)).sum
+
 end Lir
