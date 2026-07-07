@@ -41,7 +41,9 @@ Two standing decisions from Eduardo folded in:
   opcodes" → 18 post-CREATE/CREATE2 (SegAligned.lean:14/29, BoundaryReach.lean:23-30/118-124 — the
   enumerated allow-list is factually wrong); deleted-`NoCreateBytes` cites (SegAligned.lean:13/67,
   JumpValid.lean:41/80); flagship path missing `Realisability/` (Conformance.lean:16, Audit.lean:23);
-  the nine enforce-nothing `#print axioms` (MemAlgebra.lean:966-994).
+  (NOT MemAlgebra.lean:964-994 — those 8 `#guard_msgs in #print axioms` are LIVE build-failing
+  axiom-cleanliness guards, preserved on purpose by 53c2063; the map's original "enforce nothing"
+  claim was wrong. Leave them.)
 
 *Lands immediately, independently.*
 
