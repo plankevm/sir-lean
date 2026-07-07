@@ -260,6 +260,147 @@ theorem decode_at_block_offset_jumpdest (prog : Program) (L : Label) (b : Block)
     hbound hbyte (by decide)
   simpa using this
 
+/-! ## Fold jump-validity twins (Phase 2A P4)
+
+Fold twins of the E3 tower, over `lowerF`/`flatBytesF`/`emitBlockBodyF`/`offsetTableF`. The
+per-block alignment comes from `segAligned_loweredBlockF` (cache aligned by `segAlignedP_matCache`,
+UNCONDITIONALLY); the boundary walk, offset-table prefix sum and `validJumpDests` characterisation
+are reused verbatim. -/
+
+/-- Fold twin of `segAligned_loweredBlock`. -/
+theorem segAligned_loweredBlockF (cache : Tmp → List UInt8)
+    (hcache : ∀ t, SegAlignedP IsLoweringOp (cache t)) (alloc : Alloc) (labelOff : Nat → Nat)
+    (b : Block) : SegAligned (Byte.jumpdest :: emitBlockBodyF cache alloc labelOff b) :=
+  (segAlignedP_loweredBlockF cache hcache alloc labelOff b).mono (fun _ _ => trivial)
+
+/-- Fold twin of `lower_get?_eq`. -/
+theorem lowerF_get?_eq (prog : Program) (n : Nat) :
+    (lowerF prog).get? n = (flatBytesF prog)[n]? := by
+  rw [lowerF_eq_flatBytesF]; exact bget (flatBytesF prog) n
+
+/-- Fold twin of `offsetTable_succ`. -/
+theorem offsetTableF_succ (cache : Tmp → List UInt8) (alloc : Alloc) (blocks : Array Block)
+    (i : Nat) (b : Block) (hb : blocks.toList[i]? = some b) :
+    offsetTableF cache alloc blocks (i + 1)
+      = offsetTableF cache alloc blocks i + blockLenF cache alloc b := by
+  have hlt : i < blocks.toList.length := by
+    rcases Nat.lt_or_ge i blocks.toList.length with h | h
+    · exact h
+    · rw [List.getElem?_eq_none_iff.mpr h] at hb; exact absurd hb (by simp)
+  have hget : blocks.toList[i] = b := by
+    have h2 := List.getElem?_eq_getElem hlt; rw [h2] at hb; exact Option.some.inj hb
+  unfold offsetTableF
+  rw [List.take_add_one, List.map_append, List.sum_append]
+  congr 1
+  rw [List.getElem?_eq_getElem hlt, hget]
+  simp
+
+/-- Fold twin of `lower_match_block`. -/
+theorem lowerF_match_block (prog : Program) (i : Nat) (b : Block)
+    (hb : prog.blocks.toList[i]? = some b) :
+    ∀ j, j < (Byte.jumpdest :: emitBlockBodyF (matCache prog) (allocate prog)
+                (offsetTableF (matCache prog) (allocate prog) prog.blocks) b).length →
+      (lowerF prog).get? (offsetTableF (matCache prog) (allocate prog) prog.blocks i + j)
+        = (Byte.jumpdest :: emitBlockBodyF (matCache prog) (allocate prog)
+            (offsetTableF (matCache prog) (allocate prog) prog.blocks) b)[j]? := by
+  intro j hj
+  rw [lowerF_get?_eq]
+  rw [flatBytesF_block_split prog ⟨i⟩ b hb]
+  set cache := matCache prog with hcache
+  set alloc := allocate prog with halloc
+  set lo := offsetTableF cache alloc prog.blocks with hlo
+  set pre := (prog.blocks.toList.take i).flatMap
+    (fun b => Byte.jumpdest :: emitBlockBodyF cache alloc lo b) with hpre
+  set mid := Byte.jumpdest :: emitBlockBodyF cache alloc lo b with hmid
+  set suf := (prog.blocks.toList.drop (i + 1)).flatMap
+    (fun b => Byte.jumpdest :: emitBlockBodyF cache alloc lo b) with hsuf
+  have hprelen : pre.length = lo i := by
+    have := flatBytesF_block_offset prog ⟨i⟩
+    simpa [hpre, hlo] using this
+  rw [show lo i + j = pre.length + j from by rw [hprelen]]
+  exact mid_index pre mid suf j hj
+
+/-- Fold twin of `reaches_block_offset`. -/
+theorem reaches_block_offsetF (prog : Program) :
+    ∀ i, i ≤ prog.blocks.size →
+      ReachesBoundary (lowerF prog) 0
+        (offsetTableF (matCache prog) (allocate prog) prog.blocks i) := by
+  have hca : ∀ t, SegAlignedP IsLoweringOp (matCache prog t) := segAlignedP_matCache prog
+  intro i
+  induction i with
+  | zero =>
+    intro _
+    rw [show offsetTableF (matCache prog) (allocate prog) prog.blocks 0 = 0 from by
+          simp [offsetTableF]]
+    exact .refl 0
+  | succ n ih =>
+    intro hn
+    have hnlt : n < prog.blocks.size := by omega
+    have hblist : n < prog.blocks.toList.length := by simpa using hnlt
+    set b := prog.blocks.toList[n] with hbdef
+    have hb : prog.blocks.toList[n]? = some b := by rw [List.getElem?_eq_getElem hblist]
+    have h1 := ih (by omega)
+    set cache := matCache prog with hcache
+    set alloc := allocate prog with halloc
+    set lo := offsetTableF cache alloc prog.blocks with hlo
+    have hseg : SegAligned (Byte.jumpdest :: emitBlockBodyF cache alloc lo b) :=
+      segAligned_loweredBlockF cache hca alloc lo b
+    have hmatch := lowerF_match_block prog n b hb
+    have hwalk := reaches_of_segAligned (lowerF prog)
+      (Byte.jumpdest :: emitBlockBodyF cache alloc lo b) hseg (lo n) hmatch
+    have hlen : (Byte.jumpdest :: emitBlockBodyF cache alloc lo b).length
+        = blockLenF cache alloc b := (blockLenF_eq_length cache alloc lo b).symm
+    have hsucc : lo (n + 1) = lo n + blockLenF cache alloc b :=
+      offsetTableF_succ cache alloc prog.blocks n b hb
+    rw [hsucc]
+    rw [show lo n + blockLenF cache alloc b
+          = lo n + (Byte.jumpdest :: emitBlockBodyF cache alloc lo b).length from by rw [hlen]]
+    exact ReachesBoundary.trans h1 hwalk
+
+/-- Fold twin of `lower_byte_at_offset`. -/
+theorem lowerF_byte_at_offset (prog : Program) (L : Label) (b : Block)
+    (hb : prog.blocks.toList[L.idx]? = some b) :
+    (lowerF prog).get? (offsetTableF (matCache prog) (allocate prog) prog.blocks L.idx)
+      = some Byte.jumpdest := by
+  have hmatch := lowerF_match_block prog L.idx b hb
+  have := hmatch 0 (by simp)
+  simpa using this
+
+/-- Fold twin of `block_offset_validJump` (E3). -/
+theorem block_offset_validJumpF (prog : Program) (L : Label) (hL : L.idx < prog.blocks.size) :
+    (UInt32.ofNat (offsetTableF (matCache prog) (allocate prog) prog.blocks L.idx))
+      ∈ validJumpDests (lowerF prog) 0 := by
+  have hblist : L.idx < prog.blocks.toList.length := by simpa using hL
+  set b := prog.blocks.toList[L.idx] with hbdef
+  have hb : prog.blocks.toList[L.idx]? = some b := by rw [List.getElem?_eq_getElem hblist]
+  have hreach : ReachesBoundary (lowerF prog) 0
+      (offsetTableF (matCache prog) (allocate prog) prog.blocks L.idx) :=
+    reaches_block_offsetF prog L.idx (by omega)
+  have hget : (lowerF prog).get?
+      (offsetTableF (matCache prog) (allocate prog) prog.blocks L.idx) = some Byte.jumpdest :=
+    lowerF_byte_at_offset prog L b hb
+  have hmem := mem_validJumpDests_of_reachable_jumpdest (lowerF prog)
+    (i := offsetTableF (matCache prog) (allocate prog) prog.blocks L.idx)
+    hreach (byte := Byte.jumpdest) hget (by decide)
+  simpa [UInt32.ofNat] using hmem
+
+/-- Fold twin of `decode_at_block_offset_jumpdest`. -/
+theorem decode_at_block_offset_jumpdestF (prog : Program) (L : Label) (b : Block)
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hbound : offsetTableF (matCache prog) (allocate prog) prog.blocks L.idx < 2 ^ 32) :
+    Evm.decode (lowerF prog)
+        (UInt32.ofNat (offsetTableF (matCache prog) (allocate prog) prog.blocks L.idx))
+      = some (.Smsf .JUMPDEST, .none) := by
+  have hbyte : (flatBytesF prog)[offsetTableF (matCache prog) (allocate prog)
+      prog.blocks L.idx]? = some Byte.jumpdest := by
+    have h := lowerF_byte_at_offset prog L b hb
+    rw [lowerF_eq_flatBytesF] at h
+    rwa [bget] at h
+  have := decode_lowerF_nonpush prog
+    (offsetTableF (matCache prog) (allocate prog) prog.blocks L.idx) Byte.jumpdest
+    hbound hbyte (by decide)
+  simpa using this
+
 -- Build-enforced axiom-cleanliness guard: E3 depends only on
 -- `[propext, Classical.choice, Quot.sound]`.
 
