@@ -404,6 +404,98 @@ theorem matCache_last_eq_first (prog : Program)
     ((defEnv_entry_eq_allocate prog hdc h₁).symm.trans
       (defEnv_entry_eq_allocate prog hdc h₂))
 
+/-! ## §P2 — `DefEnvOrdered` subsumes the old rank-based `Acyclic` (Phase 2A P2)
+
+`DefEnvOrdered` is the fuel-free replacement for `IRWellFormed.acyclicDefs`
+(`∃ rank, Acyclic (defsOf prog) rank ∧ rank-fits-fuel`). The rank-fitting conjunct is gone
+(fuel is being deleted); the pure acyclicity half is still recovered from `DefEnvOrdered` by
+the **program-order first-index rank** `rank t := 2 · findIdx (·.1 == t) (defEnv prog)`. The
+factor 2 absorbs `ExprRankLt`'s `+1` on structural operands (`2·j + 1 < 2·i ⟺ j < i`). The
+`.gas`/`.sload` arms of `ExprRankLt` never fire — `defsOf` spills them (`defsOf_ne_gas` /
+`defsOf_ne_sload`); `.imm`/`.slot` are `True`. This lemma gates the eventual
+`acyclicDefs → defEnvOrdered` swap (it is deleted once no consumer needs `Acyclic`). -/
+
+/-- **`findIdx` is a lower bound at any satisfying index.** If `l[j]? = some x` and `p x`,
+then the first index satisfying `p` is `≤ j`. (Pure `List` fact, by induction on `l`; stated
+over `getElem?` to avoid `getElem` proof-term bookkeeping.) -/
+theorem findIdx_le_of_getElem? {α : Type _} {p : α → Bool} :
+    ∀ {l : List α} {j : Nat} {x : α}, l[j]? = some x → p x = true → l.findIdx p ≤ j
+  | [], _, _, hj, _ => by simp at hj
+  | a :: as, 0, x, hj, hx => by
+      simp only [List.getElem?_cons_zero, Option.some.injEq] at hj
+      subst hj; rw [List.findIdx_cons, hx, cond_true]
+  | a :: as, j + 1, x, hj, hx => by
+      simp only [List.getElem?_cons_succ] at hj
+      rw [List.findIdx_cons]
+      cases hpa : p a with
+      | true => rw [cond_true]; exact Nat.zero_le _
+      | false => rw [cond_false]; exact Nat.succ_le_succ (findIdx_le_of_getElem? hj hx)
+
+/-- An operand `t'` of the `defEnv` entry that *defines* `t` (the first-find entry, at
+`findIdx`) occurs at a strictly smaller first-index. This is exactly `DefEnvOrdered` read at
+`t`'s own first-index `i = findIdx (·.1 == t)`: the witnessing earlier occurrence `j < i` of
+`t'` bounds `t'`'s first-index (`findIdx (·.1 == t') ≤ j`). -/
+theorem defEnv_operand_findIdx_lt {prog : Program} (h : DefEnvOrdered prog)
+    {t t' : Tmp} {e : Expr}
+    (hget : (defEnv prog)[(defEnv prog).findIdx (fun p => p.1 == t)]? = some (t, Loc.remat e))
+    (hu : usesInExpr t' e ≠ 0) :
+    (defEnv prog).findIdx (fun p => p.1 == t')
+      < (defEnv prog).findIdx (fun p => p.1 == t) := by
+  obtain ⟨j, hji, loc', hj⟩ := h _ t e hget t' hu
+  have hle : (defEnv prog).findIdx (fun p => p.1 == t') ≤ j :=
+    findIdx_le_of_getElem? hj (by simp)
+  omega
+
+/-- **`DefEnvOrdered` subsumes `Acyclic`.** Every `DefEnvOrdered` program admits an acyclicity
+rank on `defsOf`: the program-order first-index (doubled). NO `rank_lt_fuel` side condition —
+fuel is being deleted, so acyclicity is the *only* content recovered. -/
+theorem defEnvOrdered_subsumes_acyclic {prog : Program} (h : DefEnvOrdered prog) :
+    ∃ rank, Acyclic (defsOf prog) rank := by
+  refine ⟨fun t => 2 * (defEnv prog).findIdx (fun p => p.1 == t), ?_⟩
+  intro t e hd
+  -- The `defEnv` entry defining `t` sits at `findIdx (·.1 == t)` (find? / findIdx bridge),
+  -- and its `Loc.toDef` is `e`.
+  have hEntry : ∃ loc, (defEnv prog)[(defEnv prog).findIdx (fun p => p.1 == t)]?
+      = some (t, loc) ∧ loc.toDef = e := by
+    rw [defsOf_eq_defEnv_find, List.find?_eq_getElem?_findIdx, Option.map_eq_some_iff] at hd
+    obtain ⟨⟨tt, loc⟩, hget, htoDef⟩ := hd
+    have hp : tt = t := by
+      have := List.findIdx_of_getElem?_eq_some hget; simpa using this
+    subst hp
+    exact ⟨loc, hget, htoDef⟩
+  obtain ⟨loc, hget, htoDef⟩ := hEntry
+  cases e with
+  | imm _ => trivial
+  | slot _ => trivial
+  | gas => exact absurd hd (defsOf_ne_gas prog t)
+  | sload k => exact absurd hd (defsOf_ne_sload prog t k)
+  | tmp t' =>
+    have hloc : loc = Loc.remat (.tmp t') := by
+      cases loc with
+      | slot n => simp [Loc.toDef] at htoDef
+      | remat e' => simp only [Loc.toDef] at htoDef; subst htoDef; rfl
+    subst hloc
+    have hlt := defEnv_operand_findIdx_lt h hget (t' := t') (by simp [usesInExpr])
+    simp only [ExprRankLt]; omega
+  | add a b =>
+    have hloc : loc = Loc.remat (.add a b) := by
+      cases loc with
+      | slot n => simp [Loc.toDef] at htoDef
+      | remat e' => simp only [Loc.toDef] at htoDef; subst htoDef; rfl
+    subst hloc
+    have ha := defEnv_operand_findIdx_lt h hget (t' := a) (by simp [usesInExpr])
+    have hb := defEnv_operand_findIdx_lt h hget (t' := b) (by simp [usesInExpr])
+    simp only [ExprRankLt]; exact ⟨by omega, by omega⟩
+  | lt a b =>
+    have hloc : loc = Loc.remat (.lt a b) := by
+      cases loc with
+      | slot n => simp [Loc.toDef] at htoDef
+      | remat e' => simp only [Loc.toDef] at htoDef; subst htoDef; rfl
+    subst hloc
+    have ha := defEnv_operand_findIdx_lt h hget (t' := a) (by simp [usesInExpr])
+    have hb := defEnv_operand_findIdx_lt h hget (t' := b) (by simp [usesInExpr])
+    simp only [ExprRankLt]; exact ⟨by omega, by omega⟩
+
 /-! ## §1B new — the two scalar budgets -/
 
 /-- **The pc budget** — the whole lowered program fits a 32-bit program counter. The scalar
