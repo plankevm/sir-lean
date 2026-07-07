@@ -313,4 +313,218 @@ theorem decode_at_term_push (prog : Program) (L : Label) (b : Block) (k : Nat)
     rw [flatBytes_at_termOf prog L b k hb hk]; exact hbyte0
   exact decode_lower_push prog (termOf prog L + k) byte w imm hbound hbyte hp hw himm
 
+/-! ## Fold-anchor twins (Phase 2A P4)
+
+Fold twins of the A1/A2/A3 decode-at-cursor anchors, over `flatBytesF`/`emitStmtF`/`emitTermF`/
+`pcOfF`/`termOfF`/`decode_lowerF_*`. Same prefix-sum decomposition, emission names swapped. -/
+
+/-- Fold twin of `stmt_byte_anchor_k`. -/
+theorem stmt_byte_anchor_kF (prog : Program) (L : Label) (b : Block) (pc : Nat) (s : Stmt)
+    (k : Nat)
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hs : b.stmts[pc]? = some s)
+    (hk : k < (emitStmtF (matCache prog) (allocate prog) s).length) :
+    (flatBytesF prog)[offsetTableF (matCache prog) (allocate prog) prog.blocks L.idx + 1
+        + ((b.stmts.take pc).flatMap (emitStmtF (matCache prog) (allocate prog))).length + k]?
+      = (emitStmtF (matCache prog) (allocate prog) s)[k]? := by
+  rw [flatBytesF_block_split prog L b hb]
+  set cache := matCache prog with hcache
+  set alloc := allocate prog with halloc
+  set lo := offsetTableF cache alloc prog.blocks with hlo
+  set pre := (prog.blocks.toList.take L.idx).flatMap
+    (fun b => Byte.jumpdest :: emitBlockBodyF cache alloc lo b) with hpre
+  set suf := (prog.blocks.toList.drop (L.idx + 1)).flatMap
+    (fun b => Byte.jumpdest :: emitBlockBodyF cache alloc lo b) with hsuf
+  have hprelen : pre.length = lo L.idx := flatBytesF_block_offset prog L
+  set sp := ((b.stmts.take pc).flatMap (emitStmtF cache alloc)).length with hsp
+  have hsplit : b.stmts.flatMap (emitStmtF cache alloc)
+      = (b.stmts.take pc).flatMap (emitStmtF cache alloc)
+        ++ emitStmtF cache alloc s
+        ++ (b.stmts.drop (pc + 1)).flatMap (emitStmtF cache alloc) :=
+    flatMap_split b.stmts pc s hs _
+  have hbody : emitBlockBodyF cache alloc lo b
+      = (b.stmts.take pc).flatMap (emitStmtF cache alloc)
+        ++ (emitStmtF cache alloc s
+            ++ ((b.stmts.drop (pc + 1)).flatMap (emitStmtF cache alloc)
+                ++ emitTermF cache lo b.term)) := by
+    unfold emitBlockBodyF
+    rw [hsplit]; simp [List.append_assoc]
+  rw [show lo L.idx + 1 + sp + k = pre.length + (1 + (sp + k)) from by rw [hprelen]; omega]
+  have hmidlen : 1 + (sp + k) < (Byte.jumpdest :: emitBlockBodyF cache alloc lo b).length := by
+    rw [hbody]; simp only [List.length_cons, List.length_append, hsp]; omega
+  rw [mid_index pre _ suf (1 + (sp + k)) hmidlen]
+  rw [show (1 + (sp + k)) = (sp + k) + 1 from by omega, List.getElem?_cons_succ, hbody]
+  rw [List.getElem?_append_right (by rw [← hsp]; omega),
+      show sp + k - ((b.stmts.take pc).flatMap (emitStmtF cache alloc)).length = k from by
+        rw [hsp]; omega]
+  rw [List.getElem?_append_left (by omega)]
+
+/-- Fold twin of `term_byte_anchor`. -/
+theorem term_byte_anchorF (prog : Program) (L : Label) (b : Block) (k : Nat)
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hk : k < (emitTermF (matCache prog)
+            (offsetTableF (matCache prog) (allocate prog) prog.blocks) b.term).length) :
+    (flatBytesF prog)[offsetTableF (matCache prog) (allocate prog) prog.blocks L.idx + 1
+        + (b.stmts.flatMap (emitStmtF (matCache prog) (allocate prog))).length + k]?
+      = (emitTermF (matCache prog)
+          (offsetTableF (matCache prog) (allocate prog) prog.blocks) b.term)[k]? := by
+  rw [flatBytesF_block_split prog L b hb]
+  set cache := matCache prog with hcache
+  set alloc := allocate prog with halloc
+  set lo := offsetTableF cache alloc prog.blocks with hlo
+  set pre := (prog.blocks.toList.take L.idx).flatMap
+    (fun b => Byte.jumpdest :: emitBlockBodyF cache alloc lo b) with hpre
+  set suf := (prog.blocks.toList.drop (L.idx + 1)).flatMap
+    (fun b => Byte.jumpdest :: emitBlockBodyF cache alloc lo b) with hsuf
+  have hprelen : pre.length = lo L.idx := flatBytesF_block_offset prog L
+  set sp := (b.stmts.flatMap (emitStmtF cache alloc)).length with hsp
+  have hbody : emitBlockBodyF cache alloc lo b
+      = b.stmts.flatMap (emitStmtF cache alloc) ++ emitTermF cache lo b.term := rfl
+  rw [show lo L.idx + 1 + sp + k = pre.length + (1 + (sp + k)) from by rw [hprelen]; omega]
+  have hmidlen : 1 + (sp + k) < (Byte.jumpdest :: emitBlockBodyF cache alloc lo b).length := by
+    rw [hbody]; simp only [List.length_cons, List.length_append, hsp]; omega
+  rw [mid_index pre _ suf (1 + (sp + k)) hmidlen]
+  rw [show (1 + (sp + k)) = (sp + k) + 1 from by omega, List.getElem?_cons_succ, hbody]
+  rw [List.getElem?_append_right (by rw [← hsp]; omega),
+      show sp + k - (b.stmts.flatMap (emitStmtF cache alloc)).length = k from by rw [hsp]; omega]
+
+/-- Fold twin of `flatBytes_at_pcOf_offset`. -/
+theorem flatBytesF_at_pcOfF_offset (prog : Program) (L : Label) (b : Block) (pc : Nat) (s : Stmt)
+    (k : Nat)
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hs : b.stmts[pc]? = some s)
+    (hk : k < (emitStmtF (matCache prog) (allocate prog) s).length) :
+    (flatBytesF prog)[pcOfF prog L pc + k]?
+      = (emitStmtF (matCache prog) (allocate prog) s)[k]? := by
+  rw [pcOfF_eq_anchor prog L b pc hb]
+  exact stmt_byte_anchor_kF prog L b pc s k hb hs hk
+
+/-- Fold twin of `termOf`. -/
+def termOfF (prog : Program) (L : Label) : Nat :=
+  let cache := matCache prog
+  let alloc := allocate prog
+  offsetTableF cache alloc prog.blocks L.idx + 1
+    + (((prog.blockAt L).map (fun b => (b.stmts.flatMap (emitStmtF cache alloc)).length)).getD 0)
+
+/-- Fold twin of `termOf_eq_anchor`. -/
+theorem termOfF_eq_anchor (prog : Program) (L : Label) (b : Block)
+    (hb : prog.blocks.toList[L.idx]? = some b) :
+    termOfF prog L
+      = offsetTableF (matCache prog) (allocate prog) prog.blocks L.idx + 1
+        + (b.stmts.flatMap (emitStmtF (matCache prog) (allocate prog))).length := by
+  unfold termOfF; rw [blockAt_of_toList prog L b hb]; rfl
+
+/-- Fold twin of `flatBytes_at_termOf`. -/
+theorem flatBytesF_at_termOfF (prog : Program) (L : Label) (b : Block) (k : Nat)
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hk : k < (emitTermF (matCache prog)
+            (offsetTableF (matCache prog) (allocate prog) prog.blocks) b.term).length) :
+    (flatBytesF prog)[termOfF prog L + k]?
+      = (emitTermF (matCache prog)
+          (offsetTableF (matCache prog) (allocate prog) prog.blocks) b.term)[k]? := by
+  rw [termOfF_eq_anchor prog L b hb]
+  exact term_byte_anchorF prog L b k hb hk
+
+/-- Fold twin of `decode_at_stmt_head_nonpush`. -/
+theorem decode_at_stmt_headF_nonpush (prog : Program) (L : Label) (b : Block) (pc : Nat) (s : Stmt)
+    (byte : UInt8)
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hs : b.stmts[pc]? = some s)
+    (hhead : (emitStmtF (matCache prog) (allocate prog) s)[0]? = some byte)
+    (hbound : pcOfF prog L pc < 2 ^ 32)
+    (hnp : Evm.pushArgWidth (Evm.parseInstr byte) = 0) :
+    Evm.decode (lowerF prog) (UInt32.ofNat (pcOfF prog L pc))
+      = some (Evm.parseInstr byte, .none) := by
+  have hne : emitStmtF (matCache prog) (allocate prog) s ≠ [] := by
+    intro h; rw [h] at hhead; simp at hhead
+  have hbyte : (flatBytesF prog)[pcOfF prog L pc]? = some byte := by
+    rw [flatBytesF_at_pcOfF prog L b pc s hb hs hne]; exact hhead
+  exact decode_lowerF_nonpush prog (pcOfF prog L pc) byte hbound hbyte hnp
+
+/-- Fold twin of `decode_at_stmt_head_push`. -/
+theorem decode_at_stmt_headF_push (prog : Program) (L : Label) (b : Block) (pc : Nat) (s : Stmt)
+    (byte w : UInt8) (imm : UInt256)
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hs : b.stmts[pc]? = some s)
+    (hhead : (emitStmtF (matCache prog) (allocate prog) s)[0]? = some byte)
+    (hbound : pcOfF prog L pc < 2 ^ 32)
+    (hp : Evm.pushArgWidth (Evm.parseInstr byte) = w) (hw : w > 0)
+    (himm : Evm.uInt256OfByteArray
+              ⟨((flatBytesF prog).toArray).extract
+                  (pcOfF prog L pc + 1) (pcOfF prog L pc + 1 + w.toNat)⟩ = imm) :
+    Evm.decode (lowerF prog) (UInt32.ofNat (pcOfF prog L pc))
+      = some (Evm.parseInstr byte, some (imm, w)) := by
+  have hne : emitStmtF (matCache prog) (allocate prog) s ≠ [] := by
+    intro h; rw [h] at hhead; simp at hhead
+  have hbyte : (flatBytesF prog)[pcOfF prog L pc]? = some byte := by
+    rw [flatBytesF_at_pcOfF prog L b pc s hb hs hne]; exact hhead
+  exact decode_lowerF_push prog (pcOfF prog L pc) byte w imm hbound hbyte hp hw himm
+
+/-- Fold twin of `decode_at_offset_nonpush`. -/
+theorem decode_at_offsetF_nonpush (prog : Program) (L : Label) (b : Block) (pc : Nat) (s : Stmt)
+    (k : Nat) (byte : UInt8)
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hs : b.stmts[pc]? = some s)
+    (hk : k < (emitStmtF (matCache prog) (allocate prog) s).length)
+    (hbyte0 : (emitStmtF (matCache prog) (allocate prog) s)[k]? = some byte)
+    (hbound : pcOfF prog L pc + k < 2 ^ 32)
+    (hnp : Evm.pushArgWidth (Evm.parseInstr byte) = 0) :
+    Evm.decode (lowerF prog) (UInt32.ofNat (pcOfF prog L pc + k))
+      = some (Evm.parseInstr byte, .none) := by
+  have hbyte : (flatBytesF prog)[pcOfF prog L pc + k]? = some byte := by
+    rw [flatBytesF_at_pcOfF_offset prog L b pc s k hb hs hk]; exact hbyte0
+  exact decode_lowerF_nonpush prog (pcOfF prog L pc + k) byte hbound hbyte hnp
+
+/-- Fold twin of `decode_at_offset_push`. -/
+theorem decode_at_offsetF_push (prog : Program) (L : Label) (b : Block) (pc : Nat) (s : Stmt)
+    (k : Nat) (byte w : UInt8) (imm : UInt256)
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hs : b.stmts[pc]? = some s)
+    (hk : k < (emitStmtF (matCache prog) (allocate prog) s).length)
+    (hbyte0 : (emitStmtF (matCache prog) (allocate prog) s)[k]? = some byte)
+    (hbound : pcOfF prog L pc + k < 2 ^ 32)
+    (hp : Evm.pushArgWidth (Evm.parseInstr byte) = w) (hw : w > 0)
+    (himm : Evm.uInt256OfByteArray
+              ⟨((flatBytesF prog).toArray).extract
+                  (pcOfF prog L pc + k + 1) (pcOfF prog L pc + k + 1 + w.toNat)⟩ = imm) :
+    Evm.decode (lowerF prog) (UInt32.ofNat (pcOfF prog L pc + k))
+      = some (Evm.parseInstr byte, some (imm, w)) := by
+  have hbyte : (flatBytesF prog)[pcOfF prog L pc + k]? = some byte := by
+    rw [flatBytesF_at_pcOfF_offset prog L b pc s k hb hs hk]; exact hbyte0
+  exact decode_lowerF_push prog (pcOfF prog L pc + k) byte w imm hbound hbyte hp hw himm
+
+/-- Fold twin of `decode_at_term_nonpush`. -/
+theorem decode_at_termF_nonpush (prog : Program) (L : Label) (b : Block) (k : Nat) (byte : UInt8)
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hk : k < (emitTermF (matCache prog)
+            (offsetTableF (matCache prog) (allocate prog) prog.blocks) b.term).length)
+    (hbyte0 : (emitTermF (matCache prog)
+            (offsetTableF (matCache prog) (allocate prog) prog.blocks) b.term)[k]? = some byte)
+    (hbound : termOfF prog L + k < 2 ^ 32)
+    (hnp : Evm.pushArgWidth (Evm.parseInstr byte) = 0) :
+    Evm.decode (lowerF prog) (UInt32.ofNat (termOfF prog L + k))
+      = some (Evm.parseInstr byte, .none) := by
+  have hbyte : (flatBytesF prog)[termOfF prog L + k]? = some byte := by
+    rw [flatBytesF_at_termOfF prog L b k hb hk]; exact hbyte0
+  exact decode_lowerF_nonpush prog (termOfF prog L + k) byte hbound hbyte hnp
+
+/-- Fold twin of `decode_at_term_push`. -/
+theorem decode_at_termF_push (prog : Program) (L : Label) (b : Block) (k : Nat)
+    (byte w : UInt8) (imm : UInt256)
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hk : k < (emitTermF (matCache prog)
+            (offsetTableF (matCache prog) (allocate prog) prog.blocks) b.term).length)
+    (hbyte0 : (emitTermF (matCache prog)
+            (offsetTableF (matCache prog) (allocate prog) prog.blocks) b.term)[k]? = some byte)
+    (hbound : termOfF prog L + k < 2 ^ 32)
+    (hp : Evm.pushArgWidth (Evm.parseInstr byte) = w) (hw : w > 0)
+    (himm : Evm.uInt256OfByteArray
+              ⟨((flatBytesF prog).toArray).extract
+                  (termOfF prog L + k + 1) (termOfF prog L + k + 1 + w.toNat)⟩ = imm) :
+    Evm.decode (lowerF prog) (UInt32.ofNat (termOfF prog L + k))
+      = some (Evm.parseInstr byte, some (imm, w)) := by
+  have hbyte : (flatBytesF prog)[termOfF prog L + k]? = some byte := by
+    rw [flatBytesF_at_termOfF prog L b k hb hk]; exact hbyte0
+  exact decode_lowerF_push prog (termOfF prog L + k) byte w imm hbound hbyte hp hw himm
+
 end Lir

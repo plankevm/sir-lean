@@ -251,4 +251,142 @@ theorem flatBytes_at_pcOf (prog : Program) (L : Label) (b : Block) (pc : Nat) (s
   rw [pcOf_eq_anchor prog L b pc hb]
   exact stmt_byte_anchor prog L b pc s hb hs hne
 
+/-! ## Fold-layout twins (Phase 2A P4)
+
+Fold twins of the byte-layout arithmetic, over `flatBytesF`/`emitStmtF`/`emitTermF`/
+`offsetTableF` (`matCache prog`, `allocate prog`). The prefix-sum decomposition is
+emission-independent, so the proofs are the same modulo the emission-function names; the generic
+bricks (`flatMap_split`, `mid_index`, `blockAt_of_toList`) are shared verbatim. -/
+
+/-- Fold twin of `emitTerm_length_labelOff`. -/
+theorem emitTermF_length_labelOff (cache : Tmp → List UInt8)
+    (lo1 lo2 : Nat → Nat) (t : Term) :
+    (emitTermF cache lo1 t).length = (emitTermF cache lo2 t).length := by
+  cases t <;> simp [emitTermF, emitDest, offsetBytesBE]
+
+/-- Fold twin of `emitBlockBody_length_labelOff`. -/
+theorem emitBlockBodyF_length_labelOff (cache : Tmp → List UInt8) (alloc : Alloc)
+    (lo1 lo2 : Nat → Nat) (b : Block) :
+    (emitBlockBodyF cache alloc lo1 b).length = (emitBlockBodyF cache alloc lo2 b).length := by
+  unfold emitBlockBodyF
+  simp only [List.length_append]
+  rw [emitTermF_length_labelOff cache lo1 lo2]
+
+/-- Fold twin of `blockLen_eq_length`. -/
+theorem blockLenF_eq_length (cache : Tmp → List UInt8) (alloc : Alloc) (lo : Nat → Nat) (b : Block) :
+    blockLenF cache alloc b = (Byte.jumpdest :: emitBlockBodyF cache alloc lo b).length := by
+  unfold blockLenF
+  simp only [List.length_cons]
+  rw [emitBlockBodyF_length_labelOff cache alloc (fun _ => 0) lo]
+  omega
+
+/-- Fold twin of `blockPrefix_length`. -/
+theorem blockPrefixF_length (cache : Tmp → List UInt8) (alloc : Alloc) (lo : Nat → Nat)
+    (blocks : Array Block) (i : Nat) :
+    ((blocks.toList.take i).flatMap
+        (fun b => Byte.jumpdest :: emitBlockBodyF cache alloc lo b)).length
+      = offsetTableF cache alloc blocks i := by
+  unfold offsetTableF
+  rw [List.length_flatMap]
+  rw [show (List.map (fun b => (Byte.jumpdest :: emitBlockBodyF cache alloc lo b).length)
+            (blocks.toList.take i)).sum
+        = (List.map (blockLenF cache alloc) (blocks.toList.take i)).sum from ?_]
+  · congr 1
+    apply List.map_congr_left
+    intro b _
+    exact (blockLenF_eq_length cache alloc lo b).symm
+
+/-- Fold twin of `flatBytes_block_split`. -/
+theorem flatBytesF_block_split (prog : Program) (L : Label) (b : Block)
+    (hb : prog.blocks.toList[L.idx]? = some b) :
+    flatBytesF prog
+      = ((prog.blocks.toList.take L.idx).flatMap
+            (fun b => Byte.jumpdest :: emitBlockBodyF (matCache prog) (allocate prog)
+                        (offsetTableF (matCache prog) (allocate prog) prog.blocks) b))
+        ++ (Byte.jumpdest :: emitBlockBodyF (matCache prog) (allocate prog)
+              (offsetTableF (matCache prog) (allocate prog) prog.blocks) b)
+        ++ ((prog.blocks.toList.drop (L.idx + 1)).flatMap
+            (fun b => Byte.jumpdest :: emitBlockBodyF (matCache prog) (allocate prog)
+                        (offsetTableF (matCache prog) (allocate prog) prog.blocks) b)) := by
+  unfold flatBytesF
+  exact flatMap_split prog.blocks.toList L.idx b hb _
+
+/-- Fold twin of `flatBytes_block_offset`. -/
+theorem flatBytesF_block_offset (prog : Program) (L : Label) :
+    ((prog.blocks.toList.take L.idx).flatMap
+        (fun b => Byte.jumpdest :: emitBlockBodyF (matCache prog) (allocate prog)
+                    (offsetTableF (matCache prog) (allocate prog) prog.blocks) b)).length
+      = offsetTableF (matCache prog) (allocate prog) prog.blocks L.idx :=
+  blockPrefixF_length (matCache prog) (allocate prog) _ prog.blocks L.idx
+
+/-- Fold twin of `stmt_byte_anchor`. -/
+theorem stmt_byte_anchorF (prog : Program) (L : Label) (b : Block) (pc : Nat) (s : Stmt)
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hs : b.stmts[pc]? = some s)
+    (hne : emitStmtF (matCache prog) (allocate prog) s ≠ []) :
+    (flatBytesF prog)[offsetTableF (matCache prog) (allocate prog) prog.blocks L.idx + 1
+        + ((b.stmts.take pc).flatMap (emitStmtF (matCache prog) (allocate prog))).length]?
+      = (emitStmtF (matCache prog) (allocate prog) s)[0]? := by
+  rw [flatBytesF_block_split prog L b hb]
+  set cache := matCache prog with hcache
+  set alloc := allocate prog with halloc
+  set lo := offsetTableF cache alloc prog.blocks with hlo
+  set pre := (prog.blocks.toList.take L.idx).flatMap
+    (fun b => Byte.jumpdest :: emitBlockBodyF cache alloc lo b) with hpre
+  set suf := (prog.blocks.toList.drop (L.idx + 1)).flatMap
+    (fun b => Byte.jumpdest :: emitBlockBodyF cache alloc lo b) with hsuf
+  have hprelen : pre.length = lo L.idx := flatBytesF_block_offset prog L
+  have hslen : (emitStmtF cache alloc s).length ≥ 1 := by
+    cases h : emitStmtF cache alloc s with
+    | nil => exact absurd h hne
+    | cons _ _ => simp
+  set sp := ((b.stmts.take pc).flatMap (emitStmtF cache alloc)).length with hsp
+  have hsplit : b.stmts.flatMap (emitStmtF cache alloc)
+      = (b.stmts.take pc).flatMap (emitStmtF cache alloc)
+        ++ emitStmtF cache alloc s
+        ++ (b.stmts.drop (pc + 1)).flatMap (emitStmtF cache alloc) :=
+    flatMap_split b.stmts pc s hs _
+  have hbody : emitBlockBodyF cache alloc lo b
+      = (b.stmts.take pc).flatMap (emitStmtF cache alloc)
+        ++ (emitStmtF cache alloc s
+            ++ ((b.stmts.drop (pc + 1)).flatMap (emitStmtF cache alloc)
+                ++ emitTermF cache lo b.term)) := by
+    unfold emitBlockBodyF
+    rw [hsplit]; simp [List.append_assoc]
+  rw [show lo L.idx + 1 + sp = pre.length + (1 + sp) from by rw [hprelen]; omega]
+  have hmidlen : 1 + sp < (Byte.jumpdest :: emitBlockBodyF cache alloc lo b).length := by
+    rw [hbody]; simp only [List.length_cons, List.length_append, hsp]; omega
+  rw [mid_index pre _ suf (1 + sp) hmidlen]
+  rw [show (1 + sp) = sp + 1 from by omega, List.getElem?_cons_succ, hbody]
+  rw [List.getElem?_append_right (by rw [← hsp]),
+      show sp - ((b.stmts.take pc).flatMap (emitStmtF cache alloc)).length = 0 from by
+        rw [hsp]; omega]
+  rw [List.getElem?_append_left (by omega)]
+
+/-- Fold twin of `pcOf`. -/
+def pcOfF (prog : Program) (L : Label) (pc : Nat) : Nat :=
+  let cache := matCache prog
+  let alloc := allocate prog
+  offsetTableF cache alloc prog.blocks L.idx + 1
+    + (((prog.blockAt L).map (fun b =>
+          ((b.stmts.take pc).flatMap (emitStmtF cache alloc)).length)).getD 0)
+
+/-- Fold twin of `pcOf_eq_anchor`. -/
+theorem pcOfF_eq_anchor (prog : Program) (L : Label) (b : Block) (pc : Nat)
+    (hb : prog.blocks.toList[L.idx]? = some b) :
+    pcOfF prog L pc
+      = offsetTableF (matCache prog) (allocate prog) prog.blocks L.idx + 1
+        + ((b.stmts.take pc).flatMap (emitStmtF (matCache prog) (allocate prog))).length := by
+  unfold pcOfF; rw [blockAt_of_toList prog L b hb]; rfl
+
+/-- Fold twin of `flatBytes_at_pcOf`. -/
+theorem flatBytesF_at_pcOfF (prog : Program) (L : Label) (b : Block) (pc : Nat) (s : Stmt)
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hs : b.stmts[pc]? = some s)
+    (hne : emitStmtF (matCache prog) (allocate prog) s ≠ []) :
+    (flatBytesF prog)[pcOfF prog L pc]?
+      = (emitStmtF (matCache prog) (allocate prog) s)[0]? := by
+  rw [pcOfF_eq_anchor prog L b pc hb]
+  exact stmt_byte_anchorF prog L b pc s hb hs hne
+
 end Lir
