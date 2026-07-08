@@ -1,5 +1,4 @@
 import LirLean.V2.Drive.Headline
-import LirLean.Assembly.Acyclic
 import LirLean.Decode.BoundaryReach
 import LirLean.V2.Realisability.Surface
 import LirLean.Engine.Modellable
@@ -114,13 +113,23 @@ theorem defsSoundS_preserved_step {prog : Program}
       by_cases hsl : ∃ k, e = .sload k
       · obtain ⟨k, rfl⟩ := hsl
         exact absurd (Or.inr (Or.inl ⟨b, hbmem, k, hsmem⟩)) hnr₀
-      · have hself : defsOf prog t = some e := by
+      · have hself : defsOf prog t = some (locOfExpr e) := by
           have hc := (hcons L b pc hb).1 t e hs
           rcases e with _ | _ | _ | _ | _ | _ | _ <;>
             first | exact hc | exact absurd rfl hne | exact absurd ⟨_, rfl⟩ hsl
-        -- `hdef₀` is the `rematOf`-spine fact; lift it to `defsOf` to match `hself`.
-        have hdd : defsOf prog t = some e₀ := Lir.defsOf_of_rematOf hdef₀
-        have he0 : e₀ = e := Option.some.inj (hdd.symm.trans hself)
+        -- `hdef₀` is the `rematOf`-spine fact; lift it to `defsOf` (`Loc`-valued) to
+        -- match `hself` through the `locOfExpr` classification.
+        have hdd : defsOf prog t = some (.remat e₀) := Lir.defsOf_of_rematOf hdef₀
+        have hloc : Loc.remat e₀ = locOfExpr e := Option.some.inj (hdd.symm.trans hself)
+        have he0 : e₀ = e := by
+          rcases e with _ | _ | _ | _ | k | _ | n
+          · exact Loc.remat.inj hloc
+          · exact Loc.remat.inj hloc
+          · exact Loc.remat.inj hloc
+          · exact Loc.remat.inj hloc
+          · exact absurd ⟨k, rfl⟩ hsl
+          · exact absurd rfl hne
+          · exact absurd hloc (by simp [locOfExpr])
         subst he0
         have hw : (st.setLocal t w).locals t = some w := by simp [IRState.setLocal]
         have hww : w₀ = w := Option.some.inj (hlocal₀.symm.trans hw)
@@ -346,7 +355,7 @@ reader), but the value/trace KERNEL + the shadowing-aware static scoping (`StepS
 `StepScopedS` residue, the result-tmp slot registration of the post-state fold, and the
 Route-B slot addressability; the round-2 reviewer's "R3 carries no static bundle at all").
 Kernel sources: the head `CallRecord` (`realisedCall_cons`, rfl-clean once the record
-is pinned), plumbing from `materialise_runs` + the `resumeAfterCall` rfl-pins + the
+is pinned), plumbing from `materialise_runsC` + the `resumeAfterCall` rfl-pins + the
 Route-B tail (`stash_tail_runs`).
 Calls are now a CONSUMED `CallStream` (R3′ LANDED — the foundation call-stream change): the
 coupled `callSuffix` is destructured `rec :: cS'`, and its HEAD `rec` IS this cursor's call —
@@ -370,7 +379,7 @@ supplies `CallReturns` + `resumeFr`.
 **BLOCKER — Piece B (the machine run) has no in-tree producer.** The bundle's arg-push run
 conjuncts (`Runs fr0 callFr` + the pc/mem/activeWords pins + `decode callFr = CALL`) require a
 `materialise`-driver that BUILDS the run from `Corr`/`hwl` (the five `emitImm 0` pushes then two
-`materialise_runs_of_cleanHalt` calls, threading `MatDec`/`DefsSound`/`StorageAgree`/`MemRealises`
+`materialise_runsC_of_cleanHalt` calls, threading `MatDecC`/`DefsSound`/`StorageAgree`/`MemRealises`
 /`evalExpr`/stack-room from `Corr.memAgree`/`Corr.defsSound` + `hwl`). In-tree this run is only
 ever SUPPLIED to `sim_call_stmt` (`SimStmt.lean:589` `hargs : Runs fr callFr`); no producing lemma
 exists, so it must be written from scratch (~200 lines, precedent: the branch cond driver
@@ -463,8 +472,8 @@ block: its arms' antecedents are exactly what `DriveCorrLog` supplies at real bo
 (Corr, clean-halt, self-presence, address/kind pins), and the conclusions are derived —
 non-emptiness via `accounts_ne_empty_of_selfPresent`; the gas guards via the clean-halt
 landing extractors (the jump pre-`JUMPDEST` landing/the branch pre-`JUMPDEST` landing patterns,
-ported inline); the ret charge-sum via `materialise_charge_le_of_cleanHalt`; the ret epilogue
-decode facts via `imm_leaf_decode`/`decode_at_term_nonpush` at the pc-pinned cursor; the `frv`
+ported inline); the ret charge-sum via `materialise_chargeC_le_of_cleanHalt`; the ret epilogue
+decode facts via `imm_leaf_decodeF`/`decode_at_term_nonpush` at the pc-pinned cursor; the `frv`
 kind/presence facts via `runs_kind` / `selfPresent_runs_of_call` seeded from the antecedent
 pins. DERIVED-status obligation.
 
@@ -478,15 +487,15 @@ pins. DERIVED-status obligation.
     `cw = 0`) are the exact case-split of the branch pre-`JUMPDEST` landing; NO witnessed
     conformance content is dropped — only the unwitnessable not-taken over-demand.
   * **ret charge-sum moved under the return-value guard.** The charge fold
-    `materialise_charge_le_of_cleanHalt` needs the operand value, and the IR `ret t`
+    `materialise_chargeC_le_of_cleanHalt` needs the operand value, and the IR `ret t`
     semantics (`RunFrom.ret`) itself requires `st'.locals t = some vw`; demanding the
     charge-sum bound for an UNBOUND `t` is the same unwitnessable over-demand (the `.length`
     bound stays unconditional — it is static). The epilogue block (already under the value
     guard) is unchanged in placement.
   * **`hretEmit` added — the ret epilogue's pc-bound seam.** `WellFormedLowered.bound_ret`
-    only bounds `termOf + |materialise t|` (the operand), NOT the 101-byte `PUSH32 0; MSTORE;
+    only bounds `termOf + |matCache t|` (the operand), NOT the 101-byte `PUSH32 0; MSTORE;
     PUSH32 32; PUSH32 0; RETURN` full-observable epilogue; the five epilogue decodes need
-    `termOf + |materialise t| + 100 < 2^32`, which is a static, satisfiable,
+    `termOf + |matCache t| + 100 < 2^32`, which is a static, satisfiable,
     checker-dischargeable well-formedness fact absent from `bound_ret` (a default-target
     under-specification not editable here). Supplied as an explicit seam, NOT a vacuity dodge
     (it is genuinely true for every real ret block).
@@ -500,8 +509,7 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
     (hprec : ∀ (cp : CallParams) (imm : CallResult), beginCall cp = .inr imm →
       ∀ a, AccPresent a cp.accounts → AccPresent a imm.accounts)
     (hretEmit : ∀ t, b.term = .ret t →
-      termOf prog L + (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp t)).length + 100
-        < 2 ^ 32)
+      termOf prog L + (matCache prog t).length + 100 < 2 ^ 32)
     (hb : blockAt prog L = some b) :
     TermTies' prog sloadChg log self L b := by
   have hbt : prog.blocks.toList[L.idx]? = some b := Lir.toList_of_blockAt hb
@@ -511,38 +519,39 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
     exact accounts_ne_empty_of_selfPresent hsp
   · -- RET arm.
     intro t hterm st frT hcorr hch hsp haddr hkind
-    have hb100 : termOf prog L
-        + (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp t)).length + 100 < 2 ^ 32 :=
+    have hb100 : termOf prog L + (matCache prog t).length + 100 < 2 ^ 32 :=
       hretEmit t hterm
     -- conjunct 2: the static stack-room bound (value-free).
     refine ⟨hwl.stack.ret sloadChg L b t hb hterm, ?_⟩
     intro vw hvw
     -- conjunct 1: the charge-sum bound (needs the returned value `vw`).
-    have hdv : MatDec frT.exec.executionEnv.code (defsOf prog) sloadChg (recomputeFuel prog)
+    have hdv : MatDecC prog hwl.defsCons hwl.defEnvOrdered frT.exec.executionEnv.code
         frT.exec.pc (.tmp t) := by
       rw [hcorr.code_eq, hcorr.pc_eq, pcOf_eq_termOf prog L b hbt,
           show termOf prog L = termOf prog L + 0 from by omega]
-      exact matDec_of_term prog sloadChg L b 0 (.tmp t) hbt
-        (by rw [hterm]; exact ret_sub_value prog t)
-        (by rw [hterm]
-            show _ ≤ ((materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp t))
+      exact matDecC_of_term prog hwl.defsCons hwl.defEnvOrdered L b 0 (.tmp t) hbt
+        (by simp only [matExpr_tmp]; rw [hterm]
+            exact ret_sub_value (matCache prog)
+              (offsetTable (matCache prog) (defsOf prog) prog.blocks) t)
+        (by simp only [matExpr_tmp]; rw [hterm]
+            show _ ≤ ((matCache prog t)
                         ++ emitImm 0 ++ [Byte.mstore] ++ emitImm 32 ++ emitImm 0 ++ [Byte.ret]).length
             simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil]
             omega)
-        (hwl.wf.matFueled_ret L b t hbt hterm) (by rw [Nat.add_zero]; omega)
+        (by simp only [matExpr_tmp]; omega)
     have hstkC : frT.exec.stack.size
-        + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).length ≤ 1024 := by
+        + (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp t)).length ≤ 1024 := by
       rw [hcorr.stack_nil]; simpa using hwl.stack.ret sloadChg L b t hb hterm
-    refine ⟨materialise_charge_le_of_cleanHalt (prog := prog) sloadChg (recomputeFuel prog) st 0
+    refine ⟨materialise_chargeC_le_of_cleanHalt hwl.defsCons hwl.defEnvOrdered sloadChg st 0
         (.tmp t) vw frT hdv hcorr.defsSound hcorr.wellScoped hcorr.storage (by nofun) (by nofun)
         hcorr.memAgree hvw hch hstkC, ?_⟩
     -- conjunct 3: the pc-pinned full-observable epilogue block
     -- (`PUSH32 0; MSTORE; PUSH32 32; PUSH32 0; RETURN`).
     intro frv hruns hcode _haddr' _hsto hstk hpc
-    set lc := (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp t)).length with hlc
-    have hemitR : emitTerm (defsOf prog) (recomputeFuel prog)
-        (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks) b.term
-          = materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp t)
+    set lc := (matCache prog t).length with hlc
+    have hemitR : emitTerm (matCache prog)
+        (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term
+          = matCache prog t
             ++ emitImm 0 ++ [Byte.mstore] ++ emitImm 32 ++ emitImm 0 ++ [Byte.ret] := by
       rw [hterm]; rfl
     have hfrvcode : frv.exec.executionEnv.code = lower prog := by rw [hcode, hcorr.code_eq]
@@ -564,7 +573,7 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
     have hd0 : decode frv.exec.executionEnv.code frv.exec.pc
         = some (.Push .PUSH32, some ((0 : Word), 32)) := by
       rw [hfrvcode, hfrvpc]
-      exact imm_leaf_decode prog (termOf prog L + lc) 0 (by omega)
+      exact imm_leaf_decodeF prog (termOf prog L + lc) 0 (by omega)
         (by intro j hj
             have hja := flatBytes_at_termOf prog L b (lc + j) hbt (by
               rw [hemitR]
@@ -584,13 +593,13 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
             rw [List.getElem?_append_left (by
                   simp only [List.length_append, emitImm_length, ← hlc]; rw [emitImm_length] at hj; omega)]
             rw [List.getElem?_append_right (by simp only [← hlc]; omega)]
-            rw [show lc + j - (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp t)).length = j
+            rw [show lc + j - (matCache prog t).length = j
                   from by rw [← hlc]; omega])
     have hdms : decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33)
         = some (.Smsf .MSTORE, .none) := by
       rw [hfrvcode, e33]
-      have hbyte0 : (emitTerm (defsOf prog) (recomputeFuel prog)
-          (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks) b.term)[lc + 33]?
+      have hbyte0 : (emitTerm (matCache prog)
+          (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term)[lc + 33]?
             = some Byte.mstore := by
         rw [hemitR]
         rw [List.getElem?_append_left (by
@@ -611,7 +620,7 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
     have hd32 : decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33 + 1)
         = some (.Push .PUSH32, some ((32 : Word), 32)) := by
       rw [hfrvcode, e34]
-      exact imm_leaf_decode prog (termOf prog L + (lc + 34)) 32 (by omega)
+      exact imm_leaf_decodeF prog (termOf prog L + (lc + 34)) 32 (by omega)
         (by intro j hj
             have hja := flatBytes_at_termOf prog L b (lc + 34 + j) hbt (by
               rw [hemitR]
@@ -628,13 +637,13 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
             rw [List.getElem?_append_right (by
                   simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
                   rw [emitImm_length] at hj; omega)]
-            rw [show lc + 34 + j - (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp t)
+            rw [show lc + 34 + j - (matCache prog t
                     ++ emitImm 0 ++ [Byte.mstore]).length = j from by
                   simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]; omega])
     have hd0' : decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33 + 1 + UInt32.ofNat 33)
         = some (.Push .PUSH32, some ((0 : Word), 32)) := by
       rw [hfrvcode, e67]
-      exact imm_leaf_decode prog (termOf prog L + (lc + 67)) 0 (by omega)
+      exact imm_leaf_decodeF prog (termOf prog L + (lc + 67)) 0 (by omega)
         (by intro j hj
             have hja := flatBytes_at_termOf prog L b (lc + 67 + j) hbt (by
               rw [hemitR]
@@ -648,15 +657,15 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
             rw [List.getElem?_append_right (by
                   simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
                   rw [emitImm_length] at hj; omega)]
-            rw [show lc + 67 + j - (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp t)
+            rw [show lc + 67 + j - (matCache prog t
                     ++ emitImm 0 ++ [Byte.mstore] ++ emitImm 32).length = j from by
                   simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]; omega])
     have hdret : decode frv.exec.executionEnv.code
         (frv.exec.pc + UInt32.ofNat 33 + 1 + UInt32.ofNat 33 + UInt32.ofNat 33)
         = some (.System .RETURN, .none) := by
       rw [hfrvcode, e100]
-      have hbyte0 : (emitTerm (defsOf prog) (recomputeFuel prog)
-          (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks) b.term)[lc + 100]?
+      have hbyte0 : (emitTerm (matCache prog)
+          (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term)[lc + 100]?
             = some Byte.ret := by
         rw [hemitR, List.getElem?_append_right (by
               simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
@@ -751,15 +760,15 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
   · -- JUMP arm.
     intro dst bdst hterm hbdst hdstlt st frT hcorr hch
     obtain ⟨hbterm, hboff⟩ := hwl.wf.bound_jump L b dst hbt hterm
-    set off := offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks dst.idx with hoff
+    set off := offsetTable (matCache prog) (defsOf prog) prog.blocks dst.idx with hoff
     set dest : Word := UInt256.ofNat (off % 2 ^ 32) with hdest
     set new_pc := UInt32.ofNat off with hnew
-    have hemitT : emitTerm (defsOf prog) (recomputeFuel prog)
-        (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks) b.term
+    have hemitT : emitTerm (matCache prog)
+        (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term
           = emitDest off ++ [Byte.jump] := by rw [hterm]; rfl
     have hedlen : (emitDest off).length = 5 := by simp [emitDest, offsetBytesBE]
-    have htermlen : (emitTerm (defsOf prog) (recomputeFuel prog)
-        (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks) b.term).length = 6 := by
+    have htermlen : (emitTerm (matCache prog)
+        (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term).length = 6 := by
       rw [hemitT, List.length_append, hedlen]; rfl
     have hdpush : decode frT.exec.executionEnv.code frT.exec.pc
         = some (.Push .PUSH4, some (dest, 4)) := by
@@ -771,8 +780,8 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
     have hdjump : decode frT.exec.executionEnv.code (frT.exec.pc + UInt32.ofNat 5)
         = some (.Smsf .JUMP, .none) := by
       rw [hcorr.code_eq, hcorr.pc_eq, pcOf_eq_termOf prog L b hbt, ofNat_add']
-      have hbyte0 : (emitTerm (defsOf prog) (recomputeFuel prog)
-          (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks) b.term)[5]? = some Byte.jump := by
+      have hbyte0 : (emitTerm (matCache prog)
+          (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term)[5]? = some Byte.jump := by
         rw [hemitT, List.getElem?_append_right (by rw [hedlen]), hedlen]; rfl
       exact decode_at_term_nonpush prog L b 5 Byte.jump hbt (by rw [htermlen]; omega) hbyte0
         (by rw [show termOf prog L + 5 = termOf prog L + 5 from rfl]; omega) (by decide)
@@ -825,48 +834,49 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
   · -- BRANCH arm.
     intro cond thenL elseL bthen belse hterm hbthen hbelse hthenlt helselt st frT cw hcorr hch hc
     obtain ⟨hbterm, hbthenoff, hbelseoff⟩ := hwl.wf.bound_branch L b cond thenL elseL hbt hterm
-    have hwfCond : MatFueled (defsOf prog) (recomputeFuel prog) (.tmp cond) :=
-      hwl.wf.matFueled_branch L b cond thenL elseL hbt hterm
     have hstkCond : frT.exec.stack.size
-        + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp cond)).length ≤ 1024 := by
+        + (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp cond)).length ≤ 1024 := by
       rw [hcorr.stack_nil]; simpa using hwl.stack.branch sloadChg L b cond thenL elseL hb hterm
-    set lc := (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp cond)).length with hlc
-    set thenOff := offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx with hthenoff
-    set elseOff := offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks elseL.idx with helseoff
+    set lc := (matCache prog cond).length with hlc
+    set thenOff := offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx with hthenoff
+    set elseOff := offsetTable (matCache prog) (defsOf prog) prog.blocks elseL.idx with helseoff
     set thenW : Word := UInt256.ofNat (thenOff % 2 ^ 32) with hthenW
     set elseW : Word := UInt256.ofNat (elseOff % 2 ^ 32) with helseW
-    -- (1) COND MATERIALISE via `materialise_runs_of_cleanHalt`, gas FOR FREE.
+    -- (1) COND MATERIALISE via `materialise_runsC_of_cleanHalt`, gas FOR FREE.
     -- the cond materialise sits at offset 0 of `emitTerm`, anchored at `frT.exec.pc = termOf`.
-    have hemitT : emitTerm (defsOf prog) (recomputeFuel prog)
-        (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks) b.term
-          = materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp cond)
+    have hemitT : emitTerm (matCache prog)
+        (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term
+          = matCache prog cond
             ++ emitDest thenOff ++ [Byte.jumpi] ++ emitDest elseOff ++ [Byte.jump] := by
       rw [hterm]; rfl
     have hedlen : ∀ o, (emitDest o).length = 5 := fun o => by simp [emitDest, offsetBytesBE]
-    have htermlen : (emitTerm (defsOf prog) (recomputeFuel prog)
-        (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks) b.term).length = lc + 12 := by
+    have htermlen : (emitTerm (matCache prog)
+        (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term).length = lc + 12 := by
       rw [hemitT]; simp only [List.length_append, List.length_singleton, hedlen, ← hlc]
-    have hcondMatDec : MatDec frT.exec.executionEnv.code (defsOf prog) sloadChg
-        (recomputeFuel prog) frT.exec.pc (.tmp cond) := by
+    have hcondMatDec : MatDecC prog hwl.defsCons hwl.defEnvOrdered frT.exec.executionEnv.code
+        frT.exec.pc (.tmp cond) := by
       rw [hcorr.code_eq, hcorr.pc_eq, pcOf_eq_termOf prog L b hbt,
           show termOf prog L = termOf prog L + 0 from by omega]
-      exact matDec_of_term prog sloadChg L b 0 (.tmp cond) hbt
-        (by intro j hj; rw [hemitT, Nat.zero_add]
+      exact matDecC_of_term prog hwl.defsCons hwl.defEnvOrdered L b 0 (.tmp cond) hbt
+        (by simp only [matExpr_tmp]
+            intro j hj; rw [hemitT, Nat.zero_add]
             rw [List.getElem?_append_left (by simp only [List.length_append, List.length_singleton, hedlen]; rw [← hlc] at hj ⊢; omega)]
             rw [List.getElem?_append_left (by simp only [List.length_append, List.length_singleton, hedlen]; rw [← hlc] at hj ⊢; omega)]
             rw [List.getElem?_append_left (by simp only [List.length_append, hedlen]; rw [← hlc] at hj ⊢; omega)]
             rw [List.getElem?_append_left (by rw [← hlc] at hj ⊢; exact hj)])
-        (by rw [htermlen]; omega)
-        hwfCond (by rw [← hlc]; omega)
+        (by simp only [matExpr_tmp]; rw [htermlen]; omega)
+        (by simp only [matExpr_tmp]; omega)
     have hcondEval : V2.evalExpr st 0 (.tmp cond) = some cw := hc
-    obtain ⟨frc, hmrc, _hgasCond⟩ := materialise_runs_of_cleanHalt (prog := prog) sloadChg
-      (recomputeFuel prog) st 0 (.tmp cond) cw frT hcondMatDec hcorr.defsSound hcorr.wellScoped
-      hcorr.storage (by nofun) (by nofun) hcorr.memAgree hcondEval hch hstkCond
+    obtain ⟨frc, hmrc, _hgasCond⟩ := materialise_runsC_of_cleanHalt hwl.defsCons
+      hwl.defEnvOrdered sloadChg st 0 (.tmp cond) cw frT hcondMatDec hcorr.defsSound
+      hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree hcondEval hch hstkCond
     -- forward clean-halt across the cond materialise.
     have hcsC : CleanHaltsNonException frc := cleanHaltsNonException_forward hch hmrc.runs
     -- (2) DECODE BUNDLE for the branch epilogue, `frc`-relative (exactly `sim_term_edge_branch_lowered`).
+    -- (`MatRunsC.pc` is `matExpr`-spelled; the `have` bridges to the cache spelling by defeq.)
+    have hpcC : frc.exec.pc = frT.exec.pc + UInt32.ofNat (matCache prog cond).length := hmrc.pc
     have hfrcpc : frc.exec.pc = UInt32.ofNat (termOf prog L + lc) := by
-      rw [hmrc.pc, hcorr.pc_eq, pcOf_eq_termOf prog L b hbt, ofNat_add', ← hlc]
+      rw [hpcC, hcorr.pc_eq, pcOf_eq_termOf prog L b hbt, ofNat_add', ← hlc]
     have hfrccode : frc.exec.executionEnv.code = lower prog := by rw [hmrc.code]; exact hcorr.code_eq
     have hdpushT : decode frc.exec.executionEnv.code frc.exec.pc
         = some (.Push .PUSH4, some (thenW, 4)) := by
@@ -882,8 +892,8 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
         = some (.Smsf .JUMPI, .none) := by
       rw [hfrccode, hfrcpc, ofNat_add',
           show termOf prog L + lc + 5 = termOf prog L + (lc + 5) from by omega]
-      have hbyte0 : (emitTerm (defsOf prog) (recomputeFuel prog)
-          (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks) b.term)[lc + 5]? = some Byte.jumpi := by
+      have hbyte0 : (emitTerm (matCache prog)
+          (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term)[lc + 5]? = some Byte.jumpi := by
         rw [hemitT]
         rw [List.getElem?_append_left (by simp only [List.length_append, List.length_singleton, hedlen]; omega)]
         rw [List.getElem?_append_left (by simp only [List.length_append, List.length_singleton, hedlen]; omega)]
@@ -909,8 +919,8 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
         = some (.Smsf .JUMP, .none) := by
       rw [hfrccode, hfrcpc, ofNat_add', ofNat_add',
           show termOf prog L + lc + 6 + 5 = termOf prog L + (lc + 11) from by omega]
-      have hbyte0 : (emitTerm (defsOf prog) (recomputeFuel prog)
-          (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks) b.term)[lc + 11]? = some Byte.jump := by
+      have hbyte0 : (emitTerm (matCache prog)
+          (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term)[lc + 11]? = some Byte.jump := by
         rw [hemitT]
         rw [List.getElem?_append_right (by simp only [List.length_append, List.length_singleton, hedlen, ← hlc]; omega)]
         simp only [List.length_append, List.length_singleton, hedlen, ← hlc,

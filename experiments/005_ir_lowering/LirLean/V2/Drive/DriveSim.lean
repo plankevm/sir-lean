@@ -294,7 +294,7 @@ structure JumpdestLanding (prog : Program) (st' : V2.IRState) (frT fj : Frame) (
     Prop where
   runs       : Runs frT fj
   gas        : GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
-  pc         : fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
+  pc         : fj.exec.pc = UInt32.ofNat (offsetTable (matCache prog) (defsOf prog)
                  prog.blocks target.idx)
   code       : fj.exec.executionEnv.code = lower prog
   validJumps : fj.validJumps = validJumpDests fj.exec.executionEnv.code 0

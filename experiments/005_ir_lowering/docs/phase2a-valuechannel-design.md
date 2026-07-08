@@ -219,6 +219,33 @@ bound_branch, slots_slot`.
 
 ## 4. Green-incremental step sequence (DIRECT REPROOF — no bridge, no monolith)
 
+> ### *** 2026-07-08 — AMENDMENT: P6/P7 MERGED INTO ONE CONTRACT-IN-PLACE STEP. NO CorrF. ***
+>
+> **Status:** S0–S2 and P1–P5 have ALL LANDED (`f364dde` … `2630c4d`): fold carrier,
+> spine-decouple, `defEnv↔defsOf` alignment, `DefsConsistent` create-arm, `DefEnvOrdered`
+> adequacy, `matCache_unfold` (P3), the unconditional fold geometry `*F` twins (P4a–c),
+> and the fuel-free value channel `MatDecC`/`MatRunsC`/`materialise_runsC`/`chargeCache`
+> + budget twins `StackRoomOKF`/`maxChargeDepthF`/`WellFormedLoweredF` (P5a–d, in
+> `Materialise/MatFoldChannel.lean`).
+>
+> **The ordering flaw:** P6-as-written ("restate the `Sim/` lemmas over the fold,
+> alongside old, before the P7 swap") is IMPOSSIBLE without forking `Corr`. The sim
+> conclusions are stated over `Corr` (`Sim/SimStmt.lean:103`), and `Corr` pins
+> `code_eq : fr.code = lower prog` and `pc_eq : … = pcOf prog L pc` — so fold-side sim
+> twins force a parallel `CorrF` world (`MatRunsC→StashRunsC→CorrF→sim_*F`, ~3000 LOC)
+> that forks the producer's `DriveCorrLog`-over-`Corr` coupling. A 2026-07-07 workflow
+> attempted exactly this and was stopped; the twin tower is REJECTED.
+>
+> **The fix (verified clause-by-clause):** `Corr` is fuel-AGNOSTIC. Nothing in its
+> statement mentions `materialiseExpr`/`MatFueled`/`recomputeFuel`; `lower` and `pcOf`
+> appear only as black boxes, `MemRealises`/`DefsSound` are already fold-side, the rest
+> is fold-neutral. So the sim layer is migrated by CONTRACTING IN PLACE, not by
+> twinning: swap the definitions first, keep `Corr` FROZEN throughout, repair sim
+> bodies onto the P5 channel in the same commit. P6/P7 below are superseded by the
+> merged step **P6+P7**; P8/P9 are unchanged. The step is atomic by nature (swapping
+> `lower` alone falsifies every fuel-proven fact about its bytes), so it is the ONE
+> deliberately large commit of the purge — the green gate applies at its boundary.
+
 S0/S1/S2 have LANDED (commits `f364dde`/`63a26c0`/`21e7bf5`): the fold carrier + reduction
 lemmas, the `rematOf` spine-decouple, and the (hcreate-conditional) `defEnv↔defsOf`
 alignment. The sequence builds the fold-based tower ALONGSIDE the old, migrates consumers,
@@ -290,28 +317,37 @@ step (unsound, §2.2).
   `Materialise/MaterialiseCleanHalt.lean`, `Materialise/DefsSound.lean`. *Green gate:* fold
   value channel green, alongside old.
 
-- **P6 — (Ob 3/5) migrate the per-statement + whole-CFG sims onto the fold.** Restate the
-  `Sim/` lemmas (`sim_assign`/`sim_sstore`/`sim_call`/`sim_create`, `sim_stmts`,
-  `sim_term_*`) and the `Assembly/` tie assembly (`sim_cfg`, `SimStmtStep`/`SimTermStep`
-  dischargers, `LowerDecode`) over the fold value channel (P5) + fold geometry (P4).
-  Statement CONCLUSIONS unchanged; this is signature/threading. Land per file-group, each
-  green. **This is the bulk and the producer-coupled surface — safe only while the branch
-  is quiescent.** *Files:* `Sim/SimStmt.lean`, `Sim/SimTerm.lean`, `Sim/SimStmts.lean`,
-  `Assembly/LowerDecode.lean`, `Assembly/LowerConforms.lean`, `Spec/BudgetDerivations.lean`,
-  `V2/Drive/DriveSim.lean`, and the WIP `V2/Realisability/{Surface,Machinery,Producer}.lean`.
-  *Green gate:* each file-group green; `WIP` pre-existing sorries only.
-
-- **P7 — (Ob 5) THE SWAP: redefine `lower`/`flatBytes`/`emit` + retype `defsOf → Alloc`.**
-  Redefine `emit`/`flatBytes`/`lower` to the fold versions (rename `*F` → canonical;
-  because fold ≠ fuel this is a genuine definition change, and it is green precisely because
-  every consumer was migrated to the fold-proven facts in P4-P6). Retype
-  `defsOf : Program → Alloc` (returns `Loc` directly: oracle/spilled ↦ `Loc.slot (slotOf t)`,
-  pure ↦ `Loc.remat e`); re-base `rematOf` off the new `defsOf` (`some (.remat e) => some e
-  | _ => none`, same value — spine statements do not churn, S1 groundwork). Retype the
-  residual `defsOf`-references in `DefsConsistent`/`ReadsOf`/`StepScopedS`/`invalStep`/
-  `DefsSoundS`/`slots_slot` to `Loc` (minimal textual churn). *Files:* `Spec/Lowering.lean`,
-  `Spec/WellFormed.lean`, `Assembly/LowerConforms.lean`, `Decode/*`, `Materialise/*`.
-  *Green gate:* full `lake build` green; `#print axioms` guards intact.
+- **P6+P7 — (Ob 3/5, MERGED per the 2026-07-08 amendment) THE SWAP-AND-REPAIR, `Corr`
+  frozen.** One atomic contract-in-place commit; NO `CorrF`, NO fold-side sim twins.
+  1. *Swap the definitions, keeping names:* redefine `emit`/`flatBytes`/`lower`/
+     `offsetTable`/`pcOf` to the fold versions (rename `emitStmtF`/`emitTermF`/
+     `emitBlockBodyF`/`offsetTableF`/`flatBytesF`/`lowerF`/`pcOfF` → canonical). Retype
+     `defsOf : Program → Alloc` (oracle/spilled ↦ `Loc.slot (slotOf t)`, pure ↦
+     `Loc.remat e`); re-base `rematOf` off the new `defsOf` (`some (.remat e) => some e |
+     _ => none`, same value — spine statements do not churn, S1 groundwork). Retype the
+     residual `defsOf`-references in `DefsConsistent`/`ReadsOf`/`StepScopedS`/`invalStep`/
+     `DefsSoundS`/`slots_slot` to `Loc`. `Corr`'s statement (`SimStmt.lean:103`) does NOT
+     change — `lower`/`pcOf`/`defsOf-as-.slot` repoint under it.
+  2. *Repair the sim bodies onto the P5 channel, in the same commit:* the internal
+     `materialise_runs`/`materialise_runs_of_cleanHalt` calls become `materialise_runsC`
+     (+ its clean-halt wrapper), `MatDec`→`MatDecC`, `chargeOf`→`chargeCache`; every
+     `MatFueled` hypothesis and `fuel` argument VANISHES from the sim signatures. Sim
+     hypotheses stated in `MatRuns`/`StashRuns` vocabulary are restated as the `C` twins —
+     this ripples to `sim_cfg`, `SimStmtStep`/`SimTermStep`, and the WIP producer supply
+     sites, but it is hypothesis-shape churn ONLY: `DriveCorrLog` and the producer's
+     `Corr`-coupled tower are NOT re-proven.
+  3. *Repoint the geometry consumers* (`LowerDecode`, `BudgetDerivations`, `DriveSim`) to
+     the P4 `*F` facts (now canonical-named).
+  **Why atomic:** swapping `lower` alone falsifies every fuel-proven fact about its bytes,
+  and fold-side sims before the swap need `CorrF` (rejected). This is the one deliberately
+  large commit; stage it as local WIP per file-group, but land it as a single green gate.
+  **Producer-coupled surface — safe only while the branch is quiescent.** *Files:*
+  `Spec/Lowering.lean`, `Spec/WellFormed.lean`, `Decode/*`, `Materialise/*`,
+  `Sim/SimStmt.lean`, `Sim/SimTerm.lean`, `Sim/SimStmts.lean`, `Assembly/LowerDecode.lean`,
+  `Assembly/LowerConforms.lean`, `Spec/BudgetDerivations.lean`, `V2/Drive/DriveSim.lean`,
+  and the WIP `V2/Realisability/{Surface,Machinery,Producer}.lean`. *Green gate:* full
+  `lake build` green + sorry-free; `WIP` pre-existing sorries only; `#print axioms` guards
+  intact.
 
 - **P8 — (Ob 5) shrink `IRWellFormed`/`WellFormedLowered`/`WellLowered` + flagship + witness.**
   `IRWellFormed` (`WellFormed.lean:471`): replace `acyclicDefs` with `defEnvOrdered`
@@ -379,9 +415,12 @@ the four `bound_*` restatements (`LowerConforms.lean:150-205`); `matFueled_of_ac
    fuel-case arms of every fuel-inductive proof (`MatDecLower.lean:296-311`,
    `SegAligned.lean:236-276`) VANISH, but the leaf/composite arms are re-derived over
    `matCache`. This is mechanical but voluminous (P5/P6).
-3. **The swap (P7) is a genuine definition change.** `lower` changes from fuel to fold and
-   is byte-different on ill-formed inputs; it is green ONLY because P4-P6 migrated every
-   consumer to fold-proven facts first. Do not attempt P7 before P4-P6 land.
+3. **The swap (P6+P7) is a genuine definition change and is ATOMIC.** `lower` changes from
+   fuel to fold (byte-different even on some `DefEnvOrdered`-admissible programs — the
+   fuel truncation, §2.2), so the definition swap and the sim-body repair must land in ONE
+   commit: fold-side sims before the swap need a rejected `CorrF` fork, and the swap
+   without the repair breaks every fuel-proven consumer. Do not attempt it before P4/P5
+   land (they have), and keep `Corr` frozen throughout (2026-07-08 amendment).
 4. **Scale + producer coupling.** ~25 files incl. the producer's sim-lemma instantiations
    (`Producer.lean`/`Machinery.lean`). Must run producer-quiescent (branch stated quiescent).
 5. **`DefEnvOrdered`/`DefsConsistent` discharge for `exProg`.** Must reduce by `decide`/`rfl`;

@@ -51,7 +51,7 @@ value = the k-th recorded entry) and the SSTORE presence in the SAME walk, the b
 must additionally carry, at each block-entry frame:
 
 * `selfPresent` — the self account is present (`SelfPresent fr`), the SSTORE presence world-invariant
-  (§5), transportable across each block's materialise sub-runs (account map + self address preserved);
+  (§5), transportable across each block's value-channel (`MatRunsC`) sub-runs (account map + self address preserved);
 * `gasAligned` / `sloadAligned` — that the recorder's flat gas/sload accumulators *consumed so far*
   are aligned (`GasLogAligned` / `SloadLogAligned`) with the GAS/SLOAD witness frames the walk has
   visited, so the per-cursor read at the next GAS/SLOAD site is the matching recorded entry
@@ -219,7 +219,7 @@ told whether the statement is `assign t .gas` (a GAS cursor, with the GAS-op dec
 the strictly-advancing `fr0 ≠ fr1` that lets `Runs.gas_cancel` factor the GAS head out) or NOT (the
 no-record arm). This is the honest per-cursor input the architect's plan dispatches on; it is
 satisfiable (a real lowered `assign t .gas` decodes to `GAS` at the segment head — `emitStmt_assign_slot`
-puts `materialise .gas = [GAS]` first — and the GAS op strictly advances the pc) and NON-vacuous (the
+puts `matExpr (matCache prog) .gas = [GAS]` first — and the GAS op strictly advances the pc) and NON-vacuous (the
 GAS arm CONSUMES the supplied S4 lower bound to fire the brick, the non-GAS arm consumes nothing).
 
 The threaded reachability invariant is `GasReach`: the witness tail `Runs`-reaches the current cursor

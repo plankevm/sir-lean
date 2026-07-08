@@ -31,7 +31,7 @@ open Lir
 
 /-! ### `SelfPresent`-forward along a whole `Runs` segment (incl. the `Runs.call` resume)
 
-`SelfPresent` transports across one materialise sub-run (account map + self address preserved). The drive walk
+`SelfPresent` transports across one value-channel (`MatRunsC`) sub-run (account map + self address preserved). The drive walk
 glues those sub-runs (and returning external CALLs) into a single `Runs fr fr'` segment between
 block boundaries, so the SSTORE-presence discharge needs `SelfPresent` **forward-closed along the
 whole `Runs`** — including the `Runs.call` resume node, where the resumed *caller* frame's account
@@ -42,7 +42,7 @@ The `Runs` relation (`BytecodeLayer/Hoare.lean`) has three constructors — `ref
 (`StepsTo`, one non-halting opcode) / `call` (`CallReturns`, one returning external CALL). The
 forward closure is an induction on the derivation (the template is `Runs.gasAvailable_le`): `refl`
 is `rfl`, and each `step`/`call` rung is a *local* one-edge preservation. We name those two edges as
-predicates so the drive walk discharges them with the facts it already has (the materialise bricks
+predicates so the drive walk discharges them with the facts it already has (the value-channel bricks
 for `step`, the returning-call world-threading for `call`):
 
 * `StepPreservesSelf` — a single non-halting opcode step preserves the self account's presence.

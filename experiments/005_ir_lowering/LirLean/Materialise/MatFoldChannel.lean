@@ -1,4 +1,5 @@
 import LirLean.Spec.WellFormed
+import LirLean.Materialise.MatDecLower
 
 /-! # `MatFoldChannel` — the charge fold twin's fixpoint + the chargeCache↔matCache lockstep
 
@@ -312,30 +313,25 @@ def matDecMeasure (prog : Program) : Expr → Nat
   | .sload k => 3 * tmpIdx prog k + 2
 
 /-- **`allocate` ⇒ `defEnv` membership.** If `t`'s canonical location is `some loc`, the
-`(t, loc)` pair sits in `defEnv prog` — the converse of `defEnv_entry_eq_allocate`, via the
-`defsOf`/`find?` view (`defsOf_eq_defEnv_find`) and the SSA single-binding `Loc` alignment. -/
-theorem mem_defEnv_of_allocate (prog : Program) (hdc : DefsConsistent prog)
+`(t, loc)` pair sits in `defEnv prog` — the converse of `defEnv_entry_eq_allocate`, directly
+through the `defsOf`/`find?` view (`defsOf_eq_defEnv_find`; `allocate = defsOf` by the shim).
+The `hdc` parameter is kept for signature stability with the converse direction. -/
+theorem mem_defEnv_of_allocate (prog : Program) (_hdc : DefsConsistent prog)
     {t : Tmp} {loc : Loc} (h : allocate prog t = some loc) : (t, loc) ∈ defEnv prog := by
-  have hdefs : defsOf prog t = some loc.toDef := by
-    have h2 := congrFun (allocate_toDefs prog) t
-    simp only [Alloc.toDefs, h, Option.map_some] at h2; exact h2.symm
+  have hdefs : defsOf prog t = some loc := h
   rw [defsOf_eq_defEnv_find, Option.map_eq_some_iff] at hdefs
-  obtain ⟨⟨tt, loc'⟩, hfind, _⟩ := hdefs
+  obtain ⟨⟨tt, loc'⟩, hfind, hsnd⟩ := hdefs
   have htt : tt = t := by have := List.find?_some hfind; simpa using this
   subst htt
-  have hmem : (tt, loc') ∈ defEnv prog := List.mem_of_find?_eq_some hfind
-  have hall := defEnv_entry_eq_allocate prog hdc hmem
-  rw [h] at hall
-  have : loc' = loc := (Option.some.inj hall).symm
-  rw [this] at hmem; exact hmem
+  have hl : loc' = loc := hsnd
+  rw [← hl]
+  exact List.mem_of_find?_eq_some hfind
 
 /-- **`allocate = none` ⇒ absent from `defEnv`.** An unallocated tmp is not a `defEnv` key, so
 `matCache prog t` falls to the `matInit` leaf (`matCache_absent`). -/
 theorem not_mem_defEnv_of_allocate_none (prog : Program) {t : Tmp}
     (h : allocate prog t = none) : t ∉ (defEnv prog).map Prod.fst := by
-  have hdefs : defsOf prog t = none := by
-    have h2 := congrFun (allocate_toDefs prog) t
-    simp only [Alloc.toDefs, h, Option.map_none] at h2; exact h2.symm
+  have hdefs : defsOf prog t = none := h
   rw [defsOf_eq_defEnv_find] at hdefs
   have hfind : (defEnv prog).find? (fun p => p.1 == t) = none := by
     cases hf : (defEnv prog).find? (fun p => p.1 == t) with
@@ -504,26 +500,27 @@ theorem matDecC_tmp_none (p : UInt32) (t : Tmp)
 
 end Reductions
 
-/-! ### `matDecC_of_seg` — the byte-segment bridge over the fold (twin of `matDec_of_seg`)
+/-! ### `matDecC_of_seg` — the byte-segment bridge over the fold
 
-The fuel-free twin of `matDec_of_seg` (`MatDecLower.lean`): from a segment hypothesis that the
-bytes `matExpr (matCache prog) e` sit in `flatBytesF prog` at `[base, base+len)`, the full
-`MatDecC` bundle holds at `UInt32.ofNat base` over `lowerF prog`. Proved by **structural
+The fuel-free segment bridge (successor of the deleted fuel-era `matDec_of_seg`): from a
+segment hypothesis that the
+bytes `matExpr (matCache prog) e` sit in `flatBytes prog` at `[base, base+len)`, the full
+`MatDecC` bundle holds at `UInt32.ofNat base` over `lower prog`. Proved by **structural
 recursion on `e`** (composite arms split their operand sub-segments off the parent) plus the
 **def-env recursion** for the `.tmp t` arm (its bytes `matCache prog t` unfold via
 `matCache_unfold` to the definiens `e'`'s bytes, and `matDecMeasure_remat_lt` justifies the
-descent — NO fuel, NO `MatFueled`). The per-`lowerF` leaf decodes reuse `MatDecLower`'s
-lowering-independent `extract_toList_eq`/`uInt256_wordBytesBE` through the `decode_lowerF_*`
+descent — NO fuel, NO `MatFueled`). The per-`lower` leaf decodes reuse `MatDecLower`'s
+lowering-independent `extract_toList_eq`/`uInt256_wordBytesBE` through the `decode_lower_*`
 specialisations. -/
 
-/-- Generic prefix-of-a-segment (the `seg_prefix` twin over an arbitrary byte list). -/
+/-- Generic prefix-of-a-segment (over an arbitrary byte list). -/
 theorem segF_prefix (bytes : List UInt8) (base : ℕ) (pre suf : List UInt8)
     (h : ∀ j, j < (pre ++ suf).length → bytes[base + j]? = (pre ++ suf)[j]?) :
     ∀ j, j < pre.length → bytes[base + j]? = pre[j]? := by
   intro j hj
   rw [h j (by rw [List.length_append]; omega), List.getElem?_append_left hj]
 
-/-- Generic suffix-of-a-segment (the `seg_suffix` twin over an arbitrary byte list). -/
+/-- Generic suffix-of-a-segment (over an arbitrary byte list). -/
 theorem segF_suffix (bytes : List UInt8) (base : ℕ) (pre suf : List UInt8)
     (h : ∀ j, j < (pre ++ suf).length → bytes[base + j]? = (pre ++ suf)[j]?) :
     ∀ j, j < suf.length → bytes[base + pre.length + j]? = suf[j]? := by
@@ -532,59 +529,59 @@ theorem segF_suffix (bytes : List UInt8) (base : ℕ) (pre suf : List UInt8)
   rw [show base + (pre.length + j) = base + pre.length + j from by ring] at this
   rw [this, List.getElem?_append_right (by omega), show pre.length + j - pre.length = j from by omega]
 
-/-- **`.imm` leaf decode over `lowerF`** (the `imm_leaf_decode` twin). -/
+/-- **`.imm` leaf decode over `lower`**: `PUSH32 w` reads back `w` (`uInt256_wordBytesBE`). -/
 theorem imm_leaf_decodeF (prog : Program) (base : ℕ) (w : Word)
     (hbound : base + 33 ≤ 2 ^ 32)
-    (hseg : ∀ j, j < (emitImm w).length → (flatBytesF prog)[base + j]? = (emitImm w)[j]?) :
-    decode (lowerF prog) (UInt32.ofNat base) = some (.Push .PUSH32, some (w, 32)) := by
+    (hseg : ∀ j, j < (emitImm w).length → (flatBytes prog)[base + j]? = (emitImm w)[j]?) :
+    decode (lower prog) (UInt32.ofNat base) = some (.Push .PUSH32, some (w, 32)) := by
   have hemit : (emitImm w).length = 33 := emitImm_length w
-  have hbyte : (flatBytesF prog)[base]? = some Byte.push32 := by
+  have hbyte : (flatBytes prog)[base]? = some Byte.push32 := by
     have := hseg 0 (by omega); simpa [emitImm] using this
-  have hwin : ((flatBytesF prog).toArray.extract (base + 1) (base + 1 + 32)).toList = wordBytesBE w := by
-    apply extract_toList_eq (flatBytesF prog) (base + 1) 32 (wordBytesBE w) (by simp [wordBytesBE])
+  have hwin : ((flatBytes prog).toArray.extract (base + 1) (base + 1 + 32)).toList = wordBytesBE w := by
+    apply extract_toList_eq (flatBytes prog) (base + 1) 32 (wordBytesBE w) (by simp [wordBytesBE])
     intro j hj
     have := hseg (1 + j) (by rw [hemit]; omega)
     rw [show base + (1 + j) = base + 1 + j from by ring] at this
     rw [this, show (1 + j) = j + 1 from by ring]
     simp [emitImm, List.getElem?_cons_succ]
-  have himm : uInt256OfByteArray ⟨(flatBytesF prog).toArray.extract (base + 1) (base + 1 + 32)⟩ = w := by
-    have hh : uInt256OfByteArray ⟨(flatBytesF prog).toArray.extract (base + 1) (base + 1 + 32)⟩
+  have himm : uInt256OfByteArray ⟨(flatBytes prog).toArray.extract (base + 1) (base + 1 + 32)⟩ = w := by
+    have hh : uInt256OfByteArray ⟨(flatBytes prog).toArray.extract (base + 1) (base + 1 + 32)⟩
         = uInt256OfByteArray ⟨(wordBytesBE w).toArray⟩ := by
       unfold uInt256OfByteArray
       congr 2
-      show ((flatBytesF prog).toArray.extract (base + 1) (base + 1 + 32)).toList.reverse = _
+      show ((flatBytes prog).toArray.extract (base + 1) (base + 1 + 32)).toList.reverse = _
       rw [hwin]
     rw [hh, uInt256_wordBytesBE]
   have hp : Evm.pushArgWidth (Evm.parseInstr Byte.push32) = (32 : UInt8) := by decide
   have h32 : (32 : UInt8).toNat = 32 := by decide
-  have hres := decode_lowerF_push prog base Byte.push32 32 w (by omega) hbyte hp (by decide)
+  have hres := decode_lower_push prog base Byte.push32 32 w (by omega) hbyte hp (by decide)
     (by rw [h32]; exact himm)
   rw [hres]; rfl
 
-/-- **Non-push opcode leaf decode over `lowerF`** (the `nonpush_leaf_decode` twin). -/
+/-- **Non-push opcode leaf decode over `lower`** (covers `ADD`/`LT`/`SLOAD`/`GAS`/`MLOAD`). -/
 theorem nonpush_leaf_decodeF (prog : Program) (base off : ℕ) (byte : UInt8) (seg : List UInt8)
     (hbound : base + off < 2 ^ 32)
     (hoff : seg[off]? = some byte)
     (hnp : Evm.pushArgWidth (Evm.parseInstr byte) = 0)
-    (hseg : ∀ j, j < seg.length → (flatBytesF prog)[base + j]? = seg[j]?) :
-    decode (lowerF prog) (UInt32.ofNat (base + off)) = some (Evm.parseInstr byte, .none) := by
+    (hseg : ∀ j, j < seg.length → (flatBytes prog)[base + j]? = seg[j]?) :
+    decode (lower prog) (UInt32.ofNat (base + off)) = some (Evm.parseInstr byte, .none) := by
   have hoffl : off < seg.length := by
     by_contra h; rw [List.getElem?_eq_none (by omega)] at hoff; exact absurd hoff (by simp)
-  have hbyte : (flatBytesF prog)[base + off]? = some byte := by rw [hseg off hoffl]; exact hoff
-  exact decode_lowerF_nonpush prog (base + off) byte hbound hbyte hnp
+  have hbyte : (flatBytes prog)[base + off]? = some byte := by rw [hseg off hoffl]; exact hoff
+  exact decode_lower_nonpush prog (base + off) byte hbound hbyte hnp
 
-/-- **`.slot` leaf decode over `lowerF`** (the `slot_leaf_decode` twin). -/
+/-- **`.slot` leaf decode over `lower`**: `PUSH n ; MLOAD` (the spill readback pair). -/
 theorem slot_leaf_decodeF (prog : Program) (base slot : ℕ)
     (hbound : base + (emitImm (UInt256.ofNat slot) ++ [Byte.mload]).length ≤ 2 ^ 32)
     (hseg : ∀ j, j < (emitImm (UInt256.ofNat slot) ++ [Byte.mload]).length →
-      (flatBytesF prog)[base + j]? = (emitImm (UInt256.ofNat slot) ++ [Byte.mload])[j]?) :
-    decode (lowerF prog) (UInt32.ofNat base) = some (.Push .PUSH32, some (UInt256.ofNat slot, 32))
-    ∧ decode (lowerF prog) (UInt32.ofNat base
+      (flatBytes prog)[base + j]? = (emitImm (UInt256.ofNat slot) ++ [Byte.mload])[j]?) :
+    decode (lower prog) (UInt32.ofNat base) = some (.Push .PUSH32, some (UInt256.ofNat slot, 32))
+    ∧ decode (lower prog) (UInt32.ofNat base
         + UInt32.ofNat (emitImm (UInt256.ofNat slot)).length) = some (.Smsf .MLOAD, .none) := by
   have hlen : (emitImm (UInt256.ofNat slot)).length = 33 := emitImm_length _
   rw [List.length_append, hlen, List.length_singleton] at hbound
   refine ⟨imm_leaf_decodeF prog base (UInt256.ofNat slot) (by omega)
-      (segF_prefix (flatBytesF prog) base (emitImm (UInt256.ofNat slot)) [Byte.mload] hseg), ?_⟩
+      (segF_prefix (flatBytes prog) base (emitImm (UInt256.ofNat slot)) [Byte.mload] hseg), ?_⟩
   rw [hlen, ofNat_add']
   have hmload := nonpush_leaf_decodeF prog base 33 Byte.mload
       (emitImm (UInt256.ofNat slot) ++ [Byte.mload]) (by omega)
@@ -592,15 +589,15 @@ theorem slot_leaf_decodeF (prog : Program) (base slot : ℕ)
       (by decide) hseg
   simpa using hmload
 
-/-- **`matDecC_of_seg` (core deliverable).** The whole `MatDecC` bundle over `lowerF prog` from a
+/-- **`matDecC_of_seg` (core deliverable).** The whole `MatDecC` bundle over `lower prog` from a
 segment of the fold bytes `matExpr (matCache prog) e` at `base`. Structural on `e`; the `.tmp`
 arm descends the def-env via `matCache_unfold` (`matDecMeasure_remat_lt`). -/
 theorem matDecC_of_seg (prog : Program) (hdc : DefsConsistent prog) (hord : DefEnvOrdered prog)
     (e : Expr) (base : ℕ)
     (hbound : base + (matExpr (matCache prog) e).length ≤ 2 ^ 32)
     (hseg : ∀ j, j < (matExpr (matCache prog) e).length →
-        (flatBytesF prog)[base + j]? = (matExpr (matCache prog) e)[j]?) :
-    MatDecC prog hdc hord (lowerF prog) (UInt32.ofNat base) e := by
+        (flatBytes prog)[base + j]? = (matExpr (matCache prog) e)[j]?) :
+    MatDecC prog hdc hord (lower prog) (UInt32.ofNat base) e := by
   match e, hbound, hseg with
   | .imm w, hbound, hseg =>
       rw [matDecC_imm]
@@ -621,10 +618,10 @@ theorem matDecC_of_seg (prog : Program) (hdc : DefsConsistent prog) (hord : DefE
       have hmat : matExpr (matCache prog) (.add a b)
           = matCache prog b ++ matCache prog a ++ [Byte.add] := by simp only [matExpr_add]
       rw [hmat] at hseg hbound
-      have hsegBA := segF_prefix (flatBytesF prog) base (matCache prog b ++ matCache prog a)
+      have hsegBA := segF_prefix (flatBytes prog) base (matCache prog b ++ matCache prog a)
         [Byte.add] hseg
-      have hsegb := segF_prefix (flatBytesF prog) base (matCache prog b) (matCache prog a) hsegBA
-      have hsega := segF_suffix (flatBytesF prog) base (matCache prog b) (matCache prog a) hsegBA
+      have hsegb := segF_prefix (flatBytes prog) base (matCache prog b) (matCache prog a) hsegBA
+      have hsega := segF_suffix (flatBytes prog) base (matCache prog b) (matCache prog a) hsegBA
       have hbnd : base + ((matCache prog b).length + (matCache prog a).length + 1) ≤ 2 ^ 32 := by
         simp only [List.length_append, List.length_singleton] at hbound; omega
       refine ⟨?_, ?_, ?_⟩
@@ -645,10 +642,10 @@ theorem matDecC_of_seg (prog : Program) (hdc : DefsConsistent prog) (hord : DefE
       have hmat : matExpr (matCache prog) (.lt a b)
           = matCache prog b ++ matCache prog a ++ [Byte.lt] := by simp only [matExpr_lt]
       rw [hmat] at hseg hbound
-      have hsegBA := segF_prefix (flatBytesF prog) base (matCache prog b ++ matCache prog a)
+      have hsegBA := segF_prefix (flatBytes prog) base (matCache prog b ++ matCache prog a)
         [Byte.lt] hseg
-      have hsegb := segF_prefix (flatBytesF prog) base (matCache prog b) (matCache prog a) hsegBA
-      have hsega := segF_suffix (flatBytesF prog) base (matCache prog b) (matCache prog a) hsegBA
+      have hsegb := segF_prefix (flatBytes prog) base (matCache prog b) (matCache prog a) hsegBA
+      have hsega := segF_suffix (flatBytes prog) base (matCache prog b) (matCache prog a) hsegBA
       have hbnd : base + ((matCache prog b).length + (matCache prog a).length + 1) ≤ 2 ^ 32 := by
         simp only [List.length_append, List.length_singleton] at hbound; omega
       refine ⟨?_, ?_, ?_⟩
@@ -669,7 +666,7 @@ theorem matDecC_of_seg (prog : Program) (hdc : DefsConsistent prog) (hord : DefE
       have hmat : matExpr (matCache prog) (.sload k)
           = matCache prog k ++ [Byte.sload] := by simp only [matExpr_sload]
       rw [hmat] at hseg hbound
-      have hsegk := segF_prefix (flatBytesF prog) base (matCache prog k) [Byte.sload] hseg
+      have hsegk := segF_prefix (flatBytes prog) base (matCache prog k) [Byte.sload] hseg
       have hbnd : base + ((matCache prog k).length + 1) ≤ 2 ^ 32 := by
         simp only [List.length_append, List.length_singleton] at hbound; omega
       refine ⟨?_, ?_⟩
@@ -682,7 +679,7 @@ theorem matDecC_of_seg (prog : Program) (hdc : DefsConsistent prog) (hord : DefE
   | .tmp t, hbound, hseg =>
       cases hal : allocate prog t with
       | none =>
-          rw [matDecC_tmp_none prog hdc hord (lowerF prog) (UInt32.ofNat base) t hal]
+          rw [matDecC_tmp_none prog hdc hord (lower prog) (UInt32.ofNat base) t hal]
           have hc : matCache prog t = emitImm 0 :=
             matCache_absent prog (not_mem_defEnv_of_allocate_none prog hal)
           simp only [matExpr_tmp, hc] at hseg hbound
@@ -690,14 +687,14 @@ theorem matDecC_of_seg (prog : Program) (hdc : DefsConsistent prog) (hord : DefE
       | some loc =>
           cases loc with
           | remat e' =>
-              rw [matDecC_tmp_remat prog hdc hord (lowerF prog) (UInt32.ofNat base) t e' hal]
+              rw [matDecC_tmp_remat prog hdc hord (lower prog) (UInt32.ofNat base) t e' hal]
               have hc : matCache prog t = matExpr (matCache prog) e' :=
                 matCache_remat prog hdc hord (mem_defEnv_of_allocate prog hdc hal)
               apply matDecC_of_seg prog hdc hord e' base
               · simp only [matExpr_tmp, hc] at hbound; exact hbound
               · simp only [matExpr_tmp, hc] at hseg; exact hseg
           | slot n =>
-              rw [matDecC_tmp_slot prog hdc hord (lowerF prog) (UInt32.ofNat base) t n hal]
+              rw [matDecC_tmp_slot prog hdc hord (lower prog) (UInt32.ofNat base) t n hal]
               have hc : matCache prog t = emitImm (UInt256.ofNat n) ++ [Byte.mload] :=
                 matCache_slot prog hdc hord (mem_defEnv_of_allocate prog hdc hal)
               simp only [matExpr_tmp, hc] at hseg hbound
@@ -711,7 +708,8 @@ theorem matDecC_of_seg (prog : Program) (hdc : DefsConsistent prog) (hord : DefE
 
 /-! ## §P5c — the value-channel linchpin over the fold: `MatRunsC` / `materialise_runsC`
 
-The fuel-free twin of `MatRuns` / `materialise_runs` (`MaterialiseRuns.lean`), stated and proved
+The fuel-free value-channel linchpin (successor of the deleted fuel-era `materialise_runs`;
+the endpoint-bundle shape mirrors the legacy generic-`defs` `MatRuns`), stated and proved
 DIRECTLY over the fold. `matExpr (matCache prog) e` reconstructs `evalExpr st obs e` on the EVM
 stack, via a per-tmp recursion along `defEnv` (`matDecMeasure`, well-founded by `DefEnvOrdered`)
 that unfolds `.tmp t` through `matCache_unfold` — NO `MatFueled`, NO `matCache = materialiseExpr`
@@ -771,27 +769,20 @@ theorem chargeCache_length_pos (prog : Program) (sloadChg : Tmp → ℕ) (t : Tm
 
 /-! ### `allocate` → `defsOf` bridges (route the `.tmp t` arm to the recompute / readback env) -/
 
-/-- A spilled allocation is a spilled `defsOf` entry. -/
+/-- A spilled allocation is a spilled `defsOf` entry (definitional through the `allocate`
+shim). -/
 theorem defsOf_of_allocate_slot (prog : Program) {t : Tmp} {n : Nat}
-    (h : allocate prog t = some (Loc.slot n)) : defsOf prog t = some (.slot n) := by
-  have h2 := congrFun (allocate_toDefs prog) t
-  simp only [Alloc.toDefs, h, Option.map_some] at h2
-  exact h2.symm
+    (h : allocate prog t = some (Loc.slot n)) : defsOf prog t = some (.slot n) := h
 
-/-- A rematerialised allocation is a non-`.slot` `defsOf` entry. -/
+/-- A rematerialised allocation, read back through the `rematOf` projection: the definiens
+is registered for recompute and is never a spilled leaf (`rematOf_ne_gas` /
+`rematOf_ne_sload`) — exactly what `materialise_runsC`'s remat arm feeds `DefsSound`. -/
 theorem defsOf_of_allocate_remat (prog : Program) {t : Tmp} {e : Expr}
     (h : allocate prog t = some (Loc.remat e)) :
-    defsOf prog t = some e ∧ ∀ n, e ≠ .slot n := by
-  have hdef : defsOf prog t = some e := by
-    have h2 := congrFun (allocate_toDefs prog) t
-    simp only [Alloc.toDefs, h, Option.map_some] at h2
-    exact h2.symm
-  refine ⟨hdef, ?_⟩
-  rintro n rfl
-  have hcontra : allocate prog t = some (Loc.slot n) := by
-    show (defsOf prog t).map locOfExpr = some (Loc.slot n)
-    rw [hdef]; rfl
-  rw [hcontra] at h; exact absurd h (by nofun)
+    rematOf prog t = some e ∧ e ≠ .gas ∧ ∀ k, e ≠ .sload k := by
+  have hrem : rematOf prog t = some e := rematOf_of_defsOf h
+  exact ⟨hrem, fun hg => rematOf_ne_gas prog t (hg ▸ hrem),
+    fun k hk => rematOf_ne_sload prog t k (hk ▸ hrem)⟩
 
 /-! ### The binop gas-charge gluing (the `materialiseGasCharge_binop` twin, over raw charge lists) -/
 
@@ -891,9 +882,7 @@ theorem materialise_runsC {prog : Program} (hdc : DefsConsistent prog) (hord : D
       cases hal : allocate prog t with
       | none =>
           exfalso
-          have hdn : defsOf prog t = none := by
-            have h2 := congrFun (allocate_toDefs prog) t
-            simp only [Alloc.toDefs, hal, Option.map_none] at h2; exact h2.symm
+          have hdn : defsOf prog t = none := hal
           exact (hscoped t (by rw [hloc]; simp)).2 hdn
       | some loc =>
           cases loc with
@@ -904,20 +893,20 @@ theorem materialise_runsC {prog : Program} (hdc : DefsConsistent prog) (hord : D
               have hcc : chargeCache prog sloadChg t
                   = chargeExpr sloadChg (chargeCache prog sloadChg) e' :=
                 chargeCache_remat prog sloadChg hdc hord (mem_defEnv_of_allocate prog hdc hal)
-              obtain ⟨hdeft, hnsslot⟩ := defsOf_of_allocate_remat prog hal
+              obtain ⟨hremt, he'ng, he'nsl⟩ := defsOf_of_allocate_remat prog hal
               have htmd : MatDecC prog hdc hord fr.exec.executionEnv.code fr.exec.pc e' := by
                 rw [matDecC_tmp_remat prog hdc hord fr.exec.executionEnv.code fr.exec.pc t e' hal]
                   at hdec
                 exact hdec
-              have he'ng : e' ≠ .gas := by rintro rfl; exact defsOf_ne_gas prog t hdeft
-              have he'nsl : ∀ k, e' ≠ .sload k := by
-                intro k; rintro rfl; exact defsOf_ne_sload prog t k hdeft
               have hnr : ¬ NonRecomputable prog t := by
                 rcases (hscoped t (by rw [hloc]; simp)).1 with hnr | ⟨s, hcrdef⟩
                 · exact hnr
-                · exfalso; rw [hdeft] at hcrdef; injection hcrdef with hcr; exact hnsslot s hcr
+                · exfalso
+                  have hdeft : defsOf prog t = some (Loc.remat e') := hal
+                  rw [hdeft] at hcrdef
+                  exact absurd hcrdef (by simp)
               have hdfs : some w = evalExpr st 0 e' :=
-                hsound t e' w (rematOf_of_defsOf hdeft hnsslot) hnr hloc
+                hsound t e' w hremt hnr hloc
               have heval' : evalExpr st obs e' = some w := by
                 rw [evalExpr_obs_irrel st obs 0 he'ng]; exact hdfs.symm
               have hgas' : (chargeExpr sloadChg (chargeCache prog sloadChg) e').sum
@@ -1320,5 +1309,61 @@ theorem materialise_runsC {prog : Program} (hdc : DefsConsistent prog) (hord : D
         | (exact matDecMeasure_remat_lt prog hdc hord (by assumption))
 
 end ValueChannel
+
+/-! ## `matDecC_of_lower` / `matDecC_of_term` — `MatDecC` at statement / terminator cursors
+
+The cursor-level specialisations of `matDecC_of_seg` (the fuel-free successors of the deleted
+fuel-era `matDec_of_lower`/`matDec_of_term`): the fold bytes `matExpr (matCache prog) e` of a
+statement (resp. terminator) operand form a contiguous sub-list of `emitStmt` (resp. `emitTerm`),
+so the byte-segment hypothesis holds at `pcOf prog L pc + offset` (resp. `termOf prog L + offset`)
+via the byte anchors `flatBytes_at_pcOf_offset` / `flatBytes_at_termOf`
+(`Decode/DecodeAnchors.lean`), and the whole `MatDecC` bundle over `lower prog` follows. This is
+the generic discharge of the value channel's carried `MatDecC` hypothesis at any statement /
+terminator cursor. NO `MatFueled`, NO fuel. -/
+
+/-- **`MatDecC` at a statement cursor.** For an operand `e` whose fold bytes form the sub-list of
+statement `s`'s lowering at byte `offset`, the whole `MatDecC` bundle holds over `lower prog` at
+`UInt32.ofNat (pcOf prog L pc + offset)` — `matDecC_of_seg` anchored by
+`flatBytes_at_pcOf_offset`. -/
+theorem matDecC_of_lower (prog : Program) (hdc : DefsConsistent prog) (hord : DefEnvOrdered prog)
+    (L : Label) (b : Block) (pc : ℕ) (s : Stmt) (offset : ℕ) (e : Expr)
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hs : b.stmts[pc]? = some s)
+    (hsub : ∀ j, j < (matExpr (matCache prog) e).length →
+        (emitStmt (matCache prog) (defsOf prog) s)[offset + j]?
+          = (matExpr (matCache prog) e)[j]?)
+    (hin : offset + (matExpr (matCache prog) e).length
+        ≤ (emitStmt (matCache prog) (defsOf prog) s).length)
+    (hbound : pcOf prog L pc + offset + (matExpr (matCache prog) e).length ≤ 2 ^ 32) :
+    MatDecC prog hdc hord (lower prog) (UInt32.ofNat (pcOf prog L pc + offset)) e :=
+  matDecC_of_seg prog hdc hord e (pcOf prog L pc + offset) (by omega)
+    (fun j hj => by
+      have hanchor := flatBytes_at_pcOf_offset prog L b pc s (offset + j) hb hs (by omega)
+      rw [show pcOf prog L pc + (offset + j) = pcOf prog L pc + offset + j from by ring]
+        at hanchor
+      rw [hanchor]; exact hsub j hj)
+
+/-- **`MatDecC` at a terminator cursor.** For an operand `e` whose fold bytes form the sub-list
+of `emitTerm … b.term` at byte `offset`, the whole `MatDecC` bundle holds over `lower prog` at
+`UInt32.ofNat (termOf prog L + offset)` — `matDecC_of_seg` anchored by `flatBytes_at_termOf`.
+The branch's cond materialise is this at `offset = 0`. -/
+theorem matDecC_of_term (prog : Program) (hdc : DefsConsistent prog) (hord : DefEnvOrdered prog)
+    (L : Label) (b : Block) (offset : ℕ) (e : Expr)
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hsub : ∀ j, j < (matExpr (matCache prog) e).length →
+        (emitTerm (matCache prog)
+            (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term)[offset + j]?
+          = (matExpr (matCache prog) e)[j]?)
+    (hin : offset + (matExpr (matCache prog) e).length
+        ≤ (emitTerm (matCache prog)
+            (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term).length)
+    (hbound : termOf prog L + offset + (matExpr (matCache prog) e).length ≤ 2 ^ 32) :
+    MatDecC prog hdc hord (lower prog) (UInt32.ofNat (termOf prog L + offset)) e :=
+  matDecC_of_seg prog hdc hord e (termOf prog L + offset) (by omega)
+    (fun j hj => by
+      have hanchor := flatBytes_at_termOf prog L b (offset + j) hb (by omega)
+      rw [show termOf prog L + (offset + j) = termOf prog L + offset + j from by ring]
+        at hanchor
+      rw [hanchor]; exact hsub j hj)
 
 end Lir.V2

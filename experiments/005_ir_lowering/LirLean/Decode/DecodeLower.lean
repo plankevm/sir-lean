@@ -23,8 +23,8 @@ On top of them, the two generic decode lemmas (`decode_nonpush_of_list`,
 `lower prog = ⟨(flatBytes prog).toArray⟩` (`lower_eq_flatBytes`), discharging a
 decode obligation over `lower prog` reduces to the **byte-layout arithmetic**: which
 byte `flatBytes prog` holds at `pcOf prog L pc`. That prefix-sum/offset-table
-arithmetic is the remaining C3 work (see `PLAN.md`); these lemmas are the reusable
-bricks it feeds, and the bridge that lets the worked-program decode facts be stated
+arithmetic lives in `Decode/Layout.lean`; these lemmas are the reusable bricks it
+feeds, and the bridge that lets the worked-program decode facts be stated
 list-locally instead of by whole-array `rfl`.
 
 No `sorry`, no `axiom`, no `native_decide`.
@@ -37,48 +37,27 @@ open Evm
 /-! ## `lower prog` as a flat byte list -/
 
 /-- The flat byte list `lower prog` wraps: the per-block `JUMPDEST :: body`
-concatenation, before `toArray`/`ByteArray`. `lower prog = ⟨(flatBytes prog).toArray⟩`
-(`lower_eq_flatBytes`), so byte-indexing `lower prog` is list-indexing `flatBytes prog`.
-
-Stated in terms of `defsOf` (not `allocate`/`emit`) so every downstream layout proof
-that decomposes `flatBytes` over `offsetTable (defsOf …) …` is unchanged; the bridge
-to the factored `lower` is `allocate_toDefs`. -/
+concatenation, before `toArray`/`ByteArray`, built from the total fold cache
+`matCache prog` and the `defsOf prog` allocation policy, with branch destinations
+resolved via `offsetTable`. `lower prog = ⟨(flatBytes prog).toArray⟩`
+(`lower_eq_flatBytes`), so byte-indexing `lower prog` is list-indexing
+`flatBytes prog`. Fuel-free; total by construction. -/
 def flatBytes (prog : Program) : List UInt8 :=
-  let defs := defsOf prog
-  let fuel := recomputeFuel prog
-  let labelOff := offsetTable defs fuel prog.blocks
-  prog.blocks.toList.flatMap (fun b => Byte.jumpdest :: emitBlockBody defs fuel labelOff b)
+  let cache := matCache prog
+  let alloc := defsOf prog
+  let labelOff := offsetTable cache alloc prog.blocks
+  prog.blocks.toList.flatMap (fun b => Byte.jumpdest :: emitBlockBody cache alloc labelOff b)
 
-/-- `emit (allocate prog) prog` is `flatBytes prog`: `emit` runs the same per-block
-assembly over `(allocate prog).toDefs`, which is `defsOf prog` (`allocate_toDefs`). -/
+/-- `emit (defsOf prog) prog` is `flatBytes prog`: `emit` runs exactly this per-block
+assembly (fold cache + allocation) with `a := defsOf prog`. Definitional. -/
 theorem emit_allocate_eq_flatBytes (prog : Program) :
-    emit (allocate prog) prog = flatBytes prog := by
-  unfold emit flatBytes; rw [allocate_toDefs]
+    emit (defsOf prog) prog = flatBytes prog := rfl
 
 /-- `lower prog` is the `ByteArray` wrapping `flatBytes prog`. The factored
-`lower = encode ∘ emit (allocate prog)` emits exactly the old bytes via
-`emit_allocate_eq_flatBytes`. -/
+`lower = encode ∘ emit (defsOf prog)` emits exactly these bytes
+(`emit_allocate_eq_flatBytes`). -/
 theorem lower_eq_flatBytes (prog : Program) : lower prog = ⟨(flatBytes prog).toArray⟩ := by
   unfold lower encode; rw [emit_allocate_eq_flatBytes]
-
-/-! ## Fold-based flat byte list (Phase 2A P4)
-
-`flatBytesF prog` is the fold twin of `flatBytes prog`: the per-block
-`JUMPDEST :: emitBlockBodyF` concatenation built from the fold cache `matCache prog` and
-the `allocate prog` policy, with branch destinations resolved via `offsetTableF`. `lowerF`
-wraps it as a `ByteArray`. Added ALONGSIDE the old `flatBytes`/`lower`; because the fold is
-byte-different from the fuel lowering on ill-formed inputs, `lowerF ≠ lower` in general (the
-swap that makes them equal is P7). Geometry over `flatBytesF`/`lowerF` is UNCONDITIONAL. -/
-def flatBytesF (prog : Program) : List UInt8 :=
-  let cache := matCache prog
-  let alloc := allocate prog
-  let labelOff := offsetTableF cache alloc prog.blocks
-  prog.blocks.toList.flatMap (fun b => Byte.jumpdest :: emitBlockBodyF cache alloc labelOff b)
-
-/-- The fold lowering: the `ByteArray` wrapping `flatBytesF prog`. -/
-def lowerF (prog : Program) : ByteArray := ⟨(flatBytesF prog).toArray⟩
-
-theorem lowerF_eq_flatBytesF (prog : Program) : lowerF prog = ⟨(flatBytesF prog).toArray⟩ := rfl
 
 /-! ## Foundation: list-backed `ByteArray` indexing -/
 
@@ -174,23 +153,5 @@ theorem decode_lower_push (prog : Program) (n : Nat) (byte : UInt8) (w : UInt8) 
               ⟨((flatBytes prog).toArray).extract (n + 1) (n + 1 + w.toNat)⟩ = imm) :
     Evm.decode (lower prog) (UInt32.ofNat n) = some (Evm.parseInstr byte, some (imm, w)) := by
   rw [lower_eq_flatBytes]; exact decode_push_of_list _ n byte w imm hn hb hp hw himm
-
-/-! ## Fold specialisations over `lowerF prog` -/
-
-/-- Non-push decode specialised to `lowerF prog`. -/
-theorem decode_lowerF_nonpush (prog : Program) (n : Nat) (byte : UInt8)
-    (hn : n < 2 ^ 32) (hb : (flatBytesF prog)[n]? = some byte)
-    (hnp : Evm.pushArgWidth (Evm.parseInstr byte) = 0) :
-    Evm.decode (lowerF prog) (UInt32.ofNat n) = some (Evm.parseInstr byte, .none) := by
-  rw [lowerF_eq_flatBytesF]; exact decode_nonpush_of_list _ n byte hn hb hnp
-
-/-- Push decode specialised to `lowerF prog`. -/
-theorem decode_lowerF_push (prog : Program) (n : Nat) (byte : UInt8) (w : UInt8) (imm : UInt256)
-    (hn : n < 2 ^ 32) (hb : (flatBytesF prog)[n]? = some byte)
-    (hp : Evm.pushArgWidth (Evm.parseInstr byte) = w) (hw : w > 0)
-    (himm : Evm.uInt256OfByteArray
-              ⟨((flatBytesF prog).toArray).extract (n + 1) (n + 1 + w.toNat)⟩ = imm) :
-    Evm.decode (lowerF prog) (UInt32.ofNat n) = some (Evm.parseInstr byte, some (imm, w)) := by
-  rw [lowerF_eq_flatBytesF]; exact decode_push_of_list _ n byte w imm hn hb hp hw himm
 
 end Lir

@@ -1,6 +1,6 @@
 import LirLean.V2.Drive.Headline
-import LirLean.Assembly.Acyclic
 import LirLean.Decode.BoundaryReach
+import LirLean.Spec.BudgetDerivations
 import LirLean.V2.Realisability.Machinery
 
 /-!
@@ -59,15 +59,17 @@ def exProg : Program :=
 deriving instance DecidableEq for Block
 deriving instance DecidableEq for Program
 
-/-- **`defsOf exProg` in closed form.** The two-pass `find?` over the flattened def-pairs
-reduces (definitionally) to `find?` over the concrete 9-element pair list: t0↦imm5, t1/t2↦slot
-(gas/sload spilled), t3↦imm1, t4↦imm0x100, t5↦slot (call result), t6↦slot (gas spilled),
-t7↦imm1000, t8↦lt t6 t7 — the sole reading def. -/
+/-- **`defsOf exProg` in closed form** (`Loc`-valued). The `find?` over the ordered def-env
+reduces (definitionally) to `find?` over the concrete 9-element `(Tmp × Loc)` pair list:
+t0↦remat imm5, t1/t2↦slot (gas/sload spilled), t3↦remat imm1, t4↦remat imm0x100, t5↦slot
+(call result), t6↦slot (gas spilled), t7↦remat imm1000, t8↦remat (lt t6 t7) — the sole
+reading def. -/
 theorem defsOf_exProg_eq : defsOf exProg = fun t =>
-    (([ (⟨0⟩, Expr.imm 5), (⟨1⟩, Expr.slot (slotOf ⟨1⟩)), (⟨2⟩, Expr.slot (slotOf ⟨2⟩)),
-        (⟨3⟩, Expr.imm 1), (⟨4⟩, Expr.imm 0x100), (⟨5⟩, Expr.slot (slotOf ⟨5⟩)),
-        (⟨6⟩, Expr.slot (slotOf ⟨6⟩)), (⟨7⟩, Expr.imm 1000),
-        (⟨8⟩, Expr.lt ⟨6⟩ ⟨7⟩) ] : List (Tmp × Expr)).find?
+    (([ (⟨0⟩, Loc.remat (Expr.imm 5)), (⟨1⟩, Loc.slot (slotOf ⟨1⟩)),
+        (⟨2⟩, Loc.slot (slotOf ⟨2⟩)), (⟨3⟩, Loc.remat (Expr.imm 1)),
+        (⟨4⟩, Loc.remat (Expr.imm 0x100)), (⟨5⟩, Loc.slot (slotOf ⟨5⟩)),
+        (⟨6⟩, Loc.slot (slotOf ⟨6⟩)), (⟨7⟩, Loc.remat (Expr.imm 1000)),
+        (⟨8⟩, Loc.remat (Expr.lt ⟨6⟩ ⟨7⟩)) ] : List (Tmp × Loc)).find?
       (fun p => p.1 == t)).map (·.2) := rfl
 
 /-- **The only registered readers in `exProg`.** A `ReadsOf` fact holds iff the reader is `t8`
@@ -75,16 +77,19 @@ and the read tmp is `t6` or `t7` (`t8`'s def `lt t6 t7` is the sole def reading 
 theorem defsOf_exProg_reads {t t' : Tmp} (h : ReadsOf exProg t t') :
     (t = ⟨6⟩ ∨ t = ⟨7⟩) ∧ t' = ⟨8⟩ := by
   obtain ⟨e', hd, hu⟩ := h
-  -- `ReadsOf` now carries the `rematOf`-spine fact; lift it to `defsOf`'s closed form.
-  replace hd : defsOf exProg t' = some e' := Lir.defsOf_of_rematOf hd
+  -- `ReadsOf` carries the `rematOf`-spine fact; lift it to the `Loc`-valued closed form.
+  replace hd : defsOf exProg t' = some (.remat e') := Lir.defsOf_of_rematOf hd
   rw [defsOf_exProg_eq, Option.map_eq_some_iff] at hd
   obtain ⟨p, hfind, hp2⟩ := hd
   have hp1 := List.find?_some hfind
   rw [beq_iff_eq] at hp1
   have hmem := List.mem_of_find?_eq_some hfind
-  subst hp2
   simp only [List.mem_cons, List.mem_singleton, List.not_mem_nil, or_false] at hmem
   rcases hmem with rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl
+  -- the four spilled (`.slot`) entries cannot project to a `.remat`:
+  all_goals try (exact Loc.noConfusion hp2)
+  -- the five `.remat` entries pin `e'` to the concrete definiens:
+  all_goals obtain rfl := Loc.remat.inj hp2
   all_goals (try (exfalso; revert hu; simp only [usesInExpr]; decide))
   -- only the `t8 := lt t6 t7` pair survives; `hp1 : ⟨8⟩ = t'`, `hu : usesInExpr t (lt t6 t7) ≠ 0`.
   refine ⟨?_, hp1.symm⟩
@@ -350,32 +355,16 @@ private theorem blockAt_exProg_inv {idx : Nat} {b : Block}
       omega)] at hb
     simp at hb
 
-/-- The `toList` form of `blockAt_exProg_inv` (`WellFormedLowered`/`AcyclicWellFormed` fields
-index via `prog.blocks.toList`). -/
+/-- The `toList` form of `blockAt_exProg_inv` (`WellFormedLowered` fields index via
+`prog.blocks.toList`). -/
 private theorem toList_exProg_inv {idx : Nat} {b : Block}
     (hb : exProg.blocks.toList[idx]? = some b) :
     (idx = 0 ∧ b = exBlk0) ∨ (idx = 1 ∧ b = exBlk1) ∨ (idx = 2 ∧ b = exBlk2) := by
   apply blockAt_exProg_inv (idx := idx)
   rw [blockAt, ← Array.getElem?_toList]; exact hb
 
-/-- The topological rank on `exProg`'s def-graph: `t8 := lt t6 t7` is the sole reading def, so
-it ranks above its operands; everything else is a leaf (rank 0). -/
-private def rankExProg : Tmp → ℕ := fun t => if t = ⟨8⟩ then 2 else 0
-
-private theorem acyclic_exProg : Lir.Acyclic (defsOf exProg) rankExProg := by
-  intro t e hd
-  rw [defsOf_exProg_eq, Option.map_eq_some_iff] at hd
-  obtain ⟨p, hfind, hp2⟩ := hd
-  have hp1 := List.find?_some hfind
-  have hmem := List.mem_of_find?_eq_some hfind
-  subst hp2
-  rw [beq_iff_eq] at hp1
-  simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
-  rcases hmem with rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl <;>
-    (subst hp1; unfold Lir.ExprRankLt rankExProg <;> decide)
-
-/-- **`exProg` is `DefEnvOrdered`** (non-vacuity of the fuel-free ordering field; the P2
-counterpart of `acyclic_exProg`). `defEnv exProg` is the concrete 9-entry program-order list;
+/-- **`exProg` is `DefEnvOrdered`** (non-vacuity of the ordering field the fold value channel
+descends on). `defEnv exProg` is the concrete 9-entry program-order list;
 the only tmp-referencing rematerialised entry is `t8 ↦ lt t6 t7` (index 8), whose operands
 `t6`/`t7` sit at the earlier indices 6/7. Every other entry is a `slot` spill (gas / sload /
 call-result) or an operand-free `imm`. -/
@@ -400,98 +389,6 @@ theorem defEnvOrdered_exProg : DefEnvOrdered exProg := by
   · by_cases h7 : (⟨7⟩ : Tmp) = t'
     · subst h7; exact ⟨7, by omega, _, rfl⟩
     · exact absurd (by simp only [usesInExpr, if_neg h6, if_neg h7]) hu
-
--- `exProg` is `AcyclicWellFormed`: the rank witness above, the fuel slack, and the concrete
--- program-size pc/offset bounds (all `< 2 ^ 32`). The `bound_*` fields `decide` concrete
--- `offsetTable`/`materialiseExpr` byte arithmetic — a deep (structural) reduction, hence the
--- raised `maxRecDepth`.
-set_option maxRecDepth 8000 in
-private def acyclicWellFormedExProg : Lir.AcyclicWellFormed exProg where
-  rank := rankExProg
-  acyclic := acyclic_exProg
-  rank_lt_fuel := by
-    intro t
-    have hb : rankExProg t ≤ 2 := by unfold rankExProg; split <;> decide
-    have hf : recomputeFuel exProg = 11 := by decide
-    omega
-  bound_sstore := by
-    rintro ⟨idx⟩ b pc key value hb hs
-    rcases toList_exProg_inv hb with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ <;>
-      rcases pc with _|_|_|_|_|_|_|pc <;>
-      simp only [exBlk0, exBlk1, exBlk2, List.getElem?_cons_zero, List.getElem?_cons_succ,
-        List.getElem?_nil, Option.some.injEq, reduceCtorEq, Stmt.sstore.injEq,
-        Stmt.assign.injEq] at hs
-    obtain ⟨rfl, rfl⟩ := hs; decide
-  bound_sload := by
-    rintro ⟨idx⟩ b pc t k hb hs
-    rcases toList_exProg_inv hb with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ <;>
-      rcases pc with _|_|_|_|_|_|_|pc <;>
-      simp only [exBlk0, exBlk1, exBlk2, List.getElem?_cons_zero, List.getElem?_cons_succ,
-        List.getElem?_nil, Option.some.injEq, reduceCtorEq, Stmt.assign.injEq,
-        Expr.sload.injEq, and_false, false_and] at hs
-    obtain ⟨rfl, rfl⟩ := hs; decide
-  bound_ret := by
-    rintro ⟨idx⟩ b t hb hterm
-    rcases toList_exProg_inv hb with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ <;>
-      simp only [exBlk0, exBlk1, exBlk2, reduceCtorEq] at hterm
-  bound_stop := by
-    rintro ⟨idx⟩ b hb hterm
-    rcases toList_exProg_inv hb with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ <;>
-      simp only [exBlk0, exBlk1, exBlk2, reduceCtorEq] at hterm
-    decide
-  bound_jump := by
-    rintro ⟨idx⟩ b dst hb hterm
-    rcases toList_exProg_inv hb with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ <;>
-      simp only [exBlk0, exBlk1, exBlk2, reduceCtorEq, Term.jump.injEq] at hterm
-    obtain rfl := hterm; decide
-  bound_branch := by
-    rintro ⟨idx⟩ b cond thenL elseL hb hterm
-    rcases toList_exProg_inv hb with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ <;>
-      simp only [exBlk0, exBlk1, exBlk2, reduceCtorEq, Term.branch.injEq] at hterm
-    obtain ⟨rfl, rfl, rfl⟩ := hterm; decide
-  slots_slot := by
-    intro tw slot' hd
-    rw [defsOf_exProg_eq, Option.map_eq_some_iff] at hd
-    obtain ⟨p, hfind, hp2⟩ := hd
-    have hp1 := List.find?_some hfind
-    have hmem := List.mem_of_find?_eq_some hfind
-    rw [beq_iff_eq] at hp1
-    simp only [List.mem_cons, List.not_mem_nil, or_false] at hmem
-    rcases hmem with rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl|rfl <;> subst hp1 <;>
-      simp_all [slotOf]
-
-private theorem wellFormedLowered_exProg : Lir.WellFormedLowered exProg :=
-  Lir.wellFormedLowered_of_acyclic acyclicWellFormedExProg
-
-/-- `chargeOf`'s LENGTH is independent of the `sloadChg` valuation (each `.sload` contributes
-exactly one entry `[sloadChg k]` whatever its value; every other arm is `sloadChg`-free). The
-`StackRoomOK` fields quantify `∀ sloadChg`, so this lets them reduce to the concrete
-`sloadChg := 0` charge lengths. Induction on the recompute fuel. -/
-private theorem chargeOf_length_indep (defs : Tmp → Option Expr) (s1 s2 : Tmp → ℕ) :
-    ∀ (f : Nat) (e : Expr),
-      (Lir.chargeOf defs s1 f e).length = (Lir.chargeOf defs s2 f e).length := by
-  intro f
-  induction f with
-  | zero => intro e; cases e <;> rfl
-  | succ f ih =>
-    intro e
-    cases e with
-    | imm _ => rfl
-    | slot _ => rfl
-    | gas => rfl
-    | tmp t =>
-      cases h : defs t with
-      | none => rw [Lir.chargeOf_tmp_none _ _ _ _ h, Lir.chargeOf_tmp_none _ _ _ _ h]
-      | some e => rw [Lir.chargeOf_tmp_some _ _ _ _ _ h, Lir.chargeOf_tmp_some _ _ _ _ _ h]; exact ih e
-    | add a b =>
-      rw [Lir.chargeOf_add, Lir.chargeOf_add]; simp only [List.length_append]
-      rw [ih (.tmp b), ih (.tmp a)]
-    | lt a b =>
-      rw [Lir.chargeOf_lt, Lir.chargeOf_lt]; simp only [List.length_append]
-      rw [ih (.tmp b), ih (.tmp a)]
-    | sload k =>
-      rw [Lir.chargeOf_sload, Lir.chargeOf_sload]
-      simp only [List.length_append, List.length_cons, List.length_nil, ih (.tmp k)]
 
 -- `exProg` satisfies gas/call-aware run-definability: at every cursor the statement's operands
 -- are bound at the reached prefix-run state — discharged from the `runStmts_binds_assign` inversion
@@ -590,44 +487,6 @@ private theorem closedCFG_exProg : ClosedCFG exProg where
     exact ⟨⟨⟨exBlk2, blockAt_exProg2⟩, by decide, by decide⟩,
            ⟨exBlk1, blockAt_exProg1⟩, by decide, by decide⟩
 
--- `exProg` satisfies the static stack-room bounds: every `chargeOf` fold is well under 1024
--- (concrete once `sloadChg` is eliminated via `chargeOf_length_indep`).
-set_option maxRecDepth 8000 in
-private theorem stackRoomOK_exProg : StackRoomOK exProg where
-  branch := by
-    intro sloadChg L b cond thenL elseL hb hterm
-    obtain ⟨idx⟩ := L
-    rcases blockAt_exProg_inv hb with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ <;>
-      simp only [exBlk0, exBlk1, exBlk2, reduceCtorEq, Term.branch.injEq] at hterm
-    obtain ⟨rfl, rfl, rfl⟩ := hterm
-    rw [chargeOf_length_indep (defsOf exProg) sloadChg (fun _ => 0)]; decide
-  sloadKey := by
-    intro sloadChg L b pc t k hb hs
-    obtain ⟨idx⟩ := L
-    rcases blockAt_exProg_inv hb with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ <;>
-      rcases pc with _|_|_|_|_|_|_|pc <;>
-      simp only [exBlk0, exBlk1, exBlk2, List.getElem?_cons_zero, List.getElem?_cons_succ,
-        List.getElem?_nil, Option.some.injEq, reduceCtorEq, Stmt.assign.injEq, Expr.sload.injEq,
-        and_false, false_and] at hs
-    obtain ⟨rfl, rfl⟩ := hs
-    rw [chargeOf_length_indep (defsOf exProg) sloadChg (fun _ => 0)]; decide
-  sstore := by
-    intro sloadChg L b pc key value hb hs
-    obtain ⟨idx⟩ := L
-    rcases blockAt_exProg_inv hb with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ <;>
-      rcases pc with _|_|_|_|_|_|_|pc <;>
-      simp only [exBlk0, exBlk1, exBlk2, List.getElem?_cons_zero, List.getElem?_cons_succ,
-        List.getElem?_nil, Option.some.injEq, reduceCtorEq, Stmt.sstore.injEq,
-        Stmt.assign.injEq] at hs
-    obtain ⟨rfl, rfl⟩ := hs
-    rw [chargeOf_length_indep (defsOf exProg) sloadChg (fun _ => 0),
-        chargeOf_length_indep (defsOf exProg) sloadChg (fun _ => 0)]; decide
-  ret := by
-    intro sloadChg L b t hb hterm
-    obtain ⟨idx⟩ := L
-    rcases blockAt_exProg_inv hb with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ <;>
-      simp only [exBlk0, exBlk1, exBlk2, reduceCtorEq] at hterm
-
 -- `exProg` satisfies the gas-stash pc bound at each spilled-`.gas` cursor (`decide` on the
 -- concrete `pcOf`, as in `bound_sstore`).
 set_option maxRecDepth 8000 in
@@ -665,8 +524,7 @@ private theorem slotAddr_exProg : ∀ (L : Label) (b : Block) (pc : Nat) (t : Tm
 -- bound is vacuous.
 private theorem retEpilogueBound_exProg : ∀ (L : Label) (b : Block) (t : Tmp),
     blockAt exProg L = some b → b.term = .ret t →
-    termOf exProg L
-      + (materialiseExpr (defsOf exProg) (recomputeFuel exProg) (.tmp t)).length + 100 < 2 ^ 32 := by
+    termOf exProg L + (matCache exProg t).length + 100 < 2 ^ 32 := by
   rintro ⟨idx⟩ b t hb hterm
   rcases blockAt_exProg_inv hb with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ <;>
     simp only [exBlk0, exBlk1, exBlk2, reduceCtorEq] at hterm
@@ -696,15 +554,15 @@ private theorem cfgClosed_exProg : CFGClosed exProg where
 
 /-- **`IRWellFormed exProg`** — the static, program-text-only well-formedness antecedent of the
 reshaped flagships. Each field reuses a witness proved above: the gas/call-aware definability,
-the `defsOf`-consistency, block-0 entry, the presence/in-bounds CFG closure, the fuel-fitting
-acyclic rank (`rankExProg` + `acyclic_exProg` + the `rank_lt_fuel` slack), the per-block
-re-validation, no `.slot` source, and spill-slot addressability. -/
+the `defsOf`-consistency, block-0 entry, the presence/in-bounds CFG closure, the ordered
+def-env (`defEnvOrdered_exProg`), the per-block re-validation, no `.slot` source, and
+spill-slot addressability. -/
 theorem irWellFormed_exProg : IRWellFormed exProg where
   defineBeforeUse := runDefinableG_exProg
   defsConsistent := defsConsistent_exProg
   entry0 := rfl
   cfgClosed := cfgClosed_exProg
-  acyclicDefs := ⟨rankExProg, acyclic_exProg, acyclicWellFormedExProg.rank_lt_fuel⟩
+  defEnvOrdered := defEnvOrdered_exProg
   revalidates := revalidatesPerBlock_exProg
   noSlotSource := noSlotSource_exProg
   slotAddr := slotAddr_exProg
@@ -719,8 +577,25 @@ set_option maxRecDepth 8000 in
 Concrete `maxChargeDepth`. -/
 theorem stackFits_exProg : stackFits exProg := by unfold stackFits; decide
 
+-- `exProg` is `WellFormedLowered`: every fold `bound_*` field discharged from the whole-code
+-- budget `codeFits_exProg` via the B1a dischargers; `slots_slot` from the no-`.slot`-source
+-- witness.
+private theorem wellFormedLowered_exProg : Lir.WellFormedLowered exProg where
+  bound_sstore := bound_sstore_of_codeFits exProg codeFits_exProg
+  bound_sload := bound_sload_of_codeFits exProg codeFits_exProg defsConsistent_exProg
+  bound_ret := bound_ret_of_codeFits exProg codeFits_exProg
+  bound_stop := bound_stop_of_codeFits exProg codeFits_exProg
+  bound_jump := bound_jump_of_codeFits exProg codeFits_exProg
+  bound_branch := bound_branch_of_codeFits exProg codeFits_exProg
+  slots_slot := slots_slot_of_noSlotSource exProg noSlotSource_exProg
+
+-- `exProg` satisfies the static stack-room bounds: derived from the `stackFits` budget
+-- (`maxChargeDepth exProg ≤ 1024`) by the B1b discharger.
+private theorem stackRoomOK_exProg : StackRoomOK exProg :=
+  stackBounds_of_stackFits exProg stackFits_exProg
+
 /-- **`WellLowered exProg`** — the anti-vacuity anchor R9's second conjunct forces. Every field
-discharged above from the acyclicity core + the concrete `exProg` layout + the `RunStmts`
+discharged above from the ordered-def-env core + the concrete `exProg` layout + the `RunStmts`
 binding inversion.
 
 (Non-`private` — unlike the other `*_exProg` witness lemmas — because it is the witness
@@ -730,6 +605,7 @@ theorem wellLowered_exProg : WellLowered exProg where
   wf := wellFormedLowered_exProg
   defs := runDefinableG_exProg
   defsCons := defsConsistent_exProg
+  defEnvOrdered := defEnvOrdered_exProg
   entry0 := rfl
   closed := closedCFG_exProg
   stack := stackRoomOK_exProg

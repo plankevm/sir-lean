@@ -2,33 +2,35 @@ import LirLean.Spec.IR
 import Evm
 
 /-!
-# LirLean — lowering IR → EVM bytecode (C2: decode-compatible single-call lowering)
+# LirLean — lowering IR → EVM bytecode (fold-based emission)
 
 `lower : Program → ByteArray` emits opcode bytes that exp003's `Evm.decode`
 (`EVMLean/Evm/Semantics/Decode.lean`) reads back as the intended opcode stream.
 See `docs/ir-design.md` §4 for the layout (per-block `JUMPDEST`, two-pass offset
 table, uniform `PUSH4` destination width) and the per-op opcode templates.
 
-## C2 scope (this milestone)
+## Structure: policy / mechanism / backend
 
-The lowering now **materialises operands onto the stack** (recompute-on-use,
-mirroring exp003's worked programs which push each literal immediately before the
-consuming opcode — `seqProgram`, `callerProg`). So the emitted byte stream is a
-real, runnable EVM sequence, not just a sequence of consuming opcodes. The full
-single-call IR surface lowers:
+* **Policy** — `defsOf prog : Alloc` decides where each tmp's value lives: spilled
+  defs (gas / sload / call-result / create-result) at a private memory slot
+  (`Loc.slot (slotOf t)`, stashed once at the def-site and re-read via `MLOAD` on
+  use), every other (pure) def rematerialised on use (`Loc.remat e`). `defsOf` is
+  the first-find view of the **ordered def-environment** `defEnv prog`.
+* **Mechanism** — the per-tmp byte cache `matCache prog`, a structural **left-fold**
+  of `matStep` over `defEnv prog` (total — no fuel, structural termination
+  throughout), and the emitters `emitStmt`/`emitTerm`/`emitBlockBody`/`emit`, which
+  resolve every operand by cache lookup. Program order is a valid topological order
+  for `DefEnvOrdered` programs (`docs/phase2a-valuechannel-design.md` §1), which is
+  what makes each cache value the fully-expanded operand byte sequence.
+* **Backend** — `encode`, the `ByteArray` wrap `Evm.decode` reads.
 
-* storage arithmetic — `sload` / `sstore` / `add` / `lt`;
-* exactly **one** external `Stmt.call` (the value-free, calldata-free `callerProg`
-  shape exp003's `messageCall_call_runs` already supports);
-* `Term.branch` (lowered structurally — `PUSH4 thenOff; JUMPI; PUSH4 elseOff; JUMP`).
-
-Decode-compatibility is established by the decode-anchor theorems (A1/A2/A3) in
-`Decode/DecodeAnchors.lean`: `Evm.decode (lower prog) pc = expected` at every
-statement head, intra-statement cursor, and terminator offset.
-
-No theorem about the *semantics* (the simulation / preservation statement) is
-proved here — that is C3. Nothing in this file is `sorry`- or `axiom`-backed; it
-is executable byte emission only.
+The full single-call IR surface lowers: storage arithmetic (`sload` / `sstore` /
+`add` / `lt`), one external `Stmt.call`, `Stmt.create`/`CREATE2`, and structural
+`Term.branch` (`PUSH4 thenOff; JUMPI; PUSH4 elseOff; JUMP`). Decode-compatibility
+is established by the decode-anchor theorems in `Decode/DecodeAnchors.lean`:
+`Evm.decode (lower prog) pc = expected` at every statement head, intra-statement
+cursor, and terminator offset. Nothing in this file is `sorry`- or `axiom`-backed;
+it is executable byte emission only.
 
 Opcode bytes (confirmed against `EVMLean/Evm/Instr.lean`):
 `STOP 0x00`, `ADD 0x01`, `LT 0x10`, `SLOAD 0x54`, `SSTORE 0x55`, `JUMP 0x56`,
@@ -78,16 +80,12 @@ def wordBytesBE (w : Word) : List UInt8 :=
 
 The lowering's per-value decision is a single *policy* choice — **rematerialise or
 spill** (`docs/uniform-spill-alloc-plan.md` §2.1). `Loc` names the two answers; an
-`Alloc` is the per-tmp policy. Today the policy reproduces the recompute-on-use
-behaviour exactly (pure exprs ⇒ `remat`, call results ⇒ `slot`); later phases route
-gas/sload to `slot` too. The mechanism (`emit`) is uniform and consults only the
-`Alloc`.
+`Alloc` is the per-tmp policy: pure defs (`imm`/`tmp`/`add`/`lt`) ⇒ `remat`, the
+non-recomputable defs (gas / sload / call-result / create-result) ⇒ `slot`.
 
 `Alloc` is `Tmp → Option Loc` (partial) rather than the total `Tmp → Loc` of the
 design sketch: a tmp with **no** definition (used but never assigned — impossible in
-a `WellFormed` program) has *no* location, mirroring `defsOf`'s `none`. This keeps
-`allocate` a faithful re-presentation of `defsOf` (`allocate_toDefs`). A later phase
-can switch to the total shape once undefined tmps are ruled out by `WellFormed`. -/
+a `WellFormed` program) has *no* location, `defsOf`'s `none`. -/
 
 /-- Where a tmp's value lives: rematerialise its defining expression on each use, or
 spill it to a fixed memory slot and `MLOAD` on use. -/
@@ -102,198 +100,37 @@ deriving DecidableEq, Repr
 location (the `defsOf … = none` case). -/
 abbrev Alloc := Tmp → Option Loc
 
-/-- The defining-expression a `Loc` materialises as: `remat e` recomputes `e`; a
-`slot n` is the generic spill-load `Expr.slot n` (`PUSH n; MLOAD`). -/
+/-- Legacy fuel-era view (unconsumed by the canonical pipeline; deleted at P9): the
+defining-expression a `Loc` flattens to for the old `Tmp → Option Expr` environment,
+with `slot n` re-encoded as the generic spill-load `Expr.slot n`. -/
 def Loc.toDef : Loc → Expr
   | .remat e => e
   | .slot  n => .slot n
 
-/-- View an `Alloc` as the `defs : Tmp → Option Expr` environment the byte mechanism
-consumes: each located tmp materialises its `Loc.toDef`. -/
+/-- Legacy fuel-era view (unconsumed by the canonical pipeline; deleted at P9): an
+`Alloc` flattened to the old `defs : Tmp → Option Expr` environment via `Loc.toDef`. -/
 def Alloc.toDefs (a : Alloc) : Tmp → Option Expr := fun t => (a t).map Loc.toDef
 
-/-! ## Operand materialisation (recompute-on-use)
-
-The IR is a register machine; lowering materialises each operand onto the EVM
-stack by re-emitting the push-sequence of its defining expression. We thread a
-`defs : Tmp → Option Expr` environment recording each tmp's location (an `Alloc`,
-read through `Alloc.toDefs`), and `materialise` walks it. This is the
-"recompute-on-use" scheme of `docs/ir-design.md` §4: an `assign` itself emits **no**
-bytes; the work happens at the consuming opcode, exactly as exp003's programs push a
-literal immediately before consuming it.
-
-`fuel` bounds the recursion structurally (an IR with cyclic tmp definitions is
-ill-formed; well-formed SSA-ish programs terminate). It is a lowering convenience,
-never surfaced in a theorem. -/
+/-! ## Shared emission helpers -/
 
 /-- Emit a literal push (`PUSH32 w`). -/
 def emitImm (w : Word) : List UInt8 := Byte.push32 :: wordBytesBE w
 
-/-- Private memory slot for a call-result tmp. Unique per tmp id; SSA single-binding
+/-- Private memory slot for a spilled tmp. Unique per tmp id; SSA single-binding
 ⇒ write-once. Base offset keeps slots clear of the (zero-size) CALL windows. -/
 def slotOf (t : Tmp) : Nat := t.id * 32
 
 /-- Emit a destination push (`PUSH4 off`). -/
 def emitDest (off : Nat) : List UInt8 := Byte.push4 :: offsetBytesBE off
 
-/-- Materialise the value of expression `e` onto the stack: emit the push-sequence
-that leaves `e`'s value on top. Operands of binary ops are pushed in reverse so
-the first operand ends up on top (`a` on top of `b`). -/
-def materialiseExpr (defs : Tmp → Option Expr) : Nat → Expr → List UInt8
-  | _,      .imm w  => emitImm w
-  | _,      .slot slot => emitImm (UInt256.ofNat slot) ++ [Byte.mload]
-  | 0,      _       => []                       -- fuel exhausted (ill-formed IR)
-  | f + 1,  .tmp t  =>
-      match defs t with
-      | some e => materialiseExpr defs f e
-      | none   => emitImm (0 : Word)            -- undefined tmp → conservative 0
-  | f + 1,  .add a b =>
-      materialiseExpr defs f (.tmp b) ++ materialiseExpr defs f (.tmp a) ++ [Byte.add]
-  | f + 1,  .lt a b =>
-      materialiseExpr defs f (.tmp b) ++ materialiseExpr defs f (.tmp a) ++ [Byte.lt]
-  | f + 1,  .sload k =>
-      materialiseExpr defs f (.tmp k) ++ [Byte.sload]
-  | _ + 1,  .gas    => [Byte.gas]
+/-! ## Definition environment (the ordered carrier) + allocation policy
 
-/-- Materialise a temporary onto the stack. -/
-def materialise (defs : Tmp → Option Expr) (fuel : Nat) (t : Tmp) : List UInt8 :=
-  materialiseExpr defs fuel (.tmp t)
-
-/-- A generous recompute-fuel bound: the number of `assign`s seen so far bounds the
-definition-chain depth of any tmp. We pass the program's total statement count. -/
-def recomputeFuel (prog : Program) : Nat :=
-  (prog.blocks.toList.map (fun b => b.stmts.length)).sum + 1
-
-/-! ## Per-construct emission -/
-
-/-- Emit the opcode bytes for one statement, given the `defs` environment and
-recompute fuel. `assign` emits nothing (recompute-on-use); effectful statements
-materialise their operands then emit the consuming opcode.
-
-* `sstore key value` → materialise `value`, materialise `key`, `SSTORE`
-  (leaving `key :: value :: rest` — the stack shape exp003's `runs_sstore`
-  expects).
-* `call cs` → push the seven CALL args (value-free, zero-memory window:
-  `out_size, out_off, in_size, in_off, value`, then `callee`, then `gasFwd` on
-  top — the `callerProg` order), then `CALL`. The 0/1 success flag CALL pushes is
-  left on the stack for a following `assign`/use of `resultTmp`. -/
-def emitStmt (defs : Tmp → Option Expr) (fuel : Nat) : Stmt → List UInt8
-  | .assign t e =>
-      -- **Alloc-native def-site.** A tmp the allocation spills (`defs t = some (.slot n)`:
-      -- gas, in Phase B) is computed **once** here and stashed to its memory slot
-      -- (`materialise(e) ++ PUSH n ++ MSTORE`); for gas, `materialise .gas = [GAS]`, so the
-      -- stash is `[GAS] ++ PUSH n ++ MSTORE`. A rematerialised tmp emits **no** bytes — its
-      -- value is recomputed at each use.
-      match defs t with
-      | some (.slot n) =>
-          materialiseExpr defs fuel e ++ emitImm (UInt256.ofNat n) ++ [Byte.mstore]
-      | _ => []
-  | .sstore key value =>
-      materialise defs fuel value ++ materialise defs fuel key ++ [Byte.sstore]
-  | .call cs =>
-      -- seven args, bottom-to-top: out_size, out_off, in_size, in_off, value,
-      -- callee, gasFwd. Zero-memory + value-free ⇒ the first five are 0.
-      emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
-      ++ materialise defs fuel cs.callee
-      ++ materialise defs fuel cs.gasFwd
-      ++ [Byte.call]
-      ++ (match cs.resultTmp with
-          | some t => emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]   -- PUSH slot; MSTORE
-          | none   => [Byte.pop])                                          -- discard flag
-  | .create cs =>
-      -- CREATE / CREATE2 (empty-init first cut: value/initOffset/initSize = 0 via `emitImm 0`).
-      -- Push the three create args, then — if `cs.salt = some s` — materialise the salt and emit
-      -- `CREATE2` (0xf5); else emit `CREATE` (0xf0). The pushed deployed-address-or-0 word is
-      -- stashed to `slotOf t` (byte-identical to the CALL result stash) if `resultTmp = some t`,
-      -- else discarded (`POP`). See `docs/create/BUILD-PLAN.md` §2 Step 4.
-      emitImm 0 ++ emitImm 0 ++ emitImm 0
-      ++ (match cs.salt with
-          | some s => materialise defs fuel s ++ [Byte.create2]
-          | none   => [Byte.create])
-      ++ (match cs.resultTmp with
-          | some t => emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]   -- PUSH slot; MSTORE
-          | none   => [Byte.pop])                                          -- discard address
-
-/-- Emit the opcode bytes for a terminator, given the `defs` environment, fuel, and
-the resolved offset table `labelOff` (label index → byte offset of its
-`JUMPDEST`).
-
-`ret t` materialises `t` (leaving the returned word `vw` on top), stashes it to
-memory at offset `0` (`PUSH32 0; MSTORE` — stack `0 :: vw`, `MSTORE` pops `addr = 0`,
-`val = vw`), then returns that 32-byte window (`PUSH32 32; PUSH32 0; RETURN` — stack
-`0 :: 32`, `RETURN` pops `offset = 0`, `size = 32`). So `RETURN(0, 32)` returns exactly
-`vw`'s big-endian bytes — the returned value is now the observed halt result (`observe`
-reads it back as `returned vw`), not discarded. The tail after `materialise t` is
-`PUSH32 0 ++ MSTORE ++ PUSH32 32 ++ PUSH32 0 ++ RETURN`, i.e. `33 + 1 + 33 + 33 + 1 = 101`
-bytes. -/
-def emitTerm (defs : Tmp → Option Expr) (fuel : Nat) (labelOff : Nat → Nat) : Term → List UInt8
-  | .ret t              => materialise defs fuel t
-                             ++ emitImm 0 ++ [Byte.mstore]
-                             ++ emitImm 32 ++ emitImm 0 ++ [Byte.ret]
-  | .stop               => [Byte.stop]
-  | .jump dst           => emitDest (labelOff dst.idx) ++ [Byte.jump]
-  | .branch cond thenL elseL =>
-      materialise defs fuel cond
-      ++ emitDest (labelOff thenL.idx) ++ [Byte.jumpi]
-      ++ emitDest (labelOff elseL.idx) ++ [Byte.jump]
-
-/-! ## Definition environment
-
-Recompute-on-use needs each tmp's defining expression. We build it from a
-*program-global* scan of all `assign`s (SSA-ish: each tmp assigned once). For C2's
-single-block / single-path worked programs this is exact; richer scoping is a C3
-refinement. -/
-
-/-- The program-global `Tmp → Option Expr` map: the last `assign` to each tmp, with the
-three **non-recomputable** defining expressions routed to the spill-load `Expr.slot`:
-
-* a **gas** assign `assign t .gas` registers `t` as `Expr.slot (slotOf t)` — the gas value
-  is read **once** at the def-site stash (`emitStmt .assign`) and reused from memory on each
-  use, never re-emitting `GAS` (Phase B; `docs/uniform-spill-alloc-plan.md` §6);
-* an **sload** assign `assign t (.sload k)` registers `t` as `Expr.slot (slotOf t)` — the
-  SLOAD value (and its cold/warm warmth charge) is read **once** at the def-site stash
-  (`materialise k ++ [SLOAD] ++ PUSH slot ++ MSTORE`) and reused from memory (`MLOAD`) on
-  each use, never re-emitting `SLOAD` (Phase C; `docs/uniform-spill-alloc-plan.md` §6). This
-  retires the `SloadRealises` warmth universal: the warmth cost is the single def-site read;
-* a **call result** `call ⟨_, _, some t⟩` registers `t` as `Expr.slot (slotOf t)` (Route B,
-  stashed by `emitStmt .call`).
-
-Every other (pure) assign keeps its expression for rematerialisation. -/
-def defsOf (prog : Program) : Tmp → Option Expr :=
-  let pairs : List (Tmp × Expr) :=
-    prog.blocks.toList.flatMap (fun b =>
-      b.stmts.filterMap (fun
-        | .assign t .gas       => some (t, Expr.slot (slotOf t))
-        | .assign t (.sload _) => some (t, Expr.slot (slotOf t))
-        | .assign t e          => some (t, e)
-        | .call ⟨_, _, some t⟩ => some (t, Expr.slot (slotOf t))
-        | .create ⟨_, _, _, _, some t⟩ => some (t, Expr.slot (slotOf t))
-        | _                    => none))
-  fun t => (pairs.find? (fun p => p.1 == t)).map (·.2)
-
-/-- **The rematerialisation view of `defsOf`** — the non-`.slot` projection: the defining
-expression of a tmp *when that tmp is rematerialised* (pure `imm`/`tmp`/`add`/`lt`), and
-`none` when it is spilled (gas / sload / call / create result, all routed by `defsOf` to
-`Expr.slot (slotOf t)`). This decouples the recompute-soundness spine (`DefsSound`,
-`DefsSoundS`, `ReadsOf`, `StepScopedS`, the `defsSound_preserved_*` walk) from `defsOf`'s
-codomain: the spine feeds these expressions to `evalExpr`, and `evalExpr st 0 (.slot n) =
-none`, so a spilled entry never carried a satisfiable recompute claim anyway. Once `defsOf`
-becomes `Alloc`-valued (Phase 2A later step) this re-bases to `some (.remat e) => some e |
-_ => none`, the SAME value — so the spine statements do not churn under the retype. -/
-def rematOf (prog : Program) (t : Tmp) : Option Expr :=
-  match defsOf prog t with
-  | some (.slot _) => none
-  | some e         => some e
-  | none           => none
-
-/-! ## Allocation: the default policy
-
-`allocate prog` is the **policy** half of `lower = encode ∘ emit (allocate prog)`.
-The Phase-A default reproduces `defsOf` exactly: a call result (recorded by `defsOf`
-as the spill-load `Expr.slot (slotOf t)`) becomes a `Loc.slot`; every other defined
-tmp (`imm`/`add`/`lt`/`sload`/`gas`) becomes a `Loc.remat` of its defining
-expression. Future phases route gas/sload to `slot` as well (the `SoundAlloc` floor;
-`docs/uniform-spill-alloc-plan.md` §3). -/
+Recompute-on-use needs each tmp's location. `defEnv prog` records the program-order
+`(tmp, Loc)` def-sites in `blocks`-then-`stmts` scan order — the **ordered** carrier
+the byte-cache fold walks; `defsOf prog` is its first-find view, the program-global
+`Alloc`. For `DefEnvOrdered` programs program order is a valid topological order of
+the def-graph (`docs/phase2a-valuechannel-design.md` §1.2), so the fold below fully
+expands every cache entry. -/
 
 /-- Classify a defining expression into a `Loc`: an `Expr.slot` (the generic
 spill-load) is already a `Loc.slot`; everything else rematerialises. -/
@@ -301,32 +138,14 @@ def locOfExpr : Expr → Loc
   | .slot n => .slot n
   | e       => .remat e
 
-/-- The default allocation: classify each tmp's `defsOf` definition into a `Loc`.
-Undefined tmps get no location (`none`). -/
-def allocate (prog : Program) : Alloc := fun t => (defsOf prog t).map locOfExpr
-
-/-! ## Ordered def-environment + structural fold (Phase 2A carrier)
-
-`defsOf` is a **global `find?`** over program order, so it gives `materialiseExpr` no
-structural measure — hence the `fuel`/`recomputeFuel`/`MatFueled`/rank apparatus. This
-section adds the fuel-free replacement (design `docs/phase2a-valuechannel-design.md` §3):
-
-* `defEnv prog` — the **ordered** carrier: the very program-order `(tmp, Loc)` pairs
-  `defsOf` scans internally, in `blocks`-then-`stmts` order (no sort; program order is a
-  valid topological order for `DefEnvOrdered` programs, §1.2);
-* `matExpr`/`matLoc` — byte-for-byte twins of `materialiseExpr`'s constructor arms, but
-  resolving operand tmps against a byte-`cache` instead of recursing under fuel;
-* `matCache prog` — the **structural left-fold** of `matStep` over `defEnv prog`, building
-  the per-tmp byte cache (undefined-tmp fallback `emitImm 0`, matching the old `none` leaf).
-
-Added ALONGSIDE the old machinery (S0); `materialiseExpr`/`lower`/`MatDec`/`MatFueled` are
-untouched here and migrated in later steps. -/
-
-/-- The ordered def-environment: the program-order `(tmp, Loc)` pairs in the exact
-`blocks`-then-`stmts` scan order `defsOf` uses. Each spilled def (gas / sload / call /
-create result) carries `Loc.slot (slotOf t)`; every other (pure) assign carries the
-`locOfExpr`-classified `Loc.remat` of its defining expression. This is the ordered carrier
-the fold walks; `defsOf` is its `find?`-view (bridged in a later step). -/
+/-- The ordered def-environment: the program-order `(tmp, Loc)` pairs in
+`blocks`-then-`stmts` scan order. Each spilled def — a **gas** assign, an **sload**
+assign, a **call result**, a **create result** — carries `Loc.slot (slotOf t)` (the
+value is stashed once at the def-site and re-read via `MLOAD` on use, never
+re-emitting the fresh/warmth-charged/dynamic opcode); every other (pure) assign
+carries the `locOfExpr`-classified `Loc.remat` of its defining expression. This is
+the ordered carrier the fold walks; `defsOf` is its `find?`-view
+(`defsOf_eq_defEnv_find`). -/
 def defEnv (prog : Program) : List (Tmp × Loc) :=
   prog.blocks.toList.flatMap (fun b =>
     b.stmts.filterMap (fun
@@ -337,10 +156,45 @@ def defEnv (prog : Program) : List (Tmp × Loc) :=
       | .create ⟨_, _, _, _, some t⟩ => some (t, Loc.slot (slotOf t))
       | _                    => none))
 
-/-- Materialise an expression's value onto the stack, resolving operand tmps against a
-byte-`cache` — the fold-based twin of `materialiseExpr` (no fuel: recursion is replaced by
-cache lookup). Byte-identical to `materialiseExpr` on each constructor arm (reverse operand
-order on `add`/`lt` so the first operand ends up on top). -/
+/-- **The allocation policy** — the program-global `Alloc`, as the **first-find**
+view of the ordered def-environment `defEnv prog`: the FIRST def-site of a tmp id
+in program order determines its location (`DefsConsistent` forces every later
+def-site to agree). Spilled defs land at `Loc.slot (slotOf t)`; pure defs at
+`Loc.remat e` (see `defEnv`). -/
+def defsOf (prog : Program) : Alloc :=
+  fun t => ((defEnv prog).find? (fun p => p.1 == t)).map (·.2)
+
+/-- **The rematerialisation view of `defsOf`** — the `.remat` projection: the defining
+expression of a tmp *when that tmp is rematerialised* (pure `imm`/`tmp`/`add`/`lt`),
+and `none` when it is spilled (gas / sload / call / create result, all routed by
+`defsOf` to `Loc.slot (slotOf t)`). This decouples the recompute-soundness spine
+(`DefsSound`, `DefsSoundS`, `ReadsOf`, `StepScopedS`, the `defsSound_preserved_*`
+walk) from `defsOf`'s codomain: the spine feeds these expressions to `evalExpr`, and
+a spilled entry never carried a satisfiable recompute claim. -/
+def rematOf (prog : Program) (t : Tmp) : Option Expr :=
+  match defsOf prog t with
+  | some (.remat e) => some e
+  | _               => none
+
+/-- Compatibility shim: `allocate = defsOf`, reducible, so the landed statements
+spelled over `allocate prog` (the P4/P5 fold twins, `defEnv_entry_eq_allocate`)
+unify definitionally with `defsOf prog`. Where syntactic matching fights,
+`simp only [allocate]` bridges. Deleted at P9 after the spelling sweep. -/
+@[reducible] def allocate (prog : Program) : Alloc := defsOf prog
+
+/-! ## The byte cache: a structural left-fold over `defEnv`
+
+`matCache prog` is the fuel-free materialisation core: walk `defEnv prog` in program
+order, and at each def-site bind the tmp to the bytes of its `Loc` — resolving
+operand tmps against the cache built *so far*. Define-before-use (`DefEnvOrdered`)
+makes each operand's cache value final at its use sites (`matCache_unfold`, the
+fold fixpoint), so each cache entry is the fully-expanded push-sequence. Total:
+`foldl` over a finite list; an undefined tmp falls back to `emitImm 0`. -/
+
+/-- Materialise an expression's value onto the stack: the push-sequence that leaves
+`e`'s value on top, resolving operand tmps against a byte-`cache`. Operands of
+binary ops are pushed in reverse so the first operand ends up on top (`a` on top of
+`b`). -/
 def matExpr (cache : Tmp → List UInt8) : Expr → List UInt8
   | .imm w   => emitImm w
   | .tmp t   => cache t
@@ -351,8 +205,7 @@ def matExpr (cache : Tmp → List UInt8) : Expr → List UInt8
   | .slot n  => emitImm (UInt256.ofNat n) ++ [Byte.mload]
 
 /-- The bytes a `Loc` materialises to under a byte-`cache`: `remat e` runs `matExpr`;
-`slot n` is the spill-load `PUSH n; MLOAD` (byte-identical to `materialiseExpr`'s
-`Expr.slot` arm, `Lowering.lean` above). -/
+`slot n` is the spill-load `PUSH n; MLOAD`. -/
 def matLoc (cache : Tmp → List UInt8) : Loc → List UInt8
   | .remat e => matExpr cache e
   | .slot n  => emitImm (UInt256.ofNat n) ++ [Byte.mload]
@@ -363,17 +216,17 @@ def matStep (c : Tmp → List UInt8) (p : Tmp × Loc) : Tmp → List UInt8 :=
   Function.update c p.1 (matLoc c p.2)
 
 /-- The cache fold over a def-env prefix from an initial cache — the reusable core of
-`matCache`, with `init` explicit so later steps induct along the def-env. -/
+`matCache`, with `init` explicit so fold proofs induct along the def-env. -/
 def matFold (init : Tmp → List UInt8) (l : List (Tmp × Loc)) : Tmp → List UInt8 :=
   l.foldl matStep init
 
-/-- The per-tmp byte cache: a structural left-fold of `matStep` over `defEnv prog`, with
-the undefined-tmp fallback `emitImm 0` (matching `materialiseExpr`'s `none`-leaf). Fuel-free;
-structural termination via `foldl` over a finite list. -/
+/-- The per-tmp byte cache: a structural left-fold of `matStep` over `defEnv prog`,
+with the undefined-tmp fallback `emitImm 0`. Fuel-free; structural termination via
+`foldl` over a finite list. -/
 def matCache (prog : Program) : Tmp → List UInt8 :=
   matFold (fun _ => emitImm 0) (defEnv prog)
 
-/-! ### Reduction lemmas (definitional; keep S3/S4 fold-proofs mechanical) -/
+/-! ### Reduction lemmas (definitional; keep the fold proofs mechanical) -/
 
 @[simp] theorem matExpr_imm (cache : Tmp → List UInt8) (w : Word) :
     matExpr cache (.imm w) = emitImm w := rfl
@@ -404,67 +257,28 @@ def matCache (prog : Program) : Tmp → List UInt8 :=
 theorem matCache_eq (prog : Program) :
     matCache prog = matFold (fun _ => emitImm 0) (defEnv prog) := rfl
 
-/-! ## Block layout (two-pass offset table) -/
+/-! ## Per-construct emission (cache/alloc-driven) -/
 
-/-- Bytes of one block, *excluding* the leading `JUMPDEST`, given the `defs`
-environment, fuel, and offset table. Pass 1 measures lengths with a zero offset
-table; pass 2 emits with the real table. Both pass through the same function, and
-`emitDest` always emits a fixed-width `PUSH4 <off>` (5 bytes) regardless of the
-offset value, so the two passes agree on lengths. -/
-def emitBlockBody (defs : Tmp → Option Expr) (fuel : Nat)
-    (labelOff : Nat → Nat) (b : Block) : List UInt8 :=
-  (b.stmts.flatMap (emitStmt defs fuel)) ++ emitTerm defs fuel labelOff b.term
+/-- Emit the opcode bytes for one statement: operands resolve against the
+byte-`cache` (`matCache prog` at the call sites); the `assign` def-site consults
+the `Alloc` for its spill slot.
 
-/-- Length of a lowered block (leading `JUMPDEST` + body). Independent of the
-offset table because destination pushes have fixed width. -/
-def blockLen (defs : Tmp → Option Expr) (fuel : Nat) (b : Block) : Nat :=
-  1 + (emitBlockBody defs fuel (fun _ => 0) b).length
-
-/-- The offset table: byte offset of block `i`'s `JUMPDEST`, as a prefix sum of
-block lengths over `blocks[0..i)`. -/
-def offsetTable (defs : Tmp → Option Expr) (fuel : Nat) (blocks : Array Block) (i : Nat) : Nat :=
-  ((blocks.toList.take i).map (blockLen defs fuel)).sum
-
-/-! ## The composition: `lower = encode ∘ emit (allocate prog)`
-
-The lowering factors into a **mechanism** (`emit`, alloc-driven byte assembly) and a
-**backend** (`encode`, the offset-table-resolved byte concatenation + `ByteArray`
-wrap). `emit a prog` consumes the allocation through `Alloc.toDefs`, so the existing
-`materialise`/`emitStmt`/`emitTerm`/`emitBlockBody`/`offsetTable` machinery is reused
-verbatim. With `a := allocate prog` (whose `toDefs = defsOf prog`, `allocate_toDefs`)
-the emitted bytes are exactly the old `lower`'s (`lower_eq_flatBytes`, no longer
-`rfl` but a one-line bridge). -/
-
-/-- **Mechanism.** The flat byte list of a program under allocation `a`: each block
-lowered as `JUMPDEST :: emitBlockBody`, with branch destinations resolved via
-`offsetTable`. Reads the allocation through `Alloc.toDefs`. -/
-def emit (a : Alloc) (prog : Program) : List UInt8 :=
-  let defs := a.toDefs
-  let fuel := recomputeFuel prog
-  let labelOff := offsetTable defs fuel prog.blocks
-  prog.blocks.toList.flatMap (fun b => Byte.jumpdest :: emitBlockBody defs fuel labelOff b)
-
-/-- **Backend.** Wrap an emitted byte list as the `ByteArray` `Evm.decode` reads. -/
-def encode (bytes : List UInt8) : ByteArray := ⟨bytes.toArray⟩
-
-/-- **The lowering.** `lower = encode ∘ emit (allocate prog)`: allocate (policy),
-emit (mechanism), encode (backend). The result is a `ByteArray` that `Evm.decode`
-reads back as the intended opcode stream (established by the decode-anchor theorems in
-`Decode/DecodeAnchors.lean`). -/
-def lower (prog : Program) : ByteArray := encode (emit (allocate prog) prog)
-
-/-! ## Fold-based emission (Phase 2A P4) — twins over `matCache`
-
-The `*F` twins consume the fold byte-`cache` (`matCache prog`) and the `Alloc` directly,
-instead of `materialiseExpr` under fuel: each `materialise defs fuel t` becomes the cache
-lookup `cache t`, each `materialiseExpr defs fuel e` becomes `matExpr cache e`, and the
-def-site slot lookup reads the `Alloc`. Byte-for-byte the intended fold lowering (the swap,
-P7, makes `lower` this). Added ALONGSIDE the old fuel emission; geometry over these twins is
-UNCONDITIONAL (the fold is total). -/
-
-/-- Fold twin of `emitStmt`: operands resolve against the byte-`cache`; the `assign` def-site
-consults the `Alloc` for its spill slot. -/
-def emitStmtF (cache : Tmp → List UInt8) (alloc : Alloc) : Stmt → List UInt8
+* `assign t e` — a tmp the allocation spills (`alloc t = some (.slot n)`: gas,
+  sload, call/create results never reach here — they spill at their own emitters)
+  is computed **once** and stashed to its memory slot
+  (`matExpr cache e ++ PUSH n ++ MSTORE`); a rematerialised tmp emits **no** bytes —
+  its value is recomputed at each use.
+* `sstore key value` → cache `value`, cache `key`, `SSTORE` (leaving
+  `key :: value :: rest` — the stack shape exp003's `runs_sstore` expects).
+* `call cs` → push the seven CALL args (value-free, zero-memory window:
+  `out_size, out_off, in_size, in_off, value`, then `callee`, then `gasFwd` on
+  top — the `callerProg` order), then `CALL`. The 0/1 success flag CALL pushes is
+  stashed to `slotOf t` (`resultTmp = some t`) or `POP`ped.
+* `create cs` → push the three create args (empty-init first cut: all 0), then —
+  if `cs.salt = some s` — cache the salt and `CREATE2`, else `CREATE`; the pushed
+  deployed-address-or-0 word is stashed to `slotOf t` (byte-identical to the CALL
+  result stash) or `POP`ped. See `docs/create/BUILD-PLAN.md` §2 Step 4. -/
+def emitStmt (cache : Tmp → List UInt8) (alloc : Alloc) : Stmt → List UInt8
   | .assign t e =>
       match alloc t with
       | some (.slot n) => matExpr cache e ++ emitImm (UInt256.ofNat n) ++ [Byte.mstore]
@@ -488,8 +302,20 @@ def emitStmtF (cache : Tmp → List UInt8) (alloc : Alloc) : Stmt → List UInt8
           | some t => emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]
           | none   => [Byte.pop])
 
-/-- Fold twin of `emitTerm`: operands resolve against the byte-`cache`. -/
-def emitTermF (cache : Tmp → List UInt8) (labelOff : Nat → Nat) : Term → List UInt8
+/-- Emit the opcode bytes for a terminator: operands resolve against the
+byte-`cache`; branch destinations resolve via the offset table `labelOff` (label
+index → byte offset of its `JUMPDEST`).
+
+`ret t` pushes the cached bytes of `t` (leaving the returned word `vw` on top),
+stashes it to memory at offset `0` (`PUSH32 0; MSTORE` — stack `0 :: vw`, `MSTORE`
+pops `addr = 0`, `val = vw`), then returns that 32-byte window
+(`PUSH32 32; PUSH32 0; RETURN` — stack `0 :: 32`, `RETURN` pops `offset = 0`,
+`size = 32`). So `RETURN(0, 32)` returns exactly `vw`'s big-endian bytes — the
+returned value is the observed halt result (`observe` reads it back as
+`returned vw`). The tail after `cache t` is
+`PUSH32 0 ++ MSTORE ++ PUSH32 32 ++ PUSH32 0 ++ RETURN`, i.e.
+`33 + 1 + 33 + 33 + 1 = 101` bytes. -/
+def emitTerm (cache : Tmp → List UInt8) (labelOff : Nat → Nat) : Term → List UInt8
   | .ret t              => cache t
                              ++ emitImm 0 ++ [Byte.mstore]
                              ++ emitImm 32 ++ emitImm 0 ++ [Byte.ret]
@@ -500,17 +326,88 @@ def emitTermF (cache : Tmp → List UInt8) (labelOff : Nat → Nat) : Term → L
       ++ emitDest (labelOff thenL.idx) ++ [Byte.jumpi]
       ++ emitDest (labelOff elseL.idx) ++ [Byte.jump]
 
-/-- Fold twin of `emitBlockBody`. -/
-def emitBlockBodyF (cache : Tmp → List UInt8) (alloc : Alloc)
+/-! ## Block layout (two-pass offset table) -/
+
+/-- Bytes of one block, *excluding* the leading `JUMPDEST`, given the byte-`cache`,
+the allocation, and the offset table. Pass 1 measures lengths with a zero offset
+table; pass 2 emits with the real table. Both pass through the same function, and
+`emitDest` always emits a fixed-width `PUSH4 <off>` (5 bytes) regardless of the
+offset value, so the two passes agree on lengths. -/
+def emitBlockBody (cache : Tmp → List UInt8) (alloc : Alloc)
     (labelOff : Nat → Nat) (b : Block) : List UInt8 :=
-  (b.stmts.flatMap (emitStmtF cache alloc)) ++ emitTermF cache labelOff b.term
+  (b.stmts.flatMap (emitStmt cache alloc)) ++ emitTerm cache labelOff b.term
 
-/-- Fold twin of `blockLen`. -/
-def blockLenF (cache : Tmp → List UInt8) (alloc : Alloc) (b : Block) : Nat :=
-  1 + (emitBlockBodyF cache alloc (fun _ => 0) b).length
+/-- Length of a lowered block (leading `JUMPDEST` + body). Independent of the
+offset table because destination pushes have fixed width. -/
+def blockLen (cache : Tmp → List UInt8) (alloc : Alloc) (b : Block) : Nat :=
+  1 + (emitBlockBody cache alloc (fun _ => 0) b).length
 
-/-- Fold twin of `offsetTable`. -/
-def offsetTableF (cache : Tmp → List UInt8) (alloc : Alloc) (blocks : Array Block) (i : Nat) : Nat :=
-  ((blocks.toList.take i).map (blockLenF cache alloc)).sum
+/-- The offset table: byte offset of block `i`'s `JUMPDEST`, as a prefix sum of
+block lengths over `blocks[0..i)`. -/
+def offsetTable (cache : Tmp → List UInt8) (alloc : Alloc) (blocks : Array Block) (i : Nat) : Nat :=
+  ((blocks.toList.take i).map (blockLen cache alloc)).sum
+
+/-! ## The composition: `lower = encode ∘ emit (defsOf prog)`
+
+The lowering factors into a **mechanism** (`emit`, cache/alloc-driven byte assembly)
+and a **backend** (`encode`, the offset-table-resolved byte concatenation +
+`ByteArray` wrap). `emit a prog` reads operand bytes from the total fold cache
+`matCache prog` and def-site spill slots from the allocation `a`; with
+`a := defsOf prog` the result is the canonical lowering. -/
+
+/-- **Mechanism.** The flat byte list of a program under allocation `a`: each block
+lowered as `JUMPDEST :: emitBlockBody`, with branch destinations resolved via
+`offsetTable`. Operand bytes come from the fold cache `matCache prog`. -/
+def emit (a : Alloc) (prog : Program) : List UInt8 :=
+  let cache := matCache prog
+  let labelOff := offsetTable cache a prog.blocks
+  prog.blocks.toList.flatMap (fun b => Byte.jumpdest :: emitBlockBody cache a labelOff b)
+
+/-- **Backend.** Wrap an emitted byte list as the `ByteArray` `Evm.decode` reads. -/
+def encode (bytes : List UInt8) : ByteArray := ⟨bytes.toArray⟩
+
+/-- **The lowering.** `lower = encode ∘ emit (defsOf prog)`: allocate (policy),
+emit (mechanism), encode (backend). The result is a `ByteArray` that `Evm.decode`
+reads back as the intended opcode stream (established by the decode-anchor theorems
+in `Decode/DecodeAnchors.lean`). -/
+def lower (prog : Program) : ByteArray := encode (emit (defsOf prog) prog)
+
+/-! ## Legacy fuel-based materialisation (unconsumed by the canonical pipeline; P9 deletes)
+
+The pre-fold lowering recursed through a `defs : Tmp → Option Expr` environment
+under a fuel bound (`recomputeFuel`). The canonical pipeline above no longer
+consumes these definitions — operand bytes come from the total fold `matCache`.
+They remain compiling solely for the residual generic-`defs` fuel lemmas, and are
+deleted at P9 together with `Expr.slot`. NOTE: `matCache` is NOT equal to
+`materialiseExpr (defsOf …) (recomputeFuel …)` — `recomputeFuel` undercounts the
+recompute depth (~2× per binary level), so no bridge equation exists
+(`docs/phase2a-valuechannel-design.md`, 2026-07-07 banner). -/
+
+/-- Legacy (P9-deletes): fuel-bounded expression materialisation. Truncates to `[]`
+when fuel runs out — soundness required the deleted `rank_lt_fuel` envelope. -/
+def materialiseExpr (defs : Tmp → Option Expr) : Nat → Expr → List UInt8
+  | _,      .imm w  => emitImm w
+  | _,      .slot slot => emitImm (UInt256.ofNat slot) ++ [Byte.mload]
+  | 0,      _       => []                       -- fuel exhausted (ill-formed IR)
+  | f + 1,  .tmp t  =>
+      match defs t with
+      | some e => materialiseExpr defs f e
+      | none   => emitImm (0 : Word)            -- undefined tmp → conservative 0
+  | f + 1,  .add a b =>
+      materialiseExpr defs f (.tmp b) ++ materialiseExpr defs f (.tmp a) ++ [Byte.add]
+  | f + 1,  .lt a b =>
+      materialiseExpr defs f (.tmp b) ++ materialiseExpr defs f (.tmp a) ++ [Byte.lt]
+  | f + 1,  .sload k =>
+      materialiseExpr defs f (.tmp k) ++ [Byte.sload]
+  | _ + 1,  .gas    => [Byte.gas]
+
+/-- Legacy (P9-deletes): fuel-bounded tmp materialisation. -/
+def materialise (defs : Tmp → Option Expr) (fuel : Nat) (t : Tmp) : List UInt8 :=
+  materialiseExpr defs fuel (.tmp t)
+
+/-- Legacy (P9-deletes): the fuel bound the old pipeline threaded (statement count
++ 1). NOT sufficient for deep definition chains — see the module note above. -/
+def recomputeFuel (prog : Program) : Nat :=
+  (prog.blocks.toList.map (fun b => b.stmts.length)).sum + 1
 
 end Lir
