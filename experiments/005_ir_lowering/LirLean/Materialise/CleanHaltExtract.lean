@@ -1,4 +1,5 @@
 import LirLean.Materialise.MatDecLower
+import LirLean.Materialise.MatFoldChannel
 import LirLean.Engine.CleanHalt
 
 /-!
@@ -13,7 +14,7 @@ This module is the **producer**: from `CleanHaltsNonException fr` (the frame rea
 `.halted` outcome that is **not** an `.exception` — `.success` or `.revert`) it extracts, per
 lowered opcode, the gas + memory-expansion envelope the §7 ties consume.
 
-The lowered opcode set (`Lowering.lean` `materialiseExpr`/`emitStmt`/`emitTerm`) is exactly
+The lowered opcode set (`Lowering.lean` `matExpr (matCache prog)`/`emitStmt`/`emitTerm`) is exactly
 `PUSH32`/`PUSH4`/`MLOAD`/`ADD`/`LT`/`SLOAD`/`GAS`/`MSTORE`/`SSTORE`/`CALL`/`POP`/`STOP`/`JUMP`/
 `JUMPI`/`JUMPDEST` — no `DUP`/`SWAP` (recompute-on-use).
 
@@ -192,7 +193,7 @@ theorem stepFrame_sload_inv (fr : Frame) (key : UInt256) (rest : Stack UInt256)
 
 /-! ### ADD / LT / MLOAD OOG / inversion bricks (the FoldLemma additions)
 
-The aggregate gas-FOLD residuals (`materialise_runs_of_cleanHalt`) descend the materialise run
+The aggregate gas-FOLD residuals (`materialise_runsC_of_cleanHalt`) descend the materialise run
 through `ADD`/`LT` (binary-op tails) and the `MLOAD` readback of a `.slot`-spilled tmp. Those ops
 have a forward `stepFrame_add`/`stepFrame_lt`/`stepFrame_mload` in 003 but no inversion/OOG lemma,
 so we build them here, copying the GAS/PUSH/SLOAD pattern above: the `binOp` charges `Gverylow`
@@ -776,21 +777,22 @@ theorem stepsTo_sloadFrame (fr : Frame) (key : UInt256) (rest : Stack UInt256)
 
 /-- **SLOAD envelope from clean-halt.** For the spilled-sload cursor, the residual
 `sim_assign_sload_lowered` consumes is keyed on the **post-materialise** frame `frk` (the key
-prefix is variable-length; B1 `materialise_runs` produces `frk` and the `MatRuns` Runs threading
-`CleanHaltsNonException` to it). At `frk` (stack `[keyVal]`) the tail `SLOAD ; PUSH32 ; MSTORE`
-clean-halts, so this lemma produces the gas conjuncts `hgasSload`/`hgasPush`/`hmem`/`hgasMem`/
-`hgasMstore` of `hresid` — everything but the **structural** activeWords-flatness `hawk`
-(`frk.activeWords = fr.activeWords`: the key materialise expanded no memory — the normal sload-key
-case, independent of gas), which stays a supplied structural residual.
+prefix is variable-length; the fold value channel `Lir.V2.materialise_runsC` produces `frk` and
+the `MatRunsC` Runs threading `CleanHaltsNonException` to it). At `frk` (stack `[keyVal]`) the
+tail `SLOAD ; PUSH32 ; MSTORE` clean-halts, so this lemma produces the gas conjuncts
+`hgasSload`/`hgasPush`/`hmem`/`hgasMem`/`hgasMstore` of `hresid` — everything but the
+**structural** activeWords-flatness `hawk` (`frk.activeWords = fr.activeWords`: the key
+materialise expanded no memory — the normal sload-key case, independent of gas), which stays a
+supplied structural residual.
 
-Inputs: `CleanHaltsNonException fr`, the entry stack-nil, the `MatRuns` thread to `frk` (which pins
-`frk.stack = [keyVal]`), and the three frame-local tail decode anchors at `frk`. -/
+Inputs: `CleanHaltsNonException fr`, the entry stack-nil, the `MatRunsC` thread to `frk` (which
+pins `frk.stack = [keyVal]`), and the three frame-local tail decode anchors at `frk`. -/
 theorem sload_envelope_of_cleanHalt
-    {defs : Tmp → Option Expr} {sloadChg : Tmp → ℕ} {f : Nat} {ekey : Expr} {wkey : Word}
+    {prog : Program} {sloadChg : Tmp → ℕ} {ekey : Expr} {wkey : Word}
     (fr frk : Frame) (keyVal : UInt256) (slot : Nat)
     (hcs : CleanHaltsNonException fr)
     (hstk0 : fr.exec.stack = [])
-    (hmrk : MatRuns defs sloadChg f ekey wkey fr frk)
+    (hmrk : Lir.V2.MatRunsC prog sloadChg ekey wkey fr frk)
     (hkeyval : wkey = keyVal)
     (hdecSLOAD : decode frk.exec.executionEnv.code frk.exec.pc = some (.Smsf .SLOAD, .none))
     (hdecPUSH : decode (sloadFrame frk keyVal []).exec.executionEnv.code
@@ -813,9 +815,9 @@ theorem sload_envelope_of_cleanHalt
         ∧ Gverylow ≤ ((pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat slot) 32).exec.gasAvailable
             - UInt64.ofNat (memExpansionChargeOf
                 (pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat slot) 32).exec words')).toNat := by
-  -- thread the clean-halt to `frk` along the materialise Runs (B1).
+  -- thread the clean-halt to `frk` along the materialise Runs (`materialise_runsC`).
   have hcsK : CleanHaltsNonException frk := cleanHaltsNonException_forward hcs hmrk.runs
-  -- `frk`'s stack is `[keyVal]` (B1 leaves the key on top of the entry stack `[]`).
+  -- `frk`'s stack is `[keyVal]` (the value channel leaves the key on top of the entry stack `[]`).
   have hstkK : frk.exec.stack = keyVal :: [] := by
     rw [hmrk.stack, hstk0, ← hkeyval]; rfl
   have hszK : frk.exec.stack.size ≤ 1024 := by rw [hstkK]; simp [Stack.size]

@@ -28,9 +28,9 @@ the run); its flagship signature should be frozen here once R11 is proven. See
 #guard_msgs in
 #print axioms Lir.V2.callPreservesSelf_modGuards
 
-/-- info: 'Lir.materialise_runs_of_cleanHalt' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+/-- info: 'Lir.V2.materialise_runsC_of_cleanHalt' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
-#print axioms Lir.materialise_runs_of_cleanHalt
+#print axioms Lir.V2.materialise_runsC_of_cleanHalt
 
 /-- info: 'Lir.V2.cleanHalts_of_runWithLog' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in

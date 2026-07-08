@@ -4,15 +4,17 @@ import LirLean.Spec.Semantics
 /-!
 # LirLean — `WellFormed` + `DefsSound` (Layer B3 of the `lower_conforms` grind)
 
-This module is the **soundness foundation for recompute-on-use** that the linchpin
-**B1 `materialise_runs`** consumes (its `.tmp t → defsOf prog t` recursion). See
-`docs/lower-conforms-plan.md`, the `DESIGN DECISION` block and node **B3**.
+This module is the **soundness foundation for recompute-on-use** that the value
+channel (`materialise_runsC`, `Materialise/MatFoldChannel.lean`) consumes at its
+`.tmp t → rematOf prog t` resolution. See `docs/lower-conforms-plan.md`, the
+`DESIGN DECISION` block and node **B3**.
 
 ## Why two predicates
 
-The lowering is **recompute-on-use** (`LirLean/Lowering.lean`): an `assign` emits
-**no** bytes; the work happens at the consuming opcode, which re-emits the
-push-sequence of the operand's defining expression via `materialiseExpr defsOf …`.
+The lowering is **recompute-on-use** (`LirLean/Spec/Lowering.lean`): an `assign` of
+a rematerialised tmp emits **no** bytes; the work happens at the consuming opcode,
+which pushes the cached byte-assembly of the operand's defining expression
+(`matCache prog`, resolving each operand via the def-env fold).
 This is sound **only when recomputing a tmp gives the same value it had when the IR
 assigned it**. That holds for *pure* expressions (`imm/add/lt/sload`: recompute =
 same value, modulo the world, which `sstore` is sequenced before its readers). It is
@@ -102,7 +104,7 @@ def isCreateResult (prog : Program) (t : Tmp) : Prop :=
 
 /-- Is `t` the target of an `assign t .gas` somewhere in the program? Phrased
 **syntactically** (on the source statements) rather than on `defsOf`: after Phase B a
-gas-defined tmp is registered in `defsOf` as the spill-load `Expr.slot (slotOf t)` (it is
+gas-defined tmp is registered in `defsOf` as the spill slot `Loc.slot (slotOf t)` (it is
 stashed once and read back from memory, never re-emitting `GAS`), so the old
 `defsOf prog t = some .gas` characterisation no longer fires. The syntactic form is what
 `gasAssignTmps`/`WellFormedDec` already use, and what the gas value-channel keys on. -/
@@ -111,8 +113,8 @@ def isGasDef (prog : Program) (t : Tmp) : Prop :=
 
 /-- Is `t` the target of an `assign t (.sload k)` somewhere in the program? Phrased
 **syntactically** (on the source statements) rather than on `defsOf`, mirroring `isGasDef`:
-after Phase C an sload-defined tmp is registered in `defsOf` as the spill-load
-`Expr.slot (slotOf t)` (the SLOAD value + its warmth charge is read once at the def-site stash
+after Phase C an sload-defined tmp is registered in `defsOf` as the spill slot
+`Loc.slot (slotOf t)` (the SLOAD value + its warmth charge is read once at the def-site stash
 and reused from memory via `MLOAD`), so a `defsOf prog t = some (.sload _)` characterisation no
 longer fires. This is the predicate keying the SLOAD value/warmth channel. -/
 def isSloadDef (prog : Program) (t : Tmp) : Prop :=
@@ -178,20 +180,19 @@ theorem wellFormed_of_dec {prog : Program} (h : WellFormedDec prog) : WellFormed
 
 /-! ## `DefsSound` — recompute env agrees with IR locals (B3)
 
-The recompute environment `defsOf prog` agrees with the IR machine's `locals` on the
-**recomputable** tmps: for every such `t` with a definition `e`, the local's bound
-value equals `e` re-evaluated in the current state. This is exactly the fact B1 needs
-at its `.tmp t → defsOf prog t` recursion: materialising `.tmp t` (which expands to
-materialising `defsOf prog t`) pushes `evalExpr st e`, and `DefsSound` says that is
-`st.locals t` — the value the IR holds.
+The rematerialisation environment `rematOf prog` agrees with the IR machine's `locals`
+on the **recomputable** tmps: for every such `t` with a definition `e`, the local's
+bound value equals `e` re-evaluated in the current state. This is exactly the fact the
+value channel needs at its `.tmp t → rematOf prog t` resolution: materialising `.tmp t`
+(whose cached bytes are the byte-assembly of `rematOf prog t`) pushes `evalExpr st e`,
+and `DefsSound` says that is `st.locals t` — the value the IR holds.
 
-The **non-recomputable** tmps (`Expr.gas`, call results) are *excluded*: their value is
-not a function of `defsOf` (gas is the *consumed* read bound by `assignGas`; a call
-result is the dynamic CALL flag bound by the call arm). `WellFormed`'s single-use is
-what accounts for them on the bytecode side — B1 materialises each at its unique site,
-so the `defsOf` recursion never reaches them. (For a gas-defined `t`, `defsOf prog t =
-some .gas`, which `NonRecomputable` excludes; so `DefsSound` makes *no* claim about it,
-exactly as intended.)
+The **non-recomputable** tmps (gas / sload / call / create results) are *excluded*:
+their value is not a function of a recomputable expression (gas is the *consumed* read
+bound by `assignGas`; a call result is the dynamic CALL flag bound by the call arm).
+They are spilled to memory slots and never resolved through `rematOf` — for a
+gas-defined `t`, `defsOf prog t = some (.slot (slotOf t))` and `rematOf prog t = none`,
+so `DefsSound` makes *no* claim about it, exactly as intended.
 
 `obs` is pinned to `0`: a recomputable `e` is non-`gas`, and `evalExpr` reads `obs`
 **only** for `.gas`, so the choice is irrelevant for the tmps in range.

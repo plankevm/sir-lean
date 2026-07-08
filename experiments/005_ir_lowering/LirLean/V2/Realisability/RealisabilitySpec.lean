@@ -1,5 +1,4 @@
 import LirLean.V2.Drive.Headline
-import LirLean.Assembly.Acyclic
 import LirLean.Decode.BoundaryReach
 import LirLean.Spec.BudgetDerivations
 import LirLean.V2.Realisability.Witness
@@ -117,25 +116,20 @@ open BytecodeLayer.Dispatch
 static, program-text-only `IRWellFormed prog` and the two scalar budgets `codeFits`/`stackFits`,
 reconstruct the full `WellLowered prog` bundle the flagships consume. This is where the ~15
 per-cursor `WellFormedLowered`/`ClosedCFG` bounds are RE-DERIVED from the two scalars (B1a
-`pcBounds_of_codeFits`, B1b `stackBounds_of_stackFits`) and the `matFueled_*` family from the
-fuel-fitting acyclic rank (B1c `matFueled_of_acyclic`); `slots_slot` is derived from
-`noSlotSource`. `WellFormedLowered` stays INTERNAL (the `Sim/` lemmas keep projecting its
-fields) — it is merely (re)built here, not exposed as a premise. -/
+`pcBounds_of_codeFits`, B1b `stackBounds_of_stackFits`); `slots_slot` is derived from
+`noSlotSource`. (There is no fuel-sufficiency family anymore: the fold emission always fully
+expands — structural termination on the ordered def-env, `IRWellFormed.defEnvOrdered`.)
+`WellFormedLowered` stays INTERNAL (the `Sim/` lemmas keep projecting its fields) — it is
+merely (re)built here, not exposed as a premise. -/
 theorem wellFormedLowered_of_IRWellFormed {prog : Program}
     (hwf : IRWellFormed prog) (hcode : codeFits prog) (hstk : stackFits prog) :
     WellLowered prog := by
-  obtain ⟨rank, hac, hfuel⟩ := hwf.acyclicDefs
   obtain ⟨hoff, hbsstore, hbsload, hbret, hbstop, hbjump, hbbranch, hgas, hretep⟩ :=
     pcBounds_of_codeFits prog hcode hwf.defsConsistent
-  obtain ⟨hmfsstore, hmfsload, hmfret, hmfbranch⟩ := matFueled_of_acyclic prog hac hfuel
   refine
     { wf :=
-        { matFueled_sstore := hmfsstore
-          bound_sstore := hbsstore
-          matFueled_sload := hmfsload
+        { bound_sstore := hbsstore
           bound_sload := hbsload
-          matFueled_ret := hmfret
-          matFueled_branch := hmfbranch
           bound_ret := hbret
           bound_stop := hbstop
           bound_jump := hbjump
@@ -143,6 +137,7 @@ theorem wellFormedLowered_of_IRWellFormed {prog : Program}
           slots_slot := slots_slot_of_noSlotSource prog hwf.noSlotSource }
       defs := hwf.defineBeforeUse
       defsCons := hwf.defsConsistent
+      defEnvOrdered := hwf.defEnvOrdered
       entry0 := hwf.entry0
       closed :=
         { entry_present := hwf.cfgClosed.entry_present

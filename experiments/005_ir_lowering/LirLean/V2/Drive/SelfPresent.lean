@@ -339,11 +339,11 @@ accounts throughout the run. We discharge it from a standalone invariant `SelfPr
 
 `SelfPresent fr` says the self account is present in `fr`'s accounts. It holds at the entry
 `codeFrame` under world-wellformedness (the called account is present — code is loaded from
-it; `selfPresent_codeFrame`), and it is preserved by every materialise post-frame
+it; `selfPresent_codeFrame`), and it is preserved by every value-channel post-frame
 (`addFrame`/`ltFrame`/`sloadFrame`/`gasFrame`/`pushFrameW` — the `.next` building blocks the
 SSTORE arm's internal frame `frk` is reached through), each of which leaves `accounts`
 untouched (`rfl`). The remaining wiring — threading `SelfPresent` through the
-`materialise_runs`/`MatRuns` sub-runs alongside the existing clauses — is the analogue of
+`materialise_runsC`/`MatRunsC` sub-runs alongside the existing clauses — is the analogue of
 §3's walk-induction (reported below). The **point-of-use** discharge turns `SelfPresent` at the SSTORE frame into exactly the presence conjunct
 `SstoreRealises`/`sim_sstore` consumes there (`hsstore frk … |>.2.2`). -/
 

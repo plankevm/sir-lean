@@ -35,8 +35,8 @@ land at exactly the frame's running pc.
 * **`ret t`** — only the **world** (storage delta) is asserted: `observe`'s `result` is
   `.stopped`, while the IR's `RunFrom.ret` halt gives `.returned w`. The RETURN **value
   channel is DEFERRED** (a tracked follow-up, `Spec/Recorder.lean` `observe` doc). We still run
-  `materialise t` (B1, `materialise_runs`) for the RETURN, but the returned word is **not**
-  asserted; only the storage lens (`world`) is matched.
+  `matCache t` (the fold value channel, `Lir.V2.materialise_runsC`) for the RETURN, but the
+  returned word is **not** asserted; only the storage lens (`world`) is matched.
 
 The `world`-channel bridge `observe self (endFrame last halt) = storageAt last self` is the
 `endCall` success commit (`resultStorageAt_endFrame_success`): for a `.call`-kind frame
@@ -49,8 +49,8 @@ the per-statement layers take their `hself`/decode bundles.
 
 ## Scope — `ret`/`branch` stack-shape + destination resolution as structured hypotheses
 
-* **`ret t`** — the lowering is `materialise t ++ PUSH32 0 ++ MSTORE ++ PUSH32 32 ++ PUSH32 0
-  ++ [RETURN]` (`emitTerm`): `materialise t` leaves `vw`; `PUSH32 0; MSTORE` stashes `vw` to
+* **`ret t`** — the lowering is `matCache t ++ PUSH32 0 ++ MSTORE ++ PUSH32 32 ++ PUSH32 0
+  ++ [RETURN]` (`emitTerm`): `matCache t` leaves `vw`; `PUSH32 0; MSTORE` stashes `vw` to
   `mem[0]`; `PUSH32 32; PUSH32 0; RETURN` returns that 32-byte window (`vw`'s big-endian bytes,
   the halt brick `stepFrame_return_word` consumes). The `ret` arm runs the whole epilogue ITSELF
   (via `sim_imm` / `runs_mstore`), so both the world AND the returned-value channels are proven:
@@ -63,7 +63,7 @@ the per-statement layers take their `hself`/decode bundles.
   `validJumps = validJumpDests (lower prog) 0` (a top-level-frame fact) and the PUSH4
   immediate round-tripping to `UInt32.ofNat (offsetTable … dst.idx)`. Both are taken as
   structured hypotheses (`hvalid`/`hdestword`), discharged by E3 + the offset round-trip at
-  the call site, mirroring how `materialise_runs` takes `MatDec`.
+  the call site, mirroring how `materialise_runsC` takes `MatDecC`.
 
 No `sorry`, no `axiom`, no `native_decide`. Bytecode-coupled (imports `Match.lean`,
 `JumpValid.lean`); nothing here touches `Spec/Semantics.lean` / `V2/Law.lean` (the frame-free
@@ -244,8 +244,9 @@ block edges (the frames preserve both `memory` bytes and `activeWords`). -/
 
 /-! ## E1 — `sim_term_halt` (the halting terminators `stop` / `ret`)
 
-A block whose terminator is `stop` or `ret t` runs (the `ret` value via B1 `materialise_runs`)
-to a frame `last` that **halts** (`stepFrame last = .halted halt`), whose `observe` **world**
+A block whose terminator is `stop` or `ret t` runs (the `ret` value via the fold value channel
+`Lir.V2.materialise_runsC`) to a frame `last` that **halts** (`stepFrame last = .halted halt`),
+whose `observe` **world**
 matches the IR halt's world (the storage lens, tied through `Corr`'s `StorageAgree`). For
 `stop` the `result` (`.stopped`) also matches; for `ret` the `result` is the value channel,
 **deferred** (asserted on the world only).
@@ -288,10 +289,11 @@ theorem sim_term_halt_stop {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word
 
 /-- **`sim_term_halt`, the `ret` arm (FULL observable — world AND value).** From `Corr` at
 the terminator cursor `(L, b.stmts.length)` with `b.term = .ret t` and `st.locals t = some
-vw`, running the lowered `materialise t ++ PUSH32 0 ++ MSTORE ++ PUSH32 32 ++ PUSH32 0 ++
-RETURN` (B1 `materialise_runs` for the value, then the stash + return-window opcodes) reaches
-a frame that **halts** on `RETURN(0, 32)`. The `materialise t` leaves `vw`; `PUSH32 0; MSTORE`
-stashes `vw` to `mem[0]`; `PUSH32 32; PUSH32 0; RETURN` returns that 32-byte window.
+vw`, running the lowered `matCache t ++ PUSH32 0 ++ MSTORE ++ PUSH32 32 ++ PUSH32 0 ++
+RETURN` (the fold value channel `materialise_runsC` for the value, then the stash +
+return-window opcodes) reaches a frame that **halts** on `RETURN(0, 32)`. The `matCache t`
+leaves `vw`; `PUSH32 0; MSTORE` stashes `vw` to `mem[0]`; `PUSH32 32; PUSH32 0; RETURN`
+returns that 32-byte window.
 
 Both channels are established:
 * **world** — the finished result's self-storage lens is `st.world` (preserved across the
@@ -303,7 +305,7 @@ Both channels are established:
   bytecode's halt result *matches* the IR `RunFrom.ret`'s `.returned vw`.
 
 The decode (`hdv`) / gas (`hgas`) / stack (`hstk`) bundle for the materialise is the per-leaf
-B1 interface. The `PUSH32 0; MSTORE; PUSH32 32; PUSH32 0; RETURN` decode/gas envelopes (incl.
+value-channel interface. The `PUSH32 0; MSTORE; PUSH32 32; PUSH32 0; RETURN` decode/gas envelopes (incl.
 the MSTORE memory-expansion witness `wms`) and the top-level-frame `kind`/non-empty facts are
 the honest structured hypotheses (`hret`), supplied at the materialise endpoint `frv` — exactly
 where the concrete program pins them. -/
@@ -314,12 +316,12 @@ theorem sim_term_halt_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     (_hterm : b.term = .ret t)
     (hself : self = fr.exec.executionEnv.address)
     (hv : st.locals t = some vw)
-    -- B1 materialise bundle for the RETURN value `t` (the per-leaf interface):
-    (hdv : MatDec fr.exec.executionEnv.code (defsOf prog) sloadChg (recomputeFuel prog)
-            fr.exec.pc (.tmp t))
-    (hgas : (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).sum
-              ≤ fr.exec.gasAvailable.toNat)
-    (hstk : (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).length ≤ 1024)
+    -- def-env well-formedness (routes the `.tmp` arm through `matCache_unfold`):
+    (hdc : DefsConsistent prog) (hord : DefEnvOrdered prog)
+    -- fold value-channel bundle for the RETURN value `t` (the per-leaf interface):
+    (hdv : MatDecC prog hdc hord fr.exec.executionEnv.code fr.exec.pc (.tmp t))
+    (hgas : (chargeCache prog sloadChg t).sum ≤ fr.exec.gasAvailable.toNat)
+    (hstk : (chargeCache prog sloadChg t).length ≤ 1024)
     -- RETURN-site structured hypotheses on the materialise endpoint `frv`: the stash
     -- (`PUSH32 0; MSTORE`) + return-window (`PUSH32 32; PUSH32 0; RETURN`) opcodes
     -- decode/gas-cover, and the frame is a top-level `.call` frame with non-empty accounts.
@@ -359,14 +361,17 @@ theorem sim_term_halt_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     ∃ last halt, Runs fr last ∧ stepFrame last = .halted halt
       ∧ (observe self (endFrame last halt)).world = st.world
       ∧ (observe self (endFrame last halt)).result = .returned vw := by
-  -- B1: run `materialise t`, reaching `frv` with `vw` pushed, storage lens preserved.
+  -- value channel: run `matCache t`, reaching `frv` with `vw` pushed, storage lens preserved.
   have hevv : V2.evalExpr st obs (.tmp t) = some vw := hv
   have hszfr : fr.exec.stack.size = 0 := by rw [hcorr.stack_nil]; rfl
-  have hstkv : fr.exec.stack.size + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog)
-      (.tmp t)).length ≤ 1024 := by rw [hszfr]; omega
-  obtain ⟨frv, hmrv⟩ := materialise_runs sloadChg (recomputeFuel prog) st obs (.tmp t) vw fr
+  have hgas' : (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp t)).sum
+      ≤ fr.exec.gasAvailable.toNat := by simpa only [chargeExpr_tmp] using hgas
+  have hstkv : fr.exec.stack.size
+      + (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp t)).length ≤ 1024 := by
+    simp only [chargeExpr_tmp]; omega
+  obtain ⟨frv, hmrv⟩ := materialise_runsC hdc hord sloadChg st obs (.tmp t) vw fr
     hdv hcorr.defsSound hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
-    hevv hgas hstkv
+    hevv hgas' hstkv
   obtain ⟨cp, wms, hd0, hdms, hd32, hd0', hdret, hg0, hmemms, hgasMem, hgasV, hg32, hg0'', hkind, hne⟩ :=
     hret frv hmrv.runs hmrv.code hmrv.addr hmrv.storage hmrv.stack
   -- stack at `frv` is `vw :: fr.stack = [vw]` (the boundary stack is empty).
@@ -486,7 +491,7 @@ verbatim (address preserved by every control-flow post-frame). -/
 … L.idx` plus one (skip the block's leading `JUMPDEST`). -/
 theorem pcOf_zero (prog : Program) (L : Label) (b : Block)
     (hb : prog.blocks.toList[L.idx]? = some b) :
-    pcOf prog L 0 = offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks L.idx + 1 := by
+    pcOf prog L 0 = offsetTable (matCache prog) (defsOf prog) prog.blocks L.idx + 1 := by
   rw [pcOf_eq_anchor prog L b 0 hb]; simp
 
 /-- **`Corr` at the JUMPDEST landing.** A frame `fj` sitting on the successor block's
@@ -498,7 +503,7 @@ self-address / storage lens agreeing with the source `Corr` (carried `st`) — s
 theorem corr_at_jumpdest_landing {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {st : V2.IRState} {succ : Label} {bsucc : Block} {fj : Frame}
     (hbsucc : prog.blocks.toList[succ.idx]? = some bsucc)
-    (hpc : fj.exec.pc = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog)
+    (hpc : fj.exec.pc = UInt32.ofNat (offsetTable (matCache prog) (defsOf prog)
             prog.blocks succ.idx))
     (hcode : fj.exec.executionEnv.code = lower prog)
     (hvalid : fj.validJumps = validJumpDests fj.exec.executionEnv.code 0)
@@ -551,21 +556,21 @@ theorem jump_to_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     (hmem : MemRealises prog st g)
     (hvalid : g.validJumps = validJumpDests (lower prog) 0)
     (hdestword : dest.toUInt32?
-        = some (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks succ.idx)))
+        = some (UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks succ.idx)))
     (hdpush : decode g.exec.executionEnv.code g.exec.pc = some (.Push .PUSH4, some (dest, 4)))
     (hdjump : decode g.exec.executionEnv.code (g.exec.pc + UInt32.ofNat 5)
         = some (.Smsf .JUMP, .none))
     (hdjd : decode (lower prog)
-        (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks succ.idx))
+        (UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks succ.idx))
         = some (.Smsf .JUMPDEST, .none))
     (hgpush : 3 ≤ g.exec.gasAvailable.toNat)
     (hgjump : GasConstants.Gmid ≤ (pushFrameW g dest 4).exec.gasAvailable.toNat)
     (hgjd : GasConstants.Gjumpdest
         ≤ (jumpFrame (pushFrameW g dest 4) GasConstants.Gmid
-            (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks succ.idx))
+            (UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks succ.idx))
             g.exec.stack).exec.gasAvailable.toNat) :
     ∃ fr', Runs g fr' ∧ Corr prog sloadChg obs st fr' succ 0 := by
-  set new_pc := UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks succ.idx)
+  set new_pc := UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks succ.idx)
     with hnew
   -- step 1: PUSH4 the destination.
   have hstk1 : g.exec.stack.size + 1 ≤ 1024 := by rw [hgstk]; show (0 : ℕ)+1≤1024; omega
@@ -631,21 +636,21 @@ theorem sim_term_edge_jump {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word
     (hvalid : fr.validJumps = validJumpDests (lower prog) 0)
     -- the PUSH4 immediate round-trips to the successor's offset:
     (hdestword : dest.toUInt32?
-        = some (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks dst.idx)))
+        = some (UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks dst.idx)))
     -- decode bundle (PUSH4 dest ; JUMP ; JUMPDEST at the landing):
     (hdpush : decode fr.exec.executionEnv.code fr.exec.pc
         = some (.Push .PUSH4, some (dest, 4)))
     (hdjump : decode fr.exec.executionEnv.code (fr.exec.pc + UInt32.ofNat 5)
         = some (.Smsf .JUMP, .none))
     (hdjd : decode (lower prog)
-        (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks dst.idx))
+        (UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks dst.idx))
         = some (.Smsf .JUMPDEST, .none))
     -- gas / stack envelopes (honest runtime bounds):
     (hgpush : 3 ≤ fr.exec.gasAvailable.toNat)
     (hgjump : GasConstants.Gmid ≤ (pushFrameW fr dest 4).exec.gasAvailable.toNat)
     (hgjd : GasConstants.Gjumpdest
         ≤ (jumpFrame (pushFrameW fr dest 4) GasConstants.Gmid
-            (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks dst.idx))
+            (UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks dst.idx))
             fr.exec.stack).exec.gasAvailable.toNat) :
     ∃ fr' L', L' = dst ∧ Runs fr fr' ∧ Corr prog sloadChg obs st fr' L' 0 := by
   obtain ⟨fr', hruns, hcorr'⟩ := jump_to_block (st := st) (g := fr) (dest := dest)
@@ -659,7 +664,7 @@ b.stmts.length)` with `b.term = .branch cond thenL elseL` and `st.locals cond = 
 running the lowered `materialise cond ; PUSH4 thenOff ; JUMPI ; PUSH4 elseOff ; JUMP ; ⟨land⟩
 JUMPDEST` reaches the **taken successor**'s entry frame, re-establishing `Corr` at the taken
 `(succ, 0)`: `thenL` when `cw ≠ 0` (the IR `RunFrom.branchThen`), `elseL` when `cw = 0`
-(`RunFrom.branchElse`). The condition value comes from B1 `materialise_runs` (`frc`, stack
+(`RunFrom.branchElse`). The condition value comes from the fold value channel (`MatRunsC`; `frc`, stack
 `[cw]`); the taken arm jumps via `runs_branch` (the CFG combinator); the fall-through arm
 JUMPI-falls-through to the `PUSH4 elseOff ; JUMP` and reuses `jump_to_block`. Both successor
 destinations resolve through E3 (`block_offset_validJump`). -/
@@ -674,16 +679,16 @@ theorem sim_term_edge_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs : Wo
     (hbelse : prog.blocks.toList[elseL.idx]? = some belse)
     (hthenlt : thenL.idx < prog.blocks.size)
     (helselt : elseL.idx < prog.blocks.size)
-    -- B1: `materialise cond` reaches `frc` (the JUMPI-arg-push site).
-    (hmrc : MatRuns (defsOf prog) sloadChg (recomputeFuel prog) (.tmp cond) cw fr frc)
+    -- value channel: `matCache cond` reaches `frc` (the JUMPI-arg-push site).
+    (hmrc : V2.MatRunsC prog sloadChg (.tmp cond) cw fr frc)
     -- the materialise endpoint's recorded jump destinations are the lowered program's
     -- (the materialise of a pure cond is call-free, so its `Runs` preserves `validJumps`):
     (hfrcvalid : frc.validJumps = validJumpDests (lower prog) 0)
     -- the two PUSH4 immediates round-trip to the successor offsets:
     (hthenword : thenWord.toUInt32?
-        = some (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx)))
+        = some (UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx)))
     (helseword : elseWord.toUInt32?
-        = some (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks elseL.idx)))
+        = some (UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks elseL.idx)))
     -- decode bundle, relative to the post-materialise frame `frc`:
     --   PUSH4 thenOff (at frc.pc) ; JUMPI (at frc.pc+5) ; PUSH4 elseOff (at frc.pc+6) ;
     --   JUMP (at frc.pc+11) ; the two landing JUMPDESTs.
@@ -696,10 +701,10 @@ theorem sim_term_edge_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs : Wo
     (hdjump : decode frc.exec.executionEnv.code (frc.exec.pc + UInt32.ofNat 6 + UInt32.ofNat 5)
         = some (.Smsf .JUMP, .none))
     (hdjdT : decode (lower prog)
-        (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx))
+        (UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx))
         = some (.Smsf .JUMPDEST, .none))
     (hdjdE : decode (lower prog)
-        (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks elseL.idx))
+        (UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks elseL.idx))
         = some (.Smsf .JUMPDEST, .none))
     -- gas / stack envelopes (honest runtime bounds):
     (hgpushT : 3 ≤ frc.exec.gasAvailable.toNat)
@@ -707,7 +712,7 @@ theorem sim_term_edge_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs : Wo
     -- taken (then) arm: the JUMPDEST landing gas.
     (hgjdT : GasConstants.Gjumpdest
         ≤ (jumpFrame (pushFrameW frc thenWord 4) GasConstants.Ghigh
-            (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx))
+            (UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx))
             ([] : Stack Word)).exec.gasAvailable.toNat)
     -- fall-through (else) arm: PUSH4 elseOff / JUMP / JUMPDEST gas, from the fallthrough frame.
     (hgpushE : 3 ≤ (jumpiFallthroughFrame (pushFrameW frc thenWord 4)
@@ -717,7 +722,7 @@ theorem sim_term_edge_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs : Wo
     (hgjdE : GasConstants.Gjumpdest
         ≤ (jumpFrame (pushFrameW (jumpiFallthroughFrame (pushFrameW frc thenWord 4)
             ([] : Stack Word)) elseWord 4) GasConstants.Gmid
-            (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks elseL.idx))
+            (UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks elseL.idx))
             (jumpiFallthroughFrame (pushFrameW frc thenWord 4)
               ([] : Stack Word)).exec.stack).exec.gasAvailable.toNat) :
     ∃ fr' L', (cw ≠ 0 ∧ L' = thenL ∨ cw = 0 ∧ L' = elseL)
@@ -791,7 +796,7 @@ theorem sim_term_edge_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs : Wo
       (by rw [hgff]; exact hgpushE) (by rw [hgff]; exact hgjumpE) (by rw [hgff]; exact hgjdE)
     exact ⟨fr', elseL, Or.inr ⟨rfl, rfl⟩, ((hmrc.runs.trans hpushT).trans hfall).trans hruns', hcorr'⟩
   · -- THEN arm: JUMPI taken jumps to `thenL`'s JUMPDEST.
-    set new_pc := UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx)
+    set new_pc := UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx)
       with hnewT
     have hgetdest : frp.get_dest thenWord = some new_pc := by
       refine Frame.get_dest_of_mem _ hthenword ?_

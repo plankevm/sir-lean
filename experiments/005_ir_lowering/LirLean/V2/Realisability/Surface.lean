@@ -1,5 +1,4 @@
 import LirLean.V2.Drive.Headline
-import LirLean.Assembly.Acyclic
 import LirLean.Decode.BoundaryReach
 import LirLean.Spec.WellFormed
 import LirLean.Spec.Conformance
@@ -44,22 +43,22 @@ structure ClosedCFG (prog : Program) : Prop where
   entry_present : ∃ b, blockAt prog prog.entry = some b
   /-- The entry block's byte offset fits a 32-bit pc (what `entry_corr` consumes). -/
   entry_bound :
-    offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks prog.entry.idx < 2 ^ 32
+    offsetTable (matCache prog) (defsOf prog) prog.blocks prog.entry.idx < 2 ^ 32
   /-- Every jump target is present, in-bounds, and offset-bounded. -/
   jump_closed : ∀ (L : Label) (b : Block) (dst : Label),
     blockAt prog L = some b → b.term = .jump dst →
     (∃ b', blockAt prog dst = some b')
     ∧ dst.idx < prog.blocks.size
-    ∧ offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks dst.idx < 2 ^ 32
+    ∧ offsetTable (matCache prog) (defsOf prog) prog.blocks dst.idx < 2 ^ 32
   /-- Both branch targets are present, in-bounds, and offset-bounded. -/
   branch_closed : ∀ (L : Label) (b : Block) (cond : Tmp) (thenL elseL : Label),
     blockAt prog L = some b → b.term = .branch cond thenL elseL →
     ((∃ b', blockAt prog thenL = some b')
       ∧ thenL.idx < prog.blocks.size
-      ∧ offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx < 2 ^ 32)
+      ∧ offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx < 2 ^ 32)
     ∧ ((∃ b', blockAt prog elseL = some b')
       ∧ elseL.idx < prog.blocks.size
-      ∧ offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks elseL.idx < 2 ^ 32)
+      ∧ offsetTable (matCache prog) (defsOf prog) prog.blocks elseL.idx < 2 ^ 32)
 
 /-- **The shadowing-aware CALL realisability tie** — `Lir.CallRealises`
 (`LowerConforms.lean:261`) with its embedded `Lir.StepScoped prog st0 (.call cs)`
@@ -93,8 +92,8 @@ def CallRealisesS (prog : Program) (sloadChg : Tmp → ℕ)
                         evmCallOracle.postStorage result pd fr0.exec.executionEnv.address key })
     -- the arg-push run + its pins (the realised arg materialisation):
     ∧ argsLen = (emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
-        ++ materialise (defsOf prog) (recomputeFuel prog) cs.callee
-        ++ materialise (defsOf prog) (recomputeFuel prog) cs.gasFwd).length
+        ++ matCache prog cs.callee
+        ++ matCache prog cs.gasFwd).length
     ∧ Runs fr0 callFr
     ∧ callFr.exec.pc = fr0.exec.pc + UInt32.ofNat argsLen
     ∧ callFr.exec.toMachineState.memory = fr0.exec.toMachineState.memory
@@ -147,8 +146,9 @@ SUPPLIED status: one static premise; every field is decidable-in-principle per p
 NOTE the `defs` field is `RunDefinableG`, NOT the in-tree `RunDefinable` — see header
 lesson 4 (the in-tree bundle is unsatisfiable for gas/call programs). -/
 structure WellLowered (prog : Program) : Prop where
-  /-- The folded structural side-conditions (`MatFueled` + pc/offset bounds + slot
-  registration) of the `_lowered` wrappers. -/
+  /-- The folded structural side-conditions (pc/offset bounds + slot registration) of the
+  `_lowered` wrappers, stated over the fold emission (`matCache` lengths / fold offset
+  table). -/
   wf : Lir.WellFormedLowered prog
   /-- Gas/call-aware operand definability (replaces the unsatisfiable `RunDefinable`). -/
   defs : RunDefinableG prog
@@ -157,6 +157,10 @@ structure WellLowered (prog : Program) : Prop where
   refutes the flagship (`RunDefinableG` alone does NOT: its gas arm is unconditionally
   true, which is what opened the hole). -/
   defsCons : DefsConsistent prog
+  /-- Program order is a valid topological order of the recompute-on-use def-graph
+  (define-before-use SSA over the ordered `defEnv` carrier). Every C-channel consumer
+  (`MatDecC`/`MatRunsC`/`matCache_unfold`) descends on it. -/
+  defEnvOrdered : DefEnvOrdered prog
   /-- The entry block is block 0 (its leading `JUMPDEST` is byte 0 = the entry frame's pc). -/
   entry0 : prog.entry.idx = 0
   /-- Static CFG closure (entry/jump/branch presence + offset bounds). -/
@@ -183,13 +187,12 @@ structure WellLowered (prog : Program) : Prop where
   /-- **The ret epilogue's pc-bound seam** (R5's `hretEmit`). The 101-byte
   `PUSH32 0; MSTORE; PUSH32 32; PUSH32 0; RETURN` full-observable epilogue after the
   return-value materialise fits a 32-bit pc. `WellFormedLowered.bound_ret` only bounds
-  `termOf + |materialise t|` (the operand), not the epilogue (a default-target
+  `termOf + |matCache t|` (the operand), not the epilogue (a default-target
   under-specification not editable here); a static, satisfiable, checker-dischargeable
   well-formedness fact, genuinely true of every real ret block. -/
   retEpilogueBound : ∀ (L : Label) (b : Block) (t : Tmp),
     blockAt prog L = some b → b.term = .ret t →
-    termOf prog L + (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp t)).length + 100
-      < 2 ^ 32
+    termOf prog L + (matCache prog t).length + 100 < 2 ^ 32
   /-- **No `.slot` source RHS** (the arm-1 direction of `slots_slot`): a source `assign t e`
   never carries the lowering-only `.slot` marker. Vacuous for real IR (no source program
   writes a `.slot` expression — the `WellFormed` invariant `slots_slot`'s docstring cites);
@@ -347,7 +350,7 @@ value variable is pinned by an antecedent:
   `∃ vw, st'.locals t = some vw` conclusion is DROPPED (refutable by an empty-locals `Corr`
   witness; at real states `RunDefinableG.ret_def` supplies it) — the epilogue block is
   stated under the `∀ vw`-antecedent it always had, now strengthened with an explicit pc
-  pin (`frv.pc = frT.pc + |materialise t|`) so its decode conclusions are static
+  pin (`frv.pc = frT.pc + |matCache t|`) so its decode conclusions are static
   `DecodeAnchors` facts rather than claims about every stack-coincident frame;
 * the jump/branch gas-guard conclusions are kept verbatim but now under the
   `CleanHaltsNonException frT` antecedent, which blocks the zero-gas refutation (skeptic
@@ -417,10 +420,9 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
             (¬ Lir.NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
             ∧ defsOf prog t' ≠ none)
       ∧ (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
-      ∧ fr0.exec.stack.size
-          + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog - 1) (.tmp k)).length ≤ 1024
+      ∧ fr0.exec.stack.size + (chargeCache prog sloadChg k).length ≤ 1024
       ∧ (∀ frk : Frame,
-          Lir.MatRuns (defsOf prog) sloadChg (recomputeFuel prog - 1) (.tmp k) kv fr0 frk →
+          MatRunsC prog sloadChg (.tmp k) kv fr0 frk →
           frk.exec.toMachineState.activeWords = fr0.exec.toMachineState.activeWords))
   -- (3) spilled gas assign — THE R1 CONJUNCT: the un-consumed gas suffix's HEAD is the
   -- machine GAS output at this frame (replaces the free-`ob` equation; the coupling +
@@ -455,8 +457,8 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
       CleanHaltsNonException fr0 →
       st0.locals key = some kw → st0.locals value = some vw →
       StepScopedS prog (.sstore key value)
-      ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp value)).length
-          + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).length + 1 ≤ 1024)
+      ∧ (chargeCache prog sloadChg value).length
+          + (chargeCache prog sloadChg key).length + 1 ≤ 1024)
   -- (5) call: `CallRealisesS` keyed on the coupling's `callSuffix` HEAD (lesson 8: the in-tree
   -- `CallRealises` embeds `StepScoped (.call cs)`, whose live-scope clause is refutable
   -- in-envelope for reader-carrying programs), kept shape-wise (it is itself
@@ -506,22 +508,20 @@ def TermTies' (prog : Program) (sloadChg : Tmp → ℕ) (_log : RunLog)
         SelfPresent frT →
         frT.exec.executionEnv.address = self →
         (∃ cp, frT.kind = .call cp) →
-        (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).length ≤ 1024
+        (chargeCache prog sloadChg t).length ≤ 1024
         ∧ (∀ (vw : Word), st'.locals t = some vw →
             -- The RETURN-value charge envelope is only witnessed when the returned value is
             -- bound: the IR `ret t` semantics (`RunFrom.ret`/`RunFromLeft.ret`) itself requires
             -- `st'.locals t = some vw`, so demanding the charge-sum bound for an UNBOUND `t` is an
             -- unwitnessable over-demand (same principle as the branch taken-direction restriction;
-            -- the charge fold `materialise_charge_le_of_cleanHalt` needs the operand value).
-            (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).sum
-                ≤ frT.exec.gasAvailable.toNat
+            -- the charge fold `materialise_chargeC_le_of_cleanHalt` needs the operand value).
+            (chargeCache prog sloadChg t).sum ≤ frT.exec.gasAvailable.toNat
             ∧ ∀ frv : Frame, Runs frT frv →
             frv.exec.executionEnv.code = frT.exec.executionEnv.code →
             frv.exec.executionEnv.address = frT.exec.executionEnv.address →
             (∀ k, selfStorage frv k = selfStorage frT k) →
             frv.exec.stack = vw :: frT.exec.stack →
-            frv.exec.pc = frT.exec.pc + UInt32.ofNat
-              (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp t)).length →
+            frv.exec.pc = frT.exec.pc + UInt32.ofNat (matCache prog t).length →
             ∃ cp wms,
               decode frv.exec.executionEnv.code frv.exec.pc
                   = some (.Push .PUSH32, some ((0 : Word), 32))
@@ -556,19 +556,19 @@ def TermTies' (prog : Program) (sloadChg : Tmp → ℕ) (_log : RunLog)
         3 ≤ frT.exec.gasAvailable.toNat
         ∧ GasConstants.Gmid ≤ (pushFrameW frT
             (UInt256.ofNat
-              ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks dst.idx) % 2^32))
+              ((offsetTable (matCache prog) (defsOf prog) prog.blocks dst.idx) % 2^32))
             4).exec.gasAvailable.toNat
         ∧ GasConstants.Gjumpdest
             ≤ (jumpFrame (pushFrameW frT
                 (UInt256.ofNat
-                  ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks dst.idx) % 2^32))
+                  ((offsetTable (matCache prog) (defsOf prog) prog.blocks dst.idx) % 2^32))
                   4)
                 GasConstants.Gmid
-                (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks dst.idx))
+                (UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks dst.idx))
                 frT.exec.stack).exec.gasAvailable.toNat)
-  -- (branch) the cond-materialise `MatRuns` existence + 6 gas guards, verbatim from the
+  -- (branch) the cond-materialise `MatRunsC` existence + 6 gas guards, verbatim from the
   -- current tie but under the clean-halt antecedent (derivable via
-  -- the branch pre-`JUMPDEST` landing + `materialise_runs_of_cleanHalt`); the condition value
+  -- the branch pre-`JUMPDEST` landing + `materialise_runsC_of_cleanHalt`); the condition value
   -- `cw` was always antecedent-pinned; target presence is an antecedent (from `ClosedCFG`).
   ∧ (∀ cond thenL elseL bthen belse, b.term = .branch cond thenL elseL →
       prog.blocks.toList[thenL.idx]? = some bthen →
@@ -578,45 +578,45 @@ def TermTies' (prog : Program) (sloadChg : Tmp → ℕ) (_log : RunLog)
         Lir.Corr prog sloadChg 0 st' frT L b.stmts.length →
         CleanHaltsNonException frT →
         st'.locals cond = some cw →
-        ∃ frc, Lir.MatRuns (defsOf prog) sloadChg (recomputeFuel prog) (.tmp cond) cw frT frc
+        ∃ frc, MatRunsC prog sloadChg (.tmp cond) cw frT frc
           ∧ 3 ≤ frc.exec.gasAvailable.toNat
           ∧ GasConstants.Ghigh ≤ (pushFrameW frc
               (UInt256.ofNat
-                ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32))
+                ((offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx) % 2^32))
               4).exec.gasAvailable.toNat
           -- (taken direction, `cw ≠ 0`) the JUMPDEST landing at `thenL` — only witnessed when
           -- the run actually takes the then-branch (the branch pre-`JUMPDEST` landing then-arm).
           ∧ (cw ≠ 0 → GasConstants.Gjumpdest ≤ (jumpFrame (pushFrameW frc
               (UInt256.ofNat
-                ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32)) 4)
+                ((offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx) % 2^32)) 4)
               GasConstants.Ghigh
-              (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx))
+              (UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx))
               ([] : Stack Word)).exec.gasAvailable.toNat)
           -- (fall-through direction, `cw = 0`) the PUSH4/JUMP/JUMPDEST chain to `elseL` — only
           -- witnessed when the run actually falls through (the branch pre-`JUMPDEST` landing else-arm).
           ∧ (cw = 0 →
               3 ≤ (jumpiFallthroughFrame (pushFrameW frc
                   (UInt256.ofNat
-                    ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32)) 4)
+                    ((offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx) % 2^32)) 4)
                   ([] : Stack Word)).exec.gasAvailable.toNat
               ∧ GasConstants.Gmid ≤ (pushFrameW (jumpiFallthroughFrame (pushFrameW frc
                   (UInt256.ofNat
-                    ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32)) 4)
+                    ((offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx) % 2^32)) 4)
                   ([] : Stack Word))
                   (UInt256.ofNat
-                    ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks elseL.idx) % 2^32))
+                    ((offsetTable (matCache prog) (defsOf prog) prog.blocks elseL.idx) % 2^32))
                   4).exec.gasAvailable.toNat
               ∧ GasConstants.Gjumpdest ≤ (jumpFrame (pushFrameW (jumpiFallthroughFrame (pushFrameW frc
                   (UInt256.ofNat
-                    ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32)) 4)
+                    ((offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx) % 2^32)) 4)
                   ([] : Stack Word))
                   (UInt256.ofNat
-                    ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks elseL.idx) % 2^32)) 4)
+                    ((offsetTable (matCache prog) (defsOf prog) prog.blocks elseL.idx) % 2^32)) 4)
                   GasConstants.Gmid
-                  (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks elseL.idx))
+                  (UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks elseL.idx))
                   (jumpiFallthroughFrame (pushFrameW frc
                     (UInt256.ofNat
-                      ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32)) 4)
+                      ((offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx) % 2^32)) 4)
                     ([] : Stack Word)).exec.stack).exec.gasAvailable.toNat))
 
 end Lir.V2

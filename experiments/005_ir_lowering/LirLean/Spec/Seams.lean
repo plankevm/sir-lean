@@ -32,7 +32,7 @@ namespace Lir.Spec
 /-! ## Seam 1 — `SelfPresent` (the world-half residue of `SstoreRealises`)
 
 The gas half of `SstoreRealises` is already discharged from a real run
-(`Lir.materialise_runs_of_cleanHalt`); presence is the residue — do not overclaim more. -/
+(`Lir.V2.materialise_runsC_of_cleanHalt`); presence is the residue — do not overclaim more. -/
 
 /-- **Seam 1: the self-account-presence world fact.** SSTORE reads storage through an
 `.option 0` lens, so a successful SSTORE step never *witnesses* that the executing account

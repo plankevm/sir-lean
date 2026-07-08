@@ -3,7 +3,6 @@ import LirLean.Spec.Lowering
 import LirLean.Materialise.MaterialiseGas
 import LirLean.Materialise.DefsSound
 import LirLean.Decode.DecodeLower
-import LirLean.Assembly.Acyclic
 
 /-!
 # LirLean — IR well-formedness (default cone)
@@ -24,41 +23,14 @@ Beyond the relocation this module introduces (plan §1B B2):
 * the `IRWellFormed` bundle (Eduardo's name — NOT `WellFormed`, which is a different
   single-use def at `Materialise/DefsSound.lean:143`).
 
-This stage RELOCATES + DEFINES only; the derivation lemmas (`pcBounds_of_codeFits`,
-`stackBounds_of_stackFits`, `matFueled_of_acyclic`, `wellFormedLowered_of_wellFormed`) and the
-flagship reshape land in stages 1B-lemmas / 1B-reshape. Sorry-free. -/
+The derivation lemmas (`pcBounds_of_codeFits`, `stackBounds_of_stackFits`,
+`wellFormedLowered_of_wellFormed`) live in `Spec/BudgetDerivations.lean` and the flagship
+reshape files. All budgets read the total fold caches (`matCache`/`chargeCache`) — no fuel
+anywhere. Sorry-free. -/
 
 namespace Lir.V2
 
 open Evm
-
-/-! ## Static stack-room bounds (`StackRoomOK`) -/
-
-/-- **Static stack-room bounds** — the per-cursor `chargeOf`-length ≤ 1024 folds the ties
-carry (`hstkBranch` of the assembled headline; the `hstkKey` bound of the sload arm; the
-sstore fold; the ret fold). Quantified `∀ sloadChg` and PROVABLE that way: `chargeOf`'s
-LENGTH is structurally independent of the `sloadChg` values (each `.sload` contributes
-exactly one entry whatever the charge). SUPPLIED status: static, decidable per program
-(R9's checker discharges it). -/
-structure StackRoomOK (prog : Program) : Prop where
-  /-- The `branch` cond-materialise stack fold (the headline's `hstkBranch`). -/
-  branch : ∀ (sloadChg : Tmp → ℕ) (L : Label) (b : Block) (cond : Tmp) (thenL elseL : Label),
-    blockAt prog L = some b → b.term = .branch cond thenL elseL →
-    (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp cond)).length ≤ 1024
-  /-- The spilled-sload key-prefix stack fold (the tie's `hstkKey`; the frame term is 0 at
-  a statement boundary by `Corr.stack_nil`, so the pure charge-length bound suffices). -/
-  sloadKey : ∀ (sloadChg : Tmp → ℕ) (L : Label) (b : Block) (pc : Nat) (t k : Tmp),
-    blockAt prog L = some b → b.stmts[pc]? = some (.assign t (.sload k)) →
-    (chargeOf (defsOf prog) sloadChg (recomputeFuel prog - 1) (.tmp k)).length ≤ 1024
-  /-- The `sstore` two-operand stack fold. -/
-  sstore : ∀ (sloadChg : Tmp → ℕ) (L : Label) (b : Block) (pc : Nat) (key value : Tmp),
-    blockAt prog L = some b → b.stmts[pc]? = some (.sstore key value) →
-    (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp value)).length
-      + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).length + 1 ≤ 1024
-  /-- The `ret` operand stack fold. -/
-  ret : ∀ (sloadChg : Tmp → ℕ) (L : Label) (b : Block) (t : Tmp),
-    blockAt prog L = some b → b.term = .ret t →
-    (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).length ≤ 1024
 
 /-! ## Gas/call-aware run-definability (`RunDefinableG`)
 
@@ -114,19 +86,21 @@ structure RunDefinableG (prog : Program) : Prop where
 
 /-- **Static `defsOf`-cursor consistency** (header lesson 6 — the review drill's shadowing
 hole). Every def-site in the program text agrees with `defsOf`'s registration for its
-target: a pure assign registers its own RHS; a gas/sload assign and a call/create result
-register the spill slot `.slot (slotOf t)`.
+target: a pure assign registers the `locOfExpr`-classified `Loc` of its own RHS
+(`.remat e` for `imm`/`tmp`/`add`/`lt`); a gas/sload assign and a call/create result
+register the spill slot `Loc.slot (slotOf t)` — exactly the arm `defEnv` records at the
+same cursor, so this field is the statement that every def-site's `defEnv` entry equals
+the program-global first-find `defsOf prog t`.
 
-GROUND TRUTH this pins (`Lowering.lean`): `defsOf` is a **FIRST-find over program order**
-(`pairs.find?` returns the first match — NOTE its docstring says "the last assign", a
-discrepancy flagged for a Wave-4 sweep; that file is not this track's edit surface), while
-`emitStmt` keys its spill stash on `defsOf t`. A tmp redefined with mixed pure/spill defs
-(e.g. `[.assign t (.imm 1), .assign t .gas]`) therefore emits NO GAS byte at the shadowed
-def while `EvalStmt.assignGas` still demands a gas-stream head — the flagship refutation of
-header lesson 6. This field excludes exactly that mismatch (including pure/pure shadowing
-with a DIFFERENT RHS, which breaks recompute-on-use the same way); single-assignment
-programs (`exProg`) satisfy it trivially, so benign programs stay in scope. It is the
-static lift of the per-cursor `hself` side condition the DefsSound walk already consumes
+GROUND TRUTH this pins (`Lowering.lean`): `defsOf` is the **FIRST-find over program order**
+(`defEnv`'s `find?` view, `defsOf_eq_defEnv_find`), while `emitStmt` keys its spill stash on
+`defsOf t`. A tmp redefined with mixed pure/spill defs (e.g. `[.assign t (.imm 1),
+.assign t .gas]`) therefore emits NO GAS byte at the shadowed def while
+`EvalStmt.assignGas` still demands a gas-stream head — the flagship refutation of header
+lesson 6. This field excludes exactly that mismatch (including pure/pure shadowing with a
+DIFFERENT RHS, which breaks recompute-on-use the same way); single-assignment programs
+(`exProg`) satisfy it trivially, so benign programs stay in scope. It is the static lift
+of the per-cursor `hself` side condition the DefsSound walk already consumes
 (`defsSound_preserved_assignPure`, `DefsSound.lean:269`). SUPPLIED status: static,
 decidable per program (the R9 checker's territory). -/
 def DefsConsistent (prog : Program) : Prop :=
@@ -135,7 +109,7 @@ def DefsConsistent (prog : Program) : Prop :=
       defsOf prog t = some (match e with
         | .gas => .slot (slotOf t)
         | .sload _ => .slot (slotOf t)
-        | e' => e'))
+        | e' => locOfExpr e'))
     ∧ (∀ (cs : CallSpec) (t : Tmp), b.stmts[pc]? = some (.call cs) → cs.resultTmp = some t →
       defsOf prog t = some (.slot (slotOf t)))
     ∧ (∀ (cs : CreateSpec) (t : Tmp), b.stmts[pc]? = some (.create cs) → cs.resultTmp = some t →
@@ -290,11 +264,11 @@ def NoSlotSource (prog : Program) : Prop :=
 `(t, Loc.remat e)` at position `i` references only tmps that appear at an EARLIER position
 `j < i` in `defEnv prog`. This is exactly define-before-use (SSA) on the static def-graph:
 the program-order carrier is a valid topological order (design §1.2, grounded in
-`RunDefinableG` self-contained blocks + `DefsConsistent` first-find). It strictly implies
-the old `Acyclic (defsOf prog) rank` (a topological order is acyclic), but carries no
+`RunDefinableG` self-contained blocks + `DefsConsistent` first-find). It carries no
 existential rank and no fuel-fitting side condition — it is the fuel-free replacement of
-`acyclicDefs` (design §1.3 / D4), to be wired into `IRWellFormed` in a later step.
-Decidable per program (`decide`/`rfl` for `exProg`, mirroring `acyclic_exProg`). -/
+the old rank-based `acyclicDefs`, carried as the `IRWellFormed.defEnvOrdered` field
+(design §1.3 / D4). Decidable per program (`decide`/`rfl` for `exProg`,
+`defEnvOrdered_exProg`). -/
 def DefEnvOrdered (prog : Program) : Prop :=
   ∀ (i : Nat) (t : Tmp) (e : Expr),
     (defEnv prog)[i]? = some (t, Loc.remat e) →
@@ -309,16 +283,19 @@ bytes of the **last** `defEnv` entry for `t`; `defsOf`/`find?` (S2 alignment,
 `defEnv` entry for a given tmp id must carry the SAME `Loc`. That is exactly the
 `DefsConsistent` content — every def-site of a tmp registers `defsOf`'s value — so the
 `Loc` is the canonical `allocate prog t` at every entry, hence last = first. This is the
-hypothesis the S3 bridge's per-tmp step needs.
+per-tmp alignment the prefix-stability engines consume (`matFold_take_eq_matCache` below
+and its charge twin `chargeFold_take_eq_chargeCache` in `Materialise/MatFoldChannel.lean`,
+the inductive cores of `matCache_unfold`/`chargeCache_unfold`).
 
-`DefsConsistent` now constrains `assign`, `call`-result AND `create`-result def-sites (the
+`DefsConsistent` constrains `assign`, `call`-result AND `create`-result def-sites (the
 create-result conjunct, phase-2A P1, is the exact twin of the call-result conjunct), so the
 same-`Loc` argument reads the create-result registration straight off `DefsConsistent` — the
 prior explicit `hcreate` hypothesis is gone. -/
 
 /-- **Every `defEnv` entry carries the canonical `allocate` `Loc`.** Under `DefsConsistent`,
-any `defEnv` entry `(t, loc)` has `loc = allocate prog t`: the def-site's registration in
-`defsOf` (`DefsConsistent`) fixes the `Loc` up to `locOfExpr`, which is exactly `allocate`. -/
+any `defEnv` entry `(t, loc)` has `loc = allocate prog t`: the def-site's `Loc`-valued
+registration in `defsOf` (`DefsConsistent`) is exactly the `Loc` `defEnv` records at that
+cursor, arm by arm. -/
 theorem defEnv_entry_eq_allocate (prog : Program)
     (hdc : DefsConsistent prog)
     {t : Tmp} {loc : Loc} (hmem : (t, loc) ∈ defEnv prog) :
@@ -339,38 +316,31 @@ theorem defEnv_entry_eq_allocate (prog : Program)
     | gas =>
       simp only [Option.some.injEq, Prod.mk.injEq] at hsmap
       obtain ⟨ht, hloc⟩ := hsmap; subst ht; subst hloc
-      have hd := (hdc ⟨i⟩ b j hblockAt).1 t' .gas hstmt
-      simp only [allocate, hd, Option.map_some, locOfExpr]
+      exact (hdc ⟨i⟩ b j hblockAt).1 t' .gas hstmt
     | sload k =>
       simp only [Option.some.injEq, Prod.mk.injEq] at hsmap
       obtain ⟨ht, hloc⟩ := hsmap; subst ht; subst hloc
-      have hd := (hdc ⟨i⟩ b j hblockAt).1 t' (.sload k) hstmt
-      simp only [allocate, hd, Option.map_some, locOfExpr]
+      exact (hdc ⟨i⟩ b j hblockAt).1 t' (.sload k) hstmt
     | imm w =>
       simp only [Option.some.injEq, Prod.mk.injEq] at hsmap
       obtain ⟨ht, hloc⟩ := hsmap; subst ht; subst hloc
-      have hd := (hdc ⟨i⟩ b j hblockAt).1 t' (.imm w) hstmt
-      simp only [allocate, hd, Option.map_some]
+      exact (hdc ⟨i⟩ b j hblockAt).1 t' (.imm w) hstmt
     | tmp t'' =>
       simp only [Option.some.injEq, Prod.mk.injEq] at hsmap
       obtain ⟨ht, hloc⟩ := hsmap; subst ht; subst hloc
-      have hd := (hdc ⟨i⟩ b j hblockAt).1 t' (.tmp t'') hstmt
-      simp only [allocate, hd, Option.map_some]
+      exact (hdc ⟨i⟩ b j hblockAt).1 t' (.tmp t'') hstmt
     | add a c =>
       simp only [Option.some.injEq, Prod.mk.injEq] at hsmap
       obtain ⟨ht, hloc⟩ := hsmap; subst ht; subst hloc
-      have hd := (hdc ⟨i⟩ b j hblockAt).1 t' (.add a c) hstmt
-      simp only [allocate, hd, Option.map_some]
+      exact (hdc ⟨i⟩ b j hblockAt).1 t' (.add a c) hstmt
     | lt a c =>
       simp only [Option.some.injEq, Prod.mk.injEq] at hsmap
       obtain ⟨ht, hloc⟩ := hsmap; subst ht; subst hloc
-      have hd := (hdc ⟨i⟩ b j hblockAt).1 t' (.lt a c) hstmt
-      simp only [allocate, hd, Option.map_some]
+      exact (hdc ⟨i⟩ b j hblockAt).1 t' (.lt a c) hstmt
     | slot n =>
       simp only [Option.some.injEq, Prod.mk.injEq] at hsmap
       obtain ⟨ht, hloc⟩ := hsmap; subst ht; subst hloc
-      have hd := (hdc ⟨i⟩ b j hblockAt).1 t' (.slot n) hstmt
-      simp only [allocate, hd, Option.map_some, locOfExpr]
+      exact (hdc ⟨i⟩ b j hblockAt).1 t' (.slot n) hstmt
   | sstore _ _ => simp at hsmap
   | call cs =>
     obtain ⟨callee, gasFwd, rt⟩ := cs
@@ -379,8 +349,7 @@ theorem defEnv_entry_eq_allocate (prog : Program)
     | some t'' =>
       simp only [Option.some.injEq, Prod.mk.injEq] at hsmap
       obtain ⟨ht, hloc⟩ := hsmap; subst ht; subst hloc
-      have hd := (hdc ⟨i⟩ b j hblockAt).2.1 ⟨callee, gasFwd, some t''⟩ t'' hstmt rfl
-      simp only [allocate, hd, Option.map_some, locOfExpr]
+      exact (hdc ⟨i⟩ b j hblockAt).2.1 ⟨callee, gasFwd, some t''⟩ t'' hstmt rfl
   | create cs =>
     obtain ⟨value, initOffset, initSize, salt, rt⟩ := cs
     cases rt with
@@ -388,13 +357,13 @@ theorem defEnv_entry_eq_allocate (prog : Program)
     | some t'' =>
       simp only [Option.some.injEq, Prod.mk.injEq] at hsmap
       obtain ⟨ht, hloc⟩ := hsmap; subst ht; subst hloc
-      have hd := (hdc ⟨i⟩ b j hblockAt).2.2 ⟨value, initOffset, initSize, salt, some t''⟩ t'' hstmt rfl
-      simp only [allocate, hd, Option.map_some, locOfExpr]
+      exact (hdc ⟨i⟩ b j hblockAt).2.2 ⟨value, initOffset, initSize, salt, some t''⟩ t'' hstmt rfl
 
 /-- **`matCache` last-wins agrees with `find?` first-find — the SSA single-binding crux.**
 All `defEnv` entries for one tmp id carry the SAME `Loc` (each is the canonical `allocate prog
 t`, `defEnv_entry_eq_allocate`), so the last-wins `matCache` fold and the first-find `defsOf`
-select the same `Loc`. This is the hypothesis the S3 fold↔fuel bridge's per-tmp step needs. -/
+select the same `Loc`. The per-tmp alignment step of the prefix-stability engines
+(`matFold_take_eq_matCache` / `chargeFold_take_eq_chargeCache`). -/
 theorem matCache_last_eq_first (prog : Program)
     (hdc : DefsConsistent prog)
     {t : Tmp} {loc₁ loc₂ : Loc}
@@ -404,16 +373,14 @@ theorem matCache_last_eq_first (prog : Program)
     ((defEnv_entry_eq_allocate prog hdc h₁).symm.trans
       (defEnv_entry_eq_allocate prog hdc h₂))
 
-/-! ## §P2 — `DefEnvOrdered` subsumes the old rank-based `Acyclic` (Phase 2A P2)
+/-! ## §P2 — the `DefEnvOrdered` first-index toolkit
 
-`DefEnvOrdered` is the fuel-free replacement for `IRWellFormed.acyclicDefs`
-(`∃ rank, Acyclic (defsOf prog) rank ∧ rank-fits-fuel`). The rank-fitting conjunct is gone
-(fuel is being deleted); the pure acyclicity half is still recovered from `DefEnvOrdered` by
-the **program-order first-index rank** `rank t := 2 · findIdx (·.1 == t) (defEnv prog)`. The
-factor 2 absorbs `ExprRankLt`'s `+1` on structural operands (`2·j + 1 < 2·i ⟺ j < i`). The
-`.gas`/`.sload` arms of `ExprRankLt` never fire — `defsOf` spills them (`defsOf_ne_gas` /
-`defsOf_ne_sload`); `.imm`/`.slot` are `True`. This lemma gates the eventual
-`acyclicDefs → defEnvOrdered` swap (it is deleted once no consumer needs `Acyclic`). -/
+The two index facts every def-env induction descends on: `findIdx` is a lower bound at any
+satisfying index (`findIdx_le_of_getElem?`), and `DefEnvOrdered` places every operand of a
+`.remat` entry at a strictly smaller **first** index (`defEnv_operand_findIdx_lt`). These
+drive the prefix-stability engines (`matFold_take_eq_matCache` below,
+`chargeFold_take_eq_chargeCache`) and the fuel-free termination measure of the value
+channel (`matDecMeasure`, `Materialise/MatFoldChannel.lean`). -/
 
 /-- **`findIdx` is a lower bound at any satisfying index.** If `l[j]? = some x` and `p x`,
 then the first index satisfying `p` is `≤ j`. (Pure `List` fact, by induction on `l`; stated
@@ -446,56 +413,6 @@ theorem defEnv_operand_findIdx_lt {prog : Program} (h : DefEnvOrdered prog)
     findIdx_le_of_getElem? hj (by simp)
   omega
 
-/-- **`DefEnvOrdered` subsumes `Acyclic`.** Every `DefEnvOrdered` program admits an acyclicity
-rank on `defsOf`: the program-order first-index (doubled). NO `rank_lt_fuel` side condition —
-fuel is being deleted, so acyclicity is the *only* content recovered. -/
-theorem defEnvOrdered_subsumes_acyclic {prog : Program} (h : DefEnvOrdered prog) :
-    ∃ rank, Acyclic (defsOf prog) rank := by
-  refine ⟨fun t => 2 * (defEnv prog).findIdx (fun p => p.1 == t), ?_⟩
-  intro t e hd
-  -- The `defEnv` entry defining `t` sits at `findIdx (·.1 == t)` (find? / findIdx bridge),
-  -- and its `Loc.toDef` is `e`.
-  have hEntry : ∃ loc, (defEnv prog)[(defEnv prog).findIdx (fun p => p.1 == t)]?
-      = some (t, loc) ∧ loc.toDef = e := by
-    rw [defsOf_eq_defEnv_find, List.find?_eq_getElem?_findIdx, Option.map_eq_some_iff] at hd
-    obtain ⟨⟨tt, loc⟩, hget, htoDef⟩ := hd
-    have hp : tt = t := by
-      have := List.findIdx_of_getElem?_eq_some hget; simpa using this
-    subst hp
-    exact ⟨loc, hget, htoDef⟩
-  obtain ⟨loc, hget, htoDef⟩ := hEntry
-  cases e with
-  | imm _ => trivial
-  | slot _ => trivial
-  | gas => exact absurd hd (defsOf_ne_gas prog t)
-  | sload k => exact absurd hd (defsOf_ne_sload prog t k)
-  | tmp t' =>
-    have hloc : loc = Loc.remat (.tmp t') := by
-      cases loc with
-      | slot n => simp [Loc.toDef] at htoDef
-      | remat e' => simp only [Loc.toDef] at htoDef; subst htoDef; rfl
-    subst hloc
-    have hlt := defEnv_operand_findIdx_lt h hget (t' := t') (by simp [usesInExpr])
-    simp only [ExprRankLt]; omega
-  | add a b =>
-    have hloc : loc = Loc.remat (.add a b) := by
-      cases loc with
-      | slot n => simp [Loc.toDef] at htoDef
-      | remat e' => simp only [Loc.toDef] at htoDef; subst htoDef; rfl
-    subst hloc
-    have ha := defEnv_operand_findIdx_lt h hget (t' := a) (by simp [usesInExpr])
-    have hb := defEnv_operand_findIdx_lt h hget (t' := b) (by simp [usesInExpr])
-    simp only [ExprRankLt]; exact ⟨by omega, by omega⟩
-  | lt a b =>
-    have hloc : loc = Loc.remat (.lt a b) := by
-      cases loc with
-      | slot n => simp [Loc.toDef] at htoDef
-      | remat e' => simp only [Loc.toDef] at htoDef; subst htoDef; rfl
-    subst hloc
-    have ha := defEnv_operand_findIdx_lt h hget (t' := a) (by simp [usesInExpr])
-    have hb := defEnv_operand_findIdx_lt h hget (t' := b) (by simp [usesInExpr])
-    simp only [ExprRankLt]; exact ⟨by omega, by omega⟩
-
 /-! ## §P3 — the fold fixpoint `matCache_unfold` (Phase 2A P3, design §2.3)
 
 The single load-bearing internal fold lemma: for a `t` PRESENT in `defEnv prog`,
@@ -505,8 +422,9 @@ The single load-bearing internal fold lemma: for a `t` PRESENT in `defEnv prog`,
 `matFueled_of_acyclic`: the induction is well-founded on the def-env FIRST index
 (`DefEnvOrdered`: every operand of a `.remat` entry occurs strictly earlier,
 `defEnv_operand_findIdx_lt`), with SSA single-binding (`matCache_last_eq_first`, P1) aligning
-the last-occurrence entries. Obligation-3 foundation; everything downstream (the value channel
-P5, the sims P6) consumes it. NO reference to `materialiseExpr` anywhere. -/
+the last-occurrence entries. Obligation-3 foundation; everything downstream consumes it — the
+value channel (`MatDecC`/`materialise_runsC`, `Materialise/MatFoldChannel.lean`) and the sim
+layer repaired onto it at the P6+P7 swap. NO reference to `materialiseExpr` anywhere. -/
 
 /-- The initial byte-cache the `matCache` fold starts from (the undefined-tmp fallback
 `emitImm 0`). Named so the def-env inductions can range over `matFold` prefixes below the
@@ -583,23 +501,20 @@ theorem matFold_split (c : Tmp → List UInt8) (t : Tmp) :
             · rw [hval, if_neg hx]; exact hvv
 
 /-- **The `defEnv` entry at `t`'s FIRST index carries `t`'s canonical `Loc`.** Under
-`DefsConsistent` every entry for `t` is the same `Loc` (`matCache_last_eq_first`), so the
-`findIdx` (first) entry — the one `defsOf`/`defEnv_operand_findIdx_lt` read — is `(t, loc)`. -/
+`DefsConsistent` every entry for `t` carries the canonical `allocate prog t`
+(`defEnv_entry_eq_allocate`), and `defsOf` *is* the first-find over `defEnv`
+(`defsOf_eq_defEnv_find`), so the `findIdx` (first) entry — the one
+`defsOf`/`defEnv_operand_findIdx_lt` read — is `(t, loc)`. -/
 theorem defEnv_findIdx_entry (prog : Program) (hdc : DefsConsistent prog)
     {t' : Tmp} {loc : Loc} (hmem : (t', loc) ∈ defEnv prog) :
     (defEnv prog)[(defEnv prog).findIdx (fun p => p.1 == t')]? = some (t', loc) := by
-  have hd : defsOf prog t' = some loc.toDef := by
-    have ha := defEnv_entry_eq_allocate prog hdc hmem
-    have h2 := congrFun (allocate_toDefs prog) t'
-    simp only [Alloc.toDefs, ha, Option.map_some] at h2
-    exact h2.symm
+  have hd : defsOf prog t' = some loc := defEnv_entry_eq_allocate prog hdc hmem
   rw [defsOf_eq_defEnv_find, List.find?_eq_getElem?_findIdx, Option.map_eq_some_iff] at hd
-  obtain ⟨⟨tt, locc⟩, hget, _htoDef⟩ := hd
+  obtain ⟨⟨tt, locc⟩, hget, hsnd⟩ := hd
   have htt : tt = t' := by
     have := List.findIdx_of_getElem?_eq_some hget; simpa using this
   subst htt
-  have hmemcc : (tt, locc) ∈ defEnv prog := List.mem_of_getElem? hget
-  have hll : locc = loc := matCache_last_eq_first prog hdc hmemcc hmem
+  have hll : locc = loc := hsnd
   rw [hget, hll]
 
 /-- **An operand of a `.remat` entry at position `i` occurs somewhere in the prefix `take i`.**
@@ -732,7 +647,7 @@ theorem matCache_slot (prog : Program) (hdc : DefsConsistent prog) (hord : DefEn
   rw [matCache_unfold prog hdc hord hmem, matLoc_slot]
 
 /-- **Corollary — absent tmp.** A tmp with no `defEnv` entry falls back to `emitImm 0`
-(the fold's undefined-tmp leaf), matching `materialiseExpr`'s `none`-leaf. -/
+(the fold's undefined-tmp leaf). -/
 theorem matCache_absent (prog : Program) {t : Tmp}
     (hmem : t ∉ (defEnv prog).map Prod.fst) : matCache prog t = emitImm 0 := by
   rw [matCache_eq_matFold, matFold_notMem (defEnv prog) matInit hmem]; rfl
@@ -746,91 +661,59 @@ This IS R6's loose `hsize` (RealisabilitySpec.lean:235-237), so supplying it dis
 the R6 blocker. -/
 def codeFits (prog : Program) : Prop := (flatBytes prog).length < 2 ^ 32
 
-/-- The `chargeOf`-stack depth (opcode-slot count) an operand materialise pushes at the
-given fuel. The SLOAD runtime cost VALUES are irrelevant to the LENGTH (each `.sload`
-contributes exactly one entry whatever the charge, the `StackRoomOK` docstring's `∀ sloadChg`
-fact), so the length is read at `sloadChg := fun _ => 0`. -/
-def chargeDepth (prog : Program) (fuel : Nat) (e : Expr) : Nat :=
-  (chargeOf (defsOf prog) (fun _ => 0) fuel e).length
+/-! ## The stack budget — over `chargeCache` lengths (fuel-free)
 
-/-- The operand stack depth a statement's materialise pushes — the `chargeOf`-length of the
-operand group `StackRoomOK` bounds (sload key at reduced fuel; sstore's value + key + the
-SSTORE slot). Non-materialising statements contribute `0`. -/
+The stack-room budget folds read the total charge fold `chargeCache`
+(`Materialise/MaterialiseGas.lean`). The `.tmp`-only operand shape lets the depth key on the
+`Tmp` directly (`chargeCache prog sc : Tmp → List ℕ`). Every fold's charge-list LENGTH is
+`sloadChg`-independent (`chargeCache_length_sloadChg_eq`), so the depths read the LENGTH at
+`sloadChg := fun _ => 0`. The derivation `stackBounds_of_stackFits` (every `StackRoomOK`
+fold from the single scalar bound) lives in `Spec/BudgetDerivations.lean` (with the generic
+max helpers). -/
+
+/-- The charge-fold stack depth (opcode-slot count) an operand `t`'s materialise pushes, read
+at `sloadChg := fun _ => 0` (the LENGTH is `sloadChg`-independent,
+`chargeCache_length_sloadChg_eq`). -/
+def chargeDepth (prog : Program) (t : Tmp) : Nat :=
+  (chargeCache prog (fun _ => 0) t).length
+
+/-- The operand stack depth a statement's materialise pushes over the charge fold — the
+charge-length of the operand group `StackRoomOK` bounds (sload key; sstore's value + key +
+the SSTORE slot). Non-materialising statements contribute `0`. -/
 def stmtChargeDepth (prog : Program) : Stmt → Nat
-  | .assign _ (.sload k) => chargeDepth prog (recomputeFuel prog - 1) (.tmp k)
+  | .assign _ (.sload k) => chargeDepth prog k
   | .assign _ _          => 0
-  | .sstore key value    =>
-      chargeDepth prog (recomputeFuel prog) (.tmp value)
-        + chargeDepth prog (recomputeFuel prog) (.tmp key) + 1
+  | .sstore key value    => chargeDepth prog value + chargeDepth prog key + 1
   | .call _              => 0
   | .create _            => 0
 
 /-- The operand stack depth a terminator's materialise pushes — the `branch` condition and
 the `ret` operand (the `StackRoomOK.branch`/`.ret` folds). `stop`/`jump` contribute `0`. -/
 def termChargeDepth (prog : Program) : Term → Nat
-  | .branch cond _ _ => chargeDepth prog (recomputeFuel prog) (.tmp cond)
-  | .ret t           => chargeDepth prog (recomputeFuel prog) (.tmp t)
+  | .branch cond _ _ => chargeDepth prog cond
+  | .ret t           => chargeDepth prog t
   | .stop            => 0
   | .jump _          => 0
 
 /-- **The maximum operand stack depth over all cursors** — the max, over every block's
-terminator and statements, of the operand-materialise `chargeOf`-length. `stackFits` bounds
-this single scalar by 1024, which DERIVES (stage 1B-lemmas, `stackBounds_of_stackFits`) every
-`StackRoomOK` fold (each fold's operand is one of these cursors). -/
+terminator and statements, of the operand-materialise charge length. `stackFits` bounds this
+single scalar by 1024, which DERIVES (`stackBounds_of_stackFits`,
+`Spec/BudgetDerivations.lean`) every `StackRoomOK` fold (each fold's operand is one of these
+cursors). -/
 def maxChargeDepth (prog : Program) : Nat :=
   prog.blocks.foldl (fun acc b =>
     max acc (max (termChargeDepth prog b.term)
                  (b.stmts.foldl (fun a s => max a (stmtChargeDepth prog s)) 0))) 0
 
 /-- **The stack budget** — every operand materialise fits the 1024-slot EVM stack. The scalar
-that DERIVES (stage 1B-lemmas) every per-cursor `StackRoomOK` fold. -/
+that DERIVES every per-cursor `StackRoomOK` fold. -/
 def stackFits (prog : Program) : Prop := maxChargeDepth prog ≤ 1024
 
-/-! ## §P5d — fuel-free budget-fold twins (over `chargeCache` lengths)
-
-The fuel-free twins of the stack-room budget folds (`StackRoomOK`/`chargeDepth`/`maxChargeDepth`/
-`stackFits`), restated over the P5a charge fold `chargeCache` (`Materialise/MaterialiseGas.lean`)
-instead of `chargeOf … (recomputeFuel …)`. The `.tmp`-only operand shape lets the fuel-free
-depth key on the `Tmp` directly (`chargeCache prog sc : Tmp → List ℕ`). Every fold's charge-list
-LENGTH is `sloadChg`-independent (`chargeCache_length_sloadChg_eq`, P5a), so the depths read the
-LENGTH at `sloadChg := fun _ => 0`. Added ALONGSIDE the fuel versions; the fuel ones are deleted
-only at the swap (P7/P8). The derivation `stackBoundsF_of_stackFitsF` (the twin of B1b
-`stackBounds_of_stackFits`) lives in `Spec/BudgetDerivations.lean` (with the generic max helpers). -/
-
-/-- Fuel-free twin of `chargeDepth`: the charge-fold stack depth an operand `t` pushes, read at
-`sloadChg := fun _ => 0` (the LENGTH is `sloadChg`-independent, `chargeCache_length_sloadChg_eq`). -/
-def chargeDepthF (prog : Program) (t : Tmp) : Nat :=
-  (chargeCache prog (fun _ => 0) t).length
-
-/-- Fuel-free twin of `stmtChargeDepth`: the operand stack depth a statement's materialise
-pushes over the charge fold (sload key; sstore's value + key + the SSTORE slot). -/
-def stmtChargeDepthF (prog : Program) : Stmt → Nat
-  | .assign _ (.sload k) => chargeDepthF prog k
-  | .assign _ _          => 0
-  | .sstore key value    => chargeDepthF prog value + chargeDepthF prog key + 1
-  | .call _              => 0
-  | .create _            => 0
-
-/-- Fuel-free twin of `termChargeDepth`: the `branch` condition / `ret` operand charge depth. -/
-def termChargeDepthF (prog : Program) : Term → Nat
-  | .branch cond _ _ => chargeDepthF prog cond
-  | .ret t           => chargeDepthF prog t
-  | .stop            => 0
-  | .jump _          => 0
-
-/-- Fuel-free twin of `maxChargeDepth`: the maximum operand charge depth over all cursors. -/
-def maxChargeDepthF (prog : Program) : Nat :=
-  prog.blocks.foldl (fun acc b =>
-    max acc (max (termChargeDepthF prog b.term)
-                 (b.stmts.foldl (fun a s => max a (stmtChargeDepthF prog s)) 0))) 0
-
-/-- Fuel-free twin of `stackFits`: every operand materialise fits the 1024-slot EVM stack. -/
-def stackFitsF (prog : Program) : Prop := maxChargeDepthF prog ≤ 1024
-
-/-- **Fuel-free twin of `StackRoomOK`** — the per-cursor `chargeCache`-length ≤ 1024 folds,
-quantified `∀ sloadChg` (the LENGTH is `sloadChg`-independent, `chargeCache_length_sloadChg_eq`).
-Derived from `stackFitsF` by `stackBoundsF_of_stackFitsF`. -/
-structure StackRoomOKF (prog : Program) : Prop where
+/-- **Static stack-room bounds** — the per-cursor `chargeCache`-length ≤ 1024 folds the sims
+consume, quantified `∀ sloadChg` and PROVABLE that way (the LENGTH is `sloadChg`-independent,
+`chargeCache_length_sloadChg_eq`). Derived from `stackFits` by `stackBounds_of_stackFits`.
+SUPPLIED status: static, decidable per program (R9's checker discharges it). -/
+structure StackRoomOK (prog : Program) : Prop where
   /-- The `branch` cond-materialise stack fold. -/
   branch : ∀ (sloadChg : Tmp → ℕ) (L : Label) (b : Block) (cond : Tmp) (thenL elseL : Label),
     blockAt prog L = some b → b.term = .branch cond thenL elseL →
@@ -866,15 +749,14 @@ structure IRWellFormed (prog : Program) : Prop where
   entry0          : prog.entry.idx = 0
   /-- Static CFG closure (presence + in-bounds; offset bounds are DERIVED from `codeFits`). -/
   cfgClosed       : CFGClosed prog
-  /-- The recompute-on-use def-graph is acyclic under a **fuel-fitting** topological rank:
-  some `rank` orders the def-graph (`Acyclic`) with every rank one below the recompute fuel
-  (`rank t + 1 < recomputeFuel prog`). The existential is essential — the SSA-id rank
-  (`t.id`) is unbounded over `Tmp` and so never fits `recomputeFuel = #stmts + 1`, whereas a
-  genuine chain-depth rank does (`Spec/BudgetDerivations.lean` B1c note). This is exactly the
-  `(rank, acyclic, rank_lt_fuel)` content `matFueled_of_acyclic` consumes to discharge every
-  `MatFueled` field of `WellFormedLowered`. -/
-  acyclicDefs     : ∃ rank : Tmp → ℕ,
-    Lir.Acyclic (defsOf prog) rank ∧ ∀ t, rank t + 1 < recomputeFuel prog
+  /-- Program order is a valid topological order of the recompute-on-use def-graph:
+  every rematerialised `defEnv` entry references only earlier-registered tmps
+  (define-before-use SSA on the ordered carrier). This is what makes the fold caches
+  (`matCache`/`chargeCache`) fully expand — the `matCache_unfold`/`chargeCache_unfold`
+  fixpoints and the `matDecMeasure` termination of the value channel all descend on it.
+  No existential rank, no fuel-fitting side condition. Decidable per program
+  (`defEnvOrdered_exProg` by `decide`). -/
+  defEnvOrdered   : DefEnvOrdered prog
   /-- Every within-block invalidation is healed by a reassign before the block ends. -/
   revalidates     : RevalidatesPerBlock prog
   /-- No source assign carries the lowering-only `.slot` marker. TEMPORARY: removed in Phase 2A. -/

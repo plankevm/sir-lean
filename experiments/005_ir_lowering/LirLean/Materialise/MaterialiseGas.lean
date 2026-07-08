@@ -2,45 +2,38 @@ import LirLean.Frame.Match
 import LirLean.Engine.Charges
 
 /-!
-# LirLean — the materialise gas-charge engine (Layer **B2** of the `lower_conforms` grind)
+# LirLean — the materialise gas-charge engine (charge lists for the value channel)
 
-`docs/lower-conforms-plan.md` Layer **B2** (`materialise_gas_charge`): the real-EVM
-gas the lowered `materialiseExpr defs fuel e` push-sequence charges is exactly a
-`subCharges` of a per-`Expr` **charge list** `chargeOf`. This is the honest-gas
-envelope that **B1 `materialise_runs`** consumes: B1 produces the `Runs` frame chain
-for `materialiseExpr`; *this* module supplies (a) the charge-list function
-`chargeOf`, mirroring `materialiseExpr` opcode-for-opcode, and (b) the
-pure-arithmetic engine (`subCharges`/`chargeOf` sum and append laws, the
-PUSH32-width-stability fact) plus the **per-leaf gas-companion steps** that turn one
-materialise opcode into one `subCharges` subtraction.
+The **canonical** charge machinery is the fuel-free fold tower of §7: `chargeExpr`/
+`chargeLoc`/`chargeStep`/`chargeFold`/`chargeCache` — the per-`Expr` charge lists the fold
+value channel (`Lir.V2.materialise_runsC`/`MatRunsC`, `Materialise/MatFoldChannel.lean`) and
+the `StackRoomOK`/`maxChargeDepth` stack-room folds (`Spec/WellFormed.lean`) read. One list
+entry per opcode `matExpr (matCache prog) e` emits, in execution order; running the lowered
+push-sequence subtracts exactly that list (`subCharges`), which is the honest-gas envelope.
 
-## The honest decomposition (per the B2 brief's flexibility clause)
-
-The "running subtracts exactly `chargeOf`" statement
-(`gas fr' = subCharges (gas fr) (chargeOf … e)`) needs the materialise endpoint
-frame `fr'` — and that frame *only exists* as the endpoint of B1's
-`materialise_runs` `Runs` chain (the intermediate frames at each operand cursor,
-their stacks and accessed-key sets, are exactly what B1 threads). B2 therefore
-honestly splits into:
-
-* the **leaf** "running subtracts it" steps, which *are* standalone — `imm`/`gas`
-  land on a named post-frame (`pushFrameW`/`gasFrame`) whose `gasAvailable` is a
-  one-element `subCharges` directly from the `sim_*` companion (`charge_runs_imm`);
-* the **compound** case, whose gas fact is a corollary of B1's frame chain glued by
-  `subCharges_append` — delivered here as the **gluing lemma** `subCharges_chargeOf_*`
-  (the goal shape B1 faces, in `subCharges`/`chargeOf` terms) rather than a
-  frame-level statement B2 cannot phrase without B1's `Runs`.
-
-See the module tail (`section B1_contract`) for the precise goal shape B1 consumes.
+Also canonical (fold-consumed): the pure `subCharges` arithmetic (§3-§5 —
+`subCharges_singleton`, `toNat_chargeOf`'s underlying `toNat_subCharges`, `charge_runs_imm`,
+`charge_binOpPost_gas`), which is charge-list-generic and glues the per-opcode subtractions
+into the whole-expression `subCharges` inside `materialise_runsC`.
 
 ## SLOAD warmth
 
-`materialiseExpr`'s `.sload k` lowers to `SLOAD`, whose real-EVM charge is
-`sloadCost warm` — **runtime** data (warm/cold = `Gwarmaccess`/`Gcoldsload`), fixed
-by the accessed-key set at the frame SLOAD executes on (again, a B1 frame-chain
-fact). `chargeOf` is kept *pure* by taking a `sloadChg : Tmp → ℕ` resolver giving
-that per-key cost; B1 instantiates it with the actual `sloadCost` at each SLOAD
-frame. The pure laws below are uniform in `sloadChg`.
+`.sload k` lowers to `SLOAD`, whose real-EVM charge is `sloadCost warm` — **runtime** data
+(warm/cold = `Gwarmaccess`/`Gcoldsload`), fixed by the accessed-key set at the frame SLOAD
+executes on. The charge lists are kept *pure* by taking a `sloadChg : Tmp → ℕ` resolver giving
+that per-key cost; the value channel instantiates it with the actual `sloadCost` at each SLOAD
+frame. All laws are uniform in `sloadChg` (and the charge-list LENGTH is `sloadChg`-independent,
+`chargeCache_length_sloadChg_eq` — what the stack-room folds consume).
+
+## LEGACY — the fuel `chargeOf` family (§1-§2, §6; pending P9 deletion)
+
+`chargeOf defs sloadChg fuel e` (and its reduction lemmas, `subCharges_chargeOf_binop`,
+`toNat_chargeOf`, the `MaterialiseGasCharge` contract of §6) mirrors the FUEL recursion
+`materialiseExpr` opcode-for-opcode. The fuel pipeline is decommissioned (the canonical
+`lower`/`flatBytes`/value channel are fold-based); this block stays compilable only as
+generic-in-`defs` residue and is deleted at P9 with `materialiseExpr`/`recomputeFuel`.
+**NO bridge** `chargeCache = chargeOf(defsOf, recomputeFuel)` exists or may be added — that
+equation is FALSE (`recomputeFuel` undercounts the recompute depth ~2×; design §2.2).
 
 No `sorry`, no `axiom`, no `native_decide`. Bytecode-coupled (imports `Match.lean`);
 nothing here touches `Spec/Semantics.lean` / `V2/Law.lean` (the frame-free spine).
@@ -52,7 +45,7 @@ open Evm
 open GasConstants
 open BytecodeLayer.Hoare
 
-/-! ## 1. The per-`Expr` charge list `chargeOf`
+/-! ## 1. The per-`Expr` charge list `chargeOf` (LEGACY fuel family — pending P9)
 
 `chargeOf defs sloadChg fuel e` is the real-EVM gas, **in execution order**, that
 `materialiseExpr defs fuel e` charges — one list entry per emitted opcode. It
@@ -215,25 +208,25 @@ theorem charge_binOpPost_gas (fr : Frame) (op : UInt256 → UInt256 → UInt256)
       = subCharges fr.exec.gasAvailable [Gverylow] := by
   rw [subCharges_singleton]; rfl
 
-/-! ## 6. `section B1_contract` — the goal shape B1 faces (the honest split, made precise)
+/-! ## 6. `section B1_contract` — the fuel gas-charge contract (LEGACY — pending P9)
 
-The full B2 statement — *running* `materialiseExpr defs fuel e` subtracts exactly
-`chargeOf … e` — is, for compound `e`, **a corollary of B1's `materialise_runs`**:
-B1 produces `Runs fr fr'` with `fr'` the materialise endpoint, by an induction
-mirroring `materialiseExpr`. At each node B1 already has the operand sub-`Runs`
+The full fuel-era B2 statement — *running* `materialiseExpr defs fuel e` subtracts exactly
+`chargeOf … e` — was, for compound `e`, a corollary of the (deleted) fuel `materialise_runs`:
+it produced `Runs fr fr'` with `fr'` the materialise endpoint, by an induction
+mirroring `materialiseExpr`. At each node it already had the operand sub-`Runs`
 (its IH) and the op's single step; gluing their gas via `Runs.trans` + this module's
-§3 (`subCharges_chargeOf_*`) + §4/§5 (`charge_*`) yields:
+§3 (`subCharges_chargeOf_*`) + §4/§5 (`charge_*`) yielded:
 
 ```text
    (materialise endpoint fr').exec.gasAvailable
      = subCharges fr.exec.gasAvailable (chargeOf defs sloadChg fuel e)
 ```
 
-`materialise_gas_charge_contract` packages that target as a predicate on a candidate
-endpoint, so B1 can state its conclusion against it without B2 having to name B1's
-frame chain. This is the honest B2 deliverable: `chargeOf` + the arithmetic that
-turns B1's per-step gas facts into the whole-expression `subCharges`. The leaf case
-`charge_runs_imm` discharges this predicate **fully and standalone** today. -/
+`MaterialiseGasCharge` packages that target as a predicate on a candidate endpoint. The
+legacy generic-`defs` `MatRuns` bundle (`Materialise/MaterialiseRuns.lean`, defer-P9) still
+states its `gasCharge` clause against it; the canonical fold bundle `MatRunsC`
+(`Materialise/MatFoldChannel.lean`) states the same content directly over
+`chargeExpr sloadChg (chargeCache prog sloadChg)`. Deleted at P9 with `chargeOf`. -/
 section B1_contract
 
 /-- The B2 conclusion as a predicate on a materialise endpoint frame `fr'` reached
@@ -289,9 +282,9 @@ The *fold fixpoint* `chargeCache_unfold` (the `matCache_unfold` twin) and the op
 congruence live in `Materialise/MatFoldChannel.lean` (they need the `WellFormed` def-env
 machinery). What lives HERE — below `WellFormed` in the import DAG, so `WellFormed`'s stack-room
 folds can read it — is the definition, the reduction lemmas, and the **`sloadChg`-independence
-of the charge-list LENGTH** (`chargeCache_length_sloadChg_eq`), the fuel-free twin of
-`chargeOf_length_sloadChg_eq` (`Spec/BudgetDerivations.lean`) that `stackBounds_of_stackFits`
-consumes. NO bridge to `chargeOf` (unsound, exactly as the `matCache = materialiseExpr` bridge). -/
+of the charge-list LENGTH** (`chargeCache_length_sloadChg_eq`) that `stackBounds_of_stackFits`
+(`Spec/BudgetDerivations.lean`) consumes. NO bridge to `chargeOf` (unsound, exactly as the
+`matCache = materialiseExpr` bridge). -/
 
 /-- The per-`Expr` charge list under a charge-`cache` — the fold-based twin of `chargeOf`'s
 per-constructor arm (no fuel: operand tmps resolve by cache lookup). Byte-for-byte the same
@@ -369,8 +362,8 @@ theorem chargeCache_eq_chargeFold (prog : Program) (sloadChg : Tmp → ℕ) :
 
 The charge-list LENGTH is independent of the runtime `sloadChg` VALUES — each `.sload`
 contributes exactly one entry whatever the charge (`chargeExpr`'s `.sload` arm is
-`cache k ++ [sloadChg k]`). This is the fuel-free twin of `chargeOf_length_sloadChg_eq`
-(`Spec/BudgetDerivations.lean`) that `stackBounds_of_stackFits` reads: it lets the
+`cache k ++ [sloadChg k]`). This is what `stackBounds_of_stackFits`
+(`Spec/BudgetDerivations.lean`) reads: it lets the
 `StackRoomOK`/`maxChargeDepth` folds fix `sloadChg := fun _ => 0`. Stated for caches agreeing on
 LENGTH at *every* tmp (the total invariant the fold propagates), so it needs no operand-locality
 (`usesInExpr`) machinery and stays below `WellFormed` in the import DAG. -/
@@ -418,8 +411,8 @@ theorem chargeFold_length_eq {sc sc' : Tmp → ℕ} :
       rw [chargeFold_cons, chargeFold_cons]
       exact chargeFold_length_eq l (chargeStep_length_eq h p) t
 
-/-- **The `sloadChg`-independence of the charge-cache LENGTH.** The fuel-free twin of
-`chargeOf_length_sloadChg_eq`: the `StackRoomOK`/`maxChargeDepth` stack-room folds may fix
+/-- **The `sloadChg`-independence of the charge-cache LENGTH.** The
+`StackRoomOK`/`maxChargeDepth` stack-room folds may fix
 `sloadChg := fun _ => 0` when reading `(chargeCache prog sloadChg t).length`. -/
 theorem chargeCache_length_sloadChg_eq (prog : Program) (c1 c2 : Tmp → ℕ) (t : Tmp) :
     (chargeCache prog c1 t).length = (chargeCache prog c2 t).length := by
