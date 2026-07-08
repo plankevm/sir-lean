@@ -2,12 +2,17 @@ import LirLean.Assembly.LowerDecode
 import LirLean.Materialise.CleanHaltExtract
 
 /-!
-# LirLean — `sim_cfg` + `lower_conforms` (Layer **F** of the general `lower_conforms` grind)
+# LirLean — `sim_cfg` (Layer **F**: whole-CFG world-channel simulation)
 
-The capstone of the **world-channel** `lower_conforms` grind (general over calls). It threads the
-per-block bricks of Layers C–E into a whole-CFG simulation (`sim_cfg`, by induction on
-`V2.RunFrom`) and then ties that to the instrumented recording interpreter `runWithLog`
-(`lower_conforms`).
+The capstone of the **world-channel** simulation grind (general over calls): it threads the
+per-block bricks of Layers C–E into a whole-CFG simulation `sim_cfg` (:983), by induction on
+`V2.RunFrom`, abstracted over the per-block `SimStmtStep`/`SimTermStep` ties.
+
+This file's payoff is `sim_cfg`. The tie from `sim_cfg` to the instrumented recording interpreter
+`runWithLog` — the actual conformance headline — is **NOT** here: the local `lower_conforms` that
+once closed that tie was deleted in the vacuous-ties purge (b144af8). The LIVE flagship is
+`lower_conforms` at `V2/Realisability/RealisabilitySpec.lean:206` (R11); see the §-block at the
+bottom of this file.
 
 ## The two structured per-block hypotheses
 
@@ -42,14 +47,14 @@ lowered bytecode realises, and carries the per-block realisability as `SimStmtSt
 
 Layer D now ranges over **all** statements: Route B's `sim_call_stmt` consumes the lowered
 CALL's success flag (`MSTORE` to the result slot, or `POP`), re-establishing `stack = []`, so a
-`Stmt.call` no longer breaks the induction — `lower_conforms` carries no call-free side
+`Stmt.call` no longer breaks the induction — `sim_cfg` carries no call-free side
 condition. The channel is the **world** (storage) component: `observe`'s `result`
 is the value-free `.stopped` boundary (the RETURN value channel is the tracked deferral,
 `Spec/Recorder.lean` `observe` doc). `sim_cfg`'s conclusion asserts the world component of
 `observe self (endFrame last halt)`.
 
 No `sorry`, no `axiom`, no `native_decide`. Bytecode-coupled (imports the Layer-E bricks);
-nothing here touches `V2/Machine.lean` / `V2/Law.lean` (the frame-free spine).
+nothing here touches `Spec/Semantics.lean` / `V2/Law.lean` (the frame-free spine).
 -/
 
 namespace Lir
@@ -115,18 +120,12 @@ structure SimTermStep (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
 /-! ## `WellFormedLowered` — the structural side-conditions, folded
 
 The per-shape `_lowered` wrappers (`sim_sstore_stmt_lowered`, `sim_term_halt_ret_lowered`,
-`sim_term_edge_jump_lowered`, `sim_term_edge_branch_lowered`) carry two kinds of *structural*
-(non-runtime) side-condition that depend only on the **program text**, not on the trace:
-
-* **recompute-fuel sufficiency** — `MatFueled (defsOf prog) (recomputeFuel prog) e` for every
-  expression `e` the block materialises (the `sstore` operands, the `ret` operand). This is the
-  honest well-formedness tie: `recomputeFuel` exceeds the def-chain depth of every materialised
-  tmp. It is **discharged structurally** from a rank-based SSA acyclicity witness in
-  `Acyclic.lean` (`wellFormedLowered_of_acyclic`), so an acyclic program carries no `MatFueled`
-  hypothesis (as the since-deleted `lower_conforms_acyclic` embodied);
-* **program-size pc/offset bounds** — every static cursor / block offset fits a 32-bit pc
-  (`< 2^32`). These are pure facts about `offsetTable` / `termOf` / `pcOf` and the size of
-  `lower prog`.
+`sim_term_edge_jump_lowered`, `sim_term_edge_branch_lowered`) carry one kind of *structural*
+(non-runtime) side-condition that depends only on the **program text**, not on the trace:
+the **program-size pc/offset bounds** — every static cursor / block offset fits a 32-bit pc
+(`< 2^32`). These are pure facts about `offsetTable` / `termOf` / `pcOf` and the size of
+`lower prog` (there is NO fuel-sufficiency obligation: the fold emission `matCache` always
+fully expands, structural termination on the ordered def-env).
 
 `WellFormedLowered prog` folds exactly those structural side-conditions, quantified over every
 present block and (for the statement bounds) every cursor. The builders below pull the relevant
@@ -135,52 +134,28 @@ field per shape, so the structural residual leaves the builder hypotheses entire
 §7 supplied-observation contract) stay explicit. The `validJumps`-recording ties are no longer
 among them: they are discharged structurally from `Corr` (`Corr.validJumps_lower`). -/
 
-/-- **The folded structural well-formedness predicate.** Bundles, over every present block of
-`prog`, the recompute-fuel sufficiency of each materialised operand (`MatFueled`) and the
-program-size pc/offset bounds (`< 2^32`) the `_lowered` wrappers carry. Purely structural — a
-function of the program text, independent of the run. The `MatFueled` fields are discharged from
-acyclicity (`Acyclic.lean`); the bounds are a finite check on the lowered program size. -/
+/-- **The folded structural well-formedness predicate** (fuel-free, over the fold emission).
+Bundles, over every present block of `prog`, the program-size pc/offset bounds (`< 2^32`) the
+`_lowered` wrappers carry — each operand's byte length is its fold-cache length
+`(matCache prog ·).length`, the cursors are `pcOf`/`termOf`, and the block offsets read
+`offsetTable (matCache prog) (defsOf prog)`. Purely structural — a function of the program
+text, independent of the run; a finite check on the lowered program size, derived from
+`codeFits` (`Spec/BudgetDerivations.lean`). -/
 structure WellFormedLowered (prog : Program) : Prop where
-  /-- `sstore` operand fuel-sufficiency, at every `sstore` cursor of every present block. -/
-  matFueled_sstore : ∀ (L : Label) (b : Block) (pc : Nat) (key value : Tmp),
-    prog.blocks.toList[L.idx]? = some b → b.stmts[pc]? = some (.sstore key value) →
-    MatFueled (defsOf prog) (recomputeFuel prog) (.tmp value)
-    ∧ MatFueled (defsOf prog) (recomputeFuel prog) (.tmp key)
   /-- `sstore` pc bound: the statement's operand bytes fit a 32-bit pc. -/
   bound_sstore : ∀ (L : Label) (b : Block) (pc : Nat) (key value : Tmp),
     prog.blocks.toList[L.idx]? = some b → b.stmts[pc]? = some (.sstore key value) →
     pcOf prog L pc
-      + ((materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp value)).length
-        + (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp key)).length) < 2 ^ 32
-  /-- **Spilled-`sload` key fuel-sufficiency.** At every `assign t (.sload k)` cursor of every
-  present block, the key `k` materialises within the reduced recompute fuel `recomputeFuel prog -
-  1` (the spilled-sload emit recurses on the key at one less fuel, `materialiseExpr_sload`). The
-  analogue of `matFueled_sstore`, indexed to the reduced fuel `f` of `sim_assign_sload_lowered`. -/
-  matFueled_sload : ∀ (L : Label) (b : Block) (pc : Nat) (t k : Tmp),
-    prog.blocks.toList[L.idx]? = some b → b.stmts[pc]? = some (.assign t (.sload k)) →
-    1 ≤ recomputeFuel prog
-    ∧ MatFueled (defsOf prog) (recomputeFuel prog - 1) (.tmp k)
-  /-- **Spilled-`sload` pc bound.** The whole stash (key materialise + the 35-byte
-  `SLOAD;PUSH32;MSTORE` tail) fits a 32-bit pc. -/
+      + ((matCache prog value).length + (matCache prog key).length) < 2 ^ 32
+  /-- Spilled-`sload` pc bound: the key byte cache + the 35-byte `SLOAD; PUSH32; MSTORE`
+  tail fits a 32-bit pc. -/
   bound_sload : ∀ (L : Label) (b : Block) (pc : Nat) (t k : Tmp),
     prog.blocks.toList[L.idx]? = some b → b.stmts[pc]? = some (.assign t (.sload k)) →
-    pcOf prog L pc
-      + ((materialiseExpr (defsOf prog) (recomputeFuel prog - 1) (.tmp k)).length + 35) < 2 ^ 32
-  /-- `ret` operand fuel-sufficiency, at every `ret`-terminated present block. -/
-  matFueled_ret : ∀ (L : Label) (b : Block) (t : Tmp),
-    prog.blocks.toList[L.idx]? = some b → b.term = .ret t →
-    MatFueled (defsOf prog) (recomputeFuel prog) (.tmp t)
-  /-- `branch` condition fuel-sufficiency, at every `branch`-terminated present block. The
-  cond-materialise of the branch pre-`JUMPDEST` landing recomputes `cond` within the full
-  `recomputeFuel`; the `matFueled_ret` analogue for the terminator condition. -/
-  matFueled_branch : ∀ (L : Label) (b : Block) (cond : Tmp) (thenL elseL : Label),
-    prog.blocks.toList[L.idx]? = some b → b.term = .branch cond thenL elseL →
-    MatFueled (defsOf prog) (recomputeFuel prog) (.tmp cond)
+    pcOf prog L pc + ((matCache prog k).length + 35) < 2 ^ 32
   /-- `ret` pc bound: the RETURN-value operand bytes fit a 32-bit pc. -/
   bound_ret : ∀ (L : Label) (b : Block) (t : Tmp),
     prog.blocks.toList[L.idx]? = some b → b.term = .ret t →
-    termOf prog L
-      + (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp t)).length ≤ 2 ^ 32
+    termOf prog L + (matCache prog t).length ≤ 2 ^ 32
   /-- `stop` pc bound: the terminator cursor fits a 32-bit pc. -/
   bound_stop : ∀ (L : Label) (b : Block),
     prog.blocks.toList[L.idx]? = some b → b.term = .stop →
@@ -189,24 +164,22 @@ structure WellFormedLowered (prog : Program) : Prop where
   bound_jump : ∀ (L : Label) (b : Block) (dst : Label),
     prog.blocks.toList[L.idx]? = some b → b.term = .jump dst →
     termOf prog L + 5 < 2 ^ 32
-    ∧ offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks dst.idx < 2 ^ 32
-  /-- `branch` pc/offset bounds: the cond-materialise + two `PUSH4; J…` bytes and both
+    ∧ offsetTable (matCache prog) (defsOf prog) prog.blocks dst.idx < 2 ^ 32
+  /-- `branch` pc/offset bounds: the cond byte cache + two `PUSH4; J…` bytes and both
   successor offsets fit. -/
   bound_branch : ∀ (L : Label) (b : Block) (cond : Tmp) (thenL elseL : Label),
     prog.blocks.toList[L.idx]? = some b → b.term = .branch cond thenL elseL →
-    termOf prog L
-        + (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp cond)).length + 11 < 2 ^ 32
-    ∧ offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx < 2 ^ 32
-    ∧ offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks elseL.idx < 2 ^ 32
-  /-- **Call-result slot registration.** Every tmp registered as a call result in `defsOf`
-  carries its canonical slot `slotOf tw`. True structurally: `defsOf` registers each
-  `.call ⟨_, _, some t⟩` as `(t, .slot (slotOf t))`, and a source `assign` never
-  carries the lowering-only `.slot` marker (a `WellFormed` invariant, vacuous for real
-  IR — no source program writes a `.slot` expression). This is `sim_call_stmt`'s
-  `hslots`: it pins the result slot of the binding MSTORE and the 32-aligned disjointness of
-  distinct bound call-result slots. (Call-result slot *addressability* — `slotOf t + 63 < 2^64`
-  — is a property of the realised resume frame's memory, so it travels with the `CallRealises`
-  tie, not here.) -/
+    termOf prog L + (matCache prog cond).length + 11 < 2 ^ 32
+    ∧ offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx < 2 ^ 32
+    ∧ offsetTable (matCache prog) (defsOf prog) prog.blocks elseL.idx < 2 ^ 32
+  /-- **Call-result slot registration.** Every tmp registered to a spill slot in `defsOf`
+  carries its canonical slot `slotOf tw`. True structurally: `defsOf` registers each spilled
+  def as `(t, .slot (slotOf t))`, and a source `assign` never carries the lowering-only
+  `.slot` marker (a `WellFormed` invariant, vacuous for real IR — no source program writes a
+  `.slot` expression). This is `sim_call_stmt`'s `hslots`: it pins the result slot of the
+  binding MSTORE and the 32-aligned disjointness of distinct bound slots. (Slot
+  *addressability* — `slotOf t + 63 < 2^64` — is a property of the realised frame's memory,
+  so it travels with the `CallRealises` tie / `IRWellFormed.slotAddr`, not here.) -/
   slots_slot : ∀ (tw : Tmp) (slot' : Nat),
     defsOf prog tw = some (.slot slot') → slot' = slotOf tw
 
@@ -216,7 +189,7 @@ structure WellFormedLowered (prog : Program) : Prop where
 Discharging them for a concrete program is a case split on the statement / terminator
 shape feeding the Layer-C/E lemmas (`sim_assign` / `sim_sstore_stmt` ; `sim_term_*`).
 Those lemmas in turn carry their *own* honest structured hypotheses — the per-byte
-`MatDec` decode coverage at the runtime cursors, the immediate round-trips, the gas/stack
+`MatDecC` decode coverage at the runtime cursors, the immediate round-trips, the gas/stack
 envelopes, and the genuine SLOAD/SSTORE/GAS realisability ties (the §7
 supplied-observation contract). The two builders below carry exactly that residual,
 minimised to the per-(cursor/frame) ties, so `sim_cfg`/`lower_conforms` see a thin
@@ -231,8 +204,8 @@ consumes only the per-step scoping (`StepScoped`) and the post-state realisabili
 discharged by `sim_assign_gas` (the gas value lands in `slotOf t`, tied by `MemRealises`).
 Both arms are folded into the general `simStmtStep_block` below; the old assign-only
 specialisation is retired (superseded, and it baked in the now-false "every assign emits
-nothing"). The `sstore` arm additionally needs the `MatDec` decode coverage over
-`materialiseExpr` at the runtime cursors, and so is carried whole. -/
+nothing"). The `sstore` arm additionally needs the `MatDecC` decode coverage over
+the fold byte caches at the runtime cursors, and so is carried whole. -/
 
 /-! ### The `call`-arm discharge (the §7 CALL tie)
 
@@ -275,10 +248,10 @@ def CallRealises (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
                         t' (callSuccessFlag result pd)
         | none   => { st0 with world := fun key =>
                         evmCallOracle.postStorage result pd fr0.exec.executionEnv.address key })
-    -- the arg-push run + its pins (`MatRuns`-style, the realised arg materialisation):
+    -- the arg-push run + its pins (`MatRunsC`-style, the realised arg materialisation):
     ∧ argsLen = (emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
-        ++ materialise (defsOf prog) (recomputeFuel prog) cs.callee
-        ++ materialise (defsOf prog) (recomputeFuel prog) cs.gasFwd).length
+        ++ matCache prog cs.callee
+        ++ matCache prog cs.gasFwd).length
     ∧ Runs fr0 callFr
     ∧ callFr.exec.pc = fr0.exec.pc + UInt32.ofNat argsLen
     ∧ callFr.exec.toMachineState.memory = fr0.exec.toMachineState.memory
@@ -307,23 +280,11 @@ def CallRealises (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
     -- the Route-B tail's realisability (decode anchors + gas + memory-expansion witness):
     ∧ (∀ flag : Word, resumeFr.exec.stack = flag :: [] →
         (∀ (t : Tmp), cs.resultTmp = some t →
+          -- `slotOf t` addressable, then the MSTORE tail (`stash_tail_runs`) writes `flag` at
+          -- `slotOf t` onto `resumeFr` — the `StashRuns` endpoint bundle (honest
+          -- `.memory`/`.activeWords` channel, pc + 34, frame pins, working stack back to `[]`):
           (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
-          ∧ ∃ endFr,
-              Runs resumeFr endFr
-            -- honest memory channel (`.memory` bytes + `.activeWords`, NOT the over-constrained
-            -- full `toMachineState` — gas is a `MachineState` field a real run never preserves;
-            -- this is exactly what `stash_tail_runs` constructs):
-            ∧ endFr.exec.toMachineState.memory
-                = (resumeFr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) flag).memory
-            ∧ endFr.exec.toMachineState.activeWords
-                = (resumeFr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) flag).activeWords
-            ∧ endFr.exec.pc = resumeFr.exec.pc + UInt32.ofNat 34
-            ∧ endFr.exec.executionEnv.code = resumeFr.exec.executionEnv.code
-            ∧ endFr.validJumps = resumeFr.validJumps
-            ∧ endFr.exec.executionEnv.address = resumeFr.exec.executionEnv.address
-            ∧ endFr.exec.executionEnv.canModifyState = resumeFr.exec.executionEnv.canModifyState
-            ∧ (∀ k, selfStorage endFr k = selfStorage resumeFr k)
-            ∧ endFr.exec.stack = [])
+          ∧ ∃ endFr, StashRuns resumeFr endFr (slotOf t) flag 34 [])
         ∧ (cs.resultTmp = none →
             Runs resumeFr (popFrame resumeFr [])))
 
@@ -368,7 +329,7 @@ condition `hnocreate` (the create-reflection is Step 5, `docs/create/BUILD-PLAN.
 /-- **`SimStmtStep` for any create-free block (general over calls).** Dispatches each statement
 on its shape: `assign` via `sim_assign` (no decode), `sstore` via `sim_sstore_stmt_lowered`
 (decode discharged inside), `call` via `simStmtStep_call` (`sim_call_stmt` + the §7
-`CallRealises` tie). `WellFormedLowered` supplies the structural fuel/pc/slot side-conditions;
+`CallRealises` tie). `WellFormedLowered` supplies the structural pc/slot side-conditions;
 the per-shape genuine runtime ties (assign post-state realisability; sstore
 gas/`SstoreRealises`/non-zero; the realised CALL trace) are the explicit §7 hypotheses. A
 `.create` statement is excluded by `hnocreate` — the create-reflection (`sim_create` +
@@ -378,6 +339,8 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {L : Label} {b : Block}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hwf : WellFormedLowered prog)
+    -- def-env well-formedness (routes the fold value channel through `matCache_unfold`):
+    (hdc : DefsConsistent prog) (hord : DefEnvOrdered prog)
     -- the genuine **rematerialised** `assign`-cursor ties (target not spilled; post-state
     -- realisability at the unchanged frame — empty emit ⇒ `Runs.refl`):
     (hassign : ∀ (pc : Nat) (t : Tmp) (e : Expr) (st0 st0' : V2.IRState) (fr0 : Frame),
@@ -391,12 +354,12 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         ∧ MemRealises prog st0' fr0)
     -- the genuine **spilled sload** `assign t (.sload k)`-cursor ties (Phase C): the SLOAD value
     -- (and its cold/warm warmth charge) lives in `slotOf t`, written once by the def-site stash
-    -- `materialise k ++ [SLOAD] ++ PUSH slot ++ MSTORE`. `sim_assign_sload_lowered`
+    -- `matCache k ++ [SLOAD] ++ PUSH slot ++ MSTORE`. `sim_assign_sload_lowered`
     -- (`LowerDecode.lean`) *builds* the run from the decode layout, and **the tail runtime envelope
     -- (SLOAD warmth + PUSH/MSTORE gas + memory-expansion witness) is no longer supplied** — it is
     -- DERIVED from the per-cursor clean-halt witness `hcs` via `sload_envelope_of_cleanHalt` (keyed
     -- on the post-materialise frame `frk`); **and the key-prefix gas fold is also DERIVED** from
-    -- `hcs` via `materialise_runs_of_cleanHalt` (the gas charge-descent fold). `hsloadassign` now
+    -- `hcs` via `materialise_runsC_of_cleanHalt` (the gas charge-descent fold). `hsloadassign` now
     -- supplies only the honest residual: the slot registration, the loaded-value tie, the
     -- addressability, the **key-prefix stack-room fold** `hstkKey` (a stack-depth-profile argument —
     -- NOT gas-derivable; the stack goes up and down over the materialise so the peak bound is not a
@@ -413,13 +376,12 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
               (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
               ∧ defsOf prog t' ≠ none)
         ∧ (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
-        -- key-prefix gas fold DROPPED: DERIVED from `hcs` via `materialise_runs_of_cleanHalt`.
+        -- key-prefix gas fold DROPPED: DERIVED from `hcs` via `materialise_runsC_of_cleanHalt`.
         -- The key-prefix stack-room fold stays supplied (separate stack-depth-profile argument):
-        ∧ fr0.exec.stack.size
-            + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog - 1) (.tmp k)).length ≤ 1024
+        ∧ fr0.exec.stack.size + (chargeCache prog sloadChg k).length ≤ 1024
         -- the activeWords-flatness `hawk` at the post-materialise frame (a memory-shape fact):
         ∧ (∀ frk : Frame,
-            MatRuns (defsOf prog) sloadChg (recomputeFuel prog - 1) (.tmp k)
+            V2.MatRunsC prog sloadChg (.tmp k)
                 (match st0.locals k with | some keyVal => keyVal | none => 0) fr0 frk →
             frk.exec.toMachineState.activeWords = fr0.exec.toMachineState.activeWords))
     -- the genuine **spilled gas** `assign t .gas`-cursor ties (Phase B, P1): the gas value lives
@@ -453,8 +415,8 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         StepScoped prog st0 (.sstore key value)
         -- gas aggregate DROPPED: now DERIVED from the threaded clean-halt witness `hcs`
         -- via `sim_sstore_stmt`'s two-frame chained fold.
-        ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp value)).length
-            + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).length + 1 ≤ 1024
+        ∧ (chargeCache prog sloadChg value).length
+            + (chargeCache prog sloadChg key).length + 1 ≤ 1024
         ∧ (∃ acc, SstoreRealises fr0 kw vw acc))
     -- the genuine `call`-cursor tie (the §7 realised-CALL trace), keyed on the step post-state
     -- `st0'` (the consumed call-stream head's effect — the positional multi-call pin):
@@ -477,21 +439,18 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     | sload k =>
       obtain ⟨hslotdef, hsc, hslots, hwval, hscoped', hslot63, hslotplat, hstkKey, hawk⟩ :=
         hsloadassign pc t k w st0 fr0 hget hcorr
-      -- the reduced fuel `f = recomputeFuel prog - 1` (the key materialises at `f`).
-      obtain ⟨hfuelpos, hwfk⟩ := hwf.matFueled_sload L b pc t k hb hget
-      have hfuel : recomputeFuel prog = (recomputeFuel prog - 1) + 1 := by omega
       -- the SLOAD tail runtime envelope AND the key-prefix gas fold are DERIVED from the clean-halt
       -- witness `hcs`; only the key-prefix stack-room fold `hstkKey` and the activeWords-flatness
       -- `hawk` (memory-shape) stay supplied.
-      refine sim_assign_sload_lowered hb hget hslotdef hcorr hsc hslots hwval hfuel hwfk
+      refine sim_assign_sload_lowered hb hget hslotdef hcorr hsc hslots hwval hdc hord
         hslot63 hslotplat (hwf.bound_sload L b pc t k hb hget) hcs hstkKey ?_ hscoped'
       intro frk hmrk
       -- the per-cursor clean-halt witness threads to `frk` inside the extractor.
       obtain ⟨hdecSLOAD, hdecPUSH, hdecMSTORE⟩ :=
-        decode_sloadstash (t := t) hb hget hslotdef hfuel (hwf.bound_sload L b pc t k hb hget) hcorr hmrk
+        decode_sloadstash (t := t) hb hget hslotdef (hwf.bound_sload L b pc t k hb hget) hcorr hmrk
       exact ⟨hawk frk hmrk,
         CleanHaltExtract.sload_envelope_of_cleanHalt
-          (f := recomputeFuel prog - 1) (ekey := .tmp k)
+          (ekey := .tmp k)
           (wkey := (match st0.locals k with | some keyVal => keyVal | none => 0))
           fr0 frk (match st0.locals k with | some keyVal => keyVal | none => 0) (slotOf t)
           hcs hcorr.stack_nil hmrk rfl hdecSLOAD hdecPUSH hdecMSTORE⟩
@@ -543,8 +502,7 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
   | sstore hk hv =>
     rename_i key value kw vw
     obtain ⟨hsc, hstk, ⟨acc, hsr⟩⟩ := hsstore pc key value kw vw st0 fr0 hget hcorr hk hv
-    obtain ⟨hwfv, hwfk⟩ := hwf.matFueled_sstore L b pc key value hb hget
-    exact sim_sstore_stmt_lowered hb hget hcorr hk hv hsc hwfv hwfk
+    exact sim_sstore_stmt_lowered hb hget hcorr hk hv hsc hdc hord
       (hwf.bound_sstore L b pc key value hb hget) hcs hstk hsr
   | call hcallee hgasr =>
     rename_i cs calleeW gasFwdW success world'
@@ -594,11 +552,11 @@ theorem simTermStep_stop {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     have hdec : decode frT.exec.executionEnv.code frT.exec.pc
         = some (.System .STOP, .none) := by
       rw [hcorr.code_eq, hpcterm]
-      have hk : 0 < (emitTerm (defsOf prog) (recomputeFuel prog)
-          (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks) b.term).length := by
+      have hk : 0 < (emitTerm (matCache prog)
+          (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term).length := by
         rw [hterm]; simp [emitTerm]
-      have hbyte0 : (emitTerm (defsOf prog) (recomputeFuel prog)
-          (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks) b.term)[0]?
+      have hbyte0 : (emitTerm (matCache prog)
+          (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term)[0]?
           = some Byte.stop := by rw [hterm]; rfl
       have := decode_at_term_nonpush prog L b 0 Byte.stop hb (by simpa using hk)
         hbyte0 (by simpa using hbound) (by decide)
@@ -615,8 +573,8 @@ theorem simTermStep_stop {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
 
 For a block whose terminator is `Term.ret t`, `SimTermStep`'s `edge` arm is vacuous and the
 `halt` arm's `stop` disjunct contradicts. The `ret` halt routes through
-`sim_term_halt_ret_lowered` — the operand `MatDec` is discharged inside; `WellFormedLowered`
-supplies the structural `MatFueled` + pc bound. The genuine residual is the value-channel
+`sim_term_halt_ret_lowered` — the operand `MatDecC` is discharged inside; `WellFormedLowered`
+supplies the structural pc bound. The genuine residual is the value-channel
 RETURN-site tie (`hself`, the returned-value binding `st'.locals t = some vw`, the gas/stack
 envelopes, and the RETURN-site `hret` — the §7 supplied-observation contract). -/
 
@@ -630,14 +588,16 @@ theorem simTermStep_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hterm : b.term = .ret t)
     (hwf : WellFormedLowered prog)
+    -- def-env well-formedness (routes the ret operand through `matCache_unfold`):
+    (hdc : DefsConsistent prog) (hord : DefEnvOrdered prog)
     -- the genuine value-channel RETURN-site ties (the §7 contract) at any terminator-cursor frame:
     (hties : ∀ (st' : V2.IRState) (frT : Frame),
         Corr prog sloadChg obs st' frT L b.stmts.length →
         self = frT.exec.executionEnv.address
         ∧ (∃ vw, st'.locals t = some vw)
-        ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).sum
+        ∧ (chargeCache prog sloadChg t).sum
             ≤ frT.exec.gasAvailable.toNat
-        ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).length ≤ 1024
+        ∧ (chargeCache prog sloadChg t).length ≤ 1024
         ∧ (∀ (vw : Word), st'.locals t = some vw →
             ∀ frv : Frame, Runs frT frv →
             frv.exec.executionEnv.code = frT.exec.executionEnv.code →
@@ -675,8 +635,8 @@ theorem simTermStep_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     obtain ⟨hself, ⟨vw, hv⟩, hgas, hstk, hret⟩ := hties st' frT hcorr
     -- `sim_term_halt_ret_lowered` proves both channels; `SimTermStep.halt` forwards the world one.
     obtain ⟨last, haltSig, hruns, hstep, hworld, _hresult⟩ :=
-      sim_term_halt_ret_lowered hb hcorr hterm hself hv
-        (hwf.matFueled_ret L b t hb hterm) (hwf.bound_ret L b t hb hterm) hgas hstk (hret vw hv)
+      sim_term_halt_ret_lowered hb hcorr hterm hself hv hdc hord
+        (hwf.bound_ret L b t hb hterm) hgas hstk (hret vw hv)
     exact ⟨last, haltSig, hruns, hstep, hworld⟩
   · -- edge arm: vacuous (b.term = .ret t contradicts every jump/branch disjunct).
     intro st' frT succ hcorr hdisj
@@ -712,13 +672,13 @@ theorem simTermStep_jump {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         Corr prog sloadChg obs st' frT L b.stmts.length →
         3 ≤ frT.exec.gasAvailable.toNat
         ∧ GasConstants.Gmid ≤ (pushFrameW frT
-            (UInt256.ofNat ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks dst.idx) % 2^32))
+            (UInt256.ofNat ((offsetTable (matCache prog) (defsOf prog) prog.blocks dst.idx) % 2^32))
             4).exec.gasAvailable.toNat
         ∧ GasConstants.Gjumpdest
             ≤ (jumpFrame (pushFrameW frT
-                (UInt256.ofNat ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks dst.idx) % 2^32)) 4)
+                (UInt256.ofNat ((offsetTable (matCache prog) (defsOf prog) prog.blocks dst.idx) % 2^32)) 4)
                 GasConstants.Gmid
-                (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks dst.idx))
+                (UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks dst.idx))
                 frT.exec.stack).exec.gasAvailable.toNat) :
     SimTermStep prog sloadChg obs self L b := by
   obtain ⟨hbt, hbo⟩ := hwf.bound_jump L b dst hb hterm
@@ -749,13 +709,13 @@ two branch disjuncts (`cw ≠ 0 → succ = thenL`, `cw = 0 → succ = elseL`) ro
 `sim_term_edge_branch_lowered`, whose strengthened cw-tied conclusion pins the resolved
 successor to the runtime condition — so the `succ` `SimTermStep` asks for is exactly the one the
 lowered branch lands on. The decode bundle and the `validJumps`-recording tie (via
-`Corr.validJumps_lower` + `MatRuns.validJumps`) are discharged inside; `WellFormedLowered`
+`Corr.validJumps_lower` + `MatRunsC.validJumps`) are discharged inside; `WellFormedLowered`
 supplies the structural pc/offset bounds. The genuine residual is the cond-materialise run
-(`MatRuns`) and the gas envelopes (§7), plus the successor blocks' presence. -/
+(`MatRunsC`) and the gas envelopes (§7), plus the successor blocks' presence. -/
 
 /-- **`SimTermStep` for a `branch`-terminator block.** If `b.term = .branch cond thenL elseL`
 with both successors present, then — given `WellFormedLowered` and, at every terminator-cursor
-frame, the genuine control-flow ties (the cond-materialise `MatRuns`, the gas envelopes) —
+frame, the genuine control-flow ties (the cond-materialise `MatRunsC`, the gas envelopes) —
 `SimTermStep` holds. The cw-tied conclusion of `sim_term_edge_branch_lowered` reconciles the
 `SimTermStep.edge` disjunct's chosen `succ` with the runtime-resolved branch. -/
 theorem simTermStep_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
@@ -773,31 +733,31 @@ theorem simTermStep_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word
     (hties : ∀ (st' : V2.IRState) (frT : Frame) (cw : Word),
         Corr prog sloadChg obs st' frT L b.stmts.length →
         st'.locals cond = some cw →
-        ∃ frc, MatRuns (defsOf prog) sloadChg (recomputeFuel prog) (.tmp cond) cw frT frc
+        ∃ frc, V2.MatRunsC prog sloadChg (.tmp cond) cw frT frc
           ∧ 3 ≤ frc.exec.gasAvailable.toNat
           ∧ GasConstants.Ghigh ≤ (pushFrameW frc
-              (UInt256.ofNat ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32))
+              (UInt256.ofNat ((offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx) % 2^32))
               4).exec.gasAvailable.toNat
           ∧ GasConstants.Gjumpdest ≤ (jumpFrame (pushFrameW frc
-              (UInt256.ofNat ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32)) 4)
+              (UInt256.ofNat ((offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx) % 2^32)) 4)
               GasConstants.Ghigh
-              (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx))
+              (UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx))
               ([] : Stack Word)).exec.gasAvailable.toNat
           ∧ 3 ≤ (jumpiFallthroughFrame (pushFrameW frc
-              (UInt256.ofNat ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32)) 4)
+              (UInt256.ofNat ((offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx) % 2^32)) 4)
               ([] : Stack Word)).exec.gasAvailable.toNat
           ∧ GasConstants.Gmid ≤ (pushFrameW (jumpiFallthroughFrame (pushFrameW frc
-              (UInt256.ofNat ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32)) 4)
+              (UInt256.ofNat ((offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx) % 2^32)) 4)
               ([] : Stack Word))
-              (UInt256.ofNat ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks elseL.idx) % 2^32)) 4).exec.gasAvailable.toNat
+              (UInt256.ofNat ((offsetTable (matCache prog) (defsOf prog) prog.blocks elseL.idx) % 2^32)) 4).exec.gasAvailable.toNat
           ∧ GasConstants.Gjumpdest ≤ (jumpFrame (pushFrameW (jumpiFallthroughFrame (pushFrameW frc
-              (UInt256.ofNat ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32)) 4)
+              (UInt256.ofNat ((offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx) % 2^32)) 4)
               ([] : Stack Word))
-              (UInt256.ofNat ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks elseL.idx) % 2^32)) 4)
+              (UInt256.ofNat ((offsetTable (matCache prog) (defsOf prog) prog.blocks elseL.idx) % 2^32)) 4)
               GasConstants.Gmid
-              (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks elseL.idx))
+              (UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks elseL.idx))
               (jumpiFallthroughFrame (pushFrameW frc
-                (UInt256.ofNat ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32)) 4)
+                (UInt256.ofNat ((offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx) % 2^32)) 4)
                 ([] : Stack Word)).exec.stack).exec.gasAvailable.toNat) :
     SimTermStep prog sloadChg obs self L b := by
   obtain ⟨hbt, hbthenoff, hbelseoff⟩ := hwf.bound_branch L b cond thenL elseL hb hterm
@@ -840,13 +800,15 @@ genuine §7 ties. The genuine ties are collected as one hypothesis dispatched on
 
 /-- **`SimTermStep` for any block.** Dispatches `b.term` into the four arms
 (`simTermStep_stop`/`_ret`/`_jump`/`_branch`). `WellFormedLowered` supplies the structural
-fuel/pc/offset side-conditions; the per-shape genuine §7 ties are supplied by the `hstop`/`hret`/
+pc/offset side-conditions; the per-shape genuine §7 ties are supplied by the `hstop`/`hret`/
 `hjump`/`hbranch` hypotheses (each consumed only on its matching terminator shape). The successor
 blocks (for the edges) are supplied by `hsucc`. -/
 theorem simTermStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {self : AccountAddress} {L : Label} {b : Block}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hwf : WellFormedLowered prog)
+    -- def-env well-formedness (threaded to the `ret` arm's fold value channel):
+    (hdc : DefsConsistent prog) (hord : DefEnvOrdered prog)
     -- successor-block presence for the edges (vacuous on halts):
     (hsucc : ∀ (L' : Label), (b.term = .jump L' ∨ (∃ c o', b.term = .branch c L' o')
         ∨ (∃ c t', b.term = .branch c t' L')) →
@@ -863,9 +825,9 @@ theorem simTermStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
           Corr prog sloadChg obs st' frT L b.stmts.length →
           self = frT.exec.executionEnv.address
           ∧ (∃ vw, st'.locals t = some vw)
-          ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).sum
+          ∧ (chargeCache prog sloadChg t).sum
               ≤ frT.exec.gasAvailable.toNat
-          ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).length ≤ 1024
+          ∧ (chargeCache prog sloadChg t).length ≤ 1024
           ∧ (∀ (vw : Word), st'.locals t = some vw →
               ∀ frv : Frame, Runs frT frv →
               frv.exec.executionEnv.code = frT.exec.executionEnv.code →
@@ -902,13 +864,13 @@ theorem simTermStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
           Corr prog sloadChg obs st' frT L b.stmts.length →
           3 ≤ frT.exec.gasAvailable.toNat
           ∧ GasConstants.Gmid ≤ (pushFrameW frT
-              (UInt256.ofNat ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks dst.idx) % 2^32))
+              (UInt256.ofNat ((offsetTable (matCache prog) (defsOf prog) prog.blocks dst.idx) % 2^32))
               4).exec.gasAvailable.toNat
           ∧ GasConstants.Gjumpdest
               ≤ (jumpFrame (pushFrameW frT
-                  (UInt256.ofNat ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks dst.idx) % 2^32)) 4)
+                  (UInt256.ofNat ((offsetTable (matCache prog) (defsOf prog) prog.blocks dst.idx) % 2^32)) 4)
                   GasConstants.Gmid
-                  (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks dst.idx))
+                  (UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks dst.idx))
                   frT.exec.stack).exec.gasAvailable.toNat)
     (hbranch : ∀ cond thenL elseL bthen belse, b.term = .branch cond thenL elseL →
         prog.blocks.toList[thenL.idx]? = some bthen → prog.blocks.toList[elseL.idx]? = some belse →
@@ -916,37 +878,37 @@ theorem simTermStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         ∀ (st' : V2.IRState) (frT : Frame) (cw : Word),
           Corr prog sloadChg obs st' frT L b.stmts.length →
           st'.locals cond = some cw →
-          ∃ frc, MatRuns (defsOf prog) sloadChg (recomputeFuel prog) (.tmp cond) cw frT frc
+          ∃ frc, V2.MatRunsC prog sloadChg (.tmp cond) cw frT frc
             ∧ 3 ≤ frc.exec.gasAvailable.toNat
             ∧ GasConstants.Ghigh ≤ (pushFrameW frc
-                (UInt256.ofNat ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32))
+                (UInt256.ofNat ((offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx) % 2^32))
                 4).exec.gasAvailable.toNat
             ∧ GasConstants.Gjumpdest ≤ (jumpFrame (pushFrameW frc
-                (UInt256.ofNat ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32)) 4)
+                (UInt256.ofNat ((offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx) % 2^32)) 4)
                 GasConstants.Ghigh
-                (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx))
+                (UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx))
                 ([] : Stack Word)).exec.gasAvailable.toNat
             ∧ 3 ≤ (jumpiFallthroughFrame (pushFrameW frc
-                (UInt256.ofNat ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32)) 4)
+                (UInt256.ofNat ((offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx) % 2^32)) 4)
                 ([] : Stack Word)).exec.gasAvailable.toNat
             ∧ GasConstants.Gmid ≤ (pushFrameW (jumpiFallthroughFrame (pushFrameW frc
-                (UInt256.ofNat ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32)) 4)
+                (UInt256.ofNat ((offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx) % 2^32)) 4)
                 ([] : Stack Word))
-                (UInt256.ofNat ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks elseL.idx) % 2^32)) 4).exec.gasAvailable.toNat
+                (UInt256.ofNat ((offsetTable (matCache prog) (defsOf prog) prog.blocks elseL.idx) % 2^32)) 4).exec.gasAvailable.toNat
             ∧ GasConstants.Gjumpdest ≤ (jumpFrame (pushFrameW (jumpiFallthroughFrame (pushFrameW frc
-                (UInt256.ofNat ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32)) 4)
+                (UInt256.ofNat ((offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx) % 2^32)) 4)
                 ([] : Stack Word))
-                (UInt256.ofNat ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks elseL.idx) % 2^32)) 4)
+                (UInt256.ofNat ((offsetTable (matCache prog) (defsOf prog) prog.blocks elseL.idx) % 2^32)) 4)
                 GasConstants.Gmid
-                (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks elseL.idx))
+                (UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks elseL.idx))
                 (jumpiFallthroughFrame (pushFrameW frc
-                  (UInt256.ofNat ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32)) 4)
+                  (UInt256.ofNat ((offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx) % 2^32)) 4)
                   ([] : Stack Word)).exec.stack).exec.gasAvailable.toNat) :
     SimTermStep prog sloadChg obs self L b := by
   -- dispatch on the terminator shape.
   cases hb' : b.term with
   | stop => exact simTermStep_stop hb hb' (hwf.bound_stop L b hb hb') (hstop hb')
-  | ret t => exact simTermStep_ret hb hb' hwf (hretties t hb')
+  | ret t => exact simTermStep_ret hb hb' hwf hdc hord (hretties t hb')
   | jump dst =>
     obtain ⟨bdst, hbdst, hdstlt⟩ := hsucc dst (Or.inl hb')
     exact simTermStep_jump hb hb' hwf hbdst hdstlt (hjump dst bdst hb' hbdst hdstlt)
@@ -1110,7 +1072,7 @@ theorem entry_corr {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} {w₀ 
     (hmod : p.canModifyState = true)
     (hentry0 : prog.entry.idx = 0)
     (hbentry : blockAt prog prog.entry = some bentry)
-    (hbound : offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks prog.entry.idx < 2 ^ 32)
+    (hbound : offsetTable (matCache prog) (defsOf prog) prog.blocks prog.entry.idx < 2 ^ 32)
     (hstore : StorageAgree { locals := fun _ => none, world := w₀ } (codeFrame p (lower prog)))
     (hgas : GasConstants.Gjumpdest ≤ p.gas.toNat) :
     ∃ fr₀, Runs (codeFrame p (lower prog)) fr₀
@@ -1122,11 +1084,11 @@ theorem entry_corr {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} {w₀ 
     have : blockAt prog prog.entry = prog.blocks.toList[prog.entry.idx]? := by
       unfold blockAt; rw [Array.getElem?_toList]
     rwa [this] at hbentry
-  have hoff0 : offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks prog.entry.idx = 0 := by
+  have hoff0 : offsetTable (matCache prog) (defsOf prog) prog.blocks prog.entry.idx = 0 := by
     unfold offsetTable; rw [hentry0]; simp
   -- pc of the codeFrame is `UInt32.ofNat (offsetTable … entry.idx)` (= 0).
   have hpc : fe.exec.pc
-      = UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks prog.entry.idx) := by
+      = UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks prog.entry.idx) := by
     rw [hfe, codeFrame_pc, hoff0]; rfl
   have hcode : fe.exec.executionEnv.code = lower prog := by rw [hfe, codeFrame_code]
   have hvalid : fe.validJumps = validJumpDests fe.exec.executionEnv.code 0 := by
@@ -1145,36 +1107,20 @@ theorem entry_corr {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} {w₀ 
       (by intro t slot v _ hloc; simp at hloc) hdec hgas'
   exact ⟨jumpdestFrame fe, hjdrun, hjdcorr⟩
 
-/-! ## `lower_conforms` — tying `sim_cfg` to the recording interpreter
+/-! ## The recorder tie lives at the flagship, not here
 
-The headline. From a successful `runWithLog` over the lowered program, recover:
+This file once closed a local `lower_conforms` that tied `sim_cfg` to the instrumented recording
+interpreter `runWithLog` and claimed the world equation was "**fully discharged** here". That
+theorem was **deleted in the vacuous-ties purge (b144af8)**: the per-block simulation hypotheses
+it consumed (`hstmts`/`hterm`) were unsatisfiable in the shape supplied for a lowered program, so
+it discharged nothing.
 
-1. **the IR run** — `IRRun prog w₀ (realisedGas log) (realisedCall log self) O` for *some*
-   observable `O`. We do **not** synthesise the `RunFrom` derivation from the bytecode
-   (`runWithLog` records the *bytecode* trace, not the IR one); instead we carry the IR run as
-   a structured hypothesis (`hir`) — the **IR side** of the conformance diagram, supplied for
-   the program under study and itself the subject of the IR-determinism / supplied-observation
-   contract (`docs/ir-design-v3.md` §7). This is the honest realisability hypothesis: the IR
-   run *under the realised oracles* the bytecode produces.
-2. **the world equation** — `O.world = (observe self log.observable).world`. This is the
-   load-bearing conformance edge, and it is **fully discharged** here from `sim_cfg`:
-   `runWithLog_messageCall` pins `messageCall = .ok log.observable.toCallResult`; `sim_cfg` +
-   `messageCall_runs` pins `messageCall = .ok (toCallResult (endFrame last haltSig))`; equating
-   the two `toCallResult`s (`observe` reads only `.toCallResult`) gives `observe self
-   log.observable = observe self (endFrame last haltSig)`, whose world is `O.world` by
-   `sim_cfg` and `IRRun.det`.
-
-The former entry `Corr` hypothesis is now **discharged** in-proof by `entry_corr` (the
-leading-`JUMPDEST` step from the top-level frame), so `lower_conforms` no longer carries it:
-its replacements are the structural entry facts (`hentry0`/`hbentry`/`hbound` — the entry block
-is block 0, present, pc-bounded) plus the *genuine* entry-frame realisability ties
-(`hstore`/`hsload`/`hgasr`/`hgasj`). The per-block simulations (`hstmts`/`hterm`) and the IR
-run (`hir`) remain the carried structured hypotheses — the supplied-observation realisability
-contract (`hstmts`/`hterm` are themselves now dischargeable per shape by `simStmtStep_block`
-/ `simTermStep_block`, down to the per-cursor genuine ties — including the §7 `CallRealises`
-tie for `.call` — and the per-shape decode bundles). `runWithLog` at the seed fuel makes the
-`messageCall` bridge exact. There is **no** call-free side condition: the call statement is
-folded into the spine via `sim_call_stmt` (Route B). -/
+**This file no longer contains a discharged headline.** Its payoff is `sim_cfg` (:983) — the
+whole-CFG world-channel simulation, abstracted over the per-block `SimStmtStep`/`SimTermStep`
+ties. The LIVE conformance headline — the tie from a successful `runWithLog` to the IR `RunFrom`
+and the load-bearing world equation — is the flagship `lower_conforms` at
+`V2/Realisability/RealisabilitySpec.lean:206` (R11). Its remaining obligation is the coupled
+run-producer documented there (Route A); consult that file for the honest hypothesis ledger. -/
 
 
 /-- `prog.blocks.toList[L.idx]? = some b` from `blockAt prog L = some b` (the reverse of

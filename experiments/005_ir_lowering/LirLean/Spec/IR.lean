@@ -136,4 +136,8 @@ structure Program where
   entry  : Label
 deriving Repr
 
+/-- The block at label `L`, if present. -/
+def Program.blockAt (prog : Program) (L : Label) : Option Block :=
+  prog.blocks[L.idx]?
+
 end Lir

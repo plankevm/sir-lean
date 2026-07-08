@@ -2,7 +2,6 @@ import LirLean.Decode.SegAligned
 import LirLean.Decode.Layout
 import LirLean.Decode.DecodeLower
 import LirLean.Decode.DecodeAnchors
-import LirLean.Frame.Match
 import Evm
 
 /-!
@@ -13,13 +12,15 @@ destination of the lowered bytecode,
 
 ```lean
 theorem block_offset_validJump (prog : Program) (L : Label) (hL : L.idx < prog.blocks.size) :
-    (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks L.idx))
+    (UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks L.idx))
       ∈ validJumpDests (lower prog) 0
 ```
 
 This generalises the concrete `nineteen_mem_validJumps` / `wc_reaches_415` walks (which
 step the lowered byte stream instruction-by-instruction via `by decide`) from a fixed
-program to an **arbitrary** `lower prog`.
+program to an **arbitrary** `lower prog`. The tower is UNCONDITIONAL: the fold cache
+`matCache prog` is pointwise aligned for every program (`segAlignedP_matCache`), so no
+well-formedness hypothesis appears anywhere.
 
 ## The crux (per the brief)
 
@@ -36,14 +37,14 @@ proving the walk REACHES it correctly past all preceding blocks' PUSH-laden byte
 * **`SegAligned`** — a *list-level* notion: a byte list is a concatenation of complete
   instructions (each opcode byte followed by exactly `pushArgWidth` immediate bytes).
   This abstracts "the boundary walk over these bytes lands exactly at their end". It is the
-  predicate-free instance of the parameterized `SegAlignedP` (`LirLean/SegAligned.lean`),
+  predicate-free instance of the parameterized `SegAlignedP` (`Decode/SegAligned.lean`),
   which also carries the composition bricks, both transports and the emit-ladder — all proven
-  once and shared with the `SegAlignedSafe`/`SegAlignedLowering` towers.
+  once and shared with the `SegAlignedLowering` tower.
 * **`reaches_of_segAligned`** — the transport: if the bytecode `c` matches an aligned
   segment `seg` over `[base, base + seg.length)`, the boundary walk reaches
   `base + seg.length` from `base`. The predicate-free `reaches_end_of_segAlignedP`.
 * **`segAligned_loweredBlock`** — each lowered block `JUMPDEST :: emitBlockBody` is aligned:
-  the shared `IsLoweringOp` emit-ladder (`LirLean/SegAligned.lean`) weakened by
+  the shared `IsLoweringOp` emit-ladder (`Decode/SegAligned.lean`) weakened by
   `SegAlignedP.mono`. The push-skipping is discharged once, there.
 * **`reaches_block_offset`** — the boundary walk reaches block `i`'s offset, by induction
   on `i`: each lowered block `JUMPDEST :: emitBlockBody` is aligned, so the walk steps
@@ -74,12 +75,11 @@ theorem ReachesBoundary.trans {c : ByteArray} {a m n : Nat}
 /-! ## List-level instruction alignment (the base tower)
 
 `SegAligned` is the predicate-free instance of the parameterized `SegAlignedP`
-(`LirLean/SegAligned.lean`): a byte list that is a concatenation of complete EVM
+(`Decode/SegAligned.lean`): a byte list that is a concatenation of complete EVM
 instructions — each opcode byte `b` followed by exactly `(pushArgWidth (parseInstr b)).toNat`
-immediate bytes — with **no** constraint on the head opcodes (`P = fun _ => True`). The two
-strengthened towers (`SegAlignedSafe` in `NoCreateBytes`, `SegAlignedLowering` in
-`BoundaryReach`) are the other two instances; all share the one emit-ladder + transports proven
-once in `LirLean/SegAligned.lean`. -/
+immediate bytes — with **no** constraint on the head opcodes (`P = fun _ => True`). The
+strengthened `SegAlignedLowering` tower (in `BoundaryReach`) is the other instance; both share
+the one emit-ladder + transports proven once in `Decode/SegAligned.lean`. -/
 
 /-- The base instruction-alignment notion: `SegAlignedP` with the trivial head predicate. -/
 abbrev SegAligned : List UInt8 → Prop := SegAlignedP (fun _ => True)
@@ -93,10 +93,12 @@ theorem reaches_of_segAligned (c : ByteArray) (seg : List UInt8) (hseg : SegAlig
   reaches_end_of_segAlignedP c seg hseg
 
 /-- A lowered block `JUMPDEST :: emitBlockBody` is aligned: the `IsLoweringOp` witness
-(`segAlignedP_loweredBlock`) weakened to `True` by `SegAlignedP.mono`. -/
-theorem segAligned_loweredBlock (defs : Tmp → Option Expr) (fuel : Nat) (labelOff : Nat → Nat)
-    (b : Block) : SegAligned (Byte.jumpdest :: emitBlockBody defs fuel labelOff b) :=
-  (segAlignedP_loweredBlock defs fuel labelOff b).mono (fun _ _ => trivial)
+(`segAlignedP_loweredBlock`, cache pointwise-aligned) weakened to `True` by
+`SegAlignedP.mono`. -/
+theorem segAligned_loweredBlock (cache : Tmp → List UInt8)
+    (hcache : ∀ t, SegAlignedP IsLoweringOp (cache t)) (alloc : Alloc) (labelOff : Nat → Nat)
+    (b : Block) : SegAligned (Byte.jumpdest :: emitBlockBody cache alloc labelOff b) :=
+  (segAlignedP_loweredBlock cache hcache alloc labelOff b).mono (fun _ _ => trivial)
 
 /-! ## The boundary walk reaches every block offset
 
@@ -113,10 +115,10 @@ theorem lower_get?_eq (prog : Program) (n : Nat) :
 
 /-- `offsetTable` increments by the lowered length of block `i` (`blockLen`): the table
 is the prefix sum of block lengths. Needs block `i` present. -/
-theorem offsetTable_succ (defs : Tmp → Option Expr) (fuel : Nat) (blocks : Array Block)
+theorem offsetTable_succ (cache : Tmp → List UInt8) (alloc : Alloc) (blocks : Array Block)
     (i : Nat) (b : Block) (hb : blocks.toList[i]? = some b) :
-    offsetTable defs fuel blocks (i + 1)
-      = offsetTable defs fuel blocks i + blockLen defs fuel b := by
+    offsetTable cache alloc blocks (i + 1)
+      = offsetTable cache alloc blocks i + blockLen cache alloc b := by
   have hlt : i < blocks.toList.length := by
     rcases Nat.lt_or_ge i blocks.toList.length with h | h
     · exact h
@@ -134,23 +136,23 @@ theorem offsetTable_succ (defs : Tmp → Option Expr) (fuel : Nat) (blocks : Arr
 within the lowered block. From `flatBytes_block_split` + `mid_index`. -/
 theorem lower_match_block (prog : Program) (i : Nat) (b : Block)
     (hb : prog.blocks.toList[i]? = some b) :
-    ∀ j, j < (Byte.jumpdest :: emitBlockBody (defsOf prog) (recomputeFuel prog)
-                (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks) b).length →
-      (lower prog).get? (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks i + j)
-        = (Byte.jumpdest :: emitBlockBody (defsOf prog) (recomputeFuel prog)
-            (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks) b)[j]? := by
+    ∀ j, j < (Byte.jumpdest :: emitBlockBody (matCache prog) (defsOf prog)
+                (offsetTable (matCache prog) (defsOf prog) prog.blocks) b).length →
+      (lower prog).get? (offsetTable (matCache prog) (defsOf prog) prog.blocks i + j)
+        = (Byte.jumpdest :: emitBlockBody (matCache prog) (defsOf prog)
+            (offsetTable (matCache prog) (defsOf prog) prog.blocks) b)[j]? := by
   intro j hj
   rw [lower_get?_eq]
   -- decompose flatBytes around block i (L.idx = i)
   rw [flatBytes_block_split prog ⟨i⟩ b hb]
-  set defs := defsOf prog with hdefs
-  set fuel := recomputeFuel prog with hfuel
-  set lo := offsetTable defs fuel prog.blocks with hlo
+  set cache := matCache prog with hcache
+  set alloc := defsOf prog with halloc
+  set lo := offsetTable cache alloc prog.blocks with hlo
   set pre := (prog.blocks.toList.take i).flatMap
-    (fun b => Byte.jumpdest :: emitBlockBody defs fuel lo b) with hpre
-  set mid := Byte.jumpdest :: emitBlockBody defs fuel lo b with hmid
+    (fun b => Byte.jumpdest :: emitBlockBody cache alloc lo b) with hpre
+  set mid := Byte.jumpdest :: emitBlockBody cache alloc lo b with hmid
   set suf := (prog.blocks.toList.drop (i + 1)).flatMap
-    (fun b => Byte.jumpdest :: emitBlockBody defs fuel lo b) with hsuf
+    (fun b => Byte.jumpdest :: emitBlockBody cache alloc lo b) with hsuf
   have hprelen : pre.length = lo i := by
     have := flatBytes_block_offset prog ⟨i⟩
     simpa [hpre, hlo] using this
@@ -165,12 +167,13 @@ landing at `offsetTable (i+1)`. -/
 theorem reaches_block_offset (prog : Program) :
     ∀ i, i ≤ prog.blocks.size →
       ReachesBoundary (lower prog) 0
-        (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks i) := by
+        (offsetTable (matCache prog) (defsOf prog) prog.blocks i) := by
+  have hca : ∀ t, SegAlignedP IsLoweringOp (matCache prog t) := segAlignedP_matCache prog
   intro i
   induction i with
   | zero =>
     intro _
-    rw [show offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks 0 = 0 from by
+    rw [show offsetTable (matCache prog) (defsOf prog) prog.blocks 0 = 0 from by
           simp [offsetTable]]
     exact .refl 0
   | succ n ih =>
@@ -183,22 +186,22 @@ theorem reaches_block_offset (prog : Program) :
     -- walk to offsetTable n by IH
     have h1 := ih (by omega)
     -- walk block n's bytes from offsetTable n
-    set defs := defsOf prog with hdefs
-    set fuel := recomputeFuel prog with hfuel
-    set lo := offsetTable defs fuel prog.blocks with hlo
-    have hseg : SegAligned (Byte.jumpdest :: emitBlockBody defs fuel lo b) :=
-      segAligned_loweredBlock defs fuel lo b
+    set cache := matCache prog with hcache
+    set alloc := defsOf prog with halloc
+    set lo := offsetTable cache alloc prog.blocks with hlo
+    have hseg : SegAligned (Byte.jumpdest :: emitBlockBody cache alloc lo b) :=
+      segAligned_loweredBlock cache hca alloc lo b
     have hmatch := lower_match_block prog n b hb
     have hwalk := reaches_of_segAligned (lower prog)
-      (Byte.jumpdest :: emitBlockBody defs fuel lo b) hseg (lo n) hmatch
+      (Byte.jumpdest :: emitBlockBody cache alloc lo b) hseg (lo n) hmatch
     -- the segment length is blockLen b, so the walk lands at offsetTable (n+1)
-    have hlen : (Byte.jumpdest :: emitBlockBody defs fuel lo b).length = blockLen defs fuel b :=
-      (blockLen_eq_length defs fuel lo b).symm
-    have hsucc : lo (n + 1) = lo n + blockLen defs fuel b :=
-      offsetTable_succ defs fuel prog.blocks n b hb
+    have hlen : (Byte.jumpdest :: emitBlockBody cache alloc lo b).length
+        = blockLen cache alloc b := (blockLen_eq_length cache alloc lo b).symm
+    have hsucc : lo (n + 1) = lo n + blockLen cache alloc b :=
+      offsetTable_succ cache alloc prog.blocks n b hb
     rw [hsucc]
-    rw [show lo n + blockLen defs fuel b
-          = lo n + (Byte.jumpdest :: emitBlockBody defs fuel lo b).length from by rw [hlen]]
+    rw [show lo n + blockLen cache alloc b
+          = lo n + (Byte.jumpdest :: emitBlockBody cache alloc lo b).length from by rw [hlen]]
     exact ReachesBoundary.trans h1 hwalk
 
 /-! ## The headline (E3)
@@ -210,7 +213,7 @@ reachable (`reaches_block_offset`), so `validJumpDests` records it. -/
 /-- The byte `lower prog` holds at block `L`'s offset is `Byte.jumpdest`. -/
 theorem lower_byte_at_offset (prog : Program) (L : Label) (b : Block)
     (hb : prog.blocks.toList[L.idx]? = some b) :
-    (lower prog).get? (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks L.idx)
+    (lower prog).get? (offsetTable (matCache prog) (defsOf prog) prog.blocks L.idx)
       = some Byte.jumpdest := by
   have hmatch := lower_match_block prog L.idx b hb
   have := hmatch 0 (by simp)
@@ -221,7 +224,7 @@ destination of the lowered bytecode: the byte there is `JUMPDEST` and the offset
 reachable from the program start (skipping every preceding PUSH immediate). Needed by
 every `jump`/`branch` (Layer E2). -/
 theorem block_offset_validJump (prog : Program) (L : Label) (hL : L.idx < prog.blocks.size) :
-    (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks L.idx))
+    (UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks L.idx))
       ∈ validJumpDests (lower prog) 0 := by
   -- block L exists
   have hblist : L.idx < prog.blocks.toList.length := by simpa using hL
@@ -229,15 +232,15 @@ theorem block_offset_validJump (prog : Program) (L : Label) (hL : L.idx < prog.b
   have hb : prog.blocks.toList[L.idx]? = some b := by rw [List.getElem?_eq_getElem hblist]
   -- the offset is reachable
   have hreach : ReachesBoundary (lower prog) 0
-      (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks L.idx) :=
+      (offsetTable (matCache prog) (defsOf prog) prog.blocks L.idx) :=
     reaches_block_offset prog L.idx (by omega)
   -- the byte there is JUMPDEST
   have hget : (lower prog).get?
-      (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks L.idx) = some Byte.jumpdest :=
+      (offsetTable (matCache prog) (defsOf prog) prog.blocks L.idx) = some Byte.jumpdest :=
     lower_byte_at_offset prog L b hb
   -- route through the characterization lemma
   have hmem := mem_validJumpDests_of_reachable_jumpdest (lower prog)
-    (i := offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks L.idx)
+    (i := offsetTable (matCache prog) (defsOf prog) prog.blocks L.idx)
     hreach (byte := Byte.jumpdest) hget (by decide)
   -- (offsetTable …).toUInt32 = UInt32.ofNat (offsetTable …)
   simpa [UInt32.ofNat] using hmem
@@ -248,17 +251,17 @@ zero-width `JUMPDEST`. The byte a `jump`/`branch` lands on (the `corr_at_jumpdes
 step), and the entry block's leading `JUMPDEST` the top-level frame's entry `Corr` steps. -/
 theorem decode_at_block_offset_jumpdest (prog : Program) (L : Label) (b : Block)
     (hb : prog.blocks.toList[L.idx]? = some b)
-    (hbound : offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks L.idx < 2 ^ 32) :
+    (hbound : offsetTable (matCache prog) (defsOf prog) prog.blocks L.idx < 2 ^ 32) :
     Evm.decode (lower prog)
-        (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks L.idx))
+        (UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks L.idx))
       = some (.Smsf .JUMPDEST, .none) := by
-  have hbyte : (flatBytes prog)[offsetTable (defsOf prog) (recomputeFuel prog)
+  have hbyte : (flatBytes prog)[offsetTable (matCache prog) (defsOf prog)
       prog.blocks L.idx]? = some Byte.jumpdest := by
     have h := lower_byte_at_offset prog L b hb
     rw [lower_eq_flatBytes] at h
     rwa [bget] at h
   have := decode_lower_nonpush prog
-    (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks L.idx) Byte.jumpdest
+    (offsetTable (matCache prog) (defsOf prog) prog.blocks L.idx) Byte.jumpdest
     hbound hbyte (by decide)
   simpa using this
 

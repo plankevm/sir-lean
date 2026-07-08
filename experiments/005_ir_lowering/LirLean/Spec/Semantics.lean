@@ -15,7 +15,7 @@ Design decisions taken from `ir-design-v2.md`, verbatim:
 * **`World` is IR-native** (§3.1). For the call-free C1 scope it is exactly the
   self-account storage lens `Word → Word` — the same projection v1's
   `IRState.storage` carried, and the same `selfStorage`/`storageAt` lens the
-  bytecode side reads (`LirLean/Match.lean`). The abstraction lens to a `Frame`
+  bytecode side reads (`Frame/Match.lean`). The abstraction lens to a `Frame`
   is *not* part of the IR; it lives in the preservation proof.
 * **The gas stream** (§3.3–3.4, `ir-design-v3.md` §8). `GasOracle := List Word` —
   the `Word`s a `GAS` opcode reports, consumed in order. `Expr.gas` **consumes**
@@ -24,7 +24,7 @@ Design decisions taken from `ir-design-v2.md`, verbatim:
   so the stream carries only gas reads — no `Event` wrapper.) There is deliberately
   no `matCost`/`gVerylow`/charge logic anywhere in v2.
 
-v1 (`LirLean/SmallStep.lean`) is the bytecode-coupled reference line: also gas-free
+v1 (`Frame/SmallStep.lean`) is the bytecode-coupled reference line: also gas-free
 (no IR cost accounting), it carries `IRState.storage`/`locals`/`callResult` and the
 `Match`/`sim_*` simulation bricks against exp003's `Runs`. Its `evalExpr` has no
 value for `Expr.gas` (no counter to read); here `Expr.gas` is supplied by the gas
@@ -150,7 +150,7 @@ def evalExpr (st : IRState) (obs : Word) : Expr → Option Word
 
 `blockAt prog L` is the block at label `L` (if present) — the same projection as
 v1's `Lir.Program.blockAt`, kept v2-local so this module depends only on
-`Spec/IR.lean` (not the gas-aware `SmallStep.lean`). -/
+`Spec/IR.lean` (not the gas-aware `Frame/SmallStep.lean`). -/
 
 /-- The block at label `L`, if present. -/
 def blockAt (prog : Program) (L : Label) : Option Block :=
@@ -320,5 +320,107 @@ stream `D`, halt with `O`. All three streams are threaded alongside `prog`, cons
 def IRRun (prog : Program) (w₀ : World) (T : Trace) (C : CallStream) (D : CreateStream)
     (O : Observable) : Prop :=
   RunFrom prog { locals := fun _ => none, world := w₀ } T C D prog.entry O
+
+/-! ## Exact stream consumption: `RunFromLeft` / `RunFromAll`
+
+`RunFrom`'s two halt constructors DROP the leftover trace `T'` (the `ret`/`stop` arms above), so a
+bare `RunFrom … (realisedGas log) …` conclusion only speaks about the consumed PREFIX —
+the last drop-the-suffix vacuity channel. `RunFromLeft` mirrors `RunFrom` constructor-for-
+constructor with three extra indices exposing the leftover streams at the halt; `RunFromAll`
+pins them to `[]` (the strengthening the target architecture marks "worth taking"). The two
+adequacy lemmas make the mirror-faithfulness itself tracked (and here, proved). -/
+
+/-- `RunFrom` with the leftover streams exposed: `RunFromLeft prog st T C D L O Tleft Cleft
+Dleft` is `RunFrom prog st T C D L O` where the halt constructor's un-consumed gas trace is
+`Tleft`, call stream `Cleft` and create stream `Dleft`. Constructor-for-constructor mirror of
+`RunFrom` (above); the halt arms return their `T'`/`C'`/`D'` instead of dropping them,
+the edge arms thread them. -/
+inductive RunFromLeft (prog : Program) :
+    IRState → Trace → CallStream → CreateStream → Label → Observable →
+    Trace → CallStream → CreateStream → Prop where
+  /-- `ret t`: run the block's statements, halt returning `t`'s value; leftovers = `T'`/`C'`/`D'`. -/
+  | ret {st st' : IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
+      {L : Label} {b : Block} {t : Tmp} {w : Word}
+      (hb : blockAt prog L = some b)
+      (hss : RunStmts prog st T C D b.stmts st' T' C' D')
+      (hterm : b.term = .ret t)
+      (hv : st'.locals t = some w) :
+      RunFromLeft prog st T C D L { world := st'.world, result := .returned w } T' C' D'
+  /-- `stop`: run the block's statements, halt; leftovers = `T'`/`C'`/`D'`. -/
+  | stop {st st' : IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
+      {L : Label} {b : Block}
+      (hb : blockAt prog L = some b)
+      (hss : RunStmts prog st T C D b.stmts st' T' C' D')
+      (hterm : b.term = .stop) :
+      RunFromLeft prog st T C D L { world := st'.world, result := .stopped } T' C' D'
+  /-- `branch`, condition non-zero ⇒ recurse into `thenL`, threading the leftovers. -/
+  | branchThen {st st' : IRState} {T T' Tleft : Trace} {C C' Cleft : CallStream}
+      {D D' Dleft : CreateStream} {L : Label}
+      {b : Block} {cond : Tmp} {cw : Word} {thenL elseL : Label} {O : Observable}
+      (hb : blockAt prog L = some b)
+      (hss : RunStmts prog st T C D b.stmts st' T' C' D')
+      (hterm : b.term = .branch cond thenL elseL)
+      (hc : st'.locals cond = some cw) (hnz : cw ≠ 0)
+      (hrest : RunFromLeft prog st' T' C' D' thenL O Tleft Cleft Dleft) :
+      RunFromLeft prog st T C D L O Tleft Cleft Dleft
+  /-- `branch`, condition zero ⇒ recurse into `elseL`, threading the leftovers. -/
+  | branchElse {st st' : IRState} {T T' Tleft : Trace} {C C' Cleft : CallStream}
+      {D D' Dleft : CreateStream} {L : Label}
+      {b : Block} {cond : Tmp} {thenL elseL : Label} {O : Observable}
+      (hb : blockAt prog L = some b)
+      (hss : RunStmts prog st T C D b.stmts st' T' C' D')
+      (hterm : b.term = .branch cond thenL elseL)
+      (hc : st'.locals cond = some 0)
+      (hrest : RunFromLeft prog st' T' C' D' elseL O Tleft Cleft Dleft) :
+      RunFromLeft prog st T C D L O Tleft Cleft Dleft
+  /-- `jump dst` ⇒ recurse into `dst`, threading the leftovers. -/
+  | jump {st st' : IRState} {T T' Tleft : Trace} {C C' Cleft : CallStream}
+      {D D' Dleft : CreateStream} {L : Label}
+      {b : Block} {dst : Label} {O : Observable}
+      (hb : blockAt prog L = some b)
+      (hss : RunStmts prog st T C D b.stmts st' T' C' D')
+      (hterm : b.term = .jump dst)
+      (hrest : RunFromLeft prog st' T' C' D' dst O Tleft Cleft Dleft) :
+      RunFromLeft prog st T C D L O Tleft Cleft Dleft
+
+/-- **Exact whole-stream consumption**: the run consumes the ENTIRE supplied gas trace, call
+stream AND create stream (all three leftovers `[]`). The flagship's strengthened conclusion
+(`lower_conforms_exact`) uses this with `T := realisedGas log` / `C := realisedCall log self` /
+`D := realisedCreate log self`, closing the positional-equality gap over ALL un-consumed
+suffixes. -/
+def RunFromAll (prog : Program) (st : IRState) (T : Trace) (C : CallStream) (D : CreateStream)
+    (L : Label) (O : Observable) : Prop :=
+  RunFromLeft prog st T C D L O [] [] []
+
+/-- Mirror adequacy, forgetful direction: a leftover-indexed run is a run. Structural
+induction (stated so the mirror-faithfulness of `RunFromLeft` is itself checked, not assumed). -/
+theorem runFrom_of_runFromLeft {prog : Program} {st : IRState}
+    {T Tleft : Trace} {C Cleft : CallStream} {D Dleft : CreateStream} {L : Label} {O : Observable}
+    (h : RunFromLeft prog st T C D L O Tleft Cleft Dleft) : RunFrom prog st T C D L O := by
+  induction h with
+  | ret hb hss hterm hv => exact .ret hb hss hterm hv
+  | stop hb hss hterm => exact .stop hb hss hterm
+  | branchThen hb hss hterm hc hnz _hrest ih => exact .branchThen hb hss hterm hc hnz ih
+  | branchElse hb hss hterm hc _hrest ih => exact .branchElse hb hss hterm hc ih
+  | jump hb hss hterm _hrest ih => exact .jump hb hss hterm ih
+
+/-- Mirror adequacy, completion direction: every run has SOME leftover decomposition.
+Structural induction on `RunFrom`. -/
+theorem runFromLeft_exists {prog : Program} {st : IRState}
+    {T : Trace} {C : CallStream} {D : CreateStream} {L : Label} {O : Observable}
+    (h : RunFrom prog st T C D L O) :
+    ∃ Tleft Cleft Dleft, RunFromLeft prog st T C D L O Tleft Cleft Dleft := by
+  induction h with
+  | ret hb hss hterm hv => exact ⟨_, _, _, .ret hb hss hterm hv⟩
+  | stop hb hss hterm => exact ⟨_, _, _, .stop hb hss hterm⟩
+  | branchThen hb hss hterm hc hnz _hrest ih =>
+      obtain ⟨Tleft, Cleft, Dleft, hl⟩ := ih
+      exact ⟨Tleft, Cleft, Dleft, .branchThen hb hss hterm hc hnz hl⟩
+  | branchElse hb hss hterm hc _hrest ih =>
+      obtain ⟨Tleft, Cleft, Dleft, hl⟩ := ih
+      exact ⟨Tleft, Cleft, Dleft, .branchElse hb hss hterm hc hl⟩
+  | jump hb hss hterm _hrest ih =>
+      obtain ⟨Tleft, Cleft, Dleft, hl⟩ := ih
+      exact ⟨Tleft, Cleft, Dleft, .jump hb hss hterm hl⟩
 
 end Lir.V2

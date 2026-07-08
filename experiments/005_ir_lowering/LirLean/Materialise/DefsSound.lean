@@ -4,15 +4,17 @@ import LirLean.Spec.Semantics
 /-!
 # LirLean — `WellFormed` + `DefsSound` (Layer B3 of the `lower_conforms` grind)
 
-This module is the **soundness foundation for recompute-on-use** that the linchpin
-**B1 `materialise_runs`** consumes (its `.tmp t → defsOf prog t` recursion). See
-`docs/lower-conforms-plan.md`, the `DESIGN DECISION` block and node **B3**.
+This module is the **soundness foundation for recompute-on-use** that the value
+channel (`materialise_runsC`, `Materialise/MatFoldChannel.lean`) consumes at its
+`.tmp t → rematOf prog t` resolution. See `docs/lower-conforms-plan.md`, the
+`DESIGN DECISION` block and node **B3**.
 
 ## Why two predicates
 
-The lowering is **recompute-on-use** (`LirLean/Lowering.lean`): an `assign` emits
-**no** bytes; the work happens at the consuming opcode, which re-emits the
-push-sequence of the operand's defining expression via `materialiseExpr defsOf …`.
+The lowering is **recompute-on-use** (`LirLean/Spec/Lowering.lean`): an `assign` of
+a rematerialised tmp emits **no** bytes; the work happens at the consuming opcode,
+which pushes the cached byte-assembly of the operand's defining expression
+(`matCache prog`, resolving each operand via the def-env fold).
 This is sound **only when recomputing a tmp gives the same value it had when the IR
 assigned it**. That holds for *pure* expressions (`imm/add/lt/sload`: recompute =
 same value, modulo the world, which `sstore` is sequenced before its readers). It is
@@ -34,7 +36,7 @@ recomputable tmps**; the non-recomputable ones are accounted by `WellFormed`'s
 single-use (B1 materialises each at its unique site, never via the `defsOf` recursion).
 
 Pure-IR (frame-free): this module depends only on `IR.lean`, `Lowering.lean` and
-`V2/Machine.lean`. -/
+`Spec/Semantics.lean`. -/
 
 namespace Lir
 
@@ -102,7 +104,7 @@ def isCreateResult (prog : Program) (t : Tmp) : Prop :=
 
 /-- Is `t` the target of an `assign t .gas` somewhere in the program? Phrased
 **syntactically** (on the source statements) rather than on `defsOf`: after Phase B a
-gas-defined tmp is registered in `defsOf` as the spill-load `Expr.slot (slotOf t)` (it is
+gas-defined tmp is registered in `defsOf` as the spill slot `Loc.slot (slotOf t)` (it is
 stashed once and read back from memory, never re-emitting `GAS`), so the old
 `defsOf prog t = some .gas` characterisation no longer fires. The syntactic form is what
 `gasAssignTmps`/`WellFormedDec` already use, and what the gas value-channel keys on. -/
@@ -111,8 +113,8 @@ def isGasDef (prog : Program) (t : Tmp) : Prop :=
 
 /-- Is `t` the target of an `assign t (.sload k)` somewhere in the program? Phrased
 **syntactically** (on the source statements) rather than on `defsOf`, mirroring `isGasDef`:
-after Phase C an sload-defined tmp is registered in `defsOf` as the spill-load
-`Expr.slot (slotOf t)` (the SLOAD value + its warmth charge is read once at the def-site stash
+after Phase C an sload-defined tmp is registered in `defsOf` as the spill slot
+`Loc.slot (slotOf t)` (the SLOAD value + its warmth charge is read once at the def-site stash
 and reused from memory via `MLOAD`), so a `defsOf prog t = some (.sload _)` characterisation no
 longer fires. This is the predicate keying the SLOAD value/warmth channel. -/
 def isSloadDef (prog : Program) (t : Tmp) : Prop :=
@@ -178,20 +180,19 @@ theorem wellFormed_of_dec {prog : Program} (h : WellFormedDec prog) : WellFormed
 
 /-! ## `DefsSound` — recompute env agrees with IR locals (B3)
 
-The recompute environment `defsOf prog` agrees with the IR machine's `locals` on the
-**recomputable** tmps: for every such `t` with a definition `e`, the local's bound
-value equals `e` re-evaluated in the current state. This is exactly the fact B1 needs
-at its `.tmp t → defsOf prog t` recursion: materialising `.tmp t` (which expands to
-materialising `defsOf prog t`) pushes `evalExpr st e`, and `DefsSound` says that is
-`st.locals t` — the value the IR holds.
+The rematerialisation environment `rematOf prog` agrees with the IR machine's `locals`
+on the **recomputable** tmps: for every such `t` with a definition `e`, the local's
+bound value equals `e` re-evaluated in the current state. This is exactly the fact the
+value channel needs at its `.tmp t → rematOf prog t` resolution: materialising `.tmp t`
+(whose cached bytes are the byte-assembly of `rematOf prog t`) pushes `evalExpr st e`,
+and `DefsSound` says that is `st.locals t` — the value the IR holds.
 
-The **non-recomputable** tmps (`Expr.gas`, call results) are *excluded*: their value is
-not a function of `defsOf` (gas is the *consumed* read bound by `assignGas`; a call
-result is the dynamic CALL flag bound by the call arm). `WellFormed`'s single-use is
-what accounts for them on the bytecode side — B1 materialises each at its unique site,
-so the `defsOf` recursion never reaches them. (For a gas-defined `t`, `defsOf prog t =
-some .gas`, which `NonRecomputable` excludes; so `DefsSound` makes *no* claim about it,
-exactly as intended.)
+The **non-recomputable** tmps (gas / sload / call / create results) are *excluded*:
+their value is not a function of a recomputable expression (gas is the *consumed* read
+bound by `assignGas`; a call result is the dynamic CALL flag bound by the call arm).
+They are spilled to memory slots and never resolved through `rematOf` — for a
+gas-defined `t`, `defsOf prog t = some (.slot (slotOf t))` and `rematOf prog t = none`,
+so `DefsSound` makes *no* claim about it, exactly as intended.
 
 `obs` is pinned to `0`: a recomputable `e` is non-`gas`, and `evalExpr` reads `obs`
 **only** for `.gas`, so the choice is irrelevant for the tmps in range.
@@ -208,7 +209,7 @@ currently holds a value for, that value agrees with re-evaluating the tmp's `def
 expression in the current state. -/
 def DefsSound (prog : Program) (st : IRState) : Prop :=
   ∀ (t : Tmp) (e : Expr) (w : Word),
-    defsOf prog t = some e →
+    rematOf prog t = some e →
     ¬ NonRecomputable prog t →
     st.locals t = some w →
     some w = evalExpr st 0 e
@@ -301,9 +302,9 @@ single-assignment consistency `hself` and the define-before-use scoping `hscope`
 theorem defsSound_preserved_assignPure {prog : Program} {st : IRState}
     {t : Tmp} {e : Expr} {w : Word}
     (hv : evalExpr st 0 e = some w)
-    (hself : defsOf prog t = some e)
+    (hself : rematOf prog t = some e)
     (hnoself : usesInExpr t e = 0)
-    (hscope : ∀ t₀ e₀, defsOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0)
+    (hscope : ∀ t₀ e₀, rematOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0)
     (hsound : DefsSound prog st) :
     DefsSound prog (st.setLocal t w) := by
   intro t₀ e₀ w₀ hdef₀ hnr₀ hlocal₀
@@ -345,7 +346,7 @@ rebinding `t`, given define-before-use. -/
 theorem defsSound_preserved_assignGas {prog : Program} {st : IRState}
     {t : Tmp} {obs : Word}
     (hgasdef : isGasDef prog t)
-    (hscope : ∀ t₀ e₀, defsOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0)
+    (hscope : ∀ t₀ e₀, rematOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0)
     (hsound : DefsSound prog st) :
     DefsSound prog (st.setLocal t obs) := by
   intro t₀ e₀ w₀ hdef₀ hnr₀ hlocal₀
@@ -380,7 +381,7 @@ given define-before-use. -/
 theorem defsSound_preserved_assignSload {prog : Program} {st : IRState}
     {t : Tmp} {w : Word}
     (hsloaddef : isSloadDef prog t)
-    (hscope : ∀ t₀ e₀, defsOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0)
+    (hscope : ∀ t₀ e₀, rematOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0)
     (hsound : DefsSound prog st) :
     DefsSound prog (st.setLocal t w) := by
   intro t₀ e₀ w₀ hdef₀ hnr₀ hlocal₀
@@ -424,7 +425,7 @@ recomputable tmp's `defsOf` expression is an `sload` (`hnoSload` — the honest
 no-live-sload-across-the-write fact, vacuous on the concrete programs where SSTORE
 precedes its readers), `DefsSound` survives the storage write. -/
 theorem defsSound_preserved_sstore {prog : Program} {st : IRState} {kw vw : Word}
-    (hnoSload : ∀ t₀ e₀, defsOf prog t₀ = some e₀ → ¬ NonRecomputable prog t₀ →
+    (hnoSload : ∀ t₀ e₀, rematOf prog t₀ = some e₀ → ¬ NonRecomputable prog t₀ →
         st.locals t₀ ≠ none → ∀ key, e₀ ≠ .sload key)
     (hsound : DefsSound prog st) :
     DefsSound prog (st.setStorage kw vw) := by
@@ -475,11 +476,11 @@ hazard), `hisresult` (the bound result tmp is genuinely a call result, hence
 is preserved. Both branches of `cs.resultTmp` are covered. -/
 theorem defsSound_preserved_call {prog : Program} {st : IRState} {cs : CallSpec}
     {world' : World} {success : Word}
-    (hnoSload : ∀ t₀ e₀, defsOf prog t₀ = some e₀ → ¬ NonRecomputable prog t₀ →
+    (hnoSload : ∀ t₀ e₀, rematOf prog t₀ = some e₀ → ¬ NonRecomputable prog t₀ →
         st.locals t₀ ≠ none → ∀ key, e₀ ≠ .sload key)
     (hisresult : ∀ t, cs.resultTmp = some t → isCallResult prog t)
     (hscope : ∀ t, cs.resultTmp = some t →
-        ∀ t₀ e₀, defsOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0)
+        ∀ t₀ e₀, rematOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0)
     (hsound : DefsSound prog st) :
     DefsSound prog
       (match cs.resultTmp with
@@ -529,11 +530,11 @@ stream's `world'` and (if present) the create-result tmp is bound to `addrW`. Tw
 (the create sibling of `isCallResult`), injecting into `NonRecomputable`'s fourth disjunct. -/
 theorem defsSound_preserved_create {prog : Program} {st : IRState} {cs : CreateSpec}
     {world' : World} {addrW : Word}
-    (hnoSload : ∀ t₀ e₀, defsOf prog t₀ = some e₀ → ¬ NonRecomputable prog t₀ →
+    (hnoSload : ∀ t₀ e₀, rematOf prog t₀ = some e₀ → ¬ NonRecomputable prog t₀ →
         st.locals t₀ ≠ none → ∀ key, e₀ ≠ .sload key)
     (hisresult : ∀ t, cs.resultTmp = some t → isCreateResult prog t)
     (hscope : ∀ t, cs.resultTmp = some t →
-        ∀ t₀ e₀, defsOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0)
+        ∀ t₀ e₀, rematOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0)
     (hsound : DefsSound prog st) :
     DefsSound prog
       (match cs.resultTmp with
@@ -578,33 +579,33 @@ shape. (Each arm reuses the precise hypotheses of its dedicated lemma above.) -/
 def StepScoped (prog : Program) (st : IRState) : Stmt → Prop
   | .assign t e =>
       (e ≠ .gas → (∀ key, e ≠ .sload key) →
-        defsOf prog t = some e ∧ usesInExpr t e = 0 ∧
-        (∀ t₀ e₀, defsOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0))
+        rematOf prog t = some e ∧ usesInExpr t e = 0 ∧
+        (∀ t₀ e₀, rematOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0))
       ∧ (e = .gas →
         isGasDef prog t ∧
-        (∀ t₀ e₀, defsOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0))
+        (∀ t₀ e₀, rematOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0))
       ∧ (∀ key, e = .sload key →
         isSloadDef prog t ∧
-        (∀ t₀ e₀, defsOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0))
+        (∀ t₀ e₀, rematOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0))
   | .sstore _ _ =>
-      ∀ t₀ e₀, defsOf prog t₀ = some e₀ → ¬ NonRecomputable prog t₀ →
+      ∀ t₀ e₀, rematOf prog t₀ = some e₀ → ¬ NonRecomputable prog t₀ →
         st.locals t₀ ≠ none → ∀ key, e₀ ≠ .sload key
   | .call cs =>
-      (∀ t₀ e₀, defsOf prog t₀ = some e₀ → ¬ NonRecomputable prog t₀ →
+      (∀ t₀ e₀, rematOf prog t₀ = some e₀ → ¬ NonRecomputable prog t₀ →
         st.locals t₀ ≠ none → ∀ key, e₀ ≠ .sload key)
       ∧ (∀ t, cs.resultTmp = some t → isCallResult prog t)
       ∧ (∀ t, cs.resultTmp = some t →
-          ∀ t₀ e₀, defsOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0)
+          ∀ t₀ e₀, rematOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0)
   | .create cs =>
       -- The `.create` bundle, mirroring `.call` (`docs/create/BUILD-PLAN.md` §2 Step 2):
       -- no live recomputable `sload`-tmp across the world-replacing create; the create-result
       -- tmp is genuinely a create result (`isCreateResult`, the twin of `isCallResult`, hence
       -- `NonRecomputable`); and define-before-use for the result tmp.
-      (∀ t₀ e₀, defsOf prog t₀ = some e₀ → ¬ NonRecomputable prog t₀ →
+      (∀ t₀ e₀, rematOf prog t₀ = some e₀ → ¬ NonRecomputable prog t₀ →
         st.locals t₀ ≠ none → ∀ key, e₀ ≠ .sload key)
       ∧ (∀ t, cs.resultTmp = some t → isCreateResult prog t)
       ∧ (∀ t, cs.resultTmp = some t →
-          ∀ t₀ e₀, defsOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0)
+          ∀ t₀ e₀, rematOf prog t₀ = some e₀ → st.locals t₀ ≠ none → usesInExpr t e₀ = 0)
 
 /-- **`DefsSound` is preserved by `EvalStmt`** (the B3 headline preservation), given the
 per-step scoping bundle `StepScoped`. Dispatches to the four per-arm lemmas. -/

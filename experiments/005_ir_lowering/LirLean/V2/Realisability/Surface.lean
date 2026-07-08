@@ -1,6 +1,8 @@
 import LirLean.V2.Drive.Headline
-import LirLean.Assembly.Acyclic
 import LirLean.Decode.BoundaryReach
+import LirLean.Spec.WellFormed
+import LirLean.Spec.Conformance
+import LirLean.Spec.Seams
 
 /-!
 # LirLean v2 — Realisability spec, SURFACE (§1–§4)
@@ -21,48 +23,14 @@ open BytecodeLayer.Dispatch
 
 /-! ## §1 — Helper definitions (all REAL; no sorry)
 
-The flagship's hypothesis vocabulary: the entry state, the log-side clean-scope predicate,
-observable agreement, the static well-formedness bundle, the honest oracle seams, and the
-scope seams. -/
-
-/-- The IR entry state of a top-level call: empty locals, world = the recipient's storage
-lens of the pre-call accounts (the `find?/lookupStorage` lens `resultStorageAt`/`observe`
-read, applied to `params.accounts`). Replaces the supplied entry `StorageAgree` hypothesis
-of the since-deleted `lower_conforms_wf` BY DEFINITION — the entry world *is* the params' lens (the pin is
-then `rfl`-flavoured at the entry `codeFrame`, whose `accounts` are `params.accounts`).
-DERIVED status: definitional (nothing to discharge). -/
-def entryState (params : CallParams) : IRState :=
-  { locals := fun _ => none
-    world  := fun k => (params.accounts.find? params.recipient).option 0 (·.lookupStorage k) }
-
-/-- **The log-side clean-scope predicate** (the flagship's `hclean`). The recorded run
-halted cleanly: a top-level `.call` result that either succeeded or reverted with gas left.
-
-Ground truth (`endCall`, exp003 `Evm/Semantics/Call.lean`): `.success → success := true`;
-`.revert g o → success := false, gasRemaining := g`; `.exception → success := false,
-gasRemaining := 0, output := .empty`. So an exception is distinguishable from a revert ON
-THE LOG only via `gasRemaining ≠ 0` — **a genuine zero-gas revert is conservatively
-excluded** (scope cut; sound: the hypothesis is then false and the flagship silent). The
-fleet sketch's `ResultNonException` does not exist in the tree; this is its honest
-decidable-on-the-log replacement. A `.create` observable is out of scope (top-level frames
-here are calls). SUPPLIED status: a decidable premise read off the log (both branches are
-`Bool`/`DecidableEq` facts). R2 turns it into the `∀ last halt`-universal
-`cleanHalts_of_runWithLog` consumes. -/
-def RunLog.clean (log : RunLog) : Prop :=
-  match log.observable with
-    | .call r   => r.success = true ∨ r.gasRemaining ≠ 0
-    | .create _ => False
-
-/-- **Full observable agreement** (the flagship's conclusion edge). The IR observable
-agrees with the `observe` of the recorded bytecode result on **both** channels: the
-world (self-account storage lens) AND the halt result — `observe`'s result is now live
-(empty output ⇒ `.stopped`, else the RETURN window decoded back to `.returned w`; the
-faithful inverse of the `ret` lowering, `Spec/Recorder.lean` `observe`). So `Conforms`
-says the contract *behaves* the same, not merely that storage matches. DERIVED status:
-the conclusion, not a premise. -/
-def Conforms (self : AccountAddress) (log : RunLog) (O : Observable) : Prop :=
-  O.world = (observe self log.observable).world
-  ∧ O.result = (observe self log.observable).result
+The flagship's hypothesis vocabulary that has NOT yet been hoisted to the trusted surface:
+the static well-formedness bundle, the shadowing-aware CALL tie, the honest oracle seams,
+and the scope seams. The sorry-free vocabulary already lifted into `Spec/` — `entryState`,
+`RunLog.clean`, `Conforms`, `NoGasReads` (`Spec/Conformance.lean`), the `RunFromLeft`/
+`RunFromAll` mirror (`Spec/Semantics.lean`), and `evmV2CallEntry`/`evmV2CreateEntry`
+(`Spec/CallEntry.lean`) — is `open`ed via the imports above. Still stranded here (blocked on
+the `CallsCode`/`AccPresent` relocations, plan §1D/§1E): `PrecompileAssumptions`,
+`ReachableFrom`, `WellFormedLowered`. -/
 
 /-- **Static CFG closure** — entry present and pc-bounded, every jump/branch target present,
 in-bounds, and offset-bounded. Folds the current headline's `hentry0`-adjacent presence
@@ -75,243 +43,22 @@ structure ClosedCFG (prog : Program) : Prop where
   entry_present : ∃ b, blockAt prog prog.entry = some b
   /-- The entry block's byte offset fits a 32-bit pc (what `entry_corr` consumes). -/
   entry_bound :
-    offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks prog.entry.idx < 2 ^ 32
+    offsetTable (matCache prog) (defsOf prog) prog.blocks prog.entry.idx < 2 ^ 32
   /-- Every jump target is present, in-bounds, and offset-bounded. -/
   jump_closed : ∀ (L : Label) (b : Block) (dst : Label),
     blockAt prog L = some b → b.term = .jump dst →
     (∃ b', blockAt prog dst = some b')
     ∧ dst.idx < prog.blocks.size
-    ∧ offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks dst.idx < 2 ^ 32
+    ∧ offsetTable (matCache prog) (defsOf prog) prog.blocks dst.idx < 2 ^ 32
   /-- Both branch targets are present, in-bounds, and offset-bounded. -/
   branch_closed : ∀ (L : Label) (b : Block) (cond : Tmp) (thenL elseL : Label),
     blockAt prog L = some b → b.term = .branch cond thenL elseL →
     ((∃ b', blockAt prog thenL = some b')
       ∧ thenL.idx < prog.blocks.size
-      ∧ offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx < 2 ^ 32)
+      ∧ offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx < 2 ^ 32)
     ∧ ((∃ b', blockAt prog elseL = some b')
       ∧ elseL.idx < prog.blocks.size
-      ∧ offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks elseL.idx < 2 ^ 32)
-
-/-- **Static stack-room bounds** — the per-cursor `chargeOf`-length ≤ 1024 folds the ties
-carry (`hstkBranch` of the assembled headline; the `hstkKey` bound of the sload arm; the
-sstore fold; the ret fold). Quantified `∀ sloadChg` and PROVABLE that way: `chargeOf`'s
-LENGTH is structurally independent of the `sloadChg` values (each `.sload` contributes
-exactly one entry whatever the charge). SUPPLIED status: static, decidable per program
-(R9's checker discharges it). -/
-structure StackRoomOK (prog : Program) : Prop where
-  /-- The `branch` cond-materialise stack fold (the headline's `hstkBranch`). -/
-  branch : ∀ (sloadChg : Tmp → ℕ) (L : Label) (b : Block) (cond : Tmp) (thenL elseL : Label),
-    blockAt prog L = some b → b.term = .branch cond thenL elseL →
-    (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp cond)).length ≤ 1024
-  /-- The spilled-sload key-prefix stack fold (the tie's `hstkKey`; the frame term is 0 at
-  a statement boundary by `Corr.stack_nil`, so the pure charge-length bound suffices). -/
-  sloadKey : ∀ (sloadChg : Tmp → ℕ) (L : Label) (b : Block) (pc : Nat) (t k : Tmp),
-    blockAt prog L = some b → b.stmts[pc]? = some (.assign t (.sload k)) →
-    (chargeOf (defsOf prog) sloadChg (recomputeFuel prog - 1) (.tmp k)).length ≤ 1024
-  /-- The `sstore` two-operand stack fold. -/
-  sstore : ∀ (sloadChg : Tmp → ℕ) (L : Label) (b : Block) (pc : Nat) (key value : Tmp),
-    blockAt prog L = some b → b.stmts[pc]? = some (.sstore key value) →
-    (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp value)).length
-      + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).length + 1 ≤ 1024
-  /-- The `ret` operand stack fold. -/
-  ret : ∀ (sloadChg : Tmp → ℕ) (L : Label) (b : Block) (t : Tmp),
-    blockAt prog L = some b → b.term = .ret t →
-    (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).length ≤ 1024
-
-/-! ### Gas/call-aware run-definability (`RunDefinableG`)
-
-The existing `RunDefinable` (`V2/IRRun.lean`) is UNSATISFIABLE for any program with a
-`Stmt.call` or a gas read (header lesson 4), so it cannot be the flagship's definability
-bundle. The honest replacement threads definability along `RunStmts` itself: the semantics
-natively supplies the gas word (stream head) and the call bundle (oracle query), so "the
-operands of the statement at cursor `pc` are bound at every state `RunStmts` reaches by
-running the prefix" is exactly the fact `RunFrom`-existence needs — and it is state-uniform
-in the block-ENTRY state (the same sound over-approximation the old bundle used), while the
-INTERMEDIATE states are pinned by the derivation, never free. -/
-
-/-- Gas/call-aware operand definability of one statement at state `st`: what the matching
-`EvalStmt` constructor demands of `st` (the gas word / call bundle are supplied by the
-stream / oracle, so a gas assign is unconditionally definable). -/
-def StmtDefinableG (st : IRState) : Stmt → Prop
-  | .assign _ e => e = .gas ∨ ∃ w, evalExpr st 0 e = some w
-  | .sstore key value => (∃ kw, st.locals key = some kw) ∧ (∃ vw, st.locals value = some vw)
-  | .call cs => (∃ cw, st.locals cs.callee = some cw) ∧ (∃ gw, st.locals cs.gasFwd = some gw)
-  | .create _ =>
-      -- Step-1 placeholder (real total Prop): CREATE has no `EvalStmt` arm yet
-      -- (Step 2), so nothing is demanded. The real operand demands (value /
-      -- initOffset / initSize bound) land with the semantics arm.
-      True
-
-/-- **Gas/call-aware run-definability** — the honest replacement of `RunDefinable`
-(unsatisfiable on the gas/call domain, header lesson 4). Definability is threaded along
-`RunStmts` derivations: at every cursor, the statement is definable at the state reached by
-running the block prefix (any gas trace, any call stream, any block-entry state); the `ret` operand
-and `branch` condition are bound at the post-statement state. SUPPLIED status: static per
-program in the same over-approximate sense as the old bundle (state-uniform in the
-block-entry state); decidable for concrete programs by running the fold — R9's checker
-discharges it. -/
-structure RunDefinableG (prog : Program) : Prop where
-  /-- Every cursor's statement is definable at every state a `RunStmts` prefix-run reaches. -/
-  stmts : ∀ (st st' : IRState) (T T' : Trace) (C C' : CallStream) (D D' : CreateStream)
-      (L : Label) (b : Block) (pc : Nat) (s : Stmt),
-    blockAt prog L = some b → b.stmts[pc]? = some s →
-    RunStmts prog st T C D (b.stmts.take pc) st' T' C' D' →
-    StmtDefinableG st' s
-  /-- A `ret t` block's operand is bound at every `RunStmts`-post state. -/
-  ret_def : ∀ (st st' : IRState) (T T' : Trace) (C C' : CallStream) (D D' : CreateStream)
-      (L : Label) (b : Block) (t : Tmp),
-    blockAt prog L = some b → b.term = .ret t →
-    RunStmts prog st T C D b.stmts st' T' C' D' →
-    ∃ w, st'.locals t = some w
-  /-- A `branch cond _ _` block's condition is bound at every `RunStmts`-post state. -/
-  branch_def : ∀ (st st' : IRState) (T T' : Trace) (C C' : CallStream) (D D' : CreateStream)
-      (L : Label) (b : Block) (cond : Tmp) (thenL elseL : Label),
-    blockAt prog L = some b → b.term = .branch cond thenL elseL →
-    RunStmts prog st T C D b.stmts st' T' C' D' →
-    ∃ cw, st'.locals cond = some cw
-
-/-- **Static `defsOf`-cursor consistency** (header lesson 6 — the review drill's shadowing
-hole). Every def-site in the program text agrees with `defsOf`'s registration for its
-target: a pure assign registers its own RHS; a gas/sload assign and a call result register
-the spill slot `.slot (slotOf t)`.
-
-GROUND TRUTH this pins (`Lowering.lean`): `defsOf` is a **FIRST-find over program order**
-(`pairs.find?` returns the first match — NOTE its docstring says "the last assign", a
-discrepancy flagged for a Wave-4 sweep; that file is not this track's edit surface), while
-`emitStmt` keys its spill stash on `defsOf t`. A tmp redefined with mixed pure/spill defs
-(e.g. `[.assign t (.imm 1), .assign t .gas]`) therefore emits NO GAS byte at the shadowed
-def while `EvalStmt.assignGas` still demands a gas-stream head — the flagship refutation of
-header lesson 6. This field excludes exactly that mismatch (including pure/pure shadowing
-with a DIFFERENT RHS, which breaks recompute-on-use the same way); single-assignment
-programs (`exProg`) satisfy it trivially, so benign programs stay in scope. It is the
-static lift of the per-cursor `hself` side condition the DefsSound walk already consumes
-(`defsSound_preserved_assignPure`, `DefsSound.lean:269`). SUPPLIED status: static,
-decidable per program (the R9 checker's territory). -/
-def DefsConsistent (prog : Program) : Prop :=
-  ∀ (L : Label) (b : Block) (pc : Nat), blockAt prog L = some b →
-    (∀ (t : Tmp) (e : Expr), b.stmts[pc]? = some (.assign t e) →
-      defsOf prog t = some (match e with
-        | .gas => .slot (slotOf t)
-        | .sload _ => .slot (slotOf t)
-        | e' => e'))
-    ∧ (∀ (cs : CallSpec) (t : Tmp), b.stmts[pc]? = some (.call cs) → cs.resultTmp = some t →
-      defsOf prog t = some (.slot (slotOf t)))
-
-/-! ### Shadowing-aware scoping (header lesson 8 — the round-3 reshape)
-
-`Lir.StepScoped`'s live-scope clause is a free-∀ over the CURRENT live set ("no bound
-tmp's registered def reads the assign target") — define-before-use, which a LOOP violates
-by construction on its second iteration (rebinding with live dependents; `exProg` block 1).
-The shadowing-aware replacement (design route (i), carrier shape (b) — an explicit
-invalidation set):
-
-* `ReadsOf` — the STATIC registered-reader relation;
-* `invalStep` — the per-statement invalidation-set transfer: rebinding `t` invalidates
-  every registered reader of `t`; the rebound `t` itself is re-validated (unless its own
-  def reads it). Liveness-INSENSITIVE by design: invalidating a reader that is not even
-  bound is harmless (the invariant below claims nothing about unbound tmps), and it keeps
-  the transfer a pure function of the program text and the statement — no state parameter,
-  which is what makes the R0b preservation lemma side-condition-free;
-* `DefsSoundS` — `DefsSound` restricted to the complement of the invalidation set: a
-  stale-but-unused binding is CLAIMED NOTHING ABOUT until its reassign re-validates it
-  (mid-block staleness of a bound-but-unused dependent is harmless to the lowered code:
-  rematerialisation is exercised only at USE sites);
-* `StepScopedS` — the static residue of `Lir.StepScoped` once the live-scope clauses move
-  into the invalidation bookkeeping: state-FREE, derivable from `WellLowered`
-  (`defsCons` + cursor membership), hence immune to the lesson-8 refutation;
-* `RevalidatesPerBlock` — the static boundary criterion the R0b reshape rests on: folding
-  `invalStep` over any present block's statements from the empty set lands back on the
-  empty set, so the strong `DefsSound` (= `DefsSoundS` at `∅`, `defsSoundS_empty_iff`) is
-  re-established at every block boundary — exactly where the ties consume `Corr`.
-
-**Why carrier shape (b) over shape (a)** (a "validSince"/not-invalidated-since-binding
-predicate over the walk): validity-since-binding is HISTORY-indexed — it cannot be stated
-on a single `(prog, st)` pair without walk data, so it would carry the same set implicitly;
-making the set explicit data with a STATIC transfer function costs one definition and buys
-(i) a preservation lemma with no per-state side conditions (R0b — the live-scope demands
-are gone, not relocated into hypotheses), and (ii) a decidable-in-principle boundary
-criterion (`RevalidatesPerBlock`, the R9 checker's territory). A SEMANTIC invalidation
-predicate ("live but stale") is NOT an option: it would make the scoped invariant a
-tautology ("every non-stale binding recomputes"). -/
-
-/-- `t'` is a **registered reader** of `t`: `t'`'s `defsOf`-registered def reads `t`.
-Static (a fact of the program text); the invalidation unit of `invalStep`. -/
-def ReadsOf (prog : Program) (t t' : Tmp) : Prop :=
-  ∃ e', defsOf prog t' = some e' ∧ usesInExpr t e' ≠ 0
-
-/-- **The invalidation-set transfer** of one statement. Rebinding `t` (an assign target or
-a call result) invalidates every registered reader of `t`; `t` itself is re-validated by
-the rebind (unless its own def reads it — a self-reading target stays invalid, harmlessly:
-recompute-on-use never reproduces it, and no side condition is demanded anywhere).
-`sstore` and result-free calls transfer the set unchanged: a world write invalidates NO
-registered recompute — `defsOf` never registers a `.sload` (gas/sload/call results are all
-routed to `.slot`, `Lowering.lean`), so no registered def reads the world. -/
-def invalStep (prog : Program) (I : Tmp → Prop) : Stmt → (Tmp → Prop)
-  | .assign t e => fun t' =>
-      if t' = t then usesInExpr t e ≠ 0 else (I t' ∨ ReadsOf prog t t')
-  | .sstore _ _ => I
-  | .call cs =>
-      match cs.resultTmp with
-      | some t => fun t' => if t' = t then False else (I t' ∨ ReadsOf prog t t')
-      | none => I
-  | .create cs =>
-      -- CREATE binds its `resultTmp` (the pushed address) exactly as a call binds its
-      -- success flag, so the invalidation transfer is the `.call` transfer verbatim.
-      match cs.resultTmp with
-      | some t => fun t' => if t' = t then False else (I t' ∨ ReadsOf prog t t')
-      | none => I
-
-/-- **Shadowing-aware recompute soundness**: `Lir.DefsSound` restricted to the tmps
-OUTSIDE the invalidation set `I`. A stale-but-unused dependent (inside `I`) is claimed
-nothing about — the lesson-8 repair: the un-scoped `DefsSound` is FALSE at `exProg`'s
-real mid-block loop-exit states (`not_defsSound_stale`), while `DefsSoundS` at the
-`invalStep`-threaded set is preserved with no per-state side conditions (R0b). -/
-def DefsSoundS (prog : Program) (I : Tmp → Prop) (st : IRState) : Prop :=
-  ∀ (t : Tmp) (e : Expr) (w : Word),
-    defsOf prog t = some e → ¬ Lir.NonRecomputable prog t → ¬ I t →
-    st.locals t = some w → some w = evalExpr st 0 e
-
-/-- At the EMPTY invalidation set, `DefsSoundS` is exactly the strong `DefsSound` — the
-bridge between the mid-block scoped invariant and the block-boundary `Corr.defsSound` the
-ties consume. PROVED (not debt). -/
-theorem defsSoundS_empty_iff (prog : Program) (st : IRState) :
-    DefsSoundS prog (fun _ => False) st ↔ Lir.DefsSound prog st :=
-  ⟨fun h t e w hd hn hl => h t e w hd hn not_false hl,
-   fun h t e w hd hn _ hl => h t e w hd hn hl⟩
-
-/-- **The static per-step scoping residue** — `Lir.StepScoped` minus the refutable
-live-scope clauses (which moved into the invalidation bookkeeping) and minus pure-assign's
-`usesInExpr t e = 0` self-read clause (absorbed: a self-reading rebind leaves its target
-in the invalidation set instead of demanding a side condition). State-FREE: every clause
-is a fact of the program text — the registration clause from `DefsConsistent` at the
-cursor, `isGasDef`/`isSloadDef`/`isCallResult` from cursor membership, and the sstore
-clause from `defsOf`'s structure (it never registers a `.sload`; true of ALL programs,
-the `defsOf_ne_gas` twin). DERIVED status inside the ties: computable from `hwl` + the
-cursor, never a live-set demand. -/
-def StepScopedS (prog : Program) : Stmt → Prop
-  | .assign t e =>
-      (e ≠ .gas → (∀ key, e ≠ .sload key) → defsOf prog t = some e)
-      ∧ (e = .gas → Lir.isGasDef prog t)
-      ∧ (∀ key, e = .sload key → Lir.isSloadDef prog t)
-  | .sstore _ _ =>
-      ∀ (t₀ : Tmp) (e₀ : Expr), defsOf prog t₀ = some e₀ → ∀ key, e₀ ≠ .sload key
-  | .call cs => ∀ t, cs.resultTmp = some t → Lir.isCallResult prog t
-  | .create _ =>
-      -- Step-1 placeholder (real total Prop): the create-result registration clause
-      -- (twin of the `.call` clause, once `isCreateResult` exists) lands with the
-      -- recorder/realisation step (`docs/create/BUILD-PLAN.md` §2 Step 6).
-      True
-
-/-- **The per-block boundary re-validation criterion** (R0b's static half): folding the
-invalidation transfer over any present block's statements from the EMPTY set lands back
-on the empty set — every within-block invalidation is healed by a reassign before the
-block ends, so the strong `DefsSound` is re-established at every block boundary (where
-the ties consume `Corr.defsSound`). Static; decidable in principle once the tmp universe
-is listed (the `Tmp → Prop` fold gets a `List Tmp` executable twin in the R9 checker).
-TRUE of `exProg` (`revalidatesPerBlock_exProg`). -/
-def RevalidatesPerBlock (prog : Program) : Prop :=
-  ∀ (L : Label) (b : Block), blockAt prog L = some b →
-    ∀ t', ¬ (b.stmts.foldl (invalStep prog) (fun _ => False)) t'
+      ∧ offsetTable (matCache prog) (defsOf prog) prog.blocks elseL.idx < 2 ^ 32)
 
 /-- **The shadowing-aware CALL realisability tie** — `Lir.CallRealises`
 (`LowerConforms.lean:261`) with its embedded `Lir.StepScoped prog st0 (.call cs)`
@@ -345,8 +92,8 @@ def CallRealisesS (prog : Program) (sloadChg : Tmp → ℕ)
                         evmCallOracle.postStorage result pd fr0.exec.executionEnv.address key })
     -- the arg-push run + its pins (the realised arg materialisation):
     ∧ argsLen = (emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
-        ++ materialise (defsOf prog) (recomputeFuel prog) cs.callee
-        ++ materialise (defsOf prog) (recomputeFuel prog) cs.gasFwd).length
+        ++ matCache prog cs.callee
+        ++ matCache prog cs.gasFwd).length
     ∧ Runs fr0 callFr
     ∧ callFr.exec.pc = fr0.exec.pc + UInt32.ofNat argsLen
     ∧ callFr.exec.toMachineState.memory = fr0.exec.toMachineState.memory
@@ -399,8 +146,9 @@ SUPPLIED status: one static premise; every field is decidable-in-principle per p
 NOTE the `defs` field is `RunDefinableG`, NOT the in-tree `RunDefinable` — see header
 lesson 4 (the in-tree bundle is unsatisfiable for gas/call programs). -/
 structure WellLowered (prog : Program) : Prop where
-  /-- The folded structural side-conditions (`MatFueled` + pc/offset bounds + slot
-  registration) of the `_lowered` wrappers. -/
+  /-- The folded structural side-conditions (pc/offset bounds + slot registration) of the
+  `_lowered` wrappers, stated over the fold emission (`matCache` lengths / fold offset
+  table). -/
   wf : Lir.WellFormedLowered prog
   /-- Gas/call-aware operand definability (replaces the unsatisfiable `RunDefinable`). -/
   defs : RunDefinableG prog
@@ -409,6 +157,10 @@ structure WellLowered (prog : Program) : Prop where
   refutes the flagship (`RunDefinableG` alone does NOT: its gas arm is unconditionally
   true, which is what opened the hole). -/
   defsCons : DefsConsistent prog
+  /-- Program order is a valid topological order of the recompute-on-use def-graph
+  (define-before-use SSA over the ordered `defEnv` carrier). Every C-channel consumer
+  (`MatDecC`/`MatRunsC`/`matCache_unfold`) descends on it. -/
+  defEnvOrdered : DefEnvOrdered prog
   /-- The entry block is block 0 (its leading `JUMPDEST` is byte 0 = the entry frame's pc). -/
   entry0 : prog.entry.idx = 0
   /-- Static CFG closure (entry/jump/branch presence + offset bounds). -/
@@ -435,13 +187,12 @@ structure WellLowered (prog : Program) : Prop where
   /-- **The ret epilogue's pc-bound seam** (R5's `hretEmit`). The 101-byte
   `PUSH32 0; MSTORE; PUSH32 32; PUSH32 0; RETURN` full-observable epilogue after the
   return-value materialise fits a 32-bit pc. `WellFormedLowered.bound_ret` only bounds
-  `termOf + |materialise t|` (the operand), not the epilogue (a default-target
+  `termOf + |matCache t|` (the operand), not the epilogue (a default-target
   under-specification not editable here); a static, satisfiable, checker-dischargeable
   well-formedness fact, genuinely true of every real ret block. -/
   retEpilogueBound : ∀ (L : Label) (b : Block) (t : Tmp),
     blockAt prog L = some b → b.term = .ret t →
-    termOf prog L + (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp t)).length + 100
-      < 2 ^ 32
+    termOf prog L + (matCache prog t).length + 100 < 2 ^ 32
   /-- **No `.slot` source RHS** (the arm-1 direction of `slots_slot`): a source `assign t e`
   never carries the lowering-only `.slot` marker. Vacuous for real IR (no source program
   writes a `.slot` expression — the `WellFormed` invariant `slots_slot`'s docstring cites);
@@ -458,11 +209,13 @@ def ReachableFrom (params : CallParams) (fr' : Frame) : Prop :=
   ∃ fr₀, beginCall params = .inl fr₀ ∧ Runs fr₀ fr'
 
 /-- **The honest oracle seams** (the flagship's `hseams`) — the precompile boundary, both
-faces. `noErase` is verbatim the `hprec` hypothesis of `callPreservesSelf_modGuards`
-(a live precompile's `.inr` result map genuinely can erase accounts — opaque, honestly
-supplied; vacuous for non-precompile-targeting programs). `callsCode` is the reachable-CALL
-targets-code residual (`V2/Modellable.lean`; NOT a lowering property — an IR call whose
-callee materialises a precompile address would violate it; vacuous for call-free programs).
+faces. `noErase` is the `hprec` hypothesis of `callPreservesSelf_modGuards`, its type bound
+*definitionally* to the trusted register's `Lir.Spec.PrecompilesPreservePresence`
+(`Spec/Seams.lean`) so the two cannot drift (a live precompile's `.inr` result map genuinely
+can erase accounts — opaque, honestly supplied; vacuous for non-precompile-targeting
+programs). `callsCode` is the reachable-CALL targets-code residual (`Engine/Modellable.lean`;
+NOT a lowering property — an IR call whose callee materialises a precompile address would
+violate it; vacuous for call-free programs).
 SUPPLIED status: the irreducible seam structure — both fields are satisfiable and
 non-vacuous, and neither is dischargeable from the program text. (`prog` is carried for
 signature stability — a future refinement scopes `callsCode` by the program's call sites.)
@@ -472,20 +225,12 @@ precompile stub actually preserves account presence — R12a deliberately DOUBLE
 machine-check of that engine fact (its `PrecompileAssumptions exProg params` conjunct); a failure
 there is diagnosed as a SEAM problem with the engine stub, not an `exProg` problem. -/
 structure PrecompileAssumptions (prog : Program) (params : CallParams) : Prop where
-  /-- Precompile no-erase (`hprec`): an immediate `.inr` result preserves account presence. -/
-  noErase : ∀ (cp : CallParams) (imm : CallResult), beginCall cp = .inr imm →
-    ∀ a, AccPresent a cp.accounts → AccPresent a imm.accounts
+  /-- Precompile no-erase (`hprec`): an immediate `.inr` result preserves account presence.
+  Bound definitionally to the trusted register's `Lir.Spec.PrecompilesPreservePresence`. -/
+  noErase : Lir.Spec.PrecompilesPreservePresence
   /-- Every reachable frame's CALLs target code accounts, never a precompile. -/
   callsCode : ∀ fr', ReachableFrom params fr' → CallsCode fr'
 
-
-/-- **Gas-introspection-free scope** (the co-flagship's `hng`): no statement reads `.gas`.
-Static, decidable. Under it the realised gas stream plays no role (companion sorry:
-`realisedGas_nil_of_noGasReads`), so the co-flagship needs no R1 — the de-risking
-checkpoint (target-architecture decision 2). -/
-def NoGasReads (prog : Program) : Prop :=
-  ∀ (L : Label) (b : Block), blockAt prog L = some b →
-    ∀ (pc : Nat) (t : Tmp) (e : Expr), b.stmts[pc]? = some (.assign t e) → e ≠ .gas
 
 /-! ## §2 — The recorder-restart coupling (the hard design piece)
 
@@ -605,7 +350,7 @@ value variable is pinned by an antecedent:
   `∃ vw, st'.locals t = some vw` conclusion is DROPPED (refutable by an empty-locals `Corr`
   witness; at real states `RunDefinableG.ret_def` supplies it) — the epilogue block is
   stated under the `∀ vw`-antecedent it always had, now strengthened with an explicit pc
-  pin (`frv.pc = frT.pc + |materialise t|`) so its decode conclusions are static
+  pin (`frv.pc = frT.pc + |matCache t|`) so its decode conclusions are static
   `DecodeAnchors` facts rather than claims about every stack-coincident frame;
 * the jump/branch gas-guard conclusions are kept verbatim but now under the
   `CleanHaltsNonException frT` antecedent, which blocks the zero-gas refutation (skeptic
@@ -675,10 +420,9 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
             (¬ Lir.NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
             ∧ defsOf prog t' ≠ none)
       ∧ (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
-      ∧ fr0.exec.stack.size
-          + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog - 1) (.tmp k)).length ≤ 1024
+      ∧ fr0.exec.stack.size + (chargeCache prog sloadChg k).length ≤ 1024
       ∧ (∀ frk : Frame,
-          Lir.MatRuns (defsOf prog) sloadChg (recomputeFuel prog - 1) (.tmp k) kv fr0 frk →
+          MatRunsC prog sloadChg (.tmp k) kv fr0 frk →
           frk.exec.toMachineState.activeWords = fr0.exec.toMachineState.activeWords))
   -- (3) spilled gas assign — THE R1 CONJUNCT: the un-consumed gas suffix's HEAD is the
   -- machine GAS output at this frame (replaces the free-`ob` equation; the coupling +
@@ -713,8 +457,8 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
       CleanHaltsNonException fr0 →
       st0.locals key = some kw → st0.locals value = some vw →
       StepScopedS prog (.sstore key value)
-      ∧ (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp value)).length
-          + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).length + 1 ≤ 1024)
+      ∧ (chargeCache prog sloadChg value).length
+          + (chargeCache prog sloadChg key).length + 1 ≤ 1024)
   -- (5) call: `CallRealisesS` keyed on the coupling's `callSuffix` HEAD (lesson 8: the in-tree
   -- `CallRealises` embeds `StepScoped (.call cs)`, whose live-scope clause is refutable
   -- in-envelope for reader-carrying programs), kept shape-wise (it is itself
@@ -764,22 +508,20 @@ def TermTies' (prog : Program) (sloadChg : Tmp → ℕ) (_log : RunLog)
         SelfPresent frT →
         frT.exec.executionEnv.address = self →
         (∃ cp, frT.kind = .call cp) →
-        (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).length ≤ 1024
+        (chargeCache prog sloadChg t).length ≤ 1024
         ∧ (∀ (vw : Word), st'.locals t = some vw →
             -- The RETURN-value charge envelope is only witnessed when the returned value is
             -- bound: the IR `ret t` semantics (`RunFrom.ret`/`RunFromLeft.ret`) itself requires
             -- `st'.locals t = some vw`, so demanding the charge-sum bound for an UNBOUND `t` is an
             -- unwitnessable over-demand (same principle as the branch taken-direction restriction;
-            -- the charge fold `materialise_charge_le_of_cleanHalt` needs the operand value).
-            (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp t)).sum
-                ≤ frT.exec.gasAvailable.toNat
+            -- the charge fold `materialise_chargeC_le_of_cleanHalt` needs the operand value).
+            (chargeCache prog sloadChg t).sum ≤ frT.exec.gasAvailable.toNat
             ∧ ∀ frv : Frame, Runs frT frv →
             frv.exec.executionEnv.code = frT.exec.executionEnv.code →
             frv.exec.executionEnv.address = frT.exec.executionEnv.address →
             (∀ k, selfStorage frv k = selfStorage frT k) →
             frv.exec.stack = vw :: frT.exec.stack →
-            frv.exec.pc = frT.exec.pc + UInt32.ofNat
-              (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp t)).length →
+            frv.exec.pc = frT.exec.pc + UInt32.ofNat (matCache prog t).length →
             ∃ cp wms,
               decode frv.exec.executionEnv.code frv.exec.pc
                   = some (.Push .PUSH32, some ((0 : Word), 32))
@@ -814,19 +556,19 @@ def TermTies' (prog : Program) (sloadChg : Tmp → ℕ) (_log : RunLog)
         3 ≤ frT.exec.gasAvailable.toNat
         ∧ GasConstants.Gmid ≤ (pushFrameW frT
             (UInt256.ofNat
-              ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks dst.idx) % 2^32))
+              ((offsetTable (matCache prog) (defsOf prog) prog.blocks dst.idx) % 2^32))
             4).exec.gasAvailable.toNat
         ∧ GasConstants.Gjumpdest
             ≤ (jumpFrame (pushFrameW frT
                 (UInt256.ofNat
-                  ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks dst.idx) % 2^32))
+                  ((offsetTable (matCache prog) (defsOf prog) prog.blocks dst.idx) % 2^32))
                   4)
                 GasConstants.Gmid
-                (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks dst.idx))
+                (UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks dst.idx))
                 frT.exec.stack).exec.gasAvailable.toNat)
-  -- (branch) the cond-materialise `MatRuns` existence + 6 gas guards, verbatim from the
+  -- (branch) the cond-materialise `MatRunsC` existence + 6 gas guards, verbatim from the
   -- current tie but under the clean-halt antecedent (derivable via
-  -- the branch pre-`JUMPDEST` landing + `materialise_runs_of_cleanHalt`); the condition value
+  -- the branch pre-`JUMPDEST` landing + `materialise_runsC_of_cleanHalt`); the condition value
   -- `cw` was always antecedent-pinned; target presence is an antecedent (from `ClosedCFG`).
   ∧ (∀ cond thenL elseL bthen belse, b.term = .branch cond thenL elseL →
       prog.blocks.toList[thenL.idx]? = some bthen →
@@ -836,149 +578,45 @@ def TermTies' (prog : Program) (sloadChg : Tmp → ℕ) (_log : RunLog)
         Lir.Corr prog sloadChg 0 st' frT L b.stmts.length →
         CleanHaltsNonException frT →
         st'.locals cond = some cw →
-        ∃ frc, Lir.MatRuns (defsOf prog) sloadChg (recomputeFuel prog) (.tmp cond) cw frT frc
+        ∃ frc, MatRunsC prog sloadChg (.tmp cond) cw frT frc
           ∧ 3 ≤ frc.exec.gasAvailable.toNat
           ∧ GasConstants.Ghigh ≤ (pushFrameW frc
               (UInt256.ofNat
-                ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32))
+                ((offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx) % 2^32))
               4).exec.gasAvailable.toNat
           -- (taken direction, `cw ≠ 0`) the JUMPDEST landing at `thenL` — only witnessed when
           -- the run actually takes the then-branch (the branch pre-`JUMPDEST` landing then-arm).
           ∧ (cw ≠ 0 → GasConstants.Gjumpdest ≤ (jumpFrame (pushFrameW frc
               (UInt256.ofNat
-                ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32)) 4)
+                ((offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx) % 2^32)) 4)
               GasConstants.Ghigh
-              (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx))
+              (UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx))
               ([] : Stack Word)).exec.gasAvailable.toNat)
           -- (fall-through direction, `cw = 0`) the PUSH4/JUMP/JUMPDEST chain to `elseL` — only
           -- witnessed when the run actually falls through (the branch pre-`JUMPDEST` landing else-arm).
           ∧ (cw = 0 →
               3 ≤ (jumpiFallthroughFrame (pushFrameW frc
                   (UInt256.ofNat
-                    ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32)) 4)
+                    ((offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx) % 2^32)) 4)
                   ([] : Stack Word)).exec.gasAvailable.toNat
               ∧ GasConstants.Gmid ≤ (pushFrameW (jumpiFallthroughFrame (pushFrameW frc
                   (UInt256.ofNat
-                    ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32)) 4)
+                    ((offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx) % 2^32)) 4)
                   ([] : Stack Word))
                   (UInt256.ofNat
-                    ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks elseL.idx) % 2^32))
+                    ((offsetTable (matCache prog) (defsOf prog) prog.blocks elseL.idx) % 2^32))
                   4).exec.gasAvailable.toNat
               ∧ GasConstants.Gjumpdest ≤ (jumpFrame (pushFrameW (jumpiFallthroughFrame (pushFrameW frc
                   (UInt256.ofNat
-                    ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32)) 4)
+                    ((offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx) % 2^32)) 4)
                   ([] : Stack Word))
                   (UInt256.ofNat
-                    ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks elseL.idx) % 2^32)) 4)
+                    ((offsetTable (matCache prog) (defsOf prog) prog.blocks elseL.idx) % 2^32)) 4)
                   GasConstants.Gmid
-                  (UInt32.ofNat (offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks elseL.idx))
+                  (UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks elseL.idx))
                   (jumpiFallthroughFrame (pushFrameW frc
                     (UInt256.ofNat
-                      ((offsetTable (defsOf prog) (recomputeFuel prog) prog.blocks thenL.idx) % 2^32)) 4)
+                      ((offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx) % 2^32)) 4)
                     ([] : Stack Word)).exec.stack).exec.gasAvailable.toNat))
-
-/-! ## §4 — Exact stream consumption: `RunFromLeft` / `RunFromAll`
-
-`RunFrom`'s two halt constructors DROP the leftover trace `T'` (`V2/Machine.lean`), so a
-bare `RunFrom … (realisedGas log) …` conclusion only speaks about the consumed PREFIX —
-the last drop-the-suffix vacuity channel. `RunFromLeft` mirrors `RunFrom` constructor-for-
-constructor with one extra `Trace` index exposing the leftover at the halt; `RunFromAll`
-pins it to `[]` (the strengthening the target architecture marks "worth taking"). The two
-adequacy lemmas make the mirror-faithfulness itself tracked debt. -/
-
-/-- `RunFrom` with the leftover streams exposed: `RunFromLeft prog st T C D L O Tleft Cleft
-Dleft` is `RunFrom prog st T C D L O` where the halt constructor's un-consumed gas trace is
-`Tleft`, call stream `Cleft` and create stream `Dleft`. Constructor-for-constructor mirror of
-`RunFrom` (`V2/Machine.lean`); the halt arms return their `T'`/`C'`/`D'` instead of dropping them,
-the edge arms thread them. -/
-inductive RunFromLeft (prog : Program) :
-    IRState → Trace → CallStream → CreateStream → Label → Observable →
-    Trace → CallStream → CreateStream → Prop where
-  /-- `ret t`: run the block's statements, halt returning `t`'s value; leftovers = `T'`/`C'`/`D'`. -/
-  | ret {st st' : IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
-      {L : Label} {b : Block} {t : Tmp} {w : Word}
-      (hb : blockAt prog L = some b)
-      (hss : RunStmts prog st T C D b.stmts st' T' C' D')
-      (hterm : b.term = .ret t)
-      (hv : st'.locals t = some w) :
-      RunFromLeft prog st T C D L { world := st'.world, result := .returned w } T' C' D'
-  /-- `stop`: run the block's statements, halt; leftovers = `T'`/`C'`/`D'`. -/
-  | stop {st st' : IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
-      {L : Label} {b : Block}
-      (hb : blockAt prog L = some b)
-      (hss : RunStmts prog st T C D b.stmts st' T' C' D')
-      (hterm : b.term = .stop) :
-      RunFromLeft prog st T C D L { world := st'.world, result := .stopped } T' C' D'
-  /-- `branch`, condition non-zero ⇒ recurse into `thenL`, threading the leftovers. -/
-  | branchThen {st st' : IRState} {T T' Tleft : Trace} {C C' Cleft : CallStream}
-      {D D' Dleft : CreateStream} {L : Label}
-      {b : Block} {cond : Tmp} {cw : Word} {thenL elseL : Label} {O : Observable}
-      (hb : blockAt prog L = some b)
-      (hss : RunStmts prog st T C D b.stmts st' T' C' D')
-      (hterm : b.term = .branch cond thenL elseL)
-      (hc : st'.locals cond = some cw) (hnz : cw ≠ 0)
-      (hrest : RunFromLeft prog st' T' C' D' thenL O Tleft Cleft Dleft) :
-      RunFromLeft prog st T C D L O Tleft Cleft Dleft
-  /-- `branch`, condition zero ⇒ recurse into `elseL`, threading the leftovers. -/
-  | branchElse {st st' : IRState} {T T' Tleft : Trace} {C C' Cleft : CallStream}
-      {D D' Dleft : CreateStream} {L : Label}
-      {b : Block} {cond : Tmp} {thenL elseL : Label} {O : Observable}
-      (hb : blockAt prog L = some b)
-      (hss : RunStmts prog st T C D b.stmts st' T' C' D')
-      (hterm : b.term = .branch cond thenL elseL)
-      (hc : st'.locals cond = some 0)
-      (hrest : RunFromLeft prog st' T' C' D' elseL O Tleft Cleft Dleft) :
-      RunFromLeft prog st T C D L O Tleft Cleft Dleft
-  /-- `jump dst` ⇒ recurse into `dst`, threading the leftovers. -/
-  | jump {st st' : IRState} {T T' Tleft : Trace} {C C' Cleft : CallStream}
-      {D D' Dleft : CreateStream} {L : Label}
-      {b : Block} {dst : Label} {O : Observable}
-      (hb : blockAt prog L = some b)
-      (hss : RunStmts prog st T C D b.stmts st' T' C' D')
-      (hterm : b.term = .jump dst)
-      (hrest : RunFromLeft prog st' T' C' D' dst O Tleft Cleft Dleft) :
-      RunFromLeft prog st T C D L O Tleft Cleft Dleft
-
-/-- **Exact whole-stream consumption**: the run consumes the ENTIRE supplied gas trace, call
-stream AND create stream (all three leftovers `[]`). The flagship's strengthened conclusion
-(`lower_conforms_exact`) uses this with `T := realisedGas log` / `C := realisedCall log self` /
-`D := realisedCreate log self`, closing the positional-equality gap over ALL un-consumed
-suffixes. -/
-def RunFromAll (prog : Program) (st : IRState) (T : Trace) (C : CallStream) (D : CreateStream)
-    (L : Label) (O : Observable) : Prop :=
-  RunFromLeft prog st T C D L O [] [] []
-
-/-- Mirror adequacy, forgetful direction: a leftover-indexed run is a run. TRACKED DEBT
-(structural induction; stated so the mirror-faithfulness of `RunFromLeft` is itself
-checked, not assumed). -/
-theorem runFrom_of_runFromLeft {prog : Program} {st : IRState}
-    {T Tleft : Trace} {C Cleft : CallStream} {D Dleft : CreateStream} {L : Label} {O : Observable}
-    (h : RunFromLeft prog st T C D L O Tleft Cleft Dleft) : RunFrom prog st T C D L O := by
-  induction h with
-  | ret hb hss hterm hv => exact .ret hb hss hterm hv
-  | stop hb hss hterm => exact .stop hb hss hterm
-  | branchThen hb hss hterm hc hnz _hrest ih => exact .branchThen hb hss hterm hc hnz ih
-  | branchElse hb hss hterm hc _hrest ih => exact .branchElse hb hss hterm hc ih
-  | jump hb hss hterm _hrest ih => exact .jump hb hss hterm ih
-
-/-- Mirror adequacy, completion direction: every run has SOME leftover decomposition.
-TRACKED DEBT (structural induction on `RunFrom`). -/
-theorem runFromLeft_exists {prog : Program} {st : IRState}
-    {T : Trace} {C : CallStream} {D : CreateStream} {L : Label} {O : Observable}
-    (h : RunFrom prog st T C D L O) :
-    ∃ Tleft Cleft Dleft, RunFromLeft prog st T C D L O Tleft Cleft Dleft := by
-  induction h with
-  | ret hb hss hterm hv => exact ⟨_, _, _, .ret hb hss hterm hv⟩
-  | stop hb hss hterm => exact ⟨_, _, _, .stop hb hss hterm⟩
-  | branchThen hb hss hterm hc hnz _hrest ih =>
-      obtain ⟨Tleft, Cleft, Dleft, hl⟩ := ih
-      exact ⟨Tleft, Cleft, Dleft, .branchThen hb hss hterm hc hnz hl⟩
-  | branchElse hb hss hterm hc _hrest ih =>
-      obtain ⟨Tleft, Cleft, Dleft, hl⟩ := ih
-      exact ⟨Tleft, Cleft, Dleft, .branchElse hb hss hterm hc hl⟩
-  | jump hb hss hterm _hrest ih =>
-      obtain ⟨Tleft, Cleft, Dleft, hl⟩ := ih
-      exact ⟨Tleft, Cleft, Dleft, .jump hb hss hterm hl⟩
-
 
 end Lir.V2

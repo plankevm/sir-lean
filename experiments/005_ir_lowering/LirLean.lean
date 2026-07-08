@@ -45,6 +45,18 @@ import LirLean.Assembly.Acyclic
 import LirLean.V2.Drive.DriveSim
 import LirLean.V2.Drive.Headline
 
+-- IR well-formedness vocabulary + the `IRWellFormed` bundle and the two scalar budgets
+-- (`codeFits`/`stackFits`) — the trusted-surface statement vocabulary (Spec hoist §1C).
+import LirLean.Spec.WellFormed
+
+-- The §1B budget-derivation lemmas (1B-lemmas): `codeFits`/`stackFits`/acyclicity ⇒ the
+-- per-cursor pc/offset/stack/fuel bound families of `WellFormedLowered`/`ClosedCFG`/`WellLowered`.
+import LirLean.Spec.BudgetDerivations
+
+-- Phase 2A P5a: the fuel-free charge fold twin's fixpoint `chargeCache_unfold` + the
+-- chargeCache↔matCache length lockstep (twin of `matCache_unfold`, over the fold; no bridge).
+import LirLean.Materialise.MatFoldChannel
+
 -- Reviewer-facing `Lir.Spec` audit surface (Wave 3): seam register + conditional-headline
 -- re-exports + the `RealisabilityObligations` bundle (Pattern C — downstream of the proofs).
 import LirLean.Spec.Seams

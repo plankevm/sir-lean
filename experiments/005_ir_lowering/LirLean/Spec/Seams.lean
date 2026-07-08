@@ -1,20 +1,26 @@
 import LirLean.V2.Drive.CallPreservesSelf
-import LirLean.V2.Modellable
+import LirLean.Engine.Modellable
 import LirLean.Engine.CleanHalt
 
 /-!
 # LirLean spec surface — the tracked-debt register of seams (`Lir.Spec`)
 
-The four **irreducible seams** of the exp005 conformance headline, re-exported under one
+The four **irreducible seams** of the exp005 conformance flagship, re-exported under one
 reviewer-facing namespace (`docs/headline-transitive-chain.md` §3; Wave 3 of
 `docs/fleet-2026-07-02/reorg-legibility.md` §5 Step 3, Pattern C — this file sits
 *downstream* of the proof modules by design and only `:=`-forwards their declarations;
 nothing new is asserted).
 
-Each seam below is a **supplied** hypothesis of the conditional headline
-(`Spec/Conformance.lean`), not a discharged fact. The register exists so the debt is
-named, typed, and drift-proof — each re-export is a definitional forwarder that
-typechecks only while the underlying declaration keeps its shape.
+Each seam below surfaces as a **supplied premise** of the live flagship
+`Lir.V2.lower_conforms` (`V2/Realisability/RealisabilitySpec.lean`, the `WIP` lib; its
+statement vocabulary lives in `Spec/Conformance.lean`), not a discharged fact. Concretely:
+`hseams.callsCode` is Seam 3's `CallsCode`, `hseams.noErase` is Seam 2's
+`PrecompilesPreservePresence` (literally its field *type* — see `callPreservesSelf_of_precompiles`
+below and the definitional binding at `Surface.PrecompileAssumptions.noErase`), the `hclean`
+scope is Seam 4's `CleanHaltsNonException`, and Seam 1 `SelfPresent` is the world-half residue
+the run cannot witness. The register exists so the debt is named, typed, and drift-proof — each
+re-export is a definitional forwarder that typechecks only while the underlying declaration
+keeps its shape.
 
 The call-stream kernel (`Lir.V2.CallStream` / `BytecodeLayer.Hoare.CallReturns`) is
 NOT re-registered here: it is already first-class spec surface via `Spec/Semantics.lean`
@@ -26,7 +32,7 @@ namespace Lir.Spec
 /-! ## Seam 1 — `SelfPresent` (the world-half residue of `SstoreRealises`)
 
 The gas half of `SstoreRealises` is already discharged from a real run
-(`Lir.materialise_runs_of_cleanHalt`); presence is the residue — do not overclaim more. -/
+(`Lir.V2.materialise_runsC_of_cleanHalt`); presence is the residue — do not overclaim more. -/
 
 /-- **Seam 1: the self-account-presence world fact.** SSTORE reads storage through an
 `.option 0` lens, so a successful SSTORE step never *witnesses* that the executing account
@@ -55,7 +61,12 @@ that erases entries (per the in-file docstrings of `V2/Drive/CallPreservesSelf.l
 this must be instantiated per precompile set (addresses 1..10). It is vacuous for call-free
 or non-precompile-targeting programs. The presence-side twin of `CallsCode` (Seam 3): that
 seam gates the *dispatch* (no precompile is ever targeted), this one bounds the *world
-effect* if one is. -/
+effect* if one is.
+
+**Definitional binding (anti-drift):** this is the literal *type* of the flagship's
+`hprec` seam — `Surface.PrecompileAssumptions.noErase : Lir.Spec.PrecompilesPreservePresence`
+(`V2/Realisability/Surface.lean`) refers to this very declaration, so the register and the
+flagship premise cannot diverge (they are one definition, not a textual twin). -/
 def PrecompilesPreservePresence : Prop :=
   ∀ (cp : Evm.CallParams) (imm : Evm.CallResult),
     Evm.beginCall cp = .inr imm →
@@ -77,7 +88,7 @@ callee whose materialised value is a precompile address `1..10` would violate it
 NOT structurally guaranteed by the lowering (contrast `NotCreate`, which IS discharged
 structurally from the emitted bytes). The dispatch-gate twin of `hprec` (Seam 2); vacuous
 for call-free programs. Definitional forwarder of `BytecodeLayer.Interpreter.CallsCode`
-(`V2/Modellable.lean`). -/
+(`Engine/Modellable.lean`). -/
 def CallsCode : Evm.Frame → Prop := BytecodeLayer.Interpreter.CallsCode
 
 /-! ## Seam 4 — `CleanHaltsNonException` (the scope premise, not an oracle) -/

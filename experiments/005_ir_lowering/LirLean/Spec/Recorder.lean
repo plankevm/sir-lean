@@ -1,8 +1,4 @@
-import LirLean.V2.CallRealises
--- NOTE: `BytecodeLayer.Hoare.GasMonotone` is a LIVE import even with the gas-monotonicity
--- law deleted — `DriveSim.lean` uses `Runs.gasAvailable_le` in code, and this import is the
--- only path bringing that module into DriveSim's cone.
-import BytecodeLayer.Hoare.GasMonotone
+import LirLean.Spec.CallEntry
 
 /-!
 # LirLean v2 — the instrumented recording interpreter `runWithLog` (regime (i))
@@ -54,30 +50,12 @@ open BytecodeLayer.System
 open BytecodeLayer.Interpreter
 open BytecodeLayer.Hoare
 
--- RELOCATED from V2/Oracle.lean (Phase 2): the two defs the §7 tie-discharge layer
--- (`V2/Drive/SelfPresent.lean` — `GasLogAligned`, `FramesRun.snoc`/`.snoc_seed`,
--- `gasRecord_eq_gasReadOf`, `gasReadOf_gasFrame_eq_obs`) still consumes. The rest of
--- the gas-law interface (`GasRealises`, `.monotoneGas`, the guard theorems) was
--- deleted with the gas-monotonicity law (docs/gas-decision.md).
-
-/-- The `Word` a `GAS` opcode at (post-charge) frame `fr` reports: `ofUInt64` of the
-frame's `gasAvailable`. The realisability bridge between a gas read and a frame. -/
-def gasReadOf (fr : Frame) : Word := UInt256.ofUInt64 fr.exec.gasAvailable
-
-/-- The GAS-frames are threaded by `Runs` in program order: each is reachable from the
-previous (so the machine genuinely ran between the two reads). A `Runs`-chain over the
-witness list. -/
-def FramesRun : List Frame → Prop
-  | [] => True
-  | [_] => True
-  | a :: b :: rest => Runs a b ∧ FramesRun (b :: rest)
-
 /-! ## The per-call record
 
 The minimal datum a returning external CALL contributes to the log: the child's
 `CallResult` and the suspended `PendingCall`. From these `callStreamOf` reproduces this
 record's `evmV2CallEntry result pd self` (the `resumeAfterCall` projection of
-`LirLean/V2/CallRealises.lean`) — the `(postStorage, successWord)` stream entry, by
+`LirLean/Spec/CallEntry.lean`) — the `(postStorage, successWord)` stream entry, by
 construction. -/
 
 /-- One external CALL's recorded data: the child's `CallResult` and the parent's
@@ -90,7 +68,7 @@ structure CallRecord where
 
 /-- One external CREATE's recorded data: the child's `CreateResult` and the parent's
 `PendingCreate` — the CREATE twin of `CallRecord`. The minimal pair `createStreamOf` reads to
-reproduce `evmV2CreateEntry` (`LirLean/V2/CallRealises.lean`). -/
+reproduce `evmV2CreateEntry` (`LirLean/Spec/CallEntry.lean`). -/
 structure CreateRecord where
   /-- The init child's result (`drive`'s `childRes.toCreateResult`). -/
   result : CreateResult
@@ -322,7 +300,7 @@ def callStreamOf (calls : List CallRecord) (self : AccountAddress) : CallStream 
 
 /-- **The realised call stream** (`docs/ir-design-v3.md` §8, R3′): the `CallStream` read
 off the log's recorded CALLs, at self address `self` — the FULL stream, consumed head-first
-by `Stmt.call`. Aligned with `evmV2CallEntry` (`LirLean/V2/CallRealises.lean`) — each
+by `Stmt.call`. Aligned with `evmV2CallEntry` (`LirLean/Spec/CallEntry.lean`) — each
 recorded CALL *is* that entry's `resumeAfterCall` projection, so the call-side realisability
 is `rfl`-clean. -/
 def realisedCall (log : RunLog) (self : AccountAddress) : CallStream :=
@@ -338,7 +316,7 @@ def createStreamOf (creates : List CreateRecord) (self : AccountAddress) : Creat
 
 /-- **The realised create stream** (the CREATE twin of `realisedCall`): the `CreateStream` read
 off the log's recorded CREATEs, at self address `self` — the FULL stream, consumed head-first
-by `Stmt.create`. Aligned with `evmV2CreateEntry` (`LirLean/V2/CallRealises.lean`) — each
+by `Stmt.create`. Aligned with `evmV2CreateEntry` (`LirLean/Spec/CallEntry.lean`) — each
 recorded CREATE *is* that entry's `resumeAfterCreate` projection. -/
 def realisedCreate (log : RunLog) (self : AccountAddress) : CreateStream :=
   createStreamOf log.creates self

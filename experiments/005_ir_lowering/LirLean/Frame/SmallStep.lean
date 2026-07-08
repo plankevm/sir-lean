@@ -10,7 +10,7 @@ each IR step lines up with one exp003 `Runs` segment over the lowered bytecode.
 
 The storage effects deliberately **mirror exp003's post-frame transformers**
 (`sloadPost`, `sstorePost`) so the `Match` invariant's storage clause (`M3`) is
-preserved step-by-step by `rfl`-clean arithmetic — see `LirLean/Match.lean`.
+preserved step-by-step by `rfl`-clean arithmetic — see `Frame/Match.lean`.
 
 There is **no gas counter / cost accounting**: the IR does not model opcode cost.
 (The gas-free observable line lives in `LirLean/V2/*`, where `Expr.gas` is a value
@@ -126,11 +126,5 @@ def IRState.bindCreateResult (st : IRState) : Option Tmp → IRState
 /-- Write a storage cell. -/
 def IRState.setStorage (st : IRState) (k v : Word) : IRState :=
   { st with storage := fun k' => if k' = k then v else st.storage k' }
-
-/-! ## Block / program accessors -/
-
-/-- The block at label `L`, if present. -/
-def Program.blockAt (prog : Program) (L : Label) : Option Block :=
-  prog.blocks[L.idx]?
 
 end Lir

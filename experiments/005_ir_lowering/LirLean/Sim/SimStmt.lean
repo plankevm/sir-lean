@@ -13,9 +13,10 @@ correspondence with the post-`EvalStmt` IR state, advancing one statement positi
 (`pcOf prog L pc → pcOf prog L (pc+1)`) and returning the working stack to empty (`M5`).
 
 This is the C-layer brick that the program-global engine `lower_simulates_step` threads
-with `Runs.trans`. It sits *above* B1 (`materialise_runs`, the expression linchpin) and
-B3 (`DefsSound`, recompute-soundness), wiring them through the per-construct bytecode
-shape (`emitStmt`, `LirLean/Lowering.lean`) into the per-statement step.
+with `Runs.trans`. It sits *above* the fold value channel (`Lir.V2.materialise_runsC`,
+the expression linchpin) and B3 (`DefsSound`, recompute-soundness), wiring them through
+the per-construct bytecode shape (`emitStmt`, `LirLean/Spec/Lowering.lean`) into the
+per-statement step.
 
 ## The state-correspondence bundle `Corr`
 
@@ -35,8 +36,8 @@ V2-native fusion of:
 
 The bundle is *re-establishable at `pc+1`*: each arm shows the post-frame satisfies
 `Corr … st' fr' L (pc+1)`. The pc advance is `pcOf_succ` (one more statement's
-`emitStmt` length); the storage/realisability transports come from `MatRuns`'s
-`.addr`/`.storage` clauses, exactly as B1's recursion threads them.
+`emitStmt` length); the storage/realisability transports come from `MatRunsC`'s
+`.addr`/`.storage` clauses, exactly as the value channel's recursion threads them.
 
 ## The three arms
 
@@ -44,17 +45,17 @@ The bundle is *re-establishable at `pc+1`*: each arm shows the post-frame satisf
   `Runs.refl`; the work is re-establishing `Corr` under `setLocal t (evalExpr…e)` via
   **B3** (`defsSound_preserved_assignPure` / `assignGas`). The pc still advances
   (`pcOf_succ` with the zero-length emit) and the stack is untouched (still `[]`).
-* **`sstore key value`** — lowered `materialise value ++ materialise key ++ [SSTORE]`:
-  two **B1** `materialise_runs` calls (`.tmp value`, `.tmp key`) glued by `Runs.trans`,
-  then `sim_sstore`. Re-establishes the `M3` lens at the written cell; `DefsSound`
-  survives the write by **B3** `defsSound_preserved_sstore`.
-* **`call cs`** — lowered `5×(PUSH 0) ++ materialise callee ++ materialise gasFwd ++
+* **`sstore key value`** — lowered `matCache value ++ matCache key ++ [SSTORE]`:
+  two `Lir.V2.materialise_runsC_of_cleanHalt` calls (`.tmp value`, `.tmp key`) glued by
+  `Runs.trans`, then `sim_sstore`. Re-establishes the `M3` lens at the written cell;
+  `DefsSound` survives the write by **B3** `defsSound_preserved_sstore`.
+* **`call cs`** — lowered `5×(PUSH 0) ++ matCache callee ++ matCache gasFwd ++
   [CALL]` → a `Runs.call` node (`sim_call`) carrying a `CallReturns` witness; the IR
   `EvalStmt.call` pops the call-stream head, tied to the `CallReturns` via
   `callRealises_bridge`. `DefsSound` survives by **B3** `defsSound_preserved_call`.
 
 No `sorry`, no `axiom`, no `native_decide`. Bytecode-coupled (imports `Match.lean` via
-`MaterialiseRuns.lean`); nothing here touches `V2/Machine.lean` / `V2/Law.lean`.
+`MaterialiseRuns.lean`); nothing here touches `Spec/Semantics.lean` / `V2/Law.lean`.
 -/
 
 namespace Lir
@@ -78,10 +79,8 @@ theorem pcOf_succ (prog : Program) (L : Label) (b : Block) (pc : Nat) (s : Stmt)
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some s) :
     pcOf prog L (pc + 1)
-      = pcOf prog L pc + (emitStmt (defsOf prog) (recomputeFuel prog) s).length := by
+      = pcOf prog L pc + (emitStmt (matCache prog) (defsOf prog) s).length := by
   rw [pcOf_eq_anchor prog L b (pc + 1) hb, pcOf_eq_anchor prog L b pc hb]
-  set defs := defsOf prog
-  set fuel := recomputeFuel prog
   have hlt : pc < b.stmts.length := by
     rcases Nat.lt_or_ge pc b.stmts.length with h | h
     · exact h
@@ -147,37 +146,36 @@ theorem Corr.validJumps_lower {prog : Program} {sloadChg : Tmp → ℕ} {obs : W
 /-! ## `emitStmt`/byte-length reductions for the three statement shapes -/
 
 /-- A **rematerialised** `assign` (the tmp is not spilled to a slot) emits no bytes. -/
-theorem emitStmt_assign_remat (defs : Tmp → Option Expr) (fuel : Nat) (t : Tmp) (e : Expr)
-    (h : ∀ n, defs t ≠ some (.slot n)) :
-    emitStmt defs fuel (.assign t e) = [] := by
-  show (match defs t with
+theorem emitStmt_assign_remat (cache : Tmp → List UInt8) (alloc : Alloc) (t : Tmp) (e : Expr)
+    (h : ∀ n, alloc t ≠ some (.slot n)) :
+    emitStmt cache alloc (.assign t e) = [] := by
+  show (match alloc t with
         | some (.slot n) =>
-            materialiseExpr defs fuel e ++ emitImm (UInt256.ofNat n) ++ [Byte.mstore]
+            matExpr cache e ++ emitImm (UInt256.ofNat n) ++ [Byte.mstore]
         | _ => []) = []
-  cases hd : defs t with
+  cases hd : alloc t with
   | none => rfl
   | some loc => cases loc with
     | slot n => exact absurd hd (h n)
     | _ => rfl
 
-/-- A **spilled** `assign` (the tmp lives in `slot n`) stashes `materialise e ++ PUSH n ++
-MSTORE` — computed once at the def-site. For gas (`e = .gas`, `materialise .gas = [GAS]`)
+/-- A **spilled** `assign` (the tmp lives in `slot n`) stashes `matExpr cache e ++ PUSH n ++
+MSTORE` — computed once at the def-site. For gas (`e = .gas`, `matExpr … .gas = [GAS]`)
 this is the `[GAS] ++ PUSH n ++ MSTORE` stash. -/
-theorem emitStmt_assign_slot (defs : Tmp → Option Expr) (fuel : Nat) (t : Tmp) (e : Expr)
-    {n : Nat} (h : defs t = some (.slot n)) :
-    emitStmt defs fuel (.assign t e)
-      = materialiseExpr defs fuel e ++ emitImm (UInt256.ofNat n) ++ [Byte.mstore] := by
-  show (match defs t with
+theorem emitStmt_assign_slot (cache : Tmp → List UInt8) (alloc : Alloc) (t : Tmp) (e : Expr)
+    {n : Nat} (h : alloc t = some (.slot n)) :
+    emitStmt cache alloc (.assign t e)
+      = matExpr cache e ++ emitImm (UInt256.ofNat n) ++ [Byte.mstore] := by
+  show (match alloc t with
         | some (.slot n) =>
-            materialiseExpr defs fuel e ++ emitImm (UInt256.ofNat n) ++ [Byte.mstore]
+            matExpr cache e ++ emitImm (UInt256.ofNat n) ++ [Byte.mstore]
         | _ => []) = _
   rw [h]
 
-/-- `sstore` lowers to `materialise value ++ materialise key ++ [SSTORE]`. -/
-@[simp] theorem emitStmt_sstore (defs : Tmp → Option Expr) (fuel : Nat) (key value : Tmp) :
-    emitStmt defs fuel (.sstore key value)
-      = materialiseExpr defs fuel (.tmp value) ++ materialiseExpr defs fuel (.tmp key)
-        ++ [Byte.sstore] := rfl
+/-- `sstore` lowers to `cache value ++ cache key ++ [SSTORE]`. -/
+@[simp] theorem emitStmt_sstore (cache : Tmp → List UInt8) (alloc : Alloc) (key value : Tmp) :
+    emitStmt cache alloc (.sstore key value)
+      = cache value ++ cache key ++ [Byte.sstore] := rfl
 
 /-! ## Arm 1 — `assign t e`
 
@@ -187,7 +185,7 @@ zero-length emit). The IR step binds `t := w` (`setLocal`), leaving the world un
 so `M1`/`M2`/`M3`/`M5`/`canModify` survive verbatim and `DefsSound` is re-established by
 **B3** (`defsSound_preserved_assignPure`). The post-state memory value channel
 (`MemRealises` over `st'`) is the honest downstream-supplied side-condition, threaded in as
-for `materialise_runs`. (There is no sload/gas warmth universal — both are spilled, Phase B/C.) -/
+for `materialise_runsC`. (There is no sload/gas warmth universal — both are spilled, Phase B/C.) -/
 
 /-- **`sim_stmt`, the rematerialised `assign` arm.** From `Corr` at `(L, pc)` and an
 `EvalStmt` step of `assign t e` whose target is **not** spilled to a slot (`hremat`), the
@@ -216,7 +214,7 @@ theorem sim_assign {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
   -- pc advance: emitStmt of a rematerialised assign is empty, so the next cursor coincides.
   have hpc : pcOf prog L (pc + 1) = pcOf prog L pc := by
     rw [pcOf_succ prog L b pc (.assign t e) hb hs,
-        emitStmt_assign_remat (defsOf prog) (recomputeFuel prog) t e hremat]; simp
+        emitStmt_assign_remat (matCache prog) (defsOf prog) t e hremat]; simp
   -- DefsSound survives via B3.
   have hsound' : DefsSound prog st' := defsSound_preserved hstep hsc hcorr.defsSound
   -- world is untouched by the assign (both arms only setLocal), so M3 survives.
@@ -308,9 +306,9 @@ touches accounts + substate only; `replaceStackAndIncrPC` touches stack/pc only.
 
 `sim_sstore`'s runtime preconditions — the `Gcallstipend` gate, the EIP-2200 charge bound,
 and the self account being present — hold at the *internal* SSTORE frame `frk` (reached
-after materialising `value` then `key`). Following the B1 pattern (`SloadRealises`), we
+after materialising `value` then `key`). Following the supplied-side-condition pattern, we
 package them as one honest side-condition `SstoreRealises`, quantified over the frame so it
-applies at `frk`. The frame is pinned by its self-address (carried by `MatRuns.addr`),
+applies at `frk`. The frame is pinned by its self-address (carried by `MatRunsC.addr`),
 write operands, and the witnessing account. -/
 
 /-- The SSTORE runtime realisability: at every frame `g` sharing `fr`'s self-address, the
@@ -326,22 +324,24 @@ def SstoreRealises (fr : Frame) (kw vw : Word) (acc : Account) : Prop :=
 
 /-! ## Arm 2 — `sstore key value`
 
-Lowered `materialise value ++ materialise key ++ [SSTORE]`. Two **B1** `materialise_runs`
-calls — `.tmp value` from `fr` (leaving `[vw]`), then `.tmp key` from the result
-(leaving `[kw, vw]` = `kw :: vw :: []`, the shape `sim_sstore` consumes) — glued by
-`Runs.trans`, then the `SSTORE` step. The IR step writes `st.setStorage kw vw`; the `M3`
-lens is re-established at the written cell from `sim_sstore`'s self-storage clauses, and
-`DefsSound` survives the write by **B3** `defsSound_preserved_sstore`.
+Lowered `matCache value ++ matCache key ++ [SSTORE]`. Two fold value-channel
+`Lir.V2.materialise_runsC_of_cleanHalt` calls — `.tmp value` from `fr` (leaving `[vw]`),
+then `.tmp key` from the result (leaving `[kw, vw]` = `kw :: vw :: []`, the shape
+`sim_sstore` consumes) — glued by `Runs.trans`, then the `SSTORE` step. The IR step writes
+`st.setStorage kw vw`; the `M3` lens is re-established at the written cell from
+`sim_sstore`'s self-storage clauses, and `DefsSound` survives the write by **B3**
+`defsSound_preserved_sstore`.
 
-The decode bundle is taken as `MatDec` hypotheses at the static cursors (as every B1 leaf
-takes its `hdec`), transported to the produced frames via `MatRuns.code`/`.pc`. The per-channel
-gas envelopes for the two materialise calls are **DERIVED** from the clean-halt witness
-`CleanHaltsNonException fr` via `materialise_runs_of_cleanHalt` (the value channel at `fr`, then
-the key channel at `frv` after forwarding the witness across the value run); only the stack-room
-envelope and the runtime `SstoreRealises` recording-correspondence tie stay supplied. -/
+The decode bundle is taken as `MatDecC` hypotheses at the static cursors (as the value
+channel takes its `hdec`), transported to the produced frames via `MatRunsC.code`/`.pc`.
+The per-channel gas envelopes for the two materialise calls are **DERIVED** from the
+clean-halt witness `CleanHaltsNonException fr` via `materialise_runsC_of_cleanHalt` (the
+value channel at `fr`, then the key channel at `frv` after forwarding the witness across
+the value run); only the stack-room envelope and the runtime `SstoreRealises`
+recording-correspondence tie stay supplied. -/
 
 /-- **`sim_stmt`, the `sstore` arm.** From `Corr` at `(L, pc)` and an `EvalStmt.sstore`
-step, running the lowered `materialise value ; materialise key ; SSTORE` reaches a frame
+step, running the lowered `matCache value ; matCache key ; SSTORE` reaches a frame
 `fr'` in correspondence with `st.setStorage kw vw` at cursor `(L, pc+1)`, with the working
 stack back to `[]`. -/
 theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
@@ -352,42 +352,41 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     (hcorr : Corr prog sloadChg obs st fr L pc)
     (hk : st.locals key = some kw) (hv : st.locals value = some vw)
     (hsc : StepScoped prog st (.sstore key value))
+    -- def-env well-formedness (routes the `.tmp` arms through `matCache_unfold`):
+    (hdc : DefsConsistent prog) (hord : DefEnvOrdered prog)
     -- decode bundle at the static cursors (Layer A discharges this over `lower prog`):
-    (hdv : MatDec fr.exec.executionEnv.code (defsOf prog) sloadChg (recomputeFuel prog)
-            fr.exec.pc (.tmp value))
-    (hdk : MatDec fr.exec.executionEnv.code (defsOf prog) sloadChg (recomputeFuel prog)
-            (fr.exec.pc + UInt32.ofNat
-              (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp value)).length) (.tmp key))
+    (hdv : MatDecC prog hdc hord fr.exec.executionEnv.code fr.exec.pc (.tmp value))
+    (hdk : MatDecC prog hdc hord fr.exec.executionEnv.code
+            (fr.exec.pc + UInt32.ofNat (matCache prog value).length) (.tmp key))
     (hdop : decode fr.exec.executionEnv.code
             (fr.exec.pc
-              + UInt32.ofNat (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp value)).length
-              + UInt32.ofNat (materialiseExpr (defsOf prog) (recomputeFuel prog) (.tmp key)).length)
+              + UInt32.ofNat (matCache prog value).length
+              + UInt32.ofNat (matCache prog key).length)
             = some (.Smsf .SSTORE, .none))
-    -- gas envelope: DERIVED from the clean-halt witness via `materialise_runs_of_cleanHalt`
+    -- gas envelope: DERIVED from the clean-halt witness via `materialise_runsC_of_cleanHalt`
     -- (the two-frame chained fold below reconstructs the aggregate `hgas`), not supplied.
     (hcs : CleanHaltsNonException fr)
     -- stack envelope (honest runtime bound, still supplied — the stack fold is separate):
-    (hstk : (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp value)).length
-              + (chargeOf (defsOf prog) sloadChg (recomputeFuel prog) (.tmp key)).length
+    (hstk : (chargeCache prog sloadChg value).length
+              + (chargeCache prog sloadChg key).length
               + 1 ≤ 1024)
     (hsstore : SstoreRealises fr kw vw acc) :
     ∃ fr', Runs fr fr'
       ∧ Corr prog sloadChg obs (st.setStorage kw vw) fr' L (pc + 1)
       ∧ fr'.exec.stack = [] := by
   classical
-  set defs := defsOf prog with hdefs
-  set fuel := recomputeFuel prog with hfuel
-  -- abbreviations for the two materialise lengths / charges
-  set lv := (materialiseExpr defs fuel (.tmp value)).length with hlv
-  set lk := (materialiseExpr defs fuel (.tmp key)).length with hlk
+  -- abbreviations for the two materialise lengths
+  set lv := (matCache prog value).length with hlv
+  set lk := (matCache prog key).length with hlk
   have hstacknil := hcorr.stack_nil
-  -- == B1 call 1: materialise `value` from `fr`, leaving `[vw]`.  The value-channel gas
-  -- bound is DERIVED here from the clean-halt witness `hcs` (the gas-dropping twin of B1). ==
+  -- == value-channel call 1: materialise `value` from `fr`, leaving `[vw]`.  The gas
+  -- bound is DERIVED here from the clean-halt witness `hcs` (the gas-dropping twin). ==
   have hevv : V2.evalExpr st obs (.tmp value) = some vw := hv
   have hszfr : fr.exec.stack.size = 0 := by rw [hstacknil]; rfl
-  have hstkv : fr.exec.stack.size + (chargeOf defs sloadChg fuel (.tmp value)).length ≤ 1024 := by
-    rw [hszfr]; omega
-  obtain ⟨frv, hmrv, _hgasv_derived⟩ := materialise_runs_of_cleanHalt sloadChg fuel st obs
+  have hstkv : fr.exec.stack.size
+      + (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp value)).length ≤ 1024 := by
+    simp only [chargeExpr_tmp]; omega
+  obtain ⟨frv, hmrv, _hgasv_derived⟩ := materialise_runsC_of_cleanHalt hdc hord sloadChg st obs
     (.tmp value) vw fr
     hdv hcorr.defsSound hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
     hevv hcs hstkv
@@ -396,16 +395,17 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
   have hvaddr : frv.exec.executionEnv.address = fr.exec.executionEnv.address := hmrv.addr
   have hvpc : frv.exec.pc = fr.exec.pc + UInt32.ofNat lv := hmrv.pc
   have hvstk : frv.exec.stack = vw :: fr.exec.stack := by rw [hmrv.stack]; rfl
-  -- == B1 call 2: materialise `key` from `frv`, leaving `[kw, vw]`.  Forward the clean-halt
-  -- witness across the value run; the key-channel gas bound is then DERIVED at `frv`. ==
+  -- == value-channel call 2: materialise `key` from `frv`, leaving `[kw, vw]`.  Forward the
+  -- clean-halt witness across the value run; the key-channel gas bound is then DERIVED at `frv`. ==
   have hevk : V2.evalExpr st obs (.tmp key) = some kw := hk
   have hcsv : CleanHaltsNonException frv := cleanHaltsNonException_forward hcs hmrv.runs
-  have hdk' : MatDec frv.exec.executionEnv.code defs sloadChg fuel frv.exec.pc (.tmp key) := by
+  have hdk' : MatDecC prog hdc hord frv.exec.executionEnv.code frv.exec.pc (.tmp key) := by
     rw [hvcode, hvpc]; exact hdk
   have hfrvsz : frv.exec.stack.size = fr.exec.stack.size + 1 := by rw [hvstk]; simp
-  have hstkk : frv.exec.stack.size + (chargeOf defs sloadChg fuel (.tmp key)).length ≤ 1024 := by
-    rw [hfrvsz, hszfr]; omega
-  obtain ⟨frk, hmrk, _hgask_derived⟩ := materialise_runs_of_cleanHalt sloadChg fuel st obs
+  have hstkk : frv.exec.stack.size
+      + (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp key)).length ≤ 1024 := by
+    rw [hfrvsz, hszfr]; simp only [chargeExpr_tmp]; omega
+  obtain ⟨frk, hmrk, _hgask_derived⟩ := materialise_runsC_of_cleanHalt hdc hord sloadChg st obs
     (.tmp key) kw frv
     hdk' hcorr.defsSound hcorr.wellScoped
     (hcorr.storage.transport hmrv.storage) (by nofun)
@@ -425,7 +425,8 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
   have hkaddr : frk.exec.executionEnv.address = fr.exec.executionEnv.address := by
     rw [hmrk.addr, hvaddr]
   have hkpc : frk.exec.pc = fr.exec.pc + UInt32.ofNat lv + UInt32.ofNat lk := by
-    rw [hmrk.pc, hvpc]
+    have h : frk.exec.pc = frv.exec.pc + UInt32.ofNat lk := hmrk.pc
+    rw [h, hvpc]
   have hkstk : frk.exec.stack = kw :: vw :: [] := by
     rw [hmrk.stack, hvstk, hstacknil]; rfl
   -- the SSTORE step at `frk`
@@ -444,7 +445,8 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     have hfraddr : (sstoreFrame frk kw vw []).exec.executionEnv.address
         = frk.exec.executionEnv.address := sstoreFrame_addr frk kw vw []
     -- M1: pc advance.
-    have hemit : (emitStmt defs fuel (.sstore key value)).length = lv + lk + 1 := by
+    have hemit : (emitStmt (matCache prog) (defsOf prog) (.sstore key value)).length
+        = lv + lk + 1 := by
       rw [emitStmt_sstore]; simp only [List.length_append, List.length_singleton, hlv, hlk]
     have hpcN : pcOf prog L (pc + 1) = pcOf prog L pc + (lv + lk + 1) := by
       rw [pcOf_succ prog L b pc (.sstore key value) hb hs, hemit]
@@ -504,7 +506,7 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
 /-! ## Arm 3 — `call cs` (the `Runs.call` node + the Route-B tail)
 
 A `Stmt.call` lowers (Route B) to
-`5×(PUSH 0) ++ materialise callee ++ materialise gasFwd ++ [CALL] ++ tail`, where the tail
+`5×(PUSH 0) ++ matCache callee ++ matCache gasFwd ++ [CALL] ++ tail`, where the tail
 is `PUSH32 slotOf t ; MSTORE` (`resultTmp = some t`) or `[POP]` (`resultTmp = none`). The
 arg-push prefix reaches the CALL-site frame `callFr`; under lowering the CALL is a
 `Runs.call` node carrying a `CallReturns callFr resumeFr` witness (the CALL step, the child
@@ -564,7 +566,7 @@ the tail must re-establish. -/
 
 /-- **`sim_stmt`, the `call` arm — FULL `Corr` (Route B).** Let `callFr` be the CALL-site
 frame reached from `fr` by running the lowered CALL-argument pushes (`hargs : Runs fr
-callFr`), pinned by its pc (`hcallpc`) and a `MatRuns`-style memory pin
+callFr`), pinned by its pc (`hcallpc`) and a `MatRunsC`-style memory pin
 to `fr` (`hcallmem` bytes-equal, `hcallactive` `activeWords`-nondecreasing). Given a
 returning external CALL (`CallReturns callFr resumeFr`) with the realised resume frame pinned
 (`hrespc`/`hresstack` — the empty-boundary collapse `pd.stack = []`, `hresmem`/`hresactive` —
@@ -585,9 +587,9 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     (hfrpc : fr.exec.pc = UInt32.ofNat (pcOf prog L pc))
     (hargslen : argsLen
       = (emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
-          ++ materialise (defsOf prog) (recomputeFuel prog) cs.callee
-          ++ materialise (defsOf prog) (recomputeFuel prog) cs.gasFwd).length)
-    -- the assembled CALL-argument push run + its pins (`MatRuns`-style, supplied by the caller):
+          ++ matCache prog cs.callee
+          ++ matCache prog cs.gasFwd).length)
+    -- the assembled CALL-argument push run + its pins (`MatRunsC`-style, supplied by the caller):
     (hargs : Runs fr callFr)
     (hcallpc : callFr.exec.pc = fr.exec.pc + UInt32.ofNat argsLen)
     (hcallmem : callFr.exec.toMachineState.memory = fr.exec.toMachineState.memory)
@@ -624,7 +626,7 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     -- `WellFormed` invariant the eventual caller discharges). Pins the result-slot for the new
     -- binding and the 32-aligned disjointness of distinct bound slots.
     (hslots : ∀ tw slot', defsOf prog tw = some (.slot slot') → slot' = slotOf tw)
-    -- the post-state scoping/realisability (downstream-supplied, as in `materialise_runs`):
+    -- the post-state scoping/realisability (downstream-supplied, as in `materialise_runsC`):
     (hscoped' : ∀ t, st'.locals t ≠ none →
       (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.slot slot))
       ∧ defsOf prog t ≠ none)
@@ -632,28 +634,13 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     -- supplied at the resume frame — the honest runtime ties the eventual caller discharges:
     (htail : ∀ flag : Word, resumeFr.exec.stack = flag :: [] →
       (∀ (t : Tmp), cs.resultTmp = some t →
-        -- `slotOf t` is addressable (the "slots are addressable" side condition):
+        -- `slotOf t` is addressable (the "slots are addressable" side condition), then the
+        -- MSTORE tail (`stash_tail_runs`) writes `flag` at `slotOf t` onto `resumeFr` — the honest
+        -- `.memory`/`.activeWords` channel (not the over-constrained full `toMachineState`), the pc
+        -- advanced by 34, the frame pins, and the working stack back to `[]` (the `StashRuns`
+        -- endpoint bundle):
         (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
-        ∧ ∃ endFr,
-            Runs resumeFr endFr
-          -- the MSTORE tail writes `flag` at `slotOf t` onto `resumeFr`'s machine state. The
-          -- honest channel is the `.memory` bytes + `.activeWords` (NOT the full `toMachineState`:
-          -- the push + gas-charges drop gas, a `MachineState` field a real run never preserves —
-          -- the full equality is over-constrained / unsatisfiable; only the bytes + activeWords,
-          -- which `MemRealises`/`Corr` read, are honest and true). This is exactly what
-          -- `stash_tail_runs` constructs:
-          ∧ endFr.exec.toMachineState.memory
-              = (resumeFr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) flag).memory
-          ∧ endFr.exec.toMachineState.activeWords
-              = (resumeFr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) flag).activeWords
-          ∧ endFr.exec.pc = resumeFr.exec.pc + UInt32.ofNat 34
-          ∧ endFr.exec.executionEnv.code = resumeFr.exec.executionEnv.code
-          ∧ endFr.validJumps = resumeFr.validJumps
-          ∧ endFr.exec.executionEnv.address = resumeFr.exec.executionEnv.address
-          ∧ endFr.exec.executionEnv.canModifyState = resumeFr.exec.executionEnv.canModifyState
-          -- the MSTORE tail writes memory, not storage: the self-lens is preserved:
-          ∧ (∀ k, selfStorage endFr k = selfStorage resumeFr k)
-          ∧ endFr.exec.stack = [])
+        ∧ ∃ endFr, StashRuns resumeFr endFr (slotOf t) flag 34 [])
       ∧ (cs.resultTmp = none →
           Runs resumeFr (popFrame resumeFr []))) :
     ∃ endFr, Runs fr endFr ∧ Corr prog sloadChg obs st' endFr L (pc + 1)
@@ -670,11 +657,9 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     intro key
     rw [selfStorage_eq_storageAt, hresaddr, hresume]; rfl
   -- `emitStmt .call` length = argsLen + 1 + tailLen.
-  set defs := defsOf prog with hdefs2
-  set fuel := recomputeFuel prog with hfuel
-  have hemitcall : emitStmt defs fuel (.call cs)
+  have hemitcall : emitStmt (matCache prog) (defsOf prog) (.call cs)
       = (emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
-          ++ materialise defs fuel cs.callee ++ materialise defs fuel cs.gasFwd)
+          ++ matCache prog cs.callee ++ matCache prog cs.gasFwd)
         ++ [Byte.call]
         ++ (match cs.resultTmp with
             | some t => emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]
@@ -698,10 +683,11 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     have hpoprun : Runs resumeFr (popFrame resumeFr []) := htailNone hr
     refine ⟨popFrame resumeFr [], hruns0.trans hpoprun, ?_, by rw [popFrame_stack]⟩
     -- pc: endFr.pc = resumeFr.pc + 1 = (fr.pc + argsLen) + 1 + 1; emit = argsLen + 1 + 1.
-    have hemitlen : (emitStmt defs fuel (.call cs)).length = argsLen + 1 + 1 := by
+    have hemitlen : (emitStmt (matCache prog) (defsOf prog) (.call cs)).length
+        = argsLen + 1 + 1 := by
       rw [hemitcall, hr]
       set argsBlock := emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
-          ++ materialise defs fuel cs.callee ++ materialise defs fuel cs.gasFwd with hab
+          ++ matCache prog cs.callee ++ matCache prog cs.gasFwd with hab
       rw [List.length_append, List.length_append, List.length_singleton, List.length_singleton,
         ← hargslen]
     have hpcN : pcOf prog L (pc + 1) = pcOf prog L pc + (argsLen + 1 + 1) := by
@@ -742,7 +728,7 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
   | some t =>
     -- PUSH slot; MSTORE tail: `endFr` writes `mem[slotOf t] = flag`, stack `[]`.
     obtain ⟨hslot63, hslotplat, endFr, hendrun, hendmembytes, hendmemactive, hendpc, hendcode,
-      hendvalid, hendaddr, hendcanmod, hendstorage, hendstk⟩ := htailSome t hr
+      hendvalid, hendaddr, hendcanmod, _, hendstorage, hendstk⟩ := htailSome t hr
     set flag := callSuccessFlag result pd with hflag
     set slot := slotOf t with hslotdef
     refine ⟨endFr, hruns0.trans hendrun, ?_, hendstk⟩
@@ -757,10 +743,11 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     have hslotplat' : (UInt256.ofNat slot).toNat < 2 ^ System.Platform.numBits := by
       rw [hslotEq]; exact hslotplat
     -- pc: endFr.pc = resumeFr.pc + 34 = (fr.pc + argsLen) + 1 + 34; emit = argsLen + 1 + 34.
-    have hemitlen : (emitStmt defs fuel (.call cs)).length = argsLen + 1 + 34 := by
+    have hemitlen : (emitStmt (matCache prog) (defsOf prog) (.call cs)).length
+        = argsLen + 1 + 34 := by
       rw [hemitcall, hr]
       set argsBlock := emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
-          ++ materialise defs fuel cs.callee ++ materialise defs fuel cs.gasFwd with hab
+          ++ matCache prog cs.callee ++ matCache prog cs.gasFwd with hab
       rw [List.length_append, List.length_append, List.length_singleton, ← hargslen,
         List.length_append, List.length_singleton, emitImm_length]
     have hpcN : pcOf prog L (pc + 1) = pcOf prog L pc + (argsLen + 1 + 34) := by
@@ -916,25 +903,13 @@ theorem sim_assign_gas {prog : Program} {sloadChg : Tmp → ℕ} {obs ob : Word}
     -- discharges it from decode + gas facts:
     (hstash :
         (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
-        ∧ ∃ endFr,
-            Runs fr endFr
-          ∧ endFr.exec.toMachineState.memory
-              = (fr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) ob).memory
-          ∧ endFr.exec.toMachineState.activeWords
-              = (fr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) ob).activeWords
-          ∧ endFr.exec.pc = fr.exec.pc + UInt32.ofNat (emitStmt (defsOf prog) (recomputeFuel prog)
-                (.assign t .gas)).length
-          ∧ endFr.exec.executionEnv.code = fr.exec.executionEnv.code
-          ∧ endFr.validJumps = fr.validJumps
-          ∧ endFr.exec.executionEnv.address = fr.exec.executionEnv.address
-          ∧ endFr.exec.executionEnv.canModifyState = fr.exec.executionEnv.canModifyState
-          ∧ (∀ k, selfStorage endFr k = selfStorage fr k)
-          ∧ endFr.exec.stack = []) :
+        ∧ ∃ endFr, StashRuns fr endFr (slotOf t) ob
+            (emitStmt (matCache prog) (defsOf prog) (.assign t .gas)).length []) :
     ∃ endFr, Runs fr endFr ∧ Corr prog sloadChg obs (st.setLocal t ob) endFr L (pc + 1)
       ∧ endFr.exec.stack = [] := by
   classical
   obtain ⟨hslot63, hslotplat, endFr, hendrun, hendmembytes, hendmemactive, hendpc, hendcode,
-    hendvalid, hendaddr, hendcanmod, hendstorage, hendstk⟩ := hstash
+    hendvalid, hendaddr, hendcanmod, _, hendstorage, hendstk⟩ := hstash
   set slot := slotOf t with hsdef
   set st' := st.setLocal t ob with hst'def
   refine ⟨endFr, hendrun, ?_, hendstk⟩
@@ -954,7 +929,7 @@ theorem sim_assign_gas {prog : Program} {sloadChg : Tmp → ℕ} {obs ob : Word}
     exact defsSound_preserved_assignGas hgasdef hscope hcorr.defsSound
   -- pc advance.
   have hpcN : pcOf prog L (pc + 1)
-      = pcOf prog L pc + (emitStmt (defsOf prog) (recomputeFuel prog) (.assign t .gas)).length :=
+      = pcOf prog L pc + (emitStmt (matCache prog) (defsOf prog) (.assign t .gas)).length :=
     pcOf_succ prog L b pc (.assign t .gas) hb hs
   refine
     { pc_eq := by rw [hendpc, hcorr.pc_eq, hpcN, UInt32.ofNat_add]
@@ -1026,7 +1001,7 @@ theorem sim_assign_gas {prog : Program} {sloadChg : Tmp → ℕ} {obs ob : Word}
 
 An **sload-defined** tmp is no longer rematerialised — it is spilled to its memory slot
 `slotOf t` (`defsOf prog t = some (.slot (slotOf t))`, `emitStmt .assign` emits the stash
-`materialise k ++ [SLOAD] ++ PUSH (slotOf t) ++ MSTORE`). The SLOAD value — and its cold/warm
+`matCache k ++ [SLOAD] ++ PUSH (slotOf t) ++ MSTORE`). The SLOAD value — and its cold/warm
 **warmth charge** — is read **once**, at this clean statement boundary (empty stack), and reused
 from memory (`MLOAD`) on every use, so it is multi-use-safe and the `SLOAD` opcode runs exactly
 once per source sload read.
@@ -1040,8 +1015,8 @@ the slot, tied by `MemRealises`, and its warmth cost is the single def-site read
 
 Mirroring `sim_assign_gas`, the def-site stash run and its frame pins are taken as a supplied tail
 hypothesis `hstash`. The `_lowered` wrapper `sim_assign_sload_lowered` (`LowerDecode.lean`)
-*constructs* this run from the decode layout (`materialise_runs` + `sim_sload` + `stash_tail_sload`,
-the `MatDec`/`matDec_of_seg` bundle anchoring the variable-length `materialise k` prefix) and feeds
+*constructs* this run from the decode layout (`materialise_runsC` + `sim_sload` + `stash_tail_sload`,
+the `MatDecC`/`matDecC_of_seg` bundle anchoring the variable-length `matCache k` prefix) and feeds
 it here, so callers no longer supply the opaque run. The value stored is `w` (the loaded
 storage value). The arm re-establishes the full `Corr` at `pc+1`, including `MemRealises` for the
 just-bound sload slot (coverage + readback `= w`) and preservation of every other bound slot across
@@ -1050,7 +1025,7 @@ the (disjoint) sload-slot MSTORE. -/
 /-- **`sim_stmt`, the spilled `assign t (.sload k)` arm (Phase C).** From `Corr` at `(L, pc)`, an
 `EvalStmt.assignPure` step binding `t := w` for `evalExpr st 0 (.sload k) = some w` (the loaded
 storage value), and the supplied stash run `hstash` (writing `w` to `slotOf t`), running the lowered
-`materialise k ; SLOAD ; PUSH slot ; MSTORE` stash reaches a frame `endFr` in `Corr` with
+`matCache k ; SLOAD ; PUSH slot ; MSTORE` stash reaches a frame `endFr` in `Corr` with
 `st.setLocal t w` at `(L, pc+1)`, stack `[]`. The sload value lives in `slotOf t`, tied by
 `MemRealises`; no sload warmth universal is used (the warmth cost is the single def-site read). -/
 theorem sim_assign_sload {prog : Program} {sloadChg : Tmp → ℕ} {obs w : Word}
@@ -1077,25 +1052,13 @@ theorem sim_assign_sload {prog : Program} {sloadChg : Tmp → ℕ} {obs w : Word
     -- `stash_tail_runs_covered`); discharged from the real run in the P5 forward-simulation step:
     (hstash :
         (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
-        ∧ ∃ endFr,
-            Runs fr endFr
-          ∧ endFr.exec.toMachineState.memory
-              = (fr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) w).memory
-          ∧ endFr.exec.toMachineState.activeWords
-              = (fr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) w).activeWords
-          ∧ endFr.exec.pc = fr.exec.pc + UInt32.ofNat (emitStmt (defsOf prog) (recomputeFuel prog)
-                (.assign t (.sload k))).length
-          ∧ endFr.exec.executionEnv.code = fr.exec.executionEnv.code
-          ∧ endFr.validJumps = fr.validJumps
-          ∧ endFr.exec.executionEnv.address = fr.exec.executionEnv.address
-          ∧ endFr.exec.executionEnv.canModifyState = fr.exec.executionEnv.canModifyState
-          ∧ (∀ kk, selfStorage endFr kk = selfStorage fr kk)
-          ∧ endFr.exec.stack = []) :
+        ∧ ∃ endFr, StashRuns fr endFr (slotOf t) w
+            (emitStmt (matCache prog) (defsOf prog) (.assign t (.sload k))).length []) :
     ∃ endFr, Runs fr endFr ∧ Corr prog sloadChg obs (st.setLocal t w) endFr L (pc + 1)
       ∧ endFr.exec.stack = [] := by
   classical
   obtain ⟨hslot63, hslotplat, endFr, hendrun, hendmembytes, hendmemactive, hendpc, hendcode,
-    hendvalid, hendaddr, hendcanmod, hendstorage, hendstk⟩ := hstash
+    hendvalid, hendaddr, hendcanmod, _, hendstorage, hendstk⟩ := hstash
   set slot := slotOf t with hsdef
   set st' := st.setLocal t w with hst'def
   refine ⟨endFr, hendrun, ?_, hendstk⟩
@@ -1117,7 +1080,7 @@ theorem sim_assign_sload {prog : Program} {sloadChg : Tmp → ℕ} {obs w : Word
   have hworld : st'.world = st.world := by rw [hst'def]; rfl
   -- pc advance.
   have hpcN : pcOf prog L (pc + 1)
-      = pcOf prog L pc + (emitStmt (defsOf prog) (recomputeFuel prog) (.assign t (.sload k))).length :=
+      = pcOf prog L pc + (emitStmt (matCache prog) (defsOf prog) (.assign t (.sload k))).length :=
     pcOf_succ prog L b pc (.assign t (.sload k)) hb hs
   refine
     { pc_eq := by rw [hendpc, hcorr.pc_eq, hpcN, UInt32.ofNat_add]

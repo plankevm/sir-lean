@@ -4,8 +4,8 @@ import Evm
 /-!
 # LirLean — generic decode-from-lowering infrastructure (`decode_lower`, C3)
 
-`LirLean/Decode.lean` proves `Evm.decode (lower workedCall) pc = expected` at every
-emitted pc of one *worked* program by kernel `rfl`. That is the C2 acceptance bar,
+A concrete *worked* program's decode facts — `Evm.decode (lower workedCall) pc = expected`
+at every emitted pc — can be closed by kernel `rfl`. That is the C2 acceptance bar,
 but it is per-program: each new program reproves ≈40 `rfl`s. This module factors out
 the **program-independent core** of that reasoning so a decode fact follows from a
 purely *local* statement about the lowered byte list — the byte at the offset and
@@ -23,8 +23,8 @@ On top of them, the two generic decode lemmas (`decode_nonpush_of_list`,
 `lower prog = ⟨(flatBytes prog).toArray⟩` (`lower_eq_flatBytes`), discharging a
 decode obligation over `lower prog` reduces to the **byte-layout arithmetic**: which
 byte `flatBytes prog` holds at `pcOf prog L pc`. That prefix-sum/offset-table
-arithmetic is the remaining C3 work (see `PLAN.md`); these lemmas are the reusable
-bricks it feeds, and the bridge that lets the worked-program decode facts be stated
+arithmetic lives in `Decode/Layout.lean`; these lemmas are the reusable bricks it
+feeds, and the bridge that lets the worked-program decode facts be stated
 list-locally instead of by whole-array `rfl`.
 
 No `sorry`, no `axiom`, no `native_decide`.
@@ -37,27 +37,25 @@ open Evm
 /-! ## `lower prog` as a flat byte list -/
 
 /-- The flat byte list `lower prog` wraps: the per-block `JUMPDEST :: body`
-concatenation, before `toArray`/`ByteArray`. `lower prog = ⟨(flatBytes prog).toArray⟩`
-(`lower_eq_flatBytes`), so byte-indexing `lower prog` is list-indexing `flatBytes prog`.
-
-Stated in terms of `defsOf` (not `allocate`/`emit`) so every downstream layout proof
-that decomposes `flatBytes` over `offsetTable (defsOf …) …` is unchanged; the bridge
-to the factored `lower` is `allocate_toDefs`. -/
+concatenation, before `toArray`/`ByteArray`, built from the total fold cache
+`matCache prog` and the `defsOf prog` allocation policy, with branch destinations
+resolved via `offsetTable`. `lower prog = ⟨(flatBytes prog).toArray⟩`
+(`lower_eq_flatBytes`), so byte-indexing `lower prog` is list-indexing
+`flatBytes prog`. Fuel-free; total by construction. -/
 def flatBytes (prog : Program) : List UInt8 :=
-  let defs := defsOf prog
-  let fuel := recomputeFuel prog
-  let labelOff := offsetTable defs fuel prog.blocks
-  prog.blocks.toList.flatMap (fun b => Byte.jumpdest :: emitBlockBody defs fuel labelOff b)
+  let cache := matCache prog
+  let alloc := defsOf prog
+  let labelOff := offsetTable cache alloc prog.blocks
+  prog.blocks.toList.flatMap (fun b => Byte.jumpdest :: emitBlockBody cache alloc labelOff b)
 
-/-- `emit (allocate prog) prog` is `flatBytes prog`: `emit` runs the same per-block
-assembly over `(allocate prog).toDefs`, which is `defsOf prog` (`allocate_toDefs`). -/
+/-- `emit (defsOf prog) prog` is `flatBytes prog`: `emit` runs exactly this per-block
+assembly (fold cache + allocation) with `a := defsOf prog`. Definitional. -/
 theorem emit_allocate_eq_flatBytes (prog : Program) :
-    emit (allocate prog) prog = flatBytes prog := by
-  unfold emit flatBytes; rw [allocate_toDefs]
+    emit (defsOf prog) prog = flatBytes prog := rfl
 
 /-- `lower prog` is the `ByteArray` wrapping `flatBytes prog`. The factored
-`lower = encode ∘ emit (allocate prog)` emits exactly the old bytes via
-`emit_allocate_eq_flatBytes`. -/
+`lower = encode ∘ emit (defsOf prog)` emits exactly these bytes
+(`emit_allocate_eq_flatBytes`). -/
 theorem lower_eq_flatBytes (prog : Program) : lower prog = ⟨(flatBytes prog).toArray⟩ := by
   unfold lower encode; rw [emit_allocate_eq_flatBytes]
 

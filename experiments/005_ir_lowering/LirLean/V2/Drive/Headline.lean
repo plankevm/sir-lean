@@ -20,7 +20,7 @@ edge wrappers `driveCorrPlus_step_jump`/`_branch`), §10 (the `DriveCorrPlus` re
 `driveCorrPlus_entry`, and the headlines `lower_conforms_cyclic_tiefree` /
 `lower_conforms_cyclic_assembled` were REMOVED. They assembled a conditional headline from the
 supplied `StmtTies`/`TermTies`, which were shown unsatisfiable — the headline was VACUOUS. The
-plan-of-record conformance surface is the Phase-3 flagship (`V2/RealisabilitySpec.lean`); the
+plan-of-record conformance surface is the Phase-3 flagship (`V2/Realisability/RealisabilitySpec.lean`); the
 `DriveCorrPlus` carrier + the §7/§8 value/gas-channel lemmas below are RETAINED as the green
 machinery its R0 reshape starts from (currently unreferenced in the default build).
 
@@ -51,7 +51,7 @@ value = the k-th recorded entry) and the SSTORE presence in the SAME walk, the b
 must additionally carry, at each block-entry frame:
 
 * `selfPresent` — the self account is present (`SelfPresent fr`), the SSTORE presence world-invariant
-  (§5), transportable across each block's materialise sub-runs (account map + self address preserved);
+  (§5), transportable across each block's value-channel (`MatRunsC`) sub-runs (account map + self address preserved);
 * `gasAligned` / `sloadAligned` — that the recorder's flat gas/sload accumulators *consumed so far*
   are aligned (`GasLogAligned` / `SloadLogAligned`) with the GAS/SLOAD witness frames the walk has
   visited, so the per-cursor read at the next GAS/SLOAD site is the matching recorded entry
@@ -111,7 +111,7 @@ exactly the altitude `SimStmtStep`/`sim_assign` consume. They are functions of t
 `Corr`/`EvalStmt` ALONE, not of the run, so they are NOT bundled into the walk (doing
 so would buy nothing): the downstream Route-4b assembly applies them per cursor directly (the indexed
 form bound to the run's reached `(stpc, frpc)`, NOT the universal free-`ob` predicate of the former
-`StmtTies` (since reshaped into the run-DERIVED `StmtTies'` in `V2/RealisabilitySpec.lean`), which
+`StmtTies` (since reshaped into the run-DERIVED `StmtTies'` in `V2/Realisability/RealisabilitySpec.lean`), which
 ranged over all cursors and is unreconstructable from a single run).
 
 **The two channels that STAY SUPPLIED tonight** (satisfiable, documented, NON-vacuous):
@@ -219,7 +219,7 @@ told whether the statement is `assign t .gas` (a GAS cursor, with the GAS-op dec
 the strictly-advancing `fr0 ≠ fr1` that lets `Runs.gas_cancel` factor the GAS head out) or NOT (the
 no-record arm). This is the honest per-cursor input the architect's plan dispatches on; it is
 satisfiable (a real lowered `assign t .gas` decodes to `GAS` at the segment head — `emitStmt_assign_slot`
-puts `materialise .gas = [GAS]` first — and the GAS op strictly advances the pc) and NON-vacuous (the
+puts `matExpr (matCache prog) .gas = [GAS]` first — and the GAS op strictly advances the pc) and NON-vacuous (the
 GAS arm CONSUMES the supplied S4 lower bound to fire the brick, the non-GAS arm consumes nothing).
 
 The threaded reachability invariant is `GasReach`: the witness tail `Runs`-reaches the current cursor

@@ -23,7 +23,7 @@ sstore, AND call — with no call-free side condition.
 ## The per-statement simulation hypothesis `SimStmtStep`
 
 The three Layer-C arms (`sim_assign`, `sim_sstore_stmt`, `sim_call_stmt`) each take a
-bundle of honest per-statement structured hypotheses — the `MatDec` decode coverage at the
+bundle of honest per-statement structured hypotheses — the `MatDecC` decode coverage at the
 static cursors, the gas/stack envelopes, the `SstoreRealises`/`CallRealises` runtime ties,
 the per-step `StepScoped` scoping, and the post-state realisability ties. Rather than
 re-thread all of those through the list induction (they are per-statement and
@@ -34,10 +34,10 @@ conclusion: *for every cursor `pc` in the block holding a statement `s`, any
 segment re-establishing `Corr` at `pc+1` with an empty stack.* This is precisely what
 `sim_assign` / `sim_sstore_stmt` / `sim_call_stmt` deliver; discharging `SimStmtStep` for a
 concrete program is a mechanical case split feeding each arm its bundle.
-(`MatDec`-coverage-as-hypothesis is the same standard `sim_sstore_stmt` itself adopts — see
+(`MatDecC`-coverage-as-hypothesis is the same standard `sim_sstore_stmt` itself adopts — see
 its `hdv`/`hdk`/`hdop` arguments.)
 
-No `sorry`, no `axiom`, no `native_decide`. Nothing here touches `V2/Machine.lean` /
+No `sorry`, no `axiom`, no `native_decide`. Nothing here touches `Spec/Semantics.lean` /
 `V2/Law.lean` (the frame-free spine).
 -/
 
