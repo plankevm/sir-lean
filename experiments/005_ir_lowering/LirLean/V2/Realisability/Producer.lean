@@ -1397,20 +1397,24 @@ theorem runFrom_of_driveCorrLog_rec {prog : Program} {sloadChg : Tmp → ℕ} {l
   sorry
 
 /-- **P5 — the R6 boundary walk (`hrb`), reason (b).** Every `Runs fr₀`-reachable frame sits at
-a reachable instruction boundary — `runs_atReachableBoundary`, needing `hne : 0 < prog.blocks.size`
-(from `hwl.closed.entry_present` / `hwl.entry0`) AND the size seam `hsize`. The `hsize`
-`(flatBytes prog).length ≤ 2 ^ 32` is derived from the public `codeFits` budget before this
-helper is called; it remains explicit here because `WellLowered` is only an internal adapter
-and does not carry whole-program byte length. NOTE: R6 itself carries three pure-engine
-geometry `sorry` bricks in DEFAULT-target files (`atReachableBoundaryVJ_step`/`_call` residues
-+ the CREATE edge `atReachableBoundaryVJ_create`) which are OUTSIDE this track's edit surface. -/
+a reachable instruction boundary. This helper derives the nonempty-program precondition from
+`hwl.closed.entry_present` / `hwl.entry0`; the byte-size seam remains explicit because
+`WellLowered` is only an internal adapter and does not carry whole-program byte length. -/
 theorem boundaryWalk_of_wl {prog : Program} {params : CallParams} {fr₀ : Frame}
     (hbegin : beginCall params = .inl fr₀)
     (hcode : params.codeSource = .Code (lower prog))
     (hwl : WellLowered prog)
     (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32) :
     ∀ fr', Runs fr₀ fr' → AtReachableBoundary prog fr' := by
-  sorry
+  have hne : 0 < prog.blocks.size := by
+    obtain ⟨bentry, hbentry⟩ := hwl.closed.entry_present
+    unfold blockAt at hbentry
+    rw [hwl.entry0] at hbentry
+    by_contra hz
+    have hs : prog.blocks.size = 0 := Nat.eq_zero_of_not_pos hz
+    rw [Array.getElem?_eq_none (by rw [hs])] at hbentry
+    cases hbentry
+  exact runs_atReachableBoundary hbegin hcode hne hsize
 
 /-- **P6 — create-resolves for all reachable frames (`hcr`).** The blocker existential's first
 conjunct. Threaded from the reachable-frame create-resolves field in `PrecompileAssumptions`
