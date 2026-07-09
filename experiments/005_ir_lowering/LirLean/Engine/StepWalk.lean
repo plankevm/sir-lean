@@ -263,6 +263,20 @@ theorem pushOp_next_accMono {v : ExecutionState → UInt256} {exec exec' : Execu
     rw [hc] at h
     exact dispatch_simple_arm_next_accMono hc rfl rfl (continueWith_next h)
 
+/-- A `pushOp` `.next` advances the program counter by one byte. -/
+theorem pushOp_next_pc {v : ExecutionState → UInt256} {exec exec' : ExecutionState} {cost : ℕ}
+    (h : pushOp v exec cost = .ok (.next exec')) :
+    exec'.pc = exec.pc + 1 := by
+  unfold pushOp at h
+  simp only [bind, Except.bind] at h
+  cases hc : charge cost exec with
+  | error e => rw [hc] at h; simp at h
+  | ok ec =>
+    rw [hc] at h
+    rw [continueWith_next h, ExecutionState.replaceStackAndIncrPC]
+    rw [Lir.V2.charge_pc hc]
+    rfl
+
 open Lir.V2 (AccPresent accMono_of_accounts_eq) in
 /-- A `unStateOp` `.next` whose world-op `f` leaves `accounts`/`executionEnv` fixed preserves the
 execution environment and presence at every `a`. -/
@@ -294,6 +308,27 @@ theorem unStateOp_next_accMono {f : Evm.State → UInt256 → Evm.State × UInt2
       · refine accMono_of_accounts_eq a ?_ hp
         show (f ec.toState x).1.accounts = exec.accounts
         rw [hfacc, hcacc]
+
+/-- `unStateOp` `.next` advances the program counter by one byte. -/
+theorem unStateOp_next_pc {f : Evm.State → UInt256 → Evm.State × UInt256}
+    {cost : ExecutionState → UInt256 → ℕ} {exec exec' : ExecutionState}
+    (h : unStateOp f cost exec = .ok (.next exec')) :
+    exec'.pc = exec.pc + 1 := by
+  unfold unStateOp at h
+  simp only [bind, Except.bind] at h
+  cases hpop : exec.stack.pop with
+  | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+  | some v =>
+    obtain ⟨st1, x⟩ := v; rw [hpop] at h
+    simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+    cases hc : charge (cost exec x) exec with
+    | error e => rw [hc] at h; simp at h
+    | ok ec =>
+      rw [hc] at h
+      simp only [] at h
+      rw [continueWith_next h, ExecutionState.replaceStackAndIncrPC]
+      rw [Lir.V2.charge_pc hc]
+      rfl
 
 open Lir.V2 (AccPresent) in
 /-- A `charge`-then-`SSTORE`-write `.next` preserves the execution environment and presence at
@@ -396,6 +431,25 @@ theorem binOp_next_accMono {f : UInt256 → UInt256 → UInt256} {exec exec' : E
       obtain ⟨stk, x, y⟩ := v; rw [hpop] at h
       simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
       exact dispatch_simple_arm_next_accMono hc rfl rfl (continueWith_next h)
+
+/-- `binOp` `.next` advances the program counter by one byte. -/
+theorem binOp_next_pc {f : UInt256 → UInt256 → UInt256} {exec exec' : ExecutionState} {cost : ℕ}
+    (h : binOp f exec cost = .ok (.next exec')) :
+    exec'.pc = exec.pc + 1 := by
+  unfold binOp at h
+  simp only [bind, Except.bind] at h
+  cases hc : charge cost exec with
+  | error e => rw [hc] at h; simp at h
+  | ok ec =>
+    rw [hc] at h; simp only [] at h
+    cases hpop : ec.stack.pop2 with
+    | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+    | some v =>
+      obtain ⟨stk, x, y⟩ := v; rw [hpop] at h
+      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      rw [continueWith_next h, ExecutionState.replaceStackAndIncrPC]
+      rw [Lir.V2.charge_pc hc]
+      rfl
 
 open Lir.V2 (AccPresent accMono_of_accounts_eq) in
 /-- `ternOp` `.next` preserves the execution environment and presence at every `a`. -/
@@ -1220,6 +1274,87 @@ theorem stepFrame_next_jumpdest_pc {fr : Frame} {exec' : ExecutionState} {b : Na
         rw [hpc] at hcp
         rw [hcp, nextInstrPosNat]
         simp [pushArgWidth]
+
+/-- A decoded `JUMP` `.next` step lands in the frame's valid jump table. -/
+theorem stepFrame_next_jump_pc {fr : Frame} {exec' : ExecutionState}
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.JUMP, .none))
+    (hstep : stepFrame fr = .next exec') :
+    exec'.pc ∈ fr.validJumps := by
+  rw [stepFrame] at hstep
+  rw [hdec] at hstep
+  simp only [Option.getD_some] at hstep
+  simp only [reduceCtorEq, ↓reduceIte] at hstep
+  simp only [stackPopCount, stackPushCount] at hstep
+  split at hstep
+  · exact absurd hstep (by simp)
+  · rw [dispatch, smsfOp] at hstep
+    simp only [bind, Except.bind] at hstep
+    cases hc : charge Gmid fr.exec with
+    | error e => rw [hc] at hstep; simp at hstep
+    | ok ec =>
+      rw [hc] at hstep; simp only [] at hstep
+      cases hpop : ec.stack.pop with
+      | none => rw [hpop] at hstep; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at hstep
+      | some v =>
+        obtain ⟨stk, dest⟩ := v; rw [hpop] at hstep
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at hstep
+        cases hd : fr.get_dest dest with
+        | none => rw [hd] at hstep; simp at hstep
+        | some newpc =>
+          rw [hd] at hstep; simp only [] at hstep
+          unfold continueWith at hstep
+          simp only [Signal.next.injEq] at hstep
+          rw [← hstep]
+          exact Frame.get_dest_some_mem hd
+
+/-- A decoded `JUMPI` `.next` step either falls through or lands in the valid jump table. -/
+theorem stepFrame_next_jumpi_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
+    (hpc : fr.exec.pc = UInt32.ofNat b)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.JUMPI, .none))
+    (hstep : stepFrame fr = .next exec') :
+    exec'.pc = UInt32.ofNat (nextInstrPosNat b .JUMPI) ∨ exec'.pc ∈ fr.validJumps := by
+  rw [stepFrame] at hstep
+  rw [hdec] at hstep
+  simp only [Option.getD_some] at hstep
+  simp only [reduceCtorEq, ↓reduceIte] at hstep
+  simp only [stackPopCount, stackPushCount] at hstep
+  split at hstep
+  · exact absurd hstep (by simp)
+  · rw [dispatch, smsfOp] at hstep
+    simp only [bind, Except.bind] at hstep
+    cases hc : charge Ghigh fr.exec with
+    | error e => rw [hc] at hstep; simp at hstep
+    | ok ec =>
+      rw [hc] at hstep; simp only [] at hstep
+      cases hpop : ec.stack.pop2 with
+      | none => rw [hpop] at hstep; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at hstep
+      | some v =>
+        obtain ⟨stk, dest, cond⟩ := v; rw [hpop] at hstep
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at hstep
+        cases hcond : (cond != 0) with
+        | false =>
+          rw [hcond] at hstep
+          simp only [Bool.false_eq_true, ↓reduceIte] at hstep
+          unfold continueWith at hstep
+          simp only [Signal.next.injEq] at hstep
+          subst hstep
+          left
+          have hcp := Lir.V2.charge_pc hc
+          rw [hpc] at hcp
+          rw [hcp, nextInstrPosNat]
+          simp [pushArgWidth]
+        | true =>
+          rw [hcond] at hstep
+          simp only [↓reduceIte] at hstep
+          cases hd : fr.get_dest dest with
+          | none => rw [hd] at hstep; simp at hstep
+          | some newpc =>
+            rw [hd] at hstep; simp only [] at hstep
+            unfold continueWith at hstep
+            simp only [Signal.next.injEq] at hstep
+            subst hstep
+            right
+            exact Frame.get_dest_some_mem hd
 
 /-! ### Halt-success account-presence (`hhalt`)
 
