@@ -1,5 +1,6 @@
 import LirLean.V2.Drive.Headline
 import LirLean.Decode.BoundaryCursor
+import LirLean.Spec.BudgetDerivations
 import LirLean.V2.Realisability.Surface
 import LirLean.Engine.Modellable
 
@@ -1403,9 +1404,8 @@ theorem atReachableBoundaryVJ_step {prog : Lir.Program} {fr mid : Frame}
 
 /-- **R6 CALL edge.** A returning external CALL from a reachable in-range boundary of
 `lower prog` resumes at another (with the `validJumps` conjunct preserved). The
-`resumeAfterCall` pins (code / pc = call-site + 1 / validJumps) and the CALL-site inversion are
-discharged in-file; the remaining geometry brick is **B-inrange** (a lowered CALL is mid-block, so
-its 1-byte successor is in range). -/
+`resumeAfterCall` pins (code / pc = call-site + 1 / validJumps), the CALL-site inversion, and
+the CALL successor in-range geometry are discharged in-file. -/
 theorem atReachableBoundaryVJ_call {prog : Lir.Program} {fr rf : Frame}
     (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32)
     (h : CallReturns fr rf) (hinv : AtReachableBoundaryVJ prog fr) :
@@ -1420,8 +1420,62 @@ theorem atReachableBoundaryVJ_call {prog : Lir.Program} {fr rf : Frame}
       ∧ pending.frame.validJumps = fr.validJumps :=
     Lir.stepFrame_needsCall_lowering_site_inv hcode hpc hbnd hget hop hncall
   obtain ⟨hopCall, hppc, hpvj⟩ := hBcall
-  -- ── BRICK B-inrange (CALL instance; same home as the STEP B-inrange) ──
-  have hInR : b + 1 < (Lir.flatBytes prog).length := sorry
+  have hInR : b + 1 < (Lir.flatBytes prog).length := by
+    have hcursor := Lir.flatBytes_cursor_cases (prog := prog) (b := b) hin
+    cases hcursor with
+    | blockEntry L blk hb heq =>
+        have hbyte : (Lir.flatBytes prog)[b]? = some Lir.Byte.jumpdest := by
+          rw [heq, ← Lir.flatBytes_block_offset prog L]
+          rw [Lir.flatBytes_block_split prog L blk hb]
+          simp
+        rw [Lir.lower_get?_eq] at hget
+        rw [hbyte] at hget
+        cases hget
+        cases hopCall
+    | stmt L blk pc k s hb hs hk heq =>
+        have hend := Lir.V2.block_end_le_flatBytes prog L blk hb
+        have hsb := Lir.flatMap_split blk.stmts pc s hs
+          (Lir.emitStmt (Lir.matCache prog) (Lir.defsOf prog))
+        have hsblen : (blk.stmts.flatMap
+            (Lir.emitStmt (Lir.matCache prog) (Lir.defsOf prog))).length
+            = ((blk.stmts.take pc).flatMap
+                (Lir.emitStmt (Lir.matCache prog) (Lir.defsOf prog))).length
+              + (Lir.emitStmt (Lir.matCache prog) (Lir.defsOf prog) s).length
+              + ((blk.stmts.drop (pc + 1)).flatMap
+                (Lir.emitStmt (Lir.matCache prog) (Lir.defsOf prog))).length := by
+          conv_lhs => rw [hsb]
+          rw [List.length_append, List.length_append]
+        have htermPos : 0 < (Lir.emitTerm (Lir.matCache prog)
+            (Lir.offsetTable (Lir.matCache prog) (Lir.defsOf prog) prog.blocks)
+            blk.term).length := by
+          cases blk.term <;> simp [Lir.emitTerm]
+        have hroom : k + 1 ≤ (Lir.emitStmt (Lir.matCache prog) (Lir.defsOf prog) s).length := by
+          omega
+        rw [heq]
+        rw [Lir.pcOf_eq_anchor prog L blk pc hb]
+        omega
+    | term L blk k hb hk heq =>
+        have hlocal : Evm.ReachesBoundary (Lir.lower prog) (Lir.termOf prog L) (Lir.termOf prog L + k) :=
+          Lir.reachesBoundary_local_term (prog := prog) (L := L) (blk := blk) (k := k) hb (by
+            exact hk) (by rw [← heq]; exact hreach)
+        have htermNoCall :=
+          Lir.reaches_P_of_segAlignedP (Lir.lower prog)
+            (Lir.emitTerm (Lir.matCache prog)
+              (Lir.offsetTable (Lir.matCache prog) (Lir.defsOf prog) prog.blocks) blk.term)
+            (Lir.segAlignedNoCall_emitTerm_matCache prog blk.term)
+            (Lir.termOf prog L)
+            (by
+              intro j hj
+              rw [Lir.lower_get?_eq]
+              exact Lir.flatBytes_at_termOf prog L blk j hb hj)
+            (Lir.termOf prog L + k) hlocal (by omega)
+        obtain ⟨byte', hget', hnocall⟩ := htermNoCall
+        rw [heq] at hget
+        rw [Lir.lower_get?_eq] at hget
+        rw [Lir.lower_get?_eq prog (Lir.termOf prog L + k)] at hget'
+        rw [hget] at hget'
+        cases hget'
+        exact False.elim ((Lir.noCallCreate_of_byte byte hnocall).1 hopCall)
   -- `resumeAfterCall` pins (real, by unfolding the def):
   have hrenv : rf.exec.executionEnv = pending.frame.exec.executionEnv := by
     rw [hrf]; rfl
@@ -1494,16 +1548,10 @@ HONEST PARTIAL (re-architected): the reduction is now REAL and fully assembled h
 strengthened invariant `AtReachableBoundaryVJ` (`AtReachableBoundary` + the `validJumps`
 conjunct the taken-jump edge needs; the old `AtReachableBoundary`-only route was a DEAD end).
 Seed = `atReachableBoundaryVJ_entry` (B1), combinator = `atReachableBoundaryVJ_of_runs`, edges
-= `atReachableBoundaryVJ_step` / `atReachableBoundaryVJ_call`. Everything is discharged with
-real proofs except the remaining pc/in-range geometry bricks (marked `sorry` inside the two edges):
-* **B-pc** (`BoundaryReach.lean` / `Engine/StepWalk.lean`) — the `.next` `stepFrame` dispatch
-  walk: from a lowering-op boundary the successor pc is the sequential `nextInstrPosNat` OR a
-  `validJumps` member. Template `stepFrame_next_accMono`.
-* **B-inrange** (`BoundaryReach.lean` / `Layout.lean`) — blocks end in terminators, so a
-  sequential-advancing (or CALL) instruction's successor boundary stays `< length`. The
-  hardest brick (SegAligned/emitBlock layout decomposition).
-Once these land, R6 is axiom-clean (`[propext, Classical.choice, Quot.sound]`) by citing them.
-B2 (`hsize`) is threaded into both edges (the `boundary' < length ⟹ boundary' < 2^32`
+= `atReachableBoundaryVJ_step` / `atReachableBoundaryVJ_call` / `atReachableBoundaryVJ_create`.
+The remaining tracked geometry is the STEP sequential-successor in-range fact and the CREATE
+resume edge. Once these land, R6 is axiom-clean (`[propext, Classical.choice, Quot.sound]`).
+B2 (`hsize`) is threaded into the step/call edges (the `boundary' < length ⟹ boundary' < 2^32`
 reconciliation and the taken-jump/`UInt32.ofNat` no-wrap). -/
 theorem runs_atReachableBoundary {prog : Lir.Program} {params : CallParams} {fr₀ : Frame}
     (hbegin : beginCall params = .inl fr₀)
