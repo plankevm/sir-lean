@@ -56,9 +56,9 @@ theorem EvalStmt.det {prog : Program} {st st₁ st₂ : IRState}
       -- (`cases` unifies `(w',s') :: C₁ = (w'',s'') :: C₂`); callee/gasFwd are irrelevant to
       -- the post-state now (the head IS the effect), so the post-states coincide structurally.
       exact ⟨rfl, rfl, rfl, rfl⟩
-  | create hvalue hoff hsize =>
+  | create hvalue hoff hsize hsalt =>
     cases h₂ with
-    | create hvalue' hoff' hsize' =>
+    | create hvalue' hoff' hsize' hsalt' =>
       -- twin of `call`: the popped head `(world', addrW)` is pinned by the shared input create
       -- stream; the create inputs are irrelevant to the post-state (the head IS the effect).
       exact ⟨rfl, rfl, rfl, rfl⟩

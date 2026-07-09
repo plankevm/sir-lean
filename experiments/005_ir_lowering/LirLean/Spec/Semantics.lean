@@ -69,10 +69,11 @@ inductive EvalStmt (prog : Program) :
           | none   => { st with world := world' })
         T C D
   | create {st : IRState} {T : GasOracle} {C : CallStream} {D : CreateStream}
-      {cs : CreateSpec} {valueW initOffW initSizeW addrW : Word} {world' : World}
+      {cs : CreateSpec} {valueW initOffW initSizeW saltW addrW : Word} {world' : World}
       (hvalue : st.locals cs.value = some valueW)
       (hoff   : st.locals cs.initOffset = some initOffW)
-      (hsize  : st.locals cs.initSize = some initSizeW) :
+      (hsize  : st.locals cs.initSize = some initSizeW)
+      (hsalt  : st.locals cs.salt = some saltW) :
       EvalStmt prog st T C ((world', addrW) :: D) (.create cs)
         (match cs.resultTmp with
           | some t => { st with world := world' }.setLocal t addrW

@@ -24,7 +24,7 @@ structure CreateSpec where
   value : Tmp
   initOffset : Tmp
   initSize : Tmp
-  salt : Option Tmp
+  salt : Tmp
   resultTmp : Option Tmp
 deriving DecidableEq, Repr
 

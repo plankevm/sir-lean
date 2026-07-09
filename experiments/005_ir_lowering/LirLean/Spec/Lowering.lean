@@ -21,7 +21,6 @@ def gas      : UInt8 := 0x5a
 def jumpdest : UInt8 := 0x5b
 def push4    : UInt8 := 0x63
 def push32   : UInt8 := 0x7f
-def create   : UInt8 := 0xf0
 def call     : UInt8 := 0xf1
 def create2  : UInt8 := 0xf5
 def ret      : UInt8 := 0xf3
@@ -139,15 +138,12 @@ def emitStmt (cache : Tmp → List UInt8) (alloc : Alloc) : Stmt → List UInt8
             | none =>
                 [Byte.pop])
   | .create cs =>
-      -- CREATE uses value/offset/size zeroes; CREATE2 pushes salt before opcode.
-      emitImm 0
-        ++ emitImm 0
-        ++ emitImm 0
-        ++ (match cs.salt with
-            | some s =>
-                cache s ++ [Byte.create2]
-            | none =>
-                [Byte.create])
+      -- CREATE2 pops value, init offset, init size, salt.
+      cache cs.salt
+        ++ cache cs.initSize
+        ++ cache cs.initOffset
+        ++ cache cs.value
+        ++ [Byte.create2]
         -- A result tmp stores the address word; otherwise discard it.
         ++ (match cs.resultTmp with
             | some t =>

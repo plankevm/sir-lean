@@ -218,9 +218,8 @@ if ever desired — it is not required for soundness.
 
 ## 3. Concrete Lean shape the Build phase must implement for Step 2
 
-Depends on Step 1's `CreateSpec` (plan §2 Step 1: fields `value initOffset initSize :
-Tmp`, `salt : Option Tmp`, `resultTmp : Option Tmp`) and `Stmt.create (cs :
-CreateSpec)`.
+Depends on Step 1's `CreateSpec` (plan §2 Step 1: fields `value initOffset initSize
+salt : Tmp`, `resultTmp : Option Tmp`) and `Stmt.create (cs : CreateSpec)`.
 
 ### 3a. The channel (Semantics.lean, next to `CallStream` :99)
 
@@ -258,14 +257,14 @@ through the block's `RunStmts` then into the terminator recursion).
 does not fire, mirroring `.call`), **pop the head `(world', addrW)` of the CREATE
 stream**, set `world := world'`, and bind the deployed address `addrW` at
 `cs.resultTmp` if present. The gas `Trace` and the `CallStream` are unchanged.
-Positional: the head IS this create's recorded result. First cut is the empty-init
-case (`value = initOffset = initSize = 0` per Create.lean:31), but the guards read
-the tmps so CREATE2 (`salt = some`) needs no reshape — only an extra salt read. -/
+Positional: the head IS this create's recorded result. The guards read every
+CREATE2 operand from locals. -/
 | create {st : IRState} {T : Trace} {C : CallStream} {D : CreateStream}
-    {cs : CreateSpec} {valueW initOffW initSizeW addrW : Word} {world' : World}
+    {cs : CreateSpec} {valueW initOffW initSizeW saltW addrW : Word} {world' : World}
     (hvalue : st.locals cs.value = some valueW)
     (hoff   : st.locals cs.initOffset = some initOffW)
-    (hsize  : st.locals cs.initSize = some initSizeW) :
+    (hsize  : st.locals cs.initSize = some initSizeW)
+    (hsalt  : st.locals cs.salt = some saltW) :
     EvalStmt prog st T C ((world', addrW) :: D) (.create cs)
       (match cs.resultTmp with
         | some t => { st with world := world' }.setLocal t addrW
@@ -278,9 +277,8 @@ Notes for the builder:
   world'`, bind `w` at `resultTmp` — differing only in *which* channel is popped and
   *which* locals are read as guards. This structural identity is what keeps every
   existing arm's `D`-threading inert.
-- `salt : Option Tmp` is *not* read in the first cut (CREATE); for CREATE2 add a
-  guard `(hsalt : ∀ s, cs.salt = some s → st.locals s = some saltW)` or a matched arm
-  — a §4-delta, not a reshape (plan §4).
+- `salt : Tmp` is read by the CREATE2-only contract and must be bound before the
+  statement fires.
 - `RunStmts`/`RunFrom` need **no new constructor** (they recurse on `Stmt`
   generically); they only need the `D` index added and threaded.
 
