@@ -55,6 +55,16 @@ theorem charge_accounts_env {c : ℕ} {e e' : ExecutionState} (h : charge c e = 
   · exact absurd h (by simp)
   · simp only [Except.ok.injEq] at h; subst h; exact ⟨rfl, rfl⟩
 
+/-- `charge` preserves the program counter. -/
+theorem charge_pc {c : ℕ} {e e' : ExecutionState} (h : charge c e = .ok e') :
+    e'.pc = e.pc := by
+  unfold charge at h
+  split at h
+  · exact absurd h (by simp)
+  · simp only [Except.ok.injEq] at h
+    subst h
+    rfl
+
 /-- `chargeMemExpansion` likewise leaves `accounts`/`executionEnv` untouched. -/
 theorem chargeMemExpansion_accounts_env {e e' : ExecutionState} {off sz : UInt256}
     (h : chargeMemExpansion e off sz = .ok e') :
@@ -63,6 +73,15 @@ theorem chargeMemExpansion_accounts_env {e e' : ExecutionState} {off sz : UInt25
   split at h
   · exact absurd h (by simp)
   · exact charge_accounts_env h
+
+/-- `chargeMemExpansion` preserves the program counter. -/
+theorem chargeMemExpansion_pc {e e' : ExecutionState} {off sz : UInt256}
+    (h : chargeMemExpansion e off sz = .ok e') :
+    e'.pc = e.pc := by
+  unfold chargeMemExpansion at h
+  split at h
+  · exact absurd h (by simp)
+  · exact charge_pc h
 
 /-- **The presence side-condition `SelfPresent` reads, stated on raw execution states.** -/
 def SelfAt (exec : ExecutionState) : Prop :=
@@ -170,6 +189,10 @@ open GasConstants
 /-- `replaceStackAndIncrPC` preserves the account map (it touches only `stack`/`pc`). -/
 theorem replaceStackAndIncrPC_accounts {e : ExecutionState} (s : Stack UInt256) (pcΔ : UInt8) :
     (ExecutionState.replaceStackAndIncrPC e s pcΔ).accounts = e.accounts := rfl
+
+/-- `replaceStackAndIncrPC` advances the program counter by its explicit byte delta. -/
+theorem replaceStackAndIncrPC_pc {e : ExecutionState} (s : Stack UInt256) (pcΔ : UInt8) :
+    (ExecutionState.replaceStackAndIncrPC e s pcΔ).pc = e.pc + pcΔ.toUInt32 := rfl
 
 open Lir.V2 (AccPresent accMono_of_accounts_eq) in
 /-- Presence at `a` survives `replaceStackAndIncrPC` of a state whose accounts equal a present base.
