@@ -621,10 +621,9 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     (hdefs : DefsSound prog st)
     (hsc : StepScoped prog st (.call cs))
     (hmem : MemRealises prog st fr)
-    -- every registered call-result slot is `slotOf` (`defsOf` registers `(t, .slot (slotOf
-    -- t))`; a source `assign` never carries the lowering-only `.slot` marker — a
-    -- `WellFormed` invariant the eventual caller discharges). Pins the result-slot for the new
-    -- binding and the 32-aligned disjointness of distinct bound slots.
+    -- every registered spill slot is `slotOf` (`defsOf` registers each spilled def as
+    -- `(t, .slot (slotOf t))`; pure source expressions are classified as `.remat`). Pins the
+    -- result slot for the new binding and the 32-aligned disjointness of distinct bound slots.
     (hslots : ∀ tw slot', defsOf prog tw = some (.slot slot') → slot' = slotOf tw)
     -- the post-state scoping/realisability (downstream-supplied, as in `materialise_runsC`):
     (hscoped' : ∀ t, st'.locals t ≠ none →

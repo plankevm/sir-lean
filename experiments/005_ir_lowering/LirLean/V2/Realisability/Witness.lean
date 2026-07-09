@@ -529,17 +529,6 @@ private theorem retEpilogueBound_exProg : ∀ (L : Label) (b : Block) (t : Tmp),
   rcases blockAt_exProg_inv hb with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ <;>
     simp only [exBlk0, exBlk1, exBlk2, reduceCtorEq] at hterm
 
--- `exProg` has no `.slot`-source assign (no source program writes the lowering-only marker).
-set_option linter.unusedSimpArgs false in
-private theorem noSlotSource_exProg : ∀ (L : Label) (b : Block) (pc : Nat) (t : Tmp) (n : Nat),
-    blockAt exProg L = some b → b.stmts[pc]? = some (.assign t (.slot n)) → False := by
-  rintro ⟨idx⟩ b pc t n hb hs
-  rcases blockAt_exProg_inv hb with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ <;>
-    rcases pc with _|_|_|_|_|_|_|pc <;>
-    simp only [exBlk0, exBlk1, exBlk2, List.getElem?_cons_zero, List.getElem?_cons_succ,
-      List.getElem?_nil, Option.some.injEq, reduceCtorEq, Stmt.assign.injEq,
-      Expr.slot.injEq, and_false, false_and] at hs
-
 /-- `exProg`'s CFG is closed at the presence + in-bounds level (`CFGClosed`) — the projection
 of `closedCFG_exProg` that drops the offset-bound halves (those are DERIVED from `codeFits`
 via B1a in the 1B-reshape bridge, not carried by `IRWellFormed`). -/
@@ -555,8 +544,7 @@ private theorem cfgClosed_exProg : CFGClosed exProg where
 /-- **`IRWellFormed exProg`** — the static, program-text-only well-formedness antecedent of the
 reshaped flagships. Each field reuses a witness proved above: the gas/call-aware definability,
 the `defsOf`-consistency, block-0 entry, the presence/in-bounds CFG closure, the ordered
-def-env (`defEnvOrdered_exProg`), the per-block re-validation, no `.slot` source, and
-spill-slot addressability. -/
+def-env (`defEnvOrdered_exProg`), the per-block re-validation, and spill-slot addressability. -/
 theorem irWellFormed_exProg : IRWellFormed exProg where
   defineBeforeUse := runDefinableG_exProg
   defsConsistent := defsConsistent_exProg
@@ -564,7 +552,6 @@ theorem irWellFormed_exProg : IRWellFormed exProg where
   cfgClosed := cfgClosed_exProg
   defEnvOrdered := defEnvOrdered_exProg
   revalidates := revalidatesPerBlock_exProg
-  noSlotSource := noSlotSource_exProg
   slotAddr := slotAddr_exProg
 
 set_option maxRecDepth 8000 in
@@ -578,8 +565,7 @@ Concrete `maxChargeDepth`. -/
 theorem stackFits_exProg : stackFits exProg := by unfold stackFits; decide
 
 -- `exProg` is `WellFormedLowered`: every fold `bound_*` field discharged from the whole-code
--- budget `codeFits_exProg` via the B1a dischargers; `slots_slot` from the no-`.slot`-source
--- witness.
+-- budget `codeFits_exProg` via the B1a dischargers; `slots_slot` from `defEnv`.
 private theorem wellFormedLowered_exProg : Lir.WellFormedLowered exProg where
   bound_sstore := bound_sstore_of_codeFits exProg codeFits_exProg
   bound_sload := bound_sload_of_codeFits exProg codeFits_exProg defsConsistent_exProg
@@ -587,7 +573,7 @@ private theorem wellFormedLowered_exProg : Lir.WellFormedLowered exProg where
   bound_stop := bound_stop_of_codeFits exProg codeFits_exProg
   bound_jump := bound_jump_of_codeFits exProg codeFits_exProg
   bound_branch := bound_branch_of_codeFits exProg codeFits_exProg
-  slots_slot := slots_slot_of_noSlotSource exProg noSlotSource_exProg
+  slots_slot := slots_slot_of_defsOf exProg
 
 -- `exProg` satisfies the static stack-room bounds: derived from the `stackFits` budget
 -- (`maxChargeDepth exProg ≤ 1024`) by the B1b discharger.
@@ -612,7 +598,6 @@ theorem wellLowered_exProg : WellLowered exProg where
   gasBound := gasBound_exProg
   slotAddr := slotAddr_exProg
   retEpilogueBound := retEpilogueBound_exProg
-  noSlotSource := noSlotSource_exProg
 
 /-- **R9 — the static checker, stated existentially with a non-vacuity anchor.** A
 PREMATURE checker `def` would be worse than debt (a wrong-but-real `lowerCheck` misleads;

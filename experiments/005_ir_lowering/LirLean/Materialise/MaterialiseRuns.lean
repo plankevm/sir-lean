@@ -21,16 +21,12 @@ the per-statement sims) consume from the B1 layer:
   `MemRealises` (the memory value channel for spilled tmps), with their `.transport`s and
   the memory-coverage bricks (`M_32_eq_self_of_covered`,
   `memoryExpansionWords?_ofNat_32_of_covered`);
-* the RETIRED `SloadRealises`/`GasRealises` universals (regression-witness subjects only);
-* the **legacy generic-`defs` fuel block** (P9-deletes): the decode bundle `MatDec`, the
-  endpoint bundle `MatRuns`, `matRuns_imm`, `chargeOf_length_pos_of_matDec` and the
-  `materialiseExpr_*` reduction lemmas — generic in a `defs : Tmp → Option Expr`
-  environment, unconsumed by the canonical fold pipeline.
+* the RETIRED `SloadRealises`/`GasRealises` universals (regression-witness subjects only).
 
 ## The two non-pure leaves are spilled (unreachable here)
 
 **`.gas`** (Phase B) and **`.sload`** (Phase C) are routed to memory slots by `defsOf`
-(`Expr.slot (slotOf t)`): the value (and, for sload, its cold/warm warmth charge) is read once
+(`Loc.slot (slotOf t)`): the value (and, for sload, its cold/warm warmth charge) is read once
 at the `assign` def-site stash (`[GAS]`/`materialise k ++ [SLOAD]`, then `PUSH slot ; MSTORE`) and
 reused via `MLOAD`. So a *bare* `.gas`/`.sload k` is never materialised by this recursion — those
 arms are unreachable (`e ≠ .gas`, `∀ k, e ≠ .sload k`, both preserved across the `.tmp` recursion
@@ -63,9 +59,7 @@ threads. -/
     (pushFrameW fr w width).exec.executionEnv.code = fr.exec.executionEnv.code := rfl
 
 /-! Every materialise post-frame is `{ fr with exec := … }`, so the frame's
-`validJumps` field (set once at frame creation from the code) is preserved verbatim —
-these `rfl` lemmas thread the `MatRuns.validJumps` clause that ties `validJumps` to the
-frame's own code. -/
+`validJumps` field (set once at frame creation from the code) is preserved verbatim. -/
 
 @[simp] theorem pushFrameW_validJumps (fr : Frame) (w : Word) (width : UInt8) :
     (pushFrameW fr w width).validJumps = fr.validJumps := rfl
@@ -172,9 +166,8 @@ gas, and advances pc by one. These `rfl` lemmas expose exactly those clauses. -/
 Every materialise post-frame (`pushFrameW` / `addFrame` / `ltFrame` / `sloadFrame` /
 `gasFrame`) is built by `replaceStackAndIncrPC` (plus a gas charge and, for SLOAD, an
 account/substate update) — none of which touch the `MachineState` `memory` bytes or the
-`activeWords` count. These `rfl` lemmas thread the new `MatRuns.memBytes`/`.memActive`
-clauses (the memory value-channel transport): bytes are *unchanged* and `activeWords` is
-*unchanged* (hence trivially nondecreasing). -/
+`activeWords` count. These `rfl` lemmas thread the memory value-channel transport:
+bytes are *unchanged* and `activeWords` is *unchanged* (hence trivially nondecreasing). -/
 
 @[simp] theorem pushFrameW_memory (fr : Frame) (w : Word) (width : UInt8) :
     (pushFrameW fr w width).exec.toMachineState.memory = fr.exec.toMachineState.memory := rfl
@@ -210,146 +203,6 @@ clauses (the memory value-channel transport): bytes are *unchanged* and `activeW
 @[simp] theorem gasFrame_activeWords (fr : Frame) :
     (gasFrame fr).exec.toMachineState.activeWords = fr.exec.toMachineState.activeWords := rfl
 
-/-! ## The decode bundle `MatDec` (legacy generic-`defs`; P9-deletes)
-
-`MatDec code defs sloadChg fuel p e` is the structured decode hypothesis the old fuel
-value channel consumed: one `decode code … = …` clause per opcode
-`materialiseExpr defs fuel e` emits, anchored at the running program counter (`p` is the
-starting pc; the recursion advances it by the post-frames' own pc deltas via
-`UInt32.ofNat_add`), mirroring `materialiseExpr` constructor-for-constructor. Generic in
-`defs`; unconsumed by the canonical fold pipeline (the cache-keyed twin is `MatDecC`,
-`Materialise/MatFoldChannel.lean`) and deleted at P9 with the fuel definitions. -/
-def MatDec (code : ByteArray) (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ) :
-    Nat → UInt32 → Expr → Prop
-  | _,      p, .imm w  => decode code p = some (.Push .PUSH32, some (w, 32))
-  | _,      p, .slot slot =>
-      decode code p = some (.Push .PUSH32, some (UInt256.ofNat slot, 32))
-      ∧ decode code (p + UInt32.ofNat (emitImm (UInt256.ofNat slot)).length)
-          = some (.Smsf .MLOAD, .none)
-  | 0,      _, _       => False   -- fuel exhausted on a non-leaf: no decode facts ⇒ unusable
-  | f + 1,  p, .tmp t  =>
-      match defs t with
-      | some e => MatDec code defs sloadChg f p e
-      | none   => decode code p = some (.Push .PUSH32, some ((0 : Word), 32))
-  | f + 1,  p, .add a b =>
-      MatDec code defs sloadChg f p (.tmp b)
-      ∧ MatDec code defs sloadChg f
-          (p + UInt32.ofNat (materialiseExpr defs f (.tmp b)).length) (.tmp a)
-      ∧ decode code
-          (p + UInt32.ofNat (materialiseExpr defs f (.tmp b)).length
-             + UInt32.ofNat (materialiseExpr defs f (.tmp a)).length)
-          = some (.ArithLogic .ADD, .none)
-  | f + 1,  p, .lt a b =>
-      MatDec code defs sloadChg f p (.tmp b)
-      ∧ MatDec code defs sloadChg f
-          (p + UInt32.ofNat (materialiseExpr defs f (.tmp b)).length) (.tmp a)
-      ∧ decode code
-          (p + UInt32.ofNat (materialiseExpr defs f (.tmp b)).length
-             + UInt32.ofNat (materialiseExpr defs f (.tmp a)).length)
-          = some (.ArithLogic .LT, .none)
-  | f + 1,  p, .sload k =>
-      MatDec code defs sloadChg f p (.tmp k)
-      ∧ decode code (p + UInt32.ofNat (materialiseExpr defs f (.tmp k)).length)
-          = some (.Smsf .SLOAD, .none)
-  | _ + 1,  p, .gas    => decode code p = some (.Smsf .GAS, .none)
-
-/-! ### `MatDec` reduction lemmas (definitional; pair with `materialiseExpr`'s shape) -/
-
-@[simp] theorem matDec_imm (code : ByteArray) (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ)
-    (fuel : Nat) (p : UInt32) (w : Word) :
-    MatDec code defs sloadChg fuel p (.imm w)
-      = (decode code p = some (.Push .PUSH32, some (w, 32))) := by
-  cases fuel <;> rfl
-
-@[simp] theorem matDec_slot (code : ByteArray) (defs : Tmp → Option Expr)
-    (sloadChg : Tmp → ℕ) (fuel : Nat) (p : UInt32) (slot : Nat) :
-    MatDec code defs sloadChg fuel p (.slot slot)
-      = (decode code p = some (.Push .PUSH32, some (UInt256.ofNat slot, 32))
-         ∧ decode code (p + UInt32.ofNat (emitImm (UInt256.ofNat slot)).length)
-             = some (.Smsf .MLOAD, .none)) := by
-  cases fuel <;> rfl
-
-theorem matDec_tmp_some (code : ByteArray) (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ)
-    (f : Nat) (p : UInt32) (t : Tmp) (e : Expr) (h : defs t = some e) :
-    MatDec code defs sloadChg (f + 1) p (.tmp t) = MatDec code defs sloadChg f p e := by
-  show (match defs t with | some e => MatDec code defs sloadChg f p e | none => _) = _
-  rw [h]
-
-theorem matDec_tmp_none (code : ByteArray) (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ)
-    (f : Nat) (p : UInt32) (t : Tmp) (h : defs t = none) :
-    MatDec code defs sloadChg (f + 1) p (.tmp t)
-      = (decode code p = some (.Push .PUSH32, some ((0 : Word), 32))) := by
-  show (match defs t with | some e => _ | none => decode code p = _) = _
-  rw [h]
-
-@[simp] theorem matDec_add (code : ByteArray) (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ)
-    (f : Nat) (p : UInt32) (a b : Tmp) :
-    MatDec code defs sloadChg (f + 1) p (.add a b)
-      = (MatDec code defs sloadChg f p (.tmp b)
-        ∧ MatDec code defs sloadChg f
-            (p + UInt32.ofNat (materialiseExpr defs f (.tmp b)).length) (.tmp a)
-        ∧ decode code
-            (p + UInt32.ofNat (materialiseExpr defs f (.tmp b)).length
-               + UInt32.ofNat (materialiseExpr defs f (.tmp a)).length)
-            = some (.ArithLogic .ADD, .none)) := rfl
-
-@[simp] theorem matDec_lt (code : ByteArray) (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ)
-    (f : Nat) (p : UInt32) (a b : Tmp) :
-    MatDec code defs sloadChg (f + 1) p (.lt a b)
-      = (MatDec code defs sloadChg f p (.tmp b)
-        ∧ MatDec code defs sloadChg f
-            (p + UInt32.ofNat (materialiseExpr defs f (.tmp b)).length) (.tmp a)
-        ∧ decode code
-            (p + UInt32.ofNat (materialiseExpr defs f (.tmp b)).length
-               + UInt32.ofNat (materialiseExpr defs f (.tmp a)).length)
-            = some (.ArithLogic .LT, .none)) := rfl
-
-@[simp] theorem matDec_sload (code : ByteArray) (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ)
-    (f : Nat) (p : UInt32) (k : Tmp) :
-    MatDec code defs sloadChg (f + 1) p (.sload k)
-      = (MatDec code defs sloadChg f p (.tmp k)
-        ∧ decode code (p + UInt32.ofNat (materialiseExpr defs f (.tmp k)).length)
-            = some (.Smsf .SLOAD, .none)) := rfl
-
-/-! ## The B1 conclusion bundle
-
-`MatRuns defs sloadChg fuel e w fr fr'` packages everything B1 delivers about the
-materialise endpoint `fr'` reached from `fr` by running `materialiseExpr defs fuel e`:
-the run itself, the value `w` pushed (= `evalExpr`'s value), code/address/self-storage
-preserved, the pc advanced by the emitted byte length, and the B2 gas contract (plus
-its `toNat` form, threaded so each step's gas bound follows). -/
-structure MatRuns (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ) (fuel : Nat)
-    (e : Expr) (w : Word) (fr fr' : Frame) : Prop where
-  runs       : Runs fr fr'
-  stack      : fr'.exec.stack = fr.exec.stack.push w
-  code       : fr'.exec.executionEnv.code = fr.exec.executionEnv.code
-  validJumps : fr'.validJumps = fr.validJumps
-  addr       : fr'.exec.executionEnv.address = fr.exec.executionEnv.address
-  canMod     : fr'.exec.executionEnv.canModifyState = fr.exec.executionEnv.canModifyState
-  /-- The account **map** is unchanged across the materialise sub-run: every materialise
-  post-frame (`pushFrameW`/`addFrame`/`ltFrame`/`sloadFrame`/`gasFrame`) leaves `exec.accounts`
-  untouched (`rfl`; PUSH/ADD/LT/SLOAD/GAS touch stack / pc / gas / substate, never `accounts`).
-  Together with `addr` this transports the `SelfPresent` world-invariant (the self account stays
-  present) the SSTORE presence side-condition needs — the §5-`SelfPresent` analogue of
-  `memBytes`/`memActive`. -/
-  accounts   : fr'.exec.accounts = fr.exec.accounts
-  storage    : ∀ k, selfStorage fr' k = selfStorage fr k
-  pc         : fr'.exec.pc = fr.exec.pc + UInt32.ofNat (materialiseExpr defs fuel e).length
-  gasCharge  : MaterialiseGasCharge defs sloadChg fuel e fr fr'
-  gasToNat   : fr'.exec.gasAvailable.toNat
-                 = fr.exec.gasAvailable.toNat - (chargeOf defs sloadChg fuel e).sum
-  /-- The memory **bytes** are unchanged across the materialise sub-run. This is the
-  transportable half of the memory value channel: every materialise post-frame leaves the
-  `MachineState.memory` byte array untouched (PUSH/ADD/LT/SLOAD/GAS never write memory; an
-  MLOAD readback only grows `activeWords`). -/
-  memBytes   : fr'.exec.toMachineState.memory = fr.exec.toMachineState.memory
-  /-- `activeWords` is **nondecreasing** across the materialise sub-run. The companion of
-  `memBytes`: pure ops keep `activeWords` fixed, an MLOAD readback can only grow it. Together
-  with `memBytes` this transports a *covered* call-result slot's value (`MemRealises.transport`):
-  bytes-equal preserves in-bounds, `activeWords`-nondecreasing preserves the active guard. -/
-  memActive  : fr.exec.toMachineState.activeWords.toNat
-                 ≤ fr'.exec.toMachineState.activeWords.toNat
-
 /-! ## The stash-endpoint bundle (`StashRuns`)
 
 `StashRuns fr endFr slot v pcΔ rest` packages everything a def-site **stash** run delivers about
@@ -359,8 +212,8 @@ at `slot`): the run, the **honest** memory channel (`.memory` bytes + `.activeWo
 real run never preserves), the pc advanced by `pcΔ`, the frame pins (code / valid-jumps / address /
 can-modify / accounts / self-storage), and the working stack left at `rest`. The stash-tail forward
 lemmas (`stash_tail_runs`/`_covered`/`_gas`/`_sload`) produce it; `sim_assign_gas`/`sim_assign_sload`
-and the §7 `CallRealises` call tie consume it. Mirrors `MatRuns` (the materialise-endpoint bundle);
-named so a clause reorder does not ripple across the (previously positional) destructurings. -/
+and the §7 `CallRealises` call tie consume it. Named so a clause reorder does not ripple
+across the destructurings. -/
 structure StashRuns (fr endFr : Frame) (slot : Nat) (v : Word) (pcΔ : Nat) (rest : Stack Word) :
     Prop where
   runs        : Runs fr endFr
@@ -383,111 +236,8 @@ structure StashRuns (fr endFr : Frame) (slot : Nat) (v : Word) (pcΔ : Nat) (res
 theorem emitImm_length (w : Word) : (emitImm w).length = 33 := by
   simp [emitImm, wordBytesBE]
 
-/-- The materialise length of a literal is `33`. -/
-theorem materialiseExpr_imm_length (defs : Tmp → Option Expr) (fuel : Nat) (w : Word) :
-    (materialiseExpr defs fuel (.imm w)).length = 33 := by
-  cases fuel <;> simp [materialiseExpr, emitImm_length]
-
-/-- `materialiseExpr` of a `.slot slot` is `PUSH32 slot; MLOAD` (fuel-independent;
-the Route B memory-readback marker). -/
-theorem materialiseExpr_slot (defs : Tmp → Option Expr) (fuel : Nat) (slot : Nat) :
-    materialiseExpr defs fuel (.slot slot)
-      = emitImm (UInt256.ofNat slot) ++ [Byte.mload] := by
-  cases fuel <;> rfl
-
-/-! ### `materialiseExpr` reduction lemmas (pair with `chargeOf`/`MatDec`) -/
-
-theorem materialiseExpr_tmp_some (defs : Tmp → Option Expr) (f : Nat) (t : Tmp) (e : Expr)
-    (h : defs t = some e) :
-    materialiseExpr defs (f + 1) (.tmp t) = materialiseExpr defs f e := by
-  show (match defs t with | some e => materialiseExpr defs f e | none => emitImm 0) = _
-  rw [h]
-
-theorem materialiseExpr_tmp_none (defs : Tmp → Option Expr) (f : Nat) (t : Tmp)
-    (h : defs t = none) :
-    materialiseExpr defs (f + 1) (.tmp t) = emitImm (0 : Word) := by
-  show (match defs t with | some e => materialiseExpr defs f e | none => emitImm 0) = _
-  rw [h]
-
-@[simp] theorem materialiseExpr_add (defs : Tmp → Option Expr) (f : Nat) (a b : Tmp) :
-    materialiseExpr defs (f + 1) (.add a b)
-      = materialiseExpr defs f (.tmp b) ++ materialiseExpr defs f (.tmp a) ++ [Byte.add] := rfl
-
-@[simp] theorem materialiseExpr_lt (defs : Tmp → Option Expr) (f : Nat) (a b : Tmp) :
-    materialiseExpr defs (f + 1) (.lt a b)
-      = materialiseExpr defs f (.tmp b) ++ materialiseExpr defs f (.tmp a) ++ [Byte.lt] := rfl
-
-@[simp] theorem materialiseExpr_sload (defs : Tmp → Option Expr) (f : Nat) (k : Tmp) :
-    materialiseExpr defs (f + 1) (.sload k)
-      = materialiseExpr defs f (.tmp k) ++ [Byte.sload] := rfl
-
-/-- The charge list of a `.tmp` lookup is non-empty whenever its decode bundle holds —
-materialising a defined/undefined tmp emits at least one opcode. (Used for the stack
-depth bound in the binary-op case.) -/
-theorem chargeOf_length_pos_of_matDec (code : ByteArray) (defs : Tmp → Option Expr)
-    (sloadChg : Tmp → ℕ) (fuel : Nat) (p : UInt32) (e : Expr)
-    (h : MatDec code defs sloadChg fuel p e) :
-    1 ≤ (chargeOf defs sloadChg fuel e).length := by
-  cases fuel with
-  | zero =>
-      cases e with
-      | imm w => rw [chargeOf_imm]; simp
-      | slot slot => show 1 ≤ ([Gverylow, Gverylow] : List ℕ).length; simp
-      | _ => exact absurd h (by simp [MatDec])
-  | succ f =>
-      cases e with
-      | imm w => rw [chargeOf_imm]; simp
-      | slot slot => show 1 ≤ ([Gverylow, Gverylow] : List ℕ).length; simp
-      | gas => rw [chargeOf_gas]; simp
-      | tmp t =>
-          cases ht : defs t with
-          | some e => rw [chargeOf_tmp_some defs sloadChg f t e ht]
-                      exact chargeOf_length_pos_of_matDec code defs sloadChg f p e
-                        (by rw [matDec_tmp_some code defs sloadChg f p t e ht] at h; exact h)
-          | none  => rw [chargeOf_tmp_none defs sloadChg f t ht]; simp
-      | add a b => rw [chargeOf_add]; simp only [List.length_append, List.length_singleton]; omega
-      | lt a b => rw [chargeOf_lt]; simp only [List.length_append, List.length_singleton]; omega
-      | sload k => rw [chargeOf_sload]; simp only [List.length_append, List.length_singleton]; omega
-
 /-- `(32 + 1 : UInt8).toUInt32 = UInt32.ofNat 33`. -/
 theorem push32_pcΔ : ((32 : UInt8) + 1).toUInt32 = UInt32.ofNat 33 := by decide
-
-/-! ## The `.imm` leaf -/
-
-/-- **B1 for the `.imm` leaf.** A frame whose code decodes to `PUSH32 w` at its pc,
-with `Gverylow` gas and stack room, runs to `pushFrameW fr w 32`, which satisfies the
-whole `MatRuns` bundle for `.imm w` (the value `w = evalExpr st obs (.imm w)`). -/
-theorem matRuns_imm (defs : Tmp → Option Expr) (sloadChg : Tmp → ℕ) (fuel : Nat)
-    (fr : Frame) (w : Word)
-    (hdec : MatDec fr.exec.executionEnv.code defs sloadChg fuel fr.exec.pc (.imm w))
-    (hgas : (chargeOf defs sloadChg fuel (.imm w)).sum ≤ fr.exec.gasAvailable.toNat)
-    (hstk : fr.exec.stack.size + 1 ≤ 1024) :
-    MatRuns defs sloadChg fuel (.imm w) w fr (pushFrameW fr w 32) := by
-  have hdec' : decode fr.exec.executionEnv.code fr.exec.pc = some (.Push .PUSH32, some (w, 32)) := by
-    rw [matDec_imm] at hdec; exact hdec
-  have hg3 : 3 ≤ fr.exec.gasAvailable.toNat := by
-    rw [chargeOf_imm] at hgas; simpa [show Gverylow = 3 from rfl] using hgas
-  refine
-    { runs := (sim_imm fr w hdec' hg3 hstk).1
-      stack := (sim_imm fr w hdec' hg3 hstk).2
-      code := rfl
-      validJumps := rfl
-      addr := rfl
-      canMod := rfl
-      accounts := rfl
-      storage := fun _ => rfl
-      pc := ?_
-      gasCharge := materialiseGasCharge_imm defs sloadChg fuel fr w hdec' hg3 hstk
-      gasToNat := ?_
-      memBytes := rfl
-      memActive := le_refl _ }
-  · rw [pushFrameW_pc, push32_pcΔ, materialiseExpr_imm_length]
-  · show (fr.exec.gasAvailable - UInt64.ofNat Gverylow).toNat = _
-    rw [chargeOf_imm]
-    have : (3 : ℕ) ≤ fr.exec.gasAvailable.toNat := hg3
-    rw [show Gverylow = 3 from rfl,
-        BytecodeLayer.UInt64.toNat_sub_ofNat _ 3 this (by omega)]
-    simp [List.sum_cons]
 
 /-! ## `evalExpr` obs-irrelevance on the pure fragment
 
@@ -502,7 +252,6 @@ theorem evalExpr_obs_irrel (st : V2.IRState) (obs obs' : Word) :
   | .add _ _, _ => rfl
   | .lt _ _,  _ => rfl
   | .sload _, _ => rfl
-  | .slot _, _ => rfl
   | .gas,     h => absurd rfl h
 
 /-! ## The realisability side-conditions (storage lens; the retired SLOAD/GAS universals)
@@ -524,7 +273,7 @@ discharged by `e ≠ .gas` and `∀ k, e ≠ .sload k` (both preserved across th
 * **`GasRealises`** (RETIRED, Phase B) — the analogous `∀ g`-gas-value universal; same story.
 
 * **`StorageAgree`** — the still-live `M3` storage correspondence `selfStorage fr key = st.world
-  key`. Preserved across the whole materialisation by `MatRuns.storage` (every post-frame leaves
+  key`. Preserved across the whole materialisation by `MatRunsC.storage` (every post-frame leaves
   the self account's storage *values* untouched), threading as a plain per-frame fact. It ties the
   storage lens to `evalExpr`'s world read (consumed by the `sstore` value/key materialise calls). -/
 
@@ -573,13 +322,13 @@ def GasRealises (obs : Word) (fr : Frame) : Prop :=
 
 /-- The `M3` storage correspondence: the self account's stored value at `key` (through
 the observable lens) equals the IR world. Threaded as a plain per-frame fact —
-preserved across the materialisation by `MatRuns.storage`. -/
+preserved across the materialisation by `MatRunsC.storage`. -/
 def StorageAgree (st : V2.IRState) (fr : Frame) : Prop :=
   ∀ key, selfStorage fr key = st.world key
 
 /-! ### Transport of the storage side-condition across a sub-frame
 
-`StorageAgree` transports through the self-storage equality `MatRuns.storage` provides — the
+`StorageAgree` transports through the self-storage equality `MatRunsC.storage` provides — the
 clause the `add`/`lt`/`sstore` recursion needs to pass the storage tie to its second/inner
 operand. (The `SloadRealises`/`GasRealises` `.transport` lemmas are retired with their
 universals: gas and sload are spilled, so neither is carried by `Corr`/`materialise_runsC`
@@ -612,7 +361,7 @@ so the coverage is honest and the value survives the materialise sub-runs (`MemR
 The active clause is stated as `slot + 32 ≤ activeWords.toNat * 32` (rather than the weaker
 `slot < activeWords.toNat * 32`): for a 32-aligned slot this is exactly "MLOAD at `slot` does
 *not* expand memory" (`memoryExpansionWords? activeWords slot 32 = some activeWords`), which is
-what pins the readback's gas charge to the abstract `[Gverylow, Gverylow]` (`chargeOf .slot`)
+what pins the readback's gas charge to the abstract two-step MLOAD charge
 — the memory analogue of `SloadRealises` resolving the SLOAD warmth cost. -/
 def MemRealises (prog : Program) (st : V2.IRState) (fr : Frame) : Prop :=
   ∀ t slot v, defsOf prog t = some (.slot slot) → st.locals t = some v →
@@ -624,7 +373,7 @@ def MemRealises (prog : Program) (st : V2.IRState) (fr : Frame) : Prop :=
 /-- A **covered** `lookupMemory`/`mload` read depends on the machine state only through the
 memory bytes — *not* through `activeWords`, as long as both states keep the slot covered.
 (`mload_congr` needs `activeWords` *equal*; this is the weaker fact a nondecreasing
-`activeWords` supports, which is what `MatRuns.memActive` carries.) When `slot + 32 ≤
+`activeWords` supports, which is what `MatRunsC.memActive` carries.) When `slot + 32 ≤
 memory.size` and `slot + 32 ≤ activeWords.toNat * 32` on both sides and the bytes agree, the
 `lookupMemory` guard is false on both and the read is the same function of the (equal) bytes. -/
 theorem mload_covered_congr {m m' : MachineState} (slot : UInt256)
@@ -643,7 +392,7 @@ theorem mload_covered_congr {m m' : MachineState} (slot : UInt256)
   rw [if_neg hg, if_neg hg', hmem]
 
 /-- **Transport of `MemRealises` across a materialise sub-run.** Given the memory `bytes`
-unchanged (`MatRuns.memBytes`) and `activeWords` nondecreasing (`MatRuns.memActive`),
+unchanged (`MatRunsC.memBytes`) and `activeWords` nondecreasing (`MatRunsC.memActive`),
 `MemRealises` carries from `fr` to `fr'`: equal bytes ⇒ equal `.size` ⇒ in-bounds preserved;
 nondecreasing `activeWords` ⇒ active preserved; covered + equal bytes ⇒ the readback value is
 preserved (`mload_covered_congr`). -/

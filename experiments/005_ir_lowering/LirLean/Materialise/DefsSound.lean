@@ -57,7 +57,6 @@ def usesInExpr (t : Tmp) : Expr → Nat
   | .lt  a b => (if a = t then 1 else 0) + (if b = t then 1 else 0)
   | .sload k => if k = t then 1 else 0
   | .gas     => 0
-  | .slot _ => 0
 
 /-- Number of reads of tmp `t` inside statement `s`. -/
 def usesInStmt (t : Tmp) : Stmt → Nat
@@ -244,7 +243,6 @@ theorem evalExpr_setLocal_of_unused {st : IRState} {t : Tmp} {w obs : Word} :
       evalExpr (st.setLocal t w) obs e = evalExpr st obs e
   | .imm _, _ => rfl
   | .gas,   _ => rfl
-  | .slot _, _ => rfl
   | .tmp t', h => by
       simp only [usesInExpr] at h
       have hne : t' ≠ t := by
@@ -417,7 +415,6 @@ private theorem evalExpr_setStorage_of_noSload {st : IRState} {k v obs : Word} :
   | .tmp _,   _ => rfl
   | .add _ _, _ => rfl
   | .lt _ _,  _ => rfl
-  | .slot _, _ => rfl
   | .sload key, h => absurd rfl (h key)
 
 /-- **Preservation of `DefsSound` across `sstore`.** Given that no already-assigned
@@ -465,7 +462,6 @@ private theorem evalExpr_world_irrel_of_noSload {locals : Tmp → Option Word}
   | .tmp _,   _ => rfl
   | .add _ _, _ => rfl
   | .lt _ _,  _ => rfl
-  | .slot _, _ => rfl
   | .sload key, h => absurd rfl (h key)
 
 /-- **Preservation of `DefsSound` across `call cs`.** The world is replaced by the
@@ -635,9 +631,6 @@ theorem defsSound_preserved {prog : Program}
           obtain ⟨hself, hnoself, hscope⟩ := hpure hne (by nofun)
           exact defsSound_preserved_assignPure hv hself hnoself hscope hsound
       | lt a b =>
-          obtain ⟨hself, hnoself, hscope⟩ := hpure hne (by nofun)
-          exact defsSound_preserved_assignPure hv hself hnoself hscope hsound
-      | slot n =>
           obtain ⟨hself, hnoself, hscope⟩ := hpure hne (by nofun)
           exact defsSound_preserved_assignPure hv hself hnoself hscope hsound
       | gas => exact absurd rfl hne

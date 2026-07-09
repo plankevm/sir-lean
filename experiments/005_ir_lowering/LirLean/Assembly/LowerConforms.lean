@@ -174,10 +174,9 @@ structure WellFormedLowered (prog : Program) : Prop where
     ∧ offsetTable (matCache prog) (defsOf prog) prog.blocks elseL.idx < 2 ^ 32
   /-- **Call-result slot registration.** Every tmp registered to a spill slot in `defsOf`
   carries its canonical slot `slotOf tw`. True structurally: `defsOf` registers each spilled
-  def as `(t, .slot (slotOf t))`, and a source `assign` never carries the lowering-only
-  `.slot` marker (a `WellFormed` invariant, vacuous for real IR — no source program writes a
-  `.slot` expression). This is `sim_call_stmt`'s `hslots`: it pins the result slot of the
-  binding MSTORE and the 32-aligned disjointness of distinct bound slots. (Slot
+  def as `(t, .slot (slotOf t))`; pure source expressions are classified as `.remat`, so
+  source syntax cannot choose spill slots. This is `sim_call_stmt`'s `hslots`: it pins the
+  result slot of the binding MSTORE and the 32-aligned disjointness of distinct bound slots. (Slot
   *addressability* — `slotOf t + 63 < 2^64` — is a property of the realised frame's memory,
   so it travels with the `CallRealises` tie / `IRWellFormed.slotAddr`, not here.) -/
   slots_slot : ∀ (tw : Tmp) (slot' : Nat),
@@ -192,7 +191,7 @@ Those lemmas in turn carry their *own* honest structured hypotheses — the per-
 `MatDecC` decode coverage at the runtime cursors, the immediate round-trips, the gas/stack
 envelopes, and the genuine SLOAD/SSTORE/GAS realisability ties (the §7
 supplied-observation contract). The two builders below carry exactly that residual,
-minimised to the per-(cursor/frame) ties, so `sim_cfg`/`lower_conforms` see a thin
+minimised to the per-(cursor/frame) ties, so `sim_cfg` and its callers see a thin
 realisability surface rather than the opaque `SimStmtStep`/`SimTermStep` props.
 
 ### The `assign`-arm discharge (fully closed down to the genuine ties)
@@ -475,12 +474,6 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     | lt a b =>
       obtain ⟨hremat, hsc, hscoped', hmem'⟩ :=
         hassign pc t (.lt a b) st0 (st0.setLocal t w) fr0 hget hcorr
-      obtain ⟨_, hc', _⟩ := sim_assign hb hget hremat hcorr
-        (EvalStmt.assignPure (prog := prog) (T := T0) (C := C0) (D := D0) hne hv) hsc hscoped' hmem'
-      exact ⟨fr0, Runs.refl fr0, hc', hcorr.stack_nil⟩
-    | slot n =>
-      obtain ⟨hremat, hsc, hscoped', hmem'⟩ :=
-        hassign pc t (.slot n) st0 (st0.setLocal t w) fr0 hget hcorr
       obtain ⟨_, hc', _⟩ := sim_assign hb hget hremat hcorr
         (EvalStmt.assignPure (prog := prog) (T := T0) (C := C0) (D := D0) hne hv) hsc hscoped' hmem'
       exact ⟨fr0, Runs.refl fr0, hc', hcorr.stack_nil⟩

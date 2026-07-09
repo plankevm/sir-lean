@@ -17,8 +17,7 @@ channel (`Lir.V2.matDecC_of_seg` and its cursor wrappers `matDecC_of_lower` /
 module wires them together: each consuming-opcode / operand decode is read off
 `emitStmt`/`emitTerm`'s byte layout (the fold emission over `matCache prog` /
 `defsOf prog`), so the lower lemmas' decode hypotheses are discharged, leaving only the
-gas envelopes + runtime recording-correspondence ties (per §7). Fuel-free throughout —
-no `MatFueled`, no `recomputeFuel`.
+gas envelopes + runtime recording-correspondence ties (per §7). Fuel-free throughout.
 
 No `sorry`, no `axiom`, no `native_decide`.
 -/

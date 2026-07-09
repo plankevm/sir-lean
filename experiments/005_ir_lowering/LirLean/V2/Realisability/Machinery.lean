@@ -40,7 +40,6 @@ private theorem evalExpr_setStorage_noSload {st : IRState} {kw vw obs : Word} :
   | .tmp _, _ => rfl
   | .add _ _, _ => rfl
   | .lt _ _, _ => rfl
-  | .slot _, _ => rfl
   | .sload k, h => absurd rfl (h k)
 
 /-- `evalExpr` over a non-`sload` expression ignores the world entirely (the
@@ -54,7 +53,6 @@ private theorem evalExpr_world_noSload {locals : Tmp → Option Word} {w w' : Wo
   | .tmp _, _ => rfl
   | .add _ _, _ => rfl
   | .lt _ _, _ => rfl
-  | .slot _, _ => rfl
   | .sload k, h => absurd rfl (h k)
 
 /-- **R0b — the shadowing-aware machinery-reshape criterion** (header lesson 8; NEW
@@ -122,14 +120,13 @@ theorem defsSoundS_preserved_step {prog : Program}
         have hdd : defsOf prog t = some (.remat e₀) := Lir.defsOf_of_rematOf hdef₀
         have hloc : Loc.remat e₀ = locOfExpr e := Option.some.inj (hdd.symm.trans hself)
         have he0 : e₀ = e := by
-          rcases e with _ | _ | _ | _ | k | _ | n
+          rcases e with _ | _ | _ | _ | k | _
           · exact Loc.remat.inj hloc
           · exact Loc.remat.inj hloc
           · exact Loc.remat.inj hloc
           · exact Loc.remat.inj hloc
           · exact absurd ⟨k, rfl⟩ hsl
           · exact absurd rfl hne
-          · exact absurd hloc (by simp [locOfExpr])
         subst he0
         have hw : (st.setLocal t w).locals t = some w := by simp [IRState.setLocal]
         have hww : w₀ = w := Option.some.inj (hlocal₀.symm.trans hw)

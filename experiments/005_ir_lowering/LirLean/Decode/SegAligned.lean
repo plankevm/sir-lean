@@ -234,54 +234,6 @@ theorem segAlignedP_slot (slot : Nat) :
   (segAlignedP_emitImm (UInt256.ofNat slot)).append
     (SegAlignedP.nonpush Byte.mload (by decide) (by decide))
 
-/-! ### Legacy fuel-materialisation alignment (unconsumed; P9 deletes with `materialiseExpr`) -/
-
-theorem segAlignedP_materialiseExpr (defs : Tmp → Option Expr) :
-    ∀ (fuel : Nat) (e : Expr), SegAlignedP IsLoweringOp (materialiseExpr defs fuel e)
-  | 0,      .imm w  => segAlignedP_emitImm w
-  | f + 1,  .imm w  => segAlignedP_emitImm w
-  | 0,      .tmp _  => .nil
-  | 0,      .add _ _ => .nil
-  | 0,      .lt _ _ => .nil
-  | 0,      .sload _ => .nil
-  | 0,      .gas    => .nil
-  | 0,      .slot slot => segAlignedP_slot slot
-  | f + 1,  .slot slot => segAlignedP_slot slot
-  | f + 1,  .tmp t  => by
-      rw [show materialiseExpr defs (f+1) (.tmp t)
-            = (match defs t with
-               | some e => materialiseExpr defs f e
-               | none   => emitImm (0 : Word)) from rfl]
-      cases defs t with
-      | some e => exact segAlignedP_materialiseExpr defs f e
-      | none   => exact segAlignedP_emitImm 0
-  | f + 1,  .add a b => by
-      rw [show materialiseExpr defs (f+1) (.add a b)
-            = materialiseExpr defs f (.tmp b) ++ materialiseExpr defs f (.tmp a) ++ [Byte.add]
-            from rfl]
-      exact ((segAlignedP_materialiseExpr defs f (.tmp b)).append
-              (segAlignedP_materialiseExpr defs f (.tmp a))).append
-            (SegAlignedP.nonpush Byte.add (by decide) (by decide))
-  | f + 1,  .lt a b => by
-      rw [show materialiseExpr defs (f+1) (.lt a b)
-            = materialiseExpr defs f (.tmp b) ++ materialiseExpr defs f (.tmp a) ++ [Byte.lt]
-            from rfl]
-      exact ((segAlignedP_materialiseExpr defs f (.tmp b)).append
-              (segAlignedP_materialiseExpr defs f (.tmp a))).append
-            (SegAlignedP.nonpush Byte.lt (by decide) (by decide))
-  | f + 1,  .sload k => by
-      rw [show materialiseExpr defs (f+1) (.sload k)
-            = materialiseExpr defs f (.tmp k) ++ [Byte.sload] from rfl]
-      exact (segAlignedP_materialiseExpr defs f (.tmp k)).append
-            (SegAlignedP.nonpush Byte.sload (by decide) (by decide))
-  | f + 1,  .gas    => by
-      rw [show materialiseExpr defs (f+1) .gas = [Byte.gas] from rfl]
-      exact SegAlignedP.nonpush Byte.gas (by decide) (by decide)
-
-theorem segAlignedP_materialise (defs : Tmp → Option Expr) (fuel : Nat) (t : Tmp) :
-    SegAlignedP IsLoweringOp (materialise defs fuel t) :=
-  segAlignedP_materialiseExpr defs fuel (.tmp t)
-
 /-! ## §6 — the fold cache is `IsLoweringOp`-aligned pointwise (UNCONDITIONAL)
 
 Proven DIRECTLY over `matCache`/`matExpr`/`matStep` by structural induction — NO fuel. The
@@ -315,9 +267,6 @@ theorem segAlignedP_matExpr (cache : Tmp → List UInt8)
   | gas =>
       rw [matExpr_gas]
       exact SegAlignedP.nonpush Byte.gas (by decide) (by decide)
-  | slot n =>
-      rw [matExpr_slot]
-      exact segAlignedP_slot n
 
 /-- A `Loc`'s materialised bytes under an aligned cache are aligned. -/
 theorem segAlignedP_matLoc (cache : Tmp → List UInt8)

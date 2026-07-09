@@ -19,9 +19,7 @@ The lowering-independent byte facts the fold decode channel reuses:
 
 The cache-keyed decode bundle and its segment bridge (`MatDecC` / `matDecC_of_seg`) live in
 `Materialise/MatFoldChannel.lean` and consume these bricks through
-`decode_lower_{push,nonpush}` (`Decode/DecodeLower.lean`). This module additionally keeps
-the legacy generic-`defs` `MatFueled` fuel-sufficiency predicate (unconsumed by the
-canonical fold pipeline; deleted at P9 with the fuel definitions).
+`decode_lower_{push,nonpush}` (`Decode/DecodeLower.lean`).
 
 No `sorry`, no `axiom`, no `native_decide`. Nothing here touches `Spec/Semantics.lean` /
 `V2/Law.lean` (the frame-free spine).
@@ -107,8 +105,8 @@ theorem fromBytes_wordBytesBE (w : Word) :
   omega
 
 /-- **The `PUSH32` immediate round-trip.** `uInt256OfByteArray` of the 32 big-endian bytes
-`wordBytesBE w` emits is `w` — exactly what `MatDec`'s `.imm w` clause needs (decode at the
-literal cursor is `PUSH32` carrying `w`, not merely "carrying the window's value"). -/
+`wordBytesBE w` emits is `w`; the literal cursor decodes as `PUSH32` carrying `w`, not merely
+"carrying the window's value". -/
 theorem uInt256_wordBytesBE (w : Word) :
     uInt256OfByteArray ⟨(wordBytesBE w).toArray⟩ = w := by
   unfold uInt256OfByteArray
@@ -145,31 +143,5 @@ theorem extract_toList_eq (l : List UInt8) (s n : ℕ) (seg : List UInt8)
 
 theorem ofNat_add' (a b : ℕ) : UInt32.ofNat a + UInt32.ofNat b = UInt32.ofNat (a + b) := by
   rw [UInt32.ofNat_add]
-
-/-! ### `MatFueled` — the legacy recompute-fuel-sufficiency side-condition (P9-deletes)
-
-The structural negation of the fuel recursion bottoming out, generic in a
-`defs : Tmp → Option Expr` environment. Unconsumed by the canonical fold pipeline (the
-fold decode bundle `MatDecC` terminates on the def-env measure, no fuel); it remains only
-for the residual generic-`defs` fuel lemmas and is deleted at P9 with them. -/
-def MatFueled (defs : Tmp → Option Expr) : ℕ → Expr → Prop
-  | _,      .imm _   => True
-  | _,      .slot _ => True
-  | 0,      _        => False
-  | f + 1,  .tmp t   => match defs t with
-                        | some e => MatFueled defs f e
-                        | none   => True
-  | f + 1,  .add a b => MatFueled defs f (.tmp b) ∧ MatFueled defs f (.tmp a)
-  | f + 1,  .lt a b  => MatFueled defs f (.tmp b) ∧ MatFueled defs f (.tmp a)
-  | f + 1,  .sload k => MatFueled defs f (.tmp k)
-  | _ + 1,  .gas     => True
-
-theorem matFueled_tmp_some (defs : Tmp → Option Expr) (f : ℕ) (t : Tmp) (e : Expr)
-    (h : defs t = some e) : MatFueled defs (f + 1) (.tmp t) = MatFueled defs f e := by
-  show (match defs t with | some e => MatFueled defs f e | none => True) = _; rw [h]
-
-theorem matFueled_tmp_none (defs : Tmp → Option Expr) (f : ℕ) (t : Tmp)
-    (h : defs t = none) : MatFueled defs (f + 1) (.tmp t) = True := by
-  show (match defs t with | some e => _ | none => True) = _; rw [h]
 
 end Lir
