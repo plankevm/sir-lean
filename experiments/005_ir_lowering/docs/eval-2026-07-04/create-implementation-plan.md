@@ -156,11 +156,9 @@ a top-level CREATE without it.
 `Spec/IR.lean`: add `CreateSpec` (mirror `CallSpec` :43) and `Stmt.create`
 (mirror `Stmt.call` :85).
 
-- `structure CreateSpec` fields: `value/initOffset/initSize : Tmp` (first cut may
-  fix to the empty-init case per Create.lean:31 — `value=0`, `offset=length=0` — but
-  carry the fields so CREATE2 needs no re-shape); `salt : Option Tmp` **from day one**
-  (`none` = CREATE, `some` = CREATE2 — this is the single field that makes CREATE2 a
-  §4 delta, not a rebuild); `resultTmp : Option Tmp` for the pushed address.
+- `structure CreateSpec` fields: `value/initOffset/initSize/salt : Tmp`;
+  `resultTmp : Option Tmp` for the pushed address. The IR create statement is
+  CREATE2-only.
   `deriving DecidableEq, Repr`.
 - `Stmt.create (cs : CreateSpec)`.
 
@@ -197,11 +195,10 @@ cluster-v1bricks.md) but needed to keep v1 compiling once `Stmt` gains a constru
 
 `Spec/Lowering.lean`:
 
-- `Byte.create := 0xf0`, `Byte.create2 := 0xf5` in the `Byte` table (:46-61).
-  (Verify against exp003 `Evm/Instr.lean` opcode bytes.)
-- `emitStmt .create` arm (mirror `.call` :191-200): push the create args
-  (value, initOffset, initSize — first cut all `0` via `emitImm 0`), then `salt`
-  materialised if `cs.salt = some`, then `CREATE`/`CREATE2` byte; then the pushed
+- `Byte.create2 := 0xf5` in the `Byte` table (:46-61). (Verify against exp003
+  `Evm/Instr.lean` opcode bytes.)
+- `emitStmt .create` arm (mirror `.call` :191-200): materialise `salt`,
+  `initSize`, `initOffset`, then `value`, emit `CREATE2`, then the pushed
   address is stashed to `slotOf t` via `PUSH slot; MSTORE` if `resultTmp = some t`,
   else `POP` — byte-identical to the CALL result stash.
 - `defsOf` create-result stash arm (:254 twin): `.create ⟨…, some t⟩ → some (t,
@@ -314,23 +311,22 @@ DAG-order summary: `exp003 Hoare/DriveRuns` → `Spec/IR` → {`Spec/Semantics`,
 
 ---
 
-## 4. CREATE2 delta on top of CREATE
+## 4. CREATE2-only contract
 
-Cheap by construction, because the reference already does both kinds and the IR
-carried `salt : Option Tmp` from Step 1:
+Cheap by construction, because the reference already supports CREATE2 and the IR
+create statement requires a salt tmp:
 
 - **No new oracle.** `createAddrOrZero`/`evmCreateOracle` are already kind-agnostic
-  (they read `result.address`, which `beginCreate` computes for either salt branch,
+  (they read `result.address`, which `beginCreate` computes for the CREATE2 path,
   exp003:Create.lean:27-29,74-76). Zero change.
 - **No new reference work.** `contractAddressBytes` (exp003:Create.lean:22) already
   branches on `salt`; CREATE2's preimage is `BE 255 ++ creator ++ salt ++ KEC
   initCode` and — per create-crosscheck.md:169-170 — its `L_A` is *unconditionally*
   total (no RLP), so it needs **less** totality plumbing than CREATE
   (`contractAddressBytes_create_isSome` was CREATE-only).
-- **IR:** already covered — `cs.salt = some saltTmp`.
-- **Lowering (Step 4 delta):** one extra `emitStmt` sub-arm — when `cs.salt = some
-  saltTmp`, materialise `saltTmp` and emit `Byte.create2` (0xf5) instead of
-  `Byte.create` (0xf0); the arg/stash structure is otherwise identical.
+- **IR:** already covered — `cs.salt : Tmp`.
+- **Lowering:** materialise `salt`, `initSize`, `initOffset`, `value`, then emit
+  `Byte.create2` (0xf5); stash/discard the pushed address as usual.
 - **Semantics/recorder/Match:** the create stream entry and `create_reflects_lowered`
   are kind-agnostic (they project `result`/`pd`, which already encode the salt via
   `PendingCreate`), so no per-kind case-split is needed above the lowering.

@@ -354,24 +354,15 @@ theorem segAlignedP_emitStmt (cache : Tmp → List UInt8)
             (SegAlignedP.nonpush Byte.mstore (by decide) (by decide))
   | create cs =>
       rw [show emitStmt cache alloc (.create cs)
-            = emitImm 0 ++ emitImm 0 ++ emitImm 0
-              ++ (match cs.salt with
-                  | some s => cache s ++ [Byte.create2]
-                  | none   => [Byte.create])
+            = cache cs.salt ++ cache cs.initSize ++ cache cs.initOffset ++ cache cs.value
+              ++ [Byte.create2]
               ++ (match cs.resultTmp with
                   | some t => emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]
                   | none   => [Byte.pop]) from rfl]
-      have hmid : SegAlignedP IsLoweringOp
-          (match cs.salt with
-            | some s => cache s ++ [Byte.create2]
-            | none   => [Byte.create]) := by
-        cases cs.salt with
-        | none => exact SegAlignedP.nonpush Byte.create (by decide) (by decide)
-        | some s =>
-            exact (hcache s).append (SegAlignedP.nonpush Byte.create2 (by decide) (by decide))
-      have h := (segAlignedP_emitImm (0 : Word)).append (segAlignedP_emitImm 0)
-      have h := h.append (segAlignedP_emitImm 0)
-      have h := h.append hmid
+      have h := (hcache cs.salt).append (hcache cs.initSize)
+      have h := h.append (hcache cs.initOffset)
+      have h := h.append (hcache cs.value)
+      have h := h.append (SegAlignedP.nonpush Byte.create2 (by decide) (by decide))
       refine h.append ?_
       cases cs.resultTmp with
       | none => exact SegAlignedP.nonpush Byte.pop (by decide) (by decide)
