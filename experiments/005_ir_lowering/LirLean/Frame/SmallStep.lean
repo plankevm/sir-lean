@@ -90,7 +90,6 @@ def evalExpr (st : IRState) : Expr → Option Word
   | .lt  a b => do let x ← st.locals a; let y ← st.locals b; pure (UInt256.lt x y)
   | .sload k => do let key ← st.locals k; pure (st.storage key)
   | .gas     => none
-  | .slot _ => none
 
 /-! ## Helpers on `IRState` -/
 

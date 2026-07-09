@@ -27,10 +27,11 @@ The flagship's hypothesis vocabulary that has NOT yet been hoisted to the truste
 the static well-formedness bundle, the shadowing-aware CALL tie, the honest oracle seams,
 and the scope seams. The sorry-free vocabulary already lifted into `Spec/` — `entryState`,
 `RunLog.clean`, `Conforms`, `NoGasReads` (`Spec/Conformance.lean`), the `RunFromLeft`/
-`RunFromAll` mirror (`Spec/Semantics.lean`), and `evmV2CallEntry`/`evmV2CreateEntry`
-(`Spec/CallEntry.lean`) — is `open`ed via the imports above. Still stranded here (blocked on
-the `CallsCode`/`AccPresent` relocations, plan §1D/§1E): `PrecompileAssumptions`,
-`ReachableFrom`, `WellFormedLowered`. -/
+`RunFromAll` mirror (`Spec/Semantics.lean`), `evmV2CallEntry`/`evmV2CreateEntry`
+(`Spec/CallEntry.lean`), and the live seam bundle `PrecompileAssumptions`/`ReachableFrom`
+(`Spec/Seams.lean`) — is `open`ed via the imports above. The current machinery still
+consumes `WellLowered` internally, but the public theorem surface rebuilds that adapter
+from `IRWellFormed` plus the scalar `codeFits`/`stackFits` budgets. -/
 
 /-- **Static CFG closure** — entry present and pc-bounded, every jump/branch target present,
 in-bounds, and offset-bounded. Folds the current headline's `hentry0`-adjacent presence
@@ -139,12 +140,14 @@ def CallRealisesS (prog : Program) (sloadChg : Tmp → ℕ)
         ∧ (cs.resultTmp = none →
             Runs resumeFr (popFrame resumeFr [])))
 
-/-- **The static well-formedness bundle** (the flagship's `hwl`) — a function of the program
-text only, intended to be checker-dischargeable (R9). Folds the current headline's
-`hwfl`/`hdef`/`hentry0`/presence/offset/stack-fold hypotheses into one named structure.
-SUPPLIED status: one static premise; every field is decidable-in-principle per program.
-NOTE the `defs` field is `RunDefinableG`, NOT the in-tree `RunDefinable` — see header
-lesson 4 (the in-tree bundle is unsatisfiable for gas/call programs). -/
+/-- **The internal lowered adapter** — a function of the program text that the current V2
+machinery still consumes as `hwl`. It folds the old headline's
+`hwfl`/`hdef`/`hentry0`/presence/offset/stack-fold hypotheses into one named structure, but
+it is no longer the public theorem surface: `RealisabilitySpec.lower_conforms` rebuilds it
+from `IRWellFormed` plus `codeFits`/`stackFits`. Every field is decidable-in-principle per
+program (R9 checker territory). NOTE the `defs` field is `RunDefinableG`, NOT the in-tree
+`RunDefinable` — see header lesson 4 (the in-tree bundle is unsatisfiable for gas/call
+programs). -/
 structure WellLowered (prog : Program) : Prop where
   /-- The folded structural side-conditions (pc/offset bounds + slot registration) of the
   `_lowered` wrappers, stated over the fold emission (`matCache` lengths / fold offset
@@ -193,43 +196,6 @@ structure WellLowered (prog : Program) : Prop where
   retEpilogueBound : ∀ (L : Label) (b : Block) (t : Tmp),
     blockAt prog L = some b → b.term = .ret t →
     termOf prog L + (matCache prog t).length + 100 < 2 ^ 32
-  /-- **No `.slot` source RHS** (the arm-1 direction of `slots_slot`): a source `assign t e`
-  never carries the lowering-only `.slot` marker. Vacuous for real IR (no source program
-  writes a `.slot` expression — the `WellFormed` invariant `slots_slot`'s docstring cites);
-  static and decidable. Excludes the degenerate `defsOf t = .slot n` a pure-assign cursor
-  could otherwise register (which would refute the pure-assign arm's not-spilled conclusion). -/
-  noSlotSource : ∀ (L : Label) (b : Block) (pc : Nat) (t : Tmp) (n : Nat),
-    blockAt prog L = some b → b.stmts[pc]? = some (.assign t (.slot n)) → False
-
-/-- A frame reachable from the call's entry frame: `beginCall params` began a frame and
-`Runs` reaches `fr'` from it. The quantifier shape `PrecompileAssumptions.callsCode` needs (and
-exactly the `hcc` shape `cleanHalts_of_runWithLog` consumes, once `hbegin` is split off).
-The fleet sketch named this `ReachableFrom` without defining it; this is the definition. -/
-def ReachableFrom (params : CallParams) (fr' : Frame) : Prop :=
-  ∃ fr₀, beginCall params = .inl fr₀ ∧ Runs fr₀ fr'
-
-/-- **The honest oracle seams** (the flagship's `hseams`) — the precompile boundary, both
-faces. `noErase` is the `hprec` hypothesis of `callPreservesSelf_modGuards`, its type bound
-*definitionally* to the trusted register's `Lir.Spec.PrecompilesPreservePresence`
-(`Spec/Seams.lean`) so the two cannot drift (a live precompile's `.inr` result map genuinely
-can erase accounts — opaque, honestly supplied; vacuous for non-precompile-targeting
-programs). `callsCode` is the reachable-CALL targets-code residual (`Engine/Modellable.lean`;
-NOT a lowering property — an IR call whose callee materialises a precompile address would
-violate it; vacuous for call-free programs).
-SUPPLIED status: the irreducible seam structure — both fields are satisfiable and
-non-vacuous, and neither is dischargeable from the program text. (`prog` is carried for
-signature stability — a future refinement scopes `callsCode` by the program's call sites.)
-NON-VACUITY GUARD: `noErase` quantifies over ALL `CallParams` (a global engine fact), so
-the flagship's whole hypothesis set is satisfiable only if the current exp003 `beginCall`
-precompile stub actually preserves account presence — R12a deliberately DOUBLES as the
-machine-check of that engine fact (its `PrecompileAssumptions exProg params` conjunct); a failure
-there is diagnosed as a SEAM problem with the engine stub, not an `exProg` problem. -/
-structure PrecompileAssumptions (prog : Program) (params : CallParams) : Prop where
-  /-- Precompile no-erase (`hprec`): an immediate `.inr` result preserves account presence.
-  Bound definitionally to the trusted register's `Lir.Spec.PrecompilesPreservePresence`. -/
-  noErase : Lir.Spec.PrecompilesPreservePresence
-  /-- Every reachable frame's CALLs target code accounts, never a precompile. -/
-  callsCode : ∀ fr', ReachableFrom params fr' → CallsCode fr'
 
 
 /-! ## §2 — The recorder-restart coupling (the hard design piece)

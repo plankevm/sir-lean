@@ -112,16 +112,16 @@ open BytecodeLayer.Hoare
 open BytecodeLayer.Interpreter
 open BytecodeLayer.Dispatch
 
-/-- **The `WellFormed → budgets → layout-valid` soundness bridge** (stage 1B B3). From the
+/-- **The `IRWellFormed → budgets → layout-valid` soundness bridge** (stage 1B B3). From the
 static, program-text-only `IRWellFormed prog` and the two scalar budgets `codeFits`/`stackFits`,
 reconstruct the full `WellLowered prog` bundle the flagships consume. This is where the ~15
 per-cursor `WellFormedLowered`/`ClosedCFG` bounds are RE-DERIVED from the two scalars (B1a
 `pcBounds_of_codeFits`, B1b `stackBounds_of_stackFits`); `slots_slot` is derived from
-`noSlotSource`. (There is no fuel-sufficiency family anymore: the fold emission always fully
+`defEnv`'s canonical spill registrations. (There is no fuel-sufficiency family anymore: the fold emission always fully
 expands — structural termination on the ordered def-env, `IRWellFormed.defEnvOrdered`.)
 `WellFormedLowered` stays INTERNAL (the `Sim/` lemmas keep projecting its fields) — it is
 merely (re)built here, not exposed as a premise. -/
-theorem wellFormedLowered_of_IRWellFormed {prog : Program}
+theorem wellLowered_of_IRWellFormed {prog : Program}
     (hwf : IRWellFormed prog) (hcode : codeFits prog) (hstk : stackFits prog) :
     WellLowered prog := by
   obtain ⟨hoff, hbsstore, hbsload, hbret, hbstop, hbjump, hbbranch, hgas, hretep⟩ :=
@@ -134,7 +134,7 @@ theorem wellFormedLowered_of_IRWellFormed {prog : Program}
           bound_stop := hbstop
           bound_jump := hbjump
           bound_branch := hbbranch
-          slots_slot := slots_slot_of_noSlotSource prog hwf.noSlotSource }
+          slots_slot := slots_slot_of_defsOf prog }
       defs := hwf.defineBeforeUse
       defsCons := hwf.defsConsistent
       defEnvOrdered := hwf.defEnvOrdered
@@ -152,8 +152,7 @@ theorem wellFormedLowered_of_IRWellFormed {prog : Program}
       stack := stackBounds_of_stackFits prog hstk
       gasBound := hgas
       slotAddr := hwf.slotAddr
-      retEpilogueBound := hretep
-      noSlotSource := hwf.noSlotSource }
+      retEpilogueBound := hretep }
 
 /-- **R10a — the statement ties, BUILT from the run** (the assembly obligation the
 current headline lacks a producer for). For ANY `(st0, fr0, suffixes)` satisfying the
@@ -238,9 +237,11 @@ semantics; the IR run exists at the PINNED streams (`realisedGas log` /
 state) and produces the same observable world.
 
 Hypothesis ledger (the honest surface, nothing else): two definitional pins
-(`hcode`/`hmod`), two decidable entry facts (`hself`/`hgas`), one static checkable bundle
-(`hwl`), ONE decidable scope premise (`hclean`), ONE runtime premise (`hrun`),
-and one two-field honest seam structure (`hseams`). (The former `hsingle`/`hone` single-call
+(`hcode`/`hmod`), two decidable entry facts (`hself`/`hgas`), the source-level
+`IRWellFormed` bundle plus the two scalar budgets (`codeFits`/`stackFits`), ONE decidable
+scope premise (`hclean`), ONE runtime premise (`hrun`), and one two-field honest seam
+structure (`hseams`). The internal `WellLowered` adapter is rebuilt in the proof, not exposed
+as a public premise. (The former `hsingle`/`hone` single-call
 premises are GONE — calls are a positional `CallStream`, multi-call by construction; the
 former named nonzero-write scope seam is GONE — `sim_sstore` now covers zero writes.)
 The current headline's `DriveCorr`/`CallPreservesSelf`/`hpresent`/tie/`{T}`/`obs`
@@ -264,7 +265,7 @@ theorem lower_conforms {prog : Program} {params : CallParams} {log : RunLog}
       ∧ Conforms params.recipient log O := by
   -- The static well-formedness bundle the downstream ties/producer consume, RE-DERIVED from
   -- the IR-level well-formedness + the two scalar budgets (stage 1B bridge).
-  have hwl := wellFormedLowered_of_IRWellFormed hwf hcodeFits hstk
+  have hwl := wellLowered_of_IRWellFormed hwf hcodeFits hstk
   -- Entry frame (from run adequacy) and the CALL-targets-code face of the seam.
   obtain ⟨fr₀, hbegin, _⟩ := runWithLog_drive hrun
   have hcc : ∀ fr', Runs fr₀ fr' → CallsCode fr' :=
@@ -316,7 +317,7 @@ theorem lower_conforms_exact {prog : Program} {params : CallParams} {log : RunLo
       RunFromAll prog (entryState params) (realisedGas log)
         (realisedCall log params.recipient) (realisedCreate log params.recipient) prog.entry O
       ∧ Conforms params.recipient log O := by
-  have hwl := wellFormedLowered_of_IRWellFormed hwf hcodeFits hstk
+  have hwl := wellLowered_of_IRWellFormed hwf hcodeFits hstk
   -- As R11, but the packaged blocker yields the exact-consumption `RunFromAll` (BOTH leftovers
   -- `[]`). The coupled driver produces it directly: its walk consumes the WHOLE recorded gas
   -- AND call suffix by construction of `RecorderCoupled.restart`, so both leftovers are `[]` —
@@ -356,7 +357,7 @@ theorem lower_conforms_gasfree {prog : Program} {params : CallParams} {log : Run
       RunFrom prog (entryState params) (realisedGas log)
         (realisedCall log params.recipient) (realisedCreate log params.recipient) prog.entry O
       ∧ Conforms params.recipient log O := by
-  have hwl := wellFormedLowered_of_IRWellFormed hwf hcodeFits hstk
+  have hwl := wellLowered_of_IRWellFormed hwf hcodeFits hstk
   -- The gas-free restriction (`hng : NoGasReads prog`) avoids R1 (no gas arm fires) and,
   -- via `realisedGas_nil_of_noGasReads`, makes the RunFrom trace empty — but it does NOT
   -- avoid the coupled-driver blocker: the sload/sstore/call arms still need the coupling.

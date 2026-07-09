@@ -41,8 +41,6 @@ theorem defsOf_ne_gas (prog : Program) (t : Tmp) :
       | lt a b => simp only [Option.some.injEq] at hsmap; rw [← hsmap] at hpr
                   simp [locOfExpr] at hpr
       | sload k => simp only [Option.some.injEq] at hsmap; rw [← hsmap] at hpr; simp at hpr
-      | slot n => simp only [Option.some.injEq] at hsmap; rw [← hsmap] at hpr
-                  simp [locOfExpr] at hpr
   | sstore _ _ => simp at hsmap
   | call cs =>
       obtain ⟨callee, gasFwd, rt⟩ := cs
@@ -86,8 +84,6 @@ theorem defsOf_ne_sload (prog : Program) (t : Tmp) (k : Tmp) :
       | lt a b => simp only [Option.some.injEq] at hsmap; rw [← hsmap] at hpr
                   simp [locOfExpr] at hpr
       | sload k' => simp only [Option.some.injEq] at hsmap; rw [← hsmap] at hpr; simp at hpr
-      | slot n => simp only [Option.some.injEq] at hsmap; rw [← hsmap] at hpr
-                  simp [locOfExpr] at hpr
   | sstore _ _ => simp at hsmap
   | call cs =>
       obtain ⟨callee, gasFwd, rt⟩ := cs
@@ -131,11 +127,6 @@ through `defsOf_of_rematOf`): sload tmps are spilled to `.slot` and dropped by `
 theorem rematOf_ne_sload (prog : Program) (t : Tmp) (k : Tmp) :
     rematOf prog t ≠ some (.sload k) :=
   fun h => defsOf_ne_sload prog t k (defsOf_of_rematOf h)
-
-/-- `Loc.toDef` is a left inverse of `locOfExpr` on every expression. (Legacy: last
-consumers are the generic-`defs` fuel lemmas; deleted at P9 with `Loc.toDef`.) -/
-@[simp] theorem toDef_locOfExpr (e : Expr) : (locOfExpr e).toDef = e := by
-  cases e <;> rfl
 
 /-! ## `defsOf` ↔ `defEnv` alignment -/
 

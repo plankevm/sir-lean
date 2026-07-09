@@ -465,7 +465,7 @@ theorem stash_tail_sload {prog : Program} {sloadChg : Tmp → ℕ}
     rw [show (sloadFrame frk keyVal []).exec.executionEnv.canModifyState
           = frk.exec.executionEnv.canModifyState from rfl]
     exact hmrk.canMod
-  · -- accounts: SLOAD/PUSH/MSTORE never touch `accounts`; `frk`'s = `fr`'s (`MatRuns`).
+  · -- accounts: SLOAD/PUSH/MSTORE never touch `accounts`; `frk`'s = `fr`'s (`MatRunsC`).
     rw [haccounts, hfrs]
     show (sloadFrame frk keyVal []).exec.accounts = _
     rw [show (sloadFrame frk keyVal []).exec.accounts = frk.exec.accounts from rfl]

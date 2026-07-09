@@ -41,7 +41,6 @@ import LirLean.V2.Call
 import LirLean.V2.CallRealises
 
 -- Cyclic-CFG drive simulation + the assembled/tie-free headlines (over Engine/, Drive/).
-import LirLean.Assembly.Acyclic
 import LirLean.V2.Drive.DriveSim
 import LirLean.V2.Drive.Headline
 
@@ -49,8 +48,10 @@ import LirLean.V2.Drive.Headline
 -- (`codeFits`/`stackFits`) — the trusted-surface statement vocabulary (Spec hoist §1C).
 import LirLean.Spec.WellFormed
 
--- The §1B budget-derivation lemmas (1B-lemmas): `codeFits`/`stackFits`/acyclicity ⇒ the
--- per-cursor pc/offset/stack/fuel bound families of `WellFormedLowered`/`ClosedCFG`/`WellLowered`.
+-- The §1B budget-derivation lemmas (1B-lemmas): `codeFits`/`stackFits` plus
+-- `IRWellFormed`'s static fields rebuild the internal `WellLowered` adapter. The
+-- lowered-layout fields are pc/offset/stack facts over `matCache`/`chargeCache`, not
+-- acyclicity or fuel obligations.
 import LirLean.Spec.BudgetDerivations
 
 -- Phase 2A P5a: the fuel-free charge fold twin's fixpoint `chargeCache_unfold` + the

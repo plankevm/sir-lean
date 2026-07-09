@@ -13,8 +13,7 @@ Phase 2A P5a. The fuel-free charge fold twin `chargeCache` (definition, reductio
 (`matCache_last_eq_first`, `defEnv_findIdx_entry`, `defEnv_operand_findIdx_lt`, `operand_mem_take`)
 verbatim: those facts are about which entry defines a tmp and where its operands sit, independent
 of whether the cache carries bytes (`matCache`) or charge lists (`chargeCache`). No fuel, no
-`MatFueled`, and — like `matCache_unfold` — **NO bridge to the fuel `chargeOf`** (unsound in
-exactly the way the `matCache = materialiseExpr` bridge is, design §2.2).
+fuel predicates, and no bridge to the deleted fuel materialisation path.
 
 The **chargeCache↔matCache length lockstep** (bottom): for a `t` present in `defEnv prog`, the
 charge cache and the byte cache unfold *in lockstep* — the SAME membership hypothesis
@@ -35,7 +34,6 @@ theorem chargeExpr_congr {sc : Tmp → ℕ} {c c' : Tmp → List ℕ} {e : Expr}
   cases e with
   | imm w => rfl
   | gas => rfl
-  | slot n => rfl
   | tmp t => simp only [chargeExpr_tmp]; exact h t (by simp [usesInExpr])
   | add a b =>
       simp only [chargeExpr_add]
@@ -274,24 +272,23 @@ theorem chargeCache_length_absent (prog : Program) (sc : Tmp → ℕ) {t : Tmp}
 
 /-! ## §P5b — the decode fold twin `MatDecC` (Phase 2A P5b, design §3.3)
 
-The fuel-free, cache-keyed twin of `MatDec` (`MaterialiseRuns.lean`). `MatDec` recurses through
-tmp *definitions* on `fuel` (`.tmp t` with `defs t = some e` ⇒ `MatDec … f p e`); the fold twin
+The cache-keyed decode bundle recurses through
+tmp *definitions* via `allocate` (`.tmp t` with `allocate prog t = some (.remat e)`); the fold twin
 recurses through them along the **def-env graph**, which is well-founded because `DefEnvOrdered`
 places every operand of a `.remat` entry strictly earlier in `defEnv prog`. So `MatDecC`:
 
 * is **structural** for the composite arms (`.add`/`.lt`/`.sload` recurse to their operand
   `.tmp`s, anchoring the sub-decodes at the **operand cache lengths** `(matCache prog t').length`
-  — the fold analogue of `MatDec`'s `(materialiseExpr defs f (.tmp t')).length`), and
+  — the fold analogue of "bytes for operand `t'`"), and
 * **unfolds `.tmp t` via `matCache_unfold`**: it dispatches on `allocate prog t` (the tmp's
   canonical `Loc`, which `matCache_unfold` resolves `matCache prog t` to) — a `.remat e` recurses
   into `e`, a `.slot n` is the spill-load `PUSH n; MLOAD` decode, an absent tmp is the `PUSH32 0`
   leaf.
 
-Termination is the fuel-free replacement for `MatDec`'s `fuel` index: the measure
+Termination is the replacement for the deleted fuel index: the measure
 `matDecMeasure prog e = 3·(def-env first-index of e's outermost operands) + arm-tag` strictly
 decreases at every recursive call — the composite→operand steps by arithmetic, the
-`.tmp t`→definiens step by `DefEnvOrdered` (`matDecMeasure_remat_lt`). NO `MatFueled`, NO fuel
-cases, NO `matCache = materialiseExpr` bridge. -/
+`.tmp t`→definiens step by `DefEnvOrdered` (`matDecMeasure_remat_lt`). -/
 
 open Evm
 
@@ -305,7 +302,6 @@ composite→operand steps within one rank. Strictly decreases at every `MatDecC`
 call (`matDecMeasure_remat_lt` + arithmetic). -/
 def matDecMeasure (prog : Program) : Expr → Nat
   | .imm _   => 0
-  | .slot _  => 0
   | .gas     => 0
   | .tmp t   => 3 * tmpIdx prog t + 1
   | .add a b => 3 * max (tmpIdx prog a) (tmpIdx prog b) + 2
@@ -354,7 +350,6 @@ theorem matDecMeasure_remat_lt (prog : Program) (hdc : DefsConsistent prog)
     defEnv_findIdx_entry prog hdc (mem_defEnv_of_allocate prog hdc h)
   cases e with
   | imm _ => simp only [matDecMeasure, tmpIdx]; omega
-  | slot _ => simp only [matDecMeasure, tmpIdx]; omega
   | gas => simp only [matDecMeasure, tmpIdx]; omega
   | tmp t'' =>
       have := defEnv_operand_findIdx_lt hord hentry (t' := t'') (by simp [usesInExpr])
@@ -371,17 +366,13 @@ theorem matDecMeasure_remat_lt (prog : Program) (hdc : DefsConsistent prog)
       have := defEnv_operand_findIdx_lt hord hentry (t' := k) (by simp [usesInExpr])
       simp only [matDecMeasure, tmpIdx]; omega
 
-/-- **`MatDecC` — the cache-keyed decode bundle (fuel-free twin of `MatDec`).** One `decode`
+/-- **`MatDecC` — the cache-keyed decode bundle.** One `decode`
 clause per opcode `matExpr (matCache prog) e` emits, anchored at the running pc; composite arms
 anchor their sub-decodes at the **operand cache lengths** `(matCache prog t').length`, and the
-`.tmp t` arm unfolds via `allocate prog t` (`matCache_unfold`'s `Loc`). No fuel, no `MatFueled`. -/
+`.tmp t` arm unfolds via `allocate prog t` (`matCache_unfold`'s `Loc`). -/
 def MatDecC (prog : Program) (hdc : DefsConsistent prog) (hord : DefEnvOrdered prog)
     (code : ByteArray) : UInt32 → Expr → Prop
   | p, .imm w  => decode code p = some (.Push .PUSH32, some (w, 32))
-  | p, .slot n =>
-      decode code p = some (.Push .PUSH32, some (UInt256.ofNat n, 32))
-      ∧ decode code (p + UInt32.ofNat (emitImm (UInt256.ofNat n)).length)
-          = some (.Smsf .MLOAD, .none)
   | p, .gas    => decode code p = some (.Smsf .GAS, .none)
   | p, .add a b =>
       MatDecC prog hdc hord code p (.tmp b)
@@ -425,13 +416,6 @@ variable (prog : Program) (hdc : DefsConsistent prog) (hord : DefEnvOrdered prog
 @[simp] theorem matDecC_imm (p : UInt32) (w : Word) :
     MatDecC prog hdc hord code p (.imm w)
       = (decode code p = some (.Push .PUSH32, some (w, 32))) := by
-  rw [MatDecC]
-
-@[simp] theorem matDecC_slot (p : UInt32) (n : Nat) :
-    MatDecC prog hdc hord code p (.slot n)
-      = (decode code p = some (.Push .PUSH32, some (UInt256.ofNat n, 32))
-         ∧ decode code (p + UInt32.ofNat (emitImm (UInt256.ofNat n)).length)
-             = some (.Smsf .MLOAD, .none)) := by
   rw [MatDecC]
 
 @[simp] theorem matDecC_gas (p : UInt32) :
@@ -509,7 +493,7 @@ bytes `matExpr (matCache prog) e` sit in `flatBytes prog` at `[base, base+len)`,
 recursion on `e`** (composite arms split their operand sub-segments off the parent) plus the
 **def-env recursion** for the `.tmp t` arm (its bytes `matCache prog t` unfold via
 `matCache_unfold` to the definiens `e'`'s bytes, and `matDecMeasure_remat_lt` justifies the
-descent — NO fuel, NO `MatFueled`). The per-`lower` leaf decodes reuse `MatDecLower`'s
+descent). The per-`lower` leaf decodes reuse `MatDecLower`'s
 lowering-independent `extract_toList_eq`/`uInt256_wordBytesBE` through the `decode_lower_*`
 specialisations. -/
 
@@ -609,10 +593,6 @@ theorem matDecC_of_seg (prog : Program) (hdc : DefsConsistent prog) (hord : DefE
       have := nonpush_leaf_decodeF prog base 0 Byte.gas [Byte.gas]
         (by simp only [List.length_singleton] at hbound; omega) (by decide) (by decide) hseg
       simpa using this
-  | .slot n, hbound, hseg =>
-      rw [matDecC_slot]
-      simp only [matExpr_slot] at hseg hbound
-      exact slot_leaf_decodeF prog base n hbound hseg
   | .add a b, hbound, hseg =>
       rw [matDecC_add]
       have hmat : matExpr (matCache prog) (.add a b)
@@ -708,12 +688,12 @@ theorem matDecC_of_seg (prog : Program) (hdc : DefsConsistent prog) (hord : DefE
 
 /-! ## §P5c — the value-channel linchpin over the fold: `MatRunsC` / `materialise_runsC`
 
-The fuel-free value-channel linchpin (successor of the deleted fuel-era `materialise_runs`;
-the endpoint-bundle shape mirrors the legacy generic-`defs` `MatRuns`), stated and proved
+The fuel-free value-channel linchpin (successor of the deleted fuel-era `materialise_runs`),
+stated and proved
 DIRECTLY over the fold. `matExpr (matCache prog) e` reconstructs `evalExpr st obs e` on the EVM
 stack, via a per-tmp recursion along `defEnv` (`matDecMeasure`, well-founded by `DefEnvOrdered`)
-that unfolds `.tmp t` through `matCache_unfold` — NO `MatFueled`, NO `matCache = materialiseExpr`
-bridge. The `.imm`/`.add`/`.lt` arms reuse `sim_imm`/`sim_add`/`sim_lt` verbatim; the `.tmp t`
+that unfolds `.tmp t` through `matCache_unfold`. The `.imm`/`.add`/`.lt` arms reuse
+`sim_imm`/`sim_add`/`sim_lt` verbatim; the `.tmp t`
 readback arm reuses the `MemRealises` MLOAD channel; the `.gas`/`.sload`/`.slot` arms are
 unreachable (spilled / no IR value). The gas contract reads `chargeExpr sloadChg (chargeCache …)`
 in lockstep with the bytes (P5a). -/
@@ -734,7 +714,6 @@ theorem chargeExpr_length_pos {sloadChg : Tmp → ℕ} {cache : Tmp → List ℕ
   | imm w => simp [chargeExpr_imm]
   | tmp t => rw [chargeExpr_tmp]; exact hc t
   | gas => simp [chargeExpr_gas]
-  | slot n => simp [chargeExpr_slot]
   | add a b => simp only [chargeExpr_add, List.length_append, List.length_singleton]; omega
   | lt a b => simp only [chargeExpr_lt, List.length_append, List.length_singleton]; omega
   | sload k => simp only [chargeExpr_sload, List.length_append, List.length_singleton]; omega
@@ -795,11 +774,11 @@ theorem gasCharge_binop_glue (g : UInt64) (cb ca : List ℕ) (frb fra fr' : Fram
     fr'.exec.gasAvailable = subCharges g (cb ++ ca ++ [Gverylow]) := by
   rw [hf, ha, hb, subCharges_append, subCharges_append]
 
-/-! ### The endpoint bundle `MatRunsC` (the `MatRuns` twin, fuel-free) -/
+/-! ### The endpoint bundle `MatRunsC` -/
 
 /-- The fold-based materialise endpoint bundle: everything running `matExpr (matCache prog) e`
 from `fr` delivers about the endpoint `fr'`. Byte length and gas contract read the fold caches
-(`matCache` / `chargeCache`); the frame pins are identical to `MatRuns`. -/
+(`matCache` / `chargeCache`). -/
 structure MatRunsC (prog : Program) (sloadChg : Tmp → ℕ) (e : Expr) (w : Word) (fr fr' : Frame) :
     Prop where
   runs       : Runs fr fr'
@@ -829,7 +808,7 @@ expression neither a bare gas read nor a bare sload, reproduces `evalExpr st obs
 bytecode stack and delivers the whole `MatRunsC` bundle. The `.tmp t` arm resolves through
 `allocate prog t` (`matCache_unfold`): a `.remat e'` recomputes (recurse via `matDecMeasure_remat_lt`),
 a `.slot n` reads the memory spill back (`MemRealises`), an undefined tmp is ruled out by scoping.
-NO `MatFueled`; NO `matCache = materialiseExpr` bridge. -/
+All recursion follows the fold measure. -/
 theorem materialise_runsC {prog : Program} (hdc : DefsConsistent prog) (hord : DefEnvOrdered prog)
     (sloadChg : Tmp → ℕ) (st : IRState) (obs : Word)
     (e : Expr) (w : Word) (fr : Frame)
@@ -874,7 +853,6 @@ theorem materialise_runsC {prog : Program} (hdc : DefsConsistent prog) (hord : D
         rw [show (Gverylow : ℕ) = 3 from rfl,
             BytecodeLayer.UInt64.toNat_sub_ofNat _ 3 h3 (by omega)]
         simp [List.sum_cons]
-  | .slot n, _, _, _, heval, _, _ => exact absurd heval (by simp [evalExpr])
   | .gas, _, hne, _, _, _, _ => exact absurd rfl hne
   | .sload k, _, _, hnsl, _, _, _ => exact absurd rfl (hnsl k)
   | .tmp t, hdec, _, _, heval, hgas, hstk =>
@@ -1319,7 +1297,7 @@ so the byte-segment hypothesis holds at `pcOf prog L pc + offset` (resp. `termOf
 via the byte anchors `flatBytes_at_pcOf_offset` / `flatBytes_at_termOf`
 (`Decode/DecodeAnchors.lean`), and the whole `MatDecC` bundle over `lower prog` follows. This is
 the generic discharge of the value channel's carried `MatDecC` hypothesis at any statement /
-terminator cursor. NO `MatFueled`, NO fuel. -/
+terminator cursor. -/
 
 /-- **`MatDecC` at a statement cursor.** For an operand `e` whose fold bytes form the sub-list of
 statement `s`'s lowering at byte `offset`, the whole `MatDecC` bundle holds over `lower prog` at

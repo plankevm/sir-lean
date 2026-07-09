@@ -16,7 +16,7 @@ conjunct.
 
 The heart is a recursion over the same well-founded measure as `MatDecC`/`materialise_runsC`
 (`matDecMeasure`, descending the def-env at the `.tmp t → definiens` step via
-`matDecMeasure_remat_lt` — NO fuel, NO `MatFueled`) that **accumulates the charge sum** while
+`matDecMeasure_remat_lt`) that **accumulates the charge sum** while
 descending the materialise run, deriving `(chargeExpr sloadChg (chargeCache prog sloadChg)
 e).sum ≤ fr.gas.toNat` from clean-halt. Each materialise op is a *continuing* op, so
 `CleanHaltsNonException` (via the `next_*_of_cleanHalt` family) forces a `.next` step and reads
@@ -95,7 +95,6 @@ theorem materialise_chargeC_le_of_cleanHalt {prog : Program} (hdc : DefsConsiste
         (by decide) (by decide) hszfr
       simp only [chargeExpr_imm, List.sum_cons, List.sum_nil]
       omega
-  | .slot n, _, _, _, heval, _ => exact absurd heval (by simp [evalExpr])
   | .gas, _, hne, _, _, _ => exact absurd rfl hne
   | .sload k, _, _, hnsl, _, _ => exact absurd rfl (hnsl k)
   | .tmp t, hdec, _, _, heval, hstk =>

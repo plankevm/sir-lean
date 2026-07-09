@@ -24,10 +24,10 @@ channel wired (`docs/create/STATUS.md`) — it closes CALL and CREATE simultaneo
   run its OWN walk carrying `DriveCorrLog` (which BUNDLES `RecorderCoupled`) and fire the Layer-C
   sim bricks ONLY at the coupled walk-frames — the `simStmt_coupled_*` family below.
 * **(b) R6 `runs_atReachableBoundary` cannot supply `hrb` alone.** Its B2 side condition
-  `(flatBytes prog).length ≤ 2 ^ 32` (`Machinery.lean:1509`) has no producer from `hwl` — no
-  `WellFormedLowered` field asserts it directly, only per-cursor bounds. Threaded here as an
-  explicit honest seam `hsize` (`boundaryWalk_of_wl` below); wiring it into the flagship's
-  hypothesis surface is a tracked DECISION (see `docs/create/producer-plan.md`).
+  `(flatBytes prog).length ≤ 2 ^ 32` (`Machinery.lean:1509`) is not a field of the internal
+  `WellLowered` adapter — `WellFormedLowered` only carries per-cursor bounds. The public
+  flagship now exposes the scalar `codeFits` budget; this producer still threads the derived
+  size fact as an explicit `hsize` parameter at the boundary-walk helper.
 
 ## Shape of the construction (see `docs/create/producer-plan.md` for the full plan)
 
@@ -297,7 +297,6 @@ private theorem evalExpr_reads_bound {st : IRState} {t : Tmp} :
   cases E with
   | imm _  => simp [usesInExpr] at hu
   | gas    => simp [usesInExpr] at hu
-  | slot _ => simp [usesInExpr] at hu
   | tmp t' =>
       simp only [usesInExpr] at hu
       by_cases ht' : t' = t
@@ -559,8 +558,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
         exact recorderCoupled_step_other hcp
           (by unfold isGasOp; rw [hdec']; rfl) (by unfold isSloadOp; rw [hdec']; rfl)
           (stepFrame_push fr .PUSH32 v 32 (by decide) hdec' (by decide) (by decide) hg3 hstk1)
-  | .slot n, _, _, _, heval, _, _ => exact absurd heval (by simp [evalExpr])
-  | .gas, _, hne, _, _, _, _ => exact absurd rfl hne
+      | .gas, _, hne, _, _, _, _ => exact absurd rfl hne
   | .sload k, _, _, hnsl, _, _, _ => exact absurd rfl (hnsl k)
   | .tmp t, hdec, _, _, heval, hgas, hstk =>
       have hloc : st.locals t = some w := heval
@@ -1401,11 +1399,11 @@ theorem runFrom_of_driveCorrLog_rec {prog : Program} {sloadChg : Tmp → ℕ} {l
 /-- **P5 — the R6 boundary walk (`hrb`), reason (b).** Every `Runs fr₀`-reachable frame sits at
 a reachable instruction boundary — `runs_atReachableBoundary`, needing `hne : 0 < prog.blocks.size`
 (from `hwl.closed.entry_present` / `hwl.entry0`) AND the size seam `hsize`. The `hsize`
-`(flatBytes prog).length ≤ 2 ^ 32` has NO producer from `hwl` — threaded as an explicit honest
-seam. NOTE: R6 itself carries three pure-engine geometry `sorry` bricks in DEFAULT-target files
-(`atReachableBoundaryVJ_step`/`_call` residues + the CREATE edge `atReachableBoundaryVJ_create`)
-which are OUTSIDE this track's edit surface. TRACTABILITY: blocked-on-decision (the `hsize` seam
-must be wired into the flagship; the engine bricks land elsewhere). -/
+`(flatBytes prog).length ≤ 2 ^ 32` is derived from the public `codeFits` budget before this
+helper is called; it remains explicit here because `WellLowered` is only an internal adapter
+and does not carry whole-program byte length. NOTE: R6 itself carries three pure-engine
+geometry `sorry` bricks in DEFAULT-target files (`atReachableBoundaryVJ_step`/`_call` residues
++ the CREATE edge `atReachableBoundaryVJ_create`) which are OUTSIDE this track's edit surface. -/
 theorem boundaryWalk_of_wl {prog : Program} {params : CallParams} {fr₀ : Frame}
     (hbegin : beginCall params = .inl fr₀)
     (hcode : params.codeSource = .Code (lower prog))
