@@ -28,11 +28,6 @@ Proving it is a `Runs`-induction whose `step`/`call` cases need three reachabili
 The per-step pc inversion
 `stepFrame fr = .next e → e.pc` is either `nextInstrPosNat n (decoded op)` (sequential) or a
 `fr.validJumps` member (taken JUMP/JUMPI), case-analysed over the 18 `IsLoweringOp` arms below.
-REMAINING (the `Runs`-induction itself, not yet landed): the in-range
-`e.pc.toNat < (flatBytes prog).length` preservation. With that, the base case
-(`codeFrame` pc = 0, `ReachesBoundary.refl`) and the `call` case
-(`resumeAfterCall` pc = call-site pc + 1, the byte after CALL) close the induction via the three
-bricks above.
 
 No `sorry`, no `axiom`, no `native_decide`.
 -/
@@ -600,15 +595,17 @@ theorem stepFrame_needsCreate_lowering_site_inv {prog : Program} {fr : Evm.Frame
     simpa [hgetD] using hopCreate
   exact ⟨hcreate, hppc, hpvj⟩
 
-/-- A lowered `.next` step either advances to the decoded instruction's sequential successor or
-takes a `JUMP`/`JUMPI` target recorded in the frame's valid-jump table. -/
+/-- A lowered `.next` step either advances from a non-terminal instruction to its sequential
+successor or takes a `JUMP`/`JUMPI` target recorded in the frame's valid-jump table. -/
 theorem stepFrame_next_lowering_pc_or_validJump {prog : Program} {fr mid : Evm.Frame}
     {b : Nat} {byte : UInt8}
     (hcode : fr.exec.executionEnv.code = lower prog) (hpc : fr.exec.pc = UInt32.ofNat b)
     (hbnd : b < 2 ^ 32) (hget : (lower prog).get? b = some byte)
     (hop : IsLoweringOp (Evm.parseInstr byte))
     (hstep : Evm.stepFrame fr = .next mid.exec) :
-    mid.exec.pc = UInt32.ofNat (Evm.nextInstrPosNat b (Evm.parseInstr byte))
+    (mid.exec.pc = UInt32.ofNat (Evm.nextInstrPosNat b (Evm.parseInstr byte))
+      ∧ Evm.parseInstr byte ≠ .STOP ∧ Evm.parseInstr byte ≠ .RETURN
+      ∧ Evm.parseInstr byte ≠ .JUMP)
       ∨ mid.exec.pc ∈ fr.validJumps := by
   have hbyte : (flatBytes prog)[b]? = some byte := by
     rw [← lower_get?_eq]; exact hget
@@ -645,31 +642,31 @@ theorem stepFrame_next_lowering_pc_or_validJump {prog : Program} {fr mid : Evm.F
   · rw [hadd] at hdec ⊢
     have hdecN := hdecNone (by simp [hadd, Evm.pushArgWidth])
     rw [hadd] at hdecN
-    exact Or.inl (Evm.stepFrame_next_add_pc hpc hdecN hstep)
+    exact Or.inl ⟨Evm.stepFrame_next_add_pc hpc hdecN hstep, by simp⟩
   · rw [hlt] at hdec ⊢
     have hdecN := hdecNone (by simp [hlt, Evm.pushArgWidth])
     rw [hlt] at hdecN
-    exact Or.inl (Evm.stepFrame_next_lt_pc hpc hdecN hstep)
+    exact Or.inl ⟨Evm.stepFrame_next_lt_pc hpc hdecN hstep, by simp⟩
   · rw [hpop] at hdec ⊢
     have hdecN := hdecNone (by simp [hpop, Evm.pushArgWidth])
     rw [hpop] at hdecN
-    exact Or.inl (Evm.stepFrame_next_pop_pc hpc hdecN hstep)
+    exact Or.inl ⟨Evm.stepFrame_next_pop_pc hpc hdecN hstep, by simp⟩
   · rw [hmload] at hdec ⊢
     have hdecN := hdecNone (by simp [hmload, Evm.pushArgWidth])
     rw [hmload] at hdecN
-    exact Or.inl (Evm.stepFrame_next_mload_pc hpc hdecN hstep)
+    exact Or.inl ⟨Evm.stepFrame_next_mload_pc hpc hdecN hstep, by simp⟩
   · rw [hmstore] at hdec ⊢
     have hdecN := hdecNone (by simp [hmstore, Evm.pushArgWidth])
     rw [hmstore] at hdecN
-    exact Or.inl (Evm.stepFrame_next_mstore_pc hpc hdecN hstep)
+    exact Or.inl ⟨Evm.stepFrame_next_mstore_pc hpc hdecN hstep, by simp⟩
   · rw [hsload] at hdec ⊢
     have hdecN := hdecNone (by simp [hsload, Evm.pushArgWidth])
     rw [hsload] at hdecN
-    exact Or.inl (Evm.stepFrame_next_sload_pc hpc hdecN hstep)
+    exact Or.inl ⟨Evm.stepFrame_next_sload_pc hpc hdecN hstep, by simp⟩
   · rw [hsstore] at hdec ⊢
     have hdecN := hdecNone (by simp [hsstore, Evm.pushArgWidth])
     rw [hsstore] at hdecN
-    exact Or.inl (Evm.stepFrame_next_sstore_pc hpc hdecN hstep)
+    exact Or.inl ⟨Evm.stepFrame_next_sstore_pc hpc hdecN hstep, by simp⟩
   · rw [hjump] at hdec ⊢
     have hdecN := hdecNone (by simp [hjump, Evm.pushArgWidth])
     rw [hjump] at hdecN
@@ -677,15 +674,17 @@ theorem stepFrame_next_lowering_pc_or_validJump {prog : Program} {fr mid : Evm.F
   · rw [hjumpi] at hdec ⊢
     have hdecN := hdecNone (by simp [hjumpi, Evm.pushArgWidth])
     rw [hjumpi] at hdecN
-    exact Evm.stepFrame_next_jumpi_pc hpc hdecN hstep
+    rcases Evm.stepFrame_next_jumpi_pc hpc hdecN hstep with hseq | hjmp
+    · exact Or.inl ⟨hseq, by simp⟩
+    · exact Or.inr hjmp
   · rw [hgas] at hdec ⊢
     have hdecN := hdecNone (by simp [hgas, Evm.pushArgWidth])
     rw [hgas] at hdecN
-    exact Or.inl (Evm.stepFrame_next_gas_pc hpc hdecN hstep)
+    exact Or.inl ⟨Evm.stepFrame_next_gas_pc hpc hdecN hstep, by simp⟩
   · rw [hjumpdest] at hdec ⊢
     have hdecN := hdecNone (by simp [hjumpdest, Evm.pushArgWidth])
     rw [hjumpdest] at hdecN
-    exact Or.inl (Evm.stepFrame_next_jumpdest_pc hpc hdecN hstep)
+    exact Or.inl ⟨Evm.stepFrame_next_jumpdest_pc hpc hdecN hstep, by simp⟩
   · rw [hpush4] at hdec ⊢
     let imm := Evm.uInt256OfByteArray
       ⟨((flatBytes prog).toArray).extract (b + 1) (b + 1 + (4 : UInt8).toNat)⟩
@@ -694,7 +693,7 @@ theorem stepFrame_next_lowering_pc_or_validJump {prog : Program} {fr mid : Evm.F
       simpa [hcode, hpc, hpush4, imm] using
         decode_lower_push prog b byte 4 imm hbnd hbyte (by simp [hpush4, Evm.pushArgWidth])
           (by decide) rfl
-    exact Or.inl (Evm.stepFrame_next_push4_pc hpc hdecP hstep)
+    exact Or.inl ⟨Evm.stepFrame_next_push4_pc hpc hdecP hstep, by simp⟩
   · rw [hpush32] at hdec ⊢
     let imm := Evm.uInt256OfByteArray
       ⟨((flatBytes prog).toArray).extract (b + 1) (b + 1 + (32 : UInt8).toNat)⟩
@@ -703,11 +702,11 @@ theorem stepFrame_next_lowering_pc_or_validJump {prog : Program} {fr mid : Evm.F
       simpa [hcode, hpc, hpush32, imm] using
         decode_lower_push prog b byte 32 imm hbnd hbyte (by simp [hpush32, Evm.pushArgWidth])
           (by decide) rfl
-    exact Or.inl (Evm.stepFrame_next_push32_pc hpc hdecP hstep)
+    exact Or.inl ⟨Evm.stepFrame_next_push32_pc hpc hdecP hstep, by simp⟩
   · rw [hcall] at hdec ⊢
     have hdecN := hdecNone (by simp [hcall, Evm.pushArgWidth])
     rw [hcall] at hdecN
-    exact Or.inl (Evm.stepFrame_next_call_pc hpc hdecN hstep)
+    exact Or.inl ⟨Evm.stepFrame_next_call_pc hpc hdecN hstep, by simp⟩
   · rw [hreturn] at hdec ⊢
     have hdecN := hdecNone (by simp [hreturn, Evm.pushArgWidth])
     rw [hreturn] at hdecN
@@ -730,11 +729,11 @@ theorem stepFrame_next_lowering_pc_or_validJump {prog : Program} {fr mid : Evm.F
   · rw [hcreate] at hdec ⊢
     have hdecN := hdecNone (by simp [hcreate, Evm.pushArgWidth])
     rw [hcreate] at hdecN
-    exact Or.inl (Evm.stepFrame_next_create_pc hpc hdecN hstep)
+    exact Or.inl ⟨Evm.stepFrame_next_create_pc hpc hdecN hstep, by simp⟩
   · rw [hcreate2] at hdec ⊢
     have hdecN := hdecNone (by simp [hcreate2, Evm.pushArgWidth])
     rw [hcreate2] at hdecN
-    exact Or.inl (Evm.stepFrame_next_create2_pc hpc hdecN hstep)
+    exact Or.inl ⟨Evm.stepFrame_next_create2_pc hpc hdecN hstep, by simp⟩
 
 
 end Lir

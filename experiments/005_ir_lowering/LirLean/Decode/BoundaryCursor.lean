@@ -15,6 +15,130 @@ namespace Lir
 
 open Evm
 
+/-! ## Terminal-suffix geometry -/
+
+/-- In an aligned prefix followed by a final byte, any earlier instruction boundary advances
+strictly before the segment end. -/
+theorem nextInstrPos_lt_of_segAlignedP_terminal {P : Operation → Prop} {c : ByteArray}
+    {pre : List UInt8} {last : UInt8} (hpre : SegAlignedP P pre) :
+    ∀ base : Nat,
+      (∀ j, j < (pre ++ [last]).length → c.get? (base + j) = (pre ++ [last])[j]?) →
+      ∀ n byte, Evm.ReachesBoundary c base n → n < base + (pre ++ [last]).length →
+        c.get? n = some byte → Evm.parseInstr byte ≠ Evm.parseInstr last →
+          Evm.nextInstrPosNat n (Evm.parseInstr byte) < base + (pre ++ [last]).length := by
+  induction hpre with
+  | nil =>
+      intro base hmatch n byte hreach hin hget hne
+      have hn : n = base := by
+        have hle := reachesBoundary_le hreach
+        simp only [List.nil_append, List.length_singleton] at hin
+        omega
+      subst n
+      have hhead := hmatch 0 (by simp)
+      simp at hhead
+      rw [hhead] at hget
+      cases hget
+      exact absurd rfl hne
+  | cons head imm rest himm _ hrest ih =>
+      intro base hmatch n byte hreach hin hget hne
+      have hshape : (head :: (imm ++ rest)) ++ [last]
+          = head :: (imm ++ (rest ++ [last])) := by simp [List.append_assoc]
+      rw [hshape] at hmatch hin
+      have hhead : c.get? base = some head := by
+        have h := hmatch 0 (by simp)
+        simpa using h
+      have hmatch' : ∀ j, j < (rest ++ [last]).length →
+          c.get? ((base + 1 + imm.length) + j) = (rest ++ [last])[j]? := by
+        intro j hj
+        have hj' : 1 + imm.length + j < (head :: (imm ++ (rest ++ [last]))).length := by
+          simp only [List.length_cons, List.length_append, List.length_nil] at hj ⊢
+          omega
+        have h := hmatch (1 + imm.length + j) hj'
+        rw [show base + (1 + imm.length + j) = (base + 1 + imm.length) + j from by omega] at h
+        rw [show 1 + imm.length + j = (imm.length + j) + 1 from by omega,
+          List.getElem?_cons_succ, List.getElem?_append_right (by omega),
+          show imm.length + j - imm.length = j from by omega] at h
+        exact h
+      cases hreach with
+      | refl _ =>
+          rw [hhead] at hget
+          cases hget
+          unfold Evm.nextInstrPosNat
+          rw [← himm]
+          simp only [List.length_cons, List.length_append] at hin ⊢
+          omega
+      | step hfirst hrestReach =>
+          rw [hhead] at hfirst
+          cases hfirst
+          have hnext : Evm.nextInstrPosNat base (Evm.parseInstr head)
+              = base + 1 + imm.length := by
+            unfold Evm.nextInstrPosNat
+            rw [himm]
+          rw [hnext] at hrestReach
+          have hin' : n < (base + 1 + imm.length) + (rest ++ [last]).length := by
+            simp only [List.length_cons, List.length_append] at hin ⊢
+            omega
+          have hlt := ih (base + 1 + imm.length) hmatch' n byte hrestReach hin' hget hne
+          simp only [List.length_cons, List.length_append] at hin hlt ⊢
+          omega
+
+/-- Every lowered block is an aligned prefix followed by its final halting or jumping opcode. -/
+theorem loweredBlock_terminal_decomp (prog : Program) (blk : Block) :
+    ∃ pre last,
+      Byte.jumpdest :: emitBlockBody (matCache prog) (defsOf prog)
+          (offsetTable (matCache prog) (defsOf prog) prog.blocks) blk = pre ++ [last]
+      ∧ SegAlignedP IsLoweringOp pre
+      ∧ (Evm.parseInstr last = .STOP ∨ Evm.parseInstr last = .RETURN
+        ∨ Evm.parseInstr last = .JUMP) := by
+  let cache := matCache prog
+  let alloc := defsOf prog
+  let lo := offsetTable cache alloc prog.blocks
+  let stmts := blk.stmts.flatMap (emitStmt cache alloc)
+  have hstmts : SegAlignedP IsLoweringOp stmts := by
+    unfold stmts
+    apply segAlignedP_flatMap
+    intro s _
+    exact segAlignedP_emitStmt cache (by simpa [cache] using segAlignedP_matCache prog) alloc s
+  have hcommon : SegAlignedP IsLoweringOp ([Byte.jumpdest] ++ stmts) :=
+    (SegAlignedP.nonpush Byte.jumpdest (by decide) (by decide)).append hstmts
+  cases ht : blk.term with
+  | stop =>
+      refine ⟨[Byte.jumpdest] ++ stmts, Byte.stop, ?_, hcommon, Or.inl rfl⟩
+      simp [emitBlockBody, ht, emitTerm, stmts, cache, alloc]
+  | jump dst =>
+      let termPre := emitDest (lo dst.idx)
+      have htermPre : SegAlignedP IsLoweringOp termPre := by
+        simpa [termPre] using segAlignedP_emitDest (lo dst.idx)
+      refine ⟨([Byte.jumpdest] ++ stmts) ++ termPre, Byte.jump, ?_,
+        hcommon.append htermPre, Or.inr (Or.inr rfl)⟩
+      simp [emitBlockBody, ht, emitTerm, stmts, termPre, cache, alloc, lo,
+        List.append_assoc]
+  | ret t =>
+      let termPre := cache t ++ emitImm 0 ++ [Byte.mstore] ++ emitImm 32 ++ emitImm 0
+      have htermPre : SegAlignedP IsLoweringOp termPre := by
+        have hc : SegAlignedP IsLoweringOp (cache t) := by
+          simpa [cache] using segAlignedP_matCache prog t
+        exact ((((hc.append (segAlignedP_emitImm 0)).append
+          (SegAlignedP.nonpush Byte.mstore (by decide) (by decide))).append
+          (segAlignedP_emitImm 32)).append (segAlignedP_emitImm 0))
+      refine ⟨([Byte.jumpdest] ++ stmts) ++ termPre, Byte.ret, ?_,
+        hcommon.append htermPre, Or.inr (Or.inl rfl)⟩
+      simp [emitBlockBody, ht, emitTerm, stmts, termPre, cache, alloc,
+        List.append_assoc]
+  | branch cond thenL elseL =>
+      let termPre := cache cond ++ emitDest (lo thenL.idx) ++ [Byte.jumpi]
+        ++ emitDest (lo elseL.idx)
+      have htermPre : SegAlignedP IsLoweringOp termPre := by
+        have hc : SegAlignedP IsLoweringOp (cache cond) := by
+          simpa [cache] using segAlignedP_matCache prog cond
+        exact (((hc.append (segAlignedP_emitDest (lo thenL.idx))).append
+          (SegAlignedP.nonpush Byte.jumpi (by decide) (by decide))).append
+          (segAlignedP_emitDest (lo elseL.idx)))
+      refine ⟨([Byte.jumpdest] ++ stmts) ++ termPre, Byte.jump, ?_,
+        hcommon.append htermPre, Or.inr (Or.inr rfl)⟩
+      simp [emitBlockBody, ht, emitTerm, stmts, termPre, cache, alloc, lo,
+        List.append_assoc]
+
 /-! ## Generic list-region inversion -/
 
 theorem flatMap_index_inv {α β : Type _} (xs : List α) (f : α → List β) {k : Nat}
@@ -141,6 +265,101 @@ theorem flatBytes_cursor_cases {prog : Program} {b : Nat}
         (offsetTable (matCache prog) (defsOf prog) prog.blocks i + 1
           + (List.flatMap (emitStmt (matCache prog) (defsOf prog)) blk.stmts).length) + j
       omega
+
+/-- A non-terminal instruction head classified by the source layout advances strictly inside the
+lowered byte stream. -/
+theorem nextInstrPos_lt_flatBytes_of_cursor {prog : Program} {b : Nat} {byte : UInt8}
+    (hcursor : LowerBoundaryCursor prog b)
+    (hreach : Evm.ReachesBoundary (lower prog) 0 b)
+    (hget : (lower prog).get? b = some byte)
+    (hnstop : Evm.parseInstr byte ≠ .STOP)
+    (hnreturn : Evm.parseInstr byte ≠ .RETURN)
+    (hnjump : Evm.parseInstr byte ≠ .JUMP) :
+    Evm.nextInstrPosNat b (Evm.parseInstr byte) < (flatBytes prog).length := by
+  have blockGeometry (L : Label) (blk : Block)
+      (hb : prog.blocks.toList[L.idx]? = some blk)
+      (hbase : offsetTable (matCache prog) (defsOf prog) prog.blocks L.idx ≤ b)
+      (hinside : b < offsetTable (matCache prog) (defsOf prog) prog.blocks L.idx
+        + (Byte.jumpdest :: emitBlockBody (matCache prog) (defsOf prog)
+          (offsetTable (matCache prog) (defsOf prog) prog.blocks) blk).length) :
+      Evm.nextInstrPosNat b (Evm.parseInstr byte) < (flatBytes prog).length := by
+    let base := offsetTable (matCache prog) (defsOf prog) prog.blocks L.idx
+    let blockBytes := Byte.jumpdest :: emitBlockBody (matCache prog) (defsOf prog)
+      (offsetTable (matCache prog) (defsOf prog) prog.blocks) blk
+    obtain ⟨pre, last, hdecomp, hpre, hlast⟩ := loweredBlock_terminal_decomp prog blk
+    have hlocal : Evm.ReachesBoundary (lower prog) base b := by
+      exact reachesBoundary_drop_to_blockEntry (prog := prog) (L := L) (blk := blk) hb
+        hreach (by simpa [base] using hbase)
+    have hmatch : ∀ j, j < (pre ++ [last]).length →
+        (lower prog).get? (base + j) = (pre ++ [last])[j]? := by
+      intro j hj
+      rw [lower_get?_eq]
+      have hsplit := flatBytes_block_split prog L blk hb
+      have hprelen := flatBytes_block_offset prog L
+      rw [hsplit]
+      rw [show base = ((prog.blocks.toList.take L.idx).flatMap
+          (fun b => Byte.jumpdest :: emitBlockBody (matCache prog) (defsOf prog)
+            (offsetTable (matCache prog) (defsOf prog) prog.blocks) b)).length from by
+          simpa [base] using hprelen.symm]
+      rw [List.append_assoc, List.getElem?_append_right (by omega),
+        show ((prog.blocks.toList.take L.idx).flatMap
+          (fun b => Byte.jumpdest :: emitBlockBody (matCache prog) (defsOf prog)
+            (offsetTable (matCache prog) (defsOf prog) prog.blocks) b)).length + j
+          - ((prog.blocks.toList.take L.idx).flatMap
+            (fun b => Byte.jumpdest :: emitBlockBody (matCache prog) (defsOf prog)
+              (offsetTable (matCache prog) (defsOf prog) prog.blocks) b)).length = j from by omega]
+      rw [List.getElem?_append_left]
+      · simpa [blockBytes] using congrArg (fun xs => xs[j]?) hdecomp
+      · simpa [blockBytes, hdecomp] using hj
+    have hinBlock : b < base + (pre ++ [last]).length := by
+      simpa [base, blockBytes, hdecomp] using hinside
+    have hneLast : Evm.parseInstr byte ≠ Evm.parseInstr last := by
+      rcases hlast with h | h | h
+      · rwa [h]
+      · rwa [h]
+      · rwa [h]
+    have hltBlock := nextInstrPos_lt_of_segAlignedP_terminal hpre base hmatch b byte hlocal
+      hinBlock hget hneLast
+    have hsplit := flatBytes_block_split prog L blk hb
+    have hprelen := flatBytes_block_offset prog L
+    have hblockEnd : base + (pre ++ [last]).length ≤ (flatBytes prog).length := by
+      rw [← hdecomp]
+      rw [hsplit]
+      simp only [List.length_append]
+      rw [hprelen]
+      simp only [base]
+      omega
+    exact lt_of_lt_of_le hltBlock hblockEnd
+  cases hcursor with
+  | blockEntry L blk hb heq =>
+      apply blockGeometry L blk hb
+      · rw [heq]
+      · rw [heq]
+        simp
+  | stmt L blk pc k s hb hs hk heq =>
+      apply blockGeometry L blk hb
+      · rw [heq, pcOf_eq_anchor prog L blk pc hb]
+        omega
+      · have hsplit := flatMap_split blk.stmts pc s hs
+          (emitStmt (matCache prog) (defsOf prog))
+        have hlen : (blk.stmts.flatMap (emitStmt (matCache prog) (defsOf prog))).length
+            = ((blk.stmts.take pc).flatMap
+                (emitStmt (matCache prog) (defsOf prog))).length
+              + (emitStmt (matCache prog) (defsOf prog) s).length
+              + ((blk.stmts.drop (pc + 1)).flatMap
+                (emitStmt (matCache prog) (defsOf prog))).length := by
+          conv_lhs => rw [hsplit]
+          rw [List.length_append, List.length_append]
+        rw [heq, pcOf_eq_anchor prog L blk pc hb]
+        simp only [List.length_cons, emitBlockBody, List.length_append]
+        omega
+  | term L blk k hb hk heq =>
+      apply blockGeometry L blk hb
+      · rw [heq, termOf_eq_anchor prog L blk hb]
+        omega
+      · rw [heq, termOf_eq_anchor prog L blk hb]
+        simp only [List.length_cons, emitBlockBody, List.length_append]
+        omega
 
 theorem reachable_lowering_boundary_cases {prog : Program} {b : Nat}
     (_hreach : Evm.ReachesBoundary (lower prog) 0 b)
