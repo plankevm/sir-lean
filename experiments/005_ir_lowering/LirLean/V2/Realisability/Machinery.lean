@@ -9,7 +9,7 @@ import LirLean.Engine.Modellable
 
 Split out of `RealisabilitySpec.lean` (pure relocation). Holds the Phase-3 obligation
 machinery R1–R11 (§5), including the tracked sorries R3 (`callRealises_of_recorded`) and
-R6 (`atReachableBoundaryVJ_step`/`_call`). Imports `Surface`. -/
+the later coupled-producer obligations. Imports `Surface`. -/
 
 namespace Lir.V2
 
@@ -1280,9 +1280,8 @@ private theorem isGasOp_false_of_isSloadOp {fr : Frame} (h : isSloadOp fr = true
 /-! ### R6 status — the geometry track's findings (Track A / the `hrb` residue)
 
 **R6 WITHOUT a size side condition is REFUTABLE**, so its statement above now carries
-`hne : 0 < prog.blocks.size` (blocker B1). The remaining side conditions are pinned below as
-real, machine-checked lemmas (no `sorry`, no weakening of R6 itself — R6's own `sorry` above is
-left untouched; these are the honest partial the geometry track lands).
+`hne : 0 < prog.blocks.size` (blocker B1). The side conditions are pinned below by
+machine-checked lemmas.
 
 * **Blocker B1 — the zero-block program (a CONCRETE counterexample, `not_runs_atReachableBoundary`), NOW FIXED on the statement.**
   For `prog.blocks = #[]`, `flatBytes prog = []` so `(flatBytes prog).length = 0`. `beginCall`
@@ -1297,12 +1296,8 @@ left untouched; these are the honest partial the geometry track lands).
   the program-size bound `(flatBytes prog).length ≤ 2 ^ 32` — natural (offsets are emitted as
   4-byte `PUSH4`) but absent from the statement and not derivable for a schematic `prog`.
 
-The reusable geometry the `Runs`-induction is assembled from is landed green below:
-`lower_size_eq`, the nonemptiness brick `flatBytes_length_pos` (→ B1's positive half), the entry
-seed `atReachableBoundaryVJ_entry` (BASE, under `0 < prog.blocks.size`), and the `Runs`-induction
-combinator `atReachableBoundaryVJ_of_runs` threading the two edge lemmas
-`atReachableBoundaryVJ_step` / `atReachableBoundaryVJ_call` (whose only residue is the STEP-PC
-dispatch walk + NEXT-IN-RANGE terminal-op geometry + CALL-site inversion — the three engine bricks).
+The reusable geometry below threads the entry, ordinary step, CALL return, and CREATE return
+edges through one strengthened boundary invariant.
 -/
 
 /-- The zero-block witness program: `flatBytes` is `[]`, so no boundary is in range. -/
@@ -1409,14 +1404,8 @@ theorem atReachableBoundaryVJ_entry {prog : Lir.Program} {params : CallParams} {
   refine ⟨atReachableBoundary_entry hbegin hcode hne, ?_⟩
   rw [hfr, codeFrame_validJumps]
 
-/-- **R6 STEP edge.** One `stepFrame` from a reachable in-range boundary of `lower prog` lands
-at another (with the `validJumps` conjunct preserved). Everything is discharged in-file EXCEPT
-two pure-engine geometry bricks whose home is a default-target file (see the R6 default-target
-brief): **B-pc** (the `.next` dispatch walk: the step either advances to the sequential
-successor `nextInstrPosNat b (parseInstr byte)` or lands in `validJumps`), and **B-inrange**
-(the block-layout fact that a sequential-advancing instruction's successor stays in range).
-The taken-jump arm is FULLY discharged here (free, via `reachesBoundary_of_mem_validJumpDests`
-+ the `validJumps` conjunct). -/
+/-- **R6 STEP edge.** One ordinary step preserves the reachable in-range boundary and valid-jump
+invariants, classifying the successor as sequential or a valid jump destination. -/
 theorem atReachableBoundaryVJ_step {prog : Lir.Program} {fr mid : Frame}
     (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32)
     (h : StepsTo fr mid) (hinv : AtReachableBoundaryVJ prog fr) :
@@ -1429,17 +1418,18 @@ theorem atReachableBoundaryVJ_step {prog : Lir.Program} {fr mid : Frame}
     rw [h.2]; exact hvj
   -- the boundary byte at `b` is a lowering opcode (real):
   obtain ⟨byte, hget, hop⟩ := Lir.reachable_boundary_loweringByte prog b hreach hin
-  have hBpc : mid.exec.pc = UInt32.ofNat (Evm.nextInstrPosNat b (Evm.parseInstr byte))
+  have hBpc : (mid.exec.pc = UInt32.ofNat (Evm.nextInstrPosNat b (Evm.parseInstr byte))
+      ∧ Evm.parseInstr byte ≠ .STOP ∧ Evm.parseInstr byte ≠ .RETURN
+      ∧ Evm.parseInstr byte ≠ .JUMP)
       ∨ mid.exec.pc ∈ fr.validJumps :=
     Lir.stepFrame_next_lowering_pc_or_validJump hcode hpc hbnd hget hop h.1
   refine ⟨?_, hmvj⟩
   rcases hBpc with hseq | hjmp
   · -- sequential advance
-    -- ── BRICK B-inrange (home `LirLean/BoundaryReach.lean` / `LirLean/Layout.lean`) ──
-    -- blocks end in terminators ⇒ a sequential-advancing instruction is never the program's
-    -- last, so its successor boundary stays `< (flatBytes prog).length`. SegAligned/emitBlock
-    -- layout decomposition.
-    have hInR : Evm.nextInstrPosNat b (Evm.parseInstr byte) < (Lir.flatBytes prog).length := sorry
+    obtain ⟨hseq, hnstop, hnreturn, hnjump⟩ := hseq
+    have hInR : Evm.nextInstrPosNat b (Evm.parseInstr byte) < (Lir.flatBytes prog).length :=
+      Lir.nextInstrPos_lt_flatBytes_of_cursor (Lir.flatBytes_cursor_cases hin) hreach hget
+        hnstop hnreturn hnjump
     exact ⟨Evm.nextInstrPosNat b (Evm.parseInstr byte), hmcode, hseq,
       Lir.reachesBoundary_nextInstr hreach hget, hInR, lt_of_lt_of_le hInR hsize⟩
   · -- taken jump: the landing pc is a `validJumps` member ⇒ a reachable in-range boundary (FREE)
@@ -1460,69 +1450,16 @@ theorem atReachableBoundaryVJ_call {prog : Lir.Program} {fr rf : Frame}
   obtain ⟨⟨b, hcode, hpc, hreach, hin, hbnd⟩, hvj⟩ := hinv
   obtain ⟨cp, pending, child, childRes, hncall, _hEnters, _hDrive, hrf⟩ := h
   obtain ⟨byte, hget, hop⟩ := Lir.reachable_boundary_loweringByte prog b hreach hin
-  -- ── BRICK B-call (home `LirLean/Engine/Descent.lean`) ──
-  -- extension of `stepFrame_needsCall_inv` to the pc / jump-table / decoded-op it omits.
   have hBcall : Evm.parseInstr byte = Operation.CALL
       ∧ pending.frame.exec.pc = fr.exec.pc
       ∧ pending.frame.validJumps = fr.validJumps :=
     Lir.stepFrame_needsCall_lowering_site_inv hcode hpc hbnd hget hop hncall
   obtain ⟨hopCall, hppc, hpvj⟩ := hBcall
   have hInR : b + 1 < (Lir.flatBytes prog).length := by
-    have hcursor := Lir.flatBytes_cursor_cases (prog := prog) (b := b) hin
-    cases hcursor with
-    | blockEntry L blk hb heq =>
-        have hbyte : (Lir.flatBytes prog)[b]? = some Lir.Byte.jumpdest := by
-          rw [heq, ← Lir.flatBytes_block_offset prog L]
-          rw [Lir.flatBytes_block_split prog L blk hb]
-          simp
-        rw [Lir.lower_get?_eq] at hget
-        rw [hbyte] at hget
-        cases hget
-        cases hopCall
-    | stmt L blk pc k s hb hs hk heq =>
-        have hend := Lir.V2.block_end_le_flatBytes prog L blk hb
-        have hsb := Lir.flatMap_split blk.stmts pc s hs
-          (Lir.emitStmt (Lir.matCache prog) (Lir.defsOf prog))
-        have hsblen : (blk.stmts.flatMap
-            (Lir.emitStmt (Lir.matCache prog) (Lir.defsOf prog))).length
-            = ((blk.stmts.take pc).flatMap
-                (Lir.emitStmt (Lir.matCache prog) (Lir.defsOf prog))).length
-              + (Lir.emitStmt (Lir.matCache prog) (Lir.defsOf prog) s).length
-              + ((blk.stmts.drop (pc + 1)).flatMap
-                (Lir.emitStmt (Lir.matCache prog) (Lir.defsOf prog))).length := by
-          conv_lhs => rw [hsb]
-          rw [List.length_append, List.length_append]
-        have htermPos : 0 < (Lir.emitTerm (Lir.matCache prog)
-            (Lir.offsetTable (Lir.matCache prog) (Lir.defsOf prog) prog.blocks)
-            blk.term).length := by
-          cases blk.term <;> simp [Lir.emitTerm]
-        have hroom : k + 1 ≤ (Lir.emitStmt (Lir.matCache prog) (Lir.defsOf prog) s).length := by
-          omega
-        rw [heq]
-        rw [Lir.pcOf_eq_anchor prog L blk pc hb]
-        omega
-    | term L blk k hb hk heq =>
-        have hlocal : Evm.ReachesBoundary (Lir.lower prog) (Lir.termOf prog L) (Lir.termOf prog L + k) :=
-          Lir.reachesBoundary_local_term (prog := prog) (L := L) (blk := blk) (k := k) hb (by
-            exact hk) (by rw [← heq]; exact hreach)
-        have htermNoCall :=
-          Lir.reaches_P_of_segAlignedP (Lir.lower prog)
-            (Lir.emitTerm (Lir.matCache prog)
-              (Lir.offsetTable (Lir.matCache prog) (Lir.defsOf prog) prog.blocks) blk.term)
-            (Lir.segAlignedNoCall_emitTerm_matCache prog blk.term)
-            (Lir.termOf prog L)
-            (by
-              intro j hj
-              rw [Lir.lower_get?_eq]
-              exact Lir.flatBytes_at_termOf prog L blk j hb hj)
-            (Lir.termOf prog L + k) hlocal (by omega)
-        obtain ⟨byte', hget', hnocall⟩ := htermNoCall
-        rw [heq] at hget
-        rw [Lir.lower_get?_eq] at hget
-        rw [Lir.lower_get?_eq prog (Lir.termOf prog L + k)] at hget'
-        rw [hget] at hget'
-        cases hget'
-        exact False.elim ((Lir.noCallCreate_of_byte byte hnocall).1 hopCall)
+    have hlt := Lir.nextInstrPos_lt_flatBytes_of_cursor (Lir.flatBytes_cursor_cases hin)
+      hreach hget (by rw [hopCall]; simp) (by rw [hopCall]; simp) (by rw [hopCall]; simp)
+    rw [hopCall] at hlt
+    simpa [Evm.nextInstrPosNat, Evm.pushArgWidth] using hlt
   -- `resumeAfterCall` pins (real, by unfolding the def):
   have hrenv : rf.exec.executionEnv = pending.frame.exec.executionEnv := by
     rw [hrf]; rfl
@@ -1544,25 +1481,52 @@ theorem atReachableBoundaryVJ_call {prog : Lir.Program} {fr rf : Frame}
       simp [Evm.nextInstrPosNat, Evm.pushArgWidth]
     rwa [hnn] at hr
 
-/-- **R6 CREATE edge — NEW TRACKED CREATE OBLIGATION (`sorry`).** The `Runs.create` node resumes
-at `rf = resumeAfterCreate childRes.toCreateResult pending`, which lands at the instruction
-boundary *past* the emitted `CREATE2` byte (the twin of `atReachableBoundaryVJ_call`'s
-post-CALL resume geometry). Previously this edge was *vacuous* — the lowering emitted no CREATE
-byte, so `stepFrame_needsCreate_isCreate` contradicted `decode_reachable_boundary_loweringOp`. Now
-that `emitStmt .create` emits `0xf5` (in `IsLoweringOp`), the edge is genuinely
-inhabited and needs the real create-resume boundary-geometry brick — the R6 analogue of the CALL
-resume edge (plan §2 Step 8: "R6 geometry must admit CREATE boundary heads"). Deferred to the
-flagship create-obligation work; it is a WIP-only R6 leaf and does not affect the default cone. -/
+/-- **R6 CREATE edge.** A returning CREATE/CREATE2 resumes at the next reachable in-range
+boundary while preserving the lowered code and valid-jump table. -/
 theorem atReachableBoundaryVJ_create {prog : Lir.Program} {fr rf : Frame}
+    (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32)
     (h : CreateReturns fr rf) (hinv : AtReachableBoundaryVJ prog fr) :
-    AtReachableBoundaryVJ prog rf := sorry
+    AtReachableBoundaryVJ prog rf := by
+  obtain ⟨⟨b, hcode, hpc, hreach, hin, hbnd⟩, hvj⟩ := hinv
+  obtain ⟨cp, pending, childRes, hncreate, _hDrive, hrf⟩ := h
+  obtain ⟨byte, hget, hop⟩ := Lir.reachable_boundary_loweringByte prog b hreach hin
+  obtain ⟨hopCreate, hppc, hpvj⟩ :=
+    Lir.stepFrame_needsCreate_lowering_site_inv hcode hpc hbnd hget hop hncreate
+  have hInR : b + 1 < (Lir.flatBytes prog).length := by
+    have hnstop : Evm.parseInstr byte ≠ .STOP := by rcases hopCreate with h | h <;> rw [h] <;> simp
+    have hnreturn : Evm.parseInstr byte ≠ .RETURN := by
+      rcases hopCreate with h | h <;> rw [h] <;> simp
+    have hnjump : Evm.parseInstr byte ≠ .JUMP := by rcases hopCreate with h | h <;> rw [h] <;> simp
+    have hlt := Lir.nextInstrPos_lt_flatBytes_of_cursor (Lir.flatBytes_cursor_cases hin)
+      hreach hget hnstop hnreturn hnjump
+    rcases hopCreate with hcreate | hcreate2
+    · rw [hcreate] at hlt
+      simpa [Evm.nextInstrPosNat, Evm.pushArgWidth] using hlt
+    · rw [hcreate2] at hlt
+      simpa [Evm.nextInstrPosNat, Evm.pushArgWidth] using hlt
+  have hrenv : rf.exec.executionEnv = pending.frame.exec.executionEnv :=
+    resumeAfterCreate_execEnv childRes pending rf hrf
+  have hrcode : rf.exec.executionEnv.code = Lir.lower prog := by
+    rw [hrenv, (Evm.stepFrame_needsCreate_inv hncreate).2.2.2, hcode]
+  have hrvj : rf.validJumps = validJumpDests (Lir.lower prog) 0 := by
+    rw [resumeAfterCreate_validJumps childRes pending rf hrf, hpvj, hvj]
+  have hrpc : rf.exec.pc = pending.frame.exec.pc + 1 :=
+    resumeAfterCreate_pc childRes pending rf hrf
+  refine ⟨⟨b + 1, hrcode, ?_, ?_, hInR, lt_of_lt_of_le hInR hsize⟩, hrvj⟩
+  · rw [hrpc, hppc, hpc]
+    exact Lir.ofNat_add' b 1
+  · have hr := Lir.reachesBoundary_nextInstr hreach hget
+    rcases hopCreate with hcreate | hcreate2
+    · rw [hcreate] at hr
+      simpa [Evm.nextInstrPosNat, Evm.pushArgWidth] using hr
+    · rw [hcreate2] at hr
+      simpa [Evm.nextInstrPosNat, Evm.pushArgWidth] using hr
 
 /-- **The `Runs`-induction combinator (master lemma).** `AtReachableBoundaryVJ prog` is
 preserved across a whole `Runs` derivation, threading through each single `StepsTo`
-(`atReachableBoundaryVJ_step`), each returning external `CallReturns` (`atReachableBoundaryVJ_call`),
-and each returning `CreateReturns` (`atReachableBoundaryVJ_create` — now a NEW tracked CREATE
-obligation: the create-resume boundary geometry, no longer vacuous since `emitStmt .create` emits
-`CREATE`/`CREATE2`). The assembly of R6: seed with `atReachableBoundaryVJ_entry` (BASE), then thread the edges. -/
+(`atReachableBoundaryVJ_step`), each returning external `CallReturns`
+(`atReachableBoundaryVJ_call`), and each returning `CreateReturns`
+(`atReachableBoundaryVJ_create`). -/
 theorem atReachableBoundaryVJ_of_runs {prog : Lir.Program}
     (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32)
     {fr fr' : Frame} (hr : Runs fr fr') :
@@ -1571,7 +1535,7 @@ theorem atReachableBoundaryVJ_of_runs {prog : Lir.Program}
   | refl _ => exact id
   | step h _ ih => exact fun hfr => ih (atReachableBoundaryVJ_step hsize h hfr)
   | call hc _ ih => exact fun hfr => ih (atReachableBoundaryVJ_call hsize hc hfr)
-  | create hc _ ih => exact fun hfr => ih (atReachableBoundaryVJ_create hc hfr)
+  | create hc _ ih => exact fun hfr => ih (atReachableBoundaryVJ_create hsize hc hfr)
 
 /-- **R6 — the boundary walk** (the `hrb` residue; the Track-A discharge target). Every
 `Runs`-reachable frame of a `lower prog` entry sits at a reachable instruction boundary of
@@ -1591,15 +1555,8 @@ with the two well-formedness side conditions the geometry track surfaced:
   32-bit address space (the same bound the per-cursor `WellFormedLowered.bound_*` fields
   assert). An upper bound all real programs satisfy — not vacuity-inducing.
 
-HONEST PARTIAL (re-architected): the reduction is now REAL and fully assembled here from the
-strengthened invariant `AtReachableBoundaryVJ` (`AtReachableBoundary` + the `validJumps`
-conjunct the taken-jump edge needs; the old `AtReachableBoundary`-only route was a DEAD end).
-Seed = `atReachableBoundaryVJ_entry` (B1), combinator = `atReachableBoundaryVJ_of_runs`, edges
-= `atReachableBoundaryVJ_step` / `atReachableBoundaryVJ_call` / `atReachableBoundaryVJ_create`.
-The remaining tracked geometry is the STEP sequential-successor in-range fact and the CREATE
-resume edge. Once these land, R6 is axiom-clean (`[propext, Classical.choice, Quot.sound]`).
-B2 (`hsize`) is threaded into the step/call edges (the `boundary' < length ⟹ boundary' < 2^32`
-reconciliation and the taken-jump/`UInt32.ofNat` no-wrap). -/
+The proof threads `AtReachableBoundaryVJ` through ordinary, CALL-return, and CREATE-return edges.
+`hsize` converts each strict code-range fact into the invariant's `UInt32` range field. -/
 theorem runs_atReachableBoundary {prog : Lir.Program} {params : CallParams} {fr₀ : Frame}
     (hbegin : beginCall params = .inl fr₀)
     (hcode : params.codeSource = .Code (lower prog))
