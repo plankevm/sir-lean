@@ -330,6 +330,11 @@ theorem resumeAfterCall_code (result : Evm.CallResult) (pd : Evm.PendingCall) :
     (Evm.resumeAfterCall result pd).exec.executionEnv.code
       = pd.frame.exec.executionEnv.code := rfl
 
+/-- Resumed frame keeps the caller's `canModifyState` (`executionEnv` untouched). -/
+theorem resumeAfterCall_canModifyState (result : Evm.CallResult) (pd : Evm.PendingCall) :
+    (Evm.resumeAfterCall result pd).exec.executionEnv.canModifyState
+      = pd.frame.exec.executionEnv.canModifyState := rfl
+
 /-- Resumed frame keeps the caller's `validJumps` (`Frame.validJumps` field untouched). -/
 theorem resumeAfterCall_validJumps (result : Evm.CallResult) (pd : Evm.PendingCall) :
     (Evm.resumeAfterCall result pd).validJumps = pd.frame.validJumps := rfl
@@ -342,6 +347,46 @@ theorem resumeAfterCall_pc (result : Evm.CallResult) (pd : Evm.PendingCall) :
 theorem resumeAfterCall_stack (result : Evm.CallResult) (pd : Evm.PendingCall) :
     (Evm.resumeAfterCall result pd).exec.stack
       = pd.stack.push (callSuccessFlag result pd) := rfl
+
+/-- A real call cursor statically scopes its result tmp as a call-result tmp. -/
+private theorem stepScopedS_call_of_cursor {prog : Program} {L : Label} {b : Block} {pc : Nat}
+    {cs : CallSpec}
+    (hb : blockAt prog L = some b)
+    (hcur : b.stmts[pc]? = some (.call cs)) :
+    StepScopedS prog (.call cs) := by
+  intro t ht
+  unfold Lir.isCallResult
+  refine ⟨b, hb, ?_, ht⟩
+  exact List.mem_of_getElem? (by simpa [ht] using hcur)
+
+/-- World replacement preserves the call arm's static well-scoping; if a result tmp is bound, its
+slot registration comes from `DefsConsistent`. -/
+private theorem call_post_wellScoped {prog : Program} {L : Label} {b : Block} {pc : Nat}
+    {cs : CallSpec} {st : IRState} {world' : World} {success : Word}
+    (hb : blockAt prog L = some b)
+    (hcur : b.stmts[pc]? = some (.call cs))
+    (hdefsCons : DefsConsistent prog)
+    (hscoped : ∀ t, st.locals t ≠ none →
+      (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.slot slot))
+      ∧ defsOf prog t ≠ none) :
+    ∀ t, (match cs.resultTmp with
+            | some t' => { st with world := world' }.setLocal t' success
+            | none => { st with world := world' }).locals t ≠ none →
+          (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.slot slot))
+          ∧ defsOf prog t ≠ none := by
+  intro t hlocal
+  cases hres : cs.resultTmp with
+  | none =>
+      simpa [hres] using hscoped t hlocal
+  | some t' =>
+      by_cases ht : t = t'
+      · subst ht
+        have hslot : defsOf prog t' = some (.slot (slotOf t')) :=
+          (hdefsCons L b pc hb).2.1 cs t' hcur hres
+        exact ⟨Or.inr ⟨slotOf t', hslot⟩, hslot⟩
+      · have hlocal' : st.locals t ≠ none := by
+          simpa [IRState.setLocal, hres, ht] using hlocal
+        exact hscoped t hlocal'
 
 /-- **R3 — call realisation from the log.** At a call cursor, the coupled frame's recorded
 CALL supplies the `CallRealisesS` bundle at the REALISED oracle — the round-3 restatement
