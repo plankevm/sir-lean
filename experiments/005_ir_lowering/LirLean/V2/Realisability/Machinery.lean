@@ -1381,13 +1381,9 @@ theorem atReachableBoundaryVJ_step {prog : Lir.Program} {fr mid : Frame}
     rw [h.2]; exact hvj
   -- the boundary byte at `b` is a lowering opcode (real):
   obtain ⟨byte, hget, hop⟩ := Lir.reachable_boundary_loweringByte prog b hreach hin
-  -- ── BRICK B-pc (home `LirLean/BoundaryReach.lean` / `LirLean/Engine/StepWalk.lean`) ──
-  -- the `.next` `stepFrame` dispatch walk over the lowered `IsLoweringOp` arms: from the boundary
-  -- `b` the successor pc is either the sequential `nextInstrPosNat b (parseInstr byte)` or a
-  -- `validJumps` member (taken JUMP/JUMPI). Template `stepFrame_next_accMono`. The instance R6
-  -- consumes (general statement in the default-target brief).
   have hBpc : mid.exec.pc = UInt32.ofNat (Evm.nextInstrPosNat b (Evm.parseInstr byte))
-      ∨ mid.exec.pc ∈ fr.validJumps := sorry
+      ∨ mid.exec.pc ∈ fr.validJumps :=
+    Lir.stepFrame_next_lowering_pc_or_validJump hcode hpc hbnd hget hop h.1
   refine ⟨?_, hmvj⟩
   rcases hBpc with hseq | hjmp
   · -- sequential advance
@@ -1407,12 +1403,9 @@ theorem atReachableBoundaryVJ_step {prog : Lir.Program} {fr mid : Frame}
 
 /-- **R6 CALL edge.** A returning external CALL from a reachable in-range boundary of
 `lower prog` resumes at another (with the `validJumps` conjunct preserved). The
-`resumeAfterCall` pins (code / pc = call-site + 1 / validJumps) are discharged in-file by
-unfolding; everything else is real EXCEPT two engine bricks (see the R6 default-target brief):
-**B-call** (extend `stepFrame_needsCall_inv`: a `.needsCall` at a lowering-op boundary decodes
-`CALL` — the only CALL-family op the lowering emits — and the pending parent frame keeps the
-call-site pc and jump table), and **B-inrange** (a lowered CALL is mid-block, so its 1-byte
-successor is in range). -/
+`resumeAfterCall` pins (code / pc = call-site + 1 / validJumps) and the CALL-site inversion are
+discharged in-file; the remaining geometry brick is **B-inrange** (a lowered CALL is mid-block, so
+its 1-byte successor is in range). -/
 theorem atReachableBoundaryVJ_call {prog : Lir.Program} {fr rf : Frame}
     (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32)
     (h : CallReturns fr rf) (hinv : AtReachableBoundaryVJ prog fr) :
