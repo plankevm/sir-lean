@@ -207,10 +207,10 @@ theorem defsSoundS_preserved_step {prog : Program}
         rw [Lir.evalExpr_setLocal_of_unused hunused]
         calc some w₀ = evalExpr st 0 e₀ := hprev
           _ = evalExpr { st with world := world' } 0 e₀ := (evalExpr_world_noSload hns).symm
-  | create hvalue hoff hsize =>
+  | create hvalue hoff hsize hsalt =>
     -- verbatim twin of the `call` arm: the create pops the create stream and applies its head
     -- (world replacement + result-tmp binding) exactly as the call arm applies the call head.
-    rename_i cs valueW initOffW initSizeW addrW world'
+    rename_i cs valueW initOffW initSizeW saltW addrW world'
     intro t₀ e₀ w₀ hdef₀ hnr₀ hninval hlocal₀
     have hns : ∀ k, e₀ ≠ .sload k := fun k he => Lir.rematOf_ne_sload prog t₀ k (he ▸ hdef₀)
     cases hrt : cs.resultTmp with
@@ -356,8 +356,8 @@ private theorem stepScopedS_call_of_cursor {prog : Program} {L : Label} {b : Blo
     StepScopedS prog (.call cs) := by
   intro t ht
   unfold Lir.isCallResult
-  refine ⟨b, hb, ?_, ht⟩
-  exact List.mem_of_getElem? (by simpa [ht] using hcur)
+  refine ⟨b, List.mem_of_getElem? (Lir.toList_of_blockAt hb), cs, ?_, ht⟩
+  exact List.mem_of_getElem? hcur
 
 /-- World replacement preserves the call arm's static well-scoping; if a result tmp is bound, its
 slot registration comes from `DefsConsistent`. -/
@@ -377,13 +377,15 @@ private theorem call_post_wellScoped {prog : Program} {L : Label} {b : Block} {p
   intro t hlocal
   cases hres : cs.resultTmp with
   | none =>
-      simpa [hres] using hscoped t hlocal
-  | some t' =>
-      by_cases ht : t = t'
-      · subst ht
-        have hslot : defsOf prog t' = some (.slot (slotOf t')) :=
-          (hdefsCons L b pc hb).2.1 cs t' hcur hres
-        exact ⟨Or.inr ⟨slotOf t', hslot⟩, hslot⟩
+      have hlocal' : st.locals t ≠ none := by
+        simpa [hres] using hlocal
+      exact hscoped t hlocal'
+  | some u =>
+      by_cases ht : t = u
+      · subst u
+        have hslot : defsOf prog t = some (.slot (slotOf t)) :=
+          (hdefsCons L b pc hb).2.1 cs t hcur hres
+        exact ⟨Or.inr ⟨slotOf t, hslot⟩, by simp [hslot]⟩
       · have hlocal' : st.locals t ≠ none := by
           simpa [IRState.setLocal, hres, ht] using hlocal
         exact hscoped t hlocal'
@@ -1544,10 +1546,10 @@ theorem atReachableBoundaryVJ_call {prog : Lir.Program} {fr rf : Frame}
 
 /-- **R6 CREATE edge — NEW TRACKED CREATE OBLIGATION (`sorry`).** The `Runs.create` node resumes
 at `rf = resumeAfterCreate childRes.toCreateResult pending`, which lands at the instruction
-boundary *past* the emitted `CREATE`/`CREATE2` byte (the twin of `atReachableBoundaryVJ_call`'s
+boundary *past* the emitted `CREATE2` byte (the twin of `atReachableBoundaryVJ_call`'s
 post-CALL resume geometry). Previously this edge was *vacuous* — the lowering emitted no CREATE
 byte, so `stepFrame_needsCreate_isCreate` contradicted `decode_reachable_boundary_loweringOp`. Now
-that `emitStmt .create` DOES emit `0xf0`/`0xf5` (in `IsLoweringOp`), the edge is genuinely
+that `emitStmt .create` emits `0xf5` (in `IsLoweringOp`), the edge is genuinely
 inhabited and needs the real create-resume boundary-geometry brick — the R6 analogue of the CALL
 resume edge (plan §2 Step 8: "R6 geometry must admit CREATE boundary heads"). Deferred to the
 flagship create-obligation work; it is a WIP-only R6 leaf and does not affect the default cone. -/
