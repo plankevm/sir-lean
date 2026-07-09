@@ -162,8 +162,9 @@ leading `JUMPDEST`), which `codeFrame.pc = 0` does not meet — every `DriveCorr
 is a POST-`JUMPDEST` landing (cf. the edge disjunct of `driveLogStep_of_block`, which lands at
 `jumpdestFrame fj`). The corrected conclusion returns that landing `fr₀'` together with `Runs fr₀
 fr₀'` (exactly the "transport across the internal `Runs`" the plan note anticipates), which R11
-bridges to the beginCall frame via `Runs.trans`. Also threads the create-resolves seam `hcreate`
-(present already on R11) that `cleanHalts_of_runWithLog` needs. TRACTABILITY: now. -/
+bridges to the beginCall frame via `Runs.trans`. The reachable create-resolves seam in
+`PrecompileAssumptions` supplies the modellability side-condition that
+`cleanHalts_of_runWithLog` needs. TRACTABILITY: now. -/
 theorem driveCorrLog_entry {prog : Program} {sloadChg : Tmp → ℕ} {params : CallParams}
     {log : RunLog} {acc : Account} {fr₀ : Frame}
     (hcode : params.codeSource = .Code (lower prog))
@@ -175,7 +176,6 @@ theorem driveCorrLog_entry {prog : Program} {sloadChg : Tmp → ℕ} {params : C
     (hclean : log.clean)
     (hseams : PrecompileAssumptions prog params)
     (hbegin : beginCall params = .inl fr₀)
-    (hcreate : ∀ fr', ReachableFrom params fr' → CreateResolves fr')
     (hne : ∀ last halt, Runs fr₀ last → stepFrame last = .halted halt → HaltNonException halt) :
     ∃ fr₀' : Frame, Runs fr₀ fr₀'
       ∧ DriveCorrLog prog sloadChg log params.recipient (entryState params) fr₀' prog.entry
@@ -250,7 +250,7 @@ theorem driveCorrLog_entry {prog : Program} {sloadChg : Tmp → ℕ} {params : C
   have hcc : ∀ fr', Runs (codeFrame params (lower prog)) fr' → CallsCode fr' :=
     fun fr' hr => hseams.callsCode fr' ⟨_, hbegin, hr⟩
   have hcr : ∀ fr', Runs (codeFrame params (lower prog)) fr' → CreateResolves fr' :=
-    fun fr' hr => hcreate fr' ⟨_, hbegin, hr⟩
+    fun fr' hr => hseams.createResolves fr' ⟨_, hbegin, hr⟩
   have hclean₀ : CleanHaltsNonException (codeFrame params (lower prog)) :=
     cleanHalts_of_runWithLog (prog := prog) hrun hbegin hcr hcc hne
   -- entry coupling, carried across the `JUMPDEST` step.
@@ -1413,25 +1413,23 @@ theorem boundaryWalk_of_wl {prog : Program} {params : CallParams} {fr₀ : Frame
   sorry
 
 /-- **P6 — create-resolves for all reachable frames (`hcr`).** The blocker existential's first
-conjunct. Threaded from a `ReachableFrom`-scoped create-resolves seam (the honest R4 residual —
-`CreateResolves` is NOT structural, `V2/Modellable.lean:413`); trivial once the seam is a
-hypothesis. WIRING the seam into the flagship's `PrecompileAssumptions` (or a companion) is a
-tracked DECISION. TRACTABILITY: blocked-on-decision (needs the seam wired). -/
-theorem createResolves_reachable {params : CallParams} {fr₀ : Frame}
+conjunct. Threaded from the reachable-frame create-resolves field in `PrecompileAssumptions`
+(the honest R4 residual — `CreateResolves` is NOT structural, `V2/Modellable.lean:413`).
+TRACTABILITY: direct seam adapter. -/
+theorem createResolves_reachable {prog : Program} {params : CallParams} {fr₀ : Frame}
     (hbegin : beginCall params = .inl fr₀)
-    (hseam : ∀ fr', ReachableFrom params fr' → CreateResolves fr') :
+    (hseams : PrecompileAssumptions prog params) :
     ∀ fr', Runs fr₀ fr' → CreateResolves fr' :=
   -- Every `Runs fr₀`-reachable frame is `ReachableFrom params` (`⟨fr₀, hbegin, hr⟩`), so the
-  -- seam applies directly — the same `ReachableFrom` witness `driveCorrLog_entry` uses.
-  fun fr' hr => hseam fr' ⟨fr₀, hbegin, hr⟩
+  -- seam applies directly.
+  fun fr' hr => hseams.createResolves fr' ⟨fr₀, hbegin, hr⟩
 
 /-- **R11 — `runFrom_of_driveCorrLog`, THE COUPLED RUN-PRODUCER.** The packaged existential the
 flagship `lower_conforms` (`RealisabilitySpec.lean:240-247`) and its siblings `obtain`. Assembles:
 the entry coupled boundary (P1a/P1b), the coupled drive recursion (P4) discharged per-boundary by
 `driveLogStep_of_block` (P3b) fed the reshaped ties from R10a/R10b, and the create-resolves
-conjunct (P6). Two honest seams beyond the flagship's current surface — the size bound `hsize`
-(reason (b), P5) and the create-resolves residual `hcreate` (P6) — are threaded explicitly;
-wiring them into the flagship is the tracked decision recorded in `docs/create/producer-plan.md`.
+conjunct (P6). The whole-code size bound remains an internal producer input and is derived from
+the public `codeFits` premise at flagship call sites; create-resolves comes from the seam bundle.
 
 The output matches the blocker `obtain` verbatim: the create-resolves conjunct, the terminal
 world+result equation, and the IR `RunFrom` at the pinned oracles (`realisedGas log` /
@@ -1448,8 +1446,7 @@ theorem runFrom_of_driveCorrLog {prog : Program} {params : CallParams} {log : Ru
     (hclean : log.clean)
     (hseams : PrecompileAssumptions prog params)
     (hbegin : beginCall params = .inl fr₀)
-    (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32)
-    (hcreate : ∀ fr', ReachableFrom params fr' → CreateResolves fr') :
+    (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32) :
     ∃ O : Observable,
       (∀ fr', Runs fr₀ fr' → CreateResolves fr')
       ∧ (∃ last haltSig, Runs fr₀ last ∧ stepFrame last = .halted haltSig

@@ -1,6 +1,7 @@
 import LirLean.V2.Drive.Headline
 import LirLean.Decode.BoundaryReach
 import LirLean.Spec.BudgetDerivations
+import LirLean.V2.Realisability.Producer
 import LirLean.V2.Realisability.Witness
 
 /-!
@@ -239,7 +240,7 @@ state) and produces the same observable world.
 Hypothesis ledger (the honest surface, nothing else): two definitional pins
 (`hcode`/`hmod`), two decidable entry facts (`hself`/`hgas`), the source-level
 `IRWellFormed` bundle plus the two scalar budgets (`codeFits`/`stackFits`), ONE decidable
-scope premise (`hclean`), ONE runtime premise (`hrun`), and one two-field honest seam
+scope premise (`hclean`), ONE runtime premise (`hrun`), and one honest seam
 structure (`hseams`). The internal `WellLowered` adapter is rebuilt in the proof, not exposed
 as a public premise. (The former `hsingle`/`hone` single-call
 premises are GONE — calls are a positional `CallStream`, multi-call by construction; the
@@ -266,12 +267,13 @@ theorem lower_conforms {prog : Program} {params : CallParams} {log : RunLog}
   -- The static well-formedness bundle the downstream ties/producer consume, RE-DERIVED from
   -- the IR-level well-formedness + the two scalar budgets (stage 1B bridge).
   have hwl := wellLowered_of_IRWellFormed hwf hcodeFits hstk
+  have hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32 := Nat.le_of_lt hcodeFits
   -- Entry frame (from run adequacy) and the CALL-targets-code face of the seam.
   obtain ⟨fr₀, hbegin, _⟩ := runWithLog_drive hrun
   have hcc : ∀ fr', Runs fr₀ fr' → CallsCode fr' :=
     fun fr' hr => hseams.callsCode fr' ⟨fr₀, hbegin, hr⟩
   -- THE BLOCKER (Route-A, NOT a citable leaf): the coupled run-producer
-  -- `runFrom_of_driveCorrLog` (does not exist anywhere in the tree; target-architecture
+  -- `runFrom_of_driveCorrLog` (the tracked WIP producer; target-architecture
   -- §5.3). It walks the `RecorderCoupled` invariant across the F2 recursion (that is what
   -- the R7 edges were gated for), instantiating the Layer-C sim lemmas ONLY at the coupled
   -- walk-frames, and yields — at the pinned oracles `realisedCall log recipient` /
@@ -286,16 +288,12 @@ theorem lower_conforms {prog : Program} {params : CallParams} {log : RunLog}
   --     old R6 blocker is closed by the 1B reshape). What still resists is producing `hrb`
   --     itself — the boundary walk comes bundled with the run through the coupled producer,
   --     not from `codeFits` alone; the coupled run-producer (below) remains open.
-  -- Everything DOWNSTREAM of this `obtain` is real, axiom-clean assembly: `conforms_of_worldeq`
+  -- Everything DOWNSTREAM of this producer call is real, axiom-clean assembly: `conforms_of_worldeq`
   -- (CLOSED, above) discharges the `Conforms` conjunct from the terminal world equation.
-  obtain ⟨O, hcr, hworld, hrunfrom⟩ :
-      ∃ O : Observable,
-        (∀ fr', Runs fr₀ fr' → CreateResolves fr')
-        ∧ (∃ last haltSig, Runs fr₀ last ∧ stepFrame last = .halted haltSig
-            ∧ (observe params.recipient (endFrame last haltSig)).world = O.world
-            ∧ (observe params.recipient (endFrame last haltSig)).result = O.result)
-        ∧ RunFrom prog (entryState params) (realisedGas log)
-            (realisedCall log params.recipient) (realisedCreate log params.recipient) prog.entry O := sorry
+  obtain ⟨O, hcr, hworld, hrunfrom⟩ :=
+    runFrom_of_driveCorrLog (prog := prog) (params := params) (log := log)
+      (acc := acc) (fr₀ := fr₀)
+      hcode hmod hself hgas hwl hrun hclean hseams hbegin hsize
   exact ⟨O, hrunfrom, conforms_of_worldeq hrun hbegin hcr hcc hworld⟩
 
 /-- **R11-all — the exact-consumption strengthening**: the same flagship with the IR run
@@ -318,10 +316,10 @@ theorem lower_conforms_exact {prog : Program} {params : CallParams} {log : RunLo
         (realisedCall log params.recipient) (realisedCreate log params.recipient) prog.entry O
       ∧ Conforms params.recipient log O := by
   have hwl := wellLowered_of_IRWellFormed hwf hcodeFits hstk
-  -- As R11, but the packaged blocker yields the exact-consumption `RunFromAll` (BOTH leftovers
-  -- `[]`). The coupled driver produces it directly: its walk consumes the WHOLE recorded gas
-  -- AND call suffix by construction of `RecorderCoupled.restart`, so both leftovers are `[]` —
-  -- it cannot be bolted on afterward via `runFromLeft_exists`, which only produces SOME leftover.
+  have hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32 := Nat.le_of_lt hcodeFits
+  -- This shell is aligned to the future exact producer: it must yield `RunFromAll` directly.
+  -- Do not derive exactness from the plain producer; `runFromLeft_exists` only gives some
+  -- leftover streams.
   obtain ⟨fr₀, hbegin, _⟩ := runWithLog_drive hrun
   have hcc : ∀ fr', Runs fr₀ fr' → CallsCode fr' :=
     fun fr' hr => hseams.callsCode fr' ⟨fr₀, hbegin, hr⟩
@@ -358,6 +356,7 @@ theorem lower_conforms_gasfree {prog : Program} {params : CallParams} {log : Run
         (realisedCall log params.recipient) (realisedCreate log params.recipient) prog.entry O
       ∧ Conforms params.recipient log O := by
   have hwl := wellLowered_of_IRWellFormed hwf hcodeFits hstk
+  have hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32 := Nat.le_of_lt hcodeFits
   -- The gas-free restriction (`hng : NoGasReads prog`) avoids R1 (no gas arm fires) and,
   -- via `realisedGas_nil_of_noGasReads`, makes the RunFrom trace empty — but it does NOT
   -- avoid the coupled-driver blocker: the sload/sstore/call arms still need the coupling.
@@ -365,14 +364,10 @@ theorem lower_conforms_gasfree {prog : Program} {params : CallParams} {log : Run
   obtain ⟨fr₀, hbegin, _⟩ := runWithLog_drive hrun
   have hcc : ∀ fr', Runs fr₀ fr' → CallsCode fr' :=
     fun fr' hr => hseams.callsCode fr' ⟨fr₀, hbegin, hr⟩
-  obtain ⟨O, hcr, hworld, hrunfrom⟩ :
-      ∃ O : Observable,
-        (∀ fr', Runs fr₀ fr' → CreateResolves fr')
-        ∧ (∃ last haltSig, Runs fr₀ last ∧ stepFrame last = .halted haltSig
-            ∧ (observe params.recipient (endFrame last haltSig)).world = O.world
-            ∧ (observe params.recipient (endFrame last haltSig)).result = O.result)
-        ∧ RunFrom prog (entryState params) (realisedGas log)
-            (realisedCall log params.recipient) (realisedCreate log params.recipient) prog.entry O := sorry
+  obtain ⟨O, hcr, hworld, hrunfrom⟩ :=
+    runFrom_of_driveCorrLog (prog := prog) (params := params) (log := log)
+      (acc := acc) (fr₀ := fr₀)
+      hcode hmod hself hgas hwl hrun hclean hseams hbegin hsize
   exact ⟨O, hrunfrom, conforms_of_worldeq hrun hbegin hcr hcc hworld⟩
 
 /-- Co-flagship companion: a gas-read-free program's recorded gas stream is empty (the
