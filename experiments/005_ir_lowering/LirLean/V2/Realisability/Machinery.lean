@@ -2095,6 +2095,7 @@ private theorem callRealises_of_recorded_finish
     {self : AccountAddress} {L : Label} {b : Block} {pc : Nat} {cs : CallSpec}
     {st0 : IRState} {fr0 callFr child : Frame}
     {gS : List Word} {sS : List Nat} {rec : CallRecord} {cS' : List CallRecord}
+    {dS : List CreateRecord}
     {argsLen : Nat} {cp : CallParams}
     (hwl : WellLowered prog)
     (hb : blockAt prog L = some b)
@@ -2108,7 +2109,7 @@ private theorem callRealises_of_recorded_finish
     (hcallmem : callFr.exec.toMachineState.memory = fr0.exec.toMachineState.memory)
     (hcallactive : fr0.exec.toMachineState.activeWords.toNat
       ≤ callFr.exec.toMachineState.activeWords.toNat)
-    (hcpcall : RecorderCoupled log callFr gS sS (rec :: cS'))
+    (hcpcall : RecorderCoupled log callFr gS sS (rec :: cS') dS)
     (hstep : stepFrame callFr = .needsCall cp rec.pending)
     (hbegin : beginCall cp = .inl child)
     (hresaddr : (Evm.resumeAfterCall rec.result rec.pending).exec.executionEnv.address
