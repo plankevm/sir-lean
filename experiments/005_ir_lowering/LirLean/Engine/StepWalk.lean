@@ -1689,6 +1689,92 @@ theorem stepFrame_next_lt_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
             simp [pushArgWidth]
         | halted hl | needsCall p pc | needsCreate p pc => simp at hstep
 
+theorem decode_push_width {code : ByteArray} {pc : UInt32} {p : Operation.PushOp}
+    {imm : UInt256} {w : UInt8}
+    (hdec : decode code pc = some (.Push p, some (imm, w))) :
+    w = pushArgWidth (.Push p) := by
+  unfold decode at hdec
+  simp only [bind, Option.bind] at hdec
+  cases hget : code.get? pc.toNat with
+  | none =>
+      rw [hget] at hdec
+      simp at hdec
+  | some byte =>
+      rw [hget] at hdec
+      simp only at hdec
+      split at hdec
+      · simp only [Option.some.injEq, Prod.mk.injEq] at hdec
+        have hw := hdec.2.2.symm
+        rw [hdec.1] at hw
+        exact hw
+      · simp at hdec
+
+/-- A decoded `PUSH4` `.next` step advances by its opcode byte plus four immediate bytes. -/
+theorem stepFrame_next_push4_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
+    {imm : UInt256}
+    (hpc : fr.exec.pc = UInt32.ofNat b)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Push .PUSH4, some (imm, 4)))
+    (hstep : stepFrame fr = .next exec') :
+    exec'.pc = UInt32.ofNat (nextInstrPosNat b (.Push .PUSH4)) := by
+  rw [stepFrame] at hstep
+  rw [hdec] at hstep
+  simp only [Option.getD_some] at hstep
+  simp only [reduceCtorEq, ↓reduceIte] at hstep
+  simp only [stackPopCount, stackPushCount] at hstep
+  split at hstep
+  · exact absurd hstep (by simp)
+  · dsimp only [dispatch] at hstep
+    simp only [bind, Except.bind] at hstep
+    cases hc : charge Gverylow fr.exec with
+    | error e =>
+        rw [hc] at hstep
+        simp at hstep
+    | ok ec =>
+        rw [hc] at hstep
+        simp only at hstep
+        unfold continueWith at hstep
+        simp only [Signal.next.injEq] at hstep
+        rw [← hstep, ExecutionState.replaceStackAndIncrPC]
+        have hcp := Lir.V2.charge_pc hc
+        rw [hpc] at hcp
+        rw [hcp, nextInstrPosNat]
+        simpa [pushArgWidth, show ((4 : UInt8) + 1).toUInt32 = UInt32.ofNat 5 from by decide,
+          show UInt8.toNat (4 : UInt8) = 4 from rfl, show b + 1 + 4 = b + 5 by omega]
+          using (UInt32.ofNat_add b 5)
+
+/-- A decoded `PUSH32` `.next` step advances by its opcode byte plus 32 immediate bytes. -/
+theorem stepFrame_next_push32_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
+    {imm : UInt256}
+    (hpc : fr.exec.pc = UInt32.ofNat b)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Push .PUSH32, some (imm, 32)))
+    (hstep : stepFrame fr = .next exec') :
+    exec'.pc = UInt32.ofNat (nextInstrPosNat b (.Push .PUSH32)) := by
+  rw [stepFrame] at hstep
+  rw [hdec] at hstep
+  simp only [Option.getD_some] at hstep
+  simp only [reduceCtorEq, ↓reduceIte] at hstep
+  simp only [stackPopCount, stackPushCount] at hstep
+  split at hstep
+  · exact absurd hstep (by simp)
+  · dsimp only [dispatch] at hstep
+    simp only [bind, Except.bind] at hstep
+    cases hc : charge Gverylow fr.exec with
+    | error e =>
+        rw [hc] at hstep
+        simp at hstep
+    | ok ec =>
+        rw [hc] at hstep
+        simp only at hstep
+        unfold continueWith at hstep
+        simp only [Signal.next.injEq] at hstep
+        rw [← hstep, ExecutionState.replaceStackAndIncrPC]
+        have hcp := Lir.V2.charge_pc hc
+        rw [hpc] at hcp
+        rw [hcp, nextInstrPosNat]
+        simpa [pushArgWidth, show ((32 : UInt8) + 1).toUInt32 = UInt32.ofNat 33 from by decide,
+          show UInt8.toNat (32 : UInt8) = 32 from rfl, show b + 1 + 32 = b + 33 by omega]
+          using (UInt32.ofNat_add b 33)
+
 /-! ### Halt-success account-presence (`hhalt`)
 
 A `.halted (.success e o)` from `stepFrame` comes only from `haltOp` (INVALID/overflow screens halt
