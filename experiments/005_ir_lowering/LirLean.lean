@@ -16,6 +16,7 @@ import LirLean.Decode.SegAligned
 import LirLean.Decode.Layout
 import LirLean.Decode.DecodeAnchors
 import LirLean.Decode.BoundaryReach
+import LirLean.Decode.BoundaryCursor
 
 -- v1 reference semantics + CALL/CREATE bricks + match.
 import LirLean.Frame.SmallStep
