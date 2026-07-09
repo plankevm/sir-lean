@@ -59,22 +59,21 @@ open BytecodeLayer.Dispatch
 
 /-! ## §0 — the coupled-walk vocabulary (all REAL; no sorry)
 
-The three helper predicates the producer's induction threads. `StreamsAligned` is the
+The four helper predicates the producer's induction threads. `StreamsAligned` is the
 positional bridge that turns the whole realised streams (`realisedGas`/`realisedCall`/
 `realisedCreate`) at entry into the per-block head-consumption the IR `RunFrom` performs:
 at every coupled boundary the IR streams `(T, C, D)` are exactly the realised image of the
-un-consumed recorder suffixes `(gS, cS, log.creates)`. The sload suffix `sS` has no IR
-stream (SLOAD consumes nothing on the IR side), so it is not aligned. The create channel is
-pinned to the WHOLE `log.creates` (the coupling's `restart` field pins it whole; the walk
-consumes no create until Step 8's `createSuffix` twin lands — `Surface.lean:526-531`). -/
+un-consumed recorder suffixes `(gS, cS, dS)`. The sload suffix `sS` has no IR stream
+(SLOAD consumes nothing on the IR side), so it is not aligned. -/
 
 /-- The IR streams `(T, C, D)` at a coupled boundary are the realised image of the recorder
 suffixes: the gas trace IS the gas suffix, the call stream IS the `evmV2CallEntry` image of
-the call suffix, and the create stream IS the (whole) realised create stream. REAL def. -/
+the call suffix, and the create stream IS the `evmV2CreateEntry` image of the create
+suffix. REAL def. -/
 def StreamsAligned (self : AccountAddress) (log : RunLog)
-    (gS : List Word) (cS : List CallRecord)
+    (gS : List Word) (cS : List CallRecord) (dS : List CreateRecord)
     (T : Trace) (C : CallStream) (D : CreateStream) : Prop :=
-  T = gS ∧ C = callStreamOf cS self ∧ D = createStreamOf log.creates self
+  T = gS ∧ C = callStreamOf cS self ∧ D = createStreamOf dS self
 
 /-- The producer's per-boundary OUTPUT: some IR observable `O` whose world AND result equal
 the `observe` of the bytecode frame's halting terminal (reachable from `fr`), together with
@@ -96,14 +95,15 @@ but carrying the coupling + alignment). From a coupled boundary either the block
 and the IR one-block continuation. REAL def. -/
 def DriveLogStep (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog) (self : AccountAddress)
     (st : IRState) (fr : Frame) (L : Label) (T : Trace) (C : CallStream) (D : CreateStream)
-    (gS : List Word) (sS : List Nat) (cS : List CallRecord) : Prop :=
+    (gS : List Word) (sS : List Nat) (cS : List CallRecord) (dS : List CreateRecord) : Prop :=
   RunFromCoupled prog self st fr L T C D
   ∨
   (∃ (st' : IRState) (T' : Trace) (C' : CallStream) (D' : CreateStream)
-      (succ : Label) (fr' : Frame) (gS' : List Word) (sS' : List Nat) (cS' : List CallRecord),
+      (succ : Label) (fr' : Frame) (gS' : List Word) (sS' : List Nat) (cS' : List CallRecord)
+      (dS' : List CreateRecord),
       Runs fr fr'
-    ∧ DriveCorrLog prog sloadChg log self st' fr' succ gS' sS' cS'
-    ∧ StreamsAligned self log gS' cS' T' C' D'
+    ∧ DriveCorrLog prog sloadChg log self st' fr' succ gS' sS' cS' dS'
+    ∧ StreamsAligned self log gS' cS' dS' T' C' D'
     ∧ totalGas [] (.inl fr') < totalGas [] (.inl fr)
     ∧ (∀ O, RunFrom prog st' T' C' D' succ O → RunFrom prog st T C D L O))
 
@@ -115,13 +115,13 @@ def CoupledAdvance (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog) (sel
     (L : Label) (pc : Nat) (st : IRState) (fr : Frame)
     (T : Trace) (C : CallStream) (D : CreateStream) (s : Stmt) : Prop :=
   ∃ (st' : IRState) (fr' : Frame) (T' : Trace) (C' : CallStream) (D' : CreateStream)
-    (gS' : List Word) (sS' : List Nat) (cS' : List CallRecord),
+    (gS' : List Word) (sS' : List Nat) (cS' : List CallRecord) (dS' : List CreateRecord),
     EvalStmt prog st T C D s st' T' C' D'
     ∧ Runs fr fr'
     ∧ Lir.Corr prog sloadChg 0 st' fr' L (pc + 1)
     ∧ fr'.exec.stack = []
-    ∧ RecorderCoupled log fr' gS' sS' cS'
-    ∧ StreamsAligned self log gS' cS' T' C' D'
+    ∧ RecorderCoupled log fr' gS' sS' cS' dS'
+    ∧ StreamsAligned self log gS' cS' dS' T' C' D'
 
 /-! ## §1 — entry seeds (leaf-most; assembly over green lemmas)
 
@@ -135,7 +135,7 @@ the WHOLE recorder streams (`log.gas` / `log.calls` / `log.creates`), which are 
 entry coupling suffixes (`recorderCoupled_entry`). Near-`rfl` (`realisedGas`/`realisedCall`/
 `realisedCreate`/`callStreamOf`/`createStreamOf` unfold). TRACTABILITY: now. -/
 theorem streamsAligned_entry (self : AccountAddress) (log : RunLog) :
-    StreamsAligned self log log.gas log.calls
+    StreamsAligned self log log.gas log.calls log.creates
       (realisedGas log) (realisedCall log self) (realisedCreate log self) :=
   -- `realisedGas log ≡ log.gas`, `realisedCall log self ≡ callStreamOf log.calls self`,
   -- `realisedCreate log self ≡ createStreamOf log.creates self` all by definition.
@@ -179,7 +179,7 @@ theorem driveCorrLog_entry {prog : Program} {sloadChg : Tmp → ℕ} {params : C
     (hne : ∀ last halt, Runs fr₀ last → stepFrame last = .halted halt → HaltNonException halt) :
     ∃ fr₀' : Frame, Runs fr₀ fr₀'
       ∧ DriveCorrLog prog sloadChg log params.recipient (entryState params) fr₀' prog.entry
-          log.gas log.sloads log.calls := by
+          log.gas log.sloads log.calls log.creates := by
   -- the beginCall frame is the entry `codeFrame`.
   have hfr : fr₀ = codeFrame params (lower prog) :=
     (Sum.inl.injEq _ _).mp (hbegin.symm.trans (beginCall_code params (lower prog) hcode))
@@ -254,7 +254,8 @@ theorem driveCorrLog_entry {prog : Program} {sloadChg : Tmp → ℕ} {params : C
   have hclean₀ : CleanHaltsNonException (codeFrame params (lower prog)) :=
     cleanHalts_of_runWithLog (prog := prog) hrun hbegin hcr hcc hne
   -- entry coupling, carried across the `JUMPDEST` step.
-  have hcp₀ : RecorderCoupled log (codeFrame params (lower prog)) log.gas log.sloads log.calls :=
+  have hcp₀ :
+      RecorderCoupled log (codeFrame params (lower prog)) log.gas log.sloads log.calls log.creates :=
     recorderCoupled_entry hrun hbegin
   have hstepsTo : StepsTo (codeFrame params (lower prog))
       (jumpdestFrame (codeFrame params (lower prog))) :=
@@ -399,21 +400,21 @@ theorem simStmt_coupled_assignPure {prog : Program} {sloadChg : Tmp → ℕ} {lo
     {self : AccountAddress} {L : Label} {b : Block} {pc : Nat}
     {t : Tmp} {e : Expr} {w : Word} {st : IRState} {fr : Frame}
     {T : Trace} {C : CallStream} {D : CreateStream} {gS : List Word} {sS : List Nat}
-    {cS : List CallRecord}
+    {cS : List CallRecord} {dS : List CreateRecord}
     (hwl : WellLowered prog)
     (hb : blockAt prog L = some b)
     (hcur : b.stmts[pc]? = some (.assign t e))
     (hne : e ≠ .gas) (hns : ∀ k, e ≠ .sload k)
     (hcorr : Lir.Corr prog sloadChg 0 st fr L pc)
-    (hcp : RecorderCoupled log fr gS sS cS)
+    (hcp : RecorderCoupled log fr gS sS cS dS)
     (hch : CleanHaltsNonException fr)
-    (hal : StreamsAligned self log gS cS T C D)
+    (hal : StreamsAligned self log gS cS dS T C D)
     (hv : evalExpr st 0 e = some w)
     (hties : StmtTies' prog sloadChg log self L b) :
     CoupledAdvance prog sloadChg log self L pc st fr T C D (.assign t e) := by
   -- Fire `StmtTies'` arm (1) at this cursor with the coupling + clean-halt in hand.
   obtain ⟨hslot, hstepS, hscoped', hmem'⟩ :=
-    hties.1 pc t e w st fr gS sS cS hcur hne hns hcorr hcp hch hv
+    hties.1 pc t e w st fr gS sS cS dS hcur hne hns hcorr hcp hch hv
   -- The registered def and the recomputability of the (non-spilled) target.
   have hdef : rematOf prog t = some e := hstepS.1 hne hns
   have hnr : ¬ NonRecomputable prog t := by
@@ -431,7 +432,7 @@ theorem simStmt_coupled_assignPure {prog : Program} {sloadChg : Tmp → ℕ} {lo
   have hsound' : DefsSound prog (st.setLocal t w) :=
     defsSound_setLocal_recomputable hnr hdef hv hcorr.defsSound
   -- Package: `st' = st.setLocal t w`, `fr' = fr`, streams/suffixes UNCHANGED.
-  refine ⟨st.setLocal t w, fr, T, C, D, gS, sS, cS,
+  refine ⟨st.setLocal t w, fr, T, C, D, gS, sS, cS, dS,
     EvalStmt.assignPure (prog := prog) (T := T) (C := C) (D := D) hne hv,
     Runs.refl fr, ?_, hcorr.stack_nil, hcp, hal⟩
   exact
@@ -454,14 +455,14 @@ theorem simStmt_coupled_gas {prog : Program} {sloadChg : Tmp → ℕ} {log : Run
     {self : AccountAddress} {L : Label} {b : Block} {pc : Nat}
     {t : Tmp} {st : IRState} {fr : Frame}
     {T : Trace} {C : CallStream} {D : CreateStream} {gS : List Word} {sS : List Nat}
-    {cS : List CallRecord}
+    {cS : List CallRecord} {dS : List CreateRecord}
     (hwl : WellLowered prog)
     (hb : blockAt prog L = some b)
     (hcur : b.stmts[pc]? = some (.assign t .gas))
     (hcorr : Lir.Corr prog sloadChg 0 st fr L pc)
-    (hcp : RecorderCoupled log fr gS sS cS)
+    (hcp : RecorderCoupled log fr gS sS cS dS)
     (hch : CleanHaltsNonException fr)
-    (hal : StreamsAligned self log gS cS T C D)
+    (hal : StreamsAligned self log gS cS dS T C D)
     (hties : StmtTies' prog sloadChg log self L b) :
     CoupledAdvance prog sloadChg log self L pc st fr T C D (.assign t .gas) := by
   sorry
@@ -475,14 +476,14 @@ theorem simStmt_coupled_sload {prog : Program} {sloadChg : Tmp → ℕ} {log : R
     {self : AccountAddress} {L : Label} {b : Block} {pc : Nat}
     {t k : Tmp} {kv : Word} {st : IRState} {fr : Frame}
     {T : Trace} {C : CallStream} {D : CreateStream} {gS : List Word} {sS : List Nat}
-    {cS : List CallRecord}
+    {cS : List CallRecord} {dS : List CreateRecord}
     (hwl : WellLowered prog)
     (hb : blockAt prog L = some b)
     (hcur : b.stmts[pc]? = some (.assign t (.sload k)))
     (hcorr : Lir.Corr prog sloadChg 0 st fr L pc)
-    (hcp : RecorderCoupled log fr gS sS cS)
+    (hcp : RecorderCoupled log fr gS sS cS dS)
     (hch : CleanHaltsNonException fr)
-    (hal : StreamsAligned self log gS cS T C D)
+    (hal : StreamsAligned self log gS cS dS T C D)
     (hkey : st.locals k = some kv)
     (hties : StmtTies' prog sloadChg log self L b) :
     CoupledAdvance prog sloadChg log self L pc st fr T C D (.assign t (.sload k)) := by
@@ -510,6 +511,7 @@ via `matCache_unfold`). -/
 theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
     (hord : DefEnvOrdered prog) (sloadChg : Tmp → ℕ) (st : IRState) (obs : Word)
     (log : RunLog) (gS : List Word) (sS : List Nat) (cS : List CallRecord)
+    (dS : List CreateRecord)
     (e : Expr) (w : Word) (fr : Frame)
     (hdec : MatDecC prog hdc hord fr.exec.executionEnv.code fr.exec.pc e)
     (hsound : DefsSound prog st)
@@ -523,8 +525,8 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
     (heval : evalExpr st obs e = some w)
     (hgas : (chargeExpr sloadChg (chargeCache prog sloadChg) e).sum ≤ fr.exec.gasAvailable.toNat)
     (hstk : fr.exec.stack.size + (chargeExpr sloadChg (chargeCache prog sloadChg) e).length ≤ 1024)
-    (hcp : RecorderCoupled log fr gS sS cS) :
-    ∃ fr', MatRunsC prog sloadChg e w fr fr' ∧ RecorderCoupled log fr' gS sS cS := by
+    (hcp : RecorderCoupled log fr gS sS cS dS) :
+    ∃ fr', MatRunsC prog sloadChg e w fr fr' ∧ RecorderCoupled log fr' gS sS cS dS := by
   match e, hdec, hne, hnsl, heval, hgas, hstk with
   | .imm v, hdec, _, _, heval, hgas, hstk =>
       have hdec' : decode fr.exec.executionEnv.code fr.exec.pc
@@ -598,7 +600,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
                   + (chargeExpr sloadChg (chargeCache prog sloadChg) e').length ≤ 1024 := by
                 have hx := hstk; simp only [chargeExpr_tmp] at hx; rw [hcc] at hx; exact hx
               obtain ⟨fr', hmr, hcp'⟩ := recorderCoupled_matRunsC hdc hord sloadChg st obs
-                log gS sS cS e' w fr htmd hsound hscoped hstore he'ng he'nsl hmemreal heval'
+                log gS sS cS dS e' w fr htmd hsound hscoped hstore he'ng he'nsl hmemreal heval'
                 hgas' hstk' hcp
               have hpcE : matExpr (matCache prog) (Expr.tmp t) = matExpr (matCache prog) e' := by
                 simp only [matExpr_tmp]; exact hmc
@@ -648,7 +650,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
                 rw [hpushstk]; rfl
               have hfrpsz : frp.exec.stack.size ≤ 1024 := by rw [hfrpstk]; simp; omega
               -- coupling across the PUSH32 step (non-recording).
-              have hcpp : RecorderCoupled log frp gS sS cS := by
+              have hcpp : RecorderCoupled log frp gS sS cS dS := by
                 rw [hfrp]
                 exact recorderCoupled_step_other hcp
                   (by unfold isGasOp; rw [hdpush]; rfl) (by unfold isSloadOp; rw [hdpush]; rfl)
@@ -699,7 +701,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
               set frm := mloadFrame frp (UInt256.ofNat n) frp.exec.activeWords fr.exec.stack
                 with hfrm
               -- coupling across the MLOAD step (non-recording).
-              have hcpm : RecorderCoupled log frm gS sS cS := by
+              have hcpm : RecorderCoupled log frm gS sS cS dS := by
                 rw [hfrm]
                 exact recorderCoupled_step_other hcpp
                   (by unfold isGasOp; rw [hmloaddec]; rfl)
@@ -826,7 +828,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
         simp only [List.length_append] at hx
         show fr.exec.stack.size + (chargeCache prog sloadChg b).length ≤ 1024; omega
       obtain ⟨frb, hmrb, hcpb⟩ := recorderCoupled_matRunsC hdc hord sloadChg st obs
-        log gS sS cS (.tmp b) vb fr hdb hsound hscoped hstore (by nofun) (by nofun)
+        log gS sS cS dS (.tmp b) vb fr hdb hsound hscoped hstore (by nofun) (by nofun)
         hmemreal hevb hgasb hstkb hcp
       have hbcode : frb.exec.executionEnv.code = fr.exec.executionEnv.code := hmrb.code
       have hbpc : frb.exec.pc = fr.exec.pc + UInt32.ofNat (matCache prog b).length := by
@@ -851,7 +853,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
         rw [hlen_split] at hstk; rw [hfrbsz]
         show fr.exec.stack.size + 1 + (chargeCache prog sloadChg a).length ≤ 1024; omega
       obtain ⟨fra, hmra, hcpa⟩ := recorderCoupled_matRunsC hdc hord sloadChg st obs
-        log gS sS cS (.tmp a) va frb hda' hsound hscoped (hstore.transport hmrb.storage)
+        log gS sS cS dS (.tmp a) va frb hda' hsound hscoped (hstore.transport hmrb.storage)
         (by nofun) (by nofun) (hmemreal.transport hmrb.memBytes hmrb.memActive)
         heva hgasa hstka hcpb
       have hacode : fra.exec.executionEnv.code = fr.exec.executionEnv.code := by
@@ -873,7 +875,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
         simp only [chargeExpr_tmp]; rw [hsum_split] at hgas; omega
       obtain ⟨hadrun, hadstk⟩ := sim_add fra va vb fr.exec.stack hadec hastk haszle hagas
       -- coupling across the ADD step (non-recording).
-      have hcp' : RecorderCoupled log (addFrame fra va vb fr.exec.stack) gS sS cS :=
+      have hcp' : RecorderCoupled log (addFrame fra va vb fr.exec.stack) gS sS cS dS :=
         recorderCoupled_step_other hcpa
           (by unfold isGasOp; rw [hadec]; rfl) (by unfold isSloadOp; rw [hadec]; rfl)
           (stepFrame_add fra va vb fr.exec.stack hadec hastk haszle hagas)
@@ -935,7 +937,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
         simp only [List.length_append] at hx
         show fr.exec.stack.size + (chargeCache prog sloadChg b).length ≤ 1024; omega
       obtain ⟨frb, hmrb, hcpb⟩ := recorderCoupled_matRunsC hdc hord sloadChg st obs
-        log gS sS cS (.tmp b) vb fr hdb hsound hscoped hstore (by nofun) (by nofun)
+        log gS sS cS dS (.tmp b) vb fr hdb hsound hscoped hstore (by nofun) (by nofun)
         hmemreal hevb hgasb hstkb hcp
       have hbcode : frb.exec.executionEnv.code = fr.exec.executionEnv.code := hmrb.code
       have hbpc : frb.exec.pc = fr.exec.pc + UInt32.ofNat (matCache prog b).length := by
@@ -960,7 +962,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
         rw [hlen_split] at hstk; rw [hfrbsz]
         show fr.exec.stack.size + 1 + (chargeCache prog sloadChg a).length ≤ 1024; omega
       obtain ⟨fra, hmra, hcpa⟩ := recorderCoupled_matRunsC hdc hord sloadChg st obs
-        log gS sS cS (.tmp a) va frb hda' hsound hscoped (hstore.transport hmrb.storage)
+        log gS sS cS dS (.tmp a) va frb hda' hsound hscoped (hstore.transport hmrb.storage)
         (by nofun) (by nofun) (hmemreal.transport hmrb.memBytes hmrb.memActive)
         heva hgasa hstka hcpb
       have hacode : fra.exec.executionEnv.code = fr.exec.executionEnv.code := by
@@ -982,7 +984,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
         simp only [chargeExpr_tmp]; rw [hsum_split] at hgas; omega
       obtain ⟨hadrun, hadstk⟩ := sim_lt fra va vb fr.exec.stack hadec hastk haszle hagas
       -- coupling across the LT step (non-recording).
-      have hcp' : RecorderCoupled log (ltFrame fra va vb fr.exec.stack) gS sS cS :=
+      have hcp' : RecorderCoupled log (ltFrame fra va vb fr.exec.stack) gS sS cS dS :=
         recorderCoupled_step_other hcpa
           (by unfold isGasOp; rw [hadec]; rfl) (by unfold isSloadOp; rw [hadec]; rfl)
           (stepFrame_lt fra va vb fr.exec.stack hadec hastk haszle hagas)
@@ -1036,7 +1038,7 @@ neither GAS nor SLOAD), returning it at the post-frame. The `Corr` re-establishm
 theorem sim_sstore_stmt' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} {log : RunLog}
     {st : IRState} {key value : Tmp} {kw vw : Word}
     {L : Label} {b : Block} {pc : Nat} {fr : Frame}
-    {gS : List Word} {sS : List Nat} {cS : List CallRecord}
+    {gS : List Word} {sS : List Nat} {cS : List CallRecord} {dS : List CreateRecord}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some (.sstore key value))
     (hcorr : Lir.Corr prog sloadChg obs st fr L pc)
@@ -1053,13 +1055,13 @@ theorem sim_sstore_stmt' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} 
             = some (.Smsf .SSTORE, .none))
     (hcs : CleanHaltsNonException fr)
     (hsp : SelfPresent fr)
-    (hcp : RecorderCoupled log fr gS sS cS)
+    (hcp : RecorderCoupled log fr gS sS cS dS)
     (hstk : (chargeCache prog sloadChg value).length
               + (chargeCache prog sloadChg key).length + 1 ≤ 1024) :
     ∃ fr', Runs fr fr'
       ∧ Lir.Corr prog sloadChg obs (st.setStorage kw vw) fr' L (pc + 1)
       ∧ fr'.exec.stack = []
-      ∧ RecorderCoupled log fr' gS sS cS := by
+      ∧ RecorderCoupled log fr' gS sS cS dS := by
   classical
   set lv := (matCache prog value).length with hlv
   set lk := (matCache prog key).length with hlk
@@ -1076,7 +1078,7 @@ theorem sim_sstore_stmt' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} 
     materialise_chargeC_le_of_cleanHalt hdc hord sloadChg st obs (.tmp value) vw fr
       hdv hcorr.defsSound hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
       hevv hcs hstkv
-  obtain ⟨frv, hmrv, hcpv⟩ := recorderCoupled_matRunsC hdc hord sloadChg st obs log gS sS cS
+  obtain ⟨frv, hmrv, hcpv⟩ := recorderCoupled_matRunsC hdc hord sloadChg st obs log gS sS cS dS
     (.tmp value) vw fr
     hdv hcorr.defsSound hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
     hevv hgasv hstkv hcp
@@ -1099,7 +1101,7 @@ theorem sim_sstore_stmt' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} 
       hdk' hcorr.defsSound hcorr.wellScoped
       (hcorr.storage.transport hmrv.storage) (by nofun) (by nofun)
       (hcorr.memAgree.transport hmrv.memBytes hmrv.memActive) hevk hcsv hstkk
-  obtain ⟨frk, hmrk, hcpk⟩ := recorderCoupled_matRunsC hdc hord sloadChg st obs log gS sS cS
+  obtain ⟨frk, hmrk, hcpk⟩ := recorderCoupled_matRunsC hdc hord sloadChg st obs log gS sS cS dS
     (.tmp key) kw frv
     hdk' hcorr.defsSound hcorr.wellScoped
     (hcorr.storage.transport hmrv.storage) (by nofun) (by nofun)
@@ -1131,7 +1133,7 @@ theorem sim_sstore_stmt' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} 
   obtain ⟨hsrun, hswrite, hsframe⟩ :=
     sim_sstore frk kw vw [] acc hkdec hkstk hksz hkmod hstip hcost hself
   -- == coupling across the SSTORE frame (S2 — SSTORE is neither GAS nor SLOAD, non-recording) ==
-  have hcpf : RecorderCoupled log (sstoreFrame frk kw vw []) gS sS cS :=
+  have hcpf : RecorderCoupled log (sstoreFrame frk kw vw []) gS sS cS dS :=
     recorderCoupled_step_other hcpk
       (by unfold isGasOp; rw [hkdec]; rfl) (by unfold isSloadOp; rw [hkdec]; rfl)
       (stepFrame_sstore frk kw vw [] hkdec hkstk hksz hkmod hstip hcost)
@@ -1200,15 +1202,15 @@ theorem simStmt_coupled_sstore {prog : Program} {sloadChg : Tmp → ℕ} {log : 
     {self : AccountAddress} {L : Label} {b : Block} {pc : Nat}
     {key value : Tmp} {kw vw : Word} {st : IRState} {fr : Frame}
     {T : Trace} {C : CallStream} {D : CreateStream} {gS : List Word} {sS : List Nat}
-    {cS : List CallRecord}
+    {cS : List CallRecord} {dS : List CreateRecord}
     (hwl : WellLowered prog)
     (hb : blockAt prog L = some b)
     (hcur : b.stmts[pc]? = some (.sstore key value))
     (hcorr : Lir.Corr prog sloadChg 0 st fr L pc)
-    (hcp : RecorderCoupled log fr gS sS cS)
+    (hcp : RecorderCoupled log fr gS sS cS dS)
     (hch : CleanHaltsNonException fr)
     (hsp : SelfPresent fr)
-    (hal : StreamsAligned self log gS cS T C D)
+    (hal : StreamsAligned self log gS cS dS T C D)
     (hk : st.locals key = some kw) (hvv : st.locals value = some vw)
     (hties : StmtTies' prog sloadChg log self L b) :
     CoupledAdvance prog sloadChg log self L pc st fr T C D (.sstore key value) := by
@@ -1216,7 +1218,7 @@ theorem simStmt_coupled_sstore {prog : Program} {sloadChg : Tmp → ℕ} {log : 
   have hbt : prog.blocks.toList[L.idx]? = some b := toList_of_blockAt hb
   -- ties arm (4): `StepScopedS` + the stack-room fold (fired with coupling + clean-halt).
   obtain ⟨hstepS, hstkbound⟩ :=
-    hties.2.2.2.1 pc key value kw vw st fr gS sS cS hcur hcorr hcp hch hk hvv
+    hties.2.2.2.1 pc key value kw vw st fr gS sS cS dS hcur hcorr hcp hch hk hvv
   -- `StepScopedS` ⟹ the per-state `StepScoped` the sstore B3 preservation consumes (the static
   -- form quantifies over ALL registered defs, so it dominates the state-gated one).
   have hsc : Lir.StepScoped prog st (.sstore key value) := by
@@ -1263,7 +1265,7 @@ theorem simStmt_coupled_sstore {prog : Program} {sloadChg : Tmp → ℕ} {log : 
       hch hsp hcp hstkbound
   -- S4 — assemble the `CoupledAdvance`: `EvalStmt.sstore` consumes NO stream head (T/C/D and
   -- gS/sS/cS ride unchanged), so the alignment `hal` carries over verbatim.
-  exact ⟨st.setStorage kw vw, fr', T, C, D, gS, sS, cS,
+  exact ⟨st.setStorage kw vw, fr', T, C, D, gS, sS, cS, dS,
     EvalStmt.sstore hk hvv, hruns, hcorr', hstacknil', hcpf, hal⟩
 
 /-- **P2-call — the external-CALL coupled step (the R3/Piece-B-gated arm).** Fires `StmtTies'`
@@ -1280,17 +1282,17 @@ theorem simStmt_coupled_call {prog : Program} {sloadChg : Tmp → ℕ} {log : Ru
     {self : AccountAddress} {L : Label} {b : Block} {pc : Nat}
     {cs : CallSpec} {st : IRState} {fr : Frame}
     {T : Trace} {C : CallStream} {D : CreateStream} {gS : List Word} {sS : List Nat}
-    {rec : CallRecord} {cS' : List CallRecord}
+    {rec : CallRecord} {cS' : List CallRecord} {dS : List CreateRecord}
     (hwl : WellLowered prog)
     (hb : blockAt prog L = some b)
     (hcur : b.stmts[pc]? = some (.call cs))
     (hcorr : Lir.Corr prog sloadChg 0 st fr L pc)
-    (hcp : RecorderCoupled log fr gS sS (rec :: cS'))
+    (hcp : RecorderCoupled log fr gS sS (rec :: cS') dS)
     (hch : CleanHaltsNonException fr)
     (haddr : fr.exec.executionEnv.address = self)
     (hcallee : ∃ cw, st.locals cs.callee = some cw)
     (hgasfwd : ∃ gw, st.locals cs.gasFwd = some gw)
-    (hal : StreamsAligned self log gS (rec :: cS') T C D)
+    (hal : StreamsAligned self log gS (rec :: cS') dS T C D)
     (hties : StmtTies' prog sloadChg log self L b) :
     CoupledAdvance prog sloadChg log self L pc st fr T C D (.call cs) := by
   sorry
@@ -1305,14 +1307,14 @@ def CoupledBlockRun (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog) (se
     (L : Label) (b : Block) (st : IRState) (fr : Frame)
     (T : Trace) (C : CallStream) (D : CreateStream) : Prop :=
   ∃ (st' : IRState) (fr' : Frame) (T' : Trace) (C' : CallStream) (D' : CreateStream)
-    (gS' : List Word) (sS' : List Nat) (cS' : List CallRecord),
+    (gS' : List Word) (sS' : List Nat) (cS' : List CallRecord) (dS' : List CreateRecord),
     RunStmts prog st T C D b.stmts st' T' C' D'
     ∧ Runs fr fr'
     ∧ Lir.Corr prog sloadChg 0 st' fr' L b.stmts.length
     ∧ fr'.exec.stack = []
     ∧ CleanHaltsNonException fr'
-    ∧ RecorderCoupled log fr' gS' sS' cS'
-    ∧ StreamsAligned self log gS' cS' T' C' D'
+    ∧ RecorderCoupled log fr' gS' sS' cS' dS'
+    ∧ StreamsAligned self log gS' cS' dS' T' C' D'
     ∧ SelfPresent fr'
     ∧ fr'.exec.executionEnv.address = self
     ∧ (∃ cp, fr'.kind = .call cp)
@@ -1327,16 +1329,16 @@ operand definability at each cursor. TRACTABILITY: hard (assembles §2). -/
 theorem simStmts_coupled_block {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
     {self : AccountAddress} {L : Label} {b : Block} {st : IRState} {fr : Frame}
     {T : Trace} {C : CallStream} {D : CreateStream} {gS : List Word} {sS : List Nat}
-    {cS : List CallRecord}
+    {cS : List CallRecord} {dS : List CreateRecord}
     (hwl : WellLowered prog)
     (hb : blockAt prog L = some b)
     (hcorr : Lir.Corr prog sloadChg 0 st fr L 0)
-    (hcp : RecorderCoupled log fr gS sS cS)
+    (hcp : RecorderCoupled log fr gS sS cS dS)
     (hch : CleanHaltsNonException fr)
     (hsp : SelfPresent fr)
     (haddr : fr.exec.executionEnv.address = self)
     (hkind : ∃ cp, fr.kind = .call cp)
-    (hal : StreamsAligned self log gS cS T C D)
+    (hal : StreamsAligned self log gS cS dS T C D)
     (hstmts : StmtTies' prog sloadChg log self L b)
     (hprec : ∀ (cp : CallParams) (imm : CallResult), beginCall cp = .inr imm →
       ∀ a, AccPresent a cp.accounts → AccPresent a imm.accounts) :
@@ -1359,18 +1361,18 @@ TRACTABILITY: hard (assembles P3a + the terminator bricks + `DriveCorrLog` re-es
 theorem driveLogStep_of_block {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
     {self : AccountAddress} {st : IRState} {fr : Frame} {L : Label}
     {T : Trace} {C : CallStream} {D : CreateStream} {gS : List Word} {sS : List Nat}
-    {cS : List CallRecord}
+    {cS : List CallRecord} {dS : List CreateRecord}
     (hwl : WellLowered prog)
     (hclosed : ClosedCFG prog)
-    (hdrive : DriveCorrLog prog sloadChg log self st fr L gS sS cS)
-    (hal : StreamsAligned self log gS cS T C D)
+    (hdrive : DriveCorrLog prog sloadChg log self st fr L gS sS cS dS)
+    (hal : StreamsAligned self log gS cS dS T C D)
     (hstmts : StmtTies' prog sloadChg log self L
       (Classical.choose (DriveCorrLog.present hdrive)))
     (hterm : TermTies' prog sloadChg log self L
       (Classical.choose (DriveCorrLog.present hdrive)))
     (hprec : ∀ (cp : CallParams) (imm : CallResult), beginCall cp = .inr imm →
       ∀ a, AccPresent a cp.accounts → AccPresent a imm.accounts) :
-    DriveLogStep prog sloadChg log self st fr L T C D gS sS cS := by
+    DriveLogStep prog sloadChg log self st fr L T C D gS sS cS dS := by
   sorry
 
 /-! ## §4 — the drive recursion and the packaged producer -/
@@ -1385,14 +1387,15 @@ Structural mirror of `runFrom_of_driveCorr`. TRACTABILITY: hard (structural). -/
 theorem runFrom_of_driveCorrLog_rec {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
     {self : AccountAddress}
     (hstep : ∀ (st : IRState) (fr : Frame) (L : Label) (T : Trace) (C : CallStream)
-        (D : CreateStream) (gS : List Word) (sS : List Nat) (cS : List CallRecord),
-      DriveCorrLog prog sloadChg log self st fr L gS sS cS →
-      StreamsAligned self log gS cS T C D →
-      DriveLogStep prog sloadChg log self st fr L T C D gS sS cS) :
+        (D : CreateStream) (gS : List Word) (sS : List Nat) (cS : List CallRecord)
+        (dS : List CreateRecord),
+      DriveCorrLog prog sloadChg log self st fr L gS sS cS dS →
+      StreamsAligned self log gS cS dS T C D →
+      DriveLogStep prog sloadChg log self st fr L T C D gS sS cS dS) :
     ∀ (st : IRState) (fr : Frame) (L : Label) (T : Trace) (C : CallStream) (D : CreateStream)
-      (gS : List Word) (sS : List Nat) (cS : List CallRecord),
-      DriveCorrLog prog sloadChg log self st fr L gS sS cS →
-      StreamsAligned self log gS cS T C D →
+      (gS : List Word) (sS : List Nat) (cS : List CallRecord) (dS : List CreateRecord),
+      DriveCorrLog prog sloadChg log self st fr L gS sS cS dS →
+      StreamsAligned self log gS cS dS T C D →
       RunFromCoupled prog self st fr L T C D := by
   sorry
 
