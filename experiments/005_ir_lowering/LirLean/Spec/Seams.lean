@@ -31,5 +31,6 @@ def ReachableFrom (params : Evm.CallParams) (fr' : Evm.Frame) : Prop :=
 structure PrecompileAssumptions (prog : Program) (params : Evm.CallParams) : Prop where
   noErase : Lir.Spec.PrecompilesPreservePresence
   callsCode : ∀ fr', ReachableFrom params fr' → BytecodeLayer.Interpreter.CallsCode fr'
+  createResolves : ∀ fr', ReachableFrom params fr' → BytecodeLayer.Interpreter.CreateResolves fr'
 
 end Lir.V2
