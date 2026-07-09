@@ -26,6 +26,21 @@ No `sorry`/`axiom`/`native_decide`; axioms `[propext, Classical.choice, Quot.sou
 namespace Evm
 open GasConstants
 
+theorem charge_pc {c : ℕ} {e e' : ExecutionState} (h : charge c e = .ok e') :
+    e'.pc = e.pc := by
+  unfold charge at h
+  split at h
+  · exact absurd h (by simp)
+  · simp only [Except.ok.injEq] at h; subst h; rfl
+
+theorem chargeMemExpansion_pc {e e' : ExecutionState} {off sz : UInt256}
+    (h : chargeMemExpansion e off sz = .ok e') :
+    e'.pc = e.pc := by
+  unfold chargeMemExpansion at h
+  split at h
+  · exact absurd h (by simp)
+  · exact charge_pc h
+
 /-! ### CALL-site inversion facts (`hcall_acc` / `hcall_kind` / `hcall_self`)
 
 The three structural CALL-site facts supplied to `callPreservesSelf`, all inverting
@@ -112,6 +127,108 @@ theorem stepFrame_needsCall_inv {fr : Frame} {p : CallParams} {pd : PendingCall}
       ∧ pd.frame.exec.executionEnv = fr.exec.executionEnv := by
   obtain ⟨s, hs⟩ := BytecodeLayer.Dispatch.stepFrame_needsCall_systemOp h
   exact systemOp_needsCall_inv hs
+
+theorem callArm_needsCall_site_inv
+    {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
+    {gas caller recipient codeAddress value apparentValue inOffset inSize outOffset outSize : UInt256}
+    {permission : Bool} {p : CallParams} {pd : PendingCall}
+    (h : callArm fr exec stack gas caller recipient codeAddress value apparentValue
+          inOffset inSize outOffset outSize permission = .ok (.needsCall p pd)) :
+    pd.frame.exec.pc = exec.pc ∧ pd.frame.validJumps = fr.validJumps
+      ∧ pd.frame.exec.executionEnv = exec.executionEnv := by
+  rw [callArm] at h
+  cases hw : (memoryExpansionWords? exec.activeWords inOffset inSize >>=
+      (memoryExpansionWords? · outOffset outSize)) with
+  | none => rw [hw] at h; simp [throw, throwThe, MonadExceptOf.throw] at h
+  | some words' =>
+    rw [hw] at h
+    simp only [bind, Except.bind] at h
+    cases he1 : charge (Cₘ words' - Cₘ exec.activeWords) exec with
+    | error e => rw [he1] at h; simp at h
+    | ok e1 =>
+      rw [he1] at h
+      simp only [] at h
+      set ca : AccountAddress := AccountAddress.ofUInt256 codeAddress with hca
+      set rc : AccountAddress := AccountAddress.ofUInt256 recipient with hrc
+      set extraCost := callExtraCost ca rc value e1.accounts e1.substate with hextra
+      set gasCap := callGasCap ca rc value gas e1.accounts e1.gasAvailable e1.substate with hgcap
+      set childGas := if value = 0 then gasCap else gasCap + Gcallstipend with hcg
+      cases he2 : charge (gasCap + extraCost) e1 with
+      | error e => rw [he2] at h; simp at h
+      | ok e2 =>
+        rw [he2] at h
+        simp only [] at h
+        split at h
+        · simp only [Except.ok.injEq, Signal.needsCall.injEq] at h
+          obtain ⟨_, hpd⟩ := h
+          subst hpd
+          refine ⟨?_, rfl, ?_⟩
+          · rw [charge_pc he2, charge_pc he1]
+          · rw [(Lir.V2.charge_accounts_env he2).2, (Lir.V2.charge_accounts_env he1).2]
+        · simp only [Except.ok.injEq] at h; exact absurd h (by simp)
+
+theorem systemOp_needsCall_site_inv {op : Operation.SystemOp} {fr : Frame}
+    {exec : ExecutionState} {p : CallParams} {pd : PendingCall}
+    (h : systemOp op fr exec = .ok (.needsCall p pd)) :
+    (op = .CALL ∨ op = .CALLCODE ∨ op = .DELEGATECALL ∨ op = .STATICCALL)
+      ∧ pd.frame.exec.pc = exec.pc ∧ pd.frame.validJumps = fr.validJumps
+      ∧ pd.frame.exec.executionEnv = exec.executionEnv := by
+  cases op with
+  | STOP | RETURN | REVERT | SELFDESTRUCT | INVALID =>
+    exact absurd (by unfold systemOp at h; exact h)
+      (BytecodeLayer.System.haltOp_never_needsCall (by tauto))
+  | CALL =>
+    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, hc⟩ :=
+      BytecodeLayer.System.systemOp_callArm_reduce (by tauto) h
+    exact ⟨Or.inl rfl, callArm_needsCall_site_inv hc⟩
+  | CALLCODE =>
+    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, hc⟩ :=
+      BytecodeLayer.System.systemOp_callArm_reduce (by tauto) h
+    exact ⟨Or.inr (Or.inl rfl), callArm_needsCall_site_inv hc⟩
+  | DELEGATECALL =>
+    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, hc⟩ :=
+      BytecodeLayer.System.systemOp_callArm_reduce (by tauto) h
+    exact ⟨Or.inr (Or.inr (Or.inl rfl)), callArm_needsCall_site_inv hc⟩
+  | STATICCALL =>
+    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, hc⟩ :=
+      BytecodeLayer.System.systemOp_callArm_reduce (by tauto) h
+    exact ⟨Or.inr (Or.inr (Or.inr rfl)), callArm_needsCall_site_inv hc⟩
+  | CREATE =>
+    obtain ⟨_, _, _, _, _, _, _, hcr⟩ :=
+      BytecodeLayer.System.systemOp_createArm_reduce (by tauto) h
+    exact absurd hcr BytecodeLayer.System.createArm_never_needsCall
+  | CREATE2 =>
+    obtain ⟨_, _, _, _, _, _, _, hcr⟩ :=
+      BytecodeLayer.System.systemOp_createArm_reduce (by tauto) h
+    exact absurd hcr BytecodeLayer.System.createArm_never_needsCall
+
+theorem stepFrame_needsCall_site_inv {fr : Frame} {p : CallParams} {pd : PendingCall}
+    (h : stepFrame fr = .needsCall p pd) :
+    (((decode fr.exec.executionEnv.code fr.exec.pc |>.getD (.STOP, .none)).1 = .CALL)
+      ∨ ((decode fr.exec.executionEnv.code fr.exec.pc |>.getD (.STOP, .none)).1 = .CALLCODE)
+      ∨ ((decode fr.exec.executionEnv.code fr.exec.pc |>.getD (.STOP, .none)).1 = .DELEGATECALL)
+      ∨ ((decode fr.exec.executionEnv.code fr.exec.pc |>.getD (.STOP, .none)).1 = .STATICCALL))
+      ∧ pd.frame.exec.pc = fr.exec.pc ∧ pd.frame.validJumps = fr.validJumps
+      ∧ pd.frame.exec.executionEnv = fr.exec.executionEnv := by
+  unfold stepFrame at h
+  set dec := decode fr.exec.executionEnv.code fr.exec.pc |>.getD (.STOP, .none) with hdec
+  simp only at h
+  split at h
+  · exact absurd h (by nofun)
+  · split at h
+    · exact absurd h (by nofun)
+    · cases hd : dispatch dec.1 dec.2 fr fr.exec with
+      | error e => rw [hd] at h; exact absurd h (by nofun)
+      | ok signal =>
+        rw [hd] at h
+        subst h
+        obtain ⟨s, hs⟩ :=
+          BytecodeLayer.Dispatch.dispatch_ok_System_of_not_next hd (by simp)
+        rw [hs] at hd
+        rw [dispatch] at hd
+        obtain ⟨hops, hpc, hvj, henv⟩ := systemOp_needsCall_site_inv hd
+        refine ⟨?_, hpc, hvj, henv⟩
+        rcases hops with rfl | rfl | rfl | rfl <;> simp [hs]
 
 /-! ### CREATE-site inversion facts (the create twins of the CALL-site facts)
 
@@ -248,6 +365,123 @@ theorem stepFrame_needsCreate_inv {fr : Frame} {cp : CreateParams} {pd : Pending
       ∧ pd.frame.exec.executionEnv = fr.exec.executionEnv := by
   obtain ⟨s, hs⟩ := BytecodeLayer.Dispatch.stepFrame_needsCreate_systemOp h
   exact systemOp_needsCreate_inv hs
+
+theorem createArm_needsCreate_site_inv
+    {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
+    {value initOffset initSize : UInt256} {salt : Option ByteArray}
+    {cp : CreateParams} {pd : PendingCreate}
+    (h : createArm fr exec stack value initOffset initSize salt = .ok (.needsCreate cp pd)) :
+    pd.frame.exec.pc = exec.pc ∧ pd.frame.validJumps = fr.validJumps
+      ∧ pd.frame.exec.executionEnv = exec.executionEnv := by
+  rw [createArm] at h
+  simp only [bind, Except.bind, pure, Except.pure] at h
+  split at h
+  · revert h
+    cases hr : resumeAfterCreate _ _ with
+    | error e => intro h; simp at h
+    | ok f => intro h; simp at h
+  · split at h
+    · simp only [Except.ok.injEq, Signal.needsCreate.injEq] at h
+      obtain ⟨_, hpd⟩ := h
+      subst hpd
+      exact ⟨rfl, rfl, rfl⟩
+    · revert h
+      cases hr : resumeAfterCreate _ _ with
+      | error e => intro h; simp at h
+      | ok f => intro h; simp at h
+
+theorem systemOp_needsCreate_site_inv {op : Operation.SystemOp} {fr : Frame}
+    {exec : ExecutionState} {cp : CreateParams} {pd : PendingCreate}
+    (h : systemOp op fr exec = .ok (.needsCreate cp pd)) :
+    (op = .CREATE ∨ op = .CREATE2)
+      ∧ pd.frame.exec.pc = exec.pc ∧ pd.frame.validJumps = fr.validJumps
+      ∧ pd.frame.exec.executionEnv = exec.executionEnv := by
+  cases op with
+  | STOP | RETURN | REVERT | SELFDESTRUCT | INVALID =>
+    exact absurd (by unfold systemOp at h; exact h)
+      (BytecodeLayer.System.haltOp_never_needsCreate (by tauto))
+  | CALL | CALLCODE | DELEGATECALL | STATICCALL =>
+    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, hc⟩ :=
+      BytecodeLayer.System.systemOp_callArm_reduce (by tauto) h
+    exact absurd hc BytecodeLayer.System.callArm_never_needsCreate
+  | CREATE =>
+    unfold systemOp at h
+    simp only [bind, Except.bind] at h
+    cases hr : requireStateMod exec with
+    | error e => rw [hr] at h; simp at h
+    | ok _ =>
+      rw [hr] at h; simp only [] at h
+      cases hp : exec.stack.pop3 with
+      | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      | some v =>
+        obtain ⟨s, val, io, is⟩ := v; rw [hp] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+        split at h
+        · simp at h
+        · cases hm : chargeMemExpansion exec io is with
+          | error e => rw [hm] at h; simp [pure, Except.pure] at h
+          | ok em =>
+            rw [hm] at h; simp only [pure, Except.pure] at h
+            cases hc : charge (createCost is) em with
+            | error e => rw [hc] at h; simp at h
+            | ok ec =>
+              rw [hc] at h; simp only [] at h
+              obtain ⟨hpc, hvj, henv⟩ := createArm_needsCreate_site_inv h
+              refine ⟨Or.inl rfl, ?_, hvj, ?_⟩
+              · rw [hpc, charge_pc hc, chargeMemExpansion_pc hm]
+              · rw [henv, (Lir.V2.charge_accounts_env hc).2, (Lir.V2.chargeMemExpansion_accounts_env hm).2]
+  | CREATE2 =>
+    unfold systemOp at h
+    simp only [bind, Except.bind] at h
+    cases hr : requireStateMod exec with
+    | error e => rw [hr] at h; simp at h
+    | ok _ =>
+      rw [hr] at h; simp only [] at h
+      cases hp : exec.stack.pop4 with
+      | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      | some v =>
+        obtain ⟨s, val, io, is, salt⟩ := v; rw [hp] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+        split at h
+        · simp at h
+        · cases hm : chargeMemExpansion exec io is with
+          | error e => rw [hm] at h; simp [pure, Except.pure] at h
+          | ok em =>
+            rw [hm] at h; simp only [pure, Except.pure] at h
+            cases hc : charge (create2Cost is) em with
+            | error e => rw [hc] at h; simp at h
+            | ok ec =>
+              rw [hc] at h; simp only [] at h
+              obtain ⟨hpc, hvj, henv⟩ := createArm_needsCreate_site_inv h
+              refine ⟨Or.inr rfl, ?_, hvj, ?_⟩
+              · rw [hpc, charge_pc hc, chargeMemExpansion_pc hm]
+              · rw [henv, (Lir.V2.charge_accounts_env hc).2, (Lir.V2.chargeMemExpansion_accounts_env hm).2]
+
+theorem stepFrame_needsCreate_site_inv {fr : Frame} {cp : CreateParams} {pd : PendingCreate}
+    (h : stepFrame fr = .needsCreate cp pd) :
+    ((((decode fr.exec.executionEnv.code fr.exec.pc |>.getD (.STOP, .none)).1 = .System .CREATE)
+      ∨ ((decode fr.exec.executionEnv.code fr.exec.pc |>.getD (.STOP, .none)).1 = .System .CREATE2))
+      ∧ pd.frame.exec.pc = fr.exec.pc ∧ pd.frame.validJumps = fr.validJumps
+      ∧ pd.frame.exec.executionEnv = fr.exec.executionEnv) := by
+  unfold stepFrame at h
+  set dec := decode fr.exec.executionEnv.code fr.exec.pc |>.getD (.STOP, .none) with hdec
+  simp only at h
+  split at h
+  · exact absurd h (by nofun)
+  · split at h
+    · exact absurd h (by nofun)
+    · cases hd : dispatch dec.1 dec.2 fr fr.exec with
+      | error e => rw [hd] at h; exact absurd h (by nofun)
+      | ok signal =>
+        rw [hd] at h
+        subst h
+        obtain ⟨s, hs⟩ :=
+          BytecodeLayer.Dispatch.dispatch_ok_System_of_not_next hd (by simp)
+        rw [hs] at hd
+        rw [dispatch] at hd
+        obtain ⟨hops, hpc, hvj, henv⟩ := systemOp_needsCreate_site_inv hd
+        refine ⟨?_, hpc, hvj, henv⟩
+        rcases hops with rfl | rfl <;> simp [hs]
 
 end Evm
 
@@ -414,6 +648,27 @@ theorem resumeAfterCreate_execEnv (result : Evm.FrameResult) (pd : Evm.PendingCr
   split at hres
   · exact absurd hres (by simp)
   · simp only [Except.ok.injEq] at hres; rw [← hres]
+    rfl
+
+theorem resumeAfterCreate_validJumps (result : Evm.FrameResult) (pd : Evm.PendingCreate)
+    (parent : Evm.Frame) (hres : Evm.resumeAfterCreate result.toCreateResult pd = .ok parent) :
+    parent.validJumps = pd.frame.validJumps := by
+  unfold Evm.resumeAfterCreate at hres
+  simp only [bind, Except.bind, pure, Except.pure] at hres
+  split at hres
+  · exact absurd hres (by simp)
+  · simp only [Except.ok.injEq] at hres
+    rw [← hres]
+
+theorem resumeAfterCreate_pc (result : Evm.FrameResult) (pd : Evm.PendingCreate)
+    (parent : Evm.Frame) (hres : Evm.resumeAfterCreate result.toCreateResult pd = .ok parent) :
+    parent.exec.pc = pd.frame.exec.pc + 1 := by
+  unfold Evm.resumeAfterCreate at hres
+  simp only [bind, Except.bind, pure, Except.pure] at hres
+  split at hres
+  · exact absurd hres (by simp)
+  · simp only [Except.ok.injEq] at hres
+    rw [← hres]
     rfl
 
 
@@ -587,4 +842,3 @@ theorem descentReturns_call_iff (frD frR : Evm.Frame) :
     exact ⟨p, pd, child, childRes, hsig, henters, hdrive, by rw [hres]; rfl⟩
 
 end Lir.V2
-
