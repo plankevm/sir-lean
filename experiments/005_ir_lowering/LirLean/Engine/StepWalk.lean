@@ -124,6 +124,23 @@ theorem continueWith_next {e e' : ExecutionState} (h : continueWith e = .ok (.ne
   simp only [Except.ok.injEq, Signal.next.injEq] at h
   exact h.symm
 
+/-- If `Frame.get_dest` resolves a branch target, the resolved pc is one of the frame's recorded
+valid jump destinations. -/
+theorem Frame.get_dest_some_mem {fr : Frame} {dest : UInt256} {newpc : UInt32}
+    (h : fr.get_dest dest = some newpc) : newpc ∈ fr.validJumps := by
+  unfold Frame.get_dest at h
+  cases hto : dest.toUInt32? with
+  | none =>
+      rw [hto] at h
+      simp at h
+  | some d =>
+      rw [hto] at h
+      simp only [bind, Option.bind] at h
+      have hsome : (fr.validJumps.find? (fun x => x == d)).isSome := by
+        simp [h]
+      convert Array.get_find?_mem (xs := fr.validJumps) (p := fun x => x == d) hsome using 1
+      simp [h]
+
 end Evm
 
 /-! ### CALLMONO Brick C — the ONE dispatch walk: env-equality + account-presence mono (engine level)
