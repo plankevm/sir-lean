@@ -1611,13 +1611,14 @@ theorem runs_atReachableBoundary {prog : Lir.Program} {params : CallParams} {fr�
   exact (atReachableBoundaryVJ_of_runs hsize hr
     (atReachableBoundaryVJ_entry hbegin hcode hne)).1
 
-/-! ### R7 — the recorder-coupling edge lemmas (entry + the four preservation edges)
+/-! ### R7 — the recorder-coupling edge lemmas (entry + the four currently-landed preservation
+edges)
 
 These are what make `RecorderCoupled` a THREADABLE invariant: established once at entry,
 preserved across every top-level step shape the drive walk takes. All DERIVED-status. -/
 
 /-- **R7a — entry coupling**: a successful `runWithLog` couples the entry frame to the
-WHOLE log (all three suffixes = the full streams; prefixes `[]`). Near-`rfl` from
+WHOLE log (all four suffixes = the full streams; prefixes `[]`). Near-`rfl` from
 unfolding `runWithLog` (its `driveLog` equation IS the restart equation at `fr₀`). -/
 theorem recorderCoupled_entry {params : CallParams} {log : RunLog} {fr₀ : Frame}
     (hrun : runWithLog params (seedFuel params.gas) = some log)
@@ -1803,7 +1804,7 @@ theorem recorderCoupled_sload {log : RunLog} {fr : Frame} {exec : ExecutionState
       obtain ⟨pre, hpre⟩ := hsp
       exact ⟨pre ++ [n], by rw [hpre, List.append_assoc, List.singleton_append]⟩
 
-/-- **R7d — any other top-level `.next` step preserves all three suffixes** (nothing is
+/-- **R7d — any other top-level `.next` step preserves all four suffixes** (nothing is
 recorded off the GAS/SLOAD gates). -/
 theorem recorderCoupled_step_other {log : RunLog} {fr : Frame} {exec : ExecutionState}
     {gS : List Word} {sS : List Nat} {cS : List CallRecord}

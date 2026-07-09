@@ -59,7 +59,7 @@ open BytecodeLayer.Dispatch
 
 /-! ## §0 — the coupled-walk vocabulary (all REAL; no sorry)
 
-The three helper predicates the producer's induction threads. `StreamsAligned` is the
+The four helper predicates the producer's induction threads. `StreamsAligned` is the
 positional bridge that turns the whole realised streams (`realisedGas`/`realisedCall`/
 `realisedCreate`) at entry into the per-block head-consumption the IR `RunFrom` performs:
 at every coupled boundary the IR streams `(T, C, D)` are exactly the realised image of the
@@ -68,7 +68,8 @@ un-consumed recorder suffixes `(gS, cS, dS)`. The sload suffix `sS` has no IR st
 
 /-- The IR streams `(T, C, D)` at a coupled boundary are the realised image of the recorder
 suffixes: the gas trace IS the gas suffix, the call stream IS the `evmV2CallEntry` image of
-the call suffix, and the create stream IS the (whole) realised create stream. REAL def. -/
+the call suffix, and the create stream IS the `evmV2CreateEntry` image of the create
+suffix. REAL def. -/
 def StreamsAligned (self : AccountAddress) (log : RunLog)
     (gS : List Word) (cS : List CallRecord) (dS : List CreateRecord)
     (T : Trace) (C : CallStream) (D : CreateStream) : Prop :=

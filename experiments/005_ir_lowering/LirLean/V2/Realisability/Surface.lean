@@ -289,7 +289,7 @@ Design notes (each load-bearing):
 * **Cyclic-correct**: a loop revisits the same cursor with different gas; the coupling is
   indexed by the FRAME (whose gas differs per visit), never by the cursor — no per-cursor
   value function anywhere (the fatal flaw of the rejected option (iii)).
-* The three prefix fields make "consumed so far" explicit (the R10 assembly reads them);
+* The four prefix fields make "consumed so far" explicit (the R10 assembly reads them);
   the entry instance is the whole log with `pre = []` (`recorderCoupled_entry`). -/
 
 /-- **Recorder-restart coupling.** Restarting the recording interpreter at the current
@@ -353,7 +353,7 @@ structure DriveCorrLog (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
 
 /-! ## §3 — The reshaped ties `StmtTies'` / `TermTies'` (R0 as statements; no free value-∀)
 
-The five statement arms and four terminator arms of the former `StmtTies`/`TermTies`
+The six statement arms and four terminator arms of the former `StmtTies`/`TermTies`
 (since-deleted; formerly `LowerConforms.lean:1273-1423`), re-stated so that every formerly-free
 value variable is pinned by an antecedent:
 
