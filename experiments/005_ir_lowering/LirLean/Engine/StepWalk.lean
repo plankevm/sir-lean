@@ -330,6 +330,115 @@ theorem unStateOp_next_pc {f : Evm.State → UInt256 → Evm.State × UInt256}
       rw [Lir.V2.charge_pc hc]
       rfl
 
+/-- The `POP` stack-management arm advances by one byte on `.next`. -/
+theorem smsf_pop_next_pc {fr : Frame} {exec exec' : ExecutionState}
+    (h : smsfOp .POP fr exec = .ok (.next exec')) :
+    exec'.pc = exec.pc + 1 := by
+  unfold smsfOp at h
+  simp only [bind, Except.bind] at h
+  cases hc : charge Gbase exec with
+  | error e => rw [hc] at h; simp at h
+  | ok ec =>
+    rw [hc] at h
+    simp only [] at h
+    cases hpop : ec.stack.pop with
+    | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+    | some v =>
+      obtain ⟨stk, _⟩ := v; rw [hpop] at h
+      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      rw [continueWith_next h, ExecutionState.replaceStackAndIncrPC]
+      rw [Lir.V2.charge_pc hc]
+      rfl
+
+/-- The `MLOAD` arm advances by one byte on `.next`. -/
+theorem smsf_mload_next_pc {fr : Frame} {exec exec' : ExecutionState}
+    (h : smsfOp .MLOAD fr exec = .ok (.next exec')) :
+    exec'.pc = exec.pc + 1 := by
+  unfold smsfOp at h
+  simp only [bind, Except.bind] at h
+  cases hpop : exec.stack.pop with
+  | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+  | some v =>
+    obtain ⟨stk, addr⟩ := v; rw [hpop] at h
+    simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+    cases hm : chargeMemExpansion exec addr 32 with
+    | error e => rw [hm] at h; simp at h
+    | ok em =>
+      rw [hm] at h; simp only [] at h
+      cases hc : charge Gverylow em with
+      | error e => rw [hc] at h; simp at h
+      | ok ec =>
+        rw [hc] at h; simp only [] at h
+        rw [continueWith_next h, ExecutionState.replaceStackAndIncrPC]
+        rw [Lir.V2.charge_pc hc, Lir.V2.chargeMemExpansion_pc hm]
+        rfl
+
+/-- The `MSTORE` arm advances by one byte on `.next`. -/
+theorem smsf_mstore_next_pc {fr : Frame} {exec exec' : ExecutionState}
+    (h : smsfOp .MSTORE fr exec = .ok (.next exec')) :
+    exec'.pc = exec.pc + 1 := by
+  unfold smsfOp at h
+  simp only [bind, Except.bind] at h
+  cases hpop : exec.stack.pop2 with
+  | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+  | some v =>
+    obtain ⟨stk, addr, val⟩ := v; rw [hpop] at h
+    simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+    cases hm : chargeMemExpansion exec addr 32 with
+    | error e => rw [hm] at h; simp at h
+    | ok em =>
+      rw [hm] at h; simp only [] at h
+      cases hc : charge Gverylow em with
+      | error e => rw [hc] at h; simp at h
+      | ok ec =>
+        rw [hc] at h; simp only [] at h
+        rw [continueWith_next h, ExecutionState.replaceStackAndIncrPC]
+        rw [Lir.V2.charge_pc hc, Lir.V2.chargeMemExpansion_pc hm]
+        rfl
+
+/-- The `SLOAD` arm advances by one byte on `.next`. -/
+theorem smsf_sload_next_pc {fr : Frame} {exec exec' : ExecutionState}
+    (h : smsfOp .SLOAD fr exec = .ok (.next exec')) :
+    exec'.pc = exec.pc + 1 := by
+  unfold smsfOp at h
+  exact unStateOp_next_pc h
+
+/-- The `SSTORE` arm advances by one byte on `.next`. -/
+theorem smsf_sstore_next_pc {fr : Frame} {exec exec' : ExecutionState}
+    (h : smsfOp .SSTORE fr exec = .ok (.next exec')) :
+    exec'.pc = exec.pc + 1 := by
+  unfold smsfOp at h
+  simp only [bind, Except.bind] at h
+  cases hr : requireStateMod exec with
+  | error e => rw [hr] at h; simp at h
+  | ok _ =>
+    rw [hr] at h
+    simp only [] at h
+    split at h
+    · simp at h
+    · cases hpop : exec.stack.pop2 with
+      | none =>
+        rw [hpop] at h
+        simp [MonadLift.monadLift, liftM, monadLift, Option.option, pure, Except.pure] at h
+      | some v =>
+        obtain ⟨stk, key, newValue⟩ := v; rw [hpop] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+        cases hc : charge _ exec with
+        | error e => rw [hc] at h; simp [pure, Except.pure] at h
+        | ok ec =>
+          rw [hc] at h
+          simp only [] at h
+          rw [continueWith_next h, ExecutionState.replaceStackAndIncrPC]
+          rw [Lir.V2.charge_pc hc]
+          rfl
+
+/-- The `GAS` arm advances by one byte on `.next`. -/
+theorem smsf_gas_next_pc {fr : Frame} {exec exec' : ExecutionState}
+    (h : smsfOp .GAS fr exec = .ok (.next exec')) :
+    exec'.pc = exec.pc + 1 := by
+  unfold smsfOp at h
+  exact pushOp_next_pc h
+
 open Lir.V2 (AccPresent) in
 /-- A `charge`-then-`SSTORE`-write `.next` preserves the execution environment and presence at
 every `a` (`State.sstore` writes only `accounts`/`substate`: the `none` branch is verbatim, the
@@ -1274,6 +1383,174 @@ theorem stepFrame_next_jumpdest_pc {fr : Frame} {exec' : ExecutionState} {b : Na
         rw [hpc] at hcp
         rw [hcp, nextInstrPosNat]
         simp [pushArgWidth]
+
+/-- A decoded `POP` `.next` step advances to the next sequential instruction. -/
+theorem stepFrame_next_pop_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
+    (hpc : fr.exec.pc = UInt32.ofNat b)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.POP, .none))
+    (hstep : stepFrame fr = .next exec') :
+    exec'.pc = UInt32.ofNat (nextInstrPosNat b .POP) := by
+  rw [stepFrame] at hstep
+  rw [hdec] at hstep
+  simp only [Option.getD_some] at hstep
+  simp only [reduceCtorEq, ↓reduceIte] at hstep
+  simp only [stackPopCount, stackPushCount] at hstep
+  split at hstep
+  · exact absurd hstep (by simp)
+  · rw [dispatch] at hstep
+    cases hs : smsfOp .POP fr fr.exec with
+    | error e => rw [hs] at hstep; simp at hstep
+    | ok signal =>
+      rw [hs] at hstep
+      cases signal with
+      | next e =>
+        simp only [Signal.next.injEq] at hstep
+        subst hstep
+        have hpc' := smsf_pop_next_pc hs
+        rw [hpc] at hpc'
+        rw [hpc', nextInstrPosNat]
+        simp [pushArgWidth]
+      | halted hl | needsCall p pc | needsCreate p pc => simp at hstep
+
+/-- A decoded `MLOAD` `.next` step advances to the next sequential instruction. -/
+theorem stepFrame_next_mload_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
+    (hpc : fr.exec.pc = UInt32.ofNat b)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.MLOAD, .none))
+    (hstep : stepFrame fr = .next exec') :
+    exec'.pc = UInt32.ofNat (nextInstrPosNat b .MLOAD) := by
+  rw [stepFrame] at hstep
+  rw [hdec] at hstep
+  simp only [Option.getD_some] at hstep
+  simp only [reduceCtorEq, ↓reduceIte] at hstep
+  simp only [stackPopCount, stackPushCount] at hstep
+  split at hstep
+  · exact absurd hstep (by simp)
+  · rw [dispatch] at hstep
+    cases hs : smsfOp .MLOAD fr fr.exec with
+    | error e => rw [hs] at hstep; simp at hstep
+    | ok signal =>
+      rw [hs] at hstep
+      cases signal with
+      | next e =>
+        simp only [Signal.next.injEq] at hstep
+        subst hstep
+        have hpc' := smsf_mload_next_pc hs
+        rw [hpc] at hpc'
+        rw [hpc', nextInstrPosNat]
+        simp [pushArgWidth]
+      | halted hl | needsCall p pc | needsCreate p pc => simp at hstep
+
+/-- A decoded `MSTORE` `.next` step advances to the next sequential instruction. -/
+theorem stepFrame_next_mstore_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
+    (hpc : fr.exec.pc = UInt32.ofNat b)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.MSTORE, .none))
+    (hstep : stepFrame fr = .next exec') :
+    exec'.pc = UInt32.ofNat (nextInstrPosNat b .MSTORE) := by
+  rw [stepFrame] at hstep
+  rw [hdec] at hstep
+  simp only [Option.getD_some] at hstep
+  simp only [reduceCtorEq, ↓reduceIte] at hstep
+  simp only [stackPopCount, stackPushCount] at hstep
+  split at hstep
+  · exact absurd hstep (by simp)
+  · rw [dispatch] at hstep
+    cases hs : smsfOp .MSTORE fr fr.exec with
+    | error e => rw [hs] at hstep; simp at hstep
+    | ok signal =>
+      rw [hs] at hstep
+      cases signal with
+      | next e =>
+        simp only [Signal.next.injEq] at hstep
+        subst hstep
+        have hpc' := smsf_mstore_next_pc hs
+        rw [hpc] at hpc'
+        rw [hpc', nextInstrPosNat]
+        simp [pushArgWidth]
+      | halted hl | needsCall p pc | needsCreate p pc => simp at hstep
+
+/-- A decoded `SLOAD` `.next` step advances to the next sequential instruction. -/
+theorem stepFrame_next_sload_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
+    (hpc : fr.exec.pc = UInt32.ofNat b)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.SLOAD, .none))
+    (hstep : stepFrame fr = .next exec') :
+    exec'.pc = UInt32.ofNat (nextInstrPosNat b .SLOAD) := by
+  rw [stepFrame] at hstep
+  rw [hdec] at hstep
+  simp only [Option.getD_some] at hstep
+  simp only [reduceCtorEq, ↓reduceIte] at hstep
+  simp only [stackPopCount, stackPushCount] at hstep
+  split at hstep
+  · exact absurd hstep (by simp)
+  · rw [dispatch] at hstep
+    cases hs : smsfOp .SLOAD fr fr.exec with
+    | error e => rw [hs] at hstep; simp at hstep
+    | ok signal =>
+      rw [hs] at hstep
+      cases signal with
+      | next e =>
+        simp only [Signal.next.injEq] at hstep
+        subst hstep
+        have hpc' := smsf_sload_next_pc hs
+        rw [hpc] at hpc'
+        rw [hpc', nextInstrPosNat]
+        simp [pushArgWidth]
+      | halted hl | needsCall p pc | needsCreate p pc => simp at hstep
+
+/-- A decoded `SSTORE` `.next` step advances to the next sequential instruction. -/
+theorem stepFrame_next_sstore_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
+    (hpc : fr.exec.pc = UInt32.ofNat b)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.SSTORE, .none))
+    (hstep : stepFrame fr = .next exec') :
+    exec'.pc = UInt32.ofNat (nextInstrPosNat b .SSTORE) := by
+  rw [stepFrame] at hstep
+  rw [hdec] at hstep
+  simp only [Option.getD_some] at hstep
+  simp only [reduceCtorEq, ↓reduceIte] at hstep
+  simp only [stackPopCount, stackPushCount] at hstep
+  split at hstep
+  · exact absurd hstep (by simp)
+  · rw [dispatch] at hstep
+    cases hs : smsfOp .SSTORE fr fr.exec with
+    | error e => rw [hs] at hstep; simp at hstep
+    | ok signal =>
+      rw [hs] at hstep
+      cases signal with
+      | next e =>
+        simp only [Signal.next.injEq] at hstep
+        subst hstep
+        have hpc' := smsf_sstore_next_pc hs
+        rw [hpc] at hpc'
+        rw [hpc', nextInstrPosNat]
+        simp [pushArgWidth]
+      | halted hl | needsCall p pc | needsCreate p pc => simp at hstep
+
+/-- A decoded `GAS` `.next` step advances to the next sequential instruction. -/
+theorem stepFrame_next_gas_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
+    (hpc : fr.exec.pc = UInt32.ofNat b)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.GAS, .none))
+    (hstep : stepFrame fr = .next exec') :
+    exec'.pc = UInt32.ofNat (nextInstrPosNat b .GAS) := by
+  rw [stepFrame] at hstep
+  rw [hdec] at hstep
+  simp only [Option.getD_some] at hstep
+  simp only [reduceCtorEq, ↓reduceIte] at hstep
+  simp only [stackPopCount, stackPushCount] at hstep
+  split at hstep
+  · exact absurd hstep (by simp)
+  · rw [dispatch] at hstep
+    cases hs : smsfOp .GAS fr fr.exec with
+    | error e => rw [hs] at hstep; simp at hstep
+    | ok signal =>
+      rw [hs] at hstep
+      cases signal with
+      | next e =>
+        simp only [Signal.next.injEq] at hstep
+        subst hstep
+        have hpc' := smsf_gas_next_pc hs
+        rw [hpc] at hpc'
+        rw [hpc', nextInstrPosNat]
+        simp [pushArgWidth]
+      | halted hl | needsCall p pc | needsCreate p pc => simp at hstep
 
 /-- A decoded `JUMP` `.next` step lands in the frame's valid jump table. -/
 theorem stepFrame_next_jump_pc {fr : Frame} {exec' : ExecutionState}
