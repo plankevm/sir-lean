@@ -502,10 +502,10 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     -- the step post-state `st0'` is the consumed head's effect; `hcallties` pins it to the
     -- realised `evmV2CallEntry` effect (the positional multi-call tie).
     exact simStmtStep_call hb hget hwf hcorr (hcallties pc cs st0 _ fr0 hget)
-  | create hvalue hoff hsize =>
+  | create hvalue hoff hsize hsalt =>
     -- create-free fragment: the create-reflection is Step 5, so a `.create` at a present cursor
     -- contradicts `hnocreate`.
-    rename_i cs valueW initOffW initSizeW addrW world'
+    rename_i cs valueW initOffW initSizeW saltW addrW world'
     exact absurd hget (hnocreate pc cs)
 
 /-! ### The `stop`-terminator discharge (fully closed down to the genuine frame facts)

@@ -14,7 +14,7 @@ This module replaces it with a **proved producing lemma**. The work splits along
 of `ModellableStep`:
 
 * **Clause 1 — CREATE resumes successfully (`CreateResolves`).** The former "no CREATE at all"
-  clause is **RETIRED**: `emitStmt .create` now emits real `CREATE`/`CREATE2` bytes and CREATE is
+  clause is **RETIRED**: `emitStmt .create` now emits a real `CREATE2` byte and CREATE is
   **modelled** by `Runs.create` (`runs_of_drive_ok`'s `.needsCreate` arm builds a `CreateReturns`
   node). What remains is the honest R4 residual `CreateResolves` — a `.needsCreate` whose init
   child terminates resumes successfully (the 63/64 retention guard, `Create.lean:200`, passing).
@@ -385,9 +385,9 @@ theorem beginCall_isCode_of_codeSource_ne_precompiled {cp : CallParams}
 
 `modellableStep_of` packages exactly that reduction. The producing lemma `lower_modellable` then
 threads it over every `Runs`-reachable frame, given those two facts at each reachable frame —
-`NotCreate` (the **structural** clause for `lower prog`, which emits no CREATE/CREATE2 opcode at any
-instruction boundary) and `CallsCode` (the **honest residual**, the genuine runtime condition that
-the program's reachable CALL targets are ordinary contract accounts, not precompiles `1..10`). -/
+`NotCreate` (the per-boundary no-CREATE-family fact supplied by the caller) and `CallsCode` (the
+**honest residual**, the genuine runtime condition that the program's reachable CALL targets are
+ordinary contract accounts, not precompiles `1..10`). -/
 
 /-- **`AtReachableBoundary prog fr`** — the structural-reachability premise: `fr` runs
 `lower prog` and its current pc is an instruction boundary reachable from the program start,

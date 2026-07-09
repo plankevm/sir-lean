@@ -124,10 +124,9 @@ is pure ripple. Risk: LOW (spike §3b confirmed all helpers exist).
 
 Goal: `Spec/IR.lean` gains `CreateSpec` + `Stmt.create`. CALL twin: `CallSpec` (:43),
 `Stmt.call` (:85).
-- `structure CreateSpec` fields: `value initOffset initSize : Tmp` (first cut fixes
-  the empty-init case — `value=0`, `offset=size=0`, per Create.lean:31 — but carry
-  the fields so CREATE2 needs no reshape); `salt : Option Tmp` **from day one**
-  (`none`=CREATE, `some`=CREATE2); `resultTmp : Option Tmp` for the pushed address.
+- `structure CreateSpec` fields: `value initOffset initSize salt : Tmp`;
+  `resultTmp : Option Tmp` for the pushed address. The IR create statement is
+  CREATE2-only.
   `deriving DecidableEq, Repr`. Post-P9, the result stash is represented by `Loc.slot`
   in the lowering allocation layer.
 - `Stmt.create (cs : CreateSpec)`.
@@ -183,11 +182,10 @@ but required to keep v1 compiling once `Stmt` gained a constructor in Step 1.
 
 Goal: `Spec/Lowering.lean` emits CREATE. CALL twin: `emitStmt .call` (:191-200),
 `defsOf` call arm (:254).
-- `Byte.create := 0xf0`, `Byte.create2 := 0xf5` in the `Byte` table (:46-61) —
-  verify bytes against exp003 `Evm/Instr.lean`.
-- `emitStmt .create`: push the create args (value, initOffset, initSize — first cut
-  all `0` via `emitImm 0`), then `salt` materialised if `cs.salt = some`, then the
-  `CREATE`/`CREATE2` byte; then stash the pushed address to `slotOf t` via
+- `Byte.create2 := 0xf5` in the `Byte` table (:46-61) — verify the byte against
+  exp003 `Evm/Instr.lean`.
+- `emitStmt .create`: materialise `salt`, `initSize`, `initOffset`, then `value`,
+  emit `CREATE2`, then stash the pushed address to `slotOf t` via
   `PUSH slot; MSTORE` if `resultTmp = some t`, else `POP` (byte-identical to the CALL
   result stash).
 - `defsOf` create-result stash arm: `.create ⟨…, some t⟩ → some (t, Loc.slot (slotOf t))`
@@ -288,16 +286,16 @@ leaf in `V2/Realisability/RealisabilitySpec.lean`. CALL twin: the R3 call-cursor
 Risk: HIGH (this is the sorry-carrier terminal DAG node). Only place a CREATE
 obligation can be closed.
 
-### CREATE2 delta (cheap, after CREATE lands)
+### CREATE2-only lowering
 
-The reference already does both kinds and `CreateSpec` carries `salt` from Step 1, so
-CREATE2 ≈ **one `emitStmt` sub-arm + adding 0xf5 to `IsLoweringOp`**:
+The reference supports both CREATE-family opcodes, but the IR create statement lowers
+only to CREATE2:
 - No new oracle (`createAddrOrZero`/`evmCreateOracle` read `result.address`, computed
-  for either salt branch).
+  by the CREATE2 path).
 - No new reference work (`contractAddressBytes` already branches on `salt`; CREATE2's
   `L_A` is unconditionally total — needs *less* totality plumbing than CREATE).
-- Lowering: when `cs.salt = some saltTmp`, materialise `saltTmp` and emit `Byte.create2`
-  (0xf5) instead of `Byte.create` (0xf0); args/stash otherwise identical.
+- Lowering: materialise `salt`, `initSize`, `initOffset`, `value`, then emit
+  `Byte.create2` (0xf5); stash/discard the pushed address as usual.
 - Semantics/recorder/Match/drive: kind-agnostic (project `result`/`pd`, which encode
   the salt via `PendingCreate`; `createArm` already takes `salt : Option ByteArray`).
 

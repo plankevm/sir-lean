@@ -15,7 +15,11 @@ def StmtDefinableG (st : IRState) : Stmt → Prop
   | .assign _ e => e = .gas ∨ ∃ w, evalExpr st 0 e = some w
   | .sstore key value => (∃ kw, st.locals key = some kw) ∧ (∃ vw, st.locals value = some vw)
   | .call cs => (∃ cw, st.locals cs.callee = some cw) ∧ (∃ gw, st.locals cs.gasFwd = some gw)
-  | .create _ => True
+  | .create cs =>
+      (∃ valueW, st.locals cs.value = some valueW)
+      ∧ (∃ initOffW, st.locals cs.initOffset = some initOffW)
+      ∧ (∃ initSizeW, st.locals cs.initSize = some initSizeW)
+      ∧ (∃ saltW, st.locals cs.salt = some saltW)
 
 structure RunDefinableG (prog : Program) : Prop where
   stmts : ∀ (st st' : IRState) (T T' : GasOracle) (C C' : CallStream) (D D' : CreateStream)

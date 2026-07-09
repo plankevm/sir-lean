@@ -289,7 +289,7 @@ theorem runStmts_preserves_bound {prog : Program}
       split
       · exact setLocal_bound hbound
       · exact hbound
-    | create hvalue hoff hsize =>
+    | create hvalue hoff hsize hsalt =>
       split
       · exact setLocal_bound hbound
       · exact hbound

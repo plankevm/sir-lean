@@ -121,10 +121,10 @@ estimate.
 | Step | Where | Add | Gate / risk |
 |---|---|---|---|
 | **0** | exp003 `Hoare.lean` + `Engine/DriveRuns.lean` | `CreateReturns` (twin of `CallReturns` :91; must carry the `.ok` witness of the 63/64 guard since `resumeAfterCreate` is `Except`-typed); `Runs.create` constructor + arms in every `Runs` recursion (`Runs.trans` :129, `gasAvailable_le` ladder, `cleanHalts`, DriveSim measure); **de-`NoCreate`** `runs_of_drive_ok` (delete the side condition, build a `Runs.create` node via `endFrame_create_accPresent` DriveMono.lean:87). | **needs-lead-decision** (exp003 owner must accept a `Runs.create` node) — R1, the load-bearing unknown. |
-| **1** | `Spec/IR.lean` | `CreateSpec` (mirror `CallSpec` :43) + `Stmt.create` (mirror :85). Carry `value/initOffset/initSize : Tmp`, `salt : Option Tmp` **from day one** (CREATE2 delta), `resultTmp : Option Tmp`. `Expr.slot` (:73) already exists for the pushed address. | Widest blast radius — a new `Stmt` constructor breaks every exhaustive match (Semantics, Lowering, SmallStep, MaterialiseRuns, the 3 SegAligned emit-ladders, SimStmt arms). |
+| **1** | `Spec/IR.lean` | `CreateSpec` (mirror `CallSpec` :43) + `Stmt.create` (mirror :85). Carry `value/initOffset/initSize/salt : Tmp`; `resultTmp : Option Tmp`. The IR create statement is CREATE2-only. `Expr.slot` (:73) already exists for the pushed address. | Widest blast radius — a new `Stmt` constructor breaks every exhaustive match (Semantics, Lowering, SmallStep, MaterialiseRuns, the 3 SegAligned emit-ladders, SimStmt arms). |
 | **2** | `Spec/Semantics.lean` | `EvalStmt.create` (mirror `.call` :187-195); pops a stream head `(world', addrW)`, sets `world`, binds `addrW` at `resultTmp`. | **needs-lead-decision** (R2, the stream fork — see 2.3). |
 | **3** | `SmallStep.lean` | `IRState.applyCreate` (twin of `Call.IRState.applyCall` :158) + `.create` arm in the v1 line. | Low priority (v1 superseded-for-flagship) but needed to keep v1 compiling. |
-| **4** | `Spec/Lowering.lean` | `Byte.create := 0xf0`, `Byte.create2 := 0xf5` (:46-61); `emitStmt .create` arm (mirror `.call` :191-200); `defsOf` create-result stash arm (:254 twin). | `defsOf` create arm forces re-proving `allocate_toDefs` (`LoweringLemmas.lean:91`, the Phase-A keystone). |
+| **4** | `Spec/Lowering.lean` | `Byte.create2 := 0xf5` (:46-61); `emitStmt .create` arm emits CREATE2 only; `defsOf` create-result stash arm (:254 twin). | `defsOf` create arm forces re-proving `allocate_toDefs` (`LoweringLemmas.lean:91`, the Phase-A keystone). |
 | **5** | `Match.lean` | `sim_create` (= `Runs.create hc rest` — **unstatable without Step 0b**); `create_reflects_lowered` (twin of :519). | R3 — **NOT `rfl`-clean**: `evmCreateOracle.postStorage` reads `result.accounts` directly (Create.lean:100-101), not through `Except`-typed `resumeAfterCreate`; budget a short unfold through the 63/64 guard + `replaceStackAndIncrPC`. |
 | **6** | `V2/CreateRealises.lean` (new) + `Spec/Recorder.lean` | `evmV2CreateEntry` (twin of `evmV2CallEntry` :59); `createRealises_bridge` (twin :85); un-drop `recordCall`'s `\| .create _ => callAcc` (:172); create accumulator in `driveLog` (:186, gated on `rest.isEmpty`); `realisedCreate` projection. | Stream model per R2. |
 | **7** | `V2/Modellable.lean` + `Decode/NoCreateBytes.lean` | **RETIRE the exclusion** (a *subtraction*): weaken/delete `NotCreate` (`Modellable.lean:194`, `notCreate_of_atReachableBoundary` :25, wired at RS:1255/3677); add `0xf0`/`0xf5` to `IsLoweringOp` (`BoundaryReach.lean:126-129`). | **after-#1** (SegAligned de-dup) — add CREATE to `IsLoweringOp` **once** in the merged tower instead of maintaining a CREATE-permitting `SegAlignedSafe`. |
@@ -143,12 +143,11 @@ estimate.
   the bundle or add an "enough gas retained" seam — likely a `PrecompileAssumptions`-style entry
   (RS:550).
 
-### 2.4 CREATE2 delta (cheap by construction)
+### 2.4 CREATE2-only contract
 
-Zero oracle change (`createAddrOrZero` kind-agnostic), zero reference work (`contractAddressBytes`
-already branches on salt; CREATE2's `L_A` is *unconditionally* total per create-crosscheck.md:169-170
-— **less** totality plumbing than CREATE). Delta ≈ **one `emitStmt` sub-arm** (materialise `saltTmp`,
-emit `0xf5`) + adding `0xf5` to `IsLoweringOp`. Requires `salt : Option Tmp` carried from Step 1.
+Zero oracle change (`createAddrOrZero` kind-agnostic), and the IR has no CREATE
+variant. Lowering materialises `salt`, `initSize`, `initOffset`, then `value`, emits
+`0xf5`, and relies on `0xf5` being in `IsLoweringOp`.
 
 ### 2.5 Structural implication for the reorg
 

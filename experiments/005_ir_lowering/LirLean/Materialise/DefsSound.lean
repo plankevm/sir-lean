@@ -65,7 +65,7 @@ def usesInStmt (t : Tmp) : Stmt → Nat
   | .call cs         => (if cs.callee = t then 1 else 0) + (if cs.gasFwd = t then 1 else 0)
   | .create cs       => (if cs.value = t then 1 else 0) + (if cs.initOffset = t then 1 else 0)
                           + (if cs.initSize = t then 1 else 0)
-                          + (match cs.salt with | some s => if s = t then 1 else 0 | none => 0)
+                          + (if cs.salt = t then 1 else 0)
 
 /-- Number of reads of tmp `t` inside terminator `term`. -/
 def usesInTerm (t : Tmp) : Term → Nat
@@ -643,7 +643,7 @@ theorem defsSound_preserved {prog : Program}
   | call hcallee hgas =>
       obtain ⟨hnoSload, hisresult, hscope⟩ := hsc
       exact defsSound_preserved_call hnoSload hisresult hscope hsound
-  | create hvalue hoff hsize =>
+  | create hvalue hoff hsize hsalt =>
       obtain ⟨hnoSload, hisresult, hscope⟩ := hsc
       exact defsSound_preserved_create hnoSload hisresult hscope hsound
 
