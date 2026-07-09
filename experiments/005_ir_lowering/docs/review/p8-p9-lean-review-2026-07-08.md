@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-The P8/P9 cleanup leaves a much cleaner public statement surface: source programs are checked by [`IRWellFormed`](../../LirLean/Spec/WellFormed.lean#L731), [`codeFits`](../../LirLean/Spec/WellFormed.lean#L650), and [`stackFits`](../../LirLean/Spec/WellFormed.lean#L698), then the old internal [`WellLowered`](../../LirLean/V2/Realisability/Surface.lean#L151) adapter is rebuilt by [`wellLowered_of_IRWellFormed`](../../LirLean/V2/Realisability/RealisabilitySpec.lean#L124). The intended headline is still [`lower_conforms`](../../LirLean/V2/Realisability/RealisabilitySpec.lean#L250), but it is a WIP theorem: the central coupled run-producer is still a `sorry` at [line 298](../../LirLean/V2/Realisability/RealisabilitySpec.lean#L298), with sibling WIP gaps in [`lower_conforms_exact`](../../LirLean/V2/Realisability/RealisabilitySpec.lean#L304) and [`lower_conforms_gasfree`](../../LirLean/V2/Realisability/RealisabilitySpec.lean#L343).
+The P8/P9 cleanup leaves a much cleaner public statement surface: source programs are checked by [`IRWellFormed`](../../LirLean/Spec/WellFormed.lean#L731), [`codeFits`](../../LirLean/Spec/WellFormed.lean#L650), and [`stackFits`](../../LirLean/Spec/WellFormed.lean#L698), then the old internal [`WellLowered`](../../LirLean/V2/Realisability/Surface.lean#L151) adapter is rebuilt by [`wellLowered_of_IRWellFormed`](../../LirLean/V2/Realisability/RealisabilitySpec.lean#L124). The intended headline is still [`lower_conforms`](../../LirLean/V2/Realisability/RealisabilitySpec.lean#L250). After R11 Chunk 0, the plain and gasfree shells call the coupled producer directly; the producer itself remains WIP, and [`lower_conforms_exact`](../../LirLean/V2/Realisability/RealisabilitySpec.lean#L304) still waits for the exact `RunFromAll` producer sibling.
 
 The proven default-cone infrastructure is substantial: fold-based lowering through [`matCache`](../../LirLean/Spec/Lowering.lean#L213), decode/layout anchors through [`flatBytes`](../../LirLean/Decode/DecodeLower.lean#L45), [`pcOf`](../../LirLean/Decode/Layout.lean#L227), and [`termOf`](../../LirLean/Decode/DecodeAnchors.lean#L156), jump-validity and reachable-boundary facts through [`block_offset_validJump`](../../LirLean/Decode/JumpValid.lean#L226) and [`decode_reachable_boundary_loweringOp`](../../LirLean/Decode/BoundaryReach.lean#L163), plus the fold value channel [`MatRunsC`](../../LirLean/Materialise/MatFoldChannel.lean#L782). [`sim_cfg`](../../LirLean/Assembly/LowerConforms.lean#L938) is proven whole-CFG simulation over supplied per-block ties, but [`LowerConforms.lean`](../../LirLean/Assembly/LowerConforms.lean#L1103) explicitly says it no longer contains a discharged conformance headline.
 
@@ -311,7 +311,7 @@ This is a good theorem surface: it is observable, not opcode-mirroring. Its proo
 
 [`codeFits`](../../LirLean/Spec/WellFormed.lean#L650) is exactly `(flatBytes prog).length < 2^32`; [`stackFits`](../../LirLean/Spec/WellFormed.lean#L698) is a stack-depth budget over charge-list lengths, not a gas-sufficiency theorem. [`chargeCache_length_sloadChg_eq`](../../LirLean/Materialise/MaterialiseGas.lean#L209) is what lets [`stackBounds_of_stackFits`](../../LirLean/Spec/BudgetDerivations.lean#L377) use `sloadChg := fun _ => 0`.
 
-[`RunLog.clean`](../../LirLean/Spec/Conformance.lean#L58) is a real scope cut. It accepts successful top-level calls and nonzero-gas reverts, but excludes `.create` observables and zero-gas reverts. [`PrecompileAssumptions`](../../LirLean/Spec/Seams.lean#L119) currently has only [`noErase`](../../LirLean/Spec/Seams.lean#L122) and [`callsCode`](../../LirLean/Spec/Seams.lean#L124); it does not yet include the [`CreateResolves`](../../LirLean/Engine/Modellable.lean#L413) seam that [`runFrom_of_driveCorrLog`](../../LirLean/V2/Realisability/Producer.lean#L1452) asks for.
+[`RunLog.clean`](../../LirLean/Spec/Conformance.lean#L58) is a real scope cut. It accepts successful top-level calls and nonzero-gas reverts, but excludes `.create` observables and zero-gas reverts. [`PrecompileAssumptions`](../../LirLean/Spec/Seams.lean#L119) is the honest seam bundle for precompile presence, reachable [`CallsCode`](../../LirLean/Spec/Seams.lean#L124), and reachable [`CreateResolves`](../../LirLean/Engine/Modellable.lean#L413).
 
 [`RecorderCoupled`](../../LirLean/V2/Realisability/Surface.lean#L234) is the critical WIP invariant: it pins a boundary frame's restarted recorder future to the unconsumed gas/sload/call suffixes. It still pins the create channel to the full [`log.creates`](../../LirLean/V2/Realisability/Surface.lean#L244), and [`StreamsAligned`](../../LirLean/V2/Realisability/Producer.lean#L74) maps `D` to `createStreamOf log.creates self` at every boundary. That is enough for the current CALL-first skeleton, but not for arbitrary programs with create statements.
 
@@ -344,8 +344,7 @@ theorem runFrom_of_driveCorrLog {prog : Program} {params : CallParams} {log : Ru
     (hclean : log.clean)
     (hseams : PrecompileAssumptions prog params)
     (hbegin : beginCall params = .inl fr₀)
-    (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32)
-    (hcreate : ∀ fr', ReachableFrom params fr' → CreateResolves fr') :
+    (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32) :
     ∃ O : Observable,
       (∀ fr', Runs fr₀ fr' → CreateResolves fr')
       ∧ (∃ last haltSig, Runs fr₀ last ∧ stepFrame last = .halted haltSig
@@ -357,7 +356,7 @@ theorem runFrom_of_driveCorrLog {prog : Program} {params : CallParams} {log : Ru
 
 ## Results Taxonomy
 
-**Headline / mainline.** [`lower_conforms`](../../LirLean/V2/Realisability/RealisabilitySpec.lean#L250), [`lower_conforms_exact`](../../LirLean/V2/Realisability/RealisabilitySpec.lean#L304), and [`lower_conforms_gasfree`](../../LirLean/V2/Realisability/RealisabilitySpec.lean#L343) are the real public targets. All three are WIP because each still contains a `sorry` at the coupled run-producer boundary.
+**Headline / mainline.** [`lower_conforms`](../../LirLean/V2/Realisability/RealisabilitySpec.lean#L250), [`lower_conforms_exact`](../../LirLean/V2/Realisability/RealisabilitySpec.lean#L304), and [`lower_conforms_gasfree`](../../LirLean/V2/Realisability/RealisabilitySpec.lean#L343) are the real public targets. The plain and gasfree shells are now wired to [`runFrom_of_driveCorrLog`](../../LirLean/V2/Realisability/Producer.lean#L1438); the producer body remains WIP, and the exact shell remains aligned to a future producer that returns `RunFromAll` directly.
 
 **Supporting bricks.** The strong supporting results are [`wellLowered_of_IRWellFormed`](../../LirLean/V2/Realisability/RealisabilitySpec.lean#L124), [`pcBounds_of_codeFits`](../../LirLean/Spec/BudgetDerivations.lean#L285), [`stackBounds_of_stackFits`](../../LirLean/Spec/BudgetDerivations.lean#L377), [`matCache_unfold`](../../LirLean/Spec/WellFormed.lean#L596), [`matCache_chargeCache_unfold`](../../LirLean/Materialise/MatFoldChannel.lean#L244), [`matDecC_of_lower`](../../LirLean/Materialise/MatFoldChannel.lean#L1306), [`matDecC_of_term`](../../LirLean/Materialise/MatFoldChannel.lean#L1328), [`block_offset_validJump`](../../LirLean/Decode/JumpValid.lean#L226), [`decode_reachable_boundary_loweringOp`](../../LirLean/Decode/BoundaryReach.lean#L163), [`sim_sstore_stmt_lowered`](../../LirLean/Assembly/LowerDecode.lean#L112), [`sim_assign_gas_lowered`](../../LirLean/Assembly/LowerDecode.lean#L705), [`sim_assign_sload_lowered`](../../LirLean/Assembly/LowerDecode.lean#L915), and [`sim_cfg`](../../LirLean/Assembly/LowerConforms.lean#L938).
 
@@ -408,7 +407,7 @@ The current assembly builder is still create-free. [`Stmt.create`](../../LirLean
 
 ## Open Questions
 
-1. How should [`CreateResolves`](../../LirLean/Engine/Modellable.lean#L413) be exposed at the public seam? [`runFrom_of_driveCorrLog`](../../LirLean/V2/Realisability/Producer.lean#L1452) requires it, but [`PrecompileAssumptions`](../../LirLean/Spec/Seams.lean#L119) does not currently carry it.
+1. Is the reachable-frame [`CreateResolves`](../../LirLean/Engine/Modellable.lean#L413) field on [`PrecompileAssumptions`](../../LirLean/Spec/Seams.lean#L119) the final public seam shape, or should it move to a narrower companion bundle before R11 is closed?
 
 2. Will the R11 producer land CREATE suffix/prefix threading before claiming plain [`lower_conforms`](../../LirLean/V2/Realisability/RealisabilitySpec.lean#L250), or will the first closed theorem explicitly restrict to create-free programs? The source currently has CREATE in the grammar and headline streams, but the producer and assembly builder are not create-complete.
 
