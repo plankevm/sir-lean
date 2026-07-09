@@ -1,6 +1,11 @@
 # P5 + P6 — the forward-from-real-run tie discharge (the tie-free headline)
 
 > **SUPERSEDED (2026-07-03):** plan of record is `target-architecture-2026-07-02.md` + `execution-plan-2026-07-02.md`; the gas-law apparatus (Mono/Oracle/HonestGasTie) was deleted in Phase 2. The premise below that the §7 ties are "SUPPLIED-but-satisfiable" was later **refuted** — the supplied ties are unsatisfiable as stated (see the target-architecture doc); the realisability rebuild lives in `LirLean/V2/RealisabilitySpec.lean` (R0–R12, non-default `Nightly` lib).
+>
+> **P9 status note (2026-07-08):** legacy value-channel names below (`Expr.slot`,
+> `materialiseExpr`, `materialise`, `recomputeFuel`, `MatFueled`, `Assembly/Acyclic.lean`,
+> `NoSlotSource`) are historical; current lowering uses the fold-based `Loc`/`matCache`
+> channel.
 
 **Status: planning (read-only recon done 2026-06-28, branch `ir-convergence`, baseline green +
 axiom-clean `[propext, Classical.choice, Quot.sound]`).**

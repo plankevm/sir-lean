@@ -4,6 +4,11 @@
 
 > **UPDATE (2026-07-03).** Plan of record is now `docs/target-architecture-2026-07-02.md` + `docs/execution-plan-2026-07-02.md` (the remediation plan above is superseded). Two further corrections: (1) the headline's supplied `StmtTies`/`TermTies` were confirmed **unsatisfiable** — the conditional headline is **vacuous as stated**, not merely conditional; (2) Phase 2 **deleted** the gas-law apparatus (`V2/Mono.lean`, `V2/Oracle.lean`, `V2/HonestGasTie.lean`, RunLog's gas-monotonicity section) and narrowed `V2/Law.lean` to the four determinism lemmas. The realisability rebuild is the R0–R12 sorry-skeleton in `LirLean/V2/RealisabilitySpec.lean` (non-default `Nightly` lib), guarded by the new `LirLean/Audit.lean` net.
 
+> **P9 status note (2026-07-08).** This file predates the Phase 2A deletion pass. The legacy
+> fuel/materialisation APIs (`Expr.slot`, `materialiseExpr`, `materialise`, `recomputeFuel`,
+> `MatFueled`, `Assembly/Acyclic.lean`, and `NoSlotSource`) are no longer present; old mentions
+> below are historical log entries.
+
 Worktree: `../evm-semantics-wt/ir-lowering` · Branch: `exp005-ir` · Base: `exp003-fuel-layer-cleanup`
 Master index: repo-root `currentplan.md`.
 

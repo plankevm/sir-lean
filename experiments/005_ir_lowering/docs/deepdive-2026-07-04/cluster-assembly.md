@@ -9,6 +9,11 @@ Read-only audit, 2026-07-04. Every "callers" cell was checked with repo-wide
 caller in `RealisabilitySpec.lean` therefore means "consumed by the WIP flagship", a caller in
 `DriveSim.lean` / `SelfPresent.lean` means "consumed by the default build".
 
+> **P8 status note (2026-07-08).** This cluster audit predates the P8 well-formedness reshaping.
+> `Acyclic.lean` / `MatFueled` / `AcyclicWellFormed` no longer discharge the live
+> `WellFormedLowered` bundle. `WellFormedLowered` is now fuel-free over `matCache` lengths and
+> fold offsets; the remaining rank/fuel file is a P9 deletion target.
+
 ## What this cluster is for (grounded in the plan)
 
 This is **Layer F assembly** of the world-channel `lower_conforms` grind. Three jobs:
@@ -25,8 +30,8 @@ This is **Layer F assembly** of the world-channel `lower_conforms` grind. Three 
    live here), the whole-CFG induction `sim_cfg`, the entry-correspondence builder `entry_corr`,
    the per-shape **builders** that discharge `SimStmtStep`/`SimTermStep` from `WellFormedLowered`
    + the §7 ties, and the **older acyclic capstone** `lower_conforms`.
-3. **`Acyclic.lean`** — discharges `WellFormedLowered`'s structural `MatFueled` fields from a
-   rank-based SSA-acyclicity witness (the decidable static discharge of R9 `WellLowered.wf`).
+3. **`Acyclic.lean`** — legacy generic-`defs` rank/fuel support retained only until P9 deletes
+   `materialiseExpr`/`MatFueled`; it is no longer the live R9 route into `WellLowered`.
 4. **`RecorderLemmas.lean`** — the proof companions of the recording interpreter: the
    SLOAD/CALL value-level bridges and the `driveLog → runWithLog → messageCall` adequacy chain.
 
@@ -79,7 +84,7 @@ but currently orphaned scaffolding — see candidates.
 | decl (line) | kind | role | callers |
 |---|---|---|---|
 | `SimTermStep` (96) | structure | shared-infra: per-terminator sim bundle consumed by `sim_cfg` | `sim_cfg`; **`DriveSim:639,681`** (`lower_conforms_cyclic`/`'`) |
-| `WellFormedLowered` (143) | structure | shared-infra: folded structural side-conditions | builders here; `Acyclic:205` (target of `wellFormedLowered_of_acyclic`); **`RealisabilitySpec:480` (field `wf`), `:3365`** |
+| `WellFormedLowered` (143) | structure | shared-infra: folded structural side-conditions, P8 fuel-free over fold layout | builders here; **`RealisabilitySpec` internal `WellLowered.wf` adapter** |
 | `CallRealises` (263) | def | shared-infra: §7 CALL realisability tie | `simStmtStep_call`; **`RealisabilitySpec:392` builds `CallRealisesS` around it, `:789`, `:1319`** |
 | `simStmtStep_call` (337) | theorem | incremental-toward builder path (call arm) | `LowerConforms:545` (`simStmtStep_block`) only |
 | `simStmtStep_block` (374) | theorem | builder: `WellFormedLowered`+§7 ties ⇒ `SimStmtStep` | **none** — top of builder path, no caller in tree |
@@ -105,12 +110,12 @@ but currently orphaned scaffolding — see candidates.
 | decl (line) | kind | role | callers |
 |---|---|---|---|
 | `ExprRankLt` (57) | def | shared-infra: fuel-need rank bound | `Acyclic` (self); **`RealisabilitySpec:3304`** (exProg discharge) |
-| `ExprRankLt.mono` (68) | theorem | shared-infra: monotone in fuel | `Acyclic:121` (in `matFueled_of_exprRankLt`) |
-| `Acyclic` (82) | def | shared-infra: def-relation respects rank | `matFueled_*`; **`RealisabilitySpec:3294`** |
-| `matFueled_of_exprRankLt` (93) | theorem | shared-infra core | `Acyclic:136` (in `matFueled_tmp_of_acyclic`) |
-| `matFueled_tmp_of_acyclic` (133) | theorem | shared-infra | `Acyclic:207-218` (in `wellFormedLowered_of_acyclic`) |
-| `AcyclicWellFormed` (152) | structure | shared-infra: acyclicity + bounds bundle | **`RealisabilitySpec:3311`** (`acyclicWellFormedExProg`) |
-| `wellFormedLowered_of_acyclic` (204) | theorem | terminal-for-flagship (R9): `AcyclicWellFormed ⇒ WellFormedLowered` | **`RealisabilitySpec:3366`** (`wellFormedLowered_exProg`) |
+| `ExprRankLt.mono` (68) | theorem | legacy fuel support | `Acyclic` in-file only |
+| `Acyclic` (82) | def | legacy generic-`defs` rank predicate | residual fuel support until P9 |
+| `matFueled_of_exprRankLt` (93) | theorem | legacy fuel core | `Acyclic` in-file only |
+| `matFueled_tmp_of_acyclic` (133) | theorem | legacy fuel core | `Acyclic` in-file only |
+| former `AcyclicWellFormed` (152) | structure | superseded acyclicity + bounds bundle | P8 replaced by `IRWellFormed` + budgets |
+| former `wellFormedLowered_of_acyclic` (204) | theorem | superseded route into `WellFormedLowered` | P8 replaced by `wellLowered_of_IRWellFormed` |
 
 All of `Acyclic.lean` is reachable from the flagship's `exProg` witness (R9). Its own header
 (`:41-43`) says the core is "currently unreferenced in the default build (its only consumers were
@@ -161,8 +166,9 @@ LowerConforms builder path (self-contained, no external caller at the top):
 LowerConforms acyclic capstone (dead):
   entry_corr, sim_cfg, runWithLog_messageCall, messageCall_runs → lower_conforms(:1188)   (zero callers)
 
-Acyclic (linear): ExprRankLt(.mono), Acyclic → matFueled_of_exprRankLt → matFueled_tmp_of_acyclic
-  → wellFormedLowered_of_acyclic ; AcyclicWellFormed is its input record.
+Acyclic (legacy fuel stack): ExprRankLt(.mono), Acyclic → matFueled_of_exprRankLt →
+  matFueled_tmp_of_acyclic. The old `AcyclicWellFormed → wellFormedLowered_of_acyclic` route is
+  superseded by P8's `wellLowered_of_IRWellFormed`.
 
 RecorderLemmas: driveLog_drive → runWithLog_drive → runWithLog_messageCall
 ```
@@ -170,7 +176,10 @@ RecorderLemmas: driveLog_drive → runWithLog_drive → runWithLog_messageCall
 **Exit edges (this cluster → live consumers):**
 
 - `sim_cfg`, `SimTermStep`, `SimStmtStep` (imported struct) → **DriveSim** `lower_conforms_cyclic`/`'` (default build, the cyclic-but-superseded headline).
-- `wellFormedLowered_of_acyclic`, `AcyclicWellFormed`, `Acyclic`, `ExprRankLt`, `WellFormedLowered`, `CallRealises`, `entry_corr`(doc), `toList_of_blockAt`, `codeFrame_{pc,code,validJumps}`, `term_dest_decode`, `ofNatMod_toUInt32?`, `ret_sub_value`, `decode_gasstash` → **RealisabilitySpec** (WIP flagship, exProg witness + inline walk).
+- `WellFormedLowered`, `CallRealises`, `entry_corr`(doc), `toList_of_blockAt`,
+  `codeFrame_{pc,code,validJumps}`, `term_dest_decode`, `ofNatMod_toUInt32?`,
+  `ret_sub_value`, `decode_gasstash` → **RealisabilitySpec** (WIP flagship + inline walk).
+  The old `AcyclicWellFormed` / `wellFormedLowered_of_acyclic` witness route is superseded.
 - `sloadRecord_eq_sloadCost`, `realisedCall_cons` → **SelfPresent** (R-leaf machinery).
 - `runWithLog_drive`, `driveLog_drive` → **DriveSim**, **Engine/DriveRuns**, flagship.
 

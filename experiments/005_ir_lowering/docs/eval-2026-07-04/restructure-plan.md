@@ -10,6 +10,12 @@ top-level" predates `StorageErase.lean` and does not count `Spec/Engine/V2/V2.Dr
 (3). The default `LirLean` lib is sorry-free; the one-file `WIP` lib
 (`lakefile.lean:31-32`, rooted at `LirLean.V2.RealisabilitySpec`) is the sole sorry-carrier.
 
+> **P8 status note (2026-07-08).** This plan predates the P8 well-formedness reshaping. Any
+> statement below that treats `Acyclic.lean`, `MatFueled`, `AcyclicWellFormed`, or
+> `wellFormedLowered_of_acyclic` as live R9/flagship infrastructure is superseded:
+> `IRWellFormed.defEnvOrdered` plus `codeFits`/`stackFits` now rebuilds the internal
+> `WellLowered` adapter, while the residual rank/fuel definitions wait for P9 deletion.
+
 ---
 
 ## 0. Headline corrections to `docs/lirlean-reorg-plan.md`
@@ -33,13 +39,12 @@ premise is false:
    **frame-local / v1-brick** sublayer (cluster-v1bricks); `SimStmt/SimStmts/SimTerm` are the v2
    **per-block `Corr` simulation** (cluster-sim). Split into `Frame/` and `Sim/`.
 3. **"Acyclic + LowerConforms are slated to be dropped, so `Conformance/` shrinks to nothing" is
-   WRONG.** `Acyclic.lean` is **live via the flagship's `exProg`/R9 witness** — every public decl
-   is consumed at `RealisabilitySpec.lean:3294/3304/3311/3366` (its own header `:41-43` "unreferenced
-   in the default build" is stale). `LowerConforms`'s `sim_cfg` (`:970`), `SimTermStep` (`:96`),
-   `WellFormedLowered` (`:143`), `CallRealises` (`:261`) are shared infra consumed by the
-   default-build cyclic `lower_conforms_cyclic` (`DriveSim.lean:648`) AND the flagship. Only the
-   **dead acyclic capstone decl** `Lir.lower_conforms` (`LowerConforms.lean:1188`, ~63 LOC) is
-   droppable — that is a decl deletion, not a file deletion. **No whole file disappears from the
+   still wrong, but for the P8 reason.** `LowerConforms`'s `sim_cfg`, `SimTermStep`,
+   `WellFormedLowered`, and `CallRealises` are shared infra. `Acyclic.lean` is no longer the live
+   R9 witness route; it is residual generic-`defs` fuel/rank support that P9 deletes after the
+   old fuel materialisation stack is removed. Only the **dead acyclic capstone decl**
+   `Lir.lower_conforms` (`LowerConforms.lean:1188`, ~63 LOC) is droppable in this phase — that is a
+   decl deletion, not a file deletion. **No whole simulation layer disappears from the
    acyclic-vs-cyclic conclusion.**
 4. **The reorg-plan omits two moves the deep dives call for:** `V2/DriveSim.lean` is a
    drive-layer file misfiled directly under `V2/` (00-proof-plan §1 note) → move to `V2/Drive/`;
@@ -112,7 +117,7 @@ LirLean/
   Assembly/                         -- L5 CFG assembly (world-channel walk)
     LowerDecode.lean                -- discharge per-cursor decode hyps over lower prog
     LowerConforms.lean              -- sim_cfg / SimTermStep / WellFormedLowered / CallRealises (LIVE)
-    Acyclic.lean                    -- WellFormedLowered <- SSA-acyclicity (LIVE via flagship R9)
+    Acyclic.lean                    -- legacy generic-defs fuel/rank support (P9 deletion target)
 
   V2/                               -- L6 gas-free IR spine
     Law.lean                        -- IR-run determinism ladder
@@ -199,7 +204,8 @@ refuses to cite, `:3730-3736`). **This removes decls, not files:**
 - **Needs-confirmation, do NOT cut in the reorg:** the DriveSim vacuous route
   (`lower_conforms_cyclic'` :666 + `driveStep_of_block` + the `RunDefinable` path). The *measure*
   infra (`totalGas_succ_lt`, `DriveCorr`, `drive_step_block_*`) is the reshape skeleton the missing
-  `runFrom_of_driveCorrLog` reuses — keep. `Acyclic.lean` stays entirely (live via R9).
+  `runFrom_of_driveCorrLog` reuses — keep. `Acyclic.lean` is no longer an R9 live path; keep it
+  only until P9 deletes the residual fuel stack.
 
 Consequence for the reorg: `Assembly/` is a real, populated directory (`LowerDecode`,
 `LowerConforms`, `Acyclic`), NOT the empty shell the reorg-plan predicted.

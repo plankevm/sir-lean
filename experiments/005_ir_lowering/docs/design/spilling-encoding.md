@@ -1,5 +1,10 @@
 # Spilling encoding: is `Expr.slot` a design smell?
 
+> **P9 status note (2026-07-08).** The recommendation in this note has landed: `Expr.slot`,
+> `Loc.toDef`/`Alloc.toDefs`, legacy fuel materialisation, `MatFueled`,
+> `Assembly/Acyclic.lean`, and `NoSlotSource` have been deleted. The body is kept as design
+> provenance.
+
 *exp005 LirLean IR→EVM lowering-conformance — design analysis, 2026-07-06*
 
 ## The objection

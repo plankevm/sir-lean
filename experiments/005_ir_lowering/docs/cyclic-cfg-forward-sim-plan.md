@@ -97,7 +97,8 @@ self) st (realisedGas log) L O`. Then the EXISTING `sim_cfg` + supplied ties ⇒
   with the F2 construction; the ties are now discharged (drop `hstmtties`/`htermties` as supplied
   — they're produced by F1). New headline: `runWithLog` clean-halts ⇒ `∃ O, O.world =
   (observe self log.observable).world`, **general over cyclic CFG, no supplied ties** (only
-  structural `WellFormedLowered` + the clean-halt hypothesis + def-graph `AcyclicWellFormed`).
+  structural well-formedness. P8 replaces the old def-graph `AcyclicWellFormed` route with
+  `IRWellFormed` + `codeFits` + `stackFits` rebuilding the internal `WellLowered` adapter).
 - **F4 Concrete close + cruft.** Instantiate on a worked LOOPING program (and `workedCall`) end to
   end; retire the now-subsumed acyclic-specific lemmas if dead; docs + memory.
 

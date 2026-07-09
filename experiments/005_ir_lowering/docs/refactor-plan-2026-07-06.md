@@ -1,5 +1,10 @@
 # exp005 master refactor plan — 2026-07-06
 
+> **P9 status note (2026-07-08).** The Phase 2A legacy-deletion pass has landed: `Expr.slot`,
+> `materialiseExpr`, `materialise`, `recomputeFuel`, `MatFueled`, `Assembly/Acyclic.lean`, and
+> `NoSlotSource` are gone. References below to those symbols are historical planning context unless
+> explicitly marked as current work.
+
 The full actionable roadmap distilled from `docs/codebase-map-2026-07-06.md` (misplacements §4,
 smells §5, decisions §6). Sequenced by dependency and by conflict with the live R11 producer.
 
@@ -7,7 +12,8 @@ Two standing decisions from Eduardo folded in:
 - **Engine relocation is NOT done now.** `Engine/` (and its CREATE twins) keeps growing in exp005;
   the ~5,800-line engine mass merges into exp003 only when exp005 finishes and we move to the real
   thing. So misplacements #2/#9/#11 and decision D10 are **Phase 4 (post-merge)**, off this roadmap.
-- **`Expr.slot` migration (D4) is in scope** and planned in full (Phase 2A).
+- **`Expr.slot` migration (D4) has landed** as Phase 2A/P9 cleanup; mentions below are retained
+  only to explain the historical migration.
 
 ## Guiding constraints
 
@@ -47,27 +53,33 @@ Two standing decisions from Eduardo folded in:
 
 *Lands immediately, independently.*
 
-### 1B. `WellFormed` + two scalar budgets (the `WellLowered` refactor)
+### 1B. `IRWellFormed` + two scalar budgets (the `WellLowered` adapter)
 
-The core insight: `WellLowered` + its `wf : WellFormedLowered` sub-bundle is ~15 per-cursor
-quantified statements = **pure-IR structure + two scalars**.
+**P8 status update (2026-07-08):** this section has mostly landed. The public theorem shape is
+now `IRWellFormed prog` plus the scalar budgets `codeFits prog` and `stackFits prog`; the WIP
+bridge rebuilds the internal `WellLowered prog` adapter consumed by the existing V2 machinery.
+`WellFormedLowered` remains internal lowered-layout structure over `matCache` lengths and fold
+offsets. It no longer carries fuel-sufficiency fields.
+
+The core insight: the old `WellLowered` premise mixed pure IR structure with per-cursor lowered
+layout bounds. P8 keeps the source-side facts in `IRWellFormed`, keeps the layout bounds internal,
+and derives the latter from two scalars.
 
 ```lean
 def codeFits  (prog : Program) : Prop := (flatBytes prog).length < 2 ^ 32   -- pc budget
 def stackFits (prog : Program) : Prop := maxChargeDepth prog ≤ 1024         -- stack budget
 
-structure WellFormed (prog : Program) : Prop where
+structure IRWellFormed (prog : Program) : Prop where
   defineBeforeUse : RunDefinableG prog
   defsConsistent  : DefsConsistent prog
   entry0          : prog.entry.idx = 0
   cfgClosed       : CFGClosed prog        -- ClosedCFG minus its offset-bound halves
-  acyclicDefs     : Acyclic (defsOf prog) (defRank prog)
+  defEnvOrdered   : DefEnvOrdered prog    -- ordered def-env; no rank/fuel envelope
   revalidates     : RevalidatesPerBlock prog          -- 5.3 gap #2 (exists Surface.lean:312)
-  noSlotSource    : NoSlotSource prog                 -- TEMPORARY: deleted by Phase 2A
 ```
 
 Field-by-field disposition table and the "not preservation, it's a soundness lemma
-`WellFormed → budgets → layout-valid`" framing: see the design discussion — unchanged.
+`IRWellFormed → budgets → layout-valid`" framing: see the design discussion — unchanged.
 
 Two payoffs beyond aesthetics:
 - `codeFits` **is already** R6's loose `hsize` (Machinery.lean:1364/1408/1463/1513); the flagship
@@ -75,35 +87,33 @@ Two payoffs beyond aesthetics:
   it as a premise **discharges half the R6 blocker**.
 - `RevalidatesPerBlock` already exists; it just becomes a field (closes 5.3 gap #2).
 
-**Steps (bottom-up, each green):**
-- **B1a `pcBounds_of_codeFits`**: `codeFits →` all `bound_*`/`gasBound`/`retEpilogueBound`/offset
-  bounds. Each is `<sub-range> ≤ (flatBytes prog).length`. Root exists: `flatBytes_block_split`
-  (Layout.lean:115). *High feasibility.*
-- **B1b `stackBounds_of_stackFits`**: `stackFits →` all `StackRoomOK` folds. Needs
-  `chargeOf`-length monotonicity (sub-operand ≤ whole; `∀ sloadChg`-uniform per the existing
-  docstring). Define `maxChargeDepth`. *Medium.*
-- **B1c `matFueled_of_acyclic`**: `acyclicDefs →` the `matFueled_*` fields. `recomputeFuel prog` is
-  `#stmts + 1` (Lowering.lean:164) — a generous over-bound ≥ any acyclic def-chain depth, so this is
-  a fuel-sufficiency induction, not tight-depth. *Feasible; if it resists, keep `matFueled_*` as
-  direct `WellFormed` fields and still ship the two budgets.*
-- **B2** define `codeFits`/`stackFits`/`WellFormed` (in Spec/ — see 1C); split `ClosedCFG` →
-  `CFGClosed` + offset-bounds-via-B1a.
-- **B3** `wellFormedLowered_of_wellFormed : WellFormed → codeFits → stackFits → WellLowered`.
-  Keeps `WellFormedLowered` **internal** — sim lemmas untouched.
-- **B4** reshape the 3 flagship sigs (RealisabilitySpec.lean:206/253/289): `(hwl : WellLowered prog)`
-  → `(hwf) (hcode) (hstk)`, open with `have hwl := wellFormedLowered_of_wellFormed …`. Update
-  `exProg_satisfies_hypotheses` (:336) and `wellLowered_exProg` (Witness.lean:658) — `decide`/`rfl`
-  on `exProg`. Rewrite the 235-237 blocker comment (R6 half discharged).
+**Landed shape (bottom-up, each green):**
+- **B1a `pcBounds_of_codeFits`**: `codeFits` derives the `WellFormedLowered` pc/offset bounds,
+  `ClosedCFG` offset bounds, and the extra `WellLowered` gas/return-epilogue bounds. The two
+  spilled-stash bounds additionally consume `DefsConsistent`.
+- **B1b `stackBounds_of_stackFits`**: `stackFits` derives every `StackRoomOK` fold using
+  `chargeCache` lengths, with `sloadChg`-independence proved by `chargeCache_length_sloadChg_eq`.
+- **B1c is obsolete**: there is no live `matFueled_*` family to derive. `DefEnvOrdered` and the
+  `matCache`/`chargeCache` fold fixpoints replaced the rank/fuel envelope.
+- **B2** defines `codeFits`/`stackFits`/`IRWellFormed` in `Spec/WellFormed.lean`; `CFGClosed`
+  carries only presence and in-bounds facts.
+- **B3/B4** are represented by `wellLowered_of_IRWellFormed`, which returns `WellLowered`
+  from `IRWellFormed` + `codeFits` + `stackFits` and keeps `WellFormedLowered` internal.
 
-### 1C. Spec hoist — part 1 (misplacement #1, smell 5.1)
+**P9 update:** `NoSlotSource` and the legacy fuel/materialisation stack are gone. The remaining
+adapter point is `WellLowered`, which stays internal to the WIP proof machinery.
 
-The trusted surface cannot state the claim (`Spec/Conformance.lean` is a stub). Move the flagship's
-**statement vocabulary** into a real `Spec/Conformance.lean` / `Spec/Semantics.lean`, all sorry-free:
-`Conforms` (Surface.lean:63), `entryState` (:34), `RunLog.clean` (:51), `PrecompileAssumptions`
-+`ReachableFrom` (:457-484), `NoGasReads` (:486), `RunFromLeft`/`RunFromAll`+adequacy (:894-982),
-`evmV2CallEntry`/`evmV2CreateEntry` (CallRealises.lean:59/117), `WellFormedLowered`
-(LowerConforms.lean:143). Natural to do **with 1B** (we are already writing `WellFormed` into Spec/).
-Fixes the Spec import inversion (5.10) as a side effect. Leave only sorry'd theorems in the WIP lib.
+### 1C. Spec hoist — remaining work (misplacement #1, smell 5.1)
+
+The trusted surface can now state the core conformance vocabulary, but several exact-run
+definitions are still stranded in the WIP lib. Move the remaining flagship
+**statement vocabulary** into `Spec/Conformance.lean` / `Spec/Semantics.lean`, all sorry-free.
+`Conforms`, `entryState`, `RunLog.clean`, and `NoGasReads` have moved to
+`Spec/Conformance.lean`; `IRWellFormed`/`codeFits`/`stackFits` live in `Spec/WellFormed.lean`;
+`PrecompileAssumptions` and `ReachableFrom` live in `Spec/Seams.lean`. Still stranded are the
+exact-consumption `RunFromLeft`/`RunFromAll` adequacy and the realised call/create entry
+vocabulary. Keep `WellFormedLowered` internal; it is not a public statement premise. Fixes the
+Spec import inversion (5.10) as a side effect. Leave only sorry'd theorems in the WIP lib.
 
 ### 1D. Cheap structural relocations (green-parallel; NOT to exp003 — within exp005)
 
@@ -119,11 +129,12 @@ Fixes the Spec import inversion (5.10) as a side effect. Leave only sorry'd theo
 - **#6** `Spec/Recorder.lean`: `gasReadOf`/`FramesRun` (:65-73, its own relocation comment) → V2/;
   the admitted `GasMonotone` plumbing import (:2-5) → import directly in DriveSim. Deflates the
   trusted import cone.
-- **#7 / 5.7** `Spec/Seams.lean`: re-key to the live flagship (currently keyed to the deleted
-  conditional headline, Seams.lean:14-15) or retire to docs; link `PrecompilesPreservePresence`
-  (:59-62) to `PrecompileAssumptions.noErase` (Surface.lean:476-477) definitionally — today they are
-  a drift-prone textual twin. Factor `AcyclicWellFormed`'s 7 char-for-char `WellFormedLowered` fields
-  (Acyclic.lean:152-198) into a shared `LoweredBounds`.
+- **#7 / 5.7** `Spec/Seams.lean`: **landed in the post-P9 cleanup.** The live
+  `PrecompileAssumptions`/`ReachableFrom` vocabulary now lives there under `Lir.V2`, and
+  `PrecompileAssumptions.noErase` is definitionally the trusted
+  `Lir.Spec.PrecompilesPreservePresence` shape. The old `AcyclicWellFormed` factoring idea is
+  obsolete: `WellFormedLowered` is rebuilt from `IRWellFormed` + budgets, while P9 deleted the
+  rank/fuel file.
 
 ### 1E. Name the anonymous bundles (smell 5.6)
 

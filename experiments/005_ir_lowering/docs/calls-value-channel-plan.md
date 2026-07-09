@@ -1,5 +1,10 @@
 # Route B — calls compose into the block spine (memory value channel)
 
+> **P9 status note (2026-07-08).** This plan is historical. The intermediate `Expr.slot`
+> encoding and the legacy fuel/materialisation APIs (`materialiseExpr`, `materialise`,
+> `recomputeFuel`, `MatFueled`, `Assembly/Acyclic.lean`, `NoSlotSource`) have been deleted;
+> current spill/readback policy is represented by `Loc` and `matCache`.
+
 > **Naming note (uniform-spill refactor, 2026-06-28):** the constructor this document
 > calls `Expr.callResult` was renamed to **`Expr.slot`** (a generic spill-load) in Phase A
 > of `docs/uniform-spill-alloc-plan.md` — the call-result use is now one client of a uniform

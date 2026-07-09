@@ -6,6 +6,14 @@ do to the tree and in what order*. Every move cites `file:line`; every move carr
 a LOC/file impact, a RISK, and a GATE. Read-only synthesis of the eval + deepdive docs; no
 `.lean` touched in producing it.
 
+> **P8 status note (2026-07-08).** The Acyclic/MatFueled route described below is no longer live
+> P8 infrastructure. `IRWellFormed.defEnvOrdered` plus `codeFits`/`stackFits` rebuilds the
+> internal `WellLowered` adapter; the residual rank/fuel definitions are P9 deletion targets.
+>
+> **P9 status note (2026-07-08).** Those residual targets have been deleted: `Expr.slot`,
+> `materialiseExpr`, `materialise`, `recomputeFuel`, `MatFueled`, `Assembly/Acyclic.lean`, and
+> `NoSlotSource` are no longer current APIs.
+
 Baseline: **51 `*.lean` files, 25 518 LOC** (`find LirLean -name '*.lean' | wc -l` = 51,
 `cat | wc -l` = 25518). Default `LirLean` lib is sorry-free; the one-file `WIP` lib
 (`lakefile.lean:31-32`, rooted at `LirLean.V2.RealisabilitySpec`) is the sole sorry-carrier

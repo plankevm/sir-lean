@@ -8,6 +8,15 @@ merge, `1c77c07` call-stream, `4628201` full-observable). 51 `LirLean/*.lean` fi
 Every claim cites `file:line`. **When a docstring/header contradicts this doc, the Lean on disk
 wins** — several in-tree headers are stale (flagged inline).
 
+> **P9 status note (2026-07-08).** This DAG predates the P8/P9 well-formedness and legacy-deletion
+> cleanup. Its claims
+> that `Acyclic.lean`, `MatFueled`, `AcyclicWellFormed`, or `wellFormedLowered_of_acyclic` are
+> live through the flagship witness are historical. The current public theorem surface is
+> `IRWellFormed` + `codeFits` + `stackFits`; `WellFormedLowered`/`WellLowered` are internal
+> adapters. The residual fuel/materialisation stack (`Expr.slot`, `materialiseExpr`,
+> `materialise`, `recomputeFuel`, `MatFueled`, `Assembly/Acyclic.lean`, and `NoSlotSource`) has
+> been deleted; old references below are preserved as dated provenance.
+
 The word **"dead"** is used only for the two grep-verified zero-reference decls
 (`SmallStep.IRConf`, `SmallStep.Program.stmtAt`) and the one genuinely-superseded capstone
 theorem (`Lir.lower_conforms`). Everything else that "has no callers" is classified precisely as
@@ -65,9 +74,9 @@ warning below). Arrows point **downward-imports** (`A ← B` = B imports A).
                           │              MaterialiseCleanHalt)
  L5  CFG ASSEMBLY
        LowerDecode  (block-walk bricks: sim_stmts_block, sim_term_*)
-       LowerConforms  (sim_cfg :970 + SimTermStep :96 + WellFormedLowered :143 = LIVE;
+      LowerConforms  (sim_cfg :970 + SimTermStep :96 + WellFormedLowered :143 = LIVE;
                        + DEAD acyclic capstone Lir.lower_conforms :1188)
-       Acyclic  (well-formedness CORE = LIVE via flagship exProg R9; distinct from dead capstone)
+      Acyclic  (deleted by P9; historical generic-defs fuel/rank core)
                           │
  L6  V2 gas-free SPINE + cyclic DRIVE
        V2/Law ; V2/IRRun ; V2/Call ← V2/CallRealises ; V2/Modellable
@@ -109,12 +118,12 @@ live replacement), **DEAD** (grep-zero, no purpose).
 
 | File | LOC | Role · why it exists |
 |---|---|---|
-| Spec/IR | 114 | **terminal.** IR datatypes. `Stmt` = assign/sstore/call ONLY (`:77-86`, no create node — structural CREATE exclusion). `Expr.slot` (`:73`) is the uniform-spill marker (`evalExpr .slot = none`, Semantics:130). Root of everything (137+ refs). |
+| Spec/IR | 114 | **terminal.** IR datatypes. `Stmt` = assign/sstore/call/create. P9 deleted the old `Expr.slot` uniform-spill marker; spill placement now lives in `Loc`. Root of everything. |
 | Spec/Semantics | 278 | **terminal.** V2 IR operational semantics: `RunFrom` (`:228`, 137 refs), `evalExpr` (`:123`), `blockAt` (`:139`, v2-local twin of `SmallStep.Program.blockAt`). *Stale self-desc "call-free prototype" (:5).* |
-| Spec/Lowering | 325 | **terminal + incremental-toward Phase-D.** Lowering fn (`lower` :323, 279 refs); all 16 `Byte.*` opcode constants (`:46-61`) LIVE; `emitStmt` (`:178-200`) emits assign/sstore/call only — no CREATE byte. The `Loc`/`Alloc`/`locOfExpr`/`Loc.toDef` layer (`:92-111,269`) is low-ref but incremental toward Phase-D `∀ SoundAlloc` (bottoms out at keystone `allocate_toDefs`). |
-| Spec/Recorder | 358 | **terminal** (HIGH altitude — imports V2/CallRealises). Recording interpreter: `observe` (`:340`), `runWithLog` (`:262`), `driveLog` (`:186`), `realisedGas` (`:279`), `realisedCall` (`:300`), `realisedSload` (`:285`, incremental-toward deferred sload tie). `RunAcc` (`:113`) = **defensible-delete candidate** (zero type uses; only a stale docstring :154 that itself wrongly says 2-tuple). Docstrings :154,:157 saying `(gas, calls)` are STALE (real accumulator is a 3/4-tuple with the sloads channel). |
-| Spec/Seams | 95 | **intentional register** (HIGH altitude). Reviewer-facing seam forwarders; imported ONLY by Audit. `SelfPresent`/`CallsCode`/`CleanHaltsNonException` (`:38/:81/:93`) have no code consumers by design (name/type/drift-proof the debt). `callPreservesSelf_of_precompiles` (`:68`) is the one with a live consumer (Audit.lean:60/62 `#print axioms`). |
-| Spec/Conformance | 24 | **intentional-stub (tombstone).** ZERO decls; old vacuous cyclic headline deleted 2026-07-03. Kept in build cone via `LirLean.lean:50` so the canonical path resolves to an honest notice. NOT dead. |
+| Spec/Lowering | 358 | **terminal.** Lowering fn (`lower` :358); `defEnv`/`defsOf` route non-recomputable temps to `Loc.slot`; `matCache` is the fold-based value channel; `emitStmt` (`:266-290`) emits assign/sstore/call/create. The old `Expr.slot`/fuel materialisation path was deleted by P9. |
+| Spec/Recorder | 358 | **terminal** (HIGH altitude — imports V2/CallRealises). Recording interpreter: `observe` (`:340`), `runWithLog` (`:262`), `driveLog` (`:186`), `realisedGas` (`:285`), `realisedSload` (`:291`), `realisedCall` (`:306`), `realisedCreate` (`:321`). `RunAcc` (`:113`) = **defensible-delete candidate** (zero type uses; only historical shape comments remain). |
+| Spec/Seams | 95 | **live seam vocabulary** (HIGH altitude). Owns `Lir.V2.PrecompileAssumptions` and `ReachableFrom`; keeps `SelfPresent`/`CallPreservesSelf`/`CallsCode`/`CleanHaltsNonException` as supporting forwarders. Imported by the WIP surface and Audit. |
+| Spec/Conformance | 24 | **live conformance vocabulary.** Hosts `entryState`, `RunLog.clean`, `Conforms`, and `NoGasReads`; imported by the WIP surface so the trusted spec surface can name the live theorem vocabulary. |
 
 ### L1 — Engine (IR-agnostic, exp003-bound; all 8 sorry-free + axiom-clean)
 
@@ -133,7 +142,7 @@ live replacement), **DEAD** (grep-zero, no purpose).
 
 | File | LOC | Role · why it exists |
 |---|---|---|
-| LoweringLemmas | 98 | **terminal.** `defsOf_ne_gas/ne_sload` (`:20/:55`) load-bearing spill invariants (consumed by MaterialiseCleanHalt/Runs + RealisabilitySpec). `allocate_toDefs` (`:91`) = Phase-A keystone (→ DecodeLower:56). `toDef_locOfExpr` (`:85`) = @[simp] used inside allocate_toDefs. |
+| LoweringLemmas | 139 | **terminal.** `defsOf_ne_gas/ne_sload` (`:21/:64`) load-bearing spill invariants (consumed by MaterialiseCleanHalt/Runs + RealisabilitySpec), plus `rematOf` projection twins (`:107/:116`) and `defsOf_eq_defEnv_find` (`:136`) for the post-P9 fold value channel. |
 | DecodeLower | 159 | **terminal.** Decode-at-cursor; single-caller bricks (`bextract`, `decode_{non,}push_of_list`) are load-bearing internal steps. |
 | Layout | 204 | **terminal.** Byte-layout offsets; single-caller length bricks are LIVE internal steps. |
 | DecodeAnchors | 318 | **terminal + likely-superseded island (confirm).** nonpush anchors LIVE (LowerDecode:121/1123/1137). But `decode_at_stmt_head_{nonpush,push}` + `decode_at_offset_push` (`:195/:215/:257`) have zero callers — their PUSH duty is done by MatDecLower's MatSeg path; symmetric completeness API (~65 LOC), confirm before removal. |
@@ -181,7 +190,7 @@ live replacement), **DEAD** (grep-zero, no purpose).
 |---|---|---|
 | LowerDecode | 1528 | **terminal.** Block-walk bricks (`sim_stmts_block`, `sim_term_*`). **Safe-delete:** `assign_sload_sub_key` (`:68`, zero-caller never-wired twin). **Confirm-first dedup:** `jump/branch_landing_of_cleanHalt` (`:486/769`, ~410 LOC, flagship re-derives inline RS~:1741-1899; green/axiom-guarded — do not delete blind). |
 | LowerConforms | 1260 | **shared-infra + DEAD capstone.** `sim_cfg` (`:970`) LIVE (DriveSim cyclic :648 + flagship); `SimTermStep` (`:96`), `WellFormedLowered` (`:143`), `CallRealises` (`:261`) shared-infra. The BUILDER path (`simStmtStep_block`/`_lowered` wrappers) has zero top callers, bypassed by the flagship — **confirm-first, not dead** (SimStmtStep/SimTermStep still feed the cyclic headline). **DEAD:** `Lir.lower_conforms` (`:1188`, ~63 LOC, zero real callers). `entry_storageAgree_codeFrame` (`:1089`) orphaned (confirm not R7 entry supply). |
-| Acyclic | 225 | **incremental-toward flagship R9.** Well-formedness CORE is LIVE: `wellFormedLowered_of_acyclic` (`:204`), `matFueled_of_exprRankLt` (`:93`), `matFueled_tmp_of_acyclic` (`:133`) — consumed by flagship §6 exProg (RS:3294/3304/3311/3366 cite `acyclic_exProg`/`ExprRankLt`/`acyclicWellFormedExProg`/`wellFormedLowered_of_acyclic`). Header (`:41-43`) "currently unreferenced" is **STALE** (true only if "default build" excludes WIP lib). |
+| Acyclic | 225 | **deleted by P9.** Historical generic-defs fuel/rank core. After P8, `WellFormedLowered` became fuel-free over `matCache` lengths and the WIP witness went through `IRWellFormed` + `codeFits` + `stackFits` into the internal `WellLowered` adapter; P9 removed the residual rank/fuel stack. |
 
 ### L6 — V2 spine + Drive
 
@@ -215,15 +224,17 @@ live replacement), **DEAD** (grep-zero, no purpose).
 
 ```lean
 ∃ O, RunFrom prog (entryState params) (realisedGas log)
-       (realisedCall log params.recipient) prog.entry O
+       (realisedCall log params.recipient) (realisedCreate log params.recipient) prog.entry O
    ∧ Conforms params.recipient log O
 ```
 
 Hypotheses: `hcode`/`hmod` (definitional pins), `hself`/`hgas` (decidable entry facts),
-`hwl : WellLowered prog` (one static checkable bundle, `:477`), `hrun : runWithLog … = some log`
-(the runtime premise), `hclean : log.clean`, `hseams : PrecompileAssumptions prog params` (the
-honest 2-field seam, `:550`). `Conforms` (`:155`) compares **BOTH** `observe.world` AND
-`observe.result` (return value / halt kind) — the full-observable foundation change (4628201).
+`hwf : IRWellFormed prog`, `hcodeFits : codeFits prog`, `hstk : stackFits prog` (the public
+static bundle and two scalar budgets that rebuild internal `WellLowered`), `hrun :
+runWithLog … = some log` (the runtime premise), `hclean : log.clean`, `hseams :
+PrecompileAssumptions prog params` (the honest 2-field seam now owned by `Spec/Seams`).
+`Conforms` compares **BOTH** `observe.world` AND `observe.result` (return value / halt kind) —
+the full-observable foundation change (4628201).
 
 Companions: `lower_conforms_exact` (`:3752`, both leftover streams `[]`) and
 `lower_conforms_gasfree` (`:3788`, the co-flagship under `NoGasReads`, meant proven FIRST).
@@ -267,7 +278,8 @@ entire §6 witness (`:2959-3623`) are fully sorry-free. **Corrections to prior f
 ### 3.4 How the layers feed the flagship
 
 - **L0 Spec** supplies the trusted surface the conclusion quotes: `RunFrom` (Semantics),
-  `lower`/`flatBytes` (Lowering), `observe`/`realisedGas`/`realisedCall`/`runWithLog` (Recorder),
+  `lower`/`flatBytes` (Lowering), `observe`/`realisedGas`/`realisedCall`/`realisedCreate`/
+  `runWithLog` (Recorder),
   `Conforms` (RS:155). `PrecompileAssumptions` + Seams name the irreducible boundary.
 - **L1 Engine** supplies the frame-level facts the drive/self-presence/mem/clean-halt reasoning
   needs: `runs_of_drive_ok`, `CleanHalts*`, `stepFrame_next_*`, MemAlgebra slot lemmas, Charges.
@@ -277,14 +289,14 @@ entire §6 witness (`:2959-3623`) are fully sorry-free. **Corrections to prior f
   clean-halt envelope + Match `sim_*`/oracle projections + StorageErase zero-write.
 - **L4 Sim** supplies `Corr` and the per-stmt/terminator arms (`sim_call_stmt` etc.) plus
   CleanHaltExtract's `next_*_of_cleanHalt` (called directly in RS).
-- **L5 Assembly** supplies `sim_cfg`/`SimTermStep`/`WellFormedLowered`/`CallRealises` (shared) and
-  Acyclic's well-formedness core (exProg R9).
+- **L5 Assembly** supplies `sim_cfg`/`SimTermStep`/`WellFormedLowered`/`CallRealises` (shared).
+  The old generic-`defs` fuel/rank support is historical; P9 deleted `Acyclic.lean`.
 - **L6 V2/Drive** supplies the cyclic drive spine, SelfPresent/CallPreservesSelf, Modellable,
   RecorderLemmas — the machinery the missing `runFrom_of_driveCorrLog` will walk.
 
 ### 3.5 RealisabilitySpec internal § structure (split map)
 
-- §1 helpers `:114-564` (all REAL: `WellLowered` :477, `PrecompileAssumptions` :550) — sorry-free
+- §1 helpers `:114-564` (all REAL: `WellLowered` internal adapter; `PrecompileAssumptions` now in `Spec/Seams`) — sorry-free
 - §2 coupling `:566-647` (`RecorderCoupled` :599, `DriveCorrLog` :629) — sorry-free
 - §3 reshaped ties `:649-948` (`StmtTies'` :710, `TermTies'` :817) — sorry-free
 - §4 exact-consumption `:950-1040` (RunFromLeft/RunFromAll + 2 PROVED adequacy lemmas) — sorry-free
@@ -325,17 +337,16 @@ exclusive feeder `runWithLog_messageCall` (RecorderLemmas:143) dies with it (del
 `entry_corr` (LowerConforms:1102) also loses its only code caller (:1226) — but RS:626 names it as
 intended flagship R7 entry machinery, so **confirm before removing entry_corr**.
 
-**Acyclic.lean's well-formedness CORE is LIVE — distinct from the dead capstone.** RS imports it
-(`:2`) and the §6 exProg witness consumes `acyclic_exProg`/`ExprRankLt`/`acyclicWellFormedExProg`/
-`wellFormedLowered_of_acyclic` (RS:3294/3304/3311/3366) → `wellFormedLowered_exProg` → R9
-`wellLowered_check_exists` → R12a/b non-vacuity. It is the reusable decidable R9 discharge (the
-fuel/rank strong-induction the cyclic path would otherwise re-prove inline). **KEEP Acyclic.lean;
-drop only the capstone theorem.** Header `:41-43` "currently unreferenced" is STALE.
+**P8 update:** `Acyclic.lean` is no longer the well-formedness route into the WIP witness.
+`WellFormedLowered` dropped its `MatFueled` fields, the public theorem shape is
+`IRWellFormed` + `codeFits` + `stackFits`, and `wellLowered_of_IRWellFormed` rebuilds the internal
+adapter consumed by V2 machinery. P9 removed the remaining `Acyclic`/`MatFueled` legacy
+generic-`defs` fuel support.
 
-**No whole file disappears from the acyclic-vs-cyclic conclusion.** The "delete Acyclic +
-LowerConforms → drop 6k LOC" hope is refuted: the L4 sim engine is shared via `sim_cfg`; the full
-"kill the acyclic file" refactor is relocating `sim_cfg`/`SimTermStep`/`WellFormedLowered` +
-deleting the dead capstone = ~300-LOC net + relocation, payoff conceptual (one headline).
+**No whole simulation layer disappears from the acyclic-vs-cyclic conclusion.** The L4 sim engine
+is shared via `sim_cfg`; P8 only makes the static lowered-layout adapter fuel-free and keeps it
+internal. P9 is the point where the residual fuel/rank file can disappear, after all remaining
+generic fuel consumers are migrated.
 
 ---
 
@@ -387,9 +398,9 @@ fold (`stmtsPost`/`StmtDefinable`/`runStmts_exists`). Match invariant STRUCTURE 
 **INCREMENTAL-toward-OPEN-goals (NOT removable — the shallow pass's main error source):**
 Create.lean + Descent DescentKind block → first-class CREATE; BoundaryReach loweringOp bricks →
 R6; `callRealises_bridge` → R3; `stash_tail_runs_covered` → Phase-C; Loc/Alloc layer → Phase-D;
-Drive/Headline.lean + SelfPresent §3-4 → R0 reshape; Acyclic.lean core → R9/exProg.
+Drive/Headline.lean + SelfPresent §3-4 → R0 reshape.
 
-**INTENTIONAL infra (NOT removable):** Spec/Conformance tombstone; Spec/Seams register; Audit
+**INTENTIONAL infra (NOT removable):** Spec/Conformance vocabulary; Spec/Seams register; Audit
 guards; GasRealises/SloadRealises regression-witnesses (RELOCATE not delete); exProg witness +
 PROVED refutations `not_defsSound_stale`/`not_runs_atReachableBoundary`; V2/Call worked-example.
 
@@ -403,11 +414,11 @@ PROVED refutations `not_defsSound_stale`/`not_runs_atReachableBoundary`; V2/Call
 the largest ungated do-now win); (2) split RS §6 exProg into its own file (legibility, halves the
 flagship file); (3) drop dead capstone + stranded feeder (~80 LOC); (4) directory reorg (flat →
 role-dirs, legibility, 0 LOC); (5) small orphan deletes. **NOT wins (guard against shallow pass):**
-the ~30 frame-accessor @[simp] families (distinct constructors); chargeOf mirroring
-materialiseExpr (intentional B1/B2 split); the covered-slot MLOAD dup (intentional anti-cycle);
+the ~30 frame-accessor @[simp] families (distinct constructors); chargeCache/matCache lockstep
+(intentional B1/B2 split); the covered-slot MLOAD dup (intentional anti-cycle);
 `CallRealisesS` vs `CallRealises` (named R0b-gated debt).
 
-**STALE headers/docstrings to distrust:** Acyclic `:41-43` ("unreferenced"); Drive/Headline
+**STALE headers/docstrings to distrust:** Drive/Headline
 `:17-25` ("headlines deleted" — file is live salvage); Spec/Semantics `:5` ("call-free
 prototype"); Spec/Recorder `:154/157` ("(gas, calls)" — real accumulator is a 3/4-tuple);
 CleanHaltExtract `:41` + SimStmts `:163` (overstate axiom-guard coverage — no `#print axioms` in

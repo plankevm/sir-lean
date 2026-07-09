@@ -1,5 +1,11 @@
 # Deep-dive audit — the "Materialise" cluster (2026-07-04)
 
+> **P9 status note (2026-07-08).** This audit describes the pre-Phase-2A materialise stack.
+> The legacy APIs it names (`Expr.slot`, `materialiseExpr`, `materialise`, `recomputeFuel`,
+> `MatFueled`, `MatDec`, `MatRuns`, `chargeOf`, `MaterialiseGasCharge`, and
+> `Assembly/Acyclic.lean`) have been replaced by the fold/channel forms in Lean; keep the body
+> below as provenance, not current symbol inventory.
+
 Scope: the six spill/recompute **value-channel** files —
 `DefsSound.lean` (B3), `MaterialiseGas.lean` (B2), `MaterialiseRuns.lean` (B1
 linchpin), `MatDecLower.lean` (A→B1 bridge), `MaterialiseCleanHalt.lean` (B1
@@ -265,12 +271,11 @@ Exit edges (cluster → consumers). Note the **cross-cluster back-loop**:
 - `StashTail` is imported by `LowerDecode` and `SimTerm`.
 - `DefsSound` also exits to `V2/Call` (via `WellFormedDec`/`wellFormed_of_dec`).
 
-Both live (`V2.lower_conforms`) and dead (`Acyclic` → `Lir.lower_conforms`) capstones
-pass through this cluster. The only decls the audit could tie *specifically* to the
-acyclic path — `WellFormed`, `MatFueled` — are **also** used on the live path
-(`V2/RealisabilitySpec`, `LowerConforms`, `LowerDecode`), so **nothing in this cluster
-is acyclic-only**. Retiring `Acyclic.lean`/`LowerConforms`'s dead capstone would not
-remove any decl here.
+P8 update: the live conformance path no longer uses `Acyclic`/`MatFueled` as its
+well-formedness route. The canonical value channel is the fold-cache path (`matCache` /
+`chargeCache` plus the `MatDecC`/`MatRunsC` stack); the old generic fuel definitions remain only
+as residual P9 deletion targets. Retiring `Acyclic.lean` now waits on deleting that old fuel stack,
+not on the live lowered-layout bundle.
 
 ---
 

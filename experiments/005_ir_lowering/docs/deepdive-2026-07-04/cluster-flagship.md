@@ -227,8 +227,8 @@ here obligation-by-obligation as sorries land.
   `selfPresent_runs`, `evmCallOracle`, the SSTORE/GAS/SLOAD `stepFrame_*` inversions,
   `Lir.CallRealises` (the def `CallRealisesS` copies), `Lir.StepScoped`/`DefsSound`/
   `NonRecomputable`/`defsOf`/`chargeOf`/`materialise`. This is the L1–L6 machinery.
-- **`LirLean.Acyclic`** — `Lir.Acyclic`, `Lir.AcyclicWellFormed`, `Lir.WellFormedLowered`
-  (used only by the §6 `exProg` witness well-formedness chain).
+- **`LirLean.Acyclic`** — historical §6 witness route (`AcyclicWellFormed` /
+  `WellFormedLowered`) superseded by P8. The residual rank/fuel support waits for P9 deletion.
 - **`LirLean.BoundaryReach`** — `AtReachableBoundary`, `reachable_boundary_loweringByte`,
   `reachesBoundary_of_mem_validJumpDests`, `reachesBoundary_nextInstr`, `flatBytes`,
   `lower_eq_flatBytes` (used only by the R6 geometry track, §5).
