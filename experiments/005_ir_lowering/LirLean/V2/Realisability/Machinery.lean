@@ -1424,7 +1424,8 @@ theorem atReachableBoundaryVJ_call {prog : Lir.Program} {fr rf : Frame}
   -- extension of `stepFrame_needsCall_inv` to the pc / jump-table / decoded-op it omits.
   have hBcall : Evm.parseInstr byte = Operation.CALL
       ∧ pending.frame.exec.pc = fr.exec.pc
-      ∧ pending.frame.validJumps = fr.validJumps := sorry
+      ∧ pending.frame.validJumps = fr.validJumps :=
+    Lir.stepFrame_needsCall_lowering_site_inv hcode hpc hbnd hget hop hncall
   obtain ⟨hopCall, hppc, hpvj⟩ := hBcall
   -- ── BRICK B-inrange (CALL instance; same home as the STEP B-inrange) ──
   have hInR : b + 1 < (Lir.flatBytes prog).length := sorry
