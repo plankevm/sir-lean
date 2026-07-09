@@ -1,4 +1,5 @@
 import LirLean.Decode.JumpValid
+import LirLean.Engine.Descent
 
 /-!
 # LirLean — boundary-reachability bricks for the whole-run `AtReachableBoundary` invariant
@@ -173,6 +174,67 @@ theorem decode_reachable_boundary_loweringOp (prog : Program) (n : Nat)
     exact ⟨Evm.parseInstr byte, _,
       decode_lower_push prog n byte (Evm.pushArgWidth (Evm.parseInstr byte)) _
         hbound hbyte rfl hwpos rfl, hop⟩
+
+theorem decode_of_loweringByte {prog : Program} {b : Nat} {byte : UInt8}
+    (hbnd : b < 2 ^ 32) (hget : (lower prog).get? b = some byte) :
+    ∃ arg, Evm.decode (lower prog) (UInt32.ofNat b) = some (Evm.parseInstr byte, arg) := by
+  have hbyte : (flatBytes prog)[b]? = some byte := by rw [← lower_get?_eq]; exact hget
+  by_cases hw : Evm.pushArgWidth (Evm.parseInstr byte) = 0
+  · exact ⟨.none, decode_lower_nonpush prog b byte hbnd hbyte hw⟩
+  · have hwpos : Evm.pushArgWidth (Evm.parseInstr byte) > 0 := UInt8.pos_iff_ne_zero.mpr hw
+    exact ⟨_,
+      decode_lower_push prog b byte (Evm.pushArgWidth (Evm.parseInstr byte)) _
+        hbnd hbyte rfl hwpos rfl⟩
+
+theorem loweringOp_call_family_eq_call {op : Evm.Operation} (hop : IsLoweringOp op)
+    (h :
+      op = .CALL ∨ op = .CALLCODE ∨ op = .DELEGATECALL ∨ op = .STATICCALL) :
+    op = .CALL := by
+  rcases h with h | h | h | h
+  · exact h
+  · subst h; unfold IsLoweringOp at hop; simp at hop
+  · subst h; unfold IsLoweringOp at hop; simp at hop
+  · subst h; unfold IsLoweringOp at hop; simp at hop
+
+theorem stepFrame_needsCall_lowering_site_inv {prog : Program} {fr : Evm.Frame}
+    {cp : Evm.CallParams} {pd : Evm.PendingCall} {b : Nat} {byte : UInt8}
+    (hcode : fr.exec.executionEnv.code = lower prog) (hpc : fr.exec.pc = UInt32.ofNat b)
+    (hbnd : b < 2 ^ 32) (hget : (lower prog).get? b = some byte)
+    (hop : IsLoweringOp (Evm.parseInstr byte))
+    (hstep : Evm.stepFrame fr = .needsCall cp pd) :
+    Evm.parseInstr byte = .CALL ∧ pd.frame.exec.pc = fr.exec.pc
+      ∧ pd.frame.validJumps = fr.validJumps := by
+  obtain ⟨arg, hdec⟩ := decode_of_loweringByte (prog := prog) hbnd hget
+  obtain ⟨hopFam, hppc, hpvj, _⟩ := Evm.stepFrame_needsCall_site_inv hstep
+  have hgetD :
+      (Evm.decode fr.exec.executionEnv.code fr.exec.pc |>.getD (.STOP, .none)).1
+        = Evm.parseInstr byte := by
+    simp [hcode, hpc, hdec]
+  have hfam :
+      Evm.parseInstr byte = .CALL ∨ Evm.parseInstr byte = .CALLCODE
+        ∨ Evm.parseInstr byte = .DELEGATECALL ∨ Evm.parseInstr byte = .STATICCALL := by
+    simpa [hgetD] using hopFam
+  exact ⟨loweringOp_call_family_eq_call hop hfam, hppc, hpvj⟩
+
+theorem stepFrame_needsCreate_lowering_site_inv {prog : Program} {fr : Evm.Frame}
+    {cp : Evm.CreateParams} {pd : Evm.PendingCreate} {b : Nat} {byte : UInt8}
+    (hcode : fr.exec.executionEnv.code = lower prog) (hpc : fr.exec.pc = UInt32.ofNat b)
+    (hbnd : b < 2 ^ 32) (hget : (lower prog).get? b = some byte)
+    (_hop : IsLoweringOp (Evm.parseInstr byte))
+    (hstep : Evm.stepFrame fr = .needsCreate cp pd) :
+    (Evm.parseInstr byte = .System .CREATE ∨ Evm.parseInstr byte = .System .CREATE2)
+      ∧ pd.frame.exec.pc = fr.exec.pc ∧ pd.frame.validJumps = fr.validJumps := by
+  obtain ⟨arg, hdec⟩ := decode_of_loweringByte (prog := prog) hbnd hget
+  obtain ⟨hopCreate, hppc, hpvj, _⟩ := Evm.stepFrame_needsCreate_site_inv hstep
+  have hgetD :
+      (Evm.decode fr.exec.executionEnv.code fr.exec.pc |>.getD (.STOP, .none)).1
+        = Evm.parseInstr byte := by
+    simp [hcode, hpc, hdec]
+  have hcreate :
+      Evm.parseInstr byte = .System .CREATE ∨ Evm.parseInstr byte = .System .CREATE2 := by
+    simpa [hgetD] using hopCreate
+  exact ⟨hcreate, hppc, hpvj⟩
+
 
 end Lir
 
