@@ -14,6 +14,11 @@ Read-only synthesis of the planning docs + the actual Lean on the current `main`
 > *vocabulary* drifted. Section 6 below is the docs→tree rename/change map. When in doubt, the
 > Lean on disk wins.
 
+> **P8 status note (2026-07-08).** This architecture note predates the P8 well-formedness
+> reshaping. `Acyclic.lean` / `MatFueled` / `AcyclicWellFormed` no longer supply the live
+> well-formedness route. The public theorem surface is `IRWellFormed` + `codeFits` +
+> `stackFits`, and `wellLowered_of_IRWellFormed` rebuilds the internal `WellLowered` adapter.
+
 ---
 
 ## 0. What the experiment is (one paragraph)
@@ -85,8 +90,8 @@ that exp003 does not export (single-opcode steps + whole-call `Behaves`, nothing
 - **L5 — CFG assembly.** `LowerDecode` (1528; block-walk bricks `sim_stmts_block`/`sim_term_*`,
   load-bearing), `LowerConforms` (1260; hosts `sim_cfg`, `SimTermStep`, `WellFormedLowered` — all
   **live** — plus the **DEAD acyclic capstone** `Lir.lower_conforms`, `LowerConforms.lean:1188`,
-  ~73 LOC, zero refs), `Acyclic` (acyclic well-formedness witness; feeds only exProg + the dead
-  capstone). *Why:* `sim_cfg` inducts on a *given* IR `RunFrom` and is already cycle-agnostic
+  ~73 LOC, zero refs), and residual `Acyclic` rank/fuel support pending P9. *Why:* `sim_cfg`
+  inducts on a *given* IR `RunFrom` and is already cycle-agnostic
   (`docs/cyclic-cfg-forward-sim-plan.md:11-14,53`).
 
 - **L6 — V2 gas-free SPINE + cyclic DRIVE.** `V2/Law` (determinism floor), `V2/IRRun`

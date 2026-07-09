@@ -1,5 +1,10 @@
 # Phase 2A — value-channel core retype (ordered def-env + `Expr.slot` removal)
 
+> **P9 status note (2026-07-08).** The deletion pass described here has landed in Lean:
+> `Expr.slot`, the legacy fuel/materialisation functions, `MatFueled`, `Assembly/Acyclic.lean`,
+> and the `NoSlotSource` witnesses are gone. Historical references below are provenance for the
+> migration, not current API.
+
 Design of record for exp005 branch `exp005-phase2-valuechannel`. Scope: FULL FUEL
 PURGE. Kill `fuel`/`recomputeFuel`/`MatFueled`/rank apparatus by replacing the
 unordered `defsOf : Tmp → Option Expr` map with an **ordered def-environment** and
@@ -190,15 +195,15 @@ sub-decodes at offsets `(matCache prog t').length` (cache lengths) instead of
 `(materialiseExpr defs f (.tmp _)).length`. `MatRuns` (`MaterialiseRuns.lean:336`) and
 `chargeOf` (`MaterialiseGas.lean:73`) likewise lose `fuel` and read `matCache`. Their
 **conclusions are unchanged** (decode-fact bundle; value push = `evalExpr`; per-opcode gas
-list). `MatFueled` (`MatDecLower.lean:262`) and its lemmas are **deleted** (obligation 6).
+list). `MatFueled` (`MatDecLower.lean:262`) and its lemmas were deleted by P9
+(obligation 6), not live obligations.
 
 ### 3.4 Shrunk `IRWellFormed` (`WellFormed.lean:471`)
 
-Final field list: `defineBeforeUse, defsConsistent, entry0, cfgClosed, defEnvOrdered,
+Post-P9 field list: `defineBeforeUse, defsConsistent, entry0, cfgClosed, defEnvOrdered,
 revalidates, slotAddr`.
 - `acyclicDefs` (`:487`) → **replaced** by `defEnvOrdered : DefEnvOrdered prog`.
-- `noSlotSource` (`:492`) → **deleted** (`Expr.slot` gone ⇒ impossible by construction;
-  `NoSlotSource` def `:283` deleted).
+- `noSlotSource` (`:492`) → **deleted** with `Expr.slot`.
 - `defsConsistent` gains the **create-result arm** (obligation 1).
 
 ### 3.5 Shrunk `WellFormedLowered` (`LowerConforms.lean:148`)
@@ -350,17 +355,13 @@ step (unsound, §2.2).
   intact.
 
 - **P8 — (Ob 5) shrink `IRWellFormed`/`WellFormedLowered`/`WellLowered` + flagship + witness.**
-  `IRWellFormed` (`WellFormed.lean:471`): replace `acyclicDefs` with `defEnvOrdered`
-  (wired via P2 subsumption where a consumer still needs `Acyclic`), drop `noSlotSource`.
-  `WellFormedLowered` (`LowerConforms.lean:148`): drop the four `matFueled_*` fields, restate
-  the six `bound_*` + `slots_slot` fuel-free over `matCache` lengths / fold offset table
-  (§3.5). `WellLowered` (`Surface.lean:401`): drop `noSlotSource`. Rewrite
-  `wellFormedLowered_of_IRWellFormed` (`RealisabilitySpec.lean:124`): drop the
-  `acyclicDefs`/`matFueled_of_acyclic`/`slots_slot_of_noSlotSource` lines. Update the
-  `exProg` witness (`Witness.lean:363-707`): `defEnvOrdered_exProg` by `decide`; drop
-  `acyclic_exProg`/`acyclicWellFormedExProg`/`noSlotSource_exProg`/the `acyclicDefs`/
-  `noSlotSource` witness fields. *Green gate:* `WIP` green, ONLY pre-existing sorries;
-  `exProg` witness green.
+  **Landed shape (2026-07-08):** the public theorem shape is
+  `IRWellFormed` + `codeFits` + `stackFits`; `IRWellFormed` carries `defEnvOrdered`;
+  `WellFormedLowered` has dropped the `matFueled_*` fields and is fuel-free over `matCache`
+  lengths / fold offsets; `WellLowered` remains an internal adapter consumed by the current V2
+  realisability machinery. The former `noSlotSource` transition is over; P9 deleted it with
+  `Expr.slot` and the legacy fuel/rank definitions. *Green gate:* `WIP` green, ONLY pre-existing
+  sorries; `exProg` witness green.
 
 - **P9 — (Ob 6) delete the orphaned old machinery.** With all consumers migrated, DELETE:
   `Expr.slot` (`IR.lean:94`) + `evalExpr .slot` arm (`Semantics.lean:147`, `evalExpr` becomes
@@ -392,14 +393,13 @@ Files touching `materialiseExpr`/`MatDec`/`MatFueled`/`recomputeFuel` (grep coun
 
 `Expr.slot` dead-arm removal spans ~24 files (grep `.slot`).
 
-Specific casualties/rewrites: `WellFormedLowered.matFueled_{sstore,sload,ret,branch}` and
-the four `bound_*` restatements (`LowerConforms.lean:150-205`); `matFueled_of_acyclic`,
-`AcyclicWellFormed`, `wellFormedLowered_of_acyclic`, `matFueled_of_exprRankLt`, `ExprRankLt`,
-`Acyclic` (`Assembly/Acyclic.lean`) DELETED; `wellFormedLowered_of_IRWellFormed`
-(`RealisabilitySpec.lean:124`) drops the acyclicDefs/matFueled/noSlotSource lines;
-`allocate_toDefs`/`defsOf_ne_gas`/`_ne_sload` (`Decode/LoweringLemmas.lean`) shrink/vanish;
-`acyclic_exProg`/`acyclicWellFormedExProg`/`noSlotSource_exProg` (`Witness.lean:365-707`) →
-`defEnvOrdered_exProg` (`decide`).
+Specific casualties/rewrites are split by phase. P8 removed
+`WellFormedLowered.matFueled_{sstore,sload,ret,branch}` from the live lowered-layout bundle and
+reworked `wellLowered_of_IRWellFormed` to derive `WellLowered` from `IRWellFormed` plus the
+two budgets. P9 then deleted `matFueled_of_acyclic`, `AcyclicWellFormed`,
+`wellFormedLowered_of_acyclic`, `matFueled_of_exprRankLt`, `ExprRankLt`, `Acyclic`
+(`Assembly/Acyclic.lean`), `Expr.slot`, `materialiseExpr`, `recomputeFuel`, and the remaining
+`noSlotSource` witnesses.
 
 ---
 

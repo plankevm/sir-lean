@@ -4,6 +4,11 @@ All evidence gathered. Composing the report now.
 
 # FLAGSHIP SIGNATURE — Ideal Theorem Surface for exp005
 
+> **P9 status note (2026-07-08).** This design report is historical. The public theorem
+> surface now uses `IRWellFormed` plus `codeFits`/`stackFits`; legacy references to
+> `Expr.slot`, `materialiseExpr`, `recomputeFuel`, `MatFueled`, `Assembly/Acyclic.lean`, or
+> `NoSlotSource` are not current APIs.
+
 *Design-track report (1 of 5). All paths relative to `/Users/eduardo/workspace/evm-semantics/.worktrees/ir-lowering/experiments/005_ir_lowering/` unless noted. Line numbers verified against branch `exp005-honesty-cleanup` post-Phase-1 (TieDischarge.lean = 4507 lines; headline `lower_conforms_cyclic_assembled` at `LirLean/V2/TieDischarge.lean:4292`, tie-free form at `:4175`).*
 
 ## 0. Executive summary and two findings the audit understated
@@ -51,7 +56,7 @@ def Conforms (self : AccountAddress) (log : RunLog) (O : Observable) : Prop :=
 /-- STATIC well-formedness of the lowering — a function of the program text only,
 intended to be decidable (`wellLowered_of_check : lowerCheck prog = true → WellLowered prog`). -/
 structure WellLowered (prog : Program) : Prop where
-  wf      : WellFormedLowered prog          -- LowerConforms.lean:143 (fuel/pc/offset/slot)
+  wf      : WellFormedLowered prog          -- LowerConforms.lean:143 (P8: pc/offset/slot)
   defs    : RunDefinable prog               -- V2/IRRun.lean:257 (operand definability)
   entry0  : prog.entry.idx = 0
   closed  : ClosedCFG prog                  -- entry + every jump/branch target present
@@ -135,7 +140,7 @@ Legend: **(a)** dischargeable → tracked sorry-debt; **(b)** honest seam → do
 | `hdef : RunDefinable` | (a), with a flag | Static per program (`IRRun.lean:257`). **Flag:** its `∀ st` quantification ("definable from ANY state") is an over-approximation that only holds for programs whose block operands are block-locally defined or spilled; fine for the toy IR, will not survive the real Plank IR — the honest future shape indexes definability by reachable states or has the lowering enforce def-before-use. Track as a known altitude issue, not flagship-blocking |
 | `hcall : CallPreservesSelf` | (c) as-supplied → (b) via `hprec` | The 260-line discharge chain exists and is unwired (audit §4#4); take `hprec` (`callPreservesSelf_modGuards`, `TieDischarge.lean:3478`) and derive `hcall` internally. `hprec` itself: **(b)** — a live precompile's `.inr` arm genuinely can erase (docstring :3486-3494) |
 | `hpresent` | (c) | Quantifying over the walk invariant (`DriveCorrPlus`) in a *hypothesis* is inside-out; presence of reached labels is an induction consequence of entry-present + `WellLowered.closed` — thread `∃ b, blockAt prog L = some b` in the invariant |
-| `hwfl : WellFormedLowered` | (a) | Purely structural (`LowerConforms.lean:143-215`); `MatFueled` fields from def-graph acyclicity (`Acyclic.lean:198`); bounds finite checks. Belongs in `WellLowered` with a checker lemma |
+| `hwfl : WellFormedLowered` | (a) | Historical shape: structural bounds plus `MatFueled` fields from def-graph acyclicity. P8 supersedes this: public statements use `IRWellFormed` + `codeFits` + `stackFits`, and `WellFormedLowered` is an internal fuel-free layout adapter. |
 | `hjumpPresent`/`hbranchPresent` | (a) | Static CFG closure, decidable (chain doc §4: "decidable from the CFG text") |
 | `hstkBranch` | (a) | `chargeOf` length is a function of program text (`:4325-4327`); decidable fold into `WellLowered.stack` |
 | `hstmtties`/`htermties` | mixed | Per-conjunct below |

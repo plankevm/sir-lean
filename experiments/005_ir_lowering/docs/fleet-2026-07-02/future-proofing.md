@@ -1,5 +1,9 @@
 # Future-Proofing Review — exp005 vs. memory, allocator, data segments, multi-IR
 
+> **P9 status note (2026-07-08).** This review predates the Phase 2A value-channel cleanup.
+> Mentions of `Expr.slot`, `materialiseExpr`, `recomputeFuel`, `MatFueled`,
+> `Assembly/Acyclic.lean`, or `NoSlotSource` are historical; spill policy now lives in `Loc`.
+
 *High-level design track (1 of 5), 2026-07-02. All paths relative to `/Users/eduardo/workspace/evm-semantics/.worktrees/ir-lowering/experiments/005_ir_lowering/` unless noted. Signature-level review; no proofs were run.*
 
 **One correction to the brief before anything else:** the brief says "the current lowering spills tmps to STORAGE slots; real code spills to MEMORY." That is not what the code does. The lowering already spills to **EVM memory**: `slotOf t = t.id * 32` (Lowering.lean:132), the spill stash is `materialise(e) ++ PUSH slot ++ MSTORE` (Lowering.lean:186-187), readback is `PUSH slot; MLOAD` (Lowering.lean:142), and the coupling clause is `MemRealises` — an `mload`-readback tie on the frame's `MachineState.memory` (MaterialiseRuns.lean:601-606), carried as `Corr.memAgree` (SimStmt.lean:135). This matters a lot for the verdicts below: exp005 already has a working *bytecode-memory* value channel with coverage/activeWords bookkeeping and transport lemmas. What it does **not** have is IR-*visible* memory, and its memory placement is a single hardcoded deterministic function. The future-proofing question is therefore not "can memory be modeled at all" (the hard EVM-side bricks exist) but "can the IR see memory, and can placement stop being `t.id * 32`."

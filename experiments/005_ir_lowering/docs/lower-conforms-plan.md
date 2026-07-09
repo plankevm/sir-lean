@@ -112,8 +112,9 @@ reconciles with the runtime-resolved jump.) The builder-based headline `lower_co
 re-states `lower_conforms` with hypotheses reduced to: `WellFormedLowered` + `CallFree`
 (well-formedness), the GENUINE §7 per-block ties (`StmtTies`/`TermTies`, collected predicates) +
 the entry-frame ties, and `hir`. CARRIED (the precise honest residual): `WellFormedLowered`
-(`MatFueled` carried — dischargeable from `defsOf`-acyclicity, not yet re-derived; bounds from
-lowered-program size), the per-intermediate-frame SLOAD/SSTORE/GAS + `validJumps` + RETURN-site
+(`MatFueled` was carried in this historical plan; P8 has since made `WellFormedLowered`
+fuel-free over `matCache` lengths / fold offsets and rebuilds it from `IRWellFormed` +
+`codeFits` + `stackFits`), the per-intermediate-frame SLOAD/SSTORE/GAS + `validJumps` + RETURN-site
 recording-correspondence ties (the trace-supplied gas/warmth/storage = the actual frames), and
 the IR-run hypothesis `hir` (no bytecode→IR `RunFrom` synthesis). No
 `sorry`/`axiom`/`native_decide`; axiom-clean `[propext, Classical.choice, Quot.sound]`.

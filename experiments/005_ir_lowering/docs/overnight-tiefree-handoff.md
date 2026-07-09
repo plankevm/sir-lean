@@ -1,5 +1,9 @@
 # Overnight tie-free pipeline — verification + handoff (2026-06-30)
 
+> **P9 status note (2026-07-08).** This handoff is historical. Legacy fuel/materialisation
+> names such as `Expr.slot`, `materialiseExpr`, `materialise`, `recomputeFuel`, `MatFueled`,
+> `Assembly/Acyclic.lean`, and `NoSlotSource` are no longer current APIs.
+
 Worktree: `experiments/005_ir_lowering`, branch `ir-convergence` (HEAD `079343f`).
 Toolchain v4.30.0, `autoImplicit=false`.
 

@@ -1,5 +1,9 @@
 # Fleet audit 2026-07-04 — cluster: Materialise + gas-aware Simulation bricks + CALL/CREATE oracles
 
+> **P9 status note (2026-07-08).** This audit predates the Phase 2A deletion pass. Legacy
+> `Expr.slot`/fuel/materialisation references are historical; current code uses the fold-based
+> `Loc`/`matCache` value channel and the old `MatFueled`/`Assembly/Acyclic.lean` route is gone.
+
 Scope: 14 files, **7084 LOC total**. This cluster is the bulk of the gas-aware simulation
 stack (stack (a) in the two-stacks picture). The audit question is: how much of it feeds
 **only** the doomed acyclic `LowerConforms` path vs. is genuinely reused by the surviving

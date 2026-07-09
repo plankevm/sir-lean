@@ -1,5 +1,10 @@
 # Fleet audit 2026-07-04 — Cluster: Engine + V2 spine + Drive
 
+> **P9 status note (2026-07-08).** This audit is historical where it discusses
+> `Acyclic.lean`, `MatFueled`, `Expr.slot`, `materialiseExpr`, `recomputeFuel`, or
+> `NoSlotSource`; those legacy routes/APIs have been deleted or superseded by
+> `IRWellFormed` plus `codeFits`/`stackFits`.
+
 Scope: the IR-agnostic EVM reasoning **Engine/**, the gas-free frame-free **V2 spine**, and the
 cyclic-CFG **V2/Drive** layer. 17 files. No `.lean` file was modified.
 

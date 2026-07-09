@@ -4,9 +4,15 @@ Read-only statement-level comparison + dependency trace. Question: is the acycli
 strictly-weaker version of the flagship or a genuinely different theorem, and is the whole acyclic
 path (capstone + `Acyclic.lean` + capstone-only support) useless / superseded?
 
-Answer up front: the **acyclic capstone THEOREM is genuinely dead** (superseded, drop it) but the
-**`Acyclic.lean` well-formedness CORE is live** (it builds the flagship's own non-vacuity witness).
-The two must not be conflated.
+> **P8 status note (2026-07-08).** The old conclusion about `Acyclic.lean` supplying the
+> flagship witness is superseded. P8 routes the witness through `IRWellFormed`,
+> `codeFits`, `stackFits`, and the internal `WellLowered` adapter. The remaining
+> `Acyclic`/`MatFueled` definitions are P9 deletion targets, not live P8 obligations.
+
+Answer up front: the **acyclic capstone THEOREM is genuinely dead** (superseded, drop it). The
+2026-07-04 conclusion that `Acyclic.lean` still supplied the live well-formedness core is now
+historical: P8 moved the witness and public theorem surface to `IRWellFormed` plus the scalar
+`codeFits`/`stackFits` budgets, with `WellFormedLowered`/`WellLowered` kept internal.
 
 ---
 
@@ -130,27 +136,13 @@ world-equation → `conforms_of_worldeq` step.
 - `messageCall_runs` (Match.lean:557): the capstone uses it (LowerConforms.lean:1236), but its other
   caller is Match's `lower_preserves_ret` (a separately-superseded decl). Not a clean capstone kill.
 
-### 3d. `Acyclic.lean` exports — LIVE via the flagship's exProg non-vacuity witness
+### 3d. `Acyclic.lean` exports — superseded by P8
 
-`RealisabilitySpec.lean` imports `LirLean.Acyclic` (:2) and the §6 witness consumes the core:
-
-- `acyclic_exProg : Lir.Acyclic (defsOf exProg) rankExProg` (RealisabilitySpec.lean:3294)
-- `Lir.ExprRankLt rankExProg` (RealisabilitySpec.lean:3304)
-- `acyclicWellFormedExProg : Lir.AcyclicWellFormed exProg` (RealisabilitySpec.lean:3311)
-- `wellFormedLowered_exProg := Lir.wellFormedLowered_of_acyclic acyclicWellFormedExProg`
-  (RealisabilitySpec.lean:3365-3366)
-
-Chain: `wellFormedLowered_of_acyclic` (Acyclic.lean:204) discharges the two structural `MatFueled`
-fields of `WellFormedLowered` from the rank witness (via `matFueled_tmp_of_acyclic`, Acyclic.lean:133
-← `matFueled_of_exprRankLt`, :93). `wellFormedLowered_exProg` then feeds `wellLowered_exProg.wf`
-(RealisabilitySpec.lean:3585, WellLowered.wf field :480) → the R9 anti-vacuity anchor
-`wellLowered_check_exists` (:3605) → R12a `exProg_satisfies_hypotheses` (:3835) → R12b
-`exProg_nonvacuity` (:3848). So `Acyclic.lean` is on the live non-vacuity path of the flagship.
-
-Note: `Acyclic.lean`'s own header (:41-43) claims the core is "currently unreferenced in the default
-build (its only consumers were the deleted headlines)". That comment is STALE with respect to the
-WIP lib — the flagship's exProg witness references every public `Acyclic` decl. It is true only if
-"default build" is read as excluding `V2.RealisabilitySpec` (the WIP lean_lib).
+This section's original live-path analysis is superseded. The WIP witness no longer depends on
+`AcyclicWellFormed` or `wellFormedLowered_of_acyclic`; `WellFormedLowered` has no `MatFueled`
+fields to discharge. The remaining `ExprRankLt`/`Acyclic`/`matFueled_*` declarations are legacy
+generic-`defs` fuel support kept compiling until the P9 deletion sweep removes them with
+`materialiseExpr`/`recomputeFuel`.
 
 ---
 
@@ -169,17 +161,10 @@ WIP lib — the flagship's exProg witness references every public `Acyclic` decl
   `sim_cfg`, `beginCall_code`, `cleanHaltsNonException_forward` all remain used by the cyclic path
   and the flagship.
 
-### (b) `Acyclic.lean` well-formedness witness — KEEP.
+### (b) `Acyclic.lean` well-formedness witness — P8-superseded.
 
-- It IS needed by the flagship's non-vacuity witness: `wellFormedLowered_of_acyclic` +
-  `AcyclicWellFormed` + `Acyclic` + `ExprRankLt` build `wellFormedLowered_exProg`
-  (RealisabilitySpec.lean:3294/3304/3311/3366), which is exactly the `WellLowered.wf` field R9 needs
-  for `exProg`.
-- **Could the cyclic path supply that witness without Acyclic.lean?** Only by proving
-  `WellFormedLowered exProg` inline — i.e. re-establishing the two `MatFueled` fields
-  (`matFueled_sstore`/`matFueled_sload`/`matFueled_ret`/`matFueled_branch`) directly for `exProg`.
-  That IS the fuel/rank argument `Acyclic.lean` factors out (`matFueled_of_exprRankLt` by strong
-  induction on fuel). So `Acyclic.lean` is the reusable decidable static discharge of R9's `wf`
-  clause; removing it just relocates the same proof inline into the witness. It is incremental-toward
-  the flagship R9, not dead. The distinction the question flags is real: **the file is reused for the
-  well-formedness CORE, but the acyclic THEOREM/assembly (the capstone) is not.**
+- It is no longer needed by the flagship's non-vacuity witness: P8 rebuilds the internal
+  `WellLowered` adapter from `IRWellFormed`, `codeFits`, and `stackFits`.
+- The residual rank/fuel declarations are not a live P8 obligation. P9 deletes them after the
+  remaining legacy fuel consumers (`Expr.slot`, `materialiseExpr`, `recomputeFuel`, and
+  `MatFueled`) are migrated or removed.

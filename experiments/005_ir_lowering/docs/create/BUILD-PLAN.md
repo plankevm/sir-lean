@@ -1,5 +1,10 @@
 # CREATE / CREATE2 build plan (authoritative handoff)
 
+> **P9 status note (2026-07-08).** This plan predates the Phase 2A deletion pass.
+> `Expr.slot`, legacy fuel materialisation, `MatFueled`, `Assembly/Acyclic.lean`, and
+> `NoSlotSource` references below are historical; the current value channel uses `Loc` and
+> `matCache`.
+
 Date: 2026-07-04. Branch: `exp005-create` in worktree `.worktrees/create-build`.
 This is the **single doc future sessions read** to understand and continue the
 CREATE build. It is a build reference, not a re-derivation — the derivations live
@@ -123,7 +128,8 @@ Goal: `Spec/IR.lean` gains `CreateSpec` + `Stmt.create`. CALL twin: `CallSpec` (
   the empty-init case — `value=0`, `offset=size=0`, per Create.lean:31 — but carry
   the fields so CREATE2 needs no reshape); `salt : Option Tmp` **from day one**
   (`none`=CREATE, `some`=CREATE2); `resultTmp : Option Tmp` for the pushed address.
-  `deriving DecidableEq, Repr`. `Expr.slot` (IR.lean:73) already exists for the stash.
+  `deriving DecidableEq, Repr`. Post-P9, the result stash is represented by `Loc.slot`
+  in the lowering allocation layer.
 - `Stmt.create (cs : CreateSpec)`.
 Risk: HIGH blast radius (R5) — a new `Stmt` constructor breaks every exhaustive
 `Stmt` match: `EvalStmt`/`evalExpr` (Semantics), `emitStmt`/`defsOf` (Lowering),
@@ -184,11 +190,11 @@ Goal: `Spec/Lowering.lean` emits CREATE. CALL twin: `emitStmt .call` (:191-200),
   `CREATE`/`CREATE2` byte; then stash the pushed address to `slotOf t` via
   `PUSH slot; MSTORE` if `resultTmp = some t`, else `POP` (byte-identical to the CALL
   result stash).
-- `defsOf` create-result stash arm: `.create ⟨…, some t⟩ → some (t, Expr.slot (slotOf
-  t))`.
-Risk: MEDIUM — the `defsOf` create arm interacts with `allocate_toDefs`
-(`Decode/LoweringLemmas.lean:91`, the Phase-A keystone), which must be re-proven to
-cover the new arm.
+- `defsOf` create-result stash arm: `.create ⟨…, some t⟩ → some (t, Loc.slot (slotOf t))`
+  in the post-P9 allocation shape.
+Risk: MEDIUM — the `defsOf` create arm used to interact with the old allocation-faithfulness
+lemma; post-P9 the live companion facts are the `defsOf`/`rematOf` projection and `defEnv`
+first-find lemmas in `Decode/LoweringLemmas.lean`, which must cover the new arm.
 
 ### Step 5 (exp005) — `Frame/Match` reflexivity (first CONSUMES the oracle)
 
@@ -270,8 +276,9 @@ descents*. This is a **subtraction**, lower-risk than the additions.
 
 Goal: close (or, honestly, extend the WIP statements of) the CREATE realisability
 leaf in `V2/Realisability/RealisabilitySpec.lean`. CALL twin: the R3 call-cursor tie.
-- `WellLowered`/`Conforms` unchanged in shape — `Conforms` already compares world AND
-  result, and a CREATE program's observable is still a `(world, IRHalt)` pair.
+- Keep the public `IRWellFormed` + `codeFits` + `stackFits` envelope and rebuild the
+  internal `WellLowered` adapter as today. `Conforms` already compares world AND result,
+  and a CREATE program's observable is still a `(world, IRHalt)` pair.
 - The R3 call-cursor tie (`evmV2CallEntry` identified with the call cursor) gains a
   create-cursor sibling; R6 geometry (`atReachableBoundaryVJ_*`) must admit CREATE
   boundary heads.

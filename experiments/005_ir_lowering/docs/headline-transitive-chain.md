@@ -14,7 +14,16 @@
 >
 > The `TieDischarge.lean:NNNN` / `RunLog.lean:NNNN` citations throughout this file are doubly dead (file gone + numbers meaningless); they are kept as provenance-at-time-of-writing, not as navigable references.
 
-> **UPDATE (2026-07-03, second) — THE HEADLINE WAS DELETED; THIS ENTIRE REPORT IS NOW HISTORICAL.** The prior banner (above) said `lower_conforms_cyclic_assembled` "now lives at `LirLean/V2/Drive/Headline.lean`". That is **no longer true.** In commits "delete vacuous conformance surface 1/4..4/4" (`ba42b63..7b763dc`) the vacuous cyclic conformance headline **and its whole apparatus were DELETED** — not relocated. The following decls this report's closure map is *about* **no longer exist anywhere**: `Lir.V2.lower_conforms_cyclic_assembled` / `_tiefree`, `Lir.lower_conforms_wf`, the `Lir.lower_conforms_acyclic{,_stop,_stop_canonical,_cfg}` family, `Lir.StmtTies` / `Lir.TermTies`, the Plus assembly (`runFrom_of_driveCorrPlus`, `driveStepPlus_of_block`, `DriveStepPlus`, `driveCorrPlus_entry`/`_step_jump`/`_step_branch`), and the `Lir.Spec.RealisabilityObligations` / `lower_conforms_cyclic_of_obligations` / `_assembled` / `_tiefree` re-exports (`Spec/Conformance.lean` is now a disclaimer stub). **The SOLE conformance surface is now `LirLean/V2/RealisabilitySpec.lean` (Nightly, R0–R12; the ties are DERIVED from the run via R10a/R10b, not supplied.)** Salvaged and still present but unreferenced in the default build: `Lir.V2.DriveCorrPlus` (structure) plus the §7/§8 value/gas channels in `V2/Drive/Headline.lean`, the acyclicity ⇒ `WellFormedLowered` core in `Acyclic.lean`, and `Lir.CallRealises` / `Lir.WellFormedLowered` / `Lir.toList_of_blockAt`. **Read the body below as a description of a removed theorem** — kept for provenance only; do NOT treat it as a map of the live tree.
+> **UPDATE (2026-07-03, second) — THE HEADLINE WAS DELETED; THIS ENTIRE REPORT IS NOW HISTORICAL.** The prior banner (above) said `lower_conforms_cyclic_assembled` "now lives at `LirLean/V2/Drive/Headline.lean`". That is **no longer true.** In commits "delete vacuous conformance surface 1/4..4/4" (`ba42b63..7b763dc`) the vacuous cyclic conformance headline **and its whole apparatus were DELETED** — not relocated. The following decls this report's closure map is *about* **no longer exist anywhere**: `Lir.V2.lower_conforms_cyclic_assembled` / `_tiefree`, `Lir.lower_conforms_wf`, the `Lir.lower_conforms_acyclic{,_stop,_stop_canonical,_cfg}` family, `Lir.StmtTies` / `Lir.TermTies`, the Plus assembly (`runFrom_of_driveCorrPlus`, `driveStepPlus_of_block`, `DriveStepPlus`, `driveCorrPlus_entry`/`_step_jump`/`_step_branch`), and the `Lir.Spec.RealisabilityObligations` / `lower_conforms_cyclic_of_obligations` / `_assembled` / `_tiefree` re-exports (`Spec/Conformance.lean` is now a disclaimer stub). **The SOLE conformance surface is now `LirLean/V2/RealisabilitySpec.lean` (Nightly, R0–R12; the ties are DERIVED from the run via R10a/R10b, not supplied.)** Salvaged but no longer the public P8 well-formedness route: `Lir.V2.DriveCorrPlus` (structure) plus the §7/§8 value/gas channels in `V2/Drive/Headline.lean`, residual generic-`defs` rank/fuel support in `Acyclic.lean`, and `Lir.CallRealises` / `Lir.WellFormedLowered` / `Lir.toList_of_blockAt`. **Read the body below as a description of a removed theorem** — kept for provenance only; do NOT treat it as a map of the live tree.
+
+> **P8 status note (2026-07-08).** Any body text below that says `MatFueled` fields or
+> `wellFormedLowered_of_acyclic` are live well-formedness infrastructure is superseded.
+> `WellFormedLowered` is fuel-free over `matCache`/fold offsets; the public theorem surface is
+> `IRWellFormed` + `codeFits` + `stackFits`.
+>
+> **P9 status note (2026-07-08).** The residual legacy fuel/materialisation stack named in the
+> historical closure (`Expr.slot`, `materialiseExpr`, `materialise`, `recomputeFuel`, `MatFueled`,
+> `Assembly/Acyclic.lean`, and `NoSlotSource`) has now been deleted.
 
 ---
 
@@ -78,8 +87,8 @@ The closure decomposes into six strata. Nodes are classified by the `kind` field
 
 | Node | Loc | Kind |
 |---|---|---|
-| `WellFormedLowered` | `LowerConforms.lean:143` | structural (folded MatFueled + pc/offset/slot bounds) |
-| `WellFormedLowered.matFueled_{sstore,sload,ret,branch}` | `LowerConforms.lean:145,159,170,176` | structural |
+| `WellFormedLowered` | `LowerConforms.lean:143` | structural (P8: pc/offset/slot bounds over fold emission; no `MatFueled` fields) |
+| former `WellFormedLowered.matFueled_{sstore,sload,ret,branch}` | historical `LowerConforms.lean:145,159,170,176` | removed from the live P8 lowered-layout bundle |
 | `WellFormedLowered.bound_{sstore,sload,ret,stop,jump,branch}` | `LowerConforms.lean:150,165,180,185,189,195` | structural |
 | `WellFormedLowered.slots_slot` | `LowerConforms.lean:210` | structural |
 | `DriveCorr` | `DriveSim.lean:87` | scope-premise (`Corr` + `CleanHaltsNonException`) |
@@ -140,9 +149,9 @@ The closure decomposes into six strata. Nodes are classified by the `kind` field
 |---|---|---|
 | `lower` | `Lowering.lean:413` | lowering (`encode (emit (allocate prog) prog)`) |
 | `emit / encode / allocate` | `Lowering.lean:401/408/355` | lowering |
-| `defsOf` | `Lowering.lean:243` | lowering (**gas/sload/call routed to `Expr.slot`** — the spill abstraction) |
-| `offsetTable / blockLen / recomputeFuel` | `Lowering.lean:385/380/162` | lowering |
-| `emitStmt / emitTerm / emitBlockBody / materialiseExpr / materialise` | `Lowering.lean:178/212/374/140/157` | lowering |
+| `defsOf` | `Lowering.lean:243` | lowering (post-P9: non-recomputable temps route to `Loc.slot`; old `Expr.slot` route is historical) |
+| `offsetTable / blockLen / recomputeFuel` | `Lowering.lean:385/380/162` | lowering (old `recomputeFuel` entry is historical; P9 deleted the fuel path) |
+| `emitStmt / emitTerm / emitBlockBody / materialiseExpr / materialise` | `Lowering.lean:178/212/374/140/157` | lowering (old fuel materialisation entries are historical after P9) |
 | `emitDest / emitImm / slotOf / chargeOf` | `Lowering.lean:135/128/132`, `MaterialiseGas.lean:74` | lowering |
 | `defsOf_ne_gas / defsOf_ne_sload` | `Lowering.lean:257/297` | structural |
 | `flatBytes / lower_eq_flatBytes / termOf / pcOf / pcOf_eq_termOf` | `DecodeLower.lean:46/61`, `DecodeAnchors.lean:156`, `Match.lean:64`, `SimTerm.lean:82` | structural |
@@ -244,11 +253,13 @@ Context: 6 seams were discharged engine-level — `hmono ← stepFrame_next_accM
 - `lower_conforms_acyclic_cfg` (`Acyclic.lean:359`) uses `irRun_exists` from `CFGAcyclic` + `RunDefinable` to **eliminate `hir`**. Base case `lower_conforms_acyclic_stop` (`:275`) uses `irRun_exists_stop` (`V2/IRRun.lean:162`); `_stop_canonical` (`:310`) additionally discharges `hstore` by rfl.
 - **A cyclic CFG (a loop) has no `blockRank`.** The `RunFrom` recursion need not terminate structurally, so existence of the run cannot be built by structural induction. **This is exactly why the cyclic headline replaces `blockRank` with the runtime `totalGas` measure** (`runFrom_of_driveCorrPlus`, `TieDischarge.lean:4638`): gas strictly descends per block (`totalGas_succ_lt`, from `Runs.gasAvailable_le` + the JUMPDEST drop), which is well-founded on cyclic CFGs. The cyclic headline therefore **carries no `hir`** — it constructs the run — and the `totalGas` measure replaces *both* `CFGAcyclic` and the supplied IR run.
 
-### (2) Def-graph rank → discharges the `MatFueled` fields of `WellFormedLowered`
+### (2) Historical def-graph rank → formerly discharged `MatFueled`
 
-- `Acyclic` (`Acyclic.lean:76`) via `rank : Tmp → ℕ`; chain: `Acyclic` + `rank+1<recomputeFuel` → `matFueled_of_exprRankLt` (`:87`) → `matFueled_tmp_of_acyclic` (`:127`) → `wellFormedLowered_of_acyclic` (`:198`).
-- `AcyclicWellFormed` (`Acyclic.lean:146`) therefore carries **no** `MatFueled` hypothesis; `lower_conforms_acyclic` (`:233`) is `lower_conforms_wf` with `WellFormedLowered` replaced by `AcyclicWellFormed`.
-- A cyclic *def-graph* cannot pick such a rank (some def-chain has looping expansion height), so `recomputeFuel` would bottom out and `MatFueled` would be FALSE — lowering-by-recompute is genuinely unsound on a def-cycle. **Note:** this is the *value/def* channel, orthogonal to the control-flow cycle. The exp005 headline's own IR fragment (gas/sload/call routed to `Expr.slot`) sidesteps this because only `.tmp` operands are materialised.
+- The old chain was `Acyclic` + `rank+1<recomputeFuel` → `matFueled_of_exprRankLt` →
+  `matFueled_tmp_of_acyclic` → `wellFormedLowered_of_acyclic`.
+- P8 removed this as a live route. `IRWellFormed.defEnvOrdered` and the fold-cache fixpoints
+  (`matCache`/`chargeCache`) now replace the rank/fuel envelope; P9 deleted the residual
+  `Acyclic` / `MatFueled` definitions.
 
 ### Why `hpresent`/`hjumpPresent`/`hbranchPresent` are supplied in the cyclic case
 

@@ -1,5 +1,10 @@
 # CREATE / CREATE2 status in exp005 LirLean — where it stands, what implementing it needs
 
+> **P9 status note (2026-07-08).** This deep dive predates the Phase 2A deletion pass. Legacy
+> fuel/materialisation names below are provenance only; the current lowering value channel is
+> fold-based over `Loc`/`matCache` and no longer has `Expr.slot`, `materialiseExpr`,
+> `recomputeFuel`, `MatFueled`, `Assembly/Acyclic.lean`, or `NoSlotSource`.
+
 Date: 2026-07-04. Read-only deep dive. Paths relative to
 `experiments/005_ir_lowering/` unless noted; exp003 = `experiments/003_bytecode_layer/`.
 

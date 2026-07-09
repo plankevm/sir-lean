@@ -4,13 +4,19 @@ Scope: the top-of-cone files (WIP flagship + acyclic salvage + clean-halt produc
 reviewer-facing surface) and the cross-cutting "how many proof stacks" synthesis.
 No `.lean` file was modified.
 
+> **P8 status note (2026-07-08).** This audit predates the P8 well-formedness reshaping. Its
+> claims that `Acyclic.lean`, `AcyclicWellFormed`, `wellFormedLowered_of_acyclic`, or `MatFueled`
+> are live R9/flagship infrastructure are superseded. The public theorem shape is now
+> `IRWellFormed` + `codeFits` + `stackFits`; `WellLowered` is rebuilt internally, and the
+> rank/fuel definitions wait for P9 deletion.
+
 ## 1. File table
 
 | File | LOC | Purpose | Key exports | Verdict | Simplification note |
 |------|-----|---------|-------------|---------|---------------------|
 | `LirLean/V2/RealisabilitySpec.lean` | 3874 | The WIP flagship + R0–R12 obligation skeleton; sole `sorry`-carrier; registered in non-default `WIP` lib | `WellLowered`, `StmtTies'`/`TermTies'`, `lower_conforms` (R11), `lower_conforms_exact`, `lower_conforms_gasfree`, `conforms_of_worldeq` (CLOSED), `exProg` + all `*_exProg` witnesses, R12a/b | **KEEP; SPLIT** | 3874 LOC in one file; 7 `/-! ## §` sections; natural fault line at §6 (the `exProg` witness ~900 LOC). See §4. |
 | `LirLean/LowerConforms.lean` | 1260 | Layer F of the *green* sim core: `sim_cfg` (whole-CFG simulation) + the legacy F-layer `lower_conforms` bridge; **defines `WellFormedLowered`** | `sim_cfg` (line 970), `WellFormedLowered` (line 143), `simStmtStep_*`, `SimTermStep`, `lower_conforms` (line 1188, **DEAD**) | **KEEP FILE, delete one theorem** | NOT deletable as a file (lead's claim refuted). `sim_cfg` + `WellFormedLowered` are load-bearing. Only the top-level `lower_conforms` (1188, 73 LOC) is unreferenced dead code — prune it + its docstring. |
-| `LirLean/Acyclic.lean` | 225 | `Acyclic`/`ExprRankLt` → `MatFueled`; discharges `WellFormedLowered.matFueled_*` from a rank witness; `AcyclicWellFormed → WellFormedLowered` | `Acyclic`, `AcyclicWellFormed`, `matFueled_tmp_of_acyclic`, `wellFormedLowered_of_acyclic` | **KEEP** | NOT deletable (lead's claim refuted). Its four `lower_conforms_acyclic*` headlines were ALREADY deleted 2026-07-03 (header note lines 38–43); the surviving core is Phase-3 salvage used by `exProg` (R9/R12). Nothing to trim. |
+| `LirLean/Acyclic.lean` | 225 | legacy generic-`defs` rank/fuel support; no longer the P8 well-formedness route | `Acyclic`, `ExprRankLt`, `matFueled_tmp_of_acyclic` | **KEEP UNTIL P9** | The old `AcyclicWellFormed → WellFormedLowered` route is superseded by `IRWellFormed` + budgets rebuilding `WellLowered`; delete this file with the residual fuel stack in P9. |
 | `LirLean/CleanHaltExtract.lean` | 1118 | Producer: from `CleanHaltsNonException fr` extract per-opcode gas/mem envelopes the §7 ties consume | `CleanHaltsNonException`, `cleanHaltsNonException_forward`, per-op `*_oog`/`*_inv`/`*_dichotomy`/`next_*_of_cleanHalt`, `gas_envelope_of_cleanHalt`, `sload_envelope_of_cleanHalt` | **KEEP** | Coherent, axiom-guarded, `sorry`-free. Highly regular per-opcode brick family (GAS/PUSH/SLOAD/ADD/LT/MLOAD/MSTORE/JUMP): could be macro-generated, but low priority. |
 | `LirLean/RecorderLemmas.lean` | 153 | Proof companions of the recording interpreter, extracted so `Spec/Recorder.lean` stays definitions-only | `sloadRecord_eq_sloadCost`, `realisedCall_cons`, `driveLog_drive`, `runWithLog_drive`, `runWithLog_messageCall` | **KEEP** | Clean, purpose-built extraction (Wave 3 reorg). No change. |
 | `LirLean/Audit.lean` | 62 | `#guard_msgs`/`#print axioms` net over the salvage layer; last import of `LirLean` root | 8 axiom-footprint guards | **KEEP** | Coherent post-2026-07-03. Correctly guards only the salvage decls; explicitly does NOT cover the WIP lib. `#check` signature-freeze for R11 is a deliberate TODO (once R11 lands). |
@@ -66,27 +72,27 @@ So: one true headline in progress, standing on two green substrates. The "acycli
 dichotomy is a naming artifact (CFG-acyclicity, long since retired via `CFGAcyclic` deletion),
 not two rival theorems.
 
-## 3. EDGES KEEPING THE ACYCLIC STACK ALIVE
+## 3. EDGES THAT USED TO KEEP THE ACYCLIC STACK ALIVE
 
-Reverse imports: `Acyclic` is imported by **only** `RealisabilitySpec`; `LowerConforms` by
-**`Audit`, `Acyclic`, `DriveSim`**. Every edge and what actually crosses it:
+Reverse imports at the time of this audit: `Acyclic` was imported by **only**
+`RealisabilitySpec`; `LowerConforms` by **`Audit`, `Acyclic`, `DriveSim`**. P8 supersedes the
+`Acyclic` witness route; the table below records the old crossing and the P8 disposition:
 
 | Edge | What is actually used across it | Load-bearing? |
 |------|--------------------------------|---------------|
-| `Acyclic → LowerConforms` | `WellFormedLowered` (structure, defined at `LowerConforms.lean:143`) + its `matFueled_*`/`bound_*` fields — `Acyclic` exists to *discharge* them | YES — `Acyclic` is meaningless without `WellFormedLowered` |
+| `Acyclic → LowerConforms` | Historical: `WellFormedLowered` plus former `matFueled_*`/`bound_*` fields. P8: `WellFormedLowered` has no `MatFueled` fields and is rebuilt from `IRWellFormed` + budgets. | Superseded; keep only until P9 deletes the fuel stack |
 | `DriveSim → LowerConforms` | `sim_cfg` (`LowerConforms.lean:970`), consumed at `DriveSim.lean:648`; plus `SimStmtStep`/`SimTermStep` types | YES — the entire cyclic flagship path runs through `sim_cfg` |
 | `Audit → LowerConforms` | Transitive import chain + namespace so the guarded decls (`sim_assign_sload_lowered`, etc.) resolve; no direct symbol from the F-layer headline | Weak (transitive), but harmless |
-| `RealisabilitySpec → Acyclic` | `AcyclicWellFormed` + `wellFormedLowered_of_acyclic` (used at `RealisabilitySpec.lean:3311/3365/3366`) + `Acyclic` predicate (3294) — build the `exProg` non-vacuity witness (R9/R12) | YES — R12 anti-vacuity anchor depends on it |
-| `RealisabilitySpec → LowerConforms` (transitive, via `Acyclic` **and** via `Drive.Headline → DriveSim`) | `WellFormedLowered` (the `WellLowered.wf` field, `RealisabilitySpec.lean:480`) + `hwl.wf.matFueled_ret`/`matFueled_branch` (1505, 1802) | YES — flagship's static bundle embeds `WellFormedLowered` |
+| `RealisabilitySpec → Acyclic` | Historical `exProg` witness route through `AcyclicWellFormed` / `wellFormedLowered_of_acyclic`. P8 uses `IRWellFormed.defEnvOrdered` and `wellLowered_of_IRWellFormed` instead. | Superseded |
+| `RealisabilitySpec → LowerConforms` | `WellFormedLowered` remains the internal `WellLowered.wf` adapter over fold layout; no public theorem premise exposes it. | YES, internally |
 
 **Total deletion cost estimate for "delete Acyclic + LowerConforms":**
 
-- The lead's request is **not achievable as a file deletion.** Both files are load-bearing for
-  the flagship and the green cyclic driver. To delete them you would have to first RELOCATE:
-  `WellFormedLowered` (the flagship's `WellLowered.wf` field), the entire `sim_cfg` +
+- The lead's request is **not achievable as a file deletion.** `LowerConforms` is load-bearing
+  for the green cyclic driver, and `Acyclic` still houses residual fuel definitions until P9. To
+  delete `LowerConforms` you would first relocate `WellFormedLowered`, the entire `sim_cfg` +
   Layer-F threading (`simStmtStep_*`, `SimTermStep`) that `DriveSim.lower_conforms_cyclic`
-  consumes, and the `AcyclicWellFormed → WellFormedLowered` discharge the `exProg` witness
-  needs. That is a large, risky move, not a deletion.
+  consumes. To delete `Acyclic`, wait for P9's `materialiseExpr`/`MatFueled` sweep.
 - **What IS safely removable:** exactly one dead theorem — `Lir.lower_conforms`
   (`LowerConforms.lean:1188`, 73 LOC + its docstring). It is unreferenced anywhere in the tree
   (its old wrappers are gone). Removing it, plus refreshing the `LowerConforms.lean` header
