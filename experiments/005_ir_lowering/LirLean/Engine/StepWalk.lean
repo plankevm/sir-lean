@@ -1191,6 +1191,36 @@ theorem stepFrame_next_self {fr : Frame} {exec' : ExecutionState}
   obtain ⟨acc', ha'⟩ := stepFrame_next_accMono h fr.exec.executionEnv.address ⟨acc, ha⟩
   exact ⟨acc', by rw [stepFrame_next_execEnvAddr h]; exact ha'⟩
 
+/-- A decoded `JUMPDEST` `.next` step advances to the next sequential instruction. -/
+theorem stepFrame_next_jumpdest_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
+    (hpc : fr.exec.pc = UInt32.ofNat b)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.JUMPDEST, .none))
+    (hstep : stepFrame fr = .next exec') :
+    exec'.pc = UInt32.ofNat (nextInstrPosNat b .JUMPDEST) := by
+  rw [stepFrame] at hstep
+  rw [hdec] at hstep
+  simp only [Option.getD_some] at hstep
+  simp only [reduceCtorEq, ↓reduceIte] at hstep
+  simp only [stackPopCount, stackPushCount] at hstep
+  split at hstep
+  · exact absurd hstep (by simp)
+  · rw [dispatch, smsfOp] at hstep
+    simp only [bind, Except.bind] at hstep
+    cases hc : charge Gjumpdest fr.exec with
+    | error e =>
+        rw [hc] at hstep
+        simp at hstep
+    | ok ec =>
+        rw [hc] at hstep
+        simp only [] at hstep
+        unfold continueWith at hstep
+        simp only [Signal.next.injEq] at hstep
+        rw [← hstep, ExecutionState.incrPC]
+        have hcp := Lir.V2.charge_pc hc
+        rw [hpc] at hcp
+        rw [hcp, nextInstrPosNat]
+        simp [pushArgWidth]
+
 /-! ### Halt-success account-presence (`hhalt`)
 
 A `.halted (.success e o)` from `stepFrame` comes only from `haltOp` (INVALID/overflow screens halt
