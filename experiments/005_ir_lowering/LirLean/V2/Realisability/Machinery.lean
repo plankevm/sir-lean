@@ -390,6 +390,44 @@ private theorem call_post_wellScoped {prog : Program} {L : Label} {b : Block} {p
           simpa [IRState.setLocal, hres, ht] using hlocal
         exact hscoped t hlocal'
 
+/-- A byte inside the lowered CALL statement sits below the global `codeFits` budget. -/
+private theorem call_stmt_offset_bound_of_codeFits {prog : Program} {L : Label} {b : Block}
+    {pc : Nat} {cs : CallSpec}
+    (hcodeFits : codeFits prog)
+    (hb : blockAt prog L = some b)
+    (hcur : b.stmts[pc]? = some (.call cs))
+    {k : Nat}
+    (hk : k < (emitStmt (matCache prog) (defsOf prog) (.call cs)).length) :
+    pcOf prog L pc + k < 2 ^ 32 := by
+  have hbyte0 :
+      (emitStmt (matCache prog) (defsOf prog) (.call cs))[k]?
+        = some ((emitStmt (matCache prog) (defsOf prog) (.call cs))[k]) :=
+    List.getElem?_eq_getElem hk
+  have hflat :
+      (flatBytes prog)[pcOf prog L pc + k]?
+        = some ((emitStmt (matCache prog) (defsOf prog) (.call cs))[k]) := by
+    rw [flatBytes_at_pcOf_offset prog L b pc (.call cs) k (Lir.toList_of_blockAt hb) hcur hk]
+    exact hbyte0
+  rw [List.getElem?_eq_some_iff] at hflat
+  exact lt_of_lt_of_le hflat.1 (Nat.le_of_lt hcodeFits)
+
+/-- A nonempty byte segment inside the lowered CALL statement fits in the 32-bit pc budget. -/
+private theorem call_stmt_segment_bound_of_codeFits {prog : Program} {L : Label} {b : Block}
+    {pc : Nat} {cs : CallSpec} {offset : Nat} {e : Expr}
+    (hcodeFits : codeFits prog)
+    (hb : blockAt prog L = some b)
+    (hcur : b.stmts[pc]? = some (.call cs))
+    (hpos : 0 < (matExpr (matCache prog) e).length)
+    (hin : offset + (matExpr (matCache prog) e).length
+      ≤ (emitStmt (matCache prog) (defsOf prog) (.call cs)).length) :
+    pcOf prog L pc + offset + (matExpr (matCache prog) e).length ≤ 2 ^ 32 := by
+  have hlast : offset + ((matExpr (matCache prog) e).length - 1)
+      < (emitStmt (matCache prog) (defsOf prog) (.call cs)).length := by
+    omega
+  have hboundLast :=
+    call_stmt_offset_bound_of_codeFits hcodeFits hb hcur hlast
+  omega
+
 /-- **R3 — call realisation from the log.** At a call cursor, the coupled frame's recorded
 CALL supplies the `CallRealisesS` bundle at the REALISED oracle — the round-3 restatement
 (header lesson 8): NOT the in-tree `Lir.CallRealises` verbatim (whose embedded
@@ -428,15 +466,16 @@ conjuncts (`Runs fr0 callFr` + the pc/mem/activeWords pins + `decode callFr = CA
 /`evalExpr`/stack-room from `Corr.memAgree`/`Corr.defsSound` + `hwl`). In-tree this run is only
 ever SUPPLIED to `sim_call_stmt` (`SimStmt.lean:589` `hargs : Runs fr callFr`); no producing lemma
 exists, so it must be written from scratch (~200 lines, precedent: the branch cond driver
-`LowerDecode.lean:747`). Landing that driver also locates `callFr` and gives
-`stepFrame callFr = .needsCall …` (feeding `recorderCoupled_call_extract`) and the Route-B tail
-(`stash_tail_runs`). Secondary risk (plan §3.2): several `resumeAfterCall` frame-pins
-(`resumeFr.exec.pc = callFr.exec.pc + 1`, `.stack`, `.memory`) may need a bytecode-layer
-computation lemma about `resumeAfterCall` — that would live in the DEFAULT target, so per the
-track rules it is STOP-and-report, not an in-`WIP` edit. A partial `refine` supplying only the
-Piece-A/C conjuncts would bury the Piece-B `sorry` in a mid-bundle position (a fake close the
-review's statement-diff would flag), so R3 stays a single top-level `sorry` with Piece A landed as
-the two helpers above. -/
+`LowerDecode.lean:747`). The byte-budget half is now explicit support work
+(`call_stmt_offset_bound_of_codeFits` / `_segment_bound_of_codeFits` above): the early R3 proof
+still needs the flagship's scalar `codeFits` budget in scope to discharge the CALL-site
+`MatDecC`/decode bounds honestly. Separately, the theorem surface still carries no `CallsCode`
+fact for the cursor, so even after the arg-prefix run lands there is no honest way to rule out
+the precompile/immediate `beginCall cp = .inr _` arm from the present hypotheses alone. That
+remaining surface debt is the real blocker after the machine-run producer is in place. A partial
+`refine` supplying only the Piece-A/C conjuncts would bury the unresolved debt in a mid-bundle
+position (a fake close the review's statement-diff would flag), so R3 stays a single top-level
+`sorry` with Piece A landed as the two helpers above. -/
 theorem callRealises_of_recorded {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
     {self : AccountAddress} {L : Label} {b : Block} {pc : Nat} {cs : CallSpec}
     {st0 : IRState} {fr0 : Frame}
@@ -2046,6 +2085,103 @@ theorem recorderCoupled_call_extract {log : RunLog} {callFr : Frame}
       injection heq5 with hcons _
       injection hcons with hrecEq _
       exact hrecEq.symm
+
+/-- The proved finish half of R3: once Piece B has produced the CALL cursor, its arg-prefix run,
+the recorder-coupled head at that cursor, the realised resume-frame pins, and the Route-B tail,
+the recorded head `rec` discharges `CallRealisesS`. The only remaining debt for
+`callRealises_of_recorded` is therefore the honest Piece-B cursor bundle itself. -/
+private theorem callRealises_of_recorded_finish
+    {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
+    {self : AccountAddress} {L : Label} {b : Block} {pc : Nat} {cs : CallSpec}
+    {st0 : IRState} {fr0 callFr child : Frame}
+    {gS : List Word} {sS : List Nat} {rec : CallRecord} {cS' : List CallRecord}
+    {argsLen : Nat} {cp : CallParams}
+    (hwl : WellLowered prog)
+    (hb : blockAt prog L = some b)
+    (hcur : b.stmts[pc]? = some (.call cs))
+    (haddr : fr0.exec.executionEnv.address = self)
+    (hcorr : Corr prog sloadChg 0 st0 fr0 L pc)
+    (hargslen : argsLen = (emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
+        ++ matCache prog cs.callee ++ matCache prog cs.gasFwd).length)
+    (hargs : Runs fr0 callFr)
+    (hcallpc : callFr.exec.pc = fr0.exec.pc + UInt32.ofNat argsLen)
+    (hcallmem : callFr.exec.toMachineState.memory = fr0.exec.toMachineState.memory)
+    (hcallactive : fr0.exec.toMachineState.activeWords.toNat
+      ≤ callFr.exec.toMachineState.activeWords.toNat)
+    (hcpcall : RecorderCoupled log callFr gS sS (rec :: cS'))
+    (hstep : stepFrame callFr = .needsCall cp rec.pending)
+    (hbegin : beginCall cp = .inl child)
+    (hresaddr : (Evm.resumeAfterCall rec.result rec.pending).exec.executionEnv.address
+      = fr0.exec.executionEnv.address)
+    (hrescode : (Evm.resumeAfterCall rec.result rec.pending).exec.executionEnv.code = lower prog)
+    (hrescanmod : (Evm.resumeAfterCall rec.result rec.pending).exec.executionEnv.canModifyState
+      = true)
+    (hrespc : (Evm.resumeAfterCall rec.result rec.pending).exec.pc = callFr.exec.pc + 1)
+    (hresstack : (Evm.resumeAfterCall rec.result rec.pending).exec.stack
+      = callSuccessFlag rec.result rec.pending :: [])
+    (hresmem : (Evm.resumeAfterCall rec.result rec.pending).exec.toMachineState.memory
+      = callFr.exec.toMachineState.memory)
+    (hresactive : callFr.exec.toMachineState.activeWords.toNat
+      ≤ (Evm.resumeAfterCall rec.result rec.pending).exec.toMachineState.activeWords.toNat)
+    (hresvalid : (Evm.resumeAfterCall rec.result rec.pending).validJumps
+      = validJumpDests (Evm.resumeAfterCall rec.result rec.pending).exec.executionEnv.code 0)
+    (htail : ∀ flag : Word,
+        (Evm.resumeAfterCall rec.result rec.pending).exec.stack = flag :: [] →
+        (∀ (t : Tmp), cs.resultTmp = some t →
+          (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
+          ∧ ∃ endFr,
+              Runs (Evm.resumeAfterCall rec.result rec.pending) endFr
+            ∧ endFr.exec.toMachineState.memory
+                = (((Evm.resumeAfterCall rec.result rec.pending).exec.toMachineState.mstore
+                    (UInt256.ofNat (slotOf t)) flag)).memory
+            ∧ endFr.exec.toMachineState.activeWords
+                = (((Evm.resumeAfterCall rec.result rec.pending).exec.toMachineState.mstore
+                    (UInt256.ofNat (slotOf t)) flag)).activeWords
+            ∧ endFr.exec.pc
+                = (Evm.resumeAfterCall rec.result rec.pending).exec.pc + UInt32.ofNat 34
+            ∧ endFr.exec.executionEnv.code
+                = (Evm.resumeAfterCall rec.result rec.pending).exec.executionEnv.code
+            ∧ endFr.validJumps = (Evm.resumeAfterCall rec.result rec.pending).validJumps
+            ∧ endFr.exec.executionEnv.address
+                = (Evm.resumeAfterCall rec.result rec.pending).exec.executionEnv.address
+            ∧ endFr.exec.executionEnv.canModifyState
+                = (Evm.resumeAfterCall rec.result rec.pending).exec.executionEnv.canModifyState
+            ∧ (∀ k, selfStorage endFr k
+                = selfStorage (Evm.resumeAfterCall rec.result rec.pending) k)
+            ∧ endFr.exec.stack = [])
+        ∧ (cs.resultTmp = none →
+            Runs (Evm.resumeAfterCall rec.result rec.pending)
+              (popFrame (Evm.resumeAfterCall rec.result rec.pending) []))) :
+    CallRealisesS prog sloadChg L b pc cs st0
+      (match cs.resultTmp with
+        | some t' => { st0 with world := fun key =>
+                        evmCallOracle.postStorage rec.result rec.pending self key }.setLocal
+                        t' (callSuccessFlag rec.result rec.pending)
+        | none   => { st0 with world := fun key =>
+                        evmCallOracle.postStorage rec.result rec.pending self key })
+      fr0 := by
+  intro _
+  obtain ⟨childRes, hcall, hrec, _⟩ := recorderCoupled_call_extract hcpcall hstep hbegin
+  have hresult : rec.result = childRes.toCallResult := by
+    cases rec
+    cases hrec
+    rfl
+  refine ⟨childRes.toCallResult, rec.pending, callFr,
+    Evm.resumeAfterCall childRes.toCallResult rec.pending, argsLen,
+    stepScopedS_call_of_cursor hb hcur, ?_, hargslen, hargs, hcallpc, hcallmem, hcallactive,
+    hcall, rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · cases cs.resultTmp <;> simp [haddr, hresult]
+  · simpa [hresult] using hresaddr
+  · simpa [hresult] using hrescode
+  · simpa [hresult] using hrescanmod
+  · simpa [hresult] using hrespc
+  · simpa [hresult] using hresstack
+  · simpa [hresult] using hresmem
+  · simpa [hresult] using hresactive
+  · simpa [hresult] using hresvalid
+  · intro t hlocal
+    exact call_post_wellScoped hb hcur hwl.defsCons hcorr.wellScoped t hlocal
+  · simpa [hresult] using htail
 
 /-- **R7d′ — coupling transport across one non-gas/non-sload `.next` step** (R3's Piece-A
 arg-push atom; the `StepsTo` rephrasing of `recorderCoupled_step_other`). The CALL-argument push
