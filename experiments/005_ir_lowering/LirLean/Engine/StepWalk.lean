@@ -805,6 +805,62 @@ theorem createArm_next_accMono
         subst h
         exact key f hr
 
+/-- `createArm` `.next` is a fallback arm and resumes after the CREATE/CREATE2 byte. -/
+theorem createArm_next_pc
+    {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
+    {value initOffset initSize : UInt256} {salt : Option ByteArray} {exec' : ExecutionState}
+    (h : createArm fr exec stack value initOffset initSize salt = .ok (.next exec')) :
+    exec'.pc = exec.pc + 1 := by
+  rw [createArm] at h
+  simp only [bind, Except.bind, pure, Except.pure] at h
+  have key : ∀ (f : Frame),
+      resumeAfterCreate
+        { address := default
+          createdAccounts := exec.createdAccounts
+          accounts := exec.accounts
+          gasRemaining := .ofNat (allButOneSixtyFourth exec.gasAvailable.toNat)
+          substate := exec.toState.substate
+          success := false
+          output := .empty }
+        { frame := { fr with exec := exec }
+          stack := stack
+          callerAccounts := exec.accounts
+          value := value
+          initOffset := initOffset.toUInt64
+          initSize := initSize.toUInt64
+          initCodeSize := (exec.memory.readWithPadding initOffset.toNat initSize.toNat).size }
+        = .ok f →
+      f.exec.pc = exec.pc + 1 := by
+    intro f hf
+    unfold resumeAfterCreate at hf
+    simp only [bind, Except.bind, pure, Except.pure] at hf
+    split at hf
+    · exact absurd hf (by simp)
+    · simp only [Except.ok.injEq] at hf
+      rw [← hf, replaceStackAndIncrPC_pc]
+      change exec.pc + 1 = exec.pc + 1
+      rfl
+  split at h
+  · revert h
+    cases hr : resumeAfterCreate _ _ with
+    | error e => intro h; simp at h
+    | ok f =>
+      intro h
+      simp only [Except.ok.injEq, Signal.next.injEq] at h
+      subst h
+      exact key f hr
+  · split at h
+    · simp only [Except.ok.injEq] at h
+      exact absurd h (by simp)
+    · revert h
+      cases hr : resumeAfterCreate _ _ with
+      | error e => intro h; simp at h
+      | ok f =>
+        intro h
+        simp only [Except.ok.injEq, Signal.next.injEq] at h
+        subst h
+        exact key f hr
+
 open Lir.V2 (AccPresent accMono_of_accounts_eq) in
 /-- **A `.next` System op preserves the execution environment and presence at every `a`.** Halt ops
 never `.next`; CALL family reduces to `callArm`; CREATE/CREATE2 reduce to `createArm` on the charged
@@ -877,6 +933,76 @@ theorem systemOp_next_accMono {op : Operation.SystemOp} {fr : Frame} {exec exec'
               refine ⟨?_, fun a hp => ?_⟩
               · rw [henv, hcenv, hmenv]
               · exact hmono a (accMono_of_accounts_eq a (by rw [hcacc, hmacc]) hp)
+
+/-- A `.next` CREATE-family `systemOp` is a fallback arm and advances past the opcode byte. -/
+theorem systemOp_next_create_pc {op : Operation.SystemOp} {fr : Frame}
+    {exec exec' : ExecutionState}
+    (hop : op = .CREATE ∨ op = .CREATE2)
+    (h : systemOp op fr exec = .ok (.next exec')) :
+    exec'.pc = exec.pc + 1 := by
+  rcases hop with rfl | rfl
+  · unfold systemOp at h
+    simp only [bind, Except.bind] at h
+    cases hr : requireStateMod exec with
+    | error e => rw [hr] at h; simp at h
+    | ok _ =>
+      rw [hr] at h
+      simp only [] at h
+      cases hp : exec.stack.pop3 with
+      | none =>
+        rw [hp] at h
+        simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      | some v =>
+        obtain ⟨s, val, io, is⟩ := v
+        rw [hp] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+        split at h
+        · simp at h
+        · cases hm : chargeMemExpansion exec io is with
+          | error e =>
+            rw [hm] at h
+            simp [pure, Except.pure] at h
+          | ok em =>
+            rw [hm] at h
+            simp only [pure, Except.pure] at h
+            cases hc : charge (createCost is) em with
+            | error e => rw [hc] at h; simp at h
+            | ok ec =>
+              rw [hc] at h
+              simp only [] at h
+              have hpc' := createArm_next_pc h
+              rw [hpc', Lir.V2.charge_pc hc, Lir.V2.chargeMemExpansion_pc hm]
+  · unfold systemOp at h
+    simp only [bind, Except.bind] at h
+    cases hr : requireStateMod exec with
+    | error e => rw [hr] at h; simp at h
+    | ok _ =>
+      rw [hr] at h
+      simp only [] at h
+      cases hp : exec.stack.pop4 with
+      | none =>
+        rw [hp] at h
+        simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      | some v =>
+        obtain ⟨s, val, io, is, salt⟩ := v
+        rw [hp] at h
+        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+        split at h
+        · simp at h
+        · cases hm : chargeMemExpansion exec io is with
+          | error e =>
+            rw [hm] at h
+            simp [pure, Except.pure] at h
+          | ok em =>
+            rw [hm] at h
+            simp only [pure, Except.pure] at h
+            cases hc : charge (create2Cost is) em with
+            | error e => rw [hc] at h; simp at h
+            | ok ec =>
+              rw [hc] at h
+              simp only [] at h
+              have hpc' := createArm_next_pc h
+              rw [hpc', Lir.V2.charge_pc hc, Lir.V2.chargeMemExpansion_pc hm]
 
 open Lir.V2 (AccPresent accMono_of_accounts_eq) in
 /-- **A `.next` `smsfOp` preserves the execution environment and presence at every `a`.**
@@ -1842,6 +1968,70 @@ theorem stepFrame_next_call_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
           obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, hc⟩ :=
             BytecodeLayer.System.systemOp_callArm_reduce (by tauto) hsys
           have hpc' := callArm_next_pc hc
+          rw [hpc] at hpc'
+          rw [hpc', nextInstrPosNat]
+          simp [pushArgWidth]
+      | halted hl | needsCall p pc | needsCreate p pc =>
+        split at hstep <;> simp at hstep
+
+/-- A decoded `CREATE` `.next` step is a fallback arm and advances past the CREATE byte. -/
+theorem stepFrame_next_create_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
+    (hpc : fr.exec.pc = UInt32.ofNat b)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.CREATE, .none))
+    (hstep : stepFrame fr = .next exec') :
+    exec'.pc = UInt32.ofNat (nextInstrPosNat b .CREATE) := by
+  rw [stepFrame] at hstep
+  rw [hdec] at hstep
+  simp only [Option.getD_some] at hstep
+  simp only [stackPopCount, stackPushCount] at hstep
+  split at hstep
+  · exact absurd hstep (by simp)
+  · rw [dispatch] at hstep
+    cases hsys : systemOp .CREATE fr fr.exec with
+    | error e =>
+      rw [hsys] at hstep
+      split at hstep <;> simp at hstep
+    | ok signal =>
+      rw [hsys] at hstep
+      cases signal with
+      | next e =>
+        split at hstep
+        · simp at hstep
+        · simp only [Signal.next.injEq] at hstep
+          subst hstep
+          have hpc' := systemOp_next_create_pc (op := .CREATE) (by tauto) hsys
+          rw [hpc] at hpc'
+          rw [hpc', nextInstrPosNat]
+          simp [pushArgWidth]
+      | halted hl | needsCall p pc | needsCreate p pc =>
+        split at hstep <;> simp at hstep
+
+/-- A decoded `CREATE2` `.next` step is a fallback arm and advances past the CREATE2 byte. -/
+theorem stepFrame_next_create2_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
+    (hpc : fr.exec.pc = UInt32.ofNat b)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.CREATE2, .none))
+    (hstep : stepFrame fr = .next exec') :
+    exec'.pc = UInt32.ofNat (nextInstrPosNat b .CREATE2) := by
+  rw [stepFrame] at hstep
+  rw [hdec] at hstep
+  simp only [Option.getD_some] at hstep
+  simp only [stackPopCount, stackPushCount] at hstep
+  split at hstep
+  · exact absurd hstep (by simp)
+  · rw [dispatch] at hstep
+    cases hsys : systemOp .CREATE2 fr fr.exec with
+    | error e =>
+      rw [hsys] at hstep
+      split at hstep <;> simp at hstep
+    | ok signal =>
+      rw [hsys] at hstep
+      cases signal with
+      | next e =>
+        split at hstep
+        · simp at hstep
+        · simp only [Signal.next.injEq] at hstep
+          subst hstep
+          have hpc' := systemOp_next_create_pc (op := .CREATE2) (by tauto) hsys
           rw [hpc] at hpc'
           rw [hpc', nextInstrPosNat]
           simp [pushArgWidth]

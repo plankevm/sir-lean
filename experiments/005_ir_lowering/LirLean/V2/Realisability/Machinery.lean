@@ -1481,9 +1481,8 @@ theorem atReachableBoundaryVJ_of_runs {prog : Lir.Program}
 
 /-- **R6 — the boundary walk** (the `hrb` residue; the Track-A discharge target). Every
 `Runs`-reachable frame of a `lower prog` entry sits at a reachable instruction boundary of
-`lower prog` — the pc-reachability invariant that structurally discharges the no-CREATE
-modellability clause (`notCreate_of_atReachableBoundary`) and scopes the future
-data-segment design. One of the three substantial proofs. DERIVED-status obligation.
+`lower prog` — the pc-reachability invariant that scopes the step/call/create resume geometry
+and the future data-segment design. DERIVED-status obligation.
 
 STATEMENT FIXED (R6 was REFUTABLE as originally stated — `not_runs_atReachableBoundary`)
 with the two well-formedness side conditions the geometry track surfaced:
