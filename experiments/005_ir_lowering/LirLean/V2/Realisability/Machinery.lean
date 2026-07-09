@@ -390,6 +390,44 @@ private theorem call_post_wellScoped {prog : Program} {L : Label} {b : Block} {p
           simpa [IRState.setLocal, hres, ht] using hlocal
         exact hscoped t hlocal'
 
+/-- A byte inside the lowered CALL statement sits below the global `codeFits` budget. -/
+private theorem call_stmt_offset_bound_of_codeFits {prog : Program} {L : Label} {b : Block}
+    {pc : Nat} {cs : CallSpec}
+    (hcodeFits : codeFits prog)
+    (hb : blockAt prog L = some b)
+    (hcur : b.stmts[pc]? = some (.call cs))
+    {k : Nat}
+    (hk : k < (emitStmt (matCache prog) (defsOf prog) (.call cs)).length) :
+    pcOf prog L pc + k < 2 ^ 32 := by
+  have hbyte0 :
+      (emitStmt (matCache prog) (defsOf prog) (.call cs))[k]?
+        = some ((emitStmt (matCache prog) (defsOf prog) (.call cs))[k]) :=
+    List.getElem?_eq_getElem hk
+  have hflat :
+      (flatBytes prog)[pcOf prog L pc + k]?
+        = some ((emitStmt (matCache prog) (defsOf prog) (.call cs))[k]) := by
+    rw [flatBytes_at_pcOf_offset prog L b pc (.call cs) k (Lir.toList_of_blockAt hb) hcur hk]
+    exact hbyte0
+  rw [List.getElem?_eq_some_iff] at hflat
+  exact lt_of_lt_of_le hflat.1 (Nat.le_of_lt hcodeFits)
+
+/-- A nonempty byte segment inside the lowered CALL statement fits in the 32-bit pc budget. -/
+private theorem call_stmt_segment_bound_of_codeFits {prog : Program} {L : Label} {b : Block}
+    {pc : Nat} {cs : CallSpec} {offset : Nat} {e : Expr}
+    (hcodeFits : codeFits prog)
+    (hb : blockAt prog L = some b)
+    (hcur : b.stmts[pc]? = some (.call cs))
+    (hpos : 0 < (matExpr (matCache prog) e).length)
+    (hin : offset + (matExpr (matCache prog) e).length
+      ≤ (emitStmt (matCache prog) (defsOf prog) (.call cs)).length) :
+    pcOf prog L pc + offset + (matExpr (matCache prog) e).length ≤ 2 ^ 32 := by
+  have hlast : offset + ((matExpr (matCache prog) e).length - 1)
+      < (emitStmt (matCache prog) (defsOf prog) (.call cs)).length := by
+    omega
+  have hboundLast :=
+    call_stmt_offset_bound_of_codeFits hcodeFits hb hcur hlast
+  omega
+
 /-- **R3 — call realisation from the log.** At a call cursor, the coupled frame's recorded
 CALL supplies the `CallRealisesS` bundle at the REALISED oracle — the round-3 restatement
 (header lesson 8): NOT the in-tree `Lir.CallRealises` verbatim (whose embedded
@@ -428,15 +466,16 @@ conjuncts (`Runs fr0 callFr` + the pc/mem/activeWords pins + `decode callFr = CA
 /`evalExpr`/stack-room from `Corr.memAgree`/`Corr.defsSound` + `hwl`). In-tree this run is only
 ever SUPPLIED to `sim_call_stmt` (`SimStmt.lean:589` `hargs : Runs fr callFr`); no producing lemma
 exists, so it must be written from scratch (~200 lines, precedent: the branch cond driver
-`LowerDecode.lean:747`). Landing that driver also locates `callFr` and gives
-`stepFrame callFr = .needsCall …` (feeding `recorderCoupled_call_extract`) and the Route-B tail
-(`stash_tail_runs`). Secondary risk (plan §3.2): several `resumeAfterCall` frame-pins
-(`resumeFr.exec.pc = callFr.exec.pc + 1`, `.stack`, `.memory`) may need a bytecode-layer
-computation lemma about `resumeAfterCall` — that would live in the DEFAULT target, so per the
-track rules it is STOP-and-report, not an in-`WIP` edit. A partial `refine` supplying only the
-Piece-A/C conjuncts would bury the Piece-B `sorry` in a mid-bundle position (a fake close the
-review's statement-diff would flag), so R3 stays a single top-level `sorry` with Piece A landed as
-the two helpers above. -/
+`LowerDecode.lean:747`). The byte-budget half is now explicit support work
+(`call_stmt_offset_bound_of_codeFits` / `_segment_bound_of_codeFits` above): the early R3 proof
+still needs the flagship's scalar `codeFits` budget in scope to discharge the CALL-site
+`MatDecC`/decode bounds honestly. Separately, the theorem surface still carries no `CallsCode`
+fact for the cursor, so even after the arg-prefix run lands there is no honest way to rule out
+the precompile/immediate `beginCall cp = .inr _` arm from the present hypotheses alone. That
+remaining surface debt is the real blocker after the machine-run producer is in place. A partial
+`refine` supplying only the Piece-A/C conjuncts would bury the unresolved debt in a mid-bundle
+position (a fake close the review's statement-diff would flag), so R3 stays a single top-level
+`sorry` with Piece A landed as the two helpers above. -/
 theorem callRealises_of_recorded {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
     {self : AccountAddress} {L : Label} {b : Block} {pc : Nat} {cs : CallSpec}
     {st0 : IRState} {fr0 : Frame}
