@@ -140,6 +140,72 @@ def CallRealisesS (prog : Program) (sloadChg : Tmp → ℕ)
         ∧ (cs.resultTmp = none →
             Runs resumeFr (popFrame resumeFr [])))
 
+/-- **The shadowing-aware CREATE realisability tie** — the CREATE twin of
+`CallRealisesS`. It packages the realised CREATE effect at the bytecode-resume level:
+the consumed create head fixes the post-state (`evmCreateOracle` self-storage lens +
+deployed-address-or-`0` word), the arg-push run reaches the `CREATE2` site, the
+returning CREATE resumes successfully, and the Route-B tail stores or discards the
+address word. The live per-step scoping clause is again replaced by the static
+`StepScopedS` residue. -/
+def CreateRealisesS (prog : Program) (sloadChg : Tmp → ℕ)
+    (L : Label) (_b : Block) (pc : Nat) (cs : CreateSpec) (st0 st0' : IRState) (fr0 : Frame) :
+    Prop :=
+  Lir.Corr prog sloadChg 0 st0 fr0 L pc →
+  ∃ (result : Evm.CreateResult) (pd : Evm.PendingCreate) (createFr resumeFr : Frame)
+      (argsLen : Nat),
+    StepScopedS prog (.create cs)
+    ∧ st0' = (match cs.resultTmp with
+        | some t' => { st0 with world := fun key =>
+                        evmCreateOracle.postStorage result pd fr0.exec.executionEnv.address key }.setLocal
+                        t' (createAddrOrZero result pd)
+        | none   => { st0 with world := fun key =>
+                        evmCreateOracle.postStorage result pd fr0.exec.executionEnv.address key })
+    ∧ argsLen = (matCache prog cs.salt
+        ++ matCache prog cs.initSize
+        ++ matCache prog cs.initOffset
+        ++ matCache prog cs.value).length
+    ∧ Runs fr0 createFr
+    ∧ createFr.exec.pc = fr0.exec.pc + UInt32.ofNat argsLen
+    ∧ createFr.exec.toMachineState.memory = fr0.exec.toMachineState.memory
+    ∧ fr0.exec.toMachineState.activeWords.toNat ≤ createFr.exec.toMachineState.activeWords.toNat
+    ∧ CreateReturns createFr resumeFr
+    ∧ resumeAfterCreate result pd = .ok resumeFr
+    ∧ resumeFr.exec.executionEnv.address = fr0.exec.executionEnv.address
+    ∧ resumeFr.exec.executionEnv.code = lower prog
+    ∧ resumeFr.exec.executionEnv.canModifyState = true
+    ∧ resumeFr.exec.pc = createFr.exec.pc + 1
+    ∧ resumeFr.exec.stack = createAddrOrZero result pd :: []
+    ∧ resumeFr.exec.toMachineState.memory = createFr.exec.toMachineState.memory
+    ∧ createFr.exec.toMachineState.activeWords.toNat
+        ≤ resumeFr.exec.toMachineState.activeWords.toNat
+    ∧ resumeFr.validJumps = validJumpDests resumeFr.exec.executionEnv.code 0
+    ∧ (∀ t, (match cs.resultTmp with
+              | some t' => { st0 with world := fun key =>
+                              evmCreateOracle.postStorage result pd fr0.exec.executionEnv.address key }.setLocal
+                              t' (createAddrOrZero result pd)
+              | none   => { st0 with world := fun key =>
+                              evmCreateOracle.postStorage result pd fr0.exec.executionEnv.address key }).locals t ≠ none →
+            (¬ Lir.NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.slot slot))
+            ∧ defsOf prog t ≠ none)
+    ∧ (∀ addrW : Word, resumeFr.exec.stack = addrW :: [] →
+        (∀ (t : Tmp), cs.resultTmp = some t →
+          (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
+          ∧ ∃ endFr,
+              Runs resumeFr endFr
+            ∧ endFr.exec.toMachineState.memory
+                = (resumeFr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) addrW).memory
+            ∧ endFr.exec.toMachineState.activeWords
+                = (resumeFr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) addrW).activeWords
+            ∧ endFr.exec.pc = resumeFr.exec.pc + UInt32.ofNat 34
+            ∧ endFr.exec.executionEnv.code = resumeFr.exec.executionEnv.code
+            ∧ endFr.validJumps = resumeFr.validJumps
+            ∧ endFr.exec.executionEnv.address = resumeFr.exec.executionEnv.address
+            ∧ endFr.exec.executionEnv.canModifyState = resumeFr.exec.executionEnv.canModifyState
+            ∧ (∀ k, selfStorage endFr k = selfStorage resumeFr k)
+            ∧ endFr.exec.stack = [])
+        ∧ (cs.resultTmp = none →
+            Runs resumeFr (popFrame resumeFr [])))
+
 /-- **The internal lowered adapter** — a function of the program text that the current V2
 machinery still consumes as `hwl`. It folds the old headline's
 `hwfl`/`hdef`/`hentry0`/presence/offset/stack-fold hypotheses into one named structure, but
@@ -232,23 +298,20 @@ un-consumed suffixes of the recorded streams; each suffix is genuinely a suffix 
 recorded stream. SUPPLIED status: never supplied to the flagship — R7 establishes it at
 entry and preserves it across steps/calls; the ties CONSUME it as an antecedent. -/
 structure RecorderCoupled (log : RunLog) (fr : Frame)
-    (gasSuffix : List Word) (sloadSuffix : List Nat) (callSuffix : List CallRecord) : Prop where
+    (gasSuffix : List Word) (sloadSuffix : List Nat) (callSuffix : List CallRecord)
+    (createSuffix : List CreateRecord) : Prop where
   /-- The load-bearing restart equation: some fuel replays `fr`'s future to exactly
-  `(log.observable, gasSuffix, sloadSuffix, callSuffix, log.creates)`. The create channel is
-  pinned to the FULL `log.creates` (no suffix variable): the R7 walk only traverses
-  gas/sload/call/halt edges — none records a CREATE — so no create is ever consumed before a
-  coupled boundary frame, and the future's create stream is invariantly the whole `log.creates`
-  (established at entry, preserved by every edge). A create-suffix parameter (the Step-6
-  `createSuffix`/`createPrefix` twin) is only needed once the walk itself steps through a
-  top-level CREATE (Step 8, when `exProg` exercises one). -/
+  `(log.observable, gasSuffix, sloadSuffix, callSuffix, createSuffix)`. -/
   restart : ∃ fuel', driveLog fuel' [] (.inl fr) [] [] [] []
-      = .ok (log.observable, gasSuffix, sloadSuffix, callSuffix, log.creates)
+      = .ok (log.observable, gasSuffix, sloadSuffix, callSuffix, createSuffix)
   /-- The gas suffix is a suffix of the recorded gas stream. -/
   gasPrefix : ∃ pre, log.gas = pre ++ gasSuffix
   /-- The sload suffix is a suffix of the recorded sload stream. -/
   sloadPrefix : ∃ pre, log.sloads = pre ++ sloadSuffix
   /-- The call suffix is a suffix of the recorded call stream. -/
   callPrefix : ∃ pre, log.calls = pre ++ callSuffix
+  /-- The create suffix is a suffix of the recorded create stream. -/
+  createPrefix : ∃ pre, log.creates = pre ++ createSuffix
 
 /-- **The recoupled walk invariant** — the future replacement of `DriveCorrPlus`'s four
 dead accumulator lists (which are NOT edited here; Phase 3 proper swaps them). Carried at
@@ -269,7 +332,8 @@ SUPPLIED status: never supplied — established at entry (R7 entry + `entry_corr
 `callPreservesSelf_modGuards hprec`). -/
 structure DriveCorrLog (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
     (self : AccountAddress) (st : IRState) (fr : Frame) (L : Label)
-    (gasSuffix : List Word) (sloadSuffix : List Nat) (callSuffix : List CallRecord) :
+    (gasSuffix : List Word) (sloadSuffix : List Nat) (callSuffix : List CallRecord)
+    (createSuffix : List CreateRecord) :
     Prop where
   /-- The `Corr` boundary at the block-entry cursor `(L, 0)` (phantom `obs` pinned to 0). -/
   corr : Lir.Corr prog sloadChg 0 st fr L 0
@@ -285,7 +349,7 @@ structure DriveCorrLog (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
   /-- The frame is a call frame (rfl-preserved along the walk). -/
   kindPin : ∃ cp, fr.kind = .call cp
   /-- The §2 recorder-restart coupling at the un-consumed suffixes. -/
-  coupled : RecorderCoupled log fr gasSuffix sloadSuffix callSuffix
+  coupled : RecorderCoupled log fr gasSuffix sloadSuffix callSuffix createSuffix
 
 /-! ## §3 — The reshaped ties `StmtTies'` / `TermTies'` (R0 as statements; no free value-∀)
 
@@ -354,11 +418,11 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
   -- antecedent; conclusions are the not-spilled fact, the STATIC per-step scoping
   -- (`StepScopedS`, lesson 8), and the pinned-post-state scoping/memory ties.
   (∀ (pc : Nat) (t : Tmp) (e : Expr) (w : Word) (st0 : IRState) (fr0 : Frame)
-      (gS : List Word) (sS : List Nat) (cS : List CallRecord),
+      (gS : List Word) (sS : List Nat) (cS : List CallRecord) (dS : List CreateRecord),
       b.stmts[pc]? = some (.assign t e) →
       e ≠ .gas → (∀ k, e ≠ .sload k) →
       Lir.Corr prog sloadChg 0 st0 fr0 L pc →
-      RecorderCoupled log fr0 gS sS cS →
+      RecorderCoupled log fr0 gS sS cS dS →
       CleanHaltsNonException fr0 →
       evalExpr st0 0 e = some w →
       (∀ n, defsOf prog t ≠ some (.slot n))
@@ -372,10 +436,10 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
   -- Slot registration/canonicity, addressability, the stack-room fold (sourced from
   -- `StackRoomOK.sloadKey` + `Corr.stack_nil`) and the activeWords-flatness stay.
   ∧ (∀ (pc : Nat) (t k : Tmp) (kv : Word) (st0 : IRState) (fr0 : Frame)
-      (gS : List Word) (sS : List Nat) (cS : List CallRecord),
+      (gS : List Word) (sS : List Nat) (cS : List CallRecord) (dS : List CreateRecord),
       b.stmts[pc]? = some (.assign t (.sload k)) →
       Lir.Corr prog sloadChg 0 st0 fr0 L pc →
-      RecorderCoupled log fr0 gS sS cS →
+      RecorderCoupled log fr0 gS sS cS dS →
       CleanHaltsNonException fr0 →
       st0.locals k = some kv →
       defsOf prog t = some (.slot (slotOf t))
@@ -395,10 +459,10 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
   -- clean-halt antecedents make it derivable, R1). Post-state scoping is over the pinned
   -- head value. Slot registration/canonicity/addressability/pc-bound stay.
   ∧ (∀ (pc : Nat) (t : Tmp) (st0 : IRState) (fr0 : Frame)
-      (gS : List Word) (sS : List Nat) (cS : List CallRecord),
+      (gS : List Word) (sS : List Nat) (cS : List CallRecord) (dS : List CreateRecord),
       b.stmts[pc]? = some (.assign t .gas) →
       Lir.Corr prog sloadChg 0 st0 fr0 L pc →
-      RecorderCoupled log fr0 gS sS cS →
+      RecorderCoupled log fr0 gS sS cS dS →
       CleanHaltsNonException fr0 →
       defsOf prog t = some (.slot (slotOf t))
       ∧ StepScopedS prog (.assign t .gas)
@@ -416,10 +480,10 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
   -- no nonzero-write conclusion and no nonzero-write scope antecedent. The unsatisfiable
   -- `∃ acc, SstoreRealises …` conjunct is GONE (its content is R4, point-wise).
   ∧ (∀ (pc : Nat) (key value : Tmp) (kw vw : Word) (st0 : IRState) (fr0 : Frame)
-      (gS : List Word) (sS : List Nat) (cS : List CallRecord),
+      (gS : List Word) (sS : List Nat) (cS : List CallRecord) (dS : List CreateRecord),
       b.stmts[pc]? = some (.sstore key value) →
       Lir.Corr prog sloadChg 0 st0 fr0 L pc →
-      RecorderCoupled log fr0 gS sS cS →
+      RecorderCoupled log fr0 gS sS cS dS →
       CleanHaltsNonException fr0 →
       st0.locals key = some kw → st0.locals value = some vw →
       StepScopedS prog (.sstore key value)
@@ -435,9 +499,10 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
   -- (the positional multi-call tie — no `SingleCall`): the post-state `st0'` is pinned to
   -- `rec`'s `evmV2CallEntry` effect, and R3 discharges the bundle from the record.
   ∧ (∀ (pc : Nat) (cs : CallSpec) (st0 st0' : IRState) (fr0 : Frame)
-      (gS : List Word) (sS : List Nat) (rec : CallRecord) (cS' : List CallRecord),
+      (gS : List Word) (sS : List Nat) (rec : CallRecord) (cS' : List CallRecord)
+      (dS : List CreateRecord),
       b.stmts[pc]? = some (.call cs) →
-      RecorderCoupled log fr0 gS sS (rec :: cS') →
+      RecorderCoupled log fr0 gS sS (rec :: cS') dS →
       CleanHaltsNonException fr0 →
       fr0.exec.executionEnv.address = self →
       st0' = (match cs.resultTmp with
@@ -447,6 +512,22 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
           | none   => { st0 with world := fun key =>
                           evmCallOracle.postStorage rec.result rec.pending self key }) →
       CallRealisesS prog sloadChg L b pc cs st0 st0' fr0)
+  -- (6) create: `CreateRealisesS` keyed on the coupling's `createSuffix` HEAD, exactly the
+  -- CREATE twin of the call arm's positional multi-record tie.
+  ∧ (∀ (pc : Nat) (cs : CreateSpec) (st0 st0' : IRState) (fr0 : Frame)
+      (gS : List Word) (sS : List Nat) (cS : List CallRecord)
+      (rec : CreateRecord) (dS' : List CreateRecord),
+      b.stmts[pc]? = some (.create cs) →
+      RecorderCoupled log fr0 gS sS cS (rec :: dS') →
+      CleanHaltsNonException fr0 →
+      fr0.exec.executionEnv.address = self →
+      st0' = (match cs.resultTmp with
+          | some t' => { st0 with world := fun key =>
+                          evmCreateOracle.postStorage rec.result rec.pending self key }.setLocal
+                          t' (createAddrOrZero rec.result rec.pending)
+          | none   => { st0 with world := fun key =>
+                          evmCreateOracle.postStorage rec.result rec.pending self key }) →
+      CreateRealisesS prog sloadChg L b pc cs st0 st0' fr0)
 
 /-- **The reshaped per-block TERMINATOR ties** (the R0 terminator-side). See the section
 docstring: address/kind/self-presence demands are ANTECEDENTS (supplied by `DriveCorrLog`),

@@ -441,12 +441,13 @@ theorem callRealises_of_recorded {prog : Program} {sloadChg : Tmp → ℕ} {log 
     {self : AccountAddress} {L : Label} {b : Block} {pc : Nat} {cs : CallSpec}
     {st0 : IRState} {fr0 : Frame}
     {gS : List Word} {sS : List Nat} {rec : CallRecord} {cS' : List CallRecord}
+    {dS : List CreateRecord}
     (hwl : WellLowered prog)
     (hb : blockAt prog L = some b)
     (hcur : b.stmts[pc]? = some (.call cs))
     -- the coupled call suffix's HEAD `rec` IS this cursor's recorded CALL (positional,
     -- multi-call — no single-call premise):
-    (hcp : RecorderCoupled log fr0 gS sS (rec :: cS'))
+    (hcp : RecorderCoupled log fr0 gS sS (rec :: cS') dS)
     (hch : CleanHaltsNonException fr0)
     (haddr : fr0.exec.executionEnv.address = self) :
     -- the post-state is `rec`'s realised `evmV2CallEntry` effect (baked in — the positional
@@ -1621,7 +1622,7 @@ unfolding `runWithLog` (its `driveLog` equation IS the restart equation at `fr�
 theorem recorderCoupled_entry {params : CallParams} {log : RunLog} {fr₀ : Frame}
     (hrun : runWithLog params (seedFuel params.gas) = some log)
     (hbegin : beginCall params = .inl fr₀) :
-    RecorderCoupled log fr₀ log.gas log.sloads log.calls := by
+    RecorderCoupled log fr₀ log.gas log.sloads log.calls log.creates := by
   unfold runWithLog at hrun
   rw [hbegin] at hrun
   dsimp only at hrun
@@ -1632,19 +1633,20 @@ theorem recorderCoupled_entry {params : CallParams} {log : RunLog} {fr₀ : Fram
     rw [hdl] at hrun
     simp only [Option.some.injEq] at hrun
     subst hrun
-    exact ⟨⟨seedFuel params.gas, hdl⟩, ⟨[], rfl⟩, ⟨[], rfl⟩, ⟨[], rfl⟩⟩
+    exact ⟨⟨seedFuel params.gas, hdl⟩, ⟨[], rfl⟩, ⟨[], rfl⟩, ⟨[], rfl⟩, ⟨[], rfl⟩⟩
 
 /-- **R7b — the GAS step consumes the gas-suffix head**: a top-level `.next` step at a GAS
 op advances the coupling to the tail and pins the consumed head to the post-charge
 `gasAvailable` (exactly what `driveLog` recorded at this step). -/
 theorem recorderCoupled_step_gas {log : RunLog} {fr : Frame} {exec : ExecutionState}
     {g : Word} {gS : List Word} {sS : List Nat} {cS : List CallRecord}
-    (hcp : RecorderCoupled log fr (g :: gS) sS cS)
+    {dS : List CreateRecord}
+    (hcp : RecorderCoupled log fr (g :: gS) sS cS dS)
     (hgas : isGasOp fr = true)
     (hstep : stepFrame fr = .next exec) :
-    RecorderCoupled log { fr with exec := exec } gS sS cS
+    RecorderCoupled log { fr with exec := exec } gS sS cS dS
     ∧ g = UInt256.ofUInt64 exec.gasAvailable := by
-  obtain ⟨⟨f, hf⟩, hgp, hsp, hcpp⟩ := hcp
+  obtain ⟨⟨f, hf⟩, hgp, hsp, hcpp, hdp⟩ := hcp
   cases f with
   | zero => simp [driveLog] at hf
   | succ m =>
@@ -1660,7 +1662,7 @@ theorem recorderCoupled_step_gas {log : RunLog} {fr : Frame} {exec : ExecutionSt
       have hf2 : (Except.ok (obs', UInt256.ofUInt64 exec.gasAvailable :: gS', sS', cS', dS')
           : Except ExecutionException
               (FrameResult × List Word × List Nat × List CallRecord × List CreateRecord))
-          = .ok (log.observable, g :: gS, sS, cS, log.creates) := hf
+          = .ok (log.observable, g :: gS, sS, cS, dS) := hf
       injection hf2 with hf3
       injection hf3 with hobs hf4
       injection hf4 with hgc hf5
@@ -1668,7 +1670,7 @@ theorem recorderCoupled_step_gas {log : RunLog} {fr : Frame} {exec : ExecutionSt
       injection hcd with hc hd
       injection hgc with hgeq hgSeq
       subst hobs; subst hgSeq; subst hs; subst hc; subst hd
-      refine ⟨⟨⟨m, hX⟩, ?_, hsp, hcpp⟩, hgeq.symm⟩
+      refine ⟨⟨⟨m, hX⟩, ?_, hsp, hcpp, hdp⟩, hgeq.symm⟩
       obtain ⟨pre, hpre⟩ := hgp
       exact ⟨pre ++ [g], by rw [hpre, List.append_assoc, List.singleton_append]⟩
 
@@ -1679,10 +1681,11 @@ head is the datum `driveLog` is about to record. This is the *front half* of
 the `cons` structurally and then pin the head *value* through R7b proper. -/
 private theorem gasSuffix_nonempty {log : RunLog} {fr : Frame} {exec : ExecutionState}
     {gS : List Word} {sS : List Nat} {cS : List CallRecord}
-    (hcp : RecorderCoupled log fr gS sS cS)
+    {dS : List CreateRecord}
+    (hcp : RecorderCoupled log fr gS sS cS dS)
     (hgas : isGasOp fr = true) (hstep : stepFrame fr = .next exec) :
     ∃ g gS', gS = g :: gS' := by
-  obtain ⟨⟨f, hf⟩, _, _, _⟩ := hcp
+  obtain ⟨⟨f, hf⟩, _, _, _, _⟩ := hcp
   cases f with
   | zero => simp [driveLog] at hf
   | succ m =>
@@ -1698,7 +1701,7 @@ private theorem gasSuffix_nonempty {log : RunLog} {fr : Frame} {exec : Execution
       have hf2 : (Except.ok (obs', UInt256.ofUInt64 exec.gasAvailable :: gS', sS', cS', dS')
           : Except ExecutionException
               (FrameResult × List Word × List Nat × List CallRecord × List CreateRecord))
-          = .ok (log.observable, gS, sS, cS, log.creates) := hf
+          = .ok (log.observable, gS, sS, cS, dS) := hf
       injection hf2 with hf3
       injection hf3 with _ hf4
       injection hf4 with hgc _
@@ -1734,12 +1737,13 @@ facts in hand at this call site. This mirrors the interface of `decode_gasstash`
 theorem gas_suffix_head_realised {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
     {L : Label} {b : Block} {pc : Nat} {t : Tmp} {st : IRState} {fr : Frame}
     {gS : List Word} {sS : List Nat} {cS : List CallRecord}
+    {dS : List CreateRecord}
     (hb : blockAt prog L = some b)
     (hcur : b.stmts[pc]? = some (.assign t .gas))
     (hslotdef : defsOf prog t = some (.slot (slotOf t)))
     (hpcbound : pcOf prog L pc + 34 < 2 ^ 32)
     (hcorr : Lir.Corr prog sloadChg 0 st fr L pc)
-    (hcp : RecorderCoupled log fr gS sS cS)
+    (hcp : RecorderCoupled log fr gS sS cS dS)
     (hch : CleanHaltsNonException fr) :
     gS.head? = some (UInt256.ofUInt64
       (fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase)) := by
@@ -1764,13 +1768,14 @@ theorem gas_suffix_head_realised {prog : Program} {sloadChg : Tmp → ℕ} {log 
 consumed warmth-charge to `sloadWarmthOf fr` (the PRE-step frame, as recorded). -/
 theorem recorderCoupled_sload {log : RunLog} {fr : Frame} {exec : ExecutionState}
     {n : Nat} {gS : List Word} {sS : List Nat} {cS : List CallRecord}
-    (hcp : RecorderCoupled log fr gS (n :: sS) cS)
+    {dS : List CreateRecord}
+    (hcp : RecorderCoupled log fr gS (n :: sS) cS dS)
     (hsl : isSloadOp fr = true)
     (hstep : stepFrame fr = .next exec) :
-    RecorderCoupled log { fr with exec := exec } gS sS cS
+    RecorderCoupled log { fr with exec := exec } gS sS cS dS
     ∧ n = sloadWarmthOf fr := by
   have hng : isGasOp fr = false := isGasOp_false_of_isSloadOp hsl
-  obtain ⟨⟨f, hf⟩, hgp, hsp, hcpp⟩ := hcp
+  obtain ⟨⟨f, hf⟩, hgp, hsp, hcpp, hdp⟩ := hcp
   cases f with
   | zero => simp [driveLog] at hf
   | succ m =>
@@ -1786,7 +1791,7 @@ theorem recorderCoupled_sload {log : RunLog} {fr : Frame} {exec : ExecutionState
       have hf2 : (Except.ok (obs', gS', sloadWarmthOf fr :: sS', cS', dS')
           : Except ExecutionException
               (FrameResult × List Word × List Nat × List CallRecord × List CreateRecord))
-          = .ok (log.observable, gS, n :: sS, cS, log.creates) := hf
+          = .ok (log.observable, gS, n :: sS, cS, dS) := hf
       injection hf2 with hf3
       injection hf3 with hobs hf4
       injection hf4 with hgSeq hf5
@@ -1794,7 +1799,7 @@ theorem recorderCoupled_sload {log : RunLog} {fr : Frame} {exec : ExecutionState
       injection hsc with hneq hsSeq
       injection hcd with hc hd
       subst hobs; subst hgSeq; subst hsSeq; subst hc; subst hd
-      refine ⟨⟨⟨m, hX⟩, hgp, ?_, hcpp⟩, hneq.symm⟩
+      refine ⟨⟨⟨m, hX⟩, hgp, ?_, hcpp, hdp⟩, hneq.symm⟩
       obtain ⟨pre, hpre⟩ := hsp
       exact ⟨pre ++ [n], by rw [hpre, List.append_assoc, List.singleton_append]⟩
 
@@ -1802,17 +1807,18 @@ theorem recorderCoupled_sload {log : RunLog} {fr : Frame} {exec : ExecutionState
 recorded off the GAS/SLOAD gates). -/
 theorem recorderCoupled_step_other {log : RunLog} {fr : Frame} {exec : ExecutionState}
     {gS : List Word} {sS : List Nat} {cS : List CallRecord}
-    (hcp : RecorderCoupled log fr gS sS cS)
+    {dS : List CreateRecord}
+    (hcp : RecorderCoupled log fr gS sS cS dS)
     (hng : isGasOp fr = false) (hns : isSloadOp fr = false)
     (hstep : stepFrame fr = .next exec) :
-    RecorderCoupled log { fr with exec := exec } gS sS cS := by
-  obtain ⟨⟨f, hf⟩, hgp, hsp, hcpp⟩ := hcp
+    RecorderCoupled log { fr with exec := exec } gS sS cS dS := by
+  obtain ⟨⟨f, hf⟩, hgp, hsp, hcpp, hdp⟩ := hcp
   cases f with
   | zero => simp [driveLog] at hf
   | succ m =>
     unfold driveLog at hf
     simp only [hstep, hng, hns, List.isEmpty_nil, Bool.false_and] at hf
-    exact ⟨⟨m, hf⟩, hgp, hsp, hcpp⟩
+    exact ⟨⟨m, hf⟩, hgp, hsp, hcpp, hdp⟩
 
 /-- **Recorder framing with a nonempty bottom stack** (the recorder-composition lemma R7e
 needs). When the top segment `st` on stack `top` drains to `.ok res` (the child's black-box
@@ -1922,12 +1928,13 @@ records exactly `[outerRec]` and resumes at `resumeFr`. `driveLog_acc_hom` peels
 seeded record, exposing the restart of `resumeFr` at suffixes `(gS, sS, cS)` — the coupling. -/
 theorem recorderCoupled_call {log : RunLog} {fr resumeFr : Frame}
     {gS : List Word} {sS : List Nat} {rec : CallRecord} {cS : List CallRecord}
-    (hcp : RecorderCoupled log fr gS sS (rec :: cS))
+    {dS : List CreateRecord}
+    (hcp : RecorderCoupled log fr gS sS (rec :: cS) dS)
     (hcr : CallReturns fr resumeFr) :
-    RecorderCoupled log resumeFr gS sS cS := by
+    RecorderCoupled log resumeFr gS sS cS dS := by
   obtain ⟨cp, pending, child, childRes, hstep, hcode, hchild, hresume⟩ := hcr
   have hcode' : beginCall cp = .inl child := hcode
-  obtain ⟨⟨fuel', hrestart⟩, hgp, hsp, hcpp⟩ := hcp
+  obtain ⟨⟨fuel', hrestart⟩, hgp, hsp, hcpp, hdp⟩ := hcp
   cases fuel' with
   | zero => simp [driveLog] at hrestart
   | succ m =>
@@ -1978,7 +1985,7 @@ theorem recorderCoupled_call {log : RunLog} {fr resumeFr : Frame}
           [{ result := childRes.toCallResult, pending := pending }] ++ cS'', [] ++ dS'')
           : Except ExecutionException
               (FrameResult × List Word × List Nat × List CallRecord × List CreateRecord))
-          = .ok (log.observable, gS, sS, rec :: cS, log.creates) := hrestart
+          = .ok (log.observable, gS, sS, rec :: cS, dS) := hrestart
       simp only [List.nil_append, List.singleton_append] at heq
       injection heq with heq2
       injection heq2 with hobs heq3
@@ -1987,7 +1994,7 @@ theorem recorderCoupled_call {log : RunLog} {fr resumeFr : Frame}
       injection heq5 with hcons hd
       injection hcons with _ hcs
       subst hobs; subst hgeq; subst hseq; subst hcs; subst hd
-      refine ⟨⟨j, hb⟩, hgp, hsp, ?_⟩
+      refine ⟨⟨j, hb⟩, hgp, hsp, ?_, hdp⟩
       obtain ⟨pre, hpre⟩ := hcpp
       exact ⟨pre ++ [rec], by rw [hpre]; simp [List.append_assoc]⟩
 
@@ -2013,19 +2020,20 @@ the positional per-record projection). -/
 theorem recorderCoupled_call_extract {log : RunLog} {callFr : Frame}
     {cp : CallParams} {pending : PendingCall} {child : Frame}
     {gS : List Word} {sS : List Nat} {rec : CallRecord} {cS : List CallRecord}
-    (hcp : RecorderCoupled log callFr gS sS (rec :: cS))
+    {dS : List CreateRecord}
+    (hcp : RecorderCoupled log callFr gS sS (rec :: cS) dS)
     (hstep : stepFrame callFr = .needsCall cp pending)
     (hcode : beginCall cp = .inl child) :
     ∃ childRes : FrameResult,
         CallReturns callFr (Evm.resumeAfterCall childRes.toCallResult pending)
       ∧ rec = { result := childRes.toCallResult, pending := pending }
-      ∧ RecorderCoupled log (Evm.resumeAfterCall childRes.toCallResult pending) gS sS cS := by
+      ∧ RecorderCoupled log (Evm.resumeAfterCall childRes.toCallResult pending) gS sS cS dS := by
   obtain ⟨childRes, hchild_seed⟩ := child_terminates hcode
   have hcr : CallReturns callFr (Evm.resumeAfterCall childRes.toCallResult pending) :=
     ⟨cp, pending, child, childRes, hstep, hcode, hchild_seed, rfl⟩
   refine ⟨childRes, hcr, ?_, recorderCoupled_call hcp hcr⟩
   -- The record identity: peel the restart equation (as `recorderCoupled_call`, but keep the head).
-  obtain ⟨⟨fuel', hrestart⟩, _, _, _⟩ := hcp
+  obtain ⟨⟨fuel', hrestart⟩, _, _, _, _⟩ := hcp
   cases fuel' with
   | zero => simp [driveLog] at hrestart
   | succ m =>
@@ -2071,7 +2079,7 @@ theorem recorderCoupled_call_extract {log : RunLog} {callFr : Frame}
           [{ result := childRes.toCallResult, pending := pending }] ++ cS'', [] ++ dS'')
           : Except ExecutionException
               (FrameResult × List Word × List Nat × List CallRecord × List CreateRecord))
-          = .ok (log.observable, gS, sS, rec :: cS, log.creates) := hrestart
+          = .ok (log.observable, gS, sS, rec :: cS, dS) := hrestart
       simp only [List.nil_append, List.singleton_append] at heq
       injection heq with heq2
       injection heq2 with _ heq3
@@ -2090,10 +2098,11 @@ frame-for-frame from the statement cursor to the CALL cursor `callFr`. Folded ov
 decode) this is Piece-A step 1. -/
 theorem recorderCoupled_stepsTo_other {log : RunLog} {fr fr' : Frame}
     {gS : List Word} {sS : List Nat} {cS : List CallRecord}
-    (hcp : RecorderCoupled log fr gS sS cS)
+    {dS : List CreateRecord}
+    (hcp : RecorderCoupled log fr gS sS cS dS)
     (hng : isGasOp fr = false) (hns : isSloadOp fr = false)
     (hstep : StepsTo fr fr') :
-    RecorderCoupled log fr' gS sS cS := by
+    RecorderCoupled log fr' gS sS cS dS := by
   obtain ⟨hs, hfr'⟩ := hstep
   rw [hfr']
   exact recorderCoupled_step_other hcp hng hns hs
