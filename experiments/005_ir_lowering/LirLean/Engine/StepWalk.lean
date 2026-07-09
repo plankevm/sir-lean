@@ -1633,6 +1633,62 @@ theorem stepFrame_next_jumpi_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
             right
             exact Frame.get_dest_some_mem hd
 
+/-- A decoded `ADD` `.next` step advances to the next sequential instruction. -/
+theorem stepFrame_next_add_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
+    (hpc : fr.exec.pc = UInt32.ofNat b)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.ADD, .none))
+    (hstep : stepFrame fr = .next exec') :
+    exec'.pc = UInt32.ofNat (nextInstrPosNat b .ADD) := by
+  rw [stepFrame] at hstep
+  rw [hdec] at hstep
+  simp only [Option.getD_some] at hstep
+  simp only [reduceCtorEq, ↓reduceIte] at hstep
+  simp only [stackPopCount, stackPushCount] at hstep
+  split at hstep
+  · exact absurd hstep (by simp)
+  · rw [dispatch] at hstep
+    cases hb : binOp UInt256.add fr.exec with
+    | error e => rw [hb] at hstep; simp at hstep
+    | ok signal =>
+        rw [hb] at hstep
+        cases signal with
+        | next e =>
+            simp only [Signal.next.injEq] at hstep
+            subst hstep
+            have hpc' := binOp_next_pc hb
+            rw [hpc] at hpc'
+            rw [hpc', nextInstrPosNat]
+            simp [pushArgWidth]
+        | halted hl | needsCall p pc | needsCreate p pc => simp at hstep
+
+/-- A decoded `LT` `.next` step advances to the next sequential instruction. -/
+theorem stepFrame_next_lt_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
+    (hpc : fr.exec.pc = UInt32.ofNat b)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.LT, .none))
+    (hstep : stepFrame fr = .next exec') :
+    exec'.pc = UInt32.ofNat (nextInstrPosNat b .LT) := by
+  rw [stepFrame] at hstep
+  rw [hdec] at hstep
+  simp only [Option.getD_some] at hstep
+  simp only [reduceCtorEq, ↓reduceIte] at hstep
+  simp only [stackPopCount, stackPushCount] at hstep
+  split at hstep
+  · exact absurd hstep (by simp)
+  · rw [dispatch] at hstep
+    cases hb : binOp UInt256.lt fr.exec with
+    | error e => rw [hb] at hstep; simp at hstep
+    | ok signal =>
+        rw [hb] at hstep
+        cases signal with
+        | next e =>
+            simp only [Signal.next.injEq] at hstep
+            subst hstep
+            have hpc' := binOp_next_pc hb
+            rw [hpc] at hpc'
+            rw [hpc', nextInstrPosNat]
+            simp [pushArgWidth]
+        | halted hl | needsCall p pc | needsCreate p pc => simp at hstep
+
 /-! ### Halt-success account-presence (`hhalt`)
 
 A `.halted (.success e o)` from `stepFrame` comes only from `haltOp` (INVALID/overflow screens halt
