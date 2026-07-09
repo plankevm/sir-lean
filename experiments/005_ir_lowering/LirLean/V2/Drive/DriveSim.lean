@@ -124,7 +124,7 @@ from the two per-frame residuals
 
 * `CreateResolves` — every reachable CREATE whose init child terminates resumes successfully (the
   63/64 retention guard passing). The former "no CREATE at all" clause is **RETIRED**: `emitStmt
-  .create` now emits real `CREATE`/`CREATE2` bytes and CREATE is **modelled** by `Runs.create`
+  .create` now emits a real `CREATE2` byte and CREATE is **modelled** by `Runs.create`
   (`runs_of_drive_ok`'s `.needsCreate` arm). `CreateResolves` is the honest R4 residual — a gas
   retention fact, NOT a lowering property (vacuous for any create-free program). Supplied as `hcr`.
 * `CallsCode` — every `.needsCall` targets a *code* account, not a precompile `1..10`. The **honest

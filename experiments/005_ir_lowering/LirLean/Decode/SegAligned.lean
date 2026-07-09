@@ -10,11 +10,11 @@ exactly `pushArgWidth` immediate bytes) — differing **only** by a per-head pre
 decoded opcode:
 
 * `SegAligned`         (`JumpValid`)      — `P = fun _ => True`;
-* `SegAlignedLowering` (`BoundaryReach`)  — `P = IsLoweringOp` (the 18 emitted opcodes).
+* `SegAlignedLowering` (`BoundaryReach`)  — `P = IsLoweringOp` (the 18 boundary opcodes).
 
 (A third `SegAlignedSafe` / `NoCreateBytes` tower — `P op = op ≠ CREATE ∧ op ≠ CREATE2` — was
-DELETED once `emitStmt .create` made CREATE/CREATE2 emitted opcodes: "the lowered code contains
-no CREATE bytes" is no longer true.)
+DELETED once `emitStmt .create` made CREATE2 an emitted opcode: "the lowered code contains no
+CREATE-family bytes" is no longer true.)
 
 The entire supporting ladder (composition + the two boundary-walk transports + the
 lowering-emits-aligned lemmas + the whole-program lift) was re-proven per tower, line-for-line
@@ -195,13 +195,12 @@ theorem reaches_P_of_segAlignedP {P : Operation → Prop} (c : ByteArray) (seg :
 
 /-! ## §4 — the tightest predicate: `IsLoweringOp`
 
-The lowering emits exactly these 18 opcodes at any instruction head. It is the strongest of the
-per-head predicates (anything implies `True`), so the emit-ladder is proven ONCE here and the
-weaker `SegAligned` tower follows by `SegAlignedP.mono`. -/
+The R6 boundary walk currently uses this shared predicate, so it still admits bare `CREATE` as an
+engine boundary opcode. `emitStmt .create` itself emits only `CREATE2`. -/
 
-/-- The 18 opcodes the lowering ever emits at an instruction head (`STOP, ADD, LT, POP, MLOAD,
-MSTORE, SLOAD, SSTORE, JUMP, JUMPI, GAS, JUMPDEST, PUSH4, PUSH32, CALL, RETURN`, plus `CREATE`
-/`CREATE2` now that `emitStmt .create` emits them). -/
+/-- The 18 opcodes admitted by the shared lowering/boundary predicate (`STOP, ADD, LT, POP, MLOAD,
+MSTORE, SLOAD, SSTORE, JUMP, JUMPI, GAS, JUMPDEST, PUSH4, PUSH32, CALL, RETURN`, plus the
+CREATE-family boundary opcodes). -/
 def IsLoweringOp (op : Operation) : Prop :=
   op = .STOP ∨ op = .ADD ∨ op = .LT ∨ op = .POP ∨ op = .MLOAD
     ∨ op = .MSTORE ∨ op = .SLOAD ∨ op = .SSTORE ∨ op = .JUMP
@@ -214,7 +213,7 @@ instance (op : Operation) : Decidable (IsLoweringOp op) := by unfold IsLoweringO
 /-! ## §5 — the emission bricks are `IsLoweringOp`-aligned
 
 Every emission helper produces a `SegAlignedP IsLoweringOp` segment: each emitted opcode is a
-concrete lowering byte (`decide` discharges `IsLoweringOp (parseInstr byte)` for each of the 18),
+concrete lowering byte (`decide` discharges `IsLoweringOp (parseInstr byte)` for each emitted op),
 and the immediate widths match `pushArgWidth` by construction. -/
 
 theorem segAlignedP_emitImm (w : Word) : SegAlignedP IsLoweringOp (emitImm w) := by
