@@ -699,6 +699,45 @@ theorem callArm_next_accMono
             rw [Lir.V2.resumeAfterCall_accounts]
             exact accMono_of_accounts_eq a he1acc hp
 
+/-- `callArm` `.next` is the funds/depth fallback and resumes after the CALL byte. -/
+theorem callArm_next_pc
+    {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
+    {gas caller recipient codeAddress value apparentValue inOffset inSize outOffset outSize : UInt256}
+    {permission : Bool} {exec' : ExecutionState}
+    (h : callArm fr exec stack gas caller recipient codeAddress value apparentValue
+          inOffset inSize outOffset outSize permission = .ok (.next exec')) :
+    exec'.pc = exec.pc + 1 := by
+  rw [callArm] at h
+  cases hw : (memoryExpansionWords? exec.activeWords inOffset inSize >>=
+      (memoryExpansionWords? · outOffset outSize)) with
+  | none => rw [hw] at h; simp [throw, throwThe, MonadExceptOf.throw] at h
+  | some words' =>
+    rw [hw] at h
+    simp only [bind, Except.bind] at h
+    cases he1 : charge (Cₘ words' - Cₘ exec.activeWords) exec with
+    | error e => rw [he1] at h; simp at h
+    | ok e1 =>
+      rw [he1] at h
+      simp only [] at h
+      set ca : AccountAddress := AccountAddress.ofUInt256 codeAddress with hca
+      set rc : AccountAddress := AccountAddress.ofUInt256 recipient with hrc
+      set extraCost := callExtraCost ca rc value e1.accounts e1.substate with hextra
+      set gasCap := callGasCap ca rc value gas e1.accounts e1.gasAvailable e1.substate with hgcap
+      cases he2 : charge (gasCap + extraCost) e1 with
+      | error e => rw [he2] at h; simp at h
+      | ok e2 =>
+        rw [he2] at h
+        simp only [] at h
+        split at h
+        · simp only [Except.ok.injEq] at h
+          exact absurd h (by simp)
+        · simp only [Except.ok.injEq, Signal.next.injEq] at h
+          subst h
+          unfold resumeAfterCall
+          rw [replaceStackAndIncrPC_pc, Lir.V2.charge_pc he2,
+            Lir.V2.charge_pc he1]
+          rfl
+
 open Lir.V2 (AccPresent accMono_of_accounts_eq) in
 /-- **`createArm` `.next` (fallback) preserves the execution environment and presence at every
 `a`.** Both fallback arms resume via `resumeAfterCreate failed pending`, whose `.exec.accounts =
@@ -1774,6 +1813,40 @@ theorem stepFrame_next_push32_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
         simpa [pushArgWidth, show ((32 : UInt8) + 1).toUInt32 = UInt32.ofNat 33 from by decide,
           show UInt8.toNat (32 : UInt8) = 32 from rfl, show b + 1 + 32 = b + 33 by omega]
           using (UInt32.ofNat_add b 33)
+
+/-- A decoded `CALL` `.next` step is the fallback arm and advances past the CALL byte. -/
+theorem stepFrame_next_call_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
+    (hpc : fr.exec.pc = UInt32.ofNat b)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.CALL, .none))
+    (hstep : stepFrame fr = .next exec') :
+    exec'.pc = UInt32.ofNat (nextInstrPosNat b .CALL) := by
+  rw [stepFrame] at hstep
+  rw [hdec] at hstep
+  simp only [Option.getD_some] at hstep
+  simp only [stackPopCount, stackPushCount] at hstep
+  split at hstep
+  · exact absurd hstep (by simp)
+  · rw [dispatch] at hstep
+    cases hsys : systemOp .CALL fr fr.exec with
+    | error e =>
+      rw [hsys] at hstep
+      split at hstep <;> simp at hstep
+    | ok signal =>
+      rw [hsys] at hstep
+      cases signal with
+      | next e =>
+        split at hstep
+        · simp at hstep
+        · simp only [Signal.next.injEq] at hstep
+          subst hstep
+          obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, hc⟩ :=
+            BytecodeLayer.System.systemOp_callArm_reduce (by tauto) hsys
+          have hpc' := callArm_next_pc hc
+          rw [hpc] at hpc'
+          rw [hpc', nextInstrPosNat]
+          simp [pushArgWidth]
+      | halted hl | needsCall p pc | needsCreate p pc =>
+        split at hstep <;> simp at hstep
 
 /-! ### Halt-success account-presence (`hhalt`)
 

@@ -1382,7 +1382,7 @@ theorem atReachableBoundaryVJ_step {prog : Lir.Program} {fr mid : Frame}
   -- the boundary byte at `b` is a lowering opcode (real):
   obtain ⟨byte, hget, hop⟩ := Lir.reachable_boundary_loweringByte prog b hreach hin
   -- ── BRICK B-pc (home `LirLean/BoundaryReach.lean` / `LirLean/Engine/StepWalk.lean`) ──
-  -- the `.next` `stepFrame` dispatch walk over the 16 `IsLoweringOp` arms: from the boundary
+  -- the `.next` `stepFrame` dispatch walk over the lowered `IsLoweringOp` arms: from the boundary
   -- `b` the successor pc is either the sequential `nextInstrPosNat b (parseInstr byte)` or a
   -- `validJumps` member (taken JUMP/JUMPI). Template `stepFrame_next_accMono`. The instance R6
   -- consumes (general statement in the default-target brief).
@@ -1503,18 +1503,15 @@ strengthened invariant `AtReachableBoundaryVJ` (`AtReachableBoundary` + the `val
 conjunct the taken-jump edge needs; the old `AtReachableBoundary`-only route was a DEAD end).
 Seed = `atReachableBoundaryVJ_entry` (B1), combinator = `atReachableBoundaryVJ_of_runs`, edges
 = `atReachableBoundaryVJ_step` / `atReachableBoundaryVJ_call`. Everything is discharged with
-real proofs EXCEPT three pure-engine geometry bricks (marked `sorry` inside the two edges),
-whose home is a default-target file OUTSIDE this task's edit surface:
+real proofs except the remaining pc/in-range geometry bricks (marked `sorry` inside the two edges):
 * **B-pc** (`BoundaryReach.lean` / `Engine/StepWalk.lean`) — the `.next` `stepFrame` dispatch
   walk: from a lowering-op boundary the successor pc is the sequential `nextInstrPosNat` OR a
   `validJumps` member. Template `stepFrame_next_accMono`.
 * **B-inrange** (`BoundaryReach.lean` / `Layout.lean`) — blocks end in terminators, so a
   sequential-advancing (or CALL) instruction's successor boundary stays `< length`. The
   hardest brick (SegAligned/emitBlock layout decomposition).
-* **B-call** (`Engine/Descent.lean`) — extend `stepFrame_needsCall_inv` with the decoded op
-  (`= CALL`), the pending-frame pc (`= call-site pc`) and jump table (`= call-site validJumps`).
-Once these three land, R6 is axiom-clean (`[propext, Classical.choice, Quot.sound]`) by citing
-them. B2 (`hsize`) is threaded into both edges (the `boundary' < length ⟹ boundary' < 2^32`
+Once these land, R6 is axiom-clean (`[propext, Classical.choice, Quot.sound]`) by citing them.
+B2 (`hsize`) is threaded into both edges (the `boundary' < length ⟹ boundary' < 2^32`
 reconciliation and the taken-jump/`UInt32.ofNat` no-wrap). -/
 theorem runs_atReachableBoundary {prog : Lir.Program} {params : CallParams} {fr₀ : Frame}
     (hbegin : beginCall params = .inl fr₀)
