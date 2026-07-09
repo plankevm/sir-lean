@@ -41,6 +41,181 @@ namespace Lir
 
 open Evm
 
+/-! ## §0 — materialised operands have no CALL/CREATE instruction heads -/
+
+def NoCallCreateOp (op : Operation) : Prop :=
+  op ≠ .CALL ∧ op ≠ .System .CREATE ∧ op ≠ .System .CREATE2
+
+instance (op : Operation) : Decidable (NoCallCreateOp op) := by
+  unfold NoCallCreateOp
+  infer_instance
+
+theorem noCallCreate_of_byte (byte : UInt8) (h : NoCallCreateOp (Evm.parseInstr byte)) :
+    Evm.parseInstr byte ≠ .CALL
+      ∧ Evm.parseInstr byte ≠ .System .CREATE
+      ∧ Evm.parseInstr byte ≠ .System .CREATE2 := h
+
+theorem segAlignedNoCall_emitImm (w : Word) : SegAlignedP NoCallCreateOp (emitImm w) := by
+  refine SegAlignedP.push Byte.push32 (wordBytesBE w) ?_ (by decide)
+  show (wordBytesBE w).length = (Evm.pushArgWidth (Evm.parseInstr Byte.push32)).toNat
+  rw [show Evm.parseInstr Byte.push32 = .Push .PUSH32 from rfl]
+  simp [wordBytesBE, Evm.pushArgWidth]
+
+theorem segAlignedNoCall_emitDest (off : Nat) : SegAlignedP NoCallCreateOp (emitDest off) := by
+  refine SegAlignedP.push Byte.push4 (offsetBytesBE off) ?_ (by decide)
+  show (offsetBytesBE off).length = (Evm.pushArgWidth (Evm.parseInstr Byte.push4)).toNat
+  rw [show Evm.parseInstr Byte.push4 = .Push .PUSH4 from rfl]
+  simp [offsetBytesBE, Evm.pushArgWidth]
+
+theorem segAlignedNoCall_slot (slot : Nat) :
+    SegAlignedP NoCallCreateOp (emitImm (UInt256.ofNat slot) ++ [Byte.mload]) :=
+  (segAlignedNoCall_emitImm (UInt256.ofNat slot)).append
+    (SegAlignedP.nonpush Byte.mload (by decide) (by decide))
+
+theorem segAlignedNoCall_matExpr (cache : Tmp → List UInt8)
+    (hcache : ∀ t, SegAlignedP NoCallCreateOp (cache t)) :
+    ∀ e, SegAlignedP NoCallCreateOp (matExpr cache e) := by
+  intro e
+  cases e with
+  | imm w => exact segAlignedNoCall_emitImm w
+  | tmp t => exact hcache t
+  | add a b =>
+      rw [matExpr_add]
+      exact ((hcache b).append (hcache a)).append
+        (SegAlignedP.nonpush Byte.add (by decide) (by decide))
+  | lt a b =>
+      rw [matExpr_lt]
+      exact ((hcache b).append (hcache a)).append
+        (SegAlignedP.nonpush Byte.lt (by decide) (by decide))
+  | sload k =>
+      rw [matExpr_sload]
+      exact (hcache k).append (SegAlignedP.nonpush Byte.sload (by decide) (by decide))
+  | gas =>
+      rw [matExpr_gas]
+      exact SegAlignedP.nonpush Byte.gas (by decide) (by decide)
+
+theorem segAlignedNoCall_matLoc (cache : Tmp → List UInt8)
+    (hcache : ∀ t, SegAlignedP NoCallCreateOp (cache t)) :
+    ∀ loc, SegAlignedP NoCallCreateOp (matLoc cache loc)
+  | .remat e => segAlignedNoCall_matExpr cache hcache e
+  | .slot n  => segAlignedNoCall_slot n
+
+theorem matStep_noCall_aligned (c : Tmp → List UInt8)
+    (hc : ∀ t, SegAlignedP NoCallCreateOp (c t)) (p : Tmp × Loc) :
+    ∀ t, SegAlignedP NoCallCreateOp (matStep c p t) := by
+  intro t
+  simp only [matStep, Function.update_apply]
+  by_cases h : t = p.1
+  · rw [if_pos h]
+    exact segAlignedNoCall_matLoc c hc p.2
+  · rw [if_neg h]
+    exact hc t
+
+theorem matFold_noCall_aligned (init : Tmp → List UInt8)
+    (hinit : ∀ t, SegAlignedP NoCallCreateOp (init t)) (l : List (Tmp × Loc)) :
+    ∀ t, SegAlignedP NoCallCreateOp (matFold init l t) := by
+  induction l generalizing init with
+  | nil => simpa [matFold] using hinit
+  | cons p rest ih =>
+      rw [matFold_cons]
+      exact ih (matStep init p) (matStep_noCall_aligned init hinit p)
+
+theorem segAlignedNoCall_matCache (prog : Program) :
+    ∀ t, SegAlignedP NoCallCreateOp (matCache prog t) := by
+  unfold matCache
+  exact matFold_noCall_aligned _ (fun _ => segAlignedNoCall_emitImm 0) (defEnv prog)
+
+theorem segAlignedNoCall_matExpr_matCache (prog : Program) :
+    ∀ e, SegAlignedP NoCallCreateOp (matExpr (matCache prog) e) :=
+  segAlignedNoCall_matExpr (matCache prog) (segAlignedNoCall_matCache prog)
+
+theorem segAlignedNoCall_matLoc_matCache (prog : Program) :
+    ∀ loc, SegAlignedP NoCallCreateOp (matLoc (matCache prog) loc) :=
+  segAlignedNoCall_matLoc (matCache prog) (segAlignedNoCall_matCache prog)
+
+theorem segAlignedNoCall_emitTerm (cache : Tmp → List UInt8)
+    (hcache : ∀ t, SegAlignedP NoCallCreateOp (cache t)) (labelOff : Nat → Nat) (t : Term) :
+    SegAlignedP NoCallCreateOp (emitTerm cache labelOff t) := by
+  cases t with
+  | ret tt =>
+      rw [show emitTerm cache labelOff (.ret tt)
+            = cache tt ++ emitImm 0 ++ [Byte.mstore] ++ emitImm 32
+                ++ emitImm 0 ++ [Byte.ret] from rfl]
+      exact (((((hcache tt).append
+              (segAlignedNoCall_emitImm 0)).append
+              (SegAlignedP.nonpush Byte.mstore (by decide) (by decide))).append
+              (segAlignedNoCall_emitImm 32)).append (segAlignedNoCall_emitImm 0)).append
+            (SegAlignedP.nonpush Byte.ret (by decide) (by decide))
+  | stop =>
+      rw [show emitTerm cache labelOff .stop = [Byte.stop] from rfl]
+      exact SegAlignedP.nonpush Byte.stop (by decide) (by decide)
+  | jump dst =>
+      rw [show emitTerm cache labelOff (.jump dst)
+            = emitDest (labelOff dst.idx) ++ [Byte.jump] from rfl]
+      exact (segAlignedNoCall_emitDest _).append
+        (SegAlignedP.nonpush Byte.jump (by decide) (by decide))
+  | branch cond thenL elseL =>
+      rw [show emitTerm cache labelOff (.branch cond thenL elseL)
+            = cache cond
+              ++ emitDest (labelOff thenL.idx) ++ [Byte.jumpi]
+              ++ emitDest (labelOff elseL.idx) ++ [Byte.jump] from rfl]
+      exact ((((hcache cond).append
+              (segAlignedNoCall_emitDest _)).append
+              (SegAlignedP.nonpush Byte.jumpi (by decide) (by decide))).append
+              (segAlignedNoCall_emitDest _)).append
+            (SegAlignedP.nonpush Byte.jump (by decide) (by decide))
+
+theorem segAlignedNoCall_emitTerm_matCache (prog : Program) (t : Term) :
+    SegAlignedP NoCallCreateOp
+      (emitTerm (matCache prog) (offsetTable (matCache prog) (defsOf prog) prog.blocks) t) :=
+  segAlignedNoCall_emitTerm (matCache prog) (segAlignedNoCall_matCache prog)
+    (offsetTable (matCache prog) (defsOf prog) prog.blocks) t
+
+theorem reachesBoundary_drop_segAlignedP {P : Operation → Prop} (c : ByteArray)
+    (seg : List UInt8) (hseg : SegAlignedP P seg) :
+    ∀ base : Nat, (∀ j, j < seg.length → c.get? (base + j) = seg[j]?) →
+      ∀ n, ReachesBoundary c base n → base + seg.length ≤ n →
+        ReachesBoundary c (base + seg.length) n := by
+  induction hseg with
+  | nil =>
+      intro base _ n hreach _
+      simpa using hreach
+  | cons byte imm rest himm _hP hrest ih =>
+      intro base hmatch n hreach hle
+      have hhead : c.get? base = some byte := by
+        have := hmatch 0 (by simp)
+        simpa using this
+      have hseglen : (byte :: (imm ++ rest)).length = 1 + imm.length + rest.length := by
+        simp [List.length_append]
+        omega
+      have hmatch' : ∀ j, j < rest.length →
+          c.get? ((base + 1 + imm.length) + j) = rest[j]? := by
+        intro j hj
+        have hj' : 1 + imm.length + j < (byte :: (imm ++ rest)).length := by
+          rw [hseglen]; omega
+        have := hmatch (1 + imm.length + j) hj'
+        rw [show base + (1 + imm.length + j) = (base + 1 + imm.length) + j from by omega] at this
+        rw [this]
+        rw [show 1 + imm.length + j = (imm.length + j) + 1 from by omega,
+            List.getElem?_cons_succ, List.getElem?_append_right (by omega),
+            show imm.length + j - imm.length = j from by omega]
+      cases hreach with
+      | refl _ =>
+          rw [hseglen] at hle
+          omega
+      | step hget restReach =>
+          rw [hhead] at hget
+          cases hget
+          have hnext : Evm.nextInstrPosNat base (Evm.parseInstr byte) = base + 1 + imm.length := by
+            unfold Evm.nextInstrPosNat
+            rw [himm]
+          rw [hnext] at restReach
+          have hle' : (base + 1 + imm.length) + rest.length ≤ n := by
+            rw [hseglen] at hle
+            omega
+          have := ih (base + 1 + imm.length) hmatch' n restReach hle'
+          simpa [hseglen, Nat.add_assoc] using this
+
 /-! ## §1 — the converse: a recorded jump destination is a reachable boundary
 
 `validJumpDestsAuxNat c start acc` only ever pushes `i.toUInt32` for boundaries `i` it
