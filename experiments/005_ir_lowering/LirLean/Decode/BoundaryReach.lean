@@ -25,12 +25,12 @@ Proving it is a `Runs`-induction whose `step`/`call` cases need three reachabili
   (`segAlignedP_flatBytes`) are the strongest instance of the shared `SegAlignedP` tower
   (`Decode/SegAligned.lean`). It *scopes* the per-step pc-advance case analysis to the emitted set.
 
-REMAINING (the `Runs`-induction itself, not yet landed): the per-step pc inversion
-`stepFrame fr = .next e → e.pc.toNat` is either `nextInstrPosNat n (decoded op)` (sequential) or a
-`fr.validJumps` member (taken JUMP/JUMPI), case-analysed over the 18 `IsLoweringOp` arms (the
-`stepFrame_next_accMono` dispatch-walk template of `Engine/StepWalk.lean`, mirrored for the
-pc component); plus the in-range `e.pc.toNat < (flatBytes prog).length` preservation. With those,
-the base case (`codeFrame` pc = 0, `ReachesBoundary.refl`) and the `call` case
+The per-step pc inversion
+`stepFrame fr = .next e → e.pc` is either `nextInstrPosNat n (decoded op)` (sequential) or a
+`fr.validJumps` member (taken JUMP/JUMPI), case-analysed over the 18 `IsLoweringOp` arms below.
+REMAINING (the `Runs`-induction itself, not yet landed): the in-range
+`e.pc.toNat < (flatBytes prog).length` preservation. With that, the base case
+(`codeFrame` pc = 0, `ReachesBoundary.refl`) and the `call` case
 (`resumeAfterCall` pc = call-site pc + 1, the byte after CALL) close the induction via the three
 bricks above.
 
@@ -599,6 +599,142 @@ theorem stepFrame_needsCreate_lowering_site_inv {prog : Program} {fr : Evm.Frame
       Evm.parseInstr byte = .System .CREATE ∨ Evm.parseInstr byte = .System .CREATE2 := by
     simpa [hgetD] using hopCreate
   exact ⟨hcreate, hppc, hpvj⟩
+
+/-- A lowered `.next` step either advances to the decoded instruction's sequential successor or
+takes a `JUMP`/`JUMPI` target recorded in the frame's valid-jump table. -/
+theorem stepFrame_next_lowering_pc_or_validJump {prog : Program} {fr mid : Evm.Frame}
+    {b : Nat} {byte : UInt8}
+    (hcode : fr.exec.executionEnv.code = lower prog) (hpc : fr.exec.pc = UInt32.ofNat b)
+    (hbnd : b < 2 ^ 32) (hget : (lower prog).get? b = some byte)
+    (hop : IsLoweringOp (Evm.parseInstr byte))
+    (hstep : Evm.stepFrame fr = .next mid.exec) :
+    mid.exec.pc = UInt32.ofNat (Evm.nextInstrPosNat b (Evm.parseInstr byte))
+      ∨ mid.exec.pc ∈ fr.validJumps := by
+  have hbyte : (flatBytes prog)[b]? = some byte := by
+    rw [← lower_get?_eq]; exact hget
+  obtain ⟨arg, hdec0⟩ := decode_of_loweringByte (prog := prog) hbnd hget
+  have hdec : Evm.decode fr.exec.executionEnv.code fr.exec.pc =
+      some (Evm.parseInstr byte, arg) := by
+    simpa [hcode, hpc] using hdec0
+  have hdecNone (hw : Evm.pushArgWidth (Evm.parseInstr byte) = 0) :
+      Evm.decode fr.exec.executionEnv.code fr.exec.pc =
+        some (Evm.parseInstr byte, .none) := by
+    simpa [hcode, hpc] using decode_lower_nonpush prog b byte hbnd hbyte hw
+  unfold IsLoweringOp at hop
+  rcases hop with hstop | hadd | hlt | hpop | hmload | hmstore | hsload | hsstore | hjump
+    | hjumpi | hgas | hjumpdest | hpush4 | hpush32 | hcall | hreturn | hcreate | hcreate2
+  · rw [hstop] at hdec ⊢
+    have hdecN := hdecNone (by simp [hstop, Evm.pushArgWidth])
+    rw [hstop] at hdecN
+    rw [Evm.stepFrame] at hstep
+    rw [hdecN] at hstep
+    simp only [Option.getD_some] at hstep
+    split at hstep
+    · exact absurd hstep (by simp)
+    · simp only [Evm.dispatch, Evm.systemOp] at hstep
+      cases hh : Evm.haltOp .STOP fr.exec with
+      | error e =>
+          rw [hh] at hstep
+          split at hstep <;> simp at hstep
+      | ok signal =>
+          rw [hh] at hstep
+          cases signal with
+          | next e => exact absurd hh (BytecodeLayer.System.haltOp_not_next' (by tauto))
+          | halted h | needsCall p pc | needsCreate p pc =>
+              split at hstep <;> simp at hstep
+  · rw [hadd] at hdec ⊢
+    have hdecN := hdecNone (by simp [hadd, Evm.pushArgWidth])
+    rw [hadd] at hdecN
+    exact Or.inl (Evm.stepFrame_next_add_pc hpc hdecN hstep)
+  · rw [hlt] at hdec ⊢
+    have hdecN := hdecNone (by simp [hlt, Evm.pushArgWidth])
+    rw [hlt] at hdecN
+    exact Or.inl (Evm.stepFrame_next_lt_pc hpc hdecN hstep)
+  · rw [hpop] at hdec ⊢
+    have hdecN := hdecNone (by simp [hpop, Evm.pushArgWidth])
+    rw [hpop] at hdecN
+    exact Or.inl (Evm.stepFrame_next_pop_pc hpc hdecN hstep)
+  · rw [hmload] at hdec ⊢
+    have hdecN := hdecNone (by simp [hmload, Evm.pushArgWidth])
+    rw [hmload] at hdecN
+    exact Or.inl (Evm.stepFrame_next_mload_pc hpc hdecN hstep)
+  · rw [hmstore] at hdec ⊢
+    have hdecN := hdecNone (by simp [hmstore, Evm.pushArgWidth])
+    rw [hmstore] at hdecN
+    exact Or.inl (Evm.stepFrame_next_mstore_pc hpc hdecN hstep)
+  · rw [hsload] at hdec ⊢
+    have hdecN := hdecNone (by simp [hsload, Evm.pushArgWidth])
+    rw [hsload] at hdecN
+    exact Or.inl (Evm.stepFrame_next_sload_pc hpc hdecN hstep)
+  · rw [hsstore] at hdec ⊢
+    have hdecN := hdecNone (by simp [hsstore, Evm.pushArgWidth])
+    rw [hsstore] at hdecN
+    exact Or.inl (Evm.stepFrame_next_sstore_pc hpc hdecN hstep)
+  · rw [hjump] at hdec ⊢
+    have hdecN := hdecNone (by simp [hjump, Evm.pushArgWidth])
+    rw [hjump] at hdecN
+    exact Or.inr (Evm.stepFrame_next_jump_pc hdecN hstep)
+  · rw [hjumpi] at hdec ⊢
+    have hdecN := hdecNone (by simp [hjumpi, Evm.pushArgWidth])
+    rw [hjumpi] at hdecN
+    exact Evm.stepFrame_next_jumpi_pc hpc hdecN hstep
+  · rw [hgas] at hdec ⊢
+    have hdecN := hdecNone (by simp [hgas, Evm.pushArgWidth])
+    rw [hgas] at hdecN
+    exact Or.inl (Evm.stepFrame_next_gas_pc hpc hdecN hstep)
+  · rw [hjumpdest] at hdec ⊢
+    have hdecN := hdecNone (by simp [hjumpdest, Evm.pushArgWidth])
+    rw [hjumpdest] at hdecN
+    exact Or.inl (Evm.stepFrame_next_jumpdest_pc hpc hdecN hstep)
+  · rw [hpush4] at hdec ⊢
+    let imm := Evm.uInt256OfByteArray
+      ⟨((flatBytes prog).toArray).extract (b + 1) (b + 1 + (4 : UInt8).toNat)⟩
+    have hdecP : Evm.decode fr.exec.executionEnv.code fr.exec.pc =
+        some (Operation.PUSH4, some (imm, 4)) := by
+      simpa [hcode, hpc, hpush4, imm] using
+        decode_lower_push prog b byte 4 imm hbnd hbyte (by simp [hpush4, Evm.pushArgWidth])
+          (by decide) rfl
+    exact Or.inl (Evm.stepFrame_next_push4_pc hpc hdecP hstep)
+  · rw [hpush32] at hdec ⊢
+    let imm := Evm.uInt256OfByteArray
+      ⟨((flatBytes prog).toArray).extract (b + 1) (b + 1 + (32 : UInt8).toNat)⟩
+    have hdecP : Evm.decode fr.exec.executionEnv.code fr.exec.pc =
+        some (Operation.PUSH32, some (imm, 32)) := by
+      simpa [hcode, hpc, hpush32, imm] using
+        decode_lower_push prog b byte 32 imm hbnd hbyte (by simp [hpush32, Evm.pushArgWidth])
+          (by decide) rfl
+    exact Or.inl (Evm.stepFrame_next_push32_pc hpc hdecP hstep)
+  · rw [hcall] at hdec ⊢
+    have hdecN := hdecNone (by simp [hcall, Evm.pushArgWidth])
+    rw [hcall] at hdecN
+    exact Or.inl (Evm.stepFrame_next_call_pc hpc hdecN hstep)
+  · rw [hreturn] at hdec ⊢
+    have hdecN := hdecNone (by simp [hreturn, Evm.pushArgWidth])
+    rw [hreturn] at hdecN
+    rw [Evm.stepFrame] at hstep
+    rw [hdecN] at hstep
+    simp only [Option.getD_some] at hstep
+    split at hstep
+    · exact absurd hstep (by simp)
+    · simp only [Evm.dispatch, Evm.systemOp] at hstep
+      cases hh : Evm.haltOp .RETURN fr.exec with
+      | error e =>
+          rw [hh] at hstep
+          split at hstep <;> simp at hstep
+      | ok signal =>
+          rw [hh] at hstep
+          cases signal with
+          | next e => exact absurd hh (BytecodeLayer.System.haltOp_not_next' (by tauto))
+          | halted h | needsCall p pc | needsCreate p pc =>
+              split at hstep <;> simp at hstep
+  · rw [hcreate] at hdec ⊢
+    have hdecN := hdecNone (by simp [hcreate, Evm.pushArgWidth])
+    rw [hcreate] at hdecN
+    exact Or.inl (Evm.stepFrame_next_create_pc hpc hdecN hstep)
+  · rw [hcreate2] at hdec ⊢
+    have hdecN := hdecNone (by simp [hcreate2, Evm.pushArgWidth])
+    rw [hcreate2] at hdecN
+    exact Or.inl (Evm.stepFrame_next_create2_pc hpc hdecN hstep)
 
 
 end Lir
