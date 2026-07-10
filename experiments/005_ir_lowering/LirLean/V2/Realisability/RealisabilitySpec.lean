@@ -2,6 +2,7 @@ import LirLean.V2.Drive.Headline
 import LirLean.Assembly.Acyclic
 import LirLean.Decode.BoundaryReach
 import LirLean.V2.Realisability.Witness
+import LirLean.V2.Realisability.WitnessParams
 
 /-!
 # LirLean v2 — the REALISABILITY SPEC skeleton (Phase-3 target statements; WIP-only)
@@ -330,9 +331,26 @@ theorem realisedGas_nil_of_noGasReads {prog : Program} {params : CallParams} {lo
 
 /-- **R12a — the flagship's antecedent is TRUE somewhere** (the machine-checked
 non-vacuity guard; HonestGasTie's replacement role). Some concrete top-level call params
-run `lower exProg` cleanly with every flagship hypothesis satisfied. The `params` witness
-is deliberately EXISTENTIAL: a literal `CallParams` needs BlockHeader/ProcessedBlocks
-plumbing that belongs to the R12 grind, not the spec. -/
+run `lower exProg` cleanly with every flagship hypothesis satisfied.
+
+**STATUS (honest partial; theorem stays `sorry` — the R3-precedent shape).** The witness
+grind is DONE except for two kernel evaluations: `WitnessParams.lean` lands the literal
+witness `exParams` (gas `25000`, tuned by a measured native probe: clean `.stop`, 179 gas
+left, 1 loop iteration) and the sorry-free reduction
+`exProg_satisfies_hypotheses_of_checks`, which derives THIS ENTIRE conjunction from
+exactly two decidable `Bool` leaves:
+
+1. `exCheck = true` — the recorded run exists and is clean (covers `hrun` + `hclean`);
+2. `entryCallsCodeOk exParams 4096 = true` — the `CallsCode` trace check (made
+   universal by the sorry-free `callsCode_of_entryCheck`; the `noErase` face is a
+   closed engine THEOREM, `beginCall_inr_noErase`).
+
+Both leaves are TRUE by native evaluation (not citable) and were attempted in-kernel
+(`decide +kernel`): the v4.30 kernel OOMs on the CALL descent's state duplication —
+the measured ladder and the identified segmented-evaluation follow-up route live in the
+`WitnessParams.lean` module header. Bundling the reduction with sorry'd leaves would
+bury the debt mid-bundle (the R3 lesson), so R12a stays ONE top-level `sorry` with the
+reduction landed as a real lemma; the residue is exactly the two computational leaves. -/
 theorem exProg_satisfies_hypotheses :
     ∃ (params : CallParams) (log : RunLog) (acc : Account),
       params.codeSource = .Code (lower exProg)
@@ -354,11 +372,12 @@ theorem exProg_nonvacuity :
           RunFrom exProg (entryState params) (realisedGas log)
             (realisedCall log params.recipient) (realisedCreate log params.recipient) exProg.entry O
           ∧ Conforms params.recipient log O := by
-  -- The witness params/log come from R12a (`exProg_satisfies_hypotheses`); the inner
+  -- The witness params/log come from R12a (`exProg_satisfies_hypotheses` — reduced in
+  -- `WitnessParams.lean` to two decidable leaves, see its docstring); the inner
   -- existential is EXACTLY R11's (`lower_conforms`) conclusion at `prog := exProg`.
-  -- R12a carries every flagship premise except the closed static `wellLowered_exProg`, which we
-  -- supply directly (same module). Green now (R12a is a skeleton leaf); axiom-clean once R11 +
-  -- R12a land. No single-call premise — calls are a positional `CallStream`.
+  -- R12a carries every flagship premise except the closed static `wellLowered_exProg`,
+  -- which we supply directly (same module). Axiom-clean once R11 + R12a's two leaves
+  -- land. No single-call premise — calls are a positional `CallStream`.
   obtain ⟨params, log, _acc, hcode, hmod, hself, hgas, hrun, hclean, hseams⟩ :=
     exProg_satisfies_hypotheses
   refine ⟨params, log, hcode, hrun, ?_⟩
