@@ -2065,6 +2065,84 @@ theorem recorderCoupled_create {log : RunLog} {fr resumeFr : Frame}
       obtain ⟨pre, hpre⟩ := hdp
       exact ⟨pre ++ [rec], by rw [hpre]; simp [List.append_assoc]⟩
 
+/-- A coupled CREATE head determines the returning child and its successful resume.  The
+`CreateResolves` premise is the genuine retained-gas seam: it is used exactly once, to rule out
+the exceptional `resumeAfterCreate` branch.  As for CALL extraction, the recorder equation then
+identifies the positional head and `recorderCoupled_create` consumes it. -/
+theorem recorderCoupled_create_extract {log : RunLog} {createFr : Frame}
+    {cp : CreateParams} {pending : PendingCreate}
+    {gS : List Word} {sS : List Nat} {cS : List CallRecord}
+    {rec : CreateRecord} {dS : List CreateRecord}
+    (hcp : RecorderCoupled log createFr gS sS cS (rec :: dS))
+    (hstep : stepFrame createFr = .needsCreate cp pending)
+    (hresolve : CreateResolves createFr) :
+    ∃ (childRes : FrameResult) (resumeFr : Frame),
+        CreateReturns createFr resumeFr
+      ∧ rec = { result := childRes.toCreateResult, pending := pending }
+      ∧ resumeAfterCreate childRes.toCreateResult pending = .ok resumeFr
+      ∧ RecorderCoupled log resumeFr gS sS cS dS := by
+  obtain ⟨childRes, hchild⟩ := create_child_terminates cp
+  obtain ⟨resumeFr, hresume⟩ := hresolve cp pending childRes hstep hchild
+  have hcr : CreateReturns createFr resumeFr :=
+    ⟨cp, pending, childRes, hstep, hchild, hresume⟩
+  refine ⟨childRes, resumeFr, hcr, ?_, hresume, recorderCoupled_create hcp hcr⟩
+  obtain ⟨⟨fuel', hrestart⟩, _, _, _, _⟩ := hcp
+  cases fuel' with
+  | zero => simp [driveLog] at hrestart
+  | succ m =>
+    have hdescent : driveLog (m + 1) [] (.inl createFr) [] [] [] []
+        = driveLog m (.create pending :: []) (.inl (beginCreate cp)) [] [] [] [] := by
+      conv_lhs => unfold driveLog
+      simp only [hstep]
+    rw [hdescent] at hrestart
+    have hdrive : drive m (.create pending :: []) (.inl (beginCreate cp))
+        = .ok log.observable := by
+      have hd := driveLog_drive m (.create pending :: []) (.inl (beginCreate cp)) [] [] [] []
+      rw [hrestart] at hd
+      simpa only [Except.map] using hd.symm
+    have hne : drive m (.create pending :: []) (running (beginCreate cp))
+        ≠ .error .OutOfFuel := by rw [hdrive]; simp
+    have hchildm_ne : drive m [] (running (beginCreate cp)) ≠ .error .OutOfFuel :=
+      child_ne_oof_of_framed' m (beginCreate cp) (.create pending) [] hne
+    have hchildm : drive m [] (running (beginCreate cp)) = .ok childRes := by
+      have h1 := drive_fuel_mono (Nat.le_max_left m (seedFuel cp.gas)) []
+        (running (beginCreate cp)) hchildm_ne
+      have h2 := drive_fuel_mono (Nat.le_max_right m (seedFuel cp.gas)) []
+        (running (beginCreate cp)) (by rw [hchild]; simp)
+      rw [hchild] at h2
+      rw [← h1, h2]
+    obtain ⟨j, hframe⟩ := driveLog_frame_nonempty (.create pending :: []) rfl [] [] [] []
+      m [] (.inl (beginCreate cp)) childRes hchildm
+    rw [List.nil_append] at hframe
+    rw [hframe] at hrestart
+    have hdeliv : driveLog (j + 1) (.create pending :: []) (.inr childRes) [] [] [] []
+        = driveLog j [] (.inl resumeFr) [] [] []
+            [{ result := childRes.toCreateResult, pending := pending }] := by
+      conv_lhs => unfold driveLog
+      simp only [Pending.resume, List.isEmpty_nil, if_true, recordCall, recordCreate,
+        List.nil_append, hresume]
+    rw [hdeliv] at hrestart
+    rw [driveLog_acc_hom j [] (.inl resumeFr) [] [] []
+      [{ result := childRes.toCreateResult, pending := pending }]] at hrestart
+    cases hbok : driveLog j [] (.inl resumeFr) [] [] [] [] with
+    | error e => rw [hbok] at hrestart; simp [Except.map] at hrestart
+    | ok val =>
+      obtain ⟨obs'', gS'', sS'', cS'', dS''⟩ := val
+      rw [hbok] at hrestart
+      have heq : (Except.ok (obs'', [] ++ gS'', [] ++ sS'', [] ++ cS'',
+          [{ result := childRes.toCreateResult, pending := pending }] ++ dS'')
+          : Except ExecutionException
+              (FrameResult × List Word × List Nat × List CallRecord × List CreateRecord))
+          = .ok (log.observable, gS, sS, cS, rec :: dS) := hrestart
+      simp only [List.nil_append, List.singleton_append] at heq
+      injection heq with heq2
+      injection heq2 with _ heq3
+      injection heq3 with _ heq4
+      injection heq4 with _ heq5
+      injection heq5 with _ hcons
+      injection hcons with hrecEq _
+      exact hrecEq.symm
+
 /-- **R7e′ — the coupling's CALL extraction** (R3's Piece-A atom; the *producing* companion of
 `recorderCoupled_call`, which only consumes). At a top-level boundary frame `callFr` whose next
 step is a returning external CALL (`stepFrame callFr = .needsCall cp pending`, `beginCall cp =
