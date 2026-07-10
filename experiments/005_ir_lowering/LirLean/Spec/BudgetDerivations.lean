@@ -330,6 +330,92 @@ theorem stackBounds_of_stackFits (prog : Program) (h : stackFits prog) : StackRo
     have hb1024 : maxChargeDepth prog ≤ 1024 := h
     simp only [termChargeDepth, chargeDepth] at hst
     omega
+  callCallee := by
+    intro sloadChg L b pc cs hb hs
+    have hmem : b ∈ prog.blocks.toList := List.mem_of_getElem? (Lir.toList_of_blockAt hb)
+    have hsmem : (Stmt.call cs) ∈ b.stmts := List.mem_of_getElem? hs
+    rw [chargeCache_length_sloadChg_eq prog sloadChg (fun _ => 0)]
+    have hst := stmtChargeDepth_le_max prog b (.call cs) hmem hsmem
+    have hb1024 : maxChargeDepth prog ≤ 1024 := h
+    simp only [stmtChargeDepth, chargeDepth] at hst
+    omega
+  callGasFwd := by
+    intro sloadChg L b pc cs hb hs
+    have hmem : b ∈ prog.blocks.toList := List.mem_of_getElem? (Lir.toList_of_blockAt hb)
+    have hsmem : (Stmt.call cs) ∈ b.stmts := List.mem_of_getElem? hs
+    rw [chargeCache_length_sloadChg_eq prog sloadChg (fun _ => 0)]
+    have hst := stmtChargeDepth_le_max prog b (.call cs) hmem hsmem
+    have hb1024 : maxChargeDepth prog ≤ 1024 := h
+    simp only [stmtChargeDepth, chargeDepth] at hst
+    omega
+  createOperands := by
+    intro sloadChg L b pc cs hb hs
+    have hmem : b ∈ prog.blocks.toList := List.mem_of_getElem? (Lir.toList_of_blockAt hb)
+    have hsmem : (Stmt.create cs) ∈ b.stmts := List.mem_of_getElem? hs
+    rw [chargeCache_length_sloadChg_eq prog sloadChg (fun _ => 0) cs.salt,
+        chargeCache_length_sloadChg_eq prog sloadChg (fun _ => 0) cs.initSize,
+        chargeCache_length_sloadChg_eq prog sloadChg (fun _ => 0) cs.initOffset,
+        chargeCache_length_sloadChg_eq prog sloadChg (fun _ => 0) cs.value]
+    have hst := stmtChargeDepth_le_max prog b (.create cs) hmem hsmem
+    have hb1024 : maxChargeDepth prog ≤ 1024 := h
+    simp only [stmtChargeDepth, chargeDepth] at hst
+    exact ⟨by omega, by omega, by omega, by omega⟩
+
+/-! ### Producer-shaped derivation lemmas (call/create static facts)
+
+The CALL producer (`callRealises_of_recorded` in `V2/Realisability/Machinery.lean`)
+currently THREADS the call stack-room facts (`hstkCallee`/`hstkGasFwd`) and the
+result-slot addressability (`hslotaddr`) as internal hypotheses. Each lemma below
+exposes EXACTLY the threaded shape, derived from the public static bundle
+(`stackFits` / `IRWellFormed`), so the later integration pass can swap the threaded
+hypotheses for these at the use sites. The create twins are stated ahead of the
+CREATE producer (mirroring CALL). -/
+
+/-- The CALL producer's `hstkCallee` shape, derived from the `stackFits` budget:
+the callee materialise fits above the five zero pushes of the call prologue. -/
+theorem callStackRoom_callee_of_stackFits {prog : Program} (h : stackFits prog)
+    (sloadChg : Tmp → ℕ) {L : Label} {b : Block} {pc : Nat} {cs : CallSpec}
+    (hb : blockAt prog L = some b) (hs : b.stmts[pc]? = some (.call cs)) :
+    5 + (chargeCache prog sloadChg cs.callee).length ≤ 1024 :=
+  (stackBounds_of_stackFits prog h).callCallee sloadChg L b pc cs hb hs
+
+/-- The CALL producer's `hstkGasFwd` shape, derived from the `stackFits` budget:
+the gasFwd materialise fits above the five zero pushes plus the materialised callee. -/
+theorem callStackRoom_gasFwd_of_stackFits {prog : Program} (h : stackFits prog)
+    (sloadChg : Tmp → ℕ) {L : Label} {b : Block} {pc : Nat} {cs : CallSpec}
+    (hb : blockAt prog L = some b) (hs : b.stmts[pc]? = some (.call cs)) :
+    6 + (chargeCache prog sloadChg cs.gasFwd).length ≤ 1024 :=
+  (stackBounds_of_stackFits prog h).callGasFwd sloadChg L b pc cs hb hs
+
+/-- The create-prologue stack-room bundle, derived from the `stackFits` budget: one
+bound per CREATE2 operand at its emission depth (salt 0, initSize 1, initOffset 2,
+value 3) — the shapes a CREATE producer mirroring CALL will thread. -/
+theorem createStackRoom_of_stackFits {prog : Program} (h : stackFits prog)
+    (sloadChg : Tmp → ℕ) {L : Label} {b : Block} {pc : Nat} {cs : CreateSpec}
+    (hb : blockAt prog L = some b) (hs : b.stmts[pc]? = some (.create cs)) :
+    (chargeCache prog sloadChg cs.salt).length ≤ 1024
+    ∧ 1 + (chargeCache prog sloadChg cs.initSize).length ≤ 1024
+    ∧ 2 + (chargeCache prog sloadChg cs.initOffset).length ≤ 1024
+    ∧ 3 + (chargeCache prog sloadChg cs.value).length ≤ 1024 :=
+  (stackBounds_of_stackFits prog h).createOperands sloadChg L b pc cs hb hs
+
+/-- The CALL producer's `hslotaddr` shape, derived from `IRWellFormed.slotAddr`'s
+call-result arm: the result temp's spill slot is byte- and platform-addressable. -/
+theorem callResult_slotAddr_of_IRWellFormed {prog : Program} (hwf : IRWellFormed prog)
+    {L : Label} {b : Block} {pc : Nat} {cs : CallSpec}
+    (hb : blockAt prog L = some b) (hs : b.stmts[pc]? = some (.call cs)) :
+    ∀ t, cs.resultTmp = some t →
+      slotOf t + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits :=
+  fun t ht => hwf.slotAddr L b pc t hb (Or.inr (Or.inr (Or.inl ⟨cs, hs, ht⟩)))
+
+/-- The create twin of `callResult_slotAddr_of_IRWellFormed`, from `IRWellFormed.slotAddr`'s
+create-result arm. -/
+theorem createResult_slotAddr_of_IRWellFormed {prog : Program} (hwf : IRWellFormed prog)
+    {L : Label} {b : Block} {pc : Nat} {cs : CreateSpec}
+    (hb : blockAt prog L = some b) (hs : b.stmts[pc]? = some (.create cs)) :
+    ∀ t, cs.resultTmp = some t →
+      slotOf t + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits :=
+  fun t ht => hwf.slotAddr L b pc t hb (Or.inr (Or.inr (Or.inr ⟨cs, hs, ht⟩)))
 
 theorem slots_slot_of_defsOf (prog : Program) :
     ∀ (tw : Tmp) (slot' : Nat), defsOf prog tw = some (.slot slot') → slot' = slotOf tw := by

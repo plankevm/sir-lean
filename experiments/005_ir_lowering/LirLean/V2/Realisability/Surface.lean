@@ -246,14 +246,19 @@ structure WellLowered (prog : Program) : Prop where
   gasBound : ∀ (L : Label) (b : Block) (pc : Nat) (t : Tmp),
     blockAt prog L = some b → b.stmts[pc]? = some (.assign t .gas) →
     pcOf prog L pc + 34 < 2 ^ 32
-  /-- **Spill-slot addressability** at every gas/sload cursor: the target tmp's slot is byte-
-  and platform-addressable (`slotOf t = t.id * 32`, a bound on tmp ids). Not derivable from
-  the program's control structure; in-tree it is always *supplied* to the sim lemmas
-  (`SimStmt.lean:630`, `LowerConforms.lean:436/467`). SUPPLIED status: static, decidable. -/
+  /-- **Spill-slot addressability** at every gas/sload cursor AND at every call/create
+  result temp: the target tmp's slot is byte- and platform-addressable
+  (`slotOf t = t.id * 32`, a bound on tmp ids). Not derivable from the program's control
+  structure; in-tree it is always *supplied* to the sim lemmas (`SimStmt.lean:630`,
+  `LowerConforms.lean:436/467`); the call/create-result arms are the derived source for the
+  CALL producer's threaded `hslotaddr` (`callResult_slotAddr_of_IRWellFormed`).
+  SUPPLIED status: static, decidable. -/
   slotAddr : ∀ (L : Label) (b : Block) (pc : Nat) (t : Tmp),
     blockAt prog L = some b →
     (b.stmts[pc]? = some (.assign t .gas)
-      ∨ ∃ k, b.stmts[pc]? = some (.assign t (.sload k))) →
+      ∨ (∃ k, b.stmts[pc]? = some (.assign t (.sload k)))
+      ∨ (∃ cs : CallSpec, b.stmts[pc]? = some (.call cs) ∧ cs.resultTmp = some t)
+      ∨ (∃ cs : CreateSpec, b.stmts[pc]? = some (.create cs) ∧ cs.resultTmp = some t)) →
     slotOf t + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
   /-- **The ret epilogue's pc-bound seam** (R5's `hretEmit`). The 101-byte
   `PUSH32 0; MSTORE; PUSH32 32; PUSH32 0; RETURN` full-observable epilogue after the
@@ -509,9 +514,11 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
   -- CallsCode seam (from `PrecompileAssumptions` at the walk); the operand bindings
   -- (`cw`/`gw` — the sload-arm antecedent principle, header lesson 5) + their
   -- closure-freeness at `I` (`ScopedUses` at the walk's fold set); the two static
-  -- stack-room folds and the result-slot addressability (static facts MISSING from
-  -- `stackFits`/`IRWellFormed.slotAddr` — reported static-fold gaps, threaded until the
-  -- static bundle grows the call arms).
+  -- stack-room folds and the result-slot addressability (now COVERED by the static
+  -- bundle: `stmtChargeDepth`'s call arm / `IRWellFormed.slotAddr`'s call-result arm —
+  -- derivable via `callStackRoom_callee_of_stackFits`/`callStackRoom_gasFwd_of_stackFits`/
+  -- `callResult_slotAddr_of_IRWellFormed`; still threaded here until the integration pass
+  -- swaps the use sites).
   ∧ (∀ (pc : Nat) (cs : CallSpec) (st0 st0' : IRState) (fr0 : Frame) (cw gw : Word)
       (gS : List Word) (sS : List Nat) (rec : CallRecord) (cS' : List CallRecord)
       (dS : List CreateRecord) (I : Tmp → Prop),
