@@ -249,6 +249,32 @@ def ScopedUses (prog : Program) : Prop :=
       RematClosureFree prog ((b.stmts.take pc).foldl (invalStep prog) (fun _ => False)) (.tmp t)
 ```
 
+> **Amendment 2026-07-10 (sanctioned): `RematClosureFree` is an `inductive`, not a `def`.**
+> The recursive `def` sketched above does not termination-check: the `.tmp` arm recurses through
+> `allocate`-resolved remat bodies, which is not structurally decreasing, and the existing
+> `matDecMeasure_remat_lt` measure needs `DefsConsistent`/`DefEnvOrdered` evidence that does not
+> belong in this signature (first reshape pass blocked on exactly this, correctly). Realize the
+> SAME arms as an inductive predicate:
+>
+> ```lean
+> inductive RematClosureFree (prog : Program) (I : Tmp → Prop) : Expr → Prop where
+>   | imm   (w) : RematClosureFree prog I (.imm w)
+>   | gas       : RematClosureFree prog I .gas
+>   | sload (k) : RematClosureFree prog I (.sload k)
+>   | tmp   (t) (hI : ¬ I t)
+>       (hrem : ∀ e', allocate prog t = some (.remat e') → RematClosureFree prog I e') :
+>       RematClosureFree prog I (.tmp t)
+>   | add (a b) (ha : RematClosureFree prog I (.tmp a)) (hb : RematClosureFree prog I (.tmp b)) :
+>       RematClosureFree prog I (.add a b)
+>   | lt  (a b) (ha : RematClosureFree prog I (.tmp a)) (hb : RematClosureFree prog I (.tmp b)) :
+>       RematClosureFree prog I (.lt a b)
+> ```
+>
+> Semantics are unchanged (least fixed point of the same clauses); cyclic remat chains — already
+> excluded by `DefEnvOrdered` — are simply unprovable, which is the desired behavior for a
+> closure certificate. Witness discharges construct the inductive directly along the defEnv
+> order. No signature pollution, no fuel.
+
 Notes: the gas arm has **no operands** — it needs none of this; the sload arm needs it only for
 the key `k`; the (already-closed) sstore arm needs it for `key`/`value` after the reshape.
 Terminator operands (branch cond / ret value) read at the *end-of-block* fold, which
