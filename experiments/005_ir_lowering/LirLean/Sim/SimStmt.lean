@@ -403,8 +403,8 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       + (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp value)).length ≤ 1024 := by
     simp only [chargeExpr_tmp]; omega
   obtain ⟨frv, hmrv, _hgasv_derived⟩ := materialise_runsC_of_cleanHalt hdc hord sloadChg st obs
-    (.tmp value) vw fr
-    hdv ((defsSoundS_empty_iff prog st).mp hcorr.defsSound) hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
+    (fun _ => False) (.tmp value) vw fr
+    hdv hcorr.defsSound (rematClosureFree_empty prog hdc hord (.tmp value)) hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
     hevv hcs hstkv
   -- frv facts
   have hvcode : frv.exec.executionEnv.code = fr.exec.executionEnv.code := hmrv.code
@@ -422,8 +422,8 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       + (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp key)).length ≤ 1024 := by
     rw [hfrvsz, hszfr]; simp only [chargeExpr_tmp]; omega
   obtain ⟨frk, hmrk, _hgask_derived⟩ := materialise_runsC_of_cleanHalt hdc hord sloadChg st obs
-    (.tmp key) kw frv
-    hdk' ((defsSoundS_empty_iff prog st).mp hcorr.defsSound) hcorr.wellScoped
+    (fun _ => False) (.tmp key) kw frv
+    hdk' hcorr.defsSound (rematClosureFree_empty prog hdc hord (.tmp key)) hcorr.wellScoped
     (hcorr.storage.transport hmrv.storage) (by nofun)
     (by nofun) (hcorr.memAgree.transport hmrv.memBytes hmrv.memActive)
     hevk hcsv hstkk
