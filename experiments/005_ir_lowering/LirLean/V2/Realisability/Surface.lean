@@ -78,7 +78,7 @@ no existing files). -/
 def CallRealisesS (prog : Program) (sloadChg : Tmp → ℕ)
     (L : Label) (_b : Block) (pc : Nat) (cs : CallSpec) (st0 st0' : IRState) (fr0 : Frame) :
     Prop :=
-  Lir.Corr prog sloadChg 0 st0 fr0 L pc →
+  Lir.Corr prog sloadChg 0 (fun _ => False) st0 fr0 L pc →
   ∃ (result : Evm.CallResult) (pd : Evm.PendingCall) (callFr resumeFr : Frame)
       (argsLen : Nat),
     -- the STATIC per-step scoping of the call statement (lesson 8; was `StepScoped`):
@@ -150,7 +150,7 @@ address word. The live per-step scoping clause is again replaced by the static
 def CreateRealisesS (prog : Program) (sloadChg : Tmp → ℕ)
     (L : Label) (_b : Block) (pc : Nat) (cs : CreateSpec) (st0 st0' : IRState) (fr0 : Frame) :
     Prop :=
-  Lir.Corr prog sloadChg 0 st0 fr0 L pc →
+  Lir.Corr prog sloadChg 0 (fun _ => False) st0 fr0 L pc →
   ∃ (result : Evm.CreateResult) (pd : Evm.PendingCreate) (createFr resumeFr : Frame)
       (argsLen : Nat),
     StepScopedS prog (.create cs)
@@ -338,7 +338,7 @@ structure DriveCorrLog (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
     (createSuffix : List CreateRecord) :
     Prop where
   /-- The `Corr` boundary at the block-entry cursor `(L, 0)` (phantom `obs` pinned to 0). -/
-  corr : Lir.Corr prog sloadChg 0 st fr L 0
+  corr : Lir.Corr prog sloadChg 0 (fun _ => False) st fr L 0
   /-- The non-exception clean-halt scope from this boundary on. -/
   cleanHalts : CleanHaltsNonException fr
   /-- The reached label is present (R8 threads it; seeded from `ClosedCFG.entry_present`). -/
@@ -423,7 +423,7 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
       (gS : List Word) (sS : List Nat) (cS : List CallRecord) (dS : List CreateRecord),
       b.stmts[pc]? = some (.assign t e) →
       e ≠ .gas → (∀ k, e ≠ .sload k) →
-      Lir.Corr prog sloadChg 0 st0 fr0 L pc →
+      Lir.Corr prog sloadChg 0 (fun _ => False) st0 fr0 L pc →
       RecorderCoupled log fr0 gS sS cS dS →
       CleanHaltsNonException fr0 →
       evalExpr st0 0 e = some w →
@@ -440,7 +440,7 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
   ∧ (∀ (pc : Nat) (t k : Tmp) (kv : Word) (st0 : IRState) (fr0 : Frame)
       (gS : List Word) (sS : List Nat) (cS : List CallRecord) (dS : List CreateRecord),
       b.stmts[pc]? = some (.assign t (.sload k)) →
-      Lir.Corr prog sloadChg 0 st0 fr0 L pc →
+      Lir.Corr prog sloadChg 0 (fun _ => False) st0 fr0 L pc →
       RecorderCoupled log fr0 gS sS cS dS →
       CleanHaltsNonException fr0 →
       st0.locals k = some kv →
@@ -463,7 +463,7 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
   ∧ (∀ (pc : Nat) (t : Tmp) (st0 : IRState) (fr0 : Frame)
       (gS : List Word) (sS : List Nat) (cS : List CallRecord) (dS : List CreateRecord),
       b.stmts[pc]? = some (.assign t .gas) →
-      Lir.Corr prog sloadChg 0 st0 fr0 L pc →
+      Lir.Corr prog sloadChg 0 (fun _ => False) st0 fr0 L pc →
       RecorderCoupled log fr0 gS sS cS dS →
       CleanHaltsNonException fr0 →
       defsOf prog t = some (.slot (slotOf t))
@@ -484,7 +484,7 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
   ∧ (∀ (pc : Nat) (key value : Tmp) (kw vw : Word) (st0 : IRState) (fr0 : Frame)
       (gS : List Word) (sS : List Nat) (cS : List CallRecord) (dS : List CreateRecord),
       b.stmts[pc]? = some (.sstore key value) →
-      Lir.Corr prog sloadChg 0 st0 fr0 L pc →
+      Lir.Corr prog sloadChg 0 (fun _ => False) st0 fr0 L pc →
       RecorderCoupled log fr0 gS sS cS dS →
       CleanHaltsNonException fr0 →
       st0.locals key = some kw → st0.locals value = some vw →
@@ -543,7 +543,7 @@ def TermTies' (prog : Program) (sloadChg : Tmp → ℕ) (_log : RunLog)
   -- (`accounts_ne_empty_of_selfPresent`); the old address/kind demands are antecedents now.
   (b.term = .stop →
       ∀ (st' : IRState) (frT : Frame),
-        Lir.Corr prog sloadChg 0 st' frT L b.stmts.length →
+        Lir.Corr prog sloadChg 0 (fun _ => False) st' frT L b.stmts.length →
         CleanHaltsNonException frT →
         SelfPresent frT →
         frT.exec.executionEnv.address = self →
@@ -552,7 +552,7 @@ def TermTies' (prog : Program) (sloadChg : Tmp → ℕ) (_log : RunLog)
   -- (ret) the charge envelope (clean-halt-derived) + the pc-pinned RETURN epilogue block.
   ∧ (∀ t, b.term = .ret t →
       ∀ (st' : IRState) (frT : Frame),
-        Lir.Corr prog sloadChg 0 st' frT L b.stmts.length →
+        Lir.Corr prog sloadChg 0 (fun _ => False) st' frT L b.stmts.length →
         CleanHaltsNonException frT →
         SelfPresent frT →
         frT.exec.executionEnv.address = self →
@@ -600,7 +600,7 @@ def TermTies' (prog : Program) (sloadChg : Tmp → ℕ) (_log : RunLog)
   ∧ (∀ dst bdst, b.term = .jump dst →
       prog.blocks.toList[dst.idx]? = some bdst → dst.idx < prog.blocks.size →
       ∀ (st' : IRState) (frT : Frame),
-        Lir.Corr prog sloadChg 0 st' frT L b.stmts.length →
+        Lir.Corr prog sloadChg 0 (fun _ => False) st' frT L b.stmts.length →
         CleanHaltsNonException frT →
         3 ≤ frT.exec.gasAvailable.toNat
         ∧ GasConstants.Gmid ≤ (pushFrameW frT
@@ -624,7 +624,7 @@ def TermTies' (prog : Program) (sloadChg : Tmp → ℕ) (_log : RunLog)
       prog.blocks.toList[elseL.idx]? = some belse →
       thenL.idx < prog.blocks.size → elseL.idx < prog.blocks.size →
       ∀ (st' : IRState) (frT : Frame) (cw : Word),
-        Lir.Corr prog sloadChg 0 st' frT L b.stmts.length →
+        Lir.Corr prog sloadChg 0 (fun _ => False) st' frT L b.stmts.length →
         CleanHaltsNonException frT →
         st'.locals cond = some cw →
         ∃ frc, MatRunsC prog sloadChg (.tmp cond) cw frT frc

@@ -91,7 +91,7 @@ genuine OOG/exception run, un-modellable by the gas-agnostic IR, is the honest s
 structure DriveCorr (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
     (st : V2.IRState) (fr : Frame) (L : Label) : Prop where
   /-- The `Corr` boundary at the block-entry cursor `(L, 0)`. -/
-  corr : Corr prog sloadChg obs st fr L 0
+  corr : Corr prog sloadChg obs (fun _ => False) st fr L 0
   /-- `fr`'s remaining bytecode run reaches a clean **non-exception** `.halted` outcome. -/
   cleanHalts : CleanHaltsNonException fr
 
@@ -235,7 +235,7 @@ theorem drive_step_block_stop {prog : Program} {sloadChg : Tmp → ℕ} {obs : W
     (hbterm : b.term = .stop)
     (hrunstmts : V2.RunStmts prog st T C D b.stmts st' T' C' D')
     -- the terminator world-channel brick (supplied — `sim_term_halt_stop`):
-    (hterm : ∀ frT : Frame, Corr prog sloadChg obs st' frT L b.stmts.length →
+    (hterm : ∀ frT : Frame, Corr prog sloadChg obs (fun _ => False) st' frT L b.stmts.length →
       ∃ last haltSig, Runs frT last ∧ stepFrame last = .halted haltSig
         ∧ (observe self (endFrame last haltSig)).world = st'.world) :
     ∃ last haltSig O, Runs fr last ∧ stepFrame last = .halted haltSig
@@ -262,7 +262,7 @@ theorem drive_step_block_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : Wo
     (hbterm : b.term = .ret t)
     (hrunstmts : V2.RunStmts prog st T C D b.stmts st' T' C' D')
     (hv : st'.locals t = some w)
-    (hterm : ∀ frT : Frame, Corr prog sloadChg obs st' frT L b.stmts.length →
+    (hterm : ∀ frT : Frame, Corr prog sloadChg obs (fun _ => False) st' frT L b.stmts.length →
       ∃ last haltSig, Runs frT last ∧ stepFrame last = .halted haltSig
         ∧ (observe self (endFrame last haltSig)).world = st'.world) :
     ∃ last haltSig O, Runs fr last ∧ stepFrame last = .halted haltSig
@@ -336,7 +336,7 @@ theorem drive_step_block_jump {prog : Program} {sloadChg : Tmp → ℕ} {obs : W
     -- consume, exposing `fj` (so the descent is provable) — discharged for a concrete program
     -- exactly as `sim_term_edge_jump`. The successor clean-halt is NO LONGER supplied: it is
     -- DERIVED via `cleanHaltsNonException_forward` from `fr`'s clean-halt (`hdrive.cleanHalts`).
-    (hjump : ∀ frT : Frame, Corr prog sloadChg obs st' frT L b.stmts.length →
+    (hjump : ∀ frT : Frame, Corr prog sloadChg obs (fun _ => False) st' frT L b.stmts.length →
       ∃ fj : Frame, JumpdestLanding prog st' frT fj dst) :
     ∃ fj : Frame,
         Runs fr (jumpdestFrame fj)
@@ -350,7 +350,7 @@ theorem drive_step_block_jump {prog : Program} {sloadChg : Tmp → ℕ} {obs : W
     hfjmem, hfjdec⟩ := hjump frT hcorrT
   -- the `JUMPDEST` step lands at `(dst, 0)`, re-establishing `Corr`.
   obtain ⟨hjdrun, hjdcorr⟩ := corr_at_jumpdest_landing hbdst hfjpc hfjcode hfjvalid hfjstk
-    hfjmod hfjstore hcorrT.defsSound hcorrT.wellScoped hfjmem hfjdec hfjgas
+    hfjmod hfjstore ((defsSoundS_empty_iff prog st').mp hcorrT.defsSound) hcorrT.wellScoped hfjmem hfjdec hfjgas
   -- the bytecode forward run to the successor entry frame `jumpdestFrame fj`.
   have hfrrun : Runs fr (jumpdestFrame fj) := (hrunsT.trans hfjrun).trans hjdrun
   -- DERIVE the successor clean-halt from `fr`'s (the forward split — was supplied).
@@ -408,7 +408,7 @@ theorem drive_step_block_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs :
     -- successor `succ` resolved by `cw` (`thenL` if `cw ≠ 0`, `elseL` if `cw = 0`) and present.
     -- This is the data `sim_term_edge_branch` produces, exposing `fj` (so the descent is provable).
     -- The successor clean-halt is DERIVED (not supplied) via `cleanHaltsNonException_forward`.
-    (hbranch : ∀ frT : Frame, Corr prog sloadChg obs st' frT L b.stmts.length →
+    (hbranch : ∀ frT : Frame, Corr prog sloadChg obs (fun _ => False) st' frT L b.stmts.length →
       ∃ (succ : Label) (bsucc : Block) (fj : Frame),
         ((succ = thenL ∧ cw ≠ 0) ∨ (succ = elseL ∧ cw = 0))
         ∧ prog.blocks.toList[succ.idx]? = some bsucc
@@ -426,7 +426,7 @@ theorem drive_step_block_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs :
     hfjmod, hfjstore, hfjmem, hfjdec⟩ := hbranch frT hcorrT
   -- the `JUMPDEST` step lands at `(succ, 0)`, re-establishing `Corr`.
   obtain ⟨hjdrun, hjdcorr⟩ := corr_at_jumpdest_landing hbsucc hfjpc hfjcode hfjvalid hfjstk
-    hfjmod hfjstore hcorrT.defsSound hcorrT.wellScoped hfjmem hfjdec hfjgas
+    hfjmod hfjstore ((defsSoundS_empty_iff prog st').mp hcorrT.defsSound) hcorrT.wellScoped hfjmem hfjdec hfjgas
   -- the bytecode forward run to the successor entry frame `jumpdestFrame fj`.
   have hfrrun : Runs fr (jumpdestFrame fj) := (hrunsT.trans hfjrun).trans hjdrun
   -- DERIVE the successor clean-halt from `fr`'s (the forward split).
@@ -511,7 +511,7 @@ theorem driveStep_of_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word
     (hsim : SimStmtStep prog sloadChg obs L b)
     (hdef : RunDefinable prog)
     -- the halt world-channel brick (used only on `stop`/`ret`, exactly `sim_term_halt_*`):
-    (hhalt : ∀ frT : Frame, Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
+    (hhalt : ∀ frT : Frame, Corr prog sloadChg obs (fun _ => False) (stmtsPost st b.stmts) frT L b.stmts.length →
       ∃ last haltSig, Runs frT last ∧ stepFrame last = .halted haltSig
         ∧ (observe self (endFrame last haltSig)).world = (stmtsPost st b.stmts).world)
     -- the `jump` destination block's presence (static, replacing `CFGAcyclic.succ_present`):
@@ -519,13 +519,13 @@ theorem driveStep_of_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word
       ∃ bdst : Block, prog.blocks.toList[dst.idx]? = some bdst)
     -- the `jump` edge bundle (used only on `jump dst`, exactly `drive_step_block_jump`'s):
     (hjump : ∀ (dst : Label), b.term = .jump dst →
-      ∀ frT : Frame, Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
+      ∀ frT : Frame, Corr prog sloadChg obs (fun _ => False) (stmtsPost st b.stmts) frT L b.stmts.length →
         ∃ fj : Frame, JumpdestLanding prog (stmtsPost st b.stmts) frT fj dst)
     -- the `branch` edge bundle (used only on `branch cond thenL elseL`):
     (hbranch : ∀ (cond : Tmp) (thenL elseL : Label) (cw : Word),
       b.term = .branch cond thenL elseL →
       (stmtsPost st b.stmts).locals cond = some cw →
-      ∀ frT : Frame, Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
+      ∀ frT : Frame, Corr prog sloadChg obs (fun _ => False) (stmtsPost st b.stmts) frT L b.stmts.length →
         ∃ (succ : Label) (bsucc : Block) (fj : Frame),
           ((succ = thenL ∧ cw ≠ 0) ∨ (succ = elseL ∧ cw = 0))
           ∧ prog.blocks.toList[succ.idx]? = some bsucc
@@ -621,7 +621,7 @@ theorem lower_conforms_cyclic {prog : Program} {sloadChg : Tmp → ℕ} {obs : W
     -- the entry boundary: `Corr` at `(prog.entry, 0)` + the run clean-halts NON-EXCEPTIONALLY
     -- (honest scope: the run reaches a `.success`/`.revert` terminal — not a genuine
     -- OOG/exception, which the gas-agnostic IR cannot model).
-    (hentry : Corr prog sloadChg obs st₀ fr₀ prog.entry 0)
+    (hentry : Corr prog sloadChg obs (fun _ => False) st₀ fr₀ prog.entry 0)
     (hclean : CleanHaltsNonException fr₀)
     -- the per-block drive obligation at every reachable boundary (the §7 ties, supplied):
     (hstep : ∀ (st : V2.IRState) (fr : Frame) (L : Label) (T : Trace) (C : CallStream)
@@ -661,7 +661,7 @@ supplied. -/
 theorem lower_conforms_cyclic' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {self : AccountAddress}
     {st₀ : V2.IRState} {T : Trace} {C : CallStream} {D : CreateStream} {fr₀ : Frame}
-    (hentry : Corr prog sloadChg obs st₀ fr₀ prog.entry 0)
+    (hentry : Corr prog sloadChg obs (fun _ => False) st₀ fr₀ prog.entry 0)
     (hclean : CleanHaltsNonException fr₀)
     -- static operand-definability `RunDefinable` (`V2/IRRun.lean`). NOT benign: `StmtDefinable`
     -- is `False` for `.call`/`.create` and excludes `.gas`, so this premise is UNSATISFIABLE for
@@ -679,7 +679,7 @@ theorem lower_conforms_cyclic' {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
       SimTermStep prog sloadChg obs self L b)
     -- the halt world-channel brick, at every block / post-statement frame:
     (hhalt : ∀ (st : V2.IRState) (L : Label) (b : Block), blockAt prog L = some b →
-      ∀ frT : Frame, Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
+      ∀ frT : Frame, Corr prog sloadChg obs (fun _ => False) (stmtsPost st b.stmts) frT L b.stmts.length →
         ∃ last haltSig, Runs frT last ∧ stepFrame last = .halted haltSig
           ∧ (observe self (endFrame last haltSig)).world = (stmtsPost st b.stmts).world)
     -- the `jump` destination presence, at every block:
@@ -689,14 +689,14 @@ theorem lower_conforms_cyclic' {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
     -- the `jump` edge bundle, at every block / post-statement frame:
     (hjump : ∀ (st : V2.IRState) (L : Label) (b : Block), blockAt prog L = some b →
       ∀ (dst : Label), b.term = .jump dst →
-      ∀ frT : Frame, Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
+      ∀ frT : Frame, Corr prog sloadChg obs (fun _ => False) (stmtsPost st b.stmts) frT L b.stmts.length →
         ∃ fj : Frame, JumpdestLanding prog (stmtsPost st b.stmts) frT fj dst)
     -- the `branch` edge bundle, at every block / post-statement frame:
     (hbranch : ∀ (st : V2.IRState) (L : Label) (b : Block), blockAt prog L = some b →
       ∀ (cond : Tmp) (thenL elseL : Label) (cw : Word),
       b.term = .branch cond thenL elseL →
       (stmtsPost st b.stmts).locals cond = some cw →
-      ∀ frT : Frame, Corr prog sloadChg obs (stmtsPost st b.stmts) frT L b.stmts.length →
+      ∀ frT : Frame, Corr prog sloadChg obs (fun _ => False) (stmtsPost st b.stmts) frT L b.stmts.length →
         ∃ (succ : Label) (bsucc : Block) (fj : Frame),
           ((succ = thenL ∧ cw ≠ 0) ∨ (succ = elseL ∧ cw = 0))
           ∧ prog.blocks.toList[succ.idx]? = some bsucc

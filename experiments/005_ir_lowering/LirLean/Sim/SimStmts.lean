@@ -68,10 +68,10 @@ def SimStmtStep (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
   ∀ (pc : Nat) (s : Stmt) (st0 st0' : V2.IRState) (T0 T0' : Trace) (C0 C0' : CallStream)
     (D0 D0' : CreateStream) (fr0 : Frame),
     b.stmts[pc]? = some s →
-    Corr prog sloadChg obs st0 fr0 L pc →
+    Corr prog sloadChg obs (fun _ => False) st0 fr0 L pc →
     CleanHaltsNonException fr0 →
     EvalStmt prog st0 T0 C0 D0 s st0' T0' C0' D0' →
-    ∃ fr0', Runs fr0 fr0' ∧ Corr prog sloadChg obs st0' fr0' L (pc + 1)
+    ∃ fr0', Runs fr0 fr0' ∧ Corr prog sloadChg obs (fun _ => False) st0' fr0' L (pc + 1)
       ∧ fr0'.exec.stack = []
 
 /-! ## `sim_stmts` — the statement-list glue
@@ -94,10 +94,10 @@ theorem sim_stmts_drop {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {ss : List Stmt} {st st' : V2.IRState} {T T' : Trace} {C C' : CallStream}
     {D D' : CreateStream} {pc : Nat} {fr : Frame}
     (hss : ss = b.stmts.drop pc)
-    (hcorr : Corr prog sloadChg obs st fr L pc)
+    (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L pc)
     (hcs : CleanHaltsNonException fr)
     (hrun : V2.RunStmts prog st T C D ss st' T' C' D') :
-    ∃ fr', Runs fr fr' ∧ Corr prog sloadChg obs st' fr' L (pc + ss.length)
+    ∃ fr', Runs fr fr' ∧ Corr prog sloadChg obs (fun _ => False) st' fr' L (pc + ss.length)
       ∧ fr'.exec.stack = [] := by
   induction hrun generalizing pc fr with
   | nil =>
@@ -134,11 +134,11 @@ theorem sim_stmts {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {ss : List Stmt}
     {L : Label} {b : Block} {pc : Nat} {fr : Frame}
     (hsim : SimStmtStep prog sloadChg obs L b)
-    (hcorr : Corr prog sloadChg obs st fr L pc)
+    (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L pc)
     (hcs : CleanHaltsNonException fr)
     (hrun : V2.RunStmts prog st T C D ss st' T' C' D')
     (hss : ss = b.stmts.drop pc) :
-    ∃ fr', Runs fr fr' ∧ Corr prog sloadChg obs st' fr' L (pc + ss.length)
+    ∃ fr', Runs fr fr' ∧ Corr prog sloadChg obs (fun _ => False) st' fr' L (pc + ss.length)
       ∧ fr'.exec.stack = [] :=
   sim_stmts_drop hsim hss hcorr hcs hrun
 
@@ -151,10 +151,10 @@ theorem sim_stmts_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {st st' : V2.IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
     {L : Label} {b : Block} {fr : Frame}
     (hsim : SimStmtStep prog sloadChg obs L b)
-    (hcorr : Corr prog sloadChg obs st fr L 0)
+    (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L 0)
     (hcs : CleanHaltsNonException fr)
     (hrun : V2.RunStmts prog st T C D b.stmts st' T' C' D') :
-    ∃ fr', Runs fr fr' ∧ Corr prog sloadChg obs st' fr' L b.stmts.length
+    ∃ fr', Runs fr fr' ∧ Corr prog sloadChg obs (fun _ => False) st' fr' L b.stmts.length
       ∧ fr'.exec.stack = [] := by
   have h := sim_stmts_drop hsim (by simp) hcorr hcs hrun
   simpa using h

@@ -114,7 +114,7 @@ theorem sim_sstore_stmt_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs :
     {L : Label} {b : Block} {pc : ℕ} {fr : Frame} {acc : Account}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some (.sstore key value))
-    (hcorr : Corr prog sloadChg obs st fr L pc)
+    (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L pc)
     (hk : st.locals key = some kw) (hv : st.locals value = some vw)
     (hsc : StepScoped prog st (.sstore key value))
     -- def-env well-formedness (routes the `.tmp` arms through `matCache_unfold`):
@@ -130,7 +130,7 @@ theorem sim_sstore_stmt_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs :
               + 1 ≤ 1024)
     (hsstore : SstoreRealises fr kw vw acc) :
     ∃ fr', Runs fr fr'
-      ∧ Corr prog sloadChg obs (st.setStorage kw vw) fr' L (pc + 1)
+      ∧ Corr prog sloadChg obs (fun _ => False) (st.setStorage kw vw) fr' L (pc + 1)
       ∧ fr'.exec.stack = [] := by
   have hemit : emitStmt (matCache prog) (defsOf prog) (.sstore key value)
       = matCache prog value ++ matCache prog key ++ [Byte.sstore] := emitStmt_sstore ..
@@ -207,7 +207,7 @@ theorem sim_term_halt_ret_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs
     {st : V2.IRState} {t : Tmp} {vw : Word}
     {L : Label} {b : Block} {fr : Frame} {self : AccountAddress}
     (hb : prog.blocks.toList[L.idx]? = some b)
-    (hcorr : Corr prog sloadChg obs st fr L b.stmts.length)
+    (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L b.stmts.length)
     (hterm : b.term = .ret t)
     (hself : self = fr.exec.executionEnv.address)
     (hv : st.locals t = some vw)
@@ -395,7 +395,7 @@ over `lower prog` (`term_dest_decode` + A3 + `decode_at_block_offset_jumpdest` +
 the PUSH4 immediate `ofNat (off % 2^32)`. -/
 theorem sim_term_edge_jump_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {st : V2.IRState} {L : Label} {b : Block} {dst : Label} {bdst : Block} {fr : Frame}
-    (hcorr : Corr prog sloadChg obs st fr L b.stmts.length)
+    (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L b.stmts.length)
     (hterm : b.term = .jump dst)
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hbdst : prog.blocks.toList[dst.idx]? = some bdst)
@@ -414,7 +414,7 @@ theorem sim_term_edge_jump_lowered {prog : Program} {sloadChg : Tmp → ℕ} {ob
             GasConstants.Gmid
             (UInt32.ofNat (offsetTable (matCache prog) (defsOf prog) prog.blocks dst.idx))
             fr.exec.stack).exec.gasAvailable.toNat) :
-    ∃ fr' L', L' = dst ∧ Runs fr fr' ∧ Corr prog sloadChg obs st fr' L' 0 := by
+    ∃ fr' L', L' = dst ∧ Runs fr fr' ∧ Corr prog sloadChg obs (fun _ => False) st fr' L' 0 := by
   set off := offsetTable (matCache prog) (defsOf prog) prog.blocks dst.idx with hoff
   set dest : Word := UInt256.ofNat (off % 2 ^ 32) with hdest
   -- emitTerm layout: emitDest off ++ [JUMP].
@@ -474,7 +474,7 @@ gas envelopes (§7). -/
 theorem sim_term_edge_branch_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {st : V2.IRState} {L : Label} {b : Block} {cond : Tmp} {cw : Word}
     {thenL elseL : Label} {bthen belse : Block} {fr frc : Frame}
-    (hcorr : Corr prog sloadChg obs st fr L b.stmts.length)
+    (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L b.stmts.length)
     (hterm : b.term = .branch cond thenL elseL)
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hc : st.locals cond = some cw)
@@ -514,7 +514,7 @@ theorem sim_term_edge_branch_lowered {prog : Program} {sloadChg : Tmp → ℕ} {
           (UInt256.ofNat ((offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx) % 2^32)) 4)
           ([] : Stack Word)).exec.stack).exec.gasAvailable.toNat) :
     ∃ fr' L', (cw ≠ 0 ∧ L' = thenL ∨ cw = 0 ∧ L' = elseL)
-      ∧ Runs fr fr' ∧ Corr prog sloadChg obs st fr' L' 0 := by
+      ∧ Runs fr fr' ∧ Corr prog sloadChg obs (fun _ => False) st fr' L' 0 := by
   set lc := (matCache prog cond).length with hlc
   set thenOff := offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx with hthenoff
   set elseOff := offsetTable (matCache prog) (defsOf prog) prog.blocks elseL.idx with helseoff
@@ -635,7 +635,7 @@ theorem decode_gasstash {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     (hs : b.stmts[pc]? = some (.assign t .gas))
     (hslotdef : defsOf prog t = some (.slot (slotOf t)))
     (hbound : pcOf prog L pc + 34 < 2 ^ 32)
-    (hcorr : Corr prog sloadChg obs st fr L pc) :
+    (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L pc) :
     decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .GAS, .none)
     ∧ decode (gasFrame fr).exec.executionEnv.code (gasFrame fr).exec.pc
         = some (.Push .PUSH32, some (UInt256.ofNat (slotOf t), 32))
@@ -708,7 +708,7 @@ theorem sim_assign_gas_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some (.assign t .gas))
     (hslotdef : defsOf prog t = some (.slot (slotOf t)))
-    (hcorr : Corr prog sloadChg obs st fr L pc)
+    (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L pc)
     (hsc : StepScoped prog st (.assign t .gas))
     (hslots : ∀ tw slot', defsOf prog tw = some (.slot slot') → slot' = slotOf tw)
     -- addressability of `slotOf t` (a genuine `slotOf` side-condition):
@@ -737,7 +737,7 @@ theorem sim_assign_gas_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
         (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
         ∧ defsOf prog t' ≠ none) :
     ∃ endFr, Runs fr endFr
-      ∧ Corr prog sloadChg obs (st.setLocal t
+      ∧ Corr prog sloadChg obs (fun _ => False) (st.setLocal t
           (UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase))) endFr L (pc + 1)
       ∧ endFr.exec.stack = [] := by
   set slot := slotOf t with hslotvar
@@ -810,7 +810,7 @@ theorem decode_sloadstash {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     (hs : b.stmts[pc]? = some (.assign t (.sload k)))
     (hslotdef : defsOf prog t = some (.slot (slotOf t)))
     (hbound : pcOf prog L pc + ((matCache prog k).length + 35) < 2 ^ 32)
-    (hcorr : Corr prog sloadChg obs st fr L pc)
+    (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L pc)
     (hmrk : V2.MatRunsC prog sloadChg (.tmp k) keyVal fr frk) :
     decode frk.exec.executionEnv.code frk.exec.pc = some (.Smsf .SLOAD, .none)
     ∧ decode (sloadFrame frk keyVal []).exec.executionEnv.code
@@ -918,7 +918,7 @@ theorem sim_assign_sload_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs 
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some (.assign t (.sload k)))
     (hslotdef : defsOf prog t = some (.slot (slotOf t)))
-    (hcorr : Corr prog sloadChg obs st fr L pc)
+    (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L pc)
     (hsc : StepScoped prog st (.assign t (.sload k)))
     (hslots : ∀ tw slot', defsOf prog tw = some (.slot slot') → slot' = slotOf tw)
     (hwval : V2.evalExpr st 0 (.sload k) = some w)
@@ -965,7 +965,7 @@ theorem sim_assign_sload_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs 
     (hscoped' : ∀ t', (st.setLocal t w).locals t' ≠ none →
         (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
         ∧ defsOf prog t' ≠ none) :
-    ∃ endFr, Runs fr endFr ∧ Corr prog sloadChg obs (st.setLocal t w) endFr L (pc + 1)
+    ∃ endFr, Runs fr endFr ∧ Corr prog sloadChg obs (fun _ => False) (st.setLocal t w) endFr L (pc + 1)
       ∧ endFr.exec.stack = [] := by
   classical
   set slot := slotOf t with hslotvar
@@ -1018,7 +1018,7 @@ theorem sim_assign_sload_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs 
     simpa only [chargeExpr_tmp] using hstkKey
   obtain ⟨frk, hmrk, _hgasKey_derived⟩ := materialise_runsC_of_cleanHalt hdc hord sloadChg st obs
     (.tmp k) keyVal fr
-    hdk hcorr.defsSound hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
+    hdk ((defsSoundS_empty_iff prog st).mp hcorr.defsSound) hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
     hevk hcs hstkC
   -- the three tail decode anchors (reusable `decode_sloadstash`), in successor-frame form.
   obtain ⟨hdsloadS, hdpushS, hdmstoreS⟩ :=
