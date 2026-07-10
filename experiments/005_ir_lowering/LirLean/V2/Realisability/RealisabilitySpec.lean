@@ -3,6 +3,8 @@ import LirLean.Decode.BoundaryReach
 import LirLean.Spec.BudgetDerivations
 import LirLean.V2.Realisability.Producer
 import LirLean.V2.Realisability.Witness
+import LirLean.V2.Realisability.WitnessParams
+import LirLean.V2.Realisability.WitnessChecks
 
 /-!
 # LirLean v2 — the REALISABILITY SPEC skeleton (Phase-3 target statements; WIP-only)
@@ -756,9 +758,22 @@ theorem realisedGas_nil_of_noGasReads {prog : Program} {params : CallParams} {lo
 
 /-- **R12a — the flagship's antecedent is TRUE somewhere** (the machine-checked
 non-vacuity guard; HonestGasTie's replacement role). Some concrete top-level call params
-run `lower exProg` cleanly with every flagship hypothesis satisfied. The `params` witness
-is deliberately EXISTENTIAL: a literal `CallParams` needs BlockHeader/ProcessedBlocks
-plumbing that belongs to the R12 grind, not the spec. -/
+run `lower exProg` cleanly with every flagship hypothesis satisfied.
+
+**CLOSED.** `WitnessParams.lean` lands the literal witness `exParams` (gas `25000`,
+tuned by a measured native probe: clean `.stop`, 179 gas left, 1 loop iteration —
+re-measured against the current lowering, identical landscape) and the sorry-free
+reduction `exProg_satisfies_hypotheses_of_checks` from exactly two decidable
+`Bool` leaves; `WitnessChecks.lean` discharges both leaves IN-KERNEL (`exCheck_true`,
+`entryCallsCodeOk_exParams`) via the segmented checked-twin evaluator
+(`SegmentedEval.lean` + `CheckedStep.lean` — plain `decide` on the raw evaluators is
+measured-infeasible: the padded byte-window path is stuck on the opaque
+`System.Platform.getNumBits`, and the seed-fuel peel OOMs the kernel; the twin
+quarantines both). THREE flagged kernel cranks (`decide +kernel`, `WitnessChecks.lean`)
+are the leaves' entire computational content: the two heavy leaf evaluations
+(~13s / 5.5 GB each) plus the cheap `seedFuel` arithmetic pin. The `#print axioms`
+guard below is `#guard_msgs`-checked (build-enforced): the reported axioms are exactly
+the standard trio — no `sorryAx`, no `ofReduceBool`. -/
 theorem exProg_satisfies_hypotheses :
     ∃ (params : CallParams) (log : RunLog) (acc : Account),
       params.codeSource = .Code (lower exProg)
@@ -767,7 +782,14 @@ theorem exProg_satisfies_hypotheses :
       ∧ GasConstants.Gjumpdest ≤ params.gas.toNat
       ∧ runWithLog params (seedFuel params.gas) = some log
       ∧ log.clean
-      ∧ PrecompileAssumptions exProg params := sorry
+      ∧ PrecompileAssumptions exProg params :=
+  exProg_satisfies_hypotheses_of_checks exCheck_true entryCallsCodeOk_exParams
+
+/--
+info: 'Lir.V2.exProg_satisfies_hypotheses' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms exProg_satisfies_hypotheses
 
 /-- **R12b — end-to-end at the witness**: `lower_conforms` instantiated at `exProg`
 (gas-read + sload + nonzero-sstore + call + loop, all at once — the verifereum
@@ -780,13 +802,15 @@ theorem exProg_nonvacuity :
           RunFrom exProg (entryState params) (realisedGas log)
             (realisedCall log params.recipient) (realisedCreate log params.recipient) exProg.entry O
           ∧ Conforms params.recipient log O := by
-  -- The witness params/log come from R12a (`exProg_satisfies_hypotheses`); the inner
-  -- existential is EXACTLY R11's (`lower_conforms`) conclusion at `prog := exProg`.
-  -- R12a carries every flagship premise except the closed static well-formedness bundle, now
-  -- reshaped to `irWellFormed_exProg` + the two scalar budgets `codeFits_exProg`/`stackFits_exProg`
-  -- (all `decide`/`rfl` on the concrete program), which we supply directly (same module). Green
-  -- now (R12a is a skeleton leaf); axiom-clean once R11 + R12a land. No single-call premise —
-  -- calls are a positional `CallStream`.
+  -- The witness params/log come from R12a (`exProg_satisfies_hypotheses` — CLOSED:
+  -- reduced in `WitnessParams.lean` to two decidable leaves, both kernel-certified in
+  -- `WitnessChecks.lean`); the inner existential is EXACTLY R11's (`lower_conforms`)
+  -- conclusion at `prog := exProg`. R12a carries every flagship premise except the closed
+  -- static well-formedness bundle, now reshaped to `irWellFormed_exProg` + the two scalar
+  -- budgets `codeFits_exProg`/`stackFits_exProg` (all `decide`/`rfl` on the concrete
+  -- program), which we supply directly (same module). Axiom-clean once R11 lands (the
+  -- only remaining `sorryAx` source in this chain). No single-call premise — calls are a
+  -- positional `CallStream`.
   obtain ⟨params, log, _acc, hcode, hmod, hself, hgas, hrun, hclean, hseams⟩ :=
     exProg_satisfies_hypotheses
   refine ⟨params, log, hcode, hrun, ?_⟩
@@ -795,9 +819,12 @@ theorem exProg_nonvacuity :
 
 /-! ## §7 — audit note
 
-NO `#print axioms` guards live here BY DESIGN: every sorry'd declaration carries `sorryAx`
-until its obligation lands, so axiom guards would only pin the debt's existence. The
-default-target audit net (`Audit.lean`, Track A) must NOT cover this WIP lib; the
-guards migrate there obligation-by-obligation as the sorries are discharged. -/
+NO `#print axioms` guards live here for the OPEN obligations BY DESIGN: every sorry'd
+declaration carries `sorryAx` until its obligation lands, so axiom guards would only pin
+the debt's existence. Obligations CLOSED inside this WIP lib (currently R12a,
+`exProg_satisfies_hypotheses`) DO carry a `#guard_msgs`-checked `#print axioms` guard at
+their declaration — build-enforced, pinning the closed subtree's axiom-cleanliness. The
+default-target audit net (`Audit.lean`, Track A) must NOT cover this WIP lib; the guards
+migrate there obligation-by-obligation as the remaining sorries are discharged. -/
 
 end Lir.V2
