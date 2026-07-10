@@ -372,6 +372,356 @@ theorem lower_conforms_gasfree {prog : Program} {params : CallParams} {log : Run
       hcode hmod hself hgas hwl hrun hclean hseams hbegin hsize
   exact ⟨O, hrunfrom, conforms_of_worldeq hrun hbegin hcr hcc hworld⟩
 
+/-! ### The co-flagship companion's support — the recorder's gas gate never fires
+
+`driveLog` records a gas word only at an EMPTY-stack (top-level) frame decoding to `GAS`
+(`isGasOp fr && stack.isEmpty`, `Spec/Recorder.lean`). For `NoGasReads prog` the lowered
+code contains no reachable `GAS` head (`Lir.reachable_boundary_noGasByte`, the `NoGasOp`
+alignment tower in `Decode/BoundaryReach.lean` §5), so it suffices to thread the R6
+boundary invariant (`AtReachableBoundaryVJ`) along `driveLog`'s own recursion: at top level
+by the ordinary-step edge, across descents by remembering — for the BOTTOM pending only,
+the one whose resume re-empties the stack — that any delivered result resumes at a
+boundary (the resume-keyed halves of the R6 CALL/CREATE edges: `driveLog` descents carry
+no `CallReturns`/`CreateReturns` bundle, so the edge is re-keyed on
+`stepFrame … = .needsCall`/`.needsCreate` + the resume equation, exactly the components
+the geometry consumes). -/
+
+/-- A frame at a reachable in-range boundary of a gas-read-free `lower prog` does not
+decode to `GAS`: the recorder's gas gate is `false` there. -/
+private theorem isGasOp_false_of_atReachableBoundary {prog : Program} {fr : Frame}
+    (hng : NoGasReads prog) (hrb : AtReachableBoundary prog fr) :
+    isGasOp fr = false := by
+  obtain ⟨b, hcode, hpc, hreach, hin, hbnd⟩ := hrb
+  obtain ⟨byte, hget, hne⟩ :=
+    Lir.reachable_boundary_noGasByte prog (fun L bl hb => hng L bl hb) b hreach hin
+  obtain ⟨arg, hdec⟩ := Lir.decode_of_loweringByte (prog := prog) hbnd hget
+  have hgetD : (Evm.decode fr.exec.executionEnv.code fr.exec.pc
+      |>.getD (Operation.STOP, .none)).1 = Evm.parseInstr byte := by
+    simp [hcode, hpc, hdec]
+  simp only [isGasOp, hgetD]
+  exact beq_eq_false_iff_ne.mpr hne
+
+/-- **Resume half of the R6 CALL edge**, keyed on `driveLog`'s own components: a suspended
+CALL parent (`stepFrame fr = .needsCall cp pending` at a boundary frame) resumes — under ANY
+delivered child result — at the next reachable in-range boundary. `atReachableBoundaryVJ_call`
+minus the `CallReturns` drive components (which its geometry never consumes). -/
+private theorem atReachableBoundaryVJ_resume_call {prog : Lir.Program} {fr rf : Frame}
+    {cp : CallParams} {pending : PendingCall} {res : CallResult}
+    (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32)
+    (hncall : stepFrame fr = .needsCall cp pending)
+    (hrf : rf = resumeAfterCall res pending)
+    (hinv : AtReachableBoundaryVJ prog fr) :
+    AtReachableBoundaryVJ prog rf := by
+  obtain ⟨⟨b, hcode, hpc, hreach, hin, hbnd⟩, hvj⟩ := hinv
+  obtain ⟨byte, hget, hop⟩ := Lir.reachable_boundary_loweringByte prog b hreach hin
+  obtain ⟨hopCall, hppc, hpvj⟩ :=
+    Lir.stepFrame_needsCall_lowering_site_inv hcode hpc hbnd hget hop hncall
+  have hInR : b + 1 < (Lir.flatBytes prog).length := by
+    have hlt := Lir.nextInstrPos_lt_flatBytes_of_cursor (Lir.flatBytes_cursor_cases hin)
+      hreach hget (by rw [hopCall]; simp) (by rw [hopCall]; simp) (by rw [hopCall]; simp)
+    rw [hopCall] at hlt
+    simpa [Evm.nextInstrPosNat, Evm.pushArgWidth] using hlt
+  have hrenv : rf.exec.executionEnv = pending.frame.exec.executionEnv := by
+    rw [hrf]; rfl
+  have hrcode : rf.exec.executionEnv.code = Lir.lower prog := by
+    rw [hrenv, (Evm.stepFrame_needsCall_inv hncall).2.2, hcode]
+  have hrvj : rf.validJumps = validJumpDests (Lir.lower prog) 0 := by
+    rw [hrf, show (Evm.resumeAfterCall res pending).validJumps
+          = pending.frame.validJumps from rfl, hpvj, hvj]
+  have hrpc : rf.exec.pc = pending.frame.exec.pc + 1 := by
+    rw [hrf]; rfl
+  refine ⟨⟨b + 1, hrcode, ?_, ?_, hInR, lt_of_lt_of_le hInR hsize⟩, hrvj⟩
+  · rw [hrpc, hppc, hpc]
+    exact Lir.ofNat_add' b 1
+  · have hr := Lir.reachesBoundary_nextInstr hreach hget
+    rw [hopCall] at hr
+    have hnn : Evm.nextInstrPosNat b Operation.CALL = b + 1 := by
+      simp [Evm.nextInstrPosNat, Evm.pushArgWidth]
+    rwa [hnn] at hr
+
+/-- **Resume half of the R6 CREATE edge** (`atReachableBoundaryVJ_create` minus the drive
+component): a suspended CREATE parent successfully resuming under ANY delivered child
+result lands at the next reachable in-range boundary. -/
+private theorem atReachableBoundaryVJ_resume_create {prog : Lir.Program} {fr rf : Frame}
+    {cp : CreateParams} {pending : PendingCreate} {res : FrameResult}
+    (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32)
+    (hncreate : stepFrame fr = .needsCreate cp pending)
+    (hrf : Evm.resumeAfterCreate res.toCreateResult pending = .ok rf)
+    (hinv : AtReachableBoundaryVJ prog fr) :
+    AtReachableBoundaryVJ prog rf := by
+  obtain ⟨⟨b, hcode, hpc, hreach, hin, hbnd⟩, hvj⟩ := hinv
+  obtain ⟨byte, hget, hop⟩ := Lir.reachable_boundary_loweringByte prog b hreach hin
+  obtain ⟨hopCreate, hppc, hpvj⟩ :=
+    Lir.stepFrame_needsCreate_lowering_site_inv hcode hpc hbnd hget hop hncreate
+  have hInR : b + 1 < (Lir.flatBytes prog).length := by
+    have hnstop : Evm.parseInstr byte ≠ .STOP := by
+      rcases hopCreate with h | h <;> rw [h] <;> simp
+    have hnreturn : Evm.parseInstr byte ≠ .RETURN := by
+      rcases hopCreate with h | h <;> rw [h] <;> simp
+    have hnjump : Evm.parseInstr byte ≠ .JUMP := by
+      rcases hopCreate with h | h <;> rw [h] <;> simp
+    have hlt := Lir.nextInstrPos_lt_flatBytes_of_cursor (Lir.flatBytes_cursor_cases hin)
+      hreach hget hnstop hnreturn hnjump
+    rcases hopCreate with hcr | hcr2
+    · rw [hcr] at hlt
+      simpa [Evm.nextInstrPosNat, Evm.pushArgWidth] using hlt
+    · rw [hcr2] at hlt
+      simpa [Evm.nextInstrPosNat, Evm.pushArgWidth] using hlt
+  have hrenv : rf.exec.executionEnv = pending.frame.exec.executionEnv :=
+    resumeAfterCreate_execEnv res pending rf hrf
+  have hrcode : rf.exec.executionEnv.code = Lir.lower prog := by
+    rw [hrenv, (Evm.stepFrame_needsCreate_inv hncreate).2.2.2, hcode]
+  have hrvj : rf.validJumps = validJumpDests (Lir.lower prog) 0 := by
+    rw [resumeAfterCreate_validJumps res pending rf hrf, hpvj, hvj]
+  have hrpc : rf.exec.pc = pending.frame.exec.pc + 1 :=
+    resumeAfterCreate_pc res pending rf hrf
+  refine ⟨⟨b + 1, hrcode, ?_, ?_, hInR, lt_of_lt_of_le hInR hsize⟩, hrvj⟩
+  · rw [hrpc, hppc, hpc]
+    exact Lir.ofNat_add' b 1
+  · have hr := Lir.reachesBoundary_nextInstr hreach hget
+    rcases hopCreate with hcr | hcr2
+    · rw [hcr] at hr
+      simpa [Evm.nextInstrPosNat, Evm.pushArgWidth] using hr
+    · rw [hcr2] at hr
+      simpa [Evm.nextInstrPosNat, Evm.pushArgWidth] using hr
+
+/-- **B1 from `WellLowered`**: the CFG-closure's `entry_present` forces a non-empty block
+array (the R6 entry seed's side condition). -/
+private theorem blocks_pos_of_wellLowered {prog : Program} (hwl : WellLowered prog) :
+    0 < prog.blocks.size := by
+  obtain ⟨b, hb⟩ := hwl.closed.entry_present
+  have hb' : prog.blocks[prog.entry.idx]? = some b := hb
+  obtain ⟨h, _⟩ := Array.getElem?_eq_some_iff.mp hb'
+  omega
+
+/-- **B2 from `WellLowered`**: the lowered byte stream fits the 32-bit pc space. The flat
+stream ends exactly at the LAST block's emitted terminator end, and every terminator kind
+carries a `WellLowered` pc bound covering its own emitted bytes (`bound_stop`/`bound_jump`/
+`bound_branch`/`retEpilogueBound`). -/
+private theorem flatBytes_length_le_of_wellLowered {prog : Program}
+    (hwl : WellLowered prog) : (Lir.flatBytes prog).length ≤ 2 ^ 32 := by
+  rcases Nat.eq_zero_or_pos prog.blocks.size with hsz | hsz
+  · have hnil : prog.blocks.toList = [] :=
+      List.length_eq_zero_iff.mp (by rw [Array.length_toList]; exact hsz)
+    unfold Lir.flatBytes
+    rw [hnil]
+    simp
+  · have hi : prog.blocks.size - 1 < prog.blocks.toList.length := by
+      rw [Array.length_toList]; omega
+    set L : Label := ⟨prog.blocks.size - 1⟩ with hL
+    set blk := prog.blocks.toList[prog.blocks.size - 1] with hblk
+    have hb : prog.blocks.toList[L.idx]? = some blk := by
+      rw [hL]
+      exact List.getElem?_eq_getElem hi
+    have hsplit := Lir.flatBytes_block_split prog L blk hb
+    have hdrop : prog.blocks.toList.drop (L.idx + 1) = [] := by
+      apply List.drop_eq_nil_of_le
+      rw [Array.length_toList]
+      show prog.blocks.size ≤ prog.blocks.size - 1 + 1
+      omega
+    rw [hdrop, List.flatMap_nil, List.append_nil] at hsplit
+    have hbAt : blockAt prog L = some blk := by
+      show prog.blocks[L.idx]? = some blk
+      rw [← Array.getElem?_toList]
+      exact hb
+    have hlen : (Lir.flatBytes prog).length
+        = Lir.termOf prog L
+          + (Lir.emitTerm (Lir.matCache prog)
+              (Lir.offsetTable (Lir.matCache prog) (Lir.defsOf prog) prog.blocks)
+              blk.term).length := by
+      rw [hsplit, List.length_append, List.length_cons,
+        Lir.flatBytes_block_offset prog L, Lir.termOf_eq_anchor prog L blk hb]
+      unfold Lir.emitBlockBody
+      rw [List.length_append]
+      omega
+    have h33 : ∀ w : Lir.Word, (Lir.emitImm w).length = 33 := fun w => by
+      simp [Lir.emitImm, Lir.wordBytesBE]
+    have h5 : ∀ off : Nat, (Lir.emitDest off).length = 5 := fun off => by
+      simp [Lir.emitDest, Lir.offsetBytesBE]
+    cases hterm : blk.term with
+    | ret t =>
+        rw [hterm] at hlen
+        simp only [Lir.emitTerm, List.length_append, List.length_cons, List.length_nil,
+          h33] at hlen
+        have hbound := hwl.retEpilogueBound L blk t hbAt hterm
+        omega
+    | stop =>
+        rw [hterm] at hlen
+        simp only [Lir.emitTerm, List.length_cons, List.length_nil] at hlen
+        have hbound := hwl.wf.bound_stop L blk hb hterm
+        omega
+    | jump dst =>
+        rw [hterm] at hlen
+        simp only [Lir.emitTerm, List.length_append, List.length_cons, List.length_nil,
+          h5] at hlen
+        have hbound := (hwl.wf.bound_jump L blk dst hb hterm).1
+        omega
+    | branch cond thenL elseL =>
+        rw [hterm] at hlen
+        simp only [Lir.emitTerm, List.length_append, List.length_cons, List.length_nil,
+          h5] at hlen
+        have hbound := (hwl.wf.bound_branch L blk cond thenL elseL hb hterm).1
+        omega
+
+/-- The gas-gate walk invariant threaded along `driveLog`'s recursion: at top level (empty
+pending stack) the current frame sits at a reachable in-range boundary; below top level —
+whatever result the descended child delivers — the BOTTOM pending's resume lands back at
+one. Only the bottom matters: the gas gate is `stack.isEmpty`-guarded, so no gas event can
+fire before the stack re-empties, which happens exactly through the bottom resume. -/
+private def GasWalkInv (prog : Program) (stack : List Pending)
+    (state : Frame ⊕ FrameResult) : Prop :=
+  (stack = [] → ∀ fr, state = .inl fr → AtReachableBoundaryVJ prog fr)
+  ∧ (∀ p, stack.getLast? = some p →
+      ∀ (res : FrameResult) (parent : Frame), p.resume res = .ok parent →
+        AtReachableBoundaryVJ prog parent)
+
+/-- Pushing a pending whose (top-level-only) resume obligation is discharged preserves the
+walk invariant — the bottom of the grown stack is the old bottom (or the new pending, at a
+top-level descent). -/
+private theorem gasWalkInv_push {prog : Program} {stack : List Pending}
+    {state : Frame ⊕ FrameResult}
+    (hinv : GasWalkInv prog stack state) (p : Pending)
+    (hp : stack = [] → ∀ (res : FrameResult) (parent : Frame),
+        p.resume res = .ok parent → AtReachableBoundaryVJ prog parent) :
+    ∀ state' : Frame ⊕ FrameResult, GasWalkInv prog (p :: stack) state' := by
+  intro state'
+  refine ⟨fun h => absurd h (by simp), ?_⟩
+  intro q hq res parent hres
+  cases stack with
+  | nil =>
+      simp only [List.getLast?_singleton, Option.some.injEq] at hq
+      subst hq
+      exact hp rfl res parent hres
+  | cons a rest =>
+      rw [List.getLast?_cons_cons] at hq
+      exact hinv.2 q hq res parent hres
+
+/-- **The recorder's gas stream is frozen along a gas-read-free walk**: under the walk
+invariant, `driveLog` returns its gas accumulator untouched. Fuel induction,
+branch-for-branch as `driveLog_acc_hom`; the boundary invariant is threaded by the R6
+ordinary-step edge (`atReachableBoundaryVJ_step`) and the resume-keyed CALL/CREATE edges
+above; at every top-level `.next` step the gas gate is dead
+(`isGasOp_false_of_atReachableBoundary`). -/
+private theorem driveLog_gas_of_noGasReads {prog : Program}
+    (hng : NoGasReads prog) (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32) :
+    ∀ (fuel : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult)
+      (g0 : List Word) (s0 : List Nat) (c0 : List CallRecord) (d0 : List CreateRecord)
+      (r : FrameResult) (gas : List Word) (sloads : List Nat)
+      (calls : List CallRecord) (creates : List CreateRecord),
+      GasWalkInv prog stack state →
+      driveLog fuel stack state g0 s0 c0 d0 = .ok (r, gas, sloads, calls, creates) →
+      gas = g0 := by
+  intro fuel
+  induction fuel with
+  | zero =>
+      intro stack state g0 s0 c0 d0 r gas sloads calls creates _ hdl
+      simp [driveLog] at hdl
+  | succ n ih =>
+      intro stack state g0 s0 c0 d0 r gas sloads calls creates hinv hdl
+      unfold driveLog at hdl
+      cases state with
+      | inr result =>
+          cases stack with
+          | nil =>
+              simp only [Except.ok.injEq, Prod.mk.injEq] at hdl
+              exact hdl.2.1.symm
+          | cons pending rest =>
+              dsimp only at hdl
+              cases hres : pending.resume result with
+              | ok parent =>
+                  rw [hres] at hdl
+                  refine ih rest (.inl parent) g0 s0 _ _ r gas sloads calls creates ?_ hdl
+                  cases rest with
+                  | nil =>
+                      refine ⟨fun _ fr hfr => ?_, fun p hp => by simp at hp⟩
+                      rw [← (Sum.inl.injEq _ _).mp hfr]
+                      exact hinv.2 pending (by simp) result parent hres
+                  | cons q rest' =>
+                      refine ⟨fun h => absurd h (by simp), fun p hp => hinv.2 p ?_⟩
+                      rw [List.getLast?_cons_cons]
+                      exact hp
+              | error e =>
+                  rw [hres] at hdl
+                  refine ih rest (.inr (endFrame pending.frame (.exception e))) g0 s0 _ _
+                    r gas sloads calls creates ?_ hdl
+                  cases rest with
+                  | nil =>
+                      exact ⟨fun _ fr hfr => by simp at hfr, fun p hp => by simp at hp⟩
+                  | cons q rest' =>
+                      refine ⟨fun h => absurd h (by simp), fun p hp => hinv.2 p ?_⟩
+                      rw [List.getLast?_cons_cons]
+                      exact hp
+      | inl current =>
+          dsimp only at hdl
+          cases hstep : stepFrame current with
+          | next exec =>
+              rw [hstep] at hdl
+              dsimp only at hdl
+              cases stack with
+              | nil =>
+                  have hb : AtReachableBoundaryVJ prog current := hinv.1 rfl current rfl
+                  have hnext : GasWalkInv prog [] (.inl { current with exec := exec }) := by
+                    refine ⟨fun _ fr hfr => ?_, fun p hp => by simp at hp⟩
+                    rw [← (Sum.inl.injEq _ _).mp hfr]
+                    exact atReachableBoundaryVJ_step hsize (stepsTo_of_next hstep) hb
+                  split at hdl
+                  · rename_i h
+                    rw [isGasOp_false_of_atReachableBoundary hng hb.1] at h
+                    simp at h
+                  · split at hdl
+                    · exact ih [] (.inl { current with exec := exec }) g0
+                        (s0 ++ [sloadWarmthOf current]) c0 d0 r gas sloads calls creates
+                        hnext hdl
+                    · exact ih [] (.inl { current with exec := exec }) g0 s0 c0 d0
+                        r gas sloads calls creates hnext hdl
+              | cons p rest =>
+                  have hcons : GasWalkInv prog (p :: rest)
+                      (.inl { current with exec := exec }) :=
+                    ⟨fun h => absurd h (by simp), hinv.2⟩
+                  split at hdl
+                  · rename_i h; simp at h
+                  · split at hdl
+                    · rename_i h; simp at h
+                    · exact ih (p :: rest) (.inl { current with exec := exec }) g0 s0 c0 d0
+                        r gas sloads calls creates hcons hdl
+          | halted halt =>
+              rw [hstep] at hdl
+              dsimp only at hdl
+              refine ih stack (.inr (endFrame current halt)) g0 s0 c0 d0
+                r gas sloads calls creates ⟨fun _ fr hfr => by simp at hfr, hinv.2⟩ hdl
+          | needsCall cp pending =>
+              rw [hstep] at hdl
+              dsimp only at hdl
+              have hpush := gasWalkInv_push hinv (.call pending) (fun hnil res parent hres => by
+                have hpar : resumeAfterCall res.toCallResult pending = parent := by
+                  simpa [Pending.resume] using hres
+                subst hnil
+                exact atReachableBoundaryVJ_resume_call hsize hstep hpar.symm
+                  (hinv.1 rfl current rfl))
+              cases hbc : beginCall cp with
+              | inl child =>
+                  rw [hbc] at hdl
+                  dsimp only at hdl
+                  exact ih (.call pending :: stack) (.inl child) g0 s0 c0 d0
+                    r gas sloads calls creates (hpush _) hdl
+              | inr res =>
+                  rw [hbc] at hdl
+                  dsimp only at hdl
+                  exact ih (.call pending :: stack) (.inr (.call res)) g0 s0 c0 d0
+                    r gas sloads calls creates (hpush _) hdl
+          | needsCreate cp pending =>
+              rw [hstep] at hdl
+              dsimp only at hdl
+              have hpush := gasWalkInv_push hinv (.create pending)
+                (fun hnil res parent hres => by
+                  have hpar : Evm.resumeAfterCreate res.toCreateResult pending = .ok parent := by
+                    simpa [Pending.resume] using hres
+                  subst hnil
+                  exact atReachableBoundaryVJ_resume_create hsize hstep hpar
+                    (hinv.1 rfl current rfl))
+              exact ih (.create pending :: stack) (.inl (beginCreate cp)) g0 s0 c0 d0
+                r gas sloads calls creates (hpush _) hdl
+
 /-- Co-flagship companion: a gas-read-free program's recorded gas stream is empty (the
 recorder's GAS gate never fires at a reachable top-level boundary — needs the R6-flavoured
 boundary walk to know every reachable op is an emitted one). -/
@@ -380,7 +730,29 @@ theorem realisedGas_nil_of_noGasReads {prog : Program} {params : CallParams} {lo
     (hng : NoGasReads prog)
     (hwl : WellLowered prog)
     (hrun : runWithLog params (seedFuel params.gas) = some log) :
-    realisedGas log = [] := sorry
+    realisedGas log = [] := by
+  have hne : 0 < prog.blocks.size := blocks_pos_of_wellLowered hwl
+  have hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32 :=
+    flatBytes_length_le_of_wellLowered hwl
+  unfold runWithLog at hrun
+  cases hbc : beginCall params with
+  | inr res => rw [hbc] at hrun; simp at hrun
+  | inl fr₀ =>
+      rw [hbc] at hrun
+      dsimp only at hrun
+      cases hdl : driveLog (seedFuel params.gas) [] (.inl fr₀) [] [] [] [] with
+      | error e => rw [hdl] at hrun; simp at hrun
+      | ok val =>
+          obtain ⟨r, gas, sloads, calls, creates⟩ := val
+          rw [hdl] at hrun
+          simp only [Option.some.injEq] at hrun
+          subst hrun
+          show gas = []
+          refine driveLog_gas_of_noGasReads hng hsize (seedFuel params.gas) [] (.inl fr₀)
+            [] [] [] [] r gas sloads calls creates
+            ⟨fun _ fr hfr => ?_, fun p hp => by simp at hp⟩ hdl
+          rw [← (Sum.inl.injEq _ _).mp hfr]
+          exact atReachableBoundaryVJ_entry hbc hcode hne
 
 /-- **R12a — the flagship's antecedent is TRUE somewhere** (the machine-checked
 non-vacuity guard; HonestGasTie's replacement role). Some concrete top-level call params
