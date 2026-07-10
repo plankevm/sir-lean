@@ -896,18 +896,19 @@ across the (disjoint) gas-slot MSTORE. -/
 `MemRealises`; no gas universal is used. -/
 theorem sim_assign_gas {prog : Program} {sloadChg : Tmp → ℕ} {obs ob : Word}
     {st : V2.IRState} {t : Tmp}
-    {L : Label} {b : Block} {pc : Nat} {fr : Frame}
+    {I I' : Tmp → Prop} {L : Label} {b : Block} {pc : Nat} {fr endFr : Frame}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some (.assign t .gas))
     (hslotdef : defsOf prog t = some (.slot (slotOf t)))
-    (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L pc)
-    (hsc : StepScoped prog st (.assign t .gas))
+    (hcorr : Corr prog sloadChg obs I st fr L pc)
+    (hsc : StepScopedS prog (.assign t .gas))
     -- every registered slot is `slotOf` (the `WellFormed` invariant; pins disjointness):
     (hslots : ∀ tw slot', defsOf prog tw = some (.slot slot') → slot' = slotOf tw)
     -- the post-state scoping/realisability (downstream-supplied); the bound gas read is `ob`:
     (hscoped' : ∀ t', (st.setLocal t ob).locals t' ≠ none →
       (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
       ∧ defsOf prog t' ≠ none)
+    (hsound' : DefsSoundS prog I' (st.setLocal t ob))
     -- the supplied GAS;PUSH;MSTORE stash run + its pins (the honest runtime tie, as the call
     -- arm's `htail`); `slotOf t` addressable, and `endFr` writes the **consumed gas read** `ob`
     -- at `slotOf t` — the honest positional one-read value tie (no constancy, no `∀`-frames).
@@ -919,16 +920,16 @@ theorem sim_assign_gas {prog : Program} {sloadChg : Tmp → ℕ} {obs ob : Word}
     -- discharges it from decode + gas facts:
     (hstash :
         (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
-        ∧ ∃ endFr, StashRuns fr endFr (slotOf t) ob
+        ∧ StashRuns fr endFr (slotOf t) ob
             (emitStmt (matCache prog) (defsOf prog) (.assign t .gas)).length []) :
-    ∃ endFr, Runs fr endFr ∧ Corr prog sloadChg obs (fun _ => False) (st.setLocal t ob) endFr L (pc + 1)
+    Runs fr endFr ∧ Corr prog sloadChg obs I' (st.setLocal t ob) endFr L (pc + 1)
       ∧ endFr.exec.stack = [] := by
   classical
-  obtain ⟨hslot63, hslotplat, endFr, hendrun, hendmembytes, hendmemactive, hendpc, hendcode,
+  obtain ⟨hslot63, hslotplat, hendrun, hendmembytes, hendmemactive, hendpc, hendcode,
     hendvalid, hendaddr, hendcanmod, _, hendstorage, hendstk⟩ := hstash
   set slot := slotOf t with hsdef
   set st' := st.setLocal t ob with hst'def
-  refine ⟨endFr, hendrun, ?_, hendstk⟩
+  refine ⟨hendrun, ?_, hendstk⟩
   -- slot addressability collapses (`(ofNat slot).toNat = slot`).
   have hslotlt256 : slot < 2 ^ 256 := by
     have : (2 : Nat) ^ 64 ≤ 2 ^ 256 := Nat.pow_le_pow_right (by norm_num) (by norm_num)
@@ -938,11 +939,6 @@ theorem sim_assign_gas {prog : Program} {sloadChg : Tmp → ℕ} {obs ob : Word}
   have hslot63' : (UInt256.ofNat slot).toNat + 63 < 2 ^ 64 := by rw [hslotEq]; exact hslot63
   have hslotplat' : (UInt256.ofNat slot).toNat < 2 ^ System.Platform.numBits := by
     rw [hslotEq]; exact hslotplat
-  -- DefsSound survives the gas rebind (B3): `t` is non-recomputable (gas), excluded.
-  have hsound' : DefsSound prog st' := by
-    obtain ⟨_, hgasArm, _⟩ := hsc
-    obtain ⟨hgasdef, hscope⟩ := hgasArm rfl
-    exact defsSound_preserved_assignGas hgasdef hscope ((defsSoundS_empty_iff prog st).mp hcorr.defsSound)
   -- pc advance.
   have hpcN : pcOf prog L (pc + 1)
       = pcOf prog L pc + (emitStmt (matCache prog) (defsOf prog) (.assign t .gas)).length :=
@@ -954,7 +950,7 @@ theorem sim_assign_gas {prog : Program} {sloadChg : Tmp → ℕ} {obs ob : Word}
       stack_nil := hendstk
       can_modify := by rw [hendcanmod]; exact hcorr.can_modify
       storage := ?_
-      defsSound := (defsSoundS_empty_iff prog st').mpr hsound'
+      defsSound := hsound'
       wellScoped := hscoped'
       memAgree := ?_ }
   · -- M3: the stash writes memory, not storage; self-lens preserved (`hendstorage`).
@@ -1046,12 +1042,12 @@ storage value), and the supplied stash run `hstash` (writing `w` to `slotOf t`),
 `MemRealises`; no sload warmth universal is used (the warmth cost is the single def-site read). -/
 theorem sim_assign_sload {prog : Program} {sloadChg : Tmp → ℕ} {obs w : Word}
     {st : V2.IRState} {t k : Tmp}
-    {L : Label} {b : Block} {pc : Nat} {fr : Frame}
+    {I I' : Tmp → Prop} {L : Label} {b : Block} {pc : Nat} {fr endFr : Frame}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some (.assign t (.sload k)))
     (hslotdef : defsOf prog t = some (.slot (slotOf t)))
-    (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L pc)
-    (hsc : StepScoped prog st (.assign t (.sload k)))
+    (hcorr : Corr prog sloadChg obs I st fr L pc)
+    (hsc : StepScopedS prog (.assign t (.sload k)))
     -- every registered slot is `slotOf` (the `WellFormed` invariant; pins disjointness):
     (hslots : ∀ tw slot', defsOf prog tw = some (.slot slot') → slot' = slotOf tw)
     -- the loaded storage value (the `assignPure` value channel):
@@ -1060,6 +1056,7 @@ theorem sim_assign_sload {prog : Program} {sloadChg : Tmp → ℕ} {obs w : Word
     (hscoped' : ∀ t', (st.setLocal t w).locals t' ≠ none →
       (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
       ∧ defsOf prog t' ≠ none)
+    (hsound' : DefsSoundS prog I' (st.setLocal t w))
     -- the supplied stash run + its pins (the honest runtime tie, as `sim_assign_gas`'s `hstash`);
     -- `slotOf t` addressable, and `endFr` writes the **loaded value** `w` at `slotOf t` — the
     -- honest positional one-read value tie (no constancy, no `∀`-frames). The memory channel is the
@@ -1068,16 +1065,16 @@ theorem sim_assign_sload {prog : Program} {sloadChg : Tmp → ℕ} {obs w : Word
     -- `stash_tail_runs_covered`); discharged from the real run in the P5 forward-simulation step:
     (hstash :
         (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
-        ∧ ∃ endFr, StashRuns fr endFr (slotOf t) w
+        ∧ StashRuns fr endFr (slotOf t) w
             (emitStmt (matCache prog) (defsOf prog) (.assign t (.sload k))).length []) :
-    ∃ endFr, Runs fr endFr ∧ Corr prog sloadChg obs (fun _ => False) (st.setLocal t w) endFr L (pc + 1)
+    Runs fr endFr ∧ Corr prog sloadChg obs I' (st.setLocal t w) endFr L (pc + 1)
       ∧ endFr.exec.stack = [] := by
   classical
-  obtain ⟨hslot63, hslotplat, endFr, hendrun, hendmembytes, hendmemactive, hendpc, hendcode,
+  obtain ⟨hslot63, hslotplat, hendrun, hendmembytes, hendmemactive, hendpc, hendcode,
     hendvalid, hendaddr, hendcanmod, _, hendstorage, hendstk⟩ := hstash
   set slot := slotOf t with hsdef
   set st' := st.setLocal t w with hst'def
-  refine ⟨endFr, hendrun, ?_, hendstk⟩
+  refine ⟨hendrun, ?_, hendstk⟩
   -- slot addressability collapses (`(ofNat slot).toNat = slot`).
   have hslotlt256 : slot < 2 ^ 256 := by
     have : (2 : Nat) ^ 64 ≤ 2 ^ 256 := Nat.pow_le_pow_right (by norm_num) (by norm_num)
@@ -1087,11 +1084,6 @@ theorem sim_assign_sload {prog : Program} {sloadChg : Tmp → ℕ} {obs w : Word
   have hslot63' : (UInt256.ofNat slot).toNat + 63 < 2 ^ 64 := by rw [hslotEq]; exact hslot63
   have hslotplat' : (UInt256.ofNat slot).toNat < 2 ^ System.Platform.numBits := by
     rw [hslotEq]; exact hslotplat
-  -- DefsSound survives the sload rebind (B3): `t` is non-recomputable (sload), excluded.
-  have hsound' : DefsSound prog st' := by
-    obtain ⟨_, _, hsloadArm⟩ := hsc
-    obtain ⟨hsloaddef, hscope⟩ := hsloadArm k rfl
-    exact defsSound_preserved_assignSload hsloaddef hscope ((defsSoundS_empty_iff prog st).mp hcorr.defsSound)
   -- world is untouched by the assign (sload binds a local, leaves the world).
   have hworld : st'.world = st.world := by rw [hst'def]; rfl
   -- pc advance.
@@ -1105,7 +1097,7 @@ theorem sim_assign_sload {prog : Program} {sloadChg : Tmp → ℕ} {obs w : Word
       stack_nil := hendstk
       can_modify := by rw [hendcanmod]; exact hcorr.can_modify
       storage := ?_
-      defsSound := (defsSoundS_empty_iff prog st').mpr hsound'
+      defsSound := hsound'
       wellScoped := hscoped'
       memAgree := ?_ }
   · -- M3: the stash writes memory, not storage; self-lens preserved (`hendstorage`).

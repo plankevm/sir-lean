@@ -172,7 +172,9 @@ theorem stash_tail_runs (fr : Frame) (slot : Nat) (v : Word) (rest : Stack Word)
       ≤ ((pushFrameW fr (UInt256.ofNat slot) 32).exec.gasAvailable
           - UInt64.ofNat (BytecodeLayer.Dispatch.memExpansionChargeOf
               (pushFrameW fr (UInt256.ofNat slot) 32).exec words')).toNat) :
-    ∃ endFr, StashRuns fr endFr slot v 34 rest := by
+    StashRuns fr
+      (mstoreFrame (pushFrameW fr (UInt256.ofNat slot) 32)
+        (UInt256.ofNat slot) v words' rest) slot v 34 rest := by
   -- == step 1: PUSH32 slot ==
   obtain ⟨hpushrun, _⟩ := sim_imm fr (UInt256.ofNat slot) hdpush hgasPush hsz
   set frp := pushFrameW fr (UInt256.ofNat slot) 32 with hfrp
@@ -194,7 +196,8 @@ theorem stash_tail_runs (fr : Frame) (slot : Nat) (v : Word) (rest : Stack Word)
   obtain ⟨hmstorerun, _⟩ :=
     sim_mstore frp (UInt256.ofNat slot) v words' rest hmstoredec hpstk hpsz hmem hgasMem hgasMstore
   set endFr := mstoreFrame frp (UInt256.ofNat slot) v words' rest with hendFr
-  refine ⟨endFr, hpushrun.trans hmstorerun, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  change StashRuns fr endFr slot v 34 rest
+  refine ⟨hpushrun.trans hmstorerun, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · -- memory bytes: `endFr.memory = (frp.memory.mstore slot v).memory = (fr.memory.mstore …).memory`.
     rw [hendFr, mstoreFrame_memBytes_eq]
     -- `mstore`'s memory depends only on the input memory + activeWords, both of which `frp`
@@ -275,6 +278,8 @@ theorem stash_tail_runs_covered (fr : Frame) (slot : Nat) (v : Word) (rest : Sta
     rw [hzcost, BytecodeLayer.UInt64.toNat_sub_ofNat _ 0 (Nat.zero_le _) (by norm_num),
         Nat.sub_zero]
     exact hgasMstore
+  refine ⟨mstoreFrame (pushFrameW fr (UInt256.ofNat slot) 32)
+    (UInt256.ofNat slot) v frp.exec.activeWords rest, ?_⟩
   exact stash_tail_runs fr slot v rest frp.exec.activeWords hstk hdpush hdmstore hsz hgasPush
     hmem hgasMem hgasMstore'
 
@@ -312,8 +317,11 @@ theorem stash_tail_gas (fr : Frame) (slot : Nat)
       ≤ ((pushFrameW (gasFrame fr) (UInt256.ofNat slot) 32).exec.gasAvailable
           - UInt64.ofNat (BytecodeLayer.Dispatch.memExpansionChargeOf
               (pushFrameW (gasFrame fr) (UInt256.ofNat slot) 32).exec words')).toNat) :
-    ∃ endFr, StashRuns fr endFr slot
-        (UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase)) 35 [] := by
+    StashRuns fr
+      (mstoreFrame (pushFrameW (gasFrame fr) (UInt256.ofNat slot) 32)
+        (UInt256.ofNat slot)
+        (UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase)) words' [])
+      slot (UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase)) 35 [] := by
   -- == step 0: GAS opcode, pushing `ofUInt64 (fr.gas − Gbase)` onto the empty stack ==
   have hszgas : fr.exec.stack.size + 1 ≤ 1024 := by rw [hstk]; simp
   obtain ⟨hgasrun, _⟩ := sim_gas fr hdgas hszgas hgasGas
@@ -333,11 +341,14 @@ theorem stash_tail_gas (fr : Frame) (slot : Nat)
       = some (.Smsf .MSTORE, .none) := by rw [hgcode, hgpc]; exact hdmstore
   have hgsz : frg.exec.stack.size + 1 ≤ 1024 := by rw [hgstk]; simp
   -- == steps 1-2: the core tail from `frg`, stashing `gasVal` ==
-  obtain ⟨endFr, hrun, hmemBytes, hmemActive, hpc, hcode, hvalid, haddr, hcanmod, haccounts,
+  let endFr := mstoreFrame (pushFrameW frg (UInt256.ofNat slot) 32)
+    (UInt256.ofNat slot) gasVal words' []
+  obtain ⟨hrun, hmemBytes, hmemActive, hpc, hcode, hvalid, haddr, hcanmod, haccounts,
       hstorage, hstkEnd⟩ :=
     stash_tail_runs frg slot gasVal [] words' hgstk hdpush' hdmstore' hgsz hgasPush
       hmem hgasMem hgasMstore
-  refine ⟨endFr, hgasrun.trans hrun, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, hstkEnd⟩
+  change StashRuns fr endFr slot gasVal 35 []
+  refine ⟨hgasrun.trans hrun, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, hstkEnd⟩
   · -- memory: GAS leaves `fr`'s memory bytes / activeWords, the tail writes `gasVal` at `slot`.
     -- `endFr.memory = (frg.memory.mstore slot gasVal).memory` (`hmemBytes`); `frg`'s machine
     -- state is `fr`'s (GAS only charges gas + pushes), so this is `(fr.memory.mstore …).memory`.
@@ -409,8 +420,10 @@ theorem stash_tail_sload {prog : Program} {sloadChg : Tmp → ℕ}
       ≤ ((pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat slot) 32).exec.gasAvailable
           - UInt64.ofNat (BytecodeLayer.Dispatch.memExpansionChargeOf
               (pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat slot) 32).exec words')).toNat) :
-    ∃ endFr, StashRuns fr endFr slot w
-        ((matCache prog k).length + 35) [] := by
+    StashRuns fr
+      (mstoreFrame (pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat slot) 32)
+        (UInt256.ofNat slot) w words' [])
+      slot w ((matCache prog k).length + 35) [] := by
   -- key value on top of the boundary stack after materialising `k`.
   have hkstk : frk.exec.stack = keyVal :: [] := by rw [hmrk.stack, hstk]; rfl
   have hksz : frk.exec.stack.size ≤ 1024 := by rw [hkstk]; simp
@@ -434,11 +447,14 @@ theorem stash_tail_sload {prog : Program} {sloadChg : Tmp → ℕ}
       = some (.Smsf .MSTORE, .none) := by rw [hscode, hspc]; exact hdmstore
   have hssz : frs.exec.stack.size + 1 ≤ 1024 := by rw [hsstk]; simp
   -- == steps: the core tail from `frs`, stashing `w` ==
-  obtain ⟨endFr, hrun, hmemBytes, hmemActive, hpc, hcode, hvalid, haddr, hcanmod, haccounts,
+  let endFr := mstoreFrame (pushFrameW frs (UInt256.ofNat slot) 32)
+    (UInt256.ofNat slot) w words' []
+  obtain ⟨hrun, hmemBytes, hmemActive, hpc, hcode, hvalid, haddr, hcanmod, haccounts,
       hstorage, hstkEnd⟩ :=
     stash_tail_runs frs slot w [] words' hsstk hdpush' hdmstore' hssz hgasPush
       hmem hgasMem hgasMstore
-  refine ⟨endFr, (hmrk.runs.trans hsloadrun).trans hrun, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
+  change StashRuns fr endFr slot w ((matCache prog k).length + 35) []
+  refine ⟨(hmrk.runs.trans hsloadrun).trans hrun, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_,
     hstkEnd⟩
   · -- memory bytes: tail writes `w` at `slot` over `frs`'s memory = `frk`'s = `fr`'s (memBytes).
     rw [hmemBytes]

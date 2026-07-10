@@ -76,9 +76,9 @@ The copy is deliberate, recorded Phase-3 unification debt: the R0b reshape re-pl
 `sim_call_stmt`'s input to this form and retires the in-tree original (this track edits
 no existing files). -/
 def CallRealisesS (prog : Program) (sloadChg : Tmp → ℕ)
-    (L : Label) (_b : Block) (pc : Nat) (cs : CallSpec) (st0 st0' : IRState) (fr0 : Frame) :
+    (I : Tmp → Prop) (L : Label) (_b : Block) (pc : Nat) (cs : CallSpec) (st0 st0' : IRState) (fr0 : Frame) :
     Prop :=
-  Lir.Corr prog sloadChg 0 (fun _ => False) st0 fr0 L pc →
+  Lir.Corr prog sloadChg 0 I st0 fr0 L pc →
   ∃ (result : Evm.CallResult) (pd : Evm.PendingCall) (callFr resumeFr : Frame)
       (argsLen : Nat),
     -- the STATIC per-step scoping of the call statement (lesson 8; was `StepScoped`):
@@ -148,9 +148,9 @@ returning CREATE resumes successfully, and the Route-B tail stores or discards t
 address word. The live per-step scoping clause is again replaced by the static
 `StepScopedS` residue. -/
 def CreateRealisesS (prog : Program) (sloadChg : Tmp → ℕ)
-    (L : Label) (_b : Block) (pc : Nat) (cs : CreateSpec) (st0 st0' : IRState) (fr0 : Frame) :
+    (I : Tmp → Prop) (L : Label) (_b : Block) (pc : Nat) (cs : CreateSpec) (st0 st0' : IRState) (fr0 : Frame) :
     Prop :=
-  Lir.Corr prog sloadChg 0 (fun _ => False) st0 fr0 L pc →
+  Lir.Corr prog sloadChg 0 I st0 fr0 L pc →
   ∃ (result : Evm.CreateResult) (pd : Evm.PendingCreate) (createFr resumeFr : Frame)
       (argsLen : Nat),
     StepScopedS prog (.create cs)
@@ -420,10 +420,11 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
   -- antecedent; conclusions are the not-spilled fact, the STATIC per-step scoping
   -- (`StepScopedS`, lesson 8), and the pinned-post-state scoping/memory ties.
   (∀ (pc : Nat) (t : Tmp) (e : Expr) (w : Word) (st0 : IRState) (fr0 : Frame)
-      (gS : List Word) (sS : List Nat) (cS : List CallRecord) (dS : List CreateRecord),
+      (gS : List Word) (sS : List Nat) (cS : List CallRecord) (dS : List CreateRecord)
+      (I : Tmp → Prop),
       b.stmts[pc]? = some (.assign t e) →
       e ≠ .gas → (∀ k, e ≠ .sload k) →
-      Lir.Corr prog sloadChg 0 (fun _ => False) st0 fr0 L pc →
+      Lir.Corr prog sloadChg 0 I st0 fr0 L pc →
       RecorderCoupled log fr0 gS sS cS dS →
       CleanHaltsNonException fr0 →
       evalExpr st0 0 e = some w →
@@ -438,9 +439,10 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
   -- Slot registration/canonicity, addressability, the stack-room fold (sourced from
   -- `StackRoomOK.sloadKey` + `Corr.stack_nil`) and the activeWords-flatness stay.
   ∧ (∀ (pc : Nat) (t k : Tmp) (kv : Word) (st0 : IRState) (fr0 : Frame)
-      (gS : List Word) (sS : List Nat) (cS : List CallRecord) (dS : List CreateRecord),
+      (gS : List Word) (sS : List Nat) (cS : List CallRecord) (dS : List CreateRecord)
+      (I : Tmp → Prop),
       b.stmts[pc]? = some (.assign t (.sload k)) →
-      Lir.Corr prog sloadChg 0 (fun _ => False) st0 fr0 L pc →
+      Lir.Corr prog sloadChg 0 I st0 fr0 L pc →
       RecorderCoupled log fr0 gS sS cS dS →
       CleanHaltsNonException fr0 →
       st0.locals k = some kv →
@@ -461,9 +463,10 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
   -- clean-halt antecedents make it derivable, R1). Post-state scoping is over the pinned
   -- head value. Slot registration/canonicity/addressability/pc-bound stay.
   ∧ (∀ (pc : Nat) (t : Tmp) (st0 : IRState) (fr0 : Frame)
-      (gS : List Word) (sS : List Nat) (cS : List CallRecord) (dS : List CreateRecord),
+      (gS : List Word) (sS : List Nat) (cS : List CallRecord) (dS : List CreateRecord)
+      (I : Tmp → Prop),
       b.stmts[pc]? = some (.assign t .gas) →
-      Lir.Corr prog sloadChg 0 (fun _ => False) st0 fr0 L pc →
+      Lir.Corr prog sloadChg 0 I st0 fr0 L pc →
       RecorderCoupled log fr0 gS sS cS dS →
       CleanHaltsNonException fr0 →
       defsOf prog t = some (.slot (slotOf t))
@@ -482,9 +485,10 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
   -- no nonzero-write conclusion and no nonzero-write scope antecedent. The unsatisfiable
   -- `∃ acc, SstoreRealises …` conjunct is GONE (its content is R4, point-wise).
   ∧ (∀ (pc : Nat) (key value : Tmp) (kw vw : Word) (st0 : IRState) (fr0 : Frame)
-      (gS : List Word) (sS : List Nat) (cS : List CallRecord) (dS : List CreateRecord),
+      (gS : List Word) (sS : List Nat) (cS : List CallRecord) (dS : List CreateRecord)
+      (I : Tmp → Prop),
       b.stmts[pc]? = some (.sstore key value) →
-      Lir.Corr prog sloadChg 0 (fun _ => False) st0 fr0 L pc →
+      Lir.Corr prog sloadChg 0 I st0 fr0 L pc →
       RecorderCoupled log fr0 gS sS cS dS →
       CleanHaltsNonException fr0 →
       st0.locals key = some kw → st0.locals value = some vw →
@@ -502,7 +506,7 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
   -- `rec`'s `evmV2CallEntry` effect, and R3 discharges the bundle from the record.
   ∧ (∀ (pc : Nat) (cs : CallSpec) (st0 st0' : IRState) (fr0 : Frame)
       (gS : List Word) (sS : List Nat) (rec : CallRecord) (cS' : List CallRecord)
-      (dS : List CreateRecord),
+      (dS : List CreateRecord) (I : Tmp → Prop),
       b.stmts[pc]? = some (.call cs) →
       RecorderCoupled log fr0 gS sS (rec :: cS') dS →
       CleanHaltsNonException fr0 →
@@ -513,12 +517,12 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
                           t' (callSuccessFlag rec.result rec.pending)
           | none   => { st0 with world := fun key =>
                           evmCallOracle.postStorage rec.result rec.pending self key }) →
-      CallRealisesS prog sloadChg L b pc cs st0 st0' fr0)
+      CallRealisesS prog sloadChg I L b pc cs st0 st0' fr0)
   -- (6) create: `CreateRealisesS` keyed on the coupling's `createSuffix` HEAD, exactly the
   -- CREATE twin of the call arm's positional multi-record tie.
   ∧ (∀ (pc : Nat) (cs : CreateSpec) (st0 st0' : IRState) (fr0 : Frame)
       (gS : List Word) (sS : List Nat) (cS : List CallRecord)
-      (rec : CreateRecord) (dS' : List CreateRecord),
+      (rec : CreateRecord) (dS' : List CreateRecord) (I : Tmp → Prop),
       b.stmts[pc]? = some (.create cs) →
       RecorderCoupled log fr0 gS sS cS (rec :: dS') →
       CleanHaltsNonException fr0 →
@@ -529,7 +533,7 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
                           t' (createAddrOrZero rec.result rec.pending)
           | none   => { st0 with world := fun key =>
                           evmCreateOracle.postStorage rec.result rec.pending self key }) →
-      CreateRealisesS prog sloadChg L b pc cs st0 st0' fr0)
+      CreateRealisesS prog sloadChg I L b pc cs st0 st0' fr0)
 
 /-- **The reshaped per-block TERMINATOR ties** (the R0 terminator-side). See the section
 docstring: address/kind/self-presence demands are ANTECEDENTS (supplied by `DriveCorrLog`),

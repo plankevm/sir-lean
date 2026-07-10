@@ -630,12 +630,13 @@ decode coverage both `sim_assign_gas_lowered` (via `stash_tail_gas`, `fr`-relati
 clean-halt extractor `gas_envelope_of_cleanHalt` (successor-frame form) consume — factored out so
 the §7 GAS tie can DERIVE its runtime envelope from a clean-halt witness instead of supplying it. -/
 theorem decode_gasstash {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st : V2.IRState} {t : Tmp} {L : Label} {b : Block} {pc : Nat} {fr : Frame}
+    {st : V2.IRState} {t : Tmp} {I : Tmp → Prop}
+    {L : Label} {b : Block} {pc : Nat} {fr : Frame}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some (.assign t .gas))
     (hslotdef : defsOf prog t = some (.slot (slotOf t)))
     (hbound : pcOf prog L pc + 34 < 2 ^ 32)
-    (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L pc) :
+    (hcorr : Corr prog sloadChg obs I st fr L pc) :
     decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .GAS, .none)
     ∧ decode (gasFrame fr).exec.executionEnv.code (gasFrame fr).exec.pc
         = some (.Push .PUSH32, some (UInt256.ofNat (slotOf t), 32))
@@ -762,13 +763,30 @@ theorem sim_assign_gas_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
         show ((32 : UInt8) + 1).toUInt32 = UInt32.ofNat 33 from rfl] at h
     rwa [show fr.exec.pc + UInt32.ofNat 1 + UInt32.ofNat 33 = fr.exec.pc + 1 + UInt32.ofNat 33
           from by rw [show fr.exec.pc + UInt32.ofNat 1 = fr.exec.pc + 1 from rfl]]
-  obtain ⟨endFr, hrun, hmembytes, hmemactive, hpc, hcode, hvalid, haddr, hcanmod, haccounts,
+  let endFr := mstoreFrame (pushFrameW (gasFrame fr) (UInt256.ofNat slot) 32)
+    (UInt256.ofNat slot)
+    (UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase)) words' []
+  obtain ⟨hrun, hmembytes, hmemactive, hpc, hcode, hvalid, haddr, hcanmod, haccounts,
       hstorage, hstkEnd⟩ :=
     stash_tail_gas fr slot words' hcorr.stack_nil hdgas' hdpush' hdmstore' hgasGas hgasPush
       hmem hgasMem hgasMstore
   -- feed `sim_assign_gas` the constructed stash bundle (honest memory-channel tie shape).
-  refine sim_assign_gas hb hs hslotdef hcorr hsc hslots hscoped' ?_
-  refine ⟨hslot63, hslotplat, endFr, hrun, hmembytes, hmemactive, ?_, hcode, hvalid, haddr,
+  have hsound' : DefsSound prog (st.setLocal t
+      (UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase))) := by
+    obtain ⟨_, hgasArm, _⟩ := hsc
+    obtain ⟨hgasdef, hscope⟩ := hgasArm rfl
+    exact defsSound_preserved_assignGas hgasdef hscope
+      ((defsSoundS_empty_iff prog st).mp hcorr.defsSound)
+  have hscS : StepScopedS prog (.assign t .gas) := by
+    refine ⟨?_, ?_, ?_⟩
+    · intro h; exact absurd rfl h
+    · intro _; exact (hsc.2.1 rfl).1
+    · intro k h; cases h
+  refine ⟨endFr, ?_⟩
+  refine sim_assign_gas hb hs hslotdef hcorr hscS hslots hscoped'
+    ((defsSoundS_empty_iff prog (st.setLocal t
+      (UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase)))).mpr hsound') ?_
+  refine ⟨hslot63, hslotplat, hrun, hmembytes, hmemactive, ?_, hcode, hvalid, haddr,
     hcanmod, haccounts, hstorage, hstkEnd⟩
   -- pc: `stash_tail_gas` advances by 35 = the emit length.
   rw [hpc, hemitlen]
@@ -804,13 +822,14 @@ instead of supplying it. The key-prefix gas fold is likewise DERIVED (`materiali
 only the key-prefix **stack-room** fold `hstkKey` (a stack-depth-profile argument) and the
 activeWords-flatness `hawk` stay supplied. -/
 theorem decode_sloadstash {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st : V2.IRState} {t k : Tmp} {L : Label} {b : Block} {pc : Nat} {fr frk : Frame}
+    {st : V2.IRState} {t k : Tmp} {I : Tmp → Prop}
+    {L : Label} {b : Block} {pc : Nat} {fr frk : Frame}
     {keyVal : Word}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some (.assign t (.sload k)))
     (hslotdef : defsOf prog t = some (.slot (slotOf t)))
     (hbound : pcOf prog L pc + ((matCache prog k).length + 35) < 2 ^ 32)
-    (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L pc)
+    (hcorr : Corr prog sloadChg obs I st fr L pc)
     (hmrk : V2.MatRunsC prog sloadChg (.tmp k) keyVal fr frk) :
     decode frk.exec.executionEnv.code frk.exec.pc = some (.Smsf .SLOAD, .none)
     ∧ decode (sloadFrame frk keyVal []).exec.executionEnv.code
@@ -1042,13 +1061,27 @@ theorem sim_assign_sload_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs 
   -- the loaded-value tie: `selfStorage fr keyVal = st.world keyVal = w` (StorageAgree).
   have hwvalSelf : selfStorage fr keyVal = w := by rw [hcorr.storage keyVal, hkw]
   -- == build the stash run via `stash_tail_sload` ==
-  obtain ⟨endFr, hrun, hmembytes, hmemactive, hpc, hcode, hvalid, haddr, hcanmod, haccounts,
+  let endFr := mstoreFrame (pushFrameW (sloadFrame frk keyVal []) (UInt256.ofNat slot) 32)
+    (UInt256.ofNat slot) w words' []
+  obtain ⟨hrun, hmembytes, hmemactive, hpc, hcode, hvalid, haddr, hcanmod, haccounts,
       hstorage, hstkEnd⟩ :=
     stash_tail_sload fr frk k keyVal w slot words' hcorr.stack_nil hmrk hawk hwvalSelf
       hdsload hdpush hdmstore hgasSload hgasPush hmem hgasMem hgasMstore
   -- feed `sim_assign_sload` the constructed stash bundle.
-  refine sim_assign_sload hb hs hslotdef hcorr hsc hslots hwval hscoped' ?_
-  refine ⟨hslot63, hslotplat, endFr, hrun, hmembytes, hmemactive, ?_, hcode, hvalid, haddr,
+  have hsound' : DefsSound prog (st.setLocal t w) := by
+    obtain ⟨_, _, hsloadArm⟩ := hsc
+    obtain ⟨hsloaddef, hscope⟩ := hsloadArm k rfl
+    exact defsSound_preserved_assignSload hsloaddef hscope
+      ((defsSoundS_empty_iff prog st).mp hcorr.defsSound)
+  have hscS : StepScopedS prog (.assign t (.sload k)) := by
+    refine ⟨?_, ?_, ?_⟩
+    · intro _ hn; exact absurd rfl (hn k)
+    · intro h; cases h
+    · intro key h; cases h; exact (hsc.2.2 k rfl).1
+  refine ⟨endFr, ?_⟩
+  refine sim_assign_sload hb hs hslotdef hcorr hscS hslots hwval hscoped'
+    ((defsSoundS_empty_iff prog (st.setLocal t w)).mpr hsound') ?_
+  refine ⟨hslot63, hslotplat, hrun, hmembytes, hmemactive, ?_, hcode, hvalid, haddr,
     hcanmod, haccounts, hstorage, hstkEnd⟩
   -- pc: the stash advances by `lk + 35`; the emit length is `lk + 35`.
   rw [hpc]
