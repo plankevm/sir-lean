@@ -455,8 +455,18 @@ def stmtChargeDepth (prog : Program) : Stmt → Nat
   | .assign _ (.sload k) => chargeDepth prog k
   | .assign _ _          => 0
   | .sstore key value    => chargeDepth prog value + chargeDepth prog key + 1
-  | .call _              => 0
-  | .create _            => 0
+  -- The emitted call prologue (`emitStmt`'s `.call` arm) is five zero pushes followed by
+  -- the callee and gasFwd materialisations, so the peak stack depth during the prologue is
+  -- `max (5 + chargeDepth callee) (6 + chargeDepth gasFwd)`; the sum below dominates both
+  -- (mirroring the `.sstore` sum-style count).
+  | .call cs             => chargeDepth prog cs.callee + chargeDepth prog cs.gasFwd + 6
+  -- CREATE2 operand order (`emitStmt`'s `.create` arm): salt, initSize, initOffset, value —
+  -- the value materialise runs with the other three already on the stack, so the peak is
+  -- `max (chargeDepth salt) (1 + chargeDepth initSize) (2 + chargeDepth initOffset)
+  --      (3 + chargeDepth value)`; the sum below dominates all four.
+  | .create cs           =>
+      chargeDepth prog cs.salt + chargeDepth prog cs.initSize
+        + chargeDepth prog cs.initOffset + chargeDepth prog cs.value + 3
 
 def termChargeDepth (prog : Program) : Term → Nat
   | .branch cond _ _ => chargeDepth prog cond
@@ -485,6 +495,24 @@ structure StackRoomOK (prog : Program) : Prop where
   ret : ∀ (sloadChg : Tmp → ℕ) (L : Label) (b : Block) (t : Tmp),
     blockAt prog L = some b → b.term = .ret t →
     (chargeCache prog sloadChg t).length ≤ 1024
+  /-- Call-prologue stack room for the callee materialise (runs above the five zero pushes).
+  Exactly the `hstkCallee` shape the CALL producer threads. -/
+  callCallee : ∀ (sloadChg : Tmp → ℕ) (L : Label) (b : Block) (pc : Nat) (cs : CallSpec),
+    blockAt prog L = some b → b.stmts[pc]? = some (.call cs) →
+    5 + (chargeCache prog sloadChg cs.callee).length ≤ 1024
+  /-- Call-prologue stack room for the gasFwd materialise (runs above the five zero pushes
+  plus the materialised callee). Exactly the `hstkGasFwd` shape the CALL producer threads. -/
+  callGasFwd : ∀ (sloadChg : Tmp → ℕ) (L : Label) (b : Block) (pc : Nat) (cs : CallSpec),
+    blockAt prog L = some b → b.stmts[pc]? = some (.call cs) →
+    6 + (chargeCache prog sloadChg cs.gasFwd).length ≤ 1024
+  /-- Create-prologue stack room, one bound per CREATE2 operand at its emission depth
+  (salt at 0, initSize at 1, initOffset at 2, value at 3). -/
+  createOperands : ∀ (sloadChg : Tmp → ℕ) (L : Label) (b : Block) (pc : Nat) (cs : CreateSpec),
+    blockAt prog L = some b → b.stmts[pc]? = some (.create cs) →
+    (chargeCache prog sloadChg cs.salt).length ≤ 1024
+    ∧ 1 + (chargeCache prog sloadChg cs.initSize).length ≤ 1024
+    ∧ 2 + (chargeCache prog sloadChg cs.initOffset).length ≤ 1024
+    ∧ 3 + (chargeCache prog sloadChg cs.value).length ≤ 1024
 
 structure IRWellFormed (prog : Program) : Prop where
   defineBeforeUse : RunDefinableG prog
@@ -497,7 +525,9 @@ structure IRWellFormed (prog : Program) : Prop where
   slotAddr        : ∀ (L : Label) (b : Block) (pc : Nat) (t : Tmp),
     blockAt prog L = some b →
     (b.stmts[pc]? = some (.assign t .gas)
-      ∨ ∃ k, b.stmts[pc]? = some (.assign t (.sload k))) →
+      ∨ (∃ k, b.stmts[pc]? = some (.assign t (.sload k)))
+      ∨ (∃ cs : CallSpec, b.stmts[pc]? = some (.call cs) ∧ cs.resultTmp = some t)
+      ∨ (∃ cs : CreateSpec, b.stmts[pc]? = some (.create cs) ∧ cs.resultTmp = some t)) →
     slotOf t + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
 
 end Lir.V2

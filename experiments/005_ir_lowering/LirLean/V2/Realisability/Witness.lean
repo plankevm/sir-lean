@@ -593,23 +593,30 @@ private theorem gasBound_exProg : ∀ (L : Label) (b : Block) (pc : Nat) (t : Tm
       Expr.imm.injEq, Expr.sload.injEq, Expr.lt.injEq, and_false, false_and, and_true] at hs <;>
     decide
 
--- `exProg` satisfies spill-slot addressability at each gas/sload cursor.
+-- `exProg` satisfies spill-slot addressability at each gas/sload cursor and at the
+-- call-result temp (`t5`); the create arm is vacuous (`exProg` has no create).
+set_option linter.unusedSimpArgs false in
 private theorem slotAddr_exProg : ∀ (L : Label) (b : Block) (pc : Nat) (t : Tmp),
     blockAt exProg L = some b →
     (b.stmts[pc]? = some (.assign t .gas)
-      ∨ ∃ k, b.stmts[pc]? = some (.assign t (.sload k))) →
+      ∨ (∃ k, b.stmts[pc]? = some (.assign t (.sload k)))
+      ∨ (∃ cs : CallSpec, b.stmts[pc]? = some (.call cs) ∧ cs.resultTmp = some t)
+      ∨ (∃ cs : CreateSpec, b.stmts[pc]? = some (.create cs) ∧ cs.resultTmp = some t)) →
     slotOf t + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits := by
   have hbig : (2:Nat)^32 ≤ 2 ^ System.Platform.numBits := by
     apply Nat.pow_le_pow_right (by norm_num); cases System.Platform.numBits_eq <;> omega
-  rintro ⟨idx⟩ b pc t hb (hs | ⟨k, hs⟩) <;>
+  rintro ⟨idx⟩ b pc t hb (hs | ⟨k, hs⟩ | ⟨cs, hs, hres⟩ | ⟨cs, hs, hres⟩) <;>
     rcases blockAt_exProg_inv hb with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ <;>
     rcases pc with _|_|_|_|_|_|_|pc <;>
     simp only [exBlk0, exBlk1, exBlk2, List.getElem?_cons_zero, List.getElem?_cons_succ,
-      List.getElem?_nil, Option.some.injEq, reduceCtorEq, Stmt.assign.injEq,
+      List.getElem?_nil, Option.some.injEq, reduceCtorEq, Stmt.assign.injEq, Stmt.call.injEq,
       Expr.imm.injEq, Expr.sload.injEq, Expr.lt.injEq, and_false, false_and, and_true] at hs <;>
     first
       | (subst hs; exact ⟨by decide, lt_of_lt_of_le (by decide) hbig⟩)
       | (obtain ⟨rfl, rfl⟩ := hs; exact ⟨by decide, lt_of_lt_of_le (by decide) hbig⟩)
+      | (subst hs;
+         obtain rfl : (⟨5⟩ : Tmp) = t := by simpa using hres;
+         exact ⟨by decide, lt_of_lt_of_le (by decide) hbig⟩)
 
 -- `exProg` has no `ret`-terminated block (all blocks jump/branch/stop), so the ret epilogue
 -- bound is vacuous.
