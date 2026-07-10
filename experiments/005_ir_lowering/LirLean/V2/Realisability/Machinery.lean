@@ -3722,4 +3722,136 @@ theorem runFromAll_of_runFromLeft_coupled_halt {prog : Program} {log : RunLog}
   rw [hTn, hCn, hDn] at hleft
   exact hleft
 
+/-! ### The COUPLED CALL-head bundle (the producer arm's consumption shape)
+
+`callRealises_of_recorded` (above) discharges `CallRealisesS`, but its statement FORGETS the
+recorder coupling: the arg-push run and the returning-CALL resume are packaged as bare `Runs`/
+`CallReturns` facts, so a consumer that must RE-ESTABLISH `RecorderCoupled` at the post-call
+frame (the coupled producer walk, `Producer.lean`'s `simStmt_coupled_call`) cannot transport the
+coupling across those opaque runs. `call_head_realises_coupled` is the SAME Piece-A/B assembly
+(`call_args_run_of_coupled` → `call_dispatch_of_coupled` [named WIP] → the CallsCode seam →
+`recorderCoupled_call_extract`), stopping BEFORE the tail and keeping the coupling alive: it
+returns the CALL-site frame with its pins, the rec-spelled returning CALL, the advanced coupling
+at the resume frame (tail suffix `cS'` — exactly one record consumed), and the resume-frame pins
+the `Corr` re-establishment consumes. Same hypothesis ledger as `callRealises_of_recorded`
+(no `hslotaddr`: the tail is not built here). -/
+theorem call_head_realises_coupled {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
+    {L : Label} {b : Block} {pc : Nat} {cs : CallSpec}
+    {st0 : IRState} {fr0 : Frame} {cw gw : Word}
+    {gS : List Word} {sS : List Nat} {rec : CallRecord} {cS' : List CallRecord}
+    {dS : List CreateRecord} {I : Tmp → Prop}
+    (hwl : WellLowered prog)
+    (hcodeFits : codeFits prog)
+    (hb : blockAt prog L = some b)
+    (hcur : b.stmts[pc]? = some (.call cs))
+    (hcorr : Corr prog sloadChg 0 I st0 fr0 L pc)
+    (hcp : RecorderCoupled log fr0 gS sS (rec :: cS') dS)
+    (hch : CleanHaltsNonException fr0)
+    (hcc : ∀ fr', Runs fr0 fr' → CallsCode fr')
+    (hcallee : st0.locals cs.callee = some cw)
+    (hgasfwd : st0.locals cs.gasFwd = some gw)
+    (hfreeCallee : RematClosureFree prog I (.tmp cs.callee))
+    (hfreeGasFwd : RematClosureFree prog I (.tmp cs.gasFwd))
+    (hstkCallee : 5 + (chargeCache prog sloadChg cs.callee).length ≤ 1024)
+    (hstkGasFwd : 6 + (chargeCache prog sloadChg cs.gasFwd).length ≤ 1024) :
+    ∃ callFr : Frame,
+      Runs fr0 callFr
+      ∧ callFr.exec.pc = fr0.exec.pc + UInt32.ofNat
+          ((emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
+            ++ matCache prog cs.callee ++ matCache prog cs.gasFwd).length)
+      ∧ callFr.exec.toMachineState.memory = fr0.exec.toMachineState.memory
+      ∧ fr0.exec.toMachineState.activeWords.toNat
+          ≤ callFr.exec.toMachineState.activeWords.toNat
+      ∧ CallReturns callFr (Evm.resumeAfterCall rec.result rec.pending)
+      ∧ RecorderCoupled log (Evm.resumeAfterCall rec.result rec.pending) gS sS cS' dS
+      ∧ (Evm.resumeAfterCall rec.result rec.pending).exec.executionEnv.address
+          = fr0.exec.executionEnv.address
+      ∧ (Evm.resumeAfterCall rec.result rec.pending).exec.executionEnv.code = lower prog
+      ∧ (Evm.resumeAfterCall rec.result rec.pending).exec.executionEnv.canModifyState = true
+      ∧ (Evm.resumeAfterCall rec.result rec.pending).exec.pc = callFr.exec.pc + 1
+      ∧ (Evm.resumeAfterCall rec.result rec.pending).exec.stack
+          = callSuccessFlag rec.result rec.pending :: []
+      ∧ (Evm.resumeAfterCall rec.result rec.pending).exec.toMachineState.memory
+          = callFr.exec.toMachineState.memory
+      ∧ callFr.exec.toMachineState.activeWords.toNat
+          ≤ (Evm.resumeAfterCall rec.result rec.pending).exec.toMachineState.activeWords.toNat
+      ∧ (Evm.resumeAfterCall rec.result rec.pending).validJumps
+          = validJumpDests (Evm.resumeAfterCall rec.result rec.pending).exec.executionEnv.code 0 := by
+  classical
+  -- Piece B step 1: the argument-push run (coupling + clean-halt carried to the CALL site).
+  obtain ⟨callFr, hargs, hcallpc, hcallstk, hcallcode, hcallvj, hcalladdr, hcallmod,
+      hcallmem, hcallact, _hcallsto, hcpcall, hchcall⟩ :=
+    call_args_run_of_coupled hwl hcodeFits hb hcur hcorr hcp hch hcallee hgasfwd
+      hfreeCallee hfreeGasFwd hstkCallee hstkGasFwd
+  have hbt : prog.blocks.toList[L.idx]? = some b := Lir.toList_of_blockAt hb
+  set argsB := emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
+      ++ matCache prog cs.callee ++ matCache prog cs.gasFwd with hargsB
+  -- the CALL byte decode at `callFr` (byte layout + `codeFits`).
+  have hemit0 : emitStmt (matCache prog) (defsOf prog) (.call cs)
+      = argsB ++ [Byte.call]
+        ++ (match cs.resultTmp with
+            | some t => emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]
+            | none => [Byte.pop]) := rfl
+  have hcallbyte : (emitStmt (matCache prog) (defsOf prog) (.call cs))[argsB.length]?
+      = some Byte.call := by
+    rw [hemit0, List.getElem?_append_left (by
+          simp only [List.length_append, List.length_singleton]; omega),
+        List.getElem?_append_right (Nat.le_refl _)]
+    simp
+  have hseg : ∀ j, j < (emitStmt (matCache prog) (defsOf prog) (.call cs)).length →
+      (flatBytes prog)[pcOf prog L pc + j]?
+        = (emitStmt (matCache prog) (defsOf prog) (.call cs))[j]? :=
+    fun j hj => flatBytes_at_pcOf_offset prog L b pc (.call cs) j hbt hcur hj
+  have hargslt : argsB.length
+      < (emitStmt (matCache prog) (defsOf prog) (.call cs)).length := by
+    rw [hemit0]
+    simp only [List.length_append, List.length_singleton]
+    omega
+  have hdecCall : decode callFr.exec.executionEnv.code callFr.exec.pc
+      = some (.System .CALL, .none) := by
+    rw [hcallcode, hcallpc, hcorr.pc_eq, ofNat_add']
+    have h := nonpush_leaf_decodeF prog (pcOf prog L pc) argsB.length Byte.call
+      (emitStmt (matCache prog) (defsOf prog) (.call cs))
+      (call_stmt_offset_bound_of_codeFits hcodeFits hb hcur hargslt)
+      hcallbyte (by decide) hseg
+    simpa using h
+  -- Piece B step 2 (named WIP): the dispatch bundle.
+  obtain ⟨cp, pending, hstep, henv, hvj, hpcpin, hmempin, hawpin, hstkpin, hinS, houtS⟩ :=
+    call_dispatch_of_coupled hcpcall hchcall hdecCall hcallstk hcallmod
+  -- the CallsCode seam rules out the precompile/immediate arm.
+  have hccF : CallsCode callFr := hcc callFr hargs
+  obtain ⟨child, hbegin⟩ : ∃ child, beginCall cp = .inl child := by
+    cases hbc : beginCall cp with
+    | inl c => exact ⟨c, rfl⟩
+    | inr r =>
+        exact absurd hbc (beginCall_isCode_of_codeSource_ne_precompiled
+          (hccF cp pending hstep) r)
+  -- Piece A: identify the coupled head record with this CALL, KEEPING the advanced coupling.
+  obtain ⟨childRes, hcall, hrec, hcpres⟩ := recorderCoupled_call_extract hcpcall hstep hbegin
+  have hpend : rec.pending = pending := by rw [hrec]
+  have hresult : rec.result = childRes.toCallResult := by rw [hrec]
+  -- the returning CALL + the advanced coupling, rec-spelled.
+  have hcall' : CallReturns callFr (Evm.resumeAfterCall rec.result rec.pending) := by
+    rw [hresult, hpend]; exact hcall
+  have hcpres' : RecorderCoupled log (Evm.resumeAfterCall rec.result rec.pending) gS sS cS' dS := by
+    rw [hresult, hpend]; exact hcpres
+  -- the resume-frame pins, transported through the pending pins.
+  have henv' : rec.pending.frame.exec.executionEnv = callFr.exec.executionEnv := by
+    rw [hpend]; exact henv
+  refine ⟨callFr, hargs, by rw [hcallpc, hargsB], hcallmem, hcallact, hcall', hcpres',
+    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+  · rw [resumeAfterCall_address, henv', hcalladdr]
+  · rw [resumeAfterCall_code, henv', hcallcode]
+  · rw [resumeAfterCall_canModifyState, henv', hcallmod]
+  · rw [resumeAfterCall_pc, hpend, hpcpin]
+  · rw [resumeAfterCall_stack, hpend, hstkpin]; rfl
+  · rw [LirLean.MemAlgebra.resumeAfterCall_memory (by rw [hpend]; exact houtS), hpend, hmempin]
+  · have hawEq : (Evm.resumeAfterCall rec.result rec.pending).exec.toMachineState.activeWords
+        = callFr.exec.toMachineState.activeWords := by
+      rw [LirLean.MemAlgebra.resumeAfterCall_activeWords (by rw [hpend]; exact hinS)
+        (by rw [hpend]; exact houtS), hpend, hawpin]
+    rw [hawEq]
+  · rw [resumeAfterCall_code, henv', hcallcode, resumeAfterCall_validJumps, hpend, hvj, hcallvj]
+    exact hcorr.validJumps_lower
+
 end Lir.V2
