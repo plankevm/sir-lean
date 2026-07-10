@@ -1112,8 +1112,143 @@ theorem next_jumpi_fallthrough_of_cleanHalt (fr : Frame) (dest : UInt256) (rest 
   have hg := stepFrame_jumpi_inv fr hdec hsz hnext
   exact ⟨hg, stepFrame_jumpi_fallthrough fr dest rest hdec hstk hsz hg⟩
 
+/-! ## §6 — POP + CALL-charge clean-halt bricks (the R3 Piece-B call-tail/dispatch residues)
+
+The lowered CALL statement's machine-side residues need two more extractions in the §1/§2
+pattern:
+
+* **POP** (the `resultTmp = none` Route-B tail): `stepFrame_pop_oog`/`stepFrame_pop_dichotomy`/
+  `next_pop_of_cleanHalt`, the exact `runs_pop` mirror of the GAS brick (POP charges `Gbase`
+  *before* popping, so the OOG arm needs no stack shape);
+* **the CALL charge** (`call_extraCost_le_of_cleanHalt`): the value-free zero-window CALL's
+  only dispatch fault is the `charge (gasCap + extraCost)` gate; when `extraCost` exceeds the
+  available gas that charge throws (`stepFrame_call_oog`), so a clean-halting CALL cursor
+  witnesses `callExtraCost ≤ gas` — exactly `stepFrame_call`'s remaining gas premise. (The
+  `depth < 1024` guard is NOT derivable from clean-halt — the deep fallback is a plain `.next`
+  — it is derived from the recorder coupling instead; see
+  `Machinery.lean`'s `driveLog_calls_const_of_depth`.) -/
+
+/-- **POP out-of-gas.** With `Gbase` exceeding the available gas, `stepFrame` halts with
+`OutOfGas`. Companion of 003's forward `stepFrame_pop`; POP charges before popping, so no
+stack shape is needed. -/
+theorem stepFrame_pop_oog (fr : Frame)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .POP, .none))
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hoog : fr.exec.gasAvailable.toNat < Gbase) :
+    stepFrame fr = .halted (.exception .OutOfGas) := by
+  unfold stepFrame
+  simp only [hdec]
+  dsimp only [Option.getD]
+  rw [if_neg (by decide)]
+  have hov : ¬ (fr.exec.stack.size - stackPopCount (.Smsf .POP)
+      + stackPushCount (.Smsf .POP) > 1024) := by
+    simp only [show stackPopCount (.Smsf .POP) = 1 from rfl,
+               show stackPushCount (.Smsf .POP) = 0 from rfl]
+    have := hsz; omega
+  rw [if_neg hov]
+  dsimp only [dispatch, smsfOp]
+  unfold charge
+  rw [if_pos (by have := hoog; omega)]
+  dsimp only [bind, Except.bind, pure, Except.pure]
+
+/-- **POP `.next`-inversion.** A successful `.next` POP step witnesses `Gbase ≤ gas`. -/
+theorem stepFrame_pop_inv (fr : Frame) {e : ExecutionState}
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .POP, .none))
+    (hsz : fr.exec.stack.size ≤ 1024)
+    (hnext : stepFrame fr = .next e) :
+    Gbase ≤ fr.exec.gasAvailable.toNat := by
+  by_contra h
+  rw [stepFrame_pop_oog fr hdec hsz (by omega)] at hnext
+  exact absurd hnext (by simp)
+
+/-- **POP step dichotomy.** -/
+theorem stepFrame_pop_dichotomy (fr : Frame) (v : UInt256) (rest : Stack UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .POP, .none))
+    (hstk : fr.exec.stack = v :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024) :
+    (∃ e', stepFrame fr = .next e') ∨ (∃ ex, stepFrame fr = .halted (.exception ex)) := by
+  by_cases hgas : Gbase ≤ fr.exec.gasAvailable.toNat
+  · exact Or.inl ⟨_, BytecodeLayer.Dispatch.stepFrame_pop fr v rest hdec hstk hsz hgas⟩
+  · exact Or.inr ⟨_, stepFrame_pop_oog fr hdec hsz (by omega)⟩
+
+/-- **POP: clean-halt ⟹ `Gbase ≤ gas`** (and the continuing `.next` step to `popPost`). The
+`runs_pop` feeder for the fire-and-forget (`resultTmp = none`) call tail. -/
+theorem next_pop_of_cleanHalt (fr : Frame) (v : UInt256) (rest : Stack UInt256)
+    (hcs : CleanHaltsNonException fr)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .POP, .none))
+    (hstk : fr.exec.stack = v :: rest)
+    (hsz : fr.exec.stack.size ≤ 1024) :
+    Gbase ≤ fr.exec.gasAvailable.toNat
+      ∧ stepFrame fr = .next (BytecodeLayer.Dispatch.popPost fr.exec rest) := by
+  obtain ⟨e', hnext⟩ :=
+    next_of_cleanHalt_continuing hcs (stepFrame_pop_dichotomy fr v rest hdec hstk hsz)
+  have hg := stepFrame_pop_inv fr hdec hsz hnext
+  exact ⟨hg, BytecodeLayer.Dispatch.stepFrame_pop fr v rest hdec hstk hsz hg⟩
+
+/-- **CALL out-of-gas** (value-free zero-window shape). With `callExtraCost` exceeding the
+available gas, the `charge (gasCap + extraCost)` gate throws and `stepFrame` halts with
+`OutOfGas`. Mirrors `BytecodeLayer.System.stepFrame_call`'s dispatch walk into the failing
+charge (the mem-expansion charge is `0` for the all-zero windows; the static-mode screen is
+skipped at `value = 0`; `gasCap + extraCost ≥ extraCost > gas` regardless of `callGasCap`'s
+branch). -/
+theorem stepFrame_call_oog (fr : Frame) (gasv toAddr : UInt256)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.System .CALL, .none))
+    (hstk : fr.exec.stack = gasv :: toAddr :: 0 :: 0 :: 0 :: 0 :: 0 :: [])
+    (hoog : fr.exec.gasAvailable.toNat
+      < callExtraCost (AccountAddress.ofUInt256 toAddr) (AccountAddress.ofUInt256 toAddr) 0
+          fr.exec.accounts fr.exec.substate) :
+    stepFrame fr = .halted (.exception .OutOfGas) := by
+  unfold stepFrame
+  simp only [hdec]
+  dsimp only [Option.getD]
+  rw [if_neg (by decide)]
+  have hov : ¬ (fr.exec.stack.size - stackPopCount (.System .CALL)
+      + stackPushCount (.System .CALL) > 1024) := by
+    simp only [show stackPopCount (.System .CALL) = 7 from rfl,
+               show stackPushCount (.System .CALL) = 1 from rfl, hstk, Stack.size]
+    simp only [List.length]
+    omega
+  rw [if_neg hov]
+  dsimp only [dispatch, systemOp]
+  rw [hstk]
+  dsimp only [Stack.pop7, liftM, monadLift, MonadLift.monadLift, Option.option,
+    bind, Except.bind, pure, Except.pure]
+  rw [if_neg (by simp)]
+  unfold callArm
+  dsimp only [memoryExpansionWords?, bind, Except.bind, pure, Except.pure]
+  simp only [show (((0:UInt256))==0) = true from rfl, if_true, Option.bind_some]
+  rw [show (Cₘ fr.exec.activeWords - Cₘ fr.exec.activeWords) = 0 from by omega]
+  unfold charge
+  rw [if_neg (by simp)]
+  dsimp only
+  rw [show fr.exec.gasAvailable - UInt64.ofNat 0 = fr.exec.gasAvailable from by
+        simp]
+  rw [if_pos (by have := hoog; omega)]
+
+/-- **CALL: clean-halt ⟹ `callExtraCost ≤ gas`** (the CALL charge extraction). A CALL cursor
+that clean-halts non-exceptionally cannot be sitting on the failing `charge` gate: were
+`extraCost > gas`, `stepFrame` would halt `OutOfGas` here (`stepFrame_call_oog`), and a halted
+frame `Runs` only to itself (`halted_runs_eq`) — forcing the non-exception terminal to BE that
+exception halt. This is `stepFrame_call`'s residual gas premise, DERIVED. -/
+theorem call_extraCost_le_of_cleanHalt (fr : Frame) (gasv toAddr : UInt256)
+    (hcs : CleanHaltsNonException fr)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.System .CALL, .none))
+    (hstk : fr.exec.stack = gasv :: toAddr :: 0 :: 0 :: 0 :: 0 :: 0 :: []) :
+    callExtraCost (AccountAddress.ofUInt256 toAddr) (AccountAddress.ofUInt256 toAddr) 0
+      fr.exec.accounts fr.exec.substate ≤ fr.exec.gasAvailable.toNat := by
+  by_contra hlt
+  obtain ⟨last, halt, hto, hhalt, hne⟩ := hcs
+  have hoog := stepFrame_call_oog fr gasv toAddr hdec hstk (by omega)
+  have heq : fr = last := halted_runs_eq hoog hto
+  subst heq
+  rw [hoog] at hhalt
+  have hhx : halt = .exception .OutOfGas := ((Signal.halted.injEq _ _).mp hhalt).symm
+  rw [hhx] at hne
+  exact hne
+
 end Lir.CleanHaltExtract
 
+-- Axiom-cleanliness guards (§6 — POP + CALL-charge Piece-B bricks).
 -- Axiom-cleanliness guards (§0 — predicate lives in `LirLean/Engine/CleanHalt.lean`).
 -- Axiom-cleanliness guards (§1).
 -- Axiom-cleanliness guards (§2).
