@@ -480,7 +480,7 @@ theorem callRealises_of_recorded {prog : Program} {sloadChg : Tmp → ℕ} {log 
     {self : AccountAddress} {L : Label} {b : Block} {pc : Nat} {cs : CallSpec}
     {st0 : IRState} {fr0 : Frame}
     {gS : List Word} {sS : List Nat} {rec : CallRecord} {cS' : List CallRecord}
-    {dS : List CreateRecord}
+    {dS : List CreateRecord} {I : Tmp → Prop}
     (hwl : WellLowered prog)
     (hb : blockAt prog L = some b)
     (hcur : b.stmts[pc]? = some (.call cs))
@@ -491,7 +491,7 @@ theorem callRealises_of_recorded {prog : Program} {sloadChg : Tmp → ℕ} {log 
     (haddr : fr0.exec.executionEnv.address = self) :
     -- the post-state is `rec`'s realised `evmV2CallEntry` effect (baked in — the positional
     -- head pin, no free `st0'`):
-    CallRealisesS prog sloadChg L b pc cs st0
+    CallRealisesS prog sloadChg I L b pc cs st0
       (match cs.resultTmp with
         | some t' => { st0 with world := fun key =>
                         evmCallOracle.postStorage rec.result rec.pending self key }.setLocal
@@ -628,7 +628,8 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
         + (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp t)).length ≤ 1024 := by
       rw [hcorr.stack_nil]; simpa using hwl.stack.ret sloadChg L b t hb hterm
     refine ⟨materialise_chargeC_le_of_cleanHalt hwl.defsCons hwl.defEnvOrdered sloadChg st 0
-        (.tmp t) vw frT hdv ((defsSoundS_empty_iff prog st).mp hcorr.defsSound) hcorr.wellScoped hcorr.storage (by nofun) (by nofun)
+        (fun _ => False) (.tmp t) vw frT hdv hcorr.defsSound
+        (rematClosureFree_empty prog hwl.defsCons hwl.defEnvOrdered (.tmp t)) hcorr.wellScoped hcorr.storage (by nofun) (by nofun)
         hcorr.memAgree hvw hch hstkC, ?_⟩
     -- conjunct 3: the pc-pinned full-observable epilogue block
     -- (`PUSH32 0; MSTORE; PUSH32 32; PUSH32 0; RETURN`).
@@ -953,7 +954,8 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
         (by simp only [matExpr_tmp]; omega)
     have hcondEval : V2.evalExpr st 0 (.tmp cond) = some cw := hc
     obtain ⟨frc, hmrc, _hgasCond⟩ := materialise_runsC_of_cleanHalt hwl.defsCons
-      hwl.defEnvOrdered sloadChg st 0 (.tmp cond) cw frT hcondMatDec ((defsSoundS_empty_iff prog st).mp hcorr.defsSound)
+      hwl.defEnvOrdered sloadChg st 0 (fun _ => False) (.tmp cond) cw frT hcondMatDec hcorr.defsSound
+      (rematClosureFree_empty prog hwl.defsCons hwl.defEnvOrdered (.tmp cond))
       hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree hcondEval hch hstkCond
     -- forward clean-halt across the cond materialise.
     have hcsC : CleanHaltsNonException frc := cleanHaltsNonException_forward hch hmrc.runs
@@ -1734,12 +1736,12 @@ facts in hand at this call site. This mirrors the interface of `decode_gasstash`
 theorem gas_suffix_head_realised {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
     {L : Label} {b : Block} {pc : Nat} {t : Tmp} {st : IRState} {fr : Frame}
     {gS : List Word} {sS : List Nat} {cS : List CallRecord}
-    {dS : List CreateRecord}
+    {dS : List CreateRecord} {I : Tmp → Prop}
     (hb : blockAt prog L = some b)
     (hcur : b.stmts[pc]? = some (.assign t .gas))
     (hslotdef : defsOf prog t = some (.slot (slotOf t)))
     (hpcbound : pcOf prog L pc + 34 < 2 ^ 32)
-    (hcorr : Lir.Corr prog sloadChg 0 (fun _ => False) st fr L pc)
+    (hcorr : Lir.Corr prog sloadChg 0 I st fr L pc)
     (hcp : RecorderCoupled log fr gS sS cS dS)
     (hch : CleanHaltsNonException fr) :
     gS.head? = some (UInt256.ofUInt64
@@ -2273,13 +2275,13 @@ private theorem callRealises_of_recorded_finish
     {self : AccountAddress} {L : Label} {b : Block} {pc : Nat} {cs : CallSpec}
     {st0 : IRState} {fr0 callFr child : Frame}
     {gS : List Word} {sS : List Nat} {rec : CallRecord} {cS' : List CallRecord}
-    {dS : List CreateRecord}
+    {dS : List CreateRecord} {I : Tmp → Prop}
     {argsLen : Nat} {cp : CallParams}
     (hwl : WellLowered prog)
     (hb : blockAt prog L = some b)
     (hcur : b.stmts[pc]? = some (.call cs))
     (haddr : fr0.exec.executionEnv.address = self)
-    (hcorr : Corr prog sloadChg 0 (fun _ => False) st0 fr0 L pc)
+    (hcorr : Corr prog sloadChg 0 I st0 fr0 L pc)
     (hargslen : argsLen = (emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
         ++ matCache prog cs.callee ++ matCache prog cs.gasFwd).length)
     (hargs : Runs fr0 callFr)
@@ -2331,7 +2333,7 @@ private theorem callRealises_of_recorded_finish
         ∧ (cs.resultTmp = none →
             Runs (Evm.resumeAfterCall rec.result rec.pending)
               (popFrame (Evm.resumeAfterCall rec.result rec.pending) []))) :
-    CallRealisesS prog sloadChg L b pc cs st0
+    CallRealisesS prog sloadChg I L b pc cs st0
       (match cs.resultTmp with
         | some t' => { st0 with world := fun key =>
                         evmCallOracle.postStorage rec.result rec.pending self key }.setLocal

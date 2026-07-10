@@ -112,13 +112,13 @@ def DriveLogStep (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog) (self 
 `Corr` at `pc+1` with empty stack, and the advanced coupling `RecorderCoupled` + `StreamsAligned`
 at the tail. REAL def. -/
 def CoupledAdvance (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog) (self : AccountAddress)
-    (L : Label) (pc : Nat) (st : IRState) (fr : Frame)
+    (I : Tmp → Prop) (L : Label) (pc : Nat) (st : IRState) (fr : Frame)
     (T : Trace) (C : CallStream) (D : CreateStream) (s : Stmt) : Prop :=
   ∃ (st' : IRState) (fr' : Frame) (T' : Trace) (C' : CallStream) (D' : CreateStream)
     (gS' : List Word) (sS' : List Nat) (cS' : List CallRecord) (dS' : List CreateRecord),
     EvalStmt prog st T C D s st' T' C' D'
     ∧ Runs fr fr'
-    ∧ Lir.Corr prog sloadChg 0 (fun _ => False) st' fr' L (pc + 1)
+    ∧ Lir.Corr prog sloadChg 0 (invalStep prog I s) st' fr' L (pc + 1)
     ∧ fr'.exec.stack = []
     ∧ RecorderCoupled log fr' gS' sS' cS' dS'
     ∧ StreamsAligned self log gS' cS' dS' T' C' D'
@@ -405,16 +405,20 @@ theorem simStmt_coupled_assignPure {prog : Program} {sloadChg : Tmp → ℕ} {lo
     (hb : blockAt prog L = some b)
     (hcur : b.stmts[pc]? = some (.assign t e))
     (hne : e ≠ .gas) (hns : ∀ k, e ≠ .sload k)
-    (hcorr : Lir.Corr prog sloadChg 0 (fun _ => False) st fr L pc)
+    (hcorr : Lir.Corr prog sloadChg 0
+      ((b.stmts.take pc).foldl (invalStep prog) (fun _ => False)) st fr L pc)
     (hcp : RecorderCoupled log fr gS sS cS dS)
     (hch : CleanHaltsNonException fr)
     (hal : StreamsAligned self log gS cS dS T C D)
     (hv : evalExpr st 0 e = some w)
     (hties : StmtTies' prog sloadChg log self L b) :
-    CoupledAdvance prog sloadChg log self L pc st fr T C D (.assign t e) := by
+    CoupledAdvance prog sloadChg log self
+      ((b.stmts.take pc).foldl (invalStep prog) (fun _ => False)) L pc st fr T C D (.assign t e) := by
   -- Fire `StmtTies'` arm (1) at this cursor with the coupling + clean-halt in hand.
   obtain ⟨hslot, hstepS, hscoped', hmem'⟩ :=
-    hties.1 pc t e w st fr gS sS cS dS hcur hne hns hcorr hcp hch hv
+    hties.1 pc t e w st fr gS sS cS dS
+      ((b.stmts.take pc).foldl (invalStep prog) (fun _ => False))
+      hcur hne hns hcorr hcp hch hv
   -- The registered def and the recomputability of the (non-spilled) target.
   have hdef : rematOf prog t = some e := hstepS.1 hne hns
   have hnr : ¬ NonRecomputable prog t := by
@@ -428,12 +432,15 @@ theorem simStmt_coupled_assignPure {prog : Program} {sloadChg : Tmp → ℕ} {lo
     rw [pcOf_succ prog L b pc (.assign t e) hbt hcur,
         emitStmt_assign_remat (matCache prog) (defsOf prog) t e hslot]
     simp
-  -- The post-state's strong `DefsSound` (self-repair; no live-scope clause).
-  have hsound' : DefsSound prog (st.setLocal t w) :=
-    defsSound_setLocal_recomputable hnr hdef hv ((defsSoundS_empty_iff prog st).mp hcorr.defsSound)
+  have hstep : EvalStmt prog st T C D (.assign t e) (st.setLocal t w) T C D :=
+    EvalStmt.assignPure hne hv
+  have hsound' : DefsSoundS prog
+      (invalStep prog ((b.stmts.take pc).foldl (invalStep prog) (fun _ => False)) (.assign t e))
+      (st.setLocal t w) :=
+    defsSoundS_preserved_step hwl.defsCons hb hcur hstep hcorr.defsSound
   -- Package: `st' = st.setLocal t w`, `fr' = fr`, streams/suffixes UNCHANGED.
   refine ⟨st.setLocal t w, fr, T, C, D, gS, sS, cS, dS,
-    EvalStmt.assignPure (prog := prog) (T := T) (C := C) (D := D) hne hv,
+    hstep,
     Runs.refl fr, ?_, hcorr.stack_nil, hcp, hal⟩
   exact
     { pc_eq := by rw [hpc]; exact hcorr.pc_eq
@@ -442,7 +449,7 @@ theorem simStmt_coupled_assignPure {prog : Program} {sloadChg : Tmp → ℕ} {lo
       stack_nil := hcorr.stack_nil
       can_modify := hcorr.can_modify
       storage := hcorr.storage
-      defsSound := (defsSoundS_empty_iff prog (st.setLocal t w)).mpr hsound'
+      defsSound := hsound'
       wellScoped := hscoped'
       memAgree := hmem' }
 
@@ -459,35 +466,94 @@ theorem simStmt_coupled_gas {prog : Program} {sloadChg : Tmp → ℕ} {log : Run
     (hwl : WellLowered prog)
     (hb : blockAt prog L = some b)
     (hcur : b.stmts[pc]? = some (.assign t .gas))
-    (hcorr : Lir.Corr prog sloadChg 0 (fun _ => False) st fr L pc)
+    (hcorr : Lir.Corr prog sloadChg 0
+      ((b.stmts.take pc).foldl (invalStep prog) (fun _ => False)) st fr L pc)
     (hcp : RecorderCoupled log fr gS sS cS dS)
     (hch : CleanHaltsNonException fr)
     (hal : StreamsAligned self log gS cS dS T C D)
     (hties : StmtTies' prog sloadChg log self L b) :
-    CoupledAdvance prog sloadChg log self L pc st fr T C D (.assign t .gas) := by
-  sorry
-
-/-- **P2-sload — the spilled-`.sload` coupled step.** Fires `StmtTies'` arm (2) (the read value
-is the storage lens `st.world kv` at the antecedent-pinned key binding), the in-tree
-`sim_assign_sload` brick, and `recorderCoupled_sload` (R7c) to advance the sload suffix. No IR
-stream head consumed (SLOAD reads the IR world, not a stream — `EvalStmt.assignPure` on
-`.sload k`). Twin of P2-gas on the sload channel. TRACTABILITY: hard. -/
-theorem simStmt_coupled_sload {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
-    {self : AccountAddress} {L : Label} {b : Block} {pc : Nat}
-    {t k : Tmp} {kv : Word} {st : IRState} {fr : Frame}
-    {T : Trace} {C : CallStream} {D : CreateStream} {gS : List Word} {sS : List Nat}
-    {cS : List CallRecord} {dS : List CreateRecord}
-    (hwl : WellLowered prog)
-    (hb : blockAt prog L = some b)
-    (hcur : b.stmts[pc]? = some (.assign t (.sload k)))
-    (hcorr : Lir.Corr prog sloadChg 0 (fun _ => False) st fr L pc)
-    (hcp : RecorderCoupled log fr gS sS cS dS)
-    (hch : CleanHaltsNonException fr)
-    (hal : StreamsAligned self log gS cS dS T C D)
-    (hkey : st.locals k = some kv)
-    (hties : StmtTies' prog sloadChg log self L b) :
-    CoupledAdvance prog sloadChg log self L pc st fr T C D (.assign t (.sload k)) := by
-  sorry
+    CoupledAdvance prog sloadChg log self
+      ((b.stmts.take pc).foldl (invalStep prog) (fun _ => False)) L pc st fr T C D (.assign t .gas) := by
+  classical
+  let I := (b.stmts.take pc).foldl (invalStep prog) (fun _ => False)
+  obtain ⟨hslotdef, hstepS, hslots, hghead, hscoped', hslot63, hslotplat, hpcbound⟩ :=
+    hties.2.2.1 pc t st fr gS sS cS dS I hcur hcorr hcp hch
+  cases hg : gS with
+  | nil => simp [hg] at hghead
+  | cons g gS' =>
+    have hgeq : g = UInt256.ofUInt64
+        (fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase) := by
+      simpa [hg] using hghead
+    subst g
+    have hbt : prog.blocks.toList[L.idx]? = some b := toList_of_blockAt hb
+    obtain ⟨hdgas, hdpush, hdmstore⟩ :=
+      decode_gasstash hbt hcur hslotdef hpcbound hcorr
+    obtain ⟨hgasGas, hgasPush, words', hmem, hgasMem, hgasMstore⟩ :=
+      CleanHaltExtract.gas_envelope_of_cleanHalt fr (slotOf t) hch hcorr.stack_nil
+        hdgas hdpush hdmstore
+    let endFr := mstoreFrame
+      (pushFrameW (gasFrame fr) (UInt256.ofNat (slotOf t)) 32)
+      (UInt256.ofNat (slotOf t))
+      (UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase)) words' []
+    have hstash := stash_tail_gas fr (slotOf t) words' hcorr.stack_nil
+      hdgas (by simpa [gasFrame_pc] using hdpush)
+      (by simpa [gasFrame_pc, pushFrameW_pc, push32_pcΔ] using hdmstore)
+      hgasGas hgasPush hmem hgasMem hgasMstore
+    have hszGas : fr.exec.stack.size + 1 ≤ 1024 := by rw [hcorr.stack_nil]; simp
+    have hgasStep := stepFrame_gas fr hdgas hszGas hgasGas
+    have hisGas : isGasOp fr = true := by unfold isGasOp; rw [hdgas]; rfl
+    have hcpGas : RecorderCoupled log (gasFrame fr) gS' sS cS dS := by
+      simpa [gasFrame] using (recorderCoupled_step_gas (by simpa [hg] using hcp) hisGas hgasStep).1
+    let frp := pushFrameW (gasFrame fr) (UInt256.ofNat (slotOf t)) 32
+    have hpushStep : stepFrame (gasFrame fr) = .next frp.exec :=
+      stepFrame_push (gasFrame fr) .PUSH32 (UInt256.ofNat (slotOf t)) 32 (by decide)
+        hdpush (by decide) (by decide) hgasPush (by rw [gasFrame_stack, hcorr.stack_nil]; simp)
+    have hcpPush : RecorderCoupled log frp gS' sS cS dS := by
+      apply recorderCoupled_step_other hcpGas
+      · unfold isGasOp; rw [hdpush]; rfl
+      · unfold isSloadOp; rw [hdpush]; rfl
+      · simpa [frp] using hpushStep
+    let hgasVal : Word := UInt256.ofUInt64
+      (fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase)
+    have hmstoreStep : stepFrame frp = .next
+        (mstoreFrame frp (UInt256.ofNat (slotOf t)) hgasVal words' []).exec := by
+      apply stepFrame_mstore frp (UInt256.ofNat (slotOf t)) hgasVal words' []
+      · simpa [frp, gasFrame_pc, pushFrameW_pc, push32_pcΔ] using hdmstore
+      · simp only [frp, pushFrameW_stack', gasFrame_stack, hcorr.stack_nil]
+        rfl
+      · simp [frp, gasFrame_stack, hcorr.stack_nil]
+      · exact hmem
+      · exact hgasMem
+      · exact hgasMstore
+    have hcpEnd : RecorderCoupled log endFr gS' sS cS dS := by
+      have hcpm := recorderCoupled_step_other hcpPush
+        (by
+          unfold isGasOp
+          have hd : decode frp.exec.executionEnv.code frp.exec.pc =
+              some (.Smsf .MSTORE, .none) := by
+            simpa [frp, gasFrame_pc, pushFrameW_pc, push32_pcΔ] using hdmstore
+          rw [hd]; rfl)
+        (by
+          unfold isSloadOp
+          have hd : decode frp.exec.executionEnv.code frp.exec.pc =
+              some (.Smsf .MSTORE, .none) := by
+            simpa [frp, gasFrame_pc, pushFrameW_pc, push32_pcΔ] using hdmstore
+          rw [hd]; rfl)
+        hmstoreStep
+      simpa [endFr, frp, hgasVal] using hcpm
+    have hEval : EvalStmt prog st
+        (hgasVal :: gS') C D (.assign t .gas) (st.setLocal t hgasVal) gS' C D :=
+      EvalStmt.assignGas
+    have hsound' := defsSoundS_preserved_step hwl.defsCons hb hcur hEval hcorr.defsSound
+    have hstash' : StashRuns fr endFr (slotOf t) hgasVal
+        (emitStmt (matCache prog) (defsOf prog) (.assign t .gas)).length [] := by
+      simpa [endFr, hgasVal, emitStmt_assign_slot, hslotdef, emitImm_length] using hstash
+    obtain ⟨hrun, hcorr', hstack⟩ := sim_assign_gas hbt hcur hslotdef hcorr
+      hstepS hslots hscoped' hsound' ⟨hslot63, hslotplat, hstash'⟩
+    rcases hal with ⟨rfl, hC, hD⟩
+    rw [hg]
+    exact ⟨st.setLocal t hgasVal, endFr, gS', C, D, gS', sS, cS, dS,
+      hEval, hrun, hcorr', hstack, hcpEnd, ⟨rfl, hC, hD⟩⟩
 
 /-! ### S1 — the coupling fold over a `materialise` run (`recorderCoupled_matRunsC`)
 
@@ -512,9 +578,10 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
     (hord : DefEnvOrdered prog) (sloadChg : Tmp → ℕ) (st : IRState) (obs : Word)
     (log : RunLog) (gS : List Word) (sS : List Nat) (cS : List CallRecord)
     (dS : List CreateRecord)
-    (e : Expr) (w : Word) (fr : Frame)
+    (I : Tmp → Prop) (e : Expr) (w : Word) (fr : Frame)
     (hdec : MatDecC prog hdc hord fr.exec.executionEnv.code fr.exec.pc e)
-    (hsound : DefsSound prog st)
+    (hsound : DefsSoundS prog I st)
+    (hfree : RematClosureFree prog I e)
     (hscoped : ∀ t, st.locals t ≠ none →
       (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.slot slot))
       ∧ defsOf prog t ≠ none)
@@ -527,8 +594,8 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
     (hstk : fr.exec.stack.size + (chargeExpr sloadChg (chargeCache prog sloadChg) e).length ≤ 1024)
     (hcp : RecorderCoupled log fr gS sS cS dS) :
     ∃ fr', MatRunsC prog sloadChg e w fr fr' ∧ RecorderCoupled log fr' gS sS cS dS := by
-  match e, hdec, hne, hnsl, heval, hgas, hstk with
-  | .imm v, hdec, _, _, heval, hgas, hstk =>
+  match e, hfree, hdec, hne, hnsl, heval, hgas, hstk with
+  | .imm v, _, hdec, _, _, heval, hgas, hstk =>
       have hdec' : decode fr.exec.executionEnv.code fr.exec.pc
           = some (.Push .PUSH32, some (v, 32)) := by rw [matDecC_imm] at hdec; exact hdec
       have hvw : v = w := Option.some.inj heval
@@ -560,9 +627,9 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
         exact recorderCoupled_step_other hcp
           (by unfold isGasOp; rw [hdec']; rfl) (by unfold isSloadOp; rw [hdec']; rfl)
           (stepFrame_push fr .PUSH32 v 32 (by decide) hdec' (by decide) (by decide) hg3 hstk1)
-      | .gas, _, hne, _, _, _, _ => exact absurd rfl hne
-  | .sload k, _, _, hnsl, _, _, _ => exact absurd rfl (hnsl k)
-  | .tmp t, hdec, _, _, heval, hgas, hstk =>
+  | .gas, _, _, hne, _, _, _, _ => exact absurd rfl hne
+  | .sload k, _, _, _, hnsl, _, _, _ => exact absurd rfl (hnsl k)
+  | .tmp t, hfree, hdec, _, _, heval, hgas, hstk =>
       have hloc : st.locals t = some w := heval
       cases hal : allocate prog t with
       | none =>
@@ -589,8 +656,9 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
                   have hdeft : defsOf prog t = some (Loc.remat e') := hal
                   rw [hdeft] at hcrdef
                   exact absurd hcrdef (by simp)
+              obtain ⟨hfree_t, hfree_remat⟩ := RematClosureFree.tmp_inv hfree
               have hdfs : some w = evalExpr st 0 e' :=
-                hsound t e' w hremt hnr hloc
+                hsound t e' w hremt hnr hfree_t hloc
               have heval' : evalExpr st obs e' = some w := by
                 rw [evalExpr_obs_irrel st obs 0 he'ng]; exact hdfs.symm
               have hgas' : (chargeExpr sloadChg (chargeCache prog sloadChg) e').sum
@@ -600,7 +668,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
                   + (chargeExpr sloadChg (chargeCache prog sloadChg) e').length ≤ 1024 := by
                 have hx := hstk; simp only [chargeExpr_tmp] at hx; rw [hcc] at hx; exact hx
               obtain ⟨fr', hmr, hcp'⟩ := recorderCoupled_matRunsC hdc hord sloadChg st obs
-                log gS sS cS dS e' w fr htmd hsound hscoped hstore he'ng he'nsl hmemreal heval'
+                log gS sS cS dS I e' w fr htmd hsound (hfree_remat e' hal) hscoped hstore he'ng he'nsl hmemreal heval'
                 hgas' hstk' hcp
               have hpcE : matExpr (matCache prog) (Expr.tmp t) = matExpr (matCache prog) e' := by
                 simp only [matExpr_tmp]; exact hmc
@@ -801,7 +869,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
                 rw [BytecodeLayer.UInt64.toNat_sub_ofNat _ Gverylow
                       (by rw [h2, hgv3]; omega) (by rw [hgv3]; omega), h2]
                 rw [hsum2, hgv3] at hgas; omega
-  | .add a b, hdec, _, _, heval, hgas, hstk =>
+  | .add a b, hfree, hdec, _, _, heval, hgas, hstk =>
       obtain ⟨va, hla, vb, hlb, hwadd⟩ :
           ∃ va, st.locals a = some va ∧ ∃ vb, st.locals b = some vb ∧ w = UInt256.add va vb := by
         simp only [evalExpr] at heval
@@ -827,8 +895,9 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
         have hx := hstk; rw [hcadd] at hx
         simp only [List.length_append] at hx
         show fr.exec.stack.size + (chargeCache prog sloadChg b).length ≤ 1024; omega
+      obtain ⟨hfreea, hfreeb⟩ := RematClosureFree.add_inv hfree
       obtain ⟨frb, hmrb, hcpb⟩ := recorderCoupled_matRunsC hdc hord sloadChg st obs
-        log gS sS cS dS (.tmp b) vb fr hdb hsound hscoped hstore (by nofun) (by nofun)
+        log gS sS cS dS I (.tmp b) vb fr hdb hsound hfreeb hscoped hstore (by nofun) (by nofun)
         hmemreal hevb hgasb hstkb hcp
       have hbcode : frb.exec.executionEnv.code = fr.exec.executionEnv.code := hmrb.code
       have hbpc : frb.exec.pc = fr.exec.pc + UInt32.ofNat (matCache prog b).length := by
@@ -853,7 +922,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
         rw [hlen_split] at hstk; rw [hfrbsz]
         show fr.exec.stack.size + 1 + (chargeCache prog sloadChg a).length ≤ 1024; omega
       obtain ⟨fra, hmra, hcpa⟩ := recorderCoupled_matRunsC hdc hord sloadChg st obs
-        log gS sS cS dS (.tmp a) va frb hda' hsound hscoped (hstore.transport hmrb.storage)
+        log gS sS cS dS I (.tmp a) va frb hda' hsound hfreea hscoped (hstore.transport hmrb.storage)
         (by nofun) (by nofun) (hmemreal.transport hmrb.memBytes hmrb.memActive)
         heva hgasa hstka hcpb
       have hacode : fra.exec.executionEnv.code = fr.exec.executionEnv.code := by
@@ -910,7 +979,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
         rw [UInt32.ofNat_add, UInt32.ofNat_add, show (UInt32.ofNat 1 : UInt32) = 1 from rfl]
         ac_rfl
       · rw [hgc]; exact toNat_subCharges fr.exec.gasAvailable _ hgas
-  | .lt a b, hdec, _, _, heval, hgas, hstk =>
+  | .lt a b, hfree, hdec, _, _, heval, hgas, hstk =>
       obtain ⟨va, hla, vb, hlb, hwlt⟩ :
           ∃ va, st.locals a = some va ∧ ∃ vb, st.locals b = some vb ∧ w = UInt256.lt va vb := by
         simp only [evalExpr] at heval
@@ -936,8 +1005,9 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
         have hx := hstk; rw [hclt] at hx
         simp only [List.length_append] at hx
         show fr.exec.stack.size + (chargeCache prog sloadChg b).length ≤ 1024; omega
+      obtain ⟨hfreea, hfreeb⟩ := RematClosureFree.lt_inv hfree
       obtain ⟨frb, hmrb, hcpb⟩ := recorderCoupled_matRunsC hdc hord sloadChg st obs
-        log gS sS cS dS (.tmp b) vb fr hdb hsound hscoped hstore (by nofun) (by nofun)
+        log gS sS cS dS I (.tmp b) vb fr hdb hsound hfreeb hscoped hstore (by nofun) (by nofun)
         hmemreal hevb hgasb hstkb hcp
       have hbcode : frb.exec.executionEnv.code = fr.exec.executionEnv.code := hmrb.code
       have hbpc : frb.exec.pc = fr.exec.pc + UInt32.ofNat (matCache prog b).length := by
@@ -962,7 +1032,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
         rw [hlen_split] at hstk; rw [hfrbsz]
         show fr.exec.stack.size + 1 + (chargeCache prog sloadChg a).length ≤ 1024; omega
       obtain ⟨fra, hmra, hcpa⟩ := recorderCoupled_matRunsC hdc hord sloadChg st obs
-        log gS sS cS dS (.tmp a) va frb hda' hsound hscoped (hstore.transport hmrb.storage)
+        log gS sS cS dS I (.tmp a) va frb hda' hsound hfreea hscoped (hstore.transport hmrb.storage)
         (by nofun) (by nofun) (hmemreal.transport hmrb.memBytes hmrb.memActive)
         heva hgasa hstka hcpb
       have hacode : fra.exec.executionEnv.code = fr.exec.executionEnv.code := by
@@ -1026,6 +1096,141 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
         | (simp only [matDecMeasure]; omega)
         | (exact matDecMeasure_remat_lt prog hdc hord (by assumption))
 
+theorem simStmt_coupled_sload {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
+    {self : AccountAddress} {L : Label} {b : Block} {pc : Nat}
+    {t k : Tmp} {kv : Word} {st : IRState} {fr : Frame}
+    {T : Trace} {C : CallStream} {D : CreateStream} {gS : List Word} {sS : List Nat}
+    {cS : List CallRecord} {dS : List CreateRecord}
+    (hwl : WellLowered prog)
+    (hb : blockAt prog L = some b)
+    (hcur : b.stmts[pc]? = some (.assign t (.sload k)))
+    (hcorr : Lir.Corr prog sloadChg 0
+      ((b.stmts.take pc).foldl (invalStep prog) (fun _ => False)) st fr L pc)
+    (hcp : RecorderCoupled log fr gS sS cS dS)
+    (hch : CleanHaltsNonException fr)
+    (hal : StreamsAligned self log gS cS dS T C D)
+    (hkey : st.locals k = some kv)
+    (hties : StmtTies' prog sloadChg log self L b) :
+    CoupledAdvance prog sloadChg log self
+      ((b.stmts.take pc).foldl (invalStep prog) (fun _ => False)) L pc st fr T C D (.assign t (.sload k)) := by
+  classical
+  let I := (b.stmts.take pc).foldl (invalStep prog) (fun _ => False)
+  obtain ⟨hslotdef, hstepS, hslots, hwval, hscoped', hslot63, hslotplat,
+      hstkKey, hflat⟩ :=
+    hties.2.1 pc t k kv st fr gS sS cS dS I hcur hcorr hcp hch hkey
+  have hbt : prog.blocks.toList[L.idx]? = some b := toList_of_blockAt hb
+  have hfree : RematClosureFree prog I (.tmp k) :=
+    hwl.scopedUses L b pc (.assign t (.sload k)) hb hcur k (by simp [readsStmt, usesInExpr])
+  have hemit : emitStmt (matCache prog) (defsOf prog) (.assign t (.sload k))
+      = matCache prog k ++ [Byte.sload]
+          ++ emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore] := by
+    rw [emitStmt_assign_slot (matCache prog) (defsOf prog) t (.sload k) hslotdef]
+    rfl
+  have hemitlen : (emitStmt (matCache prog) (defsOf prog) (.assign t (.sload k))).length =
+      (matCache prog k).length + 35 := by
+    rw [hemit]
+    simp only [List.length_append, List.length_singleton, emitImm_length]
+  have hseg : ∀ j, j < (matCache prog k).length + 35 →
+      (flatBytes prog)[pcOf prog L pc + j]?
+        = (emitStmt (matCache prog) (defsOf prog) (.assign t (.sload k)))[j]? := by
+    intro j hj
+    exact flatBytes_at_pcOf_offset prog L b pc (.assign t (.sload k)) j hbt hcur
+      (by rw [hemitlen]; omega)
+  have hsegk : ∀ j, j < (matExpr (matCache prog) (.tmp k)).length →
+      (flatBytes prog)[pcOf prog L pc + j]? = (matExpr (matCache prog) (.tmp k))[j]? := by
+    intro j hj
+    simp only [matExpr_tmp] at hj ⊢
+    rw [hseg j (by omega), hemit]
+    rw [List.getElem?_append_left
+          (by simp only [List.length_append, List.length_singleton]; omega),
+        List.getElem?_append_left
+          (by simp only [List.length_append, List.length_singleton]; omega),
+        List.getElem?_append_left hj]
+  have hbound := hwl.wf.bound_sload L b pc t k hbt hcur
+  have hdk : MatDecC prog hwl.defsCons hwl.defEnvOrdered fr.exec.executionEnv.code fr.exec.pc
+      (.tmp k) := by
+    rw [hcorr.code_eq, hcorr.pc_eq]
+    exact matDecC_of_seg prog hwl.defsCons hwl.defEnvOrdered (.tmp k) (pcOf prog L pc)
+      (by simp only [matExpr_tmp]; omega) hsegk
+  have hstkC : fr.exec.stack.size +
+      (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp k)).length ≤ 1024 := by
+    simpa only [chargeExpr_tmp] using hstkKey
+  have hgasKey := materialise_chargeC_le_of_cleanHalt hwl.defsCons hwl.defEnvOrdered
+    sloadChg st 0 I (.tmp k) kv fr hdk hcorr.defsSound hfree hcorr.wellScoped
+    hcorr.storage (by nofun) (by nofun) hcorr.memAgree hkey hch hstkC
+  obtain ⟨frk, hmrk, hcpk⟩ := recorderCoupled_matRunsC hwl.defsCons hwl.defEnvOrdered
+    sloadChg st 0 log gS sS cS dS I (.tmp k) kv fr hdk hcorr.defsSound hfree
+    hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree hkey hgasKey hstkC hcp
+  obtain ⟨hdsload, hdpush, hdmstore⟩ :=
+    decode_sloadstash hbt hcur hslotdef hbound hcorr hmrk
+  have hkw : st.world kv = st.world kv := rfl
+  have hawk := hflat frk hmrk
+  obtain ⟨hgasSload, hgasPush, words', hmem, hgasMem, hgasMstore⟩ :=
+    CleanHaltExtract.sload_envelope_of_cleanHalt fr frk kv (slotOf t)
+      hch hcorr.stack_nil hmrk rfl hdsload hdpush hdmstore
+  have hkstk : frk.exec.stack = kv :: [] := by rw [hmrk.stack, hcorr.stack_nil]; rfl
+  have hksz : frk.exec.stack.size ≤ 1024 := by rw [hkstk]; simp
+  have hsloadStep := stepFrame_sload frk kv [] hdsload hkstk hksz hgasSload
+  have hisSload : isSloadOp frk = true := by unfold isSloadOp; rw [hdsload]; rfl
+  obtain ⟨n, sS', hsSeq⟩ := sloadSuffix_nonempty hcpk hisSload hsloadStep
+  subst hsSeq
+  have hcpSload : RecorderCoupled log (sloadFrame frk kv []) gS sS' cS dS := by
+    simpa [sloadFrame] using (recorderCoupled_sload hcpk hisSload hsloadStep).1
+  let frp := pushFrameW (sloadFrame frk kv []) (UInt256.ofNat (slotOf t)) 32
+  have hpushStep : stepFrame (sloadFrame frk kv []) = .next frp.exec :=
+    stepFrame_push (sloadFrame frk kv []) .PUSH32 (UInt256.ofNat (slotOf t)) 32 (by decide)
+      hdpush (by decide) (by decide) hgasPush
+      (by simp [sloadFrame_stack])
+  have hcpPush : RecorderCoupled log frp gS sS' cS dS := by
+    apply recorderCoupled_step_other hcpSload
+    · unfold isGasOp; rw [hdpush]; rfl
+    · unfold isSloadOp; rw [hdpush]; rfl
+    · simpa [frp] using hpushStep
+  let w := st.world kv
+  let endFr := mstoreFrame frp (UInt256.ofNat (slotOf t)) w words' []
+  have hmstoreStep : stepFrame frp = .next endFr.exec := by
+    apply stepFrame_mstore frp (UInt256.ofNat (slotOf t)) w words' []
+    · simpa [frp, sloadFrame_pc, pushFrameW_pc, push32_pcΔ] using hdmstore
+    · simp only [frp, pushFrameW_stack', sloadFrame_stack, hmrk.storage,
+        hcorr.stack_nil, w, Stack.push]
+      rw [hcorr.storage kv]
+    · simp [frp, sloadFrame_stack, hcorr.stack_nil]
+    · exact hmem
+    · exact hgasMem
+    · exact hgasMstore
+  have hcpEnd : RecorderCoupled log endFr gS sS' cS dS := by
+    have hcpm := recorderCoupled_step_other hcpPush
+      (by
+        unfold isGasOp
+        have hd : decode frp.exec.executionEnv.code frp.exec.pc =
+            some (.Smsf .MSTORE, .none) := by
+          simpa [frp, sloadFrame_pc, pushFrameW_pc, push32_pcΔ] using hdmstore
+        rw [hd]; rfl)
+      (by
+        unfold isSloadOp
+        have hd : decode frp.exec.executionEnv.code frp.exec.pc =
+            some (.Smsf .MSTORE, .none) := by
+          simpa [frp, sloadFrame_pc, pushFrameW_pc, push32_pcΔ] using hdmstore
+        rw [hd]; rfl)
+      hmstoreStep
+    simpa [endFr] using hcpm
+  have hwself : selfStorage fr kv = w := by simp [w, hcorr.storage kv]
+  have hstash := stash_tail_sload fr frk k kv w (slotOf t) words' hcorr.stack_nil hmrk
+    hawk hwself hdsload
+    (by simpa [sloadFrame_pc] using hdpush)
+    (by simpa [sloadFrame_pc, pushFrameW_pc, push32_pcΔ] using hdmstore)
+    hgasSload hgasPush hmem hgasMem hgasMstore
+  have hstash' : StashRuns fr endFr (slotOf t) w
+      (emitStmt (matCache prog) (defsOf prog) (.assign t (.sload k))).length [] := by
+    rw [hemitlen]
+    simpa [endFr, frp, w] using hstash
+  have hEval : EvalStmt prog st T C D (.assign t (.sload k)) (st.setLocal t w) T C D := by
+    exact EvalStmt.assignPure (by simp) (by simpa [w] using hwval)
+  have hsound' := defsSoundS_preserved_step hwl.defsCons hb hcur hEval hcorr.defsSound
+  obtain ⟨hrun, hcorr', hstack⟩ := sim_assign_sload hbt hcur hslotdef hcorr hstepS
+    hslots (by simpa [w] using hwval) (by simpa [w] using hscoped') hsound' ⟨hslot63, hslotplat, hstash'⟩
+  exact ⟨st.setLocal t w, endFr, T, C, D, gS, sS', cS, dS,
+    hEval, hrun, hcorr', hstack, hcpEnd, hal⟩
 /-- **S3 — `sim_sstore_stmt'`, the WIP re-plumb of `sim_sstore_stmt`.** Same conclusion as the
 in-tree `sim_sstore_stmt` (`Sim/SimStmt.lean`), but (i) DROPS the unsatisfiable `∀`-quantified
 `hsstore : SstoreRealises fr kw vw acc` — its three runtime facts are derived POINT-WISE at the
@@ -1039,12 +1244,15 @@ theorem sim_sstore_stmt' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} 
     {st : IRState} {key value : Tmp} {kw vw : Word}
     {L : Label} {b : Block} {pc : Nat} {fr : Frame}
     {gS : List Word} {sS : List Nat} {cS : List CallRecord} {dS : List CreateRecord}
+    {I : Tmp → Prop}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some (.sstore key value))
-    (hcorr : Lir.Corr prog sloadChg obs (fun _ => False) st fr L pc)
+    (hcorr : Lir.Corr prog sloadChg obs I st fr L pc)
     (hk : st.locals key = some kw) (hv : st.locals value = some vw)
     (hsc : Lir.StepScoped prog st (.sstore key value))
     (hdc : DefsConsistent prog) (hord : DefEnvOrdered prog)
+    (hfreeValue : RematClosureFree prog I (.tmp value))
+    (hfreeKey : RematClosureFree prog I (.tmp key))
     (hdv : MatDecC prog hdc hord fr.exec.executionEnv.code fr.exec.pc (.tmp value))
     (hdk : MatDecC prog hdc hord fr.exec.executionEnv.code
             (fr.exec.pc + UInt32.ofNat (matCache prog value).length) (.tmp key))
@@ -1059,7 +1267,7 @@ theorem sim_sstore_stmt' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} 
     (hstk : (chargeCache prog sloadChg value).length
               + (chargeCache prog sloadChg key).length + 1 ≤ 1024) :
     ∃ fr', Runs fr fr'
-      ∧ Lir.Corr prog sloadChg obs (fun _ => False) (st.setStorage kw vw) fr' L (pc + 1)
+      ∧ Lir.Corr prog sloadChg obs I (st.setStorage kw vw) fr' L (pc + 1)
       ∧ fr'.exec.stack = []
       ∧ RecorderCoupled log fr' gS sS cS dS := by
   classical
@@ -1075,12 +1283,12 @@ theorem sim_sstore_stmt' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} 
     simp only [chargeExpr_tmp]; omega
   have hgasv : (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp value)).sum
       ≤ fr.exec.gasAvailable.toNat :=
-    materialise_chargeC_le_of_cleanHalt hdc hord sloadChg st obs (.tmp value) vw fr
-      hdv ((defsSoundS_empty_iff prog st).mp hcorr.defsSound) hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
+    materialise_chargeC_le_of_cleanHalt hdc hord sloadChg st obs I (.tmp value) vw fr
+      hdv hcorr.defsSound hfreeValue hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
       hevv hcs hstkv
   obtain ⟨frv, hmrv, hcpv⟩ := recorderCoupled_matRunsC hdc hord sloadChg st obs log gS sS cS dS
-    (.tmp value) vw fr
-    hdv ((defsSoundS_empty_iff prog st).mp hcorr.defsSound) hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
+    I (.tmp value) vw fr
+    hdv hcorr.defsSound hfreeValue hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
     hevv hgasv hstkv hcp
   have hvcode : frv.exec.executionEnv.code = fr.exec.executionEnv.code := hmrv.code
   have hvaddr : frv.exec.executionEnv.address = fr.exec.executionEnv.address := hmrv.addr
@@ -1097,13 +1305,13 @@ theorem sim_sstore_stmt' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} 
     rw [hfrvsz, hszfr]; simp only [chargeExpr_tmp]; omega
   have hgask : (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp key)).sum
       ≤ frv.exec.gasAvailable.toNat :=
-    materialise_chargeC_le_of_cleanHalt hdc hord sloadChg st obs (.tmp key) kw frv
-      hdk' ((defsSoundS_empty_iff prog st).mp hcorr.defsSound) hcorr.wellScoped
+    materialise_chargeC_le_of_cleanHalt hdc hord sloadChg st obs I (.tmp key) kw frv
+      hdk' hcorr.defsSound hfreeKey hcorr.wellScoped
       (hcorr.storage.transport hmrv.storage) (by nofun) (by nofun)
       (hcorr.memAgree.transport hmrv.memBytes hmrv.memActive) hevk hcsv hstkk
   obtain ⟨frk, hmrk, hcpk⟩ := recorderCoupled_matRunsC hdc hord sloadChg st obs log gS sS cS dS
-    (.tmp key) kw frv
-    hdk' ((defsSoundS_empty_iff prog st).mp hcorr.defsSound) hcorr.wellScoped
+    I (.tmp key) kw frv
+    hdk' hcorr.defsSound hfreeKey hcorr.wellScoped
     (hcorr.storage.transport hmrv.storage) (by nofun) (by nofun)
     (hcorr.memAgree.transport hmrv.memBytes hmrv.memActive) hevk hgask hstkk hcpv
   have hkcode : frk.exec.executionEnv.code = fr.exec.executionEnv.code := by
@@ -1178,8 +1386,10 @@ theorem sim_sstore_stmt' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} 
             hmrk.storage keyw, hmrv.storage keyw, hcorr.storage keyw]
         show st.world keyw = (if keyw = kw then vw else st.world keyw)
         simp [hk0]
-    · exact (defsSoundS_empty_iff prog (st.setStorage kw vw)).mpr
-        (defsSound_preserved_sstore hsc ((defsSoundS_empty_iff prog st).mp hcorr.defsSound))
+    · have hstepS : EvalStmt prog st ([] : Trace) ([] : CallStream) ([] : CreateStream)
+          (.sstore key value) (st.setStorage kw vw) [] [] [] := EvalStmt.sstore hk hv
+      exact defsSoundS_preserved_step hdc (blockAt_of_toList prog L b hb) hs
+        hstepS hcorr.defsSound
     · intro tw htw
       exact hcorr.wellScoped tw (by simpa [V2.IRState.setStorage] using htw)
     · intro tw slot v hdef hloc
@@ -1207,19 +1417,23 @@ theorem simStmt_coupled_sstore {prog : Program} {sloadChg : Tmp → ℕ} {log : 
     (hwl : WellLowered prog)
     (hb : blockAt prog L = some b)
     (hcur : b.stmts[pc]? = some (.sstore key value))
-    (hcorr : Lir.Corr prog sloadChg 0 (fun _ => False) st fr L pc)
+    (hcorr : Lir.Corr prog sloadChg 0
+      ((b.stmts.take pc).foldl (invalStep prog) (fun _ => False)) st fr L pc)
     (hcp : RecorderCoupled log fr gS sS cS dS)
     (hch : CleanHaltsNonException fr)
     (hsp : SelfPresent fr)
     (hal : StreamsAligned self log gS cS dS T C D)
     (hk : st.locals key = some kw) (hvv : st.locals value = some vw)
     (hties : StmtTies' prog sloadChg log self L b) :
-    CoupledAdvance prog sloadChg log self L pc st fr T C D (.sstore key value) := by
+    CoupledAdvance prog sloadChg log self
+      ((b.stmts.take pc).foldl (invalStep prog) (fun _ => False)) L pc st fr T C D (.sstore key value) := by
   classical
   have hbt : prog.blocks.toList[L.idx]? = some b := toList_of_blockAt hb
   -- ties arm (4): `StepScopedS` + the stack-room fold (fired with coupling + clean-halt).
   obtain ⟨hstepS, hstkbound⟩ :=
-    hties.2.2.2.1 pc key value kw vw st fr gS sS cS dS hcur hcorr hcp hch hk hvv
+    hties.2.2.2.1 pc key value kw vw st fr gS sS cS dS
+      ((b.stmts.take pc).foldl (invalStep prog) (fun _ => False))
+      hcur hcorr hcp hch hk hvv
   -- `StepScopedS` ⟹ the per-state `StepScoped` the sstore B3 preservation consumes (the static
   -- form quantifies over ALL registered defs, so it dominates the state-gated one).
   have hsc : Lir.StepScoped prog st (.sstore key value) := by
@@ -1259,10 +1473,15 @@ theorem simStmt_coupled_sstore {prog : Program} {sloadChg : Tmp → ℕ} {log : 
           = pcOf prog L pc + ((matCache prog value).length + (matCache prog key).length)
           from by omega]
     exact sstore_op_decode prog L b pc key value hbt hcur (by omega)
+  have hfreeValue := hwl.scopedUses L b pc (.sstore key value) hb hcur value
+    (by simp [readsStmt])
+  have hfreeKey := hwl.scopedUses L b pc (.sstore key value) hb hcur key
+    (by simp [readsStmt])
   -- fire S3 (`sim_sstore_stmt'`): the two-frame materialise fold + the point-wise R4 realisation
   -- + the coupling transported to the post-frame.
   obtain ⟨fr', hruns, hcorr', hstacknil', hcpf⟩ :=
-    sim_sstore_stmt' hbt hcur hcorr hk hvv hsc hwl.defsCons hwl.defEnvOrdered hdv hdk hdop
+    sim_sstore_stmt' hbt hcur hcorr hk hvv hsc hwl.defsCons hwl.defEnvOrdered
+      hfreeValue hfreeKey hdv hdk hdop
       hch hsp hcp hstkbound
   -- S4 — assemble the `CoupledAdvance`: `EvalStmt.sstore` consumes NO stream head (T/C/D and
   -- gS/sS/cS ride unchanged), so the alignment `hal` carries over verbatim.
@@ -1287,7 +1506,8 @@ theorem simStmt_coupled_call {prog : Program} {sloadChg : Tmp → ℕ} {log : Ru
     (hwl : WellLowered prog)
     (hb : blockAt prog L = some b)
     (hcur : b.stmts[pc]? = some (.call cs))
-    (hcorr : Lir.Corr prog sloadChg 0 (fun _ => False) st fr L pc)
+    (hcorr : Lir.Corr prog sloadChg 0
+      ((b.stmts.take pc).foldl (invalStep prog) (fun _ => False)) st fr L pc)
     (hcp : RecorderCoupled log fr gS sS (rec :: cS') dS)
     (hch : CleanHaltsNonException fr)
     (haddr : fr.exec.executionEnv.address = self)
@@ -1295,7 +1515,8 @@ theorem simStmt_coupled_call {prog : Program} {sloadChg : Tmp → ℕ} {log : Ru
     (hgasfwd : ∃ gw, st.locals cs.gasFwd = some gw)
     (hal : StreamsAligned self log gS (rec :: cS') dS T C D)
     (hties : StmtTies' prog sloadChg log self L b) :
-    CoupledAdvance prog sloadChg log self L pc st fr T C D (.call cs) := by
+    CoupledAdvance prog sloadChg log self
+      ((b.stmts.take pc).foldl (invalStep prog) (fun _ => False)) L pc st fr T C D (.call cs) := by
   sorry
 
 /-! ## §3 — the COUPLED block walk and the per-block step -/
