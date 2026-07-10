@@ -230,6 +230,8 @@ structure WellLowered (prog : Program) : Prop where
   (define-before-use SSA over the ordered `defEnv` carrier). Every C-channel consumer
   (`MatDecC`/`MatRunsC`/`matCache_unfold`) descends on it. -/
   defEnvOrdered : DefEnvOrdered prog
+  revalidates : RevalidatesPerBlock prog
+  scopedUses : ScopedUses prog
   /-- The entry block is block 0 (its leading `JUMPDEST` is byte 0 = the entry frame's pc). -/
   entry0 : prog.entry.idx = 0
   /-- Static CFG closure (entry/jump/branch presence + offset bounds). -/

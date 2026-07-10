@@ -90,6 +90,34 @@ def RevalidatesPerBlock (prog : Program) : Prop :=
   ∀ (L : Label) (b : Block), blockAt prog L = some b →
     ∀ t', ¬ (b.stmts.foldl (invalStep prog) (fun _ => False)) t'
 
+def readsStmt : Stmt → Tmp → Prop
+  | .assign _ e, t => usesInExpr t e ≠ 0
+  | .sstore key value, t => t = key ∨ t = value
+  | .call cs, t => t = cs.callee ∨ t = cs.gasFwd
+  | .create cs, t =>
+      t = cs.value ∨ t = cs.initOffset ∨ t = cs.initSize ∨ t = cs.salt
+
+inductive RematClosureFree (prog : Program) (I : Tmp → Prop) : Expr → Prop where
+  | imm (w) : RematClosureFree prog I (.imm w)
+  | gas : RematClosureFree prog I .gas
+  | sload (k) : RematClosureFree prog I (.sload k)
+  | tmp (t) (hI : ¬ I t)
+      (hrem : ∀ e', allocate prog t = some (.remat e') → RematClosureFree prog I e') :
+      RematClosureFree prog I (.tmp t)
+  | add (a b) (ha : RematClosureFree prog I (.tmp a))
+      (hb : RematClosureFree prog I (.tmp b)) :
+      RematClosureFree prog I (.add a b)
+  | lt (a b) (ha : RematClosureFree prog I (.tmp a))
+      (hb : RematClosureFree prog I (.tmp b)) :
+      RematClosureFree prog I (.lt a b)
+
+def ScopedUses (prog : Program) : Prop :=
+  ∀ (L : Label) (b : Block) (pc : Nat) (s : Stmt),
+    blockAt prog L = some b → b.stmts[pc]? = some s →
+    ∀ t, readsStmt s t →
+      RematClosureFree prog
+        ((b.stmts.take pc).foldl (invalStep prog) (fun _ => False)) (.tmp t)
+
 structure CFGClosed (prog : Program) : Prop where
   entry_present : ∃ b, blockAt prog prog.entry = some b
   jump_closed : ∀ (L : Label) (b : Block) (dst : Label),
@@ -438,6 +466,7 @@ structure IRWellFormed (prog : Program) : Prop where
   cfgClosed       : CFGClosed prog
   defEnvOrdered   : DefEnvOrdered prog
   revalidates     : RevalidatesPerBlock prog
+  scopedUses      : ScopedUses prog
   slotAddr        : ∀ (L : Label) (b : Block) (pc : Nat) (t : Tmp),
     blockAt prog L = some b →
     (b.stmts[pc]? = some (.assign t .gas)
