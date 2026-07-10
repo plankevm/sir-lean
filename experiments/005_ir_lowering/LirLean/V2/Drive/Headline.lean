@@ -163,7 +163,7 @@ theorem driveCorrPlus_assign_remat_memRealises {prog : Program} {sloadChg : Tmp 
     {st st' : V2.IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
     {t : Tmp} {e : Expr} {L : Label}
     {pc : Nat} {fr : Frame}
-    (hcorr : Corr prog sloadChg obs st fr L pc)
+    (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L pc)
     (hstep : EvalStmt prog st T C D (.assign t e) st' T' C' D')
     (hne : e ≠ .gas)
     (hns : ∀ n, defsOf prog t ≠ some (.slot n)) :

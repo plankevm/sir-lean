@@ -118,7 +118,7 @@ def CoupledAdvance (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog) (sel
     (gS' : List Word) (sS' : List Nat) (cS' : List CallRecord) (dS' : List CreateRecord),
     EvalStmt prog st T C D s st' T' C' D'
     ∧ Runs fr fr'
-    ∧ Lir.Corr prog sloadChg 0 st' fr' L (pc + 1)
+    ∧ Lir.Corr prog sloadChg 0 (fun _ => False) st' fr' L (pc + 1)
     ∧ fr'.exec.stack = []
     ∧ RecorderCoupled log fr' gS' sS' cS' dS'
     ∧ StreamsAligned self log gS' cS' dS' T' C' D'
@@ -405,7 +405,7 @@ theorem simStmt_coupled_assignPure {prog : Program} {sloadChg : Tmp → ℕ} {lo
     (hb : blockAt prog L = some b)
     (hcur : b.stmts[pc]? = some (.assign t e))
     (hne : e ≠ .gas) (hns : ∀ k, e ≠ .sload k)
-    (hcorr : Lir.Corr prog sloadChg 0 st fr L pc)
+    (hcorr : Lir.Corr prog sloadChg 0 (fun _ => False) st fr L pc)
     (hcp : RecorderCoupled log fr gS sS cS dS)
     (hch : CleanHaltsNonException fr)
     (hal : StreamsAligned self log gS cS dS T C D)
@@ -430,7 +430,7 @@ theorem simStmt_coupled_assignPure {prog : Program} {sloadChg : Tmp → ℕ} {lo
     simp
   -- The post-state's strong `DefsSound` (self-repair; no live-scope clause).
   have hsound' : DefsSound prog (st.setLocal t w) :=
-    defsSound_setLocal_recomputable hnr hdef hv hcorr.defsSound
+    defsSound_setLocal_recomputable hnr hdef hv ((defsSoundS_empty_iff prog st).mp hcorr.defsSound)
   -- Package: `st' = st.setLocal t w`, `fr' = fr`, streams/suffixes UNCHANGED.
   refine ⟨st.setLocal t w, fr, T, C, D, gS, sS, cS, dS,
     EvalStmt.assignPure (prog := prog) (T := T) (C := C) (D := D) hne hv,
@@ -442,7 +442,7 @@ theorem simStmt_coupled_assignPure {prog : Program} {sloadChg : Tmp → ℕ} {lo
       stack_nil := hcorr.stack_nil
       can_modify := hcorr.can_modify
       storage := hcorr.storage
-      defsSound := hsound'
+      defsSound := (defsSoundS_empty_iff prog (st.setLocal t w)).mpr hsound'
       wellScoped := hscoped'
       memAgree := hmem' }
 
@@ -459,7 +459,7 @@ theorem simStmt_coupled_gas {prog : Program} {sloadChg : Tmp → ℕ} {log : Run
     (hwl : WellLowered prog)
     (hb : blockAt prog L = some b)
     (hcur : b.stmts[pc]? = some (.assign t .gas))
-    (hcorr : Lir.Corr prog sloadChg 0 st fr L pc)
+    (hcorr : Lir.Corr prog sloadChg 0 (fun _ => False) st fr L pc)
     (hcp : RecorderCoupled log fr gS sS cS dS)
     (hch : CleanHaltsNonException fr)
     (hal : StreamsAligned self log gS cS dS T C D)
@@ -480,7 +480,7 @@ theorem simStmt_coupled_sload {prog : Program} {sloadChg : Tmp → ℕ} {log : R
     (hwl : WellLowered prog)
     (hb : blockAt prog L = some b)
     (hcur : b.stmts[pc]? = some (.assign t (.sload k)))
-    (hcorr : Lir.Corr prog sloadChg 0 st fr L pc)
+    (hcorr : Lir.Corr prog sloadChg 0 (fun _ => False) st fr L pc)
     (hcp : RecorderCoupled log fr gS sS cS dS)
     (hch : CleanHaltsNonException fr)
     (hal : StreamsAligned self log gS cS dS T C D)
@@ -1041,7 +1041,7 @@ theorem sim_sstore_stmt' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} 
     {gS : List Word} {sS : List Nat} {cS : List CallRecord} {dS : List CreateRecord}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some (.sstore key value))
-    (hcorr : Lir.Corr prog sloadChg obs st fr L pc)
+    (hcorr : Lir.Corr prog sloadChg obs (fun _ => False) st fr L pc)
     (hk : st.locals key = some kw) (hv : st.locals value = some vw)
     (hsc : Lir.StepScoped prog st (.sstore key value))
     (hdc : DefsConsistent prog) (hord : DefEnvOrdered prog)
@@ -1059,7 +1059,7 @@ theorem sim_sstore_stmt' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} 
     (hstk : (chargeCache prog sloadChg value).length
               + (chargeCache prog sloadChg key).length + 1 ≤ 1024) :
     ∃ fr', Runs fr fr'
-      ∧ Lir.Corr prog sloadChg obs (st.setStorage kw vw) fr' L (pc + 1)
+      ∧ Lir.Corr prog sloadChg obs (fun _ => False) (st.setStorage kw vw) fr' L (pc + 1)
       ∧ fr'.exec.stack = []
       ∧ RecorderCoupled log fr' gS sS cS dS := by
   classical
@@ -1076,11 +1076,11 @@ theorem sim_sstore_stmt' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} 
   have hgasv : (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp value)).sum
       ≤ fr.exec.gasAvailable.toNat :=
     materialise_chargeC_le_of_cleanHalt hdc hord sloadChg st obs (.tmp value) vw fr
-      hdv hcorr.defsSound hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
+      hdv ((defsSoundS_empty_iff prog st).mp hcorr.defsSound) hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
       hevv hcs hstkv
   obtain ⟨frv, hmrv, hcpv⟩ := recorderCoupled_matRunsC hdc hord sloadChg st obs log gS sS cS dS
     (.tmp value) vw fr
-    hdv hcorr.defsSound hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
+    hdv ((defsSoundS_empty_iff prog st).mp hcorr.defsSound) hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
     hevv hgasv hstkv hcp
   have hvcode : frv.exec.executionEnv.code = fr.exec.executionEnv.code := hmrv.code
   have hvaddr : frv.exec.executionEnv.address = fr.exec.executionEnv.address := hmrv.addr
@@ -1098,12 +1098,12 @@ theorem sim_sstore_stmt' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} 
   have hgask : (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp key)).sum
       ≤ frv.exec.gasAvailable.toNat :=
     materialise_chargeC_le_of_cleanHalt hdc hord sloadChg st obs (.tmp key) kw frv
-      hdk' hcorr.defsSound hcorr.wellScoped
+      hdk' ((defsSoundS_empty_iff prog st).mp hcorr.defsSound) hcorr.wellScoped
       (hcorr.storage.transport hmrv.storage) (by nofun) (by nofun)
       (hcorr.memAgree.transport hmrv.memBytes hmrv.memActive) hevk hcsv hstkk
   obtain ⟨frk, hmrk, hcpk⟩ := recorderCoupled_matRunsC hdc hord sloadChg st obs log gS sS cS dS
     (.tmp key) kw frv
-    hdk' hcorr.defsSound hcorr.wellScoped
+    hdk' ((defsSoundS_empty_iff prog st).mp hcorr.defsSound) hcorr.wellScoped
     (hcorr.storage.transport hmrv.storage) (by nofun) (by nofun)
     (hcorr.memAgree.transport hmrv.memBytes hmrv.memActive) hevk hgask hstkk hcpv
   have hkcode : frk.exec.executionEnv.code = fr.exec.executionEnv.code := by
@@ -1178,7 +1178,8 @@ theorem sim_sstore_stmt' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} 
             hmrk.storage keyw, hmrv.storage keyw, hcorr.storage keyw]
         show st.world keyw = (if keyw = kw then vw else st.world keyw)
         simp [hk0]
-    · exact defsSound_preserved_sstore hsc hcorr.defsSound
+    · exact (defsSoundS_empty_iff prog (st.setStorage kw vw)).mpr
+        (defsSound_preserved_sstore hsc ((defsSoundS_empty_iff prog st).mp hcorr.defsSound))
     · intro tw htw
       exact hcorr.wellScoped tw (by simpa [V2.IRState.setStorage] using htw)
     · intro tw slot v hdef hloc
@@ -1206,7 +1207,7 @@ theorem simStmt_coupled_sstore {prog : Program} {sloadChg : Tmp → ℕ} {log : 
     (hwl : WellLowered prog)
     (hb : blockAt prog L = some b)
     (hcur : b.stmts[pc]? = some (.sstore key value))
-    (hcorr : Lir.Corr prog sloadChg 0 st fr L pc)
+    (hcorr : Lir.Corr prog sloadChg 0 (fun _ => False) st fr L pc)
     (hcp : RecorderCoupled log fr gS sS cS dS)
     (hch : CleanHaltsNonException fr)
     (hsp : SelfPresent fr)
@@ -1286,7 +1287,7 @@ theorem simStmt_coupled_call {prog : Program} {sloadChg : Tmp → ℕ} {log : Ru
     (hwl : WellLowered prog)
     (hb : blockAt prog L = some b)
     (hcur : b.stmts[pc]? = some (.call cs))
-    (hcorr : Lir.Corr prog sloadChg 0 st fr L pc)
+    (hcorr : Lir.Corr prog sloadChg 0 (fun _ => False) st fr L pc)
     (hcp : RecorderCoupled log fr gS sS (rec :: cS') dS)
     (hch : CleanHaltsNonException fr)
     (haddr : fr.exec.executionEnv.address = self)
@@ -1310,7 +1311,7 @@ def CoupledBlockRun (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog) (se
     (gS' : List Word) (sS' : List Nat) (cS' : List CallRecord) (dS' : List CreateRecord),
     RunStmts prog st T C D b.stmts st' T' C' D'
     ∧ Runs fr fr'
-    ∧ Lir.Corr prog sloadChg 0 st' fr' L b.stmts.length
+    ∧ Lir.Corr prog sloadChg 0 (fun _ => False) st' fr' L b.stmts.length
     ∧ fr'.exec.stack = []
     ∧ CleanHaltsNonException fr'
     ∧ RecorderCoupled log fr' gS' sS' cS' dS'
@@ -1332,7 +1333,7 @@ theorem simStmts_coupled_block {prog : Program} {sloadChg : Tmp → ℕ} {log : 
     {cS : List CallRecord} {dS : List CreateRecord}
     (hwl : WellLowered prog)
     (hb : blockAt prog L = some b)
-    (hcorr : Lir.Corr prog sloadChg 0 st fr L 0)
+    (hcorr : Lir.Corr prog sloadChg 0 (fun _ => False) st fr L 0)
     (hcp : RecorderCoupled log fr gS sS cS dS)
     (hch : CleanHaltsNonException fr)
     (hsp : SelfPresent fr)

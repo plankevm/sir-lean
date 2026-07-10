@@ -20,7 +20,7 @@ per-statement step.
 
 ## The state-correspondence bundle `Corr`
 
-`Corr prog sloadChg obs st fr L pc` is the invariant the induction carries. It is the
+`Corr prog sloadChg obs (fun _ => False) st fr L pc` is the invariant the induction carries. It is the
 V2-native fusion of:
 
 * `Match`'s clauses, restated for the V2 `IRState` (`.world`/`.locals`) the gas-free
@@ -99,7 +99,7 @@ theorem pcOf_succ (prog : Program) (L : Label) (b : Block) (pc : Nat) (s : Stmt)
 `st` to an EVM frame `fr` at statement cursor `(L, pc)`, carrying the B1 realisability
 ties (`sloadChg`/`obs`) so the `materialise_runs` calls discharge. See the module
 docstring for the clause meanings. -/
-structure Corr (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
+structure Corr (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (I : Tmp → Prop)
     (st : V2.IRState) (fr : Frame) (L : Label) (pc : Nat) : Prop where
   /-- `M1` — program counter at the offset-table address of cursor `(L, pc)`. -/
   pc_eq      : fr.exec.pc = UInt32.ofNat (pcOf prog L pc)
@@ -117,8 +117,8 @@ structure Corr (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
   can_modify : fr.exec.executionEnv.canModifyState = true
   /-- `M3` — storage correspondence through the observable lens. -/
   storage    : StorageAgree st fr
-  /-- B3 — recompute-on-use soundness. -/
-  defsSound  : DefsSound prog st
+  /-- B3 — recompute-on-use soundness outside the current invalidation set. -/
+  defsSound  : DefsSoundS prog I st
   /-- Define-before-use scoping: every currently-bound tmp is either recomputable or a
   call result registered in the recompute env, and present in it (the `WellScoped` content
   `materialise_runs` consumes — relaxed to admit the memory value channel). -/
@@ -137,11 +137,27 @@ structure Corr (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
 `lower prog` — `validJumpDests (lower prog) 0`. Combines the frame-invariant `validJumps_eq`
 (`validJumps = validJumpDests code 0`) with `code_eq` (`code = lower prog`). This is the
 structural discharge of the former `validJumps`-recording ties of `TermTies`. -/
-theorem Corr.validJumps_lower {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
+theorem Corr.validJumps_lower {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} {I : Tmp → Prop}
     {st : V2.IRState} {fr : Frame} {L : Label} {pc : Nat}
-    (hcorr : Corr prog sloadChg obs st fr L pc) :
+    (hcorr : Corr prog sloadChg obs I st fr L pc) :
     fr.validJumps = validJumpDests (lower prog) 0 := by
   rw [hcorr.validJumps_eq, hcorr.code_eq]
+
+/-- A scoped correspondence becomes strong once its invalidation set is empty. -/
+theorem corr_strong_of_revalidated {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
+    {I : Tmp → Prop} {st : V2.IRState} {fr : Frame} {L : Label} {pc : Nat}
+    (hcorr : Corr prog sloadChg obs I st fr L pc) (hI : ∀ t, ¬ I t) :
+    Corr prog sloadChg obs (fun _ => False) st fr L pc := by
+  exact {
+    pc_eq := hcorr.pc_eq
+    code_eq := hcorr.code_eq
+    validJumps_eq := hcorr.validJumps_eq
+    stack_nil := hcorr.stack_nil
+    can_modify := hcorr.can_modify
+    storage := hcorr.storage
+    defsSound := fun t e w hd hn _ hl => hcorr.defsSound t e w hd hn (hI t) hl
+    wellScoped := hcorr.wellScoped
+    memAgree := hcorr.memAgree }
 
 /-! ## `emitStmt`/byte-length reductions for the three statement shapes -/
 
@@ -202,21 +218,21 @@ theorem sim_assign {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some (.assign t e))
     (hremat : ∀ n, defsOf prog t ≠ some (.slot n))
-    (hcorr : Corr prog sloadChg obs st fr L pc)
+    (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L pc)
     (hstep : EvalStmt prog st T C D (.assign t e) st' T' C' D')
     (hsc : StepScoped prog st (.assign t e))
     (hscoped' : ∀ t, st'.locals t ≠ none →
       (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.slot slot))
       ∧ defsOf prog t ≠ none)
     (hmem' : MemRealises prog st' fr) :
-    Runs fr fr ∧ Corr prog sloadChg obs st' fr L (pc + 1) ∧ fr.exec.stack = [] := by
+    Runs fr fr ∧ Corr prog sloadChg obs (fun _ => False) st' fr L (pc + 1) ∧ fr.exec.stack = [] := by
   refine ⟨Runs.refl fr, ?_, hcorr.stack_nil⟩
   -- pc advance: emitStmt of a rematerialised assign is empty, so the next cursor coincides.
   have hpc : pcOf prog L (pc + 1) = pcOf prog L pc := by
     rw [pcOf_succ prog L b pc (.assign t e) hb hs,
         emitStmt_assign_remat (matCache prog) (defsOf prog) t e hremat]; simp
   -- DefsSound survives via B3.
-  have hsound' : DefsSound prog st' := defsSound_preserved hstep hsc hcorr.defsSound
+  have hsound' : DefsSound prog st' := defsSound_preserved hstep hsc ((defsSoundS_empty_iff prog st).mp hcorr.defsSound)
   -- world is untouched by the assign (both arms only setLocal), so M3 survives.
   have hworld : st'.world = st.world := by
     cases hstep with
@@ -229,7 +245,7 @@ theorem sim_assign {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       stack_nil := hcorr.stack_nil
       can_modify := hcorr.can_modify
       storage := ?_
-      defsSound := hsound'
+      defsSound := (defsSoundS_empty_iff prog st').mpr hsound'
       wellScoped := hscoped'
       memAgree := hmem' }
   intro key
@@ -349,7 +365,7 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {L : Label} {b : Block} {pc : Nat} {fr : Frame} {acc : Account}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some (.sstore key value))
-    (hcorr : Corr prog sloadChg obs st fr L pc)
+    (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L pc)
     (hk : st.locals key = some kw) (hv : st.locals value = some vw)
     (hsc : StepScoped prog st (.sstore key value))
     -- def-env well-formedness (routes the `.tmp` arms through `matCache_unfold`):
@@ -372,7 +388,7 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
               + 1 ≤ 1024)
     (hsstore : SstoreRealises fr kw vw acc) :
     ∃ fr', Runs fr fr'
-      ∧ Corr prog sloadChg obs (st.setStorage kw vw) fr' L (pc + 1)
+      ∧ Corr prog sloadChg obs (fun _ => False) (st.setStorage kw vw) fr' L (pc + 1)
       ∧ fr'.exec.stack = [] := by
   classical
   -- abbreviations for the two materialise lengths
@@ -388,7 +404,7 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     simp only [chargeExpr_tmp]; omega
   obtain ⟨frv, hmrv, _hgasv_derived⟩ := materialise_runsC_of_cleanHalt hdc hord sloadChg st obs
     (.tmp value) vw fr
-    hdv hcorr.defsSound hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
+    hdv ((defsSoundS_empty_iff prog st).mp hcorr.defsSound) hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
     hevv hcs hstkv
   -- frv facts
   have hvcode : frv.exec.executionEnv.code = fr.exec.executionEnv.code := hmrv.code
@@ -407,7 +423,7 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     rw [hfrvsz, hszfr]; simp only [chargeExpr_tmp]; omega
   obtain ⟨frk, hmrk, _hgask_derived⟩ := materialise_runsC_of_cleanHalt hdc hord sloadChg st obs
     (.tmp key) kw frv
-    hdk' hcorr.defsSound hcorr.wellScoped
+    hdk' ((defsSoundS_empty_iff prog st).mp hcorr.defsSound) hcorr.wellScoped
     (hcorr.storage.transport hmrv.storage) (by nofun)
     (by nofun) (hcorr.memAgree.transport hmrv.memBytes hmrv.memActive)
     hevk hcsv hstkk
@@ -486,7 +502,8 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         show st.world keyw = (if keyw = kw then vw else st.world keyw)
         simp [hk0]
     · -- B3: DefsSound survives the storage write (no live recomputable sload across it).
-      exact defsSound_preserved_sstore hsc hcorr.defsSound
+      exact (defsSoundS_empty_iff prog (st.setStorage kw vw)).mpr
+        (defsSound_preserved_sstore hsc ((defsSoundS_empty_iff prog st).mp hcorr.defsSound))
     · -- wellScoped: setStorage leaves `locals` untouched.
       intro tw htw
       exact hcorr.wellScoped tw (by simpa [V2.IRState.setStorage] using htw)
@@ -572,7 +589,7 @@ returning external CALL (`CallReturns callFr resumeFr`) with the realised resume
 (`hrespc`/`hresstack` — the empty-boundary collapse `pd.stack = []`, `hresmem`/`hresactive` —
 zero in/out windows preserve caller memory) and the IR post-state pinned to the **realised**
 call effect (`hst'`, so `resumeFr = resumeAfterCall result pd`), running the whole lowered call *and its
-Route-B tail* reaches `endFr` in **full correspondence** `Corr prog sloadChg obs st' endFr L
+Route-B tail* reaches `endFr` in **full correspondence** `Corr prog sloadChg obs (fun _ => False) st' endFr L
 (pc+1)`, with the working stack back to `[]`. The tail consumes the success flag (M5), the pc
 lands on the next statement (M1), and `memAgree` ties the bound call-result slot's memory to
 `st'.locals`. -/
@@ -642,7 +659,7 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         ∧ ∃ endFr, StashRuns resumeFr endFr (slotOf t) flag 34 [])
       ∧ (cs.resultTmp = none →
           Runs resumeFr (popFrame resumeFr []))) :
-    ∃ endFr, Runs fr endFr ∧ Corr prog sloadChg obs st' endFr L (pc + 1)
+    ∃ endFr, Runs fr endFr ∧ Corr prog sloadChg obs (fun _ => False) st' endFr L (pc + 1)
       ∧ endFr.exec.stack = [] := by
   classical
   -- == the Runs to `resumeFr`: arg pushes then the returning CALL node ==
@@ -698,7 +715,7 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         stack_nil := by rw [popFrame_stack]
         can_modify := ?_
         storage := ?_
-        defsSound := hsound'
+        defsSound := (defsSoundS_empty_iff prog st').mpr hsound'
         wellScoped := hscoped'
         memAgree := ?_ }
     · -- M1
@@ -758,7 +775,7 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         stack_nil := hendstk
         can_modify := ?_
         storage := ?_
-        defsSound := hsound'
+        defsSound := (defsSoundS_empty_iff prog st').mpr hsound'
         wellScoped := hscoped'
         memAgree := ?_ }
     · -- M1
@@ -883,7 +900,7 @@ theorem sim_assign_gas {prog : Program} {sloadChg : Tmp → ℕ} {obs ob : Word}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some (.assign t .gas))
     (hslotdef : defsOf prog t = some (.slot (slotOf t)))
-    (hcorr : Corr prog sloadChg obs st fr L pc)
+    (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L pc)
     (hsc : StepScoped prog st (.assign t .gas))
     -- every registered slot is `slotOf` (the `WellFormed` invariant; pins disjointness):
     (hslots : ∀ tw slot', defsOf prog tw = some (.slot slot') → slot' = slotOf tw)
@@ -904,7 +921,7 @@ theorem sim_assign_gas {prog : Program} {sloadChg : Tmp → ℕ} {obs ob : Word}
         (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
         ∧ ∃ endFr, StashRuns fr endFr (slotOf t) ob
             (emitStmt (matCache prog) (defsOf prog) (.assign t .gas)).length []) :
-    ∃ endFr, Runs fr endFr ∧ Corr prog sloadChg obs (st.setLocal t ob) endFr L (pc + 1)
+    ∃ endFr, Runs fr endFr ∧ Corr prog sloadChg obs (fun _ => False) (st.setLocal t ob) endFr L (pc + 1)
       ∧ endFr.exec.stack = [] := by
   classical
   obtain ⟨hslot63, hslotplat, endFr, hendrun, hendmembytes, hendmemactive, hendpc, hendcode,
@@ -925,7 +942,7 @@ theorem sim_assign_gas {prog : Program} {sloadChg : Tmp → ℕ} {obs ob : Word}
   have hsound' : DefsSound prog st' := by
     obtain ⟨_, hgasArm, _⟩ := hsc
     obtain ⟨hgasdef, hscope⟩ := hgasArm rfl
-    exact defsSound_preserved_assignGas hgasdef hscope hcorr.defsSound
+    exact defsSound_preserved_assignGas hgasdef hscope ((defsSoundS_empty_iff prog st).mp hcorr.defsSound)
   -- pc advance.
   have hpcN : pcOf prog L (pc + 1)
       = pcOf prog L pc + (emitStmt (matCache prog) (defsOf prog) (.assign t .gas)).length :=
@@ -937,7 +954,7 @@ theorem sim_assign_gas {prog : Program} {sloadChg : Tmp → ℕ} {obs ob : Word}
       stack_nil := hendstk
       can_modify := by rw [hendcanmod]; exact hcorr.can_modify
       storage := ?_
-      defsSound := hsound'
+      defsSound := (defsSoundS_empty_iff prog st').mpr hsound'
       wellScoped := hscoped'
       memAgree := ?_ }
   · -- M3: the stash writes memory, not storage; self-lens preserved (`hendstorage`).
@@ -1033,7 +1050,7 @@ theorem sim_assign_sload {prog : Program} {sloadChg : Tmp → ℕ} {obs w : Word
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some (.assign t (.sload k)))
     (hslotdef : defsOf prog t = some (.slot (slotOf t)))
-    (hcorr : Corr prog sloadChg obs st fr L pc)
+    (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L pc)
     (hsc : StepScoped prog st (.assign t (.sload k)))
     -- every registered slot is `slotOf` (the `WellFormed` invariant; pins disjointness):
     (hslots : ∀ tw slot', defsOf prog tw = some (.slot slot') → slot' = slotOf tw)
@@ -1053,7 +1070,7 @@ theorem sim_assign_sload {prog : Program} {sloadChg : Tmp → ℕ} {obs w : Word
         (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
         ∧ ∃ endFr, StashRuns fr endFr (slotOf t) w
             (emitStmt (matCache prog) (defsOf prog) (.assign t (.sload k))).length []) :
-    ∃ endFr, Runs fr endFr ∧ Corr prog sloadChg obs (st.setLocal t w) endFr L (pc + 1)
+    ∃ endFr, Runs fr endFr ∧ Corr prog sloadChg obs (fun _ => False) (st.setLocal t w) endFr L (pc + 1)
       ∧ endFr.exec.stack = [] := by
   classical
   obtain ⟨hslot63, hslotplat, endFr, hendrun, hendmembytes, hendmemactive, hendpc, hendcode,
@@ -1074,7 +1091,7 @@ theorem sim_assign_sload {prog : Program} {sloadChg : Tmp → ℕ} {obs w : Word
   have hsound' : DefsSound prog st' := by
     obtain ⟨_, _, hsloadArm⟩ := hsc
     obtain ⟨hsloaddef, hscope⟩ := hsloadArm k rfl
-    exact defsSound_preserved_assignSload hsloaddef hscope hcorr.defsSound
+    exact defsSound_preserved_assignSload hsloaddef hscope ((defsSoundS_empty_iff prog st).mp hcorr.defsSound)
   -- world is untouched by the assign (sload binds a local, leaves the world).
   have hworld : st'.world = st.world := by rw [hst'def]; rfl
   -- pc advance.
@@ -1088,7 +1105,7 @@ theorem sim_assign_sload {prog : Program} {sloadChg : Tmp → ℕ} {obs w : Word
       stack_nil := hendstk
       can_modify := by rw [hendcanmod]; exact hcorr.can_modify
       storage := ?_
-      defsSound := hsound'
+      defsSound := (defsSoundS_empty_iff prog st').mpr hsound'
       wellScoped := hscoped'
       memAgree := ?_ }
   · -- M3: the stash writes memory, not storage; self-lens preserved (`hendstorage`).
