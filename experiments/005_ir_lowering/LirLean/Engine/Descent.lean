@@ -366,6 +366,145 @@ theorem stepFrame_needsCreate_inv {fr : Frame} {cp : CreateParams} {pd : Pending
   obtain ⟨s, hs⟩ := BytecodeLayer.Dispatch.stepFrame_needsCreate_systemOp h
   exact systemOp_needsCreate_inv hs
 
+/-! ### The `.needsCall`/`.needsCreate` DEPTH-guard inversions
+
+Both descent arms (`callArm`/`createArm`) guard their `.needsCall`/`.needsCreate` by
+`depth < 1024` (at depth `≥ 1024` they take the `.next` fallback via
+`resumeAfterCall`/`resumeAfterCreate` instead). Read off that guard: any suspended descent
+witnesses `depth < 1024` at the suspended parent (hence — via the `*_inv` env pins — at the
+stepping frame). These are what the recorder-restart no-descent induction consumes: at
+depth `≥ 1024` a top-level restart can never descend, so it never records a call/create. -/
+
+/-- **`callArm` `.needsCall` depth inversion.** The suspended parent's environment carries the
+guarded depth: `callArm`'s `.needsCall` branch fires only under `depth < 1024` (the fallback
+branch is `.next`), and the two `charge`s between `exec` and the saved frame preserve the
+environment. Stated on `pd.frame` (the saved parent), whose env the `systemOp`/`stepFrame`
+lifts pin back to the stepping frame. -/
+theorem callArm_needsCall_depth
+    {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
+    {gas caller recipient codeAddress value apparentValue inOffset inSize outOffset outSize : UInt256}
+    {permission : Bool} {p : CallParams} {pd : PendingCall}
+    (h : callArm fr exec stack gas caller recipient codeAddress value apparentValue
+          inOffset inSize outOffset outSize permission = .ok (.needsCall p pd)) :
+    pd.frame.exec.executionEnv.depth < 1024 := by
+  rw [callArm] at h
+  cases hw : (memoryExpansionWords? exec.activeWords inOffset inSize >>=
+      (memoryExpansionWords? · outOffset outSize)) with
+  | none => rw [hw] at h; simp [throw, throwThe, MonadExceptOf.throw] at h
+  | some words' =>
+    rw [hw] at h
+    simp only [bind, Except.bind] at h
+    cases he1 : charge (Cₘ words' - Cₘ exec.activeWords) exec with
+    | error e => rw [he1] at h; simp at h
+    | ok e1 =>
+      rw [he1] at h
+      simp only [] at h
+      cases he2 : charge _ e1 with
+      | error e => rw [he2] at h; simp at h
+      | ok e2 =>
+        rw [he2] at h
+        simp only [] at h
+        split at h
+        · -- `.needsCall` branch: the guard's second conjunct is the depth bound at `e1`.
+          rename_i hguard
+          simp only [Except.ok.injEq, Signal.needsCall.injEq] at h
+          obtain ⟨_, hpd⟩ := h
+          subst hpd
+          show e2.executionEnv.depth < 1024
+          rw [(Lir.V2.charge_accounts_env he2).2]
+          exact hguard.2
+        · -- `.next` fallback: not a `.needsCall`.
+          simp only [Except.ok.injEq] at h; exact absurd h (by simp)
+
+/-- **`systemOp` `.needsCall` depth inversion.** Via the CALL-family `callArm` reduction. -/
+theorem systemOp_needsCall_depth {op : Operation.SystemOp} {fr : Frame} {exec : ExecutionState}
+    {p : CallParams} {pd : PendingCall}
+    (h : systemOp op fr exec = .ok (.needsCall p pd)) :
+    pd.frame.exec.executionEnv.depth < 1024 := by
+  cases op with
+  | STOP | RETURN | REVERT | SELFDESTRUCT | INVALID =>
+    exact absurd (by unfold systemOp at h; exact h)
+      (BytecodeLayer.System.haltOp_never_needsCall (by tauto))
+  | CALL | CALLCODE | DELEGATECALL | STATICCALL =>
+    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, hc⟩ :=
+      BytecodeLayer.System.systemOp_callArm_reduce (by tauto) h
+    exact callArm_needsCall_depth hc
+  | CREATE =>
+    obtain ⟨_, _, _, _, _, _, _, hcr⟩ :=
+      BytecodeLayer.System.systemOp_createArm_reduce (by tauto) h
+    exact absurd hcr BytecodeLayer.System.createArm_never_needsCall
+  | CREATE2 =>
+    obtain ⟨_, _, _, _, _, _, _, hcr⟩ :=
+      BytecodeLayer.System.systemOp_createArm_reduce (by tauto) h
+    exact absurd hcr BytecodeLayer.System.createArm_never_needsCall
+
+/-- **`stepFrame` `.needsCall` depth inversion.** A suspended CALL descent witnesses the
+`depth < 1024` guard at the stepping frame (the saved parent's env equals `fr`'s by
+`stepFrame_needsCall_inv`). -/
+theorem stepFrame_needsCall_depth {fr : Frame} {p : CallParams} {pd : PendingCall}
+    (h : stepFrame fr = .needsCall p pd) :
+    fr.exec.executionEnv.depth < 1024 := by
+  obtain ⟨s, hs⟩ := BytecodeLayer.Dispatch.stepFrame_needsCall_systemOp h
+  have hdepth := systemOp_needsCall_depth hs
+  rwa [(stepFrame_needsCall_inv h).2.2] at hdepth
+
+/-- **`createArm` `.needsCreate` depth inversion** (the CREATE twin of
+`callArm_needsCall_depth`): the `.needsCreate` branch fires only under its
+`depth < 1024` guard conjunct, and `pd.frame.exec` is the working `exec` verbatim. -/
+theorem createArm_needsCreate_depth
+    {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
+    {value initOffset initSize : UInt256} {salt : Option ByteArray}
+    {cp : CreateParams} {pd : PendingCreate}
+    (h : createArm fr exec stack value initOffset initSize salt = .ok (.needsCreate cp pd)) :
+    pd.frame.exec.executionEnv.depth < 1024 := by
+  rw [createArm] at h
+  simp only [bind, Except.bind, pure, Except.pure] at h
+  split at h
+  · -- nonce overflow: `.next`, not `.needsCreate`
+    revert h
+    cases hr : resumeAfterCreate _ _ with
+    | error e => intro h; simp at h
+    | ok f => intro h; simp at h
+  · split at h
+    · -- the `.needsCreate` branch: the guard's middle conjunct is the depth bound.
+      rename_i hguard
+      simp only [Except.ok.injEq, Signal.needsCreate.injEq] at h
+      obtain ⟨_, hpd⟩ := h
+      subst hpd
+      exact hguard.2.1
+    · revert h
+      cases hr : resumeAfterCreate _ _ with
+      | error e => intro h; simp at h
+      | ok f => intro h; simp at h
+
+/-- **`systemOp` `.needsCreate` depth inversion.** Via the CREATE-family `createArm`
+reduction. -/
+theorem systemOp_needsCreate_depth {op : Operation.SystemOp} {fr : Frame} {exec : ExecutionState}
+    {cp : CreateParams} {pd : PendingCreate}
+    (h : systemOp op fr exec = .ok (.needsCreate cp pd)) :
+    pd.frame.exec.executionEnv.depth < 1024 := by
+  cases op with
+  | STOP | RETURN | REVERT | SELFDESTRUCT | INVALID =>
+    exact absurd (by unfold systemOp at h; exact h)
+      (BytecodeLayer.System.haltOp_never_needsCreate (by tauto))
+  | CALL | CALLCODE | DELEGATECALL | STATICCALL =>
+    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, hc⟩ :=
+      BytecodeLayer.System.systemOp_callArm_reduce (by tauto) h
+    exact absurd hc BytecodeLayer.System.callArm_never_needsCreate
+  | CREATE | CREATE2 =>
+    obtain ⟨_, _, _, _, _, _, _, hcr⟩ :=
+      BytecodeLayer.System.systemOp_createArm_reduce (by tauto) h
+    exact createArm_needsCreate_depth hcr
+
+/-- **`stepFrame` `.needsCreate` depth inversion.** A suspended CREATE descent witnesses the
+`depth < 1024` guard at the stepping frame. -/
+theorem stepFrame_needsCreate_depth {fr : Frame} {cp : CreateParams} {pd : PendingCreate}
+    (h : stepFrame fr = .needsCreate cp pd) :
+    fr.exec.executionEnv.depth < 1024 := by
+  obtain ⟨s, hs⟩ := BytecodeLayer.Dispatch.stepFrame_needsCreate_systemOp h
+  have hdepth := systemOp_needsCreate_depth hs
+  rwa [(stepFrame_needsCreate_inv h).2.2.2] at hdepth
+
 theorem createArm_needsCreate_site_inv
     {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
     {value initOffset initSize : UInt256} {salt : Option ByteArray}

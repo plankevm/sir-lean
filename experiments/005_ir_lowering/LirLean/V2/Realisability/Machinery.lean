@@ -3166,23 +3166,89 @@ private theorem call_args_run_of_coupled {prog : Program} {sloadChg : Tmp → �
   · intro k
     rw [hmrg.storage k, hmrc.storage k, hf5sto k]
 
-/-- **R3 Piece B, step 2 — the CALL dispatch bundle (NAMED WIP OBLIGATION).** At a coupled
-top-level frame decoding `CALL` with the lowered argument stack
+/-! #### The no-descent-at-depth induction (the CALL dispatch's depth-guard producer)
+
+`driveLog`'s only call-record writes happen at a top-level CALL delivery, and every descent
+(`.needsCall`/`.needsCreate`) is guarded by `depth < 1024` at the stepping frame
+(`stepFrame_needsCall_depth`/`stepFrame_needsCreate_depth`, Engine/Descent). `.next` steps
+preserve the execution environment (`stepFrame_next_execEnvAddr`), so a top-level restart
+from a frame at depth `≥ 1024` walks `.next`/`.halted` forever at that depth and delivers
+its call accumulator UNCHANGED. Contrapositive: a coupled nonempty call suffix forces
+`depth < 1024` at the coupled frame. -/
+
+/-- A top-level `.inr` delivery with an empty pending stack returns its call accumulator
+verbatim. -/
+private theorem driveLog_inr_calls :
+    ∀ (fuel : ℕ) (r : FrameResult) (g : List Word) (s : List Nat) (c : List CallRecord)
+      (d : List CreateRecord) {obs : FrameResult} {gS : List Word} {sS : List Nat}
+      {cS : List CallRecord} {dS : List CreateRecord},
+      driveLog fuel [] (.inr r) g s c d = .ok (obs, gS, sS, cS, dS) → cS = c := by
+  intro fuel r g s c d obs gS sS cS dS h
+  cases fuel with
+  | zero => exact absurd h (by simp [driveLog])
+  | succ n =>
+    unfold driveLog at h
+    simp only [Except.ok.injEq, Prod.mk.injEq] at h
+    exact h.2.2.2.1.symm
+
+/-- **The no-descent-at-depth induction.** A successful top-level `driveLog` run from a frame
+at depth `≥ 1024` delivers its call accumulator unchanged: `.needsCall`/`.needsCreate` are
+depth-guarded (never fire), `.next` preserves the environment (the depth rides along), and
+the `.halted` delivery returns the accumulator verbatim. -/
+private theorem driveLog_calls_const_of_depth :
+    ∀ (fuel : ℕ) (fr : Frame) (g : List Word) (s : List Nat) (c : List CallRecord)
+      (d : List CreateRecord) {obs : FrameResult} {gS : List Word} {sS : List Nat}
+      {cS : List CallRecord} {dS : List CreateRecord},
+      1024 ≤ fr.exec.executionEnv.depth →
+      driveLog fuel [] (.inl fr) g s c d = .ok (obs, gS, sS, cS, dS) →
+      cS = c := by
+  intro fuel
+  induction fuel with
+  | zero =>
+    intro fr g s c d obs gS sS cS dS _ h
+    exact absurd h (by simp [driveLog])
+  | succ n ih =>
+    intro fr g s c d obs gS sS cS dS hdepth h
+    cases hstep : stepFrame fr with
+    | next exec =>
+      have hdepth' : 1024 ≤ exec.executionEnv.depth := by
+        rw [stepFrame_next_execEnvAddr hstep]; exact hdepth
+      unfold driveLog at h
+      simp only [hstep] at h
+      split_ifs at h with h1 h2
+      · exact ih { fr with exec := exec } _ _ c d hdepth' h
+      · exact ih { fr with exec := exec } _ _ c d hdepth' h
+      · exact ih { fr with exec := exec } _ _ c d hdepth' h
+    | halted halt =>
+      unfold driveLog at h
+      simp only [hstep] at h
+      exact driveLog_inr_calls n _ g s c d h
+    | needsCall params pending =>
+      exact absurd (stepFrame_needsCall_depth hstep) (by omega)
+    | needsCreate params pending =>
+      exact absurd (stepFrame_needsCreate_depth hstep) (by omega)
+
+/-- **R3 Piece B, step 2 — the CALL dispatch bundle** (CLOSED). At a coupled top-level frame
+decoding `CALL` with the lowered argument stack
 `gasFwd :: callee :: 0 :: 0 :: 0 :: 0 :: 0` and `canModifyState`, the step is
 `.needsCall cp pending` with the pending pins the resume half consumes.
 
-PROOF OBLIGATIONS (all analysed; none supplied to the flagship):
+How each guard is discharged (nothing supplied to the flagship):
 * the `value ≠ 0` static-mode screen is skipped (`value = 0` — the third pushed zero);
 * the zero in/out windows make the memory-expansion witness trivial and its charge `0`;
 * the `charge (gasCap + extraCost)` gate is DERIVED from the clean-halt witness (a failing
   charge exceptions — `stepFrame`'s dispatch error routes to `.halted (.exception _)`,
-  contradicting `hch`), via a new CALL dichotomy in the `CleanHaltExtract` style;
+  contradicting `hch`), via the `CleanHaltExtract` §6 CALL brick
+  (`call_extraCost_le_of_cleanHalt` / `stepFrame_call_oog`);
 * the funds guard holds (`0 ≤ balance` at `Word`);
 * the DEPTH guard `depth < 1024` is DERIVED FROM THE COUPLING: were `depth ≥ 1024`, the
   `.next` fallback would fire here AND at every later top-level frame (`.next` steps
   preserve `executionEnv` — `stepFrame_next_execEnvAddr` — and both `callArm`/`createArm`
   guard their descents by `depth < 1024`), so the restart from this frame could never
-  deliver a call record — contradicting the nonempty coupled suffix `rec :: cS'`. -/
+  deliver a call record (`driveLog_calls_const_of_depth`) — contradicting the nonempty
+  coupled suffix `rec :: cS'`;
+* the pending pins are then `rfl` off `BytecodeLayer.System.stepFrame_call`'s named
+  `callPending` (whose saved frame is `callFr` with only `gasAvailable` recharged). -/
 theorem call_dispatch_of_coupled {log : RunLog} {callFr : Frame} {cw gw : Word}
     {gS : List Word} {sS : List Nat} {rec : CallRecord} {cS' : List CallRecord}
     {dS : List CreateRecord}
@@ -3201,7 +3267,24 @@ theorem call_dispatch_of_coupled {log : RunLog} {callFr : Frame} {cw gw : Word}
       ∧ pending.frame.exec.toMachineState.activeWords
           = callFr.exec.toMachineState.activeWords
       ∧ pending.stack = ([] : Stack Word)
-      ∧ pending.inSize = 0 ∧ pending.outSize = 0 := sorry
+      ∧ pending.inSize = 0 ∧ pending.outSize = 0 := by
+  -- the depth guard, from the COUPLING: at depth ≥ 1024 the restart never descends, so it
+  -- delivers no call record — contradicting the nonempty coupled suffix `rec :: cS'`.
+  have hdepth : callFr.exec.executionEnv.depth < 1024 := by
+    by_contra hge
+    obtain ⟨⟨fuel', hrestart⟩, _, _, _, _⟩ := hcp
+    have hnil : (rec :: cS' : List CallRecord) = [] :=
+      driveLog_calls_const_of_depth fuel' callFr [] [] [] [] (by omega) hrestart
+    exact absurd hnil (by simp)
+  -- the CALL charge gate, from the clean-halt (CleanHaltExtract §6).
+  have hextra :=
+    Lir.CleanHaltExtract.call_extraCost_le_of_cleanHalt callFr gw cw hch hdec hstk
+  have hsz : callFr.exec.stack.size ≤ 1024 := by
+    rw [hstk]; show (7 : ℕ) ≤ 1024; omega
+  have hstep :=
+    BytecodeLayer.System.stepFrame_call callFr gw cw hdec hstk hsz hmod hdepth hextra
+  exact ⟨callChildParams callFr cw gw, callPending callFr cw gw, hstep,
+    rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
 
 /-- **R3 Piece B, step 3 — the Route-B tail at the pinned resume frame (NAMED WIP
 OBLIGATION).** At a frame running `lower prog` one byte past this cursor's CALL byte with
