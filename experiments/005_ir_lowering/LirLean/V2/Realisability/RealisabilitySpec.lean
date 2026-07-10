@@ -139,6 +139,8 @@ theorem wellLowered_of_IRWellFormed {prog : Program}
       defs := hwf.defineBeforeUse
       defsCons := hwf.defsConsistent
       defEnvOrdered := hwf.defEnvOrdered
+      revalidates := hwf.revalidates
+      scopedUses := hwf.scopedUses
       entry0 := hwf.entry0
       closed :=
         { entry_present := hwf.cfgClosed.entry_present

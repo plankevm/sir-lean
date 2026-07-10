@@ -212,6 +212,109 @@ theorem revalidatesPerBlock_exProg : RevalidatesPerBlock exProg := by
       omega)] at hL
     simp at hL
 
+private def exBlk0 : Block :=
+  { stmts := [ .assign ⟨0⟩ (.imm 5), .assign ⟨1⟩ .gas, .assign ⟨2⟩ (.sload ⟨0⟩),
+      .assign ⟨3⟩ (.imm 1), .sstore ⟨0⟩ ⟨3⟩, .assign ⟨4⟩ (.imm 0x100),
+      .call { callee := ⟨4⟩, gasFwd := ⟨1⟩, resultTmp := some ⟨5⟩ } ],
+    term := .jump ⟨1⟩ }
+
+private def exBlk1 : Block :=
+  { stmts := [ .assign ⟨6⟩ .gas, .assign ⟨7⟩ (.imm 1000), .assign ⟨8⟩ (.lt ⟨6⟩ ⟨7⟩) ],
+    term := .branch ⟨8⟩ ⟨2⟩ ⟨1⟩ }
+
+private def exBlk2 : Block := { stmts := [], term := .stop }
+
+private theorem rematClosureFree_exProg_tmp
+    (I : Tmp → Prop) (t : Tmp) (hI : ¬ I t)
+    (ht : t = ⟨0⟩ ∨ t = ⟨1⟩ ∨ t = ⟨3⟩ ∨ t = ⟨4⟩ ∨ t = ⟨6⟩ ∨ t = ⟨7⟩) :
+    RematClosureFree exProg I (.tmp t) := by
+  refine .tmp t hI ?_
+  intro e he
+  rcases ht with rfl | rfl | rfl | rfl | rfl | rfl
+  · have ha : allocate exProg ⟨0⟩ = some (.remat (.imm 5)) := by decide
+    rw [ha] at he; cases he; exact .imm _
+  · have ha : allocate exProg ⟨1⟩ = some (.slot (slotOf ⟨1⟩)) := by decide
+    rw [ha] at he; cases he
+  · have ha : allocate exProg ⟨3⟩ = some (.remat (.imm 1)) := by decide
+    rw [ha] at he; cases he; exact .imm _
+  · have ha : allocate exProg ⟨4⟩ = some (.remat (.imm 0x100)) := by decide
+    rw [ha] at he; cases he; exact .imm _
+  · have ha : allocate exProg ⟨6⟩ = some (.slot (slotOf ⟨6⟩)) := by decide
+    rw [ha] at he; cases he
+  · have ha : allocate exProg ⟨7⟩ = some (.remat (.imm 1000)) := by decide
+    rw [ha] at he; cases he; exact .imm _
+
+theorem scopedUses_exProg : ScopedUses exProg := by
+  rintro ⟨idx⟩ b pc s hL hs t hread
+  rcases idx with _ | _ | _ | n
+  · have hb : b = exBlk0 := by
+      have hd : blockAt exProg ⟨0⟩ = some exBlk0 := by decide
+      rw [hd] at hL; exact ((Option.some.injEq _ _).mp hL).symm
+    subst hb
+    rcases pc with _ | _ | _ | _ | _ | _ | _ | pc
+    · simp [exBlk0] at hs; subst s; simp [readsStmt, usesInExpr] at hread
+    · simp [exBlk0] at hs; subst s; simp [readsStmt, usesInExpr] at hread
+    · simp [exBlk0] at hs; subst s
+      simp only [readsStmt, usesInExpr] at hread
+      have ht : t = ⟨0⟩ := by
+        by_cases h : ⟨0⟩ = t
+        · exact h.symm
+        · simp [h] at hread
+      subst t
+      exact rematClosureFree_exProg_tmp _ _ (by simp [exBlk0, invalStep, ReadsOf]; decide) (Or.inl rfl)
+    · simp [exBlk0] at hs; subst s; simp [readsStmt, usesInExpr] at hread
+    · simp [exBlk0] at hs; subst s
+      simp only [readsStmt] at hread
+      rcases hread with rfl | rfl
+      · exact rematClosureFree_exProg_tmp _ _ (by simp [exBlk0, invalStep, ReadsOf]; decide) (Or.inl rfl)
+      · exact rematClosureFree_exProg_tmp _ _ (by simp [exBlk0, invalStep, ReadsOf]; decide) (Or.inr (Or.inr (Or.inl rfl)))
+    · simp [exBlk0] at hs; subst s; simp [readsStmt, usesInExpr] at hread
+    · simp [exBlk0] at hs; subst s
+      simp only [readsStmt] at hread
+      rcases hread with rfl | rfl
+      · exact rematClosureFree_exProg_tmp _ _ (by simp [exBlk0, invalStep, ReadsOf]; decide)
+          (Or.inr (Or.inr (Or.inr (Or.inl rfl))))
+      · exact rematClosureFree_exProg_tmp _ _ (by simp [exBlk0, invalStep, ReadsOf]; decide) (Or.inr (Or.inl rfl))
+    · simp [exBlk0] at hs
+  · have hb : b = exBlk1 := by
+      have hd : blockAt exProg ⟨1⟩ = some exBlk1 := by decide
+      rw [hd] at hL; exact ((Option.some.injEq _ _).mp hL).symm
+    subst hb
+    rcases pc with _ | _ | _ | pc
+    · simp [exBlk1] at hs; subst s; simp [readsStmt, usesInExpr] at hread
+    · simp [exBlk1] at hs; subst s; simp [readsStmt, usesInExpr] at hread
+    · simp [exBlk1] at hs; subst s
+      simp only [readsStmt, usesInExpr] at hread
+      have ht : t = ⟨6⟩ ∨ t = ⟨7⟩ := by
+        by_contra hn
+        push_neg at hn
+        simp [hn.1.symm, hn.2.symm] at hread
+      rcases ht with rfl | rfl
+      · exact rematClosureFree_exProg_tmp _ _ (by
+          simp only [exBlk1, List.take, List.foldl_cons, List.foldl_nil, invalStep, ite_true, ite_false,
+            false_or, ReadsOf]
+          simp [usesInExpr]
+          intro e he
+          have hr : rematOf exProg ⟨6⟩ = none := by decide
+          rw [hr] at he; cases he)
+          (Or.inr (Or.inr (Or.inr (Or.inr (Or.inl rfl)))))
+      · exact rematClosureFree_exProg_tmp _ _ (by
+          simp only [exBlk1, List.take, List.foldl_cons, List.foldl_nil, invalStep, ite_true, ite_false,
+            false_or, ReadsOf]
+          simp [usesInExpr])
+          (Or.inr (Or.inr (Or.inr (Or.inr (Or.inr rfl)))))
+    · simp [exBlk1] at hs
+  · have hb : b = exBlk2 := by
+      have hd : blockAt exProg ⟨2⟩ = some exBlk2 := by decide
+      rw [hd] at hL; exact ((Option.some.injEq _ _).mp hL).symm
+    subst hb; simp [exBlk2] at hs
+  · exfalso
+    simp only [blockAt] at hL
+    rw [Array.getElem?_eq_none (show exProg.blocks.size ≤ n + 3 by
+      have h3 : exProg.blocks.size = 3 := by decide
+      omega)] at hL
+    simp at hL
+
 /-- The lesson-8 stale state: `exProg`'s loop-EXIT iteration, mid-block 1, after the
 `t6 := gas` rebind (fresh read `500 < 1000`) and before `t8`'s reassign — `t8` still
 holds the previous iteration's `0` (that iteration's gas read was `≥ 1000`). The
@@ -320,18 +423,6 @@ theorem runStmts_binds_assign {prog : Program}
 
 The three concrete blocks of `exProg`, named for reuse across the `WellLowered` field
 discharges. Definitionally the blocks of `exProg` (`decide`-checkable). -/
-
-private def exBlk0 : Block :=
-  { stmts := [ .assign ⟨0⟩ (.imm 5), .assign ⟨1⟩ .gas, .assign ⟨2⟩ (.sload ⟨0⟩),
-      .assign ⟨3⟩ (.imm 1), .sstore ⟨0⟩ ⟨3⟩, .assign ⟨4⟩ (.imm 0x100),
-      .call { callee := ⟨4⟩, gasFwd := ⟨1⟩, resultTmp := some ⟨5⟩ } ],
-    term := .jump ⟨1⟩ }
-
-private def exBlk1 : Block :=
-  { stmts := [ .assign ⟨6⟩ .gas, .assign ⟨7⟩ (.imm 1000), .assign ⟨8⟩ (.lt ⟨6⟩ ⟨7⟩) ],
-    term := .branch ⟨8⟩ ⟨2⟩ ⟨1⟩ }
-
-private def exBlk2 : Block := { stmts := [], term := .stop }
 
 private theorem blockAt_exProg0 : blockAt exProg ⟨0⟩ = some exBlk0 := by decide
 private theorem blockAt_exProg1 : blockAt exProg ⟨1⟩ = some exBlk1 := by decide
@@ -552,6 +643,7 @@ theorem irWellFormed_exProg : IRWellFormed exProg where
   cfgClosed := cfgClosed_exProg
   defEnvOrdered := defEnvOrdered_exProg
   revalidates := revalidatesPerBlock_exProg
+  scopedUses := scopedUses_exProg
   slotAddr := slotAddr_exProg
 
 set_option maxRecDepth 8000 in
@@ -592,6 +684,8 @@ theorem wellLowered_exProg : WellLowered exProg where
   defs := runDefinableG_exProg
   defsCons := defsConsistent_exProg
   defEnvOrdered := defEnvOrdered_exProg
+  revalidates := revalidatesPerBlock_exProg
+  scopedUses := scopedUses_exProg
   entry0 := rfl
   closed := closedCFG_exProg
   stack := stackRoomOK_exProg
