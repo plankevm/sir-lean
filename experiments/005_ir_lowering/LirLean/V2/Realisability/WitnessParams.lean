@@ -64,12 +64,12 @@ order:
    `System.Platform.numBits_eq`), delegation everywhere else, and full soundness
    back to the real chain.
 
-`WitnessChecks.lean` runs the two flagged `decide +kernel` cranks over the checked
-twin (~13s / 5.5 GB each) and transports the verdicts to `exCheck = true`
-(`exCheck_true`) and `entryCallsCodeOk exParams 4096 = true`
-(`entryCallsCodeOk_exParams`); `exProg_satisfies_hypotheses` (R12a) is CLOSED from
-them, axiom-clean (`[propext, Classical.choice, Quot.sound]` — no `sorryAx`, no
-`ofReduceBool`).
+`WitnessChecks.lean` runs THREE flagged `decide +kernel` cranks — the two heavy leaf
+evaluations over the checked twin (~13s / 5.5 GB each) plus the cheap `seedFuel`
+arithmetic pin — and transports the verdicts to `exCheck = true` (`exCheck_true`) and
+`entryCallsCodeOk exParams 4096 = true` (`entryCallsCodeOk_exParams`);
+`exProg_satisfies_hypotheses` (R12a) is CLOSED from them, axiom-clean
+(`[propext, Classical.choice, Quot.sound]` — no `sorryAx`, no `ofReduceBool`).
 -/
 
 namespace Lir.V2
