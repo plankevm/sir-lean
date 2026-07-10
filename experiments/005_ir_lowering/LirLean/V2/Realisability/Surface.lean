@@ -504,13 +504,31 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
   -- effect at `fr0.address`. The consumed head IS the un-consumed call suffix's HEAD `rec`
   -- (the positional multi-call tie — no `SingleCall`): the post-state `st0'` is pinned to
   -- `rec`'s `evmV2CallEntry` effect, and R3 discharges the bundle from the record.
-  ∧ (∀ (pc : Nat) (cs : CallSpec) (st0 st0' : IRState) (fr0 : Frame)
+  -- ROUND-4 ANTECEDENT ADDITIONS (the R3 Piece-B discovered set, all honest and
+  -- walk-suppliable): `codeFits` (the flagship scalar, threaded); the reachable-frames
+  -- CallsCode seam (from `PrecompileAssumptions` at the walk); the operand bindings
+  -- (`cw`/`gw` — the sload-arm antecedent principle, header lesson 5) + their
+  -- closure-freeness at `I` (`ScopedUses` at the walk's fold set); the two static
+  -- stack-room folds and the result-slot addressability (static facts MISSING from
+  -- `stackFits`/`IRWellFormed.slotAddr` — reported static-fold gaps, threaded until the
+  -- static bundle grows the call arms).
+  ∧ (∀ (pc : Nat) (cs : CallSpec) (st0 st0' : IRState) (fr0 : Frame) (cw gw : Word)
       (gS : List Word) (sS : List Nat) (rec : CallRecord) (cS' : List CallRecord)
       (dS : List CreateRecord) (I : Tmp → Prop),
       b.stmts[pc]? = some (.call cs) →
       RecorderCoupled log fr0 gS sS (rec :: cS') dS →
       CleanHaltsNonException fr0 →
       fr0.exec.executionEnv.address = self →
+      codeFits prog →
+      (∀ fr', Runs fr0 fr' → CallsCode fr') →
+      st0.locals cs.callee = some cw →
+      st0.locals cs.gasFwd = some gw →
+      RematClosureFree prog I (.tmp cs.callee) →
+      RematClosureFree prog I (.tmp cs.gasFwd) →
+      5 + (chargeCache prog sloadChg cs.callee).length ≤ 1024 →
+      6 + (chargeCache prog sloadChg cs.gasFwd).length ≤ 1024 →
+      (∀ t, cs.resultTmp = some t →
+        slotOf t + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits) →
       st0' = (match cs.resultTmp with
           | some t' => { st0 with world := fun key =>
                           evmCallOracle.postStorage rec.result rec.pending self key }.setLocal
