@@ -1800,6 +1800,36 @@ theorem recorderCoupled_sload {log : RunLog} {fr : Frame} {exec : ExecutionState
       obtain ⟨pre, hpre⟩ := hsp
       exact ⟨pre ++ [n], by rw [hpre, List.append_assoc, List.singleton_append]⟩
 
+/-- At a continuing SLOAD step, the coupled sload suffix has a head to consume. -/
+theorem sloadSuffix_nonempty {log : RunLog} {fr : Frame} {exec : ExecutionState}
+    {gS : List Word} {sS : List Nat} {cS : List CallRecord} {dS : List CreateRecord}
+    (hcp : RecorderCoupled log fr gS sS cS dS)
+    (hsl : isSloadOp fr = true) (hstep : stepFrame fr = .next exec) :
+    ∃ n sS', sS = n :: sS' := by
+  have hng : isGasOp fr = false := isGasOp_false_of_isSloadOp hsl
+  obtain ⟨⟨f, hf⟩, _, _, _, _⟩ := hcp
+  cases f with
+  | zero => simp [driveLog] at hf
+  | succ m =>
+    unfold driveLog at hf
+    simp only [hstep, hng, hsl, List.isEmpty_nil, Bool.and_true, Bool.false_and,
+      List.nil_append] at hf
+    rw [driveLog_acc_hom m [] (.inl { fr with exec := exec }) [] [sloadWarmthOf fr] [] []] at hf
+    cases hX : driveLog m [] (.inl { fr with exec := exec }) [] [] [] [] with
+    | error e => rw [hX] at hf; simp [Except.map] at hf
+    | ok val =>
+      obtain ⟨obs', gS', sS', cS', dS'⟩ := val
+      rw [hX] at hf
+      have hf2 : (Except.ok (obs', gS', sloadWarmthOf fr :: sS', cS', dS')
+          : Except ExecutionException
+              (FrameResult × List Word × List Nat × List CallRecord × List CreateRecord))
+          = .ok (log.observable, gS, sS, cS, dS) := hf
+      injection hf2 with hf3
+      injection hf3 with _ hf4
+      injection hf4 with _ hf5
+      injection hf5 with hsc _
+      exact ⟨_, _, hsc.symm⟩
+
 /-- **R7d — any other top-level `.next` step preserves all four suffixes** (nothing is
 recorded off the GAS/SLOAD gates). -/
 theorem recorderCoupled_step_other {log : RunLog} {fr : Frame} {exec : ExecutionState}
