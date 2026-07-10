@@ -3286,12 +3286,14 @@ theorem call_dispatch_of_coupled {log : RunLog} {callFr : Frame} {cw gw : Word}
   exact ⟨callChildParams callFr cw gw, callPending callFr cw gw, hstep,
     rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
 
-/-- **R3 Piece B, step 3 — the Route-B tail at the pinned resume frame (NAMED WIP
-OBLIGATION).** At a frame running `lower prog` one byte past this cursor's CALL byte with
-the success flag alone on the stack, the tail realises: `resultTmp = some t` runs
-`PUSH32 (slotOf t); MSTORE` (`stash_tail_runs` fed the byte-layout decode anchors — via
-`codeFits` — and the clean-halt gas/expansion witnesses); `resultTmp = none` runs `POP`
-(needs the small missing `runs_pop`/POP-dichotomy engine brick, the `runs_push` mirror). -/
+/-- **R3 Piece B, step 3 — the Route-B tail at the pinned resume frame** (CLOSED). At a
+frame running `lower prog` one byte past this cursor's CALL byte with the success flag
+alone on the stack, the tail realises: `resultTmp = some t` runs `PUSH32 (slotOf t); MSTORE`
+(`stash_tail_runs` fed the byte-layout decode anchors — the tail segment peeled off the
+`emitStmt` layout via `segF_suffix`, bounded through `codeFits` — and the clean-halt
+gas/expansion witnesses `next_push_of_cleanHalt`/`next_mstore_of_cleanHalt`);
+`resultTmp = none` runs `POP` (exp003's `runs_pop`, fed by the `CleanHaltExtract` §6
+`next_pop_of_cleanHalt` gas brick). -/
 theorem call_tail_of_cleanHalt {prog : Program} {L : Label} {b : Block} {pc : Nat}
     {cs : CallSpec} {resumeFr : Frame}
     (hcodeFits : codeFits prog)
@@ -3321,7 +3323,139 @@ theorem call_tail_of_cleanHalt {prog : Program} {L : Label} {b : Block} {pc : Na
               = resumeFr.exec.executionEnv.canModifyState
           ∧ (∀ k, selfStorage endFr k = selfStorage resumeFr k)
           ∧ endFr.exec.stack = [])
-      ∧ (cs.resultTmp = none → Runs resumeFr (popFrame resumeFr [])) := sorry
+      ∧ (cs.resultTmp = none → Runs resumeFr (popFrame resumeFr [])) := by
+  intro flag hstkflag
+  classical
+  have hbt : prog.blocks.toList[L.idx]? = some b := Lir.toList_of_blockAt hb
+  set base := pcOf prog L pc with hbase
+  set argsB : List UInt8 := emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
+      ++ matCache prog cs.callee ++ matCache prog cs.gasFwd with hargsB
+  have hseg : ∀ j, j < (emitStmt (matCache prog) (defsOf prog) (.call cs)).length →
+      (flatBytes prog)[base + j]? = (emitStmt (matCache prog) (defsOf prog) (.call cs))[j]? :=
+    fun j hj => flatBytes_at_pcOf_offset prog L b pc (.call cs) j hbt hcur hj
+  have hpc' : resumeFr.exec.pc = UInt32.ofNat (base + (argsB.length + 1)) := by
+    rw [hpc]; congr 1
+  have hsz1 : resumeFr.exec.stack.size + 1 ≤ 1024 := by
+    rw [hstkflag]; show (1 : ℕ) + 1 ≤ 1024; omega
+  constructor
+  · -- == `resultTmp = some t`: the `PUSH32 (slotOf t); MSTORE` stash tail ==
+    intro t ht
+    obtain ⟨hslot64, hslotplat⟩ := hslotaddr t ht
+    refine ⟨hslot64, hslotplat, ?_⟩
+    -- byte layout: `emitStmt = (argsB ++ [CALL]) ++ (emitImm (slotOf t) ++ [MSTORE])`.
+    have hemit : emitStmt (matCache prog) (defsOf prog) (.call cs)
+        = (argsB ++ [Byte.call]) ++ (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]) := by
+      have h0 : emitStmt (matCache prog) (defsOf prog) (.call cs)
+          = argsB ++ [Byte.call]
+            ++ (match cs.resultTmp with
+                | some t' => emitImm (UInt256.ofNat (slotOf t')) ++ [Byte.mstore]
+                | none => [Byte.pop]) := rfl
+      rw [h0, ht]
+    have hlen : (emitStmt (matCache prog) (defsOf prog) (.call cs)).length
+        = argsB.length + 35 := by
+      rw [hemit]
+      simp only [List.length_append, List.length_singleton, emitImm_length]
+    -- the 32-bit bound on the whole tail (through `codeFits`).
+    have hbnd : base + (argsB.length + 34) < 2 ^ 32 :=
+      call_stmt_offset_bound_of_codeFits hcodeFits hb hcur (by omega)
+    -- the tail byte segment, rebased one past the CALL byte.
+    have hsegTail := segF_suffix (flatBytes prog) base (argsB ++ [Byte.call])
+        (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]) (by rw [← hemit]; exact hseg)
+    have hsegTail' : ∀ j, j < (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]).length →
+        (flatBytes prog)[base + (argsB.length + 1) + j]?
+          = (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore])[j]? := by
+      intro j hj
+      have h := hsegTail j hj
+      rwa [show base + (argsB ++ [Byte.call]).length + j = base + (argsB.length + 1) + j from by
+            simp only [List.length_append, List.length_singleton]] at h
+    -- the two decode anchors.
+    have hdpushT : decode (lower prog) (UInt32.ofNat (base + (argsB.length + 1)))
+        = some (.Push .PUSH32, some (UInt256.ofNat (slotOf t), 32)) :=
+      imm_leaf_decodeF prog (base + (argsB.length + 1)) (UInt256.ofNat (slotOf t))
+        (by omega)
+        (segF_prefix (flatBytes prog) (base + (argsB.length + 1))
+          (emitImm (UInt256.ofNat (slotOf t))) [Byte.mstore] hsegTail')
+    have hdmstoreT : decode (lower prog) (UInt32.ofNat (base + (argsB.length + 1) + 33))
+        = some (.Smsf .MSTORE, .none) := by
+      have hpi : Evm.parseInstr Byte.mstore = .Smsf .MSTORE := by decide
+      rw [← hpi]
+      exact nonpush_leaf_decodeF prog (base + (argsB.length + 1)) 33 Byte.mstore
+        (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore])
+        (by omega)
+        (by rw [List.getElem?_append_right (by rw [emitImm_length])]
+            simp [emitImm_length])
+        (by decide) hsegTail'
+    have hdpush : decode resumeFr.exec.executionEnv.code resumeFr.exec.pc
+        = some (.Push .PUSH32, some (UInt256.ofNat (slotOf t), 32)) := by
+      rw [hcode, hpc']; exact hdpushT
+    have hdmstore : decode resumeFr.exec.executionEnv.code (resumeFr.exec.pc + UInt32.ofNat 33)
+        = some (.Smsf .MSTORE, .none) := by
+      rw [hcode, hpc', ofNat_add']; exact hdmstoreT
+    -- gas + expansion witnesses from the clean-halt chain.
+    have hgasPush : 3 ≤ resumeFr.exec.gasAvailable.toNat := by
+      have := (CleanHaltExtract.next_push_of_cleanHalt resumeFr .PUSH32
+        (UInt256.ofNat (slotOf t)) 32 hch (by decide) hdpush (by decide) (by decide) hsz1).1
+      have hvl : (GasConstants.Gverylow : ℕ) = 3 := rfl
+      omega
+    have hrunPush : Runs resumeFr (pushFrameW resumeFr (UInt256.ofNat (slotOf t)) 32) :=
+      runs_push resumeFr .PUSH32 (UInt256.ofNat (slotOf t)) 32 (by nofun) hdpush rfl rfl
+        hgasPush hsz1
+    have hchP : CleanHaltsNonException (pushFrameW resumeFr (UInt256.ofNat (slotOf t)) 32) :=
+      cleanHaltsNonException_forward hch hrunPush
+    have hfrpstk : (pushFrameW resumeFr (UInt256.ofNat (slotOf t)) 32).exec.stack
+        = UInt256.ofNat (slotOf t) :: flag :: [] := by
+      rw [pushFrameW_stack', hstkflag]; rfl
+    have hfrpdec : decode
+        (pushFrameW resumeFr (UInt256.ofNat (slotOf t)) 32).exec.executionEnv.code
+        (pushFrameW resumeFr (UInt256.ofNat (slotOf t)) 32).exec.pc
+          = some (.Smsf .MSTORE, .none) := by
+      rw [pushFrameW_code, pushFrameW_pc, push32_pcΔ]
+      exact hdmstore
+    obtain ⟨words', hmem, hgasMem, hgasVL, _⟩ :=
+      CleanHaltExtract.next_mstore_of_cleanHalt
+        (pushFrameW resumeFr (UInt256.ofNat (slotOf t)) 32) (UInt256.ofNat (slotOf t)) flag []
+        hchP hfrpdec hfrpstk (by rw [hfrpstk]; show (2 : ℕ) ≤ 1024; omega)
+    -- the stash tail, assembled.
+    have hstash := stash_tail_runs resumeFr (slotOf t) flag [] words' hstkflag hdpush
+      hdmstore hsz1 hgasPush hmem hgasMem hgasVL
+    exact ⟨_, hstash.runs, hstash.memory, hstash.activeWords, hstash.pc, hstash.code,
+      hstash.validJumps, hstash.addr, hstash.canMod, hstash.storage, hstash.stack⟩
+  · -- == `resultTmp = none`: the fire-and-forget `POP` ==
+    intro hnone
+    have hemit : emitStmt (matCache prog) (defsOf prog) (.call cs)
+        = (argsB ++ [Byte.call]) ++ [Byte.pop] := by
+      have h0 : emitStmt (matCache prog) (defsOf prog) (.call cs)
+          = argsB ++ [Byte.call]
+            ++ (match cs.resultTmp with
+                | some t' => emitImm (UInt256.ofNat (slotOf t')) ++ [Byte.mstore]
+                | none => [Byte.pop]) := rfl
+      rw [h0, hnone]
+    have hlen : (emitStmt (matCache prog) (defsOf prog) (.call cs)).length
+        = argsB.length + 2 := by
+      rw [hemit]
+      simp only [List.length_append, List.length_singleton]
+    have hbnd : base + (argsB.length + 1) < 2 ^ 32 :=
+      call_stmt_offset_bound_of_codeFits hcodeFits hb hcur (by omega)
+    have hdpopT : decode (lower prog) (UInt32.ofNat (base + (argsB.length + 1)))
+        = some (.Smsf .POP, .none) := by
+      have hpi : Evm.parseInstr Byte.pop = .Smsf .POP := by decide
+      rw [← hpi]
+      exact nonpush_leaf_decodeF prog base (argsB.length + 1) Byte.pop
+        (emitStmt (matCache prog) (defsOf prog) (.call cs)) hbnd
+        (by rw [hemit, List.getElem?_append_right (by
+              simp only [List.length_append, List.length_singleton]; omega)]
+            simp only [List.length_append, List.length_singleton]
+            rw [show argsB.length + 1 - (argsB.length + 1) = 0 from by omega]
+            rfl)
+        (by decide) hseg
+    have hdpop : decode resumeFr.exec.executionEnv.code resumeFr.exec.pc
+        = some (.Smsf .POP, .none) := by
+      rw [hcode, hpc']; exact hdpopT
+    have hszP : resumeFr.exec.stack.size ≤ 1024 := by
+      rw [hstkflag]; show (1 : ℕ) ≤ 1024; omega
+    have hgasPop : GasConstants.Gbase ≤ resumeFr.exec.gasAvailable.toNat :=
+      (CleanHaltExtract.next_pop_of_cleanHalt resumeFr flag [] hch hdpop hstkflag hszP).1
+    exact runs_pop resumeFr flag [] hdpop hstkflag hszP hgasPop
 
 /-- **R3 — call realisation from the log** (relocated; the original design docstring is at
 the retired cursor near the top of this file / in git history). CLOSED as real assembly:
