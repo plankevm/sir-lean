@@ -111,6 +111,33 @@ inductive RematClosureFree (prog : Program) (I : Tmp → Prop) : Expr → Prop w
       (hb : RematClosureFree prog I (.tmp b)) :
       RematClosureFree prog I (.lt a b)
 
+theorem RematClosureFree.tmp_inv {prog : Program} {I : Tmp → Prop} {t : Tmp}
+    (h : RematClosureFree prog I (.tmp t)) :
+    ¬ I t ∧ ∀ e', allocate prog t = some (.remat e') → RematClosureFree prog I e' := by
+  cases h with | tmp _ hI hrem => exact ⟨hI, hrem⟩
+
+theorem RematClosureFree.add_inv {prog : Program} {I : Tmp → Prop} {a b : Tmp}
+    (h : RematClosureFree prog I (.add a b)) :
+    RematClosureFree prog I (.tmp a) ∧ RematClosureFree prog I (.tmp b) := by
+  cases h with | add _ _ ha hb => exact ⟨ha, hb⟩
+
+theorem RematClosureFree.lt_inv {prog : Program} {I : Tmp → Prop} {a b : Tmp}
+    (h : RematClosureFree prog I (.lt a b)) :
+    RematClosureFree prog I (.tmp a) ∧ RematClosureFree prog I (.tmp b) := by
+  cases h with | lt _ _ ha hb => exact ⟨ha, hb⟩
+
+theorem RematClosureFree.mono {prog : Program} {I J : Tmp → Prop} {e : Expr}
+    (hsub : ∀ t, J t → I t) (h : RematClosureFree prog I e) :
+    RematClosureFree prog J e := by
+  induction h with
+  | imm w => exact .imm w
+  | gas => exact .gas
+  | sload k => exact .sload k
+  | tmp t hI hrem ih =>
+      exact .tmp t (fun hJ => hI (hsub t hJ)) (fun e' he' => ih e' he')
+  | add a b _ _ iha ihb => exact .add a b iha ihb
+  | lt a b _ _ iha ihb => exact .lt a b iha ihb
+
 def ScopedUses (prog : Program) : Prop :=
   ∀ (L : Label) (b : Block) (pc : Nat) (s : Stmt),
     blockAt prog L = some b → b.stmts[pc]? = some s →

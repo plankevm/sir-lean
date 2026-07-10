@@ -369,8 +369,8 @@ theorem sim_term_halt_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
   have hstkv : fr.exec.stack.size
       + (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp t)).length ≤ 1024 := by
     simp only [chargeExpr_tmp]; omega
-  obtain ⟨frv, hmrv⟩ := materialise_runsC hdc hord sloadChg st obs (.tmp t) vw fr
-    hdv ((defsSoundS_empty_iff prog st).mp hcorr.defsSound) hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
+  obtain ⟨frv, hmrv⟩ := materialise_runsC hdc hord sloadChg st obs (fun _ => False) (.tmp t) vw fr
+    hdv hcorr.defsSound (rematClosureFree_empty prog hdc hord (.tmp t)) hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
     hevv hgas' hstkv
   obtain ⟨cp, wms, hd0, hdms, hd32, hd0', hdret, hg0, hmemms, hgasMem, hgasV, hg32, hg0'', hkind, hne⟩ :=
     hret frv hmrv.runs hmrv.code hmrv.addr hmrv.storage hmrv.stack

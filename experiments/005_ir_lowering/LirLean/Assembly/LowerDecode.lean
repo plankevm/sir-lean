@@ -1017,8 +1017,8 @@ theorem sim_assign_sload_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs 
       + (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp k)).length ≤ 1024 := by
     simpa only [chargeExpr_tmp] using hstkKey
   obtain ⟨frk, hmrk, _hgasKey_derived⟩ := materialise_runsC_of_cleanHalt hdc hord sloadChg st obs
-    (.tmp k) keyVal fr
-    hdk ((defsSoundS_empty_iff prog st).mp hcorr.defsSound) hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
+    (fun _ => False) (.tmp k) keyVal fr
+    hdk hcorr.defsSound (rematClosureFree_empty prog hdc hord (.tmp k)) hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
     hevk hcs hstkC
   -- the three tail decode anchors (reusable `decode_sloadstash`), in successor-frame form.
   obtain ⟨hdsloadS, hdpushS, hdmstoreS⟩ :=

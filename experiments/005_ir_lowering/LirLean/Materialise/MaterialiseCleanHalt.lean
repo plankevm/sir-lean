@@ -70,9 +70,10 @@ fr.exec.gasAvailable.toNat`. This is the exact `hgas` hypothesis `materialise_ru
 now derived. -/
 theorem materialise_chargeC_le_of_cleanHalt {prog : Program} (hdc : DefsConsistent prog)
     (hord : DefEnvOrdered prog) (sloadChg : Tmp → ℕ) (st : IRState) (obs : Word)
-    (e : Expr) (w : Word) (fr : Frame)
+    (I : Tmp → Prop) (e : Expr) (w : Word) (fr : Frame)
     (hdec : MatDecC prog hdc hord fr.exec.executionEnv.code fr.exec.pc e)
-    (hsound : DefsSound prog st)
+    (hsound : DefsSoundS prog I st)
+    (hfree : RematClosureFree prog I e)
     (hscoped : ∀ t, st.locals t ≠ none →
       (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.slot slot))
       ∧ defsOf prog t ≠ none)
@@ -84,8 +85,8 @@ theorem materialise_chargeC_le_of_cleanHalt {prog : Program} (hdc : DefsConsiste
     (hcs : CleanHaltsNonException fr)
     (hstk : fr.exec.stack.size + (chargeExpr sloadChg (chargeCache prog sloadChg) e).length ≤ 1024) :
     (chargeExpr sloadChg (chargeCache prog sloadChg) e).sum ≤ fr.exec.gasAvailable.toNat := by
-  match e, hdec, hne, hnsl, heval, hstk with
-  | .imm v, hdec, _, _, heval, hstk =>
+  match e, hfree, hdec, hne, hnsl, heval, hstk with
+  | .imm v, _, hdec, _, _, heval, hstk =>
       -- `chargeExpr .imm = [Gverylow]`; PUSH32 clean-halt ⟹ `Gverylow ≤ fr.gas`.
       have hdec' : decode fr.exec.executionEnv.code fr.exec.pc
           = some (.Push .PUSH32, some (v, 32)) := by rw [matDecC_imm] at hdec; exact hdec
@@ -95,9 +96,9 @@ theorem materialise_chargeC_le_of_cleanHalt {prog : Program} (hdc : DefsConsiste
         (by decide) (by decide) hszfr
       simp only [chargeExpr_imm, List.sum_cons, List.sum_nil]
       omega
-  | .gas, _, hne, _, _, _ => exact absurd rfl hne
-  | .sload k, _, _, hnsl, _, _ => exact absurd rfl (hnsl k)
-  | .tmp t, hdec, _, _, heval, hstk =>
+  | .gas, _, _, hne, _, _, _ => exact absurd rfl hne
+  | .sload k, _, _, _, hnsl, _, _ => exact absurd rfl (hnsl k)
+  | .tmp t, hfree, hdec, _, _, heval, hstk =>
       have hloc : st.locals t = some w := heval
       cases hal : allocate prog t with
       | none =>
@@ -179,19 +180,20 @@ theorem materialise_chargeC_le_of_cleanHalt {prog : Program} (hdc : DefsConsiste
                   have hdeft : defsOf prog t = some (Loc.remat e') := hal
                   rw [hdeft] at hcrdef
                   exact absurd hcrdef (by simp)
+              obtain ⟨hfree_t, hfree_remat⟩ := RematClosureFree.tmp_inv hfree
               have hdfs : some w = evalExpr st 0 e' :=
-                hsound t e' w hremt hnr hloc
+                hsound t e' w hremt hnr hfree_t hloc
               have heval' : evalExpr st obs e' = some w := by
                 rw [evalExpr_obs_irrel st obs 0 he'ng]; exact hdfs.symm
               have hstk' : fr.exec.stack.size
                   + (chargeExpr sloadChg (chargeCache prog sloadChg) e').length ≤ 1024 := by
                 have hx := hstk; simp only [chargeExpr_tmp] at hx; rw [hcc] at hx; exact hx
-              have hbound := materialise_chargeC_le_of_cleanHalt hdc hord sloadChg st obs e' w fr
-                htmd hsound hscoped hstore he'ng he'nsl hmemreal heval' hcs hstk'
+              have hbound := materialise_chargeC_le_of_cleanHalt hdc hord sloadChg st obs I e' w fr
+                htmd hsound (hfree_remat e' hal) hscoped hstore he'ng he'nsl hmemreal heval' hcs hstk'
               simp only [chargeExpr_tmp]
               rw [hcc]
               exact hbound
-  | .add a b, hdec, _, _, heval, hstk =>
+  | .add a b, hfree, hdec, _, _, heval, hstk =>
       -- operand values from `heval`.
       obtain ⟨va, hla, vb, hlb, _⟩ :
           ∃ va, st.locals a = some va ∧ ∃ vb, st.locals b = some vb
@@ -221,11 +223,12 @@ theorem materialise_chargeC_le_of_cleanHalt {prog : Program} (hdc : DefsConsiste
         have hpa1 : 1 ≤ (chargeCache prog sloadChg a).length :=
           chargeCache_length_pos prog sloadChg a
         show fr.exec.stack.size + (chargeCache prog sloadChg b).length ≤ 1024; omega
-      have hsumb := materialise_chargeC_le_of_cleanHalt hdc hord sloadChg st obs (.tmp b) vb fr
-        hdb hsound hscoped hstore (by nofun) (by nofun) hmemreal hevb hcs hstkb
+      obtain ⟨hfreea, hfreeb⟩ := RematClosureFree.add_inv hfree
+      have hsumb := materialise_chargeC_le_of_cleanHalt hdc hord sloadChg st obs I (.tmp b) vb fr
+        hdb hsound hfreeb hscoped hstore (by nofun) (by nofun) hmemreal hevb hcs hstkb
       -- (2) produce `frb` via the value channel with the just-derived `sum_b ≤ fr.gas`.
-      obtain ⟨frb, hmrb⟩ := materialise_runsC hdc hord sloadChg st obs (.tmp b) vb fr hdb hsound
-        hscoped hstore (by nofun) (by nofun) hmemreal hevb hsumb hstkb
+      obtain ⟨frb, hmrb⟩ := materialise_runsC hdc hord sloadChg st obs I (.tmp b) vb fr hdb hsound
+        hfreeb hscoped hstore (by nofun) (by nofun) hmemreal hevb hsumb hstkb
       -- forward clean-halt `fr → frb`.
       have hcsB : CleanHaltsNonException frb := cleanHaltsNonException_forward hcs hmrb.runs
       have hbcode : frb.exec.executionEnv.code = fr.exec.executionEnv.code := hmrb.code
@@ -242,12 +245,12 @@ theorem materialise_chargeC_le_of_cleanHalt {prog : Program} (hdc : DefsConsiste
           chargeCache_length_pos prog sloadChg b
         rw [hlen_split] at hstk; rw [hfrbsz]
         show fr.exec.stack.size + 1 + (chargeCache prog sloadChg a).length ≤ 1024; omega
-      have hsuma := materialise_chargeC_le_of_cleanHalt hdc hord sloadChg st obs (.tmp a) va frb
-        hda' hsound hscoped (hstore.transport hmrb.storage) (by nofun) (by nofun)
+      have hsuma := materialise_chargeC_le_of_cleanHalt hdc hord sloadChg st obs I (.tmp a) va frb
+        hda' hsound hfreea hscoped (hstore.transport hmrb.storage) (by nofun) (by nofun)
         (hmemreal.transport hmrb.memBytes hmrb.memActive) heva hcsB hstka
       -- (4) produce `fra` via the value channel.
-      obtain ⟨fra, hmra⟩ := materialise_runsC hdc hord sloadChg st obs (.tmp a) va frb hda' hsound
-        hscoped (hstore.transport hmrb.storage) (by nofun) (by nofun)
+      obtain ⟨fra, hmra⟩ := materialise_runsC hdc hord sloadChg st obs I (.tmp a) va frb hda' hsound
+        hfreea hscoped (hstore.transport hmrb.storage) (by nofun) (by nofun)
         (hmemreal.transport hmrb.memBytes hmrb.memActive) heva hsuma hstka
       have hcsA : CleanHaltsNonException fra := cleanHaltsNonException_forward hcsB hmra.runs
       -- (5) ADD at `fra`: `Gverylow ≤ fra.gas`.
@@ -275,7 +278,7 @@ theorem materialise_chargeC_le_of_cleanHalt {prog : Program} (hdc : DefsConsiste
       rw [hfragasN, hfrbgasN] at hgAdd
       rw [hfrbgasN] at hsuma
       omega
-  | .lt a b, hdec, _, _, heval, hstk =>
+  | .lt a b, hfree, hdec, _, _, heval, hstk =>
       obtain ⟨va, hla, vb, hlb, _⟩ :
           ∃ va, st.locals a = some va ∧ ∃ vb, st.locals b = some vb
             ∧ w = UInt256.lt va vb := by
@@ -303,10 +306,11 @@ theorem materialise_chargeC_le_of_cleanHalt {prog : Program} (hdc : DefsConsiste
         have hpa1 : 1 ≤ (chargeCache prog sloadChg a).length :=
           chargeCache_length_pos prog sloadChg a
         show fr.exec.stack.size + (chargeCache prog sloadChg b).length ≤ 1024; omega
-      have hsumb := materialise_chargeC_le_of_cleanHalt hdc hord sloadChg st obs (.tmp b) vb fr
-        hdb hsound hscoped hstore (by nofun) (by nofun) hmemreal hevb hcs hstkb
-      obtain ⟨frb, hmrb⟩ := materialise_runsC hdc hord sloadChg st obs (.tmp b) vb fr hdb hsound
-        hscoped hstore (by nofun) (by nofun) hmemreal hevb hsumb hstkb
+      obtain ⟨hfreea, hfreeb⟩ := RematClosureFree.lt_inv hfree
+      have hsumb := materialise_chargeC_le_of_cleanHalt hdc hord sloadChg st obs I (.tmp b) vb fr
+        hdb hsound hfreeb hscoped hstore (by nofun) (by nofun) hmemreal hevb hcs hstkb
+      obtain ⟨frb, hmrb⟩ := materialise_runsC hdc hord sloadChg st obs I (.tmp b) vb fr hdb hsound
+        hfreeb hscoped hstore (by nofun) (by nofun) hmemreal hevb hsumb hstkb
       have hcsB : CleanHaltsNonException frb := cleanHaltsNonException_forward hcs hmrb.runs
       have hbcode : frb.exec.executionEnv.code = fr.exec.executionEnv.code := hmrb.code
       have hbpc : frb.exec.pc = fr.exec.pc + UInt32.ofNat (matCache prog b).length := by
@@ -321,11 +325,11 @@ theorem materialise_chargeC_le_of_cleanHalt {prog : Program} (hdc : DefsConsiste
           chargeCache_length_pos prog sloadChg b
         rw [hlen_split] at hstk; rw [hfrbsz]
         show fr.exec.stack.size + 1 + (chargeCache prog sloadChg a).length ≤ 1024; omega
-      have hsuma := materialise_chargeC_le_of_cleanHalt hdc hord sloadChg st obs (.tmp a) va frb
-        hda' hsound hscoped (hstore.transport hmrb.storage) (by nofun) (by nofun)
+      have hsuma := materialise_chargeC_le_of_cleanHalt hdc hord sloadChg st obs I (.tmp a) va frb
+        hda' hsound hfreea hscoped (hstore.transport hmrb.storage) (by nofun) (by nofun)
         (hmemreal.transport hmrb.memBytes hmrb.memActive) heva hcsB hstka
-      obtain ⟨fra, hmra⟩ := materialise_runsC hdc hord sloadChg st obs (.tmp a) va frb hda' hsound
-        hscoped (hstore.transport hmrb.storage) (by nofun) (by nofun)
+      obtain ⟨fra, hmra⟩ := materialise_runsC hdc hord sloadChg st obs I (.tmp a) va frb hda' hsound
+        hfreea hscoped (hstore.transport hmrb.storage) (by nofun) (by nofun)
         (hmemreal.transport hmrb.memBytes hmrb.memActive) heva hsuma hstka
       have hcsA : CleanHaltsNonException fra := cleanHaltsNonException_forward hcsB hmra.runs
       have hacode : fra.exec.executionEnv.code = fr.exec.executionEnv.code := by
@@ -371,9 +375,10 @@ value-channel premises, running `matExpr (matCache prog) e` lands the whole `Mat
 SLOAD key-prefix sim ties consume this derived bound instead of supplying it. -/
 theorem materialise_runsC_of_cleanHalt {prog : Program} (hdc : DefsConsistent prog)
     (hord : DefEnvOrdered prog) (sloadChg : Tmp → ℕ) (st : IRState) (obs : Word)
-    (e : Expr) (w : Word) (fr : Frame)
+    (I : Tmp → Prop) (e : Expr) (w : Word) (fr : Frame)
     (hdec : MatDecC prog hdc hord fr.exec.executionEnv.code fr.exec.pc e)
-    (hsound : DefsSound prog st)
+    (hsound : DefsSoundS prog I st)
+    (hfree : RematClosureFree prog I e)
     (hscoped : ∀ t, st.locals t ≠ none →
       (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.slot slot))
       ∧ defsOf prog t ≠ none)
@@ -388,9 +393,9 @@ theorem materialise_runsC_of_cleanHalt {prog : Program} (hdc : DefsConsistent pr
       ∧ (chargeExpr sloadChg (chargeCache prog sloadChg) e).sum ≤ fr.exec.gasAvailable.toNat := by
   have hgas : (chargeExpr sloadChg (chargeCache prog sloadChg) e).sum
       ≤ fr.exec.gasAvailable.toNat :=
-    materialise_chargeC_le_of_cleanHalt hdc hord sloadChg st obs e w fr hdec hsound hscoped
+    materialise_chargeC_le_of_cleanHalt hdc hord sloadChg st obs I e w fr hdec hsound hfree hscoped
       hstore hne hnsl hmemreal heval hcs hstk
-  obtain ⟨fr', hmr⟩ := materialise_runsC hdc hord sloadChg st obs e w fr hdec hsound hscoped
+  obtain ⟨fr', hmr⟩ := materialise_runsC hdc hord sloadChg st obs I e w fr hdec hsound hfree hscoped
     hstore hne hnsl hmemreal heval hgas hstk
   exact ⟨fr', hmr, hgas⟩
 

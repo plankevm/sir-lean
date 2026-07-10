@@ -366,6 +366,26 @@ theorem matDecMeasure_remat_lt (prog : Program) (hdc : DefsConsistent prog)
       have := defEnv_operand_findIdx_lt hord hentry (t' := k) (by simp [usesInExpr])
       simp only [matDecMeasure, tmpIdx]; omega
 
+/-- Ordered rematerialisation environments have a finite closure, and the empty
+invalidation set excludes none of it. -/
+def rematClosureFree_empty (prog : Program) (hdc : DefsConsistent prog)
+    (hord : DefEnvOrdered prog) : (e : Expr) → RematClosureFree prog (fun _ => False) e
+  | .imm w => .imm w
+  | .gas => .gas
+  | .sload k => .sload k
+  | .tmp t => .tmp t not_false (fun e' h => rematClosureFree_empty prog hdc hord e')
+  | .add a b => .add a b (rematClosureFree_empty prog hdc hord (.tmp a))
+      (rematClosureFree_empty prog hdc hord (.tmp b))
+  | .lt a b => .lt a b (rematClosureFree_empty prog hdc hord (.tmp a))
+      (rematClosureFree_empty prog hdc hord (.tmp b))
+  termination_by e => matDecMeasure prog e
+  decreasing_by
+    · exact matDecMeasure_remat_lt prog hdc hord h
+    · simp only [matDecMeasure]; omega
+    · simp only [matDecMeasure]; omega
+    · simp only [matDecMeasure]; omega
+    · simp only [matDecMeasure]; omega
+
 /-- **`MatDecC` — the cache-keyed decode bundle.** One `decode`
 clause per opcode `matExpr (matCache prog) e` emits, anchored at the running pc; composite arms
 anchor their sub-decodes at the **operand cache lengths** `(matCache prog t').length`, and the
@@ -811,9 +831,10 @@ a `.slot n` reads the memory spill back (`MemRealises`), an undefined tmp is rul
 All recursion follows the fold measure. -/
 theorem materialise_runsC {prog : Program} (hdc : DefsConsistent prog) (hord : DefEnvOrdered prog)
     (sloadChg : Tmp → ℕ) (st : IRState) (obs : Word)
-    (e : Expr) (w : Word) (fr : Frame)
+    (I : Tmp → Prop) (e : Expr) (w : Word) (fr : Frame)
     (hdec : MatDecC prog hdc hord fr.exec.executionEnv.code fr.exec.pc e)
-    (hsound : DefsSound prog st)
+    (hsound : DefsSoundS prog I st)
+    (hfree : RematClosureFree prog I e)
     (hscoped : ∀ t, st.locals t ≠ none →
       (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.slot slot))
       ∧ defsOf prog t ≠ none)
@@ -825,8 +846,8 @@ theorem materialise_runsC {prog : Program} (hdc : DefsConsistent prog) (hord : D
     (hgas : (chargeExpr sloadChg (chargeCache prog sloadChg) e).sum ≤ fr.exec.gasAvailable.toNat)
     (hstk : fr.exec.stack.size + (chargeExpr sloadChg (chargeCache prog sloadChg) e).length ≤ 1024) :
     ∃ fr', MatRunsC prog sloadChg e w fr fr' := by
-  match e, hdec, hne, hnsl, heval, hgas, hstk with
-  | .imm v, hdec, _, _, heval, hgas, hstk =>
+  match e, hfree, hdec, hne, hnsl, heval, hgas, hstk with
+  | .imm v, _, hdec, _, _, heval, hgas, hstk =>
       have hdec' : decode fr.exec.executionEnv.code fr.exec.pc
           = some (.Push .PUSH32, some (v, 32)) := by rw [matDecC_imm] at hdec; exact hdec
       have hvw : v = w := Option.some.inj heval
@@ -853,9 +874,9 @@ theorem materialise_runsC {prog : Program} (hdc : DefsConsistent prog) (hord : D
         rw [show (Gverylow : ℕ) = 3 from rfl,
             BytecodeLayer.UInt64.toNat_sub_ofNat _ 3 h3 (by omega)]
         simp [List.sum_cons]
-  | .gas, _, hne, _, _, _, _ => exact absurd rfl hne
-  | .sload k, _, _, hnsl, _, _, _ => exact absurd rfl (hnsl k)
-  | .tmp t, hdec, _, _, heval, hgas, hstk =>
+  | .gas, _, _, hne, _, _, _, _ => exact absurd rfl hne
+  | .sload k, _, _, _, hnsl, _, _, _ => exact absurd rfl (hnsl k)
+  | .tmp t, hfree, hdec, _, _, heval, hgas, hstk =>
       have hloc : st.locals t = some w := heval
       cases hal : allocate prog t with
       | none =>
@@ -883,8 +904,9 @@ theorem materialise_runsC {prog : Program} (hdc : DefsConsistent prog) (hord : D
                   have hdeft : defsOf prog t = some (Loc.remat e') := hal
                   rw [hdeft] at hcrdef
                   exact absurd hcrdef (by simp)
+              obtain ⟨hfree_t, hfree_remat⟩ := RematClosureFree.tmp_inv hfree
               have hdfs : some w = evalExpr st 0 e' :=
-                hsound t e' w hremt hnr hloc
+                hsound t e' w hremt hnr hfree_t hloc
               have heval' : evalExpr st obs e' = some w := by
                 rw [evalExpr_obs_irrel st obs 0 he'ng]; exact hdfs.symm
               have hgas' : (chargeExpr sloadChg (chargeCache prog sloadChg) e').sum
@@ -893,8 +915,8 @@ theorem materialise_runsC {prog : Program} (hdc : DefsConsistent prog) (hord : D
               have hstk' : fr.exec.stack.size
                   + (chargeExpr sloadChg (chargeCache prog sloadChg) e').length ≤ 1024 := by
                 have hx := hstk; simp only [chargeExpr_tmp] at hx; rw [hcc] at hx; exact hx
-              obtain ⟨fr', hmr⟩ := materialise_runsC hdc hord sloadChg st obs e' w fr htmd hsound
-                hscoped hstore he'ng he'nsl hmemreal heval' hgas' hstk'
+              obtain ⟨fr', hmr⟩ := materialise_runsC hdc hord sloadChg st obs I e' w fr htmd hsound
+                (hfree_remat e' hal) hscoped hstore he'ng he'nsl hmemreal heval' hgas' hstk'
               have hpcE : matExpr (matCache prog) (Expr.tmp t) = matExpr (matCache prog) e' := by
                 simp only [matExpr_tmp]; exact hmc
               have hchgE : chargeExpr sloadChg (chargeCache prog sloadChg) (Expr.tmp t)
@@ -1077,7 +1099,7 @@ theorem materialise_runsC {prog : Program} (hdc : DefsConsistent prog) (hord : D
                 rw [BytecodeLayer.UInt64.toNat_sub_ofNat _ Gverylow
                       (by rw [h2, hgv3]; omega) (by rw [hgv3]; omega), h2]
                 rw [hsum2, hgv3] at hgas; omega
-  | .add a b, hdec, _, _, heval, hgas, hstk =>
+  | .add a b, hfree, hdec, _, _, heval, hgas, hstk =>
       obtain ⟨va, hla, vb, hlb, hwadd⟩ :
           ∃ va, st.locals a = some va ∧ ∃ vb, st.locals b = some vb ∧ w = UInt256.add va vb := by
         simp only [evalExpr] at heval
@@ -1103,8 +1125,9 @@ theorem materialise_runsC {prog : Program} (hdc : DefsConsistent prog) (hord : D
         have hx := hstk; rw [hcadd] at hx
         simp only [List.length_append] at hx
         show fr.exec.stack.size + (chargeCache prog sloadChg b).length ≤ 1024; omega
-      obtain ⟨frb, hmrb⟩ := materialise_runsC hdc hord sloadChg st obs (.tmp b) vb fr hdb hsound
-        hscoped hstore (by nofun) (by nofun) hmemreal hevb hgasb hstkb
+      obtain ⟨hfreea, hfreeb⟩ := RematClosureFree.add_inv hfree
+      obtain ⟨frb, hmrb⟩ := materialise_runsC hdc hord sloadChg st obs I (.tmp b) vb fr hdb hsound
+        hfreeb hscoped hstore (by nofun) (by nofun) hmemreal hevb hgasb hstkb
       have hbcode : frb.exec.executionEnv.code = fr.exec.executionEnv.code := hmrb.code
       have hbpc : frb.exec.pc = fr.exec.pc + UInt32.ofNat (matCache prog b).length := by
         have := hmrb.pc; simpa only [matExpr_tmp] using this
@@ -1127,8 +1150,8 @@ theorem materialise_runsC {prog : Program} (hdc : DefsConsistent prog) (hord : D
         have hpb1 : 1 ≤ (chargeCache prog sloadChg b).length := chargeCache_length_pos prog sloadChg b
         rw [hlen_split] at hstk; rw [hfrbsz]
         show fr.exec.stack.size + 1 + (chargeCache prog sloadChg a).length ≤ 1024; omega
-      obtain ⟨fra, hmra⟩ := materialise_runsC hdc hord sloadChg st obs (.tmp a) va frb hda' hsound
-        hscoped (hstore.transport hmrb.storage) (by nofun) (by nofun)
+      obtain ⟨fra, hmra⟩ := materialise_runsC hdc hord sloadChg st obs I (.tmp a) va frb hda' hsound
+        hfreea hscoped (hstore.transport hmrb.storage) (by nofun) (by nofun)
         (hmemreal.transport hmrb.memBytes hmrb.memActive) heva hgasa hstka
       have hacode : fra.exec.executionEnv.code = fr.exec.executionEnv.code := by
         rw [hmra.code, hbcode]
@@ -1178,7 +1201,7 @@ theorem materialise_runsC {prog : Program} (hdc : DefsConsistent prog) (hord : D
         rw [UInt32.ofNat_add, UInt32.ofNat_add, show (UInt32.ofNat 1 : UInt32) = 1 from rfl]
         ac_rfl
       · rw [hgc]; exact toNat_subCharges fr.exec.gasAvailable _ hgas
-  | .lt a b, hdec, _, _, heval, hgas, hstk =>
+  | .lt a b, hfree, hdec, _, _, heval, hgas, hstk =>
       obtain ⟨va, hla, vb, hlb, hwlt⟩ :
           ∃ va, st.locals a = some va ∧ ∃ vb, st.locals b = some vb ∧ w = UInt256.lt va vb := by
         simp only [evalExpr] at heval
@@ -1204,8 +1227,9 @@ theorem materialise_runsC {prog : Program} (hdc : DefsConsistent prog) (hord : D
         have hx := hstk; rw [hclt] at hx
         simp only [List.length_append] at hx
         show fr.exec.stack.size + (chargeCache prog sloadChg b).length ≤ 1024; omega
-      obtain ⟨frb, hmrb⟩ := materialise_runsC hdc hord sloadChg st obs (.tmp b) vb fr hdb hsound
-        hscoped hstore (by nofun) (by nofun) hmemreal hevb hgasb hstkb
+      obtain ⟨hfreea, hfreeb⟩ := RematClosureFree.lt_inv hfree
+      obtain ⟨frb, hmrb⟩ := materialise_runsC hdc hord sloadChg st obs I (.tmp b) vb fr hdb hsound
+        hfreeb hscoped hstore (by nofun) (by nofun) hmemreal hevb hgasb hstkb
       have hbcode : frb.exec.executionEnv.code = fr.exec.executionEnv.code := hmrb.code
       have hbpc : frb.exec.pc = fr.exec.pc + UInt32.ofNat (matCache prog b).length := by
         have := hmrb.pc; simpa only [matExpr_tmp] using this
@@ -1228,8 +1252,8 @@ theorem materialise_runsC {prog : Program} (hdc : DefsConsistent prog) (hord : D
         have hpb1 : 1 ≤ (chargeCache prog sloadChg b).length := chargeCache_length_pos prog sloadChg b
         rw [hlen_split] at hstk; rw [hfrbsz]
         show fr.exec.stack.size + 1 + (chargeCache prog sloadChg a).length ≤ 1024; omega
-      obtain ⟨fra, hmra⟩ := materialise_runsC hdc hord sloadChg st obs (.tmp a) va frb hda' hsound
-        hscoped (hstore.transport hmrb.storage) (by nofun) (by nofun)
+      obtain ⟨fra, hmra⟩ := materialise_runsC hdc hord sloadChg st obs I (.tmp a) va frb hda' hsound
+        hfreea hscoped (hstore.transport hmrb.storage) (by nofun) (by nofun)
         (hmemreal.transport hmrb.memBytes hmrb.memActive) heva hgasa hstka
       have hacode : fra.exec.executionEnv.code = fr.exec.executionEnv.code := by
         rw [hmra.code, hbcode]
