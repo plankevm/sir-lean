@@ -276,21 +276,15 @@ theorem stmtTies'_of_runWithLog {prog : Program} {params : CallParams} {log : Ru
       hwl.slotAddr L b pc t hb (Or.inr (Or.inl ⟨k, hcur⟩))
     have hstkKey : fr0.exec.stack.size + (chargeCache prog sloadChg k).length ≤ 1024 := by
       rw [hcorr.stack_nil]; simpa using hwl.stack.sloadKey sloadChg L b pc t k hb hcur
-    -- BLOCKER (arm 2 — the sload-key activeWords-flatness `hawk`): the conclusion
-    -- `frk.activeWords = fr0.activeWords` is NOT derivable from the `MatRunsC` witness alone.
-    -- `MatRunsC` records only `memBytes` (equal bytes) and `memActive` (activeWords ≤,
-    -- `MatFoldChannel.lean:819`) — it does NOT pin activeWords EQUALITY, so an adversarial `frk`
-    -- with strictly larger activeWords (same bytes) satisfies every field yet refutes this arm.
-    -- The fact is TRUE (the `materialise_runsC` construction threads `pushFrameW`/`sloadFrame`/
-    -- MLOAD-covered-readback frames, each `activeWords`-preserving by `rfl`), but capturing it
-    -- needs a NEW `MatRunsC` field `activeWordsEq` (re-proving `materialise_runsC` and every
-    -- constructor site in `MatFoldChannel.lean` — a DEFAULT-cone edit, not performable in this
-    -- WIP-only file). In the old `SimStmtStep` path `hawk` was likewise an always-SUPPLIED
-    -- structural residual (`LowerConforms.lean:385`, `CleanHaltExtract.lean:784`), never produced.
+    -- arm 2 — the sload-key activeWords-flatness `hawk`: the conclusion
+    -- `frk.activeWords = fr0.activeWords` is exactly the `MatRunsC.activeWordsEq` field. The
+    -- materialise value channel only ever runs PUSH / covered-MLOAD readback / ADD / LT frames —
+    -- none grow `activeWords` — so every `MatRunsC` construction pins activeWords EQUALITY (the
+    -- MSTORE spill that *would* grow it lives in the StashTail post-run, not in `MatRunsC` itself).
     have hflat : ∀ frk : Frame,
         MatRunsC prog sloadChg (.tmp k) kv fr0 frk →
         frk.exec.toMachineState.activeWords = fr0.exec.toMachineState.activeWords :=
-      fun frk hmrk => sorry
+      fun _frk hmrk => hmrk.activeWordsEq
     exact ⟨hslotdef, hstepS, hslots, hwval, hscoped', hslot63, hslotplat, hstkKey, hflat⟩
   -- ===================== arm (3): spilled gas assign (R1 conjunct) =====================
   case arm3 =>
