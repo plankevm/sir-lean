@@ -343,20 +343,13 @@ theorem stmtTies'_of_runWithLog {prog : Program} {params : CallParams} {log : Ru
       hfreeCallee hfreeGasFwd hstkCallee hstkGasFwd hslotaddr
   -- ===================== arm (6): create =====================
   case arm6 =>
-    intro pc cs st0 st0' fr0 gS sS cS rec dS' I hcur hcp hch haddr hst0'
-    -- BLOCKER (arm 6 — `CreateRealisesS`): there is NO `createRealises_of_recorded` producer
-    -- anywhere in the tree (grep: the only `CreateRealisesS` occurrences are its `Surface.lean`
-    -- definition + this arm). It is the CREATE twin of the closed `callRealises_of_recorded`
-    -- (`Machinery.lean:3475`) and needs the CREATE Piece-B run machinery — the analogs of
-    -- `call_args_run_of_coupled` / `call_dispatch_of_coupled` / `call_tail_of_cleanHalt` /
-    -- `callRealises_of_recorded_finish` — NONE of which exist for CREATE. Piece A alone is present
-    -- (`recorderCoupled_create_extract`, `Machinery.lean:2038`). The plan of record
-    -- (`docs/planning/r11-run-plan-2026-07-09.md`) lists "CREATE finish half, simStmt_coupled_create"
-    -- and "the create realisation bridge (recorded head → CreateReturns resume)" as PENDING
-    -- prerequisites for this very theorem (its "Terminal wave"), and notes some `resumeAfterCreate`
-    -- frame-pins land in the DEFAULT target (out of this WIP file's scope). Blocked until that
-    -- CREATE run producer lands.
-    sorry
+    intro pc cs st0 st0' fr0 valueW initOffW initSizeW saltW gS sS cS rec dS' I hcur hcp
+      hch haddr hcodeFits hcr hvalue hoff hsize hsalt hfreeValue hfreeOff hfreeSize
+      hfreeSalt hstkSalt hstkSize hstkOff hstkValue hslotaddr hst0'
+    subst hst0'
+    exact createRealises_of_recorded hwl hcodeFits hb hcur hcp hch haddr hcr hvalue hoff
+      hsize hsalt hfreeValue hfreeOff hfreeSize hfreeSalt hstkSalt hstkSize hstkOff
+      hstkValue hslotaddr
 
 /-- **R10b — the terminator ties, BUILT** (the `runWithLog`-context restatement of R5;
 kept separate so the R11 assembly consumes one hypothesis shape per tie). -/

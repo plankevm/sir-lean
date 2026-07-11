@@ -549,14 +549,34 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
                           evmCallOracle.postStorage rec.result rec.pending self key }) →
       CallRealisesS prog sloadChg I L b pc cs st0 st0' fr0)
   -- (6) create: `CreateRealisesS` keyed on the coupling's `createSuffix` HEAD, exactly the
-  -- CREATE twin of the call arm's positional multi-record tie.
+  -- CREATE twin of the call arm's positional multi-record tie. Its antecedents mirror the
+  -- inputs of the closed CREATE producer: the code budget, reachable-frame create-resolves
+  -- seam, four operand bindings and closure facts, four stack-room folds, and result-slot
+  -- addressability.
   ∧ (∀ (pc : Nat) (cs : CreateSpec) (st0 st0' : IRState) (fr0 : Frame)
+      (valueW initOffW initSizeW saltW : Word)
       (gS : List Word) (sS : List Nat) (cS : List CallRecord)
       (rec : CreateRecord) (dS' : List CreateRecord) (I : Tmp → Prop),
       b.stmts[pc]? = some (.create cs) →
       RecorderCoupled log fr0 gS sS cS (rec :: dS') →
       CleanHaltsNonException fr0 →
       fr0.exec.executionEnv.address = self →
+      codeFits prog →
+      (∀ fr', Runs fr0 fr' → CreateResolves fr') →
+      st0.locals cs.value = some valueW →
+      st0.locals cs.initOffset = some initOffW →
+      st0.locals cs.initSize = some initSizeW →
+      st0.locals cs.salt = some saltW →
+      RematClosureFree prog I (.tmp cs.value) →
+      RematClosureFree prog I (.tmp cs.initOffset) →
+      RematClosureFree prog I (.tmp cs.initSize) →
+      RematClosureFree prog I (.tmp cs.salt) →
+      0 + (chargeCache prog sloadChg cs.salt).length ≤ 1024 →
+      1 + (chargeCache prog sloadChg cs.initSize).length ≤ 1024 →
+      2 + (chargeCache prog sloadChg cs.initOffset).length ≤ 1024 →
+      3 + (chargeCache prog sloadChg cs.value).length ≤ 1024 →
+      (∀ t, cs.resultTmp = some t →
+        slotOf t + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits) →
       st0' = (match cs.resultTmp with
           | some t' => { st0 with world := fun key =>
                           evmCreateOracle.postStorage rec.result rec.pending self key }.setLocal
