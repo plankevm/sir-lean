@@ -2372,7 +2372,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
           code := rfl, validJumps := rfl, addr := rfl, canMod := rfl
           accounts := rfl, storage := fun _ => rfl
           pc := ?_, gasCharge := ?_, gasToNat := ?_
-          memBytes := rfl, memActive := le_refl _ }, ?_⟩
+          memBytes := rfl, memActive := le_refl _, activeWordsEq := rfl }, ?_⟩
       · rw [pushFrameW_pc, push32_pcΔ]; simp [matExpr_imm, emitImm_length]
       · rw [chargeExpr_imm]
         show (fr.exec.gasAvailable - UInt64.ofNat Gverylow)
@@ -2443,7 +2443,8 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
                   pc := by rw [hpcE]; exact hmr.pc
                   gasCharge := by rw [hchgE]; exact hmr.gasCharge
                   gasToNat := by rw [hchgE]; exact hmr.gasToNat
-                  memBytes := hmr.memBytes, memActive := hmr.memActive }, hcp'⟩
+                  memBytes := hmr.memBytes, memActive := hmr.memActive
+                  activeWordsEq := hmr.activeWordsEq }, hcp'⟩
           | slot n =>
               -- == the memory value-channel readback arm (PUSH n ; MLOAD) ==
               have hdeft : defsOf prog t = some (.slot n) := defsOf_of_allocate_slot prog hal
@@ -2585,7 +2586,8 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
                   code := ?_, validJumps := ?_, addr := ?_, canMod := ?_, accounts := ?_
                   storage := ?_, pc := ?_, gasCharge := ?_, gasToNat := ?_
                   memBytes := hfrmmem
-                  memActive := by rw [hfrmaw] }
+                  memActive := by rw [hfrmaw]
+                  activeWordsEq := hfrmaw }
               · show (mloadFrame frp (UInt256.ofNat n) frp.exec.activeWords
                   fr.exec.stack).exec.executionEnv.code = _
                 rw [show (mloadFrame frp (UInt256.ofNat n) frp.exec.activeWords
@@ -2723,7 +2725,9 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
           storage := ?_, pc := ?_, gasCharge := hgc, gasToNat := ?_
           memBytes := by rw [addFrame_memory]; exact hmra.memBytes.trans hmrb.memBytes
           memActive := le_trans hmrb.memActive
-            (le_trans hmra.memActive (by rw [addFrame_activeWords])) }
+            (le_trans hmra.memActive (by rw [addFrame_activeWords]))
+          activeWordsEq := by
+            rw [addFrame_activeWords, hmra.activeWordsEq, hmrb.activeWordsEq] }
       · rw [hadstk]
       · rw [addFrame_code, hacode]
       · rw [addFrame_validJumps, hmra.validJumps, hmrb.validJumps]
@@ -2833,7 +2837,9 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
           storage := ?_, pc := ?_, gasCharge := hgc, gasToNat := ?_
           memBytes := by rw [ltFrame_memory]; exact hmra.memBytes.trans hmrb.memBytes
           memActive := le_trans hmrb.memActive
-            (le_trans hmra.memActive (by rw [ltFrame_activeWords])) }
+            (le_trans hmra.memActive (by rw [ltFrame_activeWords]))
+          activeWordsEq := by
+            rw [ltFrame_activeWords, hmra.activeWordsEq, hmrb.activeWordsEq] }
       · rw [hadstk]
       · rw [ltFrame_code, hacode]
       · rw [ltFrame_validJumps, hmra.validJumps, hmrb.validJumps]

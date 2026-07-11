@@ -818,6 +818,7 @@ structure MatRunsC (prog : Program) (sloadChg : Tmp → ℕ) (e : Expr) (w : Wor
   memBytes   : fr'.exec.toMachineState.memory = fr.exec.toMachineState.memory
   memActive  : fr.exec.toMachineState.activeWords.toNat
                  ≤ fr'.exec.toMachineState.activeWords.toNat
+  activeWordsEq : fr'.exec.toMachineState.activeWords = fr.exec.toMachineState.activeWords
 
 /-! ### `materialise_runsC` — the crux (P5c) -/
 
@@ -863,7 +864,7 @@ theorem materialise_runsC {prog : Program} (hdc : DefsConsistent prog) (hord : D
           code := rfl, validJumps := rfl, addr := rfl, canMod := rfl
           accounts := rfl, storage := fun _ => rfl
           pc := ?_, gasCharge := ?_, gasToNat := ?_
-          memBytes := rfl, memActive := le_refl _ }⟩
+          memBytes := rfl, memActive := le_refl _, activeWordsEq := rfl }⟩
       · rw [pushFrameW_pc, push32_pcΔ]; simp [matExpr_imm, emitImm_length]
       · rw [chargeExpr_imm]
         show (fr.exec.gasAvailable - UInt64.ofNat Gverylow) = subCharges fr.exec.gasAvailable [Gverylow]
@@ -929,7 +930,8 @@ theorem materialise_runsC {prog : Program} (hdc : DefsConsistent prog) (hord : D
                   pc := by rw [hpcE]; exact hmr.pc
                   gasCharge := by rw [hchgE]; exact hmr.gasCharge
                   gasToNat := by rw [hchgE]; exact hmr.gasToNat
-                  memBytes := hmr.memBytes, memActive := hmr.memActive }⟩
+                  memBytes := hmr.memBytes, memActive := hmr.memActive
+                  activeWordsEq := hmr.activeWordsEq }⟩
           | slot n =>
               -- == the memory value-channel readback arm (PUSH n ; MLOAD) ==
               have hdeft : defsOf prog t = some (.slot n) := defsOf_of_allocate_slot prog hal
@@ -1054,7 +1056,8 @@ theorem materialise_runsC {prog : Program} (hdc : DefsConsistent prog) (hord : D
                   code := ?_, validJumps := ?_, addr := ?_, canMod := ?_, accounts := ?_
                   storage := ?_, pc := ?_, gasCharge := ?_, gasToNat := ?_
                   memBytes := hfrmmem
-                  memActive := by rw [hfrmaw] }⟩
+                  memActive := by rw [hfrmaw]
+                  activeWordsEq := hfrmaw }⟩
               · show (mloadFrame frp (UInt256.ofNat n) frp.exec.activeWords
                   fr.exec.stack).exec.executionEnv.code = _
                 rw [show (mloadFrame frp (UInt256.ofNat n) frp.exec.activeWords
@@ -1184,7 +1187,9 @@ theorem materialise_runsC {prog : Program} (hdc : DefsConsistent prog) (hord : D
           storage := ?_, pc := ?_, gasCharge := hgc, gasToNat := ?_
           memBytes := by rw [addFrame_memory]; exact hmra.memBytes.trans hmrb.memBytes
           memActive := le_trans hmrb.memActive
-            (le_trans hmra.memActive (by rw [addFrame_activeWords])) }⟩
+            (le_trans hmra.memActive (by rw [addFrame_activeWords]))
+          activeWordsEq := by
+            rw [addFrame_activeWords, hmra.activeWordsEq, hmrb.activeWordsEq] }⟩
       · rw [hadstk]
       · rw [addFrame_code, hacode]
       · rw [addFrame_validJumps, hmra.validJumps, hmrb.validJumps]
@@ -1286,7 +1291,9 @@ theorem materialise_runsC {prog : Program} (hdc : DefsConsistent prog) (hord : D
           storage := ?_, pc := ?_, gasCharge := hgc, gasToNat := ?_
           memBytes := by rw [ltFrame_memory]; exact hmra.memBytes.trans hmrb.memBytes
           memActive := le_trans hmrb.memActive
-            (le_trans hmra.memActive (by rw [ltFrame_activeWords])) }⟩
+            (le_trans hmra.memActive (by rw [ltFrame_activeWords]))
+          activeWordsEq := by
+            rw [ltFrame_activeWords, hmra.activeWordsEq, hmrb.activeWordsEq] }⟩
       · rw [hadstk]
       · rw [ltFrame_code, hacode]
       · rw [ltFrame_validJumps, hmra.validJumps, hmrb.validJumps]
