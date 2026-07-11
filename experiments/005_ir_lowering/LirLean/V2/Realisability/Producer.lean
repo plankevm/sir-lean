@@ -2289,10 +2289,12 @@ theorem driveLogStep_of_block {prog : Program} {sloadChg : Tmp → ℕ} {log : R
               ++ emitImm 32 ++ emitImm 0 ++ [Byte.ret]).length
             simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil]
             omega)
-          (by simp only [matExpr_tmp]; omega)
+          (by
+            simp only [matExpr_tmp, Nat.zero_add]
+            exact hwl.wf.bound_ret L b t hbt ht)
       obtain ⟨last, haltSig, hlast, hhalt, hworld, hresult⟩ :=
         sim_term_halt_ret hcorrT ht haddrT.symm hw hwl.defsCons hwl.defEnvOrdered
-          hdv hgas hstk (hret w hw)
+          hdv hgas hstk hret
       refine ⟨{ world := st'.world, result := .returned w }, ?_,
         RunFrom.ret hb hrunstmts ht hw⟩
       exact ⟨last, haltSig, hrunsT.trans hlast, hhalt, hworld, hresult⟩
@@ -2425,20 +2427,19 @@ theorem driveLogStep_of_block {prog : Program} {sloadChg : Tmp → ℕ} {log : R
       have hrunAll := hrunsT.trans hrunEdge
       refine ⟨st', T', C', D', succ, frX, gS', sS', cS', dS', hrunAll, ?_, halT, ?_, ?_⟩
       · exact { corr := hcorrX
-                  cleanHalts := cleanHaltsNonException_forward hcleanT hrunEdge
-                  present := by
-                    rcases hdir with ⟨_, hs⟩ | ⟨_, hs⟩
-                    · subst hs; exact ⟨bthen, hbthen⟩
-                    · subst hs; exact ⟨belse, hbelse⟩
-                  selfPresent := selfPresent_runs_of_call hprec hspT hrunEdge
-                  addrPin := by rw [runs_address_preserved hrunEdge]; exact haddrT
-                  kindPin := by
-                    obtain ⟨cp, hcp⟩ := hkindT
-                    exact ⟨cp, by rw [runs_kind hrunEdge]; exact hcp⟩
-                  coupled := hcpX }
-      · exact lt_of_lt_of_le hlt (by
-          rw [driveCorr_measure, driveCorr_measure]
-          exact Runs.gasAvailable_le hrunsT)
+                cleanHalts := cleanHaltsNonException_forward hcleanT hrunEdge
+                present := by
+                  rcases hdir with ⟨_, hs⟩ | ⟨_, hs⟩
+                  · subst hs; exact ⟨bthen, hbthen⟩
+                  · subst hs; exact ⟨belse, hbelse⟩
+                selfPresent := selfPresent_runs_of_call hprec hspT hrunEdge
+                addrPin := by rw [runs_address_preserved hrunEdge]; exact haddrT
+                kindPin := by
+                  obtain ⟨cp, hcp⟩ := hkindT
+                  exact ⟨cp, by rw [runs_kind hrunEdge]; exact hcp⟩
+                coupled := hcpX }
+      · rw [driveCorr_measure, driveCorr_measure] at hlt ⊢
+        exact lt_of_lt_of_le hlt (Runs.gasAvailable_le hrunsT)
       · intro O hO
         rcases hdir with ⟨hnz, hs⟩ | ⟨hz, hs⟩
         · subst hs; exact RunFrom.branchThen hb hrunstmts ht hcw hnz hO
