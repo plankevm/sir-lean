@@ -264,6 +264,8 @@ theorem driveCorrLog_entry {prog : Program} {sloadChg : Tmp → ℕ} {params : C
     unfold isGasOp; rw [hdec]; rfl
   have hnotsload : isSloadOp (codeFrame params (lower prog)) = false := by
     unfold isSloadOp; rw [hdec]; rfl
+  have hnotcreate2 : isCreate2Op (codeFrame params (lower prog)) = false := by
+    unfold isCreate2Op; rw [hdec]; rfl
   -- self-presence at the entry frame, transported across the `JUMPDEST` step.
   have hsp₀ : SelfPresent (codeFrame params (lower prog)) :=
     selfPresent_codeFrame params (lower prog) hself
@@ -274,7 +276,7 @@ theorem driveCorrLog_entry {prog : Program} {sloadChg : Tmp → ℕ} {params : C
       selfPresent := by obtain ⟨a, ha⟩ := hsp₀; exact ⟨a, ha⟩
       addrPin := rfl
       kindPin := ⟨⟨params.createdAccounts, params.accounts, params.substate⟩, rfl⟩
-      coupled := recorderCoupled_stepsTo_other hcp₀ hnotgas hnotsload hstepsTo }
+      coupled := recorderCoupled_stepsTo_other hcp₀ hnotgas hnotsload hnotcreate2 hstepsTo }
 
 /-! ## §2 — the per-statement COUPLED steps (the crux; reason (a))
 
@@ -512,6 +514,7 @@ theorem simStmt_coupled_gas {prog : Program} {sloadChg : Tmp → ℕ} {log : Run
       apply recorderCoupled_step_other hcpGas
       · unfold isGasOp; rw [hdpush]; rfl
       · unfold isSloadOp; rw [hdpush]; rfl
+      · unfold isCreate2Op; rw [hdpush]; rfl
       · simpa [frp] using hpushStep
     let hgasVal : Word := UInt256.ofUInt64
       (fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase)
@@ -535,6 +538,12 @@ theorem simStmt_coupled_gas {prog : Program} {sloadChg : Tmp → ℕ} {log : Run
           rw [hd]; rfl)
         (by
           unfold isSloadOp
+          have hd : decode frp.exec.executionEnv.code frp.exec.pc =
+              some (.Smsf .MSTORE, .none) := by
+            simpa [frp, gasFrame_pc, pushFrameW_pc, push32_pcΔ] using hdmstore
+          rw [hd]; rfl)
+        (by
+          unfold isCreate2Op
           have hd : decode frp.exec.executionEnv.code frp.exec.pc =
               some (.Smsf .MSTORE, .none) := by
             simpa [frp, gasFrame_pc, pushFrameW_pc, push32_pcΔ] using hdmstore
@@ -648,6 +657,7 @@ theorem simStmt_coupled_sload {prog : Program} {sloadChg : Tmp → ℕ} {log : R
     apply recorderCoupled_step_other hcpSload
     · unfold isGasOp; rw [hdpush]; rfl
     · unfold isSloadOp; rw [hdpush]; rfl
+    · unfold isCreate2Op; rw [hdpush]; rfl
     · simpa [frp] using hpushStep
   let w := st.world kv
   let endFr := mstoreFrame frp (UInt256.ofNat (slotOf t)) w words' []
@@ -671,6 +681,12 @@ theorem simStmt_coupled_sload {prog : Program} {sloadChg : Tmp → ℕ} {log : R
         rw [hd]; rfl)
       (by
         unfold isSloadOp
+        have hd : decode frp.exec.executionEnv.code frp.exec.pc =
+            some (.Smsf .MSTORE, .none) := by
+          simpa [frp, sloadFrame_pc, pushFrameW_pc, push32_pcΔ] using hdmstore
+        rw [hd]; rfl)
+      (by
+        unfold isCreate2Op
         have hd : decode frp.exec.executionEnv.code frp.exec.pc =
             some (.Smsf .MSTORE, .none) := by
           simpa [frp, sloadFrame_pc, pushFrameW_pc, push32_pcΔ] using hdmstore
@@ -807,6 +823,7 @@ theorem sim_sstore_stmt' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} 
   have hcpf : RecorderCoupled log (sstoreFrame frk kw vw []) gS sS cS dS :=
     recorderCoupled_step_other hcpk
       (by unfold isGasOp; rw [hkdec]; rfl) (by unfold isSloadOp; rw [hkdec]; rfl)
+      (by unfold isCreate2Op; rw [hkdec]; rfl)
       (stepFrame_sstore frk kw vw [] hkdec hkstk hksz hkmod hstip hcost)
   refine ⟨sstoreFrame frk kw vw [], (hmrv.runs.trans hmrk.runs).trans hsrun, ?_, ?_, hcpf⟩
   · -- re-establish `Corr` at `(L, pc+1)` for `st.setStorage kw vw` (verbatim `sim_sstore_stmt`).
@@ -1409,6 +1426,7 @@ theorem simStmt_coupled_call {prog : Program} {sloadChg : Tmp → ℕ} {log : Ru
       apply recorderCoupled_step_other hcpres
       · unfold isGasOp; rw [hdpushR]; rfl
       · unfold isSloadOp; rw [hdpushR]; rfl
+      · unfold isCreate2Op; rw [hdpushR]; rfl
       · exact hpushStep
     have hchPush : CleanHaltsNonException
         (pushFrameW (Evm.resumeAfterCall rec.result rec.pending) (UInt256.ofNat (slotOf t)) 32) :=
@@ -1446,6 +1464,7 @@ theorem simStmt_coupled_call {prog : Program} {sloadChg : Tmp → ℕ} {log : Ru
       apply recorderCoupled_step_other hcpPush
       · unfold isGasOp; rw [hdmstoreF]; rfl
       · unfold isSloadOp; rw [hdmstoreF]; rfl
+      · unfold isCreate2Op; rw [hdmstoreF]; rfl
       · exact hmstoreStep
     -- the packaged tail bundle (`StashRuns`) at exactly the coupled endpoint.
     have hstash : Lir.StashRuns (Evm.resumeAfterCall rec.result rec.pending)
@@ -1515,6 +1534,7 @@ theorem simStmt_coupled_call {prog : Program} {sloadChg : Tmp → ℕ} {log : Ru
       apply recorderCoupled_step_other hcpres
       · unfold isGasOp; rw [hdpopR]; rfl
       · unfold isSloadOp; rw [hdpopR]; rfl
+      · unfold isCreate2Op; rw [hdpopR]; rfl
       · exact hpopStep
     -- == `Corr` re-established at the coupled endpoint (S3-call) ==
     obtain ⟨hruns, hcorr', hstk'⟩ := sim_call_stmt'

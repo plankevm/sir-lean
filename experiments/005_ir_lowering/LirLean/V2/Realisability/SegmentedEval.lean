@@ -94,6 +94,9 @@ def nextLog (c : LogConfig) : LogConfig ⊕ LogResult :=
           else if isSloadOp current && c.stack.isEmpty then
             .inl { c with state := .inl { current with exec := exec }
                           sloadAcc := c.sloadAcc ++ [sloadWarmthOf current] }
+          else if isCreate2Op current && c.stack.isEmpty then
+            .inl { c with state := .inl { current with exec := exec }
+                          createAcc := c.createAcc ++ [softFailCreateRecord current] }
           else
             .inl { c with state := .inl { current with exec := exec } }
         | .halted halt => .inl { c with state := .inr (endFrame current halt) }
@@ -135,7 +138,10 @@ theorem driveLogC_succ_eq (fuel : ℕ) (c : LogConfig) :
       · rw [if_neg h1, if_neg h1]
         by_cases h2 : (isSloadOp current && stack.isEmpty) = true
         · rw [if_pos h2, if_pos h2]; rfl
-        · rw [if_neg h2, if_neg h2]; rfl
+        · rw [if_neg h2, if_neg h2]
+          by_cases h3 : (isCreate2Op current && stack.isEmpty) = true
+          · rw [if_pos h3, if_pos h3]; rfl
+          · rw [if_neg h3, if_neg h3]; rfl
     | halted halt => rfl
     | needsCall params pending =>
       dsimp only []

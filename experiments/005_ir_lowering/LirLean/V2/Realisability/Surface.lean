@@ -168,8 +168,13 @@ def CreateRealisesS (prog : Program) (sloadChg : Tmp → ℕ)
     ∧ createFr.exec.pc = fr0.exec.pc + UInt32.ofNat argsLen
     ∧ createFr.exec.toMachineState.memory = fr0.exec.toMachineState.memory
     ∧ fr0.exec.toMachineState.activeWords.toNat ≤ createFr.exec.toMachineState.activeWords.toNat
-    ∧ CreateReturns createFr resumeFr
-    ∧ resumeAfterCreate result pd = .ok resumeFr
+    -- ARM-UNIFORM resume edge (CREATE2 soft-fail recorder alignment, 2026-07-11): a `Runs`
+    -- from the CREATE2 site to the resume frame. On the DESCEND arm this is a `Runs.create`
+    -- node (`CreateReturns` + `.ok resumeAfterCreate`); on the SOFT-FAIL arm it is a single
+    -- `Runs.step` (`.next`). The old descend-only `CreateReturns`/`resumeAfterCreate` conjuncts
+    -- are FALSE on the soft-fail arm (it never `.needsCreate`), so they are DROPPED in favour of
+    -- this uniform `Runs` witness; every resume PIN below holds on BOTH arms.
+    ∧ Runs createFr resumeFr
     ∧ resumeFr.exec.executionEnv.address = fr0.exec.executionEnv.address
     ∧ resumeFr.exec.executionEnv.code = lower prog
     ∧ resumeFr.exec.executionEnv.canModifyState = true

@@ -29,6 +29,59 @@ def isGasOp (fr : Frame) : Bool :=
 def isSloadOp (fr : Frame) : Bool :=
   (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (Operation.STOP, .none)).1 == .Smsf .SLOAD
 
+/-- Detect a CREATE2 cursor (the twin of `isGasOp`/`isSloadOp`). Used by `driveLog`
+to record a soft-fail entry on the `.next`-branch of a top-level CREATE2, so
+`log.creates` aligns 1:1 with CREATE2 cursors (descend records the child result; a
+soft-fail records `softFailCreateRecord`). -/
+def isCreate2Op (fr : Frame) : Bool :=
+  (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (Operation.STOP, .none)).1
+    == .System .CREATE2
+
+/-- The soft-fail CREATE2 record: `createArm`'s `.next`-branch `failed`/`pending`
+pair (`EVMLean/Evm/Semantics/System.lean:83–98`), rebuilt from the pre-step frame
+`current` and the four decoded operands. `result.accounts = current.exec.accounts`
+(world unchanged through the self lens — soft-fail does NOT bump the nonce) and
+`result.success = false` (⇒ `createAddrOrZero = 0`), so `evmV2CreateEntry` maps it to
+`(currentWorld, 0)`. When the cursor's stack does not present four operands (never the
+case at a genuine CREATE2 soft-fail, whose `createArm` popped them) the operands
+default to `0`, keeping the builder total. -/
+def softFailCreateRecord (current : Frame) : CreateRecord :=
+  let exec := current.exec
+  let (stack, value, initOffset, initSize) :=
+    match exec.stack.pop4 with
+      | some (stack, value, initOffset, initSize, _salt) => (stack, value, initOffset, initSize)
+      | none => ([], 0, 0, 0)
+  { result :=
+      { address := default
+        createdAccounts := exec.createdAccounts
+        accounts := exec.accounts
+        gasRemaining := .ofNat (allButOneSixtyFourth exec.gasAvailable.toNat)
+        substate := exec.toState.substate
+        success := false
+        output := .empty }
+    pending :=
+      { frame := current
+        stack := stack
+        callerAccounts := exec.accounts
+        value := value
+        initOffset := initOffset.toUInt64
+        initSize := initSize.toUInt64
+        initCodeSize := (exec.memory.readWithPadding initOffset.toNat initSize.toNat).size } }
+
+/-- The soft-fail record pushes address `0`: its `result.success = false`, so the
+`createAddrOrZero` guard's first disjunct fires. -/
+theorem createAddrOrZero_softFailCreateRecord (fr : Frame) :
+    createAddrOrZero (softFailCreateRecord fr).result (softFailCreateRecord fr).pending = 0 := by
+  have hcond : ((softFailCreateRecord fr).result.success = false
+      ∨ (softFailCreateRecord fr).pending.frame.exec.executionEnv.depth = 1024
+      ∨ (softFailCreateRecord fr).pending.value
+          > ((softFailCreateRecord fr).pending.callerAccounts.find?
+              (softFailCreateRecord fr).pending.frame.exec.executionEnv.address
+              |>.option 0 (·.balance))
+      ∨ (softFailCreateRecord fr).pending.initCodeSize > 49152) := Or.inl rfl
+  unfold createAddrOrZero
+  exact if_pos hcond
+
 def sloadWarmthOf (fr : Frame) : Nat :=
   match fr.exec.stack.head? with
     | some key =>
@@ -80,6 +133,9 @@ def driveLog (fuel : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult)
               else if isSloadOp current && stack.isEmpty then
                 driveLog fuel stack (.inl { current with exec := exec })
                   gasAcc (sloadAcc ++ [sloadWarmthOf current]) callAcc createAcc
+              else if isCreate2Op current && stack.isEmpty then
+                driveLog fuel stack (.inl { current with exec := exec })
+                  gasAcc sloadAcc callAcc (createAcc ++ [softFailCreateRecord current])
               else
                 driveLog fuel stack (.inl { current with exec := exec }) gasAcc sloadAcc callAcc createAcc
             | .halted halt => driveLog fuel stack (.inr (endFrame current halt)) gasAcc sloadAcc callAcc createAcc

@@ -83,6 +83,41 @@ theorem chargeMemExpansion_pc {e e' : ExecutionState} {off sz : UInt256}
   · exact absurd h (by simp)
   · exact charge_pc h
 
+/-- `charge` leaves the memory byte-map untouched (only `gasAvailable` moves). -/
+theorem charge_memory {c : ℕ} {e e' : ExecutionState} (h : charge c e = .ok e') :
+    e'.toMachineState.memory = e.toMachineState.memory := by
+  unfold charge at h
+  split at h
+  · exact absurd h (by simp)
+  · simp only [Except.ok.injEq] at h; subst h; rfl
+
+/-- `chargeMemExpansion` charges gas but never writes memory bytes. -/
+theorem chargeMemExpansion_memory {e e' : ExecutionState} {off sz : UInt256}
+    (h : chargeMemExpansion e off sz = .ok e') :
+    e'.toMachineState.memory = e.toMachineState.memory := by
+  unfold chargeMemExpansion at h
+  split at h
+  · exact absurd h (by simp)
+  · exact charge_memory h
+
+/-- `charge` leaves `activeWords` untouched (only `gasAvailable` moves). -/
+theorem charge_activeWords {c : ℕ} {e e' : ExecutionState} (h : charge c e = .ok e') :
+    e'.toMachineState.activeWords = e.toMachineState.activeWords := by
+  unfold charge at h
+  split at h
+  · exact absurd h (by simp)
+  · simp only [Except.ok.injEq] at h; subst h; rfl
+
+/-- `chargeMemExpansion` charges gas but never mutates `activeWords` (it only *reads* it to
+compute the cost). -/
+theorem chargeMemExpansion_activeWords {e e' : ExecutionState} {off sz : UInt256}
+    (h : chargeMemExpansion e off sz = .ok e') :
+    e'.toMachineState.activeWords = e.toMachineState.activeWords := by
+  unfold chargeMemExpansion at h
+  split at h
+  · exact absurd h (by simp)
+  · exact charge_activeWords h
+
 /-- **The presence side-condition `SelfPresent` reads, stated on raw execution states.** -/
 def SelfAt (exec : ExecutionState) : Prop :=
   ∃ acc : Account, exec.accounts.find? exec.executionEnv.address = some acc
@@ -861,6 +896,248 @@ theorem createArm_next_pc
         subst h
         exact key f hr
 
+/-- `createArm` `.next` (the soft-fail fallback) resumes with the residual operand stack plus the
+pushed `0` (the `resumeAfterCreate failed` `pushedValue`, which is `0` because `failed.success =
+false`). The residual `stack` is the operand-block residual the `systemOp` `pop4` handed in. -/
+theorem createArm_next_stack
+    {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
+    {value initOffset initSize : UInt256} {salt : Option ByteArray} {exec' : ExecutionState}
+    (h : createArm fr exec stack value initOffset initSize salt = .ok (.next exec')) :
+    exec'.stack = stack.push 0 := by
+  rw [createArm] at h
+  simp only [bind, Except.bind, pure, Except.pure] at h
+  have key : ∀ (f : Frame),
+      resumeAfterCreate
+        { address := default
+          createdAccounts := exec.createdAccounts
+          accounts := exec.accounts
+          gasRemaining := .ofNat (allButOneSixtyFourth exec.gasAvailable.toNat)
+          substate := exec.toState.substate
+          success := false
+          output := .empty }
+        { frame := { fr with exec := exec }
+          stack := stack
+          callerAccounts := exec.accounts
+          value := value
+          initOffset := initOffset.toUInt64
+          initSize := initSize.toUInt64
+          initCodeSize := (exec.memory.readWithPadding initOffset.toNat initSize.toNat).size }
+        = .ok f →
+      f.exec.stack = stack.push 0 := by
+    intro f hf
+    unfold resumeAfterCreate at hf
+    simp only [bind, Except.bind, pure, Except.pure] at hf
+    split at hf
+    · exact absurd hf (by simp)
+    · simp only [Except.ok.injEq] at hf
+      rw [← hf]
+      -- `pushedValue = 0` because `failed.success = false`; `replaceStackAndIncrPC` sets the stack.
+      rfl
+  split at h
+  · revert h
+    cases hr : resumeAfterCreate _ _ with
+    | error e => intro h; simp at h
+    | ok f =>
+      intro h
+      simp only [Except.ok.injEq, Signal.next.injEq] at h
+      subst h
+      exact key f hr
+  · split at h
+    · simp only [Except.ok.injEq] at h
+      exact absurd h (by simp)
+    · revert h
+      cases hr : resumeAfterCreate _ _ with
+      | error e => intro h; simp at h
+      | ok f =>
+        intro h
+        simp only [Except.ok.injEq, Signal.next.injEq] at h
+        subst h
+        exact key f hr
+
+/-- `createArm` `.next` (the soft-fail fallback) keeps the suspended frame's memory bytes: the
+resume rebuilds `exec` touching only accounts/substate/gas/activeWords/returnData, and
+`replaceStackAndIncrPC` touches only stack/pc. -/
+theorem createArm_next_memory
+    {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
+    {value initOffset initSize : UInt256} {salt : Option ByteArray} {exec' : ExecutionState}
+    (h : createArm fr exec stack value initOffset initSize salt = .ok (.next exec')) :
+    exec'.toMachineState.memory = exec.toMachineState.memory := by
+  rw [createArm] at h
+  simp only [bind, Except.bind, pure, Except.pure] at h
+  have key : ∀ (f : Frame),
+      resumeAfterCreate
+        { address := default
+          createdAccounts := exec.createdAccounts
+          accounts := exec.accounts
+          gasRemaining := .ofNat (allButOneSixtyFourth exec.gasAvailable.toNat)
+          substate := exec.toState.substate
+          success := false
+          output := .empty }
+        { frame := { fr with exec := exec }
+          stack := stack
+          callerAccounts := exec.accounts
+          value := value
+          initOffset := initOffset.toUInt64
+          initSize := initSize.toUInt64
+          initCodeSize := (exec.memory.readWithPadding initOffset.toNat initSize.toNat).size }
+        = .ok f →
+      f.exec.toMachineState.memory = exec.toMachineState.memory := by
+    intro f hf
+    unfold resumeAfterCreate at hf
+    simp only [bind, Except.bind, pure, Except.pure] at hf
+    split at hf
+    · exact absurd hf (by simp)
+    · simp only [Except.ok.injEq] at hf
+      rw [← hf]
+      rfl
+  split at h
+  · revert h
+    cases hr : resumeAfterCreate _ _ with
+    | error e => intro h; simp at h
+    | ok f =>
+      intro h
+      simp only [Except.ok.injEq, Signal.next.injEq] at h
+      subst h
+      exact key f hr
+  · split at h
+    · simp only [Except.ok.injEq] at h
+      exact absurd h (by simp)
+    · revert h
+      cases hr : resumeAfterCreate _ _ with
+      | error e => intro h; simp at h
+      | ok f =>
+        intro h
+        simp only [Except.ok.injEq, Signal.next.injEq] at h
+        subst h
+        exact key f hr
+
+/-- `createArm` `.next` (the soft-fail fallback) keeps the accounts map: the resume installs
+`failed.accounts = exec.accounts` (the pre-op map, NO nonce bump), and `replaceStackAndIncrPC` never
+touches accounts. So the resumed self-storage lens reads `exec`'s. -/
+theorem createArm_next_accounts
+    {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
+    {value initOffset initSize : UInt256} {salt : Option ByteArray} {exec' : ExecutionState}
+    (h : createArm fr exec stack value initOffset initSize salt = .ok (.next exec')) :
+    exec'.accounts = exec.accounts := by
+  rw [createArm] at h
+  simp only [bind, Except.bind, pure, Except.pure] at h
+  have key : ∀ (f : Frame),
+      resumeAfterCreate
+        { address := default
+          createdAccounts := exec.createdAccounts
+          accounts := exec.accounts
+          gasRemaining := .ofNat (allButOneSixtyFourth exec.gasAvailable.toNat)
+          substate := exec.toState.substate
+          success := false
+          output := .empty }
+        { frame := { fr with exec := exec }
+          stack := stack
+          callerAccounts := exec.accounts
+          value := value
+          initOffset := initOffset.toUInt64
+          initSize := initSize.toUInt64
+          initCodeSize := (exec.memory.readWithPadding initOffset.toNat initSize.toNat).size }
+        = .ok f →
+      f.exec.accounts = exec.accounts := by
+    intro f hf
+    unfold resumeAfterCreate at hf
+    simp only [bind, Except.bind, pure, Except.pure] at hf
+    split at hf
+    · exact absurd hf (by simp)
+    · simp only [Except.ok.injEq] at hf
+      rw [← hf]
+      rfl
+  split at h
+  · revert h
+    cases hr : resumeAfterCreate _ _ with
+    | error e => intro h; simp at h
+    | ok f =>
+      intro h
+      simp only [Except.ok.injEq, Signal.next.injEq] at h
+      subst h
+      exact key f hr
+  · split at h
+    · simp only [Except.ok.injEq] at h
+      exact absurd h (by simp)
+    · revert h
+      cases hr : resumeAfterCreate _ _ with
+      | error e => intro h; simp at h
+      | ok f =>
+        intro h
+        simp only [Except.ok.injEq, Signal.next.injEq] at h
+        subst h
+        exact key f hr
+
+/-- `MachineState.M s f l` dominates its base `s` (`l = 0` is `s`; else `max s _`). -/
+theorem M_ge_left (s f l : UInt64) : s.toNat ≤ (MachineState.M s f l).toNat := by
+  unfold MachineState.M
+  split
+  · exact le_refl _
+  · rw [show (s ⊔ ((f + l + 31) / 32))
+          = (if s ≤ (f + l + 31) / 32 then (f + l + 31) / 32 else s) from rfl]
+    split
+    · rename_i h; rwa [UInt64.le_iff_toNat_le] at h
+    · exact le_refl _
+
+/-- `createArm` `.next` (the soft-fail fallback) dominates the suspended frame's `activeWords`: the
+resume sets `activeWords := M exec.activeWords pd.initOffset pd.initSize`, which is `≥ exec.activeWords`
+(`M_ge_left`). -/
+theorem createArm_next_activeWords_ge
+    {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
+    {value initOffset initSize : UInt256} {salt : Option ByteArray} {exec' : ExecutionState}
+    (h : createArm fr exec stack value initOffset initSize salt = .ok (.next exec')) :
+    exec.toMachineState.activeWords.toNat ≤ exec'.toMachineState.activeWords.toNat := by
+  rw [createArm] at h
+  simp only [bind, Except.bind, pure, Except.pure] at h
+  have key : ∀ (f : Frame),
+      resumeAfterCreate
+        { address := default
+          createdAccounts := exec.createdAccounts
+          accounts := exec.accounts
+          gasRemaining := .ofNat (allButOneSixtyFourth exec.gasAvailable.toNat)
+          substate := exec.toState.substate
+          success := false
+          output := .empty }
+        { frame := { fr with exec := exec }
+          stack := stack
+          callerAccounts := exec.accounts
+          value := value
+          initOffset := initOffset.toUInt64
+          initSize := initSize.toUInt64
+          initCodeSize := (exec.memory.readWithPadding initOffset.toNat initSize.toNat).size }
+        = .ok f →
+      exec.toMachineState.activeWords.toNat ≤ f.exec.toMachineState.activeWords.toNat := by
+    intro f hf
+    unfold resumeAfterCreate at hf
+    simp only [bind, Except.bind, pure, Except.pure] at hf
+    split at hf
+    · exact absurd hf (by simp)
+    · simp only [Except.ok.injEq] at hf
+      rw [← hf]
+      show exec.toMachineState.activeWords.toNat
+        ≤ (MachineState.M exec.toMachineState.activeWords initOffset.toUInt64 initSize.toUInt64).toNat
+      exact M_ge_left _ _ _
+  split at h
+  · revert h
+    cases hr : resumeAfterCreate _ _ with
+    | error e => intro h; simp at h
+    | ok f =>
+      intro h
+      simp only [Except.ok.injEq, Signal.next.injEq] at h
+      subst h
+      exact key f hr
+  · split at h
+    · simp only [Except.ok.injEq] at h
+      exact absurd h (by simp)
+    · revert h
+      cases hr : resumeAfterCreate _ _ with
+      | error e => intro h; simp at h
+      | ok f =>
+        intro h
+        simp only [Except.ok.injEq, Signal.next.injEq] at h
+        subst h
+        exact key f hr
+
 open Lir.V2 (AccPresent accMono_of_accounts_eq) in
 /-- **A `.next` System op preserves the execution environment and presence at every `a`.** Halt ops
 never `.next`; CALL family reduces to `callArm`; CREATE/CREATE2 reduce to `createArm` on the charged
@@ -1003,6 +1280,148 @@ theorem systemOp_next_create_pc {op : Operation.SystemOp} {fr : Frame}
               simp only [] at h
               have hpc' := createArm_next_pc h
               rw [hpc', Lir.V2.charge_pc hc, Lir.V2.chargeMemExpansion_pc hm]
+
+/-- **A `.next` CREATE2 `systemOp` resumes with the operand residual plus the pushed `0`.** The
+`pop4` residual `s` of the original stack is the createArm residual (charging never touches the
+stack), and the soft-fail push is `0`. -/
+theorem systemOp_next_create2_stack {fr : Frame} {exec exec' : ExecutionState}
+    (h : systemOp .CREATE2 fr exec = .ok (.next exec')) :
+    ∃ residual value initOffset initSize salt,
+      exec.stack.pop4 = some (residual, value, initOffset, initSize, salt)
+      ∧ exec'.stack = residual.push 0 := by
+  unfold systemOp at h
+  simp only [bind, Except.bind] at h
+  cases hr : requireStateMod exec with
+  | error e => rw [hr] at h; simp at h
+  | ok _ =>
+    rw [hr] at h
+    simp only [] at h
+    cases hpop : exec.stack.pop4 with
+    | none =>
+      rw [hpop] at h
+      simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+    | some v =>
+      obtain ⟨s, val, io, is, salt⟩ := v
+      rw [hpop] at h
+      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      split at h
+      · simp at h
+      · cases hm : chargeMemExpansion exec io is with
+        | error e => rw [hm] at h; simp [pure, Except.pure] at h
+        | ok em =>
+          rw [hm] at h
+          simp only [pure, Except.pure] at h
+          cases hc : charge (create2Cost is) em with
+          | error e => rw [hc] at h; simp at h
+          | ok ec =>
+            rw [hc] at h
+            simp only [] at h
+            exact ⟨s, val, io, is, salt, rfl, createArm_next_stack h⟩
+
+/-- **A `.next` CREATE2 `systemOp` keeps the memory bytes.** Charging preserves the byte-map, and the
+soft-fail resume never writes memory. -/
+theorem systemOp_next_create2_memory {fr : Frame} {exec exec' : ExecutionState}
+    (h : systemOp .CREATE2 fr exec = .ok (.next exec')) :
+    exec'.toMachineState.memory = exec.toMachineState.memory := by
+  unfold systemOp at h
+  simp only [bind, Except.bind] at h
+  cases hr : requireStateMod exec with
+  | error e => rw [hr] at h; simp at h
+  | ok _ =>
+    rw [hr] at h
+    simp only [] at h
+    cases hpop : exec.stack.pop4 with
+    | none =>
+      rw [hpop] at h
+      simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+    | some v =>
+      obtain ⟨s, val, io, is, salt⟩ := v
+      rw [hpop] at h
+      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      split at h
+      · simp at h
+      · cases hm : chargeMemExpansion exec io is with
+        | error e => rw [hm] at h; simp [pure, Except.pure] at h
+        | ok em =>
+          rw [hm] at h
+          simp only [pure, Except.pure] at h
+          cases hc : charge (create2Cost is) em with
+          | error e => rw [hc] at h; simp at h
+          | ok ec =>
+            rw [hc] at h
+            simp only [] at h
+            rw [createArm_next_memory h, Lir.V2.charge_memory hc,
+              Lir.V2.chargeMemExpansion_memory hm]
+
+/-- **A `.next` CREATE2 `systemOp` keeps the accounts map.** Charging preserves accounts, and the
+soft-fail resume installs the pre-op (un-bumped) map. -/
+theorem systemOp_next_create2_accounts {fr : Frame} {exec exec' : ExecutionState}
+    (h : systemOp .CREATE2 fr exec = .ok (.next exec')) :
+    exec'.accounts = exec.accounts := by
+  unfold systemOp at h
+  simp only [bind, Except.bind] at h
+  cases hr : requireStateMod exec with
+  | error e => rw [hr] at h; simp at h
+  | ok _ =>
+    rw [hr] at h
+    simp only [] at h
+    cases hpop : exec.stack.pop4 with
+    | none =>
+      rw [hpop] at h
+      simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+    | some v =>
+      obtain ⟨s, val, io, is, salt⟩ := v
+      rw [hpop] at h
+      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      split at h
+      · simp at h
+      · cases hm : chargeMemExpansion exec io is with
+        | error e => rw [hm] at h; simp [pure, Except.pure] at h
+        | ok em =>
+          rw [hm] at h
+          simp only [pure, Except.pure] at h
+          cases hc : charge (create2Cost is) em with
+          | error e => rw [hc] at h; simp at h
+          | ok ec =>
+            rw [hc] at h
+            simp only [] at h
+            rw [createArm_next_accounts h, (Lir.V2.charge_accounts_env hc).1,
+              (Lir.V2.chargeMemExpansion_accounts_env hm).1]
+
+/-- **A `.next` CREATE2 `systemOp` dominates the frame's `activeWords`.** Charging never mutates
+`activeWords`, and the soft-fail resume grows it to `M`. -/
+theorem systemOp_next_create2_activeWords_ge {fr : Frame} {exec exec' : ExecutionState}
+    (h : systemOp .CREATE2 fr exec = .ok (.next exec')) :
+    exec.toMachineState.activeWords.toNat ≤ exec'.toMachineState.activeWords.toNat := by
+  unfold systemOp at h
+  simp only [bind, Except.bind] at h
+  cases hr : requireStateMod exec with
+  | error e => rw [hr] at h; simp at h
+  | ok _ =>
+    rw [hr] at h
+    simp only [] at h
+    cases hpop : exec.stack.pop4 with
+    | none =>
+      rw [hpop] at h
+      simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+    | some v =>
+      obtain ⟨s, val, io, is, salt⟩ := v
+      rw [hpop] at h
+      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      split at h
+      · simp at h
+      · cases hm : chargeMemExpansion exec io is with
+        | error e => rw [hm] at h; simp [pure, Except.pure] at h
+        | ok em =>
+          rw [hm] at h
+          simp only [pure, Except.pure] at h
+          cases hc : charge (create2Cost is) em with
+          | error e => rw [hc] at h; simp at h
+          | ok ec =>
+            rw [hc] at h
+            simp only [] at h
+            have hge := createArm_next_activeWords_ge h
+            rwa [Lir.V2.charge_activeWords hc, Lir.V2.chargeMemExpansion_activeWords hm] at hge
 
 open Lir.V2 (AccPresent accMono_of_accounts_eq) in
 /-- **A `.next` `smsfOp` preserves the execution environment and presence at every `a`.**

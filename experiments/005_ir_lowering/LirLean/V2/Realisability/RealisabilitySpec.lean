@@ -852,8 +852,12 @@ private theorem driveLog_gas_of_noGasReads {prog : Program}
                     · exact ih [] (.inl { current with exec := exec }) g0
                         (s0 ++ [sloadWarmthOf current]) c0 d0 r gas sloads calls creates
                         hnext hdl
-                    · exact ih [] (.inl { current with exec := exec }) g0 s0 c0 d0
-                        r gas sloads calls creates hnext hdl
+                    · split at hdl
+                      · exact ih [] (.inl { current with exec := exec }) g0 s0 c0
+                          (d0 ++ [softFailCreateRecord current]) r gas sloads calls creates
+                          hnext hdl
+                      · exact ih [] (.inl { current with exec := exec }) g0 s0 c0 d0
+                          r gas sloads calls creates hnext hdl
               | cons p rest =>
                   have hcons : GasWalkInv prog (p :: rest)
                       (.inl { current with exec := exec }) :=
@@ -862,8 +866,10 @@ private theorem driveLog_gas_of_noGasReads {prog : Program}
                   · rename_i h; simp at h
                   · split at hdl
                     · rename_i h; simp at h
-                    · exact ih (p :: rest) (.inl { current with exec := exec }) g0 s0 c0 d0
-                        r gas sloads calls creates hcons hdl
+                    · split at hdl
+                      · rename_i h; simp at h
+                      · exact ih (p :: rest) (.inl { current with exec := exec }) g0 s0 c0 d0
+                          r gas sloads calls creates hcons hdl
           | halted halt =>
               rw [hstep] at hdl
               dsimp only at hdl

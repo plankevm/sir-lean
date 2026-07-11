@@ -1218,7 +1218,7 @@ private theorem driveLog_acc_hom :
       cases hstep : stepFrame current with
       | next exec =>
         dsimp only [hstep]
-        split_ifs with hc1 hc2
+        split_ifs with hc1 hc2 hc3
         · rw [ih stack (.inl { current with exec := exec })
                 (g0 ++ [UInt256.ofUInt64 exec.gasAvailable]) s0 c0 d0,
               ih stack (.inl { current with exec := exec })
@@ -1228,6 +1228,11 @@ private theorem driveLog_acc_hom :
           | ok val => simp [Except.map, List.append_assoc]
         · rw [ih stack (.inl { current with exec := exec }) g0 (s0 ++ [sloadWarmthOf current]) c0 d0,
               ih stack (.inl { current with exec := exec }) [] ([] ++ [sloadWarmthOf current]) [] []]
+          cases hb : driveLog n stack (.inl { current with exec := exec }) [] [] [] [] with
+          | error e => simp [Except.map]
+          | ok val => simp [Except.map, List.append_assoc]
+        · rw [ih stack (.inl { current with exec := exec }) g0 s0 c0 (d0 ++ [softFailCreateRecord current]),
+              ih stack (.inl { current with exec := exec }) [] [] [] ([] ++ [softFailCreateRecord current])]
           cases hb : driveLog n stack (.inl { current with exec := exec }) [] [] [] [] with
           | error e => simp [Except.map]
           | ok val => simp [Except.map, List.append_assoc]
@@ -1252,6 +1257,22 @@ private theorem isGasOp_false_of_isSloadOp {fr : Frame} (h : isSloadOp fr = true
   have h' : (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (Operation.STOP, .none)).1
       = Operation.Smsf .SLOAD := by simpa [isSloadOp] using h
   simp only [isGasOp, h']
+  decide
+
+/-- A CREATE2 cursor does not decode to `GAS`: the gas-`if` in `driveLog` fails at a CREATE2. -/
+private theorem isGasOp_false_of_isCreate2Op {fr : Frame} (h : isCreate2Op fr = true) :
+    isGasOp fr = false := by
+  have h' : (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (Operation.STOP, .none)).1
+      = Operation.System .CREATE2 := by simpa [isCreate2Op] using h
+  simp only [isGasOp, h']
+  decide
+
+/-- A CREATE2 cursor does not decode to `SLOAD`: the sload-`if` in `driveLog` fails at a CREATE2. -/
+private theorem isSloadOp_false_of_isCreate2Op {fr : Frame} (h : isCreate2Op fr = true) :
+    isSloadOp fr = false := by
+  have h' : (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (Operation.STOP, .none)).1
+      = Operation.System .CREATE2 := by simpa [isCreate2Op] using h
+  simp only [isSloadOp, h']
   decide
 /-! ### R6 status — the geometry track's findings (Track A / the `hrb` residue)
 
@@ -1773,6 +1794,7 @@ theorem recorderCoupled_step_other {log : RunLog} {fr : Frame} {exec : Execution
     {dS : List CreateRecord}
     (hcp : RecorderCoupled log fr gS sS cS dS)
     (hng : isGasOp fr = false) (hns : isSloadOp fr = false)
+    (hnc : isCreate2Op fr = false)
     (hstep : stepFrame fr = .next exec) :
     RecorderCoupled log { fr with exec := exec } gS sS cS dS := by
   obtain ⟨⟨f, hf⟩, hgp, hsp, hcpp, hdp⟩ := hcp
@@ -1780,7 +1802,7 @@ theorem recorderCoupled_step_other {log : RunLog} {fr : Frame} {exec : Execution
   | zero => simp [driveLog] at hf
   | succ m =>
     unfold driveLog at hf
-    simp only [hstep, hng, hns, List.isEmpty_nil, Bool.false_and] at hf
+    simp only [hstep, hng, hns, hnc, List.isEmpty_nil, Bool.false_and, Bool.and_false] at hf
     exact ⟨⟨m, hf⟩, hgp, hsp, hcpp, hdp⟩
 
 /-- **Recorder framing with a nonempty bottom stack** (the recorder-composition lemma R7e
@@ -1839,9 +1861,10 @@ private theorem driveLog_frame_nonempty (bot : List Pending) (hbot : bot.isEmpty
       | next exec =>
         rw [hstep] at h; dsimp only at h
         dsimp only
-        split_ifs with hc1 hc2
+        split_ifs with hc1 hc2 hc3
         · rw [hbne top] at hc1; simp at hc1
         · rw [hbne top] at hc2; simp at hc2
+        · rw [hbne top] at hc3; simp at hc3
         · exact ih top (.inl { current with exec := exec }) res h
       | halted halt =>
         rw [hstep] at h; dsimp only at h
@@ -2109,6 +2132,84 @@ theorem recorderCoupled_create_extract {log : RunLog} {createFr : Frame}
       injection hcons with hrecEq _
       exact hrecEq.symm
 
+/-- **The soft-fail CREATE2 step consumes the create-suffix head** (the CREATE2 twin of
+`recorderCoupled_sload`, over the new `driveLog` create2 `.next` gate). At a top-level CREATE2
+cursor `fr` (`isCreate2Op fr = true`, `stack = []` from the outer `driveLog []`) that soft-fails
+(`stepFrame fr = .next exec`, the `createArm` funds/depth/size/nonce fallback), the recorder's new
+create2 gate fires (`isGasOp`/`isSloadOp` false at a CREATE2, so the first two `if`s fail and the
+third records `softFailCreateRecord fr`). Peeling the restart via `driveLog_acc_hom` (as
+`recorderCoupled_sload`) identifies the positional head `rec = softFailCreateRecord fr` and advances
+the coupling to `{ fr with exec := exec }` — NO child descent, NO `CreateResolves`. -/
+theorem recorderCoupled_create_softfail {log : RunLog} {fr : Frame} {exec : ExecutionState}
+    {gS : List Word} {sS : List Nat} {cS : List CallRecord}
+    {rec : CreateRecord} {dS : List CreateRecord}
+    (hcp : RecorderCoupled log fr gS sS cS (rec :: dS))
+    (hc2 : isCreate2Op fr = true)
+    (hstep : stepFrame fr = .next exec) :
+    RecorderCoupled log { fr with exec := exec } gS sS cS dS
+    ∧ rec = softFailCreateRecord fr := by
+  have hng : isGasOp fr = false := isGasOp_false_of_isCreate2Op hc2
+  have hns : isSloadOp fr = false := isSloadOp_false_of_isCreate2Op hc2
+  obtain ⟨⟨f, hf⟩, hgp, hsp, hcpp, hdp⟩ := hcp
+  cases f with
+  | zero => simp [driveLog] at hf
+  | succ m =>
+    unfold driveLog at hf
+    simp only [hstep, hng, hns, hc2, List.isEmpty_nil, Bool.and_true,
+      List.nil_append] at hf
+    rw [driveLog_acc_hom m [] (.inl { fr with exec := exec }) [] [] [] [softFailCreateRecord fr]] at hf
+    cases hX : driveLog m [] (.inl { fr with exec := exec }) [] [] [] [] with
+    | error e => rw [hX] at hf; simp [Except.map] at hf
+    | ok val =>
+      obtain ⟨obs', gS', sS', cS', dS'⟩ := val
+      rw [hX] at hf
+      have hf2 : (Except.ok (obs', gS', sS', cS', softFailCreateRecord fr :: dS')
+          : Except ExecutionException
+              (FrameResult × List Word × List Nat × List CallRecord × List CreateRecord))
+          = .ok (log.observable, gS, sS, cS, rec :: dS) := hf
+      injection hf2 with hf3
+      injection hf3 with hobs hf4
+      injection hf4 with hgSeq hf5
+      injection hf5 with hsSeq hcd
+      injection hcd with hcEq hdEq
+      injection hdEq with hreq hdSeq
+      subst hobs; subst hgSeq; subst hsSeq; subst hcEq; subst hdSeq
+      refine ⟨⟨⟨m, hX⟩, hgp, hsp, hcpp, ?_⟩, hreq.symm⟩
+      obtain ⟨pre, hpre⟩ := hdp
+      exact ⟨pre ++ [rec], by rw [hpre, List.append_assoc, List.singleton_append]⟩
+
+/-- **A `.halted` first step records NO create.** If the coupled frame `fr` halts immediately
+(`stepFrame fr = .halted halt`), the top-level restart delivers `.inr (endFrame …)` on the empty
+pending stack and returns at once — so every recorded suffix, in particular the create suffix, is
+empty. Used to EXCLUDE the `.halted` arm of the CREATE2 dispatch case-split (a nonempty coupled
+create suffix contradicts it). -/
+theorem creates_nil_of_stepFrame_halted {log : RunLog} {fr : Frame} {halt : Evm.FrameHalt}
+    {gS : List Word} {sS : List Nat} {cS : List CallRecord} {dS : List CreateRecord}
+    (hcp : RecorderCoupled log fr gS sS cS dS)
+    (hstep : stepFrame fr = .halted halt) :
+    dS = [] := by
+  obtain ⟨⟨f, hf⟩, _, _, _, _⟩ := hcp
+  cases f with
+  | zero => simp [driveLog] at hf
+  | succ m =>
+    cases m with
+    | zero =>
+      unfold driveLog at hf
+      simp only [hstep] at hf
+      simp [driveLog] at hf
+    | succ k =>
+      unfold driveLog at hf
+      simp only [hstep] at hf
+      -- delivery on the empty pending stack: `.inr (endFrame fr halt)` returns immediately.
+      rw [show driveLog (k + 1) [] (.inr (endFrame fr halt)) [] [] [] []
+            = .ok (endFrame fr halt, [], [], [], []) from rfl] at hf
+      injection hf with hf2
+      injection hf2 with _ hf3
+      injection hf3 with _ hf4
+      injection hf4 with _ hf5
+      injection hf5 with _ hf6
+      exact hf6.symm
+
 /-- **R7e′ — the coupling's CALL extraction** (R3's Piece-A atom; the *producing* companion of
 `recorderCoupled_call`, which only consumes). At a top-level boundary frame `callFr` whose next
 step is a returning external CALL (`stepFrame callFr = .needsCall cp pending`, `beginCall cp =
@@ -2310,11 +2411,12 @@ theorem recorderCoupled_stepsTo_other {log : RunLog} {fr fr' : Frame}
     {dS : List CreateRecord}
     (hcp : RecorderCoupled log fr gS sS cS dS)
     (hng : isGasOp fr = false) (hns : isSloadOp fr = false)
+    (hnc : isCreate2Op fr = false)
     (hstep : StepsTo fr fr') :
     RecorderCoupled log fr' gS sS cS dS := by
   obtain ⟨hs, hfr'⟩ := hstep
   rw [hfr']
-  exact recorderCoupled_step_other hcp hng hns hs
+  exact recorderCoupled_step_other hcp hng hns hnc hs
 
 /-! ### S1 — the coupling fold over a `materialise` run (`recorderCoupled_matRunsC`)
 
@@ -2387,6 +2489,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
       · -- coupling across the PUSH32 step (non-recording).
         exact recorderCoupled_step_other hcp
           (by unfold isGasOp; rw [hdec']; rfl) (by unfold isSloadOp; rw [hdec']; rfl)
+          (by unfold isCreate2Op; rw [hdec']; rfl)
           (stepFrame_push fr .PUSH32 v 32 (by decide) hdec' (by decide) (by decide) hg3 hstk1)
   | .gas, _, _, hne, _, _, _, _ => exact absurd rfl hne
   | .sload k, _, _, _, hnsl, _, _, _ => exact absurd rfl (hnsl k)
@@ -2484,6 +2587,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
                 rw [hfrp]
                 exact recorderCoupled_step_other hcp
                   (by unfold isGasOp; rw [hdpush]; rfl) (by unfold isSloadOp; rw [hdpush]; rfl)
+                  (by unfold isCreate2Op; rw [hdpush]; rfl)
                   (stepFrame_push fr .PUSH32 (UInt256.ofNat n) 32 (by decide) hdpush
                     (by decide) (by decide) hgasPush hszfr)
               -- step 2: MLOAD at `n` (covered ⇒ zero memory expansion)
@@ -2536,6 +2640,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
                 exact recorderCoupled_step_other hcpp
                   (by unfold isGasOp; rw [hmloaddec]; rfl)
                   (by unfold isSloadOp; rw [hmloaddec]; rfl)
+                  (by unfold isCreate2Op; rw [hmloaddec]; rfl)
                   (stepFrame_mload frp (UInt256.ofNat n) frp.exec.activeWords fr.exec.stack
                     hmloaddec hfrpstk hfrpsz hnoexp hgMem hgMl)
               have hmval : ((BytecodeLayer.Dispatch.memChargedState frp.exec
@@ -2710,6 +2815,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
       have hcp' : RecorderCoupled log (addFrame fra va vb fr.exec.stack) gS sS cS dS :=
         recorderCoupled_step_other hcpa
           (by unfold isGasOp; rw [hadec]; rfl) (by unfold isSloadOp; rw [hadec]; rfl)
+          (by unfold isCreate2Op; rw [hadec]; rfl)
           (stepFrame_add fra va vb fr.exec.stack hadec hastk haszle hagas)
       have hgc : (addFrame fra va vb fr.exec.stack).exec.gasAvailable
           = subCharges fr.exec.gasAvailable
@@ -2822,6 +2928,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
       have hcp' : RecorderCoupled log (ltFrame fra va vb fr.exec.stack) gS sS cS dS :=
         recorderCoupled_step_other hcpa
           (by unfold isGasOp; rw [hadec]; rfl) (by unfold isSloadOp; rw [hadec]; rfl)
+          (by unfold isCreate2Op; rw [hadec]; rfl)
           (stepFrame_lt fra va vb fr.exec.stack hadec hastk haszle hagas)
       have hgc : (ltFrame fra va vb fr.exec.stack).exec.gasAvailable
           = subCharges fr.exec.gasAvailable
@@ -2894,7 +3001,8 @@ private theorem coupled_push_step {log : RunLog} {fr : Frame} {w : Word}
     stepFrame_push fr .PUSH32 w 32 (by nofun) hdec (by decide) (by decide) hg hsz
   exact ⟨hrun,
     recorderCoupled_step_other hcp
-      (by unfold isGasOp; rw [hdec]; rfl) (by unfold isSloadOp; rw [hdec]; rfl) hstep,
+      (by unfold isGasOp; rw [hdec]; rfl) (by unfold isSloadOp; rw [hdec]; rfl)
+      (by unfold isCreate2Op; rw [hdec]; rfl) hstep,
     cleanHaltsNonException_forward hch hrun⟩
 
 /-- **R3 Piece B, step 1 — the CALL argument-push run producer.** From `Corr` at the CALL
@@ -3221,10 +3329,11 @@ private theorem driveLog_calls_const_of_depth :
         rw [stepFrame_next_execEnvAddr hstep]; exact hdepth
       unfold driveLog at h
       simp only [hstep] at h
-      split_ifs at h with h1 h2
-      · exact ih { fr with exec := exec } _ _ c d hdepth' h
-      · exact ih { fr with exec := exec } _ _ c d hdepth' h
-      · exact ih { fr with exec := exec } _ _ c d hdepth' h
+      split_ifs at h with h1 h2 h3
+      · exact ih { fr with exec := exec } _ _ c _ hdepth' h
+      · exact ih { fr with exec := exec } _ _ c _ hdepth' h
+      · exact ih { fr with exec := exec } _ _ c _ hdepth' h
+      · exact ih { fr with exec := exec } _ _ c _ hdepth' h
     | halted halt =>
       unfold driveLog at h
       simp only [hstep] at h
@@ -3249,44 +3358,16 @@ private theorem driveLog_inr_creates :
     simp only [Except.ok.injEq, Prod.mk.injEq] at h
     exact h.2.2.2.2.symm
 
-/-- **The no-descent-at-depth induction, create channel** (the CREATE twin of
-`driveLog_calls_const_of_depth`). A successful top-level `driveLog` run from a frame at depth
-`≥ 1024` delivers its **create** accumulator unchanged: `.needsCall`/`.needsCreate` are
-depth-guarded (never fire), `.next` preserves the environment (the depth rides along), and the
-`.halted` delivery returns the accumulator verbatim. Contrapositive: a coupled nonempty create
-suffix forces `depth < 1024` at the coupled frame. -/
-private theorem driveLog_creates_const_of_depth :
-    ∀ (fuel : ℕ) (fr : Frame) (g : List Word) (s : List Nat) (c : List CallRecord)
-      (d : List CreateRecord) {obs : FrameResult} {gS : List Word} {sS : List Nat}
-      {cS : List CallRecord} {dS : List CreateRecord},
-      1024 ≤ fr.exec.executionEnv.depth →
-      driveLog fuel [] (.inl fr) g s c d = .ok (obs, gS, sS, cS, dS) →
-      dS = d := by
-  intro fuel
-  induction fuel with
-  | zero =>
-    intro fr g s c d obs gS sS cS dS _ h
-    exact absurd h (by simp [driveLog])
-  | succ n ih =>
-    intro fr g s c d obs gS sS cS dS hdepth h
-    cases hstep : stepFrame fr with
-    | next exec =>
-      have hdepth' : 1024 ≤ exec.executionEnv.depth := by
-        rw [stepFrame_next_execEnvAddr hstep]; exact hdepth
-      unfold driveLog at h
-      simp only [hstep] at h
-      split_ifs at h with h1 h2
-      · exact ih { fr with exec := exec } _ _ c d hdepth' h
-      · exact ih { fr with exec := exec } _ _ c d hdepth' h
-      · exact ih { fr with exec := exec } _ _ c d hdepth' h
-    | halted halt =>
-      unfold driveLog at h
-      simp only [hstep] at h
-      exact driveLog_inr_creates n _ g s c d h
-    | needsCall params pending =>
-      exact absurd (stepFrame_needsCall_depth hstep) (by omega)
-    | needsCreate params pending =>
-      exact absurd (stepFrame_needsCreate_depth hstep) (by omega)
+-- NOTE (CREATE2 soft-fail recorder alignment, 2026-07-11): the create-channel twin of
+-- `driveLog_calls_const_of_depth` — `driveLog_creates_const_of_depth` — has been RETIRED. Under
+-- the new recorder (`Spec/Recorder.lean` `isCreate2Op`/`softFailCreateRecord`) a top-level CREATE2
+-- at `depth ≥ 1024` SOFT-FAILS to a `.next` step and NOW RECORDS a soft-fail create entry (the
+-- descend guard `depth < 1024` fails, so `createArm` takes the `.next` fallback and the recorder's
+-- new create2 gate fires). So the create accumulator is NO LONGER constant at `depth ≥ 1024`, and
+-- "a nonempty coupled create suffix forces `depth < 1024`" is no longer a theorem. The depth guard
+-- for the descend arm of `create_dispatch_of_coupled` is now supplied by the two-arm disjunction
+-- reshape (design spec §4), not by this induction. The CALL channel twin
+-- (`driveLog_calls_const_of_depth`, above) is UNAFFECTED — lowered CALL never records a soft-fail.
 
 /-- **R3 Piece B, step 2 — the CALL dispatch bundle** (CLOSED). At a coupled top-level frame
 decoding `CALL` with the lowered argument stack
@@ -3935,17 +4016,18 @@ CREATE specifics:
 STATUS (after this producer round): `create_stmt_offset_bound_of_codeFits`,
 `create_args_run_of_coupled`, `create_tail_of_cleanHalt` are CLOSED (direct transfers). The
 `resumeAfterCreate` stack/memory/activeWords resume pins are NOW LANDED (default cone, axiom-clean:
-`Lir.V2.resumeAfterCreate_stack`/`_memory`/`_activeWords_ge` in `Engine/Descent.lean`), and the
-create-channel depth-guard mirror `driveLog_creates_const_of_depth` is landed above — so the depth
-half of `create_dispatch_of_coupled` is GENUINELY DERIVED in-place.
+`Lir.V2.resumeAfterCreate_stack`/`_memory`/`_activeWords_ge` in `Engine/Descent.lean`).
 
 `create_dispatch_of_coupled`, `createRealises_of_recorded`, `create_head_realises_coupled` remain
-STUBBED with tracked `sorry`s. The residual obstruction is NO LONGER "the producer doesn't exist":
-it is the createArm SOFT-FAIL fallback exclusion (`value ≤ balance` / `initSize ≤ 49152` / `nonce`)
-that clean-halt + coupling do NOT rule out for the arbitrary-`valueW`/`initSizeW` lowered CREATE2 —
-unlike the CALL twin, whose `value = 0` operand collapses every non-depth fallback trigger. See
-`create_dispatch_of_coupled`'s docstring for the exact close plan (thread a descent seam from
-`CreateResolves`). -/
+STUBBED with tracked `sorry`s. UPDATE (CREATE2 soft-fail recorder alignment, 2026-07-11): the
+recorder now logs EVERY top-level CREATE2 outcome — a descend records the child result, a SOFT-FAIL
+records a `softFailCreateRecord` (world-unchanged, addr 0) — so `log.creates` aligns 1:1 with CREATE2
+cursors. Consequently the create-channel depth-guard mirror `driveLog_creates_const_of_depth` is
+RETIRED (a nonempty create suffix no longer forces `depth < 1024`, since a soft-fail at
+`depth ≥ 1024` records). `create_dispatch_of_coupled` is to be RESHAPED to a two-arm disjunction
+(descend arm ⇔ `rec.result.success`; soft-fail arm ⇔ `stepFrame = .next`), both stepFrames DERIVED
+from the recorded head via the coupling — no `CreateResolves`/`CreateDescends` premise, no domain
+restriction (design spec §4). -/
 
 /-- A byte inside the lowered CREATE statement sits below the global `codeFits` budget.
 (The CALL twin `call_stmt_offset_bound_of_codeFits`, specialised to `.create cs`.) -/
@@ -4394,84 +4476,330 @@ theorem create_tail_of_cleanHalt {prog : Program} {L : Label} {b : Block} {pc : 
       (CleanHaltExtract.next_pop_of_cleanHalt resumeFr addrW [] hch hdpop hstkflag hszP).1
     exact runs_pop resumeFr addrW [] hdpop hstkflag hszP hgasPop
 
-/-- **R3-CREATE, step 2 — the CREATE dispatch bundle** (STUBBED — tracked `sorry`, but with a
-DERIVED depth guard and a PRECISE remaining obstruction).
+/-- **R3-CREATE, step 2 — the CREATE dispatch bundle** (CLOSED, two-arm disjunction; CREATE2
+soft-fail recorder alignment, design spec §4).
 
 The CREATE twin of `call_dispatch_of_coupled`. At a coupled top-level frame decoding `CREATE2` with
-the lowered operand stack `valueW :: initOffW :: initSizeW :: saltW :: []` and `canModifyState`, the
-step should be `.needsCreate cp pending` with the pending pins the resume half consumes.
+the lowered operand stack `valueW :: initOffW :: initSizeW :: saltW :: []`.
 
-STATUS after this producer round — the DEPTH half is now GENUINELY DERIVED (the body below proves
-`createFr.exec.executionEnv.depth < 1024` from the coupling via the newly-landed
-`driveLog_creates_const_of_depth`, the exact `driveLog_calls_const_of_depth` mirror over the `dS`
-accumulator). The `.halted`-exception arm is likewise excluded by clean-halt. What remains — and is
-the ARCHITECTURAL obstruction that keeps this a tracked `sorry` — is the createArm SOFT-FAIL
-fallback:
+WHY the single-`.needsCreate` conclusion (the CALL shape) is the WRONG shape here. `createArm` steps
+to `.needsCreate` only under FOUR guards (`System.lean:99,101`): `nonce < 2^64-1`,
+`value ≤ selfBalance`, `depth < 1024`, `initCode.size ≤ 49152`. Otherwise it takes a CLEAN,
+non-exception `.next` fallback (`resumeAfterCreate failed`, pushing `0`). The lowered CREATE2 forwards
+an ARBITRARY `valueW`/`initSizeW`, so — unlike the CALL twin, whose lowered `value = 0` collapses
+`callArm`'s only non-depth fallback trigger — a lowered CREATE2 can SOFT-FAIL here and
+`stepFrame createFr = .needsCreate` is genuinely FALSE on that path.
 
-  `createArm` steps to `.needsCreate` only under FOUR guards (`Create.lean:99,101`):
-  `nonce < 2^64-1`, `value ≤ selfBalance`, `depth < 1024`, `initCode.size ≤ 49152`. Otherwise it
-  takes the `.next` fallback (`resumeAfterCreate failed`, pushing `0`) — a perfectly CLEAN,
-  non-exception step. So neither clean-halt NOR the coupling's depth bound excludes it: unlike the
-  CALL twin (where the lowered operand `value = 0` collapses `callArm`'s only non-depth fallback
-  trigger, so `driveLog_calls_const_of_depth` alone finishes), the lowered CREATE2 pushes an
-  ARBITRARY `valueW`/`initSizeW`, leaving three runtime fallback triggers
-  (`value ≤ balance`, `initSize ≤ 49152`, `nonce`) that are NOT facts of this bundle's hypotheses.
+RESOLUTION (landed). The recorder now logs EVERY top-level CREATE2 outcome (`Spec/Recorder.lean`): a
+descend records the child result (`.needsCreate` → `.create pending` → child), a soft-fail records
+`softFailCreateRecord createFr` (world-unchanged, addr 0) via the `isCreate2Op`/`.next` gate. So
+`log.creates` aligns 1:1 with CREATE2 cursors, and this bundle is a two-arm disjunction whose branch is
+DERIVED (not assumed) from the recorded head `rec`:
 
-  A soft-failing CREATE2 is a valid non-exception execution whose create record (if any) comes from
-  a LATER cursor, not this frame — so `stepFrame createFr = .needsCreate` is genuinely FALSE on that
-  path. Closing this needs either (a) the lowered CREATE2 to pin `value = 0` / bound `initSize` (the
-  CALL zero-window trick, a lowering change), or (b) a strengthened coupling/`CreateResolves`-style
-  DESCENT seam asserting this cursor actually descends (the create analogue that the head bundle's
-  `hcr : CreateResolves` seam is meant to supply — but that seam is threaded at
-  `createRealises`/`create_head`, not here). NEXT AGENT: thread a `descends`-at-`createFr` premise
-  (from the `CreateResolves` seam) into this bundle, then `stepFrame_needsCreate` follows from
-  `createArm_needsCreate_inv` + the four guards, and the pins from
-  `stepFrame_needsCreate_site_inv` (all already in Descent.lean). The gas guards are then
-  clean-halt-derivable exactly as CALL. -/
+  * DESCEND arm: `stepFrame createFr = .needsCreate cp pending` with the resume-half pins
+    (execEnv/validJumps/pc/memory via `stepFrame_needsCreate_(site_)inv` +
+    `stepFrame_create2_needsCreate_memory`; `pending.stack = []` via
+    `stepFrame_create2_needsCreate_stack` on the 4-operand `pop4` residual);
+  * SOFT-FAIL arm: `stepFrame createFr = .next exec'`, `rec = softFailCreateRecord createFr`
+    (`recorderCoupled_create_softfail`), `exec'` env-unchanged and pc `+1`
+    (`stepFrame_create2_next_execEnv`/`_pc`).
+
+The stepFrame is case-split directly; the DESCEND/SOFT-FAIL arm is selected by the actual step.
+The `.halted` arm is excluded by the COUPLING (a `.halted` first step records no create, but the
+coupled create suffix `rec :: dS'` is nonempty — `creates_nil_of_stepFrame_halted`); `.needsCall` is
+impossible at a CREATE2 decode (`stepFrame_needsCall_site_inv` forces a CALL-family decode). NO
+`CreateResolves`/`CreateDescends` premise, NO domain restriction (the descend guard is supplied by the
+descend arm's own `.needsCreate` witness, not by the retired `driveLog_creates_const_of_depth`). The
+clean-halt/`canModifyState` hypotheses (`_hch`/`_hmod`) are retained for interface parity with the
+CALL twin and the create realisation consumers; the reshape itself does not consume them. -/
 theorem create_dispatch_of_coupled {log : RunLog} {createFr : Frame}
     {valueW initOffW initSizeW saltW : Word}
     {gS : List Word} {sS : List Nat} {cS : List CallRecord}
     {rec : CreateRecord} {dS' : List CreateRecord}
     (hcp : RecorderCoupled log createFr gS sS cS (rec :: dS'))
-    (hch : CleanHaltsNonException createFr)
+    (_hch : CleanHaltsNonException createFr)
     (hdec : decode createFr.exec.executionEnv.code createFr.exec.pc
       = some (.System .CREATE2, .none))
     (hstk : createFr.exec.stack = valueW :: initOffW :: initSizeW :: saltW :: [])
-    (hmod : createFr.exec.executionEnv.canModifyState = true) :
-    ∃ (cp : Evm.CreateParams) (pending : Evm.PendingCreate),
-      stepFrame createFr = .needsCreate cp pending
+    (_hmod : createFr.exec.executionEnv.canModifyState = true) :
+    -- Arm D (descend): the recorded head is a real child; the step descends.
+    (∃ (cp : Evm.CreateParams) (pending : Evm.PendingCreate),
+        stepFrame createFr = .needsCreate cp pending
       ∧ pending.frame.exec.executionEnv = createFr.exec.executionEnv
       ∧ pending.frame.validJumps = createFr.validJumps
       ∧ pending.frame.exec.pc = createFr.exec.pc
-      ∧ pending.frame.exec.toMachineState.memory = createFr.exec.toMachineState.memory := by
-  -- The DEPTH guard, GENUINELY DERIVED from the coupling (the CALL template's depth half; the
-  -- `.needsCreate`/`.needsCall`/`.next`-preserving induction over the `dS` accumulator). At
-  -- `depth ≥ 1024` the restart never descends, so it delivers no create record — contradicting the
-  -- nonempty coupled create suffix `rec :: dS'`.
-  have hdepth : createFr.exec.executionEnv.depth < 1024 := by
-    by_contra hge
-    obtain ⟨⟨fuel', hrestart⟩, _, _, _, _⟩ := hcp
-    have hnil : (rec :: dS' : List CreateRecord) = [] :=
-      driveLog_creates_const_of_depth fuel' createFr [] [] [] [] (by omega) hrestart
-    exact absurd hnil (by simp)
-  -- DIAGNOSTIC (tracked debt): the remaining createArm SOFT-FAIL fallback exclusion
-  -- (value ≤ balance / initSize ≤ 49152 / nonce) is NOT a fact of this bundle — it needs a
-  -- descent seam threaded from `CreateResolves`. See the docstring for the exact close plan.
-  sorry
+      ∧ pending.frame.exec.toMachineState.memory = createFr.exec.toMachineState.memory
+      ∧ pending.stack = ([] : Stack Word))
+    ∨
+    -- Arm S (soft-fail): the recorded head is `softFailCreateRecord createFr`; the step is `.next`.
+    (∃ exec' : ExecutionState,
+        stepFrame createFr = .next exec'
+      ∧ rec = softFailCreateRecord createFr
+      ∧ exec'.executionEnv = createFr.exec.executionEnv
+      ∧ exec'.pc = createFr.exec.pc + 1) := by
+  have hc2 : isCreate2Op createFr = true := by
+    unfold isCreate2Op; rw [hdec]; rfl
+  -- Case-split on the actual step; the recorded head determines which arm.
+  cases hstep : stepFrame createFr with
+  | needsCreate cp pending =>
+      -- DESCEND arm: pins from the CREATE2 `.needsCreate` site inversions.
+      refine Or.inl ⟨cp, pending, rfl, ?_, ?_, ?_, ?_, ?_⟩
+      · exact (Evm.stepFrame_needsCreate_inv hstep).2.2.2
+      · exact (Evm.stepFrame_needsCreate_site_inv hstep).2.2.1
+      · exact (Evm.stepFrame_needsCreate_site_inv hstep).2.1
+      · exact Evm.stepFrame_create2_needsCreate_memory (by rw [hdec]; rfl) hstep
+      · obtain ⟨residual, _, _, _, _, hpop, hpdstk⟩ :=
+          Evm.stepFrame_create2_needsCreate_stack (by rw [hdec]; rfl) hstep
+        rw [hpdstk]
+        -- `pop4` on the 4-operand lowered stack yields residual `[]`.
+        rw [hstk] at hpop
+        simp only [Stack.pop4] at hpop
+        injection hpop with hpop'
+        exact (congrArg (·.1) hpop').symm
+  | next exec' =>
+      -- SOFT-FAIL arm: the coupling's create head is `softFailCreateRecord createFr`.
+      obtain ⟨_, hrec⟩ := recorderCoupled_create_softfail hcp hc2 hstep
+      refine Or.inr ⟨exec', rfl, hrec, ?_, ?_⟩
+      · exact Evm.stepFrame_create2_next_execEnv (by rw [hdec]; rfl) hstep
+      · exact Evm.stepFrame_create2_next_pc (by rw [hdec]; rfl) hstep
+  | halted halt =>
+      -- The coupling's create suffix `rec :: dS'` is nonempty, but a `.halted` first step records
+      -- NO create — contradiction.
+      exact absurd (creates_nil_of_stepFrame_halted hcp hstep) (by simp)
+  | needsCall cp pending =>
+      -- A CREATE2 decode cannot step to `.needsCall` (that forces a CALL-family decode).
+      exfalso
+      rcases (Evm.stepFrame_needsCall_site_inv hstep).1 with h | h | h | h <;>
+        · rw [hdec] at h; simp at h
 
-/-- **R3-CREATE — create realisation from the log** (STUBBED — tracked `sorry`). The CREATE twin of
-`callRealises_of_recorded`, discharging `CreateRealisesS`. Its Piece-B step 1
-(`create_args_run_of_coupled`) and step 3 (`create_tail_of_cleanHalt`) are CLOSED above, and Piece A
-(`recorderCoupled_create_extract`) is closed higher in this file; the SOLE remaining debt is step 2
-(`create_dispatch_of_coupled`, blocked on the createArm soft-fail fallback exclusion — see its
-docstring for the precise architectural obstruction). The `resumeAfterCreate` stack/memory/
-activeWords resume pins ARE NOW LANDED (default cone, axiom-clean): `Lir.V2.resumeAfterCreate_stack`
-/`_memory`/`_activeWords_ge` in `Engine/Descent.lean`, alongside the pre-existing
-`resumeAfterCreate_execEnv`/`_validJumps`/`_pc`, so the resume half of the assembly is unblocked; it
-awaits only the dispatch. STATEMENT mirrors `callRealises_of_recorded` field-for-field: `codeFits` scalar,
-the `CreateResolves` seam (the create analogue of the `CallsCode` seam), the four operand bindings +
-closure-freeness, the four stack-room folds, and the result-slot addressability. NO free-∀ ties, NO
-single-create restriction. -/
+/-- **The CREATE-site decode** at the arg-run endpoint `createFr` (the CREATE2 byte one past the
+four operand pushes), pinned by the `emitStmt` byte layout + `codeFits`. The CREATE twin of the CALL
+head's `hdecCall`. -/
+private theorem create_site_decode {prog : Program} {L : Label} {b : Block} {pc : Nat}
+    {cs : CreateSpec} {fr0 createFr : Frame}
+    (hcodeFits : codeFits prog)
+    (hb : blockAt prog L = some b)
+    (hcur : b.stmts[pc]? = some (.create cs))
+    (hfrpc : fr0.exec.pc = UInt32.ofNat (pcOf prog L pc))
+    (hcallcode : createFr.exec.executionEnv.code = lower prog)
+    (hcallpc : createFr.exec.pc = fr0.exec.pc + UInt32.ofNat
+        ((matCache prog cs.salt ++ matCache prog cs.initSize
+          ++ matCache prog cs.initOffset ++ matCache prog cs.value).length)) :
+    decode createFr.exec.executionEnv.code createFr.exec.pc = some (.System .CREATE2, .none) := by
+  have hbt : prog.blocks.toList[L.idx]? = some b := Lir.toList_of_blockAt hb
+  set argsB := matCache prog cs.salt ++ matCache prog cs.initSize
+      ++ matCache prog cs.initOffset ++ matCache prog cs.value with hargsB
+  have hemit0 : emitStmt (matCache prog) (defsOf prog) (.create cs)
+      = argsB ++ [Byte.create2]
+        ++ (match cs.resultTmp with
+            | some t => emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]
+            | none => [Byte.pop]) := rfl
+  have hcreatebyte : (emitStmt (matCache prog) (defsOf prog) (.create cs))[argsB.length]?
+      = some Byte.create2 := by
+    rw [hemit0, List.getElem?_append_left (by
+          simp only [List.length_append, List.length_singleton]; omega),
+        List.getElem?_append_right (Nat.le_refl _)]
+    simp
+  have hseg : ∀ j, j < (emitStmt (matCache prog) (defsOf prog) (.create cs)).length →
+      (flatBytes prog)[pcOf prog L pc + j]?
+        = (emitStmt (matCache prog) (defsOf prog) (.create cs))[j]? :=
+    fun j hj => flatBytes_at_pcOf_offset prog L b pc (.create cs) j hbt hcur hj
+  have hargslt : argsB.length
+      < (emitStmt (matCache prog) (defsOf prog) (.create cs)).length := by
+    rw [hemit0]
+    simp only [List.length_append, List.length_singleton]
+    omega
+  rw [hcallcode, hcallpc, hfrpc, ofNat_add']
+  have h := nonpush_leaf_decodeF prog (pcOf prog L pc) argsB.length Byte.create2
+    (emitStmt (matCache prog) (defsOf prog) (.create cs))
+    (create_stmt_offset_bound_of_codeFits hcodeFits hb hcur (by omega))
+    hcreatebyte (by decide) hseg
+  simpa using h
+
+/-- **The arm-uniform CREATE resume-frame bundle** — the CREATE twin of the returning-CALL half of
+`call_head_realises_coupled`, driven off the two-arm `create_dispatch_of_coupled`. From a coupled
+CREATE2 site (arg-run endpoint `createFr`, coupled `rec :: dS'`, clean-halt, `CreateResolves` seam),
+produce a resume frame `resumeFr`, the `Runs createFr resumeFr` edge (a `.create` node on the descend
+arm; a single `.next` step on the soft-fail arm), the advanced coupling on `dS'`, and every resume
+PIN — all HOLDING ON BOTH ARMS. The descend-only `CreateReturns`/`resumeAfterCreate` conjuncts are
+DROPPED (`create_dispatch`'s soft-fail arm never `.needsCreate`). -/
+private theorem create_resume_of_dispatch {log : RunLog}
+    {createFr : Frame} {valueW initOffW initSizeW saltW : Word}
+    {gS : List Word} {sS : List Nat} {cS : List CallRecord}
+    {rec : CreateRecord} {dS' : List CreateRecord}
+    (hcpcall : RecorderCoupled log createFr gS sS cS (rec :: dS'))
+    (hchcall : CleanHaltsNonException createFr)
+    (hdecCreate : decode createFr.exec.executionEnv.code createFr.exec.pc
+      = some (.System .CREATE2, .none))
+    (hcreatestk : createFr.exec.stack = valueW :: initOffW :: initSizeW :: saltW :: [])
+    (hcreatemod : createFr.exec.executionEnv.canModifyState = true)
+    (hresolve : CreateResolves createFr) :
+    ∃ resumeFr : Frame,
+      Runs createFr resumeFr
+      ∧ RecorderCoupled log resumeFr gS sS cS dS'
+      ∧ resumeFr.exec.executionEnv = createFr.exec.executionEnv
+      ∧ resumeFr.exec.pc = createFr.exec.pc + 1
+      ∧ resumeFr.exec.stack = createAddrOrZero rec.result rec.pending :: []
+      ∧ resumeFr.exec.toMachineState.memory = createFr.exec.toMachineState.memory
+      ∧ createFr.exec.toMachineState.activeWords.toNat
+          ≤ resumeFr.exec.toMachineState.activeWords.toNat
+      ∧ resumeFr.validJumps = createFr.validJumps
+      ∧ (∀ k, selfStorage resumeFr k
+          = evmCreateOracle.postStorage rec.result rec.pending
+              createFr.exec.executionEnv.address k) := by
+  classical
+  rcases create_dispatch_of_coupled hcpcall hchcall hdecCreate hcreatestk hcreatemod with
+    ⟨cp, pending, hstep, henv, hvj, hpcpin, hmempin, hpdstk⟩
+    | ⟨exec', hstep, hreceq, hexecenv, hexecpc⟩
+  · -- == DESCEND arm: the returning CREATE + successful resume ==
+    obtain ⟨childRes, resumeFr, hcrret, hrec, hresume, hcpres⟩ :=
+      recorderCoupled_create_extract hcpcall hstep hresolve
+    have hpend : rec.pending = pending := by rw [hrec]
+    have hresult : rec.result = childRes.toCreateResult := by rw [hrec]
+    -- the resume equation spelled with `rec.result` (a `CreateResult`) / `rec.pending`.
+    have hresume' : resumeAfterCreate rec.result rec.pending = .ok resumeFr := by
+      rw [hresult, hpend]; exact hresume
+    refine ⟨resumeFr, Runs.create hcrret (Runs.refl _), hcpres, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    · -- execEnv: resume keeps the pending frame's env = the CREATE-site env.
+      rw [resumeAfterCreate_execEnv childRes pending resumeFr hresume, henv]
+    · rw [resumeAfterCreate_pc childRes pending resumeFr hresume, hpcpin]
+    · -- stack: `pending.stack.push pushedValue`; `pending.stack = []`, `pushedValue = createAddrOrZero`.
+      rw [resumeAfterCreate_stack rec.result rec.pending resumeFr hresume', hpend, hpdstk]
+      rfl
+    · rw [resumeAfterCreate_memory rec.result rec.pending resumeFr hresume', hpend, hmempin]
+    · -- activeWords: `createFr.aw = pending.frame.aw ≤ resumeFr.aw`.
+      have haw : pending.frame.exec.toMachineState.activeWords
+          = createFr.exec.toMachineState.activeWords :=
+        Evm.stepFrame_create2_needsCreate_activeWords (by rw [hdecCreate]; rfl) hstep
+      rw [← haw, ← hpend]
+      exact resumeAfterCreate_activeWords_ge rec.result rec.pending resumeFr hresume'
+    · rw [resumeAfterCreate_validJumps childRes pending resumeFr hresume, hvj]
+    · intro k
+      rw [selfStorage_eq_storageAt,
+          resumeAfterCreate_execEnv childRes pending resumeFr hresume, henv]
+      show (resumeFr.exec.accounts.find? createFr.exec.executionEnv.address |>.option 0
+              (·.lookupStorage k)) = _
+      rw [resumeAfterCreate_accounts rec.result rec.pending resumeFr hresume']
+      rfl
+  · -- == SOFT-FAIL arm: a single `.next` step; `rec = softFailCreateRecord createFr` ==
+    obtain ⟨hcpres, _⟩ := recorderCoupled_create_softfail hcpcall
+      (by unfold isCreate2Op; rw [hdecCreate]; rfl) hstep
+    have hc2 : (decode createFr.exec.executionEnv.code createFr.exec.pc |>.getD (.STOP, .none)).1
+        = .System .CREATE2 := by rw [hdecCreate]; rfl
+    refine ⟨{ createFr with exec := exec' },
+      Runs.single (stepsTo_of_next hstep), hcpres, hexecenv, hexecpc, ?_, ?_, ?_, ?_, ?_⟩
+    · -- stack: `residual.push 0` with `residual = []`; and `createAddrOrZero rec = 0`.
+      obtain ⟨residual, _, _, _, _, hpop, hstkeq⟩ :=
+        Evm.stepFrame_create2_next_stack hc2 hstep
+      rw [hstkeq]
+      rw [hcreatestk] at hpop
+      simp only [Stack.pop4] at hpop
+      injection hpop with hpop'
+      have hres0 : residual = [] := (congrArg (·.1) hpop').symm
+      rw [hres0]
+      rw [hreceq, createAddrOrZero_softFailCreateRecord]
+      rfl
+    · exact Evm.stepFrame_create2_next_memory hc2 hstep
+    · -- activeWords: soft-fail resume grows the frame's activeWords to `M`.
+      exact Evm.stepFrame_create2_next_activeWords hc2 hstep
+    · rfl
+    · -- storage: soft-fail keeps accounts (`postStorage softFail = createFr self-lens`).
+      intro k
+      have hacc : exec'.accounts = createFr.exec.accounts :=
+        Evm.stepFrame_create2_next_accounts hc2 hstep
+      have haddr : exec'.executionEnv.address = createFr.exec.executionEnv.address := by
+        rw [hexecenv]
+      rw [selfStorage_eq_storageAt, storageAt]
+      show (exec'.accounts.find? exec'.executionEnv.address
+            |>.option 0 (·.lookupStorage k)) = _
+      rw [hacc, haddr, hreceq]
+      rfl
+
+/-- **The COUPLED CREATE-head bundle** (CLOSED — CREATE2 soft-fail recorder alignment). The CREATE
+twin of `call_head_realises_coupled`: the SAME Piece-A/B assembly (`create_args_run_of_coupled` →
+`create_dispatch_of_coupled` → the `CreateResolves` seam → `recorderCoupled_create_extract` on the
+descend arm / `recorderCoupled_create_softfail` on the soft-fail arm), stopping BEFORE the tail and
+keeping the coupling alive at the create resume frame (tail suffix `dS'` — exactly one create record
+consumed). Consumed by the coupled producer walk's `simStmt_coupled_create` (`Producer.lean`) to
+re-establish `Corr` at the post-create frame. ARM-UNIFORM resume bundle: the descend-only
+`CreateReturns`/`resumeAfterCreate` conjuncts are DROPPED in favour of a single `Runs createFr
+resumeFr` witness that holds on BOTH the descend (`Runs.create`) and soft-fail (`Runs.step`) arms;
+every resume PIN below holds on both. -/
+theorem create_head_realises_coupled {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
+    {L : Label} {b : Block} {pc : Nat} {cs : CreateSpec}
+    {st0 : IRState} {fr0 : Frame} {valueW initOffW initSizeW saltW : Word}
+    {gS : List Word} {sS : List Nat} {cS : List CallRecord}
+    {rec : CreateRecord} {dS' : List CreateRecord} {I : Tmp → Prop}
+    (hwl : WellLowered prog)
+    (hcodeFits : codeFits prog)
+    (hb : blockAt prog L = some b)
+    (hcur : b.stmts[pc]? = some (.create cs))
+    (hcorr : Corr prog sloadChg 0 I st0 fr0 L pc)
+    (hcp : RecorderCoupled log fr0 gS sS cS (rec :: dS'))
+    (hch : CleanHaltsNonException fr0)
+    (hcr : ∀ fr', Runs fr0 fr' → CreateResolves fr')
+    (hvalue : st0.locals cs.value = some valueW)
+    (hoff : st0.locals cs.initOffset = some initOffW)
+    (hsize : st0.locals cs.initSize = some initSizeW)
+    (hsalt : st0.locals cs.salt = some saltW)
+    (hfreeValue : RematClosureFree prog I (.tmp cs.value))
+    (hfreeOff : RematClosureFree prog I (.tmp cs.initOffset))
+    (hfreeSize : RematClosureFree prog I (.tmp cs.initSize))
+    (hfreeSalt : RematClosureFree prog I (.tmp cs.salt))
+    (hstkSalt : 0 + (chargeCache prog sloadChg cs.salt).length ≤ 1024)
+    (hstkSize : 1 + (chargeCache prog sloadChg cs.initSize).length ≤ 1024)
+    (hstkOff : 2 + (chargeCache prog sloadChg cs.initOffset).length ≤ 1024)
+    (hstkValue : 3 + (chargeCache prog sloadChg cs.value).length ≤ 1024) :
+    ∃ (resumeFr createFr : Frame),
+      Runs fr0 createFr
+      ∧ createFr.exec.pc = fr0.exec.pc + UInt32.ofNat
+          ((matCache prog cs.salt ++ matCache prog cs.initSize
+            ++ matCache prog cs.initOffset ++ matCache prog cs.value).length)
+      ∧ createFr.exec.toMachineState.memory = fr0.exec.toMachineState.memory
+      ∧ fr0.exec.toMachineState.activeWords.toNat
+          ≤ createFr.exec.toMachineState.activeWords.toNat
+      ∧ Runs createFr resumeFr
+      ∧ RecorderCoupled log resumeFr gS sS cS dS'
+      ∧ resumeFr.exec.executionEnv.address = fr0.exec.executionEnv.address
+      ∧ resumeFr.exec.executionEnv.code = lower prog
+      ∧ resumeFr.exec.executionEnv.canModifyState = true
+      ∧ resumeFr.exec.pc = createFr.exec.pc + 1
+      ∧ resumeFr.exec.stack = createAddrOrZero rec.result rec.pending :: []
+      ∧ resumeFr.exec.toMachineState.memory = createFr.exec.toMachineState.memory
+      ∧ createFr.exec.toMachineState.activeWords.toNat
+          ≤ resumeFr.exec.toMachineState.activeWords.toNat
+      ∧ resumeFr.validJumps = validJumpDests resumeFr.exec.executionEnv.code 0
+      ∧ (∀ k, selfStorage resumeFr k
+          = evmCreateOracle.postStorage rec.result rec.pending
+              fr0.exec.executionEnv.address k) := by
+  classical
+  -- Piece B step 1: the argument-push run (coupling + clean-halt carried to the CREATE site).
+  obtain ⟨createFr, hargs, hcreatepc, hcreatestk, hcreatecode, hcreatevj, hcreateaddr, hcreatemod,
+      hcreatemem, hcreateact, _hcreatesto, hcpcreate, hchcreate⟩ :=
+    create_args_run_of_coupled hwl hcodeFits hb hcur hcorr hcp hch hvalue hoff hsize hsalt
+      hfreeValue hfreeOff hfreeSize hfreeSalt hstkSalt hstkSize hstkOff hstkValue
+  -- the CREATE2 byte decode at `createFr`.
+  have hdecCreate := create_site_decode hcodeFits hb hcur hcorr.pc_eq hcreatecode hcreatepc
+  -- the `CreateResolves` seam at the CREATE site (any reachable frame resolves).
+  have hresolve : CreateResolves createFr := hcr createFr hargs
+  -- the arm-uniform resume bundle.
+  obtain ⟨resumeFr, hrunsCR, hcpres, hresenv, hrespc, hresstk, hresmem, hresact, hresvj, hressto⟩ :=
+    create_resume_of_dispatch hcpcreate hchcreate hdecCreate hcreatestk hcreatemod hresolve
+  refine ⟨resumeFr, createFr, hargs, by rw [hcreatepc], hcreatemem, hcreateact,
+    hrunsCR, hcpres, ?_, ?_, ?_, hrespc, hresstk, hresmem, hresact, ?_, ?_⟩
+  · rw [hresenv, hcreateaddr]
+  · rw [hresenv, hcreatecode]
+  · rw [hresenv, hcreatemod]
+  · rw [hresvj, hcreatevj, hresenv, hcreatecode]
+    exact hcorr.validJumps_lower
+  · intro k; rw [hressto k, hcreateaddr]
+
+/-- **R3-CREATE — create realisation from the log** (CLOSED — CREATE2 soft-fail recorder alignment).
+The CREATE twin of `callRealises_of_recorded`, discharging `CreateRealisesS`. Assembly over the
+arm-uniform `create_head_realises_coupled` (Piece A/B) + the Route-B tail `create_tail_of_cleanHalt`.
+The `CreateRealisesS` conclusion was relaxed to the arm-uniform resume edge (`Runs createFr resumeFr`,
+dropping the descend-only `CreateReturns`/`resumeAfterCreate` conjuncts), so both the descend and
+CREATE2 soft-fail arms discharge it. NO free-∀ ties, NO single-create restriction. -/
 theorem createRealises_of_recorded {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
     {self : AccountAddress} {L : Label} {b : Block} {pc : Nat} {cs : CreateSpec}
     {st0 : IRState} {fr0 : Frame} {valueW initOffW initSizeW saltW : Word}
@@ -4507,65 +4835,40 @@ theorem createRealises_of_recorded {prog : Program} {sloadChg : Tmp → ℕ} {lo
         | none   => { st0 with world := fun key =>
                         evmCreateOracle.postStorage rec.result rec.pending self key })
       fr0 := by
-  -- DIAGNOSTIC (tracked debt): assembly is closed once `create_dispatch_of_coupled` +
-  -- the `resumeAfterCreate` stack/mem/aw resume pins land (see docstring).
-  sorry
-
-/-- **The COUPLED CREATE-head bundle** (STUBBED — tracked `sorry`). The CREATE twin of
-`call_head_realises_coupled`: the SAME Piece-A/B assembly (`create_args_run_of_coupled` →
-`create_dispatch_of_coupled` → the `CreateResolves` seam → `recorderCoupled_create_extract`),
-stopping BEFORE the tail and keeping the coupling alive at the create resume frame (tail suffix
-`dS'` — exactly one create record consumed). Consumed by the coupled producer walk's
-`simStmt_coupled_create` (`Producer.lean`) to re-establish `Corr` at the post-create frame. Same
-hypothesis ledger as `createRealises_of_recorded` minus `hslotaddr` (no tail built here). Blocked on
-`create_dispatch_of_coupled` alone (the resume pins are now landed in `Engine/Descent.lean`); the
-residual is that bundle's createArm soft-fail fallback exclusion — see its docstring. -/
-theorem create_head_realises_coupled {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
-    {L : Label} {b : Block} {pc : Nat} {cs : CreateSpec}
-    {st0 : IRState} {fr0 : Frame} {valueW initOffW initSizeW saltW : Word}
-    {gS : List Word} {sS : List Nat} {cS : List CallRecord}
-    {rec : CreateRecord} {dS' : List CreateRecord} {I : Tmp → Prop}
-    (hwl : WellLowered prog)
-    (hcodeFits : codeFits prog)
-    (hb : blockAt prog L = some b)
-    (hcur : b.stmts[pc]? = some (.create cs))
-    (hcorr : Corr prog sloadChg 0 I st0 fr0 L pc)
-    (hcp : RecorderCoupled log fr0 gS sS cS (rec :: dS'))
-    (hch : CleanHaltsNonException fr0)
-    (hcr : ∀ fr', Runs fr0 fr' → CreateResolves fr')
-    (hvalue : st0.locals cs.value = some valueW)
-    (hoff : st0.locals cs.initOffset = some initOffW)
-    (hsize : st0.locals cs.initSize = some initSizeW)
-    (hsalt : st0.locals cs.salt = some saltW)
-    (hfreeValue : RematClosureFree prog I (.tmp cs.value))
-    (hfreeOff : RematClosureFree prog I (.tmp cs.initOffset))
-    (hfreeSize : RematClosureFree prog I (.tmp cs.initSize))
-    (hfreeSalt : RematClosureFree prog I (.tmp cs.salt))
-    (hstkSalt : 0 + (chargeCache prog sloadChg cs.salt).length ≤ 1024)
-    (hstkSize : 1 + (chargeCache prog sloadChg cs.initSize).length ≤ 1024)
-    (hstkOff : 2 + (chargeCache prog sloadChg cs.initOffset).length ≤ 1024)
-    (hstkValue : 3 + (chargeCache prog sloadChg cs.value).length ≤ 1024) :
-    ∃ (resumeFr createFr : Frame),
-      Runs fr0 createFr
-      ∧ createFr.exec.pc = fr0.exec.pc + UInt32.ofNat
-          ((matCache prog cs.salt ++ matCache prog cs.initSize
-            ++ matCache prog cs.initOffset ++ matCache prog cs.value).length)
-      ∧ createFr.exec.toMachineState.memory = fr0.exec.toMachineState.memory
-      ∧ fr0.exec.toMachineState.activeWords.toNat
-          ≤ createFr.exec.toMachineState.activeWords.toNat
-      ∧ CreateReturns createFr resumeFr
-      ∧ resumeAfterCreate rec.result rec.pending = .ok resumeFr
-      ∧ RecorderCoupled log resumeFr gS sS cS dS'
-      ∧ resumeFr.exec.executionEnv.address = fr0.exec.executionEnv.address
-      ∧ resumeFr.exec.executionEnv.code = lower prog
-      ∧ resumeFr.exec.executionEnv.canModifyState = true
-      ∧ resumeFr.exec.pc = createFr.exec.pc + 1
-      ∧ resumeFr.exec.stack = createAddrOrZero rec.result rec.pending :: []
-      ∧ resumeFr.exec.toMachineState.memory = createFr.exec.toMachineState.memory
-      ∧ createFr.exec.toMachineState.activeWords.toNat
-          ≤ resumeFr.exec.toMachineState.activeWords.toNat
-      ∧ resumeFr.validJumps = validJumpDests resumeFr.exec.executionEnv.code 0 := by
-  -- DIAGNOSTIC (tracked debt): same as `createRealises_of_recorded` minus the tail.
-  sorry
+  intro hcorr
+  classical
+  -- the coupled CREATE-head bundle (Piece A/B, coupling kept at the resume frame).
+  obtain ⟨resumeFr, createFr, hargs, hcreatepc, hcreatemem, hcreateact, hrunsCR, _hcpres,
+      hresaddr0, hrescode, hrescanmod, hrespc, hresstk, hresmem, hresact, hresvj, _hressto⟩ :=
+    create_head_realises_coupled hwl hcodeFits hb hcur hcorr hcp hch hcr hvalue hoff hsize hsalt
+      hfreeValue hfreeOff hfreeSize hfreeSalt hstkSalt hstkSize hstkOff hstkValue
+  -- clean halt at the resume frame (forwarded across the arg run + the CREATE node).
+  have hchres : CleanHaltsNonException resumeFr :=
+    cleanHaltsNonException_forward hch (hargs.trans hrunsCR)
+  -- the resume frame sits one byte past the CREATE2 byte: `pcOf + (argsLen + 1)`.
+  have hrespc' : resumeFr.exec.pc = UInt32.ofNat (pcOf prog L pc
+      + (matCache prog cs.salt ++ matCache prog cs.initSize
+          ++ matCache prog cs.initOffset ++ matCache prog cs.value).length + 1) := by
+    rw [hrespc, hcreatepc, hcorr.pc_eq,
+        show (1 : UInt32) = UInt32.ofNat 1 from rfl, ofNat_add', ofNat_add']
+  -- Piece B step 3: the Route-B tail.
+  have htail := create_tail_of_cleanHalt (resumeFr := resumeFr)
+    hcodeFits hb hcur hrescode hrespc' hchres hslotaddr
+  -- assemble the `CreateRealisesS` existential.
+  refine ⟨rec.result, rec.pending, createFr, resumeFr,
+    (matCache prog cs.salt ++ matCache prog cs.initSize
+      ++ matCache prog cs.initOffset ++ matCache prog cs.value).length,
+    stepScopedS_create_of_cursor, ?_, rfl, hargs, hcreatepc, hcreatemem, hcreateact,
+    hrunsCR, hresaddr0, ?_, hrescanmod, hrespc, ?_, hresmem, hresact, ?_, ?_, htail⟩
+  · -- st0' pin: world = the resumed self-lens; `self = fr0.address`.
+    cases cs.resultTmp <;> simp [haddr]
+  · rw [hrescode]
+  · rw [hresstk]
+  · rw [hresvj]
+  · -- the post-state scoping fold.
+    exact create_post_wellScoped (world' := fun key =>
+        evmCreateOracle.postStorage rec.result rec.pending fr0.exec.executionEnv.address key)
+      (addrW := createAddrOrZero rec.result rec.pending)
+      hb hcur hwl.defsCons hcorr.wellScoped
 
 end Lir.V2
