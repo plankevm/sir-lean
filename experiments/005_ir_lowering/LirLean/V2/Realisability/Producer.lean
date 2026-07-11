@@ -2268,7 +2268,8 @@ theorem driveLogStep_of_block {prog : Program} {sloadChg : Tmp → ℕ} {log : R
         simpa using hd
       obtain ⟨last, haltSig, hlast, hhalt, hworld, hresult⟩ :=
         sim_term_halt_stop hcorrT ht haddrT.symm hdec (Classical.choose_spec hkindT) hne
-      refine ⟨{ world := st'.world, result := .stopped }, ?_, RunFrom.stop hb hrunstmts ht⟩
+      refine ⟨{ world := st'.world, result := .stopped }, ?_,
+        @RunFrom.stop prog st st' T T' C C' D D' L b hb hrunstmts ht⟩
       exact ⟨last, haltSig, hrunsT.trans hlast, hhalt, hworld, hresult⟩
   | ret t =>
       left
@@ -2296,7 +2297,7 @@ theorem driveLogStep_of_block {prog : Program} {sloadChg : Tmp → ℕ} {log : R
         sim_term_halt_ret hcorrT ht haddrT.symm hw hwl.defsCons hwl.defEnvOrdered
           hdv hgas hstk hret
       refine ⟨{ world := st'.world, result := .returned w }, ?_,
-        RunFrom.ret hb hrunstmts ht hw⟩
+        @RunFrom.ret prog st st' T T' C C' D D' L b t w hb hrunstmts ht hw⟩
       exact ⟨last, haltSig, hrunsT.trans hlast, hhalt, hworld, hresult⟩
   | jump dst =>
       right
