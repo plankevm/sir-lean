@@ -41,6 +41,23 @@ theorem chargeMemExpansion_pc {e e' : ExecutionState} {off sz : UInt256}
   · exact absurd h (by simp)
   · exact charge_pc h
 
+/-- `charge` only touches `gasAvailable`; the memory byte-map is preserved. -/
+theorem charge_memory {c : ℕ} {e e' : ExecutionState} (h : charge c e = .ok e') :
+    e'.toMachineState.memory = e.toMachineState.memory := by
+  unfold charge at h
+  split at h
+  · exact absurd h (by simp)
+  · simp only [Except.ok.injEq] at h; subst h; rfl
+
+/-- `chargeMemExpansion` charges gas but never writes memory bytes; the byte-map is preserved. -/
+theorem chargeMemExpansion_memory {e e' : ExecutionState} {off sz : UInt256}
+    (h : chargeMemExpansion e off sz = .ok e') :
+    e'.toMachineState.memory = e.toMachineState.memory := by
+  unfold chargeMemExpansion at h
+  split at h
+  · exact absurd h (by simp)
+  · exact charge_memory h
+
 /-! ### CALL-site inversion facts (`hcall_acc` / `hcall_kind` / `hcall_self`)
 
 The three structural CALL-site facts supplied to `callPreservesSelf`, all inverting
@@ -529,6 +546,146 @@ theorem createArm_needsCreate_site_inv
       | error e => intro h; simp at h
       | ok f => intro h; simp at h
 
+/-- **`createArm` `.needsCreate` stack inversion.** In the descend branch `pd.stack` is exactly the
+residual `stack` argument (the operands already popped by the `systemOp` reduction). -/
+theorem createArm_needsCreate_stack_inv
+    {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
+    {value initOffset initSize : UInt256} {salt : Option ByteArray}
+    {cp : CreateParams} {pd : PendingCreate}
+    (h : createArm fr exec stack value initOffset initSize salt = .ok (.needsCreate cp pd)) :
+    pd.stack = stack := by
+  rw [createArm] at h
+  simp only [bind, Except.bind, pure, Except.pure] at h
+  split at h
+  · revert h
+    cases hr : resumeAfterCreate _ _ with
+    | error e => intro h; simp at h
+    | ok f => intro h; simp at h
+  · split at h
+    · simp only [Except.ok.injEq, Signal.needsCreate.injEq] at h
+      obtain ⟨_, hpd⟩ := h
+      subst hpd
+      rfl
+    · revert h
+      cases hr : resumeAfterCreate _ _ with
+      | error e => intro h; simp at h
+      | ok f => intro h; simp at h
+
+/-- **`createArm` `.needsCreate` frame-exec inversion.** In the descend branch the suspended
+`pd.frame.exec` is exactly the (charged) working `exec`. -/
+theorem createArm_needsCreate_frame_exec_inv
+    {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
+    {value initOffset initSize : UInt256} {salt : Option ByteArray}
+    {cp : CreateParams} {pd : PendingCreate}
+    (h : createArm fr exec stack value initOffset initSize salt = .ok (.needsCreate cp pd)) :
+    pd.frame.exec = exec := by
+  rw [createArm] at h
+  simp only [bind, Except.bind, pure, Except.pure] at h
+  split at h
+  · revert h
+    cases hr : resumeAfterCreate _ _ with
+    | error e => intro h; simp at h
+    | ok f => intro h; simp at h
+  · split at h
+    · simp only [Except.ok.injEq, Signal.needsCreate.injEq] at h
+      obtain ⟨_, hpd⟩ := h
+      subst hpd
+      rfl
+    · revert h
+      cases hr : resumeAfterCreate _ _ with
+      | error e => intro h; simp at h
+      | ok f => intro h; simp at h
+
+/-- **`systemOp .CREATE2` `.needsCreate` stack inversion.** The suspended `pd.stack` is the `pop4`
+residual of `exec.stack`: the CREATE2 arm pops value/off/size/salt and suspends the residual. -/
+theorem systemOp_create2_needsCreate_stack_inv {fr : Frame}
+    {exec : ExecutionState} {cp : CreateParams} {pd : PendingCreate}
+    (h : systemOp .CREATE2 fr exec = .ok (.needsCreate cp pd)) :
+    ∃ residual value initOffset initSize salt,
+      exec.stack.pop4 = some (residual, value, initOffset, initSize, salt) ∧ pd.stack = residual := by
+  unfold systemOp at h
+  simp only [bind, Except.bind] at h
+  cases hr : requireStateMod exec with
+  | error e => rw [hr] at h; simp at h
+  | ok _ =>
+    rw [hr] at h; simp only [] at h
+    cases hp : exec.stack.pop4 with
+    | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+    | some v =>
+      obtain ⟨s, val, io, is, salt⟩ := v; rw [hp] at h
+      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      split at h
+      · simp at h
+      · cases hm : chargeMemExpansion exec io is with
+        | error e => rw [hm] at h; simp [pure, Except.pure] at h
+        | ok em =>
+          rw [hm] at h; simp only [pure, Except.pure] at h
+          cases hc : charge (create2Cost is) em with
+          | error e => rw [hc] at h; simp at h
+          | ok ec =>
+            rw [hc] at h; simp only [] at h
+            exact ⟨s, val, io, is, salt, rfl, createArm_needsCreate_stack_inv h⟩
+
+/-- **`systemOp .CREATE2` `.needsCreate` memory inversion.** The suspended `pd.frame.exec` keeps
+`exec`'s memory bytes: the two `chargeMemExpansion`/`charge` charges touch only `gasAvailable`. -/
+theorem systemOp_create2_needsCreate_memory_inv {fr : Frame}
+    {exec : ExecutionState} {cp : CreateParams} {pd : PendingCreate}
+    (h : systemOp .CREATE2 fr exec = .ok (.needsCreate cp pd)) :
+    pd.frame.exec.toMachineState.memory = exec.toMachineState.memory := by
+  unfold systemOp at h
+  simp only [bind, Except.bind] at h
+  cases hr : requireStateMod exec with
+  | error e => rw [hr] at h; simp at h
+  | ok _ =>
+    rw [hr] at h; simp only [] at h
+    cases hp : exec.stack.pop4 with
+    | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+    | some v =>
+      obtain ⟨s, val, io, is, salt⟩ := v; rw [hp] at h
+      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      split at h
+      · simp at h
+      · cases hm : chargeMemExpansion exec io is with
+        | error e => rw [hm] at h; simp [pure, Except.pure] at h
+        | ok em =>
+          rw [hm] at h; simp only [pure, Except.pure] at h
+          cases hc : charge (create2Cost is) em with
+          | error e => rw [hc] at h; simp at h
+          | ok ec =>
+            rw [hc] at h; simp only [] at h
+            rw [createArm_needsCreate_frame_exec_inv h, charge_memory hc,
+              chargeMemExpansion_memory hm]
+
+/-- **`systemOp .CREATE2` `.needsCreate` `activeWords` inversion.** The suspended `pd.frame.exec`
+keeps `exec`'s `activeWords`: the charges touch only `gasAvailable`. -/
+theorem systemOp_create2_needsCreate_activeWords_inv {fr : Frame}
+    {exec : ExecutionState} {cp : CreateParams} {pd : PendingCreate}
+    (h : systemOp .CREATE2 fr exec = .ok (.needsCreate cp pd)) :
+    pd.frame.exec.toMachineState.activeWords = exec.toMachineState.activeWords := by
+  unfold systemOp at h
+  simp only [bind, Except.bind] at h
+  cases hr : requireStateMod exec with
+  | error e => rw [hr] at h; simp at h
+  | ok _ =>
+    rw [hr] at h; simp only [] at h
+    cases hp : exec.stack.pop4 with
+    | none => rw [hp] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+    | some v =>
+      obtain ⟨s, val, io, is, salt⟩ := v; rw [hp] at h
+      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
+      split at h
+      · simp at h
+      · cases hm : chargeMemExpansion exec io is with
+        | error e => rw [hm] at h; simp [pure, Except.pure] at h
+        | ok em =>
+          rw [hm] at h; simp only [pure, Except.pure] at h
+          cases hc : charge (create2Cost is) em with
+          | error e => rw [hc] at h; simp at h
+          | ok ec =>
+            rw [hc] at h; simp only [] at h
+            rw [createArm_needsCreate_frame_exec_inv h, Lir.V2.charge_activeWords hc,
+              Lir.V2.chargeMemExpansion_activeWords hm]
+
 theorem systemOp_needsCreate_site_inv {op : Operation.SystemOp} {fr : Frame}
     {exec : ExecutionState} {cp : CreateParams} {pd : PendingCreate}
     (h : systemOp op fr exec = .ok (.needsCreate cp pd)) :
@@ -621,6 +778,102 @@ theorem stepFrame_needsCreate_site_inv {fr : Frame} {cp : CreateParams} {pd : Pe
         obtain ⟨hops, hpc, hvj, henv⟩ := systemOp_needsCreate_site_inv hd
         refine ⟨?_, hpc, hvj, henv⟩
         rcases hops with rfl | rfl <;> simp [hs]
+
+/-- **`stepFrame → systemOp .CREATE2` reduction at a CREATE2 decode.** When the cursor decodes
+`CREATE2` and `stepFrame` descends, the `.needsCreate` comes from `systemOp .CREATE2 fr fr.exec`. -/
+theorem stepFrame_create2_needsCreate_systemOp {fr : Frame} {cp : CreateParams} {pd : PendingCreate}
+    (hdec : (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (.STOP, .none)).1
+      = .System .CREATE2)
+    (h : stepFrame fr = .needsCreate cp pd) :
+    systemOp .CREATE2 fr fr.exec = .ok (.needsCreate cp pd) :=
+  BytecodeLayer.Dispatch.stepFrame_needsCreate_systemOp_of_decode hdec h
+
+/-- **`stepFrame` CREATE2 descend stack pin.** Combines the site reduction with
+`systemOp_create2_needsCreate_stack_inv`. -/
+theorem stepFrame_create2_needsCreate_stack {fr : Frame} {cp : CreateParams} {pd : PendingCreate}
+    (hdec : (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (.STOP, .none)).1
+      = .System .CREATE2)
+    (h : stepFrame fr = .needsCreate cp pd) :
+    ∃ residual value initOffset initSize salt,
+      fr.exec.stack.pop4 = some (residual, value, initOffset, initSize, salt)
+      ∧ pd.stack = residual :=
+  systemOp_create2_needsCreate_stack_inv (stepFrame_create2_needsCreate_systemOp hdec h)
+
+/-- **`stepFrame` CREATE2 descend memory pin.** The suspended parent keeps `fr.exec`'s memory. -/
+theorem stepFrame_create2_needsCreate_memory {fr : Frame} {cp : CreateParams} {pd : PendingCreate}
+    (hdec : (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (.STOP, .none)).1
+      = .System .CREATE2)
+    (h : stepFrame fr = .needsCreate cp pd) :
+    pd.frame.exec.toMachineState.memory = fr.exec.toMachineState.memory :=
+  systemOp_create2_needsCreate_memory_inv (stepFrame_create2_needsCreate_systemOp hdec h)
+
+/-- **`stepFrame` CREATE2 descend `activeWords` pin.** The suspended parent keeps `fr.exec`'s
+`activeWords`. -/
+theorem stepFrame_create2_needsCreate_activeWords {fr : Frame} {cp : CreateParams}
+    {pd : PendingCreate}
+    (hdec : (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (.STOP, .none)).1
+      = .System .CREATE2)
+    (h : stepFrame fr = .needsCreate cp pd) :
+    pd.frame.exec.toMachineState.activeWords = fr.exec.toMachineState.activeWords :=
+  systemOp_create2_needsCreate_activeWords_inv (stepFrame_create2_needsCreate_systemOp hdec h)
+
+/-- **`stepFrame` CREATE2 soft-fail execEnv pin.** A `.next` step at a CREATE2 cursor preserves the
+execution environment (the soft-fail resume touches only accounts/gas/substate). -/
+theorem stepFrame_create2_next_execEnv {fr : Frame} {exec' : ExecutionState}
+    (hdec : (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (.STOP, .none)).1
+      = .System .CREATE2)
+    (h : stepFrame fr = .next exec') :
+    exec'.executionEnv = fr.exec.executionEnv :=
+  (systemOp_next_accMono
+    (BytecodeLayer.Dispatch.stepFrame_next_systemOp hdec h)).1
+
+/-- **`stepFrame` CREATE2 soft-fail pc pin.** A `.next` step at a CREATE2 cursor advances one byte. -/
+theorem stepFrame_create2_next_pc {fr : Frame} {exec' : ExecutionState}
+    (hdec : (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (.STOP, .none)).1
+      = .System .CREATE2)
+    (h : stepFrame fr = .next exec') :
+    exec'.pc = fr.exec.pc + 1 :=
+  systemOp_next_create_pc (Or.inr rfl)
+    (BytecodeLayer.Dispatch.stepFrame_next_systemOp hdec h)
+
+/-- **`stepFrame` CREATE2 soft-fail stack pin.** A `.next` step at a CREATE2 cursor pops the four
+operands and pushes `0` (the soft-fail address word), so the residual is the `pop4` residual with `0`
+on top. -/
+theorem stepFrame_create2_next_stack {fr : Frame} {exec' : ExecutionState}
+    (hdec : (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (.STOP, .none)).1
+      = .System .CREATE2)
+    (h : stepFrame fr = .next exec') :
+    ∃ residual value initOffset initSize salt,
+      fr.exec.stack.pop4 = some (residual, value, initOffset, initSize, salt)
+      ∧ exec'.stack = residual.push 0 :=
+  systemOp_next_create2_stack (BytecodeLayer.Dispatch.stepFrame_next_systemOp hdec h)
+
+/-- **`stepFrame` CREATE2 soft-fail memory pin.** A `.next` step at a CREATE2 cursor keeps the
+memory bytes (charging and the soft-fail resume never write memory). -/
+theorem stepFrame_create2_next_memory {fr : Frame} {exec' : ExecutionState}
+    (hdec : (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (.STOP, .none)).1
+      = .System .CREATE2)
+    (h : stepFrame fr = .next exec') :
+    exec'.toMachineState.memory = fr.exec.toMachineState.memory :=
+  systemOp_next_create2_memory (BytecodeLayer.Dispatch.stepFrame_next_systemOp hdec h)
+
+/-- **`stepFrame` CREATE2 soft-fail accounts pin.** A `.next` step at a CREATE2 cursor keeps the
+accounts map (soft-fail does NOT bump the nonce; charging never touches accounts). -/
+theorem stepFrame_create2_next_accounts {fr : Frame} {exec' : ExecutionState}
+    (hdec : (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (.STOP, .none)).1
+      = .System .CREATE2)
+    (h : stepFrame fr = .next exec') :
+    exec'.accounts = fr.exec.accounts :=
+  systemOp_next_create2_accounts (BytecodeLayer.Dispatch.stepFrame_next_systemOp hdec h)
+
+/-- **`stepFrame` CREATE2 soft-fail `activeWords` monotonicity.** A `.next` step at a CREATE2 cursor
+dominates the frame's `activeWords` (the soft-fail resume grows it to `M`). -/
+theorem stepFrame_create2_next_activeWords {fr : Frame} {exec' : ExecutionState}
+    (hdec : (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (.STOP, .none)).1
+      = .System .CREATE2)
+    (h : stepFrame fr = .next exec') :
+    fr.exec.toMachineState.activeWords.toNat ≤ exec'.toMachineState.activeWords.toNat :=
+  systemOp_next_create2_activeWords_ge (BytecodeLayer.Dispatch.stepFrame_next_systemOp hdec h)
 
 end Evm
 
@@ -848,17 +1101,19 @@ theorem resumeAfterCreate_memory (result : Evm.CreateResult) (pd : Evm.PendingCr
     rw [← hres]
     rfl
 
-/-- `MachineState.M s f l` dominates its base `s` (`l = 0` is `s`; else `max s _`). -/
-theorem M_ge_left (s f l : UInt64) : s.toNat ≤ (MachineState.M s f l).toNat := by
-  unfold MachineState.M
-  split
-  · exact le_refl _
-  · -- `max s y` is `if s ≤ y then y else s`; both branches dominate `s`.
-    rw [show (s ⊔ ((f + l + 31) / 32))
-          = (if s ≤ (f + l + 31) / 32 then (f + l + 31) / 32 else s) from rfl]
-    split
-    · rename_i h; rwa [UInt64.le_iff_toNat_le] at h
-    · exact le_refl _
+/-- **Resumed CREATE accounts** (the create twin of `resumeAfterCall`'s account write). On a
+successful `resumeAfterCreate`, the resumed frame installs `result.accounts` (`Create.lean:203`);
+`replaceStackAndIncrPC` never touches accounts. So the resumed self-storage lens reads `result`. -/
+theorem resumeAfterCreate_accounts (result : Evm.CreateResult) (pd : Evm.PendingCreate)
+    (parent : Evm.Frame) (hres : Evm.resumeAfterCreate result pd = .ok parent) :
+    parent.exec.accounts = result.accounts := by
+  unfold Evm.resumeAfterCreate at hres
+  simp only [bind, Except.bind, pure, Except.pure] at hres
+  split at hres
+  · exact absurd hres (by simp)
+  · simp only [Except.ok.injEq] at hres
+    rw [← hres]
+    rfl
 
 /-- **Resumed CREATE `activeWords` monotonicity** (the create twin of the
 `resumeAfterCall_activeWords` ≥-direction). On a successful `resumeAfterCreate`, the

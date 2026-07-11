@@ -109,9 +109,10 @@ theorem driveLog_drive :
       cases h : stepFrame current with
       | next exec =>
         dsimp only [h]
-        -- the nested recording `if`s (gas / sload / else) all reduce to the same recursive
-        -- `driveLog` call modulo the (erased) accumulators; split every arm, close by `ih`.
-        split <;> [skip; split] <;> exact ih stack (.inl { current with exec := exec }) _ _ _ _
+        -- the nested recording `if`s (gas / sload / create2 / else) all reduce to the same
+        -- recursive `driveLog` call modulo the (erased) accumulators; split every arm, close by `ih`.
+        split <;> [skip; split <;> [skip; split]] <;>
+          exact ih stack (.inl { current with exec := exec }) _ _ _ _
       | halted halt => dsimp only [h]; exact ih stack (.inr (endFrame current halt)) _ _ _ _
       | needsCall params pending =>
         dsimp only [h]
