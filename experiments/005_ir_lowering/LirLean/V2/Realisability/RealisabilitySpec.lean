@@ -475,7 +475,7 @@ theorem lower_conforms {prog : Program} {params : CallParams} {log : RunLog}
   obtain ⟨O, hcr, hworld, hrunfrom⟩ :=
     runFrom_of_driveCorrLog (prog := prog) (params := params) (log := log)
       (acc := acc) (fr₀ := fr₀)
-      hcode hmod hself hgas hwl hrun hclean hseams hbegin hsize
+      hcode hmod hself hgas hwl hcodeFits hrun hclean hseams hbegin hsize
   exact ⟨O, hrunfrom, conforms_of_worldeq hrun hbegin hcr hcc hworld⟩
 
 /-- **R11-all — the exact-consumption strengthening**: the same flagship with the IR run
@@ -549,7 +549,7 @@ theorem lower_conforms_gasfree {prog : Program} {params : CallParams} {log : Run
   obtain ⟨O, hcr, hworld, hrunfrom⟩ :=
     runFrom_of_driveCorrLog (prog := prog) (params := params) (log := log)
       (acc := acc) (fr₀ := fr₀)
-      hcode hmod hself hgas hwl hrun hclean hseams hbegin hsize
+      hcode hmod hself hgas hwl hcodeFits hrun hclean hseams hbegin hsize
   exact ⟨O, hrunfrom, conforms_of_worldeq hrun hbegin hcr hcc hworld⟩
 
 /-! ### The co-flagship companion's support — the recorder's gas gate never fires

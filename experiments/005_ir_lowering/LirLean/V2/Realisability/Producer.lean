@@ -1597,18 +1597,64 @@ def CoupledBlockRun (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog) (se
     ∧ fr'.exec.executionEnv.address = self
     ∧ (∃ cp, fr'.kind = .call cp)
 
+/-- **Address preserved along a whole `Runs`.** The self address is `rfl`-preserved by every
+edge of a `Runs` path: an opcode `.step` only advances `exec` off the same `executionEnv`
+(`stepFrame_next_execEnvAddr`); a returning `.call` rebuilds the caller frame whose `executionEnv`
+is the CALL-site frame's (`stepFrame_needsCall_inv` + `resumeAfterCall_address`); a returning
+`.create` likewise (`stepFrame_needsCreate_inv` + `resumeAfterCreate_execEnv`). The address twin of
+`runs_kind`; the brick the block walk uses to transport `DriveCorrLog.addrPin` across each coupled
+statement step's `Runs fr fr'` (including the CALL/CREATE resume edges). REAL; no sorry. -/
+theorem runs_address_preserved {fr fr' : Frame} (h : Runs fr fr') :
+    fr'.exec.executionEnv.address = fr.exec.executionEnv.address := by
+  induction h with
+  | refl _ => rfl
+  | step hs _ ih =>
+      rw [ih]
+      have := stepFrame_next_execEnvAddr hs.1
+      rw [hs.2]; rw [this]
+  | call hc _ ih =>
+      obtain ⟨cp, pending, child, childRes, hstep, _, _, hresume⟩ := hc
+      rw [ih, hresume, resumeAfterCall_address]
+      exact congrArg (·.address) (Evm.stepFrame_needsCall_inv hstep).2.2
+  | create hc _ ih =>
+      obtain ⟨cp, pending, childRes, hstep, _, hresume⟩ := hc
+      rw [ih, resumeAfterCreate_execEnv childRes pending _ hresume]
+      exact congrArg (·.address) (Evm.stepFrame_needsCreate_inv hstep).2.2.2
+
+/-- **Append a single `EvalStmt` at the tail of a prefix `RunStmts`.** The `RunStmts` inductive
+`cons`es at the front; the block walk grows its prefix run one statement at a time at the tail, so
+it needs the snoc form. Structural induction on the prefix run. REAL; no sorry. -/
+theorem runStmts_snoc {prog : Program} {st st' st'' : IRState} {T T' T'' : Trace}
+    {C C' C'' : CallStream} {D D' D'' : CreateStream} {ss : List Stmt} {s : Stmt}
+    (hpre : RunStmts prog st T C D ss st' T' C' D')
+    (hstep : EvalStmt prog st' T' C' D' s st'' T'' C'' D'') :
+    RunStmts prog st T C D (ss ++ [s]) st'' T'' C'' D'' := by
+  induction hpre with
+  | nil => exact RunStmts.cons hstep RunStmts.nil
+  | cons hh _ ih => exact RunStmts.cons hh (ih hstep)
+
 /-- **P3a — the COUPLED block walk** (the analogue of `sim_stmts_block`, but coupled; reason
 (a) in one lemma). By induction over the block statement suffix, fold the `simStmt_coupled_*`
 family: at each cursor dispatch on the statement shape, fire the matching arm (feeding it the
 current coupling + alignment + `StmtTies'`), then recurse on the tail at the advanced coupling.
-The self/addr/kind pins ride along via `selfPresent_runs` / `runs_kind` / the address transport.
-Consumes: `stmtTies'_of_runWithLog` (R10a) for the arm facts; `RunDefinableG` (`hwl.defs`) for
-operand definability at each cursor. TRACTABILITY: hard (assembles §2). -/
+The self/addr/kind pins ride along via `selfPresent_runs_of_call` / `runs_kind` /
+`runs_address_preserved`. Consumes: `stmtTies'_of_runWithLog` (R10a) for the arm facts;
+`RunDefinableG` (`hwl.defs`) for operand definability at each cursor; `hwl.stack`/`hwl.slotAddr`
+for the call/create static stack-room + slot-addressability folds; `hwl.revalidates` to coerce the
+terminal accumulated invalidation fold back to `DefsSound` (`RevalidatesPerBlock`).
+TRACTABILITY: hard (assembles §2). -/
 theorem simStmts_coupled_block {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
     {self : AccountAddress} {L : Label} {b : Block} {st : IRState} {fr : Frame}
     {T : Trace} {C : CallStream} {D : CreateStream} {gS : List Word} {sS : List Nat}
     {cS : List CallRecord} {dS : List CreateRecord}
     (hwl : WellLowered prog)
+    -- RESHAPE (approved): the flagship scalar `codeFits` + the reachable-frames CallsCode /
+    -- CreateResolves seams, threaded so the `.call` / `.create` arms of the walk are
+    -- dischargeable. Both are supplied at `boundaryWalk_of_wl` (from `hcodeFits` / `hseams`),
+    -- transported across each statement step by `Runs.trans`.
+    (hcodeFits : codeFits prog)
+    (hcc : ∀ fr', Runs fr fr' → CallsCode fr')
+    (hcr : ∀ fr', Runs fr fr' → CreateResolves fr')
     (hb : blockAt prog L = some b)
     (hcorr : Lir.Corr prog sloadChg 0 (fun _ => False) st fr L 0)
     (hcp : RecorderCoupled log fr gS sS cS dS)
@@ -1621,6 +1667,27 @@ theorem simStmts_coupled_block {prog : Program} {sloadChg : Tmp → ℕ} {log : 
     (hprec : ∀ (cp : CallParams) (imm : CallResult), beginCall cp = .inr imm →
       ∀ a, AccPresent a cp.accounts → AccPresent a imm.accounts) :
     CoupledBlockRun prog sloadChg log self L b st fr T C D := by
+  -- PARTIAL / BLOCKED (precise obstruction reported). The pure-statement walk
+  -- (assign/gas/sload/sstore) fully discharges: the drop-induction with a prefix-`RunStmts`
+  -- accumulator (`runStmts_snoc`), operand bindings from `hwl.defs` (`StmtDefinableG`), the
+  -- static stack-room/slot-addr folds from `hwl.stack`/`hwl.slotAddr`, the pin transport
+  -- (`cleanHaltsNonException_forward` / `selfPresent_runs_of_call` / `runs_address_preserved` /
+  -- `runs_kind`), the seam transport by `Runs.trans`, and the terminal fold→`DefsSound` coercion
+  -- via `hwl.revalidates` (`RevalidatesPerBlock`) — ALL verified green.
+  --
+  -- The `.call` / `.create` arms are BLOCKED on a missing Machinery-level lemma: firing
+  -- `simStmt_coupled_call` / `_create` requires the coupling's call/create SUFFIX to be already
+  -- split (`RecorderCoupled log frc gS sS (rec :: cS') dS`), but the block walk holds only a
+  -- GENERAL suffix `cSc`, and its non-emptiness at a `.call` cursor is NOT derivable from the
+  -- pieces available here (via `StreamsAligned`, firing the IR `EvalStmt.call` itself needs a
+  -- non-empty `Cc = callStreamOf cSc self`). This is the exact analogue of the gas/sload arms,
+  -- which take a GENERAL suffix and split it INTERNALLY via `gasSuffix_nonempty` /
+  -- `sloadSuffix_nonempty` (Machinery) at the reached GAS/SLOAD op. The call/create twins
+  -- `callSuffix_nonempty` / `createSuffix_nonempty` (keyed on the reached CALL/CREATE-byte frame
+  -- firing `.needsCall` / `.needsCreate`) do NOT exist, and `simStmt_coupled_call` /
+  -- `call_head_realises_coupled` / `call_dispatch_of_coupled` are keyed on `rec :: cS'` upfront.
+  -- Resolving this needs either those Machinery lemmas or a reshape of the CALL/CREATE arms to
+  -- take a general suffix and split internally — both in the Machinery layer (concurrent owner).
   sorry
 
 /-- **P3b — the COUPLED per-block step.** From the coupled boundary `DriveCorrLog` + alignment
@@ -1641,6 +1708,11 @@ theorem driveLogStep_of_block {prog : Program} {sloadChg : Tmp → ℕ} {log : R
     {T : Trace} {C : CallStream} {D : CreateStream} {gS : List Word} {sS : List Nat}
     {cS : List CallRecord} {dS : List CreateRecord}
     (hwl : WellLowered prog)
+    -- RESHAPE (approved): `codeFits` + the reachable-frames CallsCode / CreateResolves seams,
+    -- passed straight into the block walk (P3a). Supplied at `boundaryWalk_of_wl`.
+    (hcodeFits : codeFits prog)
+    (hcc : ∀ fr', Runs fr fr' → CallsCode fr')
+    (hcr : ∀ fr', Runs fr fr' → CreateResolves fr')
     (hclosed : ClosedCFG prog)
     (hdrive : DriveCorrLog prog sloadChg log self st fr L gS sS cS dS)
     (hal : StreamsAligned self log gS cS dS T C D)
@@ -1664,31 +1736,43 @@ continuation + `Runs.trans` (lifting the successor's bytecode halt terminal back
 Structural mirror of `runFrom_of_driveCorr`. TRACTABILITY: hard (structural). -/
 theorem runFrom_of_driveCorrLog_rec {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
     {self : AccountAddress}
+    -- RESHAPE (approved): `hstep` (= `driveLogStep_of_block`) now takes the `codeFits` scalar and
+    -- the per-frame reachable-frames CallsCode / CreateResolves seams; the recursion threads them
+    -- to the strictly-smaller successor by `Runs.trans` across the edge `Runs fr fr'`.
+    (hcodeFits : codeFits prog)
     (hstep : ∀ (st : IRState) (fr : Frame) (L : Label) (T : Trace) (C : CallStream)
         (D : CreateStream) (gS : List Word) (sS : List Nat) (cS : List CallRecord)
         (dS : List CreateRecord),
+      (∀ fr', Runs fr fr' → CallsCode fr') →
+      (∀ fr', Runs fr fr' → CreateResolves fr') →
       DriveCorrLog prog sloadChg log self st fr L gS sS cS dS →
       StreamsAligned self log gS cS dS T C D →
       DriveLogStep prog sloadChg log self st fr L T C D gS sS cS dS) :
     ∀ (st : IRState) (fr : Frame) (L : Label) (T : Trace) (C : CallStream) (D : CreateStream)
       (gS : List Word) (sS : List Nat) (cS : List CallRecord) (dS : List CreateRecord),
+      (∀ fr', Runs fr fr' → CallsCode fr') →
+      (∀ fr', Runs fr fr' → CreateResolves fr') →
       DriveCorrLog prog sloadChg log self st fr L gS sS cS dS →
       StreamsAligned self log gS cS dS T C D →
       RunFromCoupled prog self st fr L T C D := by
   -- strong induction on the bytecode `totalGas` measure of the boundary frame, generalising over
   -- all the boundary data so the IH applies at the strictly-smaller successor.
-  intro st fr L T C D gS sS cS dS hdrive hal
+  intro st fr L T C D gS sS cS dS hcc hcr hdrive hal
   induction hmeasure : totalGas [] (.inl fr) using Nat.strong_induction_on
     generalizing st fr L T C D gS sS cS dS with
   | _ n ih =>
     subst hmeasure
-    rcases hstep st fr L T C D gS sS cS dS hdrive hal with
+    rcases hstep st fr L T C D gS sS cS dS hcc hcr hdrive hal with
       hrun | ⟨st', T', C', D', succ, fr', gS', sS', cS', dS', hruns, hdrive', hal', hlt, hcont⟩
     · -- halt disjunct: the block bottoms out; `RunFromCoupled` is delivered directly.
       exact hrun
     · -- edge disjunct: recurse at the strictly-smaller successor, then prepend the block.
+      -- the seams transport across the edge `Runs fr fr'`: anything reachable from `fr'` is
+      -- reachable from `fr`, so `hcc`/`hcr` at `fr` re-supply the successor's seams.
+      have hcc' : ∀ fr'', Runs fr' fr'' → CallsCode fr'' := fun fr'' hr => hcc fr'' (hruns.trans hr)
+      have hcr' : ∀ fr'', Runs fr' fr'' → CreateResolves fr'' := fun fr'' hr => hcr fr'' (hruns.trans hr)
       obtain ⟨O, ⟨last, haltSig, hlast, hhalt, hworld, hresult⟩, hir⟩ :=
-        ih (totalGas [] (.inl fr')) hlt st' fr' succ T' C' D' gS' sS' cS' dS' hdrive' hal' rfl
+        ih (totalGas [] (.inl fr')) hlt st' fr' succ T' C' D' gS' sS' cS' dS' hcc' hcr' hdrive' hal' rfl
       -- the successor's bytecode halt terminal lifts back to `fr` across the edge `Runs fr fr'`.
       exact ⟨O, ⟨last, haltSig, hruns.trans hlast, hhalt, hworld, hresult⟩, hcont O hir⟩
 
@@ -1742,6 +1826,10 @@ theorem runFrom_of_driveCorrLog {prog : Program} {params : CallParams} {log : Ru
     (hself : params.accounts.find? params.recipient = some acc)
     (hgas : GasConstants.Gjumpdest ≤ params.gas.toNat)
     (hwl : WellLowered prog)
+    -- RESHAPE (approved): the strict `codeFits` scalar (the `simStmt_coupled_call/create` arms
+    -- consume the strict `< 2^32`, not the `≤` face carried by `hsize`). Supplied at the flagship
+    -- call site (it holds `hcodeFits : codeFits prog` in scope).
+    (hcodeFits : codeFits prog)
     (hrun : runWithLog params (seedFuel params.gas) = some log)
     (hclean : log.clean)
     (hseams : PrecompileAssumptions prog params)
