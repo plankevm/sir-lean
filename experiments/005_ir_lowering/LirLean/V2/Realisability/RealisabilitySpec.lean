@@ -263,7 +263,7 @@ theorem lower_conforms {prog : Program} {params : CallParams} {log : RunLog}
   --     not from `codeFits` alone; the coupled run-producer (below) remains open.
   -- Everything DOWNSTREAM of this producer call is real, axiom-clean assembly: `conforms_of_worldeq`
   -- (CLOSED, above) discharges the `Conforms` conjunct from the terminal world equation.
-  obtain ⟨O, hcr, hworld, hrunfrom⟩ :=
+  obtain ⟨O, hcr, hworld, hrunfrom, _⟩ :=
     runFrom_of_driveCorrLog (prog := prog) (params := params) (log := log)
       (acc := acc) (fr₀ := fr₀)
       hcode hmod hself hgas hwl hcodeFits hrun hclean hseams hbegin hsize
@@ -296,14 +296,10 @@ theorem lower_conforms_exact {prog : Program} {params : CallParams} {log : RunLo
   obtain ⟨fr₀, hbegin, _⟩ := runWithLog_drive hrun
   have hcc : ∀ fr', Runs fr₀ fr' → CallsCode fr' :=
     fun fr' hr => hseams.callsCode fr' ⟨fr₀, hbegin, hr⟩
-  obtain ⟨O, hcr, hworld, hrunfrom⟩ :
-      ∃ O : Observable,
-        (∀ fr', Runs fr₀ fr' → CreateResolves fr')
-        ∧ (∃ last haltSig, Runs fr₀ last ∧ stepFrame last = .halted haltSig
-            ∧ (observe params.recipient (endFrame last haltSig)).world = O.world
-            ∧ (observe params.recipient (endFrame last haltSig)).result = O.result)
-        ∧ RunFromAll prog (entryState params) (realisedGas log)
-            (realisedCall log params.recipient) (realisedCreate log params.recipient) prog.entry O := sorry
+  obtain ⟨O, hcr, hworld, _, hrunfrom⟩ :=
+    runFrom_of_driveCorrLog (prog := prog) (params := params) (log := log)
+      (acc := acc) (fr₀ := fr₀)
+      hcode hmod hself hgas hwl hcodeFits hrun hclean hseams hbegin hsize
   exact ⟨O, hrunfrom, conforms_of_worldeq hrun hbegin hcr hcc hworld⟩
 
 /-- **The gas-free CO-FLAGSHIP** (target-architecture decision 2 — prove it FIRST). The
@@ -337,7 +333,7 @@ theorem lower_conforms_gasfree {prog : Program} {params : CallParams} {log : Run
   obtain ⟨fr₀, hbegin, _⟩ := runWithLog_drive hrun
   have hcc : ∀ fr', Runs fr₀ fr' → CallsCode fr' :=
     fun fr' hr => hseams.callsCode fr' ⟨fr₀, hbegin, hr⟩
-  obtain ⟨O, hcr, hworld, hrunfrom⟩ :=
+  obtain ⟨O, hcr, hworld, hrunfrom, _⟩ :=
     runFrom_of_driveCorrLog (prog := prog) (params := params) (log := log)
       (acc := acc) (fr₀ := fr₀)
       hcode hmod hself hgas hwl hcodeFits hrun hclean hseams hbegin hsize

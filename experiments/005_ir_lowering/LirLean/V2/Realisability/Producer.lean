@@ -87,6 +87,7 @@ def RunFromCoupled (prog : Program) (self : AccountAddress)
         ∧ (observe self (endFrame last haltSig)).world = O.world
         ∧ (observe self (endFrame last haltSig)).result = O.result)
     ∧ RunFrom prog st T C D L O
+    ∧ RunFromAll prog st T C D L O
 
 /-- The COUPLED per-block obligation (the `DriveLogStep` analogue of `DriveSim`'s `DriveStep`,
 but carrying the coupling + alignment). From a coupled boundary either the block HALTS
@@ -105,7 +106,8 @@ def DriveLogStep (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog) (self 
     ∧ DriveCorrLog prog sloadChg log self st' fr' succ gS' sS' cS' dS'
     ∧ StreamsAligned self log gS' cS' dS' T' C' D'
     ∧ totalGas [] (.inl fr') < totalGas [] (.inl fr)
-    ∧ (∀ O, RunFrom prog st' T' C' D' succ O → RunFrom prog st T C D L O))
+    ∧ (∀ O, RunFrom prog st' T' C' D' succ O → RunFrom prog st T C D L O)
+    ∧ (∀ O, RunFromAll prog st' T' C' D' succ O → RunFromAll prog st T C D L O))
 
 /-- The result of ONE coupled statement step at cursor `(L, pc)`: the IR `EvalStmt` of `s`
 (consuming the aligned stream heads), the matching bytecode `Runs fr fr'` re-establishing
@@ -2204,6 +2206,130 @@ theorem simStmts_coupled_block {prog : Program} {sloadChg : Tmp → ℕ} {log : 
   -- take a general suffix and split internally — both in the Machinery layer (concurrent owner).
   sorry
 
+/-- Recorder coupling follows the lowered `ret` epilogue to its terminal frame.  The epilogue
+contains only materialisation, pushes, and an `MSTORE`; none of those instructions records an
+oracle event. -/
+private theorem recorderCoupled_term_ret {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
+    {st : IRState} {t : Tmp} {w : Word} {L : Label} {b : Block} {fr : Frame}
+    {gS : List Word} {sS : List Nat} {cS : List CallRecord} {dS : List CreateRecord}
+    (hcorr : Corr prog sloadChg 0 (fun _ => False) st fr L b.stmts.length)
+    (hw : st.locals t = some w)
+    (hdc : DefsConsistent prog) (hord : DefEnvOrdered prog)
+    (hdv : MatDecC prog hdc hord fr.exec.executionEnv.code fr.exec.pc (.tmp t))
+    (hgas : (chargeCache prog sloadChg t).sum ≤ fr.exec.gasAvailable.toNat)
+    (hstk : (chargeCache prog sloadChg t).length ≤ 1024)
+    (hret : ∀ frv : Frame, Runs fr frv →
+        frv.exec.executionEnv.code = fr.exec.executionEnv.code →
+        frv.exec.executionEnv.address = fr.exec.executionEnv.address →
+        (∀ k, selfStorage frv k = selfStorage fr k) →
+        frv.exec.stack = w :: fr.exec.stack →
+        frv.exec.pc = fr.exec.pc + UInt32.ofNat (matCache prog t).length →
+        ∃ cp wms,
+          decode frv.exec.executionEnv.code frv.exec.pc
+              = some (.Push .PUSH32, some ((0 : Word), 32))
+          ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33)
+              = some (.Smsf .MSTORE, .none)
+          ∧ decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33 + 1)
+              = some (.Push .PUSH32, some ((32 : Word), 32))
+          ∧ decode frv.exec.executionEnv.code
+              (frv.exec.pc + UInt32.ofNat 33 + 1 + UInt32.ofNat 33)
+              = some (.Push .PUSH32, some ((0 : Word), 32))
+          ∧ decode frv.exec.executionEnv.code
+              (frv.exec.pc + UInt32.ofNat 33 + 1 + UInt32.ofNat 33 + UInt32.ofNat 33)
+              = some (.System .RETURN, .none)
+          ∧ 3 ≤ frv.exec.gasAvailable.toNat
+          ∧ memoryExpansionWords? frv.exec.activeWords (0 : Word) 32 = some wms
+          ∧ memExpansionChargeOf (pushFrameW frv (0 : Word) 32).exec wms
+              ≤ (pushFrameW frv (0 : Word) 32).exec.gasAvailable.toNat
+          ∧ GasConstants.Gverylow ≤ ((pushFrameW frv (0 : Word) 32).exec.gasAvailable
+              - UInt64.ofNat (memExpansionChargeOf (pushFrameW frv (0 : Word) 32).exec wms)).toNat
+          ∧ 3 ≤ (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) w wms []).exec.gasAvailable.toNat
+          ∧ 3 ≤ (pushFrameW (mstoreFrame (pushFrameW frv (0 : Word) 32)
+                    (0 : Word) w wms []) (32 : Word) 32).exec.gasAvailable.toNat
+          ∧ frv.kind = .call cp ∧ ¬ (frv.exec.accounts == ∅) = true)
+    (hcp : RecorderCoupled log fr gS sS cS dS) :
+    ∃ last halt, Runs fr last ∧ stepFrame last = .halted halt
+      ∧ RecorderCoupled log last gS sS cS dS := by
+  have heval : evalExpr st 0 (.tmp t) = some w := hw
+  have hgas' : (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp t)).sum
+      ≤ fr.exec.gasAvailable.toNat := by simpa only [chargeExpr_tmp] using hgas
+  have hstk' : fr.exec.stack.size
+      + (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp t)).length ≤ 1024 := by
+    rw [hcorr.stack_nil]
+    simp only [chargeExpr_tmp]
+    change 0 + (chargeCache prog sloadChg t).length ≤ 1024
+    omega
+  obtain ⟨frv, hmrv, hcpv⟩ := recorderCoupled_matRunsC hdc hord sloadChg st 0 log
+    gS sS cS dS (fun _ => False) (.tmp t) w fr hdv hcorr.defsSound
+    (rematClosureFree_empty prog hdc hord (.tmp t)) hcorr.wellScoped hcorr.storage
+    (by nofun) (by nofun) hcorr.memAgree heval hgas' hstk' hcp
+  obtain ⟨cp, wms, hd0, hdms, hd32, hd0', hdret, hg0, hmemms, hgasMem, hgasV,
+    hg32, hg0'', hkind, hne⟩ := hret frv hmrv.runs hmrv.code hmrv.addr hmrv.storage
+      hmrv.stack hmrv.pc
+  have hfrvstk : frv.exec.stack = w :: ([] : Stack Word) := by
+    simpa [hcorr.stack_nil] using hmrv.stack
+  have hsz1 : frv.exec.stack.size + 1 ≤ 1024 := by simp [hfrvstk]
+  let f1 := pushFrameW frv (0 : Word) 32
+  have hf1step : StepsTo frv f1 := stepsTo_of_next
+    (stepFrame_push frv .PUSH32 (0 : Word) 32 (by decide) hd0 (by decide) (by decide) hg0 hsz1)
+  have hcp1 := recorderCoupled_stepsTo_other hcpv
+    (by unfold isGasOp; rw [hd0]; rfl) (by unfold isSloadOp; rw [hd0]; rfl)
+    (by unfold isCreate2Op; rw [hd0]; rfl) hf1step
+  have hf1stk : f1.exec.stack = (0 : Word) :: w :: ([] : Stack Word) := by
+    change (0 : Word) :: frv.exec.stack = _; rw [hfrvstk]
+  have hdms' : decode f1.exec.executionEnv.code f1.exec.pc = some (.Smsf .MSTORE, .none) := by
+    change decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33) = _
+    exact hdms
+  have hf1sz : f1.exec.stack.size ≤ 1024 := by simp [hf1stk]
+  have hmemms' : memoryExpansionWords? f1.exec.activeWords (0 : Word) 32 = some wms := hmemms
+  let fms := mstoreFrame f1 (0 : Word) w wms []
+  have hmsstep : StepsTo f1 fms := stepsTo_of_next
+    (stepFrame_mstore f1 (0 : Word) w wms [] hdms' hf1stk hf1sz hmemms' hgasMem hgasV)
+  have hcpms := recorderCoupled_stepsTo_other hcp1
+    (by unfold isGasOp; rw [hdms']; rfl) (by unfold isSloadOp; rw [hdms']; rfl)
+    (by unfold isCreate2Op; rw [hdms']; rfl) hmsstep
+  have hd32' : decode fms.exec.executionEnv.code fms.exec.pc
+      = some (.Push .PUSH32, some ((32 : Word), 32)) := by
+    change decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33 + 1) = _
+    exact hd32
+  have hfmsstk : fms.exec.stack = ([] : Stack Word) := rfl
+  have hfmssz : fms.exec.stack.size + 1 ≤ 1024 := by simp [hfmsstk]
+  let f2 := pushFrameW fms (32 : Word) 32
+  have hf2step : StepsTo fms f2 := stepsTo_of_next
+    (stepFrame_push fms .PUSH32 (32 : Word) 32 (by decide) hd32' (by decide) (by decide) hg32 hfmssz)
+  have hcp2 := recorderCoupled_stepsTo_other hcpms
+    (by unfold isGasOp; rw [hd32']; rfl) (by unfold isSloadOp; rw [hd32']; rfl)
+    (by unfold isCreate2Op; rw [hd32']; rfl) hf2step
+  have hf2stk : f2.exec.stack = (32 : Word) :: ([] : Stack Word) := rfl
+  have hd0'' : decode f2.exec.executionEnv.code f2.exec.pc
+      = some (.Push .PUSH32, some ((0 : Word), 32)) := by
+    change decode frv.exec.executionEnv.code
+      (frv.exec.pc + UInt32.ofNat 33 + 1 + UInt32.ofNat 33) = _
+    exact hd0'
+  have hf2sz : f2.exec.stack.size + 1 ≤ 1024 := by simp [hf2stk]
+  let f3 := pushFrameW f2 (0 : Word) 32
+  have hf3step : StepsTo f2 f3 := stepsTo_of_next
+    (stepFrame_push f2 .PUSH32 (0 : Word) 32 (by decide) hd0'' (by decide) (by decide) hg0'' hf2sz)
+  have hcp3 := recorderCoupled_stepsTo_other hcp2
+    (by unfold isGasOp; rw [hd0'']; rfl) (by unfold isSloadOp; rw [hd0'']; rfl)
+    (by unfold isCreate2Op; rw [hd0'']; rfl) hf3step
+  have hf3stk : f3.exec.stack = (0 : Word) :: (32 : Word) :: ([] : Stack Word) := rfl
+  have hdret' : decode f3.exec.executionEnv.code f3.exec.pc = some (.System .RETURN, .none) := by
+    change decode frv.exec.executionEnv.code
+      (frv.exec.pc + UInt32.ofNat 33 + 1 + UInt32.ofNat 33 + UInt32.ofNat 33) = _
+    exact hdret
+  have hf3sz : f3.exec.stack.size ≤ 1024 := by simp [hf3stk]
+  have hf3active : f3.exec.activeWords = MachineState.M frv.exec.activeWords 0 32 := by
+    change (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) w wms []).exec.activeWords = _
+    rw [mstoreFrame_activeWords_eq]
+    change MachineState.M frv.exec.activeWords (0 : UInt64) 32 = _
+    rfl
+  have hmemret : memoryExpansionWords? f3.exec.activeWords (0 : Word) (32 : Word)
+      = some f3.exec.activeWords := by rw [hf3active]; exact memExpWords_zero32_covered _
+  have hhalt := stepFrame_return_word f3 ([] : Stack Word) hdret' hf3stk hf3sz hmemret
+  exact ⟨f3, _, hmrv.runs.trans (Runs.single hf1step) |>.trans (Runs.single hmsstep) |>.trans
+    (Runs.single hf2step) |>.trans (Runs.single hf3step), hhalt, hcp3⟩
+
 /-- **P3b — the COUPLED per-block step.** From the coupled boundary `DriveCorrLog` + alignment
 at a present block, produce the `DriveLogStep`: run the block walk (P3a), then dispatch on
 `b.term` (via `TermTies'`, produced by R10b `termTies'_of_walk`):
@@ -2269,8 +2395,13 @@ theorem driveLogStep_of_block {prog : Program} {sloadChg : Tmp → ℕ} {log : R
       obtain ⟨last, haltSig, hlast, hhalt, hworld, hresult⟩ :=
         sim_term_halt_stop hcorrT ht haddrT.symm hdec (Classical.choose_spec hkindT) hne
       refine ⟨{ world := st'.world, result := .stopped }, ?_,
-        @RunFrom.stop prog st st' T T' C C' D D' L b hb hrunstmts ht⟩
-      exact ⟨last, haltSig, hrunsT.trans hlast, hhalt, hworld, hresult⟩
+        @RunFrom.stop prog st st' T T' C C' D D' L b hb hrunstmts ht, ?_⟩
+      · exact ⟨last, haltSig, hrunsT.trans hlast, hhalt, hworld, hresult⟩
+      · have hhaltT := halt_stop frT hdec
+          (by rw [hcorrT.stack_nil]; show (0 : ℕ) ≤ 1024; omega)
+        apply runFromAll_of_runFromLeft_coupled_halt hcpT hhaltT
+          halT.1 halT.2.1 halT.2.2
+        exact @RunFromLeft.stop prog st st' T T' C C' D D' L b hb hrunstmts ht
   | ret t =>
       left
       obtain ⟨w, hw⟩ := hwl.defs.ret_def st st' T T' C C' D D' L b t hb ht hrunstmts
@@ -2297,8 +2428,16 @@ theorem driveLogStep_of_block {prog : Program} {sloadChg : Tmp → ℕ} {log : R
         sim_term_halt_ret hcorrT ht haddrT.symm hw hwl.defsCons hwl.defEnvOrdered
           hdv hgas hstk hret
       refine ⟨{ world := st'.world, result := .returned w }, ?_,
-        @RunFrom.ret prog st st' T T' C C' D D' L b t w hb hrunstmts ht hw⟩
-      exact ⟨last, haltSig, hrunsT.trans hlast, hhalt, hworld, hresult⟩
+        @RunFrom.ret prog st st' T T' C C' D D' L b t w hb hrunstmts ht hw, ?_⟩
+      · exact ⟨last, haltSig, hrunsT.trans hlast, hhalt, hworld, hresult⟩
+      · obtain ⟨last', haltSig', hlast', hhalt', hcpLast⟩ :=
+          recorderCoupled_term_ret hcorrT hw hwl.defsCons hwl.defEnvOrdered hdv hgas hstk hret hcpT
+        have heq : last' = last :=
+          runs_halt_eq hhalt' (Runs.linear_to_halt hhalt hlast hlast')
+        subst heq
+        apply runFromAll_of_runFromLeft_coupled_halt hcpLast hhalt'
+          halT.1 halT.2.1 halT.2.2
+        exact @RunFromLeft.ret prog st st' T T' C C' D D' L b t w hb hrunstmts ht hw
   | jump dst =>
       right
       obtain ⟨⟨bdst, hbdst⟩, hdstlt, _⟩ := hclosed.jump_closed L b dst hb ht
@@ -2410,7 +2549,9 @@ theorem driveLogStep_of_block {prog : Program} {sloadChg : Tmp → ℕ} {log : R
                 coupled := hcpJD }
       · exact totalGas_succ_lt (hrunsT.trans (Runs.step hpushStep
           (Runs.step hjumpStep (Runs.refl _)))) hgjd
-      · intro O hO; exact RunFrom.jump hb hrunstmts ht hO
+      · constructor
+        · intro O hO; exact RunFrom.jump hb hrunstmts ht hO
+        · intro O hO; exact RunFromLeft.jump hb hrunstmts ht hO
   | branch cond thenL elseL =>
       right
       obtain ⟨⟨bthen, hbthen⟩, hthenlt, _⟩ :=
@@ -2441,10 +2582,15 @@ theorem driveLogStep_of_block {prog : Program} {sloadChg : Tmp → ℕ} {log : R
                 coupled := hcpX }
       · rw [driveCorr_measure, driveCorr_measure] at hlt ⊢
         exact lt_of_lt_of_le hlt (Runs.gasAvailable_le hrunsT)
-      · intro O hO
-        rcases hdir with ⟨hnz, hs⟩ | ⟨hz, hs⟩
-        · subst hs; exact RunFrom.branchThen hb hrunstmts ht hcw hnz hO
-        · subst hs; subst hz; exact RunFrom.branchElse hb hrunstmts ht hcw hO
+      · constructor
+        · intro O hO
+          rcases hdir with ⟨hnz, hs⟩ | ⟨hz, hs⟩
+          · subst hs; exact RunFrom.branchThen hb hrunstmts ht hcw hnz hO
+          · subst hs; subst hz; exact RunFrom.branchElse hb hrunstmts ht hcw hO
+        · intro O hO
+          rcases hdir with ⟨hnz, hs⟩ | ⟨hz, hs⟩
+          · subst hs; exact RunFromLeft.branchThen hb hrunstmts ht hcw hnz hO
+          · subst hs; subst hz; exact RunFromLeft.branchElse hb hrunstmts ht hcw hO
 
 /-- **Spilled def ⇒ `.slot` registration** (the `NonRecomputable → defsOf = .slot` bridge).
 A gas/sload/call-result/create-result target is registered by `defsOf` (first-find,
@@ -2687,7 +2833,8 @@ theorem runFrom_of_driveCorrLog_rec {prog : Program} {sloadChg : Tmp → ℕ} {l
   | _ n ih =>
     subst hmeasure
     rcases hstep st fr L T C D gS sS cS dS hcc hcr hdrive hal with
-      hrun | ⟨st', T', C', D', succ, fr', gS', sS', cS', dS', hruns, hdrive', hal', hlt, hcont⟩
+      hrun | ⟨st', T', C', D', succ, fr', gS', sS', cS', dS', hruns, hdrive', hal', hlt,
+        hcont, hcontAll⟩
     · -- halt disjunct: the block bottoms out; `RunFromCoupled` is delivered directly.
       exact hrun
     · -- edge disjunct: recurse at the strictly-smaller successor, then prepend the block.
@@ -2695,10 +2842,11 @@ theorem runFrom_of_driveCorrLog_rec {prog : Program} {sloadChg : Tmp → ℕ} {l
       -- reachable from `fr`, so `hcc`/`hcr` at `fr` re-supply the successor's seams.
       have hcc' : ∀ fr'', Runs fr' fr'' → CallsCode fr'' := fun fr'' hr => hcc fr'' (hruns.trans hr)
       have hcr' : ∀ fr'', Runs fr' fr'' → CreateResolves fr'' := fun fr'' hr => hcr fr'' (hruns.trans hr)
-      obtain ⟨O, ⟨last, haltSig, hlast, hhalt, hworld, hresult⟩, hir⟩ :=
+      obtain ⟨O, ⟨last, haltSig, hlast, hhalt, hworld, hresult⟩, hir, hirAll⟩ :=
         ih (totalGas [] (.inl fr')) hlt st' fr' succ T' C' D' gS' sS' cS' dS' hcc' hcr' hdrive' hal' rfl
       -- the successor's bytecode halt terminal lifts back to `fr` across the edge `Runs fr fr'`.
-      exact ⟨O, ⟨last, haltSig, hruns.trans hlast, hhalt, hworld, hresult⟩, hcont O hir⟩
+      exact ⟨O, ⟨last, haltSig, hruns.trans hlast, hhalt, hworld, hresult⟩,
+        hcont O hir, hcontAll O hirAll⟩
 
 /-- **P5 — the R6 boundary walk (`hrb`), reason (b).** Every `Runs fr₀`-reachable frame sits at
 a reachable instruction boundary. This helper derives the nonempty-program precondition from
@@ -2765,6 +2913,8 @@ theorem runFrom_of_driveCorrLog {prog : Program} {params : CallParams} {log : Ru
           ∧ (observe params.recipient (endFrame last haltSig)).world = O.world
           ∧ (observe params.recipient (endFrame last haltSig)).result = O.result)
       ∧ RunFrom prog (entryState params) (realisedGas log)
+          (realisedCall log params.recipient) (realisedCreate log params.recipient) prog.entry O
+      ∧ RunFromAll prog (entryState params) (realisedGas log)
           (realisedCall log params.recipient) (realisedCreate log params.recipient) prog.entry O := by
   let sloadChg : Tmp → ℕ := fun _ => 0
   have hcc₀ : ∀ fr', Runs fr₀ fr' → CallsCode fr' :=
@@ -2800,12 +2950,12 @@ theorem runFrom_of_driveCorrLog {prog : Program} {params : CallParams} {log : Ru
       termTies'_of_runWithLog hwl hseams sloadChg L b hb
     exact driveLogStep_of_block hwl hcodeFits hcc hcr hwl.closed hdrive haligned
       hstmts hterm hseams.noErase
-  obtain ⟨O, ⟨last, haltSig, hlast, hhalt, hworld, hresult⟩, hrunFrom⟩ :=
+  obtain ⟨O, ⟨last, haltSig, hlast, hhalt, hworld, hresult⟩, hrunFrom, hrunAll⟩ :=
     runFrom_of_driveCorrLog_rec hcodeFits hstep
       (entryState params) fr₀' prog.entry (realisedGas log)
       (realisedCall log params.recipient) (realisedCreate log params.recipient)
       log.gas log.sloads log.calls log.creates hcc₀' hcr₀' hentry hal
   exact ⟨O, hcr₀, ⟨last, haltSig, hentryRun.trans hlast, hhalt, hworld, hresult⟩,
-    hrunFrom⟩
+    hrunFrom, hrunAll⟩
 
 end Lir.V2
