@@ -159,6 +159,37 @@ theorem wellLowered_of_IRWellFormed {prog : Program}
       slotAddr := hwf.slotAddr
       retEpilogueBound := hretep }
 
+/-- **Spilled def ⇒ `.slot` registration** (the `NonRecomputable → defsOf = .slot` bridge).
+A gas/sload/call-result/create-result target is registered by `defsOf` (first-find,
+`DefsConsistent`) as its spill slot. Consumed by R10a's plain-assign arm to derive the
+target's recomputability from the `.remat` registration. REAL; no sorry. -/
+private theorem defsOf_slot_of_nonRecomputable {prog : Program} (hdc : DefsConsistent prog)
+    {t : Tmp} (h : Lir.NonRecomputable prog t) :
+    defsOf prog t = some (.slot (slotOf t)) := by
+  have mem_getElem :
+      ∀ {b : Block} {s : Stmt}, b ∈ prog.blocks.toList → s ∈ b.stmts →
+        ∃ (L : Label) (b' : Block) (pc : Nat), blockAt prog L = some b' ∧ b'.stmts[pc]? = some s := by
+    intro b s hbmem hsmem
+    obtain ⟨i, hi, hbget⟩ := List.mem_iff_getElem.mp hbmem
+    obtain ⟨j, hj, hsget⟩ := List.mem_iff_getElem.mp hsmem
+    refine ⟨⟨i⟩, b, j, ?_, ?_⟩
+    · show prog.blocks[i]? = some b
+      rw [← Array.getElem?_toList, List.getElem?_eq_getElem hi, hbget]
+    · rw [List.getElem?_eq_getElem hj, hsget]
+  rcases h with hgas | hsload | hcall | hcreate
+  · obtain ⟨b, hbmem, hsmem⟩ := hgas
+    obtain ⟨L, b', pc, hb, hs⟩ := mem_getElem hbmem hsmem
+    have := (hdc L b' pc hb).1 t .gas hs; simpa using this
+  · obtain ⟨b, hbmem, k, hsmem⟩ := hsload
+    obtain ⟨L, b', pc, hb, hs⟩ := mem_getElem hbmem hsmem
+    have := (hdc L b' pc hb).1 t (.sload k) hs; simpa using this
+  · obtain ⟨b, hbmem, cs, hsmem, hrt⟩ := hcall
+    obtain ⟨L, b', pc, hb, hs⟩ := mem_getElem hbmem hsmem
+    exact (hdc L b' pc hb).2.1 cs t hs hrt
+  · obtain ⟨b, hbmem, cs, hsmem, hrt⟩ := hcreate
+    obtain ⟨L, b', pc, hb, hs⟩ := mem_getElem hbmem hsmem
+    exact (hdc L b' pc hb).2.2 cs t hs hrt
+
 /-- **R10a — the statement ties, BUILT from the run** (the assembly obligation the
 current headline lacks a producer for). For ANY `(st0, fr0, suffixes)` satisfying the
 arms' antecedents — including OFF-RUN adversarial instances — the conclusions hold,
@@ -178,7 +209,160 @@ theorem stmtTies'_of_runWithLog {prog : Program} {params : CallParams} {log : Ru
     (hseams : PrecompileAssumptions prog params)
     (hbegin : beginCall params = .inl fr₀) :
     ∀ (sloadChg : Tmp → ℕ) (L : Label) (b : Block), blockAt prog L = some b →
-      StmtTies' prog sloadChg log params.recipient L b := sorry
+      StmtTies' prog sloadChg log params.recipient L b := by
+  intro sloadChg L b hb
+  set self := params.recipient with hself
+  refine ⟨?arm1, ?arm2, ?arm3, ?arm4, ?arm5, ?arm6⟩
+  -- ===================== arm (1): plain assign (neither gas nor sload) =====================
+  case arm1 =>
+    intro pc t e w st0 fr0 gS sS cS dS I hcur hne hns hcorr _hcp _hch hv
+    -- `defsOf t = .remat e` (DefsConsistent, pure branch), so not a spill slot.
+    have hdef : defsOf prog t = some (Lir.locOfExpr e) := by
+      have := (hwl.defsCons L b pc hb).1 t e hcur
+      cases e <;> first | (exact absurd rfl hne) | (exact absurd rfl (hns _)) | simpa using this
+    have hslot : ∀ n, defsOf prog t ≠ some (.slot n) := by
+      intro n hn; rw [hdef] at hn; simp [Lir.locOfExpr] at hn
+    have hrem : rematOf prog t = some e := by
+      unfold rematOf; rw [hdef]; rfl
+    have hstepS : StepScopedS prog (.assign t e) :=
+      ⟨fun _ _ => hrem, fun h => absurd h hne, fun k h => absurd h (hns k)⟩
+    -- `t` is recomputable: were it `NonRecomputable`, `defsOf t = .slot`, contradiction.
+    have hnr : ¬ Lir.NonRecomputable prog t := by
+      intro hcontra
+      have := defsOf_slot_of_nonRecomputable hwl.defsCons hcontra
+      exact hslot _ this
+    have hscoped' : ∀ t', (st0.setLocal t w).locals t' ≠ none →
+        (¬ Lir.NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
+        ∧ defsOf prog t' ≠ none := by
+      intro t' ht'
+      by_cases heq : t' = t
+      · subst t'
+        exact ⟨Or.inl hnr, by rw [hdef]; simp⟩
+      · have hl' : st0.locals t' ≠ none := by
+          simpa [IRState.setLocal, if_neg heq] using ht'
+        exact hcorr.wellScoped t' hl'
+    have hmem' : Lir.MemRealises prog (st0.setLocal t w) fr0 := by
+      intro tw slot v hslotdef hlocals
+      by_cases heq : tw = t
+      · subst tw; exact absurd hslotdef (hslot slot)
+      · have hl' : st0.locals tw = some v := by
+          simpa [IRState.setLocal, if_neg heq] using hlocals
+        exact hcorr.memAgree tw slot v hslotdef hl'
+    exact ⟨hslot, hstepS, hscoped', hmem'⟩
+  -- ===================== arm (2): spilled sload assign =====================
+  case arm2 =>
+    intro pc t k kv st0 fr0 gS sS cS dS I hcur hcorr _hcp _hch hkey
+    have hslotdef : defsOf prog t = some (.slot (slotOf t)) := by
+      have := (hwl.defsCons L b pc hb).1 t (.sload k) hcur; simpa using this
+    have hisSload : Lir.isSloadDef prog t :=
+      ⟨b, List.mem_of_getElem? (Lir.toList_of_blockAt hb), k, List.mem_of_getElem? hcur⟩
+    have hstepS : StepScopedS prog (.assign t (.sload k)) :=
+      ⟨fun _ h2 => absurd rfl (h2 k), fun h => Expr.noConfusion h, fun _ _ => hisSload⟩
+    have hslots : ∀ tw slot', defsOf prog tw = some (.slot slot') → slot' = slotOf tw :=
+      hwl.wf.slots_slot
+    have hwval : evalExpr st0 0 (.sload k) = some (st0.world kv) := by
+      simp [evalExpr, hkey]
+    have hscoped' : ∀ t', (st0.setLocal t (st0.world kv)).locals t' ≠ none →
+        (¬ Lir.NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
+        ∧ defsOf prog t' ≠ none := by
+      intro t' ht'
+      by_cases heq : t' = t
+      · subst t'
+        exact ⟨Or.inr ⟨slotOf t, hslotdef⟩, by rw [hslotdef]; simp⟩
+      · have hl' : st0.locals t' ≠ none := by
+          simpa [IRState.setLocal, if_neg heq] using ht'
+        exact hcorr.wellScoped t' hl'
+    obtain ⟨hslot63, hslotplat⟩ :=
+      hwl.slotAddr L b pc t hb (Or.inr (Or.inl ⟨k, hcur⟩))
+    have hstkKey : fr0.exec.stack.size + (chargeCache prog sloadChg k).length ≤ 1024 := by
+      rw [hcorr.stack_nil]; simpa using hwl.stack.sloadKey sloadChg L b pc t k hb hcur
+    -- BLOCKER (arm 2 — the sload-key activeWords-flatness `hawk`): the conclusion
+    -- `frk.activeWords = fr0.activeWords` is NOT derivable from the `MatRunsC` witness alone.
+    -- `MatRunsC` records only `memBytes` (equal bytes) and `memActive` (activeWords ≤,
+    -- `MatFoldChannel.lean:819`) — it does NOT pin activeWords EQUALITY, so an adversarial `frk`
+    -- with strictly larger activeWords (same bytes) satisfies every field yet refutes this arm.
+    -- The fact is TRUE (the `materialise_runsC` construction threads `pushFrameW`/`sloadFrame`/
+    -- MLOAD-covered-readback frames, each `activeWords`-preserving by `rfl`), but capturing it
+    -- needs a NEW `MatRunsC` field `activeWordsEq` (re-proving `materialise_runsC` and every
+    -- constructor site in `MatFoldChannel.lean` — a DEFAULT-cone edit, not performable in this
+    -- WIP-only file). In the old `SimStmtStep` path `hawk` was likewise an always-SUPPLIED
+    -- structural residual (`LowerConforms.lean:385`, `CleanHaltExtract.lean:784`), never produced.
+    have hflat : ∀ frk : Frame,
+        MatRunsC prog sloadChg (.tmp k) kv fr0 frk →
+        frk.exec.toMachineState.activeWords = fr0.exec.toMachineState.activeWords :=
+      fun frk hmrk => sorry
+    exact ⟨hslotdef, hstepS, hslots, hwval, hscoped', hslot63, hslotplat, hstkKey, hflat⟩
+  -- ===================== arm (3): spilled gas assign (R1 conjunct) =====================
+  case arm3 =>
+    intro pc t st0 fr0 gS sS cS dS I hcur hcorr hcp hch
+    have hslotdef : defsOf prog t = some (.slot (slotOf t)) := by
+      have := (hwl.defsCons L b pc hb).1 t .gas hcur; simpa using this
+    have hisGas : Lir.isGasDef prog t :=
+      ⟨b, List.mem_of_getElem? (Lir.toList_of_blockAt hb), List.mem_of_getElem? hcur⟩
+    have hstepS : StepScopedS prog (.assign t .gas) :=
+      ⟨fun h => absurd rfl h, fun _ => hisGas, fun _ h => Expr.noConfusion h⟩
+    have hslots : ∀ tw slot', defsOf prog tw = some (.slot slot') → slot' = slotOf tw :=
+      hwl.wf.slots_slot
+    obtain ⟨hslot63, hslotplat⟩ :=
+      hwl.slotAddr L b pc t hb (Or.inl hcur)
+    have hpcbound : pcOf prog L pc + 34 < 2 ^ 32 := hwl.gasBound L b pc t hb hcur
+    have hghead : gS.head? = some (UInt256.ofUInt64
+        (fr0.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase)) :=
+      gas_suffix_head_realised hb hcur hslotdef hpcbound hcorr hcp hch
+    have hscoped' : ∀ t', (st0.setLocal t (UInt256.ofUInt64
+            (fr0.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase))).locals t' ≠ none →
+          (¬ Lir.NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
+          ∧ defsOf prog t' ≠ none := by
+      intro t' ht'
+      by_cases heq : t' = t
+      · subst t'
+        exact ⟨Or.inr ⟨slotOf t, hslotdef⟩, by rw [hslotdef]; simp⟩
+      · have hl' : st0.locals t' ≠ none := by
+          simpa [IRState.setLocal, if_neg heq] using ht'
+        exact hcorr.wellScoped t' hl'
+    exact ⟨hslotdef, hstepS, hslots, hghead, hscoped', hslot63, hslotplat, hpcbound⟩
+  -- ===================== arm (4): sstore =====================
+  case arm4 =>
+    intro pc key value kw vw st0 fr0 gS sS cS dS I hcur _hcorr _hcp _hch _hkw _hvw
+    have hstepS : StepScopedS prog (.sstore key value) := by
+      intro t₀ e₀ hd₀ k he
+      subst he
+      have : defsOf prog t₀ = some (.remat (.sload k)) := by
+        unfold rematOf at hd₀; cases hh : defsOf prog t₀ with
+        | none => rw [hh] at hd₀; simp at hd₀
+        | some loc =>
+          cases loc with
+          | slot n => rw [hh] at hd₀; simp at hd₀
+          | remat e' => rw [hh] at hd₀; simp at hd₀; rw [hd₀]
+      exact Lir.defsOf_ne_sload prog t₀ k this
+    have hstk : (chargeCache prog sloadChg value).length
+        + (chargeCache prog sloadChg key).length + 1 ≤ 1024 := by
+      simpa using hwl.stack.sstore sloadChg L b pc key value hb hcur
+    exact ⟨hstepS, hstk⟩
+  -- ===================== arm (5): call =====================
+  case arm5 =>
+    intro pc cs st0 st0' fr0 cw gw gS sS rec cS' dS I hcur hcp hch haddr
+      hcodeFits hcc hcallee hgasfwd hfreeCallee hfreeGasFwd hstkCallee hstkGasFwd
+      hslotaddr hst0'
+    subst hst0'
+    exact callRealises_of_recorded hwl hcodeFits hb hcur hcp hch haddr hcc hcallee hgasfwd
+      hfreeCallee hfreeGasFwd hstkCallee hstkGasFwd hslotaddr
+  -- ===================== arm (6): create =====================
+  case arm6 =>
+    intro pc cs st0 st0' fr0 gS sS cS rec dS' I hcur hcp hch haddr hst0'
+    -- BLOCKER (arm 6 — `CreateRealisesS`): there is NO `createRealises_of_recorded` producer
+    -- anywhere in the tree (grep: the only `CreateRealisesS` occurrences are its `Surface.lean`
+    -- definition + this arm). It is the CREATE twin of the closed `callRealises_of_recorded`
+    -- (`Machinery.lean:3475`) and needs the CREATE Piece-B run machinery — the analogs of
+    -- `call_args_run_of_coupled` / `call_dispatch_of_coupled` / `call_tail_of_cleanHalt` /
+    -- `callRealises_of_recorded_finish` — NONE of which exist for CREATE. Piece A alone is present
+    -- (`recorderCoupled_create_extract`, `Machinery.lean:2038`). The plan of record
+    -- (`docs/planning/r11-run-plan-2026-07-09.md`) lists "CREATE finish half, simStmt_coupled_create"
+    -- and "the create realisation bridge (recorded head → CreateReturns resume)" as PENDING
+    -- prerequisites for this very theorem (its "Terminal wave"), and notes some `resumeAfterCreate`
+    -- frame-pins land in the DEFAULT target (out of this WIP file's scope). Blocked until that
+    -- CREATE run producer lands.
+    sorry
 
 /-- **R10b — the terminator ties, BUILT** (the `runWithLog`-context restatement of R5;
 kept separate so the R11 assembly consumes one hypothesis shape per tie). -/
