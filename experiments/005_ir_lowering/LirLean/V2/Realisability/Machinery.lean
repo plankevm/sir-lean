@@ -2862,8 +2862,8 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
 `call_args_run_of_coupled` BUILDS the CALL argument-push run (`5 × PUSH32 0`, then the
 `callee`/`gasFwd` materialise runs) from `Corr` + the coupling + clean-halt — the
 "no in-tree producer" half of the old R3 blocker, closed here. The two remaining
-machine-side residues are NAMED WIP obligations below (`call_dispatch_of_coupled`,
-`call_tail_of_cleanHalt`), and `callRealises_of_recorded` is real assembly over them. -/
+machine-side residues (`call_dispatch_of_coupled`, `call_tail_of_cleanHalt`) are
+closed below, and `callRealises_of_recorded` is real assembly over them. -/
 
 /-- One coupled `PUSH32` step: the run, the (non-recording) coupling transport, and the
 forwarded clean-halt scope at the pushed frame. Gas is DERIVED from the clean-halt witness
@@ -3460,9 +3460,9 @@ theorem call_tail_of_cleanHalt {prog : Program} {L : Label} {b : Block} {pc : Na
 /-- **R3 — call realisation from the log** (relocated; the original design docstring is at
 the retired cursor near the top of this file / in git history). CLOSED as real assembly:
 `call_args_run_of_coupled` (Piece B step 1, closed) → `call_dispatch_of_coupled` (step 2,
-NAMED WIP) → the CallsCode seam rules out the precompile/immediate arm →
+closed) → the CallsCode seam rules out the precompile/immediate arm →
 `recorderCoupled_call_extract` (Piece A, closed) identifies the head record →
-`call_tail_of_cleanHalt` (step 3, NAMED WIP) supplies the Route-B tail →
+`call_tail_of_cleanHalt` (step 3, closed) supplies the Route-B tail →
 `callRealises_of_recorded_finish` (closed) discharges the bundle.
 
 STATEMENT CHANGES (honest discovered hypotheses; none a per-event tie, none public):
@@ -3540,7 +3540,7 @@ theorem callRealises_of_recorded {prog : Program} {sloadChg : Tmp → ℕ} {log 
       (call_stmt_offset_bound_of_codeFits hcodeFits hb hcur hargslt)
       hcallbyte (by decide) hseg
     simpa using h
-  -- Piece B step 2 (named WIP): the dispatch bundle.
+  -- Piece B step 2: the dispatch bundle.
   obtain ⟨cp, pending, hstep, henv, hvj, hpcpin, hmempin, hawpin, hstkpin, hinS, houtS⟩ :=
     call_dispatch_of_coupled hcpcall hchcall hdecCall hcallstk hcallmod
   -- the CallsCode seam rules out the precompile/immediate arm.
@@ -3597,7 +3597,7 @@ theorem callRealises_of_recorded {prog : Program} {sloadChg : Tmp → ℕ} {log 
     cleanHaltsNonException_forward hch
       (hargs.trans (Runs.call hcall'
         (Runs.refl (Evm.resumeAfterCall rec.result rec.pending))))
-  -- Piece B step 3 (named WIP): the Route-B tail.
+  -- Piece B step 3: the Route-B tail.
   have htail := call_tail_of_cleanHalt
     (resumeFr := Evm.resumeAfterCall rec.result rec.pending)
     hcodeFits hb hcur hrescode
@@ -3729,7 +3729,7 @@ recorder coupling: the arg-push run and the returning-CALL resume are packaged a
 `CallReturns` facts, so a consumer that must RE-ESTABLISH `RecorderCoupled` at the post-call
 frame (the coupled producer walk, `Producer.lean`'s `simStmt_coupled_call`) cannot transport the
 coupling across those opaque runs. `call_head_realises_coupled` is the SAME Piece-A/B assembly
-(`call_args_run_of_coupled` → `call_dispatch_of_coupled` [named WIP] → the CallsCode seam →
+(`call_args_run_of_coupled` → `call_dispatch_of_coupled` → the CallsCode seam →
 `recorderCoupled_call_extract`), stopping BEFORE the tail and keeping the coupling alive: it
 returns the CALL-site frame with its pins, the rec-spelled returning CALL, the advanced coupling
 at the resume frame (tail suffix `cS'` — exactly one record consumed), and the resume-frame pins
@@ -3815,7 +3815,7 @@ theorem call_head_realises_coupled {prog : Program} {sloadChg : Tmp → ℕ} {lo
       (call_stmt_offset_bound_of_codeFits hcodeFits hb hcur hargslt)
       hcallbyte (by decide) hseg
     simpa using h
-  -- Piece B step 2 (named WIP): the dispatch bundle.
+  -- Piece B step 2: the dispatch bundle.
   obtain ⟨cp, pending, hstep, henv, hvj, hpcpin, hmempin, hawpin, hstkpin, hinS, houtS⟩ :=
     call_dispatch_of_coupled hcpcall hchcall hdecCall hcallstk hcallmod
   -- the CallsCode seam rules out the precompile/immediate arm.

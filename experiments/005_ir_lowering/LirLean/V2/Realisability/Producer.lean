@@ -951,16 +951,307 @@ theorem simStmt_coupled_sstore {prog : Program} {sloadChg : Tmp → ℕ} {log : 
   exact ⟨st.setStorage kw vw, fr', T, C, D, gS, sS, cS, dS,
     EvalStmt.sstore hk hvv, hruns, hcorr', hstacknil', hcpf, hal⟩
 
-/-- **P2-call — the external-CALL coupled step (the R3/Piece-B-gated arm).** Fires `StmtTies'`
-arm (5) / `CallRealisesS` (R3 `callRealises_of_recorded`, whose Piece A is green via
-`recorderCoupled_call_extract`), the in-tree `sim_call_stmt` brick, and `recorderCoupled_call`
-(R7e) to advance past the recorded CALL record; the `callSuffix` head `rec` positionally IS this
-call's recorded result, so `EvalStmt.call` consumes exactly the aligned `callStreamOf` head
-(`callStreamOf_cons`). BLOCKER: R3's Piece B (the `materialise`-driven CALL argument-push run —
-`Runs fr callFr` + `stepFrame callFr = .needsCall …`) has NO in-tree producer
-(`callRealises_of_recorded` is `sorry`, `Machinery.lean:405`); and the `resumeAfterCall` frame-pin
-sub-facts may need a bytecode-layer computation in the DEFAULT target (STOP-and-report, per the
-track rules). TRACTABILITY: hard (Piece-B-gated). -/
+/-! ### The CALL arm's support bricks (all REAL, no sorry)
+
+* `stmt_offset_bound_of_codeFits` — the generic per-statement byte-offset bound under the
+  flagship scalar `codeFits` (stated for ANY statement; Machinery's `call_stmt_offset_bound`
+  is `private` and CALL-only, so this local copy is the reusable form).
+* `call_post_wellScoped'` — the call arm's post-state scoping fold: world replacement
+  preserves the fold; a bound result tmp's slot registration comes from `DefsConsistent`'s
+  call clause.
+* `sim_call_stmt'` — the SCOPED, fixed-endpoint re-plumb of `sim_call_stmt` that the coupled
+  walk needs (it must CONSTRUCT the Route-B tail itself to transport the recorder coupling
+  frame-by-frame). -/
+
+private theorem stmt_offset_bound_of_codeFits {prog : Program} {L : Label} {b : Block}
+    {pc : Nat} {s : Stmt}
+    (hcodeFits : codeFits prog)
+    (hb : blockAt prog L = some b)
+    (hcur : b.stmts[pc]? = some s)
+    {k : Nat}
+    (hk : k < (emitStmt (matCache prog) (defsOf prog) s).length) :
+    pcOf prog L pc + k < 2 ^ 32 := by
+  have hbyte0 : (emitStmt (matCache prog) (defsOf prog) s)[k]?
+      = some ((emitStmt (matCache prog) (defsOf prog) s)[k]) :=
+    List.getElem?_eq_getElem hk
+  have hflat : (flatBytes prog)[pcOf prog L pc + k]?
+      = some ((emitStmt (matCache prog) (defsOf prog) s)[k]) := by
+    rw [flatBytes_at_pcOf_offset prog L b pc s k (Lir.toList_of_blockAt hb) hcur hk]
+    exact hbyte0
+  rw [List.getElem?_eq_some_iff] at hflat
+  exact lt_of_lt_of_le hflat.1 (Nat.le_of_lt hcodeFits)
+
+/-- The call arm's post-state scoping fold: world replacement preserves the fold; a bound
+result tmp's slot registration comes from `DefsConsistent`'s call clause. REAL; no sorry. -/
+private theorem call_post_wellScoped' {prog : Program} {L : Label} {b : Block} {pc : Nat}
+    {cs : CallSpec} {st : IRState} {world' : World} {success : Word}
+    (hb : blockAt prog L = some b)
+    (hcur : b.stmts[pc]? = some (.call cs))
+    (hdefsCons : DefsConsistent prog)
+    (hscoped : ∀ t, st.locals t ≠ none →
+      (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.slot slot))
+      ∧ defsOf prog t ≠ none) :
+    ∀ t, (match cs.resultTmp with
+            | some t' => { st with world := world' }.setLocal t' success
+            | none => { st with world := world' }).locals t ≠ none →
+          (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.slot slot))
+          ∧ defsOf prog t ≠ none := by
+  intro t hlocal
+  cases hres : cs.resultTmp with
+  | none =>
+      have hlocal' : st.locals t ≠ none := by
+        simpa [hres] using hlocal
+      exact hscoped t hlocal'
+  | some u =>
+      by_cases ht : t = u
+      · subst u
+        have hslot : defsOf prog t = some (.slot (slotOf t)) :=
+          (hdefsCons L b pc hb).2.1 cs t hcur hres
+        exact ⟨Or.inr ⟨slotOf t, hslot⟩, by simp [hslot]⟩
+      · have hlocal' : st.locals t ≠ none := by
+          simpa [IRState.setLocal, hres, ht] using hlocal
+        exact hscoped t hlocal'
+
+/-- **`sim_call_stmt'`, the SCOPED, fixed-endpoint re-plumb of `sim_call_stmt`.** Two changes
+against the in-tree original (`Sim/SimStmt.lean:596`): (i) the strong `DefsSound`/`StepScoped`
+inputs are REPLACED by a directly-supplied scoped post-state soundness `hsound' : DefsSoundS
+prog I' st'` (the coupled walk produces it via `defsSoundS_preserved_step` at `invalStep I
+(.call cs)`), so the conclusion `Corr` is scoped at `I'`; and (ii) the Route-B tail is taken at
+a FIXED endpoint `endFr` (a `StashRuns` bundle for `resultTmp = some t`, the pinned `popFrame`
+for `none`) instead of the original's opaque existential — the coupled caller CONSTRUCTS the
+tail run itself (it must, to transport the recorder coupling frame-by-frame across it). The
+`Corr` re-establishment body is verbatim `sim_call_stmt`. REAL; no sorry. -/
+theorem sim_call_stmt' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
+    {st st' : IRState} {cs : CallSpec}
+    {L : Label} {b : Block} {pc : Nat} {argsLen : Nat}
+    {fr callFr resumeFr endFr : Frame} {result : Evm.CallResult} {pd : Evm.PendingCall}
+    {self : AccountAddress} {I' : Tmp → Prop}
+    (hb : prog.blocks.toList[L.idx]? = some b)
+    (hs : b.stmts[pc]? = some (.call cs))
+    (hfrpc : fr.exec.pc = UInt32.ofNat (pcOf prog L pc))
+    (hargslen : argsLen
+      = (emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
+          ++ matCache prog cs.callee
+          ++ matCache prog cs.gasFwd).length)
+    (hargs : Runs fr callFr)
+    (hcallpc : callFr.exec.pc = fr.exec.pc + UInt32.ofNat argsLen)
+    (hcallmem : callFr.exec.toMachineState.memory = fr.exec.toMachineState.memory)
+    (hcallactive : fr.exec.toMachineState.activeWords.toNat
+      ≤ callFr.exec.toMachineState.activeWords.toNat)
+    (hcall : CallReturns callFr resumeFr)
+    (hresume : resumeFr = Evm.resumeAfterCall result pd)
+    (hst' : st' = (match cs.resultTmp with
+        | some t => { st with world := fun key => evmCallOracle.postStorage result pd self key }.setLocal
+                      t (callSuccessFlag result pd)
+        | none   => { st with world := fun key => evmCallOracle.postStorage result pd self key }))
+    (hresaddr : resumeFr.exec.executionEnv.address = self)
+    (hrescode : resumeFr.exec.executionEnv.code = lower prog)
+    (hrescanmod : resumeFr.exec.executionEnv.canModifyState = true)
+    (hrespc : resumeFr.exec.pc = callFr.exec.pc + 1)
+    (hresstack : resumeFr.exec.stack = callSuccessFlag result pd :: [])
+    (hresmem : resumeFr.exec.toMachineState.memory = callFr.exec.toMachineState.memory)
+    (hresactive : callFr.exec.toMachineState.activeWords.toNat
+      ≤ resumeFr.exec.toMachineState.activeWords.toNat)
+    (hresvalidjumps : resumeFr.validJumps = validJumpDests resumeFr.exec.executionEnv.code 0)
+    (hsound' : DefsSoundS prog I' st')
+    (hmem : Lir.MemRealises prog st fr)
+    (hslots : ∀ tw slot', defsOf prog tw = some (.slot slot') → slot' = slotOf tw)
+    (hscoped' : ∀ t, st'.locals t ≠ none →
+      (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.slot slot))
+      ∧ defsOf prog t ≠ none)
+    (htailSome : ∀ t, cs.resultTmp = some t →
+      (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
+      ∧ Lir.StashRuns resumeFr endFr (slotOf t) (callSuccessFlag result pd) 34 [])
+    (htailNone : cs.resultTmp = none →
+      Runs resumeFr endFr ∧ endFr = popFrame resumeFr []) :
+    Runs fr endFr ∧ Lir.Corr prog sloadChg obs I' st' endFr L (pc + 1)
+      ∧ endFr.exec.stack = [] := by
+  classical
+  -- == the Runs to `resumeFr`: arg pushes then the returning CALL node ==
+  have hruns0 : Runs fr resumeFr := hargs.trans (sim_call hcall (Runs.refl resumeFr))
+  -- `M3` re-established at `resumeFr`: `selfStorage resumeFr key = postStorage…`.
+  have hM3 : ∀ key,
+      selfStorage resumeFr key = evmCallOracle.postStorage result pd self key := by
+    intro key
+    rw [selfStorage_eq_storageAt, hresaddr, hresume]; rfl
+  -- `emitStmt .call` length = argsLen + 1 + tailLen.
+  have hemitcall : emitStmt (matCache prog) (defsOf prog) (.call cs)
+      = (emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
+          ++ matCache prog cs.callee ++ matCache prog cs.gasFwd)
+        ++ [Byte.call]
+        ++ (match cs.resultTmp with
+            | some t => emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]
+            | none   => [Byte.pop]) := rfl
+  -- pre-call MemRealises transports `fr → callFr → resumeFr`.
+  have hmemRes : Lir.MemRealises prog st resumeFr :=
+    ((hmem.transport hcallmem hcallactive).transport hresmem hresactive)
+  -- == case on the result tmp: the fixed-endpoint Route-B tail ==
+  cases hr : cs.resultTmp with
+  | none =>
+    -- POP tail: `endFr = popFrame resumeFr []`, stack `[]`, memory untouched.
+    obtain ⟨hpoprun, hendeq⟩ := htailNone hr
+    subst hendeq
+    refine ⟨hruns0.trans hpoprun, ?_, by rw [popFrame_stack]⟩
+    have hemitlen : (emitStmt (matCache prog) (defsOf prog) (.call cs)).length
+        = argsLen + 1 + 1 := by
+      rw [hemitcall, hr]
+      set argsBlock := emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
+          ++ matCache prog cs.callee ++ matCache prog cs.gasFwd with hab
+      rw [List.length_append, List.length_append, List.length_singleton, List.length_singleton,
+        ← hargslen]
+    have hpcN : pcOf prog L (pc + 1) = pcOf prog L pc + (argsLen + 1 + 1) := by
+      rw [pcOf_succ prog L b pc (.call cs) hb hs, hemitlen]
+    refine
+      { pc_eq := ?_
+        code_eq := ?_
+        validJumps_eq := ?_
+        stack_nil := by rw [popFrame_stack]
+        can_modify := ?_
+        storage := ?_
+        defsSound := hsound'
+        wellScoped := hscoped'
+        memAgree := ?_ }
+    · -- M1
+      rw [popFrame_pc, hrespc, hcallpc, hfrpc, hpcN,
+          UInt32.ofNat_add, UInt32.ofNat_add, UInt32.ofNat_add,
+          show (UInt32.ofNat 1) = (1 : UInt32) from rfl]
+      ac_rfl
+    · rw [popFrame_code, hrescode]
+    · rw [popFrame_validJumps, popFrame_code, hresvalidjumps]
+    · rw [popFrame_canMod, hrescanmod]
+    · -- M3: world is the resumed self-lens; POP doesn't touch storage.
+      intro key
+      have hst'none : st' = { st with world := fun key => evmCallOracle.postStorage result pd self key } := by
+        rw [hst', hr]
+      rw [hst'none]
+      show selfStorage (popFrame resumeFr []) key = _
+      rw [show selfStorage (popFrame resumeFr []) key = selfStorage resumeFr key from rfl]
+      exact hM3 key
+    · -- memAgree: `st'.locals = st.locals`, POP preserves memory bytes + activeWords.
+      have hloceq : st' = { st with world := fun key => evmCallOracle.postStorage result pd self key } := by
+        rw [hst', hr]
+      intro tw slot v hdef hloc
+      rw [hloceq] at hloc
+      exact (hmemRes.transport (by rw [popFrame_memory]) (by rw [popFrame_activeWords]))
+        tw slot v hdef hloc
+  | some t =>
+    -- PUSH slot; MSTORE tail at the FIXED endpoint `endFr` (the caller's coupled stash run).
+    obtain ⟨hslot63, hslotplat, hstash⟩ := htailSome t hr
+    obtain ⟨hendrun, hendmembytes, hendmemactive, hendpc, hendcode,
+      hendvalid, hendaddr, hendcanmod, _, hendstorage, hendstk⟩ := hstash
+    set flag := callSuccessFlag result pd with hflag
+    set slot := slotOf t with hslotdef
+    refine ⟨hruns0.trans hendrun, ?_, hendstk⟩
+    have hslotlt256 : slot < 2 ^ 256 := by
+      have : (2 : Nat) ^ 64 ≤ 2 ^ 256 := Nat.pow_le_pow_right (by norm_num) (by norm_num)
+      omega
+    have hslotEq : (UInt256.ofNat slot).toNat = slot := by
+      rw [LirLean.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt hslotlt256]
+    have hslot63' : (UInt256.ofNat slot).toNat + 63 < 2 ^ 64 := by rw [hslotEq]; exact hslot63
+    have hslotplat' : (UInt256.ofNat slot).toNat < 2 ^ System.Platform.numBits := by
+      rw [hslotEq]; exact hslotplat
+    have hemitlen : (emitStmt (matCache prog) (defsOf prog) (.call cs)).length
+        = argsLen + 1 + 34 := by
+      rw [hemitcall, hr]
+      set argsBlock := emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
+          ++ matCache prog cs.callee ++ matCache prog cs.gasFwd with hab
+      rw [List.length_append, List.length_append, List.length_singleton, ← hargslen,
+        List.length_append, List.length_singleton, emitImm_length]
+    have hpcN : pcOf prog L (pc + 1) = pcOf prog L pc + (argsLen + 1 + 34) := by
+      rw [pcOf_succ prog L b pc (.call cs) hb hs, hemitlen]
+    refine
+      { pc_eq := ?_
+        code_eq := ?_
+        validJumps_eq := ?_
+        stack_nil := hendstk
+        can_modify := ?_
+        storage := ?_
+        defsSound := hsound'
+        wellScoped := hscoped'
+        memAgree := ?_ }
+    · -- M1
+      rw [hendpc, hrespc, hcallpc, hfrpc, hpcN,
+          UInt32.ofNat_add, UInt32.ofNat_add, UInt32.ofNat_add,
+          show (UInt32.ofNat 1) = (1 : UInt32) from rfl]
+      ac_rfl
+    · rw [hendcode, hrescode]
+    · rw [hendvalid, hendcode]; exact hresvalidjumps
+    · rw [hendcanmod, hrescanmod]
+    · -- M3: world is the resumed self-lens; the MSTORE tail preserves the self-lens.
+      intro key
+      rw [hst', hr]
+      show selfStorage endFr key = _
+      rw [hendstorage key]; exact hM3 key
+    · -- memAgree: New slot binds flag; other call-result slots preserved.
+      intro tw slot' v hdef hloc
+      by_cases htw : tw = t
+      · -- the just-bound call-result tmp `t`: `slot' = slotOf t = slot`, `v = flag`.
+        subst htw
+        have hvflag : v = flag := by
+          have : st'.locals tw = some flag := by rw [hst', hr]; simp [V2.IRState.setLocal]
+          rw [this] at hloc; exact (Option.some.inj hloc).symm
+        have hslot'eq : slot' = slot := by
+          rw [show slot = slotOf tw from rfl]
+          exact hslots tw slot' hdef
+        subst hslot'eq; subst hvflag
+        refine ⟨?_, ?_, hslot63, ?_⟩
+        · rw [hendmembytes]
+          have := LirLean.MemAlgebra.mstore_memory_size resumeFr.exec.toMachineState
+            (UInt256.ofNat slot) flag (by rw [hslotEq]; exact hslotplat)
+          rw [hslotEq] at this
+          show (UInt256.ofNat slot).toNat + 32 ≤ _
+          rw [hslotEq]; exact this
+        · rw [hendmemactive]
+          have := LirLean.MemAlgebra.mstore_activeWords_covers resumeFr.exec.toMachineState
+            (UInt256.ofNat slot) flag hslot63'
+          rw [hslotEq] at this
+          show (UInt256.ofNat slot).toNat + 32 ≤ _
+          rw [hslotEq]; exact this
+        · rw [LirLean.MemAlgebra.mload_congr (UInt256.ofNat slot) hendmembytes hendmemactive]
+          exact LirLean.MemAlgebra.mstore_reads_back resumeFr.exec.toMachineState
+            (UInt256.ofNat slot) flag hslot63' hslotplat'
+      · -- another bound tmp `tw ≠ t`: unchanged value; its slot survives the disjoint MSTORE.
+        have hloc0 : st.locals tw = some v := by
+          rw [hst', hr] at hloc
+          simpa [V2.IRState.setLocal, htw] using hloc
+        obtain ⟨hcm, ham, hreal, hval⟩ := hmemRes tw slot' v hdef hloc0
+        have hslot'lt256 : slot' < 2 ^ 256 := by
+          have : (2 : Nat) ^ 64 ≤ 2 ^ 256 := Nat.pow_le_pow_right (by norm_num) (by norm_num)
+          omega
+        have hslot'Eq : (UInt256.ofNat slot').toNat = slot' := by
+          rw [LirLean.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt hslot'lt256]
+        have hslot'def : slot' = slotOf tw := hslots tw slot' hdef
+        have htwne : t.id ≠ tw.id := fun h => htw (by cases t; cases tw; cases h; rfl)
+        have hdisN : slot + 32 ≤ slot' ∨ slot' + 32 ≤ slot := by
+          rw [hslotdef, hslot'def]
+          exact LirLean.MemAlgebra.slot_windows_disjoint t.id tw.id htwne
+        have hdisN' : (UInt256.ofNat slot').toNat + 32 ≤ (UInt256.ofNat slot).toNat
+            ∨ (UInt256.ofNat slot).toNat + 32 ≤ (UInt256.ofNat slot').toNat := by
+          rw [hslotEq, hslot'Eq]; exact hdisN.symm
+        obtain ⟨hmem', hact', hval'⟩ :=
+          LirLean.MemAlgebra.mstore_preserves_slot_grow resumeFr.exec.toMachineState
+            (UInt256.ofNat slot) (UInt256.ofNat slot') flag hslot63' hslotplat' hcm ham hdisN'
+        refine ⟨?_, ?_, hreal, ?_⟩
+        · rw [hendmembytes]; exact hmem'
+        · rw [hendmemactive]; exact hact'
+        · rw [LirLean.MemAlgebra.mload_congr (UInt256.ofNat slot') hendmembytes hendmemactive]
+          exact hval'.trans hval
+
+/-- **P2-call — the external-CALL coupled step.** BLOCKER RESOLVED: R3's Piece B is closed on
+main (`call_head_realises_coupled`, Machinery — the SAME Piece-A/B chain as
+`callRealises_of_recorded`, kept coupling-alive: `call_args_run_of_coupled` →
+`call_dispatch_of_coupled` → the CallsCode seam → `recorderCoupled_call_extract`, stopping
+BEFORE the tail). This arm fires that bundle to get the arg-push run + the returning CALL + the
+coupling advanced past the recorded record (tail suffix `cS'`); then it CONSTRUCTS the Route-B
+tail itself — the coupling must be transported frame-by-frame across it, so the tail steps are
+built here from the byte-layout decode anchors (`imm_leaf_decodeF`/`nonpush_leaf_decodeF` under
+the `codeFits` bound) + the clean-halt envelopes (`next_push_of_cleanHalt`/
+`next_mstore_of_cleanHalt`/`next_pop_of_cleanHalt`), each step advanced by R7d
+`recorderCoupled_step_other` — and re-establishes `Corr` at the tail endpoint via the scoped
+fixed-endpoint `sim_call_stmt'` (carrier `defsSoundS_preserved_step` at `invalStep I (.call cs)`
+from the start). The `callSuffix` head `rec` positionally IS this call's recorded result, so
+`EvalStmt.call` consumes exactly the aligned `callStreamOf` head; gas/sload/create suffixes ride
+unchanged. -/
 theorem simStmt_coupled_call {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
     {self : AccountAddress} {L : Label} {b : Block} {pc : Nat}
     {cs : CallSpec} {st : IRState} {fr : Frame} {cw gw : Word}
@@ -988,10 +1279,254 @@ theorem simStmt_coupled_call {prog : Program} {sloadChg : Tmp → ℕ} {log : Ru
     (hslotaddr : ∀ t, cs.resultTmp = some t →
       slotOf t + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits)
     (hal : StreamsAligned self log gS (rec :: cS') dS T C D)
-    (hties : StmtTies' prog sloadChg log self L b) :
+    (_hties : StmtTies' prog sloadChg log self L b) :
     CoupledAdvance prog sloadChg log self
       ((b.stmts.take pc).foldl (invalStep prog) (fun _ => False)) L pc st fr T C D (.call cs) := by
-  sorry
+  classical
+  have hbt : prog.blocks.toList[L.idx]? = some b := toList_of_blockAt hb
+  -- operand closure-freeness at the cursor's fold set (`ScopedUses`).
+  have hfreeCallee : RematClosureFree prog
+      ((b.stmts.take pc).foldl (invalStep prog) (fun _ => False)) (.tmp cs.callee) :=
+    hwl.scopedUses L b pc (.call cs) hb hcur cs.callee (by simp [readsStmt])
+  have hfreeGasFwd : RematClosureFree prog
+      ((b.stmts.take pc).foldl (invalStep prog) (fun _ => False)) (.tmp cs.gasFwd) :=
+    hwl.scopedUses L b pc (.call cs) hb hcur cs.gasFwd (by simp [readsStmt])
+  -- == the coupled CALL-head bundle (Piece A/B, coupling kept at the resume frame) ==
+  obtain ⟨callFr, hargs, hcallpc, hcallmem, hcallact, hcallret, hcpres,
+      hresaddr0, hrescode, hrescanmod, hrespc, hresstack, hresmem, hresactive, hresvalid⟩ :=
+    call_head_realises_coupled hwl hcodeFits hb hcur hcorr hcp hch hcc hcallee hgasfwd
+      hfreeCallee hfreeGasFwd hstkCallee hstkGasFwd
+  have hresaddr : (Evm.resumeAfterCall rec.result rec.pending).exec.executionEnv.address
+      = self := by rw [hresaddr0, haddr]
+  -- == the IR step: consume the aligned call-stream head (the realised image of `rec`) ==
+  have hCcons : C = evmV2CallEntry rec.result rec.pending self :: callStreamOf cS' self := by
+    rw [hal.2.1]; rfl
+  have hentry : evmV2CallEntry rec.result rec.pending self
+      = ((fun key => evmCallOracle.postStorage rec.result rec.pending self key),
+          callSuccessFlag rec.result rec.pending) := rfl
+  have hEval : EvalStmt prog st T C D (.call cs)
+      (match cs.resultTmp with
+        | some t' => { st with world := fun key =>
+                        evmCallOracle.postStorage rec.result rec.pending self key }.setLocal
+                        t' (callSuccessFlag rec.result rec.pending)
+        | none   => { st with world := fun key =>
+                        evmCallOracle.postStorage rec.result rec.pending self key })
+      T (callStreamOf cS' self) D := by
+    rw [hCcons, hentry]
+    exact EvalStmt.call hcallee hgasfwd
+  -- the scoped post-state carrier, from the start (R0b at `invalStep I (.call cs)`).
+  have hsound' := defsSoundS_preserved_step hwl.defsCons hb hcur hEval hcorr.defsSound
+  -- the post-state scoping fold.
+  have hscoped' := call_post_wellScoped'
+    (world' := fun key => evmCallOracle.postStorage rec.result rec.pending self key)
+    (success := callSuccessFlag rec.result rec.pending)
+    hb hcur hwl.defsCons hcorr.wellScoped
+  -- clean halt at the resume frame (forwarded across the arg run + the CALL node).
+  have hchres : CleanHaltsNonException (Evm.resumeAfterCall rec.result rec.pending) :=
+    cleanHaltsNonException_forward hch (hargs.trans (sim_call hcallret (Runs.refl _)))
+  -- == the byte layout at the cursor (`codeFits`-bounded decode anchors for the tail) ==
+  set argsB := emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
+      ++ matCache prog cs.callee ++ matCache prog cs.gasFwd with hargsB
+  have hemit0 : emitStmt (matCache prog) (defsOf prog) (.call cs)
+      = argsB ++ [Byte.call]
+        ++ (match cs.resultTmp with
+            | some t => emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]
+            | none => [Byte.pop]) := rfl
+  have hseg : ∀ j, j < (emitStmt (matCache prog) (defsOf prog) (.call cs)).length →
+      (flatBytes prog)[pcOf prog L pc + j]?
+        = (emitStmt (matCache prog) (defsOf prog) (.call cs))[j]? :=
+    fun j hj => flatBytes_at_pcOf_offset prog L b pc (.call cs) j hbt hcur hj
+  -- the resume frame sits one byte past the CALL byte: `pcOf + (|argsB| + 1)`.
+  have hpcR : (Evm.resumeAfterCall rec.result rec.pending).exec.pc
+      = UInt32.ofNat (pcOf prog L pc + (argsB.length + 1)) := by
+    have harith : pcOf prog L pc + (argsB.length + 1)
+        = pcOf prog L pc + argsB.length + 1 := by omega
+    rw [harith, hrespc, hcallpc, hcorr.pc_eq,
+        show (1 : UInt32) = UInt32.ofNat 1 from rfl, ofNat_add', ofNat_add']
+  have hszR : (Evm.resumeAfterCall rec.result rec.pending).exec.stack.size + 1 ≤ 1024 := by
+    rw [hresstack]; simp
+  have hszR' : (Evm.resumeAfterCall rec.result rec.pending).exec.stack.size ≤ 1024 := by
+    rw [hresstack]; simp
+  -- == case on the result tmp: build the COUPLED Route-B tail, then re-establish `Corr` ==
+  cases hr : cs.resultTmp with
+  | some t =>
+    -- byte layout: `argsB ++ [CALL] ++ (PUSH32 (slotOf t) ++ [MSTORE])`.
+    have hemit' : emitStmt (matCache prog) (defsOf prog) (.call cs)
+        = (argsB ++ [Byte.call]) ++ (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]) := by
+      rw [hemit0, hr]
+    have hseg' : ∀ j, j < ((argsB ++ [Byte.call])
+          ++ (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore])).length →
+        (flatBytes prog)[pcOf prog L pc + j]?
+          = ((argsB ++ [Byte.call])
+              ++ (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]))[j]? := by
+      intro j hj
+      rw [← hemit']
+      exact hseg j (by rw [hemit']; exact hj)
+    have hemitlen : (emitStmt (matCache prog) (defsOf prog) (.call cs)).length
+        = argsB.length + 1 + 34 := by
+      rw [hemit']
+      simp only [List.length_append, List.length_singleton, emitImm_length]
+    have hlast : pcOf prog L pc + (argsB.length + 34) < 2 ^ 32 :=
+      stmt_offset_bound_of_codeFits hcodeFits hb hcur (by rw [hemitlen]; omega)
+    have hsegTail : ∀ j, j < (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]).length →
+        (flatBytes prog)[pcOf prog L pc + (argsB.length + 1) + j]?
+          = (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore])[j]? := by
+      intro j hj
+      have h := segF_suffix (flatBytes prog) (pcOf prog L pc) (argsB ++ [Byte.call])
+        (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]) hseg' j hj
+      rwa [show pcOf prog L pc + (argsB ++ [Byte.call]).length
+            = pcOf prog L pc + (argsB.length + 1) from by
+          simp only [List.length_append, List.length_singleton]] at h
+    -- the two tail decode anchors at the resume frame.
+    have hdpushR : decode (Evm.resumeAfterCall rec.result rec.pending).exec.executionEnv.code
+        (Evm.resumeAfterCall rec.result rec.pending).exec.pc
+        = some (.Push .PUSH32, some (UInt256.ofNat (slotOf t), 32)) := by
+      rw [hrescode, hpcR]
+      exact imm_leaf_decodeF prog (pcOf prog L pc + (argsB.length + 1))
+        (UInt256.ofNat (slotOf t)) (by omega)
+        (segF_prefix (flatBytes prog) (pcOf prog L pc + (argsB.length + 1))
+          (emitImm (UInt256.ofNat (slotOf t))) [Byte.mstore] hsegTail)
+    have hdmstoreR : decode (Evm.resumeAfterCall rec.result rec.pending).exec.executionEnv.code
+        ((Evm.resumeAfterCall rec.result rec.pending).exec.pc + UInt32.ofNat 33)
+        = some (.Smsf .MSTORE, .none) := by
+      rw [hrescode, hpcR, ofNat_add']
+      have h := nonpush_leaf_decodeF prog (pcOf prog L pc + (argsB.length + 1)) 33
+        Byte.mstore (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore])
+        (by omega)
+        (by rw [List.getElem?_append_right (by rw [emitImm_length]), emitImm_length]; rfl)
+        (by decide) hsegTail
+      simpa using h
+    -- == step 1 (COUPLED): PUSH32 (slotOf t) ==
+    obtain ⟨hgasPushVL, hpushStep⟩ := Lir.CleanHaltExtract.next_push_of_cleanHalt
+      (Evm.resumeAfterCall rec.result rec.pending) .PUSH32 (UInt256.ofNat (slotOf t)) 32
+      hchres (by decide) hdpushR (by decide) (by decide) hszR
+    have hgasPush3 : 3 ≤ (Evm.resumeAfterCall rec.result rec.pending).exec.gasAvailable.toNat := by
+      have hvl : GasConstants.Gverylow = 3 := rfl
+      omega
+    have hcpPush : RecorderCoupled log
+        (pushFrameW (Evm.resumeAfterCall rec.result rec.pending) (UInt256.ofNat (slotOf t)) 32)
+        gS sS cS' dS := by
+      apply recorderCoupled_step_other hcpres
+      · unfold isGasOp; rw [hdpushR]; rfl
+      · unfold isSloadOp; rw [hdpushR]; rfl
+      · exact hpushStep
+    have hchPush : CleanHaltsNonException
+        (pushFrameW (Evm.resumeAfterCall rec.result rec.pending) (UInt256.ofNat (slotOf t)) 32) :=
+      cleanHaltsNonException_forward hchres
+        (runs_push (Evm.resumeAfterCall rec.result rec.pending) .PUSH32
+          (UInt256.ofNat (slotOf t)) 32 (by nofun) hdpushR rfl rfl hgasPush3 hszR)
+    -- == step 2 (COUPLED): MSTORE, writing the success flag at the result slot ==
+    have hfrpstk : (pushFrameW (Evm.resumeAfterCall rec.result rec.pending)
+          (UInt256.ofNat (slotOf t)) 32).exec.stack
+        = UInt256.ofNat (slotOf t) :: callSuccessFlag rec.result rec.pending :: [] := by
+      rw [pushFrameW_stack', hresstack]; rfl
+    have hfrpsz : (pushFrameW (Evm.resumeAfterCall rec.result rec.pending)
+          (UInt256.ofNat (slotOf t)) 32).exec.stack.size ≤ 1024 := by
+      rw [hfrpstk]; simp
+    have hdmstoreF : decode (pushFrameW (Evm.resumeAfterCall rec.result rec.pending)
+          (UInt256.ofNat (slotOf t)) 32).exec.executionEnv.code
+        (pushFrameW (Evm.resumeAfterCall rec.result rec.pending)
+          (UInt256.ofNat (slotOf t)) 32).exec.pc
+        = some (.Smsf .MSTORE, .none) := by
+      rw [show (pushFrameW (Evm.resumeAfterCall rec.result rec.pending)
+            (UInt256.ofNat (slotOf t)) 32).exec.executionEnv.code
+          = (Evm.resumeAfterCall rec.result rec.pending).exec.executionEnv.code from rfl,
+          pushFrameW_pc, push32_pcΔ]
+      exact hdmstoreR
+    obtain ⟨words', hmemW, hgasMemW, hgasVLW, hmstoreStep⟩ :=
+      Lir.CleanHaltExtract.next_mstore_of_cleanHalt
+        (pushFrameW (Evm.resumeAfterCall rec.result rec.pending) (UInt256.ofNat (slotOf t)) 32)
+        (UInt256.ofNat (slotOf t)) (callSuccessFlag rec.result rec.pending) []
+        hchPush hdmstoreF hfrpstk hfrpsz
+    have hcpEnd : RecorderCoupled log
+        (mstoreFrame (pushFrameW (Evm.resumeAfterCall rec.result rec.pending)
+            (UInt256.ofNat (slotOf t)) 32)
+          (UInt256.ofNat (slotOf t)) (callSuccessFlag rec.result rec.pending) words' [])
+        gS sS cS' dS := by
+      apply recorderCoupled_step_other hcpPush
+      · unfold isGasOp; rw [hdmstoreF]; rfl
+      · unfold isSloadOp; rw [hdmstoreF]; rfl
+      · exact hmstoreStep
+    -- the packaged tail bundle (`StashRuns`) at exactly the coupled endpoint.
+    have hstash : Lir.StashRuns (Evm.resumeAfterCall rec.result rec.pending)
+        (mstoreFrame (pushFrameW (Evm.resumeAfterCall rec.result rec.pending)
+            (UInt256.ofNat (slotOf t)) 32)
+          (UInt256.ofNat (slotOf t)) (callSuccessFlag rec.result rec.pending) words' [])
+        (slotOf t) (callSuccessFlag rec.result rec.pending) 34 [] :=
+      stash_tail_runs (Evm.resumeAfterCall rec.result rec.pending) (slotOf t)
+        (callSuccessFlag rec.result rec.pending) [] words'
+        hresstack hdpushR hdmstoreR hszR hgasPush3 hmemW hgasMemW hgasVLW
+    -- == `Corr` re-established at the coupled endpoint (S3-call) ==
+    obtain ⟨hruns, hcorr', hstk'⟩ := sim_call_stmt'
+      (result := rec.result) (pd := rec.pending) (self := self)
+      hbt hcur hcorr.pc_eq (by rw [hargsB]) hargs hcallpc hcallmem hcallact hcallret rfl rfl
+      hresaddr hrescode hrescanmod hrespc hresstack hresmem hresactive hresvalid
+      hsound' hcorr.memAgree (slots_slot_of_defsOf prog) hscoped'
+      (fun t' ht' => by
+        have heq : t = t' := by
+          rw [hr] at ht'
+          exact Option.some.inj ht'
+        subst heq
+        exact ⟨(hslotaddr t hr).1, (hslotaddr t hr).2, hstash⟩)
+      (fun hn => by rw [hr] at hn; cases hn)
+    rcases hal with ⟨hT, _, hD⟩
+    exact ⟨_, _, T, callStreamOf cS' self, D, gS, sS, cS', dS,
+      hEval, hruns, hcorr', hstk', hcpEnd, ⟨hT, rfl, hD⟩⟩
+  | none =>
+    -- byte layout: `argsB ++ [CALL] ++ [POP]`.
+    have hemit' : emitStmt (matCache prog) (defsOf prog) (.call cs)
+        = (argsB ++ [Byte.call]) ++ [Byte.pop] := by
+      rw [hemit0, hr]
+    have hseg' : ∀ j, j < ((argsB ++ [Byte.call]) ++ [Byte.pop]).length →
+        (flatBytes prog)[pcOf prog L pc + j]?
+          = ((argsB ++ [Byte.call]) ++ [Byte.pop])[j]? := by
+      intro j hj
+      rw [← hemit']
+      exact hseg j (by rw [hemit']; exact hj)
+    have hemitlen : (emitStmt (matCache prog) (defsOf prog) (.call cs)).length
+        = argsB.length + 1 + 1 := by
+      rw [hemit']
+      simp only [List.length_append, List.length_singleton]
+    -- the POP decode anchor at the resume frame.
+    have hpopbyte : ((argsB ++ [Byte.call]) ++ [Byte.pop])[argsB.length + 1]?
+        = some Byte.pop := by
+      rw [List.getElem?_append_right (by
+            simp only [List.length_append, List.length_singleton]; omega)]
+      simp
+    have hdpopR : decode (Evm.resumeAfterCall rec.result rec.pending).exec.executionEnv.code
+        (Evm.resumeAfterCall rec.result rec.pending).exec.pc
+        = some (.Smsf .POP, .none) := by
+      rw [hrescode, hpcR]
+      have h := nonpush_leaf_decodeF prog (pcOf prog L pc) (argsB.length + 1) Byte.pop
+        ((argsB ++ [Byte.call]) ++ [Byte.pop])
+        (stmt_offset_bound_of_codeFits hcodeFits hb hcur (by rw [hemitlen]; omega))
+        hpopbyte (by decide) hseg'
+      simpa using h
+    -- == the one COUPLED POP step ==
+    obtain ⟨hgasPop, hpopStep⟩ := Lir.CleanHaltExtract.next_pop_of_cleanHalt
+      (Evm.resumeAfterCall rec.result rec.pending)
+      (callSuccessFlag rec.result rec.pending) [] hchres hdpopR hresstack hszR'
+    have hpoprun : Runs (Evm.resumeAfterCall rec.result rec.pending)
+        (popFrame (Evm.resumeAfterCall rec.result rec.pending) []) :=
+      runs_pop (Evm.resumeAfterCall rec.result rec.pending)
+        (callSuccessFlag rec.result rec.pending) [] hdpopR hresstack hszR' hgasPop
+    have hcpEnd : RecorderCoupled log
+        (popFrame (Evm.resumeAfterCall rec.result rec.pending) []) gS sS cS' dS := by
+      apply recorderCoupled_step_other hcpres
+      · unfold isGasOp; rw [hdpopR]; rfl
+      · unfold isSloadOp; rw [hdpopR]; rfl
+      · exact hpopStep
+    -- == `Corr` re-established at the coupled endpoint (S3-call) ==
+    obtain ⟨hruns, hcorr', hstk'⟩ := sim_call_stmt'
+      (result := rec.result) (pd := rec.pending) (self := self)
+      hbt hcur hcorr.pc_eq (by rw [hargsB]) hargs hcallpc hcallmem hcallact hcallret rfl rfl
+      hresaddr hrescode hrescanmod hrespc hresstack hresmem hresactive hresvalid
+      hsound' hcorr.memAgree (slots_slot_of_defsOf prog) hscoped'
+      (fun t' ht' => by rw [hr] at ht'; cases ht')
+      (fun _ => ⟨hpoprun, rfl⟩)
+    rcases hal with ⟨hT, _, hD⟩
+    exact ⟨_, _, T, callStreamOf cS' self, D, gS, sS, cS', dS,
+      hEval, hruns, hcorr', hstk', hcpEnd, ⟨hT, rfl, hD⟩⟩
 
 /-! ## §3 — the COUPLED block walk and the per-block step -/
 
@@ -1093,7 +1628,22 @@ theorem runFrom_of_driveCorrLog_rec {prog : Program} {sloadChg : Tmp → ℕ} {l
       DriveCorrLog prog sloadChg log self st fr L gS sS cS dS →
       StreamsAligned self log gS cS dS T C D →
       RunFromCoupled prog self st fr L T C D := by
-  sorry
+  -- strong induction on the bytecode `totalGas` measure of the boundary frame, generalising over
+  -- all the boundary data so the IH applies at the strictly-smaller successor.
+  intro st fr L T C D gS sS cS dS hdrive hal
+  induction hmeasure : totalGas [] (.inl fr) using Nat.strong_induction_on
+    generalizing st fr L T C D gS sS cS dS with
+  | _ n ih =>
+    subst hmeasure
+    rcases hstep st fr L T C D gS sS cS dS hdrive hal with
+      hrun | ⟨st', T', C', D', succ, fr', gS', sS', cS', dS', hruns, hdrive', hal', hlt, hcont⟩
+    · -- halt disjunct: the block bottoms out; `RunFromCoupled` is delivered directly.
+      exact hrun
+    · -- edge disjunct: recurse at the strictly-smaller successor, then prepend the block.
+      obtain ⟨O, ⟨last, haltSig, hlast, hhalt, hworld, hresult⟩, hir⟩ :=
+        ih (totalGas [] (.inl fr')) hlt st' fr' succ T' C' D' gS' sS' cS' dS' hdrive' hal' rfl
+      -- the successor's bytecode halt terminal lifts back to `fr` across the edge `Runs fr fr'`.
+      exact ⟨O, ⟨last, haltSig, hruns.trans hlast, hhalt, hworld, hresult⟩, hcont O hir⟩
 
 /-- **P5 — the R6 boundary walk (`hrb`), reason (b).** Every `Runs fr₀`-reachable frame sits at
 a reachable instruction boundary. This helper derives the nonempty-program precondition from
