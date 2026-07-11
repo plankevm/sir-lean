@@ -356,7 +356,7 @@ in the non-default `WIP` lib; the default cone is sorry-free. The dependency-ord
    signatures and must land **before** the arms/walk, or arms get re-proved.
 4. **Coupled statement arms** — gas, sload, call
    ([`simStmt_coupled_gas`](../../../LirLean/V2/Realisability/Producer.lean#L453) etc.), plus
-   R10a ([`stmtTies'_of_runWithLog`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L167)).
+   R10a ([`stmtTies'_of_runWithLog`](../../../LirLean/V2/Realisability/Producer.lean#L2488)).
 5. **Block walk / recursion / packaging** — P3a/P3b/P4 and the producer itself, structurally
    mirroring the proved coupling-free recursion.
 6. **Flagships** — plain (assembly only), exact (needs an exact-consumption producer; post-hoc

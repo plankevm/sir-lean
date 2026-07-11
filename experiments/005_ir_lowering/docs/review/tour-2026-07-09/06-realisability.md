@@ -311,10 +311,10 @@ the R1 conjunct, representative of the reshape:
 The old vacuous form said "for a free `ob`, the recorded word equals `ob`"; the new form
 says "the un-consumed gas suffix's **head** equals the machine GAS output at this coupled
 frame" — derivable because the restart's first recorded event *is* this read. Both ties are
-DERIVED: [`termTies'_of_runWithLog`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L181)
+DERIVED: [`termTies'_of_runWithLog`](../../../LirLean/V2/Realisability/Producer.lean#L2642)
 (R10b) is **closed** via
 [`termTies'_of_walk`](../../../LirLean/V2/Realisability/Machinery.lean#L503);
-[`stmtTies'_of_runWithLog`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L167)
+[`stmtTies'_of_runWithLog`](../../../LirLean/V2/Realisability/Producer.lean#L2488)
 (R10a) is still `sorry` (§5).
 
 ### 3.4 [`CallRealisesS`](../../../LirLean/V2/Realisability/Surface.lean#L78) — the shadowing-aware CALL kernel
@@ -394,7 +394,7 @@ run, not from statics alone.
 | 5 | [`simStmt_coupled_gas`](../../../LirLean/V2/Realisability/Producer.lean#L453) | [#L467](../../../LirLean/V2/Realisability/Producer.lean#L467) | coupled GAS arm (fires R1 + the gas sim brick + R7b) | 4 |
 | 6 | [`simStmt_coupled_sload`](../../../LirLean/V2/Realisability/Producer.lean#L474) | [#L489](../../../LirLean/V2/Realisability/Producer.lean#L489) | coupled SLOAD arm (fires tie arm 2 + R7c) | 4 |
 | 7 | [`simStmt_coupled_call`](../../../LirLean/V2/Realisability/Producer.lean#L1279) | [#L1296](../../../LirLean/V2/Realisability/Producer.lean#L1296) | coupled CALL arm — gated on R3 Piece B | 4 (⇐ 2) |
-| 8 | [`stmtTies'_of_runWithLog`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L167) | [#L177](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L177) | R10a — build the statement ties from the run | 3→5 seam (order-of-work item 3) |
+| 8 | [`stmtTies'_of_runWithLog`](../../../LirLean/V2/Realisability/Producer.lean#L2488) | [#L2498](../../../LirLean/V2/Realisability/Producer.lean#L2498) | R10a — build the statement ties from the run | 3→5 seam (order-of-work item 3) |
 | 9 | [`simStmts_coupled_block`](../../../LirLean/V2/Realisability/Producer.lean#L1327) | [#L1344](../../../LirLean/V2/Realisability/Producer.lean#L1344) | P3a coupled block walk | 5 |
 | 10 | [`driveLogStep_of_block`](../../../LirLean/V2/Realisability/Producer.lean#L1359) | [#L1374](../../../LirLean/V2/Realisability/Producer.lean#L1374) | P3b coupled per-block step | 5 |
 | 11 | [`runFrom_of_driveCorrLog_rec`](../../../LirLean/V2/Realisability/Producer.lean#L1385) | [#L1397](../../../LirLean/V2/Realisability/Producer.lean#L1397) | P4 coupled `totalGas` recursion | 5 |
@@ -502,7 +502,7 @@ below is a real, machine-checked proof in the current tree (one-line method note
   the point-wise SSTORE realisation replacing the unsatisfiable `SstoreRealises` (stipend and
   EIP-2200 charge bound extracted from clean halt).
 - **R5/R10b** — [`termTies'_of_walk`](../../../LirLean/V2/Realisability/Machinery.lean#L503)
-  and [`termTies'_of_runWithLog`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L181):
+  and [`termTies'_of_runWithLog`](../../../LirLean/V2/Realisability/Producer.lean#L2642):
   all four terminator ties derived (the one `maxRecDepth 8192` bump in the folder sits here).
 - **R6, partial** — entry seed
   [`atReachableBoundaryVJ_entry`](../../../LirLean/V2/Realisability/Machinery.lean#L1352),
