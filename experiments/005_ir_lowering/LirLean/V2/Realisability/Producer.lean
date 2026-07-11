@@ -1528,6 +1528,53 @@ theorem simStmt_coupled_call {prog : Program} {sloadChg : Tmp → ℕ} {log : Ru
     exact ⟨_, _, T, callStreamOf cS' self, D, gS, sS, cS', dS,
       hEval, hruns, hcorr', hstk', hcpEnd, ⟨hT, rfl, hD⟩⟩
 
+/-- **P2-create — the external-CREATE coupled step** (STATEMENT ONLY — tracked `sorry`).
+The CREATE twin of `simStmt_coupled_call`. Statement mirrors the CALL arm field-for-field:
+the four operand bindings (value/off/size/salt), the `CreateResolves` reachable-frames seam (the
+create analogue of the `CallsCode` seam), the four operand stack-room folds, and the result-slot
+addressability; the coupling's `createSuffix` head `rec` is consumed (`EvalStmt.create` on the
+aligned `createStreamOf` head), gas/sload/call suffixes ride unchanged.
+
+STATUS: STATEMENT WIRED for the downstream block walk; PROOF DEFERRED (this producer round declares
+only the shape). It consumes `create_head_realises_coupled` (Machinery, currently a tracked stub
+itself, blocked on the default-layer CREATE dispatch producer + resume pins) + a `sim_create_stmt'`
+S3 carrier (the CREATE twin of `sim_call_stmt'`) that must be built for the coupled Route-B tail
+re-establishment. NEXT AGENT: once those land, this proof is a line-for-line transcription of
+`simStmt_coupled_call`. -/
+theorem simStmt_coupled_create {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
+    {self : AccountAddress} {L : Label} {b : Block} {pc : Nat}
+    {cs : CreateSpec} {st : IRState} {fr : Frame}
+    {valueW initOffW initSizeW saltW : Word}
+    {T : Trace} {C : CallStream} {D : CreateStream} {gS : List Word} {sS : List Nat}
+    {cS : List CallRecord} {rec : CreateRecord} {dS' : List CreateRecord}
+    (hwl : WellLowered prog)
+    (hcodeFits : codeFits prog)
+    (hb : blockAt prog L = some b)
+    (hcur : b.stmts[pc]? = some (.create cs))
+    (hcorr : Lir.Corr prog sloadChg 0
+      ((b.stmts.take pc).foldl (invalStep prog) (fun _ => False)) st fr L pc)
+    (hcp : RecorderCoupled log fr gS sS cS (rec :: dS'))
+    (hch : CleanHaltsNonException fr)
+    (haddr : fr.exec.executionEnv.address = self)
+    (hcr : ∀ fr', Runs fr fr' → CreateResolves fr')
+    (hvalue : st.locals cs.value = some valueW)
+    (hoff : st.locals cs.initOffset = some initOffW)
+    (hsize : st.locals cs.initSize = some initSizeW)
+    (hsalt : st.locals cs.salt = some saltW)
+    (hstkSalt : 0 + (chargeCache prog sloadChg cs.salt).length ≤ 1024)
+    (hstkSize : 1 + (chargeCache prog sloadChg cs.initSize).length ≤ 1024)
+    (hstkOff : 2 + (chargeCache prog sloadChg cs.initOffset).length ≤ 1024)
+    (hstkValue : 3 + (chargeCache prog sloadChg cs.value).length ≤ 1024)
+    (hslotaddr : ∀ t, cs.resultTmp = some t →
+      slotOf t + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits)
+    (hal : StreamsAligned self log gS cS (rec :: dS') T C D)
+    (_hties : StmtTies' prog sloadChg log self L b) :
+    CoupledAdvance prog sloadChg log self
+      ((b.stmts.take pc).foldl (invalStep prog) (fun _ => False)) L pc st fr T C D (.create cs) := by
+  -- DIAGNOSTIC (tracked debt): STATEMENT ONLY. Line-for-line transcription of
+  -- `simStmt_coupled_call` once `create_head_realises_coupled` + `sim_create_stmt'` land.
+  sorry
+
 /-! ## §3 — the COUPLED block walk and the per-block step -/
 
 /-- The COUPLED block-run output at the terminator cursor `(L, b.stmts.length)`: the IR

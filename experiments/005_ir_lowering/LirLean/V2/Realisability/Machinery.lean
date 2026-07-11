@@ -3854,4 +3854,627 @@ theorem call_head_realises_coupled {prog : Program} {sloadChg : Tmp → ℕ} {lo
   · rw [resumeAfterCall_code, henv', hcallcode, resumeAfterCall_validJumps, hpend, hvj, hcallvj]
     exact hcorr.validJumps_lower
 
+/-! ### R3-CREATE — the CREATE run producer (mirror of the CALL bricks above)
+
+The CREATE analogues of R3's Piece B. Piece A (`recorderCoupled_create_extract` /
+`recorderCoupled_create`) is already closed above. The structure mirrors CALL exactly, with the
+CREATE specifics:
+
+* the argument layout is `matCache salt ++ matCache initSize ++ matCache initOffset ++ matCache
+  value ++ [CREATE2]` (four materialise runs, NO zero-window pushes — CREATE2 pops
+  value/off/size/salt directly), so `create_args_run_of_coupled` is FOUR `recorderCoupled_matRunsC`
+  folds threaded through the clean-halt gas chain (no `coupled_push_step`);
+* the tail (`PUSH32 slot; MSTORE` or `POP`) is byte-identical to CALL's — `create_tail_of_cleanHalt`
+  reuses the SAME generic clean-halt tail bricks, only the byte offsets differ;
+* dispatch is `.needsCreate` (via `beginCreate`, TOTAL — no precompile split) with the create resume
+  reading `resumeAfterCreate` (`Except`-typed, faults on the 63/64 retention guard — the
+  `CreateResolves` seam rules that out);
+* the head record is a `CreateRecord` on the `dS` suffix (vs `CallRecord`/`cS`), and the resume word
+  is `createAddrOrZero` (vs `callSuccessFlag`).
+
+STATUS (this producer round): `create_stmt_offset_bound_of_codeFits`, `create_args_run_of_coupled`,
+`create_tail_of_cleanHalt` are CLOSED (direct transfers). `create_dispatch_of_coupled`,
+`createRealises_of_recorded`, `create_head_realises_coupled` are STUBBED with tracked `sorry`s
+(mirroring the CALL statements): they consume a default-layer `stepFrame_create2` dispatch producer
++ a `create_extraCost_le_of_cleanHalt` clean-halt gas brick that DO NOT YET EXIST in the bytecode
+layer (the CALL twins `BytecodeLayer.System.stepFrame_call` /
+`CleanHaltExtract.call_extraCost_le_of_cleanHalt` have no CREATE siblings). See the hand-off map. -/
+
+/-- A byte inside the lowered CREATE statement sits below the global `codeFits` budget.
+(The CALL twin `call_stmt_offset_bound_of_codeFits`, specialised to `.create cs`.) -/
+private theorem create_stmt_offset_bound_of_codeFits {prog : Program} {L : Label} {b : Block}
+    {pc : Nat} {cs : CreateSpec}
+    (hcodeFits : codeFits prog)
+    (hb : blockAt prog L = some b)
+    (hcur : b.stmts[pc]? = some (.create cs))
+    {k : Nat}
+    (hk : k < (emitStmt (matCache prog) (defsOf prog) (.create cs)).length) :
+    pcOf prog L pc + k < 2 ^ 32 := by
+  have hbyte0 :
+      (emitStmt (matCache prog) (defsOf prog) (.create cs))[k]?
+        = some ((emitStmt (matCache prog) (defsOf prog) (.create cs))[k]) :=
+    List.getElem?_eq_getElem hk
+  have hflat :
+      (flatBytes prog)[pcOf prog L pc + k]?
+        = some ((emitStmt (matCache prog) (defsOf prog) (.create cs))[k]) := by
+    rw [flatBytes_at_pcOf_offset prog L b pc (.create cs) k (Lir.toList_of_blockAt hb) hcur hk]
+    exact hbyte0
+  rw [List.getElem?_eq_some_iff] at hflat
+  exact lt_of_lt_of_le hflat.1 (Nat.le_of_lt hcodeFits)
+
+/-- A real create cursor statically scopes: `StepScopedS prog (.create cs)` is `True`. -/
+private theorem stepScopedS_create_of_cursor {prog : Program} {cs : CreateSpec} :
+    StepScopedS prog (.create cs) := trivial
+
+/-- World replacement preserves the create arm's static well-scoping; if a result tmp is bound, its
+slot registration comes from `DefsConsistent`'s create clause. (The CALL twin
+`call_post_wellScoped`, for `.create`.) -/
+private theorem create_post_wellScoped {prog : Program} {L : Label} {b : Block} {pc : Nat}
+    {cs : CreateSpec} {st : IRState} {world' : World} {addrW : Word}
+    (hb : blockAt prog L = some b)
+    (hcur : b.stmts[pc]? = some (.create cs))
+    (hdefsCons : DefsConsistent prog)
+    (hscoped : ∀ t, st.locals t ≠ none →
+      (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.slot slot))
+      ∧ defsOf prog t ≠ none) :
+    ∀ t, (match cs.resultTmp with
+            | some t' => { st with world := world' }.setLocal t' addrW
+            | none => { st with world := world' }).locals t ≠ none →
+          (¬ NonRecomputable prog t ∨ ∃ slot, defsOf prog t = some (.slot slot))
+          ∧ defsOf prog t ≠ none := by
+  intro t hlocal
+  cases hres : cs.resultTmp with
+  | none =>
+      have hlocal' : st.locals t ≠ none := by
+        simpa [hres] using hlocal
+      exact hscoped t hlocal'
+  | some u =>
+      by_cases ht : t = u
+      · subst u
+        have hslot : defsOf prog t = some (.slot (slotOf t)) :=
+          (hdefsCons L b pc hb).2.2 cs t hcur hres
+        exact ⟨Or.inr ⟨slotOf t, hslot⟩, by simp [hslot]⟩
+      · have hlocal' : st.locals t ≠ none := by
+          simpa [IRState.setLocal, hres, ht] using hlocal
+        exact hscoped t hlocal'
+
+/-- **R3-CREATE, step 1 — the CREATE argument-push run producer** (CLOSED). The CREATE twin of
+`call_args_run_of_coupled`. From `Corr` at the CREATE cursor, the coupling, and the clean-halt
+scope, BUILD the run to the `CREATE2`-site frame: the four operand materialise runs
+`matCache salt`, `matCache initSize`, `matCache initOffset`, `matCache value`
+(`recorderCoupled_matRunsC`, gas via `materialise_chargeC_le_of_cleanHalt`). Unlike CALL there is
+NO zero-window `PUSH32 0` prefix (`CREATE2` pops value/off/size/salt directly). The endpoint carries
+the operand stack `valueW :: initOffW :: initSizeW :: saltW :: []`, the coupling, and the forwarded
+clean-halt. HONEST HYPOTHESES (the CALL-arm principle, header lesson 5): the four operand bindings
+(the value channel needs values), their closure-freeness at the ambient set `I` (`ScopedUses`
+supplies them at the walk's fold set), the four static stack-room folds (a static-fold gap, as in
+CALL), and the flagship scalar `codeFits` (the decode bounds need it). -/
+private theorem create_args_run_of_coupled {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
+    {L : Label} {b : Block} {pc : Nat} {cs : CreateSpec}
+    {st0 : IRState} {fr0 : Frame} {valueW initOffW initSizeW saltW : Word}
+    {gS : List Word} {sS : List Nat} {cS : List CallRecord} {dS : List CreateRecord}
+    {I : Tmp → Prop}
+    (hwl : WellLowered prog)
+    (hcodeFits : codeFits prog)
+    (hb : blockAt prog L = some b)
+    (hcur : b.stmts[pc]? = some (.create cs))
+    (hcorr : Corr prog sloadChg 0 I st0 fr0 L pc)
+    (hcp : RecorderCoupled log fr0 gS sS cS dS)
+    (hch : CleanHaltsNonException fr0)
+    (hvalue : st0.locals cs.value = some valueW)
+    (hoff : st0.locals cs.initOffset = some initOffW)
+    (hsize : st0.locals cs.initSize = some initSizeW)
+    (hsalt : st0.locals cs.salt = some saltW)
+    (hfreeValue : RematClosureFree prog I (.tmp cs.value))
+    (hfreeOff : RematClosureFree prog I (.tmp cs.initOffset))
+    (hfreeSize : RematClosureFree prog I (.tmp cs.initSize))
+    (hfreeSalt : RematClosureFree prog I (.tmp cs.salt))
+    (hstkSalt : 0 + (chargeCache prog sloadChg cs.salt).length ≤ 1024)
+    (hstkSize : 1 + (chargeCache prog sloadChg cs.initSize).length ≤ 1024)
+    (hstkOff : 2 + (chargeCache prog sloadChg cs.initOffset).length ≤ 1024)
+    (hstkValue : 3 + (chargeCache prog sloadChg cs.value).length ≤ 1024) :
+    ∃ createFr : Frame,
+      Runs fr0 createFr
+      ∧ createFr.exec.pc = fr0.exec.pc + UInt32.ofNat
+          ((matCache prog cs.salt ++ matCache prog cs.initSize
+            ++ matCache prog cs.initOffset ++ matCache prog cs.value).length)
+      ∧ createFr.exec.stack = valueW :: initOffW :: initSizeW :: saltW :: []
+      ∧ createFr.exec.executionEnv.code = lower prog
+      ∧ createFr.validJumps = fr0.validJumps
+      ∧ createFr.exec.executionEnv.address = fr0.exec.executionEnv.address
+      ∧ createFr.exec.executionEnv.canModifyState = true
+      ∧ createFr.exec.toMachineState.memory = fr0.exec.toMachineState.memory
+      ∧ fr0.exec.toMachineState.activeWords.toNat
+          ≤ createFr.exec.toMachineState.activeWords.toNat
+      ∧ (∀ k, selfStorage createFr k = selfStorage fr0 k)
+      ∧ RecorderCoupled log createFr gS sS cS dS
+      ∧ CleanHaltsNonException createFr := by
+  classical
+  have hbt : prog.blocks.toList[L.idx]? = some b := Lir.toList_of_blockAt hb
+  set base := pcOf prog L pc with hbase
+  set sB := matCache prog cs.salt with hsB
+  set zB := matCache prog cs.initSize with hzB
+  set oB := matCache prog cs.initOffset with hoB
+  set vB := matCache prog cs.value with hvB
+  set tailB : List UInt8 := (match cs.resultTmp with
+      | some t => emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]
+      | none => [Byte.pop]) with htailB
+  have hemit0 : emitStmt (matCache prog) (defsOf prog) (.create cs)
+      = sB ++ zB ++ oB ++ vB ++ [Byte.create2] ++ tailB := rfl
+  -- the master 32-bit bound on any byte offset within the operand block + CREATE2 byte.
+  have hbnd : ∀ k, k < sB.length + zB.length + oB.length + vB.length + 1 → base + k < 2 ^ 32 := by
+    intro k hk
+    apply create_stmt_offset_bound_of_codeFits hcodeFits hb hcur
+    rw [hemit0]
+    simp only [List.length_append, List.length_singleton]
+    omega
+  -- the emit byte segment at the cursor.
+  have hseg : ∀ j, j < (emitStmt (matCache prog) (defsOf prog) (.create cs)).length →
+      (flatBytes prog)[base + j]? = (emitStmt (matCache prog) (defsOf prog) (.create cs))[j]? :=
+    fun j hj => flatBytes_at_pcOf_offset prog L b pc (.create cs) j hbt hcur hj
+  -- right-associate the emit to peel the four operand segments.
+  set rest : List UInt8 := zB ++ (oB ++ (vB ++ ([Byte.create2] ++ tailB))) with hrest
+  have hassoc : emitStmt (matCache prog) (defsOf prog) (.create cs)
+      = sB ++ (zB ++ (oB ++ (vB ++ ([Byte.create2] ++ tailB)))) := by
+    rw [hemit0]; simp only [List.append_assoc]
+  rw [hassoc] at hseg
+  have hsegSB := segF_prefix (flatBytes prog) base sB rest hseg
+  have hsegAfterSB := segF_suffix (flatBytes prog) base sB rest hseg
+  rw [hrest] at hsegAfterSB
+  have hsegZB := segF_prefix (flatBytes prog) (base + sB.length) zB
+      (oB ++ (vB ++ ([Byte.create2] ++ tailB))) hsegAfterSB
+  have hsegAfterZB := segF_suffix (flatBytes prog) (base + sB.length) zB
+      (oB ++ (vB ++ ([Byte.create2] ++ tailB))) hsegAfterSB
+  have hsegOB := segF_prefix (flatBytes prog) (base + sB.length + zB.length) oB
+      (vB ++ ([Byte.create2] ++ tailB)) hsegAfterZB
+  have hsegAfterOB := segF_suffix (flatBytes prog) (base + sB.length + zB.length) oB
+      (vB ++ ([Byte.create2] ++ tailB)) hsegAfterZB
+  have hsegVB := segF_prefix (flatBytes prog) (base + sB.length + zB.length + oB.length) vB
+      ([Byte.create2] ++ tailB) hsegAfterOB
+  -- == the four coupled materialise runs ==
+  have hcode0 : fr0.exec.executionEnv.code = lower prog := hcorr.code_eq
+  have hpc0 : fr0.exec.pc = UInt32.ofNat base := hcorr.pc_eq
+  have hstk0 : fr0.exec.stack = [] := hcorr.stack_nil
+  -- run 1: `salt` from `fr0`.
+  have hdcS : MatDecC prog hwl.defsCons hwl.defEnvOrdered fr0.exec.executionEnv.code
+      fr0.exec.pc (.tmp cs.salt) := by
+    rw [hcode0, hpc0]
+    exact matDecC_of_seg prog hwl.defsCons hwl.defEnvOrdered (.tmp cs.salt) base
+      (by simp only [matExpr_tmp, ← hsB]
+          have := hbnd sB.length (by omega); omega)
+      (by simp only [matExpr_tmp, ← hsB]; exact hsegSB)
+  have hstk0C : fr0.exec.stack.size
+      + (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp cs.salt)).length ≤ 1024 := by
+    rw [hstk0]; simp only [chargeExpr_tmp, Stack.size, List.length_nil]
+    exact hstkSalt
+  have hgasS := materialise_chargeC_le_of_cleanHalt hwl.defsCons hwl.defEnvOrdered
+    sloadChg st0 0 I (.tmp cs.salt) saltW fr0 hdcS hcorr.defsSound hfreeSalt
+    hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree hsalt hch hstk0C
+  obtain ⟨frS, hmrS, hcpS⟩ := recorderCoupled_matRunsC hwl.defsCons hwl.defEnvOrdered
+    sloadChg st0 0 log gS sS cS dS I (.tmp cs.salt) saltW fr0 hdcS hcorr.defsSound
+    hfreeSalt hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree hsalt
+    hgasS hstk0C hcp
+  have hchS : CleanHaltsNonException frS := cleanHaltsNonException_forward hch hmrS.runs
+  have hfrScode : frS.exec.executionEnv.code = lower prog := by rw [hmrS.code, hcode0]
+  have hfrSpc : frS.exec.pc = UInt32.ofNat (base + sB.length) := by
+    have h := hmrS.pc; simp only [matExpr_tmp, ← hsB] at h; rw [h, hpc0, ofNat_add']
+  have hfrSstk : frS.exec.stack = saltW :: [] := by rw [hmrS.stack, hstk0]; rfl
+  have hstoreS : StorageAgree st0 frS := hcorr.storage.transport hmrS.storage
+  have hmemS : MemRealises prog st0 frS := hcorr.memAgree.transport hmrS.memBytes hmrS.memActive
+  -- run 2: `initSize` from `frS`.
+  have hdcZ : MatDecC prog hwl.defsCons hwl.defEnvOrdered frS.exec.executionEnv.code
+      frS.exec.pc (.tmp cs.initSize) := by
+    rw [hfrScode, hfrSpc]
+    exact matDecC_of_seg prog hwl.defsCons hwl.defEnvOrdered (.tmp cs.initSize) (base + sB.length)
+      (by simp only [matExpr_tmp, ← hzB]
+          have := hbnd (sB.length + zB.length) (by omega); omega)
+      (by simp only [matExpr_tmp, ← hzB]; exact hsegZB)
+  have hstkZC : frS.exec.stack.size
+      + (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp cs.initSize)).length ≤ 1024 := by
+    rw [hfrSstk]; simp only [chargeExpr_tmp]
+    show 1 + (chargeCache prog sloadChg cs.initSize).length ≤ 1024; exact hstkSize
+  have hgasZ := materialise_chargeC_le_of_cleanHalt hwl.defsCons hwl.defEnvOrdered
+    sloadChg st0 0 I (.tmp cs.initSize) initSizeW frS hdcZ hcorr.defsSound hfreeSize
+    hcorr.wellScoped hstoreS (by nofun) (by nofun) hmemS hsize hchS hstkZC
+  obtain ⟨frZ, hmrZ, hcpZ⟩ := recorderCoupled_matRunsC hwl.defsCons hwl.defEnvOrdered
+    sloadChg st0 0 log gS sS cS dS I (.tmp cs.initSize) initSizeW frS hdcZ hcorr.defsSound
+    hfreeSize hcorr.wellScoped hstoreS (by nofun) (by nofun) hmemS hsize hgasZ hstkZC hcpS
+  have hchZ : CleanHaltsNonException frZ := cleanHaltsNonException_forward hchS hmrZ.runs
+  have hfrZcode : frZ.exec.executionEnv.code = lower prog := by rw [hmrZ.code, hfrScode]
+  have hfrZpc : frZ.exec.pc = UInt32.ofNat (base + sB.length + zB.length) := by
+    have h := hmrZ.pc; simp only [matExpr_tmp, ← hzB] at h; rw [h, hfrSpc, ofNat_add']
+  have hfrZstk : frZ.exec.stack = initSizeW :: saltW :: [] := by rw [hmrZ.stack, hfrSstk]; rfl
+  have hstoreZ : StorageAgree st0 frZ := hstoreS.transport hmrZ.storage
+  have hmemZ : MemRealises prog st0 frZ := hmemS.transport hmrZ.memBytes hmrZ.memActive
+  -- run 3: `initOffset` from `frZ`.
+  have hdcO : MatDecC prog hwl.defsCons hwl.defEnvOrdered frZ.exec.executionEnv.code
+      frZ.exec.pc (.tmp cs.initOffset) := by
+    rw [hfrZcode, hfrZpc]
+    exact matDecC_of_seg prog hwl.defsCons hwl.defEnvOrdered (.tmp cs.initOffset)
+      (base + sB.length + zB.length)
+      (by simp only [matExpr_tmp, ← hoB]
+          have := hbnd (sB.length + zB.length + oB.length) (by omega); omega)
+      (by simp only [matExpr_tmp, ← hoB]; exact hsegOB)
+  have hstkOC : frZ.exec.stack.size
+      + (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp cs.initOffset)).length ≤ 1024 := by
+    rw [hfrZstk]; simp only [chargeExpr_tmp]
+    show 2 + (chargeCache prog sloadChg cs.initOffset).length ≤ 1024; exact hstkOff
+  have hgasO := materialise_chargeC_le_of_cleanHalt hwl.defsCons hwl.defEnvOrdered
+    sloadChg st0 0 I (.tmp cs.initOffset) initOffW frZ hdcO hcorr.defsSound hfreeOff
+    hcorr.wellScoped hstoreZ (by nofun) (by nofun) hmemZ hoff hchZ hstkOC
+  obtain ⟨frO, hmrO, hcpO⟩ := recorderCoupled_matRunsC hwl.defsCons hwl.defEnvOrdered
+    sloadChg st0 0 log gS sS cS dS I (.tmp cs.initOffset) initOffW frZ hdcO hcorr.defsSound
+    hfreeOff hcorr.wellScoped hstoreZ (by nofun) (by nofun) hmemZ hoff hgasO hstkOC hcpZ
+  have hchO : CleanHaltsNonException frO := cleanHaltsNonException_forward hchZ hmrO.runs
+  have hfrOcode : frO.exec.executionEnv.code = lower prog := by rw [hmrO.code, hfrZcode]
+  have hfrOpc : frO.exec.pc = UInt32.ofNat (base + sB.length + zB.length + oB.length) := by
+    have h := hmrO.pc; simp only [matExpr_tmp, ← hoB] at h; rw [h, hfrZpc, ofNat_add']
+  have hfrOstk : frO.exec.stack = initOffW :: initSizeW :: saltW :: [] := by
+    rw [hmrO.stack, hfrZstk]; rfl
+  have hstoreO : StorageAgree st0 frO := hstoreZ.transport hmrO.storage
+  have hmemO : MemRealises prog st0 frO := hmemZ.transport hmrO.memBytes hmrO.memActive
+  -- run 4: `value` from `frO`.
+  have hdcV : MatDecC prog hwl.defsCons hwl.defEnvOrdered frO.exec.executionEnv.code
+      frO.exec.pc (.tmp cs.value) := by
+    rw [hfrOcode, hfrOpc]
+    exact matDecC_of_seg prog hwl.defsCons hwl.defEnvOrdered (.tmp cs.value)
+      (base + sB.length + zB.length + oB.length)
+      (by simp only [matExpr_tmp, ← hvB]
+          have := hbnd (sB.length + zB.length + oB.length + vB.length) (by omega); omega)
+      (by simp only [matExpr_tmp, ← hvB]; exact hsegVB)
+  have hstkVC : frO.exec.stack.size
+      + (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp cs.value)).length ≤ 1024 := by
+    rw [hfrOstk]; simp only [chargeExpr_tmp]
+    show 3 + (chargeCache prog sloadChg cs.value).length ≤ 1024; exact hstkValue
+  have hgasV := materialise_chargeC_le_of_cleanHalt hwl.defsCons hwl.defEnvOrdered
+    sloadChg st0 0 I (.tmp cs.value) valueW frO hdcV hcorr.defsSound hfreeValue
+    hcorr.wellScoped hstoreO (by nofun) (by nofun) hmemO hvalue hchO hstkVC
+  obtain ⟨frV, hmrV, hcpV⟩ := recorderCoupled_matRunsC hwl.defsCons hwl.defEnvOrdered
+    sloadChg st0 0 log gS sS cS dS I (.tmp cs.value) valueW frO hdcV hcorr.defsSound
+    hfreeValue hcorr.wellScoped hstoreO (by nofun) (by nofun) hmemO hvalue hgasV hstkVC hcpO
+  -- == assemble the endpoint bundle ==
+  have hruns : Runs fr0 frV :=
+    hmrS.runs.trans (hmrZ.runs.trans (hmrO.runs.trans hmrV.runs))
+  refine ⟨frV, hruns, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, hcpV,
+    cleanHaltsNonException_forward hchO hmrV.runs⟩
+  · -- pc: fr0.pc + (|sB| + |zB| + |oB| + |vB|).
+    have hlen : (matCache prog cs.salt ++ matCache prog cs.initSize
+        ++ matCache prog cs.initOffset ++ matCache prog cs.value).length
+        = sB.length + zB.length + oB.length + vB.length := by
+      simp only [List.length_append, ← hsB, ← hzB, ← hoB, ← hvB]
+    have h := hmrV.pc; simp only [matExpr_tmp, ← hvB] at h
+    rw [h, hfrOpc, hlen, hpc0, ofNat_add', ofNat_add']
+    congr 1; omega
+  · rw [hmrV.stack, hfrOstk]; rfl
+  · rw [hmrV.code, hfrOcode]
+  · rw [hmrV.validJumps, hmrO.validJumps, hmrZ.validJumps, hmrS.validJumps]
+  · rw [hmrV.addr, hmrO.addr, hmrZ.addr, hmrS.addr]
+  · rw [hmrV.canMod, hmrO.canMod, hmrZ.canMod, hmrS.canMod]
+    show fr0.exec.executionEnv.canModifyState = true
+    exact hcorr.can_modify
+  · rw [hmrV.memBytes, hmrO.memBytes, hmrZ.memBytes, hmrS.memBytes]
+  · calc fr0.exec.toMachineState.activeWords.toNat
+        ≤ frS.exec.toMachineState.activeWords.toNat := hmrS.memActive
+      _ ≤ frZ.exec.toMachineState.activeWords.toNat := hmrZ.memActive
+      _ ≤ frO.exec.toMachineState.activeWords.toNat := hmrO.memActive
+      _ ≤ frV.exec.toMachineState.activeWords.toNat := hmrV.memActive
+  · intro k
+    rw [hmrV.storage k, hmrO.storage k, hmrZ.storage k, hmrS.storage k]
+
+/-- **R3-CREATE, step 3 — the Route-B tail at the pinned resume frame** (CLOSED). The CREATE twin
+of `call_tail_of_cleanHalt`. At a frame running `lower prog` one byte past this cursor's `CREATE2`
+byte with the address word alone on the stack, the tail realises: `resultTmp = some t` runs
+`PUSH32 (slotOf t); MSTORE` (`stash_tail_runs`, fed the byte-layout decode anchors peeled off the
+`emitStmt` create layout and the clean-halt gas/expansion witnesses); `resultTmp = none` runs `POP`
+(`runs_pop`, fed by `next_pop_of_cleanHalt`). Byte-identical machinery to the CALL tail — only the
+operand-block layout (`matCache salt ++ matCache initSize ++ matCache initOffset ++ matCache value`)
+and the `CREATE2` byte differ. -/
+theorem create_tail_of_cleanHalt {prog : Program} {L : Label} {b : Block} {pc : Nat}
+    {cs : CreateSpec} {resumeFr : Frame}
+    (hcodeFits : codeFits prog)
+    (hb : blockAt prog L = some b)
+    (hcur : b.stmts[pc]? = some (.create cs))
+    (hcode : resumeFr.exec.executionEnv.code = lower prog)
+    (hpc : resumeFr.exec.pc = UInt32.ofNat (pcOf prog L pc
+      + (matCache prog cs.salt ++ matCache prog cs.initSize
+          ++ matCache prog cs.initOffset ++ matCache prog cs.value).length + 1))
+    (hch : CleanHaltsNonException resumeFr)
+    (hslotaddr : ∀ t, cs.resultTmp = some t →
+      slotOf t + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits) :
+    ∀ addrW : Word, resumeFr.exec.stack = addrW :: [] →
+      (∀ (t : Tmp), cs.resultTmp = some t →
+        (slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
+        ∧ ∃ endFr,
+            Runs resumeFr endFr
+          ∧ endFr.exec.toMachineState.memory
+              = ((resumeFr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) addrW)).memory
+          ∧ endFr.exec.toMachineState.activeWords
+              = ((resumeFr.exec.toMachineState.mstore (UInt256.ofNat (slotOf t)) addrW)).activeWords
+          ∧ endFr.exec.pc = resumeFr.exec.pc + UInt32.ofNat 34
+          ∧ endFr.exec.executionEnv.code = resumeFr.exec.executionEnv.code
+          ∧ endFr.validJumps = resumeFr.validJumps
+          ∧ endFr.exec.executionEnv.address = resumeFr.exec.executionEnv.address
+          ∧ endFr.exec.executionEnv.canModifyState
+              = resumeFr.exec.executionEnv.canModifyState
+          ∧ (∀ k, selfStorage endFr k = selfStorage resumeFr k)
+          ∧ endFr.exec.stack = [])
+      ∧ (cs.resultTmp = none → Runs resumeFr (popFrame resumeFr [])) := by
+  intro addrW hstkflag
+  classical
+  have hbt : prog.blocks.toList[L.idx]? = some b := Lir.toList_of_blockAt hb
+  set base := pcOf prog L pc with hbase
+  set argsB : List UInt8 := matCache prog cs.salt ++ matCache prog cs.initSize
+      ++ matCache prog cs.initOffset ++ matCache prog cs.value with hargsB
+  have hseg : ∀ j, j < (emitStmt (matCache prog) (defsOf prog) (.create cs)).length →
+      (flatBytes prog)[base + j]? = (emitStmt (matCache prog) (defsOf prog) (.create cs))[j]? :=
+    fun j hj => flatBytes_at_pcOf_offset prog L b pc (.create cs) j hbt hcur hj
+  have hpc' : resumeFr.exec.pc = UInt32.ofNat (base + (argsB.length + 1)) := by
+    rw [hpc]; congr 1
+  have hsz1 : resumeFr.exec.stack.size + 1 ≤ 1024 := by
+    rw [hstkflag]; show (1 : ℕ) + 1 ≤ 1024; omega
+  constructor
+  · -- == `resultTmp = some t`: the `PUSH32 (slotOf t); MSTORE` stash tail ==
+    intro t ht
+    obtain ⟨hslot64, hslotplat⟩ := hslotaddr t ht
+    refine ⟨hslot64, hslotplat, ?_⟩
+    -- byte layout: `emitStmt = (argsB ++ [CREATE2]) ++ (emitImm (slotOf t) ++ [MSTORE])`.
+    have hemit : emitStmt (matCache prog) (defsOf prog) (.create cs)
+        = (argsB ++ [Byte.create2]) ++ (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]) := by
+      have h0 : emitStmt (matCache prog) (defsOf prog) (.create cs)
+          = argsB ++ [Byte.create2]
+            ++ (match cs.resultTmp with
+                | some t' => emitImm (UInt256.ofNat (slotOf t')) ++ [Byte.mstore]
+                | none => [Byte.pop]) := rfl
+      rw [h0, ht]
+    have hlen : (emitStmt (matCache prog) (defsOf prog) (.create cs)).length
+        = argsB.length + 35 := by
+      rw [hemit]
+      simp only [List.length_append, List.length_singleton, emitImm_length]
+    have hbnd : base + (argsB.length + 34) < 2 ^ 32 :=
+      create_stmt_offset_bound_of_codeFits hcodeFits hb hcur (by omega)
+    have hsegTail := segF_suffix (flatBytes prog) base (argsB ++ [Byte.create2])
+        (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]) (by rw [← hemit]; exact hseg)
+    have hsegTail' : ∀ j, j < (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]).length →
+        (flatBytes prog)[base + (argsB.length + 1) + j]?
+          = (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore])[j]? := by
+      intro j hj
+      have h := hsegTail j hj
+      rwa [show base + (argsB ++ [Byte.create2]).length + j = base + (argsB.length + 1) + j from by
+            simp only [List.length_append, List.length_singleton]] at h
+    have hdpushT : decode (lower prog) (UInt32.ofNat (base + (argsB.length + 1)))
+        = some (.Push .PUSH32, some (UInt256.ofNat (slotOf t), 32)) :=
+      imm_leaf_decodeF prog (base + (argsB.length + 1)) (UInt256.ofNat (slotOf t))
+        (by omega)
+        (segF_prefix (flatBytes prog) (base + (argsB.length + 1))
+          (emitImm (UInt256.ofNat (slotOf t))) [Byte.mstore] hsegTail')
+    have hdmstoreT : decode (lower prog) (UInt32.ofNat (base + (argsB.length + 1) + 33))
+        = some (.Smsf .MSTORE, .none) := by
+      have hpi : Evm.parseInstr Byte.mstore = .Smsf .MSTORE := by decide
+      rw [← hpi]
+      exact nonpush_leaf_decodeF prog (base + (argsB.length + 1)) 33 Byte.mstore
+        (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore])
+        (by omega)
+        (by rw [List.getElem?_append_right (by rw [emitImm_length])]
+            simp [emitImm_length])
+        (by decide) hsegTail'
+    have hdpush : decode resumeFr.exec.executionEnv.code resumeFr.exec.pc
+        = some (.Push .PUSH32, some (UInt256.ofNat (slotOf t), 32)) := by
+      rw [hcode, hpc']; exact hdpushT
+    have hdmstore : decode resumeFr.exec.executionEnv.code (resumeFr.exec.pc + UInt32.ofNat 33)
+        = some (.Smsf .MSTORE, .none) := by
+      rw [hcode, hpc', ofNat_add']; exact hdmstoreT
+    have hgasPush : 3 ≤ resumeFr.exec.gasAvailable.toNat := by
+      have := (CleanHaltExtract.next_push_of_cleanHalt resumeFr .PUSH32
+        (UInt256.ofNat (slotOf t)) 32 hch (by decide) hdpush (by decide) (by decide) hsz1).1
+      have hvl : (GasConstants.Gverylow : ℕ) = 3 := rfl
+      omega
+    have hrunPush : Runs resumeFr (pushFrameW resumeFr (UInt256.ofNat (slotOf t)) 32) :=
+      runs_push resumeFr .PUSH32 (UInt256.ofNat (slotOf t)) 32 (by nofun) hdpush rfl rfl
+        hgasPush hsz1
+    have hchP : CleanHaltsNonException (pushFrameW resumeFr (UInt256.ofNat (slotOf t)) 32) :=
+      cleanHaltsNonException_forward hch hrunPush
+    have hfrpstk : (pushFrameW resumeFr (UInt256.ofNat (slotOf t)) 32).exec.stack
+        = UInt256.ofNat (slotOf t) :: addrW :: [] := by
+      rw [pushFrameW_stack', hstkflag]; rfl
+    have hfrpdec : decode
+        (pushFrameW resumeFr (UInt256.ofNat (slotOf t)) 32).exec.executionEnv.code
+        (pushFrameW resumeFr (UInt256.ofNat (slotOf t)) 32).exec.pc
+          = some (.Smsf .MSTORE, .none) := by
+      rw [pushFrameW_code, pushFrameW_pc, push32_pcΔ]
+      exact hdmstore
+    obtain ⟨words', hmem, hgasMem, hgasVL, _⟩ :=
+      CleanHaltExtract.next_mstore_of_cleanHalt
+        (pushFrameW resumeFr (UInt256.ofNat (slotOf t)) 32) (UInt256.ofNat (slotOf t)) addrW []
+        hchP hfrpdec hfrpstk (by rw [hfrpstk]; show (2 : ℕ) ≤ 1024; omega)
+    have hstash := stash_tail_runs resumeFr (slotOf t) addrW [] words' hstkflag hdpush
+      hdmstore hsz1 hgasPush hmem hgasMem hgasVL
+    exact ⟨_, hstash.runs, hstash.memory, hstash.activeWords, hstash.pc, hstash.code,
+      hstash.validJumps, hstash.addr, hstash.canMod, hstash.storage, hstash.stack⟩
+  · -- == `resultTmp = none`: the fire-and-forget `POP` ==
+    intro hnone
+    have hemit : emitStmt (matCache prog) (defsOf prog) (.create cs)
+        = (argsB ++ [Byte.create2]) ++ [Byte.pop] := by
+      have h0 : emitStmt (matCache prog) (defsOf prog) (.create cs)
+          = argsB ++ [Byte.create2]
+            ++ (match cs.resultTmp with
+                | some t' => emitImm (UInt256.ofNat (slotOf t')) ++ [Byte.mstore]
+                | none => [Byte.pop]) := rfl
+      rw [h0, hnone]
+    have hlen : (emitStmt (matCache prog) (defsOf prog) (.create cs)).length
+        = argsB.length + 2 := by
+      rw [hemit]
+      simp only [List.length_append, List.length_singleton]
+    have hbnd : base + (argsB.length + 1) < 2 ^ 32 :=
+      create_stmt_offset_bound_of_codeFits hcodeFits hb hcur (by omega)
+    have hdpopT : decode (lower prog) (UInt32.ofNat (base + (argsB.length + 1)))
+        = some (.Smsf .POP, .none) := by
+      have hpi : Evm.parseInstr Byte.pop = .Smsf .POP := by decide
+      rw [← hpi]
+      exact nonpush_leaf_decodeF prog base (argsB.length + 1) Byte.pop
+        (emitStmt (matCache prog) (defsOf prog) (.create cs)) hbnd
+        (by rw [hemit, List.getElem?_append_right (by
+              simp only [List.length_append, List.length_singleton]; omega)]
+            simp only [List.length_append, List.length_singleton]
+            rw [show argsB.length + 1 - (argsB.length + 1) = 0 from by omega]
+            rfl)
+        (by decide) hseg
+    have hdpop : decode resumeFr.exec.executionEnv.code resumeFr.exec.pc
+        = some (.Smsf .POP, .none) := by
+      rw [hcode, hpc']; exact hdpopT
+    have hszP : resumeFr.exec.stack.size ≤ 1024 := by
+      rw [hstkflag]; show (1 : ℕ) ≤ 1024; omega
+    have hgasPop : GasConstants.Gbase ≤ resumeFr.exec.gasAvailable.toNat :=
+      (CleanHaltExtract.next_pop_of_cleanHalt resumeFr addrW [] hch hdpop hstkflag hszP).1
+    exact runs_pop resumeFr addrW [] hdpop hstkflag hszP hgasPop
+
+/-- **R3-CREATE, step 2 — the CREATE dispatch bundle** (STUBBED — tracked `sorry`).
+
+The CREATE twin of `call_dispatch_of_coupled`. At a coupled top-level frame decoding `CREATE2` with
+the lowered operand stack `valueW :: initOffW :: initSizeW :: saltW :: []` and `canModifyState`, the
+step is `.needsCreate cp pending` with the pending pins the resume half consumes.
+
+The depth guard is DERIVABLE FROM THE COUPLING exactly as in CALL (`driveLog_calls_const_of_depth`'s
+CREATE twin — `driveLog_creates_const_of_depth`, an easy mirror over the `dS` accumulator). The CALL
+template transfers for that half. What DOES NOT yet exist in the default bytecode layer, and is the
+reason this brick is a tracked `sorry`:
+
+  * a `stepFrame_create2` dispatch producer (the CREATE twin of
+    `BytecodeLayer.System.stepFrame_call`) — no such lemma exists; `createArm` has only the
+    `.needsCreate`-INVERSION lemmas (`createArm_needsCreate_inv`, Descent.lean), never a forward
+    producer from the decode + operand stack;
+  * a `create_extraCost_le_of_cleanHalt` clean-halt gas brick (the CREATE twin of
+    `CleanHaltExtract.call_extraCost_le_of_cleanHalt`) — no CREATE clean-halt bricks exist in
+    `CleanHalt.lean` at all.
+
+Both are DEFAULT-layer work; per the track rules they are declared here as the honest debt boundary.
+NEXT AGENT: build `stepFrame_create2` + `create_extraCost_le_of_cleanHalt` in the bytecode layer
+(mirroring the CALL proofs at `System.lean:118` / `CleanHaltExtract.lean` §6), then this proof is
+pure assembly like `call_dispatch_of_coupled`. -/
+theorem create_dispatch_of_coupled {log : RunLog} {createFr : Frame}
+    {valueW initOffW initSizeW saltW : Word}
+    {gS : List Word} {sS : List Nat} {cS : List CallRecord}
+    {rec : CreateRecord} {dS' : List CreateRecord}
+    (hcp : RecorderCoupled log createFr gS sS cS (rec :: dS'))
+    (hch : CleanHaltsNonException createFr)
+    (hdec : decode createFr.exec.executionEnv.code createFr.exec.pc
+      = some (.System .CREATE2, .none))
+    (hstk : createFr.exec.stack = valueW :: initOffW :: initSizeW :: saltW :: [])
+    (hmod : createFr.exec.executionEnv.canModifyState = true) :
+    ∃ (cp : Evm.CreateParams) (pending : Evm.PendingCreate),
+      stepFrame createFr = .needsCreate cp pending
+      ∧ pending.frame.exec.executionEnv = createFr.exec.executionEnv
+      ∧ pending.frame.validJumps = createFr.validJumps
+      ∧ pending.frame.exec.pc = createFr.exec.pc
+      ∧ pending.frame.exec.toMachineState.memory = createFr.exec.toMachineState.memory := by
+  -- DIAGNOSTIC (tracked debt): needs the default-layer `stepFrame_create2` producer +
+  -- `create_extraCost_le_of_cleanHalt` — neither exists yet (see docstring).
+  sorry
+
+/-- **R3-CREATE — create realisation from the log** (STUBBED — tracked `sorry`). The CREATE twin of
+`callRealises_of_recorded`, discharging `CreateRealisesS`. Its Piece-B step 1
+(`create_args_run_of_coupled`) and step 3 (`create_tail_of_cleanHalt`) are CLOSED above, and Piece A
+(`recorderCoupled_create_extract`) is closed higher in this file; the only debt is step 2
+(`create_dispatch_of_coupled`, blocked on the default-layer CREATE dispatch producer) plus the
+`resumeAfterCreate` stack/memory/activeWords resume pins (the CREATE twins of the `resumeAfterCall_*`
+pins — `resumeAfterCreate_execEnv`/`_validJumps`/`_pc` already exist; the stack/mem/aw pins read off
+the `resumeAfterCreate` impl's `replaceStackAndIncrPC`/`activeWords := M …` and are straightforward
+WIP-local mirrors). STATEMENT mirrors `callRealises_of_recorded` field-for-field: `codeFits` scalar,
+the `CreateResolves` seam (the create analogue of the `CallsCode` seam), the four operand bindings +
+closure-freeness, the four stack-room folds, and the result-slot addressability. NO free-∀ ties, NO
+single-create restriction. -/
+theorem createRealises_of_recorded {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
+    {self : AccountAddress} {L : Label} {b : Block} {pc : Nat} {cs : CreateSpec}
+    {st0 : IRState} {fr0 : Frame} {valueW initOffW initSizeW saltW : Word}
+    {gS : List Word} {sS : List Nat} {cS : List CallRecord}
+    {rec : CreateRecord} {dS' : List CreateRecord} {I : Tmp → Prop}
+    (hwl : WellLowered prog)
+    (hcodeFits : codeFits prog)
+    (hb : blockAt prog L = some b)
+    (hcur : b.stmts[pc]? = some (.create cs))
+    (hcp : RecorderCoupled log fr0 gS sS cS (rec :: dS'))
+    (hch : CleanHaltsNonException fr0)
+    (haddr : fr0.exec.executionEnv.address = self)
+    (hcr : ∀ fr', Runs fr0 fr' → CreateResolves fr')
+    (hvalue : st0.locals cs.value = some valueW)
+    (hoff : st0.locals cs.initOffset = some initOffW)
+    (hsize : st0.locals cs.initSize = some initSizeW)
+    (hsalt : st0.locals cs.salt = some saltW)
+    (hfreeValue : RematClosureFree prog I (.tmp cs.value))
+    (hfreeOff : RematClosureFree prog I (.tmp cs.initOffset))
+    (hfreeSize : RematClosureFree prog I (.tmp cs.initSize))
+    (hfreeSalt : RematClosureFree prog I (.tmp cs.salt))
+    (hstkSalt : 0 + (chargeCache prog sloadChg cs.salt).length ≤ 1024)
+    (hstkSize : 1 + (chargeCache prog sloadChg cs.initSize).length ≤ 1024)
+    (hstkOff : 2 + (chargeCache prog sloadChg cs.initOffset).length ≤ 1024)
+    (hstkValue : 3 + (chargeCache prog sloadChg cs.value).length ≤ 1024)
+    (hslotaddr : ∀ t, cs.resultTmp = some t →
+      slotOf t + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits) :
+    CreateRealisesS prog sloadChg I L b pc cs st0
+      (match cs.resultTmp with
+        | some t' => { st0 with world := fun key =>
+                        evmCreateOracle.postStorage rec.result rec.pending self key }.setLocal
+                        t' (createAddrOrZero rec.result rec.pending)
+        | none   => { st0 with world := fun key =>
+                        evmCreateOracle.postStorage rec.result rec.pending self key })
+      fr0 := by
+  -- DIAGNOSTIC (tracked debt): assembly is closed once `create_dispatch_of_coupled` +
+  -- the `resumeAfterCreate` stack/mem/aw resume pins land (see docstring).
+  sorry
+
+/-- **The COUPLED CREATE-head bundle** (STUBBED — tracked `sorry`). The CREATE twin of
+`call_head_realises_coupled`: the SAME Piece-A/B assembly (`create_args_run_of_coupled` →
+`create_dispatch_of_coupled` → the `CreateResolves` seam → `recorderCoupled_create_extract`),
+stopping BEFORE the tail and keeping the coupling alive at the create resume frame (tail suffix
+`dS'` — exactly one create record consumed). Consumed by the coupled producer walk's
+`simStmt_coupled_create` (`Producer.lean`) to re-establish `Corr` at the post-create frame. Same
+hypothesis ledger as `createRealises_of_recorded` minus `hslotaddr` (no tail built here). Blocked on
+the same default-layer `create_dispatch_of_coupled` + resume pins as the headline. -/
+theorem create_head_realises_coupled {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
+    {L : Label} {b : Block} {pc : Nat} {cs : CreateSpec}
+    {st0 : IRState} {fr0 : Frame} {valueW initOffW initSizeW saltW : Word}
+    {gS : List Word} {sS : List Nat} {cS : List CallRecord}
+    {rec : CreateRecord} {dS' : List CreateRecord} {I : Tmp → Prop}
+    (hwl : WellLowered prog)
+    (hcodeFits : codeFits prog)
+    (hb : blockAt prog L = some b)
+    (hcur : b.stmts[pc]? = some (.create cs))
+    (hcorr : Corr prog sloadChg 0 I st0 fr0 L pc)
+    (hcp : RecorderCoupled log fr0 gS sS cS (rec :: dS'))
+    (hch : CleanHaltsNonException fr0)
+    (hcr : ∀ fr', Runs fr0 fr' → CreateResolves fr')
+    (hvalue : st0.locals cs.value = some valueW)
+    (hoff : st0.locals cs.initOffset = some initOffW)
+    (hsize : st0.locals cs.initSize = some initSizeW)
+    (hsalt : st0.locals cs.salt = some saltW)
+    (hfreeValue : RematClosureFree prog I (.tmp cs.value))
+    (hfreeOff : RematClosureFree prog I (.tmp cs.initOffset))
+    (hfreeSize : RematClosureFree prog I (.tmp cs.initSize))
+    (hfreeSalt : RematClosureFree prog I (.tmp cs.salt))
+    (hstkSalt : 0 + (chargeCache prog sloadChg cs.salt).length ≤ 1024)
+    (hstkSize : 1 + (chargeCache prog sloadChg cs.initSize).length ≤ 1024)
+    (hstkOff : 2 + (chargeCache prog sloadChg cs.initOffset).length ≤ 1024)
+    (hstkValue : 3 + (chargeCache prog sloadChg cs.value).length ≤ 1024) :
+    ∃ (resumeFr createFr : Frame),
+      Runs fr0 createFr
+      ∧ createFr.exec.pc = fr0.exec.pc + UInt32.ofNat
+          ((matCache prog cs.salt ++ matCache prog cs.initSize
+            ++ matCache prog cs.initOffset ++ matCache prog cs.value).length)
+      ∧ createFr.exec.toMachineState.memory = fr0.exec.toMachineState.memory
+      ∧ fr0.exec.toMachineState.activeWords.toNat
+          ≤ createFr.exec.toMachineState.activeWords.toNat
+      ∧ CreateReturns createFr resumeFr
+      ∧ resumeAfterCreate rec.result rec.pending = .ok resumeFr
+      ∧ RecorderCoupled log resumeFr gS sS cS dS'
+      ∧ resumeFr.exec.executionEnv.address = fr0.exec.executionEnv.address
+      ∧ resumeFr.exec.executionEnv.code = lower prog
+      ∧ resumeFr.exec.executionEnv.canModifyState = true
+      ∧ resumeFr.exec.pc = createFr.exec.pc + 1
+      ∧ resumeFr.exec.stack = createAddrOrZero rec.result rec.pending :: []
+      ∧ resumeFr.exec.toMachineState.memory = createFr.exec.toMachineState.memory
+      ∧ createFr.exec.toMachineState.activeWords.toNat
+          ≤ resumeFr.exec.toMachineState.activeWords.toNat
+      ∧ resumeFr.validJumps = validJumpDests resumeFr.exec.executionEnv.code 0 := by
+  -- DIAGNOSTIC (tracked debt): same as `createRealises_of_recorded` minus the tail.
+  sorry
+
 end Lir.V2
