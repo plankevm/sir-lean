@@ -1153,6 +1153,19 @@ theorem stepFrame_needsCreate_systemOp {fr : Frame} {cp : CreateParams} {pd : Pe
   obtain ⟨s, hs⟩ := dispatch_ok_System_of_not_next hdisp (by simp)
   rw [hs] at hdisp; rw [dispatch] at hdisp; exact ⟨s, hdisp⟩
 
+/-- A `.needsCreate` at a known decoded system operation comes from that operation's
+`systemOp` arm. -/
+theorem stepFrame_needsCreate_systemOp_of_decode {fr : Frame} {cp : CreateParams}
+    {pd : PendingCreate} {s : Operation.SystemOp}
+    (hs : (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (Operation.STOP, .none)).1
+      = .System s)
+    (h : stepFrame fr = .needsCreate cp pd) :
+    systemOp s fr fr.exec = .ok (.needsCreate cp pd) := by
+  have hdisp := stepFrame_dispatch h (by simp)
+  rw [hs] at hdisp
+  rw [dispatch] at hdisp
+  exact hdisp
+
 /-- A `System`-op `.next` from `stepFrame`: when the decoded op is a `System` op
 and `stepFrame` is `.next exec'`, that `.next` comes from `systemOp s fr fr.exec`. -/
 theorem stepFrame_next_systemOp {fr : Frame} {exec' : ExecutionState} {s : Operation.SystemOp}
