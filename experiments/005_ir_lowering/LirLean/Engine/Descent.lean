@@ -810,6 +810,76 @@ theorem resumeAfterCreate_pc (result : Evm.FrameResult) (pd : Evm.PendingCreate)
     rw [← hres]
     rfl
 
+/-- **Resumed CREATE stack** (the create twin of `resumeAfterCall_stack`). On a
+successful `resumeAfterCreate`, the resumed frame's stack is the suspended parent's
+residual stack with the impl's `pushedValue` pushed (`Create.lean:195-198`).
+`replaceStackAndIncrPC` sets the stack to `pd.stack.push pushedValue`. The
+`pushedValue` `let`-block is definitionally `Lir.V2.createAddrOrZero result pd`; the
+consumer rewrites through that def-eq. -/
+theorem resumeAfterCreate_stack (result : Evm.CreateResult) (pd : Evm.PendingCreate)
+    (parent : Evm.Frame) (hres : Evm.resumeAfterCreate result pd = .ok parent) :
+    parent.exec.stack = pd.stack.push
+      (let balance := pd.callerAccounts.find? pd.frame.exec.executionEnv.address
+          |>.option 0 (·.balance)
+        if result.success = false ∨ pd.frame.exec.executionEnv.depth = 1024
+            ∨ pd.value > balance ∨ pd.initCodeSize > 49152
+          then 0 else .ofNat result.address) := by
+  unfold Evm.resumeAfterCreate at hres
+  simp only [bind, Except.bind, pure, Except.pure] at hres
+  split at hres
+  · exact absurd hres (by simp)
+  · simp only [Except.ok.injEq] at hres
+    rw [← hres]
+    rfl
+
+/-- **Resumed CREATE memory** (the create twin of `resumeAfterCall_memory`). On a
+successful `resumeAfterCreate`, the resumed frame keeps the suspended parent's memory
+bytes: the impl rebuilds `pd.frame.exec` touching only accounts/substate/gas/
+activeWords/returnData (`Create.lean:202-209`) and `replaceStackAndIncrPC` touches only
+stack/pc — memory is never written. -/
+theorem resumeAfterCreate_memory (result : Evm.CreateResult) (pd : Evm.PendingCreate)
+    (parent : Evm.Frame) (hres : Evm.resumeAfterCreate result pd = .ok parent) :
+    parent.exec.toMachineState.memory = pd.frame.exec.toMachineState.memory := by
+  unfold Evm.resumeAfterCreate at hres
+  simp only [bind, Except.bind, pure, Except.pure] at hres
+  split at hres
+  · exact absurd hres (by simp)
+  · simp only [Except.ok.injEq] at hres
+    rw [← hres]
+    rfl
+
+/-- `MachineState.M s f l` dominates its base `s` (`l = 0` is `s`; else `max s _`). -/
+theorem M_ge_left (s f l : UInt64) : s.toNat ≤ (MachineState.M s f l).toNat := by
+  unfold MachineState.M
+  split
+  · exact le_refl _
+  · -- `max s y` is `if s ≤ y then y else s`; both branches dominate `s`.
+    rw [show (s ⊔ ((f + l + 31) / 32))
+          = (if s ≤ (f + l + 31) / 32 then (f + l + 31) / 32 else s) from rfl]
+    split
+    · rename_i h; rwa [UInt64.le_iff_toNat_le] at h
+    · exact le_refl _
+
+/-- **Resumed CREATE `activeWords` monotonicity** (the create twin of the
+`resumeAfterCall_activeWords` ≥-direction). On a successful `resumeAfterCreate`, the
+resumed frame's `activeWords` is `MachineState.M pd.frame.exec.activeWords
+pd.initOffset pd.initSize` (`Create.lean:207`), which dominates the parent's
+(`M`-update is monotone in its first argument). -/
+theorem resumeAfterCreate_activeWords_ge (result : Evm.CreateResult) (pd : Evm.PendingCreate)
+    (parent : Evm.Frame) (hres : Evm.resumeAfterCreate result pd = .ok parent) :
+    pd.frame.exec.toMachineState.activeWords.toNat
+      ≤ parent.exec.toMachineState.activeWords.toNat := by
+  unfold Evm.resumeAfterCreate at hres
+  simp only [bind, Except.bind, pure, Except.pure] at hres
+  split at hres
+  · exact absurd hres (by simp)
+  · simp only [Except.ok.injEq] at hres
+    rw [← hres]
+    -- `parent.exec.activeWords = M pd.frame.exec.activeWords pd.initOffset pd.initSize`
+    show pd.frame.exec.toMachineState.activeWords.toNat
+      ≤ (MachineState.M pd.frame.exec.activeWords pd.initOffset pd.initSize).toNat
+    exact M_ge_left _ _ _
+
 
 /-! ### The `DescentKind` interface — CALL and CREATE as ONE descent shape
 

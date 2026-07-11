@@ -3234,6 +3234,60 @@ private theorem driveLog_calls_const_of_depth :
     | needsCreate params pending =>
       exact absurd (stepFrame_needsCreate_depth hstep) (by omega)
 
+/-- A top-level `.inr` delivery with an empty pending stack returns its **create** accumulator
+verbatim (the CREATE twin of `driveLog_inr_calls`). -/
+private theorem driveLog_inr_creates :
+    ∀ (fuel : ℕ) (r : FrameResult) (g : List Word) (s : List Nat) (c : List CallRecord)
+      (d : List CreateRecord) {obs : FrameResult} {gS : List Word} {sS : List Nat}
+      {cS : List CallRecord} {dS : List CreateRecord},
+      driveLog fuel [] (.inr r) g s c d = .ok (obs, gS, sS, cS, dS) → dS = d := by
+  intro fuel r g s c d obs gS sS cS dS h
+  cases fuel with
+  | zero => exact absurd h (by simp [driveLog])
+  | succ n =>
+    unfold driveLog at h
+    simp only [Except.ok.injEq, Prod.mk.injEq] at h
+    exact h.2.2.2.2.symm
+
+/-- **The no-descent-at-depth induction, create channel** (the CREATE twin of
+`driveLog_calls_const_of_depth`). A successful top-level `driveLog` run from a frame at depth
+`≥ 1024` delivers its **create** accumulator unchanged: `.needsCall`/`.needsCreate` are
+depth-guarded (never fire), `.next` preserves the environment (the depth rides along), and the
+`.halted` delivery returns the accumulator verbatim. Contrapositive: a coupled nonempty create
+suffix forces `depth < 1024` at the coupled frame. -/
+private theorem driveLog_creates_const_of_depth :
+    ∀ (fuel : ℕ) (fr : Frame) (g : List Word) (s : List Nat) (c : List CallRecord)
+      (d : List CreateRecord) {obs : FrameResult} {gS : List Word} {sS : List Nat}
+      {cS : List CallRecord} {dS : List CreateRecord},
+      1024 ≤ fr.exec.executionEnv.depth →
+      driveLog fuel [] (.inl fr) g s c d = .ok (obs, gS, sS, cS, dS) →
+      dS = d := by
+  intro fuel
+  induction fuel with
+  | zero =>
+    intro fr g s c d obs gS sS cS dS _ h
+    exact absurd h (by simp [driveLog])
+  | succ n ih =>
+    intro fr g s c d obs gS sS cS dS hdepth h
+    cases hstep : stepFrame fr with
+    | next exec =>
+      have hdepth' : 1024 ≤ exec.executionEnv.depth := by
+        rw [stepFrame_next_execEnvAddr hstep]; exact hdepth
+      unfold driveLog at h
+      simp only [hstep] at h
+      split_ifs at h with h1 h2
+      · exact ih { fr with exec := exec } _ _ c d hdepth' h
+      · exact ih { fr with exec := exec } _ _ c d hdepth' h
+      · exact ih { fr with exec := exec } _ _ c d hdepth' h
+    | halted halt =>
+      unfold driveLog at h
+      simp only [hstep] at h
+      exact driveLog_inr_creates n _ g s c d h
+    | needsCall params pending =>
+      exact absurd (stepFrame_needsCall_depth hstep) (by omega)
+    | needsCreate params pending =>
+      exact absurd (stepFrame_needsCreate_depth hstep) (by omega)
+
 /-- **R3 Piece B, step 2 — the CALL dispatch bundle** (CLOSED). At a coupled top-level frame
 decoding `CALL` with the lowered argument stack
 `gasFwd :: callee :: 0 :: 0 :: 0 :: 0 :: 0` and `canModifyState`, the step is
@@ -3878,13 +3932,20 @@ CREATE specifics:
 * the head record is a `CreateRecord` on the `dS` suffix (vs `CallRecord`/`cS`), and the resume word
   is `createAddrOrZero` (vs `callSuccessFlag`).
 
-STATUS (this producer round): `create_stmt_offset_bound_of_codeFits`, `create_args_run_of_coupled`,
-`create_tail_of_cleanHalt` are CLOSED (direct transfers). `create_dispatch_of_coupled`,
-`createRealises_of_recorded`, `create_head_realises_coupled` are STUBBED with tracked `sorry`s
-(mirroring the CALL statements): they consume a default-layer `stepFrame_create2` dispatch producer
-+ a `create_extraCost_le_of_cleanHalt` clean-halt gas brick that DO NOT YET EXIST in the bytecode
-layer (the CALL twins `BytecodeLayer.System.stepFrame_call` /
-`CleanHaltExtract.call_extraCost_le_of_cleanHalt` have no CREATE siblings). See the hand-off map. -/
+STATUS (after this producer round): `create_stmt_offset_bound_of_codeFits`,
+`create_args_run_of_coupled`, `create_tail_of_cleanHalt` are CLOSED (direct transfers). The
+`resumeAfterCreate` stack/memory/activeWords resume pins are NOW LANDED (default cone, axiom-clean:
+`Lir.V2.resumeAfterCreate_stack`/`_memory`/`_activeWords_ge` in `Engine/Descent.lean`), and the
+create-channel depth-guard mirror `driveLog_creates_const_of_depth` is landed above — so the depth
+half of `create_dispatch_of_coupled` is GENUINELY DERIVED in-place.
+
+`create_dispatch_of_coupled`, `createRealises_of_recorded`, `create_head_realises_coupled` remain
+STUBBED with tracked `sorry`s. The residual obstruction is NO LONGER "the producer doesn't exist":
+it is the createArm SOFT-FAIL fallback exclusion (`value ≤ balance` / `initSize ≤ 49152` / `nonce`)
+that clean-halt + coupling do NOT rule out for the arbitrary-`valueW`/`initSizeW` lowered CREATE2 —
+unlike the CALL twin, whose `value = 0` operand collapses every non-depth fallback trigger. See
+`create_dispatch_of_coupled`'s docstring for the exact close plan (thread a descent seam from
+`CreateResolves`). -/
 
 /-- A byte inside the lowered CREATE statement sits below the global `codeFits` budget.
 (The CALL twin `call_stmt_offset_bound_of_codeFits`, specialised to `.create cs`.) -/
@@ -4333,29 +4394,40 @@ theorem create_tail_of_cleanHalt {prog : Program} {L : Label} {b : Block} {pc : 
       (CleanHaltExtract.next_pop_of_cleanHalt resumeFr addrW [] hch hdpop hstkflag hszP).1
     exact runs_pop resumeFr addrW [] hdpop hstkflag hszP hgasPop
 
-/-- **R3-CREATE, step 2 — the CREATE dispatch bundle** (STUBBED — tracked `sorry`).
+/-- **R3-CREATE, step 2 — the CREATE dispatch bundle** (STUBBED — tracked `sorry`, but with a
+DERIVED depth guard and a PRECISE remaining obstruction).
 
 The CREATE twin of `call_dispatch_of_coupled`. At a coupled top-level frame decoding `CREATE2` with
 the lowered operand stack `valueW :: initOffW :: initSizeW :: saltW :: []` and `canModifyState`, the
-step is `.needsCreate cp pending` with the pending pins the resume half consumes.
+step should be `.needsCreate cp pending` with the pending pins the resume half consumes.
 
-The depth guard is DERIVABLE FROM THE COUPLING exactly as in CALL (`driveLog_calls_const_of_depth`'s
-CREATE twin — `driveLog_creates_const_of_depth`, an easy mirror over the `dS` accumulator). The CALL
-template transfers for that half. What DOES NOT yet exist in the default bytecode layer, and is the
-reason this brick is a tracked `sorry`:
+STATUS after this producer round — the DEPTH half is now GENUINELY DERIVED (the body below proves
+`createFr.exec.executionEnv.depth < 1024` from the coupling via the newly-landed
+`driveLog_creates_const_of_depth`, the exact `driveLog_calls_const_of_depth` mirror over the `dS`
+accumulator). The `.halted`-exception arm is likewise excluded by clean-halt. What remains — and is
+the ARCHITECTURAL obstruction that keeps this a tracked `sorry` — is the createArm SOFT-FAIL
+fallback:
 
-  * a `stepFrame_create2` dispatch producer (the CREATE twin of
-    `BytecodeLayer.System.stepFrame_call`) — no such lemma exists; `createArm` has only the
-    `.needsCreate`-INVERSION lemmas (`createArm_needsCreate_inv`, Descent.lean), never a forward
-    producer from the decode + operand stack;
-  * a `create_extraCost_le_of_cleanHalt` clean-halt gas brick (the CREATE twin of
-    `CleanHaltExtract.call_extraCost_le_of_cleanHalt`) — no CREATE clean-halt bricks exist in
-    `CleanHalt.lean` at all.
+  `createArm` steps to `.needsCreate` only under FOUR guards (`Create.lean:99,101`):
+  `nonce < 2^64-1`, `value ≤ selfBalance`, `depth < 1024`, `initCode.size ≤ 49152`. Otherwise it
+  takes the `.next` fallback (`resumeAfterCreate failed`, pushing `0`) — a perfectly CLEAN,
+  non-exception step. So neither clean-halt NOR the coupling's depth bound excludes it: unlike the
+  CALL twin (where the lowered operand `value = 0` collapses `callArm`'s only non-depth fallback
+  trigger, so `driveLog_calls_const_of_depth` alone finishes), the lowered CREATE2 pushes an
+  ARBITRARY `valueW`/`initSizeW`, leaving three runtime fallback triggers
+  (`value ≤ balance`, `initSize ≤ 49152`, `nonce`) that are NOT facts of this bundle's hypotheses.
 
-Both are DEFAULT-layer work; per the track rules they are declared here as the honest debt boundary.
-NEXT AGENT: build `stepFrame_create2` + `create_extraCost_le_of_cleanHalt` in the bytecode layer
-(mirroring the CALL proofs at `System.lean:118` / `CleanHaltExtract.lean` §6), then this proof is
-pure assembly like `call_dispatch_of_coupled`. -/
+  A soft-failing CREATE2 is a valid non-exception execution whose create record (if any) comes from
+  a LATER cursor, not this frame — so `stepFrame createFr = .needsCreate` is genuinely FALSE on that
+  path. Closing this needs either (a) the lowered CREATE2 to pin `value = 0` / bound `initSize` (the
+  CALL zero-window trick, a lowering change), or (b) a strengthened coupling/`CreateResolves`-style
+  DESCENT seam asserting this cursor actually descends (the create analogue that the head bundle's
+  `hcr : CreateResolves` seam is meant to supply — but that seam is threaded at
+  `createRealises`/`create_head`, not here). NEXT AGENT: thread a `descends`-at-`createFr` premise
+  (from the `CreateResolves` seam) into this bundle, then `stepFrame_needsCreate` follows from
+  `createArm_needsCreate_inv` + the four guards, and the pins from
+  `stepFrame_needsCreate_site_inv` (all already in Descent.lean). The gas guards are then
+  clean-halt-derivable exactly as CALL. -/
 theorem create_dispatch_of_coupled {log : RunLog} {createFr : Frame}
     {valueW initOffW initSizeW saltW : Word}
     {gS : List Word} {sS : List Nat} {cS : List CallRecord}
@@ -4372,19 +4444,31 @@ theorem create_dispatch_of_coupled {log : RunLog} {createFr : Frame}
       ∧ pending.frame.validJumps = createFr.validJumps
       ∧ pending.frame.exec.pc = createFr.exec.pc
       ∧ pending.frame.exec.toMachineState.memory = createFr.exec.toMachineState.memory := by
-  -- DIAGNOSTIC (tracked debt): needs the default-layer `stepFrame_create2` producer +
-  -- `create_extraCost_le_of_cleanHalt` — neither exists yet (see docstring).
+  -- The DEPTH guard, GENUINELY DERIVED from the coupling (the CALL template's depth half; the
+  -- `.needsCreate`/`.needsCall`/`.next`-preserving induction over the `dS` accumulator). At
+  -- `depth ≥ 1024` the restart never descends, so it delivers no create record — contradicting the
+  -- nonempty coupled create suffix `rec :: dS'`.
+  have hdepth : createFr.exec.executionEnv.depth < 1024 := by
+    by_contra hge
+    obtain ⟨⟨fuel', hrestart⟩, _, _, _, _⟩ := hcp
+    have hnil : (rec :: dS' : List CreateRecord) = [] :=
+      driveLog_creates_const_of_depth fuel' createFr [] [] [] [] (by omega) hrestart
+    exact absurd hnil (by simp)
+  -- DIAGNOSTIC (tracked debt): the remaining createArm SOFT-FAIL fallback exclusion
+  -- (value ≤ balance / initSize ≤ 49152 / nonce) is NOT a fact of this bundle — it needs a
+  -- descent seam threaded from `CreateResolves`. See the docstring for the exact close plan.
   sorry
 
 /-- **R3-CREATE — create realisation from the log** (STUBBED — tracked `sorry`). The CREATE twin of
 `callRealises_of_recorded`, discharging `CreateRealisesS`. Its Piece-B step 1
 (`create_args_run_of_coupled`) and step 3 (`create_tail_of_cleanHalt`) are CLOSED above, and Piece A
-(`recorderCoupled_create_extract`) is closed higher in this file; the only debt is step 2
-(`create_dispatch_of_coupled`, blocked on the default-layer CREATE dispatch producer) plus the
-`resumeAfterCreate` stack/memory/activeWords resume pins (the CREATE twins of the `resumeAfterCall_*`
-pins — `resumeAfterCreate_execEnv`/`_validJumps`/`_pc` already exist; the stack/mem/aw pins read off
-the `resumeAfterCreate` impl's `replaceStackAndIncrPC`/`activeWords := M …` and are straightforward
-WIP-local mirrors). STATEMENT mirrors `callRealises_of_recorded` field-for-field: `codeFits` scalar,
+(`recorderCoupled_create_extract`) is closed higher in this file; the SOLE remaining debt is step 2
+(`create_dispatch_of_coupled`, blocked on the createArm soft-fail fallback exclusion — see its
+docstring for the precise architectural obstruction). The `resumeAfterCreate` stack/memory/
+activeWords resume pins ARE NOW LANDED (default cone, axiom-clean): `Lir.V2.resumeAfterCreate_stack`
+/`_memory`/`_activeWords_ge` in `Engine/Descent.lean`, alongside the pre-existing
+`resumeAfterCreate_execEnv`/`_validJumps`/`_pc`, so the resume half of the assembly is unblocked; it
+awaits only the dispatch. STATEMENT mirrors `callRealises_of_recorded` field-for-field: `codeFits` scalar,
 the `CreateResolves` seam (the create analogue of the `CallsCode` seam), the four operand bindings +
 closure-freeness, the four stack-room folds, and the result-slot addressability. NO free-∀ ties, NO
 single-create restriction. -/
@@ -4434,7 +4518,8 @@ stopping BEFORE the tail and keeping the coupling alive at the create resume fra
 `dS'` — exactly one create record consumed). Consumed by the coupled producer walk's
 `simStmt_coupled_create` (`Producer.lean`) to re-establish `Corr` at the post-create frame. Same
 hypothesis ledger as `createRealises_of_recorded` minus `hslotaddr` (no tail built here). Blocked on
-the same default-layer `create_dispatch_of_coupled` + resume pins as the headline. -/
+`create_dispatch_of_coupled` alone (the resume pins are now landed in `Engine/Descent.lean`); the
+residual is that bundle's createArm soft-fail fallback exclusion — see its docstring. -/
 theorem create_head_realises_coupled {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
     {L : Label} {b : Block} {pc : Nat} {cs : CreateSpec}
     {st0 : IRState} {fr0 : Frame} {valueW initOffW initSizeW saltW : Word}
