@@ -715,7 +715,7 @@ a rename/deprecation note would help.
   results to cite. The closed pieces inside the same file:
   [`wellLowered_of_IRWellFormed`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L125),
   [`conforms_of_worldeq`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L204),
-  [`termTies'_of_runWithLog`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L181).
+  [`termTies'_of_runWithLog`](../../../LirLean/V2/Realisability/Producer.lean#L2642).
 * **Trusted definitions** — everything in §§2–7 quoted above; no proof needed, only reading.
 * **Supporting bricks (closed, default lib)** — the determinism ladder (§9), the recorder
   adequacy pair (§5), the entry bridges

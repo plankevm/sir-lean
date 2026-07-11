@@ -299,7 +299,7 @@ theorem sim_stmts_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       ∧ fr'.exec.stack = []
 ```
 
-Note the **`∀`-quantification inside `SimStmtStep`**: it demands the step conclusion for *every* `Corr`-corresponding `(st0, fr0)` pair at every cursor, not just the ones on the actual run. This is precisely the shape the flagship cannot discharge (its arm conclusions hold only under the recorder-coupling antecedent), and why [`stmtTies'_of_runWithLog`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L167)-style off-run robustness became R10's problem — see [06-realisability](06-realisability.md).
+Note the **`∀`-quantification inside `SimStmtStep`**: it demands the step conclusion for *every* `Corr`-corresponding `(st0, fr0)` pair at every cursor, not just the ones on the actual run. This is precisely the shape the flagship cannot discharge (its arm conclusions hold only under the recorder-coupling antecedent), and why [`stmtTies'_of_runWithLog`](../../../LirLean/V2/Realisability/Producer.lean#L2488)-style off-run robustness became R10's problem — see [06-realisability](06-realisability.md).
 
 ### 4.2 Terminator arms (`SimTerm.lean`)
 
