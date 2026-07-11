@@ -1890,6 +1890,182 @@ private theorem driveLog_frame_nonempty (bot : List Pending) (hbot : bot.isEmpty
         rw [← List.cons_append]
         exact ih (.create pending :: top) (.inl (beginCreate params)) res h
 
+/-- At a top-level CALL descent, the coupled call suffix has a head to consume. -/
+theorem callSuffix_nonempty {log : RunLog} {fr : Frame} {cp : CallParams}
+    {pending : PendingCall} {gS : List Word} {sS : List Nat}
+    {cS : List CallRecord} {dS : List CreateRecord}
+    (hcp : RecorderCoupled log fr gS sS cS dS)
+    (hstep : stepFrame fr = .needsCall cp pending) :
+    ∃ rec cS', cS = rec :: cS' := by
+  obtain ⟨⟨fuel', hrestart⟩, _, _, _, _⟩ := hcp
+  cases fuel' with
+  | zero => simp [driveLog] at hrestart
+  | succ m =>
+    unfold driveLog at hrestart
+    simp only [hstep] at hrestart
+    cases hbc : beginCall cp with
+    | inl child =>
+      simp only [hbc] at hrestart
+      have hdrive : drive m (.call pending :: []) (.inl child) = .ok log.observable := by
+        have hd := driveLog_drive m (.call pending :: []) (.inl child) [] [] [] []
+        rw [hrestart] at hd
+        simpa only [Except.map] using hd.symm
+      have hstand_ne : drive m [] (.inl child) ≠ .error .OutOfFuel := by
+        intro hoof
+        have := framed_oof_of_standalone_oof m (.inl child) [] (.call pending :: []) hoof
+        rw [List.nil_append, hdrive] at this
+        simp at this
+      cases hstand : drive m [] (.inl child) with
+      | error e =>
+        rw [drive_error_oof _ _ _ e hstand] at hstand
+        exact absurd hstand hstand_ne
+      | ok childRes =>
+        obtain ⟨j, hframe⟩ := driveLog_frame_nonempty (.call pending :: []) rfl [] [] [] []
+          m [] (.inl child) childRes hstand
+        rw [List.nil_append] at hframe
+        rw [hframe] at hrestart
+        conv at hrestart =>
+          lhs
+          unfold driveLog
+        simp only [Pending.resume, List.isEmpty_nil, if_true, recordCall, recordCreate,
+          List.nil_append] at hrestart
+        rw [driveLog_acc_hom j []
+          (.inl (Evm.resumeAfterCall childRes.toCallResult pending)) [] []
+          [{ result := childRes.toCallResult, pending := pending }] []] at hrestart
+        cases htail : driveLog j []
+            (.inl (Evm.resumeAfterCall childRes.toCallResult pending)) [] [] [] [] with
+        | error e => rw [htail] at hrestart; simp [Except.map] at hrestart
+        | ok val =>
+          obtain ⟨obs', gS', sS', cS', dS'⟩ := val
+          rw [htail] at hrestart
+          simp only [Except.map, List.nil_append, List.singleton_append] at hrestart
+          injection hrestart with htuple
+          injection htuple with _ hrest
+          injection hrest with _ hrest
+          injection hrest with _ hrest
+          injection hrest with hc _
+          exact ⟨_, _, hc.symm⟩
+    | inr result =>
+      simp only [hbc] at hrestart
+      have hdrive : drive m (.call pending :: []) (.inr (.call result))
+          = .ok log.observable := by
+        have hd := driveLog_drive m (.call pending :: []) (.inr (.call result)) [] [] [] []
+        rw [hrestart] at hd
+        simpa only [Except.map] using hd.symm
+      have hstand_ne : drive m [] (.inr (.call result)) ≠ .error .OutOfFuel := by
+        intro hoof
+        have := framed_oof_of_standalone_oof m (.inr (.call result)) []
+          (.call pending :: []) hoof
+        rw [List.nil_append, hdrive] at this
+        simp at this
+      cases hstand : drive m [] (.inr (.call result)) with
+      | error e =>
+        rw [drive_error_oof _ _ _ e hstand] at hstand
+        exact absurd hstand hstand_ne
+      | ok childRes =>
+        obtain ⟨j, hframe⟩ := driveLog_frame_nonempty (.call pending :: []) rfl [] [] [] []
+          m [] (.inr (.call result)) childRes hstand
+        rw [List.nil_append] at hframe
+        rw [hframe] at hrestart
+        conv at hrestart =>
+          lhs
+          unfold driveLog
+        simp only [Pending.resume, List.isEmpty_nil, if_true, recordCall, recordCreate,
+          List.nil_append] at hrestart
+        rw [driveLog_acc_hom j []
+          (.inl (Evm.resumeAfterCall childRes.toCallResult pending)) [] []
+          [{ result := childRes.toCallResult, pending := pending }] []] at hrestart
+        cases htail : driveLog j []
+            (.inl (Evm.resumeAfterCall childRes.toCallResult pending)) [] [] [] [] with
+        | error e => rw [htail] at hrestart; simp [Except.map] at hrestart
+        | ok val =>
+          obtain ⟨obs', gS', sS', cS', dS'⟩ := val
+          rw [htail] at hrestart
+          simp only [Except.map, List.nil_append, List.singleton_append] at hrestart
+          injection hrestart with htuple
+          injection htuple with _ hrest
+          injection hrest with _ hrest
+          injection hrest with _ hrest
+          injection hrest with hc _
+          exact ⟨_, _, hc.symm⟩
+
+/-- At a top-level CREATE descent, the coupled create suffix has a head to consume. -/
+theorem createSuffix_nonempty {log : RunLog} {fr : Frame} {cp : CreateParams}
+    {pending : PendingCreate} {gS : List Word} {sS : List Nat}
+    {cS : List CallRecord} {dS : List CreateRecord}
+    (hcp : RecorderCoupled log fr gS sS cS dS)
+    (hstep : stepFrame fr = .needsCreate cp pending) :
+    ∃ rec dS', dS = rec :: dS' := by
+  obtain ⟨⟨fuel', hrestart⟩, _, _, _, _⟩ := hcp
+  cases fuel' with
+  | zero => simp [driveLog] at hrestart
+  | succ m =>
+    unfold driveLog at hrestart
+    simp only [hstep] at hrestart
+    have hdrive : drive m (.create pending :: []) (.inl (beginCreate cp))
+        = .ok log.observable := by
+      have hd := driveLog_drive m (.create pending :: []) (.inl (beginCreate cp)) [] [] [] []
+      rw [hrestart] at hd
+      simpa only [Except.map] using hd.symm
+    have hstand_ne : drive m [] (.inl (beginCreate cp)) ≠ .error .OutOfFuel := by
+      intro hoof
+      have := framed_oof_of_standalone_oof m (.inl (beginCreate cp)) []
+        (.create pending :: []) hoof
+      rw [List.nil_append, hdrive] at this
+      simp at this
+    cases hstand : drive m [] (.inl (beginCreate cp)) with
+    | error e =>
+      rw [drive_error_oof _ _ _ e hstand] at hstand
+      exact absurd hstand hstand_ne
+    | ok childRes =>
+      obtain ⟨j, hframe⟩ := driveLog_frame_nonempty (.create pending :: []) rfl [] [] [] []
+        m [] (.inl (beginCreate cp)) childRes hstand
+      rw [List.nil_append] at hframe
+      rw [hframe] at hrestart
+      cases hresume : resumeAfterCreate childRes.toCreateResult pending with
+      | error e =>
+        conv at hrestart =>
+          lhs
+          unfold driveLog
+        simp only [Pending.resume, hresume, List.isEmpty_nil, if_true, recordCall,
+          recordCreate, List.nil_append] at hrestart
+        rw [driveLog_acc_hom j []
+          (.inr (endFrame (Pending.create pending).frame (.exception e))) [] [] []
+          [{ result := childRes.toCreateResult, pending := pending }]] at hrestart
+        cases htail : driveLog j []
+            (.inr (endFrame (Pending.create pending).frame (.exception e))) [] [] [] [] with
+        | error e => rw [htail] at hrestart; simp [Except.map] at hrestart
+        | ok val =>
+          obtain ⟨obs', gS', sS', cS', dS'⟩ := val
+          rw [htail] at hrestart
+          simp only [Except.map, List.nil_append, List.singleton_append] at hrestart
+          injection hrestart with htuple
+          injection htuple with _ hrest
+          injection hrest with _ hrest
+          injection hrest with _ hrest
+          injection hrest with _ hd
+          exact ⟨_, _, hd.symm⟩
+      | ok resumeFr =>
+        conv at hrestart =>
+          lhs
+          unfold driveLog
+        simp only [Pending.resume, hresume, List.isEmpty_nil, if_true, recordCall,
+          recordCreate, List.nil_append] at hrestart
+        rw [driveLog_acc_hom j [] (.inl resumeFr) [] [] []
+          [{ result := childRes.toCreateResult, pending := pending }]] at hrestart
+        cases htail : driveLog j [] (.inl resumeFr) [] [] [] [] with
+        | error e => rw [htail] at hrestart; simp [Except.map] at hrestart
+        | ok val =>
+          obtain ⟨obs', gS', sS', cS', dS'⟩ := val
+          rw [htail] at hrestart
+          simp only [Except.map, List.nil_append, List.singleton_append] at hrestart
+          injection hrestart with htuple
+          injection htuple with _ hrest
+          injection hrest with _ hrest
+          injection hrest with _ hrest
+          injection hrest with _ hd
+          exact ⟨_, _, hd.symm⟩
+
 /-- **R7e — a returning external CALL consumes exactly one `CallRecord` and NO gas/sload
 entries** (children are black-boxed by the recorder's gates — gas/sload by `stack.isEmpty`,
 the returning-CALL record by `rest.isEmpty` — exactly as `Runs.call` black-boxes them).
