@@ -1666,6 +1666,38 @@ theorem recorderCoupled_create_extract {log : RunLog} {createFr : Frame}
       injection hcons with hrecEq _
       exact hrecEq.symm
 
+/-- A top-level soft-failing CREATE2 records a create entry, so its coupled create suffix is
+nonempty.  This is the general-suffix companion used before the positional head is known. -/
+theorem create2Suffix_nonempty_of_next {log : RunLog} {fr : Frame} {exec : ExecutionState}
+    {gS : List Word} {sS : List Nat} {cS : List CallRecord} {dS : List CreateRecord}
+    (hcp : RecorderCoupled log fr gS sS cS dS)
+    (hc2 : isCreate2Op fr = true)
+    (hstep : stepFrame fr = .next exec) :
+    ∃ rec dS', dS = rec :: dS' := by
+  have hng : isGasOp fr = false := isGasOp_false_of_isCreate2Op hc2
+  have hns : isSloadOp fr = false := isSloadOp_false_of_isCreate2Op hc2
+  obtain ⟨⟨f, hf⟩, _, _, _, _⟩ := hcp
+  cases f with
+  | zero => simp [driveLog] at hf
+  | succ m =>
+    unfold driveLog at hf
+    simp only [hstep, hng, hns, hc2, List.isEmpty_nil, Bool.and_true,
+      List.nil_append] at hf
+    rw [driveLog_acc_hom m [] (.inl { fr with exec := exec }) [] [] []
+      [softFailCreateRecord fr]] at hf
+    cases hX : driveLog m [] (.inl { fr with exec := exec }) [] [] [] [] with
+    | error e => rw [hX] at hf; simp [Except.map] at hf
+    | ok val =>
+      obtain ⟨obs', gS', sS', cS', dS'⟩ := val
+      rw [hX] at hf
+      simp only [Except.map, List.nil_append, List.singleton_append] at hf
+      injection hf with htuple
+      injection htuple with _ hrest
+      injection hrest with _ hrest
+      injection hrest with _ hrest
+      injection hrest with _ hd
+      exact ⟨softFailCreateRecord fr, dS', hd.symm⟩
+
 /-- **The soft-fail CREATE2 step consumes the create-suffix head** (the CREATE2 twin of
 `recorderCoupled_sload`, over the new `driveLog` create2 `.next` gate). At a top-level CREATE2
 cursor `fr` (`isCreate2Op fr = true`, `stack = []` from the outer `driveLog []`) that soft-fails
@@ -4868,6 +4900,97 @@ private theorem create_site_decode {prog : Program} {L : Label} {b : Block} {pc 
     (create_stmt_offset_bound_of_codeFits hcodeFits hb hcur (by omega))
     hcreatebyte (by decide) hseg
   simpa using h
+
+/-- `systemOp CREATE2` never returns a halted signal; failures are `Except.error`, while its
+successful signals are `.next` or `.needsCreate`. -/
+private theorem systemOp_create2_neverHalts {fr : Frame} :
+    neverHalts (systemOp .CREATE2 fr fr.exec) := by
+  unfold systemOp
+  apply neverHalts_bind_except; intro _ _
+  apply neverHalts_optionBind; rintro ⟨s, v, io, is, salt⟩ _
+  unfold neverHalts; intro hl he
+  revert he; simp only [bind, Except.bind, pure, Except.pure]
+  split <;> intro he
+  · simp at he
+  · revert he
+    exact (neverHalts_memChargeBind (k := _)
+      (fun ec => neverHalts_chargeBind (fun ec2 _ => createArm_neverHalts)) hl)
+
+/-- A frame decoding CREATE2 cannot halt non-exceptionally in its next step. -/
+private theorem not_haltNonException_create2 {fr : Frame} {halt : FrameHalt}
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.System .CREATE2, .none))
+    (hstep : stepFrame fr = .halted halt) :
+    ¬ HaltNonException halt := by
+  rw [stepFrame, hdec] at hstep
+  simp only [Option.getD] at hstep
+  split at hstep
+  · injection hstep with heq
+    rw [← heq]
+    simp [HaltNonException]
+  · split at hstep
+    · injection hstep with heq
+      rw [← heq]
+      simp [HaltNonException]
+    · cases hd : dispatch (.System .CREATE2) .none fr fr.exec with
+      | error e =>
+        rw [hd] at hstep
+        injection hstep with heq
+        rw [← heq]
+        simp [HaltNonException]
+      | ok sig =>
+        rw [hd] at hstep
+        have hn := systemOp_create2_neverHalts (fr := fr)
+        rw [dispatch] at hd
+        rw [hd] at hn
+        simp only [Except.ok.injEq] at hstep
+        exact absurd (hn halt (by rw [hstep])) (by simp)
+
+/-- At a lowered CREATE statement cursor, the coupled create suffix has a head, uniformly for
+both a child descent and CREATE2's recorded soft-fail `.next` arm. -/
+theorem createSuffix_nonempty_at_stmt {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
+    {L : Label} {b : Block} {pc : Nat} {cs : CreateSpec}
+    {st0 : IRState} {fr0 : Frame} {valueW initOffW initSizeW saltW : Word}
+    {gS : List Word} {sS : List Nat} {cS : List CallRecord} {dS : List CreateRecord}
+    {I : Tmp → Prop}
+    (hwl : WellLowered prog) (hcodeFits : codeFits prog)
+    (hb : blockAt prog L = some b) (hcur : b.stmts[pc]? = some (.create cs))
+    (hcorr : Corr prog sloadChg 0 I st0 fr0 L pc)
+    (hcp : RecorderCoupled log fr0 gS sS cS dS)
+    (hch : CleanHaltsNonException fr0)
+    (hvalue : st0.locals cs.value = some valueW)
+    (hoff : st0.locals cs.initOffset = some initOffW)
+    (hsize : st0.locals cs.initSize = some initSizeW)
+    (hsalt : st0.locals cs.salt = some saltW)
+    (hfreeValue : RematClosureFree prog I (.tmp cs.value))
+    (hfreeOff : RematClosureFree prog I (.tmp cs.initOffset))
+    (hfreeSize : RematClosureFree prog I (.tmp cs.initSize))
+    (hfreeSalt : RematClosureFree prog I (.tmp cs.salt))
+    (hstkSalt : 0 + (chargeCache prog sloadChg cs.salt).length ≤ 1024)
+    (hstkSize : 1 + (chargeCache prog sloadChg cs.initSize).length ≤ 1024)
+    (hstkOff : 2 + (chargeCache prog sloadChg cs.initOffset).length ≤ 1024)
+    (hstkValue : 3 + (chargeCache prog sloadChg cs.value).length ≤ 1024) :
+    ∃ rec dS', dS = rec :: dS' := by
+  obtain ⟨createFr, hargs, hcreatepc, hcreatestk, hcreatecode, _, _, _, _, _, _, hcpcreate,
+      hchcreate⟩ :=
+    create_args_run_of_coupled hwl hcodeFits hb hcur hcorr hcp hch hvalue hoff hsize hsalt
+      hfreeValue hfreeOff hfreeSize hfreeSalt hstkSalt hstkSize hstkOff hstkValue
+  have hdecCreate := create_site_decode hcodeFits hb hcur hcorr.pc_eq hcreatecode hcreatepc
+  have hc2 : isCreate2Op createFr = true := by
+    unfold isCreate2Op; rw [hdecCreate]; rfl
+  cases hstep : stepFrame createFr with
+  | next exec' => exact create2Suffix_nonempty_of_next hcpcreate hc2 hstep
+  | needsCreate cp pending => exact createSuffix_nonempty hcpcreate hstep
+  | halted halt =>
+      obtain ⟨last, halt', hrun, hhalt, hne⟩ := hchcreate
+      have heq : createFr = last := runs_halt_eq hstep hrun
+      subst last
+      have hh : halt = halt' := by rw [hstep] at hhalt; exact (Signal.halted.injEq _ _).mp hhalt
+      subst halt'
+      exact absurd hne (not_haltNonException_create2 hdecCreate hstep)
+  | needsCall cp pending =>
+      exfalso
+      rcases (Evm.stepFrame_needsCall_site_inv hstep).1 with h | h | h | h <;>
+        · rw [hdecCreate] at h; simp at h
 
 /-- **The arm-uniform CREATE resume-frame bundle** — the CREATE twin of the returning-CALL half of
 `call_head_realises_coupled`, driven off the two-arm `create_dispatch_of_coupled`. From a coupled
