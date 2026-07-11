@@ -325,11 +325,14 @@ theorem sim_term_halt_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     -- RETURN-site structured hypotheses on the materialise endpoint `frv`: the stash
     -- (`PUSH32 0; MSTORE`) + return-window (`PUSH32 32; PUSH32 0; RETURN`) opcodes
     -- decode/gas-cover, and the frame is a top-level `.call` frame with non-empty accounts.
+    -- The materialise endpoint pc is pinned by `MatRunsC.pc`, so the epilogue facts cannot
+    -- be demanded of an unrelated frame reached by a longer `Runs` path.
     (hret : ∀ frv : Frame, Runs fr frv →
         frv.exec.executionEnv.code = fr.exec.executionEnv.code →
         frv.exec.executionEnv.address = fr.exec.executionEnv.address →
         (∀ k, selfStorage frv k = selfStorage fr k) →
         frv.exec.stack = vw :: fr.exec.stack →
+        frv.exec.pc = fr.exec.pc + UInt32.ofNat (matCache prog t).length →
         ∃ cp wms,
           -- decodes of the stash + return-window opcodes, at their exact frame pcs:
           decode frv.exec.executionEnv.code frv.exec.pc
@@ -373,7 +376,7 @@ theorem sim_term_halt_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     hdv hcorr.defsSound (rematClosureFree_empty prog hdc hord (.tmp t)) hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree
     hevv hgas' hstkv
   obtain ⟨cp, wms, hd0, hdms, hd32, hd0', hdret, hg0, hmemms, hgasMem, hgasV, hg32, hg0'', hkind, hne⟩ :=
-    hret frv hmrv.runs hmrv.code hmrv.addr hmrv.storage hmrv.stack
+    hret frv hmrv.runs hmrv.code hmrv.addr hmrv.storage hmrv.stack hmrv.pc
   -- stack at `frv` is `vw :: fr.stack = [vw]` (the boundary stack is empty).
   have hfrvstk : frv.exec.stack = vw :: ([] : Stack Word) := by
     rw [hmrv.stack, hcorr.stack_nil]; rfl

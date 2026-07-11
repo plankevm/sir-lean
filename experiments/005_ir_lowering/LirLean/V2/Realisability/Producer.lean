@@ -2237,7 +2237,212 @@ theorem driveLogStep_of_block {prog : Program} {sloadChg : Tmp → ℕ} {log : R
     (hprec : ∀ (cp : CallParams) (imm : CallResult), beginCall cp = .inr imm →
       ∀ a, AccPresent a cp.accounts → AccPresent a imm.accounts) :
     DriveLogStep prog sloadChg log self st fr L T C D gS sS cS dS := by
-  sorry
+  let b : Block := Classical.choose (DriveCorrLog.present hdrive)
+  have hb : blockAt prog L = some b := Classical.choose_spec (DriveCorrLog.present hdrive)
+  have hbt : prog.blocks.toList[L.idx]? = some b := toList_of_blockAt hb
+  have hstmts' : StmtTies' prog sloadChg log self L b := hstmts
+  have hterm' : TermTies' prog sloadChg log self L b := hterm
+  obtain ⟨st', frT, T', C', D', gS', sS', cS', dS', hrunstmts, hrunsT, hcorrT,
+    hstkT, hcleanT, hcpT, halT, hspT, haddrT, hkindT⟩ :=
+    simStmts_coupled_block hwl hcodeFits hcc hcr hb (DriveCorrLog.corr hdrive)
+      (DriveCorrLog.coupled hdrive) (DriveCorrLog.cleanHalts hdrive)
+      (DriveCorrLog.selfPresent hdrive) (DriveCorrLog.addrPin hdrive)
+      (DriveCorrLog.kindPin hdrive) hal hstmts' hprec
+  cases ht : b.term with
+  | stop =>
+      left
+      have hne := hterm'.1 ht st' frT hcorrT hcleanT hspT haddrT hkindT
+      have hpcterm : frT.exec.pc = UInt32.ofNat (termOf prog L) := by
+        rw [hcorrT.pc_eq, pcOf_eq_termOf prog L b hbt]
+      have hdec : decode frT.exec.executionEnv.code frT.exec.pc
+          = some (.System .STOP, .none) := by
+        rw [hcorrT.code_eq, hpcterm]
+        have hk : 0 < (emitTerm (matCache prog)
+            (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term).length := by
+          rw [ht]; simp [emitTerm]
+        have hbyte0 : (emitTerm (matCache prog)
+            (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term)[0]?
+            = some Byte.stop := by rw [ht]; rfl
+        have hd := decode_at_term_nonpush prog L b 0 Byte.stop hbt (by simpa using hk)
+          hbyte0 (by simpa using hwl.wf.bound_stop L b hbt ht) (by decide)
+        simpa using hd
+      obtain ⟨last, haltSig, hlast, hhalt, hworld, hresult⟩ :=
+        sim_term_halt_stop hcorrT ht haddrT.symm hdec (Classical.choose_spec hkindT) hne
+      refine ⟨{ world := st'.world, result := .stopped }, ?_, RunFrom.stop hb hrunstmts ht⟩
+      exact ⟨last, haltSig, hrunsT.trans hlast, hhalt, hworld, hresult⟩
+  | ret t =>
+      left
+      obtain ⟨w, hw⟩ := hwl.defs.ret_def st st' T T' C C' D D' L b t hb ht hrunstmts
+      obtain ⟨hstk, hrest⟩ := hterm'.2.1 t ht st' frT hcorrT hcleanT hspT haddrT hkindT
+      obtain ⟨hgas, hret⟩ := hrest w hw
+      have hdv : MatDecC prog hwl.defsCons hwl.defEnvOrdered
+          frT.exec.executionEnv.code frT.exec.pc (.tmp t) := by
+        rw [hcorrT.code_eq, hcorrT.pc_eq, pcOf_eq_termOf prog L b hbt,
+          show termOf prog L = termOf prog L + 0 from by omega]
+        exact matDecC_of_term prog hwl.defsCons hwl.defEnvOrdered L b 0 (.tmp t) hbt
+          (by simp only [matExpr_tmp]; rw [ht]
+              exact ret_sub_value (matCache prog)
+                (offsetTable (matCache prog) (defsOf prog) prog.blocks) t)
+          (by
+            simp only [matExpr_tmp]; rw [ht]
+            show _ ≤ ((matCache prog t) ++ emitImm 0 ++ [Byte.mstore]
+              ++ emitImm 32 ++ emitImm 0 ++ [Byte.ret]).length
+            simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil]
+            omega)
+          (by simp only [matExpr_tmp]; omega)
+      obtain ⟨last, haltSig, hlast, hhalt, hworld, hresult⟩ :=
+        sim_term_halt_ret hcorrT ht haddrT.symm hw hwl.defsCons hwl.defEnvOrdered
+          hdv hgas hstk (hret w hw)
+      refine ⟨{ world := st'.world, result := .returned w }, ?_,
+        RunFrom.ret hb hrunstmts ht hw⟩
+      exact ⟨last, haltSig, hrunsT.trans hlast, hhalt, hworld, hresult⟩
+  | jump dst =>
+      right
+      obtain ⟨⟨bdst, hbdst⟩, hdstlt, _⟩ := hclosed.jump_closed L b dst hb ht
+      have hbdstT : prog.blocks.toList[dst.idx]? = some bdst := toList_of_blockAt hbdst
+      obtain ⟨hbterm, hboff⟩ := hwl.wf.bound_jump L b dst hbt ht
+      obtain ⟨hgpush, hgjump, hgjd⟩ := hterm'.2.2.1 dst bdst ht hbdstT hdstlt
+        st' frT hcorrT hcleanT
+      set off := offsetTable (matCache prog) (defsOf prog) prog.blocks dst.idx with hoff
+      set dest : Word := UInt256.ofNat (off % 2 ^ 32) with hdest
+      set newpc := UInt32.ofNat off with hnewpc
+      have hemit : emitTerm (matCache prog)
+          (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term
+          = emitDest off ++ [Byte.jump] := by rw [ht]; rfl
+      have hedlen : (emitDest off).length = 5 := by simp [emitDest, offsetBytesBE]
+      have htermlen : (emitTerm (matCache prog)
+          (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term).length = 6 := by
+        rw [hemit, List.length_append, hedlen]; rfl
+      have hdpush : decode frT.exec.executionEnv.code frT.exec.pc
+          = some (.Push .PUSH4, some (dest, 4)) := by
+        rw [hcorrT.code_eq, hcorrT.pc_eq, pcOf_eq_termOf prog L b hbt,
+          show termOf prog L = termOf prog L + 0 from by omega]
+        exact term_dest_decode prog L b 0 off hbt
+          (by intro j hj; rw [hemit, Nat.zero_add, List.getElem?_append_left hj])
+          (by rw [htermlen, hedlen]; omega) (by omega)
+      let frp := pushFrameW frT dest 4
+      have hdjump : decode frp.exec.executionEnv.code frp.exec.pc
+          = some (.Smsf .JUMP, .none) := by
+        change decode frT.exec.executionEnv.code
+          (frT.exec.pc + ((4 : UInt8) + 1).toUInt32) = _
+        rw [show ((4 : UInt8) + 1).toUInt32 = UInt32.ofNat 5 from by decide,
+          hcorrT.code_eq, hcorrT.pc_eq, pcOf_eq_termOf prog L b hbt, ofNat_add']
+        have hbyte : (emitTerm (matCache prog)
+            (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term)[5]?
+            = some Byte.jump := by
+          rw [hemit, List.getElem?_append_right (by rw [hedlen]), hedlen]; rfl
+        exact decode_at_term_nonpush prog L b 5 Byte.jump hbt (by rw [htermlen]; omega)
+          hbyte hbterm (by decide)
+      have hstk1 : frT.exec.stack.size + 1 ≤ 1024 := by simp [hstkT]
+      have hpushStep : StepsTo frT frp :=
+        Lir.CleanHaltExtract.stepsTo_pushFrameW frT .PUSH4 dest 4 (by decide) hdpush
+          (by decide) (by decide)
+          hgpush hstk1
+      have hcpP : RecorderCoupled log frp gS' sS' cS' dS' := by
+        apply recorderCoupled_stepsTo_other hcpT
+        · unfold isGasOp; rw [hdpush]; rfl
+        · unfold isSloadOp; rw [hdpush]; rfl
+        · unfold isCreate2Op; rw [hdpush]; rfl
+        · exact hpushStep
+      have hdestword : dest.toUInt32? = some newpc := by
+        rw [hdest, hnewpc]; exact ofNatMod_toUInt32? _
+      have hgetdest : frp.get_dest dest = some newpc := by
+        refine Frame.get_dest_of_mem _ hdestword ?_
+        show newpc ∈ frp.validJumps
+        rw [show frp.validJumps = frT.validJumps from rfl, hcorrT.validJumps_lower, hnewpc]
+        simpa [hoff] using block_offset_validJump prog dst hdstlt
+      have hfrpstk : frp.exec.stack = dest :: ([] : Stack Word) := by
+        change dest :: frT.exec.stack = _; rw [hstkT]
+      have hfrpsz : frp.exec.stack.size ≤ 1024 := by simp [hfrpstk]
+      let fj := jumpFrame frp GasConstants.Gmid newpc ([] : Stack Word)
+      have hjumpStep : StepsTo frp fj := stepsTo_of_next
+        (stepFrame_jump frp dest newpc [] hdjump hfrpstk hfrpsz hgjump hgetdest)
+      have hcpJ : RecorderCoupled log fj gS' sS' cS' dS' := by
+        apply recorderCoupled_stepsTo_other hcpP
+        · unfold isGasOp; rw [hdjump]; rfl
+        · unfold isSloadOp; rw [hdjump]; rfl
+        · unfold isCreate2Op; rw [hdjump]; rfl
+        · exact hjumpStep
+      have hdjd : decode fj.exec.executionEnv.code fj.exec.pc
+          = some (.Smsf .JUMPDEST, .none) := by
+        change decode frT.exec.executionEnv.code newpc = _
+        rw [hcorrT.code_eq, hnewpc, hoff]
+        exact decode_at_block_offset_jumpdest prog dst bdst hbdstT
+          hboff
+      have hfjstk : fj.exec.stack = [] := rfl
+      have hjdStep : StepsTo fj (jumpdestFrame fj) := stepsTo_of_next
+        (stepFrame_jumpdest fj hdjd (by simp [hfjstk]) (by exact hgjd))
+      have hcpJD : RecorderCoupled log (jumpdestFrame fj) gS' sS' cS' dS' := by
+        apply recorderCoupled_stepsTo_other hcpJ
+        · unfold isGasOp; rw [hdjd]; rfl
+        · unfold isSloadOp; rw [hdjd]; rfl
+        · unfold isCreate2Op; rw [hdjd]; rfl
+        · exact hjdStep
+      have hrunTerm : Runs frT (jumpdestFrame fj) :=
+        (Runs.step hpushStep (Runs.step hjumpStep (Runs.step hjdStep (Runs.refl _))))
+      obtain ⟨_, hjdcorr⟩ := corr_at_jumpdest_landing (sloadChg := sloadChg) (obs := 0)
+        (st := st') hbdstT
+        (by rfl) (by change frT.exec.executionEnv.code = lower prog; exact hcorrT.code_eq)
+        (by
+          change fj.validJumps = validJumpDests fj.exec.executionEnv.code 0
+          change frT.validJumps = validJumpDests frT.exec.executionEnv.code 0
+          exact hcorrT.validJumps_eq)
+        hfjstk (by change frT.exec.executionEnv.canModifyState = true; exact hcorrT.can_modify)
+        (by intro k; change selfStorage frT k = st'.world k; exact hcorrT.storage k)
+        ((defsSoundS_empty_iff prog st').mp hcorrT.defsSound) hcorrT.wellScoped
+        (hcorrT.memAgree.transport rfl (le_refl _)) hdjd hgjd
+      have hrunAll : Runs fr (jumpdestFrame fj) := hrunsT.trans hrunTerm
+      refine ⟨st', T', C', D', dst, jumpdestFrame fj, gS', sS', cS', dS', hrunAll,
+        ?_, halT, ?_, ?_⟩
+      · show DriveCorrLog prog sloadChg log self st' (jumpdestFrame fj) dst
+          gS' sS' cS' dS'
+        exact { corr := hjdcorr
+                cleanHalts := cleanHaltsNonException_forward hcleanT hrunTerm
+                present := ⟨bdst, hbdst⟩
+                selfPresent := selfPresent_runs_of_call hprec hspT hrunTerm
+                addrPin := by rw [runs_address_preserved hrunTerm]; exact haddrT
+                kindPin := by
+                  obtain ⟨cp, hcp⟩ := hkindT
+                  exact ⟨cp, by rw [runs_kind hrunTerm]; exact hcp⟩
+                coupled := hcpJD }
+      · exact totalGas_succ_lt (hrunsT.trans (Runs.step hpushStep
+          (Runs.step hjumpStep (Runs.refl _)))) hgjd
+      · intro O hO; exact RunFrom.jump hb hrunstmts ht hO
+  | branch cond thenL elseL =>
+      right
+      obtain ⟨⟨bthen, hbthen⟩, hthenlt, _⟩ :=
+        (hclosed.branch_closed L b cond thenL elseL hb ht).1
+      obtain ⟨⟨belse, hbelse⟩, helselt, _⟩ :=
+        (hclosed.branch_closed L b cond thenL elseL hb ht).2
+      have hbthenT := toList_of_blockAt hbthen
+      have hbelseT := toList_of_blockAt hbelse
+      obtain ⟨cw, hcw⟩ := hwl.defs.branch_def st st' T T' C C' D D' L b cond
+        thenL elseL hb ht hrunstmts
+      obtain ⟨frc, hmrc, hcpC, hgpushT, hgjumpi, hgjdT, hfalls,
+        succ, frX, hdir, hrunEdge, hcorrX, hcpX, hlt⟩ :=
+        hterm'.2.2.2 cond thenL elseL bthen belse ht hbthenT hbelseT hthenlt helselt
+          st' frT cw hcorrT hcleanT gS' sS' cS' dS' hcpT hcw
+      have hrunAll := hrunsT.trans hrunEdge
+      refine ⟨st', T', C', D', succ, frX, gS', sS', cS', dS', hrunAll, ?_, halT, ?_, ?_⟩
+      · exact { corr := hcorrX
+                  cleanHalts := cleanHaltsNonException_forward hcleanT hrunEdge
+                  present := by
+                    rcases hdir with ⟨_, hs⟩ | ⟨_, hs⟩
+                    · subst hs; exact ⟨bthen, hbthen⟩
+                    · subst hs; exact ⟨belse, hbelse⟩
+                  selfPresent := selfPresent_runs_of_call hprec hspT hrunEdge
+                  addrPin := by rw [runs_address_preserved hrunEdge]; exact haddrT
+                  kindPin := by
+                    obtain ⟨cp, hcp⟩ := hkindT
+                    exact ⟨cp, by rw [runs_kind hrunEdge]; exact hcp⟩
+                  coupled := hcpX }
+      · exact lt_of_lt_of_le hlt (by
+          rw [driveCorr_measure, driveCorr_measure]
+          exact Runs.gasAvailable_le hrunsT)
+      · intro O hO
+        rcases hdir with ⟨hnz, hs⟩ | ⟨hz, hs⟩
+        · subst hs; exact RunFrom.branchThen hb hrunstmts ht hcw hnz hO
+        · subst hs; subst hz; exact RunFrom.branchElse hb hrunstmts ht hcw hO
 
 /-! ## §4 — the drive recursion and the packaged producer -/
 

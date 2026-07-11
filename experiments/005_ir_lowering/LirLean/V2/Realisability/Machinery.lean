@@ -485,648 +485,6 @@ theorem runs_kind {fr fr' : Frame} (h : Runs fr fr') : fr'.kind = fr.kind := by
       rw [ih, resumeAfterCreate_kind childRes pending _ hresume]
       exact (Evm.stepFrame_needsCreate_inv hstep).2.1
 
-set_option maxRecDepth 8192 in
-/-- **R5 — terminator ties from the walk vocabulary.** `TermTies'` holds at every present
-block: its arms' antecedents are exactly what `DriveCorrLog` supplies at real boundaries
-(Corr, clean-halt, self-presence, address/kind pins), and the conclusions are derived —
-non-emptiness via `accounts_ne_empty_of_selfPresent`; the gas guards via the clean-halt
-landing extractors (the jump pre-`JUMPDEST` landing/the branch pre-`JUMPDEST` landing patterns,
-ported inline); the ret charge-sum via `materialise_chargeC_le_of_cleanHalt`; the ret epilogue
-decode facts via `imm_leaf_decodeF`/`decode_at_term_nonpush` at the pc-pinned cursor; the `frv`
-kind/presence facts via `runs_kind` / `selfPresent_runs_of_call` seeded from the antecedent
-pins. DERIVED-status obligation.
-
-**STATEMENT CHANGES (Phase-3 Round-3 — over-specification fixes, honesty-critical):**
-  * **branch arm restricted to the WITNESSED direction.** The old arm demanded all six JUMPI
-    gas guards along BOTH directions off the single pre-JUMPI frame; a single
-    `CleanHaltsNonException frT` witnesses only the direction the run takes (JUMPI charges
-    `Ghigh` on both arms, so the not-taken guards are refutable — e.g. `3 ≤ (jumpiFallthrough
-    …).gas = Gjumpdest = 1` is FALSE when gas is provisioned for the taken path). The taken
-    guards (`g1`/`g2` unconditional, both provable; `g3` under `cw ≠ 0`; `g4∧g5∧g6` under
-    `cw = 0`) are the exact case-split of the branch pre-`JUMPDEST` landing; NO witnessed
-    conformance content is dropped — only the unwitnessable not-taken over-demand.
-  * **ret charge-sum moved under the return-value guard.** The charge fold
-    `materialise_chargeC_le_of_cleanHalt` needs the operand value, and the IR `ret t`
-    semantics (`RunFrom.ret`) itself requires `st'.locals t = some vw`; demanding the
-    charge-sum bound for an UNBOUND `t` is the same unwitnessable over-demand (the `.length`
-    bound stays unconditional — it is static). The epilogue block (already under the value
-    guard) is unchanged in placement.
-  * **`hretEmit` added — the ret epilogue's pc-bound seam.** `WellFormedLowered.bound_ret`
-    only bounds `termOf + |matCache t|` (the operand), NOT the 101-byte `PUSH32 0; MSTORE;
-    PUSH32 32; PUSH32 0; RETURN` full-observable epilogue; the five epilogue decodes need
-    `termOf + |matCache t| + 100 < 2^32`, which is a static, satisfiable,
-    checker-dischargeable well-formedness fact absent from `bound_ret` (a default-target
-    under-specification not editable here). Supplied as an explicit seam, NOT a vacuity dodge
-    (it is genuinely true for every real ret block).
-  * **`CallPreservesSelf` DERIVED, not added to the signature.** The ret `SelfPresent frv`
-    bridge (across the adversarial `Runs frT frv`) is discharged from the already-present
-    `hprec` via `callPreservesSelf_modGuards hprec` (axiom-clean); no seam added — a
-    strengthening over the round-2 blocker's "add `CallPreservesSelf`" instruction. -/
-theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
-    {self : AccountAddress} {L : Label} {b : Block}
-    (hwl : WellLowered prog)
-    (hprec : ∀ (cp : CallParams) (imm : CallResult), beginCall cp = .inr imm →
-      ∀ a, AccPresent a cp.accounts → AccPresent a imm.accounts)
-    (hretEmit : ∀ t, b.term = .ret t →
-      termOf prog L + (matCache prog t).length + 100 < 2 ^ 32)
-    (hb : blockAt prog L = some b) :
-    TermTies' prog sloadChg log self L b := by
-  have hbt : prog.blocks.toList[L.idx]? = some b := Lir.toList_of_blockAt hb
-  refine ⟨?_, ?_, ?_, ?_⟩
-  · -- STOP arm: non-emptiness from the threaded `SelfPresent`.
-    intro _hterm st frT hcorr _hch hsp _haddr _hkind
-    exact accounts_ne_empty_of_selfPresent hsp
-  · -- RET arm.
-    intro t hterm st frT hcorr hch hsp haddr hkind
-    have hb100 : termOf prog L + (matCache prog t).length + 100 < 2 ^ 32 :=
-      hretEmit t hterm
-    -- conjunct 2: the static stack-room bound (value-free).
-    refine ⟨hwl.stack.ret sloadChg L b t hb hterm, ?_⟩
-    intro vw hvw
-    -- conjunct 1: the charge-sum bound (needs the returned value `vw`).
-    have hdv : MatDecC prog hwl.defsCons hwl.defEnvOrdered frT.exec.executionEnv.code
-        frT.exec.pc (.tmp t) := by
-      rw [hcorr.code_eq, hcorr.pc_eq, pcOf_eq_termOf prog L b hbt,
-          show termOf prog L = termOf prog L + 0 from by omega]
-      exact matDecC_of_term prog hwl.defsCons hwl.defEnvOrdered L b 0 (.tmp t) hbt
-        (by simp only [matExpr_tmp]; rw [hterm]
-            exact ret_sub_value (matCache prog)
-              (offsetTable (matCache prog) (defsOf prog) prog.blocks) t)
-        (by simp only [matExpr_tmp]; rw [hterm]
-            show _ ≤ ((matCache prog t)
-                        ++ emitImm 0 ++ [Byte.mstore] ++ emitImm 32 ++ emitImm 0 ++ [Byte.ret]).length
-            simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil]
-            omega)
-        (by simp only [matExpr_tmp]; omega)
-    have hstkC : frT.exec.stack.size
-        + (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp t)).length ≤ 1024 := by
-      rw [hcorr.stack_nil]; simpa using hwl.stack.ret sloadChg L b t hb hterm
-    refine ⟨materialise_chargeC_le_of_cleanHalt hwl.defsCons hwl.defEnvOrdered sloadChg st 0
-        (fun _ => False) (.tmp t) vw frT hdv hcorr.defsSound
-        (rematClosureFree_empty prog hwl.defsCons hwl.defEnvOrdered (.tmp t)) hcorr.wellScoped hcorr.storage (by nofun) (by nofun)
-        hcorr.memAgree hvw hch hstkC, ?_⟩
-    -- conjunct 3: the pc-pinned full-observable epilogue block
-    -- (`PUSH32 0; MSTORE; PUSH32 32; PUSH32 0; RETURN`).
-    intro frv hruns hcode _haddr' _hsto hstk hpc
-    set lc := (matCache prog t).length with hlc
-    have hemitR : emitTerm (matCache prog)
-        (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term
-          = matCache prog t
-            ++ emitImm 0 ++ [Byte.mstore] ++ emitImm 32 ++ emitImm 0 ++ [Byte.ret] := by
-      rw [hterm]; rfl
-    have hfrvcode : frv.exec.executionEnv.code = lower prog := by rw [hcode, hcorr.code_eq]
-    have hfrvpc : frv.exec.pc = UInt32.ofNat (termOf prog L + lc) := by
-      rw [hpc, hcorr.pc_eq, pcOf_eq_termOf prog L b hbt, ofNat_add']
-    have hfrvstk : frv.exec.stack = vw :: ([] : Stack Word) := by rw [hstk, hcorr.stack_nil]
-    -- pc-normalisation of the five epilogue anchors to `ofNat (termOf + (lc + off))`.
-    have e33 : frv.exec.pc + UInt32.ofNat 33 = UInt32.ofNat (termOf prog L + (lc + 33)) := by
-      rw [hfrvpc]; simp only [ofNat_add']; congr 1
-    have e34 : frv.exec.pc + UInt32.ofNat 33 + 1 = UInt32.ofNat (termOf prog L + (lc + 34)) := by
-      rw [hfrvpc]; simp only [show (1 : UInt32) = UInt32.ofNat 1 from rfl, ofNat_add']; congr 1
-    have e67 : frv.exec.pc + UInt32.ofNat 33 + 1 + UInt32.ofNat 33
-        = UInt32.ofNat (termOf prog L + (lc + 67)) := by
-      rw [hfrvpc]; simp only [show (1 : UInt32) = UInt32.ofNat 1 from rfl, ofNat_add']; congr 1
-    have e100 : frv.exec.pc + UInt32.ofNat 33 + 1 + UInt32.ofNat 33 + UInt32.ofNat 33
-        = UInt32.ofNat (termOf prog L + (lc + 100)) := by
-      rw [hfrvpc]; simp only [show (1 : UInt32) = UInt32.ofNat 1 from rfl, ofNat_add']; congr 1
-    -- the five epilogue decodes (peeled from the flat byte string).
-    have hd0 : decode frv.exec.executionEnv.code frv.exec.pc
-        = some (.Push .PUSH32, some ((0 : Word), 32)) := by
-      rw [hfrvcode, hfrvpc]
-      exact imm_leaf_decodeF prog (termOf prog L + lc) 0 (by omega)
-        (by intro j hj
-            have hja := flatBytes_at_termOf prog L b (lc + j) hbt (by
-              rw [hemitR]
-              simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
-              rw [emitImm_length] at hj; omega)
-            rw [show termOf prog L + (lc + j) = termOf prog L + lc + j from by omega] at hja
-            rw [hja, hemitR]
-            rw [List.getElem?_append_left (by
-                  simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
-                  rw [emitImm_length] at hj; omega)]
-            rw [List.getElem?_append_left (by
-                  simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
-                  rw [emitImm_length] at hj; omega)]
-            rw [List.getElem?_append_left (by
-                  simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
-                  rw [emitImm_length] at hj; omega)]
-            rw [List.getElem?_append_left (by
-                  simp only [List.length_append, emitImm_length, ← hlc]; rw [emitImm_length] at hj; omega)]
-            rw [List.getElem?_append_right (by simp only [← hlc]; omega)]
-            rw [show lc + j - (matCache prog t).length = j
-                  from by rw [← hlc]; omega])
-    have hdms : decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33)
-        = some (.Smsf .MSTORE, .none) := by
-      rw [hfrvcode, e33]
-      have hbyte0 : (emitTerm (matCache prog)
-          (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term)[lc + 33]?
-            = some Byte.mstore := by
-        rw [hemitR]
-        rw [List.getElem?_append_left (by
-              simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]; omega)]
-        rw [List.getElem?_append_left (by
-              simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]; omega)]
-        rw [List.getElem?_append_left (by
-              simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]; omega)]
-        rw [List.getElem?_append_right (by
-              simp only [List.length_append, emitImm_length, ← hlc]; omega)]
-        simp only [List.length_append, emitImm_length, ← hlc,
-          show lc + 33 - (lc + 33) = 0 from by omega]
-        rfl
-      exact decode_at_term_nonpush prog L b (lc + 33) Byte.mstore hbt
-        (by rw [hemitR]
-            simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]; omega)
-        hbyte0 (by omega) (by decide)
-    have hd32 : decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33 + 1)
-        = some (.Push .PUSH32, some ((32 : Word), 32)) := by
-      rw [hfrvcode, e34]
-      exact imm_leaf_decodeF prog (termOf prog L + (lc + 34)) 32 (by omega)
-        (by intro j hj
-            have hja := flatBytes_at_termOf prog L b (lc + 34 + j) hbt (by
-              rw [hemitR]
-              simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
-              rw [emitImm_length] at hj; omega)
-            rw [show termOf prog L + (lc + 34 + j) = termOf prog L + (lc + 34) + j from by omega] at hja
-            rw [hja, hemitR]
-            rw [List.getElem?_append_left (by
-                  simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
-                  rw [emitImm_length] at hj; omega)]
-            rw [List.getElem?_append_left (by
-                  simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
-                  rw [emitImm_length] at hj; omega)]
-            rw [List.getElem?_append_right (by
-                  simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
-                  rw [emitImm_length] at hj; omega)]
-            rw [show lc + 34 + j - (matCache prog t
-                    ++ emitImm 0 ++ [Byte.mstore]).length = j from by
-                  simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]; omega])
-    have hd0' : decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33 + 1 + UInt32.ofNat 33)
-        = some (.Push .PUSH32, some ((0 : Word), 32)) := by
-      rw [hfrvcode, e67]
-      exact imm_leaf_decodeF prog (termOf prog L + (lc + 67)) 0 (by omega)
-        (by intro j hj
-            have hja := flatBytes_at_termOf prog L b (lc + 67 + j) hbt (by
-              rw [hemitR]
-              simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
-              rw [emitImm_length] at hj; omega)
-            rw [show termOf prog L + (lc + 67 + j) = termOf prog L + (lc + 67) + j from by omega] at hja
-            rw [hja, hemitR]
-            rw [List.getElem?_append_left (by
-                  simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
-                  rw [emitImm_length] at hj; omega)]
-            rw [List.getElem?_append_right (by
-                  simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
-                  rw [emitImm_length] at hj; omega)]
-            rw [show lc + 67 + j - (matCache prog t
-                    ++ emitImm 0 ++ [Byte.mstore] ++ emitImm 32).length = j from by
-                  simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]; omega])
-    have hdret : decode frv.exec.executionEnv.code
-        (frv.exec.pc + UInt32.ofNat 33 + 1 + UInt32.ofNat 33 + UInt32.ofNat 33)
-        = some (.System .RETURN, .none) := by
-      rw [hfrvcode, e100]
-      have hbyte0 : (emitTerm (matCache prog)
-          (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term)[lc + 100]?
-            = some Byte.ret := by
-        rw [hemitR, List.getElem?_append_right (by
-              simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
-              omega)]
-        simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc,
-          show lc + 100 - (lc + 33 + 1 + 33 + 33) = 0 from by omega]
-        rfl
-      exact decode_at_term_nonpush prog L b (lc + 100) Byte.ret hbt
-        (by rw [hemitR]
-            simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
-            omega)
-        hbyte0 (by omega) (by decide)
-    -- run the epilogue, extracting the gas/memory witnesses from the clean-halt chain.
-    have hcsv : CleanHaltsNonException frv := cleanHaltsNonException_forward hch hruns
-    have hszv : frv.exec.stack.size + 1 ≤ 1024 := by
-      rw [hstk, hcorr.stack_nil]; show (1 : ℕ) + 1 ≤ 1024; omega
-    have hgv1 : 3 ≤ frv.exec.gasAvailable.toNat := by
-      have := (CleanHaltExtract.next_push_of_cleanHalt frv .PUSH32 0 32 hcsv (by decide) hd0
-        (by decide) (by decide) hszv).1
-      have hvl : GasConstants.Gverylow = 3 := rfl; omega
-    -- (1) `PUSH32 0`.
-    have hrunpush : Runs frv (pushFrameW frv (0 : Word) 32) :=
-      runs_push frv .PUSH32 0 32 (by nofun) hd0 rfl rfl hgv1 hszv
-    have hcsvF1 : CleanHaltsNonException (pushFrameW frv (0 : Word) 32) :=
-      cleanHaltsNonException_forward hcsv hrunpush
-    have hf1stk : (pushFrameW frv (0 : Word) 32).exec.stack = (0 : Word) :: vw :: ([] : Stack Word) := by
-      show (0 : Word) :: frv.exec.stack = _; rw [hfrvstk]
-    have hf1sz : (pushFrameW frv (0 : Word) 32).exec.stack.size ≤ 1024 := by
-      rw [hf1stk]; show (2 : ℕ) ≤ 1024; omega
-    have hdmsF1 : decode (pushFrameW frv (0 : Word) 32).exec.executionEnv.code
-        (pushFrameW frv (0 : Word) 32).exec.pc = some (.Smsf .MSTORE, .none) := by
-      rw [pushFrameW_code, pushFrameW_pc, show ((32 : UInt8) + 1).toUInt32 = UInt32.ofNat 33 from by decide]
-      exact hdms
-    -- (2) `MSTORE(0, vw)` — the memory-expansion witness + charges.
-    obtain ⟨wms, hmemF1, hgasMemF1, hgasVF1, _hstepms⟩ :=
-      CleanHaltExtract.next_mstore_of_cleanHalt (pushFrameW frv (0 : Word) 32) (0 : Word) vw []
-        hcsvF1 hdmsF1 hf1stk hf1sz
-    have hmemFrv : memoryExpansionWords? frv.exec.activeWords (0 : Word) 32 = some wms := hmemF1
-    have hrunms : Runs (pushFrameW frv (0 : Word) 32)
-        (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []) :=
-      runs_mstore (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms [] hdmsF1 hf1stk hf1sz
-        hmemF1 hgasMemF1 hgasVF1
-    have hcsvMs : CleanHaltsNonException (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []) :=
-      cleanHaltsNonException_forward hcsvF1 hrunms
-    have hmsstk : (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []).exec.stack
-        = ([] : Stack Word) := by rw [mstoreFrame_stack]
-    have hmssz : (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []).exec.stack.size + 1
-        ≤ 1024 := by rw [hmsstk]; show (0 : ℕ) + 1 ≤ 1024; omega
-    have hd32Ms : decode (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []).exec.executionEnv.code
-        (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []).exec.pc
-          = some (.Push .PUSH32, some ((32 : Word), 32)) := by
-      rw [mstoreFrame_code, pushFrameW_code, mstoreFrame_pc, pushFrameW_pc,
-          show ((32 : UInt8) + 1).toUInt32 = UInt32.ofNat 33 from by decide]
-      exact hd32
-    -- (3) `PUSH32 32`.
-    have hg32 : 3 ≤ (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []).exec.gasAvailable.toNat := by
-      have := (CleanHaltExtract.next_push_of_cleanHalt
-        (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []) .PUSH32 32 32
-        hcsvMs (by decide) hd32Ms (by decide) (by decide) hmssz).1
-      have hvl : GasConstants.Gverylow = 3 := rfl; omega
-    have hrunpush2 : Runs (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms [])
-        (pushFrameW (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []) (32 : Word) 32) :=
-      runs_push (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []) .PUSH32 32 32
-        (by nofun) hd32Ms rfl rfl hg32 hmssz
-    have hcsvF2 : CleanHaltsNonException
-        (pushFrameW (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []) (32 : Word) 32) :=
-      cleanHaltsNonException_forward hcsvMs hrunpush2
-    have hf2stk : (pushFrameW (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []) (32 : Word) 32).exec.stack
-        = (32 : Word) :: ([] : Stack Word) := by
-      show (32 : Word) :: (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []).exec.stack = _
-      rw [hmsstk]
-    have hf2sz : (pushFrameW (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []) (32 : Word) 32).exec.stack.size + 1
-        ≤ 1024 := by rw [hf2stk]; show (1 : ℕ) + 1 ≤ 1024; omega
-    have hd0'F2 : decode
-        (pushFrameW (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []) (32 : Word) 32).exec.executionEnv.code
-        (pushFrameW (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []) (32 : Word) 32).exec.pc
-          = some (.Push .PUSH32, some ((0 : Word), 32)) := by
-      rw [pushFrameW_code, mstoreFrame_code, pushFrameW_code, pushFrameW_pc, mstoreFrame_pc,
-          pushFrameW_pc, show ((32 : UInt8) + 1).toUInt32 = UInt32.ofNat 33 from by decide]
-      exact hd0'
-    -- (4) `PUSH32 0`.
-    have hg0'' : 3 ≤ (pushFrameW (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms [])
-        (32 : Word) 32).exec.gasAvailable.toNat := by
-      have := (CleanHaltExtract.next_push_of_cleanHalt
-        (pushFrameW (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []) (32 : Word) 32)
-        .PUSH32 0 32 hcsvF2 (by decide) hd0'F2 (by decide) (by decide) hf2sz).1
-      have hvl : GasConstants.Gverylow = 3 := rfl; omega
-    obtain ⟨cp, hcpeq⟩ := hkind
-    refine ⟨cp, wms, hd0, hdms, hd32, hd0', hdret, hgv1, hmemFrv, hgasMemF1, hgasVF1, hg32, hg0'', ?_, ?_⟩
-    · rw [runs_kind hruns]; exact hcpeq
-    · exact accounts_ne_empty_of_selfPresent (selfPresent_runs_of_call hprec hsp hruns)
-  · -- JUMP arm.
-    intro dst bdst hterm hbdst hdstlt st frT hcorr hch
-    obtain ⟨hbterm, hboff⟩ := hwl.wf.bound_jump L b dst hbt hterm
-    set off := offsetTable (matCache prog) (defsOf prog) prog.blocks dst.idx with hoff
-    set dest : Word := UInt256.ofNat (off % 2 ^ 32) with hdest
-    set new_pc := UInt32.ofNat off with hnew
-    have hemitT : emitTerm (matCache prog)
-        (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term
-          = emitDest off ++ [Byte.jump] := by rw [hterm]; rfl
-    have hedlen : (emitDest off).length = 5 := by simp [emitDest, offsetBytesBE]
-    have htermlen : (emitTerm (matCache prog)
-        (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term).length = 6 := by
-      rw [hemitT, List.length_append, hedlen]; rfl
-    have hdpush : decode frT.exec.executionEnv.code frT.exec.pc
-        = some (.Push .PUSH4, some (dest, 4)) := by
-      rw [hcorr.code_eq, hcorr.pc_eq, pcOf_eq_termOf prog L b hbt,
-          show termOf prog L = termOf prog L + 0 from by omega]
-      exact term_dest_decode prog L b 0 off hbt
-        (by intro j hj; rw [hemitT]; rw [Nat.zero_add, List.getElem?_append_left hj])
-        (by rw [htermlen, hedlen]; omega) (by omega)
-    have hdjump : decode frT.exec.executionEnv.code (frT.exec.pc + UInt32.ofNat 5)
-        = some (.Smsf .JUMP, .none) := by
-      rw [hcorr.code_eq, hcorr.pc_eq, pcOf_eq_termOf prog L b hbt, ofNat_add']
-      have hbyte0 : (emitTerm (matCache prog)
-          (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term)[5]? = some Byte.jump := by
-        rw [hemitT, List.getElem?_append_right (by rw [hedlen]), hedlen]; rfl
-      exact decode_at_term_nonpush prog L b 5 Byte.jump hbt (by rw [htermlen]; omega) hbyte0
-        (by rw [show termOf prog L + 5 = termOf prog L + 5 from rfl]; omega) (by decide)
-    have hdjd : decode (lower prog) (UInt32.ofNat off) = some (.Smsf .JUMPDEST, .none) :=
-      decode_at_block_offset_jumpdest prog dst bdst hbdst (by rw [← hoff]; omega)
-    have hdestword : dest.toUInt32? = some (UInt32.ofNat off) := ofNatMod_toUInt32? off
-    have hgstk : frT.exec.stack = [] := hcorr.stack_nil
-    have hvalid : frT.validJumps = validJumpDests (lower prog) 0 := hcorr.validJumps_lower
-    have hstk1 : frT.exec.stack.size + 1 ≤ 1024 := by rw [hgstk]; show (0 : ℕ) + 1 ≤ 1024; omega
-    have hgpush : 3 ≤ frT.exec.gasAvailable.toNat := by
-      have := (CleanHaltExtract.next_push_of_cleanHalt frT .PUSH4 dest 4 hch (by decide) hdpush
-        (by decide) (by decide) hstk1).1
-      have hvl : GasConstants.Gverylow = 3 := rfl; omega
-    have hpush : Runs frT (pushFrameW frT dest 4) :=
-      runs_push frT .PUSH4 dest 4 (by nofun) hdpush rfl rfl hgpush hstk1
-    set frp := pushFrameW frT dest 4 with hfrp
-    have hpcode : frp.exec.executionEnv.code = frT.exec.executionEnv.code := rfl
-    have hppc : frp.exec.pc = frT.exec.pc + UInt32.ofNat 5 := by
-      show frT.exec.pc + ((4 : UInt8) + 1).toUInt32 = _
-      rw [show ((4 : UInt8) + 1).toUInt32 = UInt32.ofNat 5 from by decide]
-    have hpstk : frp.exec.stack = dest :: frT.exec.stack := rfl
-    have hpjdec : decode frp.exec.executionEnv.code frp.exec.pc = some (.Smsf .JUMP, .none) := by
-      rw [hpcode, hppc]; exact hdjump
-    have hpjsz : frp.exec.stack.size ≤ 1024 := by
-      rw [hpstk, hgstk]; show (1 : ℕ) ≤ 1024; omega
-    have hgetdest : frp.get_dest dest = some new_pc := by
-      refine Frame.get_dest_of_mem _ hdestword ?_
-      show new_pc ∈ frp.validJumps
-      rw [hfrp, pushFrameW_validJumps, hvalid, hnew]
-      simpa using block_offset_validJump prog dst hdstlt
-    have hcsP : CleanHaltsNonException frp := cleanHaltsNonException_forward hch hpush
-    have hgjump : GasConstants.Gmid ≤ frp.exec.gasAvailable.toNat :=
-      (CleanHaltExtract.next_jump_of_cleanHalt frp dest new_pc frT.exec.stack hcsP hpjdec hpstk
-        hpjsz hgetdest).1
-    have hjump : Runs frp (jumpFrame frp GasConstants.Gmid new_pc frT.exec.stack) :=
-      runs_jump frp dest new_pc frT.exec.stack hpjdec hpstk hpjsz hgjump hgetdest
-    set fj := jumpFrame frp GasConstants.Gmid new_pc frT.exec.stack with hfj
-    have hfjpc : fj.exec.pc = new_pc := rfl
-    have hfjcode : fj.exec.executionEnv.code = lower prog := by
-      rw [hfj, jumpFrame_code, hpcode]; exact hcorr.code_eq
-    have hfjstk : fj.exec.stack = [] := by rw [hfj, jumpFrame_stack]; exact hgstk
-    have hfjdec : decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none) := by
-      rw [hfjcode, hfjpc, hnew]; exact hdjd
-    have hfrun : Runs frT fj := hpush.trans hjump
-    have hcsJ : CleanHaltsNonException fj := cleanHaltsNonException_forward hch hfrun
-    have hfjsz : fj.exec.stack.size ≤ 1024 := by rw [hfjstk]; show (0 : ℕ) ≤ 1024; omega
-    have hgjd : GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat :=
-      (CleanHaltExtract.next_jumpdest_of_cleanHalt fj hcsJ hfjdec hfjsz).1
-    exact ⟨hgpush, hgjump, hgjd⟩
-  · -- BRANCH arm.
-    intro cond thenL elseL bthen belse hterm hbthen hbelse hthenlt helselt st frT cw hcorr hch hc
-    obtain ⟨hbterm, hbthenoff, hbelseoff⟩ := hwl.wf.bound_branch L b cond thenL elseL hbt hterm
-    have hstkCond : frT.exec.stack.size
-        + (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp cond)).length ≤ 1024 := by
-      rw [hcorr.stack_nil]; simpa using hwl.stack.branch sloadChg L b cond thenL elseL hb hterm
-    set lc := (matCache prog cond).length with hlc
-    set thenOff := offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx with hthenoff
-    set elseOff := offsetTable (matCache prog) (defsOf prog) prog.blocks elseL.idx with helseoff
-    set thenW : Word := UInt256.ofNat (thenOff % 2 ^ 32) with hthenW
-    set elseW : Word := UInt256.ofNat (elseOff % 2 ^ 32) with helseW
-    -- (1) COND MATERIALISE via `materialise_runsC_of_cleanHalt`, gas FOR FREE.
-    -- the cond materialise sits at offset 0 of `emitTerm`, anchored at `frT.exec.pc = termOf`.
-    have hemitT : emitTerm (matCache prog)
-        (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term
-          = matCache prog cond
-            ++ emitDest thenOff ++ [Byte.jumpi] ++ emitDest elseOff ++ [Byte.jump] := by
-      rw [hterm]; rfl
-    have hedlen : ∀ o, (emitDest o).length = 5 := fun o => by simp [emitDest, offsetBytesBE]
-    have htermlen : (emitTerm (matCache prog)
-        (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term).length = lc + 12 := by
-      rw [hemitT]; simp only [List.length_append, List.length_singleton, hedlen, ← hlc]
-    have hcondMatDec : MatDecC prog hwl.defsCons hwl.defEnvOrdered frT.exec.executionEnv.code
-        frT.exec.pc (.tmp cond) := by
-      rw [hcorr.code_eq, hcorr.pc_eq, pcOf_eq_termOf prog L b hbt,
-          show termOf prog L = termOf prog L + 0 from by omega]
-      exact matDecC_of_term prog hwl.defsCons hwl.defEnvOrdered L b 0 (.tmp cond) hbt
-        (by simp only [matExpr_tmp]
-            intro j hj; rw [hemitT, Nat.zero_add]
-            rw [List.getElem?_append_left (by simp only [List.length_append, List.length_singleton, hedlen]; rw [← hlc] at hj ⊢; omega)]
-            rw [List.getElem?_append_left (by simp only [List.length_append, List.length_singleton, hedlen]; rw [← hlc] at hj ⊢; omega)]
-            rw [List.getElem?_append_left (by simp only [List.length_append, hedlen]; rw [← hlc] at hj ⊢; omega)]
-            rw [List.getElem?_append_left (by rw [← hlc] at hj ⊢; exact hj)])
-        (by simp only [matExpr_tmp]; rw [htermlen]; omega)
-        (by simp only [matExpr_tmp]; omega)
-    have hcondEval : V2.evalExpr st 0 (.tmp cond) = some cw := hc
-    obtain ⟨frc, hmrc, _hgasCond⟩ := materialise_runsC_of_cleanHalt hwl.defsCons
-      hwl.defEnvOrdered sloadChg st 0 (fun _ => False) (.tmp cond) cw frT hcondMatDec hcorr.defsSound
-      (rematClosureFree_empty prog hwl.defsCons hwl.defEnvOrdered (.tmp cond))
-      hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree hcondEval hch hstkCond
-    -- forward clean-halt across the cond materialise.
-    have hcsC : CleanHaltsNonException frc := cleanHaltsNonException_forward hch hmrc.runs
-    -- (2) DECODE BUNDLE for the branch epilogue, `frc`-relative (exactly `sim_term_edge_branch_lowered`).
-    -- (`MatRunsC.pc` is `matExpr`-spelled; the `have` bridges to the cache spelling by defeq.)
-    have hpcC : frc.exec.pc = frT.exec.pc + UInt32.ofNat (matCache prog cond).length := hmrc.pc
-    have hfrcpc : frc.exec.pc = UInt32.ofNat (termOf prog L + lc) := by
-      rw [hpcC, hcorr.pc_eq, pcOf_eq_termOf prog L b hbt, ofNat_add', ← hlc]
-    have hfrccode : frc.exec.executionEnv.code = lower prog := by rw [hmrc.code]; exact hcorr.code_eq
-    have hdpushT : decode frc.exec.executionEnv.code frc.exec.pc
-        = some (.Push .PUSH4, some (thenW, 4)) := by
-      rw [hfrccode, hfrcpc]
-      exact term_dest_decode prog L b lc thenOff hbt
-        (by intro j hj; rw [hemitT]
-            rw [List.getElem?_append_left (by simp only [List.length_append, hedlen]; rw [hedlen] at hj; omega)]
-            rw [List.getElem?_append_left (by simp only [List.length_append, hedlen]; rw [hedlen] at hj; omega)]
-            rw [List.getElem?_append_left (by simp only [List.length_append, hedlen]; rw [hedlen] at hj; omega)]
-            rw [List.getElem?_append_right (by rw [← hlc]; omega), ← hlc, show lc + j - lc = j from by omega])
-        (by rw [htermlen, hedlen]; omega) (by omega)
-    have hdjumpi : decode frc.exec.executionEnv.code (frc.exec.pc + UInt32.ofNat 5)
-        = some (.Smsf .JUMPI, .none) := by
-      rw [hfrccode, hfrcpc, ofNat_add',
-          show termOf prog L + lc + 5 = termOf prog L + (lc + 5) from by omega]
-      have hbyte0 : (emitTerm (matCache prog)
-          (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term)[lc + 5]? = some Byte.jumpi := by
-        rw [hemitT]
-        rw [List.getElem?_append_left (by simp only [List.length_append, List.length_singleton, hedlen]; omega)]
-        rw [List.getElem?_append_left (by simp only [List.length_append, List.length_singleton, hedlen]; omega)]
-        rw [List.getElem?_append_right (by simp only [List.length_append, hedlen, ← hlc]; omega)]
-        simp only [List.length_append, hedlen, ← hlc, show lc + 5 - (lc + 5) = 0 from by omega]
-        rfl
-      exact decode_at_term_nonpush prog L b (lc + 5) Byte.jumpi hbt (by rw [htermlen]; omega)
-        hbyte0 (by omega) (by decide)
-    have hdpushE : decode frc.exec.executionEnv.code (frc.exec.pc + UInt32.ofNat 6)
-        = some (.Push .PUSH4, some (elseW, 4)) := by
-      rw [hfrccode, hfrcpc, ofNat_add',
-          show termOf prog L + lc + 6 = termOf prog L + (lc + 6) from by omega]
-      exact term_dest_decode prog L b (lc + 6) elseOff hbt
-        (by intro j hj
-            have hjlen : j < 5 := by rw [hedlen] at hj; exact hj
-            rw [hemitT]
-            rw [List.getElem?_append_left (by simp only [List.length_append, List.length_singleton, hedlen, ← hlc]; omega)]
-            rw [List.getElem?_append_right (by simp only [List.length_append, List.length_singleton, hedlen, ← hlc]; omega)]
-            simp only [List.length_append, List.length_singleton, hedlen, ← hlc,
-              show lc + 6 + j - (lc + 5 + 1) = j from by omega])
-        (by rw [htermlen, hedlen]; omega) (by omega)
-    have hdjump : decode frc.exec.executionEnv.code (frc.exec.pc + UInt32.ofNat 6 + UInt32.ofNat 5)
-        = some (.Smsf .JUMP, .none) := by
-      rw [hfrccode, hfrcpc, ofNat_add', ofNat_add',
-          show termOf prog L + lc + 6 + 5 = termOf prog L + (lc + 11) from by omega]
-      have hbyte0 : (emitTerm (matCache prog)
-          (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term)[lc + 11]? = some Byte.jump := by
-        rw [hemitT]
-        rw [List.getElem?_append_right (by simp only [List.length_append, List.length_singleton, hedlen, ← hlc]; omega)]
-        simp only [List.length_append, List.length_singleton, hedlen, ← hlc,
-          show lc + 11 - (lc + 5 + 1 + 5) = 0 from by omega]
-        rfl
-      exact decode_at_term_nonpush prog L b (lc + 11) Byte.jump hbt (by rw [htermlen]; omega)
-        hbyte0 (by omega) (by decide)
-    have hdjdT : decode (lower prog) (UInt32.ofNat thenOff) = some (.Smsf .JUMPDEST, .none) :=
-      decode_at_block_offset_jumpdest prog thenL bthen hbthen (by rw [← hthenoff]; omega)
-    have hdjdE : decode (lower prog) (UInt32.ofNat elseOff) = some (.Smsf .JUMPDEST, .none) :=
-      decode_at_block_offset_jumpdest prog elseL belse hbelse (by rw [← helseoff]; omega)
-    have hthenword : thenW.toUInt32? = some (UInt32.ofNat thenOff) := ofNatMod_toUInt32? thenOff
-    have helseword : elseW.toUInt32? = some (UInt32.ofNat elseOff) := ofNatMod_toUInt32? elseOff
-    -- materialise-endpoint facts (`frc` carries `cw` on top of `frT`'s empty stack).
-    have hfrcstk : frc.exec.stack = cw :: [] := by rw [hmrc.stack, hcorr.stack_nil]; rfl
-    have hfrcmod : frc.exec.executionEnv.canModifyState = true := by
-      rw [hmrc.canMod]; exact hcorr.can_modify
-    have hfrcstore : ∀ k, selfStorage frc k = st.world k := by
-      intro k; rw [hmrc.storage k]; exact hcorr.storage k
-    have hfrcmem : MemRealises prog st frc :=
-      hcorr.memAgree.transport hmrc.memBytes hmrc.memActive
-    have hfrcvalid : frc.validJumps = validJumpDests (lower prog) 0 := by
-      rw [hmrc.validJumps]; exact hcorr.validJumps_lower
-    -- (3) step: PUSH4 thenOff at `frc`.
-    have hstk1 : frc.exec.stack.size + 1 ≤ 1024 := by rw [hfrcstk]; show (1:ℕ)+1≤1024; omega
-    have hgpushT : 3 ≤ frc.exec.gasAvailable.toNat := by
-      have := (CleanHaltExtract.next_push_of_cleanHalt frc .PUSH4 thenW 4 hcsC (by decide)
-        hdpushT (by decide) (by decide) hstk1).1
-      have hvl : GasConstants.Gverylow = 3 := rfl; omega
-    have hpushT : Runs frc (pushFrameW frc thenW 4) :=
-      runs_push frc .PUSH4 thenW 4 (by nofun) hdpushT rfl rfl hgpushT hstk1
-    set frp := pushFrameW frc thenW 4 with hfrp
-    have hfrpcode : frp.exec.executionEnv.code = frc.exec.executionEnv.code := rfl
-    have hfrppc : frp.exec.pc = frc.exec.pc + UInt32.ofNat 5 := by
-      show frc.exec.pc + ((4 : UInt8) + 1).toUInt32 = _
-      rw [show ((4 : UInt8) + 1).toUInt32 = UInt32.ofNat 5 from by decide]
-    have hfrpstk : frp.exec.stack = thenW :: cw :: [] := by
-      show frc.exec.stack.push thenW = _; rw [hfrcstk]; rfl
-    have hfrpjidec : decode frp.exec.executionEnv.code frp.exec.pc = some (.Smsf .JUMPI, .none) := by
-      rw [hfrpcode, hfrppc]; exact hdjumpi
-    have hfrpsz : frp.exec.stack.size ≤ 1024 := by rw [hfrpstk]; show (2:ℕ)≤1024; omega
-    have hcsP : CleanHaltsNonException frp := cleanHaltsNonException_forward hcsC hpushT
-    -- (4) case-split on the runtime condition `cw`.
-    by_cases hcw : cw = 0
-    · -- ELSE arm: JUMPI falls through to `PUSH4 elseOff ; JUMP` → `elseL`.
-      subst hcw
-      -- JUMPI gas brick (fall-through), from `hcsP`.
-      have hgjumpi : GasConstants.Ghigh ≤ frp.exec.gasAvailable.toNat :=
-        (CleanHaltExtract.next_jumpi_fallthrough_of_cleanHalt frp thenW ([] : Stack Word) hcsP
-          hfrpjidec hfrpstk hfrpsz).1
-      have hfall : Runs frp (jumpiFallthroughFrame frp ([] : Stack Word)) :=
-        runs_jumpi_fallthrough frp thenW ([] : Stack Word) hfrpjidec hfrpstk hfrpsz hgjumpi
-      set gff := jumpiFallthroughFrame frp ([] : Stack Word) with hgff
-      have hgffcode : gff.exec.executionEnv.code = lower prog := by
-        rw [hgff, jumpiFallthroughFrame_code, hfrpcode]; exact hfrccode
-      have hgffstk : gff.exec.stack = [] := by rw [hgff, jumpiFallthroughFrame_stack]
-      have hgffmod : gff.exec.executionEnv.canModifyState = true := by
-        rw [hgff, jumpiFallthroughFrame_canMod]
-        show (pushFrameW frc thenW 4).exec.executionEnv.canModifyState = true
-        rw [show (pushFrameW frc thenW 4).exec.executionEnv.canModifyState
-              = frc.exec.executionEnv.canModifyState from rfl]; exact hfrcmod
-      have hgffstore : ∀ k, selfStorage gff k = st.world k := by
-        intro k; rw [hgff, jumpiFallthroughFrame_selfStorage]
-        show selfStorage frp k = st.world k
-        show selfStorage (pushFrameW frc thenW 4) k = st.world k
-        rw [pushFrameW_selfStorage]; exact hfrcstore k
-      have hgffmem : MemRealises prog st gff :=
-        hfrcmem.transport
-          (by rw [hgff, jumpiFallthroughFrame_memory, hfrp, pushFrameW_memory])
-          (by rw [hgff, jumpiFallthroughFrame_activeWords, hfrp, pushFrameW_activeWords])
-      have hgffvalid : gff.validJumps = validJumpDests (lower prog) 0 := by
-        rw [hgff, jumpiFallthroughFrame_validJumps]
-        show frp.validJumps = _; rw [hfrp, pushFrameW_validJumps]; exact hfrcvalid
-      have hgffpc : gff.exec.pc = frc.exec.pc + UInt32.ofNat 6 := by
-        rw [hgff, jumpiFallthroughFrame_pc, hfrppc]
-        rw [show (UInt32.ofNat 6) = UInt32.ofNat 5 + 1 from by decide]; ac_rfl
-      have hdpushE' : decode gff.exec.executionEnv.code gff.exec.pc
-          = some (.Push .PUSH4, some (elseW, 4)) := by rw [hgffcode, hgffpc, ← hfrccode]; exact hdpushE
-      have hdjump' : decode gff.exec.executionEnv.code (gff.exec.pc + UInt32.ofNat 5)
-          = some (.Smsf .JUMP, .none) := by rw [hgffcode, hgffpc, ← hfrccode]; exact hdjump
-      -- forward clean-halt across the JUMPI fall-through.
-      have hcsG : CleanHaltsNonException gff := cleanHaltsNonException_forward hcsP hfall
-      -- REUSE the jump-arm landing for `elseL`: PUSH4 elseOff ; JUMP.
-      set new_pc := UInt32.ofNat elseOff with hnewE
-      have hgffstk1 : gff.exec.stack.size + 1 ≤ 1024 := by rw [hgffstk]; show (0:ℕ)+1≤1024; omega
-      have hgpushE : 3 ≤ gff.exec.gasAvailable.toNat := by
-        have := (CleanHaltExtract.next_push_of_cleanHalt gff .PUSH4 elseW 4 hcsG (by decide)
-          hdpushE' (by decide) (by decide) hgffstk1).1
-        have hvl : GasConstants.Gverylow = 3 := rfl; omega
-      have hpushE : Runs gff (pushFrameW gff elseW 4) :=
-        runs_push gff .PUSH4 elseW 4 (by nofun) hdpushE' rfl rfl hgpushE hgffstk1
-      set gfp := pushFrameW gff elseW 4 with hgfp
-      have hgfpcode : gfp.exec.executionEnv.code = gff.exec.executionEnv.code := rfl
-      have hgfppc : gfp.exec.pc = gff.exec.pc + UInt32.ofNat 5 := by
-        show gff.exec.pc + ((4 : UInt8) + 1).toUInt32 = _
-        rw [show ((4 : UInt8) + 1).toUInt32 = UInt32.ofNat 5 from by decide]
-      have hgfpstk : gfp.exec.stack = elseW :: gff.exec.stack := rfl
-      have hgfpjdec : decode gfp.exec.executionEnv.code gfp.exec.pc = some (.Smsf .JUMP, .none) := by
-        rw [hgfpcode, hgfppc]; exact hdjump'
-      have hgfpsz : gfp.exec.stack.size ≤ 1024 := by
-        rw [hgfpstk, hgffstk]; show (1:ℕ) ≤ 1024; omega
-      have hgetdest : gfp.get_dest elseW = some new_pc := by
-        refine Frame.get_dest_of_mem _ helseword ?_
-        show new_pc ∈ gfp.validJumps
-        rw [hgfp, pushFrameW_validJumps, hgffvalid, hnewE]
-        simpa using block_offset_validJump prog elseL helselt
-      have hcsGP : CleanHaltsNonException gfp := cleanHaltsNonException_forward hcsG hpushE
-      have hgjumpE : GasConstants.Gmid ≤ gfp.exec.gasAvailable.toNat :=
-        (CleanHaltExtract.next_jump_of_cleanHalt gfp elseW new_pc gff.exec.stack hcsGP
-          hgfpjdec hgfpstk hgfpsz hgetdest).1
-      have hjumpE : Runs gfp (jumpFrame gfp GasConstants.Gmid new_pc gff.exec.stack) :=
-        runs_jump gfp elseW new_pc gff.exec.stack hgfpjdec hgfpstk hgfpsz hgjumpE hgetdest
-      set fj := jumpFrame gfp GasConstants.Gmid new_pc gff.exec.stack with hfj
-      have hfjpc : fj.exec.pc = UInt32.ofNat elseOff := rfl
-      have hfjcode : fj.exec.executionEnv.code = lower prog := by
-        rw [hfj, jumpFrame_code, hgfpcode]; exact hgffcode
-      have hfjstk : fj.exec.stack = [] := by rw [hfj, jumpFrame_stack]; exact hgffstk
-      have hfjmod : fj.exec.executionEnv.canModifyState = true := by
-        rw [hfj, jumpFrame_canMod]
-        show gff.exec.executionEnv.canModifyState = true; exact hgffmod
-      have hfjstore : ∀ k, selfStorage fj k = st.world k := by
-        intro k; rw [hfj, jumpFrame_selfStorage]; exact hgffstore k
-      have hfjdec : decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none) := by
-        rw [hfjcode, hfjpc]; exact hdjdE
-      have hfjmem : MemRealises prog st fj :=
-        hgffmem.transport
-          (by rw [hfj, jumpFrame_memory, hgfp, pushFrameW_memory])
-          (by rw [hfj, jumpFrame_activeWords, hgfp, pushFrameW_activeWords])
-      have hfjvalid : fj.validJumps = validJumpDests fj.exec.executionEnv.code 0 := by
-        rw [hfjcode, hfj, jumpFrame_validJumps, hgfp, pushFrameW_validJumps]; exact hgffvalid
-      have hfrun : Runs frT fj :=
-        (((hmrc.runs.trans hpushT).trans hfall).trans hpushE).trans hjumpE
-      have hcsJ : CleanHaltsNonException fj := cleanHaltsNonException_forward hch hfrun
-      have hfjsz : fj.exec.stack.size ≤ 1024 := by rw [hfjstk]; show (0:ℕ)≤1024; omega
-      have hgjd : GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat :=
-        (CleanHaltExtract.next_jumpdest_of_cleanHalt fj hcsJ hfjdec hfjsz).1
-      exact ⟨frc, hmrc, hgpushT, hgjumpi, fun hcontra => absurd rfl hcontra,
-        fun _ => ⟨hgpushE, hgjumpE, hgjd⟩⟩
-    · -- THEN arm: JUMPI taken jumps to `thenL`'s JUMPDEST.
-      set new_pc := UInt32.ofNat thenOff with hnewT
-      have hgetdest : frp.get_dest thenW = some new_pc := by
-        refine Frame.get_dest_of_mem _ hthenword ?_
-        show new_pc ∈ frp.validJumps
-        rw [hfrp, pushFrameW_validJumps, hfrcvalid, hnewT]
-        simpa using block_offset_validJump prog thenL hthenlt
-      -- JUMPI gas brick (taken), from `hcsP`.
-      have hgjumpi : GasConstants.Ghigh ≤ frp.exec.gasAvailable.toNat :=
-        (CleanHaltExtract.next_jumpi_taken_of_cleanHalt frp thenW cw new_pc ([] : Stack Word) hcsP
-          hfrpjidec hfrpstk hfrpsz hcw hgetdest).1
-      have htaken : Runs frp (jumpFrame frp GasConstants.Ghigh new_pc ([] : Stack Word)) :=
-        runs_jumpi_taken frp thenW cw new_pc ([] : Stack Word) hfrpjidec hfrpstk hfrpsz hgjumpi hcw hgetdest
-      set fj := jumpFrame frp GasConstants.Ghigh new_pc ([] : Stack Word) with hfj
-      have hfjpc : fj.exec.pc = new_pc := rfl
-      have hfjcode : fj.exec.executionEnv.code = lower prog := by
-        rw [hfj, jumpFrame_code, hfrpcode]; exact hfrccode
-      have hfjstk : fj.exec.stack = [] := by rw [hfj, jumpFrame_stack]
-      have hfjmod : fj.exec.executionEnv.canModifyState = true := by
-        rw [hfj, jumpFrame_canMod]
-        show (pushFrameW frc thenW 4).exec.executionEnv.canModifyState = true
-        rw [show (pushFrameW frc thenW 4).exec.executionEnv.canModifyState
-              = frc.exec.executionEnv.canModifyState from rfl]; exact hfrcmod
-      have hfjstore : ∀ k, selfStorage fj k = st.world k := by
-        intro k; rw [hfj, jumpFrame_selfStorage]
-        show selfStorage (pushFrameW frc thenW 4) k = st.world k
-        rw [pushFrameW_selfStorage]; exact hfrcstore k
-      have hfjdec : decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none) := by
-        rw [hfjcode, hfjpc, hnewT]; exact hdjdT
-      have hfjmem : MemRealises prog st fj :=
-        hfrcmem.transport
-          (by rw [hfj, jumpFrame_memory, hfrp, pushFrameW_memory])
-          (by rw [hfj, jumpFrame_activeWords, hfrp, pushFrameW_activeWords])
-      have hfjvalid : fj.validJumps = validJumpDests fj.exec.executionEnv.code 0 := by
-        rw [hfjcode, hfj, jumpFrame_validJumps, hfrp, pushFrameW_validJumps]; exact hfrcvalid
-      have hfrun : Runs frT fj := (hmrc.runs.trans hpushT).trans htaken
-      have hcsJ : CleanHaltsNonException fj := cleanHaltsNonException_forward hch hfrun
-      have hfjsz : fj.exec.stack.size ≤ 1024 := by rw [hfjstk]; show (0:ℕ)≤1024; omega
-      have hgjd : GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat :=
-        (CleanHaltExtract.next_jumpdest_of_cleanHalt fj hcsJ hfjdec hfjsz).1
-      exact ⟨frc, hmrc, hgpushT, hgjumpi, fun _ => hgjd, fun hcontra => absurd hcontra hcw⟩
-
--- Build-enforced axiom-cleanliness: `termTies'_of_walk` and `runs_kind` depend only on
--- `[propext, Classical.choice, Quot.sound]` (no `sorry`/`native_decide`); every gas guard,
--- epilogue decode, and self-presence bridge is derived, and `CallPreservesSelf` is discharged
--- from `hprec` via the axiom-clean `callPreservesSelf_modGuards`.
-
 -- **R6 — the boundary walk** (`runs_atReachableBoundary`) is RELOCATED below its wiring bricks
 -- (`atReachableBoundaryVJ_entry` / `atReachableBoundaryVJ_step` / `atReachableBoundaryVJ_call`
 -- / `atReachableBoundaryVJ_of_runs`), which are defined later in this file. Statement FIXED
@@ -3145,6 +2503,725 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
       first
         | (simp only [matDecMeasure]; omega)
         | (exact matDecMeasure_remat_lt prog hdc hord (by assumption))
+
+set_option maxRecDepth 8192 in
+/-- **R5 — terminator ties from the walk vocabulary.** `TermTies'` holds at every present
+block: its arms' antecedents are exactly what `DriveCorrLog` supplies at real boundaries
+(Corr, clean-halt, self-presence, address/kind pins), and the conclusions are derived —
+non-emptiness via `accounts_ne_empty_of_selfPresent`; the gas guards via the clean-halt
+landing extractors (the jump pre-`JUMPDEST` landing/the branch pre-`JUMPDEST` landing patterns,
+ported inline); the ret charge-sum via `materialise_chargeC_le_of_cleanHalt`; the ret epilogue
+decode facts via `imm_leaf_decodeF`/`decode_at_term_nonpush` at the pc-pinned cursor; the `frv`
+kind/presence facts via `runs_kind` / `selfPresent_runs_of_call` seeded from the antecedent
+pins. DERIVED-status obligation.
+
+**STATEMENT CHANGES (Phase-3 Round-3 — over-specification fixes, honesty-critical):**
+  * **branch arm restricted to the WITNESSED direction.** The old arm demanded all six JUMPI
+    gas guards along BOTH directions off the single pre-JUMPI frame; a single
+    `CleanHaltsNonException frT` witnesses only the direction the run takes (JUMPI charges
+    `Ghigh` on both arms, so the not-taken guards are refutable — e.g. `3 ≤ (jumpiFallthrough
+    …).gas = Gjumpdest = 1` is FALSE when gas is provisioned for the taken path). The taken
+    guards (`g1`/`g2` unconditional, both provable; `g3` under `cw ≠ 0`; `g4∧g5∧g6` under
+    `cw = 0`) are the exact case-split of the branch pre-`JUMPDEST` landing; NO witnessed
+    conformance content is dropped — only the unwitnessable not-taken over-demand.
+  * **ret charge-sum moved under the return-value guard.** The charge fold
+    `materialise_chargeC_le_of_cleanHalt` needs the operand value, and the IR `ret t`
+    semantics (`RunFrom.ret`) itself requires `st'.locals t = some vw`; demanding the
+    charge-sum bound for an UNBOUND `t` is the same unwitnessable over-demand (the `.length`
+    bound stays unconditional — it is static). The epilogue block (already under the value
+    guard) is unchanged in placement.
+  * **`hretEmit` added — the ret epilogue's pc-bound seam.** `WellFormedLowered.bound_ret`
+    only bounds `termOf + |matCache t|` (the operand), NOT the 101-byte `PUSH32 0; MSTORE;
+    PUSH32 32; PUSH32 0; RETURN` full-observable epilogue; the five epilogue decodes need
+    `termOf + |matCache t| + 100 < 2^32`, which is a static, satisfiable,
+    checker-dischargeable well-formedness fact absent from `bound_ret` (a default-target
+    under-specification not editable here). Supplied as an explicit seam, NOT a vacuity dodge
+    (it is genuinely true for every real ret block).
+  * **`CallPreservesSelf` DERIVED, not added to the signature.** The ret `SelfPresent frv`
+    bridge (across the adversarial `Runs frT frv`) is discharged from the already-present
+    `hprec` via `callPreservesSelf_modGuards hprec` (axiom-clean); no seam added — a
+    strengthening over the round-2 blocker's "add `CallPreservesSelf`" instruction. -/
+theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
+    {self : AccountAddress} {L : Label} {b : Block}
+    (hwl : WellLowered prog)
+    (hprec : ∀ (cp : CallParams) (imm : CallResult), beginCall cp = .inr imm →
+      ∀ a, AccPresent a cp.accounts → AccPresent a imm.accounts)
+    (hretEmit : ∀ t, b.term = .ret t →
+      termOf prog L + (matCache prog t).length + 100 < 2 ^ 32)
+    (hb : blockAt prog L = some b) :
+    TermTies' prog sloadChg log self L b := by
+  have hbt : prog.blocks.toList[L.idx]? = some b := Lir.toList_of_blockAt hb
+  refine ⟨?_, ?_, ?_, ?_⟩
+  · -- STOP arm: non-emptiness from the threaded `SelfPresent`.
+    intro _hterm st frT hcorr _hch hsp _haddr _hkind
+    exact accounts_ne_empty_of_selfPresent hsp
+  · -- RET arm.
+    intro t hterm st frT hcorr hch hsp haddr hkind
+    have hb100 : termOf prog L + (matCache prog t).length + 100 < 2 ^ 32 :=
+      hretEmit t hterm
+    -- conjunct 2: the static stack-room bound (value-free).
+    refine ⟨hwl.stack.ret sloadChg L b t hb hterm, ?_⟩
+    intro vw hvw
+    -- conjunct 1: the charge-sum bound (needs the returned value `vw`).
+    have hdv : MatDecC prog hwl.defsCons hwl.defEnvOrdered frT.exec.executionEnv.code
+        frT.exec.pc (.tmp t) := by
+      rw [hcorr.code_eq, hcorr.pc_eq, pcOf_eq_termOf prog L b hbt,
+          show termOf prog L = termOf prog L + 0 from by omega]
+      exact matDecC_of_term prog hwl.defsCons hwl.defEnvOrdered L b 0 (.tmp t) hbt
+        (by simp only [matExpr_tmp]; rw [hterm]
+            exact ret_sub_value (matCache prog)
+              (offsetTable (matCache prog) (defsOf prog) prog.blocks) t)
+        (by simp only [matExpr_tmp]; rw [hterm]
+            show _ ≤ ((matCache prog t)
+                        ++ emitImm 0 ++ [Byte.mstore] ++ emitImm 32 ++ emitImm 0 ++ [Byte.ret]).length
+            simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil]
+            omega)
+        (by simp only [matExpr_tmp]; omega)
+    have hstkC : frT.exec.stack.size
+        + (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp t)).length ≤ 1024 := by
+      rw [hcorr.stack_nil]; simpa using hwl.stack.ret sloadChg L b t hb hterm
+    refine ⟨materialise_chargeC_le_of_cleanHalt hwl.defsCons hwl.defEnvOrdered sloadChg st 0
+        (fun _ => False) (.tmp t) vw frT hdv hcorr.defsSound
+        (rematClosureFree_empty prog hwl.defsCons hwl.defEnvOrdered (.tmp t)) hcorr.wellScoped hcorr.storage (by nofun) (by nofun)
+        hcorr.memAgree hvw hch hstkC, ?_⟩
+    -- conjunct 3: the pc-pinned full-observable epilogue block
+    -- (`PUSH32 0; MSTORE; PUSH32 32; PUSH32 0; RETURN`).
+    intro frv hruns hcode _haddr' _hsto hstk hpc
+    set lc := (matCache prog t).length with hlc
+    have hemitR : emitTerm (matCache prog)
+        (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term
+          = matCache prog t
+            ++ emitImm 0 ++ [Byte.mstore] ++ emitImm 32 ++ emitImm 0 ++ [Byte.ret] := by
+      rw [hterm]; rfl
+    have hfrvcode : frv.exec.executionEnv.code = lower prog := by rw [hcode, hcorr.code_eq]
+    have hfrvpc : frv.exec.pc = UInt32.ofNat (termOf prog L + lc) := by
+      rw [hpc, hcorr.pc_eq, pcOf_eq_termOf prog L b hbt, ofNat_add']
+    have hfrvstk : frv.exec.stack = vw :: ([] : Stack Word) := by rw [hstk, hcorr.stack_nil]
+    -- pc-normalisation of the five epilogue anchors to `ofNat (termOf + (lc + off))`.
+    have e33 : frv.exec.pc + UInt32.ofNat 33 = UInt32.ofNat (termOf prog L + (lc + 33)) := by
+      rw [hfrvpc]; simp only [ofNat_add']; congr 1
+    have e34 : frv.exec.pc + UInt32.ofNat 33 + 1 = UInt32.ofNat (termOf prog L + (lc + 34)) := by
+      rw [hfrvpc]; simp only [show (1 : UInt32) = UInt32.ofNat 1 from rfl, ofNat_add']; congr 1
+    have e67 : frv.exec.pc + UInt32.ofNat 33 + 1 + UInt32.ofNat 33
+        = UInt32.ofNat (termOf prog L + (lc + 67)) := by
+      rw [hfrvpc]; simp only [show (1 : UInt32) = UInt32.ofNat 1 from rfl, ofNat_add']; congr 1
+    have e100 : frv.exec.pc + UInt32.ofNat 33 + 1 + UInt32.ofNat 33 + UInt32.ofNat 33
+        = UInt32.ofNat (termOf prog L + (lc + 100)) := by
+      rw [hfrvpc]; simp only [show (1 : UInt32) = UInt32.ofNat 1 from rfl, ofNat_add']; congr 1
+    -- the five epilogue decodes (peeled from the flat byte string).
+    have hd0 : decode frv.exec.executionEnv.code frv.exec.pc
+        = some (.Push .PUSH32, some ((0 : Word), 32)) := by
+      rw [hfrvcode, hfrvpc]
+      exact imm_leaf_decodeF prog (termOf prog L + lc) 0 (by omega)
+        (by intro j hj
+            have hja := flatBytes_at_termOf prog L b (lc + j) hbt (by
+              rw [hemitR]
+              simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
+              rw [emitImm_length] at hj; omega)
+            rw [show termOf prog L + (lc + j) = termOf prog L + lc + j from by omega] at hja
+            rw [hja, hemitR]
+            rw [List.getElem?_append_left (by
+                  simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
+                  rw [emitImm_length] at hj; omega)]
+            rw [List.getElem?_append_left (by
+                  simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
+                  rw [emitImm_length] at hj; omega)]
+            rw [List.getElem?_append_left (by
+                  simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
+                  rw [emitImm_length] at hj; omega)]
+            rw [List.getElem?_append_left (by
+                  simp only [List.length_append, emitImm_length, ← hlc]; rw [emitImm_length] at hj; omega)]
+            rw [List.getElem?_append_right (by simp only [← hlc]; omega)]
+            rw [show lc + j - (matCache prog t).length = j
+                  from by rw [← hlc]; omega])
+    have hdms : decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33)
+        = some (.Smsf .MSTORE, .none) := by
+      rw [hfrvcode, e33]
+      have hbyte0 : (emitTerm (matCache prog)
+          (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term)[lc + 33]?
+            = some Byte.mstore := by
+        rw [hemitR]
+        rw [List.getElem?_append_left (by
+              simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]; omega)]
+        rw [List.getElem?_append_left (by
+              simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]; omega)]
+        rw [List.getElem?_append_left (by
+              simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]; omega)]
+        rw [List.getElem?_append_right (by
+              simp only [List.length_append, emitImm_length, ← hlc]; omega)]
+        simp only [List.length_append, emitImm_length, ← hlc,
+          show lc + 33 - (lc + 33) = 0 from by omega]
+        rfl
+      exact decode_at_term_nonpush prog L b (lc + 33) Byte.mstore hbt
+        (by rw [hemitR]
+            simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]; omega)
+        hbyte0 (by omega) (by decide)
+    have hd32 : decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33 + 1)
+        = some (.Push .PUSH32, some ((32 : Word), 32)) := by
+      rw [hfrvcode, e34]
+      exact imm_leaf_decodeF prog (termOf prog L + (lc + 34)) 32 (by omega)
+        (by intro j hj
+            have hja := flatBytes_at_termOf prog L b (lc + 34 + j) hbt (by
+              rw [hemitR]
+              simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
+              rw [emitImm_length] at hj; omega)
+            rw [show termOf prog L + (lc + 34 + j) = termOf prog L + (lc + 34) + j from by omega] at hja
+            rw [hja, hemitR]
+            rw [List.getElem?_append_left (by
+                  simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
+                  rw [emitImm_length] at hj; omega)]
+            rw [List.getElem?_append_left (by
+                  simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
+                  rw [emitImm_length] at hj; omega)]
+            rw [List.getElem?_append_right (by
+                  simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
+                  rw [emitImm_length] at hj; omega)]
+            rw [show lc + 34 + j - (matCache prog t
+                    ++ emitImm 0 ++ [Byte.mstore]).length = j from by
+                  simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]; omega])
+    have hd0' : decode frv.exec.executionEnv.code (frv.exec.pc + UInt32.ofNat 33 + 1 + UInt32.ofNat 33)
+        = some (.Push .PUSH32, some ((0 : Word), 32)) := by
+      rw [hfrvcode, e67]
+      exact imm_leaf_decodeF prog (termOf prog L + (lc + 67)) 0 (by omega)
+        (by intro j hj
+            have hja := flatBytes_at_termOf prog L b (lc + 67 + j) hbt (by
+              rw [hemitR]
+              simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
+              rw [emitImm_length] at hj; omega)
+            rw [show termOf prog L + (lc + 67 + j) = termOf prog L + (lc + 67) + j from by omega] at hja
+            rw [hja, hemitR]
+            rw [List.getElem?_append_left (by
+                  simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
+                  rw [emitImm_length] at hj; omega)]
+            rw [List.getElem?_append_right (by
+                  simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
+                  rw [emitImm_length] at hj; omega)]
+            rw [show lc + 67 + j - (matCache prog t
+                    ++ emitImm 0 ++ [Byte.mstore] ++ emitImm 32).length = j from by
+                  simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]; omega])
+    have hdret : decode frv.exec.executionEnv.code
+        (frv.exec.pc + UInt32.ofNat 33 + 1 + UInt32.ofNat 33 + UInt32.ofNat 33)
+        = some (.System .RETURN, .none) := by
+      rw [hfrvcode, e100]
+      have hbyte0 : (emitTerm (matCache prog)
+          (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term)[lc + 100]?
+            = some Byte.ret := by
+        rw [hemitR, List.getElem?_append_right (by
+              simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
+              omega)]
+        simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc,
+          show lc + 100 - (lc + 33 + 1 + 33 + 33) = 0 from by omega]
+        rfl
+      exact decode_at_term_nonpush prog L b (lc + 100) Byte.ret hbt
+        (by rw [hemitR]
+            simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
+            omega)
+        hbyte0 (by omega) (by decide)
+    -- run the epilogue, extracting the gas/memory witnesses from the clean-halt chain.
+    have hcsv : CleanHaltsNonException frv := cleanHaltsNonException_forward hch hruns
+    have hszv : frv.exec.stack.size + 1 ≤ 1024 := by
+      rw [hstk, hcorr.stack_nil]; show (1 : ℕ) + 1 ≤ 1024; omega
+    have hgv1 : 3 ≤ frv.exec.gasAvailable.toNat := by
+      have := (CleanHaltExtract.next_push_of_cleanHalt frv .PUSH32 0 32 hcsv (by decide) hd0
+        (by decide) (by decide) hszv).1
+      have hvl : GasConstants.Gverylow = 3 := rfl; omega
+    -- (1) `PUSH32 0`.
+    have hrunpush : Runs frv (pushFrameW frv (0 : Word) 32) :=
+      runs_push frv .PUSH32 0 32 (by nofun) hd0 rfl rfl hgv1 hszv
+    have hcsvF1 : CleanHaltsNonException (pushFrameW frv (0 : Word) 32) :=
+      cleanHaltsNonException_forward hcsv hrunpush
+    have hf1stk : (pushFrameW frv (0 : Word) 32).exec.stack = (0 : Word) :: vw :: ([] : Stack Word) := by
+      show (0 : Word) :: frv.exec.stack = _; rw [hfrvstk]
+    have hf1sz : (pushFrameW frv (0 : Word) 32).exec.stack.size ≤ 1024 := by
+      rw [hf1stk]; show (2 : ℕ) ≤ 1024; omega
+    have hdmsF1 : decode (pushFrameW frv (0 : Word) 32).exec.executionEnv.code
+        (pushFrameW frv (0 : Word) 32).exec.pc = some (.Smsf .MSTORE, .none) := by
+      rw [pushFrameW_code, pushFrameW_pc, show ((32 : UInt8) + 1).toUInt32 = UInt32.ofNat 33 from by decide]
+      exact hdms
+    -- (2) `MSTORE(0, vw)` — the memory-expansion witness + charges.
+    obtain ⟨wms, hmemF1, hgasMemF1, hgasVF1, _hstepms⟩ :=
+      CleanHaltExtract.next_mstore_of_cleanHalt (pushFrameW frv (0 : Word) 32) (0 : Word) vw []
+        hcsvF1 hdmsF1 hf1stk hf1sz
+    have hmemFrv : memoryExpansionWords? frv.exec.activeWords (0 : Word) 32 = some wms := hmemF1
+    have hrunms : Runs (pushFrameW frv (0 : Word) 32)
+        (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []) :=
+      runs_mstore (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms [] hdmsF1 hf1stk hf1sz
+        hmemF1 hgasMemF1 hgasVF1
+    have hcsvMs : CleanHaltsNonException (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []) :=
+      cleanHaltsNonException_forward hcsvF1 hrunms
+    have hmsstk : (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []).exec.stack
+        = ([] : Stack Word) := by rw [mstoreFrame_stack]
+    have hmssz : (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []).exec.stack.size + 1
+        ≤ 1024 := by rw [hmsstk]; show (0 : ℕ) + 1 ≤ 1024; omega
+    have hd32Ms : decode (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []).exec.executionEnv.code
+        (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []).exec.pc
+          = some (.Push .PUSH32, some ((32 : Word), 32)) := by
+      rw [mstoreFrame_code, pushFrameW_code, mstoreFrame_pc, pushFrameW_pc,
+          show ((32 : UInt8) + 1).toUInt32 = UInt32.ofNat 33 from by decide]
+      exact hd32
+    -- (3) `PUSH32 32`.
+    have hg32 : 3 ≤ (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []).exec.gasAvailable.toNat := by
+      have := (CleanHaltExtract.next_push_of_cleanHalt
+        (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []) .PUSH32 32 32
+        hcsvMs (by decide) hd32Ms (by decide) (by decide) hmssz).1
+      have hvl : GasConstants.Gverylow = 3 := rfl; omega
+    have hrunpush2 : Runs (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms [])
+        (pushFrameW (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []) (32 : Word) 32) :=
+      runs_push (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []) .PUSH32 32 32
+        (by nofun) hd32Ms rfl rfl hg32 hmssz
+    have hcsvF2 : CleanHaltsNonException
+        (pushFrameW (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []) (32 : Word) 32) :=
+      cleanHaltsNonException_forward hcsvMs hrunpush2
+    have hf2stk : (pushFrameW (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []) (32 : Word) 32).exec.stack
+        = (32 : Word) :: ([] : Stack Word) := by
+      show (32 : Word) :: (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []).exec.stack = _
+      rw [hmsstk]
+    have hf2sz : (pushFrameW (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []) (32 : Word) 32).exec.stack.size + 1
+        ≤ 1024 := by rw [hf2stk]; show (1 : ℕ) + 1 ≤ 1024; omega
+    have hd0'F2 : decode
+        (pushFrameW (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []) (32 : Word) 32).exec.executionEnv.code
+        (pushFrameW (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []) (32 : Word) 32).exec.pc
+          = some (.Push .PUSH32, some ((0 : Word), 32)) := by
+      rw [pushFrameW_code, mstoreFrame_code, pushFrameW_code, pushFrameW_pc, mstoreFrame_pc,
+          pushFrameW_pc, show ((32 : UInt8) + 1).toUInt32 = UInt32.ofNat 33 from by decide]
+      exact hd0'
+    -- (4) `PUSH32 0`.
+    have hg0'' : 3 ≤ (pushFrameW (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms [])
+        (32 : Word) 32).exec.gasAvailable.toNat := by
+      have := (CleanHaltExtract.next_push_of_cleanHalt
+        (pushFrameW (mstoreFrame (pushFrameW frv (0 : Word) 32) (0 : Word) vw wms []) (32 : Word) 32)
+        .PUSH32 0 32 hcsvF2 (by decide) hd0'F2 (by decide) (by decide) hf2sz).1
+      have hvl : GasConstants.Gverylow = 3 := rfl; omega
+    obtain ⟨cp, hcpeq⟩ := hkind
+    refine ⟨cp, wms, hd0, hdms, hd32, hd0', hdret, hgv1, hmemFrv, hgasMemF1, hgasVF1, hg32, hg0'', ?_, ?_⟩
+    · rw [runs_kind hruns]; exact hcpeq
+    · exact accounts_ne_empty_of_selfPresent (selfPresent_runs_of_call hprec hsp hruns)
+  · -- JUMP arm.
+    intro dst bdst hterm hbdst hdstlt st frT hcorr hch
+    obtain ⟨hbterm, hboff⟩ := hwl.wf.bound_jump L b dst hbt hterm
+    set off := offsetTable (matCache prog) (defsOf prog) prog.blocks dst.idx with hoff
+    set dest : Word := UInt256.ofNat (off % 2 ^ 32) with hdest
+    set new_pc := UInt32.ofNat off with hnew
+    have hemitT : emitTerm (matCache prog)
+        (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term
+          = emitDest off ++ [Byte.jump] := by rw [hterm]; rfl
+    have hedlen : (emitDest off).length = 5 := by simp [emitDest, offsetBytesBE]
+    have htermlen : (emitTerm (matCache prog)
+        (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term).length = 6 := by
+      rw [hemitT, List.length_append, hedlen]; rfl
+    have hdpush : decode frT.exec.executionEnv.code frT.exec.pc
+        = some (.Push .PUSH4, some (dest, 4)) := by
+      rw [hcorr.code_eq, hcorr.pc_eq, pcOf_eq_termOf prog L b hbt,
+          show termOf prog L = termOf prog L + 0 from by omega]
+      exact term_dest_decode prog L b 0 off hbt
+        (by intro j hj; rw [hemitT]; rw [Nat.zero_add, List.getElem?_append_left hj])
+        (by rw [htermlen, hedlen]; omega) (by omega)
+    have hdjump : decode frT.exec.executionEnv.code (frT.exec.pc + UInt32.ofNat 5)
+        = some (.Smsf .JUMP, .none) := by
+      rw [hcorr.code_eq, hcorr.pc_eq, pcOf_eq_termOf prog L b hbt, ofNat_add']
+      have hbyte0 : (emitTerm (matCache prog)
+          (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term)[5]? = some Byte.jump := by
+        rw [hemitT, List.getElem?_append_right (by rw [hedlen]), hedlen]; rfl
+      exact decode_at_term_nonpush prog L b 5 Byte.jump hbt (by rw [htermlen]; omega) hbyte0
+        (by rw [show termOf prog L + 5 = termOf prog L + 5 from rfl]; omega) (by decide)
+    have hdjd : decode (lower prog) (UInt32.ofNat off) = some (.Smsf .JUMPDEST, .none) :=
+      decode_at_block_offset_jumpdest prog dst bdst hbdst (by rw [← hoff]; omega)
+    have hdestword : dest.toUInt32? = some (UInt32.ofNat off) := ofNatMod_toUInt32? off
+    have hgstk : frT.exec.stack = [] := hcorr.stack_nil
+    have hvalid : frT.validJumps = validJumpDests (lower prog) 0 := hcorr.validJumps_lower
+    have hstk1 : frT.exec.stack.size + 1 ≤ 1024 := by rw [hgstk]; show (0 : ℕ) + 1 ≤ 1024; omega
+    have hgpush : 3 ≤ frT.exec.gasAvailable.toNat := by
+      have := (CleanHaltExtract.next_push_of_cleanHalt frT .PUSH4 dest 4 hch (by decide) hdpush
+        (by decide) (by decide) hstk1).1
+      have hvl : GasConstants.Gverylow = 3 := rfl; omega
+    have hpush : Runs frT (pushFrameW frT dest 4) :=
+      runs_push frT .PUSH4 dest 4 (by nofun) hdpush rfl rfl hgpush hstk1
+    set frp := pushFrameW frT dest 4 with hfrp
+    have hpcode : frp.exec.executionEnv.code = frT.exec.executionEnv.code := rfl
+    have hppc : frp.exec.pc = frT.exec.pc + UInt32.ofNat 5 := by
+      show frT.exec.pc + ((4 : UInt8) + 1).toUInt32 = _
+      rw [show ((4 : UInt8) + 1).toUInt32 = UInt32.ofNat 5 from by decide]
+    have hpstk : frp.exec.stack = dest :: frT.exec.stack := rfl
+    have hpjdec : decode frp.exec.executionEnv.code frp.exec.pc = some (.Smsf .JUMP, .none) := by
+      rw [hpcode, hppc]; exact hdjump
+    have hpjsz : frp.exec.stack.size ≤ 1024 := by
+      rw [hpstk, hgstk]; show (1 : ℕ) ≤ 1024; omega
+    have hgetdest : frp.get_dest dest = some new_pc := by
+      refine Frame.get_dest_of_mem _ hdestword ?_
+      show new_pc ∈ frp.validJumps
+      rw [hfrp, pushFrameW_validJumps, hvalid, hnew]
+      simpa using block_offset_validJump prog dst hdstlt
+    have hcsP : CleanHaltsNonException frp := cleanHaltsNonException_forward hch hpush
+    have hgjump : GasConstants.Gmid ≤ frp.exec.gasAvailable.toNat :=
+      (CleanHaltExtract.next_jump_of_cleanHalt frp dest new_pc frT.exec.stack hcsP hpjdec hpstk
+        hpjsz hgetdest).1
+    have hjump : Runs frp (jumpFrame frp GasConstants.Gmid new_pc frT.exec.stack) :=
+      runs_jump frp dest new_pc frT.exec.stack hpjdec hpstk hpjsz hgjump hgetdest
+    set fj := jumpFrame frp GasConstants.Gmid new_pc frT.exec.stack with hfj
+    have hfjpc : fj.exec.pc = new_pc := rfl
+    have hfjcode : fj.exec.executionEnv.code = lower prog := by
+      rw [hfj, jumpFrame_code, hpcode]; exact hcorr.code_eq
+    have hfjstk : fj.exec.stack = [] := by rw [hfj, jumpFrame_stack]; exact hgstk
+    have hfjdec : decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none) := by
+      rw [hfjcode, hfjpc, hnew]; exact hdjd
+    have hfrun : Runs frT fj := hpush.trans hjump
+    have hcsJ : CleanHaltsNonException fj := cleanHaltsNonException_forward hch hfrun
+    have hfjsz : fj.exec.stack.size ≤ 1024 := by rw [hfjstk]; show (0 : ℕ) ≤ 1024; omega
+    have hgjd : GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat :=
+      (CleanHaltExtract.next_jumpdest_of_cleanHalt fj hcsJ hfjdec hfjsz).1
+    exact ⟨hgpush, hgjump, hgjd⟩
+  · -- BRANCH arm.
+    intro cond thenL elseL bthen belse hterm hbthen hbelse hthenlt helselt st frT cw hcorr hch
+      gS sS cS dS hcp hc
+    obtain ⟨hbterm, hbthenoff, hbelseoff⟩ := hwl.wf.bound_branch L b cond thenL elseL hbt hterm
+    have hstkCond : frT.exec.stack.size
+        + (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp cond)).length ≤ 1024 := by
+      rw [hcorr.stack_nil]; simpa using hwl.stack.branch sloadChg L b cond thenL elseL hb hterm
+    set lc := (matCache prog cond).length with hlc
+    set thenOff := offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx with hthenoff
+    set elseOff := offsetTable (matCache prog) (defsOf prog) prog.blocks elseL.idx with helseoff
+    set thenW : Word := UInt256.ofNat (thenOff % 2 ^ 32) with hthenW
+    set elseW : Word := UInt256.ofNat (elseOff % 2 ^ 32) with helseW
+    -- (1) COND MATERIALISE via `materialise_runsC_of_cleanHalt`, gas FOR FREE.
+    -- the cond materialise sits at offset 0 of `emitTerm`, anchored at `frT.exec.pc = termOf`.
+    have hemitT : emitTerm (matCache prog)
+        (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term
+          = matCache prog cond
+            ++ emitDest thenOff ++ [Byte.jumpi] ++ emitDest elseOff ++ [Byte.jump] := by
+      rw [hterm]; rfl
+    have hedlen : ∀ o, (emitDest o).length = 5 := fun o => by simp [emitDest, offsetBytesBE]
+    have htermlen : (emitTerm (matCache prog)
+        (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term).length = lc + 12 := by
+      rw [hemitT]; simp only [List.length_append, List.length_singleton, hedlen, ← hlc]
+    have hcondMatDec : MatDecC prog hwl.defsCons hwl.defEnvOrdered frT.exec.executionEnv.code
+        frT.exec.pc (.tmp cond) := by
+      rw [hcorr.code_eq, hcorr.pc_eq, pcOf_eq_termOf prog L b hbt,
+          show termOf prog L = termOf prog L + 0 from by omega]
+      exact matDecC_of_term prog hwl.defsCons hwl.defEnvOrdered L b 0 (.tmp cond) hbt
+        (by simp only [matExpr_tmp]
+            intro j hj; rw [hemitT, Nat.zero_add]
+            rw [List.getElem?_append_left (by simp only [List.length_append, List.length_singleton, hedlen]; rw [← hlc] at hj ⊢; omega)]
+            rw [List.getElem?_append_left (by simp only [List.length_append, List.length_singleton, hedlen]; rw [← hlc] at hj ⊢; omega)]
+            rw [List.getElem?_append_left (by simp only [List.length_append, hedlen]; rw [← hlc] at hj ⊢; omega)]
+            rw [List.getElem?_append_left (by rw [← hlc] at hj ⊢; exact hj)])
+        (by simp only [matExpr_tmp]; rw [htermlen]; omega)
+        (by simp only [matExpr_tmp]; omega)
+    have hcondEval : V2.evalExpr st 0 (.tmp cond) = some cw := hc
+    have hgasCond := materialise_chargeC_le_of_cleanHalt hwl.defsCons hwl.defEnvOrdered
+      sloadChg st 0 (fun _ => False) (.tmp cond) cw frT hcondMatDec hcorr.defsSound
+      (rematClosureFree_empty prog hwl.defsCons hwl.defEnvOrdered (.tmp cond))
+      hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree hcondEval hch hstkCond
+    obtain ⟨frc, hmrc, hcpc⟩ := recorderCoupled_matRunsC hwl.defsCons hwl.defEnvOrdered
+      sloadChg st 0 log gS sS cS dS (fun _ => False) (.tmp cond) cw frT hcondMatDec
+      hcorr.defsSound (rematClosureFree_empty prog hwl.defsCons hwl.defEnvOrdered (.tmp cond))
+      hcorr.wellScoped hcorr.storage (by nofun) (by nofun) hcorr.memAgree hcondEval hgasCond
+      hstkCond hcp
+    -- forward clean-halt across the cond materialise.
+    have hcsC : CleanHaltsNonException frc := cleanHaltsNonException_forward hch hmrc.runs
+    -- (2) DECODE BUNDLE for the branch epilogue, `frc`-relative (exactly `sim_term_edge_branch_lowered`).
+    -- (`MatRunsC.pc` is `matExpr`-spelled; the `have` bridges to the cache spelling by defeq.)
+    have hpcC : frc.exec.pc = frT.exec.pc + UInt32.ofNat (matCache prog cond).length := hmrc.pc
+    have hfrcpc : frc.exec.pc = UInt32.ofNat (termOf prog L + lc) := by
+      rw [hpcC, hcorr.pc_eq, pcOf_eq_termOf prog L b hbt, ofNat_add', ← hlc]
+    have hfrccode : frc.exec.executionEnv.code = lower prog := by rw [hmrc.code]; exact hcorr.code_eq
+    have hdpushT : decode frc.exec.executionEnv.code frc.exec.pc
+        = some (.Push .PUSH4, some (thenW, 4)) := by
+      rw [hfrccode, hfrcpc]
+      exact term_dest_decode prog L b lc thenOff hbt
+        (by intro j hj; rw [hemitT]
+            rw [List.getElem?_append_left (by simp only [List.length_append, hedlen]; rw [hedlen] at hj; omega)]
+            rw [List.getElem?_append_left (by simp only [List.length_append, hedlen]; rw [hedlen] at hj; omega)]
+            rw [List.getElem?_append_left (by simp only [List.length_append, hedlen]; rw [hedlen] at hj; omega)]
+            rw [List.getElem?_append_right (by rw [← hlc]; omega), ← hlc, show lc + j - lc = j from by omega])
+        (by rw [htermlen, hedlen]; omega) (by omega)
+    have hdjumpi : decode frc.exec.executionEnv.code (frc.exec.pc + UInt32.ofNat 5)
+        = some (.Smsf .JUMPI, .none) := by
+      rw [hfrccode, hfrcpc, ofNat_add',
+          show termOf prog L + lc + 5 = termOf prog L + (lc + 5) from by omega]
+      have hbyte0 : (emitTerm (matCache prog)
+          (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term)[lc + 5]? = some Byte.jumpi := by
+        rw [hemitT]
+        rw [List.getElem?_append_left (by simp only [List.length_append, List.length_singleton, hedlen]; omega)]
+        rw [List.getElem?_append_left (by simp only [List.length_append, List.length_singleton, hedlen]; omega)]
+        rw [List.getElem?_append_right (by simp only [List.length_append, hedlen, ← hlc]; omega)]
+        simp only [List.length_append, hedlen, ← hlc, show lc + 5 - (lc + 5) = 0 from by omega]
+        rfl
+      exact decode_at_term_nonpush prog L b (lc + 5) Byte.jumpi hbt (by rw [htermlen]; omega)
+        hbyte0 (by omega) (by decide)
+    have hdpushE : decode frc.exec.executionEnv.code (frc.exec.pc + UInt32.ofNat 6)
+        = some (.Push .PUSH4, some (elseW, 4)) := by
+      rw [hfrccode, hfrcpc, ofNat_add',
+          show termOf prog L + lc + 6 = termOf prog L + (lc + 6) from by omega]
+      exact term_dest_decode prog L b (lc + 6) elseOff hbt
+        (by intro j hj
+            have hjlen : j < 5 := by rw [hedlen] at hj; exact hj
+            rw [hemitT]
+            rw [List.getElem?_append_left (by simp only [List.length_append, List.length_singleton, hedlen, ← hlc]; omega)]
+            rw [List.getElem?_append_right (by simp only [List.length_append, List.length_singleton, hedlen, ← hlc]; omega)]
+            simp only [List.length_append, List.length_singleton, hedlen, ← hlc,
+              show lc + 6 + j - (lc + 5 + 1) = j from by omega])
+        (by rw [htermlen, hedlen]; omega) (by omega)
+    have hdjump : decode frc.exec.executionEnv.code (frc.exec.pc + UInt32.ofNat 6 + UInt32.ofNat 5)
+        = some (.Smsf .JUMP, .none) := by
+      rw [hfrccode, hfrcpc, ofNat_add', ofNat_add',
+          show termOf prog L + lc + 6 + 5 = termOf prog L + (lc + 11) from by omega]
+      have hbyte0 : (emitTerm (matCache prog)
+          (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term)[lc + 11]? = some Byte.jump := by
+        rw [hemitT]
+        rw [List.getElem?_append_right (by simp only [List.length_append, List.length_singleton, hedlen, ← hlc]; omega)]
+        simp only [List.length_append, List.length_singleton, hedlen, ← hlc,
+          show lc + 11 - (lc + 5 + 1 + 5) = 0 from by omega]
+        rfl
+      exact decode_at_term_nonpush prog L b (lc + 11) Byte.jump hbt (by rw [htermlen]; omega)
+        hbyte0 (by omega) (by decide)
+    have hdjdT : decode (lower prog) (UInt32.ofNat thenOff) = some (.Smsf .JUMPDEST, .none) :=
+      decode_at_block_offset_jumpdest prog thenL bthen hbthen (by rw [← hthenoff]; omega)
+    have hdjdE : decode (lower prog) (UInt32.ofNat elseOff) = some (.Smsf .JUMPDEST, .none) :=
+      decode_at_block_offset_jumpdest prog elseL belse hbelse (by rw [← helseoff]; omega)
+    have hthenword : thenW.toUInt32? = some (UInt32.ofNat thenOff) := ofNatMod_toUInt32? thenOff
+    have helseword : elseW.toUInt32? = some (UInt32.ofNat elseOff) := ofNatMod_toUInt32? elseOff
+    -- materialise-endpoint facts (`frc` carries `cw` on top of `frT`'s empty stack).
+    have hfrcstk : frc.exec.stack = cw :: [] := by rw [hmrc.stack, hcorr.stack_nil]; rfl
+    have hfrcmod : frc.exec.executionEnv.canModifyState = true := by
+      rw [hmrc.canMod]; exact hcorr.can_modify
+    have hfrcstore : ∀ k, selfStorage frc k = st.world k := by
+      intro k; rw [hmrc.storage k]; exact hcorr.storage k
+    have hfrcmem : MemRealises prog st frc :=
+      hcorr.memAgree.transport hmrc.memBytes hmrc.memActive
+    have hfrcvalid : frc.validJumps = validJumpDests (lower prog) 0 := by
+      rw [hmrc.validJumps]; exact hcorr.validJumps_lower
+    -- (3) step: PUSH4 thenOff at `frc`.
+    have hstk1 : frc.exec.stack.size + 1 ≤ 1024 := by rw [hfrcstk]; show (1:ℕ)+1≤1024; omega
+    have hgpushT : 3 ≤ frc.exec.gasAvailable.toNat := by
+      have := (CleanHaltExtract.next_push_of_cleanHalt frc .PUSH4 thenW 4 hcsC (by decide)
+        hdpushT (by decide) (by decide) hstk1).1
+      have hvl : GasConstants.Gverylow = 3 := rfl; omega
+    have hpushT : Runs frc (pushFrameW frc thenW 4) :=
+      runs_push frc .PUSH4 thenW 4 (by nofun) hdpushT rfl rfl hgpushT hstk1
+    have hpushTStep : StepsTo frc (pushFrameW frc thenW 4) := stepsTo_of_next
+      (stepFrame_push frc .PUSH4 thenW 4 (by nofun) hdpushT rfl rfl hgpushT hstk1)
+    have hcpP : RecorderCoupled log (pushFrameW frc thenW 4) gS sS cS dS := by
+      apply recorderCoupled_stepsTo_other hcpc
+      · unfold isGasOp; rw [hdpushT]; rfl
+      · unfold isSloadOp; rw [hdpushT]; rfl
+      · unfold isCreate2Op; rw [hdpushT]; rfl
+      · exact hpushTStep
+    set frp := pushFrameW frc thenW 4 with hfrp
+    have hfrpcode : frp.exec.executionEnv.code = frc.exec.executionEnv.code := rfl
+    have hfrppc : frp.exec.pc = frc.exec.pc + UInt32.ofNat 5 := by
+      show frc.exec.pc + ((4 : UInt8) + 1).toUInt32 = _
+      rw [show ((4 : UInt8) + 1).toUInt32 = UInt32.ofNat 5 from by decide]
+    have hfrpstk : frp.exec.stack = thenW :: cw :: [] := by
+      show frc.exec.stack.push thenW = _; rw [hfrcstk]; rfl
+    have hfrpjidec : decode frp.exec.executionEnv.code frp.exec.pc = some (.Smsf .JUMPI, .none) := by
+      rw [hfrpcode, hfrppc]; exact hdjumpi
+    have hfrpsz : frp.exec.stack.size ≤ 1024 := by rw [hfrpstk]; show (2:ℕ)≤1024; omega
+    have hcsP : CleanHaltsNonException frp := cleanHaltsNonException_forward hcsC hpushT
+    -- (4) case-split on the runtime condition `cw`.
+    by_cases hcw : cw = 0
+    · -- ELSE arm: JUMPI falls through to `PUSH4 elseOff ; JUMP` → `elseL`.
+      subst hcw
+      -- JUMPI gas brick (fall-through), from `hcsP`.
+      have hgjumpi : GasConstants.Ghigh ≤ frp.exec.gasAvailable.toNat :=
+        (CleanHaltExtract.next_jumpi_fallthrough_of_cleanHalt frp thenW ([] : Stack Word) hcsP
+          hfrpjidec hfrpstk hfrpsz).1
+      have hfall : Runs frp (jumpiFallthroughFrame frp ([] : Stack Word)) :=
+        runs_jumpi_fallthrough frp thenW ([] : Stack Word) hfrpjidec hfrpstk hfrpsz hgjumpi
+      have hfallStep : StepsTo frp (jumpiFallthroughFrame frp ([] : Stack Word)) :=
+        stepsTo_of_next (stepFrame_jumpi_fallthrough frp thenW [] hfrpjidec hfrpstk hfrpsz hgjumpi)
+      set gff := jumpiFallthroughFrame frp ([] : Stack Word) with hgff
+      have hcpG : RecorderCoupled log gff gS sS cS dS := by
+        apply recorderCoupled_stepsTo_other hcpP
+        · unfold isGasOp; rw [hfrpjidec]; rfl
+        · unfold isSloadOp; rw [hfrpjidec]; rfl
+        · unfold isCreate2Op; rw [hfrpjidec]; rfl
+        · exact hfallStep
+      have hgffcode : gff.exec.executionEnv.code = lower prog := by
+        rw [hgff, jumpiFallthroughFrame_code, hfrpcode]; exact hfrccode
+      have hgffstk : gff.exec.stack = [] := by rw [hgff, jumpiFallthroughFrame_stack]
+      have hgffmod : gff.exec.executionEnv.canModifyState = true := by
+        rw [hgff, jumpiFallthroughFrame_canMod]
+        show (pushFrameW frc thenW 4).exec.executionEnv.canModifyState = true
+        rw [show (pushFrameW frc thenW 4).exec.executionEnv.canModifyState
+              = frc.exec.executionEnv.canModifyState from rfl]; exact hfrcmod
+      have hgffstore : ∀ k, selfStorage gff k = st.world k := by
+        intro k; rw [hgff, jumpiFallthroughFrame_selfStorage]
+        show selfStorage frp k = st.world k
+        show selfStorage (pushFrameW frc thenW 4) k = st.world k
+        rw [pushFrameW_selfStorage]; exact hfrcstore k
+      have hgffmem : MemRealises prog st gff :=
+        hfrcmem.transport
+          (by rw [hgff, jumpiFallthroughFrame_memory, hfrp, pushFrameW_memory])
+          (by rw [hgff, jumpiFallthroughFrame_activeWords, hfrp, pushFrameW_activeWords])
+      have hgffvalid : gff.validJumps = validJumpDests (lower prog) 0 := by
+        rw [hgff, jumpiFallthroughFrame_validJumps]
+        show frp.validJumps = _; rw [hfrp, pushFrameW_validJumps]; exact hfrcvalid
+      have hgffpc : gff.exec.pc = frc.exec.pc + UInt32.ofNat 6 := by
+        rw [hgff, jumpiFallthroughFrame_pc, hfrppc]
+        rw [show (UInt32.ofNat 6) = UInt32.ofNat 5 + 1 from by decide]; ac_rfl
+      have hdpushE' : decode gff.exec.executionEnv.code gff.exec.pc
+          = some (.Push .PUSH4, some (elseW, 4)) := by rw [hgffcode, hgffpc, ← hfrccode]; exact hdpushE
+      have hdjump' : decode gff.exec.executionEnv.code (gff.exec.pc + UInt32.ofNat 5)
+          = some (.Smsf .JUMP, .none) := by rw [hgffcode, hgffpc, ← hfrccode]; exact hdjump
+      -- forward clean-halt across the JUMPI fall-through.
+      have hcsG : CleanHaltsNonException gff := cleanHaltsNonException_forward hcsP hfall
+      -- REUSE the jump-arm landing for `elseL`: PUSH4 elseOff ; JUMP.
+      set new_pc := UInt32.ofNat elseOff with hnewE
+      have hgffstk1 : gff.exec.stack.size + 1 ≤ 1024 := by rw [hgffstk]; show (0:ℕ)+1≤1024; omega
+      have hgpushE : 3 ≤ gff.exec.gasAvailable.toNat := by
+        have := (CleanHaltExtract.next_push_of_cleanHalt gff .PUSH4 elseW 4 hcsG (by decide)
+          hdpushE' (by decide) (by decide) hgffstk1).1
+        have hvl : GasConstants.Gverylow = 3 := rfl; omega
+      have hpushE : Runs gff (pushFrameW gff elseW 4) :=
+        runs_push gff .PUSH4 elseW 4 (by nofun) hdpushE' rfl rfl hgpushE hgffstk1
+      have hpushEStep : StepsTo gff (pushFrameW gff elseW 4) := stepsTo_of_next
+        (stepFrame_push gff .PUSH4 elseW 4 (by nofun) hdpushE' rfl rfl hgpushE hgffstk1)
+      set gfp := pushFrameW gff elseW 4 with hgfp
+      have hcpGP : RecorderCoupled log gfp gS sS cS dS := by
+        apply recorderCoupled_stepsTo_other hcpG
+        · unfold isGasOp; rw [hdpushE']; rfl
+        · unfold isSloadOp; rw [hdpushE']; rfl
+        · unfold isCreate2Op; rw [hdpushE']; rfl
+        · exact hpushEStep
+      have hgfpcode : gfp.exec.executionEnv.code = gff.exec.executionEnv.code := rfl
+      have hgfppc : gfp.exec.pc = gff.exec.pc + UInt32.ofNat 5 := by
+        show gff.exec.pc + ((4 : UInt8) + 1).toUInt32 = _
+        rw [show ((4 : UInt8) + 1).toUInt32 = UInt32.ofNat 5 from by decide]
+      have hgfpstk : gfp.exec.stack = elseW :: gff.exec.stack := rfl
+      have hgfpjdec : decode gfp.exec.executionEnv.code gfp.exec.pc = some (.Smsf .JUMP, .none) := by
+        rw [hgfpcode, hgfppc]; exact hdjump'
+      have hgfpsz : gfp.exec.stack.size ≤ 1024 := by
+        rw [hgfpstk, hgffstk]; show (1:ℕ) ≤ 1024; omega
+      have hgetdest : gfp.get_dest elseW = some new_pc := by
+        refine Frame.get_dest_of_mem _ helseword ?_
+        show new_pc ∈ gfp.validJumps
+        rw [hgfp, pushFrameW_validJumps, hgffvalid, hnewE]
+        simpa using block_offset_validJump prog elseL helselt
+      have hcsGP : CleanHaltsNonException gfp := cleanHaltsNonException_forward hcsG hpushE
+      have hgjumpE : GasConstants.Gmid ≤ gfp.exec.gasAvailable.toNat :=
+        (CleanHaltExtract.next_jump_of_cleanHalt gfp elseW new_pc gff.exec.stack hcsGP
+          hgfpjdec hgfpstk hgfpsz hgetdest).1
+      have hjumpE : Runs gfp (jumpFrame gfp GasConstants.Gmid new_pc gff.exec.stack) :=
+        runs_jump gfp elseW new_pc gff.exec.stack hgfpjdec hgfpstk hgfpsz hgjumpE hgetdest
+      have hjumpEStep : StepsTo gfp
+          (jumpFrame gfp GasConstants.Gmid new_pc gff.exec.stack) := stepsTo_of_next
+        (stepFrame_jump gfp elseW new_pc gff.exec.stack hgfpjdec hgfpstk hgfpsz hgjumpE hgetdest)
+      set fj := jumpFrame gfp GasConstants.Gmid new_pc gff.exec.stack with hfj
+      have hcpJ : RecorderCoupled log fj gS sS cS dS := by
+        apply recorderCoupled_stepsTo_other hcpGP
+        · unfold isGasOp; rw [hgfpjdec]; rfl
+        · unfold isSloadOp; rw [hgfpjdec]; rfl
+        · unfold isCreate2Op; rw [hgfpjdec]; rfl
+        · exact hjumpEStep
+      have hfjpc : fj.exec.pc = UInt32.ofNat elseOff := rfl
+      have hfjcode : fj.exec.executionEnv.code = lower prog := by
+        rw [hfj, jumpFrame_code, hgfpcode]; exact hgffcode
+      have hfjstk : fj.exec.stack = [] := by rw [hfj, jumpFrame_stack]; exact hgffstk
+      have hfjmod : fj.exec.executionEnv.canModifyState = true := by
+        rw [hfj, jumpFrame_canMod]
+        show gff.exec.executionEnv.canModifyState = true; exact hgffmod
+      have hfjstore : ∀ k, selfStorage fj k = st.world k := by
+        intro k; rw [hfj, jumpFrame_selfStorage]; exact hgffstore k
+      have hfjdec : decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none) := by
+        rw [hfjcode, hfjpc]; exact hdjdE
+      have hfjmem : MemRealises prog st fj :=
+        hgffmem.transport
+          (by rw [hfj, jumpFrame_memory, hgfp, pushFrameW_memory])
+          (by rw [hfj, jumpFrame_activeWords, hgfp, pushFrameW_activeWords])
+      have hfjvalid : fj.validJumps = validJumpDests fj.exec.executionEnv.code 0 := by
+        rw [hfjcode, hfj, jumpFrame_validJumps, hgfp, pushFrameW_validJumps]; exact hgffvalid
+      have hfrun : Runs frT fj :=
+        (((hmrc.runs.trans hpushT).trans hfall).trans hpushE).trans hjumpE
+      have hcsJ : CleanHaltsNonException fj := cleanHaltsNonException_forward hch hfrun
+      have hfjsz : fj.exec.stack.size ≤ 1024 := by rw [hfjstk]; show (0:ℕ)≤1024; omega
+      have hgjd : GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat :=
+        (CleanHaltExtract.next_jumpdest_of_cleanHalt fj hcsJ hfjdec hfjsz).1
+      have hjdStep : StepsTo fj (jumpdestFrame fj) := stepsTo_of_next
+        (stepFrame_jumpdest fj hfjdec hfjsz hgjd)
+      have hcpJD : RecorderCoupled log (jumpdestFrame fj) gS sS cS dS := by
+        apply recorderCoupled_stepsTo_other hcpJ
+        · unfold isGasOp; rw [hfjdec]; rfl
+        · unfold isSloadOp; rw [hfjdec]; rfl
+        · unfold isCreate2Op; rw [hfjdec]; rfl
+        · exact hjdStep
+      obtain ⟨hjdrun, hjdcorr⟩ := corr_at_jumpdest_landing (sloadChg := sloadChg)
+        (obs := 0) (st := st) hbelse hfjpc hfjcode hfjvalid hfjstk hfjmod hfjstore
+        ((defsSoundS_empty_iff prog st).mp hcorr.defsSound) hcorr.wellScoped hfjmem hfjdec hgjd
+      have hedge : Runs frT (jumpdestFrame fj) := hfrun.trans hjdrun
+      exact ⟨frc, hmrc, hcpc, hgpushT, hgjumpi, fun hcontra => absurd rfl hcontra,
+        fun _ => ⟨hgpushE, hgjumpE, hgjd⟩,
+        elseL, jumpdestFrame fj, Or.inr ⟨rfl, rfl⟩, hedge, hjdcorr, hcpJD,
+        totalGas_succ_lt hfrun hgjd⟩
+    · -- THEN arm: JUMPI taken jumps to `thenL`'s JUMPDEST.
+      set new_pc := UInt32.ofNat thenOff with hnewT
+      have hgetdest : frp.get_dest thenW = some new_pc := by
+        refine Frame.get_dest_of_mem _ hthenword ?_
+        show new_pc ∈ frp.validJumps
+        rw [hfrp, pushFrameW_validJumps, hfrcvalid, hnewT]
+        simpa using block_offset_validJump prog thenL hthenlt
+      -- JUMPI gas brick (taken), from `hcsP`.
+      have hgjumpi : GasConstants.Ghigh ≤ frp.exec.gasAvailable.toNat :=
+        (CleanHaltExtract.next_jumpi_taken_of_cleanHalt frp thenW cw new_pc ([] : Stack Word) hcsP
+          hfrpjidec hfrpstk hfrpsz hcw hgetdest).1
+      have htaken : Runs frp (jumpFrame frp GasConstants.Ghigh new_pc ([] : Stack Word)) :=
+        runs_jumpi_taken frp thenW cw new_pc ([] : Stack Word) hfrpjidec hfrpstk hfrpsz hgjumpi hcw hgetdest
+      have htakenStep : StepsTo frp (jumpFrame frp GasConstants.Ghigh new_pc ([] : Stack Word)) :=
+        stepsTo_of_next
+          (stepFrame_jumpi_taken frp thenW cw new_pc [] hfrpjidec hfrpstk hfrpsz hgjumpi hcw hgetdest)
+      set fj := jumpFrame frp GasConstants.Ghigh new_pc ([] : Stack Word) with hfj
+      have hcpJ : RecorderCoupled log fj gS sS cS dS := by
+        apply recorderCoupled_stepsTo_other hcpP
+        · unfold isGasOp; rw [hfrpjidec]; rfl
+        · unfold isSloadOp; rw [hfrpjidec]; rfl
+        · unfold isCreate2Op; rw [hfrpjidec]; rfl
+        · exact htakenStep
+      have hfjpc : fj.exec.pc = new_pc := rfl
+      have hfjcode : fj.exec.executionEnv.code = lower prog := by
+        rw [hfj, jumpFrame_code, hfrpcode]; exact hfrccode
+      have hfjstk : fj.exec.stack = [] := by rw [hfj, jumpFrame_stack]
+      have hfjmod : fj.exec.executionEnv.canModifyState = true := by
+        rw [hfj, jumpFrame_canMod]
+        show (pushFrameW frc thenW 4).exec.executionEnv.canModifyState = true
+        rw [show (pushFrameW frc thenW 4).exec.executionEnv.canModifyState
+              = frc.exec.executionEnv.canModifyState from rfl]; exact hfrcmod
+      have hfjstore : ∀ k, selfStorage fj k = st.world k := by
+        intro k; rw [hfj, jumpFrame_selfStorage]
+        show selfStorage (pushFrameW frc thenW 4) k = st.world k
+        rw [pushFrameW_selfStorage]; exact hfrcstore k
+      have hfjdec : decode fj.exec.executionEnv.code fj.exec.pc = some (.Smsf .JUMPDEST, .none) := by
+        rw [hfjcode, hfjpc, hnewT]; exact hdjdT
+      have hfjmem : MemRealises prog st fj :=
+        hfrcmem.transport
+          (by rw [hfj, jumpFrame_memory, hfrp, pushFrameW_memory])
+          (by rw [hfj, jumpFrame_activeWords, hfrp, pushFrameW_activeWords])
+      have hfjvalid : fj.validJumps = validJumpDests fj.exec.executionEnv.code 0 := by
+        rw [hfjcode, hfj, jumpFrame_validJumps, hfrp, pushFrameW_validJumps]; exact hfrcvalid
+      have hfrun : Runs frT fj := (hmrc.runs.trans hpushT).trans htaken
+      have hcsJ : CleanHaltsNonException fj := cleanHaltsNonException_forward hch hfrun
+      have hfjsz : fj.exec.stack.size ≤ 1024 := by rw [hfjstk]; show (0:ℕ)≤1024; omega
+      have hgjd : GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat :=
+        (CleanHaltExtract.next_jumpdest_of_cleanHalt fj hcsJ hfjdec hfjsz).1
+      have hjdStep : StepsTo fj (jumpdestFrame fj) := stepsTo_of_next
+        (stepFrame_jumpdest fj hfjdec hfjsz hgjd)
+      have hcpJD : RecorderCoupled log (jumpdestFrame fj) gS sS cS dS := by
+        apply recorderCoupled_stepsTo_other hcpJ
+        · unfold isGasOp; rw [hfjdec]; rfl
+        · unfold isSloadOp; rw [hfjdec]; rfl
+        · unfold isCreate2Op; rw [hfjdec]; rfl
+        · exact hjdStep
+      obtain ⟨hjdrun, hjdcorr⟩ := corr_at_jumpdest_landing (sloadChg := sloadChg)
+        (obs := 0) (st := st) hbthen hfjpc hfjcode hfjvalid hfjstk hfjmod hfjstore
+        ((defsSoundS_empty_iff prog st).mp hcorr.defsSound) hcorr.wellScoped hfjmem hfjdec hgjd
+      have hedge : Runs frT (jumpdestFrame fj) := hfrun.trans hjdrun
+      exact ⟨frc, hmrc, hcpc, hgpushT, hgjumpi, fun _ => hgjd,
+        fun hcontra => absurd hcontra hcw,
+        thenL, jumpdestFrame fj, Or.inl ⟨hcw, rfl⟩, hedge, hjdcorr, hcpJD,
+        totalGas_succ_lt hfrun hgjd⟩
+
+-- Build-enforced axiom-cleanliness: `termTies'_of_walk` and `runs_kind` depend only on
+-- `[propext, Classical.choice, Quot.sound]` (no `sorry`/`native_decide`); every gas guard,
+-- epilogue decode, and self-presence bridge is derived, and `CallPreservesSelf` is discharged
+-- from `hprec` via the axiom-clean `callPreservesSelf_modGuards`.
 
 /-! ### R3 Piece B — the CALL argument-push run producer and the machine-side residues
 

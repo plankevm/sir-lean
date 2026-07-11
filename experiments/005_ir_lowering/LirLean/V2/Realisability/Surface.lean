@@ -588,9 +588,10 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
 /-- **The reshaped per-block TERMINATOR ties** (the R0 terminator-side). See the section
 docstring: address/kind/self-presence demands are ANTECEDENTS (supplied by `DriveCorrLog`),
 all gas guards sit under `CleanHaltsNonException`, the ret epilogue's inner `∀ frv` is
-`Runs`+pc-pinned (never free), successor presence lives in `ClosedCFG`. `log` is carried
-for signature stability with `StmtTies'` (the deferred RETURN-value channel will consume
-it). DERIVED (R5/R10): built from the walk invariant; never supplied. -/
+`Runs`+pc-pinned (never free), and successor presence lives in `ClosedCFG`. The branch arm
+also transports the recorder coupling across its materialise and non-recording terminator
+tail, returning the coupled successor boundary and strict gas descent. DERIVED (R5/R10):
+built from the walk invariant; never supplied. -/
 def TermTies' (prog : Program) (sloadChg : Tmp → ℕ) (_log : RunLog)
     (self : AccountAddress) (L : Label) (b : Block) : Prop :=
   -- (stop) non-emptiness only — derivable from the `SelfPresent` antecedent
@@ -680,8 +681,12 @@ def TermTies' (prog : Program) (sloadChg : Tmp → ℕ) (_log : RunLog)
       ∀ (st' : IRState) (frT : Frame) (cw : Word),
         Lir.Corr prog sloadChg 0 (fun _ => False) st' frT L b.stmts.length →
         CleanHaltsNonException frT →
+        ∀ (gS : List Word) (sS : List Nat) (cS : List CallRecord)
+          (dS : List CreateRecord),
+        RecorderCoupled _log frT gS sS cS dS →
         st'.locals cond = some cw →
         ∃ frc, MatRunsC prog sloadChg (.tmp cond) cw frT frc
+          ∧ RecorderCoupled _log frc gS sS cS dS
           ∧ 3 ≤ frc.exec.gasAvailable.toNat
           ∧ GasConstants.Ghigh ≤ (pushFrameW frc
               (UInt256.ofNat
@@ -720,6 +725,12 @@ def TermTies' (prog : Program) (sloadChg : Tmp → ℕ) (_log : RunLog)
                   (jumpiFallthroughFrame (pushFrameW frc
                     (UInt256.ofNat
                       ((offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx) % 2^32)) 4)
-                    ([] : Stack Word)).exec.stack).exec.gasAvailable.toNat))
+                    ([] : Stack Word)).exec.stack).exec.gasAvailable.toNat)
+          ∧ ∃ (succ : Label) (fr' : Frame),
+              ((cw ≠ 0 ∧ succ = thenL) ∨ (cw = 0 ∧ succ = elseL))
+            ∧ Runs frT fr'
+            ∧ Lir.Corr prog sloadChg 0 (fun _ => False) st' fr' succ 0
+            ∧ RecorderCoupled _log fr' gS sS cS dS
+            ∧ totalGas [] (.inl fr') < totalGas [] (.inl frT))
 
 end Lir.V2
