@@ -264,7 +264,9 @@ theorem sim_term_halt_ret_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs
             (offsetTable (matCache prog) (defsOf prog) prog.blocks) t)
       (by simp only [matExpr_tmp, Nat.zero_add]; omega)
       (by simp only [matExpr_tmp]; omega)
-  exact sim_term_halt_ret hcorr hterm hself hv hdc hord hdv hgas hstk hret
+  exact sim_term_halt_ret hcorr hterm hself hv hdc hord hdv hgas hstk
+    (fun frv hruns hcode haddr hstorage hstack _hpc =>
+      hret frv hruns hcode haddr hstorage hstack)
 
 end Lir
 
