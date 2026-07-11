@@ -2183,28 +2183,141 @@ theorem simStmts_coupled_block {prog : Program} {sloadChg : Tmp → ℕ} {log : 
     (hprec : ∀ (cp : CallParams) (imm : CallResult), beginCall cp = .inr imm →
       ∀ a, AccPresent a cp.accounts → AccPresent a imm.accounts) :
     CoupledBlockRun prog sloadChg log self L b st fr T C D := by
-  -- PARTIAL / BLOCKED (precise obstruction reported). The pure-statement walk
-  -- (assign/gas/sload/sstore) fully discharges: the drop-induction with a prefix-`RunStmts`
-  -- accumulator (`runStmts_snoc`), operand bindings from `hwl.defs` (`StmtDefinableG`), the
-  -- static stack-room/slot-addr folds from `hwl.stack`/`hwl.slotAddr`, the pin transport
-  -- (`cleanHaltsNonException_forward` / `selfPresent_runs_of_call` / `runs_address_preserved` /
-  -- `runs_kind`), the seam transport by `Runs.trans`, and the terminal fold→`DefsSound` coercion
-  -- via `hwl.revalidates` (`RevalidatesPerBlock`) — ALL verified green.
-  --
-  -- The `.call` / `.create` arms are BLOCKED on a missing Machinery-level lemma: firing
-  -- `simStmt_coupled_call` / `_create` requires the coupling's call/create SUFFIX to be already
-  -- split (`RecorderCoupled log frc gS sS (rec :: cS') dS`), but the block walk holds only a
-  -- GENERAL suffix `cSc`, and its non-emptiness at a `.call` cursor is NOT derivable from the
-  -- pieces available here (via `StreamsAligned`, firing the IR `EvalStmt.call` itself needs a
-  -- non-empty `Cc = callStreamOf cSc self`). This is the exact analogue of the gas/sload arms,
-  -- which take a GENERAL suffix and split it INTERNALLY via `gasSuffix_nonempty` /
-  -- `sloadSuffix_nonempty` (Machinery) at the reached GAS/SLOAD op. The call/create twins
-  -- `callSuffix_nonempty` / `createSuffix_nonempty` (keyed on the reached CALL/CREATE-byte frame
-  -- firing `.needsCall` / `.needsCreate`) do NOT exist, and `simStmt_coupled_call` /
-  -- `call_head_realises_coupled` / `call_dispatch_of_coupled` are keyed on `rec :: cS'` upfront.
-  -- Resolving this needs either those Machinery lemmas or a reshape of the CALL/CREATE arms to
-  -- take a general suffix and split internally — both in the Machinery layer (concurrent owner).
-  sorry
+  classical
+  let WalkAt := fun (pc : Nat) (stc : IRState) (frc : Frame)
+      (Tc : Trace) (Cc : CallStream) (Dc : CreateStream)
+      (gSc : List Word) (sSc : List Nat) (cSc : List CallRecord) (dSc : List CreateRecord) =>
+    RunStmts prog st T C D (b.stmts.take pc) stc Tc Cc Dc →
+    Runs fr frc →
+    Lir.Corr prog sloadChg 0
+      ((b.stmts.take pc).foldl (invalStep prog) (fun _ => False)) stc frc L pc →
+    frc.exec.stack = [] → RecorderCoupled log frc gSc sSc cSc dSc →
+    CleanHaltsNonException frc → SelfPresent frc →
+    frc.exec.executionEnv.address = self → (∃ cp, frc.kind = .call cp) →
+    StreamsAligned self log gSc cSc dSc Tc Cc Dc →
+    (∀ fr', Runs frc fr' → CallsCode fr') →
+    (∀ fr', Runs frc fr' → CreateResolves fr') →
+    CoupledBlockRun prog sloadChg log self L b st fr T C D
+  have walk : ∀ n pc stc frc Tc Cc Dc gSc sSc cSc dSc,
+      b.stmts.length - pc = n → pc ≤ b.stmts.length →
+      WalkAt pc stc frc Tc Cc Dc gSc sSc cSc dSc := by
+    intro n
+    induction n using Nat.strong_induction_on with
+    | h n ih =>
+      intro pc stc frc Tc Cc Dc gSc sSc cSc dSc hmeasure hpcle
+      intro hpre hrunpre hcorr hstack hcpC hclean hself haddrC hkindC halC hccC hcrC
+      by_cases hend : pc = b.stmts.length
+      · subst pc
+        have hIfalse :
+            (b.stmts.foldl (invalStep prog) (fun _ => False)) = (fun _ => False) := by
+          funext t
+          apply propext
+          exact ⟨fun ht => absurd ht (hwl.revalidates L b hb t), fun ht => ht.elim⟩
+        have hcorrEnd : Lir.Corr prog sloadChg 0 (fun _ => False) stc frc L b.stmts.length := by
+          simpa [hIfalse] using hcorr
+        exact ⟨stc, frc, Tc, Cc, Dc, gSc, sSc, cSc, dSc,
+          by simpa using hpre, hrunpre, hcorrEnd, hstack, hclean, hcpC, halC,
+          hself, haddrC, hkindC⟩
+      · have hpclt : pc < b.stmts.length := lt_of_le_of_ne hpcle hend
+        let s := b.stmts[pc]
+        have hcur : b.stmts[pc]? = some s := List.getElem?_eq_getElem hpclt
+        have hdef : StmtDefinableG stc s :=
+          hwl.defs.stmts st stc T Tc C Cc D Dc L b pc s hb hcur hpre
+        have hadv : CoupledAdvance prog sloadChg log self
+            ((b.stmts.take pc).foldl (invalStep prog) (fun _ => False))
+            L pc stc frc Tc Cc Dc s := by
+          cases hs : s with
+          | assign t e =>
+            simp only [hs, StmtDefinableG] at hdef
+            by_cases heg : e = .gas
+            · subst e
+              exact simStmt_coupled_gas hwl hb (by simpa [hs] using hcur)
+                hcorr hcpC hclean halC hstmts
+            · by_cases hes : ∃ k, e = .sload k
+              · obtain ⟨k, rfl⟩ := hes
+                obtain hbad | ⟨w, hw⟩ := hdef
+                · exact absurd hbad heg
+                · cases hkey : stc.locals k with
+                  | none => simp [evalExpr, hkey] at hw
+                  | some kv =>
+                  exact simStmt_coupled_sload hwl hb (by simpa [hs] using hcur)
+                    hcorr hcpC hclean halC hkey hstmts
+              · obtain hbad | ⟨w, hw⟩ := hdef
+                · exact absurd hbad heg
+                · exact simStmt_coupled_assignPure hwl hb (by simpa [hs] using hcur)
+                    heg (fun k he => hes ⟨k, he⟩) hcorr hcpC hclean halC hw hstmts
+          | sstore key value =>
+            simp only [hs, StmtDefinableG] at hdef
+            obtain ⟨⟨kw, hk⟩, ⟨vw, hv⟩⟩ := hdef
+            exact simStmt_coupled_sstore hwl hb (by simpa [hs] using hcur)
+              hcorr hcpC hclean hself halC hk hv hstmts
+          | call cs =>
+            -- The remaining obstruction is CALL's unrecorded depth soft-fail.  At depth ≥ 1024
+            -- the lowered CALL takes a clean `.next` edge, while `driveLog` appends no CallRecord;
+            -- consequently the general coupled suffix here may be empty and cannot be split for
+            -- `simStmt_coupled_call`.  Closing this without a dishonest depth restriction requires
+            -- the recorder and CALL simulation to model that soft-fail arm, as CREATE2 already does.
+            sorry
+          | create cs =>
+            simp only [hs, StmtDefinableG] at hdef
+            obtain ⟨⟨valueW, hvalue⟩, ⟨initOffW, hoff⟩, ⟨initSizeW, hsize⟩,
+              ⟨saltW, hsalt⟩⟩ := hdef
+            have hfreeValue := hwl.scopedUses L b pc (.create cs) hb
+              (by simpa [hs] using hcur) cs.value (by simp [readsStmt])
+            have hfreeOff := hwl.scopedUses L b pc (.create cs) hb
+              (by simpa [hs] using hcur) cs.initOffset (by simp [readsStmt])
+            have hfreeSize := hwl.scopedUses L b pc (.create cs) hb
+              (by simpa [hs] using hcur) cs.initSize (by simp [readsStmt])
+            have hfreeSalt := hwl.scopedUses L b pc (.create cs) hb
+              (by simpa [hs] using hcur) cs.salt (by simp [readsStmt])
+            obtain ⟨hstkSalt, hstkSize, hstkOff, hstkValue⟩ :=
+              hwl.stack.createOperands sloadChg L b pc cs hb (by simpa [hs] using hcur)
+            have hstkSalt' : 0 + (chargeCache prog sloadChg cs.salt).length ≤ 1024 := by
+              simpa using hstkSalt
+            obtain ⟨rec, dS', hdS⟩ := createSuffix_nonempty_at_stmt hwl hcodeFits hb
+              (by simpa [hs] using hcur) hcorr hcpC hclean hvalue hoff hsize hsalt
+              hfreeValue hfreeOff hfreeSize hfreeSalt hstkSalt' hstkSize hstkOff hstkValue
+            subst dSc
+            exact simStmt_coupled_create hwl hcodeFits hb (by simpa [hs] using hcur)
+              hcorr hcpC hclean haddrC hcrC hvalue hoff hsize hsalt hstkSalt' hstkSize
+              hstkOff hstkValue
+              (fun t ht => hwl.slotAddr L b pc t hb
+                (Or.inr (Or.inr (Or.inr ⟨cs, by simpa [hs] using hcur, ht⟩))))
+              halC hstmts
+        obtain ⟨st', fr', T', C', D', gS', sS', cS', dS', hEval, hrun, hcorr',
+          hstack', hcp', hal'⟩ := hadv
+        have htake : b.stmts.take (pc + 1) = b.stmts.take pc ++ [s] := by
+          rw [List.take_succ, hcur]
+          rfl
+        have hpre' : RunStmts prog st T C D (b.stmts.take (pc + 1)) st' T' C' D' := by
+          rw [htake]
+          exact runStmts_snoc hpre hEval
+        have hfold :
+            (b.stmts.take (pc + 1)).foldl (invalStep prog) (fun _ => False) =
+              invalStep prog ((b.stmts.take pc).foldl (invalStep prog) (fun _ => False)) s := by
+          rw [htake, List.foldl_append]
+          rfl
+        have hcorr'' : Lir.Corr prog sloadChg 0
+            ((b.stmts.take (pc + 1)).foldl (invalStep prog) (fun _ => False))
+            st' fr' L (pc + 1) := by
+          rw [hfold]
+          exact hcorr'
+        have hclean' := cleanHaltsNonException_forward hclean hrun
+        have hself' := selfPresent_runs_of_call hprec hself hrun
+        have haddr' : fr'.exec.executionEnv.address = self := by
+          rw [runs_address_preserved hrun, haddrC]
+        have hkind' : ∃ cp, fr'.kind = .call cp := by
+          obtain ⟨cp, hcpkind⟩ := hkindC
+          exact ⟨cp, (runs_kind hrun).trans hcpkind⟩
+        have hnextlt : b.stmts.length - (pc + 1) < n := by omega
+        exact ih (b.stmts.length - (pc + 1)) hnextlt (pc + 1)
+          st' fr' T' C' D' gS' sS' cS' dS' rfl (by omega)
+          hpre' (hrunpre.trans hrun) hcorr'' hstack' hcp' hclean' hself' haddr' hkind' hal'
+          (fun f hf => hccC f (hrun.trans hf))
+          (fun f hf => hcrC f (hrun.trans hf))
+  exact walk b.stmts.length 0 st fr T C D gS sS cS dS (by omega) (by omega)
+    (by simpa using (RunStmts.nil : RunStmts prog st T C D [] st T C D))
+    (Runs.refl fr) (by simpa using hcorr) hcorr.stack_nil hcp hch hsp haddr hkind hal hcc hcr
 
 /-- Recorder coupling follows the lowered `ret` epilogue to its terminal frame.  The epilogue
 contains only materialisation, pushes, and an `MSTORE`; none of those instructions records an
