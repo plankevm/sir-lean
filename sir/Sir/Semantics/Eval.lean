@@ -18,10 +18,10 @@ def Expr.eval (ctx : CallContext) (state : MachineState) : Expr → Except IRErr
       let keyValue ← state.locals.get key
       return state.world.loadStorage ctx.self keyValue
 
-def eval_assign (ctx : CallContext) (s : MachineState) (result : VarId) (expr : Expr) : Except IRError MachineState :=
-  do
-    let value ← Expr.eval ctx s expr
-    .ok { s with locals := s.locals.set result value }
+def eval_assign (ctx : CallContext) (s : MachineState) (result : VarId) (expr : Expr) :
+    Except IRError MachineState := do
+  let value ← Expr.eval ctx s expr
+  .ok { s with locals := s.locals.set result value }
 
 def eval_sstore (ctx : CallContext) (s : MachineState) (key value : VarId) :
     Except IRError MachineState := do
@@ -29,16 +29,17 @@ def eval_sstore (ctx : CallContext) (s : MachineState) (key value : VarId) :
   let valueValue ← s.locals.get value
   return { s with world := s.world.storeStorage ctx.self keyValue valueValue }
 
-def eval_call (s : MachineState) (call : Call) (result : CallResult)
-  : Except IRError (MachineState × CallRecord) := do
-    let callee ← s.locals.get call.callee
-    let gas ← s.locals.get call.gas
-    let s' := { s with
-      locals := s.locals.set call.result (Evm.UInt256.fromBool result.success)
-      returnData := result.output
-      world := result.world
-    }
-    .ok (s', { target := .ofUInt256 callee, gas := gas, result := result })
+def eval_call (s : MachineState) (call : Call) (result : CallResult) :
+    Except IRError (MachineState × CallRecord) := do
+  let callee ← s.locals.get call.callee
+  let gas ← s.locals.get call.gas
+  let s' := { s with
+    locals := s.locals.set call.result (Evm.UInt256.fromBool result.success)
+    returnData := result.output
+    world := result.world
+  }
+  .ok (s', { target := .ofUInt256 callee, gas := gas, result := result })
+
 /-- Deterministically compute a terminator's next control state. Target validity is
 checked only when a later small step looks up the resulting control state. -/
 def Terminator.eval (state : MachineState) : Terminator → Except IRError MachineControl

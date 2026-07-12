@@ -2,31 +2,38 @@
 
 Lean 4 implementation of Plank's production SIR compiler pipeline.
 
-The initial library contains a register-based CFG and its canonical small-step
-semantics:
+The initial library contains a register-based CFG and its canonical event-labelled
+small-step semantics:
 
 - `Sir/Core/` — primitive shared types. Words and addresses reuse
   `Evm.UInt256` and `Evm.AccountAddress` from `experiments/003_bytecode_layer`.
 - `Sir/IR/` — expressions, statements, terminators, basic blocks, and programs.
 - `Sir/Semantics/World.lean` — concrete storage operations over `Evm.AccountMap`.
-- `Sir/Semantics/State.lean` — locals, call context, IR program counter, and
-  complete machine state.
-- `Sir/Semantics/Expr.lean` — deterministic, read-only expression evaluation.
-- `Sir/Semantics/Terminator.lean` — deterministic control-flow evaluation.
-- `Sir/Semantics/SmallStep.lean` — the program-indexed canonical transition
-  relation.
+- `Sir/Semantics/State.lean` — locals, call context, IR control state, machine
+  state, and execution events.
+- `Sir/Semantics/Eval.lean` — deterministic evaluators for pure expressions,
+  assignment, storage, calls given a result, and terminators.
+- `Sir/Semantics/SmallStep.lean` — the program-indexed transition relation and
+  its trace-accumulating multi-step closure.
 
-`GAS` is a stateful statement that consumes a concrete trace entry and binds it
-to a local. `CALL` atomically checks and consumes the next oracle record, updates
-the account map and returndata, and binds its mandatory result variable. An empty
-or mismatched oracle leaves the machine stuck.
+The one-step relation has the shape:
 
-There is currently no whole-program evaluator, interpreter, execution fuel,
-CREATE operation, nested execution, lowering, or equivalence layer. Malformed
-control flow, missing locals, exhausted gas traces, and unmet external inputs are
-represented by stuck machine states. Halted control carries no stale program
-counter, and invalid jump targets become stuck only when the next step attempts to
-look them up.
+```lean
+SmallStep program context state trace state'
+```
+
+Internal transitions emit `[]`. `GAS` nondeterministically chooses an observed
+word, binds it to a local, and emits a `.gas` event. `CALL` nondeterministically
+accepts a result, resolves the target and forwarded gas from locals, updates the
+account map, result local, and returndata, and emits the resulting checked
+`CallRecord` as a `.call` event. Environmental choices are therefore recorded as
+an output trace rather than supplied through oracle lists in machine state.
+
+`MachineState` contains only the world, locals, returndata, and machine control.
+`MachineControl` combines running program position with halted status, so a halted
+state carries no stale program counter. Invalid control-flow targets, missing
+locals, and otherwise undefined transitions are represented by stuck machine
+states.
 
 ```sh
 lake build
