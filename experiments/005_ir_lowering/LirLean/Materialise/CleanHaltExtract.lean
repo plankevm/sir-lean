@@ -1124,9 +1124,8 @@ pattern:
   only dispatch fault is the `charge (gasCap + extraCost)` gate; when `extraCost` exceeds the
   available gas that charge throws (`stepFrame_call_oog`), so a clean-halting CALL cursor
   witnesses `callExtraCost ≤ gas` — exactly `stepFrame_call`'s remaining gas premise. (The
-  `depth < 1024` guard is NOT derivable from clean-halt — the deep fallback is a plain `.next`
-  — it is derived from the recorder coupling instead; see
-  `Machinery.lean`'s `driveLog_calls_const_of_depth`.) -/
+  `depth < 1024` guard is NOT derivable from clean-halt — the deep fallback is a plain `.next`.
+  The recorder therefore represents both CALL outcomes positionally.) -/
 
 /-- **POP out-of-gas.** With `Gbase` exceeding the available gas, `stepFrame` halts with
 `OutOfGas`. Companion of 003's forward `stepFrame_pop`; POP charges before popping, so no

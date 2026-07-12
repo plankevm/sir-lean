@@ -3736,16 +3736,10 @@ private theorem driveLog_inr_creates :
     simp only [Except.ok.injEq, Prod.mk.injEq] at h
     exact h.2.2.2.2.symm
 
--- NOTE (CREATE2 soft-fail recorder alignment, 2026-07-11): the create-channel twin of
--- `driveLog_calls_const_of_depth` — `driveLog_creates_const_of_depth` — has been RETIRED. Under
--- the new recorder (`Spec/Recorder.lean` `isCreate2Op`/`softFailCreateRecord`) a top-level CREATE2
--- at `depth ≥ 1024` SOFT-FAILS to a `.next` step and NOW RECORDS a soft-fail create entry (the
--- descend guard `depth < 1024` fails, so `createArm` takes the `.next` fallback and the recorder's
--- new create2 gate fires). So the create accumulator is NO LONGER constant at `depth ≥ 1024`, and
--- "a nonempty coupled create suffix forces `depth < 1024`" is no longer a theorem. The depth guard
--- for the descend arm of `create_dispatch_of_coupled` is now supplied by the two-arm disjunction
--- reshape (design spec §4), not by this induction. The CALL channel twin
--- (`driveLog_calls_const_of_depth`, above) is UNAFFECTED — lowered CALL never records a soft-fail.
+-- CREATE2 and CALL soft failures are both explicit recorder events. At `depth ≥ 1024`, either
+-- opcode takes its clean `.next` fallback and appends the corresponding soft-fail record. Thus a
+-- nonempty call/create suffix does not imply `depth < 1024`; each dispatch theorem derives a
+-- descend-or-soft-fail split from the reached opcode and the positional recorded head.
 
 /-- The lowered CALL dispatch has a real descent arm and a recorded depth-soft-fail arm. -/
 theorem call_dispatch_of_coupled {log : RunLog} {callFr : Frame} {cw gw : Word}

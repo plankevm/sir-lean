@@ -58,15 +58,16 @@ records nothing. Hence a recorded create head today means "this cursor DESCENDED
 record came from a later cursor. That is the exact blocker documented at
 Machinery.lean:4408–4429.
 
-### 0.3 CALL is immune (Gotcha #6 — CALL side stays UNTOUCHED)
+### 0.3 CALL has the same live depth soft-fail
 
 `call_dispatch_of_coupled` (Machinery.lean:3319) pins the lowered CALL operand stack to
 `gw :: cw :: 0 :: 0 :: 0 :: 0 :: 0` — the **value operand is 0** (`systemOp .CALL`,
 System.lean:131, threads that 4th stack word as `value`). `callArm`'s only non-depth
 soft-fail trigger is `value ≤ selfBalance ∧ depth < 1024` (System.lean:40); with
 `value = 0` the funds guard `0 ≤ balance` is unconditional, so a lowered CALL never
-soft-fails on funds — only on depth, already excluded by `driveLog_calls_const_of_depth`.
-**No CALL recorder change, no `callArm` `.next` detector, no CallRecord change.**
+soft-fails on funds. Its depth guard remains live, however: at `depth ≥ 1024` it takes the
+clean `.next` branch. The CALL channel therefore mirrors this CREATE2 design with
+`isCallOp`, `softFailCallRecord`, a top-level `.next` recorder gate, and a two-arm dispatch.
 
 ### 0.4 The IR side already absorbs a soft-fail head with NO change
 
@@ -488,12 +489,13 @@ the soft-fail case needs no special handling here (the resume-frame bundle is ne
 3. **`EvalStmt.create`/`CreateStream` tweak?** NONE (§0.4, §3.1). The soft-fail head is
    an ordinary `(currentWorld, 0)` instance.
 
-4. **CALL side.** UNTOUCHED (§0.3). Lowered CALL forces `value = 0` so `callArm` never
-   funds-soft-fails; no CallRecord change, no `callArm` `.next` recorder arm.
+4. **CALL side.** Lowered CALL forces `value = 0`, eliminating funds soft-failure but not
+   the live depth soft-failure. The CALL recorder now has the field-for-field twin of this
+   CREATE2 design so every CALL cursor consumes exactly one call-channel head.
 
-5. **`driveLog_drive` adequacy** (RecorderLemmas.lean:89). Stays green: the new `.next`
-   sub-branch only touches `createAcc`, closed by the same `ih` after one extra `split`
-   (§2.3).
+5. **`driveLog_drive` adequacy** (RecorderLemmas.lean:89). Stays green: the CREATE2 and
+   CALL `.next` sub-branches only touch their respective accumulators and close by the
+   same `ih` after splitting the recorder gates (§2.3).
 
 6. **`realisedCreate_cons` / `createStreamOf` / `evmV2CreateEntry`** (Recorder.lean,
    CallEntry.lean). UNCHANGED — polymorphic in the record; the soft-fail record maps to
