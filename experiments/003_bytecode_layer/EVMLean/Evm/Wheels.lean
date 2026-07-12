@@ -49,7 +49,7 @@ namespace AccountAddress
 theorem size_eq_2pow160 : AccountAddress.size = 2^160 := by rfl
 
 def ofNat (n : ℕ) : AccountAddress := Fin.ofNat _ n
-def ofUInt256 (v : UInt256) : AccountAddress := Fin.ofNat _ (v.toNat % AccountAddress.size)
+def ofUInt256 (v : UInt256) : AccountAddress := Fin.ofNat _ v.toNat
 instance {n : Nat} : OfNat AccountAddress n := ⟨Fin.ofNat _ n⟩
 
 def toByteArray (a : AccountAddress) : ByteArray :=
