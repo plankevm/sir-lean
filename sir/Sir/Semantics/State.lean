@@ -1,26 +1,12 @@
 import Sir.IR.CFG
+import Sir.Semantics.Gas
 import Sir.Semantics.World
 
 namespace Sir
 
-inductive BlockPosition where
-  | statement (index : Nat)
-  | terminator
-deriving DecidableEq, Repr
-
-structure ProgramCounter where
-  block : BlockId
-  position : BlockPosition
-deriving DecidableEq, Repr
-
 inductive IRError where
-  | outOfFuel
-  | unknownBlock (block : BlockId)
-  | invalidProgramCounter (pc : ProgramCounter)
   | undefinedVariable (var : VarId)
-deriving DecidableEq, Repr
-
-abbrev IRResult := Except IRError
+  deriving DecidableEq, Repr
 
 structure Locals where
   values : VarId → Option Word
@@ -29,21 +15,28 @@ namespace Locals
 
 def empty : Locals := ⟨fun _ => none⟩
 
-def get? (locals : Locals) (var : VarId) : IRResult Word :=
-  match locals.values var with
+def get? (locals : Locals) (var : VarId) : Option Word :=
+  locals.values var
+
+def get (locals : Locals) (var : VarId) : Except IRError Word :=
+  match locals.get? var with
   | none => .error (.undefinedVariable var)
-  | some x => .ok x
+  | some value => .ok value
 
-def set (l₀ : Locals) (var : VarId) (value : Word) : Locals :=
-  ⟨fun v => if v = var then some value else l₀.values v⟩
-
-def stateSet (var : VarId) (value : Word) : StateM Locals Unit := modify (Locals.set · var value)
+def set (locals : Locals) (var : VarId) (value : Word) : Locals :=
+  ⟨fun candidate => if candidate = var then some value else locals.values candidate⟩
 
 end Locals
 
-structure LocalState where
-  gas : UInt64
-  locals : Locals := .empty
+structure CallResult where
+  world : World
+  success : Bool
+  output : ByteArray
+
+structure CallRecord where
+  target : Address
+  gas : Word
+  result : CallResult
 
 structure CallContext where
   self : Address
@@ -52,38 +45,57 @@ structure CallContext where
   calldata : ByteArray
   isStatic : Bool
 
-inductive Halt where
-  | stopped
-  | returned (value : Word)
-deriving DecidableEq, Repr
+/-- A statement cursor. The terminator is at `statement = block.statements.size`. -/
+structure ProgramCounter where
+  block : BlockId
+  statement : Nat
+  deriving DecidableEq, Repr
 
-private def BlockPosition.nextPosition (block : BasicBlock) : BlockPosition → Option BlockPosition
-  | .terminator => none
-  | .statement index =>
-    let next := index + 1
-    some $ if next < block.statements.size
-      then .statement next
-      else .terminator
+inductive MachineControl where
+  | running (pc : ProgramCounter)
+  | halted
+  deriving DecidableEq, Repr
 
-private def BasicBlock.entryPosition (block : BasicBlock) : BlockPosition :=
-  if block.statements.isEmpty then .terminator else .statement 0
+namespace MachineControl
 
-def Program.block? (program : Program) (id : BlockId) : Except IRError BasicBlock :=
-  match program.blocks[id.id]? with
-  | none => .error (.unknownBlock id)
-  | some block => .ok block
+def blockStart (bid : BlockId) : MachineControl := .running { block := bid, statement := 0 }
 
-def Program.blockEntryPC (program : Program) (bid : BlockId) : Except IRError ProgramCounter := do
-  let block ← program.block? bid
-  return { block := bid, position := block.entryPosition }
+end MachineControl
 
-def Program.entryPC (program : Program) : Except IRError ProgramCounter :=
-  program.blockEntryPC program.entry
+structure MachineState where
+  world : World
+  locals : Locals := .empty
+  returnData : ByteArray := ByteArray.empty
+  control : MachineControl
 
-def Program.nextPC (program : Program) (pc : ProgramCounter) : Except IRError ProgramCounter := do
+inductive Event where
+  | gas (value : Word)
+  | call (call : CallRecord)
+
+abbrev Trace := List Event
+
+def MachineState.localSet (var : VarId) (value : Word) : StateM MachineState Unit :=
+  modify (fun s => { s with locals := s.locals.set var value })
+
+private def Program.block? (program : Program) (bid : BlockId) : Option BasicBlock :=
+  program.blocks[bid.id]?
+
+def Program.decodeStmt (program : Program) (control : MachineControl) : Option (MachineControl × Stmt) := do
+  let .running pc := control | none
   let block ← program.block? pc.block
-  match pc.position.nextPosition block with
-  | none => .error (.invalidProgramCounter pc)
-  | some pos' => .ok { pc with position := pos' }
+  let stmt ← block.statements[pc.statement]?
+  some (.running { pc with statement := pc.statement + 1 }, stmt)
+
+def Program.terminatorAt (program : Program) (control : MachineControl) : Option Terminator := do
+  let .running pc := control | none
+  let block ← program.block? pc.block
+  guard (pc.statement = block.statements.size)
+  some block.terminator
+
+def Program.nextControl (program : Program) (control : MachineControl) : Option MachineControl := do
+  let .running pc := control | none
+  let block ← program.block? pc.block
+  guard (block.statements[pc.statement]?.isSome)
+  some (.running { pc with statement := pc.statement + 1 })
 
 end Sir

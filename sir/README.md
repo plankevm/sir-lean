@@ -2,30 +2,31 @@
 
 Lean 4 implementation of Plank's production SIR compiler pipeline.
 
-The initial library contains a register-based CFG and an executable semantics:
+The initial library contains a register-based CFG and its canonical small-step
+semantics:
 
-- `Sir/Core/` — primitive shared types. `Word` reuses `Evm.UInt256` from
-  `experiments/003_bytecode_layer`.
-- `Sir/IR/` — expressions, effecting statements, terminators, basic blocks, and
-  programs.
-- `Sir/Semantics/World.lean` — the generic storage interface, its laws, and a
-  lightweight account-indexed functional world.
-- `Sir/Semantics/State.lean` — invocation-local state, call context, and the IR
-  program counter.
-- `Sir/Semantics/Interaction.lean` — first-order CALL/CREATE requests,
-  continuations, and responses.
-- `Sir/Semantics/Step.lean` — one intraprocedural statement or terminator step.
-- `Sir/Interpreter/Replay.lean` — a fuel-bounded driver that supplies recorded
-  CALL and CREATE responses at suspension points.
+- `Sir/Core/` — primitive shared types. Words and addresses reuse
+  `Evm.UInt256` and `Evm.AccountAddress` from `experiments/003_bytecode_layer`.
+- `Sir/IR/` — expressions, statements, terminators, basic blocks, and programs.
+- `Sir/Semantics/World.lean` — concrete storage operations over `Evm.AccountMap`.
+- `Sir/Semantics/State.lean` — locals, call context, IR program counter, and
+  complete machine state.
+- `Sir/Semantics/Expr.lean` — deterministic, read-only expression evaluation.
+- `Sir/Semantics/Terminator.lean` — deterministic control-flow evaluation.
+- `Sir/Semantics/SmallStep.lean` — the program-indexed canonical transition
+  relation.
 
-`GAS` consumes values from the invocation's concrete gas trace. `CALL` and
-`CREATE` suspend the core machine before their effects; replay is only one driver
-for that interface. A future nested driver can execute another IR program while
-retaining the same caller continuation.
+`GAS` is a stateful statement that consumes a concrete trace entry and binds it
+to a local. `CALL` atomically checks and consumes the next oracle record, updates
+the account map and returndata, and binds its mandatory result variable. An empty
+or mismatched oracle leaves the machine stuck.
 
-The intended later layers are analyses and validation, transformation passes,
-assembly/lowering, and verification. They are deliberately not represented by
-placeholder Lean modules yet.
+There is currently no whole-program evaluator, interpreter, execution fuel,
+CREATE operation, nested execution, lowering, or equivalence layer. Malformed
+control flow, missing locals, exhausted gas traces, and unmet external inputs are
+represented by stuck machine states. Halted control carries no stale program
+counter, and invalid jump targets become stuck only when the next step attempts to
+look them up.
 
 ```sh
 lake build

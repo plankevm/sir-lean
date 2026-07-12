@@ -5,6 +5,7 @@ namespace Sir
 structure Call where
   callee : VarId
   gas : VarId
+  result : VarId
 deriving DecidableEq, Repr
 
 inductive Expr where
@@ -13,13 +14,13 @@ inductive Expr where
   | add (lhs rhs : VarId)
   | lt (lhs rhs : VarId)
   | sload (key : VarId)
-  | gas
-  | call (call : Call)
 deriving DecidableEq, Repr
 
 inductive Stmt where
   | assign (result : VarId) (value : Expr)
   | sstore (key value : VarId)
+  | gas (result : VarId)
+  | call (call : Call)
 deriving DecidableEq, Repr
 
 inductive Terminator where

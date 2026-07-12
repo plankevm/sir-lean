@@ -1,30 +1,21 @@
 import Sir.Core.Types
+import Evm.Maps.AccountMap
 
 namespace Sir
 
-class WorldModel (World : Type) where
-  sload : World → Address → Word → Word
-  sstore : World → Address → Word → Word → World
+abbrev World := Evm.AccountMap
 
+namespace World
 
-class LawfulWorldModel (World : Type) [WorldModel World] : Prop where
-  load_store_same :
-    ∀ (w : World) (a : Address) (k value : Word),
-      let w' := WorldModel.sstore w a k value
-      WorldModel.sload w' a k = value
+def loadStorage (world : World) (address : Address) (key : Word) : Word :=
+  match world.find? address with
+  | none => 0
+  | some account => account.lookupStorage key
 
-  load_store_otherKey :
-    ∀ (w : World) (a : Address) (k k' value : Word),
-      k' ≠ k →
-        let w' := WorldModel.sstore w a k value
-        WorldModel.sload w' a k' = WorldModel.sload w a k'
+def storeStorage (world : World) (address : Address) (key value : Word) : World :=
+  let account := (world.find? address).getD default
+  world.insert address (account.updateStorage key value)
 
-  load_store_otherAccount :
-    ∀ (w₀ : World) (a a' : Address) (key value : Word)
-      (otherKey : Word),
-      a' ≠ a →
-        let w' := WorldModel.sstore w₀ a key value
-        WorldModel.sload w' a' otherKey = WorldModel.sload w₀ a' otherKey
-
+end World
 
 end Sir
