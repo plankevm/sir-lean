@@ -1,5 +1,4 @@
 import Sir.IR.CFG
-import Sir.Semantics.Gas
 import Sir.Semantics.World
 
 namespace Sir
