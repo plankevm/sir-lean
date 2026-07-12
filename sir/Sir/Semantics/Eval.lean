@@ -23,8 +23,11 @@ def eval_assign (ctx : CallContext) (s : MachineState) (result : VarId) (expr : 
     let value ← Expr.eval ctx s expr
     .ok { s with locals := s.locals.set result value }
 
-def eval_sstore (ctx : CallContext) (s : MachineState) (key value : VarId) : Except IRError
-MachineState := do sorry
+def eval_sstore (ctx : CallContext) (s : MachineState) (key value : VarId) :
+    Except IRError MachineState := do
+  let keyValue ← s.locals.get key
+  let valueValue ← s.locals.get value
+  return { s with world := s.world.storeStorage ctx.self keyValue valueValue }
 
 def eval_call (s : MachineState) (call : Call) (result : CallResult)
   : Except IRError (MachineState × CallRecord) := do
