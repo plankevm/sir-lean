@@ -8,8 +8,8 @@ import LirLean.Engine.Modellable
 # LirLean v2 — Realisability spec, MACHINERY (§5)
 
 Split out of `RealisabilitySpec.lean` (pure relocation). Holds the Phase-3 obligation
-machinery R1–R11 (§5), including the tracked sorries R3 (`callRealises_of_recorded`) and
-the later coupled-producer obligations. Imports `Surface`. -/
+machinery R1–R11 (§5), including the call/create recorder-channel lemmas used by the
+coupled producer. Imports `Surface`. -/
 
 namespace Lir.V2
 
@@ -20,7 +20,7 @@ open BytecodeLayer.Hoare
 open BytecodeLayer.Interpreter
 open BytecodeLayer.Dispatch
 
-/-! ## §5 — The Phase-3 obligations R1–R11 (every proof `sorry` = tracked debt)
+/-! ## §5 — The Phase-3 obligations R1–R11
 
 Landing order (each step green, monotonically fewer sorries; target-architecture §5):
 R0 (the §3 reshape, done above as statements; R0b below is its MACHINERY criterion —
@@ -576,7 +576,7 @@ private theorem driveLog_acc_hom :
       cases hstep : stepFrame current with
       | next exec =>
         dsimp only [hstep]
-        split_ifs with hc1 hc2 hc3
+        split_ifs with hc1 hc2 hc3 hc4
         · rw [ih stack (.inl { current with exec := exec })
                 (g0 ++ [UInt256.ofUInt64 exec.gasAvailable]) s0 c0 d0,
               ih stack (.inl { current with exec := exec })
@@ -591,6 +591,13 @@ private theorem driveLog_acc_hom :
           | ok val => simp [Except.map, List.append_assoc]
         · rw [ih stack (.inl { current with exec := exec }) g0 s0 c0 (d0 ++ [softFailCreateRecord current]),
               ih stack (.inl { current with exec := exec }) [] [] [] ([] ++ [softFailCreateRecord current])]
+          cases hb : driveLog n stack (.inl { current with exec := exec }) [] [] [] [] with
+          | error e => simp [Except.map]
+          | ok val => simp [Except.map, List.append_assoc]
+        · rw [ih stack (.inl { current with exec := exec }) g0 s0
+                (c0 ++ [softFailCallRecord current]) d0,
+              ih stack (.inl { current with exec := exec }) [] []
+                ([] ++ [softFailCallRecord current]) []]
           cases hb : driveLog n stack (.inl { current with exec := exec }) [] [] [] [] with
           | error e => simp [Except.map]
           | ok val => simp [Except.map, List.append_assoc]
@@ -631,6 +638,27 @@ private theorem isSloadOp_false_of_isCreate2Op {fr : Frame} (h : isCreate2Op fr 
   have h' : (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (Operation.STOP, .none)).1
       = Operation.System .CREATE2 := by simpa [isCreate2Op] using h
   simp only [isSloadOp, h']
+  decide
+
+private theorem isGasOp_false_of_isCallOp {fr : Frame} (h : isCallOp fr = true) :
+    isGasOp fr = false := by
+  have h' : (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (Operation.STOP, .none)).1
+      = Operation.System .CALL := by simpa [isCallOp] using h
+  simp only [isGasOp, h']
+  decide
+
+private theorem isSloadOp_false_of_isCallOp {fr : Frame} (h : isCallOp fr = true) :
+    isSloadOp fr = false := by
+  have h' : (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (Operation.STOP, .none)).1
+      = Operation.System .CALL := by simpa [isCallOp] using h
+  simp only [isSloadOp, h']
+  decide
+
+private theorem isCreate2Op_false_of_isCallOp {fr : Frame} (h : isCallOp fr = true) :
+    isCreate2Op fr = false := by
+  have h' : (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (Operation.STOP, .none)).1
+      = Operation.System .CALL := by simpa [isCallOp] using h
+  simp only [isCreate2Op, h']
   decide
 /-! ### R6 status — the geometry track's findings (Track A / the `hrb` residue)
 
@@ -1153,6 +1181,7 @@ theorem recorderCoupled_step_other {log : RunLog} {fr : Frame} {exec : Execution
     (hcp : RecorderCoupled log fr gS sS cS dS)
     (hng : isGasOp fr = false) (hns : isSloadOp fr = false)
     (hnc : isCreate2Op fr = false)
+    (hncall : isCallOp fr = false)
     (hstep : stepFrame fr = .next exec) :
     RecorderCoupled log { fr with exec := exec } gS sS cS dS := by
   obtain ⟨⟨f, hf⟩, hgp, hsp, hcpp, hdp⟩ := hcp
@@ -1160,7 +1189,8 @@ theorem recorderCoupled_step_other {log : RunLog} {fr : Frame} {exec : Execution
   | zero => simp [driveLog] at hf
   | succ m =>
     unfold driveLog at hf
-    simp only [hstep, hng, hns, hnc, List.isEmpty_nil, Bool.false_and, Bool.and_false] at hf
+    simp only [hstep, hng, hns, hnc, hncall, List.isEmpty_nil, Bool.false_and,
+      Bool.and_false] at hf
     exact ⟨⟨m, hf⟩, hgp, hsp, hcpp, hdp⟩
 
 /-- **Recorder framing with a nonempty bottom stack** (the recorder-composition lemma R7e
@@ -1219,10 +1249,11 @@ private theorem driveLog_frame_nonempty (bot : List Pending) (hbot : bot.isEmpty
       | next exec =>
         rw [hstep] at h; dsimp only at h
         dsimp only
-        split_ifs with hc1 hc2 hc3
+        split_ifs with hc1 hc2 hc3 hc4
         · rw [hbne top] at hc1; simp at hc1
         · rw [hbne top] at hc2; simp at hc2
         · rw [hbne top] at hc3; simp at hc3
+        · rw [hbne top] at hc4; simp at hc4
         · exact ih top (.inl { current with exec := exec }) res h
       | halted halt =>
         rw [hstep] at h; dsimp only at h
@@ -1698,6 +1729,79 @@ theorem create2Suffix_nonempty_of_next {log : RunLog} {fr : Frame} {exec : Execu
       injection hrest with _ hd
       exact ⟨softFailCreateRecord fr, dS', hd.symm⟩
 
+/-- A top-level soft-failing CALL records a call entry, so its coupled call suffix is nonempty. -/
+theorem callSuffix_nonempty_of_next {log : RunLog} {fr : Frame} {exec : ExecutionState}
+    {gS : List Word} {sS : List Nat} {cS : List CallRecord} {dS : List CreateRecord}
+    (hcp : RecorderCoupled log fr gS sS cS dS)
+    (hcall : isCallOp fr = true)
+    (hstep : stepFrame fr = .next exec) :
+    ∃ rec cS', cS = rec :: cS' := by
+  have hng : isGasOp fr = false := isGasOp_false_of_isCallOp hcall
+  have hns : isSloadOp fr = false := isSloadOp_false_of_isCallOp hcall
+  have hnc : isCreate2Op fr = false := isCreate2Op_false_of_isCallOp hcall
+  obtain ⟨⟨f, hf⟩, _, _, _, _⟩ := hcp
+  cases f with
+  | zero => simp [driveLog] at hf
+  | succ m =>
+    unfold driveLog at hf
+    simp only [hstep, hng, hns, hnc, hcall, List.isEmpty_nil, Bool.and_true,
+      List.nil_append] at hf
+    rw [driveLog_acc_hom m [] (.inl { fr with exec := exec }) [] []
+      [softFailCallRecord fr] []] at hf
+    cases hX : driveLog m [] (.inl { fr with exec := exec }) [] [] [] [] with
+    | error e => rw [hX] at hf; simp [Except.map] at hf
+    | ok val =>
+      obtain ⟨obs', gS', sS', cS', dS'⟩ := val
+      rw [hX] at hf
+      simp only [Except.map, List.nil_append, List.singleton_append] at hf
+      injection hf with htuple
+      injection htuple with _ hrest
+      injection hrest with _ hrest
+      injection hrest with _ hrest
+      injection hrest with hc _
+      exact ⟨softFailCallRecord fr, cS', hc.symm⟩
+
+/-- A top-level soft-failing CALL consumes the call-suffix head. -/
+theorem recorderCoupled_call_softfail {log : RunLog} {fr : Frame} {exec : ExecutionState}
+    {gS : List Word} {sS : List Nat} {rec : CallRecord} {cS : List CallRecord}
+    {dS : List CreateRecord}
+    (hcp : RecorderCoupled log fr gS sS (rec :: cS) dS)
+    (hcall : isCallOp fr = true)
+    (hstep : stepFrame fr = .next exec) :
+    RecorderCoupled log { fr with exec := exec } gS sS cS dS
+    ∧ rec = softFailCallRecord fr := by
+  have hng : isGasOp fr = false := isGasOp_false_of_isCallOp hcall
+  have hns : isSloadOp fr = false := isSloadOp_false_of_isCallOp hcall
+  have hnc : isCreate2Op fr = false := isCreate2Op_false_of_isCallOp hcall
+  obtain ⟨⟨f, hf⟩, hgp, hsp, hcpp, hdp⟩ := hcp
+  cases f with
+  | zero => simp [driveLog] at hf
+  | succ m =>
+    unfold driveLog at hf
+    simp only [hstep, hng, hns, hnc, hcall, List.isEmpty_nil, Bool.and_true,
+      List.nil_append] at hf
+    rw [driveLog_acc_hom m [] (.inl { fr with exec := exec }) [] []
+      [softFailCallRecord fr] []] at hf
+    cases hX : driveLog m [] (.inl { fr with exec := exec }) [] [] [] [] with
+    | error e => rw [hX] at hf; simp [Except.map] at hf
+    | ok val =>
+      obtain ⟨obs', gS', sS', cS', dS'⟩ := val
+      rw [hX] at hf
+      have hf2 : (Except.ok (obs', gS', sS', softFailCallRecord fr :: cS', dS')
+          : Except ExecutionException
+              (FrameResult × List Word × List Nat × List CallRecord × List CreateRecord))
+          = .ok (log.observable, gS, sS, rec :: cS, dS) := hf
+      injection hf2 with hf3
+      injection hf3 with hobs hf4
+      injection hf4 with hgSeq hf5
+      injection hf5 with hsSeq hcd
+      injection hcd with hcEq hdEq
+      injection hcEq with hreq hcSeq
+      subst hobs; subst hgSeq; subst hsSeq; subst hcSeq; subst hdEq
+      refine ⟨⟨⟨m, hX⟩, hgp, hsp, ?_, hdp⟩, hreq.symm⟩
+      obtain ⟨pre, hpre⟩ := hcpp
+      exact ⟨pre ++ [rec], by rw [hpre, List.append_assoc, List.singleton_append]⟩
+
 /-- **The soft-fail CREATE2 step consumes the create-suffix head** (the CREATE2 twin of
 `recorderCoupled_sload`, over the new `driveLog` create2 `.next` gate). At a top-level CREATE2
 cursor `fr` (`isCreate2Op fr = true`, `stack = []` from the outer `driveLog []`) that soft-fails
@@ -1775,6 +1879,29 @@ theorem creates_nil_of_stepFrame_halted {log : RunLog} {fr : Frame} {halt : Evm.
       injection hf4 with _ hf5
       injection hf5 with _ hf6
       exact hf6.symm
+
+/-- A top-level `.halted` first step records no call. -/
+theorem calls_nil_of_stepFrame_halted {log : RunLog} {fr : Frame} {halt : Evm.FrameHalt}
+    {gS : List Word} {sS : List Nat} {cS : List CallRecord} {dS : List CreateRecord}
+    (hcp : RecorderCoupled log fr gS sS cS dS)
+    (hstep : stepFrame fr = .halted halt) :
+    cS = [] := by
+  obtain ⟨⟨f, hf⟩, _, _, _, _⟩ := hcp
+  cases f with
+  | zero => simp [driveLog] at hf
+  | succ m =>
+    cases m with
+    | zero =>
+      unfold driveLog at hf
+      simp only [hstep] at hf
+      simp [driveLog] at hf
+    | succ k =>
+      unfold driveLog at hf
+      simp only [hstep] at hf
+      rw [show driveLog (k + 1) [] (.inr (endFrame fr halt)) [] [] [] []
+            = .ok (endFrame fr halt, [], [], [], []) from rfl] at hf
+      injection hf with htuple
+      exact (congrArg (fun x => x.2.2.2.1) htuple).symm
 
 /-- **R7e′ — the coupling's CALL extraction** (R3's Piece-A atom; the *producing* companion of
 `recorderCoupled_call`, which only consumes). At a top-level boundary frame `callFr` whose next
@@ -1951,7 +2078,7 @@ private theorem callRealises_of_recorded_finish
   refine ⟨childRes.toCallResult, rec.pending, callFr,
     Evm.resumeAfterCall childRes.toCallResult rec.pending, argsLen,
     stepScopedS_call_of_cursor hb hcur, ?_, hargslen, hargs, hcallpc, hcallmem, hcallactive,
-    hcall, rfl, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    sim_call hcall (Runs.refl _), ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · cases cs.resultTmp <;> simp [haddr, hresult]
   · simpa [hresult] using hresaddr
   · simpa [hresult] using hrescode
@@ -1978,11 +2105,12 @@ theorem recorderCoupled_stepsTo_other {log : RunLog} {fr fr' : Frame}
     (hcp : RecorderCoupled log fr gS sS cS dS)
     (hng : isGasOp fr = false) (hns : isSloadOp fr = false)
     (hnc : isCreate2Op fr = false)
+    (hncall : isCallOp fr = false)
     (hstep : StepsTo fr fr') :
     RecorderCoupled log fr' gS sS cS dS := by
   obtain ⟨hs, hfr'⟩ := hstep
   rw [hfr']
-  exact recorderCoupled_step_other hcp hng hns hnc hs
+  exact recorderCoupled_step_other hcp hng hns hnc hncall hs
 
 /-! ### S1 — the coupling fold over a `materialise` run (`recorderCoupled_matRunsC`)
 
@@ -2056,6 +2184,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
         exact recorderCoupled_step_other hcp
           (by unfold isGasOp; rw [hdec']; rfl) (by unfold isSloadOp; rw [hdec']; rfl)
           (by unfold isCreate2Op; rw [hdec']; rfl)
+          (by unfold isCallOp; rw [hdec']; rfl)
           (stepFrame_push fr .PUSH32 v 32 (by decide) hdec' (by decide) (by decide) hg3 hstk1)
   | .gas, _, _, hne, _, _, _, _ => exact absurd rfl hne
   | .sload k, _, _, _, hnsl, _, _, _ => exact absurd rfl (hnsl k)
@@ -2154,6 +2283,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
                 exact recorderCoupled_step_other hcp
                   (by unfold isGasOp; rw [hdpush]; rfl) (by unfold isSloadOp; rw [hdpush]; rfl)
                   (by unfold isCreate2Op; rw [hdpush]; rfl)
+                  (by unfold isCallOp; rw [hdpush]; rfl)
                   (stepFrame_push fr .PUSH32 (UInt256.ofNat n) 32 (by decide) hdpush
                     (by decide) (by decide) hgasPush hszfr)
               -- step 2: MLOAD at `n` (covered ⇒ zero memory expansion)
@@ -2207,6 +2337,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
                   (by unfold isGasOp; rw [hmloaddec]; rfl)
                   (by unfold isSloadOp; rw [hmloaddec]; rfl)
                   (by unfold isCreate2Op; rw [hmloaddec]; rfl)
+                  (by unfold isCallOp; rw [hmloaddec]; rfl)
                   (stepFrame_mload frp (UInt256.ofNat n) frp.exec.activeWords fr.exec.stack
                     hmloaddec hfrpstk hfrpsz hnoexp hgMem hgMl)
               have hmval : ((BytecodeLayer.Dispatch.memChargedState frp.exec
@@ -2382,6 +2513,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
         recorderCoupled_step_other hcpa
           (by unfold isGasOp; rw [hadec]; rfl) (by unfold isSloadOp; rw [hadec]; rfl)
           (by unfold isCreate2Op; rw [hadec]; rfl)
+          (by unfold isCallOp; rw [hadec]; rfl)
           (stepFrame_add fra va vb fr.exec.stack hadec hastk haszle hagas)
       have hgc : (addFrame fra va vb fr.exec.stack).exec.gasAvailable
           = subCharges fr.exec.gasAvailable
@@ -2495,6 +2627,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
         recorderCoupled_step_other hcpa
           (by unfold isGasOp; rw [hadec]; rfl) (by unfold isSloadOp; rw [hadec]; rfl)
           (by unfold isCreate2Op; rw [hadec]; rfl)
+          (by unfold isCallOp; rw [hadec]; rfl)
           (stepFrame_lt fra va vb fr.exec.stack hadec hastk haszle hagas)
       have hgc : (ltFrame fra va vb fr.exec.stack).exec.gasAvailable
           = subCharges fr.exec.gasAvailable
@@ -3037,6 +3170,7 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
       · unfold isGasOp; rw [hdpushT]; rfl
       · unfold isSloadOp; rw [hdpushT]; rfl
       · unfold isCreate2Op; rw [hdpushT]; rfl
+      · unfold isCallOp; rw [hdpushT]; rfl
       · exact hpushTStep
     set frp := pushFrameW frc thenW 4 with hfrp
     have hfrpcode : frp.exec.executionEnv.code = frc.exec.executionEnv.code := rfl
@@ -3067,6 +3201,7 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
         · unfold isGasOp; rw [hfrpjidec]; rfl
         · unfold isSloadOp; rw [hfrpjidec]; rfl
         · unfold isCreate2Op; rw [hfrpjidec]; rfl
+        · unfold isCallOp; rw [hfrpjidec]; rfl
         · exact hfallStep
       have hgffcode : gff.exec.executionEnv.code = lower prog := by
         rw [hgff, jumpiFallthroughFrame_code, hfrpcode]; exact hfrccode
@@ -3114,6 +3249,7 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
         · unfold isGasOp; rw [hdpushE']; rfl
         · unfold isSloadOp; rw [hdpushE']; rfl
         · unfold isCreate2Op; rw [hdpushE']; rfl
+        · unfold isCallOp; rw [hdpushE']; rfl
         · exact hpushEStep
       have hgfpcode : gfp.exec.executionEnv.code = gff.exec.executionEnv.code := rfl
       have hgfppc : gfp.exec.pc = gff.exec.pc + UInt32.ofNat 5 := by
@@ -3144,6 +3280,7 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
         · unfold isGasOp; rw [hgfpjdec]; rfl
         · unfold isSloadOp; rw [hgfpjdec]; rfl
         · unfold isCreate2Op; rw [hgfpjdec]; rfl
+        · unfold isCallOp; rw [hgfpjdec]; rfl
         · exact hjumpEStep
       have hfjpc : fj.exec.pc = UInt32.ofNat elseOff := rfl
       have hfjcode : fj.exec.executionEnv.code = lower prog := by
@@ -3175,6 +3312,7 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
         · unfold isGasOp; rw [hfjdec]; rfl
         · unfold isSloadOp; rw [hfjdec]; rfl
         · unfold isCreate2Op; rw [hfjdec]; rfl
+        · unfold isCallOp; rw [hfjdec]; rfl
         · exact hjdStep
       obtain ⟨hjdrun, hjdcorr⟩ := corr_at_jumpdest_landing (sloadChg := sloadChg)
         (obs := 0) (st := st) hbelse hfjpc hfjcode hfjvalid hfjstk hfjmod hfjstore
@@ -3206,6 +3344,7 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
         · unfold isGasOp; rw [hfrpjidec]; rfl
         · unfold isSloadOp; rw [hfrpjidec]; rfl
         · unfold isCreate2Op; rw [hfrpjidec]; rfl
+        · unfold isCallOp; rw [hfrpjidec]; rfl
         · exact htakenStep
       have hfjpc : fj.exec.pc = new_pc := rfl
       have hfjcode : fj.exec.executionEnv.code = lower prog := by
@@ -3240,6 +3379,7 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
         · unfold isGasOp; rw [hfjdec]; rfl
         · unfold isSloadOp; rw [hfjdec]; rfl
         · unfold isCreate2Op; rw [hfjdec]; rfl
+        · unfold isCallOp; rw [hfjdec]; rfl
         · exact hjdStep
       obtain ⟨hjdrun, hjdcorr⟩ := corr_at_jumpdest_landing (sloadChg := sloadChg)
         (obs := 0) (st := st) hbthen hfjpc hfjcode hfjvalid hfjstk hfjmod hfjstore
@@ -3287,7 +3427,8 @@ private theorem coupled_push_step {log : RunLog} {fr : Frame} {w : Word}
   exact ⟨hrun,
     recorderCoupled_step_other hcp
       (by unfold isGasOp; rw [hdec]; rfl) (by unfold isSloadOp; rw [hdec]; rfl)
-      (by unfold isCreate2Op; rw [hdec]; rfl) hstep,
+      (by unfold isCreate2Op; rw [hdec]; rfl)
+      (by unfold isCallOp; rw [hdec]; rfl) hstep,
     cleanHaltsNonException_forward hch hrun⟩
 
 /-- **R3 Piece B, step 1 — the CALL argument-push run producer.** From `Corr` at the CALL
@@ -3565,16 +3706,6 @@ private theorem call_args_run_of_coupled {prog : Program} {sloadChg : Tmp → �
   · intro k
     rw [hmrg.storage k, hmrc.storage k, hf5sto k]
 
-/-! #### The no-descent-at-depth induction (the CALL dispatch's depth-guard producer)
-
-`driveLog`'s only call-record writes happen at a top-level CALL delivery, and every descent
-(`.needsCall`/`.needsCreate`) is guarded by `depth < 1024` at the stepping frame
-(`stepFrame_needsCall_depth`/`stepFrame_needsCreate_depth`, Engine/Descent). `.next` steps
-preserve the execution environment (`stepFrame_next_execEnvAddr`), so a top-level restart
-from a frame at depth `≥ 1024` walks `.next`/`.halted` forever at that depth and delivers
-its call accumulator UNCHANGED. Contrapositive: a coupled nonempty call suffix forces
-`depth < 1024` at the coupled frame. -/
-
 /-- A top-level `.inr` delivery with an empty pending stack returns its call accumulator
 verbatim. -/
 private theorem driveLog_inr_calls :
@@ -3589,44 +3720,6 @@ private theorem driveLog_inr_calls :
     unfold driveLog at h
     simp only [Except.ok.injEq, Prod.mk.injEq] at h
     exact h.2.2.2.1.symm
-
-/-- **The no-descent-at-depth induction.** A successful top-level `driveLog` run from a frame
-at depth `≥ 1024` delivers its call accumulator unchanged: `.needsCall`/`.needsCreate` are
-depth-guarded (never fire), `.next` preserves the environment (the depth rides along), and
-the `.halted` delivery returns the accumulator verbatim. -/
-private theorem driveLog_calls_const_of_depth :
-    ∀ (fuel : ℕ) (fr : Frame) (g : List Word) (s : List Nat) (c : List CallRecord)
-      (d : List CreateRecord) {obs : FrameResult} {gS : List Word} {sS : List Nat}
-      {cS : List CallRecord} {dS : List CreateRecord},
-      1024 ≤ fr.exec.executionEnv.depth →
-      driveLog fuel [] (.inl fr) g s c d = .ok (obs, gS, sS, cS, dS) →
-      cS = c := by
-  intro fuel
-  induction fuel with
-  | zero =>
-    intro fr g s c d obs gS sS cS dS _ h
-    exact absurd h (by simp [driveLog])
-  | succ n ih =>
-    intro fr g s c d obs gS sS cS dS hdepth h
-    cases hstep : stepFrame fr with
-    | next exec =>
-      have hdepth' : 1024 ≤ exec.executionEnv.depth := by
-        rw [stepFrame_next_execEnvAddr hstep]; exact hdepth
-      unfold driveLog at h
-      simp only [hstep] at h
-      split_ifs at h with h1 h2 h3
-      · exact ih { fr with exec := exec } _ _ c _ hdepth' h
-      · exact ih { fr with exec := exec } _ _ c _ hdepth' h
-      · exact ih { fr with exec := exec } _ _ c _ hdepth' h
-      · exact ih { fr with exec := exec } _ _ c _ hdepth' h
-    | halted halt =>
-      unfold driveLog at h
-      simp only [hstep] at h
-      exact driveLog_inr_calls n _ g s c d h
-    | needsCall params pending =>
-      exact absurd (stepFrame_needsCall_depth hstep) (by omega)
-    | needsCreate params pending =>
-      exact absurd (stepFrame_needsCreate_depth hstep) (by omega)
 
 /-- A top-level `.inr` delivery with an empty pending stack returns its **create** accumulator
 verbatim (the CREATE twin of `driveLog_inr_calls`). -/
@@ -3654,27 +3747,7 @@ private theorem driveLog_inr_creates :
 -- reshape (design spec §4), not by this induction. The CALL channel twin
 -- (`driveLog_calls_const_of_depth`, above) is UNAFFECTED — lowered CALL never records a soft-fail.
 
-/-- **R3 Piece B, step 2 — the CALL dispatch bundle** (CLOSED). At a coupled top-level frame
-decoding `CALL` with the lowered argument stack
-`gasFwd :: callee :: 0 :: 0 :: 0 :: 0 :: 0` and `canModifyState`, the step is
-`.needsCall cp pending` with the pending pins the resume half consumes.
-
-How each guard is discharged (nothing supplied to the flagship):
-* the `value ≠ 0` static-mode screen is skipped (`value = 0` — the third pushed zero);
-* the zero in/out windows make the memory-expansion witness trivial and its charge `0`;
-* the `charge (gasCap + extraCost)` gate is DERIVED from the clean-halt witness (a failing
-  charge exceptions — `stepFrame`'s dispatch error routes to `.halted (.exception _)`,
-  contradicting `hch`), via the `CleanHaltExtract` §6 CALL brick
-  (`call_extraCost_le_of_cleanHalt` / `stepFrame_call_oog`);
-* the funds guard holds (`0 ≤ balance` at `Word`);
-* the DEPTH guard `depth < 1024` is DERIVED FROM THE COUPLING: were `depth ≥ 1024`, the
-  `.next` fallback would fire here AND at every later top-level frame (`.next` steps
-  preserve `executionEnv` — `stepFrame_next_execEnvAddr` — and both `callArm`/`createArm`
-  guard their descents by `depth < 1024`), so the restart from this frame could never
-  deliver a call record (`driveLog_calls_const_of_depth`) — contradicting the nonempty
-  coupled suffix `rec :: cS'`;
-* the pending pins are then `rfl` off `BytecodeLayer.System.stepFrame_call`'s named
-  `callPending` (whose saved frame is `callFr` with only `gasAvailable` recharged). -/
+/-- The lowered CALL dispatch has a real descent arm and a recorded depth-soft-fail arm. -/
 theorem call_dispatch_of_coupled {log : RunLog} {callFr : Frame} {cw gw : Word}
     {gS : List Word} {sS : List Nat} {rec : CallRecord} {cS' : List CallRecord}
     {dS : List CreateRecord}
@@ -3684,8 +3757,8 @@ theorem call_dispatch_of_coupled {log : RunLog} {callFr : Frame} {cw gw : Word}
       = some (.System .CALL, .none))
     (hstk : callFr.exec.stack = gw :: cw :: 0 :: 0 :: 0 :: 0 :: 0 :: [])
     (hmod : callFr.exec.executionEnv.canModifyState = true) :
-    ∃ (cp : CallParams) (pending : PendingCall),
-      stepFrame callFr = .needsCall cp pending
+    (∃ (cp : CallParams) (pending : PendingCall),
+        stepFrame callFr = .needsCall cp pending
       ∧ pending.frame.exec.executionEnv = callFr.exec.executionEnv
       ∧ pending.frame.validJumps = callFr.validJumps
       ∧ pending.frame.exec.pc = callFr.exec.pc
@@ -3693,24 +3766,171 @@ theorem call_dispatch_of_coupled {log : RunLog} {callFr : Frame} {cw gw : Word}
       ∧ pending.frame.exec.toMachineState.activeWords
           = callFr.exec.toMachineState.activeWords
       ∧ pending.stack = ([] : Stack Word)
-      ∧ pending.inSize = 0 ∧ pending.outSize = 0 := by
-  -- the depth guard, from the COUPLING: at depth ≥ 1024 the restart never descends, so it
-  -- delivers no call record — contradicting the nonempty coupled suffix `rec :: cS'`.
-  have hdepth : callFr.exec.executionEnv.depth < 1024 := by
-    by_contra hge
-    obtain ⟨⟨fuel', hrestart⟩, _, _, _, _⟩ := hcp
-    have hnil : (rec :: cS' : List CallRecord) = [] :=
-      driveLog_calls_const_of_depth fuel' callFr [] [] [] [] (by omega) hrestart
-    exact absurd hnil (by simp)
-  -- the CALL charge gate, from the clean-halt (CleanHaltExtract §6).
-  have hextra :=
-    Lir.CleanHaltExtract.call_extraCost_le_of_cleanHalt callFr gw cw hch hdec hstk
-  have hsz : callFr.exec.stack.size ≤ 1024 := by
-    rw [hstk]; show (7 : ℕ) ≤ 1024; omega
-  have hstep :=
-    BytecodeLayer.System.stepFrame_call callFr gw cw hdec hstk hsz hmod hdepth hextra
-  exact ⟨callChildParams callFr cw gw, callPending callFr cw gw, hstep,
-    rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+      ∧ pending.inSize = 0 ∧ pending.outSize = 0)
+    ∨ (∃ exec' : ExecutionState,
+        stepFrame callFr = .next exec'
+      ∧ rec = softFailCallRecord callFr
+      ∧ exec'.executionEnv = callFr.exec.executionEnv) := by
+  have hcall : isCallOp callFr = true := by
+    unfold isCallOp
+    rw [hdec]
+    rfl
+  cases hstep : stepFrame callFr with
+  | needsCall cp pending =>
+      have hdepth := stepFrame_needsCall_depth hstep
+      have hextra :=
+        Lir.CleanHaltExtract.call_extraCost_le_of_cleanHalt callFr gw cw hch hdec hstk
+      have hsz : callFr.exec.stack.size ≤ 1024 := by
+        rw [hstk]
+        show (7 : ℕ) ≤ 1024
+        omega
+      have hnamed :=
+        BytecodeLayer.System.stepFrame_call callFr gw cw hdec hstk hsz hmod hdepth hextra
+      rw [hnamed] at hstep
+      injection hstep with hcpEq hpdEq
+      subst cp
+      subst pending
+      exact Or.inl ⟨_, _, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+  | next exec' =>
+      obtain ⟨_, hrec⟩ := recorderCoupled_call_softfail hcp hcall hstep
+      exact Or.inr ⟨exec', rfl, hrec, stepFrame_next_execEnvAddr hstep⟩
+  | halted halt =>
+      exact absurd (calls_nil_of_stepFrame_halted hcp hstep) (by simp)
+  | needsCreate cp pending =>
+      exfalso
+      rcases (Evm.stepFrame_needsCreate_site_inv hstep).1 with h | h <;>
+        · rw [hdec] at h
+          simp at h
+
+private theorem call_softfail_next_pins {fr : Frame} {exec' : ExecutionState}
+    {gw cw : UInt256}
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.System .CALL, .none))
+    (hstk : fr.exec.stack = gw :: cw :: 0 :: 0 :: 0 :: 0 :: 0 :: [])
+    (hstep : stepFrame fr = .next exec') :
+    exec'.executionEnv = fr.exec.executionEnv
+      ∧ exec'.pc = fr.exec.pc + 1
+      ∧ exec'.stack = [0]
+      ∧ exec'.memory = fr.exec.memory
+      ∧ exec'.activeWords = fr.exec.activeWords
+      ∧ exec'.accounts = fr.exec.accounts := by
+  have hop : (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (.STOP, .none)).1
+      = .System .CALL := by rw [hdec]; rfl
+  have hsys := BytecodeLayer.Dispatch.stepFrame_next_systemOp hop hstep
+  unfold systemOp at hsys
+  rw [hstk] at hsys
+  simp only [Stack.pop7, bind, Except.bind, pure, Except.pure, Bool.not_eq_true] at hsys
+  unfold callArm at hsys
+  simp only [bind, Except.bind, memoryExpansionWords?, Option.bind_eq_bind] at hsys
+  simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at hsys
+  simp only [ne_eq, not_true_eq_false, false_and, if_false, UInt256.zero_le, true_and,
+    if_true] at hsys
+  have hz : (((0 : UInt256) == 0) = true) := by decide
+  simp only [hz, if_true, Option.bind_some] at hsys
+  simp only [Nat.sub_self] at hsys
+  have hzero : charge 0 fr.exec = .ok fr.exec := by simp [charge]
+  rw [hzero] at hsys
+  simp only at hsys
+  cases hc : charge
+      (callGasCap (AccountAddress.ofUInt256 cw) (AccountAddress.ofUInt256 cw) 0 gw
+          fr.exec.accounts fr.exec.gasAvailable fr.exec.substate
+        + callExtraCost (AccountAddress.ofUInt256 cw) (AccountAddress.ofUInt256 cw) 0
+          fr.exec.accounts fr.exec.substate) fr.exec with
+  | error e => rw [hc] at hsys; simp at hsys
+  | ok charged =>
+    rw [hc] at hsys
+    simp only at hsys
+    split at hsys
+    · simp at hsys
+    · simp only [Except.ok.injEq, Signal.next.injEq] at hsys
+      subst exec'
+      refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
+      · show charged.executionEnv = fr.exec.executionEnv
+        exact (Lir.V2.charge_accounts_env hc).2
+      · rw [resumeAfterCall_pc, Lir.V2.charge_pc hc]
+      · rfl
+      · rw [LirLean.MemAlgebra.resumeAfterCall_memory (by rfl), Lir.V2.charge_memory hc]
+      · rw [LirLean.MemAlgebra.resumeAfterCall_activeWords (by rfl) (by rfl),
+          Lir.V2.charge_activeWords hc]
+      · rfl
+
+private theorem call_resume_of_dispatch {log : RunLog} {callFr : Frame} {cw gw : Word}
+    {gS : List Word} {sS : List Nat} {rec : CallRecord} {cS' : List CallRecord}
+    {dS : List CreateRecord}
+    (hcp : RecorderCoupled log callFr gS sS (rec :: cS') dS)
+    (hch : CleanHaltsNonException callFr)
+    (hdec : decode callFr.exec.executionEnv.code callFr.exec.pc
+      = some (.System .CALL, .none))
+    (hstk : callFr.exec.stack = gw :: cw :: 0 :: 0 :: 0 :: 0 :: 0 :: [])
+    (hmod : callFr.exec.executionEnv.canModifyState = true)
+    (hcc : CallsCode callFr) :
+    ∃ resumeFr : Frame,
+      Runs callFr resumeFr
+      ∧ RecorderCoupled log resumeFr gS sS cS' dS
+      ∧ resumeFr.exec.executionEnv = callFr.exec.executionEnv
+      ∧ resumeFr.exec.pc = callFr.exec.pc + 1
+      ∧ resumeFr.exec.stack = callSuccessFlag rec.result rec.pending :: []
+      ∧ resumeFr.exec.memory = callFr.exec.memory
+      ∧ callFr.exec.activeWords.toNat ≤ resumeFr.exec.activeWords.toNat
+      ∧ resumeFr.validJumps = callFr.validJumps
+      ∧ (∀ k, selfStorage resumeFr k =
+          evmCallOracle.postStorage rec.result rec.pending
+            callFr.exec.executionEnv.address k) := by
+  classical
+  rcases call_dispatch_of_coupled hcp hch hdec hstk hmod with
+    ⟨cp, pending, hstep, henv, hvj, hpc, hmem, haw, hpstk, hin, hout⟩
+    | ⟨exec', hstep, hreceq, henv⟩
+  · obtain ⟨child, hbegin⟩ : ∃ child, beginCall cp = .inl child := by
+      cases hbc : beginCall cp with
+      | inl child => exact ⟨child, rfl⟩
+      | inr result =>
+          exact absurd hbc (beginCall_isCode_of_codeSource_ne_precompiled
+            (hcc cp pending hstep) result)
+    obtain ⟨childRes, hcall, hrec, hcpres⟩ :=
+      recorderCoupled_call_extract hcp hstep hbegin
+    have hpend : rec.pending = pending := by rw [hrec]
+    have hresult : rec.result = childRes.toCallResult := by rw [hrec]
+    have hcall' : CallReturns callFr (resumeAfterCall rec.result rec.pending) := by
+      rw [hresult, hpend]
+      exact hcall
+    have hcpres' : RecorderCoupled log (resumeAfterCall rec.result rec.pending) gS sS cS' dS := by
+      rw [hresult, hpend]
+      exact hcpres
+    refine ⟨resumeAfterCall rec.result rec.pending, sim_call hcall' (Runs.refl _), hcpres',
+      ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    · show rec.pending.frame.exec.executionEnv = callFr.exec.executionEnv
+      rw [hpend, henv]
+    · rw [resumeAfterCall_pc, hpend, hpc]
+    · rw [resumeAfterCall_stack, hpend, hpstk]
+      rfl
+    · rw [LirLean.MemAlgebra.resumeAfterCall_memory (by rw [hpend]; exact hout), hpend, hmem]
+    · have heq : (resumeAfterCall rec.result rec.pending).exec.activeWords
+          = callFr.exec.activeWords := by
+        rw [LirLean.MemAlgebra.resumeAfterCall_activeWords (by rw [hpend]; exact hin)
+          (by rw [hpend]; exact hout), hpend, haw]
+      rw [heq]
+    · rw [show (resumeAfterCall rec.result rec.pending).validJumps = rec.pending.frame.validJumps
+          from rfl, hpend, hvj]
+    · intro k
+      rw [selfStorage_eq_storageAt, storageAt]
+      have haddr : (resumeAfterCall rec.result rec.pending).exec.executionEnv.address
+          = callFr.exec.executionEnv.address := by
+        rw [resumeAfterCall_address, hpend, henv]
+      rw [haddr]
+      rfl
+  · obtain ⟨hcpres, _⟩ := recorderCoupled_call_softfail hcp
+      (by unfold isCallOp; rw [hdec]; rfl) hstep
+    obtain ⟨henv', hpc, hstack, hmem, haw, hacc⟩ :=
+      call_softfail_next_pins hdec hstk hstep
+    refine ⟨{ callFr with exec := exec' }, Runs.single (stepsTo_of_next hstep), hcpres,
+      henv', hpc, ?_, hmem, ?_, rfl, ?_⟩
+    · rw [hreceq, callSuccessFlag_softFailCallRecord]
+      exact hstack
+    · rw [haw]
+    · intro k
+      rw [selfStorage_eq_storageAt, storageAt]
+      show (exec'.accounts.find? exec'.executionEnv.address |>.option 0 (·.lookupStorage k)) = _
+      rw [hacc, henv', hreceq]
+      rfl
 
 /-- **R3 Piece B, step 3 — the Route-B tail at the pinned resume frame** (CLOSED). At a
 frame running `lower prog` one byte past this cursor's CALL byte with the success flag
@@ -3966,74 +4186,32 @@ theorem callRealises_of_recorded {prog : Program} {sloadChg : Tmp → ℕ} {log 
       (call_stmt_offset_bound_of_codeFits hcodeFits hb hcur hargslt)
       hcallbyte (by decide) hseg
     simpa using h
-  -- Piece B step 2: the dispatch bundle.
-  obtain ⟨cp, pending, hstep, henv, hvj, hpcpin, hmempin, hawpin, hstkpin, hinS, houtS⟩ :=
-    call_dispatch_of_coupled hcpcall hchcall hdecCall hcallstk hcallmod
-  -- the CallsCode seam rules out the precompile/immediate arm.
   have hccF : CallsCode callFr := hcc callFr hargs
-  obtain ⟨child, hbegin⟩ : ∃ child, beginCall cp = .inl child := by
-    cases hbc : beginCall cp with
-    | inl c => exact ⟨c, rfl⟩
-    | inr r =>
-        exact absurd hbc (beginCall_isCode_of_codeSource_ne_precompiled
-          (hccF cp pending hstep) r)
-  -- Piece A: identify the coupled head record with this CALL.
-  obtain ⟨childRes, hcall, hrec, _⟩ := recorderCoupled_call_extract hcpcall hstep hbegin
-  have hpend : rec.pending = pending := by rw [hrec]
-  have hresult : rec.result = childRes.toCallResult := by rw [hrec]
-  have hstep' : stepFrame callFr = .needsCall cp rec.pending := by rw [hpend]; exact hstep
-  -- the resume-frame pins, transported through the pending pins.
-  have henv' : rec.pending.frame.exec.executionEnv = callFr.exec.executionEnv := by
-    rw [hpend]; exact henv
-  have hresaddr : (Evm.resumeAfterCall rec.result rec.pending).exec.executionEnv.address
-      = fr0.exec.executionEnv.address := by
-    rw [resumeAfterCall_address, henv', hcalladdr]
-  have hrescode : (Evm.resumeAfterCall rec.result rec.pending).exec.executionEnv.code
-      = lower prog := by
-    rw [resumeAfterCall_code, henv', hcallcode]
-  have hrescanmod :
-      (Evm.resumeAfterCall rec.result rec.pending).exec.executionEnv.canModifyState = true := by
-    rw [resumeAfterCall_canModifyState, henv', hcallmod]
-  have hrespc : (Evm.resumeAfterCall rec.result rec.pending).exec.pc
-      = callFr.exec.pc + 1 := by
-    rw [resumeAfterCall_pc, hpend, hpcpin]
-  have hresstack : (Evm.resumeAfterCall rec.result rec.pending).exec.stack
-      = callSuccessFlag rec.result rec.pending :: [] := by
-    rw [resumeAfterCall_stack, hpend, hstkpin]; rfl
-  have hresmem : (Evm.resumeAfterCall rec.result rec.pending).exec.toMachineState.memory
-      = callFr.exec.toMachineState.memory := by
-    rw [LirLean.MemAlgebra.resumeAfterCall_memory (by rw [hpend]; exact houtS), hpend, hmempin]
-  have hresawEq :
-      (Evm.resumeAfterCall rec.result rec.pending).exec.toMachineState.activeWords
-        = callFr.exec.toMachineState.activeWords := by
-    rw [LirLean.MemAlgebra.resumeAfterCall_activeWords (by rw [hpend]; exact hinS)
-      (by rw [hpend]; exact houtS), hpend, hawpin]
-  have hresactive : callFr.exec.toMachineState.activeWords.toNat
-      ≤ (Evm.resumeAfterCall rec.result rec.pending).exec.toMachineState.activeWords.toNat := by
-    rw [hresawEq]
-  have hresvalid : (Evm.resumeAfterCall rec.result rec.pending).validJumps
-      = validJumpDests (Evm.resumeAfterCall rec.result rec.pending).exec.executionEnv.code 0 := by
-    rw [hrescode, resumeAfterCall_validJumps, hpend, hvj, hcallvj]
+  obtain ⟨resumeFr, hruns, _hcpres, hresenv, hrespc, hresstack, hresmem,
+      hresactive, hresvj, _hressto⟩ :=
+    call_resume_of_dispatch hcpcall hchcall hdecCall hcallstk hcallmod hccF
+  have hresaddr : resumeFr.exec.executionEnv.address = fr0.exec.executionEnv.address := by
+    rw [hresenv, hcalladdr]
+  have hrescode : resumeFr.exec.executionEnv.code = lower prog := by
+    rw [hresenv, hcallcode]
+  have hrescanmod : resumeFr.exec.executionEnv.canModifyState = true := by
+    rw [hresenv, hcallmod]
+  have hresvalid : resumeFr.validJumps = validJumpDests resumeFr.exec.executionEnv.code 0 := by
+    rw [hresvj, hcallvj, hresenv, hcallcode]
     exact hcorr.validJumps_lower
-  -- the returning CALL, rec-spelled.
-  have hcall' : CallReturns callFr (Evm.resumeAfterCall rec.result rec.pending) := by
-    rw [hresult, hpend]; exact hcall
-  -- clean-halt at the resume frame (forwarded across the arg run + the CALL node).
-  have hchres : CleanHaltsNonException (Evm.resumeAfterCall rec.result rec.pending) :=
-    cleanHaltsNonException_forward hch
-      (hargs.trans (Runs.call hcall'
-        (Runs.refl (Evm.resumeAfterCall rec.result rec.pending))))
-  -- Piece B step 3: the Route-B tail.
-  have htail := call_tail_of_cleanHalt
-    (resumeFr := Evm.resumeAfterCall rec.result rec.pending)
-    hcodeFits hb hcur hrescode
+  have hchres : CleanHaltsNonException resumeFr :=
+    cleanHaltsNonException_forward hch (hargs.trans hruns)
+  have htail := call_tail_of_cleanHalt (resumeFr := resumeFr) hcodeFits hb hcur hrescode
     (by rw [← hargsB, hrespc, hcallpc, hcorr.pc_eq,
           show (1 : UInt32) = UInt32.ofNat 1 from rfl, ofNat_add', ofNat_add'])
     hchres hslotaddr
-  -- the closed finish half.
-  exact callRealises_of_recorded_finish hwl hb hcur haddr hcorr rfl hargs
-    (by rw [hcallpc, hargsB]) hcallmem hcallact hcpcall hstep' hbegin hresaddr hrescode
-    hrescanmod hrespc hresstack hresmem hresactive hresvalid htail hcorr
+  refine ⟨rec.result, rec.pending, callFr, resumeFr, argsB.length,
+    stepScopedS_call_of_cursor hb hcur, ?_, rfl, hargs, ?_, hcallmem, hcallact, hruns,
+    hresaddr, hrescode, hrescanmod, hrespc, hresstack, hresmem, hresactive,
+    hresvalid, ?_, htail⟩
+  · cases cs.resultTmp <;> simp [haddr]
+  · rw [hcallpc, hargsB]
+  · exact call_post_wellScoped hb hcur hwl.defsCons hcorr.wellScoped
 
 /-- **R8 — presence threading** (the named replacement of the inside-out `hpresent`
 hypothesis, which quantified over the walk invariant). Trivial-looking on purpose: reached
@@ -4180,7 +4358,7 @@ theorem call_head_realises_coupled {prog : Program} {sloadChg : Tmp → ℕ} {lo
     (hfreeGasFwd : RematClosureFree prog I (.tmp cs.gasFwd))
     (hstkCallee : 5 + (chargeCache prog sloadChg cs.callee).length ≤ 1024)
     (hstkGasFwd : 6 + (chargeCache prog sloadChg cs.gasFwd).length ≤ 1024) :
-    ∃ callFr : Frame,
+    ∃ (resumeFr callFr : Frame),
       Runs fr0 callFr
       ∧ callFr.exec.pc = fr0.exec.pc + UInt32.ofNat
           ((emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
@@ -4188,21 +4366,19 @@ theorem call_head_realises_coupled {prog : Program} {sloadChg : Tmp → ℕ} {lo
       ∧ callFr.exec.toMachineState.memory = fr0.exec.toMachineState.memory
       ∧ fr0.exec.toMachineState.activeWords.toNat
           ≤ callFr.exec.toMachineState.activeWords.toNat
-      ∧ CallReturns callFr (Evm.resumeAfterCall rec.result rec.pending)
-      ∧ RecorderCoupled log (Evm.resumeAfterCall rec.result rec.pending) gS sS cS' dS
-      ∧ (Evm.resumeAfterCall rec.result rec.pending).exec.executionEnv.address
-          = fr0.exec.executionEnv.address
-      ∧ (Evm.resumeAfterCall rec.result rec.pending).exec.executionEnv.code = lower prog
-      ∧ (Evm.resumeAfterCall rec.result rec.pending).exec.executionEnv.canModifyState = true
-      ∧ (Evm.resumeAfterCall rec.result rec.pending).exec.pc = callFr.exec.pc + 1
-      ∧ (Evm.resumeAfterCall rec.result rec.pending).exec.stack
-          = callSuccessFlag rec.result rec.pending :: []
-      ∧ (Evm.resumeAfterCall rec.result rec.pending).exec.toMachineState.memory
-          = callFr.exec.toMachineState.memory
+      ∧ Runs callFr resumeFr
+      ∧ RecorderCoupled log resumeFr gS sS cS' dS
+      ∧ resumeFr.exec.executionEnv.address = fr0.exec.executionEnv.address
+      ∧ resumeFr.exec.executionEnv.code = lower prog
+      ∧ resumeFr.exec.executionEnv.canModifyState = true
+      ∧ resumeFr.exec.pc = callFr.exec.pc + 1
+      ∧ resumeFr.exec.stack = callSuccessFlag rec.result rec.pending :: []
+      ∧ resumeFr.exec.toMachineState.memory = callFr.exec.toMachineState.memory
       ∧ callFr.exec.toMachineState.activeWords.toNat
-          ≤ (Evm.resumeAfterCall rec.result rec.pending).exec.toMachineState.activeWords.toNat
-      ∧ (Evm.resumeAfterCall rec.result rec.pending).validJumps
-          = validJumpDests (Evm.resumeAfterCall rec.result rec.pending).exec.executionEnv.code 0 := by
+          ≤ resumeFr.exec.toMachineState.activeWords.toNat
+      ∧ resumeFr.validJumps = validJumpDests resumeFr.exec.executionEnv.code 0
+      ∧ (∀ k, selfStorage resumeFr k = evmCallOracle.postStorage rec.result rec.pending
+          fr0.exec.executionEnv.address k) := by
   classical
   -- Piece B step 1: the argument-push run (coupling + clean-halt carried to the CALL site).
   obtain ⟨callFr, hargs, hcallpc, hcallstk, hcallcode, hcallvj, hcalladdr, hcallmod,
@@ -4241,44 +4417,114 @@ theorem call_head_realises_coupled {prog : Program} {sloadChg : Tmp → ℕ} {lo
       (call_stmt_offset_bound_of_codeFits hcodeFits hb hcur hargslt)
       hcallbyte (by decide) hseg
     simpa using h
-  -- Piece B step 2: the dispatch bundle.
-  obtain ⟨cp, pending, hstep, henv, hvj, hpcpin, hmempin, hawpin, hstkpin, hinS, houtS⟩ :=
-    call_dispatch_of_coupled hcpcall hchcall hdecCall hcallstk hcallmod
-  -- the CallsCode seam rules out the precompile/immediate arm.
   have hccF : CallsCode callFr := hcc callFr hargs
-  obtain ⟨child, hbegin⟩ : ∃ child, beginCall cp = .inl child := by
-    cases hbc : beginCall cp with
-    | inl c => exact ⟨c, rfl⟩
-    | inr r =>
-        exact absurd hbc (beginCall_isCode_of_codeSource_ne_precompiled
-          (hccF cp pending hstep) r)
-  -- Piece A: identify the coupled head record with this CALL, KEEPING the advanced coupling.
-  obtain ⟨childRes, hcall, hrec, hcpres⟩ := recorderCoupled_call_extract hcpcall hstep hbegin
-  have hpend : rec.pending = pending := by rw [hrec]
-  have hresult : rec.result = childRes.toCallResult := by rw [hrec]
-  -- the returning CALL + the advanced coupling, rec-spelled.
-  have hcall' : CallReturns callFr (Evm.resumeAfterCall rec.result rec.pending) := by
-    rw [hresult, hpend]; exact hcall
-  have hcpres' : RecorderCoupled log (Evm.resumeAfterCall rec.result rec.pending) gS sS cS' dS := by
-    rw [hresult, hpend]; exact hcpres
-  -- the resume-frame pins, transported through the pending pins.
-  have henv' : rec.pending.frame.exec.executionEnv = callFr.exec.executionEnv := by
-    rw [hpend]; exact henv
-  refine ⟨callFr, hargs, by rw [hcallpc, hargsB], hcallmem, hcallact, hcall', hcpres',
-    ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
-  · rw [resumeAfterCall_address, henv', hcalladdr]
-  · rw [resumeAfterCall_code, henv', hcallcode]
-  · rw [resumeAfterCall_canModifyState, henv', hcallmod]
-  · rw [resumeAfterCall_pc, hpend, hpcpin]
-  · rw [resumeAfterCall_stack, hpend, hstkpin]; rfl
-  · rw [LirLean.MemAlgebra.resumeAfterCall_memory (by rw [hpend]; exact houtS), hpend, hmempin]
-  · have hawEq : (Evm.resumeAfterCall rec.result rec.pending).exec.toMachineState.activeWords
-        = callFr.exec.toMachineState.activeWords := by
-      rw [LirLean.MemAlgebra.resumeAfterCall_activeWords (by rw [hpend]; exact hinS)
-        (by rw [hpend]; exact houtS), hpend, hawpin]
-    rw [hawEq]
-  · rw [resumeAfterCall_code, henv', hcallcode, resumeAfterCall_validJumps, hpend, hvj, hcallvj]
+  obtain ⟨resumeFr, hruns, hcpres, hresenv, hrespc, hresstk, hresmem, hresact,
+      hresvj, hressto⟩ :=
+    call_resume_of_dispatch hcpcall hchcall hdecCall hcallstk hcallmod hccF
+  refine ⟨resumeFr, callFr, hargs, by rw [hcallpc, hargsB], hcallmem, hcallact,
+    hruns, hcpres, ?_, ?_, ?_, hrespc, hresstk, hresmem, hresact, ?_, ?_⟩
+  · rw [hresenv, hcalladdr]
+  · rw [hresenv, hcallcode]
+  · rw [hresenv, hcallmod]
+  · rw [hresvj, hcallvj, hresenv, hcallcode]
     exact hcorr.validJumps_lower
+  · intro k
+    rw [hressto k, hcalladdr]
+
+/-- At a lowered CALL statement cursor, the coupled call suffix has a head on both the
+child-descent and recorded depth-soft-fail arms. -/
+theorem callSuffix_nonempty_at_stmt {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
+    {L : Label} {b : Block} {pc : Nat} {cs : CallSpec}
+    {st0 : IRState} {fr0 : Frame} {cw gw : Word}
+    {gS : List Word} {sS : List Nat} {cS : List CallRecord} {dS : List CreateRecord}
+    {I : Tmp → Prop}
+    (hwl : WellLowered prog) (hcodeFits : codeFits prog)
+    (hb : blockAt prog L = some b) (hcur : b.stmts[pc]? = some (.call cs))
+    (hcorr : Corr prog sloadChg 0 I st0 fr0 L pc)
+    (hcp : RecorderCoupled log fr0 gS sS cS dS)
+    (hch : CleanHaltsNonException fr0)
+    (hcallee : st0.locals cs.callee = some cw)
+    (hgasfwd : st0.locals cs.gasFwd = some gw)
+    (hfreeCallee : RematClosureFree prog I (.tmp cs.callee))
+    (hfreeGasFwd : RematClosureFree prog I (.tmp cs.gasFwd))
+    (hstkCallee : 5 + (chargeCache prog sloadChg cs.callee).length ≤ 1024)
+    (hstkGasFwd : 6 + (chargeCache prog sloadChg cs.gasFwd).length ≤ 1024) :
+    ∃ rec cS', cS = rec :: cS' := by
+  obtain ⟨callFr, hargs, hcallpc, hcallstk, hcallcode, _, _, _, _, _, _, hcpcall,
+      hchcall⟩ :=
+    call_args_run_of_coupled hwl hcodeFits hb hcur hcorr hcp hch hcallee hgasfwd
+      hfreeCallee hfreeGasFwd hstkCallee hstkGasFwd
+  have hbt : prog.blocks.toList[L.idx]? = some b := Lir.toList_of_blockAt hb
+  set argsB := emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
+      ++ matCache prog cs.callee ++ matCache prog cs.gasFwd with hargsB
+  have hemit : emitStmt (matCache prog) (defsOf prog) (.call cs)
+      = argsB ++ [Byte.call] ++ (match cs.resultTmp with
+          | some t => emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]
+          | none => [Byte.pop]) := rfl
+  have hbyte : (emitStmt (matCache prog) (defsOf prog) (.call cs))[argsB.length]?
+      = some Byte.call := by
+    rw [hemit, List.getElem?_append_left (by
+          simp only [List.length_append, List.length_singleton]; omega),
+        List.getElem?_append_right (Nat.le_refl _)]
+    simp
+  have hseg : ∀ j, j < (emitStmt (matCache prog) (defsOf prog) (.call cs)).length →
+      (flatBytes prog)[pcOf prog L pc + j]?
+        = (emitStmt (matCache prog) (defsOf prog) (.call cs))[j]? :=
+    fun j hj => flatBytes_at_pcOf_offset prog L b pc (.call cs) j hbt hcur hj
+  have hargslt : argsB.length < (emitStmt (matCache prog) (defsOf prog) (.call cs)).length := by
+    rw [hemit]
+    simp only [List.length_append, List.length_singleton]
+    omega
+  have hdec : decode callFr.exec.executionEnv.code callFr.exec.pc
+      = some (.System .CALL, .none) := by
+    rw [hcallcode, hcallpc, hcorr.pc_eq, ofNat_add']
+    have h := nonpush_leaf_decodeF prog (pcOf prog L pc) argsB.length Byte.call
+      (emitStmt (matCache prog) (defsOf prog) (.call cs))
+      (call_stmt_offset_bound_of_codeFits hcodeFits hb hcur hargslt)
+      hbyte (by decide) hseg
+    simpa using h
+  have hisCall : isCallOp callFr = true := by unfold isCallOp; rw [hdec]; rfl
+  cases hstep : stepFrame callFr with
+  | next exec' => exact callSuffix_nonempty_of_next hcpcall hisCall hstep
+  | needsCall cp pending => exact callSuffix_nonempty hcpcall hstep
+  | needsCreate cp pending =>
+      exfalso
+      rcases (Evm.stepFrame_needsCreate_site_inv hstep).1 with h | h <;>
+        · rw [hdec] at h; simp at h
+  | halted halt =>
+      obtain ⟨last, halt', hrun, hhalt, hne⟩ := hchcall
+      have heq : callFr = last := runs_halt_eq hstep hrun
+      subst last
+      have hh : halt = halt' := by rw [hstep] at hhalt; exact (Signal.halted.injEq _ _).mp hhalt
+      subst halt'
+      rw [stepFrame, hdec] at hstep
+      simp only [Option.getD] at hstep
+      split at hstep
+      · injection hstep with heq; rw [← heq] at hne; simp [HaltNonException] at hne
+      · split at hstep
+        · injection hstep with heq; rw [← heq] at hne; simp [HaltNonException] at hne
+        · cases hd : dispatch (.System .CALL) .none callFr callFr.exec with
+          | error e =>
+              rw [hd] at hstep
+              injection hstep with heq
+              rw [← heq] at hne
+              simp [HaltNonException] at hne
+          | ok sig =>
+              rw [hd] at hstep
+              have hsig : sig = .halted halt := by simpa using hstep
+              subst sig
+              rw [dispatch] at hd
+              refine absurd hd ?_
+              unfold systemOp
+              apply BytecodeLayer.System.neverHalts_optionBind
+              rintro ⟨s, g, t, v, io, is, oo, os⟩ _
+              unfold BytecodeLayer.System.neverHalts
+              intro hl he
+              revert he
+              simp only [bind, Except.bind, pure, Except.pure]
+              split <;> intro he
+              · simp at he
+              · exact BytecodeLayer.System.callArm_neverHalts hl he
 
 /-! ### R3-CREATE — the CREATE run producer (mirror of the CALL bricks above)
 

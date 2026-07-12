@@ -109,9 +109,9 @@ theorem driveLog_drive :
       cases h : stepFrame current with
       | next exec =>
         dsimp only [h]
-        -- the nested recording `if`s (gas / sload / create2 / else) all reduce to the same
+        -- the nested recording `if`s (gas / sload / create2 / call / else) all reduce to the same
         -- recursive `driveLog` call modulo the (erased) accumulators; split every arm, close by `ih`.
-        split <;> [skip; split <;> [skip; split]] <;>
+        split <;> [skip; split <;> [skip; split <;> [skip; split]]] <;>
           exact ih stack (.inl { current with exec := exec }) _ _ _ _
       | halted halt => dsimp only [h]; exact ih stack (.inr (endFrame current halt)) _ _ _ _
       | needsCall params pending =>
@@ -167,4 +167,3 @@ theorem realisedCreate_cons {log : RunLog} {rec : CreateRecord} {tl : List Creat
     realisedCreate log self
       = evmV2CreateEntry rec.result rec.pending self :: createStreamOf tl self := by
   simp only [realisedCreate, createStreamOf, hc, List.map_cons]
-
