@@ -68,7 +68,7 @@ embedded live-scope clause for the result tmp is refutable WITHIN the R10a hypot
 envelope for any `WellLowered` program whose call result has a registered reader — not
 at `exProg` itself, whose `t5` has none, but the disease shape is identical). Everything
 else is VERBATIM the in-tree kernel: the realised `(result, pd)` oracle pinning, the
-arg-push run + its pins, the returning `CallReturns` + resume-frame pins, the post-state
+arg-push run + its pins, the arm-uniform CALL run + resume-frame pins, the post-state
 scoping fold (derivable: prior-live tmps from the `Corr` antecedent's `wellScoped`,
 locals untouched by the world swap; the result tmp from `DefsConsistent`'s call clause),
 and the Route-B tail. The `obs` phantom is pinned to `0` (as everywhere in this file).
@@ -99,9 +99,8 @@ def CallRealisesS (prog : Program) (sloadChg : Tmp → ℕ)
     ∧ callFr.exec.pc = fr0.exec.pc + UInt32.ofNat argsLen
     ∧ callFr.exec.toMachineState.memory = fr0.exec.toMachineState.memory
     ∧ fr0.exec.toMachineState.activeWords.toNat ≤ callFr.exec.toMachineState.activeWords.toNat
-    -- the returning external CALL + realised resume:
-    ∧ CallReturns callFr resumeFr
-    ∧ resumeFr = Evm.resumeAfterCall result pd
+    -- arm-uniform CALL edge: child descent/return or the depth soft-fail `.next` edge.
+    ∧ Runs callFr resumeFr
     ∧ resumeFr.exec.executionEnv.address = fr0.exec.executionEnv.address
     ∧ resumeFr.exec.executionEnv.code = lower prog
     ∧ resumeFr.exec.executionEnv.canModifyState = true
@@ -509,7 +508,7 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
   -- `CallRealises` embeds `StepScoped (.call cs)`, whose live-scope clause is refutable
   -- in-envelope for reader-carrying programs), kept shape-wise (it is itself
   -- `Corr → ∃ …`), under the coupling/clean-halt/address antecedents — without the
-  -- clean halt an adversarial OOG-at-CALL frame refutes the `CallReturns` existential; the
+  -- clean halt excludes an adversarial OOG-at-CALL frame from the run existential; the
   -- address pin is what lets the recorded record's `evmV2CallEntry` coincide with the
   -- effect at `fr0.address`. The consumed head IS the un-consumed call suffix's HEAD `rec`
   -- (the positional multi-call tie — no `SingleCall`): the post-state `st0'` is pinned to

@@ -7,6 +7,7 @@ open BytecodeLayer
 open BytecodeLayer.System
 open BytecodeLayer.Interpreter
 open BytecodeLayer.Hoare
+open GasConstants
 
 structure CallRecord where
   result : CallResult
@@ -36,6 +37,46 @@ soft-fail records `softFailCreateRecord`). -/
 def isCreate2Op (fr : Frame) : Bool :=
   (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (Operation.STOP, .none)).1
     == .System .CREATE2
+
+/-- Detect a CALL cursor so a top-level soft-fail still contributes its call record. -/
+def isCallOp (fr : Frame) : Bool :=
+  (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (Operation.STOP, .none)).1
+    == .System .CALL
+
+/-- The record consumed by the call channel when `callArm` takes its soft-fail branch. -/
+def softFailCallRecord (current : Frame) : CallRecord :=
+  let exec := current.exec
+  let (stack, gas, toAddress, value, inOffset, inSize, outOffset, outSize) :=
+    match exec.stack.pop7 with
+      | some operands => operands
+      | none => ([], 0, 0, 0, 0, 0, 0, 0)
+  let codeAddress := AccountAddress.ofUInt256 toAddress
+  let gasCap := callGasCap codeAddress codeAddress value gas
+    exec.accounts exec.gasAvailable exec.substate
+  let childGas := if value = 0 then gasCap else gasCap + Gcallstipend
+  { result :=
+      { createdAccounts := exec.createdAccounts
+        accounts := exec.accounts
+        gasRemaining := .ofNat childGas
+        substate := (exec.addAccessedAccount codeAddress).substate
+        success := false
+        output := .empty }
+    pending :=
+      { frame := current
+        stack := stack
+        callerAccounts := exec.accounts
+        value := value
+        inOffset := inOffset.toUInt64
+        inSize := inSize.toUInt64
+        outOffset := outOffset.toUInt64
+        outSize := outSize.toUInt64 } }
+
+/-- A soft-failed CALL pushes its failure flag `0`. -/
+theorem callSuccessFlag_softFailCallRecord (fr : Frame) :
+    callSuccessFlag (softFailCallRecord fr).result (softFailCallRecord fr).pending = 0 := by
+  unfold callSuccessFlag
+  simp only [softFailCallRecord]
+  rfl
 
 /-- The soft-fail CREATE2 record: `createArm`'s `.next`-branch `failed`/`pending`
 pair (`EVMLean/Evm/Semantics/System.lean:83–98`), rebuilt from the pre-step frame
@@ -136,6 +177,9 @@ def driveLog (fuel : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult)
               else if isCreate2Op current && stack.isEmpty then
                 driveLog fuel stack (.inl { current with exec := exec })
                   gasAcc sloadAcc callAcc (createAcc ++ [softFailCreateRecord current])
+              else if isCallOp current && stack.isEmpty then
+                driveLog fuel stack (.inl { current with exec := exec })
+                  gasAcc sloadAcc (callAcc ++ [softFailCallRecord current]) createAcc
               else
                 driveLog fuel stack (.inl { current with exec := exec }) gasAcc sloadAcc callAcc createAcc
             | .halted halt => driveLog fuel stack (.inr (endFrame current halt)) gasAcc sloadAcc callAcc createAcc

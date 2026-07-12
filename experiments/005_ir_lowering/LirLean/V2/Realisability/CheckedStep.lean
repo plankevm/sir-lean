@@ -599,6 +599,9 @@ def nextLogOnSig (c : LogConfig) (current : Frame) (sig : Signal) : LogConfig âŠ
       else if isCreate2Op current && c.stack.isEmpty then
         .inl { c with state := .inl { current with exec := exec }
                       createAcc := c.createAcc ++ [softFailCreateRecord current] }
+      else if isCallOp current && c.stack.isEmpty then
+        .inl { c with state := .inl { current with exec := exec }
+                      callAcc := c.callAcc ++ [softFailCallRecord current] }
       else
         .inl { c with state := .inl { current with exec := exec } }
     | .halted halt => .inl { c with state := .inr (endFrame current halt) }
