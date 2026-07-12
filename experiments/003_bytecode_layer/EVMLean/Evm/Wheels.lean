@@ -32,7 +32,6 @@ theorem zeroes_size (u : USize) : (ffi.ByteArray.zeroes u).size = u.toNat := by
 
 abbrev Literal := UInt256
 
--- 2^160 https://www.wolframalpha.com/input?i=2%5E160
 def AccountAddress.size : Nat := 1461501637330902918203684832716283019655932542976
 
 instance : NeZero AccountAddress.size where
@@ -46,6 +45,8 @@ instance : Ord AccountAddress where
 instance : Inhabited AccountAddress := ⟨Fin.ofNat _ 0⟩
 
 namespace AccountAddress
+
+theorem size_eq_2pow160 : AccountAddress.size = 2^160 := by rfl
 
 def ofNat (n : ℕ) : AccountAddress := Fin.ofNat _ n
 def ofUInt256 (v : UInt256) : AccountAddress := Fin.ofNat _ (v.toNat % AccountAddress.size)
