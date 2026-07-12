@@ -24,7 +24,7 @@ well-formedness hypothesis appears anywhere.
 
 ## The crux (per the brief)
 
-`validJumpDests` (`EVMLean/Evm/Semantics/Decode.lean`) walks the bytecode marking
+`validJumpDests` (`EVM/Evm/Semantics/Decode.lean`) walks the bytecode marking
 `JUMPDEST` bytes valid, **skipping PUSH immediates** (`nextInstrPosNat` advances by
 `1 + pushArgWidth`). `lower prog` emits `PUSH32` (33-byte) and `PUSH4` (5-byte)
 sequences, so the reachability walk over arbitrary-width pushes is the subtle part.

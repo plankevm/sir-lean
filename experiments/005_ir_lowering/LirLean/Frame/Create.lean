@@ -19,7 +19,7 @@ bytecode's.
 This mirrors `Call.lean` field-for-field. Two altitude differences from CALL, both
 handled here:
 
-* `resumeAfterCreate` (`EVMLean/Evm/Semantics/Create.lean:153`) returns
+* `resumeAfterCreate` (`EVM/Evm/Semantics/Create.lean:153`) returns
   `Except _ Frame` (it can throw on the 63/64 retention guard), whereas
   `resumeAfterCall` is total. So the oracle's projections read off the `CreateResult` /
   `PendingCreate` **data** that `resumeAfterCreate` writes (`accounts := result.accounts`,
@@ -82,7 +82,7 @@ def createAddrOrZero (result : CreateResult) (pd : PendingCreate) : Word :=
 /-! ## The EVM instantiation — by-construction the lowered CREATE
 
 `evmCreateOracle` defines each field as the corresponding projection of exp003's
-`resumeAfterCreate result pd` data (`EVMLean/Evm/Semantics/Create.lean`):
+`resumeAfterCreate result pd` data (`EVM/Evm/Semantics/Create.lean`):
 
 * `postStorage` reads `result.accounts` (the map `resumeAfterCreate` writes into
   `exec.accounts`, `Create.lean:168`) through the same `find?/lookupStorage` lens as

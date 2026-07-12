@@ -8,7 +8,7 @@ to the bytecode-lowering correctness proof (MSTORE the CALL success flag to a
 per-tmp slot, MLOAD it back on use).
 
 The EVM memory model lives in the exp003 package
-(`EVMLean/Evm/Machine/MachineStateOps.lean`): `mstore` calls `writeWord` →
+(`EVM/Evm/Machine/MachineStateOps.lean`): `mstore` calls `writeWord` →
 `writeBytes` → `ByteArray.write`; `mload` calls `lookupMemory` →
 `ByteArray.readWithPadding` → `fromByteArrayBigEndian`.
 

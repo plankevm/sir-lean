@@ -24,7 +24,7 @@ under `Match` (`Lir.call_reflects_lowered` in `Frame/Match.lean`).
 
 ## What the oracle captures (and the one thing it cannot)
 
-`resumeAfterCall result pd` (exp003 `EVMLean/Evm/Semantics/Call.lean`) does three
+`resumeAfterCall result pd` (`EVM/Evm/Semantics/Call.lean`) does three
 things the IR cares about:
 
 * sets `exec.accounts := result.accounts` — the **post-storage world** (read
@@ -87,7 +87,7 @@ structure CallOracle where
 /-! ## The EVM instantiation — by-construction the lowered CALL
 
 `evmCallOracle` defines each field as the corresponding projection of exp003's
-`resumeAfterCall result pd` (`EVMLean/Evm/Semantics/Call.lean`). Each is therefore
+`resumeAfterCall result pd` (`EVM/Evm/Semantics/Call.lean`). Each is therefore
 *definitionally* what the lowered bytecode's CALL does to that observable:
 
 * `postStorage` reads `result.accounts` (the map `resumeAfterCall` writes into

@@ -13,7 +13,7 @@
    "name": "evm",
    "manifestFile": "lake-manifest.json",
    "inherited": true,
-   "dir": "../003_bytecode_layer/EVMLean",
+   "dir": "../../EVM",
    "configFile": "lakefile.lean"},
   {"url": "https://github.com/leanprover-community/mathlib4.git",
    "type": "git",
