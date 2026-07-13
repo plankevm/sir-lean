@@ -53,7 +53,7 @@ premise is false:
    NOT make a premature `Create/` dir — `Create.lean` is the field-for-field twin of `Call.lean`
    (00-create-status §1), so it lives beside it in **`Frame/`**. First-class CREATE, when it lands,
    adds arms to existing files (IR/Semantics/Lowering/Match/Recorder) + reuses the `DescentKind`
-   scaffold already in `Engine/Descent.lean:421-567` — it does not want its own directory.
+   scaffold already in `BytecodeLayer/Hoare/Descent.lean:421-567` — it does not want its own directory.
 
 ---
 
@@ -146,7 +146,7 @@ lift to exp003 unchanged on the import axis.
 **Note on `Spec/` altitude honesty (correcting reorg-plan's "the definitions" label):**
 `Spec/{IR,Semantics,Lowering}` are true L0 (import only `Evm`+`Spec/IR`); `Spec/Recorder` and
 `Spec/Seams` sit HIGH in the DAG (Recorder imports `V2/CallRealises`+`Hoare.GasMonotone`; Seams
-imports `V2/Drive/CallPreservesSelf`+`V2/Modellable`+`Engine/CleanHalt`). They live in `Spec/` for
+imports `V2/Drive/CallPreservesSelf`+`Decode/Modellable`+`BytecodeLayer/Hoare/CleanHalt`). They live in `Spec/` for
 the **reviewer-surface role**, not because they are base — keep them there but the directory README
 should state this so no one reads `Spec/` as a pure altitude floor. `Spec/Conformance` is a
 deliberate tombstone (`Spec/Conformance.lean:1-24`), not dead.
@@ -219,14 +219,14 @@ Consequence for the reorg: `Assembly/` is a real, populated directory (`LowerDec
 in `Lir.V2` (`AccountMap`, `StepWalk`, `Descent`, `DriveMono`, `CleanHalt`); `DriveRuns`
 (`BytecodeLayer.Interpreter`) and the `Evm`-namespaced inversions are graduation-ready;
 `AccountMap.lean:26/55/68` already carries `-- RELOCATE to exp003`. Graduation is a renamespace +
-physical move to `003_bytecode_layer/`, changing every downstream `import LirLean.Engine.*` →
-`import BytecodeLayer.Engine.*` (or wherever exp003 puts it). Because it touches ~every V2/Drive
+physical move to `003_bytecode_layer/`, changing every downstream engine import to
+`import BytecodeLayer.Hoare.*`. Because it touches ~every V2/Drive
 file's import block, **do it as its own PR AFTER the LirLean-internal reorg settles** — never
 interleave the two churns. Keep `Engine/` a self-contained directory in the meantime so the move is
 a clean `git mv` of the whole folder.
 
 **CREATE going live (future feature, no premature directory).** Today `Create.lean` (Frame/) and
-the `DescentKind` block (`Engine/Descent.lean:421-567`) are green scaffolding; the IR surface has
+the `DescentKind` block (`BytecodeLayer/Hoare/Descent.lean:421-567`) are green scaffolding; the IR surface has
 zero CREATE node (`Spec/IR.lean:77-86`, `Spec/Lowering.lean:178-200`). When first-class CREATE
 lands (00-create-status §6) it **adds arms to existing files** — `Stmt.create` in `Spec/IR`, a
 `.create` arm in `Spec/Semantics` + `V2/IRRun` + `Spec/Lowering.emitStmt`, a `create_reflects_lowered`

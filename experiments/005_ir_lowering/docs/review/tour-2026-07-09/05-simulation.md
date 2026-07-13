@@ -159,7 +159,7 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       ∧ fr'.exec.stack = []
 ```
 
-Notable design points: the operand gas envelopes are **derived, not supplied** — the clean-halt witness [`CleanHaltsNonException`](../../../LirLean/Engine/CleanHalt.lean#L62) is fed to [`materialise_runsC_of_cleanHalt`](../../../LirLean/Materialise/MaterialiseCleanHalt.lean#L372) twice (value at `fr`, key at the intermediate frame, forwarded via [`cleanHaltsNonException_forward`](../../../LirLean/Engine/CleanHalt.lean#L80)). The remaining runtime seam is [`SstoreRealises`](../../../LirLean/Sim/SimStmt.lean#L317):
+Notable design points: the operand gas envelopes are **derived, not supplied** — the clean-halt witness [`CleanHaltsNonException`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean#L62) is fed to [`materialise_runsC_of_cleanHalt`](../../../LirLean/Materialise/MaterialiseCleanHalt.lean#L372) twice (value at `fr`, key at the intermediate frame, forwarded via [`cleanHaltsNonException_forward`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean#L80)). The remaining runtime seam is [`SstoreRealises`](../../../LirLean/Sim/SimStmt.lean#L317):
 
 ```lean
 def SstoreRealises (fr : Frame) (kw vw : Word) (acc : Account) : Prop :=
@@ -237,7 +237,7 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
 | **Exploded-`Corr` plumbing** | `hfrpc`, `hdefs`, `hmem` (3) | Interface unevenness: unlike every sibling arm, `sim_call_stmt` takes `Corr`'s fields exploded instead of `hcorr : Corr …`. Pure refactor. |
 | **Cursor/structural plumbing** | `hb`, `hs`, `hargslen`, `hslots`, `hsc`, `hscoped'` (6) | `hargslen` is definitional; `hslots` is [`WellFormedLowered.slots_slot`](../../../LirLean/Assembly/LowerConforms.lean#L182); `hsc`/`hscoped'` are the standard scoping ties. |
 
-The `memAgree` re-establishment is the arm's real content: the freshly bound result slot reads back the flag ([`mstore_reads_back`](../../../LirLean/Engine/MemAlgebra.lean#L713)), and every other bound slot survives the disjoint MSTORE ([`slot_windows_disjoint`](../../../LirLean/Engine/MemAlgebra.lean#L872) on [`slotOf`](../../../LirLean/Spec/Lowering.lean#L39)`= t.id * 32`, [`mstore_preserves_slot_grow`](../../../LirLean/Engine/MemAlgebra.lean#L919)). Proof method: direct frame-chain assembly + record rebuild; no induction.
+The `memAgree` re-establishment is the arm's real content: the freshly bound result slot reads back the flag ([`mstore_reads_back`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/MemAlgebra.lean#L713)), and every other bound slot survives the disjoint MSTORE ([`slot_windows_disjoint`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/MemAlgebra.lean#L872) on [`slotOf`](../../../LirLean/Spec/Lowering.lean#L39)`= t.id * 32`, [`mstore_preserves_slot_grow`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/MemAlgebra.lean#L919)). Proof method: direct frame-chain assembly + record rebuild; no induction.
 
 ### 3.4 `sim_assign_gas` / `sim_assign_sload` — the spill arms
 

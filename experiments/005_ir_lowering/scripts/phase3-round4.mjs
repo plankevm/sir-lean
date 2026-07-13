@@ -58,7 +58,7 @@ const TRACKS = [
     id: 'leaf-r6', branch: 'p3/leaf-r6', wt: `${WT_ROOT}/p3-leaf-r6/${EXP}`,
     title: 'R6 — the boundary walk (STEP/CALL edge lemmas)',
     obligations: `Close R6 (runs_atReachableBoundary, ~:2130 — statement ALREADY FIXED with hne + hsize; do NOT change it). Round 3 produced no committed progress here; the blocker is the STEP and CALL edge lemmas feeding atReachableBoundary_of_runs — that one stepFrame, and a returning CALL, from a reachable instruction boundary lands at another reachable boundary of lower prog. Build those edge lemmas (real proofs; case on the opcode/decode at the boundary using the landing salvage), then close R6 via atReachableBoundary_of_runs seeded by atReachableBoundary_entry. This is genuinely hard pc-reachability geometry — budget for it; land partial + precise blocker if it doesn't fully close.`,
-    salvage: `atReachableBoundary_entry / atReachableBoundary_of_runs / not_runs_atReachableBoundary (closed), AtReachableBoundary def (V2/Modellable.lean:407), jump_landing_of_cleanHalt / branch_landing_of_cleanHalt (MaterialiseCleanHalt/LowerDecode), BoundaryReach bricks, decode/jumpdest algebra (Engine/*, DecodeAnchors, DecodeLower).`,
+    salvage: `atReachableBoundary_entry / atReachableBoundary_of_runs / not_runs_atReachableBoundary (closed), AtReachableBoundary def (Decode/Modellable.lean:407), jump_landing_of_cleanHalt / branch_landing_of_cleanHalt (MaterialiseCleanHalt/LowerDecode), BoundaryReach bricks, decode/jumpdest algebra (BytecodeLayer/Hoare/*, DecodeAnchors, DecodeLower).`,
   },
 ]
 

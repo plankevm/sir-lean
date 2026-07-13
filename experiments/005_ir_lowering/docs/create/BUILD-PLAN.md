@@ -27,7 +27,7 @@ CALL template chain is:
 Spec/IR.CallSpec → Semantics.EvalStmt.call → Lowering.emitStmt .call
   → Frame/Call.evmCallOracle → Frame/Match.call_reflects_lowered
   → V2/CallRealises.evmV2CallEntry → Spec/Recorder.recordCall
-  → V2/Modellable clause-1 → flagship (V2/Realisability/RealisabilitySpec)
+  → Decode/Modellable clause-1 → flagship (V2/Realisability/RealisabilitySpec)
 ```
 
 Every CREATE artifact is the twin of the correspondingly-named CALL artifact.
@@ -43,9 +43,9 @@ kinds:
 - `beginCreate` (exp003:Create.lean:64, **total**), `endCreate` (:141),
   `resumeAfterCreate` (:189, `Except`-typed — see R4), `createArm`
   (exp003:System.lean:73), `CreateResult` (exp003:Params.lean:63).
-- Engine: `createDescent` (Engine/Descent.lean:502), the `.needsCreate` invariants,
-  `endFrame_create_accPresent` (Engine/DriveMono.lean:87), the `.create`-kind arms
-  in `drive`-reconstruction (Engine/DriveRuns.lean).
+- Engine: `createDescent` (BytecodeLayer/Hoare/Descent.lean:502), the `.needsCreate` invariants,
+  `endFrame_create_accPresent` (BytecodeLayer/Hoare/DriveMono.lean:87), the `.create`-kind arms
+  in `drive`-reconstruction (BytecodeLayer/Hoare/DriveRuns.lean).
 
 **Tier 2 — mechanical CALL twins (the bulk of the build).** Each is a
 copy-rename-rethread of its CALL sibling with an identical `(World × Word)` element
@@ -111,7 +111,7 @@ sites (from spike §3b, relocated to current reorged/split paths):
 |---|-----------|-------|-----------|
 | 1 | `Materialise/CleanHaltExtract.lean:408` | `halted_runs_eq` | contradiction `| create` (trivial) |
 | 2 | `V2/Realisability/Machinery.lean:203` | `runs_halt_eq` | contradiction `| create` (trivial) |
-| 3 | `V2/Realisability/Machinery.lean:403` | `runs_kind` | `| create` via `resumeAfterCreate_kind` (Engine/Descent.lean) + `stepFrame_needsCreate_inv` (both exist) |
+| 3 | `V2/Realisability/Machinery.lean:403` | `runs_kind` | `| create` via `resumeAfterCreate_kind` (BytecodeLayer/Hoare/Descent.lean) + `stepFrame_needsCreate_inv` (both exist) |
 | 4 | `V2/Realisability/Machinery.lean:1390` | `atReachableBoundaryVJ_of_runs` | `| create` needs NEW edge `atReachableBoundaryVJ_create` (twin of `..._call`); geometry facts exist |
 | 5 | `V2/Drive/CallPreservesSelf.lean:235` | `selfPresent_runs` | `| create` needs NEW edge `CreatePreservesSelf`, discharge via `resumeAfterCreate_exec_accounts_present` (Descent.lean:373) + `endFrame_create_accPresent` (DriveMono.lean:87), both exist |
 
@@ -249,7 +249,7 @@ Risk: MEDIUM. Parallel additions; touch no existing call/gas/sload declaration
 
 Goal: turn the flagship's *proof that no CREATE occurs* into *permission for CREATE
 descents*. This is a **subtraction**, lower-risk than the additions.
-- `V2/Modellable.lean`: delete/weaken the `NotCreate` clause (`notCreate_of_atReachableBoundary`
+- `Decode/Modellable.lean`: delete/weaken the `NotCreate` clause (`notCreate_of_atReachableBoundary`
   :25); replace with a localized "descents occur exactly at emitted CREATE/CALL sites"
   predicate over the R6 boundary walk. Re-state `lower_modellable` to permit CREATE
   descents.
@@ -260,7 +260,7 @@ descents*. This is a **subtraction**, lower-risk than the additions.
   add `0xf0`/`0xf5` to `IsLoweringOp` (`BoundaryReach.lean`) so CREATE lands in one
   place — do NOT re-prove a CREATE-permitting tower. (R6 dedup already done, so this
   is direct.)
-- Generalise `runs_of_drive_ok` (`Engine/DriveRuns.lean:283`): delete the
+- Generalise `runs_of_drive_ok` (`BytecodeLayer/Hoare/DriveRuns.lean:283`): delete the
   `ModellableStep` create clause and build a `Runs.create` node in the `.needsCreate`
   arm (:364-365, currently `absurd … (hmodel …).1`), mirroring the `.needsCall` code
   arm. The two hardest ingredients (`driveG_needsCreate`, a fuel-bounded
@@ -310,7 +310,7 @@ exp003 Hoare/DriveRuns (Step 0, DONE)
   → { Spec/Semantics (Step 2), Spec/Lowering (Step 4), Frame/SmallStep (Step 3) }
   → { Decode cluster (LoweringLemmas/BoundaryReach), Frame/Match (Step 5) }
   → { V2/CreateRealises, Spec/Recorder (Step 6) }
-  → { V2/Modellable, Decode/NoCreateBytes (Step 7) }
+  → { Decode/Modellable, Decode/NoCreateBytes (Step 7) }
   → V2/Realisability/RealisabilitySpec (Step 8)
 ```
 

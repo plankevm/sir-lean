@@ -19,15 +19,16 @@ IR.
 
 - `LirLean/Spec/`: public syntax, semantics, lowering, recorder, conformance, seams, and static
   well-formedness.
-- `LirLean/{Engine,Decode,Materialise,Sim,Assembly}/`: proven bytecode-facing reasoning.
+- `../../003_bytecode_layer/BytecodeLayer/Hoare/`: reusable, IR-free interpreter reasoning shared by
+  the lowering proof.
+- `LirLean/{Decode,Materialise,Sim,Assembly}/`: lowering-specific bytecode reasoning.
 - `LirLean/V2/Realisability/`: the non-default `WIP` closure layer. `Surface.lean` defines the
   coupling vocabulary, `Machinery.lean` proves engine bridges, `Producer.lean` builds the coupled
   IR run, and `RealisabilitySpec.lean` contains the public theorem shells.
 
-`lake build` must remain green and sorry-free. `lake build WIP` must remain green while its tracked
-debt decreases. The public `lower_conforms` shell is already the intended observable statement;
-the remaining work is its coupled run producer, exact-consumption/gas-free siblings, and concrete
-non-vacuity witness.
+`lake build` and `lake build WIP` must remain green and sorry-free. The public
+`lower_conforms`, `lower_conforms_exact`, and `lower_conforms_gasfree` theorems are closed and
+axiom-clean; refactors must preserve their statements and axiom sets exactly.
 
 ## Cleanup rule
 

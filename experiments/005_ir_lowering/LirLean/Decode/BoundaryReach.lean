@@ -1,12 +1,12 @@
 import LirLean.Decode.JumpValid
-import LirLean.Engine.Descent
+import BytecodeLayer.Hoare.Descent
 
 /-!
 # LirLean — boundary-reachability bricks for the whole-run `AtReachableBoundary` invariant
 
 The whole-run boundary invariant the modellability producer needs is
 `∀ fr', Runs (codeFrame params (lower prog)) fr' → AtReachableBoundary prog fr'`
-(`hrb` of `BytecodeLayer.Interpreter.lower_modellable`, `V2/Modellable.lean`):
+(`hrb` of `BytecodeLayer.Interpreter.lower_modellable`, `Decode/Modellable.lean`):
 every `Runs`-reachable frame sits at an instruction boundary reachable from `0` and in range.
 Proving it is a `Runs`-induction whose `step`/`call` cases need three reachability facts beyond
 `JumpValid.lean`; this module supplies all three:

@@ -28,7 +28,7 @@ import LirLean.Frame.Match
 import LirLean.Materialise.MaterialiseGas
 import LirLean.Materialise.DefsSound
 import LirLean.Materialise.MaterialiseRuns
-import LirLean.Engine.CleanHalt
+import BytecodeLayer.Hoare.CleanHalt
 import LirLean.Materialise.CleanHaltExtract
 import LirLean.Materialise.MaterialiseCleanHalt
 
@@ -41,7 +41,7 @@ import LirLean.V2.IRRun
 import LirLean.V2.Call
 import LirLean.V2.CallRealises
 
--- Cyclic-CFG drive simulation + the assembled/tie-free headlines (over Engine/, Drive/).
+-- Cyclic-CFG drive simulation + the assembled/tie-free headlines.
 import LirLean.V2.Drive.DriveSim
 import LirLean.V2.Drive.Headline
 

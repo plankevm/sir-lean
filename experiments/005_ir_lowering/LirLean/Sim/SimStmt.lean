@@ -1,7 +1,7 @@
 import LirLean.Materialise.MaterialiseRuns
 import LirLean.Materialise.MaterialiseCleanHalt
 import LirLean.V2.CallRealises
-import LirLean.Engine.CleanHalt
+import BytecodeLayer.Hoare.CleanHalt
 
 /-!
 # LirLean — `sim_stmt` (Layer **C** of the general `lower_conforms` grind)

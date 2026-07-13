@@ -1,7 +1,7 @@
 import LirLean.Assembly.LowerConforms
 import LirLean.V2.IRRun
-import LirLean.Engine.DriveRuns
-import LirLean.Engine.Modellable
+import BytecodeLayer.Hoare.DriveRuns
+import LirLean.Decode.Modellable
 -- `Runs.gasAvailable_le` (used below in the gas-descent measure) lives here; imported
 -- directly rather than plumbed through `Spec/Recorder.lean` (keeps the trusted spec cone
 -- free of this exp003 gas-monotonicity dependency).
@@ -26,13 +26,13 @@ the cyclic-general headline `lower_conforms_cyclic` (F3) — **`CFGAcyclic` reti
   to an IR cursor `(L, st)`: `Corr prog … st fr L 0` together with the frame's remaining run
   reaching a clean **non-exception** `.halted` outcome (`CleanHaltsNonException fr`), whose
   `totalGas [] (.inl fr) = fr.exec.gasAvailable.toNat` (`driveCorr_measure`) is the recursion
-  measure. The clean-halt predicates live in `LirLean/Engine/CleanHalt.lean`.
-* **`cleanHaltsNonException_forward`** (`LirLean/Engine/CleanHalt.lean`) — the **forward clean-halt
+  measure. The clean-halt predicates live in `experiments/003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean`.
+* **`cleanHaltsNonException_forward`** (`experiments/003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean`) — the **forward clean-halt
   split** (the former wall, now DERIVED). `stepFrame` is a function, so the halting `Runs` path is
   *linear* (`Runs.linear_to_halt`, exp003 `BytecodeLayer/Hoare.lean`): every frame reachable on the
   way to a halt continues to the *same* halt. So `CleanHaltsNonException` is forward-closed along
   `Runs` — a block successor inherits its predecessor's non-exception clean-halt, no longer
-  supplied. The predicate and forward split live in `Engine/CleanHalt.lean` (upstream of both this walk
+  supplied. The predicate and forward split live in `BytecodeLayer/Hoare/CleanHalt.lean` (upstream of both this walk
   and the `SimStmts` induction).
 * **`jumpdestFrame_gas_lt` / `totalGas_succ_lt`** (§3) — the **strict `totalGas` descent**: a
   `JUMPDEST` step (cost `Gjumpdest = 1 ≥ 1`) drops `gasAvailable.toNat` by exactly one, so the
@@ -64,7 +64,7 @@ the cyclic-general headline `lower_conforms_cyclic` (F3) — **`CFGAcyclic` reti
   log` plus the non-exception scope premise).
 
 Bytecode-coupled (imports the Layer C–E bricks via `LowerConforms`); nothing here touches
-`Spec/Semantics.lean` / `V2/Law.lean` / `Engine/MemAlgebra.lean`. No `sorry`/`axiom`/`native_decide`.
+`Spec/Semantics.lean` / `V2/Law.lean` / `BytecodeLayer/Hoare/MemAlgebra.lean`. No `sorry`/`axiom`/`native_decide`.
 -/
 
 namespace Lir.V2
@@ -75,9 +75,9 @@ open BytecodeLayer.Hoare
 open BytecodeLayer.Interpreter
 open Lir
 
-/-! ## §2 — the boundary invariant `DriveCorr` (clean-halt predicates: `LirLean/Engine/CleanHalt.lean`)
+/-! ## §2 — the boundary invariant `DriveCorr` (clean-halt predicates: `experiments/003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean`)
 
-`CleanHalts` / `CleanHaltsNonException` and their forward splits live in `LirLean/Engine/CleanHalt.lean`
+`CleanHalts` / `CleanHaltsNonException` and their forward splits live in `experiments/003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean`
 (upstream of both this drive walk and the `SimStmts` per-statement induction, so they are visible
 to the whole tower). `open Lir.V2` (this namespace) brings them into scope here. -/
 
@@ -109,7 +109,7 @@ honest scope boundary — the recording interpreter reaching a clean `.halted` o
 `runWithLog params (seedFuel params.gas) = some log`, *plus* the non-exception scope premise `hne`
 (the recorded outcome is `.success`/`.revert`, not OOG/exception). `runWithLog_drive`
 (`RecorderLemmas.lean`) pins the verified `drive (seedFuel params.gas) [] (running fr₀) = .ok
-log.observable`; the reverse construction `runs_of_drive_ok` (`Engine/DriveRuns.lean`) reconstructs the
+log.observable`; the reverse construction `runs_of_drive_ok` (`BytecodeLayer/Hoare/DriveRuns.lean`) reconstructs the
 halting `Runs fr₀ last` from that clean termination, under the `Runs`-modellability side condition
 (every reachable frame issues a code CALL or a halt — no CREATE / precompile-CALL, discharged
 structurally for `lower prog`). -/
@@ -119,7 +119,7 @@ log` (the run reaches a clean `.halted` outcome) and `beginCall params = .inl fr
 frame), the entry frame `CleanHaltsNonException`. The `drive → Runs` reverse construction
 (`runs_of_drive_ok`) reconstructs the halting `Runs` from the verified `drive` outcome
 `runWithLog_drive` pins, under the `Runs`-modellability of every reachable frame — which is **no
-longer a raw supplied universal**: it is **produced** by `lower_modellable` (`V2/Modellable.lean`)
+longer a raw supplied universal**: it is **produced** by `lower_modellable` (`Decode/Modellable.lean`)
 from the two per-frame residuals
 
 * `CreateResolves` — every reachable CREATE whose init child terminates resumes successfully (the
@@ -718,4 +718,4 @@ end Lir.V2
 -- Build-enforced axiom-cleanliness guards for the cyclic-CFG deliverables: the strict `totalGas`
 -- descent, the four per-block drive steps, the F2 recursion (`runFrom_of_driveCorr`) and the F3
 -- assembly (`lower_conforms_cyclic`) depend only on `[propext, Classical.choice, Quot.sound]`.
--- (The forward clean-halt split lives in `LirLean/Engine/CleanHalt.lean`, guarded there.)
+-- (The forward clean-halt split lives in `experiments/003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean`, guarded there.)

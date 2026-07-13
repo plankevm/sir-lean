@@ -1,12 +1,10 @@
-import LirLean.Engine.AccountMap
+import BytecodeLayer.Hoare.AccountMap
 import BytecodeLayer.Hoare.CallSequence
 
 /-!
-# `LirLean.Engine.StepWalk` — the ONE dispatch walk: env-equality + account-presence mono
+# The dispatch walk: environment equality and account-presence monotonicity
 
-The engine-level per-opcode `.next` induction (CALLMONO Brick C) and its frame-level wrappers,
-extracted verbatim from the former `V2/TieDischarge.lean` monolith (names and namespaces unchanged; zero IR / zero
-recorder / zero `SelfPresent`):
+The per-opcode `.next` induction and its frame-level wrappers:
 
 * the accounts/env framing prims (`charge_accounts_env`, `chargeMemExpansion_accounts_env`,
   `replaceStackAndIncrPC_accounts`, `continueWith_next`, `sstore_accMono`/`tstore_accMono`);
@@ -124,10 +122,9 @@ def SelfAt (exec : ExecutionState) : Prop :=
 
 /-! ### The `resumeAfterCall`/`endCall` structural transport facts
 
-The `rfl` halves of the `Runs.call` resume's presence transport (the `SelfPresent`-stating
-consumers live in `V2/Drive`): the resumed frame keeps the suspended caller's `executionEnv`
-and takes the child's returned `result.accounts`; `endCall` rolls back to the checkpoint map
-on `.revert`/`.exception`. -/
+The `rfl` halves of the `Runs.call` resume's presence transport: the resumed frame keeps the
+suspended caller's `executionEnv` and takes the child's returned `result.accounts`; `endCall`
+rolls back to the checkpoint map on `.revert`/`.exception`. -/
 
 /-- The resumed frame's self address is the *caller's* self address: `resumeAfterCall` rebuilds
 `pd.frame` (the suspended caller) touching only stack/pc/gas/accounts/substate, leaving

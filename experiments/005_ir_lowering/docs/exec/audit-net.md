@@ -37,7 +37,7 @@ root), the Batteries `runLinter` baseline freeze (`scripts/nolints.json`), and t
 > inventory table and §2 signature-freeze section below are HISTORICAL** — they document the pre-
 > deletion net, not the current one.
 >
-> **KNOWN EXCEPTION (fleet follow-up #2).** `Engine/MemAlgebra.lean` (~948–976) retains **8**
+> **KNOWN EXCEPTION (fleet follow-up #2).** `BytecodeLayer/Hoare/MemAlgebra.lean` (~948–976) retains **8**
 > `#guard_msgs in #print axioms` commands *outside* `Audit.lean`. These are intentional local guards
 > — they still fail-hard on any axiom/`sorry`/native-decide drift in the MemAlgebra cone — and are
 > recorded here so that "Audit.lean is the net" is not read as *exclusive*. They were deliberately

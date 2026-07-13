@@ -3,7 +3,7 @@ import LirLean.Decode.JumpValid
 import LirLean.Decode.DecodeAnchors
 import LirLean.V2.RecorderLemmas
 import LirLean.Materialise.StashTail
-import LirLean.Engine.MemAlgebra
+import BytecodeLayer.Hoare.MemAlgebra
 
 /-!
 # LirLean — `sim_term` (Layer **E** of the general `lower_conforms` grind)

@@ -1,10 +1,10 @@
 import BytecodeLayer.Hoare
 
 /-!
-# LirLean — the clean-halt scope predicates (`CleanHalts`, `CleanHaltsNonException`)
+# Clean-halt scope predicates (`CleanHalts`, `CleanHaltsNonException`)
 
-The boundary invariant `DriveCorr` (`V2/DriveSim.lean`) carries a witness that a block-entry
-frame's remaining run **terminates cleanly**. Two strengths are used:
+These predicates record that a frame's remaining run **terminates cleanly**. Two strengths are
+used:
 
 * **`CleanHalts fr`** — the run reaches *some* `.halted` outcome (the standing well-foundedness
   witness threaded through the drive recursion; its `totalGas` is the recursion measure).
@@ -17,13 +17,9 @@ frame's remaining run **terminates cleanly**. Two strengths are used:
   supplying it: a continuing op's only `.halted` is `.exception`, so a cursor frame can never
   coincide with a non-exception terminal — it must step, witnessing its own gas guard.
 
-Both predicates live here — upstream of *both* the per-statement simulation (`SimStmts.lean`, which
-takes `CleanHaltsNonException` as a per-cursor premise) and the drive walk (`V2/DriveSim.lean`,
-which uses it as the `DriveCorr.cleanHalts` field) — so they are visible to the whole tower.
-
 The forward split (`cleanHalts_forward` / `cleanHaltsNonException_forward`) is the linearity of the
-halting `Runs` path: `stepFrame` is a function, so `Runs.linear_to_halt` (exp003
-`BytecodeLayer/Hoare.lean`) gives that every frame reachable on the way to a halt continues to the
+halting `Runs` path: `stepFrame` is a function, so `Runs.linear_to_halt` gives that every frame
+reachable on the way to a halt continues to the
 **same** halt. Clean-halting is therefore forward-closed along `Runs`.
 
 No `sorry`/`axiom`/`native_decide`.

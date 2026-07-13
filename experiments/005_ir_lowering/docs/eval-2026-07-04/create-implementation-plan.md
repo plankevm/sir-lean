@@ -61,11 +61,11 @@ Everything the IR would lower *onto* exists and is proven:
   `PendingCreate` (exp003:Frame.lean:74); `CreateResult extends CallResult`
   (exp003:Params.lean:63); `FrameResult.toCreateResult` (exp003:Frame.lean).
 - Engine altitude already CREATE-complete and axiom-clean: `createDescent :
-  DescentKind` (Engine/Descent.lean:502) + `createDescent_descendImmediate_trivial`
+  DescentKind` (BytecodeLayer/Hoare/Descent.lean:502) + `createDescent_descendImmediate_trivial`
   (:538); `createArm_needsCreate_inv`/`systemOp_needsCreate_inv`/
-  `stepFrame_needsCreate_inv` (Engine/Descent.lean); `endFrame_create_accPresent`
-  (Engine/DriveMono.lean:87); the `.create`-kind arms in `drive`-reconstruction
-  (Engine/DriveRuns.lean:104,182,250,364).
+  `stepFrame_needsCreate_inv` (BytecodeLayer/Hoare/Descent.lean); `endFrame_create_accPresent`
+  (BytecodeLayer/Hoare/DriveMono.lean:87); the `.create`-kind arms in `drive`-reconstruction
+  (BytecodeLayer/Hoare/DriveRuns.lean:104,182,250,364).
 
 So CALL and CREATE are unified at the **engine/drive** altitude already; only the
 IR-surface-and-up layers, **and the `Runs`-level bridge**, are CALL-only.
@@ -95,7 +95,7 @@ IR-surface-and-up layers, **and the `Runs`-level bridge**, are CALL-only.
   (:59) has no create twin.
 - **Drive integration is a structural EXCLUSION, not a gap to fill.** The flagship
   currently *proves* no-CREATE: `NoCreateBytes.lean` (`SegAlignedSafe` — "lowering
-  emits only 16 non-CREATE opcodes at any head", :50) + `V2/Modellable.lean`
+  emits only 16 non-CREATE opcodes at any head", :50) + `Decode/Modellable.lean`
   `NotCreate` clause discharged by `notCreate_of_atReachableBoundary` (:25), wired
   into the flagship via `lower_modellable` at RS:1255 and RS:3677. Adding CREATE
   means **retiring** this exclusion, not extending it.
@@ -105,7 +105,7 @@ IR-surface-and-up layers, **and the `Runs`-level bridge**, are CALL-only.
 - `grep -rn "CreateReturns\|Runs.create"` across BOTH experiments returns **nothing**.
   exp003 `Runs` (Hoare.lean:120-123) has a `call` constructor
   (`hcall : CallReturns callFr resumeFr`) but **no `create` constructor**.
-- `runs_of_drive_ok` (Engine/DriveRuns.lean:283) is *predicated* on `ModellableStep`
+- `runs_of_drive_ok` (BytecodeLayer/Hoare/DriveRuns.lean:283) is *predicated* on `ModellableStep`
   (:142) whose clause 1 is `∀ cp pending, stepFrame fr ≠ .needsCreate cp pending`,
   and the header states why: "`.needsCreate` arm, which `Runs` cannot model"
   (DriveRuns.lean:27). So CREATE is not merely absent from the IR — it is *actively
@@ -245,7 +245,7 @@ cluster-v1bricks.md) but needed to keep v1 compiling once `Stmt` gains a constru
 
 ### Step 7 (exp005) — drive integration: RETIRE the exclusion
 
-- `V2/Modellable.lean`: delete/weaken the `NotCreate` clause (`NoCreate` :194,
+- `Decode/Modellable.lean`: delete/weaken the `NotCreate` clause (`NoCreate` :194,
   `notCreate_of_atReachableBoundary` :25). Replace with the localized "descents occur
   exactly at emitted CREATE/CALL sites" predicate over the R6 boundary walk
   (execution-plan:127-131). `lower_modellable` (:380-area, used at RS:1255, RS:3677)
@@ -278,8 +278,8 @@ cluster-v1bricks.md) but needed to keep v1 compiling once `Stmt` gains a constru
 Using the import graph in the brief:
 
 - **Step 0 (exp003)** is *below the entire exp005 DAG* — it lands in
-  `BytecodeLayer/Hoare.lean` + `Engine/DriveRuns.lean`. `Engine/DriveRuns` is imported
-  by `V2/Modellable` and `V2/DriveSim`, so changes ripple up to the flagship but the
+  `BytecodeLayer/Hoare.lean` + `BytecodeLayer/Hoare/DriveRuns.lean`. `BytecodeLayer/Hoare/DriveRuns` is imported
+  by `Decode/Modellable` and `V2/DriveSim`, so changes ripple up to the flagship but the
   engine cluster stays IR-agnostic (cluster-engine: zero LirLean.Spec/V2 imports).
 - **Step 1 (`Spec/IR`)** is L0 base; every module transitively re-checks. Adding a
   `Stmt` constructor forces a new match arm in **every** `Stmt` case-split: `evalExpr`/

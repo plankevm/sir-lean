@@ -79,7 +79,7 @@ warning below). Arrows point **downward-imports** (`A ← B` = B imports A).
       Acyclic  (deleted by P9; historical generic-defs fuel/rank core)
                           │
  L6  V2 gas-free SPINE + cyclic DRIVE
-       V2/Law ; V2/IRRun ; V2/Call ← V2/CallRealises ; V2/Modellable
+       V2/Law ; V2/IRRun ; V2/Call ← V2/CallRealises ; Decode/Modellable
        V2/DriveSim (imports LowerConforms for sim_cfg — the cyclic path)
        V2/Drive/{SelfPresent ← CallPreservesSelf, Headline}
        Spec/Recorder, Spec/Seams  ← (HIGH-altitude Spec files, see warning)
@@ -93,7 +93,7 @@ warning below). Arrows point **downward-imports** (`A ← B` = B imports A).
 > **CRITICAL WARNING — `Spec/` is NOT one altitude band.** `Spec/IR`, `Spec/Semantics`,
 > `Spec/Lowering` are true L0 base (import only `Evm` + `Spec/IR`). But **`Spec/Recorder`** imports
 > `V2/CallRealises` + `Hoare.GasMonotone`, and **`Spec/Seams`** imports
-> `V2/Drive/CallPreservesSelf` + `V2/Modellable` + `Engine/CleanHalt` — both sit **HIGH** (L6) in
+> `V2/Drive/CallPreservesSelf` + `Decode/Modellable` + `BytecodeLayer/Hoare/CleanHalt` — both sit **HIGH** (L6) in
 > the DAG despite living under `Spec/`. They live in `Spec/` for their reviewer-surface *role*,
 > not their altitude. **`Spec/Conformance`** (imported at `LirLean.lean:50`) is a 24-line
 > tombstone stub with zero decls. The only intra-Spec base edges are IR→Semantics and IR→Lowering.
@@ -129,14 +129,14 @@ live replacement), **DEAD** (grep-zero, no purpose).
 
 | File | LOC | Role · why it exists |
 |---|---|---|
-| Engine/AccountMap | 145 | **terminal.** Self-address-present frame lemmas. `AccMono` (`:107`) is a vestigial abbreviation (named form unused; the transport is used raw everywhere) — flag, don't delete. Self-flags `-- RELOCATE to exp003` (`:26/:55/:68`). |
-| Engine/StepWalk | 1336 | **terminal.** Core pc/stack/memory step-walk. ~30 per-family `_next_accMono` arms (`:214-851`) shard one dispatch proof, assembling `dispatch_next_accMono` (`:852`); `stepFrame_next_accMono/execEnvAddr/self` + `halted_success` feed CallPreservesSelf. |
-| Engine/Descent | 570 | **terminal + incremental-toward CREATE.** `stepFrame_needs{Call,Create}_inv` + begin/resume lemmas are LIVE (reach flagship via DriveMono→CallPreservesSelf→SelfPresent). The **DescentKind interface block** (`:421-567`: DescentKind/callDescent/createDescent/DescentReturns/…) has zero external consumers but is **first-class-CREATE scaffold by design** (docstring :400-416) — NOT dead. |
-| Engine/DriveMono | 294 | **terminal.** `drive_accounts_find_mono` → CallPreservesSelf → SelfPresent. |
-| Engine/MemAlgebra | 996 | **terminal.** MSTORE/MLOAD/offset algebra; slot lemmas (`mstore_preserves_slot(_grow)`, `slot_windows_disjoint`, `mstore_reads_back` :713) feed SimStmt. **Simplification candidates (confirm):** `mload_after_mstore` (`:459`, superseded by grow-aware `:713`, zero consumers) and `resumeAfterCall_mload` (`:85`) + feeders `resumeAfterCall_memory/activeWords` (`:58/:69`) — advertised Verdict cruxes (`:22`) but consumer-less (superseded or not-yet-wired ~40 LOC). Header "all three cruxes PROVED" **overstates** current role. Ships `#print axioms` guards (`:964-982`). |
-| Engine/CleanHalt | 103 | **terminal.** `CleanHalts`/`CleanHaltsNonException`/`cleanHaltsNonException_forward` feed 9 files across sim tower + flagship. |
-| Engine/Charges | — | **terminal.** Gas-charge primitives; `subCharges_snoc/append` feed MaterialiseGas. Header (`:11`) names nonexistent "WorkedCall" consumer — stale doc. |
-| Engine/DriveRuns | 369 | **terminal.** `runs_of_drive_ok` (`:283`) feeds Modellable/DriveSim/RealisabilitySpec — predicated on `NoCreate`/`ModellableStep` (`:27`), the exact clause CREATE must retire. |
+| BytecodeLayer/Hoare/AccountMap | 145 | **terminal.** Self-address-present frame lemmas. `AccMono` (`:107`) is a vestigial abbreviation (named form unused; the transport is used raw everywhere) — flag, don't delete. Self-flags `-- RELOCATE to exp003` (`:26/:55/:68`). |
+| BytecodeLayer/Hoare/StepWalk | 1336 | **terminal.** Core pc/stack/memory step-walk. ~30 per-family `_next_accMono` arms (`:214-851`) shard one dispatch proof, assembling `dispatch_next_accMono` (`:852`); `stepFrame_next_accMono/execEnvAddr/self` + `halted_success` feed CallPreservesSelf. |
+| BytecodeLayer/Hoare/Descent | 570 | **terminal + incremental-toward CREATE.** `stepFrame_needs{Call,Create}_inv` + begin/resume lemmas are LIVE (reach flagship via DriveMono→CallPreservesSelf→SelfPresent). The **DescentKind interface block** (`:421-567`: DescentKind/callDescent/createDescent/DescentReturns/…) has zero external consumers but is **first-class-CREATE scaffold by design** (docstring :400-416) — NOT dead. |
+| BytecodeLayer/Hoare/DriveMono | 294 | **terminal.** `drive_accounts_find_mono` → CallPreservesSelf → SelfPresent. |
+| BytecodeLayer/Hoare/MemAlgebra | 996 | **terminal.** MSTORE/MLOAD/offset algebra; slot lemmas (`mstore_preserves_slot(_grow)`, `slot_windows_disjoint`, `mstore_reads_back` :713) feed SimStmt. **Simplification candidates (confirm):** `mload_after_mstore` (`:459`, superseded by grow-aware `:713`, zero consumers) and `resumeAfterCall_mload` (`:85`) + feeders `resumeAfterCall_memory/activeWords` (`:58/:69`) — advertised Verdict cruxes (`:22`) but consumer-less (superseded or not-yet-wired ~40 LOC). Header "all three cruxes PROVED" **overstates** current role. Ships `#print axioms` guards (`:964-982`). |
+| BytecodeLayer/Hoare/CleanHalt | 103 | **terminal.** `CleanHalts`/`CleanHaltsNonException`/`cleanHaltsNonException_forward` feed 9 files across sim tower + flagship. |
+| BytecodeLayer/Hoare/Charges | — | **terminal.** Gas-charge primitives; `subCharges_snoc/append` feed MaterialiseGas. Header (`:11`) names nonexistent "WorkedCall" consumer — stale doc. |
+| BytecodeLayer/Hoare/DriveRuns | 369 | **terminal.** `runs_of_drive_ok` (`:283`) feeds Modellable/DriveSim/RealisabilitySpec — predicated on `NoCreate`/`ModellableStep` (`:27`), the exact clause CREATE must retire. |
 
 ### L2 — Decode / control-flow validity (all 7 sorry-free + axiom-clean)
 
@@ -200,7 +200,7 @@ live replacement), **DEAD** (grep-zero, no purpose).
 | V2/IRRun | 371 | **split role.** Definability fold (`stmtPost`/`stmtsPost`/`StmtDefinable`/`runStmts_exists`) LIVE (cyclic per-block bricks). **Superseded (~150 LOC):** acyclic-CFG half (`CFGAcyclic` :225, `TermRankLt` :205, `Term.succs` :212, `runFrom_exists*`/`irRun_exists*`) — DriveSim:17/54 retires it via dynamic totalGas. `RunDefinable` (`:258`) UNSATISFIABLE (RS:215-216), replaced by `RunDefinableG`. |
 | V2/Call | 145 | **worked-example/anti-vacuity.** `callIR` cited only in a DefsSound docstring; consumes IRRun.det for `call_IRRun_unique`. |
 | V2/CallRealises | 110 | **terminal + incremental.** `evmV2CallEntry` (`:59`) LIVE (produced by realisedCall_cons, identified with R3 cursor RS:2856). `callRealises_bridge` (`:85`) incremental-toward R3. |
-| V2/Modellable | 483 | **terminal.** `lower_modellable` applied RS:1255; residual seams `AtReachableBoundary` (RS:1245) + `CallsCode` (Seams:81); `notCreate_of_atReachableBoundary` (`:426`) wired RS:1255/3677. The no-CREATE combinator run is unavoidable structural infra. |
+| Decode/Modellable | 483 | **terminal.** `lower_modellable` applied RS:1255; residual seams `AtReachableBoundary` (RS:1245) + `CallsCode` (Seams:81); `notCreate_of_atReachableBoundary` (`:426`) wired RS:1255/3677. The no-CREATE combinator run is unavoidable structural infra. |
 | V2/DriveSim | 743 | **shared-infra (cyclic path) + incremental.** Imports LowerConforms for `sim_cfg` (heavy but justified — F3 ties the RunFrom to the bytecode world). F1 measure infra + DriveCorr incremental-toward reshaped `runFrom_of_driveCorrLog`. **Safe-delete:** `lower_conforms_cyclic'` (`:666`, flagship refuses to cite it, RS:3730-3736). |
 | V2/Drive/SelfPresent | 437 | **terminal + salvage.** `SelfPresent` (`:364`) is a flagship hypothesis (RS:1397); `accounts_ne_empty_of_selfPresent`/`selfPresent_codeFrame` LIVE. §3-§4 `GasLogAligned`/`SloadLogAligned` = salvage for R0 reshape (used only by Headline). `realisedCall_projection` (`:55`) = safe-simplify (thin re-export of realisedCall_cons). |
 | V2/Drive/CallPreservesSelf | 258 | **terminal.** Collapses to the single `hprec` seam; `selfPresent_runs_of_call` (`:248`) applied RS:1723; exported via `Seams.callPreservesSelf_of_precompiles`. |

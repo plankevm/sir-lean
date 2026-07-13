@@ -46,7 +46,7 @@ L0b BYTECODE PROOF SURFACE (exp003)                  003/BytecodeLayer (Runs, me
       + *~5,800 lines of pure-engine theory             drive_fuel_mono, gasAvailable_le)
         squatting in exp005*: Engine/ (all 8 files),
         Frame/StorageErase, V2/Drive/CallPreservesSelf,
-        V2/Modellable, ~1,000 ln of Materialise/CleanHaltExtract,
+        Decode/Modellable, ~1,000 ln of Materialise/CleanHaltExtract,
         ~200 ln of Frame/Match
 L0a BYTECODE MACHINE (trusted, executable)           003/EVMLean (stepFrame, drive, messageCall,
       conformance-backed: 2859/2859 fast,               decode, beginCall/Create, resumeAfter*)
@@ -363,9 +363,9 @@ theorem Runs.gasAvailable_le (h : Runs fr last) : last.…gasAvailable.toNat ≤
 -- exp005-built engine theory living in exp005 (L0b squatters):
 theorem runs_of_drive_ok : drive f [] (running fr) = .ok res →
     (∀ fr', Runs fr fr' → ModellableStep fr') →
-    ∃ last halt, Runs fr last ∧ stepFrame last = .halted halt ∧ res = endFrame last halt  -- Engine/DriveRuns.lean:357
+    ∃ last halt, Runs fr last ∧ stepFrame last = .halted halt ∧ res = endFrame last halt  -- BytecodeLayer/Hoare/DriveRuns.lean:357
 theorem stepFrame_next_accMono (h : stepFrame fr = .next exec') (a) (hp : AccPresent a …) :
-    AccPresent a exec'.accounts                        -- Engine/StepWalk.lean:1119 (~1,000-ln walk cap)
+    AccPresent a exec'.accounts                        -- BytecodeLayer/Hoare/StepWalk.lean:1119 (~1,000-ln walk cap)
 ```
 
 ---
@@ -459,7 +459,7 @@ surface. Acknowledged-deferred relocations are ranked by residual confusion, not
    07-04/05) where relocation cost would be zero for brand-new lemmas — land new engine lemmas in
    exp003 from now on, so Engine/ shrinks instead of grows.
 
-3. **`V2/Modellable.lean` → `Engine/`** (or exp003). The entire file is
+3. **`Decode/Modellable.lean` → `Engine/`** (or exp003). The entire file is
    `namespace BytecodeLayer.Interpreter` — pure stepFrame/dispatch routing algebra + the
    `lower_modellable` producer; only `AtReachableBoundary` (:398) mentions `Lir.lower`. A file in
    the IR-proof folder whose namespace is the bytecode engine breaks every navigation model. The
@@ -636,7 +636,7 @@ opcodes" counts after CREATE/CREATE2 made it 18 (SegAligned.lean:14/:29, Boundar
 JumpValid.lean:41/:80 citing the deleted NoCreateBytes tower; Headline.lean *named* Headline while
 containing salvage only; Law.lean named for deleted laws (it is Determinism.lean);
 "Build-enforced guard" trailer comments after guard consolidation (Frame/Match.lean:664,
-Engine/CleanHalt.lean:103).
+BytecodeLayer/Hoare/CleanHalt.lean:103).
 
 **5.13 Minor design residue**: one engine layer split across four namespaces
 (`Evm`/`BytecodeLayer.Interpreter`/`Lir.V2`/`Lir`+`LirLean.MemAlgebra`) by extraction history —

@@ -26,7 +26,7 @@ machinery its R0 reshape starts from (currently unreferenced in the default buil
 
 The value-channel discharges + `SelfPresent` live in `Drive/SelfPresent.lean`; the
 `callPreservesSelf` chain in `Drive/CallPreservesSelf.lean`; the pure engine theory in
-`LirLean/Engine/`.
+`experiments/003_bytecode_layer/BytecodeLayer/Hoare/`.
 
 No `sorry`/`axiom`/`native_decide`; axioms `[propext, Classical.choice, Quot.sound]`.
 -/

@@ -7,7 +7,7 @@
 
 > **UPDATE (2026-07-03) — file homes moved; line numbers below are ROTTED.** Waves 1–4 of the honesty cleanup executed a structural reorg (HEAD `53c2063`) AFTER this report was pinned. The authoritative pinned surface for the headline cone is now **`LirLean/Audit.lean`** (the `#guard_msgs`-wrapped axiom/signature net); trust it over any `file:line` below. Decl homes per the **redirect map**:
 > - `LirLean/IR.lean` → `LirLean/Spec/IR.lean`; `LirLean/Lowering.lean` → `LirLean/Spec/Lowering.lean`; `LirLean/Semantics.lean` / `V2/Machine.lean` → `LirLean/Spec/Semantics.lean`.
-> - `V2/TieDischarge.lean` is **DISSOLVED**: the headline/drive decls (`lower_conforms_cyclic_assembled`, `lower_conforms_cyclic_tiefree`, `DriveCorrPlus`, `runFrom_of_driveCorrPlus`, `driveStepPlus_of_block`, `driveCorrPlus_*`) → `LirLean/V2/Drive/Headline.lean`; `CallPreservesSelf`/`callPreservesSelf_modGuards`/`stepPreservesSelf` → `LirLean/V2/Drive/CallPreservesSelf.lean`; `SelfPresent`/`sstorePresence_of_self` → `LirLean/V2/Drive/SelfPresent.lean`; the engine bricks (`drive_accounts_find_mono`, `stepFrame_next_self`/`_next_accMono`, `stepFrame_needsCall_inv`/`_needsCreate_inv`, `AccPresent`) → `LirLean/Engine/{AccountMap,StepWalk,Descent,DriveMono}.lean`.
+> - `V2/TieDischarge.lean` is **DISSOLVED**: the headline/drive decls (`lower_conforms_cyclic_assembled`, `lower_conforms_cyclic_tiefree`, `DriveCorrPlus`, `runFrom_of_driveCorrPlus`, `driveStepPlus_of_block`, `driveCorrPlus_*`) → `LirLean/V2/Drive/Headline.lean`; `CallPreservesSelf`/`callPreservesSelf_modGuards`/`stepPreservesSelf` → `LirLean/V2/Drive/CallPreservesSelf.lean`; `SelfPresent`/`sstorePresence_of_self` → `LirLean/V2/Drive/SelfPresent.lean`; the engine bricks (`drive_accounts_find_mono`, `stepFrame_next_self`/`_next_accMono`, `stepFrame_needsCall_inv`/`_needsCreate_inv`, `AccPresent`) → `experiments/003_bytecode_layer/BytecodeLayer/Hoare/{AccountMap,StepWalk,Descent,DriveMono}.lean`.
 > - `V2/RunLog.lean` is **DELETED**: `recordCall`/`driveLog`/`runWithLog`/`callOracleOf`/`realisedCall`/`RunLog`/`CallRecord` → `LirLean/Spec/Recorder.lean`; `driveLog_drive`/`runWithLog_drive`/`realisedCall_eq_evmV2` → `LirLean/RecorderLemmas.lean`; the gas-monotonicity section (`geToNat`/`bound_mono`/`driveLog_gas_inv`/`realisedGas_monotone`) is **DELETED**.
 > - `V2/{Mono,Oracle,HonestGasTie}.lean` are **DELETED** whole (`Oracle.GasRealises` survives only as a relocated retired witness in `LirLean/MaterialiseRuns.lean`); `V2/Law.lean` narrowed to 4 `.det` lemmas (its `Trace.gasMonotone`/`MonotoneGas` decls **DELETED**).
 > - New: `LirLean/Audit.lean` (guard net) + `LirLean/V2/RealisabilitySpec.lean` (non-default `Nightly` lib, R0–R12 sorry-skeleton). The ~226 scattered `#print axioms` were removed; the 22 `#guard_msgs`-wrapped ones (14 in `Audit.lean`, 8 in `MemAlgebra.lean`) are the net.
@@ -137,11 +137,11 @@ The closure decomposes into six strata. Nodes are classified by the `kind` field
 | `driveLog_drive` / `runWithLog_drive` | `V2/RunLog.lean:337/624` | runtime-tie (recording is faithful to `drive`) |
 | `runs_of_drive_ok` | `V2/DriveRuns.lean:283` | runtime-tie (reverse `Runs` construction) |
 | `ModellableStep` | `V2/DriveRuns.lean:142` | runtime-tie (no CREATE node / no precompile-CALL node) |
-| `lower_modellable` | `V2/Modellable.lean:471` | runtime-tie (produces `ModellableStep` universal) |
-| `modellableStep_of` | `V2/Modellable.lean:442` | runtime-tie |
-| `NotCreate` / `notCreate_of_atReachableBoundary` | `V2/Modellable.lean:398/421` | structural (**discharged** from `AtReachableBoundary`) |
-| `AtReachableBoundary` | `V2/Modellable.lean:407` | structural (pc-reachability residual `hrb`; per-program dischargeable) |
-| `stepFrame_needsCreate_isCreate` / `beginCall_isCode_of_codeSource_ne_precompiled` | `V2/Modellable.lean:336/371` | structural |
+| `lower_modellable` | `Decode/Modellable.lean:471` | runtime-tie (produces `ModellableStep` universal) |
+| `modellableStep_of` | `Decode/Modellable.lean:442` | runtime-tie |
+| `NotCreate` / `notCreate_of_atReachableBoundary` | `Decode/Modellable.lean:398/421` | structural (**discharged** from `AtReachableBoundary`) |
+| `AtReachableBoundary` | `Decode/Modellable.lean:407` | structural (pc-reachability residual `hrb`; per-program dischargeable) |
+| `stepFrame_needsCreate_isCreate` / `beginCall_isCode_of_codeSource_ne_precompiled` | `Decode/Modellable.lean:336/371` | structural |
 
 **Lowering / decode chain** (`Lowering.lean`, `DecodeLower.lean`, `DecodeAnchors.lean`, `JumpValid.lean`, `LowerDecode.lean`, `MatDecLower.lean`):
 
@@ -172,7 +172,7 @@ The four designed deferral seams (fully treated in §3):
 | `SstoreRealises` | `SimStmt.lean:318` | EIP-2200 SSTORE charge/stipend + self-account presence |
 | `CallRealises` / `V2.CallOracle` / `evmV2CallOracle` | `LowerConforms.lean:304`, `V2/Machine.lean:96`, `V2/CallRealises.lean:64` | external-CALL world effect |
 | `hprec` (`callPreservesSelf_modGuards.hprec`) | `TieDischarge.lean:3690` | precompile immediate-return no-erase (inside `CallPreservesSelf`) |
-| `CallsCode` | `V2/Modellable.lean:435` | reachable CALLs target code, not precompiles 1..10 |
+| `CallsCode` | `Decode/Modellable.lean:435` | reachable CALLs target code, not precompiles 1..10 |
 
 Supporting the call seam: `CallPreservesSelf` (`TieDischarge.lean:3267`), its discharge chain `callPreservesSelf_success` (`:3584`) / `callPreservesSelf` (`:3654`) / `callPreservesSelf_modGuards` (`:3689`), Brick D `drive_accounts_find_mono` (`:3440`), `SelfPresent` (`:408`), and the engine-level inversions `stepFrame_next_accMono` (`:2708`), `stepFrame_needsCall_inv` (`:2812`), `stepFrame_needsCreate_inv` (`:2941`), `stepFrame_halted_success_accMono` (`:3091`). On the SSTORE side: `sstorePresence_of_self` (`:416`), `sim_sstore_stmt` (`SimStmt.lean:346`), `sim_sstore` (`Match.lean:211`), `materialise_runs_of_cleanHalt` (`MaterialiseCleanHalt.lean:377`). On the call value side: `call_reflects_lowered` (`Match.lean:436`), `callRealises_bridge` (`V2/CallRealises.lean:90`), `evmCallOracle` (`Call.lean:109`), `callSuccessFlag` (`Call.lean:121`), `evmCallOracle_successWord_eq_x` (`Call.lean:129`), `realisedCall` (`V2/RunLog.lean:272`).
 
@@ -232,7 +232,7 @@ This is the section that matters for the scoping decision. Each seam is judged *
 
 Context: 6 seams were discharged engine-level — `hmono ← stepFrame_next_accMono` (`:2708`), `hcall_acc/hcall_kind/hcall_self ← stepFrame_needsCall_inv` (`:2812`), `hhalt ← stepFrame_halted_success_accMono` (`:3091`) — and the former no-CREATE seam was *eliminated* (`beginCreate` is now total, so `stepFrame_needsCreate_inv` `:2941` proves the CREATE step in place). Only `hprec` survives.
 
-### 3.4 `CallsCode` — `V2/Modellable.lean:435`
+### 3.4 `CallsCode` — `Decode/Modellable.lean:435`
 
 **Abstracts:** the honest modellability residual: every reachable `.needsCall` targets a code account, never a precompile (`cp.codeSource` never `.Precompiled p`).
 
@@ -296,6 +296,6 @@ For the project lead, per seam:
 
 3. **`hprec` (`TieDischarge.lean:3690`) → keep.** True precompile-erase oracle; vacuous for call-free IR; instantiate per precompile set. *Recommend: keep as hypothesis.*
 
-4. **`CallsCode` (`V2/Modellable.lean:435`) → keep.** True runtime precompile-target restriction (the domain twin of `hprec`); vacuous for call-free IR. *Recommend: keep as hypothesis.*
+4. **`CallsCode` (`Decode/Modellable.lean:435`) → keep.** True runtime precompile-target restriction (the domain twin of `hprec`); vacuous for call-free IR. *Recommend: keep as hypothesis.*
 
 **Net:** the genuine, irreducible oracle surface of the headline is **three objects** — the world-presence invariant `SelfPresent`, the external-call oracle `V2.CallOracle`/`CallReturns`, and the single precompile boundary seen as `hprec`+`CallsCode` — plus the one honest **scope premise** `CleanHaltsNonException`. Everything else (SSTORE/SLOAD/GAS gas envelopes, `NotCreate`, `MatFueled`, presence/reachability folds, decode anchors, the CREATE seam) is either derived from the clean-halt witness or statically dischargeable per program. For a **call-free program**, all three call-side oracles (`CallOracle`/`CallReturns`, `hprec`, `CallsCode`) are vacuous, collapsing the residual oracle surface to `SelfPresent` + `CleanHaltsNonException`.

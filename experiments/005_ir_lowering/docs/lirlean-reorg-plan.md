@@ -35,5 +35,5 @@ Net: 26 flat files → 1 file + 7 role-directories.
 - **Acyclic + LowerConforms** (the acyclic headline) are slated to be **dropped** (lead decision:
   the cyclic headline dominates), so `Conformance/` shrinks — possibly to nothing, folding into `V2/`.
 - **Create.lean** becomes **live** (the CREATE2 feature), so it stays under `Sim/` (or a `Create/`).
-- **Engine/** is separately slated to **graduate to exp003** (`docs/target-architecture-2026-07-02.md`).
+- **BytecodeLayer/Hoare/** is separately slated to **graduate to exp003** (`docs/target-architecture-2026-07-02.md`).
 So run the reorg AFTER foundation + the acyclic-drop, when the final file set is settled.

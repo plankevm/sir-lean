@@ -112,7 +112,7 @@ default-target (out-of-track) brick.
   (checker-dischargeable, R9), OR keep it a flagship seam. The producer currently threads it
   explicitly. Recommendation: a `WellLowered` field (it is a static, decidable program fact).
 * **D2 — the create-resolves seam `hcr`.** `CreateResolves` is a genuine runtime residual
-  (`V2/Modellable.lean:413`), NOT structural. The flagship's `PrecompileAssumptions` currently
+  (`Decode/Modellable.lean:413`), NOT structural. The flagship's `PrecompileAssumptions` currently
   has `noErase` + `callsCode` but no create-resolves face. Decision: add a `createResolves`
   field (`∀ fr', ReachableFrom params fr' → CreateResolves fr'`) to `PrecompileAssumptions`
   (the honest boundary structure) so `runFrom_of_driveCorrLog` needs no extra hypothesis. For

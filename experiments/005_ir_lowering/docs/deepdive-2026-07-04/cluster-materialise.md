@@ -155,7 +155,7 @@ re-listed; none are dead (each names a `MatRuns` field the recursion discharges)
 | `GasRealises` | def | **retired-witness** (Phase B; see §3) | subject of `V2/Drive/SelfPresent.gasRealises_obs_of_witness` only |
 | `StorageAgree` | def | terminal-for-flagship (M3 storage lens) | `LowerDecode`, `LowerConforms`, `MaterialiseCleanHalt`, `StashTail`, `SimTerm`, `SimStmt`, `V2/RealisabilitySpec` |
 | `StorageAgree.transport` | thm | terminal-for-flagship | `MaterialiseRuns` add/lt arms, downstream sim |
-| `MemRealises` | def | terminal-for-flagship (memory value channel) | `LowerConforms`, `LowerDecode`, `MaterialiseCleanHalt`, `StashTail`, `SimTerm`, `SimStmt`, `V2/DriveSim`, `V2/Drive/Headline`, `V2/RealisabilitySpec`, `Engine/MemAlgebra` |
+| `MemRealises` | def | terminal-for-flagship (memory value channel) | `LowerConforms`, `LowerDecode`, `MaterialiseCleanHalt`, `StashTail`, `SimTerm`, `SimStmt`, `V2/DriveSim`, `V2/Drive/Headline`, `V2/RealisabilitySpec`, `BytecodeLayer/Hoare/MemAlgebra` |
 | `mload_covered_congr` | thm | internal (activeWords-nondecreasing read) | in-file (`MemRealises.transport`) |
 | `MemRealises.transport` | thm | terminal-for-flagship | `MaterialiseRuns` add/lt arms; downstream |
 | `M_32_eq_self_of_covered` | thm | shared-infra (zero-expansion fact) | in-file, `memoryExpansionWords?_ofNat_32_of_covered` |

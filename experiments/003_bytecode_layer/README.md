@@ -40,6 +40,9 @@ BytecodeLayer/
   Reasoning/        reusable bricks (the engine): Step, the reflexive CALL rule
                     (Call), the drive vocabulary (Drive/DriveGen), and the
                     messageCall/beginCall entry characterizations (Drive/Begin).
+  Hoare/            reusable interpreter proof theory: frame walks, descent and
+                    drive monotonicity, clean halts, memory algebra, and charge/run
+                    composition used by the IR-lowering proof.
   Proof/            proof internals (scaffolding frames, decode lemmas, the long
                     reductions): CallFree, Sequence, ExternalCall, ExternalCallGen
                     (the black-box call rule), Straightline + StraightlineInstances.

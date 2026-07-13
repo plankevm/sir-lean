@@ -7,7 +7,7 @@ in `currentplan.md`; this file is the *results* synthesis for a human reader.
 > structural reorg (HEAD `53c2063`); the Lean file homes cited below have MOVED (redirect map:
 > `experiments/005_ir_lowering/docs/headline-transitive-chain.md`):
 > (a) `LirLean/Spec/{IR,Semantics,Lowering,Recorder,Seams,Conformance}` extraction;
-> (b) `LirLean/Engine/*` + `LirLean/V2/Drive/{SelfPresent,CallPreservesSelf,Headline}` split,
+> (b) `experiments/003_bytecode_layer/BytecodeLayer/Hoare/*` + `LirLean/V2/Drive/{SelfPresent,CallPreservesSelf,Headline}` split,
 > `V2/TieDischarge.lean` **DISSOLVED** (headline → `LirLean/V2/Drive/Headline.lean`) and
 > `V2/RunLog.lean` **deleted** (recorder → `LirLean/Spec/Recorder.lean`); (c) Phase-2
 > **deletion** of `V2/{Mono,Oracle,HonestGasTie}.lean` + the gas-monotonicity law;

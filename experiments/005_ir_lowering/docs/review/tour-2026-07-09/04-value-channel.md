@@ -34,7 +34,7 @@ slot `slotOf t = t.id * 32` and read back by `PUSH32 slot ; MLOAD`, so the value
 became positional and is carried by the honest per-slot invariant
 [`MemRealises`](../../../LirLean/Materialise/MaterialiseRuns.lean#L366). Gas envelopes are
 **derived, not supplied**: a single
-[`CleanHaltsNonException`](../../../LirLean/Engine/CleanHalt.lean#L62) witness at the entry
+[`CleanHaltsNonException`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean#L62) witness at the entry
 cursor yields every per-opcode gas bound by step-inversion
 ([`materialise_runsC_of_cleanHalt`](../../../LirLean/Materialise/MaterialiseCleanHalt.lean#L372),
 [`gas_envelope_of_cleanHalt`](../../../LirLean/Materialise/CleanHaltExtract.lean#L700)).
@@ -209,7 +209,7 @@ and the `sloadChg`-independence of lengths
 ([`chargeCache_length_sloadChg_eq`](../../../LirLean/Materialise/MaterialiseGas.lean#L209))
 are what the stack-room folds in `Spec/WellFormed.lean` consume. Charge lists subtract off gas
 via exp003's [`subCharges`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Sequence.lean#L62),
-with the append laws in [`Engine/Charges.lean`](../../../LirLean/Engine/Charges.lean#L26).
+with the append laws in [`BytecodeLayer/Hoare/Charges.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Charges.lean#L26).
 
 ### 4.3 The decode bundle: `MatDecC` and its segment bridge
 
@@ -463,7 +463,7 @@ such bounds per cursor is exactly the tie shape the 2026-07-02 audit found unsat
 them from **one** honest fact about the run:
 
 ```lean
--- Engine/CleanHalt.lean:62
+-- BytecodeLayer/Hoare/CleanHalt.lean:62
 def CleanHaltsNonException (fr : Frame) : Prop :=
   ∃ last halt, Runs fr last ∧ stepFrame last = .halted halt ∧ HaltNonException halt
 ```
@@ -472,7 +472,7 @@ def CleanHaltsNonException (fr : Frame) : Prop :=
 `.exception`." This is the honest scope boundary of a gas-agnostic IR (a genuine OOG run is
 un-modellable, and *should* be out of scope), it is a single witness at the entry cursor, it
 is forward-closed along any sub-run
-([`cleanHaltsNonException_forward`](../../../LirLean/Engine/CleanHalt.lean#L80)), and it is
+([`cleanHaltsNonException_forward`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean#L80)), and it is
 satisfiable by exactly the runs conformance is about. The extraction argument
 (`CleanHaltExtract.lean` §2): a halted frame `Runs` only to itself
 ([`halted_runs_eq`](../../../LirLean/Materialise/CleanHaltExtract.lean#L409)); a continuing

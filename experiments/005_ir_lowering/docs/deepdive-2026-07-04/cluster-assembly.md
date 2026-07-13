@@ -129,7 +129,7 @@ public decl. Technically true only if "default build" excludes WIP.
 | `sloadRecord_eq_sloadCost` (31) | theorem | shared-infra: SLOAD value bridge | **`SelfPresent:256,318`** (default); flagship docstrings |
 | `realisedCall_cons` (44) | theorem | shared-infra: `realisedCall` head/cons projection | **`SelfPresent:59`** (default); `RealisabilitySpec:1326,1344,2856` |
 | `driveLog_drive` (62) | theorem | shared-infra: recorder result adequacy vs `drive` | `RecorderLemmas:134` (in `runWithLog_drive`); **`RealisabilitySpec:2790,2883`** |
-| `runWithLog_drive` (117) | theorem | shared-infra: adequacy vs `drive` | **`DriveSim:149`** (default); `Engine/DriveRuns`; `RealisabilitySpec:1249,3671,3720,3770,3807` |
+| `runWithLog_drive` (117) | theorem | shared-infra: adequacy vs `drive` | **`DriveSim:149`** (default); `BytecodeLayer/Hoare/DriveRuns`; `RealisabilitySpec:1249,3671,3720,3770,3807` |
 | `runWithLog_messageCall` (143) | theorem | genuinely-superseded-candidate: adequacy vs `messageCall` | **only `LowerConforms:1238`, inside the dead acyclic capstone** |
 
 ---
@@ -181,7 +181,7 @@ RecorderLemmas: driveLog_drive → runWithLog_drive → runWithLog_messageCall
   `ret_sub_value`, `decode_gasstash` → **RealisabilitySpec** (WIP flagship + inline walk).
   The old `AcyclicWellFormed` / `wellFormedLowered_of_acyclic` witness route is superseded.
 - `sloadRecord_eq_sloadCost`, `realisedCall_cons` → **SelfPresent** (R-leaf machinery).
-- `runWithLog_drive`, `driveLog_drive` → **DriveSim**, **Engine/DriveRuns**, flagship.
+- `runWithLog_drive`, `driveLog_drive` → **DriveSim**, **BytecodeLayer/Hoare/DriveRuns**, flagship.
 
 **Entry edges (external → this cluster):** the `sim_*` bricks (`sim_sstore_stmt`, `sim_term_*`,
 `sim_assign_gas`, `sim_assign_sload`, `sim_call_stmt`, `sim_stmts_block`) from

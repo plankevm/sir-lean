@@ -9,7 +9,7 @@ This cluster is the **bytes ↔ IR-positions substrate** (layers L2/L3 of
 `Evm.decode … = some (op, arg)` facts at any cursor, and (b) the two whole-program
 geometric invariants (jump-dest validity, no-CREATE / lowering-op-only at every reachable
 boundary). It is consumed by the Materialise/Sim layers (`MatDecLower`, `LowerDecode`,
-`SimTerm`), by `V2/Modellable.lean` (the `NotCreate` discharge), and by
+`SimTerm`), by `Decode/Modellable.lean` (the `NotCreate` discharge), and by
 `V2/RealisabilitySpec.lean` (the flagship's R6 boundary geometry).
 
 ---
@@ -138,7 +138,7 @@ Introduces `SegAlignedSafe` = `SegAligned` + per-head `parseInstr byte ∉ {CREA
 
 | decl | kind | role | callers |
 |---|---|---|---|
-| `SegAlignedSafe` (:50) | inductive | incremental — no-CREATE-head alignment | `BoundaryReach` (mirror), `V2/Modellable`, `V2/DriveSim` (doc/refs) |
+| `SegAlignedSafe` (:50) | inductive | incremental — no-CREATE-head alignment | `BoundaryReach` (mirror), `Decode/Modellable`, `V2/DriveSim` (doc/refs) |
 | `SegAlignedSafe.toSegAligned` (:59) | theorem | **unused completeness map** (§3) | none |
 | `SegAlignedSafe.append/nonpush/push` (:72,82,90) | theorems | incremental bricks | internal |
 | `reachesBoundary_le` (:107) | theorem | shared-infra | `BoundaryReach` transport (:186 mirror), internal :123 |
@@ -146,17 +146,17 @@ Introduces `SegAlignedSafe` = `SegAligned` + per-head `parseInstr byte ∉ {CREA
 | `segAlignedSafe_*` emit-ladder (:172-348) | theorems | incremental bricks (mirror of `segAligned_*`) | internal |
 | `segAlignedSafe_flatBytes` (:353) | theorem | incremental brick | `reachable_boundary_notCreate:382` |
 | `reachable_boundary_notCreate` (:375) | theorem | incremental brick | only `decode_reachable_boundary_some:396` |
-| `decode_reachable_boundary_some` (:391) | theorem | **terminal-for-flagship** — decode-level no-CREATE | `V2/Modellable.lean:426` |
-| `decode_reachable_boundary_notCreate` (:413) | theorem | terminal-for-flagship (currentOp form) | `V2/Modellable.lean` (declared consumer; see §3 note) |
+| `decode_reachable_boundary_some` (:391) | theorem | **terminal-for-flagship** — decode-level no-CREATE | `Decode/Modellable.lean:426` |
+| `decode_reachable_boundary_notCreate` (:413) | theorem | terminal-for-flagship (currentOp form) | `Decode/Modellable.lean` (declared consumer; see §3 note) |
 
-Consumer confirmed: `V2/Modellable.notCreate_of_atReachableBoundary` (:421-437) calls
+Consumer confirmed: `Decode/Modellable.notCreate_of_atReachableBoundary` (:421-437) calls
 `Lir.decode_reachable_boundary_some` (:426) to discharge `NotCreate` from
 `AtReachableBoundary`. So this tower is LIVE. Axiom-clean guard :427-431.
 
 ### 1.7 `BoundaryReach.lean` (432 LOC) — SegAligned tower #3
 
 Purpose (header): boundary-reachability bricks for the whole-run `AtReachableBoundary`
-invariant (`hrb` of `V2/Modellable.lower_modellable`), feeding the flagship's **R6**
+invariant (`hrb` of `Decode/Modellable.lower_modellable`), feeding the flagship's **R6**
 (`runs_atReachableBoundary`, `RealisabilitySpec.lean:2456`). Three bricks + the
 `SegAlignedLowering` allow-list tower (= `SegAligned` + per-head `IsLoweringOp`).
 
@@ -204,7 +204,7 @@ Exit edges (this cluster → rest of tree):
   bricks).
 - `block_offset_validJump`, `decode_at_block_offset_jumpdest`, `termOf` →
   **`LowerConforms`, `SimTerm`, `LowerDecode`, `Acyclic`**.
-- `decode_reachable_boundary_{some,notCreate}` + `SegAlignedSafe` → **`V2/Modellable`**
+- `decode_reachable_boundary_{some,notCreate}` + `SegAlignedSafe` → **`Decode/Modellable`**
   (`notCreate_of_atReachableBoundary`, :421-437).
 - `reachesBoundary_of_mem_validJumpDests`, `reachesBoundary_nextInstr`, `IsLoweringOp`,
   `reachable_boundary_loweringByte`, `SegAlignedSafe`, `lower_eq_flatBytes`, `termOf`,

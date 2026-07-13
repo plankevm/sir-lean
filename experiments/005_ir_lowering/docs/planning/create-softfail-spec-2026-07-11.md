@@ -43,7 +43,7 @@ and `pending : PendingCreate` (line 83–90) carries `callerAccounts := accounts
 whose `accounts := exec.accounts` — the **PRE-op accounts, NOT bumped**. So a
 soft-fail leaves the accounts (and therefore storage through the self lens)
 UNCHANGED. Verified independently by `createArm_next_accMono`
-(`Engine/StepWalk.lean:746`): `exec'.executionEnv = exec.executionEnv` and presence
+(`BytecodeLayer/Hoare/StepWalk.lean:746`): `exec'.executionEnv = exec.executionEnv` and presence
 is preserved; and `createArm_next_pc` (`:809`): `exec'.pc = exec.pc + 1`. The
 `resumeAfterCreate failed pending` writes `accounts := result.accounts = exec.accounts`
 and pushes `pushedValue = 0` (because `failed.success = false`, `Create.lean:195–198`).

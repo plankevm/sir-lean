@@ -103,15 +103,15 @@ an actual execution and must reason backward and per-step. Deep report: [01](01-
 
 Five machine-shaped gaps had to be filled in-house (~6.3k lines, ~23% of the package, all
 IR-free and staged for relocation to exp003 — decision D10): the **reverse direction**
-[`runs_of_drive_ok`](../../../LirLean/Engine/DriveRuns.lean#L357) (a completed `drive` run
+[`runs_of_drive_ok`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean#L357) (a completed `drive` run
 yields a halting `Runs`, modulo the two honest
-[`ModellableStep`](../../../LirLean/Engine/DriveRuns.lean#L182) residuals — precompile CALLs
+[`ModellableStep`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean#L182) residuals — precompile CALLs
 and OOG-faulting CREATE resumes); the ~1,300-line per-opcode account-presence walk
-[`stepFrame_next_accMono`](../../../LirLean/Engine/StepWalk.lean#L1119) and its whole-run
-induction [`drive_accounts_find_mono`](../../../LirLean/Engine/DriveMono.lean#L159); the
-clean-halt vocabulary [`CleanHaltsNonException`](../../../LirLean/Engine/CleanHalt.lean#L62)
+[`stepFrame_next_accMono`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/StepWalk.lean#L1119) and its whole-run
+induction [`drive_accounts_find_mono`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveMono.lean#L159); the
+clean-halt vocabulary [`CleanHaltsNonException`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean#L62)
 that lets gas guards be *extracted* from a run instead of supplied; byte-level memory
-algebra for the spill slots ([`MemAlgebra`](../../../LirLean/Engine/MemAlgebra.lean#L459));
+algebra for the spill slots ([`MemAlgebra`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/MemAlgebra.lean#L459));
 and RBMap-erase read-back for zero writes
 ([`StorageErase`](../../../LirLean/Frame/StorageErase.lean#L189)). Without this layer the
 flagship's `Conforms` half has no path from the recorded run to a `Runs`, and no storage
@@ -275,15 +275,15 @@ the coupled path; retirement candidate post-R11), **dead-candidate** (zero consu
 | [`Spec/WellFormed.lean`](../../../LirLean/Spec/WellFormed.lean) | 443 | L2: `IRWellFormed` + budgets (mixed with `matCache` proofs) | trusted/live | [02](02-spec-layer.md) |
 | [`Spec/Seams.lean`](../../../LirLean/Spec/Seams.lean) | 36 | L2: `PrecompileAssumptions`, `ReachableFrom` | trusted/live | [02](02-spec-layer.md) |
 | [`Spec/BudgetDerivations.lean`](../../../LirLean/Spec/BudgetDerivations.lean) | 385 | derives per-cursor bounds from the two scalar budgets (proofs; misplaced in `Spec/`) | live | [02](02-spec-layer.md) |
-| [`Engine/AccountMap.lean`](../../../LirLean/Engine/AccountMap.lean) | 145 | L1′: `AccPresent` + RBMap presence closers | staged→exp003 | [01](01-trusted-base.md) |
-| [`Engine/Charges.lean`](../../../LirLean/Engine/Charges.lean) | 32 | L1′: `subCharges` fold laws | staged→exp003 | [01](01-trusted-base.md) |
-| [`Engine/CleanHalt.lean`](../../../LirLean/Engine/CleanHalt.lean) | 103 | L1′: `CleanHalts(NonException)` + forward closure | staged→exp003 | [01](01-trusted-base.md) |
-| [`Engine/Descent.lean`](../../../LirLean/Engine/Descent.lean) | 844 | L1′: CALL/CREATE site inversions, begin/resume framing | staged→exp003 | [01](01-trusted-base.md) |
-| [`Engine/DriveMono.lean`](../../../LirLean/Engine/DriveMono.lean) | 294 | L1′: whole-run account-presence monotonicity | staged→exp003 | [01](01-trusted-base.md) |
-| [`Engine/DriveRuns.lean`](../../../LirLean/Engine/DriveRuns.lean) | 482 | L1′: **the reverse direction** `runs_of_drive_ok` | staged→exp003 | [01](01-trusted-base.md) |
-| [`Engine/MemAlgebra.lean`](../../../LirLean/Engine/MemAlgebra.lean) | 996 | L1′: mstore/mload read-back, slot disjointness (2× `maxHeartbeats 800000`) | staged→exp003 | [01](01-trusted-base.md) |
-| [`Engine/Modellable.lean`](../../../LirLean/Engine/Modellable.lean) | 462 | L1′: `ModellableStep` → `CallsCode`/`CreateResolves` residuals | staged→exp003 | [01](01-trusted-base.md) |
-| [`Engine/StepWalk.lean`](../../../LirLean/Engine/StepWalk.lean) | 1,336 | L1′: per-opcode env/presence walk over the full dispatch | staged→exp003 | [01](01-trusted-base.md) |
+| [`BytecodeLayer/Hoare/AccountMap.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/AccountMap.lean) | 145 | L1′: `AccPresent` + RBMap presence closers | staged→exp003 | [01](01-trusted-base.md) |
+| [`BytecodeLayer/Hoare/Charges.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Charges.lean) | 32 | L1′: `subCharges` fold laws | staged→exp003 | [01](01-trusted-base.md) |
+| [`BytecodeLayer/Hoare/CleanHalt.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean) | 103 | L1′: `CleanHalts(NonException)` + forward closure | staged→exp003 | [01](01-trusted-base.md) |
+| [`BytecodeLayer/Hoare/Descent.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Descent.lean) | 844 | L1′: CALL/CREATE site inversions, begin/resume framing | staged→exp003 | [01](01-trusted-base.md) |
+| [`BytecodeLayer/Hoare/DriveMono.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveMono.lean) | 294 | L1′: whole-run account-presence monotonicity | staged→exp003 | [01](01-trusted-base.md) |
+| [`BytecodeLayer/Hoare/DriveRuns.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean) | 482 | L1′: **the reverse direction** `runs_of_drive_ok` | staged→exp003 | [01](01-trusted-base.md) |
+| [`BytecodeLayer/Hoare/MemAlgebra.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/MemAlgebra.lean) | 996 | L1′: mstore/mload read-back, slot disjointness (2× `maxHeartbeats 800000`) | staged→exp003 | [01](01-trusted-base.md) |
+| [`Decode/Modellable.lean`](../../../LirLean/Decode/Modellable.lean) | 462 | L1′: `ModellableStep` → `CallsCode`/`CreateResolves` residuals | staged→exp003 | [01](01-trusted-base.md) |
+| [`BytecodeLayer/Hoare/StepWalk.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/StepWalk.lean) | 1,336 | L1′: per-opcode env/presence walk over the full dispatch | staged→exp003 | [01](01-trusted-base.md) |
 | [`Decode/LoweringLemmas.lean`](../../../LirLean/Decode/LoweringLemmas.lean) | 139 | `defsOf`/`rematOf` routing companions (stowaway; value-channel material) | live, misplaced | [03](03-code-geometry.md) |
 | [`Decode/DecodeLower.lean`](../../../LirLean/Decode/DecodeLower.lean) | 157 | L3: `flatBytes`, ByteArray↔list decode bridge | live | [03](03-code-geometry.md) |
 | [`Decode/Layout.lean`](../../../LirLean/Decode/Layout.lean) | 257 | L3: prefix-sum layout, `pcOf`, the generic M1 anchor | live | [03](03-code-geometry.md) |
@@ -443,7 +443,7 @@ The reports converge on a substantial but non-blocking hygiene backlog. None of 
 soundness issue; the plan's own quiescence gate ("defer import-moving surgery until the
 producer files are quiescent") correctly queues it behind R11:
 
-- **Engine relocation (D10)**: ~6.3k IR-free lines under `LirLean/Engine/` (+ kin) belong in
+- **Engine relocation (D10)**: ~6.3k IR-free lines under `experiments/003_bytecode_layer/BytecodeLayer/Hoare/` (+ kin) belong in
   exp003 and are still *growing*; the cheap discipline meanwhile is "new engine lemmas land
   exp003-side first" ([01 §8.4](01-trusted-base.md)).
 - **Dead v1 surface**: `Frame/SmallStep.lean`, `applyCall`/`applyCreate`, the `Match`

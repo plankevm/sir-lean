@@ -1,6 +1,6 @@
 import LirLean.V2.RecorderLemmas
 import LirLean.Materialise.MaterialiseRuns
-import LirLean.Engine.AccountMap
+import BytecodeLayer.Hoare.AccountMap
 
 /-!
 # LirLean v2 — the recorded-run value-channel discharges + `SelfPresent` (`Drive/SelfPresent`)
@@ -17,12 +17,12 @@ namespaces unchanged):
 * **§4 SLOAD** — the warmth-charge bridge (`sloadRecord_discharges_obs`) and its positional
   twin `SloadLogAligned` + `sloadRealises_charge_of_witness`.
 * **§5 SSTORE presence** — the world invariant `SelfPresent` with its non-emptiness bridge
-  (`accounts_ne_empty_of_selfPresent`, via `Engine/AccountMap.lean`'s `find?_some_ne_empty`),
+  (`accounts_ne_empty_of_selfPresent`, via `BytecodeLayer/Hoare/AccountMap.lean`'s `find?_some_ne_empty`),
   the structural call-resume closer `resumeAfterCall_self_of_accounts`, and the entry-frame
   base case `selfPresent_codeFrame`.
 
 The `SelfPresent`-forward closure along `Runs` (`StepPreservesSelf`/`CallPreservesSelf` and
-the `callPreservesSelf` chain over `Engine/DriveMono.lean`'s Brick D) lives in
+the `callPreservesSelf` chain over `BytecodeLayer/Hoare/DriveMono.lean`'s Brick D) lives in
 `Drive/CallPreservesSelf.lean`; the `DriveCorrPlus` walk and the headlines live in
 `Drive/Headline.lean`.
 
@@ -360,9 +360,8 @@ the `¬ (accounts == ∅)` conjunct of the §7 terminator bundle. It is *derived
 `SelfPresent` (the self account
 is present in the map, so the map cannot be empty). The account-map fact is
 `find?_some_ne_empty` (a `find?` hit forces `¬ (m == ∅)`), a pure engine brick that lives in
-`Engine/AccountMap.lean` together with its RBMap prims (`forM_from_nil`/`all2_nil_false`). -/
+`BytecodeLayer/Hoare/AccountMap.lean` together with its RBMap prims (`forM_from_nil`/`all2_nil_false`). -/
 
--- RELOCATE to exp003 (audit §7)
 /-- **Thin bridge: `SelfPresent ⇒ accounts ≠ ∅`.** The exact non-emptiness conjunct the halt
 wrappers emit (T1 directly, T2 at the return endpoint `frv` after the P3 hop). -/
 theorem accounts_ne_empty_of_selfPresent {fr : Frame} (h : SelfPresent fr) :

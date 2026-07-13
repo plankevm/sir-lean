@@ -1,7 +1,7 @@
 # exp005 Execution Plan — waves & track ownership (2026-07-02)
 
 *Operationalizes `target-architecture-2026-07-02.md` §10 with the lead's amendments:
-(1) engine facts move SUBDIRECTORY-FIRST (`LirLean/Engine/`), exp003 promotion deferred to
+(1) engine facts move SUBDIRECTORY-FIRST (`experiments/003_bytecode_layer/BytecodeLayer/Hoare/`), exp003 promotion deferred to
 post-Phase-3; (2) parallel tracks run in separate git worktrees with CLONED `.lake` caches
 (never rebuild cold); (3) every track runs an audit cycle (planner → implementer → reviewer,
 one fix round); (4) after each wave the lead's main thread merges all track branches into
@@ -89,7 +89,7 @@ OWNS: new files under `LirLean/V2/` (or `LirLean/Realise/`), one `lean_lib` bloc
 (1) Prove `stepFrame_next_execEnvAddr`; derive the SelfAt walk as the `a := self` corollary of
 `_next_accMono` (~1,000 lines saved). (2) Move the pure-engine spans of `TieDischarge.lean`
 (the `namespace Evm` spans + engine-level `Lir.V2` blocks) plus, if import-clean, `MemAlgebra`,
-`CleanHalt`, `CleanHaltExtract` §0–§2, `V2/DriveRuns`, `Charges` into NEW `LirLean/Engine/`
+`CleanHalt`, `CleanHaltExtract` §0–§2, `V2/DriveRuns`, `Charges` into NEW `experiments/003_bytecode_layer/BytecodeLayer/Hoare/`
 (decl-by-decl, names unchanged — subdirectory-first; exp003 promotion is post-Phase-3).
 (3) Split the TieDischarge remnant at namespace boundaries → `Drive/{SelfPresent,
 CallPreservesSelf,Headline}.lean`. Update `Audit.lean` guards in the same commits.

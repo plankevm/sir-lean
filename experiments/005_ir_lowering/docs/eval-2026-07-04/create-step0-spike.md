@@ -20,7 +20,7 @@ sorry**, including the 63/64-guard handling — this was the load-bearing unknow
 (plan R1) and it is now retired for the node itself.
 
 What is **not** done (by design, per the spike brief): de-`NoCreate`-ing
-`runs_of_drive_ok` (exp005 `Engine/DriveRuns.lean:283`) and the exp005-side
+`runs_of_drive_ok` (exp005 `BytecodeLayer/Hoare/DriveRuns.lean:283`) and the exp005-side
 `Runs` recursion arms. Those are mechanical given what's proven here (see §4);
 none is a soundness risk, and the two hardest ingredients they need are already
 proven green in this spike.
@@ -123,7 +123,7 @@ are over *other* inductives, not `Runs`):
 2. `exp005:LirLean/V2/RealisabilitySpec.lean:1225` `runs_halt_eq` (`cases`) —
    contradiction arm. Trivial.
 3. `exp005:LirLean/V2/RealisabilitySpec.lean:1424` `runs_kind` (`induction`) —
-   `| create` arm using `resumeAfterCreate_kind` (exp005:Engine/Descent.lean:390)
+   `| create` arm using `resumeAfterCreate_kind` (exp005:BytecodeLayer/Hoare/Descent.lean:390)
    + `stepFrame_needsCreate_inv` (Descent.lean:238). **Both helpers already exist.**
 4. `exp005:LirLean/V2/RealisabilitySpec.lean:2414` `atReachableBoundaryVJ_of_runs`
    (`induction`) — `| create` arm needs a **new** edge lemma
@@ -136,13 +136,13 @@ are over *other* inductives, not `Runs`):
    `endFrame_create_accPresent` (DriveMono.lean:87). Both exist.
 
 Transitively-inherited (no new arm; they call the above):
-`cleanHaltsNonException_forward` (Engine/CleanHalt.lean:80) rides
+`cleanHaltsNonException_forward` (BytecodeLayer/Hoare/CleanHalt.lean:80) rides
 `Runs.linear_to_halt`; `CleanHalts`/`CleanHaltsNonException` are existential
 wrappers, not recursions; the `DriveSim`/`driveLog` `totalGas` measure recurses on
 `drive` (which already has a `needsCreate` arm), **not** on `Runs` — no change.
 
 ### 3c. The one large item — `runs_of_drive_ok` de-`NoCreate`
-`exp005:LirLean/Engine/DriveRuns.lean:283` + `ModellableStep` (:142) + the header
+`exp005:experiments/003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean:283` + `ModellableStep` (:142) + the header
 exclusion (:27). The `.needsCreate` arm (:364-365) is currently
 `absurd … (hmodel …).1`. De-excluding it means **deleting** the
 `ModellableStep` create clause and building a `Runs.create` node in that arm,
@@ -195,7 +195,7 @@ green**:
    mirrors `call_to_halt` exactly.
 5. **Green-light the `runs_of_drive_ok` de-`NoCreate` as the next step** (§3c) —
    it is the only remaining large item and it is exp005-side
-   (`Engine/DriveRuns.lean`), riding this spike's exp003 bricks.
+   (`BytecodeLayer/Hoare/DriveRuns.lean`), riding this spike's exp003 bricks.
 
 ---
 

@@ -9,7 +9,7 @@ Full chronological record: `currentplan.md` (orchestration log). This is your re
 > (HEAD `53c2063`). File homes below have MOVED — consult the redirect map in
 > `experiments/005_ir_lowering/docs/headline-transitive-chain.md`:
 > (a) `LirLean/Spec/{IR,Semantics,Lowering,Recorder,Seams,Conformance}` extraction;
-> (b) `LirLean/Engine/*` + `LirLean/V2/Drive/{SelfPresent,CallPreservesSelf,Headline}` split,
+> (b) `experiments/003_bytecode_layer/BytecodeLayer/Hoare/*` + `LirLean/V2/Drive/{SelfPresent,CallPreservesSelf,Headline}` split,
 > with `V2/TieDischarge.lean` **DISSOLVED** and `V2/RunLog.lean` **deleted** (recorder →
 > `Spec/Recorder.lean`); (c) Phase-2 **deletion** of `V2/{Mono,Oracle,HonestGasTie}.lean` +
 > the gas-monotonicity law; (d) `LirLean/Audit.lean` guard net + `LirLean/V2/RealisabilitySpec.lean`

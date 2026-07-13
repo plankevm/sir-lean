@@ -178,7 +178,7 @@ reach `Semantics`'s types (`CallStream`/`Observable`/`GasOracle`) only transitiv
 Altitude (three tiers, not one cluster):
 - L0 base: `IR` → `Semantics`, `Lowering` (Evm-only + IR).
 - High-DAG surface: `Recorder` (imports `V2/CallRealises`, `Hoare.GasMonotone`),
-  `Seams` (imports `V2/Drive/CallPreservesSelf`, `V2/Modellable`, `Engine/CleanHalt`).
+  `Seams` (imports `V2/Drive/CallPreservesSelf`, `Decode/Modellable`, `BytecodeLayer/Hoare/CleanHalt`).
 - Tombstone: `Conformance` (imports nothing).
 
 Entry edges (who imports each, from outside `Spec/`):

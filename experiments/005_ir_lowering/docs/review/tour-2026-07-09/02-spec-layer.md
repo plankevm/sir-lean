@@ -478,9 +478,9 @@ structure PrecompileAssumptions (prog : Program) (params : Evm.CallParams) : Pro
 ```
 
 Glosses (definitions live in the proof layer and are *forwarded* here — see the inversion note
-in §7.3): [`CallsCode fr'`](../../../LirLean/Engine/Modellable.lean#L410) — any CALL issued at
+in §7.3): [`CallsCode fr'`](../../../LirLean/Decode/Modellable.lean#L410) — any CALL issued at
 a reachable frame targets a code account, never a precompile;
-[`CreateResolves fr'`](../../../LirLean/Engine/Modellable.lean#L421) — any CREATE's 63/64
+[`CreateResolves fr'`](../../../LirLean/Decode/Modellable.lean#L421) — any CREATE's 63/64
 gas-retention resume guard passes;
 [`PrecompilesPreservePresence`](../../../LirLean/Spec/Seams.lean#L11) — a precompile fast-path
 `beginCall` never erases an account's presence. **Flag:** `callsCode`/`createResolves`
@@ -644,10 +644,10 @@ still lives in the WIP file, not in `Spec/`.
   [`NonRecomputable`](../../../LirLean/Materialise/DefsSound.lean#L127), `isGasDef`…), and
   `Decode/DecodeLower` (for [`flatBytes`](../../../LirLean/Decode/DecodeLower.lean#L45)).
 * [`Spec/Seams.lean`](../../../LirLean/Spec/Seams.lean#L1) imports `V2/Drive/CallPreservesSelf`,
-  `Engine/Modellable`, `Engine/CleanHalt` and *forwards* their predicates
+  `Decode/Modellable`, `BytecodeLayer/Hoare/CleanHalt` and *forwards* their predicates
   ([`SelfPresent`](../../../LirLean/V2/Drive/SelfPresent.lean#L353),
-  [`CallsCode`](../../../LirLean/Engine/Modellable.lean#L410),
-  [`CleanHaltsNonException`](../../../LirLean/Engine/CleanHalt.lean#L62)).
+  [`CallsCode`](../../../LirLean/Decode/Modellable.lean#L410),
+  [`CleanHaltsNonException`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean#L62)).
 * [`Spec/CallEntry.lean`](../../../LirLean/Spec/CallEntry.lean#L1) imports `Frame/Call`/
   `Frame/Create` (for the `evmCallOracle`/`evmCreateOracle` projections), pulling the whole v1
   frame layer under `Spec/Recorder` → `Spec/Conformance`.

@@ -115,7 +115,7 @@ but it is the gate). Recommend the design fleet confirm what `DriveSim` actually
 
 `Create.lean` has zero importers (only the root aggregate). `CreateOracle`, `evmCreateOracle`,
 `createAddrOrZero` are referenced nowhere in the tree (the `resumeAfterCreate` hits in
-Engine/* and CallPreservesSelf are Evm's, not Lir's). It is a field-for-field mirror of
+BytecodeLayer/Hoare/* and CallPreservesSelf are Evm's, not Lir's). It is a field-for-field mirror of
 `Call.lean` that was never wired into any proof. Safe to delete immediately, independent of
 the acyclic decision.
 

@@ -1,7 +1,7 @@
 import LirLean.Frame.Match
 import LirLean.Materialise.MaterialiseGas
 import LirLean.Materialise.DefsSound
-import LirLean.Engine.MemAlgebra
+import BytecodeLayer.Hoare.MemAlgebra
 
 /-!
 # LirLean — materialise endpoint bundles + realisability side-conditions (Layer **B1** carriers)

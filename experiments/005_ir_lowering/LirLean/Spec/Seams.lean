@@ -1,6 +1,6 @@
 import LirLean.V2.Drive.CallPreservesSelf
-import LirLean.Engine.Modellable
-import LirLean.Engine.CleanHalt
+import LirLean.Decode.Modellable
+import BytecodeLayer.Hoare.CleanHalt
 
 namespace Lir.Spec
 

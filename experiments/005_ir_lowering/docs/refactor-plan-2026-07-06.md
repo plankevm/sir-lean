@@ -1,5 +1,10 @@
 # exp005 master refactor plan — 2026-07-06
 
+> **Engine-fold status (2026-07-13).** The deferred package fold has landed. The eight IR-free
+> engine modules now live in exp003 under `BytecodeLayer/Hoare/`; the lowering-dependent
+> `Modellable.lean` lives under `LirLean/Decode/`. References below to a future `Engine/`
+> relocation describe the historical sequencing decision, not current work.
+
 > **P9 status note (2026-07-08).** The Phase 2A legacy-deletion pass has landed: `Expr.slot`,
 > `materialiseExpr`, `materialise`, `recomputeFuel`, `MatFueled`, `Assembly/Acyclic.lean`, and
 > `NoSlotSource` are gone. References below to those symbols are historical planning context unless
@@ -120,7 +125,7 @@ Spec import inversion (5.10) as a side effect. Leave only sorry'd theorems in th
 - **#4** `pcOf` + `pcOf_eq_anchor`/`flatBytes_at_pcOf` (Frame/Match.lean:67-108) → `Decode/Layout.lean`.
   Kills the geometry→coupling import inversion (DecodeAnchors.lean:3, JumpValid.lean:5 import
   Frame.Match). `termOf` already lives on the correct side.
-- **#3** `V2/Modellable.lean` (namespace `BytecodeLayer.Interpreter`, zero V2 content) → `Engine/`.
+- **#3** `Decode/Modellable.lean` (namespace `BytecodeLayer.Interpreter`, zero V2 content) → `Engine/`.
   *This is consolidation within exp005, consistent with "keep working on Engine"* — not an exp003
   move. Seam defs (`CallsCode`, `CreateResolves`) stay reachable via Spec/Seams.
 - **#5** `Decode/LoweringLemmas.lean` (zero geometry; `allocate_toDefs`, `defsOf_ne_*`) → Materialise/

@@ -70,7 +70,7 @@ Vacuous for call-free programs. -/
 structure PrecompileSeams (prog : Program) (params : Evm.CallParams) : Prop where
   noErase   : ∀ cp imm, Evm.beginCall cp = .inr imm →
                 ∀ a, AccPresent a cp.accounts → AccPresent a imm.accounts   -- hprec, TieDischarge :3478
-  callsCode : ∀ fr', ReachableFrom params fr' → CallsCode fr'               -- V2/Modellable.lean:435
+  callsCode : ∀ fr', ReachableFrom params fr' → CallsCode fr'               -- Decode/Modellable.lean:435
 ```
 
 ### 1.2 The flagship
@@ -105,7 +105,7 @@ This is Eduardo's target sentence verbatim: *"lowering the program to bytecode a
 
 Recommended strengthenings (cheap, worth doing):
 - **Exact stream consumption**: conclusion variant asserting the IR run consumes the *entire* `realisedGas log` (currently `RunFrom` discards the leftover trace — `V2/Machine.lean:231-242` drop `T'`). Without it, "positional equality" is only over the consumed prefix. A `RunFromAll` wrapper (`RunFrom … ∧ leftover = []`) or an existential leftover pinned to `[]` closes the last vacuity channel.
-- **`hrb` residue**: the pc-reachability fact `AtReachableBoundary` (`V2/Modellable.lean:407`) is *deliberately absent* from the signature above because it is dischargeable (obligation R6, §6) — the Track-A boundary walk. Until R6 lands, it appears as a sorry'd lemma, not a flagship hypothesis.
+- **`hrb` residue**: the pc-reachability fact `AtReachableBoundary` (`Decode/Modellable.lean:407`) is *deliberately absent* from the signature above because it is dischargeable (obligation R6, §6) — the Track-A boundary walk. Until R6 lands, it appears as a sorry'd lemma, not a flagship hypothesis.
 
 ### 1.3 Hypothesis-by-hypothesis comparison with `lower_conforms_cyclic_assembled` (:4292)
 

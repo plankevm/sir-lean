@@ -1,16 +1,15 @@
 import BytecodeLayer.Hoare.CallSequence
 
 /-!
-# `drive → Runs`: reconstruct a halting `Runs` from a clean-terminating top-level `drive`
+# Reconstruct a halting `Runs` from a clean-terminating top-level `drive`
 
-The cyclic-CFG forward simulation (`V2/DriveSim.lean`) conditions on the entry frame's
-`CleanHalts fr₀` — `∃ last halt, Runs fr₀ last ∧ stepFrame last = .halted halt`. The honest
-scope hypothesis it is *derived* from is the **clean-halt outcome** of the recording interpreter:
+`CleanHalts fr₀` means `∃ last halt, Runs fr₀ last ∧ stepFrame last = .halted halt`. It can be
+derived from the **clean-halt outcome** of the recording interpreter:
 `runWithLog params (seedFuel params.gas) = some log`, which (`runWithLog_drive`) pins
 `drive (seedFuel params.gas) [] (running fr₀) = .ok log.observable`.
 
-The existing direction (`CallSequence.lean`) is `Runs → drive` (`Runs.drive_reconcile`,
-`messageCall_runs`). This module proves the **reverse**: a top-level `drive` that terminates
+The forward direction is `Runs → drive` (`Runs.drive_reconcile`, `messageCall_runs`). This module
+proves the **reverse**: a top-level `drive` that terminates
 cleanly (`.ok`) reconstructs a halting `Runs` to the result's halt frame. `Runs` carries
 returning external CALLs as black-box `CallReturns` nodes AND returning CREATEs as `CreateReturns`
 nodes (`Runs.create`), so both descents are modelled. The reconstruction carries only the honest

@@ -1,13 +1,13 @@
 import Evm
 
 /-!
-# `LirLean.MemAlgebra` — memory-channel crux lemmas
+# Memory-channel algebra
 
 This file establishes the crux lemmas needed to add a *memory value channel*
 to the bytecode-lowering correctness proof (MSTORE the CALL success flag to a
 per-tmp slot, MLOAD it back on use).
 
-The EVM memory model lives in the exp003 package
+The EVM memory model lives in the EVM package
 (`EVM/Evm/Machine/MachineStateOps.lean`): `mstore` calls `writeWord` →
 `writeBytes` → `ByteArray.write`; `mload` calls `lookupMemory` →
 `ByteArray.readWithPadding` → `fromByteArrayBigEndian`.
@@ -75,9 +75,8 @@ theorem resumeAfterCall_activeWords {result : CallResult} {pd : PendingCall}
   unfold MachineState.M
   simp
 
-/-- **CALL preserves caller memory.** The lowered CALL uses zero-size input and
-return windows (`in_off = in_size = out_off = out_size = 0`, see
-`LirLean/Lowering.lean:144`); under those hypotheses an `MLOAD` at any fixed slot
+/-- **CALL preserves caller memory.** When a CALL uses zero-size input and
+return windows (`in_off = in_size = out_off = out_size = 0`), an `MLOAD` at any fixed slot
 reads the same word before and after the call's resume. The zero-size return
 window is exactly what makes the memory bytes survive (`writeBytes … 0`), and the
 zero-size input window keeps `activeWords` (hence the `lookupMemory` bounds

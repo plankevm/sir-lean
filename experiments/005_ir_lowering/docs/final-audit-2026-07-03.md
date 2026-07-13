@@ -136,7 +136,7 @@ statements.
    `V2/Oracle.lean`, `V2/Mono.lean`, `V2/RunLog.lean` after those files were deleted —
    e.g. `MaterialiseRuns.lean:53,507,530,550,552`, `Drive/SelfPresent.lean:96,101` (`Oracle.
    GasRealises` / `V2/Oracle.lean` path now `MaterialiseRuns.lean`). Sweep the paths.
-2. **`Engine/MemAlgebra.lean:948-976` retains 8 `#guard_msgs in #print axioms`** outside the
+2. **`BytecodeLayer/Hoare/MemAlgebra.lean:948-976` retains 8 `#guard_msgs in #print axioms`** outside the
    "authoritative net." Harmless (still fail-hard on drift) but inconsistent with the
    "Audit.lean is the net" narrative — either fold into `Audit.lean` or note the exception in
    `docs/exec/audit-net.md`.

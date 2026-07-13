@@ -80,7 +80,7 @@ EIP-3541, deposit); richer init code is future work.
   (`:251-254`) likewise has no create-result stash arm.
 - Consequently the conformance drive **structurally excludes** CREATE: `NoCreateBytes.lean`
   (`SegAlignedSafe`, the "lowering emits only 16 non-CREATE opcodes at any head") + `NotCreate`
-  discharged by `notCreate_of_atReachableBoundary` (`V2/Modellable.lean:16-27`, `V2/DriveSim.lean:121-125`).
+  discharged by `notCreate_of_atReachableBoundary` (`Decode/Modellable.lean:16-27`, `V2/DriveSim.lean:121-125`).
   Adding CREATE means *retiring* this exclusion, not extending it.
 
 ## 4. The EVM reference layer (exp003) — fully supports CREATE **and** CREATE2
@@ -96,13 +96,13 @@ Everything the IR would lower *onto* already exists and is green:
 - `beginCreate` — exp003 `Create.lean:64`, now **total** (dead `.error` derivation arm removed,
   commits `7b34698`/`ad67864`). `endCreate` (`:141`), `resumeAfterCreate` (`:189`), plus `createArm`,
   `PendingCreate`, `CreateResult` in `System.lean` and the drive-loop `.needsCreate` handling.
-- **Engine-level CREATE lemmas already green** (`Engine/Descent.lean`, extracted from the old
+- **Engine-level CREATE lemmas already green** (`BytecodeLayer/Hoare/Descent.lean`, extracted from the old
   monolith): `createArm_needsCreate_inv` (`:131`), `systemOp_needsCreate_inv` (`:163`),
   `stepFrame_needsCreate_inv` (`:238`), `beginCreate_ok_accounts_present` (`:331`),
   `beginCreate_ok_checkpoint` (`:355`), `resumeAfterCreate_exec_accounts_present` (`:373`),
   `resumeAfterCreate_kind` (`:390`), and the unifying `createDescent : DescentKind` (`:502`) with
   `createDescent_descendImmediate_trivial` (`:538`). Drive presence: `endFrame_create_accPresent`
-  (`Engine/DriveMono.lean:87`) and the `.create`-kind arms in `Engine/DriveRuns.lean` (`:104,182,250,364`).
+  (`BytecodeLayer/Hoare/DriveMono.lean:87`) and the `.create`-kind arms in `BytecodeLayer/Hoare/DriveRuns.lean` (`:104,182,250,364`).
 
 So CALL and CREATE are already unified at the **engine/drive** altitude via `DescentKind`; only the
 IR-surface-and-up layers are CALL-only.
@@ -115,7 +115,7 @@ total and removing the dead branch as a **"Planned fix (in progress / scheduled)
 totality lemma exists (`contractAddressBytes_create_isSome`, `Create.lean:38`), consistent with the
 MEMORY note ("dead beginCreate .error branch REMOVED … commits 7b34698/ad67864"). The `drive_accounts_
 find_mono` CREATE-fault case the backlog says would be removed is likewise moot (drive create step is
-proven in place, `Engine/DriveMono.lean:42-47`). Only the `StackUnderflow` tag-misnomer sub-item
+proven in place, `BytecodeLayer/Hoare/DriveMono.lean:42-47`). Only the `StackUnderflow` tag-misnomer sub-item
 (`backlog.md:24-37`) survives, and it is doubly moot now that the branch producing it is deleted.
 
 ## 6. Gap-list to implement first-class CREATE (then CREATE2)
@@ -145,7 +145,7 @@ machinery, not duplicating the CALL ecosystem.
    arm and one realises-bundle instance. The multi-descent question is the same as multi-CALL (R3');
    solve as a consumed **descent stream** (`execution-plan:130-131`).
 6. **Drive integration — retire, don't extend, the exclusion.** Remove/retire `NoCreateBytes.lean`
-   and the `NotCreate` clause (`V2/Modellable.lean:16-27`), replacing them with the localized
+   and the `NotCreate` clause (`Decode/Modellable.lean:16-27`), replacing them with the localized
    "descents occur exactly at emitted descent sites" predicate over the R6 boundary walk
    (`execution-plan:127-131`). Discharge the create drive step using the already-green `DescentKind`
    `.create` lemmas (§4).

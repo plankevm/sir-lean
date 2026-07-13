@@ -2,14 +2,12 @@ import Evm
 import BytecodeLayer.Semantics.Maps
 
 /-!
-# `LirLean.Engine.AccountMap` — pure account-map presence bricks (engine level)
+# `BytecodeLayer.Hoare.AccountMap` — pure account-map presence bricks
 
 Pure `Evm.AccountMap` facts, zero IR / zero recorder / zero `SelfPresent`: the RBMap
 non-emptiness prims (`forM_from_nil` / `all2_nil_false` / `find?_some_ne_empty`) and the
-arbitrary-address presence layer (`AccPresent` / `AccMono` + Bricks A/B and their closers)
-that the accMono dispatch walk (`Engine/StepWalk.lean`) and the drive-run monotonicity
-(`Engine/DriveMono.lean`) consume. Extracted verbatim from the former `V2/TieDischarge.lean` monolith
-(names and namespaces unchanged); exp003 promotion is post-Phase-3.
+arbitrary-address presence layer (`AccPresent` / `AccMono` + their closure lemmas). The public
+names remain in the `Lir.V2` namespace.
 
 `AccountMap = Batteries.RBMap AccountAddress Account compare`, whose `BEq` runs `RBNode.all₂`
 (`Batteries/Data/RBMap/Basic.lean:232`): a `StateT`-over-`Option` walk of the left tree against the
@@ -23,7 +21,6 @@ No `sorry`/`axiom`/`native_decide`; axioms `[propext, Classical.choice, Quot.sou
 
 namespace Lir.V2
 
--- RELOCATE to exp003 (audit §7)
 open Batteries in
 /-- The `all₂` `StateT (RBNode.Stream β) Option` walk of `t` against the **empty** stream is `none`
 for a non-`nil` `t` (and `some (⟨⟩, .nil)` for `nil`): from the empty initial state, the first node
@@ -52,7 +49,6 @@ theorem forM_from_nil {α β : Type} (R : α → β → Bool) (t : RBNode α) :
       rfl
     | node c' l' v' r' => rw [ihl]; rfl
 
--- RELOCATE to exp003 (audit §7)
 open Batteries in
 /-- `RBNode.all₂ R t nil = false` for any non-`nil` `t`: the empty right tree's stream is empty, so
 the walk (`forM_from_nil`) short-circuits to `none`, which does not match `some (_, .nil)`. -/
@@ -65,7 +61,6 @@ theorem all2_nil_false {α β : Type} (R : α → β → Bool) (t : RBNode α) (
   | nil => exact absurd rfl hne
   | node c l v r => rw [hrun]
 
--- RELOCATE to exp003 (audit §7)
 open Batteries in
 /-- **The new account-map fact.** A `find?` hit (`m.find? addr = some acc`) forces `m`'s underlying
 tree non-`nil`, and the empty map's tree IS `nil`, so the structural `BEq` (`RBNode.all₂ (·==·)
@@ -142,4 +137,3 @@ theorem accMono_emptySwap (a : Evm.AccountAddress) (m m₀ : Evm.AccountMap)
   rw [if_neg (accPresent_ne_empty a m h)]; exact h
 
 end Lir.V2
-

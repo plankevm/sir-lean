@@ -2,7 +2,7 @@ import LirLean.V2.Drive.Headline
 import LirLean.Decode.BoundaryCursor
 import LirLean.Spec.BudgetDerivations
 import LirLean.V2.Realisability.Surface
-import LirLean.Engine.Modellable
+import LirLean.Decode.Modellable
 
 /-!
 # LirLean v2 — Realisability spec, MACHINERY (§5)
@@ -313,7 +313,7 @@ theorem haltNonException_of_cleanLog {prog : Lir.Program} {params : CallParams}
 /-! ### R3 resume-frame structural pins (`resumeAfterCall_{code,validJumps,pc,stack}`)
 
 The `rfl` companions of the default-target `resumeAfterCall_address`/`_memory`/`_activeWords`
-(`Engine/StepWalk.lean`, `Engine/MemAlgebra.lean`), for the resume-frame conjuncts of
+(`BytecodeLayer/Hoare/StepWalk.lean`, `BytecodeLayer/Hoare/MemAlgebra.lean`), for the resume-frame conjuncts of
 `CallRealisesS` (§3, conjuncts 11/17/13/14). `resumeAfterCall` rebuilds `pd.frame` as
 `{ pd.frame with exec := exec'.replaceStackAndIncrPC (pd.stack.push x) }`, touching only
 stack/pc/gas/accounts/substate/toMachineState and leaving `executionEnv` (hence `.code`) and
@@ -4541,7 +4541,7 @@ CREATE specifics:
 STATUS (after this producer round): `create_stmt_offset_bound_of_codeFits`,
 `create_args_run_of_coupled`, `create_tail_of_cleanHalt` are CLOSED (direct transfers). The
 `resumeAfterCreate` stack/memory/activeWords resume pins are NOW LANDED (default cone, axiom-clean:
-`Lir.V2.resumeAfterCreate_stack`/`_memory`/`_activeWords_ge` in `Engine/Descent.lean`).
+`Lir.V2.resumeAfterCreate_stack`/`_memory`/`_activeWords_ge` in `BytecodeLayer/Hoare/Descent.lean`).
 
 `create_dispatch_of_coupled`, `createRealises_of_recorded`, `create_head_realises_coupled` remain
 STUBBED with tracked `sorry`s. UPDATE (CREATE2 soft-fail recorder alignment, 2026-07-11): the

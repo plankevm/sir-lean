@@ -3025,7 +3025,7 @@ theorem boundaryWalk_of_wl {prog : Program} {params : CallParams} {fr₀ : Frame
 
 /-- **P6 — create-resolves for all reachable frames (`hcr`).** The blocker existential's first
 conjunct. Threaded from the reachable-frame create-resolves field in `PrecompileAssumptions`
-(the honest R4 residual — `CreateResolves` is NOT structural, `V2/Modellable.lean:413`).
+(the honest R4 residual — `CreateResolves` is NOT structural, `Decode/Modellable.lean:413`).
 TRACTABILITY: direct seam adapter. -/
 theorem createResolves_reachable {prog : Program} {params : CallParams} {fr₀ : Frame}
     (hbegin : beginCall params = .inl fr₀)

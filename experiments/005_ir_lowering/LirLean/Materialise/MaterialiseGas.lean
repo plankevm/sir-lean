@@ -1,5 +1,5 @@
 import LirLean.Frame.Match
-import LirLean.Engine.Charges
+import BytecodeLayer.Hoare.Charges
 
 /-!
 # LirLean — the materialise gas-charge engine (charge lists for the value channel)
@@ -46,7 +46,7 @@ PUSH32-fattened lowering as gas-equivalent to a hypothetical narrow one. -/
 /-! ## 2. The pure-arithmetic engine (sum / `subCharges` laws)
 
 These are the laws B1 threads to glue per-leaf subtractions into the whole-expression
-`subCharges`. `subCharges_append`/`subCharges_snoc` (`LirLean/Engine/Charges.lean`,
+`subCharges`. `subCharges_append`/`subCharges_snoc` (`experiments/003_bytecode_layer/BytecodeLayer/Hoare/Charges.lean`,
 proved by induction on the charge list) decompose compound charge lists in execution
 order. -/
 

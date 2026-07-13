@@ -1,14 +1,12 @@
 import BytecodeLayer.Hoare.Sequence
 
 /-!
-# LirLean — general `subCharges` fold lemmas
+# General `subCharges` fold lemmas
 
 The two general fold lemmas about `subCharges` (exp003 `Hoare.Sequence`, the
 left-fold subtracting a charge list off the gas): how it distributes over a snoc
 and an append. They are pure list-fold algebra — independent of any particular
-program — so they live here, the shared charge-arithmetic module, rather than in a
-worked example. `MaterialiseGas` (the general gas-realisability gluing) and
-`WorkedCall` (the concrete single-call run) both consume them from here.
+program — so they live here in the shared charge-arithmetic module.
 -/
 
 namespace Lir

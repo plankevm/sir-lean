@@ -129,7 +129,7 @@ confirmation whether R3 will consume `callRealises_bridge` directly or re-derive
 
 ---
 
-## 5. `V2/Modellable.lean` — `ModellableStep` producer (bytecode-coupled) — FULLY LIVE
+## 5. `Decode/Modellable.lean` — `ModellableStep` producer (bytecode-coupled) — FULLY LIVE
 
 Purpose: discharge the modellability side condition `runs_of_drive_ok` needs (every reachable frame
 issues a code CALL or a halt — no CREATE node, no precompile-CALL). Splits: clause 1 (no CREATE)
@@ -305,7 +305,7 @@ DriveSim ─ borrows ► IRRun (runStmts_exists, RunDefinable, stmtsPost)
           ─ borrows ► LowerConforms (sim_cfg, SimTermStep) + transitively Corr/SimStmtStep/…
 Drive/SelfPresent ► (RecorderLemmas, MaterialiseRuns, AccountMap)  ; CallRealises via evmV2CallEntry
 Drive/CallPreservesSelf ─ imports ► Drive/SelfPresent (SelfPresent, resumeAfterCall_self_of_accounts)
-                         ─ imports ► Engine/DriveMono (Brick D)
+                         ─ imports ► BytecodeLayer/Hoare/DriveMono (Brick D)
 Drive/Headline ─ imports ► DriveSim (DriveCorr) + Drive/CallPreservesSelf (SelfPresent, alignment)
 ```
 
@@ -322,8 +322,8 @@ Exit edges (cluster decls consumed by the flagship / audit / Spec):
 
 Entry edges (cluster consumes from outside): `Spec.Semantics`/`Spec.IR` (Law/IRRun);
 `Match`/`Call`/`DefsSound` (CallRealises, Call); `LowerConforms`/`SimStmts`/`SimTerm`
-(DriveSim's `sim_cfg`/`Corr` tower); `RecorderLemmas`/`MaterialiseRuns`/`Engine/AccountMap`
-(SelfPresent); `Engine/DriveMono` Brick D (CallPreservesSelf); `Engine/DriveRuns`/`NoCreateBytes`
+(DriveSim's `sim_cfg`/`Corr` tower); `RecorderLemmas`/`MaterialiseRuns`/`BytecodeLayer/Hoare/AccountMap`
+(SelfPresent); `BytecodeLayer/Hoare/DriveMono` Brick D (CallPreservesSelf); `BytecodeLayer/Hoare/DriveRuns`/`NoCreateBytes`
 (Modellable).
 
 ---

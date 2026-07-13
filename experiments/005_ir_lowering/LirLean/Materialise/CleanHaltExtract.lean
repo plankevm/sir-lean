@@ -1,6 +1,6 @@
 import LirLean.Materialise.MatDecLower
 import LirLean.Materialise.MatFoldChannel
-import LirLean.Engine.CleanHalt
+import BytecodeLayer.Hoare.CleanHalt
 
 /-!
 # CleanHalt extractor — clean-halting ⟹ per-cursor gas/mem envelopes (Track 1)
@@ -62,7 +62,7 @@ core argument needs: the terminal is **not** `.exception`. A continuing op's onl
 
 `CleanHaltsNonException` (and its forward split `cleanHaltsNonException_forward`, the weakening
 `cleanHaltsNonException_toCleanHalts`, and the success special case
-`cleanHaltsNonException_of_success`) live in `LirLean/Engine/CleanHalt.lean` — upstream of both this
+`cleanHaltsNonException_of_success`) live in `experiments/003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean` — upstream of both this
 extractor and the drive walk. Open `Lir.V2` brings them into scope here. -/
 
 open Lir.V2 (CleanHaltsNonException cleanHaltsNonException_forward HaltNonException)
@@ -1248,7 +1248,7 @@ theorem call_extraCost_le_of_cleanHalt (fr : Frame) (gasv toAddr : UInt256)
 end Lir.CleanHaltExtract
 
 -- Axiom-cleanliness guards (§6 — POP + CALL-charge Piece-B bricks).
--- Axiom-cleanliness guards (§0 — predicate lives in `LirLean/Engine/CleanHalt.lean`).
+-- Axiom-cleanliness guards (§0 — predicate lives in `experiments/003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean`).
 -- Axiom-cleanliness guards (§1).
 -- Axiom-cleanliness guards (§2).
 -- Axiom-cleanliness guards (§1.5/§2 — FoldLemma ADD/LT/MLOAD bricks).

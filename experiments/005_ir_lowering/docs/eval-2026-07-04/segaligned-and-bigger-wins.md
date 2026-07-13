@@ -107,7 +107,7 @@ unique converse/`IsLoweringOp` bricks + R6 headlines.
   floor.
 - **Files:** 0 removed by the minimal collapse (all 3 keep their unique headlines) — or **−1 file**
   if `NoCreateBytes.lean` is reduced to nothing but its two mono-corollaries and those are absorbed
-  into `BoundaryReach.lean`. That requires repointing `V2/Modellable.lean:426` (the only external
+  into `BoundaryReach.lean`. That requires repointing `Decode/Modellable.lean:426` (the only external
   consumer, of `decode_reachable_boundary_some`) from `NoCreateBytes` to `BoundaryReach` and
   flipping the current `BoundaryReach imports NoCreateBytes` edge. Modest surgery; optional.
 

@@ -135,12 +135,12 @@ A nested interpreter would give the `call` node by structural induction; here it
 lines). See [01-trusted-base.md](01-trusted-base.md).
 
 **(b) The loop must be inverted back into `Runs`.** exp005's
-[`runs_of_drive_ok`](../../../LirLean/Engine/DriveRuns.lean#L357) (482-line module) reconstructs a
+[`runs_of_drive_ok`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean#L357) (482-line module) reconstructs a
 halting `Runs` from a clean-terminating top-level `drive`, by strong induction on fuel with a
 bespoke bounded-descent lemma
-([`drive_append_framing_lt`](../../../LirLean/Engine/DriveRuns.lean#L51)) to make the recursion
+([`drive_append_framing_lt`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean#L51)) to make the recursion
 well-founded across call boundaries, and a per-frame
-[`ModellableStep`](../../../LirLean/Engine/DriveRuns.lean#L182) residual for the two configurations
+[`ModellableStep`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean#L182) residual for the two configurations
 `Runs` cannot resume (precompile CALL, 63/64-OOG create resume):
 
 ```lean
@@ -168,8 +168,8 @@ stack flattens all depths into one loop — top-level events are recognized by
 ```
 
 On top of these, the engine walks that discharge frame-level invariants range over *every* opcode
-of the real dispatch (e.g. [StepWalk.lean](../../../LirLean/Engine/StepWalk.lean#L5), 1,336 lines;
-[DriveMono.lean](../../../LirLean/Engine/DriveMono.lean), 294 lines) — though, as §6 argues, those
+of the real dispatch (e.g. [StepWalk.lean](../../../../003_bytecode_layer/BytecodeLayer/Hoare/StepWalk.lean#L5), 1,336 lines;
+[DriveMono.lean](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveMono.lean), 294 lines) — though, as §6 argues, those
 walks are per-opcode dispatch inductions any small-step machine needs, not a linear-frames tax.
 Rough one-time bill for the frame model itself: `Runs`+bundles
 ([Hoare.lean](../../../../003_bytecode_layer/BytecodeLayer/Hoare.lean), 839 lines incl. linearity
@@ -286,7 +286,7 @@ directly under a comment sketching the plan: *"Example progression: 1. subroutin
 given numbers 2. code that calls code of 1. (in a local way) 3. verify an external call to 2.
 4. next level: external call as a transaction."* I.e. the linear-frames project furthest along has
 **not yet built its cross-call composition rule** — our `Runs.call`/`CallReturns` +
-[`runs_of_drive_ok`](../../../LirLean/Engine/DriveRuns.lean#L357) is *ahead* of the field on
+[`runs_of_drive_ok`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean#L357) is *ahead* of the field on
 exactly the pain point that prompted this report.
 
 ## 4. Deep dive 2 — "ViperHall" = vyper-hol

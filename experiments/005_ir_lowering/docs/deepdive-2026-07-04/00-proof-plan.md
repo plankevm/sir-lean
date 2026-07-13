@@ -96,7 +96,7 @@ that exp003 does not export (single-opcode steps + whole-call `Behaves`, nothing
 
 - **L6 — V2 gas-free SPINE + cyclic DRIVE.** `V2/Law` (determinism floor), `V2/IRRun`
   (IR-run existence; `CFGAcyclic` self-described "retired"), `V2/Call`/`V2/CallRealises` (the
-  CallStream oracle + realisation bridge), `V2/Modellable`, `V2/DriveSim` (743; **the cyclic
+  CallStream oracle + realisation bridge), `Decode/Modellable`, `V2/DriveSim` (743; **the cyclic
   drive simulation** — hosts `runFrom_of_driveCorr` F2 and `lower_conforms_cyclic'` F3′,
   `DriveSim.lean:588,666`), `V2/Drive/{SelfPresent,CallPreservesSelf,Headline}`. *Why:* the
   gas-free IR semantics spine, plus the drive walk that *simulates* the spine over a real

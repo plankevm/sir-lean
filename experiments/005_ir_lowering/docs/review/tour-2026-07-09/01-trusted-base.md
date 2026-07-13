@@ -16,16 +16,14 @@ working assumption — that `Runs` + [`messageCall_runs`](../../../../003_byteco
 was "everything needed" for an IR lowering — turned out false: exp003's theory is **forward-only**
 (program → result), while the conformance flagship starts from an actual run and must reason
 *backward* and *per-step*. Exp005 had to build, in-house, the reverse direction
-[`runs_of_drive_ok`](../../../LirLean/Engine/DriveRuns.lean#L357), a ~1,300-line per-opcode
-account-presence walk ([`StepWalk.lean`](../../../LirLean/Engine/StepWalk.lean#L1119)), a whole-run
-presence induction ([`drive_accounts_find_mono`](../../../LirLean/Engine/DriveMono.lean#L159)), a
+[`runs_of_drive_ok`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean#L357), a ~1,300-line per-opcode
+account-presence walk ([`StepWalk.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/StepWalk.lean#L1119)), a whole-run
+presence induction ([`drive_accounts_find_mono`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveMono.lean#L159)), a
 clean-halt/gas-envelope extractor
 ([`CleanHaltExtract.lean`](../../../LirLean/Materialise/CleanHaltExtract.lean#L700)), plus memory,
-storage-erase, and charge-fold algebra exp003 never provided. That in-house engine theory is now
-**~6,300 lines (~23% of `LirLean`) of zero-IR machine metatheory squatting below the IR** — sound,
-sorry-free, axiom-clean per its build-enforced `#print axioms` guards (reported, not re-run) — with
-relocation to exp003 acknowledged-deferred (decision D10 of the
-[codebase map](../../codebase-map-2026-07-06.md)) and still growing. Two documented exp003 surface
+storage-erase, and charge-fold algebra exp003 never provided. The reusable portion of that engine
+theory now lives in exp003's `BytecodeLayer/Hoare/` proof layer; lowering-dependent pieces remain
+in exp005. Two documented exp003 surface
 drifts verify against source: a stale
 [`Hoare.lean` docstring](../../../../003_bytecode_layer/BytecodeLayer/Hoare.lean#L26) promising
 "`Runs` never appears in an exported statement" (it now sits inside exp005's flagship hypotheses),
@@ -34,7 +32,7 @@ that exp005 bypasses entirely.
 
 **Verification status (one line):** every in-scope exp005 file greps clean of
 `sorry`/`admit`/`native_decide`/`bv_decide`; the only `maxHeartbeats` in scope is two
-`800000` cranks in [`MemAlgebra.lean`](../../../LirLean/Engine/MemAlgebra.lean#L492) (§8);
+`800000` cranks in [`MemAlgebra.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/MemAlgebra.lean#L492) (§8);
 axiom-cleanliness (`[propext, Classical.choice, Quot.sound]`) is asserted by build-enforced
 `#print axioms` guard lines at the bottom of each file and by exp003's recorded table in
 [`results.md` §5](../../../../003_bytecode_layer/docs/results.md) — reported, not re-run.
@@ -49,21 +47,21 @@ This report covers the three trusted/engine strata every other report in the tou
 |---|---|---|
 | **L0a — executable machine** | exp003 [`EVMLean/Evm/`](../../../../003_bytecode_layer/EVMLean/Evm.lean) (`stepFrame`, `drive`, `messageCall`, `decode`, `beginCall`/`beginCreate`, `resumeAfterCall`/`Create`, `seedFuel`) | Empirical: conformance suite (§2) |
 | **L0b — exp003's proved surface** | [`BytecodeLayer/`](../../../../003_bytecode_layer/BytecodeLayer.lean) (`Runs`, `CallReturns`, `CreateReturns`, `messageCall_runs`, fuel monotonicity, gas monotonicity, per-opcode rules) | Proved; axiom table recorded in [results.md](../../../../003_bytecode_layer/docs/results.md) |
-| **L0b′ — exp005's in-house engine theory** | [`LirLean/Engine/`](../../../LirLean/Engine/DriveRuns.lean) (9 files), [`Frame/StorageErase.lean`](../../../LirLean/Frame/StorageErase.lean), [`V2/Drive/CallPreservesSelf.lean`](../../../LirLean/V2/Drive/CallPreservesSelf.lean), the IR-free half of [`Materialise/CleanHaltExtract.lean`](../../../LirLean/Materialise/CleanHaltExtract.lean) | Proved in exp005; zero IR content; staged for exp003 promotion |
+| **L0b′ — shared interpreter proof theory** | [`BytecodeLayer/Hoare/`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean), [`Frame/StorageErase.lean`](../../../LirLean/Frame/StorageErase.lean), [`V2/Drive/CallPreservesSelf.lean`](../../../LirLean/V2/Drive/CallPreservesSelf.lean), the IR-free half of [`Materialise/CleanHaltExtract.lean`](../../../LirLean/Materialise/CleanHaltExtract.lean) | Reusable core folded into exp003; lowering-specific consumers remain in exp005 |
 
-In-scope exp005 file inventory (current `wc -l`; every file accounted for):
+Engine/proof-layer inventory at the time of this review:
 
 | File | Lines | One-line job |
 |---|---|---|
-| [`Engine/AccountMap.lean`](../../../LirLean/Engine/AccountMap.lean) | 145 | RBMap presence bricks: `AccPresent`, insert-mono, `≠ ∅` from a `find?` hit |
-| [`Engine/Charges.lean`](../../../LirLean/Engine/Charges.lean) | 32 | `subCharges` snoc/append fold algebra |
-| [`Engine/CleanHalt.lean`](../../../LirLean/Engine/CleanHalt.lean) | 103 | `CleanHalts` / `CleanHaltsNonException` + forward closure along `Runs` |
-| [`Engine/Descent.lean`](../../../LirLean/Engine/Descent.lean) | 844 | CALL/CREATE site inversions (`stepFrame_needsCall_inv` etc.), begin/resume framing, `DescentKind` |
-| [`Engine/DriveMono.lean`](../../../LirLean/Engine/DriveMono.lean) | 294 | Whole-`drive`-run account-presence monotonicity (Brick D) |
-| [`Engine/DriveRuns.lean`](../../../LirLean/Engine/DriveRuns.lean) | 482 | **The reverse direction**: `drive → Runs` (`runs_of_drive_ok`) |
-| [`Engine/MemAlgebra.lean`](../../../LirLean/Engine/MemAlgebra.lean) | 996 | Byte-level MSTORE/MLOAD read-back, disjointness, zero-window CALL memory preservation |
-| [`Engine/Modellable.lean`](../../../LirLean/Engine/Modellable.lean) | 462 | `ModellableStep` producing lemma: `CreateResolves`/`CallsCode` residuals (note: **now in `Engine/`**, not `V2/` as older maps say) |
-| [`Engine/StepWalk.lean`](../../../LirLean/Engine/StepWalk.lean) | 1,336 | THE per-opcode dispatch walk: env-equality + account-presence mono for every `.next` arm |
+| [`BytecodeLayer/Hoare/AccountMap.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/AccountMap.lean) | 145 | RBMap presence bricks: `AccPresent`, insert-mono, `≠ ∅` from a `find?` hit |
+| [`BytecodeLayer/Hoare/Charges.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Charges.lean) | 32 | `subCharges` snoc/append fold algebra |
+| [`BytecodeLayer/Hoare/CleanHalt.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean) | 103 | `CleanHalts` / `CleanHaltsNonException` + forward closure along `Runs` |
+| [`BytecodeLayer/Hoare/Descent.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Descent.lean) | 844 | CALL/CREATE site inversions (`stepFrame_needsCall_inv` etc.), begin/resume framing, `DescentKind` |
+| [`BytecodeLayer/Hoare/DriveMono.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveMono.lean) | 294 | Whole-`drive`-run account-presence monotonicity (Brick D) |
+| [`BytecodeLayer/Hoare/DriveRuns.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean) | 482 | **The reverse direction**: `drive → Runs` (`runs_of_drive_ok`) |
+| [`BytecodeLayer/Hoare/MemAlgebra.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/MemAlgebra.lean) | 996 | Byte-level MSTORE/MLOAD read-back, disjointness, zero-window CALL memory preservation |
+| [`Decode/Modellable.lean`](../../../LirLean/Decode/Modellable.lean) | 462 | Lowering-specific `ModellableStep` producer: `CreateResolves`/`CallsCode` residuals |
+| [`BytecodeLayer/Hoare/StepWalk.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/StepWalk.lean) | 1,336 | THE per-opcode dispatch walk: env-equality + account-presence mono for every `.next` arm |
 | [`Frame/StorageErase.lean`](../../../LirLean/Frame/StorageErase.lean) | 217 | `RBMap.erase` read-back (`findD_erase_self`/`_of_ne`) for the zero-write SSTORE |
 | [`V2/Drive/CallPreservesSelf.lean`](../../../LirLean/V2/Drive/CallPreservesSelf.lean) | 350 | Self-presence forward-closed along `Runs`, reduced to the one precompile seam |
 | [`Materialise/CleanHaltExtract.lean`](../../../LirLean/Materialise/CleanHaltExtract.lean) | 1,123 (~1,000 IR-free) | Per-opcode OOG/`.next` dichotomies + clean-halt ⟹ gas envelopes (envelope half → [report 04](04-value-channel.md)) |
@@ -252,7 +250,7 @@ The results exp005 leans on, by consumption weight:
 - **[`Runs.linear_to_halt`](../../../../003_bytecode_layer/BytecodeLayer/Hoare.lean#L323)** —
   `stepFrame` is a function, so a `Runs` ending in a halt is linear: every reachable frame
   continues to the *same* halt. This single determinism fact powers exp005's forward clean-halt
-  splitting ([`cleanHalts_forward`](../../../LirLean/Engine/CleanHalt.lean#L69)) and the
+  splitting ([`cleanHalts_forward`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean#L69)) and the
   halting-terminal uniqueness inside
   [`conforms_of_worldeq`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L204).
 
@@ -282,7 +280,7 @@ The results exp005 leans on, by consumption weight:
 - **[`subCharges`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Sequence.lean#L62)** /
   [`toNat_subCharges`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Sequence.lean#L69) —
   linear gas threading (running gas after a charge list as one prefix sum), extended by exp005's
-  [`Charges.lean`](../../../LirLean/Engine/Charges.lean#L19).
+  [`Charges.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Charges.lean#L19).
 
 Not consumed by exp005 but on exp003's surface: the observable-level lifts
 ([`messageCall_calls_completedWith`](../../../../003_bytecode_layer/BytecodeLayer/Spec.lean#L246)),
@@ -308,10 +306,10 @@ recorded *from that execution*. Concretely, five things were missing:
 Every exp003 bridge consumes a `Runs` you already have and produces a `drive`/`messageCall` fact.
 Nothing ever *produces* a `Runs` from an execution. But the flagship's only runtime premise is a
 successful recorded run, so exp005 needed the reverse construction —
-[`runs_of_drive_ok`](../../../LirLean/Engine/DriveRuns.lean#L357):
+[`runs_of_drive_ok`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean#L357):
 
 ```lean
--- ../../../LirLean/Engine/DriveRuns.lean#L357
+-- ../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean#L357
 theorem runs_of_drive_ok :
     ∀ (f : ℕ) (fr : Frame) (res : FrameResult),
       drive f [] (running fr) = .ok res →
@@ -325,24 +323,24 @@ to build:
 
 - **bounded descent.** `drive_descend_eq`'s residual fuel is an unordered existential — useless for
   a well-founded reverse recursion. Exp005 re-proved the framing with a *strict* bound
-  ([`drive_append_framing_lt`](../../../LirLean/Engine/DriveRuns.lean#L51),
-  [`drive_descend_lt`](../../../LirLean/Engine/DriveRuns.lean#L115), CREATE twin
-  [`drive_descend_create_lt`](../../../LirLean/Engine/DriveRuns.lean#L135)) so the resumed parent
+  ([`drive_append_framing_lt`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean#L51),
+  [`drive_descend_lt`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean#L115), CREATE twin
+  [`drive_descend_create_lt`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean#L135)) so the resumed parent
   recurses at `j < f`.
 - **error classification.**
-  [`drive_error_oof`](../../../LirLean/Engine/DriveRuns.lean#L193) (the only `drive` error is
+  [`drive_error_oof`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean#L193) (the only `drive` error is
   `OutOfFuel`; exceptions are folded into results by `endFrame`), so a framed non-OOF run forces
   the standalone child to terminate
-  ([`child_terminates`](../../../LirLean/Engine/DriveRuns.lean#L234),
-  [`framed_oof_of_standalone_oof`](../../../LirLean/Engine/DriveRuns.lean#L270)).
-- **the `ModellableStep` side condition** ([def](../../../LirLean/Engine/DriveRuns.lean#L182)) —
+  ([`child_terminates`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean#L234),
+  [`framed_oof_of_standalone_oof`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean#L270)).
+- **the `ModellableStep` side condition** ([def](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean#L182)) —
   `Runs` cannot resume two machine configurations: a precompile CALL (`beginCall = .inr`, no
   `Runs` node) and a CREATE whose resume OOG-faults (the `Except` in `resumeAfterCreate`; the
   fault is an exception delivered *through the drive stack*, a control flow `Runs` does not
   model). The reverse construction is honest about this: it carries the residual per reachable
   frame rather than pretending `Runs` is complete. Discharging that residual down to two
   satisfiable seams is the job of
-  [`Engine/Modellable.lean`](../../../LirLean/Engine/Modellable.lean#L450) (§6.2).
+  [`Decode/Modellable.lean`](../../../LirLean/Decode/Modellable.lean#L450) (§6.2).
 
 **What breaks without it:** the flagship's `Conforms` conjunct — assembled in the closed
 [`conforms_of_worldeq`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L204) and in
@@ -361,44 +359,44 @@ returning CALLs and CREATEs, whose resumes swap in the *child's* returned accoun
 entry frame. Presence must be **transported**, and exp003 had zero per-opcode state-preservation
 theory (its dispatch walk, `StepsTo.gas_le`, tracks only gas). Exp005 built the whole stack:
 
-- [`AccountMap.lean`](../../../LirLean/Engine/AccountMap.lean#L102): the tracked-address vocabulary
+- [`AccountMap.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/AccountMap.lean#L102): the tracked-address vocabulary
   and two closers —
 
   ```lean
   def AccPresent (a : Evm.AccountAddress) (m : Evm.AccountMap) : Prop :=
     ∃ acc : Evm.Account, m.find? a = some acc
   ```
-  [`accounts_find?_insert_mono`](../../../LirLean/Engine/AccountMap.lean#L114) (presence survives
-  any insert) and [`accMono_emptySwap`](../../../LirLean/Engine/AccountMap.lean#L140) (the
+  [`accounts_find?_insert_mono`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/AccountMap.lean#L114) (presence survives
+  any insert) and [`accMono_emptySwap`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/AccountMap.lean#L140) (the
   `if m == ∅ then …` branch in `endCall .success`/precompile fallbacks is dead when `a` is
   present — via the genuinely fiddly RBMap `BEq`-vs-empty short-circuit
-  [`find?_some_ne_empty`](../../../LirLean/Engine/AccountMap.lean#L74)).
-- [`StepWalk.lean`](../../../LirLean/Engine/StepWalk.lean#L129): **the ~1,300-line single
+  [`find?_some_ne_empty`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/AccountMap.lean#L74)).
+- [`StepWalk.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/StepWalk.lean#L129): **the ~1,300-line single
   induction** over every `dispatch` arm, capped by
 
   ```lean
-  -- ../../../LirLean/Engine/StepWalk.lean#L1119
+  -- ../../../../003_bytecode_layer/BytecodeLayer/Hoare/StepWalk.lean#L1119
   theorem stepFrame_next_accMono {fr : Frame} {exec' : ExecutionState}
       (h : stepFrame fr = .next exec') (a : AccountAddress)
       (hp : AccPresent a fr.exec.accounts) : AccPresent a exec'.accounts
   ```
-  plus [`stepFrame_next_execEnvAddr`](../../../LirLean/Engine/StepWalk.lean#L1092) (a `.next` never
+  plus [`stepFrame_next_execEnvAddr`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/StepWalk.lean#L1092) (a `.next` never
   moves the execution environment), the self corollary
-  [`stepFrame_next_self`](../../../LirLean/Engine/StepWalk.lean#L1148), and the halt-success family
-  [`stepFrame_halted_success_accMono`](../../../LirLean/Engine/StepWalk.lean#L1297)
+  [`stepFrame_next_self`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/StepWalk.lean#L1148), and the halt-success family
+  [`stepFrame_halted_success_accMono`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/StepWalk.lean#L1297)
   (STOP/RETURN/SELFDESTRUCT never erase). Proof method: per-combinator `NoCallCreate`-style
   case grinding, one arm at a time; large but shallow.
-- [`Descent.lean`](../../../LirLean/Engine/Descent.lean#L124): the CALL/CREATE **site inversions**
-  ([`stepFrame_needsCall_inv`](../../../LirLean/Engine/Descent.lean#L124),
-  [`stepFrame_needsCreate_inv`](../../../LirLean/Engine/Descent.lean#L361) and their `site_inv`
+- [`Descent.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Descent.lean#L124): the CALL/CREATE **site inversions**
+  ([`stepFrame_needsCall_inv`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Descent.lean#L124),
+  [`stepFrame_needsCreate_inv`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Descent.lean#L361) and their `site_inv`
   strengthenings) — a `.needsCall` pins the child params' accounts to the issuing frame's, the
   suspended frame's kind and env to the caller's. Plus begin/resume presence threading
-  ([`beginCall_inl_accounts_present`](../../../LirLean/Engine/Descent.lean#L505),
-  [`resumeAfterCreate_exec_accounts_present`](../../../LirLean/Engine/Descent.lean#L614)) and the
-  [`DescentKind`](../../../LirLean/Engine/Descent.lean#L696) interface packaging CALL
-  ([`callDescent`](../../../LirLean/Engine/Descent.lean#L753)) and CREATE
-  ([`createDescent`](../../../LirLean/Engine/Descent.lean#L777)) uniformly.
-- [`DriveMono.lean`](../../../LirLean/Engine/DriveMono.lean#L159): Brick D, the whole-child-run
+  ([`beginCall_inl_accounts_present`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Descent.lean#L505),
+  [`resumeAfterCreate_exec_accounts_present`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Descent.lean#L614)) and the
+  [`DescentKind`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Descent.lean#L696) interface packaging CALL
+  ([`callDescent`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Descent.lean#L753)) and CREATE
+  ([`createDescent`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Descent.lean#L777)) uniformly.
+- [`DriveMono.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveMono.lean#L159): Brick D, the whole-child-run
   induction —
 
   ```lean
@@ -409,7 +407,7 @@ theory (its dispatch walk, `StepsTo.gas_le`, tracks only gas). Exp005 built the 
         Evm.drive f stack state = .ok res → DrivePresent a stack state →
         AccPresent a res.toCallResult.accounts
   ```
-  threading the invariant [`DrivePresent`](../../../LirLean/Engine/DriveMono.lean#L60) (running map
+  threading the invariant [`DrivePresent`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveMono.lean#L60) (running map
   + running frame's checkpoint + every pending ancestor's checkpoint — three simultaneous facts
   because two `drive` exits *roll back* to checkpoints). Of the five closers, four are the
   universally-true walk/inversion facts above; only `hprec` (precompile output maps preserve
@@ -457,7 +455,7 @@ compute them; for an arbitrary lowered program under a gas-agnostic IR they cann
 that was precisely the 2026-07-02 vacuity finding (the old universally-quantified
 `GasRealises`/`SloadRealises` ties were unsatisfiable). The fix inverts the direction: a run known
 to halt **cleanly** cannot have OOG-faulted en route, so each cursor's gas guard *held* and can be
-extracted. The vocabulary lives in [`Engine/CleanHalt.lean`](../../../LirLean/Engine/CleanHalt.lean#L41):
+extracted. The vocabulary lives in [`BytecodeLayer/Hoare/CleanHalt.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean#L41):
 
 ```lean
 def CleanHalts (fr : Frame) : Prop :=
@@ -468,8 +466,8 @@ def CleanHaltsNonException (fr : Frame) : Prop :=
 ```
 
 forward-closed along `Runs` by
-[`cleanHalts_forward`](../../../LirLean/Engine/CleanHalt.lean#L69) /
-[`cleanHaltsNonException_forward`](../../../LirLean/Engine/CleanHalt.lean#L80) (both riding
+[`cleanHalts_forward`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean#L69) /
+[`cleanHaltsNonException_forward`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean#L80) (both riding
 exp003's `Runs.linear_to_halt`). The extractor is the IR-free bulk of
 [`Materialise/CleanHaltExtract.lean`](../../../LirLean/Materialise/CleanHaltExtract.lean#L70):
 for each lowered opcode, an OOG lemma (e.g.
@@ -495,14 +493,14 @@ rebuilt to kill.
 
 Three more machine-fact families exp003 never needed:
 
-- **[`MemAlgebra.lean`](../../../LirLean/Engine/MemAlgebra.lean#L15)** — the value channel spills
+- **[`MemAlgebra.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/MemAlgebra.lean#L15)** — the value channel spills
   temporaries to fixed 32-byte memory slots, so it needs byte-level facts about
   `ByteArray.copySlice`/`readWithPadding` under `mstore`/`mload`:
-  read-back [`mload_after_mstore`](../../../LirLean/Engine/MemAlgebra.lean#L459), disjointness
-  [`mstore_mload_disjoint`](../../../LirLean/Engine/MemAlgebra.lean#L550) /
-  [`slot_windows_disjoint`](../../../LirLean/Engine/MemAlgebra.lean#L872) /
-  [`mstore_preserves_slot`](../../../LirLean/Engine/MemAlgebra.lean#L890), and CALL-invisibility for
-  zero-size windows [`resumeAfterCall_mload`](../../../LirLean/Engine/MemAlgebra.lean#L85) (the
+  read-back [`mload_after_mstore`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/MemAlgebra.lean#L459), disjointness
+  [`mstore_mload_disjoint`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/MemAlgebra.lean#L550) /
+  [`slot_windows_disjoint`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/MemAlgebra.lean#L872) /
+  [`mstore_preserves_slot`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/MemAlgebra.lean#L890), and CALL-invisibility for
+  zero-size windows [`resumeAfterCall_mload`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/MemAlgebra.lean#L85) (the
   lowered CALL uses empty in/out windows, so caller memory reads survive the resume). Includes
   the `ffi.ByteArray.zeroes`/`UInt256.toByteArray` reassembly lemmas that killed the earlier
   "opaque-FFI wall".
@@ -515,9 +513,9 @@ Three more machine-fact families exp003 never needed:
   ([`mem_erase`](../../../LirLean/Frame/StorageErase.lean#L71)). Without it, zero writes were a
   named scope exclusion; with it, `sim_sstore` covers them (the flagship docstring records the
   seam's removal).
-- **[`Engine/Charges.lean`](../../../LirLean/Engine/Charges.lean#L19)** —
-  [`subCharges_snoc`](../../../LirLean/Engine/Charges.lean#L19) /
-  [`subCharges_append`](../../../LirLean/Engine/Charges.lean#L26), the two fold laws that let
+- **[`BytecodeLayer/Hoare/Charges.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Charges.lean#L19)** —
+  [`subCharges_snoc`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Charges.lean#L19) /
+  [`subCharges_append`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Charges.lean#L26), the two fold laws that let
   multi-statement gas prefixes compose without quadratic `toNat_sub_ofNat` blow-ups.
 
 **Summary verdict on the central question.** exp003's Hoare logic is exactly what it says: a
@@ -531,11 +529,11 @@ the forward theory; all of it is generic machine metatheory that conceptually be
 
 ## 5. The `ModellableStep` discharge — from raw universal to two honest seams
 
-[`Engine/Modellable.lean`](../../../LirLean/Engine/Modellable.lean) is the file that keeps
+[`Decode/Modellable.lean`](../../../LirLean/Decode/Modellable.lean) is the file that keeps
 `runs_of_drive_ok`'s side condition honest instead of hypothesis-shaped. The reduction target:
 
 ```lean
--- ../../../LirLean/Engine/DriveRuns.lean#L182
+-- ../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean#L182
 def ModellableStep (fr : Frame) : Prop :=
   (∀ cp pending childRes, stepFrame fr = .needsCreate cp pending →
       drive (seedFuel cp.gas) [] (running (beginCreate cp)) = .ok childRes →
@@ -544,8 +542,8 @@ def ModellableStep (fr : Frame) : Prop :=
 ```
 
 The per-frame residuals it reduces to
-([`CreateResolves`](../../../LirLean/Engine/Modellable.lean#L421),
-[`CallsCode`](../../../LirLean/Engine/Modellable.lean#L410)):
+([`CreateResolves`](../../../LirLean/Decode/Modellable.lean#L421),
+[`CallsCode`](../../../LirLean/Decode/Modellable.lean#L410)):
 
 ```lean
 def CreateResolves (fr : Frame) : Prop :=
@@ -557,24 +555,24 @@ def CallsCode (fr : Frame) : Prop :=
   ∀ cp pending, stepFrame fr = .needsCall cp pending → ∀ p, cp.codeSource ≠ .Precompiled p
 ```
 
-glued by [`modellableStep_of`](../../../LirLean/Engine/Modellable.lean#L430) and the producing
-lemma [`lower_modellable`](../../../LirLean/Engine/Modellable.lean#L450). The interesting content
+glued by [`modellableStep_of`](../../../LirLean/Decode/Modellable.lean#L430) and the producing
+lemma [`lower_modellable`](../../../LirLean/Decode/Modellable.lean#L450). The interesting content
 is *why these two are irreducible*:
 
 - `CallsCode` is **genuinely runtime-dependent**: the CALL target is a stack value; a lowered IR
   program that materialises address `1..10` as its callee really would hit a precompile, which
   `Runs` has no node for. The reduction to the code source goes through
-  [`beginCall_isCode_of_codeSource_ne_precompiled`](../../../LirLean/Engine/Modellable.lean#L367).
+  [`beginCall_isCode_of_codeSource_ne_precompiled`](../../../LirLean/Decode/Modellable.lean#L367).
 - `CreateResolves` is the honest R4 residual: `resumeAfterCreate`'s 63/64 retention guard can
   `throw .OutOfGas` on `UInt64` overflow, and that is a genuine gas fact, not a structural property
   of the lowering. Both are vacuous for call-free / create-free programs.
 
 The file also contains the *structural* half — the ~330-line `NoCallCreate`/`NoCreate` combinator
-algebra ([`NoCallCreate`](../../../LirLean/Engine/Modellable.lean#L74) through
-[`stepFrame_needsCreate_isCreate`](../../../LirLean/Engine/Modellable.lean#L332)) proving a
+algebra ([`NoCallCreate`](../../../LirLean/Decode/Modellable.lean#L74) through
+[`stepFrame_needsCreate_isCreate`](../../../LirLean/Decode/Modellable.lean#L332)) proving a
 `.needsCreate` can only arise from a CREATE/CREATE2 opcode at the current pc
-([`currentOp`](../../../LirLean/Engine/Modellable.lean#L61)) — the surviving consumer of the decode
-side is [`AtReachableBoundary`](../../../LirLean/Engine/Modellable.lean#L398), which couples this
+([`currentOp`](../../../LirLean/Decode/Modellable.lean#L61)) — the surviving consumer of the decode
+side is [`AtReachableBoundary`](../../../LirLean/Decode/Modellable.lean#L398), which couples this
 file to `Decode/BoundaryReach` ([report 03](03-code-geometry.md)). Both residuals surface on the
 flagship exactly once, inside
 [`PrecompileAssumptions`](../../../LirLean/Spec/Seams.lean#L31):
@@ -612,7 +610,7 @@ definitions its hypotheses/conclusion unfold to:
 
 Adequacy is pinned in both directions — forward
 [`messageCall_runs`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/CallSequence.lean#L195),
-backward [`runs_of_drive_ok`](../../../LirLean/Engine/DriveRuns.lean#L357) — so `Runs` appearing in
+backward [`runs_of_drive_ok`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean#L357) — so `Runs` appearing in
 the statement is *checked* vocabulary, not free-floating (this is D13 in the
 [codebase map](../../codebase-map-2026-07-06.md)).
 
@@ -639,28 +637,28 @@ exp003's headline shape.
 
 **Headline-grade engine results** (the flagship's `Conforms` half consumes all of these
 transitively):
-[`runs_of_drive_ok`](../../../LirLean/Engine/DriveRuns.lean#L357),
-[`lower_modellable`](../../../LirLean/Engine/Modellable.lean#L450),
-[`drive_accounts_find_mono`](../../../LirLean/Engine/DriveMono.lean#L159),
-[`stepFrame_next_accMono`](../../../LirLean/Engine/StepWalk.lean#L1119),
+[`runs_of_drive_ok`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean#L357),
+[`lower_modellable`](../../../LirLean/Decode/Modellable.lean#L450),
+[`drive_accounts_find_mono`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveMono.lean#L159),
+[`stepFrame_next_accMono`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/StepWalk.lean#L1119),
 [`selfPresent_runs_of_call`](../../../LirLean/V2/Drive/CallPreservesSelf.lean#L337),
-[`cleanHaltsNonException_forward`](../../../LirLean/Engine/CleanHalt.lean#L80); on the exp003 side
+[`cleanHaltsNonException_forward`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean#L80); on the exp003 side
 [`messageCall_never_outOfFuel`](../../../../003_bytecode_layer/BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean#L144),
 [`drive_fuel_mono`](../../../../003_bytecode_layer/BytecodeLayer/Semantics/Interpreter/Drive.lean#L185),
 [`Runs.linear_to_halt`](../../../../003_bytecode_layer/BytecodeLayer/Hoare.lean#L323).
 
 **Bricks** (load-bearing, single-purpose): the `NoCallCreate`/`NoCreate` algebra
-([Modellable §1](../../../LirLean/Engine/Modellable.lean#L74)), the descent inversions
-([Descent](../../../LirLean/Engine/Descent.lean#L124)), the presence closers
-([AccountMap](../../../LirLean/Engine/AccountMap.lean#L114)), the OOG/dichotomy families
+([Modellable §1](../../../LirLean/Decode/Modellable.lean#L74)), the descent inversions
+([Descent](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Descent.lean#L124)), the presence closers
+([AccountMap](../../../../003_bytecode_layer/BytecodeLayer/Hoare/AccountMap.lean#L114)), the OOG/dichotomy families
 ([CleanHaltExtract §1–§2](../../../LirLean/Materialise/CleanHaltExtract.lean#L70)), the memory/erase
-algebra ([MemAlgebra](../../../LirLean/Engine/MemAlgebra.lean#L459),
+algebra ([MemAlgebra](../../../../003_bytecode_layer/BytecodeLayer/Hoare/MemAlgebra.lean#L459),
 [StorageErase](../../../LirLean/Frame/StorageErase.lean#L189)), the charge folds
-([Charges](../../../LirLean/Engine/Charges.lean#L19)).
+([Charges](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Charges.lean#L19)).
 
 **Currently-unconsumed generality** (not dead — deliberate interface width):
-[`DescentKind`](../../../LirLean/Engine/Descent.lean#L696) packages CALL/CREATE uniformly ahead of
-consumers; [`AtReachableBoundary`](../../../LirLean/Engine/Modellable.lean#L398) +
+[`DescentKind`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Descent.lean#L696) packages CALL/CREATE uniformly ahead of
+consumers; [`AtReachableBoundary`](../../../LirLean/Decode/Modellable.lean#L398) +
 `notCreate_of_atReachableBoundary` support a structural no-CREATE discharge that the
 `Runs.create`-modelling made optional. Per the deep-read-before-deleting rule these are
 incremental lemmas toward open leaves, but they deserve a consumed-by note at next touch.
@@ -709,8 +707,8 @@ know exp005's cone excludes them.
 ### 8.3 `maxHeartbeats` in MemAlgebra — isolated to two byte-window lemmas, but under the headline
 
 The only cranked options in scope:
-[`copySlice_extract_disjoint`](../../../LirLean/Engine/MemAlgebra.lean#L493) and
-[`copySlice_at_extract_disjoint`](../../../LirLean/Engine/MemAlgebra.lean#L829), both
+[`copySlice_extract_disjoint`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/MemAlgebra.lean#L493) and
+[`copySlice_at_extract_disjoint`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/MemAlgebra.lean#L829), both
 `set_option maxHeartbeats 800000` (4× default). These are index-chasing over
 `ByteArray.extract`/`Array.append` windows — proof-shape blow-up, not model awkwardness. **They do
 sit under the headline** (disjoint-slot preservation → `MatRuns` value channel → sim → flagship),
@@ -718,31 +716,19 @@ so they are worth a follow-up simplification (a shared `getElem`-pointwise extra
 likely kill both cranks), but they are not a soundness risk and there is no `decide`-on-big-terms
 pattern anywhere in scope.
 
-### 8.4 The D10 debt: engine theory still growing exp005-side
+### 8.4 D10 status: reusable engine theory folded into exp003
 
-The standing decision ([codebase map D10](../../codebase-map-2026-07-06.md)) is: engine theory is
-*staged* in exp005, relocation to exp003 deferred post-Phase-3, `Engine/` shrink-only, new engine
-lemmas land exp003-side. The `RELOCATE to exp003` markers are in source
-([`AccountMap.lean` L26/55/68](../../../LirLean/Engine/AccountMap.lean#L26)). Reality since the
-map: `Engine/` **grew** — `Modellable.lean` moved *into* it (commit `d93e572`, correctly: it is
-`BytecodeLayer.Interpreter`-namespaced engine theory — so "9 files", not the map's 8), and current
-`Engine/` is 4,694 lines vs the map's 3,978. The growth is relocation-positive (consolidation
-inside exp005), but no lemma has yet crossed to exp003, and the
-[r11 plan](../../planning/r11-plan-2026-07-08.md) anticipates *more* default-target engine support
-(its open-question list, L209). The debt is honest and tracked; it is also compounding. The
-cheapest discipline that would stop the bleeding: land any *new* engine lemma as an exp003 commit
-first, since exp005 already builds against exp003 as a path dependency.
-
-Related map staleness for future readers: the map's "V2/Modellable.lean" location and its
-`Engine/` line/file counts are now historical (this report's §1 table is current); the map itself
-warns its dated counts are historical.
+The D10 package boundary debt described by the dated codebase map is closed. The eight IR-free
+modules live in `BytecodeLayer/Hoare/`; `Modellable.lean`, which depends on lowering geometry,
+lives in `LirLean/Decode/`. Namespace cleanup remains cosmetic follow-up work and does not require
+reintroducing an exp005 engine directory.
 
 ### 8.5 Namespace fragmentation (cosmetic but real)
 
 The engine theory spans four namespaces — `Lir.V2` (AccountMap, StepWalk, DriveMono, CleanHalt,
 CallPreservesSelf), `BytecodeLayer.Interpreter` (DriveRuns, Modellable), `Evm`
-(parts of [StepWalk](../../../LirLean/Engine/StepWalk.lean#L116) and
-[Descent](../../../LirLean/Engine/Descent.lean#L26)), and `LirLean.MemAlgebra` / `Lir`
+(parts of [StepWalk](../../../../003_bytecode_layer/BytecodeLayer/Hoare/StepWalk.lean#L116) and
+[Descent](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Descent.lean#L26)), and `LirLean.MemAlgebra` / `Lir`
 (MemAlgebra, Charges) — reflecting extraction history, not design. The map's D10 already
 recommends unifying; worth doing *at* relocation time, not before.
 
@@ -754,9 +740,9 @@ existential — both consumed); `drive_append_framing_lt` intentionally shadows
 `drive_append_framing` for the same reason; `SelfAt`/`SelfPresent` vs `AccPresent` is a
 projection, with the general `a`-indexed form required by the cross-frame child-run tracking
 (the caller's address is not the running frame's self inside the child). One consolidation
-candidate: [`child_ne_oof_of_framed`](../../../LirLean/Engine/DriveRuns.lean#L316) is strictly
+candidate: [`child_ne_oof_of_framed`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean#L316) is strictly
 subsumed by its generic-`Pending` twin
-[`child_ne_oof_of_framed'`](../../../LirLean/Engine/DriveRuns.lean#L327) — recommend deleting the
+[`child_ne_oof_of_framed'`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean#L327) — recommend deleting the
 former at next touch.
 
 ---

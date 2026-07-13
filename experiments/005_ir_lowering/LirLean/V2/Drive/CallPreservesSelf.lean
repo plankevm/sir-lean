@@ -1,14 +1,14 @@
 import LirLean.V2.Drive.SelfPresent
-import LirLean.Engine.DriveMono
+import BytecodeLayer.Hoare.DriveMono
 
 /-!
 # LirLean v2 — `SelfPresent` forward-closed along `Runs` (`Drive/CallPreservesSelf`)
 
 The seam-carrying layer of the former `V2/TieDischarge.lean` (decl names and namespaces
 unchanged): the two local one-edge preservation predicates (`StepPreservesSelf` — a proven
-theorem, `stepPreservesSelf`, via `Engine/StepWalk.lean`'s `stepFrame_next_self`; and
+theorem, `stepPreservesSelf`, via `BytecodeLayer/Hoare/StepWalk.lean`'s `stepFrame_next_self`; and
 `CallPreservesSelf` — supplied & satisfiable), the `.success`-shape discharge
-`callPreservesSelf_success` over `Engine/DriveMono.lean`'s Brick D
+`callPreservesSelf_success` over `BytecodeLayer/Hoare/DriveMono.lean`'s Brick D
 (`drive_accounts_find_mono`), the assembled `callPreservesSelf`, and
 `callPreservesSelf_modGuards` — which reduces the whole chain to the ONE surviving supplied
 hypothesis `hprec` (`beginCall`'s precompile `.inr` arm preserves presence; the seam quoted

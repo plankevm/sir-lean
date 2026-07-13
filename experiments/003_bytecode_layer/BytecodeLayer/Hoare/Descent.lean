@@ -1,12 +1,11 @@
-import LirLean.Engine.StepWalk
+import BytecodeLayer.Hoare.StepWalk
 
 /-!
-# `LirLean.Engine.Descent` — the per-kind CALL/CREATE descent facts (engine level)
+# Per-kind CALL/CREATE descent facts
 
 The structural facts of the interpreter's two *descents* (`.needsCall` → `beginCall` →
 child run → `resumeAfterCall`; `.needsCreate` → `beginCreate` → child run →
-`resumeAfterCreate`), extracted verbatim from the former `V2/TieDischarge.lean` monolith (names and namespaces
-unchanged; zero IR / zero recorder / zero `SelfPresent`):
+`resumeAfterCreate`):
 
 * the CALL-site inversions (`callArm_needsCall_inv` / `systemOp_needsCall_inv` /
   `stepFrame_needsCall_inv`) and their CREATE twins (`createArm_needsCreate_inv` /
@@ -1264,9 +1263,8 @@ def createDescent : DescentKind where
 
 /-- **The begin-immediate no-erase law.** A descent resolving immediately (`descend = .inr`)
 preserves presence at any `a` from the issued `paramsAccounts` into the immediate result's
-accounts. For `callDescent` this is **verbatim the `hprec` seam** (`beginCall`'s precompile
-`.inr` arm — the one surviving supplied hypothesis of the `callPreservesSelf` chain, quoted
-by `V2/Realisability/RealisabilitySpec.lean`); for `createDescent` it is a theorem
+accounts. For `callDescent` this is exactly the supplied `hprec` premise for `beginCall`'s
+precompile `.inr` arm; for `createDescent` it is a theorem
 (`createDescent_descendImmediate_trivial` — `beginCreate` never resolves immediately). -/
 def DescentKind.DescendImmediateNoErase (k : DescentKind) : Prop :=
   ∀ (p : k.Params) (imm : k.Result), k.descend p = .inr imm →

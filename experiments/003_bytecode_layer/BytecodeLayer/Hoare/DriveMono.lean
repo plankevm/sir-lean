@@ -1,14 +1,12 @@
-import LirLean.Engine.Descent
+import BytecodeLayer.Hoare.Descent
 
 /-!
-# `LirLean.Engine.DriveMono` — account-presence monotone across a whole `drive` run
+# Account presence is monotone across a whole `drive` run
 
-Brick D, extracted verbatim from the former `V2/TieDischarge.lean` monolith (names and namespaces unchanged;
-zero IR / zero recorder / zero `SelfPresent`): the drive-run presence invariant
+The drive-run presence invariant
 (`CheckpointPresent` / `StackPresent` / `DrivePresent`), the `endFrame` presence closers
 (`endFrame_call_accPresent` / `endFrame_create_accPresent` / `endFrame_accPresent`), and
-the strong-fuel drive induction `drive_accounts_find_mono` — the engine-level fact the
-`.success` shape of `CallPreservesSelf` (`V2/Drive`, exp005 side) reduces to.
+the strong-fuel drive induction `drive_accounts_find_mono`.
 
 No `sorry`/`axiom`/`native_decide`; axioms `[propext, Classical.choice, Quot.sound]`.
 -/
