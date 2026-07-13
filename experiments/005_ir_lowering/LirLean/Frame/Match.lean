@@ -387,7 +387,7 @@ lowered bytecode's ext-call effect.** The
 IR side reads the oracle's projections (`postStorage` / `restoredGas` /
 `successWord`); the EVM side is the resumed frame `resumeAfterCall result pd`'s
 observables. Because `evmCallOracle`'s fields are *defined* as those very
-projections (`LirLean/Call.lean`), the three coincidences are `rfl`-clean.
+projections (`Frame/Call.lean`), the three coincidences are `rfl`-clean.
 
 The `CallReturns callFr resumeFr` witness pins `resumeFr = resumeAfterCall
 childRes.toCallResult pending`, so the headline reads off the actual resumed frame. -/

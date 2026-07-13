@@ -4,12 +4,10 @@ import LirLean.Drive.DriveSim
 open Lir.Frame
 
 /-!
-# LirLean — the coupled run-producer `runFrom_of_driveCorrLog` (R11's terminal, WIP-only)
+# LirLean — the coupled run-producer `runFrom_of_driveCorrLog`
 
 This module proves the coupled run-producer
-`runFrom_of_driveCorrLog`, documented verbatim at
-`LirLean/Realisability/RealisabilitySpec.lean:224-248` as "THE BLOCKER (Route-A, NOT a
-citable leaf)". It is the packaged existential the flagship `lower_conforms` (R11) and its
+`runFrom_of_driveCorrLog`. It is the packaged existential the flagship `lower_conforms` (R11) and its
 `lower_conforms_exact`/`lower_conforms_gasfree` siblings `obtain`, and — with the CREATE
 channel wired (`docs/create/STATUS.md`) — it closes CALL and CREATE simultaneously.
 
@@ -45,8 +43,7 @@ advancing the coupling suffix via exactly one R7 edge (`recorderCoupled_step_gas
 head. This is the piece that does NOT exist as `SimStmtStep`.
 
 Every declaration's docstring states the tractability and the exact bricks it fires. Registered
-in the NON-DEFAULT `WIP` lean_lib; the default `LirLean` cone stays sorry-free and never imports
-this module.
+in the NON-DEFAULT `WIP` lean_lib so the default `LirLean` cone does not pay to rebuild it.
 -/
 
 namespace Lir
@@ -79,7 +76,7 @@ def StreamsAligned (self : AccountAddress) (log : RunLog)
 /-- The producer's per-boundary OUTPUT: some IR observable `O` whose world AND result equal
 the `observe` of the bytecode frame's halting terminal (reachable from `fr`), together with
 the IR `RunFrom` from `(st, T, C, D)` at `L` to `O`. This is the packaged shape the flagship's
-blocker `obtain` consumes (its `hworld`+`hrunfrom` conjuncts, at the entry boundary). REAL def. -/
+`obtain` consumes (its `hworld`+`hrunfrom` conjuncts, at the entry boundary). -/
 def RunFromCoupled (prog : Program) (self : AccountAddress)
     (st : IRState) (fr : Frame) (L : Label)
     (T : Trace) (C : CallStream) (D : CreateStream) : Prop :=

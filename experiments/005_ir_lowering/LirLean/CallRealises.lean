@@ -135,11 +135,6 @@ theorem createRealises_bridge {createFr resumeFr : Frame} (self : AccountAddress
     show evmCreateOracle.addressWord result pd = createAddrOrZero result pd
     exact haddr
 
-/-! The `workedCall` instance of this bridge (`wcV2Oracle`, `wc_call_parity_v2`) is a *leaf
-example*, not a headline dependency, so it lives in `LirLean/WorkedCallParity.lean` (which
-imports both this module and the offset-coupled `LirLean/WorkedCall.lean`). Keeping it out of
-this module is what keeps `LirLean.WorkedCall` off the headline import cone. -/
-
 -- Build-enforced axiom-cleanliness guard: the call realisability bridge depends only on
 -- `[propext, Classical.choice, Quot.sound]`.
 

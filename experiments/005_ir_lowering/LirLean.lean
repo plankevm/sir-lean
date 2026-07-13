@@ -58,8 +58,7 @@ import LirLean.Spec.BudgetDerivations
 -- chargeCache↔matCache length lockstep (twin of `matCache_unfold`, over the fold; no bridge).
 import LirLean.Materialise.MatFoldChannel
 
--- Reviewer-facing `Lir.Spec` audit surface (Wave 3): seam register + conditional-headline
--- re-exports + the `RealisabilityObligations` bundle (Pattern C — downstream of the proofs).
+-- Reviewer-facing conformance vocabulary and the explicit runtime seam register.
 import LirLean.Spec.Seams
 import LirLean.Spec.Conformance
 

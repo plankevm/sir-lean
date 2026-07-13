@@ -6,7 +6,7 @@ import BytecodeLayer.Semantics.Dispatch
 /-!
 # LirLean — the abstract create oracle (CREATE/CREATE2)
 
-The CREATE analogue of `LirLean/Call.lean`. The IR's CREATE accounting is
+The CREATE analogue of `Frame/Call.lean`. The IR's CREATE accounting is
 **create-agnostic**: the IR does **not** model contract creation internals. It defers
 the create's *effect* — the post-storage world (through the self lens) and the
 deployed-address-or-`0` word the opcode pushes — to an abstract `CreateOracle`. The IR
@@ -15,7 +15,7 @@ lowered bytecode's CREATE does** (exp003's `resumeAfterCreate`, projected throug
 observable lens), so the IR's create effect is *reflexively equal* to the lowered
 bytecode's.
 
-This mirrors `Call.lean` field-for-field. Two altitude differences from CALL, both
+This mirrors `Frame/Call.lean` field-for-field. Two altitude differences from CALL, both
 handled here:
 
 * `resumeAfterCreate` (`EVM/Evm/Semantics/Create.lean:153`) returns
@@ -59,7 +59,7 @@ and the suspended `PendingCreate`). Two projections, matching the two things
 
 The field types are chosen so `evmCreateOracle` instantiates each by *projection*
 (definitional) of the bytecode resume. The gas-restored field is dropped — the gas-free
-IR has no gas in state (cf. `Call.lean`'s `restoredGas`). -/
+IR has no gas in state (cf. `Frame/Call.lean`'s `restoredGas`). -/
 structure CreateOracle where
   /-- Post-create storage of `addr` at `key`, through the observable lens. -/
   postStorage : CreateResult → PendingCreate → AccountAddress → Word → Word

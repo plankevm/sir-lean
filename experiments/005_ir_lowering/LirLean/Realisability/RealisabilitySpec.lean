@@ -242,9 +242,8 @@ theorem lower_conforms {prog : Program} {params : CallParams} {log : RunLog}
   obtain ⟨fr₀, hbegin, _⟩ := runWithLog_drive hrun
   have hcc : ∀ fr', Runs fr₀ fr' → CallsCode fr' :=
     fun fr' hr => hseams.callsCode fr' ⟨fr₀, hbegin, hr⟩
-  -- THE BLOCKER (Route-A, NOT a citable leaf): the coupled run-producer
-  -- `runFrom_of_driveCorrLog` (the tracked WIP producer; target-architecture
-  -- §5.3). It walks the `RecorderCoupled` invariant across the F2 recursion (that is what
+  -- The coupled run-producer `runFrom_of_driveCorrLog` walks the `RecorderCoupled`
+  -- invariant across the F2 recursion (that is what
   -- the R7 edges were gated for), instantiating the Layer-C sim lemmas ONLY at the coupled
   -- walk-frames, and yields — at the pinned oracles `realisedCall log recipient` /
   -- `entryState params` / `realisedGas log` — the IR `RunFrom`, the terminal world equation,
@@ -255,11 +254,9 @@ theorem lower_conforms {prog : Program} {params : CallParams} {log : RunLog}
   --     the coupling-free path is exactly the vacuity the reshape exists to kill;
   --   • R6 `runs_atReachableBoundary`'s B2 side condition `(flatBytes prog).length < 2^32`
   --     is now DISCHARGED: it IS the `hcodeFits : codeFits prog` premise (that half of the
-  --     old R6 blocker is closed by the 1B reshape). What still resists is producing `hrb`
-  --     itself — the boundary walk comes bundled with the run through the coupled producer,
-  --     not from `codeFits` alone; the coupled run-producer (below) remains open.
-  -- Everything DOWNSTREAM of this producer call is real, axiom-clean assembly: `conforms_of_worldeq`
-  -- (CLOSED, above) discharges the `Conforms` conjunct from the terminal world equation.
+  --     old R6 blocker is closed by the 1B reshape). The boundary walk `hrb` comes bundled
+  --     with the run through the coupled producer, rather than from `codeFits` alone.
+  -- `conforms_of_worldeq` discharges the `Conforms` conjunct from the terminal world equation.
   obtain ⟨O, hcr, hworld, hrunfrom, _⟩ :=
     runFrom_of_driveCorrLog (prog := prog) (params := params) (log := log)
       (acc := acc) (fr₀ := fr₀)
@@ -287,7 +284,7 @@ theorem lower_conforms_exact {prog : Program} {params : CallParams} {log : RunLo
       ∧ Conforms params.recipient log O := by
   have hwl := wellLowered_of_IRWellFormed hwf hcodeFits hstk
   have hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32 := Nat.le_of_lt hcodeFits
-  -- This shell is aligned to the future exact producer: it must yield `RunFromAll` directly.
+  -- The coupled producer yields `RunFromAll` directly.
   -- Do not derive exactness from the plain producer; `runFromLeft_exists` only gives some
   -- leftover streams.
   obtain ⟨fr₀, hbegin, _⟩ := runWithLog_drive hrun
@@ -325,8 +322,8 @@ theorem lower_conforms_gasfree {prog : Program} {params : CallParams} {log : Run
   have hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32 := Nat.le_of_lt hcodeFits
   -- The gas-free restriction (`hng : NoGasReads prog`) avoids R1 (no gas arm fires) and,
   -- via `realisedGas_nil_of_noGasReads`, makes the RunFrom trace empty — but it does NOT
-  -- avoid the coupled-driver blocker: the sload/sstore/call arms still need the coupling.
-  -- So the shell is identical to R11's; `hng` de-risks the driver internals, not the shell.
+  -- avoid the coupled driver: the sload/sstore/call arms still need the coupling.
+  -- So the shell is identical to R11's; `hng` simplifies the driver internals, not the shell.
   obtain ⟨fr₀, hbegin, _⟩ := runWithLog_drive hrun
   have hcc : ∀ fr', Runs fr₀ fr' → CallsCode fr' :=
     fun fr' hr => hseams.callsCode fr' ⟨fr₀, hbegin, hr⟩

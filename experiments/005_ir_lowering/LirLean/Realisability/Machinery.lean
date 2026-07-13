@@ -1995,10 +1995,10 @@ theorem recorderCoupled_call_extract {log : RunLog} {callFr : Frame}
       injection hcons with hrecEq _
       exact hrecEq.symm
 
-/-- The proved finish half of R3: once Piece B has produced the CALL cursor, its arg-prefix run,
+/-- The finish half of R3: once Piece B has produced the CALL cursor, its arg-prefix run,
 the recorder-coupled head at that cursor, the realised resume-frame pins, and the Route-B tail,
-the recorded head `rec` discharges `CallRealisesS`. The only remaining debt for
-`callRealises_of_recorded` is therefore the honest Piece-B cursor bundle itself. -/
+the recorded head `rec` discharges `CallRealisesS`; `callRealises_of_recorded` supplies the
+Piece-B cursor bundle below. -/
 private theorem callRealises_of_recorded_finish
     {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLog}
     {self : AccountAddress} {L : Label} {b : Block} {pc : Nat} {cs : CallSpec}
@@ -4544,13 +4544,12 @@ STATUS (after this producer round): `create_stmt_offset_bound_of_codeFits`,
 `resumeAfterCreate` stack/memory/activeWords resume pins are NOW LANDED (default cone, axiom-clean:
 `Lir.resumeAfterCreate_stack`/`_memory`/`_activeWords_ge` in `BytecodeLayer/Hoare/Descent.lean`).
 
-`create_dispatch_of_coupled`, `createRealises_of_recorded`, `create_head_realises_coupled` remain
-STUBBED with tracked `sorry`s. UPDATE (CREATE2 soft-fail recorder alignment, 2026-07-11): the
-recorder now logs EVERY top-level CREATE2 outcome — a descend records the child result, a SOFT-FAIL
+The CREATE dispatch, recorded-head realisability, and final assembly are closed below.
+The recorder logs EVERY top-level CREATE2 outcome — a descend records the child result, a SOFT-FAIL
 records a `softFailCreateRecord` (world-unchanged, addr 0) — so `log.creates` aligns 1:1 with CREATE2
 cursors. Consequently the create-channel depth-guard mirror `driveLog_creates_const_of_depth` is
 RETIRED (a nonempty create suffix no longer forces `depth < 1024`, since a soft-fail at
-`depth ≥ 1024` records). `create_dispatch_of_coupled` is to be RESHAPED to a two-arm disjunction
+`depth ≥ 1024` records). `create_dispatch_of_coupled` uses a two-arm disjunction
 (descend arm ⇔ `rec.result.success`; soft-fail arm ⇔ `stepFrame = .next`), both stepFrames DERIVED
 from the recorded head via the coupling — no `CreateResolves`/`CreateDescends` premise, no domain
 restriction (design spec §4). -/
