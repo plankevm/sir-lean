@@ -1,5 +1,8 @@
 # exp005 LirLean — SIMPLIFICATION + RESTRUCTURE + CREATE roadmap
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 Date: 2026-07-04. **Actionable companion to `docs/deepdive-2026-07-04/00-proof-plan.md`
 (the DAG doc).** The DAG doc says *what the proof is trying to be*; this doc says *what to
 do to the tree and in what order*. Every move cites `file:line`; every move carries a KIND,

@@ -1,5 +1,8 @@
 # Deep dive: the per-block simulation cluster (`Sim*` + `CleanHaltExtract`)
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 Audit date: 2026-07-04. Files: `LirLean/SimStmt.lean`, `LirLean/SimStmts.lean`,
 `LirLean/SimTerm.lean`, `LirLean/CleanHaltExtract.lean`. Read-only; no `.lean` modified.
 

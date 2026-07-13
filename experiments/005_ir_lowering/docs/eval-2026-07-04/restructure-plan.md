@@ -1,5 +1,8 @@
 # LirLean file/module restructuring plan
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 Date: 2026-07-04. Read-only design synthesis (no `.lean` touched). Reconciles
 `docs/lirlean-reorg-plan.md` with the 2026-07-04 deep dives, **correcting the reorg-plan
 where the deep dives show it assumed decls/files that turned out shared or live**.

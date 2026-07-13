@@ -1,5 +1,8 @@
 # 00 — Overview: experiment 005, the Plank SIR → EVM-bytecode lowering study
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 Review tour of 2026-07-09, synthesis report. Read this first; the eight deep reports are:
 [01 trusted base](01-trusted-base.md) · [02 spec layer](02-spec-layer.md) ·
 [03 code geometry](03-code-geometry.md) · [04 value channel](04-value-channel.md) ·

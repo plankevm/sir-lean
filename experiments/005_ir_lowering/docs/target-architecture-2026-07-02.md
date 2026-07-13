@@ -1,5 +1,8 @@
 # exp005 Target Architecture — 2026-07-02
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 *Synthesis of the 5-agent high-level design fleet (`docs/fleet-2026-07-02/`) + a skeptic
 verification pass. Signatures-first, per the lead's directive: get the theorem statements right,
 kill the vacuous/circular material, track dischargeable gaps as honest sorries. This document

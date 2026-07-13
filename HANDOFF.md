@@ -1,5 +1,8 @@
 # HANDOFF — good morning, Eduardo
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 **Written overnight 2026-06-23; loop WOUND DOWN at the end (clean stop, nothing running).**
 Full chronological record: `currentplan.md` (orchestration log). This is your resume surface.
 

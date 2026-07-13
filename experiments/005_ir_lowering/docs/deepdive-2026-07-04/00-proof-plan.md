@@ -1,5 +1,8 @@
 # exp005 — the INTENDED proof plan / architecture (reference for the restructuring review)
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 Date: 2026-07-04. Purpose: recover what the exp005 LirLean proof is *trying to be*, so a
 restructuring review is grounded in the intended architecture, not just the current file layout.
 Read-only synthesis of the planning docs + the actual Lean on the current `main` branch

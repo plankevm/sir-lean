@@ -1,5 +1,8 @@
 # Fleet audit 2026-07-04 — Cluster: Engine + V2 spine + Drive
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 > **P9 status note (2026-07-08).** This audit is historical where it discusses
 > `Acyclic.lean`, `MatFueled`, `Expr.slot`, `materialiseExpr`, `recomputeFuel`, or
 > `NoSlotSource`; those legacy routes/APIs have been deleted or superseded by

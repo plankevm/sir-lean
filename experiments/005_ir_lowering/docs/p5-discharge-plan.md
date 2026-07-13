@@ -1,5 +1,8 @@
 # P5 + P6 — the forward-from-real-run tie discharge (the tie-free headline)
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 > **SUPERSEDED (2026-07-03):** plan of record is `target-architecture-2026-07-02.md` + `execution-plan-2026-07-02.md`; the gas-law apparatus (Mono/Oracle/HonestGasTie) was deleted in Phase 2. The premise below that the §7 ties are "SUPPLIED-but-satisfiable" was later **refuted** — the supplied ties are unsatisfiable as stated (see the target-architecture doc); the realisability rebuild lives in `LirLean/RealisabilitySpec.lean` (R0–R12, non-default `Nightly` lib).
 >
 > **P9 status note (2026-07-08):** legacy value-channel names below (`Expr.slot`,

@@ -1,5 +1,8 @@
 # exp005 Remediation Plan — 2026-07-02
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 > **SUPERSEDED (2026-07-03):** plan of record is `target-architecture-2026-07-02.md` + `execution-plan-2026-07-02.md`; the gas-law apparatus (Mono/Oracle/HonestGasTie) was deleted in Phase 2 (commit `7685131` — open decision #1 resolved as option (b), `HonestGasTie.lean` deleted with it).
 
 *Synthesized from the audit (`audit-2026-07-02.md`), a 7-agent planning fleet, and three prior-art forks (Verity, verifereum, vyper-hol). Governs the fix for: the conditional headline, the dropped gas motivation, and the vestigial scaffolding. Read `gas-decision.md` first.*

@@ -1,5 +1,8 @@
 # 06 — Realisability: the flagship `lower_conforms` and what actually remains
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 Part of the [exp005 tour](00-overview.md). Upstream: [01-trusted-base](01-trusted-base.md)
 (engine + Hoare layer), [02-spec-layer](02-spec-layer.md) (the `Spec/` statement surface),
 [03-code-geometry](03-code-geometry.md) (the `Decode/` byte algebra that feeds R6),

@@ -41,9 +41,9 @@ import LirLean.IRRun
 import LirLean.Call
 import LirLean.CallRealises
 
--- Cyclic-CFG drive simulation + the assembled/tie-free headlines.
+-- Cyclic-CFG drive simulation and account-preservation support.
 import LirLean.Drive.DriveSim
-import LirLean.Drive.Headline
+import LirLean.Drive.CallPreservesSelf
 
 -- IR well-formedness vocabulary + the `IRWellFormed` bundle and the two scalar budgets
 -- (`codeFits`/`stackFits`) — the trusted-surface statement vocabulary (Spec hoist §1C).

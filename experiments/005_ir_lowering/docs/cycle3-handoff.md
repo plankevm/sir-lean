@@ -1,5 +1,8 @@
 # exp005 cycle-3 handoff (2026-06-29)
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 Branch: `ir-convergence`. Baseline at cycle-3 start: `bec9f76` (green + axiom-clean).
 HEAD after cycle-3: `62a9c53`. Build re-verified: **`lake build` → "Build completed
 successfully (1158 jobs)"**. No `sorry`/`axiom`/`native_decide` in touched files (sole grep

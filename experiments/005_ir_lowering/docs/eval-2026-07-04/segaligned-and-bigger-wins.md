@@ -1,5 +1,8 @@
 # SegAligned de-dup + ranked structural wins (eval 2026-07-04)
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 Read-only audit. Every claim cites `file:line`. Context: 51 `.lean` files, **25 518 LOC** total
 (`find LirLean -name '*.lean' | wc -l` = 51; `cat | wc -l` = 25518). The three SegAligned files
 are 1379 LOC = **5.4 % of the whole tree**, so this is not a rounding-error target.

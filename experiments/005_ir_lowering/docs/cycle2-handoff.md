@@ -1,5 +1,8 @@
 # exp005 — Cycle-2 handoff (2026-06-29)
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 Branch `ir-convergence`, HEAD **bec9f76**. Build: `lake build` → **Build completed
 successfully (1158 jobs)**. Every touched lemma `#print axioms` =
 `[propext, Classical.choice, Quot.sound]`. No `sorry` / `axiom` / `native_decide`

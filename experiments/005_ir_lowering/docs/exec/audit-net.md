@@ -1,5 +1,8 @@
 # Track A — AUDIT NET (execution record, 2026-07-02)
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 Deliverables: `LirLean/Audit.lean` (guard file, wired as the LAST import of the `LirLean`
 root), the Batteries `runLinter` baseline freeze (`scripts/nolints.json`), and this record.
 

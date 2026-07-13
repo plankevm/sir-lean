@@ -1,5 +1,8 @@
 # LirLean — the authoritative dependency DAG + proof-plan understanding
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 Date: 2026-07-04. **Supersedes the earlier shallow draft of this file.** This is a synthesis of
 the `docs/deepdive-2026-07-04/` cluster reports (spec, engine, decode, materialise, v1bricks,
 sim, assembly, v2spine, flagship), the `docs/eval-2026-07-04/` eval docs, `00-proof-plan.md`,

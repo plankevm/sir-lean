@@ -1,5 +1,8 @@
 # Experiment report — flat vs nested EVM semantics, and a verified IR lowering
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 **Status: LIVING DOCUMENT, updated as tracks land.** Operational state + milestones live
 in `currentplan.md`; this file is the *results* synthesis for a human reader.
 

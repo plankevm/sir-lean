@@ -25,8 +25,7 @@ namespaces unchanged):
 
 The `SelfPresent`-forward closure along `Runs` (`StepPreservesSelf`/`CallPreservesSelf` and
 the `callPreservesSelf` chain over `BytecodeLayer/Hoare/DriveMono.lean`'s Brick D) lives in
-`Drive/CallPreservesSelf.lean`; the `DriveCorrPlus` walk and the headlines live in
-`Drive/Headline.lean`.
+`Drive/CallPreservesSelf.lean`.
 
 No `sorry`/`axiom`/`native_decide`; axioms `[propext, Classical.choice, Quot.sound]`.
 -/
@@ -357,7 +356,7 @@ def SelfPresent (fr : Frame) : Prop :=
 
 /-! ### `SelfPresent ⇒ accounts ≠ ∅` (the non-emptiness conjunct of the halt ties)
 
-The halt terminator arms (formerly built in the since-deleted `driveStepPlus_of_block`) must emit
+The halt terminator arms of a strengthened driver must emit
 the `¬ (accounts == ∅)` conjunct of the §7 terminator bundle. It is *derived* — not supplied — from
 `SelfPresent` (the self account
 is present in the map, so the map cannot be empty). The account-map fact is

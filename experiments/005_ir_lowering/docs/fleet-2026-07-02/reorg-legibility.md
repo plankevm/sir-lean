@@ -1,5 +1,8 @@
 # Track Report — Reorganization & Legibility (exp005)
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 *Grounded in the worktree at `/Users/eduardo/workspace/evm-semantics/.worktrees/ir-lowering` (branch `exp005-honesty-cleanup`, post-Phase-1). All sizes measured with `wc -l` today; all locations verified by grep.*
 
 **Measured baseline:** `LirLean/` is 24,670 lines across 43 files. Five files over 1,000 lines: `TieDischarge.lean` (4,507 — was 5,027 pre-Phase-1; headline `lower_conforms_cyclic_assembled` now at :4292), `LowerDecode.lean` (1,517), `LowerConforms.lean` (1,497), `MaterialiseRuns.lean` (1,370), `SimStmt.lean` (1,196), plus `CleanHaltExtract.lean` (1,169). `#print axioms` count is now **252** across 29 files (audit's 270 was pre-Phase-1), concentrated in TieDischarge (73) and CleanHaltExtract (53). Both packages are on `leanprover/lean4:v4.30.0` with Mathlib/Batteries in the manifest.

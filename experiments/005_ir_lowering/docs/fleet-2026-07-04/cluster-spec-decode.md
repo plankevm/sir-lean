@@ -1,5 +1,8 @@
 # Fleet 2026-07-04 — Cluster report: Spec (definitions) + Decode/control-flow-validity
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 Scope: the 14 files of the Spec-core and the decode / byte-layout / control-flow-validity
 layer. Verdicts are for file organisation only; no `.lean` file was modified.
 

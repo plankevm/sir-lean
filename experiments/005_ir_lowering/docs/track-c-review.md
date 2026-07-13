@@ -1,5 +1,8 @@
 # Track C review — exp005: `LirLean` IR → EVM bytecode, lowering preserved (CLOSED)
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 Scope: the whole `experiments/005_ir_lowering` package (branch `exp005-ir`,
 worktree `../evm-semantics-wt/ir-lowering`). All links are relative to this file's
 directory (`experiments/005_ir_lowering/docs/`); source modules are one level up

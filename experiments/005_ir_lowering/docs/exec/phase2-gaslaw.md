@@ -1,5 +1,8 @@
 # Exec report — Track B, Phase 2 gas-law removal (`exec/phase2-gaslaw`)
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 Executed 2026-07-02 per `docs/execution-plan-2026-07-02.md` (Track B) and
 `docs/gas-decision.md`. Baseline HEAD `6980831`, 1164 jobs; result 1161 jobs, green,
 zero sorry, headlines axiom-clean.

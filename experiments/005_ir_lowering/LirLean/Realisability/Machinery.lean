@@ -1,4 +1,3 @@
-import LirLean.Drive.Headline
 import LirLean.Decode.BoundaryCursor
 import LirLean.Spec.BudgetDerivations
 import LirLean.Realisability.Surface

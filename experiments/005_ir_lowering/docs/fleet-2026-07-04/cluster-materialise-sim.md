@@ -1,5 +1,8 @@
 # Fleet audit 2026-07-04 — cluster: Materialise + gas-aware Simulation bricks + CALL/CREATE oracles
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 > **P9 status note (2026-07-08).** This audit predates the Phase 2A deletion pass. Legacy
 > `Expr.slot`/fuel/materialisation references are historical; current code uses the fold-based
 > `Loc`/`matCache` value channel and the old `MatFueled`/`Assembly/Acyclic.lean` route is gone.

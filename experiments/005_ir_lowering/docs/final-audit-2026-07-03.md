@@ -1,5 +1,8 @@
 # Final adversarial audit — exp005 "honesty cleanup" (branch `exp005-honesty-cleanup`)
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 Date: 2026-07-03. Diff range `6980831..HEAD`. Method: static reading only (no `lake build`;
 build-green 1172/1165 and axiom-cleanliness are established facts, re-verified structurally
 via `LirLean/Audit.lean`'s `#guard_msgs` guards). Fleet output (25 skeptic verdicts +

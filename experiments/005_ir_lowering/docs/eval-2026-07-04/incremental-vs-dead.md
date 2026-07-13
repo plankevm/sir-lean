@@ -1,5 +1,8 @@
 # exp005 LirLean — incremental-vs-dead re-classification (2026-07-04)
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 Corrects the prior shallow "unimported ⇒ dead" pass. Every decl the cluster deep-dives
 flagged as unimported / no-callers / scaffold / superseded is re-classified with evidence:
 

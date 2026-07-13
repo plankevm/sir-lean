@@ -1,5 +1,8 @@
 # Deep-dive cluster: the V2 spine + Drive walk (2026-07-04)
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 Scope: `LirLean/{Law,IRRun,Call,CallRealises,Modellable,DriveSim}.lean` and
 `LirLean/Drive/{SelfPresent,CallPreservesSelf,Headline}.lean`.
 

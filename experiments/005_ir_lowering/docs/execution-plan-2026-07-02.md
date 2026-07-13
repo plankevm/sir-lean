@@ -1,5 +1,8 @@
 # exp005 Execution Plan — waves & track ownership (2026-07-02)
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 *Operationalizes `target-architecture-2026-07-02.md` §10 with the lead's amendments:
 (1) engine facts move SUBDIRECTORY-FIRST (`experiments/003_bytecode_layer/BytecodeLayer/Hoare/`), exp003 promotion deferred to
 post-Phase-3; (2) parallel tracks run in separate git worktrees with CLONED `.lake` caches

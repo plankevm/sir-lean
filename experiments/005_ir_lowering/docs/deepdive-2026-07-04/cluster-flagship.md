@@ -1,5 +1,8 @@
 # Cluster: Flagship + Audit net (deep dive 2026-07-04)
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 Files audited (read in full, all decl bodies of load-bearing/questionable lemmas):
 
 - `LirLean/RealisabilitySpec.lean` (3874 LOC) — the WIP-only Phase-3 realisability

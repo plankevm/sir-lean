@@ -1,5 +1,8 @@
 # Current Plan — three-track parallel orchestration
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 **This is the master index. If you are a freshly-spawned Claude with no context,
 READ THIS FIRST, then read the local `PLAN.md` of whichever track you are
 resuming. Then verify reality against git (branches, worktrees, `lake build`)

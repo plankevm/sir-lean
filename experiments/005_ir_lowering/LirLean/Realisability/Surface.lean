@@ -1,4 +1,5 @@
-import LirLean.Drive.Headline
+import LirLean.Drive.DriveSim
+import LirLean.Drive.CallPreservesSelf
 import LirLean.Decode.BoundaryReach
 import LirLean.Spec.WellFormed
 import LirLean.Spec.Conformance
@@ -326,13 +327,11 @@ structure RecorderCoupled (log : RunLog) (fr : Frame)
   /-- The create suffix is a suffix of the recorded create stream. -/
   createPrefix : ∃ pre, log.creates = pre ++ createSuffix
 
-/-- **The recoupled walk invariant** — the future replacement of `DriveCorrPlus`'s four
-dead accumulator lists (which are NOT edited here; Phase 3 proper swaps them). Carried at
+/-- **The recorder-coupled walk invariant.** Carried at
 every top-level block-entry boundary of the drive walk:
 
 * `corr`/`cleanHalts` — the existing `DriveCorr` content (the cursor + the non-exception
-  scope), with the phantom `obs` parameter pinned to `0` (audit-confirmed unused by `Corr`;
-  slated for deletion in the Phase-3 reshape — NOT deleted here, no edits to existing files);
+  scope), with the phantom `obs` parameter pinned to `0`;
 * `present` — the reached label is present (R8's consumer; kills the inside-out `hpresent`);
 * `selfPresent`/`addrPin`/`kindPin` — decision-4's rfl-preserved companions: they are what
   KILLS the unsatisfiable `TermTies` stop/ret address/kind/nonempty conjuncts (those demands

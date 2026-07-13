@@ -1,5 +1,8 @@
 # exp005 IR→EVM Conformance — Transitive Definition Chain of the Headline
 
+> **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
+
+
 *Definitive dependency-closure report for `Lir.lower_conforms_cyclic_assembled`.*
 *Synthesized from 9 cluster maps; every node carries `file:line` where known. All paths are relative to `experiments/005_ir_lowering/` unless prefixed `003_bytecode_layer/` or `EVMLean/`.*
 
