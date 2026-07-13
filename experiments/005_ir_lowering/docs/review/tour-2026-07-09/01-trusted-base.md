@@ -54,7 +54,7 @@ Engine/proof-layer inventory at the time of this review:
 | File | Lines | One-line job |
 |---|---|---|
 | [`BytecodeLayer/Hoare/AccountMap.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/AccountMap.lean) | 145 | RBMap presence bricks: `AccPresent`, insert-mono, `≠ ∅` from a `find?` hit |
-| [`BytecodeLayer/Hoare/Charges.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Charges.lean) | 32 | `subCharges` snoc/append fold algebra |
+| [`BytecodeLayer/Hoare/Sequence.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Sequence.lean#L61) | integrated | `subCharges` definition and snoc/append fold algebra |
 | [`BytecodeLayer/Hoare/CleanHalt.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean) | 103 | `CleanHalts` / `CleanHaltsNonException` + forward closure along `Runs` |
 | [`BytecodeLayer/Hoare/Descent.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Descent.lean) | 844 | CALL/CREATE site inversions (`stepFrame_needsCall_inv` etc.), begin/resume framing, `DescentKind` |
 | [`BytecodeLayer/Hoare/DriveMono.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveMono.lean) | 294 | Whole-`drive`-run account-presence monotonicity (Brick D) |
@@ -278,9 +278,9 @@ The results exp005 leans on, by consumption weight:
   [report 05](05-simulation.md)'s `sim_*` arms instantiate; per-decl coverage belongs there.
 
 - **[`subCharges`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Sequence.lean#L62)** /
-  [`toNat_subCharges`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Sequence.lean#L69) —
+  [`toNat_subCharges`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Sequence.lean#L83) —
   linear gas threading (running gas after a charge list as one prefix sum), extended by exp005's
-  [`Charges.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Charges.lean#L19).
+  [`Sequence.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Sequence.lean#L66).
 
 Not consumed by exp005 but on exp003's surface: the observable-level lifts
 ([`messageCall_calls_completedWith`](../../../../003_bytecode_layer/BytecodeLayer/Spec.lean#L246)),
@@ -513,9 +513,9 @@ Three more machine-fact families exp003 never needed:
   ([`mem_erase`](../../../LirLean/Frame/StorageErase.lean#L71)). Without it, zero writes were a
   named scope exclusion; with it, `sim_sstore` covers them (the flagship docstring records the
   seam's removal).
-- **[`BytecodeLayer/Hoare/Charges.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Charges.lean#L19)** —
-  [`subCharges_snoc`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Charges.lean#L19) /
-  [`subCharges_append`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Charges.lean#L26), the two fold laws that let
+- **[`BytecodeLayer/Hoare/Sequence.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Sequence.lean#L61)** —
+  [`subCharges_snoc`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Sequence.lean#L67) /
+  [`subCharges_append`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Sequence.lean#L74), the two fold laws that let
   multi-statement gas prefixes compose without quadratic `toNat_sub_ofNat` blow-ups.
 
 **Summary verdict on the central question.** exp003's Hoare logic is exactly what it says: a
@@ -654,7 +654,7 @@ transitively):
 ([CleanHaltExtract §1–§2](../../../LirLean/Materialise/CleanHaltExtract.lean#L70)), the memory/erase
 algebra ([MemAlgebra](../../../../003_bytecode_layer/BytecodeLayer/Hoare/MemAlgebra.lean#L459),
 [StorageErase](../../../LirLean/Frame/StorageErase.lean#L189)), the charge folds
-([Charges](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Charges.lean#L19)).
+([charge folds](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Sequence.lean#L66)).
 
 **Currently-unconsumed generality** (not dead — deliberate interface width):
 [`DescentKind`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Descent.lean#L696) packages CALL/CREATE uniformly ahead of

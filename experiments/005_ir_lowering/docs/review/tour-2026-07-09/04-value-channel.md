@@ -211,7 +211,7 @@ and the `sloadChg`-independence of lengths
 ([`chargeCache_length_sloadChg_eq`](../../../LirLean/Materialise/MaterialiseGas.lean#L209))
 are what the stack-room folds in `Spec/WellFormed.lean` consume. Charge lists subtract off gas
 via exp003's [`subCharges`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Sequence.lean#L62),
-with the append laws in [`BytecodeLayer/Hoare/Charges.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Charges.lean#L26).
+with the append laws in [`BytecodeLayer/Hoare/Sequence.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Sequence.lean#L66).
 
 ### 4.3 The decode bundle: `MatDecC` and its segment bridge
 

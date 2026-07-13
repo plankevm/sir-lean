@@ -36,7 +36,7 @@ LirLean/
 ├── Bytecode/                      -- PROOF: v1 bytecode-coupled simulation bricks
 │   ├── SmallStep.lean   PROOF ~130  (v1 reference semantics; AUDIT: check still on-cone, else _attic)
 │   ├── Call.lean        PROOF ~165  Create.lean PROOF ~110  Match.lean PROOF ~400
-│   └── Charges.lean     PROOF ~32
+│   └── Sequence.lean    PROOF (shared `subCharges` fold algebra)
 ├── Decode/                        -- PROOF: pc/offset/jumpdest layer (no fork analogue; ours)
 │   ├── DecodeLower.lean ~160   DecodeAnchors.lean ~320   JumpValid.lean ~515
 │   ├── BoundaryReach.lean ~435  NoCreateBytes.lean ~433

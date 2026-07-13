@@ -82,7 +82,7 @@ LirLean/
     StepWalk.lean                    -- per-opcode .next accMono dispatch walk (Brick C)
     Descent.lean                     -- CALL/CREATE descent inversions + DescentKind CREATE scaffold
     DriveMono.lean                   -- Brick D: presence monotone across drive
-    Charges.lean                     -- subCharges fold algebra (gas channel)
+    Sequence.lean                    -- subCharges definition and fold algebra (gas channel)
     MemAlgebra.lean                  -- MSTORE/MLOAD slot value-channel crux lemmas
     CleanHalt.lean                   -- clean-halt scope predicates (9-file consumer)
     DriveRuns.lean                   -- reverse drive→Runs construction (already exp003-namespaced)

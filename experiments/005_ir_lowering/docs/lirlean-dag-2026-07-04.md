@@ -140,7 +140,7 @@ live replacement), **DEAD** (grep-zero, no purpose).
 | BytecodeLayer/Hoare/DriveMono | 294 | **terminal.** `drive_accounts_find_mono` → CallPreservesSelf → SelfPresent. |
 | BytecodeLayer/Hoare/MemAlgebra | 996 | **terminal.** MSTORE/MLOAD/offset algebra; slot lemmas (`mstore_preserves_slot(_grow)`, `slot_windows_disjoint`, `mstore_reads_back` :713) feed SimStmt. **Simplification candidates (confirm):** `mload_after_mstore` (`:459`, superseded by grow-aware `:713`, zero consumers) and `resumeAfterCall_mload` (`:85`) + feeders `resumeAfterCall_memory/activeWords` (`:58/:69`) — advertised Verdict cruxes (`:22`) but consumer-less (superseded or not-yet-wired ~40 LOC). Header "all three cruxes PROVED" **overstates** current role. Ships `#print axioms` guards (`:964-982`). |
 | BytecodeLayer/Hoare/CleanHalt | 103 | **terminal.** `CleanHalts`/`CleanHaltsNonException`/`cleanHaltsNonException_forward` feed 9 files across sim tower + flagship. |
-| BytecodeLayer/Hoare/Charges | — | **terminal.** Gas-charge primitives; `subCharges_snoc/append` feed MaterialiseGas. Header (`:11`) names nonexistent "WorkedCall" consumer — stale doc. |
+| BytecodeLayer/Hoare/Sequence | — | **terminal charge section.** `subCharges_snoc/append` live beside `subCharges` and feed MaterialiseGas. |
 | BytecodeLayer/Hoare/DriveRuns | 369 | **terminal.** `runs_of_drive_ok` (`:283`) feeds Modellable/DriveSim/RealisabilitySpec — predicated on `NoCreate`/`ModellableStep` (`:27`), the exact clause CREATE must retire. |
 
 ### L2 — Decode / control-flow validity (all 7 sorry-free + axiom-clean)

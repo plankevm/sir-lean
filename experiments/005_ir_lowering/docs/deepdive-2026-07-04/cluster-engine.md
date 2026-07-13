@@ -159,18 +159,15 @@ reduces to. Strong-fuel induction following `drive`'s own recursion; CREATE arm 
 | `endFrame_accPresent` | theorem | shared-infra (halt closer) | in-file :229,244,247 |
 | `drive_accounts_find_mono` | theorem | terminal-for-flagship (Brick D) | `SelfPresent`, `CallPreservesSelf`; referenced in `StepWalk` docstring |
 
-### `BytecodeLayer/Hoare/Charges.lean` (32 LOC, `namespace Lir`)
+### `BytecodeLayer/Hoare/Sequence.lean` (charge-fold section)
 
 Purpose: two general `subCharges` fold-algebra lemmas (snoc / append) — program-independent
-list-fold arithmetic over exp003's gas fold. Home for the shared charge arithmetic.
+list-fold arithmetic colocated with exp003's gas fold.
 
 | decl | kind | role | callers |
 |---|---|---|---|
 | `subCharges_snoc` | theorem | terminal-for-flagship (gas channel) | `MaterialiseGas.lean` |
 | `subCharges_append` | theorem | terminal-for-flagship (gas channel) | `MaterialiseGas.lean` |
-
-Header docstring (:11) also names `WorkedCall` as a consumer; no `WorkedCall` file exists in the
-tree — stale doc reference (see corrections).
 
 ### `BytecodeLayer/Hoare/MemAlgebra.lean` (996 LOC, `namespace LirLean.MemAlgebra`)
 
@@ -246,7 +243,7 @@ Intra-cluster imports (only ONE chain; the other four files are independent leav
 
 ```
 AccountMap ─▶ StepWalk ─▶ Descent ─▶ DriveMono
-Charges      (leaf; imports BytecodeLayer.Hoare.Sequence)
+Sequence charge fold (shared with exp003)
 MemAlgebra   (leaf; imports Evm)
 CleanHalt    (leaf; imports BytecodeLayer.Hoare)
 DriveRuns    (leaf; imports BytecodeLayer.Hoare.CallSequence)

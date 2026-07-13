@@ -280,7 +280,7 @@ the coupled path; retirement candidate post-R11), **dead-candidate** (zero consu
 | [`Spec/Seams.lean`](../../../LirLean/Spec/Seams.lean) | 36 | L2: `PrecompileAssumptions`, `ReachableFrom` | trusted/live | [02](02-spec-layer.md) |
 | [`Spec/BudgetDerivations.lean`](../../../LirLean/Spec/BudgetDerivations.lean) | 385 | derives per-cursor bounds from the two scalar budgets (proofs; misplaced in `Spec/`) | live | [02](02-spec-layer.md) |
 | [`BytecodeLayer/Hoare/AccountMap.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/AccountMap.lean) | 145 | L1′: `AccPresent` + RBMap presence closers | staged→exp003 | [01](01-trusted-base.md) |
-| [`BytecodeLayer/Hoare/Charges.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Charges.lean) | 32 | L1′: `subCharges` fold laws | staged→exp003 | [01](01-trusted-base.md) |
+| [`BytecodeLayer/Hoare/Sequence.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Sequence.lean#L61) | integrated | L1′: `subCharges` definition and fold laws | shared exp003 layer | [01](01-trusted-base.md) |
 | [`BytecodeLayer/Hoare/CleanHalt.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean) | 103 | L1′: `CleanHalts(NonException)` + forward closure | staged→exp003 | [01](01-trusted-base.md) |
 | [`BytecodeLayer/Hoare/Descent.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Descent.lean) | 844 | L1′: CALL/CREATE site inversions, begin/resume framing | staged→exp003 | [01](01-trusted-base.md) |
 | [`BytecodeLayer/Hoare/DriveMono.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveMono.lean) | 294 | L1′: whole-run account-presence monotonicity | staged→exp003 | [01](01-trusted-base.md) |

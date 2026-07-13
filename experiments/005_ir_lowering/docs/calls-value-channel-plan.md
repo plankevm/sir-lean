@@ -155,7 +155,7 @@ def MemAgree (prog : Program) (st : Lir.IRState) (fr : Frame) : Prop :=
   tail = POP / PUSH slot;MSTORE; `defsOf` registers call results; `materialiseExpr .callResult
   = PUSH32 slot ++ MLOAD`), all `Expr`-match arms (vacuous via `evalExpr (.callResult _)=none`).
 - **Green restored (1155 jobs, axiom-clean)**: `sim_pop`/`popFrame` in `Match.lean`;
-  `subCharges_snoc/_append` moved to new `LirLean/Charges.lean` (headline **decoupled** from
+  `subCharges_snoc/_append` moved next to `subCharges` in exp003's `Hoare/Sequence.lean` (headline **decoupled** from
   `WorkedCall` via `MaterialiseGas`; `CallRealises` still needs worked-example defs, left as-is);
   `WorkedCall` fixed for the POP at offset 300.
 - **`zeroes` de-opaqued** (`003_bytecode_layer/EVMLean/Evm/FFI/ffi.lean`): `opaque` →

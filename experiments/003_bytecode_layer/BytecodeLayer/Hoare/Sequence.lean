@@ -63,6 +63,20 @@ def subCharges (g : UInt64) : List ℕ → UInt64
   | []      => g
   | c :: cs => subCharges (g - UInt64.ofNat c) cs
 
+/-- Charging `c` after `cs` subtracts it from the accumulated gas. -/
+theorem subCharges_snoc (g : UInt64) (cs : List ℕ) (c : ℕ) :
+    subCharges g (cs ++ [c]) = subCharges g cs - UInt64.ofNat c := by
+  induction cs generalizing g with
+  | nil => rfl
+  | cons d cs ih => show subCharges (g - UInt64.ofNat d) (cs ++ [c]) = _; rw [ih]; rfl
+
+/-- Charge-list concatenation agrees with sequential subtraction. -/
+theorem subCharges_append (g : UInt64) (a b : List ℕ) :
+    subCharges g (a ++ b) = subCharges (subCharges g a) b := by
+  induction a generalizing g with
+  | nil => rfl
+  | cons d a ih => show subCharges (g - UInt64.ofNat d) (a ++ b) = _; rw [ih]; rfl
+
 /-- **Gas threading (the composition lemma).** If the total of `cs` fits in `g`
 and `g.toNat < 2^64`, subtracting the charges one by one lands at
 `g.toNat - cs.sum`. Proved by induction on `cs`, reusing `toNat_sub_ofNat`. -/

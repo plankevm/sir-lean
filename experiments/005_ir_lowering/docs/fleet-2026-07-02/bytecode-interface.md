@@ -44,7 +44,7 @@ Aggravating factors, each with a smoking gun:
 | `runs_branch` combinator | `Hoare.lean:667` | ×8 |
 | `messageCall_runs`, `Runs.drive_reconcile` | `Hoare/CallSequence.lean:132, :75` | ×14, ×1 |
 | `Runs.gasAvailable_le`, `StepsTo.gas_le`, `CallReturns.gas_le` | `Hoare/GasMonotone.lean:251` | ×23 (the cyclic measure) |
-| `subCharges`/`toNat_subCharges` | `Hoare/Sequence.lean:62` | ×120 |
+| `subCharges`/`toNat_subCharges` | `Hoare/Sequence.lean:62,83` | ×120 |
 | `Behaves`, `Outcome`, `Observables`, `EVMSpec`, `SharedObservable`, `Refinement` | `Hoare/Behaves.lean:45`, `Observables.lean`, top-level files | **Zero** |
 
 ### 1.2 Everything exp005 reaches below that surface, categorized
@@ -60,7 +60,7 @@ Aggravating factors, each with a smoking gun:
 | Clean-halt envelope extractor (engine half) | `CleanHaltExtract.lean` (1,169 ln; §0–§2 are engine) | per-op `op_oog`/`op_inv` inversions "with no inversion in 003" (:26–28), `halted_runs_eq`, per-op `next_*_of_cleanHalt` |
 | Drive/fuel framing | `DriveRuns.lean` (374 ln) | `drive_append_framing_lt`, `drive_descend_lt`, `drive_error_oof`, `child_terminates`, `runs_of_drive_ok` (the drive→`Runs` reverse construction) |
 | Recording interpreter | `RunLog.lean` (674 ln; ~90% engine) | `CallRecord`/`RunLog` (:68/:82), `driveLog` (:156), `runWithLog` (:219), `observe` (:321), drive-adequacy; only the `realisedCall_eq_evmV2`-style oracle ties are IR-flavored |
-| Charge algebra | `Charges.lean` (43 ln) | `subCharges_snoc/append` — extends exp003's own `Hoare/Sequence.lean` |
+| Charge algebra | `Hoare/Sequence.lean` | `subCharges_snoc/append` live beside the exp003 `subCharges` definition |
 
 **Category (ii) — lowering-specific but frame-level (~14,000 lines; the cost every future IR re-pays under the current design).** Three distinct sub-bands:
 
@@ -137,7 +137,7 @@ theorem next_of_cleanHalt : CleanHaltsNonException fr →
     decode fr.exec.executionEnv.code fr.exec.pc = some op → Continuing op →
     ∃ e, stepFrame fr = .next e ∧ gasGuardOf op fr    -- per-op gas/mem envelope, DERIVED not supplied
 ```
-Packages: the entire audit-§7 relocation list — the unified `SelfAt`/`AccMono` walk (`TieDischarge.lean:604–1486, :1653–2914`), `drive_accounts_find_mono` + `callPreservesSelf_modGuards` chain (:2916–3560), `CleanHalt.lean`, `CleanHaltExtract.lean` §0–§2, `MemAlgebra.lean`, `Charges.lean`. Note the seams (`CallsCodeAlong` ≈ hprec/CallsCode; oracle-shaped, per the conformance-oracle-surface memory) surface **here**, once, as documented hypotheses of two laws — instead of being threaded through 28-hypothesis IR-side bundles.
+Packages: the entire audit-§7 relocation list — the unified `SelfAt`/`AccMono` walk (`TieDischarge.lean:604–1486, :1653–2914`), `drive_accounts_find_mono` + `callPreservesSelf_modGuards` chain (:2916–3560), `CleanHalt.lean`, `CleanHaltExtract.lean` §0–§2, `MemAlgebra.lean`, and the charge-fold lemmas now in `Hoare/Sequence.lean`. Note the seams (`CallsCodeAlong` ≈ hprec/CallsCode; oracle-shaped, per the conformance-oracle-surface memory) surface **here**, once, as documented hypotheses of two laws — instead of being threaded through 28-hypothesis IR-side bundles.
 
 ### 2.4 `BytecodeLayer/Asm.lean` — structured assembly + the assembled-code algebra
 
@@ -213,7 +213,7 @@ Packages: `DriveCorr` walk skeleton + `driveCorr_measure` (`DriveSim.lean:87/:97
 **Verdict: extends it; changes its *destination shape* and adds sequencing constraints — does not change its content.** Phase 4 as written (`remediation-plan-2026-07-02.md:43–44`: unify `SelfAt`/`AccMono` → save ~1,000 ln, then per-decl move to `003_bytecode_layer/BytecodeLayer/Hoare/AccountsMonotone.lean`) is exactly the category-(i) TieDischarge slice of §2.3. Two amendments and a concrete order:
 
 1. **Amendment A — destination is the new surface, not a Hoare/ appendix.** Land the relocated material as `BytecodeLayer/Exec.lean` + `Exec/{Recorder,Invariants}.lean` spec files with proofs under `Exec/Proofs/` (Eduardo's spec/proof separation), rather than one more file under `Hoare/`. Same proofs, same effort; the move *is* the surface-creation opportunity — don't spend it twice.
-2. **Amendment B — widen category (i) beyond TieDischarge.** Add to the Phase-4 manifest: `MemAlgebra.lean` (978), `CleanHalt.lean`, `CleanHaltExtract.lean` §0–§2, `DriveRuns.lean`, `Charges.lean`, and `RunLog.lean` (recorder + `observe`; the `realisedCall_eq_evmV2` oracle tie stays exp005-side). ~2,700 further lines, all import-clean (verified: `MemAlgebra` imports only `Evm`; `CleanHalt` only `BytecodeLayer.Hoare`; `DriveRuns` only `Hoare.CallSequence`; `Charges` only `Hoare.Sequence`; `RunLog` needs its two `Lir.Oracle` refs split first — note this touches the Phase-2 `Oracle.lean`-deletion decision, so sequence Phase 2 → this move).
+2. **Amendment B — widen category (i) beyond TieDischarge.** Add to the Phase-4 manifest: `MemAlgebra.lean` (978), `CleanHalt.lean`, `CleanHaltExtract.lean` §0–§2, `DriveRuns.lean`, the charge-fold laws now colocated in `Hoare/Sequence.lean`, and `RunLog.lean` (recorder + `observe`; the `realisedCall_eq_evmV2` oracle tie stays exp005-side). ~2,700 further lines, all import-clean (`RunLog` needs its two `Lir.Oracle` refs split first — note this touches the Phase-2 `Oracle.lean`-deletion decision, so sequence Phase 2 → this move).
 3. **Sequencing — the Asm layer (§2.4) is Phase 5, strictly after Phase 3.** Phase 3's realisability closure rewrites the consumers of exactly the (ii-a)/(ii-b) files the Asm refactor would churn; running both concurrently is the churn the workflow memory warns about. Moreover, doing Phase 3 *first* reveals which recorder laws the closure actually needs — build `RunsEv` (§2.2) *as part of* Phase 3 (it is the natural statement language for the S3 trace↔recorder bridge; the plan's step 2 at line 36 is `RunsEv.det_events` in disguise), then promote it to exp003 in Phase 5.
 
 **Concrete migration order:** Phase 2 (gas-law decision, as staged) → Phase 3 with `RunsEv` introduced exp005-side → Phase 4 = unify walks + relocate categories (i) (amendments A+B) into the §2.1–2.3 surface, restate the flagship through `Exec` (frame-free headline) → Phase 5 = extract the Asm algebra from Layout/DecodeLower/LowerDecode/DecodeAnchors/MatDecLower/JumpValid/NoCreateBytes/BoundaryReach, retarget `lower` as `assemble ∘ lowerAsm` with a definitional-equality bridge to `lower prog` so the closed conformance proof survives unmodified → IR #2 starts against the finished surface.

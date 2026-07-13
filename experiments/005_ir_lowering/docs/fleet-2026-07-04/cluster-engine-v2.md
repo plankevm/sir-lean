@@ -19,7 +19,7 @@ cyclic-CFG **Drive** layer. 17 files. No `.lean` file was modified.
 | `BytecodeLayer/Hoare/StepWalk.lean` | 1336 | The ONE per-opcode `.next` dispatch walk: env-equality + account presence mono | `stepFrame_next_accMono`, `stepFrame_next_self`, `stepFrame_next_execEnvAddr`, `stepFrame_halted_success_accMono` | Engine-reusable | load-bearing | Biggest file in cluster; pure opcode induction — no split needed, but the single load-bearing frame-level export is `stepFrame_next_*` |
 | `BytecodeLayer/Hoare/Descent.lean` | 570 | CALL/CREATE descent structural facts + `DescentKind` interface | `DescentKind`, `callDescent`, `createDescent`, `*_needsCall/Create_inv`, `beginCall_inl_*` | Engine-reusable | load-bearing | `DescentKind` uniform packaging is nice; CREATE arms are dead-scope for IR (lowering emits no CREATE) but reusable for exp003 |
 | `BytecodeLayer/Hoare/DriveMono.lean` | 294 | Account presence monotone across a whole `drive` run (Brick D) | `DrivePresent`, `drive_accounts_find_mono`, `endFrame_*_accPresent` | Engine-reusable | load-bearing | Sole consumer is `CallPreservesSelf`; clean |
-| `BytecodeLayer/Hoare/Charges.lean` | 32 | `subCharges` snoc/append fold algebra | `subCharges_snoc`, `subCharges_append` | Engine-reusable | support | Trivial 2-lemma module; sole consumer `MaterialiseGas`. Could be inlined but harmless |
+| `BytecodeLayer/Hoare/Sequence.lean` (charge fold section) | integrated | `subCharges` snoc/append fold algebra | `subCharges_snoc`, `subCharges_append` | Engine-reusable | support | The two lemmas now live beside `subCharges`; sole downstream consumer is `MaterialiseGas` |
 | `BytecodeLayer/Hoare/MemAlgebra.lean` | 996 | EVM memory read/write/slot-window algebra (mstore/mload/copySlice) | `mstore_mload_disjoint`, `mstore_preserves_slot`, `readWithPadding_*`, `writeWord_*` | Engine-reusable | load-bearing | Large but self-contained byte-array/memory theory; ideal exp003 graduate |
 | `BytecodeLayer/Hoare/CleanHalt.lean` | 103 | Clean-halt scope predicates `CleanHalts` / `CleanHaltsNonException` + forward closure | `CleanHalts`, `CleanHaltsNonException`, `cleanHaltsNonException_forward` | Engine-reusable | load-bearing | Sits upstream of BOTH proof stacks; keep as leaf |
 | `BytecodeLayer/Hoare/DriveRuns.lean` | 369 | Reconstruct halting `Runs` from a clean-terminating `drive` (reverse of `Runs→drive`) | `runs_of_drive_ok`, `ModellableStep`, `drive_descend_lt`, `child_terminates` | Engine-reusable | load-bearing | The `drive→Runs` bridge feeding Lir.Modellable + DriveSim |
@@ -40,7 +40,7 @@ BytecodeLayer/Hoare/AccountMap ──> BytecodeLayer/Hoare/StepWalk ──> Byte
                              │                                      │
 BytecodeLayer/Hoare/CleanHalt (leaf, feeds BOTH stacks)                         │
 BytecodeLayer/Hoare/MemAlgebra (leaf)                                           │
-BytecodeLayer/Hoare/Charges  (leaf)                                            │
+BytecodeLayer/Hoare/Sequence (shared charge fold)                              │
 BytecodeLayer/Hoare/DriveRuns (uses CallSequence) ──┐                          │
                                        │                          │
 Spec.Semantics ─> Law ─> IRRun ──┤                          │
@@ -106,7 +106,7 @@ The three names are **altitude layers**, not feature groups:
   promotion is post-Phase-3", `AccountMap.lean` header). **Assessment: yes, it is a clean reusable
   sublayer** — self-describing headers, no upward (IR) dependencies, all axiom-clean. The only
   friction points are `Descent.lean`'s CREATE arms (dead-scope for the CREATE-free IR but reusable
-  for exp003) and `Charges.lean` being a 2-lemma stub. Nothing in `Engine/` imports anything from
+  for exp003). Nothing in `Engine/` imports anything from
   ``, confirming the layering is genuinely one-directional and graduation-ready.
 
 - **``** (Law, IRRun, Call, CallRealises, Modellable, DriveSim) = the *gas-free IR semantics
@@ -147,8 +147,8 @@ The three names are **altitude layers**, not feature groups:
 4. **Rename for layer clarity.** Move `DriveSim.lean` under `Drive/` so the cyclic-drive layer is
    one directory; this resolves the V2-vs-Drive confusion (§4).
 
-5. **Fold `BytecodeLayer/Hoare/Charges.lean` (2 lemmas, 32 LOC) into `MaterialiseGas` or a shared `Engine` prelude**
-   — its own module earns little. Low priority / cosmetic.
+5. **LANDED:** the two charge-fold lemmas were folded into `BytecodeLayer/Hoare/Sequence.lean`,
+   beside the `subCharges` definition they characterize.
 
 6. **Graduate `Engine/` to exp003 when ready.** `MemAlgebra`, `AccountMap`, `StepWalk`, `Descent`,
    `DriveMono`, `CleanHalt`, `DriveRuns` form a clean IR-agnostic sublayer with no upward deps —
