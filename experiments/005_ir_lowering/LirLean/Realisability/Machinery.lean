@@ -2290,7 +2290,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
               -- step 2: MLOAD at `n` (covered ⇒ zero memory expansion)
               have hreal' : (UInt256.ofNat n).toNat + 63 < 2 ^ 64 := by
                 rw [show (UInt256.ofNat n).toNat = n from by
-                  rw [LirLean.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]]
+                  rw [BytecodeLayer.Hoare.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]]
                 exact hreal
               have hMeq : MachineState.M frp.exec.toMachineState.activeWords
                   (UInt256.ofNat n).toUInt64 32 = frp.exec.toMachineState.activeWords := by
@@ -2343,7 +2343,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
                     hmloaddec hfrpstk hfrpsz hnoexp hgMem hgMl)
               have hmval : ((BytecodeLayer.Dispatch.memChargedState frp.exec
                   frp.exec.activeWords).toMachineState.mload (UInt256.ofNat n)).1 = w := by
-                rw [LirLean.MemAlgebra.mload_congr (UInt256.ofNat n)
+                rw [BytecodeLayer.Hoare.MemAlgebra.mload_congr (UInt256.ofNat n)
                       (show (BytecodeLayer.Dispatch.memChargedState frp.exec
                           frp.exec.activeWords).toMachineState.memory
                         = fr.exec.toMachineState.memory from by rw [← hfrpmem]; rfl)
@@ -3840,12 +3840,12 @@ private theorem call_softfail_next_pins {fr : Frame} {exec' : ExecutionState}
       subst exec'
       refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
       · show charged.executionEnv = fr.exec.executionEnv
-        exact (Lir.charge_accounts_env hc).2
-      · rw [resumeAfterCall_pc, Lir.charge_pc hc]
+        exact (BytecodeLayer.Hoare.charge_accounts_env hc).2
+      · rw [resumeAfterCall_pc, BytecodeLayer.Hoare.charge_pc hc]
       · rfl
-      · rw [LirLean.MemAlgebra.resumeAfterCall_memory (by rfl), Lir.charge_memory hc]
-      · rw [LirLean.MemAlgebra.resumeAfterCall_activeWords (by rfl) (by rfl),
-          Lir.charge_activeWords hc]
+      · rw [BytecodeLayer.Hoare.MemAlgebra.resumeAfterCall_memory (by rfl), BytecodeLayer.Hoare.charge_memory hc]
+      · rw [BytecodeLayer.Hoare.MemAlgebra.resumeAfterCall_activeWords (by rfl) (by rfl),
+          BytecodeLayer.Hoare.charge_activeWords hc]
       · rfl
 
 private theorem call_resume_of_dispatch {log : RunLog} {callFr : Frame} {cw gw : Word}
@@ -3897,10 +3897,10 @@ private theorem call_resume_of_dispatch {log : RunLog} {callFr : Frame} {cw gw :
     · rw [resumeAfterCall_pc, hpend, hpc]
     · rw [resumeAfterCall_stack, hpend, hpstk]
       rfl
-    · rw [LirLean.MemAlgebra.resumeAfterCall_memory (by rw [hpend]; exact hout), hpend, hmem]
+    · rw [BytecodeLayer.Hoare.MemAlgebra.resumeAfterCall_memory (by rw [hpend]; exact hout), hpend, hmem]
     · have heq : (resumeAfterCall rec.result rec.pending).exec.activeWords
           = callFr.exec.activeWords := by
-        rw [LirLean.MemAlgebra.resumeAfterCall_activeWords (by rw [hpend]; exact hin)
+        rw [BytecodeLayer.Hoare.MemAlgebra.resumeAfterCall_activeWords (by rw [hpend]; exact hin)
           (by rw [hpend]; exact hout), hpend, haw]
       rw [heq]
     · rw [show (resumeAfterCall rec.result rec.pending).validJumps = rec.pending.frame.validJumps

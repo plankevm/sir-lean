@@ -7,7 +7,7 @@ import BytecodeLayer.Semantics.Maps
 Pure `Evm.AccountMap` facts, zero IR / zero recorder / zero `SelfPresent`: the RBMap
 non-emptiness prims (`forM_from_nil` / `all2_nil_false` / `find?_some_ne_empty`) and the
 arbitrary-address presence layer (`AccPresent` / `AccMono` + their closure lemmas). The public
-names remain in the `Lir` namespace.
+names remain in the `BytecodeLayer.Hoare` namespace.
 
 `AccountMap = Batteries.RBMap AccountAddress Account compare`, whose `BEq` runs `RBNode.all₂`
 (`Batteries/Data/RBMap/Basic.lean:232`): a `StateT`-over-`Option` walk of the left tree against the
@@ -19,7 +19,7 @@ node's `next?` returns `none` and short-circuits the whole walk to `none` — ne
 No `sorry`/`axiom`/`native_decide`; axioms `[propext, Classical.choice, Quot.sound]`.
 -/
 
-namespace Lir
+namespace BytecodeLayer.Hoare
 
 open Batteries in
 /-- The `all₂` `StateT (RBNode.Stream β) Option` walk of `t` against the **empty** stream is `none`
@@ -136,4 +136,4 @@ theorem accMono_emptySwap (a : Evm.AccountAddress) (m m₀ : Evm.AccountMap)
     (h : AccPresent a m) : AccPresent a (if m == (∅ : Evm.AccountMap) then m₀ else m) := by
   rw [if_neg (accPresent_ne_empty a m h)]; exact h
 
-end Lir
+end BytecodeLayer.Hoare

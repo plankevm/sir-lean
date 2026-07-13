@@ -25,7 +25,7 @@ reachable on the way to a halt continues to the
 No `sorry`/`axiom`/`native_decide`.
 -/
 
-namespace Lir
+namespace BytecodeLayer.Hoare
 
 open Evm
 open BytecodeLayer.Hoare
@@ -94,6 +94,6 @@ theorem cleanHaltsNonException_of_success {fr last : Frame} {e : Evm.ExecutionSt
     CleanHaltsNonException fr :=
   ⟨last, .success e o, hto, hhalt, haltNonException_success e o⟩
 
-end Lir
+end BytecodeLayer.Hoare
 
 -- Build-enforced axiom-cleanliness guards.

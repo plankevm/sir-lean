@@ -8,7 +8,7 @@ import BytecodeLayer.Semantics.Interpreter.NeverOutOfFuel
 
 The gas-stream IR design (`experiments/005_ir_lowering/docs/ir-design-v2.md` §3.4) gives the
 gas oracle exactly **one** law: the `gasRead` values, in program order, are monotone
-non-increasing (`gasAvailable.toNat` only goes down). `LirLean/Mono.lean` discharged
+non-increasing (`gasAvailable.toNat` only goes down). `BytecodeLayer/Hoare/GasMonotone.lean` discharged
 that law for a *concrete* two-read program by exact `subCharges` arithmetic. The
 **general** lowering (an arbitrary `Runs`, with `.call` nodes between reads) needs the
 law as a structural fact about the engine, **including through external calls** — the

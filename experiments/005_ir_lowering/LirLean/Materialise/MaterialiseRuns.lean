@@ -424,10 +424,10 @@ fact that pins the call-result readback's gas charge to the abstract `[Gverylow,
 theorem M_32_eq_self_of_covered (aw : UInt64) (addr : UInt256)
     (hcov : addr.toNat + 32 ≤ aw.toNat * 32) (haddr : addr.toNat + 63 < 2 ^ 64) :
     MachineState.M aw addr.toUInt64 32 = aw := by
-  rw [LirLean.MemAlgebra.M_32]
+  rw [BytecodeLayer.Hoare.MemAlgebra.M_32]
   set x : UInt64 := (addr.toUInt64 + 32 + 31) / 32 with hx
   have hau : addr.toUInt64.toNat = addr.toNat := by
-    rw [LirLean.MemAlgebra.toUInt64_toNat, Nat.mod_eq_of_lt (by omega)]
+    rw [BytecodeLayer.Hoare.MemAlgebra.toUInt64_toNat, Nat.mod_eq_of_lt (by omega)]
   have hxval : x.toNat = (addr.toNat + 63) / 32 := by
     rw [hx, UInt64.toNat_div]
     simp only [UInt64.toNat_add, hau, show (32:UInt64).toNat = 32 from rfl,
@@ -479,10 +479,10 @@ theorem memoryExpansionWords?_ofNat_32_of_covered (aw : UInt64) {slot : Nat}
   -- `slot < 2^64 < 2^256`, so `ofNat` does not truncate: `(ofNat slot).toNat = slot`.
   have h256 : (2 : ℕ) ^ 64 ≤ 2 ^ 256 := Nat.pow_le_pow_right (by norm_num) (by norm_num)
   have hofNat : (UInt256.ofNat slot).toNat = slot := by
-    rw [LirLean.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
+    rw [BytecodeLayer.Hoare.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
   have hreal' : (UInt256.ofNat slot).toNat + 63 < 2 ^ 64 := by rw [hofNat]; exact hreal
   have haddr64 : (UInt256.ofNat slot).toUInt64.toNat = (UInt256.ofNat slot).toNat := by
-    rw [LirLean.MemAlgebra.toUInt64_toNat, Nat.mod_eq_of_lt (by omega)]
+    rw [BytecodeLayer.Hoare.MemAlgebra.toUInt64_toNat, Nat.mod_eq_of_lt (by omega)]
   -- the two overflow guards are false (slot is realistic), so the `else` branch fires.
   have hg1 : ¬ (UInt256.ofNat slot).toUInt64 > (0xffffffffffffffff : UInt64) - 32 := by
     rw [gt_iff_lt, UInt64.lt_iff_toNat_lt,

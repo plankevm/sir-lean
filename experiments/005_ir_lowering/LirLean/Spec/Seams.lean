@@ -11,7 +11,7 @@ def CallPreservesSelf : Prop := Lir.CallPreservesSelf
 def PrecompilesPreservePresence : Prop :=
   ∀ (cp : Evm.CallParams) (imm : Evm.CallResult),
     Evm.beginCall cp = .inr imm →
-    ∀ a, Lir.AccPresent a cp.accounts → Lir.AccPresent a imm.accounts
+    ∀ a, BytecodeLayer.Hoare.AccPresent a cp.accounts → BytecodeLayer.Hoare.AccPresent a imm.accounts
 
 theorem callPreservesSelf_of_precompiles :
     PrecompilesPreservePresence → CallPreservesSelf :=
@@ -19,7 +19,7 @@ theorem callPreservesSelf_of_precompiles :
 
 def CallsCode : Evm.Frame → Prop := BytecodeLayer.Interpreter.CallsCode
 
-def CleanHaltsNonException : Evm.Frame → Prop := Lir.CleanHaltsNonException
+def CleanHaltsNonException : Evm.Frame → Prop := BytecodeLayer.Hoare.CleanHaltsNonException
 
 end Lir.Spec
 

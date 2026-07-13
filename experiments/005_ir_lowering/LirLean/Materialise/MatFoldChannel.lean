@@ -970,7 +970,7 @@ theorem materialise_runsC {prog : Program} (hdc : DefsConsistent prog) (hord : D
               -- step 2: MLOAD at `n` (covered ⇒ zero memory expansion)
               have hreal' : (UInt256.ofNat n).toNat + 63 < 2 ^ 64 := by
                 rw [show (UInt256.ofNat n).toNat = n from by
-                  rw [LirLean.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]]
+                  rw [BytecodeLayer.Hoare.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]]
                 exact hreal
               have hMeq : MachineState.M frp.exec.toMachineState.activeWords
                   (UInt256.ofNat n).toUInt64 32 = frp.exec.toMachineState.activeWords := by
@@ -1013,7 +1013,7 @@ theorem materialise_runsC {prog : Program} (hdc : DefsConsistent prog) (hord : D
                 with hfrm
               have hmval : ((BytecodeLayer.Dispatch.memChargedState frp.exec
                   frp.exec.activeWords).toMachineState.mload (UInt256.ofNat n)).1 = w := by
-                rw [LirLean.MemAlgebra.mload_congr (UInt256.ofNat n)
+                rw [BytecodeLayer.Hoare.MemAlgebra.mload_congr (UInt256.ofNat n)
                       (show (BytecodeLayer.Dispatch.memChargedState frp.exec
                           frp.exec.activeWords).toMachineState.memory
                         = fr.exec.toMachineState.memory from by rw [← hfrpmem]; rfl)

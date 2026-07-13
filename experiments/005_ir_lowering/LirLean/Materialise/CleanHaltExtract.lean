@@ -67,7 +67,7 @@ core argument needs: the terminal is **not** `.exception`. A continuing op's onl
 `cleanHaltsNonException_of_success`) live in `experiments/003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean` — upstream of both this
 extractor and the drive walk. Open `Lir` brings them into scope here. -/
 
-open Lir (CleanHaltsNonException cleanHaltsNonException_forward HaltNonException)
+open BytecodeLayer.Hoare (CleanHaltsNonException cleanHaltsNonException_forward HaltNonException)
 
 /-! ## §1 — per-op OOG / `.next`-inversion bricks
 

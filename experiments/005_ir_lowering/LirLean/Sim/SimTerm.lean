@@ -79,7 +79,7 @@ open GasConstants
 open BytecodeLayer.Hoare
 open BytecodeLayer.Dispatch
 open Lir
-open LirLean.MemAlgebra
+open BytecodeLayer.Hoare.MemAlgebra
 
 /-! ## The terminator cursor = the offset-table terminator anchor -/
 

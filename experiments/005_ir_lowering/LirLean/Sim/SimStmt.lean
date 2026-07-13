@@ -756,7 +756,7 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       have : (2 : Nat) ^ 64 ≤ 2 ^ 256 := Nat.pow_le_pow_right (by norm_num) (by norm_num)
       omega
     have hslotEq : (UInt256.ofNat slot).toNat = slot := by
-      rw [LirLean.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt hslotlt256]
+      rw [BytecodeLayer.Hoare.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt hslotlt256]
     have hslot63' : (UInt256.ofNat slot).toNat + 63 < 2 ^ 64 := by rw [hslotEq]; exact hslot63
     have hslotplat' : (UInt256.ofNat slot).toNat < 2 ^ System.Platform.numBits := by
       rw [hslotEq]; exact hslotplat
@@ -814,21 +814,21 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         refine ⟨?_, ?_, hslot63, ?_⟩
         · -- memory.size ≥ slot + 32
           rw [hendmembytes]
-          have := LirLean.MemAlgebra.mstore_memory_size resumeFr.exec.toMachineState
+          have := BytecodeLayer.Hoare.MemAlgebra.mstore_memory_size resumeFr.exec.toMachineState
             (UInt256.ofNat slot) flag (by rw [hslotEq]; exact hslotplat)
           rw [hslotEq] at this
           show (UInt256.ofNat slot).toNat + 32 ≤ _
           rw [hslotEq]; exact this
         · -- activeWords*32 ≥ slot + 32
           rw [hendmemactive]
-          have := LirLean.MemAlgebra.mstore_activeWords_covers resumeFr.exec.toMachineState
+          have := BytecodeLayer.Hoare.MemAlgebra.mstore_activeWords_covers resumeFr.exec.toMachineState
             (UInt256.ofNat slot) flag hslot63'
           rw [hslotEq] at this
           show (UInt256.ofNat slot).toNat + 32 ≤ _
           rw [hslotEq]; exact this
         · -- readback = flag (`endFr` agrees with `resumeFr….mstore` on memory + activeWords).
-          rw [LirLean.MemAlgebra.mload_congr (UInt256.ofNat slot) hendmembytes hendmemactive]
-          exact LirLean.MemAlgebra.mstore_reads_back resumeFr.exec.toMachineState
+          rw [BytecodeLayer.Hoare.MemAlgebra.mload_congr (UInt256.ofNat slot) hendmembytes hendmemactive]
+          exact BytecodeLayer.Hoare.MemAlgebra.mstore_reads_back resumeFr.exec.toMachineState
             (UInt256.ofNat slot) flag hslot63' hslotplat'
       · -- another bound tmp `tw ≠ t`: its `st.locals tw` value is unchanged; if it's a
         -- call-result slot it stays covered+valued through the MSTORE at the disjoint slot.
@@ -842,13 +842,13 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
           have : (2 : Nat) ^ 64 ≤ 2 ^ 256 := Nat.pow_le_pow_right (by norm_num) (by norm_num)
           omega
         have hslot'Eq : (UInt256.ofNat slot').toNat = slot' := by
-          rw [LirLean.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt hslot'lt256]
+          rw [BytecodeLayer.Hoare.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt hslot'lt256]
         -- the two slots are distinct tmps' 32-aligned slots ⇒ disjoint windows.
         have hslot'def : slot' = slotOf tw := hslots tw slot' hdef
         have htwne : t.id ≠ tw.id := fun h => htw (by cases t; cases tw; cases h; rfl)
         have hdisN : slot + 32 ≤ slot' ∨ slot' + 32 ≤ slot := by
           rw [hslotdef, hslot'def]
-          exact LirLean.MemAlgebra.slot_windows_disjoint t.id tw.id htwne
+          exact BytecodeLayer.Hoare.MemAlgebra.slot_windows_disjoint t.id tw.id htwne
         -- coverage AND value are preserved in one shot by the grow-aware MSTORE
         -- preservation lemma (`mstore_preserves_slot_grow`): the binding MSTORE at the
         -- result slot `slotOf t` may grow memory past the disjoint, covered slot `slotOf tw`,
@@ -859,14 +859,14 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
             ∨ (UInt256.ofNat slot).toNat + 32 ≤ (UInt256.ofNat slot').toNat := by
           rw [hslotEq, hslot'Eq]; exact hdisN.symm
         obtain ⟨hmem', hact', hval'⟩ :=
-          LirLean.MemAlgebra.mstore_preserves_slot_grow resumeFr.exec.toMachineState
+          BytecodeLayer.Hoare.MemAlgebra.mstore_preserves_slot_grow resumeFr.exec.toMachineState
             (UInt256.ofNat slot) (UInt256.ofNat slot') flag hslot63' hslotplat' hcm ham hdisN'
         -- `endFr` agrees with `resumeFr….mstore slot flag` on memory + activeWords (supplied), so
         -- the disjoint slot `slot'` keeps coverage + readback on `endFr`.
         refine ⟨?_, ?_, hreal, ?_⟩
         · rw [hendmembytes]; exact hmem'
         · rw [hendmemactive]; exact hact'
-        · rw [LirLean.MemAlgebra.mload_congr (UInt256.ofNat slot') hendmembytes hendmemactive]
+        · rw [BytecodeLayer.Hoare.MemAlgebra.mload_congr (UInt256.ofNat slot') hendmembytes hendmemactive]
           exact hval'.trans hval
 
 /-! ## Arm 1′ — `assign t .gas` through the spill (Phase B, the gas value channel)
@@ -937,7 +937,7 @@ theorem sim_assign_gas {prog : Program} {sloadChg : Tmp → ℕ} {obs ob : Word}
     have : (2 : Nat) ^ 64 ≤ 2 ^ 256 := Nat.pow_le_pow_right (by norm_num) (by norm_num)
     omega
   have hslotEq : (UInt256.ofNat slot).toNat = slot := by
-    rw [LirLean.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt hslotlt256]
+    rw [BytecodeLayer.Hoare.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt hslotlt256]
   have hslot63' : (UInt256.ofNat slot).toNat + 63 < 2 ^ 64 := by rw [hslotEq]; exact hslot63
   have hslotplat' : (UInt256.ofNat slot).toNat < 2 ^ System.Platform.numBits := by
     rw [hslotEq]; exact hslotplat
@@ -972,17 +972,17 @@ theorem sim_assign_gas {prog : Program} {sloadChg : Tmp → ℕ} {obs ob : Word}
       subst hslot'eq; subst hvob
       refine ⟨?_, ?_, hslot63, ?_⟩
       · rw [hendmembytes]
-        have := LirLean.MemAlgebra.mstore_memory_size fr.exec.toMachineState
+        have := BytecodeLayer.Hoare.MemAlgebra.mstore_memory_size fr.exec.toMachineState
           (UInt256.ofNat slot) v (by rw [hslotEq]; exact hslotplat)
         rw [hslotEq] at this; show (UInt256.ofNat slot).toNat + 32 ≤ _; rw [hslotEq]; exact this
       · rw [hendmemactive]
-        have := LirLean.MemAlgebra.mstore_activeWords_covers fr.exec.toMachineState
+        have := BytecodeLayer.Hoare.MemAlgebra.mstore_activeWords_covers fr.exec.toMachineState
           (UInt256.ofNat slot) v hslot63'
         rw [hslotEq] at this; show (UInt256.ofNat slot).toNat + 32 ≤ _; rw [hslotEq]; exact this
       · -- readback: `endFr`'s machine state agrees with `fr….mstore slot v` on memory + activeWords
         -- (both supplied), so `mload`'s value coincides (`mload_congr`); then `mstore_reads_back`.
-        rw [LirLean.MemAlgebra.mload_congr (UInt256.ofNat slot) hendmembytes hendmemactive]
-        exact LirLean.MemAlgebra.mstore_reads_back fr.exec.toMachineState
+        rw [BytecodeLayer.Hoare.MemAlgebra.mload_congr (UInt256.ofNat slot) hendmembytes hendmemactive]
+        exact BytecodeLayer.Hoare.MemAlgebra.mstore_reads_back fr.exec.toMachineState
           (UInt256.ofNat slot) v hslot63' hslotplat'
     · -- another bound tmp `tw ≠ t`: unchanged value; its slot survives the disjoint MSTORE.
       have hloc0 : st.locals tw = some v := by
@@ -992,23 +992,23 @@ theorem sim_assign_gas {prog : Program} {sloadChg : Tmp → ℕ} {obs ob : Word}
         have : (2 : Nat) ^ 64 ≤ 2 ^ 256 := Nat.pow_le_pow_right (by norm_num) (by norm_num)
         omega
       have hslot'Eq : (UInt256.ofNat slot').toNat = slot' := by
-        rw [LirLean.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt hslot'lt256]
+        rw [BytecodeLayer.Hoare.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt hslot'lt256]
       have hslot'def : slot' = slotOf tw := hslots tw slot' hdef
       have htwne : t.id ≠ tw.id := fun h => htw (by cases t; cases tw; cases h; rfl)
       have hdisN : slot + 32 ≤ slot' ∨ slot' + 32 ≤ slot := by
-        rw [hsdef, hslot'def]; exact LirLean.MemAlgebra.slot_windows_disjoint t.id tw.id htwne
+        rw [hsdef, hslot'def]; exact BytecodeLayer.Hoare.MemAlgebra.slot_windows_disjoint t.id tw.id htwne
       have hdisN' : (UInt256.ofNat slot').toNat + 32 ≤ (UInt256.ofNat slot).toNat
           ∨ (UInt256.ofNat slot).toNat + 32 ≤ (UInt256.ofNat slot').toNat := by
         rw [hslotEq, hslot'Eq]; exact hdisN.symm
       obtain ⟨hmem', hact', hval'⟩ :=
-        LirLean.MemAlgebra.mstore_preserves_slot_grow fr.exec.toMachineState
+        BytecodeLayer.Hoare.MemAlgebra.mstore_preserves_slot_grow fr.exec.toMachineState
           (UInt256.ofNat slot) (UInt256.ofNat slot') ob hslot63' hslotplat' hcm ham hdisN'
       -- `endFr` agrees with `fr….mstore slot ob` on memory + activeWords (both supplied), so the
       -- disjoint slot `slot'` keeps its coverage (size/active) and readback value on `endFr`.
       refine ⟨?_, ?_, hreal, ?_⟩
       · rw [hendmembytes]; exact hmem'
       · rw [hendmemactive]; exact hact'
-      · rw [LirLean.MemAlgebra.mload_congr (UInt256.ofNat slot') hendmembytes hendmemactive]
+      · rw [BytecodeLayer.Hoare.MemAlgebra.mload_congr (UInt256.ofNat slot') hendmembytes hendmemactive]
         exact hval'.trans hval
 
 /-! ## Arm 1″ — `assign t (.sload k)` through the spill (Phase C, the sload value channel)
@@ -1082,7 +1082,7 @@ theorem sim_assign_sload {prog : Program} {sloadChg : Tmp → ℕ} {obs w : Word
     have : (2 : Nat) ^ 64 ≤ 2 ^ 256 := Nat.pow_le_pow_right (by norm_num) (by norm_num)
     omega
   have hslotEq : (UInt256.ofNat slot).toNat = slot := by
-    rw [LirLean.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt hslotlt256]
+    rw [BytecodeLayer.Hoare.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt hslotlt256]
   have hslot63' : (UInt256.ofNat slot).toNat + 63 < 2 ^ 64 := by rw [hslotEq]; exact hslot63
   have hslotplat' : (UInt256.ofNat slot).toNat < 2 ^ System.Platform.numBits := by
     rw [hslotEq]; exact hslotplat
@@ -1119,15 +1119,15 @@ theorem sim_assign_sload {prog : Program} {sloadChg : Tmp → ℕ} {obs w : Word
       subst hslot'eq; subst hvw
       refine ⟨?_, ?_, hslot63, ?_⟩
       · rw [hendmembytes]
-        have := LirLean.MemAlgebra.mstore_memory_size fr.exec.toMachineState
+        have := BytecodeLayer.Hoare.MemAlgebra.mstore_memory_size fr.exec.toMachineState
           (UInt256.ofNat slot) v (by rw [hslotEq]; exact hslotplat)
         rw [hslotEq] at this; show (UInt256.ofNat slot).toNat + 32 ≤ _; rw [hslotEq]; exact this
       · rw [hendmemactive]
-        have := LirLean.MemAlgebra.mstore_activeWords_covers fr.exec.toMachineState
+        have := BytecodeLayer.Hoare.MemAlgebra.mstore_activeWords_covers fr.exec.toMachineState
           (UInt256.ofNat slot) v hslot63'
         rw [hslotEq] at this; show (UInt256.ofNat slot).toNat + 32 ≤ _; rw [hslotEq]; exact this
-      · rw [LirLean.MemAlgebra.mload_congr (UInt256.ofNat slot) hendmembytes hendmemactive]
-        exact LirLean.MemAlgebra.mstore_reads_back fr.exec.toMachineState
+      · rw [BytecodeLayer.Hoare.MemAlgebra.mload_congr (UInt256.ofNat slot) hendmembytes hendmemactive]
+        exact BytecodeLayer.Hoare.MemAlgebra.mstore_reads_back fr.exec.toMachineState
           (UInt256.ofNat slot) v hslot63' hslotplat'
     · -- another bound tmp `tw ≠ t`: unchanged value; its slot survives the disjoint MSTORE.
       have hloc0 : st.locals tw = some v := by
@@ -1137,21 +1137,21 @@ theorem sim_assign_sload {prog : Program} {sloadChg : Tmp → ℕ} {obs w : Word
         have : (2 : Nat) ^ 64 ≤ 2 ^ 256 := Nat.pow_le_pow_right (by norm_num) (by norm_num)
         omega
       have hslot'Eq : (UInt256.ofNat slot').toNat = slot' := by
-        rw [LirLean.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt hslot'lt256]
+        rw [BytecodeLayer.Hoare.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt hslot'lt256]
       have hslot'def : slot' = slotOf tw := hslots tw slot' hdef
       have htwne : t.id ≠ tw.id := fun h => htw (by cases t; cases tw; cases h; rfl)
       have hdisN : slot + 32 ≤ slot' ∨ slot' + 32 ≤ slot := by
-        rw [hsdef, hslot'def]; exact LirLean.MemAlgebra.slot_windows_disjoint t.id tw.id htwne
+        rw [hsdef, hslot'def]; exact BytecodeLayer.Hoare.MemAlgebra.slot_windows_disjoint t.id tw.id htwne
       have hdisN' : (UInt256.ofNat slot').toNat + 32 ≤ (UInt256.ofNat slot).toNat
           ∨ (UInt256.ofNat slot).toNat + 32 ≤ (UInt256.ofNat slot').toNat := by
         rw [hslotEq, hslot'Eq]; exact hdisN.symm
       obtain ⟨hmem', hact', hval'⟩ :=
-        LirLean.MemAlgebra.mstore_preserves_slot_grow fr.exec.toMachineState
+        BytecodeLayer.Hoare.MemAlgebra.mstore_preserves_slot_grow fr.exec.toMachineState
           (UInt256.ofNat slot) (UInt256.ofNat slot') w hslot63' hslotplat' hcm ham hdisN'
       refine ⟨?_, ?_, hreal, ?_⟩
       · rw [hendmembytes]; exact hmem'
       · rw [hendmemactive]; exact hact'
-      · rw [LirLean.MemAlgebra.mload_congr (UInt256.ofNat slot') hendmembytes hendmemactive]
+      · rw [BytecodeLayer.Hoare.MemAlgebra.mload_congr (UInt256.ofNat slot') hendmembytes hendmemactive]
         exact hval'.trans hval
 
 end Lir

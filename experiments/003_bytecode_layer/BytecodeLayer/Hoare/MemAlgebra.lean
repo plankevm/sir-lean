@@ -41,7 +41,7 @@ axiom.
 
 open Evm
 
-namespace LirLean.MemAlgebra
+namespace BytecodeLayer.Hoare.MemAlgebra
 
 /-! ## Lemma 3 — CALL with a zero-size window preserves caller memory reads -/
 
@@ -960,36 +960,36 @@ theorem mstore_preserves_slot_grow (m : MachineState) (addr s val : UInt256)
 The three crux results must rest only on the standard `[propext, Classical.choice,
 Quot.sound]` (no `sorryAx`, no project axiom, in particular no `ffi`-axiom — the
 de-opaqued `ffi.ByteArray.zeroes` body is what makes this possible). -/
-/-- info: 'LirLean.MemAlgebra.resumeAfterCall_mload' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+/-- info: 'BytecodeLayer.Hoare.MemAlgebra.resumeAfterCall_mload' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms resumeAfterCall_mload
 
-/-- info: 'LirLean.MemAlgebra.mload_after_mstore' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+/-- info: 'BytecodeLayer.Hoare.MemAlgebra.mload_after_mstore' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms mload_after_mstore
 
-/-- info: 'LirLean.MemAlgebra.mstore_mload_disjoint' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+/-- info: 'BytecodeLayer.Hoare.MemAlgebra.mstore_mload_disjoint' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms mstore_mload_disjoint
 
-/-- info: 'LirLean.MemAlgebra.mstore_memory_size' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+/-- info: 'BytecodeLayer.Hoare.MemAlgebra.mstore_memory_size' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms mstore_memory_size
 
-/-- info: 'LirLean.MemAlgebra.mstore_reads_back' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+/-- info: 'BytecodeLayer.Hoare.MemAlgebra.mstore_reads_back' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms mstore_reads_back
 
-/-- info: 'LirLean.MemAlgebra.mstore_activeWords_covers' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+/-- info: 'BytecodeLayer.Hoare.MemAlgebra.mstore_activeWords_covers' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms mstore_activeWords_covers
 
-/-- info: 'LirLean.MemAlgebra.mstore_preserves_slot' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+/-- info: 'BytecodeLayer.Hoare.MemAlgebra.mstore_preserves_slot' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms mstore_preserves_slot
 
-/-- info: 'LirLean.MemAlgebra.mstore_preserves_slot_grow' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+/-- info: 'BytecodeLayer.Hoare.MemAlgebra.mstore_preserves_slot_grow' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms mstore_preserves_slot_grow
 
-end LirLean.MemAlgebra
+end BytecodeLayer.Hoare.MemAlgebra

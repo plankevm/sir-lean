@@ -460,12 +460,12 @@ theorem stash_tail_sload {prog : Program} {sloadChg : Tmp → ℕ}
     hstkEnd⟩
   · -- memory bytes: tail writes `w` at `slot` over `frs`'s memory = `frk`'s = `fr`'s (memBytes).
     rw [hmemBytes]
-    apply LirLean.MemAlgebra.mstore_memory_congr
+    apply BytecodeLayer.Hoare.MemAlgebra.mstore_memory_congr
     show frs.exec.toMachineState.memory = fr.exec.toMachineState.memory
     rw [hfrs, sloadFrame_memory]; exact hmrk.memBytes
   · -- activeWords: tail's `activeWords` is a function of `frs`'s = `frk`'s = `fr`'s (hawk).
     rw [hmemActive]
-    apply LirLean.MemAlgebra.mstore_activeWords_congr
+    apply BytecodeLayer.Hoare.MemAlgebra.mstore_activeWords_congr
     show frs.exec.toMachineState.activeWords = fr.exec.toMachineState.activeWords
     rw [hfrs, sloadFrame_activeWords, hawk]
   · -- pc: (frk.pc + 1) + 34 = fr.pc + ((matCache k).length + 35);
