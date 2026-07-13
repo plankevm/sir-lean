@@ -1,5 +1,7 @@
 # 00 — Overview: experiment 005, the Plank SIR → EVM-bytecode lowering study
 
+> **V1 coupling status (2026-07-13):** The unused `Frame/SmallStep` machine, `Lir.Frame.Match` structure, and `apply`/`bind` result-slot transformers were deleted. Live IR semantics are in `Spec/Semantics.lean`, live correspondence is `Corr` in `Sim/SimStmt.lean`, and `Frame/Call.lean` / `Frame/Create.lean` retain only oracle projections. References below to deleted declarations are historical.
+
 > **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
 
 
@@ -306,7 +308,7 @@ the coupled path; retirement candidate post-R11), **dead-candidate** (zero consu
 | [`Frame/Call.lean`](../../../LirLean/Frame/Call.lean) | 164 | L4: `CallOracle`/`evmCallOracle` (live); `applyCall` | live / dead-candidate | [04](04-value-channel.md) |
 | [`Frame/Create.lean`](../../../LirLean/Frame/Create.lean) | 137 | L4: `CreateOracle`/`evmCreateOracle` (live); `applyCreate` | live / dead-candidate | [04](04-value-channel.md) |
 | [`Frame/Match.lean`](../../../LirLean/Frame/Match.lean) | 618 | L4: lenses, `sim_*` opcode bricks, reflexivity headlines (live); v1 `Match` structure | live / dead-candidate | [04](04-value-channel.md) |
-| [`Frame/SmallStep.lean`](../../../LirLean/Frame/SmallStep.lean) | 129 | v1 IR machine state — **zero theorem consumers** | dead-candidate | [04](04-value-channel.md) |
+| `Frame/SmallStep.lean` (deleted) | 129 | v1 IR machine state — **zero theorem consumers** | removed | [04](04-value-channel.md) |
 | [`Frame/StorageErase.lean`](../../../LirLean/Frame/StorageErase.lean) | 217 | RBMap `erase` read-back (zero-write SSTORE) | staged→exp003 | [01](01-trusted-base.md) |
 | [`Sim/SimStmt.lean`](../../../LirLean/Sim/SimStmt.lean) | 1,150 | L5: `Corr` + the five statement arms | live | [05](05-simulation.md) |
 | [`Sim/SimStmts.lean`](../../../LirLean/Sim/SimStmts.lean) | 164 | L5: `SimStmtStep` + statement-list induction (flagship uses a coupled twin) | live/incremental | [05](05-simulation.md) |

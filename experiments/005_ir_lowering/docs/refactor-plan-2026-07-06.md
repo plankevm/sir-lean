@@ -1,5 +1,7 @@
 # exp005 master refactor plan — 2026-07-06
 
+> **V1 coupling status (2026-07-13):** The unused `Frame/SmallStep` machine, `Lir.Frame.Match` structure, and `apply`/`bind` result-slot transformers were deleted. Live IR semantics are in `Spec/Semantics.lean`, live correspondence is `Corr` in `Sim/SimStmt.lean`, and `Frame/Call.lean` / `Frame/Create.lean` retain only oracle projections. References below to deleted declarations are historical.
+
 > **Engine-fold status (2026-07-13).** The deferred package fold has landed. The eight IR-free
 > engine modules now live in exp003 under `BytecodeLayer/Hoare/`; the lowering-dependent
 > `Modellable.lean` lives under `LirLean/Decode/`. References below to a future `Engine/`
@@ -215,15 +217,13 @@ Touches the producer edit surface (sim lemma signatures) → do with 2A. Folds n
 layer (Phase 4), which owns pc/offset algebra; end state = flagship premise is just `WellFormed prog`
 + an Asm "assembles within budget".
 
-### 2C. Shrink the dead v1 coupling surface (smell 5.5, misplacement #8)
+### 2C. Shrink the dead v1 coupling surface (completed 2026-07-13)
 
-`Lir.Frame.Match` (Frame/Match.lean:126), `IRState.callResult/createResult`,
-`bindCallResult/bindCreateResult` (SmallStep.lean:57-124), `applyCall`/`applyCreate`
-(Call.lean:158, Create.lean:131): **zero consumers** (live path is the V2 stream pop,
-Semantics.lean:207-235); the CREATE mirror was *added* to the dead channel in bbd9578. Fix docstring
-overclaims (SmallStep.lean:106). **Decide**: either give v1 a real conformance statement, or shrink
-`Frame/{SmallStep,Call,Create}` to the consumed oracle/flag surface + reflexivity pins. Per
-deep-read-before-touching: no doc names a consumer-to-be, unlike the R-skeleton — leaning shrink.
+The zero-consumer `Lir.Frame.Match` structure, the entire `Frame/SmallStep.lean` v1
+machine, and the CALL/CREATE `apply`/`bind` result-slot transformers were deleted.
+`Frame/Call.lean` and `Frame/Create.lean` now contain only the consumed oracle/flag
+surface; the frame-local simulation and reflexivity lemmas remain in
+`Frame/Match.lean`. The live path remains the V2 stream pop in `Spec/Semantics.lean`.
 
 ### 2D. `sim_call_stmt` interface (smell 5.4) — partial, non-producer half only
 

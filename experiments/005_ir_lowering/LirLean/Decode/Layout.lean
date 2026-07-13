@@ -209,8 +209,8 @@ theorem stmt_byte_anchor (prog : Program) (L : Label) (b : Block) (pc : Nat) (s 
 `pcOf prog L pc` is the byte offset the resolved offset table assigns to cursor
 `(L, pc)`: the block's `JUMPDEST` (`offsetTable … L.idx`), skip the `JUMPDEST` (`+1`),
 then the byte length of the emitted statements `0 .. pc` of block `L`. It lives here
-(pure byte-offset geometry over `lower prog`) rather than on the `Match` side; `Match`'s
-`M1` clause pins `fr.exec.pc` to it. These lemmas wire the offset-table arithmetic into a
+(pure byte-offset geometry over `lower prog`) rather than inside the simulation relation;
+`Corr.pc_eq` pins `fr.exec.pc` to it. These lemmas wire the offset-table arithmetic into a
 decode fact at the *symbolic* `pcOf` address, over an arbitrary program — the
 program-global `M1` discharge the simulation engine needs at each statement step. -/
 
@@ -223,7 +223,7 @@ theorem blockAt_of_toList (prog : Program) (L : Label) (b : Block)
 /-- The byte offset the offset table assigns to cursor `(L, pc)` of `prog`: the
 block's `JUMPDEST` (`offsetTable … L.idx`), skip the `JUMPDEST` (`+1`), then the
 byte length of the emitted statements `0 .. pc` of block `L`. A prefix sum, so it
-is computable; `Match`'s `M1` pins `fr.exec.pc` to this. -/
+is computable; `Corr.pc_eq` pins `fr.exec.pc` to this. -/
 def pcOf (prog : Program) (L : Label) (pc : Nat) : Nat :=
   let cache := matCache prog
   let alloc := defsOf prog

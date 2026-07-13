@@ -1,5 +1,4 @@
 import LirLean.Spec.IR
-import LirLean.Frame.SmallStep
 import Evm
 import BytecodeLayer.Hoare
 import BytecodeLayer.Semantics.Dispatch
@@ -19,34 +18,23 @@ bytecode's ext-call effect.
 This mirrors how vyper-hol models external calls (the call is a black box that
 returns a `CallResult`) and matches the gas-oracle altitude precisely: an abstract
 oracle (IR reasons for all instantiations) + an `evmCallOracle` instantiation
-(defeq / by-construction the lowered call's projection) + a reflexivity headline
-under `Match` (`Lir.Frame.call_reflects_lowered` in `Frame/Match.lean`).
+(defeq / by-construction the lowered call's projection) + a reflexivity headline.
 
 ## What the oracle captures (and the one thing it cannot)
 
 `resumeAfterCall result pd` (`EVM/Evm/Semantics/Call.lean`) does three
 things the IR cares about:
 
-* sets `exec.accounts := result.accounts` — the **post-storage world** (read
-  through the same observable `find?/lookupStorage` lens as `Match`'s `M3`);
+* sets `exec.accounts := result.accounts` — the **post-storage world**, read
+  through the observable `find?/lookupStorage` lens;
 * sets `gasAvailable := gasAfterReturn` — the **restored gas**
   (`machineWithOutput.gasAvailable + result.gasRemaining`);
 * pushes the **0/1 success word** `x` onto the stack.
 
-The oracle captures the first two as recompute-friendly *state* effects and the
-third as a word. The success word is the ONE value that is genuinely *not*
-recomputable from a pure `Expr` (it is dynamic — it depends on the child run), so it
-cannot live in `defs`/`locals` as a recompute-on-use value. **The resolution
-(`docs/ir-design.md` §5):** give it a dedicated `callResult` slot in `IRState`
-(`Frame/SmallStep.lean`). `IRState.applyCall` writes the oracle's `successWord`
-there alongside the storage/gas effects, and `IRState.bindCallResult` reads it
-*once* into `locals` at the call's `resultTmp` — after which a use of `resultTmp` is
-an ordinary `Expr.tmp` read. This **keeps `Match`'s `M5 stack_nil`**: the slot is
-pure IR state, and the lowered CALL's physical flag-on-stack is bridged by the
-`successWord` reflexivity (`call_reflects_lowered`), not threaded through `Match`.
-The reflexivity headline reflects all three effects (post-storage, restored gas, and
-the success word's value). This matches the gas oracle's altitude: a clean
-abstraction + a reflexivity equation.
+The oracle captures the first two as state observations and the third as a word.
+The dynamic success word is consumed by the live call stream and bound directly to
+the statement's result temporary. The reflexivity headline reflects all three
+effects (post-storage, restored gas, and the success word's value).
 -/
 
 namespace Lir.Frame
@@ -69,8 +57,8 @@ and the suspended `PendingCall`). Three projections, matching the three things
 `resumeAfterCall` does the IR cares about:
 
 * `postStorage result pd addr key` — the storage of account `addr` at `key` in the
-  resumed world, through the observable `find?/lookupStorage` lens (the EVM side of
-  `Match`'s `M3`); for the EVM oracle this is `result.accounts`'s lens;
+  resumed world, through the observable `find?/lookupStorage` lens; for the EVM
+  oracle this is `result.accounts`'s lens;
 * `restoredGas result pd` — the gas the caller resumes with (`gasAfterReturn`);
 * `successWord result pd` — the 0/1 success word the CALL pushes (`x`).
 
@@ -91,7 +79,7 @@ structure CallOracle where
 *definitionally* what the lowered bytecode's CALL does to that observable:
 
 * `postStorage` reads `result.accounts` (the map `resumeAfterCall` writes into
-  `exec.accounts`) through the same `find?/lookupStorage` lens as `Match`'s `M3`;
+  `exec.accounts`) through the observable `find?/lookupStorage` lens;
 * `restoredGas` is `(resumeAfterCall result pd).exec.gasAvailable`, i.e.
   `gasAfterReturn`;
 * `successWord` is the word `resumeAfterCall` pushes — the head of
@@ -127,38 +115,5 @@ of the resumed stack `pd.stack.push x = x :: pd.stack` is `x`, by `rfl`. Pins th
 "success word matches `x`" claim of the reflexivity headline to the concrete flag. -/
 theorem evmCallOracle_successWord_eq_x (result : CallResult) (pd : PendingCall) :
     evmCallOracle.successWord result pd = callSuccessFlag result pd := rfl
-
-/-! ## The IR-level call transformer (`IRState.applyCall`)
-
-`IRState.applyCall oracle result pd` threads the oracle's call effect into the IR
-state — storage becomes the oracle's `postStorage` lens (keyed on the self
-address). It is parametric over the oracle, so the IR small-step reasons for all
-instantiations; under lowering the oracle is `evmCallOracle` and the resulting state
-is *reflexively* the resumed frame's observable (`call_reflects_lowered`). The
-gas-free frame-reference state carries no gas counter, so the oracle's `restoredGas` projection
-is not applied to the state (it is still reflected at the bytecode boundary by
-`call_reflects_lowered`'s `restoredGas = gasAvailable` conjunct).
-
-The success word is the one effect that is **not** recomputable from a pure `Expr`
-(it is dynamic — it depends on the child run), so it cannot live in `defs`/`locals`
-as a recompute-on-use value. We therefore fold it into the dedicated `callResult`
-slot of `IRState` (`Frame/SmallStep.lean`): `applyCall` writes the oracle's
-`successWord` there, and `IRState.bindCallResult` reads it once into `locals` at the
-call's `resultTmp` (after which a later use is an ordinary `Expr.tmp` read). This
-keeps `Match`'s `M5 stack_nil` intact — the slot is pure IR state, and the lowered
-CALL's physical flag-on-stack is bridged by the `successWord` reflexivity, not by
-`Match`. `locals` is still untouched by `applyCall` itself (the bind is a separate,
-explicit step). -/
-
-/-- Thread the oracle's external-CALL effect into the IR state at self address
-`self`: storage follows the oracle's post-call lens, and the `callResult` slot
-receives the oracle's 0/1 `successWord` (the one non-recomputable effect — see the
-module docstring on `bindCallResult`/`resultTmp`). `locals` is untouched here;
-binding the result to `resultTmp` is the separate `IRState.bindCallResult` step. -/
-def IRState.applyCall (st : IRState) (oracle : CallOracle)
-    (result : CallResult) (pd : PendingCall) (self : AccountAddress) : IRState :=
-  { st with
-      storage    := fun k => oracle.postStorage result pd self k
-      callResult := some (oracle.successWord result pd) }
 
 end Lir.Frame

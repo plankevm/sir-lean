@@ -1,5 +1,7 @@
 # CREATE / CREATE2 build plan (authoritative handoff)
 
+> **V1 coupling status (2026-07-13):** The unused `Frame/SmallStep` machine, `Lir.Frame.Match` structure, and `apply`/`bind` result-slot transformers were deleted. Live IR semantics are in `Spec/Semantics.lean`, live correspondence is `Corr` in `Sim/SimStmt.lean`, and `Frame/Call.lean` / `Frame/Create.lean` retain only oracle projections. References below to deleted declarations are historical.
+
 > **P9 status note (2026-07-08).** This plan predates the Phase 2A deletion pass.
 > `Expr.slot`, legacy fuel materialisation, `MatFueled`, `Assembly/Acyclic.lean`, and
 > `NoSlotSource` references below are historical; the current value channel uses `Loc` and

@@ -1,5 +1,7 @@
 # Deep-dive cluster: v1 bricks (SmallStep · Call · Create · StorageErase · Match)
 
+> **V1 coupling status (2026-07-13):** The unused `Frame/SmallStep` machine, `Lir.Frame.Match` structure, and `apply`/`bind` result-slot transformers were deleted. Live IR semantics are in `Spec/Semantics.lean`, live correspondence is `Corr` in `Sim/SimStmt.lean`, and `Frame/Call.lean` / `Frame/Create.lean` retain only oracle projections. References below to deleted declarations are historical.
+
 Audit date 2026-07-04. Read-only pass. All line cites are into
 `experiments/005_ir_lowering/LirLean/`.
 

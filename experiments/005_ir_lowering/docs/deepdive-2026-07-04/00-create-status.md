@@ -1,5 +1,7 @@
 # CREATE / CREATE2 status in exp005 LirLean — where it stands, what implementing it needs
 
+> **V1 coupling status (2026-07-13):** The unused `Frame/SmallStep` machine, `Lir.Frame.Match` structure, and `apply`/`bind` result-slot transformers were deleted. Live IR semantics are in `Spec/Semantics.lean`, live correspondence is `Corr` in `Sim/SimStmt.lean`, and `Frame/Call.lean` / `Frame/Create.lean` retain only oracle projections. References below to deleted declarations are historical.
+
 > **P9 status note (2026-07-08).** This deep dive predates the Phase 2A deletion pass. Legacy
 > fuel/materialisation names below are provenance only; the current lowering value channel is
 > fold-based over `Loc`/`matCache` and no longer has `Expr.slot`, `materialiseExpr`,

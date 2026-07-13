@@ -25,7 +25,7 @@ per-statement step.
 `Corr prog sloadChg obs (fun _ => False) st fr L pc` is the invariant the induction carries. It is the
 Direct fusion of:
 
-* `Match`'s clauses, restated for the `IRState` (`.world`/`.locals`) the gas-free
+* the frame clauses carried by `Corr`, stated for the `IRState` (`.world`/`.locals`) the gas-free
   machine carries: `M1` pc (`fr.exec.pc = pcOf prog L pc`), `M2` code
   (`= lower prog`), `M5` stack-nil, and the standing `canModifyState`;
 * `M3` storage through `StorageAgree` (`selfStorage fr key = st.world key`, the

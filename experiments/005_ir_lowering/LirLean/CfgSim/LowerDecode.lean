@@ -801,7 +801,7 @@ The spilled-sload stash `matCache k ++ [SLOAD] ++ PUSH32 (slotOf t) ++ MSTORE` i
 stream of `emitStmt … (.assign t (.sload k))` at cursor `(L, pc)`. `sim_assign_sload` previously
 took the *entire* stash run (plus its memory shape + frame pins) as the supplied §7 hypothesis
 `hstash`. Here we **build** it, composing three existing GREEN pieces — `Lir.materialise_runsC`
-(the key prefix, via its gas-deriving clean-halt wrapper), the `Match` `sim_sload` brick (the
+(the key prefix, via its gas-deriving clean-halt wrapper), the frame-local `sim_sload` brick (the
 SLOAD step), and `stash_tail_runs` (the PUSH;MSTORE tail) — via the SLOAD-prefix
 `stash_tail_sload` forward lemma. The `MatDecC` for the key and the SLOAD/PUSH/MSTORE decode
 anchors are read off the byte layout (`matDecC_of_seg` / `decode_at_offset_nonpush` /

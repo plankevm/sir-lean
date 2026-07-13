@@ -1,5 +1,7 @@
 # CREATE (then CREATE2) implementation plan for exp005 LirLean
 
+> **V1 coupling status (2026-07-13):** The unused `Frame/SmallStep` machine, `Lir.Frame.Match` structure, and `apply`/`bind` result-slot transformers were deleted. Live IR semantics are in `Spec/Semantics.lean`, live correspondence is `Corr` in `Sim/SimStmt.lean`, and `Frame/Call.lean` / `Frame/Create.lean` retain only oracle projections. References below to deleted declarations are historical.
+
 Date: 2026-07-04. Read-only survey → build plan. The lead WANTS this built.
 Paths are into `experiments/005_ir_lowering/LirLean/` unless prefixed `exp003:`
 (= `experiments/003_bytecode_layer/`). Every claim below was grep/read-verified.

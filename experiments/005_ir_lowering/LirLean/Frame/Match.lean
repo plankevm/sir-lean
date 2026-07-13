@@ -1,4 +1,3 @@
-import LirLean.Frame.SmallStep
 import LirLean.Frame.Call
 import LirLean.Frame.Create
 import LirLean.Decode.LoweringLemmas
@@ -8,33 +7,17 @@ import BytecodeLayer.Hoare
 import BytecodeLayer.Hoare.CallSequence
 
 /-!
-# LirLean — the `Match` invariant and the per-construct simulation engine (C3)
+# LirLean — frame-local simulation and boundary lemmas
 
-This module carries Track C's milestone-C3 work: the `Match` simulation invariant
-(`docs/ir-design.md` §6.1) relating an IR small-step configuration to an EVM
-`Frame`, and the **per-construct atomic simulation lemmas** that drive
-`lower_simulates_step` — each shows that the EVM `Runs` segment for one lowered IR
-construct re-establishes the relevant `Match` clauses, discharging straight to the
-exp003 `runs_*` opcode rule (now merged in).
+This module collects **atomic, frame-local simulation lemmas**. Each shows that an
+EVM `Runs` segment implements one lowered construct, discharging straight to the
+corresponding opcode rule. It also contains the CALL/CREATE oracle reflexivity
+lemmas and the top-level `messageCall` boundary discharge.
 
-## What is proved here (C3, this run)
-
-The engine `lower_simulates_step` decomposes, per IR construct, into a `Runs`
-segment that runs the lowered opcodes and re-establishes `Match`. The hard,
-program-global part of that engine is the **program-counter clause `M1`**: relating
-`fr.exec.pc` to the offset-table address `pcOf prog L pc` *across a whole lowered
-program*. That is heavy byte-layout arithmetic over `lower prog` and is the bulk of
-the remaining C3 work (documented in `PLAN.md`).
-
-The genuinely-closeable core — proved here, green, no `sorry` — is the set of
-**atomic, frame-local simulation lemmas**: for each effecting construct, *given the
-frame's local decode + stack-shape + storage correspondence*, there is a
-`Runs fr fr'` to the named exp003 post-frame whose result re-establishes the
-storage (`M3`) and value clauses. These are exactly the steps `lower_simulates_step`
-threads with `Runs.trans`; they wrap each `runs_*` rule with the IR-state
-correspondence so the simulation reads off the IR semantics (`evalExpr`,
-`IRState.setStorage`). The `STOP`/`RETURN` terminators are handled by exposing the
-halt step the bridge consumes.
+The lemmas are deliberately stated using only the frame facts they consume: local
+decode, stack shape, gas bounds, and observable storage. This keeps them reusable
+by the current `Corr`-based simulation without carrying a second IR state or a
+parallel invariant.
 -/
 
 namespace Lir.Frame
@@ -44,26 +27,9 @@ open BytecodeLayer.Maps
 open BytecodeLayer.Dispatch
 open BytecodeLayer.System
 
-/-! ## The `Match` invariant (`docs/ir-design.md` §6.1)
-
-`Match c fr` relates a *running* IR configuration to an EVM frame. Because the
-lowering is recompute-on-use (§4), there is **no register↔slot map**: between
-statements the working stack is empty (`M5`), each `tmp` being re-materialised from
-its defining expression at use. The clauses:
-
-* `M1` pc: `fr` is at the byte offset the offset table assigns to `(L, pc)`;
-* `M2` code: `fr` runs the lowered program;
-* `M3` storage: the IR self-storage equals the self account's storage through the
-  observable `find?/lookupStorage` lens;
-* `M5` stack: empty at the statement boundary.
-
-`M1` is parameterised by the offset-table address `pcOf` (defined in `Decode/Layout.lean`
-alongside its byte anchor `flatBytes_at_pcOf`); the full program-global discharge of `M1`
-is the remaining C3 work. -/
-
 /-- The self account's storage at `key`, read through exp003's observable lens
 (the same `find?/lookupStorage` used by `sstoreFrame_storage_self` /
-`sloadFrame_storage_self`). This is the EVM side of `Match`'s storage clause `M3`. -/
+`sloadFrame_storage_self`). -/
 def selfStorage (fr : Frame) (key : Word) : Word :=
   fr.exec.accounts.find? fr.exec.executionEnv.address |>.option 0 (·.lookupStorage key)
 
@@ -74,33 +40,15 @@ post-frame's own-address defeq. -/
 def storageAt (fr : Frame) (addr : AccountAddress) (key : Word) : Word :=
   fr.exec.accounts.find? addr |>.option 0 (·.lookupStorage key)
 
-/-- **The simulation invariant** relating a running IR configuration to a frame.
-See the module docstring and `docs/ir-design.md` §6.1 for the clause meanings. -/
-structure Match (prog : Program) (L : Label) (pc : Nat) (st : IRState) (fr : Frame) : Prop where
-  /-- `M1` — program counter at the offset-table address. -/
-  pc_eq      : fr.exec.pc = UInt32.ofNat (pcOf prog L pc)
-  /-- `M2` — the frame runs the lowered program. -/
-  code_eq    : fr.exec.executionEnv.code = lower prog
-  /-- `M3` — storage correspondence through the observable lens. -/
-  storage_eq : ∀ k, selfStorage fr k = st.storage k
-  /-- `M5` — empty working stack at the statement boundary. -/
-  stack_nil  : fr.exec.stack = []
-  /-- Standing well-formedness: the call may modify state (top-level call). -/
-  can_modify : fr.exec.executionEnv.canModifyState = true
-
 /-! ## Atomic per-construct simulation lemmas
 
 Each lemma takes the EVM frame's **local** facts (decode at `fr.exec.pc`, stack
-shape, gas bound) — the very hypotheses the `runs_*` rule wants — and packages the
-resulting `Runs` together with the IR-side reading of the post-frame: the pushed
-value equals `evalExpr`, storage follows `IRState.setStorage`. These are the bricks
-`lower_simulates_step` threads with `Runs.trans`; they are stated frame-locally so
-they compose independent of `M1`'s program-global pc arithmetic. (The frame's real
-EVM gas bound is still a hypothesis of each `runs_*` rule — that is the *bytecode*
-spec's honest gas, not an IR-side gas counter; the IR no longer accounts cost.) -/
+shape, gas bound) — the hypotheses the `runs_*` rule wants — and packages the
+resulting `Runs` with its concrete post-frame observation. The frame's real EVM gas
+bound remains explicit; the gas-free IR does not account opcode cost. -/
 
 /-- **`Expr.imm` simulation.** A frame decoding to `PUSH32 w` runs one step to
-`pushFrameW fr w 32`, leaving `w` on top — the value `evalExpr st (.imm w) = some w`. -/
+`pushFrameW fr w 32`, leaving `w` on top. -/
 theorem sim_imm (fr : Frame) (w : Word)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Push .PUSH32, some (w, 32)))
     (hgas : 3 ≤ fr.exec.gasAvailable.toNat)
@@ -122,9 +70,7 @@ theorem sim_gas (fr : Frame)
   exact ⟨runs_gas fr hdec hsz hgas, rfl⟩
 
 /-- **`Expr.add` simulation.** A frame decoding to `ADD` with `a :: b :: rest`
-runs one step to `addFrame fr a b rest`, leaving `UInt256.add a b` on top — the
-value `evalExpr` computes for `.add` (its arithmetic is `UInt256.add` by
-construction). -/
+runs one step to `addFrame fr a b rest`, leaving `UInt256.add a b` on top. -/
 theorem sim_add (fr : Frame) (a b : Word) (rest : Stack Word)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.ArithLogic .ADD, .none))
     (hstk : fr.exec.stack = a :: b :: rest)
@@ -135,8 +81,7 @@ theorem sim_add (fr : Frame) (a b : Word) (rest : Stack Word)
   exact ⟨runs_add fr a b rest hdec hstk hsz hgas, rfl⟩
 
 /-- **`Expr.lt` simulation.** A frame decoding to `LT` with `a :: b :: rest` runs
-one step to `ltFrame fr a b rest`, leaving `UInt256.lt a b` on top — the value
-`evalExpr` computes for `.lt`. -/
+one step to `ltFrame fr a b rest`, leaving `UInt256.lt a b` on top. -/
 theorem sim_lt (fr : Frame) (a b : Word) (rest : Stack Word)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.ArithLogic .LT, .none))
     (hstk : fr.exec.stack = a :: b :: rest)
@@ -148,8 +93,7 @@ theorem sim_lt (fr : Frame) (a b : Word) (rest : Stack Word)
 
 /-- **`Expr.sload` simulation.** A frame decoding to `SLOAD` with `key :: rest`
 runs one step to `sloadFrame fr key rest`, leaving the self account's stored value
-at `key` on top — equal to `st.storage key` under `Match`'s `M3` (via
-`sloadFrame_storage_self`). -/
+at `key` on top. -/
 theorem sim_sload (fr : Frame) (key : Word) (rest : Stack Word)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .SLOAD, .none))
     (hstk : fr.exec.stack = key :: rest)
@@ -446,15 +390,7 @@ observables. Because `evmCallOracle`'s fields are *defined* as those very
 projections (`LirLean/Call.lean`), the three coincidences are `rfl`-clean.
 
 The `CallReturns callFr resumeFr` witness pins `resumeFr = resumeAfterCall
-childRes.toCallResult pending`, so the headline reads off the actual resumed frame.
-
-**Scope** (the success-flag/stack subtlety, flagged in `LirLean/Call.lean` and
-§5): the *state* effect (post-storage through the `M3` lens, restored gas) and the
-*value* of the success word are reflected here. Folding the success word into a
-`resultTmp` binding — which would have to survive `Match`'s `M5 stack_nil`
-recompute-on-use discipline despite being a dynamic, non-recomputable value — is a
-separately-tracked lowering-completeness follow-up; it is not part of this
-reflexivity equation. -/
+childRes.toCallResult pending`, so the headline reads off the actual resumed frame. -/
 
 /-- **The external-call reflexivity headline.** Given a returning external CALL
 (`CallReturns callFr resumeFr`, so `resumeFr = resumeAfterCall result pd` for the
@@ -462,7 +398,7 @@ projected child result / pending call), at `evmCallOracle` the IR's call effect
 coincides — *by construction* — with the lowered resume's observables:
 
 * **post-storage** of any account `addr` at `key` equals the resumed frame's
-  storage through the `M3` lens (`storageAt resumeFr`);
+  observable storage (`storageAt resumeFr`);
 * **restored gas** equals the resumed frame's `gasAvailable` (`gasAfterReturn`);
 * **success word** equals the word the CALL pushed onto the stack — the head of
   `resumeFr`'s stack, which is exp003's `x` (0 on failure/insufficient-funds/
@@ -519,8 +455,8 @@ createAddrOrZero`). -/
 the projected child result / pending create), at `evmCreateOracle` the IR's create
 effect coincides with the lowered resume's observables:
 
-* **post-storage** of any account `addr` at `key` equals the resumed frame's storage
-  through the `M3` lens (`storageAt resumeFr`) — via the `accounts := result.accounts`
+* **post-storage** of any account `addr` at `key` equals the resumed frame's
+  observable storage (`storageAt resumeFr`) — via the `accounts := result.accounts`
   write of `resumeAfterCreate`, unfolded through the 63/64 guard;
 * **address word** equals the deployed-address-or-`0` the CREATE pushes
   (`createAddrOrZero`, `rfl`).
@@ -553,8 +489,7 @@ theorem create_reflects_lowered {createFr resumeFr : Frame}
 
 `lower_preserves` (`docs/ir-design.md` §6.3) closes the simulation under the IR run
 and crosses the single boundary bridge `messageCall_runs`. The program-global
-*assembly* of the `Runs fr₀ last` (chaining `lower_simulates_step` segments under
-`M1`'s offset-table pc arithmetic) is the remaining C3 work; the **discharge** —
+*assembly* of the `Runs fr₀ last` is separate; the **discharge** —
 turning an assembled `Runs` + the terminator halt into the observable
 `messageCall` result — is fully provable now and proved here. It is the exact half
 that consumes A's `messageCall_runs`, specialised to the two IR terminators.
@@ -580,7 +515,7 @@ theorem lower_preserves_discharge (prog : Program) (p : CallParams)
   messageCall_runs p hbegin hruns hhalt
 
 /-- **`Term.stop` preservation.** When the assembled `Runs` lands on a `STOP` frame
-`last` (`IRHalt.stopped`), the discharge pins `messageCall` to `last`'s success
+`last`, the discharge pins `messageCall` to `last`'s success
 `endFrame`. The halt is `halt_stop`. -/
 theorem lower_preserves_stop (prog : Program) (p : CallParams) {fr₀ last : Frame}
     (hbegin : EntersAsCode p fr₀)
@@ -594,7 +529,7 @@ theorem lower_preserves_stop (prog : Program) (p : CallParams) {fr₀ last : Fra
 
 /-- **`Term.ret` preservation** (word return window). When the assembled `Runs`
 lands on a `RETURN` frame `last` with `0 :: 32 :: rest` and the `[0, 32)` window already
-active (`hmem`, the post-`MSTORE(0,…)` shape — `IRHalt.returned`), the discharge pins
+active (`hmem`, the post-`MSTORE(0,…)` shape), the discharge pins
 `messageCall` to `last`'s success `endFrame`, returning the 32-byte window. The halt is
 `stepFrame_return_word`. -/
 theorem lower_preserves_ret (prog : Program) (p : CallParams) {fr₀ last : Frame}

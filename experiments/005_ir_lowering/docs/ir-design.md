@@ -1,5 +1,7 @@
 # exp005 — High-level IR → EVM bytecode (design)
 
+> **V1 coupling status (2026-07-13):** The unused `Frame/SmallStep` machine, `Lir.Frame.Match` structure, and `apply`/`bind` result-slot transformers were deleted. Live IR semantics are in `Spec/Semantics.lean`, live correspondence is `Corr` in `Sim/SimStmt.lean`, and `Frame/Call.lean` / `Frame/Create.lean` retain only oracle projections. References below to deleted declarations are historical.
+
 Track C, milestone C1. Branch `exp005-ir`, dir `experiments/005_ir_lowering`.
 This doc fixes the IR, its semantics, the lowering to exp003-decodable bytecode,
 and the preservation statement we will *later* prove (C2/C3). No proofs here.

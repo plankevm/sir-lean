@@ -1,5 +1,7 @@
 # 04 — The value channel and effect oracles (`Materialise/` + `Frame/`)
 
+> **V1 coupling status (2026-07-13):** The unused `Frame/SmallStep` machine, `Lir.Frame.Match` structure, and `apply`/`bind` result-slot transformers were deleted. Live IR semantics are in `Spec/Semantics.lean`, live correspondence is `Corr` in `Sim/SimStmt.lean`, and `Frame/Call.lean` / `Frame/Create.lean` retain only oracle projections. References below to deleted declarations are historical.
+
 Part of the [exp005 tour](00-overview.md).
 
 **Scope.** `LirLean/Materialise/` in full — the machinery that proves the bytes the lowering
@@ -58,10 +60,10 @@ codebase map is stale on this layer (fuel-era names; P9 deleted them) — see §
 | [`Materialise/DefsSound.lean`](../../../LirLean/Materialise/DefsSound.lean) | 650 | recompute-soundness: [`DefsSound`](../../../LirLean/Materialise/DefsSound.lean#L209), [`NonRecomputable`](../../../LirLean/Materialise/DefsSound.lean#L127), preservation [`defsSound_preserved`](../../../LirLean/Materialise/DefsSound.lean#L608) | live |
 | [`Materialise/StashTail.lean`](../../../LirLean/Materialise/StashTail.lean) | 478 | the uniform `PUSH32 slot ; MSTORE` stash tail, proved once: [`stash_tail_runs`](../../../LirLean/Materialise/StashTail.lean#L157) + gas/sload variants | live |
 | [`Materialise/CleanHaltExtract.lean`](../../../LirLean/Materialise/CleanHaltExtract.lean) | 1123 | per-op OOG/inversion/dichotomy bricks (IR-free half → [01-trusted-base.md](01-trusted-base.md)) + the lowering-shaped envelope family (§5.3 here) | live |
-| [`Frame/Call.lean`](../../../LirLean/Frame/Call.lean) | 164 | [`CallOracle`](../../../LirLean/Frame/Call.lean#L79) / [`evmCallOracle`](../../../LirLean/Frame/Call.lean#L108) | oracle live; [`applyCall`](../../../LirLean/Frame/Call.lean#L158) dead (§6) |
-| [`Frame/Create.lean`](../../../LirLean/Frame/Create.lean) | 137 | [`CreateOracle`](../../../LirLean/Frame/Create.lean#L64) / [`evmCreateOracle`](../../../LirLean/Frame/Create.lean#L99) | oracle live; [`applyCreate`](../../../LirLean/Frame/Create.lean#L131) dead (§6) |
-| [`Frame/Match.lean`](../../../LirLean/Frame/Match.lean) | 618 | [`selfStorage`](../../../LirLean/Frame/Match.lean#L67) lens, `sim_*` opcode bricks, reflexivity headlines, halt/discharge bricks | mostly live; the [`Match`](../../../LirLean/Frame/Match.lean#L79) structure itself dead (§6) |
-| [`Frame/SmallStep.lean`](../../../LirLean/Frame/SmallStep.lean) | 129 | the v1 IR machine state | **entirely dead** (§6) |
+| [`Frame/Call.lean`](../../../LirLean/Frame/Call.lean) | 164 | `CallOracle` / `evmCallOracle` | oracle live; `applyCall` removed (§6) |
+| [`Frame/Create.lean`](../../../LirLean/Frame/Create.lean) | 137 | `CreateOracle` / `evmCreateOracle` | oracle live; `applyCreate` removed (§6) |
+| [`Frame/Match.lean`](../../../LirLean/Frame/Match.lean) | 618 | `selfStorage` lens, `sim_*` opcode bricks, reflexivity headlines, halt/discharge bricks | live bricks; `Match` structure removed (§6) |
+| `Frame/SmallStep.lean` (deleted) | 129 | the v1 IR machine state | **removed** (§6) |
 | [`Frame/StorageErase.lean`](../../../LirLean/Frame/StorageErase.lean) | 217 | pure `RBMap.erase` read-back facts ([`findD_erase_self`](../../../LirLean/Frame/StorageErase.lean#L189), [`findD_erase_of_ne`](../../../LirLean/Frame/StorageErase.lean#L199)) for zero-write SSTORE; not on this report's critical path | live brick |
 
 **Naming note.** The reviewer-familiar names `MatDec` / `MatRuns` / `materialise_runs` /
@@ -614,20 +616,15 @@ value-agnostic zero-write read-backs
 The reviewer's suspicion **confirms by grep** (definition sites excluded, docstring mentions
 only):
 
-* [`Frame/SmallStep.lean`](../../../LirLean/Frame/SmallStep.lean) — the v1
-  [`IRState`](../../../LirLean/Frame/SmallStep.lean#L49) (with its
+* `Frame/SmallStep.lean` (deleted) — the v1
+  `IRState` (with its
   `callResult`/`createResult` slots), v1
-  [`evalExpr`](../../../LirLean/Frame/SmallStep.lean#L86), v1
-  [`IRHalt`](../../../LirLean/Frame/SmallStep.lean#L66),
-  [`bindCallResult`](../../../LirLean/Frame/SmallStep.lean#L106),
-  [`bindCreateResult`](../../../LirLean/Frame/SmallStep.lean#L119),
-  [`setLocal`](../../../LirLean/Frame/SmallStep.lean#L97) /
-  [`setStorage`](../../../LirLean/Frame/SmallStep.lean#L126): **zero theorem consumers**
+  `evalExpr`, v1 `IRHalt`, `bindCallResult`, `bindCreateResult`, `setLocal` /
+  `setStorage`: **zero theorem consumers**
   anywhere in `LirLean/`. Despite its name the file contains no step relation.
-* [`IRState.applyCall`](../../../LirLean/Frame/Call.lean#L158) and
-  [`IRState.applyCreate`](../../../LirLean/Frame/Create.lean#L131): zero consumers.
-* The [`Match`](../../../LirLean/Frame/Match.lean#L79) simulation invariant (M1/M2/M3/M5):
-  zero consumers. The live coupling is V2's `Corr` in the realisability layer.
+* `IRState.applyCall` and `IRState.applyCreate`: removed after confirming zero consumers.
+* The `Match` simulation invariant (M1/M2/M3/M5): removed after confirming zero
+  consumers. The live coupling is V2's `Corr` in the realisability layer.
 
 The live design took the other fork: the V2 semantics
 ([`Spec/Semantics.lean`](../../../LirLean/Spec/Semantics.lean#L48) `EvalStmt`) binds call and

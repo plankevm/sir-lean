@@ -16,7 +16,7 @@ never an axiom. This module is the **call** analogue: an abstract `Lir.CallStrea
 equal the lowered bytecode CALL's observable effect.
 
 This file is **bytecode-coupled** (it references `CallResult`/`PendingCall`/`evmCallOracle`
-and frame-reference `Match` facts), so it lives here rather than in the frame-free
+and concrete frame facts), so it lives here rather than in the frame-free
 `Spec/Semantics.lean`/`Law.lean`, exactly as `Oracle.lean` is the gas-side bridge.
 
 ## What is realised (the §7 interaction model, on the call side)
@@ -26,14 +26,14 @@ post-world comes from the lowered bytecode's `resumeAfterCall`, which depends on
 the IR lacks; so the realised entry reads off the frame-reference `evmCallOracle` projections:
 
 * the post-call `World` is `evmCallOracle.postStorage result pd self` — the self account's
-  post-CALL storage lens, exactly `Match`'s `M3` lens on `resumeAfterCall result pd`;
+  post-CALL observable storage lens on `resumeAfterCall result pd`;
 * the success word is `evmCallOracle.successWord result pd` — which `rfl`-reduces to
   exp003's CALL flag `x` (`callSuccessFlag`), per `evmCallOracle_successWord_eq_x`.
 
 `callRealises_bridge` is the call analogue of `GasRealises.monotoneGas`: under a returning
 external CALL (`CallReturns callFr resumeFr`), the realised entry's `(world', success)`
 *is* the lowered CALL's observable — `world'` is the resumed frame's self-storage lens
-(`storageAt resumeFr self`, the `M3` lens), and `success` is the CALL flag `x`. It is
+(`storageAt resumeFr self`), and `success` is the CALL flag `x`. It is
 `rfl`-clean: `evmV2CallEntry … = (postStorage…, successWord…)` by `rfl`, the storage half
 is `call_reflects_lowered`'s `postStorage = storageAt` projection at the self address, and
 the success half is `evmCallOracle_successWord_eq_x`.
@@ -67,7 +67,7 @@ child result / pending call), the entry `evmV2CallEntry result pd self` is exact
 lowered CALL's observable effect:
 
 * its `.1` (post-call `World`) is the resumed frame's self-storage lens
-  (`storageAt resumeFr self`, the `M3` lens — `Match.call_reflects_lowered`'s `postStorage`
+  (`storageAt resumeFr self` — `call_reflects_lowered`'s `postStorage`
   projection); and
 * its `.2` (success word) is exp003's CALL flag `x` (`callSuccessFlag result pd`, via
   `evmCallOracle_successWord_eq_x`).
@@ -110,7 +110,7 @@ successfully-resumed CREATE (`CreateReturns createFr resumeFr`, so `resumeAfterC
 result pd self` is exactly the lowered CREATE's observable effect:
 
 * its `.1` (post-create `World`) is the resumed frame's self-storage lens
-  (`storageAt resumeFr self`, the `M3` lens — `Match.create_reflects_lowered`'s `postStorage`
+  (`storageAt resumeFr self` — `create_reflects_lowered`'s `postStorage`
   projection, via the 63/64-guarded `accounts := result.accounts` unfold, R3); and
 * its `.2` (pushed word) is the deployed-address-or-`0` (`createAddrOrZero result pd`, via
   `evmCreateOracle_addressWord_eq`).

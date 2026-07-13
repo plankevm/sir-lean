@@ -20,7 +20,7 @@ supplied hypothesis (the §7 `hstash`/`htail` ties).
 
 ## What is proved vs. what is supplied
 
-The lemma is stated frame-locally (exactly like the `sim_*` bricks in `Match.lean`): it consumes
+The lemma is stated frame-locally: it consumes
 
 * the two decode anchors (`PUSH32 slot` at `fr.pc`, `MSTORE` at `fr.pc + 33`) — the honest
   Layer-A decode facts every brick takes as `hdec`;
@@ -371,7 +371,7 @@ The spilled-SLOAD stash is `matCache k ++ [SLOAD] ++ PUSH32 slot ++ MSTORE`: mat
 key `k` (the fold value-channel `Lir.materialise_runsC` prefix — a non-gas/non-sload `Expr`),
 `SLOAD` the cell at `k`, then the core tail stashes the loaded value at `slot`. This composes
 three existing GREEN pieces — `materialise_runsC` (`Materialise/MatFoldChannel.lean`),
-`sim_sload` (the `Match` SLOAD brick), and `stash_tail_runs` — with no new spine decode
+`sim_sload` (the frame-local SLOAD brick), and `stash_tail_runs` — with no new spine decode
 primitive.
 
 The materialise-key endpoint `frk` and its `MatRunsC` bundle are taken as *inputs* (the caller

@@ -1,5 +1,7 @@
 # exp005 codebase map — 2026-07-06
 
+> **V1 coupling status (2026-07-13):** The unused `Frame/SmallStep` machine, `Lir.Frame.Match` structure, and `apply`/`bind` result-slot transformers were deleted. Live IR semantics are in `Spec/Semantics.lean`, live correspondence is `Corr` in `Sim/SimStmt.lean`, and `Frame/Call.lean` / `Frame/Create.lean` retain only oracle projections. References below to deleted declarations are historical.
+
 Synthesis of seven module deep-reads (Spec/, Frame/+Engine/, Decode/+CfgSim/, Materialise/+Sim/,
 V2 core+Drive/, Realisability/, exp003 EVMLean+BytecodeLayer). All claims cite file:line;
 disagreements between readers were adjudicated by re-reading the code (noted where done).

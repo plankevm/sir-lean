@@ -1,5 +1,11 @@
 # Track C review — exp005: `LirLean` IR → EVM bytecode, lowering preserved (CLOSED)
 
+> **V1 coupling status (2026-07-13):** The unused `Frame/SmallStep` machine,
+> `Lir.Frame.Match` structure, and `apply`/`bind` result-slot transformers were
+> deleted. Live IR semantics are in `Spec/Semantics.lean`, and live correspondence
+> is `Corr` in `Sim/SimStmt.lean`. References below to deleted declarations are
+> historical.
+
 > **Plus-layer status (2026-07-13):** The vestigial Plus carrier and its orphaned helper declarations were deleted after both build cones and the flagship axiom gate passed. References below to the removed names and former module are historical descriptions, not live source pointers.
 
 

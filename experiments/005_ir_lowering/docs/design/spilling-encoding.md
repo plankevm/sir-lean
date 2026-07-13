@@ -1,5 +1,7 @@
 # Spilling encoding: is `Expr.slot` a design smell?
 
+> **V1 coupling status (2026-07-13):** The unused `Frame/SmallStep` machine, `Lir.Frame.Match` structure, and `apply`/`bind` result-slot transformers were deleted. Live IR semantics are in `Spec/Semantics.lean`, live correspondence is `Corr` in `Sim/SimStmt.lean`, and `Frame/Call.lean` / `Frame/Create.lean` retain only oracle projections. References below to deleted declarations are historical.
+
 > **P9 status note (2026-07-08).** The recommendation in this note has landed: `Expr.slot`,
 > `Loc.toDef`/`Alloc.toDefs`, legacy fuel materialisation, `MatFueled`,
 > `Assembly/Acyclic.lean`, and `NoSlotSource` have been deleted. The body is kept as design
