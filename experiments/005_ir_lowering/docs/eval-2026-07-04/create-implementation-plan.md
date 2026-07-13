@@ -93,7 +93,7 @@ IR-surface-and-up layers, **and the `Runs`-level bridge**, are CALL-only.
   to wrap, see §5).
 - **Recorder / stream.** `Spec/Recorder.lean`: `recordCall` (:172) explicitly
   **drops** create deliveries (`| .create _ => callAcc`); `driveLog` (:186) threads
-  gas/sload/call accumulators only; no create channel. `CallRealises.evmV2CallEntry`
+  gas/sload/call accumulators only; no create channel. `Spec.Recorder.evmV2CallEntry`
   (:59) has no create twin.
 - **Drive integration is a structural EXCLUSION, not a gap to fill.** The flagship
   currently *proves* no-CREATE: `NoCreateBytes.lean` (`SegAlignedSafe` — "lowering

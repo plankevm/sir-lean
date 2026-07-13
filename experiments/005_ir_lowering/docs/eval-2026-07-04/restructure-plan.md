@@ -126,7 +126,7 @@ LirLean/
     Law.lean                        -- IR-run determinism ladder
     IRRun.lean                      -- IR-run existence + definability fold (acyclic half superseded)
     Call.lean                       -- worked external-call anti-vacuity example
-    CallRealises.lean               -- evmV2CallEntry realisation bridge
+    CallRealises.lean               -- call/create entry realisation bridges
     Modellable.lean                 -- ModellableStep producer (no-CREATE structural discharge)
     RecorderLemmas.lean             -- recorder proof companions (MOVED from top-level)
     Drive/                          -- L6 cyclic interpreter-drive walk

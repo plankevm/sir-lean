@@ -31,7 +31,7 @@ the static well-formedness bundle, the shadowing-aware CALL tie, the honest orac
 and the scope seams. The sorry-free vocabulary already lifted into `Spec/` — `entryState`,
 `RunLog.clean`, `Conforms`, `NoGasReads` (`Spec/Conformance.lean`), the `RunFromLeft`/
 `RunFromAll` mirror (`Spec/Semantics.lean`), `evmV2CallEntry`/`evmV2CreateEntry`
-(`Spec/CallEntry.lean`), and the live seam bundle `PrecompileAssumptions`/`ReachableFrom`
+(`Spec/Recorder.lean`), and the live seam bundle `PrecompileAssumptions`/`ReachableFrom`
 (`Spec/Seams.lean`) — is `open`ed via the imports above. The current machinery still
 consumes `WellLowered` internally, but the public theorem surface rebuilds that adapter
 from `IRWellFormed` plus the scalar `codeFits`/`stackFits` budgets. -/

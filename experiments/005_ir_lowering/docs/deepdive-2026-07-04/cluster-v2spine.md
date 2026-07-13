@@ -120,7 +120,7 @@ entry equals the lowered CALL's observable effect by construction.
 
 | decl | kind | role | callers |
 |---|---|---|---|
-| `evmV2CallEntry` (59) | def | terminal-for-flagship (the realised call-stream entry) | `realisedCall_cons` (`RecorderLemmas:47`, code); `realisedCall_projection` (SelfPresent:59); RS:1326,1344,2856; LowerConforms:248,257 |
+| `evmV2CallEntry` (`Spec/Recorder`) | def | terminal-for-flagship (the realised call-stream entry) | `realisedCall_cons` (`RecorderLemmas`, code); `realisedCall_projection` (SelfPresent); RS; LowerConforms |
 | `callRealises_bridge` (85) | theorem | incremental-toward R3 (`callRealises_of_recorded`, the open call-realisability leaf) | none in code; `RecorderLemmas:41` docstring cites it as the tie the R3 head uses |
 
 Assessment: `evmV2CallEntry` is genuinely load-bearing — it is the definition the recorder's
@@ -301,12 +301,12 @@ Intra-cluster dependency (module → module it consumes decls from):
 Law  ──────────────► (nothing in-cluster; base)
 IRRun ── imports ──► Law           (existence ladder mirrors Law's determinism ladder)
 Call  ── imports ──► Law           (uses IRRun.det for call_IRRun_unique)
-CallRealises ─────► (Call, Match)  ; evmV2CallEntry def consumed OUT of cluster (RecorderLemmas)
+CallRealises ─────► (Call, Match, Spec/Recorder)
 Modellable ───────► (DriveRuns, NoCreateBytes)  ; self-contained producer
 DriveSim ─ borrows ► IRRun (runStmts_exists, RunDefinable, stmtsPost)
           ─ borrows ► Modellable (lower_modellable → cleanHalts_of_runWithLog)
           ─ borrows ► LowerConforms (sim_cfg, SimTermStep) + transitively Corr/SimStmtStep/…
-Drive/SelfPresent ► (RecorderLemmas, MaterialiseRuns, AccountMap)  ; CallRealises via evmV2CallEntry
+Drive/SelfPresent ► (RecorderLemmas, MaterialiseRuns, AccountMap)
 Drive/CallPreservesSelf ─ imports ► Drive/SelfPresent (SelfPresent, resumeAfterCall_self_of_accounts)
                          ─ imports ► BytecodeLayer/Hoare/DriveMono (Brick D)
 Drive/Headline ─ imports ► DriveSim (DriveCorr) + Drive/CallPreservesSelf (SelfPresent, alignment)

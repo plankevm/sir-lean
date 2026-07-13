@@ -235,7 +235,7 @@ erased). Update the tactic to `split <;> [skip; split <;> [skip; split]] <;> exa
 ### 3.1 Mapping is already correct — NO change to these defs
 
 `createStreamOf` (`Recorder.lean:113`) maps each record through
-`evmV2CreateEntry rec.result rec.pending self` (`Spec/CallEntry.lean:18–21`):
+`evmV2CreateEntry rec.result rec.pending self` (`Spec/Recorder.lean`):
 
 ```lean
 evmV2CreateEntry result pd self =
@@ -498,7 +498,7 @@ the soft-fail case needs no special handling here (the resume-frame bundle is ne
    same `ih` after splitting the recorder gates (§2.3).
 
 6. **`realisedCreate_cons` / `createStreamOf` / `evmV2CreateEntry`** (Recorder.lean,
-   CallEntry.lean). UNCHANGED — polymorphic in the record; the soft-fail record maps to
+   Recorder.lean). UNCHANGED — polymorphic in the record; the soft-fail record maps to
    `(currentWorld, 0)` by `rfl`/`simp` (§3.1).
 
 ---

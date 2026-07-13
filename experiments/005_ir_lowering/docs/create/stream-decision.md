@@ -73,7 +73,7 @@ positional index.
 **Consequence for A (worked example CALL; CREATE; CALL).** Under A the run threads
 `CallStream = [c1, c2]` and `CreateStream = [cr1]`. Each element is an *absolute*
 post-descent snapshot `(world', word)` (the full storage lens at that descent, not a
-delta — cf. `evmV2CallEntry`, `CallRealises.lean:59, postStorage`). The walk:
+delta — cf. `evmV2CallEntry`, `Spec/Recorder.lean:16`, `postStorage`). The walk:
 
 | step   | rule fires        | pops from      | world becomes | binds        |
 |--------|-------------------|----------------|---------------|--------------|

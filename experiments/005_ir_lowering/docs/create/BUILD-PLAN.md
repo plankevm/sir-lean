@@ -28,7 +28,7 @@ CALL template chain is:
 ```
 Spec/IR.CallSpec → Semantics.EvalStmt.call → Lowering.emitStmt .call
   → Frame/Call.evmCallOracle → Frame/Match.call_reflects_lowered
-  → CallRealises.evmV2CallEntry → Spec/Recorder.recordCall
+  → Spec/Recorder.evmV2CallEntry → Spec/Recorder.recordCall
   → Decode/Modellable clause-1 → flagship (Realisability/RealisabilitySpec)
 ```
 
@@ -228,18 +228,18 @@ tractable (see R7 below).
 ### Step 6 (exp005) — recorder / stream realisation
 
 Goal: fill the `CreateStream` with real recorded deliveries. CALL twins in
-`CallRealises.lean` and `Spec/Recorder.lean`.
-- `CallRealises.lean` (or a sibling `CreateRealises.lean`): `evmV2CreateEntry
+`Spec/Recorder.lean` and `CallRealises.lean`.
+- `Spec/Recorder.lean`: `evmV2CreateEntry
   result pd self : World × Word := ((fun key => evmCreateOracle.postStorage result pd
-  self key), evmCreateOracle.addressWord result pd)` (twin of `evmV2CallEntry` :59);
-  `createRealises_bridge` (twin of `callRealises_bridge` :85) off Step 5.
-- `Spec/Recorder.lean`: **un-drop** the create delivery — `recordCall`'s `.create _ =>
+  self key), evmCreateOracle.addressWord result pd)` (twin of `evmV2CallEntry`);
+  **un-drop** the create delivery — `recordCall`'s `.create _ =>
   callAcc` (:172) becomes a recording arm into a `createAcc : List CreateRecord`;
   add `CreateRecord` (twin of `CallRecord` :85); widen `driveLog`'s result tuple by
   **appending** `× List CreateRecord` (:184; the tuple also appears in
   `Realisability/Machinery.lean`), threaded inertly through the existing call arms,
   gated on `rest.isEmpty` (top-level only); `createStreamOf`/`realisedCreate` (twins
   of :288/:296).
+- `CallRealises.lean`: `createRealises_bridge` (twin of `callRealises_bridge`) off Step 5.
 - `RecorderLemmas.lean`: `realisedCreate_cons` (twin of `realisedCall_cons` :44,
   `rfl`-clean by the same `simp … List.map_cons`).
 - `Realisability/Surface.lean` `RecorderCoupled` (:508): `createSuffix`/`createPrefix`

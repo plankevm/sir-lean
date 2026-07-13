@@ -104,7 +104,7 @@ halt; non-empty output is decoded as a returned word.
 
 ## Call And Create Entries
 
-`CallEntry.lean` explains the stream entries produced from bytecode logs. The
+`Recorder.lean` explains the stream entries produced from bytecode logs. The
 realised call and create streams are coupled to bytecode resume projections:
 `resumeAfterCall` and `resumeAfterCreate` determine the observed world and result
 channels for each recorded event. These entries are positional records indexed by

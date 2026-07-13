@@ -1,6 +1,6 @@
 import LirLean.Call
 import LirLean.Frame.Match
-import LirLean.Spec.CallEntry
+import LirLean.Spec.Recorder
 
 open Lir.Frame
 
@@ -50,7 +50,7 @@ open BytecodeLayer.Hoare
 
 /-! ## Step 2a — the realised `Lir.CallStream` entry from the frame-reference `evmCallOracle`
 
-`evmV2CallEntry result pd self` (now hoisted to the trusted surface `Spec/CallEntry.lean`) is a
+`evmV2CallEntry result pd self` (on the trusted recorder surface) is a
 single `Lir.CallStream` entry *realised* by the bytecode CALL data `(result, pd)` at self address
 `self`: the post-call self-storage lens paired with the 0/1 success word. `restoredGas` is
 dropped — the gas-free IR has no gas in state, so the restored-gas field is irrelevant to the gas-free
@@ -102,7 +102,7 @@ from the frame-reference `evmCreateOracle` projections: the post-create `World` 
 lens, and the pushed word is `createAddrOrZero` (the CREATE analogue of `callSuccessFlag`).
 The bridge is off `create_reflects_lowered` (the R3 non-`rfl` storage side, discharged in
 `Frame/Match.lean`), exactly as the call bridge is off `call_reflects_lowered`. The realised
-entry `evmV2CreateEntry` itself now lives on the trusted surface (`Spec/CallEntry.lean`). -/
+entry `evmV2CreateEntry` itself lives on the trusted recorder surface. -/
 
 /-- **The create realisability bridge** (twin of `callRealises_bridge`). Given a returning,
 successfully-resumed CREATE (`CreateReturns createFr resumeFr`, so `resumeAfterCreate result pd

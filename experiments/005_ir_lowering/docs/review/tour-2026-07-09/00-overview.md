@@ -275,7 +275,6 @@ the coupled path; retirement candidate post-R11), **dead-candidate** (zero consu
 | [`Spec/Semantics.lean`](../../../LirLean/Spec/Semantics.lean) | 219 | L2: oracle-stream big-step, `RunFrom`/`RunFromAll` | trusted/live | [02](02-spec-layer.md) |
 | [`Spec/Lowering.lean`](../../../LirLean/Spec/Lowering.lean) | 188 | L2: `Loc`/`Alloc`, emitters, `lower` | trusted/live | [02](02-spec-layer.md) |
 | [`Spec/Recorder.lean`](../../../LirLean/Spec/Recorder.lean) | 132 | L2: `driveLog`/`runWithLog`, realised streams, `observe` — **the trust fence** | trusted/live | [02](02-spec-layer.md) |
-| [`Spec/CallEntry.lean`](../../../LirLean/Spec/CallEntry.lean) | 23 | L2: call/create record → stream-entry projections | trusted/live | [02](02-spec-layer.md) |
 | [`Spec/Conformance.lean`](../../../LirLean/Spec/Conformance.lean) | 28 | L2: `entryState`, `RunLog.clean`, `Conforms`, `NoGasReads` | trusted/live | [02](02-spec-layer.md) |
 | [`Spec/WellFormed.lean`](../../../LirLean/Spec/WellFormed.lean) | 443 | L2: `IRWellFormed` + budgets (mixed with `matCache` proofs) | trusted/live | [02](02-spec-layer.md) |
 | [`Spec/Seams.lean`](../../../LirLean/Spec/Seams.lean) | 36 | L2: `PrecompileAssumptions`, `ReachableFrom` | trusted/live | [02](02-spec-layer.md) |

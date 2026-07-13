@@ -192,8 +192,8 @@ Entry edges (who imports each, from outside `Spec/`):
 | `Spec.Conformance` | none (kept live via root :50) |
 
 Exit edges (what the cluster reaches into other clusters):
-- `Recorder` → `CallRealises` (`evmV2CallEntry`, `resumeAfterCall`), exp003
-  `Frame`/`drive`/`CallResult`/`stepFrame`/`beginCall`/`beginCreate`, `Hoare.GasMonotone`.
+- `Recorder` → `Frame/Call`, `Frame/Create`, and exp003
+  `Frame`/`drive`/`CallResult`/`stepFrame`/`beginCall`/`beginCreate`.
 - `Seams` → `Lir.SelfPresent`, `Lir.CallPreservesSelf`, `Lir.callPreservesSelf_modGuards`,
   `Lir.AccPresent`, `Interpreter.CallsCode`, `Lir.CleanHaltsNonException`.
 - `IR`/`Semantics`/`Lowering` → `Evm` only.

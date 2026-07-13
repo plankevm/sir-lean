@@ -1,4 +1,6 @@
-import LirLean.Spec.CallEntry
+import LirLean.Spec.Semantics
+import LirLean.Frame.Call
+import LirLean.Frame.Create
 
 open Lir.Frame
 
@@ -10,6 +12,16 @@ open BytecodeLayer.System
 open BytecodeLayer.Interpreter
 open BytecodeLayer.Hoare
 open GasConstants
+
+def evmV2CallEntry (result : CallResult) (pd : PendingCall) (self : AccountAddress) :
+    World × Word :=
+  ( (fun key => evmCallOracle.postStorage result pd self key)
+  , evmCallOracle.successWord result pd )
+
+def evmV2CreateEntry (result : CreateResult) (pd : PendingCreate) (self : AccountAddress) :
+    World × Word :=
+  ( (fun key => evmCreateOracle.postStorage result pd self key)
+  , evmCreateOracle.addressWord result pd )
 
 structure CallRecord where
   result : CallResult
