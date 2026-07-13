@@ -452,8 +452,8 @@ Consumers: [`sim_assign_gas`](../../../LirLean/Sim/SimStmt.lean#L880) /
 [`sim_assign_sload`](../../../LirLean/Sim/SimStmt.lean#L1030) / the CALL-flag stash in
 [`sim_call_stmt`](../../../LirLean/Sim/SimStmt.lean#L579)
 ([05-simulation.md](05-simulation.md)), constructed over real bytes in
-[`sim_assign_gas_lowered`](../../../LirLean/Assembly/LowerDecode.lean#L705) /
-[`sim_assign_sload_lowered`](../../../LirLean/Assembly/LowerDecode.lean#L915).
+[`sim_assign_gas_lowered`](../../../LirLean/CfgSim/LowerDecode.lean#L705) /
+[`sim_assign_sload_lowered`](../../../LirLean/CfgSim/LowerDecode.lean#L915).
 
 ### 5.3 Gas envelopes DERIVED from a clean-halt witness
 

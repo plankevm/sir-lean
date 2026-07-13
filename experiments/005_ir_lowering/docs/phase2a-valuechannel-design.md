@@ -348,8 +348,8 @@ step (unsound, §2.2).
   large commit; stage it as local WIP per file-group, but land it as a single green gate.
   **Producer-coupled surface — safe only while the branch is quiescent.** *Files:*
   `Spec/Lowering.lean`, `Spec/WellFormed.lean`, `Decode/*`, `Materialise/*`,
-  `Sim/SimStmt.lean`, `Sim/SimTerm.lean`, `Sim/SimStmts.lean`, `Assembly/LowerDecode.lean`,
-  `Assembly/LowerConforms.lean`, `Spec/BudgetDerivations.lean`, `Drive/DriveSim.lean`,
+  `Sim/SimStmt.lean`, `Sim/SimTerm.lean`, `Sim/SimStmts.lean`, `CfgSim/LowerDecode.lean`,
+  `CfgSim/LowerConforms.lean`, `Spec/BudgetDerivations.lean`, `Drive/DriveSim.lean`,
   and the WIP `Realisability/{Surface,Machinery,Producer}.lean`. *Green gate:* full
   `lake build` green + sorry-free; `WIP` pre-existing sorries only; `#print axioms` guards
   intact.
@@ -379,9 +379,9 @@ step (unsound, §2.2).
 ## 5. Retype ripple (full surface — executors must expect all of it)
 
 Files touching `materialiseExpr`/`MatDec`/`MatFueled`/`recomputeFuel` (grep counts):
-`Assembly/LowerDecode.lean` (128), `Materialise/MatDecLower.lean` (107),
+`CfgSim/LowerDecode.lean` (128), `Materialise/MatDecLower.lean` (107),
 `Materialise/MaterialiseRuns.lean` (98), `Spec/BudgetDerivations.lean` (87),
-`Assembly/LowerConforms.lean` (75), `Realisability/Machinery.lean` (42),
+`CfgSim/LowerConforms.lean` (75), `Realisability/Machinery.lean` (42),
 `Realisability/Producer.lean` (41), `Assembly/Acyclic.lean` (40, DELETED),
 `Decode/DecodeAnchors.lean` (37), `Realisability/Surface.lean` (29),
 `Sim/SimStmt.lean` (27), `Sim/SimTerm.lean` (23), `Decode/SegAligned.lean` (21),

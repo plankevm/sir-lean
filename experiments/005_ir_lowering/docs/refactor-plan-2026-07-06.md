@@ -43,10 +43,9 @@ Two standing decisions from Eduardo folded in:
 
 ### 1A. Honesty / doc sweep (pure text)
 
-- **5.2** — `Assembly/LowerConforms.lean` header (:5) and §1148-1177 narrate a `lower_conforms`
-  deleted in b144af8 ("**fully discharged** here"). Retitle to `sim_cfg` (Layer F); replace §1148
-  prose with a pointer to the live flagship (`RealisabilitySpec.lean:206`, R11) — this file's payoff
-  is `sim_cfg` (:983), not a discharged headline.
+- **5.2 LANDED** — `CfgSim/LowerConforms.lean` now describes its local payoff, `sim_cfg`,
+  and points to the closed `lower_conforms` / `_exact` / `_gasfree` flagships in
+  `LirLean.Realisability.RealisabilitySpec`.
 - **5.9** — `DriveSim.lean:672` calls `lower_conforms_cyclic'`'s `RunDefinable` premise "benign
   well-formedness"; it is unsatisfiable for any call/create/gas program. Amend to state the
   pure-fragment restriction and point to `RunDefinableG` (Surface.lean:153).
@@ -243,8 +242,8 @@ track. *Touches a producer file — batch with 2A/2B.*
   `Drive/` and `Realisability/` are role-named top-level directories. Remaining independent cleanup:
   `GasOracle` → `GasStream`, delete the `Trace` alias (Semantics.lean:76-78), and replace `(T,C,D)`
   positional threading with a `Streams` record.
-- **3B** folder charters: `Assembly/` → `CfgSim/` (nothing assembles bytes); `Decode/` →
-  `CodeGeometry/`. Do with 3A.
+- **3B status:** `Assembly/` → `CfgSim/` has landed (the directory contains CFG simulation,
+  not byte assembly). The independent `Decode/` → `CodeGeometry/` rename remains.
 - **5.13 grab-bag** as encountered: unify the 4 staging namespaces; retire the vestigial `WellFormed`
   single-use in DefsSound.lean:143 (name collision with the new `WellFormed` — **rename one**, flag
   now); `slotOf` docstring's nonexistent base offset (Lowering.lean:132-134); consider `lower :

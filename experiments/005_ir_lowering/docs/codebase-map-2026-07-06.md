@@ -1,6 +1,6 @@
 # exp005 codebase map — 2026-07-06
 
-Synthesis of seven module deep-reads (Spec/, Frame/+Engine/, Decode/+Assembly/, Materialise/+Sim/,
+Synthesis of seven module deep-reads (Spec/, Frame/+Engine/, Decode/+CfgSim/, Materialise/+Sim/,
 V2 core+Drive/, Realisability/, exp003 EVMLean+BytecodeLayer). All claims cite file:line;
 disagreements between readers were adjudicated by re-reading the code (noted where done).
 Documented WIP (the R0–R12 skeleton, `docs/target-architecture-2026-07-02.md`) is reported as
@@ -30,7 +30,7 @@ L8  COUPLING / DRIVE WALK                            Drive/ (DriveSim, SelfPrese
       DriveCorr, totalGas measure, RecorderCoupled     RecorderCoupled/DriveCorrLog live in L9's Surface.lean
 L7  RECORDER / STREAM REALISATION                    Spec/Recorder.lean + CallRealises + RecorderLemmas
       runWithLog, realisedGas/Call/Create, observe
-L6  WHOLE-CFG SIMULATION + TIE ASSEMBLY              Assembly/ (sim_cfg, WellFormedLowered, CallRealises)
+L6  WHOLE-CFG SIMULATION                              CfgSim/ (sim_cfg, WellFormedLowered, CallRealises)
 L5b PER-STATEMENT SIMULATION (Corr invariant)        Sim/ (sim_assign/sstore/call, sim_stmts, sim_term_*)
 L5a VALUE CHANNEL (materialise ↔ evalExpr)           Materialise/ + Frame/{Call,Create,Match} oracle half
       MatRuns, MemRealises, DefsSound, StashTail       reflexivity headlines call/create_reflects_lowered
@@ -63,7 +63,7 @@ L0a BYTECODE MACHINE (trusted, executable)           003/EVMLean (stepFrame, dri
 | `Decode/` | code geometry | L4, plus a clean generic sublayer (any-ByteArray decode/boundary facts, Asm/exp003-liftable) and one stowaway (LoweringLemmas.lean = L3 proof companionship, zero geometry) | Good layer, wrong name ("CodeGeometry" honest); imports Frame/Match for pcOf — inverted |
 | `Materialise/` | expression value channel | L5a core (MatRuns/MemRealises/DefsSound/StashTail/chargeOf) + ~1,000 IR-free lines of L0b (CleanHaltExtract per-opcode dichotomies) | Core is the strongest-shaped module in the tree; the engine half is misfiled |
 | `Sim/` | per-statement simulation | L5b throughout (Corr, sim_* arms, SimStmtStep, sim_term_*) | Correctly placed; interface unevenness in the call arm (§5.4) |
-| `Assembly/` | (name suggests an assembler) | L6: tie-unit definitions, decode-bundle discharge wrappers (LowerDecode), whole-CFG `sim_cfg`, `WellFormedLowered`; the old residual rank/fuel support was deleted by P9 | Nothing assembles bytes (emission is Spec/Lowering); "Conformance/" or "CfgSim/" honest |
+| `CfgSim/` | CFG simulation | L6: tie-unit definitions, decode-bundle discharge wrappers (LowerDecode), whole-CFG `sim_cfg`, `WellFormedLowered`; the old residual rank/fuel support was deleted by P9 | Honest role name; byte emission remains in Spec/Lowering |
 | `` (top) | proof layer over the oracle-stream IR | L2 metatheory (Law, IRRun), L7 (CallRealises, RecorderLemmas), plus **Modellable.lean whose namespace is `BytecodeLayer.Interpreter`** — L0b in disguise | The `Lir` namespace is mostly *defined outside this folder* (Spec/Semantics.lean:34, Spec/Recorder.lean:49); the folder name is a design-generation fossil (§3) |
 | `Drive/` | cyclic drive-indexed walk | L8 (DriveSim, Headline-salvage) + L0b (CallPreservesSelf — no IR type in any code line) + SelfPresent.lean which is ~60% recorder-alignment machinery, ~40% presence invariant | Headline.lean contains no headline (deleted 2026-07-03; Headline.lean:17-25 says so) |
 | `Realisability/` | R0–R12 skeleton, non-default WIP lib | L9, but internally three altitudes: spec-surface defs (Surface §1-§2, **sorry-free**), coupling invariant (RecorderCoupled/DriveCorrLog), and R1–R8 proof machinery (majority **proved**; debt concentrated in R11/R10a run-producer, R3 Piece B, R6 engine bricks) | Correctly shaped WIP; the sorry-free statement vocabulary is the one part that must move out |
@@ -85,7 +85,7 @@ the value channel (L5a) proves `matCache` bytes reconstruct `evalExpr` values on
 stack, with gas envelopes *derived* from a clean-halt witness (CleanHaltExtract) rather than
 supplied — the fix for the retired unsatisfiable `GasRealises`/`SloadRealises` universals
 (MaterialiseRuns.lean:496-560); per-statement simulation (L5b) threads the `Corr` invariant;
-Assembly (L6) assembles per-block ties and proves the cycle-agnostic `sim_cfg`; the recorder (L7)
+CfgSim (L6) composes per-block ties and proves the cycle-agnostic `sim_cfg`; the recorder (L7)
 realises the three oracle streams from one actual run; the drive walk (L8) provides the
 totalGas-measured recursion; and L9 states the flagship and holds the RecorderCoupled reshape
 that makes the ties *derived from the run* instead of supplied — the repair of the 2026-07-02/03
@@ -240,7 +240,7 @@ theorem sim_term_halt_ret … : ∃ last halt, Runs fr last ∧ stepFrame last =
     ∧ (observe self (endFrame last halt)).world = st.world ∧ ….result = .returned vw  -- SimTerm.lean:310
 ```
 
-### L6 — CFG assembly (`Assembly/`)
+### L6 — CFG simulation (`CfgSim/`)
 
 ```lean
 structure WellFormedLowered (prog : Program) : Prop   -- LowerConforms.lean:143 (11 static fields)
@@ -498,7 +498,7 @@ surface. Acknowledged-deferred relocations are ranked by residual confusion, not
    `ReachesBoundary.trans`, `reachesBoundary_of_mem_validJumpDests` (BoundaryReach.lean:92),
    `decode_{nonpush,push}_of_list` (DecodeLower.lean:100/116), SegAlignedP §0-§3 — facts about
    *any* ByteArray and EVMLean's scanner, no `lower`/`flatBytes` mention. Same species: the
-   PUSH4/PUSH32 immediate round-trips split across Assembly/LowerDecode.lean:293-325 and
+   PUSH4/PUSH32 immediate round-trips split across CfgSim/LowerDecode.lean:293-325 and
    Materialise/MatDecLower.lean:80-123 (one concept, two folders); the R6 boundary walk +
    witnesses inside Machinery.lean:1252-1517 (deserves its own BoundaryWalk file).
 

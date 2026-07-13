@@ -1,4 +1,4 @@
-import LirLean.Assembly.LowerDecode
+import LirLean.CfgSim.LowerDecode
 import LirLean.Materialise.CleanHaltExtract
 
 open Lir.Frame
@@ -7,14 +7,12 @@ open Lir.Frame
 # LirLean — `sim_cfg` (Layer **F**: whole-CFG world-channel simulation)
 
 The capstone of the **world-channel** simulation grind (general over calls): it threads the
-per-block bricks of Layers C–E into a whole-CFG simulation `sim_cfg` (:983), by induction on
+per-block bricks of Layers C–E into the whole-CFG simulation `sim_cfg`, by induction on
 `Lir.RunFrom`, abstracted over the per-block `SimStmtStep`/`SimTermStep` ties.
 
-This file's payoff is `sim_cfg`. The tie from `sim_cfg` to the instrumented recording interpreter
-`runWithLog` — the actual conformance headline — is **NOT** here: the local `lower_conforms` that
-once closed that tie was deleted in the vacuous-ties purge (b144af8). The LIVE flagship is
-`lower_conforms` at `Realisability/RealisabilitySpec.lean:206` (R11); see the §-block at the
-bottom of this file.
+This module provides simulation infrastructure, not the exported conformance boundary. The
+closed `lower_conforms`, `lower_conforms_exact`, and `lower_conforms_gasfree` flagships live in
+`LirLean.Realisability.RealisabilitySpec`.
 
 ## The two structured per-block hypotheses
 
@@ -1102,20 +1100,12 @@ theorem entry_corr {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} {w₀ 
       (by intro t slot v _ hloc; simp at hloc) hdec hgas'
   exact ⟨jumpdestFrame fe, hjdrun, hjdcorr⟩
 
-/-! ## The recorder tie lives at the flagship, not here
+/-! ## The exported conformance boundary
 
-This file once closed a local `lower_conforms` that tied `sim_cfg` to the instrumented recording
-interpreter `runWithLog` and claimed the world equation was "**fully discharged** here". That
-theorem was **deleted in the vacuous-ties purge (b144af8)**: the per-block simulation hypotheses
-it consumed (`hstmts`/`hterm`) were unsatisfiable in the shape supplied for a lowered program, so
-it discharged nothing.
-
-**This file no longer contains a discharged headline.** Its payoff is `sim_cfg` (:983) — the
-whole-CFG world-channel simulation, abstracted over the per-block `SimStmtStep`/`SimTermStep`
-ties. The LIVE conformance headline — the tie from a successful `runWithLog` to the IR `RunFrom`
-and the load-bearing world equation — is the flagship `lower_conforms` at
-`Realisability/RealisabilitySpec.lean:206` (R11). Its remaining obligation is the coupled
-run-producer documented there (Route A); consult that file for the honest hypothesis ledger. -/
+This module's payoff is `sim_cfg`, the whole-CFG world-channel simulation abstracted over the
+per-block `SimStmtStep`/`SimTermStep` ties. The closed exported conformance theorems
+`lower_conforms`, `lower_conforms_exact`, and `lower_conforms_gasfree` live in
+`LirLean.Realisability.RealisabilitySpec`. -/
 
 
 /-- `prog.blocks.toList[L.idx]? = some b` from `blockAt prog L = some b` (the reverse of

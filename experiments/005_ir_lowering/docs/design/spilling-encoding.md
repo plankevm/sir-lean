@@ -89,7 +89,7 @@ The objection predicts a "can't happen" case rippling through consumers. It is t
   static, decidable, "vacuous for real IR" field asserting no source
   `assign t (.slot n)` exists. This is the pure-tax obligation.
 - **`slots_slot`** invariant (`Assembly/Acyclic.lean:197`,
-  `Assembly/LowerConforms.lean:210`, `Sim/SimStmt.lean:626`…): every registered
+  `CfgSim/LowerConforms.lean:210`, `Sim/SimStmt.lean:626`…): every registered
   `.slot`-def has slot `= slotOf t`.
 - Sim proofs carry `.slot` arms discharged by `evalExpr .slot = none`
   (`Materialise/MaterialiseRuns.lean:811-825`, `:1071-1087`;
@@ -126,7 +126,7 @@ whole AST for no gain over the `Loc` env that is already present.
 ## 6. Cost, blast radius, and — crucially — does it help the blocker?
 
 **Blast radius: large but mechanical, and entirely inside GREEN static machinery.** ~100
-call sites match `defsOf … = some (.slot …)` (Sim/*, Materialise/*, Decode/*, Assembly/*,
+call sites match `defsOf … = some (.slot …)` (Sim/*, Materialise/*, Decode/*, CfgSim/*,
 Realisability/*). Retyping `defs : Tmp → Option Expr` to `Alloc` ripples through
 `materialiseExpr`/`emitStmt`/`emitTerm`/`emitBlockBody`/`offsetTable`/`defsOf` and every
 lemma quantifying over that env. Days of re-proof.

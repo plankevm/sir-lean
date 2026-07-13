@@ -82,7 +82,7 @@ touching the open-sorry surface.
 
 | # | Move | Kind | LOC | Files | Risk | Gate |
 |---|---|---|---|---|---|---|
-| 11 | **Flat → role-directory reorg** per restructure-plan §1: `Audit.lean` + 10 dirs (`Spec/ Engine/ Decode/ Frame/ Materialise/ Sim/ Assembly/  Drive/ Flagship/`). Corrects 4 reorg-plan mis-groupings: `DefsSound`+`CleanHaltExtract` → `Materialise/`; `RecorderLemmas` → ``; split `Sim/` into `Frame/` (SmallStep/Match/Call/Create/StorageErase) vs `Sim/` (SimStmt/SimStmts/SimTerm); place `StorageErase` (reorg-plan omitted it). | relocate | 0 | 51→54 | MED (mass import rewrite) | quiet-tree, after-Tier-1-deletions |
+| 11 | **Flat → role-directory reorg** per restructure-plan §1: `Audit.lean` + 10 dirs (`Spec/ Engine/ Decode/ Frame/ Materialise/ Sim/ CfgSim/ Drive/ Flagship/`). Corrects 4 reorg-plan mis-groupings: `DefsSound`+`CleanHaltExtract` → `Materialise/`; `RecorderLemmas` → ``; split `Sim/` into `Frame/` (SmallStep/Match/Call/Create/StorageErase) vs `Sim/` (SimStmt/SimStmts/SimTerm); place `StorageErase` (reorg-plan omitted it). | relocate | 0 | 51→54 | MED (mass import rewrite) | quiet-tree, after-Tier-1-deletions |
 | 12 | **Move `DriveSim.lean` → `Drive/DriveSim.lean`** — a drive-layer file misfiled under ``; updates importers `Drive/Headline`, `Audit`, `LirLean.lean:44`. | relocate | 0 | 0 | LOW | with #11 |
 
 ### Tier 5 — zero-LOC hygiene / cross-repo

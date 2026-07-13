@@ -6,7 +6,7 @@ Part of the [exp005 tour](00-overview.md).
 IR: [`emitStmt`/`emitTerm` → `flatBytes` → `offsetTable` → `encode`](../../../LirLean/Spec/Lowering.lean#L114)
 is byte emission with computed label offsets, and its correctness proof (decode anchors, jumpdest
 validity, landing behavior, boundary reachability) is ~3.6k lines smeared across
-[`Decode/`](../../../LirLean/Decode/Layout.lean) and [`Assembly/LowerDecode.lean`](../../../LirLean/Assembly/LowerDecode.lean),
+[`Decode/`](../../../LirLean/Decode/Layout.lean) and [`CfgSim/LowerDecode.lean`](../../../LirLean/CfgSim/LowerDecode.lean),
 all stated over `lower prog` and therefore unusable by any second IR. The planned Asm layer
 ([target-architecture §6 item 4](../../target-architecture-2026-07-02.md#L143), design in
 [bytecode-interface §2.4](../../fleet-2026-07-02/bytecode-interface.md#L139)) de-fuses it: a
@@ -77,7 +77,7 @@ The assembler's correctness proof is the geometry mass (detail in
 | [`Decode/BoundaryReach.lean`](../../../LirLean/Decode/BoundaryReach.lean#L5) | 607 | boundary-reachability bricks for the whole-run `AtReachableBoundary` invariant (R6) |
 | [`Decode/BoundaryCursor.lean`](../../../LirLean/Decode/BoundaryCursor.lean#L1) | 151 | boundary→cursor inversion |
 | [`Decode/LoweringLemmas.lean`](../../../LirLean/Decode/LoweringLemmas.lean#L1) | 139 | `emitStmt`/`emitTerm` shape reductions |
-| [`Assembly/LowerDecode.lean`](../../../LirLean/Assembly/LowerDecode.lean#L8) | 1,069 | discharges the sims' carried decode bundles from the anchors |
+| [`CfgSim/LowerDecode.lean`](../../../LirLean/CfgSim/LowerDecode.lean#L8) | 1,069 | discharges the sims' carried decode bundles from the anchors |
 | [`Materialise/MatDecLower.lean`](../../../LirLean/Materialise/MatDecLower.lean#L1) | 147 | decode channel for materialised operand segments |
 
 Total: **3,571 lines** today (plus [`Materialise/MatFoldChannel.lean`](../../../LirLean/Materialise/MatFoldChannel.lean#L1),

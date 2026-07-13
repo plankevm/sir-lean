@@ -14,7 +14,7 @@ well-founded induction over the actual execution** — the "run-producer" `runFr
 ## The compositional half already exists
 
 The local semantics-preservation lemmas are done and green: `sim_stmt` / `sim_term` /
-`sim_stmts_block` / `sim_cfg` and the `Corr` match relation (in `Sim/` and `Assembly/`). Each is
+`sim_stmts_block` / `sim_cfg` and the `Corr` match relation (in `Sim/` and `CfgSim/`). Each is
 exactly "this piece of `lower` preserves semantics modulo the value channel + oracles." What is
 missing is only the *assembly*, and the assembly cannot be a structural fold. Five reasons:
 

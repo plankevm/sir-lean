@@ -48,7 +48,7 @@ theorem (`Lir.lower_conforms`). Everything else that "has no callers" is classif
 ## 1. The layered DAG (altitude-ordered, bottom = no LirLean deps)
 
 The organizing principle is **altitude, not feature**. `Engine/`, `Decode`, `Materialise`,
-`Sim`, `Assembly`, `V2`, `Drive` are altitude bands; `Spec/` is NOT a single band (see the
+`Sim`, `CfgSim`, `V2`, `Drive` are altitude bands; `Spec/` is NOT a single band (see the
 warning below). Arrows point **downward-imports** (`A ← B` = B imports A).
 
 ```
@@ -289,7 +289,7 @@ entire §6 witness (`:2959-3623`) are fully sorry-free. **Corrections to prior f
   clean-halt envelope + Match `sim_*`/oracle projections + StorageErase zero-write.
 - **L4 Sim** supplies `Corr` and the per-stmt/terminator arms (`sim_call_stmt` etc.) plus
   CleanHaltExtract's `next_*_of_cleanHalt` (called directly in RS).
-- **L5 Assembly** supplies `sim_cfg`/`SimTermStep`/`WellFormedLowered`/`CallRealises` (shared).
+- **L5 CFG simulation** supplies `sim_cfg`/`SimTermStep`/`WellFormedLowered`/`CallRealises` (shared).
   The old generic-`defs` fuel/rank support is historical; P9 deleted `Acyclic.lean`.
 - **L6 Drive** supplies the cyclic drive spine, SelfPresent/CallPreservesSelf, Modellable,
   RecorderLemmas — the machinery the missing `runFrom_of_driveCorrLog` will walk.

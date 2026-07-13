@@ -1,4 +1,4 @@
-import LirLean.Assembly.LowerConforms
+import LirLean.CfgSim.LowerConforms
 import LirLean.IRRun
 import BytecodeLayer.Hoare.DriveRuns
 import LirLean.Decode.Modellable

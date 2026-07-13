@@ -1,5 +1,5 @@
-import LirLean.Assembly.LowerConforms
-import LirLean.Assembly.LowerDecode
+import LirLean.CfgSim.LowerConforms
+import LirLean.CfgSim.LowerDecode
 import LirLean.Materialise.MaterialiseCleanHalt
 import LirLean.Drive.DriveSim
 import LirLean.Drive.CallPreservesSelf

@@ -1,5 +1,5 @@
 import LirLean.Spec.WellFormed
-import LirLean.Assembly.LowerConforms
+import LirLean.CfgSim.LowerConforms
 import LirLean.Frame.Match
 import LirLean.Decode.DecodeAnchors
 import LirLean.Decode.Layout

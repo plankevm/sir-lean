@@ -41,7 +41,7 @@ Course-correction already landed (Option B, sanctioned): the recorder's `recordC
   change it); needs the **STEP/CALL boundary-walk edge lemmas** feeding `atReachableBoundary_of_runs`.
   Genuinely hard pc-reachability geometry (Round 3 landed nothing here).
 
-**Assembly / adequacy (mostly mechanical; may cite the open leaves by statement):**
+**CFG simulation / adequacy (mostly mechanical; may cite the open leaves by statement):**
 - R10a/R10b `stmtTies'_of_runWithLog` / `termTies'_of_runWithLog` (~:3253/:3269) — ties built from the run.
 - R11 `lowering_conforms` (~:3290) — THE flagship; R11-all (`lowering_conforms_all`); gasfree co-flagship.
 - R12a/R12b — the concrete non-vacuity witness (exProg satisfies + instantiates the flagship).

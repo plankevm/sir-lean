@@ -592,7 +592,7 @@ intact.
    (expected — 2026-07-02): it lists `NoCreateBytes.lean` (433 ln) as live — the tower was
    **deleted** when `emitStmt .create` made CREATE bytes legal (recorded at
    [SegAligned.lean#L15](../../../LirLean/Decode/SegAligned.lean#L15)); `LowerDecode.lean` and
-   `MatDecLower.lean` have moved to [`Assembly/`](../../../LirLean/Assembly/LowerDecode.lean) and
+   `MatDecLower.lean` have moved to [`CfgSim/`](../../../LirLean/CfgSim/LowerDecode.lean) and
    [`Materialise/`](../../../LirLean/Materialise/MatDecLower.lean); line counts have shifted
    substantially (e.g. JumpValid 515→271 after the `SegAlignedP` dedup, BoundaryReach 435→607
    after R11 chunk 1). Its *architectural* claims (§2.4 signatures, "assembler fused into Lir")

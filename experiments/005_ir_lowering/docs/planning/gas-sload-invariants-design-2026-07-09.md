@@ -118,9 +118,9 @@ Per the run plan's suspects (a)–(c), verified against source:
   envelope [`sload_envelope_of_cleanHalt`](../../LirLean/Materialise/CleanHaltExtract.lean#L790)
   derive every runtime gas/mem side-condition of the `_lowered` bricks from the threaded
   clean-halt, as the un-coupled walk already demonstrates
-  ([gas arm](../../LirLean/Assembly/LowerConforms.lean#L481),
-  [sload arm](../../LirLean/Assembly/LowerConforms.lean#L438)). The sload pc bound comes from
-  [`WellFormedLowered.bound_sload`](../../LirLean/Assembly/LowerConforms.lean#L152) via `hwl.wf`
+  ([gas arm](../../LirLean/CfgSim/LowerConforms.lean#L481),
+  [sload arm](../../LirLean/CfgSim/LowerConforms.lean#L438)). The sload pc bound comes from
+  [`WellFormedLowered.bound_sload`](../../LirLean/CfgSim/LowerConforms.lean#L152) via `hwl.wf`
   (no ties change needed; the gas bound is already ties arm (3)'s `pcOf + 34 < 2^32` conjunct).
 
 So the coupling channel is essentially done. The block is entirely on the `Corr` carrier.
@@ -326,7 +326,7 @@ lib. So the coupling is threaded in `Producer.lean`, S3-style
     [`recorderCoupled_step_gas`](../../LirLean/Realisability/Machinery.lean#L1640) at the GAS
     step (its `stepFrame` fact from
     [`next_gas_of_cleanHalt`](../../LirLean/Materialise/CleanHaltExtract.lean#L524); `isGasOp`
-    from [`decode_gasstash`](../../LirLean/Assembly/LowerDecode.lean#L632) anchor 1), then two
+    from [`decode_gasstash`](../../LirLean/CfgSim/LowerDecode.lean#L632) anchor 1), then two
     [`recorderCoupled_step_other`](../../LirLean/Realisability/Machinery.lean#L1803) peels
     (PUSH32, MSTORE). Output: coupling at the named endpoint on `(gS', sS, cS)`, plus
     `g = ofUInt64 (fr.gasAvailable − Gbase)` (cross-checks ties arm (3)).
@@ -343,7 +343,7 @@ lib. So the coupling is threaded in `Producer.lean`, S3-style
   `Corr … (invalStep …) (st.setLocal t g) endFr L (pc+1)` → package `CoupledAdvance` with
   `EvalStmt.assignGas` (alignment `T = gS` forces the consumed IR head `= g`; new alignment
   `⟨rfl, hal.2.1, hal.2.2⟩` at `gS'`). P2-sload: fire ties arm (2) → `hwl.wf.bound_sload` →
-  [`decode_sloadstash`](../../LirLean/Assembly/LowerDecode.lean#L806) →
+  [`decode_sloadstash`](../../LirLean/CfgSim/LowerDecode.lean#L806) →
   [`sload_envelope_of_cleanHalt`](../../LirLean/Materialise/CleanHaltExtract.lean#L790) (ties
   arm (2) supplies the stack-room fold and activeWords-flatness) → N1/N3 → named-endpoint
   `sim_assign_sload` → package with `EvalStmt.assignPure` (no stream consumed; suffix advance is

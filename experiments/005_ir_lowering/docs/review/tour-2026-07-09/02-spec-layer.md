@@ -652,7 +652,7 @@ still lives in the WIP file, not in `Spec/`.
   `Frame/Create` (for the `evmCallOracle`/`evmCreateOracle` projections), pulling the whole v1
   frame layer under `Spec/Recorder` → `Spec/Conformance`.
 * [`Spec/BudgetDerivations.lean`](../../../LirLean/Spec/BudgetDerivations.lean#L1) imports
-  `Assembly/LowerConforms` and `Sim/SimStmt` — the heaviest inversion, though this file is
+  `CfgSim/LowerConforms` and `Sim/SimStmt` — the heaviest inversion, though this file is
   proofs (derived bricks), not statement vocabulary, and arguably belongs outside `Spec/`.
 
 The definitions pulled through these imports are themselves definition-shaped (no proof

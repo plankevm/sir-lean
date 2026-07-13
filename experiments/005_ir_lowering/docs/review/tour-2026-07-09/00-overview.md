@@ -52,7 +52,7 @@ is the [r11 plan](../../planning/r11-plan-2026-07-08.md).
 L8  Flagships: lower_conforms / _exact / _gasfree        RealisabilitySpec.lean   [WIP]  ── 06
 L7  Coupled walk: RecorderCoupled, DriveCorrLog,         Realisability/,       [WIP]  ── 06
     StmtTies'/TermTies', producer recursion              Drive/
-L6  Tie assembly: sim_cfg + builders                     Assembly/          [superseded]  ── 05
+L6  CFG simulation: sim_cfg + builders                   CfgSim/            [superseded]  ── 05
 L5  Per-statement simulation: Corr + arms                Sim/                     [live]  ── 05
 L4  Value channel & effect oracles: materialise_runsC,   Materialise/, Frame/     [live]  ── 04
     MemRealises, stash tail, clean-halt envelopes
@@ -186,21 +186,21 @@ halt/edge arms ([`sim_term_halt_ret`](../../../LirLean/Sim/SimTerm.lean#L312),
 boundaries convention is the design bet that keeps the induction free of stack bookkeeping.
 Deep report: [05](05-simulation.md).
 
-### 3.8 L6 — tie assembly (`Assembly/`), and the superseded builder path
+### 3.8 L6 — CFG simulation (`CfgSim/`), and the superseded builder path
 
-[`sim_cfg`](../../../LirLean/Assembly/LowerConforms.lean#L938) is a clean, cycle-agnostic
+[`sim_cfg`](../../../LirLean/CfgSim/LowerConforms.lean#L938) is a clean, cycle-agnostic
 whole-CFG induction (over the `RunFrom` derivation — no fuel, no acyclicity), fed by
 ∀-quantified per-block units `SimStmtStep`/`SimTermStep` and builders. It is proved, green —
 and **dead as a route to the flagship**: its unit shapes demand the step conclusion for
 *every* `Corr`-corresponding pair, including frames the real run never visits, and two of its
 supplied seams ([`SstoreRealises`](../../../LirLean/Sim/SimStmt.lean#L317),
-[`CallRealises`](../../../LirLean/Assembly/LowerConforms.lean#L235) with embedded
+[`CallRealises`](../../../LirLean/CfgSim/LowerConforms.lean#L235) with embedded
 `StepScoped`) are not producible from a real run. Its endpoint
 ([`lower_conforms_cyclic'`](../../../LirLean/Drive/DriveSim.lean#L661)) has zero callers.
-What *is* live from this folder: [`WellFormedLowered`](../../../LirLean/Assembly/LowerConforms.lean#L144)
+What *is* live from this folder: [`WellFormedLowered`](../../../LirLean/CfgSim/LowerConforms.lean#L144)
 and the low-level decode dischargers
-([`decode_gasstash`](../../../LirLean/Assembly/LowerDecode.lean#L632),
-[`term_dest_decode`](../../../LirLean/Assembly/LowerDecode.lean#L332)). Deep report:
+([`decode_gasstash`](../../../LirLean/CfgSim/LowerDecode.lean#L632),
+[`term_dest_decode`](../../../LirLean/CfgSim/LowerDecode.lean#L332)). Deep report:
 [05](05-simulation.md) §6.
 
 ### 3.9 L7+L8 — the coupled walk and the flagship producer (`Drive`, `Realisability`)
@@ -308,8 +308,8 @@ the coupled path; retirement candidate post-R11), **dead-candidate** (zero consu
 | [`Sim/SimStmt.lean`](../../../LirLean/Sim/SimStmt.lean) | 1,150 | L5: `Corr` + the five statement arms | live | [05](05-simulation.md) |
 | [`Sim/SimStmts.lean`](../../../LirLean/Sim/SimStmts.lean) | 164 | L5: `SimStmtStep` + statement-list induction (flagship uses a coupled twin) | live/incremental | [05](05-simulation.md) |
 | [`Sim/SimTerm.lean`](../../../LirLean/Sim/SimTerm.lean) | 843 | L5: terminator halt/edge arms; `corr_at_jumpdest_landing` live in flagship | live | [05](05-simulation.md) |
-| [`Assembly/LowerConforms.lean`](../../../LirLean/Assembly/LowerConforms.lean) | 1,127 | L6: `WellFormedLowered` (live); builders/`sim_cfg`/`entry_corr`/`CallRealises` | live / superseded | [05](05-simulation.md) |
-| [`Assembly/LowerDecode.lean`](../../../LirLean/Assembly/LowerDecode.lean) | 1,069 | L6 aux: decode dischargers (live) + `_lowered` builder wrappers | live / superseded | [05](05-simulation.md) |
+| [`CfgSim/LowerConforms.lean`](../../../LirLean/CfgSim/LowerConforms.lean) | 1,127 | L6: `WellFormedLowered` (live); builders/`sim_cfg`/`entry_corr`/`CallRealises` | live / superseded | [05](05-simulation.md) |
+| [`CfgSim/LowerDecode.lean`](../../../LirLean/CfgSim/LowerDecode.lean) | 1,069 | L6 aux: decode dischargers (live) + `_lowered` builder wrappers | live / superseded | [05](05-simulation.md) |
 | [`Law.lean`](../../../LirLean/Law.lean) | 178 | IR determinism ladder (`IRRun.det` — the ∃O is unique) | live | [02](02-spec-layer.md) |
 | [`IRRun.lean`](../../../LirLean/IRRun.lean) | 173 | pure-fragment existence ladder; `RunDefinable` unsatisfiable for gas/call programs (rename due) | live fragment | [02](02-spec-layer.md) |
 | [`RecorderLemmas.lean`](../../../LirLean/RecorderLemmas.lean) | 169 | recorder adequacy (`driveLog_drive`/`runWithLog_drive`) + stream cons projections | live | [02](02-spec-layer.md)/[06](06-realisability.md) |
@@ -453,8 +453,8 @@ producer files are quiescent") correctly queues it behind R11:
   decide delete-vs-reshape at R11 close-out, with the same discipline as the b144af8 purge
   ([05 §8](05-simulation.md), [06 §8](06-realisability.md)).
 - **Structural tidy**: `Spec/` import inversions + `BudgetDerivations` relocation,
-  `LoweringLemmas` out of `Decode/`, the `Assembly/` rename (before the real Asm layer
-  claims the name), `Trace`→`GasOracle`, `evalExpr`'s phantom `obs`, `RunDefinable` rename.
+  `LoweringLemmas` out of `Decode/`, `Trace`→`GasOracle`, `evalExpr`'s phantom `obs`,
+  `RunDefinable` rename. The `Assembly/` → `CfgSim/` role rename is complete.
 - **Doc regeneration**: the [codebase map](../../codebase-map-2026-07-06.md) is stale on
   `pcOf`'s location and the whole fuel-era `Materialise` naming; the 2026-07-04 deep-dives
   predate deletions made the same day; exp003's `Hoare.lean` docstring promises an export
@@ -498,8 +498,8 @@ the count is wrong (the location claim is right); the authoritative census is **
    spec of record and the source agree.
 3. **Close R11 in plan order** (Piece B driver → arms → R10a → walk/recursion → producer →
    flagships gasfree-first), keeping the no-gos and the monotone sorry census.
-4. **One post-R11 cleanup wave**: builder-path retirement, dead v1 deletion, the `Assembly/`
-   rename, stale-doc regeneration (§6c) — as a single disciplined sweep, not piecemeal.
+4. **One post-R11 cleanup wave**: builder-path retirement, dead v1 deletion, and stale-doc
+   regeneration (§6c) — as a single disciplined sweep, not piecemeal. The `CfgSim/` rename is done.
 5. **Adopt the engine-lemmas-land-in-exp003 discipline now** (cheap; stops the D10 debt
    compounding), and fix exp003's two-line `Hoare.lean` docstring rot.
 6. **Update the prior-art phrasing** in `remediation-plan`/`bytecode-interface` to the

@@ -114,7 +114,7 @@ LirLean/
     SimStmts.lean                   -- stmt-list block form ("Layer D")
     SimTerm.lean                    -- terminator arms ("Layer E")
 
-  Assembly/                         -- L5 CFG assembly (world-channel walk)
+  CfgSim/                           -- L5 CFG simulation (world-channel walk)
     LowerDecode.lean                -- discharge per-cursor decode hyps over lower prog
     LowerConforms.lean              -- sim_cfg / SimTermStep / WellFormedLowered / CallRealises (LIVE)
     Acyclic.lean                    -- legacy generic-defs fuel/rank support (P9 deletion target)
@@ -139,7 +139,7 @@ LirLean/
 ```
 
 Net: `Audit.lean` + 10 role directories (`Spec/ Engine/ Decode/ Frame/ Materialise/ Sim/
-Assembly/  Drive/ Flagship/`); 51 files → 54 (the +3 is the RealisabilitySpec split,
+CfgSim/  Drive/ Flagship/`); 51 files → 54 (the +3 is the RealisabilitySpec split,
 which halves the worst file). `Engine/` stays a clean self-contained directory precisely so it can
 lift to exp003 unchanged on the import axis.
 
@@ -207,7 +207,7 @@ refuses to cite, `:3730-3736`). **This removes decls, not files:**
   `runFrom_of_driveCorrLog` reuses — keep. `Acyclic.lean` is no longer an R9 live path; keep it
   only until P9 deletes the residual fuel stack.
 
-Consequence for the reorg: `Assembly/` is a real, populated directory (`LowerDecode`,
+Consequence for the reorg: `CfgSim/` is a real, populated directory (`LowerDecode`,
 `LowerConforms`, `Acyclic`), NOT the empty shell the reorg-plan predicted.
 
 ---

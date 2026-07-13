@@ -20,7 +20,7 @@ lean_lib «LirLean» where
   -- the old `Decode` example module — distinct from the current `Decode/` directory) — superseded
   -- worked examples whose byte layout is stale under the Phase-C sload spill (re-derivation
   -- deferred) — have been ARCHIVED under `_attic/` (no longer in-tree as `LirLean` modules). The
-  -- default-build cyclic headline `lower_conforms_cyclic` (+ `_cyclic'`, `Assembly/`) and the
+  -- default-build cyclic headline `lower_conforms_cyclic` (+ `_cyclic'`, `CfgSim/`) and the
   -- whole spine remain in the cone and built. See docs/uniform-spill-alloc-plan.md (Phase C).
   roots := #[`LirLean]
 
