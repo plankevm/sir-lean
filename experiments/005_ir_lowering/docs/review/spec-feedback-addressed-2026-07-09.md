@@ -2,7 +2,7 @@
 
 ## Addressed
 
-- Moved byte encoders out of spec lowering. `offsetBytesBE` and `wordBytesBE` now live in [Words.lean](../../LirLean/Util/Words.lean#L8), while [Lowering.lean](../../LirLean/Spec/Lowering.lean#L2) imports that utility and keeps `emitImm`/`emitDest` at the lowering surface.
+- Moved byte encoders out of spec lowering. `offsetBytesBE` and `wordBytesBE` now live in [Words.lean](../../LirLean/Words.lean#L8), while [Lowering.lean](../../LirLean/Spec/Lowering.lean#L2) imports that utility and keeps `emitImm`/`emitDest` at the lowering surface.
 
 - Made `emitStmt` easier to scan. The CALL and CREATE emissions in [Lowering.lean](../../LirLean/Spec/Lowering.lean#L116) are now split by stack phase and result handling, with only local comments for EVM stack order and whether the returned word is stored or popped.
 
@@ -34,7 +34,7 @@ The more artificial-looking state-scoped cluster is real but less settled. `inva
 
 - `cd experiments/005_ir_lowering && lake build LirLean`
 - `cd experiments/005_ir_lowering && lake build WIP`
-- `rg -n "\b(sorry|admit|axiom)\b" experiments/005_ir_lowering/LirLean/Spec experiments/005_ir_lowering/LirLean/Util/Words.lean`
+- `rg -n "\b(sorry|admit|axiom)\b" experiments/005_ir_lowering/LirLean/Spec experiments/005_ir_lowering/LirLean/Words.lean`
 - `rg -n "\bTrace\b" experiments/005_ir_lowering/LirLean/Spec`
 - `rg -n "offsetBytesBE|wordBytesBE" experiments/005_ir_lowering/LirLean experiments/005_ir_lowering/LirLean.lean`
 - Adjacent-empty-line scan over `experiments/005_ir_lowering/LirLean/Spec/*.lean`

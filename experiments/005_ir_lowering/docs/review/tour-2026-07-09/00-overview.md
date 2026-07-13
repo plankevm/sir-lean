@@ -270,7 +270,7 @@ the coupled path; retirement candidate post-R11), **dead-candidate** (zero consu
 |---|---|---|---|---|
 | [`LirLean.lean`](../../../LirLean.lean) | 68 | root import list; audit net last | live | — |
 | [`Audit.lean`](../../../LirLean/Audit.lean) | 54 | build-enforced `#print axioms` guards for the closed cone | live | [02](02-spec-layer.md) |
-| [`Util/Words.lean`](../../../LirLean/Util/Words.lean) | 16 | BE byte encodings for PUSH immediates (`wordBytesBE`/`offsetBytesBE`) | live | [04](04-value-channel.md) |
+| [`Words.lean`](../../../LirLean/Words.lean) | 16 | BE byte encodings for PUSH immediates (`wordBytesBE`/`offsetBytesBE`) | live | [04](04-value-channel.md) |
 | [`Spec/IR.lean`](../../../LirLean/Spec/IR.lean) | 67 | L2: IR grammar | trusted/live | [02](02-spec-layer.md) |
 | [`Spec/Semantics.lean`](../../../LirLean/Spec/Semantics.lean) | 219 | L2: oracle-stream big-step, `RunFrom`/`RunFromAll` | trusted/live | [02](02-spec-layer.md) |
 | [`Spec/Lowering.lean`](../../../LirLean/Spec/Lowering.lean) | 188 | L2: `Loc`/`Alloc`, emitters, `lower` | trusted/live | [02](02-spec-layer.md) |

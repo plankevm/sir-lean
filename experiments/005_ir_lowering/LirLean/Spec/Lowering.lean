@@ -1,5 +1,5 @@
 import LirLean.Spec.IR
-import LirLean.Util.Words
+import LirLean.Words
 import Evm
 
 namespace Lir
