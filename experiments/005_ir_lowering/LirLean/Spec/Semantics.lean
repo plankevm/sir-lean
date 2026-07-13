@@ -1,29 +1,22 @@
 import LirLean.Spec.IR
+import BytecodeLayer.Exec.Observable
 import Evm
 
 namespace Lir
 
 open Evm
 
-abbrev World := Word → Word
+abbrev World := BytecodeLayer.Exec.World
+abbrev IRHalt := BytecodeLayer.Exec.IRHalt
+abbrev GasOracle := BytecodeLayer.Exec.GasOracle
+abbrev Trace := BytecodeLayer.Exec.Trace
+abbrev CallStream := BytecodeLayer.Exec.CallStream
+abbrev CreateStream := BytecodeLayer.Exec.CreateStream
+abbrev Observable := BytecodeLayer.Exec.Observable
 
 structure IRState where
   locals : Tmp → Option Word
   world  : World
-
-inductive IRHalt where
-  | stopped
-  | returned (w : Word)
-deriving DecidableEq, Repr
-
-abbrev GasOracle := List Word
-
--- Compatibility alias; declarations in this file use `GasOracle`.
-abbrev Trace := GasOracle
-
-abbrev CallStream := List (World × Word)
-
-abbrev CreateStream := List (World × Word)
 
 def IRState.setLocal (st : IRState) (t : Tmp) (w : Word) : IRState :=
   { st with locals := fun t' => if t' = t then some w else st.locals t' }
@@ -90,10 +83,6 @@ inductive RunStmts (prog : Program) :
       (hh : EvalStmt prog st T C D s st' T' C' D')
       (ht : RunStmts prog st' T' C' D' ss st'' T'' C'' D'') :
       RunStmts prog st T C D (s :: ss) st'' T'' C'' D''
-
-structure Observable where
-  world  : World
-  result : IRHalt
 
 -- Big-step execution from a label to an observable. The relation threads the
 -- oracle streams through statement lists but does not expose the leftovers.
