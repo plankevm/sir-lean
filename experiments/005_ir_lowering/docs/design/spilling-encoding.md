@@ -85,7 +85,7 @@ def-env codomain" — is exactly right, and is redundant given `Loc`.
 
 The objection predicts a "can't happen" case rippling through consumers. It is there:
 
-- **`WellFormedLowered.noSlotSource`** (`V2/Realisability/Surface.lean:450-451`): a
+- **`WellFormedLowered.noSlotSource`** (`Realisability/Surface.lean:450-451`): a
   static, decidable, "vacuous for real IR" field asserting no source
   `assign t (.slot n)` exists. This is the pure-tax obligation.
 - **`slots_slot`** invariant (`Assembly/Acyclic.lean:197`,
@@ -127,7 +127,7 @@ whole AST for no gain over the `Loc` env that is already present.
 
 **Blast radius: large but mechanical, and entirely inside GREEN static machinery.** ~100
 call sites match `defsOf … = some (.slot …)` (Sim/*, Materialise/*, Decode/*, Assembly/*,
-V2/Realisability/*). Retyping `defs : Tmp → Option Expr` to `Alloc` ripples through
+Realisability/*). Retyping `defs : Tmp → Option Expr` to `Alloc` ripples through
 `materialiseExpr`/`emitStmt`/`emitTerm`/`emitBlockBody`/`offsetTable`/`defsOf` and every
 lemma quantifying over that env. Days of re-proof.
 

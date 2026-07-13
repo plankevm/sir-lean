@@ -1,16 +1,16 @@
-import LirLean.V2.Drive.Headline
+import LirLean.Drive.Headline
 import LirLean.Decode.BoundaryReach
 import LirLean.Spec.BudgetDerivations
-import LirLean.V2.Realisability.Machinery
+import LirLean.Realisability.Machinery
 
 /-!
-# LirLean v2 — Realisability spec, WITNESS (§6a)
+# LirLean — Realisability spec, WITNESS (§6a)
 
 Split out of `RealisabilitySpec.lean` (pure relocation). Holds the concrete non-vacuity
 witness `exProg`, the R9 anti-vacuity anchor (`wellLowered_exProg`,
 `wellLowered_check_exists`), and its supporting lemmas — sorry-free. Imports `Machinery`. -/
 
-namespace Lir.V2
+namespace Lir
 
 open Evm
 open BytecodeLayer
@@ -719,4 +719,4 @@ theorem wellLowered_check_exists :
   exact wellLowered_exProg
 
 
-end Lir.V2
+end Lir

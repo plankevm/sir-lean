@@ -1,7 +1,7 @@
 # exp005 codebase map — 2026-07-06
 
 Synthesis of seven module deep-reads (Spec/, Frame/+Engine/, Decode/+Assembly/, Materialise/+Sim/,
-V2 core+Drive/, V2/Realisability/, exp003 EVMLean+BytecodeLayer). All claims cite file:line;
+V2 core+Drive/, Realisability/, exp003 EVMLean+BytecodeLayer). All claims cite file:line;
 disagreements between readers were adjudicated by re-reading the code (noted where done).
 Documented WIP (the R0–R12 skeleton, `docs/target-architecture-2026-07-02.md`) is reported as
 WIP, not as smell.
@@ -24,11 +24,11 @@ The development is a tower. Folders do NOT correspond 1:1 to layers — the map 
 layers first, then where each folder's content actually sits (misplaced content in *italics*).
 
 ```
-L9  CONFORMANCE STATEMENT + PRODUCER SKELETON        V2/Realisability/ (WIP lib)
+L9  CONFORMANCE STATEMENT + PRODUCER SKELETON        Realisability/ (WIP lib)
       lower_conforms (R11, sorry'd run-producer)       + *statement vocabulary that belongs in Spec/*
-L8  COUPLING / DRIVE WALK                            V2/Drive/ (DriveSim, SelfPresent, Headline)
+L8  COUPLING / DRIVE WALK                            Drive/ (DriveSim, SelfPresent, Headline)
       DriveCorr, totalGas measure, RecorderCoupled     RecorderCoupled/DriveCorrLog live in L9's Surface.lean
-L7  RECORDER / STREAM REALISATION                    Spec/Recorder.lean + V2/CallRealises + V2/RecorderLemmas
+L7  RECORDER / STREAM REALISATION                    Spec/Recorder.lean + CallRealises + RecorderLemmas
       runWithLog, realisedGas/Call/Create, observe
 L6  WHOLE-CFG SIMULATION + TIE ASSEMBLY              Assembly/ (sim_cfg, WellFormedLowered, CallRealises)
 L5b PER-STATEMENT SIMULATION (Corr invariant)        Sim/ (sim_assign/sstore/call, sim_stmts, sim_term_*)
@@ -37,15 +37,15 @@ L5a VALUE CHANNEL (materialise ↔ evalExpr)           Materialise/ + Frame/{Cal
 L4  CODE GEOMETRY (pc/offset/decode algebra)         Decode/ (flatBytes, anchors, SegAlignedP, JumpValid)
       + *pcOf lives in Frame/Match — inverted import*
 L3  LOWERING FUNCTION                                Spec/Lowering.lean (lower = encode ∘ emit (allocate p))
-L2  IR SEMANTICS (oracle-stream big-step)            Spec/Semantics.lean (namespace Lir.V2)
-      EvalStmt/RunFrom/IRRun + 3 positional streams    metatheory: V2/Law (determinism), V2/IRRun
+L2  IR SEMANTICS (oracle-stream big-step)            Spec/Semantics.lean (namespace Lir)
+      EvalStmt/RunFrom/IRRun + 3 positional streams    metatheory: Law (determinism), IRRun
 L1  IR GRAMMAR                                       Spec/IR.lean (Expr/Stmt/Term/Program)
       + *v1 machine in Frame/SmallStep.lean — IR altitude, dead result-slot channel*
 ─────────────────────────────────────────────────────────────────────────────────────────────
 L0b BYTECODE PROOF SURFACE (exp003)                  003/BytecodeLayer (Runs, messageCall_runs,
       + *~5,800 lines of pure-engine theory             drive_fuel_mono, gasAvailable_le)
         squatting in exp005*: Engine/ (all 8 files),
-        Frame/StorageErase, V2/Drive/CallPreservesSelf,
+        Frame/StorageErase, Drive/CallPreservesSelf,
         Decode/Modellable, ~1,000 ln of Materialise/CleanHaltExtract,
         ~200 ln of Frame/Match
 L0a BYTECODE MACHINE (trusted, executable)           003/EVMLean (stepFrame, drive, messageCall,
@@ -64,9 +64,9 @@ L0a BYTECODE MACHINE (trusted, executable)           003/EVMLean (stepFrame, dri
 | `Materialise/` | expression value channel | L5a core (MatRuns/MemRealises/DefsSound/StashTail/chargeOf) + ~1,000 IR-free lines of L0b (CleanHaltExtract per-opcode dichotomies) | Core is the strongest-shaped module in the tree; the engine half is misfiled |
 | `Sim/` | per-statement simulation | L5b throughout (Corr, sim_* arms, SimStmtStep, sim_term_*) | Correctly placed; interface unevenness in the call arm (§5.4) |
 | `Assembly/` | (name suggests an assembler) | L6: tie-unit definitions, decode-bundle discharge wrappers (LowerDecode), whole-CFG `sim_cfg`, `WellFormedLowered`; the old residual rank/fuel support was deleted by P9 | Nothing assembles bytes (emission is Spec/Lowering); "Conformance/" or "CfgSim/" honest |
-| `V2/` (top) | proof layer over the oracle-stream IR | L2 metatheory (Law, IRRun), L7 (CallRealises, RecorderLemmas), plus **Modellable.lean whose namespace is `BytecodeLayer.Interpreter`** — L0b in disguise | The `Lir.V2` namespace is mostly *defined outside this folder* (Spec/Semantics.lean:34, Spec/Recorder.lean:49); the folder name is a design-generation fossil (§3) |
-| `V2/Drive/` | cyclic drive-indexed walk | L8 (DriveSim, Headline-salvage) + L0b (CallPreservesSelf — no IR type in any code line) + SelfPresent.lean which is ~60% recorder-alignment machinery, ~40% presence invariant | Headline.lean contains no headline (deleted 2026-07-03; Headline.lean:17-25 says so) |
-| `V2/Realisability/` | R0–R12 skeleton, non-default WIP lib | L9, but internally three altitudes: spec-surface defs (Surface §1-§2, **sorry-free**), coupling invariant (RecorderCoupled/DriveCorrLog), and R1–R8 proof machinery (majority **proved**; debt concentrated in R11/R10a run-producer, R3 Piece B, R6 engine bricks) | Correctly shaped WIP; the sorry-free statement vocabulary is the one part that must move out |
+| `` (top) | proof layer over the oracle-stream IR | L2 metatheory (Law, IRRun), L7 (CallRealises, RecorderLemmas), plus **Modellable.lean whose namespace is `BytecodeLayer.Interpreter`** — L0b in disguise | The `Lir` namespace is mostly *defined outside this folder* (Spec/Semantics.lean:34, Spec/Recorder.lean:49); the folder name is a design-generation fossil (§3) |
+| `Drive/` | cyclic drive-indexed walk | L8 (DriveSim, Headline-salvage) + L0b (CallPreservesSelf — no IR type in any code line) + SelfPresent.lean which is ~60% recorder-alignment machinery, ~40% presence invariant | Headline.lean contains no headline (deleted 2026-07-03; Headline.lean:17-25 says so) |
+| `Realisability/` | R0–R12 skeleton, non-default WIP lib | L9, but internally three altitudes: spec-surface defs (Surface §1-§2, **sorry-free**), coupling invariant (RecorderCoupled/DriveCorrLog), and R1–R8 proof machinery (majority **proved**; debt concentrated in R11/R10a run-producer, R3 Piece B, R6 engine bricks) | Correctly shaped WIP; the sorry-free statement vocabulary is the one part that must move out |
 | exp003 `EVMLean/` | trusted executable machine | L0a; vendored philogy/leanevm @9cefe5b, Cancun, conformance-run | Empirical (not formal) fidelity warrant |
 | exp003 `BytecodeLayer/` | proved reasoning surface | L0b: Dispatch characterizations, Runs + fuel erasure + gas monotonicity; plus a dormant cross-engine track (SharedObservable/EVMSpec) exp005 never imports, and a stale wrapper "audit surface" (Spec.lean) that exp005 bypasses | Forward-only Runs theory; exp005 built the reverse (runs_of_drive_ok), the per-step walks, and the recorder in-house |
 
@@ -76,9 +76,9 @@ The **trusted base** is L0a (executable machine, conformance-backed) plus, becau
 the flagship's statement: exp003's `Runs`/`CallReturns`/`CreateReturns`/`EntersAsCode` (adequacy
 pinned in both directions — `messageCall_runs` forward, exp005's `runs_of_drive_ok` backward),
 exp005's `runWithLog`/`driveLog`/`observe` recorder (result-adequacy proved via `driveLog_drive`,
-V2/RecorderLemmas.lean:62; the *recorded channels* — the gates at Recorder.lean:233-263 — are
+RecorderLemmas.lean:62; the *recorded channels* — the gates at Recorder.lean:233-263 — are
 definitionally trusted), the L1–L3 spec files, and the remaining exact-run statement vocabulary
-still stranded in `V2/Realisability/Surface.lean`.
+still stranded in `Realisability/Surface.lean`.
 
 The **proof tower** runs: geometry (L4) turns global decode obligations into local byte facts;
 the value channel (L5a) proves `matCache` bytes reconstruct `evalExpr` values on the EVM
@@ -127,7 +127,7 @@ inductive Term where | ret (t) | stop | jump (dst) | branch (cond thenL elseL)  
 structure Program where blocks : Array Block; entry : Label   -- IR.lean:134
 ```
 
-### L2 — IR semantics (`Spec/Semantics.lean`, namespace `Lir.V2`)
+### L2 — IR semantics (`Spec/Semantics.lean`, namespace `Lir`)
 
 ```lean
 abbrev World := Word → Word                                   -- :44
@@ -153,7 +153,7 @@ def IRRun (prog) (w₀ T C D O) : Prop :=                        -- :320
 
 structure Observable where world : World; result : IRHalt     -- :254
 
--- metatheory (V2/Law.lean):
+-- metatheory (Law.lean):
 theorem IRRun.det (h₁ : IRRun prog w₀ T C D O) (h₂ : IRRun prog w₀ T C D O') : O = O'  -- Law.lean:173
 ```
 
@@ -196,12 +196,12 @@ def MatDec (code) (defs) (sloadChg) : Nat → UInt32 → Expr → Prop  -- Mater
 structure MatRuns (defs sloadChg fuel e w fr fr') : Prop          -- :336
   -- runs + stack push w + code/pc/storage pins + MaterialiseGasCharge + memory channel
 
-def MemRealises (prog) (st : V2.IRState) (fr : Frame) : Prop      -- :605
+def MemRealises (prog) (st : Lir.IRState) (fr : Frame) : Prop      -- :605
   -- every bound spilled tmp's slot covered, active, addressable, and mloads back its IR value
 
 theorem materialise_runs … (MatDec …) → DefsSound prog st → … → StorageAgree st fr →
     e ≠ .gas → (∀ k, e ≠ .sload k) → MemRealises prog st fr →
-    V2.evalExpr st obs e = some w → … → ∃ fr', MatRuns (defsOf prog) sloadChg fuel e w fr fr'  -- :771
+    Lir.evalExpr st obs e = some w → … → ∃ fr', MatRuns (defsOf prog) sloadChg fuel e w fr fr'  -- :771
 theorem materialise_runs_of_cleanHalt … CleanHaltsNonException fr → …
     ∃ fr', MatRuns … ∧ (chargeOf …).sum ≤ fr.exec.gasAvailable.toNat   -- MaterialiseCleanHalt.lean:377
 
@@ -224,7 +224,7 @@ theorem create_reflects_lowered …                                 -- Frame/Mat
 ### L5b — per-statement simulation (`Sim/`)
 
 ```lean
-structure Corr (prog sloadChg obs) (st : V2.IRState) (fr : Frame) (L : Label) (pc : Nat) : Prop  -- SimStmt.lean:103
+structure Corr (prog sloadChg obs) (st : Lir.IRState) (fr : Frame) (L : Label) (pc : Nat) : Prop  -- SimStmt.lean:103
   -- pc_eq (pcOf pin), code_eq (= lower prog), validJumps_eq, stack_nil, can_modify,
   -- storage (StorageAgree), defsSound, wellScoped, memAgree (MemRealises)
 
@@ -234,7 +234,7 @@ theorem sim_call_stmt …25 hyps (verified)… : ∃ endFr, Runs fr endFr ∧ Co
 theorem sim_assign_gas …8 hyps incl. 12-conjunct hstash… -- :894 (sload twin :1056)
 
 def SimStmtStep (prog sloadChg obs L b) : Prop   -- SimStmts.lean:66 (Layer-D abstraction)
-theorem sim_stmts_block (hsim : SimStmtStep …) (hcorr) (hcs) (hrun : V2.RunStmts …) :
+theorem sim_stmts_block (hsim : SimStmtStep …) (hcorr) (hcs) (hrun : Lir.RunStmts …) :
     ∃ fr', Runs fr fr' ∧ Corr … st' fr' L b.stmts.length ∧ stack = []   -- SimStmts.lean:150
 theorem sim_term_halt_ret … : ∃ last halt, Runs fr last ∧ stepFrame last = .halted halt
     ∧ (observe self (endFrame last halt)).world = st.world ∧ ….result = .returned vw  -- SimTerm.lean:310
@@ -249,7 +249,7 @@ structure SimTermStep (prog sloadChg obs selfAddr L b) : Prop      -- :96 (halt/
 theorem simStmtStep_block (hwf : WellFormedLowered prog) …per-shape ties… (hnocreate) :
     SimStmtStep prog sloadChg obs L b                              -- :377
 theorem sim_cfg (hstmts : ∀ L b, … → SimStmtStep …) (hterm : ∀ L b, … → SimTermStep …) …
-    (hcorr : Corr … L 0) (hcs : CleanHaltsNonException fr) (hrun : V2.RunFrom prog st T C D L O) :
+    (hcorr : Corr … L 0) (hcs : CleanHaltsNonException fr) (hrun : Lir.RunFrom prog st T C D L O) :
     ∃ last haltSig, Runs fr last ∧ stepFrame last = .halted haltSig
       ∧ (observe self (endFrame last haltSig)).world = O.world     -- :983 (cycle-agnostic)
 theorem entry_corr … : ∃ fr₀, Runs (codeFrame p (lower prog)) fr₀ ∧ Corr … prog.entry 0  -- :1108
@@ -257,7 +257,7 @@ theorem entry_corr … : ∃ fr₀, Runs (codeFrame p (lower prog)) fr₀ ∧ Co
 def Acyclic (defs) (rank) : Prop := ∀ t e, defs t = some e → ExprRankLt rank e (rank t)  -- Acyclic.lean:82
 ```
 
-### L7 — recorder / realisation (`Spec/Recorder.lean`, `V2/CallRealises`, `V2/RecorderLemmas`)
+### L7 — recorder / realisation (`Spec/Recorder.lean`, `CallRealises`, `RecorderLemmas`)
 
 ```lean
 structure RunLog where observable : FrameResult; gas : List Word; sloads : List Nat;
@@ -280,7 +280,7 @@ theorem runWithLog_drive (h : runWithLog params fuel = some log) :
     ∃ frame, beginCall params = .inl frame ∧ drive fuel [] (.inl frame) = .ok log.observable  -- :118
 ```
 
-### L8 — drive walk / coupling (`V2/Drive/`, coupling defs in `V2/Realisability/Surface.lean`)
+### L8 — drive walk / coupling (`Drive/`, coupling defs in `Realisability/Surface.lean`)
 
 ```lean
 structure DriveCorr (prog sloadChg obs st fr L) : Prop where
@@ -306,7 +306,7 @@ structure DriveCorrLog (prog sloadChg log self st fr L gS sS cS) : Prop  -- Surf
   -- corr + cleanHalts + present + selfPresent + addrPin + kindPin + coupled
 ```
 
-### L9 — conformance statement + skeleton (`V2/Realisability/`, WIP lib)
+### L9 — conformance statement + skeleton (`Realisability/`, WIP lib)
 
 ```lean
 theorem lower_conforms {prog params log acc}                       -- RealisabilitySpec.lean:206 (R11, sorry)
@@ -384,15 +384,15 @@ observable machine where gas is a *supplied value*, not accounting. Then two thi
 (i) `ir-design-v3.md` **converged** v1+v2 (keep v2's machine; fold v1's `resumeAfterCall`
 projections in as the realisability witness) — implemented *inside* the V2 folder; (ii) the
 role-directory reorg (f9fc14a) plus the spec extractions (8417d67, ca66721) moved the machine
-(`V2/Machine.lean` → `Spec/Semantics.lean`) and the recorder (`V2/RunLog.lean` →
-`Spec/Recorder.lean`) *out* of the folder while keeping `namespace Lir.V2`.
+(`Machine.lean` → `Spec/Semantics.lean`) and the recorder (`RunLog.lean` →
+`Spec/Recorder.lean`) *out* of the folder while keeping `namespace Lir`.
 
-**Verdict: the name should die.** Three concrete misalignments: (a) the `Lir.V2` namespace is
+**Verdict: the name should die.** Three concrete misalignments: (a) the `Lir` namespace is
 defined mostly outside the V2 directory (Spec/Semantics.lean:34, Spec/Recorder.lean:49);
 (b) the directory contains a file with zero V2 content (`Modellable.lean` is entirely
 `namespace BytecodeLayer.Interpreter`, Modellable.lean:45); (c) the "2" contrasts with a "1"
 surviving only as the Frame/ reference line — whose result-slot channel is *dead* (§5.5) — and
-both numbered design docs are stamped SUPERSEDED. The rename (folder by role; `Lir.V2` → `Lir`
+both numbered design docs are stamped SUPERSEDED. The rename (folder by role; `Lir` → `Lir`
 or `Lir.Oracle`) is tree-wide and deserves its own commit; nothing load-bearing depends on the
 string "V2".
 
@@ -450,7 +450,7 @@ surface. Acknowledged-deferred relocations are ranked by residual confusion, not
 
 2. **The ~5,800-line engine block → exp003** (largest mass; acknowledged, deferred
    "post-Phase-3"). `Engine/` whole (3,978 ln, token-scan-verified IR-free), `Frame/StorageErase.lean`
-   (217 ln, its own docstring: "mention no EVM execution concept"), `V2/Drive/CallPreservesSelf.lean`
+   (217 ln, its own docstring: "mention no EVM execution concept"), `Drive/CallPreservesSelf.lean`
    (350 ln, no IR type in code), ~1,000 IR-free lines of `Materialise/CleanHaltExtract.lean`
    (per-opcode stepFrame OOG/inversion/dichotomy families, :82-1101; only §3's envelope family is
    lowering-shaped), ~200 lines of `Frame/Match.lean` (:214-465). The audit's ~20% figure is
@@ -477,13 +477,13 @@ surface. Acknowledged-deferred relocations are ranked by residual confusion, not
    and `defsOf_eq_defEnv_find`; parked in Decode/ by convenience, pollutes the folder charter.
 
 6. **Spec/Recorder.lean cleanups.** `gasReadOf`/`FramesRun` (Recorder.lean:65-73, proof-walk
-   machinery for V2/Drive/SelfPresent per its own relocation comment :58-61) → V2/; the admitted
+   machinery for Drive/SelfPresent per its own relocation comment :58-61) → ; the admitted
    plumbing import of `BytecodeLayer.Hoare.GasMonotone` (Recorder.lean:2-5, "the only path
    bringing that module into DriveSim's cone") → DriveSim imports it directly. Both inflate the
    trusted import cone for no spec reason.
 
 7. **`Spec/Seams.lean` → re-keyed to the live flagship.** The current file owns
-   `Lir.V2.PrecompileAssumptions` and `ReachableFrom`; under the current flagship,
+   `Lir.PrecompileAssumptions` and `ReachableFrom`; under the current flagship,
    `SelfPresent`, `CallPreservesSelf`, and `CleanHaltsNonException` are supporting vocabulary,
    while the live `hseams` fields are `PrecompileAssumptions.noErase` and
    `PrecompileAssumptions.callsCode`. The `noErase` field is definitionally bound to
@@ -560,7 +560,7 @@ callee/gasFwd words are never tied to `st.locals cs.callee/cs.gasFwd` at any lay
 LowerConforms.lean:264-330, supplies it equally opaquely). Part is R-producer WIP; the exploded
 Corr and the derivable resume pins are interface design, not missing producers.
 
-**5.5 Dead v1 coupling surface, extended this month.** `Lir.Match` (Frame/Match.lean:126) has
+**5.5 Dead v1 coupling surface, extended this month.** `Lir.Frame.Match` (Frame/Match.lean:126) has
 zero consumers (repo-wide grep; the live invariant is Sim/SimStmt.lean:103 `Corr`). Likewise
 `IRState.callResult/createResult`, `bindCallResult/bindCreateResult` (SmallStep.lean:57-124),
 `applyCall` (Call.lean:158), `applyCreate` (Create.lean:131): zero consumers — the wired
@@ -605,7 +605,7 @@ well-formedness". This is the audited vacuity pattern recurring one hypothesis o
 Realisability line already has the honest replacement (`RunDefinableG`, Surface.lean:153);
 the present smell is the overclaiming docstring on a surface the plan supersedes.
 
-**5.10 Spec-layer import inversion.** Spec/Recorder.lean:1 imports V2/CallRealises (needed only
+**5.10 Spec-layer import inversion.** Spec/Recorder.lean:1 imports CallRealises (needed only
 for two spec-like defs) plus the admitted GasMonotone plumbing (:2-5); Spec/Seams.lean:1-3
 imports three proof modules. Spec/ sits partly *downstream* of the proof tree, making
 "read Spec/ first" impossible in import order. Fixed by misplacements #1/#6/#7.
@@ -625,7 +625,7 @@ Hoare.lean:110) — add a consumer-driven-additions register.
 ### LOW (grouped)
 
 **5.12 Pervasive stale cross-references** — violates the repo's own just-fix-cruft rule; one
-sweep commit fixes all: pre-reorg paths (`V2/Machine.lean` cited in Call.lean:7/10,
+sweep commit fixes all: pre-reorg paths (`Machine.lean` cited in Call.lean:7/10,
 CallRealises.lean:11, DriveSim.lean:63, SelfPresent.lean:184, Surface.lean:882/893;
 `LirLean/Match.lean`/`SmallStep.lean` flat paths in Frame/SmallStep.lean:13, Frame/Call.lean:23,
 Spec/Semantics.lean:27); the stale flagship path in Conformance.lean:16 and Audit.lean:23
@@ -639,7 +639,7 @@ containing salvage only; Law.lean named for deleted laws (it is Determinism.lean
 BytecodeLayer/Hoare/CleanHalt.lean:103).
 
 **5.13 Minor design residue**: one engine layer split across four namespaces
-(`Evm`/`BytecodeLayer.Interpreter`/`Lir.V2`/`Lir`+`LirLean.MemAlgebra`) by extraction history —
+(`Evm`/`BytecodeLayer.Interpreter`/`Lir`/`Lir`+`LirLean.MemAlgebra`) by extraction history —
 consolidate into one staging namespace; `Trace` deprecated alias live in all Spec signatures;
 vestigial `WellFormed` single-use constraint (DefsSound.lean:143, only consumer a sanity
 example, asymmetric about create results, with a false companion docstring :190-194);
@@ -706,7 +706,7 @@ spec content and should be documented as such; and the file needs the §4.6 clea
 helpers, plumbing import, pre-relocation docstring).
 
 **D6. The V2 split and its name.** See §3. **Verdict: the mechanism converged (v3) and won; the
-name is a fossil that should die in a dedicated rename commit** (folder → role names, `Lir.V2` →
+name is a fossil that should die in a dedicated rename commit** (folder → role names, `Lir` →
 `Lir`/`Lir.Oracle`, `GasOracle` → `GasStream`, delete `Trace`). The v1 line should shrink to its
 consumed oracle surface (smell 5.5) rather than keep growing dead mirrors.
 

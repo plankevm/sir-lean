@@ -7,28 +7,28 @@ in `currentplan.md`; this file is the *results* synthesis for a human reader.
 > structural reorg (HEAD `53c2063`); the Lean file homes cited below have MOVED (redirect map:
 > `experiments/005_ir_lowering/docs/headline-transitive-chain.md`):
 > (a) `LirLean/Spec/{IR,Semantics,Lowering,Recorder,Seams,Conformance}` extraction;
-> (b) `experiments/003_bytecode_layer/BytecodeLayer/Hoare/*` + `LirLean/V2/Drive/{SelfPresent,CallPreservesSelf,Headline}` split,
-> `V2/TieDischarge.lean` **DISSOLVED** (headline → `LirLean/V2/Drive/Headline.lean`) and
-> `V2/RunLog.lean` **deleted** (recorder → `LirLean/Spec/Recorder.lean`); (c) Phase-2
-> **deletion** of `V2/{Mono,Oracle,HonestGasTie}.lean` + the gas-monotonicity law;
-> (d) `LirLean/Audit.lean` guard net + `LirLean/V2/RealisabilitySpec.lean` (`Nightly` lib) R0–R12
+> (b) `experiments/003_bytecode_layer/BytecodeLayer/Hoare/*` + `LirLean/Drive/{SelfPresent,CallPreservesSelf,Headline}` split,
+> `TieDischarge.lean` **DISSOLVED** (headline → `LirLean/Drive/Headline.lean`) and
+> `RunLog.lean` **deleted** (recorder → `LirLean/Spec/Recorder.lean`); (c) Phase-2
+> **deletion** of `{Mono,Oracle,HonestGasTie}.lean` + the gas-monotonicity law;
+> (d) `LirLean/Audit.lean` guard net + `LirLean/RealisabilitySpec.lean` (`Nightly` lib) R0–R12
 > sorry-skeleton. Plan-of-record: `experiments/005_ir_lowering/docs/target-architecture-2026-07-02.md`
 > + `execution-plan-2026-07-02.md` (remediation plan superseded); the final audit fleet
 > (`experiments/005_ir_lowering/docs/final-audit-2026-07-03.md`, being written) gates Phase 3.
 >
 > **CORRECTION (2026-07-03, later).** The banner above says the headline was moved to
-> `LirLean/V2/Drive/Headline.lean`. That relocation was **undone**: in commits "delete vacuous
+> `LirLean/Drive/Headline.lean`. That relocation was **undone**: in commits "delete vacuous
 > conformance surface 1/4..4/4" the vacuous headline `lower_conforms_cyclic_assembled` and the whole
 > vacuous apparatus (`_tiefree`, `lower_conforms_wf`, the `lower_conforms_acyclic*` family,
 > `StmtTies`/`TermTies`, the Plus assembly, and the `Spec` re-export layer) were **DELETED**, not
-> moved. `LirLean/V2/RealisabilitySpec.lean` (Nightly, R0–R12; ties DERIVED from the run) is now the
-> **sole conformance surface**; the `Lir.V2.DriveCorrPlus` structure and the value/gas channels in
-> `V2/Drive/Headline.lean` are retained as Phase-3 salvage (unreferenced in the default build). The
+> moved. `LirLean/RealisabilitySpec.lean` (Nightly, R0–R12; ties DERIVED from the run) is now the
+> **sole conformance surface**; the `Lir.DriveCorrPlus` structure and the value/gas channels in
+> `Drive/Headline.lean` are retained as Phase-3 salvage (unreferenced in the default build). The
 > table row / narrative below still name `lower_conforms_cyclic_assembled` as "the current headline"
 > — read that as **historical**.
 >
 > **PHASE 3 (2026-07-04).** Final audit CLEAN (`docs/final-audit-2026-07-03.md`); the R0–R12 proof
-> grind is underway. **13 of ~34 tracked obligations remain** in `LirLean/V2/RealisabilitySpec.lean`:
+> grind is underway. **13 of ~34 tracked obligations remain** in `LirLean/RealisabilitySpec.lean`:
 > CLOSED axiom-clean = R0b, R7a–e, R1 (the "riskiest" gas bridge), R2, R4, R5, R8, R9 + the `exProg`
 > non-vacuity witnesses; OPEN = the two hard leaves R3 (call realisation) + R6 (boundary walk), the
 > assembly (R10a/b, R11 flagship, R11-all, gasfree co-flagship, R12a/b) and RunFromLeft adequacy.
@@ -61,7 +61,7 @@ flat-vs-nested choice is purely about ergonomics/conformance, not correctness.
 |---|---|---|---|
 | **A** | exp003 flat reasoning layer: `Runs` with a `call` constructor, multi-call composition, CFG combinator, opcode rules | **[track-a-review.md](experiments/003_bytecode_layer/docs/track-a-review.md)** ✓ | **Core complete + merged to base** (1130 jobs, axiom-clean). Backlog: gas-introspection, `CREATE`, symbolic worlds |
 | **B** | exp004 nested EVM core: EVMYulLean monomorphized to EVM-only, nested never-`OutOfFuel`, `Ξ`-triple | **[track-b-review.md](experiments/004_nested_evmyul/docs/track-b-review.md)** ✓ | B0 (mono) green; **fully-nested headline `Θ_never_outOfFuel` CLOSED + axiom-clean** (`exp004-nested`) — the 5-layer never-`OutOfFuel` mutual induction over `Θ/Ξ/X/step/call`, plus the `gas_mono` mutual induction and a ~250-line `step`/`Z` depth-preservation keystone, all proved + independently verified. Fuel bound is **LINEAR-PRODUCT** `B(g,e)=(1025−e)·(g+c)` (depth factor; linear in gas) — the earlier *super-linear* estimate was wrong. |
-| **C** | exp005 `LirLean` IR → bytecode lowering + semantics preservation | **[track-c-review.md](experiments/005_ir_lowering/docs/track-c-review.md)**; **[audit-2026-07-02.md](experiments/005_ir_lowering/docs/audit-2026-07-02.md)** + **[target-architecture-2026-07-02.md](experiments/005_ir_lowering/docs/target-architecture-2026-07-02.md)** | **Current headline: `lower_conforms_cyclic_assembled` — a general (arbitrary cyclic CFG) world-conformance theorem that is CONDITIONAL, and whose supplied ties were confirmed UNSATISFIABLE (vacuous as stated).** It *supplies* the per-block `StmtTies`/`TermTies` runtime ties + `hcall` as hypotheses and has **no end-to-end instantiation**; the realisability rebuild follows [target-architecture-2026-07-02.md](experiments/005_ir_lowering/docs/target-architecture-2026-07-02.md) + [execution-plan-2026-07-02.md](experiments/005_ir_lowering/docs/execution-plan-2026-07-02.md) (R0–R12 skeleton in `LirLean/V2/RealisabilitySpec.lean`). Gas is now a **log-fed exact-equality oracle** (monotonicity law dropped; the apparatus was deleted in Phase 2). The v1 `wc_preserves` "hypothesis-free" milestone and the v2 monotone-oracle work below are superseded/historical. |
+| **C** | exp005 `LirLean` IR → bytecode lowering + semantics preservation | **[track-c-review.md](experiments/005_ir_lowering/docs/track-c-review.md)**; **[audit-2026-07-02.md](experiments/005_ir_lowering/docs/audit-2026-07-02.md)** + **[target-architecture-2026-07-02.md](experiments/005_ir_lowering/docs/target-architecture-2026-07-02.md)** | **Current headline: `lower_conforms_cyclic_assembled` — a general (arbitrary cyclic CFG) world-conformance theorem that is CONDITIONAL, and whose supplied ties were confirmed UNSATISFIABLE (vacuous as stated).** It *supplies* the per-block `StmtTies`/`TermTies` runtime ties + `hcall` as hypotheses and has **no end-to-end instantiation**; the realisability rebuild follows [target-architecture-2026-07-02.md](experiments/005_ir_lowering/docs/target-architecture-2026-07-02.md) + [execution-plan-2026-07-02.md](experiments/005_ir_lowering/docs/execution-plan-2026-07-02.md) (R0–R12 skeleton in `LirLean/RealisabilitySpec.lean`). Gas is now a **log-fed exact-equality oracle** (monotonicity law dropped; the apparatus was deleted in Phase 2). The v1 `wc_preserves` "hypothesis-free" milestone and the v2 monotone-oracle work below are superseded/historical. |
 
 Each per-track report argues the design decisions + alternatives — notably **why `call` is
 a `Runs` constructor** (it's what makes the regular-language multi-call composition work)
@@ -77,7 +77,7 @@ and **why the CFG-combinator control-flow design** was chosen over alternatives.
   polymorphism is entirely removed; the nested `Θ/Ξ` is plain EVM — the clean base for the
   bake-off and convergence.
 - **IR→bytecode lowering conformance (Track C) — now a general but CONDITIONAL theorem.**
-  The current headline is `lower_conforms_cyclic_assembled` (`LirLean/V2/Drive/Headline.lean`):
+  The current headline is `lower_conforms_cyclic_assembled` (`LirLean/Drive/Headline.lean`):
   a general (arbitrary cyclic CFG), axiom-clean, gas-free *world*-conformance theorem. It is
   **conditional** — it *supplies* the per-block runtime ties `hstmtties : ∀ L b, StmtTies …`,
   `htermties`, and `hcall : CallPreservesSelf` as hypotheses (the ties are INPUTS, not outputs),

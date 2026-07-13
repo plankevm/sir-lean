@@ -1,7 +1,7 @@
-import LirLean.V2.Realisability.WitnessParams
+import LirLean.Realisability.WitnessParams
 
 /-!
-# LirLean v2 — Realisability spec, SEGMENTED KERNEL EVALUATION (the R12a leaf machinery)
+# LirLean — Realisability spec, SEGMENTED KERNEL EVALUATION (the R12a leaf machinery)
 
 The generic step-composition machinery for discharging the two R12a `Bool` leaves
 (`exCheck = true`, `entryCallsCodeOk exParams 4096 = true`) **in-kernel** — the
@@ -33,7 +33,7 @@ sorry-free and belongs to the same WIP cone as `WitnessParams.lean`.
 
 set_option maxHeartbeats 1000000
 
-namespace Lir.V2
+namespace Lir
 
 open Evm
 open BytecodeLayer
@@ -325,4 +325,4 @@ theorem callsCodeOk_final {k : ℕ} {fr : Frame} {b : Bool}
       dsimp only [] at h ⊢
       injection h
 
-end Lir.V2
+end Lir

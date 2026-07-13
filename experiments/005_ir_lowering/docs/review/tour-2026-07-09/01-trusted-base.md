@@ -47,7 +47,7 @@ This report covers the three trusted/engine strata every other report in the tou
 |---|---|---|
 | **L0a — executable machine** | exp003 [`EVMLean/Evm/`](../../../../003_bytecode_layer/EVMLean/Evm.lean) (`stepFrame`, `drive`, `messageCall`, `decode`, `beginCall`/`beginCreate`, `resumeAfterCall`/`Create`, `seedFuel`) | Empirical: conformance suite (§2) |
 | **L0b — exp003's proved surface** | [`BytecodeLayer/`](../../../../003_bytecode_layer/BytecodeLayer.lean) (`Runs`, `CallReturns`, `CreateReturns`, `messageCall_runs`, fuel monotonicity, gas monotonicity, per-opcode rules) | Proved; axiom table recorded in [results.md](../../../../003_bytecode_layer/docs/results.md) |
-| **L0b′ — shared interpreter proof theory** | [`BytecodeLayer/Hoare/`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean), [`Frame/StorageErase.lean`](../../../LirLean/Frame/StorageErase.lean), [`V2/Drive/CallPreservesSelf.lean`](../../../LirLean/V2/Drive/CallPreservesSelf.lean), the IR-free half of [`Materialise/CleanHaltExtract.lean`](../../../LirLean/Materialise/CleanHaltExtract.lean) | Reusable core folded into exp003; lowering-specific consumers remain in exp005 |
+| **L0b′ — shared interpreter proof theory** | [`BytecodeLayer/Hoare/`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean), [`Frame/StorageErase.lean`](../../../LirLean/Frame/StorageErase.lean), [`Drive/CallPreservesSelf.lean`](../../../LirLean/Drive/CallPreservesSelf.lean), the IR-free half of [`Materialise/CleanHaltExtract.lean`](../../../LirLean/Materialise/CleanHaltExtract.lean) | Reusable core folded into exp003; lowering-specific consumers remain in exp005 |
 
 Engine/proof-layer inventory at the time of this review:
 
@@ -63,7 +63,7 @@ Engine/proof-layer inventory at the time of this review:
 | [`Decode/Modellable.lean`](../../../LirLean/Decode/Modellable.lean) | 462 | Lowering-specific `ModellableStep` producer: `CreateResolves`/`CallsCode` residuals |
 | [`BytecodeLayer/Hoare/StepWalk.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/StepWalk.lean) | 1,336 | THE per-opcode dispatch walk: env-equality + account-presence mono for every `.next` arm |
 | [`Frame/StorageErase.lean`](../../../LirLean/Frame/StorageErase.lean) | 217 | `RBMap.erase` read-back (`findD_erase_self`/`_of_ne`) for the zero-write SSTORE |
-| [`V2/Drive/CallPreservesSelf.lean`](../../../LirLean/V2/Drive/CallPreservesSelf.lean) | 350 | Self-presence forward-closed along `Runs`, reduced to the one precompile seam |
+| [`Drive/CallPreservesSelf.lean`](../../../LirLean/Drive/CallPreservesSelf.lean) | 350 | Self-presence forward-closed along `Runs`, reduced to the one precompile seam |
 | [`Materialise/CleanHaltExtract.lean`](../../../LirLean/Materialise/CleanHaltExtract.lean) | 1,123 (~1,000 IR-free) | Per-opcode OOG/`.next` dichotomies + clean-halt ⟹ gas envelopes (envelope half → [report 04](04-value-channel.md)) |
 
 Total ≈ 6,384 lines; the engine-shaped portion ≈ 6,260 of `LirLean`'s 26,867 — **≈ 23%**,
@@ -252,7 +252,7 @@ The results exp005 leans on, by consumption weight:
   continues to the *same* halt. This single determinism fact powers exp005's forward clean-halt
   splitting ([`cleanHalts_forward`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean#L69)) and the
   halting-terminal uniqueness inside
-  [`conforms_of_worldeq`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L204).
+  [`conforms_of_worldeq`](../../../LirLean/Realisability/RealisabilitySpec.lean#L204).
 
 - **Per-opcode `Runs` rules and post-frame vocabulary** — one rule + one named post-frame per
   lowered opcode, e.g.
@@ -296,7 +296,7 @@ relation with a fuel-free boundary bridge, per-opcode rules, and even multi-call
 verify *hand-written* bytecode, that IS everything: you build the `Runs` forward, rule by rule, and
 cash it in at `messageCall_runs`. The lowering flagship broke the assumption because its statement
 runs in the **opposite direction and at a different granularity**. The flagship
-([`lower_conforms`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L251), reviewed in
+([`lower_conforms`](../../../LirLean/Realisability/RealisabilitySpec.lean#L251), reviewed in
 [report 06](06-realisability.md)) starts from `hrun : runWithLog params (seedFuel params.gas) =
 some log` — an *actual completed `drive` execution* — and must produce an IR run consuming streams
 recorded *from that execution*. Concretely, five things were missing:
@@ -343,8 +343,8 @@ to build:
   [`Decode/Modellable.lean`](../../../LirLean/Decode/Modellable.lean#L450) (§6.2).
 
 **What breaks without it:** the flagship's `Conforms` conjunct — assembled in the closed
-[`conforms_of_worldeq`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L204) and in
-[`cleanHalts_of_runWithLog`](../../../LirLean/V2/Drive/DriveSim.lean#L143) — has no way to get from
+[`conforms_of_worldeq`](../../../LirLean/Realisability/RealisabilitySpec.lean#L204) and in
+[`cleanHalts_of_runWithLog`](../../../LirLean/Drive/DriveSim.lean#L143) — has no way to get from
 the recorded run to the halting `Runs` that everything downstream (terminal uniqueness, observable
 extraction, gas monotonicity) is stated over.
 
@@ -412,7 +412,7 @@ theory (its dispatch walk, `StepsTo.gas_le`, tracks only gas). Exp005 built the 
   because two `drive` exits *roll back* to checkpoints). Of the five closers, four are the
   universally-true walk/inversion facts above; only `hprec` (precompile output maps preserve
   presence) is a genuine seam.
-- [`V2/Drive/CallPreservesSelf.lean`](../../../LirLean/V2/Drive/CallPreservesSelf.lean#L321)
+- [`Drive/CallPreservesSelf.lean`](../../../LirLean/Drive/CallPreservesSelf.lean#L321)
   assembles it all along `Runs`:
 
   ```lean
@@ -421,13 +421,13 @@ theory (its dispatch walk, `StepsTo.gas_le`, tracks only gas). Exp005 built the 
         Evm.beginCall cp = .inr imm → ∀ a, AccPresent a cp.accounts → AccPresent a imm.accounts)
       {fr fr' : Frame} (h : SelfPresent fr) (hruns : Runs fr fr') : SelfPresent fr'
   ```
-  — [`stepPreservesSelf`](../../../LirLean/V2/Drive/CallPreservesSelf.lean#L84) is a **theorem**
+  — [`stepPreservesSelf`](../../../LirLean/Drive/CallPreservesSelf.lean#L84) is a **theorem**
   (no supplied edge), and the CALL/CREATE edges
-  ([`callPreservesSelf_modGuards`](../../../LirLean/V2/Drive/CallPreservesSelf.lean#L214),
-  [`createPreservesSelf_modGuards`](../../../LirLean/V2/Drive/CallPreservesSelf.lean#L300)) reduce
+  ([`callPreservesSelf_modGuards`](../../../LirLean/Drive/CallPreservesSelf.lean#L214),
+  [`createPreservesSelf_modGuards`](../../../LirLean/Drive/CallPreservesSelf.lean#L300)) reduce
   to the single precompile seam `hprec`, exported as
   [`PrecompilesPreservePresence`](../../../LirLean/Spec/Seams.lean#L11) on the flagship surface.
-  ([`SelfPresent`](../../../LirLean/V2/Drive/SelfPresent.lean#L353) itself is recorder-adjacent;
+  ([`SelfPresent`](../../../LirLean/Drive/SelfPresent.lean#L353) itself is recorder-adjacent;
   see [report 04](04-value-channel.md).)
 
 **What breaks without it:** every storage-effecting simulation arm. `sim_sstore` cannot fire at an
@@ -441,7 +441,7 @@ gas-agnostic and call-agnostic — it consumes **oracle streams** (gas reads, ca
 results) — so conformance needs those streams *realised from the actual run*: a Type-valued
 recording interpreter [`runWithLog`](../../../LirLean/Spec/Recorder.lean#L93) mirroring `drive`'s
 recursion, with the adequacy bridge
-[`runWithLog_drive`](../../../LirLean/V2/RecorderLemmas.lean#L138) pinning
+[`runWithLog_drive`](../../../LirLean/RecorderLemmas.lean#L138) pinning
 `runWithLog params f = some log → beginCall params = .inl fr₀ ∧ drive f [] (running fr₀) = .ok
 log.observable`. The recorder is [report 02](02-spec-layer.md)'s territory; it is listed here
 because it is a *machine-shaped* gap: nothing in a Hoare logic, however complete, produces an event
@@ -596,7 +596,7 @@ This is the boundary that determines what a skeptical reader must trust *definit
 what is proof plumbing they may ignore.
 
 **In the statement (trusted vocabulary).** Reading
-[`lower_conforms`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L251) plus the
+[`lower_conforms`](../../../LirLean/Realisability/RealisabilitySpec.lean#L251) plus the
 definitions its hypotheses/conclusion unfold to:
 
 | exp003 export | How it enters the statement |
@@ -641,7 +641,7 @@ transitively):
 [`lower_modellable`](../../../LirLean/Decode/Modellable.lean#L450),
 [`drive_accounts_find_mono`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveMono.lean#L159),
 [`stepFrame_next_accMono`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/StepWalk.lean#L1119),
-[`selfPresent_runs_of_call`](../../../LirLean/V2/Drive/CallPreservesSelf.lean#L337),
+[`selfPresent_runs_of_call`](../../../LirLean/Drive/CallPreservesSelf.lean#L337),
 [`cleanHaltsNonException_forward`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean#L80); on the exp003 side
 [`messageCall_never_outOfFuel`](../../../../003_bytecode_layer/BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean#L144),
 [`drive_fuel_mono`](../../../../003_bytecode_layer/BytecodeLayer/Semantics/Interpreter/Drive.lean#L185),
@@ -725,7 +725,7 @@ reintroducing an exp005 engine directory.
 
 ### 8.5 Namespace fragmentation (cosmetic but real)
 
-The engine theory spans four namespaces — `Lir.V2` (AccountMap, StepWalk, DriveMono, CleanHalt,
+The engine theory spans four namespaces — `Lir` (AccountMap, StepWalk, DriveMono, CleanHalt,
 CallPreservesSelf), `BytecodeLayer.Interpreter` (DriveRuns, Modellable), `Evm`
 (parts of [StepWalk](../../../../003_bytecode_layer/BytecodeLayer/Hoare/StepWalk.lean#L116) and
 [Descent](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Descent.lean#L26)), and `LirLean.MemAlgebra` / `Lir`

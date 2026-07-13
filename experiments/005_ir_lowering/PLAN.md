@@ -2,7 +2,7 @@
 
 > **STATUS BANNER (2026-07-02).** For the CURRENT state read, in order: `docs/audit-2026-07-02.md` (adversarial audit), `docs/remediation-plan-2026-07-02.md` (the fix plan), `docs/gas-decision.md` (gas settled as a log-fed exact-equality oracle). Two corrections that override the dated log below: (1) the current headline is the **CONDITIONAL** cyclic conformance theorem `lower_conforms_cyclic_assembled` — it *supplies* the per-block `StmtTies`/`TermTies` ties and `hcall` as hypotheses; the realisability closure (remediation Phase 3) is pending. (2) Gas became a **log-fed exact-equality oracle** and the gas-monotonicity law was **dropped** (gas-decision.md); gas introspection is NOT a delivered first-class reasoning feature. **The dated progress log below is HISTORICAL** — it records the v1 `wc_preserves` and v2 monotone-oracle iterations that the audit/gas-decision have since superseded.
 
-> **UPDATE (2026-07-03).** Plan of record is now `docs/target-architecture-2026-07-02.md` + `docs/execution-plan-2026-07-02.md` (the remediation plan above is superseded). Two further corrections: (1) the headline's supplied `StmtTies`/`TermTies` were confirmed **unsatisfiable** — the conditional headline is **vacuous as stated**, not merely conditional; (2) Phase 2 **deleted** the gas-law apparatus (`V2/Mono.lean`, `V2/Oracle.lean`, `V2/HonestGasTie.lean`, RunLog's gas-monotonicity section) and narrowed `V2/Law.lean` to the four determinism lemmas. The realisability rebuild is the R0–R12 sorry-skeleton in `LirLean/V2/RealisabilitySpec.lean` (non-default `Nightly` lib), guarded by the new `LirLean/Audit.lean` net.
+> **UPDATE (2026-07-03).** Plan of record is now `docs/target-architecture-2026-07-02.md` + `docs/execution-plan-2026-07-02.md` (the remediation plan above is superseded). Two further corrections: (1) the headline's supplied `StmtTies`/`TermTies` were confirmed **unsatisfiable** — the conditional headline is **vacuous as stated**, not merely conditional; (2) Phase 2 **deleted** the gas-law apparatus (`Mono.lean`, `Oracle.lean`, `HonestGasTie.lean`, RunLog's gas-monotonicity section) and narrowed `Law.lean` to the four determinism lemmas. The realisability rebuild is the R0–R12 sorry-skeleton in `LirLean/RealisabilitySpec.lean` (non-default `Nightly` lib), guarded by the new `LirLean/Audit.lean` net.
 
 > **P9 status note (2026-07-08).** This file predates the Phase 2A deletion pass. The legacy
 > fuel/materialisation APIs (`Expr.slot`, `materialiseExpr`, `materialise`, `recomputeFuel`,
@@ -774,10 +774,10 @@ required for the full single-/multi-call preservation theorem.
 ## v2-proto (2026-06-23) — the call-free v2 prototype (ir-design-v2 §6 step 1), DONE & axiom-clean
 
 Built the **gas-free + observable + gasRead-event** prototype in NEW files
-(`LirLean/V2/Machine.lean`, `LirLean/V2/Preserve.lean`); v1 `wc_preserves` untouched
+(`LirLean/Machine.lean`, `LirLean/Preserve.lean`); v1 `wc_preserves` untouched
 and still green. Full build (v1 + v2) green, zero warnings.
 
-**`LirLean/V2/Machine.lean` — the reformed IR machine (§3).**
+**`LirLean/Machine.lean` — the reformed IR machine (§3).**
 - `World := Word → Word` (self-storage observable lens — IR-native, the seed v1's
   `IRState.storage`/`selfStorage` carried). `IRState := { locals, world }` — **NO gas
   counter, NO pc** (§3.1).
@@ -790,7 +790,7 @@ and still green. Full build (v1 + v2) green, zero warnings.
   `RunStmts`, `RunFrom` (CFG driver; `branch` picks the arm on the runtime cond),
   `IRRun`, and `Observable := { worldDelta, result }` (§4).
 
-**`LirLean/V2/Preserve.lean` — the §4 theorem shape, proved on a concrete example.**
+**`LirLean/Preserve.lean` — the §4 theorem shape, proved on a concrete example.**
 - Example program: `sstore[7]:=5; t3:=sload 7; t5:=add 9 5; t6:=lt 14 100; t7:=gas`
   then `branch t7 (ret t6) (stop)`. Exercises arith + storage + the gasRead event +
   a **gas-dependent** branch to ret/stop — the cheapest program hitting all four.
@@ -863,7 +863,7 @@ Frictions, for `ir-design-v2.md` before the `call`-event step:
 oracle carries (`ir-design-v2.md` §3.4): the `gasRead` values, in program order, are
 **monotone non-increasing**. The call-free prototype (`lower_preserves_obs`) only had a
 single read, which cannot exercise the law (it relates ≥2 reads). New file
-`LirLean/V2/Mono.lean` (prototype + v1 untouched); imported from `LirLean.lean`.
+`LirLean/Mono.lean` (prototype + v1 untouched); imported from `LirLean.lean`.
 
 **The law (IR side, gas-free).** `Trace.gasReads` extracts the `gasRead` values in order;
 `Trace.gasMonotone T := (T.gasReads).IsChain (fun earlier later => later.toNat ≤

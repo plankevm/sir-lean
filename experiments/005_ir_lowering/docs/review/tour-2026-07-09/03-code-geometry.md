@@ -23,7 +23,7 @@ boundary allow-list
 Everything in scope is sorry/axiom/`native_decide`-free (grep-verified; build green reported by
 [the R11 plan checkpoint](../../planning/r11-plan-2026-07-08.md), not re-run); the four `sorry`s
 in this layer's *consumer* (the R6 boundary invariant in
-[`V2/Realisability/Machinery.lean`](../../../LirLean/V2/Realisability/Machinery.lean#L1390)) are
+[`Realisability/Machinery.lean`](../../../LirLean/Realisability/Machinery.lean#L1390)) are
 tracked WIP outside this folder. One headline finding: the layering inversion and `pcOf`
 misplacement that [the 2026-07-06 codebase map](../../codebase-map-2026-07-06.md) flagged have
 since been **fixed in source** — `pcOf` now lives in `Decode/Layout.lean`, and no `Decode/` file
@@ -146,7 +146,7 @@ Upward consumers (who imports the geometry): `Frame/Match` (M1 pin →
 [`Spec/BudgetDerivations.lean`](../../../LirLean/Spec/BudgetDerivations.lean#L4)
 ([02-spec-layer](02-spec-layer.md)),
 [`Decode/Modellable.lean`](../../../LirLean/Decode/Modellable.lean#L2), and the whole
-[`V2/Realisability/`](../../../LirLean/V2/Realisability/Machinery.lean#L2) line
+[`Realisability/`](../../../LirLean/Realisability/Machinery.lean#L2) line
 ([06-realisability](06-realisability.md)).
 
 ## 3. The specs that matter
@@ -364,7 +364,7 @@ fall-through edge. [`decode_reachable_boundary_loweringOp`](../../../LirLean/Dec
 
 **The R11 chunk-1 additions** (commits `763ca84`, `2ce43d1`, `2876a46`, `c760145`, 2026-07-09)
 extend this brick set in three directions, all aimed at the still-`sorry`d R6 edge bricks in
-[`Machinery.lean`](../../../LirLean/V2/Realisability/Machinery.lean#L1364) (B-pc / B-inrange)
+[`Machinery.lean`](../../../LirLean/Realisability/Machinery.lean#L1364) (B-pc / B-inrange)
 and the CALL/CREATE resume edges:
 
 1. **Cursor inversion** ([`BoundaryCursor.lean`](../../../LirLean/Decode/BoundaryCursor.lean),
@@ -449,30 +449,30 @@ and the CALL/CREATE resume edges:
    twin [`stepFrame_needsCreate_lowering_site_inv`](../../../LirLean/Decode/BoundaryReach.lean#L584);
    built on the engine inversions in [`BytecodeLayer/Hoare/Descent.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Descent.lean#L205).)
    This **already closed the B-call brick**: the R6 CALL edge
-   [`atReachableBoundaryVJ_call`](../../../LirLean/V2/Realisability/Machinery.lean#L1416) cites
-   it at [Machinery.lean#L1428](../../../LirLean/V2/Realisability/Machinery.lean#L1428).
+   [`atReachableBoundaryVJ_call`](../../../LirLean/Realisability/Machinery.lean#L1416) cites
+   it at [Machinery.lean#L1428](../../../LirLean/Realisability/Machinery.lean#L1428).
 
 **What they feed.** The consumer is R6, assembled in
-[`Machinery.lean`](../../../LirLean/V2/Realisability/Machinery.lean#L1519): invariant
-[`AtReachableBoundaryVJ`](../../../LirLean/V2/Realisability/Machinery.lean#L1345)
+[`Machinery.lean`](../../../LirLean/Realisability/Machinery.lean#L1519): invariant
+[`AtReachableBoundaryVJ`](../../../LirLean/Realisability/Machinery.lean#L1345)
 (`AtReachableBoundary` + a pinned `validJumps` table, without which the taken-jump arm is
-unprovable), seed [`atReachableBoundaryVJ_entry`](../../../LirLean/V2/Realisability/Machinery.lean#L1352),
-edges [`_step`](../../../LirLean/V2/Realisability/Machinery.lean#L1372) /
-[`_call`](../../../LirLean/V2/Realisability/Machinery.lean#L1416) /
-[`_create`](../../../LirLean/V2/Realisability/Machinery.lean#L1462), combinator
-[`_of_runs`](../../../LirLean/V2/Realisability/Machinery.lean#L1472), headline
-[`runs_atReachableBoundary`](../../../LirLean/V2/Realisability/Machinery.lean#L1519). In the
+unprovable), seed [`atReachableBoundaryVJ_entry`](../../../LirLean/Realisability/Machinery.lean#L1352),
+edges [`_step`](../../../LirLean/Realisability/Machinery.lean#L1372) /
+[`_call`](../../../LirLean/Realisability/Machinery.lean#L1416) /
+[`_create`](../../../LirLean/Realisability/Machinery.lean#L1462), combinator
+[`_of_runs`](../../../LirLean/Realisability/Machinery.lean#L1472), headline
+[`runs_atReachableBoundary`](../../../LirLean/Realisability/Machinery.lean#L1519). In the
 tree under review that assembly still carries **four `sorry`s** — B-pc
-([L1390](../../../LirLean/V2/Realisability/Machinery.lean#L1390)), B-inrange step
-([L1398](../../../LirLean/V2/Realisability/Machinery.lean#L1398)), B-inrange call
-([L1431](../../../LirLean/V2/Realisability/Machinery.lean#L1431)), and the whole CREATE edge
-([L1464](../../../LirLean/V2/Realisability/Machinery.lean#L1464)). The
+([L1390](../../../LirLean/Realisability/Machinery.lean#L1390)), B-inrange step
+([L1398](../../../LirLean/Realisability/Machinery.lean#L1398)), B-inrange call
+([L1431](../../../LirLean/Realisability/Machinery.lean#L1431)), and the whole CREATE edge
+([L1464](../../../LirLean/Realisability/Machinery.lean#L1464)). The
 [R11 plan checkpoint](../../planning/r11-plan-2026-07-08.md) reports B-pc and the CALL
 in-range closed in a box run (commits `ff825e3`/`9d45927`) **not present in this local tree**
 (verified: `ff825e3` is not a local object). Consequently, in *this* tree the chunk-1 items
 (1)–(3) above are **staged, unconsumed leaves**: `LowerBoundaryCursor`, the `reachesBoundary_local_*`
 family and the entire `NoCallCreateOp` tower have zero consumers outside `Decode/` (only the
-`import` at [Machinery.lean#L2](../../../LirLean/V2/Realisability/Machinery.lean#L2) anticipates
+`import` at [Machinery.lean#L2](../../../LirLean/Realisability/Machinery.lean#L2) anticipates
 them). The plan's own rule applies: "Support lemmas do not count as progress until a named WIP
 `sorry` consumes them; delete or private-ize unused support at the next green checkpoint."
 
@@ -564,7 +564,7 @@ intact.
   2. **Stale-count residue:** the folder itself is clean (the "16 lowering opcodes" comments the
      [codebase map §5.12](../../codebase-map-2026-07-06.md) flagged now correctly say 18), but
      one survivor sits in the consumer:
-     [Machinery.lean#L1385](../../../LirLean/V2/Realisability/Machinery.lean#L1385) still says
+     [Machinery.lean#L1385](../../../LirLean/Realisability/Machinery.lean#L1385) still says
      "the 16 `IsLoweringOp` arms". Also pending: the
      [R11 plan's CREATE2-only decision](../../planning/r11-plan-2026-07-08.md) will delete the
      `Byte.create` branch of [`emitStmt`](../../../LirLean/Spec/Lowering.lean#L114), shrinking

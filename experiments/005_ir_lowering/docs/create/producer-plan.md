@@ -1,7 +1,7 @@
 # The coupled run-producer `runFrom_of_driveCorrLog` — proof plan
 
 Date: 2026-07-05. Worktree `.worktrees/producer`, branch `exp005-producer`.
-Skeleton: `LirLean/V2/Realisability/Producer.lean` (WIP lib; `lake build WIP` green;
+Skeleton: `LirLean/Realisability/Producer.lean` (WIP lib; `lake build WIP` green;
 default `LirLean` stays green + sorry-free).
 
 This is the terminal R11 obligation of the whole experiment: the coupled run-producer the
@@ -12,7 +12,7 @@ at `RealisabilitySpec.lean:224-248` as "THE BLOCKER (Route-A, NOT a citable leaf
 ## 0. Why it is NOT assembly over citable leaves (the two verbatim reasons)
 
 * **(a) unconditional `SimStmtStep` is unsatisfiable under the reshape.** The only in-tree
-  run-producer `lower_conforms_cyclic'` (`V2/Drive/DriveSim.lean:672`) consumes an
+  run-producer `lower_conforms_cyclic'` (`Drive/DriveSim.lean:672`) consumes an
   ALL-FRAMES, coupling-free `SimStmtStep` (`Sim/SimStmts.lean:66`): for ANY `EvalStmt` at any
   `Corr` frame it must yield a `Runs` re-establishing `Corr`. The reshaped `StmtTies'`
   (`Surface.lean:640`) concludes its arms ONLY under the load-bearing `RecorderCoupled`

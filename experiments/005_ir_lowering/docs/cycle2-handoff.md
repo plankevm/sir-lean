@@ -128,7 +128,7 @@ The `.success` shape of `CallPreservesSelf` is **DISCHARGED engine-level**.
    the supplied segment `Runs fr0 fr0'` covers the WHOLE statement (GAS;PUSH;MSTORE),
    but the brick only gives `Runs fr0 (gasFrame fr0)`; continuing the walk needs
    `Runs (gasFrame fr0) fr0'` — i.e. factoring `Runs fr0 fr0'` at the prefix.
-   No frame-level Runs determinism exists (only EvalStmt/RunStmts in V2/Law.lean).
+   No frame-level Runs determinism exists (only EvalStmt/RunStmts in Law.lean).
    Building it is a separate spine-magnitude task.
 3. **GAS S3 trace↔recorder bridge:** the carried trace↔gasAcc invariant + witness
    pairing. Ripples DriveCorrPlus + all consumers if folded into the struct;

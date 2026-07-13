@@ -2,7 +2,7 @@
 
 Files audited (read in full, all decl bodies of load-bearing/questionable lemmas):
 
-- `LirLean/V2/RealisabilitySpec.lean` (3874 LOC) — the WIP-only Phase-3 realisability
+- `LirLean/RealisabilitySpec.lean` (3874 LOC) — the WIP-only Phase-3 realisability
   spec skeleton; sole root of the non-default `WIP` lean_lib; the tree's **only**
   sorry-carrier. Imported by nobody (`grep -rn RealisabilitySpec LirLean/` finds only
   docstring mentions, never an `import`; `lakefile.lean:31-32` roots the `WIP` lib at it).
@@ -10,7 +10,7 @@ Files audited (read in full, all decl bodies of load-bearing/questionable lemmas
   LAST by the `LirLean` root (`LirLean.lean:52-53`, `import LirLean.Audit` "MUST stay last").
 
 These two files are grouped because both concern the flagship: `RealisabilitySpec.lean`
-*hosts* the flagship-in-progress `Lir.V2.lower_conforms`; `Audit.lean` pins the salvage
+*hosts* the flagship-in-progress `Lir.lower_conforms`; `Audit.lean` pins the salvage
 layer's axiom footprint and is the file where the flagship signature will be frozen once
 R11 lands (`Audit.lean:21-24`). They do NOT import each other.
 
@@ -18,7 +18,7 @@ R11 lands (`Audit.lean:21-24`). They do NOT import each other.
 
 ## Ground truth verified against the grounding brief
 
-- **Flagship** = `Lir.V2.lower_conforms` at `RealisabilitySpec.lean:3705`. Confirmed
+- **Flagship** = `Lir.lower_conforms` at `RealisabilitySpec.lean:3705`. Confirmed
   verbatim. Conclusion `∃ O, RunFrom prog (entryState params) (realisedGas log)
   (realisedCall log params.recipient) prog.entry O ∧ Conforms params.recipient log O`
   (:3715-3718). `Conforms` (:155) compares **world AND result** (foundation
@@ -39,7 +39,7 @@ R11 lands (`Audit.lean:21-24`). They do NOT import each other.
 
 ---
 
-## Per-file section 1: `LirLean/V2/RealisabilitySpec.lean`
+## Per-file section 1: `LirLean/RealisabilitySpec.lean`
 
 **Purpose** (grounded in the module header :5-103 + `docs/target-architecture-2026-07-02.md`):
 the reviewable Phase-3 target-statement skeleton. Every `def`/`structure`/`inductive` is
@@ -197,12 +197,12 @@ into a hard build error. Must stay the LAST import of the `LirLean` root (`LirLe
 | item | kind | role |
 |---|---|---|
 | header docstring :8-24 | doc | records the 2026-07-03 removal of the vacuous flagship surface (`lower_conforms_cyclic_assembled`/`_tiefree`, `Lir.lower_conforms_wf`, `Lir.Spec` re-export); notes plan-of-record surface is now `RealisabilitySpec.lean`, signature to be frozen here once R11 proven |
-| `#print axioms Lir.V2.callPreservesSelf_modGuards` | guard :27-29 | terminal-for-audit: pins `[propext, Classical.choice, Quot.sound]` |
+| `#print axioms Lir.callPreservesSelf_modGuards` | guard :27-29 | terminal-for-audit: pins `[propext, Classical.choice, Quot.sound]` |
 | `#print axioms Lir.materialise_runs_of_cleanHalt` | guard :31-33 | terminal-for-audit |
-| `#print axioms Lir.V2.cleanHalts_of_runWithLog` | guard :35-37 | terminal-for-audit |
+| `#print axioms Lir.cleanHalts_of_runWithLog` | guard :35-37 | terminal-for-audit |
 | `#print axioms Lir.jump_landing_of_cleanHalt` | guard :39-41 | terminal-for-audit |
 | `#print axioms Lir.branch_landing_of_cleanHalt` | guard :43-45 | terminal-for-audit |
-| `#print axioms Lir.V2.stepPreservesSelf` | guard :47-49 | terminal-for-audit |
+| `#print axioms Lir.stepPreservesSelf` | guard :47-49 | terminal-for-audit |
 | `#print axioms Lir.sim_assign_sload_lowered` | guard :51-53 | terminal-for-audit |
 | `#print axioms Lir.Spec.callPreservesSelf_of_precompiles` | guard :60-62 | terminal-for-audit: the surviving `Lir.Spec` precompile-self seam forwarder |
 
@@ -219,7 +219,7 @@ here obligation-by-obligation as sorries land.
 ### Entry edges (imports INTO this cluster)
 
 `RealisabilitySpec.lean` imports (`:1-3`):
-- **`LirLean.V2.Drive.Headline`** — pulls in the whole cyclic drive spine: `runWithLog`,
+- **`LirLean.Drive.Headline`** — pulls in the whole cyclic drive spine: `runWithLog`,
   `runWithLog_drive`, `runs_of_drive_ok`, `driveLog`, `Runs`, `RunFrom`, `RunStmts`,
   `EvalStmt`, `Corr`, `CleanHaltsNonException`, `SelfPresent`, `lower_modellable`,
   `cleanHalts_of_runWithLog`, `materialise_runs_of_cleanHalt`,
@@ -234,7 +234,7 @@ here obligation-by-obligation as sorries land.
   `lower_eq_flatBytes` (used only by the R6 geometry track, §5).
 
 `Audit.lean` imports (`:1-6`): `LowerConforms`, `LowerDecode`, `MaterialiseCleanHalt`,
-`V2.DriveSim`, `V2.Drive.CallPreservesSelf`, `Spec.Seams` — the modules whose decls it
+`Lir.DriveSim`, `Lir.Drive.CallPreservesSelf`, `Spec.Seams` — the modules whose decls it
 guards. It adds no decls of its own.
 
 ### Exit edges (imports OUT of this cluster)
@@ -295,7 +295,7 @@ block of ~20 `private` witness lemmas plus 2 exported R9 theorems. Its only exit
 rest of the file are `wellLowered_exProg` (→ `wellLowered_check_exists`, `exProg_nonvacuity`)
 and `exProg` itself (→ R12). Everything else (`exBlk*`, `blockAt_exProg*`, `rankExProg`,
 the 8 `*_exProg` field lemmas) is `private` and referenced only within the block. Extracting
-`§6` into e.g. `V2/RealisabilitySpecWitness.lean` (imported back) is a pure relocation that
+`§6` into e.g. `RealisabilitySpecWitness.lean` (imported back) is a pure relocation that
 would cut the flagship file roughly in half. Grounding-aligned
 (`docs/lirlean-dag-2026-07-04.md:174-193`). Reorg, not deletion.
 

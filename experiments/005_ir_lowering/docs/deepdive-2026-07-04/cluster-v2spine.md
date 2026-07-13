@@ -1,14 +1,14 @@
 # Deep-dive cluster: the V2 spine + Drive walk (2026-07-04)
 
-Scope: `LirLean/V2/{Law,IRRun,Call,CallRealises,Modellable,DriveSim}.lean` and
-`LirLean/V2/Drive/{SelfPresent,CallPreservesSelf,Headline}.lean`.
+Scope: `LirLean/{Law,IRRun,Call,CallRealises,Modellable,DriveSim}.lean` and
+`LirLean/Drive/{SelfPresent,CallPreservesSelf,Headline}.lean`.
 
 Read-only audit. Every classification below is grounded in a repo-wide grep of the decl name
 (`grep -rn <name> LirLean/ --include='*.lean'`, comment lines stripped) plus the proof plan.
 Roles used:
 
 - **terminal-for-flagship** — consumed in the *code* (not just docstring) of the flagship
-  `Lir.V2.lower_conforms` (`V2/RealisabilitySpec.lean`) or of a `Spec/Seams.lean` forwarder it cites.
+  `Lir.lower_conforms` (`RealisabilitySpec.lean`) or of a `Spec/Seams.lean` forwarder it cites.
 - **terminal-for-audit** — `#print axioms`'d in `Audit.lean` (axiom-footprint guard).
 - **incremental-toward-X** — proven, currently no code caller, but the header/plan names the future
   connection X (default classification per the audit hard-rules).
@@ -29,7 +29,7 @@ Two global facts anchoring the whole cluster (both machine-verified here):
 
 ---
 
-## 1. `V2/Law.lean` — IR-run determinism (frame-free)
+## 1. `Law.lean` — IR-run determinism (frame-free)
 
 Purpose: the "*the* observable" uniqueness half (`docs/ir-design-v3.md` §4 item 2). Structural
 induction ladder `EvalStmt.det → RunStmts.det → RunFrom.det → IRRun.det`. Imports only
@@ -40,7 +40,7 @@ induction ladder `EvalStmt.det → RunStmts.det → RunFrom.det → IRRun.det`. 
 | `EvalStmt.det` (34) | theorem | shared-infra (uniqueness ladder rung) | `RunStmts.det` (Law:71) only |
 | `RunStmts.det` (62) | theorem | shared-infra | `RunFrom.det` (Law:89,106,…) only |
 | `RunFrom.det` (80) | theorem | shared-infra | `IRRun.det` (Law:170) only |
-| `IRRun.det` (167) | theorem | scaffold-support for the worked example | `V2/Call.lean:140` (`call_IRRun_unique`); docstring in `LowerConforms.lean:1159,1185` |
+| `IRRun.det` (167) | theorem | scaffold-support for the worked example | `Call.lean:140` (`call_IRRun_unique`); docstring in `LowerConforms.lean:1159,1185` |
 
 Assessment: the determinism ladder is a self-contained, closed, axiom-clean unit whose only live
 external consumer is the worked call example (`Call.lean`). It is the "uniqueness" counterpart to
@@ -49,7 +49,7 @@ grounding in `LowerConforms` — but its footprint outside `Call.lean` is docume
 
 ---
 
-## 2. `V2/IRRun.lean` — IR-run existence ladder + `CFGAcyclic` (frame-free)
+## 2. `IRRun.lean` — IR-run existence ladder + `CFGAcyclic` (frame-free)
 
 Purpose: the constructive "existence" half of `hir` for the gas-free/call-free fragment: single
 halt-block base cases, then the general **acyclic** CFG via a static block-rank `CFGAcyclic`. The
@@ -85,7 +85,7 @@ on as load-bearing shape in the DriveSim per-block bricks.
 
 ---
 
-## 3. `V2/Call.lean` — worked external-`Stmt.call` example (frame-free)
+## 3. `Call.lean` — worked external-`Stmt.call` example (frame-free)
 
 Purpose: a hand-assembled one-block program with one external CALL, demonstrating the §7 call
 channel (pop the call-stream head, apply as state change) and the "*the* observable" shape on the
@@ -109,9 +109,9 @@ a headline dependency. Note it imports `DefsSound` (bytecode-side) only for the 
 
 ---
 
-## 4. `V2/CallRealises.lean` — the call realisability bridge (bytecode-coupled)
+## 4. `CallRealises.lean` — the call realisability bridge (bytecode-coupled)
 
-Purpose: realise an abstract `V2.CallStream` entry by v1's concrete `evmCallOracle` — the call
+Purpose: realise an abstract `Lir.CallStream` entry by v1's concrete `evmCallOracle` — the call
 analogue of the deleted gas-side `Oracle.lean` `monotoneGas`. Shows the recorded `(world',success)`
 entry equals the lowered CALL's observable effect by construction.
 
@@ -161,7 +161,7 @@ graduation of the pure `stepFrame`-signal algebra to exp003.
 
 ---
 
-## 6. `V2/DriveSim.lean` — cyclic-CFG drive walk (F1–F3, bytecode-coupled)
+## 6. `DriveSim.lean` — cyclic-CFG drive walk (F1–F3, bytecode-coupled)
 
 Purpose: replace `IRRun.lean`'s static `CFGAcyclic` rank with the **dynamic bytecode `totalGas`**
 measure that descends per block regardless of CFG cycles, and glue per-block steps into a whole IR
@@ -198,7 +198,7 @@ capstone — but it is load-bearing (F3 ties the constructed `RunFrom` to the by
 
 ---
 
-## 7. `V2/Drive/SelfPresent.lean` — value-channel discharges + `SelfPresent`
+## 7. `Drive/SelfPresent.lean` — value-channel discharges + `SelfPresent`
 
 Purpose: the recorder/IR-coupled value-channel bridges (CALL/GAS/SLOAD) plus the SSTORE-presence
 world invariant `SelfPresent` (§1–§5 of the former `TieDischarge.lean`).
@@ -238,7 +238,7 @@ clear redundancy (a zero-caller re-export of `realisedCall_cons`).
 
 ---
 
-## 8. `V2/Drive/CallPreservesSelf.lean` — `SelfPresent` forward-closed along `Runs`
+## 8. `Drive/CallPreservesSelf.lean` — `SelfPresent` forward-closed along `Runs`
 
 Purpose: transport `SelfPresent` across a whole `Runs` segment (step edges + returning-CALL resume
 nodes), reducing the chain to the single supplied seam `hprec` (precompile no-erase).
@@ -261,7 +261,7 @@ exported to the flagship two ways: `callPreservesSelf_modGuards` → `Spec.callP
 
 ---
 
-## 9. `V2/Drive/Headline.lean` — `DriveCorrPlus` carrier + value/gas channels
+## 9. `Drive/Headline.lean` — `DriveCorrPlus` carrier + value/gas channels
 
 Purpose: the strengthened boundary invariant `DriveCorrPlus` (alignment + presence carrier over
 `DriveCorr`) plus the cursor-local value/gas-channel lemmas. The header (Headline:17-25) records

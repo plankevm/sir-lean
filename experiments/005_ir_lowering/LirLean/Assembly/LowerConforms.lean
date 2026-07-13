@@ -1,22 +1,24 @@
 import LirLean.Assembly.LowerDecode
 import LirLean.Materialise.CleanHaltExtract
 
+open Lir.Frame
+
 /-!
 # LirLean — `sim_cfg` (Layer **F**: whole-CFG world-channel simulation)
 
 The capstone of the **world-channel** simulation grind (general over calls): it threads the
 per-block bricks of Layers C–E into a whole-CFG simulation `sim_cfg` (:983), by induction on
-`V2.RunFrom`, abstracted over the per-block `SimStmtStep`/`SimTermStep` ties.
+`Lir.RunFrom`, abstracted over the per-block `SimStmtStep`/`SimTermStep` ties.
 
 This file's payoff is `sim_cfg`. The tie from `sim_cfg` to the instrumented recording interpreter
 `runWithLog` — the actual conformance headline — is **NOT** here: the local `lower_conforms` that
 once closed that tie was deleted in the vacuous-ties purge (b144af8). The LIVE flagship is
-`lower_conforms` at `V2/Realisability/RealisabilitySpec.lean:206` (R11); see the §-block at the
+`lower_conforms` at `Realisability/RealisabilitySpec.lean:206` (R11); see the §-block at the
 bottom of this file.
 
 ## The two structured per-block hypotheses
 
-The induction is on `V2.RunFrom`, the IR CFG driver. Each constructor runs a block's
+The induction is on `Lir.RunFrom`, the IR CFG driver. Each constructor runs a block's
 statement list and then its terminator. The statement-list simulation is Layer D
 (`sim_stmts_block`); the terminator simulation is Layer E (`sim_term_halt_*` /
 `sim_term_edge_*`). Rather than re-thread Layers D and E's *enormous* per-block structured
@@ -54,7 +56,7 @@ is the value-free `.stopped` boundary (the RETURN value channel is the tracked d
 `observe self (endFrame last halt)`.
 
 No `sorry`, no `axiom`, no `native_decide`. Bytecode-coupled (imports the Layer-E bricks);
-nothing here touches `Spec/Semantics.lean` / `V2/Law.lean` (the frame-free spine).
+nothing here touches `Spec/Semantics.lean` / `Law.lean` (the frame-free spine).
 -/
 
 namespace Lir
@@ -65,12 +67,12 @@ open BytecodeLayer.System
 open BytecodeLayer.Hoare
 open BytecodeLayer.Interpreter
 open BytecodeLayer.Dispatch
-open Lir.V2
+open Lir
 
 /-! ## The per-terminator simulation hypothesis `SimTermStep`
 
 `SimTermStep prog sloadChg obs self L b` packages Layer E's call-free conclusion uniformly
-over the four IR terminators, matching `V2.RunFrom`'s constructor shape. It is what the CFG
+over the four IR terminators, matching `Lir.RunFrom`'s constructor shape. It is what the CFG
 induction consumes after Layer D has run the block's statements to the terminator cursor.
 
 Two productions, exactly E1's and E2's conclusions:
@@ -102,14 +104,14 @@ structure SimTermStep (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
     (selfAddr : AccountAddress) (L : Label) (b : Block) : Prop where
   /-- **Halt arm** (`stop` / `ret`). From `Corr` at the terminator cursor and a halting IR
   terminator with halt-world `wHalt` (`st'.world`), a halting frame matching the world. -/
-  halt : ∀ (st' : V2.IRState) (frT : Frame),
+  halt : ∀ (st' : Lir.IRState) (frT : Frame),
     Corr prog sloadChg obs (fun _ => False) st' frT L b.stmts.length →
     (b.term = .stop ∨ ∃ t, b.term = .ret t) →
     ∃ last haltSig, Runs frT last ∧ stepFrame last = .halted haltSig
       ∧ (observe selfAddr (endFrame last haltSig)).world = st'.world
   /-- **Edge arm** (`jump` / `branch`). From `Corr` at the terminator cursor and the
   IR-resolved successor `succ` of the edge, a frame at `succ`'s entry re-establishing `Corr`. -/
-  edge : ∀ (st' : V2.IRState) (frT : Frame) (succ : Label),
+  edge : ∀ (st' : Lir.IRState) (frT : Frame) (succ : Label),
     Corr prog sloadChg obs (fun _ => False) st' frT L b.stmts.length →
     (b.term = .jump succ
       ∨ (∃ cond elseL cw, b.term = .branch cond succ elseL
@@ -233,7 +235,7 @@ realisability ties, and the Route-B tail's realisability. The genuine runtime ca
 (the analogue of `SstoreRealises`), supplied per cursor and quantified over the corresponding
 frame. -/
 def CallRealises (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
-    (L : Label) (pc : Nat) (cs : CallSpec) (st0 st0' : V2.IRState) (fr0 : Frame) : Prop :=
+    (L : Label) (pc : Nat) (cs : CallSpec) (st0 st0' : Lir.IRState) (fr0 : Frame) : Prop :=
   Corr prog sloadChg obs (fun _ => False) st0 fr0 L pc →
   ∃ (result : Evm.CallResult) (pd : Evm.PendingCall) (callFr resumeFr : Frame) (argsLen : Nat),
     -- the per-step scoping of the call statement (the §7 call scoping):
@@ -296,7 +298,7 @@ call-stream head IS this call's recorded result, so the tie alone (not the abstr
 own head) supplies the effect `sim_call_stmt` re-establishes. -/
 theorem simStmtStep_call {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {L : Label} {b : Block} {pc : Nat} {cs : CallSpec}
-    {st0 st0' : V2.IRState} {fr0 : Frame}
+    {st0 st0' : Lir.IRState} {fr0 : Frame}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hget : b.stmts[pc]? = some (.call cs))
     (hwf : WellFormedLowered prog)
@@ -342,7 +344,7 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     (hdc : DefsConsistent prog) (hord : DefEnvOrdered prog)
     -- the genuine **rematerialised** `assign`-cursor ties (target not spilled; post-state
     -- realisability at the unchanged frame — empty emit ⇒ `Runs.refl`):
-    (hassign : ∀ (pc : Nat) (t : Tmp) (e : Expr) (st0 st0' : V2.IRState) (fr0 : Frame),
+    (hassign : ∀ (pc : Nat) (t : Tmp) (e : Expr) (st0 st0' : Lir.IRState) (fr0 : Frame),
         b.stmts[pc]? = some (.assign t e) →
         Corr prog sloadChg obs (fun _ => False) st0 fr0 L pc →
         (∀ n, defsOf prog t ≠ some (.slot n))
@@ -364,13 +366,13 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     -- NOT gas-derivable; the stack goes up and down over the materialise so the peak bound is not a
     -- charge-accumulation), the **activeWords-flatness** `hawk` (materialising the key expanded no
     -- memory — a memory-shape fact, not clean-halt-derivable), and the post-state scoping.
-    (hsloadassign : ∀ (pc : Nat) (t k : Tmp) (w : Word) (st0 : V2.IRState) (fr0 : Frame),
+    (hsloadassign : ∀ (pc : Nat) (t k : Tmp) (w : Word) (st0 : Lir.IRState) (fr0 : Frame),
         b.stmts[pc]? = some (.assign t (.sload k)) →
         Corr prog sloadChg obs (fun _ => False) st0 fr0 L pc →
         defsOf prog t = some (.slot (slotOf t))
         ∧ StepScoped prog st0 (.assign t (.sload k))
         ∧ (∀ tw slot', defsOf prog tw = some (.slot slot') → slot' = slotOf tw)
-        ∧ V2.evalExpr st0 0 (.sload k) = some w
+        ∧ Lir.evalExpr st0 0 (.sload k) = some w
         ∧ (∀ t', (st0.setLocal t w).locals t' ≠ none →
               (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
               ∧ defsOf prog t' ≠ none)
@@ -380,7 +382,7 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         ∧ fr0.exec.stack.size + (chargeCache prog sloadChg k).length ≤ 1024
         -- the activeWords-flatness `hawk` at the post-materialise frame (a memory-shape fact):
         ∧ (∀ frk : Frame,
-            V2.MatRunsC prog sloadChg (.tmp k)
+            Lir.MatRunsC prog sloadChg (.tmp k)
                 (match st0.locals k with | some keyVal => keyVal | none => 0) fr0 frk →
             frk.exec.toMachineState.activeWords = fr0.exec.toMachineState.activeWords))
     -- the genuine **spilled gas** `assign t .gas`-cursor ties (Phase B, P1): the gas value lives
@@ -393,7 +395,7 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     -- honest residual: the slot registration, the **positional gas value tie** `ob = ofUInt64
     -- (fr0.gas − Gbase)` (the realised one-read `GAS` output — no `∀`-frames, no constancy), the
     -- addressability + pc-bound, and the post-state scoping/SLOAD ties:
-    (hgasassign : ∀ (pc : Nat) (t : Tmp) (ob : Word) (st0 : V2.IRState) (fr0 : Frame),
+    (hgasassign : ∀ (pc : Nat) (t : Tmp) (ob : Word) (st0 : Lir.IRState) (fr0 : Frame),
         b.stmts[pc]? = some (.assign t .gas) →
         Corr prog sloadChg obs (fun _ => False) st0 fr0 L pc →
         defsOf prog t = some (.slot (slotOf t))
@@ -407,7 +409,7 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         ∧ ((slotOf t) + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
           ∧ pcOf prog L pc + 34 < 2 ^ 32))
     -- the genuine `sstore`-cursor ties (the §7 supplied-observation contract):
-    (hsstore : ∀ (pc : Nat) (key value : Tmp) (kw vw : Word) (st0 : V2.IRState) (fr0 : Frame),
+    (hsstore : ∀ (pc : Nat) (key value : Tmp) (kw vw : Word) (st0 : Lir.IRState) (fr0 : Frame),
         b.stmts[pc]? = some (.sstore key value) →
         Corr prog sloadChg obs (fun _ => False) st0 fr0 L pc →
         st0.locals key = some kw → st0.locals value = some vw →
@@ -419,7 +421,7 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         ∧ (∃ acc, SstoreRealises fr0 kw vw acc))
     -- the genuine `call`-cursor tie (the §7 realised-CALL trace), keyed on the step post-state
     -- `st0'` (the consumed call-stream head's effect — the positional multi-call pin):
-    (hcallties : ∀ (pc : Nat) (cs : CallSpec) (st0 st0' : V2.IRState) (fr0 : Frame),
+    (hcallties : ∀ (pc : Nat) (cs : CallSpec) (st0 st0' : Lir.IRState) (fr0 : Frame),
         b.stmts[pc]? = some (.call cs) →
         CallRealises prog sloadChg obs L pc cs st0 st0' fr0)
     -- CREATE is create-free here (first landing): the `.create` reflection (`sim_create` +
@@ -529,7 +531,7 @@ theorem simTermStep_stop {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     (hterm : b.term = .stop)
     (hbound : termOf prog L < 2 ^ 32)
     -- the genuine top-level-frame facts at any terminator-cursor frame in `Corr`:
-    (hframe : ∀ (st' : V2.IRState) (frT : Frame),
+    (hframe : ∀ (st' : Lir.IRState) (frT : Frame),
         Corr prog sloadChg obs (fun _ => False) st' frT L b.stmts.length →
         self = frT.exec.executionEnv.address
         ∧ (∃ cp, frT.kind = .call cp)
@@ -584,7 +586,7 @@ theorem simTermStep_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     -- def-env well-formedness (routes the ret operand through `matCache_unfold`):
     (hdc : DefsConsistent prog) (hord : DefEnvOrdered prog)
     -- the genuine value-channel RETURN-site ties (the §7 contract) at any terminator-cursor frame:
-    (hties : ∀ (st' : V2.IRState) (frT : Frame),
+    (hties : ∀ (st' : Lir.IRState) (frT : Frame),
         Corr prog sloadChg obs (fun _ => False) st' frT L b.stmts.length →
         self = frT.exec.executionEnv.address
         ∧ (∃ vw, st'.locals t = some vw)
@@ -661,7 +663,7 @@ theorem simTermStep_jump {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     -- `validJumps`-recording tie is no longer carried — it is discharged structurally inside
     -- `sim_term_edge_jump_lowered` from `Corr` (frame-invariant `validJumps = validJumpDests
     -- code 0` + `code = lower prog`).
-    (hties : ∀ (st' : V2.IRState) (frT : Frame),
+    (hties : ∀ (st' : Lir.IRState) (frT : Frame),
         Corr prog sloadChg obs (fun _ => False) st' frT L b.stmts.length →
         3 ≤ frT.exec.gasAvailable.toNat
         ∧ GasConstants.Gmid ≤ (pushFrameW frT
@@ -723,10 +725,10 @@ theorem simTermStep_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word
     (helselt : elseL.idx < prog.blocks.size)
     -- the genuine control-flow ties at any terminator-cursor frame, parametrised over the
     -- runtime condition word `cw` and the cond-materialise endpoint `frc`:
-    (hties : ∀ (st' : V2.IRState) (frT : Frame) (cw : Word),
+    (hties : ∀ (st' : Lir.IRState) (frT : Frame) (cw : Word),
         Corr prog sloadChg obs (fun _ => False) st' frT L b.stmts.length →
         st'.locals cond = some cw →
-        ∃ frc, V2.MatRunsC prog sloadChg (.tmp cond) cw frT frc
+        ∃ frc, Lir.MatRunsC prog sloadChg (.tmp cond) cw frT frc
           ∧ 3 ≤ frc.exec.gasAvailable.toNat
           ∧ GasConstants.Ghigh ≤ (pushFrameW frc
               (UInt256.ofNat ((offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx) % 2^32))
@@ -808,13 +810,13 @@ theorem simTermStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         ∃ b', prog.blocks.toList[L'.idx]? = some b' ∧ L'.idx < prog.blocks.size)
     -- the genuine §7 ties, dispatched on the terminator shape:
     (hstop : b.term = .stop →
-        ∀ (st' : V2.IRState) (frT : Frame),
+        ∀ (st' : Lir.IRState) (frT : Frame),
           Corr prog sloadChg obs (fun _ => False) st' frT L b.stmts.length →
           self = frT.exec.executionEnv.address
           ∧ (∃ cp, frT.kind = .call cp)
           ∧ ¬ (frT.exec.accounts == ∅) = true)
     (hretties : ∀ t, b.term = .ret t →
-        ∀ (st' : V2.IRState) (frT : Frame),
+        ∀ (st' : Lir.IRState) (frT : Frame),
           Corr prog sloadChg obs (fun _ => False) st' frT L b.stmts.length →
           self = frT.exec.executionEnv.address
           ∧ (∃ vw, st'.locals t = some vw)
@@ -853,7 +855,7 @@ theorem simTermStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
                 ∧ ¬ (frv.exec.accounts == ∅) = true))
     (hjump : ∀ dst bdst, b.term = .jump dst →
         prog.blocks.toList[dst.idx]? = some bdst → dst.idx < prog.blocks.size →
-        ∀ (st' : V2.IRState) (frT : Frame),
+        ∀ (st' : Lir.IRState) (frT : Frame),
           Corr prog sloadChg obs (fun _ => False) st' frT L b.stmts.length →
           3 ≤ frT.exec.gasAvailable.toNat
           ∧ GasConstants.Gmid ≤ (pushFrameW frT
@@ -868,10 +870,10 @@ theorem simTermStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     (hbranch : ∀ cond thenL elseL bthen belse, b.term = .branch cond thenL elseL →
         prog.blocks.toList[thenL.idx]? = some bthen → prog.blocks.toList[elseL.idx]? = some belse →
         thenL.idx < prog.blocks.size → elseL.idx < prog.blocks.size →
-        ∀ (st' : V2.IRState) (frT : Frame) (cw : Word),
+        ∀ (st' : Lir.IRState) (frT : Frame) (cw : Word),
           Corr prog sloadChg obs (fun _ => False) st' frT L b.stmts.length →
           st'.locals cond = some cw →
-          ∃ frc, V2.MatRunsC prog sloadChg (.tmp cond) cw frT frc
+          ∃ frc, Lir.MatRunsC prog sloadChg (.tmp cond) cw frT frc
             ∧ 3 ≤ frc.exec.gasAvailable.toNat
             ∧ GasConstants.Ghigh ≤ (pushFrameW frc
                 (UInt256.ofNat ((offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx) % 2^32))
@@ -913,7 +915,7 @@ theorem simTermStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
 
 /-! ## `sim_cfg` — the whole-CFG simulation
 
-Induction on `V2.RunFrom`. Each constructor:
+Induction on `Lir.RunFrom`. Each constructor:
 
 * runs the block's statement list (any statements, incl. calls) via Layer D
   (`sim_stmts_block`), from `Corr` at the block entry `(L, 0)` to `Corr` at the terminator
@@ -927,7 +929,7 @@ Induction on `V2.RunFrom`. Each constructor:
 hypotheses (`SimStmtStep` already ranges over calls, via `sim_call_stmt`). -/
 
 /-- **`sim_cfg` — whole-program CFG simulation (general over calls, world channel).** From
-`Corr` at the entry cursor `(L, 0)` and a `V2.RunFrom prog o st T L O`, where every block
+`Corr` at the entry cursor `(L, 0)` and a `Lir.RunFrom prog o st T L O`, where every block
 reached supplies the per-statement (`SimStmtStep`) and per-terminator (`SimTermStep`)
 simulations, the lowered bytecode runs from `fr` to a halting frame `last` whose `observe self`
 **world** is the IR observable `O`'s world.
@@ -941,11 +943,11 @@ theorem sim_cfg {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       SimStmtStep prog sloadChg obs L b)
     (hterm : ∀ (L : Label) (b : Block), blockAt prog L = some b →
       SimTermStep prog sloadChg obs self L b)
-    {st : V2.IRState} {T : Trace} {C : CallStream} {D : CreateStream}
-    {L : Label} {O : V2.Observable} {fr : Frame}
+    {st : Lir.IRState} {T : Trace} {C : CallStream} {D : CreateStream}
+    {L : Label} {O : Lir.Observable} {fr : Frame}
     (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L 0)
     (hcs : CleanHaltsNonException fr)
-    (hrun : V2.RunFrom prog st T C D L O) :
+    (hrun : Lir.RunFrom prog st T C D L O) :
     ∃ last haltSig, Runs fr last ∧ stepFrame last = .halted haltSig
       ∧ (observe self (endFrame last haltSig)).world = O.world := by
   induction hrun generalizing fr with
@@ -1060,7 +1062,7 @@ running `lower prog` from pc 0 with empty stack, `p` modifiable — steps its le
 `Gjumpdest` margin) are the entry-frame realisability contract; `DefsSound` / `wellScoped` are
 vacuous at empty locals. (The gas value channel is now `MemRealises` at the gas def-sites, not
 an entry-frame universal — Phase B.) -/
-theorem entry_corr {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} {w₀ : V2.World}
+theorem entry_corr {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} {w₀ : Lir.World}
     {p : CallParams} {bentry : Block}
     (hmod : p.canModifyState = true)
     (hentry0 : prog.entry.idx = 0)
@@ -1088,7 +1090,7 @@ theorem entry_corr {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} {w₀ 
     rw [hfe, codeFrame_validJumps, codeFrame_code]
   have hstk : fe.exec.stack = [] := by rw [hfe, codeFrame_stack]
   have hcanmod : fe.exec.executionEnv.canModifyState = true := by rw [hfe, codeFrame_canMod, hmod]
-  have hstore' : ∀ k, selfStorage fe k = ({ locals := fun _ => none, world := w₀ } : V2.IRState).world k :=
+  have hstore' : ∀ k, selfStorage fe k = ({ locals := fun _ => none, world := w₀ } : Lir.IRState).world k :=
     hstore
   -- the leading-`JUMPDEST` decode at the entry offset.
   have hdec : decode fe.exec.executionEnv.code fe.exec.pc = some (.Smsf .JUMPDEST, .none) := by
@@ -1112,7 +1114,7 @@ it discharged nothing.
 whole-CFG world-channel simulation, abstracted over the per-block `SimStmtStep`/`SimTermStep`
 ties. The LIVE conformance headline — the tie from a successful `runWithLog` to the IR `RunFrom`
 and the load-bearing world equation — is the flagship `lower_conforms` at
-`V2/Realisability/RealisabilitySpec.lean:206` (R11). Its remaining obligation is the coupled
+`Realisability/RealisabilitySpec.lean:206` (R11). Its remaining obligation is the coupled
 run-producer documented there (Route A); consult that file for the honest hypothesis ledger. -/
 
 

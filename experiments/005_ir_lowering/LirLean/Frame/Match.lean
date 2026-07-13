@@ -37,7 +37,7 @@ correspondence so the simulation reads off the IR semantics (`evalExpr`,
 halt step the bridge consumes.
 -/
 
-namespace Lir
+namespace Lir.Frame
 open Evm
 open BytecodeLayer.Hoare
 open BytecodeLayer.Maps
@@ -612,7 +612,7 @@ theorem lower_preserves_ret (prog : Program) (p : CallParams) {fr₀ last : Fram
         (last.exec.memory.readWithPadding (0 : Word).toNat (32 : Word).toNat)))) :=
   lower_preserves_discharge prog p hbegin hcode hruns (stepFrame_return_word last rest hdec hstk hsz hmem)
 
-end Lir
+end Lir.Frame
 
 -- Build-enforced axiom-cleanliness guard for the memory value-channel simulation
 -- bricks: both MSTORE/MLOAD arms depend only on `[propext, Classical.choice, Quot.sound]`.

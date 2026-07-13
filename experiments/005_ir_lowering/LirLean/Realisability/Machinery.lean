@@ -1,17 +1,19 @@
-import LirLean.V2.Drive.Headline
+import LirLean.Drive.Headline
 import LirLean.Decode.BoundaryCursor
 import LirLean.Spec.BudgetDerivations
-import LirLean.V2.Realisability.Surface
+import LirLean.Realisability.Surface
 import LirLean.Decode.Modellable
 
+open Lir.Frame
+
 /-!
-# LirLean v2 — Realisability spec, MACHINERY (§5)
+# LirLean — Realisability spec, MACHINERY (§5)
 
 Split out of `RealisabilitySpec.lean` (pure relocation). Holds the Phase-3 obligation
 machinery R1–R11 (§5), including the call/create recorder-channel lemmas used by the
 coupled producer. Imports `Surface`. -/
 
-namespace Lir.V2
+namespace Lir
 
 open Evm
 open BytecodeLayer
@@ -3071,7 +3073,7 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
             rw [List.getElem?_append_left (by rw [← hlc] at hj ⊢; exact hj)])
         (by simp only [matExpr_tmp]; rw [htermlen]; omega)
         (by simp only [matExpr_tmp]; omega)
-    have hcondEval : V2.evalExpr st 0 (.tmp cond) = some cw := hc
+    have hcondEval : Lir.evalExpr st 0 (.tmp cond) = some cw := hc
     have hgasCond := materialise_chargeC_le_of_cleanHalt hwl.defsCons hwl.defEnvOrdered
       sloadChg st 0 (fun _ => False) (.tmp cond) cw frT hcondMatDec hcorr.defsSound
       (rematClosureFree_empty prog hwl.defsCons hwl.defEnvOrdered (.tmp cond))
@@ -3839,12 +3841,12 @@ private theorem call_softfail_next_pins {fr : Frame} {exec' : ExecutionState}
       subst exec'
       refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
       · show charged.executionEnv = fr.exec.executionEnv
-        exact (Lir.V2.charge_accounts_env hc).2
-      · rw [resumeAfterCall_pc, Lir.V2.charge_pc hc]
+        exact (Lir.charge_accounts_env hc).2
+      · rw [resumeAfterCall_pc, Lir.charge_pc hc]
       · rfl
-      · rw [LirLean.MemAlgebra.resumeAfterCall_memory (by rfl), Lir.V2.charge_memory hc]
+      · rw [LirLean.MemAlgebra.resumeAfterCall_memory (by rfl), Lir.charge_memory hc]
       · rw [LirLean.MemAlgebra.resumeAfterCall_activeWords (by rfl) (by rfl),
-          Lir.V2.charge_activeWords hc]
+          Lir.charge_activeWords hc]
       · rfl
 
 private theorem call_resume_of_dispatch {log : RunLog} {callFr : Frame} {cw gw : Word}
@@ -4541,7 +4543,7 @@ CREATE specifics:
 STATUS (after this producer round): `create_stmt_offset_bound_of_codeFits`,
 `create_args_run_of_coupled`, `create_tail_of_cleanHalt` are CLOSED (direct transfers). The
 `resumeAfterCreate` stack/memory/activeWords resume pins are NOW LANDED (default cone, axiom-clean:
-`Lir.V2.resumeAfterCreate_stack`/`_memory`/`_activeWords_ge` in `BytecodeLayer/Hoare/Descent.lean`).
+`Lir.resumeAfterCreate_stack`/`_memory`/`_activeWords_ge` in `BytecodeLayer/Hoare/Descent.lean`).
 
 `create_dispatch_of_coupled`, `createRealises_of_recorded`, `create_head_realises_coupled` remain
 STUBBED with tracked `sorry`s. UPDATE (CREATE2 soft-fail recorder alignment, 2026-07-11): the
@@ -5487,4 +5489,4 @@ theorem createRealises_of_recorded {prog : Program} {sloadChg : Tmp → ℕ} {lo
       (addrW := createAddrOrZero rec.result rec.pending)
       hb hcur hwl.defsCons hcorr.wellScoped
 
-end Lir.V2
+end Lir

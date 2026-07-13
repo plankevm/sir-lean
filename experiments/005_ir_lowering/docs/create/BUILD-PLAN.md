@@ -26,8 +26,8 @@ CALL template chain is:
 ```
 Spec/IR.CallSpec → Semantics.EvalStmt.call → Lowering.emitStmt .call
   → Frame/Call.evmCallOracle → Frame/Match.call_reflects_lowered
-  → V2/CallRealises.evmV2CallEntry → Spec/Recorder.recordCall
-  → Decode/Modellable clause-1 → flagship (V2/Realisability/RealisabilitySpec)
+  → CallRealises.evmV2CallEntry → Spec/Recorder.recordCall
+  → Decode/Modellable clause-1 → flagship (Realisability/RealisabilitySpec)
 ```
 
 Every CREATE artifact is the twin of the correspondingly-named CALL artifact.
@@ -110,14 +110,14 @@ sites (from spike §3b, relocated to current reorged/split paths):
 | # | File:line | Lemma | Arm needed |
 |---|-----------|-------|-----------|
 | 1 | `Materialise/CleanHaltExtract.lean:408` | `halted_runs_eq` | contradiction `| create` (trivial) |
-| 2 | `V2/Realisability/Machinery.lean:203` | `runs_halt_eq` | contradiction `| create` (trivial) |
-| 3 | `V2/Realisability/Machinery.lean:403` | `runs_kind` | `| create` via `resumeAfterCreate_kind` (BytecodeLayer/Hoare/Descent.lean) + `stepFrame_needsCreate_inv` (both exist) |
-| 4 | `V2/Realisability/Machinery.lean:1390` | `atReachableBoundaryVJ_of_runs` | `| create` needs NEW edge `atReachableBoundaryVJ_create` (twin of `..._call`); geometry facts exist |
-| 5 | `V2/Drive/CallPreservesSelf.lean:235` | `selfPresent_runs` | `| create` needs NEW edge `CreatePreservesSelf`, discharge via `resumeAfterCreate_exec_accounts_present` (Descent.lean:373) + `endFrame_create_accPresent` (DriveMono.lean:87), both exist |
+| 2 | `Realisability/Machinery.lean:203` | `runs_halt_eq` | contradiction `| create` (trivial) |
+| 3 | `Realisability/Machinery.lean:403` | `runs_kind` | `| create` via `resumeAfterCreate_kind` (BytecodeLayer/Hoare/Descent.lean) + `stepFrame_needsCreate_inv` (both exist) |
+| 4 | `Realisability/Machinery.lean:1390` | `atReachableBoundaryVJ_of_runs` | `| create` needs NEW edge `atReachableBoundaryVJ_create` (twin of `..._call`); geometry facts exist |
+| 5 | `Drive/CallPreservesSelf.lean:235` | `selfPresent_runs` | `| create` needs NEW edge `CreatePreservesSelf`, discharge via `resumeAfterCreate_exec_accounts_present` (Descent.lean:373) + `endFrame_create_accPresent` (DriveMono.lean:87), both exist |
 
 Note: sites 2–4 (`runs_halt_eq`/`runs_kind`/`atReachableBoundaryVJ_of_runs`) were in
 the monolithic `RealisabilitySpec.lean` in the spike doc; the 4-way split (commit
-`f0f2b15`) moved them into `V2/Realisability/Machinery.lean`. CALL twin: none — this
+`f0f2b15`) moved them into `Realisability/Machinery.lean`. CALL twin: none — this
 is pure ripple. Risk: LOW (spike §3b confirmed all helpers exist).
 
 ### Step 1 (exp005) — IR node
@@ -166,7 +166,7 @@ would rewrite the fragile R3/R7 region around the open flagship sorries
 inertly and touches none of it. B remains an optional cosmetic refactor AFTER R3/R7
 close. Risk: MEDIUM (large but mechanical, inert-threading blast radius — ~137
 `RunFrom`, ~74 `EvalStmt`, ~72 `RunStmts` refs, plus the flagship mirror inductives
-`RunFromV/RunFromLeft/RunFromAll` in `V2/Realisability/Surface.lean` and
+`RunFromV/RunFromLeft/RunFromAll` in `Realisability/Surface.lean` and
 `SimStmtStep` in `Machinery.lean`/`Witness.lean`). See stream-decision.md §2.4: the
 11 open sorries are undisturbed (3 *statements* gain a 4th arg, 0 proofs burdened).
 
@@ -226,8 +226,8 @@ tractable (see R7 below).
 ### Step 6 (exp005) — recorder / stream realisation
 
 Goal: fill the `CreateStream` with real recorded deliveries. CALL twins in
-`V2/CallRealises.lean` and `Spec/Recorder.lean`.
-- `V2/CallRealises.lean` (or a sibling `V2/CreateRealises.lean`): `evmV2CreateEntry
+`CallRealises.lean` and `Spec/Recorder.lean`.
+- `CallRealises.lean` (or a sibling `CreateRealises.lean`): `evmV2CreateEntry
   result pd self : World × Word := ((fun key => evmCreateOracle.postStorage result pd
   self key), evmCreateOracle.addressWord result pd)` (twin of `evmV2CallEntry` :59);
   `createRealises_bridge` (twin of `callRealises_bridge` :85) off Step 5.
@@ -235,12 +235,12 @@ Goal: fill the `CreateStream` with real recorded deliveries. CALL twins in
   callAcc` (:172) becomes a recording arm into a `createAcc : List CreateRecord`;
   add `CreateRecord` (twin of `CallRecord` :85); widen `driveLog`'s result tuple by
   **appending** `× List CreateRecord` (:184; the tuple also appears in
-  `V2/Realisability/Machinery.lean`), threaded inertly through the existing call arms,
+  `Realisability/Machinery.lean`), threaded inertly through the existing call arms,
   gated on `rest.isEmpty` (top-level only); `createStreamOf`/`realisedCreate` (twins
   of :288/:296).
-- `V2/RecorderLemmas.lean`: `realisedCreate_cons` (twin of `realisedCall_cons` :44,
+- `RecorderLemmas.lean`: `realisedCreate_cons` (twin of `realisedCall_cons` :44,
   `rfl`-clean by the same `simp … List.map_cons`).
-- `V2/Realisability/Surface.lean` `RecorderCoupled` (:508): `createSuffix`/`createPrefix`
+- `Realisability/Surface.lean` `RecorderCoupled` (:508): `createSuffix`/`createPrefix`
   fields (twins of `callSuffix`/`callPrefix`).
 Risk: MEDIUM. Parallel additions; touch no existing call/gas/sload declaration
 (stream-decision.md §2.3–2.5).
@@ -273,7 +273,7 @@ descents*. This is a **subtraction**, lower-risk than the additions.
 ### Step 8 (exp005) — flagship obligation
 
 Goal: close (or, honestly, extend the WIP statements of) the CREATE realisability
-leaf in `V2/Realisability/RealisabilitySpec.lean`. CALL twin: the R3 call-cursor tie.
+leaf in `Realisability/RealisabilitySpec.lean`. CALL twin: the R3 call-cursor tie.
 - Keep the public `IRWellFormed` + `codeFits` + `stackFits` envelope and rebuild the
   internal `WellLowered` adapter as today. `Conforms` already compares world AND result,
   and a CREATE program's observable is still a `(world, IRHalt)` pair.
@@ -309,9 +309,9 @@ exp003 Hoare/DriveRuns (Step 0, DONE)
   → Spec/IR (Step 1)
   → { Spec/Semantics (Step 2), Spec/Lowering (Step 4), Frame/SmallStep (Step 3) }
   → { Decode cluster (LoweringLemmas/BoundaryReach), Frame/Match (Step 5) }
-  → { V2/CreateRealises, Spec/Recorder (Step 6) }
+  → { CreateRealises, Spec/Recorder (Step 6) }
   → { Decode/Modellable, Decode/NoCreateBytes (Step 7) }
-  → V2/Realisability/RealisabilitySpec (Step 8)
+  → Realisability/RealisabilitySpec (Step 8)
 ```
 
 Step 1 (`Spec/IR`) is the widest blast radius (every `Stmt` match). Step 8

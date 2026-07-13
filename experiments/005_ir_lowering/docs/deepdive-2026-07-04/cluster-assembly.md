@@ -44,7 +44,7 @@ shadowing-aware S-variants (`CallRealisesS`, `StepScopedS`, …) and consumes on
 helpers, never the builders. `RealisabilitySpec` calls `term_dest_decode`, `ofNatMod_toUInt32?`,
 `ret_sub_value`, `decode_gasstash`, `toList_of_blockAt`, `codeFrame_*` directly, but calls
 **none** of `simStmtStep_block`/`simTermStep_block`/`simTermStep_stop|ret|jump|branch`/
-`simStmtStep_call`/`sim_*_lowered`/`decode_sloadstash` (verified by grep of `LirLean/V2/`).
+`simStmtStep_call`/`sim_*_lowered`/`decode_sloadstash` (verified by grep of `LirLean/`).
 
 ---
 
@@ -102,7 +102,7 @@ but currently orphaned scaffolding — see candidates.
 | `codeFrame_validJumps` (1072) | theorem | shared-infra | `entry_corr:1126`; **`RealisabilitySpec:2315`** |
 | `entry_storageAgree_codeFrame` (1089) | theorem | shared-infra: canonical `w₀` choice discharging entry `StorageAgree` | **none anywhere** (see candidates) |
 | `entry_corr` (1102) | theorem | incremental-toward flagship entry (R7): builds `Corr … prog.entry 0` | `LowerConforms:1226` (acyclic capstone); referenced by `RealisabilitySpec` docstrings :162/:626 as the R7 mechanism, no call yet |
-| `lower_conforms` (1188) | theorem | genuinely-superseded: the older acyclic capstone | **zero callers** (superseded by `V2.lower_conforms`, RealisabilitySpec:3705) |
+| `lower_conforms` (1188) | theorem | genuinely-superseded: the older acyclic capstone | **zero callers** (superseded by `Lir.lower_conforms`, RealisabilitySpec:3705) |
 | `toList_of_blockAt` (1252) | theorem | shared-infra | **`RealisabilitySpec:1119,1479,2597`** |
 
 ## Acyclic.lean — per-decl
@@ -196,8 +196,8 @@ Ordered by confidence. All are read-only observations; none applied.
 
 1. **`Lir.lower_conforms` (LowerConforms.lean:1188, ~63 LOC) — dead, safe to delete.**
    Zero callers (grep confirms only docstring self-references and the unrelated
-   `V2.lower_conforms`). It is the older acyclic capstone; its exact job (runWithLog → world
-   equation) is now done by the flagship `V2.lower_conforms` (RealisabilitySpec:3705) and, over
+   `Lir.lower_conforms`). It is the older acyclic capstone; its exact job (runWithLog → world
+   equation) is now done by the flagship `Lir.lower_conforms` (RealisabilitySpec:3705) and, over
    cyclic CFGs, by `lower_conforms_cyclic`. Matches the plan-of-record's "delete dead acyclic
    capstone" (lirlean-dag-2026-07-04). Deleting it also strands `runWithLog_messageCall` and
    `messageCall_runs` (see #2).

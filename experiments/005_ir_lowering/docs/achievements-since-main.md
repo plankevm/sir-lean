@@ -5,7 +5,7 @@ to HEAD (`9e219ed`). Companion detail lives in
 `docs/target-architecture-2026-07-02.md` (plan of record),
 `docs/final-audit-2026-07-03.md` (the CLEAN gate), and
 `docs/recorder-model-note.md` (the recorder course-correction). The reviewable proof
-surface is `LirLean/V2/RealisabilitySpec.lean` (the `Nightly` lib).
+surface is `LirLean/RealisabilitySpec.lean` (the `Nightly` lib).
 
 ---
 
@@ -21,7 +21,7 @@ A Lean 4 formalization of a high-level IR lowered to EVM bytecode, proving the l
 3. Feed those harvested values back as oracles into the IR-level semantics and prove the
    bytecode's observable **storage** matches the IR world (`Conforms`).
 
-The flagship is `Lir.V2.lowering_conforms` (`RealisabilitySpec.lean:3306`): one runtime
+The flagship is `Lir.lowering_conforms` (`RealisabilitySpec.lean:3306`): one runtime
 premise (`hrun`), decidable statics (`WellLowered`), and a small set of **named seams**
 (`PrecompileSeams`) yield `∃ O, RunFrom prog (realisedCall log self) (entryState params)
 (realisedGas log) prog.entry O ∧ Conforms params.recipient log O`.
@@ -47,7 +47,7 @@ than paper over it:
 - the `Spec` re-export layer (`RealisabilityObligations` / `_of_obligations`;
   `Spec/Conformance.lean` is now a disclaimer stub).
 
-The obligations were then **reshaped** into `LirLean/V2/RealisabilitySpec.lean` (the
+The obligations were then **reshaped** into `LirLean/RealisabilitySpec.lean` (the
 non-default `Nightly` lib) as the **R0–R12 honest-sorry skeleton**, where the ties are
 **DERIVED from the run** (`stmtTies'_of_runWithLog` R10a, `termTies'_of_runWithLog` R10b),
 **not supplied**. The reshaped `StmtTies'` / `TermTies'` (`:694`, `:793`) antecedent-pin

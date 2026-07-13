@@ -5,8 +5,9 @@ import LirLean.Decode.DecodeAnchors
 import LirLean.Decode.Layout
 import LirLean.Sim.SimStmt
 
-namespace Lir.V2
+namespace Lir
 
+open Lir.Frame
 open Evm
 
 theorem flatBytes_length_eq (prog : Program) :
@@ -363,7 +364,7 @@ theorem stackBounds_of_stackFits (prog : Program) (h : stackFits prog) : StackRo
 
 /-! ### Producer-shaped derivation lemmas (call/create static facts)
 
-The CALL producer (`callRealises_of_recorded` in `V2/Realisability/Machinery.lean`)
+The CALL producer (`callRealises_of_recorded` in `Realisability/Machinery.lean`)
 currently THREADS the call stack-room facts (`hstkCallee`/`hstkGasFwd`) and the
 result-slot addressability (`hslotaddr`) as internal hypotheses. Each lemma below
 exposes EXACTLY the threaded shape, derived from the public static bundle
@@ -468,4 +469,4 @@ theorem slots_slot_of_defsOf (prog : Program) :
       | some t'' =>
           apply canon t''; simp only [Option.some.injEq] at hsmap; exact hsmap.symm
 
-end Lir.V2
+end Lir

@@ -1,7 +1,7 @@
 # 05 — Simulation & assembly: `LirLean/Sim/` + `LirLean/Assembly/`
 
 Part of the [exp005 tour](00-overview.md).
-Upstream inputs: [01-trusted-base](01-trusted-base.md) (exp003 `Runs`/Hoare bricks + `Engine/` theory), [03-code-geometry](03-code-geometry.md) (the `Decode/` byte-layout algebra), [04-value-channel](04-value-channel.md) (`Materialise/`+`Frame/`: `MatRunsC`, `MemRealises`, `StashTail`, clean-halt extractors). Downstream consumer: [06-realisability](06-realisability.md) (V2/Drive + V2/Realisability, the `lower_conforms` flagships).
+Upstream inputs: [01-trusted-base](01-trusted-base.md) (exp003 `Runs`/Hoare bricks + `Engine/` theory), [03-code-geometry](03-code-geometry.md) (the `Decode/` byte-layout algebra), [04-value-channel](04-value-channel.md) (`Materialise/`+`Frame/`: `MatRunsC`, `MemRealises`, `StashTail`, clean-halt extractors). Downstream consumer: [06-realisability](06-realisability.md) (Drive + Realisability, the `lower_conforms` flagships).
 
 **Scope.** All five files: [`Sim/SimStmt.lean`](../../../LirLean/Sim/SimStmt.lean) (1150 LOC), [`Sim/SimStmts.lean`](../../../LirLean/Sim/SimStmts.lean) (164), [`Sim/SimTerm.lean`](../../../LirLean/Sim/SimTerm.lean) (843), [`Assembly/LowerConforms.lean`](../../../LirLean/Assembly/LowerConforms.lean) (1127), [`Assembly/LowerDecode.lean`](../../../LirLean/Assembly/LowerDecode.lean) (1069).
 
@@ -11,7 +11,7 @@ Upstream inputs: [01-trusted-base](01-trusted-base.md) (exp003 `Runs`/Hoare bric
 
 This layer is the **forward simulation core** of exp005: the between-statements invariant [`Corr`](../../../LirLean/Sim/SimStmt.lean#L102) relating a V2 IR state to an EVM frame, one proved simulation arm per IR statement/terminator shape (Layers C/E), the statement-list glue (Layer D), and the cycle-agnostic whole-CFG induction [`sim_cfg`](../../../LirLean/Assembly/LowerConforms.lean#L938) (Layer F). All five files sit in the default sorry-free build cone; grep confirms zero `sorry`/`admit`/`native_decide`/`bv_decide` in scope, and [`Audit.lean`](../../../LirLean/Audit.lean#L45) build-pins the axiom footprint of the deepest wrapper at `[propext, Classical.choice, Quot.sound]` (build green: reported, not re-run).
 
-The honest status is two-sided. The **C/E-layer arms and the low-level decode dischargers are live and load-bearing** — the WIP flagship [`lower_conforms`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L251) (R11) consumes `Corr`, the accessor/emit lemmas, and helpers like [`decode_gasstash`](../../../LirLean/Assembly/LowerDecode.lean#L632) and [`corr_at_jumpdest_landing`](../../../LirLean/Sim/SimTerm.lean#L503) directly. But the **builder half of `Assembly/` is superseded scaffolding with zero term-level callers**: [`simStmtStep_block`](../../../LirLean/Assembly/LowerConforms.lean#L337), [`simTermStep_block`](../../../LirLean/Assembly/LowerConforms.lean#L799), [`entry_corr`](../../../LirLean/Assembly/LowerConforms.lean#L1063) and the [`CallRealises`](../../../LirLean/Assembly/LowerConforms.lean#L235) tie feed only `sim_cfg` → the uncalled [`lower_conforms_cyclic'`](../../../LirLean/V2/Drive/DriveSim.lean#L661) endpoint, because two of their supplied seam shapes ([`SstoreRealises`](../../../LirLean/Sim/SimStmt.lean#L317)'s ∀-frames form; `CallRealises`'s embedded `StepScoped`) are not producible from a real run — the flagship re-implements the walk with coupling-aware point-wise variants instead (§Two paths, verified against current source below).
+The honest status is two-sided. The **C/E-layer arms and the low-level decode dischargers are live and load-bearing** — the WIP flagship [`lower_conforms`](../../../LirLean/Realisability/RealisabilitySpec.lean#L251) (R11) consumes `Corr`, the accessor/emit lemmas, and helpers like [`decode_gasstash`](../../../LirLean/Assembly/LowerDecode.lean#L632) and [`corr_at_jumpdest_landing`](../../../LirLean/Sim/SimTerm.lean#L503) directly. But the **builder half of `Assembly/` is superseded scaffolding with zero term-level callers**: [`simStmtStep_block`](../../../LirLean/Assembly/LowerConforms.lean#L337), [`simTermStep_block`](../../../LirLean/Assembly/LowerConforms.lean#L799), [`entry_corr`](../../../LirLean/Assembly/LowerConforms.lean#L1063) and the [`CallRealises`](../../../LirLean/Assembly/LowerConforms.lean#L235) tie feed only `sim_cfg` → the uncalled [`lower_conforms_cyclic'`](../../../LirLean/Drive/DriveSim.lean#L661) endpoint, because two of their supplied seam shapes ([`SstoreRealises`](../../../LirLean/Sim/SimStmt.lean#L317)'s ∀-frames form; `CallRealises`'s embedded `StepScoped`) are not producible from a real run — the flagship re-implements the walk with coupling-aware point-wise variants instead (§Two paths, verified against current source below).
 
 ---
 
@@ -25,7 +25,7 @@ Layer E    Sim/SimTerm.lean                      terminator halt/edge arms
 Layer F    Assembly/LowerConforms.lean           SimTermStep, WellFormedLowered, CallRealises,
                                                  builders, sim_cfg, entry_corr
    (F aux) Assembly/LowerDecode.lean             decode-discharge (`_lowered`) wrappers + PUSH4 round-trips
-Consumers  V2/Drive/DriveSim.lean (superseded path) and V2/Realisability/* (flagship path) — see 06
+Consumers  Drive/DriveSim.lean (superseded path) and Realisability/* (flagship path) — see 06
 ```
 
 | File | Role | One-line verdict |
@@ -46,7 +46,7 @@ The heart of "what must hold between IR state and EVM frame at every statement b
 
 ```lean
 structure Corr (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
-    (st : V2.IRState) (fr : Frame) (L : Label) (pc : Nat) : Prop where
+    (st : Lir.IRState) (fr : Frame) (L : Label) (pc : Nat) : Prop where
   /-- `M1` — program counter at the offset-table address of cursor `(L, pc)`. -/
   pc_eq      : fr.exec.pc = UInt32.ofNat (pcOf prog L pc)
   /-- `M2` — the frame runs the lowered program. -/
@@ -113,7 +113,7 @@ A non-spilled `assign t e` emits **no bytes** ([`emitStmt_assign_remat`](../../.
 
 ```lean
 theorem sim_assign {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st st' : V2.IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
+    {st st' : Lir.IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
     {t : Tmp} {e : Expr}
     {L : Label} {b : Block} {pc : Nat} {fr : Frame}
     (hb : prog.blocks.toList[L.idx]? = some b)
@@ -135,7 +135,7 @@ Lowering `matCache value ++ matCache key ++ [SSTORE]`; two fold value-channel ca
 
 ```lean
 theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st : V2.IRState} {key value : Tmp} {kw vw : Word}
+    {st : Lir.IRState} {key value : Tmp} {kw vw : Word}
     {L : Label} {b : Block} {pc : Nat} {fr : Frame} {acc : Account}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some (.sstore key value))
@@ -171,7 +171,7 @@ def SstoreRealises (fr : Frame) (kw vw : Word) (acc : Account) : Prop :=
     ∧ g.exec.accounts.find? g.exec.executionEnv.address = some acc
 ```
 
-**Flag (load-bearing).** This is a ∀-over-frames shape: it demands the stipend/charge/presence facts of *every* frame sharing the self-address and stack shape — including frames the real run never visits. The flagship's coupled twin [`sim_sstore_stmt'`](../../../LirLean/V2/Realisability/Producer.lean#L1036) calls it, verbatim, "the **unsatisfiable** `∀`-quantified `hsstore`" and replaces it with a point-wise derivation at the actual internal SSTORE frame (`sstoreRealises_at_frame`, from `SelfPresent` + clean-halt). As a *hypothesis of a consumed lemma* it is sound; as a *producible tie* it is dead — this is exactly why the builder path below has no producer. No headline currently depends on `SstoreRealises` being produced.
+**Flag (load-bearing).** This is a ∀-over-frames shape: it demands the stipend/charge/presence facts of *every* frame sharing the self-address and stack shape — including frames the real run never visits. The flagship's coupled twin [`sim_sstore_stmt'`](../../../LirLean/Realisability/Producer.lean#L1036) calls it, verbatim, "the **unsatisfiable** `∀`-quantified `hsstore`" and replaces it with a point-wise derivation at the actual internal SSTORE frame (`sstoreRealises_at_frame`, from `SelfPresent` + clean-halt). As a *hypothesis of a consumed lemma* it is sound; as a *producible tie* it is dead — this is exactly why the builder path below has no producer. No headline currently depends on `SstoreRealises` being produced.
 
 ### 3.3 `sim_call_stmt` — the call arm ([`SimStmt.lean#L579`](../../../LirLean/Sim/SimStmt.lean#L579), reviewer Q2 centrepiece)
 
@@ -179,7 +179,7 @@ Route-B lowering: `5×(PUSH 0) ++ matCache callee ++ matCache gasFwd ++ [CALL] +
 
 ```lean
 theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st st' : V2.IRState} {cs : CallSpec}
+    {st st' : Lir.IRState} {cs : CallSpec}
     {L : Label} {b : Block} {pc : Nat} {argsLen : Nat}
     {fr callFr resumeFr : Frame} {result : Evm.CallResult} {pd : Evm.PendingCall}
     {self : AccountAddress}
@@ -231,7 +231,7 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
 | Class | Hypotheses (count) | Verdict |
 |---|---|---|
 | **Genuine oracle seam** — the irreducible external-call observation | `hcall` (`CallReturns`), `hresume` (resume = [`resumeAfterCall`](../../../../003_bytecode_layer/EVMLean/Evm/Semantics/Call.lean#L122)` result pd`), `hst'` (IR post-state = the recorded [`evmCallOracle`](../../../LirLean/Frame/Call.lean#L108)/[`callSuccessFlag`](../../../LirLean/Frame/Call.lean#L120) effect) (3) | The real seam. In the flagship these come from the recorder log's positional call-stream head (`realisedCall_cons` + `recorderCoupled_call_extract`, Piece A of R3 — landed). |
-| **Genuine machine-run obligation** — the arg-push prefix | `hargs`, `hcallpc`, `hcallmem`, `hcallactive` (4) | Honest but *currently has no producer anywhere in tree*: [`callRealises_of_recorded`](../../../LirLean/V2/Realisability/Machinery.lean#L392)'s docstring names this exactly ("In-tree this run is only ever SUPPLIED to `sim_call_stmt` …; no producing lemma exists" — R3 Piece B, the open blocker). Constructible in principle from `Corr` + the decode layout (the precedent is the branch cond driver in LowerDecode). |
+| **Genuine machine-run obligation** — the arg-push prefix | `hargs`, `hcallpc`, `hcallmem`, `hcallactive` (4) | Honest but *currently has no producer anywhere in tree*: [`callRealises_of_recorded`](../../../LirLean/Realisability/Machinery.lean#L392)'s docstring names this exactly ("In-tree this run is only ever SUPPLIED to `sim_call_stmt` …; no producing lemma exists" — R3 Piece B, the open blocker). Constructible in principle from `Corr` + the decode layout (the precedent is the branch cond driver in LowerDecode). |
 | **Route-B tail** | `htail` (1) | Genuine but mechanically dischargeable via [`stash_tail_runs`](../../../LirLean/Materialise/StashTail.lean#L157) ([`StashRuns`](../../../LirLean/Materialise/MaterialiseRuns.lean#L217) is the named endpoint bundle) — exactly what the gas/sload arms' `_lowered` wrappers already do. |
 | **Derivable `resumeAfterCall` projections** | `hresaddr`, `hrescode`, `hrescanmod`, `hrespc`, `hresstack`, `hresmem`, `hresactive`, `hresvalidjumps` (8) | Mostly `rfl`-level projections of `hresume` (e.g. `resumeAfterCall_stack` is proved `rfl` in Machinery). Two carry real content: `hresstack` embeds the empty-boundary collapse `pd.stack = []`, `hresmem` the zero-in/out-window memory preservation. Absorbable once bytecode-layer computation lemmas about `resumeAfterCall` exist (flagged in Machinery as exp003-side work). |
 | **Exploded-`Corr` plumbing** | `hfrpc`, `hdefs`, `hmem` (3) | Interface unevenness: unlike every sibling arm, `sim_call_stmt` takes `Corr`'s fields exploded instead of `hcorr : Corr …`. Pure refactor. |
@@ -245,7 +245,7 @@ The `memAgree` re-establishment is the arm's real content: the freshly bound res
 
 ```lean
 theorem sim_assign_gas {prog : Program} {sloadChg : Tmp → ℕ} {obs ob : Word}
-    {st : V2.IRState} {t : Tmp}
+    {st : Lir.IRState} {t : Tmp}
     {L : Label} {b : Block} {pc : Nat} {fr : Frame}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some (.assign t .gas))
@@ -275,7 +275,7 @@ The per-statement ties are per-cursor and per-intermediate-state, so they cannot
 ```lean
 def SimStmtStep (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
     (L : Label) (b : Block) : Prop :=
-  ∀ (pc : Nat) (s : Stmt) (st0 st0' : V2.IRState) (T0 T0' : Trace) (C0 C0' : CallStream)
+  ∀ (pc : Nat) (s : Stmt) (st0 st0' : Lir.IRState) (T0 T0' : Trace) (C0 C0' : CallStream)
     (D0 D0' : CreateStream) (fr0 : Frame),
     b.stmts[pc]? = some s →
     Corr prog sloadChg obs st0 fr0 L pc →
@@ -289,17 +289,17 @@ def SimStmtStep (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
 
 ```lean
 theorem sim_stmts_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st st' : V2.IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
+    {st st' : Lir.IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
     {L : Label} {b : Block} {fr : Frame}
     (hsim : SimStmtStep prog sloadChg obs L b)
     (hcorr : Corr prog sloadChg obs st fr L 0)
     (hcs : CleanHaltsNonException fr)
-    (hrun : V2.RunStmts prog st T C D b.stmts st' T' C' D') :
+    (hrun : Lir.RunStmts prog st T C D b.stmts st' T' C' D') :
     ∃ fr', Runs fr fr' ∧ Corr prog sloadChg obs st' fr' L b.stmts.length
       ∧ fr'.exec.stack = []
 ```
 
-Note the **`∀`-quantification inside `SimStmtStep`**: it demands the step conclusion for *every* `Corr`-corresponding `(st0, fr0)` pair at every cursor, not just the ones on the actual run. This is precisely the shape the flagship cannot discharge (its arm conclusions hold only under the recorder-coupling antecedent), and why [`stmtTies'_of_runWithLog`](../../../LirLean/V2/Realisability/Producer.lean#L2488)-style off-run robustness became R10's problem — see [06-realisability](06-realisability.md).
+Note the **`∀`-quantification inside `SimStmtStep`**: it demands the step conclusion for *every* `Corr`-corresponding `(st0, fr0)` pair at every cursor, not just the ones on the actual run. This is precisely the shape the flagship cannot discharge (its arm conclusions hold only under the recorder-coupling antecedent), and why [`stmtTies'_of_runWithLog`](../../../LirLean/Realisability/Producer.lean#L2488)-style off-run robustness became R10's problem — see [06-realisability](06-realisability.md).
 
 ### 4.2 Terminator arms (`SimTerm.lean`)
 
@@ -318,7 +318,7 @@ theorem sim_term_halt_stop … :
 
 ```lean
 theorem sim_term_halt_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st : V2.IRState} {t : Tmp} {vw : Word}
+    {st : Lir.IRState} {t : Tmp} {vw : Word}
     {L : Label} {b : Block} {fr : Frame} {self : AccountAddress}
     (hcorr : Corr prog sloadChg obs st fr L b.stmts.length)
     (_hterm : b.term = .ret t)
@@ -392,7 +392,7 @@ structure WellFormedLowered (prog : Program) : Prop where
     defsOf prog tw = some (.slot slot') → slot' = slotOf tw
 ```
 
-Every `bound_*` field is dischargeable from the single scalar budget `codeFits prog` via the [`bound_*_of_codeFits`](../../../LirLean/Spec/BudgetDerivations.lean#L96) lemmas (`Spec/BudgetDerivations.lean`), and `slots_slot` is structural for `defsOf`. **It is live**: the flagship's internal [`WellLowered`](../../../LirLean/V2/Realisability/Surface.lean#L151) adapter embeds it as its `wf` field, and a concrete satisfiability witness exists ([`wellFormedLowered_exProg`](../../../LirLean/V2/Realisability/Witness.lean#L569), inside [`wellLowered_exProg`](../../../LirLean/V2/Realisability/Witness.lean#L590) — `decide`-discharged with `maxRecDepth 8000` on a hardcoded program; WIP-lib-only anti-vacuity anchor, nothing in the default cone depends on it).
+Every `bound_*` field is dischargeable from the single scalar budget `codeFits prog` via the [`bound_*_of_codeFits`](../../../LirLean/Spec/BudgetDerivations.lean#L96) lemmas (`Spec/BudgetDerivations.lean`), and `slots_slot` is structural for `defsOf`. **It is live**: the flagship's internal [`WellLowered`](../../../LirLean/Realisability/Surface.lean#L151) adapter embeds it as its `wf` field, and a concrete satisfiability witness exists ([`wellFormedLowered_exProg`](../../../LirLean/Realisability/Witness.lean#L569), inside [`wellLowered_exProg`](../../../LirLean/Realisability/Witness.lean#L590) — `decide`-discharged with `maxRecDepth 8000` on a hardcoded program; WIP-lib-only anti-vacuity anchor, nothing in the default cone depends on it).
 
 ### 5.2 `CallRealises` — the §7 CALL tie
 
@@ -400,7 +400,7 @@ Every `bound_*` field is dischargeable from the single scalar budget `codeFits p
 
 ```lean
 def CallRealises (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
-    (L : Label) (pc : Nat) (cs : CallSpec) (st0 st0' : V2.IRState) (fr0 : Frame) : Prop :=
+    (L : Label) (pc : Nat) (cs : CallSpec) (st0 st0' : Lir.IRState) (fr0 : Frame) : Prop :=
   Corr prog sloadChg obs st0 fr0 L pc →
   ∃ (result : Evm.CallResult) (pd : Evm.PendingCall) (callFr resumeFr : Frame) (argsLen : Nat),
     StepScoped prog st0 (.call cs)
@@ -415,7 +415,7 @@ def CallRealises (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
     --  mirror `sim_call_stmt`'s hypotheses one-for-one — see the link]
 ```
 
-**Flag.** [`callRealises_of_recorded`](../../../LirLean/V2/Realisability/Machinery.lean#L392) (the flagship's R3, the would-be producer) states in its docstring that it deliberately does **not** target `Lir.CallRealises` verbatim, because the embedded live-scope `StepScoped (.call cs)` clause "is refutable within this theorem's own hypothesis envelope for a `WellLowered` program whose call result has a registered reader" — it produces the reshaped [`CallRealisesS`](../../../LirLean/V2/Realisability/Surface.lean#L78) (static `StepScopedS` + kernel) instead. So the in-tree `CallRealises` has no producer and no consumer outside the builder below; treat it as the builder path's frozen interface, not a live seam.
+**Flag.** [`callRealises_of_recorded`](../../../LirLean/Realisability/Machinery.lean#L392) (the flagship's R3, the would-be producer) states in its docstring that it deliberately does **not** target `Lir.CallRealises` verbatim, because the embedded live-scope `StepScoped (.call cs)` clause "is refutable within this theorem's own hypothesis envelope for a `WellLowered` program whose call result has a registered reader" — it produces the reshaped [`CallRealisesS`](../../../LirLean/Realisability/Surface.lean#L78) (static `StepScopedS` + kernel) instead. So the in-tree `CallRealises` has no producer and no consumer outside the builder below; treat it as the builder path's frozen interface, not a live seam.
 
 ### 5.3 `SimTermStep` and the builders
 
@@ -424,12 +424,12 @@ def CallRealises (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
 ```lean
 structure SimTermStep (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
     (selfAddr : AccountAddress) (L : Label) (b : Block) : Prop where
-  halt : ∀ (st' : V2.IRState) (frT : Frame),
+  halt : ∀ (st' : Lir.IRState) (frT : Frame),
     Corr prog sloadChg obs st' frT L b.stmts.length →
     (b.term = .stop ∨ ∃ t, b.term = .ret t) →
     ∃ last haltSig, Runs frT last ∧ stepFrame last = .halted haltSig
       ∧ (observe selfAddr (endFrame last haltSig)).world = st'.world
-  edge : ∀ (st' : V2.IRState) (frT : Frame) (succ : Label),
+  edge : ∀ (st' : Lir.IRState) (frT : Frame) (succ : Label),
     Corr prog sloadChg obs st' frT L b.stmts.length →
     (b.term = .jump succ
       ∨ (∃ cond elseL cw, b.term = .branch cond succ elseL
@@ -455,11 +455,11 @@ theorem sim_cfg {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       SimStmtStep prog sloadChg obs L b)
     (hterm : ∀ (L : Label) (b : Block), blockAt prog L = some b →
       SimTermStep prog sloadChg obs self L b)
-    {st : V2.IRState} {T : Trace} {C : CallStream} {D : CreateStream}
-    {L : Label} {O : V2.Observable} {fr : Frame}
+    {st : Lir.IRState} {T : Trace} {C : CallStream} {D : CreateStream}
+    {L : Label} {O : Lir.Observable} {fr : Frame}
     (hcorr : Corr prog sloadChg obs st fr L 0)
     (hcs : CleanHaltsNonException fr)
-    (hrun : V2.RunFrom prog st T C D L O) :
+    (hrun : Lir.RunFrom prog st T C D L O) :
     ∃ last haltSig, Runs fr last ∧ stepFrame last = .halted haltSig
       ∧ (observe self (endFrame last haltSig)).world = O.world
 ```
@@ -468,7 +468,7 @@ Induction on the [`RunFrom`](../../../LirLean/Spec/Semantics.lean#L99) derivatio
 
 [`entry_corr`](../../../LirLean/Assembly/LowerConforms.lean#L1063) seeds it: the top-level `codeFrame p (lower prog)` (pc 0 = the entry block's leading `JUMPDEST` when `prog.entry.idx = 0`) steps once into `Corr … {locals := fun _ => none, world := w₀} … prog.entry 0`, the only genuine tie being the entry `StorageAgree` and the `Gjumpdest` margin — `DefsSound`/`wellScoped`/`memAgree` are vacuous at empty locals.
 
-**This file contains no discharged headline.** Its closing §-block ([`LowerConforms.lean#L1103`](../../../LirLean/Assembly/LowerConforms.lean#L1103)) says so explicitly: the local `lower_conforms` capstone that once tied `sim_cfg` to `runWithLog` was deleted in the vacuous-ties purge (b144af8) because its supplied per-block hypotheses were unsatisfiable for lowered programs. (Two stale self-references remain: the header cites `sim_cfg (:983)` — actual [L938](../../../LirLean/Assembly/LowerConforms.lean#L938) — and the closing block cites the flagship at `RealisabilitySpec.lean:206` — actual [L251](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L251).)
+**This file contains no discharged headline.** Its closing §-block ([`LowerConforms.lean#L1103`](../../../LirLean/Assembly/LowerConforms.lean#L1103)) says so explicitly: the local `lower_conforms` capstone that once tied `sim_cfg` to `runWithLog` was deleted in the vacuous-ties purge (b144af8) because its supplied per-block hypotheses were unsatisfiable for lowered programs. (Two stale self-references remain: the header cites `sim_cfg (:983)` — actual [L938](../../../LirLean/Assembly/LowerConforms.lean#L938) — and the closing block cites the flagship at `RealisabilitySpec.lean:206` — actual [L251](../../../LirLean/Realisability/RealisabilitySpec.lean#L251).)
 
 ### 5.5 `LowerDecode.lean` — the decode-discharge layer
 
@@ -503,20 +503,20 @@ Caller audit (term-level applications, prose mentions excluded; grepped 2026-07-
 |---|---|---|
 | [`simStmtStep_block`](../../../LirLean/Assembly/LowerConforms.lean#L337), [`simTermStep_block`](../../../LirLean/Assembly/LowerConforms.lean#L799) | **none** | superseded scaffolding; top of the builder path |
 | [`simStmtStep_call`](../../../LirLean/Assembly/LowerConforms.lean#L297), [`CallRealises`](../../../LirLean/Assembly/LowerConforms.lean#L235), the four `simTermStep_*` arms | only `simStmtStep_block`/`simTermStep_block` | same |
-| [`entry_corr`](../../../LirLean/Assembly/LowerConforms.lean#L1063) | **none** (prose refs only, in [Producer](../../../LirLean/V2/Realisability/Producer.lean#L129)/[Surface](../../../LirLean/V2/Realisability/Surface.lean#L267)) | superseded; the flagship builds its own entry `DriveCorrLog` |
+| [`entry_corr`](../../../LirLean/Assembly/LowerConforms.lean#L1063) | **none** (prose refs only, in [Producer](../../../LirLean/Realisability/Producer.lean#L129)/[Surface](../../../LirLean/Realisability/Surface.lean#L267)) | superseded; the flagship builds its own entry `DriveCorrLog` |
 | the six `sim_*_lowered` wrappers | only the builders (+ the [`Audit`](../../../LirLean/Audit.lean#L45) axiom pin on the sload one) | superseded as *wrappers*; their internal construction pattern is the precedent the flagship's missing call-arg driver will copy |
-| [`sim_cfg`](../../../LirLean/Assembly/LowerConforms.lean#L938), [`sim_stmts_block`](../../../LirLean/Sim/SimStmts.lean#L150), [`jump_to_block`](../../../LirLean/Sim/SimTerm.lean#L544), the four `sim_term_*` arms | [`DriveSim`](../../../LirLean/V2/Drive/DriveSim.lean#L618) only ([`lower_conforms_cyclic`](../../../LirLean/V2/Drive/DriveSim.lean#L618)/[`′`](../../../LirLean/V2/Drive/DriveSim.lean#L661) chain) | endpoint uncalled; [`RealisabilitySpec`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L282) states why: `lower_conforms_cyclic'` "needs an UNCONDITIONAL all-frames `SimStmtStep`, which the reshaped `StmtTies'` cannot supply … the coupling-free path is exactly the vacuity the reshape exists to kill" |
-| [`Corr`](../../../LirLean/Sim/SimStmt.lean#L102) + field lemmas, [`pcOf_succ`](../../../LirLean/Sim/SimStmt.lean#L78), [`pcOf_eq_termOf`](../../../LirLean/Sim/SimTerm.lean#L86), the `sstoreFrame_*`/`jumpFrame_*` accessor packs, [`emitStmt_*`](../../../LirLean/Sim/SimStmt.lean#L149) | **flagship** ([Producer](../../../LirLean/V2/Realisability/Producer.lean#L1036)/[Machinery](../../../LirLean/V2/Realisability/Machinery.lean#L392)) + DriveSim | **live, load-bearing** |
-| [`corr_at_jumpdest_landing`](../../../LirLean/Sim/SimTerm.lean#L503) | flagship ([Producer L243](../../../LirLean/V2/Realisability/Producer.lean#L243)) + DriveSim | live |
-| [`sstore_op_decode`](../../../LirLean/Assembly/LowerDecode.lean#L74), [`decode_gasstash`](../../../LirLean/Assembly/LowerDecode.lean#L632), [`term_dest_decode`](../../../LirLean/Assembly/LowerDecode.lean#L332), [`ofNatMod_toUInt32?`](../../../LirLean/Assembly/LowerDecode.lean#L303) | flagship ([Producer L1258](../../../LirLean/V2/Realisability/Producer.lean#L1258), [Machinery L1663](../../../LirLean/V2/Realisability/Machinery.lean#L1663), [L774](../../../LirLean/V2/Realisability/Machinery.lean#L774), [L787](../../../LirLean/V2/Realisability/Machinery.lean#L787)) | live |
+| [`sim_cfg`](../../../LirLean/Assembly/LowerConforms.lean#L938), [`sim_stmts_block`](../../../LirLean/Sim/SimStmts.lean#L150), [`jump_to_block`](../../../LirLean/Sim/SimTerm.lean#L544), the four `sim_term_*` arms | [`DriveSim`](../../../LirLean/Drive/DriveSim.lean#L618) only ([`lower_conforms_cyclic`](../../../LirLean/Drive/DriveSim.lean#L618)/[`′`](../../../LirLean/Drive/DriveSim.lean#L661) chain) | endpoint uncalled; [`RealisabilitySpec`](../../../LirLean/Realisability/RealisabilitySpec.lean#L282) states why: `lower_conforms_cyclic'` "needs an UNCONDITIONAL all-frames `SimStmtStep`, which the reshaped `StmtTies'` cannot supply … the coupling-free path is exactly the vacuity the reshape exists to kill" |
+| [`Corr`](../../../LirLean/Sim/SimStmt.lean#L102) + field lemmas, [`pcOf_succ`](../../../LirLean/Sim/SimStmt.lean#L78), [`pcOf_eq_termOf`](../../../LirLean/Sim/SimTerm.lean#L86), the `sstoreFrame_*`/`jumpFrame_*` accessor packs, [`emitStmt_*`](../../../LirLean/Sim/SimStmt.lean#L149) | **flagship** ([Producer](../../../LirLean/Realisability/Producer.lean#L1036)/[Machinery](../../../LirLean/Realisability/Machinery.lean#L392)) + DriveSim | **live, load-bearing** |
+| [`corr_at_jumpdest_landing`](../../../LirLean/Sim/SimTerm.lean#L503) | flagship ([Producer L243](../../../LirLean/Realisability/Producer.lean#L243)) + DriveSim | live |
+| [`sstore_op_decode`](../../../LirLean/Assembly/LowerDecode.lean#L74), [`decode_gasstash`](../../../LirLean/Assembly/LowerDecode.lean#L632), [`term_dest_decode`](../../../LirLean/Assembly/LowerDecode.lean#L332), [`ofNatMod_toUInt32?`](../../../LirLean/Assembly/LowerDecode.lean#L303) | flagship ([Producer L1258](../../../LirLean/Realisability/Producer.lean#L1258), [Machinery L1663](../../../LirLean/Realisability/Machinery.lean#L1663), [L774](../../../LirLean/Realisability/Machinery.lean#L774), [L787](../../../LirLean/Realisability/Machinery.lean#L787)) | live |
 | [`decode_sloadstash`](../../../LirLean/Assembly/LowerDecode.lean#L806) | only `sim_assign_sload_lowered`/`simStmtStep_block` | builder-path today; same dual-use design as `decode_gasstash`, likely to go live when the coupled sload step lands |
 
 Direct answers to the reviewer's four sub-questions:
 
 1. **Which builders have zero callers?** `simStmtStep_block`, `simTermStep_block`, `entry_corr` (and transitively `simStmtStep_call`, the four `simTermStep_*` arms, `CallRealises`, the six `_lowered` wrappers). `sim_cfg` has exactly one consumer chain — DriveSim's `lower_conforms_cyclic`/`′` — whose own endpoint has zero callers.
-2. **Is the old acyclic capstone `lower_conforms` still in `LowerConforms.lean`?** **Deleted.** The file's closing §-block documents the deletion (vacuous-ties purge, commit b144af8) and points to the live flagship [`lower_conforms`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L251) (R11, WIP lib). Grep confirms no `lower_conforms` declaration anywhere under `Assembly/`.
+2. **Is the old acyclic capstone `lower_conforms` still in `LowerConforms.lean`?** **Deleted.** The file's closing §-block documents the deletion (vacuous-ties purge, commit b144af8) and points to the live flagship [`lower_conforms`](../../../LirLean/Realisability/RealisabilitySpec.lean#L251) (R11, WIP lib). Grep confirms no `lower_conforms` declaration anywhere under `Assembly/`.
 3. **Are `jump_landing_of_cleanHalt` / `branch_landing_of_cleanHalt` still orphaned?** **No — they no longer exist.** Deleted 2026-07-04 in commit `738ac23` ("retire superseded acyclic-CFG + Plus-thread scaffolding", −437 LOC from LowerDecode; the flagship re-derives the landing walk inline). The [cluster-assembly deep-dive](../../deepdive-2026-07-04/cluster-assembly.md), which lists them as present-but-orphaned at `LowerDecode.lean:486/769`, predates that commit by hours and is stale.
-4. **Live / incremental / superseded.** *Live*: `Corr` + accessor/emit lemmas, `pcOf_succ`/`pcOf_eq_termOf`/`pcOf_zero`, `corr_at_jumpdest_landing`, `WellFormedLowered` (embedded in `WellLowered`), and the low-level decode helpers named above. *Incremental-toward-the-flagship*: the arm lemmas themselves (`sim_assign*`, `sim_sstore_stmt`, `sim_call_stmt`, `sim_term_*`) — the coupled S-variants either re-derive their bodies "verbatim" ([`sim_sstore_stmt'`](../../../LirLean/V2/Realisability/Producer.lean#L1036)'s own words) or plan to feed them once the R3 arg-push driver lands, and `decode_sloadstash`'s interface was explicitly shaped for that hand-off. *Superseded scaffolding awaiting the R11 dust*: `SimStmtStep`/`SimTermStep` as ∀-quantified units, the builders, `CallRealises`, `entry_corr`, `sim_cfg`, and DriveSim's F3 endpoints — kept green in the default cone (the [lakefile](../../../lakefile.lean) comment says so deliberately) but with no path to the flagship in their current all-frames shape. Coordinate the disposal decision with [06-realisability](06-realisability.md).
+4. **Live / incremental / superseded.** *Live*: `Corr` + accessor/emit lemmas, `pcOf_succ`/`pcOf_eq_termOf`/`pcOf_zero`, `corr_at_jumpdest_landing`, `WellFormedLowered` (embedded in `WellLowered`), and the low-level decode helpers named above. *Incremental-toward-the-flagship*: the arm lemmas themselves (`sim_assign*`, `sim_sstore_stmt`, `sim_call_stmt`, `sim_term_*`) — the coupled S-variants either re-derive their bodies "verbatim" ([`sim_sstore_stmt'`](../../../LirLean/Realisability/Producer.lean#L1036)'s own words) or plan to feed them once the R3 arg-push driver lands, and `decode_sloadstash`'s interface was explicitly shaped for that hand-off. *Superseded scaffolding awaiting the R11 dust*: `SimStmtStep`/`SimTermStep` as ∀-quantified units, the builders, `CallRealises`, `entry_corr`, `sim_cfg`, and DriveSim's F3 endpoints — kept green in the default cone (the [lakefile](../../../lakefile.lean) comment says so deliberately) but with no path to the flagship in their current all-frames shape. Coordinate the disposal decision with [06-realisability](06-realisability.md).
 
 ---
 
@@ -526,12 +526,12 @@ Direct answers to the reviewer's four sub-questions:
 
 **Bricks (load-bearing):** `Corr` + `Corr.validJumps_lower`, `pcOf_succ`/`pcOf_eq_termOf`, the five C-layer arms, `sim_stmts_block`, the E-layer arms + `corr_at_jumpdest_landing`/`jump_to_block`, `WellFormedLowered`, and LowerDecode's byte-layout facts. Proof style throughout: frame-chain assembly + record rebuilds; the only inductions are `sim_stmts_drop` (list) and `sim_cfg` (derivation); no `omega`-storms beyond cursor arithmetic.
 
-**Examples:** `wellFormedLowered_exProg`/`wellLowered_exProg` ([Witness.lean](../../../LirLean/V2/Realisability/Witness.lean#L569), WIP lib) — hardcoded-program satisfiability witnesses for this layer's tie vocabulary; consumed only by the WIP anti-vacuity check, no real result depends on them.
+**Examples:** `wellFormedLowered_exProg`/`wellLowered_exProg` ([Witness.lean](../../../LirLean/Realisability/Witness.lean#L569), WIP lib) — hardcoded-program satisfiability witnesses for this layer's tie vocabulary; consumed only by the WIP anti-vacuity check, no real result depends on them.
 
 **Smells** (each with the does-a-headline-depend-on-it call):
 
 1. **`SstoreRealises` ∀-frames shape** ([SimStmt.lean#L317](../../../LirLean/Sim/SimStmt.lean#L317)) — judged unsatisfiable-as-a-producible-tie by the flagship's own docstring. Headline exposure: *none directly* (the flagship bypasses it point-wise), but it blocks `sim_sstore_stmt` from ever being consumed as-is and forced the `sim_sstore_stmt'` body duplication.
-2. **`CallRealises`'s embedded `StepScoped`** ([LowerConforms.lean#L235](../../../LirLean/Assembly/LowerConforms.lean#L235)) — refutable in R3's envelope per [Machinery](../../../LirLean/V2/Realisability/Machinery.lean#L392); same family. Headline exposure: none (flagship uses `CallRealisesS`), but it makes the in-tree tie a dead interface.
+2. **`CallRealises`'s embedded `StepScoped`** ([LowerConforms.lean#L235](../../../LirLean/Assembly/LowerConforms.lean#L235)) — refutable in R3's envelope per [Machinery](../../../LirLean/Realisability/Machinery.lean#L392); same family. Headline exposure: none (flagship uses `CallRealisesS`), but it makes the in-tree tie a dead interface.
 3. **`sim_call_stmt`'s arg-push run has no producer** — the honest open obligation (R3 Piece B). Headline exposure: **yes** — this is on the flagship's critical path; the missing driver is ~200 lines by Machinery's own estimate, precedent in this very layer (`sim_term_edge_branch_lowered`'s cond driver).
 4. **`SimStmtStep`/`SimTermStep`'s all-frames ∀** — the shape that made the deleted headline vacuous; anything rebuilt on the builders inherits it. Headline exposure: only if someone resurrects the builder path.
 5. **`maxRecDepth 8192`** set six times in [LowerDecode](../../../LirLean/Assembly/LowerDecode.lean#L29) — byte-index reduction depth, mild; no `maxHeartbeats` cranks anywhere in scope. Headline exposure: cosmetic.

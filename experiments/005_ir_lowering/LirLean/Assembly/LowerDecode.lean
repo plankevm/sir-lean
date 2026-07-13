@@ -5,13 +5,15 @@ import LirLean.Sim.SimTerm
 import LirLean.Materialise.StashTail
 import LirLean.Materialise.CleanHaltExtract
 
+open Lir.Frame
+
 /-!
 # LirLean — discharging the carried decode bundles via `matDecC_of_lower`
 
 `SimStmt.sim_sstore_stmt` / `SimTerm.sim_term_*` carry their per-cursor decode facts
 (`MatDecC` for the operand materialisations, the per-opcode decodes for the consuming
 `SSTORE`/`RETURN`/`JUMP`/`JUMPI`/`JUMPDEST`) as structured hypotheses. The fold decode
-channel (`Lir.V2.matDecC_of_seg` and its cursor wrappers `matDecC_of_lower` /
+channel (`Lir.matDecC_of_seg` and its cursor wrappers `matDecC_of_lower` /
 `matDecC_of_term`, `Materialise/MatFoldChannel.lean`) together with the A2/A3 anchors
 (`Decode/DecodeAnchors.lean`) *produce* those facts generically over `lower prog`. This
 module wires them together: each consuming-opcode / operand decode is read off
@@ -63,7 +65,7 @@ end Lir
 namespace Lir
 open Evm
 open BytecodeLayer.Hoare
-open Lir.V2
+open Lir
 set_option maxRecDepth 8192
 
 /-! ## SSTORE consuming-opcode decode
@@ -110,7 +112,7 @@ two-frame fold); the remaining honest residual is the stack envelope and the run
 `SstoreRealises` recording-correspondence tie (§7). The def-env well-formedness pair
 `DefsConsistent`/`DefEnvOrdered` routes the `.tmp` arms through `matCache_unfold`. -/
 theorem sim_sstore_stmt_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st : V2.IRState} {key value : Tmp} {kw vw : Word}
+    {st : Lir.IRState} {key value : Tmp} {kw vw : Word}
     {L : Label} {b : Block} {pc : ℕ} {fr : Frame} {acc : Account}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some (.sstore key value))
@@ -170,7 +172,7 @@ namespace Lir
 open Evm
 open BytecodeLayer.Hoare
 open BytecodeLayer.Dispatch
-open Lir.V2
+open Lir
 set_option maxRecDepth 8192
 
 /-! ## Terminator-cursor operand segment (the A3 analogue for `ret`'s operand)
@@ -204,7 +206,7 @@ top-level `.call` frame with non-empty accounts — the §7-style supplied obser
 The `DefsConsistent`/`DefEnvOrdered` pair is the def-env well-formedness the fold channel
 consumes. -/
 theorem sim_term_halt_ret_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st : V2.IRState} {t : Tmp} {vw : Word}
+    {st : Lir.IRState} {t : Tmp} {vw : Word}
     {L : Label} {b : Block} {fr : Frame} {self : AccountAddress}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L b.stmts.length)
@@ -275,7 +277,7 @@ open Evm
 open GasConstants
 open BytecodeLayer.Hoare
 open BytecodeLayer.Dispatch
-open Lir.V2
+open Lir
 set_option maxRecDepth 8192
 
 /-! ## PUSH4 destination round-trips (the `jump`/`branch` immediate + `hdestword` tie)
@@ -385,7 +387,7 @@ open Evm
 open GasConstants
 open BytecodeLayer.Hoare
 open BytecodeLayer.Dispatch
-open Lir.V2
+open Lir
 open Lir.CleanHaltExtract
 set_option maxRecDepth 8192
 
@@ -396,7 +398,7 @@ over `lower prog` (`term_dest_decode` + A3 + `decode_at_block_offset_jumpdest` +
 `validJumps`-recording tie is discharged structurally from `Corr`. The destination word is
 the PUSH4 immediate `ofNat (off % 2^32)`. -/
 theorem sim_term_edge_jump_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st : V2.IRState} {L : Label} {b : Block} {dst : Label} {bdst : Block} {fr : Frame}
+    {st : Lir.IRState} {L : Label} {b : Block} {dst : Label} {bdst : Block} {fr : Frame}
     (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L b.stmts.length)
     (hterm : b.term = .jump dst)
     (hb : prog.blocks.toList[L.idx]? = some b)
@@ -461,7 +463,7 @@ open Evm
 open GasConstants
 open BytecodeLayer.Hoare
 open BytecodeLayer.Dispatch
-open Lir.V2
+open Lir
 set_option maxRecDepth 8192
 
 /-! ## `branch` arm — decode bundle discharged
@@ -474,7 +476,7 @@ post-cond-materialise frame, `= termOf prog L + lc` via `hmrc.pc`). Both PUSH4 d
 discharged. The remaining hypotheses are the cond value channel `hmrc` (`MatRunsC`) and the
 gas envelopes (§7). -/
 theorem sim_term_edge_branch_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st : V2.IRState} {L : Label} {b : Block} {cond : Tmp} {cw : Word}
+    {st : Lir.IRState} {L : Label} {b : Block} {cond : Tmp} {cw : Word}
     {thenL elseL : Label} {bthen belse : Block} {fr frc : Frame}
     (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L b.stmts.length)
     (hterm : b.term = .branch cond thenL elseL)
@@ -484,7 +486,7 @@ theorem sim_term_edge_branch_lowered {prog : Program} {sloadChg : Tmp → ℕ} {
     (hbelse : prog.blocks.toList[elseL.idx]? = some belse)
     (hthenlt : thenL.idx < prog.blocks.size)
     (helselt : elseL.idx < prog.blocks.size)
-    (hmrc : V2.MatRunsC prog sloadChg (.tmp cond) cw fr frc)
+    (hmrc : Lir.MatRunsC prog sloadChg (.tmp cond) cw fr frc)
     -- pc bounds: cond byte-cache length + the destinations / landings fit a `UInt32`.
     (hbterm : termOf prog L + (matCache prog cond).length + 11 < 2 ^ 32)
     (hbthenoff : offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx < 2 ^ 32)
@@ -615,7 +617,7 @@ The gas spill stash `[GAS] ++ PUSH32 (slotOf t) ++ MSTORE` is the byte stream of
 no fuel juggling). `sim_assign_gas` previously took the *entire* stash run (plus its memory
 shape + 8 frame pins) as the supplied §7 hypothesis `hstash`. Here we **build** it: the three
 decode anchors are read off the byte layout (A2 `decode_at_offset_nonpush` for `GAS`/`MSTORE`,
-`Lir.V2.imm_leaf_decodeF` for `PUSH32`), and `stash_tail_gas` (`StashTail.lean`) runs the
+`Lir.imm_leaf_decodeF` for `PUSH32`), and `stash_tail_gas` (`StashTail.lean`) runs the
 three opcodes, producing exactly the honest memory-channel tie `sim_assign_gas` now consumes (the
 `.memory` bytes + `.activeWords` of `fr….mstore (slotOf t) (ofUInt64 (fr.gas − Gbase))` — the
 realised one-read gas value, `gasReadOf (gasFrame fr)`). The opaque run + the false
@@ -632,7 +634,7 @@ decode coverage both `sim_assign_gas_lowered` (via `stash_tail_gas`, `fr`-relati
 clean-halt extractor `gas_envelope_of_cleanHalt` (successor-frame form) consume — factored out so
 the §7 GAS tie can DERIVE its runtime envelope from a clean-halt witness instead of supplying it. -/
 theorem decode_gasstash {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st : V2.IRState} {t : Tmp} {I : Tmp → Prop}
+    {st : Lir.IRState} {t : Tmp} {I : Tmp → Prop}
     {L : Label} {b : Block} {pc : Nat} {fr : Frame}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some (.assign t .gas))
@@ -706,7 +708,7 @@ theorem decode_gasstash {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
 memory-channel tie are constructed internally (decode from the byte layout + `stash_tail_gas`).
 The bound gas read is `ofUInt64 (fr.gas − Gbase)` — the realised `GAS` output. -/
 theorem sim_assign_gas_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st : V2.IRState} {t : Tmp}
+    {st : Lir.IRState} {t : Tmp}
     {L : Label} {b : Block} {pc : Nat} {fr : Frame} {words' : UInt64}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some (.assign t .gas))
@@ -798,7 +800,7 @@ theorem sim_assign_gas_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
 The spilled-sload stash `matCache k ++ [SLOAD] ++ PUSH32 (slotOf t) ++ MSTORE` is the byte
 stream of `emitStmt … (.assign t (.sload k))` at cursor `(L, pc)`. `sim_assign_sload` previously
 took the *entire* stash run (plus its memory shape + frame pins) as the supplied §7 hypothesis
-`hstash`. Here we **build** it, composing three existing GREEN pieces — `Lir.V2.materialise_runsC`
+`hstash`. Here we **build** it, composing three existing GREEN pieces — `Lir.materialise_runsC`
 (the key prefix, via its gas-deriving clean-halt wrapper), the `Match` `sim_sload` brick (the
 SLOAD step), and `stash_tail_runs` (the PUSH;MSTORE tail) — via the SLOAD-prefix
 `stash_tail_sload` forward lemma. The `MatDecC` for the key and the SLOAD/PUSH/MSTORE decode
@@ -824,7 +826,7 @@ instead of supplying it. The key-prefix gas fold is likewise DERIVED (`materiali
 only the key-prefix **stack-room** fold `hstkKey` (a stack-depth-profile argument) and the
 activeWords-flatness `hawk` stay supplied. -/
 theorem decode_sloadstash {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st : V2.IRState} {t k : Tmp} {I : Tmp → Prop}
+    {st : Lir.IRState} {t k : Tmp} {I : Tmp → Prop}
     {L : Label} {b : Block} {pc : Nat} {fr frk : Frame}
     {keyVal : Word}
     (hb : prog.blocks.toList[L.idx]? = some b)
@@ -832,7 +834,7 @@ theorem decode_sloadstash {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     (hslotdef : defsOf prog t = some (.slot (slotOf t)))
     (hbound : pcOf prog L pc + ((matCache prog k).length + 35) < 2 ^ 32)
     (hcorr : Corr prog sloadChg obs I st fr L pc)
-    (hmrk : V2.MatRunsC prog sloadChg (.tmp k) keyVal fr frk) :
+    (hmrk : Lir.MatRunsC prog sloadChg (.tmp k) keyVal fr frk) :
     decode frk.exec.executionEnv.code frk.exec.pc = some (.Smsf .SLOAD, .none)
     ∧ decode (sloadFrame frk keyVal []).exec.executionEnv.code
         (sloadFrame frk keyVal []).exec.pc
@@ -931,10 +933,10 @@ theorem decode_sloadstash {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
 /-- **`sim_assign_sload` with the stash run discharged (`_lowered`, P-walk).** Replaces the
 supplied `hstash` run with the honest runtime gas/witness side-conditions; the
 `matCache k ; SLOAD ; PUSH ; MSTORE` run and its memory-channel tie are constructed internally
-(decode from the byte layout + `Lir.V2.materialise_runsC` + `sim_sload` + `stash_tail_runs`, via
+(decode from the byte layout + `Lir.materialise_runsC` + `sim_sload` + `stash_tail_runs`, via
 `stash_tail_sload`). The bound value is the loaded storage word `w`. -/
 theorem sim_assign_sload_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs w : Word}
-    {st : V2.IRState} {t k : Tmp}
+    {st : Lir.IRState} {t k : Tmp}
     {L : Label} {b : Block} {pc : Nat} {fr : Frame}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some (.assign t (.sload k)))
@@ -942,7 +944,7 @@ theorem sim_assign_sload_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs 
     (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L pc)
     (hsc : StepScoped prog st (.assign t (.sload k)))
     (hslots : ∀ tw slot', defsOf prog tw = some (.slot slot') → slot' = slotOf tw)
-    (hwval : V2.evalExpr st 0 (.sload k) = some w)
+    (hwval : Lir.evalExpr st 0 (.sload k) = some w)
     -- def-env well-formedness (routes the key's `.tmp` arm through `matCache_unfold`):
     (hdc : DefsConsistent prog) (hord : DefEnvOrdered prog)
     -- addressability of `slotOf t`:
@@ -959,7 +961,7 @@ theorem sim_assign_sload_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs 
     -- honest runtime side-conditions at the post-materialise frame `frk`. They reference the
     -- materialise endpoint via the universally-bound `frk` (the descending-gas run supplies them):
     (hresid : ∀ frk : Frame,
-        V2.MatRunsC prog sloadChg (.tmp k)
+        Lir.MatRunsC prog sloadChg (.tmp k)
             (match st.locals k with | some keyVal => keyVal | none => 0) fr frk →
         frk.exec.toMachineState.activeWords = fr.exec.toMachineState.activeWords
         ∧ Evm.sloadCost (frk.exec.substate.accessedStorageKeys.contains
@@ -992,7 +994,7 @@ theorem sim_assign_sload_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs 
   set slot := slotOf t with hslotvar
   -- the loaded value: `evalExpr (.sload k)` = `world (locals k)`.
   obtain ⟨keyVal, hkloc, hkw⟩ : ∃ keyVal, st.locals k = some keyVal ∧ st.world keyVal = w := by
-    rw [V2.evalExpr] at hwval
+    rw [Lir.evalExpr] at hwval
     cases hkl : st.locals k with
     | none => rw [hkl] at hwval; simp at hwval
     | some keyVal => rw [hkl] at hwval; exact ⟨keyVal, rfl, (Option.some.inj hwval)⟩
@@ -1000,7 +1002,7 @@ theorem sim_assign_sload_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs 
   have hmatchkey : (match st.locals k with | some kv => kv | none => 0) = keyVal := by rw [hkloc]
   -- == the fold value channel: materialise `k` from `fr`, leaving `[keyVal]` ==
   set lk := (matCache prog k).length with hlk
-  have hevk : V2.evalExpr st obs (.tmp k) = some keyVal := hkloc
+  have hevk : Lir.evalExpr st obs (.tmp k) = some keyVal := hkloc
   -- the spilled-sload emit: `matCache k ++ [SLOAD] ++ PUSH slot ++ MSTORE`.
   have hemit : emitStmt (matCache prog) (defsOf prog) (.assign t (.sload k))
       = matCache prog k ++ [Byte.sload]
@@ -1099,6 +1101,6 @@ end Lir
 
 -- Build-enforced axiom-cleanliness guard for the P-walk SLOAD-stash discharge:
 -- `sim_assign_sload_lowered` constructs the `matCache k ; SLOAD ; PUSH ; MSTORE` stash run
--- internally (decode layout + `Lir.V2.materialise_runsC` + `sim_sload` + `stash_tail_runs`, via
+-- internally (decode layout + `Lir.materialise_runsC` + `sim_sload` + `stash_tail_runs`, via
 -- `stash_tail_sload`), replacing the supplied opaque `hstash` run; it depends only on
 -- `[propext, Classical.choice, Quot.sound]` (pinned in `LirLean/Audit.lean`).

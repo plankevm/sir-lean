@@ -73,7 +73,7 @@ positional index.
 **Consequence for A (worked example CALL; CREATE; CALL).** Under A the run threads
 `CallStream = [c1, c2]` and `CreateStream = [cr1]`. Each element is an *absolute*
 post-descent snapshot `(world', word)` (the full storage lens at that descent, not a
-delta — cf. `evmV2CallEntry`, `V2/CallRealises.lean:59, postStorage`). The walk:
+delta — cf. `evmV2CallEntry`, `CallRealises.lean:59, postStorage`). The walk:
 
 | step   | rule fires        | pops from      | world becomes | binds        |
 |--------|-------------------|----------------|---------------|--------------|
@@ -145,10 +145,10 @@ Adding an index to the `RunFrom`/`RunStmts`/`EvalStmt` inductives ripples to the
 refs (plan's counts: ~137 `RunFrom`, ~74 `EvalStmt`, ~72 `RunStmts`), **plus** the
 flagship's mirror inductives that re-declare the same channels:
 
-- `V2/Realisability/Surface.lean` — `RunFromV` / `RunFromLeft` / `RunFromAll`
+- `Realisability/Surface.lean` — `RunFromV` / `RunFromLeft` / `RunFromAll`
   (:872, :918) and the `SimStmtStep`/tie surface (:150-178, :872-940) each gain the
   `CreateStream` index.
-- `V2/Realisability/Witness.lean` (:268, :290), `V2/Realisability/Machinery.lean`
+- `Realisability/Witness.lean` (:268, :290), `Realisability/Machinery.lean`
   `SimStmtStep` (:91) — gain the index.
 - `driveLog`'s result tuple widens by **appending** `× List CreateRecord`
   (`Spec/Recorder.lean:184`; the tuple also appears at Machinery :1494, :1530, :1617,
@@ -179,7 +179,7 @@ The 11 tracked sorries (verified `:= sorry` terms):
 Sorries 2–4 are `obtain … := sorry` whose *stated existential* gains the 4th stream
 argument; since `sorry` discharges any goal, no new proof burden lands. Critically, A
 does **not** change `realisedCall`, `callStreamOf`, or `realisedCall_cons`
-(`V2/RecorderLemmas.lean:44-48`, closed by `simp … List.map_cons` — `rfl`-clean), so
+(`RecorderLemmas.lean:44-48`, closed by `simp … List.map_cons` — `rfl`-clean), so
 the **real** (non-sorry) R3/R7 machinery that surrounds these sorries —
 `RecorderCoupled.callSuffix` destructured `rec :: cS'` and its head identified with
 the cursor's `evmV2CallEntry` (Machinery:306-347, 1729-1914; R7e :1729) — is
@@ -289,11 +289,11 @@ itself, but named so the index lines up):
   `createAcc : List CreateRecord` (appended to the tuple), `recordCreate` (the
   `.create pd` arm currently dropped at :172), `createStreamOf`/`realisedCreate`
   (twins of :288/:296).
-- `V2/CreateRealises.lean`: `evmV2CreateEntry result pd self : World × Word :=
+- `CreateRealises.lean`: `evmV2CreateEntry result pd self : World × Word :=
   ((fun key => evmCreateOracle.postStorage result pd self key),
   evmCreateOracle.addressWord result pd)` (twin of `evmV2CallEntry`,
   CallRealises.lean:59; the oracle already exists, `Create.lean:99`).
-- `V2/RecorderLemmas.lean`: `realisedCreate_cons` (twin of `realisedCall_cons` :44,
+- `RecorderLemmas.lean`: `realisedCreate_cons` (twin of `realisedCall_cons` :44,
   `rfl`-clean by the same `simp … List.map_cons`).
 - `Surface.lean` `RecorderCoupled`: `createSuffix`/`createPrefix` fields.
 

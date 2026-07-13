@@ -7,12 +7,12 @@ execution** instead of constructing it statically.
 
 ## Why this is one node, not two
 - `CFGAcyclic` is used in **exactly one place**: `irRun_exists`/`runFrom_exists`
-  (`V2/IRRun.lean`) — building the IR `RunFrom` by recursion on a control-flow block-rank.
+  (`IRRun.lean`) — building the IR `RunFrom` by recursion on a control-flow block-rank.
   Back-edges have no smaller-rank successor ⇒ no static measure ⇒ can't build the run.
 - The lowering simulation `sim_cfg` (`LowerConforms.lean`) inducts on the **given** finite
   IR derivation `hrun : RunFrom …` and is **already cycle-agnostic**. The per-block bricks
   (`sim_stmts_block`, `sim_term_*`, the `Corr` boundary invariant) don't mention acyclicity.
-- The bytecode run `driveLog`/`runWithLog` (`V2/RunLog.lean`) is **fuel-recursive and finite**;
+- The bytecode run `driveLog`/`runWithLog` (`RunLog.lean`) is **fuel-recursive and finite**;
   `totalGas`-descent (the never-OOF proof) is the well-founded measure. So: induct on the
   bytecode run, build the IR `RunFrom` as we go, read the realised ties off the actual frames.
 
@@ -44,7 +44,7 @@ Read of `RunLog.lean`/`IRRun.lean`/`Law.lean`/`LowerConforms.lean` confirms feas
   gas-monotonicity section — the exp003 descent lemmas named here survive*). This,
   not the trace length, is what bounds the IR run (a gas-free loop with no `GAS` read isn't
   trace-bounded). 
-- **`RunFrom.det`/`RunStmts.det`/`EvalStmt.det` exist** (`V2/Law.lean`) — but they give
+- **`RunFrom.det`/`RunStmts.det`/`EvalStmt.det` exist** (`Law.lean`) — but they give
   *uniqueness*, not existence. **Existence is the work** (the loop has no static measure). The IR
   is built FORWARD one block at a time (always possible, like `runFrom_exists`'s per-block body,
   needs `RunDefinable` operand-definability); the **bytecode's `totalGas` descent is the recursion
@@ -76,8 +76,8 @@ self) st (realisedGas log) L O`. Then the EXISTING `sim_cfg` + supplied ties ⇒
 `lower_conforms` (no `CFGAcyclic`).
 
 ## Phases (DAG; always green; `main` untouched)
-- **F0 Scope+invariant.** Read `driveLog`/`runWithLog`/`endFrame`/`totalGas` (`V2/RunLog.lean`),
-  `irRun_exists`/`runFrom_exists`/`RunDefinable` (`V2/IRRun.lean`), `sim_cfg` + the per-block
+- **F0 Scope+invariant.** Read `driveLog`/`runWithLog`/`endFrame`/`totalGas` (`RunLog.lean`),
+  `irRun_exists`/`runFrom_exists`/`RunDefinable` (`IRRun.lean`), `sim_cfg` + the per-block
   bricks (`LowerConforms.lean`). Define **`DriveCorr`** — the boundary invariant relating a
   `driveLog` state (at a block-entry frame, stack `[]`) to an IR cursor `(L, st)`: `Corr` at
   `(L,0)` + the realised accumulators so far = the IR trace consumed so far. State the clean-halt

@@ -170,7 +170,7 @@ no roadmap dependency. That is a real ~3–4 % of the tree and the single bigges
 
 | # | Win | Effect | Gate |
 |---|---|---|---|
-| 9 | **Engine/ namespace graduation** — 5/8 files in `Lir.V2` despite being IR-agnostic exp003 theory; `AccountMap.lean:26,55,68` self-flags `-- RELOCATE to exp003` | 0 LOC; unblocks exp003 extraction | exp003 relocation decision |
+| 9 | **Engine/ namespace graduation** — 5/8 files in `Lir` despite being IR-agnostic exp003 theory; `AccountMap.lean:26,55,68` self-flags `-- RELOCATE to exp003` | 0 LOC; unblocks exp003 extraction | exp003 relocation decision |
 | 10 | Fold `Spec/Seams.lean` → `Audit.lean` | −1 tiny file | cosmetic; `Spec/Conformance.lean` is a DELIBERATE tombstone (`LirLean.lean:50`) — NOT a win |
 
 ### Explicitly NOT wins (guard against a shallow second pass)

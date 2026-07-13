@@ -1,18 +1,20 @@
-import LirLean.V2.Drive.Headline
+import LirLean.Drive.Headline
 import LirLean.Decode.BoundaryReach
 import LirLean.Spec.WellFormed
 import LirLean.Spec.Conformance
 import LirLean.Spec.Seams
 
+open Lir.Frame
+
 /-!
-# LirLean v2 — Realisability spec, SURFACE (§1–§4)
+# LirLean — Realisability spec, SURFACE (§1–§4)
 
 Split out of `RealisabilitySpec.lean` for legibility (pure relocation, no proof change).
 Holds the sorry-free helper definitions (§1), the recorder-restart coupling (§2), the
 reshaped ties `StmtTies'`/`TermTies'` (§3), and exact stream consumption (§4). See
 `RealisabilitySpec.lean` for the module-level overview and the vacuity lessons. -/
 
-namespace Lir.V2
+namespace Lir
 
 open Evm
 open BytecodeLayer
@@ -210,7 +212,7 @@ def CreateRealisesS (prog : Program) (sloadChg : Tmp → ℕ)
         ∧ (cs.resultTmp = none →
             Runs resumeFr (popFrame resumeFr [])))
 
-/-- **The internal lowered adapter** — a function of the program text that the current V2
+/-- **The internal lowered adapter** — a function of the program text that the current lowering
 machinery still consumes as `hwl`. It folds the old headline's
 `hwfl`/`hdef`/`hentry0`/presence/offset/stack-fold hypotheses into one named structure, but
 it is no longer the public theorem surface: `RealisabilitySpec.lower_conforms` rebuilds it
@@ -732,4 +734,4 @@ def TermTies' (prog : Program) (sloadChg : Tmp → ℕ) (_log : RunLog)
             ∧ RecorderCoupled _log fr' gS sS cS dS
             ∧ totalGas [] (.inl fr') < totalGas [] (.inl frT))
 
-end Lir.V2
+end Lir

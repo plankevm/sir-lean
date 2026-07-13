@@ -7,12 +7,12 @@ Part of the [exp005 tour](00-overview.md). Siblings: [01 trusted base](01-truste
 
 **Scope.** Everything a skeptical reader must read and *believe* (not verify) to know what
 the conformance flagship SAYS: `LirLean/Spec/` (9 files), the IR metatheory in
-[`V2/Law.lean`](../../../LirLean/V2/Law.lean) and [`V2/IRRun.lean`](../../../LirLean/V2/IRRun.lean),
+[`Law.lean`](../../../LirLean/Law.lean) and [`IRRun.lean`](../../../LirLean/IRRun.lean),
 plus the recorder-adequacy and call-bridge companions
-([`V2/RecorderLemmas.lean`](../../../LirLean/V2/RecorderLemmas.lean),
-[`V2/CallRealises.lean`](../../../LirLean/V2/CallRealises.lean)) and the WIP file that holds the
+([`RecorderLemmas.lean`](../../../LirLean/RecorderLemmas.lean),
+[`CallRealises.lean`](../../../LirLean/CallRealises.lean)) and the WIP file that holds the
 flagship statement itself
-([`V2/Realisability/RealisabilitySpec.lean`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean)).
+([`Realisability/RealisabilitySpec.lean`](../../../LirLean/Realisability/RealisabilitySpec.lean)).
 
 ## TL;DR
 
@@ -24,9 +24,9 @@ results and CREATE results are positional list streams the IR pops but never com
 [`driveLog`](../../../LirLean/Spec/Recorder.lean#L51) — a hand-maintained twin of exp003's
 [`drive`](../../../../003_bytecode_layer/EVMLean/Evm/Semantics/Interpreter.lean#L36) whose
 *result* channel is proved equal to the verified engine
-([`driveLog_drive`](../../../LirLean/V2/RecorderLemmas.lean#L82)) but whose *recorded* channels
+([`driveLog_drive`](../../../LirLean/RecorderLemmas.lean#L82)) but whose *recorded* channels
 are definitionally trusted. The flagship
-[`lower_conforms`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L251) (R11,
+[`lower_conforms`](../../../LirLean/Realisability/RealisabilitySpec.lean#L251) (R11,
 **sorry'd, WIP lib**) says: run the lowered bytecode once under the recorder; then an IR run
 exists at exactly the recorded streams and its final world/result agree with the machine's
 ([`Conforms`](../../../LirLean/Spec/Conformance.lean#L20)). The statement vocabulary is now
@@ -53,12 +53,12 @@ the salvage layer are build-pinned in [`Audit.lean`](../../../LirLean/Audit.lean
 | [`Spec/WellFormed.lean`](../../../LirLean/Spec/WellFormed.lean) | `IRWellFormed`, `codeFits`, `stackFits` + vocabulary | trusted spec **mixed with ~280 lines of `matCache` proofs** |
 | [`Spec/Seams.lean`](../../../LirLean/Spec/Seams.lean) | `PrecompileAssumptions`, `ReachableFrom`, seam forwarders | trusted spec (forwards to proof-layer defs) |
 | [`Spec/BudgetDerivations.lean`](../../../LirLean/Spec/BudgetDerivations.lean) | derives per-cursor pc/stack bounds from the two scalar budgets | derived convenience (proofs, not spec) |
-| [`V2/Law.lean`](../../../LirLean/V2/Law.lean) | `EvalStmt.det` → `RunStmts.det` → `RunFrom.det` → `IRRun.det` | supporting metatheory |
-| [`V2/IRRun.lean`](../../../LirLean/V2/IRRun.lean) | gas-free/call-free existence ladder, `RunDefinable` | supporting metatheory (partly superseded, §9) |
-| [`V2/RecorderLemmas.lean`](../../../LirLean/V2/RecorderLemmas.lean) | `driveLog_drive`, `runWithLog_drive`, stream cons-projections | supporting (the proved half of the fence) |
-| [`V2/CallRealises.lean`](../../../LirLean/V2/CallRealises.lean) | `callRealises_bridge`/`createRealises_bridge` | supporting (entry-projection faithfulness) |
-| [`V2/Realisability/Surface.lean`](../../../LirLean/V2/Realisability/Surface.lean) | WIP hypothesis machinery (`WellLowered`, `RecorderCoupled`, `StmtTies'`/`TermTies'`) | **derived** hypothesis vocabulary — not on the flagship's statement surface |
-| [`V2/Realisability/RealisabilitySpec.lean`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean) | the flagships `lower_conforms`(+`_exact`,`_gasfree`), R-obligations | WIP; statements are the review target |
+| [`Law.lean`](../../../LirLean/Law.lean) | `EvalStmt.det` → `RunStmts.det` → `RunFrom.det` → `IRRun.det` | supporting metatheory |
+| [`IRRun.lean`](../../../LirLean/IRRun.lean) | gas-free/call-free existence ladder, `RunDefinable` | supporting metatheory (partly superseded, §9) |
+| [`RecorderLemmas.lean`](../../../LirLean/RecorderLemmas.lean) | `driveLog_drive`, `runWithLog_drive`, stream cons-projections | supporting (the proved half of the fence) |
+| [`CallRealises.lean`](../../../LirLean/CallRealises.lean) | `callRealises_bridge`/`createRealises_bridge` | supporting (entry-projection faithfulness) |
+| [`Realisability/Surface.lean`](../../../LirLean/Realisability/Surface.lean) | WIP hypothesis machinery (`WellLowered`, `RecorderCoupled`, `StmtTies'`/`TermTies'`) | **derived** hypothesis vocabulary — not on the flagship's statement surface |
+| [`Realisability/RealisabilitySpec.lean`](../../../LirLean/Realisability/RealisabilitySpec.lean) | the flagships `lower_conforms`(+`_exact`,`_gasfree`), R-obligations | WIP; statements are the review target |
 
 ## 2. IR grammar — [`Spec/IR.lean`](../../../LirLean/Spec/IR.lean)
 
@@ -141,11 +141,11 @@ The design split:
   [`realisedCreate`](../../../LirLean/Spec/Recorder.lean#L116)). A gas *law* (e.g.
   monotonicity) was deliberately deleted — gas is a log-fed exact-equality oracle
   ([`docs/gas-decision.md`](../../gas-decision.md), recorded in the
-  [`Law.lean` header](../../../LirLean/V2/Law.lean#L16)).
+  [`Law.lean` header](../../../LirLean/Law.lean#L16)).
 * Positional streams are also what killed the old single-call restriction: a syntactic
   `Stmt.call` inside a loop consumes one stream entry *per iteration*, so per-iteration
   child outcomes are represented faithfully
-  ([`RealisabilitySpec.lean` header, lesson 7](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L58)).
+  ([`RealisabilitySpec.lean` header, lesson 7](../../../LirLean/Realisability/RealisabilitySpec.lean#L58)).
 
 ### 3.2 Where each channel is popped
 
@@ -250,12 +250,12 @@ mirrors aligned: [`runFrom_of_runFromLeft`](../../../LirLean/Spec/Semantics.lean
 (exact ⇒ plain) and [`runFromLeft_exists`](../../../LirLean/Spec/Semantics.lean#L202)
 (plain ⇒ *some* leftovers exist — deliberately not `[]`).
 
-Usage: the main flagship [`lower_conforms`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L251)
+Usage: the main flagship [`lower_conforms`](../../../LirLean/Realisability/RealisabilitySpec.lean#L251)
 concludes `RunFrom`; its strengthening
-[`lower_conforms_exact`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L302) (R11-all)
+[`lower_conforms_exact`](../../../LirLean/Realisability/RealisabilitySpec.lean#L302) (R11-all)
 concludes `RunFromAll` and carries an explicit proof-shell comment that exactness must come
 from the producer, **not** be laundered through `runFromLeft_exists`
-([RealisabilitySpec.lean#L320-L322](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L320)).
+([RealisabilitySpec.lean#L320-L322](../../../LirLean/Realisability/RealisabilitySpec.lean#L320)).
 Since the recorded streams are what is supplied, `RunFromAll` is what certifies "the IR
 explains *every* recorded event", not just a prefix. The
 [R11 plan](../../planning/r11-plan-2026-07-08.md) tracks the `RunFromAll`-producing recursion.
@@ -364,13 +364,13 @@ and a [`RunLog`](../../../LirLean/Spec/Recorder.lean#L19) bundling
 **The fence, made crisp.** Split `driveLog` into two claims:
 
 1. *"It computes what `drive` computes."* **Proved.**
-   [`driveLog_drive`](../../../LirLean/V2/RecorderLemmas.lean#L82):
+   [`driveLog_drive`](../../../LirLean/RecorderLemmas.lean#L82):
    `(driveLog f …).map (·.1) = drive f …` for any accumulators (induction on fuel, branch-for-
    branch), lifted through the entry to
-   [`runWithLog_drive`](../../../LirLean/V2/RecorderLemmas.lean#L138):
+   [`runWithLog_drive`](../../../LirLean/RecorderLemmas.lean#L138):
 
    ```lean
-   -- V2/RecorderLemmas.lean#L138
+   -- RecorderLemmas.lean#L138
    theorem runWithLog_drive {params : CallParams} {fuel : ℕ} {log : RunLog}
        (h : runWithLog params fuel = some log) :
        ∃ frame, beginCall params = .inl frame
@@ -396,7 +396,7 @@ and a [`RunLog`](../../../LirLean/Spec/Recorder.lean#L19) bundling
    * **Which value**: gas records the **post-step** `exec.gasAvailable` — the value GAS pushes
      after paying its own `Gbase` (this is why the WIP tie pins
      `gS.head? = ofUInt64 (fr0.gasAvailable - Gbase)`,
-     [`StmtTies'` arm 3](../../../LirLean/V2/Realisability/Surface.lean#L397)); sload records
+     [`StmtTies'` arm 3](../../../LirLean/Realisability/Surface.lean#L397)); sload records
      the warmth *charge* [`sloadWarmthOf`](../../../LirLean/Spec/Recorder.lean#L32) (fed to the
      gas-charge machinery, **not** to the IR streams); calls record
      `(result.toCallResult, pendingCall)` verbatim
@@ -405,8 +405,8 @@ and a [`RunLog`](../../../LirLean/Spec/Recorder.lean#L19) bundling
    The channels acquire semantic force only downstream: the entry projections
    ([`evmV2CallEntry`](../../../LirLean/Spec/CallEntry.lean#L13), §6) are proved to coincide
    with the actual lowered CALL/CREATE effect
-   ([`callRealises_bridge`](../../../LirLean/V2/CallRealises.lean#L77) /
-   [`createRealises_bridge`](../../../LirLean/V2/CallRealises.lean#L118), both `rfl`-clean
+   ([`callRealises_bridge`](../../../LirLean/CallRealises.lean#L77) /
+   [`createRealises_bridge`](../../../LirLean/CallRealises.lean#L118), both `rfl`-clean
    projections of exp003's `resumeAfterCall`/`resumeAfterCreate`), and the (sorry'd)
    R-obligations must connect record positions to run positions. But *"the log's gas entries
    are the top-level GAS reads in program order"* is spec content you believe by reading
@@ -424,8 +424,8 @@ def realisedCall (log : RunLog) (self : AccountAddress) : CallStream := callStre
 ```
 
 with cons-faithfulness lemmas
-[`realisedCall_cons`](../../../LirLean/V2/RecorderLemmas.lean#L64) /
-[`realisedCreate_cons`](../../../LirLean/V2/RecorderLemmas.lean#L164). The machine-side
+[`realisedCall_cons`](../../../LirLean/RecorderLemmas.lean#L64) /
+[`realisedCreate_cons`](../../../LirLean/RecorderLemmas.lean#L164). The machine-side
 observable projection is
 
 ```lean
@@ -524,12 +524,12 @@ to the recipient's pre-call storage; [`RunLog.clean`](../../../LirLean/Spec/Conf
 is the decidable scope premise excluding exceptional halts — with the documented conservative
 corner that a genuine `REVERT` at *exactly* zero remaining gas is indistinguishable from an
 exception on the log and therefore also excluded (sound: hypothesis false ⇒ theorem silent;
-see the [scope-seam note](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L91)).
+see the [scope-seam note](../../../LirLean/Realisability/RealisabilitySpec.lean#L91)).
 
 ### 7.2 The flagship statement (WIP, sorry'd via its producer)
 
 ```lean
--- V2/Realisability/RealisabilitySpec.lean#L251  (WIP lib; proof delegates to the
+-- Realisability/RealisabilitySpec.lean#L251  (WIP lib; proof delegates to the
 -- sorry'd coupled run-producer runFrom_of_driveCorrLog in Producer.lean)
 theorem lower_conforms {prog : Program} {params : CallParams} {log : RunLog}
     {acc : Account}
@@ -553,17 +553,17 @@ Plain English: *if* the machine, started as a top-level call into an account hol
 `lower prog`, runs to a clean halt under the recorder, *then* the IR semantics — fed the
 recorded gas words, call results and create results positionally, from the recipient's actual
 pre-storage — has a run, and that run's final storage and result are the machine's.
-Siblings: [`lower_conforms_exact`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L302)
+Siblings: [`lower_conforms_exact`](../../../LirLean/Realisability/RealisabilitySpec.lean#L302)
 (same, `RunFromAll` — the anti-vacuity strengthening, §3.3) and
-[`lower_conforms_gasfree`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L341)
+[`lower_conforms_gasfree`](../../../LirLean/Realisability/RealisabilitySpec.lean#L341)
 (adds [`NoGasReads`](../../../LirLean/Spec/Conformance.lean#L24); de-risking co-flagship, to be
 proved first). Non-vacuity guards:
-[`exProg_satisfies_hypotheses`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L388) (R12a,
-sorry'd) and [`exProg_nonvacuity`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L401)
+[`exProg_satisfies_hypotheses`](../../../LirLean/Realisability/RealisabilitySpec.lean#L388) (R12a,
+sorry'd) and [`exProg_nonvacuity`](../../../LirLean/Realisability/RealisabilitySpec.lean#L401)
 (R12b, closed *modulo* R11/R12a) at the loop+gas+sload+call witness
-[`exProg`](../../../LirLean/V2/Realisability/Witness.lean#L38), whose budgets
-[`codeFits_exProg`](../../../LirLean/V2/Realisability/Witness.lean#L560)/
-[`stackFits_exProg`](../../../LirLean/V2/Realisability/Witness.lean#L565) close by `decide`.
+[`exProg`](../../../LirLean/Realisability/Witness.lean#L38), whose budgets
+[`codeFits_exProg`](../../../LirLean/Realisability/Witness.lean#L560)/
+[`stackFits_exProg`](../../../LirLean/Realisability/Witness.lean#L565) close by `decide`.
 
 Hypothesis ledger, classified:
 
@@ -599,7 +599,7 @@ prefix, each statement's operands are bound
 definable, `.call` as needing only its two source operands — the gas/call-aware repair of the
 unsatisfiable `RunDefinable`, §9); [`DefsConsistent`](../../../LirLean/Spec/WellFormed.lean#L37)
 — every def-site agrees with `defsOf`'s first-find registration (closes the
-shadowed-spill hole, [lesson 6](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L48));
+shadowed-spill hole, [lesson 6](../../../LirLean/Realisability/RealisabilitySpec.lean#L48));
 [`CFGClosed`](../../../LirLean/Spec/WellFormed.lean#L89) — entry present, jump/branch targets
 present and in bounds; [`DefEnvOrdered`](../../../LirLean/Spec/WellFormed.lean#L99) — program
 order topologically orders the recompute def-graph;
@@ -608,12 +608,12 @@ invalidation set ([`invalStep`](../../../LirLean/Spec/WellFormed.lean#L52)) empt
 `slotAddr` — spilled slots are addressable. `RunDefinableG` and `RevalidatesPerBlock` are the
 two fields quantifying over run prefixes/states rather than program text alone — decidable in
 principle per program but not yet packaged as a checker (the map's "R9 checker territory").
-The bridge [`wellLowered_of_IRWellFormed`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L125)
+The bridge [`wellLowered_of_IRWellFormed`](../../../LirLean/Realisability/RealisabilitySpec.lean#L125)
 (closed, no sorry) re-derives the ~15 internal per-cursor bounds from the two scalars via
 [`pcBounds_of_codeFits`](../../../LirLean/Spec/BudgetDerivations.lean#L213) and
 [`stackBounds_of_stackFits`](../../../LirLean/Spec/BudgetDerivations.lean#L295), so the
 *public* surface carries only `IRWellFormed + codeFits + stackFits` while the `Sim/` machinery
-keeps consuming the internal [`WellLowered`](../../../LirLean/V2/Realisability/Surface.lean#L151)
+keeps consuming the internal [`WellLowered`](../../../LirLean/Realisability/Surface.lean#L151)
 adapter.
 
 ### 7.3 Trusted import cone and the split-surface finding
@@ -629,10 +629,10 @@ Spec/CallEntry), `RunFrom`/`RunFromAll`/streams (Spec/Semantics), `entryState`/`
 `RunFromLeft`/`RunFromAll` and `evmV2CallEntry`/`evmV2CreateEntry` — **has been hoisted**
 (now at [Spec/Semantics.lean#L144](../../../LirLean/Spec/Semantics.lean#L144) and
 [Spec/CallEntry.lean](../../../LirLean/Spec/CallEntry.lean); the
-[`Surface.lean` §1 header](../../../LirLean/V2/Realisability/Surface.lean#L24) records the
+[`Surface.lean` §1 header](../../../LirLean/Realisability/Surface.lean#L24) records the
 hoist). What remains outside `Spec/` is only *derived* hypothesis machinery
 (`WellLowered`, `RecorderCoupled`, `StmtTies'`/`TermTies'`,
-[`CallRealisesS`](../../../LirLean/V2/Realisability/Surface.lean#L78)) — none of it appears in
+[`CallRealisesS`](../../../LirLean/Realisability/Surface.lean#L78)) — none of it appears in
 any flagship signature, so a skeptic need not trust it, and the flagship *theorem* itself
 still lives in the WIP file, not in `Spec/`.
 
@@ -643,9 +643,9 @@ still lives in the WIP file, not in `Spec/`.
   `Materialise/DefsSound` (for [`usesInExpr`](../../../LirLean/Materialise/DefsSound.lean#L53),
   [`NonRecomputable`](../../../LirLean/Materialise/DefsSound.lean#L127), `isGasDef`…), and
   `Decode/DecodeLower` (for [`flatBytes`](../../../LirLean/Decode/DecodeLower.lean#L45)).
-* [`Spec/Seams.lean`](../../../LirLean/Spec/Seams.lean#L1) imports `V2/Drive/CallPreservesSelf`,
+* [`Spec/Seams.lean`](../../../LirLean/Spec/Seams.lean#L1) imports `Drive/CallPreservesSelf`,
   `Decode/Modellable`, `BytecodeLayer/Hoare/CleanHalt` and *forwards* their predicates
-  ([`SelfPresent`](../../../LirLean/V2/Drive/SelfPresent.lean#L353),
+  ([`SelfPresent`](../../../LirLean/Drive/SelfPresent.lean#L353),
   [`CallsCode`](../../../LirLean/Decode/Modellable.lean#L410),
   [`CleanHaltsNonException`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean#L62)).
 * [`Spec/CallEntry.lean`](../../../LirLean/Spec/CallEntry.lean#L1) imports `Frame/Call`/
@@ -674,58 +674,58 @@ from `stackFits`, the per-cursor stack-room bundle
 [`slots_slot_of_defsOf`](../../../LirLean/Spec/BudgetDerivations.lean#L334) (every registered
 slot is canonical `slotOf`). Proofs are list-algebra + `omega`; nothing here is trusted.
 
-## 9. IR metatheory — [`V2/Law.lean`](../../../LirLean/V2/Law.lean), [`V2/IRRun.lean`](../../../LirLean/V2/IRRun.lean)
+## 9. IR metatheory — [`Law.lean`](../../../LirLean/Law.lean), [`IRRun.lean`](../../../LirLean/IRRun.lean)
 
 The determinism ladder gives the "*the* observable" reading of the flagship's existential:
 
 ```lean
--- V2/Law.lean#L173
+-- Law.lean#L173
 theorem IRRun.det {prog : Program} {w₀ : World} {T : Trace} {C : CallStream}
     {D : CreateStream} {O O' : Observable}
     (h₁ : IRRun prog w₀ T C D O) (h₂ : IRRun prog w₀ T C D O') : O = O'
 ```
 
-([`EvalStmt.det`](../../../LirLean/V2/Law.lean#L34) →
-[`RunStmts.det`](../../../LirLean/V2/Law.lean#L68) →
-[`RunFrom.det`](../../../LirLean/V2/Law.lean#L86) → `IRRun.det`; structural induction, the
+([`EvalStmt.det`](../../../LirLean/Law.lean#L34) →
+[`RunStmts.det`](../../../LirLean/Law.lean#L68) →
+[`RunFrom.det`](../../../LirLean/Law.lean#L86) → `IRRun.det`; structural induction, the
 popped stream heads pinned by the shared input streams — this is where positional streams pay
 off: same program + same streams ⇒ same observable, so `lower_conforms`'s `∃ O` is unique.)
 
-[`V2/IRRun.lean`](../../../LirLean/V2/IRRun.lean) is the *existence* half for the gas-free,
-call-free fragment ([`evalStmt_exists`](../../../LirLean/V2/IRRun.lean#L81) →
-[`runStmts_exists`](../../../LirLean/V2/IRRun.lean#L122)), with the definability supply
-[`RunDefinable`](../../../LirLean/V2/IRRun.lean#L155). **Caveat verified:**
-[`StmtDefinable`](../../../LirLean/V2/IRRun.lean#L61) is literally `False` on `.call`/`.create`
+[`IRRun.lean`](../../../LirLean/IRRun.lean) is the *existence* half for the gas-free,
+call-free fragment ([`evalStmt_exists`](../../../LirLean/IRRun.lean#L81) →
+[`runStmts_exists`](../../../LirLean/IRRun.lean#L122)), with the definability supply
+[`RunDefinable`](../../../LirLean/IRRun.lean#L155). **Caveat verified:**
+[`StmtDefinable`](../../../LirLean/IRRun.lean#L61) is literally `False` on `.call`/`.create`
 and excludes `.gas`, so `RunDefinable` is unsatisfiable for any program using those features —
-audited in [RealisabilitySpec lesson 4](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L34)
+audited in [RealisabilitySpec lesson 4](../../../LirLean/Realisability/RealisabilitySpec.lean#L34)
 and replaced on the flagship surface by
 [`RunDefinableG`](../../../LirLean/Spec/WellFormed.lean#L20). `RunDefinable` remains consumed
 only by the old default-lib producer `lower_conforms_cyclic'`
-([DriveSim](../../../LirLean/V2/Drive/DriveSim.lean#L512)), i.e. it is honest *fragment*
+([DriveSim](../../../LirLean/Drive/DriveSim.lean#L512)), i.e. it is honest *fragment*
 metatheory, not flagship vocabulary — but its name invites confusion with `RunDefinableG` and
 a rename/deprecation note would help.
 
 ## 10. Results taxonomy
 
-* **Headline (target) statements** — [`lower_conforms`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L251),
-  [`lower_conforms_exact`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L302),
-  [`lower_conforms_gasfree`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L341):
+* **Headline (target) statements** — [`lower_conforms`](../../../LirLean/Realisability/RealisabilitySpec.lean#L251),
+  [`lower_conforms_exact`](../../../LirLean/Realisability/RealisabilitySpec.lean#L302),
+  [`lower_conforms_gasfree`](../../../LirLean/Realisability/RealisabilitySpec.lean#L341):
   all **conditional on the sorry'd producer/obligations** (R11's
   `runFrom_of_driveCorrLog`, R10a, R11-all's producer, plus R12a) — statements to review, not
   results to cite. The closed pieces inside the same file:
-  [`wellLowered_of_IRWellFormed`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L125),
-  [`conforms_of_worldeq`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L204),
-  [`termTies'_of_runWithLog`](../../../LirLean/V2/Realisability/Producer.lean#L2642).
+  [`wellLowered_of_IRWellFormed`](../../../LirLean/Realisability/RealisabilitySpec.lean#L125),
+  [`conforms_of_worldeq`](../../../LirLean/Realisability/RealisabilitySpec.lean#L204),
+  [`termTies'_of_runWithLog`](../../../LirLean/Realisability/Producer.lean#L2642).
 * **Trusted definitions** — everything in §§2–7 quoted above; no proof needed, only reading.
 * **Supporting bricks (closed, default lib)** — the determinism ladder (§9), the recorder
   adequacy pair (§5), the entry bridges
-  ([`callRealises_bridge`](../../../LirLean/V2/CallRealises.lean#L77),
-  [`createRealises_bridge`](../../../LirLean/V2/CallRealises.lean#L118)), the budget bundle
+  ([`callRealises_bridge`](../../../LirLean/CallRealises.lean#L77),
+  [`createRealises_bridge`](../../../LirLean/CallRealises.lean#L118)), the budget bundle
   (§8), the `matCache` fixpoint algebra
   ([`matCache_unfold`](../../../LirLean/Spec/WellFormed.lean#L349),
   [`matCache_remat`](../../../LirLean/Spec/WellFormed.lean#L376),
   [`matCache_slot`](../../../LirLean/Spec/WellFormed.lean#L381)).
-* **Examples** — [`exProg`](../../../LirLean/V2/Realisability/Witness.lean#L38) and its
+* **Examples** — [`exProg`](../../../LirLean/Realisability/Witness.lean#L38) and its
   `decide`d budgets: the designated non-vacuity witness; R12b consumes it, nothing else does.
 * **Verification** — reported, not re-run: default lib sorry-free (all `sorry`s are in
   `WIP`-only `Machinery`/`Producer`/`RealisabilitySpec`), axiom guards green in
@@ -768,13 +768,13 @@ a rename/deprecation note would help.
   spec-layer findings** (both since fixed, per the recent R11 boundary-support commits):
   its §4.1/5.1 say `RunFromLeft`/`RunFromAll` and the exact-run vocabulary "still need
   hoisting" — they are now in [Spec/Semantics.lean#L144-L190](../../../LirLean/Spec/Semantics.lean#L144);
-  and its §5.10 says `Spec/Recorder.lean` imports `V2/CallRealises` — it now imports
+  and its §5.10 says `Spec/Recorder.lean` imports `CallRealises` — it now imports
   [`Spec/CallEntry`](../../../LirLean/Spec/Recorder.lean#L1) instead (the deeper
   `Spec → Frame/Engine/Drive` inversions of §7.3 *do* remain, so §5.10 is half-fixed).
 * [`docs/planning/r11-plan-2026-07-08.md`](../../planning/r11-plan-2026-07-08.md) matches
   source where checked (`RunFromAll` shape of `lower_conforms_exact`, the
   no-derive-from-`runFromLeft_exists` rule, the create-suffix deferral in
-  [`RecorderCoupled.restart`](../../../LirLean/V2/Realisability/Surface.lean#L244)).
+  [`RecorderCoupled.restart`](../../../LirLean/Realisability/Surface.lean#L244)).
 * File docstrings that make status claims (`Surface.lean` "sorry-free §1",
   `IRRun.lean`/`CallRealises.lean` "no sorry/axiom") all verify against grep.
 

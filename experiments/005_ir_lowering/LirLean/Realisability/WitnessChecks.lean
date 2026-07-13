@@ -1,7 +1,7 @@
-import LirLean.V2.Realisability.CheckedStep
+import LirLean.Realisability.CheckedStep
 
 /-!
-# LirLean v2 — Realisability spec, THE TWO R12a LEAVES (kernel-certified)
+# LirLean — Realisability spec, THE TWO R12a LEAVES (kernel-certified)
 
 The in-kernel discharge of the two `Bool` leaves `exProg_satisfies_hypotheses_of_checks`
 consumes — the residue `WitnessParams.lean`'s module header measured as infeasible for
@@ -29,7 +29,7 @@ on the final leaves reports only the standard trio via the bridge lemmas' `Class
 uses.
 -/
 
-namespace Lir.V2
+namespace Lir
 
 open Evm
 open BytecodeLayer
@@ -142,4 +142,4 @@ theorem entryCallsCodeOk_exParams : entryCallsCodeOk exParams 4096 = true := by
         have hfuel : (4096 : ℕ) = 36 + 4059 + 1 := by norm_num
         rw [hfuel, hfin, h]
 
-end Lir.V2
+end Lir

@@ -48,26 +48,26 @@ OWNS: `LirLean/Audit.lean` (new), one import line at the END of `LirLean.lean`, 
 
 ### Track B — Phase 2 gas-law removal (`exec/phase2-gaslaw`, worktree `.worktrees/exec-phase2`)
 Per `gas-decision.md` + target-architecture §4.1, with the KEEP amendment:
-1. Grep-verify the import/reference graph first (who imports `V2/Mono.lean`, `V2/Oracle.lean`,
-   `V2/HonestGasTie.lean`; which `Oracle` defs `RunLog.lean` references).
+1. Grep-verify the import/reference graph first (who imports `Mono.lean`, `Oracle.lean`,
+   `HonestGasTie.lean`; which `Oracle` defs `RunLog.lean` references).
 2. DELETE the three files. `realisedGas`/`realisedCall`/`callOracleOf`/`observe`/`runWithLog`
    stay fully intact; if live code needs a def currently in `Oracle.lean`, INLINE it into its
-   consumer with a `-- RELOCATED from V2/Oracle.lean (Phase 2)` note.
-3. Narrow `V2/Law.lean` to determinism (keep the four `.det`; delete the gas-monotone law
+   consumer with a `-- RELOCATED from Oracle.lean (Phase 2)` note.
+3. Narrow `Law.lean` to determinism (keep the four `.det`; delete the gas-monotone law
    material). Delete `RunLog.lean`'s gas-monotonicity section (`geToNat`/`bound_mono`/
    `driveLog_gas_inv`/`realisedGas_monotone` + their `#print`s) and now-dead imports.
-4. Do NOT touch `V2/TieDischarge.lean`; do NOT remove the `DriveCorrPlus` accumulator params
+4. Do NOT touch `TieDischarge.lean`; do NOT remove the `DriveCorrPlus` accumulator params
    (they become the Wave-4+ recorder-coupling field, target-architecture §3).
 5. Append the lesson paragraph to `docs/gas-decision.md`: the retired `Lir.GasRealises`
    universal was unsatisfiable (HonestGasTie's finding), and the 2026-07-02 skeptic verdict
    shows the same free-∀ disease in the current StmtTies/TermTies — pointer to
    `fleet-2026-07-02/skeptic-f1-verdict.md`.
-OWNS: the three deleted files, `V2/Law.lean`, `V2/RunLog.lean`, root import lines,
+OWNS: the three deleted files, `Law.lean`, `RunLog.lean`, root import lines,
 `docs/gas-decision.md`, `docs/exec/phase2-gaslaw.md`.
 
 ### Track E — realisability spec skeleton (`exec/realisability-spec`, worktree `.worktrees/exec-respec`)
 The design track (hardest thinking, no existing-code edits). Deliverable:
-`LirLean/V2/RealisabilitySpec.lean` (+ helpers if needed) registered as a NEW NON-DEFAULT
+`LirLean/RealisabilitySpec.lean` (+ helpers if needed) registered as a NEW NON-DEFAULT
 `lean_lib Nightly` in `lakefile.lean` (`lake build Nightly` must elaborate; sorry bodies
 allowed and expected). Content per target-architecture §2/§5 + `fleet-2026-07-02/
 flagship-signature.md` §1/§5:
@@ -82,14 +82,14 @@ flagship-signature.md` §1/§5:
 Uses only defs that survive Track B (do NOT reference `GasRealises`/`Mono`/monotonicity decls).
 REVIEW BAR (the critical one): the reviewer must ATTACK each statement's satisfiability the way
 skeptic-f1 attacked StmtTies — an accepted statement with a refutable ∀ is a review failure.
-OWNS: new files under `LirLean/V2/` (or `LirLean/Realise/`), one `lean_lib` block in
+OWNS: new files under `LirLean/` (or `LirLean/Realise/`), one `lean_lib` block in
 `lakefile.lean`, `docs/exec/realisability-spec.md`.
 
 ## Wave 2 — Track C, engine split (after A+B+E merge)
 (1) Prove `stepFrame_next_execEnvAddr`; derive the SelfAt walk as the `a := self` corollary of
 `_next_accMono` (~1,000 lines saved). (2) Move the pure-engine spans of `TieDischarge.lean`
-(the `namespace Evm` spans + engine-level `Lir.V2` blocks) plus, if import-clean, `MemAlgebra`,
-`CleanHalt`, `CleanHaltExtract` §0–§2, `V2/DriveRuns`, `Charges` into NEW `experiments/003_bytecode_layer/BytecodeLayer/Hoare/`
+(the `namespace Evm` spans + engine-level `Lir` blocks) plus, if import-clean, `MemAlgebra`,
+`CleanHalt`, `CleanHaltExtract` §0–§2, `DriveRuns`, `Charges` into NEW `experiments/003_bytecode_layer/BytecodeLayer/Hoare/`
 (decl-by-decl, names unchanged — subdirectory-first; exp003 promotion is post-Phase-3).
 (3) Split the TieDischarge remnant at namespace boundaries → `Drive/{SelfPresent,
 CallPreservesSelf,Headline}.lean`. Update `Audit.lean` guards in the same commits.

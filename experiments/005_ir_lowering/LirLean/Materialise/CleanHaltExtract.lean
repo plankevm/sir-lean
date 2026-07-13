@@ -2,11 +2,13 @@ import LirLean.Materialise.MatDecLower
 import LirLean.Materialise.MatFoldChannel
 import BytecodeLayer.Hoare.CleanHalt
 
+open Lir.Frame
+
 /-!
 # CleanHalt extractor — clean-halting ⟹ per-cursor gas/mem envelopes (Track 1)
 
 The conformance walk's per-cursor §7 ties (the former `StmtTies`/`TermTies`, since reshaped
-into the run-DERIVED `StmtTies'`/`TermTies'` in `V2/Realisability/RealisabilitySpec.lean`) *supply* the
+into the run-DERIVED `StmtTies'`/`TermTies'` in `Realisability/RealisabilitySpec.lean`) *supply* the
 gas / memory-expansion envelopes each lowered opcode needs at a block-entry frame. Those
 envelopes are not free hypotheses: a frame that **clean-halts** (its remaining `Runs` reaches a
 `.halted` outcome) cannot have faulted on its next step, so its next opcode's gas guard held.
@@ -51,7 +53,7 @@ open BytecodeLayer
 open BytecodeLayer.Hoare
 open BytecodeLayer.Dispatch
 
-/-! ## §0 — `CleanHaltsNonException` (defined in `V2/DriveSim.lean`)
+/-! ## §0 — `CleanHaltsNonException` (defined in `DriveSim.lean`)
 
 `CleanHalts` allows the run to reach **any** `.halted` outcome, including `.exception` (a genuine
 OOG/exception run, which the gas-agnostic IR cannot model). The §7 ties only ever fire on a run
@@ -63,9 +65,9 @@ core argument needs: the terminal is **not** `.exception`. A continuing op's onl
 `CleanHaltsNonException` (and its forward split `cleanHaltsNonException_forward`, the weakening
 `cleanHaltsNonException_toCleanHalts`, and the success special case
 `cleanHaltsNonException_of_success`) live in `experiments/003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean` — upstream of both this
-extractor and the drive walk. Open `Lir.V2` brings them into scope here. -/
+extractor and the drive walk. Open `Lir` brings them into scope here. -/
 
-open Lir.V2 (CleanHaltsNonException cleanHaltsNonException_forward HaltNonException)
+open Lir (CleanHaltsNonException cleanHaltsNonException_forward HaltNonException)
 
 /-! ## §1 — per-op OOG / `.next`-inversion bricks
 
@@ -777,7 +779,7 @@ theorem stepsTo_sloadFrame (fr : Frame) (key : UInt256) (rest : Stack UInt256)
 
 /-- **SLOAD envelope from clean-halt.** For the spilled-sload cursor, the residual
 `sim_assign_sload_lowered` consumes is keyed on the **post-materialise** frame `frk` (the key
-prefix is variable-length; the fold value channel `Lir.V2.materialise_runsC` produces `frk` and
+prefix is variable-length; the fold value channel `Lir.materialise_runsC` produces `frk` and
 the `MatRunsC` Runs threading `CleanHaltsNonException` to it). At `frk` (stack `[keyVal]`) the
 tail `SLOAD ; PUSH32 ; MSTORE` clean-halts, so this lemma produces the gas conjuncts
 `hgasSload`/`hgasPush`/`hmem`/`hgasMem`/`hgasMstore` of `hresid` — everything but the
@@ -792,7 +794,7 @@ theorem sload_envelope_of_cleanHalt
     (fr frk : Frame) (keyVal : UInt256) (slot : Nat)
     (hcs : CleanHaltsNonException fr)
     (hstk0 : fr.exec.stack = [])
-    (hmrk : Lir.V2.MatRunsC prog sloadChg ekey wkey fr frk)
+    (hmrk : Lir.MatRunsC prog sloadChg ekey wkey fr frk)
     (hkeyval : wkey = keyVal)
     (hdecSLOAD : decode frk.exec.executionEnv.code frk.exec.pc = some (.Smsf .SLOAD, .none))
     (hdecPUSH : decode (sloadFrame frk keyVal []).exec.executionEnv.code

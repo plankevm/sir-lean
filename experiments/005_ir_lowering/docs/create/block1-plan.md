@@ -6,7 +6,7 @@
 > fold-based over `Loc`/`matCache`.
 
 Date: 2026-07-06. Worktree `.worktrees/producer` (branch `exp005-producer`), read-only.
-Target: `LirLean/V2/Realisability/Producer.lean:498-514` (`simStmt_coupled_sstore`, `sorry` at `:514`).
+Target: `LirLean/Realisability/Producer.lean:498-514` (`simStmt_coupled_sstore`, `sorry` at `:514`).
 
 ## TL;DR verdict
 

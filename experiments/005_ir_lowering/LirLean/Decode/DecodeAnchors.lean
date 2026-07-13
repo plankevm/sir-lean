@@ -26,7 +26,7 @@ emission (`matCache prog` cache + `defsOf prog` allocation; no fuel anywhere):
   terminator's byte offset.
 
 These compose with the per-opcode decode bricks `sim_*` in `Match.lean`; nothing here
-touches `Spec/Semantics.lean` or `V2/Law.lean` (the frame-free spine).
+touches `Spec/Semantics.lean` or `Law.lean` (the frame-free spine).
 
 No `sorry`, no `axiom`, no `native_decide`.
 -/

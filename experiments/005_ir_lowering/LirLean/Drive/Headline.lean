@@ -1,10 +1,10 @@
-import LirLean.V2.Drive.DriveSim
-import LirLean.V2.Drive.CallPreservesSelf
+import LirLean.Drive.DriveSim
+import LirLean.Drive.CallPreservesSelf
 
 /-!
-# LirLean v2 — the `DriveCorrPlus` walk carrier + value/gas channels (`Drive/Headline`)
+# LirLean — the `DriveCorrPlus` walk carrier + value/gas channels (`Drive/Headline`)
 
-§6–§8 of the former `V2/TieDischarge.lean` monolith (decl names and namespaces unchanged):
+§6–§8 of the former `TieDischarge.lean` monolith (decl names and namespaces unchanged):
 
 * **§6** — the strengthened boundary invariant `DriveCorrPlus` (the alignment + presence
   carrier over `DriveSim.lean`'s `DriveCorr`).
@@ -20,7 +20,7 @@ edge wrappers `driveCorrPlus_step_jump`/`_branch`), §10 (the `DriveCorrPlus` re
 `driveCorrPlus_entry`, and the headlines `lower_conforms_cyclic_tiefree` /
 `lower_conforms_cyclic_assembled` were REMOVED. They assembled a conditional headline from the
 supplied `StmtTies`/`TermTies`, which were shown unsatisfiable — the headline was VACUOUS. The
-plan-of-record conformance surface is the Phase-3 flagship (`V2/Realisability/RealisabilitySpec.lean`); the
+plan-of-record conformance surface is the Phase-3 flagship (`Realisability/RealisabilitySpec.lean`); the
 `DriveCorrPlus` carrier + the §7/§8 value/gas-channel lemmas below are RETAINED as the green
 machinery its R0 reshape starts from (currently unreferenced in the default build).
 
@@ -32,7 +32,7 @@ No `sorry`/`axiom`/`native_decide`; axioms `[propext, Classical.choice, Quot.sou
 -/
 
 
-namespace Lir.V2
+namespace Lir
 
 open Evm
 open GasConstants
@@ -79,7 +79,7 @@ would thread to discharge the §7 selection ties and the SSTORE presence in one 
 entry construction and recursion were the vacuous headline apparatus, deleted 2026-07-03; the
 carrier itself is retained for the Phase-3 R0 reshape.) -/
 structure DriveCorrPlus (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
-    (st : V2.IRState) (fr : Frame) (L : Label)
+    (st : Lir.IRState) (fr : Frame) (L : Label)
     (gasAcc : List Word) (gasFrs : List Frame)
     (sloadAcc : List Nat) (sloadFrs : List Frame) : Prop where
   /-- The base `DriveCorr` boundary (the `Corr` cursor + the clean-halt measure). -/
@@ -111,7 +111,7 @@ exactly the altitude `SimStmtStep`/`sim_assign` consume. They are functions of t
 `Corr`/`EvalStmt` ALONE, not of the run, so they are NOT bundled into the walk (doing
 so would buy nothing): the downstream Route-4b assembly applies them per cursor directly (the indexed
 form bound to the run's reached `(stpc, frpc)`, NOT the universal free-`ob` predicate of the former
-`StmtTies` (since reshaped into the run-DERIVED `StmtTies'` in `V2/Realisability/RealisabilitySpec.lean`), which
+`StmtTies` (since reshaped into the run-DERIVED `StmtTies'` in `Realisability/RealisabilitySpec.lean`), which
 ranged over all cursors and is unreconstructable from a single run).
 
 **The two channels that STAY SUPPLIED tonight** (satisfiable, documented, NON-vacuous):
@@ -135,7 +135,7 @@ intact: for every spilled `t'` with `(st.setLocal t w).locals t' = some v`, nece
 coverage+readback at `t'`'s slot is the input `MemRealises`'s. The honest content of the assign-remat
 channel: the frame `fr` is UNCHANGED by a rematerialised assign (its lowered emit is empty,
 `Runs.refl`), only the IR state moves, so `MemRealises` transports by this `setLocal` stability. -/
-theorem memRealises_setLocal_nonspilled {prog : Program} {st : V2.IRState} {fr : Frame}
+theorem memRealises_setLocal_nonspilled {prog : Program} {st : Lir.IRState} {fr : Frame}
     {t : Tmp} {w : Word}
     (h : MemRealises prog st fr) (hns : ∀ n, defsOf prog t ≠ some (.slot n)) :
     MemRealises prog (st.setLocal t w) fr := by
@@ -160,7 +160,7 @@ The frame is the SAME `fr` the cursor's `Corr` carries (a rematerialised assign 
 is `memRealises_setLocal_nonspilled` applied to `Corr.memAgree`. No recorder, no P3 — the genuine
 no-bridge content of S7 (Route 4b indexed form). -/
 theorem driveCorrPlus_assign_remat_memRealises {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st st' : V2.IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
+    {st st' : Lir.IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
     {t : Tmp} {e : Expr} {L : Label}
     {pc : Nat} {fr : Frame}
     (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L pc)
@@ -181,9 +181,9 @@ is `EvalStmt`, the IR genuinely binds a value: `∃ w, evalExpr st 0 (.sload k) 
 successful IR step — NON-vacuous (the run is the witness that `k` is bound and `w = st.world key`). No
 recorder, no P3. -/
 theorem driveCorrPlus_sload_value {prog : Program}
-    {st st' : V2.IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream} {t k : Tmp}
+    {st st' : Lir.IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream} {t k : Tmp}
     (hstep : EvalStmt prog st T C D (.assign t (.sload k)) st' T' C' D') :
-    ∃ w, V2.evalExpr st 0 (.sload k) = some w := by
+    ∃ w, Lir.evalExpr st 0 (.sload k) = some w := by
   cases hstep with
   | assignPure _ hv => exact ⟨_, hv⟩
 
@@ -192,9 +192,9 @@ theorem driveCorrPlus_sload_value {prog : Program}
 `assignPure`: the IR run's sload at this cursor binds `k`'s key and the loaded word is `st.world key` —
 the value `MemRealises` will position at `t`'s slot. Non-vacuous (the run is its own witness). -/
 theorem driveCorrPlus_sload_value_world {prog : Program}
-    {st st' : V2.IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream} {t k : Tmp}
+    {st st' : Lir.IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream} {t k : Tmp}
     (hstep : EvalStmt prog st T C D (.assign t (.sload k)) st' T' C' D') :
-    ∃ key, st.locals k = some key ∧ V2.evalExpr st 0 (.sload k) = some (st.world key) := by
+    ∃ key, st.locals k = some key ∧ Lir.evalExpr st 0 (.sload k) = some (st.world key) := by
   cases hstep with
   | assignPure _ hv =>
     -- `evalExpr st 0 (.sload k) = (do let key ← st.locals k; pure (st.world key))`.
@@ -202,9 +202,9 @@ theorem driveCorrPlus_sload_value_world {prog : Program}
     cases hk : st.locals k with
     | none =>
       exfalso
-      simp [V2.evalExpr, hk] at hv
+      simp [Lir.evalExpr, hk] at hv
     | some key =>
-      exact ⟨key, rfl, by simp [V2.evalExpr, hk]⟩
+      exact ⟨key, rfl, by simp [Lir.evalExpr, hk]⟩
 
 /-! ### L2.0g — the GAS-ADVANCING `DriveCorrPlus` statement-walk (S3 producer)
 
@@ -296,4 +296,4 @@ inductive GasCursorClass (s : Stmt) (fr0 fr1 : Frame) : Prop where
       (hne : fr0 ≠ fr1) : GasCursorClass s fr0 fr1
   | notgas (hnotgas : ∀ t, s ≠ .assign t .gas) : GasCursorClass s fr0 fr1
 
-end Lir.V2
+end Lir

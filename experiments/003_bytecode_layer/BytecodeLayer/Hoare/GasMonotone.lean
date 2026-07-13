@@ -6,9 +6,9 @@ import BytecodeLayer.Semantics.Interpreter.NeverOutOfFuel
 /-!
 # `Runs`-level gas monotonicity (`docs/ir-design-v2.md` §3.4 "holds across calls")
 
-The v2 IR design (`experiments/005_ir_lowering/docs/ir-design-v2.md` §3.4) gives the
+The gas-stream IR design (`experiments/005_ir_lowering/docs/ir-design-v2.md` §3.4) gives the
 gas oracle exactly **one** law: the `gasRead` values, in program order, are monotone
-non-increasing (`gasAvailable.toNat` only goes down). `LirLean/V2/Mono.lean` discharged
+non-increasing (`gasAvailable.toNat` only goes down). `LirLean/Mono.lean` discharged
 that law for a *concrete* two-read program by exact `subCharges` arithmetic. The
 **general** lowering (an arbitrary `Runs`, with `.call` nodes between reads) needs the
 law as a structural fact about the engine, **including through external calls** — the
@@ -39,7 +39,7 @@ verbatim (nothing new about gas costs is introduced here):
 
 3. **`Runs` never increases gas** (`Runs.gasAvailable_le`). By induction on the `Runs`
    derivation: `refl` (equal), `step` (rung 1, transitively), and `call` (rung 2 + the
-   net-debit, threading a `.call`/`CallReturns` node). This is the lemma the v2 general
+   net-debit, threading a `.call`/`CallReturns` node). This is the lemma the general
    preservation theorem consumes: across any flat `Runs fr last`,
    `last.exec.gasAvailable.toNat ≤ fr.exec.gasAvailable.toNat` — **no hypothesis** on the
    call returning (`CallReturns` already bundles a returning child), no per-opcode cost

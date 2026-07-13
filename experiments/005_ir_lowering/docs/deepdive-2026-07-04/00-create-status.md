@@ -72,7 +72,7 @@ EIP-3541, deposit); richer init code is future work.
   node.** (`create-crosscheck.md:86-88` recorded this deliberately: the audit ran ahead of surface.)
 - **v1 semantics** (`SmallStep.lean`): `grep -ni create` is empty; `evalExpr`/`stmtPost` have no
   create.
-- **v2 semantics** (`V2/IRRun.lean`): `StmtDefinable`/`stmtPost`/`EvalStmt` cover only
+- **v2 semantics** (`IRRun.lean`): `StmtDefinable`/`stmtPost`/`EvalStmt` cover only
   `.assign/.sstore/.call` (`:61-73`). No create; no `IRState.applyCreate` (contrast the CALL
   `IRState.applyCall` at `Call.lean:158` — the create twin does not exist, grep empty).
 - **Lowering** (`Spec/Lowering.lean`): `emitStmt` (`:178`) has arms only for `.assign` (`:179`),
@@ -80,7 +80,7 @@ EIP-3541, deposit); richer init code is future work.
   (`:251-254`) likewise has no create-result stash arm.
 - Consequently the conformance drive **structurally excludes** CREATE: `NoCreateBytes.lean`
   (`SegAlignedSafe`, the "lowering emits only 16 non-CREATE opcodes at any head") + `NotCreate`
-  discharged by `notCreate_of_atReachableBoundary` (`Decode/Modellable.lean:16-27`, `V2/DriveSim.lean:121-125`).
+  discharged by `notCreate_of_atReachableBoundary` (`Decode/Modellable.lean:16-27`, `DriveSim.lean:121-125`).
   Adding CREATE means *retiring* this exclusion, not extending it.
 
 ## 4. The EVM reference layer (exp003) — fully supports CREATE **and** CREATE2
@@ -128,7 +128,7 @@ machinery, not duplicating the CALL ecosystem.
    at `:43`). First cut per `Create.lean:31`: fields for value/offset/length may be fixed to the
    empty-init case; carry `salt : Option _` to distinguish CREATE vs CREATE2 from day one; add a
    `resultTmp : Option Tmp` for the pushed address.
-2. **Semantics.** Add a `.create` arm to v1 `SmallStep` and to v2 `V2/IRRun` (`StmtDefinable`/
+2. **Semantics.** Add a `.create` arm to v1 `SmallStep` and to v2 `IRRun` (`StmtDefinable`/
    `stmtPost`/`EvalStmt`, `:61-73`), backed by a new `IRState.applyCreate` (twin of
    `IRState.applyCall`, `Call.lean:158`) that consults `CreateOracle` for the address word and post
    storage.

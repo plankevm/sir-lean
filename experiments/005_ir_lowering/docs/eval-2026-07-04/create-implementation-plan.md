@@ -5,8 +5,8 @@ Paths are into `experiments/005_ir_lowering/LirLean/` unless prefixed `exp003:`
 (= `experiments/003_bytecode_layer/`). Every claim below was grep/read-verified.
 
 This plan mirrors, step-for-step, how CALL was built (the CALL ecosystem is the
-template: `Spec/IR.CallSpec` → `V2.EvalStmt.call` → `emitStmt .call` →
-`Call.evmCallOracle` → `Match.call_reflects_lowered` → `V2/CallRealises` →
+template: `Spec/IR.CallSpec` → `Lir.EvalStmt.call` → `emitStmt .call` →
+`Call.evmCallOracle` → `Match.call_reflects_lowered` → `CallRealises` →
 recorder `recordCall` → `Modellable` clause-1). The single biggest surprise vs.
 the CALL build is in §5: **the exp003 `Runs` abstraction has no CREATE node and no
 `CreateReturns` bridge, and `runs_of_drive_ok` is *predicated* on `NoCreate`
@@ -91,7 +91,7 @@ IR-surface-and-up layers, **and the `Runs`-level bridge**, are CALL-only.
   to wrap, see §5).
 - **Recorder / stream.** `Spec/Recorder.lean`: `recordCall` (:172) explicitly
   **drops** create deliveries (`| .create _ => callAcc`); `driveLog` (:186) threads
-  gas/sload/call accumulators only; no create channel. `V2/CallRealises.evmV2CallEntry`
+  gas/sload/call accumulators only; no create channel. `CallRealises.evmV2CallEntry`
   (:59) has no create twin.
 - **Drive integration is a structural EXCLUSION, not a gap to fill.** The flagship
   currently *proves* no-CREATE: `NoCreateBytes.lean` (`SegAlignedSafe` — "lowering
@@ -227,7 +227,7 @@ cluster-v1bricks.md) but needed to keep v1 compiling once `Stmt` gains a constru
 
 ### Step 6 (exp005) — recorder / stream realisation
 
-`V2/CallRealises.lean` (or a sibling `V2/CreateRealises.lean`):
+`CallRealises.lean` (or a sibling `CreateRealises.lean`):
 
 - `evmV2CreateEntry result pd self : World × Word` (twin of `evmV2CallEntry` :59):
   `((fun key => evmCreateOracle.postStorage result pd self key),
@@ -259,7 +259,7 @@ cluster-v1bricks.md) but needed to keep v1 compiling once `Stmt` gains a constru
 
 ### Step 8 (exp005) — flagship obligation
 
-`V2/RealisabilitySpec.lean`:
+`RealisabilitySpec.lean`:
 
 - `WellLowered` bundle (:477) and `Conforms` (:155) unchanged in shape — `Conforms`
   already compares world AND result, and a CREATE program's observable is still a
@@ -279,14 +279,14 @@ Using the import graph in the brief:
 
 - **Step 0 (exp003)** is *below the entire exp005 DAG* — it lands in
   `BytecodeLayer/Hoare.lean` + `BytecodeLayer/Hoare/DriveRuns.lean`. `BytecodeLayer/Hoare/DriveRuns` is imported
-  by `Decode/Modellable` and `V2/DriveSim`, so changes ripple up to the flagship but the
+  by `Decode/Modellable` and `DriveSim`, so changes ripple up to the flagship but the
   engine cluster stays IR-agnostic (cluster-engine: zero LirLean.Spec/V2 imports).
 - **Step 1 (`Spec/IR`)** is L0 base; every module transitively re-checks. Adding a
   `Stmt` constructor forces a new match arm in **every** `Stmt` case-split: `evalExpr`/
   `EvalStmt` (Semantics), `emitStmt`/`defsOf` (Lowering), `SmallStep`, `MaterialiseRuns`,
   the `SegAligned*` emit-ladders, the sim tower. This is the widest-blast-radius step;
   expect a day of "add the `.create` arm" across the tree before anything is green.
-- **Step 2 (`Spec/Semantics`)** → consumed by `V2/Law`, `DefsSound`, and transitively
+- **Step 2 (`Spec/Semantics`)** → consumed by `Law`, `DefsSound`, and transitively
   the flagship. If the descent-stream unification (§5-R2) is chosen, this is where the
   `CallStream` signature change originates and ripples through 137 `RunFrom` refs.
 - **Step 4 (`Spec/Lowering`)** → consumed by `LoweringLemmas` → `DecodeLower` →
@@ -294,9 +294,9 @@ Using the import graph in the brief:
   `defsOf` create arm interacts with `allocate_toDefs` (LoweringLemmas:91) — the
   Phase-A keystone — which must be re-proven to cover the new `defsOf` arm.
 - **Step 5 (`Match`)** → sits in the v1-bricks cluster; `create_reflects_lowered`
-  exits to `V2/CreateRealises` exactly as `call_reflects_lowered` exits to
-  `V2/CallRealises`. Requires Step 0b (`Runs.create`) as an upstream dependency.
-- **Step 6 (`V2/CallRealises` + `Spec/Recorder`)** → Recorder is imported by
+  exits to `CreateRealises` exactly as `call_reflects_lowered` exits to
+  `CallRealises`. Requires Step 0b (`Runs.create`) as an upstream dependency.
+- **Step 6 (`CallRealises` + `Spec/Recorder`)** → Recorder is imported by
   `RecorderLemmas` → `SimTerm` and feeds the flagship's `realisedCall`/`realisedCreate`.
 - **Step 7 (`Modellable`/`NoCreateBytes`)** → `Modellable` imports `NoCreateBytes`;
   both feed `DriveSim` (cyclic) and the flagship R6. Retiring the exclusion is a
@@ -306,7 +306,7 @@ Using the import graph in the brief:
 
 DAG-order summary: `exp003 Hoare/DriveRuns` → `Spec/IR` → {`Spec/Semantics`,
 `Spec/Lowering`, `SmallStep`} → {`LoweringLemmas`/decode cluster, `Match`} →
-{`V2/CreateRealises`, `Spec/Recorder`} → {`Modellable`/`NoCreateBytes`} →
+{`CreateRealises`, `Spec/Recorder`} → {`Modellable`/`NoCreateBytes`} →
 `RealisabilitySpec`.
 
 ---

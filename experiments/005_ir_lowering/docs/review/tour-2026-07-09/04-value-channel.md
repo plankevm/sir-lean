@@ -94,9 +94,9 @@ The free `∀ g` over *every* same-address frame forces one word `obs` to equal 
 at **all** frames of the run. A real run's gas strictly descends, so any two distinct GAS
 reads refute it; for SLOAD, any cold-then-warm re-read of the same key forces
 `sloadChg k = 2100 = 100`. This was machine-checked (`gasRealises_universal_unsatisfiable`,
-`sloadRealises_universal_unsatisfiable` in the now-deleted `V2/HonestGasTie.lean`); the
+`sloadRealises_universal_unsatisfiable` in the now-deleted `HonestGasTie.lean`); the
 surviving records are the docstrings above, the
-[`RealisabilitySpec.lean` header](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L19),
+[`RealisabilitySpec.lean` header](../../../LirLean/Realisability/RealisabilitySpec.lean#L19),
 and [`docs/gas-decision.md`](../../gas-decision.md). Consequence: any headline carrying those
 hypotheses was **vacuous** — the finding that triggered the pivot
 ([`docs/uniform-spill-alloc-plan.md`](../../uniform-spill-alloc-plan.md) §0).
@@ -123,10 +123,10 @@ stays `remat`. After the spill:
 * the **value** tie is `MemRealises` (§5.1) — "the slot currently holds the IR's bound
   value", trivially satisfiable by the run that did the stash;
 * the **cost** is charged exactly once, at the single def-site read; the positional
-  selection ties [`GasLogAligned`](../../../LirLean/V2/Drive/SelfPresent.lean#L98) /
-  [`SloadLogAligned`](../../../LirLean/V2/Drive/SelfPresent.lean#L267) and their discharges
-  [`gasRealises_obs_of_witness`](../../../LirLean/V2/Drive/SelfPresent.lean#L205) /
-  [`sloadRealises_charge_of_witness`](../../../LirLean/V2/Drive/SelfPresent.lean#L319)
+  selection ties [`GasLogAligned`](../../../LirLean/Drive/SelfPresent.lean#L98) /
+  [`SloadLogAligned`](../../../LirLean/Drive/SelfPresent.lean#L267) and their discharges
+  [`gasRealises_obs_of_witness`](../../../LirLean/Drive/SelfPresent.lean#L205) /
+  [`sloadRealises_charge_of_witness`](../../../LirLean/Drive/SelfPresent.lean#L319)
   live in the realisability layer ([06-realisability.md](06-realisability.md));
 * the value channel's `.gas`/`.sload` materialise arms become **unreachable** — a bare
   `Expr.gas`/`Expr.sload` is never materialised (hypotheses `e ≠ .gas`, `∀ k, e ≠ .sload k`,
@@ -371,7 +371,7 @@ The two still-live realisability side-conditions:
 
 ```lean
 -- MaterialiseRuns.lean:326 — the M3 storage lens tie
-def StorageAgree (st : V2.IRState) (fr : Frame) : Prop :=
+def StorageAgree (st : Lir.IRState) (fr : Frame) : Prop :=
   ∀ key, selfStorage fr key = st.world key
 ```
 
@@ -381,7 +381,7 @@ def StorageAgree (st : V2.IRState) (fr : Frame) : Prop :=
 
 ```lean
 -- MaterialiseRuns.lean:366
-def MemRealises (prog : Program) (st : V2.IRState) (fr : Frame) : Prop :=
+def MemRealises (prog : Program) (st : Lir.IRState) (fr : Frame) : Prop :=
   ∀ t slot v, defsOf prog t = some (.slot slot) → st.locals t = some v →
     (UInt256.ofNat slot).toNat + 32 ≤ fr.exec.toMachineState.memory.size
     ∧ (UInt256.ofNat slot).toNat + 32 ≤ fr.exec.toMachineState.activeWords.toNat * 32
@@ -591,8 +591,8 @@ word); its storage side is not `rfl` — `resumeAfterCreate` is `Except`-typed (
 retention guard), so the oracle reads `result.accounts` directly and the headline unfolds the
 guarded resume once to identify the two. **Feed-forward:** both headlines are consumed by the
 realisability bridges
-[`callRealises_bridge`](../../../LirLean/V2/CallRealises.lean#L77) /
-[`createRealises_bridge`](../../../LirLean/V2/CallRealises.lean#L118), which turn the resumed
+[`callRealises_bridge`](../../../LirLean/CallRealises.lean#L77) /
+[`createRealises_bridge`](../../../LirLean/CallRealises.lean#L118), which turn the resumed
 frame's observables into the world/flag conjuncts the coupled walk needs — see
 [06-realisability.md](06-realisability.md). Also live in `Match.lean`: the `Runs`-node
 wrappers [`sim_call`](../../../LirLean/Frame/Match.lean#L433) /
@@ -667,7 +667,7 @@ trust-reducing.
 [`GasRealises`](../../../LirLean/Materialise/MaterialiseRuns.lean#L318) /
 [`SloadRealises`](../../../LirLean/Materialise/MaterialiseRuns.lean#L297) — no headline
 depends on them; they exist as documented subjects of the positional discharges in
-`V2/Drive/SelfPresent.lean`. Not a risk; keep (the docstrings are the institutional memory of
+`Drive/SelfPresent.lean`. Not a risk; keep (the docstrings are the institutional memory of
 the vacuity lesson).
 
 **Smells, each with the does-a-headline-depend-on-it call:**
@@ -717,8 +717,8 @@ the vacuity lesson).
 2. **The refutation record moved.** Reviewers pointed at `MaterialiseRuns.lean:496-560`; the
    file ends at 506. The record now lives in the RETIRED docstrings at
    [`:280-321`](../../../LirLean/Materialise/MaterialiseRuns.lean#L280); the machine-checked
-   unsatisfiability witnesses were deleted with `V2/HonestGasTie.lean` and survive as prose
-   in [`RealisabilitySpec.lean`'s header](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L19)
+   unsatisfiability witnesses were deleted with `HonestGasTie.lean` and survive as prose
+   in [`RealisabilitySpec.lean`'s header](../../../LirLean/Realisability/RealisabilitySpec.lean#L19)
    and [`docs/gas-decision.md`](../../gas-decision.md) (which says so explicitly).
 3. **`Frame/*` docstrings overstate the v1 slot design's role** (§6.2): `SmallStep.lean`,
    `Call.lean`, and `Create.lean` present `callResult`/`bindCallResult` as *the* resolution of

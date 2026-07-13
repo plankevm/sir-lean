@@ -11,7 +11,7 @@ export const meta = {
 //   done
 const WT_ROOT = '/Users/eduardo/workspace/evm-semantics/.worktrees'
 const EXP = 'experiments/005_ir_lowering'
-const SPEC = 'LirLean/V2/RealisabilitySpec.lean'
+const SPEC = 'LirLean/RealisabilitySpec.lean'
 
 const preamble = (t) => `Phase 3 Round 4 (home stretch), exp005 IR->EVM lowering conformance. Track "${t.id}" (${t.title}).
 Worktree: ${t.wt} (branch ${t.branch}); spec ${t.wt}/${SPEC}. Warm APFS CoW .lake clone — \`cd ${t.wt} && lake build Nightly\` is incremental (minutes), background >8min.
@@ -52,7 +52,7 @@ const TRACKS = [
     id: 'leaf-r3', branch: 'p3/leaf-r3', wt: `${WT_ROOT}/p3-leaf-r3/${EXP}`,
     title: 'R3 — call realisation from the log (the arg-push producer)',
     obligations: `Close R3 (callRealises_of_recorded, ~:1291). Round 3 landed Piece-A (recorderCoupled_call_extract: the recorded CallRecord yields a CallReturns witness + record identity). The BLOCKER is Piece-B: an arg-push machine-run producer — that the materialise of the call args runs (Runs) from the cursor to the CALL-site frame with the right pins, so CallRealisesS's arg-push conjunct is discharged. Build that producer, wire Piece-A + Piece-B into R3. SECONDARY RISK: the resumeAfterCall frame-pins may need a lemma that lives in the DEFAULT target — if so, STOP and write a short decision brief (like the recorder Option A/B one) rather than touching the default target; report it as the blocker.`,
-    salvage: `recorderCoupled_call_extract + recorderCoupled_stepsTo_other (Round 3, closed), R7e, evmV2CallOracle/postStorage/resumeAfterCall (V2/CallRealises.lean), materialise + its Runs lemmas (MaterialiseRuns.lean, LowerDecode.lean), CallRealisesS (§3), realisedCall.`,
+    salvage: `recorderCoupled_call_extract + recorderCoupled_stepsTo_other (Round 3, closed), R7e, evmV2CallOracle/postStorage/resumeAfterCall (CallRealises.lean), materialise + its Runs lemmas (MaterialiseRuns.lean, LowerDecode.lean), CallRealisesS (§3), realisedCall.`,
   },
   {
     id: 'leaf-r6', branch: 'p3/leaf-r6', wt: `${WT_ROOT}/p3-leaf-r6/${EXP}`,

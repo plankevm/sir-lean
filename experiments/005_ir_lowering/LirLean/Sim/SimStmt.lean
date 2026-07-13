@@ -1,19 +1,21 @@
 import LirLean.Materialise.MaterialiseRuns
 import LirLean.Materialise.MaterialiseCleanHalt
-import LirLean.V2.CallRealises
+import LirLean.CallRealises
 import BytecodeLayer.Hoare.CleanHalt
+
+open Lir.Frame
 
 /-!
 # LirLean — `sim_stmt` (Layer **C** of the general `lower_conforms` grind)
 
 Per-statement simulation: one IR `EvalStmt` step is matched, on the bytecode side, by
 the `Runs` segment of that statement's lowered bytes. From a frame in *correspondence*
-with the V2 IR state, running the statement's lowered opcodes reaches a frame in
+with the IR state, running the statement's lowered opcodes reaches a frame in
 correspondence with the post-`EvalStmt` IR state, advancing one statement position
 (`pcOf prog L pc → pcOf prog L (pc+1)`) and returning the working stack to empty (`M5`).
 
 This is the C-layer brick that the program-global engine `lower_simulates_step` threads
-with `Runs.trans`. It sits *above* the fold value channel (`Lir.V2.materialise_runsC`,
+with `Runs.trans`. It sits *above* the fold value channel (`Lir.materialise_runsC`,
 the expression linchpin) and B3 (`DefsSound`, recompute-soundness), wiring them through
 the per-construct bytecode shape (`emitStmt`, `LirLean/Spec/Lowering.lean`) into the
 per-statement step.
@@ -21,9 +23,9 @@ per-statement step.
 ## The state-correspondence bundle `Corr`
 
 `Corr prog sloadChg obs (fun _ => False) st fr L pc` is the invariant the induction carries. It is the
-V2-native fusion of:
+Direct fusion of:
 
-* `Match`'s clauses, restated for the V2 `IRState` (`.world`/`.locals`) the gas-free
+* `Match`'s clauses, restated for the `IRState` (`.world`/`.locals`) the gas-free
   machine carries: `M1` pc (`fr.exec.pc = pcOf prog L pc`), `M2` code
   (`= lower prog`), `M5` stack-nil, and the standing `canModifyState`;
 * `M3` storage through `StorageAgree` (`selfStorage fr key = st.world key`, the
@@ -46,7 +48,7 @@ The bundle is *re-establishable at `pc+1`*: each arm shows the post-frame satisf
   **B3** (`defsSound_preserved_assignPure` / `assignGas`). The pc still advances
   (`pcOf_succ` with the zero-length emit) and the stack is untouched (still `[]`).
 * **`sstore key value`** — lowered `matCache value ++ matCache key ++ [SSTORE]`:
-  two `Lir.V2.materialise_runsC_of_cleanHalt` calls (`.tmp value`, `.tmp key`) glued by
+  two `Lir.materialise_runsC_of_cleanHalt` calls (`.tmp value`, `.tmp key`) glued by
   `Runs.trans`, then `sim_sstore`. Re-establishes the `M3` lens at the written cell;
   `DefsSound` survives the write by **B3** `defsSound_preserved_sstore`.
 * **`call cs`** — lowered `5×(PUSH 0) ++ matCache callee ++ matCache gasFwd ++
@@ -55,7 +57,7 @@ The bundle is *re-establishable at `pc+1`*: each arm shows the post-frame satisf
   `callRealises_bridge`. `DefsSound` survives by **B3** `defsSound_preserved_call`.
 
 No `sorry`, no `axiom`, no `native_decide`. Bytecode-coupled (imports `Match.lean` via
-`MaterialiseRuns.lean`); nothing here touches `Spec/Semantics.lean` / `V2/Law.lean`.
+`MaterialiseRuns.lean`); nothing here touches `Spec/Semantics.lean` / `Law.lean`.
 -/
 
 namespace Lir
@@ -64,7 +66,7 @@ open Evm
 open GasConstants
 open BytecodeLayer.Hoare
 open BytecodeLayer.Dispatch
-open Lir.V2
+open Lir
 
 /-! ## The statement-cursor pc advance
 
@@ -95,12 +97,12 @@ theorem pcOf_succ (prog : Program) (L : Label) (b : Block) (pc : Nat) (s : Stmt)
 
 /-! ## The state-correspondence bundle -/
 
-/-- **The per-statement state-correspondence invariant.** Relates a running V2 IR state
+/-- **The per-statement state-correspondence invariant.** Relates a running IR state
 `st` to an EVM frame `fr` at statement cursor `(L, pc)`, carrying the B1 realisability
 ties (`sloadChg`/`obs`) so the `materialise_runs` calls discharge. See the module
 docstring for the clause meanings. -/
 structure Corr (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (I : Tmp → Prop)
-    (st : V2.IRState) (fr : Frame) (L : Label) (pc : Nat) : Prop where
+    (st : Lir.IRState) (fr : Frame) (L : Label) (pc : Nat) : Prop where
   /-- `M1` — program counter at the offset-table address of cursor `(L, pc)`. -/
   pc_eq      : fr.exec.pc = UInt32.ofNat (pcOf prog L pc)
   /-- `M2` — the frame runs the lowered program. -/
@@ -138,14 +140,14 @@ structure Corr (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (I : Tmp �
 (`validJumps = validJumpDests code 0`) with `code_eq` (`code = lower prog`). This is the
 structural discharge of the former `validJumps`-recording ties of `TermTies`. -/
 theorem Corr.validJumps_lower {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} {I : Tmp → Prop}
-    {st : V2.IRState} {fr : Frame} {L : Label} {pc : Nat}
+    {st : Lir.IRState} {fr : Frame} {L : Label} {pc : Nat}
     (hcorr : Corr prog sloadChg obs I st fr L pc) :
     fr.validJumps = validJumpDests (lower prog) 0 := by
   rw [hcorr.validJumps_eq, hcorr.code_eq]
 
 /-- A scoped correspondence becomes strong once its invalidation set is empty. -/
 theorem corr_strong_of_revalidated {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {I : Tmp → Prop} {st : V2.IRState} {fr : Frame} {L : Label} {pc : Nat}
+    {I : Tmp → Prop} {st : Lir.IRState} {fr : Frame} {L : Label} {pc : Nat}
     (hcorr : Corr prog sloadChg obs I st fr L pc) (hI : ∀ t, ¬ I t) :
     Corr prog sloadChg obs (fun _ => False) st fr L pc := by
   exact {
@@ -212,7 +214,7 @@ scoping (`StepScoped`) and the post-state realisability ties.
 The spilled (gas) arm — `defsOf prog t = some (.slot n)`, which emits the `[GAS] ++ PUSH n
 ++ MSTORE` stash — is `sim_assign_gas` below. -/
 theorem sim_assign {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st st' : V2.IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
+    {st st' : Lir.IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
     {t : Tmp} {e : Expr}
     {L : Label} {b : Block} {pc : Nat} {fr : Frame}
     (hb : prog.blocks.toList[L.idx]? = some b)
@@ -341,7 +343,7 @@ def SstoreRealises (fr : Frame) (kw vw : Word) (acc : Account) : Prop :=
 /-! ## Arm 2 — `sstore key value`
 
 Lowered `matCache value ++ matCache key ++ [SSTORE]`. Two fold value-channel
-`Lir.V2.materialise_runsC_of_cleanHalt` calls — `.tmp value` from `fr` (leaving `[vw]`),
+`Lir.materialise_runsC_of_cleanHalt` calls — `.tmp value` from `fr` (leaving `[vw]`),
 then `.tmp key` from the result (leaving `[kw, vw]` = `kw :: vw :: []`, the shape
 `sim_sstore` consumes) — glued by `Runs.trans`, then the `SSTORE` step. The IR step writes
 `st.setStorage kw vw`; the `M3` lens is re-established at the written cell from
@@ -361,7 +363,7 @@ step, running the lowered `matCache value ; matCache key ; SSTORE` reaches a fra
 `fr'` in correspondence with `st.setStorage kw vw` at cursor `(L, pc+1)`, with the working
 stack back to `[]`. -/
 theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st : V2.IRState} {key value : Tmp} {kw vw : Word}
+    {st : Lir.IRState} {key value : Tmp} {kw vw : Word}
     {L : Label} {b : Block} {pc : Nat} {fr : Frame} {acc : Account}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some (.sstore key value))
@@ -397,7 +399,7 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
   have hstacknil := hcorr.stack_nil
   -- == value-channel call 1: materialise `value` from `fr`, leaving `[vw]`.  The gas
   -- bound is DERIVED here from the clean-halt witness `hcs` (the gas-dropping twin). ==
-  have hevv : V2.evalExpr st obs (.tmp value) = some vw := hv
+  have hevv : Lir.evalExpr st obs (.tmp value) = some vw := hv
   have hszfr : fr.exec.stack.size = 0 := by rw [hstacknil]; rfl
   have hstkv : fr.exec.stack.size
       + (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp value)).length ≤ 1024 := by
@@ -413,7 +415,7 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
   have hvstk : frv.exec.stack = vw :: fr.exec.stack := by rw [hmrv.stack]; rfl
   -- == value-channel call 2: materialise `key` from `frv`, leaving `[kw, vw]`.  Forward the
   -- clean-halt witness across the value run; the key-channel gas bound is then DERIVED at `frv`. ==
-  have hevk : V2.evalExpr st obs (.tmp key) = some kw := hk
+  have hevk : Lir.evalExpr st obs (.tmp key) = some kw := hk
   have hcsv : CleanHaltsNonException frv := cleanHaltsNonException_forward hcs hmrv.runs
   have hdk' : MatDecC prog hdc hord frv.exec.executionEnv.code frv.exec.pc (.tmp key) := by
     rw [hvcode, hvpc]; exact hdk
@@ -506,11 +508,11 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         (defsSound_preserved_sstore hsc ((defsSoundS_empty_iff prog st).mp hcorr.defsSound))
     · -- wellScoped: setStorage leaves `locals` untouched.
       intro tw htw
-      exact hcorr.wellScoped tw (by simpa [V2.IRState.setStorage] using htw)
+      exact hcorr.wellScoped tw (by simpa [Lir.IRState.setStorage] using htw)
     · -- memory value channel: SSTORE preserves memory bytes + activeWords (writes storage,
       -- not memory); `setStorage` leaves `locals`, so `MemRealises` transports through the chain.
       intro tw slot v hdef hloc
-      have hloc' : st.locals tw = some v := by simpa [V2.IRState.setStorage] using hloc
+      have hloc' : st.locals tw = some v := by simpa [Lir.IRState.setStorage] using hloc
       have hmembytes : (sstoreFrame frk kw vw []).exec.toMachineState.memory
           = fr.exec.toMachineState.memory := by
         rw [sstoreFrame_memory, hmrk.memBytes, hmrv.memBytes]
@@ -533,7 +535,7 @@ success flag CALL left on the stack — `MSTORE`-ing it to the result slot (`som
 its `(world', success)` entry.
 
 The realised post-state `st'` is **supplied** (as `hst'`): the consumed head IS this call's
-recorded `evmV2CallEntry result pd self` (`LirLean/V2/CallRealises.lean`), so `world' =
+recorded `evmV2CallEntry result pd self` (`LirLean/CallRealises.lean`), so `world' =
 postStorage result pd self = storageAt resumeFr self` (the `M3` lens) and `success =
 successWord result pd = callSuccessFlag result pd` (exp003's CALL flag `x`). With that pin the
 post-`EvalStmt` IR world *is* the resumed
@@ -594,7 +596,7 @@ Route-B tail* reaches `endFr` in **full correspondence** `Corr prog sloadChg obs
 lands on the next statement (M1), and `memAgree` ties the bound call-result slot's memory to
 `st'.locals`. -/
 theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st st' : V2.IRState} {cs : CallSpec}
+    {st st' : Lir.IRState} {cs : CallSpec}
     {L : Label} {b : Block} {pc : Nat} {argsLen : Nat}
     {fr callFr resumeFr : Frame} {result : Evm.CallResult} {pd : Evm.PendingCall}
     {self : AccountAddress}
@@ -801,7 +803,7 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         -- `defsOf prog tw = some (.slot slot')`; the registered slot for `tw` is `slotOf tw`.
         -- and `st'.locals tw = some flag`.
         have hvflag : v = flag := by
-          have : st'.locals tw = some flag := by rw [hst', hr]; simp [V2.IRState.setLocal]
+          have : st'.locals tw = some flag := by rw [hst', hr]; simp [Lir.IRState.setLocal]
           rw [this] at hloc; exact (Option.some.inj hloc).symm
         have hslot'eq : slot' = slot := by
           -- the registered slot for `tw` is `slotOf tw = slot` (`hslots`).
@@ -832,7 +834,7 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         -- call-result slot it stays covered+valued through the MSTORE at the disjoint slot.
         have hloc0 : st.locals tw = some v := by
           rw [hst', hr] at hloc
-          simpa [V2.IRState.setLocal, htw] using hloc
+          simpa [Lir.IRState.setLocal, htw] using hloc
         obtain ⟨hcm, ham, hreal, hval⟩ := hmemRes tw slot' v hdef hloc0
         -- the read slot `slot'` is a realistic offset (`+63 < 2^64`) ⇒ `< 2^256`, so
         -- `(ofNat slot').toNat = slot'` collapses.
@@ -895,7 +897,7 @@ across the (disjoint) gas-slot MSTORE. -/
 `st.setLocal t obs` at `(L, pc+1)`, stack `[]`. The gas value lives in `slotOf t`, tied by
 `MemRealises`; no gas universal is used. -/
 theorem sim_assign_gas {prog : Program} {sloadChg : Tmp → ℕ} {obs ob : Word}
-    {st : V2.IRState} {t : Tmp}
+    {st : Lir.IRState} {t : Tmp}
     {I I' : Tmp → Prop} {L : Label} {b : Block} {pc : Nat} {fr endFr : Frame}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some (.assign t .gas))
@@ -964,7 +966,7 @@ theorem sim_assign_gas {prog : Program} {sloadChg : Tmp → ℕ} {obs ob : Word}
     · -- the just-bound gas tmp `t`: `slot' = slotOf t = slot`, `v = ob`.
       subst htw
       have hvob : v = ob := by
-        have : st'.locals tw = some ob := by rw [hst'def]; simp [V2.IRState.setLocal]
+        have : st'.locals tw = some ob := by rw [hst'def]; simp [Lir.IRState.setLocal]
         rw [this] at hloc; exact (Option.some.inj hloc).symm
       have hslot'eq : slot' = slot := by rw [show slot = slotOf tw from rfl]; exact hslots tw slot' hdef
       subst hslot'eq; subst hvob
@@ -984,7 +986,7 @@ theorem sim_assign_gas {prog : Program} {sloadChg : Tmp → ℕ} {obs ob : Word}
           (UInt256.ofNat slot) v hslot63' hslotplat'
     · -- another bound tmp `tw ≠ t`: unchanged value; its slot survives the disjoint MSTORE.
       have hloc0 : st.locals tw = some v := by
-        rw [hst'def] at hloc; simpa [V2.IRState.setLocal, htw] using hloc
+        rw [hst'def] at hloc; simpa [Lir.IRState.setLocal, htw] using hloc
       obtain ⟨hcm, ham, hreal, hval⟩ := hcorr.memAgree tw slot' v hdef hloc0
       have hslot'lt256 : slot' < 2 ^ 256 := by
         have : (2 : Nat) ^ 64 ≤ 2 ^ 256 := Nat.pow_le_pow_right (by norm_num) (by norm_num)
@@ -1041,7 +1043,7 @@ storage value), and the supplied stash run `hstash` (writing `w` to `slotOf t`),
 `st.setLocal t w` at `(L, pc+1)`, stack `[]`. The sload value lives in `slotOf t`, tied by
 `MemRealises`; no sload warmth universal is used (the warmth cost is the single def-site read). -/
 theorem sim_assign_sload {prog : Program} {sloadChg : Tmp → ℕ} {obs w : Word}
-    {st : V2.IRState} {t k : Tmp}
+    {st : Lir.IRState} {t k : Tmp}
     {I I' : Tmp → Prop} {L : Label} {b : Block} {pc : Nat} {fr endFr : Frame}
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some (.assign t (.sload k)))
@@ -1051,7 +1053,7 @@ theorem sim_assign_sload {prog : Program} {sloadChg : Tmp → ℕ} {obs w : Word
     -- every registered slot is `slotOf` (the `WellFormed` invariant; pins disjointness):
     (hslots : ∀ tw slot', defsOf prog tw = some (.slot slot') → slot' = slotOf tw)
     -- the loaded storage value (the `assignPure` value channel):
-    (hwval : V2.evalExpr st 0 (.sload k) = some w)
+    (hwval : Lir.evalExpr st 0 (.sload k) = some w)
     -- the post-state scoping (downstream-supplied); the bound sload read is `w`:
     (hscoped' : ∀ t', (st.setLocal t w).locals t' ≠ none →
       (¬ NonRecomputable prog t' ∨ ∃ slot, defsOf prog t' = some (.slot slot))
@@ -1111,7 +1113,7 @@ theorem sim_assign_sload {prog : Program} {sloadChg : Tmp → ℕ} {obs w : Word
     · -- the just-bound sload tmp `t`: `slot' = slotOf t = slot`, `v = w`.
       subst htw
       have hvw : v = w := by
-        have : st'.locals tw = some w := by rw [hst'def]; simp [V2.IRState.setLocal]
+        have : st'.locals tw = some w := by rw [hst'def]; simp [Lir.IRState.setLocal]
         rw [this] at hloc; exact (Option.some.inj hloc).symm
       have hslot'eq : slot' = slot := by rw [show slot = slotOf tw from rfl]; exact hslots tw slot' hdef
       subst hslot'eq; subst hvw
@@ -1129,7 +1131,7 @@ theorem sim_assign_sload {prog : Program} {sloadChg : Tmp → ℕ} {obs w : Word
           (UInt256.ofNat slot) v hslot63' hslotplat'
     · -- another bound tmp `tw ≠ t`: unchanged value; its slot survives the disjoint MSTORE.
       have hloc0 : st.locals tw = some v := by
-        rw [hst'def] at hloc; simpa [V2.IRState.setLocal, htw] using hloc
+        rw [hst'def] at hloc; simpa [Lir.IRState.setLocal, htw] using hloc
       obtain ⟨hcm, ham, hreal, hval⟩ := hcorr.memAgree tw slot' v hdef hloc0
       have hslot'lt256 : slot' < 2 ^ 256 := by
         have : (2 : Nat) ^ 64 ≤ 2 ^ 256 := Nat.pow_le_pow_right (by norm_num) (by norm_num)

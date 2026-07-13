@@ -2,8 +2,9 @@ import LirLean.Spec.Semantics
 import LirLean.Frame.Call
 import LirLean.Frame.Create
 
-namespace Lir.V2
+namespace Lir
 
+open Lir.Frame
 open Evm
 open Lir
 open BytecodeLayer
@@ -20,4 +21,4 @@ def evmV2CreateEntry (result : CreateResult) (pd : PendingCreate) (self : Accoun
   ( (fun key => evmCreateOracle.postStorage result pd self key)
   , evmCreateOracle.addressWord result pd )
 
-end Lir.V2
+end Lir

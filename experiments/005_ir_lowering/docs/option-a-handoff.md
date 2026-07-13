@@ -19,8 +19,8 @@ pre-CREATE checkpoint **`pending.frame.exec.accounts`** at the reference site pl
 mirrors that reconstruct drive's output (so they stay matching / definitionally equal):
 - REFERENCE: `003.../EVMLean/Evm/Semantics/Interpreter.lean` (drive `.needsCreate/.error` arm; docstring rewritten to document the soft-failure semantics).
 - MIRROR (gas-only): `003.../BytecodeLayer/Hoare/GasMonotone.lean` (`drive_gasRemaining_le_totalGas`).
-- MIRROR (adequacy, must stay defeq): `005.../LirLean/V2/RunLog.lean` `driveLog` (`driveLog_drive`).
-- MIRROR (gas-only): `005.../LirLean/V2/RunLog.lean` `driveLog_gas_inv` — the 4th site the original brief missed; omitting it breaks the 005 build.
+- MIRROR (adequacy, must stay defeq): `005.../LirLean/RunLog.lean` `driveLog` (`driveLog_drive`).
+- MIRROR (gas-only): `005.../LirLean/RunLog.lean` `driveLog_gas_inv` — the 4th site the original brief missed; omitting it breaks the 005 build.
 
 Pure runtime VALUE change on a field in NO gas/adequacy measure; no proof body touched.
 Fidelity is VERIFIED, not assumed: `resumeAfterCreate` (`Create.lean:168`) writes

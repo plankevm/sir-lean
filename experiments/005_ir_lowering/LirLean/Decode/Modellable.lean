@@ -8,7 +8,7 @@ import LirLean.Decode.BoundaryReach
 `drive` outcome, under the **modellability** side condition
 `∀ fr', Runs fr₀ fr' → ModellableStep fr'` — every reachable frame issues a *code* CALL or a halt:
 no CREATE node, no precompile-CALL node (`Runs` models neither). `cleanHalts_of_runWithLog`
-(`V2/DriveSim.lean`) used to consume that universal as a **raw supplied hypothesis**.
+(`DriveSim.lean`) used to consume that universal as a **raw supplied hypothesis**.
 
 This module replaces it with a **proved producing lemma**. The work splits along the two clauses
 of `ModellableStep`:

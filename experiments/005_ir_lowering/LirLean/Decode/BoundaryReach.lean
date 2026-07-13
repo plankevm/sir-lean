@@ -28,7 +28,7 @@ Proving it is a `Runs`-induction whose `step`/`call` cases need three reachabili
 §5 additionally exports **`reachable_boundary_noGasByte`**: for a *gas-read-free* program
 (no `.assign t .gas` statement anywhere) the reachable-boundary head is moreover never `GAS` —
 the conditional refinement of the allow-list that the recorder-level
-`realisedGas_nil_of_noGasReads` (`V2/Realisability/RealisabilitySpec.lean`) consumes.
+`realisedGas_nil_of_noGasReads` (`Realisability/RealisabilitySpec.lean`) consumes.
 
 The per-step pc inversion
 `stepFrame fr = .next e → e.pc` is either `nextInstrPosNat n (decoded op)` (sequential) or a
@@ -749,9 +749,9 @@ program (no `.assign t .gas` statement anywhere) never reaches it from `emitStmt
 stash either. So the whole flat byte stream is `NoGasOp`-aligned, and — via the interior
 transport — every reachable in-range boundary reads a non-`GAS` head byte
 (`reachable_boundary_noGasByte`). Consumer: `realisedGas_nil_of_noGasReads`
-(`V2/Realisability/RealisabilitySpec.lean`) — the recorder's `driveLog` gas gate (`isGasOp`)
+(`Realisability/RealisabilitySpec.lean`) — the recorder's `driveLog` gas gate (`isGasOp`)
 can then never fire at a reachable top-level frame. The hypothesis is the raw
-statement-level form of `Lir.V2.NoGasReads`, stated over `Program.blockAt` to keep this
+statement-level form of `Lir.NoGasReads`, stated over `Program.blockAt` to keep this
 module below the recorder layer. -/
 
 /-- Head-byte predicate: the decoded op is not `GAS`. -/

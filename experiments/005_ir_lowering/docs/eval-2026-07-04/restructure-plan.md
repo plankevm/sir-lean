@@ -5,10 +5,10 @@ Date: 2026-07-04. Read-only design synthesis (no `.lean` touched). Reconciles
 where the deep dives show it assumed decls/files that turned out shared or live**.
 
 Scope of truth: the tree has **51 `*.lean` files** today (not 44 — the reorg-plan's "26
-top-level" predates `StorageErase.lean` and does not count `Spec/Engine/V2/V2.Drive`). Layout:
-27 top-level + `Spec/` (6) + `Engine/` (8) + `V2/` (7, incl. `RealisabilitySpec`) + `V2/Drive/`
+top-level" predates `StorageErase.lean` and does not count `Spec/Engine/Lir.Drive`). Layout:
+27 top-level + `Spec/` (6) + `Engine/` (8) + `` (7, incl. `RealisabilitySpec`) + `Drive/`
 (3). The default `LirLean` lib is sorry-free; the one-file `WIP` lib
-(`lakefile.lean:31-32`, rooted at `LirLean.V2.RealisabilitySpec`) is the sole sorry-carrier.
+(`lakefile.lean:31-32`, rooted at `LirLean.RealisabilitySpec`) is the sole sorry-carrier.
 
 > **P8 status note (2026-07-08).** This plan predates the P8 well-formedness reshaping. Any
 > statement below that treats `Acyclic.lean`, `MatFueled`, `AcyclicWellFormed`, or
@@ -27,12 +27,12 @@ premise is false:
 1. **`Conformance/ = {LowerConforms, DefsSound, CleanHaltExtract, RecorderLemmas, Acyclic}` is
    mis-clustered.** Of those five, only `LowerConforms` + `Acyclic` are true CFG-assembly (L5).
    - `DefsSound` is the value-channel "Layer B3" (imports `LoweringLemmas` + `Spec.Semantics`;
-     imported by `MaterialiseRuns`, `V2/Call`) → belongs in **`Materialise/`**, not assembly.
+     imported by `MaterialiseRuns`, `Call`) → belongs in **`Materialise/`**, not assembly.
    - `CleanHaltExtract` is the clean-halt→gas/mem envelope PRODUCER, upstream of
      `MaterialiseCleanHalt` which imports it (`CleanHaltExtract → MatDecLower`;
      `MaterialiseCleanHalt → CleanHaltExtract`) → belongs in **`Materialise/`**.
-   - `RecorderLemmas` imports only `Spec/Recorder` and feeds `V2/Drive/SelfPresent` + the drive
-     spine (`RecorderLemmas.lean:117,143` etc.) → belongs in **`V2/`** (recorder proof
+   - `RecorderLemmas` imports only `Spec/Recorder` and feeds `Drive/SelfPresent` + the drive
+     spine (`RecorderLemmas.lean:117,143` etc.) → belongs in **``** (recorder proof
      companions of the spine), not assembly.
 2. **`Sim/ = {SmallStep, Match, SimStmt, SimStmts, SimTerm, Call, Create}` conflates two
    altitudes.** `SmallStep/Match/Call/Create` (+ the omitted `StorageErase`) are the exp003-bound
@@ -46,8 +46,8 @@ premise is false:
    `Lir.lower_conforms` (`LowerConforms.lean:1188`, ~63 LOC) is droppable in this phase — that is a
    decl deletion, not a file deletion. **No whole simulation layer disappears from the
    acyclic-vs-cyclic conclusion.**
-4. **The reorg-plan omits two moves the deep dives call for:** `V2/DriveSim.lean` is a
-   drive-layer file misfiled directly under `V2/` (00-proof-plan §1 note) → move to `V2/Drive/`;
+4. **The reorg-plan omits two moves the deep dives call for:** `DriveSim.lean` is a
+   drive-layer file misfiled directly under `` (00-proof-plan §1 note) → move to `Drive/`;
    and the 3874-LOC `RealisabilitySpec.lean` should be split (below).
 5. **`Create.lean` placement:** the reorg-plan says "stays under `Sim/` (or a `Create/`)". Do
    NOT make a premature `Create/` dir — `Create.lean` is the field-for-field twin of `Call.lean`
@@ -70,7 +70,7 @@ LirLean/
     IR.lean                          -- L0 base: IR datatypes (no CREATE node, IR.lean:77-86)
     Semantics.lean                   -- L0 base: v2 gas-free observable machine (RunFrom, :228)
     Lowering.lean                    -- L0 base: lower = encode∘emit∘allocate (:323)
-    Recorder.lean                    -- HIGH-DAG surface: recording interpreter (imports V2/CallRealises)
+    Recorder.lean                    -- HIGH-DAG surface: recording interpreter (imports CallRealises)
     Seams.lean                       -- HIGH-DAG surface: tracked-debt seam register (imported only by Audit)
     Conformance.lean                 -- tombstone stub (kept live via LirLean.lean:50)
 
@@ -119,7 +119,7 @@ LirLean/
     LowerConforms.lean              -- sim_cfg / SimTermStep / WellFormedLowered / CallRealises (LIVE)
     Acyclic.lean                    -- legacy generic-defs fuel/rank support (P9 deletion target)
 
-  V2/                               -- L6 gas-free IR spine
+                                 -- L6 gas-free IR spine
     Law.lean                        -- IR-run determinism ladder
     IRRun.lean                      -- IR-run existence + definability fold (acyclic half superseded)
     Call.lean                       -- worked external-call anti-vacuity example
@@ -127,7 +127,7 @@ LirLean/
     Modellable.lean                 -- ModellableStep producer (no-CREATE structural discharge)
     RecorderLemmas.lean             -- recorder proof companions (MOVED from top-level)
     Drive/                          -- L6 cyclic interpreter-drive walk
-      DriveSim.lean                 -- cyclic-CFG drive (F1-F3) (MOVED from V2/)
+      DriveSim.lean                 -- cyclic-CFG drive (F1-F3) (MOVED from )
       SelfPresent.lean              -- SSTORE-presence world invariant + gas/sload alignment machinery
       CallPreservesSelf.lean        -- SelfPresent forward-closed along Runs -> hprec seam
       Headline.lean                 -- DriveCorrPlus salvage carrier (retained for R0 reshape)
@@ -139,14 +139,14 @@ LirLean/
 ```
 
 Net: `Audit.lean` + 10 role directories (`Spec/ Engine/ Decode/ Frame/ Materialise/ Sim/
-Assembly/ V2/ V2/Drive/ V2/Flagship/`); 51 files → 54 (the +3 is the RealisabilitySpec split,
+Assembly/  Drive/ Flagship/`); 51 files → 54 (the +3 is the RealisabilitySpec split,
 which halves the worst file). `Engine/` stays a clean self-contained directory precisely so it can
 lift to exp003 unchanged on the import axis.
 
 **Note on `Spec/` altitude honesty (correcting reorg-plan's "the definitions" label):**
 `Spec/{IR,Semantics,Lowering}` are true L0 (import only `Evm`+`Spec/IR`); `Spec/Recorder` and
-`Spec/Seams` sit HIGH in the DAG (Recorder imports `V2/CallRealises`+`Hoare.GasMonotone`; Seams
-imports `V2/Drive/CallPreservesSelf`+`Decode/Modellable`+`BytecodeLayer/Hoare/CleanHalt`). They live in `Spec/` for
+`Spec/Seams` sit HIGH in the DAG (Recorder imports `CallRealises`+`Hoare.GasMonotone`; Seams
+imports `Drive/CallPreservesSelf`+`Decode/Modellable`+`BytecodeLayer/Hoare/CleanHalt`). They live in `Spec/` for
 the **reviewer-surface role**, not because they are base — keep them there but the directory README
 should state this so no one reads `Spec/` as a pure altitude floor. `Spec/Conformance` is a
 deliberate tombstone (`Spec/Conformance.lean:1-24`), not dead.
@@ -161,10 +161,10 @@ proof change). Dependency order Surface → {Machinery, Witness} → Realisabili
 
 | new file | source lines | content | sorries | ~LOC |
 |---|---|---|---|---|
-| `V2/Flagship/Surface.lean` | §1 :114-564, §2 :566-647, §3 :649-948, §4 :950-1040 | all REAL defs/structures: `entryState`, `Conforms` (:155), `WellLowered` (:477), `PrecompileAssumptions` (:550), `RecorderCoupled` (:599), `DriveCorrLog` (:629), `StmtTies'`/`TermTies'`, `RunFromLeft`/`RunFromAll` + 2 PROVED adequacy lemmas | none | ~930 |
-| `V2/Flagship/Machinery.lean` | §5 :1042-2958 | R0b (`defsSoundS_preserved_step`), R2, R3 (`callRealises_of_recorded` SORRY :1385), R5, R6 walk (`atReachableBoundaryVJ_*` SORRIES :2343/2351/2380/2383), R7 edge family, R8 | R3, R6 (4 tokens) | ~1916 |
-| `V2/Flagship/Witness.lean` | §6a :2959-3623 | `exProg` (:2975) + ~20 private witness lemmas + R9 (`wellLowered_exProg` :3585, `wellLowered_check_exists` :3603) | none | ~664 |
-| `V2/Flagship/RealisabilitySpec.lean` (WIP root) | §6b :3624-3865, §7 :3867-3873 | R10a (SORRY :3634), R10b, `conforms_of_worldeq` (:3661 CLOSED), the flagship `lower_conforms` (:3705) + `_exact` + `_gasfree` (SORRIES), `realisedGas_nil_of_noGasReads`, R12a/b | R10a, R11×3, R12a | ~240 |
+| `Flagship/Surface.lean` | §1 :114-564, §2 :566-647, §3 :649-948, §4 :950-1040 | all REAL defs/structures: `entryState`, `Conforms` (:155), `WellLowered` (:477), `PrecompileAssumptions` (:550), `RecorderCoupled` (:599), `DriveCorrLog` (:629), `StmtTies'`/`TermTies'`, `RunFromLeft`/`RunFromAll` + 2 PROVED adequacy lemmas | none | ~930 |
+| `Flagship/Machinery.lean` | §5 :1042-2958 | R0b (`defsSoundS_preserved_step`), R2, R3 (`callRealises_of_recorded` SORRY :1385), R5, R6 walk (`atReachableBoundaryVJ_*` SORRIES :2343/2351/2380/2383), R7 edge family, R8 | R3, R6 (4 tokens) | ~1916 |
+| `Flagship/Witness.lean` | §6a :2959-3623 | `exProg` (:2975) + ~20 private witness lemmas + R9 (`wellLowered_exProg` :3585, `wellLowered_check_exists` :3603) | none | ~664 |
+| `Flagship/RealisabilitySpec.lean` (WIP root) | §6b :3624-3865, §7 :3867-3873 | R10a (SORRY :3634), R10b, `conforms_of_worldeq` (:3661 CLOSED), the flagship `lower_conforms` (:3705) + `_exact` + `_gasfree` (SORRIES), `realisedGas_nil_of_noGasReads`, R12a/b | R10a, R11×3, R12a | ~240 |
 
 Boundary evidence: §6a `exProg` block is self-contained — its only exits to the rest are `exProg`
 itself and `wellLowered_exProg`/`wellLowered_check_exists` (cluster-flagship S1); everything else in
@@ -175,20 +175,20 @@ things that must see all three lower files, so they stay in the root.
 **Optional finer split (defer):** `Machinery.lean` at ~1900 LOC is still large; the R6 geometry
 block (`emptyProg`/`not_runs_atReachableBoundary`/`AtReachableBoundaryVJ`/`runs_atReachableBoundary`,
 :2214-2472, the only part that imports `BoundaryReach`) could later peel into
-`V2/Flagship/Boundary.lean`. Not now — do it only if the R6 leaf lands and the block stabilizes.
+`Flagship/Boundary.lean`. Not now — do it only if the R6 leaf lands and the block stabilizes.
 
 **Cost to flag:** the module name `RealisabilitySpec` is cited across `docs/`. Keeping it as the
-aggregator module (physically under `V2/Flagship/`) preserves the name but changes its module path
-to `LirLean.V2.Flagship.RealisabilitySpec` — one-line `lakefile.lean:32` edit + a docs sweep. If
-doc drift is unacceptable, keep the root at `V2/RealisabilitySpec.lean` (no lakefile change) and put
-only `Surface/Machinery/Witness` under `V2/Flagship/`; the tree is slightly less tidy but zero doc
+aggregator module (physically under `Flagship/`) preserves the name but changes its module path
+to `LirLean.Flagship.RealisabilitySpec` — one-line `lakefile.lean:32` edit + a docs sweep. If
+doc drift is unacceptable, keep the root at `RealisabilitySpec.lean` (no lakefile change) and put
+only `Surface/Machinery/Witness` under `Flagship/`; the tree is slightly less tidy but zero doc
 churn. Recommend the former (full `Flagship/`) — the legibility win dominates a mechanical rename.
 
 ---
 
 ## 3. Acyclic-vs-cyclic reconciliation (what the eval concludes for the tree)
 
-The honest headline is `Lir.V2.lower_conforms` (`RealisabilitySpec.lean:3705`). The acyclic path
+The honest headline is `Lir.lower_conforms` (`RealisabilitySpec.lean:3705`). The acyclic path
 is dead legacy; the cyclic tie-supplied path is live-but-superseded (the vacuous route the flagship
 refuses to cite, `:3730-3736`). **This removes decls, not files:**
 
@@ -216,11 +216,11 @@ Consequence for the reorg: `Assembly/` is a real, populated directory (`LowerDec
 
 **Engine → exp003 (separate, last).** `Engine/` already imports only exp003 (`Evm`,
 `BytecodeLayer.*`) — clean on the import axis. The blocker is **namespace leakage**: 5/8 files sit
-in `Lir.V2` (`AccountMap`, `StepWalk`, `Descent`, `DriveMono`, `CleanHalt`); `DriveRuns`
+in `Lir` (`AccountMap`, `StepWalk`, `Descent`, `DriveMono`, `CleanHalt`); `DriveRuns`
 (`BytecodeLayer.Interpreter`) and the `Evm`-namespaced inversions are graduation-ready;
 `AccountMap.lean:26/55/68` already carries `-- RELOCATE to exp003`. Graduation is a renamespace +
 physical move to `003_bytecode_layer/`, changing every downstream engine import to
-`import BytecodeLayer.Hoare.*`. Because it touches ~every V2/Drive
+`import BytecodeLayer.Hoare.*`. Because it touches ~every Drive
 file's import block, **do it as its own PR AFTER the LirLean-internal reorg settles** — never
 interleave the two churns. Keep `Engine/` a self-contained directory in the meantime so the move is
 a clean `git mv` of the whole folder.
@@ -229,9 +229,9 @@ a clean `git mv` of the whole folder.
 the `DescentKind` block (`BytecodeLayer/Hoare/Descent.lean:421-567`) are green scaffolding; the IR surface has
 zero CREATE node (`Spec/IR.lean:77-86`, `Spec/Lowering.lean:178-200`). When first-class CREATE
 lands (00-create-status §6) it **adds arms to existing files** — `Stmt.create` in `Spec/IR`, a
-`.create` arm in `Spec/Semantics` + `V2/IRRun` + `Spec/Lowering.emitStmt`, a `create_reflects_lowered`
+`.create` arm in `Spec/Semantics` + `IRRun` + `Spec/Lowering.emitStmt`, a `create_reflects_lowered`
 in `Frame/Match` (twin of `call_reflects_lowered`, `Match.lean:519`), a recorder arm in
-`Spec/Recorder`/`V2/RecorderLemmas` — plus it **retires** `Decode/NoCreateBytes` + the `NotCreate`
+`Spec/Recorder`/`RecorderLemmas` — plus it **retires** `Decode/NoCreateBytes` + the `NotCreate`
 clause rather than extending them. The restructure must therefore **not** invent a `Create/` dir:
 CREATE is a cross-cutting arm-addition, and its scaffold belongs beside its CALL twin (`Frame/`) and
 in `Engine/` (the `DescentKind` unification). The one restructure implication: keep `Frame/Call.lean`
@@ -262,7 +262,7 @@ before moving anything so you don't relocate dead code:
 
 **Phase B — the directory reorg (the big atomic churn; QUIET WINDOW only).** In one commit, when no
 proof branch is open against the default cone:
-1. `git mv` every file into its role directory per §1; move `V2/DriveSim.lean` → `V2/Drive/`.
+1. `git mv` every file into its role directory per §1; move `DriveSim.lean` → `Drive/`.
 2. Rewrite every `import LirLean.X` → `import LirLean.<Dir>.X` repo-wide, and update the grouped
    root `LirLean.lean` (its 40-odd imports) + `Audit.lean`'s 6 imports.
 3. `lake build` (default: green + sorry-free) then `lake build WIP`.

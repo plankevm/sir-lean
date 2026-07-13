@@ -6,7 +6,7 @@ import BytecodeLayer.Hoare.Charges
 
 The **canonical** charge machinery is the fuel-free fold tower of §7: `chargeExpr`/
 `chargeLoc`/`chargeStep`/`chargeFold`/`chargeCache` — the per-`Expr` charge lists the fold
-value channel (`Lir.V2.materialise_runsC`/`MatRunsC`, `Materialise/MatFoldChannel.lean`) and
+value channel (`Lir.materialise_runsC`/`MatRunsC`, `Materialise/MatFoldChannel.lean`) and
 the `StackRoomOK`/`maxChargeDepth` stack-room folds (`Spec/WellFormed.lean`) read. One list
 entry per opcode `matExpr (matCache prog) e` emits, in execution order; running the lowered
 push-sequence subtracts exactly that list (`subCharges`), which is the honest-gas envelope.
@@ -26,11 +26,12 @@ frame. All laws are uniform in `sloadChg` (and the charge-list LENGTH is `sloadC
 `chargeCache_length_sloadChg_eq` — what the stack-room folds consume).
 
 No `sorry`, no `axiom`, no `native_decide`. Bytecode-coupled (imports `Match.lean`);
-nothing here touches `Spec/Semantics.lean` / `V2/Law.lean` (the frame-free spine).
+nothing here touches `Spec/Semantics.lean` / `Law.lean` (the frame-free spine).
 -/
 
 namespace Lir
 
+open Lir.Frame
 open Evm
 open GasConstants
 open BytecodeLayer.Hoare

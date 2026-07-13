@@ -27,8 +27,8 @@ theorem (`Lir.lower_conforms`). Everything else that "has no callers" is classif
 
 ## TL;DR
 
-- The tree is **one flagship in progress** — `Lir.V2.lower_conforms`
-  (`V2/RealisabilitySpec.lean:3705`, cyclic + gas-free, the **only** sorry-carrier) — standing on
+- The tree is **one flagship in progress** — `Lir.lower_conforms`
+  (`RealisabilitySpec.lean:3705`, cyclic + gas-free, the **only** sorry-carrier) — standing on
   **one shared, layered substrate**, plus **one dead legacy capstone** (`Lir.lower_conforms`,
   `LowerConforms.lean:1188`, the retired "acyclic headline", now unreferenced code).
 - The "delete the acyclic path → drop ~6k LOC" hope is **not real**: the gas-aware per-block
@@ -48,7 +48,7 @@ theorem (`Lir.lower_conforms`). Everything else that "has no callers" is classif
 ## 1. The layered DAG (altitude-ordered, bottom = no LirLean deps)
 
 The organizing principle is **altitude, not feature**. `Engine/`, `Decode`, `Materialise`,
-`Sim`, `Assembly`, `V2`, `V2/Drive` are altitude bands; `Spec/` is NOT a single band (see the
+`Sim`, `Assembly`, `V2`, `Drive` are altitude bands; `Spec/` is NOT a single band (see the
 warning below). Arrows point **downward-imports** (`A ← B` = B imports A).
 
 ```
@@ -79,21 +79,21 @@ warning below). Arrows point **downward-imports** (`A ← B` = B imports A).
       Acyclic  (deleted by P9; historical generic-defs fuel/rank core)
                           │
  L6  V2 gas-free SPINE + cyclic DRIVE
-       V2/Law ; V2/IRRun ; V2/Call ← V2/CallRealises ; Decode/Modellable
-       V2/DriveSim (imports LowerConforms for sim_cfg — the cyclic path)
-       V2/Drive/{SelfPresent ← CallPreservesSelf, Headline}
+       Law ; IRRun ; Call ← CallRealises ; Decode/Modellable
+       DriveSim (imports LowerConforms for sim_cfg — the cyclic path)
+       Drive/{SelfPresent ← CallPreservesSelf, Headline}
        Spec/Recorder, Spec/Seams  ← (HIGH-altitude Spec files, see warning)
        RecorderLemmas
                           │
  L7  FLAGSHIP + audit
-       V2/RealisabilitySpec  (WIP lib; R0–R12 + flagship + exProg; the ONLY sorry-carrier)
+       RealisabilitySpec  (WIP lib; R0–R12 + flagship + exProg; the ONLY sorry-carrier)
        Audit  (#guard_msgs axiom/signature guard net; imported LAST; terminal of DEFAULT cone)
 ```
 
 > **CRITICAL WARNING — `Spec/` is NOT one altitude band.** `Spec/IR`, `Spec/Semantics`,
 > `Spec/Lowering` are true L0 base (import only `Evm` + `Spec/IR`). But **`Spec/Recorder`** imports
-> `V2/CallRealises` + `Hoare.GasMonotone`, and **`Spec/Seams`** imports
-> `V2/Drive/CallPreservesSelf` + `Decode/Modellable` + `BytecodeLayer/Hoare/CleanHalt` — both sit **HIGH** (L6) in
+> `CallRealises` + `Hoare.GasMonotone`, and **`Spec/Seams`** imports
+> `Drive/CallPreservesSelf` + `Decode/Modellable` + `BytecodeLayer/Hoare/CleanHalt` — both sit **HIGH** (L6) in
 > the DAG despite living under `Spec/`. They live in `Spec/` for their reviewer-surface *role*,
 > not their altitude. **`Spec/Conformance`** (imported at `LirLean.lean:50`) is a 24-line
 > tombstone stub with zero decls. The only intra-Spec base edges are IR→Semantics and IR→Lowering.
@@ -101,14 +101,14 @@ warning below). Arrows point **downward-imports** (`A ← B` = B imports A).
 **Engine is 4 leaves + 1 chain, not a component.** `Charges`, `MemAlgebra`, `CleanHalt`,
 `DriveRuns` are independent leaves; `AccountMap→StepWalk→Descent→DriveMono` is the only chain.
 Every Engine file imports ONLY exp003 (`Evm`, `BytecodeLayer.*`) or a sibling Engine file — zero
-`LirLean.Spec/V2/IR` imports (`AccountMap.lean:1-2`, `StepWalk.lean:1-2`, `DriveRuns.lean:37`).
+`LirLean.Spec/IR` imports (`AccountMap.lean:1-2`, `StepWalk.lean:1-2`, `DriveRuns.lean:37`).
 There are **no incoming edges from other clusters into Engine at the import level**.
 
 ---
 
 ## 2. Per-file one-liners (with CORRECTED roles)
 
-Role vocabulary: **terminal-for-flagship** (feeds `V2.lower_conforms` on the live path),
+Role vocabulary: **terminal-for-flagship** (feeds `Lir.lower_conforms` on the live path),
 **shared-infra** (feeds both cyclic path and flagship), **incremental-toward-X** (proven, no
 consumer yet, targets a named open goal X), **intentional-stub/register** (exists to name debt),
 **regression-witness** (deliberately-retained unsatisfiability lesson), **superseded** (has a
@@ -121,8 +121,8 @@ live replacement), **DEAD** (grep-zero, no purpose).
 | Spec/IR | 114 | **terminal.** IR datatypes. `Stmt` = assign/sstore/call/create. P9 deleted the old `Expr.slot` uniform-spill marker; spill placement now lives in `Loc`. Root of everything. |
 | Spec/Semantics | 278 | **terminal.** V2 IR operational semantics: `RunFrom` (`:228`, 137 refs), `evalExpr` (`:123`), `blockAt` (`:139`, v2-local twin of `SmallStep.Program.blockAt`). *Stale self-desc "call-free prototype" (:5).* |
 | Spec/Lowering | 358 | **terminal.** Lowering fn (`lower` :358); `defEnv`/`defsOf` route non-recomputable temps to `Loc.slot`; `matCache` is the fold-based value channel; `emitStmt` (`:266-290`) emits assign/sstore/call/create. The old `Expr.slot`/fuel materialisation path was deleted by P9. |
-| Spec/Recorder | 358 | **terminal** (HIGH altitude — imports V2/CallRealises). Recording interpreter: `observe` (`:340`), `runWithLog` (`:262`), `driveLog` (`:186`), `realisedGas` (`:285`), `realisedSload` (`:291`), `realisedCall` (`:306`), `realisedCreate` (`:321`). `RunAcc` (`:113`) = **defensible-delete candidate** (zero type uses; only historical shape comments remain). |
-| Spec/Seams | 95 | **live seam vocabulary** (HIGH altitude). Owns `Lir.V2.PrecompileAssumptions` and `ReachableFrom`; keeps `SelfPresent`/`CallPreservesSelf`/`CallsCode`/`CleanHaltsNonException` as supporting forwarders. Imported by the WIP surface and Audit. |
+| Spec/Recorder | 358 | **terminal** (HIGH altitude — imports CallRealises). Recording interpreter: `observe` (`:340`), `runWithLog` (`:262`), `driveLog` (`:186`), `realisedGas` (`:285`), `realisedSload` (`:291`), `realisedCall` (`:306`), `realisedCreate` (`:321`). `RunAcc` (`:113`) = **defensible-delete candidate** (zero type uses; only historical shape comments remain). |
+| Spec/Seams | 95 | **live seam vocabulary** (HIGH altitude). Owns `Lir.PrecompileAssumptions` and `ReachableFrom`; keeps `SelfPresent`/`CallPreservesSelf`/`CallsCode`/`CleanHaltsNonException` as supporting forwarders. Imported by the WIP surface and Audit. |
 | Spec/Conformance | 24 | **live conformance vocabulary.** Hosts `entryState`, `RunLog.clean`, `Conforms`, and `NoGasReads`; imported by the WIP surface so the trusted spec surface can name the live theorem vocabulary. |
 
 ### L1 — Engine (IR-agnostic, exp003-bound; all 8 sorry-free + axiom-clean)
@@ -196,22 +196,22 @@ live replacement), **DEAD** (grep-zero, no purpose).
 
 | File | LOC | Role · why it exists |
 |---|---|---|
-| V2/Law | 172 | **self-contained.** Determinism ladder (EvalStmt.det→…→IRRun.det). |
-| V2/IRRun | 371 | **split role.** Definability fold (`stmtPost`/`stmtsPost`/`StmtDefinable`/`runStmts_exists`) LIVE (cyclic per-block bricks). **Superseded (~150 LOC):** acyclic-CFG half (`CFGAcyclic` :225, `TermRankLt` :205, `Term.succs` :212, `runFrom_exists*`/`irRun_exists*`) — DriveSim:17/54 retires it via dynamic totalGas. `RunDefinable` (`:258`) UNSATISFIABLE (RS:215-216), replaced by `RunDefinableG`. |
-| V2/Call | 145 | **worked-example/anti-vacuity.** `callIR` cited only in a DefsSound docstring; consumes IRRun.det for `call_IRRun_unique`. |
-| V2/CallRealises | 110 | **terminal + incremental.** `evmV2CallEntry` (`:59`) LIVE (produced by realisedCall_cons, identified with R3 cursor RS:2856). `callRealises_bridge` (`:85`) incremental-toward R3. |
+| Law | 172 | **self-contained.** Determinism ladder (EvalStmt.det→…→IRRun.det). |
+| IRRun | 371 | **split role.** Definability fold (`stmtPost`/`stmtsPost`/`StmtDefinable`/`runStmts_exists`) LIVE (cyclic per-block bricks). **Superseded (~150 LOC):** acyclic-CFG half (`CFGAcyclic` :225, `TermRankLt` :205, `Term.succs` :212, `runFrom_exists*`/`irRun_exists*`) — DriveSim:17/54 retires it via dynamic totalGas. `RunDefinable` (`:258`) UNSATISFIABLE (RS:215-216), replaced by `RunDefinableG`. |
+| Call | 145 | **worked-example/anti-vacuity.** `callIR` cited only in a DefsSound docstring; consumes IRRun.det for `call_IRRun_unique`. |
+| CallRealises | 110 | **terminal + incremental.** `evmV2CallEntry` (`:59`) LIVE (produced by realisedCall_cons, identified with R3 cursor RS:2856). `callRealises_bridge` (`:85`) incremental-toward R3. |
 | Decode/Modellable | 483 | **terminal.** `lower_modellable` applied RS:1255; residual seams `AtReachableBoundary` (RS:1245) + `CallsCode` (Seams:81); `notCreate_of_atReachableBoundary` (`:426`) wired RS:1255/3677. The no-CREATE combinator run is unavoidable structural infra. |
-| V2/DriveSim | 743 | **shared-infra (cyclic path) + incremental.** Imports LowerConforms for `sim_cfg` (heavy but justified — F3 ties the RunFrom to the bytecode world). F1 measure infra + DriveCorr incremental-toward reshaped `runFrom_of_driveCorrLog`. **Safe-delete:** `lower_conforms_cyclic'` (`:666`, flagship refuses to cite it, RS:3730-3736). |
-| V2/Drive/SelfPresent | 437 | **terminal + salvage.** `SelfPresent` (`:364`) is a flagship hypothesis (RS:1397); `accounts_ne_empty_of_selfPresent`/`selfPresent_codeFrame` LIVE. §3-§4 `GasLogAligned`/`SloadLogAligned` = salvage for R0 reshape (used only by Headline). `realisedCall_projection` (`:55`) = safe-simplify (thin re-export of realisedCall_cons). |
-| V2/Drive/CallPreservesSelf | 258 | **terminal.** Collapses to the single `hprec` seam; `selfPresent_runs_of_call` (`:248`) applied RS:1723; exported via `Seams.callPreservesSelf_of_precompiles`. |
-| V2/Drive/Headline | 298 | **salvage for R0 reshape (currently ALL unreferenced).** Exports `DriveCorrPlus` (`:81`), `GasReach` (`:269`), `GasCursorClass` (`:291`). Header (`:17-25`) says §9/§10 deleted, rest "RETAINED salvage". **NOTE:** `DriveCorrLog` is NOT here (it's RS:629); `drive_fuel_mono` does not exist anywhere. |
+| DriveSim | 743 | **shared-infra (cyclic path) + incremental.** Imports LowerConforms for `sim_cfg` (heavy but justified — F3 ties the RunFrom to the bytecode world). F1 measure infra + DriveCorr incremental-toward reshaped `runFrom_of_driveCorrLog`. **Safe-delete:** `lower_conforms_cyclic'` (`:666`, flagship refuses to cite it, RS:3730-3736). |
+| Drive/SelfPresent | 437 | **terminal + salvage.** `SelfPresent` (`:364`) is a flagship hypothesis (RS:1397); `accounts_ne_empty_of_selfPresent`/`selfPresent_codeFrame` LIVE. §3-§4 `GasLogAligned`/`SloadLogAligned` = salvage for R0 reshape (used only by Headline). `realisedCall_projection` (`:55`) = safe-simplify (thin re-export of realisedCall_cons). |
+| Drive/CallPreservesSelf | 258 | **terminal.** Collapses to the single `hprec` seam; `selfPresent_runs_of_call` (`:248`) applied RS:1723; exported via `Seams.callPreservesSelf_of_precompiles`. |
+| Drive/Headline | 298 | **salvage for R0 reshape (currently ALL unreferenced).** Exports `DriveCorrPlus` (`:81`), `GasReach` (`:269`), `GasCursorClass` (`:291`). Header (`:17-25`) says §9/§10 deleted, rest "RETAINED salvage". **NOTE:** `DriveCorrLog` is NOT here (it's RS:629); `drive_fuel_mono` does not exist anywhere. |
 | RecorderLemmas | — | **terminal + stranded.** `sloadRecord_eq_sloadCost`/`realisedCall_cons`/`runWithLog_drive`/`driveLog_drive` LIVE (SelfPresent/DriveSim/flagship). `runWithLog_messageCall` (`:143`) called ONLY by the dead capstone — **delete together with it**. |
 
 ### L7 — Flagship + audit
 
 | File | LOC | Role · why it exists |
 |---|---|---|
-| V2/RealisabilitySpec | 3874 | **THE FLAGSHIP + only sorry-carrier** (WIP lib). §1-7 structure below. Sole root of the WIP lean_lib (lakefile.lean:31-32); no exit edges. |
+| RealisabilitySpec | 3874 | **THE FLAGSHIP + only sorry-carrier** (WIP lib). §1-7 structure below. Sole root of the WIP lean_lib (lakefile.lean:31-32); no exit edges. |
 | Audit | 62 | **intentional guard net.** ZERO decls; 8 `#guard_msgs in #print axioms` pinning `[propext,Classical.choice,Quot.sound]` for seam-residue decls. Imported LAST (`LirLean.lean:53`); terminal of the DEFAULT build cone. Guards salvage only; RS decls guarded nowhere by design (RS:3867-3872). |
 
 ---
@@ -220,7 +220,7 @@ live replacement), **DEAD** (grep-zero, no purpose).
 
 ### 3.1 The flagship (verbatim-confirmed)
 
-`Lir.V2.lower_conforms` (`RealisabilitySpec.lean:3705`), conclusion (`:3715-3718`):
+`Lir.lower_conforms` (`RealisabilitySpec.lean:3705`), conclusion (`:3715-3718`):
 
 ```lean
 ∃ O, RunFrom prog (entryState params) (realisedGas log)
@@ -291,7 +291,7 @@ entire §6 witness (`:2959-3623`) are fully sorry-free. **Corrections to prior f
   CleanHaltExtract's `next_*_of_cleanHalt` (called directly in RS).
 - **L5 Assembly** supplies `sim_cfg`/`SimTermStep`/`WellFormedLowered`/`CallRealises` (shared).
   The old generic-`defs` fuel/rank support is historical; P9 deleted `Acyclic.lean`.
-- **L6 V2/Drive** supplies the cyclic drive spine, SelfPresent/CallPreservesSelf, Modellable,
+- **L6 Drive** supplies the cyclic drive spine, SelfPresent/CallPreservesSelf, Modellable,
   RecorderLemmas — the machinery the missing `runFrom_of_driveCorrLog` will walk.
 
 ### 3.5 RealisabilitySpec internal § structure (split map)
@@ -316,9 +316,9 @@ prologue → factor a shared lemma.
 
 **Statement diff — genuinely different shape, strictly weaker deliverable:**
 
-| | acyclic capstone `Lir.lower_conforms` (LowerConforms:1188) | flagship `Lir.V2.lower_conforms` (RS:3705) |
+| | acyclic capstone `Lir.lower_conforms` (LowerConforms:1188) | flagship `Lir.lower_conforms` (RS:3705) |
 |---|---|---|
-| IR run | **SUPPLIES** it as a hypothesis (`hir : V2.IRRun … O`) | **PRODUCES** it (`∃ O, RunFrom …`) |
+| IR run | **SUPPLIES** it as a hypothesis (`hir : Lir.IRRun … O`) | **PRODUCES** it (`∃ O, RunFrom …`) |
 | ties | **SUPPLIES** unconditional all-frames `hstmts`/`hterm` (`:1214-1217`) | **DERIVES** them internally (R1-R10 under RecorderCoupled) |
 | conclusion | only the WORLD edge (`O.world = (observe …).world`) | full `Conforms` (world AND result, RS:155) |
 
@@ -331,7 +331,7 @@ unfulfillable antecedent. Its world equation is precisely the input to the flags
 `conforms_of_worldeq` (RS:3661, applied :3747).
 
 **The capstone theorem is DEAD.** Its one apparent caller (`RS:3864 exact lower_conforms …`) is
-INSIDE `namespace Lir.V2` (open :105, end :3874) so it resolves to the FLAGSHIP, not the capstone.
+INSIDE `namespace Lir` (open :105, end :3874) so it resolves to the FLAGSHIP, not the capstone.
 Zero code consumers. **VERDICT: drop** (`LowerConforms.lean:1188-1250`, ~63 LOC). Its sole
 exclusive feeder `runWithLog_messageCall` (RecorderLemmas:143) dies with it (delete together).
 `entry_corr` (LowerConforms:1102) also loses its only code caller (:1226) — but RS:626 names it as
@@ -350,7 +350,7 @@ generic fuel consumers are migrated.
 
 ---
 
-## 5. What is V2 vs V2/Drive vs Engine (the naming confusion, resolved)
+## 5. What is V2 vs Drive vs Engine (the naming confusion, resolved)
 
 Three **altitude** layers, not feature groups:
 
@@ -358,27 +358,27 @@ Three **altitude** layers, not feature groups:
   IR/Spec/V2 imports (verified: every file imports only `Evm`/`BytecodeLayer.*`/sibling Engine).
   This is the sublayer **slated to graduate to exp003** as a reusable library. It is import-clean
   already; graduation is blocked only on **namespace leakage** — 5/8 files still live in the
-  experiment namespace `Lir.V2` (`AccountMap.lean:24`, `StepWalk.lean:24`, `Descent.lean:247`,
+  experiment namespace `Lir` (`AccountMap.lean:24`, `StepWalk.lean:24`, `Descent.lean:247`,
   `DriveMono.lean:16`, `CleanHalt.lean:32`), and AccountMap self-flags `-- RELOCATE to exp003`
   (`:26`). Sequence it LAST as its own cross-repo PR (keep the folder self-contained so it lifts as
   one `git mv`).
 
-- **`V2/`** = the exp005 **gas-free IR semantics SPINE + bytecode-coupled bridges**:
+- **``** = the exp005 **gas-free IR semantics SPINE + bytecode-coupled bridges**:
   `Law` (determinism floor), `IRRun` (run existence; acyclic half retired), `Call`/`CallRealises`
   (the CallStream oracle + realisation bridge), `Modellable`. These mention IR types; they are the
   gas-free machine and its realisability seams.
 
-- **`V2/Drive/`** = the **cyclic interpreter-drive walk** that *simulates* the spine over a real
+- **`Drive/`** = the **cyclic interpreter-drive walk** that *simulates* the spine over a real
   bytecode `RunFrom`: `SelfPresent`, `CallPreservesSelf`, `Headline`. This is the "bytecode layer"
   — the mechanism (dynamic `totalGas` measure) that retires the CFG-acyclicity restriction and
   discharges the per-cursor ties in one construction.
 
-- **Misfiling:** `V2/DriveSim.lean` is a drive-layer engine but sits directly under `V2/` instead
-  of `V2/Drive/`. Moving it to `V2/Drive/Sim.lean` fixes the mental model (updates importers
+- **Misfiling:** `DriveSim.lean` is a drive-layer engine but sits directly under `` instead
+  of `Drive/`. Moving it to `Drive/Sim.lean` fixes the mental model (updates importers
   Drive/Headline, Audit, `LirLean.lean:44`).
 
 - **`Spec/` altitude caveat (repeat, because it breaks the naming intuition):** `Spec/Recorder` and
-  `Spec/Seams` sit at L6 (they import V2/V2-Drive/Engine), NOT at L0 with the other Spec files.
+  `Spec/Seams` sit at L6 (they import V2-Drive/Engine), NOT at L0 with the other Spec files.
   They are filed in `Spec/` for reviewer-surface role only.
 
 ---
@@ -402,7 +402,7 @@ Drive/Headline.lean + SelfPresent §3-4 → R0 reshape.
 
 **INTENTIONAL infra (NOT removable):** Spec/Conformance vocabulary; Spec/Seams register; Audit
 guards; GasRealises/SloadRealises regression-witnesses (RELOCATE not delete); exProg witness +
-PROVED refutations `not_defsSound_stale`/`not_runs_atReachableBoundary`; V2/Call worked-example.
+PROVED refutations `not_defsSound_stale`/`not_runs_atReachableBoundary`; Call worked-example.
 
 **NEEDS-CONFIRMATION (do NOT delete blind):** `resumeAfterCall_mload` + feeders (MemAlgebra:85);
 `entry_storageAgree_codeFrame` (LowerConforms:1089); `jump/branch_landing_of_cleanHalt`

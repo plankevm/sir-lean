@@ -10,7 +10,7 @@ This cluster is the **bytes ↔ IR-positions substrate** (layers L2/L3 of
 geometric invariants (jump-dest validity, no-CREATE / lowering-op-only at every reachable
 boundary). It is consumed by the Materialise/Sim layers (`MatDecLower`, `LowerDecode`,
 `SimTerm`), by `Decode/Modellable.lean` (the `NotCreate` discharge), and by
-`V2/RealisabilitySpec.lean` (the flagship's R6 boundary geometry).
+`RealisabilitySpec.lean` (the flagship's R6 boundary geometry).
 
 ---
 
@@ -25,8 +25,8 @@ spill-routing exhaustiveness facts, and the `allocate` faithfulness keystone (Ph
 
 | decl | kind | role | callers |
 |---|---|---|---|
-| `defsOf_ne_gas` (:20) | theorem | shared-infra — Phase-B spill invariant (no gas tmp is a bare `.gas` def) | `MaterialiseCleanHalt.lean:195`, `MaterialiseRuns.lean:1083`, `V2/RealisabilitySpec.lean:370` (tie derivation) |
-| `defsOf_ne_sload` (:55) | theorem | shared-infra — Phase-C spill invariant (no sload tmp is a bare `.sload`) | `MaterialiseCleanHalt.lean:198`, `MaterialiseRuns.lean:1088`, `V2/RealisabilitySpec.lean:1184,1190` |
+| `defsOf_ne_gas` (:20) | theorem | shared-infra — Phase-B spill invariant (no gas tmp is a bare `.gas` def) | `MaterialiseCleanHalt.lean:195`, `MaterialiseRuns.lean:1083`, `RealisabilitySpec.lean:370` (tie derivation) |
+| `defsOf_ne_sload` (:55) | theorem | shared-infra — Phase-C spill invariant (no sload tmp is a bare `.sload`) | `MaterialiseCleanHalt.lean:198`, `MaterialiseRuns.lean:1088`, `RealisabilitySpec.lean:1184,1190` |
 | `toDef_locOfExpr` (:85) | `@[simp]` theorem | shared-infra — simp-normal-form left-inverse; consumed inside `allocate_toDefs` (:96) | none external (it is a `@[simp]` rewrite; see §3) |
 | `allocate_toDefs` (:91) | theorem | shared-infra — Phase-A keystone (`allocate` re-presents `defsOf`) | `DecodeLower.emit_allocate_eq_flatBytes:56`; referenced `Spec/Lowering.lean:87,304` |
 
@@ -42,9 +42,9 @@ Purpose (header, "C3"): factor the *program-independent* core of `Evm.decode (lo
 
 | decl | kind | role | callers |
 |---|---|---|---|
-| `flatBytes` (:46) | def | shared-infra — THE list model of `lower prog`; the object every layout proof indexes | ubiquitous: `Layout`, `DecodeAnchors`, `JumpValid`, `NoCreateBytes`, `BoundaryReach`, `MatDecLower`, `LowerDecode`, `V2/RealisabilitySpec` |
+| `flatBytes` (:46) | def | shared-infra — THE list model of `lower prog`; the object every layout proof indexes | ubiquitous: `Layout`, `DecodeAnchors`, `JumpValid`, `NoCreateBytes`, `BoundaryReach`, `MatDecLower`, `LowerDecode`, `RealisabilitySpec` |
 | `emit_allocate_eq_flatBytes` (:54) | theorem | incremental brick toward `lower_eq_flatBytes` | only `lower_eq_flatBytes:62` |
-| `lower_eq_flatBytes` (:61) | theorem | shared-infra — the `lower = ⟨flatBytes.toArray⟩` bridge | `JumpValid.lean:360,506`, `V2/RealisabilitySpec.lean:2250`, `Spec/Lowering.lean:305` (doc) |
+| `lower_eq_flatBytes` (:61) | theorem | shared-infra — the `lower = ⟨flatBytes.toArray⟩` bridge | `JumpValid.lean:360,506`, `RealisabilitySpec.lean:2250`, `Spec/Lowering.lean:305` (doc) |
 | `bget` (:68) | theorem | shared-infra — list-backed `ByteArray.get?` = list index | `JumpValid.lean:360,507`; internal to `lower_get?_eq` |
 | `bextract` (:77) | theorem | incremental brick — immediate-window slice for PUSH | only `decode_push_of_list:126` |
 | `decode_nonpush_of_list` (:100) | theorem | incremental brick | only `decode_lower_nonpush:148` |
@@ -89,14 +89,14 @@ into a concrete `Evm.decode (lower prog) …` fact. Three anchor families A1/A2/
 | `stmt_byte_anchor_k` (:51) | theorem | incremental brick (`k`-gen of `Layout.stmt_byte_anchor`) | only `flatBytes_at_pcOf_offset:151` |
 | `term_byte_anchor` (:103) | theorem | incremental brick | only `flatBytes_at_termOf:181` |
 | `flatBytes_at_pcOf_offset` (:143) | theorem | shared-infra — byte at `pcOf+k` (A2 byte half) | `MatDecLower:443`, `LowerDecode:1120,1305,1463` |
-| `termOf` (:156) | def | shared-infra — terminator byte offset | `MatDecLower`, `LowerConforms`, `Acyclic`, `LowerDecode`, `SimTerm`, `V2/RealisabilitySpec` |
+| `termOf` (:156) | def | shared-infra — terminator byte offset | `MatDecLower`, `LowerConforms`, `Acyclic`, `LowerDecode`, `SimTerm`, `RealisabilitySpec` |
 | `termOf_eq_anchor` (:164) | theorem | shared-infra | `SimTerm.lean` |
-| `flatBytes_at_termOf` (:173) | theorem | shared-infra — byte at `termOf+k` (A3 byte half) | `MatDecLower`, `LowerDecode`, `V2/RealisabilitySpec` |
+| `flatBytes_at_termOf` (:173) | theorem | shared-infra — byte at `termOf+k` (A3 byte half) | `MatDecLower`, `LowerDecode`, `RealisabilitySpec` |
 | `decode_at_stmt_head_nonpush` (:195) | theorem | **superseded? (needs confirmation)** — A1 non-push head | **none anywhere** (§3) |
 | `decode_at_stmt_head_push` (:215) | theorem | **superseded? (needs confirmation)** — A1 push head | **none anywhere** (§3) |
 | `decode_at_offset_nonpush` (:241) | theorem | shared-infra — A2 non-push (trailing effecting opcode) | `LowerDecode:121,1123,1137` |
 | `decode_at_offset_push` (:257) | theorem | **superseded? (needs confirmation)** — A2 push | **none anywhere** (§3) |
-| `decode_at_term_nonpush` (:283) | theorem | shared-infra — A3 non-push (`RETURN/STOP/JUMP/JUMPI`) | `LowerDecode:463,530,709,737,862,888`, `LowerConforms`, `V2/RealisabilitySpec` |
+| `decode_at_term_nonpush` (:283) | theorem | shared-infra — A3 non-push (`RETURN/STOP/JUMP/JUMPI`) | `LowerDecode:463,530,709,737,862,888`, `LowerConforms`, `RealisabilitySpec` |
 | `decode_at_term_push` (:300) | theorem | shared-infra — A3 push (`PUSH4` dest) | `LowerDecode:352` region |
 
 Bodies: all six `decode_at_*` are thin compositions of the byte-anchor + `decode_lower_*`
@@ -123,8 +123,8 @@ the "boundary walk reaches the segment end" transport, generalising the per-prog
 | `lower_match_block` (:383) | theorem | incremental brick | `reaches_block_offset:439`, `lower_byte_at_offset:463` |
 | `reaches_block_offset` (:413) | theorem | shared-infra — walk reaches every block offset | `block_offset_validJump:481`; docstring-only in `NoCreateBytes` |
 | `lower_byte_at_offset` (:459) | theorem | incremental brick | `block_offset_validJump:485` |
-| `block_offset_validJump` (:471) | theorem | **terminal-for-flagship (E3)** | `LowerDecode`, `SimTerm`, `V2/RealisabilitySpec` |
-| `decode_at_block_offset_jumpdest` (:497) | theorem | **terminal-for-flagship** — landing-pad decode | `LowerConforms`, `LowerDecode`, `V2/RealisabilitySpec` |
+| `block_offset_validJump` (:471) | theorem | **terminal-for-flagship (E3)** | `LowerDecode`, `SimTerm`, `RealisabilitySpec` |
+| `decode_at_block_offset_jumpdest` (:497) | theorem | **terminal-for-flagship** — landing-pad decode | `LowerConforms`, `LowerDecode`, `RealisabilitySpec` |
 
 Bodies: `reaches_of_segAligned` (:120-158) and `reaches_block_offset` (:413-450) are the
 pivotal inductions; read in full, honest. Header claims `[propext, Classical.choice,
@@ -138,7 +138,7 @@ Introduces `SegAlignedSafe` = `SegAligned` + per-head `parseInstr byte ∉ {CREA
 
 | decl | kind | role | callers |
 |---|---|---|---|
-| `SegAlignedSafe` (:50) | inductive | incremental — no-CREATE-head alignment | `BoundaryReach` (mirror), `Decode/Modellable`, `V2/DriveSim` (doc/refs) |
+| `SegAlignedSafe` (:50) | inductive | incremental — no-CREATE-head alignment | `BoundaryReach` (mirror), `Decode/Modellable`, `DriveSim` (doc/refs) |
 | `SegAlignedSafe.toSegAligned` (:59) | theorem | **unused completeness map** (§3) | none |
 | `SegAlignedSafe.append/nonpush/push` (:72,82,90) | theorems | incremental bricks | internal |
 | `reachesBoundary_le` (:107) | theorem | shared-infra | `BoundaryReach` transport (:186 mirror), internal :123 |
@@ -163,15 +163,15 @@ invariant (`hrb` of `Decode/Modellable.lower_modellable`), feeding the flagship'
 | decl | kind | role | callers |
 |---|---|---|---|
 | `mem_validJumpDestsAuxNat_inv` (:51) | theorem | incremental brick | only `reachesBoundary_of_mem_validJumpDests:95` |
-| `reachesBoundary_of_mem_validJumpDests` (:90) | theorem | **incremental-toward-R6** — taken-jump → reachable-boundary converse | `V2/RealisabilitySpec.lean` |
-| `reachesBoundary_nextInstr` (:109) | theorem | **incremental-toward-R6** — sequential advance | `V2/RealisabilitySpec.lean` |
-| `IsLoweringOp` (:125) + `Decidable` inst (:131) | def/instance | **incremental-toward-R6** — the 16-op allow-list | `V2/RealisabilitySpec.lean` |
+| `reachesBoundary_of_mem_validJumpDests` (:90) | theorem | **incremental-toward-R6** — taken-jump → reachable-boundary converse | `RealisabilitySpec.lean` |
+| `reachesBoundary_nextInstr` (:109) | theorem | **incremental-toward-R6** — sequential advance | `RealisabilitySpec.lean` |
+| `IsLoweringOp` (:125) + `Decidable` inst (:131) | def/instance | **incremental-toward-R6** — the 16-op allow-list | `RealisabilitySpec.lean` |
 | `SegAlignedLowering` (:135) | inductive | incremental — allow-list alignment | internal |
 | `SegAlignedLowering.toSegAligned` (:144) | theorem | **unused completeness map** (§3) | none |
 | `SegAlignedLowering.append/nonpush/push` (:151,160,167) | theorems | incremental bricks | internal |
 | `reaches_loweringOp_of_segAlignedLowering` (:177) | theorem | incremental — "interior boundary is a lowering op" transport | internal `reachable_boundary_loweringByte:408` |
 | `segAlignedLowering_*` emit-ladder (:219-395) | theorems | incremental bricks (mirror of `segAligned_*`) | internal |
-| `reachable_boundary_loweringByte` (:402) | theorem | **incremental-toward-R6** — byte-level allow-list | `V2/RealisabilitySpec.lean` |
+| `reachable_boundary_loweringByte` (:402) | theorem | **incremental-toward-R6** — byte-level allow-list | `RealisabilitySpec.lean` |
 | `decode_reachable_boundary_loweringOp` (:415) | theorem | incremental (decode-level headline, not yet consumed) | none yet (byte-level twin `:402` is what R6 uses) |
 
 Header itself states the `Runs`-induction that would consume these "is not yet landed"
@@ -209,8 +209,8 @@ Exit edges (this cluster → rest of tree):
 - `reachesBoundary_of_mem_validJumpDests`, `reachesBoundary_nextInstr`, `IsLoweringOp`,
   `reachable_boundary_loweringByte`, `SegAlignedSafe`, `lower_eq_flatBytes`, `termOf`,
   `flatBytes_at_termOf`, `decode_at_term_nonpush`, `decode_at_block_offset_jumpdest` →
-  **`V2/RealisabilitySpec`** (flagship R6 geometry + assorted anchors).
-- `defsOf_ne_{gas,sload}` → **`MaterialiseRuns`, `MaterialiseCleanHalt`, `V2/RealisabilitySpec`**.
+  **`RealisabilitySpec`** (flagship R6 geometry + assorted anchors).
+- `defsOf_ne_{gas,sload}` → **`MaterialiseRuns`, `MaterialiseCleanHalt`, `RealisabilitySpec`**.
 
 Entry edges (rest of tree → this cluster): `Spec/Lowering.lean` (defs), `Evm` (decode
 primitives), `Match.lean` (`pcOf`, `pcOf_eq_anchor`, `flatBytes_at_pcOf`, `blockAt_of_toList`

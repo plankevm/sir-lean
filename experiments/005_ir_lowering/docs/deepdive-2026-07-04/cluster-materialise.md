@@ -15,7 +15,7 @@ Method: read every file end-to-end (incl. the 1373-line `MaterialiseRuns` and
 all pivotal proof bodies), then repo-wide `grep` on every declaration name over
 `LirLean/`. All six files are **terminal-green**: `grep -nE '\bsorry\b|\badmit\b|native_decide'`
 finds only docstring prose and one "relaxed to admit" comment (`MaterialiseRuns.lean:780`);
-none are in the WIP sorry-carrier `V2/RealisabilitySpec.lean`. Every file ends with a
+none are in the WIP sorry-carrier `RealisabilitySpec.lean`. Every file ends with a
 `#print axioms` guard asserting `[propext, Classical.choice, Quot.sound]`.
 
 Headline conclusion on the audit prompt's central question ("how much of the gas
@@ -25,7 +25,7 @@ contract (`gasCharge`/`gasToNat`) unconditionally, and B1's own induction *consu
 `gasToNat` to bound each operand's gas before recursing (`MaterialiseRuns.lean:1140,
 1167, 1292, 1319`). Gas-sufficiency is what proves the materialise sub-run *completes*
 (the EVM charges gas per opcode; you must show it doesn't run out mid-materialise).
-Both the gas-free flagship path (via `V2/Drive/SelfPresent` → `materialise_runs` /
+Both the gas-free flagship path (via `Drive/SelfPresent` → `materialise_runs` /
 `materialise_runs_of_cleanHalt`) and the dead acyclic path go through B1, so B2
 (`MaterialiseGas`) is load-bearing for both. What the gas-free flagship drops is not
 the *internal* gas bookkeeping but the *external* `hgas` premise — which is exactly
@@ -36,7 +36,7 @@ what `MaterialiseCleanHalt`'s fold derives from a clean-halt witness.
 ## 1. Per-file sections
 
 Legend for the role column: **terminal-for-flagship** = consumed on the live
-`V2.lower_conforms` path; **shared-infra** = used by both flagship and (dead) acyclic
+`Lir.lower_conforms` path; **shared-infra** = used by both flagship and (dead) acyclic
 paths and/or many consumers; **incremental-toward-X** = built up toward a still-open
 connection; **retired-witness** = a deliberately-retained regression subject for a
 mechanism removed from the spine; **internal** = only in-file callers (a documented
@@ -54,33 +54,33 @@ un-restricted by `WellFormed` because Phase B/C *spill* them to memory.
 
 | decl | kind | role | callers |
 |---|---|---|---|
-| `usesInExpr` | def | shared-infra (use-counting) | `DefsSound.lean` internally (`usesInStmt`, `evalExpr_setLocal_of_unused`); `V2/RealisabilitySpec.lean` |
+| `usesInExpr` | def | shared-infra (use-counting) | `DefsSound.lean` internally (`usesInStmt`, `evalExpr_setLocal_of_unused`); `RealisabilitySpec.lean` |
 | `usesInStmt` / `usesInTerm` / `usesInBlock` | def | shared-infra | in-file (`useCount`); |
 | `useCount` | def | shared-infra | in-file (`WellFormed`/`WellFormedDec`) |
-| `isCallResult` | def | shared-infra | in-file (`NonRecomputable`, `WellFormed`); `V2/RealisabilitySpec.lean` |
-| `isGasDef` | def | shared-infra | in-file (`NonRecomputable`, `defsSound_preserved_assignGas`); `V2/RealisabilitySpec.lean` |
-| `isSloadDef` | def | shared-infra | in-file; `V2/RealisabilitySpec.lean` |
-| `NonRecomputable` | def | terminal-for-flagship (the spill/remat discriminant) | `MaterialiseRuns.lean`, `MaterialiseCleanHalt.lean`, `LowerConforms.lean`, `LowerDecode.lean`, `SimTerm.lean`, `SimStmt.lean`, `V2/RealisabilitySpec.lean` |
-| `WellFormed` | def | shared-infra (DESIGN DECISION) | `LowerDecode`, `LowerConforms`, `SimStmt`, `Spec/Lowering`, `V2/Call`, `V2/RealisabilitySpec`; **and `Acyclic.lean`** (dead path) |
+| `isCallResult` | def | shared-infra | in-file (`NonRecomputable`, `WellFormed`); `RealisabilitySpec.lean` |
+| `isGasDef` | def | shared-infra | in-file (`NonRecomputable`, `defsSound_preserved_assignGas`); `RealisabilitySpec.lean` |
+| `isSloadDef` | def | shared-infra | in-file; `RealisabilitySpec.lean` |
+| `NonRecomputable` | def | terminal-for-flagship (the spill/remat discriminant) | `MaterialiseRuns.lean`, `MaterialiseCleanHalt.lean`, `LowerConforms.lean`, `LowerDecode.lean`, `SimTerm.lean`, `SimStmt.lean`, `RealisabilitySpec.lean` |
+| `WellFormed` | def | shared-infra (DESIGN DECISION) | `LowerDecode`, `LowerConforms`, `SimStmt`, `Spec/Lowering`, `Call`, `RealisabilitySpec`; **and `Acyclic.lean`** (dead path) |
 | `callResultTmps` | def | shared-infra | in-file (`WellFormedDec`, `callResult_mem_dec`) |
-| `WellFormedDec` | def | shared-infra (decidable surrogate) | `V2/Call.lean` (`by decide` discharge) |
+| `WellFormedDec` | def | shared-infra (decidable surrogate) | `Call.lean` (`by decide` discharge) |
 | `Decidable (WellFormedDec …)` | instance | shared-infra | resolves `WellFormedDec` decide |
 | `callResult_mem_dec` | thm | shared-infra | in-file (`wellFormed_of_dec`) |
-| `wellFormed_of_dec` | thm | shared-infra | `V2/Call.lean` |
-| `DefsSound` | def | terminal-for-flagship (B3 invariant) | pervasive premise: `MaterialiseRuns`, `MaterialiseCleanHalt`, `LowerConforms`, `LowerDecode`, `SimStmt`, `SimTerm`, `V2/RealisabilitySpec`, … |
+| `wellFormed_of_dec` | thm | shared-infra | `Call.lean` |
+| `DefsSound` | def | terminal-for-flagship (B3 invariant) | pervasive premise: `MaterialiseRuns`, `MaterialiseCleanHalt`, `LowerConforms`, `LowerDecode`, `SimStmt`, `SimTerm`, `RealisabilitySpec`, … |
 | `defsSound_entry` | thm | terminal-for-flagship (vacuous-at-entry) | `LowerConforms.lean` |
 | `setLocal_locals_ne` | private thm | internal | in-file preservation lemmas |
 | `evalExpr_setLocal_of_unused` | thm | internal | in-file (`defsSound_preserved_assign*`) |
 | `setLocal_locals_self` | private thm | internal | in-file (`defsSound_preserved_assignPure`) |
-| `defsSound_preserved_assignPure` | thm | terminal-for-flagship (B3 preservation) | in-file (`defsSound_preserved`); `SimStmt`, `V2/RealisabilitySpec` |
+| `defsSound_preserved_assignPure` | thm | terminal-for-flagship (B3 preservation) | in-file (`defsSound_preserved`); `SimStmt`, `RealisabilitySpec` |
 | `defsSound_preserved_assignGas` | thm | terminal-for-flagship | in-file (`defsSound_preserved`); `SimStmt` |
 | `defsSound_preserved_assignSload` | thm | terminal-for-flagship | in-file; `SimStmt` |
 | `evalExpr_setStorage_of_noSload` | private thm | internal | in-file (`defsSound_preserved_sstore`) |
 | `defsSound_preserved_sstore` | thm | terminal-for-flagship | in-file; `SimStmt` |
 | `evalExpr_world_irrel_of_noSload` | private thm | internal | in-file (`defsSound_preserved_call`) |
 | `defsSound_preserved_call` | thm | terminal-for-flagship | in-file; `SimStmt` |
-| `StepScoped` | def | terminal-for-flagship (per-step scoping bundle) | `LowerConforms`, `LowerDecode`, `SimStmts`, `SimStmt`, `V2/RealisabilitySpec` |
-| `defsSound_preserved` | thm | terminal-for-flagship (B3 headline preservation) | `SimStmt`, `V2/RealisabilitySpec` |
+| `StepScoped` | def | terminal-for-flagship (per-step scoping bundle) | `LowerConforms`, `LowerDecode`, `SimStmts`, `SimStmt`, `RealisabilitySpec` |
+| `defsSound_preserved` | thm | terminal-for-flagship (B3 headline preservation) | `SimStmt`, `RealisabilitySpec` |
 
 Note: the header comment (`:118-127`) that `guardIR` is now `WellFormed` because
 Phase-B lifted the gas restriction is consistent with the code — `WellFormed` only
@@ -96,7 +96,7 @@ LirLean.MaterialiseGas` → sole hit is B1). It is the B2-feeds-B1 seam, nothing
 
 | decl | kind | role | callers |
 |---|---|---|---|
-| `chargeOf` | def | terminal-for-flagship | `MaterialiseRuns`, `MaterialiseCleanHalt`, `LowerDecode`, `LowerConforms`, `SimStmt`, `SimTerm`, `V2/RealisabilitySpec` |
+| `chargeOf` | def | terminal-for-flagship | `MaterialiseRuns`, `MaterialiseCleanHalt`, `LowerDecode`, `LowerConforms`, `SimStmt`, `SimTerm`, `RealisabilitySpec` |
 | `chargeOf_imm` | simp thm | shared-infra (reduction) | `MaterialiseRuns`, `MaterialiseCleanHalt` |
 | `chargeOf_tmp_some` | thm | shared-infra | `MaterialiseRuns`, `MaterialiseCleanHalt` |
 | `chargeOf_tmp_none` | thm | shared-infra | `MaterialiseRuns` (`chargeOf_length_pos_of_matDec`) |
@@ -137,11 +137,11 @@ re-listed; none are dead (each names a `MatRuns` field the recursion discharges)
 
 | decl | kind | role | callers |
 |---|---|---|---|
-| `MatDec` | def | terminal-for-flagship (structured decode bundle) | `MatDecLower`, `MaterialiseCleanHalt`, `SimStmt`, `SimTerm`, `SimStmts`, `LowerDecode`, `LowerConforms`, `V2/RealisabilitySpec` |
+| `MatDec` | def | terminal-for-flagship (structured decode bundle) | `MatDecLower`, `MaterialiseCleanHalt`, `SimStmt`, `SimTerm`, `SimStmts`, `LowerDecode`, `LowerConforms`, `RealisabilitySpec` |
 | `matDec_imm` / `matDec_slot` | simp thm | shared-infra (reduction) | `MaterialiseRuns`, `MaterialiseCleanHalt`, `MatDecLower` |
 | `matDec_tmp_some` / `matDec_tmp_none` | thm | shared-infra | same + `MatDecLower` |
 | `matDec_add` / `matDec_lt` / `matDec_sload` | simp thm | shared-infra | `MatDecLower` |
-| `MatRuns` | structure | terminal-for-flagship (B1 conclusion bundle) | `MaterialiseCleanHalt`, `StashTail`, `LowerDecode`, `LowerConforms`, `SimStmt`, `SimTerm`, `V2/RealisabilitySpec`, `V2/Drive/SelfPresent` |
+| `MatRuns` | structure | terminal-for-flagship (B1 conclusion bundle) | `MaterialiseCleanHalt`, `StashTail`, `LowerDecode`, `LowerConforms`, `SimStmt`, `SimTerm`, `RealisabilitySpec`, `Drive/SelfPresent` |
 | `emitImm_length` | thm | shared-infra | `MatDecLower`, `StashTail`, `MaterialiseRuns` |
 | `materialiseExpr_imm_length` | thm | internal | in-file (`matRuns_imm`, `MatDecLower`) |
 | `materialiseExpr_slot` | thm | shared-infra | `MatDecLower`, `MaterialiseCleanHalt`, `MaterialiseRuns` |
@@ -151,11 +151,11 @@ re-listed; none are dead (each names a `MatRuns` field the recursion discharges)
 | `push32_pcΔ` | thm | internal | in-file (`matRuns_imm`), `StashTail` |
 | `matRuns_imm` | thm | terminal-for-flagship (B1 `.imm` leaf) | in-file (`materialise_runs` imm arm) |
 | `evalExpr_obs_irrel` | thm | terminal-for-flagship (obs-irrelevance on pure fragment) | in-file, `MaterialiseCleanHalt` |
-| `SloadRealises` | def | **retired-witness** (Phase C; see §3) | subject of `V2/Drive/SelfPresent.sloadRealises_charge_of_witness` only |
-| `GasRealises` | def | **retired-witness** (Phase B; see §3) | subject of `V2/Drive/SelfPresent.gasRealises_obs_of_witness` only |
-| `StorageAgree` | def | terminal-for-flagship (M3 storage lens) | `LowerDecode`, `LowerConforms`, `MaterialiseCleanHalt`, `StashTail`, `SimTerm`, `SimStmt`, `V2/RealisabilitySpec` |
+| `SloadRealises` | def | **retired-witness** (Phase C; see §3) | subject of `Drive/SelfPresent.sloadRealises_charge_of_witness` only |
+| `GasRealises` | def | **retired-witness** (Phase B; see §3) | subject of `Drive/SelfPresent.gasRealises_obs_of_witness` only |
+| `StorageAgree` | def | terminal-for-flagship (M3 storage lens) | `LowerDecode`, `LowerConforms`, `MaterialiseCleanHalt`, `StashTail`, `SimTerm`, `SimStmt`, `RealisabilitySpec` |
 | `StorageAgree.transport` | thm | terminal-for-flagship | `MaterialiseRuns` add/lt arms, downstream sim |
-| `MemRealises` | def | terminal-for-flagship (memory value channel) | `LowerConforms`, `LowerDecode`, `MaterialiseCleanHalt`, `StashTail`, `SimTerm`, `SimStmt`, `V2/DriveSim`, `V2/Drive/Headline`, `V2/RealisabilitySpec`, `BytecodeLayer/Hoare/MemAlgebra` |
+| `MemRealises` | def | terminal-for-flagship (memory value channel) | `LowerConforms`, `LowerDecode`, `MaterialiseCleanHalt`, `StashTail`, `SimTerm`, `SimStmt`, `DriveSim`, `Drive/Headline`, `RealisabilitySpec`, `BytecodeLayer/Hoare/MemAlgebra` |
 | `mload_covered_congr` | thm | internal (activeWords-nondecreasing read) | in-file (`MemRealises.transport`) |
 | `MemRealises.transport` | thm | terminal-for-flagship | `MaterialiseRuns` add/lt arms; downstream |
 | `M_32_eq_self_of_covered` | thm | shared-infra (zero-expansion fact) | in-file, `memoryExpansionWords?_ofNat_32_of_covered` |
@@ -180,19 +180,19 @@ specialised to statement (`matDec_of_lower`) and terminator (`matDec_of_term`) c
 | `fromBytes_wordBytesBE` | thm | internal | in-file (`uInt256_wordBytesBE`) |
 | `uInt256_wordBytesBE` | thm | internal (the 256-bit round-trip) | in-file (`imm_leaf_decode`); no external caller |
 | `extract_toList_eq` | thm | internal | in-file (`imm_leaf_decode`) |
-| `imm_leaf_decode` | thm | shared-infra (PUSH32 leaf) | in-file; `LowerDecode`, `V2/RealisabilitySpec` |
+| `imm_leaf_decode` | thm | shared-infra (PUSH32 leaf) | in-file; `LowerDecode`, `RealisabilitySpec` |
 | `nonpush_leaf_decode` | thm | shared-infra (ADD/LT/SLOAD/GAS/MLOAD leaf) | in-file; `LowerDecode` |
 | `MatSeg` | def | shared-infra (byte-segment hypothesis) | in-file; `LowerDecode` |
 | `seg_prefix` / `seg_suffix` | thm | internal | in-file (`matDec_of_seg`) |
 | `ofNat_add'` | thm | internal | in-file |
 | `slot_leaf_decode` | thm | internal (`.slot` PUSH32+MLOAD leaf) | in-file (`matDec_of_seg`); no external caller |
-| `MatFueled` | def | shared-infra (recompute-fuel sufficiency) | `LowerConforms`, `LowerDecode`, `V2/RealisabilitySpec`; **and `Acyclic.lean`** (dead path) |
+| `MatFueled` | def | shared-infra (recompute-fuel sufficiency) | `LowerConforms`, `LowerDecode`, `RealisabilitySpec`; **and `Acyclic.lean`** (dead path) |
 | `matFueled_tmp_some` / `_tmp_none` | thm | internal | in-file (`matDec_of_seg`) |
 | `matDec_of_seg` | thm | terminal-for-flagship (core reconstruction) | in-file; `LowerDecode`, `SimStmt` |
 | `matSeg_of_stmt` | thm | internal | in-file (`matDec_of_lower`) |
 | `matDec_of_lower` | thm | terminal-for-flagship (stmt-cursor `MatDec`) | `LowerDecode` |
 | `matSeg_of_term` | thm | internal | in-file (`matDec_of_term`) |
-| `matDec_of_term` | thm | terminal-for-flagship (term-cursor `MatDec`) | `LowerDecode`, `V2/RealisabilitySpec` |
+| `matDec_of_term` | thm | terminal-for-flagship (term-cursor `MatDec`) | `LowerDecode`, `RealisabilitySpec` |
 
 Note: `uInt256_wordBytesBE` and `slot_leaf_decode` have zero external callers but are
 genuine internal bricks of `matDec_of_seg` (the PUSH32 round-trip and `.slot` leaf).
@@ -209,8 +209,8 @@ avoid a `CleanHaltExtract → MaterialiseRuns` import cycle.
 
 | decl | kind | role | callers |
 |---|---|---|---|
-| `materialise_charge_le_of_cleanHalt` | thm | terminal-for-flagship (the gas fold) | in-file (`materialise_runs_of_cleanHalt`); `V2/RealisabilitySpec` |
-| `materialise_runs_of_cleanHalt` | thm | **terminal-for-flagship (B1 twin, the widely-consumed entry)** | `LowerDecode`, `LowerConforms`, `SimStmt`, `Spec/Seams`, `Audit`, `V2/RealisabilitySpec`, `CleanHaltExtract` |
+| `materialise_charge_le_of_cleanHalt` | thm | terminal-for-flagship (the gas fold) | in-file (`materialise_runs_of_cleanHalt`); `RealisabilitySpec` |
+| `materialise_runs_of_cleanHalt` | thm | **terminal-for-flagship (B1 twin, the widely-consumed entry)** | `LowerDecode`, `LowerConforms`, `SimStmt`, `Spec/Seams`, `Audit`, `RealisabilitySpec`, `CleanHaltExtract` |
 
 ### 1f. `StashTail.lean` — P1 uniform spill stash-tail
 
@@ -253,7 +253,7 @@ MaterialiseGas ┘                      ├──▶ MaterialiseCleanHalt
 `MaterialiseRuns` is the cluster hub: it imports `MaterialiseGas` (B2) and `DefsSound`
 (B3), and is imported by the other three (`MatDecLower`, `MaterialiseCleanHalt`,
 `StashTail`). `MaterialiseGas` is imported **only** by `MaterialiseRuns`; `DefsSound`
-by `MaterialiseRuns` **and** `V2/Call.lean`.
+by `MaterialiseRuns` **and** `Call.lean`.
 
 Entry edges (outside cluster → cluster):
 - `DefsSound` ← `LoweringLemmas`, `Spec.Semantics`
@@ -266,10 +266,10 @@ Exit edges (cluster → consumers). Note the **cross-cluster back-loop**:
 `MatDecLower` → `CleanHaltExtract` (outside) → `MaterialiseCleanHalt` (inside cluster).
 - `MatDecLower` is imported by `CleanHaltExtract` and `LowerDecode`.
 - `MaterialiseRuns` (transitively via the above) reaches `SimStmt`, `SimTerm`,
-  `LowerDecode`, `LowerConforms`, and up to `V2/DriveSim`/`V2/Drive/*`/`RealisabilitySpec`.
+  `LowerDecode`, `LowerConforms`, and up to `DriveSim`/`Drive/*`/`RealisabilitySpec`.
 - `MaterialiseCleanHalt` is imported by `SimStmt` and `Audit`.
 - `StashTail` is imported by `LowerDecode` and `SimTerm`.
-- `DefsSound` also exits to `V2/Call` (via `WellFormedDec`/`wellFormed_of_dec`).
+- `DefsSound` also exits to `Call` (via `WellFormedDec`/`wellFormed_of_dec`).
 
 P8 update: the live conformance path no longer uses `Acyclic`/`MatFueled` as its
 well-formedness route. The canonical value channel is the fold-cache path (`matCache` /
@@ -298,11 +298,11 @@ These are NOT dead in the "delete me" sense; classify with care:
   (Phase B/C). They are provably unsatisfiable on genuine multi-read runs and were
   removed from `Corr`/`materialise_runs`/the headlines. Their *only* remaining consumers
   are the regression-witness lemmas `gasRealises_obs_of_witness` /
-  `sloadRealises_charge_of_witness` in `V2/Drive/SelfPresent.lean` (`:220`, `:337`) —
+  `sloadRealises_charge_of_witness` in `Drive/SelfPresent.lean` (`:220`, `:337`) —
   which are themselves referenced **only in docstrings** (`Headline.lean:58,70`;
   `MaterialiseRuns.lean:509,530`), never on a proof path. So this is a self-contained
   "lesson witness" island documenting the unsatisfiability finding that motivated the
-  whole spill pivot (`docs/gas-decision.md`; `V2/HonestGasTie.lean` already deleted).
+  whole spill pivot (`docs/gas-decision.md`; `HonestGasTie.lean` already deleted).
   Per the project's proof-first/lesson-preservation discipline, deletion is **not**
   recommended; the defensible cleanup is *relocation* of the two defs + two witnesses
   into a clearly-named `RegressionWitnesses`-style file so the B1 spine reads clean.

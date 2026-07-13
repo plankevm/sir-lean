@@ -14,17 +14,17 @@ inherited by every track's worktree).
 > structural reorg (HEAD `53c2063`); paths cited in the log below have MOVED (redirect map:
 > `experiments/005_ir_lowering/docs/headline-transitive-chain.md`):
 > (a) `LirLean/Spec/{IR,Semantics,Lowering,Recorder,Seams,Conformance}` extraction;
-> (b) `experiments/003_bytecode_layer/BytecodeLayer/Hoare/*` + `LirLean/V2/Drive/{SelfPresent,CallPreservesSelf,Headline}` split,
-> `V2/TieDischarge.lean` **DISSOLVED** (headline → `LirLean/V2/Drive/Headline.lean`) and
-> `V2/RunLog.lean` **deleted** (recorder → `LirLean/Spec/Recorder.lean`); (c) Phase-2
-> **deletion** of `V2/{Mono,Oracle,HonestGasTie}.lean` + the gas-monotonicity law;
-> (d) `LirLean/Audit.lean` guard net + `LirLean/V2/RealisabilitySpec.lean` (`Nightly` lib) R0–R12
+> (b) `experiments/003_bytecode_layer/BytecodeLayer/Hoare/*` + `LirLean/Drive/{SelfPresent,CallPreservesSelf,Headline}` split,
+> `TieDischarge.lean` **DISSOLVED** (headline → `LirLean/Drive/Headline.lean`) and
+> `RunLog.lean` **deleted** (recorder → `LirLean/Spec/Recorder.lean`); (c) Phase-2
+> **deletion** of `{Mono,Oracle,HonestGasTie}.lean` + the gas-monotonicity law;
+> (d) `LirLean/Audit.lean` guard net + `LirLean/RealisabilitySpec.lean` (`Nightly` lib) R0–R12
 > sorry-skeleton. Plan-of-record: `experiments/005_ir_lowering/docs/target-architecture-2026-07-02.md`
 > + `execution-plan-2026-07-02.md` (remediation plan superseded); the final audit fleet
 > (`experiments/005_ir_lowering/docs/final-audit-2026-07-03.md`, being written) gates Phase 3.
 >
 > **PHASE 3 (2026-07-04).** Final audit CLEAN; the R0–R12 proof grind is underway. **13 of ~34
-> tracked obligations remain** in `LirLean/V2/RealisabilitySpec.lean`: CLOSED axiom-clean = R0b,
+> tracked obligations remain** in `LirLean/RealisabilitySpec.lean`: CLOSED axiom-clean = R0b,
 > R7a–e, R1, R2, R4, R5, R8, R9 + `exProg` witnesses; OPEN = R3 + R6 (the two hard leaves), the
 > assembly (R10a/b, R11, R11-all, gasfree co-flagship, R12a/b) and RunFromLeft adequacy. Default
 > `LirLean` GREEN + sorry-free; `Nightly` green with 13 tracked sorries. Recorder course-correction
@@ -222,10 +222,10 @@ whichever interface, ideally the shared one.
 > `experiments/005_ir_lowering/docs/gas-decision.md`.
 > **Correction (2026-07-03):** the supplied ties were since confirmed **unsatisfiable** — the
 > conditional headline is **vacuous as stated**; the gas-law apparatus
-> (`V2/Mono`/`Oracle`/`HonestGasTie` + RunLog's gas-monotonicity section) was **deleted** in
+> (`Mono`/`Oracle`/`HonestGasTie` + RunLog's gas-monotonicity section) was **deleted** in
 > Phase 2; the remediation plan is superseded — plan of record is
 > `experiments/005_ir_lowering/docs/target-architecture-2026-07-02.md` +
-> `execution-plan-2026-07-02.md` (R0–R12 skeleton in `LirLean/V2/RealisabilitySpec.lean`).
+> `execution-plan-2026-07-02.md` (R0–R12 skeleton in `LirLean/RealisabilitySpec.lean`).
 - [x] **C1** DONE (`exp005-ir` @ `505c83b`, green 1105 jobs). Fresh `LirLean` IR
   (NOT extending `SirLean`: UInt32, no CALL, no gas, dead SSA weight). First-class
   `sload/sstore/add/lt`, `Stmt.call`, `Term.branch`, `Expr.gas`. `docs/ir-design.md`
@@ -387,7 +387,7 @@ write the blocker into PLAN.md before stopping.
   bound). **§3.4 "holds across calls" is now a real proof, not a remark.**
 - 2026-06-23 (NIGHT): **C-v2 two-read MONOTONICITY milestone DONE & verified** (`acbe05c`/
   `02026ca`, exp005-ir; build green 1133, tree clean, no forbidden tokens, both
-  `lower_preserves_obs` and `lower_preserves_obs_mono` axiom-clean). `LirLean/V2/Mono.lean`:
+  `lower_preserves_obs` and `lower_preserves_obs_mono` axiom-clean). `LirLean/Mono.lean`:
   the §3.4 monotone-oracle law + a sticky-gas-guard two-read example; bytecode side
   **discharges** monotonicity (one-line `omega` off exact `subCharges` — "already-owned
   machinery, no new gas theory"). **Verdict: the monotone-oracle law works as designed.**
@@ -414,7 +414,7 @@ write the blocker into PLAN.md before stopping.
   concrete result for the flat-vs-nested verdict. Track B → bookkeeping only until steer.
 - 2026-06-23 (NIGHT): **C-v2 call-free prototype DONE & verified** (`ebc3efc`/`35bdd64`,
   exp005-ir; build green 1132, tree clean, no forbidden tokens, `#print axioms
-  lower_preserves_obs` = `[propext, Classical.choice, Quot.sound]`). `LirLean/V2/{Machine,
+  lower_preserves_obs` = `[propext, Classical.choice, Quot.sound]`). `LirLean/{Machine,
   Preserve}.lean`: gas-free `World`/`IRState`/`IRRun` + `gasRead` event + observable
   `lower_preserves_obs` (`∃G₀,∀g≥G₀`, pc-free & gas-equality-free). **Verdict: the shape
   works** — gas introspection cost ZERO gas machinery; event-realisability is a one-line

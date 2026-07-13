@@ -1,18 +1,19 @@
-import LirLean.V2.Law
+import LirLean.Law
 import LirLean.Materialise.DefsSound
 
 /-!
-# LirLean v2 — a worked external-`Stmt.call` example (gas-free, consumed call stream)
+# LirLean — a worked external-`Stmt.call` example (gas-free, consumed call stream)
 
-The call-free prototype (`LirLean/V2/Preserve.lean`) and the now-deleted two-read milestone
-(`LirLean/V2/Mono.lean`) exercised the gas channel — the supplied gas-read *sequence*.
+The call-free prototype (`LirLean/Preserve.lean`) and the now-deleted two-read milestone
+(`LirLean/Mono.lean`) exercised the gas channel — the supplied gas-read *sequence*.
 This file is the companion for the **call channel**: the `Stmt.call` `EvalStmt` arm of
 `Spec/Semantics.lean`, run consuming an **arbitrary supplied `CallStream` head**
 (`docs/ir-design-v3.md` §3, §7, R3′).
 
-It is **frame-free** — it imports only `LirLean.V2.Law` (hence `Machine`/`IR`/`Evm`), no
+It is **frame-free** — it imports only `LirLean.Law` (hence `Machine`/`IR`/`Evm`), no
 `BytecodeLayer`/`Frame`/`Runs`. The stream head stays a parameter; the realised stream
-(`callStreamOf log.calls self`, off v1's `evmCallOracle`) is a separate, later piece.
+(`callStreamOf log.calls self`, from the frame-reference `evmCallOracle`) is a separate,
+later piece.
 
 The point it makes (the §7 interaction model, on the call side):
 
@@ -30,7 +31,7 @@ The example mirrors the prototype's `proto_IRRun` style — hand-assembled `Eval
 chained into a `RunStmts`, closed by a `RunFrom.ret`.
 -/
 
-namespace Lir.V2
+namespace Lir
 
 open Evm
 
@@ -84,7 +85,7 @@ private theorem c2_callee (w₀ : World) (obs : Word) : (c2 w₀ obs).locals (tm
 private theorem c2_gasFwd (w₀ : World) (obs : Word) : (c2 w₀ obs).locals (tmp 1) = some obs := rfl
 private theorem c3_result (w₀ : World) (obs : Word) (w' : World) (s' : Word) :
     (c3 w₀ obs w' s').locals (tmp 2) = some s' := by
-  simp [c3, V2.IRState.setLocal]
+  simp [c3, Lir.IRState.setLocal]
 
 /-! ## The observable
 
@@ -143,4 +144,4 @@ theorem call_IRRun_unique (w₀ : World) (obs : Word) (w' : World) (s' : Word) :
 -- Build-enforced axiom-cleanliness guard: the worked call run and its uniqueness depend
 -- only on `[propext, Classical.choice, Quot.sound]`.
 
-end Lir.V2
+end Lir

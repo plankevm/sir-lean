@@ -1,20 +1,18 @@
-import LirLean.V2.Drive.Headline
+import LirLean.Drive.Headline
 import LirLean.Decode.BoundaryReach
 import LirLean.Spec.BudgetDerivations
-import LirLean.V2.Realisability.Producer
-import LirLean.V2.Realisability.Witness
-import LirLean.V2.Realisability.WitnessParams
-import LirLean.V2.Realisability.WitnessChecks
+import LirLean.Realisability.Producer
+import LirLean.Realisability.Witness
+import LirLean.Realisability.WitnessParams
+import LirLean.Realisability.WitnessChecks
 
 /-!
-# LirLean v2 — the REALISABILITY SPEC skeleton (Phase-3 target statements; WIP-only)
+# LirLean — the closed realisability specification and flagships
 
-**EVERY `sorry` IN THIS FILE IS TRACKED DEBT.** This module is the reviewable Phase-3
-specification: the flagship `lower_conforms` (R11) is the target statement of the whole
-experiment, and the obligations R1–R12 are the named gaps between the green machinery in the
-tree and that flagship. All `def`s/`structure`s here are REAL (complete, no `sorry`); only
-theorem PROOFS are `sorry`d. This module is deliberately registered in the NON-DEFAULT
-`WIP` lean_lib — the default `LirLean` target stays sorry-free and does not import it.
+This module is the reviewable realisability surface. The R1–R12 obligations are discharged,
+the `lower_conforms` / `_exact` / `_gasfree` flagships are closed, and the concrete witness
+establishes non-vacuity. It remains in the non-default `WIP` library because that cone is the
+transitive integration gate for the full realisability proof, not because it carries proof debt.
 
 ## The vacuity lessons this file is shaped by
 
@@ -33,8 +31,8 @@ theorem PROOFS are `sorry`d. This module is deliberately registered in the NON-D
    with the same address/stack refutes it, so `∃ acc, SstoreRealises fr kw vw acc` (the
    `StmtTies` sstore conjunct) is false for every `fr`. The reshape here DROPS that conjunct;
    its content returns point-wise at the concrete frame (R4).
-4. **NEW (this file's audit): `Lir.V2.RunDefinable` is unsatisfiable for every program
-   containing a `Stmt.call` or a gas read** (`LirLean/V2/IRRun.lean`): its `stmts` field
+4. **NEW (this file's audit): `Lir.RunDefinable` is unsatisfiable for every program
+   containing a `Stmt.call` or a gas read** (`LirLean/IRRun.lean`): its `stmts` field
    demands `StmtsDefinable st b.stmts` for every present block, and `StmtDefinable`'s
    `.call` arm is literally `False` while its assign arm demands `e ≠ .gas`. Folding
    `RunDefinable` into the flagship's static bundle would make the flagship VACUOUS on
@@ -106,7 +104,7 @@ Every declaration's docstring states what is SUPPLIED (hypothesis surface of the
 honest seam) vs DERIVED (an R-obligation discharges it from the run or the program text).
 -/
 
-namespace Lir.V2
+namespace Lir
 
 open Evm
 open BytecodeLayer
@@ -763,7 +761,7 @@ theorem exProg_satisfies_hypotheses :
   exProg_satisfies_hypotheses_of_checks exCheck_true entryCallsCodeOk_exParams
 
 /--
-info: 'Lir.V2.exProg_satisfies_hypotheses' depends on axioms: [propext, Classical.choice, Quot.sound]
+info: 'Lir.exProg_satisfies_hypotheses' depends on axioms: [propext, Classical.choice, Quot.sound]
 -/
 #guard_msgs in
 #print axioms exProg_satisfies_hypotheses
@@ -785,9 +783,8 @@ theorem exProg_nonvacuity :
   -- conclusion at `prog := exProg`. R12a carries every flagship premise except the closed
   -- static well-formedness bundle, now reshaped to `irWellFormed_exProg` + the two scalar
   -- budgets `codeFits_exProg`/`stackFits_exProg` (all `decide`/`rfl` on the concrete
-  -- program), which we supply directly (same module). Axiom-clean once R11 lands (the
-  -- only remaining `sorryAx` source in this chain). No single-call premise — calls are a
-  -- positional `CallStream`.
+  -- program), which we supply directly (same module). No single-call premise — calls are
+  -- a positional `CallStream`.
   obtain ⟨params, log, _acc, hcode, hmod, hself, hgas, hrun, hclean, hseams⟩ :=
     exProg_satisfies_hypotheses
   refine ⟨params, log, hcode, hrun, ?_⟩
@@ -796,12 +793,8 @@ theorem exProg_nonvacuity :
 
 /-! ## §7 — audit note
 
-NO `#print axioms` guards live here for the OPEN obligations BY DESIGN: every sorry'd
-declaration carries `sorryAx` until its obligation lands, so axiom guards would only pin
-the debt's existence. Obligations CLOSED inside this WIP lib (currently R12a,
-`exProg_satisfies_hypotheses`) DO carry a `#guard_msgs`-checked `#print axioms` guard at
-their declaration — build-enforced, pinning the closed subtree's axiom-cleanliness. The
-default-target audit net (`Audit.lean`, Track A) must NOT cover this WIP lib; the guards
-migrate there obligation-by-obligation as the remaining sorries are discharged. -/
+The concrete-hypotheses witness above carries a build-enforced axiom guard. The three public
+flagships are checked from an importing module so the integration gate verifies their complete
+transitive axiom sets without pulling this non-default cone into the default `LirLean` root. -/
 
-end Lir.V2
+end Lir

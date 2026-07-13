@@ -35,15 +35,15 @@ import LirLean.Materialise.MaterialiseCleanHalt
 -- Per-statement / terminator simulation.
 import LirLean.Sim.SimTerm
 
--- v2 (exp005) gas-free IR: determinism, existence, preservation, abstract CALL oracle.
-import LirLean.V2.Law
-import LirLean.V2.IRRun
-import LirLean.V2.Call
-import LirLean.V2.CallRealises
+-- Gas-free IR: determinism, existence, preservation, and the abstract CALL oracle.
+import LirLean.Law
+import LirLean.IRRun
+import LirLean.Call
+import LirLean.CallRealises
 
 -- Cyclic-CFG drive simulation + the assembled/tie-free headlines.
-import LirLean.V2.Drive.DriveSim
-import LirLean.V2.Drive.Headline
+import LirLean.Drive.DriveSim
+import LirLean.Drive.Headline
 
 -- IR well-formedness vocabulary + the `IRWellFormed` bundle and the two scalar budgets
 -- (`codeFits`/`stackFits`) — the trusted-surface statement vocabulary (Spec hoist §1C).

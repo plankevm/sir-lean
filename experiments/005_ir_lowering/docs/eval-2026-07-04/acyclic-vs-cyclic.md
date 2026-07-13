@@ -1,4 +1,4 @@
-# Acyclic capstone `Lir.lower_conforms` vs cyclic flagship `Lir.V2.lower_conforms`
+# Acyclic capstone `Lir.lower_conforms` vs cyclic flagship `Lir.lower_conforms`
 
 Read-only statement-level comparison + dependency trace. Question: is the acyclic capstone a
 strictly-weaker version of the flagship or a genuinely different theorem, and is the whole acyclic
@@ -21,8 +21,8 @@ historical: P8 moved the witness and public theorem surface to `IRWellFormed` pl
 ### Acyclic capstone — `Lir.lower_conforms` (`LirLean/LowerConforms.lean:1188`)
 
 ```lean
-theorem lower_conforms {prog : Program} {w₀ : V2.World} {self : AccountAddress}
-    {O : V2.Observable} {p : CallParams} {log : RunLog} {bentry : Block}
+theorem lower_conforms {prog : Program} {w₀ : Lir.World} {self : AccountAddress}
+    {O : Lir.Observable} {p : CallParams} {log : RunLog} {bentry : Block}
     {sloadChg : Tmp → ℕ} {obs : Word}
     (hwl : runWithLog p (seedFuel p.gas) = some log)
     (hp : p.codeSource = .Code (lower prog))
@@ -37,11 +37,11 @@ theorem lower_conforms {prog : Program} {w₀ : V2.World} {self : AccountAddress
       SimStmtStep prog sloadChg obs L b)
     (hterm : ∀ (L : Label) (b : Block), blockAt prog L = some b →
       SimTermStep prog sloadChg obs self L b)
-    (hir : V2.IRRun prog w₀ (realisedGas log) (realisedCall log self) O) :
+    (hir : Lir.IRRun prog w₀ (realisedGas log) (realisedCall log self) O) :
     O.world = (observe self log.observable).world
 ```
 
-### Cyclic flagship — `Lir.V2.lower_conforms` (`LirLean/V2/RealisabilitySpec.lean:3705`)
+### Cyclic flagship — `Lir.lower_conforms` (`LirLean/RealisabilitySpec.lean:3705`)
 
 ```lean
 theorem lower_conforms {prog : Program} {params : CallParams} {log : RunLog}
@@ -72,7 +72,7 @@ block-rank). The real, statement-level differences are three, and every one make
 strictly weaker / structurally different:
 
 1. **The IR run is SUPPLIED, not produced.** The capstone *takes* `O` and
-   `hir : V2.IRRun prog w₀ … O` as hypotheses and only *relates* the supplied run's world to the
+   `hir : Lir.IRRun prog w₀ … O` as hypotheses and only *relates* the supplied run's world to the
    recorded world. The flagship *produces* the run: its conclusion is `∃ O, RunFrom … prog.entry O
    ∧ …`. So the capstone discharges only the right half (world edge) of a diagram whose existence
    half it assumes.
@@ -110,8 +110,8 @@ world-equation → `conforms_of_worldeq` step.
 
 - `grep` for `lower_conforms` used as a term finds exactly one apparent call outside its own def:
   `RealisabilitySpec.lean:3864  exact lower_conforms hcode hmod hself hgas …`. **This is NOT the
-  capstone.** RealisabilitySpec is entirely inside `namespace Lir.V2` (open at line 105, `end
-  Lir.V2` at line 3874), so unqualified `lower_conforms` there resolves to `Lir.V2.lower_conforms`
+  capstone.** RealisabilitySpec is entirely inside `namespace Lir` (open at line 105, `end
+  Lir` at line 3874), so unqualified `lower_conforms` there resolves to `Lir.lower_conforms`
   (the flagship, :3705), which is exactly what R12b `exProg_nonvacuity` intends to instantiate.
 - Every other `lower_conforms` hit in the tree is a docstring or the flagship family. The acyclic
   `Lir.lower_conforms` (LowerConforms.lean:1188) therefore has **zero code consumers**. DEAD.

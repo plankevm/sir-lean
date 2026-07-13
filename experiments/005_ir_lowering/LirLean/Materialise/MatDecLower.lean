@@ -22,7 +22,7 @@ The cache-keyed decode bundle and its segment bridge (`MatDecC` / `matDecC_of_se
 `decode_lower_{push,nonpush}` (`Decode/DecodeLower.lean`).
 
 No `sorry`, no `axiom`, no `native_decide`. Nothing here touches `Spec/Semantics.lean` /
-`V2/Law.lean` (the frame-free spine).
+`Law.lean` (the frame-free spine).
 -/
 
 namespace Lir

@@ -17,11 +17,11 @@ to real EVM bytecode via a total compiler
 flagship: run the lowered bytecode once under a recording interpreter, feed the recorded
 gas/call/create events back into the IR semantics as **oracle streams**, and the IR run
 exists and matches the machine's observable world and result —
-[`lower_conforms`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L251), quoted in
+[`lower_conforms`](../../../LirLean/Realisability/RealisabilitySpec.lean#L251), quoted in
 §3.9 below. **Honest status:** the statement layer is final and, after two vacuity
 postmortems, non-vacuous by construction; the three flagship shells live in the non-default
 `WIP` lib and delegate to one sorry'd coupled run-producer
-([`runFrom_of_driveCorrLog`](../../../LirLean/V2/Realisability/Producer.lean#L1442)); the
+([`runFrom_of_driveCorrLog`](../../../LirLean/Realisability/Producer.lean#L1442)); the
 default `lake build` cone is sorry-free with build-pinned axiom guards
 ([`Audit.lean`](../../../LirLean/Audit.lean#L27)); the majority of the R0–R12 obligation
 skeleton is already proved (R0b/R1/R2/R4/R5/R7a–e′/R8/R9/R10b, the entry seeds, three of five
@@ -50,8 +50,8 @@ is the [r11 plan](../../planning/r11-plan-2026-07-08.md).
 
 ```
 L8  Flagships: lower_conforms / _exact / _gasfree        RealisabilitySpec.lean   [WIP]  ── 06
-L7  Coupled walk: RecorderCoupled, DriveCorrLog,         V2/Realisability/,       [WIP]  ── 06
-    StmtTies'/TermTies', producer recursion              V2/Drive/
+L7  Coupled walk: RecorderCoupled, DriveCorrLog,         Realisability/,       [WIP]  ── 06
+    StmtTies'/TermTies', producer recursion              Drive/
 L6  Tie assembly: sim_cfg + builders                     Assembly/          [superseded]  ── 05
 L5  Per-statement simulation: Corr + arms                Sim/                     [live]  ── 05
 L4  Value channel & effect oracles: materialise_runsC,   Materialise/, Frame/     [live]  ── 04
@@ -129,7 +129,7 @@ never computes; the total lowering [`lower`](../../../LirLean/Spec/Lowering.lean
 the recording interpreter [`driveLog`](../../../LirLean/Spec/Recorder.lean#L51) /
 [`runWithLog`](../../../LirLean/Spec/Recorder.lean#L93) — a hand-maintained twin of `drive`
 whose *result* channel is proved equal to the verified engine
-([`runWithLog_drive`](../../../LirLean/V2/RecorderLemmas.lean#L138)) but whose *recorded*
+([`runWithLog_drive`](../../../LirLean/RecorderLemmas.lean#L138)) but whose *recorded*
 channels are the project's single biggest definitional trust commitment after the machine
 itself (§6b); the conclusion vocabulary
 ([`Conforms`](../../../LirLean/Spec/Conformance.lean#L20),
@@ -196,33 +196,33 @@ and **dead as a route to the flagship**: its unit shapes demand the step conclus
 supplied seams ([`SstoreRealises`](../../../LirLean/Sim/SimStmt.lean#L317),
 [`CallRealises`](../../../LirLean/Assembly/LowerConforms.lean#L235) with embedded
 `StepScoped`) are not producible from a real run. Its endpoint
-([`lower_conforms_cyclic'`](../../../LirLean/V2/Drive/DriveSim.lean#L661)) has zero callers.
+([`lower_conforms_cyclic'`](../../../LirLean/Drive/DriveSim.lean#L661)) has zero callers.
 What *is* live from this folder: [`WellFormedLowered`](../../../LirLean/Assembly/LowerConforms.lean#L144)
 and the low-level decode dischargers
 ([`decode_gasstash`](../../../LirLean/Assembly/LowerDecode.lean#L632),
 [`term_dest_decode`](../../../LirLean/Assembly/LowerDecode.lean#L332)). Deep report:
 [05](05-simulation.md) §6.
 
-### 3.9 L7+L8 — the coupled walk and the flagship producer (`V2/Drive`, `V2/Realisability`)
+### 3.9 L7+L8 — the coupled walk and the flagship producer (`Drive`, `Realisability`)
 
 The repair for the all-frames disease: the walk invariant
-[`DriveCorrLog`](../../../LirLean/V2/Realisability/Surface.lean#L270) carries `Corr` plus one
-real coupling field, [`RecorderCoupled`](../../../LirLean/V2/Realisability/Surface.lean#L234)
+[`DriveCorrLog`](../../../LirLean/Realisability/Surface.lean#L270) carries `Corr` plus one
+real coupling field, [`RecorderCoupled`](../../../LirLean/Realisability/Surface.lean#L234)
 — *restarting `driveLog` at the current boundary frame reproduces the run's final observable
 and exactly the un-consumed stream suffixes*. Because `driveLog` is deterministic, the
 restart pins every formerly-free tie value to a suffix head, so the reshaped per-block ties
-[`StmtTies'`](../../../LirLean/V2/Realisability/Surface.lean#L351)/
-[`TermTies'`](../../../LirLean/V2/Realisability/Surface.lean#L457) are **derived from the
-run** (R10b closed via [`termTies'_of_walk`](../../../LirLean/V2/Realisability/Machinery.lean#L503);
+[`StmtTies'`](../../../LirLean/Realisability/Surface.lean#L351)/
+[`TermTies'`](../../../LirLean/Realisability/Surface.lean#L457) are **derived from the
+run** (R10b closed via [`termTies'_of_walk`](../../../LirLean/Realisability/Machinery.lean#L503);
 R10a open). The recursion template is the already-proved coupling-free
-[`runFrom_of_driveCorr`](../../../LirLean/V2/Drive/DriveSim.lean#L580) (gas-measure descent);
-its coupled twin [`runFrom_of_driveCorrLog`](../../../LirLean/V2/Realisability/Producer.lean#L1442)
+[`runFrom_of_driveCorr`](../../../LirLean/Drive/DriveSim.lean#L580) (gas-measure descent);
+its coupled twin [`runFrom_of_driveCorrLog`](../../../LirLean/Realisability/Producer.lean#L1442)
 is the single blocker all three flagship shells `obtain`. The `Conforms` half is closed
-([`conforms_of_worldeq`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L204)).
+([`conforms_of_worldeq`](../../../LirLean/Realisability/RealisabilitySpec.lean#L204)).
 The plain flagship, verbatim (line verified against current source):
 
 ```lean
--- ../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L251  (WIP lib)
+-- ../../../LirLean/Realisability/RealisabilitySpec.lean#L251  (WIP lib)
 theorem lower_conforms {prog : Program} {params : CallParams} {log : RunLog}
     {acc : Account}
     (hcode : params.codeSource = .Code (lower prog))
@@ -245,12 +245,12 @@ Plain English: if the machine, entered as a top-level call into an account holdi
 `lower prog`, runs to a clean (non-exception) halt under the recorder, then the IR — fed the
 recorded gas words and call/create effects positionally, from the recipient's actual
 pre-storage — has a run whose final storage and result are the machine's. Siblings:
-[`lower_conforms_exact`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L302)
+[`lower_conforms_exact`](../../../LirLean/Realisability/RealisabilitySpec.lean#L302)
 (concludes `RunFromAll`: the IR explains *every* recorded event, killing the
 drop-the-suffix vacuity channel) and
-[`lower_conforms_gasfree`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L341)
+[`lower_conforms_gasfree`](../../../LirLean/Realisability/RealisabilitySpec.lean#L341)
 (adds `NoGasReads`; the de-risking co-flagship, first to close). Non-vacuity is anchored by
-the loop+gas+call witness [`exProg`](../../../LirLean/V2/Realisability/Witness.lean#L38),
+the loop+gas+call witness [`exProg`](../../../LirLean/Realisability/Witness.lean#L38),
 whose full static bundle is machine-checked. Deep report: [06](06-realisability.md).
 
 ## 4. Why each file exists
@@ -310,57 +310,57 @@ the coupled path; retirement candidate post-R11), **dead-candidate** (zero consu
 | [`Sim/SimTerm.lean`](../../../LirLean/Sim/SimTerm.lean) | 843 | L5: terminator halt/edge arms; `corr_at_jumpdest_landing` live in flagship | live | [05](05-simulation.md) |
 | [`Assembly/LowerConforms.lean`](../../../LirLean/Assembly/LowerConforms.lean) | 1,127 | L6: `WellFormedLowered` (live); builders/`sim_cfg`/`entry_corr`/`CallRealises` | live / superseded | [05](05-simulation.md) |
 | [`Assembly/LowerDecode.lean`](../../../LirLean/Assembly/LowerDecode.lean) | 1,069 | L6 aux: decode dischargers (live) + `_lowered` builder wrappers | live / superseded | [05](05-simulation.md) |
-| [`V2/Law.lean`](../../../LirLean/V2/Law.lean) | 178 | IR determinism ladder (`IRRun.det` — the ∃O is unique) | live | [02](02-spec-layer.md) |
-| [`V2/IRRun.lean`](../../../LirLean/V2/IRRun.lean) | 173 | pure-fragment existence ladder; `RunDefinable` unsatisfiable for gas/call programs (rename due) | live fragment | [02](02-spec-layer.md) |
-| [`V2/RecorderLemmas.lean`](../../../LirLean/V2/RecorderLemmas.lean) | 169 | recorder adequacy (`driveLog_drive`/`runWithLog_drive`) + stream cons projections | live | [02](02-spec-layer.md)/[06](06-realisability.md) |
-| [`V2/CallRealises.lean`](../../../LirLean/V2/CallRealises.lean) | 143 | call/create entry bridges (recorded entry = lowered opcode's effect) | live | [02](02-spec-layer.md)/[06](06-realisability.md) |
-| [`V2/Call.lean`](../../../LirLean/V2/Call.lean) | 146 | worked two-channel IR example (`callIR`); nothing consumes it | example | [06](06-realisability.md) |
-| [`V2/Drive/SelfPresent.lean`](../../../LirLean/V2/Drive/SelfPresent.lean) | 426 | `SelfPresent` + gas/sload log-alignment discharges | live | [06](06-realisability.md) |
-| [`V2/Drive/CallPreservesSelf.lean`](../../../LirLean/V2/Drive/CallPreservesSelf.lean) | 350 | self-presence forward-closed along `Runs`, reduced to the precompile seam | live (engine-shaped, staged) | [01](01-trusted-base.md) |
-| [`V2/Drive/DriveSim.lean`](../../../LirLean/V2/Drive/DriveSim.lean) | 721 | coupling-free walk template + `lower_conforms_cyclic'` (pure fragment, endpoint uncalled) | superseded (template) | [06](06-realisability.md) |
-| [`V2/Drive/Headline.lean`](../../../LirLean/V2/Drive/Headline.lean) | 299 | `DriveCorrPlus` carrier + retained bricks; carrier unreferenced by the WIP walk | partly superseded | [06](06-realisability.md) |
-| [`V2/Realisability/Surface.lean`](../../../LirLean/V2/Realisability/Surface.lean) | 588 | L7: `RecorderCoupled`, `DriveCorrLog`, `StmtTies'`/`TermTies'`, `CallRealisesS`, `WellLowered` (defs real, sorry-free) | live (WIP lib) | [06](06-realisability.md) |
-| [`V2/Realisability/Machinery.lean`](../../../LirLean/V2/Realisability/Machinery.lean) | 2,034 | L7: R-obligation grid — R0b/R1/R2/R4/R5/R7a–e′/R8 closed; R3 Piece B + 3 R6 bricks open | WIP (5 sorry sites / 4 decls) | [06](06-realisability.md) |
-| [`V2/Realisability/Producer.lean`](../../../LirLean/V2/Realisability/Producer.lean) | 1,463 | L7/L8: coupled arms + block walk + recursion + the packaged producer | WIP (7 sorries) | [06](06-realisability.md) |
-| [`V2/Realisability/RealisabilitySpec.lean`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean) | 429 | L8: the three flagship shells, `conforms_of_worldeq`, R10/R12 | WIP (4 sorries) | [06](06-realisability.md) |
-| [`V2/Realisability/Witness.lean`](../../../LirLean/V2/Realisability/Witness.lean) | 621 | `exProg` non-vacuity witness + static bundle + R9 checker (sorry-free) | example/witness | [06](06-realisability.md) |
+| [`Law.lean`](../../../LirLean/Law.lean) | 178 | IR determinism ladder (`IRRun.det` — the ∃O is unique) | live | [02](02-spec-layer.md) |
+| [`IRRun.lean`](../../../LirLean/IRRun.lean) | 173 | pure-fragment existence ladder; `RunDefinable` unsatisfiable for gas/call programs (rename due) | live fragment | [02](02-spec-layer.md) |
+| [`RecorderLemmas.lean`](../../../LirLean/RecorderLemmas.lean) | 169 | recorder adequacy (`driveLog_drive`/`runWithLog_drive`) + stream cons projections | live | [02](02-spec-layer.md)/[06](06-realisability.md) |
+| [`CallRealises.lean`](../../../LirLean/CallRealises.lean) | 143 | call/create entry bridges (recorded entry = lowered opcode's effect) | live | [02](02-spec-layer.md)/[06](06-realisability.md) |
+| [`Call.lean`](../../../LirLean/Call.lean) | 146 | worked two-channel IR example (`callIR`); nothing consumes it | example | [06](06-realisability.md) |
+| [`Drive/SelfPresent.lean`](../../../LirLean/Drive/SelfPresent.lean) | 426 | `SelfPresent` + gas/sload log-alignment discharges | live | [06](06-realisability.md) |
+| [`Drive/CallPreservesSelf.lean`](../../../LirLean/Drive/CallPreservesSelf.lean) | 350 | self-presence forward-closed along `Runs`, reduced to the precompile seam | live (engine-shaped, staged) | [01](01-trusted-base.md) |
+| [`Drive/DriveSim.lean`](../../../LirLean/Drive/DriveSim.lean) | 721 | coupling-free walk template + `lower_conforms_cyclic'` (pure fragment, endpoint uncalled) | superseded (template) | [06](06-realisability.md) |
+| [`Drive/Headline.lean`](../../../LirLean/Drive/Headline.lean) | 299 | `DriveCorrPlus` carrier + retained bricks; carrier unreferenced by the WIP walk | partly superseded | [06](06-realisability.md) |
+| [`Realisability/Surface.lean`](../../../LirLean/Realisability/Surface.lean) | 588 | L7: `RecorderCoupled`, `DriveCorrLog`, `StmtTies'`/`TermTies'`, `CallRealisesS`, `WellLowered` (defs real, sorry-free) | live (WIP lib) | [06](06-realisability.md) |
+| [`Realisability/Machinery.lean`](../../../LirLean/Realisability/Machinery.lean) | 2,034 | L7: R-obligation grid — R0b/R1/R2/R4/R5/R7a–e′/R8 closed; R3 Piece B + 3 R6 bricks open | WIP (5 sorry sites / 4 decls) | [06](06-realisability.md) |
+| [`Realisability/Producer.lean`](../../../LirLean/Realisability/Producer.lean) | 1,463 | L7/L8: coupled arms + block walk + recursion + the packaged producer | WIP (7 sorries) | [06](06-realisability.md) |
+| [`Realisability/RealisabilitySpec.lean`](../../../LirLean/Realisability/RealisabilitySpec.lean) | 429 | L8: the three flagship shells, `conforms_of_worldeq`, R10/R12 | WIP (4 sorries) | [06](06-realisability.md) |
+| [`Realisability/Witness.lean`](../../../LirLean/Realisability/Witness.lean) | 621 | `exProg` non-vacuity witness + static bundle + R9 checker (sorry-free) | example/witness | [06](06-realisability.md) |
 
 ## 5. What remains for `lower_conforms`
 
 Condensed from [06](06-realisability.md) §4 (full sorry-by-sorry table there). The census —
 re-verified by grep for this synthesis — is **16 proof-position sorries in 15 declarations**,
-distributed [`Machinery.lean`](../../../LirLean/V2/Realisability/Machinery.lean) 5 sites /
-4 decls, [`Producer.lean`](../../../LirLean/V2/Realisability/Producer.lean) 7,
-[`RealisabilitySpec.lean`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean) 4 — all
+distributed [`Machinery.lean`](../../../LirLean/Realisability/Machinery.lean) 5 sites /
+4 decls, [`Producer.lean`](../../../LirLean/Realisability/Producer.lean) 7,
+[`RealisabilitySpec.lean`](../../../LirLean/Realisability/RealisabilitySpec.lean) 4 — all
 in the non-default `WIP` lib; the default cone is sorry-free. The dependency-ordered chunks
 (per the [r11 plan](../../planning/r11-plan-2026-07-08.md)):
 
 1. **R6 boundary geometry** — three engine-geometry bricks inside the whole-run
    boundary invariant: B-pc and B-inrange in
-   [`atReachableBoundaryVJ_step`](../../../LirLean/V2/Realisability/Machinery.lean#L1372),
+   [`atReachableBoundaryVJ_step`](../../../LirLean/Realisability/Machinery.lean#L1372),
    the CALL in-range instance
-   ([#L1431](../../../LirLean/V2/Realisability/Machinery.lean#L1431)), and the whole CREATE
-   resume edge ([#L1464](../../../LirLean/V2/Realisability/Machinery.lean#L1464)). The
+   ([#L1431](../../../LirLean/Realisability/Machinery.lean#L1431)), and the whole CREATE
+   resume edge ([#L1464](../../../LirLean/Realisability/Machinery.lean#L1464)). The
    support algebra (cursor inversion, local-region walks, `NoCallCreateOp` tower) is already
    in-tree from R11 chunk 1; B-call is closed.
 2. **CALL Piece B** — the one missing machine-run producer: the CALL arg-push driver
    (`Runs fr₀ callFr` over the five zero-pushes + operand materialisation, ~200 lines),
-   blocking [`callRealises_of_recorded`](../../../LirLean/V2/Realisability/Machinery.lean#L392)
+   blocking [`callRealises_of_recorded`](../../../LirLean/Realisability/Machinery.lean#L392)
    and hence the coupled call arm. Piece A (record extraction from the coupling) is landed.
 3. **CREATE2-only + the create coupling channel** — the **latent obligation with no
-   `sorry` to count**: [`RecorderCoupled`](../../../LirLean/V2/Realisability/Surface.lean#L234)
-   has no create suffix, [`StreamsAligned`](../../../LirLean/V2/Realisability/Producer.lean#L74)
+   `sorry` to count**: [`RecorderCoupled`](../../../LirLean/Realisability/Surface.lean#L234)
+   has no create suffix, [`StreamsAligned`](../../../LirLean/Realisability/Producer.lean#L74)
    pins `D` to the whole `log.creates`, and `StmtTies'` has no create arm — so a producer
    closing only the visible sorries could not step through a top-level CREATE, while all
    three flagships range over create-containing programs. This changes the coupling
    signatures and must land **before** the arms/walk, or arms get re-proved.
 4. **Coupled statement arms** — gas, sload, call
-   ([`simStmt_coupled_gas`](../../../LirLean/V2/Realisability/Producer.lean#L453) etc.), plus
-   R10a ([`stmtTies'_of_runWithLog`](../../../LirLean/V2/Realisability/Producer.lean#L2488)).
+   ([`simStmt_coupled_gas`](../../../LirLean/Realisability/Producer.lean#L453) etc.), plus
+   R10a ([`stmtTies'_of_runWithLog`](../../../LirLean/Realisability/Producer.lean#L2488)).
 5. **Block walk / recursion / packaging** — P3a/P3b/P4 and the producer itself, structurally
    mirroring the proved coupling-free recursion.
 6. **Flagships** — plain (assembly only), exact (needs an exact-consumption producer; post-hoc
-   exactness is a plan no-go), gasfree (+ [`realisedGas_nil_of_noGasReads`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L376),
+   exactness is a plan no-go), gasfree (+ [`realisedGas_nil_of_noGasReads`](../../../LirLean/Realisability/RealisabilitySpec.lean#L376),
    which needs the R6 walk), then the R12a runtime witness.
 
 **Local-tree vs. plan-checkpoint discrepancy** (found independently by [03](03-code-geometry.md)
@@ -393,7 +393,7 @@ hypothesis either vacuously strong (unsatisfiable) or the theorem vacuous:
    `CallRealises`'s embedded live-scope clause are not producible from a real run — which is
    *why* the entire proved `sim_cfg` chain is dead scaffolding and the flagship re-implements
    the walk with coupled, point-wise variants.
-4. **[`RunDefinable`](../../../LirLean/V2/IRRun.lean#L155)**: literally `False` on
+4. **[`RunDefinable`](../../../LirLean/IRRun.lean#L155)**: literally `False` on
    `.call`/`.create`, so the surviving pure-fragment driver
    `lower_conforms_cyclic'` covers no target program; narrowed to `RunDefinableG`
    ([02 §9](02-spec-layer.md)).
@@ -401,7 +401,7 @@ hypothesis either vacuously strong (unsatisfiable) or the theorem vacuous:
 The cure was applied uniformly and is now structural: make position physical (spill slots +
 [`MemRealises`](../../../LirLean/Materialise/MaterialiseRuns.lean#L366)), or derive from the
 run (clean-halt envelopes; the deterministic
-[`RecorderCoupled`](../../../LirLean/V2/Realisability/Surface.lean#L234) restart). The
+[`RecorderCoupled`](../../../LirLean/Realisability/Surface.lean#L234) restart). The
 retired definitions are deliberately kept as in-source institutional memory, and the plan's
 per-chunk no-gos are the vaccination against re-introduction. Any future reviewer should
 treat a new ∀-over-frames hypothesis as a presumptive defect.
@@ -417,7 +417,7 @@ what §3.9 says:
 2. **The recorder gates** — [`driveLog`](../../../LirLean/Spec/Recorder.lean#L51) records the
    *right* events: top-level-only (the `stack.isEmpty`/`rest.isEmpty` depth gates),
    post-step gas values, calls at result delivery in return order. Adequacy
-   ([`driveLog_drive`](../../../LirLean/V2/RecorderLemmas.lean#L82)) proves only the result
+   ([`driveLog_drive`](../../../LirLean/RecorderLemmas.lean#L82)) proves only the result
    channel equals `drive`; the recorded channels are ~40 lines of definition read by eye.
    [02 §5](02-spec-layer.md).
 3. **The `Spec/` definitions** — the IR semantics' stream-popping discipline, `lower` (total;

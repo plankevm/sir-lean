@@ -120,16 +120,16 @@ are over *other* inductives, not `Runs`):
 
 1. `exp005:LirLean/CleanHaltExtract.lean:410` `halted_runs_eq` (`cases`) — add
    contradiction `| create` arm. Trivial.
-2. `exp005:LirLean/V2/RealisabilitySpec.lean:1225` `runs_halt_eq` (`cases`) —
+2. `exp005:LirLean/RealisabilitySpec.lean:1225` `runs_halt_eq` (`cases`) —
    contradiction arm. Trivial.
-3. `exp005:LirLean/V2/RealisabilitySpec.lean:1424` `runs_kind` (`induction`) —
+3. `exp005:LirLean/RealisabilitySpec.lean:1424` `runs_kind` (`induction`) —
    `| create` arm using `resumeAfterCreate_kind` (exp005:BytecodeLayer/Hoare/Descent.lean:390)
    + `stepFrame_needsCreate_inv` (Descent.lean:238). **Both helpers already exist.**
-4. `exp005:LirLean/V2/RealisabilitySpec.lean:2414` `atReachableBoundaryVJ_of_runs`
+4. `exp005:LirLean/RealisabilitySpec.lean:2414` `atReachableBoundaryVJ_of_runs`
    (`induction`) — `| create` arm needs a **new** edge lemma
    `atReachableBoundaryVJ_create` (twin of `atReachableBoundaryVJ_call`, RS:2369).
    Small; the geometry facts exist.
-5. `exp005:LirLean/V2/Drive/CallPreservesSelf.lean:237` `selfPresent_runs`
+5. `exp005:LirLean/Drive/CallPreservesSelf.lean:237` `selfPresent_runs`
    (`induction`) — `| create` arm needs a **new** edge hypothesis
    `CreatePreservesSelf` (twin of `CallPreservesSelf`), dischargeable via
    `resumeAfterCreate_exec_accounts_present` (Descent.lean:373) +

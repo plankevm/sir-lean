@@ -11,7 +11,7 @@ the strong-fuel drive induction `drive_accounts_find_mono`.
 No `sorry`/`axiom`/`native_decide`; axioms `[propext, Classical.choice, Quot.sound]`.
 -/
 
-namespace Lir.V2
+namespace Lir
 
 open Evm
 open GasConstants
@@ -286,7 +286,7 @@ theorem drive_accounts_find_mono (a : Evm.AccountAddress)
           unfold CheckpointPresent; rw [hcr_kind]
           unfold CheckpointPresent at hck; exact hck
 
-end Lir.V2
+end Lir
 
 -- CALLMONO Brick D: account-presence monotone across a whole `drive` run — the `.success` shape
 -- of `CallPreservesSelf` discharged (the CREATE no-erase seam eliminated; only `hprec` supplied).

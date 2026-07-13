@@ -16,13 +16,13 @@ audit's central finding is that they have **very different liveness**:
 2. **The CALL oracle projections** (`Call.lean`: `evmCallOracle`,
    `callSuccessFlag`, `evmCallOracle_successWord_eq_x`, `call_reflects_lowered`).
    Defined over exp003 `CallResult`/`PendingCall`, **not** over `Lir.IRState`, and
-   **live** — they feed `V2/CallRealises.lean`, `SimStmt.lean`, `LowerConforms.lean`
-   and `V2/RealisabilitySpec.lean`.
+   **live** — they feed `CallRealises.lean`, `SimStmt.lean`, `LowerConforms.lean`
+   and `RealisabilitySpec.lean`.
 3. **The genuine v1 IR operational semantics** (`SmallStep.lean` `Lir.IRState` and
    its `evalExpr`/`setLocal`/`setStorage`/`bindCallResult`, `IRHalt`, `IRConf`,
    `Program.stmtAt`; `Call.lean` `IRState.applyCall`; the `Match` **structure**;
    `Match.lean` `lower_preserves_*`). Every one of these has a **V2 twin** in
-   `Spec/Semantics.lean` (`Lir.V2.IRState`, `V2.evalExpr`, `V2.IRHalt`, `V2.blockAt`,
+   `Spec/Semantics.lean` (`Lir.IRState`, `Lir.evalExpr`, `Lir.IRHalt`, `Lir.blockAt`,
    `Corr`) that is what the flagship actually consumes; the v1 originals are the
    *reference* small-step and are **used nowhere in the live cone** — they survive
    only in each other's proofs/docstrings.
@@ -41,19 +41,19 @@ flagship now depends on (`RealisabilitySpec.lean:97,775`).
 Purpose (proof plan): the **v1 reference small-step IR semantics** (`Lir.IRState`,
 `evalExpr`, terminators). Its storage transformer deliberately mirrors exp003's
 post-frame transformers so the `Match` invariant's `M3` clause is `rfl`-clean. The
-gas-free v2 line (`Spec/Semantics.lean`, `Lir.V2.*`) later **re-implemented** this
-state as `V2.IRState` (`.world`/`.locals`); the flagship rides the v2 copy.
+gas-free v2 line (`Spec/Semantics.lean`, `Lir.*`) later **re-implemented** this
+state as `Lir.IRState` (`.world`/`.locals`); the flagship rides the v2 copy.
 
 | decl | kind | role | callers |
 |---|---|---|---|
-| `IRState` (:49) | structure | genuinely-superseded-for-flagship — v1 IR state; the flagship uses `Lir.V2.IRState` (`Spec/Semantics.lean:48`). Only consumers of the v1 struct are v1-only decls below | none live; only Call/Match v1 decls |
-| `IRHalt` (:60) | inductive | genuinely-superseded — twin `V2.IRHalt` (`Spec/Semantics.lean:55`) is what the flagship uses | Match.lean docstrings only (`:367,401,560,574`) |
+| `IRState` (:49) | structure | genuinely-superseded-for-flagship — v1 IR state; the flagship uses `Lir.IRState` (`Spec/Semantics.lean:48`). Only consumers of the v1 struct are v1-only decls below | none live; only Call/Match v1 decls |
+| `IRHalt` (:60) | inductive | genuinely-superseded — twin `Lir.IRHalt` (`Spec/Semantics.lean:55`) is what the flagship uses | Match.lean docstrings only (`:367,401,560,574`) |
 | `IRConf` (:69) | inductive | genuinely-dead — **zero references repo-wide** (only its own def line) | none anywhere |
-| `evalExpr` (:89) | def | genuinely-superseded — every live `evalExpr` call is `V2.evalExpr` (`Spec/Semantics.lean:123`; DefsSound `open Lir.V2`). v1 `evalExpr` is never called, only named in Match docstrings | none live |
-| `IRState.setLocal` (:101) | def | v1-only — used only by v1 `bindCallResult` (:114); flagship uses `V2.IRState.setLocal` (`Spec/Semantics.lean:104`) | `bindCallResult` (SmallStep:114) |
+| `evalExpr` (:89) | def | genuinely-superseded — every live `evalExpr` call is `Lir.evalExpr` (`Spec/Semantics.lean:123`; DefsSound `open Lir`). v1 `evalExpr` is never called, only named in Match docstrings | none live |
+| `IRState.setLocal` (:101) | def | v1-only — used only by v1 `bindCallResult` (:114); flagship uses `Lir.IRState.setLocal` (`Spec/Semantics.lean:104`) | `bindCallResult` (SmallStep:114) |
 | `IRState.bindCallResult` (:110) | def | genuinely-dead-as-code — appears only in docstrings (SmallStep/Call), never called; the v2 success-word channel is `callSuccessFlag`+`CallRealises` | none (docstrings only) |
-| `IRState.setStorage` (:117) | def | v1-only — flagship uses `V2.IRState.setStorage` (`Spec/Semantics.lean:108`); v1 copy named only in Match docstrings (`Match.lean:35,142`) | none live |
-| `Program.blockAt` (:123) | def | **shared-infra / terminal-for-flagship** — `pcOf` (Match:70) and `blockAt_of_toList` (Match:84) use it; `blockAt_of_toList` is live in DecodeAnchors. (v2 keeps a local `V2.blockAt`, `Spec/Semantics.lean:139`, but v1's is genuinely on the live `pcOf` path) | Match.lean:70,84 → DecodeAnchors:169 |
+| `IRState.setStorage` (:117) | def | v1-only — flagship uses `Lir.IRState.setStorage` (`Spec/Semantics.lean:108`); v1 copy named only in Match docstrings (`Match.lean:35,142`) | none live |
+| `Program.blockAt` (:123) | def | **shared-infra / terminal-for-flagship** — `pcOf` (Match:70) and `blockAt_of_toList` (Match:84) use it; `blockAt_of_toList` is live in DecodeAnchors. (v2 keeps a local `Lir.blockAt`, `Spec/Semantics.lean:139`, but v1's is genuinely on the live `pcOf` path) | Match.lean:70,84 → DecodeAnchors:169 |
 | `Program.stmtAt` (:127) | def | genuinely-dead — **zero references repo-wide** | none anywhere |
 
 ---
@@ -179,10 +179,10 @@ Entry edges (cluster ← other clusters): `Spec.IR` (into SmallStep/Call/Create)
 into Call/Create/StorageErase/Match).
 
 Exit edges (cluster → consumers):
-- `Match` → **DecodeAnchors, JumpValid, MaterialiseRuns, MaterialiseGas, V2/CallRealises**
+- `Match` → **DecodeAnchors, JumpValid, MaterialiseRuns, MaterialiseGas, CallRealises**
   (the module import fan-out), and its `sim_*`/`pcOf`/`selfStorage`/`storageAt`/oracle
   headline are transitively consumed by SimStmt, SimTerm, StashTail, LowerDecode,
-  LowerConforms, V2/RealisabilitySpec.
+  LowerConforms, RealisabilitySpec.
 - `Call` → only `Match` (module import). Its `evmCallOracle`/`callSuccessFlag`/
   `evmCallOracle_successWord_eq_x` reach LowerConforms/SimStmt/CallRealises/
   RealisabilitySpec via the Match import chain.
@@ -192,7 +192,7 @@ Exit edges (cluster → consumers):
 
 Key structural fact: the cluster's *live* out-edges carry only frame-local EVM facts
 and oracle projections. The v1 `Lir.IRState` semantics never crosses an out-edge —
-the flagship re-derives that layer as `Lir.V2.*` in `Spec/Semantics.lean`.
+the flagship re-derives that layer as `Lir.*` in `Spec/Semantics.lean`.
 
 ---
 
@@ -218,9 +218,9 @@ removal):**
   LowerConforms. Superseded by the v2 terminator path.
 - `SmallStep.IRState.bindCallResult` (:110) and `Call.IRState.applyCall` (:158) —
   the only two v1 decls that touch the success-word channel; both appear solely in
-  docstrings, never called. The v2 channel is `callSuccessFlag` + `V2/CallRealises`.
+  docstrings, never called. The v2 channel is `callSuccessFlag` + `CallRealises`.
 - `SmallStep.evalExpr` (:89), `IRState.setStorage` (:117), `IRHalt` (:60) — each has a
-  live V2 twin (`V2.evalExpr` :123, `V2.IRState.setStorage` :108, `V2.IRHalt` :55) that
+  live V2 twin (`Lir.evalExpr` :123, `Lir.IRState.setStorage` :108, `Lir.IRHalt` :55) that
   the flagship uses; the v1 originals are never called in the live cone. `setLocal`
   (:101) and the `IRState` struct (:49) survive only to support the above v1 decls.
 

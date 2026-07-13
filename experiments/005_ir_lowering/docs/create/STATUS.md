@@ -11,7 +11,7 @@ parallel `CreateStream`), and `docs/eval-2026-07-04/create-implementation-plan.m
   obligation) is the **expected hard stop** — blocked on the same non-existent
   coupled run-producer (`runFrom_of_driveCorrLog`, R11) that gates the CALL flagship.
 - **Default `LirLean`: GREEN + sorry-free** (`lake build` → 1172 jobs; verified no
-  real `sorry` term anywhere outside `LirLean/V2/Realisability/`, and no default-cone
+  real `sorry` term anywhere outside `LirLean/Realisability/`, and no default-cone
   module imports the `Realisability` subdir).
 - **Flagship `WIP`: GREEN** (`lake build WIP` → 1172 jobs) carrying **12 tracked
   sorries = 11 pre-existing + 1 explicitly-reported NEW tracked CREATE obligation leaf**
@@ -29,7 +29,7 @@ exp003 files); it was green + axiom-clean at Step 0 (1135 jobs, `[propext,
 Classical.choice, Quot.sound]`). The branch's only exp003 change is the earlier
 Step-0 spike commit `90b76ff` (`Runs.create` node).
 
-## Tracked-sorry ledger (WIP cone, `LirLean/V2/Realisability/`)
+## Tracked-sorry ledger (WIP cone, `LirLean/Realisability/`)
 
 Base `bbd9578` had **11**; HEAD `7b4dd7d` has **12** (+1, reported):
 

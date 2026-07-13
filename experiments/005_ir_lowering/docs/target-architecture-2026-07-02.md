@@ -110,7 +110,7 @@ already blessed. Blast radius: ~15-20 walk signatures + the two StmtTies value c
 
 ## 5. Phase 3 as a reviewable spec file (the honest-sorry skeleton)
 
-New file `LirLean/V2/RealisabilitySpec.lean` (statements only, every proof `sorry`, nightly-built,
+New file `LirLean/RealisabilitySpec.lean` (statements only, every proof `sorry`, nightly-built,
 not imported by the main target): obligations R1-R12 per
 `fleet-2026-07-02/flagship-signature.md` §5 — gas recorder bridge (R1), clean-scope-from-log (R2),
 call realisation from log (R3 + the R3' multi-call decision), SSTORE-through-walk (R4), term ties
@@ -214,7 +214,7 @@ Full plan: `fleet-2026-07-02/reorg-legibility.md`. Highlights:
   limit: it catches syntactically-dead binders only; the dischargeable-but-supplied class is
   caught by the signature freeze + seam whitelist instead.
 - File-tree target: no file over ~1,300 lines; exp005 shrinks ~24.7k → ~20-21k (Phase 2 −1.7k,
-  Phase 4 −3.1k incl. the ~1,000-line SelfAt/AccMono walk unification). Keep the `Lir.V2`
+  Phase 4 −3.1k incl. the ~1,000-line SelfAt/AccMono walk unification). Keep the `Lir`
   NAMESPACE (rename files/dirs only).
 
 ## 9. Verity (the lead's question, answered)

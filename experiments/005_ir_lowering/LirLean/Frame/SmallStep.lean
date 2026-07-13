@@ -13,7 +13,7 @@ The storage effects deliberately **mirror exp003's post-frame transformers**
 preserved step-by-step by `rfl`-clean arithmetic — see `Frame/Match.lean`.
 
 There is **no gas counter / cost accounting**: the IR does not model opcode cost.
-(The gas-free observable line lives in `LirLean/V2/*`, where `Expr.gas` is a value
+(The gas-free observable line lives in `LirLean/*`, where `Expr.gas` is a value
 *supplied by an external gas stream*, never computed from a counter.)
 
 ## Design notes
@@ -27,7 +27,7 @@ There is **no gas counter / cost accounting**: the IR does not model opcode cost
   is *definitionally* the value the lowered opcode pushes.
 -/
 
-namespace Lir
+namespace Lir.Frame
 
 open Evm
 
@@ -77,12 +77,12 @@ deriving DecidableEq, Repr
 `add → UInt256.add`, `lt → UInt256.lt`, `sload → storage lens`. This makes the IR
 value definitionally equal to the word the lowered opcode leaves on the stack.
 
-`Expr.gas` has **no** value here: the gas-free v1 state carries no counter to read
-it from. Gas introspection is the v2 line's concern (`LirLean/V2/*`), where the
+`Expr.gas` has **no** value here: the gas-free frame-reference state carries no counter to read
+it from. Gas introspection is the gas-stream semantics' concern (`LirLean/*`), where the
 `GAS` value is *supplied by an external gas stream*, not computed. -/
 
 /-- Evaluate an expression to a word (total via `Option`; `none` = undefined tmp or
-`Expr.gas`, which has no counter to read in the gas-free v1 state). -/
+`Expr.gas`, which has no counter to read in the gas-free frame-reference state). -/
 def evalExpr (st : IRState) : Expr → Option Word
   | .imm w   => some w
   | .tmp t   => st.locals t
@@ -126,4 +126,4 @@ def IRState.bindCreateResult (st : IRState) : Option Tmp → IRState
 def IRState.setStorage (st : IRState) (k v : Word) : IRState :=
   { st with storage := fun k' => if k' = k then v else st.storage k' }
 
-end Lir
+end Lir.Frame

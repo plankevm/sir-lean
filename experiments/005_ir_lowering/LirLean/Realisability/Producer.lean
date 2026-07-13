@@ -1,12 +1,14 @@
-import LirLean.V2.Realisability.Machinery
-import LirLean.V2.Drive.DriveSim
+import LirLean.Realisability.Machinery
+import LirLean.Drive.DriveSim
+
+open Lir.Frame
 
 /-!
-# LirLean v2 — the coupled run-producer `runFrom_of_driveCorrLog` (R11's terminal, WIP-only)
+# LirLean — the coupled run-producer `runFrom_of_driveCorrLog` (R11's terminal, WIP-only)
 
 This module proves the coupled run-producer
 `runFrom_of_driveCorrLog`, documented verbatim at
-`LirLean/V2/Realisability/RealisabilitySpec.lean:224-248` as "THE BLOCKER (Route-A, NOT a
+`LirLean/Realisability/RealisabilitySpec.lean:224-248` as "THE BLOCKER (Route-A, NOT a
 citable leaf)". It is the packaged existential the flagship `lower_conforms` (R11) and its
 `lower_conforms_exact`/`lower_conforms_gasfree` siblings `obtain`, and — with the CREATE
 channel wired (`docs/create/STATUS.md`) — it closes CALL and CREATE simultaneously.
@@ -14,7 +16,7 @@ channel wired (`docs/create/STATUS.md`) — it closes CALL and CREATE simultaneo
 ## Why this is NOT assembly over citable leaves (the two documented reasons)
 
 * **(a) unconditional `SimStmtStep` is unsatisfiable under the reshape.** The only in-tree
-  run-producer `lower_conforms_cyclic'` (`V2/Drive/DriveSim.lean`) consumes an ALL-FRAMES
+  run-producer `lower_conforms_cyclic'` (`Drive/DriveSim.lean`) consumes an ALL-FRAMES
   `SimStmtStep` (`Sim/SimStmts.lean:66`) — a per-statement simulation with NO coupling
   antecedent. The reshaped `StmtTies'` (`Surface.lean:640`) can only conclude its arms UNDER
   the load-bearing `RecorderCoupled` antecedent (target-architecture §3); the coupling-free
@@ -47,7 +49,7 @@ in the NON-DEFAULT `WIP` lean_lib; the default `LirLean` cone stays sorry-free a
 this module.
 -/
 
-namespace Lir.V2
+namespace Lir
 
 open Evm
 open BytecodeLayer
@@ -772,7 +774,7 @@ theorem sim_sstore_stmt' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} 
   have hstacknil := hcorr.stack_nil
   -- == B1 call 1: materialise `value` from `fr`, leaving `[vw]`, carrying the coupling.
   -- The value-channel gas bound is DERIVED from the clean-halt witness. ==
-  have hevv : V2.evalExpr st obs (.tmp value) = some vw := hv
+  have hevv : Lir.evalExpr st obs (.tmp value) = some vw := hv
   have hszfr : fr.exec.stack.size = 0 := by rw [hstacknil]; rfl
   have hstkv : fr.exec.stack.size
       + (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp value)).length ≤ 1024 := by
@@ -791,7 +793,7 @@ theorem sim_sstore_stmt' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} 
   have hvpc : frv.exec.pc = fr.exec.pc + UInt32.ofNat lv := hmrv.pc
   have hvstk : frv.exec.stack = vw :: fr.exec.stack := by rw [hmrv.stack]; rfl
   -- == B1 call 2: materialise `key` from `frv`, leaving `[kw, vw]`, carrying the coupling ==
-  have hevk : V2.evalExpr st obs (.tmp key) = some kw := hk
+  have hevk : Lir.evalExpr st obs (.tmp key) = some kw := hk
   have hcsv : CleanHaltsNonException frv := cleanHaltsNonException_forward hcs hmrv.runs
   have hdk' : MatDecC prog hdc hord frv.exec.executionEnv.code frv.exec.pc (.tmp key) := by
     rw [hvcode, hvpc]; exact hdk
@@ -889,9 +891,9 @@ theorem sim_sstore_stmt' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word} 
       exact defsSoundS_preserved_step hdc (blockAt_of_toList prog L b hb) hs
         hstepS hcorr.defsSound
     · intro tw htw
-      exact hcorr.wellScoped tw (by simpa [V2.IRState.setStorage] using htw)
+      exact hcorr.wellScoped tw (by simpa [Lir.IRState.setStorage] using htw)
     · intro tw slot v hdef hloc
-      have hloc' : st.locals tw = some v := by simpa [V2.IRState.setStorage] using hloc
+      have hloc' : st.locals tw = some v := by simpa [Lir.IRState.setStorage] using hloc
       have hmembytes : (sstoreFrame frk kw vw []).exec.toMachineState.memory
           = fr.exec.toMachineState.memory := by
         rw [sstoreFrame_memory, hmrk.memBytes, hmrv.memBytes]
@@ -1248,7 +1250,7 @@ theorem sim_call_stmt' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       · -- the just-bound call-result tmp `t`: `slot' = slotOf t = slot`, `v = flag`.
         subst htw
         have hvflag : v = flag := by
-          have : st'.locals tw = some flag := by rw [hst', hr]; simp [V2.IRState.setLocal]
+          have : st'.locals tw = some flag := by rw [hst', hr]; simp [Lir.IRState.setLocal]
           rw [this] at hloc; exact (Option.some.inj hloc).symm
         have hslot'eq : slot' = slot := by
           rw [show slot = slotOf tw from rfl]
@@ -1273,7 +1275,7 @@ theorem sim_call_stmt' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       · -- another bound tmp `tw ≠ t`: unchanged value; its slot survives the disjoint MSTORE.
         have hloc0 : st.locals tw = some v := by
           rw [hst', hr] at hloc
-          simpa [V2.IRState.setLocal, htw] using hloc
+          simpa [Lir.IRState.setLocal, htw] using hloc
         obtain ⟨hcm, ham, hreal, hval⟩ := hmemRes tw slot' v hdef hloc0
         have hslot'lt256 : slot' < 2 ^ 256 := by
           have : (2 : Nat) ^ 64 ≤ 2 ^ 256 := Nat.pow_le_pow_right (by norm_num) (by norm_num)
@@ -1463,7 +1465,7 @@ theorem sim_create_stmt' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       · -- the just-bound create-result tmp `t`: `slot' = slotOf t = slot`, `v = flag`.
         subst htw
         have hvflag : v = flag := by
-          have : st'.locals tw = some flag := by rw [hst', hr]; simp [V2.IRState.setLocal]
+          have : st'.locals tw = some flag := by rw [hst', hr]; simp [Lir.IRState.setLocal]
           rw [this] at hloc; exact (Option.some.inj hloc).symm
         have hslot'eq : slot' = slot := by
           rw [show slot = slotOf tw from rfl]
@@ -1488,7 +1490,7 @@ theorem sim_create_stmt' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       · -- another bound tmp `tw ≠ t`: unchanged value; its slot survives the disjoint MSTORE.
         have hloc0 : st.locals tw = some v := by
           rw [hst', hr] at hloc
-          simpa [V2.IRState.setLocal, htw] using hloc
+          simpa [Lir.IRState.setLocal, htw] using hloc
         obtain ⟨hcm, ham, hreal, hval⟩ := hmemRes tw slot' v hdef hloc0
         have hslot'lt256 : slot' < 2 ^ 256 := by
           have : (2 : Nat) ^ 64 ≤ 2 ^ 256 := Nat.pow_le_pow_right (by norm_num) (by norm_num)
@@ -3113,4 +3115,4 @@ theorem runFrom_of_driveCorrLog {prog : Program} {params : CallParams} {log : Ru
   exact ⟨O, hcr₀, ⟨last, haltSig, hentryRun.trans hlast, hhalt, hworld, hresult⟩,
     hrunFrom, hrunAll⟩
 
-end Lir.V2
+end Lir

@@ -58,7 +58,7 @@ order — the machine's remaining gas does not increase:
 `last.exec.gasAvailable.toNat ≤ fr.exec.gasAvailable.toNat`. The `.call` case is the
 63/64 net-debit (a returning call cannot raise the caller's gas), discharged from the
 never-OutOfFuel descent machinery with **no hypothesis** beyond what `Runs.call` carries.
-This is the structural fact that makes the v2 monotone-gas-read law hold across calls. -/
+This is the structural fact that makes the monotone-gas-read law hold across calls. -/
 theorem Runs.gasAvailable_le {fr last : Frame} (h : Runs fr last) :
     last.exec.gasAvailable.toNat ≤ fr.exec.gasAvailable.toNat :=
   Hoare.Runs.gasAvailable_le h

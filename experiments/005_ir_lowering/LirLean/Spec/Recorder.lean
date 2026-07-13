@@ -1,6 +1,8 @@
 import LirLean.Spec.CallEntry
 
-namespace Lir.V2
+open Lir.Frame
+
+namespace Lir
 
 open Evm
 open BytecodeLayer
@@ -229,4 +231,4 @@ theorem observe_result (self : AccountAddress) (fr : FrameResult) :
       (if fr.toCallResult.output.isEmpty then .stopped
         else .returned (uInt256OfByteArray fr.toCallResult.output)) := rfl
 
-end Lir.V2
+end Lir

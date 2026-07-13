@@ -1,4 +1,4 @@
-# exp005 (Track C, IR→EVM): "oracle" vs "V2/observable" — comparison & recommendation
+# exp005 (Track C, IR→EVM): "oracle" vs "observable" — comparison & recommendation
 
 **For:** Eduardo (merge / keep-both / converge decision).
 **Date:** 2026-06-25. **Method:** specs-first (datatypes, oracle/event structures, headline
@@ -12,11 +12,11 @@ not side-by-side in one tree:
   merge-base `5ee984d`. Files: `LirLean/Gas.lean`, `LirLean/Call.lean`, plus oracle hooks in
   `SmallStep.lean`/`Match.lean`.
 - **Direction B (V2)** is on `exp005-ir` (worktree `…-wt/ir-lowering`). 10 commits past the same
-  merge-base, all under a fresh `LirLean/V2/` subdir. **`Gas.lean` and `Call.lean` do not exist on
+  merge-base, all under a fresh `LirLean/` subdir. **`Gas.lean` and `Call.lean` do not exist on
   this branch** — B never saw the oracle. B also carries a genuinely new exp003 lemma file,
   `BytecodeLayer/Hoare/GasMonotone.lean`, which is **absent from `main`**.
 
-So this is not "A's files vs B's `V2/` in one tree." It is two divergent branches that share only
+So this is not "A's files vs B's `` in one tree." It is two divergent branches that share only
 the pre-oracle base (`IR.lean`, `Decode.lean`, `Layout.lean`, `Lowering.lean`, the v1 gas-aware
 `SmallStep.lean`/`Match.lean`/`WorkedCall.lean`). Each branch kept that v1 base green and built its
 own line on top.
@@ -30,9 +30,9 @@ own line on top.
 | Gas | A *modeled cost*, abstracted behind `GasOracle`. IR threads a real `UInt64` gas counter (`IRState.gas`); each construct charges `oracle.{verylow,base,…}`. `evmOracle` instantiates the schedule defeq to EVM constants. | **Not modeled at all.** No counter, no charge, no `matCost`. Gas is an **observed value** the run supplies. |
 | Gas introspection (`Expr.gas`) | Reads the live counter: `evalExpr … .gas := ofUInt64 st.gas`. | Reads the next **`gasRead` event** off a trace: `evalExpr st obs .gas := obs`. The only law on those values is **monotone non-increasing** (`Trace.gasMonotone`). |
 | External calls | An *oracle effect*, `CallOracle` (post-storage / restored-gas / success-word), threaded by `IRState.applyCall`; `evmCallOracle` defines each field as a projection of exp003's `resumeAfterCall`. | An **event** (CompCert-style): `CallEvent` consumed from the transcript; the IR asserts *nothing* about `world'/success/returndata`. (Not yet built — `Event` currently has only `gasRead`; `call` is the next migration step.) |
-| Core state | `IRState { locals, storage : Word→Word, gas : UInt64, callResult : Option Word }` (`SmallStep.lean:77`). | `IRState { locals, world : World }`, `World := Word→Word` (`V2/Machine.lean:41,45`). No gas, no pc, no call-result slot. |
-| Semantics | Small-step, gas-aware (`IRConf.running L pc st`), to line up one IR step ↔ one `Runs` segment. | **Big-step**, gas-free CFG driver `RunFrom`/`IRRun` threading a `Trace` (`V2/Machine.lean:180,223`). |
-| Boundary | `Match` structure, 6 clauses incl. `M1 pc_eq` and `M4 gas_eq` (`Match.lean:124`). | `Observable { worldDelta, result }` (`V2/Machine.lean:162`). `M1`/`M4`/`M5` demoted to *internal* to the `Runs` witness; only `M3` (→`World`) and the halt result are IR-facing. |
+| Core state | `IRState { locals, storage : Word→Word, gas : UInt64, callResult : Option Word }` (`SmallStep.lean:77`). | `IRState { locals, world : World }`, `World := Word→Word` (`Machine.lean:41,45`). No gas, no pc, no call-result slot. |
+| Semantics | Small-step, gas-aware (`IRConf.running L pc st`), to line up one IR step ↔ one `Runs` segment. | **Big-step**, gas-free CFG driver `RunFrom`/`IRRun` threading a `Trace` (`Machine.lean:180,223`). |
+| Boundary | `Match` structure, 6 clauses incl. `M1 pc_eq` and `M4 gas_eq` (`Match.lean:124`). | `Observable { worldDelta, result }` (`Machine.lean:162`). `M1`/`M4`/`M5` demoted to *internal* to the `Runs` witness; only `M3` (→`World`) and the halt result are IR-facing. |
 | Prior art cited | vyper-hol (call as black box returning `CallResult`). | CompCert (calls as trace events), Verity (lower to structured target with no pc/gas), Dafny-EVM (gas separate from functional). |
 
 One-line gist: **A says "gas/calls are real, but parameterized; pin them to EVM by `rfl`."
@@ -73,12 +73,12 @@ slightly over-states; the Lean is correct. Minor.
 
 Two headline theorems, both `∃ G₀, ∀ g ≥ G₀, …` shaped, both `#print axioms`-guarded in-file.
 
-- **`lower_preserves_obs`** (`V2/Preserve.lean:586`). `∃ G₀, ∀ g ≥ G₀,
+- **`lower_preserves_obs`** (`Preserve.lean:586`). `∃ G₀, ∀ g ≥ G₀,
   IRRun protoIR w₀ [gasRead (protoObs g)] (protoObsResult w₀) ∧ LoweredRunHasObs g … `. No pc, no
   gas-equality in the statement; the only gas fact is the envelope `G₀ ≤ g`. The `gasRead` event is
   *realised* by the actual `GAS` opcode value; world agreement + completed-without-revert are the
   observable.
-- **`lower_preserves_obs_mono`** (`V2/Mono.lean:578`) — the milestone: same shape, **two** gas reads,
+- **`lower_preserves_obs_mono`** (`Mono.lean:578`) — the milestone: same shape, **two** gas reads,
   whose correctness *uses* `Trace.gasMonotone`. The monotonicity is **discharged from the bytecode
   side** (`gReads_monotone`, exact `subCharges` + `omega`), not assumed. Underpinned by
   `Runs.gasAvailable_le` in the new `BytecodeLayer/Hoare/GasMonotone.lean` (`:271`), a general
@@ -108,11 +108,11 @@ re-run the checker; the statements and proof shapes are consistent with the clai
 `Stmt`, `Term`, `CallSpec`, `Block`, `Program`), `Decode.lean`, `Layout.lean`/`pcOf` offset
 arithmetic, `Lowering.lean` (`lower : Program → ByteArray`), and the **v1 gas-aware**
 `SmallStep.lean` + `Match.lean` + `WorkedCall.lean`. Both rely on exp003's `Runs`/`messageCall_runs`
-boundary API. B's `V2/Machine.lean` re-derives a v2-local `blockAt`, `evalExpr`, `IRHalt` so it
+boundary API. B's `Machine.lean` re-derives a v2-local `blockAt`, `evalExpr`, `IRHalt` so it
 imports only `IR.lean` (deliberately *not* the gas-aware `SmallStep.lean`).
 
 **Divergent:** A adds `Gas.lean` + `Call.lean` + oracle hooks (on `main` only). B adds the entire
-`V2/` subdir + `BytecodeLayer/Hoare/GasMonotone.lean` (on `exp005-ir` only). **There is no file
+`` subdir + `BytecodeLayer/Hoare/GasMonotone.lean` (on `exp005-ir` only). **There is no file
 overlap and no co-existence in any single tree today.** The v1 `Match` (with `M1`/`M4`) is the common
 ancestor both build *away from* — A re-uses it (oracle hooks make `M4` a defeq-clean equality), B
 *demotes* `M1`/`M4`/`M5` to internal witness bookkeeping.
@@ -162,7 +162,7 @@ useful pieces in.** Reasoning:
 - §7.2 simulation direction (forward "IR ⇒ bytecode" vs converse) — B assumes forward.
 - §7.1 `World` decoupling depth (EVM-native vs observable record + lens).
 - Whether to keep A's oracle on `main` as a *parked alternative* during the transition, or excise it
-  now. My lean: keep both branches green; **don't merge A's oracle commit further**, land B's `V2/`
+  now. My lean: keep both branches green; **don't merge A's oracle commit further**, land B's ``
   onto a branch off `main`, and treat "wire real `lower` into B + build the call event (reusing A's
   projections)" as the next milestone. Converging to one (B) is the end state; until B hits
   `workedCall` parity, keep v1 `wc_preserves` as the reference both share.

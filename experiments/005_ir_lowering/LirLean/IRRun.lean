@@ -1,7 +1,7 @@
-import LirLean.V2.Law
+import LirLean.Law
 
 /-!
-# LirLean v2 — IR-run **existence** (the `hir` side of the conformance diagram)
+# LirLean — IR-run **existence** (the `hir` side of the conformance diagram)
 
 `lower_conforms` carries the IR run `IRRun prog o w₀ T O` as a structured hypothesis
 (`hir`): the IR side of the diagram, supplied for the program under study. This module
@@ -34,11 +34,11 @@ totality is tractable — banking the pieces of the "construct `hir`" milestone
 This is the **honest tractable floor** of `hir` construction. What remains (gas-read trace supply
 coupling `hir` to the recording) is described in the module-end note.
 
-Frame-free: imports only `LirLean.V2.Law` (hence `Machine`/`IR`/`Evm`) — no `BytecodeLayer`,
+Frame-free: imports only `LirLean.Law` (hence `Machine`/`IR`/`Evm`) — no `BytecodeLayer`,
 no `Frame`, no `Runs`. No `sorry`/`axiom`/`native_decide`.
 -/
 
-namespace Lir.V2
+namespace Lir
 
 open Evm
 
@@ -130,13 +130,13 @@ theorem runStmts_exists {prog : Program} {st : IRState} {T : Trace} {C : CallStr
 
 /-! ## Run-definability: the state-threaded definability supply
 
-The cyclic drive walk (`V2/DriveSim.lean`) runs each block's statements then continues at the
+The cyclic drive walk (`DriveSim.lean`) runs each block's statements then continues at the
 successor with the threaded post-statement state. To fire it needs, at each block reached, the
 operand-definedness of the statement fold *plus* the branch condition bound at the post-statement
 state. We
 supply this for **every** state (a sound over-approximation of "every reachable state"): the
 existence claim is then state-uniform, exactly matching how the former `StmtTies`/`TermTies`
-(since reshaped into the run-DERIVED `StmtTies'`/`TermTies'` in `V2/Realisability/RealisabilitySpec.lean`)
+(since reshaped into the run-DERIVED `StmtTies'`/`TermTies'` in `Realisability/RealisabilitySpec.lean`)
 were quantified over all `(L, b)`.
 
 `RunDefinable prog` bundles, for every present block:
@@ -151,7 +151,7 @@ halts). The post-statement state is `stmtsPost st b.stmts`, threaded from the ca
 every present block: statements `StmtsDefinable` from any state, plus the halt/branch operands
 bound at the post-statement state. Quantified over all states (a sound over-approximation of the
 reachable ones), matching the all-`(L,b)` quantification of the §7 ties. Consumed by the cyclic
-drive simulation (`V2/DriveSim.lean`). -/
+drive simulation (`DriveSim.lean`). -/
 structure RunDefinable (prog : Program) where
   /-- Every present block's statements are `StmtsDefinable` from any starting state. -/
   stmts : ∀ (st : IRState) (L : Label) (b : Block),
@@ -166,7 +166,7 @@ structure RunDefinable (prog : Program) where
     blockAt prog L = some b → b.term = .branch cond thenL elseL →
     ∃ cw, (stmtsPost st b.stmts).locals cond = some cw
 
-end Lir.V2
+end Lir
 
 -- Build-enforced axiom-cleanliness guards for the IR-run definability ladder: the gas-free,
 -- call-free `EvalStmt`/`RunStmts` existence lemmas and the `RunDefinable` supply depend only on

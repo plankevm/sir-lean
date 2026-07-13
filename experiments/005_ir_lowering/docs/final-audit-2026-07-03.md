@@ -15,8 +15,8 @@ is a correctness defect and none gates Phase 3.
 
 Two headlines now coexist, and the reduction is real *in the statements*:
 
-* **Prior headline, retained + quarantined.** `Lir.V2.lower_conforms_cyclic_assembled`
-  (`LirLean/V2/Drive/Headline.lean:783`) is frozen verbatim by `Audit.lean:62-104`'s
+* **Prior headline, retained + quarantined.** `Lir.lower_conforms_cyclic_assembled`
+  (`LirLean/Drive/Headline.lean:783`) is frozen verbatim by `Audit.lean:62-104`'s
   `#check` guard. Its supplied surface is large and includes the two diseased ties
   `StmtTies`/`TermTies` (`Audit.lean:76-78`), plus `blockPresent`/`jumpPresent`/
   `branchPresent`/`stkBranch`/`CallPreservesSelf`/`RunDefinable`/`DriveCorr`. This headline
@@ -24,7 +24,7 @@ Two headlines now coexist, and the reduction is real *in the statements*:
   for essentially every nonempty program). The cleanup did *not* fix it — it **relabeled it
   honestly** (`Spec/Conformance.lean:19-32, 40-45, 97-102`) and marked it superseded.
 
-* **Plan-of-record flagship, reshaped.** `Lir.V2.lowering_conforms` (R11,
+* **Plan-of-record flagship, reshaped.** `Lir.lowering_conforms` (R11,
   `RealisabilitySpec.lean:1360-1376`) supplies only: two definitional pins (`hcode`/`hmod`),
   three decidable entry facts (`hself`/`hgas`), one static checkable bundle (`hwl :
   WellLowered`), three decidable scope premises (`hsingle`/`hone`/`hclean`), one runtime
@@ -88,7 +88,7 @@ guard); R12a/R12b (`:1438, 1453`) force the flagship's antecedent true somewhere
 
 ## Q3 — Are the wave-2/3 moves faithful? YES (no added hypothesis, no weakened conclusion, cone unchanged).
 
-* **Gas-law removal** (`7685131`): `V2/Mono.lean`, `V2/Oracle.lean`, `V2/HonestGasTie.lean`
+* **Gas-law removal** (`7685131`): `Mono.lean`, `Oracle.lean`, `HonestGasTie.lean`
   deleted; `Law` narrowed to determinism. The retired object was the `∀`-over-frames
   *universal* gas tie; the point-wise `Lir.GasRealises obs fr` at a single pinned frame survives
   as a live, satisfiable def (`MaterialiseRuns.lean:553`, used at `Drive/SelfPresent.lean:216`) —
@@ -132,10 +132,10 @@ statements.
 ## Prioritized non-blocking follow-ups (hygiene, not defects)
 
 1. **Stale docstring references to deleted modules** (violates the project's own
-   sweep-on-delete rule). ~10 files carry comment references to `V2/HonestGasTie.lean`,
-   `V2/Oracle.lean`, `V2/Mono.lean`, `V2/RunLog.lean` after those files were deleted —
+   sweep-on-delete rule). ~10 files carry comment references to `HonestGasTie.lean`,
+   `Oracle.lean`, `Mono.lean`, `RunLog.lean` after those files were deleted —
    e.g. `MaterialiseRuns.lean:53,507,530,550,552`, `Drive/SelfPresent.lean:96,101` (`Oracle.
-   GasRealises` / `V2/Oracle.lean` path now `MaterialiseRuns.lean`). Sweep the paths.
+   GasRealises` / `Oracle.lean` path now `MaterialiseRuns.lean`). Sweep the paths.
 2. **`BytecodeLayer/Hoare/MemAlgebra.lean:948-976` retains 8 `#guard_msgs in #print axioms`** outside the
    "authoritative net." Harmless (still fail-hard on drift) but inconsistent with the
    "Audit.lean is the net" narrative — either fold into `Audit.lean` or note the exception in
@@ -165,18 +165,18 @@ The four non-blocking follow-ups above were triaged the same day; three are acti
 work:
 
 - **#1 (stale docstring references to deleted modules) — DONE.** The dangling comment references to
-  `V2/{HonestGasTie,Oracle,Mono,RunLog}.lean` were swept from the in-code docstrings (commit
+  `{HonestGasTie,Oracle,Mono,RunLog}.lean` were swept from the in-code docstrings (commit
   `76278be`).
 - **#3 (the prior VACUOUS headline retained) — DONE, by DELETION.** Rather than rename/quarantine it,
   the vacuous cyclic conformance headline `lower_conforms_cyclic_assembled` **and its whole apparatus**
   were **DELETED** (commits "delete vacuous conformance surface 1/4..4/4", `ba42b63..7b763dc`): also
   `_tiefree`, `lower_conforms_wf`, the `lower_conforms_acyclic*` family, `StmtTies`/`TermTies`, the
   Plus assembly, and the `Spec` `RealisabilityObligations`/`_of_obligations`/re-export layer
-  (`Spec/Conformance.lean` is now a disclaimer stub). `LirLean/V2/RealisabilitySpec.lean` (Nightly,
+  (`Spec/Conformance.lean` is now a disclaimer stub). `LirLean/RealisabilitySpec.lean` (Nightly,
   R0–R12) is now the sole conformance surface. `Audit.lean` was repointed: the deleted-decl guards and
   the flagship `#check` signature-freeze were removed; the net now pins 8 salvage lemmas +
-  `Lir.Spec.callPreservesSelf_of_precompiles`. Retained Phase-3 salvage: `Lir.V2.DriveCorrPlus` + the
-  value/gas channels in `V2/Drive/Headline.lean`, the acyclicity ⇒ `WellFormedLowered` core in
+  `Lir.Spec.callPreservesSelf_of_precompiles`. Retained Phase-3 salvage: `Lir.DriveCorrPlus` + the
+  value/gas channels in `Drive/Headline.lean`, the acyclicity ⇒ `WellFormedLowered` core in
   `Acyclic.lean`, and `Lir.CallRealises` / `Lir.WellFormedLowered` / `Lir.toList_of_blockAt`.
 - **#2 (MemAlgebra 8-axiom guards outside `Audit.lean`) — DONE, by DOCUMENTING.** The intentional-
   local-guard exception is now recorded in `docs/exec/audit-net.md` (they still fail-hard on drift;
@@ -198,7 +198,7 @@ already fire only on the top-level frame (`stack.isEmpty`).
 (`rest.isEmpty`), so it fires ONLY for the top-level program's own returning CALL — mirroring the
 gas/sload `stack.isEmpty` gates. A descended callee's inner CALLs resume on a nonempty `rest` and are
 now black-boxed structurally, exactly as `Runs.call` black-boxes them. `recordCall` itself is
-unchanged; only its two call sites are gated. (`Spec/Recorder.lean`, `V2/RealisabilitySpec.lean`;
+unchanged; only its two call sites are gated. (`Spec/Recorder.lean`, `RealisabilitySpec.lean`;
 default `lake build` stays sorry-free, `Nightly` green.)
 
 **Consequence.** R7e (`recorderCoupled_call`) now holds **UNCONDITIONALLY** — the single-call

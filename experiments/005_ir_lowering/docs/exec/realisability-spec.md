@@ -1,6 +1,6 @@
 # Track E — Realisability Spec Skeleton: design rationale (2026-07-02)
 
-Deliverable: `LirLean/V2/RealisabilitySpec.lean` (namespace `Lir.V2`), registered as the
+Deliverable: `LirLean/RealisabilitySpec.lean` (namespace `Lir`), registered as the
 NON-DEFAULT `lean_lib Nightly` in `lakefile.lean`. All `def`s/`structure`s are REAL; the
 `sorry`s are exactly the theorem proofs (R-obligations + mirror-adequacy lemmas) — tracked
 debt by design; current count 25 after the round-3 fix added R0b + the revalidates anchor
@@ -174,13 +174,13 @@ needs `BlockHeader`/`ProcessedBlocks` plumbing that belongs to the R12 grind, no
 
 ## 6. Build/verification record
 
-- `lake env lean LirLean/V2/RealisabilitySpec.lean`: clean at each of the three content
+- `lake env lean LirLean/RealisabilitySpec.lean`: clean at each of the three content
   commits (only `declaration uses 'sorry'` warnings).
 - `lake build Nightly`: **Build completed successfully (1159 jobs)**, 23 sorry warnings.
 - `lake build` (default): **Build completed successfully (1164 jobs)** — unchanged; the
   `LirLean` root does not import the new module (Track A owns its tail).
 - Track-B-casualty grep (`MonotoneGas|GasRealises|gasMonotone|driveLog_gas_inv|
-  realisedGas_monotone|geToNat|bound_mono|V2.Oracle|V2.Mono|HonestGasTie`): only prose
+  realisedGas_monotone|geToNat|bound_mono|Lir.Oracle|Lir.Mono|HonestGasTie`): only prose
   lesson-mentions in docstrings; zero declaration references.
 - No `#print axioms` in the Nightly module by design (§7 of the file): sorry'd decls carry
   `sorryAx`; guards migrate to `Audit.lean` obligation-by-obligation as sorries close.
@@ -257,7 +257,7 @@ harmless to the lowered code — the INVARIANT was overclaiming, not the lowerin
 misbehaving. **The witness `exProg` stays as is** (rebinding-with-live-dependents is why
 it caught this); the machinery, not the witness, gets reshaped.
 
-### What changed (file: `LirLean/V2/RealisabilitySpec.lean`)
+### What changed (file: `LirLean/RealisabilitySpec.lean`)
 
 1. **New shadowing-aware carrier — shape (b), an explicit invalidation set** (§1 of the
    file, after `DefsConsistent`): `ReadsOf` (static registered-reader relation),
@@ -357,7 +357,7 @@ records the strongest adversarial instance tried.
 
 ### Build/verification record (round 3)
 
-- `lake env lean LirLean/V2/RealisabilitySpec.lean`: clean — only `declaration uses
+- `lake env lean LirLean/RealisabilitySpec.lean`: clean — only `declaration uses
   'sorry'` warnings, **25** of them = 23 prior + 2 new tracked obligations (R0b
   `defsSoundS_preserved_step`, `revalidatesPerBlock_exProg`). New PROVED (non-sorry)
   anchors: `defsSoundS_empty_iff`, `not_defsSound_stale`.

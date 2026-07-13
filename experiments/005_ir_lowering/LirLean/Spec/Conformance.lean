@@ -1,6 +1,6 @@
 import LirLean.Spec.Recorder
 
-namespace Lir.V2
+namespace Lir
 
 open Evm
 open BytecodeLayer
@@ -25,4 +25,4 @@ def NoGasReads (prog : Program) : Prop :=
   ∀ (L : Label) (b : Block), blockAt prog L = some b →
     ∀ (pc : Nat) (t : Tmp) (e : Expr), b.stmts[pc]? = some (.assign t e) → e ≠ .gas
 
-end Lir.V2
+end Lir

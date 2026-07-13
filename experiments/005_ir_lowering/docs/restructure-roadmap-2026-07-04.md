@@ -16,7 +16,7 @@ a LOC/file impact, a RISK, and a GATE. Read-only synthesis of the eval + deepdiv
 
 Baseline: **51 `*.lean` files, 25 518 LOC** (`find LirLean -name '*.lean' | wc -l` = 51,
 `cat | wc -l` = 25518). Default `LirLean` lib is sorry-free; the one-file `WIP` lib
-(`lakefile.lean:31-32`, rooted at `LirLean.V2.RealisabilitySpec`) is the sole sorry-carrier
+(`lakefile.lean:31-32`, rooted at `LirLean.RealisabilitySpec`) is the sole sorry-carrier
 (11 open sorry bodies).
 
 **KIND legend:** `dead-removal` (decl has zero live callers) · `de-dup` (collapse genuine
@@ -56,7 +56,7 @@ Ranked by **(value × do-now-ability)**. "LOC" is content removed (negative) or 
 |---|---|---|---|---|---|---|
 | 1 | **Collapse the 3× SegAligned tower** into one `SegAlignedP (P)` inductive + `.mono`. `SegAligned` (`JumpValid.lean:78`), `SegAlignedSafe` (`NoCreateBytes.lean:50`), `SegAlignedLowering` (`BoundaryReach.lean:135`) are the same inductive differing only by a per-head predicate; the whole ladder (`segAligned_emitStmt` `JumpValid.lean:243` ≡ `segAlignedSafe_emitStmt` `NoCreateBytes.lean:243` ≡ `segAlignedLowering_emitStmt` `BoundaryReach.lean:282`) is re-proven line-for-line bar one `(by decide)`. Prove once at the tightest predicate `IsLoweringOp` (`BoundaryReach.lean:126-129`), derive the other two by `.mono`. | de-dup | **−700 to −730** | 0 (or −1) | LOW-MED | now |
 | 2 | **Split `RealisabilitySpec.lean` (3874 LOC)** 4 ways along existing § boundaries: `Surface` (§1-4 :114-1040, sorry-free), `Machinery` (§5 :1042-2958, holds R3/R6 sorries), `Witness` (§6a exProg+R9 :2959-3623, sorry-free), root (§6b :3624-3865, holds R10a/R11/R12a). exProg block is self-contained (exits only `exProg` + `wellLowered_exProg`/`_check_exists`). | split | 0 | +3 | LOW | leaf-checkpoint |
-| 3 | **Delete dead acyclic capstone** `Lir.lower_conforms` (`LowerConforms.lean:1188`, ~63 LOC, zero code callers — the one apparent caller `RealisabilitySpec.lean:3864` resolves to the *flagship* `Lir.V2.lower_conforms` inside `namespace Lir.V2`) **+ its sole exclusive feeder** `runWithLog_messageCall` (`RecorderLemmas.lean:143`, ~20 LOC). Both host files survive. | dead-removal | **−85** | 0 | LOW | delete-together |
+| 3 | **Delete dead acyclic capstone** `Lir.lower_conforms` (`LowerConforms.lean:1188`, ~63 LOC, zero code callers — the one apparent caller `RealisabilitySpec.lean:3864` resolves to the *flagship* `Lir.lower_conforms` inside `namespace Lir`) **+ its sole exclusive feeder** `runWithLog_messageCall` (`RecorderLemmas.lean:143`, ~20 LOC). Both host files survive. | dead-removal | **−85** | 0 | LOW | delete-together |
 | 4 | **Delete confirmed zero-ref orphans:** `SmallStep.IRConf` (`SmallStep.lean:69`) + `SmallStep.Program.stmtAt` (`SmallStep.lean:127`) (genuinely dead, only own def lines); `assign_sload_sub_key` (`LowerDecode.lean:68`, never-wired twin of used `sstore_sub_*`); `chargeOf_imm_const` (`MaterialiseGas.lean:141`, = `chargeOf_imm`); `realisedCall_projection` (`SelfPresent.lean:55`, body is literally `realisedCall_cons self hc`, flagship uses `realisedCall_cons` directly at RS:2856). | dead-removal | **−40 to −60** | LOW | now |
 | 5 | **Delete `Recorder.RunAcc`** (`Spec/Recorder.lean:113`) — `List Word × List Nat × List CallRecord` with ZERO uses as a type repo-wide (`driveLog` threads three separate args); only a stale docstring (:154) references it, and that docstring is itself wrong (says 2-tuple). | dead-removal | ~−4 | LOW | confirm-first (not reserved for a planned re-bundling) |
 
@@ -76,14 +76,14 @@ touching the open-sorry surface.
 | # | Move | Kind | LOC | Risk | Gate |
 |---|---|---|---|---|---|
 | 9 | **`Drive/Headline.lean` (~200, entirely unreferenced) + `SelfPresent.lean` §3-§4 `GasLogAligned`/`SloadLogAligned` (~230)** — header designates them "retained salvage" for the R0 reshape; the coupled run-producer `runFrom_of_driveCorrLog` (the flagship's single blocker) may or may not reuse them. Single largest deletion, but deleting salvage the reshape needs would re-open closed work. | dead-removal | −430 | HIGH uncertainty | needs-lead-decision (does the R-series gas/sload alignment channel survive the drive reshape?) |
-| 10 | **Prune v1 IR-semantics decls superseded by V2 twins** — `Match.lean` `evalExpr` (:89), `IRState` (:49), `IRHalt` (:60), `setLocal` (:101), `bindCallResult` (:110), the **Match STRUCTURE** (:125, never instantiated — `.storage_eq`/`Match.mk`/`: Match` grep empty; replaced by `Corr` `SimStmt.lean:103`), `lower_preserves_discharge/stop/ret` (:550/562/577, zero callers). Each has a live `V2.*` twin in `Spec/Semantics.lean`. **Files stay** (sim_* bricks + oracles are live). | dead-removal | −100 to −150 | MED | needs-lead-decision (v1-reference-layer scoping; confirm Law/Call anti-vacuity artifacts don't need v1) |
+| 10 | **Prune v1 IR-semantics decls superseded by V2 twins** — `Match.lean` `evalExpr` (:89), `IRState` (:49), `IRHalt` (:60), `setLocal` (:101), `bindCallResult` (:110), the **Match STRUCTURE** (:125, never instantiated — `.storage_eq`/`Match.mk`/`: Match` grep empty; replaced by `Corr` `SimStmt.lean:103`), `lower_preserves_discharge/stop/ret` (:550/562/577, zero callers). Each has a live `Lir.*` twin in `Spec/Semantics.lean`. **Files stay** (sim_* bricks + oracles are live). | dead-removal | −100 to −150 | MED | needs-lead-decision (v1-reference-layer scoping; confirm Law/Call anti-vacuity artifacts don't need v1) |
 
 ### Tier 4 — legibility-only reorg (0 LOC; the bulk of the "restructure")
 
 | # | Move | Kind | LOC | Files | Risk | Gate |
 |---|---|---|---|---|---|---|
-| 11 | **Flat → role-directory reorg** per restructure-plan §1: `Audit.lean` + 10 dirs (`Spec/ Engine/ Decode/ Frame/ Materialise/ Sim/ Assembly/ V2/ V2/Drive/ V2/Flagship/`). Corrects 4 reorg-plan mis-groupings: `DefsSound`+`CleanHaltExtract` → `Materialise/`; `RecorderLemmas` → `V2/`; split `Sim/` into `Frame/` (SmallStep/Match/Call/Create/StorageErase) vs `Sim/` (SimStmt/SimStmts/SimTerm); place `StorageErase` (reorg-plan omitted it). | relocate | 0 | 51→54 | MED (mass import rewrite) | quiet-tree, after-Tier-1-deletions |
-| 12 | **Move `V2/DriveSim.lean` → `V2/Drive/DriveSim.lean`** — a drive-layer file misfiled under `V2/`; updates importers `Drive/Headline`, `Audit`, `LirLean.lean:44`. | relocate | 0 | 0 | LOW | with #11 |
+| 11 | **Flat → role-directory reorg** per restructure-plan §1: `Audit.lean` + 10 dirs (`Spec/ Engine/ Decode/ Frame/ Materialise/ Sim/ Assembly/  Drive/ Flagship/`). Corrects 4 reorg-plan mis-groupings: `DefsSound`+`CleanHaltExtract` → `Materialise/`; `RecorderLemmas` → ``; split `Sim/` into `Frame/` (SmallStep/Match/Call/Create/StorageErase) vs `Sim/` (SimStmt/SimStmts/SimTerm); place `StorageErase` (reorg-plan omitted it). | relocate | 0 | 51→54 | MED (mass import rewrite) | quiet-tree, after-Tier-1-deletions |
+| 12 | **Move `DriveSim.lean` → `Drive/DriveSim.lean`** — a drive-layer file misfiled under ``; updates importers `Drive/Headline`, `Audit`, `LirLean.lean:44`. | relocate | 0 | 0 | LOW | with #11 |
 
 ### Tier 5 — zero-LOC hygiene / cross-repo
 
@@ -96,8 +96,8 @@ touching the open-sorry surface.
 ## 2. CREATE — first-class planned work (a `feature`, not a deletion)
 
 The lead wants CREATE built. It mirrors CALL step-for-step (the CALL ecosystem is the template:
-`Spec/IR.CallSpec` → `V2.EvalStmt.call` → `emitStmt .call` → `Call.evmCallOracle` →
-`Match.call_reflects_lowered` → `V2/CallRealises` → recorder `recordCall` → `Modellable`
+`Spec/IR.CallSpec` → `Lir.EvalStmt.call` → `emitStmt .call` → `Call.evmCallOracle` →
+`Match.call_reflects_lowered` → `CallRealises` → recorder `recordCall` → `Modellable`
 clause-1). What already exists: the whole exp003 reference layer for **both** kinds
 (`contractAddressBytes` exp003:Create.lean:22 with the salt branch; `beginCreate` total :64;
 `resumeAfterCreate` :189; `createArm` System.lean:73; the engine/`DescentKind` create layer
@@ -126,9 +126,9 @@ estimate.
 | **3** | `SmallStep.lean` | `IRState.applyCreate` (twin of `Call.IRState.applyCall` :158) + `.create` arm in the v1 line. | Low priority (v1 superseded-for-flagship) but needed to keep v1 compiling. |
 | **4** | `Spec/Lowering.lean` | `Byte.create2 := 0xf5` (:46-61); `emitStmt .create` arm emits CREATE2 only; `defsOf` create-result stash arm (:254 twin). | `defsOf` create arm forces re-proving `allocate_toDefs` (`LoweringLemmas.lean:91`, the Phase-A keystone). |
 | **5** | `Match.lean` | `sim_create` (= `Runs.create hc rest` — **unstatable without Step 0b**); `create_reflects_lowered` (twin of :519). | R3 — **NOT `rfl`-clean**: `evmCreateOracle.postStorage` reads `result.accounts` directly (Create.lean:100-101), not through `Except`-typed `resumeAfterCreate`; budget a short unfold through the 63/64 guard + `replaceStackAndIncrPC`. |
-| **6** | `V2/CreateRealises.lean` (new) + `Spec/Recorder.lean` | `evmV2CreateEntry` (twin of `evmV2CallEntry` :59); `createRealises_bridge` (twin :85); un-drop `recordCall`'s `\| .create _ => callAcc` (:172); create accumulator in `driveLog` (:186, gated on `rest.isEmpty`); `realisedCreate` projection. | Stream model per R2. |
+| **6** | `CreateRealises.lean` (new) + `Spec/Recorder.lean` | `evmV2CreateEntry` (twin of `evmV2CallEntry` :59); `createRealises_bridge` (twin :85); un-drop `recordCall`'s `\| .create _ => callAcc` (:172); create accumulator in `driveLog` (:186, gated on `rest.isEmpty`); `realisedCreate` projection. | Stream model per R2. |
 | **7** | `Decode/Modellable.lean` + `Decode/NoCreateBytes.lean` | **RETIRE the exclusion** (a *subtraction*): weaken/delete `NotCreate` (`Modellable.lean:194`, `notCreate_of_atReachableBoundary` :25, wired at RS:1255/3677); add `0xf0`/`0xf5` to `IsLoweringOp` (`BoundaryReach.lean:126-129`). | **after-#1** (SegAligned de-dup) — add CREATE to `IsLoweringOp` **once** in the merged tower instead of maintaining a CREATE-permitting `SegAlignedSafe`. |
-| **8** | `V2/RealisabilitySpec.lean` | `Conforms` (:155) + `WellLowered` (:477) shapes unchanged; add a create-cursor sibling to the R3 call tie (RS:2856) and admit CREATE boundary heads in R6 (`atReachableBoundaryVJ_*`, RS:2343-2383); extend the exProg witness (RS:2975) to exercise CREATE **last** (avoid adding sorry pressure to the 11-open flagship). | The deepest exp005 proof: a create `Corr`-re-establishment lemma (analogue of the 28-hyp `sim_call_stmt` SimStmt.lean:576) — CREATE's init-code memory window `MachineState.M … initOffset initSize` (exp003:Create.lean:207) is **nonzero**, unlike CALL's zero-window first cut, so `memAgree`/`slot_windows_disjoint` must carve out the init window. |
+| **8** | `RealisabilitySpec.lean` | `Conforms` (:155) + `WellLowered` (:477) shapes unchanged; add a create-cursor sibling to the R3 call tie (RS:2856) and admit CREATE boundary heads in R6 (`atReachableBoundaryVJ_*`, RS:2343-2383); extend the exProg witness (RS:2975) to exercise CREATE **last** (avoid adding sorry pressure to the 11-open flagship). | The deepest exp005 proof: a create `Corr`-re-establishment lemma (analogue of the 28-hyp `sim_call_stmt` SimStmt.lean:576) — CREATE's init-code memory window `MachineState.M … initOffset initSize` (exp003:Create.lean:207) is **nonzero**, unlike CALL's zero-window first cut, so `memAgree`/`slot_windows_disjoint` must carve out the init window. |
 
 ### 2.3 The two design forks to settle before coding
 
@@ -176,7 +176,7 @@ rebuild green + `WIP` after each.
 
 **Phase B — the directory reorg (Tier-4 #11 + #12; QUIET WINDOW only).** One atomic commit when no
 proof branch is open against the default cone: `git mv` per restructure-plan §1, move
-`DriveSim.lean` → `V2/Drive/`, rewrite every `import LirLean.X`, update root `LirLean.lean`
+`DriveSim.lean` → `Drive/`, rewrite every `import LirLean.X`, update root `LirLean.lean`
 (~40 imports) + `Audit.lean` (6 imports). `lake build` (default green + sorry-free) then
 `lake build WIP`.
 

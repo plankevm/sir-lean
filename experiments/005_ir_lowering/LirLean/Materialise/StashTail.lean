@@ -1,6 +1,8 @@
 import LirLean.Materialise.MaterialiseRuns
 import LirLean.Materialise.MatFoldChannel
 
+open Lir.Frame
+
 /-!
 # LirLean — the uniform **spill stash-tail** forward lemma (P1)
 
@@ -366,7 +368,7 @@ theorem stash_tail_gas (fr : Frame) (slot : Nat)
 /-! ## The SLOAD-prefix variant (the cached-SLOAD def-site stash)
 
 The spilled-SLOAD stash is `matCache k ++ [SLOAD] ++ PUSH32 slot ++ MSTORE`: materialise the
-key `k` (the fold value-channel `Lir.V2.materialise_runsC` prefix — a non-gas/non-sload `Expr`),
+key `k` (the fold value-channel `Lir.materialise_runsC` prefix — a non-gas/non-sload `Expr`),
 `SLOAD` the cell at `k`, then the core tail stashes the loaded value at `slot`. This composes
 three existing GREEN pieces — `materialise_runsC` (`Materialise/MatFoldChannel.lean`),
 `sim_sload` (the `Match` SLOAD brick), and `stash_tail_runs` — with no new spine decode
@@ -394,7 +396,7 @@ opcode groups reaches `endFr` storing `w` at `slot`, with the **honest** memory 
 theorem stash_tail_sload {prog : Program} {sloadChg : Tmp → ℕ}
     (fr frk : Frame) (k : Tmp) (keyVal w : Word) (slot : Nat) (words' : UInt64)
     (hstk : fr.exec.stack = [])
-    (hmrk : V2.MatRunsC prog sloadChg (.tmp k) keyVal fr frk)
+    (hmrk : Lir.MatRunsC prog sloadChg (.tmp k) keyVal fr frk)
     -- the activeWords-flatness residual: materialising the key did not expand memory.
     (hawk : frk.exec.toMachineState.activeWords = fr.exec.toMachineState.activeWords)
     -- the loaded value is the `Corr`/`StorageAgree` reading of the world at the key (threaded

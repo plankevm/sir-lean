@@ -7,7 +7,7 @@ refactor — reorgs need a quiet tree). Execute + push the moment foundation is 
 ## Problem
 `LirLean/` has **26 top-level `*.lean` files (13,122 lines)** in a flat pile — the byte/decode,
 materialise, simulation, and assembly layers of the lowering-correctness proof, with no directory
-structure. (The already-organized parts: `Spec/`, `Engine/`, `V2/`, `V2/Drive/`.)
+structure. (The already-organized parts: `Spec/`, `Engine/`, ``, `Drive/`.)
 
 ## Proposed structure
 Top-level `LirLean/` becomes just `Audit.lean` + these directories:
@@ -20,7 +20,7 @@ Top-level `LirLean/` becomes just `Audit.lean` + these directories:
 | `Materialise/` **(new)** | the spill/recompute value channel | MaterialiseRuns, MaterialiseGas, MaterialiseCleanHalt, MatDecLower, StashTail |
 | `Sim/` **(new)** | v1 gas-aware simulation bricks + call/create oracles | SmallStep, Match, SimStmt, SimStmts, SimTerm, Call, Create |
 | `Conformance/` **(new)** | assembled headline + direct support | LowerConforms, DefsSound, CleanHaltExtract, RecorderLemmas, Acyclic |
-| `V2/` *(exists)* + `V2/Drive/` | the gas-free spine | (unchanged) |
+| `` *(exists)* + `Drive/` | the gas-free spine | (unchanged) |
 | `Audit.lean` | axiom-guard net, imported last | (stays top-level) |
 
 Net: 26 flat files → 1 file + 7 role-directories.
@@ -33,7 +33,7 @@ Net: 26 flat files → 1 file + 7 role-directories.
 
 ## Contents will shift before execution — re-confirm the mapping at execution time
 - **Acyclic + LowerConforms** (the acyclic headline) are slated to be **dropped** (lead decision:
-  the cyclic headline dominates), so `Conformance/` shrinks — possibly to nothing, folding into `V2/`.
+  the cyclic headline dominates), so `Conformance/` shrinks — possibly to nothing, folding into ``.
 - **Create.lean** becomes **live** (the CREATE2 feature), so it stays under `Sim/` (or a `Create/`).
 - **BytecodeLayer/Hoare/** is separately slated to **graduate to exp003** (`docs/target-architecture-2026-07-02.md`).
 So run the reorg AFTER foundation + the acyclic-drop, when the final file set is settled.

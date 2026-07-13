@@ -4,7 +4,7 @@ import LirLean.Materialise.MaterialiseGas
 import LirLean.Materialise.DefsSound
 import LirLean.Decode.DecodeLower
 
-namespace Lir.V2
+namespace Lir
 
 open Evm
 
@@ -530,4 +530,4 @@ structure IRWellFormed (prog : Program) : Prop where
       ∨ (∃ cs : CreateSpec, b.stmts[pc]? = some (.create cs) ∧ cs.resultTmp = some t)) →
     slotOf t + 63 < 2 ^ 64 ∧ slotOf t < 2 ^ System.Platform.numBits
 
-end Lir.V2
+end Lir

@@ -5,6 +5,10 @@
 > `Modellable.lean` lives under `LirLean/Decode/`. References below to a future `Engine/`
 > relocation describe the historical sequencing decision, not current work.
 
+> **Namespace-fold status (2026-07-13).** The version tier has landed: the live semantics and
+> flagships now use `Lir`, while `Drive/` and `Realisability/` are top-level `LirLean/` roles.
+> The older frame-reference semantics is isolated by role under `Lir.Frame`.
+
 > **P9 status note (2026-07-08).** The Phase 2A legacy-deletion pass has landed: `Expr.slot`,
 > `materialiseExpr`, `materialise`, `recomputeFuel`, `MatFueled`, `Assembly/Acyclic.lean`, and
 > `NoSlotSource` are gone. References below to those symbols are historical planning context unless
@@ -46,7 +50,7 @@ Two standing decisions from Eduardo folded in:
 - **5.9** — `DriveSim.lean:672` calls `lower_conforms_cyclic'`'s `RunDefinable` premise "benign
   well-formedness"; it is unsatisfiable for any call/create/gas program. Amend to state the
   pure-fragment restriction and point to `RunDefinableG` (Surface.lean:153).
-- **5.12** — one stale-ref commit: `V2/Machine.lean`/`LirLean/Match.lean` pre-reorg paths
+- **5.12** — one stale-ref commit: `Machine.lean`/`LirLean/Match.lean` pre-reorg paths
   (Call.lean:7/10/23, CallRealises.lean:11, DriveSim.lean:63, SelfPresent.lean:184,
   Surface.lean:882/893, Semantics.lean:27); `LirLean/Decode.lean` (Lowering.lean:25-27); "16 lowering
   opcodes" → 18 post-CREATE/CREATE2 (SegAligned.lean:14/29, BoundaryReach.lean:23-30/118-124 — the
@@ -131,11 +135,11 @@ Spec import inversion (5.10) as a side effect. Leave only sorry'd theorems in th
 - **#5** `Decode/LoweringLemmas.lean` (zero geometry; `allocate_toDefs`, `defsOf_ne_*`) → Materialise/
   or a Spec companion. *Note: partly obsoleted by 2A — `allocate_toDefs`/`defsOf_ne_*` shrink or
   vanish when `Expr.slot` goes. Consider deferring this into 2A rather than moving-then-deleting.*
-- **#6** `Spec/Recorder.lean`: `gasReadOf`/`FramesRun` (:65-73, its own relocation comment) → V2/;
+- **#6** `Spec/Recorder.lean`: `gasReadOf`/`FramesRun` (:65-73, its own relocation comment) → ;
   the admitted `GasMonotone` plumbing import (:2-5) → import directly in DriveSim. Deflates the
   trusted import cone.
 - **#7 / 5.7** `Spec/Seams.lean`: **landed in the post-P9 cleanup.** The live
-  `PrecompileAssumptions`/`ReachableFrom` vocabulary now lives there under `Lir.V2`, and
+  `PrecompileAssumptions`/`ReachableFrom` vocabulary now lives there under `Lir`, and
   `PrecompileAssumptions.noErase` is definitionally the trusted
   `Lir.Spec.PrecompilesPreservePresence` shape. The old `AcyclicWellFormed` factoring idea is
   obsolete: `WellFormedLowered` is rebuilt from `IRWellFormed` + budgets, while P9 deleted the
@@ -214,7 +218,7 @@ layer (Phase 4), which owns pc/offset algebra; end state = flagship premise is j
 
 ### 2C. Shrink the dead v1 coupling surface (smell 5.5, misplacement #8)
 
-`Lir.Match` (Frame/Match.lean:126), `IRState.callResult/createResult`,
+`Lir.Frame.Match` (Frame/Match.lean:126), `IRState.callResult/createResult`,
 `bindCallResult/bindCreateResult` (SmallStep.lean:57-124), `applyCall`/`applyCreate`
 (Call.lean:158, Create.lean:131): **zero consumers** (live path is the V2 stream pop,
 Semantics.lean:207-235); the CREATE mirror was *added* to the dead channel in bbd9578. Fix docstring
@@ -235,10 +239,10 @@ track. *Touches a producer file — batch with 2A/2B.*
 
 ## Phase 3 — renames & cosmetic (after Phase 1 settles Spec)
 
-- **3A (D6)** the V2 fossil: `Lir.V2` → `Lir` (or `Lir.Oracle`); folder `V2/` → role names;
-  `GasOracle` → `GasStream`, delete the `Trace` alias (Semantics.lean:76-78); `(T,C,D)` positional
-  threading → a `Streams` record. One dedicated tree-wide commit; nothing load-bearing depends on the
-  string "V2".
+- **3A (D6), namespace/folder portion LANDED:** the version namespace and directory tier are gone;
+  `Drive/` and `Realisability/` are role-named top-level directories. Remaining independent cleanup:
+  `GasOracle` → `GasStream`, delete the `Trace` alias (Semantics.lean:76-78), and replace `(T,C,D)`
+  positional threading with a `Streams` record.
 - **3B** folder charters: `Assembly/` → `CfgSim/` (nothing assembles bytes); `Decode/` →
   `CodeGeometry/`. Do with 3A.
 - **5.13 grab-bag** as encountered: unify the 4 staging namespaces; retire the vestigial `WellFormed`
@@ -264,7 +268,7 @@ which subsumes 2B and is the final home for `Loc`/`Alloc` placement and the pc/o
 2. **1B + 1C** (WellFormed/budgets + Spec hoist part 1) — the flagship-honesty + R6-blocker-half win.
 3. **1D, 1E** — structural tidy, green-parallel (defer #5 into 2A).
 4. **producer-quiescent window → 2A + 2B + 2C + 2D** as one coordinated value-channel batch.
-5. **3A + 3B** — renames, after Spec settles.
+5. **3A remainder + 3B** — remaining renames, after Spec settles.
 6. Phase 4 at the exp005→real-thing merge.
 
 1A–1E run alongside the R11 producer; Phase 2 is the only hard ordering constraint (don't churn the

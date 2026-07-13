@@ -1,7 +1,7 @@
 # exp005 overnight handoff (2026-06-29)
 
 Branch `ir-convergence`; worktree `.../evm-semantics-wt/ir-lowering`. Single file
-touched all night: `LirLean/V2/TieDischarge.lean`. `main` untouched, nothing pushed.
+touched all night: `LirLean/TieDischarge.lean`. `main` untouched, nothing pushed.
 
 **Build state (re-verified just now): `Build completed successfully (1158 jobs)`.**
 All touched `#print axioms` lines = `[propext, Classical.choice, Quot.sound]` (the two pure

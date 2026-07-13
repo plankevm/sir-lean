@@ -1,11 +1,13 @@
-import LirLean.V2.RecorderLemmas
+import LirLean.RecorderLemmas
 import LirLean.Materialise.MaterialiseRuns
 import BytecodeLayer.Hoare.AccountMap
 
-/-!
-# LirLean v2 — the recorded-run value-channel discharges + `SelfPresent` (`Drive/SelfPresent`)
+open Lir.Frame
 
-The recorder/IR-coupled half of the former `V2/TieDischarge.lean` §1–§5 (decl names and
+/-!
+# LirLean — the recorded-run value-channel discharges + `SelfPresent` (`Drive/SelfPresent`)
+
+The recorder/IR-coupled half of the former `TieDischarge.lean` §1–§5 (decl names and
 namespaces unchanged):
 
 * **§1 CALL** — `realisedCall_projection`: the recorded-CALL projection heads `evmV2CallEntry`
@@ -29,7 +31,7 @@ the `callPreservesSelf` chain over `BytecodeLayer/Hoare/DriveMono.lean`'s Brick 
 No `sorry`/`axiom`/`native_decide`; axioms `[propext, Classical.choice, Quot.sound]`.
 -/
 
-namespace Lir.V2
+namespace Lir
 
 open Evm
 open GasConstants
@@ -86,12 +88,12 @@ theorem gasReadOf_gasFrame_eq_obs (fr : Frame) :
 
 The coupling between the recorder's gas accumulator and the GAS-frames the drive walk visits, and
 the foundational per-op step that advances both in lockstep. We reuse the now-deleted
-`V2/Oracle.lean` `GasRealises` witness shape (`T = frs.map gasReadOf ∧ FramesRun frs`) directly. -/
+`Oracle.lean` `GasRealises` witness shape (`T = frs.map gasReadOf ∧ FramesRun frs`) directly. -/
 
 /-- **The gas-log alignment invariant.** A `driveLog` accumulator `gasAcc` is *aligned* with a
 witness list of GAS-frames `frs` (the post-charge frames at each recorded GAS site, in program
 order, `Runs`-threaded) when it is exactly their reported words. This is the now-deleted
-`V2/Oracle.lean` `GasRealises` read
+`Oracle.lean` `GasRealises` read
 as an invariant on the recorder's accumulator: `gasAcc = frs.map gasReadOf` (positional
 read-equality) together with `FramesRun frs` (the frames `Runs`-threaded). The drive walk threads
 this alongside the `DriveCorr` cursor; §3's foundational steps show one op preserves it. -/
@@ -153,7 +155,7 @@ theorem gasLogAligned_step_norecord {gasAcc : List Word} {frs : List Frame}
 
 /-! ### Projecting list-level alignment back to a per-cursor `obs` tie
 
-The now-deleted `V2/Oracle.lean` `GasRealises (frs.map gasReadOf) frs` (which `GasLogAligned gasAcc frs` packages, with
+The now-deleted `Oracle.lean` `GasRealises (frs.map gasReadOf) frs` (which `GasLogAligned gasAcc frs` packages, with
 `gasAcc = frs.map gasReadOf`) is the *list*-level realisability. The §7 per-cursor tie is the
 `obs`-form `Lir.GasRealises obs fr` at each GAS cursor `fr`. The bridge for a single read is
 `gasReadOf_gasFrame_eq_obs`: at the GAS cursor frame, the matching list entry `gasReadOf (gasFrame
@@ -316,7 +318,7 @@ block walk threads: `alignedSload_read_eq_obs` gives `sloadAcc[i] = sloadCost (g
 and `SloadRealises` at `g` (same address, bound key) gives `sloadChg k = sloadCost (g.substate …
 key)`. (As for GAS, the converse — a multi-entry list with distinct charges — is the standing
 obstacle, needing the `Corr` per-cursor refactor.) -/
-theorem sloadRealises_charge_of_witness {sloadChg : Tmp → ℕ} {st : V2.IRState}
+theorem sloadRealises_charge_of_witness {sloadChg : Tmp → ℕ} {st : Lir.IRState}
     {sloadAcc : List Nat} {frs : List Frame} {i : Nat} {g fr : Frame} {k : Tmp} {key : Word}
     (halign : SloadLogAligned sloadAcc frs)
     (hwit : frs[i]? = some g)
@@ -420,6 +422,6 @@ theorem selfPresent_codeFrame (params : Evm.CallParams) (code : ByteArray) {acc 
     · rw [accounts_find?_insert_of_ne _ _ (fun hc => hcr hc.symm)]
       exact ⟨_, hrec₁⟩
 
-end Lir.V2
+end Lir
 
 -- Build-enforced axiom-cleanliness guards for the value-channel discharges.

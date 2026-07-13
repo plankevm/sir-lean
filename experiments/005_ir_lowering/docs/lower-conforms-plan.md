@@ -121,8 +121,8 @@ the IR-run hypothesis `hir` (no bytecode→IR `RunFrom` synthesis). No
 
 SELF-CONTAINMENT PASS (2026-06-26): two residuals of `lower_conforms_acyclic` discharged for the
 single-halting-block fragment, banked as corollaries (`LirLean/Acyclic.lean`).
-- **`hir` (constructed, not assumed)** — `LirLean/V2/IRRun.lean` builds the IR-run EXISTENCE
-  ladder (frame-free, imports only `V2.Law`): `evalStmt_exists` (gas-free non-call step total on
+- **`hir` (constructed, not assumed)** — `LirLean/IRRun.lean` builds the IR-run EXISTENCE
+  ladder (frame-free, imports only `Lir.Law`): `evalStmt_exists` (gas-free non-call step total on
   `StmtDefinable`), `runStmts_exists` (gas-free call-free list, threaded `StmtsDefinable`),
   `runFrom_exists_stop`/`_ret` + `irRun_exists_stop`/`_ret` (single halting block — the DAG base
   case, no CFG measure needed). `lower_conforms_acyclic_stop` delegates to `lower_conforms_acyclic`
@@ -141,7 +141,7 @@ single-halting-block fragment, banked as corollaries (`LirLean/Acyclic.lean`).
   recorded one, hence carries the recorded gas/warmth/storage). This same lemma supplies the
   general (multi-block, gas-reading) `hir` trace `realisedGas log`. Multi-block `hir` *also* needs
   a CFG-acyclicity *block*-rank measure (distinct from `Acyclic.lean`'s def-graph rank) — see
-  `V2/IRRun.lean`'s closing note (items 1–3).
+  `IRRun.lean`'s closing note (items 1–3).
 
 ## Deferred channels (separate milestones)
 - **Value channel** (`returned w` ↔ RETURN window): needs `ret` lowering → `MSTORE`+`RETURN(off,32)`, new
@@ -155,7 +155,7 @@ single-halting-block fragment, banked as corollaries (`LirLean/Acyclic.lean`).
 ## Missing scaffolding (multi-node)
 the assembly engine (D1+F1); B1+B2; B3 + gas-recompute coherence (`WellFormed`); A2/A3 anchors; E3
 jump-validity; `RunFrom` determinism (DONE, `Law.lean`) / totality (single-block DONE,
-`V2/IRRun.lean`; multi-block needs a CFG block-rank measure); a generic `paramsFor` (DONE,
+`IRRun.lean`; multi-block needs a CFG block-rank measure); a generic `paramsFor` (DONE,
 `LowerConforms.lean`). **THE remaining deep node: a forward-simulation aligning IR-run frames with
 `drive`/`runWithLog` frames** — the source of the gas-envelope / SLOAD/GAS/SSTORE recording-
 correspondence ties AND the general `hir` trace (`realisedGas log`).

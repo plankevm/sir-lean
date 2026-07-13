@@ -8,11 +8,11 @@ were traced by repo-wide `grep -rn` over `LirLean/`, not just the import graph.
 
 * **Import-clean / IR-agnostic — confirmed.** Every Engine file imports ONLY the exp003
   bytecode layer (`Evm`, `BytecodeLayer.*`) or a sibling Engine file. Zero `import
-  LirLean.Spec.*` / `LirLean.V2.*` / any IR module. So Engine is a genuine reusable sublayer
+  LirLean.Spec.*` / `LirLean.*` / any IR module. So Engine is a genuine reusable sublayer
   with **no upward (IR) import dependency** — it can graduate to exp003 as-is on the import
   axis.
 * **Namespace leakage — the one real blemish.** The *content* is IR-agnostic but 5 of 8
-  files sit in the experiment namespace `Lir.V2` (`AccountMap`, part of `StepWalk`, part of
+  files sit in the experiment namespace `Lir` (`AccountMap`, part of `StepWalk`, part of
   `Descent`, `DriveMono`, `CleanHalt`). Graduation to exp003 requires renamespacing. The two
   files already in exp003-appropriate namespaces are `DriveRuns` (`BytecodeLayer.Interpreter`)
   and the inversion halves of `StepWalk`/`Descent` (`namespace Evm`). `AccountMap` carries
@@ -20,7 +20,7 @@ were traced by repo-wide `grep -rn` over `LirLean/`, not just the import graph.
   `Lir`, `MemAlgebra` in `LirLean.MemAlgebra`.
 * **All eight files are `sorry`-free and axiom-clean** (`[propext, Classical.choice,
   Quot.sound]`). The only `sorry` tokens are inside docstrings asserting cleanliness. The WIP
-  sorry-carrier is `V2/RealisabilitySpec.lean`, not here. `MemAlgebra` even ships `#print
+  sorry-carrier is `RealisabilitySpec.lean`, not here. `MemAlgebra` even ships `#print
   axioms` build guards on its crux results.
 * **The cluster is really 4 independent leaves + one 4-file chain**, not one monolith (see
   §sub-DAG). "Engine" is an altitude grouping, not a dependency component.
@@ -30,25 +30,25 @@ were traced by repo-wide `grep -rn` over `LirLean/`, not just the import graph.
 ## Per-file sections
 
 Role legend: **terminal-for-flagship** = consumed (transitively) by the in-progress
-`Lir.V2.lower_conforms`; **shared-infra** = building block used by multiple sibling lemmas in
+`Lir.lower_conforms`; **shared-infra** = building block used by multiple sibling lemmas in
 the same file/cluster; **scaffold-experimental** = green + in build cone but no consumer yet,
 by design a hook for a planned feature (first-class CREATE); **incremental-toward-X** = feeds a
 single named lemma; **needs-confirmation** = plausibly superseded but retained as a checked
 deliverable — flagged conservatively, NOT asserted dead.
 
-### `BytecodeLayer/Hoare/AccountMap.lean` (145 LOC, `namespace Lir.V2`)
+### `BytecodeLayer/Hoare/AccountMap.lean` (145 LOC, `namespace Lir`)
 
 Purpose: pure `Evm.AccountMap` presence bricks — the RBMap non-emptiness prims and the
 arbitrary-address presence layer (`AccPresent`/`AccMono`) that the accMono dispatch walk
 (`StepWalk`) and drive-run monotonicity (`DriveMono`) consume. Extracted verbatim from the
-retired `V2/TieDischarge.lean` monolith; marked for exp003 relocation.
+retired `TieDischarge.lean` monolith; marked for exp003 relocation.
 
 | decl | kind | role | callers |
 |---|---|---|---|
-| `forM_from_nil` | theorem | shared-infra (RBMap `all₂`-vs-nil short-circuit) | `all2_nil_false`:62; `V2/Drive/SelfPresent.lean` |
-| `all2_nil_false` | theorem | shared-infra | `find?_some_ne_empty`:84; `V2/Drive/SelfPresent.lean` |
-| `find?_some_ne_empty` | theorem | shared-infra (find-hit ⇒ ≠∅) | `accPresent_ne_empty`:128; `V2/Drive/SelfPresent.lean` |
-| `AccPresent` | def | terminal-for-flagship (presence predicate) | `StepWalk`, `Descent`, `DriveMono`, `Spec/Seams`, `V2/RealisabilitySpec`, `V2/Drive/CallPreservesSelf` |
+| `forM_from_nil` | theorem | shared-infra (RBMap `all₂`-vs-nil short-circuit) | `all2_nil_false`:62; `Drive/SelfPresent.lean` |
+| `all2_nil_false` | theorem | shared-infra | `find?_some_ne_empty`:84; `Drive/SelfPresent.lean` |
+| `find?_some_ne_empty` | theorem | shared-infra (find-hit ⇒ ≠∅) | `accPresent_ne_empty`:128; `Drive/SelfPresent.lean` |
+| `AccPresent` | def | terminal-for-flagship (presence predicate) | `StepWalk`, `Descent`, `DriveMono`, `Spec/Seams`, `RealisabilitySpec`, `Drive/CallPreservesSelf` |
 | `AccMono` | def | incremental-toward-`StepWalk`/`DriveMono` step framing | no external ref found (used only as the shape behind the `hmono` seams; see note) |
 | `accounts_find?_insert_mono` | theorem | terminal-for-flagship (Brick A) | `StepWalk`, `Descent`, `DriveMono` |
 | `accPresent_ne_empty` | theorem | shared-infra (Brick B) | `accMono_emptySwap`:142 (in-file) |
@@ -62,7 +62,7 @@ AccPresent … → AccPresent …` rather than through the `AccMono` abbreviatio
 never via this abbrev). Conservative classification: incremental/vestigial-abbrev — needs
 confirmation before removal (harmless, one line).
 
-### `BytecodeLayer/Hoare/StepWalk.lean` (1336 LOC, `namespace Lir.V2` + `namespace Evm`)
+### `BytecodeLayer/Hoare/StepWalk.lean` (1336 LOC, `namespace Lir` + `namespace Evm`)
 
 Purpose: THE per-opcode `.next` dispatch walk (CALLMONO Brick C) proving every non-halting
 `stepFrame` step preserves (a) `executionEnv.address` and (b) account-presence at any tracked
@@ -73,11 +73,11 @@ every program. Also hosts the accounts/env framing prims and the halt-success pr
 |---|---|---|---|
 | `charge_accounts_env` | theorem | shared-infra | `Descent`:60,71 + in-file |
 | `chargeMemExpansion_accounts_env` | theorem | shared-infra | `Descent`:200 + in-file |
-| `SelfAt` | def | terminal-for-flagship (self-presence pred) | `V2/Drive/CallPreservesSelf`; in-file `stepFrame_next_self` |
-| `resumeAfterCall_address` | theorem | shared-infra (`rfl` fact) | `CallPreservesSelf`, `V2/RealisabilitySpec` |
+| `SelfAt` | def | terminal-for-flagship (self-presence pred) | `Drive/CallPreservesSelf`; in-file `stepFrame_next_self` |
+| `resumeAfterCall_address` | theorem | shared-infra (`rfl` fact) | `CallPreservesSelf`, `RealisabilitySpec` |
 | `resumeAfterCall_accounts` | theorem | shared-infra | `Descent`, `DriveMono`, `CallPreservesSelf` |
-| `endCall_revert_accounts` | theorem | shared-infra | `DriveMono`:80, `V2/Drive/SelfPresent` |
-| `endCall_exception_accounts` | theorem | shared-infra | `DriveMono`:81, `V2/Drive/SelfPresent` |
+| `endCall_revert_accounts` | theorem | shared-infra | `DriveMono`:80, `Drive/SelfPresent` |
+| `endCall_exception_accounts` | theorem | shared-infra | `DriveMono`:81, `Drive/SelfPresent` |
 | `continueWith_next` | theorem | shared-infra (in-file, ~26 uses) | in-file dispatch arms only |
 | `replaceStackAndIncrPC_accounts` | theorem | shared-infra | in-file |
 | `accMono_replaceOfBase` | theorem | shared-infra | in-file |
@@ -86,8 +86,8 @@ every program. Also hosts the accounts/env framing prims and the halt-success pr
 | `dispatch_simple_arm_next_accMono` | theorem | shared-infra (simple-op template) | in-file (~10 arms) |
 | `pushOp/unStateOp/charge_sstore/charge_tstore/unOp/binOp/ternOp/dup/swap/logArm/callArm/createArm/systemOp/smsfOp_next_accMono` | theorems | shared-infra (per-family `.next` arms) | in-file `dispatch_next_accMono` |
 | `dispatch_next_accMono` | theorem | shared-infra (the whole dispatch) | in-file `stepFrame_next_*` |
-| `stepFrame_next_execEnvAddr` | theorem | terminal-for-flagship | `CallPreservesSelf`, `V2/RealisabilitySpec` |
-| `stepFrame_next_accMono` | theorem | terminal-for-flagship (Brick C cap) | `CallPreservesSelf`, `DriveMono`:238, `BoundaryReach`, `V2/RealisabilitySpec` |
+| `stepFrame_next_execEnvAddr` | theorem | terminal-for-flagship | `CallPreservesSelf`, `RealisabilitySpec` |
+| `stepFrame_next_accMono` | theorem | terminal-for-flagship (Brick C cap) | `CallPreservesSelf`, `DriveMono`:238, `BoundaryReach`, `RealisabilitySpec` |
 | `stepFrame_next_self` | theorem | terminal-for-flagship (`a:=self` corollary) | `CallPreservesSelf` |
 | `selfdestructOp/returnOrRevertOp/haltOp/systemOp_success_accMono` | theorems | shared-infra (halt-success arms) | in-file `stepFrame_halted_success_accMono` |
 | `stepFrame_halted_success_accMono` | theorem | terminal-for-flagship (halt-success cap) | `CallPreservesSelf` |
@@ -97,7 +97,7 @@ and closes via `continueWith_next` / `dispatch_simple_arm_next_accMono` or the `
 closer); they exist solely to assemble `dispatch_next_accMono`. Not dead — this is one proof
 sharded by opcode family.
 
-### `BytecodeLayer/Hoare/Descent.lean` (570 LOC, `namespace Evm` + `namespace Lir.V2`)
+### `BytecodeLayer/Hoare/Descent.lean` (570 LOC, `namespace Evm` + `namespace Lir`)
 
 Purpose: the per-kind CALL/CREATE descent structural facts (signal → begin → child run →
 resume), plus the `DescentKind` interface unifying CALL and CREATE as ONE descent shape. The
@@ -108,7 +108,7 @@ CALL/CREATE `stepFrame` inversions are load-bearing for the drive presence walk;
 |---|---|---|---|
 | `callArm_needsCall_inv` | theorem | incremental-toward-`systemOp_needsCall_inv` | in-file :97 |
 | `systemOp_needsCall_inv` | theorem | incremental-toward-`stepFrame_needsCall_inv` | in-file :114 |
-| `stepFrame_needsCall_inv` | theorem | terminal-for-flagship | `DriveMono`, `CallPreservesSelf`, `V2/RealisabilitySpec`; in-file `callDescent` |
+| `stepFrame_needsCall_inv` | theorem | terminal-for-flagship | `DriveMono`, `CallPreservesSelf`, `RealisabilitySpec`; in-file `callDescent` |
 | `createArm_needsCreate_inv` | theorem | incremental-toward-`systemOp_needsCreate_inv` | in-file :203,230 |
 | `systemOp_needsCreate_inv` | theorem | incremental-toward-`stepFrame_needsCreate_inv` | in-file :243 |
 | `stepFrame_needsCreate_inv` | theorem | terminal-for-flagship (CREATE presence, via DriveMono) | `DriveMono`:277, `CallPreservesSelf`; in-file `createDescent` |
@@ -139,7 +139,7 @@ scaffold-experimental / incremental-toward-first-class-CREATE, **NOT** dead. In 
 CREATE inversion reaches the flagship via `DriveMono.drive_accounts_find_mono` →
 `CallPreservesSelf` → `SelfPresent`).
 
-### `BytecodeLayer/Hoare/DriveMono.lean` (294 LOC, `namespace Lir.V2`)
+### `BytecodeLayer/Hoare/DriveMono.lean` (294 LOC, `namespace Lir`)
 
 Purpose: Brick D — account-presence monotone across a whole `drive` run
 (`drive_accounts_find_mono`), the engine-level fact the `.success` shape of `CallPreservesSelf`
@@ -198,7 +198,7 @@ Selected key decls:
 | `resumeAfterCall_mload` | theorem | needs-confirmation (CALL-memory-preservation crux) | none |
 | `resumeAfterCall_memory` / `_activeWords` | theorems | incremental-toward-`resumeAfterCall_mload` (dead-ends there) | in-file `resumeAfterCall_mload`:90-91 |
 
-### `BytecodeLayer/Hoare/CleanHalt.lean` (103 LOC, `namespace Lir.V2`)
+### `BytecodeLayer/Hoare/CleanHalt.lean` (103 LOC, `namespace Lir`)
 
 Purpose: the clean-halt SCOPE predicates. `CleanHalts` (reaches some `.halted`) is the drive
 well-foundedness witness; `CleanHaltsNonException` (reaches `.success`/`.revert`, not
@@ -212,7 +212,7 @@ opcode's gas/memory envelope. This is one of the most widely consumed engine fil
 | `haltNonException_success` | theorem | shared-infra | in-file `cleanHaltsNonException_of_success` |
 | `haltNonException_revert` | theorem | shared-infra | in-file |
 | `CleanHaltsNonException` | def | terminal-for-flagship (honest scope) | 9 files (sim tower + flagship) |
-| `cleanHalts_forward` | theorem | terminal-for-flagship (forward split) | `CleanHaltExtract`, `V2/Drive/Headline` |
+| `cleanHalts_forward` | theorem | terminal-for-flagship (forward split) | `CleanHaltExtract`, `Drive/Headline` |
 | `cleanHaltsNonException_forward` | theorem | terminal-for-flagship | 9 files (sim tower + flagship) |
 | `cleanHaltsNonException_toCleanHalts` | theorem | shared-infra (forgetful) | `CleanHaltExtract` |
 | `cleanHaltsNonException_of_success` | theorem | shared-infra (success builder) | `CleanHaltExtract` |
@@ -226,14 +226,14 @@ Already exp003-namespaced; imports only the bytecode layer. This is the honest s
 
 | decl | kind | role | callers |
 |---|---|---|---|
-| `drive_append_framing_lt` | theorem | incremental-toward-`drive_descend_lt` | in-file :119; `V2/RealisabilitySpec` |
+| `drive_append_framing_lt` | theorem | incremental-toward-`drive_descend_lt` | in-file :119; `RealisabilitySpec` |
 | `drive_descend_lt` | theorem | shared-infra (well-founded descent) | in-file `runs_of_drive_ok`:353 |
 | `ModellableStep` | def | terminal-for-flagship (scope marker) | `Decode/Modellable`; in-file |
 | `drive_error_oof` | theorem | shared-infra (only-OOF errors) | in-file :201,342 |
-| `child_terminates` | theorem | shared-infra | in-file :329; `V2/RealisabilitySpec` |
+| `child_terminates` | theorem | shared-infra | in-file :329; `RealisabilitySpec` |
 | `framed_oof_of_standalone_oof` | theorem | incremental-toward-`child_ne_oof_of_framed` | in-file :260 |
-| `child_ne_oof_of_framed` | theorem | shared-infra | in-file :339; `V2/RealisabilitySpec` |
-| `runs_of_drive_ok` | theorem | terminal-for-flagship (reverse construction) | `Decode/Modellable`, `V2/DriveSim`, `V2/RealisabilitySpec` |
+| `child_ne_oof_of_framed` | theorem | shared-infra | in-file :339; `RealisabilitySpec` |
+| `runs_of_drive_ok` | theorem | terminal-for-flagship (reverse construction) | `Decode/Modellable`, `DriveSim`, `RealisabilitySpec` |
 
 ---
 
@@ -254,22 +254,22 @@ clean-sublayer property, confirmed.
 
 Outgoing (exit) edges — where Engine feeds the rest of the tree:
 
-* `AccountMap` → `V2/Drive/SelfPresent`, `Spec/Seams`, `V2/Drive/CallPreservesSelf`,
-  `V2/RealisabilitySpec` (via `AccPresent`, `find?_some_ne_empty`, `forM_from_nil`,
+* `AccountMap` → `Drive/SelfPresent`, `Spec/Seams`, `Drive/CallPreservesSelf`,
+  `RealisabilitySpec` (via `AccPresent`, `find?_some_ne_empty`, `forM_from_nil`,
   `all2_nil_false`, `accounts_find?_insert_mono`).
-* `StepWalk` → `V2/Drive/CallPreservesSelf`, `V2/RealisabilitySpec`, `BoundaryReach` (Brick C
+* `StepWalk` → `Drive/CallPreservesSelf`, `RealisabilitySpec`, `BoundaryReach` (Brick C
   caps + `SelfAt` + `resumeAfterCall_address`).
-* `Descent` → `V2/Drive/CallPreservesSelf`, `V2/RealisabilitySpec` (the two `stepFrame_needs*_inv`
+* `Descent` → `Drive/CallPreservesSelf`, `RealisabilitySpec` (the two `stepFrame_needs*_inv`
   + `beginCall_inl_*`).
-* `DriveMono` → `V2/Drive/SelfPresent`, `V2/Drive/CallPreservesSelf` (Brick D + `DrivePresent`
+* `DriveMono` → `Drive/SelfPresent`, `Drive/CallPreservesSelf` (Brick D + `DrivePresent`
   family).
 * `CleanHalt` → the entire sim tower + flagship (9 files) — scope predicates.
-* `DriveRuns` → `Decode/Modellable`, `V2/DriveSim`, `V2/RealisabilitySpec` — reverse construction.
+* `DriveRuns` → `Decode/Modellable`, `DriveSim`, `RealisabilitySpec` — reverse construction.
 * `MemAlgebra` → `MaterialiseRuns`, `SimStmt`, `SimTerm`, `Match`, `StashTail`, `MatDecLower`,
   `LowerDecode`, `DecodeLower`, `Spec/Recorder` — value/memory channel.
 * `Charges` → `MaterialiseGas` — gas channel.
 
-Every terminal exit lands (transitively) at `Lir.V2.lower_conforms` EXCEPT the `DescentKind`
+Every terminal exit lands (transitively) at `Lir.lower_conforms` EXCEPT the `DescentKind`
 scaffold block in `Descent` (no exit — future CREATE hook).
 
 ---
@@ -305,7 +305,7 @@ not "delete".
    one-liner; flag for confirmation, not urgent.
 
 4. **Namespace graduation debt (refactor, not deletion).** For the planned exp003 graduation of
-   Engine, the `Lir.V2`-namespaced files (`AccountMap`, `StepWalk`, `Descent` lower half,
+   Engine, the `Lir`-namespaced files (`AccountMap`, `StepWalk`, `Descent` lower half,
    `DriveMono`, `CleanHalt`) need renamespacing to an engine/exp003 namespace. `AccountMap`
    already flags this (`-- RELOCATE to exp003 (audit §7)`). `DriveRuns` and the `Evm`-namespaced
    inversions are already graduation-ready. No behaviour change; pure hygiene.

@@ -1,5 +1,5 @@
 import LirLean.Assembly.LowerConforms
-import LirLean.V2.IRRun
+import LirLean.IRRun
 import BytecodeLayer.Hoare.DriveRuns
 import LirLean.Decode.Modellable
 -- `Runs.gasAvailable_le` (used below in the gas-descent measure) lives here; imported
@@ -7,12 +7,14 @@ import LirLean.Decode.Modellable
 -- free of this exp003 gas-monotonicity dependency).
 import BytecodeLayer.Hoare.GasMonotone
 
+open Lir.Frame
+
 /-!
-# LirLean v2 — drive-indexed forward simulation, cyclic-CFG construction (`DriveSim`, F1–F3)
+# LirLean — drive-indexed forward simulation, cyclic-CFG construction (`DriveSim`, F1–F3)
 
 The **cyclic** CFG construction
 (`experiments/005_ir_lowering/docs/cyclic-cfg-forward-sim-plan.md`). The acyclic
-`runFrom_exists` (`V2/IRRun.lean`) builds the IR `RunFrom` by a *static* control-flow
+`runFrom_exists` (`IRRun.lean`) builds the IR `RunFrom` by a *static* control-flow
 block-rank (`CFGAcyclic`), which has no measure across a back-edge ⇒ no loops. This module
 replaces that static measure with the **dynamic bytecode `totalGas`** (`Interpreter/Measure`),
 which strictly descends per block *regardless of CFG cycles* — every block runs at least its
@@ -64,10 +66,10 @@ the cyclic-general headline `lower_conforms_cyclic` (F3) — **`CFGAcyclic` reti
   log` plus the non-exception scope premise).
 
 Bytecode-coupled (imports the Layer C–E bricks via `LowerConforms`); nothing here touches
-`Spec/Semantics.lean` / `V2/Law.lean` / `BytecodeLayer/Hoare/MemAlgebra.lean`. No `sorry`/`axiom`/`native_decide`.
+`Spec/Semantics.lean` / `Law.lean` / `BytecodeLayer/Hoare/MemAlgebra.lean`. No `sorry`/`axiom`/`native_decide`.
 -/
 
-namespace Lir.V2
+namespace Lir
 
 open Evm
 open BytecodeLayer
@@ -79,7 +81,7 @@ open Lir
 
 `CleanHalts` / `CleanHaltsNonException` and their forward splits live in `experiments/003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean`
 (upstream of both this drive walk and the `SimStmts` per-statement induction, so they are visible
-to the whole tower). `open Lir.V2` (this namespace) brings them into scope here. -/
+to the whole tower). `open Lir` (this namespace) brings them into scope here. -/
 
 /-- **The drive-boundary invariant `DriveCorr`.** At a block-entry frame (working stack `[]`),
 the bytecode frame `fr` is `Corr`-aligned with the IR cursor `(L, st)` at the entry cursor
@@ -89,7 +91,7 @@ measure is `fr`'s `totalGas` (`totalGas [] (.inl fr) = fr.exec.gasAvailable.toNa
 per-cursor §7 extractor (`CleanHaltExtract`) DERIVE each lowered opcode's gas/mem envelope — a
 genuine OOG/exception run, un-modellable by the gas-agnostic IR, is the honest scope boundary. -/
 structure DriveCorr (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
-    (st : V2.IRState) (fr : Frame) (L : Label) : Prop where
+    (st : Lir.IRState) (fr : Frame) (L : Label) : Prop where
   /-- The `Corr` boundary at the block-entry cursor `(L, 0)`. -/
   corr : Corr prog sloadChg obs (fun _ => False) st fr L 0
   /-- `fr`'s remaining bytecode run reaches a clean **non-exception** `.halted` outcome. -/
@@ -227,13 +229,13 @@ whose `observe self` **world** is `st'.world`, AND the IR halts: `RunFrom prog o
 .stopped⟩` (constructed here via `RunFrom.stop`). The terminator world-channel brick is supplied as
 `hterm` (exactly `sim_term_halt_stop`'s conclusion). -/
 theorem drive_step_block_stop {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {self : AccountAddress} {st st' : V2.IRState} {T T' : Trace} {C C' : CallStream}
+    {self : AccountAddress} {st st' : Lir.IRState} {T T' : Trace} {C C' : CallStream}
     {D D' : CreateStream} {L : Label} {b : Block} {fr : Frame}
     (hsim : SimStmtStep prog sloadChg obs L b)
     (hb : blockAt prog L = some b)
     (hdrive : DriveCorr prog sloadChg obs st fr L)
     (hbterm : b.term = .stop)
-    (hrunstmts : V2.RunStmts prog st T C D b.stmts st' T' C' D')
+    (hrunstmts : Lir.RunStmts prog st T C D b.stmts st' T' C' D')
     -- the terminator world-channel brick (supplied — `sim_term_halt_stop`):
     (hterm : ∀ frT : Frame, Corr prog sloadChg obs (fun _ => False) st' frT L b.stmts.length →
       ∃ last haltSig, Runs frT last ∧ stepFrame last = .halted haltSig
@@ -254,13 +256,13 @@ the operand `st'.locals t = some w` bound at the post-statement state: the IR ha
 what this driver arm forwards; the returned-value channel — now live in `observe` and proven by
 `sim_term_halt_ret` — rides the `Conforms` result conjunct downstream, not this world-only brick.) -/
 theorem drive_step_block_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {self : AccountAddress} {st st' : V2.IRState} {T T' : Trace} {C C' : CallStream}
+    {self : AccountAddress} {st st' : Lir.IRState} {T T' : Trace} {C C' : CallStream}
     {D D' : CreateStream} {L : Label} {b : Block} {t : Tmp} {w : Word} {fr : Frame}
     (hsim : SimStmtStep prog sloadChg obs L b)
     (hb : blockAt prog L = some b)
     (hdrive : DriveCorr prog sloadChg obs st fr L)
     (hbterm : b.term = .ret t)
-    (hrunstmts : V2.RunStmts prog st T C D b.stmts st' T' C' D')
+    (hrunstmts : Lir.RunStmts prog st T C D b.stmts st' T' C' D')
     (hv : st'.locals t = some w)
     (hterm : ∀ frT : Frame, Corr prog sloadChg obs (fun _ => False) st' frT L b.stmts.length →
       ∃ last haltSig, Runs frT last ∧ stepFrame last = .halted haltSig
@@ -290,7 +292,7 @@ post-statement frame `frT`): the forward run, the `Gjumpdest` gas margin at the 
 landing pc (`target`'s block offset), the code / valid-jumps / stack / can-modify pins, the
 storage lens against `st'`, the pre-entry `MemRealises`, and the `JUMPDEST` decode. Named so a
 clause reorder does not ripple across the (previously positional) destructurings. -/
-structure JumpdestLanding (prog : Program) (st' : V2.IRState) (frT fj : Frame) (target : Label) :
+structure JumpdestLanding (prog : Program) (st' : Lir.IRState) (frT fj : Frame) (target : Label) :
     Prop where
   runs       : Runs frT fj
   gas        : GasConstants.Gjumpdest ≤ fj.exec.gasAvailable.toNat
@@ -322,14 +324,14 @@ The decode/gas/jump-validity bundle for the terminator and the `Gjumpdest` margi
 are supplied as the structured `hjump` hypothesis (the §7 ties), exactly as `sim_term_edge_jump`
 takes them; `hjump` is dischargeable for a concrete program from `jump_to_block`'s internals. -/
 theorem drive_step_block_jump {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st st' : V2.IRState} {T : Trace} {C C' : CallStream} {D D' : CreateStream}
+    {st st' : Lir.IRState} {T : Trace} {C C' : CallStream} {D D' : CreateStream}
     {L : Label} {b : Block} {dst : Label} {bdst : Block} {fr : Frame}
     (hsim : SimStmtStep prog sloadChg obs L b)
     (hb : blockAt prog L = some b)
     (hbdst : prog.blocks.toList[dst.idx]? = some bdst)
     (hdrive : DriveCorr prog sloadChg obs st fr L)
     (hterm : b.term = .jump dst)
-    (hrunstmts : V2.RunStmts prog st T C D b.stmts st' T C' D')
+    (hrunstmts : Lir.RunStmts prog st T C D b.stmts st' T C' D')
     -- the terminator §7 bundle (supplied): the post-statement `Corr`-frame `frT` runs the
     -- lowered `PUSH4 dest ; JUMP ; ⟨land⟩ JUMPDEST` to the successor's `JUMPDEST` landing `fj`,
     -- with enough gas at the landing. The data `jump_to_block` + `corr_at_jumpdest_landing`
@@ -395,13 +397,13 @@ when `cw ≠ 0`, `succ = elseL` when `cw = 0`), with:
 The cond-materialise/`JUMPI`/landing bundle is supplied as `hbranch` (the §7 ties), exactly as
 `sim_term_edge_branch` takes them; it resolves the taken successor and exposes `fj`. -/
 theorem drive_step_block_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st st' : V2.IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
+    {st st' : Lir.IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
     {L : Label} {b : Block} {cond : Tmp} {cw : Word} {thenL elseL : Label} {fr : Frame}
     (hsim : SimStmtStep prog sloadChg obs L b)
     (hb : blockAt prog L = some b)
     (hdrive : DriveCorr prog sloadChg obs st fr L)
     (hterm : b.term = .branch cond thenL elseL)
-    (hrunstmts : V2.RunStmts prog st T C D b.stmts st' T' C' D')
+    (hrunstmts : Lir.RunStmts prog st T C D b.stmts st' T' C' D')
     (hc : st'.locals cond = some cw)
     -- the terminator §7 bundle (supplied): the post-statement `Corr`-frame `frT` runs the lowered
     -- cond-materialise + `JUMPI` to the TAKEN successor's `JUMPDEST` landing `fj`, with the taken
@@ -464,13 +466,13 @@ The trace `T'` / IR state `st'` of the edge are existential here (the F1 steps r
 the supplied IR block run); the recursion only consumes the `totalGas` descent and the two
 `RunFrom` pieces. -/
 def DriveStep (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
-    (st : V2.IRState) (fr : Frame) (L : Label) (T : Trace) (C : CallStream)
+    (st : Lir.IRState) (fr : Frame) (L : Label) (T : Trace) (C : CallStream)
     (D : CreateStream) : Prop :=
   -- halt arm: the block bottoms out, IR halts at `O` matching the bytecode world.
-  (∃ O : V2.Observable, RunFrom prog st T C D L O)
+  (∃ O : Lir.Observable, RunFrom prog st T C D L O)
   ∨
   -- edge arm: a strictly-smaller successor boundary + the IR continuation.
-  (∃ (st' : V2.IRState) (T' : Trace) (C' : CallStream) (D' : CreateStream)
+  (∃ (st' : Lir.IRState) (T' : Trace) (C' : CallStream) (D' : CreateStream)
       (succ : Label) (fr' : Frame),
       DriveCorr prog sloadChg obs st' fr' succ
     ∧ totalGas [] (.inl fr') < totalGas [] (.inl fr)
@@ -482,7 +484,7 @@ def DriveStep (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
 it **at one block** from: `DriveCorr` at `L`; the block present (`blockAt prog L = some b`); the
 per-block §7 ties (`SimStmtStep` for the statements, and — dispatched on `b.term` — the halt
 world-channel brick / the `jump`/`branch` edge bundles that `drive_step_block_*` consume); and the
-static **operand-definability** `RunDefinable` (`V2/IRRun.lean`). Note this is **not** benign:
+static **operand-definability** `RunDefinable` (`IRRun.lean`). Note this is **not** benign:
 `StmtDefinable` is `False` for `.call`/`.create` and excludes `.gas`, so `RunDefinable prog` is
 UNSATISFIABLE for any program touching those channels — it silently restricts the caller to the
 PURE fragment (the honest gas/call-aware replacement is `RunDefinableG`, Spec/WellFormed.lean). The
@@ -504,7 +506,7 @@ run is `runStmts_exists`; the conclusion is the halt disjunct for `stop`/`ret`, 
 for `jump`/`branch`. -/
 theorem driveStep_of_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {self : AccountAddress}
-    {st : V2.IRState} {fr : Frame} {L : Label} {T : Trace} {C : CallStream} {D : CreateStream}
+    {st : Lir.IRState} {fr : Frame} {L : Label} {T : Trace} {C : CallStream} {D : CreateStream}
     {b : Block}
     (hb : blockAt prog L = some b)
     (hdrive : DriveCorr prog sloadChg obs st fr L)
@@ -534,7 +536,7 @@ theorem driveStep_of_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word
   -- run the block's statements forward (gas-free / call-free / create-free, definable from any
   -- state — so the gas trace `T`, the call stream `C` AND the create stream `D` are threaded
   -- unchanged).
-  have hrunstmts : V2.RunStmts prog st T C D b.stmts (stmtsPost st b.stmts) T C D :=
+  have hrunstmts : Lir.RunStmts prog st T C D b.stmts (stmtsPost st b.stmts) T C D :=
     runStmts_exists (hdef.stmts st L b hb)
   set st' := stmtsPost st b.stmts with hst'
   -- dispatch on the terminator shape.
@@ -578,10 +580,10 @@ express and what retires it. -/
 some observable `O`. Proved by strong induction on the bytecode `totalGas` measure (which strictly
 descends per block, `totalGas_succ_lt`), so it holds for **cyclic** CFGs — no `CFGAcyclic`. -/
 theorem runFrom_of_driveCorr {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    (hstep : ∀ (st : V2.IRState) (fr : Frame) (L : Label) (T : Trace) (C : CallStream)
+    (hstep : ∀ (st : Lir.IRState) (fr : Frame) (L : Label) (T : Trace) (C : CallStream)
         (D : CreateStream),
       DriveCorr prog sloadChg obs st fr L → DriveStep prog sloadChg obs st fr L T C D) :
-    ∀ (st : V2.IRState) (fr : Frame) (L : Label) (T : Trace) (C : CallStream) (D : CreateStream),
+    ∀ (st : Lir.IRState) (fr : Frame) (L : Label) (T : Trace) (C : CallStream) (D : CreateStream),
       DriveCorr prog sloadChg obs st fr L → ∃ O, RunFrom prog st T C D L O := by
   -- strong induction on the bytecode `totalGas` measure of the boundary frame.
   intro st fr L T C D hdrive
@@ -617,14 +619,14 @@ entry `Corr` + the entry `CleanHalts`; F2 yields `∃ O, RunFrom … prog.entry 
 to the bytecode halt's world. -/
 theorem lower_conforms_cyclic {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {self : AccountAddress}
-    {st₀ : V2.IRState} {T : Trace} {C : CallStream} {D : CreateStream} {fr₀ : Frame}
+    {st₀ : Lir.IRState} {T : Trace} {C : CallStream} {D : CreateStream} {fr₀ : Frame}
     -- the entry boundary: `Corr` at `(prog.entry, 0)` + the run clean-halts NON-EXCEPTIONALLY
     -- (honest scope: the run reaches a `.success`/`.revert` terminal — not a genuine
     -- OOG/exception, which the gas-agnostic IR cannot model).
     (hentry : Corr prog sloadChg obs (fun _ => False) st₀ fr₀ prog.entry 0)
     (hclean : CleanHaltsNonException fr₀)
     -- the per-block drive obligation at every reachable boundary (the §7 ties, supplied):
-    (hstep : ∀ (st : V2.IRState) (fr : Frame) (L : Label) (T : Trace) (C : CallStream)
+    (hstep : ∀ (st : Lir.IRState) (fr : Frame) (L : Label) (T : Trace) (C : CallStream)
         (D : CreateStream),
       DriveCorr prog sloadChg obs st fr L → DriveStep prog sloadChg obs st fr L T C D)
     -- the `sim_cfg` per-block ties (supplied — charged later):
@@ -632,7 +634,7 @@ theorem lower_conforms_cyclic {prog : Program} {sloadChg : Tmp → ℕ} {obs : W
       SimStmtStep prog sloadChg obs L b)
     (hterm : ∀ (L : Label) (b : Block), blockAt prog L = some b →
       SimTermStep prog sloadChg obs self L b) :
-    ∃ O : V2.Observable,
+    ∃ O : Lir.Observable,
       (∃ last haltSig, Runs fr₀ last ∧ stepFrame last = .halted haltSig
         ∧ (observe self (endFrame last haltSig)).world = O.world)
       ∧ RunFrom prog st₀ T C D prog.entry O := by
@@ -660,17 +662,17 @@ families (`hhalt`/`hjumpPresent`/`hjump`/`hbranch`, quantified over all `(st, L,
 supplied. -/
 theorem lower_conforms_cyclic' {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {self : AccountAddress}
-    {st₀ : V2.IRState} {T : Trace} {C : CallStream} {D : CreateStream} {fr₀ : Frame}
+    {st₀ : Lir.IRState} {T : Trace} {C : CallStream} {D : CreateStream} {fr₀ : Frame}
     (hentry : Corr prog sloadChg obs (fun _ => False) st₀ fr₀ prog.entry 0)
     (hclean : CleanHaltsNonException fr₀)
-    -- static operand-definability `RunDefinable` (`V2/IRRun.lean`). NOT benign: `StmtDefinable`
+    -- static operand-definability `RunDefinable` (`IRRun.lean`). NOT benign: `StmtDefinable`
     -- is `False` for `.call`/`.create` and excludes `.gas`, so this premise is UNSATISFIABLE for
     -- any program using those channels — it restricts `lower_conforms_cyclic'` to the PURE
     -- fragment. The honest gas/call-aware replacement is `RunDefinableG` (Spec/WellFormed.lean).
     (hdef : RunDefinable prog)
     -- block presence at every reachable boundary (the CFG is closed; `Corr`'s `pc_eq` alone does
     -- not pin `L` in range, so presence is supplied — vacuous wherever no `DriveCorr` is reached):
-    (hpresent : ∀ (st : V2.IRState) (fr : Frame) (L : Label),
+    (hpresent : ∀ (st : Lir.IRState) (fr : Frame) (L : Label),
       DriveCorr prog sloadChg obs st fr L → ∃ b, blockAt prog L = some b)
     -- the per-statement tie (`sim_cfg`'s + `driveStep_of_block`'s):
     (hstmts : ∀ (L : Label) (b : Block), blockAt prog L = some b →
@@ -678,7 +680,7 @@ theorem lower_conforms_cyclic' {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
     (hterm : ∀ (L : Label) (b : Block), blockAt prog L = some b →
       SimTermStep prog sloadChg obs self L b)
     -- the halt world-channel brick, at every block / post-statement frame:
-    (hhalt : ∀ (st : V2.IRState) (L : Label) (b : Block), blockAt prog L = some b →
+    (hhalt : ∀ (st : Lir.IRState) (L : Label) (b : Block), blockAt prog L = some b →
       ∀ frT : Frame, Corr prog sloadChg obs (fun _ => False) (stmtsPost st b.stmts) frT L b.stmts.length →
         ∃ last haltSig, Runs frT last ∧ stepFrame last = .halted haltSig
           ∧ (observe self (endFrame last haltSig)).world = (stmtsPost st b.stmts).world)
@@ -687,12 +689,12 @@ theorem lower_conforms_cyclic' {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
       ∀ (dst : Label), b.term = .jump dst →
         ∃ bdst : Block, prog.blocks.toList[dst.idx]? = some bdst)
     -- the `jump` edge bundle, at every block / post-statement frame:
-    (hjump : ∀ (st : V2.IRState) (L : Label) (b : Block), blockAt prog L = some b →
+    (hjump : ∀ (st : Lir.IRState) (L : Label) (b : Block), blockAt prog L = some b →
       ∀ (dst : Label), b.term = .jump dst →
       ∀ frT : Frame, Corr prog sloadChg obs (fun _ => False) (stmtsPost st b.stmts) frT L b.stmts.length →
         ∃ fj : Frame, JumpdestLanding prog (stmtsPost st b.stmts) frT fj dst)
     -- the `branch` edge bundle, at every block / post-statement frame:
-    (hbranch : ∀ (st : V2.IRState) (L : Label) (b : Block), blockAt prog L = some b →
+    (hbranch : ∀ (st : Lir.IRState) (L : Label) (b : Block), blockAt prog L = some b →
       ∀ (cond : Tmp) (thenL elseL : Label) (cw : Word),
       b.term = .branch cond thenL elseL →
       (stmtsPost st b.stmts).locals cond = some cw →
@@ -701,7 +703,7 @@ theorem lower_conforms_cyclic' {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
           ((succ = thenL ∧ cw ≠ 0) ∨ (succ = elseL ∧ cw = 0))
           ∧ prog.blocks.toList[succ.idx]? = some bsucc
           ∧ JumpdestLanding prog (stmtsPost st b.stmts) frT fj succ) :
-    ∃ O : V2.Observable,
+    ∃ O : Lir.Observable,
       (∃ last haltSig, Runs fr₀ last ∧ stepFrame last = .halted haltSig
         ∧ (observe self (endFrame last haltSig)).world = O.world)
       ∧ RunFrom prog st₀ T C D prog.entry O := by
@@ -713,7 +715,7 @@ theorem lower_conforms_cyclic' {prog : Program} {sloadChg : Tmp → ℕ} {obs : 
   exact driveStep_of_block (self := self) hb hdrive (hstmts L b hb) hdef
     (hhalt st L b hb) (hjumpPresent L b hb) (hjump st L b hb) (hbranch st L b hb)
 
-end Lir.V2
+end Lir
 
 -- Build-enforced axiom-cleanliness guards for the cyclic-CFG deliverables: the strict `totalGas`
 -- descent, the four per-block drive steps, the F2 recursion (`runFrom_of_driveCorr`) and the F3

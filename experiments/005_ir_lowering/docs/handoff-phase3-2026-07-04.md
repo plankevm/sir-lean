@@ -1,7 +1,7 @@
 # Handoff — exp005 Phase 3, Round 4 (the home stretch) — 2026-07-04
 
 You are picking up the exp005 IR→EVM lowering-conformance proof. Phase 3 (proving the R0–R12
-obligation skeleton in `LirLean/V2/RealisabilitySpec.lean`) is **13 `sorry`s from done**. Your
+obligation skeleton in `LirLean/RealisabilitySpec.lean`) is **13 `sorry`s from done**. Your
 job: launch and drive **Round 4** (the last major fan-out), merging between waves, until the
 flagship `lowering_conforms` is proven (or down to a short named punch list).
 
@@ -14,7 +14,7 @@ flagship `lowering_conforms` is proven (or down to a short named punch list).
   `lake build` (default `LirLean`) = 1172 jobs, GREEN and **sorry-free** (invariant: keep it so —
   you only ever edit the Nightly file). `lake build Nightly` = 1166 jobs green (the 13 sorries are
   the tracked Phase-3 debt). The `.lake` there is WARM.
-- **The only file Phase-3 proofs edit** is `LirLean/V2/RealisabilitySpec.lean` (the `Nightly`
+- **The only file Phase-3 proofs edit** is `LirLean/RealisabilitySpec.lean` (the `Nightly`
   lean_lib). The default target `LirLean` must stay sorry-free.
 
 ## What is already CLOSED (real, axiom-clean `[propext, Classical.choice, Quot.sound]`)
@@ -77,7 +77,7 @@ lemma blocks at the same spot"**: resolve by KEEPING BOTH (remove the `<<<`/`===
 unless it's a genuine dedup (two tracks edited the same decl — keep the owner's). After merging:
 `lake build` (default, must be green + sorry-free) AND `lake build Nightly` (green); then do an
 INDEPENDENT `#print axioms` on any newly-closed load-bearing decl (append `#print axioms
-Lir.V2.<decl>` to the Nightly file, `lake build Nightly`, grep, then `git checkout` the file).
+Lir.<decl>` to the Nightly file, `lake build Nightly`, grep, then `git checkout` the file).
 Commit the merge, then `git worktree remove --force` + `git branch -D` the retired tracks.
 
 **Step 4 — iterate**: whatever leaf didn't close (likely R3 and/or R6) gets a focused follow-up

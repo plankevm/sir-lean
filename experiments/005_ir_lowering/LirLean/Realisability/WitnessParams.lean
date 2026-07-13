@@ -1,7 +1,7 @@
-import LirLean.V2.Realisability.Witness
+import LirLean.Realisability.Witness
 
 /-!
-# LirLean v2 — Realisability spec, WITNESS PARAMS (R12a's concrete run)
+# LirLean — Realisability spec, WITNESS PARAMS (R12a's concrete run)
 
 The concrete `CallParams` witness for `exProg_satisfies_hypotheses` (R12a,
 `RealisabilitySpec.lean`) and the sorry-free machinery its conjuncts need. This module
@@ -72,7 +72,7 @@ arithmetic pin — and transports the verdicts to `exCheck = true` (`exCheck_tru
 (`[propext, Classical.choice, Quot.sound]` — no `sorryAx`, no `ofReduceBool`).
 -/
 
-namespace Lir.V2
+namespace Lir
 
 open Evm
 open BytecodeLayer
@@ -630,4 +630,4 @@ theorem exProg_satisfies_hypotheses_of_checks
         callsCode := callsCode_of_entryCheck hcc
         createResolves := createResolves_of_entryCheck hcc }⟩
 
-end Lir.V2
+end Lir

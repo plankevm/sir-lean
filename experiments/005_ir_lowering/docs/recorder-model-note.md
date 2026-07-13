@@ -1,7 +1,7 @@
 # Recorder model note — ungated `recordCall` and the `rest.isEmpty` gate
 
 Date: 2026-07-03. Branch `p3/recorder`, commit `82e7453`. Files: `LirLean/Spec/Recorder.lean`,
-`LirLean/V2/RealisabilitySpec.lean`. Companion to `docs/gas-decision.md` (the recorder is the
+`LirLean/RealisabilitySpec.lean`. Companion to `docs/gas-decision.md` (the recorder is the
 log-producer that decision feeds the oracles from) and `docs/target-architecture-2026-07-02.md` §3/§12.
 
 ## The finding

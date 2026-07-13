@@ -9,11 +9,11 @@ All evidence gathered. Composing the report now.
 > `Expr.slot`, `materialiseExpr`, `recomputeFuel`, `MatFueled`, `Assembly/Acyclic.lean`, or
 > `NoSlotSource` are not current APIs.
 
-*Design-track report (1 of 5). All paths relative to `/Users/eduardo/workspace/evm-semantics/.worktrees/ir-lowering/experiments/005_ir_lowering/` unless noted. Line numbers verified against branch `exp005-honesty-cleanup` post-Phase-1 (TieDischarge.lean = 4507 lines; headline `lower_conforms_cyclic_assembled` at `LirLean/V2/TieDischarge.lean:4292`, tie-free form at `:4175`).*
+*Design-track report (1 of 5). All paths relative to `/Users/eduardo/workspace/evm-semantics/.worktrees/ir-lowering/experiments/005_ir_lowering/` unless noted. Line numbers verified against branch `exp005-honesty-cleanup` post-Phase-1 (TieDischarge.lean = 4507 lines; headline `lower_conforms_cyclic_assembled` at `LirLean/TieDischarge.lean:4292`, tie-free form at `:4175`).*
 
 ## 0. Executive summary and two findings the audit understated
 
-The good news: **all the raw material for the ideal flagship already exists in green form.** `lower_conforms_wf` (`LirLean/LowerConforms.lean:1438`) already takes `runWithLog p (seedFuel p.gas) = some log` and concludes `O.world = (observe self log.observable).world` — but it *supplies* the IR run `hir` and the ties. The cyclic headline (`TieDischarge.lean:4292`) *constructs* the IR run but does not touch `runWithLog`. The ideal flagship is the pushout of these two: entry facts from the recorder (`cleanHalts_of_runWithLog`, `LirLean/V2/DriveSim.lean:141` + `entry_corr`, `LowerConforms.lean:~1101`), run construction from the cyclic driver, ties **built** from the log. No new architecture is required — only the Phase-3 realisability closure, plus one signature-level reshape.
+The good news: **all the raw material for the ideal flagship already exists in green form.** `lower_conforms_wf` (`LirLean/LowerConforms.lean:1438`) already takes `runWithLog p (seedFuel p.gas) = some log` and concludes `O.world = (observe self log.observable).world` — but it *supplies* the IR run `hir` and the ties. The cyclic headline (`TieDischarge.lean:4292`) *constructs* the IR run but does not touch `runWithLog`. The ideal flagship is the pushout of these two: entry facts from the recorder (`cleanHalts_of_runWithLog`, `LirLean/DriveSim.lean:141` + `entry_corr`, `LowerConforms.lean:~1101`), run construction from the cyclic driver, ties **built** from the log. No new architecture is required — only the Phase-3 realisability closure, plus one signature-level reshape.
 
 Two findings that sharpen the audit's "conditional headline" verdict:
 
@@ -24,9 +24,9 @@ Two findings that sharpen the audit's "conditional headline" verdict:
 - `StmtTies` assign conjunct (`:1275-1283`): `st0'` is quantified with **no** `EvalStmt` antecedent, and the conclusion demands `MemRealises prog st0' fr0` — by `MemRealises` (`MaterialiseRuns.lean:601`, `st.locals t = some v → mload slot = v`), choosing `st0'` binding a spilled tmp to two different values forces `mload slot` to equal both. Unsatisfiable for **any program with any spilled tmp** (gas/sload/call results are all spilled by `defsOf`, `Lowering.lean:243`).
 - `TermTies` stop/ret conjuncts (`:1347-1352`, `:1353-1377`): demand `self = frT.exec.executionEnv.address ∧ (∃ cp, frT.kind = .call cp) ∧ accounts ≠ ∅` for **every** `Corr`-related `frT` — but `Corr` pins neither address nor kind, so a constructed frame with a different address refutes it.
 
-Consequence: the current headline is not just "conditional on un-built inputs"; for every gas-, sload-, spill- or stop-using program its antecedent is **false**, i.e. the theorem is vacuous on exactly the interesting domain. This is the same disease `HonestGasTie.lean` documents for the retired `Lir.GasRealises` universal ("a single fixed word, universal over frames, unsatisfiable" — `V2/HonestGasTie.lean:20-35`), re-created one level up. It is fixed by the reshape in §3 plus threading the address/kind/presence facts through the walk invariant (§5, decision 4).
+Consequence: the current headline is not just "conditional on un-built inputs"; for every gas-, sload-, spill- or stop-using program its antecedent is **false**, i.e. the theorem is vacuous on exactly the interesting domain. This is the same disease `HonestGasTie.lean` documents for the retired `Lir.GasRealises` universal ("a single fixed word, universal over frames, unsatisfiable" — `HonestGasTie.lean:20-35`), re-created one level up. It is fixed by the reshape in §3 plus threading the address/kind/presence facts through the walk invariant (§5, decision 4).
 
-**(F2) The headline's IR trace `T` is universally quantified** (`TieDischarge.lean:4294`, `{T : Trace}` implicit, conclusion `RunFrom prog o st₀ T prog.entry O`). A theorem provable "for any gas stream whatsoever" is only possible because the vacuous ties rewrite every consumed read; the honest flagship must pin `T := realisedGas log` and `o := realisedCall log self`. Related: `callOracleOf` (`V2/RunLog.lean:263-266`) reads **only the first** `CallRecord` — the log-fed call oracle is correct only for single-CALL programs (documented, but it caps the flagship's scope and should be surfaced in the statement or generalized; see §2.3).
+**(F2) The headline's IR trace `T` is universally quantified** (`TieDischarge.lean:4294`, `{T : Trace}` implicit, conclusion `RunFrom prog o st₀ T prog.entry O`). A theorem provable "for any gas stream whatsoever" is only possible because the vacuous ties rewrite every consumed read; the honest flagship must pin `T := realisedGas log` and `o := realisedCall log self`. Related: `callOracleOf` (`RunLog.lean:263-266`) reads **only the first** `CallRecord` — the log-fed call oracle is correct only for single-CALL programs (documented, but it caps the flagship's scope and should be surfaced in the statement or generalized; see §2.3).
 
 ---
 
@@ -35,7 +35,7 @@ Consequence: the current headline is not just "conditional on un-built inputs"; 
 ### 1.1 Helper definitions (spec-file material, all `Prop`/`def` one-liners)
 
 ```lean
-namespace Lir.V2
+namespace Lir
 
 /-- The IR entry state of a top-level call: empty locals, world = the recipient's
 storage lens of the pre-call accounts. Replaces the supplied `hstore : StorageAgree …`
@@ -45,11 +45,11 @@ def entryState (params : Evm.CallParams) : IRState :=
 
 /-- The recorded run halted cleanly: `.success`/`.revert`, not OOG/exception.
 DECIDABLE ON THE LOG — replaces the `∀ last halt, Runs … → HaltNonException halt`
-premise of `cleanHalts_of_runWithLog` (`V2/DriveSim.lean:146`). -/
+premise of `cleanHalts_of_runWithLog` (`DriveSim.lean:146`). -/
 def RunLog.clean (log : RunLog) : Prop := ResultNonException log.observable   -- decidable
 
 /-- Observable agreement, world channel (halt-result channel: documented empty-RETURN
-cut, `V2/RunLog.lean:296-299`). -/
+cut, `RunLog.lean:296-299`). -/
 def Conforms (self : AccountAddress) (log : RunLog) (O : Observable) : Prop :=
   O.world = (observe self log.observable).world
 
@@ -57,7 +57,7 @@ def Conforms (self : AccountAddress) (log : RunLog) (O : Observable) : Prop :=
 intended to be decidable (`wellLowered_of_check : lowerCheck prog = true → WellLowered prog`). -/
 structure WellLowered (prog : Program) : Prop where
   wf      : WellFormedLowered prog          -- LowerConforms.lean:143 (P8: pc/offset/slot)
-  defs    : RunDefinable prog               -- V2/IRRun.lean:257 (operand definability)
+  defs    : RunDefinable prog               -- IRRun.lean:257 (operand definability)
   entry0  : prog.entry.idx = 0
   closed  : ClosedCFG prog                  -- entry + every jump/branch target present
                                             -- (folds hpresent/hjumpPresent/hbranchPresent)
@@ -104,7 +104,7 @@ theorem lowering_conforms
 This is Eduardo's target sentence verbatim: *"lowering the program to bytecode and collecting the logs for external calls and gas and then supplying those values through our executable IR semantics yields the same observables."* One runtime premise (`hrun`), one decidable scope premise (`hclean`), one decidable static bundle (`hwl`), two decidable entry facts, one honest seam structure. Everything else from the current signature is either derived or pinned by definition.
 
 Recommended strengthenings (cheap, worth doing):
-- **Exact stream consumption**: conclusion variant asserting the IR run consumes the *entire* `realisedGas log` (currently `RunFrom` discards the leftover trace — `V2/Machine.lean:231-242` drop `T'`). Without it, "positional equality" is only over the consumed prefix. A `RunFromAll` wrapper (`RunFrom … ∧ leftover = []`) or an existential leftover pinned to `[]` closes the last vacuity channel.
+- **Exact stream consumption**: conclusion variant asserting the IR run consumes the *entire* `realisedGas log` (currently `RunFrom` discards the leftover trace — `Machine.lean:231-242` drop `T'`). Without it, "positional equality" is only over the consumed prefix. A `RunFromAll` wrapper (`RunFrom … ∧ leftover = []`) or an existential leftover pinned to `[]` closes the last vacuity channel.
 - **`hrb` residue**: the pc-reachability fact `AtReachableBoundary` (`Decode/Modellable.lean:407`) is *deliberately absent* from the signature above because it is dischargeable (obligation R6, §6) — the Track-A boundary walk. Until R6 lands, it appears as a sorry'd lemma, not a flagship hypothesis.
 
 ### 1.3 Hypothesis-by-hypothesis comparison with `lower_conforms_cyclic_assembled` (:4292)
@@ -177,7 +177,7 @@ Legend: **(a)** dischargeable → tracked sorry-debt; **(b)** honest seam → do
 
 1. `hprec` — precompile no-erase (`TieDischarge.lean:3478`).
 2. `CallsCode` — reachable CALLs target code accounts (`Modellable.lean:435`).
-3. `CallReturns`/`V2.CallOracle` kernel — the child-run observation (`003_bytecode_layer/BytecodeLayer/Hoare.lean:91`, `V2/Machine.lean:96`).
+3. `CallReturns`/`Lir.Frame.CallOracle` kernel — the child-run observation (`003_bytecode_layer/BytecodeLayer/Hoare.lean:91`, `Machine.lean:96`).
 4. `log.clean` — the non-exception scope premise (decidable on the log; the *restriction* is honest, the *hypothesis form* is checkable).
 5. `hself` + `hgas` + `hcode` + `hmod` — decidable entry-call wellformedness.
 
@@ -216,7 +216,7 @@ Rejected options:
 
 ## 4. Open decisions 1, 2, 4
 
-**Decision 1 — `HonestGasTie.lean`: DELETE (option b), with one condition.** Concur with the previous agent and the remediation plan's own lean. Signature-level reasoning: a regression witness guards a *live* definition against a *live* failure mode; after Phase 2 the guarded universal (`Lir.GasRealises`) and its positive twin (`Oracle.GasRealises`, `V2/Oracle.lean:98`) both leave the tree, so the file guards nothing reachable — and keeping it forces keeping `Oracle.lean` (the entanglement that is blocking Phase 2). The inline-minimal option (a) preserves a guard for a definition that will cease to exist — dead weight by construction; defer (c) leaves misleading gas-law files in-tree during the flagship rebuild, the worst outcome for a reviewer. The condition: the true non-vacuity witness must change owners — the two unsatisfiability *statements* get one paragraph in the Phase-3 spec file's header (docs, not code), and the concrete end-to-end instantiation (R12 below) becomes the machine-checked non-vacuity evidence. Delete the file in the same commit that adds the spec file, so there is never a window with no recorded lesson.
+**Decision 1 — `HonestGasTie.lean`: DELETE (option b), with one condition.** Concur with the previous agent and the remediation plan's own lean. Signature-level reasoning: a regression witness guards a *live* definition against a *live* failure mode; after Phase 2 the guarded universal (`Lir.GasRealises`) and its positive twin (`Oracle.GasRealises`, `Oracle.lean:98`) both leave the tree, so the file guards nothing reachable — and keeping it forces keeping `Oracle.lean` (the entanglement that is blocking Phase 2). The inline-minimal option (a) preserves a guard for a definition that will cease to exist — dead weight by construction; defer (c) leaves misleading gas-law files in-tree during the flagship rebuild, the worst outcome for a reviewer. The condition: the true non-vacuity witness must change owners — the two unsatisfiability *statements* get one paragraph in the Phase-3 spec file's header (docs, not code), and the concrete end-to-end instantiation (R12 below) becomes the machine-checked non-vacuity evidence. Delete the file in the same commit that adds the spec file, so there is never a window with no recorded lesson.
 
 **Decision 2 — gas-introspection-free secondary theorem: co-flagship, and prove it FIRST.** With the §3 reshape, `lowering_conforms_gasfree` is the flagship restricted to `NoGasReads prog` (a static predicate): the gas suffix is `[]`, R1 is vacuous, and the sload channel needs no positional bridge either (post-Phase-C, sload *values* come through the storage lens `Corr.storage`; warmth enters only charge envelopes, which are clean-halt-derived). That makes it precisely the fork-shaped theorem (Verity/vyper-hol scope, gas-decision.md §3) and — decisively — the **de-risking milestone**: it exercises every Phase-3 obligation except the riskiest one (the R1 recorder bridge). Signature-level cost: one theorem statement + one `NoGasReads` predicate; the proof is the flagship spine minus one arm. Document it as co-flagship in PLAN.md (it is the theorem external readers can compare to prior art), with the full flagship as the headline.
 
@@ -226,7 +226,7 @@ Rejected options:
 
 ## 5. The honest-sorry skeleton (Phase 3 as a reviewable spec file)
 
-Proposed file: `LirLean/V2/RealisabilitySpec.lean` — statements only, every proof `sorry`, imported by nothing in the main target (nightly-built), with a top docstring declaring "each `sorry` here is tracked debt; the flagship in `Flagship.lean` is conditional on this file becoming sorry-free." Spec/proof separation per Eduardo's standard: this file IS the reviewable spec; proofs land in sibling `Realisability/*.lean` files that restate nothing.
+Proposed file: `LirLean/RealisabilitySpec.lean` — statements only, every proof `sorry`, imported by nothing in the main target (nightly-built), with a top docstring declaring "each `sorry` here is tracked debt; the flagship in `Flagship.lean` is conditional on this file becoming sorry-free." Spec/proof separation per Eduardo's standard: this file IS the reviewable spec; proofs land in sibling `Realisability/*.lean` files that restate nothing.
 
 ```lean
 /- R0 — SHAPE FIX (not a sorry; the §3 reshape prerequisite):

@@ -7,11 +7,11 @@ Audit date: 2026-07-04. Files: `LirLean/SimStmt.lean`, `LirLean/SimStmts.lean`,
 
 This cluster is the **L4 per-block, gas-aware simulation engine** ("Corr bricks") of the
 plan. It is **live, load-bearing, and SHARED by the cyclic flagship** — not acyclic-only.
-The proof of sharing is concrete: `V2/DriveSim.lean` (the cyclic drive walk, imported by the
-flagship's `V2/RealisabilitySpec.lean` via `V2.DriveSim`) consumes `sim_stmts_block`
+The proof of sharing is concrete: `DriveSim.lean` (the cyclic drive walk, imported by the
+flagship's `RealisabilitySpec.lean` via `Lir.DriveSim`) consumes `sim_stmts_block`
 (DriveSim.lean:242/268/332/417), `SimStmtStep` (DriveSim.lean:229…679), and
 `corr_at_jumpdest_landing` (DriveSim.lean:337/423); and `CleanHaltExtract`'s `next_*_of_cleanHalt`
-family is called **directly inside the flagship file** `V2/RealisabilitySpec.lean`
+family is called **directly inside the flagship file** `RealisabilitySpec.lean`
 (:1415, :1650, :1668, :1689, :1759, :1781, :1796, :1913, :1935, :1995, :2022, :2034, :2064, :2600).
 So the primer's claim "L4 sim engine is shared by the cyclic flagship via `sim_cfg`" is
 verified, and the "delete Acyclic → drop the engine" hope is correctly rejected. The `Corr`
@@ -149,7 +149,7 @@ occurrence each — are used externally in MaterialiseCleanHalt.lean:285/362/163
                     │        └────────────► LowerDecode / LowerConforms / RealisabilitySpec
                     ▼
                  SimStmt  ── imports: MaterialiseRuns, MaterialiseCleanHalt,
-                    │                  V2.CallRealises, Engine.CleanHalt (all outside)
+                    │                  Lir.CallRealises, Engine.CleanHalt (all outside)
                     ▼
                  SimStmts
                     ▼
@@ -168,13 +168,13 @@ occurrence each — are used externally in MaterialiseCleanHalt.lean:285/362/163
     hosts `sim_cfg`, consumes `sim_assign`, `sim_stmts_block`, `SimStmtStep`, `corr_at_jumpdest_landing`,
     the two envelopes.
   - `MaterialiseCleanHalt.lean` imports `CleanHaltExtract` — the gas-FOLD `materialise_charge_le_of_cleanHalt`.
-  - `V2/DriveSim.lean` (cyclic drive) — `SimStmtStep`, `sim_stmts_block`, `corr_at_jumpdest_landing`, `Corr`.
-  - `V2/RealisabilitySpec.lean` (flagship, WIP) — `Corr`, `pcOf_eq_termOf`, the `next_*_of_cleanHalt`
+  - `DriveSim.lean` (cyclic drive) — `SimStmtStep`, `sim_stmts_block`, `corr_at_jumpdest_landing`, `Corr`.
+  - `RealisabilitySpec.lean` (flagship, WIP) — `Corr`, `pcOf_eq_termOf`, the `next_*_of_cleanHalt`
     family, `next_of_cleanHalt_continuing`, ported inline landing/epilogue extractors.
-  - `V2/Drive/Headline.lean` — `Corr`, `SimStmtStep`.
+  - `Drive/Headline.lean` — `Corr`, `SimStmtStep`.
 - **Entry edges (this cluster's own imports):** Spec (defs), Engine/ (CleanHalt, MemAlgebra),
   Materialise* (MaterialiseRuns/MaterialiseCleanHalt/MatDecLower), Decode/CFG (JumpValid,
-  DecodeAnchors), Recorder (RecorderLemmas), StashTail, V2.CallRealises.
+  DecodeAnchors), Recorder (RecorderLemmas), StashTail, Lir.CallRealises.
 
 ---
 

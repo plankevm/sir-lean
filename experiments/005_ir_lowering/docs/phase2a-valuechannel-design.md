@@ -267,7 +267,7 @@ step (unsound, §2.2).
   (`:402`) from `hdc.<create-arm>` and DELETE the parameter, so both become UNCONDITIONAL
   in `DefsConsistent`. Update the `DefsConsistent` witness for `exProg` (create-arm
   vacuous — `exProg` has no create). *Files:* `Spec/WellFormed.lean`,
-  `V2/Realisability/Witness.lean`. *Green gate:* `lake build` green; `WIP` pre-existing
+  `Realisability/Witness.lean`. *Green gate:* `lake build` green; `WIP` pre-existing
   sorries only; `exProg`'s `DefsConsistent` witness green by `decide`/construction.
 
 - **P2 — (Ob 2) `DefEnvOrdered` adequacy.** Prove `DefEnvOrdered exProg` by `decide`/`rfl`
@@ -278,7 +278,7 @@ step (unsound, §2.2).
   never fire — `defsOf` spills them, `rematOf_ne_gas`/`_ne_sload`; `.imm`/`.slot` arms are
   `True`). **NO `rank_lt_fuel`** (fuel is being deleted). Gates the later
   `acyclicDefs → defEnvOrdered` swap. *Files:* `Spec/WellFormed.lean` or a new
-  `Spec/DefEnvOrderedLemmas.lean`, `V2/Realisability/Witness.lean`. *Green gate:* both
+  `Spec/DefEnvOrderedLemmas.lean`, `Realisability/Witness.lean`. *Green gate:* both
   lemmas green, alongside old `acyclic_exProg`.
 
 - **P3 — the fold fixpoint `matCache_unfold` (the inductive core, §2.3).** Prove
@@ -349,8 +349,8 @@ step (unsound, §2.2).
   **Producer-coupled surface — safe only while the branch is quiescent.** *Files:*
   `Spec/Lowering.lean`, `Spec/WellFormed.lean`, `Decode/*`, `Materialise/*`,
   `Sim/SimStmt.lean`, `Sim/SimTerm.lean`, `Sim/SimStmts.lean`, `Assembly/LowerDecode.lean`,
-  `Assembly/LowerConforms.lean`, `Spec/BudgetDerivations.lean`, `V2/Drive/DriveSim.lean`,
-  and the WIP `V2/Realisability/{Surface,Machinery,Producer}.lean`. *Green gate:* full
+  `Assembly/LowerConforms.lean`, `Spec/BudgetDerivations.lean`, `Drive/DriveSim.lean`,
+  and the WIP `Realisability/{Surface,Machinery,Producer}.lean`. *Green gate:* full
   `lake build` green + sorry-free; `WIP` pre-existing sorries only; `#print axioms` guards
   intact.
 
@@ -381,15 +381,15 @@ step (unsound, §2.2).
 Files touching `materialiseExpr`/`MatDec`/`MatFueled`/`recomputeFuel` (grep counts):
 `Assembly/LowerDecode.lean` (128), `Materialise/MatDecLower.lean` (107),
 `Materialise/MaterialiseRuns.lean` (98), `Spec/BudgetDerivations.lean` (87),
-`Assembly/LowerConforms.lean` (75), `V2/Realisability/Machinery.lean` (42),
-`V2/Realisability/Producer.lean` (41), `Assembly/Acyclic.lean` (40, DELETED),
-`Decode/DecodeAnchors.lean` (37), `V2/Realisability/Surface.lean` (29),
+`Assembly/LowerConforms.lean` (75), `Realisability/Machinery.lean` (42),
+`Realisability/Producer.lean` (41), `Assembly/Acyclic.lean` (40, DELETED),
+`Decode/DecodeAnchors.lean` (37), `Realisability/Surface.lean` (29),
 `Sim/SimStmt.lean` (27), `Sim/SimTerm.lean` (23), `Decode/SegAligned.lean` (21),
 `Decode/Layout.lean` (20), `Decode/JumpValid.lean` (19), `Materialise/MaterialiseGas.lean`
 (15), `Materialise/MaterialiseCleanHalt.lean` (15), `Spec/WellFormed.lean` (14),
 `Spec/Lowering.lean` (9), `Materialise/{StashTail,DefsSound,CleanHaltExtract}.lean`,
-`Sim/SimStmts.lean`, `V2/Drive/DriveSim.lean`, `Decode/DecodeLower.lean`,
-`V2/Realisability/Witness.lean`.
+`Sim/SimStmts.lean`, `Drive/DriveSim.lean`, `Decode/DecodeLower.lean`,
+`Realisability/Witness.lean`.
 
 `Expr.slot` dead-arm removal spans ~24 files (grep `.slot`).
 

@@ -1,10 +1,10 @@
-import LirLean.V2.Drive.SelfPresent
+import LirLean.Drive.SelfPresent
 import BytecodeLayer.Hoare.DriveMono
 
 /-!
-# LirLean v2 — `SelfPresent` forward-closed along `Runs` (`Drive/CallPreservesSelf`)
+# LirLean — `SelfPresent` forward-closed along `Runs` (`Drive/CallPreservesSelf`)
 
-The seam-carrying layer of the former `V2/TieDischarge.lean` (decl names and namespaces
+The seam-carrying layer of the former `TieDischarge.lean` (decl names and namespaces
 unchanged): the two local one-edge preservation predicates (`StepPreservesSelf` — a proven
 theorem, `stepPreservesSelf`, via `BytecodeLayer/Hoare/StepWalk.lean`'s `stepFrame_next_self`; and
 `CallPreservesSelf` — supplied & satisfiable), the `.success`-shape discharge
@@ -12,13 +12,13 @@ theorem, `stepPreservesSelf`, via `BytecodeLayer/Hoare/StepWalk.lean`'s `stepFra
 (`drive_accounts_find_mono`), the assembled `callPreservesSelf`, and
 `callPreservesSelf_modGuards` — which reduces the whole chain to the ONE surviving supplied
 hypothesis `hprec` (`beginCall`'s precompile `.inr` arm preserves presence; the seam quoted
-verbatim by `V2/Realisability/RealisabilitySpec.lean`). `selfPresent_runs`/`selfPresent_runs_of_call`
+verbatim by `Realisability/RealisabilitySpec.lean`). `selfPresent_runs`/`selfPresent_runs_of_call`
 thread `SelfPresent` across an arbitrary `Runs` derivation.
 
 No `sorry`/`axiom`/`native_decide`; axioms `[propext, Classical.choice, Quot.sound]`.
 -/
 
-namespace Lir.V2
+namespace Lir
 
 open Evm
 open GasConstants
@@ -341,7 +341,7 @@ theorem selfPresent_runs_of_call
   selfPresent_runs stepPreservesSelf (callPreservesSelf_modGuards hprec)
     (createPreservesSelf_modGuards hprec) h hruns
 
-end Lir.V2
+end Lir
 
 -- StepPreservesSelf is DISCHARGED (a theorem, not a supplied edge): the engine-level brick
 -- `stepFrame_next_self` (the `a := self` corollary of the dispatch walk), plus the call-resume

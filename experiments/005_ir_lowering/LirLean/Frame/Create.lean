@@ -33,7 +33,7 @@ init-code failure surface (no init-code OOG/REVERT, EIP-170, EIP-3541, deposit);
 richer init code is future work (`docs/ir-design.md`).
 -/
 
-namespace Lir
+namespace Lir.Frame
 
 open Evm
 open BytecodeLayer.Hoare
@@ -59,8 +59,8 @@ and the suspended `PendingCreate`). Two projections, matching the two things
   CREATE pushes.
 
 The field types are chosen so `evmCreateOracle` instantiates each by *projection*
-(definitional) of the bytecode resume. The gas-restored field is dropped — v2 has no
-gas in state (cf. `Call.lean`'s `restoredGas`). -/
+(definitional) of the bytecode resume. The gas-restored field is dropped — the gas-free
+IR has no gas in state (cf. `Call.lean`'s `restoredGas`). -/
 structure CreateOracle where
   /-- Post-create storage of `addr` at `key`, through the observable lens. -/
   postStorage : CreateResult → PendingCreate → AccountAddress → Word → Word
@@ -134,4 +134,4 @@ def IRState.applyCreate (st : IRState) (oracle : CreateOracle)
       storage      := fun k => oracle.postStorage result pd self k
       createResult := some (oracle.addressWord result pd) }
 
-end Lir
+end Lir.Frame

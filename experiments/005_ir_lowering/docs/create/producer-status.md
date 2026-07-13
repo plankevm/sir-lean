@@ -2,7 +2,7 @@
 
 Date: 2026-07-05. Worktree: `.worktrees/producer`. Branch: `exp005-producer`.
 Toolchain: `leanprover/lean4:v4.30.0`. Base: `main` HEAD `46e47f3`.
-Skeleton: `LirLean/V2/Realisability/Producer.lean` (WIP lib only).
+Skeleton: `LirLean/Realisability/Producer.lean` (WIP lib only).
 
 Read alongside `docs/create/producer-plan.md` (the full proof plan),
 `docs/create/STATUS.md` (the CREATE-build handoff — same R11 gate),
@@ -26,7 +26,7 @@ progress on the leaf-most seeds — not the headline.
 | `WIP` (flagship) | `lake build WIP` | green, **1173 jobs** | 21 (tracked) |
 
 - Default cone verified sorry-free: **0** `declaration uses sorry` warnings in the
-  `lake build` log; **no** default-cone module imports `LirLean.V2.Realisability`
+  `lake build` log; **no** default-cone module imports `LirLean.Realisability`
   (grep-confirmed). The debt is quarantined to the WIP cone.
 - WIP tracked-sorry ledger (21 = 12 pre-existing base + 9 open Producer leaves):
   - `RealisabilitySpec.lean` — 6: `:134` (StmtTies'), `:247`/`:281`/`:318`

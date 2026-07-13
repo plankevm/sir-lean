@@ -216,7 +216,7 @@ layer is "**Phase 5, strictly after Phase 3** — it churns exactly the files Ph
 reason: doing the closure first *reveals which recorder laws it actually needs*. The live gate is
 the [r11-plan](../../planning/r11-plan-2026-07-08.md#L51): "Defer import-moving spec surgery and the
 assembler facade until the active producer files are quiescent." As of the 2026-07-09 checkpoint the
-producer is not quiescent: [`lower_conforms`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L251)
+producer is not quiescent: [`lower_conforms`](../../../LirLean/Realisability/RealisabilitySpec.lean#L251)
 is a WIP shell with 16 sorries across the WIP cone and four boxed runs churning R6/CALL/CREATE2/gas
 arms. The [full migration order](../../fleet-2026-07-02/bytecode-interface.md#L216) is: Phase 3
 (≈ R11) → Phase 4 (relocate category (i) engine theory into `Exec`/`Recorder`/`Invariants`, restate
@@ -294,8 +294,8 @@ written 2026-07-02; tree has since gone through P5–P9 and R11 chunks):
 | `NoCreateBytes.lean` (433) | **deleted** — CREATE/CREATE2 are now emitted opcodes ([SegAligned.lean:15](../../../LirLean/Decode/SegAligned.lean#L15)); `assemble_no_create` as specced is obsolete, superseded by the "descents exactly at emitted sites" predicate ([target-architecture §7](../../target-architecture-2026-07-02.md#L190)) |
 | `LowerDecode.lean` 1,517 incl. 322-line `branch_landing_of_cleanHalt` | 1,069; the landing lemma replaced by Corr-fused [`corr_at_jumpdest_landing`](../../../LirLean/Sim/SimTerm.lean#L503) |
 | `MatDecLower` 516, `JumpValid` 515 | 147 and 271 (P8 shrink; the `SegAlignedP` unification absorbed the duplication) |
-| exp005 total ~24.7k | 26,867 (R11 machinery: `V2/Realisability/` is 5,135 ln) |
-| `TieDischarge.lean` 4,506, headline at :4292 | file dissolved; flagship now [`RealisabilitySpec.lean`](../../../LirLean/V2/Realisability/RealisabilitySpec.lean#L251) |
+| exp005 total ~24.7k | 26,867 (R11 machinery: `Realisability/` is 5,135 ln) |
+| `TieDischarge.lean` 4,506, headline at :4292 | file dissolved; flagship now [`RealisabilitySpec.lean`](../../../LirLean/Realisability/RealisabilitySpec.lean#L251) |
 
 None of the drift undermines the design argument — the fused-assembler diagnosis and the
 factorability evidence are stronger now (the `SegAlignedP` unification and the `Loc`/`Alloc` seam

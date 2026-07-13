@@ -88,7 +88,7 @@ theorem callArm_needsCall_inv
     | ok e1 =>
       rw [he1] at h
       simp only [] at h
-      obtain ⟨he1acc, he1env⟩ := Lir.V2.charge_accounts_env he1
+      obtain ⟨he1acc, he1env⟩ := Lir.charge_accounts_env he1
       set ca : AccountAddress := AccountAddress.ofUInt256 codeAddress with hca
       set rc : AccountAddress := AccountAddress.ofUInt256 recipient with hrc
       set extraCost := callExtraCost ca rc value e1.accounts e1.substate with hextra
@@ -99,7 +99,7 @@ theorem callArm_needsCall_inv
       | ok e2 =>
         rw [he2] at h
         simp only [] at h
-        obtain ⟨he2acc, he2env⟩ := Lir.V2.charge_accounts_env he2
+        obtain ⟨he2acc, he2env⟩ := Lir.charge_accounts_env he2
         split at h
         · -- needsCall branch
           simp only [Except.ok.injEq, Signal.needsCall.injEq] at h
@@ -180,7 +180,7 @@ theorem callArm_needsCall_site_inv
           subst hpd
           refine ⟨?_, rfl, ?_⟩
           · rw [charge_pc he2, charge_pc he1]
-          · rw [(Lir.V2.charge_accounts_env he2).2, (Lir.V2.charge_accounts_env he1).2]
+          · rw [(Lir.charge_accounts_env he2).2, (Lir.charge_accounts_env he1).2]
         · simp only [Except.ok.injEq] at h; exact absurd h (by simp)
 
 theorem systemOp_needsCall_site_inv {op : Operation.SystemOp} {fr : Frame}
@@ -266,7 +266,7 @@ theorem createArm_needsCreate_inv
     {value initOffset initSize : UInt256} {salt : Option ByteArray}
     {cp : CreateParams} {pd : PendingCreate}
     (h : createArm fr exec stack value initOffset initSize salt = .ok (.needsCreate cp pd)) :
-    (∀ a, Lir.V2.AccPresent a exec.accounts → Lir.V2.AccPresent a cp.accounts)
+    (∀ a, Lir.AccPresent a exec.accounts → Lir.AccPresent a cp.accounts)
       ∧ pd.frame.kind = fr.kind ∧ pd.frame.exec.accounts = exec.accounts
       ∧ pd.frame.exec.executionEnv = exec.executionEnv := by
   rw [createArm] at h
@@ -285,7 +285,7 @@ theorem createArm_needsCreate_inv
       refine ⟨?_, rfl, rfl, rfl⟩
       intro a ha
       -- `cp.accounts = exec.accounts.insert self { selfAccount with nonce := … }` (single insert).
-      exact Lir.V2.accounts_find?_insert_mono _ _ _ _ ha
+      exact Lir.accounts_find?_insert_mono _ _ _ _ ha
     · revert h
       cases hr : resumeAfterCreate _ _ with
       | error e => intro h; simp at h
@@ -297,7 +297,7 @@ through the accounts-verbatim `chargeMemExpansion`/create-cost charge. -/
 theorem systemOp_needsCreate_inv {op : Operation.SystemOp} {fr : Frame} {exec : ExecutionState}
     {cp : CreateParams} {pd : PendingCreate}
     (h : systemOp op fr exec = .ok (.needsCreate cp pd)) :
-    (∀ a, Lir.V2.AccPresent a exec.accounts → Lir.V2.AccPresent a cp.accounts)
+    (∀ a, Lir.AccPresent a exec.accounts → Lir.AccPresent a cp.accounts)
       ∧ pd.frame.kind = fr.kind ∧ pd.frame.exec.accounts = exec.accounts
       ∧ pd.frame.exec.executionEnv = exec.executionEnv := by
   cases op with
@@ -332,8 +332,8 @@ theorem systemOp_needsCreate_inv {op : Operation.SystemOp} {fr : Frame} {exec : 
             | error e => rw [hc] at h; simp at h
             | ok ec =>
               rw [hc] at h; simp only [] at h
-              obtain ⟨hmacc, hmenv⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
-              obtain ⟨hcacc, hcenv⟩ := Lir.V2.charge_accounts_env hc
+              obtain ⟨hmacc, hmenv⟩ := Lir.chargeMemExpansion_accounts_env hm
+              obtain ⟨hcacc, hcenv⟩ := Lir.charge_accounts_env hc
               have hem : ec.accounts = exec.accounts := by rw [hcacc, hmacc]
               have hemenv : ec.executionEnv = exec.executionEnv := by rw [hcenv, hmenv]
               obtain ⟨hacc, hkind, hpdacc, hpdenv⟩ := createArm_needsCreate_inv h
@@ -361,8 +361,8 @@ theorem systemOp_needsCreate_inv {op : Operation.SystemOp} {fr : Frame} {exec : 
             | error e => rw [hc] at h; simp at h
             | ok ec =>
               rw [hc] at h; simp only [] at h
-              obtain ⟨hmacc, hmenv⟩ := Lir.V2.chargeMemExpansion_accounts_env hm
-              obtain ⟨hcacc, hcenv⟩ := Lir.V2.charge_accounts_env hc
+              obtain ⟨hmacc, hmenv⟩ := Lir.chargeMemExpansion_accounts_env hm
+              obtain ⟨hcacc, hcenv⟩ := Lir.charge_accounts_env hc
               have hem : ec.accounts = exec.accounts := by rw [hcacc, hmacc]
               have hemenv : ec.executionEnv = exec.executionEnv := by rw [hcenv, hmenv]
               obtain ⟨hacc, hkind, hpdacc, hpdenv⟩ := createArm_needsCreate_inv h
@@ -376,7 +376,7 @@ third conjunct is now slack — it fed the removed CREATE-begin-fault arm; `begi
 `stepFrame_needsCreate_systemOp` then `systemOp_needsCreate_inv`. -/
 theorem stepFrame_needsCreate_inv {fr : Frame} {cp : CreateParams} {pd : PendingCreate}
     (h : stepFrame fr = .needsCreate cp pd) :
-    (∀ a, Lir.V2.AccPresent a fr.exec.accounts → Lir.V2.AccPresent a cp.accounts)
+    (∀ a, Lir.AccPresent a fr.exec.accounts → Lir.AccPresent a cp.accounts)
       ∧ pd.frame.kind = fr.kind ∧ pd.frame.exec.accounts = fr.exec.accounts
       ∧ pd.frame.exec.executionEnv = fr.exec.executionEnv := by
   obtain ⟨s, hs⟩ := BytecodeLayer.Dispatch.stepFrame_needsCreate_systemOp h
@@ -427,7 +427,7 @@ theorem callArm_needsCall_depth
           obtain ⟨_, hpd⟩ := h
           subst hpd
           show e2.executionEnv.depth < 1024
-          rw [(Lir.V2.charge_accounts_env he2).2]
+          rw [(Lir.charge_accounts_env he2).2]
           exact hguard.2
         · -- `.next` fallback: not a `.needsCall`.
           simp only [Except.ok.injEq] at h; exact absurd h (by simp)
@@ -682,8 +682,8 @@ theorem systemOp_create2_needsCreate_activeWords_inv {fr : Frame}
           | error e => rw [hc] at h; simp at h
           | ok ec =>
             rw [hc] at h; simp only [] at h
-            rw [createArm_needsCreate_frame_exec_inv h, Lir.V2.charge_activeWords hc,
-              Lir.V2.chargeMemExpansion_activeWords hm]
+            rw [createArm_needsCreate_frame_exec_inv h, Lir.charge_activeWords hc,
+              Lir.chargeMemExpansion_activeWords hm]
 
 theorem systemOp_needsCreate_site_inv {op : Operation.SystemOp} {fr : Frame}
     {exec : ExecutionState} {cp : CreateParams} {pd : PendingCreate}
@@ -724,7 +724,7 @@ theorem systemOp_needsCreate_site_inv {op : Operation.SystemOp} {fr : Frame}
               obtain ⟨hpc, hvj, henv⟩ := createArm_needsCreate_site_inv h
               refine ⟨Or.inl rfl, ?_, hvj, ?_⟩
               · rw [hpc, charge_pc hc, chargeMemExpansion_pc hm]
-              · rw [henv, (Lir.V2.charge_accounts_env hc).2, (Lir.V2.chargeMemExpansion_accounts_env hm).2]
+              · rw [henv, (Lir.charge_accounts_env hc).2, (Lir.chargeMemExpansion_accounts_env hm).2]
   | CREATE2 =>
     unfold systemOp at h
     simp only [bind, Except.bind] at h
@@ -750,7 +750,7 @@ theorem systemOp_needsCreate_site_inv {op : Operation.SystemOp} {fr : Frame}
               obtain ⟨hpc, hvj, henv⟩ := createArm_needsCreate_site_inv h
               refine ⟨Or.inr rfl, ?_, hvj, ?_⟩
               · rw [hpc, charge_pc hc, chargeMemExpansion_pc hm]
-              · rw [henv, (Lir.V2.charge_accounts_env hc).2, (Lir.V2.chargeMemExpansion_accounts_env hm).2]
+              · rw [henv, (Lir.charge_accounts_env hc).2, (Lir.chargeMemExpansion_accounts_env hm).2]
 
 theorem stepFrame_needsCreate_site_inv {fr : Frame} {cp : CreateParams} {pd : PendingCreate}
     (h : stepFrame fr = .needsCreate cp pd) :
@@ -876,7 +876,7 @@ theorem stepFrame_create2_next_activeWords {fr : Frame} {exec' : ExecutionState}
 
 end Evm
 
-namespace Lir.V2
+namespace Lir
 
 open Evm
 open GasConstants
@@ -1066,7 +1066,7 @@ theorem resumeAfterCreate_pc (result : Evm.FrameResult) (pd : Evm.PendingCreate)
 successful `resumeAfterCreate`, the resumed frame's stack is the suspended parent's
 residual stack with the impl's `pushedValue` pushed (`Create.lean:195-198`).
 `replaceStackAndIncrPC` sets the stack to `pd.stack.push pushedValue`. The
-`pushedValue` `let`-block is definitionally `Lir.V2.createAddrOrZero result pd`; the
+`pushedValue` `let`-block is definitionally `Lir.Frame.createAddrOrZero result pd`; the
 consumer rewrites through that def-eq. -/
 theorem resumeAfterCreate_stack (result : Evm.CreateResult) (pd : Evm.PendingCreate)
     (parent : Evm.Frame) (hres : Evm.resumeAfterCreate result pd = .ok parent) :
@@ -1303,4 +1303,4 @@ theorem descentReturns_call_iff (frD frR : Evm.Frame) :
   · rintro ⟨p, pd, child, childRes, hsig, henters, hdrive, hres⟩
     exact ⟨p, pd, child, childRes, hsig, henters, hdrive, by rw [hres]; rfl⟩
 
-end Lir.V2
+end Lir

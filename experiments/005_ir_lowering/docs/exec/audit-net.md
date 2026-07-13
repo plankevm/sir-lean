@@ -5,12 +5,12 @@ root), the Batteries `runLinter` baseline freeze (`scripts/nolints.json`), and t
 
 > **UPDATE (2026-07-03).** Waves 1–4 of the honesty cleanup executed the structural reorg
 > (HEAD `53c2063`) after this record was written. The `Source` column below has been resynced to
-> the post-reorg homes: `V2/TieDischarge.lean` is **DISSOLVED** — the headline decls
+> the post-reorg homes: `TieDischarge.lean` is **DISSOLVED** — the headline decls
 > (`lower_conforms_cyclic_assembled`, `lower_conforms_cyclic_tiefree`) moved to
-> `LirLean/V2/Drive/Headline.lean`, and `callPreservesSelf_modGuards`/`stepPreservesSelf` to
-> `LirLean/V2/Drive/CallPreservesSelf.lean`. `V2/RunLog.lean` was deleted (recorder →
-> `LirLean/Spec/Recorder.lean`); `V2/{Mono,Oracle,HonestGasTie}.lean` were deleted (§5's merge
-> note is now resolved — see the dated note there). `LirLean/V2/RealisabilitySpec.lean` (non-default
+> `LirLean/Drive/Headline.lean`, and `callPreservesSelf_modGuards`/`stepPreservesSelf` to
+> `LirLean/Drive/CallPreservesSelf.lean`. `RunLog.lean` was deleted (recorder →
+> `LirLean/Spec/Recorder.lean`); `{Mono,Oracle,HonestGasTie}.lean` were deleted (§5's merge
+> note is now resolved — see the dated note there). `LirLean/RealisabilitySpec.lean` (non-default
 > `Nightly` lib) now carries the R0–R12 sorry-skeleton. Full redirect map:
 > `../headline-transitive-chain.md`. Plan-of-record: `../target-architecture-2026-07-02.md` +
 > `../execution-plan-2026-07-02.md`; the final audit fleet (`../final-audit-2026-07-03.md`, being
@@ -27,7 +27,7 @@ root), the Batteries `runLinter` baseline freeze (`scripts/nolints.json`), and t
 >   `lower_conforms_cyclic_of_obligations`, the two `_assembled`/`_tiefree` aliases) are **GONE**
 >   (the guarded decls no longer exist);
 > - the flagship **`#check` signature-freeze** (§2 below) is **REMOVED** — it froze the now-deleted
->   assembled headline; it will be re-pointed to the R11 flagship (`Lir.V2.lowering_conforms`) once
+>   assembled headline; it will be re-pointed to the R11 flagship (`Lir.lowering_conforms`) once
 >   that is proven.
 >
 > The net now pins **8 salvage lemmas + `Lir.Spec.callPreservesSelf_of_precompiles`** (the still-live
@@ -53,15 +53,15 @@ a hard build error.
 
 | Declaration | Source |
 |---|---|
-| `Lir.V2.lower_conforms_cyclic_assembled` | `LirLean/V2/Drive/Headline.lean` |
-| `Lir.V2.lower_conforms_cyclic_tiefree` | `LirLean/V2/Drive/Headline.lean` |
+| `Lir.lower_conforms_cyclic_assembled` | `LirLean/Drive/Headline.lean` |
+| `Lir.lower_conforms_cyclic_tiefree` | `LirLean/Drive/Headline.lean` |
 | `Lir.lower_conforms_wf` | `LirLean/LowerConforms.lean` |
-| `Lir.V2.callPreservesSelf_modGuards` | `LirLean/V2/Drive/CallPreservesSelf.lean` |
+| `Lir.callPreservesSelf_modGuards` | `LirLean/Drive/CallPreservesSelf.lean` |
 | `Lir.materialise_runs_of_cleanHalt` | `LirLean/MaterialiseCleanHalt.lean` |
-| `Lir.V2.cleanHalts_of_runWithLog` | `LirLean/V2/DriveSim.lean` |
+| `Lir.cleanHalts_of_runWithLog` | `LirLean/DriveSim.lean` |
 | `Lir.jump_landing_of_cleanHalt` | `LirLean/LowerDecode.lean` |
 | `Lir.branch_landing_of_cleanHalt` | `LirLean/LowerDecode.lean` |
-| `Lir.V2.stepPreservesSelf` | `LirLean/V2/Drive/CallPreservesSelf.lean` |
+| `Lir.stepPreservesSelf` | `LirLean/Drive/CallPreservesSelf.lean` |
 | `Lir.sim_assign_sload_lowered` | `LirLean/LowerDecode.lean` |
 
 The 252 scattered per-file `#print axioms` commands were deliberately left in place
@@ -70,7 +70,7 @@ The 252 scattered per-file `#print axioms` commands were deliberately left in pl
 ## 2. DECISION — flagship signature freeze: primary option taken
 
 The signature freeze is implemented as `#guard_msgs in #check
-@Lir.V2.lower_conforms_cyclic_assembled`. The rendered type was verified stable before
+@Lir.lower_conforms_cyclic_assembled`. The rendered type was verified stable before
 committing: 39 lines / 2866 bytes, byte-identical across repeated elaborations and
 with/without `pp.mvars`. The brief's fallback (axiom-only guard) was NOT needed and was
 not taken.
@@ -104,7 +104,7 @@ root-level `nolints.json` as the brief said. Track A's ownership claim should re
     - `Lir.CallRealises` (`LirLean/LowerConforms.lean:253`) — argument 6 `b : Lir.Block`
       unused;
     - `Lir.TermTies` (`LirLean/LowerConforms.lean:1339`) — argument 4 `_o :
-      Lir.V2.CallOracle` unused (already underscore-acknowledged in source).
+      Lir.Frame.CallOracle` unused (already underscore-acknowledged in source).
 - Triage: **freeze-only**, per plan. No source fixes and no `@[nolint]` attributes — the
   flagged files are owned by other tracks or frozen, and the global name/hypothesis
   freeze applies. Wave 4 re-runs the linter and burns down the nolints file; the two
@@ -115,14 +115,14 @@ root-level `nolints.json` as the brief said. Track A's ownership claim should re
 ## 5. Merge note (for the lead)
 
 `Audit.lean` imports its guarded modules **directly** — in particular
-`LirLean.V2.TieDischarge`. Today the root's only path to TieDischarge is `import
-LirLean.V2.HonestGasTie` (`LirLean.lean:78`), which Track B deletes. Audit.lean's direct
+`LirLean.TieDischarge`. Today the root's only path to TieDischarge is `import
+LirLean.HonestGasTie` (`LirLean.lean:78`), which Track B deletes. Audit.lean's direct
 import deliberately survives that deletion, keeping the headline cone in the default
 `LirLean` target regardless of what happens to the other root imports. The expected merge
 conflict at `LirLean.lean` is trivial; the only invariant to defend is that
 `import LirLean.Audit` stays LAST.
 
-> **RESOLVED (2026-07-03).** This merge concern is now moot. `LirLean.V2.HonestGasTie` was
-> **deleted** in Phase 2 and `V2/TieDischarge.lean` was dissolved; the `LirLean.lean` root is now
+> **RESOLVED (2026-07-03).** This merge concern is now moot. `LirLean.HonestGasTie` was
+> **deleted** in Phase 2 and `TieDischarge.lean` was dissolved; the `LirLean.lean` root is now
 > a clean import list. `Audit.lean` reaches the headline cone via its direct imports of the
-> `LirLean/V2/Drive/*` modules and remains the LAST import of the root.
+> `LirLean/Drive/*` modules and remains the LAST import of the root.

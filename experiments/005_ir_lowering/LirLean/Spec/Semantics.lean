@@ -1,7 +1,7 @@
 import LirLean.Spec.IR
 import Evm
 
-namespace Lir.V2
+namespace Lir
 
 open Evm
 
@@ -217,4 +217,4 @@ theorem runFromLeft_exists {prog : Program} {st : IRState}
       obtain ⟨Tleft, Cleft, Dleft, hl⟩ := ih
       exact ⟨Tleft, Cleft, Dleft, .jump hb hss hterm hl⟩
 
-end Lir.V2
+end Lir

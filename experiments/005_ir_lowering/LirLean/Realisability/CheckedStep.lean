@@ -1,7 +1,7 @@
-import LirLean.V2.Realisability.SegmentedEval
+import LirLean.Realisability.SegmentedEval
 
 /-!
-# LirLean v2 — Realisability spec, THE CHECKED (KERNEL-EVALUABLE) STEP TWIN
+# LirLean — Realisability spec, THE CHECKED (KERNEL-EVALUABLE) STEP TWIN
 
 The v4.30 kernel CANNOT evaluate the engine's byte-window primitives: every padded
 memory read/write routes through `ffi.ByteArray.zeroes (u : USize)`, and `USize`
@@ -34,7 +34,7 @@ This module quarantines the wall with a **checked twin evaluator**:
 R12a leaves. Everything here is generic engine-level machinery (no witness literals).
 -/
 
-namespace Lir.V2
+namespace Lir
 
 open Evm
 open BytecodeLayer
@@ -762,4 +762,4 @@ theorem stepsCCChk_sound {k : ℕ} {fr : Frame} {x : Frame ⊕ Bool}
         dsimp only [] at h ⊢
         exact Option.some.inj h
 
-end Lir.V2
+end Lir

@@ -6,7 +6,7 @@ never "dead", unless a replacement is named with evidence.
 
 The cluster is NOT a tight altitude band. `IR`/`Semantics`/`Lowering` are L0 base
 (import only `Evm` + `Spec/IR`); `Recorder` and `Seams` sit HIGH in the DAG (they
-import V2/Drive/Engine machinery) but live in `Spec/` because they are reviewer-facing
+import Drive/Engine machinery) but live in `Spec/` because they are reviewer-facing
 surface. `Conformance` is a deliberate tombstone stub.
 
 ---
@@ -32,7 +32,7 @@ not in the IR surface.
 | `Block` (:103) | structure | shared-infra | 196 refs |
 | `Program` (:109) | structure | shared-infra (blocks + entry) | 230 refs |
 
-Note `Expr.slot` (:73): the generic spill-load marker; `V2.evalExpr (.slot _) = none`
+Note `Expr.slot` (:73): the generic spill-load marker; `Lir.evalExpr (.slot _) = none`
 (Semantics :130). Today produced by `defsOf`/`allocate` only for the three spilled
 channels (gas/sload/call-result); it is the uniform-spill mechanism's IR half. Not
 dead — load-bearing for the value channel.
@@ -46,7 +46,7 @@ relation).
 
 | decl | kind | role | callers |
 |---|---|---|---|
-| `World` (:44) | abbrev | shared-infra (`Word → Word` storage lens) | 2 explicit `V2.World` refs; used pervasively via `IRState.world`/`Observable.world` |
+| `World` (:44) | abbrev | shared-infra (`Word → Word` storage lens) | 2 explicit `Lir.World` refs; used pervasively via `IRState.world`/`Observable.world` |
 | `IRState` (:48) | structure | shared-infra (the machine state) | 87 refs |
 | `IRHalt` (:55) | inductive | shared-infra (stopped/returned) | 8 refs (Observable, observe) |
 | `GasOracle` (:73) | abbrev | shared-infra (`List Word` gas stream) | 3 explicit + via `Trace` alias |
@@ -110,7 +110,7 @@ regime (i)). A `Type`-valued parallel copy of `drive` (`driveLog`) so the realis
 oracles are honest FUNCTIONS (`Prop` cannot eliminate into `Type`). Records top-level GAS
 reads, SLOAD warmth-charges, and returning external CALLs; projects to
 `realisedGas`/`realisedSload`/`realisedCall`; `observe` bridges bytecode `FrameResult` →
-IR `Observable`. Imports `V2/CallRealises` + `Hoare.GasMonotone` (the latter is a LIVE
+IR `Observable`. Imports `CallRealises` + `Hoare.GasMonotone` (the latter is a LIVE
 import for `Runs.gasAvailable_le` in DriveSim — see the file's own note :2–5), so it sits
 HIGH in the DAG despite being in `Spec/`.
 
@@ -142,12 +142,12 @@ debt is named/typed/drift-proof. Asserts nothing new. Imported ONLY by `Audit.le
 
 | decl | kind | role | callers |
 |---|---|---|---|
-| `SelfPresent` (:38) | def | terminal-for-audit (forwarder of `V2.SelfPresent`) | register entry; no non-Seam ref |
-| `CallPreservesSelf` (:47) | def | terminal-for-audit (forwarder of `V2.CallPreservesSelf`) | used in `callPreservesSelf_of_precompiles` type |
+| `SelfPresent` (:38) | def | terminal-for-audit (forwarder of `Lir.SelfPresent`) | register entry; no non-Seam ref |
+| `CallPreservesSelf` (:47) | def | terminal-for-audit (forwarder of `Lir.CallPreservesSelf`) | used in `callPreservesSelf_of_precompiles` type |
 | `PrecompilesPreservePresence` (:59) | def | terminal-for-audit (the `hprec` seam shape) | used in `callPreservesSelf_of_precompiles` type |
 | `callPreservesSelf_of_precompiles` (:68) | theorem | terminal-for-audit (drift-proof binding; axiom-checked) | `Audit.lean:60/62` (`#print axioms`) |
 | `CallsCode` (:81) | def | terminal-for-audit (forwarder of `Interpreter.CallsCode`) | register entry; no non-Seam ref |
-| `CleanHaltsNonException` (:93) | def | terminal-for-audit (forwarder of `V2.CleanHaltsNonException`) | register entry; no non-Seam ref |
+| `CleanHaltsNonException` (:93) | def | terminal-for-audit (forwarder of `Lir.CleanHaltsNonException`) | register entry; no non-Seam ref |
 
 `SelfPresent`/`CallsCode`/`CleanHaltsNonException` have no in-code consumers outside the
 file, but they are the deliberate reviewer-surface register (the four irreducible seams);
@@ -177,28 +177,28 @@ reach `Semantics`'s types (`CallStream`/`Observable`/`GasOracle`) only transitiv
 
 Altitude (three tiers, not one cluster):
 - L0 base: `IR` → `Semantics`, `Lowering` (Evm-only + IR).
-- High-DAG surface: `Recorder` (imports `V2/CallRealises`, `Hoare.GasMonotone`),
-  `Seams` (imports `V2/Drive/CallPreservesSelf`, `Decode/Modellable`, `BytecodeLayer/Hoare/CleanHalt`).
+- High-DAG surface: `Recorder` (imports `CallRealises`, `Hoare.GasMonotone`),
+  `Seams` (imports `Drive/CallPreservesSelf`, `Decode/Modellable`, `BytecodeLayer/Hoare/CleanHalt`).
 - Tombstone: `Conformance` (imports nothing).
 
 Entry edges (who imports each, from outside `Spec/`):
 | module | direct importers |
 |---|---|
 | `Spec.IR` | `SmallStep`, `Call`, `Create`; root `LirLean.lean:9` |
-| `Spec.Semantics` | `V2.Law`, `DefsSound`; root :10 |
+| `Spec.Semantics` | `Lir.Law`, `DefsSound`; root :10 |
 | `Spec.Lowering` | `LoweringLemmas` |
 | `Spec.Recorder` | `RecorderLemmas` |
 | `Spec.Seams` | `Audit`; root :49 |
 | `Spec.Conformance` | none (kept live via root :50) |
 
 Exit edges (what the cluster reaches into other clusters):
-- `Recorder` → `V2/CallRealises` (`evmV2CallEntry`, `resumeAfterCall`), exp003
+- `Recorder` → `CallRealises` (`evmV2CallEntry`, `resumeAfterCall`), exp003
   `Frame`/`drive`/`CallResult`/`stepFrame`/`beginCall`/`beginCreate`, `Hoare.GasMonotone`.
-- `Seams` → `V2.SelfPresent`, `V2.CallPreservesSelf`, `V2.callPreservesSelf_modGuards`,
-  `V2.AccPresent`, `Interpreter.CallsCode`, `V2.CleanHaltsNonException`.
+- `Seams` → `Lir.SelfPresent`, `Lir.CallPreservesSelf`, `Lir.callPreservesSelf_modGuards`,
+  `Lir.AccPresent`, `Interpreter.CallsCode`, `Lir.CleanHaltsNonException`.
 - `IR`/`Semantics`/`Lowering` → `Evm` only.
 
-Terminal consumption by the flagship (`V2/RealisabilitySpec.lean`, WIP lib):
+Terminal consumption by the flagship (`RealisabilitySpec.lean`, WIP lib):
 `RunFrom`, `lower`, `observe`, `realisedGas`, `realisedCall`, `runWithLog`, `driveLog`,
 `RunLog` all feed `Conforms` (:155) and `lower_conforms` (:3705). `Conforms` compares BOTH
 `observe`'s world AND result (foundation full-observable change 4628201).

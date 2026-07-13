@@ -1,14 +1,16 @@
 import LirLean.Sim.SimStmts
 import LirLean.Decode.JumpValid
 import LirLean.Decode.DecodeAnchors
-import LirLean.V2.RecorderLemmas
+import LirLean.RecorderLemmas
 import LirLean.Materialise.StashTail
 import BytecodeLayer.Hoare.MemAlgebra
+
+open Lir.Frame
 
 /-!
 # LirLean — `sim_term` (Layer **E** of the general `lower_conforms` grind)
 
-Block-terminator simulation: from a frame in `Corr`-correspondence with the V2 IR state
+Block-terminator simulation: from a frame in `Corr`-correspondence with the IR state
 at the *terminator cursor* `(L, b.stmts.length)` — the frame Layer D's `sim_stmts_block`
 delivers — running the lowered terminator bytes either **halts** (matching the IR halt's
 world channel, E1) or **runs to the successor block's entry frame**, re-establishing `Corr`
@@ -35,7 +37,7 @@ land at exactly the frame's running pc.
 * **`ret t`** — only the **world** (storage delta) is asserted: `observe`'s `result` is
   `.stopped`, while the IR's `RunFrom.ret` halt gives `.returned w`. The RETURN **value
   channel is DEFERRED** (a tracked follow-up, `Spec/Recorder.lean` `observe` doc). We still run
-  `matCache t` (the fold value channel, `Lir.V2.materialise_runsC`) for the RETURN, but the
+  `matCache t` (the fold value channel, `Lir.materialise_runsC`) for the RETURN, but the
   returned word is **not** asserted; only the storage lens (`world`) is matched.
 
 The `world`-channel bridge `observe self (endFrame last halt) = storageAt last self` is the
@@ -66,7 +68,7 @@ the per-statement layers take their `hself`/decode bundles.
   the call site, mirroring how `materialise_runsC` takes `MatDecC`.
 
 No `sorry`, no `axiom`, no `native_decide`. Bytecode-coupled (imports `Match.lean`,
-`JumpValid.lean`); nothing here touches `Spec/Semantics.lean` / `V2/Law.lean` (the frame-free
+`JumpValid.lean`); nothing here touches `Spec/Semantics.lean` / `Law.lean` (the frame-free
 spine).
 -/
 
@@ -76,7 +78,7 @@ open Evm
 open GasConstants
 open BytecodeLayer.Hoare
 open BytecodeLayer.Dispatch
-open Lir.V2
+open Lir
 open LirLean.MemAlgebra
 
 /-! ## The terminator cursor = the offset-table terminator anchor -/
@@ -245,7 +247,7 @@ block edges (the frames preserve both `memory` bytes and `activeWords`). -/
 /-! ## E1 — `sim_term_halt` (the halting terminators `stop` / `ret`)
 
 A block whose terminator is `stop` or `ret t` runs (the `ret` value via the fold value channel
-`Lir.V2.materialise_runsC`) to a frame `last` that **halts** (`stepFrame last = .halted halt`),
+`Lir.materialise_runsC`) to a frame `last` that **halts** (`stepFrame last = .halted halt`),
 whose `observe` **world**
 matches the IR halt's world (the storage lens, tied through `Corr`'s `StorageAgree`). For
 `stop` the `result` (`.stopped`) also matches; for `ret` the `result` is the value channel,
@@ -261,7 +263,7 @@ b.stmts.length)` with `b.term = .stop`, a frame decoding to `STOP` halts immedia
 lens, via `Corr`'s `StorageAgree`) and its `result` is `.stopped` — both channels match the
 IR `RunFrom.stop` halt. -/
 theorem sim_term_halt_stop {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st : V2.IRState} {L : Label} {b : Block} {fr : Frame} {self : AccountAddress}
+    {st : Lir.IRState} {L : Label} {b : Block} {fr : Frame} {self : AccountAddress}
     {cp : Evm.Checkpoint}
     (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L b.stmts.length)
     (_hterm : b.term = .stop)
@@ -310,7 +312,7 @@ the MSTORE memory-expansion witness `wms`) and the top-level-frame `kind`/non-em
 the honest structured hypotheses (`hret`), supplied at the materialise endpoint `frv` — exactly
 where the concrete program pins them. -/
 theorem sim_term_halt_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st : V2.IRState} {t : Tmp} {vw : Word}
+    {st : Lir.IRState} {t : Tmp} {vw : Word}
     {L : Label} {b : Block} {fr : Frame} {self : AccountAddress}
     (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L b.stmts.length)
     (_hterm : b.term = .ret t)
@@ -365,7 +367,7 @@ theorem sim_term_halt_ret {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       ∧ (observe self (endFrame last halt)).world = st.world
       ∧ (observe self (endFrame last halt)).result = .returned vw := by
   -- value channel: run `matCache t`, reaching `frv` with `vw` pushed, storage lens preserved.
-  have hevv : V2.evalExpr st obs (.tmp t) = some vw := hv
+  have hevv : Lir.evalExpr st obs (.tmp t) = some vw := hv
   have hszfr : fr.exec.stack.size = 0 := by rw [hcorr.stack_nil]; rfl
   have hgas' : (chargeExpr sloadChg (chargeCache prog sloadChg) (.tmp t)).sum
       ≤ fr.exec.gasAvailable.toNat := by simpa only [chargeExpr_tmp] using hgas
@@ -504,7 +506,7 @@ self-address / storage lens agreeing with the source `Corr` (carried `st`) — s
 `JUMPDEST` (`runs_jumpdest`) to `jumpdestFrame fj`, which is in `Corr`-correspondence with the
 (unchanged) `st` at the successor's entry cursor `(succ, 0)`. The shared E2 tail. -/
 theorem corr_at_jumpdest_landing {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st : V2.IRState} {succ : Label} {bsucc : Block} {fj : Frame}
+    {st : Lir.IRState} {succ : Label} {bsucc : Block} {fj : Frame}
     (hbsucc : prog.blocks.toList[succ.idx]? = some bsucc)
     (hpc : fj.exec.pc = UInt32.ofNat (offsetTable (matCache prog) (defsOf prog)
             prog.blocks succ.idx))
@@ -545,7 +547,7 @@ immediate `dest` round-tripping to the successor offset and the three decodes/ga
 runs to the successor block `succ`'s entry frame, re-establishing `Corr` at `(succ, 0)`. The
 shared tail of E2's `jump` and the `branch` fall-through (`else`) arm. -/
 theorem jump_to_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st : V2.IRState} {succ : Label} {bsucc : Block} {g : Frame} {dest : Word}
+    {st : Lir.IRState} {succ : Label} {bsucc : Block} {g : Frame} {dest : Word}
     (hbsucc : prog.blocks.toList[succ.idx]? = some bsucc)
     (hsucclt : succ.idx < prog.blocks.size)
     (hgcode : g.exec.executionEnv.code = lower prog)
@@ -629,7 +631,7 @@ at `(dst, 0)` (the IR state `st` unchanged across the edge — `RunFrom.jump` re
 (`block_offset_validJump`): the offset is a recorded `validJumpDests` of `lower prog`, tied to
 the frame's `validJumps` (`hvalid`) and the PUSH4 immediate round-trip (`hdestword`). -/
 theorem sim_term_edge_jump {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st : V2.IRState} {L : Label} {b : Block} {dst : Label} {bdst : Block}
+    {st : Lir.IRState} {L : Label} {b : Block} {dst : Label} {bdst : Block}
     {fr : Frame} {dest : Word}
     (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L b.stmts.length)
     (_hterm : b.term = .jump dst)
@@ -672,7 +674,7 @@ JUMPDEST` reaches the **taken successor**'s entry frame, re-establishing `Corr` 
 JUMPI-falls-through to the `PUSH4 elseOff ; JUMP` and reuses `jump_to_block`. Both successor
 destinations resolve through E3 (`block_offset_validJump`). -/
 theorem sim_term_edge_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st : V2.IRState} {L : Label} {b : Block} {cond : Tmp} {cw : Word}
+    {st : Lir.IRState} {L : Label} {b : Block} {cond : Tmp} {cw : Word}
     {thenL elseL : Label} {bthen belse : Block}
     {fr frc : Frame} {thenWord elseWord : Word}
     (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L b.stmts.length)
@@ -683,7 +685,7 @@ theorem sim_term_edge_branch {prog : Program} {sloadChg : Tmp → ℕ} {obs : Wo
     (hthenlt : thenL.idx < prog.blocks.size)
     (helselt : elseL.idx < prog.blocks.size)
     -- value channel: `matCache cond` reaches `frc` (the JUMPI-arg-push site).
-    (hmrc : V2.MatRunsC prog sloadChg (.tmp cond) cw fr frc)
+    (hmrc : Lir.MatRunsC prog sloadChg (.tmp cond) cw fr frc)
     -- the materialise endpoint's recorded jump destinations are the lowered program's
     -- (the materialise of a pure cond is call-free, so its `Runs` preserves `validJumps`):
     (hfrcvalid : frc.validJumps = validJumpDests (lower prog) 0)

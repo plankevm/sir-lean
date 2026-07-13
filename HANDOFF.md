@@ -9,24 +9,24 @@ Full chronological record: `currentplan.md` (orchestration log). This is your re
 > (HEAD `53c2063`). File homes below have MOVED — consult the redirect map in
 > `experiments/005_ir_lowering/docs/headline-transitive-chain.md`:
 > (a) `LirLean/Spec/{IR,Semantics,Lowering,Recorder,Seams,Conformance}` extraction;
-> (b) `experiments/003_bytecode_layer/BytecodeLayer/Hoare/*` + `LirLean/V2/Drive/{SelfPresent,CallPreservesSelf,Headline}` split,
-> with `V2/TieDischarge.lean` **DISSOLVED** and `V2/RunLog.lean` **deleted** (recorder →
-> `Spec/Recorder.lean`); (c) Phase-2 **deletion** of `V2/{Mono,Oracle,HonestGasTie}.lean` +
-> the gas-monotonicity law; (d) `LirLean/Audit.lean` guard net + `LirLean/V2/RealisabilitySpec.lean`
+> (b) `experiments/003_bytecode_layer/BytecodeLayer/Hoare/*` + `LirLean/Drive/{SelfPresent,CallPreservesSelf,Headline}` split,
+> with `TieDischarge.lean` **DISSOLVED** and `RunLog.lean` **deleted** (recorder →
+> `Spec/Recorder.lean`); (c) Phase-2 **deletion** of `{Mono,Oracle,HonestGasTie}.lean` +
+> the gas-monotonicity law; (d) `LirLean/Audit.lean` guard net + `LirLean/RealisabilitySpec.lean`
 > (non-default `Nightly` lib) holding the R0–R12 sorry-skeleton. Plan-of-record:
 > `experiments/005_ir_lowering/docs/target-architecture-2026-07-02.md` +
 > `execution-plan-2026-07-02.md` (the remediation plan is superseded). The final audit fleet
 > (`experiments/005_ir_lowering/docs/final-audit-2026-07-03.md`, being written) is the gate before Phase 3.
 >
 > **CORRECTION (2026-07-03, later).** This banner earlier said the headline
-> `lower_conforms_cyclic_assembled` "now lives at `LirLean/V2/Drive/Headline.lean`". That relocation
+> `lower_conforms_cyclic_assembled` "now lives at `LirLean/Drive/Headline.lean`". That relocation
 > was **undone**: in commits "delete vacuous conformance surface 1/4..4/4" the vacuous headline
 > `lower_conforms_cyclic_assembled` **and the whole vacuous apparatus** (`_tiefree`,
 > `lower_conforms_wf`, the `lower_conforms_acyclic*` family, `StmtTies`/`TermTies`, the Plus
 > assembly, and the `Spec` `RealisabilityObligations`/`_of_obligations`/re-export layer) were
-> **DELETED** — not moved. `LirLean/V2/RealisabilitySpec.lean` (Nightly, R0–R12) is now the **sole
+> **DELETED** — not moved. `LirLean/RealisabilitySpec.lean` (Nightly, R0–R12) is now the **sole
 > conformance surface**; ties are DERIVED from the run (R10a/R10b), not supplied. The
-> `Lir.V2.DriveCorrPlus` structure and the §7/§8 value/gas channels in `V2/Drive/Headline.lean` are
+> `Lir.DriveCorrPlus` structure and the §7/§8 value/gas channels in `Drive/Headline.lean` are
 > **retained as Phase-3 salvage** (present but unreferenced in the default build).
 >
 > **PHASE 3 (2026-07-04).** The final audit returned CLEAN and Phase 3 (the R0–R12 proof grind) is
@@ -47,8 +47,8 @@ The overnight snapshot below is **stale**. What has changed since:
 - **The gas-monotonicity law is DROPPED.** The v2 "monotone gas oracle" (presented below as an
   achievement — `Runs.gasAvailable_le`, `lower_preserves_obs_mono`, `realisedGas_monotone`,
   `GasRealises.monotoneGas`) was **proved-but-unused** and has been **removed** (Phase 2:
-  `V2/Mono.lean`/`V2/Oracle.lean`/`V2/HonestGasTie.lean` deleted, RunLog's gas-monotonicity
-  section dropped, `V2/Law.lean` narrowed to determinism). Gas is now just a
+  `Mono.lean`/`Oracle.lean`/`HonestGasTie.lean` deleted, RunLog's gas-monotonicity
+  section dropped, `Law.lean` narrowed to determinism). Gas is now just a
   **log-fed exact-equality oracle** (the recorder captures the machine `GAS` output and it is fed
   into the IR oracle, then proved equal — handled exactly like an external call). See
   `experiments/005_ir_lowering/docs/gas-decision.md`.
@@ -63,7 +63,7 @@ The overnight snapshot below is **stale**. What has changed since:
   and add one concrete instantiation, making the headline unconditional. **Plan of record
   (2026-07-03): `experiments/005_ir_lowering/docs/target-architecture-2026-07-02.md` +
   `execution-plan-2026-07-02.md`** (flagship reshape + the R0–R12 sorry-skeleton in
-  `LirLean/V2/RealisabilitySpec.lean`, non-default `Nightly` lib); the remediation plan is
+  `LirLean/RealisabilitySpec.lean`, non-default `Nightly` lib); the remediation plan is
   superseded. Audit background: `experiments/005_ir_lowering/docs/audit-2026-07-02.md`.
 
 ---
@@ -99,10 +99,10 @@ Everything is committed; all worktrees clean (except your pre-existing scratch f
   `[propext, Classical.choice, Quot.sound]` myself. **This closes §3.4's "holds across calls"
   as a real proof.** Decision-free runway for Track C is now exhausted ⇒ wound down.
 - **✅ C-v2 two-read monotonicity milestone** (`exp005-ir`, green 1133, axiom-clean).
-  `LirLean/V2/Mono.lean`: the monotone-oracle law on a sticky-gas-guard; bytecode *discharges*
+  `LirLean/Mono.lean`: the monotone-oracle law on a sticky-gas-guard; bytecode *discharges*
   monotonicity from exact gas accounting (no new gas theory). Law works as designed.
 - **✅ C-v2 call-free prototype** (green 1132, axiom-clean, v1 untouched).
-  `LirLean/V2/{Machine,Preserve}.lean`: gas-free IR machine + `gasRead` event + observable
+  `LirLean/{Machine,Preserve}.lean`: gas-free IR machine + `gasRead` event + observable
   `lower_preserves_obs` (pc-free, gas-equality-free). The v2 shape is validated.
 - **⏸️ B2h — 5th PARTIAL, Track B HELD** (`exp004-nested`, green, axiom-clean, tree clean).
   Proved the gas-monotonicity per-layer reductions. Remaining to headline: gas-mono assembly
@@ -151,6 +151,6 @@ nothing to clean up.)
 - `EXPERIMENT-REPORT.md` (repo root) — results synthesis + the flat-vs-nested "Sharpening".
 - `experiments/005_ir_lowering/docs/` on `exp005-ir` — `ir-design-v2.md` (the v2 plan, now with
   step-1/1b DONE + §3.4 fully proved), `gas-introspection-prior-art.md`, `track-c-review.md`.
-- New Lean: `LirLean/V2/{Machine,Preserve,Mono}.lean` + `BytecodeLayer/Hoare/GasMonotone.lean`
+- New Lean: `LirLean/{Machine,Preserve,Mono}.lean` + `BytecodeLayer/Hoare/GasMonotone.lean`
   (all on `exp005-ir`).
 - `currentplan.md` — full orchestration log + overnight protocol.

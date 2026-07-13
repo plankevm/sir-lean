@@ -13,7 +13,7 @@ directory (`experiments/005_ir_lowering/docs/`); source modules are one level up
 
 > **UPDATE (2026-07-03) — this reviews the retired v1 worked-call demo.** The mainline is
 > now the v2 cyclic conformance headline (`lower_conforms_cyclic_assembled`, at
-> `../LirLean/V2/Drive/Headline.lean`, pinned in `../LirLean/Audit.lean`); see
+> `../LirLean/Drive/Headline.lean`, pinned in `../LirLean/Audit.lean`); see
 > `docs/target-architecture-2026-07-02.md` + `docs/execution-plan-2026-07-02.md` (plan of
 > record) and `docs/headline-transitive-chain.md` (redirect map). The v1 artifacts this
 > report links (`WorkedCall.lean`, `Decode.lean`) have since moved to `../_attic/` — the

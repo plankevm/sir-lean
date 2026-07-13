@@ -1,6 +1,6 @@
 # P5 + P6 — the forward-from-real-run tie discharge (the tie-free headline)
 
-> **SUPERSEDED (2026-07-03):** plan of record is `target-architecture-2026-07-02.md` + `execution-plan-2026-07-02.md`; the gas-law apparatus (Mono/Oracle/HonestGasTie) was deleted in Phase 2. The premise below that the §7 ties are "SUPPLIED-but-satisfiable" was later **refuted** — the supplied ties are unsatisfiable as stated (see the target-architecture doc); the realisability rebuild lives in `LirLean/V2/RealisabilitySpec.lean` (R0–R12, non-default `Nightly` lib).
+> **SUPERSEDED (2026-07-03):** plan of record is `target-architecture-2026-07-02.md` + `execution-plan-2026-07-02.md`; the gas-law apparatus (Mono/Oracle/HonestGasTie) was deleted in Phase 2. The premise below that the §7 ties are "SUPPLIED-but-satisfiable" was later **refuted** — the supplied ties are unsatisfiable as stated (see the target-architecture doc); the realisability rebuild lives in `LirLean/RealisabilitySpec.lean` (R0–R12, non-default `Nightly` lib).
 >
 > **P9 status note (2026-07-08):** legacy value-channel names below (`Expr.slot`,
 > `materialiseExpr`, `materialise`, `recomputeFuel`, `MatFueled`, `Assembly/Acyclic.lean`,
@@ -11,7 +11,7 @@
 axiom-clean `[propext, Classical.choice, Quot.sound]`).**
 
 This plan turns the conformance headlines TIE-FREE. Today `Lir.lower_conforms`,
-`Lir.lower_conforms_acyclic_cfg`, `Lir.V2.lower_conforms_cyclic` / `lower_conforms_cyclic'` are
+`Lir.lower_conforms_acyclic_cfg`, `Lir.lower_conforms_cyclic` / `lower_conforms_cyclic'` are
 non-vacuous and sound but conditioned on SUPPLIED-but-satisfiable per-cursor §7 ties. **P5**
 PRODUCES every such tie from the actual `lower prog` execution + the recording interpreter
 (`runWithLog`/`driveLog`); **P6** assembles the tie-free headline.
@@ -19,7 +19,7 @@ PRODUCES every such tie from the actual `lower prog` execution + the recording i
 It consumes two leaves landing in parallel (plan for their results, do not re-prove):
 
 * **P2** — `ModellableStep` over `lower prog` (`BytecodeLayer.Interpreter.ModellableStep`,
-  `V2/DriveRuns.lean:150`): every `Runs`-reachable frame of a `lower prog` run issues a code CALL
+  `DriveRuns.lean:150`): every `Runs`-reachable frame of a `lower prog` run issues a code CALL
   or a halt (never CREATE, never precompile-CALL). Removes the `hmodel` supplied hyp under
   `cleanHalts_of_runWithLog` (`DriveSim.lean:128`).
 * **P3** — `SelfPresent`-forward across `Runs` *including the call resume*: a `SelfPresent fr`
@@ -34,7 +34,7 @@ It consumes two leaves landing in parallel (plan for their results, do not re-pr
 |---|---|
 | Headline (general) `lower_conforms` | `LirLean/LowerConforms.lean:1227` |
 | Headline (acyclic CFG) `lower_conforms_acyclic_cfg` | `LirLean/Acyclic.lean:339` |
-| Headline (cyclic) `lower_conforms_cyclic` / `'` | `LirLean/V2/DriveSim.lean:606` / `:646` |
+| Headline (cyclic) `lower_conforms_cyclic` / `'` | `LirLean/DriveSim.lean:606` / `:646` |
 | `StmtTies` / `TermTies` (the supplied bundles) | `LowerConforms.lean:1312` / `:1391` |
 | `CallRealises` (the §7 CALL tie) | `LowerConforms.lean:284` |
 | `Corr` boundary invariant | `LirLean/SimStmt.lean:101` |
@@ -42,14 +42,14 @@ It consumes two leaves landing in parallel (plan for their results, do not re-pr
 | `DriveCorr` / `CleanHalts` / `DriveStep` | `DriveSim.lean:82` / `:75` / `:443` |
 | `drive_step_block_{stop,ret,jump,branch}` | `DriveSim.lean:209` / `:235` / `:281` / `:364` |
 | `runFrom_of_driveCorr` (F2) | `DriveSim.lean:569` |
-| `DriveCorrPlus` + `driveCorrPlus_entry` | `LirLean/V2/TieDischarge.lean:544` / `:563` |
+| `DriveCorrPlus` + `driveCorrPlus_entry` | `LirLean/TieDischarge.lean:544` / `:563` |
 | Alignment substrate `GasLogAligned`/`SloadLogAligned` + step lemmas | `TieDischarge.lean:146` / `:313` |
 | Selection lemmas `gasRealises_obs_of_witness`/`sloadRealises_charge_of_witness` | `TieDischarge.lean:251` / `:373` |
 | `SelfPresent` + `selfPresent_matRuns` + `selfPresent_codeFrame` | `TieDischarge.lean:408` / `:464` / `:484` |
 | Stash-tail forward lemmas | `LirLean/StashTail.lean` (`stash_tail_runs` `:156`, `_covered` `:256`, `stash_tail_gas` `:320`) |
 | `materialise_runs` / `MatRuns` (clauses incl. `.accounts`) | `LirLean/MaterialiseRuns.lean:767` / `:335` |
-| Recorder `driveLog`/`runWithLog`/projections | `LirLean/V2/RunLog.lean` |
-| `runs_of_drive_ok` (drive→Runs reverse) | `V2/DriveRuns.lean:300` |
+| Recorder `driveLog`/`runWithLog`/projections | `LirLean/RunLog.lean` |
+| `runs_of_drive_ok` (drive→Runs reverse) | `DriveRuns.lean:300` |
 | `Runs` inductive (`.refl`/`.step`/`.call`), `linear_to_halt`, `gasAvailable_le` | `experiments/003_bytecode_layer/BytecodeLayer/Hoare.lean:114` / `:219` |
 
 ---
@@ -66,7 +66,7 @@ which P5 must still position-select.)
 | # | Tie (field) | Statement (abbreviated) | P5 producer | Dep |
 |---|---|---|---|---|
 | S1 | sload stash run (`StmtTies` arm 2, `:1323`) | `∃ endFr, Runs fr0 endFr ∧ endFr.memory = (fr0.mstore (slotOf t) w).memory ∧ … ∧ stack = []` | `stash_tail_runs_covered` (covered slot) / `stash_tail_runs`, **constructed** inside the walk's sload-cursor step | P3 (SelfPresent through the materialise prefix `materialise k`) |
-| S2 | sload value tie (`:1329`) | `V2.evalExpr st0 0 (.sload k) = some w` and `w` = recorded warmth-tied loaded value | walk: the realised SLOAD output; warmth via `sloadRealises_charge_of_witness` | — (value from IR step) |
+| S2 | sload value tie (`:1329`) | `Lir.evalExpr st0 0 (.sload k) = some w` and `w` = recorded warmth-tied loaded value | walk: the realised SLOAD output; warmth via `sloadRealises_charge_of_witness` | — (value from IR step) |
 | S3 | gas positional value (`:1356`) | `ob = ofUInt64 (fr0.gas − Gbase)` | walk: the realised GAS read via `gasRealises_obs_of_witness` | — |
 | S4 | gas runtime envelopes (`:1360`) | `Gbase ≤ gas`, `3 ≤ gasFrame gas`, the memExpansion witness + 2 MSTORE bounds | walk: descending-gas facts (`Runs.gasAvailable_le`) + coverage | — |
 | S5 | sstore gas/stack envelopes + `SstoreRealises` + `vw ≠ 0` (`:1375`) | `(charge value).sum + (charge key).sum ≤ gas` … `∃ acc, SstoreRealises fr0 kw vw acc` ∧ `vw ≠ 0` | gas via `Runs.gasAvailable_le`; presence via `sstorePresence_of_self`; `vw≠0` from IR step inversion (see §4 risk) | **P3** (SelfPresent at the SSTORE frame `frk`) |

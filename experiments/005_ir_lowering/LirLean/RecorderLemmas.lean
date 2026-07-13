@@ -1,19 +1,19 @@
 import LirLean.Spec.Recorder
 
 /-!
-# LirLean v2 — recorder lemmas (extracted from `Spec/Recorder.lean`)
+# LirLean — recorder lemmas (extracted from `Spec/Recorder.lean`)
 
 The proof companions of the recording interpreter (`LirLean/Spec/Recorder.lean`,
-the former `V2/RunLog.lean`): the SLOAD/CALL value-level bridges
+the former `RunLog.lean`): the SLOAD/CALL value-level bridges
 (`sloadRecord_eq_sloadCost` / `realisedCall_cons`) and the adequacy chain
 (`driveLog_drive` → `runWithLog_drive` → `runWithLog_messageCall`). Extracted so
 `Spec/Recorder.lean` stays a definitions-only spec-core file (Wave 3,
 `docs/fleet-2026-07-02/reorg-legibility.md` §5 Step 3); the former direct importers
-of `LirLean.V2.RunLog` (`SimTerm.lean`, `V2/Drive/SelfPresent.lean`) import this
+of `LirLean.RunLog` (`SimTerm.lean`, `Drive/SelfPresent.lean`) import this
 module instead, so every downstream consumer reaches the lemmas exactly as before.
 -/
 
-namespace Lir.V2
+namespace Lir
 
 open Evm
 open BytecodeLayer
@@ -21,8 +21,8 @@ open BytecodeLayer.System
 open BytecodeLayer.Interpreter
 open BytecodeLayer.Hoare
 
--- RELOCATED from `Spec/Recorder.lean` (originally `V2/Oracle.lean`): the two defs the §7
--- tie-discharge layer (`V2/Drive/SelfPresent.lean` — `GasLogAligned`,
+-- RELOCATED from `Spec/Recorder.lean` (originally `Oracle.lean`): the two defs the §7
+-- tie-discharge layer (`Drive/SelfPresent.lean` — `GasLogAligned`,
 -- `FramesRun.snoc`/`.snoc_seed`, `gasRecord_eq_gasReadOf`, `gasReadOf_gasFrame_eq_obs`)
 -- still consumes. Recorder-proof machinery, not spec-core, so it lives here rather than in
 -- the trusted `Spec/` cone. The rest of the gas-law interface (`GasRealises`,
@@ -57,7 +57,7 @@ theorem sloadRecord_eq_sloadCost (g : Frame) {key : Word}
 
 /-- **`realisedCall` faithfulness (head/cons projection).** When the log recorded a CALL
 (`log.calls = rec :: tl`), the realised call stream is `evmV2CallEntry` at that record's
-`(result, pending)` — the `resumeAfterCall` projection of `LirLean/V2/CallRealises.lean` —
+`(result, pending)` — the `resumeAfterCall` projection of `LirLean/CallRealises.lean` —
 CONSED onto the stream of the remaining records. `rfl`-clean, so `callRealises_bridge` ties
 this head's `(world', success)` entry to the lowered CALL's observable by construction (the
 call-side realisability), positionally per record. -/

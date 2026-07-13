@@ -1,6 +1,6 @@
 # LirLean v2 — observable-level lowering preservation (gas/pc-free IR, calls as events)
 
-> **SUPERSEDED (2026-07-03):** superseded by `ir-design-v3.md` (the v1/v2 convergence); plan of record is `target-architecture-2026-07-02.md` + `execution-plan-2026-07-02.md`. The `V2/Mono.lean` two-read monotonicity milestone validated below was deleted in Phase 2 with the rest of the gas-law apparatus (Mono/Oracle/HonestGasTie) — see `gas-decision.md`.
+> **SUPERSEDED (2026-07-03):** superseded by `ir-design-v3.md` (the v1/v2 convergence); plan of record is `target-architecture-2026-07-02.md` + `execution-plan-2026-07-02.md`. The `Mono.lean` two-read monotonicity milestone validated below was deleted in Phase 2 with the rest of the gas-law apparatus (Mono/Oracle/HonestGasTie) — see `gas-decision.md`.
 
 **Status:** PLANNING (2026-06-23). Supersedes the `ir-design.md` §3/§6 semantics &
 preservation strategy. The v1 `wc_preserves` (fully hypothesis-free, axiom-clean) stays
@@ -146,7 +146,7 @@ per-opcode cost. This is the precise middle point between an arbitrary oracle (b
   predictive branch direction (those need *strict* decrease + a positive per-iteration
   cost lower bound = cost modeling, the non-goal).
 
-**✅ VALIDATED (2026-06-23, `LirLean/V2/Mono.lean`, axiom-clean).** The two-read milestone
+**✅ VALIDATED (2026-06-23, `LirLean/Mono.lean`, axiom-clean).** The two-read milestone
 proved `lower_preserves_obs_mono` on a "sticky gas guard" (`g1:=gas; …; g2:=gas;
 branch (g1<g2) BAD GOOD` — monotonicity forces the "did gas go up" guard to `0`, pinning the
 observable). The IR touches the law exactly once to decide the guard; the bytecode side
@@ -232,9 +232,9 @@ work folds into "this `Runs.call` node realises this `CallEvent`."
 0. **Lens + types.** Define `World`, `Observable`, `CallEvent`, and the
    `World ↔ Frame`-observable abstraction lens (seed: `selfStorage`/`storageAt`).
 1. **Call-free prototype (arith + storage + gas-read branch). ✅ DONE (2026-06-23,
-   `exp005-ir`, axiom-clean, build-enforced).** `LirLean/V2/Machine.lean` (gas-free
+   `exp005-ir`, axiom-clean, build-enforced).** `LirLean/Machine.lean` (gas-free
    `World`/`IRState`/`evalExpr`/`IRRun`, `Event.gasRead`, `Observable`) +
-   `LirLean/V2/Preserve.lean` (`Lir.V2.lower_preserves_obs`: `∃ G₀, ∀ g ≥ G₀`, IR run and
+   `LirLean/Preserve.lean` (`Lir.lower_preserves_obs`: `∃ G₀, ∀ g ≥ G₀`, IR run and
    bytecode agree on the observable, the `GAS` opcode realising the `gasRead`; statement is
    pc-free and gas-equality-free). **Verdict: the shape works** — gas introspection cost
    ZERO gas machinery in the IR; the event-realisability clause fell out as a one-line
@@ -244,7 +244,7 @@ work folds into "this `Runs.call` node realises this `CallEvent`."
    hand-written PUSH1 not `lower protoIR` (avoids the PUSH32 decode blowup); `returned w` ↦
    success with empty RETURN window; STOP fall-through arm not instantiated; `RunFrom`
    determinism not yet proved (headline states IR-and-bytecode-agree directly).
-1b. **Two-read monotonicity. ✅ DONE (`LirLean/V2/Mono.lean`, axiom-clean).** Validated the
+1b. **Two-read monotonicity. ✅ DONE (`LirLean/Mono.lean`, axiom-clean).** Validated the
    §3.4 monotone-oracle law on a sticky-gas-guard example; bytecode discharges monotonicity.
    *In progress next:* the general `Runs`-level gas-monotonicity-across-`.call` lemma (the
    prerequisite that makes "holds across calls" a real proof, decision-free).

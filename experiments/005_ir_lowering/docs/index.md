@@ -22,7 +22,7 @@ IR.
 - `../../003_bytecode_layer/BytecodeLayer/Hoare/`: reusable, IR-free interpreter reasoning shared by
   the lowering proof.
 - `LirLean/{Decode,Materialise,Sim,Assembly}/`: lowering-specific bytecode reasoning.
-- `LirLean/V2/Realisability/`: the non-default `WIP` closure layer. `Surface.lean` defines the
+- `LirLean/Realisability/`: the non-default `WIP` closure layer. `Surface.lean` defines the
   coupling vocabulary, `Machinery.lean` proves engine bridges, `Producer.lean` builds the coupled
   IR run, and `RealisabilitySpec.lean` contains the public theorem shells.
 

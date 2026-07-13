@@ -8,7 +8,7 @@ import BytecodeLayer.Hoare.MemAlgebra
 
 The value-channel LINCHPIN itself — running the lowered push-sequence of an expression
 reproduces, on the bytecode stack, the value the IR's `evalExpr` computes — is the
-fold-based `Lir.V2.materialise_runsC` (`Materialise/MatFoldChannel.lean`), proved
+fold-based `Lir.materialise_runsC` (`Materialise/MatFoldChannel.lean`), proved
 fuel-free over the total byte cache `matCache`. This module carries what that proof (and
 the per-statement sims) consume from the B1 layer:
 
@@ -33,15 +33,16 @@ arms are unreachable (`e ≠ .gas`, `∀ k, e ≠ .sload k`, both preserved acro
 by `defsOf_ne_gas`/`defsOf_ne_sload`). The def-site stash runs (with the value tied by
 `MemRealises` and, for sload, the warmth via the positional `SloadLogAligned`) live in
 `sim_assign_gas`/`sim_assign_sload` (`SimStmt.lean`), NOT here. The former `GasRealises`/
-`SloadRealises` universals were deleted with `V2/HonestGasTie.lean`'s regression witnesses (the
+`SloadRealises` universals were deleted with `HonestGasTie.lean`'s regression witnesses (the
 unsatisfiability lesson is recorded in `RealisabilitySpec.lean`'s header + `docs/gas-decision.md`).
 
 No `sorry`, no `axiom`, no `native_decide`. Bytecode-coupled (imports `Match.lean`);
-nothing here touches `Spec/Semantics.lean` / `V2/Law.lean` (the frame-free spine).
+nothing here touches `Spec/Semantics.lean` / `Law.lean` (the frame-free spine).
 -/
 
 namespace Lir
 
+open Lir.Frame
 open Evm
 open GasConstants
 open BytecodeLayer.Hoare
@@ -241,12 +242,12 @@ theorem push32_pcΔ : ((32 : UInt8) + 1).toUInt32 = UInt32.ofNat 33 := by decide
 
 /-! ## `evalExpr` obs-irrelevance on the pure fragment
 
-`Lir.V2.evalExpr` reads its `obs` argument **only** in the `.gas` arm. So for any
+`Lir.evalExpr` reads its `obs` argument **only** in the `.gas` arm. So for any
 non-`gas` expression the supplied gas value is irrelevant — this is what lets B1's
 `.tmp t` recursion bridge `DefsSound`'s `evalExpr st 0 e'` to the `obs`-threaded value
 the rest of the induction carries. -/
-theorem evalExpr_obs_irrel (st : V2.IRState) (obs obs' : Word) :
-    ∀ {e : Expr}, e ≠ .gas → V2.evalExpr st obs e = V2.evalExpr st obs' e
+theorem evalExpr_obs_irrel (st : Lir.IRState) (obs obs' : Word) :
+    ∀ {e : Expr}, e ≠ .gas → Lir.evalExpr st obs e = Lir.evalExpr st obs' e
   | .imm _,   _ => rfl
   | .tmp _,   _ => rfl
   | .add _ _, _ => rfl
@@ -266,8 +267,8 @@ discharged by `e ≠ .gas` and `∀ k, e ≠ .sload k` (both preserved across th
   the runtime `sloadCost` warmth at every same-address frame. Unsatisfiable on any cold-then-warm
   same-key re-read (2100 ≠ 100). No longer carried: the SLOAD value lives in the slot (tied by
   `MemRealises`), and the warmth cost is the single cold/warm def-site read (the positional
-  `SloadLogAligned` selection). Survives only as the `V2/Drive/SelfPresent.lean` regression witness
-  (`sloadRealises_charge_of_witness`); the `V2/HonestGasTie.lean` unsatisfiability witness is deleted
+  `SloadLogAligned` selection). Survives only as the `Drive/SelfPresent.lean` regression witness
+  (`sloadRealises_charge_of_witness`); the `HonestGasTie.lean` unsatisfiability witness is deleted
   (lesson in `RealisabilitySpec.lean`'s header + `docs/gas-decision.md`).
 
 * **`GasRealises`** (RETIRED, Phase B) — the analogous `∀ g`-gas-value universal; same story.
@@ -290,11 +291,11 @@ value lives in the slot (tied by `MemRealises`, the honest positional one-read v
 the `assign` def-site by `sim_assign_sload`), and the warmth charge is the single cold/warm read at
 that def-site (the positional `SloadLogAligned` selection via `sloadRealises_charge_of_witness`, not
 this universal). This def survives ONLY as the subject of the positional discharge
-`V2/Drive/SelfPresent.lean` (`sloadRealises_charge_of_witness`); its unsatisfiability witness
-(`sloadRealises_universal_unsatisfiable`) is deleted with `V2/HonestGasTie.lean` (lesson in
+`Drive/SelfPresent.lean` (`sloadRealises_charge_of_witness`); its unsatisfiability witness
+(`sloadRealises_universal_unsatisfiable`) is deleted with `HonestGasTie.lean` (lesson in
 `RealisabilitySpec.lean`'s header + `docs/gas-decision.md`). The honest replacement is the positional
-SLOAD twin `SloadLogAligned` (`V2/Drive/SelfPresent.lean`), satisfiable by a real cold-then-warm run. -/
-def SloadRealises (sloadChg : Tmp → ℕ) (st : V2.IRState) (fr : Frame) : Prop :=
+SLOAD twin `SloadLogAligned` (`Drive/SelfPresent.lean`), satisfiable by a real cold-then-warm run. -/
+def SloadRealises (sloadChg : Tmp → ℕ) (st : Lir.IRState) (fr : Frame) : Prop :=
   ∀ (g : Frame) (k : Tmp) (key : Word),
     g.exec.executionEnv.address = fr.exec.executionEnv.address →
     st.locals k = some key →
@@ -311,10 +312,10 @@ report two distinct words, and the universal forces `obs` to equal both). It is 
 by `Corr`/`materialise_runsC`/the headlines**: gas is spilled to memory, so its value lives in the
 slot and is tied by `MemRealises` (the honest positional one-read value supplied at the `assign`
 def-site, `sim_assign_gas`). This def survives ONLY as the subject of the positional discharge
-`V2/Drive/SelfPresent.lean` (`gasRealises_obs_of_witness`); its unsatisfiability witness
-(`gasRealises_universal_unsatisfiable`) is deleted with `V2/HonestGasTie.lean` (lesson in
+`Drive/SelfPresent.lean` (`gasRealises_obs_of_witness`); its unsatisfiability witness
+(`gasRealises_universal_unsatisfiable`) is deleted with `HonestGasTie.lean` (lesson in
 `RealisabilitySpec.lean`'s header + `docs/gas-decision.md`). The honest replacement is the positional
-`GasLogAligned` (`V2/Drive/SelfPresent.lean`), satisfiable by a real descending-gas run. -/
+`GasLogAligned` (`Drive/SelfPresent.lean`), satisfiable by a real descending-gas run. -/
 def GasRealises (obs : Word) (fr : Frame) : Prop :=
   ∀ (g : Frame),
     g.exec.executionEnv.address = fr.exec.executionEnv.address →
@@ -323,7 +324,7 @@ def GasRealises (obs : Word) (fr : Frame) : Prop :=
 /-- The `M3` storage correspondence: the self account's stored value at `key` (through
 the observable lens) equals the IR world. Threaded as a plain per-frame fact —
 preserved across the materialisation by `MatRunsC.storage`. -/
-def StorageAgree (st : V2.IRState) (fr : Frame) : Prop :=
+def StorageAgree (st : Lir.IRState) (fr : Frame) : Prop :=
   ∀ key, selfStorage fr key = st.world key
 
 /-! ### Transport of the storage side-condition across a sub-frame
@@ -334,7 +335,7 @@ operand. (The `SloadRealises`/`GasRealises` `.transport` lemmas are retired with
 universals: gas and sload are spilled, so neither is carried by `Corr`/`materialise_runsC`
 anymore — Phase B/C.) -/
 
-theorem StorageAgree.transport {st : V2.IRState} {fr fr' : Frame}
+theorem StorageAgree.transport {st : Lir.IRState} {fr fr' : Frame}
     (h : StorageAgree st fr)
     (hstor : ∀ k, selfStorage fr' k = selfStorage fr k) :
     StorageAgree st fr' :=
@@ -363,7 +364,7 @@ The active clause is stated as `slot + 32 ≤ activeWords.toNat * 32` (rather th
 *not* expand memory" (`memoryExpansionWords? activeWords slot 32 = some activeWords`), which is
 what pins the readback's gas charge to the abstract two-step MLOAD charge
 — the memory analogue of `SloadRealises` resolving the SLOAD warmth cost. -/
-def MemRealises (prog : Program) (st : V2.IRState) (fr : Frame) : Prop :=
+def MemRealises (prog : Program) (st : Lir.IRState) (fr : Frame) : Prop :=
   ∀ t slot v, defsOf prog t = some (.slot slot) → st.locals t = some v →
     (UInt256.ofNat slot).toNat + 32 ≤ fr.exec.toMachineState.memory.size
     ∧ (UInt256.ofNat slot).toNat + 32 ≤ fr.exec.toMachineState.activeWords.toNat * 32
@@ -396,7 +397,7 @@ unchanged (`MatRunsC.memBytes`) and `activeWords` nondecreasing (`MatRunsC.memAc
 `MemRealises` carries from `fr` to `fr'`: equal bytes ⇒ equal `.size` ⇒ in-bounds preserved;
 nondecreasing `activeWords` ⇒ active preserved; covered + equal bytes ⇒ the readback value is
 preserved (`mload_covered_congr`). -/
-theorem MemRealises.transport {prog : Program} {st : V2.IRState} {fr fr' : Frame}
+theorem MemRealises.transport {prog : Program} {st : Lir.IRState} {fr fr' : Frame}
     (h : MemRealises prog st fr)
     (hmem : fr'.exec.toMachineState.memory = fr.exec.toMachineState.memory)
     (hact : fr.exec.toMachineState.activeWords.toNat ≤ fr'.exec.toMachineState.activeWords.toNat) :

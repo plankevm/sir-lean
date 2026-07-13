@@ -94,21 +94,21 @@ that exp003 does not export (single-opcode steps + whole-call `Behaves`, nothing
   inducts on a *given* IR `RunFrom` and is already cycle-agnostic
   (`docs/cyclic-cfg-forward-sim-plan.md:11-14,53`).
 
-- **L6 — V2 gas-free SPINE + cyclic DRIVE.** `V2/Law` (determinism floor), `V2/IRRun`
-  (IR-run existence; `CFGAcyclic` self-described "retired"), `V2/Call`/`V2/CallRealises` (the
-  CallStream oracle + realisation bridge), `Decode/Modellable`, `V2/DriveSim` (743; **the cyclic
+- **L6 — V2 gas-free SPINE + cyclic DRIVE.** `Law` (determinism floor), `IRRun`
+  (IR-run existence; `CFGAcyclic` self-described "retired"), `Call`/`CallRealises` (the
+  CallStream oracle + realisation bridge), `Decode/Modellable`, `DriveSim` (743; **the cyclic
   drive simulation** — hosts `runFrom_of_driveCorr` F2 and `lower_conforms_cyclic'` F3′,
-  `DriveSim.lean:588,666`), `V2/Drive/{SelfPresent,CallPreservesSelf,Headline}`. *Why:* the
+  `DriveSim.lean:588,666`), `Drive/{SelfPresent,CallPreservesSelf,Headline}`. *Why:* the
   gas-free IR semantics spine, plus the drive walk that *simulates* the spine over a real
   bytecode `RunFrom` (the mechanism that retires the CFG-acyclicity restriction).
 
-- **L7 — FLAGSHIP + audit.** `V2/RealisabilitySpec` (3874 LOC, the `WIP` sorry-lib: R0–R12 +
+- **L7 — FLAGSHIP + audit.** `RealisabilitySpec` (3874 LOC, the `WIP` sorry-lib: R0–R12 +
   the flagship + exProg witness — the **only** sorry-carrier), `Audit` (`#guard_msgs`
   axiom/signature guard net, imported last).
 
 **Altitude naming clarification** (`docs/lirlean-dag-2026-07-04.md:58-68`): `Engine/` = IR-agnostic
-EVM theory (→ exp003); `V2/` = the exp005 gas-free IR spine; `V2/Drive/` = the cyclic
-interpreter-drive walk. (`V2/DriveSim.lean` is a drive-layer file misfiled directly under `V2/`.)
+EVM theory (→ exp003); `` = the exp005 gas-free IR spine; `Drive/` = the cyclic
+interpreter-drive walk. (`DriveSim.lean` is a drive-layer file misfiled directly under ``.)
 
 **Honest note on "too many files":** the tree is *large, not bloated* — most of the 44 files are
 legitimate stages of a multi-stage lowering proof (`docs/lirlean-dag-2026-07-04.md:189-193`). The
@@ -123,7 +123,7 @@ refactor whose payoff is conceptual (one headline, not the appearance of two)
 
 ### 2.1 The flagship (the target statement of the whole experiment)
 
-`Lir.V2.lower_conforms` (`RealisabilitySpec.lean:3705-3718`). Current shape:
+`Lir.lower_conforms` (`RealisabilitySpec.lean:3705-3718`). Current shape:
 
 ```lean
 theorem lower_conforms {prog params log} {acc : Account}
@@ -274,7 +274,7 @@ theorem as load-bearing.
 `LowerConforms.lean:1188`) is **dead legacy**; the cyclic tie-supplied path
 (`lower_conforms_cyclic'`, `DriveSim.lean:666`) is **live but superseded** (it is the vacuous
 route — the honest flagship deliberately does *not* cite it, §2.2). The one true headline in
-progress is `Lir.V2.lower_conforms` in `RealisabilitySpec.lean`
+progress is `Lir.lower_conforms` in `RealisabilitySpec.lean`
 (`docs/lirlean-dag-2026-07-04.md:9-12`).
 
 ---
@@ -336,7 +336,7 @@ stable values are rematerialised (`docs/uniform-spill-alloc-plan.md:46-57`).
   currently proves the one default instance.)
 
 - **The memory channel is bytecode-side only** (`docs/calls-value-channel-plan.md:20-31`): the IR
-  (`V2.IRState`) is NOT extended; memory is unobservable so it never enters the conformance
+  (`Lir.IRState`) is NOT extended; memory is unobservable so it never enters the conformance
   statement — exactly as gas/calls are observed-not-modelled. `slotOf t = t.id * 32`
   (`:47-54`). The tie is **`MemRealises`** (a `Corr` clause): for every spilled tmp `t` bound in
   `st.locals`, the frame's memory at `slot` holds that value, with **coverage** (MLOAD grows
@@ -380,7 +380,7 @@ along. Renames/changes an agent will hit:
 
 | docs say | tree (`main`/foundation) has | evidence |
 |---|---|---|
-| flagship `lowering_conforms` | `lower_conforms` (`Lir.V2`) | commit `7cb54c2`; `RealisabilitySpec.lean:3705` |
+| flagship `lowering_conforms` | `lower_conforms` (`Lir`) | commit `7cb54c2`; `RealisabilitySpec.lean:3705` |
 | `lowering_conforms_all` | `lower_conforms_exact` | `:3752` |
 | `lowering_conforms_gasfree` | `lower_conforms_gasfree` | `:3788` |
 | `PrecompileSeams` | `PrecompileAssumptions` | `:550` |

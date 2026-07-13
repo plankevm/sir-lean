@@ -21,7 +21,7 @@ is spilled to EVM memory and re-read on use. This is the only mechanism that mak
 (a later use materialises the true flag, not the `PUSH32 0` stub). Fire-and-forget
 (`resultTmp = none`) is the degenerate POP case of the same scheme.
 
-The memory channel is **bytecode-side only**: the IR (`V2.IRState`) is **not** extended.
+The memory channel is **bytecode-side only**: the IR (`Lir.IRState`) is **not** extended.
 Memory is unobservable, so it never appears in the storage-conformance statement —
 exactly as gas/calls are "observed but not modelled". `MemAgree` (a new `Corr` clause)
 ties the bytecode's memory at result slots to the IR's bound locals, the same way
@@ -100,7 +100,7 @@ Stack discipline: after CALL, top = success flag.
 /-- Bytecode memory realises the IR's call-result locals. For every call-result tmp `t`
     (one registered as `.callResult slot` in `defsOf`) that is currently bound in
     `st.locals`, the frame's memory at `slot` holds that value. -/
-def MemAgree (prog : Program) (st : V2.IRState) (fr : Frame) : Prop :=
+def MemAgree (prog : Program) (st : Lir.IRState) (fr : Frame) : Prop :=
   ∀ t slot v, defsOf prog t = some (.callResult slot) → st.locals t = some v →
     (fr.exec.toMachineState.mload (UInt256.ofNat slot)).1 = v
 ```
@@ -156,7 +156,7 @@ def MemAgree (prog : Program) (st : V2.IRState) (fr : Frame) : Prop :=
   = PUSH32 slot ++ MLOAD`), all `Expr`-match arms (vacuous via `evalExpr (.callResult _)=none`).
 - **Green restored (1155 jobs, axiom-clean)**: `sim_pop`/`popFrame` in `Match.lean`;
   `subCharges_snoc/_append` moved to new `LirLean/Charges.lean` (headline **decoupled** from
-  `WorkedCall` via `MaterialiseGas`; `V2/CallRealises` still needs worked-example defs, left as-is);
+  `WorkedCall` via `MaterialiseGas`; `CallRealises` still needs worked-example defs, left as-is);
   `WorkedCall` fixed for the POP at offset 300.
 - **`zeroes` de-opaqued** (`003_bytecode_layer/EVMLean/Evm/FFI/ffi.lean`): `opaque` →
   `@[extern] def … := ⟨Array.replicate n.toNat 0⟩`. Removes the only opaque on the memory

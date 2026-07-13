@@ -1,6 +1,8 @@
 import LirLean.Materialise.MatFoldChannel
 import LirLean.Materialise.CleanHaltExtract
 
+open Lir.Frame
+
 /-!
 # LirLean — `materialise_runsC_of_cleanHalt` (the gas-dropping twin of the value channel)
 
@@ -48,7 +50,7 @@ No `sorry`, no `axiom`, no `native_decide`. Axiom-cleanliness guard comment at t
 (the build-enforced `#print axioms` guards live in `LirLean/Audit.lean`).
 -/
 
-namespace Lir.V2
+namespace Lir
 
 open Evm
 open GasConstants
@@ -399,8 +401,8 @@ theorem materialise_runsC_of_cleanHalt {prog : Program} (hdc : DefsConsistent pr
     hstore hne hnsl hmemreal heval hgas hstk
   exact ⟨fr', hmr, hgas⟩
 
-end Lir.V2
+end Lir
 
 -- Build-enforced axiom-cleanliness guards for the FoldLemma deliverables
--- (`Lir.V2.materialise_chargeC_le_of_cleanHalt` / `Lir.V2.materialise_runsC_of_cleanHalt`)
+-- (`Lir.materialise_chargeC_le_of_cleanHalt` / `Lir.materialise_runsC_of_cleanHalt`)
 -- live in `LirLean/Audit.lean`: both depend only on `[propext, Classical.choice, Quot.sound]`.

@@ -20,7 +20,7 @@ This mirrors how vyper-hol models external calls (the call is a black box that
 returns a `CallResult`) and matches the gas-oracle altitude precisely: an abstract
 oracle (IR reasons for all instantiations) + an `evmCallOracle` instantiation
 (defeq / by-construction the lowered call's projection) + a reflexivity headline
-under `Match` (`Lir.call_reflects_lowered` in `Frame/Match.lean`).
+under `Match` (`Lir.Frame.call_reflects_lowered` in `Frame/Match.lean`).
 
 ## What the oracle captures (and the one thing it cannot)
 
@@ -49,7 +49,7 @@ the success word's value). This matches the gas oracle's altitude: a clean
 abstraction + a reflexivity equation.
 -/
 
-namespace Lir
+namespace Lir.Frame
 
 open Evm
 open BytecodeLayer.Hoare
@@ -135,7 +135,7 @@ state — storage becomes the oracle's `postStorage` lens (keyed on the self
 address). It is parametric over the oracle, so the IR small-step reasons for all
 instantiations; under lowering the oracle is `evmCallOracle` and the resulting state
 is *reflexively* the resumed frame's observable (`call_reflects_lowered`). The
-gas-free v1 state carries no gas counter, so the oracle's `restoredGas` projection
+gas-free frame-reference state carries no gas counter, so the oracle's `restoredGas` projection
 is not applied to the state (it is still reflected at the bytecode boundary by
 `call_reflects_lowered`'s `restoredGas = gasAvailable` conjunct).
 
@@ -161,4 +161,4 @@ def IRState.applyCall (st : IRState) (oracle : CallOracle)
       storage    := fun k => oracle.postStorage result pd self k
       callResult := some (oracle.successWord result pd) }
 
-end Lir
+end Lir.Frame

@@ -2,7 +2,7 @@
 
 *Grounded in the worktree at `/Users/eduardo/workspace/evm-semantics/.worktrees/ir-lowering` (branch `exp005-honesty-cleanup`, post-Phase-1). All sizes measured with `wc -l` today; all locations verified by grep.*
 
-**Measured baseline:** `LirLean/` is 24,670 lines across 43 files. Five files over 1,000 lines: `V2/TieDischarge.lean` (4,507 — was 5,027 pre-Phase-1; headline `lower_conforms_cyclic_assembled` now at :4292), `LowerDecode.lean` (1,517), `LowerConforms.lean` (1,497), `MaterialiseRuns.lean` (1,370), `SimStmt.lean` (1,196), plus `CleanHaltExtract.lean` (1,169). `#print axioms` count is now **252** across 29 files (audit's 270 was pre-Phase-1), concentrated in TieDischarge (73) and CleanHaltExtract (53). Both packages are on `leanprover/lean4:v4.30.0` with Mathlib/Batteries in the manifest.
+**Measured baseline:** `LirLean/` is 24,670 lines across 43 files. Five files over 1,000 lines: `TieDischarge.lean` (4,507 — was 5,027 pre-Phase-1; headline `lower_conforms_cyclic_assembled` now at :4292), `LowerDecode.lean` (1,517), `LowerConforms.lean` (1,497), `MaterialiseRuns.lean` (1,370), `SimStmt.lean` (1,196), plus `CleanHaltExtract.lean` (1,169). `#print axioms` count is now **252** across 29 files (audit's 270 was pre-Phase-1), concentrated in TieDischarge (73) and CleanHaltExtract (53). Both packages are on `leanprover/lean4:v4.30.0` with Mathlib/Batteries in the manifest.
 
 ---
 
@@ -15,10 +15,10 @@ A reviewer should be able to read the entire trusted/reviewable surface without 
 | File | Role | Est. lines | Imports | Content (source today) |
 |---|---|---|---|---|
 | `LirLean/Spec/IR.lean` | SPEC | ~115 | `Evm` | IR datatypes, verbatim. Already perfect — "datatypes only" (IR.lean:16). |
-| `LirLean/Spec/Semantics.lean` | SPEC | ~280 | `Spec.IR` | The executable gas-free IR machine: `IRState`, `evalExpr`, `RunStmts`/`RunFrom`/`IRRun`, `Observable`, `CallOracle` (today `V2/Machine.lean`, 277 ln, 16 defs, near-zero proofs — already clean). |
+| `LirLean/Spec/Semantics.lean` | SPEC | ~280 | `Spec.IR` | The executable gas-free IR machine: `IRState`, `evalExpr`, `RunStmts`/`RunFrom`/`IRRun`, `Observable`, `CallOracle` (today `Machine.lean`, 277 ln, 16 defs, near-zero proofs — already clean). |
 | `LirLean/Spec/Lowering.lean` | SPEC | ~380 | `Spec.IR`, `Evm` | `lower`/`allocate`/`defsOf`/`recomputeFuel` (today `Lowering.lean`, 415 ln; move its 3 theorems at :257/:297/:360 to `Proofs/`). |
 | `LirLean/Spec/Layout.lean` | SPEC | ~205 | `Spec.Lowering` | `offsetTable`/pc arithmetic (today `Layout.lean`). |
-| `LirLean/Spec/Recorder.lean` | SPEC | ~300 | `Spec.Semantics`, `BytecodeLayer` | `runWithLog`, `RunLog`, `CallRecord`, `realisedGas`/`realisedCall` (today `V2/RunLog.lean:219` etc.; the file is 674 ln — Phase 2 deletes the gas-monotonicity section from :580 on, and the remaining proofs about the recorder go to `Proofs/`). |
+| `LirLean/Spec/Recorder.lean` | SPEC | ~300 | `Spec.Semantics`, `BytecodeLayer` | `runWithLog`, `RunLog`, `CallRecord`, `realisedGas`/`realisedCall` (today `RunLog.lean:219` etc.; the file is 674 ln — Phase 2 deletes the gas-monotonicity section from :580 on, and the remaining proofs about the recorder go to `Proofs/`). |
 | `LirLean/Spec/Correspondence.lean` | SPEC | ~150 | Spec files + `BytecodeLayer` | `Corr` (today buried at SimStmt.lean:103), `MemRealises`, `StepScoped`, `DriveCorr` (DriveSim.lean:87), `CleanHaltsNonException` re-export. The one fiddly extraction — see §2. |
 | `LirLean/Spec/Seams.lean` | INTERFACE | ~120 | Spec files | The named irreducible oracles, one docstring each: `SelfPresent`, `CallPreservesSelf` + `hprec` shape, `CallsCode`, `CleanHaltsNonException` — exactly the four survivors per `docs/headline-transitive-chain.md` §3. This file **is** the tracked-debt register the sorry-equivalence policy requires. |
 | `LirLean/Spec/Conformance.lean` | SPEC | ~250 | all Spec | The flagship **statement** as a `Prop`-valued def + `RealisabilityObligations` structure + the helper defs the statement needs (`codeFrame`, `observe` re-exports). See §2 for mechanics and the pre-/post-Phase-3 variants. |
@@ -79,9 +79,9 @@ LirLean/
 └── Spec.lean                    — gains ~30 ln re-exporting the new general rules (existing pattern)
 ```
 
-Result: exp005 shrinks from 24.7k to roughly **20-21k** lines (Phase 2 ≈ −1.7k incl. `V2/Mono.lean` 620, `V2/Oracle.lean` 205, `V2/HonestGasTie.lean` 316; Phase 4 ≈ −3.1k), no file over ~1,300 lines, and the reviewer path is `Spec/` + `Examples/EndToEnd.lean` + `Audit.lean`.
+Result: exp005 shrinks from 24.7k to roughly **20-21k** lines (Phase 2 ≈ −1.7k incl. `Mono.lean` 620, `Oracle.lean` 205, `HonestGasTie.lean` 316; Phase 4 ≈ −3.1k), no file over ~1,300 lines, and the reviewer path is `Spec/` + `Examples/EndToEnd.lean` + `Audit.lean`.
 
-**Naming note (recommend, cheap):** once `V2/Mono|Oracle|HonestGasTie` are deleted and `Machine/Law/IRRun/RunLog` move into `Spec/`, the `V2/` directory and the `Lir.V2` *file* layout disappear naturally. Keep the `Lir.V2` **namespace** unchanged (renaming namespaces touches every proof; renaming files/dirs only touches imports).
+**Naming note (recommend, cheap):** once `Mono|Oracle|HonestGasTie` are deleted and `Machine/Law/IRRun/RunLog` move into `Spec/`, the `` directory and the `Lir` *file* layout disappear naturally. Keep the `Lir` **namespace** unchanged (renaming namespaces touches every proof; renaming files/dirs only touches imports).
 
 ---
 
@@ -91,11 +91,11 @@ Result: exp005 shrinks from 24.7k to roughly **20-21k** lines (Phase 2 ≈ −1.
 
 Done well today:
 - **exp003 `BytecodeLayer/Spec.lean`** — "This is the file to read" (Spec.lean:14) re-exports each general theorem with a fresh docstring and `:= Hoare.proof_name` body. This is the house pattern; copy it.
-- **`IR.lean`** and **`V2/Machine.lean`** — genuinely defs-only spec files already.
+- **`IR.lean`** and **`Machine.lean`** — genuinely defs-only spec files already.
 - **`StmtTies`/`TermTies` as named `Prop` defs** (LowerConforms.lean:1273/:1342) — the obligation *statements* are already first-class terms, which is exactly what makes the Phase-3 "build them, don't supply them" plan stateable.
 
 Done badly today:
-- **`TieDischarge.lean`** interleaves `namespace Evm` / `namespace Lir.V2` six times (:543/:589/:604/:1488/:1653/:2916), holds a spec-level definition (`DriveCorrPlus` :3589) 700 lines before the headline (:4292), inside 4.5k lines of engine walks.
+- **`TieDischarge.lean`** interleaves `namespace Evm` / `namespace Lir` six times (:543/:589/:604/:1488/:1653/:2916), holds a spec-level definition (`DriveCorrPlus` :3589) 700 lines before the headline (:4292), inside 4.5k lines of engine walks.
 - **The flagship exists only as a 16-hypothesis theorem in a proof file.** There is no standalone statement a reviewer can read without scrolling TieDischarge.
 - **`Corr`** — the central IR↔frame coupling relation — is at SimStmt.lean:103, inside a 1,196-line proof file.
 - **`RunLog.lean`** mixes the recorder definition (:219) with the (soon-deleted) monotonicity theory (:580+).
@@ -153,13 +153,13 @@ import LirLean   -- whole lib; Audit is the last module
 /- 1. AXIOM-CLEANLINESS of the flagship (+ each seam-discharge top). A `sorry`
    anywhere in the closure surfaces as `sorryAx` here; `native_decide` as
    `Lean.ofReduceBool`. Either changes the message and fails the guard. -/
-/-- info: 'Lir.V2.lower_conforms_cyclic_assembled' depends on axioms: [propext, Classical.choice, Quot.sound] -/
-#guard_msgs in #print axioms Lir.V2.lower_conforms_cyclic_assembled
+/-- info: 'Lir.lower_conforms_cyclic_assembled' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms Lir.lower_conforms_cyclic_assembled
 
 /- 2. SIGNATURE FREEZE for the flagship only: pins the exact hypothesis surface,
    so a new supplied hypothesis cannot sneak in unreviewed. -/
-/-- info: Lir.V2.lower_conforms_cyclic_assembled : ∀ {prog : Program} … -/
-#guard_msgs in #check @Lir.V2.lower_conforms_cyclic_assembled
+/-- info: Lir.lower_conforms_cyclic_assembled : ∀ {prog : Program} … -/
+#guard_msgs in #check @Lir.lower_conforms_cyclic_assembled
 
 /- 3. NAMED SEAMS: one guard per irreducible oracle (SelfPresent, hprec/CallPreservesSelf,
    CallsCode, CleanHaltsNonException), pinning both existence and axiom set. -/
@@ -207,7 +207,7 @@ Legend: **[pure]** = file split/move, no statement or proof changes, safe anytim
 - [ ] **[pure]** Baseline the linter: `lake exe runLinter LirLean` + `runLinter BytecodeLayer`, commit `nolints.json`.
 
 **Step 1 — Phase 2 (semantic, gated on the lead's HonestGasTie decision; plan recommends (b) delete).**
-- [ ] **[semantic]** Delete `V2/Mono.lean`, `V2/Oracle.lean`, `V2/HonestGasTie.lean`; narrow `V2/Law.lean` to determinism; delete RunLog's monotonicity section (:580+); remove `DriveCorrPlus`'s vacuous alignment fields; add the `hprec` headline variant. (All per remediation Phase 2 — do **not** split `RunLog.lean` or `TieDischarge.lean` before this; you'd be splitting code scheduled for deletion.)
+- [ ] **[semantic]** Delete `Mono.lean`, `Oracle.lean`, `HonestGasTie.lean`; narrow `Law.lean` to determinism; delete RunLog's monotonicity section (:580+); remove `DriveCorrPlus`'s vacuous alignment fields; add the `hprec` headline variant. (All per remediation Phase 2 — do **not** split `RunLog.lean` or `TieDischarge.lean` before this; you'd be splitting code scheduled for deletion.)
 - [ ] Update `Audit.lean`'s frozen signature in the same commit (the freeze guard *forces* this — working as intended).
 
 **Step 2 — Phase 4 first half: unify + relocate (semantic then mostly-pure). I recommend running this BEFORE Phase 3**, contra the plan's numbering (the plan gates 4 only on 1+2): it shrinks `TieDischarge.lean` from 4.5k to ~2k lines, which halves the context any Phase-3 agent must hold, and it moves the stable engine layer out of the churn zone. Rebuild cost is contained: `TieDischarge` is a near-leaf (only `HonestGasTie` imports it, and that dies in Step 1).
@@ -216,7 +216,7 @@ Legend: **[pure]** = file split/move, no statement or proof changes, safe anytim
 - [ ] **[pure]** Split the TieDischarge remnant at its existing `namespace` boundaries → `Drive/SelfPresent.lean`, `Drive/CallPreservesSelf.lean`, `Drive/Headline.lean`.
 
 **Step 3 — stable Spec extraction (pure, safe now; untouched by Phase 3).**
-- [ ] **[pure]** Create `Spec/`: move `IR.lean`, `V2/Machine.lean`→`Spec/Semantics.lean`, `Lowering.lean` (theorems out to a proof file), `Layout.lean`, post-Phase-2 `RunLog.lean`→`Spec/Recorder.lean`. Imports-only churn; full exp005 rebuild (~1.1k jobs) once.
+- [ ] **[pure]** Create `Spec/`: move `IR.lean`, `Machine.lean`→`Spec/Semantics.lean`, `Lowering.lean` (theorems out to a proof file), `Layout.lean`, post-Phase-2 `RunLog.lean`→`Spec/Recorder.lean`. Imports-only churn; full exp005 rebuild (~1.1k jobs) once.
 - [ ] **[pure]** Write `Spec/Seams.lean` (defs/re-exports + docstrings) and the *transitional* `Spec/Conformance.lean` (Pattern C re-export of the conditional headline + `RealisabilityObligations` structure, docstring flagging supplied-vs-discharged).
 - [ ] **[pure]** Rewrite the `LirLean.lean` root as a clean import list (drop the 90 lines of NOTE-archaeology; the notes' content lives in docs).
 
@@ -232,9 +232,9 @@ Every step ends with `lake build` in both experiments; Steps 1, 2, 4 additionall
 ---
 
 ### Key file:line evidence index
-- Headline: `LirLean/V2/TieDischarge.lean:4292` (conclusion :4330-4335); `DriveCorrPlus` :3589; namespace interleavings :543/:589/:604/:1488/:1653/:2916.
-- Obligation defs: `StmtTies` `LirLean/LowerConforms.lean:1273`, `TermTies` :1342, `WellFormedLowered` :143; `Corr` `LirLean/SimStmt.lean:103`; `DriveCorr` `LirLean/V2/DriveSim.lean:87`.
-- Recorder: `runWithLog` `LirLean/V2/RunLog.lean:219`; monotonicity section (Phase-2 delete) :580+.
+- Headline: `LirLean/TieDischarge.lean:4292` (conclusion :4330-4335); `DriveCorrPlus` :3589; namespace interleavings :543/:589/:604/:1488/:1653/:2916.
+- Obligation defs: `StmtTies` `LirLean/LowerConforms.lean:1273`, `TermTies` :1342, `WellFormedLowered` :143; `Corr` `LirLean/SimStmt.lean:103`; `DriveCorr` `LirLean/DriveSim.lean:87`.
+- Recorder: `runWithLog` `LirLean/RunLog.lean:219`; monotonicity section (Phase-2 delete) :580+.
 - House spec-surface pattern: `experiments/003_bytecode_layer/BytecodeLayer/Spec.lean:14`.
 - Linter: `unusedArguments` `.lake/packages/batteries/Batteries/Tactic/Lint/Misc.lean:42`; driver `.lake/packages/batteries/lakefile.toml:3,17-20`.
 - `#guard_msgs` precedent in-repo: `LirLean/MemAlgebra.lean:947`.

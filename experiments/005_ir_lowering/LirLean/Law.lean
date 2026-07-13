@@ -1,7 +1,7 @@
 import LirLean.Spec.Semantics
 
 /-!
-# LirLean v2 — IR-run determinism
+# LirLean — IR-run determinism
 
 This module is the **frame-free determinism** layer (`docs/ir-design-v3.md` §4). It
 imports ONLY the IR core (`LirLean.Spec.Semantics`, hence `LirLean.Spec.IR`/`Evm`) — **no
@@ -18,7 +18,7 @@ with `gasMonotone_pair`/`lt_eq_zero_of_toNat_le`) was deleted per `docs/gas-deci
 proved-but-unused — gas is a log-fed exact-equality oracle, not a law-governed stream.
 -/
 
-namespace Lir.V2
+namespace Lir
 
 open Evm
 
@@ -175,4 +175,4 @@ theorem IRRun.det {prog : Program} {w₀ : World} {T : Trace} {C : CallStream}
     (h₁ : IRRun prog w₀ T C D O) (h₂ : IRRun prog w₀ T C D O') : O = O' :=
   RunFrom.det h₁ h₂
 
-end Lir.V2
+end Lir

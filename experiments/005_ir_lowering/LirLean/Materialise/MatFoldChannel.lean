@@ -1,6 +1,8 @@
 import LirLean.Spec.WellFormed
 import LirLean.Materialise.MatDecLower
 
+open Lir.Frame
+
 /-! # `MatFoldChannel` — the charge fold twin's fixpoint + the chargeCache↔matCache lockstep
 
 Phase 2A P5a. The fuel-free charge fold twin `chargeCache` (definition, reduction lemmas, and the
@@ -22,7 +24,7 @@ conclusions — so the future fuel-free restatement of the `StackRoomOK`/`maxCha
 the P5 `materialise_runsC` recursion can read a charge-list LENGTH that decomposes exactly as
 `matCache prog t`'s operand structure does. -/
 
-namespace Lir.V2
+namespace Lir
 
 /-! ### Operand-locality of `chargeExpr` (the `matExpr_congr` twin) -/
 
@@ -1375,4 +1377,4 @@ theorem matDecC_of_term (prog : Program) (hdc : DefsConsistent prog) (hord : Def
         at hanchor
       rw [hanchor]; exact hsub j hj)
 
-end Lir.V2
+end Lir

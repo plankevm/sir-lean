@@ -14,7 +14,7 @@ No `.lean` file was modified.
 
 | File | LOC | Purpose | Key exports | Verdict | Simplification note |
 |------|-----|---------|-------------|---------|---------------------|
-| `LirLean/V2/RealisabilitySpec.lean` | 3874 | The WIP flagship + R0–R12 obligation skeleton; sole `sorry`-carrier; registered in non-default `WIP` lib | `WellLowered`, `StmtTies'`/`TermTies'`, `lower_conforms` (R11), `lower_conforms_exact`, `lower_conforms_gasfree`, `conforms_of_worldeq` (CLOSED), `exProg` + all `*_exProg` witnesses, R12a/b | **KEEP; SPLIT** | 3874 LOC in one file; 7 `/-! ## §` sections; natural fault line at §6 (the `exProg` witness ~900 LOC). See §4. |
+| `LirLean/RealisabilitySpec.lean` | 3874 | The WIP flagship + R0–R12 obligation skeleton; sole `sorry`-carrier; registered in non-default `WIP` lib | `WellLowered`, `StmtTies'`/`TermTies'`, `lower_conforms` (R11), `lower_conforms_exact`, `lower_conforms_gasfree`, `conforms_of_worldeq` (CLOSED), `exProg` + all `*_exProg` witnesses, R12a/b | **KEEP; SPLIT** | 3874 LOC in one file; 7 `/-! ## §` sections; natural fault line at §6 (the `exProg` witness ~900 LOC). See §4. |
 | `LirLean/LowerConforms.lean` | 1260 | Layer F of the *green* sim core: `sim_cfg` (whole-CFG simulation) + the legacy F-layer `lower_conforms` bridge; **defines `WellFormedLowered`** | `sim_cfg` (line 970), `WellFormedLowered` (line 143), `simStmtStep_*`, `SimTermStep`, `lower_conforms` (line 1188, **DEAD**) | **KEEP FILE, delete one theorem** | NOT deletable as a file (lead's claim refuted). `sim_cfg` + `WellFormedLowered` are load-bearing. Only the top-level `lower_conforms` (1188, 73 LOC) is unreferenced dead code — prune it + its docstring. |
 | `LirLean/Acyclic.lean` | 225 | legacy generic-`defs` rank/fuel support; no longer the P8 well-formedness route | `Acyclic`, `ExprRankLt`, `matFueled_tmp_of_acyclic` | **KEEP UNTIL P9** | The old `AcyclicWellFormed → WellFormedLowered` route is superseded by `IRWellFormed` + budgets rebuilding `WellLowered`; delete this file with the residual fuel stack in P9. |
 | `LirLean/CleanHaltExtract.lean` | 1118 | Producer: from `CleanHaltsNonException fr` extract per-opcode gas/mem envelopes the §7 ties consume | `CleanHaltsNonException`, `cleanHaltsNonException_forward`, per-op `*_oog`/`*_inv`/`*_dichotomy`/`next_*_of_cleanHalt`, `gas_envelope_of_cleanHalt`, `sload_envelope_of_cleanHalt` | **KEEP** | Coherent, axiom-guarded, `sorry`-free. Highly regular per-opcode brick family (GAS/PUSH/SLOAD/ADD/LT/MLOAD/MSTORE/JUMP): could be macro-generated, but low priority. |
@@ -33,7 +33,7 @@ Statement-level comparison:
 
 - **"Acyclic" headline** — `Lir.lower_conforms` (`LowerConforms.lean:1188`). A *conditional
   bridging lemma*, not a producer. It **consumes** the IR run as a hypothesis
-  (`hir : V2.IRRun prog w₀ (realisedGas log) (realisedCall log self) O`) and **consumes** the
+  (`hir : Lir.IRRun prog w₀ (realisedGas log) (realisedCall log self) O`) and **consumes** the
   per-block ties as hypotheses (`hstmts : SimStmtStep …`, `hterm : SimTermStep …`). Conclusion
   is only the **world equation** `O.world = (observe self log.observable).world` — not a
   `RunFrom` existential, not full `Conforms` (no `.result`). Its self-standing wrappers
@@ -42,7 +42,7 @@ Statement-level comparison:
   (grep for term-level uses returns nothing) — dead code. The green `sim_cfg` in the same file
   is what is actually reused.
 
-- **Cyclic gas-free flagship** — `Lir.V2.lower_conforms` (`RealisabilitySpec.lean:3705`) +
+- **Cyclic gas-free flagship** — `Lir.lower_conforms` (`RealisabilitySpec.lean:3705`) +
   `lower_conforms_exact` (3752) + `lower_conforms_gasfree` (3788). **Produces** the run:
   conclusion is `∃ O, RunFrom prog (entryState params) (realisedGas log) (realisedCall log
   recipient) prog.entry O ∧ Conforms params.recipient log O` — full `Conforms` (world **and**
@@ -60,7 +60,7 @@ subsume — it is legacy, not a competing guarantee.
 **Cross-cutting "how many proof stacks":** three layers, one apex.
 1. **Green sim core** (Layers A–F: `DecodeAnchors → … → SimStmt/SimTerm → SimStmts →
    LowerConforms`). Produces `sim_cfg` + `WellFormedLowered`. Shared, load-bearing.
-2. **Green cyclic driver** (`V2.IRRun`, `V2.Modellable`, `V2/Drive/*`, `DriveSim`). Produces
+2. **Green cyclic driver** (`Lir.IRRun`, `Lir.Modellable`, `Drive/*`, `DriveSim`). Produces
    `lower_conforms_cyclic`/`_cyclic'` (`DriveSim.lean:624/666`) — green but **conditional on
    the same unconditional all-frames `SimStmtStep`/`SimTermStep` ties** the reshape deems
    effectively unsatisfiable, so green-but-vacuous. Uses `sim_cfg` internally
@@ -117,7 +117,7 @@ Reverse imports at the time of this audit: `Acyclic` was imported by **only**
   the `blockAt/toList_exProg*` decidable pins, etc.). This is the R9/R12 anti-vacuity machine —
   self-contained, `decide`-heavy, and conceptually distinct from the obligation statements.
 
-Recommended: extract §6 into `LirLean/V2/RealisabilitySpecWitness.lean` (imports the spec
+Recommended: extract §6 into `LirLean/RealisabilitySpecWitness.lean` (imports the spec
 module), leaving R12a/R12b (`exProg_satisfies_hypotheses`, `exProg_nonvacuity`) either with
 the witness or as a thin third file. This cuts the flagship spec to ~a manageable size and
 isolates the `decide`-heavy witness (which is also where most compile cost lives).

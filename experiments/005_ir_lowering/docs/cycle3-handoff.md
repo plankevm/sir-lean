@@ -27,7 +27,7 @@ right after `Runs.step_to_halt`).
   the single supplied residual `hne`** (load-bearing, satisfiable — see (b)).
 
 ### HMONO — commit `62a9c53`
-File: `experiments/005_ir_lowering/LirLean/V2/TieDischarge.lean` (+1217 lines, pure addition,
+File: `experiments/005_ir_lowering/LirLean/TieDischarge.lean` (+1217 lines, pure addition,
 engine bricks ~1803–2996, wrapper ~3567–3583).
 - **`Evm.stepFrame_next_accMono`** (Brick C / `hmono`) — THE deliverable: fully-general
   arbitrary-address `a` re-derivation of the proven SELF-address dispatch family. PROVEN,
@@ -41,7 +41,7 @@ engine bricks ~1803–2996, wrapper ~3567–3583).
   via stepFrame→systemOp→callArm needsCall inversion.
 - **`Evm.stepFrame_halted_success_accMono`** (`hhalt`) — PROVEN: STOP/RETURN verbatim,
   SELFDESTRUCT honestly case-split as verbatim / ≤2 inserts (no `RBMap.erase`).
-- **`Lir.V2.callPreservesSelf_modGuards`** — PAYOFF wrapper instantiating the 5 proven facts.
+- **`Lir.callPreservesSelf_modGuards`** — PAYOFF wrapper instantiating the 5 proven facts.
 
 ---
 

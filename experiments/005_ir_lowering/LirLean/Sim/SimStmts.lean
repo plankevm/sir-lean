@@ -3,7 +3,7 @@ import LirLean.Sim.SimStmt
 /-!
 # LirLean — `sim_stmts` (Layer **D** of the general `lower_conforms` grind)
 
-Statement-list simulation: a whole block's statement list, run by `V2.RunStmts`, is
+Statement-list simulation: a whole block's statement list, run by `Lir.RunStmts`, is
 matched on the bytecode side by the *concatenation* of its per-statement lowered
 segments. This is the Layer-D brick that glues Layer C's `sim_stmt` (`SimStmt.lean`,
 the `Corr` bundle + `sim_assign`/`sim_sstore_stmt`) along a statement list by
@@ -38,14 +38,14 @@ concrete program is a mechanical case split feeding each arm its bundle.
 its `hdv`/`hdk`/`hdop` arguments.)
 
 No `sorry`, no `axiom`, no `native_decide`. Nothing here touches `Spec/Semantics.lean` /
-`V2/Law.lean` (the frame-free spine).
+`Law.lean` (the frame-free spine).
 -/
 
 namespace Lir
 
 open Evm
 open BytecodeLayer.Hoare
-open Lir.V2
+open Lir
 
 /-! ## The per-statement simulation hypothesis
 
@@ -65,7 +65,7 @@ the per-cursor `CleanHaltsNonException fr0` is what lets the GAS/SLOAD arms DERI
 gas/mem envelopes from the §7 extractor (`CleanHaltExtract`) rather than supply them. -/
 def SimStmtStep (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
     (L : Label) (b : Block) : Prop :=
-  ∀ (pc : Nat) (s : Stmt) (st0 st0' : V2.IRState) (T0 T0' : Trace) (C0 C0' : CallStream)
+  ∀ (pc : Nat) (s : Stmt) (st0 st0' : Lir.IRState) (T0 T0' : Trace) (C0 C0' : CallStream)
     (D0 D0' : CreateStream) (fr0 : Frame),
     b.stmts[pc]? = some s →
     Corr prog sloadChg obs (fun _ => False) st0 fr0 L pc →
@@ -76,7 +76,7 @@ def SimStmtStep (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
 
 /-! ## `sim_stmts` — the statement-list glue
 
-Induction on `V2.RunStmts`, generalised over the starting cursor `pc`, the IR state `st`,
+Induction on `Lir.RunStmts`, generalised over the starting cursor `pc`, the IR state `st`,
 the gas trace `T`, and the frame `fr`. The run's statement list is the block suffix
 `b.stmts.drop pc`; the `cons` case peels the head statement at cursor `pc` (feeding
 `SimStmtStep`), then recurses at `pc+1` on the tail `b.stmts.drop (pc+1)`, gluing the two
@@ -84,19 +84,19 @@ the gas trace `T`, and the frame `fr`. The run's statement list is the block suf
 `Corr.stack_nil` for the next, so the invariant threads. -/
 
 /-- **`sim_stmts` (general suffix form).** From `Corr` at cursor `(L, pc)` and a
-`V2.RunStmts` of the block suffix `b.stmts.drop pc`, running the lowered bytes of those
+`Lir.RunStmts` of the block suffix `b.stmts.drop pc`, running the lowered bytes of those
 statements reaches a frame `fr'` in `Corr`-correspondence with the post-state `st'` at
 cursor `(L, pc + (b.stmts.drop pc).length)`, with the working stack back to `[]`. Generic
 over the per-statement simulation `SimStmtStep`. -/
 theorem sim_stmts_drop {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {L : Label} {b : Block}
     (hsim : SimStmtStep prog sloadChg obs L b)
-    {ss : List Stmt} {st st' : V2.IRState} {T T' : Trace} {C C' : CallStream}
+    {ss : List Stmt} {st st' : Lir.IRState} {T T' : Trace} {C C' : CallStream}
     {D D' : CreateStream} {pc : Nat} {fr : Frame}
     (hss : ss = b.stmts.drop pc)
     (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L pc)
     (hcs : CleanHaltsNonException fr)
-    (hrun : V2.RunStmts prog st T C D ss st' T' C' D') :
+    (hrun : Lir.RunStmts prog st T C D ss st' T' C' D') :
     ∃ fr', Runs fr fr' ∧ Corr prog sloadChg obs (fun _ => False) st' fr' L (pc + ss.length)
       ∧ fr'.exec.stack = [] := by
   induction hrun generalizing pc fr with
@@ -125,35 +125,35 @@ theorem sim_stmts_drop {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     rwa [hlen]
 
 /-- **`sim_stmts` (block-from-`pc` form).** The Layer-D headline as the plan states it:
-from `Corr` at cursor `(L, pc)` and a `V2.RunStmts` of a statement list `ss` that is
+from `Corr` at cursor `(L, pc)` and a `Lir.RunStmts` of a statement list `ss` that is
 exactly the block suffix at `pc`, the lowered bytes compose the per-statement `sim_stmt`
 segments into one `Runs fr fr'` re-establishing `Corr` at the end cursor, with
 `fr'.exec.stack = []`. (The whole-block case is `pc = 0`, `ss = b.stmts`.) -/
 theorem sim_stmts {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st st' : V2.IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
+    {st st' : Lir.IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
     {ss : List Stmt}
     {L : Label} {b : Block} {pc : Nat} {fr : Frame}
     (hsim : SimStmtStep prog sloadChg obs L b)
     (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L pc)
     (hcs : CleanHaltsNonException fr)
-    (hrun : V2.RunStmts prog st T C D ss st' T' C' D')
+    (hrun : Lir.RunStmts prog st T C D ss st' T' C' D')
     (hss : ss = b.stmts.drop pc) :
     ∃ fr', Runs fr fr' ∧ Corr prog sloadChg obs (fun _ => False) st' fr' L (pc + ss.length)
       ∧ fr'.exec.stack = [] :=
   sim_stmts_drop hsim hss hcorr hcs hrun
 
 /-- **`sim_stmts` (whole-block form).** The `pc = 0` instance: a whole block body
-`b.stmts`, run by `V2.RunStmts` from a `Corr`-corresponding frame at the block's entry
+`b.stmts`, run by `Lir.RunStmts` from a `Corr`-corresponding frame at the block's entry
 cursor `(L, 0)`, is matched by one `Runs fr fr'` re-establishing `Corr` at the terminator
 cursor `(L, b.stmts.length)` with an empty working stack — the frame the block
 terminator's lowering (Layer E) consumes. -/
 theorem sim_stmts_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
-    {st st' : V2.IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
+    {st st' : Lir.IRState} {T T' : Trace} {C C' : CallStream} {D D' : CreateStream}
     {L : Label} {b : Block} {fr : Frame}
     (hsim : SimStmtStep prog sloadChg obs L b)
     (hcorr : Corr prog sloadChg obs (fun _ => False) st fr L 0)
     (hcs : CleanHaltsNonException fr)
-    (hrun : V2.RunStmts prog st T C D b.stmts st' T' C' D') :
+    (hrun : Lir.RunStmts prog st T C D b.stmts st' T' C' D') :
     ∃ fr', Runs fr fr' ∧ Corr prog sloadChg obs (fun _ => False) st' fr' L b.stmts.length
       ∧ fr'.exec.stack = [] := by
   have h := sim_stmts_drop hsim (by simp) hcorr hcs hrun
