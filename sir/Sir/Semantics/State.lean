@@ -22,28 +22,28 @@ namespace Locals
 
 def empty : Locals := ⟨fun _ => none⟩
 
-def get? (locals : Locals) (var : VarId) : Option Word :=
+def lookup? (locals : Locals) (var : VarId) : Option Word :=
   locals.values var
 
-def get (locals : Locals) (var : VarId) : Except IRError Word :=
-  match locals.get? var with
+def lookup (locals : Locals) (var : VarId) : Except IRError Word :=
+  match locals.lookup? var with
   | none => .error (.undefinedVariable var)
   | some value => .ok value
 
-def getM (var : VarId) : StateT Locals (Except IRError) Word := StateT.get >>= (·.get var)
+def lookupM (var : VarId) : StateT Locals (Except IRError) Word := StateT.get >>= (·.lookup var)
 
-def set (locals : Locals) (var : VarId) (value : Word) : Locals :=
+def assign (locals : Locals) (var : VarId) (value : Word) : Locals :=
   ⟨fun candidate => if candidate = var then some value else locals.values candidate⟩
 
-def setM (var : VarId) (value : Word) : StateM Locals Unit := modify (·.set var value)
+def assignM (var : VarId) (value : Word) : StateM Locals Unit := modify (·.assign var value)
 
 def transfer (outputs inputs : Array VarId) : StateT Locals (Except IRError) Unit := do
   if outputs.size != inputs.size then
     throw (.blockArityMismatch outputs.size inputs.size)
   let locals₀ ← StateT.get
   for (input, output) in inputs.zip outputs do
-    let value ← locals₀.get output
-    setM input value
+    let value ← locals₀.lookup output
+    assignM input value
 
 end Locals
 
@@ -88,8 +88,14 @@ structure MachineState where
 instance {m : Type → Type} [Monad m] :
     MonadLift (StateT Locals m) (StateT MachineState m) where
   monadLift action state := do
-    let (result, locals) ← action.run state.locals
-    return (result, { state with locals := locals })
+    let (result, locals') ← action.run state.locals
+    return (result, { state with locals := locals' })
+
+instance {m : Type → Type} [Monad m] :
+    MonadLift (StateT World m) (StateT MachineState m) where
+  monadLift action state := do
+    let (result, world') ← action.run state.world
+    return (result, { state with world := world' })
 
 inductive Event where
   | gas (value : Word)
@@ -98,11 +104,10 @@ inductive Event where
 abbrev Trace := List Event
 
 def MachineState.localSet (var : VarId) (value : Word) : StateM MachineState Unit :=
-  modify (fun s => { s with locals := s.locals.set var value })
+  modify (fun s => { s with locals := s.locals.assign var value })
 
 def Program.block? (program : Program) (bid : BlockId) : Option BasicBlock :=
   program.blocks[bid.id]?
-
 
 def BasicBlock.absoluteToPosition (block : BasicBlock) (index : Nat) : BlockPosition :=
   if index < block.statements.size then .statement index else .terminator

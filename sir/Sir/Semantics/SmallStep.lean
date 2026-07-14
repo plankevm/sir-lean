@@ -21,15 +21,14 @@ inductive SmallStep (program : Program) (ctx : CallContext) :
       (heval : eval_sstore ctx state key value = .ok state') :
       SmallStep program ctx state [] { state' with control := nextControl }
   | gas
-      {state : MachineState}
+      {state state' : MachineState}
       {nextControl : MachineControl}
       {result : VarId}
       {gas : Word}
       {locals' : Locals}
       (hstmt : program.decodeStmt state.control = some (nextControl, .gas result))
-      (hlocals : locals' = state.locals.set result gas) :
-      SmallStep program ctx state [.gas gas]
-        { state with locals := locals', control := nextControl }
+      (heval : (eval_gas result gas).run state = .ok ((), state')) :
+      SmallStep program ctx state [.gas gas] { state' with control := nextControl }
   | call
       {state state' : MachineState}
       {nextControl : MachineControl}
