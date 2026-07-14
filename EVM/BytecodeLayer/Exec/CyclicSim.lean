@@ -1076,4 +1076,52 @@ theorem recorderCoupled_stepsTo_other {log : RunLog} {fr fr' : Frame}
   rw [hfr']
   exact recorderCoupled_step_other hcp hng hns hnc hncall hs
 
+private theorem recorderCoupled_halted_inv {log : RunLog} {fr : Frame} {h : FrameHalt}
+    {gS : List Word} {sS : List Nat} {cS : List CallRecord} {dS : List CreateRecord}
+    (hcp : RecorderCoupled log fr gS sS cS dS)
+    (hstep : stepFrame fr = .halted h) :
+    gS = [] ∧ sS = [] ∧ cS = [] ∧ dS = [] ∧ log.observable = endFrame fr h := by
+  obtain ⟨⟨f, hf⟩, _, _, _, _⟩ := hcp
+  cases f with
+  | zero => simp [driveLog] at hf
+  | succ m =>
+    unfold driveLog at hf
+    simp only [hstep] at hf
+    -- `hf : driveLog m [] (.inr (endFrame fr h)) [] [] [] [] = .ok (log.observable, …)`.
+    cases m with
+    | zero => simp [driveLog] at hf
+    | succ k =>
+      unfold driveLog at hf
+      simp only [Except.ok.injEq, Prod.mk.injEq] at hf
+      obtain ⟨hobs, hg, hs, hc, hd⟩ := hf
+      exact ⟨hg.symm, hs.symm, hc.symm, hd.symm, hobs.symm⟩
+
+theorem recorderCoupled_halted_suffixes_nil {log : RunLog} {fr : Frame} {h : FrameHalt}
+    {gS : List Word} {sS : List Nat} {cS : List CallRecord} {dS : List CreateRecord}
+    (hcp : RecorderCoupled log fr gS sS cS dS)
+    (hstep : stepFrame fr = .halted h) :
+    gS = [] ∧ sS = [] ∧ cS = [] ∧ dS = [] := by
+  obtain ⟨hg, hs, hc, hd, _⟩ := recorderCoupled_halted_inv hcp hstep
+  exact ⟨hg, hs, hc, hd⟩
+
+theorem recorderCoupled_halted_observable {log : RunLog} {fr : Frame} {h : FrameHalt}
+    {gS : List Word} {sS : List Nat} {cS : List CallRecord} {dS : List CreateRecord}
+    (hcp : RecorderCoupled log fr gS sS cS dS)
+    (hstep : stepFrame fr = .halted h) :
+    log.observable = endFrame fr h :=
+  (recorderCoupled_halted_inv hcp hstep).2.2.2.2
+
+theorem recorderCoupled_halted_leftovers_nil {log : RunLog} {self : AccountAddress}
+    {fr : Frame} {h : FrameHalt}
+    {gS : List Word} {sS : List Nat} {cS : List CallRecord} {dS : List CreateRecord}
+    {Tleft : GasOracle} {Cleft : CallStream} {Dleft : CreateStream}
+    (hcp : RecorderCoupled log fr gS sS cS dS)
+    (hstep : stepFrame fr = .halted h)
+    (hT : Tleft = gS) (hC : Cleft = callStreamOf cS self)
+    (hD : Dleft = createStreamOf dS self) :
+    Tleft = [] ∧ Cleft = [] ∧ Dleft = [] := by
+  obtain ⟨hg, _, hc, hd⟩ := recorderCoupled_halted_suffixes_nil hcp hstep
+  subst hg; subst hc; subst hd
+  exact ⟨hT, by simp [hC, callStreamOf], by simp [hD, createStreamOf]⟩
+
 end BytecodeLayer.Exec.CyclicSim

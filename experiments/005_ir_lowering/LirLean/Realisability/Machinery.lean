@@ -23,7 +23,9 @@ export BytecodeLayer.Exec.CyclicSim
    recorderCoupled_create_extract create2Suffix_nonempty_of_next callSuffix_nonempty_of_next
    recorderCoupled_call_softfail recorderCoupled_create_softfail
    creates_nil_of_stepFrame_halted calls_nil_of_stepFrame_halted
-   recorderCoupled_call_extract recorderCoupled_stepsTo_other)
+   recorderCoupled_call_extract recorderCoupled_stepsTo_other
+   recorderCoupled_halted_suffixes_nil recorderCoupled_halted_observable
+   recorderCoupled_halted_leftovers_nil)
 
 open Evm
 open BytecodeLayer
@@ -3060,84 +3062,6 @@ theorem present_of_closed {prog : Program} {L : Label} {b : Block} {dst : Label}
   · exact (hclosed.branch_closed L b c dst e hb hbr).1.1
   · exact (hclosed.branch_closed L b c t dst hb hbr).2.1
 
-/-! ### R11-exact bricks — terminal suffix exhaustion (`lower_conforms_exact`, chunk 7)
-
-At a HALTED terminal frame the restart equation has nothing left to record: `driveLog`
-routes a `.halted` frame through its `.inr` arm, which at pending stack `[]` returns the
-accumulators UNCHANGED — from the empty seed that is `.ok (endFrame fr h, [], [], [], [])`.
-Restart determinism therefore forces EVERY coupling suffix to be nil, and pins the recorded
-observable to this frame's halt. No `log.clean` is needed: the inversion is pure `driveLog`
-computation at the halted frame, uniform in the halt signal.
-
-These are the chunk-7 consumption bricks for the exact flagship `lower_conforms_exact`
-(`RealisabilitySpec.lean`): the exact producer's halt case holds a `RunFromLeft` whose
-leftover streams are the ALIGNED IMAGES of the terminal coupling suffixes (the
-`StreamsAligned` components, taken below as three point-wise equations so this file stays
-independent of the producer's vocabulary); the transport lemma collapses them to `[]` —
-i.e. the `RunFromAll` leftover-`[]` shape. Stated over the COUPLING only, never over the
-producer recursion. The exact flagship itself is NOT closed here. -/
-
-/-- The shared terminal inversion: at a halted frame the restart replays to exactly
-`(endFrame fr h, [], [], [], [])`, so all four suffixes are nil AND the recorded
-observable is this frame's halt. -/
-private theorem recorderCoupled_halted_inv {log : RunLog} {fr : Frame} {h : FrameHalt}
-    {gS : List Word} {sS : List Nat} {cS : List CallRecord} {dS : List CreateRecord}
-    (hcp : RecorderCoupled log fr gS sS cS dS)
-    (hstep : stepFrame fr = .halted h) :
-    gS = [] ∧ sS = [] ∧ cS = [] ∧ dS = [] ∧ log.observable = endFrame fr h := by
-  obtain ⟨⟨f, hf⟩, _, _, _, _⟩ := hcp
-  cases f with
-  | zero => simp [driveLog] at hf
-  | succ m =>
-    unfold driveLog at hf
-    simp only [hstep] at hf
-    -- `hf : driveLog m [] (.inr (endFrame fr h)) [] [] [] [] = .ok (log.observable, …)`.
-    cases m with
-    | zero => simp [driveLog] at hf
-    | succ k =>
-      unfold driveLog at hf
-      simp only [Except.ok.injEq, Prod.mk.injEq] at hf
-      obtain ⟨hobs, hg, hs, hc, hd⟩ := hf
-      exact ⟨hg.symm, hs.symm, hc.symm, hd.symm, hobs.symm⟩
-
-/-- **Chunk-7 brick 1 — terminal suffix exhaustion.** At a halted terminal frame the
-coupling's restart witness forces all four stream suffixes to be nil: nothing of the
-recorded streams remains un-consumed. -/
-theorem recorderCoupled_halted_suffixes_nil {log : RunLog} {fr : Frame} {h : FrameHalt}
-    {gS : List Word} {sS : List Nat} {cS : List CallRecord} {dS : List CreateRecord}
-    (hcp : RecorderCoupled log fr gS sS cS dS)
-    (hstep : stepFrame fr = .halted h) :
-    gS = [] ∧ sS = [] ∧ cS = [] ∧ dS = [] := by
-  obtain ⟨hg, hs, hc, hd, _⟩ := recorderCoupled_halted_inv hcp hstep
-  exact ⟨hg, hs, hc, hd⟩
-
-/-- **Chunk-7 brick 2 — the terminal observable pin.** At a halted terminal frame the
-recorded observable IS this frame's halt result (the coupling's restart witness replays
-one halt step and stops). The exact producer's halt case uses it to identify the
-`observe self (endFrame last haltSig)` conjuncts of `RunFromCoupled` with the log. -/
-theorem recorderCoupled_halted_observable {log : RunLog} {fr : Frame} {h : FrameHalt}
-    {gS : List Word} {sS : List Nat} {cS : List CallRecord} {dS : List CreateRecord}
-    (hcp : RecorderCoupled log fr gS sS cS dS)
-    (hstep : stepFrame fr = .halted h) :
-    log.observable = endFrame fr h :=
-  (recorderCoupled_halted_inv hcp hstep).2.2.2.2
-
-/-- **Chunk-7 brick 3 — leftover-nil transport.** If the exact walk's leftover streams are
-the aligned images of the coupling suffixes (the `StreamsAligned` components, as three
-point-wise equations) at a halted terminal frame, all three leftovers are nil. Stated over
-the coupling, not the producer recursion. -/
-theorem recorderCoupled_halted_leftovers_nil {log : RunLog} {self : AccountAddress}
-    {fr : Frame} {h : FrameHalt}
-    {gS : List Word} {sS : List Nat} {cS : List CallRecord} {dS : List CreateRecord}
-    {Tleft : GasOracle} {Cleft : CallStream} {Dleft : CreateStream}
-    (hcp : RecorderCoupled log fr gS sS cS dS)
-    (hstep : stepFrame fr = .halted h)
-    (hT : Tleft = gS) (hC : Cleft = callStreamOf cS self)
-    (hD : Dleft = createStreamOf dS self) :
-    Tleft = [] ∧ Cleft = [] ∧ Dleft = [] := by
-  obtain ⟨hg, _, hc, hd⟩ := recorderCoupled_halted_suffixes_nil hcp hstep
-  subst hg; subst hc; subst hd
-  exact ⟨hT, by simp [hC, callStreamOf], by simp [hD, createStreamOf]⟩
 
 /-- **Chunk-7 brick 4 — the `RunFromAll` corollary** the exact producer consumes verbatim:
 a `RunFromLeft` whose leftovers are the aligned images of the coupling suffixes at a
