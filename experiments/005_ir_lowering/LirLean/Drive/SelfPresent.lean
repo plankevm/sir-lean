@@ -1,4 +1,5 @@
 import LirLean.RecorderLemmas
+import BytecodeLayer.Exec.Alignment
 import LirLean.Materialise.MaterialiseRuns
 import BytecodeLayer.Hoare.AccountMap
 import BytecodeLayer.Exec.Invariants
@@ -34,6 +35,12 @@ No `sorry`/`axiom`/`native_decide`; axioms `[propext, Classical.choice, Quot.sou
 
 namespace Lir
 
+export BytecodeLayer.Exec.Invariants
+  (gasRecord_eq_gasReadOf gasReadOf_gasFrame_eq_obs GasLogAligned gasLogAligned_nil
+   FramesRun.snoc gasLogAligned_step_gas gasLogAligned_step_norecord aligned_read_eq_obs
+   sloadRecord_discharges_obs SloadLogAligned sloadLogAligned_nil sloadLogAligned_step_sload
+   alignedSload_read_eq_obs)
+
 open Evm
 open GasConstants
 open BytecodeLayer
@@ -43,142 +50,6 @@ open BytecodeLayer.System
 open BytecodeLayer.Maps
 open Lir
 open BytecodeLayer.Exec.Invariants
-
-/-! ## §1 — CALL: the recorded-CALL projection heads `evmV2CallEntry` (DISCHARGED)
-
-`realisedCall log self` is, when the log recorded a CALL, `evmV2CallEntry` at the head record
-CONSED onto the remaining stream (`realisedCall_cons`). So the head of the consumed call stream
-at this cursor is produced from the recording, not supplied — positionally, per record. We
-re-expose it as the named value-channel discharge. -/
-
-/-! ## §2 — GAS: the arithmetic bridge (alignment-free, DISCHARGED)
-
-The recorded read at a top-level GAS `.next` step and the word the per-cursor `obs`-form
-`Lir.GasRealises` demands are the **same** `UInt256.ofUInt64 (gasAvailable − Gbase)`, with no
-appeal to alignment — pure `gasPost`/`gasFrame` arithmetic. -/
-
-/-- The recorded GAS word at a `current` whose GAS step is `stepFrame current = .next exec` is
-exactly `gasReadOf (gasFrame current)`: the recorder appends `UInt256.ofUInt64 exec.gasAvailable`,
-and for a GAS op `exec = gasPost current.exec`, so `{ current with exec := exec } = gasFrame
-current` and the appended word is its `gasReadOf`. -/
-theorem gasRecord_eq_gasReadOf (current : Frame) {exec : ExecutionState}
-    (hdec : decode current.exec.executionEnv.code current.exec.pc = some (.Smsf .GAS, .none))
-    (hsz : current.exec.stack.size + 1 ≤ 1024)
-    (hgas : GasConstants.Gbase ≤ current.exec.gasAvailable.toNat)
-    (hstep : stepFrame current = .next exec) :
-    UInt256.ofUInt64 exec.gasAvailable = gasReadOf (gasFrame current) := by
-  -- the GAS step is forced to be `gasPost current.exec`, so `exec.gasAvailable` is the post-charge gas.
-  have hforced : stepFrame current = .next (Dispatch.gasPost current.exec) :=
-    BytecodeLayer.Dispatch.stepFrame_gas current hdec hsz hgas
-  rw [hstep] at hforced
-  have hexec : exec = Dispatch.gasPost current.exec := (Signal.next.injEq _ _).mp hforced
-  subst hexec
-  rfl
-
-/-- The word `gasReadOf (gasFrame fr)` is exactly the value the per-cursor `obs`-form
-`Lir.GasRealises obs fr` demands at the **pre-charge** frame `fr`: both are
-`UInt256.ofUInt64 (fr.exec.gasAvailable − UInt64.ofNat Gbase)`. So once the alignment supplies that
-the GAS cursor's `obs` is this recorded read, `Lir.GasRealises obs fr` at the cursor frame is
-`rfl`-discharged (the universal-over-`g` form additionally needs the alignment's
-all-same-address-frames-agree fact — the §3 obstacle). -/
-theorem gasReadOf_gasFrame_eq_obs (fr : Frame) :
-    gasReadOf (gasFrame fr)
-      = UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat Gbase) := by
-  rfl
-
-/-! ## §3 — the positional-alignment foundation (Part 3, STARTED)
-
-The coupling between the recorder's gas accumulator and the GAS-frames the drive walk visits, and
-the foundational per-op step that advances both in lockstep. We reuse the now-deleted
-`Oracle.lean` `GasRealises` witness shape (`T = frs.map gasReadOf ∧ FramesRun frs`) directly. -/
-
-/-- **The gas-log alignment invariant.** A `driveLog` accumulator `gasAcc` is *aligned* with a
-witness list of GAS-frames `frs` (the post-charge frames at each recorded GAS site, in program
-order, `Runs`-threaded) when it is exactly their reported words. This is the now-deleted
-`Oracle.lean` `GasRealises` read
-as an invariant on the recorder's accumulator: `gasAcc = frs.map gasReadOf` (positional
-read-equality) together with `FramesRun frs` (the frames `Runs`-threaded). The drive walk threads
-this alongside the `DriveCorr` cursor; §3's foundational steps show one op preserves it. -/
-def GasLogAligned (gasAcc : List Word) (frs : List Frame) : Prop :=
-  gasAcc = frs.map gasReadOf ∧ FramesRun frs
-
-/-- The empty accumulator is aligned with the empty witness list — the drive walk's seed. -/
-theorem gasLogAligned_nil : GasLogAligned [] [] := ⟨rfl, trivial⟩
-
-/-- **`FramesRun` extends on the right by a `Runs`-reachable frame.** Appending a frame `g`
-reachable (`Runs last g`) from the current last frame `last` of a non-empty `Runs`-threaded list
-keeps it `Runs`-threaded. The structural step the GAS-record arm uses to grow the witness list. -/
-theorem FramesRun.snoc :
-    ∀ {frs : List Frame} {last g : Frame},
-      FramesRun frs → frs.getLast? = some last → Runs last g → FramesRun (frs ++ [g])
-  | [], _, _, _, hlast, _ => by simp at hlast
-  | [a], last, g, _, hlast, hrun => by
-    simp only [List.getLast?_singleton, Option.some.injEq] at hlast
-    subst hlast
-    exact ⟨hrun, trivial⟩
-  | a :: b :: rest, last, g, h, hlast, hrun => by
-    obtain ⟨hab, htl⟩ := h
-    have hlast' : (b :: rest).getLast? = some last := by
-      rw [List.getLast?_cons_cons] at hlast; exact hlast
-    exact ⟨hab, FramesRun.snoc htl hlast' hrun⟩
-
-/-- **Foundational per-op step — the GAS-record arm.** At a top-level GAS `.next` step
-(`stepFrame current = .next exec`, `current.stack = []` so the recorder's `isGasOp && stack.isEmpty`
-gate fires), the recorder appends one word and the witness list one frame, in lockstep:
-the new accumulator `gasAcc ++ [UInt256.ofUInt64 exec.gasAvailable]` is aligned with
-`frs ++ [gasFrame current]`, provided the current witness list ends at a frame from which
-`current` (hence `gasFrame current`) is reachable (`Runs`-threaded). The appended word is exactly
-`gasReadOf (gasFrame current)` (`gasRecord_eq_gasReadOf`), so read-equality extends; `FramesRun`
-extends by `FramesRun.snoc`. -/
-theorem gasLogAligned_step_gas {gasAcc : List Word} {frs : List Frame} {current : Frame}
-    {exec : ExecutionState} {last : Frame}
-    (halign : GasLogAligned gasAcc frs)
-    (hlast : frs.getLast? = some last)
-    (hreach : Runs last (gasFrame current))
-    (hdec : decode current.exec.executionEnv.code current.exec.pc = some (.Smsf .GAS, .none))
-    (hsz : current.exec.stack.size + 1 ≤ 1024)
-    (hgas : GasConstants.Gbase ≤ current.exec.gasAvailable.toNat)
-    (hstep : stepFrame current = .next exec) :
-    GasLogAligned (gasAcc ++ [UInt256.ofUInt64 exec.gasAvailable]) (frs ++ [gasFrame current]) := by
-  obtain ⟨hreads, hrun⟩ := halign
-  refine ⟨?_, FramesRun.snoc hrun hlast hreach⟩
-  -- read-equality: the appended word is `gasReadOf (gasFrame current)`.
-  rw [List.map_append, ← hreads]
-  simp only [List.map_cons, List.map_nil]
-  rw [gasRecord_eq_gasReadOf current hdec hsz hgas hstep]
-
-/-- **Foundational per-op step — the no-record arm.** Any step that is *not* a recorded top-level
-GAS read leaves the gas accumulator (and the witness list) unchanged, so alignment is preserved
-verbatim. This is the common case the walk-induction threads between GAS cursors (every non-GAS op,
-and GAS reads inside a descended CALL where `stack ≠ []`). -/
-theorem gasLogAligned_step_norecord {gasAcc : List Word} {frs : List Frame}
-    (halign : GasLogAligned gasAcc frs) :
-    GasLogAligned gasAcc frs := halign
-
-/-! ### Projecting list-level alignment back to a per-cursor `obs` tie
-
-The now-deleted `Oracle.lean` `GasRealises (frs.map gasReadOf) frs` (which `GasLogAligned gasAcc frs` packages, with
-`gasAcc = frs.map gasReadOf`) is the *list*-level realisability. The §7 per-cursor tie is the
-`obs`-form `Lir.GasRealises obs fr` at each GAS cursor `fr`. The bridge for a single read is
-`gasReadOf_gasFrame_eq_obs`: at the GAS cursor frame, the matching list entry `gasReadOf (gasFrame
-fr)` is the `obs` value the cursor tie demands. The reduction to alignment is then exactly: pick
-the witness frame `frs[i]` for the `i`-th GAS cursor (the alignment's positional pairing) and read
-off its `gasReadOf` as that cursor's `obs`. -/
-
--- RETAINED for Phase 3 realisability closure (audit §3)
-/-- **The list→cursor read bridge.** The `i`-th entry of an aligned accumulator is the `obs` value
-the §7 tie demands at the `i`-th GAS cursor frame `gasFrame fr` — i.e. `GasLogAligned`'s positional
-read at a GAS site is exactly `Lir.GasRealises`'s required word there. The per-cursor tie is thus
-the alignment's positional read, modulo the walk-induction that pairs cursor `i` with witness frame
-`i` (the §3 obstacle). -/
-theorem aligned_read_eq_obs {gasAcc : List Word} {frs : List Frame} {i : Nat} {fr : Frame}
-    (halign : GasLogAligned gasAcc frs)
-    (hwit : frs[i]? = some (gasFrame fr)) :
-    gasAcc[i]? = some (UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat Gbase)) := by
-  obtain ⟨hreads, _⟩ := halign
-  rw [hreads, List.getElem?_map, hwit]
-  simp only [Option.map_some]
-  rw [gasReadOf_gasFrame_eq_obs]
 
 /-! ### The single-`obs` collapse (the `Corr`-model–compatible alignment, DISCHARGED)
 
@@ -219,96 +90,6 @@ theorem gasRealises_obs_of_witness {gasAcc : List Word} {frs : List Frame} {i : 
   have hobs : obs = UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat Gbase) :=
     htie fr rfl
   rw [hobs]
-
-/-! ## §4 — SLOAD: the recorded warmth-charge bridges `SloadRealises` (value channel)
-
-Piece 1 added the per-SLOAD warmth recording to the interpreter (`RunLog.sloads`,
-`driveLog`'s `sloadAcc`, `realisedSload`, `sloadWarmthOf`) with adequacy preserved by
-construction (`driveLog_drive` still erases every accumulator). The value-level bridge
-`sloadRecord_eq_sloadCost` (`RecorderLemmas.lean`) shows the recorded charge at an SLOAD frame
-*is* `SloadRealises`'s required `sloadCost (accessedStorageKeys.contains (self, key))` —
-the exact analogue of `gasReadOf_gasFrame_eq_obs` for GAS. So the SLOAD value channel is
-now at the **same** maturity as GAS: arithmetic/value bridge DISCHARGED, per-cursor
-selection reduced to the (deferred) positional alignment (`GasLogAligned`'s SLOAD twin).
-
-We re-expose the bridge as the named SLOAD value-channel discharge and a per-cursor
-reduction lemma (parallel to `aligned_read_eq_obs`): once the alignment supplies that the
-SLOAD cursor's recorded charge is this site's `sloadWarmthOf`, the `sloadChg k =
-sloadCost …` conjunct of `SloadRealises` is `rfl`-discharged at that frame. -/
-
-/-- **SLOAD value-channel discharge** (parallel to `gasReadOf_gasFrame_eq_obs`). The
-recorded warmth-charge `sloadWarmthOf g` at an SLOAD frame `g` whose stack-head is the
-bound key is exactly `SloadRealises`'s demanded `sloadCost (accessedStorageKeys.contains
-(self, key))`. This is the value the recorder now logs (Piece 1); the per-cursor tie is
-its positional selection (the deferred alignment, as for GAS). -/
-theorem sloadRecord_discharges_obs (g : Frame) {key : Word}
-    (hkey : g.exec.stack.head? = some key) :
-    sloadWarmthOf g
-      = Evm.sloadCost (g.exec.substate.accessedStorageKeys.contains
-          (g.exec.executionEnv.address, key)) :=
-  sloadRecord_eq_sloadCost g hkey
-
-/-! ### §4.1 — the SLOAD positional-alignment invariant `SloadLogAligned` (GAS twin)
-
-The exact SLOAD analogue of §3's `GasLogAligned`. The recorder logs each top-level SLOAD's
-warmth-charge `sloadWarmthOf current` at the **pre-step** frame `current` (the `sloadAcc` splice in
-`driveLog`, gated by `isSloadOp current && stack.isEmpty`). So the SLOAD witness list is the list
-of **pre-step** SLOAD frames the drive walk visits, and the invariant couples the recorder's
-`sloadAcc` to their reported warmth-charges: `sloadAcc = frs.map sloadWarmthOf` together with
-`FramesRun frs` (the SLOAD frames `Runs`-threaded in program order).
-
-Note the witness-frame asymmetry with GAS: GAS records `ofUInt64 exec.gasAvailable` (the
-**post**-charge gas), so its witness frame is `gasFrame current` (the post-charge frame); SLOAD
-records `sloadWarmthOf current` (read off `current`'s **pre**-step substate / stack), so its witness
-frame is `current` itself. The lockstep step (`sloadLogAligned_step_sload`) and the list→cursor
-bridge (`alignedSload_read_eq_obs`) mirror §3 one-for-one. -/
-
-/-- **The sload-log alignment invariant** (GAS twin of `GasLogAligned`). A `driveLog`
-`sloadAcc` accumulator is *aligned* with a witness list of SLOAD pre-step frames `frs` when it is
-exactly their reported warmth-charges (`sloadWarmthOf`, in program order) and the frames are
-`Runs`-threaded (`FramesRun frs`). The drive walk threads this alongside `DriveCorr`; the
-foundational steps below show one op preserves it. -/
-def SloadLogAligned (sloadAcc : List Nat) (frs : List Frame) : Prop :=
-  sloadAcc = frs.map sloadWarmthOf ∧ FramesRun frs
-
-/-- The empty `sloadAcc` is aligned with the empty witness list — the drive walk's seed. -/
-theorem sloadLogAligned_nil : SloadLogAligned [] [] := ⟨rfl, trivial⟩
-
-/-- **Foundational per-op step — the SLOAD-record arm** (twin of `gasLogAligned_step_gas`). At a
-top-level SLOAD `.next` step (`current.stack = []`, so the recorder's `isSloadOp && stack.isEmpty`
-gate fires), the recorder appends one warmth-charge `sloadWarmthOf current` and the witness list one
-frame `current`, in lockstep: the new accumulator `sloadAcc ++ [sloadWarmthOf current]` is aligned
-with `frs ++ [current]`, provided the current witness list ends at a frame from which `current` is
-reachable (`Runs`-threaded). The appended word is *definitionally* `sloadWarmthOf current` (the
-recorder logs exactly the witness frame's `sloadWarmthOf`, no `gasPost`-style post-step shift), so
-read-equality extends by `rfl`; `FramesRun` extends by `FramesRun.snoc`. -/
-theorem sloadLogAligned_step_sload {sloadAcc : List Nat} {frs : List Frame} {current last : Frame}
-    (halign : SloadLogAligned sloadAcc frs)
-    (hlast : frs.getLast? = some last)
-    (hreach : Runs last current) :
-    SloadLogAligned (sloadAcc ++ [sloadWarmthOf current]) (frs ++ [current]) := by
-  obtain ⟨hreads, hrun⟩ := halign
-  refine ⟨?_, FramesRun.snoc hrun hlast hreach⟩
-  rw [List.map_append, ← hreads]
-  simp only [List.map_cons, List.map_nil]
-
-/-- **The list→cursor SLOAD read bridge** (twin of `aligned_read_eq_obs`). The `i`-th entry of an
-aligned `sloadAcc` is the warmth-charge `SloadRealises` demands at the `i`-th SLOAD cursor frame:
-when the witness frame at `i` is an SLOAD frame `g` whose stack-head is the bound key, the recorded
-`sloadAcc[i]` is exactly `sloadCost (accessedStorageKeys.contains (self, key))`
-(`sloadRecord_eq_sloadCost`). The per-cursor SLOAD tie is thus the alignment's positional read,
-modulo the walk-induction that pairs cursor `i` with witness frame `i` (the §3 obstacle). -/
-theorem alignedSload_read_eq_obs {sloadAcc : List Nat} {frs : List Frame} {i : Nat} {g : Frame}
-    {key : Word}
-    (halign : SloadLogAligned sloadAcc frs)
-    (hwit : frs[i]? = some g)
-    (hkey : g.exec.stack.head? = some key) :
-    sloadAcc[i]? = some (Evm.sloadCost (g.exec.substate.accessedStorageKeys.contains
-        (g.exec.executionEnv.address, key))) := by
-  obtain ⟨hreads, _⟩ := halign
-  rw [hreads, List.getElem?_map, hwit]
-  simp only [Option.map_some]
-  rw [sloadRecord_eq_sloadCost g hkey]
 
 -- RETAINED for Phase 3 realisability closure (audit §3)
 /-- **The SLOAD selection discharge** (twin of `gasRealises_obs_of_witness`). At an SLOAD cursor
