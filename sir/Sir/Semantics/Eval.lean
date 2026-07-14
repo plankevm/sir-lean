@@ -43,7 +43,8 @@ private def eval_jump (program : Program) (target : BlockId) :
   let some sourceBlock := program.block? source | throw (.invalidBlock source)
   let some targetBlock := program.block? target | throw (.invalidBlock target)
   Locals.transfer sourceBlock.outputs targetBlock.inputs
-  modify ({ · with control := .blockStart target })
+  let cursor := { block := target, position := targetBlock.startPosition }
+  modify ({ · with control := .running cursor })
 
 def eval_terminator (program : Program) :
     Terminator → StateT MachineState (Except IRError) Unit

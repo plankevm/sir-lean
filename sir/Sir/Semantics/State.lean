@@ -64,21 +64,20 @@ structure CallContext where
   calldata : ByteArray
   isStatic : Bool
 
-structure StatementCursor where
+inductive BlockPosition where
+  | statement (index : Nat)
+  | terminator
+  deriving DecidableEq, Repr
+
+structure ProgramCursor where
   block : BlockId
-  statement : Nat
+  position : BlockPosition
   deriving DecidableEq, Repr
 
 inductive MachineControl where
-  | running (cursor : StatementCursor)
+  | running (cursor : ProgramCursor)
   | halted
   deriving DecidableEq, Repr
-
-namespace MachineControl
-
-def blockStart (bid : BlockId) : MachineControl := .running { block := bid, statement := 0 }
-
-end MachineControl
 
 structure MachineState where
   world : World
@@ -104,22 +103,24 @@ def MachineState.localSet (var : VarId) (value : Word) : StateM MachineState Uni
 def Program.block? (program : Program) (bid : BlockId) : Option BasicBlock :=
   program.blocks[bid.id]?
 
+
+def BasicBlock.absoluteToPosition (block : BasicBlock) (index : Nat) : BlockPosition :=
+  if index < block.statements.size then .statement index else .terminator
+
+def BasicBlock.startPosition (block : BasicBlock) : BlockPosition :=
+  block.absoluteToPosition 0
+
 def Program.decodeStmt (program : Program) (control : MachineControl) : Option (MachineControl × Stmt) := do
   let .running cursor := control | none
+  let .statement index := cursor.position | none
   let block ← program.block? cursor.block
-  let stmt ← block.statements[cursor.statement]?
-  some (.running { cursor with statement := cursor.statement + 1 }, stmt)
+  let stmt ← block.statements[index]?
+  some (.running { cursor with position := block.absoluteToPosition (index + 1) }, stmt)
 
 def Program.terminatorAt (program : Program) (control : MachineControl) : Option Terminator := do
   let .running cursor := control | none
+  let .terminator := cursor.position | none
   let block ← program.block? cursor.block
-  guard (cursor.statement = block.statements.size)
   some block.terminator
-
-def Program.nextControl (program : Program) (control : MachineControl) : Option MachineControl := do
-  let .running cursor := control | none
-  let block ← program.block? cursor.block
-  guard (block.statements[cursor.statement]?.isSome)
-  some (.running { cursor with statement := cursor.statement + 1 })
 
 end Sir
