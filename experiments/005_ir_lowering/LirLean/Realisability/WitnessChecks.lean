@@ -111,7 +111,7 @@ theorem exCheck_true : exCheck = true := by
         dsimp only []
         rw [hdrv]
         dsimp only []
-        unfold RunLog.cleanb
+        unfold BytecodeLayer.Exec.Recorder.RunLog.cleanb
         exact h
 
 /-- **R12a leaf 2 of 2, DISCHARGED**: the `CallsCode`/`createResolves` trace check. -/

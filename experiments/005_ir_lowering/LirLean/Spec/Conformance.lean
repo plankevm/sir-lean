@@ -12,11 +12,6 @@ def entryState (params : CallParams) : IRState :=
   { locals := fun _ => none
     world  := fun k => (params.accounts.find? params.recipient).option 0 (·.lookupStorage k) }
 
-def RunLog.clean (log : RunLog) : Prop :=
-  match log.observable with
-    | .call r   => r.success = true ∨ r.gasRemaining ≠ 0
-    | .create _ => False
-
 def Conforms (self : AccountAddress) (log : RunLog) (O : Observable) : Prop :=
   O.world = (observe self log.observable).world
   ∧ O.result = (observe self log.observable).result

@@ -298,7 +298,7 @@ theorem haltNonException_of_cleanLog {prog : Lir.Program} {params : CallParams}
   | revert g o => trivial
   | exception ex =>
       exfalso
-      unfold RunLog.clean at hclean
+      unfold BytecodeLayer.Exec.Recorder.RunLog.clean at hclean
       rw [hobs] at hclean
       unfold endFrame at hclean
       cases hk : last.kind with

@@ -81,18 +81,10 @@ open BytecodeLayer.Interpreter
 
 /-! ## §1 — the executable twin of `RunLog.clean` -/
 
-/-- Executable `Bool` twin of `RunLog.clean` (`Spec/Conformance.lean`): the recorded top-level
-`.call` result either succeeded or reverted with gas left; a `.create` observable is
-out of scope. Kernel-evaluable on a concrete log. -/
-def RunLog.cleanb (log : RunLog) : Bool :=
-  match log.observable with
-    | .call r   => r.success || r.gasRemaining != 0
-    | .create _ => false
-
 /-- `cleanb` soundness: the `Bool` twin implies the `Prop` predicate. -/
 theorem RunLog.clean_of_cleanb {log : RunLog} (h : log.cleanb = true) : log.clean := by
-  unfold RunLog.cleanb at h
-  unfold RunLog.clean
+  unfold BytecodeLayer.Exec.Recorder.RunLog.cleanb at h
+  unfold BytecodeLayer.Exec.Recorder.RunLog.clean
   cases hobs : log.observable with
   | call r =>
     rw [hobs] at h
