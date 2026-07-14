@@ -178,10 +178,6 @@ def emit (a : Alloc) (prog : Program) : List UInt8 :=
   let labelOff := offsetTable cache a prog.blocks
   prog.blocks.toList.flatMap (fun b => Byte.jumpdest :: emitBlockBody cache a labelOff b)
 
-def encode (bytes : List UInt8) : ByteArray := ⟨bytes.toArray⟩
-
-def lower (prog : Program) : ByteArray := encode (emit (defsOf prog) prog)
-
 namespace Asm
 
 open BytecodeLayer.Asm
@@ -255,6 +251,9 @@ def lowerAsm (prog : Program) : BytecodeLayer.Asm.AsmProgram :=
   let cache := Asm.matCache prog
   let alloc := defsOf prog
   ⟨prog.blocks.map (Asm.emitBlock cache alloc)⟩
+
+def lower (prog : Program) : ByteArray :=
+  BytecodeLayer.Asm.assemble (lowerAsm prog)
 
 namespace Asm
 
@@ -409,7 +408,6 @@ end Asm
 
 /-- The bytecode lowering factors through the IR-independent assembler. -/
 theorem lower_eq_assemble_lowerAsm (prog : Program) :
-    lower prog = BytecodeLayer.Asm.assemble (lowerAsm prog) := by
-  rw [lower, encode, BytecodeLayer.Asm.assemble, Asm.bytes_lowerAsm]
+    lower prog = BytecodeLayer.Asm.assemble (lowerAsm prog) := rfl
 
 end Lir

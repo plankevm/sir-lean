@@ -53,11 +53,10 @@ assembly (fold cache + allocation) with `a := defsOf prog`. Definitional. -/
 theorem emit_allocate_eq_flatBytes (prog : Program) :
     emit (defsOf prog) prog = flatBytes prog := rfl
 
-/-- `lower prog` is the `ByteArray` wrapping `flatBytes prog`. The factored
-`lower = encode ∘ emit (defsOf prog)` emits exactly these bytes
-(`emit_allocate_eq_flatBytes`). -/
+/-- `lower prog` is the `ByteArray` wrapping `flatBytes prog`. -/
 theorem lower_eq_flatBytes (prog : Program) : lower prog = ⟨(flatBytes prog).toArray⟩ := by
-  unfold lower encode; rw [emit_allocate_eq_flatBytes]
+  unfold lower BytecodeLayer.Asm.assemble
+  rw [Asm.bytes_lowerAsm, emit_allocate_eq_flatBytes]
 
 /-! ## Foundation: list-backed `ByteArray` indexing -/
 
