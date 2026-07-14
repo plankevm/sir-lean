@@ -333,42 +333,6 @@ theorem beginCall_inr_noErase :
       | with_reducible exact accPresent_stub (Or.inr rfl) hpres (by assumption)
 
 
-/-! ## §3 — the `CallsCode` trace checker (the `hseams.callsCode` seam's discharger) -/
-
-/-- Fuel-indexed trace checker for the `CallsCode` AND `createResolves` seams: replay
-the deterministic top-level chain (`stepFrame` steps, returning CALLs, returning
-CREATEs) from `fr`, check every issued `.needsCall`'s code source, and check every
-issued `.needsCreate` with a terminating init child resumes successfully (the
-`CreateResolves` face — its resume `.error` arm is `false`). `false` on fuel
-exhaustion (sound: the caller must supply enough fuel); edges the `Runs` relation
-cannot take (a non-returning call/create child, a precompile-immediate `beginCall`)
-end the chain with `true` — no `Runs`-reachable frame lies beyond them, and
-`CreateResolves` is vacuous when the init child does not terminate `.ok`. -/
-def callsCodeOk : ℕ → Frame → Bool
-  | 0, _ => false
-  | fuel+1, fr =>
-    match stepFrame fr with
-    | .next exec => callsCodeOk fuel { fr with exec := exec }
-    | .halted _ => true
-    | .needsCall cp pending =>
-      (match cp.codeSource with
-        | .Precompiled _ => false
-        | .Code _ => true)
-      && (match beginCall cp with
-          | .inl child =>
-            match drive (seedFuel cp.gas) [] (running child) with
-            | .ok childRes =>
-              callsCodeOk fuel (resumeAfterCall childRes.toCallResult pending)
-            | .error _ => true
-          | .inr _ => true)
-    | .needsCreate cp pending =>
-      match drive (seedFuel cp.gas) [] (running (beginCreate cp)) with
-      | .ok childRes =>
-        match resumeAfterCreate childRes.toCreateResult pending with
-        | .ok resumeFr => callsCodeOk fuel resumeFr
-        | .error _ => false
-      | .error _ => true
-
 /-- The checker's head fact: a passing frame's own `.needsCall`s target code. -/
 theorem callsCodeOk_head {fuel : ℕ} {fr : Frame}
     (hok : callsCodeOk fuel fr = true) : CallsCode fr := by

@@ -224,6 +224,30 @@ def runWithLog (params : CallParams) (fuel : ℕ) : Option RunLog :=
                    creates := creates }
         | .error _ => none
 
+def callsCodeOk : ℕ → Frame → Bool
+  | 0, _ => false
+  | fuel+1, fr =>
+    match stepFrame fr with
+    | .next exec => callsCodeOk fuel { fr with exec := exec }
+    | .halted _ => true
+    | .needsCall cp pending =>
+      (match cp.codeSource with
+        | .Precompiled _ => false
+        | .Code _ => true)
+      && (match beginCall cp with
+          | .inl child =>
+            match drive (seedFuel cp.gas) [] (running child) with
+            | .ok childRes => callsCodeOk fuel (resumeAfterCall childRes.toCallResult pending)
+            | .error _ => true
+          | .inr _ => true)
+    | .needsCreate cp pending =>
+      match drive (seedFuel cp.gas) [] (running (beginCreate cp)) with
+      | .ok childRes =>
+        match resumeAfterCreate childRes.toCreateResult pending with
+        | .ok resumeFr => callsCodeOk fuel resumeFr
+        | .error _ => false
+      | .error _ => true
+
 def realisedGas (log : RunLog) : GasOracle := log.gas
 
 def realisedSload (log : RunLog) : List Nat := log.sloads

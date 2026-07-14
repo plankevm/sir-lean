@@ -7,7 +7,7 @@ export BytecodeLayer.Exec.Recorder
   (evmV2CallEntry evmV2CreateEntry CallRecord CreateRecord RunLog isGasOp isSloadOp
    isCreate2Op isCallOp softFailCallRecord callSuccessFlag_softFailCallRecord
    softFailCreateRecord createAddrOrZero_softFailCreateRecord sloadWarmthOf recordCall
-   recordCreate driveLog runWithLog realisedGas realisedSload callStreamOf realisedCall
+   recordCreate driveLog runWithLog callsCodeOk realisedGas realisedSload callStreamOf realisedCall
    createStreamOf realisedCreate resultStorageAt observe observe_result)
 
 namespace RunLog
