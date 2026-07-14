@@ -2,7 +2,7 @@ import LirLean.Frame.Call
 import LirLean.Frame.Create
 import LirLean.Decode.LoweringLemmas
 import LirLean.Decode.Layout
-import LirLean.Frame.StorageErase
+import BytecodeLayer.Exec.Invariants
 import BytecodeLayer.Hoare
 import BytecodeLayer.Hoare.CallSequence
 
