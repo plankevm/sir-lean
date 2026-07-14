@@ -10,6 +10,7 @@ import BytecodeLayer.Exec.Results
 import BytecodeLayer.Exec.WitnessChecks
 import BytecodeLayer.Exec.Modellable
 import BytecodeLayer.Exec.Frame
+import BytecodeLayer.Exec.Memory
 
 namespace BytecodeLayer.Exec
 
