@@ -1,34 +1,12 @@
 import BytecodeLayer.Exec.Recorder
 
 /-!
-# BytecodeLayer — Realisability spec, SEGMENTED KERNEL EVALUATION (the R12a leaf machinery)
+# Segmented kernel evaluation
 
-The generic step-composition machinery for discharging the two R12a `Bool` leaves
-(`exCheck = true`, `entryCallsCodeOk exParams 4096 = true`) **in-kernel** — the
-segmented-evaluation route identified in `WitnessParams.lean`'s module header after the
-plain `decide +kernel` attempt was measured infeasible (the v4.30 kernel OOMs on the CALL
-resume's state duplication: the parent frame's account/substate fields are deep
-UNEVALUATED thunks at the resume, and the kernel's pointer-keyed whnf cache cannot share
-their instantiated copies).
-
-The route: both leaf evaluators (`driveLog`, `callsCodeOk`) consume exactly ONE fuel per
-recursion step, so each run is a linear chain of machine configurations. We
-
-1. reify one recursion step as a PURE transition function on configurations
-   (`nextLog : LogConfig → LogConfig ⊕ LogResult`, `nextCC : Frame → Frame ⊕ Bool`) with
-   an unfolding lemma equating one fuel-step of the evaluator to one transition
-   (`driveLog_succ_eq`, `callsCodeOk_succ_eq`);
-2. iterate it (`stepsLog`, `stepsCC`) with a fuel-shift composition lemma
-   (`driveLog_shift`, `callsCodeOk_shift`): `k` transitions ending at `c'` turn
-   `driveLog (k + fuel) c` into `driveLog fuel c'`;
-3. close each segment `stepsLog K cᵢ = .inl cᵢ₊₁` by kernel evaluation from a LITERAL
-   start `cᵢ` (`WitnessSegments.lean`, generated) — every restart resets the laziness, so
-   the duplicated state at the CALL resume is a pointer-shared LITERAL, which the kernel
-   cache CAN share;
-4. finish with the terminal lemmas (`driveLog_final`, `callsCodeOk_final`).
-
-Everything here is generic over the configuration (no witness literals); it is
-sorry-free and belongs to the same WIP cone as `WitnessParams.lean`.
+`driveLog` and `callsCodeOk` consume one fuel unit per recursion step. This module
+reifies each recursion as a transition function, iterates it for a bounded segment,
+and proves shift and terminal equations. Kernel computations can therefore be split
+across literal intermediate configurations without changing the evaluator result.
 -/
 
 set_option maxHeartbeats 1000000

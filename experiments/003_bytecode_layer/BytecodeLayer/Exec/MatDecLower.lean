@@ -3,27 +3,11 @@ import Lean.Elab.Tactic.Omega
 import Mathlib.Tactic.NormNum
 
 /-!
-# BytecodeLayer — `PUSH32` round-trip + byte-window bricks (decode-side helpers)
+# `PUSH32` round-trip and byte-window facts
 
-The lowering-independent byte facts the fold decode channel reuses:
-
-* **`uInt256_wordBytesBE`** — the `PUSH32` immediate round-trip:
-  `uInt256OfByteArray ⟨(BytecodeLayer.Exec.wordBytesBE w).toArray⟩ = w`. A genuine 256-bit fact (the byte
-  decomposition `BytecodeLayer.Exec.wordBytesBE` reverses to little-endian, `fromBytes'` reads it back), proved
-  bottom-up through `u256_toNat_ofNat` / `u256_shiftRight_toNat` / the 32-digit base-256
-  reconstruction. This is what turns a "decode = PUSH32 carrying *the window's*
-  `uInt256OfByteArray`" anchor into "decode = PUSH32 carrying `w`" — the `.imm` clause of
-  the cache-keyed decode bundle `MatDecC` (`Materialise/MatFoldChannel.lean`).
-
-* **`extract_toList_eq`** (+ `ofNat_add'`) — the immediate-window read `decode` performs
-  for a PUSH, as a pointwise list fact, and the `UInt32` cursor-collapse helper.
-
-The cache-keyed decode bundle and its segment bridge (`MatDecC` / `matDecC_of_seg`) live in
-`Materialise/MatFoldChannel.lean` and consume these bricks through
-`decode_lower_{push,nonpush}` (`Decode/DecodeLower.lean`).
-
-No `sorry`, no `axiom`, no `native_decide`. Nothing here touches `Spec/Semantics.lean` /
-`Law.lean` (the frame-free spine).
+`uInt256_wordBytesBE` proves that decoding the 32-byte big-endian representation
+recovers the original word. `extract_toList_eq` characterizes byte-window reads,
+and `ofNat_add'` normalizes addition through `UInt32.ofNat`.
 -/
 
 namespace BytecodeLayer.Exec

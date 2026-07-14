@@ -1,17 +1,10 @@
 import BytecodeLayer.Exec.SegmentedEval
 
 /-!
-# BytecodeLayer — Realisability spec, THE CHECKED (KERNEL-EVALUABLE) STEP TWIN
+# Checked kernel-evaluable step twin
 
-The v4.30 kernel CANNOT evaluate the engine's byte-window primitives: every padded
-memory read/write routes through `ffi.ByteArray.zeroes (u : USize)`, and `USize`
-normalization is stuck on the OPAQUE `System.Platform.getNumBits` — platform-dependent
-BY DESIGN, so no amount of fuel/segmentation helps (measured: the R12a witness run's
-kernel evaluation dies at the first forced `USize.toNat`, transition 20 = the CALL
-descent; `WitnessParams.lean`'s module-header OOM ladder hit RAM before reaching this
-wall). The values ARE determined (< 2^32 on both platforms), but only PROPOSITIONALLY.
-
-This module quarantines the wall with a **checked twin evaluator**:
+The kernel cannot directly reduce padded byte-window operations through opaque,
+platform-dependent `USize` normalization. This module provides a checked twin:
 
 * the byte primitives get sanitized twins (`readWithPaddingK`, `writeK`,
   `toByteArrayK`, …) computing the padding lengths in `ℕ` (`Array.replicate` instead of
@@ -23,15 +16,8 @@ This module quarantines the wall with a **checked twin evaluator**:
   arm verbatim (delegation is soundness-free: `some (original)`), and fails CLOSED
   (`none`) on the off-path memory ops (KECCAK256, copies, LOGs, RETURN's twin is
   delegated — its padded output is only ever carried lazily, never forced);
-* the evaluator layer mirrors `nextLog`/`nextCC`/`drive` over the checked step
-  (`nextLogChk`/`stepsLogChk`/`nextCCChk`/`stepsCCChk`/`driveChk`), with soundness:
-  a `some` verdict of the checked chain IS the real chain's verdict. The checked
-  chain's configurations are CLEAN literals (the sanitized values), so the kernel
-  evaluates them — the real chain is never evaluated at all; the soundness lemmas
-  push the clean values through it propositionally.
-
-`WitnessChecks.lean` runs the two kernel cranks over this twin and assembles the two
-R12a leaves. Everything here is generic engine-level machinery (no witness literals).
+* the evaluator layer mirrors `nextLog` and `nextCC` over the checked step; every
+  successful checked verdict is proved equal to the original evaluator's verdict.
 -/
 
 namespace BytecodeLayer.Exec.Recorder
@@ -684,8 +670,7 @@ theorem stepsLogChk_sound {k : ℕ} {c : LogConfig} {x : LogConfig ⊕ LogResult
         dsimp only [] at h ⊢
         exact Option.some.inj h
 
-/-- `nextCC`'s body, factored over an already-computed signal (the inner child `drive`
-and the resumes delegate — the witness child is empty-code, kernel-clean). -/
+/-- `nextCC`'s body factored over an already-computed signal. -/
 def nextCCOnSig (fr : Frame) (sig : Signal) : Frame ⊕ Bool :=
   match sig with
     | .next exec => .inl { fr with exec := exec }

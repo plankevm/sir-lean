@@ -102,9 +102,8 @@ theorem callSuccessFlag_softFailCallRecord (fr : Frame) :
   simp only [softFailCallRecord]
   rfl
 
-/-- The soft-fail CREATE2 record: `createArm`'s `.next`-branch `failed`/`pending`
-pair (`EVM/Evm/Semantics/System.lean:83–98`), rebuilt from the pre-step frame
-`current` and the four decoded operands. `result.accounts = current.exec.accounts`
+/-- The soft-fail CREATE2 record, rebuilt from the pre-step frame `current` and
+the four decoded operands. `result.accounts = current.exec.accounts`
 (world unchanged through the self lens — soft-fail does NOT bump the nonce) and
 `result.success = false` (⇒ `createAddrOrZero = 0`), so `evmV2CreateEntry` maps it to
 `(currentWorld, 0)`. When the cursor's stack does not present four operands (never the

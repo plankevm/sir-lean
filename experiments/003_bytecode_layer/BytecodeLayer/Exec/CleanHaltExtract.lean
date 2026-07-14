@@ -1,42 +1,29 @@
 import BytecodeLayer.Hoare.CleanHalt
 
 /-!
-# CleanHalt extractor — clean-halting ⟹ per-cursor gas/mem envelopes (Track 1)
+# Clean-halt gas and memory envelopes
 
-Per-cursor simulation premises require gas and memory-expansion envelopes at a block-entry
-frame. Those
-envelopes are not free hypotheses: a frame that **clean-halts** (its remaining `Runs` reaches a
-`.halted` outcome) cannot have faulted on its next step, so its next opcode's gas guard held.
-This module is the **producer**: from `CleanHaltsNonException fr` (the frame reaches a clean
-`.halted` outcome that is **not** an `.exception` — `.success` or `.revert`) it extracts, per
-lowered opcode, the gas + memory-expansion envelope the §7 ties consume.
+A frame whose remaining `Runs` reaches a non-exception halt cannot fault on its
+next step. This module turns that fact into opcode-specific gas and memory-expansion
+bounds.
 
 The supported opcode set is
 `PUSH32`/`PUSH4`/`MLOAD`/`ADD`/`LT`/`SLOAD`/`GAS`/`MSTORE`/`SSTORE`/`CALL`/`POP`/`STOP`/`JUMP`/
 `JUMPI`/`JUMPDEST` — no `DUP`/`SWAP` (recompute-on-use).
 
-## What this file delivers (bottom-up)
+## Main layers
 
-* **`CleanHaltsNonException`** (§0) — the *non-exception* strengthening of `CleanHalts` (the §7
-  ties only ever fire on a run that reaches its terminal cleanly — `.success` or `.revert`, never
-  a genuine OOG/exception); `cleanHaltsNonException_forward` (forward-closed along `Runs`,
-  mirroring `cleanHalts_forward`) and `cleanHaltsNonException_toCleanHalts` (forget the witness so
-  existing `CleanHalts` consumers still see the weak form). `cleanHaltsNonException_of_success`
-  keeps the success-only case derivable.
+* **`CleanHaltsNonException`** (§0) identifies runs ending in `.success` or `.revert`.
 * **per-op OOG / `.next`-inversion bricks** (§1) — for the charge-only ops with no inversion in
-  003 (`GAS`/`PUSH`/`SLOAD`/`ADD`/`LT`): `op_oog` (`¬gas ⟹ .halted (.exception OutOfGas)`) and
+  `GAS`/`PUSH`/`SLOAD`/`ADD`/`LT`: `op_oog` (`¬gas ⟹ .halted (.exception OutOfGas)`) and
   `op_inv` (`.next ⟹ gas bound`), the `stepFrame`-unfold + `charge` `if_pos`/contrapositive
-  pattern. `MSTORE`/`MLOAD`/`SSTORE` inversions are **reused** from 003 `Dispatch.lean`.
+  pattern.
 * **the `.next` extractor** (§2) — `halted_runs_eq` (a halted frame `Runs` only to itself) and the
   per-op `next_*_of_cleanHalt` specialisations: `CleanHaltsNonException fr` + the op's decode ⟹
   `∃ e', stepFrame fr = .next e'` (the non-exception terminal forces a continuing step, since the
   op's only `.halted` is `.exception`).
-* **the envelope family** (§3) — `gas_envelope_of_cleanHalt` / `sload_envelope_of_cleanHalt`:
-  the full residual `sim_assign_gas_lowered` / `sim_assign_sload_lowered` consume, produced from
-  `CleanHaltsNonException` + the decode anchors, by threading the clean-halt forward across each
-  stash step (`GAS`→`gasFrame`, `materialise`→`frk`, `SLOAD`→`sloadFrame`, `PUSH`→`pushFrameW`).
-
-No `sorry`/`axiom`/`native_decide`. Every top-level result carries a `#print axioms` guard line.
+* **the envelope family** (§3) threads clean halting across decoded GAS, SLOAD,
+  PUSH, and MSTORE steps and returns their combined charge bounds.
 -/
 
 namespace BytecodeLayer.Exec.CleanHaltExtract
@@ -48,31 +35,24 @@ open BytecodeLayer
 open BytecodeLayer.Hoare
 open BytecodeLayer.Dispatch
 
-/-! ## §0 — `CleanHaltsNonException` (defined in `DriveSim.lean`)
+/-! ## §0 — `CleanHaltsNonException`
 
-`CleanHalts` allows the run to reach **any** `.halted` outcome, including `.exception` (a genuine
-OOG/exception run, which the gas-agnostic IR cannot model). The §7 ties only ever fire on a run
-that reaches its terminal **cleanly** — a `.success` (`RETURN`/`STOP` epilogue) *or* a `.revert`
-(a revert reaches its terminal with gas to spare). Both share the one property the extractor's
-core argument needs: the terminal is **not** `.exception`. A continuing op's only `.halted` is
-`.exception`, so a cursor frame can never coincide with a non-exception terminal — it must step.
-
-`CleanHaltsNonException` (and its forward split `cleanHaltsNonException_forward`, the weakening
-`cleanHaltsNonException_toCleanHalts`, and the success special case
-`cleanHaltsNonException_of_success`) live in `experiments/003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean` — upstream of both this
-extractor and the drive walk. -/
+`CleanHalts` permits any halted outcome. `CleanHaltsNonException` restricts the
+terminal outcome to `.success` or `.revert`. A continuing opcode whose only halted
+case is `.exception` must therefore take a `.next` step.
+-/
 
 open BytecodeLayer.Hoare (CleanHaltsNonException cleanHaltsNonException_forward HaltNonException)
 
 /-! ## §1 — per-op OOG / `.next`-inversion bricks
 
-The charge-only lowered ops (`GAS`/`PUSH`/`SLOAD`/`ADD`/`LT`) have a forward `stepFrame_*` lemma
-in 003 `Dispatch.lean` but **no** inversion / OOG lemma. Each is the `stepFrame`-unfold to the
+The charge-only ops (`GAS`/`PUSH`/`SLOAD`/`ADD`/`LT`) need inversion and OOG lemmas.
+Each is the `stepFrame`-unfold to the
 `charge` `if`, taken in the `if_pos` branch (`¬gas ⟹ .halted (.exception OutOfGas)`); the
 `.next`-inversion is then the contrapositive (a `.next` step witnesses the gas guard held). The
 overflow `if_neg` is discharged from the same stack hypotheses the forward lemma uses.
 
-`MSTORE`/`MLOAD`/`SSTORE` inversions are **reused** from 003 (`stepFrame_mstore_inv` etc.). -/
+`MSTORE`/`MLOAD`/`SSTORE` use their existing inversion lemmas. -/
 
 /-- **GAS out-of-gas.** With `Gbase` exceeding the available gas, `stepFrame` halts with
 `OutOfGas`. Companion of the forward `stepFrame_gas`; the `.next`-inversion turns on its
@@ -173,9 +153,7 @@ theorem stepFrame_sload_oog (fr : Frame) (key : UInt256) (rest : Stack UInt256)
   unfold charge
   rw [if_pos (by have := hoog; omega)]
 
-/-- **SLOAD `.next`-inversion.** A successful `.next` SLOAD step witnesses `sloadCost warm ≤ gas`
-(the warmth read off the same `accessedStorageKeys.contains` lens). This is exactly the
-`sloadCost`-bound the `sim_assign_sload_lowered` residual's `hgasSload` conjunct needs. -/
+/-- A successful `.next` SLOAD step witnesses `sloadCost warm ≤ gas`. -/
 theorem stepFrame_sload_inv (fr : Frame) (key : UInt256) (rest : Stack UInt256)
     {e : ExecutionState}
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .SLOAD, .none))
@@ -188,12 +166,9 @@ theorem stepFrame_sload_inv (fr : Frame) (key : UInt256) (rest : Stack UInt256)
   rw [stepFrame_sload_oog fr key rest hdec hstk hsz (by omega)] at hnext
   exact absurd hnext (by simp)
 
-/-! ### ADD / LT / MLOAD OOG / inversion bricks (the FoldLemma additions)
+/-! ### ADD / LT / MLOAD OOG and inversion bricks
 
-The aggregate gas-FOLD residuals (`materialise_runsC_of_cleanHalt`) descend the materialise run
-through `ADD`/`LT` (binary-op tails) and the `MLOAD` readback of a `.slot`-spilled tmp. Those ops
-have a forward `stepFrame_add`/`stepFrame_lt`/`stepFrame_mload` in 003 but no inversion/OOG lemma,
-so we build them here, copying the GAS/PUSH/SLOAD pattern above: the `binOp` charges `Gverylow`
+These lemmas copy the GAS/PUSH/SLOAD pattern: the `binOp` charges `Gverylow`
 *before* popping (no `hstk` needed for OOG); `MLOAD` mirrors the MSTORE `memExpansion + Gverylow`
 double-charge (`stepFrame_mstore_oogMem`/`_oogVL` shape). -/
 
@@ -420,7 +395,7 @@ dichotomy* — `fr` either continues (`.next e'`) or halts with an **exception**
 takes a continuing step. The exception-halt arm is excluded because `fr`'s clean-halt terminal is
 **non-exception**: a halted `fr` reaches only itself (`halted_runs_eq`), so an exception halt at
 `fr` would force the non-exception terminal `halt` to be that same exception halt — contradicting
-`halt.IsNonException`. Every charge-only lowered op satisfies the dichotomy (forward lemma when the
+`halt.IsNonException`. Every charge-only op satisfies the dichotomy (forward lemma when the
 gas guard holds, `*_oog` otherwise), so `.needsCall`/`.needsCreate` never arise — those are the
 CALL/CREATE ops, excluded by the op decode the specialisations supply. -/
 theorem next_of_cleanHalt_continuing {fr : Frame}
@@ -555,7 +530,7 @@ theorem next_sload_of_cleanHalt (fr : Frame) (key : UInt256) (rest : Stack UInt2
   have hg := stepFrame_sload_inv fr key rest hdec hstk hsz hnext
   exact ⟨hg, stepFrame_sload fr key rest hdec hstk hsz hg⟩
 
-/-- **MSTORE: clean-halt ⟹ the expansion witness + both charges.** Reuses 003
+/-- **MSTORE: clean-halt ⟹ the expansion witness + both charges.** Uses
 `stepFrame_mstore_inv` on the continuing step the dichotomy produces. -/
 theorem next_mstore_of_cleanHalt (fr : Frame) (addr val : UInt256) (rest : Stack UInt256)
     (hcs : CleanHaltsNonException fr)
@@ -571,10 +546,9 @@ theorem next_mstore_of_cleanHalt (fr : Frame) (addr val : UInt256) (rest : Stack
   obtain ⟨words', hmem, hgasMem, hgas, he⟩ := stepFrame_mstore_inv fr addr val rest hdec hstk hsz hnext
   exact ⟨words', hmem, hgasMem, hgas, by rw [hnext, he]⟩
 
-/-! ### ADD / LT / MLOAD step dichotomies + `next_*_of_cleanHalt` (FoldLemma)
+/-! ### ADD / LT / MLOAD step dichotomies
 
-The aggregate gas FOLD descends through ADD/LT (binary-op tails) and the MLOAD readback. Each is a
-continuing op, so `CleanHaltsNonException` forces a `.next` step (the dichotomy excludes
+Each is a continuing op, so `CleanHaltsNonException` forces a `.next` step (the dichotomy excludes
 `.needsCall`/`.needsCreate`), and the inversion reads off the gas bound. -/
 
 /-- **ADD step dichotomy.** -/
@@ -641,7 +615,7 @@ theorem next_lt_of_cleanHalt (fr : Frame) (a b : UInt256) (rest : Stack UInt256)
   have hg := stepFrame_lt_inv fr a b rest hdec hstk hsz hnext
   exact ⟨hg, stepFrame_lt fr a b rest hdec hstk hsz hg⟩
 
-/-- **MLOAD: clean-halt ⟹ the expansion witness + both charges** (and the `.next` step). Reuses
+/-- **MLOAD: clean-halt ⟹ the expansion witness + both charges** (and the `.next` step). Uses
 `stepFrame_mload_inv` on the continuing step the dichotomy produces. -/
 theorem next_mload_of_cleanHalt (fr : Frame) (addr : UInt256) (rest : Stack UInt256)
     (hcs : CleanHaltsNonException fr)
@@ -657,15 +631,11 @@ theorem next_mload_of_cleanHalt (fr : Frame) (addr : UInt256) (rest : Stack UInt
   obtain ⟨words', hmem, hgasMem, hgas, he⟩ := stepFrame_mload_inv fr addr rest hdec hstk hsz hnext
   exact ⟨words', hmem, hgasMem, hgas, by rw [hnext, he]⟩
 
-/-! ## §3 — the envelope family (the deliverable)
+/-! ## §3 — combined envelopes
 
-For the GAS cursor, `sim_assign_gas_lowered`'s residual is the 5-conjunct gas/mem envelope over the
-3-step stash `GAS ; PUSH32 (slotOf t) ; MSTORE` at frames `fr`, `gasFrame fr`,
-`pushFrameW (gasFrame fr) (ofNat slot) 32`. `gas_envelope_of_cleanHalt` produces it from
-`CleanHaltsNonException fr` + the three frame-local decode anchors, threading the clean-halt forward
-across each `StepsTo` (`fr → gasFrame fr → pushFrameW …`). The decode anchors are the **structural**
-facts `sim_assign_gas_lowered` already derives internally (`hdgas'`/`hdpush'`/`hdmstore'`); the gas
-bounds are no longer supplied — they are produced here. -/
+`gas_envelope_of_cleanHalt` covers the three-step sequence
+`GAS ; PUSH32 slot ; MSTORE`, threading clean halting across each `StepsTo` edge.
+-/
 
 /-- `StepsTo fr (gasFrame fr)` from the GAS gas guard (`Gbase ≤ gas`). The successor `gasFrame fr`
 is `{ fr with exec := gasPost fr.exec }`. -/
@@ -686,9 +656,9 @@ theorem stepsTo_pushFrameW (fr : Frame) (p : Operation.PushOp) (imm : UInt256) (
     StepsTo fr (pushFrameW fr imm w) :=
   stepsTo_of_next (stepFrame_push fr p imm w hp0 hdec hpop hpush hgas hsz)
 
-/-- **GAS envelope from clean-halt.** From `CleanHaltsNonException fr` (block-entry stack `[]`) and
-the three frame-local decode anchors of the gas stash, produce the exact gas/mem residual
-`sim_assign_gas_lowered` consumes: `Gbase ≤ fr.gas`, `3 ≤ (gasFrame fr).gas`, and the MSTORE
+/-- **GAS envelope from clean-halt.** From `CleanHaltsNonException fr` (entry stack `[]`) and
+the three frame-local decode anchors, produce `Gbase ≤ fr.gas`,
+`3 ≤ (gasFrame fr).gas`, and the MSTORE
 expansion witness `words'` + both memory charges at `pushFrameW (gasFrame fr) (ofNat slot) 32`.
 
 The bound gas value the `GAS` op pushes (so the MSTORE writes) is
@@ -774,8 +744,7 @@ theorem stepsTo_sloadFrame (fr : Frame) (key : UInt256) (rest : Stack UInt256)
 
 /-! ## §4 — JUMP / JUMPDEST clean-halt envelopes (the terminator landing)
 
-The lowered `jump`/`branch` terminators step `PUSH4 destOff ; JUMP` (and JUMPI for `branch`).
-The pre-`JUMPDEST` landing frame `fj` (the JUMP successor frame, sitting *on* the landing
+The pre-`JUMPDEST` landing frame `fj` (the JUMP successor frame, sitting on the landing
 `JUMPDEST` byte) needs its `Gjumpdest` envelope discharged: the threaded clean-halt at `fj`
 forces the `JUMPDEST` step to continue, so `Gjumpdest ≤ fj.gas`. The JUMP gas envelope
 `Gmid ≤ frp.gas` (at the post-PUSH4 frame `frp`) is what lets the `JUMP` step run at all.
@@ -905,8 +874,7 @@ theorem next_jumpdest_of_cleanHalt (fr : Frame)
 
 /-! ## §5 — `JUMPI` clean-halt gas envelopes (`branch` terminator landing bricks)
 
-The lowered `branch` terminator is `materialise cond ; PUSH4 thenOff ; JUMPI ; PUSH4 elseOff ;
-JUMP`. The `JUMPI` arm needs its `Ghigh` envelope discharged from the threaded clean-halt — at
+The `JUMPI` arm needs its `Ghigh` envelope discharged from the threaded clean-halt at
 the post-PUSH4 frame `frp` (with `thenWord :: cw :: rest` on the stack). `JUMPI` charges `Ghigh`
 *before* popping its two operands (`stackPopCount (.Smsf .JUMPI) = 2`), so a single OOG companion
 covers **both** the taken (`cw ≠ 0`) and fall-through (`cw = 0`) arms: only `hsz` is needed for
@@ -1005,10 +973,9 @@ theorem next_jumpi_fallthrough_of_cleanHalt (fr : Frame) (dest : UInt256) (rest 
   have hg := stepFrame_jumpi_inv fr hdec hsz hnext
   exact ⟨hg, stepFrame_jumpi_fallthrough fr dest rest hdec hstk hsz hg⟩
 
-/-! ## §6 — POP + CALL-charge clean-halt bricks (the R3 Piece-B call-tail/dispatch residues)
+/-! ## §6 — POP and CALL-charge clean-halt bricks
 
-The lowered CALL statement's machine-side residues need two more extractions in the §1/§2
-pattern:
+POP and CALL cursors need two more instances of the same extraction pattern:
 
 * **POP** (the `resultTmp = none` Route-B tail): `stepFrame_pop_oog`/`stepFrame_pop_dichotomy`/
   `next_pop_of_cleanHalt`, the exact `runs_pop` mirror of the GAS brick (POP charges `Gbase`
@@ -1021,7 +988,7 @@ pattern:
   The recorder therefore represents both CALL outcomes positionally.) -/
 
 /-- **POP out-of-gas.** With `Gbase` exceeding the available gas, `stepFrame` halts with
-`OutOfGas`. Companion of 003's forward `stepFrame_pop`; POP charges before popping, so no
+`OutOfGas`. POP charges before popping, so no
 stack shape is needed. -/
 theorem stepFrame_pop_oog (fr : Frame)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .POP, .none))
@@ -1139,12 +1106,3 @@ theorem call_extraCost_le_of_cleanHalt (fr : Frame) (gasv toAddr : UInt256)
   exact hne
 
 end BytecodeLayer.Exec.CleanHaltExtract
-
--- Axiom-cleanliness guards (§6 — POP + CALL-charge Piece-B bricks).
--- Axiom-cleanliness guards (§0 — predicate lives in `experiments/003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean`).
--- Axiom-cleanliness guards (§1).
--- Axiom-cleanliness guards (§2).
--- Axiom-cleanliness guards (§1.5/§2 — FoldLemma ADD/LT/MLOAD bricks).
--- Axiom-cleanliness guards (§3).
--- Axiom-cleanliness guards (§4 — JUMP/JUMPDEST terminator-landing bricks).
--- Axiom-cleanliness guards (§5 — JUMPI terminator-landing bricks).
