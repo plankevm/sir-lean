@@ -134,7 +134,7 @@ Plus, for data segments (v2), the placement-quotient theorem named at
 Migration shape (the [phased order at the end of the doc](../../fleet-2026-07-02/bytecode-interface.md#L216)):
 extract the algebra from the geometry files, then **retarget `lower` as `assemble ∘ lowerAsm` with a
 definitional-equality bridge to `lower prog` so the closed conformance proof survives unmodified.**
-`Lir.lowerAsm : Program → AsmProgram` keeps all of Lir's materialisation policy (the `matCache`
+`BytecodeLayer.Asm.lowerAsm : Lir.Program → AsmProgram` keeps all of Lir's materialisation policy (the `matCache`
 byte segments become `AsmInstr.push`/`.op` sequences); `assemble` owns layout, `JUMPDEST` placement,
 and label resolution. Corr's four geometric fields collapse into one `AtCursor` fact; the semantic
 fields stay Lir's (see §4).

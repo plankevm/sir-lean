@@ -141,7 +141,7 @@ theorem branch_landing : …
 ```
 
 ### The retarget (the whole point):
-`Lir.lowerAsm : Program → AsmProgram` keeps all of Lir's materialisation policy (the
+`BytecodeLayer.Asm.lowerAsm : Lir.Program → AsmProgram` keeps all of Lir's materialisation policy (the
 `matCache` byte segments become `AsmInstr.push`/`.op` sequences); `assemble` owns layout,
 `JUMPDEST` placement, and label resolution. Then **`lower = assemble ∘ lowerAsm` via a
 definitional-equality (or `rfl`-lemma) bridge to today's `emit` fold, so the closed

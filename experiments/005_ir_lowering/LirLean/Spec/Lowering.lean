@@ -246,14 +246,22 @@ def emitBlock (cache : Tmp → List AsmInstr) (alloc : Alloc) (block : Block) : 
 
 end Asm
 
+end Lir
+
+namespace BytecodeLayer.Asm
+
 /-- Translate LIR into structured assembly without choosing block offsets. -/
-def lowerAsm (prog : Program) : BytecodeLayer.Asm.AsmProgram :=
-  let cache := Asm.matCache prog
-  let alloc := defsOf prog
-  ⟨prog.blocks.map (Asm.emitBlock cache alloc)⟩
+def lowerAsm (prog : Lir.Program) : AsmProgram :=
+  let cache := Lir.Asm.matCache prog
+  let alloc := Lir.defsOf prog
+  ⟨prog.blocks.map (Lir.Asm.emitBlock cache alloc)⟩
+
+end BytecodeLayer.Asm
+
+namespace Lir
 
 def lower (prog : Program) : ByteArray :=
-  BytecodeLayer.Asm.assemble (lowerAsm prog)
+  BytecodeLayer.Asm.assemble (BytecodeLayer.Asm.lowerAsm prog)
 
 namespace Asm
 
@@ -366,9 +374,9 @@ theorem blockLength_emitBlock (prog : Program) (block : Block) :
   rfl
 
 theorem blockOffset_lowerAsm (prog : Program) (label : Nat) :
-    blockOffset (lowerAsm prog) label =
+    blockOffset (BytecodeLayer.Asm.lowerAsm prog) label =
       Lir.offsetTable (Lir.matCache prog) (defsOf prog) prog.blocks label := by
-  unfold blockOffset lowerAsm Lir.offsetTable
+  unfold blockOffset BytecodeLayer.Asm.lowerAsm Lir.offsetTable
   simp only [Array.toList_map]
   have h : ∀ (blocks : List Block) (i : Nat),
       (List.take i (List.map
@@ -391,13 +399,14 @@ theorem encodeBlock_emitBlock (prog : Program) (labelOffset : Nat → Nat) (bloc
   simp [BytecodeLayer.Asm.encodeBlock, encode_emitBlock, Lir.Byte.jumpdest]
 
 theorem bytes_lowerAsm (prog : Program) :
-    BytecodeLayer.Asm.bytes (lowerAsm prog) = Lir.emit (defsOf prog) prog := by
+    BytecodeLayer.Asm.bytes (BytecodeLayer.Asm.lowerAsm prog) =
+      Lir.emit (defsOf prog) prog := by
   unfold BytecodeLayer.Asm.bytes
-  rw [show blockOffset (lowerAsm prog) =
+  rw [show blockOffset (BytecodeLayer.Asm.lowerAsm prog) =
       Lir.offsetTable (Lir.matCache prog) (defsOf prog) prog.blocks from by
     funext label
     exact blockOffset_lowerAsm prog label]
-  unfold lowerAsm Lir.emit
+  unfold BytecodeLayer.Asm.lowerAsm Lir.emit
   simp only [Array.toList_map]
   induction prog.blocks.toList with
   | nil => rfl
@@ -408,6 +417,6 @@ end Asm
 
 /-- The bytecode lowering factors through the IR-independent assembler. -/
 theorem lower_eq_assemble_lowerAsm (prog : Program) :
-    lower prog = BytecodeLayer.Asm.assemble (lowerAsm prog) := rfl
+    lower prog = BytecodeLayer.Asm.assemble (BytecodeLayer.Asm.lowerAsm prog) := rfl
 
 end Lir
