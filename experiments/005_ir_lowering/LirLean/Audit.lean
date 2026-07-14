@@ -49,6 +49,10 @@ the run); its three flagships are closed and checked from an importing axiom-aud
 `Spec/Conformance.lean` now owns the public conformance vocabulary, while the
 precompile-self seam forwarder remains in `Spec/Seams.lean`. -/
 
-/-- info: 'Lir.Spec.callPreservesSelf_of_precompiles' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+/--
+info: 'BytecodeLayer.Exec.Invariants.callPreservesSelf_of_precompiles' depends on axioms: [propext,
+ Classical.choice,
+ Quot.sound]
+-/
 #guard_msgs in
 #print axioms Lir.Spec.callPreservesSelf_of_precompiles

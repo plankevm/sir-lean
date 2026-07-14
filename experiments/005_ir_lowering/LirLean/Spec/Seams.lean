@@ -1,36 +1,29 @@
-import LirLean.Drive.CallPreservesSelf
-import LirLean.Decode.Modellable
-import BytecodeLayer.Hoare.CleanHalt
+import BytecodeLayer.Exec.CallPreservesSelf
+import LirLean.Spec.IR
 
 namespace Lir.Spec
 
-def SelfPresent : Evm.Frame → Prop := Lir.SelfPresent
+abbrev SelfPresent : Evm.Frame → Prop := BytecodeLayer.Exec.Invariants.SelfPresent
 
-def CallPreservesSelf : Prop := Lir.CallPreservesSelf
+abbrev CallPreservesSelf : Prop := BytecodeLayer.Exec.Invariants.CallPreservesSelf
 
-def PrecompilesPreservePresence : Prop :=
-  ∀ (cp : Evm.CallParams) (imm : Evm.CallResult),
-    Evm.beginCall cp = .inr imm →
-    ∀ a, BytecodeLayer.Hoare.AccPresent a cp.accounts → BytecodeLayer.Hoare.AccPresent a imm.accounts
+abbrev PrecompilesPreservePresence : Prop :=
+  BytecodeLayer.Exec.Invariants.PrecompilesPreservePresence
 
-theorem callPreservesSelf_of_precompiles :
-    PrecompilesPreservePresence → CallPreservesSelf :=
-  fun h => Lir.callPreservesSelf_modGuards h
+export BytecodeLayer.Exec.Invariants (callPreservesSelf_of_precompiles)
 
-def CallsCode : Evm.Frame → Prop := BytecodeLayer.Interpreter.CallsCode
+abbrev CallsCode : Evm.Frame → Prop := BytecodeLayer.Exec.Invariants.CallsCode
 
-def CleanHaltsNonException : Evm.Frame → Prop := BytecodeLayer.Hoare.CleanHaltsNonException
+abbrev CleanHaltsNonException : Evm.Frame → Prop :=
+  BytecodeLayer.Exec.Invariants.CleanHaltsNonException
 
 end Lir.Spec
 
 namespace Lir
 
-def ReachableFrom (params : Evm.CallParams) (fr' : Evm.Frame) : Prop :=
-  ∃ fr₀, Evm.beginCall params = .inl fr₀ ∧ BytecodeLayer.Hoare.Runs fr₀ fr'
+abbrev ReachableFrom := BytecodeLayer.Exec.Invariants.ReachableFrom
 
-structure PrecompileAssumptions (prog : Program) (params : Evm.CallParams) : Prop where
-  noErase : Lir.Spec.PrecompilesPreservePresence
-  callsCode : ∀ fr', ReachableFrom params fr' → BytecodeLayer.Interpreter.CallsCode fr'
-  createResolves : ∀ fr', ReachableFrom params fr' → BytecodeLayer.Interpreter.CreateResolves fr'
+abbrev PrecompileAssumptions (_prog : Program) (params : Evm.CallParams) : Prop :=
+  BytecodeLayer.Exec.Invariants.PrecompileAssumptions params
 
 end Lir

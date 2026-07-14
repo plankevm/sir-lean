@@ -4,6 +4,7 @@ import Batteries.Classes.Order
 import BytecodeLayer.Semantics.Maps
 import BytecodeLayer.Hoare.AccountMap
 import BytecodeLayer.Semantics.System
+import BytecodeLayer.Semantics.Interpreter.Drive
 
 /-!
 # `RBMap` erase read-back bricks (proof-internal)
@@ -257,3 +258,20 @@ theorem selfPresent_codeFrame (params : Evm.CallParams) (code : ByteArray) {acc 
       exact ⟨_, hrec₁⟩
 
 end BytecodeLayer.Exec.Invariants
+
+namespace BytecodeLayer.Interpreter
+
+open Evm
+open BytecodeLayer
+
+/-- Every CALL issued by `fr` targets contract code rather than a precompile. -/
+def CallsCode (fr : Frame) : Prop :=
+  ∀ cp pending, stepFrame fr = .needsCall cp pending → ∀ p, cp.codeSource ≠ .Precompiled p
+
+/-- Every CREATE issued by `fr` resumes successfully after its child terminates. -/
+def CreateResolves (fr : Frame) : Prop :=
+  ∀ cp pending childRes, stepFrame fr = .needsCreate cp pending →
+    drive (seedFuel cp.gas) [] (running (beginCreate cp)) = .ok childRes →
+    ∃ resumeFr, resumeAfterCreate childRes.toCreateResult pending = .ok resumeFr
+
+end BytecodeLayer.Interpreter

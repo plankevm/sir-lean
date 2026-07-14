@@ -3,6 +3,7 @@ import BytecodeLayer.Exec.Call
 import BytecodeLayer.Exec.Create
 import BytecodeLayer.Exec.CallRealises
 import BytecodeLayer.Exec.CleanHaltExtract
+import BytecodeLayer.Exec.CallPreservesSelf
 
 namespace BytecodeLayer.Exec
 

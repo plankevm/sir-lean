@@ -1,4 +1,5 @@
 import BytecodeLayer.Hoare.DriveRuns
+import BytecodeLayer.Exec.Invariants
 import LirLean.Decode.BoundaryReach
 
 /-!
@@ -402,26 +403,6 @@ def AtReachableBoundary (prog : Lir.Program) (fr : Frame) : Prop :=
     ∧ Evm.ReachesBoundary (Lir.lower prog) 0 boundary
     ∧ boundary < (Lir.flatBytes prog).length
     ∧ boundary < 2 ^ 32
-
-/-- The second reachability clause: every `.needsCall` `fr` issues targets a *code* account, not a
-precompile. The **honest residual** — a runtime fact about the program's reachable call targets,
-NOT structurally guaranteed by the lowering (an IR `Stmt.call` whose callee materialises a
-precompile address `1..10` would violate it). Vacuous for any call-free program. -/
-def CallsCode (fr : Frame) : Prop :=
-  ∀ cp pending, stepFrame fr = .needsCall cp pending → ∀ p, cp.codeSource ≠ .Precompiled p
-
-/-- **`CreateResolves fr`** — the create-resolves residual (the honest R4 seam). A `.needsCreate cp
-pending` whose init child terminates (`drive (seedFuel cp.gas) [] (running (beginCreate cp)) = .ok
-childRes`) resumes **successfully** (`resumeAfterCreate childRes.toCreateResult pending = .ok
-resumeFr`) — the 63/64 retention guard (`Create.lean:200`) passing. This is the create clause of
-`ModellableStep`; it is NOT structural for `lower prog` (the guard can `throw .OutOfGas` on a
-`UInt64` overflow of the retained gas), so it is a genuine runtime side condition — vacuous for any
-create-free program, satisfiable for empty-init CREATEs at ordinary gas. Replaces the retired
-`NotCreate` clause: CREATE is now **modelled** by `Runs.create`, not excluded. -/
-def CreateResolves (fr : Frame) : Prop :=
-  ∀ cp pending childRes, stepFrame fr = .needsCreate cp pending →
-    drive (seedFuel cp.gas) [] (running (beginCreate cp)) = .ok childRes →
-    ∃ resumeFr, resumeAfterCreate childRes.toCreateResult pending = .ok resumeFr
 
 /-- **`ModellableStep` from the two per-frame residuals.** A frame whose CREATEs resume
 successfully (`CreateResolves`) and whose CALLs all target code (`CallsCode`) is `ModellableStep`:
