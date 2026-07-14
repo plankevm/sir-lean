@@ -2,6 +2,7 @@ import LirLean.Materialise.MatFoldChannel
 import LirLean.Materialise.CleanHaltExtract
 
 open Lir.Frame
+open BytecodeLayer.Exec
 
 /-!
 # LirLean — `materialise_runsC_of_cleanHalt` (the gas-dropping twin of the value channel)

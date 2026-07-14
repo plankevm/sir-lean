@@ -3,6 +3,7 @@ import LirLean.Materialise.MatFoldChannel
 import BytecodeLayer.Hoare.CleanHalt
 
 open Lir.Frame
+open BytecodeLayer.Exec
 
 /-!
 # CleanHalt extractor — clean-halting ⟹ per-cursor gas/mem envelopes (Track 1)

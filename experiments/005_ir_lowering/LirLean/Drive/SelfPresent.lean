@@ -3,6 +3,7 @@ import LirLean.Materialise.MaterialiseRuns
 import BytecodeLayer.Hoare.AccountMap
 
 open Lir.Frame
+open BytecodeLayer.Exec
 
 /-!
 # LirLean — the recorded-run value-channel discharges + `SelfPresent` (`Drive/SelfPresent`)

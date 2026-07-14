@@ -8,6 +8,7 @@ import LirLean.Decode.Modellable
 import BytecodeLayer.Hoare.GasMonotone
 
 open Lir.Frame
+open BytecodeLayer.Exec
 
 /-!
 # LirLean — drive-indexed forward simulation, cyclic-CFG construction (`DriveSim`, F1–F3)

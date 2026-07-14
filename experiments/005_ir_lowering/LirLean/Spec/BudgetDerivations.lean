@@ -8,6 +8,7 @@ import LirLean.Sim.SimStmt
 namespace Lir
 
 open Lir.Frame
+open BytecodeLayer.Exec
 open Evm
 
 theorem flatBytes_length_eq (prog : Program) :

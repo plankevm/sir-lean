@@ -1,4 +1,4 @@
-import LirLean.Frame.Call
+import BytecodeLayer.Exec.Call
 import LirLean.Frame.Create
 import LirLean.Decode.LoweringLemmas
 import LirLean.Decode.Layout
@@ -21,6 +21,7 @@ parallel invariant.
 -/
 
 namespace Lir.Frame
+open BytecodeLayer.Exec
 open Evm
 open BytecodeLayer.Hoare
 open BytecodeLayer.Maps

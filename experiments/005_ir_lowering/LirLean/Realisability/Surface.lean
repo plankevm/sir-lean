@@ -6,6 +6,7 @@ import LirLean.Spec.Conformance
 import LirLean.Spec.Seams
 
 open Lir.Frame
+open BytecodeLayer.Exec
 
 /-!
 # LirLean — Realisability spec, SURFACE (§1–§4)

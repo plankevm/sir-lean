@@ -2,6 +2,7 @@ import LirLean.Realisability.Machinery
 import LirLean.Drive.DriveSim
 
 open Lir.Frame
+open BytecodeLayer.Exec
 
 /-!
 # LirLean — the coupled run-producer `runFrom_of_driveCorrLog`

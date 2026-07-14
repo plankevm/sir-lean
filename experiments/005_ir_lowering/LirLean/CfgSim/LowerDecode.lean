@@ -6,6 +6,7 @@ import LirLean.Materialise.StashTail
 import LirLean.Materialise.CleanHaltExtract
 
 open Lir.Frame
+open BytecodeLayer.Exec
 
 /-!
 # LirLean — discharging the carried decode bundles via `matDecC_of_lower`

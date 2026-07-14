@@ -19,7 +19,7 @@ import LirLean.Decode.BoundaryReach
 import LirLean.Decode.BoundaryCursor
 
 -- v1 reference semantics + CALL/CREATE bricks + match.
-import LirLean.Frame.Call
+import BytecodeLayer.Exec.Call
 import LirLean.Frame.Create
 import LirLean.Frame.Match
 

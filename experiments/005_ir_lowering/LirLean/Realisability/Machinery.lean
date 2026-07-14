@@ -4,6 +4,7 @@ import LirLean.Realisability.Surface
 import LirLean.Decode.Modellable
 
 open Lir.Frame
+open BytecodeLayer.Exec
 
 /-!
 # LirLean — Realisability spec, MACHINERY (§5)

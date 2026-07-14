@@ -3,6 +3,7 @@ import LirLean.Frame.Match
 import LirLean.Spec.Recorder
 
 open Lir.Frame
+open BytecodeLayer.Exec
 
 /-!
 # LirLean — the **call realisability bridge** (`docs/ir-design-v3.md` §3, §7)
@@ -42,6 +43,7 @@ the success half is `evmCallOracle_successWord_eq_x`.
 namespace Lir
 
 open Lir.Frame
+open BytecodeLayer.Exec
 open Evm
 open Lir
 open BytecodeLayer

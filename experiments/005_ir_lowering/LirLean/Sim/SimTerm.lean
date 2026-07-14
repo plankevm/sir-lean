@@ -6,6 +6,7 @@ import LirLean.Materialise.StashTail
 import BytecodeLayer.Hoare.MemAlgebra
 
 open Lir.Frame
+open BytecodeLayer.Exec
 
 /-!
 # LirLean — `sim_term` (Layer **E** of the general `lower_conforms` grind)

@@ -3,9 +3,8 @@ import Evm
 /-!
 # Generic execution observables and oracle-stream aliases
 
-These aliases are structurally EVM-generic: a storage world, gas observations,
-CALL/CREATE result streams, and the frame-free observable reported by a run.
-The IR package re-exports them under `Lir` for compatibility.
+These aliases cover a storage world, gas observations, CALL/CREATE result streams,
+and the frame-free observable reported by a run.
 -/
 
 namespace BytecodeLayer.Exec

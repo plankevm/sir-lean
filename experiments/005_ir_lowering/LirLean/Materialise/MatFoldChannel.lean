@@ -2,6 +2,7 @@ import LirLean.Spec.WellFormed
 import LirLean.Materialise.MatDecLower
 
 open Lir.Frame
+open BytecodeLayer.Exec
 
 /-! # `MatFoldChannel` — the charge fold twin's fixpoint + the chargeCache↔matCache lockstep
 

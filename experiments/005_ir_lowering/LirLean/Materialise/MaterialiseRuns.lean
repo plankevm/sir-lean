@@ -43,6 +43,7 @@ nothing here touches `Spec/Semantics.lean` / `Law.lean` (the frame-free spine).
 namespace Lir
 
 open Lir.Frame
+open BytecodeLayer.Exec
 open Evm
 open GasConstants
 open BytecodeLayer.Hoare

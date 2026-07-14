@@ -2,6 +2,7 @@ import LirLean.Materialise.MaterialiseRuns
 import LirLean.Materialise.MatFoldChannel
 
 open Lir.Frame
+open BytecodeLayer.Exec
 
 /-!
 # LirLean — the uniform **spill stash-tail** forward lemma (P1)

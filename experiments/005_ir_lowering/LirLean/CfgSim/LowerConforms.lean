@@ -2,6 +2,7 @@ import LirLean.CfgSim.LowerDecode
 import LirLean.Materialise.CleanHaltExtract
 
 open Lir.Frame
+open BytecodeLayer.Exec
 
 /-!
 # LirLean — `sim_cfg` (Layer **F**: whole-CFG world-channel simulation)

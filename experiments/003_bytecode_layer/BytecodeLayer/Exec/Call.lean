@@ -1,29 +1,29 @@
-import LirLean.Spec.IR
+import BytecodeLayer.Exec.Observable
 import Evm
 import BytecodeLayer.Hoare
 import BytecodeLayer.Semantics.Dispatch
 
 /-!
-# LirLean — the abstract call oracle (`docs/ir-design.md` §5)
+# BytecodeLayer — the abstract call oracle (`docs/ir-design.md` §5)
 
-The IR's external-CALL accounting is **call-agnostic**: the IR does **not** model
+The execution model's external-CALL accounting is **call-agnostic**: the execution model does **not** model
 the internals of an external call. It defers the call's *effect* — the post-storage
 world, the gas restored to the caller, and the 0/1 success word — to an abstract
-`CallOracle`. The IR reasons for **all** oracles; lowering instantiates the oracle
+`CallOracle`. The execution model reasons for **all** oracles; lowering instantiates the oracle
 to **exactly what the lowered bytecode's CALL does** (the exp003 black-box
 `messageCall` / `CallReturns` resume, projected through exp003's observable
-`resumeAfterCall`), so the IR's call effect is *reflexively equal* to the lowered
+`resumeAfterCall`), so the execution model's call effect is *reflexively equal* to the lowered
 bytecode's ext-call effect.
 
 This mirrors how vyper-hol models external calls (the call is a black box that
 returns a `CallResult`) and matches the gas-oracle altitude precisely: an abstract
-oracle (IR reasons for all instantiations) + an `evmCallOracle` instantiation
+oracle (execution clients reason for all instantiations) + an `evmCallOracle` instantiation
 (defeq / by-construction the lowered call's projection) + a reflexivity headline.
 
 ## What the oracle captures (and the one thing it cannot)
 
 `resumeAfterCall result pd` (`EVM/Evm/Semantics/Call.lean`) does three
-things the IR cares about:
+things the execution model cares about:
 
 * sets `exec.accounts := result.accounts` — the **post-storage world**, read
   through the observable `find?/lookupStorage` lens;
@@ -37,7 +37,7 @@ the statement's result temporary. The reflexivity headline reflects all three
 effects (post-storage, restored gas, and the success word's value).
 -/
 
-namespace Lir.Frame
+namespace BytecodeLayer.Exec
 
 open Evm
 open BytecodeLayer.Hoare
@@ -48,13 +48,13 @@ open BytecodeLayer.Dispatch
 The oracle's input is exactly the data exp003's `resumeAfterCall` reads — the
 child's `CallResult` and the suspended `PendingCall` — so the EVM instantiation is
 **by construction** the lowered call's projection (each field reduces by `rfl` to
-the corresponding `resumeAfterCall` component). The IR is parametric over *all*
+the corresponding `resumeAfterCall` component). The execution model is parametric over *all*
 `CallOracle`s; lowering picks `evmCallOracle`. -/
 
-/-- An abstract **call oracle**: the IR's view of an external call's *effect*,
+/-- An abstract **call oracle**: the execution model's view of an external call's *effect*,
 projected from the data exp003's `resumeAfterCall` reads (the child's `CallResult`
 and the suspended `PendingCall`). Three projections, matching the three things
-`resumeAfterCall` does the IR cares about:
+`resumeAfterCall` does the execution model cares about:
 
 * `postStorage result pd addr key` — the storage of account `addr` at `key` in the
   resumed world, through the observable `find?/lookupStorage` lens; for the EVM
@@ -87,7 +87,7 @@ structure CallOracle where
   pd.stack`), i.e. `x`.
 
 By stating each as a *projection of `resumeAfterCall`*, the reflexivity headline
-(`call_reflects_lowered`) is `rfl`-clean: the IR call effect at `evmCallOracle`
+(`call_reflects_lowered`) is `rfl`-clean: the execution model call effect at `evmCallOracle`
 *is* the resume frame's observable, by construction. -/
 
 /-- **The concrete EVM external-CALL effect** — one instantiation of `CallOracle`,
@@ -116,4 +116,4 @@ of the resumed stack `pd.stack.push x = x :: pd.stack` is `x`, by `rfl`. Pins th
 theorem evmCallOracle_successWord_eq_x (result : CallResult) (pd : PendingCall) :
     evmCallOracle.successWord result pd = callSuccessFlag result pd := rfl
 
-end Lir.Frame
+end BytecodeLayer.Exec

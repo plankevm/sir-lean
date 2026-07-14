@@ -4,6 +4,7 @@ import LirLean.CallRealises
 import BytecodeLayer.Hoare.CleanHalt
 
 open Lir.Frame
+open BytecodeLayer.Exec
 
 /-!
 # LirLean — `sim_stmt` (Layer **C** of the general `lower_conforms` grind)

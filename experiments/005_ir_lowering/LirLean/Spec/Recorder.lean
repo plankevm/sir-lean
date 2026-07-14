@@ -1,8 +1,9 @@
 import LirLean.Spec.Semantics
-import LirLean.Frame.Call
+import BytecodeLayer.Exec.Call
 import LirLean.Frame.Create
 
 open Lir.Frame
+open BytecodeLayer.Exec
 
 namespace Lir
 
