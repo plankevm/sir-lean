@@ -19,14 +19,11 @@ open BytecodeLayer.Dispatch
 `memChargedState` subtracts the expansion + `Gverylow` charges from `gasAvailable`. Because
 `gasAvailable` is itself a `MachineState` field (`MachineState` carries the EVM gas), the *full*
 `toMachineState` is **not** `fr`'s — its gas is the post-charge gas. **This is the latent
-over-constraint in the existing `hstash`/`htail` ties** (`endFr.exec.toMachineState =
-fr.exec.toMachineState.mstore …`): that equality also pins gasAvailable, which a real
-descending-gas run never preserves, so as written the ties are not honestly satisfiable. The
-*honest* — and the only — content the memory value channel (`MemRealises`) and `Corr` actually
-consume is the **memory bytes** and the **activeWords** count; neither reads gas. `mstore` and
-the charges are independent of each other (mstore touches `memory`/`activeWords`; the charges
-touch `gasAvailable`), so these two projections *are* exactly `fr.exec.toMachineState.mstore …`'s
-— provable, and true on a real run. We expose precisely those. -/
+reason a full-machine-state equality with `fr.exec.toMachineState.mstore …` would be false**:
+that equality would also pin `gasAvailable`, which a descending-gas run does not preserve.
+`mstore` and the charges are independent (the store touches `memory`/`activeWords`; the charges
+touch `gasAvailable`), so the two projections below equal those of
+`fr.exec.toMachineState.mstore …`. -/
 
 /-- `memChargedState exec words'` leaves the `memory` bytes untouched (it only charges gas). -/
 @[simp] theorem memChargedState_memory (exec : Evm.ExecutionState) (words' : UInt64) :
@@ -92,7 +89,7 @@ the facts below cover accounts, active words, and gas. -/
 
 /-! ## The core stash-tail forward lemma -/
 
-/-- **The uniform stash tail `PUSH32 slot ; MSTORE` (core forward lemma, P1).** From a frame
+/-- **The uniform stash tail `PUSH32 slot ; MSTORE`.** From a frame
 `fr` with the value `v` on top of `rest` (`stack = v :: rest`), whose code decodes `PUSH32
 (ofNat slot)` at `fr.pc` and `MSTORE` at `fr.pc + 33`, with the slot addressable and the honest
 runtime gas facts (the expansion witness `words'` + the two MSTORE gas bounds), running the two
@@ -101,16 +98,13 @@ rest`) with:
 
 * `Runs fr endFr`;
 * `endFr.exec.toMachineState.memory = (fr.exec.toMachineState.mstore (ofNat slot) v).memory` and
-  `…activeWords = (fr.exec.toMachineState.mstore (ofNat slot) v).activeWords` — the **honest**
-  memory channel the ties' consumers (`MemRealises`/`Corr`) actually read (the gas the push +
-  charges drop is *not* exposed: it is not preserved on a real run, and nothing downstream reads
-  it — see the over-constraint note above);
+  `…activeWords = (fr.exec.toMachineState.mstore (ofNat slot) v).activeWords`; the gas dropped by
+  the push and store charges is deliberately not asserted equal;
 * `endFr.exec.pc = fr.exec.pc + 34`;
 * the frame pins (code / validJumps / address / canModifyState / accounts / self-storage);
 * `endFr.exec.stack = rest`.
 
-Parameterized over `v`, `rest`, and `slot` — reusable for gas (`v = ofUInt64 (fr.gas − Gbase)`,
-via `stash_tail_gas`), the call result (`v = flag`, `rest = []`), and the cached SLOAD value. -/
+The statement is parameterized over `v`, `rest`, and `slot`. -/
 theorem stash_tail_runs (fr : Frame) (slot : Nat) (v : Word) (rest : Stack Word)
     (words' : UInt64)
     (hstk : fr.exec.stack = v :: rest)
@@ -194,9 +188,8 @@ theorem stash_tail_runs (fr : Frame) (slot : Nat) (v : Word) (rest : Stack Word)
 When the slot is already **covered** (`slot + 32 ≤ activeWords.toNat * 32`) and realistic
 (`slot + 63 < 2^64`), the MSTORE does not expand memory: `words' = activeWords` and the
 expansion charge is `0`. This resolves the two MSTORE gas bounds to the single `Gverylow ≤ gas`
-bound (a real run always satisfies it), removing the expansion-witness obligation. Phase C's
-cached-SLOAD reuse (a covered slot) takes this form; the first def-site write (uncovered) takes
-the general `stash_tail_runs`. -/
+bound (a real run always satisfies it), removing the expansion-witness obligation. Covered-slot
+reuse takes this form; an uncovered write takes the general `stash_tail_runs`. -/
 
 /-- **The stash tail on an already-covered slot (zero expansion charge).** Under coverage +
 realism, `PUSH32 slot ; MSTORE` runs with only the `Gverylow` gas bound (the expansion charge is
@@ -240,20 +233,17 @@ theorem stash_tail_runs_covered (fr : Frame) (slot : Nat) (v : Word) (rest : Sta
   exact stash_tail_runs fr slot v rest frp.exec.activeWords hstk hdpush hdmstore hsz hgasPush
     hmem hgasMem hgasMstore'
 
-/-! ## The GAS-prefix variant (the gas def-site stash)
+/-! ## The GAS-prefix variant
 
-The gas spill stash is `[GAS] ++ PUSH32 slot ++ MSTORE`. A single `GAS` opcode (pushing
-`ofUInt64 (fr.gas − Gbase)` onto the empty boundary stack) composed with the core tail gives the
-**gas `hstash`** as a proved fact: the value stashed at `slotOf t` is exactly the realised `GAS`
-output `gasReadOf (gasFrame fr) = ofUInt64 (fr.gas − Gbase)` (`gasReadOf_gasFrame_eq_obs`). One
-read, one frame — the honest positional value tie (no `∀`-over-frames, no constancy). -/
+The sequence is `GAS ; PUSH32 slot ; MSTORE`. The `GAS` opcode pushes
+`ofUInt64 (fr.gas − Gbase)` onto the empty stack; the core tail then stores that exact value at
+`slot`. -/
 
-/-- **The gas def-site stash `GAS ; PUSH32 slot ; MSTORE` (forward lemma, P1).** From a frame
+/-- **The gas stash `GAS ; PUSH32 slot ; MSTORE`.** From a frame
 `fr` at a statement boundary (`stack = []`) whose code decodes `GAS` at `fr.pc`, `PUSH32 slot` at
 `fr.pc + 1`, `MSTORE` at `fr.pc + 34`, running the three opcodes reaches `endFr` storing the
-realised `GAS` value `ofUInt64 (fr.gas − Gbase)` at `slot`, with `pc + 35`, the frame pins, and
-the stack back to `[]`. The stored value is the genuine descending-gas read — the positional gas
-value tie `MemRealises` carries (no universal). -/
+observed `GAS` value `ofUInt64 (fr.gas − Gbase)` at `slot`, with `pc + 35`, the frame pins, and
+the stack back to `[]`. -/
 theorem stash_tail_gas (fr : Frame) (slot : Nat)
     (words' : UInt64)
     (hstk : fr.exec.stack = [])

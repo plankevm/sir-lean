@@ -1,36 +1,15 @@
-import LirLean.RecorderLemmas
 import BytecodeLayer.Exec.Alignment
 import LirLean.Materialise.MaterialiseRuns
-import BytecodeLayer.Hoare.AccountMap
-import BytecodeLayer.Exec.Invariants
 
 open Lir.Frame
 open BytecodeLayer.Exec
 
 /-!
-# LirLean — the recorded-run value-channel discharges + `SelfPresent` (`Drive/SelfPresent`)
+# LirLean — recorded GAS/SLOAD value-channel discharges
 
-The recorder/IR-coupled half of the former `TieDischarge.lean` §1–§5 (decl names and
-namespaces unchanged):
-
-* **§1 CALL** — `realisedCall_projection`: the recorded-CALL projection heads `evmV2CallEntry`
-  (the positional head-of-stream pin of `CallRealises`, discharged from the recording).
-* **§2 GAS** — the alignment-free arithmetic bridge (`gasRecord_eq_gasReadOf`,
-  `gasReadOf_gasFrame_eq_obs`).
-* **§3 GAS alignment** — the positional-alignment foundation `GasLogAligned` + the per-op
-  step lemmas and the single-`obs` collapse `gasRealises_obs_of_witness`.
-* **§4 SLOAD** — the warmth-charge bridge (`sloadRecord_discharges_obs`) and its positional
-  twin `SloadLogAligned` + `sloadRealises_charge_of_witness`.
-* **§5 SSTORE presence** — the world invariant `SelfPresent` with its non-emptiness bridge
-  (`accounts_ne_empty_of_selfPresent`, via `BytecodeLayer/Hoare/AccountMap.lean`'s `find?_some_ne_empty`),
-  the structural call-resume closer `resumeAfterCall_self_of_accounts`, and the entry-frame
-  base case `selfPresent_codeFrame`.
-
-The `SelfPresent`-forward closure along `Runs` (`StepPreservesSelf`/`CallPreservesSelf` and
-the `callPreservesSelf` chain over `BytecodeLayer/Hoare/DriveMono.lean`'s Brick D) lives in
-`Drive/CallPreservesSelf.lean`.
-
-No `sorry`/`axiom`/`native_decide`; axioms `[propext, Classical.choice, Quot.sound]`.
+The remaining IR adapters connect recorded GAS and SLOAD positions to the
+single-observation correspondence predicates. Generic alignment and self-presence
+facts are re-exported for these statements.
 -/
 
 namespace Lir
@@ -69,7 +48,6 @@ position is the cursor's `obs`. (The complementary direction — building the un
 from a *multi-entry* aligned list with distinct reads — is impossible in the single-`obs` model and
 needs the `Corr` refactor to a per-cursor gas stream; reported as the standing obstacle.) -/
 
--- RETAINED for Phase 3 realisability closure (audit §3)
 /-- **The single-`obs` selection discharge.** At a GAS cursor frame `fr` carrying the `Corr`-model
 gas tie `Lir.GasRealises obs fr` (the universal-over-same-address form), if the alignment's witness
 frame at index `i` is `fr`'s post-charge `gasFrame fr` (which shares `fr`'s address, `rfl`), then the
@@ -91,7 +69,6 @@ theorem gasRealises_obs_of_witness {gasAcc : List Word} {frs : List Frame} {i : 
     htie fr rfl
   rw [hobs]
 
--- RETAINED for Phase 3 realisability closure (audit §3)
 /-- **The SLOAD selection discharge** (twin of `gasRealises_obs_of_witness`). At an SLOAD cursor
 whose witness frame `g` (at index `i`) shares the cursor frame's self-address and pops the bound key
 `key = st.locals k`, the `Corr`-model SLOAD tie `SloadRealises sloadChg st fr` selects the recorded
@@ -121,5 +98,3 @@ export BytecodeLayer.Exec.Invariants
   (accounts_ne_empty_of_selfPresent resumeAfterCall_self_of_accounts selfPresent_codeFrame)
 
 end Lir
-
--- Build-enforced axiom-cleanliness guards for the value-channel discharges.

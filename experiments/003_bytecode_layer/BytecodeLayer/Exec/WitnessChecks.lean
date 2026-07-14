@@ -138,7 +138,7 @@ private theorem accPresent_stub {a : AccountAddress} {x m : AccountMap}
 -- easy goals — every goal IS closed (the proof term is checked).
 set_option linter.unusedTactic false in
 set_option linter.unreachableTactic false in
-/-- **The `noErase` seam is an engine THEOREM** for the current exp003 `beginCall`
+/-- **The `noErase` seam is an engine theorem** for `beginCall`
 precompile stubs: an immediate `.inr` result preserves account presence. Verbatim the
 `PrecompileAssumptions.noErase` field, discharged once for all `cp`. -/
 theorem beginCall_inr_noErase :

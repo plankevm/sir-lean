@@ -332,21 +332,17 @@ theorem beginCall_isCode_of_codeSource_ne_precompiled {cp : CallParams}
   | Precompiled p => exact absurd hcs (h p)
   | Code code => intro hc; cases hc
 
-/-! ## §3 — the per-frame `ModellableStep` reduction + the producing lemma
+/-! ## §3 — the per-frame `ModellableStep` reduction and reachable-run closure
 
 `ModellableStep fr` reduces to two *per-frame, decode-level* facts:
 
-* **clause 1** — `fr`'s current op is neither `CREATE` nor `CREATE2`
-  (`stepFrame_needsCreate_isCreate`: a `.needsCreate` forces a CREATE op);
+* **clause 1** — every `.needsCreate` child run resumes successfully (`CreateResolves`);
 * **clause 2** — every `.needsCall cp` that `fr` issues has a non-precompile code source
   (`beginCall_isCode_of_codeSource_ne_precompiled`: a non-precompile code source rules out the
   precompile `.inr`).
 
-`modellableStep_of` packages exactly that reduction. The producing lemma `lower_modellable` then
-threads it over every `Runs`-reachable frame, given those two facts at each reachable frame —
-`NotCreate` (the per-boundary no-CREATE-family fact supplied by the caller) and `CallsCode` (the
-**honest residual**, the genuine runtime condition that the program's reachable CALL targets are
-ordinary contract accounts, not precompiles `1..10`). -/
+`modellableStep_of` packages exactly that reduction. The reachable-run closure then threads it
+over every `Runs`-reachable frame when both facts hold at each frame. -/
 
 
 /-- **`ModellableStep` from the two per-frame residuals.** A frame whose CREATEs resume
@@ -360,19 +356,9 @@ theorem modellableStep_of {fr : Frame} (hcr : CreateResolves fr) (hcc : CallsCod
   intro cp pending result hstep
   exact beginCall_isCode_of_codeSource_ne_precompiled (hcc cp pending hstep) result
 
-/-- **The producing lemma — `lower_modellable`.** For an entry frame `fr₀` (canonically running
-`lower prog`), if every `Runs`-reachable frame `CreateResolves` (the honest R4 residual — CREATEs
-resume successfully) and `CallsCode` (the precompile residual), then every reachable frame is
-`ModellableStep`. This is exactly the universal `runs_of_drive_ok` consumes; it discharges the raw
-`ModellableStep` universal in `cleanHalts_of_runWithLog` to the two satisfiable, precisely-scoped
-runtime side conditions.
-
-The split is honest: the former "no CREATE at all" clause is **RETIRED** — CREATE is now modelled
-by `Runs.create` (`runs_of_drive_ok`'s `.needsCreate` arm), so there is no structural no-CREATE
-discharge left. The two residuals are `CreateResolves` (no CREATE OOG-faults on resume — a genuine
-gas-retention fact, vacuous for create-free programs) and `CallsCode` (no reachable
-precompile-targeted CALL, vacuous for call-free programs). Neither is a property of the lowering's
-opcode set; both are supplied. -/
+/-- If every frame reachable from `fr₀` satisfies `CreateResolves` and `CallsCode`, then every
+reachable frame is `ModellableStep`. This packages the two runtime conditions required by the
+`Runs` reconstruction. -/
 theorem lower_modellable {fr₀ : Frame}
     (hcr : ∀ fr', Runs fr₀ fr' → CreateResolves fr')
     (hcc : ∀ fr', Runs fr₀ fr' → CallsCode fr') :

@@ -21,9 +21,9 @@ def selfStorage (fr : Frame) (key : Word) : Word :=
 Each lemma takes the EVM frame's **local** facts (decode at `fr.exec.pc`, stack
 shape, gas bound) — the hypotheses the `runs_*` rule wants — and packages the
 resulting `Runs` with its concrete post-frame observation. The frame's real EVM gas
-bound remains explicit; the gas-free IR does not account opcode cost. -/
+bound remains explicit. -/
 
-/-- **`Expr.imm` simulation.** A frame decoding to `PUSH32 w` runs one step to
+/-- **`PUSH32` simulation.** A frame decoding to `PUSH32 w` runs one step to
 `pushFrameW fr w 32`, leaving `w` on top. -/
 theorem sim_imm (fr : Frame) (w : Word)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Push .PUSH32, some (w, 32)))
@@ -34,9 +34,8 @@ theorem sim_imm (fr : Frame) (w : Word)
   refine ⟨runs_push fr .PUSH32 w 32 (by nofun) hdec rfl rfl hgas hstk, ?_⟩
   rfl
 
-/-- **`Expr.gas` simulation.** A frame decoding to `GAS` runs one step to
-`gasFrame fr`, dropping the frame's real EVM gas by `GasConstants.Gbase` (the
-*bytecode* spec's honest gas — the IR no longer accounts cost). -/
+/-- **`GAS` simulation.** A frame decoding to `GAS` runs one step to
+`gasFrame fr`, dropping the frame's real EVM gas by `GasConstants.Gbase`. -/
 theorem sim_gas (fr : Frame)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .GAS, .none))
     (hsz : fr.exec.stack.size + 1 ≤ 1024)
@@ -45,7 +44,7 @@ theorem sim_gas (fr : Frame)
       ∧ (gasFrame fr).exec.gasAvailable = fr.exec.gasAvailable - UInt64.ofNat GasConstants.Gbase := by
   exact ⟨runs_gas fr hdec hsz hgas, rfl⟩
 
-/-- **`Expr.add` simulation.** A frame decoding to `ADD` with `a :: b :: rest`
+/-- **`ADD` simulation.** A frame decoding to `ADD` with `a :: b :: rest`
 runs one step to `addFrame fr a b rest`, leaving `UInt256.add a b` on top. -/
 theorem sim_add (fr : Frame) (a b : Word) (rest : Stack Word)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.ArithLogic .ADD, .none))
@@ -56,7 +55,7 @@ theorem sim_add (fr : Frame) (a b : Word) (rest : Stack Word)
       ∧ (addFrame fr a b rest).exec.stack = rest.push (UInt256.add a b) := by
   exact ⟨runs_add fr a b rest hdec hstk hsz hgas, rfl⟩
 
-/-- **`Expr.lt` simulation.** A frame decoding to `LT` with `a :: b :: rest` runs
+/-- **`LT` simulation.** A frame decoding to `LT` with `a :: b :: rest` runs
 one step to `ltFrame fr a b rest`, leaving `UInt256.lt a b` on top. -/
 theorem sim_lt (fr : Frame) (a b : Word) (rest : Stack Word)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.ArithLogic .LT, .none))
@@ -67,7 +66,7 @@ theorem sim_lt (fr : Frame) (a b : Word) (rest : Stack Word)
       ∧ (ltFrame fr a b rest).exec.stack = rest.push (UInt256.lt a b) := by
   exact ⟨runs_lt fr a b rest hdec hstk hsz hgas, rfl⟩
 
-/-- **`Expr.sload` simulation.** A frame decoding to `SLOAD` with `key :: rest`
+/-- **`SLOAD` simulation.** A frame decoding to `SLOAD` with `key :: rest`
 runs one step to `sloadFrame fr key rest`, leaving the self account's stored value
 at `key` on top. -/
 theorem sim_sload (fr : Frame) (key : Word) (rest : Stack Word)
@@ -131,11 +130,10 @@ theorem sstoreFrame_storage_frame' (fr : Frame) (key newValue : Word) (rest : St
         exact storage_findD_insert_of_ne _ _ _ hk
     · rw [accounts_find?_insert_of_ne _ _ ha]
 
-/-- **`Stmt.sstore` simulation.** A frame decoding to `SSTORE` with
+/-- **`SSTORE` simulation.** A frame decoding to `SSTORE` with
 `key :: value :: rest` runs one step to `sstoreFrame fr key value rest`; reading
 back `(self, key)` returns `value` (for *every* `value`, zero writes included),
-re-establishing `M3` at the written cell, and any other cell is unchanged (the
-frame clause). -/
+and any other cell is unchanged. -/
 theorem sim_sstore (fr : Frame) (key value : Word) (rest : Stack Word) (acc : Account)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf .SSTORE, .none))
     (hstk : fr.exec.stack = key :: value :: rest)
@@ -157,11 +155,10 @@ theorem sim_sstore (fr : Frame) (key value : Word) (rest : Stack Word) (acc : Ac
 
 /-! ### `popFrame` accessor reductions
 
-`popPost`/`popFrame` (exp003 `Hoare.lean`) `replaceStackAndIncrPC`s after a `Gbase`
-charge — replacing the stack with `rest`, advancing pc by one, leaving
-`executionEnv` (hence code / address) untouched. These reductions mirror the
-`sstoreFrame_*` / `sloadFrame_*` families so the worked-example run can read off the
-post-frame's code/pc/stack/gas/addr by `simp`. -/
+`popPost`/`popFrame` `replaceStackAndIncrPC`s after a `Gbase` charge — replacing the
+stack with `rest`, advancing pc by one, and leaving `executionEnv` (hence code and
+address) untouched. These reductions expose the post-frame's code, pc, stack, gas,
+and address to `simp`. -/
 
 @[simp] theorem popFrame_code (fr : Frame) (rest : Stack Word) :
     (popFrame fr rest).exec.executionEnv.code = fr.exec.executionEnv.code := rfl
@@ -184,15 +181,14 @@ post-frame's code/pc/stack/gas/addr by `simp`. -/
 
 /-! ## MSTORE / MLOAD simulation (the memory value channel)
 
-The memory bricks Track C's value channel (`docs/calls-value-channel-plan.md`)
-threads. `sim_mload` exposes the pushed word (the head of the resulting stack);
+`sim_mload` exposes the pushed word (the head of the resulting stack);
 `sim_mstore` exposes that the post-frame's memory is `fr`'s memory (on the
 doubly-charged state) with `val` written at `addr` (`mstore addr val`) — the read-back
 a later MLOAD lemma consumes. Both take the memory-expansion witness `hmem` (pinning
 `words'`) and the two honest *bytecode*-gas bounds (memory expansion + `Gverylow`),
 exactly the hypotheses `runs_mstore`/`runs_mload` want. Mirrors `sim_sstore`/`sim_sload`. -/
 
-/-- **`Expr.mload` simulation.** A frame decoding to `MLOAD` with `addr :: rest` runs
+/-- **`MLOAD` simulation.** A frame decoding to `MLOAD` with `addr :: rest` runs
 one step to `mloadFrame fr addr words' rest`, leaving the word read from memory at
 `addr` on top — exposed through `mloadFrame_value`. -/
 theorem sim_mload (fr : Frame) (addr : Word) (words' : UInt64) (rest : Stack Word)
@@ -211,7 +207,7 @@ theorem sim_mload (fr : Frame) (addr : Word) (words' : UInt64) (rest : Stack Wor
   exact ⟨runs_mload fr addr words' rest hdec hstk hsz hmem hgasMem hgas,
     mloadFrame_value fr addr words' rest⟩
 
-/-- **`Stmt.mstore` simulation.** A frame decoding to `MSTORE` with
+/-- **`MSTORE` simulation.** A frame decoding to `MSTORE` with
 `addr :: val :: rest` runs one step to `mstoreFrame fr addr val words' rest`; the
 post-frame's memory is `fr`'s (doubly-charged) machine state with `val` written at
 `addr` (`mstore addr val`) — the read-back a later `sim_mload` consumes. -/
@@ -233,12 +229,11 @@ theorem sim_mstore (fr : Frame) (addr val : Word) (words' : UInt64) (rest : Stac
 
 /-! ## Terminator halt steps (consumed by the bridge `hhalt`)
 
-`STOP`/`RETURN` are **not** `runs_*` rules — the bridge `messageCall_runs` takes the
-halt directly via its `hhalt` argument. These lemmas expose exactly that halt step
-for the two IR terminators, ready to feed the bridge. -/
+`STOP`/`RETURN` are **not** `runs_*` rules. These lemmas expose their halt steps
+directly. -/
 
-/-- **`Term.stop` halt.** A frame decoding to `STOP` halts with the current state
-and empty output — the `hhalt` the bridge consumes for `IRHalt.stopped`. -/
+/-- **`STOP` halt.** A frame decoding to `STOP` halts with the current state and
+empty output. -/
 theorem halt_stop (fr : Frame)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.System .STOP, .none))
     (hstk : fr.exec.stack.size ≤ 1024) :
@@ -247,11 +242,8 @@ theorem halt_stop (fr : Frame)
 
 /-! ### The RETURN-word halt (the full-observable `ret` shape)
 
-The full-observable `ret` lowering (`emitTerm .ret`) is `materialise t ++ PUSH32 0 ++
-MSTORE ++ PUSH32 32 ++ PUSH32 0 ++ RETURN`: it stashes the returned word `vw` to
-`mem[0]` then `RETURN(0, 32)` returns that 32-byte window (`vw`'s big-endian bytes).
-The halt brick therefore returns a **non-empty** 32-byte output — the return-data
-observable `observe` reads back as `returned vw`. -/
+The halt brick returns the **non-empty** 32-byte window selected by
+`RETURN(0, 32)`. -/
 
 /-- The execution state RETURN(0, 32) leaves before halting **when offset `0` / size `32`
 is already covered by `activeWords`** (the post-`MSTORE(0, …)` shape): the memory charge is
@@ -267,13 +259,12 @@ def returnWordPost (exec : ExecutionState) (rest : Stack Word) : ExecutionState 
               activeWords := MachineState.M charged.activeWords (0 : Word).toUInt64 (32 : Word).toUInt64 } }
     rest
 
-/-- **`Term.ret` halt (word return window).** A frame decoding to `RETURN` with
+/-- **`RETURN` halt (word return window).** A frame decoding to `RETURN` with
 `0 :: 32 :: rest` on the stack and offset `0`/size `32` **already covered** by
 `activeWords` (`hmem`: `memoryExpansionWords? activeWords 0 32 = some activeWords`, so the
 memory charge is `0` — the post-`MSTORE(0,…)` shape) halts successfully, returning the
-32-byte window `memory.readWithPadding 0 32`. This is the `hhalt` the bridge consumes for
-`IRHalt.returned vw`; the returned bytes are `vw`'s (`readWithPadding_written_grow`). The
-size-32 analogue of `stepFrame_return_empty`. -/
+32-byte window `memory.readWithPadding 0 32`. The size-32 analogue of
+`stepFrame_return_empty`. -/
 theorem stepFrame_return_word (fr : Frame) (rest : Stack Word)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.System .RETURN, .none))
     (hstk : fr.exec.stack = (0 : Word) :: (32 : Word) :: rest)
@@ -308,8 +299,8 @@ theorem stepFrame_return_word (fr : Frame) (rest : Stack Word)
 
 /-! ### `activeWords` evaluation helpers for the RETURN-window coverage `hmem`
 
-At the RETURN frame the lowering has just executed `MSTORE(0, vw)`, so `activeWords`
-is `M A 0 32` (the `mstore` bump). `RETURN(0, 32)`'s coverage witness therefore needs
+After `MSTORE(0, vw)`, `activeWords` is `M A 0 32` (the `mstore` bump).
+`RETURN(0, 32)`'s coverage witness therefore needs
 `memoryExpansionWords? (M A 0 32) 0 32 = some (M A 0 32)` — the size-32 memory access at
 offset 0 is a no-op because the window is already active (`M`-idempotence). -/
 
@@ -337,33 +328,27 @@ theorem memExpWords_zero32_covered (a : UInt64) :
   rw [if_neg (by decide)]
   rw [M_zero32_idem]
 
-/-! ## `Stmt.call` simulation (the `Runs.call` node)
+/-! ## CALL simulation (the `Runs.call` node)
 
-A `Stmt.call` lowers to seven CALL-arg pushes then `CALL`. Under lowering it is a
-`Runs.call` node carrying a `CallReturns` witness (the CALL step, the child
-entering as code, the black-box child run, the resumed parent). The engine threads
-exactly that node by `Runs.trans` — see the worked compositional derivation in
-`BytecodeLayer.Examples.CallerProgExample`. We expose the constructor wrapper. -/
+A returning external call is a `Runs.call` node carrying a `CallReturns` witness:
+the CALL step, the child entering as code, the child run, and the resumed parent.
+This section exposes the constructor wrapper. -/
 
-/-- **`Stmt.call` simulation.** Given a returning external CALL at `callFr`
+/-- **CALL simulation.** Given a returning external CALL at `callFr`
 (`CallReturns callFr resumeFr`) and the `Runs` continuation from the resumed frame,
-the whole call is one `Runs callFr fr'` — a `Runs.call` node glued by the rest. The
-`CallReturns` witness is built exactly as in
-`BytecodeLayer.Examples.CallerProgExample.caller_callReturns`. -/
+the whole call is one `Runs callFr fr'` — a `Runs.call` node glued by the rest. -/
 theorem sim_call {callFr resumeFr fr' : Frame}
     (hcall : CallReturns callFr resumeFr) (rest : Runs resumeFr fr') :
     Runs callFr fr' :=
   Runs.call hcall rest
 
-/-! ## `Stmt.create` simulation (the `Runs.create` node)
+/-! ## CREATE simulation (the `Runs.create` node)
 
-A `Stmt.create` lowers to the CREATE-arg pushes then `CREATE`/`CREATE2`. Under
-lowering it is a `Runs.create` node carrying a `CreateReturns` witness (the CREATE
-step, the total `beginCreate` child's black-box run, the *successfully-resumed*
-parent through the 63/64 retention guard). The engine threads exactly that node by
-`Runs.trans`, the twin of `sim_call`. -/
+A returning contract creation is a `Runs.create` node carrying a `CreateReturns`
+witness: the CREATE step, the child run, and the successfully resumed parent after
+the 63/64 retention guard. -/
 
-/-- **`Stmt.create` simulation.** Given a returning CREATE at `createFr`
+/-- **CREATE simulation.** Given a returning CREATE at `createFr`
 (`CreateReturns createFr resumeFr`, so the init child ran and `resumeAfterCreate`
 resolved `.ok resumeFr` past the 63/64 guard) and the `Runs` continuation from the
 resumed frame, the whole create is one `Runs createFr fr'` — a `Runs.create` node

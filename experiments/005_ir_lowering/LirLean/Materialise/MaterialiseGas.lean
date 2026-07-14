@@ -1,67 +1,23 @@
-import LirLean.Frame.Match
+import LirLean.Spec.Lowering
 import BytecodeLayer.Exec.Gas
 
 /-!
-# LirLean — the materialise gas-charge engine (charge lists for the value channel)
+# LirLean — materialisation charge lists
 
-The **canonical** charge machinery is the fuel-free fold tower of §7: `chargeExpr`/
-`chargeLoc`/`chargeStep`/`chargeFold`/`chargeCache` — the per-`Expr` charge lists the fold
-value channel (`Lir.materialise_runsC`/`MatRunsC`, `Materialise/MatFoldChannel.lean`) and
-the `StackRoomOK`/`maxChargeDepth` stack-room folds (`Spec/WellFormed.lean`) read. One list
-entry per opcode `matExpr (matCache prog) e` emits, in execution order; running the lowered
-push-sequence subtracts exactly that list (`subCharges`), which is the honest-gas envelope.
-
-Also canonical (fold-consumed): the pure `subCharges` arithmetic (§3-§5 —
-`subCharges_singleton`, `toNat_subCharges`, `charge_binOpPost_gas`), which is
-charge-list-generic and glues the per-opcode subtractions
-into the whole-expression `subCharges` inside `materialise_runsC`.
-
-## SLOAD warmth
-
-`.sload k` lowers to `SLOAD`, whose real-EVM charge is `sloadCost warm` — **runtime** data
-(warm/cold = `Gwarmaccess`/`Gcoldsload`), fixed by the accessed-key set at the frame SLOAD
-executes on. The charge lists are kept *pure* by taking a `sloadChg : Tmp → ℕ` resolver giving
-that per-key cost; the value channel instantiates it with the actual `sloadCost` at each SLOAD
-frame. All laws are uniform in `sloadChg` (and the charge-list LENGTH is `sloadChg`-independent,
-`chargeCache_length_sloadChg_eq` — what the stack-room folds consume).
-
-No `sorry`, no `axiom`, no `native_decide`. Bytecode-coupled (imports `Match.lean`);
-nothing here touches `Spec/Semantics.lean` / `Law.lean` (the frame-free spine).
+`chargeExpr`, `chargeLoc`, `chargeStep`, `chargeFold`, and `chargeCache` assign an
+execution-ordered opcode-charge list to each materialised IR value. The SLOAD cost
+is supplied by `sloadChg`; the list length is independent of that runtime resolver.
+Generic subtraction lemmas are re-exported for the fold proofs.
 -/
 
 namespace Lir
 
 export BytecodeLayer.Exec (subCharges_singleton charge_binOpPost_gas)
 
-open Lir.Frame
 open BytecodeLayer.Exec
-open Evm
 open GasConstants
-open BytecodeLayer.Hoare
 
-/-! ## 1. PUSH32 width-stability (the load-bearing honest-gas fact)
-
-`emitImm w` is `PUSH32` for **every** literal `w`; `PUSH32` charges `Gverylow`,
-exactly as `PUSH1` (`GasConstants`: all `PUSH<n>` cost `Gverylow`). So the charge of
-materialising a literal is *independent of its value and of the push width* — the
-honest-gas envelope is width-stable. This is what lets the C-grind treat the
-PUSH32-fattened lowering as gas-equivalent to a hypothetical narrow one. -/
-
-/-! ## 2. The pure-arithmetic engine (sum / `subCharges` laws)
-
-These are the laws B1 threads to glue per-leaf subtractions into the whole-expression
-`subCharges`. `subCharges_append`/`subCharges_snoc` (`BytecodeLayer/Hoare/Sequence.lean`,
-proved by induction on the charge list) decompose compound charge lists in execution
-order. -/
-
-/-! ## 3. The per-opcode single-charge steps (the bricks B1's compound cases thread)
-
-For the compound constructs (`add`/`lt`/`sload`), B1's `Runs` chain ends in the
-op's *own* opcode (ADD/LT/SLOAD) applied to the operands B1 already materialised. The
-gas that opcode subtracts is one element. The operands' own charges are B1's recursive `Runs`
-(it owns the frame chain); B2 owns the *last* op's charge and the gluing arithmetic. -/
-
-/-! ## 4. The charge fold twin (`chargeCache` over `defEnv`) — Phase 2A P5a
+/-! ## The charge fold (`chargeCache` over `defEnv`)
 
 The charge cache structurally parallels `matCache`/`matExpr`/`matLoc`/
 `matStep`/`matFold` (`Spec/Lowering.lean`): a left-fold of `chargeStep` over `defEnv prog`,
@@ -69,12 +25,8 @@ resolving each operand tmp against a charge-`cache` built so far instead of recu
 Constructor-for-constructor: one list entry per emitted opcode, matching the
 `StackRoomOK`/`maxChargeDepth` stack-room folds over `(chargeCache prog sloadChg t).length`.
 
-The *fold fixpoint* `chargeCache_unfold` (the `matCache_unfold` twin) and the operand-locality
-congruence live in `Materialise/MatFoldChannel.lean` (they need the `WellFormed` def-env
-machinery). What lives HERE — below `WellFormed` in the import DAG, so `WellFormed`'s stack-room
-folds can read it — is the definition, the reduction lemmas, and the **`sloadChg`-independence
-of the charge-list LENGTH** (`chargeCache_length_sloadChg_eq`) that `stackBounds_of_stackFits`
-(`Spec/BudgetDerivations.lean`) consumes. -/
+This file defines the fold, its reduction lemmas, and the `sloadChg`-independence of
+the resulting charge-list length. -/
 
 /-- The per-`Expr` charge list under a charge-`cache`: `.imm` pushes `Gverylow`,
 `.sload` uses the runtime `sloadChg`, `.gas` uses `Gbase`, and binary ops add the

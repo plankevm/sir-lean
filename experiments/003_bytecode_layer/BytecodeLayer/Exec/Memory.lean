@@ -11,18 +11,17 @@ open BytecodeLayer.Dispatch
 /-- The program-counter increment of a `PUSH32` instruction. -/
 theorem push32_pcΔ : ((32 : UInt8) + 1).toUInt32 = UInt32.ofNat 33 := by decide
 
-/-! ## Frame-accessor reductions for the materialise post-frames
+/-! ## Frame-accessor reductions for opcode post-frames
 
 Each `sim_*` post-frame (`pushFrameW` / `addFrame` / `ltFrame` / `sloadFrame`) leaves
 the `executionEnv` (hence `code`, `address`, `canModifyState`) untouched — only
 `stack`, `pc`, `gasAvailable` (and, for SLOAD, the accessed-key substate, never a
-storage *value*) change. These `rfl` lemmas expose exactly the clauses B1's invariant
-threads. -/
+storage *value*) change. These `rfl` lemmas expose those unchanged fields. -/
 
 @[simp] theorem pushFrameW_code (fr : Frame) (w : Word) (width : UInt8) :
     (pushFrameW fr w width).exec.executionEnv.code = fr.exec.executionEnv.code := rfl
 
-/-! Every materialise post-frame is `{ fr with exec := … }`, so the frame's
+/-! Every opcode post-frame here is `{ fr with exec := … }`, so the frame's
 `validJumps` field (set once at frame creation from the code) is preserved verbatim. -/
 
 @[simp] theorem pushFrameW_validJumps (fr : Frame) (w : Word) (width : UInt8) :
@@ -85,14 +84,12 @@ threads. -/
 @[simp] theorem sloadFrame_pc (fr : Frame) (key : Word) (rest : Stack Word) :
     (sloadFrame fr key rest).exec.pc = fr.exec.pc + 1 := rfl
 
-/-- `sloadFrame`'s stack is `rest` with the self-storage cell at `key` pushed (the
-value `sloadFrame_storage_self` exposes through the `M3` lens). -/
+/-- `sloadFrame`'s stack is `rest` with the self-storage cell at `key` pushed. -/
 @[simp] theorem sloadFrame_stack (fr : Frame) (key : Word) (rest : Stack Word) :
     (sloadFrame fr key rest).exec.stack = rest.push (selfStorage fr key) := rfl
 
-/-- `SLOAD` charges exactly `sloadCost warm` at `fr` (`warm` the runtime warmth from
-`fr`'s accessed-storage-key substate). This is the runtime cost the B2 resolver
-`sloadChg k` must equal at the internal SLOAD frame. -/
+/-- `SLOAD` charges exactly `sloadCost warm` at `fr`, where `warm` is the runtime warmth from
+`fr`'s accessed-storage-key substate. -/
 @[simp] theorem sloadFrame_gas (fr : Frame) (key : Word) (rest : Stack Word) :
     (sloadFrame fr key rest).exec.gasAvailable
       = fr.exec.gasAvailable - UInt64.ofNat (Evm.sloadCost
@@ -127,7 +124,7 @@ gas, and advances pc by one. These `rfl` lemmas expose exactly those clauses. -/
 
 /-! ### `toMachineState.memory` / `activeWords` reductions for the pure post-frames
 
-Every materialise post-frame (`pushFrameW` / `addFrame` / `ltFrame` / `sloadFrame` /
+Every opcode post-frame here (`pushFrameW` / `addFrame` / `ltFrame` / `sloadFrame` /
 `gasFrame`) is built by `replaceStackAndIncrPC` (plus a gas charge and, for SLOAD, an
 account/substate update) — none of which touch the `MachineState` `memory` bytes or the
 `activeWords` count. These `rfl` lemmas thread the memory value-channel transport:
@@ -169,15 +166,13 @@ bytes are *unchanged* and `activeWords` is *unchanged* (hence trivially nondecre
 
 /-! ## The stash-endpoint bundle (`StashRuns`)
 
-`StashRuns fr endFr slot v pcΔ rest` packages everything a def-site **stash** run delivers about
+`StashRuns fr endFr slot v pcΔ rest` packages what a **stash** run delivers about
 the endpoint `endFr` reached from `fr` by running a `… ; PUSH32 slot ; MSTORE` stash (writing `v`
-at `slot`): the run, the **honest** memory channel (`.memory` bytes + `.activeWords`, equal to the
+at `slot`): the run, the memory channel (`.memory` bytes + `.activeWords`, equal to the
 `mstore slot v` write — NOT the full `toMachineState`, whose gas the push/charges drop is a field a
 real run never preserves), the pc advanced by `pcΔ`, the frame pins (code / valid-jumps / address /
 can-modify / accounts / self-storage), and the working stack left at `rest`. The stash-tail forward
-lemmas (`stash_tail_runs`/`_covered`/`_gas`/`_sload`) produce it; `sim_assign_gas`/`sim_assign_sload`
-and the §7 `CallRealises` call tie consume it. Named so a clause reorder does not ripple
-across the destructurings. -/
+lemmas produce it. -/
 structure StashRuns (fr endFr : Frame) (slot : Nat) (v : Word) (pcΔ : Nat) (rest : Stack Word) :
     Prop where
   runs        : Runs fr endFr
@@ -197,8 +192,8 @@ structure StashRuns (fr endFr : Frame) (slot : Nat) (v : Word) (pcΔ : Nat) (res
 
 /-- A **covered** `lookupMemory`/`mload` read depends on the machine state only through the
 memory bytes — *not* through `activeWords`, as long as both states keep the slot covered.
-(`mload_congr` needs `activeWords` *equal*; this is the weaker fact a nondecreasing
-`activeWords` supports, which is what `MatRunsC.memActive` carries.) When `slot + 32 ≤
+(`mload_congr` needs `activeWords` *equal*; this weaker fact only needs both coverage bounds.)
+When `slot + 32 ≤
 memory.size` and `slot + 32 ≤ activeWords.toNat * 32` on both sides and the bytes agree, the
 `lookupMemory` guard is false on both and the read is the same function of the (equal) bytes. -/
 theorem mload_covered_congr {m m' : MachineState} (slot : UInt256)
@@ -220,7 +215,7 @@ theorem mload_covered_congr {m m' : MachineState} (slot : UInt256)
 (`slot + 32 ≤ activeWords.toNat * 32`) and a realistic offset (`slot + 63 < 2 ^ 64`), the
 `M`-bookkeeping for a 32-byte access at `slot` returns `activeWords` unchanged: the access
 frontier `(slot + 63) / 32` is already below `activeWords`. This is the zero-memory-expansion
-fact that pins the call-result readback's gas charge to the abstract `[Gverylow, Gverylow]`. -/
+fact that makes the memory-expansion charge zero. -/
 theorem M_32_eq_self_of_covered (aw : UInt64) (addr : UInt256)
     (hcov : addr.toNat + 32 ≤ aw.toNat * 32) (haddr : addr.toNat + 63 < 2 ^ 64) :
     MachineState.M aw addr.toUInt64 32 = aw := by
@@ -244,7 +239,7 @@ theorem M_32_eq_self_of_covered (aw : UInt64) (addr : UInt256)
 
 /-- `UInt256.ofNat slot` has zero high limbs when `slot < 2 ^ 64`, so its `toUInt64?`
 truncation check succeeds: `(UInt256.ofNat slot).toUInt64? = some (UInt256.ofNat slot).toUInt64`.
-The call-result slots (`slotOf t = t.id * 32`) are always sub-`2 ^ 64`. -/
+This establishes the conversion used for realistic memory offsets. -/
 theorem toUInt64?_ofNat_of_lt {slot : Nat} (h : slot < 2 ^ 64) :
     (UInt256.ofNat slot).toUInt64? = some (UInt256.ofNat slot).toUInt64 := by
   unfold UInt256.toUInt64?

@@ -1,25 +1,12 @@
-import BytecodeLayer.Exec.Call
-import BytecodeLayer.Exec.Create
-import BytecodeLayer.Exec.CallRealises
-import LirLean.Decode.LoweringLemmas
-import LirLean.Decode.Layout
-import BytecodeLayer.Exec.Invariants
-import BytecodeLayer.Hoare
-import BytecodeLayer.Hoare.CallSequence
+import LirLean.Spec.Lowering
 import BytecodeLayer.Exec.Frame
 
 /-!
-# LirLean — frame-local simulation and boundary lemmas
+# LirLean — lowered-program boundary adapters
 
-This module collects **atomic, frame-local simulation lemmas**. Each shows that an
-EVM `Runs` segment implements one lowered construct, discharging straight to the
-corresponding opcode rule. It also contains the CALL/CREATE oracle reflexivity
-lemmas and the top-level `messageCall` boundary discharge.
-
-The lemmas are deliberately stated using only the frame facts they consume: local
-decode, stack shape, gas bounds, and observable storage. This keeps them reusable
-by the current `Corr`-based simulation without carrying a second IR state or a
-parallel invariant.
+The remaining statements connect a `Runs` execution of `lower prog` to the
+top-level `messageCall` result. Frame-local opcode simulations are re-exported for
+the IR proofs that consume them.
 -/
 
 namespace Lir.Frame
@@ -38,17 +25,12 @@ export BytecodeLayer.Exec
 
 /-! ## Top-level preservation discharge (`lower_preserves`, the bridge half)
 
-`lower_preserves` (`docs/ir-design.md` §6.3) closes the simulation under the IR run
-and crosses the single boundary bridge `messageCall_runs`. The program-global
-*assembly* of the `Runs fr₀ last` is separate; the **discharge** —
-turning an assembled `Runs` + the terminator halt into the observable
-`messageCall` result — is fully provable now and proved here. It is the exact half
-that consumes A's `messageCall_runs`, specialised to the two IR terminators.
+The discharge turns a `Runs fr₀ last` execution plus the terminator halt into the
+observable `messageCall` result, specialized to the two IR terminators.
 
 `lower_preserves_discharge` is the construct-agnostic bridge; `lower_preserves_stop`
 / `lower_preserves_ret` are the two terminator instances, supplying the halt from
-`halt_stop` / `stepFrame_return_word`. The single-call worked program assembles its `Runs` and
-applies the matching one. -/
+`halt_stop` / `stepFrame_return_word`. -/
 
 /-- **The boundary discharge.** A top-level call entering the lowered code as code
 (`EntersAsCode`) whose assembled `Runs fr₀ last` reaches a halting `last`

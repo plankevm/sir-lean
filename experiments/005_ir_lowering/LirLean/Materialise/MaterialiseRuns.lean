@@ -1,44 +1,20 @@
 import LirLean.Frame.Match
 import LirLean.Materialise.MaterialiseGas
 import LirLean.Materialise.DefsSound
-import BytecodeLayer.Hoare.MemAlgebra
 import BytecodeLayer.Exec.Memory
 
 /-!
-# LirLean — materialise endpoint bundles + realisability side-conditions (Layer **B1** carriers)
+# LirLean — materialisation value-channel adapters
 
-The value-channel LINCHPIN itself — running the lowered push-sequence of an expression
-reproduces, on the bytecode stack, the value the IR's `evalExpr` computes — is the
-fold-based `Lir.materialise_runsC` (`Materialise/MatFoldChannel.lean`), proved
-fuel-free over the total byte cache `matCache`. This module carries what that proof (and
-the per-statement sims) consume from the B1 layer:
+This module retains the IR-indexed materialisation side conditions:
 
-* the **frame-accessor reductions** for the materialise post-frames (`pushFrameW_*`,
-  `addFrame_*`, `ltFrame_*`, `sloadFrame_*`, `gasFrame_*`);
-* the **stash-endpoint bundle** `StashRuns` (the def-site `PUSH slot ; MSTORE` epilogue);
-* the small byte-arithmetic facts (`emitImm_length`, `push32_pcΔ`) and the pure-fragment
-  obs-irrelevance `evalExpr_obs_irrel`;
-* the live realisability side-conditions: `StorageAgree` (the `M3` storage lens) and
-  `MemRealises` (the memory value channel for spilled tmps), with their `.transport`s and
-  the memory-coverage bricks (`M_32_eq_self_of_covered`,
-  `memoryExpansionWords?_ofNat_32_of_covered`);
-* the RETIRED `SloadRealises`/`GasRealises` universals (regression-witness subjects only).
+* `evalExpr_obs_irrel` for the pure expression fragment;
+* `StorageAgree` for the IR-state storage lens;
+* `MemRealises` for the IR temporary-to-memory channel;
+* the legacy `SloadRealises` and `GasRealises` predicates still reached by the
+  current correspondence proofs.
 
-## The two non-pure leaves are spilled (unreachable here)
-
-**`.gas`** (Phase B) and **`.sload`** (Phase C) are routed to memory slots by `defsOf`
-(`Loc.slot (slotOf t)`): the value (and, for sload, its cold/warm warmth charge) is read once
-at the `assign` def-site stash (`[GAS]`/`materialise k ++ [SLOAD]`, then `PUSH slot ; MSTORE`) and
-reused via `MLOAD`. So a *bare* `.gas`/`.sload k` is never materialised by this recursion — those
-arms are unreachable (`e ≠ .gas`, `∀ k, e ≠ .sload k`, both preserved across the `.tmp` recursion
-by `defsOf_ne_gas`/`defsOf_ne_sload`). The def-site stash runs (with the value tied by
-`MemRealises` and, for sload, the warmth via the positional `SloadLogAligned`) live in
-`sim_assign_gas`/`sim_assign_sload` (`SimStmt.lean`), NOT here. The former `GasRealises`/
-`SloadRealises` universals were deleted with `HonestGasTie.lean`'s regression witnesses (the
-unsatisfiability lesson is recorded in `RealisabilitySpec.lean`'s header + `docs/gas-decision.md`).
-
-No `sorry`, no `axiom`, no `native_decide`. Bytecode-coupled (imports `Match.lean`);
-nothing here touches `Spec/Semantics.lean` / `Law.lean` (the frame-free spine).
+The EVM-only frame, stash, and memory facts are re-exported for these adapters.
 -/
 
 namespace Lir
@@ -55,7 +31,6 @@ export BytecodeLayer.Exec
    mload_covered_congr M_32_eq_self_of_covered toUInt64?_ofNat_of_lt
    memoryExpansionWords?_ofNat_32_of_covered push32_pcΔ)
 
-open Lir.Frame
 open BytecodeLayer.Exec
 open Evm
 open GasConstants
