@@ -1,18 +1,18 @@
-import LirLean.Spec.IR
+import BytecodeLayer.Exec.Observable
 import Evm
 import BytecodeLayer.Hoare
 import BytecodeLayer.Semantics.Dispatch
 
 /-!
-# LirLean — the abstract create oracle (CREATE/CREATE2)
+# BytecodeLayer — the abstract create oracle (CREATE/CREATE2)
 
-The CREATE analogue of `Frame/Call.lean`. The IR's CREATE accounting is
-**create-agnostic**: the IR does **not** model contract creation internals. It defers
+The CREATE analogue of `Frame/Call.lean`. The execution model's CREATE accounting is
+**create-agnostic**: the execution model does **not** model contract creation internals. It defers
 the create's *effect* — the post-storage world (through the self lens) and the
-deployed-address-or-`0` word the opcode pushes — to an abstract `CreateOracle`. The IR
+deployed-address-or-`0` word the opcode pushes — to an abstract `CreateOracle`. The execution model
 reasons for **all** oracles; lowering instantiates the oracle to **exactly what the
 lowered bytecode's CREATE does** (exp003's `resumeAfterCreate`, projected through the
-observable lens), so the IR's create effect is *reflexively equal* to the lowered
+observable lens), so the execution model's create effect is *reflexively equal* to the lowered
 bytecode's.
 
 This mirrors `Frame/Call.lean` field-for-field. Two altitude differences from CALL, both
@@ -32,7 +32,7 @@ init-code failure surface (no init-code OOG/REVERT, EIP-170, EIP-3541, deposit);
 richer init code is future work (`docs/ir-design.md`).
 -/
 
-namespace Lir.Frame
+namespace BytecodeLayer.Exec
 
 open Evm
 open BytecodeLayer.Hoare
@@ -43,13 +43,13 @@ open BytecodeLayer.Dispatch
 The oracle's input is the data exp003's `resumeAfterCreate` reads — the child's
 `CreateResult` and the suspended `PendingCreate` — so the EVM instantiation is **by
 construction** the lowered create's projection (each field reduces by `rfl` to the
-corresponding `resumeAfterCreate` component). The IR is parametric over *all*
+corresponding `resumeAfterCreate` component). The execution model is parametric over *all*
 `CreateOracle`s; lowering picks `evmCreateOracle`. -/
 
-/-- An abstract **create oracle**: the IR's view of a contract creation's *effect*,
+/-- An abstract **create oracle**: the execution model's view of a contract creation's *effect*,
 projected from the data exp003's `resumeAfterCreate` reads (the child's `CreateResult`
 and the suspended `PendingCreate`). Two projections, matching the two things
-`resumeAfterCreate` does the IR cares about:
+`resumeAfterCreate` does the execution model cares about:
 
 * `postStorage result pd addr key` — the storage of account `addr` at `key` in the
   resumed world, through the observable `find?/lookupStorage` lens; for the EVM
@@ -106,4 +106,4 @@ formula, by `rfl`. -/
 theorem evmCreateOracle_addressWord_eq (result : CreateResult) (pd : PendingCreate) :
     evmCreateOracle.addressWord result pd = createAddrOrZero result pd := rfl
 
-end Lir.Frame
+end BytecodeLayer.Exec

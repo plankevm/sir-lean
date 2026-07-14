@@ -20,7 +20,7 @@ import LirLean.Decode.BoundaryCursor
 
 -- v1 reference semantics + CALL/CREATE bricks + match.
 import BytecodeLayer.Exec.Call
-import LirLean.Frame.Create
+import BytecodeLayer.Exec.Create
 import LirLean.Frame.Match
 
 -- Materialise (spill/recompute value channel) + clean-halt extractor.
