@@ -1,6 +1,11 @@
 import Sir.IR.CFG
 import Sir.Semantics.World
 
+universe u v
+
+instance {σ : Type u} {ε : Type v} : MonadLift (StateM σ) (StateT σ (Except ε)) where
+  monadLift action state := .ok (action state)
+
 namespace Sir
 
 inductive IRError where
@@ -25,17 +30,20 @@ def get (locals : Locals) (var : VarId) : Except IRError Word :=
   | none => .error (.undefinedVariable var)
   | some value => .ok value
 
+def getM (var : VarId) : StateT Locals (Except IRError) Word := StateT.get >>= (·.get var)
+
 def set (locals : Locals) (var : VarId) (value : Word) : Locals :=
   ⟨fun candidate => if candidate = var then some value else locals.values candidate⟩
 
+def setM (var : VarId) (value : Word) : StateM Locals Unit := modify (·.set var value)
 
-/-- Read every output before binding any input, making block transfer simultaneous. -/
-def transfer (locals : Locals) (outputs inputs : Array VarId) : Except IRError Locals := do
+def transfer (outputs inputs : Array VarId) : StateT Locals (Except IRError) Unit := do
   if outputs.size != inputs.size then
     throw (.blockArityMismatch outputs.size inputs.size)
-  (inputs.zip outputs).foldlM
-    (fun result (input, output) => (locals.get output).map (result.set input))
-    locals
+  let locals₀ ← StateT.get
+  for (input, output) in inputs.zip outputs do
+    let value ← locals₀.get output
+    setM input value
 
 end Locals
 
@@ -56,14 +64,13 @@ structure CallContext where
   calldata : ByteArray
   isStatic : Bool
 
-/-- A statement cursor. The terminator is at `statement = block.statements.size`. -/
-structure ProgramCounter where
+structure StatementCursor where
   block : BlockId
   statement : Nat
   deriving DecidableEq, Repr
 
 inductive MachineControl where
-  | running (pc : ProgramCounter)
+  | running (cursor : StatementCursor)
   | halted
   deriving DecidableEq, Repr
 
@@ -79,6 +86,12 @@ structure MachineState where
   returnData : ByteArray := ByteArray.empty
   control : MachineControl
 
+instance {m : Type → Type} [Monad m] :
+    MonadLift (StateT Locals m) (StateT MachineState m) where
+  monadLift action state := do
+    let (result, locals) ← action.run state.locals
+    return (result, { state with locals := locals })
+
 inductive Event where
   | gas (value : Word)
   | call (call : CallRecord)
@@ -92,21 +105,21 @@ def Program.block? (program : Program) (bid : BlockId) : Option BasicBlock :=
   program.blocks[bid.id]?
 
 def Program.decodeStmt (program : Program) (control : MachineControl) : Option (MachineControl × Stmt) := do
-  let .running pc := control | none
-  let block ← program.block? pc.block
-  let stmt ← block.statements[pc.statement]?
-  some (.running { pc with statement := pc.statement + 1 }, stmt)
+  let .running cursor := control | none
+  let block ← program.block? cursor.block
+  let stmt ← block.statements[cursor.statement]?
+  some (.running { cursor with statement := cursor.statement + 1 }, stmt)
 
 def Program.terminatorAt (program : Program) (control : MachineControl) : Option Terminator := do
-  let .running pc := control | none
-  let block ← program.block? pc.block
-  guard (pc.statement = block.statements.size)
+  let .running cursor := control | none
+  let block ← program.block? cursor.block
+  guard (cursor.statement = block.statements.size)
   some block.terminator
 
 def Program.nextControl (program : Program) (control : MachineControl) : Option MachineControl := do
-  let .running pc := control | none
-  let block ← program.block? pc.block
-  guard (block.statements[pc.statement]?.isSome)
-  some (.running { pc with statement := pc.statement + 1 })
+  let .running cursor := control | none
+  let block ← program.block? cursor.block
+  guard (block.statements[cursor.statement]?.isSome)
+  some (.running { cursor with statement := cursor.statement + 1 })
 
 end Sir

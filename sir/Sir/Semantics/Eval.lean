@@ -28,32 +28,30 @@ def eval_sstore (ctx : CallContext) (s : MachineState) (key value : VarId) :
   let valueValue ← s.locals.get value
   return { s with world := s.world.storeStorage ctx.self keyValue valueValue }
 
-def eval_call (s : MachineState) (call : Call) (result : CallResult) :
-    Except IRError (MachineState × CallRecord) := do
-  let callee ← s.locals.get call.callee
-  let gas ← s.locals.get call.gas
-  let s' := { s with
-    locals := s.locals.set call.result (Evm.UInt256.fromBool result.success)
-    returnData := result.output
-    world := result.world
-  }
-  .ok (s', { target := .ofUInt256 callee, gas := gas, result := result })
+def eval_call (call : Call) (result : CallResult) :
+    StateT MachineState (Except IRError) CallRecord := do
+  let callee ← Locals.getM call.callee
+  let gas ← Locals.getM call.gas
+  Locals.setM call.result (Evm.UInt256.fromBool result.success)
+  modify ({ · with returnData := result.output, world := result.world })
+  return { target := .ofUInt256 callee, gas := gas, result := result }
 
-private def eval_jump (program : Program) (state : MachineState) (target : BlockId) :
-    Except IRError MachineState := do
-  let .running pc := state.control | throw .invalidControl
-  let source := pc.block
+private def eval_jump (program : Program) (target : BlockId) :
+    StateT MachineState (Except IRError) Unit := do
+  let .running cursor := (← get).control | throw .invalidControl
+  let source := cursor.block
   let some sourceBlock := program.block? source | throw (.invalidBlock source)
   let some targetBlock := program.block? target | throw (.invalidBlock target)
-  let locals' ← state.locals.transfer sourceBlock.outputs targetBlock.inputs
-  return { state with locals := locals', control := .blockStart target }
+  Locals.transfer sourceBlock.outputs targetBlock.inputs
+  modify ({ · with control := .blockStart target })
 
-def eval_terminator (program : Program) (state : MachineState) :
-    Terminator → Except IRError MachineState
-  | .halt => .ok { state with control := .halted }
-  | .jump target => eval_jump program state target
+def eval_terminator (program : Program) :
+    Terminator → StateT MachineState (Except IRError) Unit
+  | .halt => modify (fun state => { state with control := .halted })
+  | .jump target => eval_jump program target
   | .branch condition thenTarget elseTarget => do
+      let state ← get
       let value ← state.locals.get condition
-      eval_jump program state (if value = 0 then elseTarget else thenTarget)
+      eval_jump program (if value = 0 then elseTarget else thenTarget)
 
 end Sir

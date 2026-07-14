@@ -37,13 +37,13 @@ inductive SmallStep (program : Program) (ctx : CallContext) :
       {result : CallResult}
       {record : CallRecord}
       (hstmt : program.decodeStmt state.control = some (nextControl, .call call))
-      (heval : eval_call state call result = .ok (state', record)) :
+      (heval : (eval_call call result).run state = .ok (record, state')) :
       SmallStep program ctx state [.call record] { state' with control := nextControl }
   | terminator
       {state state' : MachineState}
       {terminator : Terminator}
       (hterm : program.terminatorAt state.control = some terminator)
-      (heval : eval_terminator program state terminator = .ok state') :
+      (heval : (eval_terminator program terminator).run state = .ok ((), state')) :
       SmallStep program ctx state [] state'
 
 inductive Steps (program : Program) (ctx : CallContext) :
