@@ -14,8 +14,8 @@ decomposition rather than per-program kernel `rfl`. All emission is the fold pip
   (`emitDest` is a fixed-width `PUSH4`), so the two lowering passes agree — the fact
   that makes the offset table well-defined (`emitBlockBody_length_labelOff`,
   `emitTerm_length_labelOff`);
-* `flatMap_split`: a `List.flatMap` decomposes around the element at a known index
-  into `prefix ++ f b ++ suffix`;
+* the assembler geometry's `flatMap_split` decomposes a `List.flatMap` around the
+  element at a known index;
 * `blockPrefix_length`: the bytes of the first `i` lowered blocks total exactly
   `offsetTable cache alloc blocks i` (the table is a prefix sum of `blockLen`);
 * `flatBytes_block_split`: `flatBytes prog` decomposes around block `L` into

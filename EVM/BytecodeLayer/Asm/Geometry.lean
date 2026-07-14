@@ -1,4 +1,5 @@
 import BytecodeLayer.Asm
+import BytecodeLayer.Exec.MatDecLower
 
 /-!
 # Geometry of structured assembly
@@ -270,6 +271,97 @@ theorem mid_index (pre mid suf : List UInt8) (k : Nat) (h : k < mid.length) :
   rw [List.append_assoc, List.getElem?_append_right (by omega),
     Nat.add_sub_cancel_left, List.getElem?_append_left h]
 
+theorem flatMap_index_inv {α β : Type _} (xs : List α) (f : α → List β) {k : Nat}
+    (hk : k < (xs.flatMap f).length) :
+    ∃ i a j, xs[i]? = some a ∧ j < (f a).length ∧
+      k = ((xs.take i).flatMap f).length + j := by
+  induction xs generalizing k with
+  | nil => simp at hk
+  | cons x xs ih =>
+    simp only [List.flatMap_cons, List.length_append] at hk
+    by_cases hx : k < (f x).length
+    · refine ⟨0, x, k, by simp, hx, ?_⟩
+      simp
+    · have htail : k - (f x).length < (xs.flatMap f).length := by omega
+      obtain ⟨i, a, j, hget, hj, heq⟩ := ih htail
+      refine ⟨i + 1, a, j, ?_, hj, ?_⟩
+      · simpa using hget
+      · simp only [List.take_succ_cons, List.flatMap_cons, List.length_append]
+        omega
+
+theorem append_region_inv {α : Type _} (a b : List α) {k : Nat}
+    (hk : k < (a ++ b).length) :
+    k < a.length ∨ ∃ j, j < b.length ∧ k = a.length + j := by
+  by_cases ha : k < a.length
+  · exact Or.inl ha
+  · refine Or.inr ⟨k - a.length, ?_, by omega⟩
+    simp only [List.length_append] at hk
+    omega
+
+theorem nextInstrPos_lt_of_segAlignedP_terminal {P : Operation → Prop}
+    {c : ByteArray} {pre : List UInt8} {last : UInt8} (hpre : SegAlignedP P pre) :
+    ∀ base : Nat,
+      (∀ j, j < (pre ++ [last]).length → c.get? (base + j) = (pre ++ [last])[j]?) →
+      ∀ n byte, ReachesBoundary c base n → n < base + (pre ++ [last]).length →
+        c.get? n = some byte → Evm.parseInstr byte ≠ Evm.parseInstr last →
+          Evm.nextInstrPosNat n (Evm.parseInstr byte) <
+            base + (pre ++ [last]).length := by
+  induction hpre with
+  | nil =>
+    intro base hmatch n byte hreach hin hget hne
+    have hn : n = base := by
+      have hle := reachesBoundary_le hreach
+      simp only [List.nil_append, List.length_singleton] at hin
+      omega
+    subst n
+    have hhead := hmatch 0 (by simp)
+    simp at hhead
+    rw [hhead] at hget
+    cases hget
+    exact absurd rfl hne
+  | cons head imm rest himm _ _ ih =>
+    intro base hmatch n byte hreach hin hget hne
+    have hshape : (head :: (imm ++ rest)) ++ [last] =
+        head :: (imm ++ (rest ++ [last])) := by simp [List.append_assoc]
+    rw [hshape] at hmatch hin
+    have hhead : c.get? base = some head := by
+      have h := hmatch 0 (by simp); simpa using h
+    have hmatch' : ∀ j, j < (rest ++ [last]).length →
+        c.get? ((base + 1 + imm.length) + j) = (rest ++ [last])[j]? := by
+      intro j hj
+      have hj' : 1 + imm.length + j <
+          (head :: (imm ++ (rest ++ [last]))).length := by
+        simp only [List.length_cons, List.length_append, List.length_nil] at hj ⊢
+        omega
+      have h := hmatch (1 + imm.length + j) hj'
+      rw [show base + (1 + imm.length + j) = (base + 1 + imm.length) + j by omega] at h
+      rw [show 1 + imm.length + j = (imm.length + j) + 1 by omega,
+        List.getElem?_cons_succ, List.getElem?_append_right (by omega),
+        show imm.length + j - imm.length = j by omega] at h
+      exact h
+    cases hreach with
+    | refl _ =>
+      rw [hhead] at hget
+      cases hget
+      unfold Evm.nextInstrPosNat
+      rw [← himm]
+      simp only [List.length_cons, List.length_append] at hin ⊢
+      omega
+    | step hfirst hrestReach =>
+      rw [hhead] at hfirst
+      cases hfirst
+      have hnext : Evm.nextInstrPosNat base (Evm.parseInstr head) =
+          base + 1 + imm.length := by
+        unfold Evm.nextInstrPosNat
+        rw [himm]
+      rw [hnext] at hrestReach
+      have hin' : n < (base + 1 + imm.length) + (rest ++ [last]).length := by
+        simp only [List.length_cons, List.length_append] at hin ⊢
+        omega
+      have hlt := ih (base + 1 + imm.length) hmatch' n byte hrestReach hin' hget hne
+      simp only [List.length_cons, List.length_append] at hin hlt ⊢
+      omega
+
 theorem mem_validJumpDestsAuxNat_inv (c : ByteArray) (start : Nat)
     (acc : Array UInt32) {x : UInt32} (hx : x ∈ validJumpDestsAuxNat c start acc) :
     x ∈ acc ∨ ∃ j byte, ReachesBoundary c start j ∧ x = j.toUInt32 ∧ j < c.size ∧
@@ -464,6 +556,242 @@ theorem decode_at_blockOffset_jumpdest (program : AsmProgram) (i : Nat) (block :
   · rw [← assemble_get?_eq]
     exact assemble_byte_at_blockOffset program i block hb
   · decide
+
+/-- Byte offset of instruction `index` in block `label`, after its leading `JUMPDEST`. -/
+def cursorPc (program : AsmProgram) (label index : Nat) : Nat :=
+  blockOffset program label + 1 +
+    match program.blocks.toList[label]? with
+    | some block => ((block.body.take index).map AsmInstr.byteLength).sum
+    | none => 0
+
+def decodedInstr (program : AsmProgram) : AsmInstr →
+    Operation × Option (UInt256 × UInt8)
+  | .push value => (.PUSH32, some (value, 32))
+  | .pushLabel label =>
+      (.PUSH4, some (Evm.uInt256OfByteArray
+        ⟨(BytecodeLayer.Exec.offsetBytesBE (blockOffset program label)).toArray⟩, 4))
+  | .op operation => (Evm.parseInstr operation.byte, .none)
+
+theorem encodeInstrs_prefix_length (labelOffset : Nat → Nat)
+    (instructions : List AsmInstr) (index : Nat) :
+    (encodeInstrs labelOffset (instructions.take index)).length =
+      ((instructions.take index).map AsmInstr.byteLength).sum := by
+  simp
+
+theorem bytes_at_cursor (program : AsmProgram) (label index : Nat)
+    (block : AsmBlock) (instr : AsmInstr)
+    (hb : program.blocks.toList[label]? = some block)
+    (hi : block.body[index]? = some instr) (k : Nat)
+    (hk : k < (encodeInstr (blockOffset program) instr).length) :
+    (bytes program)[cursorPc program label index + k]? =
+      (encodeInstr (blockOffset program) instr)[k]? := by
+  have hisplit := flatMap_split block.body index instr hi (encodeInstr (blockOffset program))
+  have hiprefix :
+      (encodeInstrs (blockOffset program) (block.body.take index)).length =
+        ((block.body.take index).map AsmInstr.byteLength).sum :=
+    encodeInstrs_prefix_length _ _ _
+  have hilen :
+      ((block.body.take index).flatMap (encodeInstr (blockOffset program))).length =
+        ((block.body.take index).map AsmInstr.byteLength).sum := by
+    simpa [encodeInstrs] using hiprefix
+  have hbody : encodeInstrs (blockOffset program) block.body =
+      encodeInstrs (blockOffset program) (block.body.take index) ++
+      encodeInstr (blockOffset program) instr ++
+      encodeInstrs (blockOffset program) (block.body.drop (index + 1)) := by
+    simpa [encodeInstrs] using hisplit
+  have hblockAt := mid_index
+    ((program.blocks.toList.take label).flatMap (encodeBlock (blockOffset program)))
+    (encodeBlock (blockOffset program) block)
+    ((program.blocks.toList.drop (label + 1)).flatMap (encodeBlock (blockOffset program)))
+    (1 + ((block.body.take index).map AsmInstr.byteLength).sum + k)
+    (by
+      simp only [encodeBlock, List.length_cons, encodeInstrs_length]
+      have hindex : index < block.body.length := by
+        by_contra h
+        rw [List.getElem?_eq_none (by omega)] at hi
+        contradiction
+      have hsumTake :
+          ((block.body.take index).map AsmInstr.byteLength).sum + instr.byteLength ≤
+            (block.body.map AsmInstr.byteLength).sum := by
+        have hdrop : block.body.drop index = instr :: block.body.drop (index + 1) := by
+          rw [List.drop_eq_getElem_cons hindex]
+          have hget : block.body[index] = instr := by
+            rw [List.getElem?_eq_getElem hindex] at hi
+            exact Option.some.inj hi
+          rw [hget]
+        have hsum : (block.body.map AsmInstr.byteLength).sum =
+            ((block.body.take index).map AsmInstr.byteLength).sum +
+              instr.byteLength +
+              ((block.body.drop (index + 1)).map AsmInstr.byteLength).sum := by
+          conv_lhs => rw [← List.take_append_drop index block.body]
+          rw [hdrop]
+          simp [List.map_append, List.sum_append, Nat.add_assoc]
+        omega
+      rw [encodeInstr_length] at hk
+      omega)
+  rw [← bytes_block_split program label block hb] at hblockAt
+  rw [blockPrefix_length program label] at hblockAt
+  have hlocal :
+      (encodeBlock (blockOffset program) block)[
+          1 + ((block.body.take index).map AsmInstr.byteLength).sum + k]? =
+        (encodeInstr (blockOffset program) instr)[k]? := by
+    rw [encodeBlock, hbody]
+    rw [show 1 + ((block.body.take index).map AsmInstr.byteLength).sum + k =
+      (((block.body.take index).map AsmInstr.byteLength).sum + k) + 1 by omega]
+    rw [List.getElem?_cons_succ, List.append_assoc]
+    rw [List.getElem?_append_right (by
+      rw [encodeInstrs_length]
+      omega)]
+    rw [encodeInstrs_length]
+    simp only [Nat.add_sub_cancel_left]
+    exact List.getElem?_append_left hk
+  rw [cursorPc, hb]
+  rw [show blockOffset program label + 1 +
+      ((block.body.take index).map AsmInstr.byteLength).sum + k =
+      blockOffset program label +
+        (1 + ((block.body.take index).map AsmInstr.byteLength).sum + k) by omega]
+  exact hblockAt.trans hlocal
+
+theorem assemble_at_cursor (program : AsmProgram) (label index : Nat)
+    (block : AsmBlock) (instr : AsmInstr)
+    (hb : program.blocks.toList[label]? = some block)
+    (hi : block.body[index]? = some instr) (k : Nat)
+    (hk : k < (encodeInstr (blockOffset program) instr).length) :
+    (assemble program).get? (cursorPc program label index + k) =
+      (encodeInstr (blockOffset program) instr)[k]? := by
+  rw [assemble_get?_eq]
+  exact bytes_at_cursor program label index block instr hb hi k hk
+
+theorem decode_at_cursor (program : AsmProgram) (label index : Nat)
+    (block : AsmBlock) (instr : AsmInstr)
+    (hb : program.blocks.toList[label]? = some block)
+    (hi : block.body[index]? = some instr)
+    (hbound : cursorPc program label index < 2 ^ 32) :
+    Evm.decode (assemble program) (UInt32.ofNat (cursorPc program label index)) =
+      some (decodedInstr program instr) := by
+  rw [assemble]
+  cases instr with
+  | op operation =>
+      apply decode_nonpush_of_list (bytes program) (cursorPc program label index)
+        operation.byte hbound
+      · exact bytes_at_cursor program label index block (.op operation) hb hi 0 (by simp [encodeInstr])
+      · cases operation <;> decide
+  | push value =>
+      apply decode_push_of_list (bytes program) (cursorPc program label index)
+        0x7f 32 value hbound
+      · exact bytes_at_cursor program label index block (.push value) hb hi 0
+          (by simp [encodeInstr])
+      · rfl
+      · decide
+      · have hwindow := BytecodeLayer.Exec.extract_toList_eq (bytes program)
+          (cursorPc program label index + 1) 32
+          (BytecodeLayer.Exec.wordBytesBE value)
+          (by simp [BytecodeLayer.Exec.wordBytesBE])
+          (by
+            intro j hj
+            have h := bytes_at_cursor program label index block (.push value) hb hi (1 + j)
+              (by simp [encodeInstr, BytecodeLayer.Exec.wordBytesBE] at hj ⊢; omega)
+            rw [show cursorPc program label index + 1 + j =
+              cursorPc program label index + (1 + j) by omega]
+            rw [show 1 + j = j + 1 by omega] at h ⊢
+            simp only [encodeInstr] at h
+            rw [List.getElem?_cons_succ] at h
+            exact h)
+        have harr : (bytes program).toArray.extract
+            (cursorPc program label index + 1)
+            (cursorPc program label index + 1 + 32) =
+            (BytecodeLayer.Exec.wordBytesBE value).toArray := by
+          apply Array.toList_inj.mp
+          simpa using hwindow
+        change Evm.uInt256OfByteArray
+          ⟨(bytes program).toArray.extract (cursorPc program label index + 1)
+            (cursorPc program label index + 1 + 32)⟩ = value
+        rw [harr]
+        exact BytecodeLayer.Exec.uInt256_wordBytesBE value
+  | pushLabel target =>
+      let immediate := BytecodeLayer.Exec.offsetBytesBE (blockOffset program target)
+      apply decode_push_of_list (bytes program) (cursorPc program label index)
+        0x63 4 (Evm.uInt256OfByteArray ⟨immediate.toArray⟩) hbound
+      · exact bytes_at_cursor program label index block (.pushLabel target) hb hi 0
+          (by simp [encodeInstr])
+      · rfl
+      · decide
+      · have hwindow := BytecodeLayer.Exec.extract_toList_eq (bytes program)
+          (cursorPc program label index + 1) 4 immediate
+          (by simp [immediate, BytecodeLayer.Exec.offsetBytesBE])
+          (by
+            intro j hj
+            have h := bytes_at_cursor program label index block (.pushLabel target) hb hi (1 + j)
+              (by simp [encodeInstr, BytecodeLayer.Exec.offsetBytesBE] at hj ⊢; omega)
+            rw [show cursorPc program label index + 1 + j =
+              cursorPc program label index + (1 + j) by omega]
+            rw [show 1 + j = j + 1 by omega] at h ⊢
+            simp only [encodeInstr] at h
+            rw [List.getElem?_cons_succ] at h
+            exact h)
+        have harr : (bytes program).toArray.extract
+            (cursorPc program label index + 1)
+            (cursorPc program label index + 1 + 4) = immediate.toArray := by
+          apply Array.toList_inj.mp
+          simpa using hwindow
+        change Evm.uInt256OfByteArray
+          ⟨(bytes program).toArray.extract (cursorPc program label index + 1)
+            (cursorPc program label index + 1 + 4)⟩ =
+          Evm.uInt256OfByteArray ⟨immediate.toArray⟩
+        rw [harr]
+
+/-- Frame-level block entry, including the code and valid-jump geometry. -/
+def AtEntry (program : AsmProgram) (fr : Frame) (label : Nat)
+    (stack : List UInt256) : Prop :=
+  fr.exec.executionEnv.code = assemble program ∧
+  fr.exec.pc = UInt32.ofNat (blockOffset program label) ∧
+  fr.validJumps = validJumpDests (assemble program) 0 ∧
+  fr.exec.stack = stack
+
+/-- Frame-level instruction cursor, including the code and valid-jump geometry. -/
+def AtCursor (program : AsmProgram) (fr : Frame) (label index : Nat)
+    (stack : List UInt256) : Prop :=
+  fr.exec.executionEnv.code = assemble program ∧
+  fr.exec.pc = UInt32.ofNat (cursorPc program label index) ∧
+  fr.validJumps = validJumpDests (assemble program) 0 ∧
+  fr.exec.stack = stack
+
+/-- Classification of a byte position in structured assembly. -/
+inductive ByteCursor (program : AsmProgram) (position : Nat) : Prop where
+  | blockEntry (label : Nat) (block : AsmBlock)
+      (hb : program.blocks.toList[label]? = some block)
+      (heq : position = blockOffset program label)
+  | instr (label : Nat) (block : AsmBlock) (index : Nat) (instruction : AsmInstr)
+      (offset : Nat)
+      (hb : program.blocks.toList[label]? = some block)
+      (hi : block.body[index]? = some instruction)
+      (hoffset : offset < (encodeInstr (blockOffset program) instruction).length)
+      (heq : position = cursorPc program label index + offset)
+
+theorem bytes_cursor_cases {program : AsmProgram} {position : Nat}
+    (hin : position < (bytes program).length) : ByteCursor program position := by
+  unfold bytes at hin
+  obtain ⟨label, block, localOffset, hb, hlocal, hposition⟩ :=
+    flatMap_index_inv program.blocks.toList (encodeBlock (blockOffset program)) hin
+  have hprefix := blockPrefix_length program label
+  cases localOffset with
+  | zero =>
+      apply ByteCursor.blockEntry label block hb
+      omega
+  | succ inner =>
+      simp only [encodeBlock, List.length_cons] at hlocal
+      have hbody : inner < (encodeInstrs (blockOffset program) block.body).length := by
+        omega
+      unfold encodeInstrs at hbody
+      obtain ⟨index, instruction, offset, hi, hoffset, hlocalEq⟩ :=
+        flatMap_index_inv block.body (encodeInstr (blockOffset program)) hbody
+      apply ByteCursor.instr label block index instruction offset hb hi hoffset
+      rw [cursorPc, hb]
+      change position = blockOffset program label + 1 +
+        ((block.body.take index).map AsmInstr.byteLength).sum + offset
+      have hiprefix := encodeInstrs_prefix_length (blockOffset program) block.body index
+      unfold encodeInstrs at hiprefix
+      omega
 
 theorem reachable_boundary_asmOp (program : AsmProgram) (n : Nat)
     (hreach : ReachesBoundary (assemble program) 0 n)

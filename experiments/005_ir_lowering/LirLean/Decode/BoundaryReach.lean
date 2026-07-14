@@ -8,17 +8,10 @@ The whole-run boundary invariant the modellability producer needs is
 `∀ fr', Runs (codeFrame params (lower prog)) fr' → AtReachableBoundary prog fr'`
 (`hrb` of `BytecodeLayer.Interpreter.lower_modellable`, `Decode/Modellable.lean`):
 every `Runs`-reachable frame sits at an instruction boundary reachable from `0` and in range.
-Proving it is a `Runs`-induction whose `step`/`call` cases need three reachability facts beyond
-`JumpValid.lean`; this module supplies all three:
+Proving it is a `Runs`-induction whose `step`/`call` cases use generic boundary transports plus
+lowering-specific opcode refinements. The generic converse and sequential facts are imported from
+the assembler geometry; this module supplies the LIR specialization:
 
-* **`reachesBoundary_of_mem_validJumpDests`** — the *converse* of
-  `mem_validJumpDests_of_reachable_jumpdest`: every recorded jump destination
-  `x ∈ validJumpDests c 0` is itself a `ReachesBoundary c 0` boundary (it was pushed at a boundary
-  the scan reached). Turns a taken `JUMP`/`JUMPI` (`new_pc ∈ fr.validJumps`) back into a
-  `ReachesBoundary` witness.
-* **`reachesBoundary_nextInstr`** — the *sequential* (fall-through) advance: a reached boundary
-  whose byte decodes extends to the next instruction's boundary `nextInstrPosNat n (parseInstr
-  byte)`. Turns a non-jump `stepFrame` advance back into a `ReachesBoundary` witness.
 * **`decode_reachable_boundary_loweringOp`** — at any reachable in-range boundary the decoded op
   is one of the 18 lowering opcodes (`IsLoweringOp`). The `SegAlignedLowering` allow-list transport;
   `SegAlignedLowering`, `IsLoweringOp` and the whole-program alignment
@@ -34,7 +27,6 @@ The per-step pc inversion
 `stepFrame fr = .next e → e.pc` is either `nextInstrPosNat n (decoded op)` (sequential) or a
 `fr.validJumps` member (taken JUMP/JUMPI), case-analysed over the 18 `IsLoweringOp` arms below.
 
-No `sorry`, no `axiom`, no `native_decide`.
 -/
 
 namespace Lir

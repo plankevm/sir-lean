@@ -2,43 +2,12 @@ import LirLean.Decode.DecodeLower
 import BytecodeLayer.Asm.Geometry
 
 /-!
-# LirLean — the predicate-parameterized instruction-alignment tower
+# LirLean — opcode refinements for assembler-aligned lowering
 
-`JumpValid.lean` and `BoundaryReach.lean` each once carried a private
-copy of the *same* inductive — an instruction-aligned byte list (each opcode byte followed by
-exactly `pushArgWidth` immediate bytes) — differing **only** by a per-head predicate `P` on the
-decoded opcode:
-
-* `SegAligned`         (`JumpValid`)      — `P = fun _ => True`;
-* `SegAlignedLowering` (`BoundaryReach`)  — `P = IsLoweringOp` (the 18 boundary opcodes).
-
-(A third `SegAlignedSafe` / `NoCreateBytes` tower — `P op = op ≠ CREATE ∧ op ≠ CREATE2` — was
-DELETED once `emitStmt .create` made CREATE2 an emitted opcode: "the lowered code contains no
-CREATE-family bytes" is no longer true.)
-
-The entire supporting ladder (composition + the two boundary-walk transports + the
-lowering-emits-aligned lemmas + the whole-program lift) was re-proven per tower, line-for-line
-identical modulo the predicate argument. This module collapses that duplication:
-
-* **`SegAlignedP P`** — the one parameterized inductive.
-* **`SegAlignedP.mono`** — weaken the predicate pointwise (`P → Q` gives
-  `SegAlignedP P → SegAlignedP Q`); the lever that derives the weaker `SegAligned` (`True`) tower
-  from the strongest.
-* **`SegAlignedP.append/nonpush/push`** — composition, generic in `P`.
-* **`reaches_end_of_segAlignedP`** — the predicate-free "walk reaches the segment end" transport
-  (the old `reaches_of_segAligned`). `P` is ignored; alignment alone drives it.
-* **`reaches_P_of_segAlignedP`** — the interior transport: any boundary reached *strictly inside* a
-  matched segment reads a head byte satisfying `P` (generalising
-  `reaches_loweringOp_of_segAlignedLowering`).
-* **`IsLoweringOp`** (+ `Decidable`) and the **emit-ladder proven ONCE** at `P := IsLoweringOp`
-  (the tightest predicate; each concrete opcode discharged by `decide`), culminating in
-  `segAlignedP_flatBytes : SegAlignedP IsLoweringOp (flatBytes prog)` — UNCONDITIONAL, over
-  the total fold cache `matCache prog` (no fuel, no well-formedness hypothesis).
-
-The two named towers are then thin `abbrev`s of `SegAlignedP _`, and their whole-program /
-transport facts are one-line `.mono` corollaries — see `JumpValid`/`BoundaryReach`.
-
-No `sorry`, no `axiom`, no `native_decide`.
+Instruction alignment and its boundary transports are shared assembler geometry.
+This module defines the lowering-specific opcode predicate, proves it for each LIR
+emission form, and transports the assembler's whole-program alignment theorem to
+`flatBytes prog`.
 -/
 
 namespace Lir

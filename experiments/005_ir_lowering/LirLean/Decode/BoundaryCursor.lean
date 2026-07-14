@@ -4,84 +4,16 @@ import LirLean.Decode.BoundaryReach
 /-!
 # LirLean — byte-layout cursor inversion for lowered programs
 
-This module classifies an in-range byte offset of `flatBytes prog` by the source
-layout region that contains it: a block `JUMPDEST`, a byte inside one top-level
-statement emission, or a byte inside the block terminator emission.
-
-No `sorry`, no `axiom`, no `native_decide`.
+The generic byte cursor and its decode theorem live in the assembler geometry.
+This module retains the LIR adapter that classifies an in-range offset by its
+source layout region: a block entry, a byte inside one top-level statement
+emission, or a byte inside the block terminator emission.
 -/
 
 namespace Lir
 
 open Evm
 open BytecodeLayer.Asm
-
-/-! ## Terminal-suffix geometry -/
-
-/-- In an aligned prefix followed by a final byte, any earlier instruction boundary advances
-strictly before the segment end. -/
-theorem nextInstrPos_lt_of_segAlignedP_terminal {P : Operation → Prop} {c : ByteArray}
-    {pre : List UInt8} {last : UInt8} (hpre : SegAlignedP P pre) :
-    ∀ base : Nat,
-      (∀ j, j < (pre ++ [last]).length → c.get? (base + j) = (pre ++ [last])[j]?) →
-      ∀ n byte, Evm.ReachesBoundary c base n → n < base + (pre ++ [last]).length →
-        c.get? n = some byte → Evm.parseInstr byte ≠ Evm.parseInstr last →
-          Evm.nextInstrPosNat n (Evm.parseInstr byte) < base + (pre ++ [last]).length := by
-  induction hpre with
-  | nil =>
-      intro base hmatch n byte hreach hin hget hne
-      have hn : n = base := by
-        have hle := reachesBoundary_le hreach
-        simp only [List.nil_append, List.length_singleton] at hin
-        omega
-      subst n
-      have hhead := hmatch 0 (by simp)
-      simp at hhead
-      rw [hhead] at hget
-      cases hget
-      exact absurd rfl hne
-  | cons head imm rest himm _ hrest ih =>
-      intro base hmatch n byte hreach hin hget hne
-      have hshape : (head :: (imm ++ rest)) ++ [last]
-          = head :: (imm ++ (rest ++ [last])) := by simp [List.append_assoc]
-      rw [hshape] at hmatch hin
-      have hhead : c.get? base = some head := by
-        have h := hmatch 0 (by simp)
-        simpa using h
-      have hmatch' : ∀ j, j < (rest ++ [last]).length →
-          c.get? ((base + 1 + imm.length) + j) = (rest ++ [last])[j]? := by
-        intro j hj
-        have hj' : 1 + imm.length + j < (head :: (imm ++ (rest ++ [last]))).length := by
-          simp only [List.length_cons, List.length_append, List.length_nil] at hj ⊢
-          omega
-        have h := hmatch (1 + imm.length + j) hj'
-        rw [show base + (1 + imm.length + j) = (base + 1 + imm.length) + j from by omega] at h
-        rw [show 1 + imm.length + j = (imm.length + j) + 1 from by omega,
-          List.getElem?_cons_succ, List.getElem?_append_right (by omega),
-          show imm.length + j - imm.length = j from by omega] at h
-        exact h
-      cases hreach with
-      | refl _ =>
-          rw [hhead] at hget
-          cases hget
-          unfold Evm.nextInstrPosNat
-          rw [← himm]
-          simp only [List.length_cons, List.length_append] at hin ⊢
-          omega
-      | step hfirst hrestReach =>
-          rw [hhead] at hfirst
-          cases hfirst
-          have hnext : Evm.nextInstrPosNat base (Evm.parseInstr head)
-              = base + 1 + imm.length := by
-            unfold Evm.nextInstrPosNat
-            rw [himm]
-          rw [hnext] at hrestReach
-          have hin' : n < (base + 1 + imm.length) + (rest ++ [last]).length := by
-            simp only [List.length_cons, List.length_append] at hin ⊢
-            omega
-          have hlt := ih (base + 1 + imm.length) hmatch' n byte hrestReach hin' hget hne
-          simp only [List.length_cons, List.length_append] at hin hlt ⊢
-          omega
 
 /-- Every lowered block is an aligned prefix followed by its final halting or jumping opcode. -/
 theorem loweredBlock_terminal_decomp (prog : Program) (blk : Block) :
@@ -139,36 +71,6 @@ theorem loweredBlock_terminal_decomp (prog : Program) (blk : Block) :
         hcommon.append htermPre, Or.inr (Or.inr rfl)⟩
       simp [emitBlockBody, ht, emitTerm, stmts, termPre, cache, alloc, lo,
         List.append_assoc]
-
-/-! ## Generic list-region inversion -/
-
-theorem flatMap_index_inv {α β : Type _} (xs : List α) (f : α → List β) {k : Nat}
-    (hk : k < (xs.flatMap f).length) :
-    ∃ i a j, xs[i]? = some a ∧ j < (f a).length
-      ∧ k = ((xs.take i).flatMap f).length + j := by
-  induction xs generalizing k with
-  | nil =>
-      simp at hk
-  | cons x xs ih =>
-      simp only [List.flatMap_cons, List.length_append] at hk
-      by_cases hx : k < (f x).length
-      · refine ⟨0, x, k, by simp, hx, ?_⟩
-        simp
-      · have htail : k - (f x).length < (xs.flatMap f).length := by omega
-        obtain ⟨i, a, j, hget, hj, heq⟩ := ih htail
-        refine ⟨i + 1, a, j, ?_, hj, ?_⟩
-        · simpa using hget
-        · simp only [List.take_succ_cons, List.flatMap_cons, List.length_append]
-          omega
-
-theorem append_region_inv {α : Type _} (a b : List α) {k : Nat}
-    (hk : k < (a ++ b).length) :
-    k < a.length ∨ ∃ j, j < b.length ∧ k = a.length + j := by
-  by_cases ha : k < a.length
-  · exact Or.inl ha
-  · refine Or.inr ⟨k - a.length, ?_, by omega⟩
-    simp only [List.length_append] at hk
-    omega
 
 /-! ## Source cursor classification -/
 

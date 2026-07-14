@@ -2,32 +2,12 @@ import LirLean.Decode.LoweringLemmas
 import BytecodeLayer.Asm.Geometry
 
 /-!
-# LirLean — generic decode-from-lowering infrastructure (`decode_lower`, C3)
+# LirLean — decode adapters for lowered programs
 
-A concrete *worked* program's decode facts — `Evm.decode (lower workedCall) pc = expected`
-at every emitted pc — can be closed by kernel `rfl`. That is the C2 acceptance bar,
-but it is per-program: each new program reproves ≈40 `rfl`s. This module factors out
-the **program-independent core** of that reasoning so a decode fact follows from a
-purely *local* statement about the lowered byte list — the byte at the offset and
-(for pushes) the immediate window — rather than from a global kernel reduction.
+The list-backed decode facts are shared assembler geometry. This module relates
+`lower prog` to `flatBytes prog` and specializes those facts to the lowered-code
+representation consumed by the LIR proofs.
 
-The two foundation lemmas relate a list-backed `ByteArray` to its list:
-
-* `bget` — `ByteArray.get? ⟨l.toArray⟩ n = l[n]?` (the byte `decode` reads at `pc`);
-* `bextract` — `((⟨a⟩ : ByteArray).extract b e).data = a.extract b e` (the immediate
-  window `decode` slices for a PUSH).
-
-On top of them, the two generic decode lemmas (`decode_nonpush_of_list`,
-`decode_push_of_list`) compute `Evm.decode ⟨l.toArray⟩ (UInt32.ofNat n)` from
-`l[n]?` (and, for pushes, the `uInt256OfByteArray` of the immediate sublist). Since
-`lower prog = ⟨(flatBytes prog).toArray⟩` (`lower_eq_flatBytes`), discharging a
-decode obligation over `lower prog` reduces to the **byte-layout arithmetic**: which
-byte `flatBytes prog` holds at `pcOf prog L pc`. That prefix-sum/offset-table
-arithmetic lives in `Decode/Layout.lean`; these lemmas are the reusable bricks it
-feeds, and the bridge that lets the worked-program decode facts be stated
-list-locally instead of by whole-array `rfl`.
-
-No `sorry`, no `axiom`, no `native_decide`.
 -/
 
 namespace Lir
