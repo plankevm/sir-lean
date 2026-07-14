@@ -1,6 +1,7 @@
 import LirLean.RecorderLemmas
 import LirLean.Materialise.MaterialiseRuns
 import BytecodeLayer.Hoare.AccountMap
+import BytecodeLayer.Exec.Invariants
 
 open Lir.Frame
 open BytecodeLayer.Exec
@@ -41,6 +42,7 @@ open BytecodeLayer.Hoare
 open BytecodeLayer.System
 open BytecodeLayer.Maps
 open Lir
+open BytecodeLayer.Exec.Invariants
 
 /-! ## §1 — CALL: the recorded-CALL projection heads `evmV2CallEntry` (DISCHARGED)
 
@@ -332,95 +334,10 @@ theorem sloadRealises_charge_of_witness {sloadChg : Tmp → ℕ} {st : Lir.IRSta
   -- `sloadChg k = sloadCost (g.substate.accessedStorageKeys.contains (g.address, key))`.
   rw [htie g k key haddr hlk]
 
-/-! ## §5 — SSTORE: the account-presence world invariant `SelfPresent` (standalone discharge)
+abbrev SelfPresent := BytecodeLayer.Exec.Invariants.SelfPresent
 
-`SstoreRealises`'s third conjunct (`accounts.find? self = some acc`) is **not** a dispatch
-gate (SSTORE reads storage through `.option 0`, so it cannot come from step-inversion). It
-is a *world-wellformedness* fact: the executing (self) account is present in the frame's
-accounts throughout the run. We discharge it from a standalone invariant `SelfPresent`.
-
-`SelfPresent fr` says the self account is present in `fr`'s accounts. It holds at the entry
-`codeFrame` under world-wellformedness (the called account is present — code is loaded from
-it; `selfPresent_codeFrame`), and it is preserved by every value-channel post-frame
-(`addFrame`/`ltFrame`/`sloadFrame`/`gasFrame`/`pushFrameW` — the `.next` building blocks the
-SSTORE arm's internal frame `frk` is reached through), each of which leaves `accounts`
-untouched (`rfl`). The remaining wiring — threading `SelfPresent` through the
-`materialise_runsC`/`MatRunsC` sub-runs alongside the existing clauses — is the analogue of
-§3's walk-induction (reported below). The **point-of-use** discharge turns `SelfPresent` at the SSTORE frame into exactly the presence conjunct
-`SstoreRealises`/`sim_sstore` consumes there (`hsstore frk … |>.2.2`). -/
-
-/-- **The self-account-presence world invariant.** The frame's self (executing) account is
-present in its account map. The standalone wellformedness fact discharging
-`SstoreRealises`'s presence conjunct (which is not a dispatch gate). -/
-def SelfPresent (fr : Frame) : Prop :=
-  ∃ acc : Account, fr.exec.accounts.find? fr.exec.executionEnv.address = some acc
-
-/-! ### `SelfPresent ⇒ accounts ≠ ∅` (the non-emptiness conjunct of the halt ties)
-
-The halt terminator arms of a strengthened driver must emit
-the `¬ (accounts == ∅)` conjunct of the §7 terminator bundle. It is *derived* — not supplied — from
-`SelfPresent` (the self account
-is present in the map, so the map cannot be empty). The account-map fact is
-`find?_some_ne_empty` (a `find?` hit forces `¬ (m == ∅)`), a pure engine brick that lives in
-`BytecodeLayer/Hoare/AccountMap.lean` together with its RBMap prims (`forM_from_nil`/`all2_nil_false`). -/
-
-/-- **Thin bridge: `SelfPresent ⇒ accounts ≠ ∅`.** The exact non-emptiness conjunct the halt
-wrappers emit (T1 directly, T2 at the return endpoint `frv` after the P3 hop). -/
-theorem accounts_ne_empty_of_selfPresent {fr : Frame} (h : SelfPresent fr) :
-    ¬ (fr.exec.accounts == (∅ : Evm.AccountMap)) = true := by
-  obtain ⟨acc, hf⟩ := h
-  exact find?_some_ne_empty _ _ _ hf
-
-/-- **The revert/exception sub-case of `CallPreservesSelf`, structurally discharged.** When the child
-returns a result whose accounts are the caller's pre-call checkpoint map (the revert/exception shapes,
-via `endCall_revert_accounts`/`endCall_exception_accounts`), and the caller self was present there, the
-resumed frame keeps the self account present. Definitional: `resumeAfterCall` sets `exec.accounts :=
-result.accounts` and leaves `executionEnv` (hence `.address`) at the suspended caller's value — the
-hypothesis IS the conclusion up to `rfl`. This is the half of `CallPreservesSelf` that
-does **not** depend on the open `drive_accounts_find_mono`; the `.success` shape still does (and so the
-full `CallPreservesSelf` stays supplied — satisfiable, not vacuous). -/
-theorem resumeAfterCall_self_of_accounts (result : Evm.CallResult) (pd : Evm.PendingCall)
-    (h : ∃ acc, result.accounts.find? pd.frame.exec.executionEnv.address = some acc) :
-    SelfPresent (Evm.resumeAfterCall result pd) := h
-
-/-! ### `SelfPresent` at the entry `codeFrame` (world-wellformedness)
-
-The entry frame's accounts are `codeAccounts params` (`beginCall`'s value-transfer map) and
-the self address is `params.recipient`. The recipient is present whenever the pre-call world
-has it (`params.accounts.find? recipient = some _`) — the natural wellformedness assumption
-(you run code *from* an existing account): the credit branch re-inserts it. (`codeAccounts`
-may also create it when `value ≠ 0`; we take the present-in-`params.accounts` form, the one
-a wellformed top-level call satisfies.) -/
-
-/-- **`SelfPresent` at the entry frame** under world-wellformedness. If the called account
-`params.recipient` is present in the pre-call world, it is present in the entry
-`codeFrame`'s accounts (`codeAccounts` re-inserts the credited recipient), so
-`SelfPresent (codeFrame params code)`. The base case of the reachability invariant. -/
-theorem selfPresent_codeFrame (params : Evm.CallParams) (code : ByteArray) {acc : Account}
-    (hwf : params.accounts.find? params.recipient = some acc) :
-    SelfPresent (codeFrame params code) := by
-  -- `SelfPresent` only needs *existence*; show the recipient lookup is `some _` after the
-  -- credit (and after the caller-debit, which either overwrites at `recipient` or is `ne`).
-  show ∃ a, (codeAccounts params).find? params.recipient = some a
-  unfold codeAccounts
-  -- the recipient was present (`hwf`), so the credit `match` reduces to the credit insert.
-  simp only [hwf]
-  -- reading `recipient` back after the credit insert is `some _`.
-  have hrec₁ : (params.accounts.insert params.recipient
-        { acc with balance := acc.balance + params.value }).find? params.recipient
-      = some { acc with balance := acc.balance + params.value } :=
-    accounts_find?_insert_self params.accounts params.recipient _
-  -- the caller-debit `match` on `…find? caller`: `none` ⇒ the credited map; `some _` ⇒ debit insert.
-  cases hcal : (params.accounts.insert params.recipient
-      { acc with balance := acc.balance + params.value }).find? params.caller with
-  | none => exact ⟨_, hrec₁⟩
-  | some cacc =>
-    -- caller-debit insert: reading `recipient` is `some _` whether caller = recipient (overwrite)
-    -- or caller ≠ recipient (lookup unchanged) — case on the addresses.
-    by_cases hcr : params.caller = params.recipient
-    · rw [hcr]; exact ⟨_, accounts_find?_insert_self _ params.recipient _⟩
-    · rw [accounts_find?_insert_of_ne _ _ (fun hc => hcr hc.symm)]
-      exact ⟨_, hrec₁⟩
+export BytecodeLayer.Exec.Invariants
+  (accounts_ne_empty_of_selfPresent resumeAfterCall_self_of_accounts selfPresent_codeFrame)
 
 end Lir
 

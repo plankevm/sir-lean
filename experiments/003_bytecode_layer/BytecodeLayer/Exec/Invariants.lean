@@ -2,6 +2,8 @@ import Evm
 import Batteries.Data.RBMap
 import Batteries.Classes.Order
 import BytecodeLayer.Semantics.Maps
+import BytecodeLayer.Hoare.AccountMap
+import BytecodeLayer.Semantics.System
 
 /-!
 # `RBMap` erase read-back bricks (proof-internal)
@@ -215,3 +217,43 @@ theorem findD_erase_of_ne (s : Storage) {k' k : UInt256} (h : k' ≠ k) :
   simp only [RBMap.findEntry?, RBSet.findP?, RBMap.erase, RBSet.erase, hfr]
 
 end Evm.Storage
+
+namespace BytecodeLayer.Exec.Invariants
+
+open Evm
+open BytecodeLayer.Hoare
+open BytecodeLayer.Maps
+open BytecodeLayer.System
+
+def SelfPresent (fr : Frame) : Prop :=
+  ∃ acc : Account, fr.exec.accounts.find? fr.exec.executionEnv.address = some acc
+
+theorem accounts_ne_empty_of_selfPresent {fr : Frame} (h : SelfPresent fr) :
+    ¬ (fr.exec.accounts == (∅ : Evm.AccountMap)) = true := by
+  obtain ⟨acc, hf⟩ := h
+  exact find?_some_ne_empty _ _ _ hf
+
+theorem resumeAfterCall_self_of_accounts (result : Evm.CallResult) (pd : Evm.PendingCall)
+    (h : ∃ acc, result.accounts.find? pd.frame.exec.executionEnv.address = some acc) :
+    SelfPresent (Evm.resumeAfterCall result pd) := h
+
+theorem selfPresent_codeFrame (params : Evm.CallParams) (code : ByteArray) {acc : Account}
+    (hwf : params.accounts.find? params.recipient = some acc) :
+    SelfPresent (codeFrame params code) := by
+  show ∃ a, (codeAccounts params).find? params.recipient = some a
+  unfold codeAccounts
+  simp only [hwf]
+  have hrec₁ : (params.accounts.insert params.recipient
+        { acc with balance := acc.balance + params.value }).find? params.recipient
+      = some { acc with balance := acc.balance + params.value } :=
+    accounts_find?_insert_self params.accounts params.recipient _
+  cases hcal : (params.accounts.insert params.recipient
+      { acc with balance := acc.balance + params.value }).find? params.caller with
+  | none => exact ⟨_, hrec₁⟩
+  | some cacc =>
+    by_cases hcr : params.caller = params.recipient
+    · rw [hcr]; exact ⟨_, accounts_find?_insert_self _ params.recipient _⟩
+    · rw [accounts_find?_insert_of_ne _ _ (fun hc => hcr hc.symm)]
+      exact ⟨_, hrec₁⟩
+
+end BytecodeLayer.Exec.Invariants

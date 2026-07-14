@@ -24,7 +24,7 @@ the run); its three flagships are closed and checked from an importing axiom-aud
 `docs/exec/audit-net.md`.
 -/
 
-/-- info: 'Lir.callPreservesSelf_modGuards' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+/-- info: 'BytecodeLayer.Exec.Invariants.callPreservesSelf_modGuards' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms Lir.callPreservesSelf_modGuards
 
@@ -36,7 +36,7 @@ the run); its three flagships are closed and checked from an importing axiom-aud
 #guard_msgs in
 #print axioms Lir.cleanHalts_of_runWithLog
 
-/-- info: 'Lir.stepPreservesSelf' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+/-- info: 'BytecodeLayer.Exec.Invariants.stepPreservesSelf' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in
 #print axioms Lir.stepPreservesSelf
 
