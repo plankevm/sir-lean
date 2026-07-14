@@ -55,8 +55,7 @@ def eval_terminator (program : Program) :
   | .halt => modify (fun state => { state with control := .halted })
   | .jump target => eval_jump program target
   | .branch condition thenTarget elseTarget => do
-      let state ← get
-      let value ← state.locals.lookup condition
+      let value ← Locals.lookupM condition
       eval_jump program (if value = 0 then elseTarget else thenTarget)
 
 end Sir
