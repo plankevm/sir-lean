@@ -80,6 +80,29 @@ theorem ReachesBoundary.trans {c : ByteArray} {a m n : Nat}
   | refl _ => exact h2
   | step hget _ ih => exact .step hget (ih h2)
 
+theorem ReachesBoundary.tail_of_le {c : ByteArray} {start a b : Nat}
+    (ha : ReachesBoundary c start a) (hb : ReachesBoundary c start b)
+    (hab : a ≤ b) : ReachesBoundary c a b := by
+  induction ha generalizing b with
+  | refl _ => exact hb
+  | step hget rest ih =>
+      cases hb with
+      | refl _ =>
+          have hnext := reachesBoundary_le rest
+          exact absurd hab (by unfold nextInstrPosNat at hnext; omega)
+      | step hget' rest' =>
+          rw [hget] at hget'
+          cases hget'
+          exact ih rest' hab
+
+theorem ReachesBoundary.eq_or_step {c : ByteArray} {start finish : Nat}
+    (h : ReachesBoundary c start finish) :
+    start = finish ∨ ∃ byte, c.get? start = some byte ∧
+      ReachesBoundary c (nextInstrPosNat start (Evm.parseInstr byte)) finish := by
+  cases h with
+  | refl _ => exact Or.inl rfl
+  | step hget rest => exact Or.inr ⟨_, hget, rest⟩
+
 inductive SegAlignedP (P : Operation → Prop) : List UInt8 → Prop where
   | nil : SegAlignedP P []
   | cons (byte : UInt8) (imm rest : List UInt8)
@@ -564,6 +587,22 @@ def cursorPc (program : AsmProgram) (label index : Nat) : Nat :=
     | some block => ((block.body.take index).map AsmInstr.byteLength).sum
     | none => 0
 
+theorem cursorPc_succ (program : AsmProgram) (label index : Nat)
+    (block : AsmBlock) (instr : AsmInstr)
+    (hb : program.blocks.toList[label]? = some block)
+    (hi : block.body[index]? = some instr) :
+    cursorPc program label (index + 1) =
+      cursorPc program label index + instr.byteLength := by
+  have hlt : index < block.body.length := by
+    by_contra h
+    rw [List.getElem?_eq_none (by omega)] at hi
+    contradiction
+  unfold cursorPc
+  simp only [hb]
+  rw [List.take_add_one, List.map_append, List.sum_append]
+  simp [hi]
+  omega
+
 def decodedInstr (program : AsmProgram) : AsmInstr →
     Operation × Option (UInt256 × UInt8)
   | .push value => (.PUSH32, some (value, 32))
@@ -662,6 +701,111 @@ theorem assemble_at_cursor (program : AsmProgram) (label index : Nat)
   rw [assemble_get?_eq]
   exact bytes_at_cursor program label index block instr hb hi k hk
 
+theorem reaches_cursorPc (program : AsmProgram) (label index : Nat)
+    (block : AsmBlock) (hb : program.blocks.toList[label]? = some block)
+    (hi : index ≤ block.body.length) :
+    ReachesBoundary (assemble program) 0 (cursorPc program label index) := by
+  induction index with
+  | zero =>
+      have hentry := reaches_blockOffset program label (by
+        have hlt : label < program.blocks.toList.length := by
+          by_contra h
+          rw [List.getElem?_eq_none (by omega)] at hb
+          contradiction
+        simpa using Nat.le_of_lt hlt)
+      have hget := assemble_byte_at_blockOffset program label block hb
+      have hnext := reachesBoundary_nextInstr hentry hget
+      simpa [cursorPc, hb, nextInstrPosNat, Evm.pushArgWidth] using hnext
+  | succ n ih =>
+      have hnlt : n < block.body.length := by omega
+      let instr := block.body[n]
+      have hinstr : block.body[n]? = some instr := by
+        rw [List.getElem?_eq_getElem hnlt]
+      have hprev := ih (by omega)
+      have hhead := assemble_at_cursor program label n block instr hb hinstr 0 (by
+        cases instr <;> simp [encodeInstr])
+      cases hins : instr with
+      | push value =>
+          have hget : (assemble program).get? (cursorPc program label n) = some 0x7f := by
+            simpa [hins, encodeInstr] using hhead
+          have hnext := reachesBoundary_nextInstr hprev hget
+          rw [cursorPc_succ program label n block (.push value) hb (by simpa [hins] using hinstr)]
+          simpa [AsmInstr.byteLength, nextInstrPosNat, Evm.pushArgWidth] using hnext
+      | pushLabel target =>
+          have hget : (assemble program).get? (cursorPc program label n) = some 0x63 := by
+            simpa [hins, encodeInstr] using hhead
+          have hnext := reachesBoundary_nextInstr hprev hget
+          rw [cursorPc_succ program label n block (.pushLabel target) hb
+            (by simpa [hins] using hinstr)]
+          simpa [AsmInstr.byteLength, nextInstrPosNat, Evm.pushArgWidth] using hnext
+      | op operation =>
+          have hget : (assemble program).get? (cursorPc program label n) =
+              some operation.byte := by
+            simpa [hins, encodeInstr] using hhead
+          have hnext := reachesBoundary_nextInstr hprev hget
+          rw [cursorPc_succ program label n block (.op operation) hb
+            (by simpa [hins] using hinstr)]
+          cases operation <;>
+            simpa [AsmInstr.byteLength, nextInstrPosNat, Evm.pushArgWidth, Op.byte] using hnext
+
+theorem reachable_instr_offset_eq_zero (program : AsmProgram) (label index : Nat)
+    (block : AsmBlock) (instr : AsmInstr) (offset : Nat)
+    (hb : program.blocks.toList[label]? = some block)
+    (hi : block.body[index]? = some instr)
+    (hoffset : offset < (encodeInstr (blockOffset program) instr).length)
+    (hreach : ReachesBoundary (assemble program) 0
+      (cursorPc program label index + offset)) :
+    offset = 0 := by
+  have hindex : index ≤ block.body.length := by
+    by_contra h
+    rw [List.getElem?_eq_none (by omega)] at hi
+    contradiction
+  have hcursor := reaches_cursorPc program label index block hb hindex
+  let cursor := cursorPc program label index
+  have htail : ReachesBoundary (assemble program) cursor (cursor + offset) :=
+    ReachesBoundary.tail_of_le hcursor hreach (by simp [cursor])
+  rcases ReachesBoundary.eq_or_step htail with heq | ⟨_, hget, rest⟩
+  · omega
+  ·
+      change (assemble program).get? (cursorPc program label index) = _ at hget
+      have hhead := assemble_at_cursor program label index block instr hb hi 0 (by
+        cases instr <;> simp [encodeInstr])
+      have hle := reachesBoundary_le rest
+      cases hins : instr with
+      | push value =>
+          have hbyte : (assemble program).get? (cursorPc program label index) = some 0x7f := by
+            simpa [hins, encodeInstr] using hhead
+          rw [hbyte] at hget
+          cases hget
+          have hw : Evm.pushArgWidth (Evm.parseInstr (0x7f : UInt8)) = 32 := rfl
+          unfold nextInstrPosNat at hle
+          rw [hw] at hle
+          have h32 : (32 : UInt8).toNat = 32 := rfl
+          rw [h32] at hle
+          simp [hins, encodeInstr, BytecodeLayer.Exec.wordBytesBE] at hoffset
+          omega
+      | pushLabel target =>
+          have hbyte : (assemble program).get? (cursorPc program label index) = some 0x63 := by
+            simpa [hins, encodeInstr] using hhead
+          rw [hbyte] at hget
+          cases hget
+          have hw : Evm.pushArgWidth (Evm.parseInstr (0x63 : UInt8)) = 4 := rfl
+          unfold nextInstrPosNat at hle
+          rw [hw] at hle
+          have h4 : (4 : UInt8).toNat = 4 := rfl
+          rw [h4] at hle
+          simp [hins, encodeInstr, BytecodeLayer.Exec.offsetBytesBE] at hoffset
+          omega
+      | op operation =>
+          have hbyte : (assemble program).get? (cursorPc program label index) =
+              some operation.byte := by
+            simpa [hins, encodeInstr] using hhead
+          rw [hbyte] at hget
+          cases hget
+          cases operation <;>
+            simp [nextInstrPosNat, Evm.pushArgWidth, Op.byte, hins, encodeInstr] at hle hoffset <;>
+            omega
+
 theorem decode_at_cursor (program : AsmProgram) (label index : Nat)
     (block : AsmBlock) (instr : AsmInstr)
     (hb : program.blocks.toList[label]? = some block)
@@ -743,6 +887,7 @@ theorem decode_at_cursor (program : AsmProgram) (label index : Nat)
 /-- Frame-level block entry, including the code and valid-jump geometry. -/
 def AtEntry (program : AsmProgram) (fr : Frame) (label : Nat)
     (stack : List UInt256) : Prop :=
+  (∃ block, program.blocks.toList[label]? = some block) ∧
   fr.exec.executionEnv.code = assemble program ∧
   fr.exec.pc = UInt32.ofNat (blockOffset program label) ∧
   fr.validJumps = validJumpDests (assemble program) 0 ∧
@@ -751,6 +896,8 @@ def AtEntry (program : AsmProgram) (fr : Frame) (label : Nat)
 /-- Frame-level instruction cursor, including the code and valid-jump geometry. -/
 def AtCursor (program : AsmProgram) (fr : Frame) (label index : Nat)
     (stack : List UInt256) : Prop :=
+  (∃ block instr, program.blocks.toList[label]? = some block ∧
+    block.body[index]? = some instr) ∧
   fr.exec.executionEnv.code = assemble program ∧
   fr.exec.pc = UInt32.ofNat (cursorPc program label index) ∧
   fr.validJumps = validJumpDests (assemble program) 0 ∧
@@ -803,5 +950,61 @@ theorem reachable_boundary_asmOp (program : AsmProgram) (n : Nat)
     simpa using assemble_get?_eq program j
   · exact hreach
   · simpa using hn
+
+/-- The set of byte offsets at which the assembler places block-entry `JUMPDEST`s. -/
+def entryPcSet (program : AsmProgram) : Set UInt32 :=
+  { pc | ∃ label, label < program.blocks.size ∧
+      pc = UInt32.ofNat (blockOffset program label) }
+
+/-- The assembler's valid jump destinations are exactly its block-entry offsets. -/
+theorem mem_validJumpDests_assemble_iff (program : AsmProgram) (x : UInt32) :
+    x ∈ validJumpDests (assemble program) 0 ↔ x ∈ entryPcSet program := by
+  constructor
+  · intro hx
+    rw [validJumpDests] at hx
+    rcases mem_validJumpDestsAuxNat_inv (assemble program) 0 #[] hx with
+      hnil | ⟨position, byte, hreach, hxpos, hlt, hget, hjumpdest⟩
+    · exact absurd hnil (by simp)
+    · have hin : position < (bytes program).length := by
+        simpa [assemble, ByteArray.size] using hlt
+      cases bytes_cursor_cases hin with
+      | blockEntry label block hb heq =>
+          refine ⟨label, ?_, ?_⟩
+          · have hlabel : label < program.blocks.toList.length := by
+              by_contra h
+              rw [List.getElem?_eq_none (by omega)] at hb
+              contradiction
+            simpa using hlabel
+          · rw [hxpos, heq]
+      | instr label block index instr offset hb hi hoffset heq =>
+          have hoffset0 := reachable_instr_offset_eq_zero program label index block instr offset
+            hb hi hoffset (by rwa [← heq])
+          subst offset
+          rw [heq, Nat.add_zero] at hget
+          have hhead := assemble_at_cursor program label index block instr hb hi 0 (by
+            cases instr <;> simp [encodeInstr])
+          simp only [Nat.add_zero] at hhead
+          cases hins : instr with
+          | push value =>
+              have hbyte : (assemble program).get? (cursorPc program label index) = some 0x7f := by
+                simpa [hins, encodeInstr] using hhead
+              rw [hbyte] at hget
+              cases hget
+              contradiction
+          | pushLabel target =>
+              have hbyte : (assemble program).get? (cursorPc program label index) = some 0x63 := by
+                simpa [hins, encodeInstr] using hhead
+              rw [hbyte] at hget
+              cases hget
+              contradiction
+          | op operation =>
+              have hbyte : (assemble program).get? (cursorPc program label index) =
+                  some operation.byte := by
+                simpa [hins, encodeInstr] using hhead
+              rw [hbyte] at hget
+              cases hget
+              cases operation <;> contradiction
+  · rintro ⟨label, hlabel, rfl⟩
+    exact blockOffset_validJump program label hlabel
 
 end BytecodeLayer.Asm

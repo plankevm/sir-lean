@@ -2,8 +2,8 @@
 
 ## TL;DR
 
-**Pass on the C3 extraction, with one medium-severity API precondition gap before the cursor
-predicates become proof inputs.** Commits `f6419443` and
+**Pass on the C3 extraction; the two medium findings raised during review are resolved in the
+review cleanup.** Commits `f6419443` and
 `1ddc2e87` move the reusable list/decode, alignment, valid-jump, block-offset, and cursor facts into
 the IR-free [assembler geometry module](../../EVM/BytecodeLayer/Asm/Geometry.lean#L1). The principal
 LIR block-placement results are now short transports through
@@ -17,21 +17,21 @@ command.
 
 ## Findings, by severity
 
-### Medium — cursor predicates do not assert that their cursors exist
+### Resolved during review — cursor predicates now assert that their cursors exist
 
-[`AtEntry`](../../EVM/BytecodeLayer/Asm/Geometry.lean#L744) and
-[`AtCursor`](../../EVM/BytecodeLayer/Asm/Geometry.lean#L752) package the intended four frame fields,
-but neither includes a block-membership or instruction-membership witness. This matters because
-[`cursorPc`](../../EVM/BytecodeLayer/Asm/Geometry.lean#L561) uses a zero default for a missing label
-and a saturating list prefix for an oversized instruction index. Consequently the predicates can be
-inhabited for a nonexistent block or instruction; by themselves they do not justify applying
-[`decode_at_cursor`](../../EVM/BytecodeLayer/Asm/Geometry.lean#L665), whose statement correctly
-requires both membership witnesses.
+[`AtEntry`](../../EVM/BytecodeLayer/Asm/Geometry.lean#L888) now carries a block-membership witness,
+and [`AtCursor`](../../EVM/BytecodeLayer/Asm/Geometry.lean#L897) carries both block and instruction
+membership. The predicates therefore cannot be inhabited for the missing-label or oversized-index
+cases admitted by the total
+[`cursorPc`](../../EVM/BytecodeLayer/Asm/Geometry.lean#L584) function, and their witnesses are exactly
+the premises required by
+[`decode_at_cursor`](../../EVM/BytecodeLayer/Asm/Geometry.lean#L809).
 
 ```lean
 /-- Frame-level block entry, including the code and valid-jump geometry. -/
 def AtEntry (program : AsmProgram) (fr : Frame) (label : Nat)
     (stack : List UInt256) : Prop :=
+  (∃ block, program.blocks.toList[label]? = some block) ∧
   fr.exec.executionEnv.code = assemble program ∧
   fr.exec.pc = UInt32.ofNat (blockOffset program label) ∧
   fr.validJumps = validJumpDests (assemble program) 0 ∧
@@ -40,15 +40,16 @@ def AtEntry (program : AsmProgram) (fr : Frame) (label : Nat)
 /-- Frame-level instruction cursor, including the code and valid-jump geometry. -/
 def AtCursor (program : AsmProgram) (fr : Frame) (label index : Nat)
     (stack : List UInt256) : Prop :=
+  (∃ block instr, program.blocks.toList[label]? = some block ∧
+    block.body[index]? = some instr) ∧
   fr.exec.executionEnv.code = assemble program ∧
   fr.exec.pc = UInt32.ofNat (cursorPc program label index) ∧
   fr.validJumps = validJumpDests (assemble program) 0 ∧
   fr.exec.stack = stack
 ```
 
-No current theorem outside the geometry module consumes either predicate, so no flagship depends on
-this gap. Before the planned landing algebra uses them, add validity to the predicates or pair them
-with explicit well-formed-cursor premises in every public consumer.
+No current theorem outside the geometry module consumes either predicate, so strengthening them
+does not churn the LIR proof surface or any flagship.
 
 ### Resolved during review — dead aliases and stale narration
 
@@ -65,16 +66,25 @@ alignment ladder, so keeping that policy in the adapter is defensible. The C3 ta
 [`Layout.lean`](../../experiments/005_ir_lowering/LirLean/Decode/Layout.lean#L3) is historical but not
 itself a false status claim.
 
-### Medium — exact jump-destination characterization is not yet exported
+### Resolved during review — valid jump destinations are exactly block entries
 
-The design sketch asks for an exact assembler theorem equating valid jump destinations with block
-entries. C3 proves the sound direction
-[`blockOffset_validJump`](../../EVM/BytecodeLayer/Asm/Geometry.lean#L536), plus the generic scan
-inversion
-[`reachesBoundary_of_mem_validJumpDests`](../../EVM/BytecodeLayer/Asm/Geometry.lean#L401), but does
-not close those facts into a label-indexed completeness theorem. This does not invalidate the
-ported LIR theorem, which only needs the sound direction, but it leaves the assembler surface short
-of the design-of-record equality. Close it before claiming the full static geometry API complete.
+[`entryPcSet`](../../EVM/BytecodeLayer/Asm/Geometry.lean#L955) is the label-indexed set of in-range
+block offsets, and
+[`mem_validJumpDests_assemble_iff`](../../EVM/BytecodeLayer/Asm/Geometry.lean#L960) proves the exact
+design-record characterization. The completeness direction uses the scan inversion, structured
+byte classification, and the fact that a reachable position inside one encoded instruction has
+zero local offset; the reverse direction is the existing block-entry soundness theorem.
+
+```lean
+/-- The set of byte offsets at which the assembler places block-entry `JUMPDEST`s. -/
+def entryPcSet (program : AsmProgram) : Set UInt32 :=
+  { pc | ∃ label, label < program.blocks.size ∧
+      pc = UInt32.ofNat (blockOffset program label) }
+
+/-- The assembler's valid jump destinations are exactly its block-entry offsets. -/
+theorem mem_validJumpDests_assemble_iff (program : AsmProgram) (x : UInt32) :
+    x ∈ validJumpDests (assemble program) 0 ↔ x ∈ entryPcSet program := by
+```
 
 The current body-only shape of
 [`AsmBlock`](../../EVM/BytecodeLayer/Asm.lean#L53)—terminators are ordinary instructions inside the
@@ -109,7 +119,7 @@ def assemble (program : AsmProgram) : ByteArray :=
 ```
 
 The reusable alignment judgment is now
-[`SegAlignedP`](../../EVM/BytecodeLayer/Asm/Geometry.lean#L83), independent of any IR:
+[`SegAlignedP`](../../EVM/BytecodeLayer/Asm/Geometry.lean#L106), independent of any IR:
 
 ```lean
 inductive SegAlignedP (P : Operation → Prop) : List UInt8 → Prop where
@@ -128,12 +138,12 @@ This supports three main layers:
    [`decode_push_of_list`](../../EVM/BytecodeLayer/Asm/Geometry.lean#L48), aligned-segment boundary
    transports, and list-region inversion.
 2. Whole-program geometry: assembler alignment, block splitting and prefix lengths,
-   [`reaches_blockOffset`](../../EVM/BytecodeLayer/Asm/Geometry.lean#L505), block-entry validity, and
+   [`reaches_blockOffset`](../../EVM/BytecodeLayer/Asm/Geometry.lean#L528), block-entry validity, and
    block-entry decoding.
 3. Structured cursors: byte positions, instruction decoding, and reachable-opcode classification.
 
 The strongest new instruction-cursor specification is
-[`decode_at_cursor`](../../EVM/BytecodeLayer/Asm/Geometry.lean#L665):
+[`decode_at_cursor`](../../EVM/BytecodeLayer/Asm/Geometry.lean#L809):
 
 ```lean
 theorem decode_at_cursor (program : AsmProgram) (label index : Nat)
@@ -147,8 +157,8 @@ theorem decode_at_cursor (program : AsmProgram) (label index : Nat)
 
 It covers ordinary operations, literal `PUSH32`, and relocated `PUSH4`. The exhaustive byte
 classifier is
-[`ByteCursor`](../../EVM/BytecodeLayer/Asm/Geometry.lean#L760), and the boundary-level consequence
-is [`reachable_boundary_asmOp`](../../EVM/BytecodeLayer/Asm/Geometry.lean#L796):
+[`ByteCursor`](../../EVM/BytecodeLayer/Asm/Geometry.lean#L907), and the boundary-level consequence
+is [`reachable_boundary_asmOp`](../../EVM/BytecodeLayer/Asm/Geometry.lean#L943):
 
 ```lean
 inductive ByteCursor (program : AsmProgram) (position : Nat) : Prop where
@@ -322,9 +332,9 @@ theorem lower_conforms_gasfree {prog : Program} {params : CallParams} {log : Run
 
 ## Recommendation
 
-Accept the C3 re-indexing with the review cleanup applied. Treat cursor validity and the exact
-valid-jump-set theorem as explicit prerequisites for
-the later landing/cyclic-simulation work; neither currently affects a flagship. No proof smell
+Accept the C3 re-indexing with the review cleanup applied. Cursor validity and exact valid-jump-set
+characterization are now part of the assembler surface, with no remaining C3 geometry deferral.
+No proof smell
 introduced by these commits reaches a headline: the new proofs use structural induction, list
 decomposition, arithmetic, and small decidable opcode facts, with no heartbeat crank in the new
 geometry module.
