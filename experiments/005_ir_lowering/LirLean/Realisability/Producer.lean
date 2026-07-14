@@ -2602,7 +2602,7 @@ theorem driveLogStep_of_block {prog : Program} {sloadChg : Tmp → ℕ} {log : R
       have hemit : emitTerm (matCache prog)
           (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term
           = emitDest off ++ [Byte.jump] := by rw [ht]; rfl
-      have hedlen : (emitDest off).length = 5 := by simp [emitDest, offsetBytesBE]
+      have hedlen : (emitDest off).length = 5 := by simp [emitDest, BytecodeLayer.Exec.offsetBytesBE]
       have htermlen : (emitTerm (matCache prog)
           (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term).length = 6 := by
         rw [hemit, List.length_append, hedlen]; rfl

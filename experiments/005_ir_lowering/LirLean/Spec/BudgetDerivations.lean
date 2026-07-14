@@ -162,7 +162,7 @@ theorem bound_jump_of_codeFits (prog : Program) (hcode : codeFits prog) :
   refine ⟨?_, offsetTable_lt_of_codeFits prog hcode dst.idx⟩
   have hle := termOf_emit_le prog L b hb
   rw [hterm] at hle
-  simp only [Lir.emitTerm, Lir.emitDest, Lir.offsetBytesBE, List.length_append,
+  simp only [Lir.emitTerm, Lir.emitDest, BytecodeLayer.Exec.offsetBytesBE, List.length_append,
     List.length_cons, List.length_nil] at hle
   omega
 
@@ -178,7 +178,7 @@ theorem bound_branch_of_codeFits (prog : Program) (hcode : codeFits prog) :
     offsetTable_lt_of_codeFits prog hcode elseL.idx⟩
   have hle := termOf_emit_le prog L b hb
   rw [hterm] at hle
-  simp only [Lir.emitTerm, Lir.emitDest, Lir.offsetBytesBE, List.length_append,
+  simp only [Lir.emitTerm, Lir.emitDest, BytecodeLayer.Exec.offsetBytesBE, List.length_append,
     List.length_cons, List.length_nil] at hle
   omega
 

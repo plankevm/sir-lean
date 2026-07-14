@@ -217,16 +217,16 @@ concrete lowering byte (`decide` discharges `IsLoweringOp (parseInstr byte)` for
 and the immediate widths match `pushArgWidth` by construction. -/
 
 theorem segAlignedP_emitImm (w : Word) : SegAlignedP IsLoweringOp (emitImm w) := by
-  refine SegAlignedP.push Byte.push32 (wordBytesBE w) ?_ (by decide)
-  show (wordBytesBE w).length = (Evm.pushArgWidth (Evm.parseInstr Byte.push32)).toNat
+  refine SegAlignedP.push Byte.push32 (BytecodeLayer.Exec.wordBytesBE w) ?_ (by decide)
+  show (BytecodeLayer.Exec.wordBytesBE w).length = (Evm.pushArgWidth (Evm.parseInstr Byte.push32)).toNat
   rw [show Evm.parseInstr Byte.push32 = .Push .PUSH32 from rfl]
-  simp [wordBytesBE, Evm.pushArgWidth]
+  simp [BytecodeLayer.Exec.wordBytesBE, Evm.pushArgWidth]
 
 theorem segAlignedP_emitDest (off : Nat) : SegAlignedP IsLoweringOp (emitDest off) := by
-  refine SegAlignedP.push Byte.push4 (offsetBytesBE off) ?_ (by decide)
-  show (offsetBytesBE off).length = (Evm.pushArgWidth (Evm.parseInstr Byte.push4)).toNat
+  refine SegAlignedP.push Byte.push4 (BytecodeLayer.Exec.offsetBytesBE off) ?_ (by decide)
+  show (BytecodeLayer.Exec.offsetBytesBE off).length = (Evm.pushArgWidth (Evm.parseInstr Byte.push4)).toNat
   rw [show Evm.parseInstr Byte.push4 = .Push .PUSH4 from rfl]
-  simp [offsetBytesBE, Evm.pushArgWidth]
+  simp [BytecodeLayer.Exec.offsetBytesBE, Evm.pushArgWidth]
 
 theorem segAlignedP_slot (slot : Nat) :
     SegAlignedP IsLoweringOp (emitImm (UInt256.ofNat slot) ++ [Byte.mload]) :=

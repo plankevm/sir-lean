@@ -46,7 +46,7 @@ fixed-width `PUSH4` regardless of the destination value. -/
 theorem emitTerm_length_labelOff (cache : Tmp → List UInt8)
     (lo1 lo2 : Nat → Nat) (t : Term) :
     (emitTerm cache lo1 t).length = (emitTerm cache lo2 t).length := by
-  cases t <;> simp [emitTerm, emitDest, offsetBytesBE]
+  cases t <;> simp [emitTerm, emitDest, BytecodeLayer.Exec.offsetBytesBE]
 
 /-- `emitBlockBody`'s byte length does not depend on the offset table (only its
 terminator's destination pushes use it, and those are fixed-width). -/

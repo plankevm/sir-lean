@@ -56,16 +56,16 @@ theorem noCallCreate_of_byte (byte : UInt8) (h : NoCallCreateOp (Evm.parseInstr 
       ∧ Evm.parseInstr byte ≠ .System .CREATE2 := h
 
 theorem segAlignedNoCall_emitImm (w : Word) : SegAlignedP NoCallCreateOp (emitImm w) := by
-  refine SegAlignedP.push Byte.push32 (wordBytesBE w) ?_ (by decide)
-  show (wordBytesBE w).length = (Evm.pushArgWidth (Evm.parseInstr Byte.push32)).toNat
+  refine SegAlignedP.push Byte.push32 (BytecodeLayer.Exec.wordBytesBE w) ?_ (by decide)
+  show (BytecodeLayer.Exec.wordBytesBE w).length = (Evm.pushArgWidth (Evm.parseInstr Byte.push32)).toNat
   rw [show Evm.parseInstr Byte.push32 = .Push .PUSH32 from rfl]
-  simp [wordBytesBE, Evm.pushArgWidth]
+  simp [BytecodeLayer.Exec.wordBytesBE, Evm.pushArgWidth]
 
 theorem segAlignedNoCall_emitDest (off : Nat) : SegAlignedP NoCallCreateOp (emitDest off) := by
-  refine SegAlignedP.push Byte.push4 (offsetBytesBE off) ?_ (by decide)
-  show (offsetBytesBE off).length = (Evm.pushArgWidth (Evm.parseInstr Byte.push4)).toNat
+  refine SegAlignedP.push Byte.push4 (BytecodeLayer.Exec.offsetBytesBE off) ?_ (by decide)
+  show (BytecodeLayer.Exec.offsetBytesBE off).length = (Evm.pushArgWidth (Evm.parseInstr Byte.push4)).toNat
   rw [show Evm.parseInstr Byte.push4 = .Push .PUSH4 from rfl]
-  simp [offsetBytesBE, Evm.pushArgWidth]
+  simp [BytecodeLayer.Exec.offsetBytesBE, Evm.pushArgWidth]
 
 theorem segAlignedNoCall_slot (slot : Nat) :
     SegAlignedP NoCallCreateOp (emitImm (UInt256.ofNat slot) ++ [Byte.mload]) :=
@@ -762,16 +762,16 @@ private instance (op : Operation) : Decidable (NoGasOp op) := by
   infer_instance
 
 private theorem segAlignedNoGas_emitImm (w : Word) : SegAlignedP NoGasOp (emitImm w) := by
-  refine SegAlignedP.push Byte.push32 (wordBytesBE w) ?_ (by decide)
-  show (wordBytesBE w).length = (Evm.pushArgWidth (Evm.parseInstr Byte.push32)).toNat
+  refine SegAlignedP.push Byte.push32 (BytecodeLayer.Exec.wordBytesBE w) ?_ (by decide)
+  show (BytecodeLayer.Exec.wordBytesBE w).length = (Evm.pushArgWidth (Evm.parseInstr Byte.push32)).toNat
   rw [show Evm.parseInstr Byte.push32 = .Push .PUSH32 from rfl]
-  simp [wordBytesBE, Evm.pushArgWidth]
+  simp [BytecodeLayer.Exec.wordBytesBE, Evm.pushArgWidth]
 
 private theorem segAlignedNoGas_emitDest (off : Nat) : SegAlignedP NoGasOp (emitDest off) := by
-  refine SegAlignedP.push Byte.push4 (offsetBytesBE off) ?_ (by decide)
-  show (offsetBytesBE off).length = (Evm.pushArgWidth (Evm.parseInstr Byte.push4)).toNat
+  refine SegAlignedP.push Byte.push4 (BytecodeLayer.Exec.offsetBytesBE off) ?_ (by decide)
+  show (BytecodeLayer.Exec.offsetBytesBE off).length = (Evm.pushArgWidth (Evm.parseInstr Byte.push4)).toNat
   rw [show Evm.parseInstr Byte.push4 = .Push .PUSH4 from rfl]
-  simp [offsetBytesBE, Evm.pushArgWidth]
+  simp [BytecodeLayer.Exec.offsetBytesBE, Evm.pushArgWidth]
 
 private theorem segAlignedNoGas_slot (slot : Nat) :
     SegAlignedP NoGasOp (emitImm (UInt256.ofNat slot) ++ [Byte.mload]) :=

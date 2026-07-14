@@ -1,7 +1,6 @@
-import LirLean.Spec.IR
-import Evm
+import BytecodeLayer.Exec.Observable
 
-namespace Lir
+namespace BytecodeLayer.Exec
 
 open Evm
 
@@ -13,4 +12,4 @@ def wordBytesBE (w : Word) : List UInt8 :=
   (List.range 32).map (fun i =>
     UInt8.ofNat ((w >>> (UInt256.ofNat ((31 - i) * 8))).toNat))
 
-end Lir
+end BytecodeLayer.Exec

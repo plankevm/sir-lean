@@ -543,8 +543,8 @@ theorem imm_leaf_decodeF (prog : Program) (base : ℕ) (w : Word)
   have hemit : (emitImm w).length = 33 := emitImm_length w
   have hbyte : (flatBytes prog)[base]? = some Byte.push32 := by
     have := hseg 0 (by omega); simpa [emitImm] using this
-  have hwin : ((flatBytes prog).toArray.extract (base + 1) (base + 1 + 32)).toList = wordBytesBE w := by
-    apply extract_toList_eq (flatBytes prog) (base + 1) 32 (wordBytesBE w) (by simp [wordBytesBE])
+  have hwin : ((flatBytes prog).toArray.extract (base + 1) (base + 1 + 32)).toList = BytecodeLayer.Exec.wordBytesBE w := by
+    apply extract_toList_eq (flatBytes prog) (base + 1) 32 (BytecodeLayer.Exec.wordBytesBE w) (by simp [BytecodeLayer.Exec.wordBytesBE])
     intro j hj
     have := hseg (1 + j) (by rw [hemit]; omega)
     rw [show base + (1 + j) = base + 1 + j from by ring] at this
@@ -552,7 +552,7 @@ theorem imm_leaf_decodeF (prog : Program) (base : ℕ) (w : Word)
     simp [emitImm, List.getElem?_cons_succ]
   have himm : uInt256OfByteArray ⟨(flatBytes prog).toArray.extract (base + 1) (base + 1 + 32)⟩ = w := by
     have hh : uInt256OfByteArray ⟨(flatBytes prog).toArray.extract (base + 1) (base + 1 + 32)⟩
-        = uInt256OfByteArray ⟨(wordBytesBE w).toArray⟩ := by
+        = uInt256OfByteArray ⟨(BytecodeLayer.Exec.wordBytesBE w).toArray⟩ := by
       unfold uInt256OfByteArray
       congr 2
       show ((flatBytes prog).toArray.extract (base + 1) (base + 1 + 32)).toList.reverse = _

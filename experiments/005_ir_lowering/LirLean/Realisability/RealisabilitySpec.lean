@@ -496,9 +496,9 @@ private theorem flatBytes_length_le_of_wellLowered {prog : Program}
       rw [List.length_append]
       omega
     have h33 : ∀ w : Lir.Word, (Lir.emitImm w).length = 33 := fun w => by
-      simp [Lir.emitImm, Lir.wordBytesBE]
+      simp [Lir.emitImm, BytecodeLayer.Exec.wordBytesBE]
     have h5 : ∀ off : Nat, (Lir.emitDest off).length = 5 := fun off => by
-      simp [Lir.emitDest, Lir.offsetBytesBE]
+      simp [Lir.emitDest, BytecodeLayer.Exec.offsetBytesBE]
     cases hterm : blk.term with
     | ret t =>
         rw [hterm] at hlen

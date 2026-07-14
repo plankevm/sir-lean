@@ -282,23 +282,23 @@ set_option maxRecDepth 8192
 
 /-! ## PUSH4 destination round-trips (the `jump`/`branch` immediate + `hdestword` tie)
 
-`emitDest off = PUSH4 :: offsetBytesBE off` (5 bytes). The 4-byte big-endian immediate
+`emitDest off = PUSH4 :: BytecodeLayer.Exec.offsetBytesBE off` (5 bytes). The 4-byte big-endian immediate
 round-trips `uInt256OfByteArray` to `UInt256.ofNat (n % 2^32)`, whose `toUInt32?` recovers
 `UInt32.ofNat off` — so both the PUSH4 decode value *and* the `hdestword` offset tie are
 discharged. -/
 
 /-- `fromBytes'` of the reversed 4 destination bytes is `off % 2^32` (the low 32 bits). -/
 theorem fromBytes_offsetBytesBE (off : ℕ) :
-    fromBytes' (offsetBytesBE off).reverse = off % 2 ^ 32 := by
-  unfold offsetBytesBE
+    fromBytes' (BytecodeLayer.Exec.offsetBytesBE off).reverse = off % 2 ^ 32 := by
+  unfold BytecodeLayer.Exec.offsetBytesBE
   simp only [List.reverse_cons, List.reverse_nil, List.nil_append, List.cons_append, fromBytes',
     u8_ofNat_toFin]
   simp only [Nat.shiftRight_eq_div_pow]
   omega
 
-/-- The PUSH4 immediate round-trip: `uInt256OfByteArray ⟨offsetBytesBE off⟩ = ofNat (off%2^32)`. -/
+/-- The PUSH4 immediate round-trip: `uInt256OfByteArray ⟨BytecodeLayer.Exec.offsetBytesBE off⟩ = ofNat (off%2^32)`. -/
 theorem uInt256_offsetBytesBE (off : ℕ) :
-    uInt256OfByteArray ⟨(offsetBytesBE off).toArray⟩ = UInt256.ofNat (off % 2 ^ 32) := by
+    uInt256OfByteArray ⟨(BytecodeLayer.Exec.offsetBytesBE off).toArray⟩ = UInt256.ofNat (off % 2 ^ 32) := by
   unfold uInt256OfByteArray
   rw [fromBytes_offsetBytesBE]
 
@@ -345,7 +345,7 @@ theorem term_dest_decode (prog : Program) (L : Label) (b : Block) (off0 destOff 
     (hbound : termOf prog L + off0 + 4 < 2 ^ 32) :
     decode (lower prog) (UInt32.ofNat (termOf prog L + off0))
       = some (.Push .PUSH4, some (UInt256.ofNat (destOff % 2 ^ 32), 4)) := by
-  have hedlen : (emitDest destOff).length = 5 := by simp [emitDest, offsetBytesBE]
+  have hedlen : (emitDest destOff).length = 5 := by simp [emitDest, BytecodeLayer.Exec.offsetBytesBE]
   rw [hedlen] at hin
   -- flat-byte segment of emitDest at termOf + off0
   have hseg : ∀ j, j < (emitDest destOff).length →
@@ -357,9 +357,9 @@ theorem term_dest_decode (prog : Program) (L : Label) (b : Block) (off0 destOff 
   have hbyte : (flatBytes prog)[termOf prog L + off0]? = some Byte.push4 := by
     have := hseg 0 (by rw [hedlen]; omega); simpa [emitDest] using this
   have hwin : ((flatBytes prog).toArray.extract (termOf prog L + off0 + 1)
-      (termOf prog L + off0 + 1 + 4)).toList = offsetBytesBE destOff := by
-    apply extract_toList_eq (flatBytes prog) (termOf prog L + off0 + 1) 4 (offsetBytesBE destOff)
-      (by simp [offsetBytesBE])
+      (termOf prog L + off0 + 1 + 4)).toList = BytecodeLayer.Exec.offsetBytesBE destOff := by
+    apply extract_toList_eq (flatBytes prog) (termOf prog L + off0 + 1) 4 (BytecodeLayer.Exec.offsetBytesBE destOff)
+      (by simp [BytecodeLayer.Exec.offsetBytesBE])
     intro j hj
     have := hseg (1 + j) (by rw [hedlen]; omega)
     rw [show termOf prog L + off0 + (1 + j) = termOf prog L + off0 + 1 + j from by ring] at this
@@ -368,7 +368,7 @@ theorem term_dest_decode (prog : Program) (L : Label) (b : Block) (off0 destOff 
   have himm : uInt256OfByteArray ⟨(flatBytes prog).toArray.extract (termOf prog L + off0 + 1)
       (termOf prog L + off0 + 1 + 4)⟩ = UInt256.ofNat (destOff % 2 ^ 32) := by
     have hh : uInt256OfByteArray ⟨(flatBytes prog).toArray.extract (termOf prog L + off0 + 1)
-        (termOf prog L + off0 + 1 + 4)⟩ = uInt256OfByteArray ⟨(offsetBytesBE destOff).toArray⟩ := by
+        (termOf prog L + off0 + 1 + 4)⟩ = uInt256OfByteArray ⟨(BytecodeLayer.Exec.offsetBytesBE destOff).toArray⟩ := by
       unfold uInt256OfByteArray; congr 2
       show ((flatBytes prog).toArray.extract (termOf prog L + off0 + 1)
         (termOf prog L + off0 + 1 + 4)).toList.reverse = _
@@ -425,7 +425,7 @@ theorem sim_term_edge_jump_lowered {prog : Program} {sloadChg : Tmp → ℕ} {ob
   have hemitT : emitTerm (matCache prog)
       (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term
         = emitDest off ++ [Byte.jump] := by rw [hterm]; rfl
-  have hedlen : (emitDest off).length = 5 := by simp [emitDest, offsetBytesBE]
+  have hedlen : (emitDest off).length = 5 := by simp [emitDest, BytecodeLayer.Exec.offsetBytesBE]
   have htermlen : (emitTerm (matCache prog)
       (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term).length = 6 := by
     rw [hemitT, List.length_append, hedlen]; rfl
@@ -530,7 +530,7 @@ theorem sim_term_edge_branch_lowered {prog : Program} {sloadChg : Tmp → ℕ} {
         = matCache prog cond
           ++ emitDest thenOff ++ [Byte.jumpi] ++ emitDest elseOff ++ [Byte.jump] := by
     rw [hterm]; rfl
-  have hedlen : ∀ o, (emitDest o).length = 5 := fun o => by simp [emitDest, offsetBytesBE]
+  have hedlen : ∀ o, (emitDest o).length = 5 := fun o => by simp [emitDest, BytecodeLayer.Exec.offsetBytesBE]
   have htermlen : (emitTerm (matCache prog)
       (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term).length = lc + 12 := by
     rw [hemitT]; simp only [List.length_append, List.length_singleton, hedlen, ← hlc]

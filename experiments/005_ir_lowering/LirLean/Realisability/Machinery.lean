@@ -2971,7 +2971,7 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
     have hemitT : emitTerm (matCache prog)
         (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term
           = emitDest off ++ [Byte.jump] := by rw [hterm]; rfl
-    have hedlen : (emitDest off).length = 5 := by simp [emitDest, offsetBytesBE]
+    have hedlen : (emitDest off).length = 5 := by simp [emitDest, BytecodeLayer.Exec.offsetBytesBE]
     have htermlen : (emitTerm (matCache prog)
         (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term).length = 6 := by
       rw [hemitT, List.length_append, hedlen]; rfl
@@ -3055,7 +3055,7 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
           = matCache prog cond
             ++ emitDest thenOff ++ [Byte.jumpi] ++ emitDest elseOff ++ [Byte.jump] := by
       rw [hterm]; rfl
-    have hedlen : ∀ o, (emitDest o).length = 5 := fun o => by simp [emitDest, offsetBytesBE]
+    have hedlen : ∀ o, (emitDest o).length = 5 := fun o => by simp [emitDest, BytecodeLayer.Exec.offsetBytesBE]
     have htermlen : (emitTerm (matCache prog)
         (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term).length = lc + 12 := by
       rw [hemitT]; simp only [List.length_append, List.length_singleton, hedlen, ← hlc]

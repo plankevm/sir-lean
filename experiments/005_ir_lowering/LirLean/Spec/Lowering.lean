@@ -1,5 +1,5 @@
 import LirLean.Spec.IR
-import LirLean.Words
+import BytecodeLayer.Exec
 import Evm
 
 namespace Lir
@@ -33,11 +33,11 @@ deriving DecidableEq, Repr
 
 abbrev Alloc := Tmp → Option Loc
 
-def emitImm (w : Word) : List UInt8 := Byte.push32 :: wordBytesBE w
+def emitImm (w : Word) : List UInt8 := Byte.push32 :: BytecodeLayer.Exec.wordBytesBE w
 
 def slotOf (t : Tmp) : Nat := t.id * 32
 
-def emitDest (off : Nat) : List UInt8 := Byte.push4 :: offsetBytesBE off
+def emitDest (off : Nat) : List UInt8 := Byte.push4 :: BytecodeLayer.Exec.offsetBytesBE off
 
 def locOfExpr : Expr → Loc
   | e => .remat e

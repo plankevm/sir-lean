@@ -7,8 +7,8 @@ import LirLean.Materialise.MaterialiseRuns
 The lowering-independent byte facts the fold decode channel reuses:
 
 * **`uInt256_wordBytesBE`** — the `PUSH32` immediate round-trip:
-  `uInt256OfByteArray ⟨(wordBytesBE w).toArray⟩ = w`. A genuine 256-bit fact (the byte
-  decomposition `wordBytesBE` reverses to little-endian, `fromBytes'` reads it back), proved
+  `uInt256OfByteArray ⟨(BytecodeLayer.Exec.wordBytesBE w).toArray⟩ = w`. A genuine 256-bit fact (the byte
+  decomposition `BytecodeLayer.Exec.wordBytesBE` reverses to little-endian, `fromBytes'` reads it back), proved
   bottom-up through `u256_toNat_ofNat` / `u256_shiftRight_toNat` / the 32-digit base-256
   reconstruction. This is what turns a "decode = PUSH32 carrying *the window's*
   `uInt256OfByteArray`" anchor into "decode = PUSH32 carrying `w`" — the `.imm` clause of
@@ -31,7 +31,7 @@ open Evm
 
 set_option maxRecDepth 8192
 
-/-! ## The `PUSH32` immediate round-trip (`uInt256OfByteArray ∘ wordBytesBE = id`) -/
+/-! ## The `PUSH32` immediate round-trip (`uInt256OfByteArray ∘ BytecodeLayer.Exec.wordBytesBE = id`) -/
 
 /-- `(UInt256.ofNat m).toNat = m % 2^256` — the `toNat`/`ofNat` round-trip, via the limb
 decomposition (`toNat_limbs`) and `omega`. -/
@@ -63,10 +63,10 @@ theorem u256_shiftRight_toNat (w : Word) (s : ℕ) (hs : s < 256) :
 theorem u8_ofNat_toFin (k : ℕ) : (UInt8.ofNat k).toFin.val = k % 256 := rfl
 
 /-- `fromBytes'` of the **reversed** big-endian word bytes is the word's `Nat` value: the
-`wordBytesBE w` digits, reversed to little-endian, reconstruct `w.toNat` in base 256. -/
+`BytecodeLayer.Exec.wordBytesBE w` digits, reversed to little-endian, reconstruct `w.toNat` in base 256. -/
 theorem fromBytes_wordBytesBE (w : Word) :
-    fromBytes' (wordBytesBE w).reverse = w.toNat := by
-  unfold wordBytesBE
+    fromBytes' (BytecodeLayer.Exec.wordBytesBE w).reverse = w.toNat := by
+  unfold BytecodeLayer.Exec.wordBytesBE
   simp only [show (List.range 32) = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,
       22,23,24,25,26,27,28,29,30,31] from by decide]
   simp only [List.map_cons, List.map_nil, List.reverse_cons, List.reverse_nil,
@@ -105,10 +105,10 @@ theorem fromBytes_wordBytesBE (w : Word) :
   omega
 
 /-- **The `PUSH32` immediate round-trip.** `uInt256OfByteArray` of the 32 big-endian bytes
-`wordBytesBE w` emits is `w`; the literal cursor decodes as `PUSH32` carrying `w`, not merely
+`BytecodeLayer.Exec.wordBytesBE w` emits is `w`; the literal cursor decodes as `PUSH32` carrying `w`, not merely
 "carrying the window's value". -/
 theorem uInt256_wordBytesBE (w : Word) :
-    uInt256OfByteArray ⟨(wordBytesBE w).toArray⟩ = w := by
+    uInt256OfByteArray ⟨(BytecodeLayer.Exec.wordBytesBE w).toArray⟩ = w := by
   unfold uInt256OfByteArray
   rw [fromBytes_wordBytesBE, u256_ofNat_toNat]
 

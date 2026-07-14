@@ -235,7 +235,7 @@ structure StashRuns (fr endFr : Frame) (slot : Nat) (v : Word) (pcΔ : Nat) (res
 
 /-- `(emitImm w).length = 33` (a `PUSH32` opcode byte + 32 immediate bytes). -/
 theorem emitImm_length (w : Word) : (emitImm w).length = 33 := by
-  simp [emitImm, wordBytesBE]
+  simp [emitImm, BytecodeLayer.Exec.wordBytesBE]
 
 /-- `(32 + 1 : UInt8).toUInt32 = UInt32.ofNat 33`. -/
 theorem push32_pcΔ : ((32 : UInt8) + 1).toUInt32 = UInt32.ofNat 33 := by decide
