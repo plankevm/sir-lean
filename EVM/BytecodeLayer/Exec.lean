@@ -12,6 +12,7 @@ import BytecodeLayer.Exec.Modellable
 import BytecodeLayer.Exec.Frame
 import BytecodeLayer.Exec.Memory
 import BytecodeLayer.Exec.Stash
+import BytecodeLayer.Exec.CyclicSim
 
 namespace BytecodeLayer.Exec
 

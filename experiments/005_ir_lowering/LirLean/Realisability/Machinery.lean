@@ -2,6 +2,7 @@ import LirLean.Decode.BoundaryCursor
 import LirLean.Spec.BudgetDerivations
 import LirLean.Realisability.Surface
 import LirLean.Decode.Modellable
+import BytecodeLayer.Exec.CyclicSim
 
 open Lir.Frame
 open BytecodeLayer.Exec
@@ -916,11 +917,10 @@ theorem atReachableBoundaryVJ_of_runs {prog : Lir.Program}
     (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32)
     {fr fr' : Frame} (hr : Runs fr fr') :
     AtReachableBoundaryVJ prog fr → AtReachableBoundaryVJ prog fr' := by
-  induction hr with
-  | refl _ => exact id
-  | step h _ ih => exact fun hfr => ih (atReachableBoundaryVJ_step hsize h hfr)
-  | call hc _ ih => exact fun hfr => ih (atReachableBoundaryVJ_call hsize hc hfr)
-  | create hc _ ih => exact fun hfr => ih (atReachableBoundaryVJ_create hsize hc hfr)
+  exact BytecodeLayer.Exec.CyclicSim.invariant_of_runs
+    (atReachableBoundaryVJ_step hsize)
+    (atReachableBoundaryVJ_call hsize)
+    (atReachableBoundaryVJ_create hsize) hr
 
 /-- **R6 — the boundary walk** (the `hrb` residue; the Track-A discharge target). Every
 `Runs`-reachable frame of a `lower prog` entry sits at a reachable instruction boundary of
