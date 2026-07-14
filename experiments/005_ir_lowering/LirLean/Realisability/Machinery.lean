@@ -17,7 +17,7 @@ coupled producer. Imports `Surface`. -/
 namespace Lir
 
 export BytecodeLayer.Exec.CyclicSim
-  (recorderCoupled_entry recorderCoupled_step_gas gasSuffix_nonempty
+  (runs_halt_eq runs_kind recorderCoupled_entry recorderCoupled_step_gas gasSuffix_nonempty
    recorderCoupled_sload sloadSuffix_nonempty recorderCoupled_step_other
    callSuffix_nonempty createSuffix_nonempty recorderCoupled_call recorderCoupled_create
    recorderCoupled_create_extract create2Suffix_nonempty_of_next callSuffix_nonempty_of_next
@@ -26,6 +26,10 @@ export BytecodeLayer.Exec.CyclicSim
    recorderCoupled_call_extract recorderCoupled_stepsTo_other
    recorderCoupled_halted_suffixes_nil recorderCoupled_halted_observable
    recorderCoupled_halted_leftovers_nil)
+
+export BytecodeLayer.Exec
+  (resumeAfterCall_code resumeAfterCall_canModifyState resumeAfterCall_validJumps
+   resumeAfterCall_pc resumeAfterCall_stack)
 
 open Evm
 open BytecodeLayer
@@ -257,21 +261,6 @@ theorem defsSoundS_preserved_step {prog : Program}
         calc some w₀ = evalExpr st 0 e₀ := hprev
           _ = evalExpr { st with world := world' } 0 e₀ := (evalExpr_world_noSload hns).symm
 
-/-- **A halting `Runs` is refl.** If `fr` halts (`stepFrame fr = .halted h`) then the only
-`Runs fr fr'` is the reflexive one, so `fr = fr'`. Pure engine inversion (the `.step`/`.call`/`.create`
-arms demand `.next`/`.needsCall`/`.needsCreate`, contradicting `.halted`). -/
-theorem runs_halt_eq {fr fr' : Frame} {h : FrameHalt}
-    (hh : stepFrame fr = .halted h) (hr : Runs fr fr') : fr = fr' := by
-  cases hr with
-  | refl _ => rfl
-  | step hstep _ => rw [hstep.1] at hh; exact absurd hh (by nofun)
-  | call hcall _ =>
-      obtain ⟨_, _, _, _, hstep, _⟩ := hcall
-      rw [hstep] at hh; exact absurd hh (by nofun)
-  | create hc _ =>
-      obtain ⟨_, _, _, hstep, _⟩ := hc
-      rw [hstep] at hh; exact absurd hh (by nofun)
-
 /-- **R2 — the clean scope read off the log** (replaces the `∀ last halt` universal `hne`
 of `cleanHalts_of_runWithLog` with the decidable `log.clean`). The recorded outcome routes
 every halt to `.ok`, so distinguishing a `.success`/`.revert` terminal from an exception
@@ -323,44 +312,6 @@ theorem haltNonException_of_cleanLog {prog : Lir.Program} {params : CallParams}
       | create address checkpoint =>
           rw [hk] at hclean
           exact hclean
-
-/-! ### R3 resume-frame structural pins (`resumeAfterCall_{code,validJumps,pc,stack}`)
-
-The `rfl` companions of the default-target `resumeAfterCall_address`/`_memory`/`_activeWords`
-(`BytecodeLayer/Hoare/StepWalk.lean`, `BytecodeLayer/Hoare/MemAlgebra.lean`), for the resume-frame conjuncts of
-`CallRealisesS` (§3, conjuncts 11/17/13/14). `resumeAfterCall` rebuilds `pd.frame` as
-`{ pd.frame with exec := exec'.replaceStackAndIncrPC (pd.stack.push x) }`, touching only
-stack/pc/gas/accounts/substate/toMachineState and leaving `executionEnv` (hence `.code`) and
-the `Frame.validJumps` field untouched; the pc advances by the default `pcΔ = 1` (past the CALL
-byte) and the pushed word is exactly `callSuccessFlag result pd` (= the oracle's `successWord`,
-`evmCallOracle_successWord_eq_x`). These are `WIP`-local facts ABOUT the default-target
-`resumeAfterCall` def; they do NOT edit it. They discharge conjuncts 11/13/14/17 of R3's bundle
-*once* the strengthened CALL-dispatch inversion supplies the `pd.frame.exec`/`pd.stack`/
-`pd.{in,out}Size` framing (the Group-B residue — see R3's STATUS note, blocked on the default
-target). -/
-
-/-- Resumed frame keeps the caller's `code` (env untouched by `resumeAfterCall`). -/
-theorem resumeAfterCall_code (result : Evm.CallResult) (pd : Evm.PendingCall) :
-    (Evm.resumeAfterCall result pd).exec.executionEnv.code
-      = pd.frame.exec.executionEnv.code := rfl
-
-/-- Resumed frame keeps the caller's `canModifyState` (`executionEnv` untouched). -/
-theorem resumeAfterCall_canModifyState (result : Evm.CallResult) (pd : Evm.PendingCall) :
-    (Evm.resumeAfterCall result pd).exec.executionEnv.canModifyState
-      = pd.frame.exec.executionEnv.canModifyState := rfl
-
-/-- Resumed frame keeps the caller's `validJumps` (`Frame.validJumps` field untouched). -/
-theorem resumeAfterCall_validJumps (result : Evm.CallResult) (pd : Evm.PendingCall) :
-    (Evm.resumeAfterCall result pd).validJumps = pd.frame.validJumps := rfl
-
-/-- Resumed frame's pc is the caller's advanced by one (default `pcΔ = 1`, past the CALL byte). -/
-theorem resumeAfterCall_pc (result : Evm.CallResult) (pd : Evm.PendingCall) :
-    (Evm.resumeAfterCall result pd).exec.pc = pd.frame.exec.pc + 1 := rfl
-
-/-- Resumed frame's stack is the caller's with the CALL success flag pushed. -/
-theorem resumeAfterCall_stack (result : Evm.CallResult) (pd : Evm.PendingCall) :
-    (Evm.resumeAfterCall result pd).exec.stack
-      = pd.stack.push (callSuccessFlag result pd) := rfl
 
 /-- A real call cursor statically scopes its result tmp as a call-result tmp. -/
 private theorem stepScopedS_call_of_cursor {prog : Program} {L : Label} {b : Block} {pc : Nat}
@@ -479,25 +430,6 @@ theorem sstoreRealises_at_frame {g : Frame} {kw vw : Word}
   obtain ⟨e', hnext⟩ := Lir.CleanHaltExtract.next_of_cleanHalt_continuing hch hdich
   obtain ⟨h1, h2⟩ := stepFrame_sstore_inv g kw vw [] hdec hstk hsz hmod hnext
   exact ⟨h1, h2, hsp⟩
-
-/-- **Kind preservation across `Runs`.** A `Runs` derivation only advances `exec` (opcode
-steps, `StepsTo.kind_eq`), resumes a returning CALL (`resumeAfterCall` rebuilds the caller
-frame keeping its `kind`, `stepFrame_needsCall_inv`), or resumes a returning CREATE
-(`resumeAfterCreate` rebuilds the creator frame keeping its `kind`, `resumeAfterCreate_kind` +
-`stepFrame_needsCreate_inv`), so the frame `kind` is invariant.
-Template: `selfPresent_runs` / `Runs.gasAvailable_le`. -/
-theorem runs_kind {fr fr' : Frame} (h : Runs fr fr') : fr'.kind = fr.kind := by
-  induction h with
-  | refl _ => rfl
-  | step hs _ ih => rw [ih, hs.kind_eq]
-  | call hc _ ih =>
-      obtain ⟨cp, pending, child, childRes, hstep, _, _, hresume⟩ := hc
-      rw [ih, hresume]
-      exact (Evm.stepFrame_needsCall_inv hstep).2.1
-  | create hc _ ih =>
-      obtain ⟨cp, pending, childRes, hstep, _, hresume⟩ := hc
-      rw [ih, resumeAfterCreate_kind childRes pending _ hresume]
-      exact (Evm.stepFrame_needsCreate_inv hstep).2.1
 
 -- **R6 — the boundary walk** (`runs_atReachableBoundary`) is RELOCATED below its wiring bricks
 -- (`atReachableBoundaryVJ_entry` / `atReachableBoundaryVJ_step` / `atReachableBoundaryVJ_call`

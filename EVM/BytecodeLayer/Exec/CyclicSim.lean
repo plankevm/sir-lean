@@ -26,6 +26,33 @@ theorem invariant_of_runs {Inv : Frame → Prop}
   | call edge _ ih => exact fun hfr => ih (call edge hfr)
   | create edge _ ih => exact fun hfr => ih (create edge hfr)
 
+/-- A run from a frame that halts immediately can only be reflexive. -/
+theorem runs_halt_eq {fr fr' : Frame} {h : FrameHalt}
+    (hh : stepFrame fr = .halted h) (hr : Runs fr fr') : fr = fr' := by
+  cases hr with
+  | refl _ => rfl
+  | step hstep _ => rw [hstep.1] at hh; exact absurd hh (by nofun)
+  | call hcall _ =>
+      obtain ⟨_, _, _, _, hstep, _⟩ := hcall
+      rw [hstep] at hh; exact absurd hh (by nofun)
+  | create hc _ =>
+      obtain ⟨_, _, _, hstep, _⟩ := hc
+      rw [hstep] at hh; exact absurd hh (by nofun)
+
+/-- Every edge in a run returns to a frame of the starting frame's kind. -/
+theorem runs_kind {fr fr' : Frame} (h : Runs fr fr') : fr'.kind = fr.kind := by
+  induction h with
+  | refl _ => rfl
+  | step hs _ ih => rw [ih, hs.kind_eq]
+  | call hc _ ih =>
+      obtain ⟨cp, pending, child, childRes, hstep, _, _, hresume⟩ := hc
+      rw [ih, hresume]
+      exact (Evm.stepFrame_needsCall_inv hstep).2.1
+  | create hc _ ih =>
+      obtain ⟨cp, pending, childRes, hstep, _, hresume⟩ := hc
+      rw [ih, resumeAfterCreate_kind childRes pending _ hresume]
+      exact (Evm.stepFrame_needsCreate_inv hstep).2.1
+
 private theorem recordCall_append (pending : Pending) (result : FrameResult)
     (c0 : List CallRecord) :
     recordCall pending result c0 = c0 ++ recordCall pending result [] := by
@@ -63,7 +90,7 @@ private theorem driveLog_acc_hom :
         | ok parent =>
           dsimp only [hres]
           split_ifs with hre
-          · -- `rest.isEmpty`: the top-level CALL/CREATE records fire (old proof body verbatim).
+          · -- An empty remainder exposes the top-level CALL/CREATE records.
             rw [ih rest (.inl parent) g0 s0 (recordCall pending result c0)
                   (recordCreate pending result d0),
                 ih rest (.inl parent) [] [] (recordCall pending result [])
@@ -73,9 +100,8 @@ private theorem driveLog_acc_hom :
             | ok val =>
               simp [Except.map, recordCall_append pending result c0,
                 recordCreate_append pending result d0, List.append_assoc]
-          · -- `rest` nonempty (descended callee's inner descent): the records are gated no-ops,
-            -- the call/create accumulators threaded unchanged — the append-homomorphism at an
-            -- unchanged accumulator (identical shape to the `halted` arm below).
+          · -- A nonempty remainder is an inner descent, so recording is gated and the
+            -- call/create accumulators are threaded unchanged.
             rw [ih rest (.inl parent) g0 s0 c0 d0]
         | error e =>
           dsimp only [hres]

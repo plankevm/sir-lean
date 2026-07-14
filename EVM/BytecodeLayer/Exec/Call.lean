@@ -69,6 +69,29 @@ def callSuccessFlag (result : CallResult) (pd : PendingCall) : Word :=
       || (pd.value > (pd.callerAccounts.find? pd.frame.exec.executionEnv.address |>.elim 0 (·.balance)))
       || (pd.frame.exec.executionEnv.depth == 1024) then 0 else 1
 
+/-- Resuming a CALL preserves the suspended caller's code. -/
+theorem resumeAfterCall_code (result : CallResult) (pd : PendingCall) :
+    (resumeAfterCall result pd).exec.executionEnv.code
+      = pd.frame.exec.executionEnv.code := rfl
+
+/-- Resuming a CALL preserves the suspended caller's state-modification permission. -/
+theorem resumeAfterCall_canModifyState (result : CallResult) (pd : PendingCall) :
+    (resumeAfterCall result pd).exec.executionEnv.canModifyState
+      = pd.frame.exec.executionEnv.canModifyState := rfl
+
+/-- Resuming a CALL preserves the suspended caller's valid jump destinations. -/
+theorem resumeAfterCall_validJumps (result : CallResult) (pd : PendingCall) :
+    (resumeAfterCall result pd).validJumps = pd.frame.validJumps := rfl
+
+/-- Resuming a CALL advances the suspended caller's program counter by one. -/
+theorem resumeAfterCall_pc (result : CallResult) (pd : PendingCall) :
+    (resumeAfterCall result pd).exec.pc = pd.frame.exec.pc + 1 := rfl
+
+/-- Resuming a CALL pushes its success flag on the suspended caller's residual stack. -/
+theorem resumeAfterCall_stack (result : CallResult) (pd : PendingCall) :
+    (resumeAfterCall result pd).exec.stack
+      = pd.stack.push (callSuccessFlag result pd) := rfl
+
 /-- The concrete oracle's success word is the flag pushed by `resumeAfterCall`. -/
 theorem evmCallOracle_successWord_eq_x (result : CallResult) (pd : PendingCall) :
     evmCallOracle.successWord result pd = callSuccessFlag result pd := rfl

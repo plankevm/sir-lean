@@ -223,16 +223,23 @@ def runWithLog (params : CallParams) (fuel : ℕ) : Option RunLog :=
                    creates := creates }
         | .error _ => none
 
-/-- Restarting the recorder at `fr` reproduces the final observable and the
-unconsumed stream suffixes. -/
+/-- Restarting the recorder at a top-level boundary frame reproduces the final observable
+and the unconsumed event suffixes. The empty pending stack makes the boundary top-level;
+nested CALL/CREATE execution remains hidden by the recorder's stack gate. The prefix
+witnesses ensure that every replayed suffix belongs to the original log. -/
 structure RecorderCoupled (log : RunLog) (fr : Frame)
     (gasSuffix : List Word) (sloadSuffix : List Nat) (callSuffix : List CallRecord)
     (createSuffix : List CreateRecord) : Prop where
+  /-- A deterministic replay from the boundary produces exactly the remaining streams. -/
   restart : ∃ fuel', driveLog fuel' [] (.inl fr) [] [] [] []
       = .ok (log.observable, gasSuffix, sloadSuffix, callSuffix, createSuffix)
+  /-- The remaining gas events form a suffix of the recorded gas stream. -/
   gasPrefix : ∃ pre, log.gas = pre ++ gasSuffix
+  /-- The remaining SLOAD events form a suffix of the recorded SLOAD stream. -/
   sloadPrefix : ∃ pre, log.sloads = pre ++ sloadSuffix
+  /-- The remaining CALL events form a suffix of the recorded CALL stream. -/
   callPrefix : ∃ pre, log.calls = pre ++ callSuffix
+  /-- The remaining CREATE events form a suffix of the recorded CREATE stream. -/
   createPrefix : ∃ pre, log.creates = pre ++ createSuffix
 
 def callsCodeOk : ℕ → Frame → Bool

@@ -279,33 +279,11 @@ structure WellLowered (prog : Program) : Prop where
     termOf prog L + (matCache prog t).length + 100 < 2 ^ 32
 
 
-/-! ## §2 — The recorder-restart coupling (the hard design piece)
+/-! ## §2 — The Lir walk invariant
 
-The tie reshape's carrier (target-architecture §3, SETTLED as option (i)): instead of the
-free-`∀` value variables, the walk invariant carries ONE real coupling field — *restarting
-the recording interpreter at the current top-level boundary frame reproduces the run's final
-observable and exactly the un-consumed suffixes of the recorded streams*. The tie value
-conjuncts then pin themselves to the SUFFIX HEAD, which the antecedent (restart determinism)
-links to the run — no free VALUE variable survives. (The SCOPING conjuncts carried their own
-copy of the disease, invisible to this §: the round-3 repair is header lesson 8 / `StepScopedS`.)
-
-Design notes (each load-bearing):
-
-* **`restart` is the load-bearing field**: `driveLog` is a deterministic function, so a
-  restart equation from `fr` pins the suffixes AND `log.observable` simultaneously — an
-  adversarial `(fr, suffix)` pair must actually reproduce the recorded future, which is
-  what makes the R1-style head equations derivable rather than refutable.
-* The restart uses pending stack `[]` because coupling is stated at TOP-LEVEL boundary
-  frames only (`Corr.stack_nil` cursors) — the same `stack.isEmpty` gate `driveLog` records
-  under.
-* **Child calls are black-boxed correctly**: a descended CALL's internal GAS/SLOAD reads are
-  invisible to the restart exactly as to the original recording (the `stack.isEmpty` gate),
-  so `recorderCoupled_call` consumes exactly one `CallRecord` and NO gas/sload entries.
-* **Cyclic-correct**: a loop revisits the same cursor with different gas; the coupling is
-  indexed by the FRAME (whose gas differs per visit), never by the cursor — no per-cursor
-  value function anywhere (the fatal flaw of the rejected option (iii)).
-* The four prefix fields make "consumed so far" explicit (the R10 assembly reads them);
-  the entry instance is the whole log with `pre = []` (`recorderCoupled_entry`). -/
+The walk carries target execution facts, the current Lir boundary, and the generic recorder
+coupling in one local invariant. Indexing the coupling by the current frame keeps loop revisits
+distinct when their machine states, including gas, differ. -/
 
 /-- **The recorder-coupled walk invariant.** Carried at
 every top-level block-entry boundary of the drive walk:
