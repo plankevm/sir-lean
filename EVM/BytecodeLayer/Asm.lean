@@ -73,8 +73,24 @@ def encodeInstr (labelOffset : Nat → Nat) : AsmInstr → List UInt8
   | .op operation =>
       [operation.byte]
 
+def encodeInstrs (labelOffset : Nat → Nat) (instructions : List AsmInstr) : List UInt8 :=
+  instructions.flatMap (encodeInstr labelOffset)
+
+@[simp] theorem encodeInstrs_nil (labelOffset : Nat → Nat) :
+    encodeInstrs labelOffset [] = [] := rfl
+
+@[simp] theorem encodeInstrs_singleton (labelOffset : Nat → Nat) (instr : AsmInstr) :
+    encodeInstrs labelOffset [instr] = encodeInstr labelOffset instr := by
+  simp [encodeInstrs]
+
+@[simp] theorem encodeInstrs_cons (labelOffset : Nat → Nat)
+    (instr : AsmInstr) (rest : List AsmInstr) :
+    encodeInstrs labelOffset (instr :: rest) =
+      encodeInstr labelOffset instr ++ encodeInstrs labelOffset rest := by
+  simp [encodeInstrs]
+
 def encodeBlock (labelOffset : Nat → Nat) (block : AsmBlock) : List UInt8 :=
-  0x5b :: block.body.flatMap (encodeInstr labelOffset)
+  0x5b :: encodeInstrs labelOffset block.body
 
 def bytes (program : AsmProgram) : List UInt8 :=
   let labelOffset := blockOffset program
@@ -89,8 +105,18 @@ def assemble (program : AsmProgram) : ByteArray :=
   cases instr <;> simp [encodeInstr, AsmInstr.byteLength,
     BytecodeLayer.Exec.wordBytesBE, BytecodeLayer.Exec.offsetBytesBE]
 
+@[simp] theorem encodeInstrs_append (labelOffset : Nat → Nat) (left right : List AsmInstr) :
+    encodeInstrs labelOffset (left ++ right) =
+      encodeInstrs labelOffset left ++ encodeInstrs labelOffset right := by
+  simp [encodeInstrs]
+
+@[simp] theorem encodeInstrs_length (labelOffset : Nat → Nat) (instructions : List AsmInstr) :
+    (encodeInstrs labelOffset instructions).length =
+      (instructions.map AsmInstr.byteLength).sum := by
+  simp [encodeInstrs, List.length_flatMap]
+
 @[simp] theorem encodeBlock_length (labelOffset : Nat → Nat) (block : AsmBlock) :
     (encodeBlock labelOffset block).length = blockLength block := by
-  simp [encodeBlock, blockLength, List.length_flatMap, Nat.add_comm]
+  simp [encodeBlock, blockLength, Nat.add_comm]
 
 end BytecodeLayer.Asm
