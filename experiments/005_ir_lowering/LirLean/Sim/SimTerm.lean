@@ -4,6 +4,7 @@ import LirLean.Decode.DecodeAnchors
 import LirLean.RecorderLemmas
 import LirLean.Materialise.StashTail
 import BytecodeLayer.Hoare.MemAlgebra
+import BytecodeLayer.Exec.Results
 
 open Lir.Frame
 open BytecodeLayer.Exec
@@ -75,6 +76,8 @@ spine).
 
 namespace Lir
 
+export BytecodeLayer.Exec (resultStorageAt_endFrame_success resultOutput_endFrame_success)
+
 open Evm
 open GasConstants
 open BytecodeLayer.Hoare
@@ -102,47 +105,6 @@ is *exactly* `storageAt fr self` — the frame lens `Corr`'s `StorageAgree` ties
 world. These are the honest top-level-frame facts (the lowered program is entered as a
 top-level CALL — its frame `kind` is `.call`, and a run that wrote storage has non-empty
 accounts), taken as structured hypotheses. -/
-
-/-- **The success-halt world bridge.** For a `.call`-kind frame `fr` halting `.success
-hexec output` where the halt exec's committed accounts equal the frame's own non-empty
-accounts (`hacc_eq`), the `observe` world of the finished result is the frame's storage lens
-`storageAt fr self`. (`stop` halts with `hexec = fr.exec` directly; `ret` halts with `hexec =
-returnWordPost fr.exec rest`, which leaves `accounts` untouched — the `hacc_eq` is `rfl` in
-both.) -/
-theorem resultStorageAt_endFrame_success (fr : Frame) (hexec : Evm.ExecutionState)
-    (output : ByteArray) (self : AccountAddress) (key : Word) (cp : Evm.Checkpoint)
-    (hkind : fr.kind = .call cp)
-    (hacc_eq : hexec.accounts = fr.exec.accounts)
-    (hne : ¬ (fr.exec.accounts == ∅) = true) :
-    resultStorageAt (endFrame fr (.success hexec output)) self key
-      = storageAt fr self key := by
-  show ((endFrame fr (.success hexec output)).toCallResult.accounts.find? self
-          |>.option 0 (·.lookupStorage key))
-        = (fr.exec.accounts.find? self |>.option 0 (·.lookupStorage key))
-  have hacc : (endFrame fr (.success hexec output)).toCallResult.accounts
-      = fr.exec.accounts := by
-    unfold Evm.endFrame
-    rw [hkind]
-    show (Evm.endCall cp (.success hexec output)).accounts = fr.exec.accounts
-    have hne' : (hexec.accounts == ∅) = false := by
-      cases h : (hexec.accounts == ∅) with
-      | false => rfl
-      | true => rw [hacc_eq] at h; exact absurd h hne
-    show (if (hexec.accounts == ∅) = true then cp.accounts else hexec.accounts)
-      = fr.exec.accounts
-    rw [hne', if_neg (by simp), hacc_eq]
-  rw [hacc]
-
-/-- **The result-channel bridge.** For a `.call`-kind frame `fr` halting `.success hexec
-output`, the finished result's `output` is exactly the halt's `output` (`endCall`'s
-`.success` branch keeps it unconditionally). This is the return-data half of `observe`:
-`STOP` / empty-`RETURN` gives `.empty`; a word-`RETURN` gives the 32-byte window. -/
-theorem resultOutput_endFrame_success (fr : Frame) (hexec : Evm.ExecutionState)
-    (output : ByteArray) (cp : Evm.Checkpoint) (hkind : fr.kind = .call cp) :
-    (endFrame fr (.success hexec output)).toCallResult.output = output := by
-  unfold Evm.endFrame
-  rw [hkind]
-  rfl
 
 /-! ## Frame-accessor reductions for the control-flow post-frames
 
