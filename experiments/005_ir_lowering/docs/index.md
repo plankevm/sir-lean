@@ -19,7 +19,7 @@ IR.
 
 - `LirLean/Spec/`: public syntax, semantics, lowering, recorder, conformance, seams, and static
   well-formedness.
-- `../../003_bytecode_layer/BytecodeLayer/Hoare/`: reusable, IR-free interpreter reasoning shared by
+- `../../../EVM/BytecodeLayer/Hoare/`: reusable, IR-free interpreter reasoning shared by
   the lowering proof.
 - `LirLean/{Decode,Materialise,Sim,CfgSim}/`: lowering-specific bytecode reasoning.
 - `LirLean/Realisability/`: the non-default `WIP` closure layer. `Surface.lean` defines the

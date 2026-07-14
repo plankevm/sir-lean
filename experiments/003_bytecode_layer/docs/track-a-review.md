@@ -13,13 +13,13 @@ reasoning layer. The single design move — making an external **CALL a construc
 the `Runs` relation** — collapses a brittle 5-hypothesis "one call only" bridge into
 ordinary regular-language composition: a multi-call program is now one `Runs` value
 built with `Runs.trans`/`Runs.call`, crossed by **one** boundary bridge. The headline
-result is [`messageCall_runs_calls`](../BytecodeLayer/Spec.lean#L221) (re-exporting the
-proof [`Hoare.messageCall_runs_calls`](../BytecodeLayer/Hoare/CallSequence.lean#L175)):
+result is [`messageCall_runs_calls`](../../../EVM/BytecodeLayer/Spec.lean#L221) (re-exporting the
+proof [`Hoare.messageCall_runs_calls`](../../../EVM/BytecodeLayer/Hoare/CallSequence.lean#L175)):
 a caller whose `Runs fr₀ last` interleaves **any number** of returning CALLs with
 opcode steps, ending at a halt, delivers `messageCall p` — *no per-call halt
 requirement and no numeric fuel side condition*. The layer also gains the opcode rules
 (`runs_push`/`runs_sstore`/`runs_add`/`runs_lt`/`runs_sload`/`runs_gas`) and a
-CFG combinator ([`runs_branch`](../BytecodeLayer/Hoare.lean#L408) + the JUMP/JUMPI/JUMPDEST
+CFG combinator ([`runs_branch`](../../../EVM/BytecodeLayer/Hoare.lean#L408) + the JUMP/JUMPI/JUMPDEST
 rules) that Track C's lowering consumes.
 
 **Status (reported, not re-run):** build green at **1130 jobs**; the layer is
@@ -62,21 +62,21 @@ the top stratum is the `messageCall`/`Outcome` boundary.
 | Layer | File | Job |
 |---|---|---|
 | **L0 — vendored flat semantics** | `EVMLean/Evm/Semantics/Interpreter.lean` ([`drive`](../EVMLean/Evm/Semantics/Interpreter.lean#L36), [`messageCall`](../EVMLean/Evm/Semantics/Interpreter.lean#L84), [`seedFuel`](../EVMLean/Evm/Semantics/Interpreter.lean#L82), [`endFrame`](../EVMLean/Evm/Semantics/Interpreter.lean#L8)); [`beginCall`](../EVMLean/Evm/Semantics/Call.lean#L18), [`resumeAfterCall`](../EVMLean/Evm/Semantics/Call.lean#L122) | The trusted trampoline. One `drive (fuel) (stack) (Frame ⊕ FrameResult)`. |
-| **L1 — interpreter `drive` lemmas** | [`Semantics/Interpreter/Drive.lean`](../BytecodeLayer/Semantics/Interpreter/Drive.lean), [`DescentEq.lean`](../BytecodeLayer/Semantics/Interpreter/DescentEq.lean), [`Measure.lean`](../BytecodeLayer/Semantics/Interpreter/Measure.lean), [`NeverOutOfFuel.lean`](../BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean) | The `drive` rewrite vocabulary, fuel monotonicity, call-descent reconciliation, and the unconditional never-out-of-fuel theorem. |
-| **L2 — `Runs` + opcode/CFG rules** | [`Hoare.lean`](../BytecodeLayer/Hoare.lean) | The index-free `Runs` relation (`refl`/`step`/`call`), `Runs.trans`, every `runs_*` opcode rule, the `runs_branch` combinator, and SSTORE framing. |
-| **L3 — boundary bridges** | [`Hoare/CallSequence.lean`](../BytecodeLayer/Hoare/CallSequence.lean), re-exported on [`Spec.lean`](../BytecodeLayer/Spec.lean) | `Runs.drive_reconcile`, `messageCall_runs`, `messageCall_runs_calls`, `messageCall_calls_completedWith` — the only observable-level exports. |
-| **examples** | [`TwoCallExample.lean`](../BytecodeLayer/Examples/TwoCallExample.lean), [`BranchExample.lean`](../BytecodeLayer/Examples/BranchExample.lean), [`ArithStorageExample.lean`](../BytecodeLayer/Examples/ArithStorageExample.lean) | Acceptance tests for multi-call, branching, and the arithmetic/storage rules. |
+| **L1 — interpreter `drive` lemmas** | [`Semantics/Interpreter/Drive.lean`](../../../EVM/BytecodeLayer/Semantics/Interpreter/Drive.lean), [`DescentEq.lean`](../../../EVM/BytecodeLayer/Semantics/Interpreter/DescentEq.lean), [`Measure.lean`](../../../EVM/BytecodeLayer/Semantics/Interpreter/Measure.lean), [`NeverOutOfFuel.lean`](../../../EVM/BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean) | The `drive` rewrite vocabulary, fuel monotonicity, call-descent reconciliation, and the unconditional never-out-of-fuel theorem. |
+| **L2 — `Runs` + opcode/CFG rules** | [`Hoare.lean`](../../../EVM/BytecodeLayer/Hoare.lean) | The index-free `Runs` relation (`refl`/`step`/`call`), `Runs.trans`, every `runs_*` opcode rule, the `runs_branch` combinator, and SSTORE framing. |
+| **L3 — boundary bridges** | [`Hoare/CallSequence.lean`](../../../EVM/BytecodeLayer/Hoare/CallSequence.lean), re-exported on [`Spec.lean`](../../../EVM/BytecodeLayer/Spec.lean) | `Runs.drive_reconcile`, `messageCall_runs`, `messageCall_runs_calls`, `messageCall_calls_completedWith` — the only observable-level exports. |
+| **examples** | [`TwoCallExample.lean`](../../../EVM/BytecodeLayer/Examples/TwoCallExample.lean), [`BranchExample.lean`](../../../EVM/BytecodeLayer/Examples/BranchExample.lean), [`ArithStorageExample.lean`](../../../EVM/BytecodeLayer/Examples/ArithStorageExample.lean) | Acceptance tests for multi-call, branching, and the arithmetic/storage rules. |
 
 **Dependency spine to the headline.** `messageCall_runs_calls`
-→ [`messageCall_runs`](../BytecodeLayer/Hoare/CallSequence.lean#L132)
-→ [`Runs.drive_reconcile`](../BytecodeLayer/Hoare/CallSequence.lean#L75)
-+ [`messageCall_never_outOfFuel`](../BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean#L158)
-+ [`messageCall_eq_drive`](../BytecodeLayer/Semantics/Interpreter/Drive.lean#L75)
-+ [`drive_halt`](../BytecodeLayer/Semantics/Interpreter/Drive.lean#L56).
+→ [`messageCall_runs`](../../../EVM/BytecodeLayer/Hoare/CallSequence.lean#L132)
+→ [`Runs.drive_reconcile`](../../../EVM/BytecodeLayer/Hoare/CallSequence.lean#L75)
++ [`messageCall_never_outOfFuel`](../../../EVM/BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean#L158)
++ [`messageCall_eq_drive`](../../../EVM/BytecodeLayer/Semantics/Interpreter/Drive.lean#L75)
++ [`drive_halt`](../../../EVM/BytecodeLayer/Semantics/Interpreter/Drive.lean#L56).
 `Runs.drive_reconcile` in turn rests on three L1 bricks, one per `Runs` constructor:
-[`drive_eq_of_both_ne_oof`](../BytecodeLayer/Hoare/CallSequence.lean#L42) (refl),
-[`drive_stepsTo`](../BytecodeLayer/Hoare.lean#L68)/[`drive_step`](../BytecodeLayer/Semantics/Interpreter/Drive.lean#L45) (step),
-and [`drive_descend_eq`](../BytecodeLayer/Semantics/Interpreter/DescentEq.lean#L154) + [`drive_fuel_mono`](../BytecodeLayer/Semantics/Interpreter/Drive.lean#L187) + [`driveG_needsCall_code`](../BytecodeLayer/Semantics/Interpreter/Drive.lean#L115) (call).
+[`drive_eq_of_both_ne_oof`](../../../EVM/BytecodeLayer/Hoare/CallSequence.lean#L42) (refl),
+[`drive_stepsTo`](../../../EVM/BytecodeLayer/Hoare.lean#L68)/[`drive_step`](../../../EVM/BytecodeLayer/Semantics/Interpreter/Drive.lean#L45) (step),
+and [`drive_descend_eq`](../../../EVM/BytecodeLayer/Semantics/Interpreter/DescentEq.lean#L154) + [`drive_fuel_mono`](../../../EVM/BytecodeLayer/Semantics/Interpreter/Drive.lean#L187) + [`driveG_needsCall_code`](../../../EVM/BytecodeLayer/Semantics/Interpreter/Drive.lean#L115) (call).
 
 ---
 
@@ -98,7 +98,7 @@ inductive Runs : Frame → Frame → Prop where
       (rest : Runs resumeFr fr') : Runs callFr fr'
 ```
 
-The atom of `step` is [`StepsTo`](../BytecodeLayer/Hoare.lean#L52) ("one non-halting
+The atom of `step` is [`StepsTo`](../../../EVM/BytecodeLayer/Hoare.lean#L52) ("one non-halting
 `stepFrame` advances `exec`"). The payload of `call` is `CallReturns`, which bundles the
 *entire returning external call as one link* — CALL step, child entering as code, the
 child's black-box terminating `drive`, and the resumed parent frame:
@@ -173,7 +173,7 @@ theorem messageCall_runs_calls (p : CallParams) {fr₀ last : Frame} {halt : Fra
 ```
 
 The only fully observable-level export lifts that to the named outcome predicate
-[`Outcome.completedWith`](../BytecodeLayer/Observables.lean#L100):
+[`Outcome.completedWith`](../../../EVM/BytecodeLayer/Observables.lean#L100):
 
 ```lean
 -- BytecodeLayer/Hoare/CallSequence.lean#L210  (re-exported BytecodeLayer/Spec.lean#L234)
@@ -205,26 +205,26 @@ theorem runs_add (fr : Frame) (a b : UInt256) (rest : Stack UInt256)
 ```
 
 The full opcode roster (all re-exported on `Spec.lean`):
-[`runs_push1`](../BytecodeLayer/Hoare.lean#L173)/[`runs_push`](../BytecodeLayer/Hoare.lean#L185),
-[`runs_sstore`](../BytecodeLayer/Hoare.lean#L197),
-[`runs_add`](../BytecodeLayer/Hoare.lean#L241),
-[`runs_lt`](../BytecodeLayer/Hoare.lean#L252),
-[`runs_sload`](../BytecodeLayer/Hoare.lean#L264),
-[`runs_gas`](../BytecodeLayer/Hoare.lean#L276).
+[`runs_push1`](../../../EVM/BytecodeLayer/Hoare.lean#L173)/[`runs_push`](../../../EVM/BytecodeLayer/Hoare.lean#L185),
+[`runs_sstore`](../../../EVM/BytecodeLayer/Hoare.lean#L197),
+[`runs_add`](../../../EVM/BytecodeLayer/Hoare.lean#L241),
+[`runs_lt`](../../../EVM/BytecodeLayer/Hoare.lean#L252),
+[`runs_sload`](../../../EVM/BytecodeLayer/Hoare.lean#L264),
+[`runs_gas`](../../../EVM/BytecodeLayer/Hoare.lean#L276).
 SSTORE and SLOAD additionally carry **observable storage lenses**:
-[`sstoreFrame_storage_self`](../BytecodeLayer/Hoare.lean#L446) (effect),
-[`sstoreFrame_storage_frame`](../BytecodeLayer/Hoare.lean#L466) (frame — only `(self,key)`
-is touched), and [`sloadFrame_storage_self`](../BytecodeLayer/Hoare.lean#L287) (the pushed
+[`sstoreFrame_storage_self`](../../../EVM/BytecodeLayer/Hoare.lean#L446) (effect),
+[`sstoreFrame_storage_frame`](../../../EVM/BytecodeLayer/Hoare.lean#L466) (frame — only `(self,key)`
+is touched), and [`sloadFrame_storage_self`](../../../EVM/BytecodeLayer/Hoare.lean#L287) (the pushed
 word read through the same `find?/lookupStorage` lens Track C's `Match` uses). These connect
 the symbolic post-frames to the IR-level storage cell. *All seven `runs_*` proofs are
 `Runs.single ∘ stepsTo_of_next ∘ stepFrame_*` one-liners; the lens proofs are `rfl`/`simp`.*
 
 ### 3.5 The CFG combinator (L2) — see §6.2 for the design argument
 
-JUMP/JUMPI lift the same way ([`runs_jump`](../BytecodeLayer/Hoare.lean#L328),
-[`runs_jumpi_taken`](../BytecodeLayer/Hoare.lean#L341),
-[`runs_jumpi_fallthrough`](../BytecodeLayer/Hoare.lean#L357),
-[`runs_jumpdest`](../BytecodeLayer/Hoare.lean#L374)), differing only in that the post-frame
+JUMP/JUMPI lift the same way ([`runs_jump`](../../../EVM/BytecodeLayer/Hoare.lean#L328),
+[`runs_jumpi_taken`](../../../EVM/BytecodeLayer/Hoare.lean#L341),
+[`runs_jumpi_fallthrough`](../../../EVM/BytecodeLayer/Hoare.lean#L357),
+[`runs_jumpdest`](../../../EVM/BytecodeLayer/Hoare.lean#L374)), differing only in that the post-frame
 moves `pc` to a resolved destination. The reasoning helper for a conditional is:
 
 ```lean
@@ -251,12 +251,12 @@ the supplied continuation.*
 `ExecutionState` plus `kind`/`validJumps`); a call is described by [`CallParams`](../EVMLean/Evm/Semantics/Params.lean#L8)
 and a [`CallResult`](../EVMLean/Evm/Semantics/Params.lean#L30); execution is the flat
 [`drive`](../EVMLean/Evm/Semantics/Interpreter.lean#L36) trampoline. Observables are the
-three-way [`Outcome`](../BytecodeLayer/Observables.lean#L72) (completed/reverted/exception),
-with [`completedWith`](../BytecodeLayer/Observables.lean#L100) as the storage-cell predicate.
+three-way [`Outcome`](../../../EVM/BytecodeLayer/Observables.lean#L72) (completed/reverted/exception),
+with [`completedWith`](../../../EVM/BytecodeLayer/Observables.lean#L100) as the storage-cell predicate.
 
 **Hypotheses carried by the headline `messageCall_runs_calls`** — three, all honest and
 structural, *none* smuggling the conclusion:
-- `hbegin : EntersAsCode p fr₀` — i.e. [`beginCall p = .inl fr₀`](../BytecodeLayer/Semantics/System.lean#L237): the call enters as EVM code with entry frame `fr₀`. A side condition on the *entry*, not the result.
+- `hbegin : EntersAsCode p fr₀` — i.e. [`beginCall p = .inl fr₀`](../../../EVM/BytecodeLayer/Semantics/System.lean#L237): the call enters as EVM code with entry frame `fr₀`. A side condition on the *entry*, not the result.
 - `h : Runs fr₀ last` — the caller's actual execution trace, built by the constructors. This is structural: it says *how the bytecode steps*, derived from decode/gas/stack facts via the `runs_*` rules — it is **not** an assumed "the call forwards/returns X".
 - `hhalt : stepFrame last = Signal.halted halt` — the final frame halts.
 
@@ -279,20 +279,20 @@ about outputs. So it is load-bearing structure, not a smell.
 ## 5. Results taxonomy
 
 **Headline / mainline.**
-[`messageCall_runs_calls`](../BytecodeLayer/Spec.lean#L221) (multi-call composition) and
-its observable lift [`messageCall_calls_completedWith`](../BytecodeLayer/Spec.lean#L234).
-[`messageCall_runs`](../BytecodeLayer/Spec.lean#L58) is the single underlying bridge.
+[`messageCall_runs_calls`](../../../EVM/BytecodeLayer/Spec.lean#L221) (multi-call composition) and
+its observable lift [`messageCall_calls_completedWith`](../../../EVM/BytecodeLayer/Spec.lean#L234).
+[`messageCall_runs`](../../../EVM/BytecodeLayer/Spec.lean#L58) is the single underlying bridge.
 
 **Supporting bricks (load-bearing scaffolding).**
-- L3 engine: [`Runs.drive_reconcile`](../BytecodeLayer/Hoare/CallSequence.lean#L75), [`drive_eq_of_both_ne_oof`](../BytecodeLayer/Hoare/CallSequence.lean#L42), [`completedWith_of_ok`](../BytecodeLayer/Hoare/CallSequence.lean#L192).
-- L2: [`Runs.trans`](../BytecodeLayer/Hoare.lean#L129), [`Runs.single`](../BytecodeLayer/Hoare.lean#L138), the seven `runs_*` opcode rules, the four CFG rules + `runs_branch`, the three storage lenses.
-- L1: [`messageCall_never_outOfFuel`](../BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean#L158) (unconditional — see below), [`drive_fuel_mono`](../BytecodeLayer/Semantics/Interpreter/Drive.lean#L187), [`drive_descend_eq`](../BytecodeLayer/Semantics/Interpreter/DescentEq.lean#L154), the `drive_*`/`driveG_*` rewrite vocabulary, and the `stepFrame_*` characterizations the `runs_*` rules wrap.
+- L3 engine: [`Runs.drive_reconcile`](../../../EVM/BytecodeLayer/Hoare/CallSequence.lean#L75), [`drive_eq_of_both_ne_oof`](../../../EVM/BytecodeLayer/Hoare/CallSequence.lean#L42), [`completedWith_of_ok`](../../../EVM/BytecodeLayer/Hoare/CallSequence.lean#L192).
+- L2: [`Runs.trans`](../../../EVM/BytecodeLayer/Hoare.lean#L129), [`Runs.single`](../../../EVM/BytecodeLayer/Hoare.lean#L138), the seven `runs_*` opcode rules, the four CFG rules + `runs_branch`, the three storage lenses.
+- L1: [`messageCall_never_outOfFuel`](../../../EVM/BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean#L158) (unconditional — see below), [`drive_fuel_mono`](../../../EVM/BytecodeLayer/Semantics/Interpreter/Drive.lean#L187), [`drive_descend_eq`](../../../EVM/BytecodeLayer/Semantics/Interpreter/DescentEq.lean#L154), the `drive_*`/`driveG_*` rewrite vocabulary, and the `stepFrame_*` characterizations the `runs_*` rules wrap.
 
 **Examples / demos (acceptance tests; nothing in the headline chain depends on them, but
-all three are wired into the default build via [`ConcreteSpecs.lean`](../BytecodeLayer/Examples/ConcreteSpecs.lean#L6) so they are continuously type-checked).**
-- [`TwoCallExample`](../BytecodeLayer/Examples/TwoCallExample.lean#L62): [`twoCall_runs`](../BytecodeLayer/Examples/TwoCallExample.lean#L62) glues `prefix · call₁ · middle · call₂ · suffix` into one `Runs`, and [`twoCall_messageCall`](../BytecodeLayer/Examples/TwoCallExample.lean#L84) crosses the bridge once — the **acceptance test for the intermediary-call defect** (neither call halts; only `last` does).
-- [`BranchExample`](../BytecodeLayer/Examples/BranchExample.lean#L70): [`branchRuns`](../BytecodeLayer/Examples/BranchExample.lean#L70) composes both arms of a `JUMPI` for an *arbitrary* runtime `cond` via `runs_branch`.
-- [`ArithStorageExample`](../BytecodeLayer/Examples/ArithStorageExample.lean#L50): [`arithStorageRuns`](../BytecodeLayer/Examples/ArithStorageExample.lean#L50) threads `ADD ; LT ; GAS ; SLOAD` through `Runs.trans` (incl. the GAS→SLOAD coupling and a cold-slot `Gcoldsload = 2100` charge).
+all three are wired into the default build via [`ConcreteSpecs.lean`](../../../EVM/BytecodeLayer/Examples/ConcreteSpecs.lean#L6) so they are continuously type-checked).**
+- [`TwoCallExample`](../../../EVM/BytecodeLayer/Examples/TwoCallExample.lean#L62): [`twoCall_runs`](../../../EVM/BytecodeLayer/Examples/TwoCallExample.lean#L62) glues `prefix · call₁ · middle · call₂ · suffix` into one `Runs`, and [`twoCall_messageCall`](../../../EVM/BytecodeLayer/Examples/TwoCallExample.lean#L84) crosses the bridge once — the **acceptance test for the intermediary-call defect** (neither call halts; only `last` does).
+- [`BranchExample`](../../../EVM/BytecodeLayer/Examples/BranchExample.lean#L70): [`branchRuns`](../../../EVM/BytecodeLayer/Examples/BranchExample.lean#L70) composes both arms of a `JUMPI` for an *arbitrary* runtime `cond` via `runs_branch`.
+- [`ArithStorageExample`](../../../EVM/BytecodeLayer/Examples/ArithStorageExample.lean#L50): [`arithStorageRuns`](../../../EVM/BytecodeLayer/Examples/ArithStorageExample.lean#L50) threads `ADD ; LT ; GAS ; SLOAD` through `Runs.trans` (incl. the GAS→SLOAD coupling and a cold-slot `Gcoldsload = 2100` charge).
 
 **Smells / weak proofs.** None of consequence. The examples use small `omega`/`rfl`
 discharges over concrete hardcoded programs (e.g. `branchProgram = #[0x57,0x00,0x00,0x5b,0x00]`,
@@ -302,7 +302,7 @@ gas floors `11`/`2200`) — these are hardcoded *witnesses*, isolated leaves, an
 validJumpDests`). No cranked `maxHeartbeats`, no `decide` on big terms. The general
 `runs_*`/bridge proofs are short. The whole layer is axiom-clean per §TL;DR.
 
-**Note on `messageCall_never_outOfFuel`** — it is **unconditional** ([NeverOutOfFuel.lean#L158](../BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean#L158)): no `gasFundsDescent` hypothesis, no fuel/`Frame` in the statement. It is discharged by `gasFundsDescent_holds` (the five per-transition gas-decrease conjuncts) fed to the general measure theorem. This is what lets the bridge drop its fuel side condition — a genuine improvement, not a hypothesis shuffle.
+**Note on `messageCall_never_outOfFuel`** — it is **unconditional** ([NeverOutOfFuel.lean#L158](../../../EVM/BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean#L158)): no `gasFundsDescent` hypothesis, no fuel/`Frame` in the statement. It is discharged by `gasFundsDescent_holds` (the five per-transition gas-decrease conjuncts) fed to the general measure theorem. This is what lets the bridge drop its fuel side condition — a genuine improvement, not a hypothesis shuffle.
 
 ---
 
@@ -320,16 +320,16 @@ halt. A CALL was a `Signal.needsCall`, *not* a `Runs` link, so `Runs.trans` coul
 it. Track C's multi-call lowering hit exactly this wall (`currentplan.md` orchestration log).
 
 **The fix and why it is the right one.** Promote the returning call to a *link in the
-relation itself*: bundle its four facts as [`CallReturns`](../BytecodeLayer/Hoare.lean#L91)
-and add it as the [`Runs.call`](../BytecodeLayer/Hoare.lean#L114) constructor. Now `Runs`
+relation itself*: bundle its four facts as [`CallReturns`](../../../EVM/BytecodeLayer/Hoare.lean#L91)
+and add it as the [`Runs.call`](../../../EVM/BytecodeLayer/Hoare.lean#L114) constructor. Now `Runs`
 is the closure of `refl`/`step`/`call` — precisely the **regular language `(step | call)*`**.
 A program with N calls is one `Runs` value, assembled by `Runs.trans` gluing `Runs.call`
-nodes around opcode runs ([`twoCall_runs`](../BytecodeLayer/Examples/TwoCallExample.lean#L62)
+nodes around opcode runs ([`twoCall_runs`](../../../EVM/BytecodeLayer/Examples/TwoCallExample.lean#L62)
 is the worked two-call witness). The payoff that makes this *clearly* the correct approach:
 **multi-call composition needed no new proof.** `Runs.drive_reconcile` inducts over the
 `Runs` derivation and *already has a `call` case* that splices a returning child run; so
-[`messageCall_runs_calls`](../BytecodeLayer/Hoare/CallSequence.lean#L175) is *definitionally*
-[`messageCall_runs`](../BytecodeLayer/Hoare/CallSequence.lean#L132). The N-call guarantee
+[`messageCall_runs_calls`](../../../EVM/BytecodeLayer/Hoare/CallSequence.lean#L175) is *definitionally*
+[`messageCall_runs`](../../../EVM/BytecodeLayer/Hoare/CallSequence.lean#L132). The N-call guarantee
 fell out for free the moment the closure was the right shape.
 
 **Alternatives considered, and why they lose.**
@@ -355,15 +355,15 @@ where composition is just `trans`.
 ### 6.2 Why the CFG / control-flow combinator design
 
 **The shape.** A conditional branch is *not* given an invariant theory. Instead
-[`runs_branch`](../BytecodeLayer/Hoare.lean#L408) is a thin combinator: the caller
+[`runs_branch`](../../../EVM/BytecodeLayer/Hoare.lean#L408) is a thin combinator: the caller
 **case-splits on the runtime value of the branch condition**, supplies for the selected
 side the `Runs` that continues from there (taken: from the jump-destination frame;
 fall-through: from `pc+1`), and `runs_branch` drops that into `Runs.trans` after the
 matching `runs_jumpi_*` step. The disjunction is *the caller's*, so the helper is usable
 both when the condition is statically known and when it is only known to be one of two
-cases ([`branchRuns`](../BytecodeLayer/Examples/BranchExample.lean#L70) runs it for an
+cases ([`branchRuns`](../../../EVM/BytecodeLayer/Examples/BranchExample.lean#L70) runs it for an
 arbitrary `cond`). JUMPDEST is handled as an ordinary no-op step
-([`runs_jumpdest`](../BytecodeLayer/Hoare.lean#L374)): a taken jump simply `trans`-steps
+([`runs_jumpdest`](../../../EVM/BytecodeLayer/Hoare.lean#L374)): a taken jump simply `trans`-steps
 past its landing pad. **Loops are deferred**, deliberately: a back-edge is *just another
 `runs_jump` to an earlier pc, glued by `Runs.trans`* — and because gas strictly decreases
 each iteration (and `drive` terminates / never out-of-fuel), any finite execution is
@@ -399,23 +399,23 @@ condition can be a `GAS`-derived word) and an eventual loop-invariant layer.
 
 ## 7. Rough edges, open questions, and the convergence handoff
 
-- **Altitude caveat (self-flagged in [Spec.lean#L23](../BytecodeLayer/Spec.lean#L23)).** The
+- **Altitude caveat (self-flagged in [Spec.lean#L23](../../../EVM/BytecodeLayer/Spec.lean#L23)).** The
   program-logic rules on the spec surface (`Runs.trans`, the `runs_*` rules, `messageCall_runs`)
   are **frame-level** — they mention `Runs`/`Frame`/`stepFrame`, not pure observables. Only
-  [`messageCall_calls_completedWith`](../BytecodeLayer/Spec.lean#L234) is fully
+  [`messageCall_calls_completedWith`](../../../EVM/BytecodeLayer/Spec.lean#L234) is fully
   observable-level. Per project memory this frame-level surface is acceptable for exp003 (the
   low-level layer), but it is the tension to resolve before Phase-2 export.
 - **Modeling limits read from the specs.** SSTORE effect lens requires `newValue ≠ 0`
-  ([Hoare.lean#L449](../BytecodeLayer/Hoare.lean#L449)) and the self account present; SLOAD's
+  ([Hoare.lean#L449](../../../EVM/BytecodeLayer/Hoare.lean#L449)) and the self account present; SLOAD's
   warm/cold flag is a literal `accessedStorageKeys.contains` premise. No RETURN-data rule yet
   (the bridge takes halts generically via `hhalt`, and `completedReturning` exists, but there
   is no `runs_return`). `CREATE` is not yet a second descent constructor (backlog). Reentrancy
   / value-transfer interaction is deferred.
 - **Candidates for the shared `EVMSemantics` interface (Phase 2a).** The signatures Track B's
   nested surface should converge on are
-  [`messageCall_runs_calls`](../BytecodeLayer/Spec.lean#L221) (the ≥N-call composition
-  contract), [`messageCall_calls_completedWith`](../BytecodeLayer/Spec.lean#L234) (observable
-  external-call rule), and [`messageCall_never_outOfFuel`](../BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean#L158)
+  [`messageCall_runs_calls`](../../../EVM/BytecodeLayer/Spec.lean#L221) (the ≥N-call composition
+  contract), [`messageCall_calls_completedWith`](../../../EVM/BytecodeLayer/Spec.lean#L234) (observable
+  external-call rule), and [`messageCall_never_outOfFuel`](../../../EVM/BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean#L158)
   (Track B's B2 is the nested analogue). If both semantics prove these same statements, they
   are interchangeable for IR reasoning — exactly the bake-off `currentplan.md` END-GOAL wants.
 - **Next steps already queued** (`currentplan.md`): merge A → base (unblocks Track C's C3),

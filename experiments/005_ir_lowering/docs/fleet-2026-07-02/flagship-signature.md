@@ -180,7 +180,7 @@ Legend: **(a)** dischargeable → tracked sorry-debt; **(b)** honest seam → do
 
 1. `hprec` — precompile no-erase (`TieDischarge.lean:3478`).
 2. `CallsCode` — reachable CALLs target code accounts (`Modellable.lean:435`).
-3. `CallReturns`/`Lir.Frame.CallOracle` kernel — the child-run observation (`003_bytecode_layer/BytecodeLayer/Hoare.lean:91`, `Machine.lean:96`).
+3. `CallReturns`/`Lir.Frame.CallOracle` kernel — the child-run observation (`EVM/BytecodeLayer/Hoare.lean:91`, `Machine.lean:96`).
 4. `log.clean` — the non-exception scope premise (decidable on the log; the *restriction* is honest, the *hypothesis form* is checkable).
 5. `hself` + `hgas` + `hcode` + `hmod` — decidable entry-call wellformedness.
 

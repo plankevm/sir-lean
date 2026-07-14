@@ -17,7 +17,7 @@ inherited by every track's worktree).
 > structural reorg (HEAD `53c2063`); paths cited in the log below have MOVED (redirect map:
 > `experiments/005_ir_lowering/docs/headline-transitive-chain.md`):
 > (a) `LirLean/Spec/{IR,Semantics,Lowering,Recorder,Seams,Conformance}` extraction;
-> (b) `experiments/003_bytecode_layer/BytecodeLayer/Hoare/*` + `LirLean/Drive/{SelfPresent,CallPreservesSelf,Headline}` split,
+> (b) `EVM/BytecodeLayer/Hoare/*` + `LirLean/Drive/{SelfPresent,CallPreservesSelf,Headline}` split,
 > `TieDischarge.lean` **DISSOLVED** (headline → `LirLean/Drive/Headline.lean`) and
 > `RunLog.lean` **deleted** (recorder → `LirLean/Spec/Recorder.lean`); (c) Phase-2
 > **deletion** of `{Mono,Oracle,HonestGasTie}.lean` + the gas-monotonicity law;

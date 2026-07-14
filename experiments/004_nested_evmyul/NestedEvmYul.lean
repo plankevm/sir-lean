@@ -6,9 +6,9 @@ import NestedEvmYul.NeverOutOfFuel
 -- Cross-engine convergence: the toolchain-neutral shared observable, the
 -- `observe_nested` projection above `Θ`, the `EVMSemantics` interface + nested
 -- instance, and `runΘ_never_outOfFuel`. Mirror on the flat side:
--- experiments/003_bytecode_layer/BytecodeLayer/SharedObservable.lean.
+-- EVM/BytecodeLayer/SharedObservable.lean.
 import NestedEvmYul.SharedObservable
 -- The NESTED refinement half: `emptyObs` literal + `nested_refines_emptyObs`
 -- (single-STOP do-nothing call observes as the canonical do-nothing spec).
--- Mirror on the flat side: experiments/003_bytecode_layer/BytecodeLayer/Equivalence.lean.
+-- Mirror on the flat side: EVM/BytecodeLayer/Equivalence.lean.
 import NestedEvmYul.Refinement

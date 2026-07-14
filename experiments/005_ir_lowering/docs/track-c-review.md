@@ -385,7 +385,7 @@ theorem lower_preserves_discharge (prog : Program) (p : CallParams)
 ```
 
 This is `messageCall_runs`
-([exp003 `CallSequence.lean`](../../003_bytecode_layer/BytecodeLayer/Hoare/CallSequence.lean#L132))
+([exp003 `CallSequence.lean`](../../../EVM/BytecodeLayer/Hoare/CallSequence.lean#L132))
 applied at the IR/lowering boundary; the two terminator instances are
 [`lower_preserves_stop`](../LirLean/Match.lean#L345) /
 [`lower_preserves_ret`](../LirLean/Match.lean#L358). Crucially, the bridge crosses
@@ -539,7 +539,7 @@ theorem wc_preserves_twoCall (g : UInt64)
 **The key finding, formalized.** This two-call result needed **no new theory**: it is
 the same `lower_preserves_discharge`, with two `Runs.call` nodes threaded by
 `Runs.trans` into one `Runs`. This works only because exp003's `Runs` makes `call` a
-**constructor** ([exp003 `Hoare.lean`](../../003_bytecode_layer/BytecodeLayer/Hoare.lean#L114)):
+**constructor** ([exp003 `Hoare.lean`](../../../EVM/BytecodeLayer/Hoare.lean#L114)):
 
 ```lean
 inductive Runs : Frame → Frame → Prop where

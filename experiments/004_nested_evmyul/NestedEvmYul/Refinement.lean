@@ -4,7 +4,7 @@ import NestedEvmYul.SharedObservable
 # The NESTED refinement half against the shared spec
 
 This is the **nested** (`«evmyul»` / exp004) half of the cross-engine refinement.
-Its flat mirror is `experiments/003_bytecode_layer/BytecodeLayer/Equivalence.lean`
+Its flat mirror is `EVM/BytecodeLayer/Equivalence.lean`
 (`emptyObs`, `equivGoalEmpty`).
 
 Cross-engine equivalence is realized as **refinement through a shared spec**: each

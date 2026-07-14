@@ -6,7 +6,7 @@ import NestedEvmYul.NeverOutOfFuel
 
 This is the **nested** (`«evmyul»` / exp004) half of the cross-engine observable
 bridge. Its mirror image lives on the flat side as
-`experiments/003_bytecode_layer/BytecodeLayer/SharedObservable.lean`.
+`EVM/BytecodeLayer/SharedObservable.lean`.
 
 ## Why the observable is *plain data*
 

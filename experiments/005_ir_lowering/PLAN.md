@@ -958,7 +958,7 @@ from the prototype. `GT` was the only new opcode brick.
 ## 2026-06-23 — v2-gasmono: the general `Runs`-level gas-monotonicity lemma (§3.4 "holds across calls") is now a REAL PROOF
 
 **DELIVERABLE (done, axiom-clean, build-green).** New module
-`experiments/003_bytecode_layer/BytecodeLayer/Hoare/GasMonotone.lean`, re-exported on the
+`EVM/BytecodeLayer/Hoare/GasMonotone.lean`, re-exported on the
 audit surface `BytecodeLayer/Spec.lean`. The headline:
 
 ```text

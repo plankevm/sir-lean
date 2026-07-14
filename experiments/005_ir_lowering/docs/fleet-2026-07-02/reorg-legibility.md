@@ -72,7 +72,7 @@ LirLean/
 **New exp003 files** (Phase 4 targets, per audit §7 / remediation Phase 4):
 
 ```
-003_bytecode_layer/BytecodeLayer/
+EVM/BytecodeLayer/
 ├── Hoare/AccountsMonotone.lean  PROOF ~900   unified AccPresent/AccMono dispatch walk (the
 │                                             a:=self corollary replaces the ~920-ln SelfAt walk),
 │                                             stepFrame_next_execEnvAddr, needsCall/needsCreate
@@ -238,7 +238,7 @@ Every step ends with `lake build` in both experiments; Steps 1, 2, 4 additionall
 - Headline: `LirLean/TieDischarge.lean:4292` (conclusion :4330-4335); `DriveCorrPlus` :3589; namespace interleavings :543/:589/:604/:1488/:1653/:2916.
 - Obligation defs: `StmtTies` `LirLean/LowerConforms.lean:1273`, `TermTies` :1342, `WellFormedLowered` :143; `Corr` `LirLean/SimStmt.lean:103`; `DriveCorr` `LirLean/DriveSim.lean:87`.
 - Recorder: `runWithLog` `LirLean/RunLog.lean:219`; monotonicity section (Phase-2 delete) :580+.
-- House spec-surface pattern: `experiments/003_bytecode_layer/BytecodeLayer/Spec.lean:14`.
+- House spec-surface pattern: `EVM/BytecodeLayer/Spec.lean:14`.
 - Linter: `unusedArguments` `.lake/packages/batteries/Batteries/Tactic/Lint/Misc.lean:42`; driver `.lake/packages/batteries/lakefile.toml:3,17-20`.
 - `#guard_msgs` precedent in-repo: `LirLean/MemAlgebra.lean:947`.
 - Measured: 24,670 ln / 43 files; 252 `#print axioms` across 29 files (73 TieDischarge, 53 CleanHaltExtract); toolchains both `lean4:v4.30.0`.

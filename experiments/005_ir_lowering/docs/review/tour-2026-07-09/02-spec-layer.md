@@ -647,7 +647,7 @@ still lives in the WIP file, not in `Spec/`.
   `Decode/Modellable`, `BytecodeLayer/Hoare/CleanHalt` and *forwards* their predicates
   ([`SelfPresent`](../../../LirLean/Drive/SelfPresent.lean#L353),
   [`CallsCode`](../../../LirLean/Decode/Modellable.lean#L410),
-  [`CleanHaltsNonException`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean#L62)).
+  [`CleanHaltsNonException`](../../../../../EVM/BytecodeLayer/Hoare/CleanHalt.lean#L62)).
 * [`Spec/Recorder.lean`](../../../LirLean/Spec/Recorder.lean#L1) imports `Frame/Call`/
   `Frame/Create` (for the `evmCallOracle`/`evmCreateOracle` projections), pulling the whole v1
   frame layer under `Spec/Recorder` → `Spec/Conformance`.

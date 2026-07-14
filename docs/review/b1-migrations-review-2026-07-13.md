@@ -34,7 +34,7 @@ flagship statements. This review checks that cut, not the later assembler work
 excluded by the [split-and-assembler plan](../planning/split-and-assembler-plan-2026-07-13.md).
 
 The shared observable vocabulary was already hoisted in B0. Its central shape is
-[Observable](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Observable.lean#L32):
+[Observable](../../EVM/BytecodeLayer/Exec/Observable.lean#L32):
 
 ```lean
 abbrev Word := UInt256
@@ -61,7 +61,7 @@ structure Observable where
 ```
 
 This substrate is structurally generic, although the type name
-[IRHalt](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Observable.lean#L18)
+[IRHalt](../../EVM/BytecodeLayer/Exec/Observable.lean#L18)
 still carries historical IR terminology. No B1 declaration mentions the source
 IR's program, block, statement, term, expression, temporary, call/create spec,
 lowering, emission, definition map, or materialisation cache in its type.
@@ -74,26 +74,26 @@ genuinely IR-specific specialization.
 
 | Commit | Planned unit | New generic owner | Experiment-005 side at HEAD | Audit |
 |---|---|---|---|---|
-| `b3c31593` | Storage erase | [Invariants.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Invariants.lean#L31) | old module deleted | Generic ordered-tree and EVM storage-map facts only. |
-| `aedcd7d3` | Word encoders | [Exec.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec.lean#L12) | old module deleted; lowering imports the owner directly in [Lowering.lean](../../experiments/005_ir_lowering/LirLean/Spec/Lowering.lean#L2) | Generic big-endian byte encoders only. |
-| `7044a0b6` | CALL effect oracle | [Call.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Call.lean#L33) | old module deleted | Types use only EVM call/result/resume objects and shared observables. |
-| `d8af28aa` | CREATE effect oracle | [Create.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Create.lean#L33) | old module deleted | Types use only EVM create/result/resume objects and shared observables. |
-| `a41bdd84` | Execution recorder | [Recorder.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Recorder.lean#L26) | [Spec/Recorder.lean](../../experiments/005_ir_lowering/LirLean/Spec/Recorder.lean#L1) re-exports the generic surface | Recorder is parameterized by EVM frames, results, pending calls/creates, and streams only. |
-| `4c78d6ac` | Recorder lemmas | [RecorderLemmas.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/RecorderLemmas.lean#L20) | [RecorderLemmas.lean adapter](../../experiments/005_ir_lowering/LirLean/RecorderLemmas.lean#L1) | Adequacy and stream-cons lemmas are EVM/recorder-only. |
-| `1d8fe2fe` | Word decode lemmas | [MatDecLower.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/MatDecLower.lean#L23) | [MatDecLower.lean adapter](../../experiments/005_ir_lowering/LirLean/Materialise/MatDecLower.lean#L1) | Arithmetic, byte-window, and decoder facts only. |
-| `35ac4da6` | Segmented evaluator | [SegmentedEval.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/SegmentedEval.lean#L24) | [SegmentedEval.lean adapter](../../experiments/005_ir_lowering/LirLean/Realisability/SegmentedEval.lean#L1) | Generic one-step and segmented evaluation of the recorder/checker. |
-| `2b43d6f7` | Checked evaluator | [CheckedStep.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/CheckedStep.lean#L82) | [CheckedStep.lean adapter](../../experiments/005_ir_lowering/LirLean/Realisability/CheckedStep.lean#L1) | Checked twins and soundness statements use only EVM machine state and recorder configurations. |
-| `608caa0c` | Self-presence preservation | [CallPreservesSelf.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/CallPreservesSelf.lean#L31) | [CallPreservesSelf.lean adapter](../../experiments/005_ir_lowering/LirLean/Drive/CallPreservesSelf.lean#L1) | All predicates quantify over EVM steps, calls, creates, runs, and account presence. |
-| `c4714994` | Call/create realization bridges | [CallRealises.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/CallRealises.lean#L24) | [CallRealises.lean adapter](../../experiments/005_ir_lowering/LirLean/CallRealises.lean#L1) | Despite historical declaration names containing “lowered,” all types are EVM resume/observable equalities. |
-| `de400da0` | Clean-halt extraction | [CleanHaltExtract.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/CleanHaltExtract.lean#L60) | [CleanHaltExtract.lean adapter](../../experiments/005_ir_lowering/LirLean/Materialise/CleanHaltExtract.lean#L1) retains the IR-specific specialization | Generic opcode envelopes moved; the one theorem that mentions IR syntax and materialisation stayed above the cut. |
-| `d3337dd8` | Seam predicates | [Invariants.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Invariants.lean#L268) and [CallPreservesSelf.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/CallPreservesSelf.lean#L230) | [Spec/Seams.lean](../../experiments/005_ir_lowering/LirLean/Spec/Seams.lean#L1) retains aliases and the phantom program parameter | Generic seam structure no longer depends on the source IR; the adapter preserves the old public shape. |
+| `b3c31593` | Storage erase | [Invariants.lean](../../EVM/BytecodeLayer/Exec/Invariants.lean#L31) | old module deleted | Generic ordered-tree and EVM storage-map facts only. |
+| `aedcd7d3` | Word encoders | [Exec.lean](../../EVM/BytecodeLayer/Exec.lean#L12) | old module deleted; lowering imports the owner directly in [Lowering.lean](../../experiments/005_ir_lowering/LirLean/Spec/Lowering.lean#L2) | Generic big-endian byte encoders only. |
+| `7044a0b6` | CALL effect oracle | [Call.lean](../../EVM/BytecodeLayer/Exec/Call.lean#L33) | old module deleted | Types use only EVM call/result/resume objects and shared observables. |
+| `d8af28aa` | CREATE effect oracle | [Create.lean](../../EVM/BytecodeLayer/Exec/Create.lean#L33) | old module deleted | Types use only EVM create/result/resume objects and shared observables. |
+| `a41bdd84` | Execution recorder | [Recorder.lean](../../EVM/BytecodeLayer/Exec/Recorder.lean#L26) | [Spec/Recorder.lean](../../experiments/005_ir_lowering/LirLean/Spec/Recorder.lean#L1) re-exports the generic surface | Recorder is parameterized by EVM frames, results, pending calls/creates, and streams only. |
+| `4c78d6ac` | Recorder lemmas | [RecorderLemmas.lean](../../EVM/BytecodeLayer/Exec/RecorderLemmas.lean#L20) | [RecorderLemmas.lean adapter](../../experiments/005_ir_lowering/LirLean/RecorderLemmas.lean#L1) | Adequacy and stream-cons lemmas are EVM/recorder-only. |
+| `1d8fe2fe` | Word decode lemmas | [MatDecLower.lean](../../EVM/BytecodeLayer/Exec/MatDecLower.lean#L23) | [MatDecLower.lean adapter](../../experiments/005_ir_lowering/LirLean/Materialise/MatDecLower.lean#L1) | Arithmetic, byte-window, and decoder facts only. |
+| `35ac4da6` | Segmented evaluator | [SegmentedEval.lean](../../EVM/BytecodeLayer/Exec/SegmentedEval.lean#L24) | [SegmentedEval.lean adapter](../../experiments/005_ir_lowering/LirLean/Realisability/SegmentedEval.lean#L1) | Generic one-step and segmented evaluation of the recorder/checker. |
+| `2b43d6f7` | Checked evaluator | [CheckedStep.lean](../../EVM/BytecodeLayer/Exec/CheckedStep.lean#L82) | [CheckedStep.lean adapter](../../experiments/005_ir_lowering/LirLean/Realisability/CheckedStep.lean#L1) | Checked twins and soundness statements use only EVM machine state and recorder configurations. |
+| `608caa0c` | Self-presence preservation | [CallPreservesSelf.lean](../../EVM/BytecodeLayer/Exec/CallPreservesSelf.lean#L31) | [CallPreservesSelf.lean adapter](../../experiments/005_ir_lowering/LirLean/Drive/CallPreservesSelf.lean#L1) | All predicates quantify over EVM steps, calls, creates, runs, and account presence. |
+| `c4714994` | Call/create realization bridges | [CallRealises.lean](../../EVM/BytecodeLayer/Exec/CallRealises.lean#L24) | [CallRealises.lean adapter](../../experiments/005_ir_lowering/LirLean/CallRealises.lean#L1) | Despite historical declaration names containing “lowered,” all types are EVM resume/observable equalities. |
+| `de400da0` | Clean-halt extraction | [CleanHaltExtract.lean](../../EVM/BytecodeLayer/Exec/CleanHaltExtract.lean#L60) | [CleanHaltExtract.lean adapter](../../experiments/005_ir_lowering/LirLean/Materialise/CleanHaltExtract.lean#L1) retains the IR-specific specialization | Generic opcode envelopes moved; the one theorem that mentions IR syntax and materialisation stayed above the cut. |
+| `d3337dd8` | Seam predicates | [Invariants.lean](../../EVM/BytecodeLayer/Exec/Invariants.lean#L268) and [CallPreservesSelf.lean](../../EVM/BytecodeLayer/Exec/CallPreservesSelf.lean#L230) | [Spec/Seams.lean](../../experiments/005_ir_lowering/LirLean/Spec/Seams.lean#L1) retains aliases and the phantom program parameter | Generic seam structure no longer depends on the source IR; the adapter preserves the old public shape. |
 
 The bytecode-layer imports at the heads of
-[Recorder.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Recorder.lean#L1),
-[SegmentedEval.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/SegmentedEval.lean#L1),
-[CheckedStep.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/CheckedStep.lean#L1),
+[Recorder.lean](../../EVM/BytecodeLayer/Exec/Recorder.lean#L1),
+[SegmentedEval.lean](../../EVM/BytecodeLayer/Exec/SegmentedEval.lean#L1),
+[CheckedStep.lean](../../EVM/BytecodeLayer/Exec/CheckedStep.lean#L1),
 and
-[CallPreservesSelf.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/CallPreservesSelf.lean#L1)
+[CallPreservesSelf.lean](../../EVM/BytecodeLayer/Exec/CallPreservesSelf.lean#L1)
 stay entirely inside EVM/BytecodeLayer dependencies. A repository search found no
 bytecode-layer import of `LirLean`; conversely, each adapter in the table imports
 its new generic owner. The build therefore enforces the intended one-way package
@@ -122,9 +122,9 @@ not a code defect.
 
 ### 1. Leaf arithmetic, storage, and opcode facts
 
-[findD_erase_self](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Invariants.lean#L192)
+[findD_erase_self](../../EVM/BytecodeLayer/Exec/Invariants.lean#L192)
 and
-[findD_erase_of_ne](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Invariants.lean#L202)
+[findD_erase_of_ne](../../EVM/BytecodeLayer/Exec/Invariants.lean#L202)
 give the EVM storage-map readback laws after clearing a slot:
 
 ```lean
@@ -135,7 +135,7 @@ theorem findD_erase_of_ne (s : Storage) {k' k : UInt256} (h : k' ≠ k) :
     (s.erase k).findD k' 0 = s.findD k' 0 := by
 ```
 
-[uInt256_wordBytesBE](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/MatDecLower.lean#L95)
+[uInt256_wordBytesBE](../../EVM/BytecodeLayer/Exec/MatDecLower.lean#L95)
 is the corresponding byte-roundtrip brick:
 
 ```lean
@@ -145,7 +145,7 @@ theorem uInt256_wordBytesBE (w : Word) :
 
 The large clean-halt module supplies frame-local decode/gas/memory envelopes. A
 representative mainline statement is
-[gas_envelope_of_cleanHalt](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/CleanHaltExtract.lean#L667):
+[gas_envelope_of_cleanHalt](../../EVM/BytecodeLayer/Exec/CleanHaltExtract.lean#L667):
 
 ```lean
 theorem gas_envelope_of_cleanHalt (fr : Frame) (slot : Nat)
@@ -176,9 +176,9 @@ IR-side simulation, but their statements are independent of that consumer.
 
 ### 2. CALL/CREATE effect projection
 
-[CallOracle](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Call.lean#L33)
+[CallOracle](../../EVM/BytecodeLayer/Exec/Call.lean#L33)
 and
-[CreateOracle](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Create.lean#L33)
+[CreateOracle](../../EVM/BytecodeLayer/Exec/Create.lean#L33)
 abstract the state that becomes externally observable after an EVM descent:
 
 ```lean
@@ -198,9 +198,9 @@ structure CreateOracle where
 ```
 
 The concrete projections are connected back to returning machine runs by
-[callRealises_bridge](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/CallRealises.lean#L67)
+[callRealises_bridge](../../EVM/BytecodeLayer/Exec/CallRealises.lean#L67)
 and
-[createRealises_bridge](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/CallRealises.lean#L99):
+[createRealises_bridge](../../EVM/BytecodeLayer/Exec/CallRealises.lean#L99):
 
 ```lean
 theorem callRealises_bridge {callFr resumeFr : Frame} (self : AccountAddress)
@@ -225,7 +225,7 @@ IR call or create instruction.
 
 ### 3. Recorder, segmented evaluator, and checked twin
 
-[RunLog](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Recorder.lean#L34)
+[RunLog](../../EVM/BytecodeLayer/Exec/Recorder.lean#L34)
 is the machine-side record consumed by the headline:
 
 ```lean
@@ -242,11 +242,11 @@ def RunLog.clean (log : RunLog) : Prop :=
     | .create _ => False
 ```
 
-[driveLog](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Recorder.lean#L168)
+[driveLog](../../EVM/BytecodeLayer/Exec/Recorder.lean#L168)
 walks the EVM interpreter while collecting top-level gas, storage-load, call, and
-create events; [runWithLog](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Recorder.lean#L216)
+create events; [runWithLog](../../EVM/BytecodeLayer/Exec/Recorder.lean#L216)
 packages its terminal result. The load-bearing adequacy statement is
-[runWithLog_drive](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/RecorderLemmas.lean#L105):
+[runWithLog_drive](../../EVM/BytecodeLayer/Exec/RecorderLemmas.lean#L105):
 
 ```lean
 theorem runWithLog_drive {params : CallParams} {fuel : ℕ} {log : RunLog}
@@ -256,10 +256,10 @@ theorem runWithLog_drive {params : CallParams} {fuel : ℕ} {log : RunLog}
 ```
 
 The segmented layer makes recursion explicit through
-[LogConfig](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/SegmentedEval.lean#L24)
-and [nextLog](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/SegmentedEval.lean#L45).
+[LogConfig](../../EVM/BytecodeLayer/Exec/SegmentedEval.lean#L24)
+and [nextLog](../../EVM/BytecodeLayer/Exec/SegmentedEval.lean#L45).
 Its terminal theorem,
-[driveLogC_final](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/SegmentedEval.lean#L171),
+[driveLogC_final](../../EVM/BytecodeLayer/Exec/SegmentedEval.lean#L171),
 says that a finite transition segment fixes the result at every sufficiently
 large fuel:
 
@@ -271,9 +271,9 @@ theorem driveLogC_final {k : ℕ} {c : LogConfig} {res : LogResult}
 
 Finally, the checked twins return an option and prove that every produced answer
 matches the original segmented evaluator. The two key soundness surfaces are
-[stepsLogChk_sound](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/CheckedStep.lean#L650)
+[stepsLogChk_sound](../../EVM/BytecodeLayer/Exec/CheckedStep.lean#L650)
 and
-[stepsCCChk_sound](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/CheckedStep.lean#L727):
+[stepsCCChk_sound](../../EVM/BytecodeLayer/Exec/CheckedStep.lean#L727):
 
 ```lean
 theorem stepsLogChk_sound {k : ℕ} {c : LogConfig} {x : LogConfig ⊕ LogResult}
@@ -289,7 +289,7 @@ the three conformance theorems themselves.
 
 ### 4. Account-presence and reachable-frame seams
 
-[SelfPresent](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Invariants.lean#L229)
+[SelfPresent](../../EVM/BytecodeLayer/Exec/Invariants.lean#L229)
 defines the local invariant:
 
 ```lean
@@ -297,12 +297,12 @@ def SelfPresent (fr : Frame) : Prop :=
   ∃ acc : Account, fr.exec.accounts.find? fr.exec.executionEnv.address = some acc
 ```
 
-[StepPreservesSelf](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/CallPreservesSelf.lean#L31),
-[CallPreservesSelf](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/CallPreservesSelf.lean#L45),
+[StepPreservesSelf](../../EVM/BytecodeLayer/Exec/CallPreservesSelf.lean#L31),
+[CallPreservesSelf](../../EVM/BytecodeLayer/Exec/CallPreservesSelf.lean#L45),
 and
-[CreatePreservesSelf](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/CallPreservesSelf.lean#L137)
+[CreatePreservesSelf](../../EVM/BytecodeLayer/Exec/CallPreservesSelf.lean#L137)
 lift it across the three run-edge forms; then
-[selfPresent_runs](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/CallPreservesSelf.lean#L211)
+[selfPresent_runs](../../EVM/BytecodeLayer/Exec/CallPreservesSelf.lean#L211)
 closes over a whole run:
 
 ```lean
@@ -318,7 +318,7 @@ theorem selfPresent_runs (hstep : StepPreservesSelf) (hcall : CallPreservesSelf)
 ```
 
 The public environmental seam is now the generic
-[PrecompileAssumptions](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/CallPreservesSelf.lean#L248):
+[PrecompileAssumptions](../../EVM/BytecodeLayer/Exec/CallPreservesSelf.lean#L248):
 
 ```lean
 structure PrecompileAssumptions (params : Evm.CallParams) : Prop where
@@ -428,20 +428,20 @@ or hides a conclusion in a new generic assumption.
   their current consumer is the experiment's concrete kernel-checked witness.
   They are not proof dependencies of the three headline declarations.
 - **Inherited reduction smell:**
-  [SegmentedEval.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/SegmentedEval.lean#L12)
+  [SegmentedEval.lean](../../EVM/BytecodeLayer/Exec/SegmentedEval.lean#L12)
   sets one million heartbeats globally and repeats a scoped setting at
-  [callsCodeOk_succ_eq](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/SegmentedEval.lean#L223).
+  [callsCodeOk_succ_eq](../../EVM/BytecodeLayer/Exec/SegmentedEval.lean#L223).
   This is isolated to witness/checker evaluation, not the flagships.
 - **Inherited elaboration smell:**
-  [MatDecLower.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/MatDecLower.lean#L17)
+  [MatDecLower.lean](../../EVM/BytecodeLayer/Exec/MatDecLower.lean#L17)
   raises recursion depth to 8192, and
-  [fromBytes_wordBytesBE](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/MatDecLower.lean#L52)
+  [fromBytes_wordBytesBE](../../EVM/BytecodeLayer/Exec/MatDecLower.lean#L52)
   performs a long explicit 32-byte reduction. The roundtrip brick is in the
   mainline lowering/decode cone, so brittleness here can affect headline builds,
   though it introduces no axiom or untrusted evaluator. Both settings predate B1
   and were relocated rather than added.
 - **Naming rough edge:** the generic observable result is still called
-  [IRHalt](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Observable.lean#L18).
+  [IRHalt](../../EVM/BytecodeLayer/Exec/Observable.lean#L18).
   Its definition is IR-independent, so this is nomenclature rather than a cut
   violation.
 
@@ -450,17 +450,17 @@ or hides a conclusion in a new generic assumption.
 The initial pass found that migrated declarations were generic but several
 comments still alleged relationships to experiment-005 lowering code and
 downstream files. The follow-up rewrote the affected module prose in
-[Call.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Call.lean#L6),
-[Create.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Create.lean#L6),
-[CallRealises.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/CallRealises.lean#L6),
-[CallPreservesSelf.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/CallPreservesSelf.lean#L6),
-[CheckedStep.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/CheckedStep.lean#L4),
-[CleanHaltExtract.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/CleanHaltExtract.lean#L4),
-[MatDecLower.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/MatDecLower.lean#L5),
-[Recorder.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Recorder.lean#L105),
-[RecorderLemmas.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/RecorderLemmas.lean#L3),
+[Call.lean](../../EVM/BytecodeLayer/Exec/Call.lean#L6),
+[Create.lean](../../EVM/BytecodeLayer/Exec/Create.lean#L6),
+[CallRealises.lean](../../EVM/BytecodeLayer/Exec/CallRealises.lean#L6),
+[CallPreservesSelf.lean](../../EVM/BytecodeLayer/Exec/CallPreservesSelf.lean#L6),
+[CheckedStep.lean](../../EVM/BytecodeLayer/Exec/CheckedStep.lean#L4),
+[CleanHaltExtract.lean](../../EVM/BytecodeLayer/Exec/CleanHaltExtract.lean#L4),
+[MatDecLower.lean](../../EVM/BytecodeLayer/Exec/MatDecLower.lean#L5),
+[Recorder.lean](../../EVM/BytecodeLayer/Exec/Recorder.lean#L105),
+[RecorderLemmas.lean](../../EVM/BytecodeLayer/Exec/RecorderLemmas.lean#L3),
 and
-[SegmentedEval.lean](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/SegmentedEval.lean#L3)
+[SegmentedEval.lean](../../EVM/BytecodeLayer/Exec/SegmentedEval.lean#L3)
 to describe only local EVM properties, projections, and evaluators. It also
 removed false trailing “axiom-cleanliness guard” comments that did not contain
 actual guard commands. The cleanup changes comments only, satisfying the

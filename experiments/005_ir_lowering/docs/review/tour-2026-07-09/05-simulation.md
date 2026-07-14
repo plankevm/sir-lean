@@ -101,7 +101,7 @@ One structural oddity worth noting: **`sloadChg` and `obs` are phantom parameter
 
 ## 3. Layer C — the per-statement arms (reviewer Q2)
 
-All arms share one contract: from `Corr … st fr L pc`, an [`EvalStmt`](../../../LirLean/Spec/Semantics.lean#L48) step, and the statement's honest runtime ties, produce `∃ fr', Runs fr fr' ∧ Corr … st' fr' L (pc+1) ∧ fr'.exec.stack = []` — where [`Runs`](../../../../003_bytecode_layer/BytecodeLayer/Hoare.lean#L140) is exp003's reflexive-transitive step relation. The cursor advance is [`pcOf_succ`](../../../LirLean/Sim/SimStmt.lean#L78):
+All arms share one contract: from `Corr … st fr L pc`, an [`EvalStmt`](../../../LirLean/Spec/Semantics.lean#L48) step, and the statement's honest runtime ties, produce `∃ fr', Runs fr fr' ∧ Corr … st' fr' L (pc+1) ∧ fr'.exec.stack = []` — where [`Runs`](../../../../../EVM/BytecodeLayer/Hoare.lean#L140) is exp003's reflexive-transitive step relation. The cursor advance is [`pcOf_succ`](../../../LirLean/Sim/SimStmt.lean#L78):
 
 ```lean
 theorem pcOf_succ (prog : Program) (L : Label) (b : Block) (pc : Nat) (s : Stmt)
@@ -163,7 +163,7 @@ theorem sim_sstore_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       ∧ fr'.exec.stack = []
 ```
 
-Notable design points: the operand gas envelopes are **derived, not supplied** — the clean-halt witness [`CleanHaltsNonException`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean#L62) is fed to [`materialise_runsC_of_cleanHalt`](../../../LirLean/Materialise/MaterialiseCleanHalt.lean#L372) twice (value at `fr`, key at the intermediate frame, forwarded via [`cleanHaltsNonException_forward`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean#L80)). The remaining runtime seam is [`SstoreRealises`](../../../LirLean/Sim/SimStmt.lean#L317):
+Notable design points: the operand gas envelopes are **derived, not supplied** — the clean-halt witness [`CleanHaltsNonException`](../../../../../EVM/BytecodeLayer/Hoare/CleanHalt.lean#L62) is fed to [`materialise_runsC_of_cleanHalt`](../../../LirLean/Materialise/MaterialiseCleanHalt.lean#L372) twice (value at `fr`, key at the intermediate frame, forwarded via [`cleanHaltsNonException_forward`](../../../../../EVM/BytecodeLayer/Hoare/CleanHalt.lean#L80)). The remaining runtime seam is [`SstoreRealises`](../../../LirLean/Sim/SimStmt.lean#L317):
 
 ```lean
 def SstoreRealises (fr : Frame) (kw vw : Word) (acc : Account) : Prop :=
@@ -179,7 +179,7 @@ def SstoreRealises (fr : Frame) (kw vw : Word) (acc : Account) : Prop :=
 
 ### 3.3 `sim_call_stmt` — the call arm ([`SimStmt.lean#L579`](../../../LirLean/Sim/SimStmt.lean#L579), reviewer Q2 centrepiece)
 
-Route-B lowering: `5×(PUSH 0) ++ matCache callee ++ matCache gasFwd ++ [CALL] ++ tail`, where the tail is `PUSH32 slotOf t; MSTORE` (result bound) or `POP` (dropped). The CALL becomes a `Runs.call` node via exp003-side [`sim_call`](../../../LirLean/Frame/Match.lean#L433) carrying a [`CallReturns`](../../../../003_bytecode_layer/BytecodeLayer/Hoare.lean#L91) witness. Statement quoted whole (it *is* the hypothesis ledger):
+Route-B lowering: `5×(PUSH 0) ++ matCache callee ++ matCache gasFwd ++ [CALL] ++ tail`, where the tail is `PUSH32 slotOf t; MSTORE` (result bound) or `POP` (dropped). The CALL becomes a `Runs.call` node via exp003-side [`sim_call`](../../../LirLean/Frame/Match.lean#L433) carrying a [`CallReturns`](../../../../../EVM/BytecodeLayer/Hoare.lean#L91) witness. Statement quoted whole (it *is* the hypothesis ledger):
 
 ```lean
 theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
@@ -241,7 +241,7 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
 | **Exploded-`Corr` plumbing** | `hfrpc`, `hdefs`, `hmem` (3) | Interface unevenness: unlike every sibling arm, `sim_call_stmt` takes `Corr`'s fields exploded instead of `hcorr : Corr …`. Pure refactor. |
 | **Cursor/structural plumbing** | `hb`, `hs`, `hargslen`, `hslots`, `hsc`, `hscoped'` (6) | `hargslen` is definitional; `hslots` is [`WellFormedLowered.slots_slot`](../../../LirLean/CfgSim/LowerConforms.lean#L182); `hsc`/`hscoped'` are the standard scoping ties. |
 
-The `memAgree` re-establishment is the arm's real content: the freshly bound result slot reads back the flag ([`mstore_reads_back`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/MemAlgebra.lean#L713)), and every other bound slot survives the disjoint MSTORE ([`slot_windows_disjoint`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/MemAlgebra.lean#L872) on [`slotOf`](../../../LirLean/Spec/Lowering.lean#L39)`= t.id * 32`, [`mstore_preserves_slot_grow`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/MemAlgebra.lean#L919)). Proof method: direct frame-chain assembly + record rebuild; no induction.
+The `memAgree` re-establishment is the arm's real content: the freshly bound result slot reads back the flag ([`mstore_reads_back`](../../../../../EVM/BytecodeLayer/Hoare/MemAlgebra.lean#L713)), and every other bound slot survives the disjoint MSTORE ([`slot_windows_disjoint`](../../../../../EVM/BytecodeLayer/Hoare/MemAlgebra.lean#L872) on [`slotOf`](../../../LirLean/Spec/Lowering.lean#L39)`= t.id * 32`, [`mstore_preserves_slot_grow`](../../../../../EVM/BytecodeLayer/Hoare/MemAlgebra.lean#L919)). Proof method: direct frame-chain assembly + record rebuild; no induction.
 
 ### 3.4 `sim_assign_gas` / `sim_assign_sload` — the spill arms
 
@@ -358,7 +358,7 @@ theorem sim_term_edge_jump … :
       ∧ Runs fr fr' ∧ Corr prog sloadChg obs st fr' L' 0
 ```
 
-The branch arm takes the cond materialise as a [`MatRunsC`](../../../LirLean/Materialise/MatFoldChannel.lean#L782) witness and case-splits on `cw` (JUMPI taken via exp003's [`runs_jumpi_taken`](../../../../003_bytecode_layer/BytecodeLayer/Hoare.lean#L684), fall-through reuses `jump_to_block`). The IR state is unchanged across an edge, so the semantic `Corr` clauses transport verbatim; ~15 `rfl` accessor lemmas ([`jumpFrame_*`, `jumpdestFrame_*`, `jumpiFallthroughFrame_*`](../../../LirLean/Sim/SimTerm.lean#L150)) expose exactly the clauses to thread.
+The branch arm takes the cond materialise as a [`MatRunsC`](../../../LirLean/Materialise/MatFoldChannel.lean#L782) witness and case-splits on `cw` (JUMPI taken via exp003's [`runs_jumpi_taken`](../../../../../EVM/BytecodeLayer/Hoare.lean#L684), fall-through reuses `jump_to_block`). The IR state is unchanged across an edge, so the semantic `Corr` clauses transport verbatim; ~15 `rfl` accessor lemmas ([`jumpFrame_*`, `jumpdestFrame_*`, `jumpiFallthroughFrame_*`](../../../LirLean/Sim/SimTerm.lean#L150)) expose exactly the clauses to thread.
 
 ---
 

@@ -17,7 +17,7 @@ ADDITIONS — zero existing signature/structure changes, paramsRemoved = [] on b
 ## (a) What LANDED
 
 ### RUNSFACTOR — commit `1ec1304`
-File: `experiments/003_bytecode_layer/BytecodeLayer/Hoare.lean` (+41 lines, pure addition,
+File: `EVM/BytecodeLayer/Hoare.lean` (+41 lines, pure addition,
 right after `Runs.step_to_halt`).
 - **`Runs.step_cancel`** `{fr mid fr'} (hrun : Runs fr fr') (hstep : StepsTo fr mid) :
   Runs mid fr' ∨ fr = fr'` — single deterministic-step FRONT cancellation. Mirror of the

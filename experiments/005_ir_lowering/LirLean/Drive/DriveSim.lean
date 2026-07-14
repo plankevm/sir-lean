@@ -29,8 +29,8 @@ the cyclic-general headline `lower_conforms_cyclic` (F3) — **`CFGAcyclic` reti
   to an IR cursor `(L, st)`: `Corr prog … st fr L 0` together with the frame's remaining run
   reaching a clean **non-exception** `.halted` outcome (`CleanHaltsNonException fr`), whose
   `totalGas [] (.inl fr) = fr.exec.gasAvailable.toNat` (`driveCorr_measure`) is the recursion
-  measure. The clean-halt predicates live in `experiments/003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean`.
-* **`cleanHaltsNonException_forward`** (`experiments/003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean`) — the **forward clean-halt
+  measure. The clean-halt predicates live in `EVM/BytecodeLayer/Hoare/CleanHalt.lean`.
+* **`cleanHaltsNonException_forward`** (`EVM/BytecodeLayer/Hoare/CleanHalt.lean`) — the **forward clean-halt
   split** (the former wall, now DERIVED). `stepFrame` is a function, so the halting `Runs` path is
   *linear* (`Runs.linear_to_halt`, exp003 `BytecodeLayer/Hoare.lean`): every frame reachable on the
   way to a halt continues to the *same* halt. So `CleanHaltsNonException` is forward-closed along
@@ -78,9 +78,9 @@ open BytecodeLayer.Hoare
 open BytecodeLayer.Interpreter
 open Lir
 
-/-! ## §2 — the boundary invariant `DriveCorr` (clean-halt predicates: `experiments/003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean`)
+/-! ## §2 — the boundary invariant `DriveCorr` (clean-halt predicates: `EVM/BytecodeLayer/Hoare/CleanHalt.lean`)
 
-`CleanHalts` / `CleanHaltsNonException` and their forward splits live in `experiments/003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean`
+`CleanHalts` / `CleanHaltsNonException` and their forward splits live in `EVM/BytecodeLayer/Hoare/CleanHalt.lean`
 (upstream of both this drive walk and the `SimStmts` per-statement induction, so they are visible
 to the whole tower). `open Lir` (this namespace) brings them into scope here. -/
 
@@ -721,4 +721,4 @@ end Lir
 -- Build-enforced axiom-cleanliness guards for the cyclic-CFG deliverables: the strict `totalGas`
 -- descent, the four per-block drive steps, the F2 recursion (`runFrom_of_driveCorr`) and the F3
 -- assembly (`lower_conforms_cyclic`) depend only on `[propext, Classical.choice, Quot.sound]`.
--- (The forward clean-halt split lives in `experiments/003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean`, guarded there.)
+-- (The forward clean-halt split lives in `EVM/BytecodeLayer/Hoare/CleanHalt.lean`, guarded there.)

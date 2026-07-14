@@ -131,10 +131,10 @@ Geometry that lives *outside* the folder but belongs to this layer:
   [`mem_validJumpDests_of_reachable_jumpdest`](../../../../003_bytecode_layer/EVMLean/Evm/Semantics/Decode.lean#L189)
   (a consumer-driven addition to exp003; see [01-trusted-base](01-trusted-base.md)).
 - **Engine-side step inversions** — landed with R11 chunk 1 in
-  [`BytecodeLayer/Hoare/Descent.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Descent.lean#L205)
-  ([`stepFrame_needsCall_site_inv`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Descent.lean#L205),
-  [`stepFrame_needsCreate_site_inv`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Descent.lean#L460),
-  [`resumeAfterCreate_pc`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Descent.lean#L663)); engine territory
+  [`BytecodeLayer/Hoare/Descent.lean`](../../../../../EVM/BytecodeLayer/Hoare/Descent.lean#L205)
+  ([`stepFrame_needsCall_site_inv`](../../../../../EVM/BytecodeLayer/Hoare/Descent.lean#L205),
+  [`stepFrame_needsCreate_site_inv`](../../../../../EVM/BytecodeLayer/Hoare/Descent.lean#L460),
+  [`resumeAfterCreate_pc`](../../../../../EVM/BytecodeLayer/Hoare/Descent.lean#L663)); engine territory
   ([01-trusted-base](01-trusted-base.md)), consumed by this layer's call-site lemmas (§4.6).
 
 Upward consumers (who imports the geometry): `Frame/Match` (M1 pin →
@@ -447,7 +447,7 @@ and the CALL/CREATE resume edges:
    ```
    ([`stepFrame_needsCall_lowering_site_inv`](../../../LirLean/Decode/BoundaryReach.lean#L564),
    twin [`stepFrame_needsCreate_lowering_site_inv`](../../../LirLean/Decode/BoundaryReach.lean#L584);
-   built on the engine inversions in [`BytecodeLayer/Hoare/Descent.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Descent.lean#L205).)
+   built on the engine inversions in [`BytecodeLayer/Hoare/Descent.lean`](../../../../../EVM/BytecodeLayer/Hoare/Descent.lean#L205).)
    This **already closed the B-call brick**: the R6 CALL edge
    [`atReachableBoundaryVJ_call`](../../../LirLean/Realisability/Machinery.lean#L1416) cites
    it at [Machinery.lean#L1428](../../../LirLean/Realisability/Machinery.lean#L1428).

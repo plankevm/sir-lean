@@ -3,7 +3,7 @@
 ## TL;DR
 
 The eight landed B2 commits put the intended EVM-only declarations under the
-[bytecode execution surface](../../experiments/003_bytecode_layer/BytecodeLayer/Exec.lean#L1)
+[bytecode execution surface](../../EVM/BytecodeLayer/Exec.lean#L1)
 and leave the declarations whose statements mention the IR in exp005. The moved Lean
 signatures and bodies are faithful relocations modulo namespace/import/export plumbing; the
 three flagship statements are byte-for-byte unchanged across the reviewed range. I found no
@@ -13,7 +13,7 @@ The Lean split was semantically correct as landed. Review found a source-hygiene
 new generic files still described results in IR terms, and five adapters still claimed to own
 declarations that moved. The follow-up cleanup rewrote those comments in bytecode-local terms,
 collapsed the adapter headers, and removed redundant imports. The generic theorem
-[`lower_modellable`](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Modellable.lean#L362)
+[`lower_modellable`](../../EVM/BytecodeLayer/Exec/Modellable.lean#L362)
 still has a legacy lowering-flavoured name although its statement is about an arbitrary entry
 frame; its docstring is now generic, and the rename is recorded as non-blocking naming debt.
 Verdict: **pass after the B2 cleanup; no semantic defect remains.**
@@ -45,16 +45,16 @@ facts and add only IR-indexed bridges; the unchanged flagships consume the resul
 
 | reviewed commit | generic destination | retained adapter | assessment |
 |---|---|---|---|
-| `b49694cb` | [gas arithmetic](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Gas.lean#L1) | [IR charge fold](../../experiments/005_ir_lowering/LirLean/Materialise/MaterialiseGas.lean#L1) | Correct cut: two frame/list facts moved; the charge-cache tower remains IR-shaped. |
-| `1bc50999` | [recorder alignment](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Alignment.lean#L1) | [two value-channel selections](../../experiments/005_ir_lowering/LirLean/Drive/SelfPresent.lean#L58) | Correct cut; the adapter keeps only the IR value-channel selections, alias, and re-exports. |
-| `93e731ca` | [atomic frame simulations](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Frame.lean#L1) | [three lowering boundary bridges](../../experiments/005_ir_lowering/LirLean/Frame/Match.lean#L35) | Correct statements and minimal two-import adapter. |
-| `00aa813f` | [successful-halt projections](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Results.lean#L1) | [terminator simulation](../../experiments/005_ir_lowering/LirLean/Sim/SimTerm.lean#L1) | Clean cut and focused adapter export. |
-| `574c7ed7` | [witness checker soundness](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/WitnessChecks.lean#L1) | [concrete exp005 witness](../../experiments/005_ir_lowering/LirLean/Realisability/WitnessParams.lean#L27) | Correct cut; the adapter now describes only the concrete witness and assembly. |
-| `391c1638` | [frame/step modellability](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Modellable.lean#L1) | [lowered-code boundary predicate](../../experiments/005_ir_lowering/LirLean/Decode/Modellable.lean#L9) | Correct semantic cut; docstrings are generic/local, with only the legacy theorem name deferred. |
-| `2a188960` | [memory/accessor and stash bundle](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Memory.lean#L1) | [IR value-channel relations](../../experiments/005_ir_lowering/LirLean/Materialise/MaterialiseRuns.lean#L60) | Correct landed subset; explicitly deferred relations remain IR-indexed. |
-| `5df82804` | [stash-tail forward runs](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Stash.lean#L1) | [cached-SLOAD composition](../../experiments/005_ir_lowering/LirLean/Materialise/StashTail.lean#L8) | Correct cut; both sides now describe only their local role. |
+| `b49694cb` | [gas arithmetic](../../EVM/BytecodeLayer/Exec/Gas.lean#L1) | [IR charge fold](../../experiments/005_ir_lowering/LirLean/Materialise/MaterialiseGas.lean#L1) | Correct cut: two frame/list facts moved; the charge-cache tower remains IR-shaped. |
+| `1bc50999` | [recorder alignment](../../EVM/BytecodeLayer/Exec/Alignment.lean#L1) | [two value-channel selections](../../experiments/005_ir_lowering/LirLean/Drive/SelfPresent.lean#L58) | Correct cut; the adapter keeps only the IR value-channel selections, alias, and re-exports. |
+| `93e731ca` | [atomic frame simulations](../../EVM/BytecodeLayer/Exec/Frame.lean#L1) | [three lowering boundary bridges](../../experiments/005_ir_lowering/LirLean/Frame/Match.lean#L35) | Correct statements and minimal two-import adapter. |
+| `00aa813f` | [successful-halt projections](../../EVM/BytecodeLayer/Exec/Results.lean#L1) | [terminator simulation](../../experiments/005_ir_lowering/LirLean/Sim/SimTerm.lean#L1) | Clean cut and focused adapter export. |
+| `574c7ed7` | [witness checker soundness](../../EVM/BytecodeLayer/Exec/WitnessChecks.lean#L1) | [concrete exp005 witness](../../experiments/005_ir_lowering/LirLean/Realisability/WitnessParams.lean#L27) | Correct cut; the adapter now describes only the concrete witness and assembly. |
+| `391c1638` | [frame/step modellability](../../EVM/BytecodeLayer/Exec/Modellable.lean#L1) | [lowered-code boundary predicate](../../experiments/005_ir_lowering/LirLean/Decode/Modellable.lean#L9) | Correct semantic cut; docstrings are generic/local, with only the legacy theorem name deferred. |
+| `2a188960` | [memory/accessor and stash bundle](../../EVM/BytecodeLayer/Exec/Memory.lean#L1) | [IR value-channel relations](../../experiments/005_ir_lowering/LirLean/Materialise/MaterialiseRuns.lean#L60) | Correct landed subset; explicitly deferred relations remain IR-indexed. |
+| `5df82804` | [stash-tail forward runs](../../EVM/BytecodeLayer/Exec/Stash.lean#L1) | [cached-SLOAD composition](../../experiments/005_ir_lowering/LirLean/Materialise/StashTail.lean#L8) | Correct cut; both sides now describe only their local role. |
 
-The root [execution facade imports every landed module](../../experiments/003_bytecode_layer/BytecodeLayer/Exec.lean#L7),
+The root [execution facade imports every landed module](../../EVM/BytecodeLayer/Exec.lean#L7),
 so the new surface is actually exported rather than merely parked in its directory.
 
 ## Specs that establish the cut
@@ -62,7 +62,7 @@ so the new surface is actually exported rather than merely parked in its directo
 ### Generic arithmetic and alignment
 
 The moved gas facts are independent of the IR. The representative statement is
-[`charge_binOpPost_gas`](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Gas.lean#L15):
+[`charge_binOpPost_gas`](../../EVM/BytecodeLayer/Exec/Gas.lean#L15):
 
 ```lean
 theorem charge_binOpPost_gas (fr : Frame) (op : UInt256 → UInt256 → UInt256)
@@ -72,8 +72,8 @@ theorem charge_binOpPost_gas (fr : Frame) (op : UInt256 → UInt256 → UInt256)
 ```
 
 The recorder split introduces two generic list/frame relations. Their definitions at
-[`GasLogAligned`](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Alignment.lean#L34)
-and [`SloadLogAligned`](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Alignment.lean#L95)
+[`GasLogAligned`](../../EVM/BytecodeLayer/Exec/Alignment.lean#L34)
+and [`SloadLogAligned`](../../EVM/BytecodeLayer/Exec/Alignment.lean#L95)
 contain only recorded values and reachable EVM frames:
 
 ```lean
@@ -103,7 +103,7 @@ theorem sloadRealises_charge_of_witness {sloadChg : Tmp → ℕ} {st : Lir.IRSta
 ### Frame effects and halt projections
 
 The representative generic opcode theorem
-[`sim_sstore`](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Frame.lean#L137)
+[`sim_sstore`](../../EVM/BytecodeLayer/Exec/Frame.lean#L137)
 is framed entirely by decode, stack, gas, account, and storage facts:
 
 ```lean
@@ -137,13 +137,13 @@ theorem lower_preserves_discharge (prog : Program) (p : CallParams)
 ```
 
 The moved result projection
-[`resultStorageAt_endFrame_success`](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Results.lean#L10)
+[`resultStorageAt_endFrame_success`](../../EVM/BytecodeLayer/Exec/Results.lean#L10)
 is likewise frame-only; the remaining terminator simulation consumes it from the IR side.
 
 ### Memory and stash execution
 
 The generic endpoint carrier is
-[`StashRuns`](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Memory.lean#L176):
+[`StashRuns`](../../EVM/BytecodeLayer/Exec/Memory.lean#L176):
 
 ```lean
 structure StashRuns (fr endFr : Frame) (slot : Nat) (v : Word) (pcΔ : Nat) (rest : Stack Word) :
@@ -164,7 +164,7 @@ structure StashRuns (fr endFr : Frame) (slot : Nat) (v : Word) (pcΔ : Nat) (res
 ```
 
 The forward theorem
-[`stash_tail_runs`](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Stash.lean#L108)
+[`stash_tail_runs`](../../EVM/BytecodeLayer/Exec/Stash.lean#L108)
 accepts only local decode, stack, memory-expansion, and gas premises and returns that carrier.
 The cached-SLOAD adapter
 [`stash_tail_sload`](../../experiments/005_ir_lowering/LirLean/Materialise/StashTail.lean#L56)
@@ -195,7 +195,7 @@ generalising its value source would not be relocation-only.
 ### Modellability and executable witness checks
 
 The generic modellability reduction is
-[`modellableStep_of`](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Modellable.lean#L352):
+[`modellableStep_of`](../../EVM/BytecodeLayer/Exec/Modellable.lean#L352):
 
 ```lean
 theorem modellableStep_of {fr : Frame} (hcr : CreateResolves fr) (hcc : CallsCode fr) :
@@ -226,11 +226,11 @@ def AtReachableBoundary (prog : Lir.Program) (fr : Frame) : Prop :=
 
 The checker itself was already generic in the recorder layer; the B2 split moved its proof
 theory. The entry wrapper
-[`entryCallsCodeOk`](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/WitnessChecks.lean#L344)
+[`entryCallsCodeOk`](../../EVM/BytecodeLayer/Exec/WitnessChecks.lean#L344)
 and its two soundness results,
-[`callsCode_of_entryCheck`](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/WitnessChecks.lean#L350)
+[`callsCode_of_entryCheck`](../../EVM/BytecodeLayer/Exec/WitnessChecks.lean#L350)
 and
-[`createResolves_of_entryCheck`](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/WitnessChecks.lean#L403),
+[`createResolves_of_entryCheck`](../../EVM/BytecodeLayer/Exec/WitnessChecks.lean#L403),
 mention only call parameters, reachable frames, and interpreter predicates. The exp005
 [`exProg_satisfies_hypotheses_of_checks`](../../experiments/005_ir_lowering/LirLean/Realisability/WitnessParams.lean#L110)
 correctly remains as the concrete IR witness that consumes them.
@@ -314,13 +314,13 @@ The landed generic statements were IR-free, but their comments still classified 
 expressions/statements/terminators and named exp005 lowering and coupling consumers. The cleanup
 rewrote the relevant sections in bytecode-local terms:
 
-- [atomic opcode simulations](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Frame.lean#L19)
+- [atomic opcode simulations](../../EVM/BytecodeLayer/Exec/Frame.lean#L19)
   now discuss only decoded opcodes, frame transitions, and local effects;
-- [memory accessors and the stash carrier](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Memory.lean#L14)
+- [memory accessors and the stash carrier](../../EVM/BytecodeLayer/Exec/Memory.lean#L14)
   now describe opcode post-frames and the carrier's own fields;
-- [stash execution](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Stash.lean#L17)
+- [stash execution](../../EVM/BytecodeLayer/Exec/Stash.lean#L17)
   now describes MSTORE memory projections and local forward runs; and
-- [modellability closure](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Modellable.lean#L335)
+- [modellability closure](../../EVM/BytecodeLayer/Exec/Modellable.lean#L335)
   now states only the two per-frame runtime conditions.
 
 A fresh text scan of the eight generic B2 files finds no IR namespace, constructor, lowering,
@@ -357,7 +357,7 @@ re-indexing change rather than a relocation-only cleanup; defer it with the othe
 ### Deferred: legacy generic theorem name
 
 The statement at
-[`lower_modellable`](../../experiments/003_bytecode_layer/BytecodeLayer/Exec/Modellable.lean#L362)
+[`lower_modellable`](../../EVM/BytecodeLayer/Exec/Modellable.lean#L362)
 does not mention lowering or code. Its docstring is now generic, so the legacy name is not a
 correctness or dependency defect. Renaming would require a broad Lean-and-documentation reference
 sweep; record it as naming debt for a dedicated surface naming pass. If renamed later, update all

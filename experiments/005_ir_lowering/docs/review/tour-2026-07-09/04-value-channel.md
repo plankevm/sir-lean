@@ -36,7 +36,7 @@ slot `slotOf t = t.id * 32` and read back by `PUSH32 slot ; MLOAD`, so the value
 became positional and is carried by the honest per-slot invariant
 [`MemRealises`](../../../LirLean/Materialise/MaterialiseRuns.lean#L366). Gas envelopes are
 **derived, not supplied**: a single
-[`CleanHaltsNonException`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean#L62) witness at the entry
+[`CleanHaltsNonException`](../../../../../EVM/BytecodeLayer/Hoare/CleanHalt.lean#L62) witness at the entry
 cursor yields every per-opcode gas bound by step-inversion
 ([`materialise_runsC_of_cleanHalt`](../../../LirLean/Materialise/MaterialiseCleanHalt.lean#L372),
 [`gas_envelope_of_cleanHalt`](../../../LirLean/Materialise/CleanHaltExtract.lean#L700)).
@@ -210,8 +210,8 @@ that both caches unfold under the identical `Loc`; the length corollaries
 and the `sloadChg`-independence of lengths
 ([`chargeCache_length_sloadChg_eq`](../../../LirLean/Materialise/MaterialiseGas.lean#L209))
 are what the stack-room folds in `Spec/WellFormed.lean` consume. Charge lists subtract off gas
-via exp003's [`subCharges`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Sequence.lean#L62),
-with the append laws in [`BytecodeLayer/Hoare/Sequence.lean`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Sequence.lean#L66).
+via exp003's [`subCharges`](../../../../../EVM/BytecodeLayer/Hoare/Sequence.lean#L62),
+with the append laws in [`BytecodeLayer/Hoare/Sequence.lean`](../../../../../EVM/BytecodeLayer/Hoare/Sequence.lean#L66).
 
 ### 4.3 The decode bundle: `MatDecC` and its segment bridge
 
@@ -332,7 +332,7 @@ structure MatRunsC (prog : Program) (sloadChg : Tmp → ℕ) (e : Expr) (w : Wor
   memActive  : fr.exec.toMachineState.activeWords.toNat ≤ fr'.exec.toMachineState.activeWords.toNat
 ```
 
-([`Runs`](../../../../003_bytecode_layer/BytecodeLayer/Hoare.lean#L140) is exp003's small-step
+([`Runs`](../../../../../EVM/BytecodeLayer/Hoare.lean#L140) is exp003's small-step
 reachability.) The theorem:
 
 ```lean
@@ -474,7 +474,7 @@ def CleanHaltsNonException (fr : Frame) : Prop :=
 `.exception`." This is the honest scope boundary of a gas-agnostic IR (a genuine OOG run is
 un-modellable, and *should* be out of scope), it is a single witness at the entry cursor, it
 is forward-closed along any sub-run
-([`cleanHaltsNonException_forward`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/CleanHalt.lean#L80)), and it is
+([`cleanHaltsNonException_forward`](../../../../../EVM/BytecodeLayer/Hoare/CleanHalt.lean#L80)), and it is
 satisfiable by exactly the runs conformance is about. The extraction argument
 (`CleanHaltExtract.lean` §2): a halted frame `Runs` only to itself
 ([`halted_runs_eq`](../../../LirLean/Materialise/CleanHaltExtract.lean#L409)); a continuing
@@ -576,7 +576,7 @@ theorem call_reflects_lowered {callFr resumeFr : Frame}
 ```
 
 **What it pins:** given exp003's returning-call witness
-[`CallReturns`](../../../../003_bytecode_layer/BytecodeLayer/Hoare.lean#L91), the resumed
+[`CallReturns`](../../../../../EVM/BytecodeLayer/Hoare.lean#L91), the resumed
 frame *is* `resumeAfterCall result pd`, and the oracle's three projections coincide with the
 resumed frame's observables — post-storage through the
 [`storageAt`](../../../LirLean/Frame/Match.lean#L74) lens, restored gas, and the 0/1 success

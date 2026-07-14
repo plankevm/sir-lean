@@ -77,6 +77,9 @@ target evmrs pkg : FilePath := do
 
 lean_lib «Conform»
 
+lean_lib «BytecodeLayer» where
+  globs := #[.andSubmodules `BytecodeLayer]
+
 @[default_target]
 lean_lib «Evm»
 

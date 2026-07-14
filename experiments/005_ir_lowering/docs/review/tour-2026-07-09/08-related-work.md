@@ -13,7 +13,7 @@ context/frame stack, i.e. exactly our shape; Verifereum even re-derives the "nes
 depth-gating its linear machine, the same move as our `runs_of_drive_ok` and recorder gating. The
 genuinely nested alternative was measured in-house: exp004's never-out-of-fuel theorem over
 EVMYulLean's mutual recursion took a [4,746-line proof](../../../../004_nested_evmyul/NestedEvmYul/NeverOutOfFuel.lean)
-where the flat machine's took a [764-line chain](../../../../003_bytecode_layer/BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean#L144),
+where the flat machine's took a [764-line chain](../../../../../EVM/BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean#L144),
 and the recorded bake-off finding is *"nested never-OOF [is] dramatically harder than flat"*
 ([track-b-review.md](../../../../004_nested_evmyul/docs/track-b-review.md#L67)). Most of the pain
 we are feeling today (per-statement simulation, pc/jumpdest geometry, coupling invariants,
@@ -97,7 +97,7 @@ seeds fuel from the gas limit
 ([`seedFuel`](../../../../003_bytecode_layer/EVMLean/Evm/Semantics/Interpreter.lean#L71)); fuel is
 an implementation detail, not a semantic bound — `.OutOfFuel` is unreachable for gas-respecting
 executions (proved:
-[`messageCall_never_outOfFuel`](../../../../003_bytecode_layer/BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean#L144)).
+[`messageCall_never_outOfFuel`](../../../../../EVM/BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean#L144)).
 Crucially, **fuel appears once, in the driver** — no per-opcode definition mentions it. This
 machine passes the exp003 conformance suite (22,308 Ethereum BlockchainTests fixtures; see
 [01-trusted-base.md](01-trusted-base.md)).
@@ -107,10 +107,10 @@ machine passes the exp003 conformance suite (22,308 Ethereum BlockchainTests fix
 Three concrete artifacts exist *only because* the machine is linear:
 
 **(a) Nesting is re-derived, not native.** The Hoare layer's
-[`Runs`](../../../../003_bytecode_layer/BytecodeLayer/Hoare.lean#L140) inductive re-introduces the
+[`Runs`](../../../../../EVM/BytecodeLayer/Hoare.lean#L140) inductive re-introduces the
 call tree as a *derived* notion — a returning external CALL is a black-box node
-([`CallReturns`](../../../../003_bytecode_layer/BytecodeLayer/Hoare.lean#L91), and its CREATE twin
-[`CreateReturns`](../../../../003_bytecode_layer/BytecodeLayer/Hoare.lean#L118)):
+([`CallReturns`](../../../../../EVM/BytecodeLayer/Hoare.lean#L91), and its CREATE twin
+[`CreateReturns`](../../../../../EVM/BytecodeLayer/Hoare.lean#L118)):
 
 ```lean
 def CallReturns (callFr resumeFr : Frame) : Prop :=
@@ -131,16 +131,16 @@ inductive Runs : Frame → Frame → Prop where
 
 A nested interpreter would give the `call` node by structural induction; here it costs the
 `CallReturns`/`CreateReturns` bundles, determinism lemmas, and the `Runs`→`drive` reconciliation
-([CallSequence.lean](../../../../003_bytecode_layer/BytecodeLayer/Hoare/CallSequence.lean), 286
+([CallSequence.lean](../../../../../EVM/BytecodeLayer/Hoare/CallSequence.lean), 286
 lines). See [01-trusted-base.md](01-trusted-base.md).
 
 **(b) The loop must be inverted back into `Runs`.** exp005's
-[`runs_of_drive_ok`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean#L357) (482-line module) reconstructs a
+[`runs_of_drive_ok`](../../../../../EVM/BytecodeLayer/Hoare/DriveRuns.lean#L357) (482-line module) reconstructs a
 halting `Runs` from a clean-terminating top-level `drive`, by strong induction on fuel with a
 bespoke bounded-descent lemma
-([`drive_append_framing_lt`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean#L51)) to make the recursion
+([`drive_append_framing_lt`](../../../../../EVM/BytecodeLayer/Hoare/DriveRuns.lean#L51)) to make the recursion
 well-founded across call boundaries, and a per-frame
-[`ModellableStep`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean#L182) residual for the two configurations
+[`ModellableStep`](../../../../../EVM/BytecodeLayer/Hoare/DriveRuns.lean#L182) residual for the two configurations
 `Runs` cannot resume (precompile CALL, 63/64-OOG create resume):
 
 ```lean
@@ -168,11 +168,11 @@ stack flattens all depths into one loop — top-level events are recognized by
 ```
 
 On top of these, the engine walks that discharge frame-level invariants range over *every* opcode
-of the real dispatch (e.g. [StepWalk.lean](../../../../003_bytecode_layer/BytecodeLayer/Hoare/StepWalk.lean#L5), 1,336 lines;
-[DriveMono.lean](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveMono.lean), 294 lines) — though, as §6 argues, those
+of the real dispatch (e.g. [StepWalk.lean](../../../../../EVM/BytecodeLayer/Hoare/StepWalk.lean#L5), 1,336 lines;
+[DriveMono.lean](../../../../../EVM/BytecodeLayer/Hoare/DriveMono.lean), 294 lines) — though, as §6 argues, those
 walks are per-opcode dispatch inductions any small-step machine needs, not a linear-frames tax.
 Rough one-time bill for the frame model itself: `Runs`+bundles
-([Hoare.lean](../../../../003_bytecode_layer/BytecodeLayer/Hoare.lean), 839 lines incl. linearity
+([Hoare.lean](../../../../../EVM/BytecodeLayer/Hoare.lean), 839 lines incl. linearity
 theory) + inversion (482) + recorder twin (132) + boundary framing lemmas ≈ **1.5–2 kLOC, closed
 and reusable**.
 
@@ -286,7 +286,7 @@ directly under a comment sketching the plan: *"Example progression: 1. subroutin
 given numbers 2. code that calls code of 1. (in a local way) 3. verify an external call to 2.
 4. next level: external call as a transaction."* I.e. the linear-frames project furthest along has
 **not yet built its cross-call composition rule** — our `Runs.call`/`CallReturns` +
-[`runs_of_drive_ok`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/DriveRuns.lean#L357) is *ahead* of the field on
+[`runs_of_drive_ok`](../../../../../EVM/BytecodeLayer/Hoare/DriveRuns.lean#L357) is *ahead* of the field on
 exactly the pain point that prompted this report.
 
 ## 4. Deep dive 2 — "ViperHall" = vyper-hol

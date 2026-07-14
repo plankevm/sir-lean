@@ -92,7 +92,7 @@ The dynamic half — landing on a `JUMPDEST` and re-establishing the coupling �
 [`corr_at_jumpdest_landing`](../../../LirLean/Sim/SimTerm.lean#L503) (Sim-side; see §6 for why that
 placement matters). exp003 itself offers no generic emitted-code geometry: its decode lemmas are
 literal per-program facts for a fixed example
-([`decode_seq_0`](../../../../003_bytecode_layer/BytecodeLayer/Hoare/Sequence.lean#L25)), which is
+([`decode_seq_0`](../../../../../EVM/BytecodeLayer/Hoare/Sequence.lean#L25)), which is
 why exp005 built all of the above in-house — the central finding of
 [bytecode-interface §0](../../fleet-2026-07-02/bytecode-interface.md#L19).
 
@@ -234,7 +234,7 @@ typeclass until IR #2 exists.
 [five-file exported surface](../../target-architecture-2026-07-02.md#L136). Rationale: the algebra
 mentions only bytes, `decode`, `validJumpDests`, `Frame`, `Runs` — bytecode-layer vocabulary — and
 exp003 is the layer that broke its own encapsulation promise
-([`Hoare.lean:27`](../../../../003_bytecode_layer/BytecodeLayer/Hoare.lean#L27): "`Runs` … never
+([`Hoare.lean:27`](../../../../../EVM/BytecodeLayer/Hoare.lean#L27): "`Runs` … never
 appears in an exported statement", violated by exp005's headline); Asm + `Exec` is how it repays
 that debt. One toolchain note: exp003 is pinned to v4.30.0 and exp005 vendors its own engine copy,
 so "exp003-side" in practice means the shared bytecode layer exp005 builds against — the relocation

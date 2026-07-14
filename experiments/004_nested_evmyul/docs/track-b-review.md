@@ -53,7 +53,7 @@ The real-world property is exactly exp003's, on the *other* semantics: **a top-l
 message call, given enough fuel, never spuriously runs out of the interpreter's
 structural step counter** — so `OutOfFuel` is never observed as a (fake) execution
 outcome, and fuel can later be discharged from a gas bound. exp003 proved this over the
-flat `drive` ([`messageCall_never_outOfFuel`](../../003_bytecode_layer/BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean#L158));
+flat `drive` ([`messageCall_never_outOfFuel`](../../../EVM/BytecodeLayer/Semantics/Interpreter/NeverOutOfFuel.lean#L158));
 Track B proves it over the **genuinely nested** EVMYulLean recursion, where a child call
 is a real subterm rather than a flattened pending-stack entry
 ([PLAN.md Goal](../PLAN.md#L6)). The bake-off question ([currentplan.md] END-GOAL): if
