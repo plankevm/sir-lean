@@ -9,6 +9,7 @@ import BytecodeLayer.Exec.Alignment
 import BytecodeLayer.Exec.Results
 import BytecodeLayer.Exec.WitnessChecks
 import BytecodeLayer.Exec.Modellable
+import BytecodeLayer.Exec.Frame
 
 namespace BytecodeLayer.Exec
 
