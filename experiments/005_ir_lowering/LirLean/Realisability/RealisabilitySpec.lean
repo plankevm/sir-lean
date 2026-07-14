@@ -394,7 +394,7 @@ private theorem atReachableBoundaryVJ_resume_call {prog : Lir.Program} {fr rf : 
   refine ⟨⟨b + 1, hrcode, ?_, ?_, hInR, lt_of_lt_of_le hInR hsize⟩, hrvj⟩
   · rw [hrpc, hppc, hpc]
     exact Lir.ofNat_add' b 1
-  · have hr := Lir.reachesBoundary_nextInstr hreach hget
+  · have hr := BytecodeLayer.Asm.reachesBoundary_nextInstr hreach hget
     rw [hopCall] at hr
     have hnn : Evm.nextInstrPosNat b Operation.CALL = b + 1 := by
       simp [Evm.nextInstrPosNat, Evm.pushArgWidth]
@@ -439,7 +439,7 @@ private theorem atReachableBoundaryVJ_resume_create {prog : Lir.Program} {fr rf 
   refine ⟨⟨b + 1, hrcode, ?_, ?_, hInR, lt_of_lt_of_le hInR hsize⟩, hrvj⟩
   · rw [hrpc, hppc, hpc]
     exact Lir.ofNat_add' b 1
-  · have hr := Lir.reachesBoundary_nextInstr hreach hget
+  · have hr := BytecodeLayer.Asm.reachesBoundary_nextInstr hreach hget
     rcases hopCreate with hcr | hcr2
     · rw [hcr] at hr
       simpa [Evm.nextInstrPosNat, Evm.pushArgWidth] using hr

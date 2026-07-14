@@ -73,7 +73,8 @@ theorem pcOf_emit_le (prog : Program) (L : Label) (b : Block) (pc : Nat) (s : St
       ≤ (flatBytes prog).length := by
   have hend := block_end_le_flatBytes prog L b hb
   rw [Lir.pcOf_eq_anchor prog L b pc hb]
-  have hsb := Lir.flatMap_split b.stmts pc s hs (Lir.emitStmt (matCache prog) (defsOf prog))
+  have hsb := BytecodeLayer.Asm.flatMap_split b.stmts pc s hs
+    (Lir.emitStmt (matCache prog) (defsOf prog))
   have hsblen : (b.stmts.flatMap (Lir.emitStmt (matCache prog) (defsOf prog))).length
       = ((b.stmts.take pc).flatMap (Lir.emitStmt (matCache prog) (defsOf prog))).length
         + (Lir.emitStmt (matCache prog) (defsOf prog) s).length

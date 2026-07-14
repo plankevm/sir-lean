@@ -590,11 +590,12 @@ theorem atReachableBoundaryVJ_step {prog : Lir.Program} {fr mid : Frame}
       Lir.nextInstrPos_lt_flatBytes_of_cursor (Lir.flatBytes_cursor_cases hin) hreach hget
         hnstop hnreturn hnjump
     exact ⟨Evm.nextInstrPosNat b (Evm.parseInstr byte), hmcode, hseq,
-      Lir.reachesBoundary_nextInstr hreach hget, hInR, lt_of_lt_of_le hInR hsize⟩
+      BytecodeLayer.Asm.reachesBoundary_nextInstr hreach hget,
+      hInR, lt_of_lt_of_le hInR hsize⟩
   · -- taken jump: the landing pc is a `validJumps` member ⇒ a reachable in-range boundary (FREE)
     rw [hvj] at hjmp
     obtain ⟨j, hjreach, hxj, hjlt⟩ :=
-      Lir.reachesBoundary_of_mem_validJumpDests (Lir.lower prog) hjmp
+      BytecodeLayer.Asm.reachesBoundary_of_mem_validJumpDests (Lir.lower prog) hjmp
     rw [lower_size_eq] at hjlt
     exact ⟨j, hmcode, by rw [hxj], hjreach, hjlt, lt_of_lt_of_le hjlt hsize⟩
 
@@ -634,7 +635,7 @@ theorem atReachableBoundaryVJ_call {prog : Lir.Program} {fr rf : Frame}
   · -- pc = ofNat (b + 1)
     rw [hrpc, hppc, hpc]; exact Lir.ofNat_add' b 1
   · -- ReachesBoundary 0 (b + 1)
-    have hr := Lir.reachesBoundary_nextInstr hreach hget
+    have hr := BytecodeLayer.Asm.reachesBoundary_nextInstr hreach hget
     rw [hopCall] at hr
     have hnn : Evm.nextInstrPosNat b Operation.CALL = b + 1 := by
       simp [Evm.nextInstrPosNat, Evm.pushArgWidth]
@@ -674,7 +675,7 @@ theorem atReachableBoundaryVJ_create {prog : Lir.Program} {fr rf : Frame}
   refine ⟨⟨b + 1, hrcode, ?_, ?_, hInR, lt_of_lt_of_le hInR hsize⟩, hrvj⟩
   · rw [hrpc, hppc, hpc]
     exact Lir.ofNat_add' b 1
-  · have hr := Lir.reachesBoundary_nextInstr hreach hget
+  · have hr := BytecodeLayer.Asm.reachesBoundary_nextInstr hreach hget
     rcases hopCreate with hcreate | hcreate2
     · rw [hcreate] at hr
       simpa [Evm.nextInstrPosNat, Evm.pushArgWidth] using hr

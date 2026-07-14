@@ -40,6 +40,7 @@ No `sorry`, no `axiom`, no `native_decide`.
 namespace Lir
 
 open Evm
+open BytecodeLayer.Asm
 
 /-! ## §0 — materialised operands have no CALL/CREATE instruction heads -/
 
@@ -171,63 +172,6 @@ theorem segAlignedNoCall_emitTerm_matCache (prog : Program) (t : Term) :
   segAlignedNoCall_emitTerm (matCache prog) (segAlignedNoCall_matCache prog)
     (offsetTable (matCache prog) (defsOf prog) prog.blocks) t
 
-theorem reachesBoundary_drop_segAlignedP {P : Operation → Prop} (c : ByteArray)
-    (seg : List UInt8) (hseg : SegAlignedP P seg) :
-    ∀ base : Nat, (∀ j, j < seg.length → c.get? (base + j) = seg[j]?) →
-      ∀ n, ReachesBoundary c base n → base + seg.length ≤ n →
-        ReachesBoundary c (base + seg.length) n := by
-  induction hseg with
-  | nil =>
-      intro base _ n hreach _
-      simpa using hreach
-  | cons byte imm rest himm _hP hrest ih =>
-      intro base hmatch n hreach hle
-      have hhead : c.get? base = some byte := by
-        have := hmatch 0 (by simp)
-        simpa using this
-      have hseglen : (byte :: (imm ++ rest)).length = 1 + imm.length + rest.length := by
-        simp [List.length_append]
-        omega
-      have hmatch' : ∀ j, j < rest.length →
-          c.get? ((base + 1 + imm.length) + j) = rest[j]? := by
-        intro j hj
-        have hj' : 1 + imm.length + j < (byte :: (imm ++ rest)).length := by
-          rw [hseglen]; omega
-        have := hmatch (1 + imm.length + j) hj'
-        rw [show base + (1 + imm.length + j) = (base + 1 + imm.length) + j from by omega] at this
-        rw [this]
-        rw [show 1 + imm.length + j = (imm.length + j) + 1 from by omega,
-            List.getElem?_cons_succ, List.getElem?_append_right (by omega),
-            show imm.length + j - imm.length = j from by omega]
-      cases hreach with
-      | refl _ =>
-          rw [hseglen] at hle
-          omega
-      | step hget restReach =>
-          rw [hhead] at hget
-          cases hget
-          have hnext : Evm.nextInstrPosNat base (Evm.parseInstr byte) = base + 1 + imm.length := by
-            unfold Evm.nextInstrPosNat
-            rw [himm]
-          rw [hnext] at restReach
-          have hle' : (base + 1 + imm.length) + rest.length ≤ n := by
-            rw [hseglen] at hle
-            omega
-          have := ih (base + 1 + imm.length) hmatch' n restReach hle'
-          simpa [hseglen, Nat.add_assoc] using this
-
-theorem segAlignedP_flatMap {α : Type _} {P : Evm.Operation → Prop}
-    {xs : List α} {f : α → List UInt8}
-    (h : ∀ x ∈ xs, SegAlignedP P (f x)) :
-    SegAlignedP P (xs.flatMap f) := by
-  induction xs with
-  | nil => exact .nil
-  | cons x xs ih =>
-      rw [List.flatMap_cons]
-      exact (h x (by simp)).append (ih (by
-        intro y hy
-        exact h y (by simp [hy])))
-
 theorem lower_get?_blockPrefix {prog : Program} {i j : Nat}
     (hj : j < ((prog.blocks.toList.take i).flatMap
       (fun b => Byte.jumpdest :: emitBlockBody (matCache prog) (defsOf prog)
@@ -262,7 +206,7 @@ theorem reachesBoundary_drop_to_blockEntry {prog : Program} {L : Label} {blk : B
     simpa [pre] using flatBytes_block_offset prog L
   have hseg : SegAlignedP IsLoweringOp pre := by
     unfold pre
-    apply segAlignedP_flatMap
+    apply BytecodeLayer.Asm.segAlignedP_flatMap
     intro b _
     exact segAlignedP_loweredBlock (matCache prog) (segAlignedP_matCache prog) (defsOf prog)
       (offsetTable (matCache prog) (defsOf prog) prog.blocks) b
@@ -270,7 +214,8 @@ theorem reachesBoundary_drop_to_blockEntry {prog : Program} {L : Label} {blk : B
     intro j hj
     rw [Nat.zero_add]
     exact lower_get?_blockPrefix (prog := prog) (i := L.idx) (j := j) (by simpa [pre] using hj)
-  have hd := reachesBoundary_drop_segAlignedP (lower prog) pre hseg 0 hmatch n hreach (by
+  have hd := BytecodeLayer.Asm.reachesBoundary_drop_segAlignedP
+    (lower prog) pre hseg 0 hmatch n hreach (by
     rw [hprelen]; simpa using hle)
   simpa [hprelen] using hd
 
@@ -298,7 +243,8 @@ theorem reachesBoundary_drop_jumpdest {prog : Program} {L : Label} {blk : Block}
         simpa [base] using hprelen.symm]
     rw [List.append_assoc, List.getElem?_append_right (by omega), Nat.sub_self]
     simp
-  have hd := reachesBoundary_drop_segAlignedP (lower prog) [Byte.jumpdest] hseg base hmatch n
+  have hd := BytecodeLayer.Asm.reachesBoundary_drop_segAlignedP
+    (lower prog) [Byte.jumpdest] hseg base hmatch n
     hreach (by simpa [base] using hle)
   have hpc : pcOf prog L 0 = base + 1 := by
     rw [pcOf_eq_anchor prog L blk 0 hb]
@@ -350,7 +296,7 @@ theorem reachesBoundary_drop_stmtPrefix {prog : Program} {L : Label} {blk : Bloc
   let pre := (blk.stmts.take pc).flatMap (emitStmt (matCache prog) (defsOf prog))
   have hseg : SegAlignedP IsLoweringOp pre := by
     unfold pre
-    apply segAlignedP_flatMap
+    apply BytecodeLayer.Asm.segAlignedP_flatMap
     intro s _
     exact segAlignedP_emitStmt (matCache prog) (segAlignedP_matCache prog) (defsOf prog) s
   have hmatch : ∀ j, j < pre.length →
@@ -361,7 +307,8 @@ theorem reachesBoundary_drop_stmtPrefix {prog : Program} {L : Label} {blk : Bloc
   have hpc : pcOf prog L pc = pcOf prog L 0 + pre.length := by
     rw [pcOf_eq_anchor prog L blk pc hb, pcOf_eq_anchor prog L blk 0 hb]
     simp [pre]
-  have hd := reachesBoundary_drop_segAlignedP (lower prog) pre hseg (pcOf prog L 0) hmatch n
+  have hd := BytecodeLayer.Asm.reachesBoundary_drop_segAlignedP
+    (lower prog) pre hseg (pcOf prog L 0) hmatch n
     hreach (by rw [← hpc]; exact hle)
   simpa [hpc] using hd
 
@@ -406,79 +353,6 @@ theorem reachesBoundary_local_term {prog : Program} {L : Label} {blk : Block} {k
     exact reachesBoundary_drop_stmtPrefix (prog := prog) (L := L) (blk := blk)
       (pc := blk.stmts.length) hb hjd' (by rw [← hterm]; omega))
 
-/-! ## §1 — the converse: a recorded jump destination is a reachable boundary
-
-`validJumpDestsAuxNat c start acc` only ever pushes `i.toUInt32` for boundaries `i` it
-reaches from `start` (at which a `JUMPDEST` sits). So any member of the result is either
-already in `acc` or such a reached, in-bounds `JUMPDEST` boundary. Induction on the scan's
-recursion (well-founded on `c.size - start`). -/
-
-/-- **The scan's membership inversion.** Every `x ∈ validJumpDestsAuxNat c start acc` is
-either already in the accumulator `acc`, or it is `j.toUInt32` for some instruction boundary
-`j` the walk reaches from `start`, lying in bounds and carrying a `JUMPDEST`. -/
-theorem mem_validJumpDestsAuxNat_inv (c : ByteArray) (start : Nat) (acc : Array UInt32)
-    {x : UInt32} (hx : x ∈ validJumpDestsAuxNat c start acc) :
-    x ∈ acc ∨ ∃ j byte, ReachesBoundary c start j ∧ x = j.toUInt32 ∧ j < c.size
-        ∧ c.get? j = some byte ∧ Evm.parseInstr byte = .JUMPDEST := by
-  rw [validJumpDestsAuxNat_eq] at hx
-  cases hget : c.get? start with
-  | none => rw [hget] at hx; exact Or.inl hx
-  | some byte =>
-    rw [hget] at hx
-    simp only at hx
-    -- the boundary `start` is in bounds (its byte decoded).
-    have hstartlt : start < c.size := lt_size_of_get?_isSome (by rw [hget]; exact Option.isSome_some)
-    by_cases hj : Evm.parseInstr byte = .JUMPDEST
-    · -- a JUMPDEST at `start`: the recursion ran with `acc.push start.toUInt32`.
-      rw [if_pos hj] at hx
-      have ih := mem_validJumpDestsAuxNat_inv c (nextInstrPosNat start (Evm.parseInstr byte))
-        (acc.push start.toUInt32) hx
-      rcases ih with hmem | ⟨j, byte', hreach, hxj, hjlt, hjget, hjjd⟩
-      · -- `x` is in `acc.push start.toUInt32`: either in `acc`, or it is `start.toUInt32`.
-        rcases Array.mem_push.mp hmem with hin | heq
-        · exact Or.inl hin
-        · exact Or.inr ⟨start, byte, ReachesBoundary.refl start, heq, hstartlt, hget, hj⟩
-      · -- `x = j.toUInt32` reached from the next boundary: prepend the step at `start`.
-        exact Or.inr ⟨j, byte', ReachesBoundary.step (byte := byte) hget hreach, hxj, hjlt, hjget, hjjd⟩
-    · rw [if_neg hj] at hx
-      have ih := mem_validJumpDestsAuxNat_inv c (nextInstrPosNat start (Evm.parseInstr byte)) acc hx
-      rcases ih with hmem | ⟨j, byte', hreach, hxj, hjlt, hjget, hjjd⟩
-      · exact Or.inl hmem
-      · exact Or.inr ⟨j, byte', ReachesBoundary.step (byte := byte) hget hreach, hxj, hjlt, hjget, hjjd⟩
-  termination_by c.size - start
-  decreasing_by
-    all_goals
-      simp only [nextInstrPosNat]
-      omega
-
-/-- **The converse of `mem_validJumpDests_of_reachable_jumpdest`.** A member `x` of
-`validJumpDests c 0` is itself a boundary reachable from `0`: it was pushed at some boundary
-`j` the scan reached from `0`, with `x = j.toUInt32` and `j` in bounds. The taken-jump
-direction the boundary invariant needs. -/
-theorem reachesBoundary_of_mem_validJumpDests (c : ByteArray) {x : UInt32}
-    (hx : x ∈ validJumpDests c 0) :
-    ∃ j, ReachesBoundary c 0 j ∧ x = j.toUInt32 ∧ j < c.size := by
-  rw [validJumpDests] at hx
-  simp only [show (0 : UInt32).toNat = 0 from rfl] at hx
-  rcases mem_validJumpDestsAuxNat_inv c 0 #[] hx with hmem | ⟨j, _, hreach, hxj, hjlt, _, _⟩
-  · exact absurd hmem (by simp)
-  · exact ⟨j, hreach, hxj, hjlt⟩
-
-/-! ## §2 — extending a reached boundary by one sequential instruction
-
-A reached boundary whose byte decodes extends to the next instruction's boundary: the walk
-appends one `ReachesBoundary.step`. This is the *sequential* (fall-through / non-jump) advance
-of the whole-run boundary invariant — it needs no alignment hypothesis, only that the current
-boundary's byte is present (which a successful `stepFrame` decode supplies). -/
-
-/-- **The boundary walk extends by one instruction.** If `n` is reachable from `start` and the
-byte at `n` decodes, the next instruction boundary `nextInstrPosNat n (parseInstr byte)` is also
-reachable. Pure `ReachesBoundary.trans` with a single trailing step. -/
-theorem reachesBoundary_nextInstr {c : ByteArray} {start n : Nat} {byte : UInt8}
-    (hreach : ReachesBoundary c start n) (hget : c.get? n = some byte) :
-    ReachesBoundary c start (nextInstrPosNat n (Evm.parseInstr byte)) :=
-  ReachesBoundary.trans hreach (ReachesBoundary.step hget (ReachesBoundary.refl _))
-
 /-! ## §3 — every reachable-boundary head is one of the 18 lowering opcodes
 
 The lowering emits exactly the 18 opcodes
@@ -501,7 +375,7 @@ theorem reaches_loweringOp_of_segAlignedLowering (c : ByteArray) (seg : List UIn
     ∀ base : Nat, (∀ j, j < seg.length → c.get? (base + j) = seg[j]?) →
       ∀ n, ReachesBoundary c base n → n < base + seg.length →
         ∃ byte, c.get? n = some byte ∧ IsLoweringOp (Evm.parseInstr byte) :=
-  reaches_P_of_segAlignedP c seg hseg
+  BytecodeLayer.Asm.reaches_P_of_segAlignedP c seg hseg
 
 /-- The whole flat byte stream is allow-listed: `segAlignedP_flatBytes` at `IsLoweringOp`
 (`Decode/SegAligned.lean`). -/
@@ -974,7 +848,7 @@ private theorem segAlignedNoGas_flatBytes (prog : Program)
     SegAlignedP NoGasOp (flatBytes prog) := by
   have hcache := segAlignedNoGas_matCache prog
   unfold flatBytes
-  apply segAlignedP_flatMap
+  apply BytecodeLayer.Asm.segAlignedP_flatMap
   intro b hb
   obtain ⟨i, hi, hib⟩ := List.getElem_of_mem hb
   have hbAt : prog.blockAt ⟨i⟩ = some b :=
@@ -985,7 +859,7 @@ private theorem segAlignedNoGas_flatBytes (prog : Program)
       (offsetTable (matCache prog) (defsOf prog) prog.blocks) b) := by
     unfold emitBlockBody
     refine SegAlignedP.append ?_ (segAlignedNoGas_emitTerm (matCache prog) hcache _ b.term)
-    apply segAlignedP_flatMap
+    apply BytecodeLayer.Asm.segAlignedP_flatMap
     intro s hsmem
     obtain ⟨pc, hpc, hpcs⟩ := List.getElem_of_mem hsmem
     refine segAlignedNoGas_emitStmt (matCache prog) hcache (defsOf prog) s ?_
@@ -1008,7 +882,7 @@ theorem reachable_boundary_noGasByte (prog : Program)
     intro j _
     rw [Nat.zero_add]
     exact lower_get?_eq prog j
-  exact reaches_P_of_segAlignedP (lower prog) (flatBytes prog)
+  exact BytecodeLayer.Asm.reaches_P_of_segAlignedP (lower prog) (flatBytes prog)
     (segAlignedNoGas_flatBytes prog hng) 0 hmatch n hreach (by rwa [Nat.zero_add])
 
 end Lir

@@ -33,6 +33,7 @@ No `sorry`, no `axiom`, no `native_decide`.
 namespace Lir
 
 open Evm
+open BytecodeLayer.Asm
 
 /-! ## Length invariance under the resolved offset table
 
@@ -67,24 +68,6 @@ theorem blockLen_eq_length (cache : Tmp → List UInt8) (alloc : Alloc) (lo : Na
   simp only [List.length_cons]
   rw [emitBlockBody_length_labelOff cache alloc (fun _ => 0) lo]
   omega
-
-/-! ## `flatMap` index decomposition -/
-
-/-- Decompose a `List.flatMap` around the element at a known index: `blocks.flatMap f
-= (take i).flatMap f ++ f b ++ (drop (i+1)).flatMap f` when `blocks[i] = b`. -/
-theorem flatMap_split {α β : Type _} (xs : List α) (i : Nat) (a : α) (hi : xs[i]? = some a)
-    (f : α → List β) :
-    xs.flatMap f = (xs.take i).flatMap f ++ f a ++ (xs.drop (i + 1)).flatMap f := by
-  have hlt : i < xs.length := by
-    rcases Nat.lt_or_ge i xs.length with h | h
-    · exact h
-    · rw [List.getElem?_eq_none_iff.mpr h] at hi; exact absurd hi (by simp)
-  have hget : xs[i] = a := by
-    have h2 := List.getElem?_eq_getElem hlt; rw [h2] at hi; exact Option.some.inj hi
-  conv_lhs => rw [← List.take_append_drop i xs]
-  rw [List.flatMap_append, List.append_assoc]
-  congr 1
-  rw [List.drop_eq_getElem_cons hlt, hget, List.flatMap_cons]
 
 /-! ## The block-prefix byte count = the offset table -/
 
@@ -147,13 +130,6 @@ statement's emitted opcodes — `(emitStmt … s)[0]?`. Composed with `decode_lo
 (`DecodeLower.lean`), this turns a `pcOf`-addressed decode obligation into a fact
 about the construct's lowering, generically, replacing the per-program whole-array
 `rfl`. -/
-
-/-- Index into the middle of a three-way append: `(pre ++ mid ++ suf)[pre.length + k]
-= mid[k]` for `k < mid.length`. -/
-theorem mid_index (pre mid suf : List UInt8) (k : Nat) (h : k < mid.length) :
-    (pre ++ mid ++ suf)[pre.length + k]? = mid[k]? := by
-  rw [List.append_assoc, List.getElem?_append_right (by omega), Nat.add_sub_cancel_left,
-      List.getElem?_append_left h]
 
 /-- **The statement-cursor byte anchor.** For a real statement `s` at cursor
 `(L, pc)` whose lowering emits at least one byte, the byte `flatBytes prog` holds at

@@ -1,5 +1,5 @@
 import LirLean.Decode.DecodeLower
-import Evm
+import BytecodeLayer.Asm.Geometry
 
 /-!
 # LirLean — the predicate-parameterized instruction-alignment tower
@@ -44,154 +44,7 @@ No `sorry`, no `axiom`, no `native_decide`.
 namespace Lir
 
 open Evm
-
-/-! ## §0 — generic `ReachesBoundary` helpers shared by the transports -/
-
-/-- The boundary walk never decreases the position: a reachable boundary is `≥` the start. -/
-theorem reachesBoundary_le {c : ByteArray} {a n : Nat} (h : ReachesBoundary c a n) : a ≤ n := by
-  induction h with
-  | refl _ => exact Nat.le_refl _
-  | step _ _ ih => exact Nat.le_trans (Nat.le_of_lt (nextInstrPosNat_gt _ _)) ih
-
-/-! ## §1 — the parameterized inductive
-
-`SegAlignedP P seg`: the byte list `seg` is a concatenation of complete EVM instructions — each
-opcode byte `b` immediately followed by exactly `(pushArgWidth (parseInstr b)).toNat` immediate
-bytes — with, additionally, every opcode *head* byte satisfying `P (parseInstr b)`. Instantiating
-`P` recovers the three concrete towers. -/
-
-inductive SegAlignedP (P : Operation → Prop) : List UInt8 → Prop where
-  | nil : SegAlignedP P []
-  | cons (byte : UInt8) (imm rest : List UInt8)
-      (himm : imm.length = (Evm.pushArgWidth (Evm.parseInstr byte)).toNat)
-      (hP : P (Evm.parseInstr byte))
-      (hrest : SegAlignedP P rest) :
-      SegAlignedP P (byte :: (imm ++ rest))
-
-/-- **Predicate monotonicity.** If `P` implies `Q` pointwise, a `P`-aligned segment is `Q`-aligned.
-The lever deriving `SegAligned` (`True`) from the strongest `SegAlignedLowering` (`IsLoweringOp`).
-Induction on the alignment derivation. -/
-theorem SegAlignedP.mono {P Q : Operation → Prop} (h : ∀ op, P op → Q op) :
-    ∀ {seg : List UInt8}, SegAlignedP P seg → SegAlignedP Q seg := by
-  intro seg hseg
-  induction hseg with
-  | nil => exact .nil
-  | cons byte imm rest himm hP _ ih => exact .cons byte imm rest himm (h _ hP) ih
-
-/-! ### §1.1 — composition -/
-
-/-- Appending two aligned segments yields an aligned segment. Induction on the first. -/
-theorem SegAlignedP.append {P : Operation → Prop} {a b : List UInt8}
-    (ha : SegAlignedP P a) (hb : SegAlignedP P b) : SegAlignedP P (a ++ b) := by
-  induction ha with
-  | nil => simpa using hb
-  | cons byte imm rest himm hP _ ih =>
-    rw [List.cons_append, List.append_assoc]
-    exact .cons byte imm (rest ++ b) himm hP ih
-
-/-- A single zero-width (non-push) opcode satisfying `P` is an aligned one-instruction segment. -/
-theorem SegAlignedP.nonpush {P : Operation → Prop} (byte : UInt8)
-    (h : Evm.pushArgWidth (Evm.parseInstr byte) = 0) (hP : P (Evm.parseInstr byte)) :
-    SegAlignedP P [byte] := by
-  have := SegAlignedP.cons (P := P) byte [] [] (by simp [h]) hP .nil
-  simpa using this
-
-/-- A push opcode satisfying `P`, followed by exactly `pushArgWidth` immediate bytes, is an
-aligned one-instruction segment. -/
-theorem SegAlignedP.push {P : Operation → Prop} (byte : UInt8) (imm : List UInt8)
-    (h : imm.length = (Evm.pushArgWidth (Evm.parseInstr byte)).toNat)
-    (hP : P (Evm.parseInstr byte)) : SegAlignedP P (byte :: imm) := by
-  have := SegAlignedP.cons (P := P) byte imm [] h hP .nil
-  simpa using this
-
-/-! ## §2 — the reach-END transport (predicate-free)
-
-If `c`'s bytes over `[base, base + seg.length)` are exactly `seg`, and `seg` is instruction-aligned,
-the boundary walk reaches `base + seg.length` from `base`. `P` is not consulted — alignment alone
-drives the walk. Induction on the alignment derivation. -/
-
-theorem reaches_end_of_segAlignedP {P : Operation → Prop} (c : ByteArray) (seg : List UInt8)
-    (hseg : SegAlignedP P seg) :
-    ∀ base : Nat, (∀ j, j < seg.length → c.get? (base + j) = seg[j]?) →
-      ReachesBoundary c base (base + seg.length) := by
-  induction hseg with
-  | nil =>
-    intro base _
-    simpa using ReachesBoundary.refl (c := c) base
-  | cons byte imm rest himm _ hrest ih =>
-    intro base hmatch
-    have hhead : c.get? base = some byte := by
-      have := hmatch 0 (by simp)
-      simpa using this
-    have hnext : nextInstrPosNat base (Evm.parseInstr byte) = base + 1 + imm.length := by
-      unfold nextInstrPosNat; rw [himm]
-    have hseglen : (byte :: (imm ++ rest)).length = 1 + imm.length + rest.length := by
-      simp [List.length_append]; omega
-    have hmatch' : ∀ j, j < rest.length →
-        c.get? ((base + 1 + imm.length) + j) = rest[j]? := by
-      intro j hj
-      have hj' : 1 + imm.length + j < (byte :: (imm ++ rest)).length := by
-        rw [hseglen]; omega
-      have := hmatch (1 + imm.length + j) hj'
-      rw [show base + (1 + imm.length + j) = (base + 1 + imm.length) + j from by omega] at this
-      rw [this]
-      rw [show (1 + imm.length + j) = (imm.length + j) + 1 from by omega,
-          List.getElem?_cons_succ, List.getElem?_append_right (by omega),
-          show imm.length + j - imm.length = j from by omega]
-    have hih := ih (base + 1 + imm.length) hmatch'
-    refine .step (byte := byte) hhead ?_
-    rw [hnext]
-    rw [show base + (byte :: (imm ++ rest)).length = (base + 1 + imm.length) + rest.length from by
-          rw [hseglen]; omega]
-    exact hih
-
-/-! ## §3 — the interior transport (predicate-carrying)
-
-If `c` matches a `SegAlignedP P` segment `seg` over `[base, base + seg.length)`, then any boundary
-`n` the walk reaches from `base` **strictly inside** the segment (`n < base + seg.length`) reads a
-head byte satisfying `P`. Induction on the alignment derivation; the head boundary reads the
-`P`-satisfying head, a deeper boundary lands in the aligned `rest` where the IH applies. -/
-
-theorem reaches_P_of_segAlignedP {P : Operation → Prop} (c : ByteArray) (seg : List UInt8)
-    (hseg : SegAlignedP P seg) :
-    ∀ base : Nat, (∀ j, j < seg.length → c.get? (base + j) = seg[j]?) →
-      ∀ n, ReachesBoundary c base n → n < base + seg.length →
-        ∃ byte, c.get? n = some byte ∧ P (Evm.parseInstr byte) := by
-  induction hseg with
-  | nil =>
-    intro base _ n hreach hlt
-    simp only [List.length_nil, Nat.add_zero] at hlt
-    exact absurd (reachesBoundary_le hreach) (by omega)
-  | cons byte imm rest himm hP hrest ih =>
-    intro base hmatch n hreach hlt
-    have hhead : c.get? base = some byte := by
-      have := hmatch 0 (by simp); simpa using this
-    have hseglen : (byte :: (imm ++ rest)).length = 1 + imm.length + rest.length := by
-      simp [List.length_append]; omega
-    have hmatch' : ∀ j, j < rest.length →
-        c.get? ((base + 1 + imm.length) + j) = rest[j]? := by
-      intro j hj
-      have hj' : 1 + imm.length + j < (byte :: (imm ++ rest)).length := by rw [hseglen]; omega
-      have := hmatch (1 + imm.length + j) hj'
-      rw [show base + (1 + imm.length + j) = (base + 1 + imm.length) + j from by omega] at this
-      rw [this]
-      rw [show (1 + imm.length + j) = (imm.length + j) + 1 from by omega,
-          List.getElem?_cons_succ, List.getElem?_append_right (by omega),
-          show imm.length + j - imm.length = j from by omega]
-    cases hreach with
-    | refl _ =>
-      exact ⟨byte, hhead, hP⟩
-    | step hget rest' =>
-      rw [hhead] at hget
-      cases hget
-      have hnext : nextInstrPosNat base (Evm.parseInstr byte) = base + 1 + imm.length := by
-        unfold nextInstrPosNat; rw [himm]
-      rw [hnext] at rest'
-      have hlt' : n < (base + 1 + imm.length) + rest.length := by
-        have : base + (byte :: (imm ++ rest)).length = (base + 1 + imm.length) + rest.length := by
-          rw [hseglen]; omega
-        omega
-      exact ih (base + 1 + imm.length) hmatch' n rest' hlt'
+open BytecodeLayer.Asm
 
 /-! ## §4 — the tightest predicate: `IsLoweringOp`
 
@@ -432,15 +285,12 @@ The `flatMap` of per-block `JUMPDEST :: emitBlockBody`, each aligned
 `SegAlignedP.append`. No well-formedness hypothesis. -/
 theorem segAlignedP_flatBytes (prog : Program) :
     SegAlignedP IsLoweringOp (flatBytes prog) := by
-  have hcache : ∀ t, SegAlignedP IsLoweringOp (matCache prog t) := segAlignedP_matCache prog
-  unfold flatBytes
-  set cache := matCache prog
-  set alloc := defsOf prog
-  set lo := offsetTable cache alloc prog.blocks
-  induction prog.blocks.toList with
-  | nil => exact .nil
-  | cons b rest ih =>
-      rw [List.flatMap_cons]
-      exact (segAlignedP_loweredBlock cache hcache alloc lo b).append ih
+  have h := BytecodeLayer.Asm.segAlignedP_bytes (BytecodeLayer.Asm.lowerAsm prog)
+  rw [Asm.bytes_lowerAsm, emit_allocate_eq_flatBytes] at h
+  exact h.mono (by
+    intro op hop
+    unfold BytecodeLayer.Asm.IsAsmOp at hop
+    unfold IsLoweringOp
+    tauto)
 
 end Lir

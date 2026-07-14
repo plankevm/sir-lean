@@ -34,6 +34,7 @@ No `sorry`, no `axiom`, no `native_decide`.
 namespace Lir
 
 open Evm
+open BytecodeLayer.Asm
 
 /-! ## A2 layout brick — the `k`-generalised statement-cursor byte anchor
 

@@ -14,6 +14,7 @@ No `sorry`, no `axiom`, no `native_decide`.
 namespace Lir
 
 open Evm
+open BytecodeLayer.Asm
 
 /-! ## Terminal-suffix geometry -/
 
