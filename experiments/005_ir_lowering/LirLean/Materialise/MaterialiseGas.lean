@@ -1,5 +1,5 @@
 import LirLean.Frame.Match
-import BytecodeLayer.Hoare.Sequence
+import BytecodeLayer.Exec.Gas
 
 /-!
 # LirLean — the materialise gas-charge engine (charge lists for the value channel)
@@ -31,6 +31,8 @@ nothing here touches `Spec/Semantics.lean` / `Law.lean` (the frame-free spine).
 
 namespace Lir
 
+export BytecodeLayer.Exec (subCharges_singleton charge_binOpPost_gas)
+
 open Lir.Frame
 open BytecodeLayer.Exec
 open Evm
@@ -52,26 +54,12 @@ These are the laws B1 threads to glue per-leaf subtractions into the whole-expre
 proved by induction on the charge list) decompose compound charge lists in execution
 order. -/
 
-/-- A single-element `subCharges` is one subtraction. -/
-theorem subCharges_singleton (g : UInt64) (c : ℕ) :
-    subCharges g [c] = g - UInt64.ofNat c := rfl
-
 /-! ## 3. The per-opcode single-charge steps (the bricks B1's compound cases thread)
 
 For the compound constructs (`add`/`lt`/`sload`), B1's `Runs` chain ends in the
 op's *own* opcode (ADD/LT/SLOAD) applied to the operands B1 already materialised. The
 gas that opcode subtracts is one element. The operands' own charges are B1's recursive `Runs`
 (it owns the frame chain); B2 owns the *last* op's charge and the gluing arithmetic. -/
-
-/-- The op-charge step for `ADD`/`LT`: the final binary opcode subtracts the trailing
-`[Gverylow]` of the compound charge list. `addFrame`/`ltFrame` go through `binOpPost`,
-which charges `Gverylow`; stated through the named post-frame so B1 reads it off the
-endpoint of its operand chain. -/
-theorem charge_binOpPost_gas (fr : Frame) (op : UInt256 → UInt256 → UInt256)
-    (a b : Word) (rest : Stack Word) :
-    (BytecodeLayer.Dispatch.binOpPost fr.exec op a b rest).gasAvailable
-      = subCharges fr.exec.gasAvailable [Gverylow] := by
-  rw [subCharges_singleton]; rfl
 
 /-! ## 4. The charge fold twin (`chargeCache` over `defEnv`) — Phase 2A P5a
 
