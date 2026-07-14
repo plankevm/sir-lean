@@ -5,6 +5,9 @@ namespace Sir
 
 inductive IRError where
   | undefinedVariable (var : VarId)
+  | invalidBlock (block : BlockId)
+  | invalidControl
+  | blockArityMismatch (outputs inputs : Nat)
   deriving DecidableEq, Repr
 
 structure Locals where
@@ -24,6 +27,15 @@ def get (locals : Locals) (var : VarId) : Except IRError Word :=
 
 def set (locals : Locals) (var : VarId) (value : Word) : Locals :=
   ⟨fun candidate => if candidate = var then some value else locals.values candidate⟩
+
+
+/-- Read every output before binding any input, making block transfer simultaneous. -/
+def transfer (locals : Locals) (outputs inputs : Array VarId) : Except IRError Locals := do
+  if outputs.size != inputs.size then
+    throw (.blockArityMismatch outputs.size inputs.size)
+  (inputs.zip outputs).foldlM
+    (fun result (input, output) => (locals.get output).map (result.set input))
+    locals
 
 end Locals
 
@@ -76,7 +88,7 @@ abbrev Trace := List Event
 def MachineState.localSet (var : VarId) (value : Word) : StateM MachineState Unit :=
   modify (fun s => { s with locals := s.locals.set var value })
 
-private def Program.block? (program : Program) (bid : BlockId) : Option BasicBlock :=
+def Program.block? (program : Program) (bid : BlockId) : Option BasicBlock :=
   program.blocks[bid.id]?
 
 def Program.decodeStmt (program : Program) (control : MachineControl) : Option (MachineControl × Stmt) := do

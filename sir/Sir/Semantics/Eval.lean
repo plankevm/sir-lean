@@ -2,7 +2,6 @@ import Sir.Semantics.State
 
 namespace Sir
 
-/-- Deterministic, read-only expression evaluation. -/
 def Expr.eval (ctx : CallContext) (state : MachineState) : Expr → Except IRError Word
   | Expr.constant value => .ok value
   | Expr.var id => state.locals.get id
@@ -40,13 +39,21 @@ def eval_call (s : MachineState) (call : Call) (result : CallResult) :
   }
   .ok (s', { target := .ofUInt256 callee, gas := gas, result := result })
 
-/-- Deterministically compute a terminator's next control state. Target validity is
-checked only when a later small step looks up the resulting control state. -/
-def Terminator.eval (state : MachineState) : Terminator → Except IRError MachineControl
-  | .halt => .ok .halted
-  | .jump target => .ok (.blockStart target)
+private def eval_jump (program : Program) (state : MachineState) (target : BlockId) :
+    Except IRError MachineState := do
+  let .running pc := state.control | throw .invalidControl
+  let source := pc.block
+  let some sourceBlock := program.block? source | throw (.invalidBlock source)
+  let some targetBlock := program.block? target | throw (.invalidBlock target)
+  let locals' ← state.locals.transfer sourceBlock.outputs targetBlock.inputs
+  return { state with locals := locals', control := .blockStart target }
+
+def eval_terminator (program : Program) (state : MachineState) :
+    Terminator → Except IRError MachineState
+  | .halt => .ok { state with control := .halted }
+  | .jump target => eval_jump program state target
   | .branch condition thenTarget elseTarget => do
       let value ← state.locals.get condition
-      return .blockStart (if value = 0 then elseTarget else thenTarget)
+      eval_jump program state (if value = 0 then elseTarget else thenTarget)
 
 end Sir

@@ -40,12 +40,11 @@ inductive SmallStep (program : Program) (ctx : CallContext) :
       (heval : eval_call state call result = .ok (state', record)) :
       SmallStep program ctx state [.call record] { state' with control := nextControl }
   | terminator
-      {state : MachineState}
-      {nextControl : MachineControl}
+      {state state' : MachineState}
       {terminator : Terminator}
       (hterm : program.terminatorAt state.control = some terminator)
-      (heval : terminator.eval state = .ok nextControl) :
-      SmallStep program ctx state [] { state with control := nextControl }
+      (heval : eval_terminator program state terminator = .ok state') :
+      SmallStep program ctx state [] state'
 
 inductive Steps (program : Program) (ctx : CallContext) :
     MachineState → Trace → MachineState → Prop where

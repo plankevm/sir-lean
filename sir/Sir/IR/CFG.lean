@@ -30,8 +30,10 @@ inductive Terminator where
 deriving DecidableEq, Repr
 
 structure BasicBlock where
+  inputs : Array VarId
   statements : Array Stmt
   terminator : Terminator
+  outputs : Array VarId
 deriving Repr
 
 structure Program where

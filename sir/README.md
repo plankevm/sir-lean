@@ -5,14 +5,14 @@ Lean 4 implementation of Plank's production SIR compiler pipeline.
 The initial library contains a register-based CFG and its canonical event-labelled
 small-step semantics:
 
-- `Sir/Core/` — primitive shared types. Words and addresses reuse
-  `Evm.UInt256` and `Evm.AccountAddress` from `experiments/003_bytecode_layer`.
+- `Sir/Core/` — primitive shared types.
 - `Sir/IR/` — expressions, statements, terminators, basic blocks, and programs.
 - `Sir/Semantics/World.lean` — concrete storage operations over `Evm.AccountMap`.
 - `Sir/Semantics/State.lean` — locals, call context, IR control state, machine
   state, and execution events.
 - `Sir/Semantics/Eval.lean` — deterministic evaluators for pure expressions,
-  assignment, storage, calls given a result, and terminators.
+  assignment, storage, calls given a result, and terminators. Control-flow edges
+  simultaneously transfer a block's outputs by position into its successor's inputs.
 - `Sir/Semantics/SmallStep.lean` — the program-indexed transition relation and
   its trace-accumulating multi-step closure.
 
