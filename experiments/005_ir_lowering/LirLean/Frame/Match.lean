@@ -1,5 +1,6 @@
 import BytecodeLayer.Exec.Call
 import BytecodeLayer.Exec.Create
+import BytecodeLayer.Exec.CallRealises
 import LirLean.Decode.LoweringLemmas
 import LirLean.Decode.Layout
 import BytecodeLayer.Exec.Invariants
@@ -28,18 +29,14 @@ open BytecodeLayer.Maps
 open BytecodeLayer.Dispatch
 open BytecodeLayer.System
 
+export BytecodeLayer.Exec
+  (storageAt call_reflects_lowered create_reflects_lowered)
+
 /-- The self account's storage at `key`, read through exp003's observable lens
 (the same `find?/lookupStorage` used by `sstoreFrame_storage_self` /
 `sloadFrame_storage_self`). -/
 def selfStorage (fr : Frame) (key : Word) : Word :=
   fr.exec.accounts.find? fr.exec.executionEnv.address |>.option 0 (·.lookupStorage key)
-
-/-- The storage of account `addr` at `key` in frame `fr`, through the same lens.
-Used to state the `SSTORE` effect/frame clauses keyed on a fixed self address (the
-exact form exp003's `sstoreFrame_storage_*` lemmas produce), sidestepping the
-post-frame's own-address defeq. -/
-def storageAt (fr : Frame) (addr : AccountAddress) (key : Word) : Word :=
-  fr.exec.accounts.find? addr |>.option 0 (·.lookupStorage key)
 
 /-! ## Atomic per-construct simulation lemmas
 
@@ -380,43 +377,6 @@ theorem sim_call {callFr resumeFr fr' : Frame}
     Runs callFr fr' :=
   Runs.call hcall rest
 
-/-! ## Call-oracle reflexivity headline (`docs/ir-design.md` §5)
-
-The deliverable that demonstrates the call-agnostic design: **instantiate the
-oracle to `evmCallOracle` → the IR's call-effect is *reflexively equal* to the
-lowered bytecode's ext-call effect.** The
-IR side reads the oracle's projections (`postStorage` / `restoredGas` /
-`successWord`); the EVM side is the resumed frame `resumeAfterCall result pd`'s
-observables. Because `evmCallOracle`'s fields are *defined* as those very
-projections (`Frame/Call.lean`), the three coincidences are `rfl`-clean.
-
-The `CallReturns callFr resumeFr` witness pins `resumeFr = resumeAfterCall
-childRes.toCallResult pending`, so the headline reads off the actual resumed frame. -/
-
-/-- **The external-call reflexivity headline.** Given a returning external CALL
-(`CallReturns callFr resumeFr`, so `resumeFr = resumeAfterCall result pd` for the
-projected child result / pending call), at `evmCallOracle` the IR's call effect
-coincides — *by construction* — with the lowered resume's observables:
-
-* **post-storage** of any account `addr` at `key` equals the resumed frame's
-  observable storage (`storageAt resumeFr`);
-* **restored gas** equals the resumed frame's `gasAvailable` (`gasAfterReturn`);
-* **success word** equals the word the CALL pushed onto the stack — the head of
-  `resumeFr`'s stack, which is exp003's `x` (0 on failure/insufficient-funds/
-  depth-limit, else 1).
-
-Instantiate the oracle to the EVM one and the IR's external-call effect is
-reflexively the lowered bytecode's. -/
-theorem call_reflects_lowered {callFr resumeFr : Frame}
-    (hcall : CallReturns callFr resumeFr) :
-    ∃ result pd, resumeFr = resumeAfterCall result pd
-      ∧ (∀ addr key, evmCallOracle.postStorage result pd addr key = storageAt resumeFr addr key)
-      ∧ evmCallOracle.restoredGas result pd = resumeFr.exec.gasAvailable
-      ∧ evmCallOracle.successWord result pd = callSuccessFlag result pd := by
-  obtain ⟨cp, pending, child, childRes, _hstep, _henters, _hdrive, hresume⟩ := hcall
-  subst hresume
-  exact ⟨childRes.toCallResult, pending, rfl, fun _ _ => rfl, rfl, rfl⟩
-
 /-! ## `Stmt.create` simulation (the `Runs.create` node)
 
 A `Stmt.create` lowers to the CREATE-arg pushes then `CREATE`/`CREATE2`. Under
@@ -434,57 +394,6 @@ theorem sim_create {createFr resumeFr fr' : Frame}
     (hc : CreateReturns createFr resumeFr) (rest : Runs resumeFr fr') :
     Runs createFr fr' :=
   Runs.create hc rest
-
-/-! ## Create-oracle reflexivity headline (CREATE twin of `call_reflects_lowered`)
-
-The CREATE analogue of the call-reflexivity deliverable: **instantiate the oracle to
-`evmCreateOracle` → the IR's create-effect is *equal* to the lowered bytecode's
-CREATE effect.** Unlike CALL, this is **not** fully `rfl`-clean on the storage side.
-`evmCallOracle.postStorage` projects `resumeAfterCall` directly, so its coincidence
-with `storageAt resumeFr` is `rfl`. `evmCreateOracle.postStorage`, by contrast, reads
-`result.accounts` **directly** (kept total because `resumeAfterCreate` is
-`Except`-typed and may throw on the 63/64 guard, `Create.lean`), while the resumed
-frame's storage is `resumeFr.exec.accounts`. The `CreateReturns` witness pins
-`resumeAfterCreate result pd = .ok resumeFr`; `resumeAfterCreate` writes `accounts :=
-result.accounts` (exp003 `Create.lean:204`), untouched by the `replaceStackAndIncrPC`
-wrapper, so the two coincide — but through a short unfold of the guarded resume, not a
-`rfl`. The address-word side stays `rfl` (`evmCreateOracle.addressWord :=
-createAddrOrZero`). -/
-
-/-- **The CREATE reflexivity headline.** Given a returning, successfully-resumed CREATE
-(`CreateReturns createFr resumeFr`, so `resumeAfterCreate result pd = .ok resumeFr` for
-the projected child result / pending create), at `evmCreateOracle` the IR's create
-effect coincides with the lowered resume's observables:
-
-* **post-storage** of any account `addr` at `key` equals the resumed frame's
-  observable storage (`storageAt resumeFr`) — via the `accounts := result.accounts`
-  write of `resumeAfterCreate`, unfolded through the 63/64 guard;
-* **address word** equals the deployed-address-or-`0` the CREATE pushes
-  (`createAddrOrZero`, `rfl`).
-
-The CREATE twin of `call_reflects_lowered`; the storage side is the create-specific
-proof cost (R3) that CALL got for free. -/
-theorem create_reflects_lowered {createFr resumeFr : Frame}
-    (hc : CreateReturns createFr resumeFr) :
-    ∃ result pd, resumeAfterCreate result pd = .ok resumeFr
-      ∧ (∀ addr key, evmCreateOracle.postStorage result pd addr key = storageAt resumeFr addr key)
-      ∧ evmCreateOracle.addressWord result pd = createAddrOrZero result pd := by
-  obtain ⟨cp, pending, childRes, _hstep, _hdrive, hresume⟩ := hc
-  refine ⟨childRes.toCreateResult, pending, hresume, ?_, rfl⟩
-  -- Storage side (R3): `evmCreateOracle.postStorage` reads `result.accounts` directly,
-  -- while `storageAt resumeFr` reads `resumeFr.exec.accounts`. `resumeAfterCreate` writes
-  -- `accounts := result.accounts` (exp003 `Create.lean:204`), unchanged by
-  -- `replaceStackAndIncrPC` — so unfold the guarded resume to identify the two.
-  have hacc : resumeFr.exec.accounts = childRes.toCreateResult.accounts := by
-    unfold resumeAfterCreate at hresume
-    simp only [bind, Except.bind, pure, Except.pure] at hresume
-    split at hresume
-    · exact absurd hresume (by simp)
-    · simp only [Except.ok.injEq] at hresume
-      rw [← hresume]
-      dsimp only [ExecutionState.replaceStackAndIncrPC]
-  intro addr key
-  simp only [evmCreateOracle, storageAt, hacc]
 
 /-! ## Top-level preservation discharge (`lower_preserves`, the bridge half)
 
