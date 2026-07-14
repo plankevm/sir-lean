@@ -12,8 +12,8 @@ open BytecodeLayer.Exec
 # LirLean — Realisability spec, SURFACE (§1–§4)
 
 Split out of `RealisabilitySpec.lean` for legibility (pure relocation, no proof change).
-Holds the sorry-free helper definitions (§1), the recorder-restart coupling (§2), the
-reshaped ties `StmtTies'`/`TermTies'` (§3), and exact stream consumption (§4). See
+Holds the sorry-free helper definitions (§1), the IR coupling adapter (§2), the reshaped
+ties `StmtTies'`/`TermTies'` (§3), and exact stream consumption (§4). See
 `RealisabilitySpec.lean` for the module-level overview and the vacuity lessons. -/
 
 namespace Lir
@@ -306,27 +306,6 @@ Design notes (each load-bearing):
   value function anywhere (the fatal flaw of the rejected option (iii)).
 * The four prefix fields make "consumed so far" explicit (the R10 assembly reads them);
   the entry instance is the whole log with `pre = []` (`recorderCoupled_entry`). -/
-
-/-- **Recorder-restart coupling.** Restarting the recording interpreter at the current
-top-level boundary frame `fr` reproduces the run's final observable and exactly the
-un-consumed suffixes of the recorded streams; each suffix is genuinely a suffix of its
-recorded stream. SUPPLIED status: never supplied to the flagship — R7 establishes it at
-entry and preserves it across steps/calls; the ties CONSUME it as an antecedent. -/
-structure RecorderCoupled (log : RunLog) (fr : Frame)
-    (gasSuffix : List Word) (sloadSuffix : List Nat) (callSuffix : List CallRecord)
-    (createSuffix : List CreateRecord) : Prop where
-  /-- The load-bearing restart equation: some fuel replays `fr`'s future to exactly
-  `(log.observable, gasSuffix, sloadSuffix, callSuffix, createSuffix)`. -/
-  restart : ∃ fuel', driveLog fuel' [] (.inl fr) [] [] [] []
-      = .ok (log.observable, gasSuffix, sloadSuffix, callSuffix, createSuffix)
-  /-- The gas suffix is a suffix of the recorded gas stream. -/
-  gasPrefix : ∃ pre, log.gas = pre ++ gasSuffix
-  /-- The sload suffix is a suffix of the recorded sload stream. -/
-  sloadPrefix : ∃ pre, log.sloads = pre ++ sloadSuffix
-  /-- The call suffix is a suffix of the recorded call stream. -/
-  callPrefix : ∃ pre, log.calls = pre ++ callSuffix
-  /-- The create suffix is a suffix of the recorded create stream. -/
-  createPrefix : ∃ pre, log.creates = pre ++ createSuffix
 
 /-- **The recorder-coupled walk invariant.** Carried at
 every top-level block-entry boundary of the drive walk:

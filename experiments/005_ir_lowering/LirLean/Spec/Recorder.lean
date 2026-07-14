@@ -4,7 +4,7 @@ import BytecodeLayer.Exec.Recorder
 namespace Lir
 
 export BytecodeLayer.Exec.Recorder
-  (evmV2CallEntry evmV2CreateEntry CallRecord CreateRecord RunLog isGasOp isSloadOp
+  (evmV2CallEntry evmV2CreateEntry CallRecord CreateRecord RunLog RecorderCoupled isGasOp isSloadOp
    isCreate2Op isCallOp softFailCallRecord callSuccessFlag_softFailCallRecord
    softFailCreateRecord createAddrOrZero_softFailCreateRecord sloadWarmthOf recordCall
    recordCreate driveLog runWithLog callsCodeOk realisedGas realisedSload callStreamOf realisedCall

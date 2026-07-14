@@ -223,6 +223,18 @@ def runWithLog (params : CallParams) (fuel : ℕ) : Option RunLog :=
                    creates := creates }
         | .error _ => none
 
+/-- Restarting the recorder at `fr` reproduces the final observable and the
+unconsumed stream suffixes. -/
+structure RecorderCoupled (log : RunLog) (fr : Frame)
+    (gasSuffix : List Word) (sloadSuffix : List Nat) (callSuffix : List CallRecord)
+    (createSuffix : List CreateRecord) : Prop where
+  restart : ∃ fuel', driveLog fuel' [] (.inl fr) [] [] [] []
+      = .ok (log.observable, gasSuffix, sloadSuffix, callSuffix, createSuffix)
+  gasPrefix : ∃ pre, log.gas = pre ++ gasSuffix
+  sloadPrefix : ∃ pre, log.sloads = pre ++ sloadSuffix
+  callPrefix : ∃ pre, log.calls = pre ++ callSuffix
+  createPrefix : ∃ pre, log.creates = pre ++ createSuffix
+
 def callsCodeOk : ℕ → Frame → Bool
   | 0, _ => false
   | fuel+1, fr =>
