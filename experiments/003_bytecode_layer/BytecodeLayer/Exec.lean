@@ -11,6 +11,7 @@ import BytecodeLayer.Exec.WitnessChecks
 import BytecodeLayer.Exec.Modellable
 import BytecodeLayer.Exec.Frame
 import BytecodeLayer.Exec.Memory
+import BytecodeLayer.Exec.Stash
 
 namespace BytecodeLayer.Exec
 

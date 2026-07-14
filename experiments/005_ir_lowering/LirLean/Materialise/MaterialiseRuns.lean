@@ -53,7 +53,7 @@ export BytecodeLayer.Exec
    pushFrameW_activeWords addFrame_memory addFrame_activeWords ltFrame_memory ltFrame_activeWords
    sloadFrame_memory sloadFrame_activeWords gasFrame_memory gasFrame_activeWords StashRuns
    mload_covered_congr M_32_eq_self_of_covered toUInt64?_ofNat_of_lt
-   memoryExpansionWords?_ofNat_32_of_covered)
+   memoryExpansionWords?_ofNat_32_of_covered push32_pcΔ)
 
 open Lir.Frame
 open BytecodeLayer.Exec
@@ -67,9 +67,6 @@ open BytecodeLayer.Dispatch
 /-- `(emitImm w).length = 33` (a `PUSH32` opcode byte + 32 immediate bytes). -/
 theorem emitImm_length (w : Word) : (emitImm w).length = 33 := by
   simp [emitImm, BytecodeLayer.Exec.wordBytesBE]
-
-/-- `(32 + 1 : UInt8).toUInt32 = UInt32.ofNat 33`. -/
-theorem push32_pcΔ : ((32 : UInt8) + 1).toUInt32 = UInt32.ofNat 33 := by decide
 
 /-! ## `evalExpr` obs-irrelevance on the pure fragment
 

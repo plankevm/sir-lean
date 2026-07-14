@@ -8,6 +8,9 @@ open GasConstants
 open BytecodeLayer.Hoare
 open BytecodeLayer.Dispatch
 
+/-- The program-counter increment of a `PUSH32` instruction. -/
+theorem push32_pcΔ : ((32 : UInt8) + 1).toUInt32 = UInt32.ofNat 33 := by decide
+
 /-! ## Frame-accessor reductions for the materialise post-frames
 
 Each `sim_*` post-frame (`pushFrameW` / `addFrame` / `ltFrame` / `sloadFrame`) leaves
