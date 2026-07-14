@@ -43,9 +43,8 @@ theorem lower_eq_flatBytes (prog : Program) : lower prog = ⟨(flatBytes prog).t
 
 The same two lemmas, phrased directly on `lower prog` via `lower_eq_flatBytes`, so a
 caller discharges a decode obligation about the lowered program by exhibiting the
-byte (and immediate window) of `flatBytes prog` at the pc. The remaining byte-layout
-arithmetic (`flatBytes prog`'s byte at `pcOf prog L pc`) is what `PLAN.md` records as
-the open C3 work; these are the bricks it plugs into. -/
+byte (and immediate window) of `flatBytes prog` at the pc. Source-layout adapters
+supply these byte facts at LIR statement and terminator cursors. -/
 
 /-- Non-push decode specialised to `lower prog`. -/
 theorem decode_lower_nonpush (prog : Program) (n : Nat) (byte : UInt8)

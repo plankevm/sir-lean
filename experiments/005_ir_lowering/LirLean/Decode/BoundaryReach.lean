@@ -43,11 +43,6 @@ instance (op : Operation) : Decidable (NoCallCreateOp op) := by
   unfold NoCallCreateOp
   infer_instance
 
-theorem noCallCreate_of_byte (byte : UInt8) (h : NoCallCreateOp (Evm.parseInstr byte)) :
-    Evm.parseInstr byte ≠ .CALL
-      ∧ Evm.parseInstr byte ≠ .System .CREATE
-      ∧ Evm.parseInstr byte ≠ .System .CREATE2 := h
-
 theorem segAlignedNoCall_emitImm (w : Word) : SegAlignedP NoCallCreateOp (emitImm w) := by
   refine SegAlignedP.push Byte.push32 (BytecodeLayer.Exec.wordBytesBE w) ?_ (by decide)
   show (BytecodeLayer.Exec.wordBytesBE w).length = (Evm.pushArgWidth (Evm.parseInstr Byte.push32)).toNat

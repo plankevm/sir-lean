@@ -15,8 +15,6 @@ namespace Lir
 
 open Evm
 
-abbrev SegAligned : List UInt8 → Prop := BytecodeLayer.Asm.SegAligned
-
 theorem lower_get?_eq (prog : Program) (n : Nat) :
     (lower prog).get? n = (flatBytes prog)[n]? := by
   rw [lower_eq_flatBytes]
