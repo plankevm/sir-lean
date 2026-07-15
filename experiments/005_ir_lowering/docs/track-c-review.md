@@ -25,9 +25,9 @@ directory (`experiments/005_ir_lowering/docs/`); source modules are one level up
 > `../LirLean/Drive/Headline.lean`, pinned in `../LirLean/Audit.lean`); see
 > `docs/target-architecture-2026-07-02.md` + `docs/execution-plan-2026-07-02.md` (plan of
 > record) and `docs/headline-transitive-chain.md` (redirect map). The v1 artifacts this
-> report links (`WorkedCall.lean`, `Decode.lean`) have since moved to `../_attic/` — the
-> `../LirLean/WorkedCall.lean` / `../LirLean/Decode.lean` links below are 404s kept as
-> historical provenance; the still-live `Spec/{IR,Lowering}` links have been repointed.
+> report describes (`WorkedCall.lean`, `Decode.lean`) were later removed from the repository;
+> their old paths below are historical labels rather than live source pointers. The still-live
+> `Spec/{IR,Lowering}` links have been repointed.
 
 ---
 

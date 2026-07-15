@@ -2,8 +2,8 @@
 -- Root import list. Grouped by layer; `import LirLean.Audit` stays LAST (its #guard_msgs
 -- axiom/signature guards fail the build on drift, and it directly imports the headline cone).
 -- Design/history notes live in docs/ (ir-design*.md, execution-plan-2026-07-02.md,
--- reorg-legibility.md); archived leaf examples (`_attic/{Decode,WorkedCall,WorkedCallParity}`)
--- are off-cone by design (see docs/uniform-spill-alloc-plan.md, Phase-C bullet).
+-- reorg-legibility.md); the retired Decode/WorkedCall/WorkedCallParity leaf examples were
+-- removed and remain off-cone (see docs/uniform-spill-alloc-plan.md, Phase-C bullet).
 
 -- Spec core (reviewer-facing datatypes/semantics/lowering; Wave 3 spec-extract).
 import LirLean.Spec.IR

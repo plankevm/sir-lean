@@ -664,7 +664,7 @@ consumers; [`AtReachableBoundary`](../../../LirLean/Decode/Modellable.lean#L398)
 incremental lemmas toward open leaves, but they deserve a consumed-by note at next touch.
 
 **Examples:** none in scope (exp003's worked examples are exp003-internal leaves; exp005's
-byte-coupled worked examples are archived under `_attic/` per the
+retired byte-coupled worked examples were removed from the live tree, as noted in the
 [lakefile](../../../lakefile.lean)).
 
 ---
