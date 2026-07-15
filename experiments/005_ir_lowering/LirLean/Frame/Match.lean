@@ -18,7 +18,7 @@ open BytecodeLayer.Dispatch
 open BytecodeLayer.System
 
 export BytecodeLayer.Exec
-  (storageAt call_reflects_lowered create_reflects_lowered selfStorage sim_imm sim_gas sim_add
+  (storageAt call_reflects_oracle create_reflects_oracle selfStorage sim_imm sim_gas sim_add
    sim_lt sim_sload sstoreFrame_storage_self' sstoreFrame_storage_frame' sim_sstore sim_mload
    sim_mstore halt_stop returnWordPost stepFrame_return_word M_zero32_idem
    memExpWords_zero32_covered sim_call sim_create)

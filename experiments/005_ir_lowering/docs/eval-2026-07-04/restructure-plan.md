@@ -232,8 +232,8 @@ a clean `git mv` of the whole folder.
 the `DescentKind` block (`BytecodeLayer/Hoare/Descent.lean:421-567`) are green scaffolding; the IR surface has
 zero CREATE node (`Spec/IR.lean:77-86`, `Spec/Lowering.lean:178-200`). When first-class CREATE
 lands (00-create-status §6) it **adds arms to existing files** — `Stmt.create` in `Spec/IR`, a
-`.create` arm in `Spec/Semantics` + `IRRun` + `Spec/Lowering.emitStmt`, a `create_reflects_lowered`
-in `Frame/Match` (twin of `call_reflects_lowered`, `Match.lean:519`), a recorder arm in
+`.create` arm in `Spec/Semantics` + `IRRun` + `Spec/Lowering.emitStmt`, a `create_reflects_oracle`
+in `Frame/Match` (twin of `call_reflects_oracle`, `Match.lean:519`), a recorder arm in
 `Spec/Recorder`/`RecorderLemmas` — plus it **retires** `Decode/NoCreateBytes` + the `NotCreate`
 clause rather than extending them. The restructure must therefore **not** invent a `Create/` dir:
 CREATE is a cross-cutting arm-addition, and its scaffold belongs beside its CALL twin (`Frame/`) and

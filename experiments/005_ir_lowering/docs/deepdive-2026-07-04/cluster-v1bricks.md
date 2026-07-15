@@ -16,7 +16,7 @@ audit's central finding is that they have **very different liveness**:
    `Lir.IRState`. They are **shared infra consumed by the live v2 flagship path**
    (Materialise*, SimStmt, SimTerm, StashTail, CallRealises).
 2. **The CALL oracle projections** (`Call.lean`: `evmCallOracle`,
-   `callSuccessFlag`, `evmCallOracle_successWord_eq_x`, `call_reflects_lowered`).
+   `callSuccessFlag`, `evmCallOracle_successWord_eq_x`, `call_reflects_oracle`).
    Defined over exp003 `CallResult`/`PendingCall`, **not** over `Lir.IRState`, and
    **live** — they feed `CallRealises.lean`, `SimStmt.lean`, `LowerConforms.lean`
    and `RealisabilitySpec.lean`.
@@ -75,7 +75,7 @@ one v1-IRState-coupled decl (`applyCall`) is dead.
 | `evmCallOracle_successWord_eq_x` (:128) | theorem | **terminal-for-flagship** — pins oracle success word = `callSuccessFlag` | SimStmt:665; CallRealises:28,36,78 |
 | `IRState.applyCall` (:158) | def | genuinely-dead-as-code — operates on v1 `Lir.IRState`; appears only in docstrings, never called (v2 threads the call effect via `CallRealises`) | none (docstrings only) |
 
-Note: `call_reflects_lowered` (the reflexivity headline that consumes this file)
+Note: `call_reflects_oracle` (the reflexivity headline that consumes this file)
 lives in `Match.lean`, not here; it is live (see Match table).
 
 ---
@@ -91,9 +91,9 @@ zero CREATE node, so nothing can consume it yet.
 | decl | kind | role | callers |
 |---|---|---|---|
 | `CreateOracle` (:64) | structure | scaffold-experimental — twin of `CallOracle`; incremental-toward first-class CREATE (`00-create-status.md`; execution-plan-2026-07-02 §CREATE) | `evmCreateOracle` (Create:99) |
-| `createAddrOrZero` (:75) | def | scaffold-experimental — twin of `callSuccessFlag`; the deployed-addr-or-0 value a future `create_reflects_lowered` will tie | `evmCreateOracle` (Create:102); `evmCreateOracle_addressWord_eq` (Create:108) |
+| `createAddrOrZero` (:75) | def | scaffold-experimental — twin of `callSuccessFlag`; the deployed-addr-or-0 value a future `create_reflects_oracle` will tie | `evmCreateOracle` (Create:102); `evmCreateOracle_addressWord_eq` (Create:108) |
 | `evmCreateOracle` (:99) | def | scaffold-experimental — twin of `evmCallOracle` | `evmCreateOracle_addressWord_eq` (Create:108) |
-| `evmCreateOracle_addressWord_eq` (:107) | theorem | scaffold-experimental — twin of `evmCallOracle_addressWord/_successWord_eq_x` | none yet, builds toward `create_reflects_lowered` |
+| `evmCreateOracle_addressWord_eq` (:107) | theorem | scaffold-experimental — twin of `evmCallOracle_addressWord/_successWord_eq_x` | none yet, builds toward `create_reflects_oracle` |
 
 Do **not** delete: the settled roadmap keeps this and puts CREATE first-class next;
 its CALL twin is load-bearing, so this is "incremental toward a live need," not dead.
@@ -157,7 +157,7 @@ the v1 artifact, superseded by v2's `Corr`.
 | `M_zero32_idem` (:443) | theorem | shared-infra (internal) — feeds `memExpWords_zero32_covered` | Match:464 only |
 | `memExpWords_zero32_covered` (:454) | theorem | **terminal-for-flagship** — RETURN window coverage witness | SimTerm:432 |
 | `sim_call` (:479) | theorem | **terminal-for-flagship** — `Runs.call` wrapper | SimStmt:662 |
-| `call_reflects_lowered` (:519) | theorem | **terminal-for-flagship** — the §5 CALL reflexivity headline | CallRealises:92 |
+| `call_reflects_oracle` (:519) | theorem | **terminal-for-flagship** — the §5 CALL reflexivity headline | CallRealises:92 |
 | `lower_preserves_discharge` (:550) | theorem | genuinely-superseded-for-flagship — v1 top-level boundary discharge; **zero consumers repo-wide** (not even the dead acyclic capstone LowerConforms:1188). The live path discharges via `SimTerm.sim_term_halt_*` + LowerConforms | none anywhere |
 | `lower_preserves_stop` (:562) | theorem | genuinely-superseded-for-flagship — as above; zero consumers | none anywhere |
 | `lower_preserves_ret` (:577) | theorem | genuinely-superseded-for-flagship — as above; zero consumers | none anywhere |

@@ -54,7 +54,7 @@ guard in the WIP cone). None are in the default cone.
     `IsLoweringOp` extended in `BoundaryReach.lean`; `runs_of_drive_ok`
     (`BytecodeLayer/Hoare/DriveRuns.lean`) builds a `Runs.create` node in the `.needsCreate` arm.
   - **Step 5 @`eb06eea`** — `Frame/Match.lean` gains `sim_create` +
-    `create_reflects_lowered` (R3 short-unfold closed).
+    `create_reflects_oracle` (R3 short-unfold closed).
   - **Step 6 @`3ba90f5`** — recorder / stream realisation: `recordCreate` /
     `createStreamOf` / `realisedCreate` (parallel `CreateStream`, option A),
     `evmCreateEntry`, `realisedCreate_cons`.

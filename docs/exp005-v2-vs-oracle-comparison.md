@@ -52,7 +52,7 @@ Three reflexivity theorems + a concrete worked-program discharge. All in `Match.
 - **`gas_reflects_lowered`** (`Match.lean:188`). Under `Match`, the word the lowered `GAS` opcode
   pushes `= evalExpr (st.charge (gBase evmOracle)) .gas`. Hypothesis: a `Match prog L pc st fr`.
   Proof is `rw [h.gas_eq]; rfl` — the *whole* payload is M4 (`gas_eq`).
-- **`call_reflects_lowered`** (`Match.lean:374`). Given `CallReturns callFr resumeFr`, at
+- **`call_reflects_oracle`** (`Match.lean:374`). Given `CallReturns callFr resumeFr`, at
   `evmCallOracle` the three projections coincide with the resumed frame's observables
   (post-storage = `storageAt resumeFr`, restored gas = `gasAvailable`, success word =
   `callSuccessFlag`). Hypothesis: a returning-CALL witness. `rfl`-clean.
@@ -66,7 +66,7 @@ Three reflexivity theorems + a concrete worked-program discharge. All in `Match.
   `workedCall` has only one CALL).
 
 Caveat worth flagging to Eduardo: the design doc §5 (`ir-design.md:343-356`) claims
-`call_reflects_lowered` reflects *all three* effects "including the bound success flag," but the
+`call_reflects_oracle` reflects *all three* effects "including the bound success flag," but the
 theorem's own docstring (`Match.lean:352-358`) is more honest — the `resultTmp` binding is split into
 the separate `applyCall`/`bindCallResult` lemmas, "not part of this reflexivity equation." The doc
 slightly over-states; the Lean is correct. Minor.
@@ -99,7 +99,7 @@ Both directions are **`sorry`-free, `admit`-free, `native_decide`-free** across 
 (grep confirms only prose mentions of those words). B has explicit in-file `#print axioms` guards on
 both headlines (`Preserve.lean:610`, `Mono.lean:603`); the design notes assert
 `⊆ {propext, Classical.choice, Quot.sound}`. A's reflexivity lemmas are `rfl`/`rw`-only (so trivially
-in the same set), and `ir-design.md:343` asserts the same for `call_reflects_lowered`. I did not
+in the same set), and `ir-design.md:343` asserts the same for `call_reflects_oracle`. I did not
 re-run the checker; the statements and proof shapes are consistent with the claims.
 
 ---

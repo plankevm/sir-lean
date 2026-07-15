@@ -173,8 +173,8 @@ envelopes are **derived, not supplied**: one clean-halt witness at the entry cur
 every per-opcode bound
 ([`materialise_runsC_of_cleanHalt`](../../../LirLean/Materialise/MaterialiseCleanHalt.lean#L372)).
 CALL/CREATE effects are pinned *reflexively* to exp003's resume via the oracles
-([`call_reflects_lowered`](../../../LirLean/Frame/Match.lean#L473),
-[`create_reflects_lowered`](../../../LirLean/Frame/Match.lean#L530)). Deep report:
+([`call_reflects_oracle`](../../../LirLean/Frame/Match.lean#L473),
+[`create_reflects_oracle`](../../../LirLean/Frame/Match.lean#L530)). Deep report:
 [04](04-value-channel.md) — which also confirms the v1 frame machine
 (`Frame/SmallStep.lean`, `applyCall`/`applyCreate`, the `Match` structure) is dead surface.
 

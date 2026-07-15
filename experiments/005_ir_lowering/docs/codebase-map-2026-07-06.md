@@ -35,7 +35,7 @@ L7  RECORDER / STREAM REALISATION                    Spec/Recorder.lean + CallRe
 L6  WHOLE-CFG SIMULATION                              CfgSim/ (sim_cfg, WellFormedLowered, CallRealises)
 L5b PER-STATEMENT SIMULATION (Corr invariant)        Sim/ (sim_assign/sstore/call, sim_stmts, sim_term_*)
 L5a VALUE CHANNEL (materialise ↔ evalExpr)           Materialise/ + Frame/{Call,Create,Match} oracle half
-      MatRuns, MemRealises, DefsSound, StashTail       reflexivity headlines call/create_reflects_lowered
+      MatRuns, MemRealises, DefsSound, StashTail       reflexivity headlines call/create_reflects_oracle
 L4  CODE GEOMETRY (pc/offset/decode algebra)         Decode/ (flatBytes, anchors, SegAlignedP, JumpValid)
       + *pcOf lives in Frame/Match — inverted import*
 L3  LOWERING FUNCTION                                Spec/Lowering.lean (lower = encode ∘ emit (allocate p))
@@ -216,11 +216,11 @@ theorem gas_envelope_of_cleanHalt …  -- CleanHaltExtract.lean:699 (envelopes D
 
 structure CallOracle where postStorage …; restoredGas …; successWord …  -- Frame/Call.lean:79
 def evmCallOracle : CallOracle       -- :108 (projections of resumeAfterCall ⇒ rfl-clean)
-theorem call_reflects_lowered (hcall : CallReturns callFr resumeFr) :
+theorem call_reflects_oracle (hcall : CallReturns callFr resumeFr) :
     ∃ result pd, resumeFr = resumeAfterCall result pd
       ∧ (∀ addr key, evmCallOracle.postStorage result pd addr key = storageAt resumeFr addr key)
       ∧ … ∧ evmCallOracle.successWord result pd = callSuccessFlag result pd   -- Frame/Match.lean:520
-theorem create_reflects_lowered …                                 -- Frame/Match.lean:577
+theorem create_reflects_oracle …                                 -- Frame/Match.lean:577
 ```
 
 ### L5b — per-statement simulation (`Sim/`)

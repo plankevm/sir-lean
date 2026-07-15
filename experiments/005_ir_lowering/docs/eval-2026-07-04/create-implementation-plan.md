@@ -8,7 +8,7 @@ Paths are into `experiments/005_ir_lowering/LirLean/` unless prefixed `exp003:`
 
 This plan mirrors, step-for-step, how CALL was built (the CALL ecosystem is the
 template: `Spec/IR.CallSpec` → `Lir.EvalStmt.call` → `emitStmt .call` →
-`Call.evmCallOracle` → `Match.call_reflects_lowered` → `CallRealises` →
+`Call.evmCallOracle` → `Match.call_reflects_oracle` → `CallRealises` →
 recorder `recordCall` → `Modellable` clause-1). The single biggest surprise vs.
 the CALL build is in §5: **the exp003 `Runs` abstraction has no CREATE node and no
 `CreateReturns` bridge, and `runs_of_drive_ok` is *predicated* on `NoCreate`
@@ -87,8 +87,8 @@ IR-surface-and-up layers, **and the `Runs`-level bridge**, are CALL-only.
   assign/sstore/call only — no `CREATE`(0xf0)/`CREATE2`(0xf5) byte in the `Byte`
   table (:46-61) and no create arm; `defsOf` (:247-256) has a call-result stash arm
   (`.call ⟨_,_,some t⟩ → Expr.slot`) but no create-result stash arm.
-- **Match reflexivity.** No `create_reflects_lowered` (contrast
-  `call_reflects_lowered` Match.lean:519); no `sim_create` (contrast `sim_call`
+- **Match reflexivity.** No `create_reflects_oracle` (contrast
+  `call_reflects_oracle` Match.lean:519); no `sim_create` (contrast `sim_call`
   Match.lean:479, which is just a `Runs.call` wrapper — and there is no `Runs.create`
   to wrap, see §5).
 - **Recorder / stream.** `Spec/Recorder.lean`: `recordCall` (:172) explicitly
@@ -214,11 +214,11 @@ cluster-v1bricks.md) but needed to keep v1 compiling once `Stmt` gains a constru
   `sim_create` must be `Runs.create hc rest`, which is exactly why Step 0b (the
   `Runs.create` constructor) is a prerequisite. Without Step 0 this lemma is
   unstatable.
-- `create_reflects_lowered` (twin of `call_reflects_lowered` :519): given
+- `create_reflects_oracle` (twin of `call_reflects_oracle` :519): given
   `CreateReturns createFr resumeFr`, `∃ result pd, … ∧ (∀ addr key,
   evmCreateOracle.postStorage result pd addr key = storageAt resumeFr addr key) ∧
   evmCreateOracle.addressWord result pd = createAddrOrZero result pd`. RISK: the
-  `postStorage`-side `rfl`-cleanliness that `call_reflects_lowered` enjoys
+  `postStorage`-side `rfl`-cleanliness that `call_reflects_oracle` enjoys
   (:522-527) may NOT hold, because `evmCreateOracle.postStorage` reads
   `result.accounts` directly while the resumed frame's storage is
   `(resumeAfterCreate result pd).exec.accounts` — and `resumeAfterCreate` *rewrites*
@@ -235,7 +235,7 @@ cluster-v1bricks.md) but needed to keep v1 compiling once `Stmt` gains a constru
   `((fun key => evmCreateOracle.postStorage result pd self key),
   evmCreateOracle.addressWord result pd)`.
 - `createRealises_bridge` (twin of `callRealises_bridge` :85) off
-  `create_reflects_lowered`.
+  `create_reflects_oracle`.
 
 `Spec/Recorder.lean`:
 
@@ -295,8 +295,8 @@ Using the import graph in the brief:
   the whole decode/CFG cluster (`JumpValid`/`NoCreateBytes`/`BoundaryReach`). The
   `defsOf` create arm interacts with `allocate_toDefs` (LoweringLemmas:91) — the
   Phase-A keystone — which must be re-proven to cover the new `defsOf` arm.
-- **Step 5 (`Match`)** → sits in the v1-bricks cluster; `create_reflects_lowered`
-  exits to `CreateRealises` exactly as `call_reflects_lowered` exits to
+- **Step 5 (`Match`)** → sits in the v1-bricks cluster; `create_reflects_oracle`
+  exits to `CreateRealises` exactly as `call_reflects_oracle` exits to
   `CallRealises`. Requires Step 0b (`Runs.create`) as an upstream dependency.
 - **Step 6 (`CallRealises` + `Spec/Recorder`)** → Recorder is imported by
   `RecorderLemmas` → `SimTerm` and feeds the flagship's `realisedCall`/`realisedCreate`.
@@ -329,7 +329,7 @@ create statement requires a salt tmp:
 - **IR:** already covered — `cs.salt : Tmp`.
 - **Lowering:** materialise `salt`, `initSize`, `initOffset`, `value`, then emit
   `Byte.create2` (0xf5); stash/discard the pushed address as usual.
-- **Semantics/recorder/Match:** the create stream entry and `create_reflects_lowered`
+- **Semantics/recorder/Match:** the create stream entry and `create_reflects_oracle`
   are kind-agnostic (they project `result`/`pd`, which already encode the salt via
   `PendingCreate`), so no per-kind case-split is needed above the lowering.
 - **Drive:** `createArm` (exp003:System.lean:73) already takes `salt : Option
@@ -363,8 +363,8 @@ settled `CallStream` (1c77c07, "call-stream replaces function CallOracle") — a
 already-litigated design surface. Decide this before Step 2; it changes the signature
 of `EvalStmt`/`RunStmts`/`RunFrom` (74/72/137 refs).
 
-**R3 — `create_reflects_lowered` is unlikely to be `rfl`-clean (Step 5).**
-`call_reflects_lowered` (Match.lean:519) closes by `rfl` because `evmCallOracle`
+**R3 — `create_reflects_oracle` is unlikely to be `rfl`-clean (Step 5).**
+`call_reflects_oracle` (Match.lean:519) closes by `rfl` because `evmCallOracle`
 projects `resumeAfterCall` directly. `evmCreateOracle.postStorage` deliberately reads
 `result.accounts` (Create.lean:100-101) rather than `resumeAfterCreate` (which is
 `Except`-typed), so the storage-coincidence proof must unfold `resumeAfterCreate`'s

@@ -128,7 +128,7 @@ Assessment: `evmCallEntry` is genuinely load-bearing — it is the definition th
 `callRealises_bridge` is a proven, currently-uncited bridge lemma; its stated purpose (`rfl`-clean
 `entry = lowered CALL effect`) is exactly what R3 needs, so it is incremental, not dead. Needs
 confirmation whether R3 will consume `callRealises_bridge` directly or re-derive via
-`call_reflects_lowered`; do not delete.
+`call_reflects_oracle`; do not delete.
 
 ---
 

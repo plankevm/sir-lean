@@ -333,7 +333,7 @@ on its shape: `assign` via `sim_assign` (no decode), `sstore` via `sim_sstore_st
 the per-shape genuine runtime ties (assign post-state realisability; sstore
 gas/`SstoreRealises`/non-zero; the realised CALL trace) are the explicit §7 hypotheses. A
 `.create` statement is excluded by `hnocreate` — the create-reflection (`sim_create` +
-`create_reflects_lowered`) lands in Step 5, at which point a create-permitting sibling builder
+`create_reflects_oracle`) lands in Step 5, at which point a create-permitting sibling builder
 supplies the §7 `CreateRealises` tie. -/
 theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     {L : Label} {b : Block}
@@ -424,7 +424,7 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
         b.stmts[pc]? = some (.call cs) →
         CallRealises prog sloadChg obs L pc cs st0 st0' fr0)
     -- CREATE is create-free here (first landing): the `.create` reflection (`sim_create` +
-    -- `create_reflects_lowered`) is Step 5 (`docs/create/BUILD-PLAN.md`), so this builder covers
+    -- `create_reflects_oracle`) is Step 5 (`docs/create/BUILD-PLAN.md`), so this builder covers
     -- the create-free fragment — exactly as it once carried a call-free side condition before
     -- Route B. A create-permitting builder (with a §7 `CreateRealises` tie) lands with Step 5.
     (hnocreate : ∀ (pc : Nat) (cs : CreateSpec), b.stmts[pc]? ≠ some (.create cs)) :

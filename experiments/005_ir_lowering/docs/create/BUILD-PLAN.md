@@ -27,7 +27,7 @@ CALL template chain is:
 
 ```
 Spec/IR.CallSpec → Semantics.EvalStmt.call → Lowering.emitStmt .call
-  → Frame/Call.evmCallOracle → Frame/Match.call_reflects_lowered
+  → Frame/Call.evmCallOracle → Frame/Match.call_reflects_oracle
   → Spec/Recorder.evmCallEntry → Spec/Recorder.recordCall
   → Decode/Modellable clause-1 → flagship (Realisability/RealisabilitySpec)
 ```
@@ -52,7 +52,7 @@ kinds:
 **Tier 2 — mechanical CALL twins (the bulk of the build).** Each is a
 copy-rename-rethread of its CALL sibling with an identical `(World × Word)` element
 type: `CreateSpec`/`Stmt.create`, `CreateStream`, `EvalStmt.create`,
-`emitStmt .create`, `create_reflects_lowered`, `evmCreateEntry`, `recordCreate`,
+`emitStmt .create`, `create_reflects_oracle`, `evmCreateEntry`, `recordCreate`,
 `realisedCreate`, `createSuffix`. The oracle twin (`CreateOracle`,
 `createAddrOrZero`, `evmCreateOracle`) is **already written and green** in
 `Frame/Create.lean` (110 LOC, in the default cone via `LirLean.lean`) but consumed
@@ -61,7 +61,7 @@ by nobody yet — Step 5 is where it first gets consumed.
 **Tier 3 — genuinely new, CREATE-specific costs.** Three things CALL never needed:
 1. The `Runs.create` node + `CreateReturns` in exp003 (the 63/64 partiality) —
    **DONE** (Step 0, see below).
-2. `create_reflects_lowered` is **not `rfl`-clean** (R3): `evmCreateOracle.postStorage`
+2. `create_reflects_oracle` is **not `rfl`-clean** (R3): `evmCreateOracle.postStorage`
    reads `result.accounts` directly while the resumed frame's storage comes through
    `resumeAfterCreate` — needs a short unfold, not `rfl`.
 3. The sim-tower create `Corr` arm (R5): CREATE's init-code memory window is
@@ -198,16 +198,16 @@ first-find lemmas in `Decode/LoweringLemmas.lean`, which must cover the new arm.
 
 ### Step 5 (exp005) — `Frame/Match` reflexivity (first CONSUMES the oracle)
 
-Goal: `Frame/Match.lean` gains `sim_create` + `create_reflects_lowered`. CALL twin:
-`sim_call` (:479, a `Runs.call` wrapper), `call_reflects_lowered` (:519).
+Goal: `Frame/Match.lean` gains `sim_create` + `create_reflects_oracle`. CALL twin:
+`sim_call` (:479, a `Runs.call` wrapper), `call_reflects_oracle` (:519).
 - `sim_create` must be `Runs.create hc rest` — this is exactly why Step 0's
   `Runs.create` constructor is the prerequisite (without it `sim_create` is
   unstatable).
-- `create_reflects_lowered`: given `CreateReturns createFr resumeFr`, produce
+- `create_reflects_oracle`: given `CreateReturns createFr resumeFr`, produce
   `∃ result pd, … ∧ (∀ addr key, evmCreateOracle.postStorage result pd addr key =
   storageAt resumeFr addr key) ∧ evmCreateOracle.addressWord result pd =
   createAddrOrZero result pd`.
-Risk: HIGH (R3, known-hard). `call_reflects_lowered` closes the storage side by `rfl`
+Risk: HIGH (R3, known-hard). `call_reflects_oracle` closes the storage side by `rfl`
 because `evmCallOracle` projects `resumeAfterCall` directly. `evmCreateOracle.postStorage`
 reads `result.accounts` **directly** (Create.lean:100-101, kept total because
 `resumeAfterCreate` is `Except`-typed), while the resumed frame's storage is
@@ -330,7 +330,7 @@ obligation closes.
   witness they need. The OOG branch is out of scope of `Runs.create` by construction
   (handled by exception delivery in Step 7).
 - **R2 (stream fork)** — SETTLED: parallel `CreateStream` (option A).
-- **R3 (`create_reflects_lowered` non-`rfl`)** — OPEN, Step 5. Direct-`result.accounts`
+- **R3 (`create_reflects_oracle` non-`rfl`)** — OPEN, Step 5. Direct-`result.accounts`
   vs. `resumeAfterCreate`-routed storage; short unfold through the 63/64 guard.
 - **R5 (sim create `Corr` arm)** — OPEN, Step 5, deepest proof. Nonzero init-code
   memory window vs. CALL's zero window; carve the init window out of `memAgree`.

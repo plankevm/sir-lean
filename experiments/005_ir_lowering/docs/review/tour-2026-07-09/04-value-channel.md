@@ -41,8 +41,8 @@ cursor yields every per-opcode gas bound by step-inversion
 ([`materialise_runsC_of_cleanHalt`](../../../LirLean/Materialise/MaterialiseCleanHalt.lean#L372),
 [`gas_envelope_of_cleanHalt`](../../../LirLean/Materialise/CleanHaltExtract.lean#L700)).
 The call/create effect oracles pin the IR's external-call effect *reflexively* to exp003's
-resume ([`call_reflects_lowered`](../../../LirLean/Frame/Match.lean#L473),
-[`create_reflects_lowered`](../../../LirLean/Frame/Match.lean#L530)). One clean negative
+resume ([`call_reflects_oracle`](../../../LirLean/Frame/Match.lean#L473),
+[`create_reflects_oracle`](../../../LirLean/Frame/Match.lean#L530)). One clean negative
 finding: the v1 machine in `Frame/SmallStep.lean` (the `Match` invariant, `callResult`/
 `createResult` slots, `applyCall`/`applyCreate`, `bindCallResult`/`bindCreateResult`) has
 **zero theorem consumers** — the live path is the V2 stream semantics (§6). The 2026-07-06
@@ -567,7 +567,7 @@ the headline is `rfl`-clean:
 
 ```lean
 -- Frame/Match.lean:473
-theorem call_reflects_lowered {callFr resumeFr : Frame}
+theorem call_reflects_oracle {callFr resumeFr : Frame}
     (hcall : CallReturns callFr resumeFr) :
     ∃ result pd, resumeFr = resumeAfterCall result pd
       ∧ (∀ addr key, evmCallOracle.postStorage result pd addr key = storageAt resumeFr addr key)
@@ -584,7 +584,7 @@ word pinned to the concrete flag
 [`callSuccessFlag`](../../../LirLean/Frame/Call.lean#L120) (exp003's `x`:
 0 on failure / insufficient funds / depth 1024, else 1, via
 [`evmCallOracle_successWord_eq_x`](../../../LirLean/Frame/Call.lean#L128)). The CREATE twin
-[`create_reflects_lowered`](../../../LirLean/Frame/Match.lean#L530) mirrors it against
+[`create_reflects_oracle`](../../../LirLean/Frame/Match.lean#L530) mirrors it against
 [`resumeAfterCreate`](../../../../003_bytecode_layer/EVMLean/Evm/Semantics/Create.lean#L189),
 with [`CreateOracle`](../../../LirLean/Frame/Create.lean#L64) /
 [`evmCreateOracle`](../../../LirLean/Frame/Create.lean#L99) /
@@ -643,8 +643,8 @@ deep-read-before-touching rule this was traced caller-by-caller, not inferred fr
 [05-simulation.md](05-simulation.md)/[06-realisability.md](06-realisability.md)):
 [`materialise_runsC`](../../../LirLean/Materialise/MatFoldChannel.lean#L812),
 [`materialise_runsC_of_cleanHalt`](../../../LirLean/Materialise/MaterialiseCleanHalt.lean#L372),
-[`call_reflects_lowered`](../../../LirLean/Frame/Match.lean#L473) /
-[`create_reflects_lowered`](../../../LirLean/Frame/Match.lean#L530),
+[`call_reflects_oracle`](../../../LirLean/Frame/Match.lean#L473) /
+[`create_reflects_oracle`](../../../LirLean/Frame/Match.lean#L530),
 [`defsSound_preserved`](../../../LirLean/Materialise/DefsSound.lean#L608),
 [`stash_tail_runs`](../../../LirLean/Materialise/StashTail.lean#L157) family.
 

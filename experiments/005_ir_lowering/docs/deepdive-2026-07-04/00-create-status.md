@@ -47,7 +47,7 @@ not yet consumed.
 Per the anti-shallow rule: what was it meant to connect to, and is that need gone? It is the
 CREATE twin of `evmCallOracle` (`Call.lean:108`), and the CALL oracle is **live and load-bearing**:
 
-- `Match.lean:519` `call_reflects_lowered` states the reflexivity headline over
+- `Match.lean:519` `call_reflects_oracle` states the reflexivity headline over
   `evmCallOracle.postStorage/restoredGas/successWord`.
 - `LowerConforms.lean:274,277,301,304` uses `evmCallOracle.postStorage` inside the *actual*
   conformance walk (the realised post-state pin).
@@ -138,7 +138,7 @@ machinery, not duplicating the CALL ecosystem.
    materialisation + `CREATE`/`CREATE2` opcode (mirror the `.call` arm at `:191-197`), and a
    create-result stash arm in `defsOf` (`:254`) so the pushed address becomes an `Expr.slot`.
 4. **Match reflexivity — the step that finally CONSUMES `CreateOracle`.** Prove
-   `create_reflects_lowered` (twin of `Match.lean:519` `call_reflects_lowered`) pinning
+   `create_reflects_oracle` (twin of `Match.lean:519` `call_reflects_oracle`) pinning
    `evmCreateOracle.postStorage`/`addressWord` to the lowered `resumeAfterCreate` projections. Its
    begin-immediate law is trivial post-RLP-totality (`execution-plan:103-104`,
    `createDescent_descendImmediate_trivial`).

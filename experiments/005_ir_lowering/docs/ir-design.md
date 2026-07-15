@@ -181,7 +181,7 @@ external call as a **black box that returns a `CallResult`** (success flag +
 post-storage world + restored gas) and threads its effect via `IRState.applyCall`;
 it does not model the call internals. This is deliberately the shape of exp003's
 `CallReturns` (a black-box terminating child) so the two line up *reflexively*
-under lowering at `evmCallOracle` (§5, `Match.call_reflects_lowered`).
+under lowering at `evmCallOracle` (§5, `Match.call_reflects_oracle`).
 
 ---
 
@@ -342,7 +342,7 @@ returns a `CallResult`.) The IR-level transformer `IRState.applyCall oracle resu
 pd self` (the call analogue of `IRState.charge`) threads that effect into the IR
 state: `storage ← postStorage` at the self address, `gas ← restoredGas`.
 
-* **Reflexivity headline** (`Match.call_reflects_lowered`, axiom-clean ⊆
+* **Reflexivity headline** (`Match.call_reflects_oracle`, axiom-clean ⊆
   {propext, Classical.choice, Quot.sound}): given a returning external CALL
   (`CallReturns callFr resumeFr`, so `resumeFr = resumeAfterCall result pd`), at
   `evmCallOracle` the IR call effect coincides — *by construction, `rfl`* — with
@@ -381,7 +381,7 @@ invaded every per-construct `sim_*` brick):
 
 This **keeps `M5 stack_nil` intact**: the flag travels through the `callResult` slot
 (pure IR state), and the lowered CALL's physical flag-on-stack is bridged by the
-`successWord` *reflexivity* (`call_reflects_lowered`), not threaded through `Match`.
+`successWord` *reflexivity* (`call_reflects_oracle`), not threaded through `Match`.
 The lowering layer still leaves the physical flag on the EVM stack after `CALL`; a
 worked program either binds it (`resultTmp = some t`) or `POP`s it (`resultTmp =
 none`) — pinned per worked program, exactly the §6.4 `M5` note — but the **IR
