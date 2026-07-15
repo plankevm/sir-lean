@@ -26,7 +26,7 @@ theorem exCheck_true : exCheck = true := by
   | inl fr₀ =>
     rw [hbeg] at h
     dsimp only [] at h
-    cases hchk : stepsLogChk 39 ⟨[], .inl fr₀, [], [], [], []⟩ with
+    cases hchk : stepsLogChk 39 ⟨[], .inl fr₀, [], [], []⟩ with
     | none =>
       rw [hchk] at h
       cases h
@@ -37,12 +37,12 @@ theorem exCheck_true : exCheck = true := by
         dsimp only [] at h
         cases h
       | inr res =>
-        obtain ⟨r, gasAcc, sloadAcc, callAcc, createAcc⟩ := res
+        obtain ⟨r, gasAcc, callAcc, createAcc⟩ := res
         dsimp only [] at h
-        have hsteps : stepsLog 39 ⟨[], .inl fr₀, [], [], [], []⟩ =
-            .inr (r, gasAcc, sloadAcc, callAcc, createAcc) := stepsLogChk_sound hchk
-        have hdrv : driveLog (seedFuel exParams.gas) [] (.inl fr₀) [] [] [] [] =
-            .ok (r, gasAcc, sloadAcc, callAcc, createAcc) := by
+        have hsteps : stepsLog 39 ⟨[], .inl fr₀, [], [], []⟩ =
+            .inr (r, gasAcc, callAcc, createAcc) := stepsLogChk_sound hchk
+        have hdrv : driveLog (seedFuel exParams.gas) [] (.inl fr₀) [] [] [] =
+            .ok (r, gasAcc, callAcc, createAcc) := by
           rw [seedFuel_exParams]
           exact driveLogC_final hsteps 54056
         dsimp only []

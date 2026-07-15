@@ -295,8 +295,9 @@ shortcut; commit only green states.
       `.slot`/MLOAD, preserved across the `.tmp` recursion by `defsOf_ne_sload`), exactly mirroring the
       Phase-B gas `e ≠ .gas`. The SLOAD **value** tie is now `MemRealises` (the slot holds the frozen
       `st.world key`); the SLOAD **warmth-cost** tie is the single cold/warm def-site read (the
-      positional `realisedSload`/`SloadLogAligned` selection via `sloadRealises_charge_of_witness`, NOT
-      the single-resolver universal). `sloadChg` STAYS as the charge resolver in
+      reflexive `st.world key` read at the def-site. The later recorder cleanup removed the
+      vestigial SLOAD warmth stream and its positional alignment layer; EVM execution already
+      accounts for that read's gas. `sloadChg` STAYS as the charge resolver in
       `chargeOf`/`MatDec`/`MatRuns` (only the universal it fed is gone). `hsload` removed from
       `entry_corr`/`lower_conforms`(`_wf`/`_acyclic`*/`_cyclic`*)/`corr_at_jumpdest_landing`/`jump_to_block`/
       the DriveSim jump/branch bundles. `NonRecomputable` gains `isSloadDef`; `DefsSound` gains

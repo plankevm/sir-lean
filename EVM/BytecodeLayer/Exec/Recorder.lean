@@ -34,7 +34,6 @@ structure CreateRecord where
 structure RunLog where
   observable : FrameResult
   gas : List Word
-  sloads : List Nat
   calls : List CallRecord
   creates : List CreateRecord
 
@@ -51,10 +50,7 @@ def RunLog.cleanb (log : RunLog) : Bool :=
 def isGasOp (fr : Frame) : Bool :=
   (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (Operation.STOP, .none)).1 == .Smsf .GAS
 
-def isSloadOp (fr : Frame) : Bool :=
-  (decode fr.exec.executionEnv.code fr.exec.pc |>.getD (Operation.STOP, .none)).1 == .Smsf .SLOAD
-
-/-- Detect a CREATE2 cursor (the twin of `isGasOp`/`isSloadOp`). Used by `driveLog`
+/-- Detect a CREATE2 cursor. Used by `driveLog`
 to record a soft-fail entry on the `.next`-branch of a top-level CREATE2, so
 `log.creates` aligns 1:1 with CREATE2 cursors (descend records the child result; a
 soft-fail records `softFailCreateRecord`). -/
@@ -146,13 +142,6 @@ theorem createAddrOrZero_softFailCreateRecord (fr : Frame) :
   unfold createAddrOrZero
   exact if_pos hcond
 
-def sloadWarmthOf (fr : Frame) : Nat :=
-  match fr.exec.stack.head? with
-    | some key =>
-        Evm.sloadCost (fr.exec.substate.accessedStorageKeys.contains
-          (fr.exec.executionEnv.address, key))
-    | none => 0
-
 def recordCall (pending : Pending) (result : FrameResult) (callAcc : List CallRecord) :
     List CallRecord :=
   match pending with
@@ -166,26 +155,25 @@ def recordCreate (pending : Pending) (result : FrameResult) (createAcc : List Cr
     | .create pd => createAcc ++ [{ result := result.toCreateResult, pending := pd }]
 
 def driveLog (fuel : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult)
-    (gasAcc : List Word) (sloadAcc : List Nat) (callAcc : List CallRecord)
-    (createAcc : List CreateRecord) :
+    (gasAcc : List Word) (callAcc : List CallRecord) (createAcc : List CreateRecord) :
     Except ExecutionException
-      (FrameResult × List Word × List Nat × List CallRecord × List CreateRecord) :=
+      (FrameResult × List Word × List CallRecord × List CreateRecord) :=
   match fuel with
     | 0 => .error .OutOfFuel
     | fuel + 1 =>
       match state with
         | .inr result =>
           match stack with
-            | [] => .ok (result, gasAcc, sloadAcc, callAcc, createAcc)
+            | [] => .ok (result, gasAcc, callAcc, createAcc)
             | pending :: rest =>
               match pending.resume result with
                 | .ok parent =>
-                  driveLog fuel rest (.inl parent) gasAcc sloadAcc
+                  driveLog fuel rest (.inl parent) gasAcc
                     (if rest.isEmpty then recordCall pending result callAcc else callAcc)
                     (if rest.isEmpty then recordCreate pending result createAcc else createAcc)
                 | .error e =>
                   driveLog fuel rest (.inr (endFrame pending.frame (.exception e)))
-                    gasAcc sloadAcc
+                    gasAcc
                     (if rest.isEmpty then recordCall pending result callAcc else callAcc)
                     (if rest.isEmpty then recordCreate pending result createAcc else createAcc)
         | .inl current =>
@@ -193,34 +181,30 @@ def driveLog (fuel : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult)
             | .next exec =>
               if isGasOp current && stack.isEmpty then
                 driveLog fuel stack (.inl { current with exec := exec })
-                  (gasAcc ++ [UInt256.ofUInt64 exec.gasAvailable]) sloadAcc callAcc createAcc
-              else if isSloadOp current && stack.isEmpty then
-                driveLog fuel stack (.inl { current with exec := exec })
-                  gasAcc (sloadAcc ++ [sloadWarmthOf current]) callAcc createAcc
+                  (gasAcc ++ [UInt256.ofUInt64 exec.gasAvailable]) callAcc createAcc
               else if isCreate2Op current && stack.isEmpty then
                 driveLog fuel stack (.inl { current with exec := exec })
-                  gasAcc sloadAcc callAcc (createAcc ++ [softFailCreateRecord current])
+                  gasAcc callAcc (createAcc ++ [softFailCreateRecord current])
               else if isCallOp current && stack.isEmpty then
                 driveLog fuel stack (.inl { current with exec := exec })
-                  gasAcc sloadAcc (callAcc ++ [softFailCallRecord current]) createAcc
+                  gasAcc (callAcc ++ [softFailCallRecord current]) createAcc
               else
-                driveLog fuel stack (.inl { current with exec := exec }) gasAcc sloadAcc callAcc createAcc
-            | .halted halt => driveLog fuel stack (.inr (endFrame current halt)) gasAcc sloadAcc callAcc createAcc
+                driveLog fuel stack (.inl { current with exec := exec }) gasAcc callAcc createAcc
+            | .halted halt => driveLog fuel stack (.inr (endFrame current halt)) gasAcc callAcc createAcc
             | .needsCall params pending =>
               match beginCall params with
-                | .inl child => driveLog fuel (.call pending :: stack) (.inl child) gasAcc sloadAcc callAcc createAcc
-                | .inr result => driveLog fuel (.call pending :: stack) (.inr (.call result)) gasAcc sloadAcc callAcc createAcc
+                | .inl child => driveLog fuel (.call pending :: stack) (.inl child) gasAcc callAcc createAcc
+                | .inr result => driveLog fuel (.call pending :: stack) (.inr (.call result)) gasAcc callAcc createAcc
             | .needsCreate params pending =>
-              driveLog fuel (.create pending :: stack) (.inl (beginCreate params)) gasAcc sloadAcc callAcc createAcc
+              driveLog fuel (.create pending :: stack) (.inl (beginCreate params)) gasAcc callAcc createAcc
 
 def runWithLog (params : CallParams) (fuel : ℕ) : Option RunLog :=
   match beginCall params with
     | .inr _ => none
     | .inl frame =>
-      match driveLog fuel [] (.inl frame) [] [] [] [] with
-        | .ok (r, gas, sloads, calls, creates) =>
-            some { observable := r, gas := gas, sloads := sloads, calls := calls,
-                   creates := creates }
+      match driveLog fuel [] (.inl frame) [] [] [] with
+        | .ok (r, gas, calls, creates) =>
+            some { observable := r, gas := gas, calls := calls, creates := creates }
         | .error _ => none
 
 /-- Restarting the recorder at a top-level boundary frame reproduces the final observable
@@ -228,15 +212,12 @@ and the unconsumed event suffixes. The empty pending stack makes the boundary to
 nested CALL/CREATE execution remains hidden by the recorder's stack gate. The prefix
 witnesses ensure that every replayed suffix belongs to the original log. -/
 structure RecorderCoupled (log : RunLog) (fr : Frame)
-    (gasSuffix : List Word) (sloadSuffix : List Nat) (callSuffix : List CallRecord)
-    (createSuffix : List CreateRecord) : Prop where
+    (gasSuffix : List Word) (callSuffix : List CallRecord) (createSuffix : List CreateRecord) : Prop where
   /-- A deterministic replay from the boundary produces exactly the remaining streams. -/
-  restart : ∃ fuel', driveLog fuel' [] (.inl fr) [] [] [] []
-      = .ok (log.observable, gasSuffix, sloadSuffix, callSuffix, createSuffix)
+  restart : ∃ fuel', driveLog fuel' [] (.inl fr) [] [] []
+      = .ok (log.observable, gasSuffix, callSuffix, createSuffix)
   /-- The remaining gas events form a suffix of the recorded gas stream. -/
   gasPrefix : ∃ pre, log.gas = pre ++ gasSuffix
-  /-- The remaining SLOAD events form a suffix of the recorded SLOAD stream. -/
-  sloadPrefix : ∃ pre, log.sloads = pre ++ sloadSuffix
   /-- The remaining CALL events form a suffix of the recorded CALL stream. -/
   callPrefix : ∃ pre, log.calls = pre ++ callSuffix
   /-- The remaining CREATE events form a suffix of the recorded CREATE stream. -/
@@ -267,8 +248,6 @@ def callsCodeOk : ℕ → Frame → Bool
       | .error _ => true
 
 def realisedGas (log : RunLog) : GasOracle := log.gas
-
-def realisedSload (log : RunLog) : List Nat := log.sloads
 
 def callStreamOf (calls : List CallRecord) (self : AccountAddress) : CallStream :=
   calls.map (fun rec => evmCallEntry rec.result rec.pending self)

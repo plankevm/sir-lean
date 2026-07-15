@@ -5,20 +5,17 @@ open Lir.Frame
 open BytecodeLayer.Exec
 
 /-!
-# LirLean — recorded GAS/SLOAD value-channel discharges
+# LirLean — recorded GAS value-channel discharge
 
-The remaining IR adapters connect recorded GAS and SLOAD positions to the
-single-observation correspondence predicates. Generic alignment and self-presence
-facts are re-exported for these statements.
+The remaining IR adapter connects recorded GAS positions to the single-observation
+correspondence predicate. Generic alignment and self-presence facts are re-exported.
 -/
 
 namespace Lir
 
 export BytecodeLayer.Exec.Invariants
   (gasRecord_eq_gasReadOf gasReadOf_gasFrame_eq_obs GasLogAligned gasLogAligned_nil
-   FramesRun.snoc gasLogAligned_step_gas gasLogAligned_step_norecord aligned_read_eq_obs
-   sloadRecord_discharges_obs SloadLogAligned sloadLogAligned_nil sloadLogAligned_step_sload
-   alignedSload_read_eq_obs)
+   FramesRun.snoc gasLogAligned_step_gas gasLogAligned_step_norecord aligned_read_eq_obs)
 
 open Evm
 open GasConstants
@@ -68,29 +65,6 @@ theorem gasRealises_obs_of_witness {gasAcc : List Word} {frs : List Frame} {i : 
   have hobs : obs = UInt256.ofUInt64 (fr.exec.gasAvailable - UInt64.ofNat Gbase) :=
     htie fr rfl
   rw [hobs]
-
-/-- **The SLOAD selection discharge** (twin of `gasRealises_obs_of_witness`). At an SLOAD cursor
-whose witness frame `g` (at index `i`) shares the cursor frame's self-address and pops the bound key
-`key = st.locals k`, the `Corr`-model SLOAD tie `SloadRealises sloadChg st fr` selects the recorded
-read: `sloadAcc[i] = sloadChg k`. The positionally-selected recorded warmth-charge **is** the IR
-resolver value `sloadChg k`. This closes the §7 SLOAD selection end-to-end in the `Corr` model the
-block walk threads: `alignedSload_read_eq_obs` gives `sloadAcc[i] = sloadCost (g.substate … key)`,
-and `SloadRealises` at `g` (same address, bound key) gives `sloadChg k = sloadCost (g.substate …
-key)`. (As for GAS, the converse — a multi-entry list with distinct charges — is the standing
-obstacle, needing the `Corr` per-cursor refactor.) -/
-theorem sloadRealises_charge_of_witness {sloadChg : Tmp → ℕ} {st : Lir.IRState}
-    {sloadAcc : List Nat} {frs : List Frame} {i : Nat} {g fr : Frame} {k : Tmp} {key : Word}
-    (halign : SloadLogAligned sloadAcc frs)
-    (hwit : frs[i]? = some g)
-    (hkey : g.exec.stack.head? = some key)
-    (haddr : g.exec.executionEnv.address = fr.exec.executionEnv.address)
-    (hlk : st.locals k = some key)
-    (htie : SloadRealises sloadChg st fr) :
-    sloadAcc[i]? = some (sloadChg k) := by
-  rw [alignedSload_read_eq_obs halign hwit hkey]
-  -- the `Corr`-model tie at the witness frame `g` (same address as `fr`, bound key `key`):
-  -- `sloadChg k = sloadCost (g.substate.accessedStorageKeys.contains (g.address, key))`.
-  rw [htie g k key haddr hlk]
 
 abbrev SelfPresent := BytecodeLayer.Exec.Invariants.SelfPresent
 

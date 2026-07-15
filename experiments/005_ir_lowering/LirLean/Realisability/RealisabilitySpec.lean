@@ -566,19 +566,19 @@ above; at every top-level `.next` step the gas gate is dead
 private theorem driveLog_gas_of_noGasReads {prog : Program}
     (hng : NoGasReads prog) (hsize : (Lir.lowerBytes prog).length ≤ 2 ^ 32) :
     ∀ (fuel : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult)
-      (g0 : List Word) (s0 : List Nat) (c0 : List CallRecord) (d0 : List CreateRecord)
-      (r : FrameResult) (gas : List Word) (sloads : List Nat)
+      (g0 : List Word) (c0 : List CallRecord) (d0 : List CreateRecord)
+      (r : FrameResult) (gas : List Word)
       (calls : List CallRecord) (creates : List CreateRecord),
       GasWalkInv prog stack state →
-      driveLog fuel stack state g0 s0 c0 d0 = .ok (r, gas, sloads, calls, creates) →
+      driveLog fuel stack state g0 c0 d0 = .ok (r, gas, calls, creates) →
       gas = g0 := by
   intro fuel
   induction fuel with
   | zero =>
-      intro stack state g0 s0 c0 d0 r gas sloads calls creates _ hdl
+      intro stack state g0 c0 d0 r gas calls creates _ hdl
       simp [driveLog] at hdl
   | succ n ih =>
-      intro stack state g0 s0 c0 d0 r gas sloads calls creates hinv hdl
+      intro stack state g0 c0 d0 r gas calls creates hinv hdl
       unfold driveLog at hdl
       cases state with
       | inr result =>
@@ -591,7 +591,7 @@ private theorem driveLog_gas_of_noGasReads {prog : Program}
               cases hres : pending.resume result with
               | ok parent =>
                   rw [hres] at hdl
-                  refine ih rest (.inl parent) g0 s0 _ _ r gas sloads calls creates ?_ hdl
+                  refine ih rest (.inl parent) g0 _ _ r gas calls creates ?_ hdl
                   cases rest with
                   | nil =>
                       refine ⟨fun _ fr hfr => ?_, fun p hp => by simp at hp⟩
@@ -603,8 +603,8 @@ private theorem driveLog_gas_of_noGasReads {prog : Program}
                       exact hp
               | error e =>
                   rw [hres] at hdl
-                  refine ih rest (.inr (endFrame pending.frame (.exception e))) g0 s0 _ _
-                    r gas sloads calls creates ?_ hdl
+                  refine ih rest (.inr (endFrame pending.frame (.exception e))) g0 _ _
+                    r gas calls creates ?_ hdl
                   cases rest with
                   | nil =>
                       exact ⟨fun _ fr hfr => by simp at hfr, fun p hp => by simp at hp⟩
@@ -630,19 +630,13 @@ private theorem driveLog_gas_of_noGasReads {prog : Program}
                     rw [isGasOp_false_of_atReachableBoundary hng hb.1] at h
                     simp at h
                   · split at hdl
-                    · exact ih [] (.inl { current with exec := exec }) g0
-                        (s0 ++ [sloadWarmthOf current]) c0 d0 r gas sloads calls creates
-                        hnext hdl
+                    · exact ih [] (.inl { current with exec := exec }) g0 c0
+                        (d0 ++ [softFailCreateRecord current]) r gas calls creates hnext hdl
                     · split at hdl
-                      · exact ih [] (.inl { current with exec := exec }) g0 s0 c0
-                          (d0 ++ [softFailCreateRecord current]) r gas sloads calls creates
-                          hnext hdl
-                      · split at hdl
-                        · exact ih [] (.inl { current with exec := exec }) g0 s0
-                            (c0 ++ [softFailCallRecord current]) d0 r gas sloads calls creates
-                            hnext hdl
-                        · exact ih [] (.inl { current with exec := exec }) g0 s0 c0 d0
-                            r gas sloads calls creates hnext hdl
+                      · exact ih [] (.inl { current with exec := exec }) g0
+                          (c0 ++ [softFailCallRecord current]) d0 r gas calls creates hnext hdl
+                      · exact ih [] (.inl { current with exec := exec }) g0 c0 d0
+                          r gas calls creates hnext hdl
               | cons p rest =>
                   have hcons : GasWalkInv prog (p :: rest)
                       (.inl { current with exec := exec }) :=
@@ -653,15 +647,13 @@ private theorem driveLog_gas_of_noGasReads {prog : Program}
                     · rename_i h; simp at h
                     · split at hdl
                       · rename_i h; simp at h
-                      · split at hdl
-                        · rename_i h; simp at h
-                        · exact ih (p :: rest) (.inl { current with exec := exec }) g0 s0 c0 d0
-                            r gas sloads calls creates hcons hdl
+                      · exact ih (p :: rest) (.inl { current with exec := exec }) g0 c0 d0
+                          r gas calls creates hcons hdl
           | halted halt =>
               rw [hstep] at hdl
               dsimp only at hdl
-              refine ih stack (.inr (endFrame current halt)) g0 s0 c0 d0
-                r gas sloads calls creates ⟨fun _ fr hfr => by simp at hfr, hinv.2⟩ hdl
+              refine ih stack (.inr (endFrame current halt)) g0 c0 d0
+                r gas calls creates ⟨fun _ fr hfr => by simp at hfr, hinv.2⟩ hdl
           | needsCall cp pending =>
               rw [hstep] at hdl
               dsimp only at hdl
@@ -675,13 +667,13 @@ private theorem driveLog_gas_of_noGasReads {prog : Program}
               | inl child =>
                   rw [hbc] at hdl
                   dsimp only at hdl
-                  exact ih (.call pending :: stack) (.inl child) g0 s0 c0 d0
-                    r gas sloads calls creates (hpush _) hdl
+                  exact ih (.call pending :: stack) (.inl child) g0 c0 d0
+                    r gas calls creates (hpush _) hdl
               | inr res =>
                   rw [hbc] at hdl
                   dsimp only at hdl
-                  exact ih (.call pending :: stack) (.inr (.call res)) g0 s0 c0 d0
-                    r gas sloads calls creates (hpush _) hdl
+                  exact ih (.call pending :: stack) (.inr (.call res)) g0 c0 d0
+                    r gas calls creates (hpush _) hdl
           | needsCreate cp pending =>
               rw [hstep] at hdl
               dsimp only at hdl
@@ -692,8 +684,8 @@ private theorem driveLog_gas_of_noGasReads {prog : Program}
                   subst hnil
                   exact atReachableBoundaryVJ_resume_create hsize hstep hpar
                     (hinv.1 rfl current rfl))
-              exact ih (.create pending :: stack) (.inl (beginCreate cp)) g0 s0 c0 d0
-                r gas sloads calls creates (hpush _) hdl
+              exact ih (.create pending :: stack) (.inl (beginCreate cp)) g0 c0 d0
+                r gas calls creates (hpush _) hdl
 
 /-- Co-flagship companion: a gas-read-free program's recorded gas stream is empty (the
 recorder's GAS gate never fires at a reachable top-level boundary — needs the R6-flavoured
@@ -713,16 +705,16 @@ theorem realisedGas_nil_of_noGasReads {prog : Program} {params : CallParams} {lo
   | inl fr₀ =>
       rw [hbc] at hrun
       dsimp only at hrun
-      cases hdl : driveLog (seedFuel params.gas) [] (.inl fr₀) [] [] [] [] with
+      cases hdl : driveLog (seedFuel params.gas) [] (.inl fr₀) [] [] [] with
       | error e => rw [hdl] at hrun; simp at hrun
       | ok val =>
-          obtain ⟨r, gas, sloads, calls, creates⟩ := val
+          obtain ⟨r, gas, calls, creates⟩ := val
           rw [hdl] at hrun
           simp only [Option.some.injEq] at hrun
           subst hrun
           show gas = []
           refine driveLog_gas_of_noGasReads hng hsize (seedFuel params.gas) [] (.inl fr₀)
-            [] [] [] [] r gas sloads calls creates
+            [] [] [] r gas calls creates
             ⟨fun _ fr hfr => ?_, fun p hp => by simp at hp⟩ hdl
           rw [← (Sum.inl.injEq _ _).mp hfr]
           exact atReachableBoundaryVJ_entry hbc hcode hne

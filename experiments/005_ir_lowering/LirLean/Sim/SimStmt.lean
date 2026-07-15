@@ -132,8 +132,7 @@ structure Corr (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word) (I : Tmp �
   (coverage + readback value at each gas/sload/call-result slot). Supplied to the
   `materialise_runs` calls' MLOAD-readback arm, preserved by assign/sstore (they don't touch
   memory), vacuous at the empty-locals entry. This is the honest positional value tie that
-  replaced BOTH the gas universal (`GasRealises`, Phase B) and the SLOAD warmth universal
-  (`SloadRealises`, Phase C). -/
+  replaced the former gas and SLOAD value-channel assumptions. -/
   memAgree   : MemRealises prog st fr
 
 /-- **`validJumps` discharge.** From `Corr`, the frame's `validJumps` are exactly those of
@@ -1016,17 +1015,15 @@ theorem sim_assign_gas {prog : Program} {sloadChg : Tmp → ℕ} {obs ob : Word}
 
 An **sload-defined** tmp is no longer rematerialised — it is spilled to its memory slot
 `slotOf t` (`defsOf prog t = some (.slot (slotOf t))`, `emitStmt .assign` emits the stash
-`matCache k ++ [SLOAD] ++ PUSH (slotOf t) ++ MSTORE`). The SLOAD value — and its cold/warm
-**warmth charge** — is read **once**, at this clean statement boundary (empty stack), and reused
+`matCache k ++ [SLOAD] ++ PUSH (slotOf t) ++ MSTORE`). The SLOAD value is read **once**, at
+this clean statement boundary (empty stack), and reused
 from memory (`MLOAD`) on every use, so it is multi-use-safe and the `SLOAD` opcode runs exactly
 once per source sload read.
 
-The value tie is **local and positional** (no `∀`-over-frames, no constancy): the single `SLOAD`
+The value tie is **local and positional**: the single `SLOAD`
 opcode at the def-site reads the storage cell `st.world key` (= the value the IR's `assignPure`
-binds, `evalExpr st 0 (.sload k) = some w`), and the stash writes it to `slotOf t`. This replaces
-the vacuous warmth universal `Lir.SloadRealises sloadChg st fr` entirely: the SLOAD value lives in
-the slot, tied by `MemRealises`, and its warmth cost is the single def-site read (the positional
-`SloadLogAligned` selection, NOT the single-resolver universal).
+binds, `evalExpr st 0 (.sload k) = some w`), and the stash writes it to `slotOf t`. The value then
+lives in the slot, tied by `MemRealises`; the EVM run itself accounts for the def-site read's gas.
 
 Mirroring `sim_assign_gas`, the def-site stash run and its frame pins are taken as a supplied tail
 hypothesis `hstash`. The `_lowered` wrapper `sim_assign_sload_lowered` (`LowerDecode.lean`)

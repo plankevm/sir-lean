@@ -20,23 +20,22 @@ open BytecodeLayer.Interpreter
 /-! ## §1 — the `driveLog` step function -/
 
 /-- One `driveLog` machine configuration: the pending stack, the running-or-delivering
-state, and the four record accumulators — exactly `driveLog`'s non-fuel arguments. -/
+state, and the three record accumulators — exactly `driveLog`'s non-fuel arguments. -/
 structure LogConfig where
   stack : List Pending
   state : Frame ⊕ FrameResult
   gasAcc : List Word
-  sloadAcc : List Nat
   callAcc : List CallRecord
   createAcc : List CreateRecord
 
 /-- `driveLog`'s success payload. -/
 abbrev LogResult :=
-  FrameResult × List Word × List Nat × List CallRecord × List CreateRecord
+  FrameResult × List Word × List CallRecord × List CreateRecord
 
 /-- Apply `driveLog` to a configuration (fuel split off). -/
 def driveLogC (fuel : ℕ) (c : LogConfig) :
     Except ExecutionException LogResult :=
-  driveLog fuel c.stack c.state c.gasAcc c.sloadAcc c.callAcc c.createAcc
+  driveLog fuel c.stack c.state c.gasAcc c.callAcc c.createAcc
 
 /-- **One `driveLog` transition** — the body of one recursion step of `driveLog`,
 branch-for-branch, as a pure function: `.inr` is the `.ok` terminal (empty stack, a
@@ -46,19 +45,19 @@ def nextLog (c : LogConfig) : LogConfig ⊕ LogResult :=
   match c.state with
     | .inr result =>
       match c.stack with
-        | [] => .inr (result, c.gasAcc, c.sloadAcc, c.callAcc, c.createAcc)
+        | [] => .inr (result, c.gasAcc, c.callAcc, c.createAcc)
         | pending :: rest =>
           match pending.resume result with
             | .ok parent =>
               .inl { stack := rest, state := .inl parent
-                     gasAcc := c.gasAcc, sloadAcc := c.sloadAcc
+                     gasAcc := c.gasAcc
                      callAcc := if rest.isEmpty then recordCall pending result c.callAcc
                                 else c.callAcc
                      createAcc := if rest.isEmpty then recordCreate pending result c.createAcc
                                   else c.createAcc }
             | .error e =>
               .inl { stack := rest, state := .inr (endFrame pending.frame (.exception e))
-                     gasAcc := c.gasAcc, sloadAcc := c.sloadAcc
+                     gasAcc := c.gasAcc
                      callAcc := if rest.isEmpty then recordCall pending result c.callAcc
                                 else c.callAcc
                      createAcc := if rest.isEmpty then recordCreate pending result c.createAcc
@@ -69,9 +68,6 @@ def nextLog (c : LogConfig) : LogConfig ⊕ LogResult :=
           if isGasOp current && c.stack.isEmpty then
             .inl { c with state := .inl { current with exec := exec }
                           gasAcc := c.gasAcc ++ [UInt256.ofUInt64 exec.gasAvailable] }
-          else if isSloadOp current && c.stack.isEmpty then
-            .inl { c with state := .inl { current with exec := exec }
-                          sloadAcc := c.sloadAcc ++ [sloadWarmthOf current] }
           else if isCreate2Op current && c.stack.isEmpty then
             .inl { c with state := .inl { current with exec := exec }
                           createAcc := c.createAcc ++ [softFailCreateRecord current] }
@@ -97,18 +93,18 @@ theorem driveLogC_succ_eq (fuel : ℕ) (c : LogConfig) :
       match nextLog c with
         | .inr res => .ok res
         | .inl c' => driveLogC fuel c' := by
-  obtain ⟨stack, state, gasAcc, sloadAcc, callAcc, createAcc⟩ := c
+  obtain ⟨stack, state, gasAcc, callAcc, createAcc⟩ := c
   cases state with
   | inr result =>
     cases stack with
     | nil => rfl
     | cons pending rest =>
-      show driveLog (fuel + 1) (pending :: rest) (.inr result) _ _ _ _ = _
+      show driveLog (fuel + 1) (pending :: rest) (.inr result) _ _ _ = _
       rw [driveLog, nextLog]
       dsimp only []
       cases hres : pending.resume result <;> (dsimp only []; rfl)
   | inl current =>
-    show driveLog (fuel + 1) stack (.inl current) _ _ _ _ = _
+    show driveLog (fuel + 1) stack (.inl current) _ _ _ = _
     rw [driveLog, nextLog]
     dsimp only []
     cases hstep : stepFrame current with
@@ -117,15 +113,12 @@ theorem driveLogC_succ_eq (fuel : ℕ) (c : LogConfig) :
       by_cases h1 : (isGasOp current && stack.isEmpty) = true
       · rw [if_pos h1, if_pos h1]; rfl
       · rw [if_neg h1, if_neg h1]
-        by_cases h2 : (isSloadOp current && stack.isEmpty) = true
+        by_cases h2 : (isCreate2Op current && stack.isEmpty) = true
         · rw [if_pos h2, if_pos h2]; rfl
         · rw [if_neg h2, if_neg h2]
-          by_cases h3 : (isCreate2Op current && stack.isEmpty) = true
+          by_cases h3 : (isCallOp current && stack.isEmpty) = true
           · rw [if_pos h3, if_pos h3]; rfl
-          · rw [if_neg h3, if_neg h3]
-            by_cases h4 : (isCallOp current && stack.isEmpty) = true
-            · rw [if_pos h4, if_pos h4]; rfl
-            · rw [if_neg h4, if_neg h4]; rfl
+          · rw [if_neg h3, if_neg h3]; rfl
     | halted halt => rfl
     | needsCall params pending =>
       dsimp only []

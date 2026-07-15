@@ -4,10 +4,10 @@ import BytecodeLayer.Exec.Recorder
 namespace Lir
 
 export BytecodeLayer.Exec.Recorder
-  (evmCallEntry evmCreateEntry CallRecord CreateRecord RunLog RecorderCoupled isGasOp isSloadOp
+  (evmCallEntry evmCreateEntry CallRecord CreateRecord RunLog RecorderCoupled isGasOp
    isCreate2Op isCallOp softFailCallRecord callSuccessFlag_softFailCallRecord
-   softFailCreateRecord createAddrOrZero_softFailCreateRecord sloadWarmthOf recordCall
-   recordCreate driveLog runWithLog callsCodeOk realisedGas realisedSload callStreamOf realisedCall
+   softFailCreateRecord createAddrOrZero_softFailCreateRecord recordCall
+   recordCreate driveLog runWithLog callsCodeOk realisedGas callStreamOf realisedCall
    createStreamOf realisedCreate resultStorageAt observe observe_result)
 
 namespace RunLog

@@ -12,8 +12,8 @@ def exCheckChk : Bool :=
   match Evm.beginCall exParams with
     | .inr _ => false
     | .inl fr₀ =>
-      match stepsLogChk 39 ⟨[], .inl fr₀, [], [], [], []⟩ with
-        | some (.inr (res, _, _, _, _)) =>
+      match stepsLogChk 39 ⟨[], .inl fr₀, [], [], []⟩ with
+        | some (.inr (res, _, _, _)) =>
           (match res with
             | .call r => r.success || r.gasRemaining != 0
             | .create _ => false)

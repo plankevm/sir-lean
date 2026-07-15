@@ -302,8 +302,7 @@ SUPPLIED status: never supplied — established at entry (R7 entry + `entry_corr
 `callPreservesSelf_modGuards hprec`). -/
 structure DriveCorrLog (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
     (self : AccountAddress) (st : IRState) (fr : Frame) (L : Label)
-    (gasSuffix : List Word) (sloadSuffix : List Nat) (callSuffix : List CallRecord)
-    (createSuffix : List CreateRecord) :
+    (gasSuffix : List Word) (callSuffix : List CallRecord) (createSuffix : List CreateRecord) :
     Prop where
   /-- The `Corr` boundary at the block-entry cursor `(L, 0)` (phantom `obs` pinned to 0). -/
   corr : Lir.Corr prog sloadChg 0 (fun _ => False) st fr L 0
@@ -319,7 +318,7 @@ structure DriveCorrLog (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
   /-- The frame is a call frame (rfl-preserved along the walk). -/
   kindPin : ∃ cp, fr.kind = .call cp
   /-- The §2 recorder-restart coupling at the un-consumed suffixes. -/
-  coupled : RecorderCoupled log fr gasSuffix sloadSuffix callSuffix createSuffix
+  coupled : RecorderCoupled log fr gasSuffix callSuffix createSuffix
 
 /-! ## §3 — The reshaped ties `StmtTies'` / `TermTies'` (R0 as statements; no free value-∀)
 
@@ -388,12 +387,12 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
   -- antecedent; conclusions are the not-spilled fact, the STATIC per-step scoping
   -- (`StepScopedS`, lesson 8), and the pinned-post-state scoping/memory ties.
   (∀ (pc : Nat) (t : Tmp) (e : Expr) (w : Word) (st0 : IRState) (fr0 : Frame)
-      (gS : List Word) (sS : List Nat) (cS : List CallRecord) (dS : List CreateRecord)
+      (gS : List Word) (cS : List CallRecord) (dS : List CreateRecord)
       (I : Tmp → Prop),
       b.stmts[pc]? = some (.assign t e) →
       e ≠ .gas → (∀ k, e ≠ .sload k) →
       Lir.Corr prog sloadChg 0 I st0 fr0 L pc →
-      RecorderCoupled log fr0 gS sS cS dS →
+      RecorderCoupled log fr0 gS cS dS →
       CleanHaltsNonException fr0 →
       evalExpr st0 0 e = some w →
       (∀ n, defsOf prog t ≠ some (.slot n))
@@ -407,11 +406,11 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
   -- Slot registration/canonicity, addressability, the stack-room fold (sourced from
   -- `StackRoomOK.sloadKey` + `Corr.stack_nil`) and the activeWords-flatness stay.
   ∧ (∀ (pc : Nat) (t k : Tmp) (kv : Word) (st0 : IRState) (fr0 : Frame)
-      (gS : List Word) (sS : List Nat) (cS : List CallRecord) (dS : List CreateRecord)
+      (gS : List Word) (cS : List CallRecord) (dS : List CreateRecord)
       (I : Tmp → Prop),
       b.stmts[pc]? = some (.assign t (.sload k)) →
       Lir.Corr prog sloadChg 0 I st0 fr0 L pc →
-      RecorderCoupled log fr0 gS sS cS dS →
+      RecorderCoupled log fr0 gS cS dS →
       CleanHaltsNonException fr0 →
       st0.locals k = some kv →
       defsOf prog t = some (.slot (slotOf t))
@@ -431,11 +430,11 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
   -- clean-halt antecedents make it derivable, R1). Post-state scoping is over the pinned
   -- head value. Slot registration/canonicity/addressability/pc-bound stay.
   ∧ (∀ (pc : Nat) (t : Tmp) (st0 : IRState) (fr0 : Frame)
-      (gS : List Word) (sS : List Nat) (cS : List CallRecord) (dS : List CreateRecord)
+      (gS : List Word) (cS : List CallRecord) (dS : List CreateRecord)
       (I : Tmp → Prop),
       b.stmts[pc]? = some (.assign t .gas) →
       Lir.Corr prog sloadChg 0 I st0 fr0 L pc →
-      RecorderCoupled log fr0 gS sS cS dS →
+      RecorderCoupled log fr0 gS cS dS →
       CleanHaltsNonException fr0 →
       defsOf prog t = some (.slot (slotOf t))
       ∧ StepScopedS prog (.assign t .gas)
@@ -453,11 +452,11 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
   -- no nonzero-write conclusion and no nonzero-write scope antecedent. The unsatisfiable
   -- `∃ acc, SstoreRealises …` conjunct is GONE (its content is R4, point-wise).
   ∧ (∀ (pc : Nat) (key value : Tmp) (kw vw : Word) (st0 : IRState) (fr0 : Frame)
-      (gS : List Word) (sS : List Nat) (cS : List CallRecord) (dS : List CreateRecord)
+      (gS : List Word) (cS : List CallRecord) (dS : List CreateRecord)
       (I : Tmp → Prop),
       b.stmts[pc]? = some (.sstore key value) →
       Lir.Corr prog sloadChg 0 I st0 fr0 L pc →
-      RecorderCoupled log fr0 gS sS cS dS →
+      RecorderCoupled log fr0 gS cS dS →
       CleanHaltsNonException fr0 →
       st0.locals key = some kw → st0.locals value = some vw →
       StepScopedS prog (.sstore key value)
@@ -483,10 +482,10 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
   -- `callResult_slotAddr_of_IRWellFormed`; still threaded here until the integration pass
   -- swaps the use sites).
   ∧ (∀ (pc : Nat) (cs : CallSpec) (st0 st0' : IRState) (fr0 : Frame) (cw gw : Word)
-      (gS : List Word) (sS : List Nat) (rec : CallRecord) (cS' : List CallRecord)
+      (gS : List Word) (rec : CallRecord) (cS' : List CallRecord)
       (dS : List CreateRecord) (I : Tmp → Prop),
       b.stmts[pc]? = some (.call cs) →
-      RecorderCoupled log fr0 gS sS (rec :: cS') dS →
+      RecorderCoupled log fr0 gS (rec :: cS') dS →
       CleanHaltsNonException fr0 →
       fr0.exec.executionEnv.address = self →
       codeFits prog →
@@ -513,10 +512,10 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
   -- addressability.
   ∧ (∀ (pc : Nat) (cs : CreateSpec) (st0 st0' : IRState) (fr0 : Frame)
       (valueW initOffW initSizeW saltW : Word)
-      (gS : List Word) (sS : List Nat) (cS : List CallRecord)
+      (gS : List Word) (cS : List CallRecord)
       (rec : CreateRecord) (dS' : List CreateRecord) (I : Tmp → Prop),
       b.stmts[pc]? = some (.create cs) →
-      RecorderCoupled log fr0 gS sS cS (rec :: dS') →
+      RecorderCoupled log fr0 gS cS (rec :: dS') →
       CleanHaltsNonException fr0 →
       fr0.exec.executionEnv.address = self →
       codeFits prog →
@@ -639,12 +638,12 @@ def TermTies' (prog : Program) (sloadChg : Tmp → ℕ) (_log : RunLog)
       ∀ (st' : IRState) (frT : Frame) (cw : Word),
         Lir.Corr prog sloadChg 0 (fun _ => False) st' frT L b.stmts.length →
         CleanHaltsNonException frT →
-        ∀ (gS : List Word) (sS : List Nat) (cS : List CallRecord)
+        ∀ (gS : List Word) (cS : List CallRecord)
           (dS : List CreateRecord),
-        RecorderCoupled _log frT gS sS cS dS →
+        RecorderCoupled _log frT gS cS dS →
         st'.locals cond = some cw →
         ∃ frc, MatRunsC prog sloadChg (.tmp cond) cw frT frc
-          ∧ RecorderCoupled _log frc gS sS cS dS
+          ∧ RecorderCoupled _log frc gS cS dS
           ∧ 3 ≤ frc.exec.gasAvailable.toNat
           ∧ GasConstants.Ghigh ≤ (pushFrameW frc
               (UInt256.ofNat
@@ -688,7 +687,7 @@ def TermTies' (prog : Program) (sloadChg : Tmp → ℕ) (_log : RunLog)
               ((cw ≠ 0 ∧ succ = thenL) ∨ (cw = 0 ∧ succ = elseL))
             ∧ Runs frT fr'
             ∧ Lir.Corr prog sloadChg 0 (fun _ => False) st' fr' succ 0
-            ∧ RecorderCoupled _log fr' gS sS cS dS
+            ∧ RecorderCoupled _log fr' gS cS dS
             ∧ totalGas [] (.inl fr') < totalGas [] (.inl frT))
 
 end Lir

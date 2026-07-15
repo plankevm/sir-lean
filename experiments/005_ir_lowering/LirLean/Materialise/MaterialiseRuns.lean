@@ -11,8 +11,7 @@ This module retains the IR-indexed materialisation side conditions:
 * `evalExpr_obs_irrel` for the pure expression fragment;
 * `StorageAgree` for the IR-state storage lens;
 * `MemRealises` for the IR temporary-to-memory channel;
-* the legacy `SloadRealises` and `GasRealises` predicates still reached by the
-  current correspondence proofs.
+* the legacy `GasRealises` predicate still reached by the current correspondence proofs.
 
 The EVM-only frame, stash, and memory facts are re-exported for these adapters.
 -/
@@ -60,19 +59,14 @@ theorem evalExpr_obs_irrel (st : Lir.IRState) (obs obs' : Word) :
 
 /-! ## The realisability side-conditions (storage lens; the retired SLOAD/GAS universals)
 
-**Phase B/C**: gas AND sload are now **spilled** — a bare `Expr.gas` / `Expr.sload _` is never
+**Phase B/C**: gas and sload are now **spilled** — a bare `Expr.gas` / `Expr.sload _` is never
 materialised (uses go through `.slot`/MLOAD; the def-site stash is run by `sim_assign_gas` /
 `sim_assign_sload`). So the `.gas` and `.sload` arms of `materialise_runsC` are **unreachable**,
 discharged by `e ≠ .gas` and `∀ k, e ≠ .sload k` (both preserved across the `.tmp` recursion by
 `defsOf_ne_gas`/`defsOf_ne_sload`). The two former realisability universals are retired:
 
-* **`SloadRealises`** (RETIRED, Phase C) — the old `∀ g`-universal forcing `sloadChg k` to equal
-  the runtime `sloadCost` warmth at every same-address frame. Unsatisfiable on any cold-then-warm
-  same-key re-read (2100 ≠ 100). No longer carried: the SLOAD value lives in the slot (tied by
-  `MemRealises`), and the warmth cost is the single cold/warm def-site read (the positional
-  `SloadLogAligned` selection). Survives only as the `Drive/SelfPresent.lean` regression witness
-  (`sloadRealises_charge_of_witness`); the `HonestGasTie.lean` unsatisfiability witness is deleted
-  (lesson in `RealisabilitySpec.lean`'s header + `docs/gas-decision.md`).
+* The retired SLOAD warmth universal and recorder stream are gone. The SLOAD value lives in the
+  slot and is tied by `MemRealises`; its gas effect is already reflected by the EVM run.
 
 * **`GasRealises`** (RETIRED, Phase B) — the analogous `∀ g`-gas-value universal; same story.
 
@@ -80,31 +74,6 @@ discharged by `e ≠ .gas` and `∀ k, e ≠ .sload k` (both preserved across th
   key`. Preserved across the whole materialisation by `MatRunsC.storage` (every post-frame leaves
   the self account's storage *values* untouched), threading as a plain per-frame fact. It ties the
   storage lens to `evalExpr`'s world read (consumed by the `sstore` value/key materialise calls). -/
-
-/-- The OLD B2 SLOAD-cost resolver realisability universal: at every frame `g` sharing `fr`'s
-self-address, `sloadChg k` is the actual `sloadCost` warmth-charge for the bound key
-`st.locals k`.
-
-**RETIRED FROM THE CONFORMANCE SPINE (Phase C).** This `∀ g`-universal is unsatisfiable for any
-genuine ≥2-read run of the same key: after the first cold→warm access `accessedStorageKeys.contains`
-flips, so the warmth-charge for the *same* key changes (2100 → 100), and the universal forces the
-single resolver value `sloadChg k` to equal *both* charges — it cannot hold. It is **no longer
-carried by `Corr`/`materialise_runsC`/the headlines**: sload is spilled to memory, so the SLOAD
-value lives in the slot (tied by `MemRealises`, the honest positional one-read value supplied at
-the `assign` def-site by `sim_assign_sload`), and the warmth charge is the single cold/warm read at
-that def-site (the positional `SloadLogAligned` selection via `sloadRealises_charge_of_witness`, not
-this universal). This def survives ONLY as the subject of the positional discharge
-`Drive/SelfPresent.lean` (`sloadRealises_charge_of_witness`); its unsatisfiability witness
-(`sloadRealises_universal_unsatisfiable`) is deleted with `HonestGasTie.lean` (lesson in
-`RealisabilitySpec.lean`'s header + `docs/gas-decision.md`). The honest replacement is the positional
-SLOAD twin `SloadLogAligned` (`Drive/SelfPresent.lean`), satisfiable by a real cold-then-warm run. -/
-def SloadRealises (sloadChg : Tmp → ℕ) (st : Lir.IRState) (fr : Frame) : Prop :=
-  ∀ (g : Frame) (k : Tmp) (key : Word),
-    g.exec.executionEnv.address = fr.exec.executionEnv.address →
-    st.locals k = some key →
-    sloadChg k
-      = Evm.sloadCost (g.exec.substate.accessedStorageKeys.contains
-          (g.exec.executionEnv.address, key))
 
 /-- The OLD `GAS` value realisability universal: at every frame `g` sharing `fr`'s self-address,
 the supplied gas word `obs` is `ofUInt64` of the post-`Gbase` gas `g` reports.
@@ -134,9 +103,7 @@ def StorageAgree (st : Lir.IRState) (fr : Frame) : Prop :=
 
 `StorageAgree` transports through the self-storage equality `MatRunsC.storage` provides — the
 clause the `add`/`lt`/`sstore` recursion needs to pass the storage tie to its second/inner
-operand. (The `SloadRealises`/`GasRealises` `.transport` lemmas are retired with their
-universals: gas and sload are spilled, so neither is carried by `Corr`/`materialise_runsC`
-anymore — Phase B/C.) -/
+operand. The retired GAS/SLOAD transport lemmas are unnecessary because both values are spilled. -/
 
 theorem StorageAgree.transport {st : Lir.IRState} {fr fr' : Frame}
     (h : StorageAgree st fr)
@@ -146,8 +113,7 @@ theorem StorageAgree.transport {st : Lir.IRState} {fr fr' : Frame}
 
 /-! ## The memory value-channel realisability — `MemRealises`
 
-The memory analogue of `SloadRealises`/`GasRealises`/`StorageAgree`: the bytecode's memory
-**realises** the IR's bound call-result locals. For every call-result tmp `t` (registered as
+The bytecode's memory **realises** the IR's bound spilled locals. For every tmp `t` registered as
 `.slot slot` in `defsOf`) that the IR currently holds a value `v` for, the running frame
 carries, at byte offset `slot`:
 
@@ -165,8 +131,7 @@ so the coverage is honest and the value survives the materialise sub-runs (`MemR
 The active clause is stated as `slot + 32 ≤ activeWords.toNat * 32` (rather than the weaker
 `slot < activeWords.toNat * 32`): for a 32-aligned slot this is exactly "MLOAD at `slot` does
 *not* expand memory" (`memoryExpansionWords? activeWords slot 32 = some activeWords`), which is
-what pins the readback's gas charge to the abstract two-step MLOAD charge
-— the memory analogue of `SloadRealises` resolving the SLOAD warmth cost. -/
+what pins the readback's gas charge to the abstract two-step MLOAD charge. -/
 def MemRealises (prog : Program) (st : Lir.IRState) (fr : Frame) : Prop :=
   ∀ t slot v, defsOf prog t = some (.slot slot) → st.locals t = some v →
     (UInt256.ofNat slot).toNat + 32 ≤ fr.exec.toMachineState.memory.size

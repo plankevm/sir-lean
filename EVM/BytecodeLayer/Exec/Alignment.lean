@@ -83,43 +83,4 @@ theorem aligned_read_eq_obs {gasAcc : List Word} {frs : List Frame} {i : Nat} {f
   simp only [Option.map_some]
   rw [gasReadOf_gasFrame_eq_obs]
 
-/-- The recorder's SLOAD warmth is the EVM charge at the selected key. -/
-theorem sloadRecord_discharges_obs (g : Frame) {key : Word}
-    (hkey : g.exec.stack.head? = some key) :
-    sloadWarmthOf g
-      = Evm.sloadCost (g.exec.substate.accessedStorageKeys.contains
-          (g.exec.executionEnv.address, key)) :=
-  sloadRecord_eq_sloadCost g hkey
-
-/-- A recorded SLOAD accumulator aligned with its reachable SLOAD frames. -/
-def SloadLogAligned (sloadAcc : List Nat) (frs : List Frame) : Prop :=
-  sloadAcc = frs.map sloadWarmthOf ∧ FramesRun frs
-
-theorem sloadLogAligned_nil : SloadLogAligned [] [] := ⟨rfl, trivial⟩
-
-/-- A top-level SLOAD record extends the SLOAD/frame alignment in lockstep. -/
-theorem sloadLogAligned_step_sload {sloadAcc : List Nat} {frs : List Frame}
-    {current last : Frame}
-    (halign : SloadLogAligned sloadAcc frs)
-    (hlast : frs.getLast? = some last)
-    (hreach : Runs last current) :
-    SloadLogAligned (sloadAcc ++ [sloadWarmthOf current]) (frs ++ [current]) := by
-  obtain ⟨hreads, hrun⟩ := halign
-  refine ⟨?_, FramesRun.snoc hrun hlast hreach⟩
-  rw [List.map_append, ← hreads]
-  simp only [List.map_cons, List.map_nil]
-
-/-- Select the SLOAD warmth paired with a witness frame. -/
-theorem alignedSload_read_eq_obs {sloadAcc : List Nat} {frs : List Frame} {i : Nat}
-    {g : Frame} {key : Word}
-    (halign : SloadLogAligned sloadAcc frs)
-    (hwit : frs[i]? = some g)
-    (hkey : g.exec.stack.head? = some key) :
-    sloadAcc[i]? = some (Evm.sloadCost (g.exec.substate.accessedStorageKeys.contains
-        (g.exec.executionEnv.address, key))) := by
-  obtain ⟨hreads, _⟩ := halign
-  rw [hreads, List.getElem?_map, hwit]
-  simp only [Option.map_some]
-  rw [sloadRecord_eq_sloadCost g hkey]
-
 end BytecodeLayer.Exec.Invariants

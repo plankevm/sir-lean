@@ -579,9 +579,6 @@ def nextLogOnSig (c : LogConfig) (current : Frame) (sig : Signal) : LogConfig �
       if isGasOp current && c.stack.isEmpty then
         .inl { c with state := .inl { current with exec := exec }
                       gasAcc := c.gasAcc ++ [UInt256.ofUInt64 exec.gasAvailable] }
-      else if isSloadOp current && c.stack.isEmpty then
-        .inl { c with state := .inl { current with exec := exec }
-                      sloadAcc := c.sloadAcc ++ [sloadWarmthOf current] }
       else if isCreate2Op current && c.stack.isEmpty then
         .inl { c with state := .inl { current with exec := exec }
                       createAcc := c.createAcc ++ [softFailCreateRecord current] }
@@ -604,7 +601,7 @@ def nextLogOnSig (c : LogConfig) (current : Frame) (sig : Signal) : LogConfig �
 /-- `nextLog` at a running frame IS the factored arm at its own signal. -/
 theorem nextLog_inl (c : LogConfig) (current : Frame) (h : c.state = .inl current) :
     nextLog c = nextLogOnSig c current (stepFrame current) := by
-  obtain ⟨stack, state, gasAcc, sloadAcc, callAcc, createAcc⟩ := c
+  obtain ⟨stack, state, gasAcc, callAcc, createAcc⟩ := c
   dsimp only [] at h
   subst h
   unfold nextLog nextLogOnSig
