@@ -21,7 +21,3 @@ import BytecodeLayer.Equivalence
 -- The FLAT half of cross-engine refinement-through-a-shared-spec: the do-nothing
 -- STOP call observes as the canonical `emptyObs`. Mirror on the nested side.
 import BytecodeLayer.Refinement
--- DRAFT: the abstract `EVMSpec` interface (bytecode + state as SEPARATE interp
--- args) and the flat instance `flatSpec` — the reshape of the interim
--- `EVMSemantics`/`flatSem`. Pending Eduardo's sign-off on the State/Result choice.
-import BytecodeLayer.EVMSpec
