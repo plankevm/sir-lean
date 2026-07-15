@@ -125,8 +125,8 @@ Everything is committed; all worktrees clean (except your pre-existing scratch f
    (d) **try a cleaner measure** first.
    *My read: (a). The difficulty IS the result.* (See report "Sharpening" + `currentplan.md`.)
 2. **Track C — the returndata-model decision (`ir-design-v2.md §7.5`).** Unblocks the
-   call-event step. (a) Drop the word from `IRHalt.returned` (match the empty-window lowering)
-   or make the lowering RETURN it? (b) When revert enters, align `IRHalt`/`Observable.result`
+   call-event step. (a) Drop the word from `HaltResult.returned` (match the empty-window lowering)
+   or make the lowering RETURN it? (b) When revert enters, align `HaltResult`/`Observable.result`
    with the EVM `Outcome`. *Default I'd take for a first cut: value-free, empty
    calldata/returndata (mirrors v1 `workedCall`), revert deferred — then I can launch the
    call-event step + wiring `lower` into the witness.*

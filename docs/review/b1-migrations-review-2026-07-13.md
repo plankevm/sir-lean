@@ -41,7 +41,7 @@ abbrev Word := UInt256
 
 abbrev World := Word → Word
 
-inductive IRHalt where
+inductive HaltResult where
   | stopped
   | returned (w : Word)
 deriving DecidableEq, Repr
@@ -57,11 +57,11 @@ abbrev CreateStream := List (World × Word)
 
 structure Observable where
   world  : World
-  result : IRHalt
+  result : HaltResult
 ```
 
 This substrate is structurally generic, although the type name
-[IRHalt](../../EVM/BytecodeLayer/Exec/Observable.lean#L18)
+[HaltResult](../../EVM/BytecodeLayer/Exec/Observable.lean#L18)
 still carries historical IR terminology. No B1 declaration mentions the source
 IR's program, block, statement, term, expression, temporary, call/create spec,
 lowering, emission, definition map, or materialisation cache in its type.
@@ -441,7 +441,7 @@ or hides a conclusion in a new generic assumption.
   though it introduces no axiom or untrusted evaluator. Both settings predate B1
   and were relocated rather than added.
 - **Naming rough edge:** the generic observable result is still called
-  [IRHalt](../../EVM/BytecodeLayer/Exec/Observable.lean#L18).
+  [HaltResult](../../EVM/BytecodeLayer/Exec/Observable.lean#L18).
   Its definition is IR-independent, so this is nomenclature rather than a cut
   violation.
 

@@ -149,7 +149,7 @@ single-halting-block fragment, banked as corollaries (`LirLean/Acyclic.lean`).
 - **Top-level `runWithLog.observable`** (vs recorded child datum): `runWithLog_drive` pins `.observable`;
   remaining = `log.calls` = program CALL sequence (single-call ≈ done via `realisedCall_eq_evmV2`; multi-call
   needs `runWithLog_calls_eq`). *medium/hard.*
-- **Revert/exception**: new `IRHalt.reverted` + `EvalStmt`/`RunFrom`/`observe` paths + bytecode bridge.
+- **Revert/exception**: new `HaltResult.reverted` + `EvalStmt`/`RunFrom`/`observe` paths + bytecode bridge.
   Defer entirely.
 
 ## Missing scaffolding (multi-node)

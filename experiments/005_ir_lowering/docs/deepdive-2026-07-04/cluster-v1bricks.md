@@ -21,10 +21,10 @@ audit's central finding is that they have **very different liveness**:
    **live** — they feed `CallRealises.lean`, `SimStmt.lean`, `LowerConforms.lean`
    and `RealisabilitySpec.lean`.
 3. **The genuine v1 IR operational semantics** (`SmallStep.lean` `Lir.IRState` and
-   its `evalExpr`/`setLocal`/`setStorage`/`bindCallResult`, `IRHalt`, `IRConf`,
+   its `evalExpr`/`setLocal`/`setStorage`/`bindCallResult`, `HaltResult`, `IRConf`,
    `Program.stmtAt`; `Call.lean` `IRState.applyCall`; the `Match` **structure**;
    `Match.lean` `lower_preserves_*`). Every one of these has a **V2 twin** in
-   `Spec/Semantics.lean` (`Lir.IRState`, `Lir.evalExpr`, `Lir.IRHalt`, `Lir.blockAt`,
+   `Spec/Semantics.lean` (`Lir.IRState`, `Lir.evalExpr`, `Lir.HaltResult`, `Lir.blockAt`,
    `Corr`) that is what the flagship actually consumes; the v1 originals are the
    *reference* small-step and are **used nowhere in the live cone** — they survive
    only in each other's proofs/docstrings.
@@ -49,7 +49,7 @@ state as `Lir.IRState` (`.world`/`.locals`); the flagship rides the v2 copy.
 | decl | kind | role | callers |
 |---|---|---|---|
 | `IRState` (:49) | structure | genuinely-superseded-for-flagship — v1 IR state; the flagship uses `Lir.IRState` (`Spec/Semantics.lean:48`). Only consumers of the v1 struct are v1-only decls below | none live; only Call/Match v1 decls |
-| `IRHalt` (:60) | inductive | genuinely-superseded — twin `Lir.IRHalt` (`Spec/Semantics.lean:55`) is what the flagship uses | Match.lean docstrings only (`:367,401,560,574`) |
+| `HaltResult` (:60) | inductive | genuinely-superseded — twin `Lir.HaltResult` (`Spec/Semantics.lean:55`) is what the flagship uses | Match.lean docstrings only (`:367,401,560,574`) |
 | `IRConf` (:69) | inductive | genuinely-dead — **zero references repo-wide** (only its own def line) | none anywhere |
 | `evalExpr` (:89) | def | genuinely-superseded — every live `evalExpr` call is `Lir.evalExpr` (`Spec/Semantics.lean:123`; DefsSound `open Lir`). v1 `evalExpr` is never called, only named in Match docstrings | none live |
 | `IRState.setLocal` (:101) | def | v1-only — used only by v1 `bindCallResult` (:114); flagship uses `Lir.IRState.setLocal` (`Spec/Semantics.lean:104`) | `bindCallResult` (SmallStep:114) |
@@ -221,8 +221,8 @@ removal):**
 - `SmallStep.IRState.bindCallResult` (:110) and `Call.IRState.applyCall` (:158) —
   the only two v1 decls that touch the success-word channel; both appear solely in
   docstrings, never called. The v2 channel is `callSuccessFlag` + `CallRealises`.
-- `SmallStep.evalExpr` (:89), `IRState.setStorage` (:117), `IRHalt` (:60) — each has a
-  live V2 twin (`Lir.evalExpr` :123, `Lir.IRState.setStorage` :108, `Lir.IRHalt` :55) that
+- `SmallStep.evalExpr` (:89), `IRState.setStorage` (:117), `HaltResult` (:60) — each has a
+  live V2 twin (`Lir.evalExpr` :123, `Lir.IRState.setStorage` :108, `Lir.HaltResult` :55) that
   the flagship uses; the v1 originals are never called in the live cone. `setLocal`
   (:101) and the `IRState` struct (:49) survive only to support the above v1 decls.
 

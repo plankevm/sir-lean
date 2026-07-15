@@ -345,7 +345,7 @@ required for the full single-/multi-call preservation theorem.
     *exactly*: the `Match` gas clause `M4` is a plain `UInt64` equality and each IR
     charge is the same `UInt64.ofNat <const>` subtraction the EVM post-frame does.
     `storage` mirrors the self account through the observable lens (`M3`).
-  - `IRHalt` (`stopped` / `returned w`), `IRConf` (`running L pc st` / `halted h`).
+  - `HaltResult` (`stopped` / `returned w`), `IRConf` (`running L pc st` / `halted h`).
   - `evalExpr st : Expr → Option Word` — total via `Option`; **arithmetic is
     exp003's own** (`add → UInt256.add`, `lt → UInt256.lt`, `sload → storage lens`,
     `gas → UInt256.ofUInt64 st.gas`), so the IR value is *definitionally* the word
@@ -835,13 +835,13 @@ verbatim. The §4 statement is genuinely pc-free and gas-equality-free.
 
 Frictions, for `ir-design-v2.md` before the `call`-event step:
 - **`returned w` vs empty RETURN window (§7.5).** Decide now: either the IR `ret t`
-  observable drops the word (matching the empty-window lowering — then `IRHalt.returned`
+  observable drops the word (matching the empty-window lowering — then `HaltResult.returned`
   needn't carry a `Word`), or the lowering must RETURN the word (32-byte window) so the
   observable's `output` reflects it. The prototype sidestepped by leaving `out`
   existential; the `call`-event step needs returndata to be real, so resolve this.
 - **`Observable.result` ↔ bytecode reflection.** Currently both `stopped`/`returned`
   map to "success". When revert enters (§7.5) the result tag must distinguish
-  `completed`/`reverted` — align `IRHalt` with `Outcome` (`completed/reverted/exception`)
+  `completed`/`reverted` — align `HaltResult` with `Outcome` (`completed/reverted/exception`)
   so the result component is a faithful lens, not just a success flag.
 - **`evalExpr`'s single `obs` arg is a shortcut.** It works because prototype
   expressions are flat (operands are `tmp`s, gas appears only at top level). The doc

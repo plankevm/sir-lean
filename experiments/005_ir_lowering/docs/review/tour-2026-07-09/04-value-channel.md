@@ -619,7 +619,7 @@ only):
 * `Frame/SmallStep.lean` (deleted) — the v1
   `IRState` (with its
   `callResult`/`createResult` slots), v1
-  `evalExpr`, v1 `IRHalt`, `bindCallResult`, `bindCreateResult`, `setLocal` /
+  `evalExpr`, v1 `HaltResult`, `bindCallResult`, `bindCreateResult`, `setLocal` /
   `setStorage`: **zero theorem consumers**
   anywhere in `LirLean/`. Despite its name the file contains no step relation.
 * `IRState.applyCall` and `IRState.applyCreate`: removed after confirming zero consumers.

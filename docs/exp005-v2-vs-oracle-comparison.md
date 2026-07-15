@@ -110,7 +110,7 @@ re-run the checker; the statements and proof shapes are consistent with the clai
 `Stmt`, `Term`, `CallSpec`, `Block`, `Program`), `Decode.lean`, `Layout.lean`/`pcOf` offset
 arithmetic, `Lowering.lean` (`lower : Program → ByteArray`), and the **v1 gas-aware**
 `SmallStep.lean` + `Match.lean` + `WorkedCall.lean`. Both rely on exp003's `Runs`/`messageCall_runs`
-boundary API. B's `Machine.lean` re-derives a v2-local `blockAt`, `evalExpr`, `IRHalt` so it
+boundary API. B's `Machine.lean` re-derives a v2-local `blockAt`, `evalExpr`, `HaltResult` so it
 imports only `IR.lean` (deliberately *not* the gas-aware `SmallStep.lean`).
 
 **Divergent:** A adds `Gas.lean` + `Call.lean` + oracle hooks (on `main` only). B adds the entire

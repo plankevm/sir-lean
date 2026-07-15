@@ -15,7 +15,7 @@ abbrev Word := UInt256
 
 abbrev World := Word → Word
 
-inductive IRHalt where
+inductive HaltResult where
   | stopped
   | returned (w : Word)
 deriving DecidableEq, Repr
@@ -31,6 +31,6 @@ abbrev CreateStream := List (World × Word)
 
 structure Observable where
   world  : World
-  result : IRHalt
+  result : HaltResult
 
 end BytecodeLayer.Exec

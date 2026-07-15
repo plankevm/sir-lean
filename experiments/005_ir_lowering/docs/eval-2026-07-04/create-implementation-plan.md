@@ -265,7 +265,7 @@ cluster-v1bricks.md) but needed to keep v1 compiling once `Stmt` gains a constru
 
 - `WellLowered` bundle (:477) and `Conforms` (:155) unchanged in shape — `Conforms`
   already compares world AND result, and a CREATE program's observable is still a
-  `(world, IRHalt)` pair.
+  `(world, HaltResult)` pair.
 - The R3 call-cursor tie (`evmV2CallEntry` identified with the call cursor at RS:2856)
   gains a create-cursor sibling; R6 geometry (`atReachableBoundaryVJ_*`, RS:2343-2383)
   must admit CREATE boundary heads.

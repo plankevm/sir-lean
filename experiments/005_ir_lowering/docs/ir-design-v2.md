@@ -183,7 +183,7 @@ Refinements this surfaced (now part of the design):
 
 ```text
 Observable := { worldDelta : World,        -- final storage state (observable lens)
-                result     : IRHalt }      -- stop / return w  (revert: see §7)
+                result     : HaltResult }      -- stop / return w  (revert: see §7)
 
 -- IR big-step: program prog, start world w₀, consuming transcript T, yields O
 IRRun : Program → World → CallTranscript → Observable → Prop
@@ -274,10 +274,10 @@ Keep v1 `wc_preserves` green as reference until step 2 reaches parity.
    model cheaply, before external-call events.
 5. **Revert/failure as observable + the returned word.** *(Sharpened by the prototype —
    needs Eduardo before the `call`-event step, since calls carry returndata.)*
-   (a) `IRHalt.returned w` currently carries a word, but the C3 lowering RETURNs an **empty
+   (a) `HaltResult.returned w` currently carries a word, but the C3 lowering RETURNs an **empty
    window**, so the word is not observed — drop the word from `returned` (match the lowering)
    or make the lowering RETURN it so `output` reflects it? (b) When revert enters, align
-   `IRHalt`/`Observable.result` with the EVM `Outcome` (`completed/reverted/exception`) so
+   `HaltResult`/`Observable.result` with the EVM `Outcome` (`completed/reverted/exception`) so
    the result is faithful, not a bare success flag. *Default for the first `call`-event cut:
    value-free, empty calldata/returndata (mirrors v1 `workedCall`), revert deferred.*
 6. **`evalExpr` gas-trace threading.** The prototype's single `obs` arg works only because

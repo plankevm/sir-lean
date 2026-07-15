@@ -167,7 +167,7 @@ no roadmap dependency. That is a real ~3–4 % of the tree and the single bigges
 
 | # | Win | LOC | Risk | Gate |
 |---|---|---|---|---|
-| 8 | **v1 IR-semantics decls superseded by V2 twins** — `Match.lean` `evalExpr:89`, `IRState:49`, `IRHalt:60`, `setLocal:101`, `bindCallResult:110`, the `Match` STRUCTURE (`:125`, never instantiated), `lower_preserves_discharge/stop/ret` (`:550,562,577`, zero callers); each has a LIVE twin in `Spec/Semantics.lean`. The FILES stay (sim_* bricks + oracles are live) | ~100–150 | MED (must not conflate with the live frame-local `sim_*` bricks / `evmCallOracle`) | confirm no worked-example anti-vacuity artifact (Law/Call) still needs v1 |
+| 8 | **v1 IR-semantics decls superseded by V2 twins** — `Match.lean` `evalExpr:89`, `IRState:49`, `HaltResult:60`, `setLocal:101`, `bindCallResult:110`, the `Match` STRUCTURE (`:125`, never instantiated), `lower_preserves_discharge/stop/ret` (`:550,562,577`, zero callers); each has a LIVE twin in `Spec/Semantics.lean`. The FILES stay (sim_* bricks + oracles are live) | ~100–150 | MED (must not conflate with the live frame-local `sim_*` bricks / `evmCallOracle`) | confirm no worked-example anti-vacuity artifact (Law/Call) still needs v1 |
 
 ### Tier 5 — Zero-LOC structural hygiene
 

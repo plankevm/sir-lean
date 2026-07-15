@@ -7,7 +7,7 @@ namespace Lir
 open Evm
 
 abbrev World := BytecodeLayer.Exec.World
-abbrev IRHalt := BytecodeLayer.Exec.IRHalt
+abbrev HaltResult := BytecodeLayer.Exec.HaltResult
 abbrev GasOracle := BytecodeLayer.Exec.GasOracle
 abbrev Trace := BytecodeLayer.Exec.Trace
 abbrev CallStream := BytecodeLayer.Exec.CallStream

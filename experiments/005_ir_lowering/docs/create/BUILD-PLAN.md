@@ -278,7 +278,7 @@ Goal: close (or, honestly, extend the WIP statements of) the CREATE realisabilit
 leaf in `Realisability/RealisabilitySpec.lean`. CALL twin: the R3 call-cursor tie.
 - Keep the public `IRWellFormed` + `codeFits` + `stackFits` envelope and rebuild the
   internal `WellLowered` adapter as today. `Conforms` already compares world AND result,
-  and a CREATE program's observable is still a `(world, IRHalt)` pair.
+  and a CREATE program's observable is still a `(world, HaltResult)` pair.
 - The R3 call-cursor tie (`evmV2CallEntry` identified with the call cursor) gains a
   create-cursor sibling; R6 geometry (`atReachableBoundaryVJ_*`) must admit CREATE
   boundary heads.

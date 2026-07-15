@@ -48,7 +48,7 @@ relation).
 |---|---|---|---|
 | `World` (:44) | abbrev | shared-infra (`Word → Word` storage lens) | 2 explicit `Lir.World` refs; used pervasively via `IRState.world`/`Observable.world` |
 | `IRState` (:48) | structure | shared-infra (the machine state) | 87 refs |
-| `IRHalt` (:55) | inductive | shared-infra (stopped/returned) | 8 refs (Observable, observe) |
+| `HaltResult` (:55) | inductive | shared-infra (stopped/returned) | 8 refs (Observable, observe) |
 | `GasOracle` (:73) | abbrev | shared-infra (`List Word` gas stream) | 3 explicit + via `Trace` alias |
 | `Trace` (:78) | abbrev | shared-infra (working alias of `GasOracle`) | 53 refs (all `T : Trace` signatures) |
 | `CallStream` (:99) | abbrev | shared-infra (`List (World×Word)`, foundation call-stream, 1c77c07) | 67 refs |

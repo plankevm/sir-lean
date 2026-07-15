@@ -212,8 +212,8 @@ def IRRun (prog : Program) (w₀ : World) (T : GasOracle) (C : CallStream) (D : 
   RunFrom prog { locals := fun _ => none, world := w₀ } T C D prog.entry O
 ```
 
-with [`Observable`](../../../LirLean/Spec/Semantics.lean#L93) `= { world : World, result : IRHalt }`
-and [`IRHalt`](../../../LirLean/Spec/Semantics.lean#L14) `= stopped | returned w`.
+with [`Observable`](../../../LirLean/Spec/Semantics.lean#L93) `= { world : World, result : HaltResult }`
+and [`HaltResult`](../../../LirLean/Spec/Semantics.lean#L14) `= stopped | returned w`.
 
 ### 3.3 `RunFrom` drops leftovers; `RunFromAll` pins them to `[]` (reviewer Q3)
 

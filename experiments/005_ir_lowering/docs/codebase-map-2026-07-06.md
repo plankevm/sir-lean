@@ -153,7 +153,7 @@ inductive RunFrom (prog : Program) :                           -- :272
 def IRRun (prog) (w₀ T C D O) : Prop :=                        -- :320
   RunFrom prog { locals := fun _ => none, world := w₀ } T C D prog.entry O
 
-structure Observable where world : World; result : IRHalt     -- :254
+structure Observable where world : World; result : HaltResult     -- :254
 
 -- metatheory (Law.lean):
 theorem IRRun.det (h₁ : IRRun prog w₀ T C D O) (h₂ : IRRun prog w₀ T C D O') : O = O'  -- Law.lean:173
