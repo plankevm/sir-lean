@@ -1,4 +1,4 @@
-name: Lean Action CI
+name: SIR Lean CI
 
 on:
   push:
@@ -12,3 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: leanprover/lean-action@v1
+        with:
+          auto-config: false
+          build: true
+          lake-package-directory: sir

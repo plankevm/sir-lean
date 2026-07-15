@@ -1,10 +1,18 @@
 import Sir.IR.CFG
 import Sir.Semantics.World
 
+universe u v
+
+instance {σ : Type u} {ε : Type v} : MonadLift (StateM σ) (StateT σ (Except ε)) where
+  monadLift action state := .ok (action state)
+
 namespace Sir
 
 inductive IRError where
   | undefinedVariable (var : VarId)
+  | invalidBlock (block : BlockId)
+  | invalidControl
+  | blockArityMismatch (outputs inputs : Nat)
   deriving DecidableEq, Repr
 
 structure Locals where
@@ -14,16 +22,28 @@ namespace Locals
 
 def empty : Locals := ⟨fun _ => none⟩
 
-def get? (locals : Locals) (var : VarId) : Option Word :=
+def lookup? (locals : Locals) (var : VarId) : Option Word :=
   locals.values var
 
-def get (locals : Locals) (var : VarId) : Except IRError Word :=
-  match locals.get? var with
+def lookup (locals : Locals) (var : VarId) : Except IRError Word :=
+  match locals.lookup? var with
   | none => .error (.undefinedVariable var)
   | some value => .ok value
 
-def set (locals : Locals) (var : VarId) (value : Word) : Locals :=
+def lookupM (var : VarId) : StateT Locals (Except IRError) Word := StateT.get >>= (·.lookup var)
+
+def assign (locals : Locals) (var : VarId) (value : Word) : Locals :=
   ⟨fun candidate => if candidate = var then some value else locals.values candidate⟩
+
+def assignM (var : VarId) (value : Word) : StateM Locals Unit := modify (·.assign var value)
+
+def transfer (outputs inputs : Array VarId) : StateT Locals (Except IRError) Unit := do
+  if outputs.size != inputs.size then
+    throw (.blockArityMismatch outputs.size inputs.size)
+  let locals₀ ← StateT.get
+  for (input, output) in inputs.zip outputs do
+    let value ← locals₀.lookup output
+    assignM input value
 
 end Locals
 
@@ -44,28 +64,38 @@ structure CallContext where
   calldata : ByteArray
   isStatic : Bool
 
-/-- A statement cursor. The terminator is at `statement = block.statements.size`. -/
-structure ProgramCounter where
+inductive BlockPosition where
+  | statement (index : Nat)
+  | terminator
+  deriving DecidableEq, Repr
+
+structure ProgramCursor where
   block : BlockId
-  statement : Nat
+  position : BlockPosition
   deriving DecidableEq, Repr
 
 inductive MachineControl where
-  | running (pc : ProgramCounter)
+  | running (cursor : ProgramCursor)
   | halted
   deriving DecidableEq, Repr
-
-namespace MachineControl
-
-def blockStart (bid : BlockId) : MachineControl := .running { block := bid, statement := 0 }
-
-end MachineControl
 
 structure MachineState where
   world : World
   locals : Locals := .empty
   returnData : ByteArray := ByteArray.empty
   control : MachineControl
+
+instance {m : Type → Type} [Monad m] :
+    MonadLift (StateT Locals m) (StateT MachineState m) where
+  monadLift action state := do
+    let (result, locals') ← action.run state.locals
+    return (result, { state with locals := locals' })
+
+instance {m : Type → Type} [Monad m] :
+    MonadLift (StateT World m) (StateT MachineState m) where
+  monadLift action state := do
+    let (result, world') ← action.run state.world
+    return (result, { state with world := world' })
 
 inductive Event where
   | gas (value : Word)
@@ -74,27 +104,28 @@ inductive Event where
 abbrev Trace := List Event
 
 def MachineState.localSet (var : VarId) (value : Word) : StateM MachineState Unit :=
-  modify (fun s => { s with locals := s.locals.set var value })
+  modify (fun s => { s with locals := s.locals.assign var value })
 
-private def Program.block? (program : Program) (bid : BlockId) : Option BasicBlock :=
+def Program.block? (program : Program) (bid : BlockId) : Option BasicBlock :=
   program.blocks[bid.id]?
 
+def BasicBlock.absoluteToPosition (block : BasicBlock) (index : Nat) : BlockPosition :=
+  if index < block.statements.size then .statement index else .terminator
+
+def BasicBlock.startPosition (block : BasicBlock) : BlockPosition :=
+  block.absoluteToPosition 0
+
 def Program.decodeStmt (program : Program) (control : MachineControl) : Option (MachineControl × Stmt) := do
-  let .running pc := control | none
-  let block ← program.block? pc.block
-  let stmt ← block.statements[pc.statement]?
-  some (.running { pc with statement := pc.statement + 1 }, stmt)
+  let .running cursor := control | none
+  let .statement index := cursor.position | none
+  let block ← program.block? cursor.block
+  let stmt ← block.statements[index]?
+  some (.running { cursor with position := block.absoluteToPosition (index + 1) }, stmt)
 
 def Program.terminatorAt (program : Program) (control : MachineControl) : Option Terminator := do
-  let .running pc := control | none
-  let block ← program.block? pc.block
-  guard (pc.statement = block.statements.size)
+  let .running cursor := control | none
+  let .terminator := cursor.position | none
+  let block ← program.block? cursor.block
   some block.terminator
-
-def Program.nextControl (program : Program) (control : MachineControl) : Option MachineControl := do
-  let .running pc := control | none
-  let block ← program.block? pc.block
-  guard (block.statements[pc.statement]?.isSome)
-  some (.running { pc with statement := pc.statement + 1 })
 
 end Sir

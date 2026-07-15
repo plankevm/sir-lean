@@ -21,15 +21,14 @@ inductive SmallStep (program : Program) (ctx : CallContext) :
       (heval : eval_sstore ctx state key value = .ok state') :
       SmallStep program ctx state [] { state' with control := nextControl }
   | gas
-      {state : MachineState}
+      {state state' : MachineState}
       {nextControl : MachineControl}
       {result : VarId}
       {gas : Word}
       {locals' : Locals}
       (hstmt : program.decodeStmt state.control = some (nextControl, .gas result))
-      (hlocals : locals' = state.locals.set result gas) :
-      SmallStep program ctx state [.gas gas]
-        { state with locals := locals', control := nextControl }
+      (heval : (eval_gas result gas).run state = .ok ((), state')) :
+      SmallStep program ctx state [.gas gas] { state' with control := nextControl }
   | call
       {state state' : MachineState}
       {nextControl : MachineControl}
@@ -37,15 +36,14 @@ inductive SmallStep (program : Program) (ctx : CallContext) :
       {result : CallResult}
       {record : CallRecord}
       (hstmt : program.decodeStmt state.control = some (nextControl, .call call))
-      (heval : eval_call state call result = .ok (state', record)) :
+      (heval : (eval_call call result).run state = .ok (record, state')) :
       SmallStep program ctx state [.call record] { state' with control := nextControl }
   | terminator
-      {state : MachineState}
-      {nextControl : MachineControl}
+      {state state' : MachineState}
       {terminator : Terminator}
       (hterm : program.terminatorAt state.control = some terminator)
-      (heval : terminator.eval state = .ok nextControl) :
-      SmallStep program ctx state [] { state with control := nextControl }
+      (heval : (eval_terminator program terminator).run state = .ok ((), state')) :
+      SmallStep program ctx state [] state'
 
 inductive Steps (program : Program) (ctx : CallContext) :
     MachineState → Trace → MachineState → Prop where
