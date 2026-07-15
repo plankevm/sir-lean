@@ -22,9 +22,6 @@ deriving DecidableEq, Repr
 
 abbrev GasOracle := List Word
 
--- Compatibility alias; declarations generally use `GasOracle`.
-abbrev Trace := GasOracle
-
 abbrev CallStream := List (World × Word)
 
 abbrev CreateStream := List (World × Word)

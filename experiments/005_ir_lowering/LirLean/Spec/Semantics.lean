@@ -9,7 +9,7 @@ open Evm
 abbrev World := BytecodeLayer.Exec.World
 abbrev HaltResult := BytecodeLayer.Exec.HaltResult
 abbrev GasOracle := BytecodeLayer.Exec.GasOracle
-abbrev Trace := BytecodeLayer.Exec.Trace
+abbrev Trace := GasOracle
 abbrev CallStream := BytecodeLayer.Exec.CallStream
 abbrev CreateStream := BytecodeLayer.Exec.CreateStream
 abbrev Observable := BytecodeLayer.Exec.Observable
