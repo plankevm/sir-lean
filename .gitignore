@@ -1,2 +1,8 @@
 forks
 .lake/
+
+# agent/tooling scratch — not part of the formalization
+.claude/
+.codex/
+.smithers/
+run-*.log
