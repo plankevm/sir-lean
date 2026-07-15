@@ -253,7 +253,7 @@ Goal: turn the flagship's *proof that no CREATE occurs* into *permission for CRE
 descents*. This is a **subtraction**, lower-risk than the additions.
 - `Decode/Modellable.lean`: delete/weaken the `NotCreate` clause (`notCreate_of_atReachableBoundary`
   :25); replace with a localized "descents occur exactly at emitted CREATE/CALL sites"
-  predicate over the R6 boundary walk. Re-state `lower_modellable` to permit CREATE
+  predicate over the R6 boundary walk. Re-state `modellable_of_runs` to permit CREATE
   descents.
 - `Decode/NoCreateBytes.lean` (`SegAlignedSafe`-style tower) + `Decode/SegAligned.lean`:
   the "no CREATE byte at boundary" restriction is retired. The three `SegAligned*`

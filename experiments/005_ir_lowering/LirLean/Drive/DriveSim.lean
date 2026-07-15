@@ -122,7 +122,7 @@ log` (the run reaches a clean `.halted` outcome) and `beginCall params = .inl fr
 frame), the entry frame `CleanHaltsNonException`. The `drive → Runs` reverse construction
 (`runs_of_drive_ok`) reconstructs the halting `Runs` from the verified `drive` outcome
 `runWithLog_drive` pins, under the `Runs`-modellability of every reachable frame — which is **no
-longer a raw supplied universal**: it is **produced** by `lower_modellable` (`Decode/Modellable.lean`)
+longer a raw supplied universal**: it is **produced** by `modellable_of_runs` (`Decode/Modellable.lean`)
 from the two per-frame residuals
 
 * `CreateResolves` — every reachable CREATE whose init child terminates resumes successfully (the
@@ -134,7 +134,7 @@ from the two per-frame residuals
   residual**: a runtime condition on the program's reachable call targets, NOT a lowering property
   (vacuous for any call-free program). Supplied here as `hcc`.
 
-`lower_modellable` discharges the `runs_of_drive_ok` modellability universal from `hcr`/`hcc` via
+`modellable_of_runs` discharges the `runs_of_drive_ok` modellability universal from `hcr`/`hcc` via
 the proved reductions (`modellableStep_of`, `beginCall_isCode_of_codeSource_ne_precompiled`).
 
 The **non-exception scope premise** `hne` is the visible, approved scope boundary: the recorded
@@ -161,7 +161,7 @@ theorem cleanHalts_of_runWithLog {prog : Lir.Program} {params : Evm.CallParams} 
   -- `CreateResolves` (no CREATE OOG-fault on resume) and `CallsCode` (no precompile CALL) remain.
   obtain ⟨last, halt, hruns, hhalt, _⟩ :=
     BytecodeLayer.Interpreter.runs_of_drive_ok (Evm.seedFuel params.gas) fr₀ log.observable
-      hdrive (BytecodeLayer.Interpreter.lower_modellable hcr hcc)
+      hdrive (BytecodeLayer.Interpreter.modellable_of_runs hcr hcc)
   exact ⟨last, halt, hruns, hhalt, hne last halt hruns hhalt⟩
 
 /-! ## §3 — The strict `totalGas` descent across a block (the KEY new content)

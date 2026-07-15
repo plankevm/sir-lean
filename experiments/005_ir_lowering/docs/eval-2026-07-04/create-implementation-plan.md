@@ -99,7 +99,7 @@ IR-surface-and-up layers, **and the `Runs`-level bridge**, are CALL-only.
   currently *proves* no-CREATE: `NoCreateBytes.lean` (`SegAlignedSafe` — "lowering
   emits only 16 non-CREATE opcodes at any head", :50) + `Decode/Modellable.lean`
   `NotCreate` clause discharged by `notCreate_of_atReachableBoundary` (:25), wired
-  into the flagship via `lower_modellable` at RS:1255 and RS:3677. Adding CREATE
+  into the flagship via `modellable_of_runs` at RS:1255 and RS:3677. Adding CREATE
   means **retiring** this exclusion, not extending it.
 
 ### 1d. Missing — the exp003 `Runs`-level CREATE bridge (the load-bearing gap)
@@ -250,7 +250,7 @@ cluster-v1bricks.md) but needed to keep v1 compiling once `Stmt` gains a constru
 - `Decode/Modellable.lean`: delete/weaken the `NotCreate` clause (`NoCreate` :194,
   `notCreate_of_atReachableBoundary` :25). Replace with the localized "descents occur
   exactly at emitted CREATE/CALL sites" predicate over the R6 boundary walk
-  (execution-plan:127-131). `lower_modellable` (:380-area, used at RS:1255, RS:3677)
+  (execution-plan:127-131). `modellable_of_runs` (:380-area, used at RS:1255, RS:3677)
   is re-stated to permit CREATE descents.
 - `NoCreateBytes.lean` (`SegAlignedSafe` tower :50): no longer needs the "no
   CREATE byte" restriction. Per cluster-decode findings, `SegAlignedSafe` is one of

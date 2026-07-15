@@ -151,12 +151,12 @@ issues a code CALL or a halt — no CREATE node, no precompile-CALL). Splits: cl
 | `beginCall_isCode_of_codeSource_ne_precompiled` (371) | theorem | shared-infra (clause-2) | `modellableStep_of` |
 | `NotCreate` (398) | def | shared-infra | `notCreate_of_atReachableBoundary`, `modellableStep_of`; `Seams:77` |
 | `AtReachableBoundary` (407) | def | terminal-for-flagship (residual pc-reachability seam) | `RS:1245`, `DriveSim:145`, `BoundaryReach` |
-| `notCreate_of_atReachableBoundary` (421) | theorem | terminal-for-flagship (structural no-CREATE discharge) | `lower_modellable`; RS:2422 |
-| `CallsCode` (435) | def | terminal-for-flagship (forwarded as `Lir.Spec.CallsCode`, `Seams:81`) | `modellableStep_of`, `lower_modellable`; DriveSim:146 |
-| `modellableStep_of` (442) | theorem | shared-infra | `lower_modellable` |
-| `lower_modellable` (471) | theorem | terminal-for-flagship | `RS:1255` (code), `DriveSim:158` (`cleanHalts_of_runWithLog`), `BoundaryReach:8` |
+| `notCreate_of_atReachableBoundary` (421) | theorem | terminal-for-flagship (structural no-CREATE discharge) | `modellable_of_runs`; RS:2422 |
+| `CallsCode` (435) | def | terminal-for-flagship (forwarded as `Lir.Spec.CallsCode`, `Seams:81`) | `modellableStep_of`, `modellable_of_runs`; DriveSim:146 |
+| `modellableStep_of` (442) | theorem | shared-infra | `modellable_of_runs` |
+| `modellable_of_runs` (471) | theorem | terminal-for-flagship | `RS:1255` (code), `DriveSim:158` (`cleanHalts_of_runWithLog`), `BoundaryReach:8` |
 
-Assessment: entirely live. `lower_modellable` is applied directly in the flagship (RS:1255) and its
+Assessment: entirely live. `modellable_of_runs` is applied directly in the flagship (RS:1255) and its
 residual seams `AtReachableBoundary`/`CallsCode` are the honest, satisfiable side conditions the
 flagship carries. The long `noCallCreate_*`/`noCreate_*` combinator run is unavoidable
 pure-semantics infra proving clause 1 structurally. No simplification here beyond a possible future
@@ -304,7 +304,7 @@ Call  ── imports ──► Law           (uses IRRun.det for call_IRRun_uniq
 CallRealises ─────► (Call, Match, Spec/Recorder)
 Modellable ───────► (DriveRuns, NoCreateBytes)  ; self-contained producer
 DriveSim ─ borrows ► IRRun (runStmts_exists, RunDefinable, stmtsPost)
-          ─ borrows ► Modellable (lower_modellable → cleanHalts_of_runWithLog)
+          ─ borrows ► Modellable (modellable_of_runs → cleanHalts_of_runWithLog)
           ─ borrows ► LowerConforms (sim_cfg, SimTermStep) + transitively Corr/SimStmtStep/…
 Drive/SelfPresent ► (RecorderLemmas, MaterialiseRuns, AccountMap)
 Drive/CallPreservesSelf ─ imports ► Drive/SelfPresent (SelfPresent, resumeAfterCall_self_of_accounts)
@@ -314,7 +314,7 @@ Drive/Headline ─ imports ► DriveSim (DriveCorr) + Drive/CallPreservesSelf (S
 
 Exit edges (cluster decls consumed by the flagship / audit / Spec):
 
-- **to `RealisabilitySpec` (flagship, code):** `lower_modellable`, `AtReachableBoundary`,
+- **to `RealisabilitySpec` (flagship, code):** `modellable_of_runs`, `AtReachableBoundary`,
   `SelfPresent`, `accounts_ne_empty_of_selfPresent`, `selfPresent_codeFrame`,
   `selfPresent_runs_of_call`, `evmCallEntry` (via `realisedCall_cons`).
 - **to `Spec/Seams.lean` (forwarders the flagship cites):** `CallsCode` (→ `Spec.CallsCode`),

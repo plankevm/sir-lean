@@ -140,7 +140,7 @@ The closure decomposes into six strata. Nodes are classified by the `kind` field
 | `driveLog_drive` / `runWithLog_drive` | `RunLog.lean:337/624` | runtime-tie (recording is faithful to `drive`) |
 | `runs_of_drive_ok` | `DriveRuns.lean:283` | runtime-tie (reverse `Runs` construction) |
 | `ModellableStep` | `DriveRuns.lean:142` | runtime-tie (no CREATE node / no precompile-CALL node) |
-| `lower_modellable` | `Decode/Modellable.lean:471` | runtime-tie (produces `ModellableStep` universal) |
+| `modellable_of_runs` | `Decode/Modellable.lean:471` | runtime-tie (produces `ModellableStep` universal) |
 | `modellableStep_of` | `Decode/Modellable.lean:442` | runtime-tie |
 | `NotCreate` / `notCreate_of_atReachableBoundary` | `Decode/Modellable.lean:398/421` | structural (**discharged** from `AtReachableBoundary`) |
 | `AtReachableBoundary` | `Decode/Modellable.lean:407` | structural (pc-reachability residual `hrb`; per-program dischargeable) |

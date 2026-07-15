@@ -359,7 +359,7 @@ theorem modellableStep_of {fr : Frame} (hcr : CreateResolves fr) (hcc : CallsCod
 /-- If every frame reachable from `fr₀` satisfies `CreateResolves` and `CallsCode`, then every
 reachable frame is `ModellableStep`. This packages the two runtime conditions required by the
 `Runs` reconstruction. -/
-theorem lower_modellable {fr₀ : Frame}
+theorem modellable_of_runs {fr₀ : Frame}
     (hcr : ∀ fr', Runs fr₀ fr' → CreateResolves fr')
     (hcc : ∀ fr', Runs fr₀ fr' → CallsCode fr') :
     ∀ fr', Runs fr₀ fr' → ModellableStep fr' :=

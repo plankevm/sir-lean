@@ -257,7 +257,7 @@ tombstone. A shallow "unused ⇒ dead" pass will wrongly flag every one of them.
   (`DriveSim.lean:666`) alone is safely removable, but confirm the block templates first.
 - `CleanHaltExtract` `next_*_of_cleanHalt` family — called directly inside the flagship
   (RS:1415…2600) and upstream of SimStmt via MaterialiseCleanHalt; not acyclic-only.
-- `Modellable.lean` `lower_modellable` (applied RS:1255) — fully live terminal-for-flagship.
+- `Modellable.lean` `modellable_of_runs` (applied RS:1255) — fully live terminal-for-flagship.
 
 **Genuine duplication that is INTENTIONAL (do not naively dedup):**
 - The covered-slot MLOAD zero-expansion argument between `MaterialiseRuns.lean:896-940` and

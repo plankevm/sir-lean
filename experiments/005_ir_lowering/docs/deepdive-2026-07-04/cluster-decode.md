@@ -156,7 +156,7 @@ Consumer confirmed: `Decode/Modellable.notCreate_of_atReachableBoundary` (:421-4
 ### 1.7 `BoundaryReach.lean` (432 LOC) — SegAligned tower #3
 
 Purpose (header): boundary-reachability bricks for the whole-run `AtReachableBoundary`
-invariant (`hrb` of `Decode/Modellable.lower_modellable`), feeding the flagship's **R6**
+invariant (`hrb` of `Decode/Modellable.modellable_of_runs`), feeding the flagship's **R6**
 (`runs_atReachableBoundary`, `RealisabilitySpec.lean:2456`). Three bricks + the
 `SegAlignedLowering` allow-list tower (= `SegAligned` + per-head `IsLoweringOp`).
 

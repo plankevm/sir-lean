@@ -556,7 +556,7 @@ def CallsCode (fr : Frame) : Prop :=
 ```
 
 glued by [`modellableStep_of`](../../../LirLean/Decode/Modellable.lean#L430) and the producing
-lemma [`lower_modellable`](../../../LirLean/Decode/Modellable.lean#L450). The interesting content
+lemma [`modellable_of_runs`](../../../LirLean/Decode/Modellable.lean#L450). The interesting content
 is *why these two are irreducible*:
 
 - `CallsCode` is **genuinely runtime-dependent**: the CALL target is a stack value; a lowered IR
@@ -638,7 +638,7 @@ exp003's headline shape.
 **Headline-grade engine results** (the flagship's `Conforms` half consumes all of these
 transitively):
 [`runs_of_drive_ok`](../../../../../EVM/BytecodeLayer/Hoare/DriveRuns.lean#L357),
-[`lower_modellable`](../../../LirLean/Decode/Modellable.lean#L450),
+[`modellable_of_runs`](../../../LirLean/Decode/Modellable.lean#L450),
 [`drive_accounts_find_mono`](../../../../../EVM/BytecodeLayer/Hoare/DriveMono.lean#L159),
 [`stepFrame_next_accMono`](../../../../../EVM/BytecodeLayer/Hoare/StepWalk.lean#L1119),
 [`selfPresent_runs_of_call`](../../../LirLean/Drive/CallPreservesSelf.lean#L337),

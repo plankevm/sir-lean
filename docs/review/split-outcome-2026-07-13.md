@@ -49,7 +49,7 @@ assembler phase:
    They will be re-indexed over the verified assembler rather than mechanically
    relocated.
 
-Nonblocking debt carried forward: the generic theorem name `lower_modellable`
+Nonblocking debt carried forward: the generic theorem name `modellable_of_runs`
 is historical, and the materialisation adapter retains the build-required
 `MaterialiseRuns` → `Frame.Match` compatibility import until the namespace/import
 graph is re-indexed.

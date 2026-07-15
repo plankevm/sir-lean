@@ -224,7 +224,7 @@ here obligation-by-obligation as sorries land.
 `RealisabilitySpec.lean` imports (`:1-3`):
 - **`LirLean.Drive.Headline`** — pulls in the whole cyclic drive spine: `runWithLog`,
   `runWithLog_drive`, `runs_of_drive_ok`, `driveLog`, `Runs`, `RunFrom`, `RunStmts`,
-  `EvalStmt`, `Corr`, `CleanHaltsNonException`, `SelfPresent`, `lower_modellable`,
+  `EvalStmt`, `Corr`, `CleanHaltsNonException`, `SelfPresent`, `modellable_of_runs`,
   `cleanHalts_of_runWithLog`, `materialise_runs_of_cleanHalt`,
   `jump/branch_landing_of_cleanHalt`, `callPreservesSelf_modGuards`, `stepPreservesSelf`,
   `selfPresent_runs`, `evmCallOracle`, the SSTORE/GAS/SLOAD `stepFrame_*` inversions,
@@ -307,7 +307,7 @@ would cut the flagship file roughly in half. Grounding-aligned
 Evidence: `haltNonException_of_cleanLog` (:1249-1263) and `conforms_of_worldeq`
 (:3671-3685) open with a byte-for-byte identical ~13-line block: `runWithLog_drive hrun` →
 `rw [hbegin] at hbc` → `hfeq : frame = fr₀` → `rw [hfeq] at hdrive` →
-`runs_of_drive_ok … (lower_modellable hrb hcc)` → uniqueness via `runs_halt_eq` +
+`runs_of_drive_ok … (modellable_of_runs hrb hcc)` → uniqueness via `runs_halt_eq` +
 `Runs.linear_to_halt` → `Signal.halted.injEq`. A shared lemma
 `terminal_of_runWithLog : … → ∃ last₀ halt₀, Runs fr₀ last₀ ∧ stepFrame last₀ = .halted
 halt₀ ∧ log.observable = endFrame last₀ halt₀` would eliminate the duplication in both.

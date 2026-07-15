@@ -187,7 +187,7 @@ theorem conforms_of_worldeq {params : CallParams} {fr₀ : Frame}
   rw [hfeq] at hdrive
   obtain ⟨last₀, halt₀, hto₀, hhalt₀, hobs⟩ :=
     runs_of_drive_ok (seedFuel params.gas) fr₀ log.observable hdrive
-      (lower_modellable hcr hcc)
+      (modellable_of_runs hcr hcc)
   obtain ⟨last, haltSig, hreach, hhalt, hweq, hreq⟩ := hworld
   -- the halting terminal is unique: `last = last₀`, `haltSig = halt₀`.
   have hlast : last = last₀ :=

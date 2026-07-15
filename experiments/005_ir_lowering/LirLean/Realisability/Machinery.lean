@@ -284,7 +284,7 @@ theorem haltNonException_of_cleanLog {prog : Lir.Program} {params : CallParams}
   rw [hfeq] at hdrive
   obtain ⟨last₀, halt₀, hto₀, hhalt₀, hobs⟩ :=
     runs_of_drive_ok (seedFuel params.gas) fr₀ log.observable hdrive
-      (lower_modellable hcr hcc)
+      (modellable_of_runs hcr hcc)
   intro last halt hreach hhalt
   -- the halting terminal is unique: `last = last₀`, `halt = halt₀`.
   have hlast : last = last₀ :=

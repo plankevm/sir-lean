@@ -6,7 +6,7 @@ import BytecodeLayer.Hoare.Descent
 
 The whole-run boundary invariant the modellability producer needs is
 `∀ fr', Runs (codeFrame params (lower prog)) fr' → AtReachableBoundary prog fr'`
-(`hrb` of `BytecodeLayer.Interpreter.lower_modellable`, `Decode/Modellable.lean`):
+(`hrb` of `BytecodeLayer.Interpreter.modellable_of_runs`, `Decode/Modellable.lean`):
 every `Runs`-reachable frame sits at an instruction boundary reachable from `0` and in range.
 Proving it is a `Runs`-induction whose `step`/`call` cases use generic boundary transports plus
 lowering-specific opcode refinements. The generic converse and sequential facts are imported from

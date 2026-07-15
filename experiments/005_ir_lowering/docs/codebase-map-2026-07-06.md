@@ -463,7 +463,7 @@ surface. Acknowledged-deferred relocations are ranked by residual confusion, not
 
 3. **`Decode/Modellable.lean` → `Engine/`** (or exp003). The entire file is
    `namespace BytecodeLayer.Interpreter` — pure stepFrame/dispatch routing algebra + the
-   `lower_modellable` producer; only `AtReachableBoundary` (:398) mentions `Lir.lower`. A file in
+   `modellable_of_runs` producer; only `AtReachableBoundary` (:398) mentions `Lir.lower`. A file in
    the IR-proof folder whose namespace is the bytecode engine breaks every navigation model. The
    seam *definitions* (`CallsCode` :410, `CreateResolves` :421) stay reachable via Spec/Seams.
 

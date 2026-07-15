@@ -13,7 +13,7 @@ The Lean split was semantically correct as landed. Review found a source-hygiene
 new generic files still described results in IR terms, and five adapters still claimed to own
 declarations that moved. The follow-up cleanup rewrote those comments in bytecode-local terms,
 collapsed the adapter headers, and removed redundant imports. The generic theorem
-[`lower_modellable`](../../EVM/BytecodeLayer/Exec/Modellable.lean#L362)
+[`modellable_of_runs`](../../EVM/BytecodeLayer/Exec/Modellable.lean#L362)
 still has a legacy lowering-flavoured name although its statement is about an arbitrary entry
 frame; its docstring is now generic, and the rename is recorded as non-blocking naming debt.
 Verdict: **pass after the B2 cleanup; no semantic defect remains.**
@@ -205,7 +205,7 @@ theorem modellableStep_of {fr : Frame} (hcr : CreateResolves fr) (hcc : CallsCod
 Its run-wide closure is also semantically generic, despite its current name:
 
 ```lean
-theorem lower_modellable {fr₀ : Frame}
+theorem modellable_of_runs {fr₀ : Frame}
     (hcr : ∀ fr', Runs fr₀ fr' → CreateResolves fr')
     (hcc : ∀ fr', Runs fr₀ fr' → CallsCode fr') :
     ∀ fr', Runs fr₀ fr' → ModellableStep fr' :=
@@ -357,7 +357,7 @@ re-indexing change rather than a relocation-only cleanup; defer it with the othe
 ### Deferred: legacy generic theorem name
 
 The statement at
-[`lower_modellable`](../../EVM/BytecodeLayer/Exec/Modellable.lean#L362)
+[`modellable_of_runs`](../../EVM/BytecodeLayer/Exec/Modellable.lean#L362)
 does not mention lowering or code. Its docstring is now generic, so the legacy name is not a
 correctness or dependency defect. Renaming would require a broad Lean-and-documentation reference
 sweep; record it as naming debt for a dedicated surface naming pass. If renamed later, update all
