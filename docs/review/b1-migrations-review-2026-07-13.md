@@ -60,11 +60,11 @@ structure Observable where
   result : HaltResult
 ```
 
-This substrate is structurally generic, although the type name
-[HaltResult](../../EVM/BytecodeLayer/Exec/Observable.lean#L18)
-still carries historical IR terminology. No B1 declaration mentions the source
-IR's program, block, statement, term, expression, temporary, call/create spec,
-lowering, emission, definition map, or materialisation cache in its type.
+This substrate is structurally generic. Its
+[HaltResult](../../EVM/BytecodeLayer/Exec/Observable.lean#L18) name is IR-neutral,
+and no B1 declaration mentions the source IR's program, block, statement, term,
+expression, temporary, call/create spec, lowering, emission, definition map, or
+materialisation cache in its type.
 
 ## Migration inventory and import direction
 
@@ -84,7 +84,7 @@ genuinely IR-specific specialization.
 | `35ac4da6` | Segmented evaluator | [SegmentedEval.lean](../../EVM/BytecodeLayer/Exec/SegmentedEval.lean#L24) | [SegmentedEval.lean adapter](../../experiments/005_ir_lowering/LirLean/Realisability/SegmentedEval.lean#L1) | Generic one-step and segmented evaluation of the recorder/checker. |
 | `2b43d6f7` | Checked evaluator | [CheckedStep.lean](../../EVM/BytecodeLayer/Exec/CheckedStep.lean#L82) | [CheckedStep.lean adapter](../../experiments/005_ir_lowering/LirLean/Realisability/CheckedStep.lean#L1) | Checked twins and soundness statements use only EVM machine state and recorder configurations. |
 | `608caa0c` | Self-presence preservation | [CallPreservesSelf.lean](../../EVM/BytecodeLayer/Exec/CallPreservesSelf.lean#L31) | [CallPreservesSelf.lean adapter](../../experiments/005_ir_lowering/LirLean/Drive/CallPreservesSelf.lean#L1) | All predicates quantify over EVM steps, calls, creates, runs, and account presence. |
-| `c4714994` | Call/create realization bridges | [CallRealises.lean](../../EVM/BytecodeLayer/Exec/CallRealises.lean#L24) | [CallRealises.lean adapter](../../experiments/005_ir_lowering/LirLean/CallRealises.lean#L1) | Despite historical declaration names containing “lowered,” all types are EVM resume/observable equalities. |
+| `c4714994` | Call/create realization bridges | [CallRealises.lean](../../EVM/BytecodeLayer/Exec/CallRealises.lean#L24) | [CallRealises.lean adapter](../../experiments/005_ir_lowering/LirLean/CallRealises.lean#L1) | The reflection names identify their oracle boundary, and all types are EVM resume/observable equalities. |
 | `de400da0` | Clean-halt extraction | [CleanHaltExtract.lean](../../EVM/BytecodeLayer/Exec/CleanHaltExtract.lean#L60) | [CleanHaltExtract.lean adapter](../../experiments/005_ir_lowering/LirLean/Materialise/CleanHaltExtract.lean#L1) retains the IR-specific specialization | Generic opcode envelopes moved; the one theorem that mentions IR syntax and materialisation stayed above the cut. |
 | `d3337dd8` | Seam predicates | [Invariants.lean](../../EVM/BytecodeLayer/Exec/Invariants.lean#L268) and [CallPreservesSelf.lean](../../EVM/BytecodeLayer/Exec/CallPreservesSelf.lean#L230) | [Spec/Seams.lean](../../experiments/005_ir_lowering/LirLean/Spec/Seams.lean#L1) retains aliases and the phantom program parameter | Generic seam structure no longer depends on the source IR; the adapter preserves the old public shape. |
 
@@ -440,11 +440,6 @@ or hides a conclusion in a new generic assumption.
   mainline lowering/decode cone, so brittleness here can affect headline builds,
   though it introduces no axiom or untrusted evaluator. Both settings predate B1
   and were relocated rather than added.
-- **Naming rough edge:** the generic observable result is still called
-  [HaltResult](../../EVM/BytecodeLayer/Exec/Observable.lean#L18).
-  Its definition is IR-independent, so this is nomenclature rather than a cut
-  violation.
-
 ## Resolved review finding
 
 The initial pass found that migrated declarations were generic but several

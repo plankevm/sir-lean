@@ -13,9 +13,8 @@ The Lean split was semantically correct as landed. Review found a source-hygiene
 new generic files still described results in IR terms, and five adapters still claimed to own
 declarations that moved. The follow-up cleanup rewrote those comments in bytecode-local terms,
 collapsed the adapter headers, and removed redundant imports. The generic theorem
-[`modellable_of_runs`](../../EVM/BytecodeLayer/Exec/Modellable.lean#L362)
-still has a legacy lowering-flavoured name although its statement is about an arbitrary entry
-frame; its docstring is now generic, and the rename is recorded as non-blocking naming debt.
+[`modellable_of_runs`](../../EVM/BytecodeLayer/Exec/Modellable.lean#L362) now has a
+run-based name matching its arbitrary-entry-frame statement.
 Verdict: **pass after the B2 cleanup; no semantic defect remains.**
 
 Verification status: changed declarations were read against the pre-split versions; the flagship
@@ -50,7 +49,7 @@ facts and add only IR-indexed bridges; the unchanged flagships consume the resul
 | `93e731ca` | [atomic frame simulations](../../EVM/BytecodeLayer/Exec/Frame.lean#L1) | [three lowering boundary bridges](../../experiments/005_ir_lowering/LirLean/Frame/Match.lean#L35) | Correct statements and minimal two-import adapter. |
 | `00aa813f` | [successful-halt projections](../../EVM/BytecodeLayer/Exec/Results.lean#L1) | [terminator simulation](../../experiments/005_ir_lowering/LirLean/Sim/SimTerm.lean#L1) | Clean cut and focused adapter export. |
 | `574c7ed7` | [witness checker soundness](../../EVM/BytecodeLayer/Exec/WitnessChecks.lean#L1) | [concrete exp005 witness](../../experiments/005_ir_lowering/LirLean/Realisability/WitnessParams.lean#L27) | Correct cut; the adapter now describes only the concrete witness and assembly. |
-| `391c1638` | [frame/step modellability](../../EVM/BytecodeLayer/Exec/Modellable.lean#L1) | [lowered-code boundary predicate](../../experiments/005_ir_lowering/LirLean/Decode/Modellable.lean#L9) | Correct semantic cut; docstrings are generic/local, with only the legacy theorem name deferred. |
+| `391c1638` | [frame/step modellability](../../EVM/BytecodeLayer/Exec/Modellable.lean#L1) | [lowered-code boundary predicate](../../experiments/005_ir_lowering/LirLean/Decode/Modellable.lean#L9) | Correct semantic cut; docstrings and the exported theorem name are generic/local. |
 | `2a188960` | [memory/accessor and stash bundle](../../EVM/BytecodeLayer/Exec/Memory.lean#L1) | [IR value-channel relations](../../experiments/005_ir_lowering/LirLean/Materialise/MaterialiseRuns.lean#L60) | Correct landed subset; explicitly deferred relations remain IR-indexed. |
 | `5df82804` | [stash-tail forward runs](../../EVM/BytecodeLayer/Exec/Stash.lean#L1) | [cached-SLOAD composition](../../experiments/005_ir_lowering/LirLean/Materialise/StashTail.lean#L8) | Correct cut; both sides now describe only their local role. |
 
@@ -354,18 +353,8 @@ consumers fail because that module is currently the sole declaration site of the
 they open transitively. Eliminating this import therefore requires an import-graph/namespace
 re-indexing change rather than a relocation-only cleanup; defer it with the other re-indexing work.
 
-### Deferred: legacy generic theorem name
-
-The statement at
-[`modellable_of_runs`](../../EVM/BytecodeLayer/Exec/Modellable.lean#L362)
-does not mention lowering or code. Its docstring is now generic, so the legacy name is not a
-correctness or dependency defect. Renaming would require a broad Lean-and-documentation reference
-sweep; record it as naming debt for a dedicated surface naming pass. If renamed later, update all
-callers and prose references in the same change.
-
 ## Recommendation
 
 Accept all eight B2 splits after the cleanup gate. Carry the three documented re-indexing
-deferrals and the materialisation adapter's namespace/import debt into the assembler phase, and
-keep the modellability theorem rename as non-blocking naming debt. No proof redesign, premise
-change, or further B2 extraction is warranted.
+deferrals and the materialisation adapter's namespace/import debt into the assembler phase. No
+proof redesign, premise change, or further B2 extraction is warranted.
