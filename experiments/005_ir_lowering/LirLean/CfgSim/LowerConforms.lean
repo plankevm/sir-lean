@@ -218,7 +218,7 @@ observation). `CallRealises` bundles exactly that supply, quantified over the cu
 the structural side-conditions (slot registration + addressability) come from
 `WellFormedLowered`, and the pre-call `MemRealises` comes from `Corr.memAgree`.
 
-The realised step is pinned via the post-state `st0' = evmV2CallEntry result pd self`-effect (in
+The realised step is pinned via the post-state `st0' = evmCallEntry result pd self`-effect (in
 the walk, the consumed call-stream head at this cursor IS that recorded entry, `realisedCall_cons`
 — `rfl`-clean per record), so the `EvalStmt` call step's post-state *is* the realised effect
 `sim_call_stmt` consumes. Positional: distinct dynamic calls pin distinct heads, so no single-call
@@ -227,7 +227,7 @@ restriction. -/
 /-- **The §7 CALL realisability tie.** For a `.call cs` cursor with frame `fr0` in `Corr`
 correspondence and IR post-state `st0'`, `CallRealises` supplies the realised external-CALL trace
 `sim_call_stmt` consumes: the recorded `(result, pd)` and self address, the realised post-state
-pin `st0' = evmV2CallEntry result pd self`-effect (so the call step's post-state is the realised
+pin `st0' = evmCallEntry result pd self`-effect (so the call step's post-state is the realised
 one), the arg-push run reaching the CALL-site frame `callFr` with its pc/memory pins, the
 returning CALL (`CallReturns callFr resumeFr`) with the resume-frame pins, the post-state
 realisability ties, and the Route-B tail's realisability. The genuine runtime call observation
@@ -240,7 +240,7 @@ def CallRealises (prog : Program) (sloadChg : Tmp → ℕ) (obs : Word)
     -- the per-step scoping of the call statement (the §7 call scoping):
     StepScoped prog st0 (.call cs)
     -- the realised post-state pin: the consumed call-stream head IS this call's recorded
-    -- `evmV2CallEntry` effect (the positional multi-call tie replacing the old function-oracle
+    -- `evmCallEntry` effect (the positional multi-call tie replacing the old function-oracle
     -- equation — no single-call restriction, distinct calls consume distinct heads):
     ∧ st0' = (match cs.resultTmp with
         | some t' => { st0 with world := fun key =>
@@ -501,7 +501,7 @@ theorem simStmtStep_block {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
   | call hcallee hgasr =>
     rename_i cs calleeW gasFwdW success world'
     -- the step post-state `st0'` is the consumed head's effect; `hcallties` pins it to the
-    -- realised `evmV2CallEntry` effect (the positional multi-call tie).
+    -- realised `evmCallEntry` effect (the positional multi-call tie).
     exact simStmtStep_call hb hget hwf hcorr (hcallties pc cs st0 _ fr0 hget)
   | create hvalue hoff hsize hsalt =>
     -- create-free fragment: the create-reflection is Step 5, so a `.create` at a present cursor

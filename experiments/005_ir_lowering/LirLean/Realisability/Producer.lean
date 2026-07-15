@@ -66,8 +66,8 @@ un-consumed recorder suffixes `(gS, cS, dS)`. The sload suffix `sS` has no IR st
 (SLOAD consumes nothing on the IR side), so it is not aligned. -/
 
 /-- The IR streams `(T, C, D)` at a coupled boundary are the realised image of the recorder
-suffixes: the gas trace IS the gas suffix, the call stream IS the `evmV2CallEntry` image of
-the call suffix, and the create stream IS the `evmV2CreateEntry` image of the create
+suffixes: the gas trace IS the gas suffix, the call stream IS the `evmCallEntry` image of
+the call suffix, and the create stream IS the `evmCreateEntry` image of the create
 suffix. REAL def. -/
 def StreamsAligned (self : AccountAddress) (log : RunLog)
     (gS : List Word) (cS : List CallRecord) (dS : List CreateRecord)
@@ -1581,9 +1581,9 @@ theorem simStmt_coupled_call {prog : Program} {sloadChg : Tmp → ℕ} {log : Ru
     rw [← haddr]
     exact hressto key
   -- == the IR step: consume the aligned call-stream head (the realised image of `rec`) ==
-  have hCcons : C = evmV2CallEntry rec.result rec.pending self :: callStreamOf cS' self := by
+  have hCcons : C = evmCallEntry rec.result rec.pending self :: callStreamOf cS' self := by
     rw [hal.2.1]; rfl
-  have hentry : evmV2CallEntry rec.result rec.pending self
+  have hentry : evmCallEntry rec.result rec.pending self
       = ((fun key => evmCallOracle.postStorage rec.result rec.pending self key),
           callSuccessFlag rec.result rec.pending) := rfl
   have hEval : EvalStmt prog st T C D (.call cs)
@@ -1881,10 +1881,10 @@ theorem simStmt_coupled_create {prog : Program} {sloadChg : Tmp → ℕ} {log : 
     intro k
     rw [← haddr]
     exact hressto k
-  have hDcons : D = evmV2CreateEntry rec.result rec.pending self
+  have hDcons : D = evmCreateEntry rec.result rec.pending self
       :: createStreamOf dS' self := by
     rw [hal.2.2]; rfl
-  have hentry : evmV2CreateEntry rec.result rec.pending self
+  have hentry : evmCreateEntry rec.result rec.pending self
       = ((fun key => evmCreateOracle.postStorage rec.result rec.pending self key),
           createAddrOrZero rec.result rec.pending) := rfl
   have hEval : EvalStmt prog st T C D (.create cs)

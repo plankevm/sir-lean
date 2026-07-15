@@ -32,7 +32,7 @@ exists at exactly the recorded streams and its final world/result agree with the
 ([`Conforms`](../../../LirLean/Spec/Conformance.lean#L20)). The statement vocabulary is now
 fully hoisted into `Spec/` (the exact-consumption mirror
 [`RunFromAll`](../../../LirLean/Spec/Semantics.lean#L188) and the call/create entry projections
-[`evmV2CallEntry`](../../../LirLean/Spec/Recorder.lean#L16) included — the earlier
+[`evmCallEntry`](../../../LirLean/Spec/Recorder.lean#L16) included — the earlier
 "trusted surface is split" finding is **resolved on the vocabulary axis**, still open on the
 import axis: several `Spec/` files import proof modules). Verification status, reported not
 re-run: default `LirLean` lib builds green and is sorry-free (all 6 `sorry`s live in the
@@ -48,7 +48,7 @@ the salvage layer are build-pinned in [`Audit.lean`](../../../LirLean/Audit.lean
 | [`Spec/Semantics.lean`](../../../LirLean/Spec/Semantics.lean) | oracle-stream big-step: `IRState`, streams, `evalExpr`, `EvalStmt`, `RunFrom`, `IRRun`, `RunFromLeft`/`RunFromAll` | trusted spec (+2 tiny adapter proofs) |
 | [`Spec/Lowering.lean`](../../../LirLean/Spec/Lowering.lean) | `Loc`/`Alloc`, `defsOf`, `matExpr`/`matCache`, `emit`, `lower` | trusted spec (+`rfl` simp lemmas) |
 | [`Spec/Recorder.lean`](../../../LirLean/Spec/Recorder.lean) | `RunLog`, `driveLog`, `runWithLog`, `realisedGas/Call/Create`, `observe` | trusted spec — **the trust fence, §5** |
-| [`Spec/Recorder.lean`](../../../LirLean/Spec/Recorder.lean) | recorder vocabulary and `evmV2CallEntry`/`evmV2CreateEntry` stream-entry projections | trusted spec |
+| [`Spec/Recorder.lean`](../../../LirLean/Spec/Recorder.lean) | recorder vocabulary and `evmCallEntry`/`evmCreateEntry` stream-entry projections | trusted spec |
 | [`Spec/Conformance.lean`](../../../LirLean/Spec/Conformance.lean) | `entryState`, `RunLog.clean`, `Conforms`, `NoGasReads` | trusted spec |
 | [`Spec/WellFormed.lean`](../../../LirLean/Spec/WellFormed.lean) | `IRWellFormed`, `codeFits`, `stackFits` + vocabulary | trusted spec **mixed with ~280 lines of `matCache` proofs** |
 | [`Spec/Seams.lean`](../../../LirLean/Spec/Seams.lean) | `PrecompileAssumptions`, `ReachableFrom`, seam forwarders | trusted spec (forwards to proof-layer defs) |
@@ -403,7 +403,7 @@ and a [`RunLog`](../../../LirLean/Spec/Recorder.lean#L19) bundling
      ([`recordCall`](../../../LirLean/Spec/Recorder.lean#L39)).
 
    The channels acquire semantic force only downstream: the entry projections
-   ([`evmV2CallEntry`](../../../LirLean/Spec/Recorder.lean#L16), §6) are proved to coincide
+   ([`evmCallEntry`](../../../LirLean/Spec/Recorder.lean#L16), §6) are proved to coincide
    with the actual lowered CALL/CREATE effect
    ([`callRealises_bridge`](../../../LirLean/CallRealises.lean#L77) /
    [`createRealises_bridge`](../../../LirLean/CallRealises.lean#L118), both `rfl`-clean
@@ -419,7 +419,7 @@ The IR-facing stream projections are one `map` each:
 -- Spec/Recorder.lean#L103
 def realisedGas (log : RunLog) : GasOracle := log.gas
 def callStreamOf (calls : List CallRecord) (self : AccountAddress) : CallStream :=
-  calls.map (fun rec => evmV2CallEntry rec.result rec.pending self)
+  calls.map (fun rec => evmCallEntry rec.result rec.pending self)
 def realisedCall (log : RunLog) (self : AccountAddress) : CallStream := callStreamOf log.calls self
 ```
 
@@ -450,14 +450,14 @@ conversion. In-scope programs can't produce either, but the *definition* doesn't
 
 ```lean
 -- Spec/Recorder.lean
-def evmV2CallEntry (result : CallResult) (pd : PendingCall) (self : AccountAddress) :
+def evmCallEntry (result : CallResult) (pd : PendingCall) (self : AccountAddress) :
     World × Word :=
   ( (fun key => evmCallOracle.postStorage result pd self key)
   , evmCallOracle.successWord result pd )
 ```
 
-([`evmV2CallEntry`](../../../LirLean/Spec/Recorder.lean#L16),
-[`evmV2CreateEntry`](../../../LirLean/Spec/Recorder.lean#L21).) These convert one recorded
+([`evmCallEntry`](../../../LirLean/Spec/Recorder.lean#L16),
+[`evmCreateEntry`](../../../LirLean/Spec/Recorder.lean#L21).) These convert one recorded
 `CallRecord` into one `CallStream` entry: the post-call self-storage lens and the 0/1 success
 word, both projections of exp003's `resumeAfterCall` via
 [`evmCallOracle`](../../../LirLean/Frame/Call.lean#L108) (whose `successWord` is proved equal
@@ -626,7 +626,7 @@ Spec/Recorder), `RunFrom`/`RunFromAll`/streams (Spec/Semantics), `entryState`/`c
 `CallParams`/`beginCall`/`Account`/`GasConstants`/
 [`seedFuel`](../../../../003_bytecode_layer/EVMLean/Evm/Semantics/Interpreter.lean#L71)
 (reviewed in [01-trusted-base](01-trusted-base.md)). The previously stranded vocabulary —
-`RunFromLeft`/`RunFromAll` and `evmV2CallEntry`/`evmV2CreateEntry` — **has been hoisted**
+`RunFromLeft`/`RunFromAll` and `evmCallEntry`/`evmCreateEntry` — **has been hoisted**
 (now at [Spec/Semantics.lean#L144](../../../LirLean/Spec/Semantics.lean#L144) and
 [Spec/Recorder.lean](../../../LirLean/Spec/Recorder.lean); the
 [`Surface.lean` §1 header](../../../LirLean/Realisability/Surface.lean#L24) records the

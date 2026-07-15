@@ -163,7 +163,7 @@ The conclusion: there is an IR observable `O` such that (i) the executable IR bi
 recipient's pre-call storage lens), consuming the **realised streams** — the recorded gas
 words [`realisedGas`](../../../LirLean/Spec/Recorder.lean#L103), the recorded call effects
 [`realisedCall`](../../../LirLean/Spec/Recorder.lean#L110) (each record projected through
-`evmV2CallEntry` to a `(post-world, success)` pair), the recorded create effects
+`evmCallEntry` to a `(post-world, success)` pair), the recorded create effects
 [`realisedCreate`](../../../LirLean/Spec/Recorder.lean#L116) — and (ii) `O` agrees with the
 bytecode run on both channels:
 
@@ -325,7 +325,7 @@ DERIVED: [`termTies'_of_runWithLog`](../../../LirLean/Realisability/Producer.lea
 The call arm's payload: under `Corr`, there exist the recorded `(result, pd)`, the arg-push
 run `Runs fr0 callFr` with pc/memory pins, the returning `CallReturns callFr resumeFr` with
 `resumeFr = Evm.resumeAfterCall result pd`, the post-state pinned to the record's
-`evmV2CallEntry` effect (world = `postStorage`, result tmp = `callSuccessFlag`), and the
+`evmCallEntry` effect (world = `postStorage`, result tmp = `callSuccessFlag`), and the
 Route-B flag-stash tail. It is the in-tree `Lir.CallRealises` with the embedded refutable
 `StepScoped` clause replaced by the static `StepScopedS` (lesson 8). The call arm of
 `StmtTies'` keys it on the **coupling's `callSuffix` head** `rec :: cS'` — positional,
@@ -573,7 +573,7 @@ yet.
 | [`Drive/SelfPresent.lean`](../../../LirLean/Drive/SelfPresent.lean) | [`SelfPresent`](../../../LirLean/Drive/SelfPresent.lean#L353), [`accounts_ne_empty_of_selfPresent`](../../../LirLean/Drive/SelfPresent.lean#L368), [`selfPresent_codeFrame`](../../../LirLean/Drive/SelfPresent.lean#L398), and the gas/sload log-alignment lemma family. | Sorry-free; the presence chain feeding `DriveCorrLog.selfPresent` and the stop/ret ties. |
 | [`Drive/CallPreservesSelf.lean`](../../../LirLean/Drive/CallPreservesSelf.lean) | Engine theory: [`stepPreservesSelf`](../../../LirLean/Drive/CallPreservesSelf.lean#L84) (unconditional), [`callPreservesSelf_modGuards`](../../../LirLean/Drive/CallPreservesSelf.lean#L214) / [`createPreservesSelf_modGuards`](../../../LirLean/Drive/CallPreservesSelf.lean#L300) (from the `noErase` seam), [`selfPresent_runs`](../../../LirLean/Drive/CallPreservesSelf.lean#L321). Covered in depth in [01-trusted-base](01-trusted-base.md). | Sorry-free, axiom-clean per its header. |
 | [`RecorderLemmas.lean`](../../../LirLean/RecorderLemmas.lean) | The recorder adequacy layer: [`driveLog_drive`](../../../LirLean/RecorderLemmas.lean#L82) (erasing the log recovers `drive` — induction on fuel, branch-for-branch), [`runWithLog_drive`](../../../LirLean/RecorderLemmas.lean#L138), and the `rfl`-clean head projections [`realisedCall_cons`](../../../LirLean/RecorderLemmas.lean#L64) / [`realisedCreate_cons`](../../../LirLean/RecorderLemmas.lean#L164). | Sorry-free. This is why "the recording interpreter" is not a second trusted semantics: its result projection *is* the verified `drive`. |
-| [`CallRealises.lean`](../../../LirLean/CallRealises.lean) | [`callRealises_bridge`](../../../LirLean/CallRealises.lean#L77) / [`createRealises_bridge`](../../../LirLean/CallRealises.lean#L118): a returning CALL/CREATE's realised `evmV2CallEntry`/`evmV2CreateEntry` **is** the lowered opcode's observable effect (`rfl`-clean projections through `resumeAfterCall`). | Sorry-free supporting bricks; the create bridge is a ready ingredient for chunk 3. |
+| [`CallRealises.lean`](../../../LirLean/CallRealises.lean) | [`callRealises_bridge`](../../../LirLean/CallRealises.lean#L77) / [`createRealises_bridge`](../../../LirLean/CallRealises.lean#L118): a returning CALL/CREATE's realised `evmCallEntry`/`evmCreateEntry` **is** the lowered opcode's observable effect (`rfl`-clean projections through `resumeAfterCall`). | Sorry-free supporting bricks; the create bridge is a ready ingredient for chunk 3. |
 | [`Call.lean`](../../../LirLean/Call.lean) | A worked, frame-free example: [`callIR`](../../../LirLean/Call.lean#L62) (gas read feeding a forwarded-gas call), with [`call_IRRun`](../../../LirLean/Call.lean#L107) and uniqueness [`call_IRRun_unique`](../../../LirLean/Call.lean#L139). | **Example only** — a hand-assembled `EvalStmt` chain demonstrating the two-channel interaction model; nothing in the R11 chain consumes it. |
 
 ---

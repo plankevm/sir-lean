@@ -206,17 +206,17 @@ and
 theorem callRealises_bridge {callFr resumeFr : Frame} (self : AccountAddress)
     (hcall : CallReturns callFr resumeFr) :
     ∃ result pd, resumeFr = resumeAfterCall result pd
-      ∧ (evmV2CallEntry result pd self).1
+      ∧ (evmCallEntry result pd self).1
           = (fun key => storageAt resumeFr self key)
-      ∧ (evmV2CallEntry result pd self).2
+      ∧ (evmCallEntry result pd self).2
           = callSuccessFlag result pd := by
 
 theorem createRealises_bridge {createFr resumeFr : Frame} (self : AccountAddress)
     (hc : CreateReturns createFr resumeFr) :
     ∃ result pd, resumeAfterCreate result pd = .ok resumeFr
-      ∧ (evmV2CreateEntry result pd self).1
+      ∧ (evmCreateEntry result pd self).1
           = (fun key => storageAt resumeFr self key)
-      ∧ (evmV2CreateEntry result pd self).2
+      ∧ (evmCreateEntry result pd self).2
           = createAddrOrZero result pd := by
 ```
 

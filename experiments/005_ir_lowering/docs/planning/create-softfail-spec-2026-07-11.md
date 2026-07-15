@@ -107,7 +107,7 @@ the same pair the `.next` branch feeds to `resumeAfterCreate`. This is minimal-r
 - `result.success = false` already flags "no deploy" (drives `addressWord = 0`);
 - `result.accounts = exec.accounts` already encodes "world unchanged through self lens".
 
-Consuming code (`createStreamOf`, `evmV2CreateEntry`, `realisedCreate_cons`,
+Consuming code (`createStreamOf`, `evmCreateEntry`, `realisedCreate_cons`,
 `recorderCoupled_create*`, `simStmt_coupled_create`) is polymorphic in the record —
 it never inspects `success` — so the ONLY thing that changes is **where** records are
 appended (`driveLog`), not the record type. This keeps `realisedCreate_cons`
@@ -151,7 +151,7 @@ from `current` and the decoded operands:
 /-- The soft-fail CREATE2 record: `createArm`'s `.next`-branch `failed`/`pending`
     pair, rebuilt from the pre-step frame. `result.accounts = current.exec.accounts`
     (world unchanged through the self lens) and `result.success = false`
-    (⇒ `addressWord = 0`), so `evmV2CreateEntry` maps it to `(currentWorld, 0)`. -/
+    (⇒ `addressWord = 0`), so `evmCreateEntry` maps it to `(currentWorld, 0)`. -/
 def softFailCreateRecord (current : Frame) : CreateRecord :=
   let exec := current.exec
   let (stack, value, initOffset, initSize, _salt) :=
@@ -230,15 +230,15 @@ erased). Update the tactic to `split <;> [skip; split <;> [skip; split]] <;> exa
 
 ---
 
-## 3. `createStreamOf` / `evmV2CreateEntry` mapping (soft-fail → `(currentWorld, 0)`)
+## 3. `createStreamOf` / `evmCreateEntry` mapping (soft-fail → `(currentWorld, 0)`)
 
 ### 3.1 Mapping is already correct — NO change to these defs
 
 `createStreamOf` (`Recorder.lean:113`) maps each record through
-`evmV2CreateEntry rec.result rec.pending self` (`Spec/Recorder.lean`):
+`evmCreateEntry rec.result rec.pending self` (`Spec/Recorder.lean`):
 
 ```lean
-evmV2CreateEntry result pd self =
+evmCreateEntry result pd self =
   ( fun key => evmCreateOracle.postStorage result pd self key
   , evmCreateOracle.addressWord result pd )
 ```
@@ -255,14 +255,14 @@ For a soft-fail record (`result = failed`, `result.success = false`,
   (`Frame/Create.lean:102, 75–80`). Since `result.success = false`, the guard
   `result.success = false ∨ …` is true, so it returns **0**. ✓
 
-So `evmV2CreateEntry failed pending self = (currentWorld, 0)` by `rfl`/`simp` —
+So `evmCreateEntry failed pending self = (currentWorld, 0)` by `rfl`/`simp` —
 matching `EvalStmt.create`'s expected head shape with `world' = currentWorld`,
 `addrW = 0`. **No `EvalStmt.create` tweak, no `CreateStream` tweak.** (Gotcha #3, #6.)
 
 ### 3.2 `StreamsAligned` (Producer.lean:73) stays a `rfl`-level def
 
 `D = createStreamOf dS self` continues to hold: `dS` now includes soft-fail records,
-and `D`'s corresponding heads are their `evmV2CreateEntry` images. The producer's
+and `D`'s corresponding heads are their `evmCreateEntry` images. The producer's
 per-cursor consumption (§5.5) consumes exactly one head per CREATE2 cursor.
 
 ---
@@ -497,7 +497,7 @@ the soft-fail case needs no special handling here (the resume-frame bundle is ne
    CALL `.next` sub-branches only touch their respective accumulators and close by the
    same `ih` after splitting the recorder gates (§2.3).
 
-6. **`realisedCreate_cons` / `createStreamOf` / `evmV2CreateEntry`** (Recorder.lean,
+6. **`realisedCreate_cons` / `createStreamOf` / `evmCreateEntry`** (Recorder.lean,
    Recorder.lean). UNCHANGED — polymorphic in the record; the soft-fail record maps to
    `(currentWorld, 0)` by `rfl`/`simp` (§3.1).
 

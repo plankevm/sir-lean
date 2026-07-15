@@ -120,10 +120,10 @@ entry equals the lowered CALL's observable effect by construction.
 
 | decl | kind | role | callers |
 |---|---|---|---|
-| `evmV2CallEntry` (`Spec/Recorder`) | def | terminal-for-flagship (the realised call-stream entry) | `realisedCall_cons` (`RecorderLemmas`, code); `realisedCall_projection` (SelfPresent); RS; LowerConforms |
+| `evmCallEntry` (`Spec/Recorder`) | def | terminal-for-flagship (the realised call-stream entry) | `realisedCall_cons` (`RecorderLemmas`, code); `realisedCall_projection` (SelfPresent); RS; LowerConforms |
 | `callRealises_bridge` (85) | theorem | incremental-toward R3 (`callRealises_of_recorded`, the open call-realisability leaf) | none in code; `RecorderLemmas:41` docstring cites it as the tie the R3 head uses |
 
-Assessment: `evmV2CallEntry` is genuinely load-bearing — it is the definition the recorder's
+Assessment: `evmCallEntry` is genuinely load-bearing — it is the definition the recorder's
 `realisedCall` projection produces and that R3's call cursor identifies with (RS:2856).
 `callRealises_bridge` is a proven, currently-uncited bridge lemma; its stated purpose (`rfl`-clean
 `entry = lowered CALL effect`) is exactly what R3 needs, so it is incremental, not dead. Needs
@@ -316,7 +316,7 @@ Exit edges (cluster decls consumed by the flagship / audit / Spec):
 
 - **to `RealisabilitySpec` (flagship, code):** `lower_modellable`, `AtReachableBoundary`,
   `SelfPresent`, `accounts_ne_empty_of_selfPresent`, `selfPresent_codeFrame`,
-  `selfPresent_runs_of_call`, `evmV2CallEntry` (via `realisedCall_cons`).
+  `selfPresent_runs_of_call`, `evmCallEntry` (via `realisedCall_cons`).
 - **to `Spec/Seams.lean` (forwarders the flagship cites):** `CallsCode` (→ `Spec.CallsCode`),
   `callPreservesSelf_modGuards` (→ `Spec.callPreservesSelf_of_precompiles`); `cleanHalts_of_runWithLog`
   cited as entry-clean-halt grounding.

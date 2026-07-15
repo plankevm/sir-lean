@@ -40,7 +40,7 @@ remaining projected stream. -/
 theorem realisedCall_cons {log : RunLog} {rec : CallRecord} {tl : List CallRecord}
     (self : AccountAddress) (hc : log.calls = rec :: tl) :
     realisedCall log self
-      = evmV2CallEntry rec.result rec.pending self :: callStreamOf tl self := by
+      = evmCallEntry rec.result rec.pending self :: callStreamOf tl self := by
   simp only [realisedCall, callStreamOf, hc, List.map_cons]
 
 /-! ## Result adequacy: `driveLog` agrees with `drive`
@@ -128,5 +128,5 @@ remaining projected stream. -/
 theorem realisedCreate_cons {log : RunLog} {rec : CreateRecord} {tl : List CreateRecord}
     (self : AccountAddress) (hc : log.creates = rec :: tl) :
     realisedCreate log self
-      = evmV2CreateEntry rec.result rec.pending self :: createStreamOf tl self := by
+      = evmCreateEntry rec.result rec.pending self :: createStreamOf tl self := by
   simp only [realisedCreate, createStreamOf, hc, List.map_cons]

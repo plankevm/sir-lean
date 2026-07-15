@@ -31,7 +31,7 @@ The flagship's hypothesis vocabulary that has NOT yet been hoisted to the truste
 the static well-formedness bundle, the shadowing-aware CALL tie, the honest oracle seams,
 and the scope seams. The sorry-free vocabulary already lifted into `Spec/` — `entryState`,
 `RunLog.clean`, `Conforms`, `NoGasReads` (`Spec/Conformance.lean`), the `RunFromLeft`/
-`RunFromAll` mirror (`Spec/Semantics.lean`), `evmV2CallEntry`/`evmV2CreateEntry`
+`RunFromAll` mirror (`Spec/Semantics.lean`), `evmCallEntry`/`evmCreateEntry`
 (`Spec/Recorder.lean`), and the live seam bundle `PrecompileAssumptions`/`ReachableFrom`
 (`Spec/Seams.lean`) — is `open`ed via the imports above. The current machinery still
 consumes `WellLowered` internally, but the public theorem surface rebuilds that adapter
@@ -88,7 +88,7 @@ def CallRealisesS (prog : Program) (sloadChg : Tmp → ℕ)
     -- the STATIC per-step scoping of the call statement (lesson 8; was `StepScoped`):
     StepScopedS prog (.call cs)
     -- the realised post-state pin: the consumed call-stream head IS this call's recorded
-    -- `evmV2CallEntry` effect (the positional multi-call tie — no single-call restriction):
+    -- `evmCallEntry` effect (the positional multi-call tie — no single-call restriction):
     ∧ st0' = (match cs.resultTmp with
         | some t' => { st0 with world := fun key =>
                         evmCallOracle.postStorage result pd fr0.exec.executionEnv.address key }.setLocal
@@ -468,10 +468,10 @@ def StmtTies' (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
   -- in-envelope for reader-carrying programs), kept shape-wise (it is itself
   -- `Corr → ∃ …`), under the coupling/clean-halt/address antecedents — without the
   -- clean halt excludes an adversarial OOG-at-CALL frame from the run existential; the
-  -- address pin is what lets the recorded record's `evmV2CallEntry` coincide with the
+  -- address pin is what lets the recorded record's `evmCallEntry` coincide with the
   -- effect at `fr0.address`. The consumed head IS the un-consumed call suffix's HEAD `rec`
   -- (the positional multi-call tie — no `SingleCall`): the post-state `st0'` is pinned to
-  -- `rec`'s `evmV2CallEntry` effect, and R3 discharges the bundle from the record.
+  -- `rec`'s `evmCallEntry` effect, and R3 discharges the bundle from the record.
   -- ROUND-4 ANTECEDENT ADDITIONS (the R3 Piece-B discovered set, all honest and
   -- walk-suppliable): `codeFits` (the flagship scalar, threaded); the reachable-frames
   -- CallsCode seam (from `PrecompileAssumptions` at the walk); the operand bindings

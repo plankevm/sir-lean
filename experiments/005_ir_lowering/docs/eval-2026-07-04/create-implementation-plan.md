@@ -93,7 +93,7 @@ IR-surface-and-up layers, **and the `Runs`-level bridge**, are CALL-only.
   to wrap, see §5).
 - **Recorder / stream.** `Spec/Recorder.lean`: `recordCall` (:172) explicitly
   **drops** create deliveries (`| .create _ => callAcc`); `driveLog` (:186) threads
-  gas/sload/call accumulators only; no create channel. `Spec.Recorder.evmV2CallEntry`
+  gas/sload/call accumulators only; no create channel. `Spec.Recorder.evmCallEntry`
   (:59) has no create twin.
 - **Drive integration is a structural EXCLUSION, not a gap to fill.** The flagship
   currently *proves* no-CREATE: `NoCreateBytes.lean` (`SegAlignedSafe` — "lowering
@@ -231,7 +231,7 @@ cluster-v1bricks.md) but needed to keep v1 compiling once `Stmt` gains a constru
 
 `CallRealises.lean` (or a sibling `CreateRealises.lean`):
 
-- `evmV2CreateEntry result pd self : World × Word` (twin of `evmV2CallEntry` :59):
+- `evmCreateEntry result pd self : World × Word` (twin of `evmCallEntry` :59):
   `((fun key => evmCreateOracle.postStorage result pd self key),
   evmCreateOracle.addressWord result pd)`.
 - `createRealises_bridge` (twin of `callRealises_bridge` :85) off
@@ -266,7 +266,7 @@ cluster-v1bricks.md) but needed to keep v1 compiling once `Stmt` gains a constru
 - `WellLowered` bundle (:477) and `Conforms` (:155) unchanged in shape — `Conforms`
   already compares world AND result, and a CREATE program's observable is still a
   `(world, HaltResult)` pair.
-- The R3 call-cursor tie (`evmV2CallEntry` identified with the call cursor at RS:2856)
+- The R3 call-cursor tie (`evmCallEntry` identified with the call cursor at RS:2856)
   gains a create-cursor sibling; R6 geometry (`atReachableBoundaryVJ_*`, RS:2343-2383)
   must admit CREATE boundary heads.
 - The exProg witness (§6, RS:2975) should be extended to exercise a CREATE (and later

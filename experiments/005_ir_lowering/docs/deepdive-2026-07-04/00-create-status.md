@@ -143,7 +143,7 @@ machinery, not duplicating the CALL ecosystem.
    begin-immediate law is trivial post-RLP-totality (`execution-plan:103-104`,
    `createDescent_descendImmediate_trivial`).
 5. **Recorder / stream.** Add a create arm to the descent recorder / call-stream
-   (`RecorderLemmas.lean:47` `evmV2CallEntry` has no create twin) — i.e. a `DescentRecord .create`
+   (`RecorderLemmas.lean:47` `evmCallEntry` has no create twin) — i.e. a `DescentRecord .create`
    arm and one realises-bundle instance. The multi-descent question is the same as multi-CALL (R3');
    solve as a consumed **descent stream** (`execution-plan:130-131`).
 6. **Drive integration — retire, don't extend, the exclusion.** Remove/retire `NoCreateBytes.lean`

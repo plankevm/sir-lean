@@ -267,15 +267,15 @@ structure RunLog where observable : FrameResult; gas : List Word; sloads : List 
 def driveLog (fuel) (stack) (state) (…accs) : Except ExecutionException (FrameResult × …)  -- :206
 def runWithLog (params : CallParams) (fuel : ℕ) : Option RunLog   -- :289
 def realisedGas (log) : GasOracle := log.gas                      -- :307
-def realisedCall (log) (self) : CallStream                        -- :328 (via evmV2CallEntry)
+def realisedCall (log) (self) : CallStream                        -- :328 (via evmCallEntry)
 def realisedCreate (log) (self) : CreateStream                    -- :343
 def observe (self : AccountAddress) (fr : FrameResult) : Observable  -- :383 (the bridge edge)
 
-def evmV2CallEntry (result pd self) : World × Word                -- Spec/Recorder.lean
+def evmCallEntry (result pd self) : World × Word                -- Spec/Recorder.lean
 theorem callRealises_bridge (hcall : CallReturns callFr resumeFr) :
     ∃ result pd, resumeFr = resumeAfterCall result pd
-      ∧ (evmV2CallEntry result pd self).1 = (fun key => storageAt resumeFr self key)
-      ∧ (evmV2CallEntry result pd self).2 = callSuccessFlag result pd   -- CallRealises.lean (create twin there)
+      ∧ (evmCallEntry result pd self).1 = (fun key => storageAt resumeFr self key)
+      ∧ (evmCallEntry result pd self).2 = callSuccessFlag result pd   -- CallRealises.lean (create twin there)
 
 theorem driveLog_drive : ∀ …, (driveLog f stack state …).map (·.1) = drive f stack state  -- RecorderLemmas.lean:62
 theorem runWithLog_drive (h : runWithLog params fuel = some log) :
@@ -445,7 +445,7 @@ surface. Acknowledged-deferred relocations are ranked by residual confusion, not
    `IRWellFormed` + `codeFits` + `stackFits` and rebuild `WellLowered` internally.
    `PrecompileAssumptions` and `ReachableFrom` have moved to `Spec/Seams.lean`. Still
    stranded in the WIP lib are `RunFromLeft`/`RunFromAll` + adequacy (:894-982), and the exact
-   call/create entry vocabulary (`evmV2CallEntry`/`evmV2CreateEntry`, `Spec/Recorder.lean`).
+   call/create entry vocabulary (`evmCallEntry`/`evmCreateEntry`, `Spec/Recorder.lean`).
    Natural homes: `Spec/Semantics.lean` (the RunFromLeft mirror, next to RunFrom — the anti-vacuity
    strengthening currently lives *outside* Spec while the weak RunFrom lives inside),
    `Spec/Seams.lean` (already re-keyed for PrecompileAssumptions — see #7).

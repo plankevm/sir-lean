@@ -73,7 +73,7 @@ positional index.
 **Consequence for A (worked example CALL; CREATE; CALL).** Under A the run threads
 `CallStream = [c1, c2]` and `CreateStream = [cr1]`. Each element is an *absolute*
 post-descent snapshot `(world', word)` (the full storage lens at that descent, not a
-delta — cf. `evmV2CallEntry`, `Spec/Recorder.lean:16`, `postStorage`). The walk:
+delta — cf. `evmCallEntry`, `Spec/Recorder.lean:16`, `postStorage`). The walk:
 
 | step   | rule fires        | pops from      | world becomes | binds        |
 |--------|-------------------|----------------|---------------|--------------|
@@ -182,7 +182,7 @@ does **not** change `realisedCall`, `callStreamOf`, or `realisedCall_cons`
 (`RecorderLemmas.lean:44-48`, closed by `simp … List.map_cons` — `rfl`-clean), so
 the **real** (non-sorry) R3/R7 machinery that surrounds these sorries —
 `RecorderCoupled.callSuffix` destructured `rec :: cS'` and its head identified with
-the cursor's `evmV2CallEntry` (Machinery:306-347, 1729-1914; R7e :1729) — is
+the cursor's `evmCallEntry` (Machinery:306-347, 1729-1914; R7e :1729) — is
 **preserved verbatim**.
 
 ### 2.5 Why B *would* disturb the open leaves (the reason to defer it)
@@ -289,9 +289,9 @@ itself, but named so the index lines up):
   `createAcc : List CreateRecord` (appended to the tuple), `recordCreate` (the
   `.create pd` arm currently dropped at :172), `createStreamOf`/`realisedCreate`
   (twins of :288/:296).
-- `CreateRealises.lean`: `evmV2CreateEntry result pd self : World × Word :=
+- `CreateRealises.lean`: `evmCreateEntry result pd self : World × Word :=
   ((fun key => evmCreateOracle.postStorage result pd self key),
-  evmCreateOracle.addressWord result pd)` (twin of `evmV2CallEntry`,
+  evmCreateOracle.addressWord result pd)` (twin of `evmCallEntry`,
   CallRealises.lean:59; the oracle already exists, `Create.lean:99`).
 - `RecorderLemmas.lean`: `realisedCreate_cons` (twin of `realisedCall_cons` :44,
   `rfl`-clean by the same `simp … List.map_cons`).

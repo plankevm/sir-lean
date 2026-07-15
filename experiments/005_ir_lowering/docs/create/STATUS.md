@@ -57,7 +57,7 @@ guard in the WIP cone). None are in the default cone.
     `create_reflects_lowered` (R3 short-unfold closed).
   - **Step 6 @`3ba90f5`** — recorder / stream realisation: `recordCreate` /
     `createStreamOf` / `realisedCreate` (parallel `CreateStream`, option A),
-    `evmV2CreateEntry`, `realisedCreate_cons`.
+    `evmCreateEntry`, `realisedCreate_cons`.
   - **Step 8 (PARTIAL) @`7b4dd7d`** — wired the real `realisedCreate log
     params.recipient` into all four flagship conclusions + their internal blocker
     existentials, replacing the Step-2 `[]` placeholder (which was a latent falsity for

@@ -28,7 +28,7 @@ CALL template chain is:
 ```
 Spec/IR.CallSpec → Semantics.EvalStmt.call → Lowering.emitStmt .call
   → Frame/Call.evmCallOracle → Frame/Match.call_reflects_lowered
-  → Spec/Recorder.evmV2CallEntry → Spec/Recorder.recordCall
+  → Spec/Recorder.evmCallEntry → Spec/Recorder.recordCall
   → Decode/Modellable clause-1 → flagship (Realisability/RealisabilitySpec)
 ```
 
@@ -52,7 +52,7 @@ kinds:
 **Tier 2 — mechanical CALL twins (the bulk of the build).** Each is a
 copy-rename-rethread of its CALL sibling with an identical `(World × Word)` element
 type: `CreateSpec`/`Stmt.create`, `CreateStream`, `EvalStmt.create`,
-`emitStmt .create`, `create_reflects_lowered`, `evmV2CreateEntry`, `recordCreate`,
+`emitStmt .create`, `create_reflects_lowered`, `evmCreateEntry`, `recordCreate`,
 `realisedCreate`, `createSuffix`. The oracle twin (`CreateOracle`,
 `createAddrOrZero`, `evmCreateOracle`) is **already written and green** in
 `Frame/Create.lean` (110 LOC, in the default cone via `LirLean.lean`) but consumed
@@ -229,9 +229,9 @@ tractable (see R7 below).
 
 Goal: fill the `CreateStream` with real recorded deliveries. CALL twins in
 `Spec/Recorder.lean` and `CallRealises.lean`.
-- `Spec/Recorder.lean`: `evmV2CreateEntry
+- `Spec/Recorder.lean`: `evmCreateEntry
   result pd self : World × Word := ((fun key => evmCreateOracle.postStorage result pd
-  self key), evmCreateOracle.addressWord result pd)` (twin of `evmV2CallEntry`);
+  self key), evmCreateOracle.addressWord result pd)` (twin of `evmCallEntry`);
   **un-drop** the create delivery — `recordCall`'s `.create _ =>
   callAcc` (:172) becomes a recording arm into a `createAcc : List CreateRecord`;
   add `CreateRecord` (twin of `CallRecord` :85); widen `driveLog`'s result tuple by
@@ -279,7 +279,7 @@ leaf in `Realisability/RealisabilitySpec.lean`. CALL twin: the R3 call-cursor ti
 - Keep the public `IRWellFormed` + `codeFits` + `stackFits` envelope and rebuild the
   internal `WellLowered` adapter as today. `Conforms` already compares world AND result,
   and a CREATE program's observable is still a `(world, HaltResult)` pair.
-- The R3 call-cursor tie (`evmV2CallEntry` identified with the call cursor) gains a
+- The R3 call-cursor tie (`evmCallEntry` identified with the call cursor) gains a
   create-cursor sibling; R6 geometry (`atReachableBoundaryVJ_*`) must admit CREATE
   boundary heads.
 - Extend the `exProg` witness to exercise a CREATE (and later CREATE2) so R12

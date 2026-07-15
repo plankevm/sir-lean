@@ -67,9 +67,9 @@ theorem create_reflects_lowered {createFr resumeFr : Frame}
 theorem callRealises_bridge {callFr resumeFr : Frame} (self : AccountAddress)
     (hcall : CallReturns callFr resumeFr) :
     ∃ result pd, resumeFr = resumeAfterCall result pd
-      ∧ (evmV2CallEntry result pd self).1
+      ∧ (evmCallEntry result pd self).1
           = (fun key => storageAt resumeFr self key)
-      ∧ (evmV2CallEntry result pd self).2
+      ∧ (evmCallEntry result pd self).2
           = callSuccessFlag result pd := by
   obtain ⟨result, pd, hres, hstore, _hgas, hsucc⟩ := call_reflects_lowered hcall
   refine ⟨result, pd, hres, ?_, ?_⟩
@@ -83,7 +83,7 @@ theorem callRealises_bridge {callFr resumeFr : Frame} (self : AccountAddress)
 
 /-! ## The realised create entry
 
-The CREATE twin of `evmV2CallEntry`/`callRealises_bridge`. A create-stream entry is a
+The CREATE twin of `evmCallEntry`/`callRealises_bridge`. A create-stream entry is a
 `(World × Word)` — (post-create world, deployed-address-or-0 word). The realised entry reads
 from the frame-reference `evmCreateOracle` projections: the post-create `World` is the self account's storage
 lens, and the pushed word is `createAddrOrZero` (the CREATE analogue of `callSuccessFlag`).
@@ -99,9 +99,9 @@ The bridge uses `create_reflects_lowered` in the same way the CALL bridge uses
 theorem createRealises_bridge {createFr resumeFr : Frame} (self : AccountAddress)
     (hc : CreateReturns createFr resumeFr) :
     ∃ result pd, resumeAfterCreate result pd = .ok resumeFr
-      ∧ (evmV2CreateEntry result pd self).1
+      ∧ (evmCreateEntry result pd self).1
           = (fun key => storageAt resumeFr self key)
-      ∧ (evmV2CreateEntry result pd self).2
+      ∧ (evmCreateEntry result pd self).2
           = createAddrOrZero result pd := by
   obtain ⟨result, pd, hres, hstore, haddr⟩ := create_reflects_lowered hc
   refine ⟨result, pd, hres, ?_, ?_⟩

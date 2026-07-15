@@ -13,12 +13,12 @@ open BytecodeLayer.Interpreter
 open BytecodeLayer.Hoare
 open GasConstants
 
-def evmV2CallEntry (result : CallResult) (pd : PendingCall) (self : AccountAddress) :
+def evmCallEntry (result : CallResult) (pd : PendingCall) (self : AccountAddress) :
     World × Word :=
   ( (fun key => evmCallOracle.postStorage result pd self key)
   , evmCallOracle.successWord result pd )
 
-def evmV2CreateEntry (result : CreateResult) (pd : PendingCreate) (self : AccountAddress) :
+def evmCreateEntry (result : CreateResult) (pd : PendingCreate) (self : AccountAddress) :
     World × Word :=
   ( (fun key => evmCreateOracle.postStorage result pd self key)
   , evmCreateOracle.addressWord result pd )
@@ -105,7 +105,7 @@ theorem callSuccessFlag_softFailCallRecord (fr : Frame) :
 /-- The soft-fail CREATE2 record, rebuilt from the pre-step frame `current` and
 the four decoded operands. `result.accounts = current.exec.accounts`
 (world unchanged through the self lens — soft-fail does NOT bump the nonce) and
-`result.success = false` (⇒ `createAddrOrZero = 0`), so `evmV2CreateEntry` maps it to
+`result.success = false` (⇒ `createAddrOrZero = 0`), so `evmCreateEntry` maps it to
 `(currentWorld, 0)`. When the cursor's stack does not present four operands (never the
 case at a genuine CREATE2 soft-fail, whose `createArm` popped them) the operands
 default to `0`, keeping the builder total. -/
@@ -271,13 +271,13 @@ def realisedGas (log : RunLog) : GasOracle := log.gas
 def realisedSload (log : RunLog) : List Nat := log.sloads
 
 def callStreamOf (calls : List CallRecord) (self : AccountAddress) : CallStream :=
-  calls.map (fun rec => evmV2CallEntry rec.result rec.pending self)
+  calls.map (fun rec => evmCallEntry rec.result rec.pending self)
 
 def realisedCall (log : RunLog) (self : AccountAddress) : CallStream :=
   callStreamOf log.calls self
 
 def createStreamOf (creates : List CreateRecord) (self : AccountAddress) : CreateStream :=
-  creates.map (fun rec => evmV2CreateEntry rec.result rec.pending self)
+  creates.map (fun rec => evmCreateEntry rec.result rec.pending self)
 
 def realisedCreate (log : RunLog) (self : AccountAddress) : CreateStream :=
   createStreamOf log.creates self

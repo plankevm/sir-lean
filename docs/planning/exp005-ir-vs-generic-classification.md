@@ -93,7 +93,7 @@ The generic B modules reference type aliases — `Observable`, `CallStream`, `Cr
 `Spec/Semantics.lean`**. They are structurally EVM-generic but currently live IR-side. Before
 any B module can move to EVM, these aliases must be hoisted to a shared/EVM location.
 Likewise the B lemmas `open Lir`/`open Lir.Frame` and use IR-free defs (`selfStorage`,
-`storageAt`, `gasReadOf`, `FramesRun`, `evmV2CallEntry`, `SelfPresent`, `ModellableStep`) that
+`storageAt`, `gasReadOf`, `FramesRun`, `evmCallEntry`, `SelfPresent`, `ModellableStep`) that
 must move alongside them — mechanical, but they're the migration's connective tissue.
 
 ## Implications for the plan

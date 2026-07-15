@@ -536,7 +536,7 @@ success flag CALL left on the stack — `MSTORE`-ing it to the result slot (`som
 its `(world', success)` entry.
 
 The realised post-state `st'` is **supplied** (as `hst'`): the consumed head IS this call's
-recorded `evmV2CallEntry result pd self` (`LirLean/Spec/Recorder.lean`), so `world' =
+recorded `evmCallEntry result pd self` (`LirLean/Spec/Recorder.lean`), so `world' =
 postStorage result pd self = storageAt resumeFr self` (the `M3` lens) and `success =
 successWord result pd = callSuccessFlag result pd` (exp003's CALL flag `x`). With that pin the
 post-`EvalStmt` IR world *is* the resumed
