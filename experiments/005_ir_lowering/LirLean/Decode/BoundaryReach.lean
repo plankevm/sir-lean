@@ -43,75 +43,53 @@ instance (op : Operation) : Decidable (NoCallCreateOp op) := by
   unfold NoCallCreateOp
   infer_instance
 
-theorem segAlignedNoCall_emitImm (w : Word) : SegAlignedP NoCallCreateOp (emitImm w) := by
-  refine SegAlignedP.push Byte.push32 (BytecodeLayer.Exec.wordBytesBE w) ?_ (by decide)
-  show (BytecodeLayer.Exec.wordBytesBE w).length = (Evm.pushArgWidth (Evm.parseInstr Byte.push32)).toNat
-  rw [show Evm.parseInstr Byte.push32 = .Push .PUSH32 from rfl]
-  simp [BytecodeLayer.Exec.wordBytesBE, Evm.pushArgWidth]
+private theorem exprOpLeaves_noCall : ∀ e, ExprOpLeaves NoCallCreateOp e := by
+  intro e
+  cases e <;> simp only [ExprOpLeaves] <;> decide
 
-theorem segAlignedNoCall_emitDest (off : Nat) : SegAlignedP NoCallCreateOp (emitDest off) := by
-  refine SegAlignedP.push Byte.push4 (BytecodeLayer.Exec.offsetBytesBE off) ?_ (by decide)
-  show (BytecodeLayer.Exec.offsetBytesBE off).length = (Evm.pushArgWidth (Evm.parseInstr Byte.push4)).toNat
-  rw [show Evm.parseInstr Byte.push4 = .Push .PUSH4 from rfl]
-  simp [BytecodeLayer.Exec.offsetBytesBE, Evm.pushArgWidth]
+private theorem locOpLeaves_noCall : ∀ loc, LocOpLeaves NoCallCreateOp loc := by
+  intro loc
+  cases loc with
+  | remat e => exact exprOpLeaves_noCall e
+  | slot _ => constructor <;> decide
+
+private theorem termOpLeaves_noCall : ∀ t, TermOpLeaves NoCallCreateOp t := by
+  intro t
+  cases t <;> simp only [TermOpLeaves] <;> decide
+
+theorem segAlignedNoCall_emitImm (w : Word) : SegAlignedP NoCallCreateOp (emitImm w) :=
+  segAlignedP_emitImm_of (by decide) w
+
+theorem segAlignedNoCall_emitDest (off : Nat) : SegAlignedP NoCallCreateOp (emitDest off) :=
+  segAlignedP_emitDest_of (by decide) off
 
 theorem segAlignedNoCall_slot (slot : Nat) :
     SegAlignedP NoCallCreateOp (emitImm (UInt256.ofNat slot) ++ [Byte.mload]) :=
-  (segAlignedNoCall_emitImm (UInt256.ofNat slot)).append
-    (SegAlignedP.nonpush Byte.mload (by decide) (by decide))
+  segAlignedP_slot_of (by decide) (by decide) slot
 
 theorem segAlignedNoCall_matExpr (cache : Tmp → List UInt8)
     (hcache : ∀ t, SegAlignedP NoCallCreateOp (cache t)) :
-    ∀ e, SegAlignedP NoCallCreateOp (matExpr cache e) := by
-  intro e
-  cases e with
-  | imm w => exact segAlignedNoCall_emitImm w
-  | tmp t => exact hcache t
-  | add a b =>
-      rw [matExpr_add]
-      exact ((hcache b).append (hcache a)).append
-        (SegAlignedP.nonpush Byte.add (by decide) (by decide))
-  | lt a b =>
-      rw [matExpr_lt]
-      exact ((hcache b).append (hcache a)).append
-        (SegAlignedP.nonpush Byte.lt (by decide) (by decide))
-  | sload k =>
-      rw [matExpr_sload]
-      exact (hcache k).append (SegAlignedP.nonpush Byte.sload (by decide) (by decide))
-  | gas =>
-      rw [matExpr_gas]
-      exact SegAlignedP.nonpush Byte.gas (by decide) (by decide)
+    ∀ e, SegAlignedP NoCallCreateOp (matExpr cache e) :=
+  fun e => segAlignedP_matExpr_of cache hcache e (exprOpLeaves_noCall e)
 
 theorem segAlignedNoCall_matLoc (cache : Tmp → List UInt8)
     (hcache : ∀ t, SegAlignedP NoCallCreateOp (cache t)) :
-    ∀ loc, SegAlignedP NoCallCreateOp (matLoc cache loc)
-  | .remat e => segAlignedNoCall_matExpr cache hcache e
-  | .slot n  => segAlignedNoCall_slot n
+    ∀ loc, SegAlignedP NoCallCreateOp (matLoc cache loc) :=
+  fun loc => segAlignedP_matLoc_of cache hcache loc (locOpLeaves_noCall loc)
 
 theorem matStep_noCall_aligned (c : Tmp → List UInt8)
     (hc : ∀ t, SegAlignedP NoCallCreateOp (c t)) (p : Tmp × Loc) :
-    ∀ t, SegAlignedP NoCallCreateOp (matStep c p t) := by
-  intro t
-  simp only [matStep, Function.update_apply]
-  by_cases h : t = p.1
-  · rw [if_pos h]
-    exact segAlignedNoCall_matLoc c hc p.2
-  · rw [if_neg h]
-    exact hc t
+    ∀ t, SegAlignedP NoCallCreateOp (matStep c p t) :=
+  matStep_aligned_of c hc p (locOpLeaves_noCall p.2)
 
 theorem matFold_noCall_aligned (init : Tmp → List UInt8)
     (hinit : ∀ t, SegAlignedP NoCallCreateOp (init t)) (l : List (Tmp × Loc)) :
-    ∀ t, SegAlignedP NoCallCreateOp (matFold init l t) := by
-  induction l generalizing init with
-  | nil => simpa [matFold] using hinit
-  | cons p rest ih =>
-      rw [matFold_cons]
-      exact ih (matStep init p) (matStep_noCall_aligned init hinit p)
+    ∀ t, SegAlignedP NoCallCreateOp (matFold init l t) :=
+  matFold_aligned_of init hinit l (fun p _ => locOpLeaves_noCall p.2)
 
 theorem segAlignedNoCall_matCache (prog : Program) :
-    ∀ t, SegAlignedP NoCallCreateOp (matCache prog t) := by
-  unfold matCache
-  exact matFold_noCall_aligned _ (fun _ => segAlignedNoCall_emitImm 0) (defEnv prog)
+    ∀ t, SegAlignedP NoCallCreateOp (matCache prog t) :=
+  segAlignedP_matCache_of prog (by decide) (fun p _ => locOpLeaves_noCall p.2)
 
 theorem segAlignedNoCall_matExpr_matCache (prog : Program) :
     ∀ e, SegAlignedP NoCallCreateOp (matExpr (matCache prog) e) :=
@@ -123,35 +101,8 @@ theorem segAlignedNoCall_matLoc_matCache (prog : Program) :
 
 theorem segAlignedNoCall_emitTerm (cache : Tmp → List UInt8)
     (hcache : ∀ t, SegAlignedP NoCallCreateOp (cache t)) (labelOff : Nat → Nat) (t : Term) :
-    SegAlignedP NoCallCreateOp (emitTerm cache labelOff t) := by
-  cases t with
-  | ret tt =>
-      rw [show emitTerm cache labelOff (.ret tt)
-            = cache tt ++ emitImm 0 ++ [Byte.mstore] ++ emitImm 32
-                ++ emitImm 0 ++ [Byte.ret] from rfl]
-      exact (((((hcache tt).append
-              (segAlignedNoCall_emitImm 0)).append
-              (SegAlignedP.nonpush Byte.mstore (by decide) (by decide))).append
-              (segAlignedNoCall_emitImm 32)).append (segAlignedNoCall_emitImm 0)).append
-            (SegAlignedP.nonpush Byte.ret (by decide) (by decide))
-  | stop =>
-      rw [show emitTerm cache labelOff .stop = [Byte.stop] from rfl]
-      exact SegAlignedP.nonpush Byte.stop (by decide) (by decide)
-  | jump dst =>
-      rw [show emitTerm cache labelOff (.jump dst)
-            = emitDest (labelOff dst.idx) ++ [Byte.jump] from rfl]
-      exact (segAlignedNoCall_emitDest _).append
-        (SegAlignedP.nonpush Byte.jump (by decide) (by decide))
-  | branch cond thenL elseL =>
-      rw [show emitTerm cache labelOff (.branch cond thenL elseL)
-            = cache cond
-              ++ emitDest (labelOff thenL.idx) ++ [Byte.jumpi]
-              ++ emitDest (labelOff elseL.idx) ++ [Byte.jump] from rfl]
-      exact ((((hcache cond).append
-              (segAlignedNoCall_emitDest _)).append
-              (SegAlignedP.nonpush Byte.jumpi (by decide) (by decide))).append
-              (segAlignedNoCall_emitDest _)).append
-            (SegAlignedP.nonpush Byte.jump (by decide) (by decide))
+    SegAlignedP NoCallCreateOp (emitTerm cache labelOff t) :=
+  segAlignedP_emitTerm_of cache hcache labelOff t (termOpLeaves_noCall t)
 
 theorem segAlignedNoCall_emitTerm_matCache (prog : Program) (t : Term) :
     SegAlignedP NoCallCreateOp
@@ -622,52 +573,6 @@ private instance (op : Operation) : Decidable (NoGasOp op) := by
   unfold NoGasOp
   infer_instance
 
-private theorem segAlignedNoGas_emitImm (w : Word) : SegAlignedP NoGasOp (emitImm w) := by
-  refine SegAlignedP.push Byte.push32 (BytecodeLayer.Exec.wordBytesBE w) ?_ (by decide)
-  show (BytecodeLayer.Exec.wordBytesBE w).length = (Evm.pushArgWidth (Evm.parseInstr Byte.push32)).toNat
-  rw [show Evm.parseInstr Byte.push32 = .Push .PUSH32 from rfl]
-  simp [BytecodeLayer.Exec.wordBytesBE, Evm.pushArgWidth]
-
-private theorem segAlignedNoGas_emitDest (off : Nat) : SegAlignedP NoGasOp (emitDest off) := by
-  refine SegAlignedP.push Byte.push4 (BytecodeLayer.Exec.offsetBytesBE off) ?_ (by decide)
-  show (BytecodeLayer.Exec.offsetBytesBE off).length = (Evm.pushArgWidth (Evm.parseInstr Byte.push4)).toNat
-  rw [show Evm.parseInstr Byte.push4 = .Push .PUSH4 from rfl]
-  simp [BytecodeLayer.Exec.offsetBytesBE, Evm.pushArgWidth]
-
-private theorem segAlignedNoGas_slot (slot : Nat) :
-    SegAlignedP NoGasOp (emitImm (UInt256.ofNat slot) ++ [Byte.mload]) :=
-  (segAlignedNoGas_emitImm (UInt256.ofNat slot)).append
-    (SegAlignedP.nonpush Byte.mload (by decide) (by decide))
-
-/-- `matExpr` of a non-`.gas` expression is `NoGasOp`-aligned — the `.gas` arm (the ONE
-`Byte.gas` site of the whole lowering) is excluded by `he`; every other arm emits only
-arithmetic/`SLOAD` heads over the cache. -/
-private theorem segAlignedNoGas_matExpr (cache : Tmp → List UInt8)
-    (hcache : ∀ t, SegAlignedP NoGasOp (cache t)) :
-    ∀ e, e ≠ .gas → SegAlignedP NoGasOp (matExpr cache e) := by
-  intro e he
-  cases e with
-  | imm w => exact segAlignedNoGas_emitImm w
-  | tmp t => exact hcache t
-  | add a b =>
-      rw [matExpr_add]
-      exact ((hcache b).append (hcache a)).append
-        (SegAlignedP.nonpush Byte.add (by decide) (by decide))
-  | lt a b =>
-      rw [matExpr_lt]
-      exact ((hcache b).append (hcache a)).append
-        (SegAlignedP.nonpush Byte.lt (by decide) (by decide))
-  | sload k =>
-      rw [matExpr_sload]
-      exact (hcache k).append (SegAlignedP.nonpush Byte.sload (by decide) (by decide))
-  | gas => exact absurd rfl he
-
-private theorem segAlignedNoGas_matLoc (cache : Tmp → List UInt8)
-    (hcache : ∀ t, SegAlignedP NoGasOp (cache t)) :
-    ∀ loc, loc ≠ .remat .gas → SegAlignedP NoGasOp (matLoc cache loc)
-  | .remat e, hloc => segAlignedNoGas_matExpr cache hcache e (fun he => hloc (by rw [he]))
-  | .slot n, _ => segAlignedNoGas_slot n
-
 /-- **`defEnv` registers no `.remat .gas` def** — gas defs are classified as spill `slot`s
 by `defEnv`'s FIRST arm, so the `.remat` fallback never sees `.gas`. Structural,
 UNCONDITIONAL (holds even for gas-reading programs). -/
@@ -693,138 +598,52 @@ private theorem defEnv_ne_remat_gas (prog : Program) :
       | none => simp at hs
       | some t => simp at hs; subst hs; simp
 
-private theorem matStep_noGas_aligned (c : Tmp → List UInt8)
-    (hc : ∀ t, SegAlignedP NoGasOp (c t)) (p : Tmp × Loc) (hp : p.2 ≠ Loc.remat .gas) :
-    ∀ t, SegAlignedP NoGasOp (matStep c p t) := by
-  intro t
-  simp only [matStep, Function.update_apply]
-  by_cases h : t = p.1
-  · rw [if_pos h]
-    exact segAlignedNoGas_matLoc c hc p.2 hp
-  · rw [if_neg h]
-    exact hc t
+private theorem exprOpLeaves_noGas (e : Expr) (he : e ≠ .gas) : ExprOpLeaves NoGasOp e := by
+  cases e <;> simp only [ExprOpLeaves] <;> first | decide | contradiction
 
-private theorem matFold_noGas_aligned (init : Tmp → List UInt8)
-    (hinit : ∀ t, SegAlignedP NoGasOp (init t)) (l : List (Tmp × Loc))
-    (hl : ∀ p ∈ l, p.2 ≠ Loc.remat .gas) :
-    ∀ t, SegAlignedP NoGasOp (matFold init l t) := by
-  induction l generalizing init with
-  | nil => simpa [matFold] using hinit
-  | cons p rest ih =>
-      rw [matFold_cons]
-      exact ih (matStep init p)
-        (matStep_noGas_aligned init hinit p (hl p (by simp)))
-        (fun q hq => hl q (by simp [hq]))
+private theorem locOpLeaves_noGas (loc : Loc) (hloc : loc ≠ .remat .gas) :
+    LocOpLeaves NoGasOp loc := by
+  cases loc with
+  | remat e =>
+      exact exprOpLeaves_noGas e (fun he => hloc (by rw [he]))
+  | slot _ => constructor <;> decide
 
 /-- **The fold cache is `NoGasOp`-aligned pointwise, UNCONDITIONALLY** — no gas-read-free
 hypothesis: `defEnv` never registers a `.remat .gas` (gas defs spill), so the cache holds
 no `GAS` byte even for gas-reading programs. -/
 private theorem segAlignedNoGas_matCache (prog : Program) :
-    ∀ t, SegAlignedP NoGasOp (matCache prog t) := by
-  unfold matCache
-  exact matFold_noGas_aligned _ (fun _ => segAlignedNoGas_emitImm 0) (defEnv prog)
-    (defEnv_ne_remat_gas prog)
+    ∀ t, SegAlignedP NoGasOp (matCache prog t) :=
+  segAlignedP_matCache_of prog (by decide)
+    (fun p hp => locOpLeaves_noGas p.2 (defEnv_ne_remat_gas prog p hp))
 
 /-- A non-gas-assign statement's emitted bytes are `NoGasOp`-aligned: only a spilled
 `.assign t .gas` stash (excluded by `hs`) routes `.gas` into `matExpr`. -/
-private theorem segAlignedNoGas_emitStmt (cache : Tmp → List UInt8)
-    (hcache : ∀ t, SegAlignedP NoGasOp (cache t)) (alloc : Alloc) (s : Stmt)
-    (hs : ∀ t, s ≠ .assign t .gas) :
-    SegAlignedP NoGasOp (emitStmt cache alloc s) := by
+private theorem stmtOpLeaves_noGas (s : Stmt) (hs : ∀ t, s ≠ .assign t .gas) :
+    StmtOpLeaves NoGasOp s := by
   cases s with
   | assign t e =>
       have he : e ≠ .gas := fun h => hs t (by rw [h])
-      rw [show emitStmt cache alloc (.assign t e)
-            = (match alloc t with
-               | some (.slot n) => matExpr cache e ++ emitImm (UInt256.ofNat n) ++ [Byte.mstore]
-               | _ => []) from rfl]
-      cases alloc t with
-      | none => exact .nil
-      | some loc =>
-          cases loc with
-          | remat => exact .nil
-          | slot n =>
-              exact ((segAlignedNoGas_matExpr cache hcache e he).append
-                      (segAlignedNoGas_emitImm (UInt256.ofNat n))).append
-                    (SegAlignedP.nonpush Byte.mstore (by decide) (by decide))
-  | sstore key value =>
-      rw [show emitStmt cache alloc (.sstore key value)
-            = cache value ++ cache key ++ [Byte.sstore] from rfl]
-      exact ((hcache value).append (hcache key)).append
-            (SegAlignedP.nonpush Byte.sstore (by decide) (by decide))
-  | call cs =>
-      rw [show emitStmt cache alloc (.call cs)
-            = emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
-              ++ cache cs.callee
-              ++ cache cs.gasFwd
-              ++ [Byte.call]
-              ++ (match cs.resultTmp with
-                  | some t => emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]
-                  | none   => [Byte.pop]) from rfl]
-      have h := (segAlignedNoGas_emitImm (0 : Word)).append (segAlignedNoGas_emitImm 0)
-      have h := h.append (segAlignedNoGas_emitImm 0)
-      have h := h.append (segAlignedNoGas_emitImm 0)
-      have h := h.append (segAlignedNoGas_emitImm 0)
-      have h := h.append (hcache cs.callee)
-      have h := h.append (hcache cs.gasFwd)
-      have h := h.append (SegAlignedP.nonpush Byte.call (by decide) (by decide))
-      refine h.append ?_
-      cases cs.resultTmp with
-      | none => exact SegAlignedP.nonpush Byte.pop (by decide) (by decide)
-      | some t =>
-          exact (segAlignedNoGas_emitImm (UInt256.ofNat (slotOf t))).append
-            (SegAlignedP.nonpush Byte.mstore (by decide) (by decide))
-  | create cs =>
-      rw [show emitStmt cache alloc (.create cs)
-            = cache cs.salt ++ cache cs.initSize ++ cache cs.initOffset ++ cache cs.value
-              ++ [Byte.create2]
-              ++ (match cs.resultTmp with
-                  | some t => emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]
-                  | none   => [Byte.pop]) from rfl]
-      have h := (hcache cs.salt).append (hcache cs.initSize)
-      have h := h.append (hcache cs.initOffset)
-      have h := h.append (hcache cs.value)
-      have h := h.append (SegAlignedP.nonpush Byte.create2 (by decide) (by decide))
-      refine h.append ?_
-      cases cs.resultTmp with
-      | none => exact SegAlignedP.nonpush Byte.pop (by decide) (by decide)
-      | some t =>
-          exact (segAlignedNoGas_emitImm (UInt256.ofNat (slotOf t))).append
-            (SegAlignedP.nonpush Byte.mstore (by decide) (by decide))
+      exact ⟨exprOpLeaves_noGas e he, by decide, by decide⟩
+  | sstore _ _ => simp only [StmtOpLeaves]; decide
+  | call _ => simp only [StmtOpLeaves]; exact ⟨by decide, by decide, by decide, by decide⟩
+  | create _ => simp only [StmtOpLeaves]; exact ⟨by decide, by decide, by decide, by decide⟩
+
+private theorem segAlignedNoGas_emitStmt (cache : Tmp → List UInt8)
+    (hcache : ∀ t, SegAlignedP NoGasOp (cache t)) (alloc : Alloc) (s : Stmt)
+    (hs : ∀ t, s ≠ .assign t .gas) :
+    SegAlignedP NoGasOp (emitStmt cache alloc s) :=
+  segAlignedP_emitStmt_of cache hcache alloc s (stmtOpLeaves_noGas s hs)
 
 /-- A terminator's emitted bytes are `NoGasOp`-aligned (unconditional: terminators
 materialise operands only through the — gas-free — cache). -/
+private theorem termOpLeaves_noGas : ∀ t, TermOpLeaves NoGasOp t := by
+  intro t
+  cases t <;> simp only [TermOpLeaves] <;> decide
+
 private theorem segAlignedNoGas_emitTerm (cache : Tmp → List UInt8)
     (hcache : ∀ t, SegAlignedP NoGasOp (cache t)) (labelOff : Nat → Nat) (t : Term) :
-    SegAlignedP NoGasOp (emitTerm cache labelOff t) := by
-  cases t with
-  | ret tt =>
-      rw [show emitTerm cache labelOff (.ret tt)
-            = cache tt ++ emitImm 0 ++ [Byte.mstore] ++ emitImm 32
-                ++ emitImm 0 ++ [Byte.ret] from rfl]
-      exact (((((hcache tt).append
-              (segAlignedNoGas_emitImm 0)).append
-              (SegAlignedP.nonpush Byte.mstore (by decide) (by decide))).append
-              (segAlignedNoGas_emitImm 32)).append (segAlignedNoGas_emitImm 0)).append
-            (SegAlignedP.nonpush Byte.ret (by decide) (by decide))
-  | stop =>
-      rw [show emitTerm cache labelOff .stop = [Byte.stop] from rfl]
-      exact SegAlignedP.nonpush Byte.stop (by decide) (by decide)
-  | jump dst =>
-      rw [show emitTerm cache labelOff (.jump dst)
-            = emitDest (labelOff dst.idx) ++ [Byte.jump] from rfl]
-      exact (segAlignedNoGas_emitDest _).append
-        (SegAlignedP.nonpush Byte.jump (by decide) (by decide))
-  | branch cond thenL elseL =>
-      rw [show emitTerm cache labelOff (.branch cond thenL elseL)
-            = cache cond
-              ++ emitDest (labelOff thenL.idx) ++ [Byte.jumpi]
-              ++ emitDest (labelOff elseL.idx) ++ [Byte.jump] from rfl]
-      exact ((((hcache cond).append
-              (segAlignedNoGas_emitDest _)).append
-              (SegAlignedP.nonpush Byte.jumpi (by decide) (by decide))).append
-              (segAlignedNoGas_emitDest _)).append
-            (SegAlignedP.nonpush Byte.jump (by decide) (by decide))
+    SegAlignedP NoGasOp (emitTerm cache labelOff t) :=
+  segAlignedP_emitTerm_of cache hcache labelOff t (termOpLeaves_noGas t)
 
 /-- **A gas-read-free program's whole flat byte stream is `NoGasOp`-aligned.** Per-block
 glue over `segAlignedNoGas_emitStmt`/`_emitTerm`, keying each statement site to `hng`
