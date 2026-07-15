@@ -40,7 +40,7 @@ Pure-IR (frame-free): this module depends only on `IR.lean`, `Lowering.lean` and
 
 namespace Lir
 
-open Evm Lir
+open Evm
 
 /-! ## Tmp-use counting
 
