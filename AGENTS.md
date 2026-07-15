@@ -16,7 +16,7 @@ If you are an agent starting work here, read this file, then
    — **the head of the stack.** The agreed direction. New formalization work
    starts from here.
 
-## Current state (2026-06)
+## Current state (2026-07)
 
 - **Direction:** *bytecode-first.* Retire the toy-IR ladder; invest once in a
   reusable reasoning layer over a vendored, EVM-only EVMYulLean; move theorem
@@ -34,12 +34,29 @@ If you are an agent starting work here, read this file, then
   and an SCCP optimization pass with a proved `PreservesSemantics`. This is the
   "real IR with abstraction" exploration (no bytecode lowering yet; it studies
   SIR semantics and pass correctness in isolation).
+- **`EVM/` (top-level package):** the consolidated bytecode reasoning layer.
+  Bundles the vendored EVM-only EVMYulLean (`Evm` lib), the reusable proof engine
+  `BytecodeLayer` (folded in from the former experiments 003 + 005 — frame
+  calculus, recorder, cyclic simulation, and the structured `Asm` assembler), and
+  the `Conform` test cone. `Lir` (the IR) is deliberately **not** an EVM concept
+  here.
+- **Experiment 005 (`experiments/005_ir_lowering/`):** active. The SIR→bytecode
+  lowering. It now `require`s the `EVM` package and retains only the `Lir` IR and
+  its lowering / decode / realisability adapters. Its three flagship conformance
+  theorems (`lower_conforms`, `_exact`, `_gasfree`) are **closed and axiom-clean**
+  (`[propext, Classical.choice, Quot.sound]`); the default cone is green, the
+  non-default `WIP` cone carries the realisability development.
+- **`sir/` (canonical SIR — in progress):** the go-forward IR package: basic-block
+  CFG core, small-step + eval semantics, and a world model. Successor to the toy
+  IRs; the lowering and value-channel work migrates here.
 
 ## Repo layout
 
 ```
 docs/            reference/ + planning/ + archive/ (start at index.md)
-experiments/     self-contained Lean packages (001 closed, 002 active)
+EVM/             consolidated bytecode reasoning layer (Evm + BytecodeLayer + Conform)
+sir/             canonical SIR package (CFG IR + semantics) — in progress
+experiments/     self-contained Lean packages (001 closed, 002 active, 005 = Lir over EVM/)
 forks/           vendored reference repos — GIT-IGNORED, fetch separately
 scripts/         fetch-forks.sh and tooling
 ```

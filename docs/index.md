@@ -57,6 +57,16 @@ Read roughly in this order on a first pass:
 4. [Recommended formalization plan](./planning/formalization-plan.md) — the
    phased strategy from SIR semantics through pass correctness.
 
+## Top-level packages
+
+- **`EVM/`** — the consolidated bytecode reasoning layer: the vendored EVM-only
+  EVMYulLean (`Evm`), the reusable proof engine `BytecodeLayer` (frame calculus,
+  recorder, cyclic simulation, structured `Asm` assembler — folded in from the
+  former experiments 003 + 005), and the `Conform` test cone.
+- **`sir/`** — the canonical SIR package (basic-block CFG IR, small-step + eval
+  semantics, world model). In progress; the go-forward IR that the lowering and
+  value-channel work migrates onto.
+
 ## Experiments
 
 Self-contained Lean packages exploring formalization choices. See
@@ -67,6 +77,13 @@ Self-contained Lean packages exploring formalization choices. See
   `CALL`, proved against EVMYulLean's `EVM.X`. Produced the load-bearing finding
   that `CALL` consults gas (forcing `∃G₀`-shaped statements) and the cheap
   `EVM.call` frame-insensitivity proof.
+- [Experiment 002: SSA CFG](../experiments/002_ssa_cfg) — **active.** Studies
+  source-level CFG/SSA semantics and SCCP correctness in isolation.
+- [Experiment 005: IR lowering](../experiments/005_ir_lowering/docs/index.md) —
+  **active.** The `Lir` IR and its lowering to EVM bytecode, now built on the
+  `EVM/` package. Its `lower_conforms` / `_exact` / `_gasfree` flagships are
+  closed and axiom-clean; the non-default `WIP` cone carries the realisability
+  development.
 
 ## Archive
 

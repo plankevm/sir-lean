@@ -1,5 +1,14 @@
 # Track C — local plan (High-level IR → EVM bytecode, lowering preserved)
 
+> **CURRENT STATE (2026-07-15).** This whole file is a historical progress log —
+> provenance, not instructions. Where things actually stand: the `lower_conforms`
+> / `_exact` / `_gasfree` flagships are **CLOSED and axiom-clean**
+> (`[propext, Classical.choice, Quot.sound]`); the reusable engine was folded into
+> the top-level [`EVM/BytecodeLayer`](../../EVM) package (this experiment now
+> `require`s `EVM` and keeps only the `Lir` adapters); and the go-forward IR is the
+> canonical `sir/` package. Everything below — `Nightly`, the conditional/vacuous
+> headline, the fuel era, and the R11/R0–R12 rebuild — is superseded history.
+
 > **STATUS BANNER (2026-07-02).** For the CURRENT state read, in order: `docs/audit-2026-07-02.md` (adversarial audit), `docs/remediation-plan-2026-07-02.md` (the fix plan), `docs/gas-decision.md` (gas settled as a log-fed exact-equality oracle). Two corrections that override the dated log below: (1) the current headline is the **CONDITIONAL** cyclic conformance theorem `lower_conforms_cyclic_assembled` — it *supplies* the per-block `StmtTies`/`TermTies` ties and `hcall` as hypotheses; the realisability closure (remediation Phase 3) is pending. (2) Gas became a **log-fed exact-equality oracle** and the gas-monotonicity law was **dropped** (gas-decision.md); gas introspection is NOT a delivered first-class reasoning feature. **The dated progress log below is HISTORICAL** — it records the v1 `wc_preserves` and v2 monotone-oracle iterations that the audit/gas-decision have since superseded.
 
 > **UPDATE (2026-07-03).** Plan of record is now `docs/target-architecture-2026-07-02.md` + `docs/execution-plan-2026-07-02.md` (the remediation plan above is superseded). Two further corrections: (1) the headline's supplied `StmtTies`/`TermTies` were confirmed **unsatisfiable** — the conditional headline is **vacuous as stated**, not merely conditional; (2) Phase 2 **deleted** the gas-law apparatus (`Mono.lean`, `Oracle.lean`, `HonestGasTie.lean`, RunLog's gas-monotonicity section) and narrowed `Law.lean` to the four determinism lemmas. The realisability rebuild is the R0–R12 sorry-skeleton in `LirLean/RealisabilitySpec.lean` (non-default `Nightly` lib), guarded by the new `LirLean/Audit.lean` net.

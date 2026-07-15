@@ -25,4 +25,9 @@ The point is not to keep every experiment polished. The point is to preserve wha
   blocks with SSA-style variables, small-step + executable semantics, and an
   SCCP optimization pass proved to preserve semantics. Explores SIR semantics and
   pass correctness in isolation (no bytecode lowering yet).
-
+- [`005_ir_lowering`](./005_ir_lowering/docs/index.md) — **active.** The `Lir` IR
+  and its concrete EVM bytecode lowering. The reusable engine has been folded into
+  the top-level [`EVM/BytecodeLayer`](../EVM) package, which this experiment now
+  builds on; it keeps the `Lir` adapters and the closed, axiom-clean
+  `lower_conforms` / `_exact` / `_gasfree` flagships (default cone green,
+  realisability in the non-default `WIP` cone).
