@@ -29,7 +29,7 @@ or `∅`. `beginCall`'s `.inr` packaging then either keeps the caller's original
 (the `== ∅` fallback) or the stub's input map, which is `cp.accounts` after at most
 two balance-credit `insert`s — presence-monotone (`accounts_find?_insert_mono`). -/
 
-private theorem stub_accounts_ecRecover (m : AccountMap) (g : UInt64) (s : Substate)
+private theorem precompile_accounts_ecRecover (m : AccountMap) (g : UInt64) (s : Substate)
     (env : ExecutionEnv) :
     (Precompiles.ecRecover m g s env).2.1 = m ∨ (Precompiles.ecRecover m g s env).2.1 = ∅ := by
   unfold Precompiles.ecRecover
@@ -37,7 +37,7 @@ private theorem stub_accounts_ecRecover (m : AccountMap) (g : UInt64) (s : Subst
   repeat' split
   all_goals first | exact Or.inl rfl | exact Or.inr rfl
 
-private theorem stub_accounts_sha256 (m : AccountMap) (g : UInt64) (s : Substate)
+private theorem precompile_accounts_sha256 (m : AccountMap) (g : UInt64) (s : Substate)
     (env : ExecutionEnv) :
     (Precompiles.sha256 m g s env).2.1 = m ∨ (Precompiles.sha256 m g s env).2.1 = ∅ := by
   unfold Precompiles.sha256
@@ -45,7 +45,7 @@ private theorem stub_accounts_sha256 (m : AccountMap) (g : UInt64) (s : Substate
   repeat' split
   all_goals first | exact Or.inl rfl | exact Or.inr rfl
 
-private theorem stub_accounts_ripemd160 (m : AccountMap) (g : UInt64) (s : Substate)
+private theorem precompile_accounts_ripemd160 (m : AccountMap) (g : UInt64) (s : Substate)
     (env : ExecutionEnv) :
     (Precompiles.ripemd160 m g s env).2.1 = m ∨ (Precompiles.ripemd160 m g s env).2.1 = ∅ := by
   unfold Precompiles.ripemd160
@@ -53,7 +53,7 @@ private theorem stub_accounts_ripemd160 (m : AccountMap) (g : UInt64) (s : Subst
   repeat' split
   all_goals first | exact Or.inl rfl | exact Or.inr rfl
 
-private theorem stub_accounts_identity (m : AccountMap) (g : UInt64) (s : Substate)
+private theorem precompile_accounts_identity (m : AccountMap) (g : UInt64) (s : Substate)
     (env : ExecutionEnv) :
     (Precompiles.identity m g s env).2.1 = m ∨ (Precompiles.identity m g s env).2.1 = ∅ := by
   unfold Precompiles.identity
@@ -61,7 +61,7 @@ private theorem stub_accounts_identity (m : AccountMap) (g : UInt64) (s : Substa
   repeat' split
   all_goals first | exact Or.inl rfl | exact Or.inr rfl
 
-private theorem stub_accounts_modExp (m : AccountMap) (g : UInt64) (s : Substate)
+private theorem precompile_accounts_modExp (m : AccountMap) (g : UInt64) (s : Substate)
     (env : ExecutionEnv) :
     (Precompiles.modExp m g s env).2.1 = m ∨ (Precompiles.modExp m g s env).2.1 = ∅ := by
   unfold Precompiles.modExp
@@ -69,7 +69,7 @@ private theorem stub_accounts_modExp (m : AccountMap) (g : UInt64) (s : Substate
   repeat' split
   all_goals first | exact Or.inl rfl | exact Or.inr rfl
 
-private theorem stub_accounts_ecAdd (m : AccountMap) (g : UInt64) (s : Substate)
+private theorem precompile_accounts_ecAdd (m : AccountMap) (g : UInt64) (s : Substate)
     (env : ExecutionEnv) :
     (Precompiles.ecAdd m g s env).2.1 = m ∨ (Precompiles.ecAdd m g s env).2.1 = ∅ := by
   unfold Precompiles.ecAdd
@@ -77,7 +77,7 @@ private theorem stub_accounts_ecAdd (m : AccountMap) (g : UInt64) (s : Substate)
   repeat' split
   all_goals first | exact Or.inl rfl | exact Or.inr rfl
 
-private theorem stub_accounts_ecMul (m : AccountMap) (g : UInt64) (s : Substate)
+private theorem precompile_accounts_ecMul (m : AccountMap) (g : UInt64) (s : Substate)
     (env : ExecutionEnv) :
     (Precompiles.ecMul m g s env).2.1 = m ∨ (Precompiles.ecMul m g s env).2.1 = ∅ := by
   unfold Precompiles.ecMul
@@ -85,7 +85,7 @@ private theorem stub_accounts_ecMul (m : AccountMap) (g : UInt64) (s : Substate)
   repeat' split
   all_goals first | exact Or.inl rfl | exact Or.inr rfl
 
-private theorem stub_accounts_ecPairing (m : AccountMap) (g : UInt64) (s : Substate)
+private theorem precompile_accounts_ecPairing (m : AccountMap) (g : UInt64) (s : Substate)
     (env : ExecutionEnv) :
     (Precompiles.ecPairing m g s env).2.1 = m ∨ (Precompiles.ecPairing m g s env).2.1 = ∅ := by
   unfold Precompiles.ecPairing
@@ -93,7 +93,7 @@ private theorem stub_accounts_ecPairing (m : AccountMap) (g : UInt64) (s : Subst
   repeat' split
   all_goals first | exact Or.inl rfl | exact Or.inr rfl
 
-private theorem stub_accounts_blake2f (m : AccountMap) (g : UInt64) (s : Substate)
+private theorem precompile_accounts_blake2f (m : AccountMap) (g : UInt64) (s : Substate)
     (env : ExecutionEnv) :
     (Precompiles.blake2f m g s env).2.1 = m ∨ (Precompiles.blake2f m g s env).2.1 = ∅ := by
   unfold Precompiles.blake2f
@@ -101,7 +101,7 @@ private theorem stub_accounts_blake2f (m : AccountMap) (g : UInt64) (s : Substat
   repeat' split
   all_goals first | exact Or.inl rfl | exact Or.inr rfl
 
-private theorem stub_accounts_pointEvaluation (m : AccountMap) (g : UInt64) (s : Substate)
+private theorem precompile_accounts_pointEvaluation (m : AccountMap) (g : UInt64) (s : Substate)
     (env : ExecutionEnv) :
     (Precompiles.pointEvaluation m g s env).2.1 = m
       ∨ (Precompiles.pointEvaluation m g s env).2.1 = ∅ := by
@@ -158,102 +158,102 @@ theorem beginCall_inr_noErase :
            | with_reducible exact hpres
            | with_reducible apply accounts_find?_insert_mono
            | split)
-      | (with_reducible refine accPresent_ite hpres ?_ (stub_accounts_ecRecover _ _ _ _);
+      | (with_reducible refine accPresent_ite hpres ?_ (precompile_accounts_ecRecover _ _ _ _);
          repeat' first
            | with_reducible exact hpres
            | with_reducible apply accounts_find?_insert_mono
            | split)
-      | (with_reducible refine accPresent_ite hpres ?_ (stub_accounts_sha256 _ _ _ _);
+      | (with_reducible refine accPresent_ite hpres ?_ (precompile_accounts_sha256 _ _ _ _);
          repeat' first
            | with_reducible exact hpres
            | with_reducible apply accounts_find?_insert_mono
            | split)
-      | (with_reducible refine accPresent_ite hpres ?_ (stub_accounts_ripemd160 _ _ _ _);
+      | (with_reducible refine accPresent_ite hpres ?_ (precompile_accounts_ripemd160 _ _ _ _);
          repeat' first
            | with_reducible exact hpres
            | with_reducible apply accounts_find?_insert_mono
            | split)
-      | (with_reducible refine accPresent_ite hpres ?_ (stub_accounts_identity _ _ _ _);
+      | (with_reducible refine accPresent_ite hpres ?_ (precompile_accounts_identity _ _ _ _);
          repeat' first
            | with_reducible exact hpres
            | with_reducible apply accounts_find?_insert_mono
            | split)
-      | (with_reducible refine accPresent_ite hpres ?_ (stub_accounts_modExp _ _ _ _);
+      | (with_reducible refine accPresent_ite hpres ?_ (precompile_accounts_modExp _ _ _ _);
          repeat' first
            | with_reducible exact hpres
            | with_reducible apply accounts_find?_insert_mono
            | split)
-      | (with_reducible refine accPresent_ite hpres ?_ (stub_accounts_ecAdd _ _ _ _);
+      | (with_reducible refine accPresent_ite hpres ?_ (precompile_accounts_ecAdd _ _ _ _);
          repeat' first
            | with_reducible exact hpres
            | with_reducible apply accounts_find?_insert_mono
            | split)
-      | (with_reducible refine accPresent_ite hpres ?_ (stub_accounts_ecMul _ _ _ _);
+      | (with_reducible refine accPresent_ite hpres ?_ (precompile_accounts_ecMul _ _ _ _);
          repeat' first
            | with_reducible exact hpres
            | with_reducible apply accounts_find?_insert_mono
            | split)
-      | (with_reducible refine accPresent_ite hpres ?_ (stub_accounts_ecPairing _ _ _ _);
+      | (with_reducible refine accPresent_ite hpres ?_ (precompile_accounts_ecPairing _ _ _ _);
          repeat' first
            | with_reducible exact hpres
            | with_reducible apply accounts_find?_insert_mono
            | split)
-      | (with_reducible refine accPresent_ite hpres ?_ (stub_accounts_blake2f _ _ _ _);
+      | (with_reducible refine accPresent_ite hpres ?_ (precompile_accounts_blake2f _ _ _ _);
          repeat' first
            | with_reducible exact hpres
            | with_reducible apply accounts_find?_insert_mono
            | split)
-      | (with_reducible refine accPresent_ite hpres ?_ (stub_accounts_pointEvaluation _ _ _ _);
+      | (with_reducible refine accPresent_ite hpres ?_ (precompile_accounts_pointEvaluation _ _ _ _);
          repeat' first
            | with_reducible exact hpres
            | with_reducible apply accounts_find?_insert_mono
            | split)
-      | (with_reducible refine accPresent_stub (stub_accounts_ecRecover _ _ _ _) ?_ (by assumption);
+      | (with_reducible refine accPresent_stub (precompile_accounts_ecRecover _ _ _ _) ?_ (by assumption);
          repeat' first
            | with_reducible exact hpres
            | with_reducible apply accounts_find?_insert_mono
            | split)
-      | (with_reducible refine accPresent_stub (stub_accounts_sha256 _ _ _ _) ?_ (by assumption);
+      | (with_reducible refine accPresent_stub (precompile_accounts_sha256 _ _ _ _) ?_ (by assumption);
          repeat' first
            | with_reducible exact hpres
            | with_reducible apply accounts_find?_insert_mono
            | split)
-      | (with_reducible refine accPresent_stub (stub_accounts_ripemd160 _ _ _ _) ?_ (by assumption);
+      | (with_reducible refine accPresent_stub (precompile_accounts_ripemd160 _ _ _ _) ?_ (by assumption);
          repeat' first
            | with_reducible exact hpres
            | with_reducible apply accounts_find?_insert_mono
            | split)
-      | (with_reducible refine accPresent_stub (stub_accounts_identity _ _ _ _) ?_ (by assumption);
+      | (with_reducible refine accPresent_stub (precompile_accounts_identity _ _ _ _) ?_ (by assumption);
          repeat' first
            | with_reducible exact hpres
            | with_reducible apply accounts_find?_insert_mono
            | split)
-      | (with_reducible refine accPresent_stub (stub_accounts_modExp _ _ _ _) ?_ (by assumption);
+      | (with_reducible refine accPresent_stub (precompile_accounts_modExp _ _ _ _) ?_ (by assumption);
          repeat' first
            | with_reducible exact hpres
            | with_reducible apply accounts_find?_insert_mono
            | split)
-      | (with_reducible refine accPresent_stub (stub_accounts_ecAdd _ _ _ _) ?_ (by assumption);
+      | (with_reducible refine accPresent_stub (precompile_accounts_ecAdd _ _ _ _) ?_ (by assumption);
          repeat' first
            | with_reducible exact hpres
            | with_reducible apply accounts_find?_insert_mono
            | split)
-      | (with_reducible refine accPresent_stub (stub_accounts_ecMul _ _ _ _) ?_ (by assumption);
+      | (with_reducible refine accPresent_stub (precompile_accounts_ecMul _ _ _ _) ?_ (by assumption);
          repeat' first
            | with_reducible exact hpres
            | with_reducible apply accounts_find?_insert_mono
            | split)
-      | (with_reducible refine accPresent_stub (stub_accounts_ecPairing _ _ _ _) ?_ (by assumption);
+      | (with_reducible refine accPresent_stub (precompile_accounts_ecPairing _ _ _ _) ?_ (by assumption);
          repeat' first
            | with_reducible exact hpres
            | with_reducible apply accounts_find?_insert_mono
            | split)
-      | (with_reducible refine accPresent_stub (stub_accounts_blake2f _ _ _ _) ?_ (by assumption);
+      | (with_reducible refine accPresent_stub (precompile_accounts_blake2f _ _ _ _) ?_ (by assumption);
          repeat' first
            | with_reducible exact hpres
            | with_reducible apply accounts_find?_insert_mono
            | split)
-      | (with_reducible refine accPresent_stub (stub_accounts_pointEvaluation _ _ _ _) ?_ (by assumption);
+      | (with_reducible refine accPresent_stub (precompile_accounts_pointEvaluation _ _ _ _) ?_ (by assumption);
          repeat' first
            | with_reducible exact hpres
            | with_reducible apply accounts_find?_insert_mono
