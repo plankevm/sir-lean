@@ -1,6 +1,6 @@
 import LirLean.Decode.DecodeAnchors
 import LirLean.Materialise.MaterialiseRuns
-import BytecodeLayer.Exec.MatDecLower
+import BytecodeLayer.Exec.ByteWindow
 
 namespace Lir
 

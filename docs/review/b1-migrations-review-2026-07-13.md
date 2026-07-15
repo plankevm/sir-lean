@@ -80,7 +80,7 @@ genuinely IR-specific specialization.
 | `d8af28aa` | CREATE effect oracle | [Create.lean](../../EVM/BytecodeLayer/Exec/Create.lean#L33) | old module deleted | Types use only EVM create/result/resume objects and shared observables. |
 | `a41bdd84` | Execution recorder | [Recorder.lean](../../EVM/BytecodeLayer/Exec/Recorder.lean#L26) | [Spec/Recorder.lean](../../experiments/005_ir_lowering/LirLean/Spec/Recorder.lean#L1) re-exports the generic surface | Recorder is parameterized by EVM frames, results, pending calls/creates, and streams only. |
 | `4c78d6ac` | Recorder lemmas | [RecorderLemmas.lean](../../EVM/BytecodeLayer/Exec/RecorderLemmas.lean#L20) | [RecorderLemmas.lean adapter](../../experiments/005_ir_lowering/LirLean/RecorderLemmas.lean#L1) | Adequacy and stream-cons lemmas are EVM/recorder-only. |
-| `1d8fe2fe` | Word decode lemmas | [MatDecLower.lean](../../EVM/BytecodeLayer/Exec/MatDecLower.lean#L23) | [MatDecLower.lean adapter](../../experiments/005_ir_lowering/LirLean/Materialise/MatDecLower.lean#L1) | Arithmetic, byte-window, and decoder facts only. |
+| `1d8fe2fe` | Word decode lemmas | [ByteWindow.lean](../../EVM/BytecodeLayer/Exec/ByteWindow.lean#L23) | [MatDecLower.lean adapter](../../experiments/005_ir_lowering/LirLean/Materialise/MatDecLower.lean#L1) | Arithmetic, byte-window, and decoder facts only. |
 | `35ac4da6` | Segmented evaluator | [SegmentedEval.lean](../../EVM/BytecodeLayer/Exec/SegmentedEval.lean#L24) | [SegmentedEval.lean adapter](../../experiments/005_ir_lowering/LirLean/Realisability/SegmentedEval.lean#L1) | Generic one-step and segmented evaluation of the recorder/checker. |
 | `2b43d6f7` | Checked evaluator | [CheckedStep.lean](../../EVM/BytecodeLayer/Exec/CheckedStep.lean#L82) | [CheckedStep.lean adapter](../../experiments/005_ir_lowering/LirLean/Realisability/CheckedStep.lean#L1) | Checked twins and soundness statements use only EVM machine state and recorder configurations. |
 | `608caa0c` | Self-presence preservation | [CallPreservesSelf.lean](../../EVM/BytecodeLayer/Exec/CallPreservesSelf.lean#L31) | [CallPreservesSelf.lean adapter](../../experiments/005_ir_lowering/LirLean/Drive/CallPreservesSelf.lean#L1) | All predicates quantify over EVM steps, calls, creates, runs, and account presence. |
@@ -135,7 +135,7 @@ theorem findD_erase_of_ne (s : Storage) {k' k : UInt256} (h : k' ≠ k) :
     (s.erase k).findD k' 0 = s.findD k' 0 := by
 ```
 
-[uInt256_wordBytesBE](../../EVM/BytecodeLayer/Exec/MatDecLower.lean#L95)
+[uInt256_wordBytesBE](../../EVM/BytecodeLayer/Exec/ByteWindow.lean#L95)
 is the corresponding byte-roundtrip brick:
 
 ```lean
@@ -433,9 +433,9 @@ or hides a conclusion in a new generic assumption.
   [callsCodeOk_succ_eq](../../EVM/BytecodeLayer/Exec/SegmentedEval.lean#L223).
   This is isolated to witness/checker evaluation, not the flagships.
 - **Inherited elaboration smell:**
-  [MatDecLower.lean](../../EVM/BytecodeLayer/Exec/MatDecLower.lean#L17)
+  [ByteWindow.lean](../../EVM/BytecodeLayer/Exec/ByteWindow.lean#L17)
   raises recursion depth to 8192, and
-  [fromBytes_wordBytesBE](../../EVM/BytecodeLayer/Exec/MatDecLower.lean#L52)
+  [fromBytes_wordBytesBE](../../EVM/BytecodeLayer/Exec/ByteWindow.lean#L52)
   performs a long explicit 32-byte reduction. The roundtrip brick is in the
   mainline lowering/decode cone, so brittleness here can affect headline builds,
   though it introduces no axiom or untrusted evaluator. Both settings predate B1
@@ -456,7 +456,7 @@ downstream files. The follow-up rewrote the affected module prose in
 [CallPreservesSelf.lean](../../EVM/BytecodeLayer/Exec/CallPreservesSelf.lean#L6),
 [CheckedStep.lean](../../EVM/BytecodeLayer/Exec/CheckedStep.lean#L4),
 [CleanHaltExtract.lean](../../EVM/BytecodeLayer/Exec/CleanHaltExtract.lean#L4),
-[MatDecLower.lean](../../EVM/BytecodeLayer/Exec/MatDecLower.lean#L5),
+[ByteWindow.lean](../../EVM/BytecodeLayer/Exec/ByteWindow.lean#L5),
 [Recorder.lean](../../EVM/BytecodeLayer/Exec/Recorder.lean#L105),
 [RecorderLemmas.lean](../../EVM/BytecodeLayer/Exec/RecorderLemmas.lean#L3),
 and

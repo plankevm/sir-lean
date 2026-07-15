@@ -1,5 +1,5 @@
 import BytecodeLayer.Asm
-import BytecodeLayer.Exec.MatDecLower
+import BytecodeLayer.Exec.ByteWindow
 
 /-!
 # Geometry of structured assembly
