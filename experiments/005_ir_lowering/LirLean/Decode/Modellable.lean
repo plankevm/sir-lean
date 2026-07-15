@@ -6,7 +6,7 @@ import LirLean.Decode.BoundaryReach
 
 This module retains the IR-specific code-and-program-counter tether. -/
 
-namespace BytecodeLayer.Interpreter
+namespace Lir
 
 open Evm
 /-- **`AtReachableBoundary prog fr`** — the structural-reachability premise: `fr` runs
@@ -21,4 +21,4 @@ def AtReachableBoundary (prog : Lir.Program) (fr : Frame) : Prop :=
     ∧ boundary < 2 ^ 32
 
 
-end BytecodeLayer.Interpreter
+end Lir
