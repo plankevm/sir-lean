@@ -17,7 +17,7 @@ def AtReachableBoundary (prog : Lir.Program) (fr : Frame) : Prop :=
     fr.exec.executionEnv.code = Lir.lower prog
     ∧ fr.exec.pc = UInt32.ofNat boundary
     ∧ Evm.ReachesBoundary (Lir.lower prog) 0 boundary
-    ∧ boundary < (Lir.flatBytes prog).length
+    ∧ boundary < (Lir.lowerBytes prog).length
     ∧ boundary < 2 ^ 32
 
 

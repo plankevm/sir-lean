@@ -16,9 +16,9 @@ namespace Lir
 open Evm
 
 theorem lower_get?_eq (prog : Program) (n : Nat) :
-    (lower prog).get? n = (flatBytes prog)[n]? := by
-  rw [lower_eq_flatBytes]
-  exact BytecodeLayer.Asm.bget (flatBytes prog) n
+    (lower prog).get? n = (lowerBytes prog)[n]? := by
+  rw [lower_eq_lowerBytes]
+  exact BytecodeLayer.Asm.bget (lowerBytes prog) n
 
 theorem reaches_block_offset (prog : Program) :
     ∀ i, i ≤ prog.blocks.size →

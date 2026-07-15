@@ -446,7 +446,7 @@ theorem matCache_absent (prog : Program) {t : Tmp}
     (hmem : t ∉ (defEnv prog).map Prod.fst) : matCache prog t = emitImm 0 := by
   rw [matCache_eq_matFold, matFold_notMem (defEnv prog) matInit hmem]; rfl
 
-def codeFits (prog : Program) : Prop := (flatBytes prog).length < 2 ^ 32
+def codeFits (prog : Program) : Prop := (lowerBytes prog).length < 2 ^ 32
 
 def chargeDepth (prog : Program) (t : Tmp) : Nat :=
   (chargeCache prog (fun _ => 0) t).length

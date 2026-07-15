@@ -237,7 +237,7 @@ theorem lower_conforms {prog : Program} {params : CallParams} {log : RunLog}
   -- The static well-formedness bundle the downstream ties/producer consume, RE-DERIVED from
   -- the IR-level well-formedness + the two scalar budgets (stage 1B bridge).
   have hwl := wellLowered_of_IRWellFormed hwf hcodeFits hstk
-  have hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32 := Nat.le_of_lt hcodeFits
+  have hsize : (Lir.lowerBytes prog).length ≤ 2 ^ 32 := Nat.le_of_lt hcodeFits
   -- Entry frame (from run adequacy) and the CALL-targets-code face of the seam.
   obtain ⟨fr₀, hbegin, _⟩ := runWithLog_drive hrun
   have hcc : ∀ fr', Runs fr₀ fr' → CallsCode fr' :=
@@ -252,7 +252,7 @@ theorem lower_conforms {prog : Program} {params : CallParams} {log : RunLog}
   --     all-frames `SimStmtStep`, which the reshaped `StmtTies'` cannot supply — its arm
   --     conclusions hold only under the load-bearing `RecorderCoupled` antecedent (§3), so
   --     the coupling-free path is exactly the vacuity the reshape exists to kill;
-  --   • R6 `runs_atReachableBoundary`'s B2 side condition `(flatBytes prog).length < 2^32`
+  --   • R6 `runs_atReachableBoundary`'s B2 side condition `(lowerBytes prog).length < 2^32`
   --     is now DISCHARGED: it IS the `hcodeFits : codeFits prog` premise (that half of the
   --     old R6 blocker is closed by the 1B reshape). The boundary walk `hrb` comes bundled
   --     with the run through the coupled producer, rather than from `codeFits` alone.
@@ -283,7 +283,7 @@ theorem lower_conforms_exact {prog : Program} {params : CallParams} {log : RunLo
         (realisedCall log params.recipient) (realisedCreate log params.recipient) prog.entry O
       ∧ Conforms params.recipient log O := by
   have hwl := wellLowered_of_IRWellFormed hwf hcodeFits hstk
-  have hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32 := Nat.le_of_lt hcodeFits
+  have hsize : (Lir.lowerBytes prog).length ≤ 2 ^ 32 := Nat.le_of_lt hcodeFits
   -- The coupled producer yields `RunFromAll` directly.
   -- Do not derive exactness from the plain producer; `runFromLeft_exists` only gives some
   -- leftover streams.
@@ -319,7 +319,7 @@ theorem lower_conforms_gasfree {prog : Program} {params : CallParams} {log : Run
         (realisedCall log params.recipient) (realisedCreate log params.recipient) prog.entry O
       ∧ Conforms params.recipient log O := by
   have hwl := wellLowered_of_IRWellFormed hwf hcodeFits hstk
-  have hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32 := Nat.le_of_lt hcodeFits
+  have hsize : (Lir.lowerBytes prog).length ≤ 2 ^ 32 := Nat.le_of_lt hcodeFits
   -- The gas-free restriction (`hng : NoGasReads prog`) avoids R1 (no gas arm fires) and,
   -- via `realisedGas_nil_of_noGasReads`, makes the RunFrom trace empty — but it does NOT
   -- avoid the coupled driver: the sload/sstore/call arms still need the coupling.
@@ -368,7 +368,7 @@ delivered child result — at the next reachable in-range boundary. `atReachable
 minus the `CallReturns` drive components (which its geometry never consumes). -/
 private theorem atReachableBoundaryVJ_resume_call {prog : Lir.Program} {fr rf : Frame}
     {cp : CallParams} {pending : PendingCall} {res : CallResult}
-    (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32)
+    (hsize : (Lir.lowerBytes prog).length ≤ 2 ^ 32)
     (hncall : stepFrame fr = .needsCall cp pending)
     (hrf : rf = resumeAfterCall res pending)
     (hinv : AtReachableBoundaryVJ prog fr) :
@@ -377,8 +377,8 @@ private theorem atReachableBoundaryVJ_resume_call {prog : Lir.Program} {fr rf : 
   obtain ⟨byte, hget, hop⟩ := Lir.reachable_boundary_loweringByte prog b hreach hin
   obtain ⟨hopCall, hppc, hpvj⟩ :=
     Lir.stepFrame_needsCall_lowering_site_inv hcode hpc hbnd hget hop hncall
-  have hInR : b + 1 < (Lir.flatBytes prog).length := by
-    have hlt := Lir.nextInstrPos_lt_flatBytes_of_cursor (Lir.flatBytes_cursor_cases hin)
+  have hInR : b + 1 < (Lir.lowerBytes prog).length := by
+    have hlt := Lir.nextInstrPos_lt_lowerBytes_of_cursor (Lir.lowerBytes_cursor_cases hin)
       hreach hget (by rw [hopCall]; simp) (by rw [hopCall]; simp) (by rw [hopCall]; simp)
     rw [hopCall] at hlt
     simpa [Evm.nextInstrPosNat, Evm.pushArgWidth] using hlt
@@ -405,7 +405,7 @@ component): a suspended CREATE parent successfully resuming under ANY delivered 
 result lands at the next reachable in-range boundary. -/
 private theorem atReachableBoundaryVJ_resume_create {prog : Lir.Program} {fr rf : Frame}
     {cp : CreateParams} {pending : PendingCreate} {res : FrameResult}
-    (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32)
+    (hsize : (Lir.lowerBytes prog).length ≤ 2 ^ 32)
     (hncreate : stepFrame fr = .needsCreate cp pending)
     (hrf : Evm.resumeAfterCreate res.toCreateResult pending = .ok rf)
     (hinv : AtReachableBoundaryVJ prog fr) :
@@ -414,14 +414,14 @@ private theorem atReachableBoundaryVJ_resume_create {prog : Lir.Program} {fr rf 
   obtain ⟨byte, hget, hop⟩ := Lir.reachable_boundary_loweringByte prog b hreach hin
   obtain ⟨hopCreate, hppc, hpvj⟩ :=
     Lir.stepFrame_needsCreate_lowering_site_inv hcode hpc hbnd hget hop hncreate
-  have hInR : b + 1 < (Lir.flatBytes prog).length := by
+  have hInR : b + 1 < (Lir.lowerBytes prog).length := by
     have hnstop : Evm.parseInstr byte ≠ .STOP := by
       rcases hopCreate with h | h <;> rw [h] <;> simp
     have hnreturn : Evm.parseInstr byte ≠ .RETURN := by
       rcases hopCreate with h | h <;> rw [h] <;> simp
     have hnjump : Evm.parseInstr byte ≠ .JUMP := by
       rcases hopCreate with h | h <;> rw [h] <;> simp
-    have hlt := Lir.nextInstrPos_lt_flatBytes_of_cursor (Lir.flatBytes_cursor_cases hin)
+    have hlt := Lir.nextInstrPos_lt_lowerBytes_of_cursor (Lir.lowerBytes_cursor_cases hin)
       hreach hget hnstop hnreturn hnjump
     rcases hopCreate with hcr | hcr2
     · rw [hcr] at hlt
@@ -459,12 +459,13 @@ private theorem blocks_pos_of_wellLowered {prog : Program} (hwl : WellLowered pr
 stream ends exactly at the LAST block's emitted terminator end, and every terminator kind
 carries a `WellLowered` pc bound covering its own emitted bytes (`bound_stop`/`bound_jump`/
 `bound_branch`/`retEpilogueBound`). -/
-private theorem flatBytes_length_le_of_wellLowered {prog : Program}
-    (hwl : WellLowered prog) : (Lir.flatBytes prog).length ≤ 2 ^ 32 := by
+private theorem lowerBytes_length_le_of_wellLowered {prog : Program}
+    (hwl : WellLowered prog) : (Lir.lowerBytes prog).length ≤ 2 ^ 32 := by
   rcases Nat.eq_zero_or_pos prog.blocks.size with hsz | hsz
   · have hnil : prog.blocks.toList = [] :=
       List.length_eq_zero_iff.mp (by rw [Array.length_toList]; exact hsz)
-    unfold Lir.flatBytes
+    rw [Lir.lowerBytes_eq_emit]
+    unfold Lir.emit
     rw [hnil]
     simp
   · have hi : prog.blocks.size - 1 < prog.blocks.toList.length := by
@@ -474,7 +475,7 @@ private theorem flatBytes_length_le_of_wellLowered {prog : Program}
     have hb : prog.blocks.toList[L.idx]? = some blk := by
       rw [hL]
       exact List.getElem?_eq_getElem hi
-    have hsplit := Lir.flatBytes_block_split prog L blk hb
+    have hsplit := Lir.lowerBytes_block_split prog L blk hb
     have hdrop : prog.blocks.toList.drop (L.idx + 1) = [] := by
       apply List.drop_eq_nil_of_le
       rw [Array.length_toList]
@@ -485,13 +486,13 @@ private theorem flatBytes_length_le_of_wellLowered {prog : Program}
       show prog.blocks[L.idx]? = some blk
       rw [← Array.getElem?_toList]
       exact hb
-    have hlen : (Lir.flatBytes prog).length
+    have hlen : (Lir.lowerBytes prog).length
         = Lir.termOf prog L
           + (Lir.emitTerm (Lir.matCache prog)
               (Lir.offsetTable (Lir.matCache prog) (Lir.defsOf prog) prog.blocks)
               blk.term).length := by
       rw [hsplit, List.length_append, List.length_cons,
-        Lir.flatBytes_block_offset prog L, Lir.termOf_eq_anchor prog L blk hb]
+        Lir.lowerBytes_block_offset prog L, Lir.termOf_eq_anchor prog L blk hb]
       unfold Lir.emitBlockBody
       rw [List.length_append]
       omega
@@ -564,7 +565,7 @@ ordinary-step edge (`atReachableBoundaryVJ_step`) and the resume-keyed CALL/CREA
 above; at every top-level `.next` step the gas gate is dead
 (`isGasOp_false_of_atReachableBoundary`). -/
 private theorem driveLog_gas_of_noGasReads {prog : Program}
-    (hng : NoGasReads prog) (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32) :
+    (hng : NoGasReads prog) (hsize : (Lir.lowerBytes prog).length ≤ 2 ^ 32) :
     ∀ (fuel : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult)
       (g0 : List Word) (s0 : List Nat) (c0 : List CallRecord) (d0 : List CreateRecord)
       (r : FrameResult) (gas : List Word) (sloads : List Nat)
@@ -705,8 +706,8 @@ theorem realisedGas_nil_of_noGasReads {prog : Program} {params : CallParams} {lo
     (hrun : runWithLog params (seedFuel params.gas) = some log) :
     realisedGas log = [] := by
   have hne : 0 < prog.blocks.size := blocks_pos_of_wellLowered hwl
-  have hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32 :=
-    flatBytes_length_le_of_wellLowered hwl
+  have hsize : (Lir.lowerBytes prog).length ≤ 2 ^ 32 :=
+    lowerBytes_length_le_of_wellLowered hwl
   unfold runWithLog at hrun
   cases hbc : beginCall params with
   | inr res => rw [hbc] at hrun; simp at hrun

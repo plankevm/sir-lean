@@ -369,9 +369,9 @@ private theorem call_stmt_offset_bound_of_codeFits {prog : Program} {L : Label} 
         = some ((emitStmt (matCache prog) (defsOf prog) (.call cs))[k]) :=
     List.getElem?_eq_getElem hk
   have hflat :
-      (flatBytes prog)[pcOf prog L pc + k]?
+      (lowerBytes prog)[pcOf prog L pc + k]?
         = some ((emitStmt (matCache prog) (defsOf prog) (.call cs))[k]) := by
-    rw [flatBytes_at_pcOf_offset prog L b pc (.call cs) k (Lir.toList_of_blockAt hb) hcur hk]
+    rw [lowerBytes_at_pcOf_offset prog L b pc (.call cs) k (Lir.toList_of_blockAt hb) hcur hk]
     exact hbyte0
   rw [List.getElem?_eq_some_iff] at hflat
   exact lt_of_lt_of_le hflat.1 (Nat.le_of_lt hcodeFits)
@@ -443,23 +443,23 @@ theorem sstoreRealises_at_frame {g : Frame} {kw vw : Word}
 machine-checked lemmas.
 
 * **Blocker B1 — the zero-block program (a CONCRETE counterexample, `not_runs_atReachableBoundary`), NOW FIXED on the statement.**
-  For `prog.blocks = #[]`, `flatBytes prog = []` so `(flatBytes prog).length = 0`. `beginCall`
+  For `prog.blocks = #[]`, `lowerBytes prog = []` so `(lowerBytes prog).length = 0`. `beginCall`
   still returns `.inl fr₀` (the `.Code` branch is total, pc `0`), and `Runs.refl fr₀` reaches
   `fr₀`, yet `AtReachableBoundary` demands `boundary < 0` — false. R6 therefore needs
   `0 < prog.blocks.size` on its statement (now added as `hne`); the refutation below proves R6's
   exact side-condition-free `∀`-form is false, justifying `hne`.
 * **Blocker B2 — the oversized program / pc wrap.** The engine pc is `UInt32`, so every reachable
   boundary is `< 2 ^ 32`; but `ReachesBoundary`/`validJumpDests` are `Nat` walks that, for
-  `(flatBytes prog).length > 2 ^ 32`, reach boundaries `≥ 2 ^ 32`. Matching the `Nat` walk back to
+  `(lowerBytes prog).length > 2 ^ 32`, reach boundaries `≥ 2 ^ 32`. Matching the `Nat` walk back to
   the `UInt32` pc (taken-jump arm) and the no-wrap of the sequential/CALL advance both reduce to
-  the program-size bound `(flatBytes prog).length ≤ 2 ^ 32` — natural (offsets are emitted as
+  the program-size bound `(lowerBytes prog).length ≤ 2 ^ 32` — natural (offsets are emitted as
   4-byte `PUSH4`) but absent from the statement and not derivable for a schematic `prog`.
 
 The reusable geometry below threads the entry, ordinary step, CALL return, and CREATE return
 edges through one strengthened boundary invariant.
 -/
 
-/-- The zero-block witness program: `flatBytes` is `[]`, so no boundary is in range. -/
+/-- The zero-block witness program: `lowerBytes` is `[]`, so no boundary is in range. -/
 def emptyProg : Lir.Program := { blocks := #[], entry := ⟨0⟩ }
 
 /-- A minimal code-call into `lower emptyProg` (every field defaulted; only `codeSource` matters):
@@ -474,7 +474,7 @@ def emptyParams : CallParams :=
 
 /-- **Blocker B1, machine-checked: R6's exact `∀`-form is FALSE.** The zero-block program
 `emptyProg` entered by `emptyParams` (`beginCall = .inl _`, `Runs.refl` reaches the entry frame)
-has NO reachable in-range boundary (`(flatBytes emptyProg).length = 0`), so `AtReachableBoundary`
+has NO reachable in-range boundary (`(lowerBytes emptyProg).length = 0`), so `AtReachableBoundary`
 cannot hold at the entry frame. Hence R6 needs `0 < prog.blocks.size` on its statement (the honest
 side condition the geometry track surfaces — mirrors `not_defsSound_stale`, the refutation is the
 point). -/
@@ -488,22 +488,25 @@ theorem not_runs_atReachableBoundary :
     beginCall_code emptyParams (lower emptyProg) rfl
   have hrb := H emptyProg emptyParams _ hbc rfl _ (Runs.refl _)
   obtain ⟨boundary, _, _, _, hlt, _⟩ := hrb
-  have hlen : (Lir.flatBytes emptyProg).length = 0 := by simp [Lir.flatBytes, emptyProg]
+  have hlen : (Lir.lowerBytes emptyProg).length = 0 := by
+    rw [Lir.lowerBytes_eq_emit]
+    simp [Lir.emit, emptyProg]
   omega
 
-/-- `(lower prog).size` is the length of the flat byte list (`lower` wraps `flatBytes` in a
+/-- `(lower prog).size` is the length of the flat byte list (`lower` wraps `lowerBytes` in a
 `ByteArray`). The one-step bridge between the `ByteArray`-level engine bound (`j < c.size`, e.g.
 from `reachesBoundary_of_mem_validJumpDests`) and the `List`-level range field of
-`AtReachableBoundary` (`boundary < (flatBytes prog).length`). -/
-theorem lower_size_eq (prog : Lir.Program) : (lower prog).size = (Lir.flatBytes prog).length := by
-  rw [Lir.lower_eq_flatBytes]; simp [ByteArray.size]
+`AtReachableBoundary` (`boundary < (lowerBytes prog).length`). -/
+theorem lower_size_eq (prog : Lir.Program) : (lower prog).size = (Lir.lowerBytes prog).length := by
+  rw [Lir.lower_eq_lowerBytes]; simp [ByteArray.size]
 
 /-- **The lowered program is non-empty when the CFG is.** Each block contributes at least its
-leading `JUMPDEST` byte, so a non-empty block array gives a non-empty `flatBytes`. The positive
+leading `JUMPDEST` byte, so a non-empty block array gives a non-empty `lowerBytes`. The positive
 half of blocker B1 (the entry seed's `0 < length` field). -/
-theorem flatBytes_length_pos (prog : Lir.Program) (h : 0 < prog.blocks.size) :
-    0 < (Lir.flatBytes prog).length := by
-  unfold Lir.flatBytes
+theorem lowerBytes_length_pos (prog : Lir.Program) (h : 0 < prog.blocks.size) :
+    0 < (Lir.lowerBytes prog).length := by
+  rw [Lir.lowerBytes_eq_emit]
+  unfold Lir.emit
   have hne : prog.blocks.toList ≠ [] := by
     intro hnil
     have : prog.blocks.toList.length = 0 := by rw [hnil]; rfl
@@ -517,7 +520,7 @@ theorem flatBytes_length_pos (prog : Lir.Program) (h : 0 < prog.blocks.size) :
 /-- **BASE — the entry frame sits at a reachable in-range boundary.** For a code call into
 `lower prog` whose CFG is non-empty (blocker B1's side condition), the entry frame
 (`= codeFrame params (lower prog)`) is at pc `0`, which is `ReachesBoundary … 0 0` (`.refl`) and
-in range (`flatBytes_length_pos`) — the seed of the `Runs`-induction. -/
+in range (`lowerBytes_length_pos`) — the seed of the `Runs`-induction. -/
 theorem atReachableBoundary_entry {prog : Lir.Program} {params : CallParams} {fr₀ : Frame}
     (hbegin : beginCall params = .inl fr₀)
     (hcode : params.codeSource = .Code (lower prog))
@@ -531,7 +534,7 @@ theorem atReachableBoundary_entry {prog : Lir.Program} {params : CallParams} {fr
   · rw [hfr]; exact codeFrame_code params (lower prog)
   · rw [hfr, codeFrame_pc]; rfl
   · exact .refl 0
-  · exact flatBytes_length_pos prog hne
+  · exact lowerBytes_length_pos prog hne
   · decide
 
 /-- **The strengthened boundary invariant (in-file).** `AtReachableBoundary` PLUS the
@@ -566,7 +569,7 @@ theorem atReachableBoundaryVJ_entry {prog : Lir.Program} {params : CallParams} {
 /-- **R6 STEP edge.** One ordinary step preserves the reachable in-range boundary and valid-jump
 invariants, classifying the successor as sequential or a valid jump destination. -/
 theorem atReachableBoundaryVJ_step {prog : Lir.Program} {fr mid : Frame}
-    (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32)
+    (hsize : (Lir.lowerBytes prog).length ≤ 2 ^ 32)
     (h : StepsTo fr mid) (hinv : AtReachableBoundaryVJ prog fr) :
     AtReachableBoundaryVJ prog mid := by
   obtain ⟨⟨b, hcode, hpc, hreach, hin, hbnd⟩, hvj⟩ := hinv
@@ -586,8 +589,8 @@ theorem atReachableBoundaryVJ_step {prog : Lir.Program} {fr mid : Frame}
   rcases hBpc with hseq | hjmp
   · -- sequential advance
     obtain ⟨hseq, hnstop, hnreturn, hnjump⟩ := hseq
-    have hInR : Evm.nextInstrPosNat b (Evm.parseInstr byte) < (Lir.flatBytes prog).length :=
-      Lir.nextInstrPos_lt_flatBytes_of_cursor (Lir.flatBytes_cursor_cases hin) hreach hget
+    have hInR : Evm.nextInstrPosNat b (Evm.parseInstr byte) < (Lir.lowerBytes prog).length :=
+      Lir.nextInstrPos_lt_lowerBytes_of_cursor (Lir.lowerBytes_cursor_cases hin) hreach hget
         hnstop hnreturn hnjump
     exact ⟨Evm.nextInstrPosNat b (Evm.parseInstr byte), hmcode, hseq,
       BytecodeLayer.Asm.reachesBoundary_nextInstr hreach hget,
@@ -604,7 +607,7 @@ theorem atReachableBoundaryVJ_step {prog : Lir.Program} {fr mid : Frame}
 `resumeAfterCall` pins (code / pc = call-site + 1 / validJumps), the CALL-site inversion, and
 the CALL successor in-range geometry are discharged in-file. -/
 theorem atReachableBoundaryVJ_call {prog : Lir.Program} {fr rf : Frame}
-    (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32)
+    (hsize : (Lir.lowerBytes prog).length ≤ 2 ^ 32)
     (h : CallReturns fr rf) (hinv : AtReachableBoundaryVJ prog fr) :
     AtReachableBoundaryVJ prog rf := by
   obtain ⟨⟨b, hcode, hpc, hreach, hin, hbnd⟩, hvj⟩ := hinv
@@ -615,8 +618,8 @@ theorem atReachableBoundaryVJ_call {prog : Lir.Program} {fr rf : Frame}
       ∧ pending.frame.validJumps = fr.validJumps :=
     Lir.stepFrame_needsCall_lowering_site_inv hcode hpc hbnd hget hop hncall
   obtain ⟨hopCall, hppc, hpvj⟩ := hBcall
-  have hInR : b + 1 < (Lir.flatBytes prog).length := by
-    have hlt := Lir.nextInstrPos_lt_flatBytes_of_cursor (Lir.flatBytes_cursor_cases hin)
+  have hInR : b + 1 < (Lir.lowerBytes prog).length := by
+    have hlt := Lir.nextInstrPos_lt_lowerBytes_of_cursor (Lir.lowerBytes_cursor_cases hin)
       hreach hget (by rw [hopCall]; simp) (by rw [hopCall]; simp) (by rw [hopCall]; simp)
     rw [hopCall] at hlt
     simpa [Evm.nextInstrPosNat, Evm.pushArgWidth] using hlt
@@ -644,7 +647,7 @@ theorem atReachableBoundaryVJ_call {prog : Lir.Program} {fr rf : Frame}
 /-- **R6 CREATE edge.** A returning CREATE/CREATE2 resumes at the next reachable in-range
 boundary while preserving the lowered code and valid-jump table. -/
 theorem atReachableBoundaryVJ_create {prog : Lir.Program} {fr rf : Frame}
-    (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32)
+    (hsize : (Lir.lowerBytes prog).length ≤ 2 ^ 32)
     (h : CreateReturns fr rf) (hinv : AtReachableBoundaryVJ prog fr) :
     AtReachableBoundaryVJ prog rf := by
   obtain ⟨⟨b, hcode, hpc, hreach, hin, hbnd⟩, hvj⟩ := hinv
@@ -652,12 +655,12 @@ theorem atReachableBoundaryVJ_create {prog : Lir.Program} {fr rf : Frame}
   obtain ⟨byte, hget, hop⟩ := Lir.reachable_boundary_loweringByte prog b hreach hin
   obtain ⟨hopCreate, hppc, hpvj⟩ :=
     Lir.stepFrame_needsCreate_lowering_site_inv hcode hpc hbnd hget hop hncreate
-  have hInR : b + 1 < (Lir.flatBytes prog).length := by
+  have hInR : b + 1 < (Lir.lowerBytes prog).length := by
     have hnstop : Evm.parseInstr byte ≠ .STOP := by rcases hopCreate with h | h <;> rw [h] <;> simp
     have hnreturn : Evm.parseInstr byte ≠ .RETURN := by
       rcases hopCreate with h | h <;> rw [h] <;> simp
     have hnjump : Evm.parseInstr byte ≠ .JUMP := by rcases hopCreate with h | h <;> rw [h] <;> simp
-    have hlt := Lir.nextInstrPos_lt_flatBytes_of_cursor (Lir.flatBytes_cursor_cases hin)
+    have hlt := Lir.nextInstrPos_lt_lowerBytes_of_cursor (Lir.lowerBytes_cursor_cases hin)
       hreach hget hnstop hnreturn hnjump
     rcases hopCreate with hcreate | hcreate2
     · rw [hcreate] at hlt
@@ -688,7 +691,7 @@ preserved across a whole `Runs` derivation, threading through each single `Steps
 (`atReachableBoundaryVJ_call`), and each returning `CreateReturns`
 (`atReachableBoundaryVJ_create`). -/
 theorem atReachableBoundaryVJ_of_runs {prog : Lir.Program}
-    (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32)
+    (hsize : (Lir.lowerBytes prog).length ≤ 2 ^ 32)
     {fr fr' : Frame} (hr : Runs fr fr') :
     AtReachableBoundaryVJ prog fr → AtReachableBoundaryVJ prog fr' := by
   exact BytecodeLayer.Exec.CyclicSim.invariant_of_runs
@@ -708,7 +711,7 @@ with the two well-formedness side conditions the geometry track surfaced:
   block, and B1 is exactly `ClosedCFG.entry_present`'s content (`entry.idx < blocks.size ⟹
   0 < blocks.size`). NOT vacuity-inducing: `beginCall` still returns `.inl fr₀`, `Runs.refl`
   still reaches the seed frame.
-* B2 (`hsize : (flatBytes prog).length ≤ 2 ^ 32`) — the pc-wrap bound the taken-JUMP /
+* B2 (`hsize : (lowerBytes prog).length ≤ 2 ^ 32`) — the pc-wrap bound the taken-JUMP /
   sequential edge lemmas need to turn `boundary' < length` into the `boundary' < 2 ^ 32`
   conjunct. Legitimate: offsets are emitted as 4-byte `PUSH4`, so real programs fit the
   32-bit address space (the same bound the per-cursor `WellFormedLowered.bound_*` fields
@@ -720,7 +723,7 @@ theorem runs_atReachableBoundary {prog : Lir.Program} {params : CallParams} {fr�
     (hbegin : beginCall params = .inl fr₀)
     (hcode : params.codeSource = .Code (lower prog))
     (hne : 0 < prog.blocks.size)
-    (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32) :
+    (hsize : (Lir.lowerBytes prog).length ≤ 2 ^ 32) :
     ∀ fr', Runs fr₀ fr' → AtReachableBoundary prog fr' := by
   intro fr' hr
   exact (atReachableBoundaryVJ_of_runs hsize hr
@@ -1551,7 +1554,7 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
       rw [hfrvcode, hfrvpc]
       exact imm_leaf_decodeF prog (termOf prog L + lc) 0 (by omega)
         (by intro j hj
-            have hja := flatBytes_at_termOf prog L b (lc + j) hbt (by
+            have hja := lowerBytes_at_termOf prog L b (lc + j) hbt (by
               rw [hemitR]
               simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
               rw [emitImm_length] at hj; omega)
@@ -1598,7 +1601,7 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
       rw [hfrvcode, e34]
       exact imm_leaf_decodeF prog (termOf prog L + (lc + 34)) 32 (by omega)
         (by intro j hj
-            have hja := flatBytes_at_termOf prog L b (lc + 34 + j) hbt (by
+            have hja := lowerBytes_at_termOf prog L b (lc + 34 + j) hbt (by
               rw [hemitR]
               simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
               rw [emitImm_length] at hj; omega)
@@ -1621,7 +1624,7 @@ theorem termTies'_of_walk {prog : Program} {sloadChg : Tmp → ℕ} {log : RunLo
       rw [hfrvcode, e67]
       exact imm_leaf_decodeF prog (termOf prog L + (lc + 67)) 0 (by omega)
         (by intro j hj
-            have hja := flatBytes_at_termOf prog L b (lc + 67 + j) hbt (by
+            have hja := lowerBytes_at_termOf prog L b (lc + 67 + j) hbt (by
               rw [hemitR]
               simp only [List.length_append, emitImm_length, List.length_cons, List.length_nil, ← hlc]
               rw [emitImm_length] at hj; omega)
@@ -2272,8 +2275,8 @@ private theorem call_args_run_of_coupled {prog : Program} {sloadChg : Tmp → �
     exact call_stmt_offset_bound_of_codeFits hcodeFits hb hcur (by omega)
   -- the emit byte segment at the cursor, re-associated to the right-nested spelling.
   have hseg : ∀ j, j < (emitStmt (matCache prog) (defsOf prog) (.call cs)).length →
-      (flatBytes prog)[base + j]? = (emitStmt (matCache prog) (defsOf prog) (.call cs))[j]? :=
-    fun j hj => flatBytes_at_pcOf_offset prog L b pc (.call cs) j hbt hcur hj
+      (lowerBytes prog)[base + j]? = (emitStmt (matCache prog) (defsOf prog) (.call cs))[j]? :=
+    fun j hj => lowerBytes_at_pcOf_offset prog L b pc (.call cs) j hbt hcur hj
   set rest6 : List UInt8 := cB ++ (gB ++ ([Byte.call] ++ tailB)) with hrest6
   have hassoc : emitStmt (matCache prog) (defsOf prog) (.call cs)
       = emitImm 0 ++ (emitImm 0 ++ (emitImm 0 ++ (emitImm 0 ++ (emitImm 0 ++ rest6)))) := by
@@ -2281,52 +2284,52 @@ private theorem call_args_run_of_coupled {prog : Program} {sloadChg : Tmp → �
     simp only [List.append_assoc]
   rw [hassoc] at hseg
   -- peel the five `PUSH32 0` prefixes and the operand segments off the segment fact.
-  have hseg1 := segF_suffix (flatBytes prog) base (emitImm 0)
+  have hseg1 := segF_suffix (lowerBytes prog) base (emitImm 0)
       (emitImm 0 ++ (emitImm 0 ++ (emitImm 0 ++ (emitImm 0 ++ rest6)))) hseg
   simp only [emitImm_length] at hseg1
-  have hseg2 := segF_suffix (flatBytes prog) (base + 33) (emitImm 0)
+  have hseg2 := segF_suffix (lowerBytes prog) (base + 33) (emitImm 0)
       (emitImm 0 ++ (emitImm 0 ++ (emitImm 0 ++ rest6))) hseg1
   simp only [emitImm_length] at hseg2
-  have hseg3 := segF_suffix (flatBytes prog) (base + 33 + 33) (emitImm 0)
+  have hseg3 := segF_suffix (lowerBytes prog) (base + 33 + 33) (emitImm 0)
       (emitImm 0 ++ (emitImm 0 ++ rest6)) hseg2
   simp only [emitImm_length] at hseg3
-  have hseg4 := segF_suffix (flatBytes prog) (base + 33 + 33 + 33) (emitImm 0)
+  have hseg4 := segF_suffix (lowerBytes prog) (base + 33 + 33 + 33) (emitImm 0)
       (emitImm 0 ++ rest6) hseg3
   simp only [emitImm_length] at hseg4
-  have hseg5 := segF_suffix (flatBytes prog) (base + 33 + 33 + 33 + 33) (emitImm 0) rest6 hseg4
+  have hseg5 := segF_suffix (lowerBytes prog) (base + 33 + 33 + 33 + 33) (emitImm 0) rest6 hseg4
   simp only [emitImm_length] at hseg5
-  have hseg5' : ∀ j, j < rest6.length → (flatBytes prog)[base + 165 + j]? = rest6[j]? := by
+  have hseg5' : ∀ j, j < rest6.length → (lowerBytes prog)[base + 165 + j]? = rest6[j]? := by
     intro j hj
     have := hseg5 j hj
     rwa [show base + 33 + 33 + 33 + 33 + 33 = base + 165 from by omega] at this
   rw [hrest6] at hseg5'
-  have hsegCB := segF_prefix (flatBytes prog) (base + 165) cB
+  have hsegCB := segF_prefix (lowerBytes prog) (base + 165) cB
       (gB ++ ([Byte.call] ++ tailB)) hseg5'
-  have hsegAfterCB := segF_suffix (flatBytes prog) (base + 165) cB
+  have hsegAfterCB := segF_suffix (lowerBytes prog) (base + 165) cB
       (gB ++ ([Byte.call] ++ tailB)) hseg5'
-  have hsegGB := segF_prefix (flatBytes prog) (base + 165 + cB.length) gB
+  have hsegGB := segF_prefix (lowerBytes prog) (base + 165 + cB.length) gB
       ([Byte.call] ++ tailB) hsegAfterCB
   -- the five `PUSH32 0` decode anchors.
   have hd0 : decode (lower prog) (UInt32.ofNat base)
       = some (.Push .PUSH32, some ((0 : Word), 32)) :=
     imm_leaf_decodeF prog base 0 (by have := hbnd 33 (by omega); omega)
-      (segF_prefix (flatBytes prog) base (emitImm 0) _ hseg)
+      (segF_prefix (lowerBytes prog) base (emitImm 0) _ hseg)
   have hd1 : decode (lower prog) (UInt32.ofNat (base + 33))
       = some (.Push .PUSH32, some ((0 : Word), 32)) :=
     imm_leaf_decodeF prog (base + 33) 0 (by have := hbnd 66 (by omega); omega)
-      (segF_prefix (flatBytes prog) (base + 33) (emitImm 0) _ hseg1)
+      (segF_prefix (lowerBytes prog) (base + 33) (emitImm 0) _ hseg1)
   have hd2 : decode (lower prog) (UInt32.ofNat (base + 33 + 33))
       = some (.Push .PUSH32, some ((0 : Word), 32)) :=
     imm_leaf_decodeF prog (base + 33 + 33) 0 (by have := hbnd 99 (by omega); omega)
-      (segF_prefix (flatBytes prog) (base + 33 + 33) (emitImm 0) _ hseg2)
+      (segF_prefix (lowerBytes prog) (base + 33 + 33) (emitImm 0) _ hseg2)
   have hd3 : decode (lower prog) (UInt32.ofNat (base + 33 + 33 + 33))
       = some (.Push .PUSH32, some ((0 : Word), 32)) :=
     imm_leaf_decodeF prog (base + 33 + 33 + 33) 0 (by have := hbnd 132 (by omega); omega)
-      (segF_prefix (flatBytes prog) (base + 33 + 33 + 33) (emitImm 0) _ hseg3)
+      (segF_prefix (lowerBytes prog) (base + 33 + 33 + 33) (emitImm 0) _ hseg3)
   have hd4 : decode (lower prog) (UInt32.ofNat (base + 33 + 33 + 33 + 33))
       = some (.Push .PUSH32, some ((0 : Word), 32)) :=
     imm_leaf_decodeF prog (base + 33 + 33 + 33 + 33) 0 (by have := hbnd 165 (by omega); omega)
-      (segF_prefix (flatBytes prog) (base + 33 + 33 + 33 + 33) (emitImm 0) _ hseg4)
+      (segF_prefix (lowerBytes prog) (base + 33 + 33 + 33 + 33) (emitImm 0) _ hseg4)
   -- == the five coupled pushes ==
   have hcode0 : fr0.exec.executionEnv.code = lower prog := hcorr.code_eq
   have hpc0 : fr0.exec.pc = UInt32.ofNat base := hcorr.pc_eq
@@ -2743,8 +2746,8 @@ theorem call_tail_of_cleanHalt {prog : Program} {L : Label} {b : Block} {pc : Na
   set argsB : List UInt8 := emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0 ++ emitImm 0
       ++ matCache prog cs.callee ++ matCache prog cs.gasFwd with hargsB
   have hseg : ∀ j, j < (emitStmt (matCache prog) (defsOf prog) (.call cs)).length →
-      (flatBytes prog)[base + j]? = (emitStmt (matCache prog) (defsOf prog) (.call cs))[j]? :=
-    fun j hj => flatBytes_at_pcOf_offset prog L b pc (.call cs) j hbt hcur hj
+      (lowerBytes prog)[base + j]? = (emitStmt (matCache prog) (defsOf prog) (.call cs))[j]? :=
+    fun j hj => lowerBytes_at_pcOf_offset prog L b pc (.call cs) j hbt hcur hj
   have hpc' : resumeFr.exec.pc = UInt32.ofNat (base + (argsB.length + 1)) := by
     rw [hpc]; congr 1
   have hsz1 : resumeFr.exec.stack.size + 1 ≤ 1024 := by
@@ -2771,10 +2774,10 @@ theorem call_tail_of_cleanHalt {prog : Program} {L : Label} {b : Block} {pc : Na
     have hbnd : base + (argsB.length + 34) < 2 ^ 32 :=
       call_stmt_offset_bound_of_codeFits hcodeFits hb hcur (by omega)
     -- the tail byte segment, rebased one past the CALL byte.
-    have hsegTail := segF_suffix (flatBytes prog) base (argsB ++ [Byte.call])
+    have hsegTail := segF_suffix (lowerBytes prog) base (argsB ++ [Byte.call])
         (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]) (by rw [← hemit]; exact hseg)
     have hsegTail' : ∀ j, j < (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]).length →
-        (flatBytes prog)[base + (argsB.length + 1) + j]?
+        (lowerBytes prog)[base + (argsB.length + 1) + j]?
           = (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore])[j]? := by
       intro j hj
       have h := hsegTail j hj
@@ -2785,7 +2788,7 @@ theorem call_tail_of_cleanHalt {prog : Program} {L : Label} {b : Block} {pc : Na
         = some (.Push .PUSH32, some (UInt256.ofNat (slotOf t), 32)) :=
       imm_leaf_decodeF prog (base + (argsB.length + 1)) (UInt256.ofNat (slotOf t))
         (by omega)
-        (segF_prefix (flatBytes prog) (base + (argsB.length + 1))
+        (segF_prefix (lowerBytes prog) (base + (argsB.length + 1))
           (emitImm (UInt256.ofNat (slotOf t))) [Byte.mstore] hsegTail')
     have hdmstoreT : decode (lower prog) (UInt32.ofNat (base + (argsB.length + 1) + 33))
         = some (.Smsf .MSTORE, .none) := by
@@ -2936,9 +2939,9 @@ theorem callRealises_of_recorded {prog : Program} {sloadChg : Tmp → ℕ} {log 
         List.getElem?_append_right (Nat.le_refl _)]
     simp
   have hseg : ∀ j, j < (emitStmt (matCache prog) (defsOf prog) (.call cs)).length →
-      (flatBytes prog)[pcOf prog L pc + j]?
+      (lowerBytes prog)[pcOf prog L pc + j]?
         = (emitStmt (matCache prog) (defsOf prog) (.call cs))[j]? :=
-    fun j hj => flatBytes_at_pcOf_offset prog L b pc (.call cs) j hbt hcur hj
+    fun j hj => lowerBytes_at_pcOf_offset prog L b pc (.call cs) j hbt hcur hj
   have hargslt : argsB.length
       < (emitStmt (matCache prog) (defsOf prog) (.call cs)).length := by
     rw [hemit0]
@@ -3089,9 +3092,9 @@ theorem call_head_realises_coupled {prog : Program} {sloadChg : Tmp → ℕ} {lo
         List.getElem?_append_right (Nat.le_refl _)]
     simp
   have hseg : ∀ j, j < (emitStmt (matCache prog) (defsOf prog) (.call cs)).length →
-      (flatBytes prog)[pcOf prog L pc + j]?
+      (lowerBytes prog)[pcOf prog L pc + j]?
         = (emitStmt (matCache prog) (defsOf prog) (.call cs))[j]? :=
-    fun j hj => flatBytes_at_pcOf_offset prog L b pc (.call cs) j hbt hcur hj
+    fun j hj => lowerBytes_at_pcOf_offset prog L b pc (.call cs) j hbt hcur hj
   have hargslt : argsB.length
       < (emitStmt (matCache prog) (defsOf prog) (.call cs)).length := by
     rw [hemit0]
@@ -3156,9 +3159,9 @@ theorem callSuffix_nonempty_at_stmt {prog : Program} {sloadChg : Tmp → ℕ} {l
         List.getElem?_append_right (Nat.le_refl _)]
     simp
   have hseg : ∀ j, j < (emitStmt (matCache prog) (defsOf prog) (.call cs)).length →
-      (flatBytes prog)[pcOf prog L pc + j]?
+      (lowerBytes prog)[pcOf prog L pc + j]?
         = (emitStmt (matCache prog) (defsOf prog) (.call cs))[j]? :=
-    fun j hj => flatBytes_at_pcOf_offset prog L b pc (.call cs) j hbt hcur hj
+    fun j hj => lowerBytes_at_pcOf_offset prog L b pc (.call cs) j hbt hcur hj
   have hargslt : argsB.length < (emitStmt (matCache prog) (defsOf prog) (.call cs)).length := by
     rw [hemit]
     simp only [List.length_append, List.length_singleton]
@@ -3262,9 +3265,9 @@ private theorem create_stmt_offset_bound_of_codeFits {prog : Program} {L : Label
         = some ((emitStmt (matCache prog) (defsOf prog) (.create cs))[k]) :=
     List.getElem?_eq_getElem hk
   have hflat :
-      (flatBytes prog)[pcOf prog L pc + k]?
+      (lowerBytes prog)[pcOf prog L pc + k]?
         = some ((emitStmt (matCache prog) (defsOf prog) (.create cs))[k]) := by
-    rw [flatBytes_at_pcOf_offset prog L b pc (.create cs) k (Lir.toList_of_blockAt hb) hcur hk]
+    rw [lowerBytes_at_pcOf_offset prog L b pc (.create cs) k (Lir.toList_of_blockAt hb) hcur hk]
     exact hbyte0
   rw [List.getElem?_eq_some_iff] at hflat
   exact lt_of_lt_of_le hflat.1 (Nat.le_of_lt hcodeFits)
@@ -3377,26 +3380,26 @@ private theorem create_args_run_of_coupled {prog : Program} {sloadChg : Tmp → 
     omega
   -- the emit byte segment at the cursor.
   have hseg : ∀ j, j < (emitStmt (matCache prog) (defsOf prog) (.create cs)).length →
-      (flatBytes prog)[base + j]? = (emitStmt (matCache prog) (defsOf prog) (.create cs))[j]? :=
-    fun j hj => flatBytes_at_pcOf_offset prog L b pc (.create cs) j hbt hcur hj
+      (lowerBytes prog)[base + j]? = (emitStmt (matCache prog) (defsOf prog) (.create cs))[j]? :=
+    fun j hj => lowerBytes_at_pcOf_offset prog L b pc (.create cs) j hbt hcur hj
   -- right-associate the emit to peel the four operand segments.
   set rest : List UInt8 := zB ++ (oB ++ (vB ++ ([Byte.create2] ++ tailB))) with hrest
   have hassoc : emitStmt (matCache prog) (defsOf prog) (.create cs)
       = sB ++ (zB ++ (oB ++ (vB ++ ([Byte.create2] ++ tailB)))) := by
     rw [hemit0]; simp only [List.append_assoc]
   rw [hassoc] at hseg
-  have hsegSB := segF_prefix (flatBytes prog) base sB rest hseg
-  have hsegAfterSB := segF_suffix (flatBytes prog) base sB rest hseg
+  have hsegSB := segF_prefix (lowerBytes prog) base sB rest hseg
+  have hsegAfterSB := segF_suffix (lowerBytes prog) base sB rest hseg
   rw [hrest] at hsegAfterSB
-  have hsegZB := segF_prefix (flatBytes prog) (base + sB.length) zB
+  have hsegZB := segF_prefix (lowerBytes prog) (base + sB.length) zB
       (oB ++ (vB ++ ([Byte.create2] ++ tailB))) hsegAfterSB
-  have hsegAfterZB := segF_suffix (flatBytes prog) (base + sB.length) zB
+  have hsegAfterZB := segF_suffix (lowerBytes prog) (base + sB.length) zB
       (oB ++ (vB ++ ([Byte.create2] ++ tailB))) hsegAfterSB
-  have hsegOB := segF_prefix (flatBytes prog) (base + sB.length + zB.length) oB
+  have hsegOB := segF_prefix (lowerBytes prog) (base + sB.length + zB.length) oB
       (vB ++ ([Byte.create2] ++ tailB)) hsegAfterZB
-  have hsegAfterOB := segF_suffix (flatBytes prog) (base + sB.length + zB.length) oB
+  have hsegAfterOB := segF_suffix (lowerBytes prog) (base + sB.length + zB.length) oB
       (vB ++ ([Byte.create2] ++ tailB)) hsegAfterZB
-  have hsegVB := segF_prefix (flatBytes prog) (base + sB.length + zB.length + oB.length) vB
+  have hsegVB := segF_prefix (lowerBytes prog) (base + sB.length + zB.length + oB.length) vB
       ([Byte.create2] ++ tailB) hsegAfterOB
   -- == the four coupled materialise runs ==
   have hcode0 : fr0.exec.executionEnv.code = lower prog := hcorr.code_eq
@@ -3573,8 +3576,8 @@ theorem create_tail_of_cleanHalt {prog : Program} {L : Label} {b : Block} {pc : 
   set argsB : List UInt8 := matCache prog cs.salt ++ matCache prog cs.initSize
       ++ matCache prog cs.initOffset ++ matCache prog cs.value with hargsB
   have hseg : ∀ j, j < (emitStmt (matCache prog) (defsOf prog) (.create cs)).length →
-      (flatBytes prog)[base + j]? = (emitStmt (matCache prog) (defsOf prog) (.create cs))[j]? :=
-    fun j hj => flatBytes_at_pcOf_offset prog L b pc (.create cs) j hbt hcur hj
+      (lowerBytes prog)[base + j]? = (emitStmt (matCache prog) (defsOf prog) (.create cs))[j]? :=
+    fun j hj => lowerBytes_at_pcOf_offset prog L b pc (.create cs) j hbt hcur hj
   have hpc' : resumeFr.exec.pc = UInt32.ofNat (base + (argsB.length + 1)) := by
     rw [hpc]; congr 1
   have hsz1 : resumeFr.exec.stack.size + 1 ≤ 1024 := by
@@ -3599,10 +3602,10 @@ theorem create_tail_of_cleanHalt {prog : Program} {L : Label} {b : Block} {pc : 
       simp only [List.length_append, List.length_singleton, emitImm_length]
     have hbnd : base + (argsB.length + 34) < 2 ^ 32 :=
       create_stmt_offset_bound_of_codeFits hcodeFits hb hcur (by omega)
-    have hsegTail := segF_suffix (flatBytes prog) base (argsB ++ [Byte.create2])
+    have hsegTail := segF_suffix (lowerBytes prog) base (argsB ++ [Byte.create2])
         (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]) (by rw [← hemit]; exact hseg)
     have hsegTail' : ∀ j, j < (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]).length →
-        (flatBytes prog)[base + (argsB.length + 1) + j]?
+        (lowerBytes prog)[base + (argsB.length + 1) + j]?
           = (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore])[j]? := by
       intro j hj
       have h := hsegTail j hj
@@ -3612,7 +3615,7 @@ theorem create_tail_of_cleanHalt {prog : Program} {L : Label} {b : Block} {pc : 
         = some (.Push .PUSH32, some (UInt256.ofNat (slotOf t), 32)) :=
       imm_leaf_decodeF prog (base + (argsB.length + 1)) (UInt256.ofNat (slotOf t))
         (by omega)
-        (segF_prefix (flatBytes prog) (base + (argsB.length + 1))
+        (segF_prefix (lowerBytes prog) (base + (argsB.length + 1))
           (emitImm (UInt256.ofNat (slotOf t))) [Byte.mstore] hsegTail')
     have hdmstoreT : decode (lower prog) (UInt32.ofNat (base + (argsB.length + 1) + 33))
         = some (.Smsf .MSTORE, .none) := by
@@ -3819,9 +3822,9 @@ private theorem create_site_decode {prog : Program} {L : Label} {b : Block} {pc 
         List.getElem?_append_right (Nat.le_refl _)]
     simp
   have hseg : ∀ j, j < (emitStmt (matCache prog) (defsOf prog) (.create cs)).length →
-      (flatBytes prog)[pcOf prog L pc + j]?
+      (lowerBytes prog)[pcOf prog L pc + j]?
         = (emitStmt (matCache prog) (defsOf prog) (.create cs))[j]? :=
-    fun j hj => flatBytes_at_pcOf_offset prog L b pc (.create cs) j hbt hcur hj
+    fun j hj => lowerBytes_at_pcOf_offset prog L b pc (.create cs) j hbt hcur hj
   have hargslt : argsB.length
       < (emitStmt (matCache prog) (defsOf prog) (.create cs)).length := by
     rw [hemit0]

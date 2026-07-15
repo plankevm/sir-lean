@@ -123,10 +123,11 @@ theorem lowered_block_region_inv (prog : Program) (blk : Block) {k base : Nat}
         obtain ⟨j, hj, heq⟩ := hterm
         exact ⟨j, hj, by omega⟩
 
-theorem flatBytes_cursor_cases {prog : Program} {b : Nat}
-    (hin : b < (flatBytes prog).length) :
+theorem lowerBytes_cursor_cases {prog : Program} {b : Nat}
+    (hin : b < (lowerBytes prog).length) :
     LowerBoundaryCursor prog b := by
-  unfold flatBytes at hin
+  rw [lowerBytes_eq_emit] at hin
+  unfold emit at hin
   set cache := matCache prog with hcache
   set alloc := defsOf prog with halloc
   set lo := offsetTable cache alloc prog.blocks with hlo
@@ -171,21 +172,21 @@ theorem flatBytes_cursor_cases {prog : Program} {b : Nat}
 
 /-- A non-terminal instruction head classified by the source layout advances strictly inside the
 lowered byte stream. -/
-theorem nextInstrPos_lt_flatBytes_of_cursor {prog : Program} {b : Nat} {byte : UInt8}
+theorem nextInstrPos_lt_lowerBytes_of_cursor {prog : Program} {b : Nat} {byte : UInt8}
     (hcursor : LowerBoundaryCursor prog b)
     (hreach : Evm.ReachesBoundary (lower prog) 0 b)
     (hget : (lower prog).get? b = some byte)
     (hnstop : Evm.parseInstr byte ≠ .STOP)
     (hnreturn : Evm.parseInstr byte ≠ .RETURN)
     (hnjump : Evm.parseInstr byte ≠ .JUMP) :
-    Evm.nextInstrPosNat b (Evm.parseInstr byte) < (flatBytes prog).length := by
+    Evm.nextInstrPosNat b (Evm.parseInstr byte) < (lowerBytes prog).length := by
   have blockGeometry (L : Label) (blk : Block)
       (hb : prog.blocks.toList[L.idx]? = some blk)
       (hbase : offsetTable (matCache prog) (defsOf prog) prog.blocks L.idx ≤ b)
       (hinside : b < offsetTable (matCache prog) (defsOf prog) prog.blocks L.idx
         + (Byte.jumpdest :: emitBlockBody (matCache prog) (defsOf prog)
           (offsetTable (matCache prog) (defsOf prog) prog.blocks) blk).length) :
-      Evm.nextInstrPosNat b (Evm.parseInstr byte) < (flatBytes prog).length := by
+      Evm.nextInstrPosNat b (Evm.parseInstr byte) < (lowerBytes prog).length := by
     let base := offsetTable (matCache prog) (defsOf prog) prog.blocks L.idx
     let blockBytes := Byte.jumpdest :: emitBlockBody (matCache prog) (defsOf prog)
       (offsetTable (matCache prog) (defsOf prog) prog.blocks) blk
@@ -197,8 +198,8 @@ theorem nextInstrPos_lt_flatBytes_of_cursor {prog : Program} {b : Nat} {byte : U
         (lower prog).get? (base + j) = (pre ++ [last])[j]? := by
       intro j hj
       rw [lower_get?_eq]
-      have hsplit := flatBytes_block_split prog L blk hb
-      have hprelen := flatBytes_block_offset prog L
+      have hsplit := lowerBytes_block_split prog L blk hb
+      have hprelen := lowerBytes_block_offset prog L
       rw [hsplit]
       rw [show base = ((prog.blocks.toList.take L.idx).flatMap
           (fun b => Byte.jumpdest :: emitBlockBody (matCache prog) (defsOf prog)
@@ -223,9 +224,9 @@ theorem nextInstrPos_lt_flatBytes_of_cursor {prog : Program} {b : Nat} {byte : U
       · rwa [h]
     have hltBlock := nextInstrPos_lt_of_segAlignedP_terminal hpre base hmatch b byte hlocal
       hinBlock hget hneLast
-    have hsplit := flatBytes_block_split prog L blk hb
-    have hprelen := flatBytes_block_offset prog L
-    have hblockEnd : base + (pre ++ [last]).length ≤ (flatBytes prog).length := by
+    have hsplit := lowerBytes_block_split prog L blk hb
+    have hprelen := lowerBytes_block_offset prog L
+    have hblockEnd : base + (pre ++ [last]).length ≤ (lowerBytes prog).length := by
       rw [← hdecomp]
       rw [hsplit]
       simp only [List.length_append]
@@ -266,8 +267,8 @@ theorem nextInstrPos_lt_flatBytes_of_cursor {prog : Program} {b : Nat} {byte : U
 
 theorem reachable_lowering_boundary_cases {prog : Program} {b : Nat}
     (_hreach : Evm.ReachesBoundary (lower prog) 0 b)
-    (hin : b < (flatBytes prog).length) :
+    (hin : b < (lowerBytes prog).length) :
     LowerBoundaryCursor prog b :=
-  flatBytes_cursor_cases hin
+  lowerBytes_cursor_cases hin
 
 end Lir

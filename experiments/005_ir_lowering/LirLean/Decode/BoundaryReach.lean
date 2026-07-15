@@ -15,7 +15,7 @@ the assembler geometry; this module supplies the LIR specialization:
 * **`decode_reachable_boundary_loweringOp`** — at any reachable in-range boundary the decoded op
   is one of the 18 lowering opcodes (`IsLoweringOp`). The `SegAlignedLowering` allow-list transport;
   `SegAlignedLowering`, `IsLoweringOp` and the whole-program alignment
-  (`segAlignedP_flatBytes`) are the strongest instance of the shared `SegAlignedP` tower
+  (`segAlignedP_lowerBytes`) are the strongest instance of the shared `SegAlignedP` tower
   (`Decode/SegAligned.lean`). It *scopes* the per-step pc-advance case analysis to the emitted set.
 
 §5 additionally exports **`reachable_boundary_noGasByte`**: for a *gas-read-free* program
@@ -119,7 +119,8 @@ theorem lower_get?_blockPrefix {prog : Program} {i j : Nat}
         (fun b => Byte.jumpdest :: emitBlockBody (matCache prog) (defsOf prog)
           (offsetTable (matCache prog) (defsOf prog) prog.blocks) b))[j]?) := by
   rw [lower_get?_eq]
-  unfold flatBytes
+  rw [lowerBytes_eq_emit]
+  unfold emit
   change (prog.blocks.toList.flatMap
       (fun b => Byte.jumpdest :: emitBlockBody (matCache prog) (defsOf prog)
         (offsetTable (matCache prog) (defsOf prog) prog.blocks) b))[j]? =
@@ -141,7 +142,7 @@ theorem reachesBoundary_drop_to_blockEntry {prog : Program} {L : Label} {blk : B
       (offsetTable (matCache prog) (defsOf prog) prog.blocks) b)
   have hprelen : pre.length =
       offsetTable (matCache prog) (defsOf prog) prog.blocks L.idx := by
-    simpa [pre] using flatBytes_block_offset prog L
+    simpa [pre] using lowerBytes_block_offset prog L
   have hseg : SegAlignedP IsLoweringOp pre := by
     unfold pre
     apply BytecodeLayer.Asm.segAlignedP_flatMap
@@ -172,8 +173,8 @@ theorem reachesBoundary_drop_jumpdest {prog : Program} {L : Label} {blk : Block}
     have hj0 : j = 0 := by simp at hj; omega
     subst j
     rw [Nat.add_zero, lower_get?_eq]
-    have hsplit := flatBytes_block_split prog L blk hb
-    have hprelen := flatBytes_block_offset prog L
+    have hsplit := lowerBytes_block_split prog L blk hb
+    have hprelen := lowerBytes_block_offset prog L
     rw [hsplit]
     rw [show base = ((prog.blocks.toList.take L.idx).flatMap
         (fun b => Byte.jumpdest :: emitBlockBody (matCache prog) (defsOf prog)
@@ -198,13 +199,13 @@ private theorem lower_match_stmt_prefix {prog : Program} {L : Label} {blk : Bloc
   rw [lower_get?_eq]
   rw [pcOf_eq_anchor prog L blk 0 hb]
   simp only [List.take_zero, List.flatMap_nil, List.length_nil, Nat.add_zero]
-  rw [flatBytes_block_split prog L blk hb]
+  rw [lowerBytes_block_split prog L blk hb]
   set cache := matCache prog
   set alloc := defsOf prog
   set lo := offsetTable cache alloc prog.blocks
   set pre := (prog.blocks.toList.take L.idx).flatMap
     (fun b => Byte.jumpdest :: emitBlockBody cache alloc lo b)
-  have hprelen : pre.length = lo L.idx := flatBytes_block_offset prog L
+  have hprelen : pre.length = lo L.idx := lowerBytes_block_offset prog L
   have hbody : emitBlockBody cache alloc lo blk =
       (blk.stmts.take pc).flatMap (emitStmt cache alloc)
         ++ ((blk.stmts.drop pc).flatMap (emitStmt cache alloc)
@@ -315,35 +316,35 @@ theorem reaches_loweringOp_of_segAlignedLowering (c : ByteArray) (seg : List UIn
         ∃ byte, c.get? n = some byte ∧ IsLoweringOp (Evm.parseInstr byte) :=
   BytecodeLayer.Asm.reaches_P_of_segAlignedP c seg hseg
 
-/-- The whole flat byte stream is allow-listed: `segAlignedP_flatBytes` at `IsLoweringOp`
+/-- The whole flat byte stream is allow-listed: `segAlignedP_lowerBytes` at `IsLoweringOp`
 (`Decode/SegAligned.lean`). -/
-theorem segAlignedLowering_flatBytes (prog : Program) : SegAlignedLowering (flatBytes prog) :=
-  segAlignedP_flatBytes prog
+theorem segAlignedLowering_lowerBytes (prog : Program) : SegAlignedLowering (lowerBytes prog) :=
+  segAlignedP_lowerBytes prog
 
 /-! ## §4 — the headline: a reachable in-range boundary decodes to a lowering opcode -/
 
 /-- **A reachable in-range boundary's byte parses to a lowering opcode.** Composes the
-whole-program allow-list (`segAlignedLowering_flatBytes`) with the transport
+whole-program allow-list (`segAlignedLowering_lowerBytes`) with the transport
 (`reaches_loweringOp_of_segAlignedLowering`). -/
 theorem reachable_boundary_loweringByte (prog : Program) (n : Nat)
-    (hreach : ReachesBoundary (lower prog) 0 n) (hn : n < (flatBytes prog).length) :
+    (hreach : ReachesBoundary (lower prog) 0 n) (hn : n < (lowerBytes prog).length) :
     ∃ byte, (lower prog).get? n = some byte ∧ IsLoweringOp (Evm.parseInstr byte) := by
-  have hmatch : ∀ j, j < (flatBytes prog).length →
-      (lower prog).get? (0 + j) = (flatBytes prog)[j]? := by
+  have hmatch : ∀ j, j < (lowerBytes prog).length →
+      (lower prog).get? (0 + j) = (lowerBytes prog)[j]? := by
     intro j _; rw [Nat.zero_add]; exact lower_get?_eq prog j
-  exact reaches_loweringOp_of_segAlignedLowering (lower prog) (flatBytes prog)
-    (segAlignedLowering_flatBytes prog) 0 hmatch n hreach (by rwa [Nat.zero_add])
+  exact reaches_loweringOp_of_segAlignedLowering (lower prog) (lowerBytes prog)
+    (segAlignedLowering_lowerBytes prog) 0 hmatch n hreach (by rwa [Nat.zero_add])
 
 /-- **A reachable in-range boundary decodes to a lowering opcode.** The `decode`-level form:
 at every boundary `n` reachable from `0` (strictly before the program end, within `UInt32`),
 `decode (lower prog) n` reads an op satisfying `IsLoweringOp`. This *scopes* the whole-run
 boundary invariant's per-step pc analysis to the 18 emitted opcodes. -/
 theorem decode_reachable_boundary_loweringOp (prog : Program) (n : Nat)
-    (hreach : ReachesBoundary (lower prog) 0 n) (hn : n < (flatBytes prog).length)
+    (hreach : ReachesBoundary (lower prog) 0 n) (hn : n < (lowerBytes prog).length)
     (hbound : n < 2 ^ 32) :
     ∃ op arg, Evm.decode (lower prog) (UInt32.ofNat n) = some (op, arg) ∧ IsLoweringOp op := by
   obtain ⟨byte, hget, hop⟩ := reachable_boundary_loweringByte prog n hreach hn
-  have hbyte : (flatBytes prog)[n]? = some byte := by rw [← lower_get?_eq]; exact hget
+  have hbyte : (lowerBytes prog)[n]? = some byte := by rw [← lower_get?_eq]; exact hget
   by_cases hw : Evm.pushArgWidth (Evm.parseInstr byte) = 0
   · exact ⟨Evm.parseInstr byte, .none,
       decode_lower_nonpush prog n byte hbound hbyte hw, hop⟩
@@ -355,7 +356,7 @@ theorem decode_reachable_boundary_loweringOp (prog : Program) (n : Nat)
 theorem decode_of_loweringByte {prog : Program} {b : Nat} {byte : UInt8}
     (hbnd : b < 2 ^ 32) (hget : (lower prog).get? b = some byte) :
     ∃ arg, Evm.decode (lower prog) (UInt32.ofNat b) = some (Evm.parseInstr byte, arg) := by
-  have hbyte : (flatBytes prog)[b]? = some byte := by rw [← lower_get?_eq]; exact hget
+  have hbyte : (lowerBytes prog)[b]? = some byte := by rw [← lower_get?_eq]; exact hget
   by_cases hw : Evm.pushArgWidth (Evm.parseInstr byte) = 0
   · exact ⟨.none, decode_lower_nonpush prog b byte hbnd hbyte hw⟩
   · have hwpos : Evm.pushArgWidth (Evm.parseInstr byte) > 0 := UInt8.pos_iff_ne_zero.mpr hw
@@ -424,7 +425,7 @@ theorem stepFrame_next_lowering_pc_or_validJump {prog : Program} {fr mid : Evm.F
       ∧ Evm.parseInstr byte ≠ .STOP ∧ Evm.parseInstr byte ≠ .RETURN
       ∧ Evm.parseInstr byte ≠ .JUMP)
       ∨ mid.exec.pc ∈ fr.validJumps := by
-  have hbyte : (flatBytes prog)[b]? = some byte := by
+  have hbyte : (lowerBytes prog)[b]? = some byte := by
     rw [← lower_get?_eq]; exact hget
   obtain ⟨arg, hdec0⟩ := decode_of_loweringByte (prog := prog) hbnd hget
   have hdec : Evm.decode fr.exec.executionEnv.code fr.exec.pc =
@@ -504,7 +505,7 @@ theorem stepFrame_next_lowering_pc_or_validJump {prog : Program} {fr mid : Evm.F
     exact Or.inl ⟨Evm.stepFrame_next_jumpdest_pc hpc hdecN hstep, by simp⟩
   · rw [hpush4] at hdec ⊢
     let imm := Evm.uInt256OfByteArray
-      ⟨((flatBytes prog).toArray).extract (b + 1) (b + 1 + (4 : UInt8).toNat)⟩
+      ⟨((lowerBytes prog).toArray).extract (b + 1) (b + 1 + (4 : UInt8).toNat)⟩
     have hdecP : Evm.decode fr.exec.executionEnv.code fr.exec.pc =
         some (Operation.PUSH4, some (imm, 4)) := by
       simpa [hcode, hpc, hpush4, imm] using
@@ -513,7 +514,7 @@ theorem stepFrame_next_lowering_pc_or_validJump {prog : Program} {fr mid : Evm.F
     exact Or.inl ⟨Evm.stepFrame_next_push4_pc hpc hdecP hstep, by simp⟩
   · rw [hpush32] at hdec ⊢
     let imm := Evm.uInt256OfByteArray
-      ⟨((flatBytes prog).toArray).extract (b + 1) (b + 1 + (32 : UInt8).toNat)⟩
+      ⟨((lowerBytes prog).toArray).extract (b + 1) (b + 1 + (32 : UInt8).toNat)⟩
     have hdecP : Evm.decode fr.exec.executionEnv.code fr.exec.pc =
         some (Operation.PUSH32, some (imm, 32)) := by
       simpa [hcode, hpc, hpush32, imm] using
@@ -648,12 +649,13 @@ private theorem segAlignedNoGas_emitTerm (cache : Tmp → List UInt8)
 /-- **A gas-read-free program's whole flat byte stream is `NoGasOp`-aligned.** Per-block
 glue over `segAlignedNoGas_emitStmt`/`_emitTerm`, keying each statement site to `hng`
 through its block index. -/
-private theorem segAlignedNoGas_flatBytes (prog : Program)
+private theorem segAlignedNoGas_lowerBytes (prog : Program)
     (hng : ∀ (L : Label) (b : Block), prog.blockAt L = some b →
       ∀ (pc : Nat) (t : Tmp) (e : Expr), b.stmts[pc]? = some (.assign t e) → e ≠ .gas) :
-    SegAlignedP NoGasOp (flatBytes prog) := by
+    SegAlignedP NoGasOp (lowerBytes prog) := by
   have hcache := segAlignedNoGas_matCache prog
-  unfold flatBytes
+  rw [lowerBytes_eq_emit]
+  unfold emit
   apply BytecodeLayer.Asm.segAlignedP_flatMap
   intro b hb
   obtain ⟨i, hi, hib⟩ := List.getElem_of_mem hb
@@ -681,15 +683,15 @@ theorem reachable_boundary_noGasByte (prog : Program)
     (hng : ∀ (L : Label) (b : Block), prog.blockAt L = some b →
       ∀ (pc : Nat) (t : Tmp) (e : Expr), b.stmts[pc]? = some (.assign t e) → e ≠ .gas)
     (n : Nat) (hreach : ReachesBoundary (lower prog) 0 n)
-    (hn : n < (flatBytes prog).length) :
+    (hn : n < (lowerBytes prog).length) :
     ∃ byte, (lower prog).get? n = some byte ∧ Evm.parseInstr byte ≠ .GAS := by
-  have hmatch : ∀ j, j < (flatBytes prog).length →
-      (lower prog).get? (0 + j) = (flatBytes prog)[j]? := by
+  have hmatch : ∀ j, j < (lowerBytes prog).length →
+      (lower prog).get? (0 + j) = (lowerBytes prog)[j]? := by
     intro j _
     rw [Nat.zero_add]
     exact lower_get?_eq prog j
-  exact BytecodeLayer.Asm.reaches_P_of_segAlignedP (lower prog) (flatBytes prog)
-    (segAlignedNoGas_flatBytes prog hng) 0 hmatch n hreach (by rwa [Nat.zero_add])
+  exact BytecodeLayer.Asm.reaches_P_of_segAlignedP (lower prog) (lowerBytes prog)
+    (segAlignedNoGas_lowerBytes prog hng) 0 hmatch n hreach (by rwa [Nat.zero_add])
 
 end Lir
 

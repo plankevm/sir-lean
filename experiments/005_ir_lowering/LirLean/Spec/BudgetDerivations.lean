@@ -11,22 +11,24 @@ open Lir.Frame
 open BytecodeLayer.Exec
 open Evm
 
-theorem flatBytes_length_eq (prog : Program) :
-    (flatBytes prog).length
+theorem lowerBytes_length_eq (prog : Program) :
+    (lowerBytes prog).length
       = (prog.blocks.toList.map (Lir.blockLen (matCache prog) (defsOf prog))).sum := by
-  rw [show flatBytes prog
+  rw [show lowerBytes prog
         = prog.blocks.toList.flatMap (fun b => Byte.jumpdest ::
             Lir.emitBlockBody (matCache prog) (defsOf prog)
-              (Lir.offsetTable (matCache prog) (defsOf prog) prog.blocks) b) from rfl]
+              (Lir.offsetTable (matCache prog) (defsOf prog) prog.blocks) b) from by
+        rw [lowerBytes_eq_emit]
+        rfl]
   rw [List.length_flatMap]
   apply congrArg List.sum
   apply List.map_congr_left
   intro b _
   exact (Lir.blockLen_eq_length (matCache prog) (defsOf prog) _ b).symm
 
-theorem offsetTable_le_flatBytes (prog : Program) (i : Nat) :
-    Lir.offsetTable (matCache prog) (defsOf prog) prog.blocks i ≤ (flatBytes prog).length := by
-  rw [flatBytes_length_eq]
+theorem offsetTable_le_lowerBytes (prog : Program) (i : Nat) :
+    Lir.offsetTable (matCache prog) (defsOf prog) prog.blocks i ≤ (lowerBytes prog).length := by
+  rw [lowerBytes_length_eq]
   unfold Lir.offsetTable
   rw [show prog.blocks.toList.map (Lir.blockLen (matCache prog) (defsOf prog))
         = (prog.blocks.toList.take i).map (Lir.blockLen (matCache prog) (defsOf prog))
@@ -35,16 +37,16 @@ theorem offsetTable_le_flatBytes (prog : Program) (i : Nat) :
   rw [List.sum_append]
   exact Nat.le_add_right _ _
 
-theorem block_end_le_flatBytes (prog : Program) (L : Label) (b : Block)
+theorem block_end_le_lowerBytes (prog : Program) (L : Label) (b : Block)
     (hb : prog.blocks.toList[L.idx]? = some b) :
     Lir.offsetTable (matCache prog) (defsOf prog) prog.blocks L.idx + 1
       + (b.stmts.flatMap (Lir.emitStmt (matCache prog) (defsOf prog))).length
       + (Lir.emitTerm (matCache prog)
           (Lir.offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term).length
-      ≤ (flatBytes prog).length := by
-  have hsplit := Lir.flatBytes_block_split prog L b hb
-  have hoff := Lir.flatBytes_block_offset prog L
-  have hlen : (flatBytes prog).length
+      ≤ (lowerBytes prog).length := by
+  have hsplit := Lir.lowerBytes_block_split prog L b hb
+  have hoff := Lir.lowerBytes_block_offset prog L
+  have hlen : (lowerBytes prog).length
       = ((prog.blocks.toList.take L.idx).flatMap
             (fun b => Byte.jumpdest :: Lir.emitBlockBody (matCache prog) (defsOf prog)
                         (Lir.offsetTable (matCache prog) (defsOf prog) prog.blocks) b)).length
@@ -70,8 +72,8 @@ theorem block_end_le_flatBytes (prog : Program) (L : Label) (b : Block)
 theorem pcOf_emit_le (prog : Program) (L : Label) (b : Block) (pc : Nat) (s : Stmt)
     (hb : prog.blocks.toList[L.idx]? = some b) (hs : b.stmts[pc]? = some s) :
     Lir.pcOf prog L pc + (Lir.emitStmt (matCache prog) (defsOf prog) s).length
-      ≤ (flatBytes prog).length := by
-  have hend := block_end_le_flatBytes prog L b hb
+      ≤ (lowerBytes prog).length := by
+  have hend := block_end_le_lowerBytes prog L b hb
   rw [Lir.pcOf_eq_anchor prog L b pc hb]
   have hsb := BytecodeLayer.Asm.flatMap_split b.stmts pc s hs
     (Lir.emitStmt (matCache prog) (defsOf prog))
@@ -87,14 +89,14 @@ theorem termOf_emit_le (prog : Program) (L : Label) (b : Block)
     (hb : prog.blocks.toList[L.idx]? = some b) :
     Lir.termOf prog L + (Lir.emitTerm (matCache prog)
           (Lir.offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term).length
-      ≤ (flatBytes prog).length := by
-  have hend := block_end_le_flatBytes prog L b hb
+      ≤ (lowerBytes prog).length := by
+  have hend := block_end_le_lowerBytes prog L b hb
   rw [Lir.termOf_eq_anchor prog L b hb]
   omega
 
 theorem offsetTable_lt_of_codeFits (prog : Program) (hcode : codeFits prog) (i : Nat) :
     Lir.offsetTable (matCache prog) (defsOf prog) prog.blocks i < 2 ^ 32 :=
-  Nat.lt_of_le_of_lt (offsetTable_le_flatBytes prog i) hcode
+  Nat.lt_of_le_of_lt (offsetTable_le_lowerBytes prog i) hcode
 
 theorem bound_sstore_of_codeFits (prog : Program) (hcode : codeFits prog) :
     ∀ (L : Label) (b : Block) (pc : Nat) (key value : Tmp),
@@ -102,7 +104,7 @@ theorem bound_sstore_of_codeFits (prog : Program) (hcode : codeFits prog) :
     Lir.pcOf prog L pc
       + ((matCache prog value).length + (matCache prog key).length) < 2 ^ 32 := by
   intro L b pc key value hb hs
-  have hc : (flatBytes prog).length < 2 ^ 32 := hcode
+  have hc : (lowerBytes prog).length < 2 ^ 32 := hcode
   have hle := pcOf_emit_le prog L b pc (.sstore key value) hb hs
   have hemit : (Lir.emitStmt (matCache prog) (defsOf prog) (.sstore key value)).length
       = (matCache prog value).length + (matCache prog key).length + 1 := by
@@ -116,7 +118,7 @@ theorem bound_sload_of_codeFits (prog : Program) (hcode : codeFits prog) (hdc : 
     prog.blocks.toList[L.idx]? = some b → b.stmts[pc]? = some (.assign t (.sload k)) →
     Lir.pcOf prog L pc + ((matCache prog k).length + 35) < 2 ^ 32 := by
   intro L b pc t k hb hs
-  have hc : (flatBytes prog).length < 2 ^ 32 := hcode
+  have hc : (lowerBytes prog).length < 2 ^ 32 := hcode
   have hba : blockAt prog L = some b := by
     show prog.blocks[L.idx]? = some b
     rw [← Array.getElem?_toList]; exact hb
@@ -136,7 +138,7 @@ theorem bound_ret_of_codeFits (prog : Program) (hcode : codeFits prog) :
     prog.blocks.toList[L.idx]? = some b → b.term = .ret t →
     Lir.termOf prog L + (matCache prog t).length ≤ 2 ^ 32 := by
   intro L b t hb hterm
-  have hc : (flatBytes prog).length < 2 ^ 32 := hcode
+  have hc : (lowerBytes prog).length < 2 ^ 32 := hcode
   have hle := termOf_emit_le prog L b hb
   rw [hterm] at hle
   simp only [Lir.emitTerm, Lir.emitImm_length, List.length_append,
@@ -148,7 +150,7 @@ theorem bound_stop_of_codeFits (prog : Program) (hcode : codeFits prog) :
     prog.blocks.toList[L.idx]? = some b → b.term = .stop →
     Lir.termOf prog L < 2 ^ 32 := by
   intro L b hb hterm
-  have hc : (flatBytes prog).length < 2 ^ 32 := hcode
+  have hc : (lowerBytes prog).length < 2 ^ 32 := hcode
   have hle := termOf_emit_le prog L b hb
   rw [hterm] at hle
   simp only [Lir.emitTerm, List.length_cons, List.length_nil] at hle
@@ -160,7 +162,7 @@ theorem bound_jump_of_codeFits (prog : Program) (hcode : codeFits prog) :
     Lir.termOf prog L + 5 < 2 ^ 32
     ∧ Lir.offsetTable (matCache prog) (defsOf prog) prog.blocks dst.idx < 2 ^ 32 := by
   intro L b dst hb hterm
-  have hc : (flatBytes prog).length < 2 ^ 32 := hcode
+  have hc : (lowerBytes prog).length < 2 ^ 32 := hcode
   refine ⟨?_, offsetTable_lt_of_codeFits prog hcode dst.idx⟩
   have hle := termOf_emit_le prog L b hb
   rw [hterm] at hle
@@ -175,7 +177,7 @@ theorem bound_branch_of_codeFits (prog : Program) (hcode : codeFits prog) :
     ∧ Lir.offsetTable (matCache prog) (defsOf prog) prog.blocks thenL.idx < 2 ^ 32
     ∧ Lir.offsetTable (matCache prog) (defsOf prog) prog.blocks elseL.idx < 2 ^ 32 := by
   intro L b cond thenL elseL hb hterm
-  have hc : (flatBytes prog).length < 2 ^ 32 := hcode
+  have hc : (lowerBytes prog).length < 2 ^ 32 := hcode
   refine ⟨?_, offsetTable_lt_of_codeFits prog hcode thenL.idx,
     offsetTable_lt_of_codeFits prog hcode elseL.idx⟩
   have hle := termOf_emit_le prog L b hb
@@ -189,7 +191,7 @@ theorem gasBound_of_codeFits (prog : Program) (hcode : codeFits prog) (hdc : Def
     blockAt prog L = some b → b.stmts[pc]? = some (.assign t .gas) →
     Lir.pcOf prog L pc + 34 < 2 ^ 32 := by
   intro L b pc t hb hs
-  have hc : (flatBytes prog).length < 2 ^ 32 := hcode
+  have hc : (lowerBytes prog).length < 2 ^ 32 := hcode
   have hbt : prog.blocks.toList[L.idx]? = some b := Lir.toList_of_blockAt hb
   have hdef : defsOf prog t = some (.slot (slotOf t)) := (hdc L b pc hb).1 t .gas hs
   have hle := pcOf_emit_le prog L b pc (.assign t .gas) hbt hs
@@ -205,7 +207,7 @@ theorem retEpilogueBound_of_codeFits (prog : Program) (hcode : codeFits prog) :
     blockAt prog L = some b → b.term = .ret t →
     Lir.termOf prog L + (matCache prog t).length + 100 < 2 ^ 32 := by
   intro L b t hb hterm
-  have hc : (flatBytes prog).length < 2 ^ 32 := hcode
+  have hc : (lowerBytes prog).length < 2 ^ 32 := hcode
   have hbt : prog.blocks.toList[L.idx]? = some b := Lir.toList_of_blockAt hb
   have hle := termOf_emit_le prog L b hbt
   rw [hterm] at hle

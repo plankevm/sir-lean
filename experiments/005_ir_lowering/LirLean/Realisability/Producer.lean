@@ -24,7 +24,7 @@ channel wired (`docs/create/STATUS.md`) — it closes CALL and CREATE simultaneo
   run its OWN walk carrying `DriveCorrLog` (which BUNDLES `RecorderCoupled`) and fire the Layer-C
   sim bricks ONLY at the coupled walk-frames — the `simStmt_coupled_*` family below.
 * **(b) R6 `runs_atReachableBoundary` cannot supply `hrb` alone.** Its B2 side condition
-  `(flatBytes prog).length ≤ 2 ^ 32` (`Machinery.lean:1509`) is not a field of the internal
+  `(lowerBytes prog).length ≤ 2 ^ 32` (`Machinery.lean:1509`) is not a field of the internal
   `WellLowered` adapter — `WellFormedLowered` only carries per-cursor bounds. The public
   flagship now exposes the scalar `codeFits` budget; this producer still threads the derived
   size fact as an explicit `hsize` parameter at the boundary-walk helper.
@@ -613,13 +613,13 @@ theorem simStmt_coupled_sload {prog : Program} {sloadChg : Tmp → ℕ} {log : R
     rw [hemit]
     simp only [List.length_append, List.length_singleton, emitImm_length]
   have hseg : ∀ j, j < (matCache prog k).length + 35 →
-      (flatBytes prog)[pcOf prog L pc + j]?
+      (lowerBytes prog)[pcOf prog L pc + j]?
         = (emitStmt (matCache prog) (defsOf prog) (.assign t (.sload k)))[j]? := by
     intro j hj
-    exact flatBytes_at_pcOf_offset prog L b pc (.assign t (.sload k)) j hbt hcur
+    exact lowerBytes_at_pcOf_offset prog L b pc (.assign t (.sload k)) j hbt hcur
       (by rw [hemitlen]; omega)
   have hsegk : ∀ j, j < (matExpr (matCache prog) (.tmp k)).length →
-      (flatBytes prog)[pcOf prog L pc + j]? = (matExpr (matCache prog) (.tmp k))[j]? := by
+      (lowerBytes prog)[pcOf prog L pc + j]? = (matExpr (matCache prog) (.tmp k))[j]? := by
     intro j hj
     simp only [matExpr_tmp] at hj ⊢
     rw [hseg j (by omega), hemit]
@@ -1009,9 +1009,9 @@ private theorem stmt_offset_bound_of_codeFits {prog : Program} {L : Label} {b : 
   have hbyte0 : (emitStmt (matCache prog) (defsOf prog) s)[k]?
       = some ((emitStmt (matCache prog) (defsOf prog) s)[k]) :=
     List.getElem?_eq_getElem hk
-  have hflat : (flatBytes prog)[pcOf prog L pc + k]?
+  have hflat : (lowerBytes prog)[pcOf prog L pc + k]?
       = some ((emitStmt (matCache prog) (defsOf prog) s)[k]) := by
-    rw [flatBytes_at_pcOf_offset prog L b pc s k (Lir.toList_of_blockAt hb) hcur hk]
+    rw [lowerBytes_at_pcOf_offset prog L b pc s k (Lir.toList_of_blockAt hb) hcur hk]
     exact hbyte0
   rw [List.getElem?_eq_some_iff] at hflat
   exact lt_of_lt_of_le hflat.1 (Nat.le_of_lt hcodeFits)
@@ -1615,9 +1615,9 @@ theorem simStmt_coupled_call {prog : Program} {sloadChg : Tmp → ℕ} {log : Ru
             | some t => emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]
             | none => [Byte.pop]) := rfl
   have hseg : ∀ j, j < (emitStmt (matCache prog) (defsOf prog) (.call cs)).length →
-      (flatBytes prog)[pcOf prog L pc + j]?
+      (lowerBytes prog)[pcOf prog L pc + j]?
         = (emitStmt (matCache prog) (defsOf prog) (.call cs))[j]? :=
-    fun j hj => flatBytes_at_pcOf_offset prog L b pc (.call cs) j hbt hcur hj
+    fun j hj => lowerBytes_at_pcOf_offset prog L b pc (.call cs) j hbt hcur hj
   -- the resume frame sits one byte past the CALL byte: `pcOf + (|argsB| + 1)`.
   have hpcR : (resumeFr).exec.pc
       = UInt32.ofNat (pcOf prog L pc + (argsB.length + 1)) := by
@@ -1638,7 +1638,7 @@ theorem simStmt_coupled_call {prog : Program} {sloadChg : Tmp → ℕ} {log : Ru
       rw [hemit0, hr]
     have hseg' : ∀ j, j < ((argsB ++ [Byte.call])
           ++ (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore])).length →
-        (flatBytes prog)[pcOf prog L pc + j]?
+        (lowerBytes prog)[pcOf prog L pc + j]?
           = ((argsB ++ [Byte.call])
               ++ (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]))[j]? := by
       intro j hj
@@ -1651,10 +1651,10 @@ theorem simStmt_coupled_call {prog : Program} {sloadChg : Tmp → ℕ} {log : Ru
     have hlast : pcOf prog L pc + (argsB.length + 34) < 2 ^ 32 :=
       stmt_offset_bound_of_codeFits hcodeFits hb hcur (by rw [hemitlen]; omega)
     have hsegTail : ∀ j, j < (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]).length →
-        (flatBytes prog)[pcOf prog L pc + (argsB.length + 1) + j]?
+        (lowerBytes prog)[pcOf prog L pc + (argsB.length + 1) + j]?
           = (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore])[j]? := by
       intro j hj
-      have h := segF_suffix (flatBytes prog) (pcOf prog L pc) (argsB ++ [Byte.call])
+      have h := segF_suffix (lowerBytes prog) (pcOf prog L pc) (argsB ++ [Byte.call])
         (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]) hseg' j hj
       rwa [show pcOf prog L pc + (argsB ++ [Byte.call]).length
             = pcOf prog L pc + (argsB.length + 1) from by
@@ -1666,7 +1666,7 @@ theorem simStmt_coupled_call {prog : Program} {sloadChg : Tmp → ℕ} {log : Ru
       rw [hrescode, hpcR]
       exact imm_leaf_decodeF prog (pcOf prog L pc + (argsB.length + 1))
         (UInt256.ofNat (slotOf t)) (by omega)
-        (segF_prefix (flatBytes prog) (pcOf prog L pc + (argsB.length + 1))
+        (segF_prefix (lowerBytes prog) (pcOf prog L pc + (argsB.length + 1))
           (emitImm (UInt256.ofNat (slotOf t))) [Byte.mstore] hsegTail)
     have hdmstoreR : decode (resumeFr).exec.executionEnv.code
         ((resumeFr).exec.pc + UInt32.ofNat 33)
@@ -1764,7 +1764,7 @@ theorem simStmt_coupled_call {prog : Program} {sloadChg : Tmp → ℕ} {log : Ru
         = (argsB ++ [Byte.call]) ++ [Byte.pop] := by
       rw [hemit0, hr]
     have hseg' : ∀ j, j < ((argsB ++ [Byte.call]) ++ [Byte.pop]).length →
-        (flatBytes prog)[pcOf prog L pc + j]?
+        (lowerBytes prog)[pcOf prog L pc + j]?
           = ((argsB ++ [Byte.call]) ++ [Byte.pop])[j]? := by
       intro j hj
       rw [← hemit']
@@ -1912,9 +1912,9 @@ theorem simStmt_coupled_create {prog : Program} {sloadChg : Tmp → ℕ} {log : 
             | some t => emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]
             | none => [Byte.pop]) := rfl
   have hseg : ∀ j, j < (emitStmt (matCache prog) (defsOf prog) (.create cs)).length →
-      (flatBytes prog)[pcOf prog L pc + j]?
+      (lowerBytes prog)[pcOf prog L pc + j]?
         = (emitStmt (matCache prog) (defsOf prog) (.create cs))[j]? :=
-    fun j hj => flatBytes_at_pcOf_offset prog L b pc (.create cs) j hbt hcur hj
+    fun j hj => lowerBytes_at_pcOf_offset prog L b pc (.create cs) j hbt hcur hj
   have hpcR : resumeFr.exec.pc
       = UInt32.ofNat (pcOf prog L pc + (argsB.length + 1)) := by
     have harith : pcOf prog L pc + (argsB.length + 1)
@@ -1934,7 +1934,7 @@ theorem simStmt_coupled_create {prog : Program} {sloadChg : Tmp → ℕ} {log : 
       rw [hemit0, hr]
     have hseg' : ∀ j, j < ((argsB ++ [Byte.create2])
           ++ (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore])).length →
-        (flatBytes prog)[pcOf prog L pc + j]?
+        (lowerBytes prog)[pcOf prog L pc + j]?
           = ((argsB ++ [Byte.create2])
               ++ (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]))[j]? := by
       intro j hj
@@ -1947,10 +1947,10 @@ theorem simStmt_coupled_create {prog : Program} {sloadChg : Tmp → ℕ} {log : 
     have hlast : pcOf prog L pc + (argsB.length + 34) < 2 ^ 32 :=
       stmt_offset_bound_of_codeFits hcodeFits hb hcur (by rw [hemitlen]; omega)
     have hsegTail : ∀ j, j < (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]).length →
-        (flatBytes prog)[pcOf prog L pc + (argsB.length + 1) + j]?
+        (lowerBytes prog)[pcOf prog L pc + (argsB.length + 1) + j]?
           = (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore])[j]? := by
       intro j hj
-      have h := segF_suffix (flatBytes prog) (pcOf prog L pc) (argsB ++ [Byte.create2])
+      have h := segF_suffix (lowerBytes prog) (pcOf prog L pc) (argsB ++ [Byte.create2])
         (emitImm (UInt256.ofNat (slotOf t)) ++ [Byte.mstore]) hseg' j hj
       rwa [show pcOf prog L pc + (argsB ++ [Byte.create2]).length
             = pcOf prog L pc + (argsB.length + 1) from by
@@ -1962,7 +1962,7 @@ theorem simStmt_coupled_create {prog : Program} {sloadChg : Tmp → ℕ} {log : 
       rw [hrescode, hpcR]
       exact imm_leaf_decodeF prog (pcOf prog L pc + (argsB.length + 1))
         (UInt256.ofNat (slotOf t)) (by omega)
-        (segF_prefix (flatBytes prog) (pcOf prog L pc + (argsB.length + 1))
+        (segF_prefix (lowerBytes prog) (pcOf prog L pc + (argsB.length + 1))
           (emitImm (UInt256.ofNat (slotOf t))) [Byte.mstore] hsegTail)
     have hdmstoreR : decode (resumeFr).exec.executionEnv.code
         ((resumeFr).exec.pc + UInt32.ofNat 33)
@@ -2060,7 +2060,7 @@ theorem simStmt_coupled_create {prog : Program} {sloadChg : Tmp → ℕ} {log : 
         = (argsB ++ [Byte.create2]) ++ [Byte.pop] := by
       rw [hemit0, hr]
     have hseg' : ∀ j, j < ((argsB ++ [Byte.create2]) ++ [Byte.pop]).length →
-        (flatBytes prog)[pcOf prog L pc + j]?
+        (lowerBytes prog)[pcOf prog L pc + j]?
           = ((argsB ++ [Byte.create2]) ++ [Byte.pop])[j]? := by
       intro j hj
       rw [← hemit']
@@ -3011,7 +3011,7 @@ theorem boundaryWalk_of_wl {prog : Program} {params : CallParams} {fr₀ : Frame
     (hbegin : beginCall params = .inl fr₀)
     (hcode : params.codeSource = .Code (lower prog))
     (hwl : WellLowered prog)
-    (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32) :
+    (hsize : (Lir.lowerBytes prog).length ≤ 2 ^ 32) :
     ∀ fr', Runs fr₀ fr' → AtReachableBoundary prog fr' := by
   have hne : 0 < prog.blocks.size := by
     obtain ⟨bentry, hbentry⟩ := hwl.closed.entry_present
@@ -3061,7 +3061,7 @@ theorem runFrom_of_driveCorrLog {prog : Program} {params : CallParams} {log : Ru
     (hclean : log.clean)
     (hseams : PrecompileAssumptions prog params)
     (hbegin : beginCall params = .inl fr₀)
-    (hsize : (Lir.flatBytes prog).length ≤ 2 ^ 32) :
+    (hsize : (Lir.lowerBytes prog).length ≤ 2 ^ 32) :
     ∃ O : Observable,
       (∀ fr', Runs fr₀ fr' → CreateResolves fr')
       ∧ (∃ last haltSig, Runs fr₀ last ∧ stepFrame last = .halted haltSig

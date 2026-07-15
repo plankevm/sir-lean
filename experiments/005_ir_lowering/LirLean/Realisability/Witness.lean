@@ -654,8 +654,11 @@ theorem irWellFormed_exProg : IRWellFormed exProg where
 
 set_option maxRecDepth 8000 in
 /-- **`codeFits exProg`** — the whole lowered `exProg` fits a 32-bit pc (R6's `hsize`
-half-blocker, now a supplied budget premise). Concrete `flatBytes` byte arithmetic. -/
-theorem codeFits_exProg : codeFits exProg := by unfold codeFits; decide
+half-blocker, now a supplied budget premise). Concrete `lowerBytes` byte arithmetic. -/
+theorem codeFits_exProg : codeFits exProg := by
+  unfold codeFits
+  rw [lowerBytes_eq_emit]
+  decide
 
 set_option maxRecDepth 8000 in
 /-- **`stackFits exProg`** — every operand materialise of `exProg` fits the 1024-slot stack.

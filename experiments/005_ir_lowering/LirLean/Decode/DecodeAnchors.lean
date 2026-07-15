@@ -12,7 +12,7 @@ emission (`matCache prog` cache + `defsOf prog` allocation; no fuel anywhere):
 
 * **A1 `decode_at_stmt_head`** — at `pcOf prog L pc` the decode yields the head opcode
   of the statement at that cursor (`(emitStmt … s)[0]`). Two corollaries cover the two
-  possible head shapes (non-push / push), each a composition of `flatBytes_at_pcOf`
+  possible head shapes (non-push / push), each a composition of `lowerBytes_at_pcOf`
   (`Layout.lean`, the prefix-sum byte anchor) with `decode_lower_{nonpush,push}`
   (`DecodeLower.lean`).
 * **A2 `decode_at_offset`** — decode at an arbitrary cursor `pcOf prog L pc + k`
@@ -22,7 +22,7 @@ emission (`matCache prog` cache + `defsOf prog` allocation; no fuel anywhere):
   the `k = 0` instance) via `Layout.mid_index`.
 * **A3 `decode_at_term`** — decode at the terminator's bytes, after the block's
   statements. Built on `term_byte_anchor` (the terminator analogue of
-  `stmt_byte_anchor`, from `Layout.flatBytes_block_split`), with `termOf` giving the
+  `stmt_byte_anchor`, from `Layout.lowerBytes_block_split`), with `termOf` giving the
   terminator's byte offset.
 
 These compose with the per-opcode decode bricks `sim_*` in `Match.lean`; nothing here
@@ -46,7 +46,7 @@ final `mid_index` lands at `k` rather than `0`. -/
 
 /-- **The `k`-generalised statement-cursor byte anchor.** For a real statement `s` at
 cursor `(L, pc)` and any byte offset `k < (emitStmt … s).length`, the byte
-`flatBytes prog` holds at `offsetTable … L.idx + 1 + (Σ emitted-stmt-lengths over the
+`lowerBytes prog` holds at `offsetTable … L.idx + 1 + (Σ emitted-stmt-lengths over the
 first `pc` statements) + k` is `(emitStmt … s)[k]`. The `k = 0` case (with the
 `emitStmt … s ≠ []` hypothesis) is `Layout.stmt_byte_anchor`. -/
 theorem stmt_byte_anchor_k (prog : Program) (L : Label) (b : Block) (pc : Nat) (s : Stmt)
@@ -54,10 +54,10 @@ theorem stmt_byte_anchor_k (prog : Program) (L : Label) (b : Block) (pc : Nat) (
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some s)
     (hk : k < (emitStmt (matCache prog) (defsOf prog) s).length) :
-    (flatBytes prog)[offsetTable (matCache prog) (defsOf prog) prog.blocks L.idx + 1
+    (lowerBytes prog)[offsetTable (matCache prog) (defsOf prog) prog.blocks L.idx + 1
         + ((b.stmts.take pc).flatMap (emitStmt (matCache prog) (defsOf prog))).length + k]?
       = (emitStmt (matCache prog) (defsOf prog) s)[k]? := by
-  rw [flatBytes_block_split prog L b hb]
+  rw [lowerBytes_block_split prog L b hb]
   set cache := matCache prog with hcache
   set alloc := defsOf prog with halloc
   set lo := offsetTable cache alloc prog.blocks with hlo
@@ -65,7 +65,7 @@ theorem stmt_byte_anchor_k (prog : Program) (L : Label) (b : Block) (pc : Nat) (
     (fun b => Byte.jumpdest :: emitBlockBody cache alloc lo b) with hpre
   set suf := (prog.blocks.toList.drop (L.idx + 1)).flatMap
     (fun b => Byte.jumpdest :: emitBlockBody cache alloc lo b) with hsuf
-  have hprelen : pre.length = lo L.idx := flatBytes_block_offset prog L
+  have hprelen : pre.length = lo L.idx := lowerBytes_block_offset prog L
   set sp := ((b.stmts.take pc).flatMap (emitStmt cache alloc)).length with hsp
   have hsplit : b.stmts.flatMap (emitStmt cache alloc)
       = (b.stmts.take pc).flatMap (emitStmt cache alloc)
@@ -95,21 +95,21 @@ The terminator's bytes sit after *all* the block's statements (the
 `b.stmts.flatMap (emitStmt …)` segment) inside the block body
 (`emitBlockBody = stmts-flatMap ++ emitTerm`, `Lowering.emitBlockBody`). This anchors
 the byte at offset `k` into `emitTerm … b.term` — the terminator analogue of
-`stmt_byte_anchor_k`, from the same `flatBytes_block_split` decomposition. -/
+`stmt_byte_anchor_k`, from the same `lowerBytes_block_split` decomposition. -/
 
 /-- **The terminator-cursor byte anchor.** For block `L = b` and any byte offset
-`k < (emitTerm … b.term).length`, the byte `flatBytes prog` holds at
+`k < (emitTerm … b.term).length`, the byte `lowerBytes prog` holds at
 `offsetTable … L.idx + 1 + (the full stmts byte length) + k` is
 `(emitTerm … b.term)[k]` — the terminator's `k`-th emitted byte. -/
 theorem term_byte_anchor (prog : Program) (L : Label) (b : Block) (k : Nat)
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hk : k < (emitTerm (matCache prog)
             (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term).length) :
-    (flatBytes prog)[offsetTable (matCache prog) (defsOf prog) prog.blocks L.idx + 1
+    (lowerBytes prog)[offsetTable (matCache prog) (defsOf prog) prog.blocks L.idx + 1
         + (b.stmts.flatMap (emitStmt (matCache prog) (defsOf prog))).length + k]?
       = (emitTerm (matCache prog)
           (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term)[k]? := by
-  rw [flatBytes_block_split prog L b hb]
+  rw [lowerBytes_block_split prog L b hb]
   set cache := matCache prog with hcache
   set alloc := defsOf prog with halloc
   set lo := offsetTable cache alloc prog.blocks with hlo
@@ -117,7 +117,7 @@ theorem term_byte_anchor (prog : Program) (L : Label) (b : Block) (k : Nat)
     (fun b => Byte.jumpdest :: emitBlockBody cache alloc lo b) with hpre
   set suf := (prog.blocks.toList.drop (L.idx + 1)).flatMap
     (fun b => Byte.jumpdest :: emitBlockBody cache alloc lo b) with hsuf
-  have hprelen : pre.length = lo L.idx := flatBytes_block_offset prog L
+  have hprelen : pre.length = lo L.idx := lowerBytes_block_offset prog L
   set sp := (b.stmts.flatMap (emitStmt cache alloc)).length with hsp
   have hbody : emitBlockBody cache alloc lo b
       = b.stmts.flatMap (emitStmt cache alloc) ++ emitTerm cache lo b.term := rfl
@@ -129,29 +129,29 @@ theorem term_byte_anchor (prog : Program) (L : Label) (b : Block) (k : Nat)
   rw [List.getElem?_append_right (by rw [← hsp]; omega),
       show sp + k - (b.stmts.flatMap (emitStmt cache alloc)).length = k from by rw [hsp]; omega]
 
-/-! ## `pcOf`-level byte facts (the `Layout.flatBytes_at_pcOf` family)
+/-! ## `pcOf`-level byte facts (the `Layout.lowerBytes_at_pcOf` family)
 
 `Layout.pcOf prog L pc` is the offset-table address of a *statement* cursor. We lift
 the two layout bricks above to it: the byte at `pcOf prog L pc + k` is
 `(emitStmt … s)[k]` (A2's byte half), and — defining `termOf` for the terminator
 offset — the byte at `termOf prog L + k` is `(emitTerm … b.term)[k]` (A3's byte
-half). These specialise `Layout.flatBytes_at_pcOf` (the `k = 0` statement instance)
+half). These specialise `Layout.lowerBytes_at_pcOf` (the `k = 0` statement instance)
 to arbitrary cursors. -/
 
 /-- The byte at the statement cursor `pcOf prog L pc` plus offset `k` is the `k`-th
 byte of `emitStmt … s` — the `pcOf`-level form of `stmt_byte_anchor_k`. The `k = 0`
-case is `Layout.flatBytes_at_pcOf`. -/
-theorem flatBytes_at_pcOf_offset (prog : Program) (L : Label) (b : Block) (pc : Nat) (s : Stmt)
+case is `Layout.lowerBytes_at_pcOf`. -/
+theorem lowerBytes_at_pcOf_offset (prog : Program) (L : Label) (b : Block) (pc : Nat) (s : Stmt)
     (k : Nat)
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some s)
     (hk : k < (emitStmt (matCache prog) (defsOf prog) s).length) :
-    (flatBytes prog)[pcOf prog L pc + k]?
+    (lowerBytes prog)[pcOf prog L pc + k]?
       = (emitStmt (matCache prog) (defsOf prog) s)[k]? := by
   rw [pcOf_eq_anchor prog L b pc hb]
   exact stmt_byte_anchor_k prog L b pc s k hb hs hk
 
-/-- The byte offset of block `L = b`'s terminator in `flatBytes prog`: after the
+/-- The byte offset of block `L = b`'s terminator in `lowerBytes prog`: after the
 block's `JUMPDEST` (`offsetTable … L.idx + 1`) and *all* its emitted statements. The
 `Layout.pcOf` analogue for the block's `Term`. -/
 def termOf (prog : Program) (L : Label) : Nat :=
@@ -171,11 +171,11 @@ theorem termOf_eq_anchor (prog : Program) (L : Label) (b : Block)
 
 /-- The byte at the terminator cursor `termOf prog L` plus offset `k` is the `k`-th
 byte of `emitTerm … b.term` — the `termOf`-level form of `term_byte_anchor`. -/
-theorem flatBytes_at_termOf (prog : Program) (L : Label) (b : Block) (k : Nat)
+theorem lowerBytes_at_termOf (prog : Program) (L : Label) (b : Block) (k : Nat)
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hk : k < (emitTerm (matCache prog)
             (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term).length) :
-    (flatBytes prog)[termOf prog L + k]?
+    (lowerBytes prog)[termOf prog L + k]?
       = (emitTerm (matCache prog)
           (offsetTable (matCache prog) (defsOf prog) prog.blocks) b.term)[k]? := by
   rw [termOf_eq_anchor prog L b hb]
@@ -203,8 +203,8 @@ theorem decode_at_stmt_head_nonpush (prog : Program) (L : Label) (b : Block) (pc
       = some (Evm.parseInstr byte, .none) := by
   have hne : emitStmt (matCache prog) (defsOf prog) s ≠ [] := by
     intro h; rw [h] at hhead; simp at hhead
-  have hbyte : (flatBytes prog)[pcOf prog L pc]? = some byte := by
-    rw [flatBytes_at_pcOf prog L b pc s hb hs hne]; exact hhead
+  have hbyte : (lowerBytes prog)[pcOf prog L pc]? = some byte := by
+    rw [lowerBytes_at_pcOf prog L b pc s hb hs hne]; exact hhead
   exact decode_lower_nonpush prog (pcOf prog L pc) byte hbound hbyte hnp
 
 /-- **A1, push head.** If the statement at cursor `(L, pc)` leads with a `PUSH` of
@@ -220,14 +220,14 @@ theorem decode_at_stmt_head_push (prog : Program) (L : Label) (b : Block) (pc : 
     (hbound : pcOf prog L pc < 2 ^ 32)
     (hp : Evm.pushArgWidth (Evm.parseInstr byte) = w) (hw : w > 0)
     (himm : Evm.uInt256OfByteArray
-              ⟨((flatBytes prog).toArray).extract
+              ⟨((lowerBytes prog).toArray).extract
                   (pcOf prog L pc + 1) (pcOf prog L pc + 1 + w.toNat)⟩ = imm) :
     Evm.decode (lower prog) (UInt32.ofNat (pcOf prog L pc))
       = some (Evm.parseInstr byte, some (imm, w)) := by
   have hne : emitStmt (matCache prog) (defsOf prog) s ≠ [] := by
     intro h; rw [h] at hhead; simp at hhead
-  have hbyte : (flatBytes prog)[pcOf prog L pc]? = some byte := by
-    rw [flatBytes_at_pcOf prog L b pc s hb hs hne]; exact hhead
+  have hbyte : (lowerBytes prog)[pcOf prog L pc]? = some byte := by
+    rw [lowerBytes_at_pcOf prog L b pc s hb hs hne]; exact hhead
   exact decode_lower_push prog (pcOf prog L pc) byte w imm hbound hbyte hp hw himm
 
 /-! ## A2 — `decode_at_offset`
@@ -248,8 +248,8 @@ theorem decode_at_offset_nonpush (prog : Program) (L : Label) (b : Block) (pc : 
     (hnp : Evm.pushArgWidth (Evm.parseInstr byte) = 0) :
     Evm.decode (lower prog) (UInt32.ofNat (pcOf prog L pc + k))
       = some (Evm.parseInstr byte, .none) := by
-  have hbyte : (flatBytes prog)[pcOf prog L pc + k]? = some byte := by
-    rw [flatBytes_at_pcOf_offset prog L b pc s k hb hs hk]; exact hbyte0
+  have hbyte : (lowerBytes prog)[pcOf prog L pc + k]? = some byte := by
+    rw [lowerBytes_at_pcOf_offset prog L b pc s k hb hs hk]; exact hbyte0
   exact decode_lower_nonpush prog (pcOf prog L pc + k) byte hbound hbyte hnp
 
 /-- **A2, push.** Decode at the cursor `pcOf prog L pc + k` (inside statement `s`'s
@@ -263,12 +263,12 @@ theorem decode_at_offset_push (prog : Program) (L : Label) (b : Block) (pc : Nat
     (hbound : pcOf prog L pc + k < 2 ^ 32)
     (hp : Evm.pushArgWidth (Evm.parseInstr byte) = w) (hw : w > 0)
     (himm : Evm.uInt256OfByteArray
-              ⟨((flatBytes prog).toArray).extract
+              ⟨((lowerBytes prog).toArray).extract
                   (pcOf prog L pc + k + 1) (pcOf prog L pc + k + 1 + w.toNat)⟩ = imm) :
     Evm.decode (lower prog) (UInt32.ofNat (pcOf prog L pc + k))
       = some (Evm.parseInstr byte, some (imm, w)) := by
-  have hbyte : (flatBytes prog)[pcOf prog L pc + k]? = some byte := by
-    rw [flatBytes_at_pcOf_offset prog L b pc s k hb hs hk]; exact hbyte0
+  have hbyte : (lowerBytes prog)[pcOf prog L pc + k]? = some byte := by
+    rw [lowerBytes_at_pcOf_offset prog L b pc s k hb hs hk]; exact hbyte0
   exact decode_lower_push prog (pcOf prog L pc + k) byte w imm hbound hbyte hp hw himm
 
 /-! ## A3 — `decode_at_term`
@@ -290,8 +290,8 @@ theorem decode_at_term_nonpush (prog : Program) (L : Label) (b : Block) (k : Nat
     (hnp : Evm.pushArgWidth (Evm.parseInstr byte) = 0) :
     Evm.decode (lower prog) (UInt32.ofNat (termOf prog L + k))
       = some (Evm.parseInstr byte, .none) := by
-  have hbyte : (flatBytes prog)[termOf prog L + k]? = some byte := by
-    rw [flatBytes_at_termOf prog L b k hb hk]; exact hbyte0
+  have hbyte : (lowerBytes prog)[termOf prog L + k]? = some byte := by
+    rw [lowerBytes_at_termOf prog L b k hb hk]; exact hbyte0
   exact decode_lower_nonpush prog (termOf prog L + k) byte hbound hbyte hnp
 
 /-- **A3, push.** Decode at the terminator cursor `termOf prog L + k` when
@@ -307,12 +307,12 @@ theorem decode_at_term_push (prog : Program) (L : Label) (b : Block) (k : Nat)
     (hbound : termOf prog L + k < 2 ^ 32)
     (hp : Evm.pushArgWidth (Evm.parseInstr byte) = w) (hw : w > 0)
     (himm : Evm.uInt256OfByteArray
-              ⟨((flatBytes prog).toArray).extract
+              ⟨((lowerBytes prog).toArray).extract
                   (termOf prog L + k + 1) (termOf prog L + k + 1 + w.toNat)⟩ = imm) :
     Evm.decode (lower prog) (UInt32.ofNat (termOf prog L + k))
       = some (Evm.parseInstr byte, some (imm, w)) := by
-  have hbyte : (flatBytes prog)[termOf prog L + k]? = some byte := by
-    rw [flatBytes_at_termOf prog L b k hb hk]; exact hbyte0
+  have hbyte : (lowerBytes prog)[termOf prog L + k]? = some byte := by
+    rw [lowerBytes_at_termOf prog L b k hb hk]; exact hbyte0
   exact decode_lower_push prog (termOf prog L + k) byte w imm hbound hbyte hp hw himm
 
 end Lir

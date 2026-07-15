@@ -4,7 +4,7 @@ import LirLean.Decode.DecodeLower
 # LirLean — byte-layout arithmetic of `lower` (the offset-table prefix sum, C3)
 
 `LirLean/DecodeLower.lean` reduces a decode obligation about `lower prog` to a
-*list-local* fact: which byte (and immediate window) `flatBytes prog` holds at the
+*list-local* fact: which byte (and immediate window) `lowerBytes prog` holds at the
 pc. This module proves the **byte-layout arithmetic** that produces such facts at the
 offset-table address `pcOf prog L pc` — over an *arbitrary* program, by prefix-sum
 decomposition rather than per-program kernel `rfl`. All emission is the fold pipeline
@@ -18,12 +18,12 @@ decomposition rather than per-program kernel `rfl`. All emission is the fold pip
   element at a known index;
 * `blockPrefix_length`: the bytes of the first `i` lowered blocks total exactly
   `offsetTable cache alloc blocks i` (the table is a prefix sum of `blockLen`);
-* `flatBytes_block_split`: `flatBytes prog` decomposes around block `L` into
+* `lowerBytes_block_split`: `lowerBytes prog` decomposes around block `L` into
   `(blockPrefix) ++ (JUMPDEST :: emitBlockBody … b_L) ++ (blockSuffix)`, the prefix's
   length being `offsetTable … L.idx` — so byte `pcOf prog L pc` lies inside block
   `L`'s lowered bytes.
 
-These are the bricks that turn a `pcOf` address into the `(flatBytes prog)[n]?` fact
+These are the bricks that turn a `pcOf` address into the `(lowerBytes prog)[n]?` fact
 `decode_lower_{nonpush,push}` consume. The per-statement decode anchors built on top
 live in `Decode/DecodeAnchors.lean`.
 
@@ -90,16 +90,16 @@ theorem blockPrefix_length (cache : Tmp → List UInt8) (alloc : Alloc) (lo : Na
     intro b _
     exact (blockLen_eq_length cache alloc lo b).symm
 
-/-! ## `flatBytes prog` decomposes around a block -/
+/-! ## `lowerBytes prog` decomposes around a block -/
 
 /-- The flat byte list of `lower prog` decomposed around block `L`: the bytes of the
 blocks before `L` (total length `offsetTable … L.idx`), then block `L`'s
 `JUMPDEST :: emitBlockBody`, then the rest — provided `L` is a real block index. The
 byte at `pcOf prog L pc = offsetTable … L.idx + 1 + …` therefore lies inside block
 `L`'s lowered bytes. -/
-theorem flatBytes_block_split (prog : Program) (L : Label) (b : Block)
+theorem lowerBytes_block_split (prog : Program) (L : Label) (b : Block)
     (hb : prog.blocks.toList[L.idx]? = some b) :
-    flatBytes prog
+    lowerBytes prog
       = ((prog.blocks.toList.take L.idx).flatMap
             (fun b => Byte.jumpdest :: emitBlockBody (matCache prog) (defsOf prog)
                         (offsetTable (matCache prog) (defsOf prog) prog.blocks) b))
@@ -108,14 +108,15 @@ theorem flatBytes_block_split (prog : Program) (L : Label) (b : Block)
         ++ ((prog.blocks.toList.drop (L.idx + 1)).flatMap
             (fun b => Byte.jumpdest :: emitBlockBody (matCache prog) (defsOf prog)
                         (offsetTable (matCache prog) (defsOf prog) prog.blocks) b)) := by
-  unfold flatBytes
+  rw [lowerBytes_eq_emit]
+  unfold emit
   exact flatMap_split prog.blocks.toList L.idx b hb _
 
-/-- The byte-offset of block `L`'s leading `JUMPDEST` in `flatBytes prog` is
+/-- The byte-offset of block `L`'s leading `JUMPDEST` in `lowerBytes prog` is
 `offsetTable … L.idx`: the prefix decomposition's first component has exactly that
 length. This is the `M1` anchor for a block entry (`pcOf prog L 0 = offsetTable …
 L.idx + 1`, the byte right after this `JUMPDEST`). -/
-theorem flatBytes_block_offset (prog : Program) (L : Label) :
+theorem lowerBytes_block_offset (prog : Program) (L : Label) :
     ((prog.blocks.toList.take L.idx).flatMap
         (fun b => Byte.jumpdest :: emitBlockBody (matCache prog) (defsOf prog)
                     (offsetTable (matCache prog) (defsOf prog) prog.blocks) b)).length
@@ -124,7 +125,7 @@ theorem flatBytes_block_offset (prog : Program) (L : Label) :
 
 /-! ## The statement-cursor byte anchor
 
-The payoff: over an **arbitrary** program, the byte `flatBytes prog` holds at the
+The payoff: over an **arbitrary** program, the byte `lowerBytes prog` holds at the
 offset-table address of a statement cursor `(L, pc)` is the *head byte* of that
 statement's emitted opcodes — `(emitStmt … s)[0]?`. Composed with `decode_lower`
 (`DecodeLower.lean`), this turns a `pcOf`-addressed decode obligation into a fact
@@ -132,7 +133,7 @@ about the construct's lowering, generically, replacing the per-program whole-arr
 `rfl`. -/
 
 /-- **The statement-cursor byte anchor.** For a real statement `s` at cursor
-`(L, pc)` whose lowering emits at least one byte, the byte `flatBytes prog` holds at
+`(L, pc)` whose lowering emits at least one byte, the byte `lowerBytes prog` holds at
 the offset-table address `offsetTable … L.idx + 1 + (Σ emitted-stmt-lengths over the
 first `pc` statements)` — i.e. `pcOf prog L pc` (definitionally this expression when
 `prog.blockAt L = some b`) — is the head byte of `emitStmt … s`. The
@@ -141,10 +142,10 @@ theorem stmt_byte_anchor (prog : Program) (L : Label) (b : Block) (pc : Nat) (s 
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some s)
     (hne : emitStmt (matCache prog) (defsOf prog) s ≠ []) :
-    (flatBytes prog)[offsetTable (matCache prog) (defsOf prog) prog.blocks L.idx + 1
+    (lowerBytes prog)[offsetTable (matCache prog) (defsOf prog) prog.blocks L.idx + 1
         + ((b.stmts.take pc).flatMap (emitStmt (matCache prog) (defsOf prog))).length]?
       = (emitStmt (matCache prog) (defsOf prog) s)[0]? := by
-  rw [flatBytes_block_split prog L b hb]
+  rw [lowerBytes_block_split prog L b hb]
   set cache := matCache prog with hcache
   set alloc := defsOf prog with halloc
   set lo := offsetTable cache alloc prog.blocks with hlo
@@ -152,7 +153,7 @@ theorem stmt_byte_anchor (prog : Program) (L : Label) (b : Block) (pc : Nat) (s 
     (fun b => Byte.jumpdest :: emitBlockBody cache alloc lo b) with hpre
   set suf := (prog.blocks.toList.drop (L.idx + 1)).flatMap
     (fun b => Byte.jumpdest :: emitBlockBody cache alloc lo b) with hsuf
-  have hprelen : pre.length = lo L.idx := flatBytes_block_offset prog L
+  have hprelen : pre.length = lo L.idx := lowerBytes_block_offset prog L
   have hslen : (emitStmt cache alloc s).length ≥ 1 := by
     cases h : emitStmt cache alloc s with
     | nil => exact absurd h hne
@@ -216,16 +217,16 @@ theorem pcOf_eq_anchor (prog : Program) (L : Label) (b : Block) (pc : Nat)
         + ((b.stmts.take pc).flatMap (emitStmt (matCache prog) (defsOf prog))).length := by
   unfold pcOf; rw [blockAt_of_toList prog L b hb]; rfl
 
-/-- **The statement-cursor byte (generic `M1`).** The byte `flatBytes prog` holds at
+/-- **The statement-cursor byte (generic `M1`).** The byte `lowerBytes prog` holds at
 `pcOf prog L pc` is the head byte of the statement at that cursor — `(emitStmt … s)[0]`.
 The composition of `pcOf_eq_anchor` (pc = offset-table anchor) and
 `stmt_byte_anchor` (anchor byte = `emitStmt` head). The `decode_lower_*` lemmas
 turn this into a decode fact for the construct. -/
-theorem flatBytes_at_pcOf (prog : Program) (L : Label) (b : Block) (pc : Nat) (s : Stmt)
+theorem lowerBytes_at_pcOf (prog : Program) (L : Label) (b : Block) (pc : Nat) (s : Stmt)
     (hb : prog.blocks.toList[L.idx]? = some b)
     (hs : b.stmts[pc]? = some s)
     (hne : emitStmt (matCache prog) (defsOf prog) s ≠ []) :
-    (flatBytes prog)[pcOf prog L pc]?
+    (lowerBytes prog)[pcOf prog L pc]?
       = (emitStmt (matCache prog) (defsOf prog) s)[0]? := by
   rw [pcOf_eq_anchor prog L b pc hb]
   exact stmt_byte_anchor prog L b pc s hb hs hne

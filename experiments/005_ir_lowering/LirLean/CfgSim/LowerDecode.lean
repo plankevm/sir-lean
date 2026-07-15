@@ -182,7 +182,7 @@ set_option maxRecDepth 8192
 PUSH32 32 ++ PUSH32 0 ++ RETURN`, anchored at `termOf prog L` (the terminator cursor
 `pcOf prog L b.stmts.length`). The operand bytes are the *prefix* sub-list (the stash +
 return-window opcodes follow), so the byte-segment hypothesis of `matDecC_of_term` holds
-at `termOf` via `flatBytes_at_termOf`. -/
+at `termOf` via `lowerBytes_at_termOf`. -/
 
 /-- The `ret`-value cache bytes are the prefix sub-list of `emitTerm … (.ret t)` (offset 0). -/
 theorem ret_sub_value (cache : Tmp → List UInt8) (labelOff : Nat → Nat) (t : Tmp) :
@@ -331,7 +331,7 @@ JUMPDEST (`decode_at_block_offset_jumpdest`), and the `hdestword` offset tie are
 discharged. The remaining hypotheses are the gas envelopes (§7). -/
 
 /-- The PUSH4 destination of a `jump`/edge decodes at the terminator cursor (offset `off0`
-into `emitTerm`) carrying `ofNat (destOff % 2^32)`. Built from `flatBytes_at_termOf` +
+into `emitTerm`) carrying `ofNat (destOff % 2^32)`. Built from `lowerBytes_at_termOf` +
 `decode_lower_push` and `uInt256_offsetBytesBE`, given the `emitDest destOff` sub-list sits
 at `off0`. -/
 theorem term_dest_decode (prog : Program) (L : Label) (b : Block) (off0 destOff : ℕ)
@@ -350,28 +350,28 @@ theorem term_dest_decode (prog : Program) (L : Label) (b : Block) (off0 destOff 
   rw [hedlen] at hin
   -- flat-byte segment of emitDest at termOf + off0
   have hseg : ∀ j, j < (emitDest destOff).length →
-      (flatBytes prog)[termOf prog L + off0 + j]? = (emitDest destOff)[j]? := by
+      (lowerBytes prog)[termOf prog L + off0 + j]? = (emitDest destOff)[j]? := by
     intro j hj
-    have hanchor := flatBytes_at_termOf prog L b (off0 + j) hb (by rw [hedlen] at hj; omega)
+    have hanchor := lowerBytes_at_termOf prog L b (off0 + j) hb (by rw [hedlen] at hj; omega)
     rw [show termOf prog L + (off0 + j) = termOf prog L + off0 + j from by ring] at hanchor
     rw [hanchor]; exact hsub j hj
-  have hbyte : (flatBytes prog)[termOf prog L + off0]? = some Byte.push4 := by
+  have hbyte : (lowerBytes prog)[termOf prog L + off0]? = some Byte.push4 := by
     have := hseg 0 (by rw [hedlen]; omega); simpa [emitDest] using this
-  have hwin : ((flatBytes prog).toArray.extract (termOf prog L + off0 + 1)
+  have hwin : ((lowerBytes prog).toArray.extract (termOf prog L + off0 + 1)
       (termOf prog L + off0 + 1 + 4)).toList = BytecodeLayer.Exec.offsetBytesBE destOff := by
-    apply extract_toList_eq (flatBytes prog) (termOf prog L + off0 + 1) 4 (BytecodeLayer.Exec.offsetBytesBE destOff)
+    apply extract_toList_eq (lowerBytes prog) (termOf prog L + off0 + 1) 4 (BytecodeLayer.Exec.offsetBytesBE destOff)
       (by simp [BytecodeLayer.Exec.offsetBytesBE])
     intro j hj
     have := hseg (1 + j) (by rw [hedlen]; omega)
     rw [show termOf prog L + off0 + (1 + j) = termOf prog L + off0 + 1 + j from by ring] at this
     rw [this, show (1 + j) = j + 1 from by ring]
     simp [emitDest, List.getElem?_cons_succ]
-  have himm : uInt256OfByteArray ⟨(flatBytes prog).toArray.extract (termOf prog L + off0 + 1)
+  have himm : uInt256OfByteArray ⟨(lowerBytes prog).toArray.extract (termOf prog L + off0 + 1)
       (termOf prog L + off0 + 1 + 4)⟩ = UInt256.ofNat (destOff % 2 ^ 32) := by
-    have hh : uInt256OfByteArray ⟨(flatBytes prog).toArray.extract (termOf prog L + off0 + 1)
+    have hh : uInt256OfByteArray ⟨(lowerBytes prog).toArray.extract (termOf prog L + off0 + 1)
         (termOf prog L + off0 + 1 + 4)⟩ = uInt256OfByteArray ⟨(BytecodeLayer.Exec.offsetBytesBE destOff).toArray⟩ := by
       unfold uInt256OfByteArray; congr 2
-      show ((flatBytes prog).toArray.extract (termOf prog L + off0 + 1)
+      show ((lowerBytes prog).toArray.extract (termOf prog L + off0 + 1)
         (termOf prog L + off0 + 1 + 4)).toList.reverse = _
       rw [hwin]
     rw [hh, uInt256_offsetBytesBE]
@@ -656,12 +656,12 @@ theorem decode_gasstash {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     rfl
   have hemitlen : (emitStmt (matCache prog) (defsOf prog) (.assign t .gas)).length = 35 := by
     rw [hemit]; simp only [List.length_append, List.length_singleton, emitImm_length]
-  -- byte-segment facts in `flatBytes prog` at the cursor `pcOf prog L pc`.
+  -- byte-segment facts in `lowerBytes prog` at the cursor `pcOf prog L pc`.
   have hseg : ∀ k, k < 35 →
-      (flatBytes prog)[pcOf prog L pc + k]?
+      (lowerBytes prog)[pcOf prog L pc + k]?
         = (emitStmt (matCache prog) (defsOf prog) (.assign t .gas))[k]? := by
     intro k hk
-    exact flatBytes_at_pcOf_offset prog L b pc (.assign t .gas) k hb hs (by rw [hemitlen]; omega)
+    exact lowerBytes_at_pcOf_offset prog L b pc (.assign t .gas) k hb hs (by rw [hemitlen]; omega)
   -- decode the three opcodes over `lower prog` (offsets 0 / 1 / 34).
   have hdgas : decode (lower prog) (UInt32.ofNat (pcOf prog L pc)) = some (.Smsf .GAS, .none) := by
     have h := decode_at_offset_nonpush prog L b pc (.assign t .gas) 0 Byte.gas hb hs
@@ -856,10 +856,10 @@ theorem decode_sloadstash {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
     rw [hemit]
     simp only [List.length_append, List.length_singleton, emitImm_length, hlk]
   have hseg : ∀ j, j < lk + 35 →
-      (flatBytes prog)[pcOf prog L pc + j]?
+      (lowerBytes prog)[pcOf prog L pc + j]?
         = (emitStmt (matCache prog) (defsOf prog) (.assign t (.sload k)))[j]? := by
     intro j hj
-    exact flatBytes_at_pcOf_offset prog L b pc (.assign t (.sload k)) j hb hs
+    exact lowerBytes_at_pcOf_offset prog L b pc (.assign t (.sload k)) j hb hs
       (by rw [hemitlen]; omega)
   -- frk facts (code / pc) from the `MatRunsC` witness.
   have hkcode : frk.exec.executionEnv.code = lower prog := by rw [hmrk.code, hcorr.code_eq]
@@ -1016,14 +1016,14 @@ theorem sim_assign_sload_lowered {prog : Program} {sloadChg : Tmp → ℕ} {obs 
     simp only [List.length_append, List.length_singleton, emitImm_length, hlk]
   -- the emit byte segment at the cursor `pcOf prog L pc` (length `lk + 35`).
   have hseg : ∀ j, j < lk + 35 →
-      (flatBytes prog)[pcOf prog L pc + j]?
+      (lowerBytes prog)[pcOf prog L pc + j]?
         = (emitStmt (matCache prog) (defsOf prog) (.assign t (.sload k)))[j]? := by
     intro j hj
-    exact flatBytes_at_pcOf_offset prog L b pc (.assign t (.sload k)) j hb hs
+    exact lowerBytes_at_pcOf_offset prog L b pc (.assign t (.sload k)) j hb hs
       (by rw [hemitlen]; omega)
   -- the key bytes form the prefix segment (offset 0) of the stmt bytes.
   have hsegk : ∀ j, j < (matExpr (matCache prog) (.tmp k)).length →
-      (flatBytes prog)[pcOf prog L pc + j]? = (matExpr (matCache prog) (.tmp k))[j]? := by
+      (lowerBytes prog)[pcOf prog L pc + j]? = (matExpr (matCache prog) (.tmp k))[j]? := by
     intro j hj
     simp only [matExpr_tmp] at hj ⊢
     rw [hseg j (by omega), hemit]

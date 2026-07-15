@@ -7,7 +7,7 @@ import BytecodeLayer.Asm.Geometry
 Instruction alignment and its boundary transports are shared assembler geometry.
 This module defines the lowering-specific opcode predicate, proves it for each LIR
 emission form, and transports the assembler's whole-program alignment theorem to
-`flatBytes prog`.
+`lowerBytes prog`.
 -/
 
 namespace Lir
@@ -344,14 +344,13 @@ theorem segAlignedP_loweredBlock (cache : Tmp → List UInt8)
   have := hjd.append (segAlignedP_emitBlockBody cache hcache alloc labelOff b)
   simpa using this
 
-/-- **The whole flat byte stream `flatBytes prog` is `IsLoweringOp`-aligned, UNCONDITIONALLY.**
+/-- **The whole flat byte stream `lowerBytes prog` is `IsLoweringOp`-aligned, UNCONDITIONALLY.**
 The `flatMap` of per-block `JUMPDEST :: emitBlockBody`, each aligned
 (`segAlignedP_loweredBlock`, cache aligned by `segAlignedP_matCache`), glued by
 `SegAlignedP.append`. No well-formedness hypothesis. -/
-theorem segAlignedP_flatBytes (prog : Program) :
-    SegAlignedP IsLoweringOp (flatBytes prog) := by
+theorem segAlignedP_lowerBytes (prog : Program) :
+    SegAlignedP IsLoweringOp (lowerBytes prog) := by
   have h := BytecodeLayer.Asm.segAlignedP_bytes (BytecodeLayer.Asm.lowerAsm prog)
-  rw [Asm.bytes_lowerAsm, emit_allocate_eq_flatBytes] at h
   exact h.mono (by
     intro op hop
     unfold BytecodeLayer.Asm.IsAsmOp at hop
