@@ -34,6 +34,11 @@ assembly (fold cache + allocation) with `a := defsOf prog`. Definitional. -/
 theorem emit_allocate_eq_flatBytes (prog : Program) :
     emit (defsOf prog) prog = flatBytes prog := rfl
 
+/-- The assembler byte list agrees with the legacy flat byte view. -/
+theorem lowerBytes_eq_flatBytes (prog : Program) :
+    lowerBytes prog = flatBytes prog := by
+  rw [lowerBytes_eq_emit, emit_allocate_eq_flatBytes]
+
 /-- `lower prog` is the `ByteArray` wrapping `flatBytes prog`. -/
 theorem lower_eq_flatBytes (prog : Program) : lower prog = ⟨(flatBytes prog).toArray⟩ := by
   unfold lower BytecodeLayer.Asm.assemble

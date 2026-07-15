@@ -260,8 +260,15 @@ end BytecodeLayer.Asm
 
 namespace Lir
 
+def lowerBytes (prog : Program) : List UInt8 :=
+  BytecodeLayer.Asm.bytes (BytecodeLayer.Asm.lowerAsm prog)
+
 def lower (prog : Program) : ByteArray :=
   BytecodeLayer.Asm.assemble (BytecodeLayer.Asm.lowerAsm prog)
+
+/-- The lowered bytecode is the byte array wrapping the assembler's byte list. -/
+theorem lower_eq_lowerBytes (prog : Program) :
+    lower prog = ⟨(lowerBytes prog).toArray⟩ := rfl
 
 namespace Asm
 
@@ -414,6 +421,11 @@ theorem bytes_lowerAsm (prog : Program) :
       simp [encodeBlock_emitBlock, ih]
 
 end Asm
+
+/-- The assembler byte list agrees with the legacy direct emitter. -/
+theorem lowerBytes_eq_emit (prog : Program) :
+    lowerBytes prog = emit (defsOf prog) prog :=
+  Asm.bytes_lowerAsm prog
 
 /-- The bytecode lowering factors through the IR-independent assembler. -/
 theorem lower_eq_assemble_lowerAsm (prog : Program) :
