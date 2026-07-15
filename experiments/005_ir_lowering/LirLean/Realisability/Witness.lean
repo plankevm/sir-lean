@@ -657,7 +657,7 @@ set_option maxRecDepth 8000 in
 half-blocker, now a supplied budget premise). Concrete `lowerBytes` byte arithmetic. -/
 theorem codeFits_exProg : codeFits exProg := by
   unfold codeFits
-  rw [lowerBytes_eq_emit]
+  rw [lowerBytes_eq_blockBytes]
   decide
 
 set_option maxRecDepth 8000 in

@@ -119,14 +119,7 @@ theorem lower_get?_blockPrefix {prog : Program} {i j : Nat}
         (fun b => Byte.jumpdest :: emitBlockBody (matCache prog) (defsOf prog)
           (offsetTable (matCache prog) (defsOf prog) prog.blocks) b))[j]?) := by
   rw [lower_get?_eq]
-  rw [lowerBytes_eq_emit]
-  unfold emit
-  change (prog.blocks.toList.flatMap
-      (fun b => Byte.jumpdest :: emitBlockBody (matCache prog) (defsOf prog)
-        (offsetTable (matCache prog) (defsOf prog) prog.blocks) b))[j]? =
-      ((prog.blocks.toList.take i).flatMap
-        (fun b => Byte.jumpdest :: emitBlockBody (matCache prog) (defsOf prog)
-          (offsetTable (matCache prog) (defsOf prog) prog.blocks) b))[j]?
+  rw [lowerBytes_eq_blockBytes]
   conv_lhs =>
     rw [← List.take_append_drop i prog.blocks.toList, List.flatMap_append]
   rw [List.getElem?_append_left hj]
@@ -654,8 +647,7 @@ private theorem segAlignedNoGas_lowerBytes (prog : Program)
       ∀ (pc : Nat) (t : Tmp) (e : Expr), b.stmts[pc]? = some (.assign t e) → e ≠ .gas) :
     SegAlignedP NoGasOp (lowerBytes prog) := by
   have hcache := segAlignedNoGas_matCache prog
-  rw [lowerBytes_eq_emit]
-  unfold emit
+  rw [lowerBytes_eq_blockBytes]
   apply BytecodeLayer.Asm.segAlignedP_flatMap
   intro b hb
   obtain ⟨i, hi, hib⟩ := List.getElem_of_mem hb

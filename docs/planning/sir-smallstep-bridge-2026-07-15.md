@@ -116,14 +116,14 @@ verdict with a sketch of the SIR-side conformance statement + proof skeleton and
 
 ## Appendix: the assembler story (what the Phase-C de-fuse did, and didn't)
 
-The lowering **definitionally factors through an IR-agnostic assembler**, but the abstraction is
-currently *syntactic*, and it lives in a *dual-path* arrangement.
+The lowering **definitionally factors through an IR-agnostic assembler**. The abstraction is
+syntactic: `AsmProgram` is an encoding input, not a second execution semantics.
 
 **The pieces.** `EVM/BytecodeLayer/Asm.lean` is a verified **encoder**: `AsmProgram` (blocks of
 `AsmInstr = push | pushLabel | op` over a fixed 14-`Op` alphabet), `blockOffset` (label→offset
-relocation), `assemble = resolve + encode`. The IR front-end `lowerAsm : Lir.Program → AsmProgram`
-(`Spec/Lowering.lean:254`) does instruction selection. `lower prog = assemble (lowerAsm prog)`, and
-`lower_eq_assemble_lowerAsm := rfl` (`Lowering.lean:419`).
+relocation), `assemble = resolve + encode`. The IR front-end
+`lowerAsm : Lir.Program → AsmProgram` does instruction selection.
+`lower prog = assemble (lowerAsm prog)`, and `lower_eq_assemble_lowerAsm := rfl`.
 
 **What IS abstracted through it: geometry.** `Asm/Geometry.lean` proves once, over
 `AsmProgram`/`assemble`, the decode alignment (`SegAlignedP`), boundary reachability, cursor
@@ -136,31 +136,20 @@ semantics" is not a statable proposition, and there is nothing missing. `assembl
 full correctness spec is "it emits exactly these bytes." All semantic reasoning (`lower_conforms`)
 happens on the bytecode side.
 
-**The dual path (syntactic redundancy).** The de-fuse added the assembler *alongside* the pre-existing
-byte-level emitter rather than replacing it. Two emitters coexist, proven byte-equal:
-- new: `bytes (lowerAsm prog)` (assembler path),
-- old: `Lir.emit (defsOf prog) prog` / `flatBytes prog` (direct byte path),
-reconciled by `bytes_lowerAsm` (`Lowering.lean:401`) plus a 16-theorem `encode_*` ladder
-(`Lowering.lean:270–414`). The geometry/conformance are stated over the *old* `emit`/`flatBytes` and
-inherited by `assemble ∘ lowerAsm` through the equality.
+**Current status: sole assembler spine.** `lowerBytes prog` is definitionally
+`bytes (lowerAsm prog)`, and `lower` is definitionally `assemble (lowerAsm prog)`. The former
+whole-program direct emitter and its exported byte-equality ladder have been removed. Byte-local
+proofs retain only fragment views (`matCache`, `emitStmt`, `emitTerm`, and `emitBlockBody`) for
+indexing source constructs inside the assembler output; the private `byteView_*` facts justify those
+views, and `lowerBytes_eq_blockBytes` expands the assembler output for local list proofs. These are
+not an alternative lowering entry point.
 
-### "Make `assemble` the sole spine" — cleanup scope & estimate
+### Sole-spine cleanup outcome
 
-Retire the old byte emitter and state everything over the assembler. Grounded counts:
-- **Deletable ~270 LOC:** byte emitter `matExpr…emit` (`Lowering.lean:66–176`, ~110), the `encode_*`
-  ladder (`:270–414`, ~145), `flatBytes` shims (~15).
-- **Mechanical re-statement ~163 sites / ~10 files:** `Decode/*` + `CfgSim/LowerDecode` +
-  `RealisabilitySpec` re-indexed from `emit`/`flatBytes` onto `bytes (lowerAsm prog)` (lemmas stay,
-  re-pointed; some transports shorten since `Asm/Geometry` already lives over `assemble`).
-- **Net:** ~250–350 LOC deleted, contained to the lowering + decode layers, **zero touch to the value
-  channel** (the ~⅔ proof mass). Moderate, low-risk; its payoff is a clean sole assembler backend, not
-  a dent in the big proof mass.
-
-**Steps:** (1) delete the byte emitter; (2) `lowerBytes prog := bytes (lowerAsm prog)`, prove
-`lower = ⟨(lowerBytes …).toArray⟩` by `rfl`; (3) re-index `Decode/*` onto `lowerBytes` via
-`blockOffset_lowerAsm` + `Asm/Geometry`; (4) delete the `encode_*` ladder; (5) re-point
-`RealisabilitySpec`/`CfgSim`, green-gate, flagships unchanged + axiom-clean; (6) *(bonus)* state the
-geometry over an arbitrary `AsmProgram` so a SIR `lowerAsm` is a one-line instantiation.
+The decode, CFG simulation, budget, and realisability layers now state whole-code facts over
+`lowerBytes`. `blockOffset_lowerAsm` is the LIR-specific relocation adapter into the generic
+`Asm/Geometry` results. The three conformance statements remain unchanged; only their proof-side
+byte-list indexing moved to the assembler accessor.
 
 This cleanup and the SIR retarget are complementary: both want `assemble` as a reusable, sole,
 IR-agnostic backend — doing the sole-spine cleanup first makes any later IR front-end (SIR included)

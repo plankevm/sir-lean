@@ -108,8 +108,7 @@ theorem lowerBytes_block_split (prog : Program) (L : Label) (b : Block)
         ++ ((prog.blocks.toList.drop (L.idx + 1)).flatMap
             (fun b => Byte.jumpdest :: emitBlockBody (matCache prog) (defsOf prog)
                         (offsetTable (matCache prog) (defsOf prog) prog.blocks) b)) := by
-  rw [lowerBytes_eq_emit]
-  unfold emit
+  rw [lowerBytes_eq_blockBytes]
   exact flatMap_split prog.blocks.toList L.idx b hb _
 
 /-- The byte-offset of block `L`'s leading `JUMPDEST` in `lowerBytes prog` is

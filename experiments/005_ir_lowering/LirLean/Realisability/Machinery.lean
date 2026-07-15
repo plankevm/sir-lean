@@ -489,8 +489,8 @@ theorem not_runs_atReachableBoundary :
   have hrb := H emptyProg emptyParams _ hbc rfl _ (Runs.refl _)
   obtain ⟨boundary, _, _, _, hlt, _⟩ := hrb
   have hlen : (Lir.lowerBytes emptyProg).length = 0 := by
-    rw [Lir.lowerBytes_eq_emit]
-    simp [Lir.emit, emptyProg]
+    rw [Lir.lowerBytes_eq_blockBytes]
+    simp [emptyProg]
   omega
 
 /-- `(lower prog).size` is the length of the flat byte list (`lower` wraps `lowerBytes` in a
@@ -505,8 +505,7 @@ leading `JUMPDEST` byte, so a non-empty block array gives a non-empty `lowerByte
 half of blocker B1 (the entry seed's `0 < length` field). -/
 theorem lowerBytes_length_pos (prog : Lir.Program) (h : 0 < prog.blocks.size) :
     0 < (Lir.lowerBytes prog).length := by
-  rw [Lir.lowerBytes_eq_emit]
-  unfold Lir.emit
+  rw [Lir.lowerBytes_eq_blockBytes]
   have hne : prog.blocks.toList ≠ [] := by
     intro hnil
     have : prog.blocks.toList.length = 0 := by rw [hnil]; rfl

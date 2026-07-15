@@ -464,8 +464,7 @@ private theorem lowerBytes_length_le_of_wellLowered {prog : Program}
   rcases Nat.eq_zero_or_pos prog.blocks.size with hsz | hsz
   · have hnil : prog.blocks.toList = [] :=
       List.length_eq_zero_iff.mp (by rw [Array.length_toList]; exact hsz)
-    rw [Lir.lowerBytes_eq_emit]
-    unfold Lir.emit
+    rw [Lir.lowerBytes_eq_blockBytes]
     rw [hnil]
     simp
   · have hi : prog.blocks.size - 1 < prog.blocks.toList.length := by

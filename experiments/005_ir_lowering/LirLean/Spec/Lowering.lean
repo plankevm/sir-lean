@@ -173,11 +173,6 @@ def blockLen (cache : Tmp → List UInt8) (alloc : Alloc) (b : Block) : Nat :=
 def offsetTable (cache : Tmp → List UInt8) (alloc : Alloc) (blocks : Array Block) (i : Nat) : Nat :=
   ((blocks.toList.take i).map (blockLen cache alloc)).sum
 
-def emit (a : Alloc) (prog : Program) : List UInt8 :=
-  let cache := matCache prog
-  let labelOff := offsetTable cache a prog.blocks
-  prog.blocks.toList.flatMap (fun b => Byte.jumpdest :: emitBlockBody cache a labelOff b)
-
 namespace Asm
 
 open BytecodeLayer.Asm
@@ -274,7 +269,7 @@ namespace Asm
 
 open BytecodeLayer.Asm
 
-theorem encode_matExpr (labelOffset : Nat → Nat)
+private theorem byteView_matExpr (labelOffset : Nat → Nat)
     {asmCache : Tmp → List AsmInstr} {byteCache : Tmp → List UInt8}
     (hcache : ∀ t, encodeInstrs labelOffset (asmCache t) = byteCache t)
     (expr : Expr) :
@@ -283,17 +278,17 @@ theorem encode_matExpr (labelOffset : Nat → Nat)
     encodeInstr, Op.byte, hcache, Lir.Byte.push32, Lir.Byte.add, Lir.Byte.lt,
     Lir.Byte.sload, Lir.Byte.gas]
 
-theorem encode_matLoc (labelOffset : Nat → Nat)
+private theorem byteView_matLoc (labelOffset : Nat → Nat)
     {asmCache : Tmp → List AsmInstr} {byteCache : Tmp → List UInt8}
     (hcache : ∀ t, encodeInstrs labelOffset (asmCache t) = byteCache t)
     (loc : Loc) :
     encodeInstrs labelOffset (matLoc asmCache loc) = Lir.matLoc byteCache loc := by
   cases loc with
-  | remat expr => exact encode_matExpr labelOffset hcache expr
+  | remat expr => exact byteView_matExpr labelOffset hcache expr
   | slot n => simp [matLoc, Lir.matLoc, emitImm, Lir.emitImm,
       encodeInstr, Op.byte, Lir.Byte.push32, Lir.Byte.mload]
 
-theorem encode_matStep (labelOffset : Nat → Nat)
+private theorem byteView_matStep (labelOffset : Nat → Nat)
     {asmCache : Tmp → List AsmInstr} {byteCache : Tmp → List UInt8}
     (hcache : ∀ t, encodeInstrs labelOffset (asmCache t) = byteCache t)
     (binding : Tmp × Loc) (t : Tmp) :
@@ -301,10 +296,10 @@ theorem encode_matStep (labelOffset : Nat → Nat)
       Lir.matStep byteCache binding t := by
   by_cases h : t = binding.1
   · subst t
-    simp [matStep, Lir.matStep, Function.update, encode_matLoc labelOffset hcache]
+    simp [matStep, Lir.matStep, Function.update, byteView_matLoc labelOffset hcache]
   · simp [matStep, Lir.matStep, Function.update, h, hcache]
 
-theorem encode_matFold (labelOffset : Nat → Nat)
+private theorem byteView_matFold (labelOffset : Nat → Nat)
     {asmCache : Tmp → List AsmInstr} {byteCache : Tmp → List UInt8}
     (hcache : ∀ t, encodeInstrs labelOffset (asmCache t) = byteCache t)
     (bindings : List (Tmp × Loc)) (t : Tmp) :
@@ -314,15 +309,15 @@ theorem encode_matFold (labelOffset : Nat → Nat)
   | nil => exact hcache t
   | cons binding rest ih =>
       simp only [matFold, Lir.matFold, List.foldl_cons]
-      exact ih (encode_matStep labelOffset hcache binding)
+      exact ih (byteView_matStep labelOffset hcache binding)
 
-theorem encode_matCache (prog : Program) (labelOffset : Nat → Nat) (t : Tmp) :
+private theorem byteView_matCache (prog : Program) (labelOffset : Nat → Nat) (t : Tmp) :
     encodeInstrs labelOffset (matCache prog t) = Lir.matCache prog t := by
-  apply encode_matFold labelOffset (bindings := defEnv prog)
+  apply byteView_matFold labelOffset (bindings := defEnv prog)
   intro u
   simp [emitImm, Lir.emitImm, encodeInstr, Lir.Byte.push32]
 
-theorem encode_emitStmt (prog : Program) (labelOffset : Nat → Nat) (stmt : Stmt) :
+private theorem byteView_emitStmt (prog : Program) (labelOffset : Nat → Nat) (stmt : Stmt) :
     encodeInstrs labelOffset (emitStmt (matCache prog) (defsOf prog) stmt) =
       Lir.emitStmt (Lir.matCache prog) (defsOf prog) stmt := by
   cases stmt with
@@ -334,50 +329,51 @@ theorem encode_emitStmt (prog : Program) (labelOffset : Nat → Nat) (stmt : Stm
           | remat e => simp [emitStmt, Lir.emitStmt, halloc]
           | slot n =>
               simp [emitStmt, Lir.emitStmt, halloc,
-                encode_matExpr labelOffset (fun t => encode_matCache prog labelOffset t),
+                byteView_matExpr labelOffset (fun t => byteView_matCache prog labelOffset t),
                 emitImm, Lir.emitImm, encodeInstr, Op.byte,
                 Lir.Byte.push32, Lir.Byte.mstore]
   | sstore key value =>
-      simp [emitStmt, Lir.emitStmt, encode_matCache, encodeInstr, Op.byte,
+      simp [emitStmt, Lir.emitStmt, byteView_matCache, encodeInstr, Op.byte,
         Lir.Byte.sstore]
   | call spec =>
       cases hresult : spec.resultTmp <;>
-        simp [emitStmt, Lir.emitStmt, encode_matCache, emitImm, Lir.emitImm,
+        simp [emitStmt, Lir.emitStmt, byteView_matCache, emitImm, Lir.emitImm,
           encodeInstr, Op.byte, Lir.Byte.push32, Lir.Byte.call,
           Lir.Byte.mstore, Lir.Byte.pop, hresult]
   | create spec =>
       cases hresult : spec.resultTmp <;>
-        simp [emitStmt, Lir.emitStmt, encode_matCache, emitImm, Lir.emitImm,
+        simp [emitStmt, Lir.emitStmt, byteView_matCache, emitImm, Lir.emitImm,
           encodeInstr, Op.byte, Lir.Byte.push32, Lir.Byte.create2,
           Lir.Byte.mstore, Lir.Byte.pop, hresult]
 
-theorem encode_emitTerm (prog : Program) (labelOffset : Nat → Nat) (term : Term) :
+private theorem byteView_emitTerm (prog : Program) (labelOffset : Nat → Nat) (term : Term) :
     encodeInstrs labelOffset (emitTerm (matCache prog) term) =
       Lir.emitTerm (Lir.matCache prog) labelOffset term := by
-  cases term <;> simp [emitTerm, Lir.emitTerm, encode_matCache, emitImm, Lir.emitImm,
+  cases term <;> simp [emitTerm, Lir.emitTerm, byteView_matCache, emitImm, Lir.emitImm,
     Lir.emitDest, encodeInstr, Op.byte, Lir.Byte.push32, Lir.Byte.push4,
     Lir.Byte.mstore, Lir.Byte.ret, Lir.Byte.stop, Lir.Byte.jump,
     Lir.Byte.jumpi]
 
-theorem encode_emitStmts (prog : Program) (labelOffset : Nat → Nat)
+private theorem byteView_emitStmts (prog : Program) (labelOffset : Nat → Nat)
     (stmts : List Stmt) :
     encodeInstrs labelOffset (stmts.flatMap (emitStmt (matCache prog) (defsOf prog))) =
       stmts.flatMap (Lir.emitStmt (Lir.matCache prog) (defsOf prog)) := by
   induction stmts with
   | nil => rfl
   | cons stmt rest =>
-      simp [encode_emitStmt, *]
+      simp [byteView_emitStmt, *]
 
-theorem encode_emitBlock (prog : Program) (labelOffset : Nat → Nat) (block : Block) :
+private theorem byteView_emitBlockBody (prog : Program) (labelOffset : Nat → Nat)
+    (block : Block) :
     encodeInstrs labelOffset (emitBlock (matCache prog) (defsOf prog) block).body =
       Lir.emitBlockBody (Lir.matCache prog) (defsOf prog) labelOffset block := by
-  simp [emitBlock, Lir.emitBlockBody, encode_emitTerm, encode_emitStmts]
+  simp [emitBlock, Lir.emitBlockBody, byteView_emitTerm, byteView_emitStmts]
 
-theorem blockLength_emitBlock (prog : Program) (block : Block) :
+private theorem byteLength_emitBlock (prog : Program) (block : Block) :
     blockLength (emitBlock (matCache prog) (defsOf prog) block) =
       Lir.blockLen (Lir.matCache prog) (defsOf prog) block := by
   rw [blockLength, ← encodeInstrs_length (fun _ => 0)]
-  rw [encode_emitBlock]
+  rw [byteView_emitBlockBody]
   rfl
 
 theorem blockOffset_lowerAsm (prog : Program) (label : Nat) :
@@ -394,38 +390,35 @@ theorem blockOffset_lowerAsm (prog : Program) (label : Nat) :
     induction blocks generalizing i with
     | nil => simp
     | cons block rest ih =>
-        cases i <;> simp [blockLength_emitBlock, ih]
+        cases i <;> simp [byteLength_emitBlock, ih]
   rw [List.map_take, List.map_take, List.map_map]
   exact h prog.blocks.toList label
 
-theorem encodeBlock_emitBlock (prog : Program) (labelOffset : Nat → Nat) (block : Block) :
+private theorem byteView_emitBlock (prog : Program) (labelOffset : Nat → Nat) (block : Block) :
     BytecodeLayer.Asm.encodeBlock labelOffset
         (emitBlock (matCache prog) (defsOf prog) block) =
       Lir.Byte.jumpdest ::
         Lir.emitBlockBody (Lir.matCache prog) (defsOf prog) labelOffset block := by
-  simp [BytecodeLayer.Asm.encodeBlock, encode_emitBlock, Lir.Byte.jumpdest]
+  simp [BytecodeLayer.Asm.encodeBlock, byteView_emitBlockBody, Lir.Byte.jumpdest]
 
-theorem bytes_lowerAsm (prog : Program) :
-    BytecodeLayer.Asm.bytes (BytecodeLayer.Asm.lowerAsm prog) =
-      Lir.emit (defsOf prog) prog := by
-  unfold BytecodeLayer.Asm.bytes
-  rw [show blockOffset (BytecodeLayer.Asm.lowerAsm prog) =
-      Lir.offsetTable (Lir.matCache prog) (defsOf prog) prog.blocks from by
+end Asm
+
+/-- Expand assembler output into the encoded block view used by byte-local proofs. -/
+theorem lowerBytes_eq_blockBytes (prog : Program) :
+    lowerBytes prog = prog.blocks.toList.flatMap (fun b =>
+      Byte.jumpdest :: emitBlockBody (matCache prog) (defsOf prog)
+        (offsetTable (matCache prog) (defsOf prog) prog.blocks) b) := by
+  unfold lowerBytes BytecodeLayer.Asm.bytes
+  rw [show BytecodeLayer.Asm.blockOffset (BytecodeLayer.Asm.lowerAsm prog) =
+      offsetTable (matCache prog) (defsOf prog) prog.blocks from by
     funext label
-    exact blockOffset_lowerAsm prog label]
-  unfold BytecodeLayer.Asm.lowerAsm Lir.emit
+    exact Asm.blockOffset_lowerAsm prog label]
+  unfold BytecodeLayer.Asm.lowerAsm
   simp only [Array.toList_map]
   induction prog.blocks.toList with
   | nil => rfl
   | cons block rest ih =>
-      simp [encodeBlock_emitBlock, ih]
-
-end Asm
-
-/-- The assembler byte list agrees with the legacy direct emitter. -/
-theorem lowerBytes_eq_emit (prog : Program) :
-    lowerBytes prog = emit (defsOf prog) prog :=
-  Asm.bytes_lowerAsm prog
+      simp [Asm.byteView_emitBlock, ih]
 
 /-- The bytecode lowering factors through the IR-independent assembler. -/
 theorem lower_eq_assemble_lowerAsm (prog : Program) :

@@ -126,8 +126,7 @@ theorem lowered_block_region_inv (prog : Program) (blk : Block) {k base : Nat}
 theorem lowerBytes_cursor_cases {prog : Program} {b : Nat}
     (hin : b < (lowerBytes prog).length) :
     LowerBoundaryCursor prog b := by
-  rw [lowerBytes_eq_emit] at hin
-  unfold emit at hin
+  rw [lowerBytes_eq_blockBytes] at hin
   set cache := matCache prog with hcache
   set alloc := defsOf prog with halloc
   set lo := offsetTable cache alloc prog.blocks with hlo

@@ -18,8 +18,7 @@ theorem lowerBytes_length_eq (prog : Program) :
         = prog.blocks.toList.flatMap (fun b => Byte.jumpdest ::
             Lir.emitBlockBody (matCache prog) (defsOf prog)
               (Lir.offsetTable (matCache prog) (defsOf prog) prog.blocks) b) from by
-        rw [lowerBytes_eq_emit]
-        rfl]
+        exact lowerBytes_eq_blockBytes prog]
   rw [List.length_flatMap]
   apply congrArg List.sum
   apply List.map_congr_left
