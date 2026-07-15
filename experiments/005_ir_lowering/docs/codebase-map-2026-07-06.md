@@ -262,8 +262,8 @@ def Acyclic (defs) (rank) : Prop := ∀ t e, defs t = some e → ExprRankLt rank
 ### L7 — recorder / realisation (`Spec/Recorder.lean`, `CallRealises`, `RecorderLemmas`)
 
 ```lean
-structure RunLog where observable : FrameResult; gas : List Word; sloads : List Nat;
-  calls : List CallRecord; creates : List CreateRecord            -- Recorder.lean:109
+structure RunLog where observable : FrameResult; gas : List Word;
+  calls : List CallRecord; creates : List CreateRecord            -- Recorder.lean:34
 def driveLog (fuel) (stack) (state) (…accs) : Except ExecutionException (FrameResult × …)  -- :206
 def runWithLog (params : CallParams) (fuel : ℕ) : Option RunLog   -- :289
 def realisedGas (log) : GasOracle := log.gas                      -- :307

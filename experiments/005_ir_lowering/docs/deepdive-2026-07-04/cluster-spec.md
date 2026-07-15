@@ -219,8 +219,8 @@ Terminal consumption by the flagship (`RealisabilitySpec.lean`, WIP lib):
    **needs confirmation** it is not reserved for a planned bundling refactor.
 
 2. **Docstring drift in `recordCall`/`driveLog`/`RunAcc` comments** (not code): several
-   comments still say "`(gas, calls)`" 2-tuple (Recorder :154, :157) after the `sloads`
-   channel was added (RunLog has 4 fields incl. `sloads` :106). Documentation-only; flag
+   comments still say "`(gas, calls)`" 2-tuple (Recorder :154, :157) after the SLOAD warmth
+   channel was added (the former RunLog had a dedicated SLOAD warmth field). Documentation-only; flag
    for a sweep, not a deletion.
 
 No other deletion is defensible. In particular the low-usage `Loc`/`Alloc`/`Loc.toDef`/

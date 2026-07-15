@@ -87,10 +87,10 @@ C2 covers commits 55ec4025 through 741d4894.
 
 ### 1. Recorder and coupling carrier
 
-The recorder accumulates a final EVM result plus four positional streams. The C2 carrier says that
+The recorder accumulates a final EVM result plus three positional streams. The C2 carrier says that
 restarting the same deterministic recorder from a current top-level frame produces the final result
 and the remaining suffixes, and that each remaining stream really is a suffix of the original log.
-This is the complete [carrier specification](../../EVM/BytecodeLayer/Exec/Recorder.lean#L230):
+This is the complete [carrier specification](../../EVM/BytecodeLayer/Exec/Recorder.lean#L214):
 
 ```lean
 /-- Restarting the recorder at a top-level boundary frame reproduces the final observable
@@ -98,15 +98,12 @@ and the unconsumed event suffixes. The empty pending stack makes the boundary to
 nested CALL/CREATE execution remains hidden by the recorder's stack gate. The prefix
 witnesses ensure that every replayed suffix belongs to the original log. -/
 structure RecorderCoupled (log : RunLog) (fr : Frame)
-    (gasSuffix : List Word) (sloadSuffix : List Nat) (callSuffix : List CallRecord)
-    (createSuffix : List CreateRecord) : Prop where
+    (gasSuffix : List Word) (callSuffix : List CallRecord) (createSuffix : List CreateRecord) : Prop where
   /-- A deterministic replay from the boundary produces exactly the remaining streams. -/
-  restart : ∃ fuel', driveLog fuel' [] (.inl fr) [] [] [] []
-      = .ok (log.observable, gasSuffix, sloadSuffix, callSuffix, createSuffix)
+  restart : ∃ fuel', driveLog fuel' [] (.inl fr) [] [] []
+      = .ok (log.observable, gasSuffix, callSuffix, createSuffix)
   /-- The remaining gas events form a suffix of the recorded gas stream. -/
   gasPrefix : ∃ pre, log.gas = pre ++ gasSuffix
-  /-- The remaining SLOAD events form a suffix of the recorded SLOAD stream. -/
-  sloadPrefix : ∃ pre, log.sloads = pre ++ sloadSuffix
   /-- The remaining CALL events form a suffix of the recorded CALL stream. -/
   callPrefix : ∃ pre, log.calls = pre ++ callSuffix
   /-- The remaining CREATE events form a suffix of the recorded CREATE stream. -/
@@ -115,7 +112,7 @@ structure RecorderCoupled (log : RunLog) (fr : Frame)
 
 The existential replay fuel is not an unproven semantic assumption: it is evidence carried by the
 invariant, established from a successful recorder run and decreased/reconciled by the transition
-lemmas. The four prefix witnesses prevent an arbitrary replay suffix from masquerading as part of
+lemmas. The three prefix witnesses prevent an arbitrary replay suffix from masquerading as part of
 an unrelated log.
 
 ### 2. Generic run recursion
@@ -162,47 +159,45 @@ and every edge type is owned by BytecodeLayer.
 ### 3. Recorder transitions
 
 The coupling is seeded from a successful top-level recording by
-[the entry theorem](../../EVM/BytecodeLayer/Exec/CyclicSim.lean#L205):
+[the entry theorem](../../EVM/BytecodeLayer/Exec/CyclicSim.lean#L178):
 
 ```lean
 theorem recorderCoupled_entry {params : CallParams} {log : RunLog} {fr₀ : Frame}
     (hrun : runWithLog params (seedFuel params.gas) = some log)
     (hbegin : beginCall params = .inl fr₀) :
-    RecorderCoupled log fr₀ log.gas log.sloads log.calls log.creates := by
+    RecorderCoupled log fr₀ log.gas log.calls log.creates := by
 ```
 
-The ordinary-step API then distinguishes recorded GAS, recorded SLOAD, and all other non-recording
-steps. The GAS face, representative of the two consuming scalar streams, is
-[stated here](../../EVM/BytecodeLayer/Exec/CyclicSim.lean#L221):
+The ordinary-step API distinguishes recorded GAS from all other ordinary steps. The GAS face is
+[stated here](../../EVM/BytecodeLayer/Exec/CyclicSim.lean#L194):
 
 ```lean
 theorem recorderCoupled_step_gas {log : RunLog} {fr : Frame} {exec : ExecutionState}
-    {g : Word} {gS : List Word} {sS : List Nat} {cS : List CallRecord}
-    {dS : List CreateRecord}
-    (hcp : RecorderCoupled log fr (g :: gS) sS cS dS)
+    {g : Word} {gS : List Word} {cS : List CallRecord} {dS : List CreateRecord}
+    (hcp : RecorderCoupled log fr (g :: gS) cS dS)
     (hgas : isGasOp fr = true)
     (hstep : stepFrame fr = .next exec) :
-    RecorderCoupled log { fr with exec := exec } gS sS cS dS
+    RecorderCoupled log { fr with exec := exec } gS cS dS
     ∧ g = UInt256.ofUInt64 exec.gasAvailable := by
 ```
 
-CALL and CREATE descents consume exactly one event while leaving gas and SLOAD suffixes unchanged.
-The stronger [CREATE extraction theorem](../../EVM/BytecodeLayer/Exec/CyclicSim.lean#L758) shows
+CALL and CREATE descents consume exactly one event while leaving the gas suffix unchanged.
+The stronger [CREATE extraction theorem](../../EVM/BytecodeLayer/Exec/CyclicSim.lean#L642) shows
 the modeling seam explicitly:
 
 ```lean
 theorem recorderCoupled_create_extract {log : RunLog} {createFr : Frame}
     {cp : CreateParams} {pending : PendingCreate}
-    {gS : List Word} {sS : List Nat} {cS : List CallRecord}
+    {gS : List Word} {cS : List CallRecord}
     {rec : CreateRecord} {dS : List CreateRecord}
-    (hcp : RecorderCoupled log createFr gS sS cS (rec :: dS))
+    (hcp : RecorderCoupled log createFr gS cS (rec :: dS))
     (hstep : stepFrame createFr = .needsCreate cp pending)
     (hresolve : CreateResolves createFr) :
     ∃ (childRes : FrameResult) (resumeFr : Frame),
         CreateReturns createFr resumeFr
       ∧ rec = { result := childRes.toCreateResult, pending := pending }
       ∧ resumeAfterCreate childRes.toCreateResult pending = .ok resumeFr
-      ∧ RecorderCoupled log resumeFr gS sS cS dS := by
+      ∧ RecorderCoupled log resumeFr gS cS dS := by
 ```
 
 The [CREATE-resolution predicate](../../EVM/BytecodeLayer/Exec/Invariants.lean#L272) assumes only
@@ -211,19 +206,19 @@ resumed parent. This is a real EVM seam: create resumption is exception-valued, 
 resumption. It does not mention or quantify over an IR execution.
 
 At a halt, the generic theory closes the replay and all streams. The two projections needed by the
-adapter are [the suffix theorem](../../EVM/BytecodeLayer/Exec/CyclicSim.lean#L1125) and
-[the observable theorem](../../EVM/BytecodeLayer/Exec/CyclicSim.lean#L1133):
+adapter are [the suffix theorem](../../EVM/BytecodeLayer/Exec/CyclicSim.lean#L992) and
+[the observable theorem](../../EVM/BytecodeLayer/Exec/CyclicSim.lean#L1000):
 
 ```lean
 theorem recorderCoupled_halted_suffixes_nil {log : RunLog} {fr : Frame} {h : FrameHalt}
-    {gS : List Word} {sS : List Nat} {cS : List CallRecord} {dS : List CreateRecord}
-    (hcp : RecorderCoupled log fr gS sS cS dS)
+    {gS : List Word} {cS : List CallRecord} {dS : List CreateRecord}
+    (hcp : RecorderCoupled log fr gS cS dS)
     (hstep : stepFrame fr = .halted h) :
-    gS = [] ∧ sS = [] ∧ cS = [] ∧ dS = [] := by
+    gS = [] ∧ cS = [] ∧ dS = [] := by
 
 theorem recorderCoupled_halted_observable {log : RunLog} {fr : Frame} {h : FrameHalt}
-    {gS : List Word} {sS : List Nat} {cS : List CallRecord} {dS : List CreateRecord}
-    (hcp : RecorderCoupled log fr gS sS cS dS)
+    {gS : List Word} {cS : List CallRecord} {dS : List CreateRecord}
+    (hcp : RecorderCoupled log fr gS cS dS)
     (hstep : stepFrame fr = .halted h) :
     log.observable = endFrame fr h :=
 ```
@@ -255,13 +250,12 @@ predicate and its three edge-preservation obligations; the recursion over arbitr
 paths is reusable.
 
 The semantic walk combines this generic coupling with Lir correspondence in
-[the local invariant](../../experiments/005_ir_lowering/LirLean/Realisability/Surface.lean#L303):
+[the local invariant](../../experiments/005_ir_lowering/LirLean/Realisability/Surface.lean#L302):
 
 ```lean
 structure DriveCorrLog (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
     (self : AccountAddress) (st : IRState) (fr : Frame) (L : Label)
-    (gasSuffix : List Word) (sloadSuffix : List Nat) (callSuffix : List CallRecord)
-    (createSuffix : List CreateRecord) :
+    (gasSuffix : List Word) (callSuffix : List CallRecord) (createSuffix : List CreateRecord) :
     Prop where
   /-- The `Corr` boundary at the block-entry cursor `(L, 0)` (phantom `obs` pinned to 0). -/
   corr : Lir.Corr prog sloadChg 0 (fun _ => False) st fr L 0
@@ -277,7 +271,7 @@ structure DriveCorrLog (prog : Program) (sloadChg : Tmp → ℕ) (log : RunLog)
   /-- The frame is a call frame (rfl-preserved along the walk). -/
   kindPin : ∃ cp, fr.kind = .call cp
   /-- The §2 recorder-restart coupling at the un-consumed suffixes. -/
-  coupled : RecorderCoupled log fr gasSuffix sloadSuffix callSuffix createSuffix
+  coupled : RecorderCoupled log fr gasSuffix callSuffix createSuffix
 ```
 
 ## Flagship surface

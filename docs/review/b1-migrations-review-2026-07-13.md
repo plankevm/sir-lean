@@ -232,7 +232,6 @@ is the machine-side record consumed by the headline:
 structure RunLog where
   observable : FrameResult
   gas : List Word
-  sloads : List Nat
   calls : List CallRecord
   creates : List CreateRecord
 

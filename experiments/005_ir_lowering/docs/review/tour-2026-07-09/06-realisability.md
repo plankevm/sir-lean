@@ -243,12 +243,13 @@ anti-vacuity anchors:
 
 ```lean
 structure RecorderCoupled (log : RunLog) (fr : Frame)
-    (gasSuffix : List Word) (sloadSuffix : List Nat) (callSuffix : List CallRecord) : Prop where
-  restart : ∃ fuel', driveLog fuel' [] (.inl fr) [] [] [] []
-      = .ok (log.observable, gasSuffix, sloadSuffix, callSuffix, log.creates)
+    (gasSuffix : List Word) (callSuffix : List CallRecord)
+    (createSuffix : List CreateRecord) : Prop where
+  restart : ∃ fuel', driveLog fuel' [] (.inl fr) [] [] []
+      = .ok (log.observable, gasSuffix, callSuffix, createSuffix)
   gasPrefix : ∃ pre, log.gas = pre ++ gasSuffix
-  sloadPrefix : ∃ pre, log.sloads = pre ++ sloadSuffix
   callPrefix : ∃ pre, log.calls = pre ++ callSuffix
+  createPrefix : ∃ pre, log.creates = pre ++ createSuffix
 ```
 
 The suffix/prefix cursor idea: at every top-level block-entry boundary the invariant carries

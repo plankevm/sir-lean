@@ -337,7 +337,7 @@ records the strongest adversarial instance tried.
 | 3.3 | gas: slot canonicity | — | PASS — static (as 2.3) |
 | 3.4 | gas: wellScoped fold over the pinned head value | as 1.3 | PASS — `t` slot-registered (3.1) ⇒ second disjunct |
 | 3.5 | gas: addressability + `pcOf + 34 < 2^32` | overflow cursor | PASS — static (`hwl.wf` bounds) |
-| 4.1 | sstore: `StepScopedS (.sstore …)` | find `defsOf`-registered `.sload` | PASS — structurally true of ALL programs (`defsOf` routes sloads to `.slot`; the `defsOf_ne_gas` twin). Old form true but state-quantified; replaced for uniformity |
+| 4.1 | sstore: `StepScopedS (.sstore …)` | find `defsOf`-registered `.sload` | PASS — structurally true of ALL programs (`defsOf` routes SLOAD definitions to `.slot`; the `defsOf_ne_gas` twin). Old form true but state-quantified; replaced for uniformity |
 | 4.2 | sstore: stack fold | — | PASS — static `StackRoomOK.sstore` |
 | 4.3 | sstore: `vw ≠ 0` | coupled zero-writing frame (round-1 fix D) | PASS — under the threaded `NonzeroSstores fr0` antecedent; derivation path: clean-halt gives the materialise run to the SSTORE op, `Corr`'s channels pin the stacked value to `st0.locals value` |
 | 5.1 | call: `StepScopedS (.call cs)` (in `CallRealisesS`) | (old embedded `hscope`) program `[call{…,some t5}; t9 := add t5 t5]`, `st0 = {t5↦0, t9↦0}` is Corr-consistent (`DefsSound`: `0 = 0+0`; `wellScoped`: `t5` spilled, `t9` registered) ⇒ old clause REFUTED in-envelope (not at exProg — nothing reads `t5`) | PASS now — `isCallResult` from cursor membership |

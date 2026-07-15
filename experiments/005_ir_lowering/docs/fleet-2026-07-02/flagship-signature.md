@@ -276,7 +276,7 @@ theorem recorderCoupled_step  … := sorry   -- one .next step (GAS/SLOAD pop th
 theorem recorderCoupled_call  … := sorry   -- across a CallReturns edge (child black-boxed)
 theorem recorderCoupled_entry
     (hrun : runWithLog params (seedFuel params.gas) = some log) :
-    RecorderCoupled log fr₀ log.gas log.sloads log.calls := sorry
+    RecorderCoupled log fr₀ log.gas log.calls log.creates := sorry
 
 -- R8 — presence threading (kills hpresent): reached labels are present
 theorem present_of_walk (hclosed : ClosedCFG prog) … : ∃ b, blockAt prog L = some b := sorry

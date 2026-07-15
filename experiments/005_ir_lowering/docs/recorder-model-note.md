@@ -11,7 +11,7 @@ records three kinds of introspection point into the `RunLog`: each top-level `GA
 word, each top-level `SLOAD`'s warmth charge, and each top-level returning external CALL's
 `(result, pending)` (via `recordCall`). Per the recorder's own docstrings, all three are meant to
 record **only the top-level program's own** points — a descended callee's contract is a single
-black box whose internal gas reads / sloads / calls are its own frame's business, not the log's.
+black box whose internal gas reads / SLOAD operations / calls are its own frame's business, not the log's.
 
 The gas and sload records honored this: they gate on `stack.isEmpty` (the running frame is the
 top-level one). The returning-CALL record did **NOT** — `recordCall` was invoked **UNGATED** in

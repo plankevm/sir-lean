@@ -317,12 +317,13 @@ This is a good theorem surface: it is observable, not opcode-mirroring. Its proo
 
 ```lean
 structure RecorderCoupled (log : RunLog) (fr : Frame)
-    (gasSuffix : List Word) (sloadSuffix : List Nat) (callSuffix : List CallRecord) : Prop where
-  restart : ∃ fuel', driveLog fuel' [] (.inl fr) [] [] [] []
-      = .ok (log.observable, gasSuffix, sloadSuffix, callSuffix, log.creates)
+    (gasSuffix : List Word) (callSuffix : List CallRecord)
+    (createSuffix : List CreateRecord) : Prop where
+  restart : ∃ fuel', driveLog fuel' [] (.inl fr) [] [] []
+      = .ok (log.observable, gasSuffix, callSuffix, createSuffix)
   gasPrefix : ∃ pre, log.gas = pre ++ gasSuffix
-  sloadPrefix : ∃ pre, log.sloads = pre ++ sloadSuffix
   callPrefix : ∃ pre, log.calls = pre ++ callSuffix
+  createPrefix : ∃ pre, log.creates = pre ++ createSuffix
 
 def StreamsAligned (self : AccountAddress) (log : RunLog)
     (gS : List Word) (cS : List CallRecord)
