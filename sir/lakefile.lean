@@ -1,7 +1,7 @@
 import Lake
 open Lake DSL
 
-require bytecode_layer from "../experiments/003_bytecode_layer"
+require evm from "../EVM"
 
 package "sir" where
   version := v!"0.1.0"
