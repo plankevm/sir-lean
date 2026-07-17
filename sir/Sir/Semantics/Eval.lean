@@ -34,9 +34,10 @@ def eval_gas (result : VarId) (gas : Word) : MachineStateM Unit := do
 def eval_call (call : Call) (result : CallResult) : MachineStateM CallRecord := do
   let callee ← Locals.lookupM call.callee
   let gas ← Locals.lookupM call.gas
+  let input := { target := .ofUInt256 callee, gas := gas, world := (← get).world }
   Locals.assignM call.result (Evm.UInt256.fromBool result.success)
-  modify ({ · with returnData := result.output, world := result.world })
-  return { target := .ofUInt256 callee, gas := gas, result := result }
+  modify ({ · with returnData := result.output, world := result.world' })
+  return { input, result }
 
 def eval_malloc_uninit (alloc : Allocation) (result size : VarId) : MachineStateM Unit := do
   let size ← Locals.lookupM size

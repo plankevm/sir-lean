@@ -50,13 +50,17 @@ def transfer (outputs inputs : Array VarId) : StateT Locals (Except IRError) Uni
 end Locals
 
 structure CallResult where
-  world : World
+  world' : World
   success : Bool
   output : ByteArray
 
-structure CallRecord where
+structure CallInput where
   target : Address
   gas : Word
+  world : World
+
+structure CallRecord where
+  input : CallInput
   result : CallResult
 
 structure CallContext where
