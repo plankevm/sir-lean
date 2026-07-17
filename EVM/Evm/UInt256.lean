@@ -13,9 +13,10 @@ import Mathlib.Tactic.Ring
 
 namespace Evm
 
-/-- The size of type `UInt256`, that is, `2^256`. -/
 def UInt256.size : ℕ :=
   115792089237316195423570985008687907853269984665640564039457584007913129639936
+
+private theorem UInt256.size_eq_2pow256 : UInt256.size = 2^256 := by rfl
 
 instance : NeZero UInt256.size where
   out := (by unfold UInt256.size; simp)

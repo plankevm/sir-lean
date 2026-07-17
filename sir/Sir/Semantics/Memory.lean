@@ -35,7 +35,7 @@ structure MemoryState where
 def MemoryState.empty : MemoryState := { provisioned := #[] }
 
 def MemoryState.IsValidNewAlloc (m : MemoryState) (a : Allocation) : Prop :=
-  ∀ a' ∈ m.provisioned, Allocation.IsDisjoint a a'
+  a.endExclusive ≤ Evm.UInt256.size ∧ ∀ a' ∈ m.provisioned, Allocation.IsDisjoint a a'
 
 def MemoryState.push (m : MemoryState) (a : Allocation) : MemoryState :=
   { provisioned := m.provisioned.push a }
