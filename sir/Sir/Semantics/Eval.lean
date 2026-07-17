@@ -1,5 +1,6 @@
 import Sir.Semantics.State
 
+
 namespace Sir
 
 def Expr.eval (ctx : CallContext) (state : MachineState) : Expr → Except IRError Word
@@ -39,6 +40,13 @@ def eval_call (call : Call) (result : CallResult) :
   Locals.assignM call.result (Evm.UInt256.fromBool result.success)
   modify ({ · with returnData := result.output, world := result.world })
   return { target := .ofUInt256 callee, gas := gas, result := result }
+
+def eval_malloc_uninit (alloc : Allocation) (result size : VarId) : MachineStateM Unit := do
+  let size ← Locals.lookupM size
+  if alloc.size ≠ size.toNat then
+    throw .invalidAlloc
+  Locals.assignM result alloc.offset
+  modify (fun s => { s with memory := s.memory.push alloc })
 
 private def eval_jump (program : Program) (target : BlockId) :
     StateT MachineState (Except IRError) Unit := do

@@ -38,6 +38,15 @@ inductive SmallStep (program : Program) (ctx : CallContext) :
       (hstmt : program.decodeStmt state.control = some (nextControl, .call call))
       (heval : (eval_call call result).run state = .ok (record, state')) :
       SmallStep program ctx state [.call record] { state' with control := nextControl }
+  | mallocUninit
+      {state state' : MachineState}
+      {nextControl : MachineControl}
+      {alloc : Allocation}
+      {result size : VarId}
+      (hstmt : program.decodeStmt state.control = some (nextControl, .mallocUninit result size))
+      (halloc : state.memory.IsValidNewAlloc alloc)
+      (heval : (eval_malloc_uninit alloc result size).run state = .ok ((), state')) :
+      SmallStep program ctx state [] { state' with control := nextControl }
   | terminator
       {state state' : MachineState}
       {terminator : Terminator}

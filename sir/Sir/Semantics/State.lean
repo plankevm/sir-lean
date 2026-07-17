@@ -1,5 +1,6 @@
 import Sir.IR.CFG
 import Sir.Semantics.World
+import Sir.Semantics.Memory
 
 universe u v
 
@@ -12,6 +13,7 @@ inductive IRError where
   | undefinedVariable (var : VarId)
   | invalidBlock (block : BlockId)
   | invalidControl
+  | invalidAlloc
   | blockArityMismatch (outputs inputs : Nat)
   deriving DecidableEq, Repr
 
@@ -81,6 +83,7 @@ inductive MachineControl where
 
 structure MachineState where
   world : World
+  memory : MemoryState := .empty
   locals : Locals := .empty
   returnData : ByteArray := ByteArray.empty
   control : MachineControl
@@ -105,6 +108,8 @@ abbrev Trace := List Event
 
 def MachineState.localSet (var : VarId) (value : Word) : StateM MachineState Unit :=
   modify (fun s => { s with locals := s.locals.assign var value })
+
+abbrev MachineStateM := StateT MachineState (Except IRError)
 
 def Program.block? (program : Program) (bid : BlockId) : Option BasicBlock :=
   program.blocks[bid.id]?
