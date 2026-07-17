@@ -85,4 +85,16 @@ def Runs (program : Program) (ctx : CallContext) (w₀ : World)
     program.startCursor? = some cursor ∧
     Steps program ctx { world := w₀, control := .running cursor } trace state
 
+def Deterministic (p : Program) : Prop :=
+  (∀ ctx w₀ trace record₁ record₂ state₁ state₂,
+    Runs p ctx w₀ (trace ++ [.call record₁]) state₁ →
+    Runs p ctx w₀ (trace ++ [.call record₂]) state₂ →
+    record₁.input = record₂.input) ∧
+  (∀ ctx w₀ trace state₁ state₂,
+    Runs p ctx w₀ trace state₁ →
+    state₁.control = .halted →
+    Runs p ctx w₀ trace state₂ →
+    state₂.control = .halted →
+    state₁.world = state₂.world)
+
 end Sir
