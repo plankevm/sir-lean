@@ -124,6 +124,10 @@ def BasicBlock.absoluteToPosition (block : BasicBlock) (index : Nat) : BlockPosi
 def BasicBlock.startPosition (block : BasicBlock) : BlockPosition :=
   block.absoluteToPosition 0
 
+def Program.startCursor? (program : Program) : Option ProgramCursor := do
+  let block ← program.block? program.entry
+  return { block := program.entry, position := block.startPosition }
+
 def Program.decodeStmt (program : Program) (control : MachineControl) : Option (MachineControl × Stmt) := do
   let .running cursor := control | none
   let .statement index := cursor.position | none

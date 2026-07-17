@@ -5,3 +5,4 @@ import Sir.Semantics.Memory
 import Sir.Semantics.State
 import Sir.Semantics.Eval
 import Sir.Semantics.SmallStep
+import Sir.Semantics.Spec

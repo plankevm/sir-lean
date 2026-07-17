@@ -71,16 +71,18 @@ inductive SmallStep (program : Program) (ctx : CallContext) :
 
 inductive Steps (program : Program) (ctx : CallContext) :
     MachineState → Trace → MachineState → Prop where
-  | single
-      {s s' : MachineState}
-      {trace : Trace}
-      (step : SmallStep program ctx s trace s') :
-      Steps program ctx s trace s'
-  | chain
-      {s₀ s₁ s₂ : MachineState}
+  | refl {s : MachineState} : Steps program ctx s [] s
+  | tail
+      {s mid s' : MachineState}
       {t₁ t₂ : Trace}
-      (start : Steps program ctx s₀ t₁ s₁)
-      (next : SmallStep program ctx s₁ t₂ s₂) :
-      Steps program ctx s₀ (t₁ ++ t₂) s₂
+      (start : Steps program ctx s t₁ mid)
+      (next : SmallStep program ctx mid t₂ s') :
+      Steps program ctx s (t₁ ++ t₂) s'
+
+def Runs (program : Program) (ctx : CallContext) (w₀ : World)
+    (trace : Trace) (state : MachineState) : Prop :=
+  ∃ cursor,
+    program.startCursor? = some cursor ∧
+    Steps program ctx { world := w₀, control := .running cursor } trace state
 
 end Sir
