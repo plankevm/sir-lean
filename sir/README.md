@@ -3,8 +3,8 @@
 Lean 4 formalization of Plank's Sensei Intermediate Representation (SIR).
 
 The library models a register-based control-flow graph with block inputs and
-outputs, storage, calls, gas observations, and event-labelled small-step
-semantics.
+outputs, storage, explicitly allocated memory, calls, gas observations, and
+event-labelled small-step semantics.
 
 ## Layout
 

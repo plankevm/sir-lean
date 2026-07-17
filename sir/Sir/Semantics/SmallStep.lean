@@ -47,6 +47,21 @@ inductive SmallStep (program : Program) (ctx : CallContext) :
       (halloc : state.memory.IsValidNewAlloc alloc)
       (heval : (eval_malloc_uninit alloc result size).run state = .ok ((), state')) :
       SmallStep program ctx state [] { state' with control := nextControl }
+  | mstore32
+      {state state' : MachineState}
+      {nextControl : MachineControl}
+      {offset value : VarId}
+      (hstmt : program.decodeStmt state.control = some (nextControl, .mstore32 offset value))
+      (heval : (eval_mstore32 offset value).run state = .ok ((), state')) :
+      SmallStep program ctx state [] { state' with control := nextControl }
+  | mload32
+      {state state' : MachineState}
+      {nextControl : MachineControl}
+      {assumed : Vector UInt8 32}
+      {result offset : VarId}
+      (hstmt : program.decodeStmt state.control = some (nextControl, .mload32 result offset))
+      (heval : (eval_mload32 ⟨assumed.toArray⟩ result offset).run state = .ok ((), state')) :
+      SmallStep program ctx state [] { state' with control := nextControl }
   | terminator
       {state state' : MachineState}
       {terminator : Terminator}
