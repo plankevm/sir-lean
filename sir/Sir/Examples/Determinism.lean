@@ -345,6 +345,19 @@ private theorem initialized_steps {ctx : CallContext} {world : World}
       rcases initialized_step_closed hmid next with ⟨rfl, hstate⟩
       exact ⟨rfl, hstate⟩
 
+private theorem initialized_no_next_event {ctx : CallContext} {world : World}
+    {trace : Trace} {event : Event} {state : MachineState}
+    (hrun : Runs initializedLoad ctx world (trace ++ [event]) state) : False := by
+  rcases hrun with ⟨cursor, hcursor, hsteps⟩
+  have hcursor' : cursor = { block := entryBlock, position := .statement 0 } := by
+    symm
+    simpa [initializedLoad, Program.startCursor?, Program.block?, BasicBlock.startPosition,
+      BasicBlock.absoluteToPosition] using hcursor
+  subst cursor
+  have htrace := (initialized_steps hsteps).1
+  have := congrArg List.length htrace
+  simp at this
+
 private theorem initialized_halted_world {ctx : CallContext} {world : World}
     {trace : Trace} {state : MachineState}
     (hrun : Runs initializedLoad ctx world trace state) (hhalt : state.control = .halted) :
@@ -463,27 +476,38 @@ private theorem zero_worlds_differ :
   exact (by decide : (1 : Word) ≠ 0) hread
 
 theorem initializedLoad_deterministic : Deterministic initializedLoad := by
-  constructor
-  · intro ctx world trace record₁ record₂ state₁ state₂ hrun₁ _
-    rcases hrun₁ with ⟨cursor, hcursor, hsteps⟩
-    have hcursor' : cursor = { block := entryBlock, position := .statement 0 } := by
-      symm
-      simpa [initializedLoad, Program.startCursor?, Program.block?, BasicBlock.startPosition,
-        BasicBlock.absoluteToPosition] using hcursor
-    subst cursor
-    have htrace := (initialized_steps hsteps).1
-    have := congrArg List.length htrace
-    simp at this
-  · intro ctx world trace state₁ state₂ hrun₁ hhalt₁ hrun₂ hhalt₂
-    exact (initialized_halted_world hrun₁ hhalt₁).2.trans
-      (initialized_halted_world hrun₂ hhalt₂).2.symm
+  intro ctx world trace outcome₁ outcome₂ h₁ h₂
+  cases outcome₁ <;> cases outcome₂
+  · rfl
+  · rcases h₁ with ⟨_, _, hrun⟩
+    exact (initialized_no_next_event hrun).elim
+  · rcases h₁ with ⟨_, _, hrun⟩
+    exact (initialized_no_next_event hrun).elim
+  · rcases h₁ with ⟨_, _, _, hrun⟩
+    exact (initialized_no_next_event hrun).elim
+  · rcases h₁ with ⟨_, _, _, hrun⟩
+    exact (initialized_no_next_event hrun).elim
+  · rcases h₁ with ⟨_, _, _, hrun⟩
+    exact (initialized_no_next_event hrun).elim
+  · rcases h₂ with ⟨_, _, hrun⟩
+    exact (initialized_no_next_event hrun).elim
+  · rcases h₂ with ⟨_, _, _, hrun⟩
+    exact (initialized_no_next_event hrun).elim
+  · rcases h₁ with ⟨state₁, hrun₁, hhalt₁, hworld₁⟩
+    rcases h₂ with ⟨state₂, hrun₂, hhalt₂, hworld₂⟩
+    have hworld : state₁.world = state₂.world :=
+      (initialized_halted_world hrun₁ hhalt₁).2.trans
+        (initialized_halted_world hrun₂ hhalt₂).2.symm
+    subst hworld₂
+    exact congrArg ObservableOutcome.halt (hworld₁.symm.trans hworld)
 
 theorem zeroSizeStore_not_deterministic : ¬ Deterministic zeroSizeStore := by
   intro hdet
-  have heq := hdet.2 zeroContext (default : World) []
-    (zeroState4 zeroContext default 1) (zeroState4 zeroContext default 2)
-    (zero_run zeroContext default 1) rfl (zero_run zeroContext default 2) rfl
-  apply zero_worlds_differ
-  simpa [zeroState4, zeroState3] using heq
+  have heq := hdet zeroContext (default : World) []
+    (.halt ((default : World).storeStorage zeroContext.self 1 1))
+    (.halt ((default : World).storeStorage zeroContext.self 2 2))
+    ⟨zeroState4 zeroContext default 1, zero_run zeroContext default 1, rfl, rfl⟩
+    ⟨zeroState4 zeroContext default 2, zero_run zeroContext default 2, rfl, rfl⟩
+  exact zero_worlds_differ (ObservableOutcome.halt.inj heq)
 
 end Sir.Examples

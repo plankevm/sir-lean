@@ -85,16 +85,29 @@ def Runs (program : Program) (ctx : CallContext) (w₀ : World)
     program.startCursor? = some cursor ∧
     Steps program ctx { world := w₀, control := .running cursor } trace state
 
+inductive ObservableOutcome where
+  | gas
+  | call (input : CallInput)
+  | halt (world : World)
+
+def NextObservableEffect (p : Program) (ctx : CallContext) (w₀ : World) (trace : Trace) :
+    ObservableOutcome → Prop
+  | .gas =>
+      ∃ gas s', Runs p ctx w₀ (trace ++ [.gas gas]) s'
+  | .call input =>
+      ∃ call s',
+        call.input = input ∧
+        Runs p ctx w₀ (trace ++ [.call call]) s'
+  | .halt w' =>
+      ∃ s',
+        Runs p ctx w₀ trace s' ∧
+        s'.control = .halted ∧
+        s'.world = w'
+
 def Deterministic (p : Program) : Prop :=
-  (∀ ctx w₀ trace record₁ record₂ state₁ state₂,
-    Runs p ctx w₀ (trace ++ [.call record₁]) state₁ →
-    Runs p ctx w₀ (trace ++ [.call record₂]) state₂ →
-    record₁.input = record₂.input) ∧
-  (∀ ctx w₀ trace state₁ state₂,
-    Runs p ctx w₀ trace state₁ →
-    state₁.control = .halted →
-    Runs p ctx w₀ trace state₂ →
-    state₂.control = .halted →
-    state₁.world = state₂.world)
+  ∀ ctx w₀ trace outcome₁ outcome₂,
+    NextObservableEffect p ctx w₀ trace outcome₁ →
+    NextObservableEffect p ctx w₀ trace outcome₂ →
+    outcome₁ = outcome₂
 
 end Sir

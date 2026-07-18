@@ -7,8 +7,8 @@ outputs, storage, explicitly allocated memory, calls, gas observations, and
 event-labelled small-step semantics.
 
 Executions are indexed by traces of gas observations and external calls. A
-program is deterministic when a shared trace history determines its next call
-input and halted runs with the same trace agree on the final world.
+program is deterministic when a shared trace history determines its next
+observable outcome: a gas query, call input, or halt with a final world.
 
 ## Layout
 
