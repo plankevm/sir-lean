@@ -309,3 +309,346 @@ rules), which the mixed-step PR should front-load.
 - Flat comparanda: `EVM/BytecodeLayer/Hoare.lean`,
   `EVM/BytecodeLayer/Examples/TwoCallExample.lean`
 - Question provenance: `docs/planning/sir-memory-model-frames-mixed-step-2026-07-17.md` §4e
+
+---
+
+## Addendum (overnight run, T1 — X-loop program logic, 2026-07-18)
+
+**Status: LANDED, sorry-free, axiom-clean.** The "logic-free zone" of §2.3/§6 is now
+colonized: `experiments/004_nested_evmyul/NestedEvmYul/XLoop.lean` (new file, 0 sorries;
+`#print axioms` on `X_decompose`/`X_branch`/`step_call_eq`/`X_sstore`/`X_jumpi_taken`/
+`IterHaltU.stop`/`ItersN_X` all report exactly `[propext, Classical.choice, Quot.sound]`).
+Repo-wide census unchanged at 3 sorries (ThetaRuns :150/:168 keystone pair,
+ObservableTriple endgame — untouched, per track ground rules; its line number shifted
+:287 → :298 from the SUPERSEDED pointer comment added above the seed vocabulary).
+
+### What tonight's proofs CONFIRMED from the study
+
+- **The dispatcher-equation bet (the "incantation" question) — confirmed, stronger than
+  priced.** For every concrete non-CALL/CREATE opcode tried (PUSH1, PUSH0, SSTORE, JUMP,
+  JUMPI, STOP), `EVM.step (f+1) cost (some (op, arg)) s = EvmYul.step op arg (debit s cost)`
+  closes by bare `rfl` — the 140-arm match reduces through one concrete-constructor arm
+  during unification, exactly as `gas_EvmYul_step`'s sweep predicted (PLAN.md:540-543). No
+  heartbeat crank was needed **anywhere in the file** (no `set_option maxHeartbeats` at all).
+  §6's "everything hard about the 140-arm match remains unmeasured" is now measured: it costs
+  `rfl`.
+- **∀-fuel rules for free — confirmed.** The dispatcher RHS never mentions `f`, so every
+  per-opcode rule is `∀ f, X (f+2) vj s = X (f+1) vj s'` with `s'` explicit, and the
+  sequencing vocabulary (`IterStepU`/`IterHaltU`) carries a fuel-*universal* step clause
+  dischargeable by those rules. The study's `∃ f` fuel-transport trap (diagnosis point (1) of
+  the endgame sorry) is structurally dead: `X_decompose` is pure Nat-offset bookkeeping
+  (`ItersN_X` + one halting iteration), no fuel transport anywhere. **Consequence: the
+  keystone (`Θ_fuel_mono_ok`, the ~1500-line priced induction) is NOT needed for the
+  per-opcode/decomposition layer.** It remains priced-not-paid, but its blast radius shrinks
+  to the fuel-existential `ΘRuns` veneer only (T4 decides whether it is needed at all).
+- **The execLength-bump refutation — confirmed and now stated correctly.** `step_call_eq`
+  (proved, `rfl` after stack destructuring) exposes the CALL arm as `call f cost … (bump s)`
+  (bump = execLength+1 only, **no gas pre-debit** — unlike the default arm's `debit`)
+  post-processed by `replaceStackAndIncrPC (rest.push x)`. The raw `call` output is indeed
+  never a `step` successor; the consistent tie the study said was unstatable without opening
+  the match is now a theorem.
+- **The `.getD` fidelity gap — confirmed as real and fixed.** All XLoop decode hypotheses go
+  through `X`'s own `decode … |>.getD (.STOP, .none)` read; the study's `IterStep`
+  (`decode = some`) is marked SUPERSEDED in ObservableTriple.lean (kept verbatim as labeled
+  artifact until T4 retires it against the new vocabulary).
+
+### What tonight's proofs CORRECTED
+
+- **The planned `X_decompose` fuel offset was off by one.** The track spec's
+  `X (f + n + 1)` shape is wrong at `f = 0` (the halting iteration's `step` needs positive
+  fuel *inside* `X (f+1)`); the proved statement is
+  `ItersN vj n s sEnd → IterHaltU vj sEnd sHalt out → ∀ f, X (f + n + 2) vj s = .ok (.success sHalt out)`.
+- **Two technique notes vs. the recipe sheet:** (a) `unfold X` unfolds *every* `X`
+  occurrence including the RHS target — the working incantation is `conv_lhs => unfold X`
+  then `simp only [bind, Except.bind]` + `rw` the four hypotheses with `simp only []` iota
+  steps between; (b) the shared-arm forward lemmas close by
+  `obtain ⟨sh, pc, stk, el⟩ := s; dsimp only at hstk; subst hstk; rfl` (concrete cons-cells
+  let `pop*` reduce) — no `show`-ascription/`Bool.noConfusion` gymnastics were needed.
+- **One new instance was required:** `LawfulBEq UInt256` (derived `BEq` compares the wrapped
+  lawful `Fin`s) to route JUMPI's `μ₁ != ⟨0⟩` guard through `bne_iff_ne`. Lives in
+  `NestedEvmYul.XLoop`; harmless if the vendor later ships one (instance resolution will
+  prefer either consistently — revisit only if a diamond ever surfaces).
+
+### Parity status vs docs/flat-vs-nested-convergence.md §1.3/§1.4
+
+Nested column GAINS (all proved, ∀-fuel): per-opcode rules (`X_push1`, `X_push0`,
+`X_sstore`, `X_jump`, `X_jumpi_taken`, `X_jumpi_fallthrough` — the parity list's
+load-bearing SSTORE + JUMP/JUMPI pair included), the branch combinator (`X_branch`,
+flat `runs_branch` analog), sequencing/decomposition (`ItersN.single/.trans`, `ItersN_X`,
+`X_decompose` — flat `Runs.trans`/`drive_reconcile` analog), and the CALL-arm dispatcher
+equation (`step_call_eq`, the call-site tie's `step` half; the full tie + endgame observable
+theorem are T4's). STILL ABSENT vs flat: the `Behaves`-style for-all-programs predicate and
+the `messageCall`-bridge analog — that is the residual gap; tonight's work does NOT claim
+full parity.
+
+## Overnight addendum — T2 (forall-fuel pivot of the ΘRuns veneer), 2026-07-18
+
+Build green (exit 0), sorry census unchanged at exactly 3 — now all fenced: the quarantined
+keystone pair (ThetaRuns.lean:349/:367, inside `section DeprecatedFuelExistential`) plus the
+endgame statement (ObservableTriple.lean:294). `#print axioms` on `ΘRuns.deterministic`,
+`ΘRuns.runΘ_complete'`, `Θ_doNothing`, `ΘRuns_doNothing`, `ΘRuns_doNothing_runΘ`, and the
+migrated `ΘRuns_completedWith`: all `[propext, Classical.choice, Quot.sound]`, no `sorryAx`.
+
+### What tonight's proofs CONFIRMED from the study
+
+- **The offset-cofinal re-encoding kills the veneer's keystone tax — confirmed.**
+  `ΘRuns w res := ∃ k, ∀ f, Θ (k + f) ⟨19 args⟩ = .ok res` makes determinism a 6-line pure
+  instantiation (each witness at the other's offset + one `Nat.add_comm` + `Except.ok.inj`)
+  and adequacy-under-side-condition (`k ≤ seedFuel w`, instantiate `f := seedFuel w - k`)
+  a 3-line proof. The study's headline claim — "every cross-fuel lemma funnels through the
+  ~1500-line fuel-irrelevance keystone" — was true *of the existential encoding only*; the
+  cofinal encoding needs no transport at all. The keystone's blast radius is now exactly the
+  quarantined section (T4 proves-or-deletes).
+- **Shape lemmas are naturally cofinal producers — confirmed.** `Xi_stop` was already
+  `∀ f, Ξ (f+3) … = .ok …`-shaped; the only work to make the do-nothing world a cofinal
+  witness was hoisting the per-fuel existential witnesses OUT of the fuel quantifier
+  (`step_stop_cofinal`/`X_stop_cofinal`/`Xi_stop_cofinal`), which is definitional because
+  T1's `XLoop.step_eq_shared_stop` RHS is fuel-free — the T1 dispatcher-equation technique
+  paying off a second time. `Θ_doNothing` (∀-fuel at offset 4, one Θ-peel mirroring
+  `runΘ_doNothing`'s simp recipe + terminal `rfl`) then gives `ΘRuns_doNothing` with witness
+  `k := 4`, connected to `runΘ` by `4 ≤ seedFuel w` (`fuelBound_pos` + omega).
+
+### What tonight's proofs CORRECTED / what the pivot honestly gives up
+
+- **The ∀-encoding surrenders single-point introduction and unconditional adequacy.**
+  `of_runΘ` (one fueled success enters the veneer) and keystone-backed unconditional
+  `runΘ_complete` exist only for the quarantined `ΘRunsE`. A bare `runΘ w = .ok res` does
+  NOT enter the new veneer; producers must supply cofinal witnesses. The `k ≤ seedFuel w`
+  side condition is irremovable without the keystone (`runΘ_never_outOfFuel` excludes one
+  error at one seeding; it transports nothing) — this is the API's honest boundary, priced
+  in docstrings, not papered over.
+- **Consumer migration is a signature change, not a proof change.**
+  `ΘRuns_completedWith` now takes the explicit offset `k`, `k ≤ seedFuel w`, and the
+  cofinal family (the `∃ k` bundle can't carry the side condition); its body is the same
+  two projection lemmas over `ΘRuns.runΘ_complete'`. It drops the old `w.e ≤ 1024`
+  hypothesis (never-OOF is no longer consulted) and its sorry-inheritance docstring.
+- **Doc status rewritten per-theorem:** ThetaRuns.lean and ObservableTriple.lean headers no
+  longer claim exploratory-study status for the surviving surface (foundation-grade,
+  sorry-free); study status is retained ONLY by the fenced `DeprecatedFuelExistential`
+  section and the endgame statement. XiTriple.lean's prose references to the existential
+  `ΘRuns` were swept to point at `ΘRunsE`/the fence.
+
+## Overnight addendum — T3 (end-to-end firing demo: `call_spec` fired twice), 2026-07-18
+
+New file: `NestedEvmYul/TwoCallDemo.lean` (foundation-grade, sorry-free). Build green;
+sorry census unchanged at 3 (ThetaRuns keystone pair + ObservableTriple endgame);
+`#print axioms` on `demo_twoCall`/`demo_twoCall_storage`/`demo_call₁`/`demo_call₂`/
+`demoTriple`/`Θ_stop_forward`/`thetaTransfer_find?`/`Xi_stop_explicit`: all
+`[propext, Classical.choice, Quot.sound]`, no `sorryAx`, no `ofReduceBool`.
+
+### What was proved
+
+The flat `twoCall_completedWith` analog, with **no hypotheses left**: a concrete caller
+(`demoCaller`, default state over a singleton map holding a STOP-code callee at `0xff`
+with storage cell `⟨0⟩ ↦ ⟨42⟩`) fires `call` twice; `twoCall_spec` applies with every
+side condition discharged — `hΘ` via `theta_of_xi` (habsorb proven genuinely universally),
+`hP₁`/`hP₂` by `rfl`, `hcall₁`/`hcall₂` as forward-evaluated ∀-fuel equations
+`call (f+5) … = .ok (⟨1⟩, demoAfter₁/₂)` with the post-states explicit records — and the
+resulting `Q₁ ∧ Q₂` yields the plain-storage punchline (`demo_twoCall_storage`): the cell
+still reads `⟨42⟩` after both calls, read out of `Q` alone via the pinned
+`find?`/`lookupStorage` match shape (§2.1 lesson applied, no RBMap lemma owed at readout).
+
+### What tonight's proofs CONFIRMED from the study
+
+- **The "one inversion away" item closes — the T2/B3 surface is non-vacuous end-to-end.**
+  The study proved `call_spec` by inversion but never fired it. Firing needed exactly one
+  new technique: an **existential-free** STOP-run producer chain. T2's `Xi_stop`/
+  `Xi_stop_cofinal` hide the final gas behind `∃ g'`, which sits between the ambient
+  universals and the fuel and therefore blocks `rw`-based forward evaluation of `call`'s
+  do-block. T1's dispatcher equations dissolve it: `step_eq_shared_stop` +
+  `shared_step_stop` have explicit fuel-free RHSes, so `stopState`/`stopGas` are plain
+  definitions and `X_stop_explicit`/`Xi_stop_explicit`/`Θ_stop_forward` are ∀-fuel
+  *equations* (zero existentials, all ambient args universal). `Θ_stop_forward` then
+  `rw`s straight into the reduced `call` body with unification instantiating 14 arguments,
+  and the rest of the firing lemma is one `rfl` — the T1 technique paying off a third time.
+- **The Θ-forward recipe generalizes from ∅ to non-empty maps as priced.** The new content
+  over `Θ_doNothing`: `hfind` (recipient present → credit is an insert rewriting only the
+  balance), `hexec` (`toExecute σ r = .Code ⟨#[0x00]⟩`, an RBMap/π computation, `rfl` at
+  every concrete use), `hs` (sender absent from the post-credit map → debit arm no-op),
+  and `hne` (post-transfer map beq-nonempty → the `σ'' == ∅` rollback arms do NOT fire —
+  a concrete beq-false the do-nothing world never needed). All four are `rfl` at both
+  call sites, including the second, re-derived on the post-transfer literal `demoMap₁`
+  (landmine (e) as predicted: `Θ` returns the post-transfer map, so the second
+  `toExecute`/`find?` facts are facts about THAT literal).
+- **`theta_of_xi`'s habsorb is the one genuinely-universal leg** (as its docstring
+  flags): `ThetaTriple` quantifies over all senders/recipients/values, so the demo owed a
+  real lemma — `thetaTransfer_find?`: the callee's entry survives the transfer preamble
+  for arbitrary `s`/`r`/`v` with at most its balance rewritten. Cost: a
+  `Std.TransCmp` instance for the `AccountAddress` `compare` (definitionally
+  `compareOn (·.val)` + `TransOrd Nat` — 2 lines) unlocking Batteries'
+  `RBMap.find?_insert`, plus ~60 lines of two-stage (credit/debit) case analysis. The
+  balance-`∃` in `P_ξ`/`Q` (`∃ b, find? = some {demoAcct with balance := b}`) is what
+  absorbs the rewrite; `hroll` is then structure-eta (`demoAcct` IS
+  `{demoAcct with balance := demoAcct.balance}`), and `hΞ` is `preservesAccount_stop`.
+
+### What tonight's proofs CORRECTED / honest boundaries
+
+- **§2.3's "logic-free zone" is narrowed, not colonized, by this demo.** `twoCall_spec`'s
+  middle state is hypothesis-supplied; the demo discharges it by choosing
+  `ev₂ := demoAfter₁` — the caller calls again *immediately*. That is legitimate (the
+  firing equation pins `demoAfter₁` explicitly, so `hP₂`/`hcall₂` are `rfl`/`rw`
+  dischargeable), but a caller that runs opcodes BETWEEN the calls still needs T1's
+  X-loop logic to step from `demoAfter₁` to the second call site. The demo proves the
+  triple surface composes end-to-end; the caller-code middle run remains T1/T4 territory.
+- **Nothing else needed correction.** The guard (`value ≤ balance ∧ depth < 1024`),
+  the failure disjunction (`!z || notEnoughFunds || depthLimit`), `Ccallgas`, and the
+  degenerate memory machinery all discharged as the plan priced them: guard by
+  `decide`, disjunction inside the terminal `rfl` (the kernel never has to normalize
+  `Ccallgas` — it rides inertly into `demoAfter₁`'s explicit gas field, and `Q` never
+  reads gas).
+
+### Technique notes (for future firing demos)
+
+- Structure-instance literals spanning lines must use newline-separated fields — comma
+  separators break at the line boundary in this toolchain (parse error "expected `}`").
+- `simp only []` does NOT iota-reduce the do-desugared match over an `Except.ok` literal
+  in the goal; the working incantation is `show <post-match form> = _` (defeq `change`)
+  followed by the `hne` rewrite and `rfl`. Inside `rcases hr : scrut with _ | x` branches
+  the scrutinee is already substituted, so a bare `simp only []` suffices there.
+- `rw [if_pos (by decide)]` (Z_stop's `if_neg` idiom, forward direction) discharges the
+  funds/depth guard; `decide` kernel-evaluates the concrete `find?`/`≤`/`<` instances.
+- The demo is ∀-fuel throughout (`call (f+5)` for every `f`) with fuel offsets exactly as
+  priced: `call (f+5) → Θ (f+4) → Ξ (f+3) → X (f+2) → step (f+1)` — landmine (d) never
+  fired because each layer's lemma is stated at its own offset.
+
+### Parity status vs docs/flat-vs-nested-convergence.md §1.3/§1.4
+
+The nested column now also has the **worked two-call composition demo** (flat:
+`TwoCallExample.lean` `twoCall_messageCall`/`twoCall_completedWith`; nested:
+`TwoCallDemo.lean` `demo_twoCall`/`demo_twoCall_storage`) — with the nested version
+fully concrete (the flat example composes hypothesis-supplied `Runs`/`CallReturns`
+witnesses; the nested demo discharges ALL its hypotheses against a concrete world).
+Still absent vs flat: the Behaves-style for-all-programs predicate and the
+messageCall-bridge analog (unchanged by T3; see T1's addendum).
+
+## Overnight addendum — T4 (endgame proved; keystone found FALSE and deleted), 2026-07-18
+
+Sorry census after this track: **0** (start of night: 3). Both deliverables landed
+axiom-clean (`#print axioms` = `[propext, Classical.choice, Quot.sound]` on
+`nested_twoCall_completedWith`, `Θ_code_forward`, `Xi_forward`, `X_call_iter`,
+`X_stop_halt`, `Z_ok_toState`, `step_fuel_irrelevant`, `ΘRuns_completedWith`,
+`demo_twoCall_storage`).
+
+### (a) The endgame is a theorem
+
+`nested_twoCall_completedWith` (ObservableTriple.lean) — the full nested analog of flat
+`twoCall_completedWith` — is **proved sorry-free**, restated on T1's lemma-backed
+vocabulary exactly as §2.2/§2.3 anticipated:
+
+- The three recorded blockers dissolved as predicted: (1) X-decomposition = `ItersN_X`
+  chain transport + omega-normalized fuel bookkeeping; (2) the call-site tie =
+  `step_call_eq` packaged as the new `XLoop.X_call_iter` (the successor is the
+  DERIVED post-processed call output `evRᵢ.replaceStackAndIncrPC (restᵢ.push ⟨1⟩)`,
+  never a hypothesis — the study's refutability finding is preserved in the docstring
+  HISTORY note); (3) Q-propagation = sidestepped by the **empty-suffix** design (halt
+  immediately after call₂, as flat's TwoCallExample does): the final map is chased to
+  `evR₂.accountMap` via the new `XLoop.X_stop_halt` (explicit `stopHaltState`
+  successor) + `XLoop.Z_ok_toState` (`Z` touches only `gasAvailable`), so `hread` is
+  DERIVED from `Q₂` — v1 supplied it raw at the halt state.
+- The one design point flagged in the plan (CALL-site fuel plumbing) landed as the
+  cofinal shape `∀ f, call (f + kᵢ) … = .ok (⟨1⟩, evRᵢ)` on the **bumped** post-`Z`
+  state — T2's encoding, and exactly the shape T3's `demo_call₁/₂` produce (`kᵢ = 5`).
+  Both callee `ThetaTriple`s fire via `call_spec`; the conclusion also delivers
+  `Q₁` at call 1's post-state, so neither triple is decorative.
+- Fuel side condition: `n₁ + n₂ + k₁ + k₂ + 6 ≤ seedFuel w` (the honest cofinal-pivot
+  residue), fuel chain `Θ (f+m+4) → Ξ (f+m+3) → X (f+m+2)` with
+  `m = n₁+n₂+k₁+k₂+2`. New forward plumbing: `Xi_forward` (one `Ξ`-unfold) and
+  `Θ_code_forward` (one `Θ`-unfold; goal-side `split` on the `Ξ` match, each branch
+  tied to the supplied family by `Eq.trans` with the elaborator settling the
+  `thetaTransfer` ↔ inline-match defeq — the `theta_of_xi` trick, forward direction).
+- Honest boundary: the per-segment decomposition data (chains, decode/`Z`/stack
+  facts, call families) enters as hypotheses — same altitude as flat's `Runs`
+  hypotheses. A fully concrete two-CALL caller instance (real bytecode, all
+  hypotheses discharged) was NOT built tonight; T3's demo discharges the same
+  hypothesis *shapes* concretely, but gluing a concrete caller through the new
+  endgame is open (and is the natural next acceptance test).
+
+### (b) The keystone correction — §2.2's pricing is moot: the pair is FALSE
+
+The study priced `Θ_fuel_mono_ok`/`Θ_fuel_mono_error` as a ~1500-line 6-layer
+`res_mono` mutual induction. Tonight's attempt found something sharper: **the pair is
+unprovable because it is false as stated.** `step`'s CREATE/CREATE2 arms match the
+inner `Lambda` result with a `| _ =>` catch-all
+(EVMYulLean/EvmYul/EVM/Semantics.lean:286, :344) that ABSORBS `.error .OutOfFuel`
+into an ordinary result `(0, {evmState with accountMap := ∅}, ⟨0⟩, False, .empty)` —
+execution continues with `x = 0` as if the create had failed *semantically*. So a
+non-`OutOfFuel` result at low fuel (premise satisfied) need not be reproduced at high
+fuel (once the init-code run completes, `x = a ≠ 0`, different map), and the leak
+lifts through `X`/`Ξ`/`Θ`. The CALL family is NOT leaky (its do-bind propagates
+`OutOfFuel` honestly); the ~130 non-recursive arms are fuel-irrelevant and this
+fragment is now PROVED as `XLoop.step_fuel_irrelevant` (140-leaf `rfl` sweep over the
+two-level `Operation` sum, 8M-heartbeat crank, ~2min). Caveat: an in-Lean kernel
+refutation would need the high-fuel side of a concrete CREATE, which crosses the
+`opaque` `ffi.KEC` — the same keccak wall as exp005's CREATE witnesses — so the
+falsity rests on the absorption argument, not a `decide` witness.
+
+Dispositions taken (house no-sorry'ed-scaffolds rule): the quarantined
+`DeprecatedFuelExistential` section (ΘRunsE + keystone pair + dependents) is
+**deleted**; a keystone post-mortem note stands in its place in ThetaRuns.lean
+(deleted material readable at commit 6315c911). Consequence worth promoting: the T2
+cofinal pivot is not the *cheaper* encoding but the *only correct one* — the
+`k ≤ seedFuel w` adequacy side condition and the loss of single-fuel-point
+introduction are load-bearing, not deferred debt.
+
+### Parity status vs docs/flat-vs-nested-convergence.md §1.3/§1.4 (post-T1+T4)
+
+The nested column now has: per-opcode rules (`X_push1`/`X_push0`/`X_sstore`/`X_jump`/
+`X_jumpi_*`), the branch combinator (`X_branch`), sequencing/decomposition
+(`ItersN`/`ItersN_X`/`X_decompose`), the call-site tie (`step_call_eq`/`X_call_iter`),
+triples + frame rule (T2/B3), a fully concrete firing demo (T3), and the endgame
+observable theorem (`nested_twoCall_completedWith` — flat `twoCall_completedWith`'s
+analog, with the storage read derived from the callee spec). **Still absent vs
+flat**, named as the residual gap (do not claim full parity): (1) a `Behaves`-style
+for-all-programs predicate (nested conclusions are per-decomposition, not quantified
+over all programs of a syntax class); (2) a `messageCall`-bridge analog (flat's
+`messageCall_runs` packages the segment data behind a program-level driver; nested
+segment data enters per-theorem). Nested-only surplus, in exchange: the never-OOF
+envelope (`runΘ_never_outOfFuel`) and the fuel-free observable driver (`runΘ` +
+`ΘRuns` cofinal veneer).
+
+### T5 addendum — CREATE-side seed landed (LambdaTriple.lean, sorry-free)
+
+The stretch track landed WHOLE, including its optional half:
+`NestedEvmYul/LambdaTriple.lean` ships `Lambda_zero`, `LambdaTriple`
+(+`conseq`/`conj`), `lambdaInit`, `lambda_of_xi`, `lambda_success_out_empty`,
+`createInit`, and `create_spec` — all proved, zero sorries, all six
+declarations axiom-clean (`[propext, Classical.choice, Quot.sound]`).
+
+Shape facts read off `Lambda` (not assumed): the result is a **7-tuple** with
+the created `AccountAddress` first, so the triple's postcondition is
+`Q : AccountAddress → AccountMap → Substate → ByteArray → Prop` — parametric in
+the address, which is `ffi.KEC`-derived and never evaluated (the keccak wall
+respected by construction). Success output is hardwired `.empty` (proved as
+`lambda_success_out_empty`); the deposit flag `F` is killed by the `z = true`
+gate. The EIP-7610 collision swap (`i ↦ ⟨#[0xfe]⟩`) surfaces honestly as a
+disjunctive code premise in `lambda_of_xi` (occupancy at a hash-derived address
+is undecidable without the hash).
+
+Technique findings worth recording:
+- The `theta_of_xi` inversion recipe transferred VERBATIM to `Λ` (`simp only
+  [Lambda, bind, Except.bind]` + `split at` + ctor injection); the new `L_A`
+  RLP Option-bind splits without computing any RLP. The pattern-let
+  `(i, createdAccounts) := if …` desugars to PROJECTIONS of the ite, not a
+  match — no extra split; the collision-ite is handled by a goal-side `split`
+  on the code-disjunction obligation (both arms `rfl`).
+- `step_create_eq` proved UNNECESSARY: CALL's arm is one helper call (small
+  `rfl` equation), but CREATE's is a 60-line inline block; `create_spec`
+  inverts it directly via the proven `create_result_gas_le` split sequence, so
+  no arm-transcription equation exists or is needed.
+- `create_spec`'s success gate differs from CALL's `x = ⟨1⟩` by necessity:
+  CREATE's result word is `.ofNat a` with `a` hash-derived, so the side
+  condition is `hx : s'.stack ≠ ⟨0⟩ :: rest` and the conclusion is existential
+  in the created address. The three failure branches (nonce-overflow,
+  `Λ`-error, guard-else) die by PURE DEFEQ: their `z` is a literal
+  `decide False`, so the failure-word ite's `Or`-instance short-circuits and
+  `s'.stack ≡ ⟨0⟩ :: rest` — `exact absurd rfl hx`, no splits. In the `Λ`-ok
+  branch, `cases lamz` first (its false case is the same defeq kill), then two
+  `split at hx` (the `returnData`-ite is the first candidate in record-field
+  order, the pushed-word ite second).
+
+Parity-status delta vs docs/flat-vs-nested-convergence.md:162-187: the nested
+column additionally gains a CREATE-side procedure-triple surface + creation-site
+tie, which the FLAT side does not have at all (flat has no Lambda-level rule) —
+a nested-only surplus item. The residual gaps named in the main parity note
+(Behaves-style for-all-programs predicate; messageCall-bridge analog) are
+unchanged, and the CREATE endgame/observable layer remains future work.
