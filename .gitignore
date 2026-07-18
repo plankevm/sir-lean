@@ -6,3 +6,5 @@ forks
 .codex/
 .smithers/
 run-*.log
+
+**/.DS_Store

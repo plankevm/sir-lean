@@ -28,20 +28,36 @@ def eval_sstore (ctx : CallContext) (s : MachineState) (key value : VarId) :
   let valueValue ← s.locals.lookup value
   return { s with world := s.world.storeStorage ctx.self keyValue valueValue }
 
-def eval_gas (result : VarId) (gas : Word) :
-    StateT MachineState (Except IRError) Unit := do
+def eval_gas (result : VarId) (gas : Word) : MachineStateM Unit := do
   Locals.assignM result gas
 
-def eval_call (call : Call) (result : CallResult) :
-    StateT MachineState (Except IRError) CallRecord := do
+def eval_call (call : Call) (result : CallResult) : MachineStateM CallRecord := do
   let callee ← Locals.lookupM call.callee
   let gas ← Locals.lookupM call.gas
+  let input := { target := .ofUInt256 callee, gas := gas, world := (← get).world }
   Locals.assignM call.result (Evm.UInt256.fromBool result.success)
-  modify ({ · with returnData := result.output, world := result.world })
-  return { target := .ofUInt256 callee, gas := gas, result := result }
+  modify ({ · with returnData := result.output, world := result.world' })
+  return { input, result }
 
-private def eval_jump (program : Program) (target : BlockId) :
-    StateT MachineState (Except IRError) Unit := do
+def eval_malloc_uninit (alloc : Allocation) (result size : VarId) : MachineStateM Unit := do
+  let size ← Locals.lookupM size
+  if alloc.size ≠ size.toNat then
+    throw .invalidAlloc
+  Locals.assignM result alloc.offset
+  modify (fun s => { s with memory := s.memory.push alloc })
+
+def eval_mstore32 (offset value : VarId) : MachineStateM Unit := do
+  let offset ← Locals.lookupM offset
+  let value ← Locals.lookupM value
+  modify (fun s => { s with memory := s.memory.writeBytes offset value.toByteArray })
+
+def eval_mload32 (assumed : ByteArray) (result offset : VarId) : MachineStateM Unit := do
+  let offset ← Locals.lookupM offset
+  let state ← get
+  let bytes := state.memory.readBytes offset assumed
+  Locals.assignM result (.ofNat <| Evm.fromByteArrayBigEndian bytes)
+
+private def eval_jump (program : Program) (target : BlockId) : MachineStateM Unit := do
   let .running cursor := (← get).control | throw .invalidControl
   let source := cursor.block
   let some sourceBlock := program.block? source | throw (.invalidBlock source)
@@ -50,8 +66,7 @@ private def eval_jump (program : Program) (target : BlockId) :
   let cursor := { block := target, position := targetBlock.startPosition }
   modify ({ · with control := .running cursor })
 
-def eval_terminator (program : Program) :
-    Terminator → StateT MachineState (Except IRError) Unit
+def eval_terminator (program : Program) : Terminator → MachineStateM Unit
   | .halt => modify (fun state => { state with control := .halted })
   | .jump target => eval_jump program target
   | .branch condition thenTarget elseTarget => do

@@ -1,5 +1,6 @@
 import Sir.IR.CFG
 import Sir.Semantics.World
+import Sir.Semantics.Memory
 
 universe u v
 
@@ -12,6 +13,7 @@ inductive IRError where
   | undefinedVariable (var : VarId)
   | invalidBlock (block : BlockId)
   | invalidControl
+  | invalidAlloc
   | blockArityMismatch (outputs inputs : Nat)
   deriving DecidableEq, Repr
 
@@ -48,13 +50,17 @@ def transfer (outputs inputs : Array VarId) : StateT Locals (Except IRError) Uni
 end Locals
 
 structure CallResult where
-  world : World
+  world' : World
   success : Bool
   output : ByteArray
 
-structure CallRecord where
+structure CallInput where
   target : Address
   gas : Word
+  world : World
+
+structure CallRecord where
+  input : CallInput
   result : CallResult
 
 structure CallContext where
@@ -81,6 +87,7 @@ inductive MachineControl where
 
 structure MachineState where
   world : World
+  memory : MemoryState := .empty
   locals : Locals := .empty
   returnData : ByteArray := ByteArray.empty
   control : MachineControl
@@ -106,6 +113,8 @@ abbrev Trace := List Event
 def MachineState.localSet (var : VarId) (value : Word) : StateM MachineState Unit :=
   modify (fun s => { s with locals := s.locals.assign var value })
 
+abbrev MachineStateM := StateT MachineState (Except IRError)
+
 def Program.block? (program : Program) (bid : BlockId) : Option BasicBlock :=
   program.blocks[bid.id]?
 
@@ -114,6 +123,10 @@ def BasicBlock.absoluteToPosition (block : BasicBlock) (index : Nat) : BlockPosi
 
 def BasicBlock.startPosition (block : BasicBlock) : BlockPosition :=
   block.absoluteToPosition 0
+
+def Program.startCursor? (program : Program) : Option ProgramCursor := do
+  let block ← program.block? program.entry
+  return { block := program.entry, position := block.startPosition }
 
 def Program.decodeStmt (program : Program) (control : MachineControl) : Option (MachineControl × Stmt) := do
   let .running cursor := control | none

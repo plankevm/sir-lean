@@ -21,6 +21,9 @@ inductive Stmt where
   | sstore (key value : VarId)
   | gas (result : VarId)
   | call (call : Call)
+  | mallocUninit (result size : VarId)
+  | mstore32 (offset value : VarId)
+  | mload32 (result offset : VarId)
 deriving DecidableEq, Repr
 
 inductive Terminator where

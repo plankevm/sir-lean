@@ -38,6 +38,30 @@ inductive SmallStep (program : Program) (ctx : CallContext) :
       (hstmt : program.decodeStmt state.control = some (nextControl, .call call))
       (heval : (eval_call call result).run state = .ok (record, state')) :
       SmallStep program ctx state [.call record] { state' with control := nextControl }
+  | mallocUninit
+      {state state' : MachineState}
+      {nextControl : MachineControl}
+      {alloc : Allocation}
+      {result size : VarId}
+      (hstmt : program.decodeStmt state.control = some (nextControl, .mallocUninit result size))
+      (halloc : state.memory.IsValidNewAlloc alloc)
+      (heval : (eval_malloc_uninit alloc result size).run state = .ok ((), state')) :
+      SmallStep program ctx state [] { state' with control := nextControl }
+  | mstore32
+      {state state' : MachineState}
+      {nextControl : MachineControl}
+      {offset value : VarId}
+      (hstmt : program.decodeStmt state.control = some (nextControl, .mstore32 offset value))
+      (heval : (eval_mstore32 offset value).run state = .ok ((), state')) :
+      SmallStep program ctx state [] { state' with control := nextControl }
+  | mload32
+      {state state' : MachineState}
+      {nextControl : MachineControl}
+      {assumed : Vector UInt8 32}
+      {result offset : VarId}
+      (hstmt : program.decodeStmt state.control = some (nextControl, .mload32 result offset))
+      (heval : (eval_mload32 ⟨assumed.toArray⟩ result offset).run state = .ok ((), state')) :
+      SmallStep program ctx state [] { state' with control := nextControl }
   | terminator
       {state state' : MachineState}
       {terminator : Terminator}
@@ -47,16 +71,30 @@ inductive SmallStep (program : Program) (ctx : CallContext) :
 
 inductive Steps (program : Program) (ctx : CallContext) :
     MachineState → Trace → MachineState → Prop where
-  | single
-      {s s' : MachineState}
-      {trace : Trace}
-      (step : SmallStep program ctx s trace s') :
-      Steps program ctx s trace s'
-  | chain
-      {s₀ s₁ s₂ : MachineState}
+  | refl {s : MachineState} : Steps program ctx s [] s
+  | tail
+      {s mid s' : MachineState}
       {t₁ t₂ : Trace}
-      (start : Steps program ctx s₀ t₁ s₁)
-      (next : SmallStep program ctx s₁ t₂ s₂) :
-      Steps program ctx s₀ (t₁ ++ t₂) s₂
+      (start : Steps program ctx s t₁ mid)
+      (next : SmallStep program ctx mid t₂ s') :
+      Steps program ctx s (t₁ ++ t₂) s'
+
+def Runs (program : Program) (ctx : CallContext) (w₀ : World)
+    (trace : Trace) (state : MachineState) : Prop :=
+  ∃ cursor,
+    program.startCursor? = some cursor ∧
+    Steps program ctx { world := w₀, control := .running cursor } trace state
+
+def Deterministic (p : Program) : Prop :=
+  (∀ ctx w₀ trace record₁ record₂ state₁ state₂,
+    Runs p ctx w₀ (trace ++ [.call record₁]) state₁ →
+    Runs p ctx w₀ (trace ++ [.call record₂]) state₂ →
+    record₁.input = record₂.input) ∧
+  (∀ ctx w₀ trace state₁ state₂,
+    Runs p ctx w₀ trace state₁ →
+    state₁.control = .halted →
+    Runs p ctx w₀ trace state₂ →
+    state₂.control = .halted →
+    state₁.world = state₂.world)
 
 end Sir
