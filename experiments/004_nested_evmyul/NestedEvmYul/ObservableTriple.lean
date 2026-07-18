@@ -162,6 +162,17 @@ theorem ΘRuns_completedWith (w : NestedWorld) (he : w.e ≤ 1024)
 
 /-! ## Seed vocabulary for the missing X-loop logic (stated only, no lemmas)
 
+**SUPERSEDED (T1, XLoop.lean): this stated-only vocabulary now has a
+lemma-backed replacement.** `NestedEvmYul.XLoop` proves the per-opcode rules
+(`X_push1`/`X_sstore`/`X_jump`/`X_jumpi_*`), the branch combinator
+(`X_branch`), and the decomposition theorem (`X_decompose`) over the ∀-fuel,
+`.getD`-faithful relations `IterStepU`/`IterHaltU`/`ItersN` — fixing this
+section's two recorded defects (the `∃ f` fuel clause and the `decode = some`
+fidelity gap; `X` reads `decode … |>.getD (.STOP, .none)`). The definitions
+below are kept verbatim ONLY as the study's labeled artifact; T4 retires them
+when the endgame statement is rebuilt on the XLoop vocabulary. Do not build
+on them.
+
 The relations below only NAME the shape of one `X`-loop iteration — decode,
 `Z` gate, `step`, `H` check — proving nothing about them. They exist so the
 hard sorry below can state the caller's run decomposition at all. They are
