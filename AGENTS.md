@@ -1,71 +1,14 @@
 # AGENTS.md — repo orientation
 
-This repository studies how to **formalize Plank's EVM IRs in Lean**, using
-existing EVM/compiler formalizations as references. It is a research notebook
-plus a set of self-contained Lean experiments — not a single shipping artifact.
-
-If you are an agent starting work here, read this file, then
-[`docs/index.md`](docs/index.md).
-
-## Where to start
-
-1. [`docs/index.md`](docs/index.md) — the documentation hub. It is tiered:
-   `docs/reference/` (durable ecosystem/concept knowledge), `docs/planning/`
-   (live strategy), `docs/archive/` (superseded, kept with banners).
-2. [`docs/planning/bytecode-first-plan.md`](docs/planning/bytecode-first-plan.md)
-   — **the head of the stack.** The agreed direction. New formalization work
-   starts from here.
-
-## Current state (2026-07)
-
-- **Direction:** *bytecode-first.* Retire the toy-IR ladder; invest once in a
-  reusable reasoning layer over a vendored, EVM-only EVMYulLean; move theorem
-  boundaries to the `Θ`/`Ξ` message call and state everything in observables;
-  make Plank SIR the first IR with a real abstraction gap. Full rationale in the
-  bytecode-first plan.
-- **Experiment 001 (`experiments/001_toy_external_call/`):** **closed.** A
-  straight-line toy IR proved equivalent to EVMYulLean's `EVM.X`, with a gasless
-  spec, reflexive calls, and observables export. Permanent findings: `CALL`
-  consults gas (so gas-free specs need `∃G₀` statements) and `EVM.call` is
-  frame-insensitive (proved cheaply). See its
-  [`docs/README.md`](experiments/001_toy_external_call/docs/README.md).
-- **Experiment 002 (`experiments/002_ssa_cfg/`):** active. A higher-level SIR —
-  CFG of basic blocks, SSA-style variables, small-step + executable semantics,
-  and an SCCP optimization pass with a proved `PreservesSemantics`. This is the
-  "real IR with abstraction" exploration (no bytecode lowering yet; it studies
-  SIR semantics and pass correctness in isolation).
-- **`EVM/` (top-level package):** the consolidated bytecode reasoning layer.
-  Bundles the vendored EVM-only EVMYulLean (`Evm` lib), the reusable proof engine
-  `BytecodeLayer` (folded in from the former experiments 003 + 005 — frame
-  calculus, recorder, cyclic simulation, and the structured `Asm` assembler), and
-  the `Conform` test cone. `Lir` (the IR) is deliberately **not** an EVM concept
-  here.
-- **Experiment 005 (`experiments/005_ir_lowering/`):** active. The SIR→bytecode
-  lowering. It now `require`s the `EVM` package and retains only the `Lir` IR and
-  its lowering / decode / realisability adapters. Its three flagship conformance
-  theorems (`lower_conforms`, `_exact`, `_gasfree`) are **closed and axiom-clean**
-  (`[propext, Classical.choice, Quot.sound]`); the default cone is green, the
-  non-default `WIP` cone carries the realisability development.
-- **`sir/` (canonical SIR — in progress):** the go-forward IR package: basic-block
-  CFG core, small-step + eval semantics, and a world model. Successor to the toy
-  IRs; the lowering and value-channel work migrates here.
+This repository **formalizes Plank's EVM IR (SIR) and compilation in Lean**.
 
 ## Repo layout
 
 ```
-docs/            reference/ + planning/ + archive/ (start at index.md)
 EVM/             consolidated bytecode reasoning layer (Evm + BytecodeLayer + Conform)
 sir/             canonical SIR package (CFG IR + semantics) — in progress
-experiments/     self-contained Lean packages (001 closed, 002 active, 005 = Lir over EVM/)
-forks/           vendored reference repos — GIT-IGNORED, fetch separately
 scripts/         fetch-forks.sh and tooling
 ```
-
-The four reference formalizations under `forks/` are EVMYulLean (Lean EVM/Yul),
-verifereum (HOL EVM + relational layer), verity (Lean EDSL→Yul bridge), and
-vyper-hol (HOL source→Venom IR→codegen). They are **not** tracked in git; run
-[`scripts/fetch-forks.sh`](scripts/fetch-forks.sh) to clone the pinned revisions
-so source links in the docs resolve.
 
 ## Conventions
 
