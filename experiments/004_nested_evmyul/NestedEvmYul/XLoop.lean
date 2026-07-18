@@ -48,6 +48,11 @@ iota-reduce).
    analog), with **∀-fuel step clauses** (dischargeable by the per-opcode
    intro rules `IterStepU.*`/`IterHaltU.*`), killing the study's `∃ f`
    fuel-transport trap. Fuel arithmetic is pure `Nat`-offset bookkeeping.
+7. `Z_ok_toState`/`X_call_iter`/`stopHaltState`/`X_stop_halt` — the T4
+   endgame ingredients: the (necessarily cofinal) `CALL` iteration and the
+   explicit-successor halting iteration. Plus `step_fuel_irrelevant` in §1:
+   the keystone post-mortem's salvaged true fragment (every non-CALL/CREATE
+   arm is fuel-irrelevant).
 
 Decode hypotheses are phrased through `.getD (.STOP, .none)` — exactly `X`'s
 own read (undecodable bytes ARE `STOP`; the study's `decode = some` phrasing
@@ -120,6 +125,32 @@ theorem step_call_eq (f cost : ℕ) (arg : Option (UInt256 × Nat)) (s : EVM.Sta
   dsimp only at hstk
   subst hstk
   rfl
+
+set_option maxHeartbeats 8000000 in
+/-- **The general fuel-irrelevance sweep** (the keystone post-mortem's TRUE
+fragment, salvaged): for every opcode outside the recursive CALL/CREATE
+families, `EVM.step` at positive fuel is the same function at EVERY positive
+fuel — each of the ~130 non-recursive dispatcher arms routes to the fuel-free
+shared `EvmYul.step`, so each leaf closes by `rfl` (the dispatcher-equation
+technique, sweeping the two-level `Operation` sum). The six excluded arms are
+excluded *correctly*: CALL-family arms recurse into `call` (honest fuel
+consumption), and CREATE/CREATE2 absorb an inner `Lambda` `OutOfFuel`
+(the leak that makes the full result-stability keystone FALSE — see
+ThetaRuns.lean's keystone post-mortem).
+
+Heartbeats cranked per-theorem (8M, ~2min): the ~140-leaf `rfl` sweep
+whnf-instantiates the full dispatcher body once per leaf, as for the
+`gas_EvmYul_step` sweep. -/
+theorem step_fuel_irrelevant (op : Operation)
+    (hcall : op.isCall = false) (hcreate : op.isCreate = false)
+    (f f' cost : ℕ) (arg : Option (UInt256 × Nat)) (s : EVM.State) :
+    EVM.step (f + 1) cost (some (op, arg)) s
+      = EVM.step (f' + 1) cost (some (op, arg)) s := by
+  cases op <;> rename_i o <;> cases o <;>
+    first
+      | rfl
+      | exact Bool.noConfusion hcall
+      | exact Bool.noConfusion hcreate
 
 /-! ## 2. Shared-arm forward lemmas -/
 
@@ -505,15 +536,95 @@ theorem IterHaltU.stop {vj : Array UInt256} {s s₁ : EVM.State}
     fun f => (step_eq_shared_stop f cost arg s₁).trans (shared_step_stop arg _),
     rfl, by intro h; exact absurd h (by decide)⟩
 
-/-! ## 7. Reconciliation with the study's seed vocabulary
+/-! ## 7. CALL-site and halting-iteration lemmas (the endgame's ingredients)
 
-ObservableTriple.lean's `IterStep`/`IterCallStep`/`IterHalt`/`Iters` are the
-**stated-only** shape-study seeds (no lemmas, `∃ f` fuel clause, `decode =
-some` fidelity gap). This file is their lemma-backed replacement
-(`IterStepU`/`IterHaltU`/`ItersN`, ∀-fuel, `.getD`-faithful); T4 retires the
-study vocabulary when it rebuilds the endgame statement on this one. Until
-then the two coexist deliberately: the study file is a labeled artifact whose
-statements must not silently drift (a pointer comment on its side marks the
-supersession). -/
+The two iteration shapes the straight-line rules above cannot cover: a `CALL`
+iteration (whose `step` clause recurses into `call`, so it is only
+**cofinally** fuel-universal — `∀ f, call (f + k) … = .ok …` — never bare
+∀-fuel), and the halting `STOP` iteration with an *explicit* successor
+(`stopHaltState`), so the final state's map can be chased back to the `call`
+output by `rfl` + `Z_ok_toState`. -/
+
+set_option maxHeartbeats 2000000 in
+/-- A successful `Z` only rewrites `gasAvailable` (a `MachineState` field), so
+the `toState` projection (accountMap / substate / createdAccounts /
+executionEnv) passes through untouched. Same inversion recipe (and heartbeat
+crank) as `NeverOutOfFuel.Z_ok_code_pc`. -/
+theorem Z_ok_toState {vj : Array UInt256} {op : Operation} {s s' : EVM.State} {c : ℕ}
+    (h : Z vj op s = .ok (s', c)) : s'.toState = s.toState := by
+  unfold Z at h
+  simp only [pure, Except.pure, bind, Except.bind] at h
+  generalize hm : memoryExpansionCost s op = m₁ at h
+  by_cases hg1 : s.gasAvailable.toNat < m₁
+  · rw [if_pos hg1] at h; exact absurd h (by simp)
+  · rw [if_neg hg1] at h
+    generalize hcc : C' { s with gasAvailable := s.gasAvailable - UInt256.ofNat m₁ } op = c₂ at h
+    by_cases hg2 : ({ s with gasAvailable := s.gasAvailable - UInt256.ofNat m₁ } : EVM.State).gasAvailable.toNat < c₂
+    · rw [if_pos hg2] at h; exact absurd h (by simp)
+    · rw [if_neg hg2] at h
+      have hs' : s' = { s with gasAvailable := s.gasAvailable - UInt256.ofNat m₁ } := by
+        revert h
+        split_ifs <;> intro h <;>
+          first
+          | (have hp := Except.ok.inj h; rw [Prod.mk.injEq] at hp
+             obtain ⟨rfl, _⟩ := hp; rfl)
+          | exact absurd h (by simp)
+      rw [hs']
+
+/-- **The CALL iteration** (the study's "unstateable" call-site tie, stated and
+proved): if the code at `s.pc` decodes to `CALL`, the `Z` gate passes to `sZ`,
+and the recursive `call` — on the **bumped** state, with the exact operand
+plumbing `step_call_eq` exposes — succeeds cofinally above offset `k` with
+output state `evR`, then one `X` iteration advances `s` to the *post-processed*
+successor `evR.replaceStackAndIncrPC (rest.push ⟨1⟩)`, at every fuel of the
+form `f + k + 2`. The cofinal (`∀ f, call (f + k) …`) rather than ∀-fuel call
+clause is forced: `call` recurses into `Θ`, so it genuinely consumes fuel —
+this is the one iteration shape whose fuel clause cannot be bare-universal. -/
+theorem X_call_iter {vj : Array UInt256} {s sZ evR : EVM.State}
+    {arg : Option (UInt256 × Nat)} {cost k : ℕ}
+    {g t v io isz oo osz : UInt256} {rest : Stack UInt256}
+    (hdec : (decode s.executionEnv.code s.pc).getD (.STOP, .none) = (.CALL, arg))
+    (hZ : Z vj .CALL s = .ok (sZ, cost))
+    (hstk : sZ.stack = g :: t :: v :: io :: isz :: oo :: osz :: rest)
+    (hcall : ∀ f, call (f + k) cost sZ.executionEnv.blobVersionedHashes g
+      (.ofNat sZ.executionEnv.codeOwner) t t v v io isz oo osz
+      sZ.executionEnv.perm (bump sZ) = .ok (⟨1⟩, evR)) (f : ℕ) :
+    X (f + k + 2) vj s
+      = X (f + k + 1) vj (evR.replaceStackAndIncrPC (rest.push ⟨1⟩)) := by
+  refine X_iter (f + k + 1) vj s sZ _ .CALL arg cost hdec hZ ?_ rfl
+  rw [step_call_eq (f + k) cost arg sZ g t v io isz oo osz rest hstk, hcall f]
+  rfl
+
+/-- The explicit successor of a halting `STOP` iteration entered at post-`Z`
+state `sZ` with gate cost `cost` (the `IterHaltU.stop` successor shape, named
+so consumers can chase its fields: `accountMap`/`substate`/`createdAccounts`
+are `sZ`'s by `rfl`). -/
+def stopHaltState (sZ : EVM.State) (cost : ℕ) : EVM.State :=
+  { debit sZ cost with
+      toMachineState := (debit sZ cost).toMachineState.setReturnData .empty }
+
+/-- **The halting `STOP` iteration with explicit successor**: `X` packages
+`.ok (.success (stopHaltState sZ cost) .empty)` at every fuel `f + 2`.
+(No stack hypothesis: `Z`'s success is taken as a hypothesis, so this works at
+any stack — unlike `Refinement.Z_stop`, which needs `stack = []`.) -/
+theorem X_stop_halt {vj : Array UInt256} {s sZ : EVM.State}
+    {arg : Option (UInt256 × Nat)} {cost : ℕ}
+    (hdec : (decode s.executionEnv.code s.pc).getD (.STOP, .none) = (.STOP, arg))
+    (hZ : Z vj .STOP s = .ok (sZ, cost)) (f : ℕ) :
+    X (f + 2) vj s = .ok (.success (stopHaltState sZ cost) .empty) :=
+  X_iter_halt (f+1) vj s sZ _ .STOP arg cost .empty hdec hZ
+    ((step_eq_shared_stop f cost arg sZ).trans (shared_step_stop arg _)) rfl
+    (fun h => nomatch h)
+
+/-! ## 8. Reconciliation with the study's seed vocabulary
+
+The study's stated-only seeds (`IterStep`/`IterCallStep`/`IterHalt`/`Iters`,
+formerly in ObservableTriple.lean — no lemmas, `∃ f` fuel clause, `decode =
+some` fidelity gap) were RETIRED by T4 when the endgame statement was rebuilt
+on this file's lemma-backed vocabulary (`IterStepU`/`IterHaltU`/`ItersN` +
+`X_call_iter`/`X_stop_halt`, ∀-fuel or cofinal, `.getD`-faithful). The
+retirement record — including the study's refutability finding about the naive
+call-site tie — lives in the endgame's docstring
+(ObservableTriple.`nested_twoCall_completedWith`). -/
 
 end NestedEvmYul.XLoop

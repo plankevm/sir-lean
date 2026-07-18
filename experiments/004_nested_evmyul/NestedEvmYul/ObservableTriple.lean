@@ -5,16 +5,16 @@ import NestedEvmYul.XiTriple
 
 /-!
 # Observable-level link: `completedWith` over `observe_nested`,
-# and the honest endgame gap statement
+# and the PROVED endgame
 
-**STATUS (post-T1/T2 promotion): everything in this file is sorry-free and
-foundation-grade EXCEPT the single endgame statement**
-(`nested_twoCall_completedWith`), which remains a classified hard `sorry`
-until T4 rebuilds it on the T1 XLoop vocabulary (per-opcode rules,
-`X_decompose`, `step_call_eq` — all now proven in `NestedEvmYul.XLoop`). The
-study-era stated-only seed vocabulary (`IterStep`/`Iters`/…) is kept below
-ONLY as the endgame statement's input language, superseded-note attached; T4
-retires it.
+**STATUS (post-T4): this file is sorry-free and foundation-grade throughout,
+endgame included.** `nested_twoCall_completedWith` — the full nested analog of
+flat `twoCall_completedWith` — is now a theorem, rebuilt on the T1 XLoop
+vocabulary (per-opcode rules, `ItersN_X` chain transport, `step_call_eq` /
+`X_call_iter`, `X_stop_halt`) and the T2 cofinal veneer
+(`ΘRuns_completedWith`). The study-era stated-only seed vocabulary
+(`IterStep`/`IterCallStep`/`IterHalt`/`Iters`) is retired; its refutability
+finding is preserved in the endgame's docstring HISTORY note.
 
 ## What this file does
 
@@ -29,10 +29,11 @@ retires it.
    (`ΘRuns_completedWith`) — sorry-free since the T2 forall-fuel pivot: the
    cofinal encoding needs NO fuel-irrelevance keystone, only the
    `k ≤ seedFuel w` offset side condition.
-5. States the FULL nested analog of flat `twoCall_completedWith`
-   (TwoCallExample.lean:103) as the remaining SORRY-CLASS-hard endgame; its
-   original blocker — no X-loop opcode logic between the two calls — has been
-   removed by T1 (XLoop.lean), and T4 owns the rebuild.
+5. Proves the layer-crossing forward plumbing (`Xi_forward`, `Θ_code_forward`)
+   and the FULL nested analog of flat `twoCall_completedWith`
+   (TwoCallExample.lean:103): two lemma-backed CALL sites, both callee
+   `ThetaTriple`s firing, storage read DERIVED from `Q₂`, conclusion at the
+   caller's fuel-free `runΘ` observable.
 -/
 
 namespace NestedEvmYul
@@ -136,9 +137,9 @@ yields `completedWith` of the seeded fuel-free run.
 
 PROVED sorry-free: `ΘRuns.runΘ_complete'` instantiates the cofinal family at
 `f := seedFuel w - k`; no fuel-irrelevance keystone anywhere. (The pre-pivot
-existential version of this theorem inherited the quarantined
-`Θ_fuel_mono_*` sorries; see ThetaRuns.lean, `section
-DeprecatedFuelExistential`.) The offset hypothesis is taken explicitly (rather
+existential version of this theorem inherited the `Θ_fuel_mono_*` keystone,
+since found FALSE and deleted; see ThetaRuns.lean's keystone post-mortem.)
+The offset hypothesis is taken explicitly (rather
 than through `ΘRuns`'s `∃ k`) precisely so the `k ≤ seedFuel w` side condition
 can be stated — that side condition is the honest residue of the pivot. -/
 theorem ΘRuns_completedWith (w : NestedWorld)
@@ -156,68 +157,7 @@ theorem ΘRuns_completedWith (w : NestedWorld)
     ΘRuns.runΘ_complete' w _ k hk hruns
   exact ⟨observe_ok_tag w hrun, (observe_storageAt w addr key hrun).trans hread⟩
 
-/-! ## Seed vocabulary for the missing X-loop logic (stated only, no lemmas)
-
-**SUPERSEDED (T1, XLoop.lean): this stated-only vocabulary now has a
-lemma-backed replacement.** `NestedEvmYul.XLoop` proves the per-opcode rules
-(`X_push1`/`X_sstore`/`X_jump`/`X_jumpi_*`), the branch combinator
-(`X_branch`), and the decomposition theorem (`X_decompose`) over the ∀-fuel,
-`.getD`-faithful relations `IterStepU`/`IterHaltU`/`ItersN` — fixing this
-section's two recorded defects (the `∃ f` fuel clause and the `decode = some`
-fidelity gap; `X` reads `decode … |>.getD (.STOP, .none)`). The definitions
-below are kept verbatim ONLY as the study's labeled artifact; T4 retires them
-when the endgame statement is rebuilt on the XLoop vocabulary. Do not build
-on them.
-
-The relations below only NAME the shape of one `X`-loop iteration — decode,
-`Z` gate, `step`, `H` check — proving nothing about them. They exist so the
-hard sorry below can state the caller's run decomposition at all. They are
-exactly the vocabulary the nested side lacks lemmas for: there is no analog of
-flat's `runs_*` per-opcode rules to *establish* an `IterStep`, and no
-X-decomposition lemma to glue `Iters` segments back into an `X`-run. -/
-
-/-- One non-halting `X`-loop iteration: the code at `s.pc` decodes to `op`,
-the `Z` gate passes, `step` succeeds, and `H` does not halt (`none`), so the
-loop would recurse on `s'`. Stated only — no lemmas (the per-opcode rules that
-would populate this relation are exactly the missing program logic). -/
-def IterStep (vj : Array UInt256) (s s' : EVM.State) : Prop :=
-  ∃ (f cost : ℕ) (op : Operation) (arg : Option (UInt256 × Nat)) (s₁ : EVM.State),
-    decode s.executionEnv.code s.pc = some (op, arg) ∧
-    Z vj op s = .ok (s₁, cost) ∧
-    EVM.step f cost (some (op, arg)) s₁ = .ok s' ∧
-    H s'.toMachineState op = none
-
-/-- The CALL-pinned `IterStep`: one non-halting `X`-loop iteration whose
-decoded opcode is `.CALL`. Used at the two call sites below so the sandwich
-hypotheses at least NAME the right opcode. NOTE (per the sharpened T3 review
-finding): `step`'s real CALL arm invokes `call` on the *post-`Z` bumped* state
-`s₁` (the unconditional `execLength + 1` at Semantics.lean:234) and then applies
-`replaceStackAndIncrPC` (`stack.push x`), so the raw `call` output is **never
-itself a `step` successor** — the successor `s'` here and any `call` output
-state are necessarily *different* states. Stated only — no lemmas. -/
-def IterCallStep (vj : Array UInt256) (s s' : EVM.State) : Prop :=
-  ∃ (f cost : ℕ) (arg : Option (UInt256 × Nat)) (s₁ : EVM.State),
-    decode s.executionEnv.code s.pc = some (.CALL, arg) ∧
-    Z vj .CALL s = .ok (s₁, cost) ∧
-    EVM.step f cost (some (.CALL, arg)) s₁ = .ok s' ∧
-    H s'.toMachineState .CALL = none
-
-/-- The halting sibling: one `X`-loop iteration whose `H` returns `some o`
-(a non-`REVERT` halt, so `X` would package `.success s' o`). Stated only. -/
-def IterHalt (vj : Array UInt256) (s s' : EVM.State) (o : ByteArray) : Prop :=
-  ∃ (f cost : ℕ) (op : Operation) (arg : Option (UInt256 × Nat)) (s₁ : EVM.State),
-    decode s.executionEnv.code s.pc = some (op, arg) ∧
-    Z vj op s = .ok (s₁, cost) ∧
-    EVM.step f cost (some (op, arg)) s₁ = .ok s' ∧
-    H s'.toMachineState op = some o ∧
-    op ≠ .REVERT
-
-/-- Straight-line runs: the reflexive-transitive closure of `IterStep`
-(refl + tail, self-contained — no Mathlib `Relation` dependency). Stated only. -/
-inductive Iters (vj : Array UInt256) : EVM.State → EVM.State → Prop
-  | refl (s : EVM.State) : Iters vj s s
-  | tail {s s' s'' : EVM.State} :
-      Iters vj s s' → IterStep vj s' s'' → Iters vj s s''
+/-! ## The caller's entry state -/
 
 /-- The entry `EVM.State` that `Θ`'s `.Code` arm hands to `Ξ`/`X` for a caller
 world `w` executing code `cd`: the post-transfer map (`thetaTransfer`, T2's
@@ -239,108 +179,221 @@ def callerEntry (w : NestedWorld) (cd : ByteArray) : EVM.State :=
       createdAccounts := w.createdAccounts
       gasAvailable := w.g }
 
-/-! ## The endgame gap: the full nested `twoCall_completedWith` analog -/
+/-! ## Forward plumbing: `Ξ` and `Θ` families from an `X` family
+
+The two layer-crossing equations the endgame needs: given a cofinal `X`
+success family on the entry state, produce the matching `Ξ` family (one
+`Ξ`-unfold) and then the `Θ` family (one `Θ`-unfold: transfer preamble +
+rollback arm). Fuel offsets follow the source: `Ξ (n+1)` runs `X n`,
+`Θ (n+1)` runs `Ξ n`. -/
+
+/-- **`Ξ` forward lemma**: a cofinal `X` success family on `Ξ`'s fresh entry
+state yields the `Ξ` family, with the result 4-tuple read off the halt state's
+fields. PROVED — one `Ξ`-unfold; the state-literal alignment uses the
+`simp only [] at` zeta-nudge from `Refinement.Xi_stop`. -/
+theorem Xi_forward (m : ℕ) (cA : Batteries.RBSet AccountAddress compare)
+    (gh : BlockHeader) (bl : ProcessedBlocks) (σ σ₀ : AccountMap) (g : UInt256)
+    (A : Substate) (I : ExecutionEnv) (sH : EVM.State) (out : ByteArray)
+    (hX : ∀ f, X (f + m + 2) (D_J I.code ⟨0⟩)
+      { (default : EVM.State) with
+          accountMap := σ, σ₀ := σ₀, substate := A, executionEnv := I,
+          blocks := bl, genesisBlockHeader := gh, createdAccounts := cA,
+          gasAvailable := g } = .ok (.success sH out)) :
+    ∀ f, Ξ (f + m + 3) cA gh bl σ σ₀ g A I
+      = .ok (.success (sH.createdAccounts, sH.accountMap, sH.gasAvailable, sH.substate) out) := by
+  intro f
+  show Ξ ((f + m + 2) + 1) cA gh bl σ σ₀ g A I = _
+  rw [Ξ]
+  simp only [bind, Except.bind]
+  have hXf := hX f
+  simp only [] at hXf
+  rw [hXf]
+
+/-- **`Θ` forward lemma** (`.Code` arm, general entry map): a cofinal `Ξ`
+success family at the post-transfer map (`thetaTransfer`, T2's transcription
+of Θ's balance preamble) and Θ's own execution env yields the `Θ` family with
+`z = true`, provided the `σ'' == ∅` rollback arm does not fire (`hne`).
+PROVED — one `Θ`-unfold + goal-side `split` on the `Ξ` match; each branch is
+tied to the supplied family by `Eq.trans` (the defeq between `thetaTransfer`
+and Θ's inline transfer matches is settled by the elaborator, exactly as in
+`theta_of_xi`). -/
+theorem Θ_code_forward (m : ℕ) {bvh : List ByteArray}
+    {cA cA' : Batteries.RBSet AccountAddress compare} {gh : BlockHeader}
+    {bl : ProcessedBlocks} {σ σ₀ σ'' : AccountMap} {A A'' : Substate}
+    {s o r : AccountAddress} {cd : ByteArray} {g p v v' g'' : UInt256}
+    {d : ByteArray} {e : ℕ} {Hd : BlockHeader} {wp : Bool} {out : ByteArray}
+    (hΞ : ∀ f, Ξ (f + m + 3) cA gh bl (thetaTransfer σ s r v) σ₀ g A
+      { codeOwner := r, sender := o, gasPrice := p.toNat, calldata := d,
+        source := s, weiValue := v', depth := e, perm := wp, code := cd,
+        header := Hd, blobVersionedHashes := bvh }
+      = .ok (.success (cA', σ'', g'', A'') out))
+    (hne : (σ'' == (∅ : AccountMap)) = false) :
+    ∀ f, Θ (f + m + 4) bvh cA gh bl σ σ₀ A s o r (.Code cd) g p v v' d e Hd wp
+      = .ok (cA', σ'', g'', A'', true, out) := by
+  intro f
+  show Θ ((f + m + 3) + 1) bvh cA gh bl σ σ₀ A s o r (.Code cd) g p v v' d e Hd wp = _
+  simp only [Θ, bind, Except.bind, pure, Except.pure]
+  split
+  · -- `Ξ = .error e`: contradicts the supplied success family
+    rename_i heq
+    exact absurd ((hΞ f).symm.trans heq) (by simp)
+  · -- `Ξ = .ok (.revert g' o)`: ditto
+    rename_i heq
+    exact absurd ((hΞ f).symm.trans heq) (by simp)
+  · -- `Ξ = .ok (.success (a, b, c, d) o)`: the genuine success path
+    rename_i a b c dd oo heq
+    cases (hΞ f).symm.trans heq
+    simp only [hne, Bool.false_eq_true, if_false]
+
+/-! ## The endgame: the full nested `twoCall_completedWith` analog, PROVED -/
 
 /-- **The FULL flat-analog endgame** — nested mirror of flat
-`twoCall_completedWith` (EVM/BytecodeLayer/Examples/TwoCallExample.lean:103):
-a caller whose code contains two CALLs, per-callee `ThetaTriple`s, and a
-decomposition of the caller's execution as
-prefix-iterations / call₁ / middle-iterations / call₂ / suffix / halt,
-concluding `completedWith` of the CALLER's top-level `runΘ`.
+`twoCall_completedWith` (EVM/BytecodeLayer/Examples/TwoCallExample.lean:103),
+**proved sorry-free** on the T1 XLoop vocabulary: a caller whose code performs
+two `CALL`s and halts, per-callee `ThetaTriple`s firing at both sites, and the
+conclusion `completedWith` of the CALLER's top-level fuel-free `runΘ` — the
+storage read DERIVED from the second callee's postcondition `Q₂`, not
+supplied.
 
-Hypothesis-by-hypothesis mirror of the flat statement: `hentry`/`hvj` play
-flat's `EntersAsCode`; `hpre`/`hmiddle`/`hpost` play the three flat `Runs`
-segments; `hcall₁ₓ`/`hcall₂ₓ` (a CALL-pinned `IterCallStep` each) with the
-`call`-level successes (`hcall₁`/`hcall₂`, flat's `CallReturns`) landing in
-**fresh** output states `evR₁`/`evR₂`, deliberately untied to the iteration
-successors `sR₁`/`sR₂` — see diagnosis point (2) for why endpoint-sharing
-would be refutable; `hhalt`+`hread`+`hne` play `stepFrame last = halted` +
-`hsucc` + `hcell`.
+Shape of the decomposition (each segment lemma-backed):
 
--- SORRY-CLASS: hard — see the diagnosis comment in the proof body.
+* `hpre`/`hmiddle` — straight-line segments as `XLoop.ItersN` chains
+  (∀-fuel step clauses, populated by the `IterStepU.*` per-opcode rules);
+* each call site — the derivable pieces of one `CALL` iteration: decode
+  (`.getD`-faithful), `Z` success, the 7-deep post-`Z` stack shape, and the
+  recursive `call`'s **cofinal** success family (`∀ f, call (f + kᵢ) … = .ok
+  (⟨1⟩, evRᵢ)` on the **bumped** post-`Z` state — `T3.demo_call₁/₂` produce
+  exactly this shape with `kᵢ := 5`). The iteration successor
+  `evRᵢ.replaceStackAndIncrPC (restᵢ.push ⟨1⟩)` is **derived** via
+  `XLoop.step_call_eq`+`X_call_iter`, never hypothesized;
+* the suffix is EMPTY (flat's `TwoCallExample` also halts right after its
+  business logic): the halting `STOP` iteration follows call₂ immediately,
+  its successor explicit (`XLoop.stopHaltState`), so the final map is chased
+  to `evR₂.accountMap` by `Z_ok_toState` + `rfl` and `hread` needs only `Q₂`;
+* the fuel side condition `n₁ + n₂ + k₁ + k₂ + 6 ≤ seedFuel w` is the honest
+  residue of the T2 cofinal pivot (`ΘRuns_completedWith`'s `k ≤ seedFuel w`).
 
-DIAGNOSIS (the study's deliverable): the missing ingredient is an **X-loop
-iteration logic** — per-opcode rules populating `IterStep` (the nested analog
-of flat's `runs_*` rules) plus a loop-decomposition lemma over `X`'s fuel
-recursion gluing `Iters` segments into an `X`-run (the nested analog of flat's
-`Runs.trans`), which exp004 never built. WITHOUT it there is no vocabulary to
-*discharge* "the caller executed straight-line code between the two calls":
-`sC₁`/`sR₁`/`sC₂`/`sR₂`/`sEnd`/`sHalt` enter as free data pinned only by
-hypotheses that nothing in the repo can establish. Concretely, a proof needs,
-none of which exist: (1) `X`-decomposition — `Iters vj s₀ sEnd → IterHalt vj
-sEnd sHalt out → ∀ sufficient fuel, X fuel vj s₀ = .ok (.success sHalt out)` —
-a fresh induction over `X`'s fuel recursion, PLUS fuel transport for each
-`IterStep`'s private `∃ f` step-fuel witness (T1's unproved keystone again);
-(2) the tie between an `IterCallStep` and the `call`/`Θ` recursion — the
-SHARPENED finding (T3 fix round): without per-opcode `step` lemmas the nested
-side cannot even *STATE* the call-site tie consistently. The naive
-endpoint-sharing shape (asserting `call … sC₁ = .ok (⟨1⟩, sR₁)` with `sR₁` the
-`IterStep` successor) is **refutable**: every `step` `.ok` successor has
-`execLength = source.execLength + 1` (the unconditional bump at
-EVMYulLean/EvmYul/EVM/Semantics.lean:234 is the sole `execLength` write site,
-every arm derives from the bumped state, and `Z` preserves `execLength`),
-while any `call` output preserves `execLength` (and `pc`/stack) verbatim — a
-contradiction over ℕ that would make the whole theorem vacuously true.
-Concretely, `step`'s real CALL arm invokes `call` on the post-`Z` bumped state
-and then applies `replaceStackAndIncrPC` (`stack.push x`), so the raw `call`
-output is never a `step` successor; hence `hcall₁`/`hcall₂` below land in
-FRESH states `evR₁`/`evR₂`, and the `evR₁`↔`sR₁` tie is exactly `step`'s CALL
-arm, unreachable without opening the 140-arm match per-opcode;
-(3) propagation of the callees' `Q₁`/`Q₂` through the middle/suffix segments to
-establish `hread` at the halt state — flat does this with `runs_*` + framing;
-nested has `PreservesAccount` (T2) but nothing to discharge it per-opcode. The
-sorry's shape IS the finding: T2's triples compose cheaply BELOW the caller,
-but the caller's own straight-line code is a logic-free zone. -/
+HISTORY (the study's finding, recorded so it isn't lost): the pre-T1 version
+of this statement took the decomposition in a stated-only vocabulary
+(`IterStep`/`IterCallStep`/`IterHalt`/`Iters`, retired by this rebuild) and
+was a classified-hard sorry with three recorded blockers — no X-decomposition,
+no call-site tie, no Q-propagation. The call-site tie was the sharp one: the
+naive endpoint-sharing shape (`call … = .ok (⟨1⟩, sR₁)` with `sR₁` the
+iteration successor) is **refutable** — every `step` successor carries the
+unconditional `execLength + 1` bump (Semantics.lean:234) plus the
+`replaceStackAndIncrPC` postprocessing, while raw `call` outputs preserve
+`execLength`/`pc`/stack verbatim, so the raw call output is *never* a `step`
+successor. T1's `step_call_eq` made the tie stateable (successor = the
+POST-PROCESSED call output on the BUMPED entry) and this theorem's `hcallᵢ`
+families are exactly that shape; the three blockers dissolved into
+`X_decompose`-style chain transport (`ItersN_X`), `X_call_iter`, and the
+empty-suffix `Q₂`-read derivation. What remains genuinely supplied: the
+per-segment decomposition data itself (the flat statement's hypotheses are the
+same kind), and `hne` (Θ's degenerate empty-map rollback does not fire). -/
 theorem nested_twoCall_completedWith
-    (w : NestedWorld) (he : w.e ≤ 1024) (cd : ByteArray) (vj : Array UInt256)
+    (w : NestedWorld) (cd : ByteArray) (vj : Array UInt256)
     (hc : w.c = .Code cd) (hvj : vj = D_J cd ⟨0⟩)
     {P₁ P₂ : AccountMap → Substate → Prop}
     {Q₁ Q₂ : AccountMap → Substate → ByteArray → Prop}
-    {t₁ t₂ : UInt256} {s₀ sC₁ sR₁ sC₂ sR₂ sEnd sHalt : EVM.State}
-    -- fresh `call`-output states, deliberately UNTIED to sR₁/sR₂ (see
-    -- diagnosis (2): tying them would be refutable via the execLength bump)
-    {evR₁ evR₂ : EVM.State}
-    {f₁ f₂ gc₁ gc₂ : ℕ} {bvh₁ bvh₂ : List ByteArray}
-    {gas₁ src₁ rcp₁ v₁ w₁ io₁ is₁ oo₁ os₁ : UInt256}
-    {gas₂ src₂ rcp₂ v₂ w₂ io₂ is₂ oo₂ os₂ : UInt256}
-    {perm₁ perm₂ : Bool} {out : ByteArray} (addr key v : Nat)
-    -- entry: the caller's X-run starts at Θ's entry state on the caller's code
-    (hentry : s₀ = callerEntry w cd)
-    -- per-callee procedure specs (T2 vocabulary), at the two call sites
-    (hΘ₁ : ThetaTriple P₁ (toExecute sC₁.accountMap (AccountAddress.ofUInt256 t₁)) Q₁)
-    (hΘ₂ : ThetaTriple P₂ (toExecute sC₂.accountMap (AccountAddress.ofUInt256 t₂)) Q₂)
-    (hP₁ : P₁ sC₁.accountMap (callAccessSubstate sC₁ t₁))
-    (hP₂ : P₂ sC₂.accountMap (callAccessSubstate sC₂ t₂))
-    -- the sandwich: prefix / call₁ / middle / call₂ / suffix / halt
-    (hpre : Iters vj s₀ sC₁)
-    (hcall₁ₓ : IterCallStep vj sC₁ sR₁)
-    (hcall₁ : call f₁ gc₁ bvh₁ gas₁ src₁ rcp₁ t₁ v₁ w₁ io₁ is₁ oo₁ os₁ perm₁ sC₁
-      = .ok (⟨1⟩, evR₁))
-    (hmiddle : Iters vj sR₁ sC₂)
-    (hcall₂ₓ : IterCallStep vj sC₂ sR₂)
-    (hcall₂ : call f₂ gc₂ bvh₂ gas₂ src₂ rcp₂ t₂ v₂ w₂ io₂ is₂ oo₂ os₂ perm₂ sC₂
-      = .ok (⟨1⟩, evR₂))
-    (hpost : Iters vj sR₂ sEnd)
-    (hhalt : IterHalt vj sEnd sHalt out)
-    -- Θ's `σ'' == ∅` rollback postprocessing does not fire (non-degenerate halt)
-    (hne : (sHalt.accountMap == (∅ : AccountMap)) = false)
-    -- the halt state's map reads `v` at (addr, key) — in a real proof this
-    -- would be DERIVED from Q₁/Q₂ + framing through hmiddle/hpost; supplied
-    -- here because that derivation is exactly the missing logic
-    (hread : (match sHalt.accountMap.toList.find? (fun p => p.1.val = addr) with
-              | some p => (p.2.lookupStorage (UInt256.ofNat key)).toNat
-              | none => 0) = v) :
+    {n₁ n₂ k₁ k₂ : ℕ} {sC₁ sZ₁ evR₁ sC₂ sZ₂ evR₂ sZH : EVM.State}
+    {arg₁ arg₂ argH : Option (UInt256 × Nat)} {cost₁ cost₂ costH : ℕ}
+    {g₁ t₁ v₁ io₁ is₁ oo₁ os₁ : UInt256} {rest₁ : Stack UInt256}
+    {g₂ t₂ v₂ io₂ is₂ oo₂ os₂ : UInt256} {rest₂ : Stack UInt256}
+    (addr key v : Nat)
+    -- the fuel envelope: the decomposition fits under the seeding
+    (hfuel : n₁ + n₂ + k₁ + k₂ + 6 ≤ seedFuel w)
+    -- prefix: straight-line chain from Θ's entry state to the first call site
+    (hpre : XLoop.ItersN vj n₁ (callerEntry w cd) sC₁)
+    -- call site 1: decode / gate / stack shape / cofinal call success
+    (hdec₁ : (decode sC₁.executionEnv.code sC₁.pc).getD (.STOP, .none) = (.CALL, arg₁))
+    (hZ₁ : Z vj .CALL sC₁ = .ok (sZ₁, cost₁))
+    (hstk₁ : sZ₁.stack = g₁ :: t₁ :: v₁ :: io₁ :: is₁ :: oo₁ :: os₁ :: rest₁)
+    (hcall₁ : ∀ f, call (f + k₁) cost₁ sZ₁.executionEnv.blobVersionedHashes g₁
+      (.ofNat sZ₁.executionEnv.codeOwner) t₁ t₁ v₁ v₁ io₁ is₁ oo₁ os₁
+      sZ₁.executionEnv.perm (XLoop.bump sZ₁) = .ok (⟨1⟩, evR₁))
+    -- callee 1's procedure spec (T2 vocabulary) at the call-site state
+    (hΘ₁ : ThetaTriple P₁ (toExecute sZ₁.accountMap (AccountAddress.ofUInt256 t₁)) Q₁)
+    (hP₁ : P₁ sZ₁.accountMap (callAccessSubstate sZ₁ t₁))
+    -- middle: straight-line chain from call 1's DERIVED successor to site 2
+    (hmiddle : XLoop.ItersN vj n₂ (evR₁.replaceStackAndIncrPC (rest₁.push ⟨1⟩)) sC₂)
+    -- call site 2, same shape
+    (hdec₂ : (decode sC₂.executionEnv.code sC₂.pc).getD (.STOP, .none) = (.CALL, arg₂))
+    (hZ₂ : Z vj .CALL sC₂ = .ok (sZ₂, cost₂))
+    (hstk₂ : sZ₂.stack = g₂ :: t₂ :: v₂ :: io₂ :: is₂ :: oo₂ :: os₂ :: rest₂)
+    (hcall₂ : ∀ f, call (f + k₂) cost₂ sZ₂.executionEnv.blobVersionedHashes g₂
+      (.ofNat sZ₂.executionEnv.codeOwner) t₂ t₂ v₂ v₂ io₂ is₂ oo₂ os₂
+      sZ₂.executionEnv.perm (XLoop.bump sZ₂) = .ok (⟨1⟩, evR₂))
+    (hΘ₂ : ThetaTriple P₂ (toExecute sZ₂.accountMap (AccountAddress.ofUInt256 t₂)) Q₂)
+    (hP₂ : P₂ sZ₂.accountMap (callAccessSubstate sZ₂ t₂))
+    -- empty suffix: the halting STOP iteration immediately after call 2
+    (hdecH : (decode (evR₂.replaceStackAndIncrPC (rest₂.push ⟨1⟩)).executionEnv.code
+        (evR₂.replaceStackAndIncrPC (rest₂.push ⟨1⟩)).pc).getD (.STOP, .none)
+      = (.STOP, argH))
+    (hZH : Z vj .STOP (evR₂.replaceStackAndIncrPC (rest₂.push ⟨1⟩)) = .ok (sZH, costH))
+    -- Θ's `σ'' == ∅` rollback postprocessing does not fire
+    (hne : (evR₂.accountMap == (∅ : AccountMap)) = false)
+    -- the storage read is DERIVED from Q₂ (v1 supplied it at the halt state)
+    (hread : ∀ (σ'' : AccountMap) (A'' : Substate) (o' : ByteArray), Q₂ σ'' A'' o' →
+      (match σ''.toList.find? (fun p => p.1.val = addr) with
+       | some p => (p.2.lookupStorage (UInt256.ofNat key)).toNat
+       | none => 0) = v) :
+    Q₁ evR₁.accountMap evR₁.substate evR₁.toMachineState.returnData ∧
     completedWith (observe_nested (runΘ w)) addr key v := by
-  -- SORRY-CLASS: hard — needs the X-loop iteration logic exp004 never built:
-  -- (1) an X-decomposition lemma over the fuel recursion (Iters + IterHalt →
-  -- X = .ok (.success sHalt out) at all sufficient fuels, incl. per-IterStep
-  -- fuel transport = T1's unproved keystone); (2) the step-CALL-arm tie
-  -- linking hcall₁'s fresh output evR₁ to the iteration successor sR₁
-  -- (per-opcode rules, the nested analog of flat's runs_*; sharing the
-  -- endpoint instead is refutable via the execLength bump — see docstring);
-  -- (3) Q-propagation/framing through the middle and suffix segments. See the
-  -- docstring diagnosis; this sorry's shape is the study's deliverable.
-  sorry
+  subst hvj
+  -- (1) both callee specs fire (call_spec at any single fuel of the family)
+  have hQ₁ : Q₁ evR₁.accountMap evR₁.substate evR₁.toMachineState.returnData :=
+    call_spec (ev := XLoop.bump sZ₁) hΘ₁ (hcall₁ 0) hP₁ rfl
+  refine ⟨hQ₁, ?_⟩
+  have hQ₂ : Q₂ evR₂.accountMap evR₂.substate evR₂.toMachineState.returnData :=
+    call_spec (ev := XLoop.bump sZ₂) hΘ₂ (hcall₂ 0) hP₂ rfl
+  have hreadR := hread _ _ _ hQ₂
+  -- (2) the composed X family: prefix / call₁ / middle / call₂ / halt,
+  -- cofinal above offset n₁ + n₂ + k₁ + k₂ + 2 (fuel bookkeeping via omega)
+  have hXfam : ∀ f, X (f + (n₁ + n₂ + k₁ + k₂ + 2) + 2) (D_J cd ⟨0⟩) (callerEntry w cd)
+      = .ok (.success (XLoop.stopHaltState sZH costH) ByteArray.empty) := by
+    intro f
+    have h1 := XLoop.ItersN_X hpre (f + n₂ + k₁ + k₂ + 2)
+    have h2 := XLoop.X_call_iter hdec₁ hZ₁ hstk₁ hcall₁ (f + n₂ + k₂ + 2)
+    have h3 := XLoop.ItersN_X hmiddle (f + k₁ + k₂ + 1)
+    have h4 := XLoop.X_call_iter hdec₂ hZ₂ hstk₂ hcall₂ (f + k₁ + 1)
+    have h5 := XLoop.X_stop_halt hdecH hZH (f + k₁ + k₂)
+    rw [show f + (n₁ + n₂ + k₁ + k₂ + 2) + 2 = f + n₂ + k₁ + k₂ + 2 + n₁ + 2 from by omega,
+        h1,
+        show f + n₂ + k₁ + k₂ + 2 + 2 = f + n₂ + k₂ + 2 + k₁ + 2 from by omega,
+        h2,
+        show f + n₂ + k₂ + 2 + k₁ + 1 = f + k₁ + k₂ + 1 + n₂ + 2 from by omega,
+        h3,
+        show f + k₁ + k₂ + 1 + 2 = f + k₁ + 1 + k₂ + 2 from by omega,
+        h4,
+        show f + k₁ + 1 + k₂ + 1 = f + k₁ + k₂ + 2 from by omega,
+        h5]
+  -- (3) the final map IS the second call's output map (stopHaltState/debit
+  -- and replaceStackAndIncrPC don't touch toState; Z only rewrites gas)
+  have hmap : (XLoop.stopHaltState sZH costH).accountMap = evR₂.accountMap := by
+    show sZH.accountMap = evR₂.accountMap
+    rw [show sZH.accountMap = sZH.toState.accountMap from rfl, XLoop.Z_ok_toState hZH]
+    rfl
+  -- (4) lift through Ξ and Θ (forward plumbing), then finish at the observable
+  have hΞfam := Xi_forward (n₁ + n₂ + k₁ + k₂ + 2) w.createdAccounts
+    w.genesisBlockHeader w.blocks (thetaTransfer w.σ w.s w.r w.v) w.σ₀ w.g w.A
+    { codeOwner := w.r, sender := w.o, gasPrice := w.p.toNat, calldata := w.d,
+      source := w.s, weiValue := w.v', depth := w.e, perm := w.w, code := cd,
+      header := w.H, blobVersionedHashes := w.blobVersionedHashes }
+    (XLoop.stopHaltState sZH costH) ByteArray.empty hXfam
+  have hne' : ((XLoop.stopHaltState sZH costH).accountMap == (∅ : AccountMap)) = false := by
+    rw [hmap]; exact hne
+  have hΘfam := Θ_code_forward (n₁ + n₂ + k₁ + k₂ + 2) hΞfam hne'
+  have hruns : ∀ f, Θ ((n₁ + n₂ + k₁ + k₂ + 6) + f) w.blobVersionedHashes
+      w.createdAccounts w.genesisBlockHeader w.blocks w.σ w.σ₀ w.A w.s w.o w.r
+      w.c w.g w.p w.v w.v' w.d w.e w.H w.w
+      = .ok ((XLoop.stopHaltState sZH costH).createdAccounts,
+          (XLoop.stopHaltState sZH costH).accountMap,
+          (XLoop.stopHaltState sZH costH).gasAvailable,
+          (XLoop.stopHaltState sZH costH).substate, true, ByteArray.empty) := by
+    intro f
+    rw [hc, show (n₁ + n₂ + k₁ + k₂ + 6) + f = f + (n₁ + n₂ + k₁ + k₂ + 2) + 4 from by omega]
+    exact hΘfam f
+  exact ΘRuns_completedWith w addr key v _ hfuel hruns (by rw [hmap]; exact hreadR)
 
 /-! ## Findings
 
@@ -348,18 +401,23 @@ The three-track data point, in one place (study tracks: T1 = ThetaRuns.lean,
 T2 = XiTriple.lean, T3 = this file), UPDATED for the overnight promotions
 (XLoop T1 + forall-fuel pivot T2):
 
-* **(a) Relational veneer — keystone tax DELETED by the cofinal re-encoding.**
-  The study's fuel-existential `ΘRuns` paid a single unproved fuel-irrelevance
-  mutual induction (`Θ_fuel_mono_ok`, a 6-layer `gas_mono`-shaped strong
-  induction priced at a ~1500-line helper family) for EVERY cross-fuel lemma.
-  The forall-fuel pivot re-encoded the veneer offset-cofinally
-  (`∃ k, ∀ f, Θ (k + f) … = .ok res`), after which determinism,
-  adequacy-under-side-condition, and this file's `ΘRuns_completedWith` close
-  sorry-free by pure instantiation. The honest residue: single fuel points no
-  longer enter the veneer, and adequacy carries a `k ≤ seedFuel w` side
-  condition — removing either is exactly the keystone, now quarantined in
-  ThetaRuns.lean's `DeprecatedFuelExistential` section as T4's
-  prove-or-delete target.
+* **(a) Relational veneer — keystone tax DELETED by the cofinal re-encoding,
+  and the keystone itself is FALSE.** The study's fuel-existential `ΘRuns`
+  paid a single unproved fuel-irrelevance mutual induction (`Θ_fuel_mono_ok`)
+  for EVERY cross-fuel lemma. The forall-fuel pivot re-encoded the veneer
+  offset-cofinally (`∃ k, ∀ f, Θ (k + f) … = .ok res`), after which
+  determinism, adequacy-under-side-condition, and this file's
+  `ΘRuns_completedWith` close sorry-free by pure instantiation. The honest
+  residue: single fuel points no longer enter the veneer, and adequacy carries
+  a `k ≤ seedFuel w` side condition. T4's keystone attempt then found the
+  residue is NOT removable at all: `Θ_fuel_mono_ok` is unprovable-as-stated —
+  `step`'s CREATE/CREATE2 arms absorb an inner `Lambda` `OutOfFuel` into an
+  ordinary non-error result (the `| _ =>` catch-all,
+  EVMYulLean/EvmYul/EVM/Semantics.lean:286/344), so a low-fuel non-OOF result
+  need not be reproduced at higher fuel. The quarantined section was deleted;
+  see ThetaRuns.lean's "keystone post-mortem" note. The cofinal pivot is
+  thereby vindicated as the *only* correct encoding, not merely the cheaper
+  one.
 
 * **(b) ∀-fuel triples — cheap composition, expensive footprints.** T2's
   `XiTriple`/`ThetaTriple` are fuel-free for free (universal quantification
@@ -371,25 +429,24 @@ T2 = XiTriple.lean, T3 = this file), UPDATED for the overnight promotions
   (`PreservesAccount`) for real code is per-program `Ξ`-reasoning — the same
   missing logic as (c).
 
-* **(c) The caller-internal gap — the headline negative result.** Composing
-  callee triples into a TOP-LEVEL observable conclusion
-  (`nested_twoCall_completedWith`) is blocked on a missing X-loop program
-  logic: per-opcode rules to populate `IterStep` (flat's `runs_*` surface has
-  no nested counterpart), an `X` loop-decomposition lemma (flat's
-  `Runs.trans`), and the step-CALL-arm tie linking an iteration to the
-  `call`/`Θ` recursion. The tie is worse than merely unprovable: without
-  per-opcode `step` lemmas it cannot even be *stated* consistently — the
-  naive shape sharing the iteration's endpoints is refutable outright (`step`
-  successors carry the unconditional `execLength` bump that `call` outputs
-  lack), so the call result must enter as a fresh, hypothesis-only state.
-  Between the two calls, the caller's straight-line code
-  was a logic-free zone: its intermediate states could only be hypothesized,
-  never derived. **UPDATE (T1, XLoop.lean): that zone is now colonized** —
-  per-opcode rules (`X_push1`/`X_sstore`/`X_jump`/`X_jumpi_*`), the branch
-  combinator (`X_branch`), the sequencing/decomposition theorem
-  (`X_decompose`), and the CALL-arm dispatcher tie (`step_call_eq`) are all
-  proven sorry-free. The endgame statement above remains the last consumer to
-  rebuild on that vocabulary (T4).
+* **(c) The caller-internal gap — CLOSED.** The study's headline negative
+  result was that composing callee triples into a TOP-LEVEL observable
+  conclusion was blocked on a missing X-loop program logic: the caller's
+  straight-line code was a logic-free zone whose intermediate states could
+  only be hypothesized, never derived — and the call-site tie was refutable
+  in its naive endpoint-sharing form (`step` successors carry the
+  unconditional `execLength` bump + `replaceStackAndIncrPC` postprocessing
+  that raw `call` outputs lack). T1 colonized the zone (per-opcode rules,
+  `X_branch`, `X_decompose`, `step_call_eq`), and T4 rebuilt and PROVED the
+  endgame on that vocabulary (`nested_twoCall_completedWith` above): the
+  call-site successor is now DERIVED (`X_call_iter`), the storage read is
+  DERIVED from `Q₂` through the explicit halt state (`X_stop_halt` +
+  `Z_ok_toState`), and the conclusion lands on the fuel-free `runΘ`
+  observable via the T2 cofinal veneer. What the nested side still lacks
+  vs flat (the residual parity gap): a `Behaves`-style all-programs predicate
+  and a `messageCall`-bridge analog — segment data here enters per-theorem,
+  as flat's `Runs` hypotheses do, but flat additionally packages them behind
+  a program-level driver.
 -/
 
 end NestedEvmYul
