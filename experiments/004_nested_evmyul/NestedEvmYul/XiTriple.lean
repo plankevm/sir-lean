@@ -30,10 +30,12 @@ was priced for the σ₁/rollback bookkeeping; the recipe absorbed it.
 `XiTriple`/`ThetaTriple` below quantify over **all** fuels. A triple is a
 statement about *every* fueled run that succeeds, so it never has to transport
 a result from one fuel to another: two triples compose by feeding the very same
-fuel of the outer run into the inner hypothesis. Contrast T1's **existential**
-encoding (`ΘRuns`, ThetaRuns.lean): there, gluing two `∃ fuel` witnesses forces
-both runs to a common fuel, which needs the fuel-irrelevance keystone
-(`Θ_fuel_mono_ok` — an unproved 6-layer mutual induction). Universal-fuel
+fuel of the outer run into the inner hypothesis. Contrast the study's
+**existential** encoding (now quarantined as `ΘRunsE`, ThetaRuns.lean's
+`DeprecatedFuelExistential` section): there, gluing two `∃ fuel` witnesses
+forces both runs to a common fuel, which needs the fuel-irrelevance keystone
+(`Θ_fuel_mono_ok` — an unproved 6-layer mutual induction; the surviving
+`ΘRuns` is offset-cofinal and keystone-free, T2 pivot). Universal-fuel
 quantification is antitone-friendly — weakening to a specific fuel is just
 instantiation — so the entire logical-rule layer (conseq/conj/frame) and the
 call-site composition come out keystone-free. This is the cheap trick the
@@ -60,8 +62,9 @@ the triple constrains only `.ok (.success r o)` runs.
 the post-substate. WHY fuel-free with no keystone: the `∀ fuel` makes the
 triple a statement about every fueled run simultaneously, so composing triples
 never moves a result across fuels — the antitone/instantiation direction is
-free, unlike T1's existential `ΘRuns` whose every cross-fuel lemma funnels
-through the unproved `Θ_fuel_mono_ok` mutual induction. -/
+free, unlike the quarantined existential `ΘRunsE` whose every cross-fuel lemma
+funnels through the unproved `Θ_fuel_mono_ok` mutual induction (ThetaRuns.lean,
+`DeprecatedFuelExistential`). -/
 def XiTriple (P : AccountMap → Substate → Prop) (I : ExecutionEnv)
     (Q : AccountMap → Substate → ByteArray → Prop) : Prop :=
   ∀ (fuel : ℕ) (cA : Batteries.RBSet AccountAddress compare) (gh : BlockHeader)

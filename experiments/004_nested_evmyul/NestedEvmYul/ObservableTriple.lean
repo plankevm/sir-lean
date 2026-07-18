@@ -4,19 +4,17 @@ import NestedEvmYul.ThetaRuns
 import NestedEvmYul.XiTriple
 
 /-!
-# T3 — Observable-level link (B4 seed): `completedWith` over `observe_nested`,
+# Observable-level link: `completedWith` over `observe_nested`,
 # and the honest endgame gap statement
 
-**THIS FILE IS A LABELED EXPLORATORY SHAPE STUDY, NOT A FOUNDATION TO BUILD ON.**
-
-Ground rules (per the track spec, verbatim): statements first; prove only the
-genuinely easy ones; explicitly-classified sorries
-(`-- SORRY-CLASS: easy|medium|hard — <reason>`) for the rest; LABELED
-EXPLORATORY ARTIFACT, not a foundation; `lake build` green after the track.
-This file **deliberately suspends the house proof-first/no-sorry rule by
-design**, for the sole purpose of measuring the shape and cost of connecting
-the nested Hoare surface (T2) and relational veneer (T1) to the existing
-`SharedObservable`/`runΘ` observable layer.
+**STATUS (post-T1/T2 promotion): everything in this file is sorry-free and
+foundation-grade EXCEPT the single endgame statement**
+(`nested_twoCall_completedWith`), which remains a classified hard `sorry`
+until T4 rebuilds it on the T1 XLoop vocabulary (per-opcode rules,
+`X_decompose`, `step_call_eq` — all now proven in `NestedEvmYul.XLoop`). The
+study-era stated-only seed vocabulary (`IterStep`/`Iters`/…) is kept below
+ONLY as the endgame statement's input language, superseded-note attached; T4
+retires it.
 
 ## What this file does
 
@@ -24,24 +22,17 @@ the nested Hoare surface (T2) and relational veneer (T1) to the existing
    at the `SharedObservable` altitude (`completedWith`).
 2. Pins the two projection lemmas (`observe_ok_tag`, `observe_storageAt`) that
    make every observable conclusion a `rw`+`rfl` above `runΘ`/`observe_nested`.
-3. Connects T2's `ThetaTriple` to an observable conclusion
+3. Connects XiTriple's `ThetaTriple` to an observable conclusion
    (`completedWith_of_thetaTriple`) and exhibits an inhabited instance via the
    do-nothing refinement (`doNothing_completedWith`).
-4. Lifts T1's veneer to the observable (`ΘRuns_completedWith`) — explicitly
-   inheriting T1's unproved fuel-irrelevance keystone.
+4. Lifts the ∀-fuel relational veneer to the observable
+   (`ΘRuns_completedWith`) — sorry-free since the T2 forall-fuel pivot: the
+   cofinal encoding needs NO fuel-irrelevance keystone, only the
+   `k ≤ seedFuel w` offset side condition.
 5. States the FULL nested analog of flat `twoCall_completedWith`
-   (TwoCallExample.lean:103) as a SORRY-CLASS-hard statement whose precise
-   blocker — no X-loop opcode logic between the two calls — is the study's
-   headline negative data point. The one-iteration seed vocabulary the hard
-   sorry names as missing (`IterStep`/`IterCallStep`/`IterHalt`/`Iters`) is
-   stated (no lemmas).
-
-## Sorry-inheritance note (honest, per the ground rules)
-
-`ΘRuns_completedWith` consumes T1's `ΘRuns.runΘ_complete`, which carries the
-T1 keystone sorry (`Θ_fuel_mono_ok`/`Θ_fuel_mono_error`). It is consumed as-is,
-never silently re-proved: the inheritance is the data point. T2's names used
-here (`ThetaTriple`, `callAccessSubstate`, `thetaTransfer`) are all sorry-free.
+   (TwoCallExample.lean:103) as the remaining SORRY-CLASS-hard endgame; its
+   original blocker — no X-loop opcode logic between the two calls — has been
+   removed by T1 (XLoop.lean), and T4 owns the rebuild.
 -/
 
 namespace NestedEvmYul
@@ -136,28 +127,33 @@ theorem doNothing_completedWith (w : NestedWorld) (h : IsDoNothing w) :
   obtain ⟨hdata, hstor⟩ := nested_refines_emptyObs w h
   exact ⟨hdata.1, hstor addr key⟩
 
-/-! ## From T1's veneer to observable conclusions -/
+/-! ## From the ∀-fuel veneer to observable conclusions -/
 
-/-- **Veneer-to-observable plumbing.** A veneer run (`ΘRuns`, any fuel witness)
-with a completed (`z = true`) result whose post-map reads `v` at `(addr, key)`
+/-- **Veneer-to-observable plumbing** (∀-fuel encoding, T2 pivot). A cofinal
+veneer witness — offset `k` within the seeding envelope (`k ≤ seedFuel w`) —
+for a completed (`z = true`) result whose post-map reads `v` at `(addr, key)`
 yields `completedWith` of the seeded fuel-free run.
 
-PROVED GIVEN T1's `ΘRuns.runΘ_complete` — which carries T1's keystone sorry
-(`Θ_fuel_mono_ok`/`Θ_fuel_mono_error`, the unproved 6-layer fuel-irrelevance
-mutual induction). This theorem therefore **inherits that sorry transitively**;
-the inheritance is deliberate and IS the data point: on the existential
-encoding, even reaching the observable costs the keystone, whereas the ∀-fuel
-triple route above (`completedWith_of_thetaTriple`) is keystone-free. -/
-theorem ΘRuns_completedWith (w : NestedWorld) (he : w.e ≤ 1024)
+PROVED sorry-free: `ΘRuns.runΘ_complete'` instantiates the cofinal family at
+`f := seedFuel w - k`; no fuel-irrelevance keystone anywhere. (The pre-pivot
+existential version of this theorem inherited the quarantined
+`Θ_fuel_mono_*` sorries; see ThetaRuns.lean, `section
+DeprecatedFuelExistential`.) The offset hypothesis is taken explicitly (rather
+than through `ΘRuns`'s `∃ k`) precisely so the `k ≤ seedFuel w` side condition
+can be stated — that side condition is the honest residue of the pivot. -/
+theorem ΘRuns_completedWith (w : NestedWorld)
     {cA : Batteries.RBSet AccountAddress compare} {σ' : AccountMap}
     {g' : UInt256} {A' : Substate} {o : ByteArray} (addr key v : Nat)
-    (hruns : ΘRuns w (cA, σ', g', A', true, o))
+    (k : ℕ) (hk : k ≤ seedFuel w)
+    (hruns : ∀ f, Θ (k + f) w.blobVersionedHashes w.createdAccounts
+      w.genesisBlockHeader w.blocks w.σ w.σ₀ w.A w.s w.o w.r w.c w.g w.p w.v
+      w.v' w.d w.e w.H w.w = .ok (cA, σ', g', A', true, o))
     (hread : (match σ'.toList.find? (fun p => p.1.val = addr) with
               | some p => (p.2.lookupStorage (UInt256.ofNat key)).toNat
               | none => 0) = v) :
     completedWith (observe_nested (runΘ w)) addr key v := by
   have hrun : runΘ w = .ok (cA, σ', g', A', true, o) :=
-    ΘRuns.runΘ_complete w _ he hruns
+    ΘRuns.runΘ_complete' w _ k hk hruns
   exact ⟨observe_ok_tag w hrun, (observe_storageAt w addr key hrun).trans hread⟩
 
 /-! ## Seed vocabulary for the missing X-loop logic (stated only, no lemmas)
@@ -348,16 +344,22 @@ theorem nested_twoCall_completedWith
 
 /-! ## Findings
 
-The three-track data point, in one place (T1 = ThetaRuns.lean, T2 =
-XiTriple.lean, T3 = this file):
+The three-track data point, in one place (study tracks: T1 = ThetaRuns.lean,
+T2 = XiTriple.lean, T3 = this file), UPDATED for the overnight promotions
+(XLoop T1 + forall-fuel pivot T2):
 
-* **(a) Relational veneer — one hard keystone.** T1's fuel-existential `ΘRuns`
-  is free to introduce, inhabit, and totalize, but EVERY cross-fuel lemma
-  (determinism, adequacy, and this file's `ΘRuns_completedWith`) funnels
-  through the single unproved fuel-irrelevance mutual induction
-  (`Θ_fuel_mono_ok`, a 6-layer `gas_mono`-shaped strong induction with a
-  ~1500-line helper family). The flat single-interpreter side never pays this
-  tax: nested-native reasoning's fixed cost.
+* **(a) Relational veneer — keystone tax DELETED by the cofinal re-encoding.**
+  The study's fuel-existential `ΘRuns` paid a single unproved fuel-irrelevance
+  mutual induction (`Θ_fuel_mono_ok`, a 6-layer `gas_mono`-shaped strong
+  induction priced at a ~1500-line helper family) for EVERY cross-fuel lemma.
+  The forall-fuel pivot re-encoded the veneer offset-cofinally
+  (`∃ k, ∀ f, Θ (k + f) … = .ok res`), after which determinism,
+  adequacy-under-side-condition, and this file's `ΘRuns_completedWith` close
+  sorry-free by pure instantiation. The honest residue: single fuel points no
+  longer enter the veneer, and adequacy carries a `k ≤ seedFuel w` side
+  condition — removing either is exactly the keystone, now quarantined in
+  ThetaRuns.lean's `DeprecatedFuelExistential` section as T4's
+  prove-or-delete target.
 
 * **(b) ∀-fuel triples — cheap composition, expensive footprints.** T2's
   `XiTriple`/`ThetaTriple` are fuel-free for free (universal quantification
@@ -381,9 +383,13 @@ XiTriple.lean, T3 = this file):
   successors carry the unconditional `execLength` bump that `call` outputs
   lack), so the call result must enter as a fresh, hypothesis-only state.
   Between the two calls, the caller's straight-line code
-  is a logic-free zone: its intermediate states can only be hypothesized, never
-  derived. That surface — which flat has and nested lacks — is the entire
-  remaining distance from B3-shaped triples to the B4 observable endgame.
+  was a logic-free zone: its intermediate states could only be hypothesized,
+  never derived. **UPDATE (T1, XLoop.lean): that zone is now colonized** —
+  per-opcode rules (`X_push1`/`X_sstore`/`X_jump`/`X_jumpi_*`), the branch
+  combinator (`X_branch`), the sequencing/decomposition theorem
+  (`X_decompose`), and the CALL-arm dispatcher tie (`step_call_eq`) are all
+  proven sorry-free. The endgame statement above remains the last consumer to
+  rebuild on that vocabulary (T4).
 -/
 
 end NestedEvmYul

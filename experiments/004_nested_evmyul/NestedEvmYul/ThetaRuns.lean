@@ -1,42 +1,52 @@
 import NestedEvmYul.SharedObservable
 import NestedEvmYul.Refinement
 import NestedEvmYul.NeverOutOfFuel
+import NestedEvmYul.XLoop
 
 /-!
-# T1 — `ΘRuns`: a fuel-free relational veneer over the nested `Θ`, and the
-# fuel-irrelevance keystone it exposes
+# T2 — `ΘRuns`: the ∀-fuel (offset-cofinal) relational veneer over the nested `Θ`
 
-**THIS FILE IS A LABELED EXPLORATORY SHAPE STUDY, NOT A FOUNDATION TO BUILD ON.**
+**The surface of this file above the quarantine fence is foundation-grade and
+sorry-free** (house proof-first rule back in force). The original shape study's
+fuel-existential encoding — whose every cross-fuel lemma funnelled through an
+unproved ~1500-line fuel-irrelevance keystone — survives only inside the
+clearly-fenced `section DeprecatedFuelExistential` at the bottom, renamed
+`ΘRunsE`, pending T4's keystone attempt. Nothing outside that section
+references anything inside it.
 
-Ground rules (per the track spec, verbatim): statements first; prove only the
-genuinely easy ones; the rest get explicit `sorry` with a
-`-- SORRY-CLASS: easy|medium|hard — <reason>` comment; this file is a LABELED
-EXPLORATORY ARTIFACT, not a foundation to build on — it **deliberately overrides
-the house proof-first/no-sorry rule by design**, for the sole purpose of
-measuring the shape and cost of a relational surface over the nested recursive
-`Θ` semantics; `lake build` must be green after the track.
+## The pivot (T2)
 
-## What is measured here
+`ΘRuns w res` now says: **cofinally in fuel, above some offset `k`, `Θ`
+returns `.ok res`** — `∃ k, ∀ f, Θ (k + f) … = .ok res`. This is exactly the
+shape the closed per-layer reduction lemmas already produce (`Xi_stop` is
+`∀ f, Ξ (f + 3) … = .ok …`, Refinement.lean), so producers pay nothing extra,
+and every cross-fuel consumer becomes pure instantiation:
 
-`ΘRuns w res` is the fuel-existential graph closure of `Θ`: "some fuel makes
-`Θ` return `.ok res` on world `w`". Everything *within* one fuel witness is
-free: introduction, non-vacuity (via the closed `runΘ_doNothing`), and totality
-(via the closed `runΘ_never_outOfFuel`) are pure `Except`/`∃` logic that never
-unfolds the semantics.
+* **determinism** (`ΘRuns.deterministic`) — instantiate each witness at the
+  other's offset (`k₁ + k₂` vs `k₂ + k₁`, one `Nat.add_comm`), then
+  `Except.ok` injectivity. No fuel transport, no keystone. This deletes the
+  study's headline tax.
+* **adequacy under a side condition** (`ΘRuns.runΘ_complete'`) — a cofinal
+  witness whose offset is within the seeding (`k ≤ seedFuel w`) pins the
+  seeded fuel-free driver: instantiate `f := seedFuel w - k`.
+* **the observable lift** — ObservableTriple.`ΘRuns_completedWith`, plumbing
+  over the same instantiation.
 
-## Deliverable finding
+## What the ∀-encoding honestly gives up
 
-The relational veneer is **~free EXCEPT** that every cross-fuel lemma —
-determinism, adequacy w.r.t. `runΘ`, and any future transitivity/gluing —
-funnels through ONE missing keystone: **fuel-irrelevance of `Θ` results**
-(`Θ_fuel_mono_ok` / `Θ_fuel_mono_error` below). That keystone is a fresh
-5/6-layer mutual strong induction over `step`/`call`/`Θ`/`Ξ`/`Lambda`/`X`,
-mirroring the shape of `NeverOutOfFuel.gas_mono` (NeverOutOfFuel.lean:4018–4133)
-but proving a *different* invariant, so nothing there is reusable as-is. The
-flat single-counter side never pays this tax: with one interpreter and one
-drive, determinism is definitional (function-equation determinism of a single
-run) and no cross-fuel transport ever arises. This is the nested-native analog
-of a lemma the flat side gets for free — the headline data point of this track.
+The existential encoding had a free single-point introduction (`of_runΘ`: one
+successful fueled run enters the veneer) and *unconditional* adequacy — but
+only by deferring ALL cost to the fuel-irrelevance keystone
+(`Θ_fuel_mono_ok`/`Θ_fuel_mono_error`: a fresh 6-layer mutual strong induction
+mirroring `gas_mono`, NeverOutOfFuel.lean:4018–4133, plus a re-proved
+~1500-line per-layer helper family). The ∀-encoding inverts the trade:
+producers must supply **cofinal** witnesses — which the shape lemmas naturally
+do (`Xi_stop`; `Θ_doNothing` below) — and in exchange every consumer closes
+outright. A bare single fuel point (e.g. `runΘ w = .ok res` alone) does NOT
+enter the veneer without the keystone; the `k ≤ seedFuel w` side condition on
+adequacy is likewise irremovable without it (`runΘ_never_outOfFuel` excludes
+one error at one seeding — it transports nothing). That trade IS the pivot;
+it is the honest boundary of this API, not a defect to paper over.
 -/
 
 namespace NestedEvmYul
@@ -44,44 +54,228 @@ open EvmYul EvmYul.EVM
 
 /-! ## The veneer -/
 
-/-- **`ΘRuns`** — the fuel-free relational veneer over `Θ`: the fuel-existential
-graph closure. `w` bundles the 19 positional `Θ` arguments (`NestedWorld`,
-SharedObservable.lean); `res` is `Θ`'s `.ok` payload (`ThetaResult`). -/
+/-- **`ΘRuns`** — the fuel-free relational veneer over `Θ`, in offset-cofinal
+form: above some fuel offset `k`, EVERY fueled run returns `.ok res`. `w`
+bundles the 19 positional `Θ` arguments (`NestedWorld`, SharedObservable.lean);
+`res` is `Θ`'s `.ok` payload (`ThetaResult`). -/
 def ΘRuns (w : NestedWorld) (res : ThetaResult) : Prop :=
+  ∃ k, ∀ f, Θ (k + f) w.blobVersionedHashes w.createdAccounts w.genesisBlockHeader
+    w.blocks w.σ w.σ₀ w.A w.s w.o w.r w.c w.g w.p w.v w.v' w.d w.e w.H w.w = .ok res
+
+/-- Introduction from a cofinal family: any offset-uniform success enters the
+veneer. PROVED (pure `∃`-intro) — this is the producer-side obligation the
+∀-encoding demands: a *cofinal* witness, not a single fuel point. -/
+theorem ΘRuns.intro (w : NestedWorld) (res : ThetaResult) (k : ℕ)
+    (h : ∀ f, Θ (k + f) w.blobVersionedHashes w.createdAccounts w.genesisBlockHeader
+      w.blocks w.σ w.σ₀ w.A w.s w.o w.r w.c w.g w.p w.v w.v' w.d w.e w.H w.w = .ok res) :
+    ΘRuns w res :=
+  ⟨k, h⟩
+
+/-! ## Cross-fuel consequences — now pure instantiation, keystone-free -/
+
+/-- **Determinism of the veneer.** PROVED sorry-free: instantiate the first
+witness at the second's offset and vice versa — both land at fuel `k₁ + k₂`
+(one `Nat.add_comm`) — then `Except.ok` injectivity. The existential encoding
+paid an unproved 6-layer mutual induction for this exact statement
+(`ΘRunsE.deterministic`, quarantined below); the cofinal encoding gets it for
+the cost of commutativity of `+`. -/
+theorem ΘRuns.deterministic (w : NestedWorld) (res₁ res₂ : ThetaResult)
+    (h₁ : ΘRuns w res₁) (h₂ : ΘRuns w res₂) : res₁ = res₂ := by
+  obtain ⟨k₁, h₁⟩ := h₁
+  obtain ⟨k₂, h₂⟩ := h₂
+  have e₁ := h₁ k₂
+  have e₂ := h₂ k₁
+  rw [Nat.add_comm k₂ k₁] at e₂
+  rw [e₁] at e₂
+  exact Except.ok.inj e₂
+
+/-- **Adequacy under a side condition.** A cofinal witness whose offset is
+within the seeding envelope pins the seeded fuel-free driver: instantiate
+`f := seedFuel w - k` (`Nat.add_sub_cancel'`). PROVED sorry-free.
+
+HONEST BOUNDARY: the side condition `k ≤ seedFuel w` is genuinely needed and
+NOT removable via `runΘ_never_outOfFuel` (which excludes one error at one
+seeding but transports no result across fuels) — removing it is exactly the
+quarantined keystone. Producers built from the shape lemmas satisfy it
+trivially (their offsets are small constants; see `ΘRuns_doNothing_runΘ`). -/
+theorem ΘRuns.runΘ_complete' (w : NestedWorld) (res : ThetaResult) (k : ℕ)
+    (hk : k ≤ seedFuel w)
+    (h : ∀ f, Θ (k + f) w.blobVersionedHashes w.createdAccounts w.genesisBlockHeader
+      w.blocks w.σ w.σ₀ w.A w.s w.o w.r w.c w.g w.p w.v w.v' w.d w.e w.H w.w = .ok res) :
+    runΘ w = .ok res := by
+  have hf := h (seedFuel w - k)
+  rw [Nat.add_sub_cancel' hk] at hf
+  exact hf
+
+/-! ## Non-vacuity: cofinal do-nothing witnesses
+
+The ∀-encoding demands *cofinal* producers. Refinement.lean's per-layer
+STOP-path lemmas are already fuel-generic in shape (`X_stop`/`Xi_stop` hold at
+every `f + 2`/`f + 3`) but return a fresh existential witness at each fuel;
+the versions below hoist the witness OUT of the fuel quantifier. This is
+legitimate — and keystone-free — because the STOP path never consumes fuel:
+`XLoop.step_eq_shared_stop`'s right-hand side is literally fuel-free (the
+dispatcher-equation technique, T1), so the run's result is the same term at
+every fuel by definitional unfolding, not by transporting a result. -/
+
+/-- Fuel-uniform `step` on `STOP`: one witness state for ALL fuels. The two
+`XLoop.step_eq_shared_stop` rewrites route both the generic-`f` goal and the
+`f = 0` seed through the same fuel-free `EvmYul.step` term. -/
+theorem step_stop_cofinal (s : EVM.State) :
+    ∃ s', (∀ f, EVM.step (f + 1) 0 (some (Operation.STOP, none)) s = .ok s')
+      ∧ s'.toState = s.toState := by
+  obtain ⟨s', h1, hst⟩ := step_stop 0 s
+  refine ⟨s', fun f => ?_, hst⟩
+  rw [XLoop.step_eq_shared_stop f 0 none s, ← XLoop.step_eq_shared_stop 0 0 none s]
+  exact h1
+
+/-- Fuel-uniform single-`STOP` `X` iteration: one witness state for ALL fuels.
+Mirror of Refinement.lean's `X_stop`, with the fuel-uniform step. -/
+theorem X_stop_cofinal (vj : Array UInt256) (s : EVM.State)
+    (hcode : s.executionEnv.code = ⟨#[0x00]⟩) (hpc : s.pc = ⟨0⟩) (hstk : s.stack = []) :
+    ∃ s', (∀ f, X (f + 2) vj s = .ok (.success s' .empty)) ∧ s'.toState = s.toState := by
+  obtain ⟨s', hstep, hst⟩ :=
+    step_stop_cofinal {s with gasAvailable := s.gasAvailable - UInt256.ofNat 0}
+  refine ⟨s', fun f => ?_, hst⟩
+  unfold X
+  simp only [hcode, hpc, decode_stop, Option.getD]
+  rw [Z_stop vj s hstk]
+  simp only [bind, Except.bind]
+  rw [hstep f]
+  simp only [H_stop, beq_iff_eq, reduceCtorEq, reduceIte]
+
+/-- Fuel-uniform single-`STOP` `Ξ`: one gas witness for ALL fuels. Mirror of
+Refinement.lean's `Xi_stop` with the fuel quantifier inside the existential —
+exactly the producer shape `ΘRuns` wants. -/
+theorem Xi_stop_cofinal (cA : Batteries.RBSet AccountAddress compare)
+    (gh : BlockHeader) (bl : ProcessedBlocks) (σ σ₀ : AccountMap) (g : UInt256)
+    (A : Substate) (I : ExecutionEnv) (hcode : I.code = ⟨#[0x00]⟩) :
+    ∃ g', ∀ f, Ξ (f + 3) cA gh bl σ σ₀ g A I = .ok (.success (cA, σ, g', A) .empty) := by
+  obtain ⟨s', hX, hst⟩ := X_stop_cofinal (D_J I.code ⟨0⟩) { (default : EVM.State) with accountMap := σ, σ₀ := σ₀, substate := A, executionEnv := I, blocks := bl, genesisBlockHeader := gh, createdAccounts := cA, gasAvailable := g } hcode rfl rfl
+  refine ⟨s'.gasAvailable, fun f => ?_⟩
+  rw [Ξ]
+  simp only [bind, Except.bind]
+  have hXf := hX f
+  -- Zeta-reduce `hXf`'s state literal so it matches the goal's (`default.field` form).
+  simp only [] at hXf
+  rw [hXf]
+  simp only []
+  have hacc : s'.accountMap = σ := by rw [show s'.accountMap = s'.toState.accountMap from rfl, hst]
+  have hsub : s'.substate = A := by rw [show s'.substate = s'.toState.substate from rfl, hst]
+  have hcr  : s'.createdAccounts = cA := by
+    rw [show s'.createdAccounts = s'.toState.createdAccounts from rfl, hst]
+  rw [hacc, hsub, hcr]
+
+/-- **Θ-level ∀-fuel do-nothing forward lemma.** The do-nothing world
+(single-`STOP` call on the empty map, Refinement.lean's `IsDoNothing`) runs to
+the canonical result at EVERY fuel `f + 4` — the cofinal witness `ΘRuns`
+wants, with offset `4`. Mirror of `runΘ_doNothing`'s Θ-reduction (one Θ-peel:
+`simp only [Θ, …]` through the transfer preamble on the empty map, then the
+cofinal `Ξ` lemma; the `σ'' == ∅` rollback arm computes away by `rfl`). -/
+theorem Θ_doNothing (w : NestedWorld) (h : IsDoNothing w) :
+    ∃ cA g', ∀ f, Θ (f + 4) w.blobVersionedHashes w.createdAccounts w.genesisBlockHeader
+      w.blocks w.σ w.σ₀ w.A w.s w.o w.r w.c w.g w.p w.v w.v' w.d w.e w.H w.w
+      = .ok (cA, (∅ : AccountMap), g', (default : Substate), true, ByteArray.empty) := by
+  obtain ⟨hc, hσ, hA, hv, he⟩ := h
+  obtain ⟨g', hXi⟩ := Xi_stop_cofinal w.createdAccounts w.genesisBlockHeader w.blocks
+    ∅ w.σ₀ w.g default
+    { codeOwner := w.r, sender := w.o, source := w.s, weiValue := w.v', calldata := w.d,
+      code := ⟨#[0x00]⟩, gasPrice := w.p.toNat, header := w.H, depth := w.e, perm := w.w,
+      blobVersionedHashes := w.blobVersionedHashes } rfl
+  refine ⟨w.createdAccounts, g', fun f => ?_⟩
+  rw [hc, hσ, hA, hv]
+  -- Θ matches `fuel + 1` with `fuel = f + 3`; the `Code` arm calls `Ξ (f + 3)` on
+  -- the entry-balance map `σ₁`. With `σ = ∅`/`v = 0`, the find?/insert
+  -- bookkeeping is a no-op: `σ₁` collapses back to `∅`.
+  simp only [Θ,
+             show Batteries.RBMap.find? (∅ : AccountMap) w.r = none from rfl,
+             show (({ val := 0 } : UInt256) != { val := 0 }) = false from by decide,
+             Bool.false_eq_true, if_false,
+             show Batteries.RBMap.find? (∅ : AccountMap) w.s = none from rfl]
+  rw [hXi f]
+  -- Θ's `Code` success arm packs `(cA, true, ∅, g', default, .empty)`, then
+  -- post-processes: `σ' = if ∅ == ∅ then σ else ∅ = ∅` and
+  -- `A' = if ∅ == ∅ then A else _ = default` — all by computation.
+  rfl
+
+/-- Non-vacuity of the veneer: the do-nothing world is in `ΘRuns`, with the
+entry map/substate returned unchanged. PROVED sorry-free (offset witness `4`,
+one `Nat.add_comm` to reorient the cofinal family). -/
+theorem ΘRuns_doNothing (w : NestedWorld) (h : IsDoNothing w) :
+    ∃ cA g', ΘRuns w (cA, (∅ : AccountMap), g', (default : Substate), true, ByteArray.empty) := by
+  obtain ⟨cA, g', hf⟩ := Θ_doNothing w h
+  refine ⟨cA, g', 4, fun f => ?_⟩
+  rw [Nat.add_comm 4 f]
+  exact hf f
+
+/-- The seeding envelope covers the do-nothing offset: `4 ≤ seedFuel w` under
+the depth bound (`fuelBound ≥ 1`, Refinement.lean's `fuelBound_pos`, plus the
+seeding's `+ 3`). The one-line Nat fact that connects the cofinal witness to
+the seeded driver. -/
+theorem seedFuel_ge_four (w : NestedWorld) (he : w.e ≤ 1024) : 4 ≤ seedFuel w := by
+  unfold seedFuel
+  have h := fuelBound_pos w.g.toNat w.e he
+  omega
+
+/-- The full pipeline, non-vacuously: cofinal do-nothing witness (offset `4`)
++ `4 ≤ seedFuel w` + adequacy-under-side-condition = the seeded driver's
+result — recovering Refinement.lean's `runΘ_doNothing` through the new API,
+keystone-free. -/
+theorem ΘRuns_doNothing_runΘ (w : NestedWorld) (h : IsDoNothing w) :
+    ∃ cA g', runΘ w = .ok (cA, (∅ : AccountMap), g', (default : Substate), true, ByteArray.empty) := by
+  obtain ⟨cA, g', hf⟩ := Θ_doNothing w h
+  refine ⟨cA, g', ΘRuns.runΘ_complete' w _ 4 (seedFuel_ge_four w h.depth) (fun f => ?_)⟩
+  rw [Nat.add_comm 4 f]
+  exact hf f
+
+/-! ---------------------------------------------------------------------------
+## QUARANTINE FENCE — deprecated fuel-existential encoding below this line
+
+**`section DeprecatedFuelExistential` — study-status material, quarantined
+pending T4's keystone attempt.** Everything below is the pre-pivot
+fuel-existential encoding (`ΘRunsE`, né `ΘRuns`) together with the TWO
+remaining classified sorries of this file: the fuel-irrelevance keystone pair
+`Θ_fuel_mono_ok`/`Θ_fuel_mono_error`. T4 either proves the pair (using T1's
+dispatcher-equation technique to stale the ~1500-line pricing below), at which
+point this section is promoted, or it deletes the WHOLE section and records
+the obstruction in docs. NOTHING outside this section may import or reference
+anything inside it — the foundation-grade surface above is self-contained.
+--------------------------------------------------------------------------- -/
+
+section DeprecatedFuelExistential
+
+/-- DEPRECATED (quarantined) — the pre-pivot fuel-existential veneer: "some
+fuel makes `Θ` return `.ok res`". Every cross-fuel lemma over THIS encoding
+funnels through the unproved keystone pair below. Superseded by the
+offset-cofinal `ΘRuns` above; kept only as T4's target vocabulary. -/
+def ΘRunsE (w : NestedWorld) (res : ThetaResult) : Prop :=
   ∃ fuel, Θ fuel w.blobVersionedHashes w.createdAccounts w.genesisBlockHeader
     w.blocks w.σ w.σ₀ w.A w.s w.o w.r w.c w.g w.p w.v w.v' w.d w.e w.H w.w = .ok res
 
-/-- Any successful fueled `Θ` run enters the veneer. PROVED (pure `∃`-intro). -/
-theorem ΘRuns.intro (w : NestedWorld) (res : ThetaResult) (fuel : ℕ)
+/-- DEPRECATED (quarantined). Single-point introduction — the intro rule the
+∀-encoding gives up. PROVED (pure `∃`-intro). -/
+theorem ΘRunsE.intro (w : NestedWorld) (res : ThetaResult) (fuel : ℕ)
     (h : Θ fuel w.blobVersionedHashes w.createdAccounts w.genesisBlockHeader
       w.blocks w.σ w.σ₀ w.A w.s w.o w.r w.c w.g w.p w.v w.v' w.d w.e w.H w.w = .ok res) :
-    ΘRuns w res :=
+    ΘRunsE w res :=
   ⟨fuel, h⟩
 
-/-- The seeded fuel-free driver `runΘ` lands in the veneer. PROVED (`runΘ`
-unfolds by definition; witness `seedFuel w`). -/
-theorem ΘRuns.of_runΘ (w : NestedWorld) (res : ThetaResult)
-    (h : runΘ w = .ok res) : ΘRuns w res := by
+/-- DEPRECATED (quarantined). The seeded driver lands in the existential
+veneer — the other intro rule the ∀-encoding gives up. PROVED. -/
+theorem ΘRunsE.of_runΘ (w : NestedWorld) (res : ThetaResult)
+    (h : runΘ w = .ok res) : ΘRunsE w res := by
   unfold runΘ at h
   exact ⟨seedFuel w, h⟩
 
-/-- Non-vacuity: the do-nothing world (single-`STOP` call on the empty map,
-Refinement.lean) is in the veneer, with the entry map/substate returned
-unchanged. PROVED (direct from the closed `runΘ_doNothing`). -/
-theorem ΘRuns_doNothing (w : NestedWorld) (h : IsDoNothing w) :
-    ∃ cA g', ΘRuns w (cA, (∅ : AccountMap), g', (default : Substate), true, ByteArray.empty) := by
-  obtain ⟨cA, g', hrun⟩ := runΘ_doNothing w h
-  exact ⟨cA, g', ΘRuns.of_runΘ w _ hrun⟩
+/-! ### The keystone: fuel-irrelevance of `Θ` results
 
-/-! ## The keystone: fuel-irrelevance of `Θ` results
-
-**The missing mutual induction.** Neither half below is provable from anything
-in `NeverOutOfFuel.lean`: `gas_mono` (line 4071) bounds *gas*, and
-`Θ_never_outOfFuel` (line 4665) excludes *one error at one seeding* — neither
-transports a *result* across fuels. The proof would be a NEW strong induction on
-fuel bundling per-layer predicates, mirroring `*_gas_mono_at`
-(NeverOutOfFuel.lean:4018–4071) exactly in shape. Skeleton (per the track spec,
-as a comment — the point is to make the cost legible, not to pay it):
+**The missing mutual induction** (T4's target). Neither half below is provable
+from anything in `NeverOutOfFuel.lean`: `gas_mono` (line 4071) bounds *gas*,
+and `Θ_never_outOfFuel` (line 4665) excludes *one error at one seeding* —
+neither transports a *result* across fuels. The proof would be a NEW strong
+induction on fuel bundling per-layer predicates, mirroring `*_gas_mono_at`
+(NeverOutOfFuel.lean:4018–4071) exactly in shape. Skeleton (kept verbatim from
+the study, as a comment — the point is to make the cost legible):
 
 ```
 -- Per-layer result-stability predicates at a single fuel `n`. Each says: a
@@ -139,14 +333,19 @@ theorem res_mono : ∀ n,
               -- exactly like the gas-mono Stage-1 helpers (`step_gas_le`,
               -- `call_result_gas_le`, `Θ_gas_le_code`, …), each re-proved for
               -- result-stability. That Stage-1 helper family (~1500 lines on
-              -- the gas side) is the real cost.
+              -- the gas side) is the *study's* pricing — T4 NOTE: T1's
+              -- dispatcher equations (`XLoop.step_eq_shared_*`, fuel-free
+              -- RHSes by `rfl`) make the non-recursive `step` arms
+              -- fuel-irrelevant definitionally, staling most of that bill;
+              -- the recursive CALL/CREATE arms and the loop/layer inductions
+              -- remain the real cost.
 ```
 
 Both halves below are corollaries of `res_mono` (`.ok` is never
 `.error .OutOfFuel`; a non-OOF error is excluded by hypothesis). -/
 
-/-- **Keystone, `.ok` half** — a successful `Θ` result is stable under raising
-fuel. -/
+/-- DEPRECATED (quarantined) **keystone, `.ok` half** — a successful `Θ` result
+is stable under raising fuel. -/
 theorem Θ_fuel_mono_ok
     (f f' : ℕ) (bvh : List ByteArray) (cA : Batteries.RBSet AccountAddress compare)
     (gh : BlockHeader) (blocks : ProcessedBlocks) (σ σ₀ : AccountMap) (A : Substate)
@@ -156,15 +355,15 @@ theorem Θ_fuel_mono_ok
     (hle : f ≤ f') :
     Θ f' bvh cA gh blocks σ σ₀ A s o r c g p v v' d e Hd w = .ok res := by
   -- SORRY-CLASS: hard — needs the NEW 6-layer `res_mono` mutual strong
-  -- induction skeletonized above (mirrors `gas_mono`, NeverOutOfFuel.lean:4071,
-  -- incl. re-proving its ~1500-line Stage-1 per-layer helper family for
-  -- result-stability instead of gas bounds); nothing existing transports a
-  -- result across fuels.
+  -- induction skeletonized above (mirrors `gas_mono`, NeverOutOfFuel.lean:4071;
+  -- T1's dispatcher equations stale much of the Stage-1 helper bill, but the
+  -- recursive arms + layer inductions remain); nothing existing transports a
+  -- result across fuels. T4's target.
   sorry
 
-/-- **Keystone, error half** — a non-`OutOfFuel` `Θ` error is stable under
-raising fuel (only `OutOfFuel` is a fuel artifact; semantic errors are
-fuel-irrelevant). -/
+/-- DEPRECATED (quarantined) **keystone, error half** — a non-`OutOfFuel` `Θ`
+error is stable under raising fuel (only `OutOfFuel` is a fuel artifact;
+semantic errors are fuel-irrelevant). -/
 theorem Θ_fuel_mono_error
     (f f' : ℕ) (bvh : List ByteArray) (cA : Batteries.RBSet AccountAddress compare)
     (gh : BlockHeader) (blocks : ProcessedBlocks) (σ σ₀ : AccountMap) (A : Substate)
@@ -175,18 +374,15 @@ theorem Θ_fuel_mono_error
     Θ f' bvh cA gh blocks σ σ₀ A s o r c g p v v' d e Hd w = .error err := by
   -- SORRY-CLASS: hard — error half of the same `res_mono` keystone (one bundled
   -- induction proves both halves); non-OOF errors are fuel-stable but only the
-  -- full 6-layer mutual induction can say so.
+  -- full 6-layer mutual induction can say so. T4's target.
   sorry
 
-/-! ## Cross-fuel consequences — everything below inherits the keystone -/
-
-/-- **Determinism of the veneer.** PROVED for real *given the keystone*: lift
-both witnesses to `max f₁ f₂` via `Θ_fuel_mono_ok`, then `Except.ok`
-injectivity. Inherits the keystone's `sorry` transitively — that inheritance IS
-the data point: on the flat side, determinism of one interpreter drive is
-definitional and costs nothing. -/
-theorem ΘRuns.deterministic (w : NestedWorld) (res₁ res₂ : ThetaResult)
-    (h₁ : ΘRuns w res₁) (h₂ : ΘRuns w res₂) : res₁ = res₂ := by
+/-- DEPRECATED (quarantined). Determinism over the EXISTENTIAL encoding —
+inherits the keystone's `sorry` transitively (lift both witnesses to
+`max f₁ f₂`, then `Except.ok` injectivity). Superseded sorry-free by
+`ΘRuns.deterministic` above. -/
+theorem ΘRunsE.deterministic (w : NestedWorld) (res₁ res₂ : ThetaResult)
+    (h₁ : ΘRunsE w res₁) (h₂ : ΘRunsE w res₂) : res₁ = res₂ := by
   obtain ⟨f₁, h₁⟩ := h₁
   obtain ⟨f₂, h₂⟩ := h₂
   have h₁' := Θ_fuel_mono_ok f₁ (max f₁ f₂) _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
@@ -196,13 +392,12 @@ theorem ΘRuns.deterministic (w : NestedWorld) (res₁ res₂ : ThetaResult)
   rw [h₁'] at h₂'
   exact Except.ok.inj h₂'
 
-/-- **Adequacy (completeness of `runΘ` for the veneer).** Any veneer result is
-THE result of the seeded fuel-free driver. PROVED given both keystone halves +
-the closed `runΘ_never_outOfFuel`: `.ok` clashes resolve by
-determinism-at-max-fuel; a non-OOF `.error` contradicts `Θ_fuel_mono_error` at
-max fuel; the OOF `.error` is killed by `runΘ_never_outOfFuel`. -/
-theorem ΘRuns.runΘ_complete (w : NestedWorld) (res : ThetaResult) (he : w.e ≤ 1024)
-    (h : ΘRuns w res) : runΘ w = .ok res := by
+/-- DEPRECATED (quarantined). Unconditional adequacy over the EXISTENTIAL
+encoding — inherits both keystone halves (plus the closed
+`runΘ_never_outOfFuel`). Superseded keystone-free, at the price of the
+`k ≤ seedFuel w` side condition, by `ΘRuns.runΘ_complete'` above. -/
+theorem ΘRunsE.runΘ_complete (w : NestedWorld) (res : ThetaResult) (he : w.e ≤ 1024)
+    (h : ΘRunsE w res) : runΘ w = .ok res := by
   obtain ⟨f, hf⟩ := h
   cases hrun : runΘ w with
   | ok res' =>
@@ -229,18 +424,20 @@ theorem ΘRuns.runΘ_complete (w : NestedWorld) (res : ThetaResult) (he : w.e �
         rw [h₁] at h₂
         exact absurd h₂ (by simp)
 
-/-- **Totality up to semantic error.** PROVED sorry-free (no keystone needed):
-under the depth envelope, every world either enters the veneer or the seeded
-driver reports a genuine (non-fuel) error — pure case split on `runΘ w`, with
-the OOF arm killed by the closed `runΘ_never_outOfFuel`. -/
-theorem ΘRuns.total_of_adequate (w : NestedWorld) (he : w.e ≤ 1024) :
-    (∃ res, ΘRuns w res) ∨ (∃ err, err ≠ .OutOfFuel ∧ runΘ w = .error err) := by
+/-- DEPRECATED (quarantined). Totality up to semantic error over the
+EXISTENTIAL encoding. Sorry-free itself (pure case split + the closed
+`runΘ_never_outOfFuel`), but stated against `ΘRunsE`, so it lives inside the
+fence; T4 promotes or deletes it with the section. -/
+theorem ΘRunsE.total_of_adequate (w : NestedWorld) (he : w.e ≤ 1024) :
+    (∃ res, ΘRunsE w res) ∨ (∃ err, err ≠ .OutOfFuel ∧ runΘ w = .error err) := by
   cases hrun : runΘ w with
-  | ok res => exact .inl ⟨res, ΘRuns.of_runΘ w res hrun⟩
+  | ok res => exact .inl ⟨res, ΘRunsE.of_runΘ w res hrun⟩
   | error err =>
       refine .inr ⟨err, ?_, rfl⟩
       intro hOOF
       subst hOOF
       exact runΘ_never_outOfFuel w he hrun
+
+end DeprecatedFuelExistential
 
 end NestedEvmYul
