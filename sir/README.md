@@ -8,7 +8,8 @@ event-labelled small-step semantics.
 
 Executions are indexed by traces of gas observations and external calls. A
 program is deterministic when a shared trace history determines its next
-observable outcome: a gas query, call input, or halt with a final world.
+observable outcome: a gas query, call input, or completion with its success flag,
+output data, and final world.
 
 ## Layout
 

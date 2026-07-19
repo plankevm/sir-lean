@@ -14,6 +14,7 @@ inductive IRError where
   | invalidBlock (block : BlockId)
   | invalidControl
   | invalidAlloc
+  | invalidMemoryRead
   | blockArityMismatch (outputs inputs : Nat)
   deriving DecidableEq, Repr
 
@@ -69,6 +70,7 @@ structure CallContext where
   value : Word
   calldata : ByteArray
   isStatic : Bool
+  w₀ : World
 
 inductive BlockPosition where
   | statement (index : Nat)
@@ -82,7 +84,7 @@ structure ProgramCursor where
 
 inductive MachineControl where
   | running (cursor : ProgramCursor)
-  | halted
+  | halted (success : Bool) (data : ByteArray)
   deriving DecidableEq, Repr
 
 structure MachineState where

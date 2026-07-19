@@ -24,7 +24,7 @@ def initializedLoad : Program :=
         .mstore32 xVar valueVar,
         .mload32 zVar xVar,
         .sstore zVar zVar]
-      terminator := .halt
+      terminator := .stop
       outputs := #[]}]
     entry := entryBlock }
 
@@ -36,7 +36,7 @@ def zeroSizeStore : Program :=
         .assign sizeVar (.constant 0),
         .mallocUninit xVar sizeVar,
         .sstore xVar xVar]
-      terminator := .halt
+      terminator := .stop
       outputs := #[]}]
     entry := entryBlock }
 
@@ -113,8 +113,10 @@ private theorem writeBytes_singleton (alloc : Allocation) (bytes : ByteArray)
 
 private theorem readBytes_singleton (alloc : Allocation) (bytes assumed : ByteArray)
     (hsize : assumed.size = bytes.size) :
-    (singletonMemory alloc bytes.data).readBytes alloc.offset assumed = bytes := by
-  unfold MemoryState.readBytes
+    (singletonMemory alloc bytes.data).readBytes? alloc.offset bytes.size assumed = some bytes := by
+  unfold MemoryState.readBytes?
+  rw [if_pos hsize]
+  apply congrArg some
   have hround : bytes.toList.toByteArray = bytes := by
     apply ByteArray.ext
     rw [List.data_toByteArray, BytecodeLayer.Hoare.MemAlgebra.toList_eq_data_toList]
@@ -132,12 +134,13 @@ private theorem readBytes_singleton (alloc : Allocation) (bytes assumed : ByteAr
 
 private theorem read_written_word (alloc : Allocation)
     (hsize : alloc.size = 32) (assumed : Vector UInt8 32) :
-    ((MemoryState.empty.push alloc).writeBytes alloc.offset (42 : Word).toByteArray).readBytes
-      alloc.offset ⟨assumed.toArray⟩ = (42 : Word).toByteArray := by
+    ((MemoryState.empty.push alloc).writeBytes alloc.offset (42 : Word).toByteArray).readBytes?
+      alloc.offset 32 ⟨assumed.toArray⟩ = some (42 : Word).toByteArray := by
   rw [writeBytes_singleton]
-  · apply readBytes_singleton
-    change assumed.toArray.size = (42 : Word).toByteArray.size
-    rw [assumed.size_toArray, toByteArray_size]
+  · have hread := readBytes_singleton alloc (42 : Word).toByteArray ⟨assumed.toArray⟩ (by
+      change assumed.toArray.size = (42 : Word).toByteArray.size
+      rw [assumed.size_toArray, toByteArray_size])
+    simpa only [toByteArray_size] using hread
   · simpa [BytecodeLayer.Hoare.MemAlgebra.toByteArray_size] using hsize
 
 private def stmtControl (index : Nat) : MachineControl :=
@@ -182,7 +185,7 @@ private def initializedState6 (ctx : CallContext) (world : World) (alloc : Alloc
     control := termControl }
 
 private def initializedState7 (ctx : CallContext) (world : World) (alloc : Allocation) : MachineState :=
-  { initializedState6 ctx world alloc with control := .halted }
+  { initializedState6 ctx world alloc with control := .halted true ByteArray.empty }
 
 private inductive InitializedReachable (ctx : CallContext) (world : World) : MachineState → Prop where
   | state0 : InitializedReachable ctx world (initializedState0 world)
@@ -328,9 +331,10 @@ private theorem initialized_step_closed {ctx : CallContext} {world : World}
       pure, Except.pure] at heval
     subst state'
     exact .state6 alloc hsize
-  case state6.terminator alloc hsize terminator hterm heval =>
+  case state6.terminator =>
+    rename_i alloc hsize terminator assumed hterm heval
     subst terminator
-    simp [eval_terminator, pure, Except.pure] at heval
+    simp [eval_terminator, eval_stop, pure, Except.pure] at heval
     subst state'
     exact .state7 alloc hsize
 
@@ -345,9 +349,9 @@ private theorem initialized_steps {ctx : CallContext} {world : World}
       rcases initialized_step_closed hmid next with ⟨rfl, hstate⟩
       exact ⟨rfl, hstate⟩
 
-private theorem initialized_no_next_event {ctx : CallContext} {world : World}
+private theorem initialized_no_next_event {ctx : CallContext}
     {trace : Trace} {event : Event} {state : MachineState}
-    (hrun : Runs initializedLoad ctx world (trace ++ [event]) state) : False := by
+    (hrun : Runs initializedLoad ctx (trace ++ [event]) state) : False := by
   rcases hrun with ⟨cursor, hcursor, hsteps⟩
   have hcursor' : cursor = { block := entryBlock, position := .statement 0 } := by
     symm
@@ -358,10 +362,12 @@ private theorem initialized_no_next_event {ctx : CallContext} {world : World}
   have := congrArg List.length htrace
   simp at this
 
-private theorem initialized_halted_world {ctx : CallContext} {world : World}
-    {trace : Trace} {state : MachineState}
-    (hrun : Runs initializedLoad ctx world trace state) (hhalt : state.control = .halted) :
-    trace = [] ∧ state.world = world.storeStorage ctx.self 42 42 := by
+private theorem initialized_halted {ctx : CallContext}
+    {trace : Trace} {state : MachineState} {success : Bool} {data : ByteArray}
+    (hrun : Runs initializedLoad ctx trace state)
+    (hhalt : state.control = .halted success data) :
+    trace = [] ∧ state.world = ctx.w₀.storeStorage ctx.self 42 42 ∧
+      success = true ∧ data = ByteArray.empty := by
   rcases hrun with ⟨cursor, hcursor, hsteps⟩
   have hcursor' : cursor = { block := entryBlock, position := .statement 0 } := by
     symm
@@ -373,7 +379,7 @@ private theorem initialized_halted_world {ctx : CallContext} {world : World}
   cases hstate <;> simp [initializedState0, initializedState1, initializedState2,
     initializedState3, initializedState4, initializedState5, initializedState6,
     initializedState7, stmtControl, termControl] at hhalt ⊢
-
+  exact ⟨hhalt.1, hhalt.2.symm⟩
 
 private def zeroAlloc (offset : Word) : Allocation :=
   { offset, bytes := ByteArray.empty }
@@ -402,10 +408,11 @@ private def zeroState3 (ctx : CallContext) (world : World) (offset : Word) : Mac
     control := termControl }
 
 private def zeroState4 (ctx : CallContext) (world : World) (offset : Word) : MachineState :=
-  { zeroState3 ctx world offset with control := .halted }
+  { zeroState3 ctx world offset with control := .halted true ByteArray.empty }
 
-private theorem zero_run (ctx : CallContext) (world : World) (offset : Word) :
-    Runs zeroSizeStore ctx world [] (zeroState4 ctx world offset) := by
+private theorem zero_run (ctx : CallContext) (offset : Word) :
+    Runs zeroSizeStore ctx [] (zeroState4 ctx ctx.w₀ offset) := by
+  let world := ctx.w₀
   refine ⟨{ block := entryBlock, position := .statement 0 }, ?_, ?_⟩
   · simp [zeroSizeStore, Program.startCursor?, Program.block?, BasicBlock.startPosition,
       BasicBlock.absoluteToPosition]
@@ -452,13 +459,14 @@ private theorem zero_run (ctx : CallContext) (world : World) (offset : Word) :
     have step34 :
         SmallStep zeroSizeStore ctx (zeroState3 ctx world offset) []
           (zeroState4 ctx world offset) := by
-      apply SmallStep.terminator (terminator := .halt)
+      apply SmallStep.terminator (terminator := .stop) (assumed := ByteArray.empty)
       · simp [zeroSizeStore, Program.terminatorAt, Program.block?, zeroState3, termControl]
-      · simp [eval_terminator, zeroState3, zeroState4, pure, Except.pure]
+      · rfl
     exact .tail (.tail (.tail (.tail .refl step01) step12) step23) step34
 
 private def zeroContext : CallContext :=
-  { self := 0, caller := 0, value := 0, calldata := ByteArray.empty, isStatic := false }
+  { self := 0, caller := 0, value := 0, calldata := ByteArray.empty, isStatic := false
+    w₀ := default }
 
 private theorem zero_worlds_differ :
     (default : World).storeStorage zeroContext.self 1 1 ≠
@@ -476,7 +484,7 @@ private theorem zero_worlds_differ :
   exact (by decide : (1 : Word) ≠ 0) hread
 
 theorem initializedLoad_deterministic : Deterministic initializedLoad := by
-  intro ctx world trace outcome₁ outcome₂ h₁ h₂
+  intro ctx trace outcome₁ outcome₂ h₁ h₂
   cases outcome₁ <;> cases outcome₂
   · rfl
   · rcases h₁ with ⟨_, _, hrun⟩
@@ -495,19 +503,21 @@ theorem initializedLoad_deterministic : Deterministic initializedLoad := by
     exact (initialized_no_next_event hrun).elim
   · rcases h₁ with ⟨state₁, hrun₁, hhalt₁, hworld₁⟩
     rcases h₂ with ⟨state₂, hrun₂, hhalt₂, hworld₂⟩
-    have hworld : state₁.world = state₂.world :=
-      (initialized_halted_world hrun₁ hhalt₁).2.trans
-        (initialized_halted_world hrun₂ hhalt₂).2.symm
+    have halted₁ := initialized_halted hrun₁ hhalt₁
+    have halted₂ := initialized_halted hrun₂ hhalt₂
+    have hworld : state₁.world = state₂.world := halted₁.2.1.trans halted₂.2.1.symm
     subst hworld₂
-    exact congrArg ObservableOutcome.halt (hworld₁.symm.trans hworld)
+    rw [halted₁.2.2.1, halted₁.2.2.2, halted₂.2.2.1, halted₂.2.2.2]
+    exact congrArg (ObservableOutcome.halt true ByteArray.empty) (hworld₁.symm.trans hworld)
 
 theorem zeroSizeStore_not_deterministic : ¬ Deterministic zeroSizeStore := by
   intro hdet
-  have heq := hdet zeroContext (default : World) []
-    (.halt ((default : World).storeStorage zeroContext.self 1 1))
-    (.halt ((default : World).storeStorage zeroContext.self 2 2))
-    ⟨zeroState4 zeroContext default 1, zero_run zeroContext default 1, rfl, rfl⟩
-    ⟨zeroState4 zeroContext default 2, zero_run zeroContext default 2, rfl, rfl⟩
-  exact zero_worlds_differ (ObservableOutcome.halt.inj heq)
+  have heq := hdet zeroContext []
+    (.halt true ByteArray.empty ((default : World).storeStorage zeroContext.self 1 1))
+    (.halt true ByteArray.empty ((default : World).storeStorage zeroContext.self 2 2))
+    ⟨zeroState4 zeroContext default 1, zero_run zeroContext 1, rfl, rfl⟩
+    ⟨zeroState4 zeroContext default 2, zero_run zeroContext 2, rfl, rfl⟩
+  apply zero_worlds_differ
+  simpa using heq
 
 end Sir.Examples
