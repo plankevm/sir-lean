@@ -182,3 +182,71 @@ conformance harness) and nested cheaper at the call/CREATE seam (subterm triples
 directly; `LambdaTriple`/`create_spec` came as a one-night surplus). Neither
 dominates: choose per-layer by what the proofs consume — which is exactly standing
 conclusion 1 of the mixed-step notes, now backed by data on both sides.**
+
+---
+
+## Addendum (2026-07-20, T4 night-3): gap #2 closed — `MessageBridge`, and the
+## envelope's final honest status
+
+*Append-only addendum; nothing above is rewritten. New file:
+`experiments/004_nested_evmyul/NestedEvmYul/MessageBridge.lean` (sorry-free,
+axiom-clean `[propext, Classical.choice, Quot.sound]`, build green).*
+
+### What landed
+
+1. **The general bridge** (`runΘ_of_X_family`): for ANY `NestedWorld` `w` with
+   `w.c = .Code cd`, a cofinal `X` success family on `callerEntry w cd` at
+   offset `m` with `m + 4 ≤ seedFuel w` and the non-firing rollback guard pins
+   `runΘ w` — the endgame's inline steps (2)–(4)
+   (ObservableTriple.lean:352–396) hoisted into one reusable theorem.
+2. **The split that locates the side condition.** `ΘRuns_of_X_family` proves
+   the SAME family enters the fuel-free veneer with **no envelope** (pure
+   cofinal introduction). So the nested side's `≤ seedFuel w` residue lives
+   entirely in *adequacy* (veneer → seeded driver), not in the layer crossing
+   — the precise nested location of what flat gets free from true
+   fuel-monotonicity.
+3. **The program-level driver** (`runΘ_of_decomposition` +
+   `completedWith_of_decomposition`): `ItersN` chain + `IterHaltU` halting
+   link (X_decompose's inputs) in, top-level `runΘ` equation and observable
+   `completedWith` out — the flat `messageCall_runs` (Spec.lean:70) analog
+   with segment data entering as chain values, as flat's `Runs` argument does.
+4. **The risky half PARTIALLY SUCCEEDED — envelope DERIVED on the call-free
+   fragment.** New gas-witnessed link/chain vocabulary (`IterStepG`/`ItersG`,
+   forgetful maps into `IterStepU`/`ItersN`, all six straight-line intro rules
+   lifted with `decide`-discharged witnesses): every link provably burns ≥ 1
+   gas (`Z_ok_gas` inversion + `gas_EVM_step_default` +
+   `C'_pos_of_runnable`), so chain length ≤ `w.g.toNat`, and
+   `seedFuel_ge_gas` (`w.g.toNat + 11 ≤ seedFuel w`, from `fuelBound_ge`)
+   absorbs the offset. Headline `completedWith_of_gasDerived`: observable
+   conclusion with **no numeric fuel hypothesis at all** — only the
+   structural `w.e ≤ 1024` depth cap.
+
+### The obstruction (why the derivation stops there — §4 item 6 sharpened)
+
+* **CREATE-absorption leak, again:** a CREATE link *can* inhabit `IterStepU`
+  (eternally-failing/absorbed creates satisfy a `∀`-fuel step clause via the
+  Semantics.lean:286/:344 catch-all), and proving even those debit ≥ 1 gas
+  crosses the arm's `.ofNat (a − L a + g′)` reconstitution, whose wrap-safety
+  needs child gas conservation (a `Lambda`-level induction). Hence
+  `¬ isCallCreate` is carried as a witness, not derived.
+* **CALL links are uninhabited but not worth refuting:** `call 0 = .error
+  .OutOfFuel` propagates honestly, so the `f = 0` instance kills any
+  CALL-family `∀`-fuel step clause — but discharging that needs a CALL-arm
+  sweep for a door real programs never use (call sites enter as
+  `X_call_iter` cofinal families).
+* **Call OFFSETS are the irreducible residue (the quantitative refinement of
+  item 6):** in a composed family `m = Σnᵢ + Σkᵢ + c`, gas pays for the
+  `Σnᵢ` (now proven) but the `kᵢ` are the children's fuel budgets —
+  `fuelBound`'s PRODUCT `(1025 − e)·(g + fuelHops)` per descent. No
+  linear-in-gas premise can bound `Σkᵢ`; collapsing the depth factor is
+  exactly re-proving NeverOutOfFuel's stage-2 recurrence. Verdict: the
+  envelope on the general bridge is permanent for a *quantitative* reason
+  (product vs sum) on top of the qualitative one (keystone FALSE).
+
+### Residual
+
+The optional endgame refactor (making `nested_twoCall_completedWith` consume
+the bridge) was skipped on import-direction friction (the bridge lives
+downstream of ObservableTriple); ~20 duplicated proof lines, flagged in the
+bridge's module docstring. Both §4 named gaps (#1 `Behaves`, #2 bridge) are
+now closed.
