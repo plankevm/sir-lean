@@ -85,7 +85,7 @@ theorem messageCall_seq_storageAt (g : UInt64) (hg : 44212 ≤ g.toNat) :
 `addrCallee`). `calleeProg` is `PUSH1 5 ; PUSH1 7 ; SSTORE ; STOP` — it writes the
 value `5` to its own storage slot `7`. The observable is that cell,
 `storageAt addrCallee 7`, read off the caller's returned account map. The sub-call
-is run for real (leanevm's own `beginCall`/`drive` on the callee's actual code —
+is run for real (the engine's own `beginCall`/`drive` on the callee's actual code —
 no oracle, no assumption). -/
 
 /-- **The `∃G₀` external-call theorem.** There is a gas floor `G₀` such that for

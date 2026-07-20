@@ -154,6 +154,32 @@ def recordCreate (pending : Pending) (result : FrameResult) (createAcc : List Cr
     | .call _ => createAcc
     | .create pd => createAcc ++ [{ result := result.toCreateResult, pending := pd }]
 
+/-- The recording twin of `drive`: the same recursion, threading three
+**top-level** event streams — `gasAcc` (the value pushed by each GAS read),
+`callAcc` (one `CallRecord` per CALL cursor) and `createAcc` (one `CreateRecord`
+per CREATE2 cursor).
+
+**Top-level gate.** Every recording arm is guarded by `stack.isEmpty` (on the
+`.next` soft-fail/GAS arms) or `rest.isEmpty` (on the delivery arms), so only the
+*outermost* frame's events are logged; everything a nested CALL/CREATE child does
+stays hidden behind the pending-stack gate.
+
+**Two-arm dispatch per channel.** A top-level CALL or CREATE2 cursor is recorded
+by exactly one of two arms: the *descent* arm (`stepFrame` returns
+`.needsCall`/`.needsCreate`; on delivery, `recordCall`/`recordCreate` appends the
+child's real result) or the *soft-fail* arm (the opcode's guard fails inside its
+dispatch arm and `stepFrame` returns `.next`; the `isCallOp`/`isCreate2Op`
+detectors append a synthetic `softFailCallRecord`/`softFailCreateRecord`).
+Together the two arms keep each stream aligned 1:1 with its cursors.
+
+**Scope: CALL and CREATE2 soft-fails only.** The detectors match `.System .CALL`
+and `.System .CREATE2` — exactly the opcodes lowering emits today. Soft-fails of
+CALLCODE/DELEGATECALL/STATICCALL and plain CREATE are reachable in the engine but
+are NOT recorded, so the 1:1 stream/cursor alignment holds only for
+`IsLoweringOp`-scoped programs. **WARNING (CREATE lowering):** `IsLoweringOp`
+already whitelists `.System .CREATE`; the moment lowering emits plain CREATE, a
+CREATE soft-fail arm mirroring the CREATE2 one MUST be added here, or the creates
+stream misaligns with its cursors. -/
 def driveLog (fuel : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult)
     (gasAcc : List Word) (callAcc : List CallRecord) (createAcc : List CreateRecord) :
     Except ExecutionException
@@ -198,6 +224,13 @@ def driveLog (fuel : ℕ) (stack : List Pending) (state : Frame ⊕ FrameResult)
             | .needsCreate params pending =>
               driveLog fuel (.create pending :: stack) (.inl (beginCreate params)) gasAcc callAcc createAcc
 
+/-- Run a top-level message call under the recording interpreter (`driveLog`).
+`none` when the entry is a precompile/immediate (`beginCall … = .inr`) or the run
+errors (incl. `OutOfFuel`); otherwise the final observable plus the three
+top-level event streams, bundled as a `RunLog`. Inherits `driveLog`'s scope:
+starting from the empty pending stack makes the entry frame the top level, so
+only outermost-frame events are recorded, and only CALL/CREATE2 soft-fails are
+logged (see the `driveLog` docstring, incl. the CREATE-lowering warning). -/
 def runWithLog (params : CallParams) (fuel : ℕ) : Option RunLog :=
   match beginCall params with
     | .inr _ => none

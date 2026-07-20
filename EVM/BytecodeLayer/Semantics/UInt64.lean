@@ -6,7 +6,7 @@ import Evm
 The one `UInt64` fact the gas-honest floor forces: charging `c ≤ g.toNat` gas
 (with `c` in range) leaves exactly `g.toNat - c`, used to carry the running
 gas balance across charges in place of a shadow gas ledger. (Gas is a `UInt64`
-in leanevm, so this is `UInt64` arithmetic, not `UInt256`.)
+in the vendored `Evm/` tree, so this is `UInt64` arithmetic, not `UInt256`.)
 -/
 
 namespace BytecodeLayer.UInt64

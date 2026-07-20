@@ -6,7 +6,7 @@ import BytecodeLayer.Semantics.Precompiles
 /-!
 # `System`-op semantic facts (CALL / CREATE / Halt / resume machinery)
 
-The reusable, measure-independent facts about leanevm's `System`-op machinery
+The reusable, measure-independent facts about the vendored `Evm/` tree's `System`-op machinery
 (`callArm`/`createArm`/`systemOp`/`haltOp`/`beginCall`/`beginCreate`/
 `resumeAfterCall`/`resumeAfterCreate`). They belong with the System semantics
 they are about, well below the fuel-measure layer in the import DAG.
@@ -16,7 +16,7 @@ This file gathers:
 * **The CALL rule** (`stepFrame_call` and its `callerCharged`/`callChildParams`/
   `callPending` building blocks): a real `CALL` instruction — through the public
   `callArm` — and the `drive` `.needsCall` arm that turns it into a *reflexive*
-  child `messageCall` (the real leanevm computation, never an oracle). Restricted
+  child `messageCall` (the real engine computation, never an oracle). Restricted
   to the value-free, zero-memory CALL shape so the only quantitative gas content
   is the 63/64 `callGasCap`.
 * **The `beginCall` entry characterization** (`beginCall_code`, with
@@ -178,7 +178,7 @@ theorem stepFrame_call (fr : Frame) (gasv toAddr : UInt256)
 
 /-! ## `beginCall` entry characterization for code calls
 
-`beginCall` (leanevm) decides what running a `CallParams` produces *before* code
+`beginCall` (`Evm/Semantics/Call.lean`) decides what running a `CallParams` produces *before* code
 execution: a precompile result, or — for a `.Code` call — the initial `Frame` the
 driver descends into. This pins that initial frame as named definitions
 (`codeEnv`, `codeAccounts`, `codeFrame`) and proves `beginCall` equals it

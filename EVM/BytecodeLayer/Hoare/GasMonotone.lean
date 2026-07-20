@@ -4,12 +4,14 @@ import BytecodeLayer.Semantics.Interpreter.Measure
 import BytecodeLayer.Semantics.Interpreter.NeverOutOfFuel
 
 /-!
-# `Runs`-level gas monotonicity (`docs/ir-design-v2.md` §3.4 "holds across calls")
+# `Runs`-level gas monotonicity (`experiments/005_ir_lowering/docs/ir-design-v2.md` §3.4
+"holds across calls")
 
 The gas-stream IR design (`experiments/005_ir_lowering/docs/ir-design-v2.md` §3.4) gives the
 gas oracle exactly **one** law: the `gasRead` values, in program order, are monotone
-non-increasing (`gasAvailable.toNat` only goes down). `BytecodeLayer/Hoare/GasMonotone.lean` discharged
-that law for a *concrete* two-read program by exact `subCharges` arithmetic. The
+non-increasing (`gasAvailable.toNat` only goes down). An early experiment-side milestone
+(the since-deleted `LirLean/Mono.lean`) discharged that law for a *concrete* two-read
+program by exact `subCharges` arithmetic. The
 **general** lowering (an arbitrary `Runs`, with `.call` nodes between reads) needs the
 law as a structural fact about the engine, **including through external calls** — the
 63/64 net-debit argument: a returning call nets a debit on the caller, so the caller's
@@ -38,9 +40,10 @@ verbatim (nothing new about gas costs is introduced here):
    content of §3.4.
 
 3. **`Runs` never increases gas** (`Runs.gasAvailable_le`). By induction on the `Runs`
-   derivation: `refl` (equal), `step` (rung 1, transitively), and `call` (rung 2 + the
-   net-debit, threading a `.call`/`CallReturns` node). This is the lemma the general
-   preservation theorem consumes: across any flat `Runs fr last`,
+   derivation: `refl` (equal), `step` (rung 1, transitively), `call` (rung 2 + the
+   net-debit, threading a `.call`/`CallReturns` node), and `create` (the CREATE twin,
+   `CreateReturns.gas_le`, threading a `.create`/`CreateReturns` node). This is the lemma
+   the general preservation theorem consumes: across any flat `Runs fr last`,
    `last.exec.gasAvailable.toNat ≤ fr.exec.gasAvailable.toNat` — **no hypothesis** on the
    call returning (`CallReturns` already bundles a returning child), no per-opcode cost
    assumed.
@@ -234,7 +237,7 @@ theorem CallReturns.gas_le {callFr resumeFr : Frame} (h : CallReturns callFr res
   -- chain (a)–(d).
   omega
 
-/-! ## 3b. A `CreateReturns` node nets a debit on the caller (SPIKE)
+/-! ## 3b. A `CreateReturns` node nets a debit on the caller
 
 The CREATE analog of `CallReturns.gas_le`, assembled from the same three facts but with the
 create-kind helpers: the create descent inequality (`gasFundsDescent_conj4'`, with the
@@ -242,7 +245,7 @@ kind-aware saved gas `g − allButOneSixtyFourth g`), the child net-debit
 (`drive_gasRemaining_le_of_running`), and the *successful* create delivery bound
 (`resumeAfterCreate_gas_le_savedGas`, keyed on the `.ok` witness `CreateReturns` carries). -/
 
-/-- **A returning CREATE nets a debit on the caller** (SPIKE). If `CreateReturns createFr
+/-- **A returning CREATE nets a debit on the caller.** If `CreateReturns createFr
 resumeFr`, then `resumeFr.exec.gasAvailable.toNat ≤ createFr.exec.gasAvailable.toNat`. The
 allButOneSixtyFourth forwarded to the child returns to the parent on delivery, exactly what
 `Pending.savedGas (.create _)` withheld, so the chain closes by `omega`. -/
@@ -266,14 +269,16 @@ theorem CreateReturns.gas_le {createFr resumeFr : Frame} (h : CreateReturns crea
 
 /-! ## 4. `Runs` never increases gas — the §3.4 "holds across calls" lemma -/
 
-/-- **`Runs` gas monotonicity (`docs/ir-design-v2.md` §3.4).** Across any flat
-`Runs fr last` — opcode steps and returning external CALLs (`.call`/`CallReturns` nodes)
+/-- **`Runs` gas monotonicity (`experiments/005_ir_lowering/docs/ir-design-v2.md` §3.4).**
+Across any flat `Runs fr last` — opcode steps, returning external CALLs
+(`.call`/`CallReturns` nodes) and returning CREATEs (`.create`/`CreateReturns` nodes)
 in any order — the machine's remaining gas does not increase:
 `last.exec.gasAvailable.toNat ≤ fr.exec.gasAvailable.toNat`.
 
 By induction on the `Runs` derivation: `refl` (equal endpoints), `step` (one opcode never
-raises gas, by `StepsTo.gas_le`, then transitively), and `call` (the 63/64 net-debit,
-`CallReturns.gas_le`, then transitively). This is the structural fact that makes §3.4's
+raises gas, by `StepsTo.gas_le`, then transitively), `call` (the 63/64 net-debit,
+`CallReturns.gas_le`, then transitively), and `create` (its CREATE twin,
+`CreateReturns.gas_le`). This is the structural fact that makes §3.4's
 "the monotone gas-read law holds across calls" a **real proof**: any two `gasRead` values
 realised on a `Runs` path are non-increasing because the `gasAvailable.toNat` between them
 is, including through every `.call` node. **No hypothesis** on the calls returning beyond

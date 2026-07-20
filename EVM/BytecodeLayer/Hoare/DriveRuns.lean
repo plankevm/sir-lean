@@ -31,7 +31,7 @@ every reachable CALL targets code (no precompile) — the two configurations `Ru
   `.needsCreate` extracts the total `beginCreate` child's sub-run, resolves the resume, builds the
   `CreateReturns` node, and recurses (`drive_descend_create_lt`).
 
-No `sorry`/`axiom`/`native_decide`. Imports only the exp003 bytecode layer.
+No `sorry`/`axiom`/`native_decide`. Imports only the bytecode layer.
 -/
 
 namespace BytecodeLayer.Interpreter
@@ -163,12 +163,14 @@ are honest runtime side conditions (vacuous for create-free / call-free programs
 
 Two per-frame clauses:
 
-* **clause 1 (create-resolves) — the honest R4 residual.** A `.needsCreate cp pending` whose init
+* **clause 1 (create-resolves) — the honest create-resolves residual.** A `.needsCreate cp pending`
+  whose init
   child terminates (`drive (seedFuel cp.gas) [] (running (beginCreate cp)) = .ok childRes`) resumes
   successfully (`resumeAfterCreate childRes.toCreateResult pending = .ok resumeFr`). This is NOT a
-  structural property of `lower prog` — the 63/64 guard (`Create.lean:200`) can `throw .OutOfGas`
+  structural property of `lower prog` — the 63/64 guard (`EVM/Evm/Semantics/Create.lean:200`) can
+  `throw .OutOfGas`
   on a `UInt64` overflow of the retained gas, so it is the genuine "enough gas retained" side
-  condition CALL never needed (plan R4). Vacuous for any create-free program; satisfiable for
+  condition CALL never needed. Vacuous for any create-free program; satisfiable for
   empty-init CREATEs at ordinary gas (the guard fires only on arithmetic overflow). The OOG
   resume-fault delivers an exception halt through the drive stack — a control flow `Runs` does not
   *resume* — so it is out of scope of the `Runs.create` node by construction; this clause rules it
@@ -437,7 +439,8 @@ theorem runs_of_drive_ok :
       | needsCreate cp pending =>
         -- CREATE: `beginCreate` is total, so the descent is unconditional. The init child's
         -- standalone run terminates (`create_child_terminates`), the resume resolves
-        -- (`ModellableStep` clause 1 — the honest R4 residual), and a `Runs.create` node is built,
+        -- (`ModellableStep` clause 1 — the honest create-resolves residual), and a `Runs.create`
+        -- node is built,
         -- recursing at the strictly-smaller resumed fuel (`drive_descend_create_lt`). Mirrors the
         -- `.needsCall` code arm.
         obtain ⟨childRes, hchild_seed⟩ := create_child_terminates cp

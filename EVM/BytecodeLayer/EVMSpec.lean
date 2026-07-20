@@ -3,12 +3,20 @@ import BytecodeLayer.Refinement
 /-!
 # DRAFT — the abstract `EVMSpec` interface + the flat instance `flatSpec`
 
-> **STATUS: DRAFT.** This is the reshape of the interim `EVMSemantics`
-> (`BytecodeLayer/SharedObservable.lean`) into the interface Eduardo sketched,
-> built on the FLAT (`«evm»` / exp003) side. It is additive: it does not touch
-> `EVMSemantics`/`flatSem`, which other modules still use. Once Eduardo confirms
-> the State/Result modeling choice (the open question at the bottom), `flatSem`
-> can be retired in favour of `flatSpec` and the nested side can mirror it.
+> **STATUS: PARKED DRAFT — deliberately de-aggregated.** This is the reshape of
+> the interim `EVMSemantics` (`BytecodeLayer/SharedObservable.lean`) into the
+> interface Eduardo sketched, built on the FLAT (`«evm»`) side. It is additive:
+> it does not touch `EVMSemantics`/`flatSem`, which remains the CANONICAL
+> cross-engine interface (all live refinement/equivalence results go through it).
+> This module was removed from the root aggregator on purpose (commit 28e01243,
+> Phase-D hygiene) — it builds only via the lakefile glob and has zero importers;
+> do not re-import it while it is a draft.
+>
+> Two items remain before this draft could replace `flatSem`: (a) Eduardo's
+> adopt-vs-archive decision on the reshape, and (b) ratification of the Option-B
+> State/Result modeling choice (§"The modeling choice" below) — the pick recorded
+> there is the draft author's, not yet Eduardo's. Once ratified, `flatSem` can be
+> retired in favour of `flatSpec` and the nested side can mirror it.
 
 ## What this fixes vs. the interim `EVMSemantics`
 

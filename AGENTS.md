@@ -108,6 +108,12 @@ so source links in the docs resolve.
 - **Reviewer standard (Philip):** exported theorem statements must be high-level
   — observables, not bytecode-mirroring. A spec that re-notates the EVM
   opcode-for-opcode is the thing this project is trying to move past.
+  **Low-level-layer carve-out (ruled by Eduardo):** the bytecode proof layer
+  (`EVM/BytecodeLayer/`) *is* the low-level layer, and its `Spec.lean` audit
+  surface may expose frame-level program-logic rules (statements mentioning
+  `Runs`/`Frame`/`stepFrame`) — those rules are the reusable theorems a user
+  instantiates there. The observables-only standard binds the higher,
+  experiment-style exported surfaces, not this layer's audit surface.
 - **Review reports.** A *review report* of a body of Lean work (for a human
   reviewer) must be produced via the `lean-review-report` sub-agent
   ([`.claude/agents/lean-review-report.md`](.claude/agents/lean-review-report.md)),

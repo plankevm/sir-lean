@@ -3,13 +3,13 @@ import BytecodeLayer.Observables
 /-!
 # A toolchain-neutral shared observable, and the flat `EVMSemantics` instance
 
-This is the **flat** (`«evm»` / exp003) half of the cross-engine observable
+This is the **flat** (`«evm»`) half of the cross-engine observable
 bridge. Its mirror image lives on the nested side as
 `experiments/004_nested_evmyul/NestedEvmYul/SharedObservable.lean`.
 
 ## Why the observable is *plain data*
 
-The two EVM engines do **not** co-compile: exp003 pins
+The two EVM engines do **not** co-compile: the EVM package (flat, `«evm»`) pins
 `leanprover/lean4:v4.30.0` and exp004 pins `leanprover/lean4:v4.22.0`, and
 `.olean` artifacts are toolchain-version-locked, so no single `lake` target can
 import both `«evm»` and `«evmyul»` (the namespace collisions on

@@ -10,7 +10,7 @@ The cross-engine equivalence is realized as **refinement through a shared spec**
 each engine independently proves its observable equals the canonical do-nothing
 spec `emptyObs` for a do-nothing program, and cross-engine agreement is then a
 meta-composition of the two refinements. This module discharges the **flat**
-(`«evm»` / exp003) half for the smallest concrete program — a single `STOP` on a
+(`«evm»`) half for the smallest concrete program — a single `STOP` on a
 funded account with enough gas.
 
 The witness is a fully concrete `CallParams` (`stopParams`) whose

@@ -26,7 +26,7 @@ then concludes the unconditional headline `messageCall_never_outOfFuel`.
 
 The CREATE descent (4') relies on the kind-aware `Pending.savedGas` below, which
 withholds the forwarded `allButOneSixtyFourth` from the measure (the child already
-counts it) so an open CREATE descent isn't double-counted. Relevant leanevm defs:
+counts it) so an open CREATE descent isn't double-counted. Relevant `Evm/` defs:
 `callArm`/`createArm` (`Evm/Semantics/System.lean`), `beginCall`
 (`Evm/Semantics/Call.lean`), `beginCreate` (`Evm/Semantics/Create.lean`), and the
 gas helpers `callGasCap`/`callExtraCost`/`allButOneSixtyFourth`

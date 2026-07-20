@@ -3,7 +3,7 @@ import Evm
 /-!
 # The example programs and world
 
-This is the **data** experiment 003 proves things about — the handwritten
+This is the **data** this layer proves things about — the handwritten
 bytecode contracts, the addresses they live at, and the `messageCall` entry
 points (`CallParams`) that run them. Nothing here is a theorem or a proof; it is
 the concrete material the specs in `Spec.lean` quantify over.

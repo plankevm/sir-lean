@@ -34,7 +34,7 @@ multi-call composition guarantee is `messageCall_runs_calls` below.
 namespace BytecodeLayer.Hoare
 open Evm BytecodeLayer.Interpreter BytecodeLayer.System
 
-/-! ## SPIKE — CREATE descent bricks for the `Runs.create` reconciliation arm
+/-! ## CREATE descent bricks for the `Runs.create` reconciliation arm
 
 The CALL arm of `Runs.drive_reconcile` splices a returning child via `driveG_needsCall_code`
 + `drive_descend_eq`. CREATE needs the twin bricks. `driveG_needsCreate` is *simpler* than
@@ -43,7 +43,7 @@ The CALL arm of `Runs.drive_reconcile` splices a returning child via `driveG_nee
 which is `Except`-typed, so the descent equation is conditioned on the `.ok parent` witness
 (the 63/64 guard passing) — supplied by `CreateReturns`. -/
 
-/-- **A `.needsCreate` descent** (SPIKE). `beginCreate` is total, so `drive` unconditionally
+/-- **A `.needsCreate` descent.** `beginCreate` is total, so `drive` unconditionally
 descends into `beginCreate params`, suspending the parent as `.create pending`. -/
 theorem driveG_needsCreate (n : ℕ) (ps : List Pending) (current : Frame)
     (params : CreateParams) (pending : PendingCreate)
@@ -54,7 +54,7 @@ theorem driveG_needsCreate (n : ℕ) (ps : List Pending) (current : Frame)
   dsimp only
   rw [hstep]
 
-/-- **Generic CREATE-boundary descent equation** (SPIKE). The CREATE twin of
+/-- **Generic CREATE-boundary descent equation.** The CREATE twin of
 `drive_descend_eq`, conditioned on the *successful* resume witness `hok :
 resumeAfterCreate res.toCreateResult pd = .ok parent`: a terminating init child run splices
 into the parent resumed at `parent`, for some residual fuel `j`. Obtained by
@@ -157,7 +157,7 @@ theorem Runs.drive_reconcile {fr last : Frame} (h : Runs fr last) :
       rw [hdesc] at ha ⊢
       exact ih ha hb
   | @create createFr resumeFr fr' hc _ ih =>
-    -- SPIKE: CREATE twin of the `call` arm. Simpler entry (`beginCreate` total), but the
+    -- CREATE twin of the `call` arm. Simpler entry (`beginCreate` total), but the
     -- descent uses the `.ok resumeFr` witness `CreateReturns` carries (the 63/64 guard).
     intro a b ha hb
     obtain ⟨cp, pending, childRes, hstep, hchild, hok⟩ := hc

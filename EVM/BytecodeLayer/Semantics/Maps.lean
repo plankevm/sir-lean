@@ -6,8 +6,9 @@ import Batteries.Classes.Order
 
 The EVM's `AccountMap` and `Storage` are `Batteries.RBMap`s; reasoning about
 `insert`/`find?` for *symbolic* keys needs the `Std.TransCmp` law for the key
-comparator, which leanevm does not yet provide (its `Maps/StorageMap.lean`
-explicitly defers this). This file supplies the two missing `TransCmp` instances
+comparator, which the vendored `Evm/` tree does not yet provide (its
+`Maps/StorageMap.lean` explicitly defers this). This file supplies the two missing
+`TransCmp` instances
 (for `UInt256` and `AccountAddress`, both derived from their order, no `sorry`,
 no `decide`) and the handful of `find?`/`findD` framing equations the SSTORE rule
 needs to state *what storage it leaves untouched*.

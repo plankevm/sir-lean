@@ -1,38 +1,34 @@
 import LirLean.Law
 
 /-!
-# LirLean — IR-run **existence** (the `hir` side of the conformance diagram)
+# LirLean — IR-run existence bricks (the gas-free, call-free statement ladder)
 
 `lower_conforms` carries the IR run `IRRun prog o w₀ T O` as a structured hypothesis
-(`hir`): the IR side of the diagram, supplied for the program under study. This module
-discharges that hypothesis **constructively** for the call-free fragment as far as
-totality is tractable — banking the pieces of the "construct `hir`" milestone
-(`docs/lower-conforms-plan.md`, missing scaffolding: *`RunFrom` determinism/totality*).
+(`hir`). `RunFrom.det` (`Law.lean`) is the *uniqueness* half of discharging it; this
+module banks the *existence-side* statement-level bricks for the **gas-free,
+call-free fragment**:
 
-`RunFrom.det` (`Law.lean`) already gives the *uniqueness* half. This module gives the
-**existence** half, bottom-up, mirroring the determinism ladder:
-
-* `EvalStmt` existence — a **gas-free, non-call** statement whose operands are bound steps
-  to a definite post-state (`evalStmt_exists`). Gas-free because `assign t .gas` *consumes*
-  a trace read, so its existence is gated on the trace being non-empty (a separate, trace-
-  threading concern); non-call because `Stmt.call` consults the oracle (handled by the
-  call layer). Within that fragment the step is total — it never gets stuck.
+* `EvalStmt` existence — a **gas-free, non-call** statement whose operands are bound
+  (`StmtDefinable`) steps to the definite post-state `stmtPost`, trace unchanged
+  (`evalStmt_exists`). Gas-free because `assign t .gas` *consumes* a trace read, so
+  its existence is gated on the trace being non-empty (a separate, trace-threading
+  concern); non-call because `Stmt.call` consults the oracle (handled by the call
+  layer). Within the fragment the step is total — it never gets stuck.
 * `RunStmts` existence — a **gas-free, call-free** statement list, each statement
-  definable at its running state, runs to a definite post-state with the trace unchanged
-  (`runStmts_exists`). By induction on the list, threading the post-state.
-* `RunFrom`/`IRRun` existence (single halt block) — a program whose **entry block is a halt**
-  (`stop` / `ret`), gas-free and call-free, with the `ret` operand bound at the post-statement
-  state, has an IR run (`irRun_exists_stop` / `irRun_exists_ret`). The single-block DAG base case
-  of the CFG-totality argument: no edges, so no CFG-acyclicity measure is needed.
-* `RunFrom`/`IRRun` existence (**general acyclic CFG**) — `runFrom_exists`/`irRun_exists`
-  generalise the above to any acyclic call-free gas-free program via a **block topological rank**
-  (`CFGAcyclic`, a *control-flow* measure distinct from `Acyclic.lean`'s *def-graph* rank): by
-  strong induction on the rank, halts bottom out and `jump`/`branch` recurse at the
-  strictly-smaller-rank successor. The state-threaded definability supply is `RunDefinable`. This
-  discharges the general `hir` for the call-free/gas-free fragment.
+  definable at its running state (`StmtsDefinable`), runs to the `stmtPost` fold
+  `stmtsPost` with the trace unchanged (`runStmts_exists`).
+* `RunDefinable` — the state-uniform definability supply (every block's statements
+  definable from any state, halt/branch operands bound at the post-statement state).
+  NOTE its scope: quantifying over *all* states makes it **unsatisfiable for gas/call
+  programs** (see the audit header of `Realisability/RealisabilitySpec.lean`, lesson
+  4); the flagship path instead uses the gas/call-aware `RunDefinableG`
+  (`Spec/WellFormed.lean`). Its remaining consumer is the superseded drive-walk chain
+  (`Drive/DriveSim.lean`), off the flagship path.
 
-This is the **honest tractable floor** of `hir` construction. What remains (gas-read trace supply
-coupling `hir` to the recording) is described in the module-end note.
+Historical note: the block/CFG-level existence theorems this module once carried
+(`irRun_exists_stop`/`irRun_exists_ret`, `runFrom_exists`/`irRun_exists` over acyclic
+CFGs via `CFGAcyclic`) were retired; what remains here is the statement-level ladder
+plus the `RunDefinable` supply.
 
 Frame-free: imports only `LirLean.Law` (hence `Machine`/`IR`/`Evm`) — no `BytecodeLayer`,
 no `Frame`, no `Runs`. No `sorry`/`axiom`/`native_decide`.

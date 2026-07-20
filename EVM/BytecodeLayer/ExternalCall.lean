@@ -23,7 +23,7 @@ giant opcode chain —
 and by `Examples/ConcreteSpecs.lean` (`call_counterexample`). None of it is part
 of the audit surface `Spec.lean`.
 
-The child call is modeled **reflexively**: the genuine leanevm `beginCall`/`drive`
+The child call is modeled **reflexively**: the genuine engine `beginCall`/`drive`
 on the real child `CallParams` (`codeSource = .Code …`), never an oracle.
 -/
 
