@@ -6,6 +6,7 @@ import BytecodeLayer.Examples.CallerProgExample
 import BytecodeLayer.Examples.TwoCallExample
 import BytecodeLayer.Examples.BranchExample
 import BytecodeLayer.Examples.ArithStorageExample
+import BytecodeLayer.Examples.HoareDemo
 
 /-!
 # Concrete per-program results — worked examples, not general specs
@@ -25,6 +26,11 @@ These concrete results delegate to the proofs in `ProgramExamples.lean` (the
 **compositional** `CallerProgExample.lean` (which crosses `messageCall_runs` over a
 `Runs.call` node),
 with the forced-`∃G₀` counterexample from `ExternalCall.lean`.
+
+This module also pulls in `Examples/HoareDemo.lean`, whose `hoare_demo` is the
+one concrete result with a **framing** conclusion: the SSTORE demo run leaves
+`5` at cell `(addrA, 7)` *and* leaves the untouched cell `(addrA, 8)` at `0` —
+no other example states what a run does **not** change.
 
 Two groups:
 * **Call-free programs** (`stopProgram` … `seqProgram`): the success/output and

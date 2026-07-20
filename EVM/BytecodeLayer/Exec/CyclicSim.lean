@@ -528,7 +528,7 @@ theorem recorderCoupled_call {log : RunLog} {fr resumeFr : Frame}
     have hne : drive m (.call pending :: []) (running child) ≠ .error .OutOfFuel := by
       rw [hdrive]; simp
     have hchildm_ne : drive m [] (running child) ≠ .error .OutOfFuel :=
-      child_ne_oof_of_framed m child pending [] hne
+      child_ne_oof_of_framed m child (.call pending) [] hne
     -- Reconcile the framed child result with `hcr`'s black-box `childRes` via fuel monotonicity.
     have hchildm : drive m [] (running child) = .ok childRes := by
       have h1 := drive_fuel_mono (Nat.le_max_left m (seedFuel cp.gas)) [] (running child) hchildm_ne
@@ -597,7 +597,7 @@ theorem recorderCoupled_create {log : RunLog} {fr resumeFr : Frame}
     have hne : drive m (.create pending :: []) (running (beginCreate cp))
         ≠ .error .OutOfFuel := by rw [hdrive]; simp
     have hchildm_ne : drive m [] (running (beginCreate cp)) ≠ .error .OutOfFuel :=
-      child_ne_oof_of_framed' m (beginCreate cp) (.create pending) [] hne
+      child_ne_oof_of_framed m (beginCreate cp) (.create pending) [] hne
     have hchildm : drive m [] (running (beginCreate cp)) = .ok childRes := by
       have h1 := drive_fuel_mono (Nat.le_max_left m (seedFuel cp.gas)) []
         (running (beginCreate cp)) hchildm_ne
@@ -673,7 +673,7 @@ theorem recorderCoupled_create_extract {log : RunLog} {createFr : Frame}
     have hne : drive m (.create pending :: []) (running (beginCreate cp))
         ≠ .error .OutOfFuel := by rw [hdrive]; simp
     have hchildm_ne : drive m [] (running (beginCreate cp)) ≠ .error .OutOfFuel :=
-      child_ne_oof_of_framed' m (beginCreate cp) (.create pending) [] hne
+      child_ne_oof_of_framed m (beginCreate cp) (.create pending) [] hne
     have hchildm : drive m [] (running (beginCreate cp)) = .ok childRes := by
       have h1 := drive_fuel_mono (Nat.le_max_left m (seedFuel cp.gas)) []
         (running (beginCreate cp)) hchildm_ne
@@ -840,50 +840,47 @@ theorem recorderCoupled_create_softfail {log : RunLog} {fr : Frame} {exec : Exec
       obtain ⟨pre, hpre⟩ := hdp
       exact ⟨pre ++ [rec], by rw [hpre, List.append_assoc, List.singleton_append]⟩
 
-theorem creates_nil_of_stepFrame_halted {log : RunLog} {fr : Frame} {halt : Evm.FrameHalt}
+private theorem recorderCoupled_halted_inv {log : RunLog} {fr : Frame} {h : FrameHalt}
     {gS : List Word} {cS : List CallRecord} {dS : List CreateRecord}
     (hcp : RecorderCoupled log fr gS cS dS)
-    (hstep : stepFrame fr = .halted halt) :
-    dS = [] := by
+    (hstep : stepFrame fr = .halted h) :
+    gS = [] ∧ cS = [] ∧ dS = [] ∧ log.observable = endFrame fr h := by
   obtain ⟨⟨f, hf⟩, _, _, _⟩ := hcp
   cases f with
   | zero => simp [driveLog] at hf
   | succ m =>
+    unfold driveLog at hf
+    simp only [hstep] at hf
+    -- `hf : driveLog m [] (.inr (endFrame fr h)) [] [] [] = .ok (log.observable, …)`.
     cases m with
-    | zero =>
-      unfold driveLog at hf
-      simp only [hstep] at hf
-      simp [driveLog] at hf
+    | zero => simp [driveLog] at hf
     | succ k =>
       unfold driveLog at hf
-      simp only [hstep] at hf
-      -- delivery on the empty pending stack: `.inr (endFrame fr halt)` returns immediately.
-      rw [show driveLog (k + 1) [] (.inr (endFrame fr halt)) [] [] []
-            = .ok (endFrame fr halt, [], [], []) from rfl] at hf
-      injection hf with htuple
-      exact (congrArg (fun x => x.2.2.2) htuple).symm
+      simp only [Except.ok.injEq, Prod.mk.injEq] at hf
+      obtain ⟨hobs, hg, hc, hd⟩ := hf
+      exact ⟨hg.symm, hc.symm, hd.symm, hobs.symm⟩
+
+theorem recorderCoupled_halted_suffixes_nil {log : RunLog} {fr : Frame} {h : FrameHalt}
+    {gS : List Word} {cS : List CallRecord} {dS : List CreateRecord}
+    (hcp : RecorderCoupled log fr gS cS dS)
+    (hstep : stepFrame fr = .halted h) :
+    gS = [] ∧ cS = [] ∧ dS = [] := by
+  obtain ⟨hg, hc, hd, _⟩ := recorderCoupled_halted_inv hcp hstep
+  exact ⟨hg, hc, hd⟩
+
+theorem creates_nil_of_stepFrame_halted {log : RunLog} {fr : Frame} {halt : Evm.FrameHalt}
+    {gS : List Word} {cS : List CallRecord} {dS : List CreateRecord}
+    (hcp : RecorderCoupled log fr gS cS dS)
+    (hstep : stepFrame fr = .halted halt) :
+    dS = [] :=
+  (recorderCoupled_halted_suffixes_nil hcp hstep).2.2
 
 theorem calls_nil_of_stepFrame_halted {log : RunLog} {fr : Frame} {halt : Evm.FrameHalt}
     {gS : List Word} {cS : List CallRecord} {dS : List CreateRecord}
     (hcp : RecorderCoupled log fr gS cS dS)
     (hstep : stepFrame fr = .halted halt) :
-    cS = [] := by
-  obtain ⟨⟨f, hf⟩, _, _, _⟩ := hcp
-  cases f with
-  | zero => simp [driveLog] at hf
-  | succ m =>
-    cases m with
-    | zero =>
-      unfold driveLog at hf
-      simp only [hstep] at hf
-      simp [driveLog] at hf
-    | succ k =>
-      unfold driveLog at hf
-      simp only [hstep] at hf
-      rw [show driveLog (k + 1) [] (.inr (endFrame fr halt)) [] [] []
-            = .ok (endFrame fr halt, [], [], []) from rfl] at hf
-      injection hf with htuple
-      exact (congrArg (fun x => x.2.2.1) htuple).symm
+    cS = [] :=
+  (recorderCoupled_halted_suffixes_nil hcp hstep).2.1
 
 theorem recorderCoupled_call_extract {log : RunLog} {callFr : Frame}
     {cp : CallParams} {pending : PendingCall} {child : Frame}
@@ -917,7 +914,7 @@ theorem recorderCoupled_call_extract {log : RunLog} {callFr : Frame}
     have hne : drive m (.call pending :: []) (running child) ≠ .error .OutOfFuel := by
       rw [hdrive]; simp
     have hchildm_ne : drive m [] (running child) ≠ .error .OutOfFuel :=
-      child_ne_oof_of_framed m child pending [] hne
+      child_ne_oof_of_framed m child (.call pending) [] hne
     have hchildm : drive m [] (running child) = .ok childRes := by
       have h1 := drive_fuel_mono (Nat.le_max_left m (seedFuel cp.gas)) [] (running child) hchildm_ne
       have h2 := drive_fuel_mono (Nat.le_max_right m (seedFuel cp.gas)) [] (running child)
@@ -968,34 +965,6 @@ theorem recorderCoupled_stepsTo_other {log : RunLog} {fr fr' : Frame}
   obtain ⟨hs, hfr'⟩ := hstep
   rw [hfr']
   exact recorderCoupled_step_other hcp hng hnc hncall hs
-
-private theorem recorderCoupled_halted_inv {log : RunLog} {fr : Frame} {h : FrameHalt}
-    {gS : List Word} {cS : List CallRecord} {dS : List CreateRecord}
-    (hcp : RecorderCoupled log fr gS cS dS)
-    (hstep : stepFrame fr = .halted h) :
-    gS = [] ∧ cS = [] ∧ dS = [] ∧ log.observable = endFrame fr h := by
-  obtain ⟨⟨f, hf⟩, _, _, _⟩ := hcp
-  cases f with
-  | zero => simp [driveLog] at hf
-  | succ m =>
-    unfold driveLog at hf
-    simp only [hstep] at hf
-    -- `hf : driveLog m [] (.inr (endFrame fr h)) [] [] [] = .ok (log.observable, …)`.
-    cases m with
-    | zero => simp [driveLog] at hf
-    | succ k =>
-      unfold driveLog at hf
-      simp only [Except.ok.injEq, Prod.mk.injEq] at hf
-      obtain ⟨hobs, hg, hc, hd⟩ := hf
-      exact ⟨hg.symm, hc.symm, hd.symm, hobs.symm⟩
-
-theorem recorderCoupled_halted_suffixes_nil {log : RunLog} {fr : Frame} {h : FrameHalt}
-    {gS : List Word} {cS : List CallRecord} {dS : List CreateRecord}
-    (hcp : RecorderCoupled log fr gS cS dS)
-    (hstep : stepFrame fr = .halted h) :
-    gS = [] ∧ cS = [] ∧ dS = [] := by
-  obtain ⟨hg, hc, hd, _⟩ := recorderCoupled_halted_inv hcp hstep
-  exact ⟨hg, hc, hd⟩
 
 theorem recorderCoupled_halted_observable {log : RunLog} {fr : Frame} {h : FrameHalt}
     {gS : List Word} {cS : List CallRecord} {dS : List CreateRecord}

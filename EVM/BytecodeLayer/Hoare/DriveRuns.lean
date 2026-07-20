@@ -312,20 +312,10 @@ theorem framed_oof_of_standalone_oof :
         rwa [List.cons_append] at this
 
 /-- **Framed non-OOF gives standalone non-OOF.** Contrapositive of
-`framed_oof_of_standalone_oof` at `top := []`: a framed child run that does not run out of fuel
-witnesses that the standalone child run does not either (it drained the child within budget). -/
-theorem child_ne_oof_of_framed (f : ℕ) (child : Frame) (pending : PendingCall) (ps : List Pending)
-    (h : drive f (.call pending :: ps) (running child) ≠ .error .OutOfFuel) :
-    drive f [] (running child) ≠ .error .OutOfFuel := by
-  intro hcontra
-  exact h (by have := framed_oof_of_standalone_oof f (running child) [] (.call pending :: ps) hcontra
-              rwa [List.nil_append] at this)
-
-/-- **Framed non-OOF gives standalone non-OOF — generic in the suspended `Pending`.** As
-`child_ne_oof_of_framed`, but the bottom-of-stack pending is *any* `Pending` (`.call` or
-`.create`): a framed child run that does not run out of fuel witnesses the standalone one does not
-either. The CREATE reverse arm needs the `.create` instance. -/
-theorem child_ne_oof_of_framed' (f : ℕ) (child : Frame) (p : Pending) (ps : List Pending)
+`framed_oof_of_standalone_oof` at `top := []`, generic in the suspended `Pending` (`.call` or
+`.create`): a framed child run that does not run out of fuel witnesses that the standalone child
+run does not either (it drained the child within budget). -/
+theorem child_ne_oof_of_framed (f : ℕ) (child : Frame) (p : Pending) (ps : List Pending)
     (h : drive f (p :: ps) (running child) ≠ .error .OutOfFuel) :
     drive f [] (running child) ≠ .error .OutOfFuel := by
   intro hcontra
@@ -411,7 +401,7 @@ theorem runs_of_drive_ok :
                 ≠ .error .OutOfFuel := by rw [hdrive]; nofun
             -- standalone child at fuel `n` is non-`OutOfFuel` (else the framed run would be too).
             have hstand_ne : drive n [] (running child) ≠ .error .OutOfFuel :=
-              child_ne_oof_of_framed n child pending [] hframed_ne
+              child_ne_oof_of_framed n child (.call pending) [] hframed_ne
             cases hsn : drive n [] (running child) with
             | error e =>
               rw [drive_error_oof _ _ _ e hsn] at hsn; exact absurd hsn hstand_ne
@@ -451,7 +441,7 @@ theorem runs_of_drive_ok :
           have hframed_ne : drive n (.create pending :: []) (running (beginCreate cp))
               ≠ .error .OutOfFuel := by rw [hdrive]; nofun
           have hstand_ne : drive n [] (running (beginCreate cp)) ≠ .error .OutOfFuel :=
-            child_ne_oof_of_framed' n (beginCreate cp) (.create pending) [] hframed_ne
+            child_ne_oof_of_framed n (beginCreate cp) (.create pending) [] hframed_ne
           cases hsn : drive n [] (running (beginCreate cp)) with
           | error e =>
             rw [drive_error_oof _ _ _ e hsn] at hsn; exact absurd hsn hstand_ne
