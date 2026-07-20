@@ -34,8 +34,10 @@ fuel of the outer run into the inner hypothesis. Contrast the study's
 **existential** encoding (deleted by T4 — see ThetaRuns.lean's keystone
 post-mortem): there, gluing two `∃ fuel` witnesses forces both runs to a
 common fuel, which needs the fuel-irrelevance keystone (`Θ_fuel_mono_ok` —
-found FALSE as stated: CREATE/CREATE2 absorb an inner `OutOfFuel`; the
-surviving `ΘRuns` is offset-cofinal and keystone-free, T2 pivot). Universal-fuel
+refuted as stated against the pre-2026-07-20 semantics, whose CREATE/CREATE2
+arms absorbed an inner `OutOfFuel`; the arms now propagate honestly, leaving
+the keystone unproven-but-open rather than false — the surviving `ΘRuns` is
+offset-cofinal and keystone-free either way, T2 pivot). Universal-fuel
 quantification is antitone-friendly — weakening to a specific fuel is just
 instantiation — so the entire logical-rule layer (conseq/conj/frame) and the
 call-site composition come out keystone-free. This is the cheap trick the

@@ -9,10 +9,12 @@ import NestedEvmYul.XLoop
 **This file is foundation-grade and sorry-free throughout** (house proof-first
 rule back in force). The original shape study's fuel-existential encoding —
 whose every cross-fuel lemma funnelled through an unproved fuel-irrelevance
-keystone — was quarantined here and then DELETED by T4: the keystone pair
-turned out to be FALSE as stated, not merely expensive (the CREATE/CREATE2
-`step` arms absorb an inner `OutOfFuel` into an ordinary result). See the
-"Keystone post-mortem" note at the bottom of this file.
+keystone — was quarantined here and then DELETED by T4: against the semantics
+of the time the keystone pair was FALSE as stated, not merely expensive (the
+CREATE/CREATE2 `step` arms absorbed an inner `OutOfFuel` into an ordinary
+result; the 2026-07-20 vendored patch made them propagate it honestly, which
+reopens — but does not prove — the keystone). See the "Keystone post-mortem"
+note at the bottom of this file.
 
 ## The pivot (T2)
 
@@ -44,9 +46,11 @@ outright. A bare single fuel point (e.g. `runΘ w = .ok res` alone) does NOT
 enter the veneer without the keystone; the `k ≤ seedFuel w` side condition on
 adequacy is likewise irremovable without it (`runΘ_never_outOfFuel` excludes
 one error at one seeding — it transports nothing). T4's keystone attempt
-upgraded this from a trade to a verdict: the keystone is FALSE as stated
-(CREATE/CREATE2 absorb inner `OutOfFuel` — post-mortem at the bottom), so the
-boundary of this API is not a deferred cost but the correct shape.
+found the keystone FALSE as then stated (CREATE/CREATE2 absorbed inner
+`OutOfFuel` — post-mortem at the bottom); the 2026-07-20 vendored patch
+removed that absorption, so the keystone is now open rather than refuted,
+but it remains UNPROVEN — the boundary of this API is still a real deferred
+cost until someone proves it, and the cofinal shape needs no keystone at all.
 -/
 
 namespace NestedEvmYul
@@ -230,7 +234,16 @@ theorem ΘRuns_doNothing_runΘ (w : NestedWorld) (h : IsDoNothing w) :
 
 /-! ---------------------------------------------------------------------------
 ## Keystone post-mortem (T4): the fuel-existential encoding is DELETED because
-## its keystone is FALSE, not merely expensive
+## its keystone was FALSE against the pre-2026-07-20 semantics
+
+HISTORICAL NOTE (2026-07-20): the absorption this post-mortem pivots on — the
+CREATE/CREATE2 `| _ =>` catch-all — was REMOVED by the authorized vendored
+patch of the same date (the arms now end in `| .error e => .error e`, honest
+propagation). The refutation below is therefore a record about the *pre-patch*
+semantics: under the patched semantics `Θ_fuel_mono_ok` is no longer refuted
+by this argument, but it has NOT been proven either (its status is open, and
+the cofinal `ΘRuns` encoding needs no keystone regardless). The text below is
+kept verbatim as the historical record.
 
 The pre-pivot fuel-existential veneer (`ΘRunsE := ∃ fuel, Θ fuel … = .ok res`)
 and its fuel-irrelevance keystone pair (`Θ_fuel_mono_ok` / `Θ_fuel_mono_error`
@@ -273,13 +286,15 @@ house no-sorry'ed-scaffolds rule, with this obstruction record:
   seeding, and what the surviving offset-cofinal `ΘRuns` above builds in by
   quantifying over all sufficient fuels at once.
 
-Consequence: the T2 cofinal pivot is not merely the cheaper encoding — it is
-the only correct one of the two. Its `k ≤ seedFuel w` adequacy side condition
-and the loss of single-fuel-point introduction are NOT removable residues;
-they are load-bearing. The deleted material (statements and the `res_mono`
-skeleton) remains readable in git history at ThetaRuns.lean of commit
-6315c911 and in the study doc
-(docs/planning/exp004-completion-shape-2026-07-18.md §2.2 + T4 addendum).
+Consequence (as of the pre-patch semantics): the T2 cofinal pivot was not
+merely the cheaper encoding — it was the only correct one of the two, its
+`k ≤ seedFuel w` adequacy side condition and the loss of single-fuel-point
+introduction non-removable. Post-patch, removability is open again (a proved
+`Θ_fuel_mono_ok` would restore single-point introduction), but nothing here
+depends on it. The deleted material (statements and the `res_mono` skeleton)
+remains readable in git history at ThetaRuns.lean of commit 6315c911 and in
+the study doc (docs/planning/exp004-completion-shape-2026-07-18.md §2.2 + T4
+addendum).
 --------------------------------------------------------------------------- -/
 
 end NestedEvmYul

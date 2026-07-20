@@ -401,23 +401,21 @@ The three-track data point, in one place (study tracks: T1 = ThetaRuns.lean,
 T2 = XiTriple.lean, T3 = this file), UPDATED for the overnight promotions
 (XLoop T1 + forall-fuel pivot T2):
 
-* **(a) Relational veneer — keystone tax DELETED by the cofinal re-encoding,
-  and the keystone itself is FALSE.** The study's fuel-existential `ΘRuns`
-  paid a single unproved fuel-irrelevance mutual induction (`Θ_fuel_mono_ok`)
-  for EVERY cross-fuel lemma. The forall-fuel pivot re-encoded the veneer
-  offset-cofinally (`∃ k, ∀ f, Θ (k + f) … = .ok res`), after which
-  determinism, adequacy-under-side-condition, and this file's
-  `ΘRuns_completedWith` close sorry-free by pure instantiation. The honest
-  residue: single fuel points no longer enter the veneer, and adequacy carries
-  a `k ≤ seedFuel w` side condition. T4's keystone attempt then found the
-  residue is NOT removable at all: `Θ_fuel_mono_ok` is unprovable-as-stated —
-  `step`'s CREATE/CREATE2 arms absorb an inner `Lambda` `OutOfFuel` into an
-  ordinary non-error result (the `| _ =>` catch-all,
-  EVMYulLean/EvmYul/EVM/Semantics.lean:286/344), so a low-fuel non-OOF result
-  need not be reproduced at higher fuel. The quarantined section was deleted;
-  see ThetaRuns.lean's "keystone post-mortem" note. The cofinal pivot is
-  thereby vindicated as the *only* correct encoding, not merely the cheaper
-  one.
+* **(a) Relational veneer — keystone tax DELETED by the cofinal re-encoding.**
+  The study's fuel-existential `ΘRuns` paid a single unproved fuel-irrelevance
+  mutual induction (`Θ_fuel_mono_ok`) for EVERY cross-fuel lemma. The
+  forall-fuel pivot re-encoded the veneer offset-cofinally
+  (`∃ k, ∀ f, Θ (k + f) … = .ok res`), after which determinism,
+  adequacy-under-side-condition, and this file's `ΘRuns_completedWith` close
+  sorry-free by pure instantiation. The honest residue: single fuel points no
+  longer enter the veneer, and adequacy carries a `k ≤ seedFuel w` side
+  condition. T4's keystone attempt found `Θ_fuel_mono_ok` FALSE against the
+  then-current semantics — `step`'s CREATE/CREATE2 arms absorbed an inner
+  `Lambda` `OutOfFuel` into an ordinary non-error result — and deleted the
+  quarantined section; the 2026-07-20 vendored patch made those arms propagate
+  the error honestly, so the keystone is now unproven-but-open rather than
+  refuted (see ThetaRuns.lean's "keystone post-mortem" note for both halves).
+  The cofinal pivot stands on its own: it needs no keystone at all.
 
 * **(b) ∀-fuel triples — cheap composition, expensive footprints.** T2's
   `XiTriple`/`ThetaTriple` are fuel-free for free (universal quantification

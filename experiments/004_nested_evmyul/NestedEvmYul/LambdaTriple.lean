@@ -21,9 +21,11 @@ TECHNIQUE NOTE (vs the planned `step_create_eq`): no CREATE-arm dispatcher
 EQUATION was needed. Unlike CALL (whose arm is one helper call, so
 `step_call_eq` is a small `rfl` statement), the CREATE arm is a 60-line inline
 block — its equation would be a full transcription. `create_spec` instead
-inverts the arm directly by the `create_result_gas_le` split sequence
-(NeverOutOfFuel.lean:2796), so the equation theorem is not scaffolding anyone
-needs; it was deliberately not built.
+inverts the arm directly by the `create_result_gas_le` split sequence (in
+NeverOutOfFuel.lean; since the arm's honest error propagation, the branch
+expression is an `Except`-valued `←` bind and the `Λ`-error case is a plain
+`noConfusion`), so the equation theorem is not scaffolding anyone needs; it
+was deliberately not built.
 
 ## Differences from the Θ mirror, read off `Lambda`'s definition (never assumed)
 
@@ -313,56 +315,62 @@ theorem create_spec
   subst hstk
   simp only [EVM.step, bind, Except.bind, pure, Except.pure, Stack.pop3]
     at hstep
-  -- the `(a, evmState', g', z, o)` three-way branch (nonce-overflow /
-  -- guarded-`Λ` / guard-else), then the OutOfGass guard, as in
-  -- `create_result_gas_le`
+  -- the `←` bind on the `(a, evmState', g', z, o)` branch expression, then the
+  -- OutOfGass guard, then the branch equation — as in the reshaped
+  -- `create_result_gas_le` (the `Λ`-error arm now propagates, so it is a plain
+  -- `noConfusion` against the `.ok` branch equation)
   split at hstep
-  · -- nonce-overflow branch: `z` is hardwired false, so the failure-word `if`
-    -- REDUCES (its `Or`-instance short-circuits on `decide False = false`) and
-    -- the pushed word is `⟨0⟩` by defeq, contradicting `hx`
+  · exact absurd hstep (by simp)   -- propagated `.error` ≠ `.ok`
+  · rename_i tup heq
+    obtain ⟨aA, ev', g', z, o⟩ := tup
     split at hstep
-    · exact absurd hstep (by simp)
+    · exact absurd hstep (by simp)   -- OutOfGass guard fired
     · injection hstep with hs'
       subst hs'
-      exact absurd rfl hx
-  · -- the funds/depth/size guard
-    split at hstep
-    · -- `Λ` ran
-      split at hstep
-      · -- `Λ = .ok (a, cA, σ', g', A', z, o)`
-        rename_i lama lamcA lamσ' lamg' lamA' lamz lamo hΛeq
-        split at hstep
-        · exact absurd hstep (by simp)
-        · injection hstep with hs'
-          subst hs'
-          cases lamz
-          · -- `z = false`: the pushed word defeq-reduces to `⟨0⟩`, against `hx`
-            exact absurd rfl hx
-          · -- `z = true`: peel the `returnData` `if` (first split candidate in
-            -- record-field order), then the pushed-word `if`; its `⟨0⟩` arm
-            -- contradicts `hx`, its live arm is the genuine creation
-            split at hx
-            · split at hx
-              · exact absurd rfl hx
-              · rename_i hc
-                have hQ := hΛ f _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
-                  hP hΛeq rfl
-                rw [lambda_success_out_empty hΛeq] at hQ
-                rw [if_neg hc]
-                exact ⟨lama, rfl, hQ⟩
-            · rename_i hcz
-              exact absurd rfl hcz
-      · -- `Λ` errored: `z` hardwired false → pushed word `⟨0⟩`, against `hx`
-        split at hstep
-        · exact absurd hstep (by simp)
-        · injection hstep with hs'
-          subst hs'
-          exact absurd rfl hx
-    · -- guard-else branch: `z` hardwired false again
-      split at hstep
-      · exact absurd hstep (by simp)
-      · injection hstep with hs'
-        subst hs'
+      split at heq
+      · -- nonce-overflow branch: `z` is hardwired false, so the failure-word `if`
+        -- REDUCES (its `Or`-instance short-circuits on `decide False = false`) and
+        -- the pushed word is `⟨0⟩` by defeq, contradicting `hx`
+        injection heq with heq
+        simp only [Prod.mk.injEq] at heq
+        obtain ⟨ha, hev', hg', hz, ho⟩ := heq
+        subst ha; subst hev'; subst hg'; subst hz; subst ho
         exact absurd rfl hx
+      · -- the funds/depth/size guard
+        split at heq
+        · -- `Λ` ran
+          split at heq
+          · -- `Λ = .ok (a, cA, σ', g', A', z, o)`
+            rename_i lama lamcA lamσ' lamg' lamA' lamz lamo hΛeq
+            injection heq with heq
+            simp only [Prod.mk.injEq] at heq
+            obtain ⟨ha, hev', hg', hz, ho⟩ := heq
+            subst ha; subst hev'; subst hg'; subst hz; subst ho
+            cases lamz
+            · -- `z = false`: the pushed word defeq-reduces to `⟨0⟩`, against `hx`
+              exact absurd rfl hx
+            · -- `z = true`: peel the `returnData` `if` (first split candidate in
+              -- record-field order), then the pushed-word `if`; its `⟨0⟩` arm
+              -- contradicts `hx`, its live arm is the genuine creation
+              split at hx
+              · split at hx
+                · exact absurd rfl hx
+                · rename_i hc
+                  have hQ := hΛ f _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+                    hP hΛeq rfl
+                  rw [lambda_success_out_empty hΛeq] at hQ
+                  rw [if_neg hc]
+                  exact ⟨lama, rfl, hQ⟩
+              · rename_i hcz
+                exact absurd rfl hcz
+          · -- `Λ` errored: the error propagates out of the arm, so it cannot
+            -- have produced the `.ok` tuple
+            exact absurd heq (by simp)
+        · -- guard-else branch: `z` hardwired false again
+          injection heq with heq
+          simp only [Prod.mk.injEq] at heq
+          obtain ⟨ha, hev', hg', hz, ho⟩ := heq
+          subst ha; subst hev'; subst hg'; subst hz; subst ho
+          exact absurd rfl hx
 
 end NestedEvmYul

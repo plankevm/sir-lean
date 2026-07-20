@@ -133,10 +133,11 @@ families, `EVM.step` at positive fuel is the same function at EVERY positive
 fuel — each of the ~130 non-recursive dispatcher arms routes to the fuel-free
 shared `EvmYul.step`, so each leaf closes by `rfl` (the dispatcher-equation
 technique, sweeping the two-level `Operation` sum). The six excluded arms are
-excluded *correctly*: CALL-family arms recurse into `call` (honest fuel
-consumption), and CREATE/CREATE2 absorb an inner `Lambda` `OutOfFuel`
-(the leak that makes the full result-stability keystone FALSE — see
-ThetaRuns.lean's keystone post-mortem).
+excluded *correctly*: CALL-family arms recurse into `call` and CREATE/CREATE2
+now honestly recurse into `Lambda` (propagating its errors, `OutOfFuel`
+included), so all six genuinely consume fuel and are fuel-*relevant* — see
+ThetaRuns.lean's keystone post-mortem for the historical absorption leak this
+replaced.
 
 Heartbeats cranked per-theorem (8M, ~2min): the ~140-leaf `rfl` sweep
 whnf-instantiates the full dispatcher body once per leaf, as for the

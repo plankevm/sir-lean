@@ -248,9 +248,8 @@ def step (fuel : ℕ) (gasCost : ℕ) (instr : Option (Operation × Option (UInt
             let σStar := σ.insert Iₐ {σ_Iₐ with nonce := σ_Iₐ.nonce + ⟨1⟩}
 
             let (a, evmState', g', z, o)
-                  : (AccountAddress × EVM.State × UInt256 × Bool × ByteArray)
-              :=
-              if σ_Iₐ.nonce.toNat ≥ 2^64-1 then (default, evmState, .ofNat (L evmState.gasAvailable.toNat), False, .empty) else
+              ←
+              (if σ_Iₐ.nonce.toNat ≥ 2^64-1 then .ok (default, evmState, .ofNat (L evmState.gasAvailable.toNat), False, .empty) else
               if μ₀ ≤ (σ.find? Iₐ |>.option ⟨0⟩ (·.balance)) ∧ Iₑ < 1024 ∧ i.size ≤ 49152 then
                 let Λ :=
                   Lambda f
@@ -273,6 +272,7 @@ def step (fuel : ℕ) (gasCost : ℕ) (instr : Option (Operation × Option (UInt
                     I.perm
                 match Λ with
                   | .ok (a, cA, σ', g', A', z, o) =>
+                    .ok
                     ( a
                     , { evmState with
                           accountMap := σ'
@@ -283,9 +283,10 @@ def step (fuel : ℕ) (gasCost : ℕ) (instr : Option (Operation × Option (UInt
                     , z
                     , o
                     )
-                  | _ => (0, {evmState with accountMap := ∅}, ⟨0⟩, False, .empty)
+                  | .error e => .error e
               else
-                (0, evmState, .ofNat (L evmState.gasAvailable.toNat), False, .empty)
+                .ok (0, evmState, .ofNat (L evmState.gasAvailable.toNat), False, .empty)
+              : Except EVM.ExecutionException (AccountAddress × EVM.State × UInt256 × Bool × ByteArray))
             let x : UInt256 :=
               let balance := σ.find? Iₐ |>.option ⟨0⟩ (·.balance)
                 if z = false ∨ Iₑ = 1024 ∨ μ₀ > balance ∨ i.size > 49152 then ⟨0⟩ else .ofNat a
@@ -316,8 +317,8 @@ def step (fuel : ℕ) (gasCost : ℕ) (instr : Option (Operation × Option (UInt
             let σ := evmState.accountMap
             let σ_Iₐ : Account := σ.find? Iₐ |>.getD default
             let σStar := σ.insert Iₐ {σ_Iₐ with nonce := σ_Iₐ.nonce + ⟨1⟩}
-            let (a, evmState', g', z, o) : (AccountAddress × EVM.State × UInt256 × Bool × ByteArray) :=
-              if σ_Iₐ.nonce.toNat ≥ 2^64-1 then (default, evmState, .ofNat (L evmState.gasAvailable.toNat), False, .empty) else
+            let (a, evmState', g', z, o) ←
+              (if σ_Iₐ.nonce.toNat ≥ 2^64-1 then .ok (default, evmState, .ofNat (L evmState.gasAvailable.toNat), False, .empty) else
               if μ₀ ≤ (σ.find? Iₐ |>.option ⟨0⟩ (·.balance)) ∧ Iₑ < 1024 ∧ i.size ≤ 49152 then
                 let Λ :=
                   Lambda f
@@ -340,10 +341,11 @@ def step (fuel : ℕ) (gasCost : ℕ) (instr : Option (Operation × Option (UInt
                     I.perm
                 match Λ with
                   | .ok (a, cA, σ', g', A', z, o) =>
-                    (a, {evmState with accountMap := σ', substate := A', createdAccounts := cA}, g', z, o)
-                  | _ => (0, {evmState with accountMap := ∅}, ⟨0⟩, False, .empty)
+                    .ok (a, {evmState with accountMap := σ', substate := A', createdAccounts := cA}, g', z, o)
+                  | .error e => .error e
               else
-                (0, evmState, .ofNat (L evmState.gasAvailable.toNat), False, .empty)
+                .ok (0, evmState, .ofNat (L evmState.gasAvailable.toNat), False, .empty)
+              : Except EVM.ExecutionException (AccountAddress × EVM.State × UInt256 × Bool × ByteArray))
             let x : UInt256 :=
               let balance := σ.find? Iₐ |>.option ⟨0⟩ (·.balance)
                 if z = false ∨ Iₑ = 1024 ∨ μ₀ > balance ∨ i.size > 49152 then ⟨0⟩ else .ofNat a

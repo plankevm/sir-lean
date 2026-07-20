@@ -27,12 +27,14 @@ positional `Θ` arguments, SharedObservable.lean), the driver is the fuel-free
   doctrine ("gas is a precondition, kept first-class") carries the gas floor
   inside `pre`. The nested analog of that residue is the T2 cofinal pivot's
   `k ≤ seedFuel w` offset side condition (`ΘRuns.runΘ_complete'`,
-  ThetaRuns.lean — the keystone that would remove it is FALSE, see the
-  post-mortem there). So the producers below take a per-world bounded-offset
-  cofinal family as part of their pre-side obligations: the fuel envelope
-  enters via `pre`, honestly, and cannot be discharged once-and-for-all. Flat
-  has unconditional adequacy at this spot (verdict §4 item 6); the nested side
-  never will.
+  ThetaRuns.lean — the keystone that would remove it is UNPROVEN: refuted
+  pre-2026-07-20 while CREATE absorbed inner `OutOfFuel`, reopened but not
+  proven by the vendored patch of that date, see the post-mortem there). So
+  the producers below take a per-world bounded-offset cofinal family as part
+  of their pre-side obligations: the fuel envelope enters via `pre`,
+  honestly, and cannot be discharged once-and-for-all. Flat has
+  unconditional adequacy at this spot (verdict §4 item 6); the nested side
+  does not today (a proved keystone would change that; none exists).
 
 * **Flat parity EXCEEDED on the consumer side.** The flat `Behaves` has ZERO
   consuming lemmas repo-wide (verified by grep: nothing takes a

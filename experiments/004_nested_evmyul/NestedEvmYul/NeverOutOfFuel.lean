@@ -1159,19 +1159,64 @@ theorem step_ee (f : ℕ) (cost : ℕ) (w : Operation) (a : Option (UInt256 × N
   · -- CALL/CREATE family: each result reuses the parent's executionEnv.
     unfold isCallCreate at hcc
     rcases hcc with rfl | rfl | rfl | rfl | rfl | rfl
-    -- CREATE / CREATE2: assembled inline; executionEnv preserved structurally.
+    -- CREATE / CREATE2: the branch expression is an Except-valued `←` bind
+    -- (honest `Lambda`-error propagation); on the `.ok` path each branch's
+    -- result state reuses the parent's `executionEnv` structurally, recovered
+    -- by splitting the branch equation and substituting the state component.
     · dsimp only [step] at h
       simp only [pure, Except.pure, bind, Except.bind] at h
-      repeat' split at h
-      all_goals first
-        | (injection h with h; subst h; rfl)
-        | exact absurd h (by simp)
+      split at h
+      · split at h
+        · exact absurd h (by simp)
+        · rename_i tup heq
+          obtain ⟨aA, ev', g', z, o⟩ := tup
+          split at h
+          · exact absurd h (by simp)
+          · injection h with h; subst h
+            split at heq
+            · injection heq with heq
+              simp only [Prod.mk.injEq] at heq
+              obtain ⟨-, hev', -, -, -⟩ := heq
+              subst hev'; rfl
+            · split at heq
+              · split at heq
+                · injection heq with heq
+                  simp only [Prod.mk.injEq] at heq
+                  obtain ⟨-, hev', -, -, -⟩ := heq
+                  subst hev'; rfl
+                · exact absurd heq (by simp)
+              · injection heq with heq
+                simp only [Prod.mk.injEq] at heq
+                obtain ⟨-, hev', -, -, -⟩ := heq
+                subst hev'; rfl
+      · exact absurd h (by simp)
     · dsimp only [step] at h
       simp only [pure, Except.pure, bind, Except.bind] at h
-      repeat' split at h
-      all_goals first
-        | (injection h with h; subst h; rfl)
-        | exact absurd h (by simp)
+      split at h
+      · split at h
+        · exact absurd h (by simp)
+        · rename_i tup heq
+          obtain ⟨aA, ev', g', z, o⟩ := tup
+          split at h
+          · exact absurd h (by simp)
+          · injection h with h; subst h
+            split at heq
+            · injection heq with heq
+              simp only [Prod.mk.injEq] at heq
+              obtain ⟨-, hev', -, -, -⟩ := heq
+              subst hev'; rfl
+            · split at heq
+              · split at heq
+                · injection heq with heq
+                  simp only [Prod.mk.injEq] at heq
+                  obtain ⟨-, hev', -, -, -⟩ := heq
+                  subst hev'; rfl
+                · exact absurd heq (by simp)
+              · injection heq with heq
+                simp only [Prod.mk.injEq] at heq
+                obtain ⟨-, hev', -, -, -⟩ := heq
+                subst hev'; rfl
+      · exact absurd h (by simp)
     -- CALL family: result via `call f`; `call_ee` gives executionEnv preservation.
     all_goals (
       dsimp only [step] at h
@@ -1885,13 +1930,16 @@ via its inner `Ξ f` re-throw (same `if e == .OutOfFuel then throw .OutOfFuel` s
 as `Θ`'s `Code` arm). The leading `L_A` address-derivation lift only ever errors as
 `.StackUnderflow` (the `MonadLift Option (Except …)` instance), and on `Ξ` success
 the result is assembled as `.ok`. So if `Ξ f … ≠ OutOfFuel`, neither is
-`Lambda (f+1)`. -/
+`Lambda (f+1)`. The `hΞ` hypothesis is restricted to the concrete `ExecutionEnv`
+`Lambda` builds — depth `= e.toNat`, gas `g` — which is exactly what the
+depth-indexed never-`OutOfFuel` IH can discharge (an unrestricted `∀ I` would
+demand the IH at arbitrary depths). -/
 theorem Lambda_outOfFuel_of (f : ℕ) (bvh : List ByteArray)
     (cA : Batteries.RBSet AccountAddress compare) (gh : BlockHeader) (blocks : ProcessedBlocks)
     (σ σ₀ : AccountMap) (A : Substate) (s o : AccountAddress) (g p v : UInt256)
     (i : ByteArray) (e : UInt256) (ζ : Option ByteArray) (Hd : BlockHeader) (w : Bool)
     (hΞ : ∀ (cA' : Batteries.RBSet AccountAddress compare) (σ' : AccountMap) (As : Substate)
-            (I : ExecutionEnv),
+            (I : ExecutionEnv), I.depth = e.toNat →
           Ξ f cA' gh blocks σ' σ₀ g As I ≠ .error .OutOfFuel) :
     Lambda (f+1) bvh cA gh blocks σ σ₀ A s o g p v i e ζ Hd w ≠ .error .OutOfFuel := by
   simp only [Lambda, bind, Except.bind]
@@ -1906,7 +1954,7 @@ theorem Lambda_outOfFuel_of (f : ℕ) (bvh : List ByteArray)
       split
       · rename_i err heq
         by_cases hee : err = EVM.ExecutionException.OutOfFuel
-        · exact absurd (hee ▸ heq) (hΞ _ _ _ _)
+        · exact absurd (hee ▸ heq) (hΞ _ _ _ _ rfl)
         · have hb : (err == EVM.ExecutionException.OutOfFuel) = false := by
             cases err <;> first | rfl | exact absurd rfl hee
           simp only [hb, if_false, Bool.false_eq_true]
@@ -2155,9 +2203,11 @@ theorem noOOF_EvmYul_step (op : Operation) (arg : Option (UInt256 × Nat)) (s : 
 `step (f+1) cost (some (w,a)) s ≠ OutOfFuel` routes:
 * `CALL`/`CALLCODE`/`DELEGATECALL`/`STATICCALL` → `call f` (`noOOF_step_call*`, using
   the `call f` non-`OutOfFuel` hypothesis);
-* `CREATE`/`CREATE2` → these *swallow* `Lambda`'s result into a tuple (the `match Λ
-  with | .ok … | _ => default` discards the error), so they are unconditionally
-  non-`OutOfFuel` — they never even need the `Lambda` hypothesis;
+* `CREATE`/`CREATE2` → these honestly recurse into `Lambda f` (the `.error e =>
+  .error e` catch-all propagates the child's error, including `OutOfFuel`), so they
+  carry a `Lambda` non-`OutOfFuel` hypothesis (`hΛ`) pinned to the arm's forwarded
+  gas `.ofNat (L (gas − cost).toNat)` and child depth `.ofNat (depth + 1)`, gated on
+  the arm's own recursion guard `depth < 1024`;
 * every other opcode → `EvmYul.step` on the gas-debited state (`noOOF_EvmYul_step`).
 
 `noOOF_step` assembles all three; the routing is the `cases w` defeq-coercion to
@@ -2213,20 +2263,88 @@ theorem noOOF_step_staticcall (f cost : ℕ) (a) (s : State)
   intro h; exact noOOF_call_arm_body _ _ _ (fun _ => hcall _ _ _ _ _ _ _ _ _ _ _ _) h
 
 set_option maxHeartbeats 8000000 in
-theorem noOOF_step_create (f cost : ℕ) (a) (s : State) :
+/-- **CREATE-arm `step` never-`OutOfFuel` (conditional).** The CREATE arm recurses
+into `Lambda f` and propagates its errors, so the arm is non-`OutOfFuel` exactly
+when the child `Lambda` is. `hΛ` quantifies over everything the arm passes except
+the forwarded gas (`.ofNat (L gd.toNat)` for the debited gas `gd = gas − cost`) and
+the child depth (`.ofNat (depth + 1)`), which the never-`OutOfFuel` induction needs
+pinned; the `depth < 1024` gate is the arm's own recursion guard. -/
+theorem noOOF_step_create (f cost : ℕ) (a) (s : State)
+    (hΛ : ∀ (bvh : List ByteArray) (cA : Batteries.RBSet AccountAddress compare)
+            (gh : BlockHeader) (blocks : ProcessedBlocks) (σStar σ₀ : AccountMap)
+            (Asub : Substate) (Iₐ Iₒ : AccountAddress) (p v : UInt256) (i : ByteArray)
+            (ζ : Option ByteArray) (Hd : BlockHeader) (w : Bool),
+      s.executionEnv.depth < 1024 →
+      Lambda f bvh cA gh blocks σStar σ₀ Asub Iₐ Iₒ
+          (.ofNat (L (s.gasAvailable - UInt256.ofNat cost).toNat)) p v i
+          (.ofNat (s.executionEnv.depth + 1)) ζ Hd w
+        ≠ .error .OutOfFuel) :
     step (f+1) cost (some (.System .CREATE, a)) s ≠ .error .OutOfFuel := by
   intro h
   dsimp only [step] at h
   simp only [pure, Except.pure, bind, Except.bind] at h
-  repeat' first | split at h | (exact absurd h (by simp))
+  split at h
+  · -- pop3 = some
+    split at h
+    · -- the `←` bind's `.error e` branch: locate the error source in the branch expr
+      rename_i e heq
+      have he : e = EVM.ExecutionException.OutOfFuel := Except.error.inj h
+      subst he
+      split at heq
+      · exact absurd heq (by simp)   -- nonce-overflow: `.ok` ≠ `.error`
+      · split at heq
+        · -- recursion-guard branch: the Λ match; only `.error e' => .error e'` errors
+          rename_i hguard
+          split at heq
+          · exact absurd heq (by simp)
+          · rename_i e' hΛeq
+            have he' : e' = EVM.ExecutionException.OutOfFuel := Except.error.inj heq
+            exact hΛ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ hguard.2.1 (he' ▸ hΛeq)
+        · exact absurd heq (by simp)   -- guard-else: `.ok` ≠ `.error`
+    · -- the `←` bind's `.ok` branch: only `.OutOfGass` / final `.ok` remain
+      split at h
+      · exact absurd (Except.error.inj h) (by intro hc; cases hc)
+      · exact absurd h (by simp)
+  · -- pop3 = none: StackUnderflow
+    exact absurd (Except.error.inj h) (by intro hc; cases hc)
 
 set_option maxHeartbeats 8000000 in
-theorem noOOF_step_create2 (f cost : ℕ) (a) (s : State) :
+/-- **CREATE2-arm `step` never-`OutOfFuel` (conditional).** As `noOOF_step_create`
+(the CREATE2 arm differs only in `pop4`/the salt-derived `ζ`, both covered by `hΛ`'s
+quantifiers). -/
+theorem noOOF_step_create2 (f cost : ℕ) (a) (s : State)
+    (hΛ : ∀ (bvh : List ByteArray) (cA : Batteries.RBSet AccountAddress compare)
+            (gh : BlockHeader) (blocks : ProcessedBlocks) (σStar σ₀ : AccountMap)
+            (Asub : Substate) (Iₐ Iₒ : AccountAddress) (p v : UInt256) (i : ByteArray)
+            (ζ : Option ByteArray) (Hd : BlockHeader) (w : Bool),
+      s.executionEnv.depth < 1024 →
+      Lambda f bvh cA gh blocks σStar σ₀ Asub Iₐ Iₒ
+          (.ofNat (L (s.gasAvailable - UInt256.ofNat cost).toNat)) p v i
+          (.ofNat (s.executionEnv.depth + 1)) ζ Hd w
+        ≠ .error .OutOfFuel) :
     step (f+1) cost (some (.System .CREATE2, a)) s ≠ .error .OutOfFuel := by
   intro h
   dsimp only [step] at h
   simp only [pure, Except.pure, bind, Except.bind] at h
-  repeat' first | split at h | (exact absurd h (by simp))
+  split at h
+  · split at h
+    · rename_i e heq
+      have he : e = EVM.ExecutionException.OutOfFuel := Except.error.inj h
+      subst he
+      split at heq
+      · exact absurd heq (by simp)
+      · split at heq
+        · rename_i hguard
+          split at heq
+          · exact absurd heq (by simp)
+          · rename_i e' hΛeq
+            have he' : e' = EVM.ExecutionException.OutOfFuel := Except.error.inj heq
+            exact hΛ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ hguard.2.1 (he' ▸ hΛeq)
+        · exact absurd heq (by simp)
+    · split at h
+      · exact absurd (Except.error.inj h) (by intro hc; cases hc)
+      · exact absurd h (by simp)
+  · exact absurd (Except.error.inj h) (by intro hc; cases hc)
 
 set_option maxHeartbeats 4000000 in
 /-- The `step` default arm (`¬ isCallCreate w`) hands off to `EvmYul.step` on the
@@ -2259,19 +2377,29 @@ theorem noOOF_step_default (f cost : ℕ) (w : Operation) (a) (s : State) (hop :
         | exact h
 
 /-- **The `step` skeleton (DONE).** `step (f+1) …` is never `OutOfFuel` provided
-every `call f …` (with `s`'s genesis/blocks) is not `OutOfFuel`. CREATE/CREATE2 are
-unconditional; the default arm goes through `noOOF_EvmYul_step`. -/
+every `call f …` (with `s`'s genesis/blocks) is not `OutOfFuel` (`hcall`) and every
+`Lambda f …` at the CREATE-arm's forwarded gas/child depth is not `OutOfFuel` (`hΛ`);
+the default arm goes through `noOOF_EvmYul_step` unconditionally. -/
 theorem noOOF_step (f cost : ℕ) (w : Operation) (a) (s : State)
     (hcall : ∀ g src rcpt t v v' io is oo os perm s2,
       call f cost s.executionEnv.blobVersionedHashes g src rcpt t v v' io is oo os perm s2
+        ≠ .error .OutOfFuel)
+    (hΛ : ∀ (bvh : List ByteArray) (cA : Batteries.RBSet AccountAddress compare)
+            (gh : BlockHeader) (blocks : ProcessedBlocks) (σStar σ₀ : AccountMap)
+            (Asub : Substate) (Iₐ Iₒ : AccountAddress) (p v : UInt256) (i : ByteArray)
+            (ζ : Option ByteArray) (Hd : BlockHeader) (ww : Bool),
+      s.executionEnv.depth < 1024 →
+      Lambda f bvh cA gh blocks σStar σ₀ Asub Iₐ Iₒ
+          (.ofNat (L (s.gasAvailable - UInt256.ofNat cost).toNat)) p v i
+          (.ofNat (s.executionEnv.depth + 1)) ζ Hd ww
         ≠ .error .OutOfFuel) :
     step (f+1) cost (some (w, a)) s ≠ .error .OutOfFuel := by
   by_cases hcc : isCallCreate w
   · -- one of the six call/create opcodes
     unfold isCallCreate at hcc
     rcases hcc with rfl | rfl | rfl | rfl | rfl | rfl
-    · exact noOOF_step_create f cost a s
-    · exact noOOF_step_create2 f cost a s
+    · exact noOOF_step_create f cost a s hΛ
+    · exact noOOF_step_create2 f cost a s hΛ
     · exact noOOF_step_call f cost a s hcall
     · exact noOOF_step_callcode f cost a s hcall
     · exact noOOF_step_delegatecall f cost a s hcall
@@ -2280,20 +2408,29 @@ theorem noOOF_step (f cost : ℕ) (w : Operation) (a) (s : State)
 
 /-- **Bound-friendly `step` skeleton.** Like `noOOF_step`, but the CALL-family
 hypothesis is required only on the *specific* state the step calls into — the
-`execLength`-bumped `s` (same gas and depth as `s`). CREATE/CREATE2 are unconditional
-(they swallow the child `Lambda`'s `OutOfFuel` into a tuple), so the never-OOF
-induction needs NO `Lambda` bound; the default arm is unconditional. This is what the
+`execLength`-bumped `s` (same gas and depth as `s`). CREATE/CREATE2 carry the same
+pinned `Lambda` hypothesis as `noOOF_step` (the arms recurse into `Lambda f` and
+propagate its `OutOfFuel`); the default arm is unconditional. This is what the
 depth-aware bound threads through. -/
 theorem noOOF_step_bound (f cost : ℕ) (w : Operation) (a) (s : State)
     (hcall : ∀ g src rcpt t v v' io is oo os perm,
       call f cost s.executionEnv.blobVersionedHashes g src rcpt t v v' io is oo os perm
-        { s with execLength := s.execLength + 1 } ≠ .error .OutOfFuel) :
+        { s with execLength := s.execLength + 1 } ≠ .error .OutOfFuel)
+    (hΛ : ∀ (bvh : List ByteArray) (cA : Batteries.RBSet AccountAddress compare)
+            (gh : BlockHeader) (blocks : ProcessedBlocks) (σStar σ₀ : AccountMap)
+            (Asub : Substate) (Iₐ Iₒ : AccountAddress) (p v : UInt256) (i : ByteArray)
+            (ζ : Option ByteArray) (Hd : BlockHeader) (ww : Bool),
+      s.executionEnv.depth < 1024 →
+      Lambda f bvh cA gh blocks σStar σ₀ Asub Iₐ Iₒ
+          (.ofNat (L (s.gasAvailable - UInt256.ofNat cost).toNat)) p v i
+          (.ofNat (s.executionEnv.depth + 1)) ζ Hd ww
+        ≠ .error .OutOfFuel) :
     step (f+1) cost (some (w, a)) s ≠ .error .OutOfFuel := by
   by_cases hcc : isCallCreate w
   · unfold isCallCreate at hcc
     rcases hcc with rfl | rfl | rfl | rfl | rfl | rfl
-    · exact noOOF_step_create f cost a s
-    · exact noOOF_step_create2 f cost a s
+    · exact noOOF_step_create f cost a s hΛ
+    · exact noOOF_step_create2 f cost a s hΛ
     · intro h; exact noOOF_call_arm_body _ _ _ (fun _ => hcall _ _ _ _ _ _ _ _ _ _ _) h
     · intro h; exact noOOF_call_arm_body _ _ _ (fun _ => hcall _ _ _ _ _ _ _ _ _ _ _) h
     · intro h; exact noOOF_call_arm_body _ _ _ (fun _ => hcall _ _ _ _ _ _ _ _ _ _ _) h
@@ -2711,7 +2848,8 @@ gas is exactly `.ofNat (L gd.toNat)`, so the create analogue of `Θ_result_gas_l
 `g'.toNat ≤ L gd.toNat`. Across the three `(a, evmState', g', z, o)` branches:
   * nonce-overflow (`σ_Iₐ.nonce ≥ 2^64-1`):  `g' = .ofNat (L gd.toNat)`  → `= L gd.toNat`;
   * else (insufficient funds / depth = 1024 / init-code too big): same `.ofNat (L gd.toNat)`;
-  * the `Lambda` branch: `g'` is `Lambda`'s 4th result component on `.ok`, else `⟨0⟩`.
+  * the `Lambda` branch: `g'` is `Lambda`'s 4th result component on `.ok` (a `Lambda`
+    error now propagates out of the arm — the `.ok s'` hypothesis rules it out).
 So `g'.toNat ≤ L gd.toNat` reduces to the single child-`Lambda`-result hypothesis,
 exactly as `call_result_gas_le` reduced to the child-`Θ` hypothesis.
 
@@ -2815,60 +2953,46 @@ theorem create_result_gas_le (f gasCost : ℕ) (arg : Option (UInt256 × Nat)) (
   split at h
   · -- pop3 = some
     rename_i stack μ₀ μ₁ μ₂ _hpop
-    -- close the goal once we have `g'.toNat ≤ L gd.toNat`; the result gas is then
-    -- `.ofNat (gd.toNat - L gd.toNat + g'.toNat)` independent of the branch's evmState'.
-    -- The `(a, evmState', g', z, o)` 3-way split:
+    -- the `←` bind on the `(a, evmState', g', z, o)` branch expression:
     split at h
-    · -- nonce-overflow branch: g' = .ofNat (L gd.toNat)
+    · exact absurd h (by simp)   -- propagated `.error` ≠ `.ok`
+    · rename_i tup heq
+      obtain ⟨aA, ev', g', z, o⟩ := tup
+      -- OutOfGass guard then the final `.ok`
       split at h
       · exact absurd h (by simp)   -- OutOfGass guard fired
       · injection h with h; subst h
         simp only [gasAvailable_replaceStackAndIncrPC]
         refine create_gas_arith gd.toNat ev.gasAvailable.toNat _ ?_ hgdle hgdsz
-        -- g' = .ofNat (L gd.toNat); its toNat = L gd.toNat ≤ L gd.toNat
         have hLsz : L gd.toNat < UInt256.size :=
           Nat.lt_of_le_of_lt (L_le _) (Nat.lt_of_le_of_lt hgdle hgdsz)
-        show (UInt256.ofNat (L gd.toNat)).toNat ≤ L gd.toNat
-        show (Fin.ofNat _ _).val ≤ _
-        simp only [Fin.ofNat]; rw [Nat.mod_eq_of_lt hLsz]
-    · -- the funds/depth/size guard
-      split at h
-      · -- Lambda sub-branch
-        split at h
-        · -- Lambda = .ok (a, cA, σ', g', A', z, o): the leftover gas component is `lamg'`
-          rename_i lama lamcA lamσ' lamg' lamA' lamz lamo hΛeq
-          split at h
-          · exact absurd h (by simp)   -- OutOfGass guard fired
-          · injection h with h; subst h
-            simp only [gasAvailable_replaceStackAndIncrPC]
-            refine create_gas_arith gd.toNat ev.gasAvailable.toNat _ ?_ hgdle hgdsz
-            -- hΛ bounds `lamg'` by the forwarded gas `.ofNat (L gd.toNat)`.
-            have hb := hΛ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ (lama, lamcA, lamσ', lamg', lamA', lamz, lamo) hΛeq
-            have hLsz : L gd.toNat < UInt256.size :=
-              Nat.lt_of_le_of_lt (L_le _) (Nat.lt_of_le_of_lt hgdle hgdsz)
-            have hfwd : (UInt256.ofNat (L gd.toNat)).toNat = L gd.toNat := by
-              show (Fin.ofNat _ _).val = _
-              simp only [Fin.ofNat]; rw [Nat.mod_eq_of_lt hLsz]
-            rw [hfwd] at hb; exact hb
-        · -- Lambda not .ok: g' = ⟨0⟩
-          split at h
-          · exact absurd h (by simp)
-          · injection h with h; subst h
-            simp only [gasAvailable_replaceStackAndIncrPC]
-            refine create_gas_arith gd.toNat ev.gasAvailable.toNat _ ?_ hgdle hgdsz
-            show (⟨0⟩ : UInt256).toNat ≤ L gd.toNat
-            exact Nat.zero_le _
-      · -- else branch: g' = .ofNat (L gd.toNat)
-        split at h
-        · exact absurd h (by simp)
-        · injection h with h; subst h
-          simp only [gasAvailable_replaceStackAndIncrPC]
-          refine create_gas_arith gd.toNat ev.gasAvailable.toNat _ ?_ hgdle hgdsz
-          have hLsz : L gd.toNat < UInt256.size :=
-            Nat.lt_of_le_of_lt (L_le _) (Nat.lt_of_le_of_lt hgdle hgdsz)
-          show (UInt256.ofNat (L gd.toNat)).toNat ≤ L gd.toNat
-          show (Fin.ofNat _ _).val ≤ _
+        have hfwd : (UInt256.ofNat (L gd.toNat)).toNat = L gd.toNat := by
+          show (Fin.ofNat _ _).val = _
           simp only [Fin.ofNat]; rw [Nat.mod_eq_of_lt hLsz]
+        -- locate `g'` by splitting the branch equation
+        split at heq
+        · -- nonce-overflow: g' = .ofNat (L gd.toNat)
+          injection heq with heq
+          simp only [Prod.mk.injEq] at heq
+          obtain ⟨-, -, hg', -, -⟩ := heq
+          rw [← hg', hfwd]
+        · split at heq
+          · -- Lambda sub-branch; the `.error` arm cannot produce `.ok` (noConfusion)
+            split at heq
+            · -- Lambda = .ok (a, cA, σ', g', A', z, o): leftover gas is `lamg'`
+              rename_i lama lamcA lamσ' lamg' lamA' lamz lamo hΛeq
+              injection heq with heq
+              simp only [Prod.mk.injEq] at heq
+              obtain ⟨-, -, hg', -, -⟩ := heq
+              have hb := hΛ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ (lama, lamcA, lamσ', lamg', lamA', lamz, lamo) hΛeq
+              rw [hfwd] at hb
+              rw [← hg']; exact hb
+            · exact absurd heq (by simp)
+          · -- else branch: g' = .ofNat (L gd.toNat)
+            injection heq with heq
+            simp only [Prod.mk.injEq] at heq
+            obtain ⟨-, -, hg', -, -⟩ := heq
+            rw [← hg', hfwd]
   · exact absurd h (by simp)   -- pop3 = none → StackUnderflow
 
 set_option maxHeartbeats 4000000 in
@@ -2896,7 +3020,9 @@ theorem create_result_gas_lt (f gasCost : ℕ) (arg : Option (UInt256 × Nat)) (
   split at h
   · rename_i stack μ₀ μ₁ μ₂ _hpop
     split at h
-    · -- nonce-overflow branch
+    · exact absurd h (by simp)   -- propagated `.error` ≠ `.ok`
+    · rename_i tup heq
+      obtain ⟨aA, ev', g', z, o⟩ := tup
       split at h
       · exact absurd h (by simp)
       · injection h with h; subst h
@@ -2904,41 +3030,29 @@ theorem create_result_gas_lt (f gasCost : ℕ) (arg : Option (UInt256 × Nat)) (
         refine create_gas_arith_lt gd.toNat ev.gasAvailable.toNat _ ?_ hgdlt hgdsz
         have hLsz : L gd.toNat < UInt256.size :=
           Nat.lt_of_le_of_lt (L_le _) (Nat.lt_of_le_of_lt (le_of_lt hgdlt) hgdsz)
-        show (UInt256.ofNat (L gd.toNat)).toNat ≤ L gd.toNat
-        show (Fin.ofNat _ _).val ≤ _
-        simp only [Fin.ofNat]; rw [Nat.mod_eq_of_lt hLsz]
-    · split at h
-      · split at h
-        · rename_i lama lamcA lamσ' lamg' lamA' lamz lamo hΛeq
-          split at h
-          · exact absurd h (by simp)
-          · injection h with h; subst h
-            simp only [gasAvailable_replaceStackAndIncrPC]
-            refine create_gas_arith_lt gd.toNat ev.gasAvailable.toNat _ ?_ hgdlt hgdsz
-            have hb := hΛ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ (lama, lamcA, lamσ', lamg', lamA', lamz, lamo) hΛeq
-            have hLsz : L gd.toNat < UInt256.size :=
-              Nat.lt_of_le_of_lt (L_le _) (Nat.lt_of_le_of_lt (le_of_lt hgdlt) hgdsz)
-            have hfwd : (UInt256.ofNat (L gd.toNat)).toNat = L gd.toNat := by
-              show (Fin.ofNat _ _).val = _
-              simp only [Fin.ofNat]; rw [Nat.mod_eq_of_lt hLsz]
-            rw [hfwd] at hb; exact hb
-        · split at h
-          · exact absurd h (by simp)
-          · injection h with h; subst h
-            simp only [gasAvailable_replaceStackAndIncrPC]
-            refine create_gas_arith_lt gd.toNat ev.gasAvailable.toNat _ ?_ hgdlt hgdsz
-            show (⟨0⟩ : UInt256).toNat ≤ L gd.toNat
-            exact Nat.zero_le _
-      · split at h
-        · exact absurd h (by simp)
-        · injection h with h; subst h
-          simp only [gasAvailable_replaceStackAndIncrPC]
-          refine create_gas_arith_lt gd.toNat ev.gasAvailable.toNat _ ?_ hgdlt hgdsz
-          have hLsz : L gd.toNat < UInt256.size :=
-            Nat.lt_of_le_of_lt (L_le _) (Nat.lt_of_le_of_lt (le_of_lt hgdlt) hgdsz)
-          show (UInt256.ofNat (L gd.toNat)).toNat ≤ L gd.toNat
-          show (Fin.ofNat _ _).val ≤ _
+        have hfwd : (UInt256.ofNat (L gd.toNat)).toNat = L gd.toNat := by
+          show (Fin.ofNat _ _).val = _
           simp only [Fin.ofNat]; rw [Nat.mod_eq_of_lt hLsz]
+        split at heq
+        · -- nonce-overflow branch
+          injection heq with heq
+          simp only [Prod.mk.injEq] at heq
+          obtain ⟨-, -, hg', -, -⟩ := heq
+          rw [← hg', hfwd]
+        · split at heq
+          · split at heq
+            · rename_i lama lamcA lamσ' lamg' lamA' lamz lamo hΛeq
+              injection heq with heq
+              simp only [Prod.mk.injEq] at heq
+              obtain ⟨-, -, hg', -, -⟩ := heq
+              have hb := hΛ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ (lama, lamcA, lamσ', lamg', lamA', lamz, lamo) hΛeq
+              rw [hfwd] at hb
+              rw [← hg']; exact hb
+            · exact absurd heq (by simp)
+          · injection heq with heq
+            simp only [Prod.mk.injEq] at heq
+            obtain ⟨-, -, hg', -, -⟩ := heq
+            rw [← hg', hfwd]
   · exact absurd h (by simp)
 
 set_option maxHeartbeats 4000000 in
@@ -2964,48 +3078,38 @@ theorem create2_result_gas_le (f gasCost : ℕ) (arg : Option (UInt256 × Nat)) 
   split at h
   · rename_i stack μ₀ μ₁ μ₂ μ₃ _hpop
     split at h
-    · split at h
+    · exact absurd h (by simp)   -- propagated `.error` ≠ `.ok`
+    · rename_i tup heq
+      obtain ⟨aA, ev', g', z, o⟩ := tup
+      split at h
       · exact absurd h (by simp)
       · injection h with h; subst h
         simp only [gasAvailable_replaceStackAndIncrPC]
         refine create_gas_arith gd.toNat ev.gasAvailable.toNat _ ?_ hgdle hgdsz
         have hLsz : L gd.toNat < UInt256.size :=
           Nat.lt_of_le_of_lt (L_le _) (Nat.lt_of_le_of_lt hgdle hgdsz)
-        show (UInt256.ofNat (L gd.toNat)).toNat ≤ L gd.toNat
-        show (Fin.ofNat _ _).val ≤ _
-        simp only [Fin.ofNat]; rw [Nat.mod_eq_of_lt hLsz]
-    · split at h
-      · split at h
-        · rename_i lama lamcA lamσ' lamg' lamA' lamz lamo hΛeq
-          split at h
-          · exact absurd h (by simp)
-          · injection h with h; subst h
-            simp only [gasAvailable_replaceStackAndIncrPC]
-            refine create_gas_arith gd.toNat ev.gasAvailable.toNat _ ?_ hgdle hgdsz
-            have hb := hΛ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ (lama, lamcA, lamσ', lamg', lamA', lamz, lamo) hΛeq
-            have hLsz : L gd.toNat < UInt256.size :=
-              Nat.lt_of_le_of_lt (L_le _) (Nat.lt_of_le_of_lt hgdle hgdsz)
-            have hfwd : (UInt256.ofNat (L gd.toNat)).toNat = L gd.toNat := by
-              show (Fin.ofNat _ _).val = _
-              simp only [Fin.ofNat]; rw [Nat.mod_eq_of_lt hLsz]
-            rw [hfwd] at hb; exact hb
-        · split at h
-          · exact absurd h (by simp)
-          · injection h with h; subst h
-            simp only [gasAvailable_replaceStackAndIncrPC]
-            refine create_gas_arith gd.toNat ev.gasAvailable.toNat _ ?_ hgdle hgdsz
-            show (⟨0⟩ : UInt256).toNat ≤ L gd.toNat
-            exact Nat.zero_le _
-      · split at h
-        · exact absurd h (by simp)
-        · injection h with h; subst h
-          simp only [gasAvailable_replaceStackAndIncrPC]
-          refine create_gas_arith gd.toNat ev.gasAvailable.toNat _ ?_ hgdle hgdsz
-          have hLsz : L gd.toNat < UInt256.size :=
-            Nat.lt_of_le_of_lt (L_le _) (Nat.lt_of_le_of_lt hgdle hgdsz)
-          show (UInt256.ofNat (L gd.toNat)).toNat ≤ L gd.toNat
-          show (Fin.ofNat _ _).val ≤ _
+        have hfwd : (UInt256.ofNat (L gd.toNat)).toNat = L gd.toNat := by
+          show (Fin.ofNat _ _).val = _
           simp only [Fin.ofNat]; rw [Nat.mod_eq_of_lt hLsz]
+        split at heq
+        · injection heq with heq
+          simp only [Prod.mk.injEq] at heq
+          obtain ⟨-, -, hg', -, -⟩ := heq
+          rw [← hg', hfwd]
+        · split at heq
+          · split at heq
+            · rename_i lama lamcA lamσ' lamg' lamA' lamz lamo hΛeq
+              injection heq with heq
+              simp only [Prod.mk.injEq] at heq
+              obtain ⟨-, -, hg', -, -⟩ := heq
+              have hb := hΛ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ (lama, lamcA, lamσ', lamg', lamA', lamz, lamo) hΛeq
+              rw [hfwd] at hb
+              rw [← hg']; exact hb
+            · exact absurd heq (by simp)
+          · injection heq with heq
+            simp only [Prod.mk.injEq] at heq
+            obtain ⟨-, -, hg', -, -⟩ := heq
+            rw [← hg', hfwd]
   · exact absurd h (by simp)
 
 set_option maxHeartbeats 4000000 in
@@ -3029,48 +3133,38 @@ theorem create2_result_gas_lt (f gasCost : ℕ) (arg : Option (UInt256 × Nat)) 
   split at h
   · rename_i stack μ₀ μ₁ μ₂ μ₃ _hpop
     split at h
-    · split at h
+    · exact absurd h (by simp)   -- propagated `.error` ≠ `.ok`
+    · rename_i tup heq
+      obtain ⟨aA, ev', g', z, o⟩ := tup
+      split at h
       · exact absurd h (by simp)
       · injection h with h; subst h
         simp only [gasAvailable_replaceStackAndIncrPC]
         refine create_gas_arith_lt gd.toNat ev.gasAvailable.toNat _ ?_ hgdlt hgdsz
         have hLsz : L gd.toNat < UInt256.size :=
           Nat.lt_of_le_of_lt (L_le _) (Nat.lt_of_le_of_lt (le_of_lt hgdlt) hgdsz)
-        show (UInt256.ofNat (L gd.toNat)).toNat ≤ L gd.toNat
-        show (Fin.ofNat _ _).val ≤ _
-        simp only [Fin.ofNat]; rw [Nat.mod_eq_of_lt hLsz]
-    · split at h
-      · split at h
-        · rename_i lama lamcA lamσ' lamg' lamA' lamz lamo hΛeq
-          split at h
-          · exact absurd h (by simp)
-          · injection h with h; subst h
-            simp only [gasAvailable_replaceStackAndIncrPC]
-            refine create_gas_arith_lt gd.toNat ev.gasAvailable.toNat _ ?_ hgdlt hgdsz
-            have hb := hΛ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ (lama, lamcA, lamσ', lamg', lamA', lamz, lamo) hΛeq
-            have hLsz : L gd.toNat < UInt256.size :=
-              Nat.lt_of_le_of_lt (L_le _) (Nat.lt_of_le_of_lt (le_of_lt hgdlt) hgdsz)
-            have hfwd : (UInt256.ofNat (L gd.toNat)).toNat = L gd.toNat := by
-              show (Fin.ofNat _ _).val = _
-              simp only [Fin.ofNat]; rw [Nat.mod_eq_of_lt hLsz]
-            rw [hfwd] at hb; exact hb
-        · split at h
-          · exact absurd h (by simp)
-          · injection h with h; subst h
-            simp only [gasAvailable_replaceStackAndIncrPC]
-            refine create_gas_arith_lt gd.toNat ev.gasAvailable.toNat _ ?_ hgdlt hgdsz
-            show (⟨0⟩ : UInt256).toNat ≤ L gd.toNat
-            exact Nat.zero_le _
-      · split at h
-        · exact absurd h (by simp)
-        · injection h with h; subst h
-          simp only [gasAvailable_replaceStackAndIncrPC]
-          refine create_gas_arith_lt gd.toNat ev.gasAvailable.toNat _ ?_ hgdlt hgdsz
-          have hLsz : L gd.toNat < UInt256.size :=
-            Nat.lt_of_le_of_lt (L_le _) (Nat.lt_of_le_of_lt (le_of_lt hgdlt) hgdsz)
-          show (UInt256.ofNat (L gd.toNat)).toNat ≤ L gd.toNat
-          show (Fin.ofNat _ _).val ≤ _
+        have hfwd : (UInt256.ofNat (L gd.toNat)).toNat = L gd.toNat := by
+          show (Fin.ofNat _ _).val = _
           simp only [Fin.ofNat]; rw [Nat.mod_eq_of_lt hLsz]
+        split at heq
+        · injection heq with heq
+          simp only [Prod.mk.injEq] at heq
+          obtain ⟨-, -, hg', -, -⟩ := heq
+          rw [← hg', hfwd]
+        · split at heq
+          · split at heq
+            · rename_i lama lamcA lamσ' lamg' lamA' lamz lamo hΛeq
+              injection heq with heq
+              simp only [Prod.mk.injEq] at heq
+              obtain ⟨-, -, hg', -, -⟩ := heq
+              have hb := hΛ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ (lama, lamcA, lamσ', lamg', lamA', lamz, lamo) hΛeq
+              rw [hfwd] at hb
+              rw [← hg']; exact hb
+            · exact absurd heq (by simp)
+          · injection heq with heq
+            simp only [Prod.mk.injEq] at heq
+            obtain ⟨-, -, hg', -, -⟩ := heq
+            rw [← hg', hfwd]
   · exact absurd h (by simp)
 
 /-! ## B2h — the gas-monotonicity mutual induction (assembly)
@@ -4477,19 +4571,22 @@ theorem noOOF_step_staticcall_bound (f cost : ℕ) (a) (s : State)
 /-! ## A1 STAGE 3 — the 5-layer never-`OutOfFuel` mutual induction
 
 One strong induction on `fuel`, bundling the five recursing layers
-(`Θ`/`Ξ`/`X`/`step`/`call` — **no `Lambda`**: CREATE/CREATE2 `step`s are
-*unconditionally* never-`OutOfFuel`, swallowing the child `Lambda`'s `OutOfFuel` into a
-result tuple). Each conjunct reads `fuelBound gas depth + kₗ ≤ n → layer … ≠
-OutOfFuel`, with the ℕ-encoded per-layer offsets
+(`Θ`/`Ξ`/`X`/`step`/`call` — `Lambda` needs no conjunct of its own: the CREATE/CREATE2
+`step` arms recurse into `Lambda`, but the sharpened `Lambda_outOfFuel_of` reduces a
+`Lambda (k+1)` directly to its inner `Ξ k` at the same gas and the concrete child depth,
+so the `Ξ` conjunct of the IH covers it). Each conjunct reads `fuelBound gas depth + kₗ
+≤ n → layer … ≠ OutOfFuel`, with the ℕ-encoded per-layer offsets
 
     k_Θ = 3,  k_Ξ = 2,  k_X = 1 (= the loop's `+1`),  k_step = 0,  k_call: `fuelBound ≤ n+1`
 
 (the negation of the doc's `C_L = −3/−2/−1/0/+1`; the doc's "C_X = −1 = the loop's +1"
 already flags this sign convention). Each same-depth hop (`Θ→Ξ→X→step→call`) drops fuel
-by 1 and raises `k` by 1, so the bound is preserved by a trivial `omega`; the single
-depth bump (`call → Θ`, `Θ.e := Iₑ+1`) spends the `(gas + fuelHops)` `fuelBound_succ`
-peel (`fuelHops = 8 ≥ 5` covers the per-level hop chain). The `X` loop's per-iteration
-descent + depth-invariance is internalised by `X_loop_noOOF_bound` (Stage 2b). -/
+by 1 and raises `k` by 1, so the bound is preserved by a trivial `omega`; each depth bump
+(`call → Θ` with `Θ.e := Iₑ+1`, and now also `step.CREATE* → Lambda` with child depth
+`Iₑ+1`) spends the `(gas + fuelHops)` `fuelBound_succ` peel (`fuelHops = 8` covers both
+the 5-hop `Θ→Ξ→X→step→call` chain and the shorter 4-hop `step→Lambda→Ξ→X` create chain
+with slack). The `X` loop's per-iteration descent + depth-invariance is internalised by
+`X_loop_noOOF_bound` (Stage 2b). -/
 
 /-- `step n` never-`OutOfFuel` (predicate, `k_step = 0`). -/
 def step_noOOF_at (n : ℕ) : Prop :=
@@ -4539,7 +4636,8 @@ set_option maxHeartbeats 4000000 in
 per-layer offsets. The strong IH at every `m < n` discharges each reduction's
 sub-layer hypothesis at the correct smaller fuel (`X` via `X_loop_noOOF_bound` fed the
 `step` conjunct; `call → Θ` via `call_outOfFuel_of_gas` + `fuelBound_succ` + the
-forwarded-gas bound). -/
+forwarded-gas bound; `step.CREATE* → Lambda → Ξ` via the sharpened
+`Lambda_outOfFuel_of` + `fuelBound_succ` + the create cap `L (gas − cost) ≤ gas`). -/
 theorem never_oof : ∀ n,
     step_noOOF_at n ∧ call_noOOF_at n ∧ Θ_noOOF_at n ∧ Ξ_noOOF_at n ∧ X_noOOF_at n := by
   intro n
@@ -4564,11 +4662,61 @@ theorem never_oof : ∀ n,
       cases n with
       | zero => exfalso; have := fuelBound_pos s.gasAvailable.toNat s.executionEnv.depth hsD; omega
       | succ m =>
+        -- shared CREATE/CREATE2 `hΛ` discharge: `Lambda m → Ξ (m-1)` via the
+        -- sharpened `Lambda_outOfFuel_of`, fed by the depth-indexed `Ξ` IH at the
+        -- forwarded gas `L (gas − cost)` and child depth `depth + 1` (the arm's
+        -- recursion guard supplies `depth < 1024`); `fuelBound_succ` peels the
+        -- `(gas + fuelHops)` depth-bump budget with slack (4-hop chain ≤ 8).
+        have hΛdis : ∀ (bvh : List ByteArray) (cA : Batteries.RBSet AccountAddress compare)
+            (gh : BlockHeader) (blocks : ProcessedBlocks) (σStar σ₀ : AccountMap)
+            (Asub : Substate) (Iₐ Iₒ : AccountAddress) (p v : UInt256) (i : ByteArray)
+            (ζ : Option ByteArray) (Hd : BlockHeader) (ww : Bool),
+            s.executionEnv.depth < 1024 →
+            Lambda m bvh cA gh blocks σStar σ₀ Asub Iₐ Iₒ
+                (.ofNat (L (s.gasAvailable - UInt256.ofNat cost).toNat)) p v i
+                (.ofNat (s.executionEnv.depth + 1)) ζ Hd ww
+              ≠ .error .OutOfFuel := by
+          intro bvh cA gh blocks σStar σ₀ Asub Iₐ Iₒ p v i ζ Hd ww hdep
+          -- `m ≥ 1` from the bound; write `m = k+1` (`Lambda (k+1)` runs `Ξ k`).
+          have hge := fuelBound_ge s.gasAvailable.toNat s.executionEnv.depth hsD
+          simp only [fuelHops] at hge
+          obtain ⟨k, rfl⟩ : ∃ k, m = k + 1 := ⟨m - 1, by omega⟩
+          refine Lambda_outOfFuel_of k bvh cA gh blocks σStar σ₀ Asub Iₐ Iₒ _ p v i _ ζ Hd ww ?_
+          intro cA' σ' As I hId
+          -- `.ofNat`/`.toNat` round-trips on the forwarded gas and the child depth
+          have hcsz : cost < UInt256.size := Nat.lt_of_le_of_lt hcle s.gasAvailable.val.isLt
+          have hgdle : (s.gasAvailable - UInt256.ofNat cost).toNat ≤ s.gasAvailable.toNat :=
+            gas_sub_le s.gasAvailable cost hcle hcsz
+          have hLle : L (s.gasAvailable - UInt256.ofNat cost).toNat ≤ s.gasAvailable.toNat :=
+            le_trans (L_le _) hgdle
+          have hLsz : L (s.gasAvailable - UInt256.ofNat cost).toNat < UInt256.size :=
+            Nat.lt_of_le_of_lt hLle s.gasAvailable.val.isLt
+          have hgtoNat : (UInt256.ofNat (L (s.gasAvailable - UInt256.ofNat cost).toNat)).toNat
+              = L (s.gasAvailable - UInt256.ofNat cost).toNat := by
+            show (Fin.ofNat _ _).val = _
+            simp only [Fin.ofNat]; exact Nat.mod_eq_of_lt hLsz
+          have hdsz : s.executionEnv.depth + 1 < UInt256.size := by
+            have h1025 : (1025 : ℕ) < UInt256.size := by unfold UInt256.size; norm_num
+            omega
+          have hdtoNat : (UInt256.ofNat (s.executionEnv.depth + 1)).toNat
+              = s.executionEnv.depth + 1 := by
+            show (Fin.ofNat _ _).val = _
+            simp only [Fin.ofNat]; exact Nat.mod_eq_of_lt hdsz
+          refine ihΞ k (by omega) cA' gh blocks σ' σ₀ _ As I ?_ ?_
+          · rw [hId, hdtoNat]; omega
+          · rw [hId, hdtoNat, hgtoNat]
+            have hsucc := fuelBound_succ s.gasAvailable.toNat s.executionEnv.depth hsD
+            have hmono : fuelBound (L (s.gasAvailable - UInt256.ofNat cost).toNat)
+                (s.executionEnv.depth + 1)
+                ≤ fuelBound s.gasAvailable.toNat (s.executionEnv.depth + 1) :=
+              fuelBound_mono_gas _ hLle
+            simp only [fuelHops] at hsucc
+            omega
         by_cases hcc : isCallCreate w
         · unfold isCallCreate at hcc
           rcases hcc with rfl | rfl | rfl | rfl | rfl | rfl
-          · exact noOOF_step_create m cost arg s
-          · exact noOOF_step_create2 m cost arg s
+          · exact noOOF_step_create m cost arg s hΛdis
+          · exact noOOF_step_create2 m cost arg s hΛdis
           · refine noOOF_step_call_bound m cost arg s hcle hcost ?_
             intro gas source recipient t value value' io is oo os perm hccg
             exact ihcall m (by omega) cost s.executionEnv.blobVersionedHashes gas source recipient t value value' io is oo os perm
@@ -4654,8 +4802,8 @@ The nested-EVM never-`OutOfFuel` headline, the analogue of exp003's flat
 (1025 − e)·(g.toNat + fuelHops)` (with the `Θ`-layer's `+3` hop offset). The proof is a
 one-line projection of the `Θ` conjunct of the `never_oof` mutual induction. The only
 premises are the `fuelBound` budget and the structural depth cap `e ≤ 1024` — no
-per-arm hypotheses, no `Lambda`/no-call-create gate (CREATE/CREATE2 swallow their
-child's `OutOfFuel`). -/
+per-arm hypotheses, no `Lambda`/no-call-create gate (CREATE/CREATE2 now honestly
+recurse into `Lambda`, and the induction budgets their descent like CALL's). -/
 
 /-- **HEADLINE: nested `Θ` never `OutOfFuel`.** For any top-level message call, once
 `fuelBound g.toNat e + 3 ≤ fuel` (the depth-aware LINEAR-PRODUCT budget plus the
@@ -4681,20 +4829,23 @@ all proved and axiom-clean:
 * **depth-aware `X` loop** (`X_loop_noOOF_bound`) — bottoms out on `fuelBound s.gas D + 1
   ≤ fuel`, with `hstep` gated by the same bound (discharged by the IH).
 * **gas/depth-refined propagation skeletons**: the `noOOF_step_*_bound` arms (CALL →
-  `call` on the bumped state, with the forwarded-gas discharge; CREATE/CREATE2
-  *unconditional* — they swallow the child `Lambda`'s `OutOfFuel`, so the induction needs
-  NO `Lambda`/`Ξ`-via-Λ bound), `call_outOfFuel_of_gas` (→ `Θ` at `.ofNat (Ccallgas …)`,
-  depth `Iₑ+1`) + `call_noOOF_of_depth_cap` (the `Iₑ = 1024` edge),
-  `Θ_outOfFuel_of_depth` / `Θ_precompiled_never_outOfFuel`, `Ξ_outOfFuel_of_gas_depth`.
+  `call` on the bumped state, with the forwarded-gas discharge; CREATE/CREATE2 →
+  the conditional `noOOF_step_create`/`create2` with the `hΛ` pinned to the arm's
+  forwarded gas `L (gas − cost)` and child depth `Iₑ+1`, reduced to the `Ξ` IH by the
+  sharpened `Lambda_outOfFuel_of`), `call_outOfFuel_of_gas` (→ `Θ` at
+  `.ofNat (Ccallgas …)`, depth `Iₑ+1`) + `call_noOOF_of_depth_cap` (the `Iₑ = 1024`
+  edge), `Θ_outOfFuel_of_depth` / `Θ_precompiled_never_outOfFuel`,
+  `Ξ_outOfFuel_of_gas_depth`.
 
 The induction uses ℕ-encoded per-layer offsets (the *negation* of the design doc's
 `C_L`, which is why the doc reads "C_X = −1 = the loop's +1"):
 
     k_Θ = 3,  k_Ξ = 2,  k_X = 1 (= the loop's `+1`),  k_step = 0,  k_call: `fuelBound ≤ n+1`
 
-so each same-depth hop is a trivial `omega` (fuel −1, k +1), and the single depth bump
-(`call → Θ`, `Θ.e := Iₑ+1`) spends the `(g + fuelHops)` `fuelBound_succ` peel
-(`fuelHops = 8 ≥ 5` covers `Θ→Ξ→X→step→call` per level). The call→Θ gas conservation
+so each same-depth hop is a trivial `omega` (fuel −1, k +1), and each depth bump
+(`call → Θ` at `Θ.e := Iₑ+1`; `step.CREATE* → Lambda` at child depth `Iₑ+1`) spends
+the `(g + fuelHops)` `fuelBound_succ` peel (`fuelHops = 8` covers the 5-hop
+`Θ→Ξ→X→step→call` chain and the 4-hop `step→Lambda→Ξ→X` chain). The call→Θ gas conservation
 `Ccallgas (call-args) ≤ ev.gas` is supplied by the `noOOF_step_*_bound` arms
 (`Ccallgas (call-args) ≤ Ccall (C'-args) = cost ≤ ev.gas`) and carried as the `call`
 conjunct's premise — exactly mirroring the gas-mono side's `step_*_gas_le`. -/
@@ -4716,9 +4867,10 @@ super-linear shape the early B2e–B2h sketches feared).
 * **Stage 2c — the `step` CALL arms** (`noOOF_step_{call,callcode,delegatecall,
   staticcall}_bound`): reduce each CALL-family `step` arm to the gas-gated `call` child,
   discharging `Ccallgas (call-args) ≤ ev.gas` via `pop7`/`pop6` arg-matching +
-  `Ccallgas_le_Ccall`. CREATE/CREATE2 `step`s are *unconditional* (`noOOF_step_create`/
-  `create2` — they swallow the child `Lambda`'s `OutOfFuel`), so the induction never
-  recurses through `Lambda`.
+  `Ccallgas_le_Ccall`. CREATE/CREATE2 `step`s are *conditional* (`noOOF_step_create`/
+  `create2` — the arms propagate the child `Lambda`'s `OutOfFuel`), and the induction
+  recurses through `Lambda` via the sharpened `Lambda_outOfFuel_of` into the `Ξ`
+  conjunct one depth down.
 * **Stage 3 — `never_oof`**: the 5-layer (`Θ`/`Ξ`/`X`/`step`/`call`) mutual induction,
   one strong induction on `fuel` with per-layer offsets; same-depth hops by `omega`, the
   `call → Θ` depth bump by `fuelBound_succ` + `fuelBound_mono_gas` + the forwarded-gas

@@ -17,11 +17,13 @@ Flat's bridge (EVM/BytecodeLayer/Spec.lean:70, `messageCall_runs`):
 `EntersAsCode p fr₀` + `Runs fr₀ last` + halt ⟹ `messageCall p = .ok …`,
 with **no numeric side condition**. That unconditionality rests on two flat
 facts: `drive` fuel-monotonicity is TRUE and never-OOF is unconditional.
-Nested `Θ` fuel-monotonicity is REFUTED (the CREATE/CREATE2 `| _ =>` catch-all
-absorbs an inner `Lambda` `OutOfFuel` into an ordinary result — keystone
-post-mortem, ThetaRuns.lean:231), so the nested bridge takes cofinal `X`
-families and carries the `≤ seedFuel w` envelope. This file states exactly
-which half of the flat bridge needs the envelope and which does not:
+Nested `Θ` fuel-monotonicity is UNPROVEN (it was outright refuted while the
+CREATE/CREATE2 `| _ =>` catch-all absorbed an inner `Lambda` `OutOfFuel` into
+an ordinary result — keystone post-mortem, ThetaRuns.lean; the 2026-07-20
+vendored patch made the arms propagate honestly, reopening but not proving
+the keystone), so the nested bridge takes cofinal `X` families and carries
+the `≤ seedFuel w` envelope. This file states exactly which half of the flat
+bridge needs the envelope and which does not:
 
 * `ΘRuns_of_X_family` — the **veneer** conclusion needs NO envelope (pure
   cofinal introduction): the side condition is entirely a property of the
@@ -45,14 +47,17 @@ numeric fuel hypothesis at all** (only the structural `w.e ≤ 1024` depth cap).
 The general per-link decrement (`IterStepU → gas strictly drops`) and the
 general envelope derivation both FAIL, for reasons worth pinning precisely:
 
-* **(A) CREATE-absorption leak (per-link decrement, statement-level).** A
-  CREATE/CREATE2 link CAN inhabit `IterStepU`: its `∀`-fuel `step` clause pins
-  ONE successor at every fuel, which excludes any fuel-*sensitive* inner
-  `Lambda` — but an *eternally-failing* create (inner `Λ` erring for a
-  fuel-independent reason, or absorbed at every fuel) satisfies the clause via
-  the same `| _ => (0, {evmState with accountMap := ∅}, ⟨0⟩, False, .empty)`
-  catch-all that refuted the keystone (Semantics.lean:286/:344). Proving even
-  those links debit `≥ 1` requires crossing the arm's gas reconstitution
+* **(A) CREATE links still block the per-link decrement (statement-level).**
+  A CREATE/CREATE2 link CAN still inhabit `IterStepU`: its `∀`-fuel `step`
+  clause pins ONE successor at every fuel, which excludes any fuel-*sensitive*
+  inner `Lambda` — since the 2026-07-20 vendored patch an inner `Λ`
+  `OutOfFuel` now propagates as `.error .OutOfFuel` (an eternally-failing
+  create no longer silently iterates), but a create whose `Λ` fails for a
+  fuel-*independent* reason still yields the same `.ok` step result at every
+  fuel: `Lambda` itself absorbs non-`OutOfFuel` `Ξ` errors into a `z = false`
+  result (Semantics.lean, the `Ξ`-error arm of `Lambda`), and the
+  nonce-overflow/guard-else branches are fuel-blind. Proving even those links
+  debit `≥ 1` requires crossing the arm's gas reconstitution
   `.ofNat (a − L a + g′.toNat)`, whose wrap-safety needs `g′ ≤ L a` — child
   gas *conservation*, i.e. a `Lambda`-level gas-mono induction. So the
   per-link lemma is NOT independent of the descent machinery, and `IterStepG`
@@ -78,10 +83,11 @@ general envelope derivation both FAIL, for reasons worth pinning precisely:
   something linear is precisely re-proving NeverOutOfFuel's stage-2 descent
   recurrence. So for decompositions WITH call sites, `m + 4 ≤ seedFuel w` is
   the honest interface: callers discharge it by `fuelBound` arithmetic on
-  their concrete `kᵢ`, not by execution data. Combined with the keystone
-  refutation, the envelope on the general bridge is **permanent**, and now
-  for a *quantitative* reason (product vs sum), not only the qualitative
-  absorption argument.
+  their concrete `kᵢ`, not by execution data. This quantitative reason
+  (product vs sum) stands on its own: it does not depend on the historical
+  absorption argument (removed 2026-07-20), so the envelope on the general
+  bridge remains the honest interface even with a hypothetical proved
+  fuel-monotonicity — the offsets are budgets, not observations.
 
 ## What was NOT done
 
