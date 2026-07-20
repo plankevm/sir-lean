@@ -57,22 +57,17 @@ theorem driveG_needsCreate (n : ℕ) (ps : List Pending) (current : Frame)
 /-- **Generic CREATE-boundary descent equation.** The CREATE twin of
 `drive_descend_eq`, conditioned on the *successful* resume witness `hok :
 resumeAfterCreate res.toCreateResult pd = .ok parent`: a terminating init child run splices
-into the parent resumed at `parent`, for some residual fuel `j`. Obtained by
-`drive_append_framing` then peeling the single `.create` resume step (which, via `hok`,
-takes the `.ok` branch). -/
+into the parent resumed at `parent`, for some residual fuel `j`. The unbounded
+weakening of `drive_descend_create_lt` (`DescentEq.lean`, the strict fuel bound
+dropped). -/
 theorem drive_descend_create_eq (f : ℕ) (child : Frame) (res : FrameResult)
     (pd : PendingCreate) (ps : List Pending) (parent : Frame)
     (h : drive f [] (running child) = .ok res)
     (hok : resumeAfterCreate res.toCreateResult pd = .ok parent) :
     ∃ j, drive f (.create pd :: ps) (running child)
       = drive j ps (running parent) := by
-  obtain ⟨j, hj⟩ := drive_append_framing f [] (.inl child) res h (.create pd :: ps)
-  rw [List.nil_append] at hj
-  refine ⟨j, ?_⟩
-  rw [hj]
-  conv_lhs => unfold drive
-  dsimp only [Pending.resume]
-  rw [hok]
+  obtain ⟨j, _, hj⟩ := drive_descend_create_lt f child res pd ps parent h hok
+  exact ⟨j, hj⟩
 
 /-! ## Lemma 1 — fuel-agnostic agreement of terminating runs -/
 
@@ -87,6 +82,18 @@ theorem drive_eq_of_both_ne_oof {a b : ℕ} (stack : List Pending)
   rcases Nat.le_total a b with hle | hle
   · exact (drive_fuel_mono hle stack state ha).symm
   · exact drive_fuel_mono hle stack state hb
+
+/-- **A terminating run adopts any `.ok` result.** If the run at fuel `a` avoids
+`OutOfFuel` and the run at fuel `b` (same stack/state) returns `.ok r`, then the
+fuel-`a` run returns the same `.ok r`. Corollary of `drive_eq_of_both_ne_oof`
+(an `.ok` run trivially avoids `OutOfFuel`) — the reusable form of the
+max-lift/`drive_fuel_mono` reconciliation ritual. -/
+theorem drive_ok_agree {a b : ℕ} (stack : List Pending) (state : Frame ⊕ FrameResult)
+    {r : FrameResult}
+    (ha : drive a stack state ≠ .error .OutOfFuel)
+    (hb : drive b stack state = .ok r) :
+    drive a stack state = .ok r :=
+  (drive_eq_of_both_ne_oof stack state ha (by rw [hb]; nofun)).trans hb
 
 /-! ## The index-free `Runs` reconciliation invariant
 

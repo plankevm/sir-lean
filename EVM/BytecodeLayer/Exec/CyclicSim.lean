@@ -529,13 +529,9 @@ theorem recorderCoupled_call {log : RunLog} {fr resumeFr : Frame}
       rw [hdrive]; simp
     have hchildm_ne : drive m [] (running child) ≠ .error .OutOfFuel :=
       child_ne_oof_of_framed m child (.call pending) [] hne
-    -- Reconcile the framed child result with `hcr`'s black-box `childRes` via fuel monotonicity.
-    have hchildm : drive m [] (running child) = .ok childRes := by
-      have h1 := drive_fuel_mono (Nat.le_max_left m (seedFuel cp.gas)) [] (running child) hchildm_ne
-      have h2 := drive_fuel_mono (Nat.le_max_right m (seedFuel cp.gas)) [] (running child)
-        (by rw [hchild]; simp)
-      rw [hchild] at h2
-      rw [← h1, h2]
+    -- Reconcile the framed child result with `hcr`'s black-box `childRes` (`drive_ok_agree`).
+    have hchildm : drive m [] (running child) = .ok childRes :=
+      drive_ok_agree [] (running child) hchildm_ne hchild
     -- Frame the recorder: the inline child records nothing; the outer delivery records `[outerRec]`.
     obtain ⟨j, hframe⟩ := driveLog_frame_nonempty (.call pending :: []) rfl [] [] []
       m [] (.inl child) childRes hchildm
@@ -598,13 +594,8 @@ theorem recorderCoupled_create {log : RunLog} {fr resumeFr : Frame}
         ≠ .error .OutOfFuel := by rw [hdrive]; simp
     have hchildm_ne : drive m [] (running (beginCreate cp)) ≠ .error .OutOfFuel :=
       child_ne_oof_of_framed m (beginCreate cp) (.create pending) [] hne
-    have hchildm : drive m [] (running (beginCreate cp)) = .ok childRes := by
-      have h1 := drive_fuel_mono (Nat.le_max_left m (seedFuel cp.gas)) []
-        (running (beginCreate cp)) hchildm_ne
-      have h2 := drive_fuel_mono (Nat.le_max_right m (seedFuel cp.gas)) []
-        (running (beginCreate cp)) (by rw [hchild]; simp)
-      rw [hchild] at h2
-      rw [← h1, h2]
+    have hchildm : drive m [] (running (beginCreate cp)) = .ok childRes :=
+      drive_ok_agree [] (running (beginCreate cp)) hchildm_ne hchild
     obtain ⟨j, hframe⟩ := driveLog_frame_nonempty (.create pending :: []) rfl [] [] []
       m [] (.inl (beginCreate cp)) childRes hchildm
     rw [List.nil_append] at hframe
@@ -674,13 +665,8 @@ theorem recorderCoupled_create_extract {log : RunLog} {createFr : Frame}
         ≠ .error .OutOfFuel := by rw [hdrive]; simp
     have hchildm_ne : drive m [] (running (beginCreate cp)) ≠ .error .OutOfFuel :=
       child_ne_oof_of_framed m (beginCreate cp) (.create pending) [] hne
-    have hchildm : drive m [] (running (beginCreate cp)) = .ok childRes := by
-      have h1 := drive_fuel_mono (Nat.le_max_left m (seedFuel cp.gas)) []
-        (running (beginCreate cp)) hchildm_ne
-      have h2 := drive_fuel_mono (Nat.le_max_right m (seedFuel cp.gas)) []
-        (running (beginCreate cp)) (by rw [hchild]; simp)
-      rw [hchild] at h2
-      rw [← h1, h2]
+    have hchildm : drive m [] (running (beginCreate cp)) = .ok childRes :=
+      drive_ok_agree [] (running (beginCreate cp)) hchildm_ne hchild
     obtain ⟨j, hframe⟩ := driveLog_frame_nonempty (.create pending :: []) rfl [] [] []
       m [] (.inl (beginCreate cp)) childRes hchildm
     rw [List.nil_append] at hframe
@@ -915,12 +901,8 @@ theorem recorderCoupled_call_extract {log : RunLog} {callFr : Frame}
       rw [hdrive]; simp
     have hchildm_ne : drive m [] (running child) ≠ .error .OutOfFuel :=
       child_ne_oof_of_framed m child (.call pending) [] hne
-    have hchildm : drive m [] (running child) = .ok childRes := by
-      have h1 := drive_fuel_mono (Nat.le_max_left m (seedFuel cp.gas)) [] (running child) hchildm_ne
-      have h2 := drive_fuel_mono (Nat.le_max_right m (seedFuel cp.gas)) [] (running child)
-        (by rw [hchild_seed]; simp)
-      rw [hchild_seed] at h2
-      rw [← h1, h2]
+    have hchildm : drive m [] (running child) = .ok childRes :=
+      drive_ok_agree [] (running child) hchildm_ne hchild_seed
     obtain ⟨j, hframe⟩ := driveLog_frame_nonempty (.call pending :: []) rfl [] [] []
       m [] (.inl child) childRes hchildm
     rw [List.nil_append] at hframe
