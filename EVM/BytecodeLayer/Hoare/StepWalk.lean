@@ -781,117 +781,16 @@ theorem createArm_next_accMono
     (h : createArm fr exec stack value initOffset initSize salt = .ok (.next exec')) :
     exec'.executionEnv = exec.executionEnv
       ∧ ∀ a, AccPresent a exec.accounts → AccPresent a exec'.accounts := by
-  rw [createArm] at h
-  simp only [bind, Except.bind, pure, Except.pure] at h
-  have key : ∀ (f : Frame),
-      resumeAfterCreate
-        { address := default
-          createdAccounts := exec.createdAccounts
-          accounts := exec.accounts
-          gasRemaining := .ofNat (allButOneSixtyFourth exec.gasAvailable.toNat)
-          substate := exec.toState.substate
-          success := false
-          output := .empty }
-        { frame := { fr with exec := exec }
-          stack := stack
-          callerAccounts := exec.accounts
-          value := value
-          initOffset := initOffset.toUInt64
-          initSize := initSize.toUInt64
-          initCodeSize := (exec.memory.readWithPadding initOffset.toNat initSize.toNat).size }
-        = .ok f →
-      f.exec.executionEnv = exec.executionEnv
-        ∧ ∀ a, AccPresent a exec.accounts → AccPresent a f.exec.accounts := by
-    intro f hf
-    unfold resumeAfterCreate at hf
-    simp only [bind, Except.bind, pure, Except.pure] at hf
-    split at hf
-    · exact absurd hf (by simp)
-    · simp only [Except.ok.injEq] at hf
-      rw [← hf]
-      refine ⟨rfl, fun a hp => ?_⟩
-      -- resumed `.exec.accounts = result.accounts = exec.accounts`.
-      show AccPresent a (ExecutionState.replaceStackAndIncrPC _ _ _).accounts
-      rw [replaceStackAndIncrPC_accounts]
-      exact hp
-  split at h
-  · -- nonce-overflow fallback
-    revert h
-    cases hr : resumeAfterCreate _ _ with
-    | error e => intro h; simp at h
-    | ok f =>
-      intro h
-      simp only [Except.ok.injEq, Signal.next.injEq] at h
-      subst h
-      exact key f hr
-  · split at h
-    · -- successful guard: `.needsCreate`, contradiction with `.next`
-      simp only [Except.ok.injEq] at h; exact absurd h (by simp)
-    · -- funds/depth/size fallback
-      revert h
-      cases hr : resumeAfterCreate _ _ with
-      | error e => intro h; simp at h
-      | ok f =>
-        intro h
-        simp only [Except.ok.injEq, Signal.next.injEq] at h
-        subst h
-        exact key f hr
+  obtain ⟨henv, hacc, -, -, -, -, -⟩ := BytecodeLayer.System.createArm_next_inv h
+  exact ⟨henv, fun a => BytecodeLayer.Hoare.accMono_of_accounts_eq a hacc⟩
 
 /-- `createArm` `.next` is a fallback arm and resumes after the CREATE/CREATE2 byte. -/
 theorem createArm_next_pc
     {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
     {value initOffset initSize : UInt256} {salt : Option ByteArray} {exec' : ExecutionState}
     (h : createArm fr exec stack value initOffset initSize salt = .ok (.next exec')) :
-    exec'.pc = exec.pc + 1 := by
-  rw [createArm] at h
-  simp only [bind, Except.bind, pure, Except.pure] at h
-  have key : ∀ (f : Frame),
-      resumeAfterCreate
-        { address := default
-          createdAccounts := exec.createdAccounts
-          accounts := exec.accounts
-          gasRemaining := .ofNat (allButOneSixtyFourth exec.gasAvailable.toNat)
-          substate := exec.toState.substate
-          success := false
-          output := .empty }
-        { frame := { fr with exec := exec }
-          stack := stack
-          callerAccounts := exec.accounts
-          value := value
-          initOffset := initOffset.toUInt64
-          initSize := initSize.toUInt64
-          initCodeSize := (exec.memory.readWithPadding initOffset.toNat initSize.toNat).size }
-        = .ok f →
-      f.exec.pc = exec.pc + 1 := by
-    intro f hf
-    unfold resumeAfterCreate at hf
-    simp only [bind, Except.bind, pure, Except.pure] at hf
-    split at hf
-    · exact absurd hf (by simp)
-    · simp only [Except.ok.injEq] at hf
-      rw [← hf, replaceStackAndIncrPC_pc]
-      change exec.pc + 1 = exec.pc + 1
-      rfl
-  split at h
-  · revert h
-    cases hr : resumeAfterCreate _ _ with
-    | error e => intro h; simp at h
-    | ok f =>
-      intro h
-      simp only [Except.ok.injEq, Signal.next.injEq] at h
-      subst h
-      exact key f hr
-  · split at h
-    · simp only [Except.ok.injEq] at h
-      exact absurd h (by simp)
-    · revert h
-      cases hr : resumeAfterCreate _ _ with
-      | error e => intro h; simp at h
-      | ok f =>
-        intro h
-        simp only [Except.ok.injEq, Signal.next.injEq] at h
-        subst h
-        exact key f hr
+    exec'.pc = exec.pc + 1 :=
+  (BytecodeLayer.System.createArm_next_inv h).2.2.1
 
 /-- `createArm` `.next` (the soft-fail fallback) resumes with the residual operand stack plus the
 pushed `0` (the `resumeAfterCreate failed` `pushedValue`, which is `0` because `failed.success =
@@ -900,56 +799,8 @@ theorem createArm_next_stack
     {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
     {value initOffset initSize : UInt256} {salt : Option ByteArray} {exec' : ExecutionState}
     (h : createArm fr exec stack value initOffset initSize salt = .ok (.next exec')) :
-    exec'.stack = stack.push 0 := by
-  rw [createArm] at h
-  simp only [bind, Except.bind, pure, Except.pure] at h
-  have key : ∀ (f : Frame),
-      resumeAfterCreate
-        { address := default
-          createdAccounts := exec.createdAccounts
-          accounts := exec.accounts
-          gasRemaining := .ofNat (allButOneSixtyFourth exec.gasAvailable.toNat)
-          substate := exec.toState.substate
-          success := false
-          output := .empty }
-        { frame := { fr with exec := exec }
-          stack := stack
-          callerAccounts := exec.accounts
-          value := value
-          initOffset := initOffset.toUInt64
-          initSize := initSize.toUInt64
-          initCodeSize := (exec.memory.readWithPadding initOffset.toNat initSize.toNat).size }
-        = .ok f →
-      f.exec.stack = stack.push 0 := by
-    intro f hf
-    unfold resumeAfterCreate at hf
-    simp only [bind, Except.bind, pure, Except.pure] at hf
-    split at hf
-    · exact absurd hf (by simp)
-    · simp only [Except.ok.injEq] at hf
-      rw [← hf]
-      -- `pushedValue = 0` because `failed.success = false`; `replaceStackAndIncrPC` sets the stack.
-      rfl
-  split at h
-  · revert h
-    cases hr : resumeAfterCreate _ _ with
-    | error e => intro h; simp at h
-    | ok f =>
-      intro h
-      simp only [Except.ok.injEq, Signal.next.injEq] at h
-      subst h
-      exact key f hr
-  · split at h
-    · simp only [Except.ok.injEq] at h
-      exact absurd h (by simp)
-    · revert h
-      cases hr : resumeAfterCreate _ _ with
-      | error e => intro h; simp at h
-      | ok f =>
-        intro h
-        simp only [Except.ok.injEq, Signal.next.injEq] at h
-        subst h
-        exact key f hr
+    exec'.stack = stack.push 0 :=
+  (BytecodeLayer.System.createArm_next_inv h).2.2.2.1
 
 /-- `createArm` `.next` (the soft-fail fallback) keeps the suspended frame's memory bytes: the
 resume rebuilds `exec` touching only accounts/substate/gas/activeWords/returnData, and
@@ -958,55 +809,8 @@ theorem createArm_next_memory
     {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
     {value initOffset initSize : UInt256} {salt : Option ByteArray} {exec' : ExecutionState}
     (h : createArm fr exec stack value initOffset initSize salt = .ok (.next exec')) :
-    exec'.toMachineState.memory = exec.toMachineState.memory := by
-  rw [createArm] at h
-  simp only [bind, Except.bind, pure, Except.pure] at h
-  have key : ∀ (f : Frame),
-      resumeAfterCreate
-        { address := default
-          createdAccounts := exec.createdAccounts
-          accounts := exec.accounts
-          gasRemaining := .ofNat (allButOneSixtyFourth exec.gasAvailable.toNat)
-          substate := exec.toState.substate
-          success := false
-          output := .empty }
-        { frame := { fr with exec := exec }
-          stack := stack
-          callerAccounts := exec.accounts
-          value := value
-          initOffset := initOffset.toUInt64
-          initSize := initSize.toUInt64
-          initCodeSize := (exec.memory.readWithPadding initOffset.toNat initSize.toNat).size }
-        = .ok f →
-      f.exec.toMachineState.memory = exec.toMachineState.memory := by
-    intro f hf
-    unfold resumeAfterCreate at hf
-    simp only [bind, Except.bind, pure, Except.pure] at hf
-    split at hf
-    · exact absurd hf (by simp)
-    · simp only [Except.ok.injEq] at hf
-      rw [← hf]
-      rfl
-  split at h
-  · revert h
-    cases hr : resumeAfterCreate _ _ with
-    | error e => intro h; simp at h
-    | ok f =>
-      intro h
-      simp only [Except.ok.injEq, Signal.next.injEq] at h
-      subst h
-      exact key f hr
-  · split at h
-    · simp only [Except.ok.injEq] at h
-      exact absurd h (by simp)
-    · revert h
-      cases hr : resumeAfterCreate _ _ with
-      | error e => intro h; simp at h
-      | ok f =>
-        intro h
-        simp only [Except.ok.injEq, Signal.next.injEq] at h
-        subst h
-        exact key f hr
+    exec'.toMachineState.memory = exec.toMachineState.memory :=
+  (BytecodeLayer.System.createArm_next_inv h).2.2.2.2.1
 
 /-- `createArm` `.next` (the soft-fail fallback) keeps the accounts map: the resume installs
 `failed.accounts = exec.accounts` (the pre-op map, NO nonce bump), and `replaceStackAndIncrPC` never
@@ -1015,55 +819,8 @@ theorem createArm_next_accounts
     {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
     {value initOffset initSize : UInt256} {salt : Option ByteArray} {exec' : ExecutionState}
     (h : createArm fr exec stack value initOffset initSize salt = .ok (.next exec')) :
-    exec'.accounts = exec.accounts := by
-  rw [createArm] at h
-  simp only [bind, Except.bind, pure, Except.pure] at h
-  have key : ∀ (f : Frame),
-      resumeAfterCreate
-        { address := default
-          createdAccounts := exec.createdAccounts
-          accounts := exec.accounts
-          gasRemaining := .ofNat (allButOneSixtyFourth exec.gasAvailable.toNat)
-          substate := exec.toState.substate
-          success := false
-          output := .empty }
-        { frame := { fr with exec := exec }
-          stack := stack
-          callerAccounts := exec.accounts
-          value := value
-          initOffset := initOffset.toUInt64
-          initSize := initSize.toUInt64
-          initCodeSize := (exec.memory.readWithPadding initOffset.toNat initSize.toNat).size }
-        = .ok f →
-      f.exec.accounts = exec.accounts := by
-    intro f hf
-    unfold resumeAfterCreate at hf
-    simp only [bind, Except.bind, pure, Except.pure] at hf
-    split at hf
-    · exact absurd hf (by simp)
-    · simp only [Except.ok.injEq] at hf
-      rw [← hf]
-      rfl
-  split at h
-  · revert h
-    cases hr : resumeAfterCreate _ _ with
-    | error e => intro h; simp at h
-    | ok f =>
-      intro h
-      simp only [Except.ok.injEq, Signal.next.injEq] at h
-      subst h
-      exact key f hr
-  · split at h
-    · simp only [Except.ok.injEq] at h
-      exact absurd h (by simp)
-    · revert h
-      cases hr : resumeAfterCreate _ _ with
-      | error e => intro h; simp at h
-      | ok f =>
-        intro h
-        simp only [Except.ok.injEq, Signal.next.injEq] at h
-        subst h
-        exact key f hr
+    exec'.accounts = exec.accounts :=
+  (BytecodeLayer.System.createArm_next_inv h).2.1
 
 /-- `MachineState.M s f l` dominates its base `s` (`l = 0` is `s`; else `max s _`). -/
 theorem M_ge_left (s f l : UInt64) : s.toNat ≤ (MachineState.M s f l).toNat := by
@@ -1084,56 +841,8 @@ theorem createArm_next_activeWords_ge
     {value initOffset initSize : UInt256} {salt : Option ByteArray} {exec' : ExecutionState}
     (h : createArm fr exec stack value initOffset initSize salt = .ok (.next exec')) :
     exec.toMachineState.activeWords.toNat ≤ exec'.toMachineState.activeWords.toNat := by
-  rw [createArm] at h
-  simp only [bind, Except.bind, pure, Except.pure] at h
-  have key : ∀ (f : Frame),
-      resumeAfterCreate
-        { address := default
-          createdAccounts := exec.createdAccounts
-          accounts := exec.accounts
-          gasRemaining := .ofNat (allButOneSixtyFourth exec.gasAvailable.toNat)
-          substate := exec.toState.substate
-          success := false
-          output := .empty }
-        { frame := { fr with exec := exec }
-          stack := stack
-          callerAccounts := exec.accounts
-          value := value
-          initOffset := initOffset.toUInt64
-          initSize := initSize.toUInt64
-          initCodeSize := (exec.memory.readWithPadding initOffset.toNat initSize.toNat).size }
-        = .ok f →
-      exec.toMachineState.activeWords.toNat ≤ f.exec.toMachineState.activeWords.toNat := by
-    intro f hf
-    unfold resumeAfterCreate at hf
-    simp only [bind, Except.bind, pure, Except.pure] at hf
-    split at hf
-    · exact absurd hf (by simp)
-    · simp only [Except.ok.injEq] at hf
-      rw [← hf]
-      show exec.toMachineState.activeWords.toNat
-        ≤ (MachineState.M exec.toMachineState.activeWords initOffset.toUInt64 initSize.toUInt64).toNat
-      exact M_ge_left _ _ _
-  split at h
-  · revert h
-    cases hr : resumeAfterCreate _ _ with
-    | error e => intro h; simp at h
-    | ok f =>
-      intro h
-      simp only [Except.ok.injEq, Signal.next.injEq] at h
-      subst h
-      exact key f hr
-  · split at h
-    · simp only [Except.ok.injEq] at h
-      exact absurd h (by simp)
-    · revert h
-      cases hr : resumeAfterCreate _ _ with
-      | error e => intro h; simp at h
-      | ok f =>
-        intro h
-        simp only [Except.ok.injEq, Signal.next.injEq] at h
-        subst h
-        exact key f hr
+  rw [(BytecodeLayer.System.createArm_next_inv h).2.2.2.2.2.1]
+  exact M_ge_left _ _ _
 
 open BytecodeLayer.Hoare (AccPresent accMono_of_accounts_eq) in
 /-- **A `.next` System op preserves the execution environment and presence at every `a`.** Halt ops
@@ -1151,62 +860,15 @@ theorem systemOp_next_accMono {op : Operation.SystemOp} {fr : Frame} {exec exec'
     obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, hc⟩ :=
       BytecodeLayer.System.systemOp_callArm_reduce (by tauto) h
     exact callArm_next_accMono hc
-  | CREATE =>
-    unfold systemOp at h
-    simp only [bind, Except.bind] at h
-    cases hr : requireStateMod exec with
-    | error e => rw [hr] at h; simp at h
-    | ok _ =>
-      rw [hr] at h; simp only [] at h
-      cases hpop : exec.stack.pop3 with
-      | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      | some v =>
-        obtain ⟨s, val, io, is⟩ := v; rw [hpop] at h
-        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        split at h
-        · simp at h
-        · cases hm : chargeMemExpansion exec io is with
-          | error e => rw [hm] at h; simp [pure, Except.pure] at h
-          | ok em =>
-            rw [hm] at h; simp only [pure, Except.pure] at h
-            cases hc : charge (createCost is) em with
-            | error e => rw [hc] at h; simp at h
-            | ok ec =>
-              rw [hc] at h; simp only [] at h
-              obtain ⟨hmacc, hmenv⟩ := BytecodeLayer.Hoare.chargeMemExpansion_accounts_env hm
-              obtain ⟨hcacc, hcenv⟩ := BytecodeLayer.Hoare.charge_accounts_env hc
-              obtain ⟨henv, hmono⟩ := createArm_next_accMono h
-              refine ⟨?_, fun a hp => ?_⟩
-              · rw [henv, hcenv, hmenv]
-              · exact hmono a (accMono_of_accounts_eq a (by rw [hcacc, hmacc]) hp)
-  | CREATE2 =>
-    unfold systemOp at h
-    simp only [bind, Except.bind] at h
-    cases hr : requireStateMod exec with
-    | error e => rw [hr] at h; simp at h
-    | ok _ =>
-      rw [hr] at h; simp only [] at h
-      cases hpop : exec.stack.pop4 with
-      | none => rw [hpop] at h; simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      | some v =>
-        obtain ⟨s, val, io, is, salt⟩ := v; rw [hpop] at h
-        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        split at h
-        · simp at h
-        · cases hm : chargeMemExpansion exec io is with
-          | error e => rw [hm] at h; simp [pure, Except.pure] at h
-          | ok em =>
-            rw [hm] at h; simp only [pure, Except.pure] at h
-            cases hc : charge (create2Cost is) em with
-            | error e => rw [hc] at h; simp at h
-            | ok ec =>
-              rw [hc] at h; simp only [] at h
-              obtain ⟨hmacc, hmenv⟩ := BytecodeLayer.Hoare.chargeMemExpansion_accounts_env hm
-              obtain ⟨hcacc, hcenv⟩ := BytecodeLayer.Hoare.charge_accounts_env hc
-              obtain ⟨henv, hmono⟩ := createArm_next_accMono h
-              refine ⟨?_, fun a hp => ?_⟩
-              · rw [henv, hcenv, hmenv]
-              · exact hmono a (accMono_of_accounts_eq a (by rw [hcacc, hmacc]) hp)
+  | CREATE | CREATE2 =>
+    obtain ⟨em₀, em, s, val, io, is, salt, -, hm, ⟨c, hc⟩, -, hcr⟩ :=
+      BytecodeLayer.System.systemOp_createArm_reduce (by tauto) h
+    obtain ⟨hmacc, hmenv⟩ := BytecodeLayer.Hoare.chargeMemExpansion_accounts_env hm
+    obtain ⟨hcacc, hcenv⟩ := BytecodeLayer.Hoare.charge_accounts_env hc
+    obtain ⟨henv, hmono⟩ := createArm_next_accMono hcr
+    refine ⟨?_, fun a hp => ?_⟩
+    · rw [henv, hcenv, hmenv]
+    · exact hmono a (accMono_of_accounts_eq a (by rw [hcacc, hmacc]) hp)
 
 /-- A `.next` CREATE-family `systemOp` is a fallback arm and advances past the opcode byte. -/
 theorem systemOp_next_create_pc {op : Operation.SystemOp} {fr : Frame}
@@ -1214,69 +876,10 @@ theorem systemOp_next_create_pc {op : Operation.SystemOp} {fr : Frame}
     (hop : op = .CREATE ∨ op = .CREATE2)
     (h : systemOp op fr exec = .ok (.next exec')) :
     exec'.pc = exec.pc + 1 := by
-  rcases hop with rfl | rfl
-  · unfold systemOp at h
-    simp only [bind, Except.bind] at h
-    cases hr : requireStateMod exec with
-    | error e => rw [hr] at h; simp at h
-    | ok _ =>
-      rw [hr] at h
-      simp only [] at h
-      cases hp : exec.stack.pop3 with
-      | none =>
-        rw [hp] at h
-        simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      | some v =>
-        obtain ⟨s, val, io, is⟩ := v
-        rw [hp] at h
-        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        split at h
-        · simp at h
-        · cases hm : chargeMemExpansion exec io is with
-          | error e =>
-            rw [hm] at h
-            simp [pure, Except.pure] at h
-          | ok em =>
-            rw [hm] at h
-            simp only [pure, Except.pure] at h
-            cases hc : charge (createCost is) em with
-            | error e => rw [hc] at h; simp at h
-            | ok ec =>
-              rw [hc] at h
-              simp only [] at h
-              have hpc' := createArm_next_pc h
-              rw [hpc', BytecodeLayer.Hoare.charge_pc hc, BytecodeLayer.Hoare.chargeMemExpansion_pc hm]
-  · unfold systemOp at h
-    simp only [bind, Except.bind] at h
-    cases hr : requireStateMod exec with
-    | error e => rw [hr] at h; simp at h
-    | ok _ =>
-      rw [hr] at h
-      simp only [] at h
-      cases hp : exec.stack.pop4 with
-      | none =>
-        rw [hp] at h
-        simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      | some v =>
-        obtain ⟨s, val, io, is, salt⟩ := v
-        rw [hp] at h
-        simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-        split at h
-        · simp at h
-        · cases hm : chargeMemExpansion exec io is with
-          | error e =>
-            rw [hm] at h
-            simp [pure, Except.pure] at h
-          | ok em =>
-            rw [hm] at h
-            simp only [pure, Except.pure] at h
-            cases hc : charge (create2Cost is) em with
-            | error e => rw [hc] at h; simp at h
-            | ok ec =>
-              rw [hc] at h
-              simp only [] at h
-              have hpc' := createArm_next_pc h
-              rw [hpc', BytecodeLayer.Hoare.charge_pc hc, BytecodeLayer.Hoare.chargeMemExpansion_pc hm]
+  obtain ⟨em₀, em, s, val, io, is, salt, -, hm, ⟨c, hc⟩, -, hcr⟩ :=
+    BytecodeLayer.System.systemOp_createArm_reduce hop h
+  rw [createArm_next_pc hcr, BytecodeLayer.Hoare.charge_pc hc,
+    BytecodeLayer.Hoare.chargeMemExpansion_pc hm]
 
 /-- **A `.next` CREATE2 `systemOp` resumes with the operand residual plus the pushed `0`.** The
 `pop4` residual `s` of the original stack is the createArm residual (charging never touches the
@@ -1286,139 +889,42 @@ theorem systemOp_next_create2_stack {fr : Frame} {exec exec' : ExecutionState}
     ∃ residual value initOffset initSize salt,
       exec.stack.pop4 = some (residual, value, initOffset, initSize, salt)
       ∧ exec'.stack = residual.push 0 := by
-  unfold systemOp at h
-  simp only [bind, Except.bind] at h
-  cases hr : requireStateMod exec with
-  | error e => rw [hr] at h; simp at h
-  | ok _ =>
-    rw [hr] at h
-    simp only [] at h
-    cases hpop : exec.stack.pop4 with
-    | none =>
-      rw [hpop] at h
-      simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-    | some v =>
-      obtain ⟨s, val, io, is, salt⟩ := v
-      rw [hpop] at h
-      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      split at h
-      · simp at h
-      · cases hm : chargeMemExpansion exec io is with
-        | error e => rw [hm] at h; simp [pure, Except.pure] at h
-        | ok em =>
-          rw [hm] at h
-          simp only [pure, Except.pure] at h
-          cases hc : charge (create2Cost is) em with
-          | error e => rw [hc] at h; simp at h
-          | ok ec =>
-            rw [hc] at h
-            simp only [] at h
-            exact ⟨s, val, io, is, salt, rfl, createArm_next_stack h⟩
+  obtain ⟨em₀, em, s, val, io, is, salt, -, -, -, hops, hcr⟩ :=
+    BytecodeLayer.System.systemOp_createArm_reduce (Or.inr rfl) h
+  rcases hops with ⟨hop, -, -⟩ | ⟨-, sw, hpop, -⟩
+  · simp at hop
+  · exact ⟨s, val, io, is, sw, hpop, createArm_next_stack hcr⟩
 
 /-- **A `.next` CREATE2 `systemOp` keeps the memory bytes.** Charging preserves the byte-map, and the
 soft-fail resume never writes memory. -/
 theorem systemOp_next_create2_memory {fr : Frame} {exec exec' : ExecutionState}
     (h : systemOp .CREATE2 fr exec = .ok (.next exec')) :
     exec'.toMachineState.memory = exec.toMachineState.memory := by
-  unfold systemOp at h
-  simp only [bind, Except.bind] at h
-  cases hr : requireStateMod exec with
-  | error e => rw [hr] at h; simp at h
-  | ok _ =>
-    rw [hr] at h
-    simp only [] at h
-    cases hpop : exec.stack.pop4 with
-    | none =>
-      rw [hpop] at h
-      simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-    | some v =>
-      obtain ⟨s, val, io, is, salt⟩ := v
-      rw [hpop] at h
-      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      split at h
-      · simp at h
-      · cases hm : chargeMemExpansion exec io is with
-        | error e => rw [hm] at h; simp [pure, Except.pure] at h
-        | ok em =>
-          rw [hm] at h
-          simp only [pure, Except.pure] at h
-          cases hc : charge (create2Cost is) em with
-          | error e => rw [hc] at h; simp at h
-          | ok ec =>
-            rw [hc] at h
-            simp only [] at h
-            rw [createArm_next_memory h, BytecodeLayer.Hoare.charge_memory hc,
-              BytecodeLayer.Hoare.chargeMemExpansion_memory hm]
+  obtain ⟨em₀, em, s, val, io, is, salt, -, hm, ⟨c, hc⟩, -, hcr⟩ :=
+    BytecodeLayer.System.systemOp_createArm_reduce (Or.inr rfl) h
+  rw [createArm_next_memory hcr, BytecodeLayer.Hoare.charge_memory hc,
+    BytecodeLayer.Hoare.chargeMemExpansion_memory hm]
 
 /-- **A `.next` CREATE2 `systemOp` keeps the accounts map.** Charging preserves accounts, and the
 soft-fail resume installs the pre-op (un-bumped) map. -/
 theorem systemOp_next_create2_accounts {fr : Frame} {exec exec' : ExecutionState}
     (h : systemOp .CREATE2 fr exec = .ok (.next exec')) :
     exec'.accounts = exec.accounts := by
-  unfold systemOp at h
-  simp only [bind, Except.bind] at h
-  cases hr : requireStateMod exec with
-  | error e => rw [hr] at h; simp at h
-  | ok _ =>
-    rw [hr] at h
-    simp only [] at h
-    cases hpop : exec.stack.pop4 with
-    | none =>
-      rw [hpop] at h
-      simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-    | some v =>
-      obtain ⟨s, val, io, is, salt⟩ := v
-      rw [hpop] at h
-      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      split at h
-      · simp at h
-      · cases hm : chargeMemExpansion exec io is with
-        | error e => rw [hm] at h; simp [pure, Except.pure] at h
-        | ok em =>
-          rw [hm] at h
-          simp only [pure, Except.pure] at h
-          cases hc : charge (create2Cost is) em with
-          | error e => rw [hc] at h; simp at h
-          | ok ec =>
-            rw [hc] at h
-            simp only [] at h
-            rw [createArm_next_accounts h, (BytecodeLayer.Hoare.charge_accounts_env hc).1,
-              (BytecodeLayer.Hoare.chargeMemExpansion_accounts_env hm).1]
+  obtain ⟨em₀, em, s, val, io, is, salt, -, hm, ⟨c, hc⟩, -, hcr⟩ :=
+    BytecodeLayer.System.systemOp_createArm_reduce (Or.inr rfl) h
+  rw [createArm_next_accounts hcr, (BytecodeLayer.Hoare.charge_accounts_env hc).1,
+    (BytecodeLayer.Hoare.chargeMemExpansion_accounts_env hm).1]
 
 /-- **A `.next` CREATE2 `systemOp` dominates the frame's `activeWords`.** Charging never mutates
 `activeWords`, and the soft-fail resume grows it to `M`. -/
 theorem systemOp_next_create2_activeWords_ge {fr : Frame} {exec exec' : ExecutionState}
     (h : systemOp .CREATE2 fr exec = .ok (.next exec')) :
     exec.toMachineState.activeWords.toNat ≤ exec'.toMachineState.activeWords.toNat := by
-  unfold systemOp at h
-  simp only [bind, Except.bind] at h
-  cases hr : requireStateMod exec with
-  | error e => rw [hr] at h; simp at h
-  | ok _ =>
-    rw [hr] at h
-    simp only [] at h
-    cases hpop : exec.stack.pop4 with
-    | none =>
-      rw [hpop] at h
-      simp [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-    | some v =>
-      obtain ⟨s, val, io, is, salt⟩ := v
-      rw [hpop] at h
-      simp only [MonadLift.monadLift, liftM, monadLift, Option.option] at h
-      split at h
-      · simp at h
-      · cases hm : chargeMemExpansion exec io is with
-        | error e => rw [hm] at h; simp [pure, Except.pure] at h
-        | ok em =>
-          rw [hm] at h
-          simp only [pure, Except.pure] at h
-          cases hc : charge (create2Cost is) em with
-          | error e => rw [hc] at h; simp at h
-          | ok ec =>
-            rw [hc] at h
-            simp only [] at h
-            have hge := createArm_next_activeWords_ge h
-            rwa [BytecodeLayer.Hoare.charge_activeWords hc, BytecodeLayer.Hoare.chargeMemExpansion_activeWords hm] at hge
+  obtain ⟨em₀, em, s, val, io, is, salt, -, hm, ⟨c, hc⟩, -, hcr⟩ :=
+    BytecodeLayer.System.systemOp_createArm_reduce (Or.inr rfl) h
+  have hge := createArm_next_activeWords_ge hcr
+  rwa [BytecodeLayer.Hoare.charge_activeWords hc,
+    BytecodeLayer.Hoare.chargeMemExpansion_activeWords hm] at hge
 
 open BytecodeLayer.Hoare (AccPresent accMono_of_accounts_eq) in
 /-- **A `.next` `smsfOp` preserves the execution environment and presence at every `a`.**
@@ -1965,21 +1471,25 @@ theorem stepFrame_next_jumpdest_pc {fr : Frame} {exec' : ExecutionState} {b : Na
         rw [hcp, nextInstrPosNat]
         simp [pushArgWidth]
 
-/-- A decoded `POP` `.next` step advances to the next sequential instruction. -/
-theorem stepFrame_next_pop_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
+/-- **Parametric `.Smsf` sequential-pc walk (single dispatch spine).** A decoded
+`.Smsf op` `.next` step advances to the next sequential instruction, given the
+op's own one-byte pc fact (the `smsf_<op>_next_pc` family). The per-op
+`stepFrame_next_<op>_pc` lemmas below are thin instantiations. -/
+theorem stepFrame_next_smsf_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
+    {op : Operation.SmsfOp}
     (hpc : fr.exec.pc = UInt32.ofNat b)
-    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.POP, .none))
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.Smsf op, .none))
+    (hsm : ∀ {e : ExecutionState}, smsfOp op fr fr.exec = .ok (.next e) → e.pc = fr.exec.pc + 1)
     (hstep : stepFrame fr = .next exec') :
-    exec'.pc = UInt32.ofNat (nextInstrPosNat b .POP) := by
+    exec'.pc = UInt32.ofNat (nextInstrPosNat b (.Smsf op)) := by
   rw [stepFrame] at hstep
   rw [hdec] at hstep
   simp only [Option.getD_some] at hstep
   simp only [reduceCtorEq, ↓reduceIte] at hstep
-  simp only [stackPopCount, stackPushCount] at hstep
   split at hstep
   · exact absurd hstep (by simp)
   · rw [dispatch] at hstep
-    cases hs : smsfOp .POP fr fr.exec with
+    cases hs : smsfOp op fr fr.exec with
     | error e => rw [hs] at hstep; simp at hstep
     | ok signal =>
       rw [hs] at hstep
@@ -1987,151 +1497,94 @@ theorem stepFrame_next_pop_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
       | next e =>
         simp only [Signal.next.injEq] at hstep
         subst hstep
-        have hpc' := smsf_pop_next_pc hs
+        have hpc' := hsm hs
         rw [hpc] at hpc'
-        rw [hpc', nextInstrPosNat]
-        simp [pushArgWidth]
+        have hw : (pushArgWidth (.Smsf op)).toNat = 0 := by cases op <;> rfl
+        rw [hpc', nextInstrPosNat, hw]
+        simp
       | halted hl | needsCall p pc | needsCreate p pc => simp at hstep
+
+/-- **Parametric binOp sequential-pc walk (single dispatch spine).** A decoded
+argument-free one-byte op whose dispatch arm is a `binOp f` advances to the next
+sequential instruction on `.next`. The per-op dispatch arms are distinct
+constructors, so the arm equation is a hypothesis (`rfl` at each concrete op). -/
+theorem stepFrame_next_binOp_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
+    {opv : Operation} {f : UInt256 → UInt256 → UInt256}
+    (hpc : fr.exec.pc = UInt32.ofNat b)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (opv, .none))
+    (hne : opv ≠ .INVALID)
+    (hw : (pushArgWidth opv).toNat = 0)
+    (hdisp : dispatch opv .none fr fr.exec = binOp f fr.exec)
+    (hstep : stepFrame fr = .next exec') :
+    exec'.pc = UInt32.ofNat (nextInstrPosNat b opv) := by
+  rw [stepFrame] at hstep
+  rw [hdec] at hstep
+  simp only [Option.getD_some] at hstep
+  rw [if_neg hne] at hstep
+  split at hstep
+  · exact absurd hstep (by simp)
+  · rw [hdisp] at hstep
+    cases hb : binOp f fr.exec with
+    | error e => rw [hb] at hstep; simp at hstep
+    | ok signal =>
+      rw [hb] at hstep
+      cases signal with
+      | next e =>
+        simp only [Signal.next.injEq] at hstep
+        subst hstep
+        have hpc' := binOp_next_pc hb
+        rw [hpc] at hpc'
+        rw [hpc', nextInstrPosNat, hw]
+        simp
+      | halted hl | needsCall p pc | needsCreate p pc => simp at hstep
+
+/-- A decoded `POP` `.next` step advances to the next sequential instruction. -/
+theorem stepFrame_next_pop_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
+    (hpc : fr.exec.pc = UInt32.ofNat b)
+    (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.POP, .none))
+    (hstep : stepFrame fr = .next exec') :
+    exec'.pc = UInt32.ofNat (nextInstrPosNat b .POP) :=
+  stepFrame_next_smsf_pc hpc hdec (fun h => smsf_pop_next_pc h) hstep
 
 /-- A decoded `MLOAD` `.next` step advances to the next sequential instruction. -/
 theorem stepFrame_next_mload_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
     (hpc : fr.exec.pc = UInt32.ofNat b)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.MLOAD, .none))
     (hstep : stepFrame fr = .next exec') :
-    exec'.pc = UInt32.ofNat (nextInstrPosNat b .MLOAD) := by
-  rw [stepFrame] at hstep
-  rw [hdec] at hstep
-  simp only [Option.getD_some] at hstep
-  simp only [reduceCtorEq, ↓reduceIte] at hstep
-  simp only [stackPopCount, stackPushCount] at hstep
-  split at hstep
-  · exact absurd hstep (by simp)
-  · rw [dispatch] at hstep
-    cases hs : smsfOp .MLOAD fr fr.exec with
-    | error e => rw [hs] at hstep; simp at hstep
-    | ok signal =>
-      rw [hs] at hstep
-      cases signal with
-      | next e =>
-        simp only [Signal.next.injEq] at hstep
-        subst hstep
-        have hpc' := smsf_mload_next_pc hs
-        rw [hpc] at hpc'
-        rw [hpc', nextInstrPosNat]
-        simp [pushArgWidth]
-      | halted hl | needsCall p pc | needsCreate p pc => simp at hstep
+    exec'.pc = UInt32.ofNat (nextInstrPosNat b .MLOAD) :=
+  stepFrame_next_smsf_pc hpc hdec (fun h => smsf_mload_next_pc h) hstep
 
 /-- A decoded `MSTORE` `.next` step advances to the next sequential instruction. -/
 theorem stepFrame_next_mstore_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
     (hpc : fr.exec.pc = UInt32.ofNat b)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.MSTORE, .none))
     (hstep : stepFrame fr = .next exec') :
-    exec'.pc = UInt32.ofNat (nextInstrPosNat b .MSTORE) := by
-  rw [stepFrame] at hstep
-  rw [hdec] at hstep
-  simp only [Option.getD_some] at hstep
-  simp only [reduceCtorEq, ↓reduceIte] at hstep
-  simp only [stackPopCount, stackPushCount] at hstep
-  split at hstep
-  · exact absurd hstep (by simp)
-  · rw [dispatch] at hstep
-    cases hs : smsfOp .MSTORE fr fr.exec with
-    | error e => rw [hs] at hstep; simp at hstep
-    | ok signal =>
-      rw [hs] at hstep
-      cases signal with
-      | next e =>
-        simp only [Signal.next.injEq] at hstep
-        subst hstep
-        have hpc' := smsf_mstore_next_pc hs
-        rw [hpc] at hpc'
-        rw [hpc', nextInstrPosNat]
-        simp [pushArgWidth]
-      | halted hl | needsCall p pc | needsCreate p pc => simp at hstep
+    exec'.pc = UInt32.ofNat (nextInstrPosNat b .MSTORE) :=
+  stepFrame_next_smsf_pc hpc hdec (fun h => smsf_mstore_next_pc h) hstep
 
 /-- A decoded `SLOAD` `.next` step advances to the next sequential instruction. -/
 theorem stepFrame_next_sload_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
     (hpc : fr.exec.pc = UInt32.ofNat b)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.SLOAD, .none))
     (hstep : stepFrame fr = .next exec') :
-    exec'.pc = UInt32.ofNat (nextInstrPosNat b .SLOAD) := by
-  rw [stepFrame] at hstep
-  rw [hdec] at hstep
-  simp only [Option.getD_some] at hstep
-  simp only [reduceCtorEq, ↓reduceIte] at hstep
-  simp only [stackPopCount, stackPushCount] at hstep
-  split at hstep
-  · exact absurd hstep (by simp)
-  · rw [dispatch] at hstep
-    cases hs : smsfOp .SLOAD fr fr.exec with
-    | error e => rw [hs] at hstep; simp at hstep
-    | ok signal =>
-      rw [hs] at hstep
-      cases signal with
-      | next e =>
-        simp only [Signal.next.injEq] at hstep
-        subst hstep
-        have hpc' := smsf_sload_next_pc hs
-        rw [hpc] at hpc'
-        rw [hpc', nextInstrPosNat]
-        simp [pushArgWidth]
-      | halted hl | needsCall p pc | needsCreate p pc => simp at hstep
+    exec'.pc = UInt32.ofNat (nextInstrPosNat b .SLOAD) :=
+  stepFrame_next_smsf_pc hpc hdec (fun h => smsf_sload_next_pc h) hstep
 
 /-- A decoded `SSTORE` `.next` step advances to the next sequential instruction. -/
 theorem stepFrame_next_sstore_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
     (hpc : fr.exec.pc = UInt32.ofNat b)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.SSTORE, .none))
     (hstep : stepFrame fr = .next exec') :
-    exec'.pc = UInt32.ofNat (nextInstrPosNat b .SSTORE) := by
-  rw [stepFrame] at hstep
-  rw [hdec] at hstep
-  simp only [Option.getD_some] at hstep
-  simp only [reduceCtorEq, ↓reduceIte] at hstep
-  simp only [stackPopCount, stackPushCount] at hstep
-  split at hstep
-  · exact absurd hstep (by simp)
-  · rw [dispatch] at hstep
-    cases hs : smsfOp .SSTORE fr fr.exec with
-    | error e => rw [hs] at hstep; simp at hstep
-    | ok signal =>
-      rw [hs] at hstep
-      cases signal with
-      | next e =>
-        simp only [Signal.next.injEq] at hstep
-        subst hstep
-        have hpc' := smsf_sstore_next_pc hs
-        rw [hpc] at hpc'
-        rw [hpc', nextInstrPosNat]
-        simp [pushArgWidth]
-      | halted hl | needsCall p pc | needsCreate p pc => simp at hstep
+    exec'.pc = UInt32.ofNat (nextInstrPosNat b .SSTORE) :=
+  stepFrame_next_smsf_pc hpc hdec (fun h => smsf_sstore_next_pc h) hstep
 
 /-- A decoded `GAS` `.next` step advances to the next sequential instruction. -/
 theorem stepFrame_next_gas_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
     (hpc : fr.exec.pc = UInt32.ofNat b)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.GAS, .none))
     (hstep : stepFrame fr = .next exec') :
-    exec'.pc = UInt32.ofNat (nextInstrPosNat b .GAS) := by
-  rw [stepFrame] at hstep
-  rw [hdec] at hstep
-  simp only [Option.getD_some] at hstep
-  simp only [reduceCtorEq, ↓reduceIte] at hstep
-  simp only [stackPopCount, stackPushCount] at hstep
-  split at hstep
-  · exact absurd hstep (by simp)
-  · rw [dispatch] at hstep
-    cases hs : smsfOp .GAS fr fr.exec with
-    | error e => rw [hs] at hstep; simp at hstep
-    | ok signal =>
-      rw [hs] at hstep
-      cases signal with
-      | next e =>
-        simp only [Signal.next.injEq] at hstep
-        subst hstep
-        have hpc' := smsf_gas_next_pc hs
-        rw [hpc] at hpc'
-        rw [hpc', nextInstrPosNat]
-        simp [pushArgWidth]
-      | halted hl | needsCall p pc | needsCreate p pc => simp at hstep
+    exec'.pc = UInt32.ofNat (nextInstrPosNat b .GAS) :=
+  stepFrame_next_smsf_pc hpc hdec (fun h => smsf_gas_next_pc h) hstep
 
 /-- A decoded `JUMP` `.next` step lands in the frame's valid jump table. -/
 theorem stepFrame_next_jump_pc {fr : Frame} {exec' : ExecutionState}
@@ -2219,56 +1672,16 @@ theorem stepFrame_next_add_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
     (hpc : fr.exec.pc = UInt32.ofNat b)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.ADD, .none))
     (hstep : stepFrame fr = .next exec') :
-    exec'.pc = UInt32.ofNat (nextInstrPosNat b .ADD) := by
-  rw [stepFrame] at hstep
-  rw [hdec] at hstep
-  simp only [Option.getD_some] at hstep
-  simp only [reduceCtorEq, ↓reduceIte] at hstep
-  simp only [stackPopCount, stackPushCount] at hstep
-  split at hstep
-  · exact absurd hstep (by simp)
-  · rw [dispatch] at hstep
-    cases hb : binOp UInt256.add fr.exec with
-    | error e => rw [hb] at hstep; simp at hstep
-    | ok signal =>
-        rw [hb] at hstep
-        cases signal with
-        | next e =>
-            simp only [Signal.next.injEq] at hstep
-            subst hstep
-            have hpc' := binOp_next_pc hb
-            rw [hpc] at hpc'
-            rw [hpc', nextInstrPosNat]
-            simp [pushArgWidth]
-        | halted hl | needsCall p pc | needsCreate p pc => simp at hstep
+    exec'.pc = UInt32.ofNat (nextInstrPosNat b .ADD) :=
+  stepFrame_next_binOp_pc hpc hdec (by decide) rfl rfl hstep
 
 /-- A decoded `LT` `.next` step advances to the next sequential instruction. -/
 theorem stepFrame_next_lt_pc {fr : Frame} {exec' : ExecutionState} {b : Nat}
     (hpc : fr.exec.pc = UInt32.ofNat b)
     (hdec : decode fr.exec.executionEnv.code fr.exec.pc = some (.LT, .none))
     (hstep : stepFrame fr = .next exec') :
-    exec'.pc = UInt32.ofNat (nextInstrPosNat b .LT) := by
-  rw [stepFrame] at hstep
-  rw [hdec] at hstep
-  simp only [Option.getD_some] at hstep
-  simp only [reduceCtorEq, ↓reduceIte] at hstep
-  simp only [stackPopCount, stackPushCount] at hstep
-  split at hstep
-  · exact absurd hstep (by simp)
-  · rw [dispatch] at hstep
-    cases hb : binOp UInt256.lt fr.exec with
-    | error e => rw [hb] at hstep; simp at hstep
-    | ok signal =>
-        rw [hb] at hstep
-        cases signal with
-        | next e =>
-            simp only [Signal.next.injEq] at hstep
-            subst hstep
-            have hpc' := binOp_next_pc hb
-            rw [hpc] at hpc'
-            rw [hpc', nextInstrPosNat]
-            simp [pushArgWidth]
-        | halted hl | needsCall p pc | needsCreate p pc => simp at hstep
+    exec'.pc = UInt32.ofNat (nextInstrPosNat b .LT) :=
+  stepFrame_next_binOp_pc hpc hdec (by decide) rfl rfl hstep
 
 theorem decode_push_width {code : ByteArray} {pc : UInt32} {p : Operation.PushOp}
     {imm : UInt256} {w : UInt8}
@@ -2585,11 +1998,11 @@ theorem systemOp_success_accMono {op : Operation.SystemOp} {fr : Frame} {exec e 
       BytecodeLayer.System.systemOp_callArm_reduce (by tauto) h
     exact absurd hc (BytecodeLayer.System.callArm_neverHalts _)
   | CREATE =>
-    obtain ⟨_, _, _, _, _, _, _, hcr⟩ :=
+    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, hcr⟩ :=
       BytecodeLayer.System.systemOp_createArm_reduce (by tauto) h
     exact absurd hcr (BytecodeLayer.System.createArm_neverHalts _)
   | CREATE2 =>
-    obtain ⟨_, _, _, _, _, _, _, hcr⟩ :=
+    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, hcr⟩ :=
       BytecodeLayer.System.systemOp_createArm_reduce (by tauto) h
     exact absurd hcr (BytecodeLayer.System.createArm_neverHalts _)
 

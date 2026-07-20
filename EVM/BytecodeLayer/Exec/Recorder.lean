@@ -111,22 +111,8 @@ def softFailCreateRecord (current : Frame) : CreateRecord :=
     match exec.stack.pop4 with
       | some (stack, value, initOffset, initSize, _salt) => (stack, value, initOffset, initSize)
       | none => ([], 0, 0, 0)
-  { result :=
-      { address := default
-        createdAccounts := exec.createdAccounts
-        accounts := exec.accounts
-        gasRemaining := .ofNat (allButOneSixtyFourth exec.gasAvailable.toNat)
-        substate := exec.toState.substate
-        success := false
-        output := .empty }
-    pending :=
-      { frame := current
-        stack := stack
-        callerAccounts := exec.accounts
-        value := value
-        initOffset := initOffset.toUInt64
-        initSize := initSize.toUInt64
-        initCodeSize := (exec.memory.readWithPadding initOffset.toNat initSize.toNat).size } }
+  { result := createSoftFailResult exec
+    pending := createPendingOf current exec stack value initOffset initSize }
 
 /-- The soft-fail record pushes address `0`: its `result.success = false`, so the
 `createAddrOrZero` guard's first disjunct fires. -/

@@ -127,11 +127,11 @@ theorem systemOp_needsCall_inv {op : Operation.SystemOp} {fr : Frame} {exec : Ex
       BytecodeLayer.System.systemOp_callArm_reduce (by tauto) h
     exact callArm_needsCall_inv hc
   | CREATE =>
-    obtain ⟨_, _, _, _, _, _, _, hcr⟩ :=
+    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, hcr⟩ :=
       BytecodeLayer.System.systemOp_createArm_reduce (by tauto) h
     exact absurd hcr BytecodeLayer.System.createArm_never_needsCall
   | CREATE2 =>
-    obtain ⟨_, _, _, _, _, _, _, hcr⟩ :=
+    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, hcr⟩ :=
       BytecodeLayer.System.systemOp_createArm_reduce (by tauto) h
     exact absurd hcr BytecodeLayer.System.createArm_never_needsCall
 
@@ -210,11 +210,11 @@ theorem systemOp_needsCall_site_inv {op : Operation.SystemOp} {fr : Frame}
       BytecodeLayer.System.systemOp_callArm_reduce (by tauto) h
     exact ⟨Or.inr (Or.inr (Or.inr rfl)), callArm_needsCall_site_inv hc⟩
   | CREATE =>
-    obtain ⟨_, _, _, _, _, _, _, hcr⟩ :=
+    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, hcr⟩ :=
       BytecodeLayer.System.systemOp_createArm_reduce (by tauto) h
     exact absurd hcr BytecodeLayer.System.createArm_never_needsCall
   | CREATE2 =>
-    obtain ⟨_, _, _, _, _, _, _, hcr⟩ :=
+    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, hcr⟩ :=
       BytecodeLayer.System.systemOp_createArm_reduce (by tauto) h
     exact absurd hcr BytecodeLayer.System.createArm_never_needsCall
 
@@ -446,11 +446,11 @@ theorem systemOp_needsCall_depth {op : Operation.SystemOp} {fr : Frame} {exec : 
       BytecodeLayer.System.systemOp_callArm_reduce (by tauto) h
     exact callArm_needsCall_depth hc
   | CREATE =>
-    obtain ⟨_, _, _, _, _, _, _, hcr⟩ :=
+    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, hcr⟩ :=
       BytecodeLayer.System.systemOp_createArm_reduce (by tauto) h
     exact absurd hcr BytecodeLayer.System.createArm_never_needsCall
   | CREATE2 =>
-    obtain ⟨_, _, _, _, _, _, _, hcr⟩ :=
+    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, hcr⟩ :=
       BytecodeLayer.System.systemOp_createArm_reduce (by tauto) h
     exact absurd hcr BytecodeLayer.System.createArm_never_needsCall
 
@@ -508,7 +508,7 @@ theorem systemOp_needsCreate_depth {op : Operation.SystemOp} {fr : Frame} {exec 
       BytecodeLayer.System.systemOp_callArm_reduce (by tauto) h
     exact absurd hc BytecodeLayer.System.callArm_never_needsCreate
   | CREATE | CREATE2 =>
-    obtain ⟨_, _, _, _, _, _, _, hcr⟩ :=
+    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, hcr⟩ :=
       BytecodeLayer.System.systemOp_createArm_reduce (by tauto) h
     exact createArm_needsCreate_depth hcr
 
