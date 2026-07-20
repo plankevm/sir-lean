@@ -6,7 +6,7 @@ import NestedEvmYul.XiTriple
 /-!
 # T5 — `LambdaTriple`: the CREATE-side procedure-call surface mirroring `XiTriple`
 
-FOUNDATION FILE (proof-first, no sorry). This file seeds CREATE-side parity for
+FOUNDATION FILE (proof-first, no proof placeholders). This file seeds CREATE-side parity for
 the nested `Ξ`/`Λ` pair, strictly mirroring the proven CALL-side surface in
 `XiTriple.lean` (`ThetaTriple`/`theta_of_xi`/`call_spec`): a success-only,
 ∀-fuel triple over the contract-creation function `Lambda`, its pure-logic

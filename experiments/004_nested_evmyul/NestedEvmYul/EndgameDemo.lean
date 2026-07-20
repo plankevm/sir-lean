@@ -5,7 +5,7 @@ import NestedEvmYul.TwoCallDemo
 # T2 — the endgame ACCEPTANCE TEST: `nested_twoCall_completedWith` driven
 # through a fully concrete two-CALL caller world
 
-**Foundation-grade, sorry-free.** This file is the acceptance test the parity
+**Foundation-grade, placeholder-free.** This file is the acceptance test the parity
 verdict (docs/planning/exp004-parity-verdict-2026-07-19.md §4, gap #3) said was
 missing: the proved endgame `nested_twoCall_completedWith`
 (ObservableTriple.lean) applied to a FULLY CONCRETE caller world, with **every

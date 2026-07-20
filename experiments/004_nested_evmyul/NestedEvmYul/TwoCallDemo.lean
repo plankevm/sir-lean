@@ -4,7 +4,7 @@ import NestedEvmYul.XLoop
 /-!
 # T3 — end-to-end firing demo: `call_spec` fired twice against concrete `Ξ` children
 
-**Foundation-grade, sorry-free.** This file is the nested analog of the flat
+**Foundation-grade, placeholder-free.** This file is the nested analog of the flat
 two-CALL acceptance test (`EVM/BytecodeLayer/Examples/TwoCallExample.lean`,
 `twoCall_messageCall`/`twoCall_completedWith`): a concrete caller state performs
 two successive external calls to a concrete `STOP`-code callee holding a

@@ -204,7 +204,7 @@ theorem nested_refines_emptyObs (w : NestedWorld) (h : IsDoNothing w) :
           | some p => (p.2.lookupStorage (UInt256.ofNat key)).toNat | none => 0) = 0
     rfl
 
-/-- A fully-proved sanity lemma (no `sorry`): the nested `emptyObs` data-agrees with
+/-- A fully-proved sanity lemma (no proof placeholder): the nested `emptyObs` data-agrees with
 itself whenever the gas matches, and any two `emptyObs` agree pointwise on storage.
 Mirror of the flat `emptyObs_storageAgrees`/`emptyObs_dataAgrees`. -/
 theorem emptyObs_storageAgrees (g g' : Option Nat) :

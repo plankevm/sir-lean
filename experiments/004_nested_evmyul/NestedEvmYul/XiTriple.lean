@@ -7,13 +7,13 @@ import NestedEvmYul.Refinement
 # nested `Ξ`/`Θ` (the never-built B3 data point, PLAN.md:43-45)
 
 **THIS FILE IS A LABELED EXPLORATORY SHAPE STUDY, NOT A FOUNDATION TO BUILD ON.**
-It deliberately suspends the house proof-first/no-sorry rule, for the sole
+It deliberately suspends the house proof-first/no-placeholder rule, for the sole
 purpose of measuring whether a Hoare-style procedure-call surface over the
 nested `Ξ`/`Θ` is ergonomic.
 
 Ground rules (per the track spec, verbatim): statements first; prove only the
 genuinely easy ones (conseq, conj, frame, preservesAccount_stop,
-twoCall_spec-given-call_spec); explicitly-classified sorry placeholders
+twoCall_spec-given-call_spec); explicitly classified proof placeholders
 (`-- SORRY-CLASS: easy|medium|hard — <reason>`) for theta_of_xi and call_spec;
 LABELED EXPLORATORY ARTIFACT, not a foundation; `lake build` green after the
 track.
@@ -35,9 +35,9 @@ fuel of the outer run into the inner hypothesis. Contrast the study's
 post-mortem): there, gluing two `∃ fuel` witnesses forces both runs to a
 common fuel, which needs the fuel-irrelevance keystone (`Θ_fuel_mono_ok` —
 refuted as stated against the pre-2026-07-20 semantics, whose CREATE/CREATE2
-arms absorbed an inner `OutOfFuel`; the arms now propagate honestly, leaving
-the keystone unproven-but-open rather than false — the surviving `ΘRuns` is
-offset-cofinal and keystone-free either way, T2 pivot). Universal-fuel
+arms absorbed an inner `OutOfFuel`; the arms now propagate honestly, and the
+six-layer `FuelMono.res_mono` induction proves the keystone — the surviving
+`ΘRuns` remains offset-cofinal). Universal-fuel
 quantification is antitone-friendly — weakening to a specific fuel is just
 instantiation — so the entire logical-rule layer (conseq/conj/frame) and the
 call-site composition come out keystone-free. This is the cheap trick the
@@ -65,8 +65,8 @@ the post-substate. WHY fuel-free with no keystone: the `∀ fuel` makes the
 triple a statement about every fueled run simultaneously, so composing triples
 never moves a result across fuels — the antitone/instantiation direction is
 free, unlike the deleted existential `ΘRunsE` whose every cross-fuel lemma
-funnelled through the `Θ_fuel_mono_ok` keystone, found FALSE as stated
-(ThetaRuns.lean, keystone post-mortem). -/
+funnelled through a keystone that was false under the pre-patch semantics and
+is now proved for the patched semantics (ThetaRuns.lean, keystone post-mortem). -/
 def XiTriple (P : AccountMap → Substate → Prop) (I : ExecutionEnv)
     (Q : AccountMap → Substate → ByteArray → Prop) : Prop :=
   ∀ (fuel : ℕ) (cA : Batteries.RBSet AccountAddress compare) (gh : BlockHeader)

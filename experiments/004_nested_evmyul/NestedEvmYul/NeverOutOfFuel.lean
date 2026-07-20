@@ -30,7 +30,7 @@ parent's gas (`Ccallgas ≤ parent gas`), with call depth additionally capped at
 `1024`. Hence a fuel budget that is a fixed multiple of the available gas (plus a
 depth term) always suffices.
 
-This file is grown bottom-up; every theorem below is *fully proved* (no `sorry`,
+This file is grown bottom-up; every theorem below is *fully proved* (no proof placeholders,
 no axiom). What is established so far:
 
 * **Fuel-`0` base cases** for all five layers — the only places `OutOfFuel` is

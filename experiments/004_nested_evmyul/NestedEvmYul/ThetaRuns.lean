@@ -2,19 +2,20 @@ import NestedEvmYul.SharedObservable
 import NestedEvmYul.Refinement
 import NestedEvmYul.NeverOutOfFuel
 import NestedEvmYul.XLoop
+import NestedEvmYul.FuelMono
 
 /-!
 # T2 — `ΘRuns`: the ∀-fuel (offset-cofinal) relational veneer over the nested `Θ`
 
-**This file is foundation-grade and sorry-free throughout** (house proof-first
+**This file is foundation-grade and placeholder-free throughout** (house proof-first
 rule back in force). The original shape study's fuel-existential encoding —
-whose every cross-fuel lemma funnelled through an unproved fuel-irrelevance
-keystone — was quarantined here and then DELETED by T4: against the semantics
+whose every cross-fuel lemma funnelled through a fuel-irrelevance keystone —
+was quarantined here and then DELETED by T4: against the semantics
 of the time the keystone pair was FALSE as stated, not merely expensive (the
 CREATE/CREATE2 `step` arms absorbed an inner `OutOfFuel` into an ordinary
 result; the 2026-07-20 vendored patch made them propagate it honestly, which
-reopens — but does not prove — the keystone). See the "Keystone post-mortem"
-note at the bottom of this file.
+made the keystone true, and `FuelMono.lean` now proves it). See the "Keystone
+post-mortem" note at the bottom of this file.
 
 ## The pivot (T2)
 
@@ -28,29 +29,19 @@ and every cross-fuel consumer becomes pure instantiation:
   other's offset (`k₁ + k₂` vs `k₂ + k₁`, one `Nat.add_comm`), then
   `Except.ok` injectivity. No fuel transport, no keystone. This deletes the
   study's headline tax.
-* **adequacy under a side condition** (`ΘRuns.runΘ_complete'`) — a cofinal
-  witness whose offset is within the seeding (`k ≤ seedFuel w`) pins the
-  seeded fuel-free driver: instantiate `f := seedFuel w - k`.
+* **adequacy** (`ΘRuns.runΘ_complete'`) — the fuel-monotonicity keystone moves
+  the cofinal success and the seeded non-`OutOfFuel` result to a common fuel.
 * **the observable lift** — ObservableTriple.`ΘRuns_completedWith`, plumbing
   over the same instantiation.
 
-## What the ∀-encoding honestly gives up — and why that is now known FINAL
+## What the ∀-encoding gives up
 
-The existential encoding had a free single-point introduction (`of_runΘ`: one
-successful fueled run enters the veneer) and *unconditional* adequacy — but
-only by deferring ALL cost to the fuel-irrelevance keystone
-(`Θ_fuel_mono_ok`/`Θ_fuel_mono_error`). The ∀-encoding inverts the trade:
-producers must supply **cofinal** witnesses — which the shape lemmas naturally
-do (`Xi_stop`; `Θ_doNothing` below) — and in exchange every consumer closes
-outright. A bare single fuel point (e.g. `runΘ w = .ok res` alone) does NOT
-enter the veneer without the keystone; the `k ≤ seedFuel w` side condition on
-adequacy is likewise irremovable without it (`runΘ_never_outOfFuel` excludes
-one error at one seeding — it transports nothing). T4's keystone attempt
-found the keystone FALSE as then stated (CREATE/CREATE2 absorbed inner
-`OutOfFuel` — post-mortem at the bottom); the 2026-07-20 vendored patch
-removed that absorption, so the keystone is now open rather than refuted,
-but it remains UNPROVEN — the boundary of this API is still a real deferred
-cost until someone proves it, and the cofinal shape needs no keystone at all.
+The cofinal encoding remains useful because the shape lemmas naturally produce
+families (`Xi_stop`; `Θ_doNothing` below), and its determinism proof is pure
+instantiation. After the CREATE/CREATE2 propagation patch, however, the proved
+`FuelMono.Θ_fuel_mono_ok` and `_error` pair restores both missing directions:
+one successful seeded run can be raised to a cofinal family, and a cofinal
+family can be compared with the seeded non-`OutOfFuel` run at a common fuel.
 -/
 
 namespace NestedEvmYul
@@ -75,9 +66,19 @@ theorem ΘRuns.intro (w : NestedWorld) (res : ThetaResult) (k : ℕ)
     ΘRuns w res :=
   ⟨k, h⟩
 
+/-- A successful seeded run generates a cofinal family by exact-result fuel
+monotonicity. No depth or fuel-envelope premise is needed in this direction. -/
+theorem ΘRuns.of_runTheta (w : NestedWorld) (res : ThetaResult)
+    (h : runΘ w = .ok res) : ΘRuns w res := by
+  refine ⟨seedFuel w, fun f => ?_⟩
+  exact FuelMono.Θ_fuel_mono_ok (seedFuel w) (seedFuel w + f)
+    w.blobVersionedHashes w.createdAccounts w.genesisBlockHeader w.blocks w.σ w.σ₀
+    w.A w.s w.o w.r w.c w.g w.p w.v w.v' w.d w.e w.H w.w res
+    (Nat.le_add_right _ _) h
+
 /-! ## Cross-fuel consequences — now pure instantiation, keystone-free -/
 
-/-- **Determinism of the veneer.** PROVED sorry-free: instantiate the first
+/-- **Determinism of the veneer.** PROVED without placeholders: instantiate the first
 witness at the second's offset and vice versa — both land at fuel `k₁ + k₂`
 (one `Nat.add_comm`) — then `Except.ok` injectivity. The (deleted) existential
 encoding paid the false keystone for this exact statement; the cofinal
@@ -92,24 +93,38 @@ theorem ΘRuns.deterministic (w : NestedWorld) (res₁ res₂ : ThetaResult)
   rw [e₁] at e₂
   exact Except.ok.inj e₂
 
-/-- **Adequacy under a side condition.** A cofinal witness whose offset is
-within the seeding envelope pins the seeded fuel-free driver: instantiate
-`f := seedFuel w - k` (`Nat.add_sub_cancel'`). PROVED sorry-free.
-
-HONEST BOUNDARY: the side condition `k ≤ seedFuel w` is genuinely needed and
-NOT removable via `runΘ_never_outOfFuel` (which excludes one error at one
-seeding but transports no result across fuels) — removing it is exactly the
-keystone, since found FALSE (post-mortem below). Producers built from the
-shape lemmas satisfy it trivially (their offsets are small constants; see
-`ΘRuns_doNothing_runΘ`). -/
+/-- **Adequacy without an offset side condition.** Under the structural depth
+cap that makes the seeded driver non-`OutOfFuel`, move both the cofinal success
+and the seeded result to a common fuel. Success injectivity identifies results;
+a semantic error contradicts the cofinal success; seeded `OutOfFuel` is ruled
+out by `runΘ_never_outOfFuel`. -/
 theorem ΘRuns.runΘ_complete' (w : NestedWorld) (res : ThetaResult) (k : ℕ)
-    (hk : k ≤ seedFuel w)
+    (he : w.e ≤ 1024)
     (h : ∀ f, Θ (k + f) w.blobVersionedHashes w.createdAccounts w.genesisBlockHeader
       w.blocks w.σ w.σ₀ w.A w.s w.o w.r w.c w.g w.p w.v w.v' w.d w.e w.H w.w = .ok res) :
     runΘ w = .ok res := by
-  have hf := h (seedFuel w - k)
-  rw [Nat.add_sub_cancel' hk] at hf
-  exact hf
+  cases hrun : runΘ w with
+  | ok res' =>
+      have hseed := FuelMono.Θ_fuel_mono_ok (seedFuel w) (seedFuel w + k)
+        w.blobVersionedHashes w.createdAccounts w.genesisBlockHeader w.blocks w.σ w.σ₀
+        w.A w.s w.o w.r w.c w.g w.p w.v w.v' w.d w.e w.H w.w res'
+        (Nat.le_add_right _ _) hrun
+      have hcofinal := h (seedFuel w)
+      rw [Nat.add_comm k (seedFuel w)] at hcofinal
+      rw [hcofinal] at hseed
+      exact hseed.symm
+  | error err =>
+      by_cases herr : err = .OutOfFuel
+      · subst err
+        exact absurd hrun (runΘ_never_outOfFuel w he)
+      · have hseed := FuelMono.Θ_fuel_mono_error (seedFuel w) (seedFuel w + k)
+          w.blobVersionedHashes w.createdAccounts w.genesisBlockHeader w.blocks w.σ w.σ₀
+          w.A w.s w.o w.r w.c w.g w.p w.v w.v' w.d w.e w.H w.w err herr
+          (Nat.le_add_right _ _) hrun
+        have hcofinal := h (seedFuel w)
+        rw [Nat.add_comm k (seedFuel w)] at hcofinal
+        rw [hcofinal] at hseed
+        exact absurd hseed (by simp)
 
 /-! ## Non-vacuity: cofinal do-nothing witnesses
 
@@ -203,7 +218,7 @@ theorem Θ_doNothing (w : NestedWorld) (h : IsDoNothing w) :
   rfl
 
 /-- Non-vacuity of the veneer: the do-nothing world is in `ΘRuns`, with the
-entry map/substate returned unchanged. PROVED sorry-free (offset witness `4`,
+entry map/substate returned unchanged. PROVED without placeholders (offset witness `4`,
 one `Nat.add_comm` to reorient the cofinal family). -/
 theorem ΘRuns_doNothing (w : NestedWorld) (h : IsDoNothing w) :
     ∃ cA g', ΘRuns w (cA, (∅ : AccountMap), g', (default : Substate), true, ByteArray.empty) := by
@@ -212,23 +227,13 @@ theorem ΘRuns_doNothing (w : NestedWorld) (h : IsDoNothing w) :
   rw [Nat.add_comm 4 f]
   exact hf f
 
-/-- The seeding envelope covers the do-nothing offset: `4 ≤ seedFuel w` under
-the depth bound (`fuelBound ≥ 1`, Refinement.lean's `fuelBound_pos`, plus the
-seeding's `+ 3`). The one-line Nat fact that connects the cofinal witness to
-the seeded driver. -/
-theorem seedFuel_ge_four (w : NestedWorld) (he : w.e ≤ 1024) : 4 ≤ seedFuel w := by
-  unfold seedFuel
-  have h := fuelBound_pos w.g.toNat w.e he
-  omega
-
 /-- The full pipeline, non-vacuously: cofinal do-nothing witness (offset `4`)
-+ `4 ≤ seedFuel w` + adequacy-under-side-condition = the seeded driver's
-result — recovering Refinement.lean's `runΘ_doNothing` through the new API,
-keystone-free. -/
++ fuel-monotonic adequacy = the seeded driver's result — recovering
+Refinement.lean's `runΘ_doNothing` through the relational API. -/
 theorem ΘRuns_doNothing_runΘ (w : NestedWorld) (h : IsDoNothing w) :
     ∃ cA g', runΘ w = .ok (cA, (∅ : AccountMap), g', (default : Substate), true, ByteArray.empty) := by
   obtain ⟨cA, g', hf⟩ := Θ_doNothing w h
-  refine ⟨cA, g', ΘRuns.runΘ_complete' w _ 4 (seedFuel_ge_four w h.depth) (fun f => ?_)⟩
+  refine ⟨cA, g', ΘRuns.runΘ_complete' w _ 4 h.depth (fun f => ?_)⟩
   rw [Nat.add_comm 4 f]
   exact hf f
 
@@ -240,10 +245,10 @@ HISTORICAL NOTE (2026-07-20): the absorption this post-mortem pivots on — the
 CREATE/CREATE2 `| _ =>` catch-all — was REMOVED by the authorized vendored
 patch of the same date (the arms now end in `| .error e => .error e`, honest
 propagation). The refutation below is therefore a record about the *pre-patch*
-semantics: under the patched semantics `Θ_fuel_mono_ok` is no longer refuted
-by this argument, but it has NOT been proven either (its status is open, and
-the cofinal `ΘRuns` encoding needs no keystone regardless). The text below is
-kept verbatim as the historical record.
+semantics. Under the patched semantics the six-layer `FuelMono.res_mono`
+induction proves `Θ_fuel_mono_ok` and `Θ_fuel_mono_error`; the cofinal `ΘRuns`
+encoding now has single-point introduction and offset-unbounded adequacy. The
+text below is kept verbatim as the historical record.
 
 The pre-pivot fuel-existential veneer (`ΘRunsE := ∃ fuel, Θ fuel … = .ok res`)
 and its fuel-irrelevance keystone pair (`Θ_fuel_mono_ok` / `Θ_fuel_mono_error`
@@ -251,7 +256,7 @@ and its fuel-irrelevance keystone pair (`Θ_fuel_mono_ok` / `Θ_fuel_mono_error`
 lived here quarantined as classified-hard sorries, priced by the B3 study at a
 ~1500-line 6-layer mutual induction mirroring `gas_mono`
 (NeverOutOfFuel.lean:4018–4133). T4's attempt DELETED the section under the
-house no-sorry'ed-scaffolds rule, with this obstruction record:
+house no-placeholder-scaffolds rule, with this obstruction record:
 
 * **Which layer fails: `step`, and fatally.** The T1 dispatcher equations do
   make the ~130 non-recursive `step` arms fuel-irrelevant definitionally (the
@@ -289,12 +294,12 @@ house no-sorry'ed-scaffolds rule, with this obstruction record:
 Consequence (as of the pre-patch semantics): the T2 cofinal pivot was not
 merely the cheaper encoding — it was the only correct one of the two, its
 `k ≤ seedFuel w` adequacy side condition and the loss of single-fuel-point
-introduction non-removable. Post-patch, removability is open again (a proved
-`Θ_fuel_mono_ok` would restore single-point introduction), but nothing here
-depends on it. The deleted material (statements and the `res_mono` skeleton)
-remains readable in git history at ThetaRuns.lean of commit 6315c911 and in
-the study doc (docs/planning/exp004-completion-shape-2026-07-18.md §2.2 + T4
-addendum).
+introduction non-removable. Post-patch, `FuelMono.Θ_fuel_mono_ok` restores
+single-point introduction and the keystone pair removes the offset bound from
+adequacy (which retains only the depth cap needed for the seeded never-OOF
+fact). The deleted pre-patch material remains readable in git history at
+ThetaRuns.lean of commit 6315c911 and in the study doc
+(docs/planning/exp004-completion-shape-2026-07-18.md §2.2 + T4 addendum).
 --------------------------------------------------------------------------- -/
 
 end NestedEvmYul

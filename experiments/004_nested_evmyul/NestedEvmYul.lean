@@ -3,6 +3,7 @@
 -- B1 only wires the package up; reasoning content lands in later milestones.
 import EvmYul.EVM.Semantics
 import NestedEvmYul.NeverOutOfFuel
+import NestedEvmYul.FuelMono
 -- Cross-engine convergence: the toolchain-neutral shared observable, the
 -- `observe_nested` projection above `Θ`, the `EVMSemantics` interface + nested
 -- instance, and `runΘ_never_outOfFuel`. Mirror on the flat side:

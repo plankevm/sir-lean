@@ -8,8 +8,9 @@ Closes parity-verdict gap #2 (docs/planning/exp004-parity-verdict-2026-07-19.md
 §4): a general, reusable bridge from the `X`-level reasoning layer to the
 top-level fuel-free `runΘ` over an ARBITRARY `NestedWorld` seeding — the
 endgame's inline steps (2)–(4) (ObservableTriple.lean:352–396) hoisted into one
-theorem — plus the strongest honest treatment of the `seedFuel` side condition,
-including a fragment where it is **derived from gas**, not assumed.
+theorem — plus direct bounded-offset variants and a fragment where the bound is
+**derived from gas**, not assumed. The keystone-backed `ΘRuns.runΘ_complete'`
+offers a separate depth-capped route with no numeric offset condition.
 
 ## The shape, against flat
 
@@ -17,19 +18,17 @@ Flat's bridge (EVM/BytecodeLayer/Spec.lean:70, `messageCall_runs`):
 `EntersAsCode p fr₀` + `Runs fr₀ last` + halt ⟹ `messageCall p = .ok …`,
 with **no numeric side condition**. That unconditionality rests on two flat
 facts: `drive` fuel-monotonicity is TRUE and never-OOF is unconditional.
-Nested `Θ` fuel-monotonicity is UNPROVEN (it was outright refuted while the
-CREATE/CREATE2 `| _ =>` catch-all absorbed an inner `Lambda` `OutOfFuel` into
-an ordinary result — keystone post-mortem, ThetaRuns.lean; the 2026-07-20
-vendored patch made the arms propagate honestly, reopening but not proving
-the keystone), so the nested bridge takes cofinal `X` families and carries
-the `≤ seedFuel w` envelope. This file states exactly which half of the flat
-bridge needs the envelope and which does not:
+Nested `Θ` fuel-monotonicity was refuted while the CREATE/CREATE2 catch-all
+absorbed an inner `Lambda` `OutOfFuel`; after the 2026-07-20 propagation patch,
+`FuelMono.res_mono` proves it. This file's original bridge statements retain
+their direct bounded-offset route, while `ΘRuns.runΘ_complete'` supplies the
+depth-capped unbounded alternative:
 
 * `ΘRuns_of_X_family` — the **veneer** conclusion needs NO envelope (pure
   cofinal introduction): the side condition is entirely a property of the
   *adequacy* step (pinning the seeded `runΘ`), not of the layer crossing.
-* `runΘ_of_X_family` — the **driver** conclusion carries `m + 4 ≤ seedFuel w`,
-  the honest residue of the cofinal pivot.
+* `runΘ_of_X_family` — the **driver** conclusion carries `m + 4 ≤ seedFuel w`
+  and therefore needs no depth premise.
 
 ## The risky half: deriving the envelope ("gas pays for fuel")
 
@@ -138,10 +137,10 @@ theorem Θ_family_of_X_family (w : NestedWorld) (cd : ByteArray) (m : ℕ)
 /-- **The core bridge** (flat `messageCall_runs` analog, driver half): for ANY
 world `w` running code `cd`, a cofinal `X` success family on `callerEntry w cd`
 whose offset fits the seeding envelope (`m + 4 ≤ seedFuel w` — the honest,
-permanent residue of the cofinal pivot; see the module docstring) and whose
+direct-instantiation route used by this theorem) and whose
 final map does not trip `Θ`'s degenerate empty-map rollback (`hne`) pins the
 top-level fuel-free `runΘ`. This is EXACTLY steps (2)–(4) of the endgame proof,
-now reusable over arbitrary seeding. PROVED sorry-free. -/
+now reusable over arbitrary seeding. PROVED without placeholders. -/
 theorem runΘ_of_X_family (w : NestedWorld) (cd : ByteArray) (m : ℕ)
     {sH : EVM.State} {out : ByteArray}
     (hc : w.c = .Code cd)
@@ -150,15 +149,17 @@ theorem runΘ_of_X_family (w : NestedWorld) (cd : ByteArray) (m : ℕ)
       = .ok (.success sH out))
     (hne : (sH.accountMap == (∅ : AccountMap)) = false) :
     runΘ w = .ok (sH.createdAccounts, sH.accountMap, sH.gasAvailable,
-      sH.substate, true, out) :=
-  ΘRuns.runΘ_complete' w _ (m + 4) hfuel (Θ_family_of_X_family w cd m hc hX hne)
+      sH.substate, true, out) := by
+  have hf := Θ_family_of_X_family w cd m hc hX hne (seedFuel w - (m + 4))
+  rw [Nat.add_sub_cancel' hfuel] at hf
+  exact hf
 
 /-- **The unbounded sibling** (veneer half): the SAME family, WITHOUT the
 envelope, concludes the fuel-free relational veneer `ΘRuns`. Pure cofinal
 introduction — this pins precisely which half of flat's bridge needs no side
 condition on the nested side: the layer crossing itself is envelope-free; only
-*adequacy* (pinning the seeded driver, `runΘ_of_X_family` above) pays
-`≤ seedFuel w`. PROVED sorry-free. -/
+this direct adequacy variant pays `≤ seedFuel w`; the keystone-backed adequacy
+variant instead pays the structural depth cap. PROVED without placeholders. -/
 theorem ΘRuns_of_X_family (w : NestedWorld) (cd : ByteArray) (m : ℕ)
     {sH : EVM.State} {out : ByteArray}
     (hc : w.c = .Code cd)
@@ -212,8 +213,7 @@ theorem completedWith_of_decomposition (w : NestedWorld) (cd : ByteArray)
 
 /-! ## 3. Gas pays for fuel: the derived envelope (call-free fragment)
 
-The strongest weakening of the `≤ seedFuel w` side condition that survives the
-obstructions in the module docstring: for chains whose links are gas-witnessed
+For the direct bounded-offset bridge, chains whose links are gas-witnessed
 (`IterStepG` below), the envelope is DERIVED from execution — each link burns
 `≥ 1` gas, so the chain length is bounded by the world's own gas, which
 `seedFuel` dominates linearly. -/
@@ -457,7 +457,7 @@ condition is DERIVED from execution — the chain's own gas burn bounds its
 length by `w.g.toNat` (`ItersG.gas_le` at the entry state, whose gas is `w.g`
 by construction of `callerEntry`), and `seedFuel` dominates gas
 (`seedFuel_ge_gas`). Only the structural depth cap `w.e ≤ 1024` remains — no
-numeric fuel hypothesis. PROVED sorry-free. -/
+numeric fuel hypothesis. PROVED without placeholders. -/
 theorem runΘ_of_decomposition_gasDerived (w : NestedWorld) (cd : ByteArray)
     {n : ℕ} {sEnd sHalt : EVM.State} {out : ByteArray}
     (hc : w.c = .Code cd) (he : w.e ≤ 1024)

@@ -4,7 +4,7 @@ import NestedEvmYul.TwoCallDemo
 /-!
 # T3 — CREATE firing demo: `lambda_of_xi`/`create_spec` fired against a concrete child
 
-**Foundation-grade, sorry-free.** This file is the CREATE-side mirror of
+**Foundation-grade, placeholder-free.** This file is the CREATE-side mirror of
 `TwoCallDemo.lean` (the CALL firing demo): a concrete `LambdaTriple` instance is
 built via `lambda_of_xi` with **all three side conditions discharged** against a
 concrete child — init code `⟨#[0x00]⟩` (single `STOP`), whose successful init
@@ -380,9 +380,8 @@ here: the CREATE arm's `Λ` computes the created address via `ffi.KEC`
 (`@[extern] opaque`, EVMYulLean/EvmYul/FFI/ffi.lean:27), and both the EIP-7610
 collision-`if` and every subsequent map insert depend on that address, so no
 concrete forward evaluation crosses the hash. This is the exp005
-CREATE-witness keccak wall, verbatim, and the same irreducibility class as the
-`k ≤ seedFuel w` caveat recorded in ThetaRuns.lean's keystone post-mortem
-(:231): a boundary forced by the semantics' opaque FFI, not a proof shortfall.
+CREATE-witness keccak wall, verbatim: a boundary forced by the semantics'
+opaque FFI, not a proof shortfall.
 `hstep`-as-hypothesis (the parent step DID succeed) plus `hx` (the pushed word
 is not the failure word `⟨0⟩`) is therefore the designed maximum concreteness
 for a CREATE firing; everything on the near side of the hash is concrete and

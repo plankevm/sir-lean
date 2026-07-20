@@ -23,18 +23,13 @@ positional `Θ` arguments, SharedObservable.lean), the driver is the fuel-free
   lives there. The predicate is otherwise verbatim: ∀-world, code slot pinned,
   `pre` first.
 
-* **Gas/fuel is a precondition — with a permanent asymmetry vs flat.** Flat's
+* **Gas/fuel remains explicit in the bounded producer rules.** Flat's
   doctrine ("gas is a precondition, kept first-class") carries the gas floor
-  inside `pre`. The nested analog of that residue is the T2 cofinal pivot's
-  `k ≤ seedFuel w` offset side condition (`ΘRuns.runΘ_complete'`,
-  ThetaRuns.lean — the keystone that would remove it is UNPROVEN: refuted
-  pre-2026-07-20 while CREATE absorbed inner `OutOfFuel`, reopened but not
-  proven by the vendored patch of that date, see the post-mortem there). So
-  the producers below take a per-world bounded-offset cofinal family as part
-  of their pre-side obligations: the fuel envelope enters via `pre`,
-  honestly, and cannot be discharged once-and-for-all. Flat has
-  unconditional adequacy at this spot (verdict §4 item 6); the nested side
-  does not today (a proved keystone would change that; none exists).
+  inside `pre`. The producers below retain a per-world bounded-offset family,
+  which gives adequacy by direct instantiation without requiring a depth cap.
+  The patched semantics now also has the proved `FuelMono` keystone:
+  `ΘRuns.runΘ_complete'` removes the numeric offset bound when `w.e ≤ 1024`,
+  and `ΘRuns.of_runTheta` gives unconditional single-point introduction.
 
 * **Flat parity EXCEEDED on the consumer side.** The flat `Behaves` has ZERO
   consuming lemmas repo-wide (verified by grep: nothing takes a
@@ -51,9 +46,8 @@ open EvmYul EvmYul.EVM
 /-- **`Behaves pre cd post`** (precondition first) — nested mirror of the flat
 `BytecodeLayer.Hoare.Behaves`: for **every** world `w` whose called code is
 `cd` and which satisfies `pre`, the shared observable of the seeded fuel-free
-run satisfies `post`. The fuel/gas envelope lives inside `pre` (see the module
-docstring: the `k ≤ seedFuel w` residue of the cofinal pivot surfaces on the
-producer rules' pre-side obligations). -/
+  run satisfies `post`. Particular producer rules below may keep a fuel/gas
+  envelope inside `pre`; the core predicate itself does not. -/
 def Behaves (pre : NestedWorld → Prop) (cd : ByteArray)
     (post : SharedObservable → Prop) : Prop :=
   ∀ w : NestedWorld, w.c = .Code cd → pre w → post (observe_nested (runΘ w))
@@ -82,8 +76,8 @@ theorem Behaves.conj {pre pre' : NestedWorld → Prop} {cd : ByteArray}
 
 /-- **Producer over the cofinal veneer.** If every pre-world running `cd` has a
 cofinal success family at some offset `k ≤ seedFuel w` (the honest per-world
-fuel-envelope obligation — this is where the T2 pivot's side condition enters,
-as a `pre`-side clause) whose post-map reads `v` at `(addr, key)`, then the
+fuel-envelope obligation used by this direct-instantiation variant) whose
+post-map reads `v` at `(addr, key)`, then the
 program `Behaves` with `completedWith` at that cell.
 
 PROVED — pure plumbing through `ΘRuns_completedWith`
@@ -110,9 +104,7 @@ theorem behaves_of_cofinal (pre : NestedWorld → Prop) (cd : ByteArray)
 nested analog of flat's "the external-call rule supplies a gas floor inside
 `pre`": the three obligations are (1) `pre` entails the triple's precondition
 at the entry state, (2) every pre-world produces a bounded-offset **cofinal
-success family** — the honest producer obligation, since triples only consume
-success runs and the fuel envelope is not dischargeable once-and-for-all
-(`k ≤ seedFuel w` is permanent, see module docstring) — and (3) `Q` pins the
+success family** for this no-depth-premise variant, and (3) `Q` pins the
 storage read.
 
 PROVED — routes through `ΘRuns.runΘ_complete'` (veneer adequacy) and
@@ -139,7 +131,10 @@ theorem behaves_of_thetaTriple
   intro w hc hpre
   obtain ⟨k, cA, σ', g', A', o, hk, hruns⟩ := h2 w hc hpre
   have hrun : runΘ w = .ok (cA, σ', g', A', true, o) :=
-    ΘRuns.runΘ_complete' w _ k hk hruns
+    by
+      have hf := hruns (seedFuel w - k)
+      rw [Nat.add_sub_cancel' hk] at hf
+      exact hf
   have hT' : ThetaTriple P w.c Q := by rw [hc]; exact hT
   exact completedWith_of_thetaTriple w addr key v hT' (h1 w hpre) hread hrun
 

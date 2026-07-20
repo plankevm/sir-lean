@@ -9,7 +9,7 @@ This file colonizes the "logic-free zone" diagnosed by the B3 shape study
 (ObservableTriple.lean §Findings (c)): nested-native analogs of the flat
 `runs_*` per-opcode rules, built directly over the vendored
 `EvmYul.EVM.{X, Z, step}` / `EvmYul.step` semantics. **Everything here is
-sorry-free** (house proof-first rule); nothing below imports or extends the
+placeholder-free** (house proof-first rule); nothing below imports or extends the
 study's stated-only `IterStep`/`Iters` seed vocabulary (see the
 reconciliation note at the bottom).
 
