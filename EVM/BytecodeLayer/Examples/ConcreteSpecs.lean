@@ -6,6 +6,7 @@ import BytecodeLayer.Examples.CallerProgExample
 import BytecodeLayer.Examples.TwoCallExample
 import BytecodeLayer.Examples.BranchExample
 import BytecodeLayer.Examples.ArithStorageExample
+import BytecodeLayer.Examples.HoareDemo
 
 /-!
 # Concrete per-program results — worked examples, not general specs
@@ -25,6 +26,11 @@ These concrete results delegate to the proofs in `ProgramExamples.lean` (the
 **compositional** `CallerProgExample.lean` (which crosses `messageCall_runs` over a
 `Runs.call` node),
 with the forced-`∃G₀` counterexample from `ExternalCall.lean`.
+
+This module also pulls in `Examples/HoareDemo.lean`, whose `hoare_demo` is the
+one concrete result with a **framing** conclusion: the SSTORE demo run leaves
+`5` at cell `(addrA, 7)` *and* leaves the untouched cell `(addrA, 8)` at `0` —
+no other example states what a run does **not** change.
 
 Two groups:
 * **Call-free programs** (`stopProgram` … `seqProgram`): the success/output and
@@ -85,7 +91,7 @@ theorem messageCall_seq_storageAt (g : UInt64) (hg : 44212 ≤ g.toNat) :
 `addrCallee`). `calleeProg` is `PUSH1 5 ; PUSH1 7 ; SSTORE ; STOP` — it writes the
 value `5` to its own storage slot `7`. The observable is that cell,
 `storageAt addrCallee 7`, read off the caller's returned account map. The sub-call
-is run for real (leanevm's own `beginCall`/`drive` on the callee's actual code —
+is run for real (the engine's own `beginCall`/`drive` on the callee's actual code —
 no oracle, no assumption). -/
 
 /-- **The `∃G₀` external-call theorem.** There is a gas floor `G₀` such that for

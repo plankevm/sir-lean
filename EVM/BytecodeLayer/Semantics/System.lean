@@ -6,7 +6,7 @@ import BytecodeLayer.Semantics.Precompiles
 /-!
 # `System`-op semantic facts (CALL / CREATE / Halt / resume machinery)
 
-The reusable, measure-independent facts about leanevm's `System`-op machinery
+The reusable, measure-independent facts about the vendored `Evm/` tree's `System`-op machinery
 (`callArm`/`createArm`/`systemOp`/`haltOp`/`beginCall`/`beginCreate`/
 `resumeAfterCall`/`resumeAfterCreate`). They belong with the System semantics
 they are about, well below the fuel-measure layer in the import DAG.
@@ -16,7 +16,7 @@ This file gathers:
 * **The CALL rule** (`stepFrame_call` and its `callerCharged`/`callChildParams`/
   `callPending` building blocks): a real `CALL` instruction — through the public
   `callArm` — and the `drive` `.needsCall` arm that turns it into a *reflexive*
-  child `messageCall` (the real leanevm computation, never an oracle). Restricted
+  child `messageCall` (the real engine computation, never an oracle). Restricted
   to the value-free, zero-memory CALL shape so the only quantitative gas content
   is the 63/64 `callGasCap`.
 * **The `beginCall` entry characterization** (`beginCall_code`, with
@@ -178,7 +178,7 @@ theorem stepFrame_call (fr : Frame) (gasv toAddr : UInt256)
 
 /-! ## `beginCall` entry characterization for code calls
 
-`beginCall` (leanevm) decides what running a `CallParams` produces *before* code
+`beginCall` (`Evm/Semantics/Call.lean`) decides what running a `CallParams` produces *before* code
 execution: a precompile result, or — for a `.Code` call — the initial `Frame` the
 driver descends into. This pins that initial frame as named definitions
 (`codeEnv`, `codeAccounts`, `codeFrame`) and proves `beginCall` equals it
@@ -1050,63 +1050,64 @@ charge**: the parent's saved frame keeps the full charged gas `g`, and either
   module note at the bottom of this file.
 -/
 
-/-- The `.next` (fallback) branch of `createArm` resumes the parent with gas
-`≤ exec.gas` (in fact `= exec.gas` modulo wrap): the `failed` result carries
-`allButOneSixtyFourth exec.gas` and `resumeAfterCreate` re-adds it to the
-`1/64` the parent kept. -/
-theorem createArm_next_gas
+/-- **`createArm` `.next` (soft-fail fallback) full inversion — the single
+dispatch spine.** Both fallback arms (nonce overflow; funds/depth/size guard)
+resume the same `resumeAfterCreate (createSoftFailResult exec) (createPendingOf
+fr exec stack value initOffset initSize)`, so every field fact is read off once:
+env/accounts/memory verbatim, pc past the CREATE byte, the operand residual plus
+the pushed failure `0`, `activeWords` grown to the init-code window's `M`, and
+gas restored to at most the entry gas (`=` modulo UInt64 wrap). The seven
+downstream `createArm_next_*` facts are corollaries of this. -/
+theorem createArm_next_inv
     {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
     {value initOffset initSize : UInt256} {salt : Option ByteArray} {exec' : ExecutionState}
     (h : createArm fr exec stack value initOffset initSize salt = .ok (.next exec')) :
-    exec'.gasAvailable.toNat ≤ exec.gasAvailable.toNat := by
-  -- Both `.next` arms resume `resumeAfterCreate failed pending` with the same
-  -- `failed` (gasRemaining = allButOneSixtyFourth exec.gas) and `pending`
-  -- (frame.exec = exec).  We extract that uniformly.
+    exec'.executionEnv = exec.executionEnv
+      ∧ exec'.accounts = exec.accounts
+      ∧ exec'.pc = exec.pc + 1
+      ∧ exec'.stack = stack.push 0
+      ∧ exec'.toMachineState.memory = exec.toMachineState.memory
+      ∧ exec'.toMachineState.activeWords
+          = MachineState.M exec.toMachineState.activeWords initOffset.toUInt64 initSize.toUInt64
+      ∧ exec'.gasAvailable.toNat ≤ exec.gasAvailable.toNat := by
   rw [createArm] at h
   simp only [bind, Except.bind, pure, Except.pure] at h
-  -- the `failed` CreateResult and `pending` are the let-bound values
-  set g := exec.gasAvailable.toNat with hg
-  -- A helper: any `resumeAfterCreate failed pending = .ok f` resumes with gas ≤ g.
+  -- Any `resumeAfterCreate (createSoftFailResult exec) (createPendingOf …) = .ok f`
+  -- pins every field of the resumed state.
   have key : ∀ (f : Frame),
-      resumeAfterCreate
-        { address := default
-          createdAccounts := exec.createdAccounts
-          accounts := exec.accounts
-          gasRemaining := .ofNat (allButOneSixtyFourth g)
-          substate := exec.toState.substate
-          success := false
-          output := .empty }
-        { frame := { fr with exec := exec }
-          stack := stack
-          callerAccounts := exec.accounts
-          value := value
-          initOffset := initOffset.toUInt64
-          initSize := initSize.toUInt64
-          initCodeSize :=
-            (exec.memory.readWithPadding initOffset.toNat initSize.toNat).size } = .ok f →
-      f.exec.gasAvailable.toNat ≤ g := by
+      resumeAfterCreate (createSoftFailResult exec)
+        (createPendingOf fr exec stack value initOffset initSize) = .ok f →
+      f.exec.executionEnv = exec.executionEnv
+        ∧ f.exec.accounts = exec.accounts
+        ∧ f.exec.pc = exec.pc + 1
+        ∧ f.exec.stack = stack.push 0
+        ∧ f.exec.toMachineState.memory = exec.toMachineState.memory
+        ∧ f.exec.toMachineState.activeWords
+            = MachineState.M exec.toMachineState.activeWords initOffset.toUInt64 initSize.toUInt64
+        ∧ f.exec.gasAvailable.toNat ≤ exec.gasAvailable.toNat := by
     intro f hf
     unfold resumeAfterCreate at hf
     simp only [bind, Except.bind, pure, Except.pure] at hf
     split at hf
     · exact absurd hf (by simp)
     · simp only [Except.ok.injEq] at hf
-      subst hf
+      rw [← hf]
+      refine ⟨rfl, rfl, rfl, rfl, rfl, rfl, ?_⟩
+      -- gas := .ofNat (savedGas - allButOneSixtyFourth savedGas + remaining),
+      -- savedGas = exec.gas, remaining = .ofNat (allButOneSixtyFourth exec.gas)
       simp only [gasNat_replaceStackAndIncrPC]
-      -- gas := .ofNat (savedGas - allButOneSixtyFourth savedGas + remaining)
-      -- savedGas = g, remaining = allButOneSixtyFourth g
       rw [UInt64.toNat_ofNat']
       refine le_trans (Nat.mod_le _ _) ?_
-      -- g - allButOneSixtyFourth g + allButOneSixtyFourth g ≤ g  (with the .toNat of .ofNat)
-      have hofNat : (UInt64.ofNat (allButOneSixtyFourth g)).toNat ≤ allButOneSixtyFourth g := by
+      have hofNat : (UInt64.ofNat (allButOneSixtyFourth exec.gasAvailable.toNat)).toNat
+          ≤ allButOneSixtyFourth exec.gasAvailable.toNat := by
         rw [UInt64.toNat_ofNat']; exact Nat.mod_le _ _
-      have habf : allButOneSixtyFourth g ≤ g := by unfold allButOneSixtyFourth; omega
-      -- the saved frame's gas is `exec.gasAvailable`, so .toNat = g
+      have habf : allButOneSixtyFourth exec.gasAvailable.toNat ≤ exec.gasAvailable.toNat := by
+        unfold allButOneSixtyFourth; omega
       show (exec.gasAvailable.toNat - allButOneSixtyFourth exec.gasAvailable.toNat
-              + (UInt64.ofNat (allButOneSixtyFourth g)).toNat) ≤ g
-      rw [← hg]
+              + (UInt64.ofNat (allButOneSixtyFourth exec.gasAvailable.toNat)).toNat)
+          ≤ exec.gasAvailable.toNat
       omega
-  -- Now case the createArm branching to expose the `.next` arms.
+  -- Case the createArm branching to expose the two `.next` arms.
   split at h
   · -- nonce overflow: `.next (resumeAfterCreate failed pending).exec`
     revert h
@@ -1128,6 +1129,17 @@ theorem createArm_next_gas
         simp only [Except.ok.injEq, Signal.next.injEq] at h
         subst h
         exact key f hr
+
+/-- The `.next` (fallback) branch of `createArm` resumes the parent with gas
+`≤ exec.gas` (in fact `= exec.gas` modulo wrap): the `failed` result carries
+`allButOneSixtyFourth exec.gas` and `resumeAfterCreate` re-adds it to the
+`1/64` the parent kept. Corollary of `createArm_next_inv`. -/
+theorem createArm_next_gas
+    {fr : Frame} {exec : ExecutionState} {stack : Stack UInt256}
+    {value initOffset initSize : UInt256} {salt : Option ByteArray} {exec' : ExecutionState}
+    (h : createArm fr exec stack value initOffset initSize salt = .ok (.next exec')) :
+    exec'.gasAvailable.toNat ≤ exec.gasAvailable.toNat :=
+  (createArm_next_inv h).2.2.2.2.2.2
 
 
 /-- **`createArm` `.needsCreate` inversion (saved gas).** `createArm` performs
@@ -1343,15 +1355,26 @@ CREATE/CREATE2 `systemOp` emits is that signal from `createArm fr em …` on the
 charged intermediate state `em` (post `chargeMemExpansion` + `createCost`/
 `create2Cost`), with `em.gas + 2 ≤ exec.gas` (the create's own cost dominates the
 `+2` slack). The `requireStateMod`, `pop3`/`pop4`, `initSize > 49152` and charge
-failures are discharged here, once. -/
+failures are discharged here, once — and the reduction *keeps* the charge chain
+(`chargeMemExpansion` step, `∃ cost` charge step) plus the popped operand
+residual, so downstream `.next`/`.needsCreate` corollaries transport field facts
+across the charges with the `charge*` field lemmas instead of re-unfolding the
+`systemOp` spine. -/
 theorem systemOp_createArm_reduce {op : Operation.SystemOp} {fr : Frame} {exec : ExecutionState}
     {sig : Signal}
     (hop : op = .CREATE ∨ op = .CREATE2)
     (h : systemOp op fr exec = .ok sig) :
-    ∃ (em : ExecutionState) (stack : Stack UInt256) (value initOffset initSize : UInt256)
+    ∃ (em₀ em : ExecutionState) (stack : Stack UInt256) (value initOffset initSize : UInt256)
       (salt : Option ByteArray),
-      em.gasAvailable.toNat + 2 ≤ exec.gasAvailable.toNat ∧
-      createArm fr em stack value initOffset initSize salt = .ok sig := by
+      em.gasAvailable.toNat + 2 ≤ exec.gasAvailable.toNat
+      ∧ chargeMemExpansion exec initOffset initSize = .ok em₀
+      ∧ (∃ cost, charge cost em₀ = .ok em)
+      ∧ ((op = .CREATE ∧ exec.stack.pop3 = some (stack, value, initOffset, initSize)
+            ∧ salt = none)
+        ∨ (op = .CREATE2
+            ∧ ∃ saltw, exec.stack.pop4 = some (stack, value, initOffset, initSize, saltw)
+              ∧ salt = some (Evm.UInt256.toByteArray saltw)))
+      ∧ createArm fr em stack value initOffset initSize salt = .ok sig := by
   unfold systemOp at h
   rcases hop with rfl | rfl
   · -- CREATE
@@ -1375,7 +1398,8 @@ theorem systemOp_createArm_reduce {op : Operation.SystemOp} {fr : Frame} {exec :
             | error e => rw [hc] at h; simp at h
             | ok ec =>
               rw [hc] at h; simp only [] at h
-              refine ⟨ec, s, val, io, is, none, ?_, h⟩
+              refine ⟨em, ec, s, val, io, is, none, ?_, hm, ⟨createCost is, hc⟩,
+                .inl ⟨rfl, rfl, rfl⟩, h⟩
               have hmle : em.gasAvailable.toNat ≤ exec.gasAvailable.toNat := chargeMem_gasAvailable_le hm
               have hcc := charge_drop_ge hc
               have h2 := createCost_ge_2 is
@@ -1401,7 +1425,8 @@ theorem systemOp_createArm_reduce {op : Operation.SystemOp} {fr : Frame} {exec :
             | error e => rw [hc] at h; simp at h
             | ok ec =>
               rw [hc] at h; simp only [] at h
-              refine ⟨ec, s, val, io, is, some <| Evm.UInt256.toByteArray salt, ?_, h⟩
+              refine ⟨em, ec, s, val, io, is, some <| Evm.UInt256.toByteArray salt, ?_, hm,
+                ⟨create2Cost is, hc⟩, .inr ⟨rfl, salt, rfl, rfl⟩, h⟩
               have hmle : em.gasAvailable.toNat ≤ exec.gasAvailable.toNat := chargeMem_gasAvailable_le hm
               have hcc := charge_drop_ge hc
               have h2 := create2Cost_ge_2 is
@@ -1419,7 +1444,7 @@ theorem systemOp_needsCall_gas {op : Operation.SystemOp} {fr : Frame} {exec : Ex
     obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, hc⟩ := systemOp_callArm_reduce (by tauto) h
     exact callArm_needsCall_gas hc
   | CREATE | CREATE2 =>
-    obtain ⟨_, _, _, _, _, _, _, hcr⟩ := systemOp_createArm_reduce (by tauto) h
+    obtain ⟨_, _, _, _, _, _, _, _, _, _, _, hcr⟩ := systemOp_createArm_reduce (by tauto) h
     exact absurd hcr createArm_never_needsCall
 
 /-- `callArm` never emits `.needsCreate` (only `.needsCall`/`.next`). -/
@@ -1469,7 +1494,7 @@ theorem systemOp_needsCreate_savedGas {op : Operation.SystemOp} {fr : Frame} {ex
     obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, hc⟩ := systemOp_callArm_reduce (by tauto) h
     exact absurd hc callArm_never_needsCreate
   | CREATE | CREATE2 =>
-    obtain ⟨em, _, _, _, _, _, hle, hcr⟩ := systemOp_createArm_reduce (by tauto) h
+    obtain ⟨_, em, _, _, _, _, _, hle, _, _, _, hcr⟩ := systemOp_createArm_reduce (by tauto) h
     rw [createArm_needsCreate_savedGas hcr]; exact hle
 
 /-- **`systemOp` `.needsCreate` inversion (child gas).** The forwarded child gas
@@ -1486,7 +1511,7 @@ theorem systemOp_needsCreate_childGas {op : Operation.SystemOp} {fr : Frame} {ex
     obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, hc⟩ := systemOp_callArm_reduce (by tauto) h
     exact absurd hc callArm_never_needsCreate
   | CREATE | CREATE2 =>
-    obtain ⟨em, _, _, _, _, _, _, hcr⟩ := systemOp_createArm_reduce (by tauto) h
+    obtain ⟨_, em, _, _, _, _, _, _, _, _, _, hcr⟩ := systemOp_createArm_reduce (by tauto) h
     rw [createArm_needsCreate_childGas hcr, createArm_needsCreate_savedGas hcr]
 
 /-- `haltOp` never emits `.next`: its `.ok` outputs are all `.halted`. (One-line
@@ -1511,7 +1536,7 @@ theorem systemOp_next_gas {op : Operation.SystemOp} {fr : Frame} {exec : Executi
     obtain ⟨_, _, _, _, _, _, _, _, _, _, _, _, hc⟩ := systemOp_callArm_reduce (by tauto) h
     exact callArm_next_gas hc
   | CREATE | CREATE2 =>
-    obtain ⟨em, _, _, _, _, _, hle, hcr⟩ := systemOp_createArm_reduce (by tauto) h
+    obtain ⟨_, em, _, _, _, _, _, hle, _, _, _, hcr⟩ := systemOp_createArm_reduce (by tauto) h
     have hca := createArm_next_gas hcr
     omega
 

@@ -18,12 +18,13 @@ every reachable CALL targets code (no precompile) — the two configurations `Ru
 
 ## The construction
 
-* **`drive_descend_lt`** — the *bounded* CALL-boundary descent: a child sub-run that drains to
-  `.ok res` resumes the parent at a fuel **strictly below** the parent's (`< f`). This is the
-  bound `drive_descend_eq` leaves existential; it is what makes the reverse recursion well-founded
-  (the resumed run is at strictly less fuel, so strong induction on fuel applies).
-* **`drive_descend_create_lt`** — the CREATE twin of `drive_descend_lt`: the bounded
-  create-boundary descent, conditioned on the successful resume witness (`ModellableStep` clause 1).
+* **`drive_descend_lt` / `drive_descend_create_lt`** (upstream,
+  `Semantics/Interpreter/DescentEq.lean`) — the *bounded* CALL/CREATE-boundary descents: a child
+  sub-run that drains to `.ok res` resumes the parent at a fuel **strictly below** the parent's
+  (`< f`). This is the bound the `_eq` forms leave existential; it is what makes the reverse
+  recursion well-founded (the resumed run is at strictly less fuel, so strong induction on fuel
+  applies). The CREATE twin is conditioned on the successful resume witness (`ModellableStep`
+  clause 1).
 * **`runs_of_drive_ok`** — the reverse construction. By strong induction on the top-level fuel,
   case on `stepFrame fr`: `.halted` is the base (`Runs.refl`); `.next` prepends a `Runs.step`;
   `.needsCall` (child = Code) extracts the child's black-box terminating sub-run, builds the
@@ -31,7 +32,7 @@ every reachable CALL targets code (no precompile) — the two configurations `Ru
   `.needsCreate` extracts the total `beginCreate` child's sub-run, resolves the resume, builds the
   `CreateReturns` node, and recurses (`drive_descend_create_lt`).
 
-No `sorry`/`axiom`/`native_decide`. Imports only the exp003 bytecode layer.
+No `sorry`/`axiom`/`native_decide`. Imports only the bytecode layer.
 -/
 
 namespace BytecodeLayer.Interpreter
@@ -39,112 +40,6 @@ namespace BytecodeLayer.Interpreter
 open Evm
 open BytecodeLayer
 open BytecodeLayer.Hoare
-
-/-! ## The bounded descent equation -/
-
-/-- **Bounded stack-append framing.** As `drive_append_framing`, but the residual fuel `j` is
-**strictly below** the input fuel `f` whenever the bottom stack is non-empty: the splice consumes
-at least the one fuel unit that delivers the drained child's `.inr res` to the bottom segment. By
-induction on `f` following `drive`'s recursion — the terminal `.inr`/empty-`top` arm returns the
-leftover fuel `n` with `n + 1 = f`, so `n < f`. -/
-theorem drive_append_framing_lt :
-    ∀ (f : ℕ) (top : List Pending) (st : Frame ⊕ FrameResult) (res : FrameResult),
-      drive f top st = .ok res →
-      ∀ (bot : List Pending),
-        ∃ j, j + 1 ≤ f ∧ drive f (top ++ bot) st = drive (j + 1) bot (finished res) := by
-  intro f
-  induction f with
-  | zero => intro top st res h bot; simp [drive] at h
-  | succ n ih =>
-    intro top st res h bot
-    unfold drive at h ⊢
-    cases st with
-    | inr result =>
-      cases top with
-      | nil =>
-        dsimp only at h ⊢
-        cases h
-        exact ⟨n, by omega, rfl⟩
-      | cons pending rest =>
-        rw [List.cons_append]
-        dsimp only at h ⊢
-        cases hres : pending.resume result with
-        | ok parent =>
-          rw [hres] at h; dsimp only at h ⊢
-          obtain ⟨j, hjlt, hj⟩ := ih rest (.inl parent) res h bot
-          exact ⟨j, by omega, hj⟩
-        | error e =>
-          rw [hres] at h; dsimp only at h ⊢
-          obtain ⟨j, hjlt, hj⟩ := ih rest (.inr (endFrame pending.frame (.exception e))) res h bot
-          exact ⟨j, by omega, hj⟩
-    | inl current =>
-      dsimp only at h ⊢
-      cases hstep : stepFrame current with
-      | next exec =>
-        rw [hstep] at h; dsimp only at h ⊢
-        obtain ⟨j, hjlt, hj⟩ := ih top (.inl { current with exec := exec }) res h bot
-        exact ⟨j, by omega, hj⟩
-      | halted halt =>
-        rw [hstep] at h; dsimp only at h ⊢
-        obtain ⟨j, hjlt, hj⟩ := ih top (.inr (endFrame current halt)) res h bot
-        exact ⟨j, by omega, hj⟩
-      | needsCall params pending =>
-        rw [hstep] at h; dsimp only at h ⊢
-        cases hbc : beginCall params with
-        | inl child =>
-          rw [hbc] at h; dsimp only at h ⊢
-          obtain ⟨j, hjlt, hj⟩ := ih (.call pending :: top) (.inl child) res h bot
-          rw [List.cons_append] at hj
-          exact ⟨j, by omega, hj⟩
-        | inr result =>
-          rw [hbc] at h; dsimp only at h ⊢
-          obtain ⟨j, hjlt, hj⟩ := ih (.call pending :: top) (.inr (.call result)) res h bot
-          rw [List.cons_append] at hj
-          exact ⟨j, by omega, hj⟩
-      | needsCreate params pending =>
-        rw [hstep] at h; dsimp only at h ⊢
-        obtain ⟨j, hjlt, hj⟩ := ih (.create pending :: top) (.inl (beginCreate params)) res h bot
-        rw [List.cons_append] at hj
-        exact ⟨j, by omega, hj⟩
-
-/-- **Bounded CALL-boundary descent.** As `drive_descend_eq`, but the resumed-parent run is at a
-fuel `j` **strictly below** the parent's descent fuel `f`. The strict bound (from the non-empty
-bottom segment `.call pd :: ps` in `drive_append_framing_lt`) is what makes the reverse `drive →
-Runs` recursion well-founded: the resumed run recurses at `j < f`. -/
-theorem drive_descend_lt (f : ℕ) (child : Frame) (res : FrameResult)
-    (pd : PendingCall) (ps : List Pending)
-    (h : drive f [] (running child) = .ok res) :
-    ∃ j, j < f ∧ drive f (.call pd :: ps) (running child)
-      = drive j ps (running (resumeAfterCall res.toCallResult pd)) := by
-  obtain ⟨j, hjlt, hj⟩ := drive_append_framing_lt f [] (.inl child) res h (.call pd :: ps)
-  rw [List.nil_append] at hj
-  -- peel the single `.call` resume of `drive (j+1) (.call pd :: ps) (.inr res)`.
-  refine ⟨j, by omega, ?_⟩
-  rw [hj]
-  conv_lhs => unfold drive
-  dsimp only [Pending.resume]
-
-/-- **Bounded CREATE-boundary descent** (the CREATE twin of `drive_descend_lt`). As
-`drive_descend_create_eq` (`CallSequence.lean`), but the resumed-parent run is at a fuel `j`
-**strictly below** the parent's descent fuel `f`, and conditioned on the *successful* resume
-witness `hok : resumeAfterCreate res.toCreateResult pd = .ok parent` (the 63/64 retention guard
-passing — `Pending.resume (.create pd)` is `Except`-typed). The strict bound (from the non-empty
-bottom segment `.create pd :: ps` in `drive_append_framing_lt`, which already threads create
-pendings) makes the reverse `drive → Runs` recursion well-founded at the `Runs.create` node. -/
-theorem drive_descend_create_lt (f : ℕ) (child : Frame) (res : FrameResult)
-    (pd : PendingCreate) (ps : List Pending) (parent : Frame)
-    (h : drive f [] (running child) = .ok res)
-    (hok : resumeAfterCreate res.toCreateResult pd = .ok parent) :
-    ∃ j, j < f ∧ drive f (.create pd :: ps) (running child)
-      = drive j ps (running parent) := by
-  obtain ⟨j, hjlt, hj⟩ := drive_append_framing_lt f [] (.inl child) res h (.create pd :: ps)
-  rw [List.nil_append] at hj
-  -- peel the single `.create` resume of `drive (j+1) (.create pd :: ps) (.inr res)` (`.ok` via `hok`).
-  refine ⟨j, by omega, ?_⟩
-  rw [hj]
-  conv_lhs => unfold drive
-  dsimp only [Pending.resume]
-  rw [hok]
 
 /-! ## The `ModellableStep` side condition
 
@@ -163,12 +58,14 @@ are honest runtime side conditions (vacuous for create-free / call-free programs
 
 Two per-frame clauses:
 
-* **clause 1 (create-resolves) — the honest R4 residual.** A `.needsCreate cp pending` whose init
+* **clause 1 (create-resolves) — the honest create-resolves residual.** A `.needsCreate cp pending`
+  whose init
   child terminates (`drive (seedFuel cp.gas) [] (running (beginCreate cp)) = .ok childRes`) resumes
   successfully (`resumeAfterCreate childRes.toCreateResult pending = .ok resumeFr`). This is NOT a
-  structural property of `lower prog` — the 63/64 guard (`Create.lean:200`) can `throw .OutOfGas`
+  structural property of `lower prog` — the 63/64 guard (`EVM/Evm/Semantics/Create.lean:200`) can
+  `throw .OutOfGas`
   on a `UInt64` overflow of the retained gas, so it is the genuine "enough gas retained" side
-  condition CALL never needed (plan R4). Vacuous for any create-free program; satisfiable for
+  condition CALL never needed. Vacuous for any create-free program; satisfiable for
   empty-init CREATEs at ordinary gas (the guard fires only on arithmetic overflow). The OOG
   resume-fault delivers an exception halt through the drive stack — a control flow `Runs` does not
   *resume* — so it is out of scope of the `Runs.create` node by construction; this clause rules it
@@ -310,20 +207,10 @@ theorem framed_oof_of_standalone_oof :
         rwa [List.cons_append] at this
 
 /-- **Framed non-OOF gives standalone non-OOF.** Contrapositive of
-`framed_oof_of_standalone_oof` at `top := []`: a framed child run that does not run out of fuel
-witnesses that the standalone child run does not either (it drained the child within budget). -/
-theorem child_ne_oof_of_framed (f : ℕ) (child : Frame) (pending : PendingCall) (ps : List Pending)
-    (h : drive f (.call pending :: ps) (running child) ≠ .error .OutOfFuel) :
-    drive f [] (running child) ≠ .error .OutOfFuel := by
-  intro hcontra
-  exact h (by have := framed_oof_of_standalone_oof f (running child) [] (.call pending :: ps) hcontra
-              rwa [List.nil_append] at this)
-
-/-- **Framed non-OOF gives standalone non-OOF — generic in the suspended `Pending`.** As
-`child_ne_oof_of_framed`, but the bottom-of-stack pending is *any* `Pending` (`.call` or
-`.create`): a framed child run that does not run out of fuel witnesses the standalone one does not
-either. The CREATE reverse arm needs the `.create` instance. -/
-theorem child_ne_oof_of_framed' (f : ℕ) (child : Frame) (p : Pending) (ps : List Pending)
+`framed_oof_of_standalone_oof` at `top := []`, generic in the suspended `Pending` (`.call` or
+`.create`): a framed child run that does not run out of fuel witnesses that the standalone child
+run does not either (it drained the child within budget). -/
+theorem child_ne_oof_of_framed (f : ℕ) (child : Frame) (p : Pending) (ps : List Pending)
     (h : drive f (p :: ps) (running child) ≠ .error .OutOfFuel) :
     drive f [] (running child) ≠ .error .OutOfFuel := by
   intro hcontra
@@ -403,25 +290,13 @@ theorem runs_of_drive_ok :
           -- the framed descent at fuel `n` resumes the parent at a strictly-smaller fuel.
           rw [driveG_needsCall_code n [] fr cp pending child hstep hbc] at hdrive
           -- the child standalone terminates at fuel `n` too (the framed run drained it), with the
-          -- same result as at `seedFuel` (`drive_fuel_mono`, both non-`OutOfFuel`).
+          -- same result as at `seedFuel` (`drive_ok_agree`).
           have hchild_n : drive n [] (running child) = .ok childRes := by
             have hframed_ne : drive n (.call pending :: []) (running child)
                 ≠ .error .OutOfFuel := by rw [hdrive]; nofun
             -- standalone child at fuel `n` is non-`OutOfFuel` (else the framed run would be too).
-            have hstand_ne : drive n [] (running child) ≠ .error .OutOfFuel :=
-              child_ne_oof_of_framed n child pending [] hframed_ne
-            cases hsn : drive n [] (running child) with
-            | error e =>
-              rw [drive_error_oof _ _ _ e hsn] at hsn; exact absurd hsn hstand_ne
-            | ok cres =>
-              -- reconcile `cres` (fuel `n`) with `childRes` (fuel `seedFuel`) via mono.
-              have hcres : drive (max n (seedFuel cp.gas)) [] (running child) = .ok cres :=
-                (drive_fuel_mono (le_max_left _ _) [] (running child) (by rw [hsn]; nofun)).trans hsn
-              have hother : drive (max n (seedFuel cp.gas)) [] (running child) = .ok childRes :=
-                (drive_fuel_mono (le_max_right _ _) [] (running child)
-                  (by rw [hchild_seed]; nofun)).trans hchild_seed
-              rw [hcres] at hother
-              exact hother
+            exact drive_ok_agree [] (running child)
+              (child_ne_oof_of_framed n child (.call pending) [] hframed_ne) hchild_seed
           -- the bounded descent: the framed run equals the resumed run at fuel `j < n`.
           obtain ⟨j, hjlt, hj⟩ := drive_descend_lt n child childRes pending [] hchild_n
           rw [hj] at hdrive
@@ -437,30 +312,19 @@ theorem runs_of_drive_ok :
       | needsCreate cp pending =>
         -- CREATE: `beginCreate` is total, so the descent is unconditional. The init child's
         -- standalone run terminates (`create_child_terminates`), the resume resolves
-        -- (`ModellableStep` clause 1 — the honest R4 residual), and a `Runs.create` node is built,
+        -- (`ModellableStep` clause 1 — the honest create-resolves residual), and a `Runs.create`
+        -- node is built,
         -- recursing at the strictly-smaller resumed fuel (`drive_descend_create_lt`). Mirrors the
         -- `.needsCall` code arm.
         obtain ⟨childRes, hchild_seed⟩ := create_child_terminates cp
         rw [driveG_needsCreate n [] fr cp pending hstep] at hdrive
         -- the child standalone terminates at fuel `n` too (the framed run drained it), with the
-        -- same result as at `seedFuel` (`drive_fuel_mono`, both non-`OutOfFuel`).
+        -- same result as at `seedFuel` (`drive_ok_agree`).
         have hchild_n : drive n [] (running (beginCreate cp)) = .ok childRes := by
           have hframed_ne : drive n (.create pending :: []) (running (beginCreate cp))
               ≠ .error .OutOfFuel := by rw [hdrive]; nofun
-          have hstand_ne : drive n [] (running (beginCreate cp)) ≠ .error .OutOfFuel :=
-            child_ne_oof_of_framed' n (beginCreate cp) (.create pending) [] hframed_ne
-          cases hsn : drive n [] (running (beginCreate cp)) with
-          | error e =>
-            rw [drive_error_oof _ _ _ e hsn] at hsn; exact absurd hsn hstand_ne
-          | ok cres =>
-            have hcres : drive (max n (seedFuel cp.gas)) [] (running (beginCreate cp)) = .ok cres :=
-              (drive_fuel_mono (le_max_left _ _) [] (running (beginCreate cp))
-                (by rw [hsn]; nofun)).trans hsn
-            have hother : drive (max n (seedFuel cp.gas)) [] (running (beginCreate cp)) = .ok childRes :=
-              (drive_fuel_mono (le_max_right _ _) [] (running (beginCreate cp))
-                (by rw [hchild_seed]; nofun)).trans hchild_seed
-            rw [hcres] at hother
-            exact hother
+          exact drive_ok_agree [] (running (beginCreate cp))
+            (child_ne_oof_of_framed n (beginCreate cp) (.create pending) [] hframed_ne) hchild_seed
         -- the resume resolves successfully (honest create-resolves residual, `ModellableStep.1`).
         obtain ⟨resumeFr, hok⟩ :=
           (hmodel fr (Runs.refl fr)).1 cp pending childRes hstep hchild_seed

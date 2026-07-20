@@ -4,8 +4,8 @@ import BytecodeLayer.Observables
 /-!
 # `Behaves` — the for-all-programs behavior predicate at the messageCall boundary
 
-The current specs are about fixed `CallParams`. The generalization plan
-(`docs/generalization-plan.md`) needs statements quantified **over programs**,
+The current specs are about fixed `CallParams`. The generalization goal needs
+statements quantified **over programs**,
 with gas and structure as **preconditions** and a **named** `Outcome` (never a
 raw `.ok`). `Behaves` is that predicate.
 

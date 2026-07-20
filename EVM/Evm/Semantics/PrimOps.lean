@@ -22,6 +22,17 @@ open GasConstants
 
 abbrev Step := Except ExecutionException Signal
 
+/-- Lift `Option` into the exception monad: every lifted `none` becomes
+`.error .StackUnderflow`. The tag is a **generic none-default, not a semantic
+claim** — the overwhelmingly common `none` source in stepping is a stack pop that
+underflowed, and every other lifted `none` is stamped with the same tag. In
+particular `Dispatch.lean`'s PUSH missing-immediate branch throws the same tag
+(explicitly, not via this lift) and is unreachable from the live engine (`decode` always attaches `some`
+immediates to a PUSH, and `stepFrame` defaults decode failure to `(.STOP, .none)`).
+Deliberately NOT renamed (see `docs/backlog.md`, "StackUnderflow exception-tag
+misnomer"): the tag crosses the exp004 toolchain seam
+(`BytecodeLayer/SharedObservable.lean` renders it), so a rename would ripple
+across the engine boundary; the conformance runner does not compare these tags. -/
 instance : MonadLift Option (Except ExecutionException) :=
   ⟨Option.option (.error .StackUnderflow) .ok⟩
 

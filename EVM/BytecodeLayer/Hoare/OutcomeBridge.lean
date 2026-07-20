@@ -1,6 +1,5 @@
 import BytecodeLayer.Semantics.System
 import BytecodeLayer.Semantics.Dispatch
-import BytecodeLayer.Hoare.Behaves
 import BytecodeLayer.Observables
 import BytecodeLayer.Programs
 import BytecodeLayer.Hoare.Sequence

@@ -316,13 +316,17 @@ theorem callsCodeOk_create {fuel : ℕ} {fr resumeFr : Frame}
   rw [hres] at hok
   exact hok
 
-/-- **Checker soundness**: a passing check covers every `Runs`-reachable frame — the
-chain is linear (`stepFrame`/`beginCall`/`drive`/resume are functions), so the checker's
-replay visits every frame any `Runs` derivation can reach. -/
-theorem callsCode_of_callsCodeOk {fr fr' : Frame} (h : Runs fr fr') :
-    ∀ fuel, callsCodeOk fuel fr = true → CallsCode fr' := by
+/-- **Shared checker descent**: a passing check propagates (at some residual fuel) to
+every `Runs`-reachable frame — the chain is linear (`stepFrame`/`beginCall`/`drive`/
+resume are functions), so the checker's replay visits every frame any `Runs`
+derivation can reach. `callsCodeOk 0 _ = false` definitionally, so each edge case
+splits on `fuel` and descends via the per-edge lemmas above. Both seam faces
+(`callsCode_of_callsCodeOk`, `createResolves_of_callsCodeOk`) are this walk plus
+their per-twin head lemma. -/
+theorem callsCodeOk_along_runs {fr fr' : Frame} (h : Runs fr fr') :
+    ∀ fuel, callsCodeOk fuel fr = true → ∃ fuel', callsCodeOk fuel' fr' = true := by
   induction h with
-  | refl fr => exact fun _ hok => callsCodeOk_head hok
+  | refl fr => exact fun fuel hok => ⟨fuel, hok⟩
   | step hstep _ ih =>
     intro fuel hok
     match fuel with
@@ -338,6 +342,14 @@ theorem callsCode_of_callsCodeOk {fr fr' : Frame} (h : Runs fr fr') :
     match fuel with
     | 0 => exact Bool.noConfusion hok
     | fuel+1 => exact ih fuel (callsCodeOk_create hok hc)
+
+/-- **Checker soundness**: a passing check covers every `Runs`-reachable frame —
+`callsCodeOk_along_runs` lands a passing check at the target frame, whose head fact
+is `CallsCode`. -/
+theorem callsCode_of_callsCodeOk {fr fr' : Frame} (h : Runs fr fr') :
+    ∀ fuel, callsCodeOk fuel fr = true → CallsCode fr' := fun fuel hok =>
+  let ⟨_, hok'⟩ := callsCodeOk_along_runs h fuel hok
+  callsCodeOk_head hok'
 
 /-- The entry-level check: run the checker from `beginCall`'s entry frame (immediate
 `.inr` entries have no reachable frames). -/
@@ -375,28 +387,12 @@ theorem callsCodeOk_head_create {fuel : ℕ} {fr : Frame}
     | error e => rw [hres] at hok; exact Bool.noConfusion hok
 
 /-- **Checker soundness, create face**: a passing check certifies `CreateResolves` at
-every `Runs`-reachable frame — the same linear-chain replay as
-`callsCode_of_callsCodeOk` (the descent lemmas are shared), landing on
+every `Runs`-reachable frame — the same `callsCodeOk_along_runs` walk, landing on
 `callsCodeOk_head_create` at the target frame. -/
 theorem createResolves_of_callsCodeOk {fr fr' : Frame} (h : Runs fr fr') :
-    ∀ fuel, callsCodeOk fuel fr = true → CreateResolves fr' := by
-  induction h with
-  | refl fr => exact fun _ hok => callsCodeOk_head_create hok
-  | step hstep _ ih =>
-    intro fuel hok
-    match fuel with
-    | 0 => exact Bool.noConfusion hok
-    | fuel+1 => exact ih fuel (callsCodeOk_step hok hstep)
-  | call hcall _ ih =>
-    intro fuel hok
-    match fuel with
-    | 0 => exact Bool.noConfusion hok
-    | fuel+1 => exact ih fuel (callsCodeOk_call hok hcall)
-  | create hc _ ih =>
-    intro fuel hok
-    match fuel with
-    | 0 => exact Bool.noConfusion hok
-    | fuel+1 => exact ih fuel (callsCodeOk_create hok hc)
+    ∀ fuel, callsCodeOk fuel fr = true → CreateResolves fr' := fun fuel hok =>
+  let ⟨_, hok'⟩ := callsCodeOk_along_runs h fuel hok
+  callsCodeOk_head_create hok'
 
 /-- Entry-check soundness, create face: a passing entry check discharges the
 `createResolves` seam (immediate `.inr` entries have no reachable frames). -/

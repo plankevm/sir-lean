@@ -9,23 +9,32 @@ import BytecodeLayer.Hoare.GasMonotone
 import BytecodeLayer.Examples.ConcreteSpecs
 
 /-!
-# Spec — the audit surface of experiment 003
+# Spec — the audit surface of the Hoare program-logic layer
 
-**This is the file to read.** It collects the *general*, program-agnostic results
-of the formalization: the program-logic rules a user composes to verify their own
-bytecode, and the sound external-CALL sequencing rule. Each is re-exported here
-with a high-level docstring; the proofs live in `Hoare/`.
+**This is the file to read for the program-logic layer.** It collects the
+*general*, program-agnostic results: the program-logic rules a user composes to
+verify their own bytecode, and the sound external-CALL sequencing rule. Each is
+re-exported here with a high-level docstring; the proofs live in `Hoare/`.
+
+This is one of the library's two export surfaces. The other is the `Exec/`
+engine layer (recording interpreter, cyclic simulation, witness checks —
+aggregated by `Exec.lean`, plus the `Asm/` assembler geometry), consumed by
+`experiments/005_ir_lowering` (LirLean). The *conformance flagship* surface
+(`lower_conforms*` and its disclosed seams) lives on the LirLean side, in
+`experiments/005_ir_lowering/LirLean/Realisability/RealisabilitySpec.lean` —
+`Exec/` holds the supporting engine machinery, not the flagship statements.
 
 Scope note: the per-program storage/observable results (`stopProgram` …
 `callerProg`) are **worked examples** that exercise these rules, not general specs;
 they now live in `Examples/ConcreteSpecs.lean`, off this surface.
 
-Altitude caveat (flagged for the lead): the program-logic rules below are
-**frame-level** — they mention `Runs`/`Frame`/`stepFrame`, not pure observables.
-This is in tension with the experiment's "observables-only exported surface"
-standard. They are surfaced here because they *are* the reusable theorems a user
-instantiates; the only fully observable-level export is
-`messageCall_calls_completedWith`. To reconcile.
+Altitude ruling (settled): the program-logic rules below are **frame-level** —
+they mention `Runs`/`Frame`/`stepFrame`, not pure observables. That is intended:
+this bytecode layer *is* the low-level layer, and its reusable theorems are
+exactly the frame-level rules a user instantiates. The observables-only
+exported-surface standard binds the higher, experiment-style surfaces, not this
+one (the carve-out is recorded in AGENTS.md, "Reviewer standard"). The fully
+observable-level export here is `messageCall_calls_completedWith`.
 -/
 
 namespace BytecodeLayer
@@ -46,18 +55,20 @@ instantiations). They are general over every program; only the *premises*
 
 /-- **The sequencing rule.** Compose a block `fr → mid` with the block that
 follows it `mid → fr'` into one block `fr → fr'`. A program's `Runs` is built by
-gluing the per-opcode `Runs` rules (and returning-CALL nodes) with this, never by
-exhibiting an execution trace. -/
+gluing the per-opcode `Runs` rules (and returning CALL/CREATE nodes) with this,
+never by exhibiting an execution trace. -/
 theorem Runs.trans {fr mid fr' : Frame}
     (h₁ : Runs fr mid) (h₂ : Runs mid fr') : Runs fr fr' :=
   Hoare.Runs.trans h₁ h₂
 
-/-- **Gas monotonicity of `Runs` (`docs/ir-design-v2.md` §3.4).** Across any flat
-`Runs fr last` — opcode steps and returning external CALLs (`.call` nodes) in any
-order — the machine's remaining gas does not increase:
-`last.exec.gasAvailable.toNat ≤ fr.exec.gasAvailable.toNat`. The `.call` case is the
-63/64 net-debit (a returning call cannot raise the caller's gas), discharged from the
-never-OutOfFuel descent machinery with **no hypothesis** beyond what `Runs.call` carries.
+/-- **Gas monotonicity of `Runs`
+(`experiments/005_ir_lowering/docs/ir-design-v2.md` §3.4).** Across any flat
+`Runs fr last` — opcode steps, returning external CALLs (`.call` nodes) and returning
+CREATEs (`.create` nodes) in any order — the machine's remaining gas does not increase:
+`last.exec.gasAvailable.toNat ≤ fr.exec.gasAvailable.toNat`. The `.call`/`.create` cases
+are the 63/64 net-debit (a returning call cannot raise the caller's gas), discharged from
+the never-OutOfFuel descent machinery with **no hypothesis** beyond what
+`Runs.call`/`Runs.create` carry.
 This is the structural fact that makes the monotone-gas-read law hold across calls. -/
 theorem Runs.gasAvailable_le {fr last : Frame} (h : Runs fr last) :
     last.exec.gasAvailable.toNat ≤ fr.exec.gasAvailable.toNat :=
@@ -197,24 +208,27 @@ nothing about the conclusion:
 
 * the **callee is consumed as a black-box terminating run** — any `drive` of the
   child params to `.ok childRes`, no oracle on what it computes (this is the
-  payload of a `Runs.call` / `CallReturns` node);
-* the **caller is described by its actual `Runs` trace** through every CALL: a
-  single `Runs fr₀ last` interleaving `Runs.step` (opcode steps) and `Runs.call`
-  (returning external CALLs) in any order, to a halting `last` — structural facts
+  payload of a `Runs.call` / `CallReturns` node; a returning CREATE's init child
+  is likewise the black-box payload of a `Runs.create` / `CreateReturns` node);
+* the **caller is described by its actual `Runs` trace** through every CALL and
+  CREATE: a single `Runs fr₀ last` interleaving `Runs.step` (opcode steps),
+  `Runs.call` (returning external CALLs) and `Runs.create` (returning CREATEs)
+  in any order, to a halting `last` — structural facts
   about how the caller bytecode executes, *not* an assumed forwarding;
 * gas stays first-class but needs **no numeric side condition** — the rule
   discharges the fuel bound internally.
 
 There is **one** boundary bridge, `messageCall_runs` (above): because external
-CALLs are `Runs.call` nodes, it already accepts a caller trace with **any number**
-of returning calls. `messageCall_runs_calls` re-states it as the explicit
+CALLs are `Runs.call` nodes (and returning CREATEs `Runs.create` nodes), it already
+accepts a caller trace with **any number**
+of returning calls and creates. `messageCall_runs_calls` re-states it as the explicit
 multi-call composition guarantee, and `messageCall_calls_completedWith` lifts it to
 the named `Outcome.completedWith`. A worked single-call instantiation on
 `callerProg`/`calleeProg` is `Examples.messageCall_callerProg_storageAt`; a worked
 two-call program is `Examples.twoCallProg_runs`. -/
 
 /-- **`CallReturns callFr resumeFr`.** Re-exported from
-`BytecodeLayer.Hoare.CallSequence`. Bundles the three call-facts of the external
+`BytecodeLayer.Hoare`. Bundles the four call-facts of the external
 CALL: `callFr` issues a CALL (`stepFrame callFr = .needsCall cp pending`) whose
 child enters as code (`EntersAsCode cp child`) and runs to completion
 (`drive (seedFuel cp.gas) [] (running child) = .ok childRes`), pinning the resumed
@@ -222,14 +236,26 @@ parent frame to `resumeFr = resumeAfterCall childRes.toCallResult pending`. It i
 the payload of the `Runs.call` constructor. See `BytecodeLayer.Hoare.CallReturns`. -/
 abbrev CallReturns := Hoare.CallReturns
 
+/-- **`CreateReturns createFr resumeFr`.** Re-exported from
+`BytecodeLayer.Hoare`; the CREATE twin of `CallReturns`. Bundles the three
+create-facts of a CREATE/CREATE2 that returns *and successfully resumes*: `createFr`
+issues a CREATE (`stepFrame createFr = .needsCreate cp pending`), the init child —
+the total `beginCreate cp`, no code/precompile split — runs to completion
+(`drive (seedFuel cp.gas) [] (running (beginCreate cp)) = .ok childRes`), and the
+63/64 retention guard passes, pinning the resumed parent frame
+(`resumeAfterCreate childRes.toCreateResult pending = .ok resumeFr`). It is the
+payload of the `Runs.create` constructor. See `BytecodeLayer.Hoare.CreateReturns`. -/
+abbrev CreateReturns := Hoare.CreateReturns
+
 /-- **Multi-call composition.** Re-exported from `BytecodeLayer.Hoare.CallSequence`.
 A caller that enters as code and whose single `Runs fr₀ last` interleaves **any
-number of returning external CALLs** (`Runs.call` / `CallReturns` nodes) with
+number of returning external CALLs** (`Runs.call` / `CallReturns` nodes) **and
+returning CREATEs** (`Runs.create` / `CreateReturns` nodes) with
 opcode steps, ending at a halting `last`, delivers the caller's halt result as
 `messageCall p` — no assumed forwarding, **no per-call halt requirement, and no
 numeric fuel side condition**. This is the general "≥N calls compose" guarantee
-Track C composes against; the caller builds `h` with `Runs.call` / `Runs.step` /
-`Runs.trans`. -/
+the IR lowering composes against; the caller builds `h` with `Runs.call` /
+`Runs.create` / `Runs.step` / `Runs.trans`. -/
 theorem messageCall_runs_calls (p : CallParams) {fr₀ last : Frame} {halt : FrameHalt}
     (hbegin : EntersAsCode p fr₀)
     (h : Runs fr₀ last)
@@ -239,7 +265,8 @@ theorem messageCall_runs_calls (p : CallParams) {fr₀ last : Frame} {halt : Fra
 
 /-- **The general external-CALL rule at the observable level.** Re-exported from
 `BytecodeLayer.Hoare.CallSequence`. The same honest hypotheses as
-`messageCall_runs_calls` (a single multi-call `Runs fr₀ last` to a halting `last`),
+`messageCall_runs_calls` (a single multi-call/multi-create `Runs fr₀ last` to a
+halting `last`),
 plus the caller's halt result being a success leaving `v` at cell `(a, k)`, yield
 the named `Outcome.completedWith` on `Outcome.ofCall (messageCall p)`. This is the
 sound, general external-call rule for the spec surface — no assumed forwarding. -/

@@ -70,6 +70,35 @@ def callArm (fr : Frame) (exec : ExecutionState) (stack : Stack UInt256)
         output := .empty }
     .ok <| .next (resumeAfterCall failed pending).exec
 
+/-- The failure `CreateResult` a CREATE/CREATE2 soft-fail resumes with: the
+caller's world/createdAccounts/substate unchanged (no nonce bump), `success :=
+false`, and the would-be child gas (`allButOneSixtyFourth`) returned so the
+resume restores the parent's full gas. Shared by `createArm`'s two fallback arms
+and the recorder's `softFailCreateRecord` rebuild. -/
+def createSoftFailResult (exec : ExecutionState) : CreateResult :=
+  { address := default
+    createdAccounts := exec.createdAccounts
+    accounts := exec.accounts
+    gasRemaining := .ofNat (allButOneSixtyFourth exec.gasAvailable.toNat)
+    substate := exec.toState.substate
+    success := false
+    output := .empty }
+
+/-- The suspended-parent `PendingCreate` for a CREATE/CREATE2 issued at frame
+`fr` with working state `exec` and popped operands `stack`/`value`/`initOffset`/
+`initSize`: the caller world snapshot plus the init-code window. Shared by every
+`createArm` arm and the recorder's `softFailCreateRecord` rebuild (which passes
+`fr` itself, so `{ fr with exec := exec }` collapses by structure eta). -/
+def createPendingOf (fr : Frame) (exec : ExecutionState) (stack : Stack UInt256)
+    (value initOffset initSize : UInt256) : PendingCreate :=
+  { frame := { fr with exec := exec }
+    stack := stack
+    callerAccounts := exec.accounts
+    value := value
+    initOffset := initOffset.toUInt64
+    initSize := initSize.toUInt64
+    initCodeSize := (exec.memory.readWithPadding initOffset.toNat initSize.toNat).size }
+
 def createArm (fr : Frame) (exec : ExecutionState)
     (stack : Stack UInt256) (value initOffset initSize : UInt256)
     (salt : Option ByteArray) : Step := do
@@ -80,22 +109,8 @@ def createArm (fr : Frame) (exec : ExecutionState)
   let accounts := exec.accounts
   let selfAccount : Account := accounts.find? self |>.getD default
   let accountsWithBump := accounts.insert self { selfAccount with nonce := selfAccount.nonce + 1 }
-  let pending : PendingCreate :=
-    { frame := { fr with exec := exec }
-      stack := stack
-      callerAccounts := accounts
-      value := value
-      initOffset := initOffset.toUInt64
-      initSize := initSize.toUInt64
-      initCodeSize := initCode.size }
-  let failed : CreateResult :=
-    { address := default
-      createdAccounts := exec.createdAccounts
-      accounts := accounts
-      gasRemaining := .ofNat (allButOneSixtyFourth exec.gasAvailable.toNat)
-      substate := exec.toState.substate
-      success := false
-      output := .empty }
+  let pending : PendingCreate := createPendingOf fr exec stack value initOffset initSize
+  let failed : CreateResult := createSoftFailResult exec
   if selfAccount.nonce.toNat ≥ 2^64-1 then
     return .next (← resumeAfterCreate failed pending).exec
   if value ≤ (accounts.find? self |>.option 0 (·.balance)) ∧ depth < 1024 ∧ initCode.size ≤ 49152 then

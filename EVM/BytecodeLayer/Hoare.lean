@@ -24,10 +24,14 @@ glue "one opcode step" onto "the rest of the block". Each opcode rule is a
 SSTORE rule additionally carries a **framing** clause (what storage it leaves
 untouched).
 
-`Runs` mentions `Frame` and so is an internal brick (like `StepsTo`); it never
-appears in an exported statement. The boundary bridge `messageCall_runs_completed`
-turns a `Runs … halt` into a high-level `Outcome` — observables and queryable
-storage only.
+`Runs` mentions `Frame`, so results phrased through it are frame-level. The
+frame-level program-logic rules (sequencing, opcode rules, the boundary bridge)
+ARE surfaced on `Spec.lean` — the accepted low-level-layer carve-out from the
+observables-only exported-surface standard (see AGENTS.md, "Reviewer standard").
+The fully observable-level export is `messageCall_calls_completedWith`
+(re-exported on `Spec.lean`): it turns a `Runs … halt` into the named high-level
+`Outcome` via `ofCall_completed_of_success` — observables and queryable storage
+only.
 -/
 
 namespace BytecodeLayer.Hoare
@@ -95,7 +99,7 @@ def CallReturns (callFr resumeFr : Frame) : Prop :=
      ∧ drive (seedFuel cp.gas) [] (running child) = .ok childRes
      ∧ resumeFr = resumeAfterCall childRes.toCallResult pending
 
-/-! ## The bundled `CreateReturns` predicate (SPIKE: CREATE twin of `CallReturns`)
+/-! ## The bundled `CreateReturns` predicate (the CREATE twin of `CallReturns`)
 
 `CreateReturns createFr resumeFr` bundles the facts of one CREATE/CREATE2 that returns
 *and successfully resumes*. Two structural differences from `CallReturns`:
@@ -104,10 +108,10 @@ def CallReturns (callFr resumeFr : Frame) : Prop :=
   precompile/immediate `.inr`), so there is no `EntersAsCode` code/precompile split; the
   child is just `beginCreate cp`.
 * **resume is harder** — `resumeAfterCreate` is `Except`-typed (it can `throw .OutOfGas` on
-  the 63/64 retention guard, exp003 `Create.lean:200`). So `CreateReturns` must carry the
-  **`.ok resumeFr` witness** of that guard (`resumeAfterCreate … = .ok resumeFr`); the OOG
-  branch is *not* a `Runs.create` node (it delivers an exception halt through the drive
-  stack, a control flow `Runs` does not resume). This is R4 in the plan. -/
+  the 63/64 retention guard, `EVM/Evm/Semantics/Create.lean:200`). So `CreateReturns` must
+  carry the **`.ok resumeFr` witness** of that guard (`resumeAfterCreate … = .ok resumeFr`);
+  the OOG branch is *not* a `Runs.create` node (it delivers an exception halt through the
+  drive stack, a control flow `Runs` does not resume). -/
 
 /-- `createFr` issues a CREATE whose init child runs to completion and *successfully*
 resumes at `resumeFr`. Bundles: the CREATE step (`stepFrame createFr = .needsCreate cp
@@ -124,8 +128,9 @@ def CreateReturns (createFr resumeFr : Frame) : Prop :=
 /-! ## The composition relation
 
 `Runs fr fr'` is the reflexive–transitive closure of `StepsTo` **extended with an
-external-CALL link**: a `call` step jumps from a CALL site `callFr` to the resumed
-frame `resumeFr` whenever `CallReturns callFr resumeFr` holds. There is no longer
+external-CALL link and a CREATE link**: a `call` step jumps from a CALL site
+`callFr` to the resumed frame `resumeFr` whenever `CallReturns callFr resumeFr`
+holds, and a `create` step likewise via `CreateReturns`. There is no longer
 a `Nat` step-index — the boundary bridges discharge their fuel obligation by
 never-out-of-fuel reconciliation (`Runs.drive_reconcile`), not by a numeric bound,
 so an explicit step count carries no information. The intermediate frames (and the
@@ -135,8 +140,10 @@ in a statement. -/
 /-- **`Runs fr fr'`: `fr` reaches `fr'` by a run of non-halting opcode steps and
 returning external calls.** The intermediate frames are the recursion of this
 proof — they never surface in a statement. This is the single carrier the opcode
-rules thread and the sequencing rule composes; external calls that return are
-`call` nodes (see `CallReturns`), so a multi-call program is one `Runs` value. -/
+rules thread and the sequencing rule composes; external CALLs that return are
+`call` nodes (see `CallReturns`) and CREATEs that return-and-resume are `create`
+nodes (see `CreateReturns`), so a multi-call/multi-create program is one `Runs`
+value. -/
 inductive Runs : Frame → Frame → Prop where
   /-- Zero steps: a frame reaches itself. -/
   | refl (fr : Frame) : Runs fr fr
@@ -149,7 +156,7 @@ inductive Runs : Frame → Frame → Prop where
       (rest : Runs resumeFr fr') : Runs callFr fr'
   /-- A CREATE at `createFr` that returns and successfully resumes at `resumeFr`
   (`CreateReturns createFr resumeFr`), then the rest of the block `resumeFr → fr'`
-  (SPIKE: the CREATE twin of the `call` node). -/
+  (the CREATE twin of the `call` node). -/
   | create {createFr resumeFr fr' : Frame} (hc : CreateReturns createFr resumeFr)
       (rest : Runs resumeFr fr') : Runs createFr fr'
 
@@ -209,7 +216,7 @@ theorem CallReturns.det {callFr resumeFr resumeFr' : Frame}
   subst this
   rw [hres, hres']
 
-/-- **`CreateReturns` is deterministic in the resumed frame** (SPIKE). The CREATE step,
+/-- **`CreateReturns` is deterministic in the resumed frame.** The CREATE step,
 the total `beginCreate`, the child's black-box run, and the (successful) `resumeAfterCreate`
 are each functional, so the resumed frame is unique. -/
 theorem CreateReturns.det {createFr resumeFr resumeFr' : Frame}
@@ -294,7 +301,7 @@ theorem Runs.call_to_halt {fr resumeFr last : Frame} {halt : FrameHalt}
     obtain ⟨_, _, _, hstepCreate, _⟩ := hc'
     rw [hstepCall] at hstepCreate; exact absurd hstepCreate (by nofun)
 
-/-- **A halting `Runs` does not start with a CREATE whose resume diverges** (SPIKE).
+/-- **A halting `Runs` does not start with a CREATE whose resume diverges.**
 If `fr` `Runs` to a halting `last` and `CreateReturns fr resumeFr`, then `resumeFr` still
 `Runs` to `last`. Mirror of `call_to_halt`; the `call` arm is impossible
 (`.needsCreate ≠ .needsCall`). -/
