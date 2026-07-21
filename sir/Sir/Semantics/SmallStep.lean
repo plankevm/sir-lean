@@ -65,8 +65,9 @@ inductive SmallStep (program : Program) (ctx : CallContext) :
   | terminator
       {state state' : MachineState}
       {terminator : Terminator}
+      {assumed : ByteArray}
       (hterm : program.terminatorAt state.control = some terminator)
-      (heval : (eval_terminator program terminator).run state = .ok ((), state')) :
+      (heval : (eval_terminator program ctx assumed terminator).run state = .ok ((), state')) :
       SmallStep program ctx state [] state'
 
 inductive Steps (program : Program) (ctx : CallContext) :
@@ -79,35 +80,35 @@ inductive Steps (program : Program) (ctx : CallContext) :
       (next : SmallStep program ctx mid t₂ s') :
       Steps program ctx s (t₁ ++ t₂) s'
 
-def Runs (program : Program) (ctx : CallContext) (w₀ : World)
-    (trace : Trace) (state : MachineState) : Prop :=
+def Runs (program : Program) (ctx : CallContext) (trace : Trace) (state : MachineState) :
+    Prop :=
   ∃ cursor,
     program.startCursor? = some cursor ∧
-    Steps program ctx { world := w₀, control := .running cursor } trace state
+    Steps program ctx { world := ctx.w₀, control := .running cursor } trace state
 
 inductive ObservableOutcome where
   | gas
   | call (input : CallInput)
-  | halt (world : World)
+  | halt (success : Bool) (data : ByteArray) (w' : World)
 
-def NextObservableEffect (p : Program) (ctx : CallContext) (w₀ : World) (trace : Trace) :
+def NextObservableEffect (p : Program) (ctx : CallContext) (trace : Trace) :
     ObservableOutcome → Prop
   | .gas =>
-      ∃ gas s', Runs p ctx w₀ (trace ++ [.gas gas]) s'
+      ∃ gas s', Runs p ctx (trace ++ [.gas gas]) s'
   | .call input =>
       ∃ call s',
         call.input = input ∧
-        Runs p ctx w₀ (trace ++ [.call call]) s'
-  | .halt w' =>
+        Runs p ctx (trace ++ [.call call]) s'
+  | .halt success data w' =>
       ∃ s',
-        Runs p ctx w₀ trace s' ∧
-        s'.control = .halted ∧
+        Runs p ctx trace s' ∧
+        s'.control = .halted success data ∧
         s'.world = w'
 
 def Deterministic (p : Program) : Prop :=
-  ∀ ctx w₀ trace outcome₁ outcome₂,
-    NextObservableEffect p ctx w₀ trace outcome₁ →
-    NextObservableEffect p ctx w₀ trace outcome₂ →
+  ∀ ctx trace outcome₁ outcome₂,
+    NextObservableEffect p ctx trace outcome₁ →
+    NextObservableEffect p ctx trace outcome₂ →
     outcome₁ = outcome₂
 
 end Sir

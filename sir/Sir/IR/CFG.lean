@@ -27,7 +27,9 @@ inductive Stmt where
 deriving DecidableEq, Repr
 
 inductive Terminator where
-  | halt
+  | stop
+  | return (offset length : VarId)
+  | revert (offset length : VarId)
   | jump (target : BlockId)
   | branch (condition : VarId) (thenTarget elseTarget : BlockId)
 deriving DecidableEq, Repr

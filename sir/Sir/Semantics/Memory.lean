@@ -51,8 +51,12 @@ def MemoryState.writeBytes (m : MemoryState) (offset : Word) (bytes : ByteArray)
     (fun memory (byte, index) => memory.writeByte (offset.toNat + index) byte)
     m
 
-def MemoryState.readBytes (m : MemoryState) (offset : Word) (assumed : ByteArray) : ByteArray :=
-  List.toByteArray <| assumed.toList.zipIdx.map fun (byte, index) =>
-    (m.readByte? (offset.toNat + index)).getD byte
+def MemoryState.readBytes? (m : MemoryState) (offset : Word) (length : Nat)
+    (assumed : ByteArray) : Option ByteArray :=
+  if assumed.size = length then
+    some <| List.toByteArray <| assumed.toList.zipIdx.map fun (byte, index) =>
+      (m.readByte? (offset.toNat + index)).getD byte
+  else
+    none
 
 end Sir

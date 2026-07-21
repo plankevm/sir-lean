@@ -54,8 +54,28 @@ def eval_mstore32 (offset value : VarId) : MachineStateM Unit := do
 def eval_mload32 (assumed : ByteArray) (result offset : VarId) : MachineStateM Unit := do
   let offset ← Locals.lookupM offset
   let state ← get
-  let bytes := state.memory.readBytes offset assumed
+  let some bytes := state.memory.readBytes? offset 32 assumed | throw .invalidMemoryRead
   Locals.assignM result (.ofNat <| Evm.fromByteArrayBigEndian bytes)
+
+def eval_stop : MachineStateM Unit :=
+  modify ({ · with control := .halted true ByteArray.empty })
+
+private def eval_resultData (assumed : ByteArray) (offset length : VarId) :
+    MachineStateM ByteArray := do
+  let offset ← Locals.lookupM offset
+  let length ← Locals.lookupM length
+  let some data := (← get).memory.readBytes? offset length.toNat assumed |
+    throw .invalidMemoryRead
+  return data
+
+def eval_return (assumed : ByteArray) (offset length : VarId) : MachineStateM Unit := do
+  let data ← eval_resultData assumed offset length
+  modify ({ · with control := .halted true data })
+
+def eval_revert (ctx : CallContext) (assumed : ByteArray) (offset length : VarId) :
+    MachineStateM Unit := do
+  let data ← eval_resultData assumed offset length
+  modify ({ · with world := ctx.w₀, control := .halted false data })
 
 private def eval_jump (program : Program) (target : BlockId) : MachineStateM Unit := do
   let .running cursor := (← get).control | throw .invalidControl
@@ -63,11 +83,14 @@ private def eval_jump (program : Program) (target : BlockId) : MachineStateM Uni
   let some sourceBlock := program.block? source | throw (.invalidBlock source)
   let some targetBlock := program.block? target | throw (.invalidBlock target)
   Locals.transfer sourceBlock.outputs targetBlock.inputs
-  let cursor := { block := target, position := targetBlock.startPosition }
-  modify ({ · with control := .running cursor })
+  let cursor' := { block := target, position := targetBlock.startPosition }
+  modify ({ · with control := .running cursor' })
 
-def eval_terminator (program : Program) : Terminator → MachineStateM Unit
-  | .halt => modify (fun state => { state with control := .halted })
+def eval_terminator (program : Program) (ctx : CallContext) (assumed : ByteArray) :
+    Terminator → MachineStateM Unit
+  | .stop => eval_stop
+  | .return offset length => eval_return assumed offset length
+  | .revert offset length => eval_revert ctx assumed offset length
   | .jump target => eval_jump program target
   | .branch condition thenTarget elseTarget => do
       let value ← Locals.lookupM condition
