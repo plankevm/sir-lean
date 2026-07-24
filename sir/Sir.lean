@@ -1,2 +1,3 @@
-import Sir.Spec.WellFormed
-import Sir.Spec.Observation
+import Sir.Proofs.Determinism
+import Sir.Proofs.Progress
+import Sir.Proofs.Readiness
