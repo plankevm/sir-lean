@@ -1,6 +1,22 @@
-import Sir.Core.Types
+import Evm.UInt256
+import Evm.Wheels
 
 namespace Sir
+
+abbrev Word := Evm.UInt256
+abbrev Address := Evm.AccountAddress
+
+structure VarId where
+  id : Nat
+deriving DecidableEq, Repr
+
+structure BlockId where
+  id : Nat
+deriving DecidableEq, Repr
+
+structure FunctionId where
+  id : Nat
+deriving DecidableEq, Repr
 
 structure Call where
   callee : VarId
@@ -24,12 +40,14 @@ inductive Stmt where
   | mallocUninit (result size : VarId)
   | mstore32 (offset value : VarId)
   | mload32 (result offset : VarId)
+  | icall (callee : FunctionId) (args dests : Array VarId)
 deriving DecidableEq, Repr
 
 inductive Terminator where
   | halt
   | jump (target : BlockId)
   | branch (condition : VarId) (thenTarget elseTarget : BlockId)
+  | iret
 deriving DecidableEq, Repr
 
 structure BasicBlock where
@@ -39,9 +57,16 @@ structure BasicBlock where
   outputs : Array VarId
 deriving Repr
 
-structure Program where
+structure Function where
   blocks : Array BasicBlock
   entry : BlockId
+  outputs : Option Nat
+deriving Repr
+
+structure Program where
+  functions : Array Function
+  initEntry : FunctionId
+  mainEntry : Option FunctionId
 deriving Repr
 
 end Sir

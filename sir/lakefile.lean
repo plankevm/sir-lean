@@ -11,6 +11,3 @@ package "sir" where
 @[default_target]
 lean_lib «Sir» where
   roots := #[`Sir]
-
-lean_exe "sir" where
-  root := `Main
