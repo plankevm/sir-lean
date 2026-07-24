@@ -1,1 +1,1 @@
-import Sir.Spec.State
+import Sir.Spec.WellFormed
