@@ -1,5 +1,12 @@
 # SIR code organization — spec/support separation, naming, AGENTS.md
 
+> **Archived 2026-07-23 — superseded.** The layout this plan proposes was
+> executed and then evolved under review: blocks now nest inside functions,
+> `iret` steps to a `returned` control (there is no `ReturnsFrom`), and
+> `Step` no longer depends on `WellFormed` — so the file inventory and
+> import-order claims below no longer match the code. Kept for the
+> rationale record.
+
 Date: 2026-07-21. Status: PROPOSAL v2 (adversarially reviewed against the code;
 nothing moved yet).
 Scope: the `sir/` package on `edu/sir-determinism` (mixed-step calls line), the
