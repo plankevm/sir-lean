@@ -147,24 +147,27 @@ theorem Program.RunsTo.unique_or_queryDivergence_proof
     exact .inl ⟨by simpa using htu.symm, rfl⟩
   · exact .inr hdiv
 
-private theorem FnPrefix.query_eq_at
+private theorem Program.RunsFunction.query_eq_at
     (hfree : program.MemOracleFree)
     {function : FunctionId} {globals : Globals} {args : Array Word}
-    {t₁ t₂ history : Trace}
+    {t₁ t₂ history : Trace} {state₁ state₂ : MachineState}
     {event₁ event₂ : Event} {rest₁ rest₂ : Trace}
-    (h₁ : FnPrefix program ctx function globals args t₁)
-    (h₂ : FnPrefix program ctx function globals args t₂)
+    (h₁ : program.RunsFunction ctx function globals args t₁ state₁)
+    (h₂ : program.RunsFunction ctx function globals args t₂ state₂)
     (ht₁ : t₁ = history ++ event₁ :: rest₁)
     (ht₂ : t₂ = history ++ event₂ :: rest₂) :
     event₁.query = event₂.query := by
+  obtain ⟨initial₁, hentry₁, hrun₁⟩ := h₁
+  obtain ⟨initial₂, hentry₂, hrun₂⟩ := h₂
+  obtain rfl := Option.some.inj (hentry₁.symm.trans hentry₂)
   have get₁ : t₁[history.length]? = some event₁ := by
     rw [ht₁]
     exact getElem?_append_cons ..
   have get₂ : t₂[history.length]? = some event₂ := by
     rw [ht₂]
     exact getElem?_append_cons ..
-  rcases fnPrefixDialogue_all hfree h₁ h₂ with
-    ⟨u, htu⟩ | ⟨u, htu⟩ | hdiv
+  rcases Steps.confluence_or_queryDivergence_proof hfree hrun₁ hrun₂ with
+    ⟨u, -, htu⟩ | ⟨u, -, htu⟩ | hdiv
   · have hlt : history.length < t₁.length := by rw [ht₁]; simp
     have getEq : t₂[history.length]? = t₁[history.length]? := by
       rw [← htu]
@@ -181,18 +184,39 @@ private theorem FnPrefix.query_eq_at
     rfl
   · exact hdiv.query_eq ht₁ ht₂
 
-private theorem EvalFn.fnPrefix_no_event
+private theorem terminalSteps_no_event
+    (hfree : program.MemOracleFree)
+    {initial exit state : MachineState} {history trace rest : Trace} {event : Event}
+    (hterm : Steps program ctx initial history exit)
+    (hstuck : Stuck program ctx exit)
+    (hsteps : Steps program ctx initial trace state)
+    (htrace : trace = history ++ event :: rest) : False := by
+  rcases Steps.confluence_or_queryDivergence_proof hfree hterm hsteps with
+    ⟨u, hu, htu⟩ | ⟨u, -, htu⟩ | hdiv
+  · obtain ⟨-, rfl⟩ := hu.eq_of_stuck hstuck
+    have hlen := congrArg List.length (htu.trans htrace)
+    simp at hlen
+  · rw [htrace] at htu
+    have hlen := congrArg List.length htu
+    simp at hlen
+  · exact hdiv.not_prefix ⟨event :: rest, htrace.symm⟩
+
+private theorem EvalFn.runsFunction_no_event
     (hfree : program.MemOracleFree)
     {function : FunctionId} {globals finalGlobals : Globals} {args : Array Word}
     {history trace rest : Trace} {outcome : FunctionOutcome} {event : Event}
+    {state : MachineState}
     (heval : EvalFn program ctx function globals args history finalGlobals outcome)
-    (hprefix : FnPrefix program ctx function globals args trace)
+    (hrun : program.RunsFunction ctx function globals args trace state)
     (htrace : trace = history ++ event :: rest) : False := by
-  rcases evalFn_fnPrefixDialogue hfree heval hprefix with ⟨u, htu⟩ | hdiv
-  · have hlen := congrArg List.length
-      ((congrArg (· ++ u) htrace).symm.trans htu)
-    simp at hlen
-  · exact hdiv.not_prefix ⟨event :: rest, htrace.symm⟩
+  obtain ⟨initial, hentry, hsteps⟩ := hrun
+  cases heval with
+  | returned hentry₂ hrun₂ hret =>
+      obtain rfl := Option.some.inj (hentry.symm.trans hentry₂)
+      exact terminalSteps_no_event hfree hrun₂ (stuck_of_returned hret) hsteps htrace
+  | halted hentry₂ hrun₂ hhalt =>
+      obtain rfl := Option.some.inj (hentry.symm.trans hentry₂)
+      exact terminalSteps_no_event hfree hrun₂ (stuck_of_halted hhalt) hsteps htrace
 
 theorem Program.functionDeterministicFrom_of_memOracleFree_proof
     (hfree : program.MemOracleFree) (ctx : CallContext)
@@ -201,39 +225,39 @@ theorem Program.functionDeterministicFrom_of_memOracleFree_proof
   intro history outcome₁ outcome₂ h₁ h₂
   cases outcome₁ <;> cases outcome₂
   · rfl
-  · rcases h₁ with ⟨gas, t₁, r₁, run₁, ht₁⟩
-    rcases h₂ with ⟨call, t₂, r₂, -, run₂, ht₂⟩
-    have hquery := FnPrefix.query_eq_at hfree run₁ run₂ ht₁ ht₂
+  · rcases h₁ with ⟨gas, t₁, r₁, s₁, run₁, ht₁⟩
+    rcases h₂ with ⟨call, t₂, r₂, s₂, -, run₂, ht₂⟩
+    have hquery := Program.RunsFunction.query_eq_at hfree run₁ run₂ ht₁ ht₂
     cases hquery
-  · rcases h₁ with ⟨gas, t, rest, run, ht⟩
+  · rcases h₁ with ⟨gas, t, rest, s, run, ht⟩
     rcases h₂ with ⟨_, haltRun, -⟩
-    exact (EvalFn.fnPrefix_no_event hfree haltRun run ht).elim
-  · rcases h₁ with ⟨gas, t, rest, run, ht⟩
+    exact (EvalFn.runsFunction_no_event hfree haltRun run ht).elim
+  · rcases h₁ with ⟨gas, t, rest, s, run, ht⟩
     rcases h₂ with ⟨_, returnRun, -⟩
-    exact (EvalFn.fnPrefix_no_event hfree returnRun run ht).elim
-  · rcases h₁ with ⟨call, t₁, r₁, -, run₁, ht₁⟩
-    rcases h₂ with ⟨gas, t₂, r₂, run₂, ht₂⟩
-    have hquery := FnPrefix.query_eq_at hfree run₁ run₂ ht₁ ht₂
+    exact (EvalFn.runsFunction_no_event hfree returnRun run ht).elim
+  · rcases h₁ with ⟨call, t₁, r₁, s₁, -, run₁, ht₁⟩
+    rcases h₂ with ⟨gas, t₂, r₂, s₂, run₂, ht₂⟩
+    have hquery := Program.RunsFunction.query_eq_at hfree run₁ run₂ ht₁ ht₂
     cases hquery
   · rename_i input₁ input₂
-    rcases h₁ with ⟨call₁, t₁, r₁, hin₁, run₁, ht₁⟩
-    rcases h₂ with ⟨call₂, t₂, r₂, hin₂, run₂, ht₂⟩
-    have hquery := FnPrefix.query_eq_at hfree run₁ run₂ ht₁ ht₂
+    rcases h₁ with ⟨call₁, t₁, r₁, s₁, hin₁, run₁, ht₁⟩
+    rcases h₂ with ⟨call₂, t₂, r₂, s₂, hin₂, run₂, ht₂⟩
+    have hquery := Program.RunsFunction.query_eq_at hfree run₁ run₂ ht₁ ht₂
     have : input₁ = input₂ := by
       simpa [Event.query, hin₁, hin₂] using Query.call.inj hquery
     exact congrArg FunctionObservableOutcome.call this
-  · rcases h₁ with ⟨call, t, rest, -, run, ht⟩
+  · rcases h₁ with ⟨call, t, rest, s, -, run, ht⟩
     rcases h₂ with ⟨_, haltRun, -⟩
-    exact (EvalFn.fnPrefix_no_event hfree haltRun run ht).elim
-  · rcases h₁ with ⟨call, t, rest, -, run, ht⟩
+    exact (EvalFn.runsFunction_no_event hfree haltRun run ht).elim
+  · rcases h₁ with ⟨call, t, rest, s, -, run, ht⟩
     rcases h₂ with ⟨_, returnRun, -⟩
-    exact (EvalFn.fnPrefix_no_event hfree returnRun run ht).elim
+    exact (EvalFn.runsFunction_no_event hfree returnRun run ht).elim
   · rcases h₁ with ⟨_, haltRun, -⟩
-    rcases h₂ with ⟨gas, t, rest, run, ht⟩
-    exact (EvalFn.fnPrefix_no_event hfree haltRun run ht).elim
+    rcases h₂ with ⟨gas, t, rest, s, run, ht⟩
+    exact (EvalFn.runsFunction_no_event hfree haltRun run ht).elim
   · rcases h₁ with ⟨_, haltRun, -⟩
-    rcases h₂ with ⟨call, t, rest, -, run, ht⟩
-    exact (EvalFn.fnPrefix_no_event hfree haltRun run ht).elim
+    rcases h₂ with ⟨call, t, rest, s, -, run, ht⟩
+    exact (EvalFn.runsFunction_no_event hfree haltRun run ht).elim
   · rename_i world₁ world₂
     rcases h₁ with ⟨globals₁, run₁, worldEq₁⟩
     rcases h₂ with ⟨globals₂, run₂, worldEq₂⟩
@@ -247,11 +271,11 @@ theorem Program.functionDeterministicFrom_of_memOracleFree_proof
     · cases h
     · exact (hdiv.ne rfl).elim
   · rcases h₁ with ⟨_, returnRun, -⟩
-    rcases h₂ with ⟨gas, t, rest, run, ht⟩
-    exact (EvalFn.fnPrefix_no_event hfree returnRun run ht).elim
+    rcases h₂ with ⟨gas, t, rest, s, run, ht⟩
+    exact (EvalFn.runsFunction_no_event hfree returnRun run ht).elim
   · rcases h₁ with ⟨_, returnRun, -⟩
-    rcases h₂ with ⟨call, t, rest, -, run, ht⟩
-    exact (EvalFn.fnPrefix_no_event hfree returnRun run ht).elim
+    rcases h₂ with ⟨call, t, rest, s, -, run, ht⟩
+    exact (EvalFn.runsFunction_no_event hfree returnRun run ht).elim
   · rcases h₁ with ⟨_, returnRun, -⟩
     rcases h₂ with ⟨_, haltRun, -⟩
     rcases fnDialogue_all hfree returnRun _ _ _ haltRun with ⟨-, -, h⟩ | hdiv

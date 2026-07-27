@@ -383,30 +383,17 @@ private theorem initialized_entry (world : World) :
   rfl
 
 private theorem initialized_no_next_event {ctx : CallContext} {world : World}
-    {trace history rest : Trace} {event : Event}
-    (hrun : FnPrefix initializedLoad ctx entryFunction { world := world } #[] trace)
+    {trace history rest : Trace} {event : Event} {state : MachineState}
+    (hrun : initializedLoad.RunsFunction ctx entryFunction { world := world } #[] trace state)
     (htrace : trace = history ++ event :: rest) : False := by
-  have htrace' := htrace
-  cases hrun with
-  | steps hentry hsteps =>
-      have : _ = initializedState0 world := Option.some.inj
-        (hentry.symm.trans (initialized_entry world))
-      subst_vars
-      have hnil := (initialized_steps hsteps).1
-      rw [htrace'] at hnil
-      have := congrArg List.length hnil
-      simp at this
-  | descend hentry hsteps hstmt hargs hinner =>
-      have : _ = initializedState0 world := Option.some.inj
-        (hentry.symm.trans (initialized_entry world))
-      subst_vars
-      have hreachable := (initialized_steps hsteps).2
-      cases hreachable <;>
-        simp_all [initializedLoad, Program.decodeStmt, Program.block?,
-          Program.function?, Function.block?, BasicBlock.absoluteToPosition,
-          initializedState0, initializedState1, initializedState2,
-          initializedState3, initializedState4, initializedState5,
-          initializedState6, initializedState7, stmtControl, termControl]
+  obtain ⟨initial, hentry, hsteps⟩ := hrun
+  have : initial = initializedState0 world := Option.some.inj
+    (hentry.symm.trans (initialized_entry world))
+  subst initial
+  have hnil := (initialized_steps hsteps).1
+  rw [htrace] at hnil
+  have := congrArg List.length hnil
+  simp at this
 
 private theorem initialized_halted_world {ctx : CallContext} {world : World}
     {trace : Trace} {globals : Globals}
@@ -541,19 +528,19 @@ theorem initializedLoad_deterministic : initializedLoad.Deterministic := by
   · intro history outcome₁ outcome₂ h₁ h₂
     cases outcome₁ <;> cases outcome₂
     · rfl
-    · rcases h₁ with ⟨_, _, _, hrun, htrace⟩
-      exact (initialized_no_next_event hrun htrace).elim
-    · rcases h₁ with ⟨_, _, _, hrun, htrace⟩
-      exact (initialized_no_next_event hrun htrace).elim
     · rcases h₁ with ⟨_, _, _, _, hrun, htrace⟩
       exact (initialized_no_next_event hrun htrace).elim
     · rcases h₁ with ⟨_, _, _, _, hrun, htrace⟩
       exact (initialized_no_next_event hrun htrace).elim
-    · rcases h₁ with ⟨_, _, _, _, hrun, htrace⟩
+    · rcases h₁ with ⟨_, _, _, _, _, hrun, htrace⟩
       exact (initialized_no_next_event hrun htrace).elim
-    · rcases h₂ with ⟨_, _, _, hrun, htrace⟩
+    · rcases h₁ with ⟨_, _, _, _, _, hrun, htrace⟩
+      exact (initialized_no_next_event hrun htrace).elim
+    · rcases h₁ with ⟨_, _, _, _, _, hrun, htrace⟩
       exact (initialized_no_next_event hrun htrace).elim
     · rcases h₂ with ⟨_, _, _, _, hrun, htrace⟩
+      exact (initialized_no_next_event hrun htrace).elim
+    · rcases h₂ with ⟨_, _, _, _, _, hrun, htrace⟩
       exact (initialized_no_next_event hrun htrace).elim
     · rename_i world₁ world₂
       rcases h₁ with ⟨state₁, hrun₁, hworld₁⟩

@@ -22,18 +22,18 @@ def Event.query : Event → Query
   | .gas _ => .gas
   | .call record => .call record.input
 
-/-- Prefix decomposition exposes an event even when the active internal call never completes. -/
+/-- Prefix decomposition exposes an event on the function's own step chain. -/
 def Program.NextFunctionObservableEffect (program : Program) (ctx : CallContext)
     (function : FunctionId) (globals : Globals) (args : Array Word)
     (history : Trace) : FunctionObservableOutcome → Prop
   | .gas =>
-      ∃ gas trace rest,
-        FnPrefix program ctx function globals args trace ∧
+      ∃ gas trace rest state,
+        program.RunsFunction ctx function globals args trace state ∧
         trace = history ++ .gas gas :: rest
   | .call input =>
-      ∃ call trace rest,
+      ∃ call trace rest state,
         call.input = input ∧
-        FnPrefix program ctx function globals args trace ∧
+        program.RunsFunction ctx function globals args trace state ∧
         trace = history ++ .call call :: rest
   | .halt world =>
       ∃ finalGlobals,

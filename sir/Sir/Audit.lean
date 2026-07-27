@@ -1,6 +1,5 @@
 import Lean
 import Sir.Theorems
-import Sir.Examples.FnPrefix
 import Sir.Examples.TwoFunction
 import Sir.Examples.Memory
 import Sir.Examples.HaltedCall
@@ -35,7 +34,7 @@ private def auditTheoremAxioms (theoremName : Name) : CommandElabM Unit := do
 elab "audit_sir_theorems" : command => do
   let env ← getEnv
   for theoremModule in
-      [`Sir.Theorems, `Sir.Examples.FnPrefix, `Sir.Examples.TwoFunction, `Sir.Examples.Memory,
+      [`Sir.Theorems, `Sir.Examples.TwoFunction, `Sir.Examples.Memory,
         `Sir.Examples.HaltedCall] do
     let some theoremModuleIndex := env.getModuleIdx? theoremModule
       | throwError m!"Sir audit could not resolve module '{theoremModule}'"
