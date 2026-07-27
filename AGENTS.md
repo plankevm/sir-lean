@@ -35,10 +35,13 @@ scripts/      tooling
   `Spec/` is a human decision, and the price of admission is: a full-word name
   (no coined abbreviations — a reviewer must be able to read the statement
   aloud) and a docstring stating what it means *and why it exists*.
-- Every `WellFormed`-style hypothesis field states its consumer in its
-  docstring, or is explicitly marked as an invariant mirrored from the Rust
-  compiler / reserved for the lowering proof. Unconsumed and unmarked
-  hypotheses are not allowed.
+- Every `WellFormed`-style hypothesis field must have a consumer, or be an
+  invariant deliberately mirrored from the Rust compiler / reserved for the
+  lowering proof. Unconsumed, unjustified hypotheses are not allowed —
+  **but do not record the consumer in a docstring.** A "consumed by `foo`"
+  comment is a cross-file allegation that goes stale the moment `foo` moves,
+  and a reviewer can `grep`. Justify the field in the commit or the PR, not in
+  the source.
 - In spec-leaf definitions prefer named combinators (`map`, `guard`, `foldlM`)
   over `do`/inline closures; the sugar elaborates to anonymous matchers that
   lemmas cannot target.
@@ -46,9 +49,18 @@ scripts/      tooling
 ## Comments
 
 Near-zero comments outside `Spec/`. In `Spec/`: one short paragraph of
-rationale per concept — *why it exists* — not a restatement of the code. No
+rationale per *concept* — *why it exists* — not a restatement of the code. No
 dev-narration, no history, no claims about other files' relationship to this
 one (see the cruft rule below).
+
+**"Per concept" is a ceiling, not a quota**, and it means concepts — the
+definitions a reader has to understand to read a theorem statement. Plumbing
+(accessors, list-of-operands helpers, per-field structure members) gets
+nothing. A docstring on every definition in a file is the failure mode this
+rule exists to prevent; if every declaration has one, they are all noise and
+none of them is read. When in doubt, write none: an unexplained definition
+costs a reader one lookup, a stale or obvious one costs every reader every
+time.
 
 ## No stale cruft — delete superseded code, keep comments local
 
