@@ -68,35 +68,24 @@ theorem witnessAddProgram_wellFormed : witnessAddProgram.WellFormed := by
     simp [Program.HasStmt, Function.HasStmt, witnessAddProgram, witnessAdd2] at h
     rcases h with ⟨rfl, rfl, rfl⟩
     exact Program.functionInputOutputArity_iff.mpr ⟨_, rfl, rfl, rfl⟩
-  · rintro ⟨_ | _ | f⟩ fn hfn
-    · simp [Program.function?, witnessAddProgram] at hfn
-      subst fn
-      constructor <;> simp
-    · simp [Program.function?, witnessAddProgram] at hfn
-      subst fn
-      constructor <;> simp
-    · simp [Program.function?, witnessAddProgram] at hfn
+  · intro fn hfn
+    simp [witnessAddProgram] at hfn
+    rcases hfn with rfl | rfl <;> constructor <;> simp
   · exact witness_acyclicCalls
   · constructor
     · exact Program.functionInputOutputArity_iff.mpr ⟨_, rfl, rfl, rfl⟩
     · intro e he
       simp [witnessAddProgram] at he
-  · rintro ⟨_ | _ | function⟩ fn hfn block hblock target htarget
-    · simp [Program.function?, witnessAddProgram] at hfn
-      subst fn
-      simp at hblock
-      subst block
-      simp [Terminator.jumpTargets] at htarget
-    · simp [Program.function?, witnessAddProgram] at hfn
-      subst fn
-      simp at hblock
-      subst block
-      simp [Terminator.jumpTargets] at htarget
-    · simp [Program.function?, witnessAddProgram] at hfn
-  · rintro ⟨_ | _ | function⟩ fn hfn block hblock
-    · simp [Program.function?, witnessAddProgram] at hfn
-      subst fn
-      simp at hblock
+  · intro fn hfn block hblock target htarget
+    simp [witnessAddProgram] at hfn
+    rcases hfn with rfl | rfl <;>
+      · simp at hblock
+        subst block
+        simp [Terminator.jumpTargets] at htarget
+  · intro fn hfn block hblock
+    simp [witnessAddProgram] at hfn
+    rcases hfn with rfl | rfl
+    · simp at hblock
       subst block
       constructor
       · intro index statement hstatement
@@ -105,9 +94,7 @@ theorem witnessAddProgram_wellFormed : witnessAddProgram.WellFormed := by
         all_goals simp [BasicBlock.variablesDefinedBefore, Expr.variablesRead,
           Stmt.variablesRead, Stmt.variablesDefined, witnessA, witnessB]
       · simp [BasicBlock.variablesDefinedBefore, Terminator.variablesRead]
-    · simp [Program.function?, witnessAddProgram] at hfn
-      subst fn
-      simp at hblock
+    · simp at hblock
       subst block
       constructor
       · intro index statement hstatement
@@ -117,7 +104,6 @@ theorem witnessAddProgram_wellFormed : witnessAddProgram.WellFormed := by
           Stmt.variablesRead, witnessX]
       · simp [BasicBlock.variablesDefinedBefore, Terminator.variablesRead,
           Stmt.variablesDefined, witnessX, witnessY, witnessZ]
-    · simp [Program.function?, witnessAddProgram] at hfn
 
 theorem witnessAddProgram_add2_deterministic :
     witnessAddProgram.FunctionDeterministic witnessAdd2 := by

@@ -320,7 +320,7 @@ theorem Program.WellFormed.decodeStmt_covers
   rw [hposition] at hcover
   obtain ⟨fn, hfn, hmembership⟩ := Program.block?_function hblock
   have hstatic :=
-    (hwf.variablesDefinedBeforeUse cursor.fn fn hfn block hmembership).1
+    (hwf.variablesDefinedBeforeUse fn (Program.mem_functions_of_function? hfn) block hmembership).1
       index statement hstatement
   refine ⟨cursor, block, index, hcontrol, hposition, hblock, hstatement,
     hnext, hcover, ?_⟩
@@ -365,7 +365,7 @@ theorem Program.WellFormed.terminatorReady_of_localsCoverCursor
   rw [hposition] at hcover
   obtain ⟨fn, hfn, hmembership⟩ := Program.block?_function hblock
   have hstatic :=
-    (hwf.variablesDefinedBeforeUse cursor.fn fn hfn block hmembership).2
+    (hwf.variablesDefinedBeforeUse fn (Program.mem_functions_of_function? hfn) block hmembership).2
   have hcoverStatic :
       state.locals.CoversVariables
         (block.terminator.variablesRead ++ block.outputs.toList) :=
@@ -379,7 +379,7 @@ theorem Program.WellFormed.terminatorReady_of_localsCoverCursor
       program.JumpReady cursor.fn state block target := by
     obtain ⟨values, hvalues⟩ := Locals.lookupArray_total houtputs
     obtain ⟨targetBlock, htargetBlock, harity⟩ :=
-      hwf.validJumpTargets cursor.fn fn hfn block hmembership target htarget
+      hwf.validJumpTargets fn (Program.mem_functions_of_function? hfn) block hmembership target htarget
     refine ⟨⟨values, hvalues⟩, targetBlock, ?_, harity⟩
     simp [Program.block?, hfn, htargetBlock]
   unfold Program.TerminatorReady

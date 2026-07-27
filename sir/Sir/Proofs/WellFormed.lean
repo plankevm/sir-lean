@@ -4,6 +4,10 @@ namespace Sir
 
 variable {program : Program} {ctx : CallContext}
 
+theorem Program.mem_functions_of_function? {p : Program} {f : FunctionId} {fn : Function}
+    (h : p.function? f = some fn) : fn ∈ p.functions :=
+  Array.mem_of_getElem? h
+
 theorem Program.functionInputOutputArity_iff
     {p : Program} {inputCount : Nat} {outputCount : Option Nat}
     {functionId : FunctionId} :
@@ -127,7 +131,7 @@ theorem Program.WellFormed.evalFn_arity_proof
         subst cursor'
         change cursor.fn = f at hcursorFn
         simp only [Program.block?, hcursorFn, hfn] at hblock
-        obtain ⟨hsome, hnone⟩ := hwf.iretArity f fn hfn
+        obtain ⟨hsome, hnone⟩ := hwf.iretArity fn (Program.mem_functions_of_function? hfn)
         cases houtputs : fn.outputs with
         | none => exact ((hnone houtputs block (Array.mem_of_getElem? hblock)) hterm).elim
         | some n =>
@@ -178,8 +182,8 @@ theorem Program.WellFormed.icall_step_proof
   obtain ⟨locals', hbind⟩ := hwf.icall_bindReturns hstmt hcallee
   exact ⟨locals', .icall hstmt hargs hcallee hbind⟩
 
-theorem Program.WellFormed.icall_halted_step_proof
-    (_hwf : program.WellFormed) {s : MachineState} {nextControl : MachineControl}
+theorem Program.icall_halted_step_proof
+    {s : MachineState} {nextControl : MachineControl}
     {callee : FunctionId} {args dests : Array VarId} {vs : Array Word}
     {t : Trace} {g' : Globals}
     (hstmt : program.decodeStmt s.control = some (nextControl, .icall callee args dests))

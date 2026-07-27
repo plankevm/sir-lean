@@ -59,35 +59,24 @@ theorem haltedCallProgram_wellFormed : haltedCallProgram.WellFormed := by
       haltedCallCallee] at hstatement
     rcases hstatement with ⟨rfl, rfl, rfl⟩
     exact Program.functionInputOutputArity_iff.mpr ⟨_, rfl, rfl, rfl⟩
-  · rintro ⟨_ | _ | function⟩ fn hfn
-    · simp [Program.function?, haltedCallProgram] at hfn
-      subst fn
-      constructor <;> simp
-    · simp [Program.function?, haltedCallProgram] at hfn
-      subst fn
-      constructor <;> simp
-    · simp [Program.function?, haltedCallProgram] at hfn
+  · intro fn hfn
+    simp [haltedCallProgram] at hfn
+    rcases hfn with rfl | rfl <;> constructor <;> simp
   · exact haltedCall_acyclicCalls
   · constructor
     · exact Program.functionInputOutputArity_iff.mpr ⟨_, rfl, rfl, rfl⟩
     · intro entry hentry
       simp [haltedCallProgram] at hentry
-  · rintro ⟨_ | _ | function⟩ fn hfn block hblock target htarget
-    · simp [Program.function?, haltedCallProgram] at hfn
-      subst fn
-      simp at hblock
-      subst block
-      simp [Terminator.jumpTargets] at htarget
-    · simp [Program.function?, haltedCallProgram] at hfn
-      subst fn
-      simp at hblock
-      subst block
-      simp [Terminator.jumpTargets] at htarget
-    · simp [Program.function?, haltedCallProgram] at hfn
-  · rintro ⟨_ | _ | function⟩ fn hfn block hblock
-    · simp [Program.function?, haltedCallProgram] at hfn
-      subst fn
-      simp at hblock
+  · intro fn hfn block hblock target htarget
+    simp [haltedCallProgram] at hfn
+    rcases hfn with rfl | rfl <;>
+      · simp at hblock
+        subst block
+        simp [Terminator.jumpTargets] at htarget
+  · intro fn hfn block hblock
+    simp [haltedCallProgram] at hfn
+    rcases hfn with rfl | rfl
+    · simp at hblock
       subst block
       constructor
       · intro index statement hstatement
@@ -95,15 +84,12 @@ theorem haltedCallProgram_wellFormed : haltedCallProgram.WellFormed := by
         subst statement
         simp [Stmt.variablesRead, BasicBlock.variablesDefinedBefore]
       · simp [Terminator.variablesRead]
-    · simp [Program.function?, haltedCallProgram] at hfn
-      subst fn
-      simp at hblock
+    · simp at hblock
       subst block
       constructor
       · intro index statement hstatement
         simp at hstatement
       · simp [Terminator.variablesRead]
-    · simp [Program.function?, haltedCallProgram] at hfn
 
 private theorem haltedCall_evalCallee (ctx : CallContext) (world : World) :
     EvalFn haltedCallProgram ctx haltedCallCallee { world := world } #[] []

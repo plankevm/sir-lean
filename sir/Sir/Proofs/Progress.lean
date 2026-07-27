@@ -4,6 +4,44 @@ namespace Sir
 
 variable {program : Program} {ctx : CallContext}
 
+def Locals.Defined (locals : Locals) (var : VarId) : Prop :=
+  ∃ w, locals.lookup var = .ok w
+
+def Locals.ExprReady (locals : Locals) : Expr → Prop
+  | .constant _ => True
+  | .var v => locals.Defined v
+  | .add a b | .lt a b => locals.Defined a ∧ locals.Defined b
+  | .sload k => locals.Defined k
+
+def MachineState.StmtReady (s : MachineState) : Stmt → Prop
+  | .assign _ e => s.locals.ExprReady e
+  | .sstore key value => s.locals.Defined key ∧ s.locals.Defined value
+  | .gas _ => True
+  | .call c => s.locals.Defined c.callee ∧ s.locals.Defined c.gas
+  | .mallocUninit _ size =>
+      ∃ w alloc, s.locals.lookup size = .ok w ∧
+        s.globals.memory.IsValidNewAlloc alloc ∧ alloc.size = w.toNat
+  | .mstore32 offset value => s.locals.Defined offset ∧ s.locals.Defined value
+  | .mload32 _ offset => s.locals.Defined offset
+  | .icall _ _ _ => False
+
+def Program.JumpReady (program : Program) (fn : FunctionId) (s : MachineState)
+    (src : BasicBlock) (target : BlockId) : Prop :=
+  (∃ vs, src.outputs.mapM (s.locals.lookup ·) = .ok vs) ∧
+    ∃ targetBlock,
+      program.block? { fn := fn, block := target, position := .terminator } = some targetBlock ∧
+      targetBlock.inputs.size = src.outputs.size
+
+def Program.TerminatorReady (program : Program) (fn : FunctionId) (s : MachineState)
+    (src : BasicBlock) : Prop :=
+  match src.terminator with
+  | .halt => True
+  | .jump target => program.JumpReady fn s src target
+  | .branch condition thenTarget elseTarget =>
+      ∃ w, s.locals.lookup condition = .ok w ∧
+        program.JumpReady fn s src (if w = 0 then elseTarget else thenTarget)
+  | .iret => ∃ rs, src.outputs.mapM (s.locals.lookup ·) = .ok rs
+
 theorem Expr.eval_total {s : MachineState} {e : Expr}
     (h : s.locals.ExprReady e) : ∃ w, Expr.eval ctx s e = .ok w := by
   cases e with

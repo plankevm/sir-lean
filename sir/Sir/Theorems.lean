@@ -106,33 +106,6 @@ theorem Steps.preserves_function
       ∃ cursor', e.control = .running cursor' ∧ cursor'.fn = cursor.fn :=
   Steps.preserves_function_proof h hctrl
 
-theorem progress_stmt
-    {s : MachineState} {nextControl : MachineControl} {stmt : Stmt}
-    (hstmt : program.decodeStmt s.control = some (nextControl, stmt))
-    (hready : s.StmtReady stmt) :
-    ∃ t s', SmallStep program ctx s t s' :=
-  progress_stmt_proof hstmt hready
-
-theorem progress_terminator
-    {s : MachineState} {cursor : ProgramCursor} {src : BasicBlock}
-    (hctrl : s.control = .running cursor)
-    (hpos : cursor.position = .terminator)
-    (hsrc : program.block? cursor = some src)
-    (hready : program.TerminatorReady cursor.fn s src) :
-    ∃ s', SmallStep program ctx s [] s' :=
-  progress_terminator_proof hctrl hpos hsrc hready
-
-theorem progress_nonIcall {s : MachineState}
-    (h : (∃ nextControl stmt,
-            program.decodeStmt s.control = some (nextControl, stmt) ∧
-            s.StmtReady stmt) ∨
-         (∃ cursor src, s.control = .running cursor ∧
-            cursor.position = .terminator ∧
-            program.block? cursor = some src ∧
-            program.TerminatorReady cursor.fn s src)) :
-    ∃ t s', SmallStep program ctx s t s' :=
-  progress_nonIcall_proof h
-
 theorem Program.WellFormed.progress_reachable_nonIcall
     (hwf : program.WellFormed) {function : FunctionId} {globals : Globals}
     {args : Array Word} {runTrace : Trace} {state : MachineState}
@@ -172,14 +145,14 @@ theorem Program.WellFormed.icall_step
       { s with globals := g', locals := locals', control := nextControl } :=
   Program.WellFormed.icall_step_proof hwf hstmt hargs hcallee
 
-theorem Program.WellFormed.icall_halted_step
-    (hwf : program.WellFormed) {s : MachineState} {nextControl : MachineControl}
+theorem Program.icall_halted_step
+    {s : MachineState} {nextControl : MachineControl}
     {callee : FunctionId} {args dests : Array VarId} {vs : Array Word}
     {t : Trace} {g' : Globals}
     (hstmt : program.decodeStmt s.control = some (nextControl, .icall callee args dests))
     (hargs : args.mapM (s.locals.lookup ·) = .ok vs)
     (hcallee : EvalFn program ctx callee s.globals vs t g' .halted) :
     SmallStep program ctx s t { globals := g', control := .halted } :=
-  Program.WellFormed.icall_halted_step_proof hwf hstmt hargs hcallee
+  Program.icall_halted_step_proof hstmt hargs hcallee
 
 end Sir
