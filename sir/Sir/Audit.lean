@@ -3,6 +3,7 @@ import Sir.Theorems
 import Sir.Examples.TwoFunction
 import Sir.Examples.Memory
 import Sir.Examples.HaltedCall
+import Sir.Examples.Jump
 
 open Lean Elab Command
 
@@ -35,7 +36,7 @@ elab "audit_sir_theorems" : command => do
   let env ← getEnv
   for theoremModule in
       [`Sir.Theorems, `Sir.Examples.TwoFunction, `Sir.Examples.Memory,
-        `Sir.Examples.HaltedCall] do
+        `Sir.Examples.HaltedCall, `Sir.Examples.Jump] do
     let some theoremModuleIndex := env.getModuleIdx? theoremModule
       | throwError m!"Sir audit could not resolve module '{theoremModule}'"
     for (declarationName, declarationInfo) in env.constants do
