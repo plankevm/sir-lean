@@ -20,8 +20,7 @@ def jumpProgram : Program :=
             statements := #[.assign jumpDoubled (.add jumpParameter jumpParameter)]
             terminator := .halt
             outputs := #[] }]
-        entry := jumpSourceBlock
-        outputs := none }]
+        entry := jumpSourceBlock }]
     initEntry := jumpEntry
     mainEntry := none }
 
@@ -43,10 +42,11 @@ theorem jumpProgram_wellFormed : jumpProgram.WellFormed := by
   constructor
   · rintro callee args dests hstatement
     simp [Program.HasStmt, Function.HasStmt, jumpProgram] at hstatement
-  · intro fn hfn
+  · intro fn hfn block hblock hterm
     simp [jumpProgram] at hfn
     subst hfn
-    constructor <;> simp
+    simp at hblock
+    rcases hblock with rfl | rfl <;> simp at hterm
   · exact jump_acyclicCalls
   · constructor
     · exact Program.functionInputOutputArity_iff.mpr ⟨_, rfl, rfl, rfl⟩

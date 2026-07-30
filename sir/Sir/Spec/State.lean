@@ -154,6 +154,9 @@ def Function.terminatorOf (fn : Function) (block : BlockId) : Option Terminator 
 def Function.paramsOf (fn : Function) : Option (Array VarId) :=
   (fn.block? fn.entry).map (·.inputs)
 
+def Function.outputs? (fn : Function) : Option Nat :=
+  (fn.blocks.find? (fun block => decide (block.terminator = .iret))).map (·.outputs.size)
+
 def Function.HasStmt (fn : Function) (stmt : Stmt) : Prop :=
   ∃ block ∈ fn.blocks, stmt ∈ block.statements
 
@@ -177,7 +180,7 @@ def Program.paramsOf (program : Program) (f : FunctionId) : Option (Array VarId)
 def Program.FunctionInputOutputArity (program : Program) (inputCount : Nat)
     (outputCount : Option Nat) (functionId : FunctionId) : Prop :=
   ∃ fn, program.function? functionId = some fn ∧
-    fn.paramsOf.map (·.size) = some inputCount ∧ fn.outputs = outputCount
+    fn.paramsOf.map (·.size) = some inputCount ∧ fn.outputs? = outputCount
 
 def Program.AtEntries (program : Program) (condition : FunctionId → Prop) : Prop :=
   condition program.initEntry ∧

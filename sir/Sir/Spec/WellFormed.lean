@@ -56,12 +56,11 @@ def BasicBlock.VariablesDefinedBeforeUse (block : BasicBlock) : Prop :=
 structure Program.WellFormed (p : Program) : Prop where
   icallArity :
     ∀ callee args dests, p.HasStmt (.icall callee args dests) →
-      p.FunctionInputOutputArity args.size (some dests.size) callee
+      ∃ outputs, p.FunctionInputOutputArity args.size outputs callee ∧
+        outputs.getD 0 = dests.size
   iretArity :
-    ∀ fn ∈ p.functions,
-      (∀ n, fn.outputs = some n →
-        ∀ block ∈ fn.blocks, block.terminator = .iret → block.outputs.size = n) ∧
-      (fn.outputs = none → ∀ block ∈ fn.blocks, block.terminator ≠ .iret)
+    ∀ fn ∈ p.functions, ∀ block ∈ fn.blocks,
+      block.terminator = .iret → some block.outputs.size = fn.outputs?
   acyclicCalls : ∀ f, ¬ Relation.TransGen p.callEdge f f
   entryArity : p.AtEntries (p.FunctionInputOutputArity 0 none)
   validJumpTargets :

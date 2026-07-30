@@ -25,15 +25,13 @@ def witnessAddProgram : Program :=
           ]
           terminator := .halt
           outputs := #[] }]
-        entry := witnessMainBlock
-        outputs := none },
+        entry := witnessMainBlock },
       { blocks := #[{
           inputs := #[witnessX, witnessY]
           statements := #[.assign witnessZ (.add witnessX witnessY)]
           terminator := .iret
           outputs := #[witnessZ] }]
-        entry := witnessAddBlock
-        outputs := some 1 }
+        entry := witnessAddBlock }
     ]
     initEntry := witnessMain
     mainEntry := none }
@@ -67,10 +65,11 @@ theorem witnessAddProgram_wellFormed : witnessAddProgram.WellFormed := by
     rcases callee with ⟨callee⟩
     simp [Program.HasStmt, Function.HasStmt, witnessAddProgram, witnessAdd2] at h
     rcases h with ⟨rfl, rfl, rfl⟩
-    exact Program.functionInputOutputArity_iff.mpr ⟨_, rfl, rfl, rfl⟩
-  · intro fn hfn
+    exact ⟨_, Program.functionInputOutputArity_iff.mpr ⟨_, rfl, rfl, rfl⟩, rfl⟩
+  · intro fn hfn block hblock hterm
     simp [witnessAddProgram] at hfn
-    rcases hfn with rfl | rfl <;> constructor <;> simp
+    rcases hfn with rfl | rfl <;> simp at hblock <;> subst hblock <;>
+      simp [Function.outputs?] at hterm ⊢
   · exact witness_acyclicCalls
   · constructor
     · exact Program.functionInputOutputArity_iff.mpr ⟨_, rfl, rfl, rfl⟩

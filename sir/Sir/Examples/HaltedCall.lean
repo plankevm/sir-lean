@@ -14,15 +14,13 @@ def haltedCallProgram : Program :=
           statements := #[.icall haltedCallCallee #[] #[]]
           terminator := .halt
           outputs := #[] }]
-        entry := haltedCallCallerBlock
-        outputs := none },
+        entry := haltedCallCallerBlock },
       { blocks := #[{
           inputs := #[]
           statements := #[]
           terminator := .halt
           outputs := #[] }]
-        entry := haltedCallCalleeBlock
-        outputs := some 0 }
+        entry := haltedCallCalleeBlock }
     ]
     initEntry := haltedCallCaller
     mainEntry := none }
@@ -58,10 +56,10 @@ theorem haltedCallProgram_wellFormed : haltedCallProgram.WellFormed := by
     simp [Program.HasStmt, Function.HasStmt, haltedCallProgram,
       haltedCallCallee] at hstatement
     rcases hstatement with ⟨rfl, rfl, rfl⟩
-    exact Program.functionInputOutputArity_iff.mpr ⟨_, rfl, rfl, rfl⟩
-  · intro fn hfn
+    exact ⟨_, Program.functionInputOutputArity_iff.mpr ⟨_, rfl, rfl, rfl⟩, rfl⟩
+  · intro fn hfn block hblock hterm
     simp [haltedCallProgram] at hfn
-    rcases hfn with rfl | rfl <;> constructor <;> simp
+    rcases hfn with rfl | rfl <;> simp at hblock <;> subst hblock <;> simp at hterm
   · exact haltedCall_acyclicCalls
   · constructor
     · exact Program.functionInputOutputArity_iff.mpr ⟨_, rfl, rfl, rfl⟩

@@ -131,7 +131,7 @@ theorem Program.WellFormed.evalFn_arity
     (hwf : program.WellFormed) {f : FunctionId} {g g' : Globals}
     {args rs : Array Word} {t : Trace}
     (hrun : EvalFn program ctx f g args t g' (.returned rs)) :
-    (program.function? f).bind (·.outputs) = some rs.size :=
+    (program.function? f).bind (·.outputs?) = some rs.size :=
   Program.WellFormed.evalFn_arity_proof hwf hrun
 
 theorem Program.WellFormed.icall_step

@@ -28,8 +28,7 @@ def initializedLoad : Program :=
           .sstore zVar zVar]
         terminator := .halt
         outputs := #[]}]
-      entry := entryBlock
-      outputs := none }]
+      entry := entryBlock }]
     initEntry := entryFunction
     mainEntry := none }
 
@@ -43,8 +42,7 @@ def zeroSizeStore : Program :=
           .sstore xVar xVar]
         terminator := .halt
         outputs := #[]}]
-      entry := entryBlock
-      outputs := none }]
+      entry := entryBlock }]
     initEntry := entryFunction
     mainEntry := none }
 

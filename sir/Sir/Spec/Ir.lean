@@ -60,7 +60,6 @@ deriving Repr
 structure Function where
   blocks : Array BasicBlock
   entry : BlockId
-  outputs : Option Nat
 deriving Repr
 
 structure Program where

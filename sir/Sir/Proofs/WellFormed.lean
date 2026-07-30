@@ -13,7 +13,7 @@ theorem Program.functionInputOutputArity_iff
     {functionId : FunctionId} :
     p.FunctionInputOutputArity inputCount outputCount functionId ↔
       ∃ fn, p.function? functionId = some fn ∧
-        fn.paramsOf.map (·.size) = some inputCount ∧ fn.outputs = outputCount := by
+        fn.paramsOf.map (·.size) = some inputCount ∧ fn.outputs? = outputCount := by
   rfl
 
 theorem Program.WellFormed.callEdge_wellFounded
@@ -86,8 +86,9 @@ theorem Program.WellFormed.icall_paramsOf
     {callee : FunctionId} {args dests : Array VarId}
     (hstmt : program.decodeStmt control = some (nextControl, .icall callee args dests)) :
     (∃ ps, program.paramsOf callee = some ps ∧ ps.size = args.size) ∧
-      (program.function? callee).bind (·.outputs) = some dests.size := by
-  have harity := hwf.icallArity callee args dests (Program.decodeStmt_mem hstmt)
+      ((program.function? callee).bind (·.outputs?)).getD 0 = dests.size := by
+  obtain ⟨outputs, harity, hdests⟩ :=
+    hwf.icallArity callee args dests (Program.decodeStmt_mem hstmt)
   rcases Program.functionInputOutputArity_iff.mp harity with
     ⟨fn, hfn, hparams, houtputs⟩
   cases hps : fn.paramsOf with
@@ -95,7 +96,7 @@ theorem Program.WellFormed.icall_paramsOf
   | some ps =>
       refine ⟨⟨ps, ?_, by simpa [hps] using hparams⟩, ?_⟩
       · simp [Program.paramsOf, hfn, hps]
-      · simp [hfn, houtputs]
+      · simp [hfn, houtputs, hdests]
 
 theorem Program.WellFormed.icall_bindParams
     (hwf : program.WellFormed) {s : MachineState} {nextControl : MachineControl}
@@ -113,7 +114,7 @@ theorem Program.WellFormed.evalFn_arity_proof
     (hwf : program.WellFormed) {f : FunctionId} {g g' : Globals}
     {args rs : Array Word} {t : Trace}
     (hrun : EvalFn program ctx f g args t g' (.returned rs)) :
-    (program.function? f).bind (·.outputs) = some rs.size := by
+    (program.function? f).bind (·.outputs?) = some rs.size := by
   cases hrun with
   | returned hentry hsteps hret =>
     obtain ⟨fn, entryBlock, locals₀, hfn, hentryBlock, hbind, rfl⟩ :=
@@ -131,16 +132,11 @@ theorem Program.WellFormed.evalFn_arity_proof
         subst cursor'
         change cursor.fn = f at hcursorFn
         simp only [Program.block?, hcursorFn, hfn] at hblock
-        obtain ⟨hsome, hnone⟩ := hwf.iretArity fn (Program.mem_functions_of_function? hfn)
-        cases houtputs : fn.outputs with
-        | none => exact ((hnone houtputs block (Array.mem_of_getElem? hblock)) hterm).elim
-        | some n =>
-          have harity := hsome n houtputs block (Array.mem_of_getElem? hblock) hterm
-          rw [hfn]
-          simp only [Option.bind_some]
-          rw [houtputs]
-          simp only [Option.some.injEq]
-          exact harity.symm.trans (mapM_ok_size houts).symm
+        have harity := hwf.iretArity fn (Program.mem_functions_of_function? hfn)
+          block (Array.mem_of_getElem? hblock) hterm
+        rw [hfn]
+        simp only [Option.bind_some]
+        rw [← harity, mapM_ok_size houts]
 
 theorem Program.WellFormed.evalFn_entry_not_returned
     (hwf : program.WellFormed) {entry : FunctionId} {globals finalGlobals : Globals}
@@ -166,9 +162,8 @@ theorem Program.WellFormed.icall_bindReturns
     (hcallee : EvalFn program ctx callee g vs t g' (.returned rs)) :
     ∃ locals', Locals.bindReturns s.locals dests rs = .ok locals' := by
   obtain ⟨-, houtputs⟩ := hwf.icall_paramsOf hstmt
-  have harity := (hwf.evalFn_arity_proof hcallee).symm.trans houtputs
-  simp only [Option.some.injEq] at harity
-  exact Locals.bindValues_total s.locals harity.symm
+  rw [hwf.evalFn_arity_proof hcallee, Option.getD_some] at houtputs
+  exact Locals.bindValues_total s.locals houtputs.symm
 
 theorem Program.WellFormed.icall_step_proof
     (hwf : program.WellFormed) {s : MachineState} {nextControl : MachineControl}
