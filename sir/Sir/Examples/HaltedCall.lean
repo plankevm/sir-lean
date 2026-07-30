@@ -27,9 +27,9 @@ def haltedCallProgram : Program :=
     initEntry := haltedCallCaller
     mainEntry := none }
 
-private theorem haltedCall_callEdge_iff (callee caller : FunctionId) :
-    haltedCallProgram.callEdge callee caller ↔
-      callee = haltedCallCallee ∧ caller = haltedCallCaller := by
+private theorem haltedCall_callEdge_iff (caller callee : FunctionId) :
+    haltedCallProgram.callEdge caller callee ↔
+      caller = haltedCallCaller ∧ callee = haltedCallCallee := by
   rcases caller with ⟨_ | _ | caller⟩ <;>
     simp [Program.callEdge, Program.function?, Function.HasStmt,
       haltedCallProgram, haltedCallCallee, haltedCallCaller]
@@ -37,15 +37,15 @@ private theorem haltedCall_callEdge_iff (callee caller : FunctionId) :
 private theorem haltedCall_acyclicCalls (function : FunctionId) :
     ¬ Relation.TransGen haltedCallProgram.callEdge function function := by
   intro cycle
-  have endpoints {callee caller : FunctionId}
-      (h : Relation.TransGen haltedCallProgram.callEdge callee caller) :
-      callee = haltedCallCallee ∧ caller = haltedCallCaller := by
+  have endpoints {caller callee : FunctionId}
+      (h : Relation.TransGen haltedCallProgram.callEdge caller callee) :
+      caller = haltedCallCaller ∧ callee = haltedCallCallee := by
     induction h with
     | single edge => exact haltedCall_callEdge_iff _ _ |>.mp edge
     | tail _ edge ih =>
-      rcases ih with ⟨_, callerEq⟩
-      rcases haltedCall_callEdge_iff _ _ |>.mp edge with ⟨calleeEq, _⟩
-      have := congrArg FunctionId.id (callerEq.symm.trans calleeEq)
+      rcases ih with ⟨_, calleeEq⟩
+      rcases haltedCall_callEdge_iff _ _ |>.mp edge with ⟨callerEq, _⟩
+      have := congrArg FunctionId.id (calleeEq.symm.trans callerEq)
       simp [haltedCallCallee, haltedCallCaller] at this
   rcases endpoints cycle with ⟨first, second⟩
   have := congrArg FunctionId.id (first.symm.trans second)

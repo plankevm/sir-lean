@@ -17,11 +17,11 @@ theorem Program.functionInputOutputArity_iff
   rfl
 
 theorem Program.WellFormed.callEdge_wellFounded
-    (hwf : program.WellFormed) : WellFounded program.callEdge := by
+    (hwf : program.WellFormed) : WellFounded (Function.swap program.callEdge) := by
   classical
   let validFunctions := (Finset.range program.functions.size).image FunctionId.mk
   let ancestors (f : FunctionId) := validFunctions.filter fun predecessor =>
-    Relation.TransGen program.callEdge predecessor f
+    Relation.TransGen (Function.swap program.callEdge) predecessor f
   let rank (f : FunctionId) :=
     if f.id < program.functions.size then (ancestors f).card + 1 else 0
   apply Subrelation.wf (r := fun predecessor caller => rank predecessor < rank caller) _
@@ -42,7 +42,7 @@ theorem Program.WellFormed.callEdge_wellFounded
         Relation.TransGen.single hEdge⟩
     have predecessorNotMem : predecessor ∉ ancestors predecessor := by
       intro h
-      exact hwf.acyclicCalls predecessor (Finset.mem_filter.mp h).2
+      exact hwf.acyclicCalls predecessor (Finset.mem_filter.mp h).2.swap
     have ancestorsStrict : ancestors predecessor ⊂ ancestors caller :=
       Finset.ssubset_iff_subset_ne.mpr
         ⟨ancestorsSubset, fun h => predecessorNotMem (h ▸ predecessorMem)⟩

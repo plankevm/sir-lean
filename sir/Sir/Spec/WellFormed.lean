@@ -2,8 +2,7 @@ import Sir.Spec.State
 
 namespace Sir
 
-/-- `callEdge callee caller`: some block of `caller` icalls `callee` (note the argument order). -/
-def Program.callEdge (p : Program) (callee caller : FunctionId) : Prop :=
+def Program.callEdge (p : Program) (caller callee : FunctionId) : Prop :=
   ∃ args dests fn, p.function? caller = some fn ∧ fn.HasStmt (.icall callee args dests)
 
 def Expr.variablesRead : Expr → List VarId

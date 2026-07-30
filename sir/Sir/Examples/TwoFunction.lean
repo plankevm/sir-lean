@@ -38,8 +38,8 @@ def witnessAddProgram : Program :=
     initEntry := witnessMain
     mainEntry := none }
 
-private theorem witness_callEdge_iff (callee caller : FunctionId) :
-    witnessAddProgram.callEdge callee caller ↔ callee = witnessAdd2 ∧ caller = witnessMain := by
+private theorem witness_callEdge_iff (caller callee : FunctionId) :
+    witnessAddProgram.callEdge caller callee ↔ caller = witnessMain ∧ callee = witnessAdd2 := by
   rcases caller with ⟨_ | _ | caller⟩ <;>
     simp [Program.callEdge, Program.function?, Function.HasStmt, witnessAddProgram,
       witnessAdd2, witnessMain]
@@ -47,15 +47,15 @@ private theorem witness_callEdge_iff (callee caller : FunctionId) :
 private theorem witness_acyclicCalls (f : FunctionId) :
     ¬ Relation.TransGen witnessAddProgram.callEdge f f := by
   intro hcycle
-  have endpoints {callee caller : FunctionId}
-      (h : Relation.TransGen witnessAddProgram.callEdge callee caller) :
-      callee = witnessAdd2 ∧ caller = witnessMain := by
+  have endpoints {caller callee : FunctionId}
+      (h : Relation.TransGen witnessAddProgram.callEdge caller callee) :
+      caller = witnessMain ∧ callee = witnessAdd2 := by
     induction h with
     | single hEdge => exact witness_callEdge_iff _ _ |>.mp hEdge
     | tail _ hEdge ih =>
-      rcases ih with ⟨_, hcaller⟩
-      rcases witness_callEdge_iff _ _ |>.mp hEdge with ⟨hcallee, _⟩
-      have := congrArg FunctionId.id (hcaller.symm.trans hcallee)
+      rcases ih with ⟨_, hcallee⟩
+      rcases witness_callEdge_iff _ _ |>.mp hEdge with ⟨hcaller, _⟩
+      have := congrArg FunctionId.id (hcallee.symm.trans hcaller)
       simp [witnessAdd2, witnessMain] at this
   rcases endpoints hcycle with ⟨hf, hf'⟩
   have := congrArg FunctionId.id (hf.symm.trans hf')

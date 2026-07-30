@@ -25,15 +25,15 @@ def jumpProgram : Program :=
     initEntry := jumpEntry
     mainEntry := none }
 
-private theorem jump_no_callEdge (callee caller : FunctionId) :
-    ¬ jumpProgram.callEdge callee caller := by
+private theorem jump_no_callEdge (caller callee : FunctionId) :
+    ¬ jumpProgram.callEdge caller callee := by
   rcases caller with ⟨_ | caller⟩ <;>
     simp [Program.callEdge, Program.function?, Function.HasStmt, jumpProgram]
 
 private theorem jump_acyclicCalls (function : FunctionId) :
     ¬ Relation.TransGen jumpProgram.callEdge function function := by
-  have absurd {callee caller : FunctionId}
-      (h : Relation.TransGen jumpProgram.callEdge callee caller) : False := by
+  have absurd {caller callee : FunctionId}
+      (h : Relation.TransGen jumpProgram.callEdge caller callee) : False := by
     induction h with
     | single edge => exact jump_no_callEdge _ _ edge
     | tail _ edge _ => exact jump_no_callEdge _ _ edge
