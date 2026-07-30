@@ -73,4 +73,5 @@ structure Program.WellFormed (p : Program) : Prop where
   variablesDefinedBeforeUse :
     ∀ fn ∈ p.functions,
       ∀ block ∈ fn.blocks, block.VariablesDefinedBeforeUse
+
 end Sir

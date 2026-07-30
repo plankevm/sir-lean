@@ -115,7 +115,6 @@ inductive MachineControl where
   | halted
   deriving DecidableEq, Repr
 
-/-- Separates a function's terminal result from the caller control state that consumes it. -/
 inductive FunctionOutcome where
   | returned (rs : Array Word)
   | halted
@@ -149,14 +148,12 @@ abbrev MachineStateM := StateT MachineState (Except IRError)
 def Function.block? (fn : Function) (bid : BlockId) : Option BasicBlock :=
   fn.blocks[bid.id]?
 
-/-- Names a block's terminator so CFG invariants can state edges without repeating block lookup. -/
 def Function.terminatorOf (fn : Function) (block : BlockId) : Option Terminator :=
   (fn.block? block).map (·.terminator)
 
 def Function.paramsOf (fn : Function) : Option (Array VarId) :=
   (fn.block? fn.entry).map (·.inputs)
 
-/-- Records that a statement occurs in this function for function-scoped invariants. -/
 def Function.HasStmt (fn : Function) (stmt : Stmt) : Prop :=
   ∃ block ∈ fn.blocks, stmt ∈ block.statements
 
@@ -170,7 +167,6 @@ def Program.block? (program : Program) (cursor : ProgramCursor) : Option BasicBl
 def Program.terminatorOf (program : Program) (cursor : ProgramCursor) : Option Terminator :=
   (program.block? cursor).map (·.terminator)
 
-/-- Records that a statement occurs in the program, providing shared vocabulary for global statement invariants. -/
 def Program.HasStmt (program : Program) (stmt : Stmt) : Prop :=
   ∃ fn ∈ program.functions, fn.HasStmt stmt
 
@@ -178,13 +174,11 @@ def Program.paramsOf (program : Program) (f : FunctionId) : Option (Array VarId)
   let fn ← program.function? f
   fn.paramsOf
 
-/-- Shares the input count and declared return behavior used by call and entry invariants. -/
 def Program.FunctionInputOutputArity (program : Program) (inputCount : Nat)
     (outputCount : Option Nat) (functionId : FunctionId) : Prop :=
   ∃ fn, program.function? functionId = some fn ∧
     fn.paramsOf.map (·.size) = some inputCount ∧ fn.outputs = outputCount
 
-/-- Applies one entry-point condition to deployment and to main when main is declared. -/
 def Program.AtEntries (program : Program) (condition : FunctionId → Prop) : Prop :=
   condition program.initEntry ∧
     ∀ entry, program.mainEntry = some entry → condition entry
