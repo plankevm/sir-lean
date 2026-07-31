@@ -18,19 +18,10 @@ set_option maxRecDepth 8192
 
 /-! ## The `PUSH32` immediate round-trip (`uInt256OfByteArray ∘ BytecodeLayer.Exec.wordBytesBE = id`) -/
 
-/-- `(UInt256.ofNat m).toNat = m % 2^256` — the `toNat`/`ofNat` round-trip, via the limb
-decomposition (`toNat_limbs`) and `omega`. -/
-theorem u256_toNat_ofNat (m : ℕ) : (UInt256.ofNat m).toNat = m % 2 ^ 256 := by
-  rw [UInt256.toNat_limbs]
-  unfold UInt256.ofNat
-  simp only [show ∀ k : ℕ, (UInt32.ofNat k).toNat = k % 2 ^ 32 from fun k => by simp]
-  simp only [Nat.shiftRight_eq_div_pow]
-  omega
-
 /-- `UInt256.ofNat w.toNat = w` (the value round-trips through `toNat`; `w.toNat < 2^256`). -/
 theorem u256_ofNat_toNat (w : Word) : UInt256.ofNat w.toNat = w := by
   apply UInt256.toNat_inj
-  rw [u256_toNat_ofNat]
+  rw [UInt256.toNat_ofNat]
   exact Nat.mod_eq_of_lt (by rw [UInt256.toNat_eq_toBitVec_toNat]; exact (UInt256.toBitVec w).isLt)
 
 /-- `(w >>> s).toNat = w.toNat / 2^s` for a shift `s < 256` (the `BitVec`-backed
@@ -39,7 +30,7 @@ theorem u256_shiftRight_toNat (w : Word) (s : ℕ) (hs : s < 256) :
     (w >>> UInt256.ofNat s).toNat = w.toNat / 2 ^ s := by
   show (UInt256.shiftRight w (UInt256.ofNat s)).toNat = _
   unfold UInt256.shiftRight
-  rw [u256_toNat_ofNat, Nat.mod_eq_of_lt (by calc s < 256 := hs
+  rw [UInt256.toNat_ofNat, Nat.mod_eq_of_lt (by calc s < 256 := hs
                                               _ < 2 ^ 256 := by norm_num)]
   rw [if_neg (by omega), UInt256.toNat_eq_toBitVec_toNat, UInt256.toBitVec_ofBitVec,
     BitVec.toNat_ushiftRight, ← UInt256.toNat_eq_toBitVec_toNat, Nat.shiftRight_eq_div_pow]

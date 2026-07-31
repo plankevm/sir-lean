@@ -1063,7 +1063,7 @@ theorem recorderCoupled_matRunsC {prog : Program} (hdc : DefsConsistent prog)
               -- step 2: MLOAD at `n` (covered ⇒ zero memory expansion)
               have hreal' : (UInt256.ofNat n).toNat + 63 < 2 ^ 64 := by
                 rw [show (UInt256.ofNat n).toNat = n from by
-                  rw [BytecodeLayer.Hoare.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]]
+                  rw [Evm.UInt256.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]]
                 exact hreal
               have hMeq : MachineState.M frp.exec.toMachineState.activeWords
                   (UInt256.ofNat n).toUInt64 32 = frp.exec.toMachineState.activeWords := by

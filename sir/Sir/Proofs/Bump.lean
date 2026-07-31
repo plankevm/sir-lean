@@ -1,5 +1,4 @@
 import Sir.Proofs.Readiness
-import BytecodeLayer.Hoare.MemAlgebra
 
 namespace Sir
 
@@ -38,7 +37,7 @@ theorem isValidNewAlloc_bumpAlloc (m : MemoryState) (size : Nat)
     m.IsValidNewAlloc (m.bumpAlloc size) := by
   have hbound : Evm.UInt256.size = 2 ^ 256 := rfl
   have hstart : (m.bumpAlloc size).start = m.watermark % 2 ^ 256 := by
-    simp [bumpAlloc, Allocation.start, BytecodeLayer.Hoare.MemAlgebra.toNat_ofNat]
+    simp [bumpAlloc, Allocation.start, Evm.UInt256.toNat_ofNat]
   have hend : (m.bumpAlloc size).endExclusive = m.watermark % 2 ^ 256 + size := by
     rw [Allocation.endExclusive, hstart, bumpAlloc_size]
   rw [hbound] at hspace
