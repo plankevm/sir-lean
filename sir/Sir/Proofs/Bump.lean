@@ -1,4 +1,4 @@
-import Sir.Spec.Memory
+import Sir.Proofs.Readiness
 import BytecodeLayer.Hoare.MemAlgebra
 
 namespace Sir
@@ -55,5 +55,31 @@ theorem isValidNewAlloc_bumpAlloc (m : MemoryState) (size : Nat)
       fun a' _ => Or.inl (by rw [hend']; exact Nat.zero_le _)⟩
 
 end MemoryState
+
+variable {program : Program} {ctx : CallContext}
+
+theorem Program.WellFormed.progress_reachable_nonIcall_bump_proof
+    (hwf : program.WellFormed) {function : FunctionId} {globals : Globals}
+    {args : Array Word} {runTrace : Trace} {state : MachineState}
+    (hrun : program.RunsFunction ctx function globals args runTrace state)
+    (hcontrol :
+      (∃ nextControl statement,
+        program.decodeStmt state.control = some (nextControl, statement) ∧
+        ∀ callee callArgs destinations,
+          statement ≠ .icall callee callArgs destinations) ∨
+      ∃ terminator, program.terminatorAt state.control = some terminator)
+    (hspace :
+      ∀ nextControl result size word,
+        program.decodeStmt state.control =
+            some (nextControl, .mallocUninit result size) →
+        state.locals.lookup size = .ok word →
+        state.globals.memory.watermark + word.toNat ≤ Evm.UInt256.size) :
+    ∃ trace state', SmallStep program ctx state trace state' := by
+  refine hwf.progress_reachable_nonIcall_proof hrun hcontrol ?_
+  intro nextControl result size word hdecode hword
+  exact ⟨state.globals.memory.bumpAlloc word.toNat,
+    state.globals.memory.isValidNewAlloc_bumpAlloc word.toNat
+      (hspace nextControl result size word hdecode hword),
+    state.globals.memory.bumpAlloc_size word.toNat⟩
 
 end Sir
