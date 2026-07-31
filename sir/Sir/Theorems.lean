@@ -1,5 +1,6 @@
 import Sir.Proofs.Determinism
 import Sir.Proofs.Readiness
+import Sir.Proofs.Bump
 
 namespace Sir
 
