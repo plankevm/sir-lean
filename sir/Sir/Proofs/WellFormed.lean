@@ -138,7 +138,7 @@ theorem Program.WellFormed.evalFn_arity_proof
         simp only [Option.bind_some]
         rw [← harity, mapM_ok_size houts]
 
-theorem Program.WellFormed.evalFn_entry_not_returned
+theorem Program.WellFormed.evalFn_entry_not_returned_proof
     (hwf : program.WellFormed) {entry : FunctionId} {globals finalGlobals : Globals}
     {values : Array Word} {trace : Trace}
     (hentry : entry = program.initEntry ∨ program.mainEntry = some entry)

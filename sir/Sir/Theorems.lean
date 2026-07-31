@@ -134,6 +134,14 @@ theorem Program.WellFormed.evalFn_arity
     (program.function? f).bind (·.outputs?) = some rs.size :=
   Program.WellFormed.evalFn_arity_proof hwf hrun
 
+theorem Program.WellFormed.evalFn_entry_not_returned
+    (hwf : program.WellFormed) {entry : FunctionId} {globals finalGlobals : Globals}
+    {values : Array Word} {trace : Trace}
+    (hentry : entry = program.initEntry ∨ program.mainEntry = some entry)
+    (hrun : EvalFn program ctx entry globals #[] trace finalGlobals (.returned values)) :
+    False :=
+  Program.WellFormed.evalFn_entry_not_returned_proof hwf hentry hrun
+
 theorem Program.WellFormed.icall_step
     (hwf : program.WellFormed) {s : MachineState} {nextControl : MachineControl}
     {callee : FunctionId} {args dests : Array VarId} {vs rs : Array Word}
