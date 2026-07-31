@@ -274,7 +274,7 @@ theorem memoryExpansionWords?_ofNat_32_of_covered (aw : UInt64) {slot : Nat}
   -- `slot < 2^64 < 2^256`, so `ofNat` does not truncate: `(ofNat slot).toNat = slot`.
   have h256 : (2 : ℕ) ^ 64 ≤ 2 ^ 256 := Nat.pow_le_pow_right (by norm_num) (by norm_num)
   have hofNat : (UInt256.ofNat slot).toNat = slot := by
-    rw [BytecodeLayer.Hoare.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
+    rw [UInt256.toNat_ofNat, Nat.mod_eq_of_lt (by omega)]
   have hreal' : (UInt256.ofNat slot).toNat + 63 < 2 ^ 64 := by rw [hofNat]; exact hreal
   have haddr64 : (UInt256.ofNat slot).toUInt64.toNat = (UInt256.ofNat slot).toNat := by
     rw [BytecodeLayer.Hoare.MemAlgebra.toUInt64_toNat, Nat.mod_eq_of_lt (by omega)]
