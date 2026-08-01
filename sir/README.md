@@ -34,6 +34,8 @@ deterministic witness.
 - [`Sir/Theorems.lean`](Sir/Theorems.lean) — the aggregate exported surface.
 - [`Sir/Examples/`](Sir/Examples/) — well-formedness, (non-)determinism,
   halting-callee, machine-level execution, and memory/allocation witnesses.
+- [`Sir/Text/`](Sir/Text/) — the text format: lexer, parser, printer, and an
+  extractor that emits a parsed program as Lean source.
 - [`Sir/Audit.lean`](Sir/Audit.lean) — build-time audit of the exported
   surface.
 
@@ -41,4 +43,10 @@ deterministic witness.
 
 ```sh
 lake build
+```
+
+Extract a `.sir` file into a Lean module:
+
+```sh
+lake env lean --run SirExtract.lean input.sir Output.lean programName
 ```

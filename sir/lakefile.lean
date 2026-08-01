@@ -11,3 +11,7 @@ package "sir" where
 @[default_target]
 lean_lib «Sir» where
   roots := #[`Sir]
+
+@[default_target]
+lean_lib «SirExtract» where
+  roots := #[`SirExtract]
