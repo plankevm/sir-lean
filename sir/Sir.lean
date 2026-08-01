@@ -15,5 +15,6 @@ import Sir.Text.Parser
 import Sir.Text.Printer
 import Sir.Text.Witness
 import Sir.Text.Extract
+import Sir.Check
 import Sir.Audit
 import Sir.Examples.Machine
