@@ -1,0 +1,93 @@
+import Sir.Generic.Cfg
+import Sir.Generic.Dialogue
+import Sir.Generic.Sir
+import Sir.Proofs.Steps
+
+namespace Sir.Generic
+
+open Sir
+
+theorem sirDecoder_exclusive (program : Program) : (sirDecoder program).Exclusive := by
+  intro env globals control instruction next hdecode
+  cases hstmt : program.decodeStmt control with
+  | none => simp [sirDecoder, sirDecode, hstmt] at hdecode
+  | some decoded =>
+      rcases decoded with ⟨nextControl, stmt⟩
+      have hterm : program.terminatorAt control = none := by
+        cases h : program.terminatorAt control with
+        | none => rfl
+        | some terminator =>
+            exact False.elim (decodeStmt_terminatorAt_exclusive hstmt h)
+      simp [sirDecoder, sirControl, hterm]
+
+theorem sirDecoder_terminal (program : Program) : (sirDecoder program).Terminal := by
+  constructor
+  · intro env globals results
+    simp [sirDecoder, sirDecode, sirControl, Program.decodeStmt, Program.terminatorAt]
+  · intro env globals
+    simp [sirDecoder, sirDecode, sirControl, Program.decodeStmt, Program.terminatorAt]
+
+theorem sirDecoder_noMload {program : Program} (hfree : program.MemOracleFree) :
+    (sirDecoder program).NoMload := by
+  intro control src dst next hdecode
+  cases hstmt : program.decodeStmt control with
+  | none => simp [sirDecoder, sirDecode, hstmt] at hdecode
+  | some decoded =>
+      rcases decoded with ⟨nextControl, stmt⟩
+      have hmem := Program.decodeStmt_mem hstmt
+      cases stmt with
+      | assign result expr =>
+          cases expr <;> simp [sirDecoder, sirDecode, hstmt, decodeSirStmt, decodeExpr] at hdecode
+      | sstore => simp [sirDecoder, sirDecode, hstmt, decodeSirStmt] at hdecode
+      | gas => simp [sirDecoder, sirDecode, hstmt, decodeSirStmt] at hdecode
+      | call => simp [sirDecoder, sirDecode, hstmt, decodeSirStmt] at hdecode
+      | mallocUninit => simp [sirDecoder, sirDecode, hstmt, decodeSirStmt] at hdecode
+      | mstore32 => simp [sirDecoder, sirDecode, hstmt, decodeSirStmt] at hdecode
+      | mload32 => exact hfree _ hmem (by simp [Stmt.isMemOracle])
+      | icall => simp [sirDecoder, sirDecode, hstmt, decodeSirStmt] at hdecode
+
+theorem cfgDecoder_exclusive (program : CfgProgram) : (cfgDecoder program).Exclusive := by
+  intro env globals control instruction next hdecode
+  cases hstatement : program.decodeInstruction control with
+  | none => simp [cfgDecoder, cfgDecode, hstatement] at hdecode
+  | some decoded =>
+      rcases decoded with ⟨nextControl, statement⟩
+      cases statement <;>
+        simp [cfgDecoder, cfgDecode, cfgControl, hstatement] at hdecode ⊢
+
+theorem cfgDecoder_terminal (program : CfgProgram) : (cfgDecoder program).Terminal := by
+  constructor
+  · intro env globals results
+    simp [cfgDecoder, cfgDecode, cfgControl, CfgProgram.decodeInstruction]
+  · intro env globals
+    simp [cfgDecoder, cfgDecode, cfgControl, CfgProgram.decodeInstruction]
+
+theorem sir_steps_confluence_or_queryDivergence
+    {program : Program} {policy : MemoryPolicy} {ctx : CallContext}
+    (hdet : policy.Deterministic) (hfree : program.MemOracleFree)
+    {state final₁ final₂ : GenState localsFrame} {trace₁ trace₂ : Trace}
+    (h₁ : GenSteps localsFrame (sirDecoder program) policy ctx state trace₁ final₁)
+    (h₂ : GenSteps localsFrame (sirDecoder program) policy ctx state trace₂ final₂) :
+    (∃ suffix, GenSteps localsFrame (sirDecoder program) policy ctx final₁ suffix final₂ ∧
+      trace₁ ++ suffix = trace₂) ∨
+    (∃ suffix, GenSteps localsFrame (sirDecoder program) policy ctx final₂ suffix final₁ ∧
+      trace₂ ++ suffix = trace₁) ∨
+    Trace.QueryDivergence trace₁ trace₂ :=
+  GenSteps.confluence_or_queryDivergence hdet (sirDecoder_exclusive program)
+    (sirDecoder_terminal program) (sirDecoder_noMload hfree) h₁ h₂
+
+theorem cfg_steps_confluence_or_queryDivergence
+    {program : CfgProgram} {policy : MemoryPolicy} {ctx : CallContext}
+    (hdet : policy.Deterministic) (hnomload : (cfgDecoder program).NoMload)
+    {state final₁ final₂ : GenState stackFrame} {trace₁ trace₂ : Trace}
+    (h₁ : GenSteps stackFrame (cfgDecoder program) policy ctx state trace₁ final₁)
+    (h₂ : GenSteps stackFrame (cfgDecoder program) policy ctx state trace₂ final₂) :
+    (∃ suffix, GenSteps stackFrame (cfgDecoder program) policy ctx final₁ suffix final₂ ∧
+      trace₁ ++ suffix = trace₂) ∨
+    (∃ suffix, GenSteps stackFrame (cfgDecoder program) policy ctx final₂ suffix final₁ ∧
+      trace₂ ++ suffix = trace₁) ∨
+    Trace.QueryDivergence trace₁ trace₂ :=
+  GenSteps.confluence_or_queryDivergence hdet (cfgDecoder_exclusive program)
+    (cfgDecoder_terminal program) hnomload h₁ h₂
+
+end Sir.Generic

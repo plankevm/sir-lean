@@ -4,3 +4,4 @@ import Sir.Examples.Memory
 import Sir.Examples.HaltedCall
 import Sir.Examples.Jump
 import Sir.Audit
+import Sir.Generic.Examples
