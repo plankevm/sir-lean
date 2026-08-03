@@ -40,6 +40,10 @@ theorem sirWitness_memOracleFree : sirWitnessProgram.MemOracleFree := by
   subst statement
   simp [Stmt.isMemOracle]
 
+theorem sirResume_rejects_arity (env : Locals) (next : MachineControl) :
+    sirResume (.returned #[]) env #[sirWitnessResult] next = none := by
+  simp [sirResume, Locals.bindReturns, Locals.bindValues, Functor.map, Except.map]
+
 theorem sirWitness_step_constant (policy : MemoryPolicy) (ctx : CallContext)
     (globals : Globals) :
     GenStep localsFrame (sirDecoder sirWitnessProgram) policy ctx
