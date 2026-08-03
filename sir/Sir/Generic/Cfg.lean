@@ -110,10 +110,6 @@ def CfgProgram.terminatorAt (program : CfgProgram) (control : MachineControl) :
   let block ← program.block? cursor
   some block.terminator
 
-def CfgProgram.WellFormed (program : CfgProgram) : Prop :=
-  ∀ functionId function, program.function? functionId = some function →
-    ∃ entry, function.block? function.entry = some entry
-
 def cfgDecode (program : CfgProgram) (control : MachineControl) :
     Option (Instr stackFrame × MachineControl) :=
   match program.decodeInstruction control with

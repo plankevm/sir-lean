@@ -89,14 +89,6 @@ def cfgWitnessState (globals : Globals) (stack : List Word) (position : BlockPos
     env := { StackEnv.empty with stack }
     control := .running { fn := cfgWitnessEntry, block := cfgWitnessBlock, position } }
 
-theorem cfgWitness_wellFormed : cfgWitnessProgram.WellFormed := by
-  intro functionId function hfunction
-  rcases functionId with ⟨_ | id⟩
-  · simp [cfgWitnessProgram, CfgProgram.function?] at hfunction
-    subst function
-    exact ⟨_, rfl⟩
-  · simp [cfgWitnessProgram, CfgProgram.function?] at hfunction
-
 theorem cfgWitness_noMload : (cfgDecoder cfgWitnessProgram).NoMload := by
   intro control src dst next hdecode
   cases control with
@@ -122,6 +114,7 @@ theorem cfgWitness_noMload : (cfgDecoder cfgWitnessProgram).NoMload := by
           · simp [cfgDecoder, cfgDecode, CfgProgram.decodeInstruction,
               CfgProgram.block?, CfgProgram.function?, CfgFunction.block?,
               cfgWitnessProgram] at hdecode
+
 theorem cfgWitness_step_constant₂ (policy : MemoryPolicy) (ctx : CallContext)
     (globals : Globals) :
     GenStep stackFrame (cfgDecoder cfgWitnessProgram) policy ctx
