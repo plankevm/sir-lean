@@ -1,8 +1,21 @@
-import Sir.Generic.Machine
+import Sir.Spec.Machine
 
 namespace Sir.Generic
 
 open Sir
+
+namespace Operation
+
+def inputCount : Operation → Nat
+  | .constant _ | .gas => 0
+  | .copy | .sload | .mallocUninit | .mload32 => 1
+  | .add | .lt | .sstore | .call | .mstore32 => 2
+
+def outputCount : Operation → Nat
+  | .sstore | .mstore32 => 0
+  | _ => 1
+
+end Operation
 
 structure StackDestination where
   consume : Nat

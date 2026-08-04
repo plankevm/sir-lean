@@ -1,4 +1,4 @@
-import Sir.Generic.Machine
+import Sir.Spec.Machine
 import Sir.Spec.Observation
 
 namespace Sir.Trace.QueryDivergence
@@ -30,7 +30,21 @@ namespace Sir.Generic
 
 open Sir
 
+namespace MemoryPolicy
+
+def empty : MemoryPolicy where
+  Allows _ _ _ := False
+
+theorem empty_deterministic : empty.Deterministic := by
+  intro _ _ _ _ impossible
+  exact False.elim impossible
+
+end MemoryPolicy
+
 namespace Operation
+
+def Outcome.trace : Outcome → Trace
+  | .next _ _ trace | .halted _ trace => trace
 
 private theorem executeCallInv {ctx : CallContext} {result : CallResult}
     {globals : Globals} {operands : Array Word} {outcome : Outcome}

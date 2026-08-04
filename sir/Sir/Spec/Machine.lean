@@ -15,13 +15,6 @@ def Deterministic (policy : MemoryPolicy) : Prop :=
     policy.Allows memory size allocation₂ →
     allocation₁ = allocation₂
 
-def empty : MemoryPolicy where
-  Allows _ _ _ := False
-
-theorem empty_deterministic : empty.Deterministic := by
-  intro _ _ _ _ impossible
-  exact False.elim impossible
-
 end MemoryPolicy
 
 inductive Operation where
@@ -39,15 +32,6 @@ inductive Operation where
 deriving DecidableEq, Repr
 
 namespace Operation
-
-def inputCount : Operation → Nat
-  | .constant _ | .gas => 0
-  | .copy | .sload | .mallocUninit | .mload32 => 1
-  | .add | .lt | .sstore | .call | .mstore32 => 2
-
-def outputCount : Operation → Nat
-  | .sstore | .mstore32 => 0
-  | _ => 1
 
 def Oracle : Operation → Type
   | .gas => Word
@@ -68,9 +52,6 @@ def Admissible (policy : MemoryPolicy) :
 inductive Outcome where
   | next (results : Array Word) (globals : Globals) (trace : Trace)
   | halted (globals : Globals) (trace : Trace)
-
-def Outcome.trace : Outcome → Trace
-  | .next _ _ trace | .halted _ trace => trace
 
 def execute (ctx : CallContext) :
     (operation : Operation) → operation.Oracle → Globals → Array Word →
