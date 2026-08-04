@@ -943,4 +943,210 @@ theorem SmallStep.returned_inv
           simpa [Program.terminatorAt, hctrl, hpos, hblock] using hterm
         exact ⟨cursor, block, hctrl, hblock, hblockTerm, houtputs⟩
 
+private theorem eval_terminator_preserves_function_gen
+    {cursor : ProgramCursor} {state state' : MachineState} {terminator : Terminator}
+    (hcontrol : state.control = .running cursor)
+    (heval : (eval_terminator program terminator).run state = .ok ((), state')) :
+    state'.control = .halted ∨ (∃ results, state'.control = .returned results) ∨
+      ∃ cursor', state'.control = .running cursor' ∧ cursor'.fn = cursor.fn := by
+  cases terminator with
+  | halt =>
+      have hhalt : (eval_terminator program .halt).run state =
+          .ok ((), { state with control := .halted }) := rfl
+      rw [hhalt] at heval
+      obtain ⟨-, rfl⟩ := Prod.mk.inj (Except.ok.inj heval)
+      exact .inl rfl
+  | jump target =>
+      simp only [eval_terminator] at heval
+      obtain ⟨sourceCursor, targetBlock, hsource, -, hcontrol'⟩ :=
+        eval_jump_control heval
+      obtain rfl := MachineControl.running.inj (hsource.symm.trans hcontrol)
+      exact .inr (.inr ⟨_, hcontrol', rfl⟩)
+  | branch condition thenTarget elseTarget =>
+      simp only [eval_terminator] at heval
+      cases hcondition : state.locals.lookup condition with
+      | error error =>
+          simp only [StateT.run, bind, StateT.bind, Locals.lookupM, liftM, monadLift,
+            MonadLift.monadLift, StateT.get, Except.bind, StateT.lift, pure,
+            Except.pure, hcondition] at heval
+          simp at heval
+      | ok value =>
+          simp only [StateT.run, bind, StateT.bind, Locals.lookupM, liftM, monadLift,
+            MonadLift.monadLift, StateT.get, Except.bind, StateT.lift, pure,
+            Except.pure, hcondition] at heval
+          obtain ⟨sourceCursor, targetBlock, hsource, -, hcontrol'⟩ :=
+            eval_jump_control heval
+          obtain rfl := MachineControl.running.inj (hsource.symm.trans hcontrol)
+          exact .inr (.inr ⟨_, hcontrol', rfl⟩)
+  | iret =>
+      obtain ⟨_, _, results, -, -, -, rfl⟩ := eval_terminator_iret_inv heval
+      exact .inr (.inl ⟨results, rfl⟩)
+
+private theorem eval_terminator_returned_inv_gen
+    {state state' : MachineState} {terminator : Terminator} {results : Array Word}
+    (hterm : program.terminatorAt state.control = some terminator)
+    (heval : (eval_terminator program terminator).run state = .ok ((), state'))
+    (hreturn : state'.control = .returned results) :
+    ∃ cursor block, state.control = .running cursor ∧
+      program.block? cursor = some block ∧ block.terminator = .iret ∧
+      block.outputs.mapM (state.locals.lookup ·) = .ok results := by
+  cases terminator with
+  | halt =>
+      simp only [eval_terminator] at heval
+      obtain rfl := (Prod.mk.inj (Except.ok.inj heval)).2
+      cases hreturn
+  | jump target =>
+      simp only [eval_terminator] at heval
+      obtain ⟨_, _, _, -, hcontrol'⟩ := eval_jump_control heval
+      rw [hcontrol'] at hreturn
+      cases hreturn
+  | branch condition thenTarget elseTarget =>
+      simp only [eval_terminator] at heval
+      cases hcondition : state.locals.lookup condition with
+      | error error =>
+          simp only [StateT.run, bind, StateT.bind, Locals.lookupM, liftM, monadLift,
+            MonadLift.monadLift, StateT.get, Except.bind, StateT.lift, pure,
+            Except.pure, hcondition] at heval
+          simp at heval
+      | ok value =>
+          simp only [StateT.run, bind, StateT.bind, Locals.lookupM, liftM, monadLift,
+            MonadLift.monadLift, StateT.get, Except.bind, StateT.lift, pure,
+            Except.pure, hcondition] at heval
+          obtain ⟨_, _, _, -, hcontrol'⟩ := eval_jump_control heval
+          rw [hcontrol'] at hreturn
+          cases hreturn
+  | iret =>
+      obtain ⟨cursor, block, actual, hcontrol, hblock, houtputs, rfl⟩ :=
+        eval_terminator_iret_inv heval
+      obtain rfl := MachineControl.returned.inj hreturn
+      cases hposition : cursor.position with
+      | statement index => simp [Program.terminatorAt, hcontrol, hposition] at hterm
+      | terminator =>
+          have hblockTerminator : block.terminator = .iret := by
+            simpa [Program.terminatorAt, hcontrol, hposition, hblock] using hterm
+          exact ⟨cursor, block, hcontrol, hblock, hblockTerminator, houtputs⟩
+
+private theorem genStep_preserves_function
+    {cursor : ProgramCursor} {state final : GenState localsFrame} {trace : Trace}
+    (h : GenStep localsFrame (sirDecoder program) sirPolicy ctx state trace final)
+    (hcontrol : state.control = .running cursor) :
+    final.control = .halted ∨ (∃ results, final.control = .returned results) ∨
+      ∃ cursor', final.control = .running cursor' ∧ cursor'.fn = cursor.fn := by
+  cases h with
+  | op hdecode hfires =>
+      change sirDecode program state.control = _ at hdecode
+      obtain ⟨statement, hstatement, -⟩ := sirDecode_inv.mp hdecode
+      obtain ⟨position, hnext⟩ := Program.decodeStmt_next_block hcontrol hstatement
+      exact .inr (.inr ⟨_, hnext, rfl⟩)
+  | opHalted hdecode hfires => exact .inl rfl
+  | icall hdecode hfetch hcallee hresume =>
+      rename_i callee src dst next values globals' outcome env' control'
+      change sirDecode program state.control = _ at hdecode
+      obtain ⟨statement, hstatement, -⟩ := sirDecode_inv.mp hdecode
+      obtain ⟨position, hnext⟩ := Program.decodeStmt_next_block hcontrol hstatement
+      change sirResume outcome state.env dst next = some (env', control') at hresume
+      cases outcome with
+      | returned results =>
+          obtain ⟨-, hcontrol'⟩ := sirResume_returned_eq_some_iff.mp hresume
+          subst control'
+          exact .inr (.inr ⟨_, hnext, rfl⟩)
+      | halted =>
+          obtain ⟨-, hcontrol'⟩ := sirResume_halted_eq_some_iff.mp hresume
+          subst control'
+          exact .inl rfl
+  | control hstep =>
+      change sirControl program state.env state.globals state.control = _ at hstep
+      obtain ⟨terminator, state', -, heval, rfl, rfl, rfl, rfl⟩ :=
+        sirControl_inv.mp hstep
+      exact eval_terminator_preserves_function_gen hcontrol heval
+
+theorem SmallStep.preserves_function_gen
+    {cursor : ProgramCursor} {state final : MachineState} {trace : Trace}
+    (h : GenStep localsFrame (sirDecoder program) sirPolicy ctx
+      state.gen trace final.gen)
+    (hcontrol : state.control = .running cursor) :
+    final.control = .halted ∨ (∃ results, final.control = .returned results) ∨
+      ∃ cursor', final.control = .running cursor' ∧ cursor'.fn = cursor.fn :=
+  genStep_preserves_function h hcontrol
+
+private theorem genSteps_preserves_function
+    {cursor : ProgramCursor} {state final : GenState localsFrame} {trace : Trace}
+    (h : GenSteps localsFrame (sirDecoder program) sirPolicy ctx state trace final)
+    (hcontrol : state.control = .running cursor) :
+    final.control = .halted ∨ (∃ results, final.control = .returned results) ∨
+      ∃ cursor', final.control = .running cursor' ∧ cursor'.fn = cursor.fn := by
+  exact Generic.GenSteps.inductionOn
+    (motive := fun state _ final _ => state.control = .running cursor →
+      final.control = .halted ∨ (∃ results, final.control = .returned results) ∨
+        ∃ cursor', final.control = .running cursor' ∧ cursor'.fn = cursor.fn)
+    (fun _ hcontrol => .inr (.inr ⟨cursor, hcontrol, rfl⟩))
+    (fun _ next ih hcontrol => by
+      rcases ih hcontrol with hhalt | ⟨results, hreturn⟩ | ⟨cursor', hcontrol', hfn⟩
+      · exact absurd next
+          (Generic.stuck_of_halted (Generic.sirDecoder_terminal program) hhalt _ _)
+      · exact absurd next
+          (Generic.stuck_of_returned (Generic.sirDecoder_terminal program) hreturn _ _)
+      · rcases genStep_preserves_function next hcontrol' with
+          hhalt | hreturned | ⟨cursor'', hcontrol'', hfn'⟩
+        · exact .inl hhalt
+        · exact .inr (.inl hreturned)
+        · exact .inr (.inr ⟨cursor'', hcontrol'', hfn'.trans hfn⟩))
+    h hcontrol
+
+theorem Steps.preserves_function_proof_gen
+    {cursor : ProgramCursor} {state final : MachineState} {trace : Trace}
+    (h : GenSteps localsFrame (sirDecoder program) sirPolicy ctx
+      state.gen trace final.gen)
+    (hcontrol : state.control = .running cursor) :
+    final.control = .halted ∨ (∃ results, final.control = .returned results) ∨
+      ∃ cursor', final.control = .running cursor' ∧ cursor'.fn = cursor.fn :=
+  genSteps_preserves_function h hcontrol
+
+private theorem genStep_returned_inv
+    {state final : GenState localsFrame} {trace : Trace} {results : Array Word}
+    (h : GenStep localsFrame (sirDecoder program) sirPolicy ctx state trace final)
+    (hreturn : final.control = .returned results) :
+    ∃ cursor block, state.control = .running cursor ∧
+      program.block? cursor = some block ∧ block.terminator = .iret ∧
+      block.outputs.mapM (state.env.lookup ·) = .ok results := by
+  cases h with
+  | op hdecode hfires =>
+      change sirDecode program state.control = _ at hdecode
+      obtain ⟨statement, hstatement, -⟩ := sirDecode_inv.mp hdecode
+      obtain ⟨cursor, hnext⟩ := Program.decodeStmt_next_running hstatement
+      rw [hnext] at hreturn
+      cases hreturn
+  | opHalted hdecode hfires => cases hreturn
+  | icall hdecode hfetch hcallee hresume =>
+      rename_i callee src dst next values globals' outcome env' control'
+      change sirDecode program state.control = _ at hdecode
+      obtain ⟨statement, hstatement, -⟩ := sirDecode_inv.mp hdecode
+      obtain ⟨cursor, hnext⟩ := Program.decodeStmt_next_running hstatement
+      change sirResume outcome state.env dst next = some (env', control') at hresume
+      cases outcome with
+      | returned actual =>
+          obtain ⟨-, hcontrol'⟩ := sirResume_returned_eq_some_iff.mp hresume
+          subst control'
+          rw [hnext] at hreturn
+          cases hreturn
+      | halted =>
+          obtain ⟨-, hcontrol'⟩ := sirResume_halted_eq_some_iff.mp hresume
+          subst control'
+          cases hreturn
+  | control hstep =>
+      change sirControl program state.env state.globals state.control = _ at hstep
+      obtain ⟨terminator, state', hterm, heval, rfl, rfl, rfl, rfl⟩ :=
+        sirControl_inv.mp hstep
+      exact eval_terminator_returned_inv_gen hterm heval hreturn
+
+theorem SmallStep.returned_inv_gen
+    {state final : MachineState} {trace : Trace} {results : Array Word}
+    (h : GenStep localsFrame (sirDecoder program) sirPolicy ctx
+      state.gen trace final.gen)
+    (hreturn : final.control = .returned results) :
+    ∃ cursor block, state.control = .running cursor ∧
+      program.block? cursor = some block ∧ block.terminator = .iret ∧
+      block.outputs.mapM (state.locals.lookup ·) = .ok results :=
+  genStep_returned_inv h hreturn
+
 end Sir
