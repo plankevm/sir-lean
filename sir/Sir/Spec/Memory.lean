@@ -51,6 +51,7 @@ instance (m : MemoryState) (a : Allocation) : Decidable (m.IsValidNewAlloc a) :=
 def watermark (m : MemoryState) : Nat :=
   m.provisioned.foldl (fun watermark allocation => max watermark allocation.endExclusive) 0
 
+/-- Watermark placement makes the next region canonical without adding allocator state to memory. -/
 def bumpAllocation (m : MemoryState) (size : Nat) : Allocation :=
   { offset := .ofNat m.watermark, size }
 

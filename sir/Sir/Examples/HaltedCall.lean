@@ -89,8 +89,8 @@ theorem haltedCallProgram_wellFormed : haltedCallProgram.WellFormed := by
         simp at hstatement
       · simp [Terminator.variablesRead]
 
-private theorem haltedCall_evalCallee (ctx : CallContext) (world : World) :
-    Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder haltedCallProgram) Generic.MemoryPolicy.permissive ctx
+private theorem haltedCall_evalCallee (policy : Generic.MemoryPolicy) (ctx : CallContext) (world : World) :
+    Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder haltedCallProgram) policy ctx
       haltedCallCallee { world := world } #[] [] ({ world := world } : Globals) .halted := by
   let initial : MachineState :=
     { globals := { world := world }
@@ -104,12 +104,12 @@ private theorem haltedCall_evalCallee (ctx : CallContext) (world : World) :
     simp only [Locals.bindParams, Locals.bindValues, ← Array.forIn_toList,
       Array.toList_zip]
     rfl
-  have hstep : Generic.GenericStep localOperandFrame (sirDecoder haltedCallProgram) Generic.MemoryPolicy.permissive ctx
+  have hstep : Generic.GenericStep localOperandFrame (sirDecoder haltedCallProgram) policy ctx
       initial.toGenericState [] final.toGenericState := step_terminator rfl rfl
   exact EvalFn.halted hentry (Generic.GenericSteps.single hstep) rfl
 
-private theorem haltedCallProgram_eval (ctx : CallContext) (world : World) :
-    Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder haltedCallProgram) Generic.MemoryPolicy.permissive ctx
+private theorem haltedCallProgram_eval (policy : Generic.MemoryPolicy) (ctx : CallContext) (world : World) :
+    Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder haltedCallProgram) policy ctx
       haltedCallCaller { world := world } #[] [] ({ world := world } : Globals) .halted := by
   let initial : MachineState :=
     { globals := { world := world }
@@ -126,14 +126,14 @@ private theorem haltedCallProgram_eval (ctx : CallContext) (world : World) :
   have hargs : (#[] : Array VarId).mapM (initial.locals.lookup ·) = .ok #[] := by
     rw [Array.mapM_eq_mapM_toList]
     rfl
-  have hstep : Generic.GenericStep localOperandFrame (sirDecoder haltedCallProgram) Generic.MemoryPolicy.permissive ctx
+  have hstep : Generic.GenericStep localOperandFrame (sirDecoder haltedCallProgram) policy ctx
       initial.toGenericState [] final.toGenericState :=
-    step_icallHalted rfl hargs (haltedCall_evalCallee ctx world)
+    step_icallHalted rfl hargs (haltedCall_evalCallee policy ctx world)
   exact EvalFn.halted hentry (Generic.GenericSteps.single hstep) rfl
 
-theorem haltedCallProgram_runs (ctx : CallContext) (world : World) :
-    EvalFn haltedCallProgram Generic.MemoryPolicy.permissive ctx haltedCallProgram.initEntry { world := world } #[] []
+theorem haltedCallProgram_runs (policy : Generic.MemoryPolicy) (ctx : CallContext) (world : World) :
+    EvalFn haltedCallProgram policy ctx haltedCallProgram.initEntry { world := world } #[] []
       ({ world := world } : Globals) .halted := by
-  simpa [haltedCallProgram] using haltedCallProgram_eval ctx world
+  simpa [haltedCallProgram] using haltedCallProgram_eval policy ctx world
 
 end Sir.Examples

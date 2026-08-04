@@ -83,7 +83,7 @@ def Stmt.isAllocation : Stmt → Prop
 def Program.AllocationFree (p : Program) : Prop :=
   ∀ s, p.HasStmt s → ¬ s.isAllocation
 
-/-- Allocation cannot introduce nondeterminism when the policy admits one choice per request or
+/-- Allocation cannot introduce nondeterminism when the policy allows one choice per request or
 the program never allocates. -/
 def Program.AllocationDeterministic (program : Program)
     (policy : Generic.MemoryPolicy) : Prop :=

@@ -295,6 +295,13 @@ private theorem initialized_halted_world {ctx : CallContext} {world : World}
 private def zeroAlloc (offset : Word) : Allocation :=
   { offset, size := 0 }
 
+private theorem zeroAlloc_valid (offset : Word) :
+    MemoryState.empty.IsValidNewAlloc (zeroAlloc offset) := by
+  constructor
+  · change offset.toBitVec.toNat ≤ 2 ^ 256
+    exact offset.toBitVec.isLt.le
+  · simp [MemoryState.empty]
+
 private def zeroState0 (world : World) : MachineState :=
   { globals := { world }, control := stmtControl 0 }
 
@@ -328,8 +335,10 @@ private theorem zero_entry (world : World) :
     Array.toList_zip]
   rfl
 
-private theorem zero_steps (ctx : CallContext) (world : World) (offset : Word) :
-    Generic.GenericSteps localOperandFrame (sirDecoder zeroSizeStore) Generic.MemoryPolicy.permissive ctx
+private theorem zero_steps (policy : Generic.MemoryPolicy) (ctx : CallContext)
+    (world : World) (offset : Word)
+    (hallows : policy.Allows MemoryState.empty 0 (zeroAlloc offset)) :
+    Generic.GenericSteps localOperandFrame (sirDecoder zeroSizeStore) policy ctx
       (zeroState0 world).toGenericState [] (zeroState4 ctx world offset).toGenericState := by
   have hfetchEmpty : (#[] : Array VarId).mapM ((zeroState0 world).locals.lookup ·) =
       .ok #[] := by
@@ -340,7 +349,7 @@ private theorem zero_steps (ctx : CallContext) (world : World) (offset : Word) :
     simp only [zeroState0, zeroState1, Locals.bindValues, ← Array.forIn_toList,
       Array.toList_zip]
     rfl
-  have step01 : Generic.GenericStep localOperandFrame (sirDecoder zeroSizeStore) Generic.MemoryPolicy.permissive ctx
+  have step01 : Generic.GenericStep localOperandFrame (sirDecoder zeroSizeStore) policy ctx
       (zeroState0 world).toGenericState [] (zeroState1 world).toGenericState := by
     apply step_assign (program := zeroSizeStore) (ctx := ctx)
       (result := sizeVar) (expr := .constant 0)
@@ -357,22 +366,19 @@ private theorem zero_steps (ctx : CallContext) (world : World) (offset : Word) :
     simp only [zeroState1, zeroState2, Locals.bindValues, ← Array.forIn_toList,
       Array.toList_zip]
     rfl
-  have hvalid : (zeroState1 world).globals.memory.IsValidNewAlloc (zeroAlloc offset) := by
-    constructor
-    · change offset.toBitVec.toNat ≤ 2 ^ 256
-      exact offset.toBitVec.isLt.le
-    · simp [zeroState1, MemoryState.empty]
+  have hvalid : (zeroState1 world).globals.memory.IsValidNewAlloc (zeroAlloc offset) :=
+    zeroAlloc_valid offset
   have hsize : (zeroAlloc offset).size = (0 : Word).toNat := by
     change 0 = (0 : Word).toNat
     decide
-  have step12 : Generic.GenericStep localOperandFrame (sirDecoder zeroSizeStore) Generic.MemoryPolicy.permissive ctx
+  have step12 : Generic.GenericStep localOperandFrame (sirDecoder zeroSizeStore) policy ctx
       (zeroState1 world).toGenericState [] (zeroState2 world offset).toGenericState := by
     apply step_mallocUninit (program := zeroSizeStore) (ctx := ctx)
       (result := xVar) (size := sizeVar)
       (by simp [zeroSizeStore, Program.decodeStmt, Program.block?, Program.function?,
         Function.block?, BasicBlock.absoluteToPosition, zeroState1, stmtControl])
     simp only [decodeSirStatement, Generic.Instruction.Fires]
-    exact fires_of hfetchSize ⟨0, rfl, ⟨hvalid, hsize⟩, hvalid, hsize⟩
+    exact fires_of hfetchSize ⟨0, rfl, hallows, hvalid, hsize⟩
       (Generic.Operation.execute_malloc_ok ctx (zeroAlloc offset)
         (zeroState1 world).globals 0 hsize) hstoreOffset
   have hfetchOffset : #[xVar, xVar].mapM ((zeroState2 world offset).locals.lookup ·) =
@@ -383,7 +389,7 @@ private theorem zero_steps (ctx : CallContext) (world : World) (offset : Word) :
       .ok (zeroState2 world offset).locals := by
     simp only [Locals.bindValues, ← Array.forIn_toList, Array.toList_zip]
     rfl
-  have step23 : Generic.GenericStep localOperandFrame (sirDecoder zeroSizeStore) Generic.MemoryPolicy.permissive ctx
+  have step23 : Generic.GenericStep localOperandFrame (sirDecoder zeroSizeStore) policy ctx
       (zeroState2 world offset).toGenericState [] (zeroState3 ctx world offset).toGenericState := by
     apply step_sstore (program := zeroSizeStore) (ctx := ctx)
       (key := xVar) (value := xVar)
@@ -393,7 +399,7 @@ private theorem zero_steps (ctx : CallContext) (world : World) (offset : Word) :
     exact fires_of hfetchOffset (by trivial)
       (Generic.Operation.execute_sstore_ok ctx offset offset (zeroState2 world offset).globals)
       hstoreEmpty
-  have step34 : Generic.GenericStep localOperandFrame (sirDecoder zeroSizeStore) Generic.MemoryPolicy.permissive ctx
+  have step34 : Generic.GenericStep localOperandFrame (sirDecoder zeroSizeStore) policy ctx
       (zeroState3 ctx world offset).toGenericState [] (zeroState4 ctx world offset).toGenericState :=
     step_terminator (terminator := .halt)
       (by simp [zeroSizeStore, Program.terminatorAt, Program.block?, Program.function?,
@@ -401,13 +407,25 @@ private theorem zero_steps (ctx : CallContext) (world : World) (offset : Word) :
       (by simp [eval_terminator, zeroState3, zeroState4, pure, Except.pure])
   exact .tail (.tail (.tail (.tail .refl step01) step12) step23) step34
 
-private theorem zero_eval (ctx : CallContext) (world : World) (offset : Word) :
-    Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder zeroSizeStore) Generic.MemoryPolicy.permissive ctx
+private theorem zero_eval (policy : Generic.MemoryPolicy) (ctx : CallContext)
+    (world : World) (offset : Word)
+    (hallows : policy.Allows MemoryState.empty 0 (zeroAlloc offset)) :
+    Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder zeroSizeStore) policy ctx
       entryFunction { world := world } #[] [] (zeroState4 ctx world offset).globals .halted :=
-  EvalFn.halted (zero_entry world) (zero_steps ctx world offset) rfl
+  EvalFn.halted (zero_entry world) (zero_steps policy ctx world offset hallows) rfl
 
-private def zeroContext : CallContext :=
+def zeroContext : CallContext :=
   { self := 0, caller := 0, value := 0, calldata := ByteArray.empty, isStatic := false }
+
+private theorem permissive_allows_zero (offset : Word) :
+    Generic.MemoryPolicy.permissive.Allows MemoryState.empty 0 (zeroAlloc offset) :=
+  ⟨zeroAlloc_valid offset, rfl⟩
+
+private theorem bump_allows_zero :
+    Generic.MemoryPolicy.bump.Allows MemoryState.empty 0 (zeroAlloc 0) := by
+  constructor
+  · decide
+  · rfl
 
 private theorem zero_worlds_differ :
     (default : World).storeStorage zeroContext.self 1 1 ≠
@@ -574,17 +592,34 @@ theorem bareLoad_allocationFree : bareLoad.AllocationFree := by
   simp [Program.HasStmt, Function.HasStmt, bareLoad] at hstatement
   rcases hstatement with rfl | rfl | rfl <;> simp [Stmt.isAllocation]
 
-theorem bareLoad_deterministic : bareLoad.Deterministic Generic.MemoryPolicy.permissive :=
+theorem bareLoad_deterministic (policy : Generic.MemoryPolicy) :
+    bareLoad.Deterministic policy :=
   Program.deterministic_of_allocationDeterministic (.inr bareLoad_allocationFree)
+
+theorem zeroSizeStore_deterministic_bump :
+    zeroSizeStore.Deterministic Generic.MemoryPolicy.bump :=
+  Program.deterministic_of_allocationDeterministic
+    (.inl Generic.MemoryPolicy.bump_deterministic)
+
+theorem zeroSizeStore_runs_bump (world : World) :
+    EvalFn zeroSizeStore Generic.MemoryPolicy.bump zeroContext entryFunction
+      { world } #[] []
+      { world := world.storeStorage zeroContext.self 0 0,
+        memory := MemoryState.empty.push { offset := 0, size := 0 } }
+      .halted := by
+  simpa [zeroState4, zeroState3, zeroState2, zeroAlloc] using
+    zero_eval Generic.MemoryPolicy.bump zeroContext world 0 bump_allows_zero
 
 theorem zeroSizeStore_not_deterministic : ¬ zeroSizeStore.Deterministic Generic.MemoryPolicy.permissive := by
   intro hdet
   have eval₁ : EvalFn zeroSizeStore Generic.MemoryPolicy.permissive zeroContext entryFunction
       { world := default } #[] [] (zeroState4 zeroContext default 1).globals .halted :=
-    zero_eval zeroContext default 1
+    zero_eval Generic.MemoryPolicy.permissive zeroContext default 1
+      (permissive_allows_zero 1)
   have eval₂ : EvalFn zeroSizeStore Generic.MemoryPolicy.permissive zeroContext entryFunction
       { world := default } #[] [] (zeroState4 zeroContext default 2).globals .halted :=
-    zero_eval zeroContext default 2
+    zero_eval Generic.MemoryPolicy.permissive zeroContext default 2
+      (permissive_allows_zero 2)
   have heq := (hdet zeroContext (default : World)).1 []
     (.halt ((default : World).storeStorage zeroContext.self 1 1))
     (.halt ((default : World).storeStorage zeroContext.self 2 2))
