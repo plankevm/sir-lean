@@ -132,7 +132,8 @@ private theorem haltedCallProgram_eval (ctx : CallContext) (world : World) :
   exact EvalFn.halted hentry (Generic.GenSteps.single hstep) rfl
 
 theorem haltedCallProgram_runs (ctx : CallContext) (world : World) :
-    haltedCallProgram.RunsInit ctx world [] ({ world := world } : Globals) :=
-  haltedCallProgram_eval ctx world
+    EvalFn haltedCallProgram ctx haltedCallProgram.initEntry { world := world } #[] []
+      ({ world := world } : Globals) .halted := by
+  simpa [haltedCallProgram] using haltedCallProgram_eval ctx world
 
 end Sir.Examples

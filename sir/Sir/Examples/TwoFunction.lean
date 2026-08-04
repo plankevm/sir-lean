@@ -232,7 +232,8 @@ private theorem witnessAddProgram_eval (ctx : CallContext) (w : World) :
     (.tail (.tail (.tail (Generic.GenSteps.single hstep₁) hstep₂) hstep₃) hstep₄) rfl
 
 theorem witnessAddProgram_runs (ctx : CallContext) (w : World) :
-    witnessAddProgram.RunsInit ctx w [] ({ world := w } : Globals) :=
-  witnessAddProgram_eval ctx w
+    EvalFn witnessAddProgram ctx witnessAddProgram.initEntry { world := w } #[] []
+      ({ world := w } : Globals) .halted := by
+  simpa [witnessAddProgram] using witnessAddProgram_eval ctx w
 
 end Sir

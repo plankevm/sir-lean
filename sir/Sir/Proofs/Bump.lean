@@ -4,6 +4,9 @@ namespace Sir
 
 namespace MemoryState
 
+def bumpAlloc (m : MemoryState) (size : Nat) : Allocation :=
+  { offset := .ofNat m.watermark, bytes := ByteArray.mk (Array.replicate size 0) }
+
 private theorem le_foldl_max (l : List Allocation) (init : Nat) :
     init ≤ l.foldl (fun watermark allocation => max watermark allocation.endExclusive) init := by
   induction l generalizing init with

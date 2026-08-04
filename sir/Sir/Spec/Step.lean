@@ -3,65 +3,6 @@ import Sir.Spec.Machine
 
 namespace Sir
 
-def Expr.eval (ctx : CallContext) (state : MachineState) : Expr → Except IRError Word
-  | Expr.constant value => .ok value
-  | Expr.var id => state.locals.lookup id
-  | Expr.add lhs rhs => do
-      let lhsValue ← state.locals.lookup lhs
-      let rhsValue ← state.locals.lookup rhs
-      return Evm.UInt256.add lhsValue rhsValue
-  | Expr.lt lhs rhs => do
-      let lhsValue ← state.locals.lookup lhs
-      let rhsValue ← state.locals.lookup rhs
-      return Evm.UInt256.lt lhsValue rhsValue
-  | Expr.sload key => do
-      let keyValue ← state.locals.lookup key
-      return state.globals.world.loadStorage ctx.self keyValue
-
-def eval_assign (ctx : CallContext) (s : MachineState) (result : VarId) (expr : Expr) :
-    Except IRError MachineState := do
-  let value ← Expr.eval ctx s expr
-  .ok { s with locals := s.locals.assign result value }
-
-def eval_sstore (ctx : CallContext) (s : MachineState) (key value : VarId) :
-    Except IRError MachineState := do
-  let keyValue ← s.locals.lookup key
-  let valueValue ← s.locals.lookup value
-  return { s with globals :=
-    { s.globals with world := s.globals.world.storeStorage ctx.self keyValue valueValue } }
-
-def eval_gas (result : VarId) (gas : Word) : MachineStateM Unit := do
-  Locals.assignM result gas
-
-def eval_call (call : Call) (result : CallResult) : MachineStateM CallRecord := fun s => do
-  let callee ← s.locals.lookup call.callee
-  let gas ← s.locals.lookup call.gas
-  let input : CallInput := { target := .ofUInt256 callee, gas := gas, world := s.globals.world }
-  let state' := { s with
-    locals := s.locals.assign call.result (Evm.UInt256.fromBool result.success)
-    globals := { s.globals with returnData := result.output, world := result.world' } }
-  .ok ({ input, result }, state')
-
-def eval_malloc_uninit (alloc : Allocation) (result size : VarId) : MachineStateM Unit := do
-  let size ← Locals.lookupM size
-  if alloc.size ≠ size.toNat then
-    throw .invalidAlloc
-  Locals.assignM result alloc.offset
-  modify (fun s => { s with globals := { s.globals with memory := s.globals.memory.push alloc } })
-
-def eval_mstore32 (offset value : VarId) : MachineStateM Unit := do
-  let offset ← Locals.lookupM offset
-  let value ← Locals.lookupM value
-  modify (fun s =>
-    { s with globals :=
-      { s.globals with memory := s.globals.memory.writeBytes offset value.toByteArray } })
-
-def eval_mload32 (assumed : ByteArray) (result offset : VarId) : MachineStateM Unit := do
-  let offset ← Locals.lookupM offset
-  let state ← get
-  let bytes := state.globals.memory.readBytes offset assumed
-  Locals.assignM result (.ofNat <| Evm.fromByteArrayBigEndian bytes)
-
 def eval_jump (program : Program) (target : BlockId) : MachineStateM Unit := do
   let .running cursor := (← get).control | throw .invalidControl
   let source := cursor.block

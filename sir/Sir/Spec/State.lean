@@ -51,8 +51,6 @@ def lookupM (var : VarId) : StateT Locals (Except IRError) Word := StateT.get >>
 def assign (locals : Locals) (var : VarId) (value : Word) : Locals :=
   ⟨fun candidate => if candidate = var then some value else locals.values candidate⟩
 
-def assignM (var : VarId) (value : Word) : StateM Locals Unit := modify (·.assign var value)
-
 def bindValues (dst : Locals) (targetVars : Array VarId) (vs : Array Word) :
     Except IRError Locals := do
   if targetVars.size != vs.size then
