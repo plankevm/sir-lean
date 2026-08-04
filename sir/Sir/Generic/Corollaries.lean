@@ -26,7 +26,7 @@ theorem sirDecoder_terminal (program : Program) : (sirDecoder program).Terminal 
   · intro env globals
     simp [sirDecoder, sirDecode, sirControl, Program.decodeStmt, Program.terminatorAt]
 
-theorem sirDecoder_noMalloc {program : Program} (hfree : program.MemOracleFree) :
+theorem sirDecoder_noMalloc {program : Program} (hfree : program.AllocationFree) :
     (sirDecoder program).NoMalloc := by
   intro control src dst next hdecode
   cases hstmt : program.decodeStmt control with
@@ -40,7 +40,7 @@ theorem sirDecoder_noMalloc {program : Program} (hfree : program.MemOracleFree) 
       | sstore => simp [sirDecoder, sirDecode, hstmt, decodeSirStatement] at hdecode
       | gas => simp [sirDecoder, sirDecode, hstmt, decodeSirStatement] at hdecode
       | call => simp [sirDecoder, sirDecode, hstmt, decodeSirStatement] at hdecode
-      | mallocUninit => exact hfree _ hmem (by simp [Stmt.isMemOracle])
+      | mallocUninit => exact hfree _ hmem (by simp [Stmt.isAllocation])
       | mstore32 => simp [sirDecoder, sirDecode, hstmt, decodeSirStatement] at hdecode
       | mload32 => simp [sirDecoder, sirDecode, hstmt, decodeSirStatement] at hdecode
       | icall => simp [sirDecoder, sirDecode, hstmt, decodeSirStatement] at hdecode

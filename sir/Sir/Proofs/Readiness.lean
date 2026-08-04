@@ -474,7 +474,7 @@ private theorem Program.WellFormed.localsCoverCursor_genStep
     (hwf : program.WellFormed) {state final : Generic.GenericState localOperandFrame}
     {trace : Trace}
     (hinvariant : state.toMachine.LocalsCoverCursor program)
-    (hstep : Generic.GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+    (hstep : Generic.GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
       state trace final) :
     final.toMachine.LocalsCoverCursor program := by
   cases hstep with
@@ -529,7 +529,7 @@ private theorem Program.WellFormed.localsCoverCursor_genStep
 theorem Program.WellFormed.localsCoverCursor_step
     (hwf : program.WellFormed) {state final : MachineState} {trace : Trace}
     (hinvariant : state.LocalsCoverCursor program)
-    (hstep : Generic.GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+    (hstep : Generic.GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
       state.toGenericState trace final.toGenericState) :
     final.LocalsCoverCursor program :=
   hwf.localsCoverCursor_genStep (state := state.toGenericState) (final := final.toGenericState)
@@ -539,7 +539,7 @@ private theorem Program.WellFormed.localsCoverCursor_genSteps
     (hwf : program.WellFormed) {initial final : Generic.GenericState localOperandFrame}
     {trace : Trace}
     (hinitial : initial.toMachine.LocalsCoverCursor program)
-    (hsteps : Generic.GenericSteps localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+    (hsteps : Generic.GenericSteps localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
       initial trace final) :
     final.toMachine.LocalsCoverCursor program := by
   exact Generic.GenericSteps.inductionOn
@@ -554,7 +554,7 @@ private theorem Program.WellFormed.localsCoverCursor_genSteps
 theorem Program.WellFormed.localsCoverCursor_steps
     (hwf : program.WellFormed) {initial final : MachineState} {trace : Trace}
     (hinitial : initial.LocalsCoverCursor program)
-    (hsteps : Generic.GenericSteps localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+    (hsteps : Generic.GenericSteps localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
       initial.toGenericState trace final.toGenericState) :
     final.LocalsCoverCursor program :=
   hwf.localsCoverCursor_genSteps (initial := initial.toGenericState) (final := final.toGenericState)

@@ -84,7 +84,7 @@ theorem progress_stmt_proof
     (hdecode : program.decodeStmt state.control = some (next, statement))
     (hready : state.StmtReady statement) :
     ∃ (trace : Trace) (final : MachineState),
-      Generic.GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+      Generic.GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
       state.toGenericState trace final.toGenericState := by
   cases statement with
   | assign result expr =>
@@ -261,7 +261,7 @@ theorem progress_terminator_proof
     (hsource : program.block? cursor = some source)
     (hready : program.TerminatorReady cursor.fn state source) :
     ∃ (final : MachineState),
-      Generic.GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+      Generic.GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
       state.toGenericState [] final.toGenericState := by
   have hterm : program.terminatorAt state.control = some source.terminator := by
     simp [Program.terminatorAt, hcontrol, hposition, hsource]

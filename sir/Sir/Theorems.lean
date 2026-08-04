@@ -7,38 +7,38 @@ namespace Sir
 variable {program : Program} {ctx : CallContext}
 
 theorem Program.deterministic_of_memOracleFree
-    (hfree : program.MemOracleFree) : program.Deterministic :=
+    (hfree : program.AllocationFree) : program.Deterministic :=
   Program.deterministic_of_memOracleFree_proof hfree
 
 theorem Program.functionDeterministic_of_memOracleFree
-    (hfree : program.MemOracleFree) (function : FunctionId) :
+    (hfree : program.AllocationFree) (function : FunctionId) :
     program.FunctionDeterministic function :=
   Program.functionDeterministic_of_memOracleFree_proof hfree function
 
 theorem Program.functionDeterministicFrom_of_memOracleFree
-    (hfree : program.MemOracleFree) (ctx : CallContext) (function : FunctionId)
+    (hfree : program.AllocationFree) (ctx : CallContext) (function : FunctionId)
     (globals : Globals) (args : Array Word) :
     program.FunctionDeterministicFrom ctx function globals args :=
   Program.functionDeterministicFrom_of_memOracleFree_proof
     hfree ctx function globals args
 
-theorem Program.MemOracleFree.deterministicFrom
-    (hfree : program.MemOracleFree) (ctx : CallContext)
+theorem Program.AllocationFree.deterministicFrom
+    (hfree : program.AllocationFree) (ctx : CallContext)
     (entry : FunctionId) (world₀ : World) :
     program.DeterministicFrom ctx entry world₀ :=
-  Program.MemOracleFree.deterministicFrom_proof hfree ctx entry world₀
+  Program.AllocationFree.deterministicFrom_proof hfree ctx entry world₀
 
 theorem Program.RunsTo.unique_or_queryDivergence
     {entry : FunctionId} {world₀ : World}
     {t₁ t₂ : Trace} {final₁ final₂ : MachineState}
-    (hfree : program.MemOracleFree)
+    (hfree : program.AllocationFree)
     (h₁ : program.RunsTo ctx entry world₀ t₁ final₁)
     (h₂ : program.RunsTo ctx entry world₀ t₂ final₂) :
     (t₁ = t₂ ∧ final₁ = final₂) ∨ Trace.QueryDivergence t₁ t₂ :=
   Program.RunsTo.unique_or_queryDivergence_proof hfree h₁ h₂
 
 theorem Program.RunsTo.trace_det
-    (hfree : program.MemOracleFree)
+    (hfree : program.AllocationFree)
     {entry : FunctionId} {world₀ : World} {t : Trace}
     {final₁ final₂ : MachineState}
     (h₁ : program.RunsTo ctx entry world₀ t final₁)
@@ -46,7 +46,7 @@ theorem Program.RunsTo.trace_det
   Program.RunsTo.trace_det_proof hfree h₁ h₂
 
 theorem Steps.confluence_or_queryDivergence
-    (hfree : program.MemOracleFree)
+    (hfree : program.AllocationFree)
     {s e₁ e₂ : MachineState} {t₁ t₂ : Trace}
     (h₁ : Steps program ctx s t₁ e₁) (h₂ : Steps program ctx s t₂ e₂) :
     (∃ u, Steps program ctx e₁ u e₂ ∧ t₁ ++ u = t₂) ∨
@@ -55,7 +55,7 @@ theorem Steps.confluence_or_queryDivergence
   Steps.confluence_or_queryDivergence_proof hfree h₁ h₂
 
 theorem Steps.prefix_confluence
-    (hfree : program.MemOracleFree)
+    (hfree : program.AllocationFree)
     {s e₁ e₂ : MachineState} {t₁ t₂ r₁ r₂ : Trace}
     (h₁ : Steps program ctx s t₁ e₁)
     (h₂ : Steps program ctx s t₂ e₂)
@@ -65,7 +65,7 @@ theorem Steps.prefix_confluence
   Steps.prefix_confluence_proof hfree h₁ h₂ htr
 
 theorem SmallStep.prefix_det
-    (hfree : program.MemOracleFree)
+    (hfree : program.AllocationFree)
     {s s₁ s₂ : MachineState} {t₁ t₂ r₁ r₂ : Trace}
     (h₁ : SmallStep program ctx s t₁ s₁)
     (h₂ : SmallStep program ctx s t₂ s₂)
@@ -73,14 +73,14 @@ theorem SmallStep.prefix_det
   SmallStep.prefix_det_proof hfree h₁ h₂ htr
 
 theorem SmallStep.trace_det
-    (hfree : program.MemOracleFree)
+    (hfree : program.AllocationFree)
     {s s₁ s₂ : MachineState} {t : Trace}
     (h₁ : SmallStep program ctx s t s₁)
     (h₂ : SmallStep program ctx s t s₂) : s₁ = s₂ :=
   SmallStep.trace_det_proof hfree h₁ h₂
 
 theorem EvalFn.prefix_det
-    (hfree : program.MemOracleFree)
+    (hfree : program.AllocationFree)
     {f : FunctionId} {g g₁ g₂ : Globals} {args : Array Word}
     {outcome₁ outcome₂ : FunctionOutcome}
     {t₁ t₂ r₁ r₂ : Trace}
@@ -91,7 +91,7 @@ theorem EvalFn.prefix_det
   EvalFn.prefix_det_proof hfree h₁ h₂ htr
 
 theorem EvalFn.trace_det
-    (hfree : program.MemOracleFree)
+    (hfree : program.AllocationFree)
     {f : FunctionId} {g g₁ g₂ : Globals} {args : Array Word}
     {outcome₁ outcome₂ : FunctionOutcome} {t : Trace}
     (h₁ : EvalFn program ctx f g args t g₁ outcome₁)

@@ -72,12 +72,12 @@ def Program.Deterministic (program : Program) : Prop :=
   ∀ ctx world₀,
     program.AtEntries (fun entry => program.DeterministicFrom ctx entry world₀)
 
-def Stmt.isMemOracle : Stmt → Prop
+def Stmt.isAllocation : Stmt → Prop
   | .mallocUninit _ _ => True
   | _ => False
 
-def Program.MemOracleFree (p : Program) : Prop :=
-  ∀ s, p.HasStmt s → ¬ s.isMemOracle
+def Program.AllocationFree (p : Program) : Prop :=
+  ∀ s, p.HasStmt s → ¬ s.isAllocation
 
 def Trace.QueryDivergence (t₁ t₂ : Trace) : Prop :=
   ∃ pre a r₁ b r₂,

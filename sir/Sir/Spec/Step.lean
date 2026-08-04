@@ -26,13 +26,6 @@ def eval_terminator (program : Program) : Terminator → MachineStateM Unit
       let rs ← liftM (block.outputs.mapM state.locals.lookup)
       modify ({ · with control := .returned rs })
 
-open Generic in
-/-- The SIR memory policy preserves allocation as an explicit semantic choice while requiring the
-chosen allocation to be valid and of the requested size. -/
-def sirMemoryPolicy : Generic.MemoryPolicy where
-  Allows memory size allocation :=
-    memory.IsValidNewAlloc allocation ∧ allocation.size = size
-
 open Generic
 
 abbrev localOperandFrame : OperandFrame where
@@ -104,20 +97,20 @@ def sirDecoder (program : Program) : Decoder localOperandFrame where
 for exported statements. -/
 def SmallStep (program : Program) (ctx : CallContext)
     (state : MachineState) (trace : Trace) (final : MachineState) : Prop :=
-  Generic.GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+  Generic.GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
     state.toGenericState trace final.toGenericState
 
 /-- The public SIR finite-run relation preserves accumulated traces across the shared machine. -/
 def Steps (program : Program) (ctx : CallContext)
     (state : MachineState) (trace : Trace) (final : MachineState) : Prop :=
-  Generic.GenericSteps localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+  Generic.GenericSteps localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
     state.toGenericState trace final.toGenericState
 
 /-- The public SIR function-evaluation relation retains the call boundary used by observations and
 exported results. -/
 def EvalFn (program : Program) (ctx : CallContext) :
     FunctionId → Globals → Array Word → Trace → Globals → FunctionOutcome → Prop :=
-  Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+  Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
 
 def Program.NonIcallControl (program : Program) (state : MachineState) : Prop :=
   (∃ nextControl statement,

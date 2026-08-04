@@ -156,7 +156,7 @@ set_option linter.unusedSimpArgs false in
 private theorem initialized_step_closed {ctx : CallContext} {world : World}
     {state : MachineState} {final : Generic.GenericState localOperandFrame} {trace : Trace}
     (hstate : InitializedReachable ctx world state)
-    (hstep : Generic.GenericStep localOperandFrame (sirDecoder initializedLoad) sirMemoryPolicy ctx
+    (hstep : Generic.GenericStep localOperandFrame (sirDecoder initializedLoad) Generic.MemoryPolicy.permissive ctx
       state.toGenericState trace final) :
     trace = [] ∧ InitializedReachable ctx world
       { globals := final.globals, locals := final.environment, control := final.control } := by
@@ -178,7 +178,7 @@ private theorem initialized_step_closed {ctx : CallContext} {world : World}
   all_goals simp_all [initializedState0, initializedState1, initializedState2,
     initializedState3, initializedState4, initializedState5, initializedState6,
     initializedState7, stmtControl, termControl, localOperandFrame, Generic.Operation.execute,
-    Generic.Operation.Admissible, sirMemoryPolicy, Locals.empty,
+    Generic.Operation.Admissible, Generic.MemoryPolicy.permissive, Locals.empty,
     locals1, locals2, locals3, locals5, Locals.lookup, Locals.lookup?, Locals.assign,
     StateT.run, modify, modifyGet, MonadStateOf.modifyGet, StateT.modifyGet,
     bind, Except.bind, pure, Except.pure, Functor.map, Except.map,
@@ -227,7 +227,7 @@ private theorem initialized_step_closed {ctx : CallContext} {world : World}
 private theorem initialized_steps_from {ctx : CallContext} {world : World}
     {start final : MachineState} {trace : Trace}
     (hstart : InitializedReachable ctx world start)
-    (hsteps : Generic.GenericSteps localOperandFrame (sirDecoder initializedLoad) sirMemoryPolicy ctx
+    (hsteps : Generic.GenericSteps localOperandFrame (sirDecoder initializedLoad) Generic.MemoryPolicy.permissive ctx
       start.toGenericState trace final.toGenericState) :
     trace = [] ∧ InitializedReachable ctx world final := by
   apply Steps.inductionOn
@@ -243,7 +243,7 @@ private theorem initialized_steps_from {ctx : CallContext} {world : World}
 
 private theorem initialized_steps {ctx : CallContext} {world : World}
     {trace : Trace} {state : MachineState}
-    (hsteps : Generic.GenericSteps localOperandFrame (sirDecoder initializedLoad) sirMemoryPolicy ctx
+    (hsteps : Generic.GenericSteps localOperandFrame (sirDecoder initializedLoad) Generic.MemoryPolicy.permissive ctx
       (initializedState0 world).toGenericState trace state.toGenericState) :
     trace = [] ∧ InitializedReachable ctx world state :=
   initialized_steps_from .state0 hsteps
@@ -272,7 +272,7 @@ private theorem initialized_no_next_event {ctx : CallContext} {world : World}
 
 private theorem initialized_halted_world {ctx : CallContext} {world : World}
     {trace : Trace} {globals : Globals}
-    (hrun : Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder initializedLoad) sirMemoryPolicy ctx
+    (hrun : Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder initializedLoad) Generic.MemoryPolicy.permissive ctx
       entryFunction { world := world } #[] trace globals .halted) :
     trace = [] ∧ globals.world = world.storeStorage ctx.self 42 42 := by
   cases hrun with
@@ -282,7 +282,7 @@ private theorem initialized_halted_world {ctx : CallContext} {world : World}
         (hentry.symm.trans (by simp [sirEntry_eq, initialized_entry]))
       subst initial
       obtain ⟨exitGlobals, exitLocals, exitControl⟩ := exit
-      change Generic.GenericSteps localOperandFrame (sirDecoder initializedLoad) sirMemoryPolicy ctx
+      change Generic.GenericSteps localOperandFrame (sirDecoder initializedLoad) Generic.MemoryPolicy.permissive ctx
         (initializedState0 world).toGenericState trace
         ({ globals := exitGlobals, locals := exitLocals, control := exitControl } : MachineState).toGenericState
         at hsteps
@@ -329,7 +329,7 @@ private theorem zero_entry (world : World) :
   rfl
 
 private theorem zero_steps (ctx : CallContext) (world : World) (offset : Word) :
-    Generic.GenericSteps localOperandFrame (sirDecoder zeroSizeStore) sirMemoryPolicy ctx
+    Generic.GenericSteps localOperandFrame (sirDecoder zeroSizeStore) Generic.MemoryPolicy.permissive ctx
       (zeroState0 world).toGenericState [] (zeroState4 ctx world offset).toGenericState := by
   have hfetchEmpty : (#[] : Array VarId).mapM ((zeroState0 world).locals.lookup ·) =
       .ok #[] := by
@@ -340,7 +340,7 @@ private theorem zero_steps (ctx : CallContext) (world : World) (offset : Word) :
     simp only [zeroState0, zeroState1, Locals.bindValues, ← Array.forIn_toList,
       Array.toList_zip]
     rfl
-  have step01 : Generic.GenericStep localOperandFrame (sirDecoder zeroSizeStore) sirMemoryPolicy ctx
+  have step01 : Generic.GenericStep localOperandFrame (sirDecoder zeroSizeStore) Generic.MemoryPolicy.permissive ctx
       (zeroState0 world).toGenericState [] (zeroState1 world).toGenericState := by
     apply step_assign (program := zeroSizeStore) (ctx := ctx)
       (result := sizeVar) (expr := .constant 0)
@@ -365,7 +365,7 @@ private theorem zero_steps (ctx : CallContext) (world : World) (offset : Word) :
   have hsize : (zeroAlloc offset).size = (0 : Word).toNat := by
     change 0 = (0 : Word).toNat
     decide
-  have step12 : Generic.GenericStep localOperandFrame (sirDecoder zeroSizeStore) sirMemoryPolicy ctx
+  have step12 : Generic.GenericStep localOperandFrame (sirDecoder zeroSizeStore) Generic.MemoryPolicy.permissive ctx
       (zeroState1 world).toGenericState [] (zeroState2 world offset).toGenericState := by
     apply step_mallocUninit (program := zeroSizeStore) (ctx := ctx)
       (result := xVar) (size := sizeVar)
@@ -383,7 +383,7 @@ private theorem zero_steps (ctx : CallContext) (world : World) (offset : Word) :
       .ok (zeroState2 world offset).locals := by
     simp only [Locals.bindValues, ← Array.forIn_toList, Array.toList_zip]
     rfl
-  have step23 : Generic.GenericStep localOperandFrame (sirDecoder zeroSizeStore) sirMemoryPolicy ctx
+  have step23 : Generic.GenericStep localOperandFrame (sirDecoder zeroSizeStore) Generic.MemoryPolicy.permissive ctx
       (zeroState2 world offset).toGenericState [] (zeroState3 ctx world offset).toGenericState := by
     apply step_sstore (program := zeroSizeStore) (ctx := ctx)
       (key := xVar) (value := xVar)
@@ -393,7 +393,7 @@ private theorem zero_steps (ctx : CallContext) (world : World) (offset : Word) :
     exact fires_of hfetchOffset (by trivial)
       (Generic.Operation.execute_sstore_ok ctx offset offset (zeroState2 world offset).globals)
       hstoreEmpty
-  have step34 : Generic.GenericStep localOperandFrame (sirDecoder zeroSizeStore) sirMemoryPolicy ctx
+  have step34 : Generic.GenericStep localOperandFrame (sirDecoder zeroSizeStore) Generic.MemoryPolicy.permissive ctx
       (zeroState3 ctx world offset).toGenericState [] (zeroState4 ctx world offset).toGenericState :=
     step_terminator (terminator := .halt)
       (by simp [zeroSizeStore, Program.terminatorAt, Program.block?, Program.function?,
@@ -402,7 +402,7 @@ private theorem zero_steps (ctx : CallContext) (world : World) (offset : Word) :
   exact .tail (.tail (.tail (.tail .refl step01) step12) step23) step34
 
 private theorem zero_eval (ctx : CallContext) (world : World) (offset : Word) :
-    Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder zeroSizeStore) sirMemoryPolicy ctx
+    Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder zeroSizeStore) Generic.MemoryPolicy.permissive ctx
       entryFunction { world := world } #[] [] (zeroState4 ctx world offset).globals .halted :=
   EvalFn.halted (zero_entry world) (zero_steps ctx world offset) rfl
 
@@ -569,13 +569,13 @@ theorem initializedLoad_deterministic : initializedLoad.Deterministic := by
   · intro entry hentry
     simp [initializedLoad] at hentry
 
-theorem bareLoad_memOracleFree : bareLoad.MemOracleFree := by
+theorem bareLoad_allocationFree : bareLoad.AllocationFree := by
   rintro statement hstatement
   simp [Program.HasStmt, Function.HasStmt, bareLoad] at hstatement
-  rcases hstatement with rfl | rfl | rfl <;> simp [Stmt.isMemOracle]
+  rcases hstatement with rfl | rfl | rfl <;> simp [Stmt.isAllocation]
 
 theorem bareLoad_deterministic : bareLoad.Deterministic :=
-  Program.deterministic_of_memOracleFree bareLoad_memOracleFree
+  Program.deterministic_of_memOracleFree bareLoad_allocationFree
 
 theorem zeroSizeStore_not_deterministic : ¬ zeroSizeStore.Deterministic := by
   intro hdet

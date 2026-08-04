@@ -85,17 +85,17 @@ theorem fires_of
     {globals globals' : Globals} {operands results : Array Word} {trace : Trace}
     {oracle : operation.Oracle}
     (hfetch : localOperandFrame.fetch env src = .ok operands)
-    (hadmissible : operation.Admissible sirMemoryPolicy globals operands oracle)
+    (hadmissible : operation.Admissible Generic.MemoryPolicy.permissive globals operands oracle)
     (hexecute : operation.execute ctx oracle globals operands =
       .ok (.next results globals' trace))
     (hstore : localOperandFrame.store env dst results = .ok env') :
-    localOperandFrame.Fires sirMemoryPolicy ctx operation src dst env globals trace env' globals' :=
+    localOperandFrame.Fires Generic.MemoryPolicy.permissive ctx operation src dst env globals trace env' globals' :=
   .next hadmissible hfetch hexecute hstore
 
 theorem firesHalt_false
     {operation : Operation} {src : Array VarId} {env : Locals}
     {globals globals' : Globals} {trace : Trace}
-    (h : localOperandFrame.FiresHalt sirMemoryPolicy ctx operation src env globals trace globals') :
+    (h : localOperandFrame.FiresHalt Generic.MemoryPolicy.permissive ctx operation src env globals trace globals') :
     False := by
   cases h with
   | halted hadmissible hfetch hexecute =>
@@ -116,9 +116,9 @@ theorem step_statement
     {state : MachineState} {next : MachineControl} {statement : Stmt}
     {trace : Trace} {locals' : Locals} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, statement))
-    (hfires : (decodeSirStatement statement).Fires sirMemoryPolicy ctx state.locals state.globals
+    (hfires : (decodeSirStatement statement).Fires Generic.MemoryPolicy.permissive ctx state.locals state.globals
       trace locals' globals') :
-    GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx state.toGenericState trace
+    GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx state.toGenericState trace
       ({ globals := globals', locals := locals', control := next } : MachineState).toGenericState := by
   generalize hinstruction : decodeSirStatement statement = instruction at hfires
   obtain ⟨kind, src, dst⟩ := instruction
@@ -135,9 +135,9 @@ theorem step_assign
     {state : MachineState} {next : MachineControl} {result : VarId} {expr : Expr}
     {trace : Trace} {locals' : Locals} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .assign result expr))
-    (hfires : (decodeExpression result expr).Fires sirMemoryPolicy ctx state.locals state.globals
+    (hfires : (decodeExpression result expr).Fires Generic.MemoryPolicy.permissive ctx state.locals state.globals
       trace locals' globals') :
-    GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx state.toGenericState trace
+    GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx state.toGenericState trace
       ({ globals := globals', locals := locals', control := next } : MachineState).toGenericState :=
   step_statement hdecode hfires
 
@@ -145,9 +145,9 @@ theorem step_sstore
     {state : MachineState} {next : MachineControl} {key value : VarId}
     {trace : Trace} {locals' : Locals} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .sstore key value))
-    (hfires : (decodeSirStatement (.sstore key value)).Fires sirMemoryPolicy ctx
+    (hfires : (decodeSirStatement (.sstore key value)).Fires Generic.MemoryPolicy.permissive ctx
       state.locals state.globals trace locals' globals') :
-    GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx state.toGenericState trace
+    GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx state.toGenericState trace
       ({ globals := globals', locals := locals', control := next } : MachineState).toGenericState :=
   step_statement hdecode hfires
 
@@ -155,9 +155,9 @@ theorem step_gas
     {state : MachineState} {next : MachineControl} {result : VarId}
     {trace : Trace} {locals' : Locals} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .gas result))
-    (hfires : (decodeSirStatement (.gas result)).Fires sirMemoryPolicy ctx
+    (hfires : (decodeSirStatement (.gas result)).Fires Generic.MemoryPolicy.permissive ctx
       state.locals state.globals trace locals' globals') :
-    GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx state.toGenericState trace
+    GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx state.toGenericState trace
       ({ globals := globals', locals := locals', control := next } : MachineState).toGenericState :=
   step_statement hdecode hfires
 
@@ -165,9 +165,9 @@ theorem step_call
     {state : MachineState} {next : MachineControl} {call : Call}
     {trace : Trace} {locals' : Locals} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .call call))
-    (hfires : (decodeSirStatement (.call call)).Fires sirMemoryPolicy ctx
+    (hfires : (decodeSirStatement (.call call)).Fires Generic.MemoryPolicy.permissive ctx
       state.locals state.globals trace locals' globals') :
-    GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx state.toGenericState trace
+    GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx state.toGenericState trace
       ({ globals := globals', locals := locals', control := next } : MachineState).toGenericState :=
   step_statement hdecode hfires
 
@@ -175,9 +175,9 @@ theorem step_mallocUninit
     {state : MachineState} {next : MachineControl} {result size : VarId}
     {trace : Trace} {locals' : Locals} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .mallocUninit result size))
-    (hfires : (decodeSirStatement (.mallocUninit result size)).Fires sirMemoryPolicy ctx
+    (hfires : (decodeSirStatement (.mallocUninit result size)).Fires Generic.MemoryPolicy.permissive ctx
       state.locals state.globals trace locals' globals') :
-    GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx state.toGenericState trace
+    GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx state.toGenericState trace
       ({ globals := globals', locals := locals', control := next } : MachineState).toGenericState :=
   step_statement hdecode hfires
 
@@ -185,9 +185,9 @@ theorem step_mstore32
     {state : MachineState} {next : MachineControl} {offset value : VarId}
     {trace : Trace} {locals' : Locals} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .mstore32 offset value))
-    (hfires : (decodeSirStatement (.mstore32 offset value)).Fires sirMemoryPolicy ctx
+    (hfires : (decodeSirStatement (.mstore32 offset value)).Fires Generic.MemoryPolicy.permissive ctx
       state.locals state.globals trace locals' globals') :
-    GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx state.toGenericState trace
+    GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx state.toGenericState trace
       ({ globals := globals', locals := locals', control := next } : MachineState).toGenericState :=
   step_statement hdecode hfires
 
@@ -195,9 +195,9 @@ theorem step_mload32
     {state : MachineState} {next : MachineControl} {result offset : VarId}
     {trace : Trace} {locals' : Locals} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .mload32 result offset))
-    (hfires : (decodeSirStatement (.mload32 result offset)).Fires sirMemoryPolicy ctx
+    (hfires : (decodeSirStatement (.mload32 result offset)).Fires Generic.MemoryPolicy.permissive ctx
       state.locals state.globals trace locals' globals') :
-    GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx state.toGenericState trace
+    GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx state.toGenericState trace
       ({ globals := globals', locals := locals', control := next } : MachineState).toGenericState :=
   step_statement hdecode hfires
 
@@ -205,7 +205,7 @@ theorem step_terminator
     {state state' : MachineState} {terminator : Terminator}
     (hterm : program.terminatorAt state.control = some terminator)
     (heval : (eval_terminator program terminator).run state = .ok ((), state')) :
-    GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx state.toGenericState [] state'.toGenericState := by
+    GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx state.toGenericState [] state'.toGenericState := by
   apply GenericStep.control
   apply sirControl_inv.mpr
   exact ⟨terminator, state', hterm, heval, rfl, rfl, rfl, rfl⟩
@@ -216,10 +216,10 @@ theorem step_icall
     {globals' : Globals} {locals' : Locals}
     (hdecode : program.decodeStmt state.control = some (next, .icall callee args dests))
     (hargs : args.mapM (state.locals.lookup ·) = .ok values)
-    (hcallee : GenericFunctionEvaluation localOperandFrame (sirDecoder program) sirMemoryPolicy ctx callee
+    (hcallee : GenericFunctionEvaluation localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx callee
       state.globals values trace globals' (.returned results))
     (hbind : Locals.bindReturns state.locals dests results = .ok locals') :
-    GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx state.toGenericState trace
+    GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx state.toGenericState trace
       { state with globals := globals', locals := locals', control := next }.toGenericState := by
   apply GenericStep.internalCall
   · change sirDecode program state.control =
@@ -235,9 +235,9 @@ theorem step_icallHalted
     {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .icall callee args dests))
     (hargs : args.mapM (state.locals.lookup ·) = .ok values)
-    (hcallee : GenericFunctionEvaluation localOperandFrame (sirDecoder program) sirMemoryPolicy ctx callee
+    (hcallee : GenericFunctionEvaluation localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx callee
       state.globals values trace globals' .halted) :
-    GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx state.toGenericState trace
+    GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx state.toGenericState trace
       ({ globals := globals', control := .halted } : MachineState).toGenericState := by
   apply GenericStep.internalCall
   · change sirDecode program state.control =
@@ -251,10 +251,10 @@ theorem EvalFn.returned
     {function : FunctionId} {globals : Globals} {args results : Array Word}
     {trace : Trace} {initial exit : MachineState}
     (hentry : program.callState? function globals args = some initial)
-    (hrun : GenericSteps localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+    (hrun : GenericSteps localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
       initial.toGenericState trace exit.toGenericState)
     (hreturn : exit.control = .returned results) :
-    GenericFunctionEvaluation localOperandFrame (sirDecoder program) sirMemoryPolicy ctx function globals args
+    GenericFunctionEvaluation localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx function globals args
       trace exit.globals (.returned results) :=
   GenericFunctionEvaluation.returned (initial := initial.toGenericState) (exit := exit.toGenericState)
     (by simp [sirEntry_eq, hentry]) hrun hreturn
@@ -263,10 +263,10 @@ theorem EvalFn.halted
     {function : FunctionId} {globals : Globals} {args : Array Word}
     {trace : Trace} {initial exit : MachineState}
     (hentry : program.callState? function globals args = some initial)
-    (hrun : GenericSteps localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+    (hrun : GenericSteps localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
       initial.toGenericState trace exit.toGenericState)
     (hhalt : exit.control = .halted) :
-    GenericFunctionEvaluation localOperandFrame (sirDecoder program) sirMemoryPolicy ctx function globals args
+    GenericFunctionEvaluation localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx function globals args
       trace exit.globals .halted :=
   GenericFunctionEvaluation.halted (initial := initial.toGenericState) (exit := exit.toGenericState)
     (by simp [sirEntry_eq, hentry]) hrun hhalt
@@ -274,18 +274,18 @@ theorem EvalFn.halted
 @[elab_as_elim]
 theorem Steps.inductionOn {program : Program} {ctx : CallContext}
     {motive : (state : MachineState) → (trace : Trace) → (final : MachineState) →
-      GenericSteps localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+      GenericSteps localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
         state.toGenericState trace final.toGenericState → Prop}
     (refl : ∀ state, motive state [] state .refl)
     (tail : ∀ {state middle final : MachineState} {trace₁ trace₂ : Trace}
-      (start : GenericSteps localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+      (start : GenericSteps localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
         state.toGenericState trace₁ middle.toGenericState)
-      (next : GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+      (next : GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
         middle.toGenericState trace₂ final.toGenericState),
       motive state trace₁ middle start →
         motive state (trace₁ ++ trace₂) final (start.tail next))
     {state final : MachineState} {trace : Trace}
-    (h : GenericSteps localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+    (h : GenericSteps localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
       state.toGenericState trace final.toGenericState) : motive state trace final h := by
   simpa using Generic.GenericSteps.inductionOn
     (motive := fun state trace final h =>
@@ -297,7 +297,7 @@ theorem Steps.inductionOn {program : Program} {ctx : CallContext}
         (by simpa using start) (by simpa using next) (by simpa using ih)) h
 
 def Stuck (program : Program) (ctx : CallContext) (state : MachineState) : Prop :=
-  Generic.Stuck (sirDecoder program) sirMemoryPolicy ctx state.toGenericState
+  Generic.Stuck (sirDecoder program) Generic.MemoryPolicy.permissive ctx state.toGenericState
 
 theorem stuck_of_returned
     {state : MachineState} {results : Array Word}
@@ -312,19 +312,19 @@ theorem stuck_of_halted
 
 theorem Steps.eq_of_stuck
     {state final : MachineState} {trace : Trace}
-    (h : GenericSteps localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+    (h : GenericSteps localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
       state.toGenericState trace final.toGenericState)
     (hstuck : Stuck program ctx state) : final = state ∧ trace = [] := by
   obtain ⟨hstate, htrace⟩ := Generic.GenericSteps.eq_of_stuck h hstuck
   exact ⟨MachineState.toGenericState_inj hstate, htrace⟩
 
 theorem stepDialogue_all
-    (hfree : program.MemOracleFree)
+    (hfree : program.AllocationFree)
     {state final : MachineState} {trace : Trace}
-    (h : GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+    (h : GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
       state.toGenericState trace final.toGenericState) :
     ∀ (trace₂ : Trace) (final₂ : MachineState),
-      GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+      GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
         state.toGenericState trace₂ final₂.toGenericState →
       (trace = trace₂ ∧ final = final₂) ∨
         Trace.QueryDivergence trace trace₂ := by
@@ -339,16 +339,16 @@ theorem stepDialogue_all
   · exact .inr hdiv
 
 theorem runDialogue_all
-    (hfree : program.MemOracleFree)
+    (hfree : program.AllocationFree)
     {state final : MachineState} {trace : Trace}
-    (h : GenericSteps localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+    (h : GenericSteps localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
       state.toGenericState trace final.toGenericState) :
     ∀ (trace₂ : Trace) (final₂ : MachineState),
-      GenericSteps localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+      GenericSteps localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
         state.toGenericState trace₂ final₂.toGenericState →
-      (∃ suffix, GenericSteps localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+      (∃ suffix, GenericSteps localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
           final.toGenericState suffix final₂.toGenericState ∧ trace ++ suffix = trace₂) ∨
-      (∃ suffix, GenericSteps localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+      (∃ suffix, GenericSteps localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
           final₂.toGenericState suffix final.toGenericState ∧ trace₂ ++ suffix = trace) ∨
       Trace.QueryDivergence trace trace₂ := by
   intro trace₂ final₂ h₂
@@ -359,13 +359,13 @@ theorem runDialogue_all
     h trace₂ final₂.toGenericState h₂
 
 theorem fnDialogue_all
-    (hfree : program.MemOracleFree)
+    (hfree : program.AllocationFree)
     {function : FunctionId} {globals globals' : Globals} {args : Array Word}
     {trace : Trace} {outcome : FunctionOutcome}
-    (h : GenericFunctionEvaluation localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+    (h : GenericFunctionEvaluation localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
       function globals args trace globals' outcome) :
     ∀ trace₂ globals₂ outcome₂,
-      GenericFunctionEvaluation localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+      GenericFunctionEvaluation localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
         function globals args trace₂ globals₂ outcome₂ →
       (trace = trace₂ ∧ globals' = globals₂ ∧ outcome = outcome₂) ∨
         Trace.QueryDivergence trace trace₂ :=
@@ -376,15 +376,15 @@ theorem fnDialogue_all
     h
 
 theorem Steps.confluence_or_queryDivergence_proof
-    (hfree : program.MemOracleFree)
+    (hfree : program.AllocationFree)
     {state final₁ final₂ : MachineState} {trace₁ trace₂ : Trace}
-    (h₁ : GenericSteps localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+    (h₁ : GenericSteps localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
       state.toGenericState trace₁ final₁.toGenericState)
-    (h₂ : GenericSteps localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+    (h₂ : GenericSteps localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
       state.toGenericState trace₂ final₂.toGenericState) :
-    (∃ suffix, GenericSteps localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+    (∃ suffix, GenericSteps localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
       final₁.toGenericState suffix final₂.toGenericState ∧ trace₁ ++ suffix = trace₂) ∨
-    (∃ suffix, GenericSteps localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+    (∃ suffix, GenericSteps localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
       final₂.toGenericState suffix final₁.toGenericState ∧ trace₂ ++ suffix = trace₁) ∨
     Trace.QueryDivergence trace₁ trace₂ :=
   Generic.GenericSteps.confluence_or_queryDivergence
@@ -559,7 +559,7 @@ private theorem eval_terminator_returned_inv
 
 private theorem genStep_preserves_function
     {cursor : ProgramCursor} {state final : GenericState localOperandFrame} {trace : Trace}
-    (h : GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx state trace final)
+    (h : GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx state trace final)
     (hcontrol : state.control = .running cursor) :
     final.control = .halted ∨ (∃ results, final.control = .returned results) ∨
       ∃ cursor', final.control = .running cursor' ∧ cursor'.fn = cursor.fn := by
@@ -593,7 +593,7 @@ private theorem genStep_preserves_function
 
 theorem SmallStep.preserves_function
     {cursor : ProgramCursor} {state final : MachineState} {trace : Trace}
-    (h : GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+    (h : GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
       state.toGenericState trace final.toGenericState)
     (hcontrol : state.control = .running cursor) :
     final.control = .halted ∨ (∃ results, final.control = .returned results) ∨
@@ -602,7 +602,7 @@ theorem SmallStep.preserves_function
 
 private theorem genSteps_preserves_function
     {cursor : ProgramCursor} {state final : GenericState localOperandFrame} {trace : Trace}
-    (h : GenericSteps localOperandFrame (sirDecoder program) sirMemoryPolicy ctx state trace final)
+    (h : GenericSteps localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx state trace final)
     (hcontrol : state.control = .running cursor) :
     final.control = .halted ∨ (∃ results, final.control = .returned results) ∨
       ∃ cursor', final.control = .running cursor' ∧ cursor'.fn = cursor.fn := by
@@ -626,7 +626,7 @@ private theorem genSteps_preserves_function
 
 theorem Steps.preserves_function_proof
     {cursor : ProgramCursor} {state final : MachineState} {trace : Trace}
-    (h : GenericSteps localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+    (h : GenericSteps localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
       state.toGenericState trace final.toGenericState)
     (hcontrol : state.control = .running cursor) :
     final.control = .halted ∨ (∃ results, final.control = .returned results) ∨
@@ -635,7 +635,7 @@ theorem Steps.preserves_function_proof
 
 private theorem genStep_returned_inv
     {state final : GenericState localOperandFrame} {trace : Trace} {results : Array Word}
-    (h : GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx state trace final)
+    (h : GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx state trace final)
     (hreturn : final.control = .returned results) :
     ∃ cursor block, state.control = .running cursor ∧
       program.block? cursor = some block ∧ block.terminator = .iret ∧
@@ -672,7 +672,7 @@ private theorem genStep_returned_inv
 
 theorem SmallStep.returned_inv
     {state final : MachineState} {trace : Trace} {results : Array Word}
-    (h : GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+    (h : GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
       state.toGenericState trace final.toGenericState)
     (hreturn : final.control = .returned results) :
     ∃ cursor block, state.control = .running cursor ∧

@@ -69,8 +69,8 @@ theorem Program.decodeStmt_mem
             exact ⟨fn, Array.mem_of_getElem? hfn, block,
               Array.mem_of_getElem? hblock, Array.mem_of_getElem? hstmt⟩
 
-theorem Program.MemOracleFree.not_mallocUninit
-    (hfree : program.MemOracleFree)
+theorem Program.AllocationFree.not_mallocUninit
+    (hfree : program.AllocationFree)
     {control nextControl : MachineControl} {result size : VarId}
     (h : program.decodeStmt control = some (nextControl, .mallocUninit result size)) :
     False := by

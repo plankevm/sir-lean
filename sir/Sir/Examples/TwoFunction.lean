@@ -109,10 +109,10 @@ theorem witnessAddProgram_add2_deterministic :
   apply Program.functionDeterministic_of_memOracleFree
   rintro s hstmt
   simp [Program.HasStmt, Function.HasStmt, witnessAddProgram] at hstmt
-  rcases hstmt with (rfl | rfl | rfl) | rfl <;> simp [Stmt.isMemOracle]
+  rcases hstmt with (rfl | rfl | rfl) | rfl <;> simp [Stmt.isAllocation]
 
 private theorem witness_evalFn_add2 (ctx : CallContext) (w : World) :
-    Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder witnessAddProgram) sirMemoryPolicy ctx
+    Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder witnessAddProgram) Generic.MemoryPolicy.permissive ctx
       witnessAdd2 { world := w } #[2, 3] [] ({ world := w } : Globals)
         (.returned #[5]) := by
   let initial : MachineState :=
@@ -143,7 +143,7 @@ private theorem witness_evalFn_add2 (ctx : CallContext) (w : World) :
       .ok (((Locals.empty.assign witnessX 2).assign witnessY 3).assign witnessZ 5) := by
     simp only [Locals.bindValues, ← Array.forIn_toList, Array.toList_zip]
     rfl
-  have hadd : Generic.GenericStep localOperandFrame (sirDecoder witnessAddProgram) sirMemoryPolicy ctx
+  have hadd : Generic.GenericStep localOperandFrame (sirDecoder witnessAddProgram) Generic.MemoryPolicy.permissive ctx
       initial.toGenericState [] afterAdd.toGenericState := by
     apply step_assign (program := witnessAddProgram) (ctx := ctx) rfl
     simp only [decodeExpression, Generic.Instruction.Fires]
@@ -154,14 +154,14 @@ private theorem witness_evalFn_add2 (ctx : CallContext) (w : World) :
       .ok #[5] := by
     rw [Array.mapM_eq_mapM_toList]
     rfl
-  have hreturn : Generic.GenericStep localOperandFrame (sirDecoder witnessAddProgram) sirMemoryPolicy ctx
+  have hreturn : Generic.GenericStep localOperandFrame (sirDecoder witnessAddProgram) Generic.MemoryPolicy.permissive ctx
       afterAdd.toGenericState [] final.toGenericState :=
     step_terminator rfl (eval_terminator_iret_ok rfl rfl houtputs)
   exact EvalFn.returned hentry
     (Generic.GenericSteps.tail (Generic.GenericSteps.single hadd) hreturn) rfl
 
 private theorem witnessAddProgram_eval (ctx : CallContext) (w : World) :
-    Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder witnessAddProgram) sirMemoryPolicy ctx
+    Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder witnessAddProgram) Generic.MemoryPolicy.permissive ctx
       witnessMain { world := w } #[] [] ({ world := w } : Globals) .halted := by
   let initial : MachineState :=
     { globals := { world := w }
@@ -197,7 +197,7 @@ private theorem witnessAddProgram_eval (ctx : CallContext) (w : World) :
       .ok (Locals.empty.assign witnessA 2) := by
     simp only [Locals.bindValues, ← Array.forIn_toList, Array.toList_zip]
     rfl
-  have hstep₁ : Generic.GenericStep localOperandFrame (sirDecoder witnessAddProgram) sirMemoryPolicy ctx
+  have hstep₁ : Generic.GenericStep localOperandFrame (sirDecoder witnessAddProgram) Generic.MemoryPolicy.permissive ctx
       initial.toGenericState [] state₁.toGenericState := by
     apply step_assign (program := witnessAddProgram) (ctx := ctx) rfl
     simp only [decodeExpression, Generic.Instruction.Fires]
@@ -207,7 +207,7 @@ private theorem witnessAddProgram_eval (ctx : CallContext) (w : World) :
       .ok ((Locals.empty.assign witnessA 2).assign witnessB 3) := by
     simp only [Locals.bindValues, ← Array.forIn_toList, Array.toList_zip]
     rfl
-  have hstep₂ : Generic.GenericStep localOperandFrame (sirDecoder witnessAddProgram) sirMemoryPolicy ctx
+  have hstep₂ : Generic.GenericStep localOperandFrame (sirDecoder witnessAddProgram) Generic.MemoryPolicy.permissive ctx
       state₁.toGenericState [] state₂.toGenericState := by
     apply step_assign (program := witnessAddProgram) (ctx := ctx) rfl
     simp only [decodeExpression, Generic.Instruction.Fires]
@@ -223,10 +223,10 @@ private theorem witnessAddProgram_eval (ctx : CallContext) (w : World) :
     simp only [Locals.bindReturns, Locals.bindValues, ← Array.forIn_toList,
       Array.toList_zip]
     rfl
-  have hstep₃ : Generic.GenericStep localOperandFrame (sirDecoder witnessAddProgram) sirMemoryPolicy ctx
+  have hstep₃ : Generic.GenericStep localOperandFrame (sirDecoder witnessAddProgram) Generic.MemoryPolicy.permissive ctx
       state₂.toGenericState [] state₃.toGenericState :=
     step_icall rfl hargs (witness_evalFn_add2 ctx w) hbind
-  have hstep₄ : Generic.GenericStep localOperandFrame (sirDecoder witnessAddProgram) sirMemoryPolicy ctx
+  have hstep₄ : Generic.GenericStep localOperandFrame (sirDecoder witnessAddProgram) Generic.MemoryPolicy.permissive ctx
       state₃.toGenericState [] final.toGenericState := step_terminator rfl rfl
   exact EvalFn.halted hentry
     (.tail (.tail (.tail (Generic.GenericSteps.single hstep₁) hstep₂) hstep₃) hstep₄) rfl

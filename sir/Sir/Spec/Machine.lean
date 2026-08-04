@@ -17,6 +17,12 @@ def Deterministic (policy : MemoryPolicy) : Prop :=
     policy.Allows memory size allocation₂ →
     allocation₁ = allocation₂
 
+/-- Every valid allocation of the requested size remains available when no allocator strategy is
+selected. -/
+def permissive : MemoryPolicy where
+  Allows memory size allocation :=
+    memory.IsValidNewAlloc allocation ∧ allocation.size = size
+
 end MemoryPolicy
 
 /-- Operations isolate data and world effects from control flow so different instruction

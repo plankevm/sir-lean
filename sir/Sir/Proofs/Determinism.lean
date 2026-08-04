@@ -11,7 +11,7 @@ private theorem Trace.QueryDivergence.ne {t₁ t₂ : Trace}
   exact hne (List.cons.inj (List.append_cancel_left he)).1
 
 theorem SmallStep.prefix_det_proof
-    (hfree : program.MemOracleFree)
+    (hfree : program.AllocationFree)
     {s s₁ s₂ : MachineState} {t₁ t₂ r₁ r₂ : Trace}
     (h₁ : SmallStep program ctx s t₁ s₁)
     (h₂ : SmallStep program ctx s t₂ s₂)
@@ -21,7 +21,7 @@ theorem SmallStep.prefix_det_proof
   · exact ((hdiv.extend r₁ r₂).ne htr).elim
 
 theorem Steps.prefix_confluence_proof
-    (hfree : program.MemOracleFree)
+    (hfree : program.AllocationFree)
     {s e₁ e₂ : MachineState} {t₁ t₂ r₁ r₂ : Trace}
     (h₁ : Steps program ctx s t₁ e₁)
     (h₂ : Steps program ctx s t₂ e₂)
@@ -34,7 +34,7 @@ theorem Steps.prefix_confluence_proof
   · exact ((hdiv.extend r₁ r₂).ne htr).elim
 
 theorem EvalFn.prefix_det_proof
-    (hfree : program.MemOracleFree)
+    (hfree : program.AllocationFree)
     {f : FunctionId} {g g₁ g₂ : Globals} {args : Array Word}
     {outcome₁ outcome₂ : FunctionOutcome}
     {t₁ t₂ r₁ r₂ : Trace}
@@ -47,14 +47,14 @@ theorem EvalFn.prefix_det_proof
   · exact ((hdiv.extend r₁ r₂).ne htr).elim
 
 theorem SmallStep.trace_det_proof
-    (hfree : program.MemOracleFree)
+    (hfree : program.AllocationFree)
     {s s₁ s₂ : MachineState} {t : Trace}
     (h₁ : SmallStep program ctx s t s₁)
     (h₂ : SmallStep program ctx s t s₂) : s₁ = s₂ :=
   (SmallStep.prefix_det_proof hfree h₁ h₂ (r₁ := []) (r₂ := []) rfl).2
 
 theorem EvalFn.trace_det_proof
-    (hfree : program.MemOracleFree)
+    (hfree : program.AllocationFree)
     {f : FunctionId} {g g₁ g₂ : Globals} {args : Array Word}
     {outcome₁ outcome₂ : FunctionOutcome} {t : Trace}
     (h₁ : EvalFn program ctx f g args t g₁ outcome₁)
@@ -63,7 +63,7 @@ theorem EvalFn.trace_det_proof
   (EvalFn.prefix_det_proof hfree h₁ h₂ (r₁ := []) (r₂ := []) rfl).2
 
 theorem Steps.stuck_trace_det
-    (hfree : program.MemOracleFree)
+    (hfree : program.AllocationFree)
     {s e₁ e₂ : MachineState} {t : Trace}
     (h₁ : Steps program ctx s t e₁) (hs₁ : Stuck program ctx e₁)
     (h₂ : Steps program ctx s t e₂) (hs₂ : Stuck program ctx e₂) : e₁ = e₂ := by
@@ -73,7 +73,7 @@ theorem Steps.stuck_trace_det
   · exact (Steps.eq_of_stuck hu hs₂).1
 
 theorem Program.RunsTo.trace_det_proof
-    (hfree : program.MemOracleFree)
+    (hfree : program.AllocationFree)
     {entry : FunctionId} {world₀ : World} {t : Trace}
     {final₁ final₂ : MachineState}
     (h₁ : program.RunsTo ctx entry world₀ t final₁)
@@ -131,7 +131,7 @@ private theorem Trace.QueryDivergence.query_eq {t₁ t₂ : Trace}
 theorem Program.RunsTo.unique_or_queryDivergence_proof
     {entry : FunctionId} {world₀ : World}
     {t₁ t₂ : Trace} {final₁ final₂ : MachineState}
-    (hfree : program.MemOracleFree)
+    (hfree : program.AllocationFree)
     (h₁ : program.RunsTo ctx entry world₀ t₁ final₁)
     (h₂ : program.RunsTo ctx entry world₀ t₂ final₂) :
     (t₁ = t₂ ∧ final₁ = final₂) ∨ Trace.QueryDivergence t₁ t₂ := by
@@ -148,7 +148,7 @@ theorem Program.RunsTo.unique_or_queryDivergence_proof
   · exact .inr hdiv
 
 private theorem Program.RunsFunction.query_eq_at
-    (hfree : program.MemOracleFree)
+    (hfree : program.AllocationFree)
     {function : FunctionId} {globals : Globals} {args : Array Word}
     {t₁ t₂ history : Trace} {state₁ state₂ : MachineState}
     {event₁ event₂ : Event} {rest₁ rest₂ : Trace}
@@ -185,7 +185,7 @@ private theorem Program.RunsFunction.query_eq_at
   · exact hdiv.query_eq ht₁ ht₂
 
 private theorem terminalSteps_no_event
-    (hfree : program.MemOracleFree)
+    (hfree : program.AllocationFree)
     {initial exit state : MachineState} {history trace rest : Trace} {event : Event}
     (hterm : Steps program ctx initial history exit)
     (hstuck : Stuck program ctx exit)
@@ -202,7 +202,7 @@ private theorem terminalSteps_no_event
   · exact hdiv.not_prefix ⟨event :: rest, htrace.symm⟩
 
 private theorem EvalFn.runsFunction_no_event
-    (hfree : program.MemOracleFree)
+    (hfree : program.AllocationFree)
     {function : FunctionId} {globals finalGlobals : Globals} {args : Array Word}
     {history trace rest : Trace} {outcome : FunctionOutcome} {event : Event}
     {state : MachineState}
@@ -217,7 +217,7 @@ private theorem EvalFn.runsFunction_no_event
       obtain ⟨initial₂, hcallState₂, rfl⟩ := Option.map_eq_some_iff.mp hentry₂
       obtain rfl := Option.some.inj (hentry.symm.trans hcallState₂)
       have hrun₂' : Steps program ctx initial history exit.toMachine := by
-        change Generic.GenericSteps localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+        change Generic.GenericSteps localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
           initial.toGenericState history exit.toMachine.toGenericState
         simpa using hrun₂
       exact terminalSteps_no_event hfree hrun₂'
@@ -228,14 +228,14 @@ private theorem EvalFn.runsFunction_no_event
       obtain ⟨initial₂, hcallState₂, rfl⟩ := Option.map_eq_some_iff.mp hentry₂
       obtain rfl := Option.some.inj (hentry.symm.trans hcallState₂)
       have hrun₂' : Steps program ctx initial history exit.toMachine := by
-        change Generic.GenericSteps localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+        change Generic.GenericSteps localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
           initial.toGenericState history exit.toMachine.toGenericState
         simpa using hrun₂
       exact terminalSteps_no_event hfree hrun₂'
         (stuck_of_halted hhalt) hsteps htrace
 
 theorem Program.functionDeterministicFrom_of_memOracleFree_proof
-    (hfree : program.MemOracleFree) (ctx : CallContext)
+    (hfree : program.AllocationFree) (ctx : CallContext)
     (function : FunctionId) (globals : Globals) (args : Array Word) :
     program.FunctionDeterministicFrom ctx function globals args := by
   intro history outcome₁ outcome₂ h₁ h₂
@@ -308,8 +308,8 @@ theorem Program.functionDeterministicFrom_of_memOracleFree_proof
         (worldEq₁.symm.trans worldEq₂)
     · exact (hdiv.ne rfl).elim
 
-theorem Program.MemOracleFree.deterministicFrom_proof
-    (hfree : program.MemOracleFree) (ctx : CallContext)
+theorem Program.AllocationFree.deterministicFrom_proof
+    (hfree : program.AllocationFree) (ctx : CallContext)
     (entry : FunctionId) (world₀ : World) :
     program.DeterministicFrom ctx entry world₀ := by
   intro history outcome₁ outcome₂ h₁ h₂
@@ -319,14 +319,14 @@ theorem Program.MemOracleFree.deterministicFrom_proof
   cases outcome₁ <;> cases outcome₂ <;> simp_all [ObservableOutcome.functionOutcome]
 
 theorem Program.functionDeterministic_of_memOracleFree_proof
-    (hfree : program.MemOracleFree) (function : FunctionId) :
+    (hfree : program.AllocationFree) (function : FunctionId) :
     program.FunctionDeterministic function := by
   intro ctx globals args trace₁ trace₂ finalGlobals₁ finalGlobals₂ outcome₁ outcome₂
     heval₁ heval₂
   exact fnDialogue_all hfree heval₁ trace₂ finalGlobals₂ outcome₂ heval₂
 
 theorem Program.deterministic_of_memOracleFree_proof
-    (hfree : program.MemOracleFree) : program.Deterministic :=
+    (hfree : program.AllocationFree) : program.Deterministic :=
   fun ctx world₀ =>
     ⟨hfree.deterministicFrom_proof ctx program.initEntry world₀,
       fun entry _ => hfree.deterministicFrom_proof ctx entry world₀⟩

@@ -117,7 +117,7 @@ theorem Program.WellFormed.icall_bindParams
 theorem Program.WellFormed.evalFn_arity_proof
     (hwf : program.WellFormed) {function : FunctionId} {globals globals' : Globals}
     {args results : Array Word} {trace : Trace}
-    (hrun : Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+    (hrun : Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
       function globals args trace globals' (.returned results)) :
     (program.function? function).bind (·.outputs?) = some results.size := by
   cases hrun with
@@ -187,9 +187,9 @@ theorem Program.WellFormed.icall_step_proof
     {trace : Trace} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .icall callee args dests))
     (hargs : args.mapM (state.locals.lookup ·) = .ok values)
-    (hcallee : Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+    (hcallee : Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
       callee state.globals values trace globals' (.returned results)) :
-    ∃ locals', Generic.GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+    ∃ locals', Generic.GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
       state.toGenericState trace
         { state with globals := globals', locals := locals', control := next }.toGenericState := by
   obtain ⟨locals', hbind⟩ := hwf.icall_bindReturns hdecode hcallee
@@ -201,9 +201,9 @@ theorem Program.icall_halted_step_proof
     {trace : Trace} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .icall callee args dests))
     (hargs : args.mapM (state.locals.lookup ·) = .ok values)
-    (hcallee : Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+    (hcallee : Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
       callee state.globals values trace globals' .halted) :
-    Generic.GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx state.toGenericState trace
+    Generic.GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx state.toGenericState trace
       ({ globals := globals', control := .halted } : MachineState).toGenericState :=
   step_icallHalted hdecode hargs hcallee
 end Sir
