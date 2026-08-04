@@ -5,9 +5,6 @@ namespace Sir
 
 namespace MemoryState
 
-def bumpAlloc (m : MemoryState) (size : Nat) : Allocation :=
-  { offset := .ofNat m.watermark, size }
-
 def ZeroAboveWatermark (m : MemoryState) : Prop :=
   ∀ address, m.watermark ≤ address → m.readByte address = 0
 
@@ -67,18 +64,18 @@ theorem zeroAboveWatermark_writeBytes {m : MemoryState} {offset : Word}
   · intro hrange
     omega
 
-theorem bumpAlloc_size (m : MemoryState) (size : Nat) :
-    (m.bumpAlloc size).size = size := by
+theorem bumpAllocation_size (m : MemoryState) (size : Nat) :
+    (m.bumpAllocation size).size = size := by
   rfl
 
-theorem isValidNewAlloc_bumpAlloc (m : MemoryState) (size : Nat)
+theorem isValidNewAlloc_bumpAllocation (m : MemoryState) (size : Nat)
     (hspace : m.watermark + size ≤ Evm.UInt256.size) :
-    m.IsValidNewAlloc (m.bumpAlloc size) := by
+    m.IsValidNewAlloc (m.bumpAllocation size) := by
   have hbound : Evm.UInt256.size = 2 ^ 256 := rfl
-  have hstart : (m.bumpAlloc size).start = m.watermark % 2 ^ 256 := by
-    simp [bumpAlloc, Allocation.start, Evm.UInt256.toNat_ofNat]
-  have hend : (m.bumpAlloc size).endExclusive = m.watermark % 2 ^ 256 + size := by
-    rw [Allocation.endExclusive, hstart, bumpAlloc_size]
+  have hstart : (m.bumpAllocation size).start = m.watermark % 2 ^ 256 := by
+    simp [bumpAllocation, Allocation.start, Evm.UInt256.toNat_ofNat]
+  have hend : (m.bumpAllocation size).endExclusive = m.watermark % 2 ^ 256 + size := by
+    rw [Allocation.endExclusive, hstart, bumpAllocation_size]
   rw [hbound] at hspace
   rcases Nat.lt_or_ge m.watermark (2 ^ 256) with hlt | hge
   · have hmod : m.watermark % 2 ^ 256 = m.watermark := Nat.mod_eq_of_lt hlt
@@ -87,36 +84,36 @@ theorem isValidNewAlloc_bumpAlloc (m : MemoryState) (size : Nat)
     exact Or.inr (by rw [hstart, hmod]; exact m.endExclusive_le_watermark ha')
   · have hwatermark : m.watermark = 2 ^ 256 := Nat.le_antisymm (by omega) hge
     have hsize : size = 0 := by omega
-    have hend' : (m.bumpAlloc size).endExclusive = 0 := by
+    have hend' : (m.bumpAllocation size).endExclusive = 0 := by
       rw [hend, hwatermark, hsize, Nat.mod_self]
     exact ⟨by rw [hend']; exact Nat.zero_le _,
       fun a' _ => Or.inl (by rw [hend']; exact Nat.zero_le _)⟩
 
-theorem readBytes_push_bumpAlloc (m : MemoryState) (size : Nat)
+theorem readBytes_push_bumpAllocation (m : MemoryState) (size : Nat)
     (hzero : m.ZeroAboveWatermark)
     (hspace : m.watermark + size ≤ Evm.UInt256.size) :
-    (m.push (m.bumpAlloc size)).readBytes (m.bumpAlloc size).offset size =
+    (m.push (m.bumpAllocation size)).readBytes (m.bumpAllocation size).offset size =
       ⟨Array.replicate size 0⟩ := by
   have hbound : Evm.UInt256.size = 2 ^ 256 := rfl
   rw [hbound] at hspace
   rcases Nat.lt_or_ge m.watermark (2 ^ 256) with hlt | hge
   · have hoffsetMod :
-        (m.bumpAlloc size).offset.toNat = m.watermark % 2 ^ 256 := by
-      simp [MemoryState.bumpAlloc, Evm.UInt256.toNat_ofNat]
-    have hoffset : (m.bumpAlloc size).offset.toNat = m.watermark := by
+        (m.bumpAllocation size).offset.toNat = m.watermark % 2 ^ 256 := by
+      simp [MemoryState.bumpAllocation, Evm.UInt256.toNat_ofNat]
+    have hoffset : (m.bumpAllocation size).offset.toNat = m.watermark := by
       rw [hoffsetMod, Nat.mod_eq_of_lt hlt]
     have hreads :
         (List.range size).map
             (fun index =>
-              (m.push (m.bumpAlloc size)).readByte
-                ((m.bumpAlloc size).offset.toNat + index)) =
+              (m.push (m.bumpAllocation size)).readByte
+                ((m.bumpAllocation size).offset.toNat + index)) =
           List.replicate size 0 := by
       have hall : ∀ index ∈ List.range size,
-          (m.push (m.bumpAlloc size)).readByte
-            ((m.bumpAlloc size).offset.toNat + index) = 0 := by
+          (m.push (m.bumpAllocation size)).readByte
+            ((m.bumpAllocation size).offset.toNat + index) = 0 := by
         intro index _
-        change (m.push (m.bumpAlloc size)).store
-          ((m.bumpAlloc size).offset.toNat + index) = 0
+        change (m.push (m.bumpAllocation size)).store
+          ((m.bumpAllocation size).offset.toNat + index) = 0
         rw [store_push]
         exact hzero _ (by rw [hoffset]; omega)
       simpa using List.map_eq_replicate_iff.mpr hall
@@ -133,6 +130,46 @@ theorem readBytes_push_bumpAlloc (m : MemoryState) (size : Nat)
 
 end MemoryState
 
+namespace Generic.MemoryPolicy
+
+theorem bump_deterministic_proof : bump.Deterministic := by
+  intro memory size allocation₁ allocation₂ h₁ h₂
+  rw [h₁.2, h₂.2]
+
+theorem bump_sound_proof : bump.Sound := by
+  intro memory size allocation h
+  rw [h.2]
+  exact ⟨memory.isValidNewAlloc_bumpAllocation size h.1,
+    memory.bumpAllocation_size size⟩
+
+theorem bump_satisfiable_proof : bump.Satisfiable := by
+  intro memory size hspace
+  exact ⟨memory.bumpAllocation size, hspace, rfl⟩
+
+theorem permissive_not_deterministic_proof : ¬ permissive.Deterministic := by
+  intro hdet
+  have h₁ : permissive.Allows MemoryState.empty 0 { offset := 1, size := 0 } := by
+    refine ⟨⟨?_, by simp [MemoryState.empty]⟩, rfl⟩
+    decide
+  have h₂ : permissive.Allows MemoryState.empty 0 { offset := 2, size := 0 } := by
+    refine ⟨⟨?_, by simp [MemoryState.empty]⟩, rfl⟩
+    decide
+  have heq := hdet MemoryState.empty 0 { offset := 1, size := 0 }
+    { offset := 2, size := 0 } h₁ h₂
+  cases heq
+
+theorem permissive_sound_proof : permissive.Sound := by
+  intro _ _ _ h
+  exact h
+
+theorem permissive_satisfiable_proof : permissive.Satisfiable := by
+  intro memory size hspace
+  exact ⟨memory.bumpAllocation size,
+    memory.isValidNewAlloc_bumpAllocation size hspace,
+    memory.bumpAllocation_size size⟩
+
+end Generic.MemoryPolicy
+
 variable {program : Program} {ctx : CallContext}
 
 theorem Program.WellFormed.progress_reachable_nonIcall_bump_proof
@@ -145,9 +182,9 @@ theorem Program.WellFormed.progress_reachable_nonIcall_bump_proof
     ∃ trace state', SmallStep program ctx state trace state' := by
   refine hwf.progress_reachable_nonIcall_proof hrun hcontrol ?_ hstore
   intro nextControl result size word hdecode hword
-  exact ⟨state.globals.memory.bumpAlloc word.toNat,
-    state.globals.memory.isValidNewAlloc_bumpAlloc word.toNat
+  exact ⟨state.globals.memory.bumpAllocation word.toNat,
+    state.globals.memory.isValidNewAlloc_bumpAllocation word.toNat
       (hspace nextControl result size word hdecode hword),
-    state.globals.memory.bumpAlloc_size word.toNat⟩
+    state.globals.memory.bumpAllocation_size word.toNat⟩
 
 end Sir

@@ -17,11 +17,29 @@ def Deterministic (policy : MemoryPolicy) : Prop :=
     policy.Allows memory size allocation₂ →
     allocation₁ = allocation₂
 
+/-- Soundness lets policy-level availability provide the validity obligations required by an
+allocation step. -/
+def Sound (policy : MemoryPolicy) : Prop :=
+  ∀ memory size allocation, policy.Allows memory size allocation →
+    memory.IsValidNewAlloc allocation ∧ allocation.size = size
+
+/-- Satisfiability ensures an allocation choice exists whenever the unallocated suffix can hold
+the requested region. -/
+def Satisfiable (policy : MemoryPolicy) : Prop :=
+  ∀ memory size, memory.watermark + size ≤ Evm.UInt256.size →
+    ∃ allocation, policy.Allows memory size allocation
+
 /-- Every valid allocation of the requested size remains available when no allocator strategy is
 selected. -/
 def permissive : MemoryPolicy where
   Allows memory size allocation :=
     memory.IsValidNewAlloc allocation ∧ allocation.size = size
+
+/-- The release allocation discipline makes the watermark the unique next address and rejects
+requests that exceed the address space. -/
+def bump : MemoryPolicy where
+  Allows memory size allocation :=
+    memory.watermark + size ≤ Evm.UInt256.size ∧ allocation = memory.bumpAllocation size
 
 end MemoryPolicy
 

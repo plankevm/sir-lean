@@ -6,6 +6,28 @@ namespace Sir
 
 variable {program : Program} {ctx : CallContext}
 
+theorem Generic.MemoryPolicy.bump_deterministic :
+    Generic.MemoryPolicy.bump.Deterministic :=
+  Generic.MemoryPolicy.bump_deterministic_proof
+
+theorem Generic.MemoryPolicy.bump_sound : Generic.MemoryPolicy.bump.Sound :=
+  Generic.MemoryPolicy.bump_sound_proof
+
+theorem Generic.MemoryPolicy.bump_satisfiable : Generic.MemoryPolicy.bump.Satisfiable :=
+  Generic.MemoryPolicy.bump_satisfiable_proof
+
+theorem Generic.MemoryPolicy.permissive_not_deterministic :
+    ¬ Generic.MemoryPolicy.permissive.Deterministic :=
+  Generic.MemoryPolicy.permissive_not_deterministic_proof
+
+theorem Generic.MemoryPolicy.permissive_sound :
+    Generic.MemoryPolicy.permissive.Sound :=
+  Generic.MemoryPolicy.permissive_sound_proof
+
+theorem Generic.MemoryPolicy.permissive_satisfiable :
+    Generic.MemoryPolicy.permissive.Satisfiable :=
+  Generic.MemoryPolicy.permissive_satisfiable_proof
+
 theorem Program.deterministic_of_memOracleFree
     (hfree : program.AllocationFree) : program.Deterministic :=
   Program.deterministic_of_memOracleFree_proof hfree

@@ -51,6 +51,9 @@ instance (m : MemoryState) (a : Allocation) : Decidable (m.IsValidNewAlloc a) :=
 def watermark (m : MemoryState) : Nat :=
   m.provisioned.foldl (fun watermark allocation => max watermark allocation.endExclusive) 0
 
+def bumpAllocation (m : MemoryState) (size : Nat) : Allocation :=
+  { offset := .ofNat m.watermark, size }
+
 def push (m : MemoryState) (a : Allocation) : MemoryState :=
   { m with provisioned := m.provisioned.push a }
 
