@@ -1,4 +1,7 @@
 import Sir.Spec.Observation
+import Sir.Theorems
+import Sir.Proofs.Memory
+import Sir.Proofs.Progress
 import Sir.Proofs.Steps
 import BytecodeLayer.Hoare.MemAlgebra
 import BytecodeLayer.Semantics.Maps
@@ -46,111 +49,38 @@ def zeroSizeStore : Program :=
     initEntry := entryFunction
     mainEntry := none }
 
-private theorem fold_set_get? {α : Type} (xs : List α) (start j : Nat) (dest : Array α)
-    (hbound : start + xs.length ≤ dest.size) :
-    ((xs.zipIdx start).foldl (fun a x => a.setIfInBounds x.2 x.1) dest)[j]? =
-      if start ≤ j ∧ j < start + xs.length then xs[j - start]? else dest[j]? := by
-  induction xs generalizing start dest with
-  | nil => simp
-  | cons x xs ih =>
-      simp only [List.length_cons] at hbound
-      rw [List.zipIdx_cons, List.foldl_cons,
-        ih (start + 1) (dest.setIfInBounds start x) (by simp only [Array.size_setIfInBounds]; omega)]
-      by_cases heq : start = j
-      · subst j
-        simp [show start < dest.size by omega]
-      · by_cases hle : start ≤ j
-        · have hnext : start + 1 ≤ j := by omega
-          simp only [List.length_cons]
-          by_cases hrange : j < start + 1 + xs.length
-          · rw [if_pos ⟨hnext, hrange⟩, if_pos ⟨hle, by omega⟩]
-            rw [show j - start = (j - (start + 1)) + 1 by omega]
-            rfl
-          · rw [if_neg (by simp [hrange]), if_neg (by intro h; apply hrange; omega)]
-            simp [heq]
-        · have hnext : ¬start + 1 ≤ j := by omega
-          simp [heq, hle, hnext]
+def bareLoad : Program :=
+  { functions := #[{
+      blocks := #[{
+        inputs := #[]
+        statements := #[
+          .assign xVar (.constant 0),
+          .mload32 zVar xVar,
+          .sstore zVar zVar]
+        terminator := .halt
+        outputs := #[]}]
+      entry := entryBlock }]
+    initEntry := entryFunction
+    mainEntry := none }
 
-private theorem fold_set_size {α : Type} (xs : List (α × Nat)) (dest : Array α) :
-    (xs.foldl (fun a x => a.setIfInBounds x.2 x.1) dest).size = dest.size := by
-  induction xs generalizing dest with
-  | nil => rfl
-  | cons x xs ih => simp [ih]
-
-private theorem fold_set_zipIdx_eq {α : Type} (source dest : Array α)
-    (hsize : dest.size = source.size) :
-    source.toList.zipIdx.foldl (fun a x => a.setIfInBounds x.2 x.1) dest = source := by
-  apply Array.ext
-  · rw [fold_set_size, hsize]
-  · intro i hi₁ hi₂
-    have hget := fold_set_get? source.toList 0 i dest (by simp [hsize])
-    simp [hi₂] at hget
-    simpa only [Array.getElem?_eq_getElem hi₁, Array.getElem?_eq_getElem hi₂,
-      Option.some.injEq] using hget
-
-
-private def singletonMemory (alloc : Allocation) (data : Array UInt8) : MemoryState :=
-  { provisioned := #[{ alloc with bytes := ⟨data⟩ }] }
-
-private theorem writeByte_singleton (alloc : Allocation) (data : Array UInt8)
-    (index : Nat) (byte : UInt8) :
-    (singletonMemory alloc data).writeByte (alloc.start + index) byte =
-      singletonMemory alloc (data.setIfInBounds index byte) := by
-  have hc :
-      alloc.start ≤ alloc.start + index ∧ alloc.start + index < alloc.start + data.size ↔
-        index < data.size := by omega
-  simp [singletonMemory, MemoryState.writeByte, Allocation.writeByte,
-    Allocation.start, Allocation.endExclusive, Allocation.size]
-  intro hle
-  rw [Array.setIfInBounds_eq_of_size_le hle]
-
-private theorem writeBytes_singleton (alloc : Allocation) (bytes : ByteArray)
-    (hsize : alloc.bytes.size = bytes.size) :
-    (MemoryState.empty.push alloc).writeBytes alloc.offset bytes =
-      singletonMemory alloc bytes.data := by
-  unfold MemoryState.writeBytes MemoryState.empty MemoryState.push
-  change bytes.toList.zipIdx.foldl _ (singletonMemory alloc alloc.bytes.data) = _
-  rw [List.foldl_hom (singletonMemory alloc)
-    (g₁ := fun data x => data.setIfInBounds x.2 x.1)]
-  · rw [toList_eq_data_toList]
-    rw [fold_set_zipIdx_eq bytes.data alloc.bytes.data (by simpa using hsize)]
-  · intro data x
-    exact writeByte_singleton alloc data x.2 x.1
-
-private theorem readBytes_singleton (alloc : Allocation) (bytes assumed : ByteArray)
-    (hsize : assumed.size = bytes.size) :
-    (singletonMemory alloc bytes.data).readBytes alloc.offset assumed = bytes := by
-  unfold MemoryState.readBytes
-  have hround : bytes.toList.toByteArray = bytes := by
-    apply ByteArray.ext
-    rw [List.data_toByteArray, BytecodeLayer.Hoare.MemAlgebra.toList_eq_data_toList]
-  conv_rhs => rw [← hround]
-  apply congrArg List.toByteArray
-  apply List.ext_getElem
-  · simpa [BytecodeLayer.Hoare.MemAlgebra.toList_eq_data_toList] using hsize
-  · intro i hout hbytes
-    have hi : i < bytes.size := by
-      simpa [BytecodeLayer.Hoare.MemAlgebra.toList_eq_data_toList] using hbytes
-    simp [MemoryState.readByte?, singletonMemory, Allocation.readByte?, Allocation.start,
-      Allocation.endExclusive, Allocation.size,
-      BytecodeLayer.Hoare.MemAlgebra.toList_eq_data_toList, ByteArray.get?, hi]
-    rfl
-
-private theorem read_written_word (alloc : Allocation)
-    (hsize : alloc.size = 32) (assumed : Vector UInt8 32) :
-    ((MemoryState.empty.push alloc).writeBytes alloc.offset (42 : Word).toByteArray).readBytes
-      alloc.offset ⟨assumed.toArray⟩ = (42 : Word).toByteArray := by
-  rw [writeBytes_singleton]
-  · apply readBytes_singleton
-    change assumed.toArray.size = (42 : Word).toByteArray.size
-    rw [assumed.size_toArray, toByteArray_size]
-  · simpa [BytecodeLayer.Hoare.MemAlgebra.toByteArray_size] using hsize
+private theorem read_written_word (m : MemoryState) (offset : Word) (w : Word) :
+    ((m.writeBytes offset w.toByteArray).readBytes offset 32) = w.toByteArray := by
+  have h := m.readBytes_writeBytes offset w.toByteArray
+  rwa [toByteArray_size] at h
 
 private def stmtControl (index : Nat) : MachineControl :=
   .running { fn := entryFunction, block := entryBlock, position := .statement index }
 
 private def termControl : MachineControl :=
   .running { fn := entryFunction, block := entryBlock, position := .terminator }
+
+private def initializedAlloc : Allocation :=
+  { offset := 0, size := 32 }
+
+private theorem initialized_inBounds (alloc : Allocation) (hsize : alloc.size = 32) :
+    (MemoryState.empty.push alloc).InBounds alloc.offset.toNat 32 := by
+  refine ⟨alloc, by simp [MemoryState.empty, MemoryState.push], ?_⟩
+  exact ⟨Nat.le_refl _, by simp [Allocation.endExclusive, Allocation.start, hsize]⟩
 
 private def locals1 : Locals := Locals.empty.assign sizeVar 32
 private def locals2 (alloc : Allocation) : Locals := locals1.assign xVar alloc.offset
@@ -254,6 +184,14 @@ private theorem initialized_step_closed {ctx : CallContext} {world : World}
     bind, Except.bind, pure, Except.pure, Functor.map, Except.map,
     bindValues_empty, bindValues_singleton, read_written_word,
     fromByteArray_toByteArray, ofNat_toNat]
+  case state3.operation.next =>
+    rename_i alloc hsize env' globals' operands results oracle hfetch hstore hexecute
+    subst operands
+    simp [initialized_inBounds alloc hsize] at hexecute
+    obtain ⟨rfl, rfl, rfl⟩ := hexecute
+    simp [bindValues_empty] at hstore
+    subst env'
+    exact ⟨rfl, InitializedReachable.state4 alloc hsize⟩
   all_goals first
     | obtain ⟨size, hoperand, hvalid, hsize⟩ := ‹∃ _, _›
     | skip
@@ -355,7 +293,7 @@ private theorem initialized_halted_world {ctx : CallContext} {world : World}
 
 
 private def zeroAlloc (offset : Word) : Allocation :=
-  { offset, bytes := ByteArray.empty }
+  { offset, size := 0 }
 
 private def zeroState0 (world : World) : MachineState :=
   { globals := { world }, control := stmtControl 0 }
@@ -486,6 +424,120 @@ private theorem zero_worlds_differ :
   rw [hleft, hright] at hread
   exact (by decide : (1 : Word) ≠ 0) hread
 
+theorem initializedLoad_store_inBounds :
+    (MemoryState.empty.push { offset := 0, size := 32 }).InBounds 0 32 := by
+  decide
+
+theorem initializedLoad_reaches_successful_store :
+    ∃ ctx function world initial before after,
+      initializedLoad.callState? function { world } #[] = some initial ∧
+      Steps initializedLoad ctx initial [] before ∧
+      before.globals.memory = MemoryState.empty.push { offset := 0, size := 32 } ∧
+      before.globals.memory.InBounds 0 32 ∧
+      SmallStep initializedLoad ctx before [] after ∧
+      after.globals.memory =
+        (MemoryState.empty.push { offset := 0, size := 32 }).writeBytes 0
+          (42 : Word).toByteArray := by
+  have hfetchEmpty : (#[] : Array VarId).mapM ((initializedState0 default).locals.lookup ·) =
+      .ok #[] := by
+    rw [Array.mapM_eq_mapM_toList]
+    rfl
+  have hstoreSize :
+      Locals.bindValues (initializedState0 default).locals #[sizeVar] #[32] =
+        .ok (initializedState1 default).locals := by
+    simpa [initializedState0, initializedState1, locals1] using
+      bindValues_singleton Locals.empty sizeVar 32
+  have step01 :
+      SmallStep initializedLoad zeroContext (initializedState0 default) []
+        (initializedState1 default) := by
+    apply step_assign (program := initializedLoad) (ctx := zeroContext)
+      (result := sizeVar) (expr := .constant 32)
+      (by simp [initializedLoad, Program.decodeStmt, Program.block?, Program.function?,
+        Function.block?, BasicBlock.absoluteToPosition, initializedState0, stmtControl])
+    simp only [decodeExpression, Generic.Instruction.Fires]
+    exact fires_of hfetchEmpty (by trivial)
+      (Generic.Operation.execute_constant_ok zeroContext 32
+        (initializedState0 default).globals #[]) hstoreSize
+  have hfetchSize :
+      #[sizeVar].mapM ((initializedState1 default).locals.lookup ·) = .ok #[32] := by
+    rw [Array.mapM_eq_mapM_toList]
+    rfl
+  have hvalid :
+      (initializedState1 default).globals.memory.IsValidNewAlloc initializedAlloc := by
+    decide
+  have hsize : initializedAlloc.size = (32 : Word).toNat := by
+    decide
+  have hstoreOffset :
+      Locals.bindValues (initializedState1 default).locals #[xVar] #[initializedAlloc.offset] =
+        .ok (initializedState2 default initializedAlloc).locals := by
+    simpa [initializedState1, initializedState2, locals1, locals2] using
+      bindValues_singleton locals1 xVar initializedAlloc.offset
+  have step12 :
+      SmallStep initializedLoad zeroContext (initializedState1 default) []
+        (initializedState2 default initializedAlloc) := by
+    apply step_mallocUninit (program := initializedLoad) (ctx := zeroContext)
+      (result := xVar) (size := sizeVar)
+      (by simp [initializedLoad, Program.decodeStmt, Program.block?, Program.function?,
+        Function.block?, BasicBlock.absoluteToPosition, initializedState1, stmtControl])
+    simp only [decodeSirStatement, Generic.Instruction.Fires]
+    exact fires_of hfetchSize ⟨32, rfl, ⟨hvalid, hsize⟩, hvalid, hsize⟩
+      (Generic.Operation.execute_malloc_ok zeroContext initializedAlloc
+        (initializedState1 default).globals 32 hsize) hstoreOffset
+  have hfetchEmpty₂ :
+      (#[] : Array VarId).mapM ((initializedState2 default initializedAlloc).locals.lookup ·) =
+        .ok #[] := by
+    rw [Array.mapM_eq_mapM_toList]
+    rfl
+  have hstoreValue :
+      Locals.bindValues (initializedState2 default initializedAlloc).locals #[valueVar] #[42] =
+        .ok (initializedState3 default initializedAlloc).locals := by
+    simpa [initializedState2, initializedState3, locals2, locals3] using
+      bindValues_singleton (locals2 initializedAlloc) valueVar 42
+  have step23 :
+      SmallStep initializedLoad zeroContext (initializedState2 default initializedAlloc) []
+        (initializedState3 default initializedAlloc) := by
+    apply step_assign (program := initializedLoad) (ctx := zeroContext)
+      (result := valueVar) (expr := .constant 42)
+      (by simp [initializedLoad, Program.decodeStmt, Program.block?, Program.function?,
+        Function.block?, BasicBlock.absoluteToPosition, initializedState2, stmtControl])
+    simp only [decodeExpression, Generic.Instruction.Fires]
+    exact fires_of hfetchEmpty₂ (by trivial)
+      (Generic.Operation.execute_constant_ok zeroContext 42
+        (initializedState2 default initializedAlloc).globals #[]) hstoreValue
+  have hfetchStore :
+      #[xVar, valueVar].mapM
+        ((initializedState3 default initializedAlloc).locals.lookup ·) =
+          .ok #[initializedAlloc.offset, 42] := by
+    rw [Array.mapM_eq_mapM_toList]
+    rfl
+  have hstoreEmpty :
+      Locals.bindValues (initializedState3 default initializedAlloc).locals #[] #[] =
+        .ok (initializedState3 default initializedAlloc).locals :=
+    bindValues_empty _
+  have hin :
+      (initializedState3 default initializedAlloc).globals.memory.InBounds
+        initializedAlloc.offset.toNat 32 := by
+    exact initialized_inBounds initializedAlloc rfl
+  have step34 :
+      SmallStep initializedLoad zeroContext (initializedState3 default initializedAlloc) []
+        (initializedState4 default initializedAlloc) := by
+    apply step_mstore32 (program := initializedLoad) (ctx := zeroContext)
+      (offset := xVar) (value := valueVar)
+      (by simp [initializedLoad, Program.decodeStmt, Program.block?, Program.function?,
+        Function.block?, BasicBlock.absoluteToPosition, initializedState3, stmtControl])
+    simp only [decodeSirStatement, Generic.Instruction.Fires]
+    exact fires_of hfetchStore (by trivial)
+      (Generic.Operation.execute_mstore32_ok zeroContext
+        (initializedState3 default initializedAlloc).globals initializedAlloc.offset 42 hin)
+      hstoreEmpty
+  refine ⟨zeroContext, entryFunction, default, initializedState0 default,
+    initializedState3 default initializedAlloc, initializedState4 default initializedAlloc,
+    initialized_entry default, ?_, ?_, ?_, step34, ?_⟩
+  · exact .tail (.tail (.tail .refl step01) step12) step23
+  · rfl
+  · simpa [initializedState3, initializedAlloc] using initializedLoad_store_inBounds
+  · rfl
+
 theorem initializedLoad_deterministic : initializedLoad.Deterministic := by
   intro ctx world
   constructor
@@ -516,6 +568,14 @@ theorem initializedLoad_deterministic : initializedLoad.Deterministic := by
       exact congrArg ObservableOutcome.halt this
   · intro entry hentry
     simp [initializedLoad] at hentry
+
+theorem bareLoad_memOracleFree : bareLoad.MemOracleFree := by
+  rintro statement hstatement
+  simp [Program.HasStmt, Function.HasStmt, bareLoad] at hstatement
+  rcases hstatement with rfl | rfl | rfl <;> simp [Stmt.isMemOracle]
+
+theorem bareLoad_deterministic : bareLoad.Deterministic :=
+  Program.deterministic_of_memOracleFree bareLoad_memOracleFree
 
 theorem zeroSizeStore_not_deterministic : ¬ zeroSizeStore.Deterministic := by
   intro hdet

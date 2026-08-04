@@ -73,7 +73,7 @@ def Program.Deterministic (program : Program) : Prop :=
     program.AtEntries (fun entry => program.DeterministicFrom ctx entry world₀)
 
 def Stmt.isMemOracle : Stmt → Prop
-  | .mallocUninit _ _ | .mload32 _ _ => True
+  | .mallocUninit _ _ => True
   | _ => False
 
 def Program.MemOracleFree (p : Program) : Prop :=

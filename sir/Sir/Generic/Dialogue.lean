@@ -83,8 +83,7 @@ theorem execute_dialogue {policy : MemoryPolicy} (ctx : CallContext)
     (hadmissible₁ : operation.Admissible policy globals operands oracle₁)
     (hadmissible₂ : operation.Admissible policy globals operands oracle₂)
     (hexecute₁ : operation.execute ctx oracle₁ globals operands = .ok outcome₁)
-    (hexecute₂ : operation.execute ctx oracle₂ globals operands = .ok outcome₂)
-    (hmload : operation ≠ .mload32) :
+    (hexecute₂ : operation.execute ctx oracle₂ globals operands = .ok outcome₂) :
     outcome₁ = outcome₂ ∨
       Trace.QueryDivergence outcome₁.trace outcome₂.trace := by
   classical
@@ -117,7 +116,6 @@ theorem execute_dialogue {policy : MemoryPolicy} (ctx : CallContext)
       obtain rfl := hmalloc rfl _ _ _ _ hallows₁ hallows₂
       rw [hexecute₁] at hexecute₂
       exact .inl (Except.ok.inj hexecute₂)
-  | mload32 => exact (hmload rfl).elim
   | _ =>
       obtain rfl : oracle₁ = oracle₂ := rfl
       rw [hexecute₁] at hexecute₂
@@ -133,7 +131,6 @@ theorem fires_dialogue (frame : OperandFrame) {policy : MemoryPolicy}
     {ctx : CallContext}
     {src : frame.Source} {dst : frame.Destination} {env env₁ env₂ : frame.Environment}
     {globals globals₁ globals₂ : Globals} {trace₁ trace₂ : Trace}
-    (hmload : operation ≠ .mload32)
     (h₁ : frame.Fires policy ctx operation src dst env globals trace₁ env₁ globals₁)
     (h₂ : frame.Fires policy ctx operation src dst env globals trace₂ env₂ globals₂) :
     (trace₁ = trace₂ ∧ env₁ = env₂ ∧ globals₁ = globals₂) ∨
@@ -145,7 +142,7 @@ theorem fires_dialogue (frame : OperandFrame) {policy : MemoryPolicy}
       rw [hfetch₁] at hfetch₂
       obtain rfl := Except.ok.inj hfetch₂
       rcases Operation.execute_dialogue ctx operation hmalloc globals _
-          hadmissible₁ hadmissible₂ hexecute₁ hexecute₂ hmload with heq | hdiv
+          hadmissible₁ hadmissible₂ hexecute₁ hexecute₂ with heq | hdiv
       · injection heq with hresults hglobals htrace
         subst hresults hglobals htrace
         rw [hstore₁] at hstore₂
@@ -157,7 +154,7 @@ theorem firesHalt_dialogue (frame : OperandFrame) {policy : MemoryPolicy}
     (hmalloc : operation = .mallocUninit → policy.Deterministic)
     {ctx : CallContext}
     {src : frame.Source} {env : frame.Environment} {globals globals₁ globals₂ : Globals}
-    {trace₁ trace₂ : Trace} (hmload : operation ≠ .mload32)
+    {trace₁ trace₂ : Trace}
     (h₁ : frame.FiresHalt policy ctx operation src env globals trace₁ globals₁)
     (h₂ : frame.FiresHalt policy ctx operation src env globals trace₂ globals₂) :
     (trace₁ = trace₂ ∧ globals₁ = globals₂) ∨
@@ -169,7 +166,7 @@ theorem firesHalt_dialogue (frame : OperandFrame) {policy : MemoryPolicy}
       rw [hfetch₁] at hfetch₂
       obtain rfl := Except.ok.inj hfetch₂
       rcases Operation.execute_dialogue ctx operation hmalloc globals _
-          hadmissible₁ hadmissible₂ hexecute₁ hexecute₂ hmload with heq | hdiv
+          hadmissible₁ hadmissible₂ hexecute₁ hexecute₂ with heq | hdiv
       · injection heq with hglobals htrace
         subst hglobals htrace
         exact .inl ⟨rfl, rfl⟩
@@ -181,7 +178,6 @@ theorem fires_firesHalt_dialogue (frame : OperandFrame) {policy : MemoryPolicy}
     {ctx : CallContext}
     {src : frame.Source} {dst : frame.Destination} {env env' : frame.Environment}
     {globals globals₁ globals₂ : Globals} {trace₁ trace₂ : Trace}
-    (hmload : operation ≠ .mload32)
     (h₁ : frame.Fires policy ctx operation src dst env globals trace₁ env' globals₁)
     (h₂ : frame.FiresHalt policy ctx operation src env globals trace₂ globals₂) :
     Trace.QueryDivergence trace₁ trace₂ := by
@@ -192,7 +188,7 @@ theorem fires_firesHalt_dialogue (frame : OperandFrame) {policy : MemoryPolicy}
       rw [hfetch₁] at hfetch₂
       obtain rfl := Except.ok.inj hfetch₂
       rcases Operation.execute_dialogue ctx operation hmalloc globals _
-          hadmissible₁ hadmissible₂ hexecute₁ hexecute₂ hmload with heq | hdiv
+          hadmissible₁ hadmissible₂ hexecute₁ hexecute₂ with heq | hdiv
       · cases heq
       · exact hdiv
 
@@ -210,10 +206,6 @@ def Decoder.Terminal {frame : OperandFrame} (decoder : Decoder frame) : Prop :=
   (∀ env globals,
     decoder.decode .halted = none ∧
     decoder.control env globals .halted = none)
-
-def Decoder.NoMload {frame : OperandFrame} (decoder : Decoder frame) : Prop :=
-  ∀ control src dst next,
-    decoder.decode control = some (⟨Instruction.Kind.primitive .mload32, src, dst⟩, next) → False
 
 def Decoder.NoMalloc {frame : OperandFrame} (decoder : Decoder frame) : Prop :=
   ∀ control src dst next,
@@ -319,7 +311,6 @@ theorem stuck_of_halted {frame : OperandFrame} {decoder : Decoder frame}
 private theorem dialogue_op {frame : OperandFrame} {decoder : Decoder frame}
     {policy : MemoryPolicy} {ctx : CallContext}
     (halloc : policy.Deterministic ∨ decoder.NoMalloc) (hexclusive : decoder.Exclusive)
-    (hnomload : decoder.NoMload)
     {state : GenericState frame} {operation : Operation} {src : frame.Source} {dst : frame.Destination}
     {next : MachineControl} {trace : Trace} {env' : frame.Environment} {globals' : Globals}
     (hdecode : decoder.decode state.control =
@@ -341,10 +332,7 @@ private theorem dialogue_op {frame : OperandFrame} {decoder : Decoder frame}
       obtain ⟨hinstr, hnext⟩ := Prod.mk.inj heq
       cases hnext
       cases hinstr
-      have hmload : operation ≠ .mload32 := fun hop => by
-        subst hop
-        exact hnomload _ _ _ _ hdecode
-      rcases frame.fires_dialogue hmalloc hmload hfires hfires₂ with hsame | hdiv
+      rcases frame.fires_dialogue hmalloc hfires hfires₂ with hsame | hdiv
       · obtain ⟨rfl, rfl, rfl⟩ := hsame
         exact .inl ⟨rfl, rfl⟩
       · exact .inr hdiv
@@ -352,10 +340,7 @@ private theorem dialogue_op {frame : OperandFrame} {decoder : Decoder frame}
       have heq := Option.some.inj (hdecode.symm.trans hdecode₂)
       obtain ⟨hinstr, _⟩ := Prod.mk.inj heq
       cases hinstr
-      have hmload : operation ≠ .mload32 := fun hop => by
-        subst hop
-        exact hnomload _ _ _ _ hdecode
-      exact .inr (frame.fires_firesHalt_dialogue hmalloc hmload hfires hfires₂)
+      exact .inr (frame.fires_firesHalt_dialogue hmalloc hfires hfires₂)
   | internalCall hdecode₂ _ _ _ =>
       have heq := Option.some.inj (hdecode.symm.trans hdecode₂)
       exact Instruction.Kind.noConfusion (congrArg Instruction.kind (congrArg Prod.fst heq))
@@ -367,7 +352,6 @@ private theorem dialogue_op {frame : OperandFrame} {decoder : Decoder frame}
 private theorem dialogue_opHalted {frame : OperandFrame} {decoder : Decoder frame}
     {policy : MemoryPolicy} {ctx : CallContext}
     (halloc : policy.Deterministic ∨ decoder.NoMalloc) (hexclusive : decoder.Exclusive)
-    (hnomload : decoder.NoMload)
     {state : GenericState frame} {operation : Operation} {src : frame.Source} {dst : frame.Destination}
     {next : MachineControl} {trace : Trace} {globals' : Globals}
     (hdecode : decoder.decode state.control =
@@ -388,19 +372,13 @@ private theorem dialogue_opHalted {frame : OperandFrame} {decoder : Decoder fram
       have heq := Option.some.inj (hdecode.symm.trans hdecode₂)
       obtain ⟨hinstr, _⟩ := Prod.mk.inj heq
       cases hinstr
-      have hmload : operation ≠ .mload32 := fun hop => by
-        subst hop
-        exact hnomload _ _ _ _ hdecode
       exact .inr (Trace.QueryDivergence.symmetric
-        (frame.fires_firesHalt_dialogue hmalloc hmload hfires₂ hfires))
+        (frame.fires_firesHalt_dialogue hmalloc hfires₂ hfires))
   | operationHalted hdecode₂ hfires₂ =>
       have heq := Option.some.inj (hdecode.symm.trans hdecode₂)
       obtain ⟨hinstr, _⟩ := Prod.mk.inj heq
       cases hinstr
-      have hmload : operation ≠ .mload32 := fun hop => by
-        subst hop
-        exact hnomload _ _ _ _ hdecode
-      rcases frame.firesHalt_dialogue hmalloc hmload hfires hfires₂ with hsame | hdiv
+      rcases frame.firesHalt_dialogue hmalloc hfires hfires₂ with hsame | hdiv
       · obtain ⟨rfl, rfl⟩ := hsame
         exact .inl ⟨rfl, rfl⟩
       · exact .inr hdiv
@@ -585,7 +563,7 @@ private theorem evalDialogue_halted {frame : OperandFrame} {decoder : Decoder fr
 theorem stepDialogue_all {frame : OperandFrame} {decoder : Decoder frame}
     {policy : MemoryPolicy} {ctx : CallContext}
     (halloc : policy.Deterministic ∨ decoder.NoMalloc) (hexclusive : decoder.Exclusive)
-    (hterminal : decoder.Terminal) (hnomload : decoder.NoMload)
+    (hterminal : decoder.Terminal)
     {state final : GenericState frame} {trace : Trace}
     (h : GenericStep frame decoder policy ctx state trace final) :
     StepDialogue decoder policy ctx state trace final := by
@@ -597,8 +575,8 @@ theorem stepDialogue_all {frame : OperandFrame} {decoder : Decoder frame}
     (motive_3 := fun function globals args trace globals' outcome _ =>
       EvalDialogue decoder policy ctx function globals args trace globals' outcome)
     ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ h
-  case refine_1 => intros; apply dialogue_op halloc hexclusive hnomload <;> assumption
-  case refine_2 => intros; apply dialogue_opHalted halloc hexclusive hnomload <;> assumption
+  case refine_1 => intros; apply dialogue_op halloc hexclusive <;> assumption
+  case refine_2 => intros; apply dialogue_opHalted halloc hexclusive <;> assumption
   case refine_3 => intros; apply dialogue_icall hexclusive <;> assumption
   case refine_4 => intros; apply dialogue_control hexclusive; assumption
   case refine_5 => intros; exact runDialogue_refl
@@ -609,7 +587,7 @@ theorem stepDialogue_all {frame : OperandFrame} {decoder : Decoder frame}
 theorem runDialogue_all {frame : OperandFrame} {decoder : Decoder frame}
     {policy : MemoryPolicy} {ctx : CallContext}
     (halloc : policy.Deterministic ∨ decoder.NoMalloc) (hexclusive : decoder.Exclusive)
-    (hterminal : decoder.Terminal) (hnomload : decoder.NoMload)
+    (hterminal : decoder.Terminal)
     {state final : GenericState frame} {trace : Trace}
     (h : GenericSteps frame decoder policy ctx state trace final) :
     RunDialogue decoder policy ctx state trace final := by
@@ -617,12 +595,12 @@ theorem runDialogue_all {frame : OperandFrame} {decoder : Decoder frame}
       RunDialogue decoder policy ctx state trace final)
     (fun _ => runDialogue_refl)
     (fun _ next ihRun => runDialogue_tail next ihRun
-      (stepDialogue_all halloc hexclusive hterminal hnomload next)) h
+      (stepDialogue_all halloc hexclusive hterminal next)) h
 
 theorem evalDialogue_all {frame : OperandFrame} {decoder : Decoder frame}
     {policy : MemoryPolicy} {ctx : CallContext}
     (halloc : policy.Deterministic ∨ decoder.NoMalloc) (hexclusive : decoder.Exclusive)
-    (hterminal : decoder.Terminal) (hnomload : decoder.NoMload)
+    (hterminal : decoder.Terminal)
     {function : FunctionId} {globals globals' : Globals} {args : Array Word}
     {trace : Trace} {outcome : FunctionOutcome}
     (h : GenericFunctionEvaluation frame decoder policy ctx function globals args trace globals' outcome) :
@@ -630,16 +608,15 @@ theorem evalDialogue_all {frame : OperandFrame} {decoder : Decoder frame}
   cases h with
   | returned hentry hrun hreturn =>
       exact evalDialogue_returned hterminal hentry hreturn
-        (runDialogue_all halloc hexclusive hterminal hnomload hrun)
+        (runDialogue_all halloc hexclusive hterminal hrun)
   | halted hentry hrun hhalt =>
       exact evalDialogue_halted hterminal hentry hhalt
-        (runDialogue_all halloc hexclusive hterminal hnomload hrun)
+        (runDialogue_all halloc hexclusive hterminal hrun)
 
 theorem GenericSteps.confluence_or_queryDivergence
     {frame : OperandFrame} {decoder : Decoder frame} {policy : MemoryPolicy}
     {ctx : CallContext} (halloc : policy.Deterministic ∨ decoder.NoMalloc)
     (hexclusive : decoder.Exclusive) (hterminal : decoder.Terminal)
-    (hnomload : decoder.NoMload)
     {state final₁ final₂ : GenericState frame} {trace₁ trace₂ : Trace}
     (h₁ : GenericSteps frame decoder policy ctx state trace₁ final₁)
     (h₂ : GenericSteps frame decoder policy ctx state trace₂ final₂) :
@@ -648,6 +625,6 @@ theorem GenericSteps.confluence_or_queryDivergence
     (∃ suffix, GenericSteps frame decoder policy ctx final₂ suffix final₁ ∧
       trace₂ ++ suffix = trace₁) ∨
     Trace.QueryDivergence trace₁ trace₂ :=
-  runDialogue_all halloc hexclusive hterminal hnomload h₁ trace₂ final₂ h₂
+  runDialogue_all halloc hexclusive hterminal h₁ trace₂ final₂ h₂
 
 end Sir.Generic

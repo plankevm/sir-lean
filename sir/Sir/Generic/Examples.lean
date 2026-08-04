@@ -34,12 +34,6 @@ def sirWitnessAfterConstant (globals : Globals) : GenericState localOperandFrame
 def sirWitnessFinal (globals : Globals) : GenericState localOperandFrame :=
   { globals, environment := Locals.empty.assign sirWitnessResult 7, control := .halted }
 
-theorem sirWitness_memOracleFree : sirWitnessProgram.MemOracleFree := by
-  intro statement hstatement
-  simp [Program.HasStmt, Function.HasStmt, sirWitnessProgram] at hstatement
-  subst statement
-  simp [Stmt.isMemOracle]
-
 theorem sirResume_rejects_arity (env : Locals) (next : MachineControl) :
     sirResume (.returned #[]) env #[sirWitnessResult] next = none := by
   simp [sirResume, Locals.bindReturns, Locals.bindValues, Functor.map, Except.map]
@@ -92,32 +86,6 @@ def cfgWitnessState (globals : Globals) (stack : List Word) (position : BlockPos
   { globals
     environment := { StackEnv.empty with stack }
     control := .running { fn := cfgWitnessEntry, block := cfgWitnessBlock, position } }
-
-theorem cfgWitness_noMload : (cfgDecoder cfgWitnessProgram).NoMload := by
-  intro control src dst next hdecode
-  cases control with
-  | returned results =>
-      simp [cfgDecoder, cfgDecode, CfgProgram.decodeInstruction] at hdecode
-  | halted =>
-      simp [cfgDecoder, cfgDecode, CfgProgram.decodeInstruction] at hdecode
-  | running cursor =>
-      rcases cursor with ⟨⟨functionId⟩, ⟨blockId⟩, position⟩
-      cases position with
-      | terminator =>
-          simp [cfgDecoder, cfgDecode, CfgProgram.decodeInstruction] at hdecode
-      | statement index =>
-          rcases functionId with _ | functionId
-          · rcases blockId with _ | blockId
-            · rcases index with _ | _ | _ | index <;>
-                simp [cfgDecoder, cfgDecode, CfgProgram.decodeInstruction,
-                  CfgProgram.block?, CfgProgram.function?, CfgFunction.block?,
-                  cfgWitnessProgram] at hdecode
-            · simp [cfgDecoder, cfgDecode, CfgProgram.decodeInstruction,
-                CfgProgram.block?, CfgProgram.function?, CfgFunction.block?,
-                cfgWitnessProgram] at hdecode
-          · simp [cfgDecoder, cfgDecode, CfgProgram.decodeInstruction,
-              CfgProgram.block?, CfgProgram.function?, CfgFunction.block?,
-              cfgWitnessProgram] at hdecode
 
 theorem cfgWitness_step_constant₂ (policy : MemoryPolicy) (ctx : CallContext)
     (globals : Globals) :
@@ -178,7 +146,7 @@ theorem sirWitness_confluence_consumes_generic (ctx : CallContext) (globals : Gl
       GenericSteps localOperandFrame (sirDecoder sirWitnessProgram) .empty ctx
         (sirWitnessFinal globals) suffix (sirWitnessFinal globals) ∧ [] ++ suffix = []) ∨
     Trace.QueryDivergence [] [] :=
-  sir_steps_confluence_or_queryDivergence sirWitness_memOracleFree
+  sir_steps_confluence_or_queryDivergence MemoryPolicy.empty_deterministic
     (sirWitness_runs ctx globals) (sirWitness_runs ctx globals)
 
 theorem cfgWitness_confluence_consumes_generic (ctx : CallContext) (globals : Globals) :
@@ -198,6 +166,6 @@ theorem cfgWitness_confluence_consumes_generic (ctx : CallContext) (globals : Gl
           control := .halted } ∧ [] ++ suffix = []) ∨
     Trace.QueryDivergence [] [] :=
   cfg_steps_confluence_or_queryDivergence MemoryPolicy.empty_deterministic
-    cfgWitness_noMload (cfgWitness_runs ctx globals) (cfgWitness_runs ctx globals)
+    (cfgWitness_runs ctx globals) (cfgWitness_runs ctx globals)
 
 end Sir.Generic

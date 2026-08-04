@@ -76,13 +76,6 @@ theorem Program.MemOracleFree.not_mallocUninit
     False := by
   exact hfree _ (Program.decodeStmt_mem h) trivial
 
-theorem Program.MemOracleFree.not_mload32
-    (hfree : program.MemOracleFree)
-    {control nextControl : MachineControl} {result offset : VarId}
-    (h : program.decodeStmt control = some (nextControl, .mload32 result offset)) :
-    False := by
-  exact hfree _ (Program.decodeStmt_mem h) trivial
-
 theorem Program.decodeStmt_next_block
     {control next : MachineControl} {stmt : Stmt} {cursor : ProgramCursor}
     (hctrl : control = .running cursor)

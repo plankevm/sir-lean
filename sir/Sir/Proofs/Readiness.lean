@@ -234,12 +234,15 @@ theorem MachineState.stmtReady_of_coversVariables
     (halloc : ∀ result size, statement = .mallocUninit result size →
       ∃ word alloc, state.locals.lookup size = .ok word ∧
         state.globals.memory.IsValidNewAlloc alloc ∧ alloc.size = word.toNat)
+    (hstore : ∀ offset value, statement = .mstore32 offset value →
+      ∃ word, state.locals.lookup offset = .ok word ∧
+        state.globals.memory.InBounds word.toNat 32)
     (hnonIcall : ∀ callee args dests, statement ≠ .icall callee args dests) :
     state.StmtReady statement := by
   cases statement with
   | assign result expression =>
       exact Locals.exprReady_of_coversVariables h
-  | sstore key value | mstore32 key value =>
+  | sstore key value =>
       exact ⟨h key (by simp [Stmt.variablesRead]),
         h value (by simp [Stmt.variablesRead])⟩
   | gas result => trivial
@@ -247,6 +250,9 @@ theorem MachineState.stmtReady_of_coversVariables
       exact ⟨h callData.callee (by simp [Stmt.variablesRead]),
         h callData.gas (by simp [Stmt.variablesRead])⟩
   | mallocUninit result size => exact halloc result size rfl
+  | mstore32 offset value =>
+      obtain ⟨word, hword, hin⟩ := hstore offset value rfl
+      exact ⟨word, hword, h value (by simp [Stmt.variablesRead]), hin⟩
   | mload32 result offset => exact h offset (by simp [Stmt.variablesRead])
   | icall callee args dests => exact (hnonIcall callee args dests rfl).elim
 
@@ -568,7 +574,8 @@ theorem Program.WellFormed.progress_reachable_nonIcall_proof
     {args : Array Word} {runTrace : Trace} {state : MachineState}
     (hrun : program.RunsFunction ctx function globals args runTrace state)
     (hcontrol : program.NonIcallControl state)
-    (hfreshAllocation : program.AllocationAvailable state) :
+    (hfreshAllocation : program.AllocationAvailable state)
+    (hstore : program.StoreInBounds state) :
     ∃ trace state', SmallStep program ctx state trace state' := by
   have hinvariant := hwf.localsCoverCursor_runsFn hrun
   rcases hcontrol with
@@ -583,6 +590,10 @@ theorem Program.WellFormed.progress_reachable_nonIcall_proof
         obtain ⟨allocation, hvalid, hsize⟩ :=
           hfreshAllocation nextControl result size word hdecode hword
         exact ⟨word, allocation, hword, hvalid, hsize⟩
+      · intro offset value heq
+        subst statement
+        obtain ⟨word, hword⟩ := hreads offset (by simp [Stmt.variablesRead])
+        exact ⟨word, hword, hstore nextControl offset value word hdecode hword⟩
       · exact hnonIcall
     exact progress_stmt_proof hdecode hready
   · obtain ⟨cursor, block, hstateControl, hposition, hblock, -⟩ :=

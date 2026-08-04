@@ -67,16 +67,16 @@ theorem execute_malloc_ok (ctx : CallContext) (allocation : Allocation)
   simp [execute, hsize, bind, Except.bind, pure, Except.pure]
 
 theorem execute_mstore32_ok (ctx : CallContext) (globals : Globals)
-    (offset value : Word) :
+    (offset value : Word) (hin : globals.memory.InBounds offset.toNat 32) :
     execute ctx .mstore32 () globals #[offset, value] =
       .ok (.next #[]
-        { globals with memory := globals.memory.writeBytes offset value.toByteArray } []) := rfl
+        { globals with memory := globals.memory.writeBytes offset value.toByteArray } []) := by
+  simp [execute, hin, pure, Except.pure]
 
-theorem execute_mload32_ok (ctx : CallContext) (assumed : Vector UInt8 32)
-    (globals : Globals) (offset : Word) :
-    execute ctx .mload32 assumed globals #[offset] =
+theorem execute_mload32_ok (ctx : CallContext) (globals : Globals) (offset : Word) :
+    execute ctx .mload32 () globals #[offset] =
       .ok (.next #[.ofNat (Evm.fromByteArrayBigEndian
-        (globals.memory.readBytes offset ⟨assumed.toArray⟩))] globals []) := rfl
+        (globals.memory.readBytes offset 32))] globals []) := rfl
 
 end Generic.Operation
 
@@ -100,9 +100,8 @@ theorem firesHalt_false
   cases h with
   | halted hadmissible hfetch hexecute =>
       cases operation <;> simp only [Generic.Operation.execute] at hexecute
-      all_goals repeat' first | split at hexecute <;>
-        simp_all [pure, Except.pure, bind, Except.bind]
-      all_goals cases Except.ok.inj hexecute
+      all_goals repeat' first | split at hexecute
+      all_goals simp_all [pure, Except.pure, bind, Except.bind]
 
 def Generic.Instruction.Fires {frame : OperandFrame} (instruction : Instruction frame)
     (policy : MemoryPolicy) (ctx : CallContext) (env : frame.Environment) (globals : Globals)
@@ -334,7 +333,7 @@ theorem stepDialogue_all
       (.inr (Generic.sirDecoder_noMalloc hfree))
       (Generic.sirDecoder_exclusive program)
       (Generic.sirDecoder_terminal program)
-      (Generic.sirDecoder_noMload hfree) h trace₂ final₂.toGenericState h₂ with
+      h trace₂ final₂.toGenericState h₂ with
     ⟨htrace, hfinal⟩ | hdiv
   · exact .inl ⟨htrace, MachineState.toGenericState_inj hfinal⟩
   · exact .inr hdiv
@@ -357,7 +356,7 @@ theorem runDialogue_all
     (.inr (Generic.sirDecoder_noMalloc hfree))
     (Generic.sirDecoder_exclusive program)
     (Generic.sirDecoder_terminal program)
-    (Generic.sirDecoder_noMload hfree) h trace₂ final₂.toGenericState h₂
+    h trace₂ final₂.toGenericState h₂
 
 theorem fnDialogue_all
     (hfree : program.MemOracleFree)
@@ -374,7 +373,7 @@ theorem fnDialogue_all
     (.inr (Generic.sirDecoder_noMalloc hfree))
     (Generic.sirDecoder_exclusive program)
     (Generic.sirDecoder_terminal program)
-    (Generic.sirDecoder_noMload hfree) h
+    h
 
 theorem Steps.confluence_or_queryDivergence_proof
     (hfree : program.MemOracleFree)
@@ -388,7 +387,10 @@ theorem Steps.confluence_or_queryDivergence_proof
     (∃ suffix, GenericSteps localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
       final₂.toGenericState suffix final₁.toGenericState ∧ trace₂ ++ suffix = trace₁) ∨
     Trace.QueryDivergence trace₁ trace₂ :=
-  Generic.sir_steps_confluence_or_queryDivergence hfree h₁ h₂
+  Generic.GenericSteps.confluence_or_queryDivergence
+    (.inr (Generic.sirDecoder_noMalloc hfree))
+    (Generic.sirDecoder_exclusive program)
+    (Generic.sirDecoder_terminal program) h₁ h₂
 
 private theorem eval_jump_control
     {s s' : MachineState} {target : BlockId}

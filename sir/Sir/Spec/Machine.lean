@@ -41,7 +41,6 @@ def Oracle : Operation → Type
   | .gas => Word
   | .call => CallResult
   | .mallocUninit => Allocation
-  | .mload32 => Vector UInt8 32
   | _ => Unit
 
 def Admissible (policy : MemoryPolicy) :
@@ -100,11 +99,14 @@ def execute (ctx : CallContext) :
   | .mstore32, _, globals, operands => do
       let some offset := operands[0]? | throw (.blockArityMismatch operands.size 2)
       let some value := operands[1]? | throw (.blockArityMismatch operands.size 2)
-      return .next #[]
-        { globals with memory := globals.memory.writeBytes offset value.toByteArray } []
-  | .mload32, assumed, globals, operands => do
+      if globals.memory.InBounds offset.toNat 32 then
+        return .next #[]
+          { globals with memory := globals.memory.writeBytes offset value.toByteArray } []
+      else
+        throw .storeOutOfBounds
+  | .mload32, _, globals, operands => do
       let some offset := operands[0]? | throw (.blockArityMismatch operands.size 1)
-      let bytes := globals.memory.readBytes offset ⟨assumed.toArray⟩
+      let bytes := globals.memory.readBytes offset 32
       return .next #[.ofNat (Evm.fromByteArrayBigEndian bytes)] globals []
 
 end Operation
