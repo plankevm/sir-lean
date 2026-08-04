@@ -1,4 +1,5 @@
 import Sir.Proofs.Decode
+import Sir.Generic.Corollaries
 import Sir.Spec.WellFormed
 
 namespace Sir
@@ -291,6 +292,345 @@ theorem fires_of
     (hstore : localsFrame.store env dst results = .ok env') :
     localsFrame.Fires sirPolicy ctx operation src dst env globals trace env' globals' :=
   .next hadmissible hfetch hexecute hstore
+
+def Generic.Instr.Fires {frame : OpFrame} (instruction : Instr frame)
+    (policy : MemoryPolicy) (ctx : CallContext) (env : frame.Env) (globals : Globals)
+    (trace : Trace) (env' : frame.Env) (globals' : Globals) : Prop :=
+  match instruction.kind with
+  | .primitive operation =>
+      frame.Fires policy ctx operation instruction.src instruction.dst
+        env globals trace env' globals'
+  | .icall _ => False
+
+theorem step_statement_gen
+    {state : MachineState} {next : MachineControl} {statement : Stmt}
+    {trace : Trace} {locals' : Locals} {globals' : Globals}
+    (hdecode : program.decodeStmt state.control = some (next, statement))
+    (hfires : (decodeSirStmt statement).Fires sirPolicy ctx state.locals state.globals
+      trace locals' globals') :
+    GenStep localsFrame (sirDecoder program) sirPolicy ctx state.gen trace
+      ({ globals := globals', locals := locals', control := next } : MachineState).gen := by
+  generalize hinstruction : decodeSirStmt statement = instruction at hfires
+  obtain ⟨kind, src, dst⟩ := instruction
+  cases kind with
+  | primitive operation =>
+      exact GenStep.op (operation := operation) (src := src) (dst := dst)
+        (by
+          change sirDecode program state.control =
+            some (⟨Instr.Kind.primitive operation, src, dst⟩, next)
+          simp [sirDecode, hdecode, hinstruction]) hfires
+  | icall callee => simp [Generic.Instr.Fires] at hfires
+
+theorem step_assign_gen
+    {state : MachineState} {next : MachineControl} {result : VarId} {expr : Expr}
+    {trace : Trace} {locals' : Locals} {globals' : Globals}
+    (hdecode : program.decodeStmt state.control = some (next, .assign result expr))
+    (hfires : (decodeExpr result expr).Fires sirPolicy ctx state.locals state.globals
+      trace locals' globals') :
+    GenStep localsFrame (sirDecoder program) sirPolicy ctx state.gen trace
+      ({ globals := globals', locals := locals', control := next } : MachineState).gen :=
+  step_statement_gen hdecode hfires
+
+theorem step_sstore_gen
+    {state : MachineState} {next : MachineControl} {key value : VarId}
+    {trace : Trace} {locals' : Locals} {globals' : Globals}
+    (hdecode : program.decodeStmt state.control = some (next, .sstore key value))
+    (hfires : (decodeSirStmt (.sstore key value)).Fires sirPolicy ctx
+      state.locals state.globals trace locals' globals') :
+    GenStep localsFrame (sirDecoder program) sirPolicy ctx state.gen trace
+      ({ globals := globals', locals := locals', control := next } : MachineState).gen :=
+  step_statement_gen hdecode hfires
+
+theorem step_gas_gen
+    {state : MachineState} {next : MachineControl} {result : VarId}
+    {trace : Trace} {locals' : Locals} {globals' : Globals}
+    (hdecode : program.decodeStmt state.control = some (next, .gas result))
+    (hfires : (decodeSirStmt (.gas result)).Fires sirPolicy ctx
+      state.locals state.globals trace locals' globals') :
+    GenStep localsFrame (sirDecoder program) sirPolicy ctx state.gen trace
+      ({ globals := globals', locals := locals', control := next } : MachineState).gen :=
+  step_statement_gen hdecode hfires
+
+theorem step_call_gen
+    {state : MachineState} {next : MachineControl} {call : Call}
+    {trace : Trace} {locals' : Locals} {globals' : Globals}
+    (hdecode : program.decodeStmt state.control = some (next, .call call))
+    (hfires : (decodeSirStmt (.call call)).Fires sirPolicy ctx
+      state.locals state.globals trace locals' globals') :
+    GenStep localsFrame (sirDecoder program) sirPolicy ctx state.gen trace
+      ({ globals := globals', locals := locals', control := next } : MachineState).gen :=
+  step_statement_gen hdecode hfires
+
+theorem step_mallocUninit_gen
+    {state : MachineState} {next : MachineControl} {result size : VarId}
+    {trace : Trace} {locals' : Locals} {globals' : Globals}
+    (hdecode : program.decodeStmt state.control = some (next, .mallocUninit result size))
+    (hfires : (decodeSirStmt (.mallocUninit result size)).Fires sirPolicy ctx
+      state.locals state.globals trace locals' globals') :
+    GenStep localsFrame (sirDecoder program) sirPolicy ctx state.gen trace
+      ({ globals := globals', locals := locals', control := next } : MachineState).gen :=
+  step_statement_gen hdecode hfires
+
+theorem step_mstore32_gen
+    {state : MachineState} {next : MachineControl} {offset value : VarId}
+    {trace : Trace} {locals' : Locals} {globals' : Globals}
+    (hdecode : program.decodeStmt state.control = some (next, .mstore32 offset value))
+    (hfires : (decodeSirStmt (.mstore32 offset value)).Fires sirPolicy ctx
+      state.locals state.globals trace locals' globals') :
+    GenStep localsFrame (sirDecoder program) sirPolicy ctx state.gen trace
+      ({ globals := globals', locals := locals', control := next } : MachineState).gen :=
+  step_statement_gen hdecode hfires
+
+theorem step_mload32_gen
+    {state : MachineState} {next : MachineControl} {result offset : VarId}
+    {trace : Trace} {locals' : Locals} {globals' : Globals}
+    (hdecode : program.decodeStmt state.control = some (next, .mload32 result offset))
+    (hfires : (decodeSirStmt (.mload32 result offset)).Fires sirPolicy ctx
+      state.locals state.globals trace locals' globals') :
+    GenStep localsFrame (sirDecoder program) sirPolicy ctx state.gen trace
+      ({ globals := globals', locals := locals', control := next } : MachineState).gen :=
+  step_statement_gen hdecode hfires
+
+theorem step_terminator_gen
+    {state state' : MachineState} {terminator : Terminator}
+    (hterm : program.terminatorAt state.control = some terminator)
+    (heval : (eval_terminator program terminator).run state = .ok ((), state')) :
+    GenStep localsFrame (sirDecoder program) sirPolicy ctx state.gen [] state'.gen := by
+  apply GenStep.control
+  apply sirControl_inv.mpr
+  exact ⟨terminator, state', hterm, heval, rfl, rfl, rfl, rfl⟩
+
+theorem step_icall_gen
+    {state : MachineState} {next : MachineControl} {callee : FunctionId}
+    {args dests : Array VarId} {values results : Array Word} {trace : Trace}
+    {globals' : Globals} {locals' : Locals}
+    (hdecode : program.decodeStmt state.control = some (next, .icall callee args dests))
+    (hargs : args.mapM (state.locals.lookup ·) = .ok values)
+    (hcallee : GenEvalFn localsFrame (sirDecoder program) sirPolicy ctx callee
+      state.globals values trace globals' (.returned results))
+    (hbind : Locals.bindReturns state.locals dests results = .ok locals') :
+    GenStep localsFrame (sirDecoder program) sirPolicy ctx state.gen trace
+      { state with globals := globals', locals := locals', control := next }.gen := by
+  apply GenStep.icall
+  · change sirDecode program state.control =
+      some (⟨Instr.Kind.icall callee, args, dests⟩, next)
+    simp [sirDecode, hdecode, decodeSirStmt]
+  · exact hargs
+  · exact hcallee
+  · exact sirResume_returned_eq_some_iff.mpr ⟨hbind, rfl⟩
+
+theorem step_icallHalted_gen
+    {state : MachineState} {next : MachineControl} {callee : FunctionId}
+    {args dests : Array VarId} {values : Array Word} {trace : Trace}
+    {globals' : Globals}
+    (hdecode : program.decodeStmt state.control = some (next, .icall callee args dests))
+    (hargs : args.mapM (state.locals.lookup ·) = .ok values)
+    (hcallee : GenEvalFn localsFrame (sirDecoder program) sirPolicy ctx callee
+      state.globals values trace globals' .halted) :
+    GenStep localsFrame (sirDecoder program) sirPolicy ctx state.gen trace
+      ({ globals := globals', control := .halted } : MachineState).gen := by
+  apply GenStep.icall
+  · change sirDecode program state.control =
+      some (⟨Instr.Kind.icall callee, args, dests⟩, next)
+    simp [sirDecode, hdecode, decodeSirStmt]
+  · exact hargs
+  · exact hcallee
+  · exact sirResume_halted state.locals dests next
+
+theorem evalFn_returned_gen
+    {function : FunctionId} {globals : Globals} {args results : Array Word}
+    {trace : Trace} {initial exit : MachineState}
+    (hentry : program.callState? function globals args = some initial)
+    (hrun : GenSteps localsFrame (sirDecoder program) sirPolicy ctx
+      initial.gen trace exit.gen)
+    (hreturn : exit.control = .returned results) :
+    GenEvalFn localsFrame (sirDecoder program) sirPolicy ctx function globals args
+      trace exit.globals (.returned results) :=
+  GenEvalFn.returned (initial := initial.gen) (exit := exit.gen)
+    (by simp [sirEntry_eq, hentry]) hrun hreturn
+
+theorem evalFn_halted_gen
+    {function : FunctionId} {globals : Globals} {args : Array Word}
+    {trace : Trace} {initial exit : MachineState}
+    (hentry : program.callState? function globals args = some initial)
+    (hrun : GenSteps localsFrame (sirDecoder program) sirPolicy ctx
+      initial.gen trace exit.gen)
+    (hhalt : exit.control = .halted) :
+    GenEvalFn localsFrame (sirDecoder program) sirPolicy ctx function globals args
+      trace exit.globals .halted :=
+  GenEvalFn.halted (initial := initial.gen) (exit := exit.gen)
+    (by simp [sirEntry_eq, hentry]) hrun hhalt
+
+@[elab_as_elim]
+theorem Steps.inductionOn_gen {program : Program} {ctx : CallContext}
+    {motive : (state : MachineState) → (trace : Trace) → (final : MachineState) →
+      GenSteps localsFrame (sirDecoder program) sirPolicy ctx
+        state.gen trace final.gen → Prop}
+    (refl : ∀ state, motive state [] state .refl)
+    (tail : ∀ {state middle final : MachineState} {trace₁ trace₂ : Trace}
+      (start : GenSteps localsFrame (sirDecoder program) sirPolicy ctx
+        state.gen trace₁ middle.gen)
+      (next : GenStep localsFrame (sirDecoder program) sirPolicy ctx
+        middle.gen trace₂ final.gen),
+      motive state trace₁ middle start →
+        motive state (trace₁ ++ trace₂) final (start.tail next))
+    {state final : MachineState} {trace : Trace}
+    (h : GenSteps localsFrame (sirDecoder program) sirPolicy ctx
+      state.gen trace final.gen) : motive state trace final h := by
+  simpa using Generic.GenSteps.inductionOn
+    (motive := fun state trace final h =>
+      motive state.toMachine trace final.toMachine h)
+    (fun state => refl state.toMachine)
+    (fun {state middle final trace₁ trace₂} start next ih =>
+      tail (state := state.toMachine) (middle := middle.toMachine)
+        (final := final.toMachine) (trace₁ := trace₁) (trace₂ := trace₂)
+        (by simpa using start) (by simpa using next) (by simpa using ih)) h
+
+theorem Steps.single_gen
+    {state final : MachineState} {trace : Trace}
+    (step : GenStep localsFrame (sirDecoder program) sirPolicy ctx
+      state.gen trace final.gen) :
+    GenSteps localsFrame (sirDecoder program) sirPolicy ctx
+      state.gen trace final.gen :=
+  Generic.GenSteps.single step
+
+theorem Steps.trans_gen
+    {state middle final : MachineState} {trace₁ trace₂ : Trace}
+    (h₁ : GenSteps localsFrame (sirDecoder program) sirPolicy ctx
+      state.gen trace₁ middle.gen)
+    (h₂ : GenSteps localsFrame (sirDecoder program) sirPolicy ctx
+      middle.gen trace₂ final.gen) :
+    GenSteps localsFrame (sirDecoder program) sirPolicy ctx
+      state.gen (trace₁ ++ trace₂) final.gen := by
+  refine (Generic.GenSteps.inductionOn
+    (motive := fun start trace₂ final _ => start = middle.gen →
+      GenSteps localsFrame (sirDecoder program) sirPolicy ctx
+        state.gen (trace₁ ++ trace₂) final)
+    (fun start hstart => by
+      subst start
+      simpa using h₁)
+    (fun _ next ih hstart => by
+      simpa [List.append_assoc] using Generic.GenSteps.tail (ih hstart) next)
+    h₂) rfl
+
+theorem Steps.head_gen
+    {state middle final : MachineState} {trace₁ trace₂ : Trace}
+    (step : GenStep localsFrame (sirDecoder program) sirPolicy ctx
+      state.gen trace₁ middle.gen)
+    (rest : GenSteps localsFrame (sirDecoder program) sirPolicy ctx
+      middle.gen trace₂ final.gen) :
+    GenSteps localsFrame (sirDecoder program) sirPolicy ctx
+      state.gen (trace₁ ++ trace₂) final.gen :=
+  Steps.trans_gen (Steps.single_gen step) rest
+
+def Stuck_gen (program : Program) (ctx : CallContext) (state : MachineState) : Prop :=
+  Generic.Stuck (sirDecoder program) sirPolicy ctx state.gen
+
+theorem stuck_of_returned_gen
+    {state : MachineState} {results : Array Word}
+    (hcontrol : state.control = .returned results) :
+    Stuck_gen program ctx state :=
+  Generic.stuck_of_returned (Generic.sirDecoder_terminal program) hcontrol
+
+theorem stuck_of_halted_gen
+    {state : MachineState} (hcontrol : state.control = .halted) :
+    Stuck_gen program ctx state :=
+  Generic.stuck_of_halted (Generic.sirDecoder_terminal program) hcontrol
+
+theorem Steps.head_decomp_gen
+    {state final : MachineState} {trace : Trace}
+    (h : GenSteps localsFrame (sirDecoder program) sirPolicy ctx
+      state.gen trace final.gen) :
+    (state = final ∧ trace = []) ∨
+      ∃ (middle : MachineState) (trace₁ trace₂ : Trace),
+        GenStep localsFrame (sirDecoder program) sirPolicy ctx
+          state.gen trace₁ middle.gen ∧
+        GenSteps localsFrame (sirDecoder program) sirPolicy ctx
+          middle.gen trace₂ final.gen ∧
+        trace = trace₁ ++ trace₂ := by
+  rcases Generic.GenSteps.headDecomp h with ⟨hstate, htrace⟩ |
+      ⟨middle, trace₁, trace₂, step, rest, htrace⟩
+  · exact .inl ⟨MachineState.gen_inj hstate, htrace⟩
+  · exact .inr ⟨middle.toMachine, trace₁, trace₂, step, rest, htrace⟩
+
+theorem Steps.eq_of_stuck_gen
+    {state final : MachineState} {trace : Trace}
+    (h : GenSteps localsFrame (sirDecoder program) sirPolicy ctx
+      state.gen trace final.gen)
+    (hstuck : Stuck_gen program ctx state) : final = state ∧ trace = [] := by
+  obtain ⟨hstate, htrace⟩ := Generic.GenSteps.eq_of_stuck h hstuck
+  exact ⟨MachineState.gen_inj hstate, htrace⟩
+
+theorem stepDialogue_all_gen
+    (hfree : program.MemOracleFree)
+    {state final : MachineState} {trace : Trace}
+    (h : GenStep localsFrame (sirDecoder program) sirPolicy ctx
+      state.gen trace final.gen) :
+    ∀ (trace₂ : Trace) (final₂ : MachineState),
+      GenStep localsFrame (sirDecoder program) sirPolicy ctx
+        state.gen trace₂ final₂.gen →
+      (trace = trace₂ ∧ final = final₂) ∨
+        Trace.QueryDivergence trace trace₂ := by
+  intro trace₂ final₂ h₂
+  rcases Generic.stepDialogue_all
+      (.inr (Generic.sirDecoder_noMalloc hfree))
+      (Generic.sirDecoder_exclusive program)
+      (Generic.sirDecoder_terminal program)
+      (Generic.sirDecoder_noMload hfree) h trace₂ final₂.gen h₂ with
+    ⟨htrace, hfinal⟩ | hdiv
+  · exact .inl ⟨htrace, MachineState.gen_inj hfinal⟩
+  · exact .inr hdiv
+
+theorem runDialogue_all_gen
+    (hfree : program.MemOracleFree)
+    {state final : MachineState} {trace : Trace}
+    (h : GenSteps localsFrame (sirDecoder program) sirPolicy ctx
+      state.gen trace final.gen) :
+    ∀ (trace₂ : Trace) (final₂ : MachineState),
+      GenSteps localsFrame (sirDecoder program) sirPolicy ctx
+        state.gen trace₂ final₂.gen →
+      (∃ suffix, GenSteps localsFrame (sirDecoder program) sirPolicy ctx
+          final.gen suffix final₂.gen ∧ trace ++ suffix = trace₂) ∨
+      (∃ suffix, GenSteps localsFrame (sirDecoder program) sirPolicy ctx
+          final₂.gen suffix final.gen ∧ trace₂ ++ suffix = trace) ∨
+      Trace.QueryDivergence trace trace₂ := by
+  intro trace₂ final₂ h₂
+  exact Generic.runDialogue_all
+    (.inr (Generic.sirDecoder_noMalloc hfree))
+    (Generic.sirDecoder_exclusive program)
+    (Generic.sirDecoder_terminal program)
+    (Generic.sirDecoder_noMload hfree) h trace₂ final₂.gen h₂
+
+theorem fnDialogue_all_gen
+    (hfree : program.MemOracleFree)
+    {function : FunctionId} {globals globals' : Globals} {args : Array Word}
+    {trace : Trace} {outcome : FunctionOutcome}
+    (h : GenEvalFn localsFrame (sirDecoder program) sirPolicy ctx
+      function globals args trace globals' outcome) :
+    ∀ trace₂ globals₂ outcome₂,
+      GenEvalFn localsFrame (sirDecoder program) sirPolicy ctx
+        function globals args trace₂ globals₂ outcome₂ →
+      (trace = trace₂ ∧ globals' = globals₂ ∧ outcome = outcome₂) ∨
+        Trace.QueryDivergence trace trace₂ :=
+  Generic.evalDialogue_all
+    (.inr (Generic.sirDecoder_noMalloc hfree))
+    (Generic.sirDecoder_exclusive program)
+    (Generic.sirDecoder_terminal program)
+    (Generic.sirDecoder_noMload hfree) h
+
+theorem Steps.confluence_or_queryDivergence_proof_gen
+    (hfree : program.MemOracleFree)
+    {state final₁ final₂ : MachineState} {trace₁ trace₂ : Trace}
+    (h₁ : GenSteps localsFrame (sirDecoder program) sirPolicy ctx
+      state.gen trace₁ final₁.gen)
+    (h₂ : GenSteps localsFrame (sirDecoder program) sirPolicy ctx
+      state.gen trace₂ final₂.gen) :
+    (∃ suffix, GenSteps localsFrame (sirDecoder program) sirPolicy ctx
+      final₁.gen suffix final₂.gen ∧ trace₁ ++ suffix = trace₂) ∨
+    (∃ suffix, GenSteps localsFrame (sirDecoder program) sirPolicy ctx
+      final₂.gen suffix final₁.gen ∧ trace₂ ++ suffix = trace₁) ∨
+    Trace.QueryDivergence trace₁ trace₂ :=
+  Generic.sir_steps_confluence_or_queryDivergence hfree h₁ h₂
 
 @[elab_as_elim]
 theorem Steps.inductionOn {program : Program} {ctx : CallContext}
