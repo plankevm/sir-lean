@@ -46,6 +46,25 @@ theorem sirDecoder_noMload {program : Program} (hfree : program.MemOracleFree) :
       | mload32 => exact hfree _ hmem (by simp [Stmt.isMemOracle])
       | icall => simp [sirDecoder, sirDecode, hstmt, decodeSirStmt] at hdecode
 
+theorem sirDecoder_noMalloc {program : Program} (hfree : program.MemOracleFree) :
+    (sirDecoder program).NoMalloc := by
+  intro control src dst next hdecode
+  cases hstmt : program.decodeStmt control with
+  | none => simp [sirDecoder, sirDecode, hstmt] at hdecode
+  | some decoded =>
+      rcases decoded with ⟨nextControl, stmt⟩
+      have hmem := Program.decodeStmt_mem hstmt
+      cases stmt with
+      | assign result expr =>
+          cases expr <;> simp [sirDecoder, sirDecode, hstmt, decodeSirStmt, decodeExpr] at hdecode
+      | sstore => simp [sirDecoder, sirDecode, hstmt, decodeSirStmt] at hdecode
+      | gas => simp [sirDecoder, sirDecode, hstmt, decodeSirStmt] at hdecode
+      | call => simp [sirDecoder, sirDecode, hstmt, decodeSirStmt] at hdecode
+      | mallocUninit => exact hfree _ hmem (by simp [Stmt.isMemOracle])
+      | mstore32 => simp [sirDecoder, sirDecode, hstmt, decodeSirStmt] at hdecode
+      | mload32 => simp [sirDecoder, sirDecode, hstmt, decodeSirStmt] at hdecode
+      | icall => simp [sirDecoder, sirDecode, hstmt, decodeSirStmt] at hdecode
+
 theorem cfgDecoder_exclusive (program : CfgProgram) : (cfgDecoder program).Exclusive := by
   intro env globals control instruction next hdecode
   cases hstatement : program.decodeInstruction control with
@@ -64,7 +83,7 @@ theorem cfgDecoder_terminal (program : CfgProgram) : (cfgDecoder program).Termin
 
 theorem sir_steps_confluence_or_queryDivergence
     {program : Program} {policy : MemoryPolicy} {ctx : CallContext}
-    (hdet : policy.Deterministic) (hfree : program.MemOracleFree)
+    (hfree : program.MemOracleFree)
     {state final₁ final₂ : GenState localsFrame} {trace₁ trace₂ : Trace}
     (h₁ : GenSteps localsFrame (sirDecoder program) policy ctx state trace₁ final₁)
     (h₂ : GenSteps localsFrame (sirDecoder program) policy ctx state trace₂ final₂) :
@@ -73,7 +92,8 @@ theorem sir_steps_confluence_or_queryDivergence
     (∃ suffix, GenSteps localsFrame (sirDecoder program) policy ctx final₂ suffix final₁ ∧
       trace₂ ++ suffix = trace₁) ∨
     Trace.QueryDivergence trace₁ trace₂ :=
-  GenSteps.confluence_or_queryDivergence hdet (sirDecoder_exclusive program)
+  GenSteps.confluence_or_queryDivergence (.inr (sirDecoder_noMalloc hfree))
+    (sirDecoder_exclusive program)
     (sirDecoder_terminal program) (sirDecoder_noMload hfree) h₁ h₂
 
 theorem cfg_steps_confluence_or_queryDivergence
@@ -87,7 +107,7 @@ theorem cfg_steps_confluence_or_queryDivergence
     (∃ suffix, GenSteps stackFrame (cfgDecoder program) policy ctx final₂ suffix final₁ ∧
       trace₂ ++ suffix = trace₁) ∨
     Trace.QueryDivergence trace₁ trace₂ :=
-  GenSteps.confluence_or_queryDivergence hdet (cfgDecoder_exclusive program)
+  GenSteps.confluence_or_queryDivergence (.inl hdet) (cfgDecoder_exclusive program)
     (cfgDecoder_terminal program) hnomload h₁ h₂
 
 end Sir.Generic

@@ -1,14 +1,9 @@
 import Sir.Proofs.StepDet
+import Sir.Generic.Dialogue
 
 namespace Sir
 
 variable {program : Program} {ctx : CallContext}
-
-theorem Trace.QueryDivergence.extend {t₁ t₂ : Trace} (u₁ u₂ : Trace)
-    (h : Trace.QueryDivergence t₁ t₂) :
-    Trace.QueryDivergence (t₁ ++ u₁) (t₂ ++ u₂) := by
-  obtain ⟨p, a, ra, b, rb, rfl, rfl, hne, hq⟩ := h
-  exact ⟨p, a, ra ++ u₁, b, rb ++ u₂, by simp, by simp, hne, hq⟩
 
 private theorem Trace.QueryDivergence.append_left {t₁ t₂ : Trace} (pre : Trace)
     (h : Trace.QueryDivergence t₁ t₂) :

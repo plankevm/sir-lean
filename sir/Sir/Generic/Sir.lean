@@ -1,4 +1,5 @@
 import Sir.Generic.Machine
+import Sir.Spec.Step
 
 namespace Sir.Generic
 

@@ -1,4 +1,4 @@
-import Sir.Spec.Observation
+import Sir.Spec.State
 
 namespace Sir.Generic
 
