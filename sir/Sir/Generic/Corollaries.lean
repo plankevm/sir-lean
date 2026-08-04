@@ -36,14 +36,14 @@ theorem sirDecoder_noMload {program : Program} (hfree : program.MemOracleFree) :
       have hmem := Program.decodeStmt_mem hstmt
       cases stmt with
       | assign result expr =>
-          cases expr <;> simp [sirDecoder, sirDecode, hstmt, decodeSirStmt, decodeExpr] at hdecode
-      | sstore => simp [sirDecoder, sirDecode, hstmt, decodeSirStmt] at hdecode
-      | gas => simp [sirDecoder, sirDecode, hstmt, decodeSirStmt] at hdecode
-      | call => simp [sirDecoder, sirDecode, hstmt, decodeSirStmt] at hdecode
-      | mallocUninit => simp [sirDecoder, sirDecode, hstmt, decodeSirStmt] at hdecode
-      | mstore32 => simp [sirDecoder, sirDecode, hstmt, decodeSirStmt] at hdecode
+          cases expr <;> simp [sirDecoder, sirDecode, hstmt, decodeSirStatement, decodeExpression] at hdecode
+      | sstore => simp [sirDecoder, sirDecode, hstmt, decodeSirStatement] at hdecode
+      | gas => simp [sirDecoder, sirDecode, hstmt, decodeSirStatement] at hdecode
+      | call => simp [sirDecoder, sirDecode, hstmt, decodeSirStatement] at hdecode
+      | mallocUninit => simp [sirDecoder, sirDecode, hstmt, decodeSirStatement] at hdecode
+      | mstore32 => simp [sirDecoder, sirDecode, hstmt, decodeSirStatement] at hdecode
       | mload32 => exact hfree _ hmem (by simp [Stmt.isMemOracle])
-      | icall => simp [sirDecoder, sirDecode, hstmt, decodeSirStmt] at hdecode
+      | icall => simp [sirDecoder, sirDecode, hstmt, decodeSirStatement] at hdecode
 
 theorem sirDecoder_noMalloc {program : Program} (hfree : program.MemOracleFree) :
     (sirDecoder program).NoMalloc := by
@@ -55,14 +55,14 @@ theorem sirDecoder_noMalloc {program : Program} (hfree : program.MemOracleFree) 
       have hmem := Program.decodeStmt_mem hstmt
       cases stmt with
       | assign result expr =>
-          cases expr <;> simp [sirDecoder, sirDecode, hstmt, decodeSirStmt, decodeExpr] at hdecode
-      | sstore => simp [sirDecoder, sirDecode, hstmt, decodeSirStmt] at hdecode
-      | gas => simp [sirDecoder, sirDecode, hstmt, decodeSirStmt] at hdecode
-      | call => simp [sirDecoder, sirDecode, hstmt, decodeSirStmt] at hdecode
+          cases expr <;> simp [sirDecoder, sirDecode, hstmt, decodeSirStatement, decodeExpression] at hdecode
+      | sstore => simp [sirDecoder, sirDecode, hstmt, decodeSirStatement] at hdecode
+      | gas => simp [sirDecoder, sirDecode, hstmt, decodeSirStatement] at hdecode
+      | call => simp [sirDecoder, sirDecode, hstmt, decodeSirStatement] at hdecode
       | mallocUninit => exact hfree _ hmem (by simp [Stmt.isMemOracle])
-      | mstore32 => simp [sirDecoder, sirDecode, hstmt, decodeSirStmt] at hdecode
-      | mload32 => simp [sirDecoder, sirDecode, hstmt, decodeSirStmt] at hdecode
-      | icall => simp [sirDecoder, sirDecode, hstmt, decodeSirStmt] at hdecode
+      | mstore32 => simp [sirDecoder, sirDecode, hstmt, decodeSirStatement] at hdecode
+      | mload32 => simp [sirDecoder, sirDecode, hstmt, decodeSirStatement] at hdecode
+      | icall => simp [sirDecoder, sirDecode, hstmt, decodeSirStatement] at hdecode
 
 theorem cfgDecoder_exclusive (program : CfgProgram) : (cfgDecoder program).Exclusive := by
   intro env globals control instruction next hdecode
@@ -83,30 +83,30 @@ theorem cfgDecoder_terminal (program : CfgProgram) : (cfgDecoder program).Termin
 theorem sir_steps_confluence_or_queryDivergence
     {program : Program} {policy : MemoryPolicy} {ctx : CallContext}
     (hfree : program.MemOracleFree)
-    {state final₁ final₂ : GenState localsFrame} {trace₁ trace₂ : Trace}
-    (h₁ : GenSteps localsFrame (sirDecoder program) policy ctx state trace₁ final₁)
-    (h₂ : GenSteps localsFrame (sirDecoder program) policy ctx state trace₂ final₂) :
-    (∃ suffix, GenSteps localsFrame (sirDecoder program) policy ctx final₁ suffix final₂ ∧
+    {state final₁ final₂ : GenericState localOperandFrame} {trace₁ trace₂ : Trace}
+    (h₁ : GenericSteps localOperandFrame (sirDecoder program) policy ctx state trace₁ final₁)
+    (h₂ : GenericSteps localOperandFrame (sirDecoder program) policy ctx state trace₂ final₂) :
+    (∃ suffix, GenericSteps localOperandFrame (sirDecoder program) policy ctx final₁ suffix final₂ ∧
       trace₁ ++ suffix = trace₂) ∨
-    (∃ suffix, GenSteps localsFrame (sirDecoder program) policy ctx final₂ suffix final₁ ∧
+    (∃ suffix, GenericSteps localOperandFrame (sirDecoder program) policy ctx final₂ suffix final₁ ∧
       trace₂ ++ suffix = trace₁) ∨
     Trace.QueryDivergence trace₁ trace₂ :=
-  GenSteps.confluence_or_queryDivergence (.inr (sirDecoder_noMalloc hfree))
+  GenericSteps.confluence_or_queryDivergence (.inr (sirDecoder_noMalloc hfree))
     (sirDecoder_exclusive program)
     (sirDecoder_terminal program) (sirDecoder_noMload hfree) h₁ h₂
 
 theorem cfg_steps_confluence_or_queryDivergence
     {program : CfgProgram} {policy : MemoryPolicy} {ctx : CallContext}
     (hdet : policy.Deterministic) (hnomload : (cfgDecoder program).NoMload)
-    {state final₁ final₂ : GenState stackFrame} {trace₁ trace₂ : Trace}
-    (h₁ : GenSteps stackFrame (cfgDecoder program) policy ctx state trace₁ final₁)
-    (h₂ : GenSteps stackFrame (cfgDecoder program) policy ctx state trace₂ final₂) :
-    (∃ suffix, GenSteps stackFrame (cfgDecoder program) policy ctx final₁ suffix final₂ ∧
+    {state final₁ final₂ : GenericState stackFrame} {trace₁ trace₂ : Trace}
+    (h₁ : GenericSteps stackFrame (cfgDecoder program) policy ctx state trace₁ final₁)
+    (h₂ : GenericSteps stackFrame (cfgDecoder program) policy ctx state trace₂ final₂) :
+    (∃ suffix, GenericSteps stackFrame (cfgDecoder program) policy ctx final₁ suffix final₂ ∧
       trace₁ ++ suffix = trace₂) ∨
-    (∃ suffix, GenSteps stackFrame (cfgDecoder program) policy ctx final₂ suffix final₁ ∧
+    (∃ suffix, GenericSteps stackFrame (cfgDecoder program) policy ctx final₂ suffix final₁ ∧
       trace₂ ++ suffix = trace₁) ∨
     Trace.QueryDivergence trace₁ trace₂ :=
-  GenSteps.confluence_or_queryDivergence (.inl hdet) (cfgDecoder_exclusive program)
+  GenericSteps.confluence_or_queryDivergence (.inl hdet) (cfgDecoder_exclusive program)
     (cfgDecoder_terminal program) hnomload h₁ h₂
 
 end Sir.Generic

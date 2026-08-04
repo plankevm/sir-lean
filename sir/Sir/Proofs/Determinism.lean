@@ -217,8 +217,8 @@ private theorem EvalFn.runsFunction_no_event
       obtain ⟨initial₂, hcallState₂, rfl⟩ := Option.map_eq_some_iff.mp hentry₂
       obtain rfl := Option.some.inj (hentry.symm.trans hcallState₂)
       have hrun₂' : Steps program ctx initial history exit.toMachine := by
-        change Generic.GenSteps localsFrame (sirDecoder program) sirPolicy ctx
-          initial.gen history exit.toMachine.gen
+        change Generic.GenericSteps localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+          initial.toGenericState history exit.toMachine.toGenericState
         simpa using hrun₂
       exact terminalSteps_no_event hfree hrun₂'
         (stuck_of_returned hret) hsteps htrace
@@ -228,8 +228,8 @@ private theorem EvalFn.runsFunction_no_event
       obtain ⟨initial₂, hcallState₂, rfl⟩ := Option.map_eq_some_iff.mp hentry₂
       obtain rfl := Option.some.inj (hentry.symm.trans hcallState₂)
       have hrun₂' : Steps program ctx initial history exit.toMachine := by
-        change Generic.GenSteps localsFrame (sirDecoder program) sirPolicy ctx
-          initial.gen history exit.toMachine.gen
+        change Generic.GenericSteps localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+          initial.toGenericState history exit.toMachine.toGenericState
         simpa using hrun₂
       exact terminalSteps_no_event hfree hrun₂'
         (stuck_of_halted hhalt) hsteps htrace

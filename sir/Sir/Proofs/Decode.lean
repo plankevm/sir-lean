@@ -178,16 +178,16 @@ theorem Program.terminatorAt_cursor
               exact ⟨cursor, block, rfl, hposition, hblock, rfl⟩
 
 theorem sirDecode_inv
-    {control next : MachineControl} {instruction : Generic.Instr localsFrame} :
+    {control next : MachineControl} {instruction : Generic.Instruction localOperandFrame} :
     sirDecode program control = some (instruction, next) ↔
       ∃ statement, program.decodeStmt control = some (next, statement) ∧
-        decodeSirStmt statement = instruction := by
+        decodeSirStatement statement = instruction := by
   simp [sirDecode, Option.map_eq_some_iff]
 
 @[simp]
 theorem sirEntry_eq (function : FunctionId) (globals : Globals) (args : Array Word) :
     (sirDecoder program).entry function globals args =
-      (program.callState? function globals args).map MachineState.gen := rfl
+      (program.callState? function globals args).map MachineState.toGenericState := rfl
 
 theorem sirControl_inv
     {env env' : Locals} {globals globals' : Globals}

@@ -82,8 +82,8 @@ theorem progress_stmt_proof
     (hdecode : program.decodeStmt state.control = some (next, statement))
     (hready : state.StmtReady statement) :
     ∃ (trace : Trace) (final : MachineState),
-      Generic.GenStep localsFrame (sirDecoder program) sirPolicy ctx
-      state.gen trace final.gen := by
+      Generic.GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+      state.toGenericState trace final.toGenericState := by
   cases statement with
   | assign result expr =>
       cases expr with
@@ -91,7 +91,7 @@ theorem progress_stmt_proof
           obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
             (targetVars := #[result]) (vs := #[value]) rfl
           refine ⟨[], ⟨state.globals, locals', next⟩, step_assign hdecode ?_⟩
-          simp only [decodeExpr, Generic.Instr.Fires]
+          simp only [decodeExpression, Generic.Instruction.Fires]
           apply fires_of (operation := .constant value) (oracle := ())
             (operands := #[]) (results := #[value])
           · change (#[] : Array VarId).mapM (state.locals.lookup ·) = .ok #[]
@@ -105,7 +105,7 @@ theorem progress_stmt_proof
           obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
             (targetVars := #[result]) (vs := #[value]) rfl
           refine ⟨[], ⟨state.globals, locals', next⟩, step_assign hdecode ?_⟩
-          simp only [decodeExpr, Generic.Instr.Fires]
+          simp only [decodeExpression, Generic.Instruction.Fires]
           apply fires_of (operation := .copy) (oracle := ())
             (operands := #[value]) (results := #[value])
           · simp [Array.mapM_eq_mapM_toList, hvalue, bind, Except.bind,
@@ -119,7 +119,7 @@ theorem progress_stmt_proof
           obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
             (targetVars := #[result]) (vs := #[resultValue]) rfl
           refine ⟨[], ⟨state.globals, locals', next⟩, step_assign hdecode ?_⟩
-          simp only [decodeExpr, Generic.Instr.Fires]
+          simp only [decodeExpression, Generic.Instruction.Fires]
           apply fires_of (operation := .add) (oracle := ())
             (operands := #[lhsValue, rhsValue])
             (results := #[resultValue])
@@ -134,7 +134,7 @@ theorem progress_stmt_proof
           obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
             (targetVars := #[result]) (vs := #[resultValue]) rfl
           refine ⟨[], ⟨state.globals, locals', next⟩, step_assign hdecode ?_⟩
-          simp only [decodeExpr, Generic.Instr.Fires]
+          simp only [decodeExpression, Generic.Instruction.Fires]
           apply fires_of (operation := .lt) (oracle := ())
             (operands := #[lhsValue, rhsValue])
             (results := #[resultValue])
@@ -149,7 +149,7 @@ theorem progress_stmt_proof
           obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
             (targetVars := #[result]) (vs := #[resultValue]) rfl
           refine ⟨[], ⟨state.globals, locals', next⟩, step_assign hdecode ?_⟩
-          simp only [decodeExpr, Generic.Instr.Fires]
+          simp only [decodeExpression, Generic.Instruction.Fires]
           apply fires_of (operation := .sload) (oracle := ()) (operands := #[keyValue])
             (results := #[resultValue])
           · simp [Array.mapM_eq_mapM_toList, hkey, bind, Except.bind,
@@ -164,7 +164,7 @@ theorem progress_stmt_proof
       obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
         (targetVars := #[]) (vs := #[]) rfl
       refine ⟨[], ⟨globals', locals', next⟩, step_sstore hdecode ?_⟩
-      simp only [decodeSirStmt, Generic.Instr.Fires]
+      simp only [decodeSirStatement, Generic.Instruction.Fires]
       apply fires_of (operation := .sstore) (oracle := ())
         (operands := #[keyValue, valueValue]) (results := #[])
       · simp [Array.mapM_eq_mapM_toList, hkey, hvalue, bind, Except.bind,
@@ -176,7 +176,7 @@ theorem progress_stmt_proof
       obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
         (targetVars := #[result]) (vs := #[(0 : Word)]) rfl
       refine ⟨[.gas 0], ⟨state.globals, locals', next⟩, step_gas hdecode ?_⟩
-      simp only [decodeSirStmt, Generic.Instr.Fires]
+      simp only [decodeSirStatement, Generic.Instruction.Fires]
       apply fires_of (operation := .gas) (oracle := (0 : Word))
         (operands := #[]) (results := #[0])
       · change (#[] : Array VarId).mapM (state.locals.lookup ·) = .ok #[]
@@ -197,7 +197,7 @@ theorem progress_stmt_proof
       let record : CallRecord :=
         { input := { target := .ofUInt256 callee, gas, world := state.globals.world }, result }
       refine ⟨[.call record], ⟨globals', locals', next⟩, step_call hdecode ?_⟩
-      simp only [decodeSirStmt, Generic.Instr.Fires]
+      simp only [decodeSirStatement, Generic.Instruction.Fires]
       apply fires_of (operation := .call) (oracle := result) (operands := #[callee, gas])
         (results := #[Evm.UInt256.fromBool result.success])
       · simp [Array.mapM_eq_mapM_toList, hcallee, hgas, bind, Except.bind,
@@ -211,7 +211,7 @@ theorem progress_stmt_proof
       obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
         (targetVars := #[result]) (vs := #[allocation.offset]) rfl
       refine ⟨[], ⟨globals', locals', next⟩, step_mallocUninit hdecode ?_⟩
-      simp only [decodeSirStmt, Generic.Instr.Fires]
+      simp only [decodeSirStatement, Generic.Instruction.Fires]
       apply fires_of (operation := .mallocUninit) (oracle := allocation)
         (operands := #[sizeValue])
         (results := #[allocation.offset])
@@ -227,7 +227,7 @@ theorem progress_stmt_proof
       obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
         (targetVars := #[]) (vs := #[]) rfl
       refine ⟨[], ⟨globals', locals', next⟩, step_mstore32 hdecode ?_⟩
-      simp only [decodeSirStmt, Generic.Instr.Fires]
+      simp only [decodeSirStatement, Generic.Instruction.Fires]
       apply fires_of (operation := .mstore32) (oracle := ())
         (operands := #[offsetValue, valueValue]) (results := #[])
       · simp [Array.mapM_eq_mapM_toList, hoffset, hvalue, bind, Except.bind,
@@ -243,7 +243,7 @@ theorem progress_stmt_proof
       obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
         (targetVars := #[result]) (vs := #[resultValue]) rfl
       refine ⟨[], ⟨state.globals, locals', next⟩, step_mload32 hdecode ?_⟩
-      simp only [decodeSirStmt, Generic.Instr.Fires]
+      simp only [decodeSirStatement, Generic.Instruction.Fires]
       apply fires_of (operation := .mload32) (oracle := assumed) (operands := #[offsetValue])
         (results := #[resultValue])
       · simp [Array.mapM_eq_mapM_toList, hoffset, bind, Except.bind,
@@ -260,8 +260,8 @@ theorem progress_terminator_proof
     (hsource : program.block? cursor = some source)
     (hready : program.TerminatorReady cursor.fn state source) :
     ∃ (final : MachineState),
-      Generic.GenStep localsFrame (sirDecoder program) sirPolicy ctx
-      state.gen [] final.gen := by
+      Generic.GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+      state.toGenericState [] final.toGenericState := by
   have hterm : program.terminatorAt state.control = some source.terminator := by
     simp [Program.terminatorAt, hcontrol, hposition, hsource]
   unfold Program.TerminatorReady at hready

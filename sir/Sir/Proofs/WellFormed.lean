@@ -4,6 +4,10 @@ namespace Sir
 
 variable {program : Program} {ctx : CallContext}
 
+def Program.paramsOf (program : Program) (function : FunctionId) : Option (Array VarId) := do
+  let fn ← program.function? function
+  fn.paramsOf
+
 theorem Program.mem_functions_of_function? {p : Program} {f : FunctionId} {fn : Function}
     (h : p.function? f = some fn) : fn ∈ p.functions :=
   Array.mem_of_getElem? h
@@ -113,7 +117,7 @@ theorem Program.WellFormed.icall_bindParams
 theorem Program.WellFormed.evalFn_arity_proof
     (hwf : program.WellFormed) {function : FunctionId} {globals globals' : Globals}
     {args results : Array Word} {trace : Trace}
-    (hrun : Generic.GenEvalFn localsFrame (sirDecoder program) sirPolicy ctx
+    (hrun : Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
       function globals args trace globals' (.returned results)) :
     (program.function? function).bind (·.outputs?) = some results.size := by
   cases hrun with
@@ -126,14 +130,14 @@ theorem Program.WellFormed.evalFn_arity_proof
       | refl => cases hreturn
       | tail start next =>
           have hinv := SmallStep.returned_inv
-            (state := Generic.GenState.toMachine _) (final := Generic.GenState.toMachine _)
+            (state := Generic.GenericState.toMachine _) (final := Generic.GenericState.toMachine _)
             next hreturn
           obtain ⟨cursor, block, hcontrol, hblock, hterm, houtputs⟩ := hinv
           rcases Steps.preserves_function_proof
               (cursor := ⟨function, fn.entry, entryBlock.startPosition⟩)
               (state := (⟨globals, locals₀,
                 .running ⟨function, fn.entry, entryBlock.startPosition⟩⟩ : MachineState))
-              (final := Generic.GenState.toMachine _) start rfl with
+              (final := Generic.GenericState.toMachine _) start rfl with
             hhalt | ⟨returnedValues, hreturned⟩ | ⟨cursor', hcontrol', hcursorFn⟩
           · exact absurd next
               (Generic.stuck_of_halted (Generic.sirDecoder_terminal program) hhalt _ _)
@@ -183,11 +187,11 @@ theorem Program.WellFormed.icall_step_proof
     {trace : Trace} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .icall callee args dests))
     (hargs : args.mapM (state.locals.lookup ·) = .ok values)
-    (hcallee : Generic.GenEvalFn localsFrame (sirDecoder program) sirPolicy ctx
+    (hcallee : Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
       callee state.globals values trace globals' (.returned results)) :
-    ∃ locals', Generic.GenStep localsFrame (sirDecoder program) sirPolicy ctx
-      state.gen trace
-        { state with globals := globals', locals := locals', control := next }.gen := by
+    ∃ locals', Generic.GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+      state.toGenericState trace
+        { state with globals := globals', locals := locals', control := next }.toGenericState := by
   obtain ⟨locals', hbind⟩ := hwf.icall_bindReturns hdecode hcallee
   exact ⟨locals', step_icall hdecode hargs hcallee hbind⟩
 
@@ -197,9 +201,9 @@ theorem Program.icall_halted_step_proof
     {trace : Trace} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .icall callee args dests))
     (hargs : args.mapM (state.locals.lookup ·) = .ok values)
-    (hcallee : Generic.GenEvalFn localsFrame (sirDecoder program) sirPolicy ctx
+    (hcallee : Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
       callee state.globals values trace globals' .halted) :
-    Generic.GenStep localsFrame (sirDecoder program) sirPolicy ctx state.gen trace
-      ({ globals := globals', control := .halted } : MachineState).gen :=
+    Generic.GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx state.toGenericState trace
+      ({ globals := globals', control := .halted } : MachineState).toGenericState :=
   step_icallHalted hdecode hargs hcallee
 end Sir

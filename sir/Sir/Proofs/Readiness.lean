@@ -354,56 +354,56 @@ theorem Program.WellFormed.terminatorReady_of_localsCoverCursor
 
 theorem decodeSirStmt_op_dst
     {statement : Stmt} {operation : Generic.Operation} {src dst : Array VarId}
-    (hdecode : decodeSirStmt statement =
-      ⟨Generic.Instr.Kind.primitive operation, src, dst⟩) :
+    (hdecode : decodeSirStatement statement =
+      ⟨Generic.Instruction.Kind.primitive operation, src, dst⟩) :
     dst.toList = statement.variablesDefined := by
   cases statement with
   | assign result expression =>
-      cases expression <;> simp [decodeSirStmt, decodeExpr] at hdecode
+      cases expression <;> simp [decodeSirStatement, decodeExpression] at hdecode
       all_goals
         rcases hdecode with ⟨rfl, rfl, rfl⟩
         rfl
   | sstore =>
-      simp [decodeSirStmt] at hdecode
+      simp [decodeSirStatement] at hdecode
       rcases hdecode with ⟨rfl, rfl, rfl⟩
       rfl
   | gas =>
-      simp [decodeSirStmt] at hdecode
+      simp [decodeSirStatement] at hdecode
       rcases hdecode with ⟨rfl, rfl, rfl⟩
       rfl
   | call =>
-      simp [decodeSirStmt] at hdecode
+      simp [decodeSirStatement] at hdecode
       rcases hdecode with ⟨rfl, rfl, rfl⟩
       rfl
   | mallocUninit =>
-      simp [decodeSirStmt] at hdecode
+      simp [decodeSirStatement] at hdecode
       rcases hdecode with ⟨rfl, rfl, rfl⟩
       rfl
   | mstore32 =>
-      simp [decodeSirStmt] at hdecode
+      simp [decodeSirStatement] at hdecode
       rcases hdecode with ⟨rfl, rfl, rfl⟩
       rfl
   | mload32 =>
-      simp [decodeSirStmt] at hdecode
+      simp [decodeSirStatement] at hdecode
       rcases hdecode with ⟨rfl, rfl, rfl⟩
       rfl
-  | icall => simp [decodeSirStmt] at hdecode
+  | icall => simp [decodeSirStatement] at hdecode
 
 theorem decodeSirStmt_icall_inv
     {statement : Stmt} {callee : FunctionId} {src dst : Array VarId}
-    (hdecode : decodeSirStmt statement =
-      ⟨Generic.Instr.Kind.icall callee, src, dst⟩) :
+    (hdecode : decodeSirStatement statement =
+      ⟨Generic.Instruction.Kind.icall callee, src, dst⟩) :
     statement = .icall callee src dst := by
   cases statement with
   | assign result expression =>
-      cases expression <;> simp [decodeSirStmt, decodeExpr] at hdecode
-  | sstore => simp [decodeSirStmt] at hdecode
-  | gas => simp [decodeSirStmt] at hdecode
-  | call => simp [decodeSirStmt] at hdecode
-  | mallocUninit => simp [decodeSirStmt] at hdecode
-  | mstore32 => simp [decodeSirStmt] at hdecode
-  | mload32 => simp [decodeSirStmt] at hdecode
-  | icall => simpa [decodeSirStmt] using hdecode
+      cases expression <;> simp [decodeSirStatement, decodeExpression] at hdecode
+  | sstore => simp [decodeSirStatement] at hdecode
+  | gas => simp [decodeSirStatement] at hdecode
+  | call => simp [decodeSirStatement] at hdecode
+  | mallocUninit => simp [decodeSirStatement] at hdecode
+  | mstore32 => simp [decodeSirStatement] at hdecode
+  | mload32 => simp [decodeSirStatement] at hdecode
+  | icall => simpa [decodeSirStatement] using hdecode
 
 private theorem Program.WellFormed.localsCoverCursor_terminator
     (hwf : program.WellFormed) {state state' : MachineState} {terminator : Terminator}
@@ -465,19 +465,19 @@ private theorem Program.WellFormed.localsCoverCursor_terminator
       trivial
 
 private theorem Program.WellFormed.localsCoverCursor_genStep
-    (hwf : program.WellFormed) {state final : Generic.GenState localsFrame}
+    (hwf : program.WellFormed) {state final : Generic.GenericState localOperandFrame}
     {trace : Trace}
     (hinvariant : state.toMachine.LocalsCoverCursor program)
-    (hstep : Generic.GenStep localsFrame (sirDecoder program) sirPolicy ctx
+    (hstep : Generic.GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
       state trace final) :
     final.toMachine.LocalsCoverCursor program := by
   cases hstep with
-  | op hdecode hfires =>
+  | operation hdecode hfires =>
       change sirDecode program state.control = _ at hdecode
       obtain ⟨statement, hstatement, hinstruction⟩ := sirDecode_inv.mp hdecode
       cases hfires with
       | next hadmissible hfetch hexecute hstore =>
-          change Locals.bindValues state.env _ _ = .ok _ at hstore
+          change Locals.bindValues state.environment _ _ = .ok _ at hstore
           obtain ⟨cursor, block, index, -, -, hblock, hstatementAt, hnext,
               hbefore, -⟩ :=
             hwf.decodeStmt_covers (state := state.toMachine) hinvariant hstatement
@@ -489,8 +489,8 @@ private theorem Program.WellFormed.localsCoverCursor_genStep
               Locals.bindValues_preserves hstore hdefined
           · rw [← decodeSirStmt_op_dst hinstruction]
             exact Locals.bindValues_covers hstore
-  | opHalted hdecode hfires => trivial
-  | icall hdecode hfetch hcallee hresume =>
+  | operationHalted hdecode hfires => trivial
+  | internalCall hdecode hfetch hcallee hresume =>
       rename_i callee src dst next values globals' outcome env' control'
       change sirDecode program state.control = _ at hdecode
       obtain ⟨statement, hstatement, hinstruction⟩ := sirDecode_inv.mp hdecode
@@ -499,7 +499,7 @@ private theorem Program.WellFormed.localsCoverCursor_genStep
       obtain ⟨cursor, block, index, -, -, hblock, hstatementAt, hnext,
           hbefore, -⟩ :=
         hwf.decodeStmt_covers (state := state.toMachine) hinvariant hstatement
-      change sirResume outcome state.env dst next = some (env', control') at hresume
+      change sirResume outcome state.environment dst next = some (env', control') at hresume
       cases outcome with
       | returned results =>
           obtain ⟨hbind, hcontrol'⟩ := sirResume_returned_eq_some_iff.mp hresume
@@ -515,7 +515,7 @@ private theorem Program.WellFormed.localsCoverCursor_genStep
           obtain ⟨rfl, rfl⟩ := sirResume_halted_eq_some_iff.mp hresume
           trivial
   | control hcontrol =>
-      change sirControl program state.env state.globals state.control = _ at hcontrol
+      change sirControl program state.environment state.globals state.control = _ at hcontrol
       obtain ⟨terminator, state', hterminator, heval, rfl, rfl, rfl, rfl⟩ :=
         sirControl_inv.mp hcontrol
       exact hwf.localsCoverCursor_terminator hinvariant hterminator heval
@@ -523,20 +523,20 @@ private theorem Program.WellFormed.localsCoverCursor_genStep
 theorem Program.WellFormed.localsCoverCursor_step
     (hwf : program.WellFormed) {state final : MachineState} {trace : Trace}
     (hinvariant : state.LocalsCoverCursor program)
-    (hstep : Generic.GenStep localsFrame (sirDecoder program) sirPolicy ctx
-      state.gen trace final.gen) :
+    (hstep : Generic.GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+      state.toGenericState trace final.toGenericState) :
     final.LocalsCoverCursor program :=
-  hwf.localsCoverCursor_genStep (state := state.gen) (final := final.gen)
+  hwf.localsCoverCursor_genStep (state := state.toGenericState) (final := final.toGenericState)
     hinvariant hstep
 
 private theorem Program.WellFormed.localsCoverCursor_genSteps
-    (hwf : program.WellFormed) {initial final : Generic.GenState localsFrame}
+    (hwf : program.WellFormed) {initial final : Generic.GenericState localOperandFrame}
     {trace : Trace}
     (hinitial : initial.toMachine.LocalsCoverCursor program)
-    (hsteps : Generic.GenSteps localsFrame (sirDecoder program) sirPolicy ctx
+    (hsteps : Generic.GenericSteps localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
       initial trace final) :
     final.toMachine.LocalsCoverCursor program := by
-  exact Generic.GenSteps.inductionOn
+  exact Generic.GenericSteps.inductionOn
     (motive := fun initial _ final _ =>
       initial.toMachine.LocalsCoverCursor program →
         final.toMachine.LocalsCoverCursor program)
@@ -548,10 +548,10 @@ private theorem Program.WellFormed.localsCoverCursor_genSteps
 theorem Program.WellFormed.localsCoverCursor_steps
     (hwf : program.WellFormed) {initial final : MachineState} {trace : Trace}
     (hinitial : initial.LocalsCoverCursor program)
-    (hsteps : Generic.GenSteps localsFrame (sirDecoder program) sirPolicy ctx
-      initial.gen trace final.gen) :
+    (hsteps : Generic.GenericSteps localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+      initial.toGenericState trace final.toGenericState) :
     final.LocalsCoverCursor program :=
-  hwf.localsCoverCursor_genSteps (initial := initial.gen) (final := final.gen)
+  hwf.localsCoverCursor_genSteps (initial := initial.toGenericState) (final := final.toGenericState)
     hinitial hsteps
 
 theorem Program.WellFormed.localsCoverCursor_runsFn

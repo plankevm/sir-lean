@@ -48,10 +48,10 @@ def stackStore (env : StackEnv) (dst : StackDestination) (values : Array Word) :
   else
     .error (.blockArityMismatch values.size dst.produce)
 
-abbrev stackFrame : OpFrame where
-  Env := StackEnv
-  Src := Nat
-  Dst := StackDestination
+abbrev stackFrame : OperandFrame where
+  Environment := StackEnv
+  Source := Nat
+  Destination := StackDestination
   fetch := stackFetch
   store := stackStore
 
@@ -124,13 +124,13 @@ def CfgProgram.terminatorAt (program : CfgProgram) (control : MachineControl) :
   some block.terminator
 
 def cfgDecode (program : CfgProgram) (control : MachineControl) :
-    Option (Instr stackFrame × MachineControl) :=
+    Option (Instruction stackFrame × MachineControl) :=
   match program.decodeInstruction control with
   | some (next, .op operation) =>
-      some (⟨Instr.Kind.primitive operation, operation.inputCount,
+      some (⟨Instruction.Kind.primitive operation, operation.inputCount,
         ⟨operation.inputCount, operation.outputCount⟩⟩, next)
   | some (next, .icall callee argumentCount resultCount) =>
-      some (⟨Instr.Kind.icall callee, argumentCount,
+      some (⟨Instruction.Kind.icall callee, argumentCount,
         ⟨argumentCount, resultCount⟩⟩, next)
   | _ => none
 
@@ -199,13 +199,13 @@ def cfgResume (outcome : FunctionOutcome) (env : StackEnv)
   | .halted => some (.empty, .halted)
 
 def cfgEntry (program : CfgProgram) (functionId : FunctionId) (globals : Globals)
-    (args : Array Word) : Option (GenState stackFrame) := do
+    (args : Array Word) : Option (GenericState stackFrame) := do
   let function ← program.function? functionId
   let block ← function.block? function.entry
   if args.size ≠ block.inputCount then none
   some
     { globals
-      env := { StackEnv.empty with stack := args.toList }
+      environment := { StackEnv.empty with stack := args.toList }
       control := .running
         { fn := functionId, block := function.entry, position := block.startPosition } }
 

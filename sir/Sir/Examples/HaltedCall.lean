@@ -90,7 +90,7 @@ theorem haltedCallProgram_wellFormed : haltedCallProgram.WellFormed := by
       · simp [Terminator.variablesRead]
 
 private theorem haltedCall_evalCallee (ctx : CallContext) (world : World) :
-    Generic.GenEvalFn localsFrame (sirDecoder haltedCallProgram) sirPolicy ctx
+    Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder haltedCallProgram) sirMemoryPolicy ctx
       haltedCallCallee { world := world } #[] [] ({ world := world } : Globals) .halted := by
   let initial : MachineState :=
     { globals := { world := world }
@@ -104,12 +104,12 @@ private theorem haltedCall_evalCallee (ctx : CallContext) (world : World) :
     simp only [Locals.bindParams, Locals.bindValues, ← Array.forIn_toList,
       Array.toList_zip]
     rfl
-  have hstep : Generic.GenStep localsFrame (sirDecoder haltedCallProgram) sirPolicy ctx
-      initial.gen [] final.gen := step_terminator rfl rfl
-  exact EvalFn.halted hentry (Generic.GenSteps.single hstep) rfl
+  have hstep : Generic.GenericStep localOperandFrame (sirDecoder haltedCallProgram) sirMemoryPolicy ctx
+      initial.toGenericState [] final.toGenericState := step_terminator rfl rfl
+  exact EvalFn.halted hentry (Generic.GenericSteps.single hstep) rfl
 
 private theorem haltedCallProgram_eval (ctx : CallContext) (world : World) :
-    Generic.GenEvalFn localsFrame (sirDecoder haltedCallProgram) sirPolicy ctx
+    Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder haltedCallProgram) sirMemoryPolicy ctx
       haltedCallCaller { world := world } #[] [] ({ world := world } : Globals) .halted := by
   let initial : MachineState :=
     { globals := { world := world }
@@ -126,10 +126,10 @@ private theorem haltedCallProgram_eval (ctx : CallContext) (world : World) :
   have hargs : (#[] : Array VarId).mapM (initial.locals.lookup ·) = .ok #[] := by
     rw [Array.mapM_eq_mapM_toList]
     rfl
-  have hstep : Generic.GenStep localsFrame (sirDecoder haltedCallProgram) sirPolicy ctx
-      initial.gen [] final.gen :=
+  have hstep : Generic.GenericStep localOperandFrame (sirDecoder haltedCallProgram) sirMemoryPolicy ctx
+      initial.toGenericState [] final.toGenericState :=
     step_icallHalted rfl hargs (haltedCall_evalCallee ctx world)
-  exact EvalFn.halted hentry (Generic.GenSteps.single hstep) rfl
+  exact EvalFn.halted hentry (Generic.GenericSteps.single hstep) rfl
 
 theorem haltedCallProgram_runs (ctx : CallContext) (world : World) :
     EvalFn haltedCallProgram ctx haltedCallProgram.initEntry { world := world } #[] []

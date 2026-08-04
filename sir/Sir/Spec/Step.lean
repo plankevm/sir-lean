@@ -27,40 +27,44 @@ def eval_terminator (program : Program) : Terminator → MachineStateM Unit
       modify ({ · with control := .returned rs })
 
 open Generic in
-def sirPolicy : Generic.MemoryPolicy where
+/-- The SIR memory policy preserves allocation as an explicit semantic choice while requiring the
+chosen allocation to be valid and of the requested size. -/
+def sirMemoryPolicy : Generic.MemoryPolicy where
   Allows memory size allocation :=
     memory.IsValidNewAlloc allocation ∧ allocation.size = size
 
 open Generic
 
-abbrev localsFrame : OpFrame where
-  Env := Locals
-  Src := Array VarId
-  Dst := Array VarId
+abbrev localOperandFrame : OperandFrame where
+  Environment := Locals
+  Source := Array VarId
+  Destination := Array VarId
   fetch env src := src.mapM env.lookup
   store env dst values := Locals.bindValues env dst values
 
-def decodeExpr (result : VarId) : Expr → Instr localsFrame
-  | .constant value => ⟨Instr.Kind.primitive (.constant value), #[], #[result]⟩
-  | .var var => ⟨Instr.Kind.primitive .copy, #[var], #[result]⟩
-  | .add lhs rhs => ⟨Instr.Kind.primitive .add, #[lhs, rhs], #[result]⟩
-  | .lt lhs rhs => ⟨Instr.Kind.primitive .lt, #[lhs, rhs], #[result]⟩
-  | .sload key => ⟨Instr.Kind.primitive .sload, #[key], #[result]⟩
+/-- SIR expression and statement decoding expose ordinary syntax as generic instructions while
+retaining SIR control positions. -/
+def decodeExpression (result : VarId) : Expr → Instruction localOperandFrame
+  | .constant value => ⟨Instruction.Kind.primitive (.constant value), #[], #[result]⟩
+  | .var var => ⟨Instruction.Kind.primitive .copy, #[var], #[result]⟩
+  | .add lhs rhs => ⟨Instruction.Kind.primitive .add, #[lhs, rhs], #[result]⟩
+  | .lt lhs rhs => ⟨Instruction.Kind.primitive .lt, #[lhs, rhs], #[result]⟩
+  | .sload key => ⟨Instruction.Kind.primitive .sload, #[key], #[result]⟩
 
-def decodeSirStmt : Stmt → Instr localsFrame
-  | .assign result expr => decodeExpr result expr
-  | .sstore key value => ⟨Instr.Kind.primitive .sstore, #[key, value], #[]⟩
-  | .gas result => ⟨Instr.Kind.primitive .gas, #[], #[result]⟩
-  | .call call => ⟨Instr.Kind.primitive .call, #[call.callee, call.gas], #[call.result]⟩
+def decodeSirStatement : Stmt → Instruction localOperandFrame
+  | .assign result expr => decodeExpression result expr
+  | .sstore key value => ⟨Instruction.Kind.primitive .sstore, #[key, value], #[]⟩
+  | .gas result => ⟨Instruction.Kind.primitive .gas, #[], #[result]⟩
+  | .call call => ⟨Instruction.Kind.primitive .call, #[call.callee, call.gas], #[call.result]⟩
   | .mallocUninit result size =>
-      ⟨Instr.Kind.primitive .mallocUninit, #[size], #[result]⟩
-  | .mstore32 offset value => ⟨Instr.Kind.primitive .mstore32, #[offset, value], #[]⟩
-  | .mload32 result offset => ⟨Instr.Kind.primitive .mload32, #[offset], #[result]⟩
-  | .icall callee args dests => ⟨Instr.Kind.icall callee, args, dests⟩
+      ⟨Instruction.Kind.primitive .mallocUninit, #[size], #[result]⟩
+  | .mstore32 offset value => ⟨Instruction.Kind.primitive .mstore32, #[offset, value], #[]⟩
+  | .mload32 result offset => ⟨Instruction.Kind.primitive .mload32, #[offset], #[result]⟩
+  | .icall callee args dests => ⟨Instruction.Kind.icall callee, args, dests⟩
 
 def sirDecode (program : Program) (control : MachineControl) :
-    Option (Instr localsFrame × MachineControl) :=
-  (program.decodeStmt control).map fun (next, stmt) => (decodeSirStmt stmt, next)
+    Option (Instruction localOperandFrame × MachineControl) :=
+  (program.decodeStmt control).map fun (next, stmt) => (decodeSirStatement stmt, next)
 
 def sirControl (program : Program) (env : Locals) (globals : Globals)
     (control : MachineControl) :
@@ -79,32 +83,41 @@ def sirResume (outcome : FunctionOutcome) (env : Locals) (dst : Array VarId)
       | .error _ => none
   | .halted => some (.empty, .halted)
 
-def MachineState.gen (state : MachineState) : GenState localsFrame :=
+/-- This embedding exposes SIR machine states to the generic semantics without changing the public
+SIR state type. -/
+def MachineState.toGenericState (state : MachineState) : GenericState localOperandFrame :=
   ⟨state.globals, state.locals, state.control⟩
 
 def sirEntry (program : Program) (function : FunctionId) (globals : Globals)
-    (args : Array Word) : Option (GenState localsFrame) :=
-  (program.callState? function globals args).map MachineState.gen
+    (args : Array Word) : Option (GenericState localOperandFrame) :=
+  (program.callState? function globals args).map MachineState.toGenericState
 
-def sirDecoder (program : Program) : Decoder localsFrame where
+/-- The SIR decoder assembles statement, terminator, resumption, and entry behavior so the generic
+machine retains SIR control and call semantics. -/
+def sirDecoder (program : Program) : Decoder localOperandFrame where
   decode := sirDecode program
   control := sirControl program
   resume := sirResume
   entry := sirEntry program
 
+/-- The public SIR one-step relation uses the shared machine while preserving its established name
+for exported statements. -/
 def SmallStep (program : Program) (ctx : CallContext)
     (state : MachineState) (trace : Trace) (final : MachineState) : Prop :=
-  Generic.GenStep localsFrame (sirDecoder program) sirPolicy ctx
-    state.gen trace final.gen
+  Generic.GenericStep localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+    state.toGenericState trace final.toGenericState
 
+/-- The public SIR finite-run relation preserves accumulated traces across the shared machine. -/
 def Steps (program : Program) (ctx : CallContext)
     (state : MachineState) (trace : Trace) (final : MachineState) : Prop :=
-  Generic.GenSteps localsFrame (sirDecoder program) sirPolicy ctx
-    state.gen trace final.gen
+  Generic.GenericSteps localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
+    state.toGenericState trace final.toGenericState
 
+/-- The public SIR function-evaluation relation retains the call boundary used by observations and
+exported results. -/
 def EvalFn (program : Program) (ctx : CallContext) :
     FunctionId → Globals → Array Word → Trace → Globals → FunctionOutcome → Prop :=
-  Generic.GenEvalFn localsFrame (sirDecoder program) sirPolicy ctx
+  Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder program) sirMemoryPolicy ctx
 
 def Program.NonIcallControl (program : Program) (state : MachineState) : Prop :=
   (∃ nextControl statement,

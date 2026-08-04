@@ -4,6 +4,8 @@ namespace Sir.Generic
 
 open Sir
 
+/-- Allocation remains a machine parameter so semantics can expose valid choices without fixing
+an allocator strategy. -/
 structure MemoryPolicy where
   Allows : MemoryState → Nat → Allocation → Prop
 
@@ -17,6 +19,8 @@ def Deterministic (policy : MemoryPolicy) : Prop :=
 
 end MemoryPolicy
 
+/-- Operations isolate data and world effects from control flow so different instruction
+representations can share one execution model. -/
 inductive Operation where
   | constant (value : Word)
   | copy
@@ -105,41 +109,49 @@ def execute (ctx : CallContext) :
 
 end Operation
 
-structure OpFrame where
-  Env : Type
-  Src : Type
-  Dst : Type
-  fetch : Env → Src → Except IRError (Array Word)
-  store : Env → Dst → Array Word → Except IRError Env
+/-- An operand frame abstracts operand access so the transition system can serve machines with
+different environment, source, and destination representations. -/
+structure OperandFrame where
+  Environment : Type
+  Source : Type
+  Destination : Type
+  fetch : Environment → Source → Except IRError (Array Word)
+  store : Environment → Destination → Array Word → Except IRError Environment
 
-inductive Instr.Kind where
+inductive Instruction.Kind where
   | primitive (operation : Operation)
   | icall (callee : FunctionId)
 deriving DecidableEq, Repr
 
-structure Instr (frame : OpFrame) where
-  kind : Instr.Kind
-  src : frame.Src
-  dst : frame.Dst
+/-- A decoded instruction packages ordinary operations or nested calls with operand locations,
+keeping stepping independent of the concrete environment representation. -/
+structure Instruction (frame : OperandFrame) where
+  kind : Instruction.Kind
+  source : frame.Source
+  destination : frame.Destination
 
-structure GenState (frame : OpFrame) where
+/-- Generic state keeps global effects, instance-specific operands, and control together so one
+transition system can support multiple instruction representations. -/
+structure GenericState (frame : OperandFrame) where
   globals : Globals
-  env : frame.Env
+  environment : frame.Environment
   control : MachineControl
 
-structure Decoder (frame : OpFrame) where
-  decode : MachineControl → Option (Instr frame × MachineControl)
-  control : frame.Env → Globals → MachineControl →
-    Option (Trace × frame.Env × Globals × MachineControl)
-  resume : FunctionOutcome → frame.Env → frame.Dst → MachineControl →
-    Option (frame.Env × MachineControl)
-  entry : FunctionId → Globals → Array Word → Option (GenState frame)
+/-- A decoder supplies the representation-specific control and call hooks needed to instantiate
+the generic transition system. -/
+structure Decoder (frame : OperandFrame) where
+  decode : MachineControl → Option (Instruction frame × MachineControl)
+  control : frame.Environment → Globals → MachineControl →
+    Option (Trace × frame.Environment × Globals × MachineControl)
+  resume : FunctionOutcome → frame.Environment → frame.Destination → MachineControl →
+    Option (frame.Environment × MachineControl)
+  entry : FunctionId → Globals → Array Word → Option (GenericState frame)
 
-inductive OpFrame.Fires (frame : OpFrame) (policy : MemoryPolicy) (ctx : CallContext)
-    (operation : Operation) (src : frame.Src) (dst : frame.Dst) :
-    frame.Env → Globals → Trace → frame.Env → Globals → Prop where
+inductive OperandFrame.Fires (frame : OperandFrame) (policy : MemoryPolicy) (ctx : CallContext)
+    (operation : Operation) (src : frame.Source) (dst : frame.Destination) :
+    frame.Environment → Globals → Trace → frame.Environment → Globals → Prop where
   | next
-      {env env' : frame.Env} {globals globals' : Globals}
+      {env env' : frame.Environment} {globals globals' : Globals}
       {operands results : Array Word} {trace : Trace} {oracle : operation.Oracle}
       (hadmissible : operation.Admissible policy globals operands oracle)
       (hfetch : frame.fetch env src = .ok operands)
@@ -148,11 +160,11 @@ inductive OpFrame.Fires (frame : OpFrame) (policy : MemoryPolicy) (ctx : CallCon
       (hstore : frame.store env dst results = .ok env') :
       frame.Fires policy ctx operation src dst env globals trace env' globals'
 
-inductive OpFrame.FiresHalt (frame : OpFrame) (policy : MemoryPolicy) (ctx : CallContext)
-    (operation : Operation) (src : frame.Src) :
-    frame.Env → Globals → Trace → Globals → Prop where
+inductive OperandFrame.FiresHalt (frame : OperandFrame) (policy : MemoryPolicy) (ctx : CallContext)
+    (operation : Operation) (src : frame.Source) :
+    frame.Environment → Globals → Trace → Globals → Prop where
   | halted
-      {env : frame.Env} {globals globals' : Globals}
+      {env : frame.Environment} {globals globals' : Globals}
       {operands : Array Word} {trace : Trace} {oracle : operation.Oracle}
       (hadmissible : operation.Admissible policy globals operands oracle)
       (hfetch : frame.fetch env src = .ok operands)
@@ -162,80 +174,86 @@ inductive OpFrame.FiresHalt (frame : OpFrame) (policy : MemoryPolicy) (ctx : Cal
 
 mutual
 
-inductive GenStep (frame : OpFrame) (decoder : Decoder frame)
+/-- A generic step defines one observable transition while delegating operand access and control
+interpretation to the machine instance. -/
+inductive GenericStep (frame : OperandFrame) (decoder : Decoder frame)
     (policy : MemoryPolicy) (ctx : CallContext) :
-    GenState frame → Trace → GenState frame → Prop where
-  | op
-      {state : GenState frame} {operation : Operation}
-      {src : frame.Src} {dst : frame.Dst} {next : MachineControl}
-      {trace : Trace} {env' : frame.Env} {globals' : Globals}
+    GenericState frame → Trace → GenericState frame → Prop where
+  | operation
+      {state : GenericState frame} {operation : Operation}
+      {src : frame.Source} {dst : frame.Destination} {next : MachineControl}
+      {trace : Trace} {env' : frame.Environment} {globals' : Globals}
       (hdecode : decoder.decode state.control =
-        some (⟨Instr.Kind.primitive operation, src, dst⟩, next))
-      (hfires : frame.Fires policy ctx operation src dst state.env state.globals
+        some (⟨Instruction.Kind.primitive operation, src, dst⟩, next))
+      (hfires : frame.Fires policy ctx operation src dst state.environment state.globals
         trace env' globals') :
-      GenStep frame decoder policy ctx state trace
-        { globals := globals', env := env', control := next }
-  | opHalted
-      {state : GenState frame} {operation : Operation}
-      {src : frame.Src} {dst : frame.Dst} {next : MachineControl}
+      GenericStep frame decoder policy ctx state trace
+        { globals := globals', environment := env', control := next }
+  | operationHalted
+      {state : GenericState frame} {operation : Operation}
+      {src : frame.Source} {dst : frame.Destination} {next : MachineControl}
       {trace : Trace} {globals' : Globals}
       (hdecode : decoder.decode state.control =
-        some (⟨Instr.Kind.primitive operation, src, dst⟩, next))
-      (hfires : frame.FiresHalt policy ctx operation src state.env state.globals
+        some (⟨Instruction.Kind.primitive operation, src, dst⟩, next))
+      (hfires : frame.FiresHalt policy ctx operation src state.environment state.globals
         trace globals') :
-      GenStep frame decoder policy ctx state trace
-        { globals := globals', env := state.env, control := .halted }
-  | icall
-      {state : GenState frame} {callee : FunctionId}
-      {src : frame.Src} {dst : frame.Dst} {next : MachineControl}
+      GenericStep frame decoder policy ctx state trace
+        { globals := globals', environment := state.environment, control := .halted }
+  | internalCall
+      {state : GenericState frame} {callee : FunctionId}
+      {src : frame.Source} {dst : frame.Destination} {next : MachineControl}
       {values : Array Word} {trace : Trace} {globals' : Globals}
-      {outcome : FunctionOutcome} {env' : frame.Env} {control' : MachineControl}
+      {outcome : FunctionOutcome} {env' : frame.Environment} {control' : MachineControl}
       (hdecode : decoder.decode state.control =
-        some (⟨Instr.Kind.icall callee, src, dst⟩, next))
-      (hfetch : frame.fetch state.env src = .ok values)
-      (hcallee : GenEvalFn frame decoder policy ctx callee state.globals values
+        some (⟨Instruction.Kind.icall callee, src, dst⟩, next))
+      (hfetch : frame.fetch state.environment src = .ok values)
+      (hcallee : GenericFunctionEvaluation frame decoder policy ctx callee state.globals values
         trace globals' outcome)
-      (hresume : decoder.resume outcome state.env dst next = some (env', control')) :
-      GenStep frame decoder policy ctx state trace
-        { globals := globals', env := env', control := control' }
+      (hresume : decoder.resume outcome state.environment dst next = some (env', control')) :
+      GenericStep frame decoder policy ctx state trace
+        { globals := globals', environment := env', control := control' }
   | control
-      {state : GenState frame} {trace : Trace} {env' : frame.Env}
+      {state : GenericState frame} {trace : Trace} {env' : frame.Environment}
       {globals' : Globals} {control' : MachineControl}
-      (hcontrol : decoder.control state.env state.globals state.control =
+      (hcontrol : decoder.control state.environment state.globals state.control =
         some (trace, env', globals', control')) :
-      GenStep frame decoder policy ctx state trace
-        { globals := globals', env := env', control := control' }
+      GenericStep frame decoder policy ctx state trace
+        { globals := globals', environment := env', control := control' }
 
-inductive GenSteps (frame : OpFrame) (decoder : Decoder frame)
+/-- Reflexive-transitive execution records finite runs while preserving their accumulated
+observable traces. -/
+inductive GenericSteps (frame : OperandFrame) (decoder : Decoder frame)
     (policy : MemoryPolicy) (ctx : CallContext) :
-    GenState frame → Trace → GenState frame → Prop where
-  | refl {state : GenState frame} :
-      GenSteps frame decoder policy ctx state [] state
+    GenericState frame → Trace → GenericState frame → Prop where
+  | refl {state : GenericState frame} :
+      GenericSteps frame decoder policy ctx state [] state
   | tail
-      {state middle final : GenState frame} {trace₁ trace₂ : Trace}
-      (start : GenSteps frame decoder policy ctx state trace₁ middle)
-      (next : GenStep frame decoder policy ctx middle trace₂ final) :
-      GenSteps frame decoder policy ctx state (trace₁ ++ trace₂) final
+      {state middle final : GenericState frame} {trace₁ trace₂ : Trace}
+      (start : GenericSteps frame decoder policy ctx state trace₁ middle)
+      (next : GenericStep frame decoder policy ctx middle trace₂ final) :
+      GenericSteps frame decoder policy ctx state (trace₁ ++ trace₂) final
 
-inductive GenEvalFn (frame : OpFrame) (decoder : Decoder frame)
+/-- Generic function evaluation closes a finite run at return or halt, providing the call boundary
+used by nested evaluations. -/
+inductive GenericFunctionEvaluation (frame : OperandFrame) (decoder : Decoder frame)
     (policy : MemoryPolicy) (ctx : CallContext) :
     FunctionId → Globals → Array Word → Trace → Globals →
       FunctionOutcome → Prop where
   | returned
       {function : FunctionId} {globals : Globals} {args results : Array Word}
-      {trace : Trace} {initial exit : GenState frame}
+      {trace : Trace} {initial exit : GenericState frame}
       (hentry : decoder.entry function globals args = some initial)
-      (hrun : GenSteps frame decoder policy ctx initial trace exit)
+      (hrun : GenericSteps frame decoder policy ctx initial trace exit)
       (hreturn : exit.control = .returned results) :
-      GenEvalFn frame decoder policy ctx function globals args trace exit.globals
+      GenericFunctionEvaluation frame decoder policy ctx function globals args trace exit.globals
         (.returned results)
   | halted
       {function : FunctionId} {globals : Globals} {args : Array Word}
-      {trace : Trace} {initial exit : GenState frame}
+      {trace : Trace} {initial exit : GenericState frame}
       (hentry : decoder.entry function globals args = some initial)
-      (hrun : GenSteps frame decoder policy ctx initial trace exit)
+      (hrun : GenericSteps frame decoder policy ctx initial trace exit)
       (hhalt : exit.control = .halted) :
-      GenEvalFn frame decoder policy ctx function globals args trace exit.globals .halted
+      GenericFunctionEvaluation frame decoder policy ctx function globals args trace exit.globals .halted
 
 end
 

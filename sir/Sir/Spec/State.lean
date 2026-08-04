@@ -1,12 +1,7 @@
 import Sir.Spec.Memory
 import Evm.Maps.AccountMap
 
-universe u v
-
 namespace Sir
-
-instance {σ : Type u} {ε : Type v} : MonadLift (StateM σ) (StateT σ (Except ε)) where
-  monadLift action state := .ok (action state)
 
 abbrev World := Evm.AccountMap
 
@@ -164,10 +159,6 @@ def Program.block? (program : Program) (cursor : ProgramCursor) : Option BasicBl
 
 def Program.HasStmt (program : Program) (stmt : Stmt) : Prop :=
   ∃ fn ∈ program.functions, fn.HasStmt stmt
-
-def Program.paramsOf (program : Program) (f : FunctionId) : Option (Array VarId) := do
-  let fn ← program.function? f
-  fn.paramsOf
 
 def Program.FunctionInputOutputArity (program : Program) (inputCount : Nat)
     (outputCount : Option Nat) (functionId : FunctionId) : Prop :=

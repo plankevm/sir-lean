@@ -224,31 +224,31 @@ private theorem bindValues_singleton (locals : Locals) (var : VarId) (value : Wo
 
 set_option linter.unusedSimpArgs false in
 private theorem initialized_step_closed {ctx : CallContext} {world : World}
-    {state : MachineState} {final : Generic.GenState localsFrame} {trace : Trace}
+    {state : MachineState} {final : Generic.GenericState localOperandFrame} {trace : Trace}
     (hstate : InitializedReachable ctx world state)
-    (hstep : Generic.GenStep localsFrame (sirDecoder initializedLoad) sirPolicy ctx
-      state.gen trace final) :
+    (hstep : Generic.GenericStep localOperandFrame (sirDecoder initializedLoad) sirMemoryPolicy ctx
+      state.toGenericState trace final) :
     trace = [] ∧ InitializedReachable ctx world
-      { globals := final.globals, locals := final.env, control := final.control } := by
+      { globals := final.globals, locals := final.environment, control := final.control } := by
   cases hstate <;> cases hstep
   all_goals try { exact (firesHalt_false (ctx := ctx) (by assumption)).elim }
   all_goals simp_all [sirDecoder, sirDecode, sirControl, initializedLoad,
     Program.decodeStmt, Program.terminatorAt, Program.block?, Program.function?,
-    Function.block?, BasicBlock.absoluteToPosition, decodeSirStmt, decodeExpr,
+    Function.block?, BasicBlock.absoluteToPosition, decodeSirStatement, decodeExpression,
     initializedState0, initializedState1, initializedState2, initializedState3,
     initializedState4, initializedState5, initializedState6, initializedState7,
-    stmtControl, termControl, MachineState.gen,
+    stmtControl, termControl, MachineState.toGenericState,
     eval_terminator, pure, Except.pure]
   all_goals first
     | obtain ⟨⟨rfl, rfl, rfl⟩, rfl⟩ := ‹(_ ∧ _ ∧ _) ∧ _›
     | skip
   all_goals first
-    | cases ‹Generic.OpFrame.Fires _ _ _ _ _ _ _ _ _ _ _›
+    | cases ‹Generic.OperandFrame.Fires _ _ _ _ _ _ _ _ _ _ _›
     | skip
   all_goals simp_all [initializedState0, initializedState1, initializedState2,
     initializedState3, initializedState4, initializedState5, initializedState6,
-    initializedState7, stmtControl, termControl, localsFrame, Generic.Operation.execute,
-    Generic.Operation.Admissible, sirPolicy, Locals.empty,
+    initializedState7, stmtControl, termControl, localOperandFrame, Generic.Operation.execute,
+    Generic.Operation.Admissible, sirMemoryPolicy, Locals.empty,
     locals1, locals2, locals3, locals5, Locals.lookup, Locals.lookup?, Locals.assign,
     StateT.run, modify, modifyGet, MonadStateOf.modifyGet, StateT.modifyGet,
     bind, Except.bind, pure, Except.pure, Functor.map, Except.map,
@@ -263,7 +263,7 @@ private theorem initialized_step_closed {ctx : CallContext} {world : World}
     | obtain ⟨rfl, rfl, rfl, rfl⟩ := ‹_ = _ ∧ _ = _ ∧ _ = _ ∧ _ = _›
     | obtain ⟨rfl, rfl, rfl⟩ := ‹_ = _ ∧ _ = _ ∧ _ = _›
     | skip
-  all_goals try simp_all [Generic.Operation.execute, localsFrame,
+  all_goals try simp_all [Generic.Operation.execute, localOperandFrame,
     Locals.empty, locals1, locals2, locals3, locals5, Locals.lookup,
     Locals.lookup?, Locals.assign, bindValues_empty, bindValues_singleton,
     read_written_word, fromByteArray_toByteArray, ofNat_toNat]
@@ -289,8 +289,8 @@ private theorem initialized_step_closed {ctx : CallContext} {world : World}
 private theorem initialized_steps_from {ctx : CallContext} {world : World}
     {start final : MachineState} {trace : Trace}
     (hstart : InitializedReachable ctx world start)
-    (hsteps : Generic.GenSteps localsFrame (sirDecoder initializedLoad) sirPolicy ctx
-      start.gen trace final.gen) :
+    (hsteps : Generic.GenericSteps localOperandFrame (sirDecoder initializedLoad) sirMemoryPolicy ctx
+      start.toGenericState trace final.toGenericState) :
     trace = [] ∧ InitializedReachable ctx world final := by
   apply Steps.inductionOn
     (motive := fun state trace final _ =>
@@ -305,8 +305,8 @@ private theorem initialized_steps_from {ctx : CallContext} {world : World}
 
 private theorem initialized_steps {ctx : CallContext} {world : World}
     {trace : Trace} {state : MachineState}
-    (hsteps : Generic.GenSteps localsFrame (sirDecoder initializedLoad) sirPolicy ctx
-      (initializedState0 world).gen trace state.gen) :
+    (hsteps : Generic.GenericSteps localOperandFrame (sirDecoder initializedLoad) sirMemoryPolicy ctx
+      (initializedState0 world).toGenericState trace state.toGenericState) :
     trace = [] ∧ InitializedReachable ctx world state :=
   initialized_steps_from .state0 hsteps
 
@@ -334,19 +334,19 @@ private theorem initialized_no_next_event {ctx : CallContext} {world : World}
 
 private theorem initialized_halted_world {ctx : CallContext} {world : World}
     {trace : Trace} {globals : Globals}
-    (hrun : Generic.GenEvalFn localsFrame (sirDecoder initializedLoad) sirPolicy ctx
+    (hrun : Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder initializedLoad) sirMemoryPolicy ctx
       entryFunction { world := world } #[] trace globals .halted) :
     trace = [] ∧ globals.world = world.storeStorage ctx.self 42 42 := by
   cases hrun with
   | halted hentry hsteps hhalt =>
       rename_i initial exit
-      have hinitial : initial = (initializedState0 world).gen := Option.some.inj
+      have hinitial : initial = (initializedState0 world).toGenericState := Option.some.inj
         (hentry.symm.trans (by simp [sirEntry_eq, initialized_entry]))
       subst initial
       obtain ⟨exitGlobals, exitLocals, exitControl⟩ := exit
-      change Generic.GenSteps localsFrame (sirDecoder initializedLoad) sirPolicy ctx
-        (initializedState0 world).gen trace
-        ({ globals := exitGlobals, locals := exitLocals, control := exitControl } : MachineState).gen
+      change Generic.GenericSteps localOperandFrame (sirDecoder initializedLoad) sirMemoryPolicy ctx
+        (initializedState0 world).toGenericState trace
+        ({ globals := exitGlobals, locals := exitLocals, control := exitControl } : MachineState).toGenericState
         at hsteps
       rcases initialized_steps hsteps with ⟨htrace, hstate⟩
       refine ⟨htrace, ?_⟩
@@ -391,8 +391,8 @@ private theorem zero_entry (world : World) :
   rfl
 
 private theorem zero_steps (ctx : CallContext) (world : World) (offset : Word) :
-    Generic.GenSteps localsFrame (sirDecoder zeroSizeStore) sirPolicy ctx
-      (zeroState0 world).gen [] (zeroState4 ctx world offset).gen := by
+    Generic.GenericSteps localOperandFrame (sirDecoder zeroSizeStore) sirMemoryPolicy ctx
+      (zeroState0 world).toGenericState [] (zeroState4 ctx world offset).toGenericState := by
   have hfetchEmpty : (#[] : Array VarId).mapM ((zeroState0 world).locals.lookup ·) =
       .ok #[] := by
     rw [Array.mapM_eq_mapM_toList]
@@ -402,13 +402,13 @@ private theorem zero_steps (ctx : CallContext) (world : World) (offset : Word) :
     simp only [zeroState0, zeroState1, Locals.bindValues, ← Array.forIn_toList,
       Array.toList_zip]
     rfl
-  have step01 : Generic.GenStep localsFrame (sirDecoder zeroSizeStore) sirPolicy ctx
-      (zeroState0 world).gen [] (zeroState1 world).gen := by
+  have step01 : Generic.GenericStep localOperandFrame (sirDecoder zeroSizeStore) sirMemoryPolicy ctx
+      (zeroState0 world).toGenericState [] (zeroState1 world).toGenericState := by
     apply step_assign (program := zeroSizeStore) (ctx := ctx)
       (result := sizeVar) (expr := .constant 0)
       (by simp [zeroSizeStore, Program.decodeStmt, Program.block?, Program.function?,
         Function.block?, BasicBlock.absoluteToPosition, zeroState0, stmtControl])
-    simp only [decodeExpr, Generic.Instr.Fires]
+    simp only [decodeExpression, Generic.Instruction.Fires]
     exact fires_of hfetchEmpty (by trivial)
       (Generic.Operation.execute_constant_ok ctx 0 (zeroState0 world).globals #[]) hstoreSize
   have hfetchSize : #[sizeVar].mapM ((zeroState1 world).locals.lookup ·) = .ok #[0] := by
@@ -427,13 +427,13 @@ private theorem zero_steps (ctx : CallContext) (world : World) (offset : Word) :
   have hsize : (zeroAlloc offset).size = (0 : Word).toNat := by
     change 0 = (0 : Word).toNat
     decide
-  have step12 : Generic.GenStep localsFrame (sirDecoder zeroSizeStore) sirPolicy ctx
-      (zeroState1 world).gen [] (zeroState2 world offset).gen := by
+  have step12 : Generic.GenericStep localOperandFrame (sirDecoder zeroSizeStore) sirMemoryPolicy ctx
+      (zeroState1 world).toGenericState [] (zeroState2 world offset).toGenericState := by
     apply step_mallocUninit (program := zeroSizeStore) (ctx := ctx)
       (result := xVar) (size := sizeVar)
       (by simp [zeroSizeStore, Program.decodeStmt, Program.block?, Program.function?,
         Function.block?, BasicBlock.absoluteToPosition, zeroState1, stmtControl])
-    simp only [decodeSirStmt, Generic.Instr.Fires]
+    simp only [decodeSirStatement, Generic.Instruction.Fires]
     exact fires_of hfetchSize ⟨0, rfl, ⟨hvalid, hsize⟩, hvalid, hsize⟩
       (Generic.Operation.execute_malloc_ok ctx (zeroAlloc offset)
         (zeroState1 world).globals 0 hsize) hstoreOffset
@@ -445,18 +445,18 @@ private theorem zero_steps (ctx : CallContext) (world : World) (offset : Word) :
       .ok (zeroState2 world offset).locals := by
     simp only [Locals.bindValues, ← Array.forIn_toList, Array.toList_zip]
     rfl
-  have step23 : Generic.GenStep localsFrame (sirDecoder zeroSizeStore) sirPolicy ctx
-      (zeroState2 world offset).gen [] (zeroState3 ctx world offset).gen := by
+  have step23 : Generic.GenericStep localOperandFrame (sirDecoder zeroSizeStore) sirMemoryPolicy ctx
+      (zeroState2 world offset).toGenericState [] (zeroState3 ctx world offset).toGenericState := by
     apply step_sstore (program := zeroSizeStore) (ctx := ctx)
       (key := xVar) (value := xVar)
       (by simp [zeroSizeStore, Program.decodeStmt, Program.block?, Program.function?,
         Function.block?, BasicBlock.absoluteToPosition, zeroState2, stmtControl, termControl])
-    simp only [decodeSirStmt, Generic.Instr.Fires]
+    simp only [decodeSirStatement, Generic.Instruction.Fires]
     exact fires_of hfetchOffset (by trivial)
       (Generic.Operation.execute_sstore_ok ctx offset offset (zeroState2 world offset).globals)
       hstoreEmpty
-  have step34 : Generic.GenStep localsFrame (sirDecoder zeroSizeStore) sirPolicy ctx
-      (zeroState3 ctx world offset).gen [] (zeroState4 ctx world offset).gen :=
+  have step34 : Generic.GenericStep localOperandFrame (sirDecoder zeroSizeStore) sirMemoryPolicy ctx
+      (zeroState3 ctx world offset).toGenericState [] (zeroState4 ctx world offset).toGenericState :=
     step_terminator (terminator := .halt)
       (by simp [zeroSizeStore, Program.terminatorAt, Program.block?, Program.function?,
         Function.block?, zeroState3, termControl])
@@ -464,7 +464,7 @@ private theorem zero_steps (ctx : CallContext) (world : World) (offset : Word) :
   exact .tail (.tail (.tail (.tail .refl step01) step12) step23) step34
 
 private theorem zero_eval (ctx : CallContext) (world : World) (offset : Word) :
-    Generic.GenEvalFn localsFrame (sirDecoder zeroSizeStore) sirPolicy ctx
+    Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder zeroSizeStore) sirMemoryPolicy ctx
       entryFunction { world := world } #[] [] (zeroState4 ctx world offset).globals .halted :=
   EvalFn.halted (zero_entry world) (zero_steps ctx world offset) rfl
 

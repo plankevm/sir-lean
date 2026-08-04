@@ -19,20 +19,20 @@ def sirWitnessProgram : Program :=
     initEntry := sirWitnessEntry
     mainEntry := none }
 
-def sirWitnessInitial (globals : Globals) : GenState localsFrame :=
+def sirWitnessInitial (globals : Globals) : GenericState localOperandFrame :=
   { globals
-    env := .empty
+    environment := .empty
     control := .running
       { fn := sirWitnessEntry, block := sirWitnessBlock, position := .statement 0 } }
 
-def sirWitnessAfterConstant (globals : Globals) : GenState localsFrame :=
+def sirWitnessAfterConstant (globals : Globals) : GenericState localOperandFrame :=
   { globals
-    env := Locals.empty.assign sirWitnessResult 7
+    environment := Locals.empty.assign sirWitnessResult 7
     control := .running
       { fn := sirWitnessEntry, block := sirWitnessBlock, position := .terminator } }
 
-def sirWitnessFinal (globals : Globals) : GenState localsFrame :=
-  { globals, env := Locals.empty.assign sirWitnessResult 7, control := .halted }
+def sirWitnessFinal (globals : Globals) : GenericState localOperandFrame :=
+  { globals, environment := Locals.empty.assign sirWitnessResult 7, control := .halted }
 
 theorem sirWitness_memOracleFree : sirWitnessProgram.MemOracleFree := by
   intro statement hstatement
@@ -46,29 +46,29 @@ theorem sirResume_rejects_arity (env : Locals) (next : MachineControl) :
 
 theorem sirWitness_step_constant (policy : MemoryPolicy) (ctx : CallContext)
     (globals : Globals) :
-    GenStep localsFrame (sirDecoder sirWitnessProgram) policy ctx
+    GenericStep localOperandFrame (sirDecoder sirWitnessProgram) policy ctx
       (sirWitnessInitial globals) [] (sirWitnessAfterConstant globals) := by
-  apply GenStep.op (hdecode := rfl)
-  refine OpFrame.Fires.next (oracle := ()) (operands := #[]) (results := #[7])
+  apply GenericStep.operation (hdecode := rfl)
+  refine OperandFrame.Fires.next (oracle := ()) (operands := #[]) (results := #[7])
     (by trivial) ?_ rfl ?_
   · have hfetch : (#[] : Array VarId).mapM (Locals.empty.lookup ·) = .ok #[] := by
       rw [Array.mapM_eq_mapM_toList]
       rfl
-    simpa only [localsFrame, sirWitnessInitial] using hfetch
+    simpa only [localOperandFrame, sirWitnessInitial] using hfetch
   · have hstore : Locals.bindValues Locals.empty #[sirWitnessResult] #[7] =
         .ok (Locals.empty.assign sirWitnessResult 7) := by
       simp only [Locals.bindValues, ← Array.forIn_toList, Array.toList_zip]
       rfl
-    simpa only [localsFrame, sirWitnessInitial] using hstore
+    simpa only [localOperandFrame, sirWitnessInitial] using hstore
 
 theorem sirWitness_step_halt (policy : MemoryPolicy) (ctx : CallContext)
     (globals : Globals) :
-    GenStep localsFrame (sirDecoder sirWitnessProgram) policy ctx
+    GenericStep localOperandFrame (sirDecoder sirWitnessProgram) policy ctx
       (sirWitnessAfterConstant globals) [] (sirWitnessFinal globals) := by
-  exact GenStep.control rfl
+  exact GenericStep.control rfl
 
 theorem sirWitness_runs (ctx : CallContext) (globals : Globals) :
-    GenSteps localsFrame (sirDecoder sirWitnessProgram) .empty ctx
+    GenericSteps localOperandFrame (sirDecoder sirWitnessProgram) .empty ctx
       (sirWitnessInitial globals) [] (sirWitnessFinal globals) :=
   .tail (.tail .refl (sirWitness_step_constant .empty ctx globals))
     (sirWitness_step_halt .empty ctx globals)
@@ -88,9 +88,9 @@ def cfgWitnessProgram : CfgProgram :=
     initEntry := cfgWitnessEntry }
 
 def cfgWitnessState (globals : Globals) (stack : List Word) (position : BlockPosition) :
-    GenState stackFrame :=
+    GenericState stackFrame :=
   { globals
-    env := { StackEnv.empty with stack }
+    environment := { StackEnv.empty with stack }
     control := .running { fn := cfgWitnessEntry, block := cfgWitnessBlock, position } }
 
 theorem cfgWitness_noMload : (cfgDecoder cfgWitnessProgram).NoMload := by
@@ -121,46 +121,46 @@ theorem cfgWitness_noMload : (cfgDecoder cfgWitnessProgram).NoMload := by
 
 theorem cfgWitness_step_constant₂ (policy : MemoryPolicy) (ctx : CallContext)
     (globals : Globals) :
-    GenStep stackFrame (cfgDecoder cfgWitnessProgram) policy ctx
+    GenericStep stackFrame (cfgDecoder cfgWitnessProgram) policy ctx
       (cfgWitnessState globals [] (.statement 0)) []
       (cfgWitnessState globals [2] (.statement 1)) := by
-  apply GenStep.op (hdecode := rfl)
-  exact OpFrame.Fires.next (oracle := ()) (by trivial) rfl rfl
+  apply GenericStep.operation (hdecode := rfl)
+  exact OperandFrame.Fires.next (oracle := ()) (by trivial) rfl rfl
     (by simp [stackFrame, stackStore, cfgWitnessState, Operation.inputCount,
       Operation.outputCount])
 
 theorem cfgWitness_step_constant₃ (policy : MemoryPolicy) (ctx : CallContext)
     (globals : Globals) :
-    GenStep stackFrame (cfgDecoder cfgWitnessProgram) policy ctx
+    GenericStep stackFrame (cfgDecoder cfgWitnessProgram) policy ctx
       (cfgWitnessState globals [2] (.statement 1)) []
       (cfgWitnessState globals [3, 2] (.statement 2)) := by
-  apply GenStep.op (hdecode := rfl)
-  exact OpFrame.Fires.next (oracle := ()) (by trivial) rfl rfl
+  apply GenericStep.operation (hdecode := rfl)
+  exact OperandFrame.Fires.next (oracle := ()) (by trivial) rfl rfl
     (by simp [stackFrame, stackStore, cfgWitnessState, Operation.inputCount,
       Operation.outputCount])
 
 theorem cfgWitness_step_add (policy : MemoryPolicy) (ctx : CallContext)
     (globals : Globals) :
-    GenStep stackFrame (cfgDecoder cfgWitnessProgram) policy ctx
+    GenericStep stackFrame (cfgDecoder cfgWitnessProgram) policy ctx
       (cfgWitnessState globals [3, 2] (.statement 2)) []
       (cfgWitnessState globals [cfgWitnessSum] .terminator) := by
-  apply GenStep.op (hdecode := rfl)
-  exact OpFrame.Fires.next (oracle := ()) (by trivial) rfl rfl
+  apply GenericStep.operation (hdecode := rfl)
+  exact OperandFrame.Fires.next (oracle := ()) (by trivial) rfl rfl
     (by simp [stackFrame, stackStore, cfgWitnessState, Operation.inputCount,
       Operation.outputCount, cfgWitnessSum])
 
 theorem cfgWitness_step_halt (policy : MemoryPolicy) (ctx : CallContext)
     (globals : Globals) :
-    GenStep stackFrame (cfgDecoder cfgWitnessProgram) policy ctx
+    GenericStep stackFrame (cfgDecoder cfgWitnessProgram) policy ctx
       (cfgWitnessState globals [cfgWitnessSum] .terminator) []
-      { globals, env := { StackEnv.empty with stack := [cfgWitnessSum] },
+      { globals, environment := { StackEnv.empty with stack := [cfgWitnessSum] },
         control := .halted } := by
-  exact GenStep.control rfl
+  exact GenericStep.control rfl
 
 theorem cfgWitness_runs (ctx : CallContext) (globals : Globals) :
-    GenSteps stackFrame (cfgDecoder cfgWitnessProgram) .empty ctx
+    GenericSteps stackFrame (cfgDecoder cfgWitnessProgram) .empty ctx
       (cfgWitnessState globals [] (.statement 0)) []
-      { globals, env := { StackEnv.empty with stack := [cfgWitnessSum] },
+      { globals, environment := { StackEnv.empty with stack := [cfgWitnessSum] },
         control := .halted } :=
   .tail
     (.tail
@@ -172,10 +172,10 @@ theorem cfgWitness_runs (ctx : CallContext) (globals : Globals) :
 
 theorem sirWitness_confluence_consumes_generic (ctx : CallContext) (globals : Globals) :
     (∃ suffix,
-      GenSteps localsFrame (sirDecoder sirWitnessProgram) .empty ctx
+      GenericSteps localOperandFrame (sirDecoder sirWitnessProgram) .empty ctx
         (sirWitnessFinal globals) suffix (sirWitnessFinal globals) ∧ [] ++ suffix = []) ∨
     (∃ suffix,
-      GenSteps localsFrame (sirDecoder sirWitnessProgram) .empty ctx
+      GenericSteps localOperandFrame (sirDecoder sirWitnessProgram) .empty ctx
         (sirWitnessFinal globals) suffix (sirWitnessFinal globals) ∧ [] ++ suffix = []) ∨
     Trace.QueryDivergence [] [] :=
   sir_steps_confluence_or_queryDivergence sirWitness_memOracleFree
@@ -183,18 +183,18 @@ theorem sirWitness_confluence_consumes_generic (ctx : CallContext) (globals : Gl
 
 theorem cfgWitness_confluence_consumes_generic (ctx : CallContext) (globals : Globals) :
     (∃ suffix,
-      GenSteps stackFrame (cfgDecoder cfgWitnessProgram) .empty ctx
-        { globals, env := { StackEnv.empty with stack := [cfgWitnessSum] },
+      GenericSteps stackFrame (cfgDecoder cfgWitnessProgram) .empty ctx
+        { globals, environment := { StackEnv.empty with stack := [cfgWitnessSum] },
           control := .halted }
         suffix
-        { globals, env := { StackEnv.empty with stack := [cfgWitnessSum] },
+        { globals, environment := { StackEnv.empty with stack := [cfgWitnessSum] },
           control := .halted } ∧ [] ++ suffix = []) ∨
     (∃ suffix,
-      GenSteps stackFrame (cfgDecoder cfgWitnessProgram) .empty ctx
-        { globals, env := { StackEnv.empty with stack := [cfgWitnessSum] },
+      GenericSteps stackFrame (cfgDecoder cfgWitnessProgram) .empty ctx
+        { globals, environment := { StackEnv.empty with stack := [cfgWitnessSum] },
           control := .halted }
         suffix
-        { globals, env := { StackEnv.empty with stack := [cfgWitnessSum] },
+        { globals, environment := { StackEnv.empty with stack := [cfgWitnessSum] },
           control := .halted } ∧ [] ++ suffix = []) ∨
     Trace.QueryDivergence [] [] :=
   cfg_steps_confluence_or_queryDivergence MemoryPolicy.empty_deterministic
