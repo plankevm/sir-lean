@@ -2,7 +2,7 @@ import Sir.Proofs.Progress
 
 namespace Sir
 
-variable {program : Program} {ctx : CallContext}
+variable {program : Program} {policy : Generic.MemoryPolicy} {ctx : CallContext}
 
 def BasicBlock.variablesDefinedAtPosition
     (block : BasicBlock) : BlockPosition → List VarId
@@ -233,12 +233,13 @@ theorem MachineState.stmtReady_of_coversVariables
     (h : state.locals.CoversVariables statement.variablesRead)
     (halloc : ∀ result size, statement = .mallocUninit result size →
       ∃ word alloc, state.locals.lookup size = .ok word ∧
+        policy.Allows state.globals.memory word.toNat alloc ∧
         state.globals.memory.IsValidNewAlloc alloc ∧ alloc.size = word.toNat)
     (hstore : ∀ offset value, statement = .mstore32 offset value →
       ∃ word, state.locals.lookup offset = .ok word ∧
         state.globals.memory.InBounds word.toNat 32)
     (hnonIcall : ∀ callee args dests, statement ≠ .icall callee args dests) :
-    state.StmtReady statement := by
+    state.StmtReady policy statement := by
   cases statement with
   | assign result expression =>
       exact Locals.exprReady_of_coversVariables h
@@ -474,7 +475,7 @@ private theorem Program.WellFormed.localsCoverCursor_genStep
     (hwf : program.WellFormed) {state final : Generic.GenericState localOperandFrame}
     {trace : Trace}
     (hinvariant : state.toMachine.LocalsCoverCursor program)
-    (hstep : Generic.GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
+    (hstep : Generic.GenericStep localOperandFrame (sirDecoder program) policy ctx
       state trace final) :
     final.toMachine.LocalsCoverCursor program := by
   cases hstep with
@@ -529,7 +530,7 @@ private theorem Program.WellFormed.localsCoverCursor_genStep
 theorem Program.WellFormed.localsCoverCursor_step
     (hwf : program.WellFormed) {state final : MachineState} {trace : Trace}
     (hinvariant : state.LocalsCoverCursor program)
-    (hstep : Generic.GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
+    (hstep : Generic.GenericStep localOperandFrame (sirDecoder program) policy ctx
       state.toGenericState trace final.toGenericState) :
     final.LocalsCoverCursor program :=
   hwf.localsCoverCursor_genStep (state := state.toGenericState) (final := final.toGenericState)
@@ -539,7 +540,7 @@ private theorem Program.WellFormed.localsCoverCursor_genSteps
     (hwf : program.WellFormed) {initial final : Generic.GenericState localOperandFrame}
     {trace : Trace}
     (hinitial : initial.toMachine.LocalsCoverCursor program)
-    (hsteps : Generic.GenericSteps localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
+    (hsteps : Generic.GenericSteps localOperandFrame (sirDecoder program) policy ctx
       initial trace final) :
     final.toMachine.LocalsCoverCursor program := by
   exact Generic.GenericSteps.inductionOn
@@ -554,7 +555,7 @@ private theorem Program.WellFormed.localsCoverCursor_genSteps
 theorem Program.WellFormed.localsCoverCursor_steps
     (hwf : program.WellFormed) {initial final : MachineState} {trace : Trace}
     (hinitial : initial.LocalsCoverCursor program)
-    (hsteps : Generic.GenericSteps localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
+    (hsteps : Generic.GenericSteps localOperandFrame (sirDecoder program) policy ctx
       initial.toGenericState trace final.toGenericState) :
     final.LocalsCoverCursor program :=
   hwf.localsCoverCursor_genSteps (initial := initial.toGenericState) (final := final.toGenericState)
@@ -563,7 +564,7 @@ theorem Program.WellFormed.localsCoverCursor_steps
 theorem Program.WellFormed.localsCoverCursor_runsFn
     (hwf : program.WellFormed) {function : FunctionId} {globals : Globals}
     {args : Array Word} {trace : Trace} {state : MachineState}
-    (hrun : program.RunsFunction ctx function globals args trace state) :
+    (hrun : program.RunsFunction policy ctx function globals args trace state) :
     state.LocalsCoverCursor program := by
   obtain ⟨initial, hentry, hsteps⟩ := hrun
   exact hwf.localsCoverCursor_steps
@@ -572,24 +573,24 @@ theorem Program.WellFormed.localsCoverCursor_runsFn
 theorem Program.WellFormed.progress_reachable_nonIcall_proof
     (hwf : program.WellFormed) {function : FunctionId} {globals : Globals}
     {args : Array Word} {runTrace : Trace} {state : MachineState}
-    (hrun : program.RunsFunction ctx function globals args runTrace state)
+    (hrun : program.RunsFunction policy ctx function globals args runTrace state)
     (hcontrol : program.NonIcallControl state)
-    (hfreshAllocation : program.AllocationAvailable state)
+    (hfreshAllocation : program.AllocationAvailable policy state)
     (hstore : program.StoreInBounds state) :
-    ∃ trace state', SmallStep program ctx state trace state' := by
+    ∃ trace state', SmallStep program policy ctx state trace state' := by
   have hinvariant := hwf.localsCoverCursor_runsFn hrun
   rcases hcontrol with
     ⟨nextControl, statement, hdecode, hnonIcall⟩ | ⟨terminator, hterminator⟩
   · obtain ⟨cursor, block, index, -, -, hblock, hstatement, hnext,
         hbefore, hreads⟩ := hwf.decodeStmt_covers hinvariant hdecode
-    have hready : state.StmtReady statement := by
+    have hready : state.StmtReady policy statement := by
       apply MachineState.stmtReady_of_coversVariables hreads
       · intro result size heq
         subst statement
         obtain ⟨word, hword⟩ := hreads size (by simp [Stmt.variablesRead])
-        obtain ⟨allocation, hvalid, hsize⟩ :=
+        obtain ⟨allocation, hallows, hvalid, hsize⟩ :=
           hfreshAllocation nextControl result size word hdecode hword
-        exact ⟨word, allocation, hword, hvalid, hsize⟩
+        exact ⟨word, allocation, hword, hallows, hvalid, hsize⟩
       · intro offset value heq
         subst statement
         obtain ⟨word, hword⟩ := hreads offset (by simp [Stmt.variablesRead])

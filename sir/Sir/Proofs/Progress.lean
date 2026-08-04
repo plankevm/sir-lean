@@ -2,7 +2,7 @@ import Sir.Proofs.WellFormed
 
 namespace Sir
 
-variable {program : Program} {ctx : CallContext}
+variable {program : Program} {policy : Generic.MemoryPolicy} {ctx : CallContext}
 
 def Locals.Defined (locals : Locals) (var : VarId) : Prop :=
   ∃ w, locals.lookup var = .ok w
@@ -13,13 +13,14 @@ def Locals.ExprReady (locals : Locals) : Expr → Prop
   | .add a b | .lt a b => locals.Defined a ∧ locals.Defined b
   | .sload k => locals.Defined k
 
-def MachineState.StmtReady (s : MachineState) : Stmt → Prop
+def MachineState.StmtReady (s : MachineState) (policy : Generic.MemoryPolicy) : Stmt → Prop
   | .assign _ e => s.locals.ExprReady e
   | .sstore key value => s.locals.Defined key ∧ s.locals.Defined value
   | .gas _ => True
   | .call c => s.locals.Defined c.callee ∧ s.locals.Defined c.gas
   | .mallocUninit _ size =>
       ∃ w alloc, s.locals.lookup size = .ok w ∧
+        policy.Allows s.globals.memory w.toNat alloc ∧
         s.globals.memory.IsValidNewAlloc alloc ∧ alloc.size = w.toNat
   | .mstore32 offset value =>
       ∃ w, s.locals.lookup offset = .ok w ∧ s.locals.Defined value ∧
@@ -82,9 +83,9 @@ private theorem eval_jump_ok
 theorem progress_stmt_proof
     {state : MachineState} {next : MachineControl} {statement : Stmt}
     (hdecode : program.decodeStmt state.control = some (next, statement))
-    (hready : state.StmtReady statement) :
+    (hready : state.StmtReady policy statement) :
     ∃ (trace : Trace) (final : MachineState),
-      Generic.GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
+      Generic.GenericStep localOperandFrame (sirDecoder program) policy ctx
       state.toGenericState trace final.toGenericState := by
   cases statement with
   | assign result expr =>
@@ -208,7 +209,7 @@ theorem progress_stmt_proof
       · exact Generic.Operation.execute_call_ok ctx result state.globals callee gas
       · exact hstore
   | mallocUninit result size =>
-      obtain ⟨sizeValue, allocation, hsizeValue, hvalid, hsize⟩ := hready
+      obtain ⟨sizeValue, allocation, hsizeValue, hallows, hvalid, hsize⟩ := hready
       let globals' := { state.globals with memory := state.globals.memory.push allocation }
       obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
         (targetVars := #[result]) (vs := #[allocation.offset]) rfl
@@ -219,7 +220,7 @@ theorem progress_stmt_proof
         (results := #[allocation.offset])
       · simp [Array.mapM_eq_mapM_toList, hsizeValue, bind, Except.bind,
           Functor.map, Except.map, pure, Except.pure]
-      · exact ⟨sizeValue, rfl, ⟨hvalid, hsize⟩, hvalid, hsize⟩
+      · exact ⟨sizeValue, rfl, hallows, hvalid, hsize⟩
       · exact Generic.Operation.execute_malloc_ok ctx allocation state.globals sizeValue hsize
       · exact hstore
   | mstore32 offset value =>
@@ -261,7 +262,7 @@ theorem progress_terminator_proof
     (hsource : program.block? cursor = some source)
     (hready : program.TerminatorReady cursor.fn state source) :
     ∃ (final : MachineState),
-      Generic.GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
+      Generic.GenericStep localOperandFrame (sirDecoder program) policy ctx
       state.toGenericState [] final.toGenericState := by
   have hterm : program.terminatorAt state.control = some source.terminator := by
     simp [Program.terminatorAt, hcontrol, hposition, hsource]
@@ -296,12 +297,12 @@ theorem progress_terminator_proof
 theorem progress_nonIcall_proof {s : MachineState}
     (h : (∃ nextControl stmt,
             program.decodeStmt s.control = some (nextControl, stmt) ∧
-            s.StmtReady stmt) ∨
+            s.StmtReady policy stmt) ∨
          (∃ cursor src, s.control = .running cursor ∧
             cursor.position = .terminator ∧
             program.block? cursor = some src ∧
             program.TerminatorReady cursor.fn s src)) :
-    ∃ t s', SmallStep program ctx s t s' := by
+    ∃ t s', SmallStep program policy ctx s t s' := by
   rcases h with ⟨nextControl, stmt, hstmt, hready⟩ |
     ⟨cursor, src, hctrl, hpos, hsrc, hready⟩
   · exact progress_stmt_proof hstmt hready

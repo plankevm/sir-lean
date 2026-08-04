@@ -2,7 +2,7 @@ import Sir.Proofs.Steps
 
 namespace Sir
 
-variable {program : Program} {ctx : CallContext}
+variable {program : Program} {policy : Generic.MemoryPolicy} {ctx : CallContext}
 
 def Program.paramsOf (program : Program) (function : FunctionId) : Option (Array VarId) := do
   let fn ← program.function? function
@@ -117,7 +117,7 @@ theorem Program.WellFormed.icall_bindParams
 theorem Program.WellFormed.evalFn_arity_proof
     (hwf : program.WellFormed) {function : FunctionId} {globals globals' : Globals}
     {args results : Array Word} {trace : Trace}
-    (hrun : Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
+    (hrun : Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder program) policy ctx
       function globals args trace globals' (.returned results)) :
     (program.function? function).bind (·.outputs?) = some results.size := by
   cases hrun with
@@ -158,7 +158,7 @@ theorem Program.WellFormed.evalFn_entry_not_returned_proof
     (hwf : program.WellFormed) {entry : FunctionId} {globals finalGlobals : Globals}
     {values : Array Word} {trace : Trace}
     (hentry : entry = program.initEntry ∨ program.mainEntry = some entry)
-    (hrun : EvalFn program ctx entry globals #[] trace finalGlobals (.returned values)) :
+    (hrun : EvalFn program policy ctx entry globals #[] trace finalGlobals (.returned values)) :
     False := by
   have harity : program.FunctionInputOutputArity 0 none entry := by
     rcases hentry with rfl | hmain
@@ -175,7 +175,7 @@ theorem Program.WellFormed.icall_bindReturns
     {callee : FunctionId} {args dests : Array VarId}
     {g g' : Globals} {vs rs : Array Word} {t : Trace}
     (hstmt : program.decodeStmt s.control = some (nextControl, .icall callee args dests))
-    (hcallee : EvalFn program ctx callee g vs t g' (.returned rs)) :
+    (hcallee : EvalFn program policy ctx callee g vs t g' (.returned rs)) :
     ∃ locals', Locals.bindReturns s.locals dests rs = .ok locals' := by
   obtain ⟨-, houtputs⟩ := hwf.icall_paramsOf hstmt
   rw [hwf.evalFn_arity_proof hcallee, Option.getD_some] at houtputs
@@ -187,9 +187,9 @@ theorem Program.WellFormed.icall_step_proof
     {trace : Trace} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .icall callee args dests))
     (hargs : args.mapM (state.locals.lookup ·) = .ok values)
-    (hcallee : Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
+    (hcallee : Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder program) policy ctx
       callee state.globals values trace globals' (.returned results)) :
-    ∃ locals', Generic.GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
+    ∃ locals', Generic.GenericStep localOperandFrame (sirDecoder program) policy ctx
       state.toGenericState trace
         { state with globals := globals', locals := locals', control := next }.toGenericState := by
   obtain ⟨locals', hbind⟩ := hwf.icall_bindReturns hdecode hcallee
@@ -201,9 +201,9 @@ theorem Program.icall_halted_step_proof
     {trace : Trace} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .icall callee args dests))
     (hargs : args.mapM (state.locals.lookup ·) = .ok values)
-    (hcallee : Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
+    (hcallee : Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder program) policy ctx
       callee state.globals values trace globals' .halted) :
-    Generic.GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx state.toGenericState trace
+    Generic.GenericStep localOperandFrame (sirDecoder program) policy ctx state.toGenericState trace
       ({ globals := globals', control := .halted } : MachineState).toGenericState :=
   step_icallHalted hdecode hargs hcallee
 end Sir

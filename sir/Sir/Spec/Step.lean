@@ -95,22 +95,22 @@ def sirDecoder (program : Program) : Decoder localOperandFrame where
 
 /-- The public SIR one-step relation uses the shared machine while preserving its established name
 for exported statements. -/
-def SmallStep (program : Program) (ctx : CallContext)
+def SmallStep (program : Program) (policy : Generic.MemoryPolicy) (ctx : CallContext)
     (state : MachineState) (trace : Trace) (final : MachineState) : Prop :=
-  Generic.GenericStep localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
+  Generic.GenericStep localOperandFrame (sirDecoder program) policy ctx
     state.toGenericState trace final.toGenericState
 
 /-- The public SIR finite-run relation preserves accumulated traces across the shared machine. -/
-def Steps (program : Program) (ctx : CallContext)
+def Steps (program : Program) (policy : Generic.MemoryPolicy) (ctx : CallContext)
     (state : MachineState) (trace : Trace) (final : MachineState) : Prop :=
-  Generic.GenericSteps localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
+  Generic.GenericSteps localOperandFrame (sirDecoder program) policy ctx
     state.toGenericState trace final.toGenericState
 
 /-- The public SIR function-evaluation relation retains the call boundary used by observations and
 exported results. -/
-def EvalFn (program : Program) (ctx : CallContext) :
+def EvalFn (program : Program) (policy : Generic.MemoryPolicy) (ctx : CallContext) :
     FunctionId → Globals → Array Word → Trace → Globals → FunctionOutcome → Prop :=
-  Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
+  Generic.GenericFunctionEvaluation localOperandFrame (sirDecoder program) policy ctx
 
 def Program.NonIcallControl (program : Program) (state : MachineState) : Prop :=
   (∃ nextControl statement,
@@ -119,12 +119,13 @@ def Program.NonIcallControl (program : Program) (state : MachineState) : Prop :=
         statement ≠ .icall callee callArgs destinations) ∨
     ∃ terminator, program.terminatorAt state.control = some terminator
 
-def Program.AllocationAvailable (program : Program) (state : MachineState) : Prop :=
+def Program.AllocationAvailable (program : Program) (policy : Generic.MemoryPolicy)
+    (state : MachineState) : Prop :=
   ∀ nextControl result size word,
     program.decodeStmt state.control = some (nextControl, .mallocUninit result size) →
     state.locals.lookup size = .ok word →
-    ∃ allocation, state.globals.memory.IsValidNewAlloc allocation ∧
-      allocation.size = word.toNat
+    ∃ allocation, policy.Allows state.globals.memory word.toNat allocation ∧
+      state.globals.memory.IsValidNewAlloc allocation ∧ allocation.size = word.toNat
 
 def Program.BumpFits (program : Program) (state : MachineState) : Prop :=
   ∀ nextControl result size word,

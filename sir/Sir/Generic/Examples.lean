@@ -146,7 +146,8 @@ theorem sirWitness_confluence_consumes_generic (ctx : CallContext) (globals : Gl
       GenericSteps localOperandFrame (sirDecoder sirWitnessProgram) .empty ctx
         (sirWitnessFinal globals) suffix (sirWitnessFinal globals) ∧ [] ++ suffix = []) ∨
     Trace.QueryDivergence [] [] :=
-  sir_steps_confluence_or_queryDivergence MemoryPolicy.empty_deterministic
+  GenericSteps.confluence_or_queryDivergence (.inl MemoryPolicy.empty_deterministic)
+    (sirDecoder_exclusive sirWitnessProgram) (sirDecoder_terminal sirWitnessProgram)
     (sirWitness_runs ctx globals) (sirWitness_runs ctx globals)
 
 theorem cfgWitness_confluence_consumes_generic (ctx : CallContext) (globals : Globals) :

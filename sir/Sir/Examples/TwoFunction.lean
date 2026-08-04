@@ -105,8 +105,9 @@ theorem witnessAddProgram_wellFormed : witnessAddProgram.WellFormed := by
           Stmt.variablesDefined, witnessX, witnessY, witnessZ]
 
 theorem witnessAddProgram_add2_deterministic :
-    witnessAddProgram.FunctionDeterministic witnessAdd2 := by
-  apply Program.functionDeterministic_of_memOracleFree
+    witnessAddProgram.FunctionDeterministic Generic.MemoryPolicy.permissive witnessAdd2 := by
+  apply Program.functionDeterministic_of_allocationDeterministic
+  right
   rintro s hstmt
   simp [Program.HasStmt, Function.HasStmt, witnessAddProgram] at hstmt
   rcases hstmt with (rfl | rfl | rfl) | rfl <;> simp [Stmt.isAllocation]
@@ -232,7 +233,7 @@ private theorem witnessAddProgram_eval (ctx : CallContext) (w : World) :
     (.tail (.tail (.tail (Generic.GenericSteps.single hstep₁) hstep₂) hstep₃) hstep₄) rfl
 
 theorem witnessAddProgram_runs (ctx : CallContext) (w : World) :
-    EvalFn witnessAddProgram ctx witnessAddProgram.initEntry { world := w } #[] []
+    EvalFn witnessAddProgram Generic.MemoryPolicy.permissive ctx witnessAddProgram.initEntry { world := w } #[] []
       ({ world := w } : Globals) .halted := by
   simpa [witnessAddProgram] using witnessAddProgram_eval ctx w
 

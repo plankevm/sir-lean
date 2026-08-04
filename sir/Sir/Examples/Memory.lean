@@ -259,7 +259,7 @@ private theorem initialized_entry (world : World) :
 
 private theorem initialized_no_next_event {ctx : CallContext} {world : World}
     {trace history rest : Trace} {event : Event} {state : MachineState}
-    (hrun : initializedLoad.RunsFunction ctx entryFunction { world := world } #[] trace state)
+    (hrun : initializedLoad.RunsFunction Generic.MemoryPolicy.permissive ctx entryFunction { world := world } #[] trace state)
     (htrace : trace = history ++ event :: rest) : False := by
   obtain ⟨initial, hentry, hsteps⟩ := hrun
   have : initial = initializedState0 world := Option.some.inj
@@ -431,10 +431,10 @@ theorem initializedLoad_store_inBounds :
 theorem initializedLoad_reaches_successful_store :
     ∃ ctx function world initial before after,
       initializedLoad.callState? function { world } #[] = some initial ∧
-      Steps initializedLoad ctx initial [] before ∧
+      Steps initializedLoad Generic.MemoryPolicy.permissive ctx initial [] before ∧
       before.globals.memory = MemoryState.empty.push { offset := 0, size := 32 } ∧
       before.globals.memory.InBounds 0 32 ∧
-      SmallStep initializedLoad ctx before [] after ∧
+      SmallStep initializedLoad Generic.MemoryPolicy.permissive ctx before [] after ∧
       after.globals.memory =
         (MemoryState.empty.push { offset := 0, size := 32 }).writeBytes 0
           (42 : Word).toByteArray := by
@@ -448,7 +448,7 @@ theorem initializedLoad_reaches_successful_store :
     simpa [initializedState0, initializedState1, locals1] using
       bindValues_singleton Locals.empty sizeVar 32
   have step01 :
-      SmallStep initializedLoad zeroContext (initializedState0 default) []
+      SmallStep initializedLoad Generic.MemoryPolicy.permissive zeroContext (initializedState0 default) []
         (initializedState1 default) := by
     apply step_assign (program := initializedLoad) (ctx := zeroContext)
       (result := sizeVar) (expr := .constant 32)
@@ -473,7 +473,7 @@ theorem initializedLoad_reaches_successful_store :
     simpa [initializedState1, initializedState2, locals1, locals2] using
       bindValues_singleton locals1 xVar initializedAlloc.offset
   have step12 :
-      SmallStep initializedLoad zeroContext (initializedState1 default) []
+      SmallStep initializedLoad Generic.MemoryPolicy.permissive zeroContext (initializedState1 default) []
         (initializedState2 default initializedAlloc) := by
     apply step_mallocUninit (program := initializedLoad) (ctx := zeroContext)
       (result := xVar) (size := sizeVar)
@@ -494,7 +494,7 @@ theorem initializedLoad_reaches_successful_store :
     simpa [initializedState2, initializedState3, locals2, locals3] using
       bindValues_singleton (locals2 initializedAlloc) valueVar 42
   have step23 :
-      SmallStep initializedLoad zeroContext (initializedState2 default initializedAlloc) []
+      SmallStep initializedLoad Generic.MemoryPolicy.permissive zeroContext (initializedState2 default initializedAlloc) []
         (initializedState3 default initializedAlloc) := by
     apply step_assign (program := initializedLoad) (ctx := zeroContext)
       (result := valueVar) (expr := .constant 42)
@@ -519,7 +519,7 @@ theorem initializedLoad_reaches_successful_store :
         initializedAlloc.offset.toNat 32 := by
     exact initialized_inBounds initializedAlloc rfl
   have step34 :
-      SmallStep initializedLoad zeroContext (initializedState3 default initializedAlloc) []
+      SmallStep initializedLoad Generic.MemoryPolicy.permissive zeroContext (initializedState3 default initializedAlloc) []
         (initializedState4 default initializedAlloc) := by
     apply step_mstore32 (program := initializedLoad) (ctx := zeroContext)
       (offset := xVar) (value := valueVar)
@@ -538,7 +538,7 @@ theorem initializedLoad_reaches_successful_store :
   · simpa [initializedState3, initializedAlloc] using initializedLoad_store_inBounds
   · rfl
 
-theorem initializedLoad_deterministic : initializedLoad.Deterministic := by
+theorem initializedLoad_deterministic : initializedLoad.Deterministic Generic.MemoryPolicy.permissive := by
   intro ctx world
   constructor
   · intro history outcome₁ outcome₂ h₁ h₂
@@ -574,15 +574,15 @@ theorem bareLoad_allocationFree : bareLoad.AllocationFree := by
   simp [Program.HasStmt, Function.HasStmt, bareLoad] at hstatement
   rcases hstatement with rfl | rfl | rfl <;> simp [Stmt.isAllocation]
 
-theorem bareLoad_deterministic : bareLoad.Deterministic :=
-  Program.deterministic_of_memOracleFree bareLoad_allocationFree
+theorem bareLoad_deterministic : bareLoad.Deterministic Generic.MemoryPolicy.permissive :=
+  Program.deterministic_of_allocationDeterministic (.inr bareLoad_allocationFree)
 
-theorem zeroSizeStore_not_deterministic : ¬ zeroSizeStore.Deterministic := by
+theorem zeroSizeStore_not_deterministic : ¬ zeroSizeStore.Deterministic Generic.MemoryPolicy.permissive := by
   intro hdet
-  have eval₁ : EvalFn zeroSizeStore zeroContext entryFunction
+  have eval₁ : EvalFn zeroSizeStore Generic.MemoryPolicy.permissive zeroContext entryFunction
       { world := default } #[] [] (zeroState4 zeroContext default 1).globals .halted :=
     zero_eval zeroContext default 1
-  have eval₂ : EvalFn zeroSizeStore zeroContext entryFunction
+  have eval₂ : EvalFn zeroSizeStore Generic.MemoryPolicy.permissive zeroContext entryFunction
       { world := default } #[] [] (zeroState4 zeroContext default 2).globals .halted :=
     zero_eval zeroContext default 2
   have heq := (hdet zeroContext (default : World)).1 []

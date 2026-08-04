@@ -170,21 +170,33 @@ theorem permissive_satisfiable_proof : permissive.Satisfiable := by
 
 end Generic.MemoryPolicy
 
-variable {program : Program} {ctx : CallContext}
+variable {program : Program} {policy : Generic.MemoryPolicy} {ctx : CallContext}
+
+theorem Program.WellFormed.progress_reachable_nonIcall_of_satisfiable_proof
+    (hwf : program.WellFormed) {function : FunctionId} {globals : Globals}
+    {args : Array Word} {runTrace : Trace} {state : MachineState}
+    (hsound : policy.Sound) (hsatisfiable : policy.Satisfiable)
+    (hrun : program.RunsFunction policy ctx function globals args runTrace state)
+    (hcontrol : program.NonIcallControl state)
+    (hspace : program.BumpFits state)
+    (hstore : program.StoreInBounds state) :
+    ∃ trace state', SmallStep program policy ctx state trace state' := by
+  refine hwf.progress_reachable_nonIcall_proof hrun hcontrol ?_ hstore
+  intro nextControl result size word hdecode hword
+  obtain ⟨allocation, hallows⟩ := hsatisfiable state.globals.memory word.toNat
+    (hspace nextControl result size word hdecode hword)
+  exact ⟨allocation, hallows, hsound state.globals.memory word.toNat allocation hallows⟩
 
 theorem Program.WellFormed.progress_reachable_nonIcall_bump_proof
     (hwf : program.WellFormed) {function : FunctionId} {globals : Globals}
     {args : Array Word} {runTrace : Trace} {state : MachineState}
-    (hrun : program.RunsFunction ctx function globals args runTrace state)
+    (hrun : program.RunsFunction Generic.MemoryPolicy.bump ctx function globals args runTrace state)
     (hcontrol : program.NonIcallControl state)
     (hspace : program.BumpFits state)
     (hstore : program.StoreInBounds state) :
-    ∃ trace state', SmallStep program ctx state trace state' := by
-  refine hwf.progress_reachable_nonIcall_proof hrun hcontrol ?_ hstore
-  intro nextControl result size word hdecode hword
-  exact ⟨state.globals.memory.bumpAllocation word.toNat,
-    state.globals.memory.isValidNewAlloc_bumpAllocation word.toNat
-      (hspace nextControl result size word hdecode hword),
-    state.globals.memory.bumpAllocation_size word.toNat⟩
+    ∃ trace state', SmallStep program Generic.MemoryPolicy.bump ctx state trace state' :=
+  hwf.progress_reachable_nonIcall_of_satisfiable_proof
+    Generic.MemoryPolicy.bump_sound_proof Generic.MemoryPolicy.bump_satisfiable_proof
+    hrun hcontrol hspace hstore
 
 end Sir

@@ -45,6 +45,12 @@ theorem sirDecoder_noMalloc {program : Program} (hfree : program.AllocationFree)
       | mload32 => simp [sirDecoder, sirDecode, hstmt, decodeSirStatement] at hdecode
       | icall => simp [sirDecoder, sirDecode, hstmt, decodeSirStatement] at hdecode
 
+theorem allocationDeterministic_noMalloc
+    {program : Program} {policy : MemoryPolicy}
+    (halloc : program.AllocationDeterministic policy) :
+    policy.Deterministic ∨ (sirDecoder program).NoMalloc :=
+  halloc.imp id sirDecoder_noMalloc
+
 theorem cfgDecoder_exclusive (program : CfgProgram) : (cfgDecoder program).Exclusive := by
   intro env globals control instruction next hdecode
   cases hstatement : program.decodeInstruction control with
@@ -60,21 +66,6 @@ theorem cfgDecoder_terminal (program : CfgProgram) : (cfgDecoder program).Termin
     simp [cfgDecoder, cfgDecode, cfgControl, CfgProgram.decodeInstruction]
   · intro env globals
     simp [cfgDecoder, cfgDecode, cfgControl, CfgProgram.decodeInstruction]
-
-theorem sir_steps_confluence_or_queryDivergence
-    {program : Program} {policy : MemoryPolicy} {ctx : CallContext}
-    (hdet : policy.Deterministic)
-    {state final₁ final₂ : GenericState localOperandFrame} {trace₁ trace₂ : Trace}
-    (h₁ : GenericSteps localOperandFrame (sirDecoder program) policy ctx state trace₁ final₁)
-    (h₂ : GenericSteps localOperandFrame (sirDecoder program) policy ctx state trace₂ final₂) :
-    (∃ suffix, GenericSteps localOperandFrame (sirDecoder program) policy ctx final₁ suffix final₂ ∧
-      trace₁ ++ suffix = trace₂) ∨
-    (∃ suffix, GenericSteps localOperandFrame (sirDecoder program) policy ctx final₂ suffix final₁ ∧
-      trace₂ ++ suffix = trace₁) ∨
-    Trace.QueryDivergence trace₁ trace₂ :=
-  GenericSteps.confluence_or_queryDivergence (.inl hdet)
-    (sirDecoder_exclusive program)
-    (sirDecoder_terminal program) h₁ h₂
 
 theorem cfg_steps_confluence_or_queryDivergence
     {program : CfgProgram} {policy : MemoryPolicy} {ctx : CallContext}

@@ -2,7 +2,7 @@ import Sir.Proofs.Steps
 
 namespace Sir
 
-variable {program : Program} {ctx : CallContext}
+variable {program : Program} {policy : Generic.MemoryPolicy} {ctx : CallContext}
 
 private theorem Trace.QueryDivergence.ne {t₁ t₂ : Trace}
     (h : Trace.QueryDivergence t₁ t₂) : t₁ ≠ t₂ := by
@@ -11,83 +11,83 @@ private theorem Trace.QueryDivergence.ne {t₁ t₂ : Trace}
   exact hne (List.cons.inj (List.append_cancel_left he)).1
 
 theorem SmallStep.prefix_det_proof
-    (hfree : program.AllocationFree)
+    (halloc : program.AllocationDeterministic policy)
     {s s₁ s₂ : MachineState} {t₁ t₂ r₁ r₂ : Trace}
-    (h₁ : SmallStep program ctx s t₁ s₁)
-    (h₂ : SmallStep program ctx s t₂ s₂)
+    (h₁ : SmallStep program policy ctx s t₁ s₁)
+    (h₂ : SmallStep program policy ctx s t₂ s₂)
     (htr : t₁ ++ r₁ = t₂ ++ r₂) : t₁ = t₂ ∧ s₁ = s₂ := by
-  rcases stepDialogue_all hfree h₁ t₂ s₂ h₂ with hdet | hdiv
+  rcases stepDialogue_all halloc h₁ t₂ s₂ h₂ with hdet | hdiv
   · exact hdet
   · exact ((hdiv.extend r₁ r₂).ne htr).elim
 
 theorem Steps.prefix_confluence_proof
-    (hfree : program.AllocationFree)
+    (halloc : program.AllocationDeterministic policy)
     {s e₁ e₂ : MachineState} {t₁ t₂ r₁ r₂ : Trace}
-    (h₁ : Steps program ctx s t₁ e₁)
-    (h₂ : Steps program ctx s t₂ e₂)
+    (h₁ : Steps program policy ctx s t₁ e₁)
+    (h₂ : Steps program policy ctx s t₂ e₂)
     (htr : t₁ ++ r₁ = t₂ ++ r₂) :
-    (∃ u, Steps program ctx e₁ u e₂ ∧ t₁ ++ u = t₂) ∨
-      (∃ u, Steps program ctx e₂ u e₁ ∧ t₂ ++ u = t₁) := by
-  rcases Steps.confluence_or_queryDivergence_proof hfree h₁ h₂ with h₁₂ | h₂₁ | hdiv
+    (∃ u, Steps program policy ctx e₁ u e₂ ∧ t₁ ++ u = t₂) ∨
+      (∃ u, Steps program policy ctx e₂ u e₁ ∧ t₂ ++ u = t₁) := by
+  rcases Steps.confluence_or_queryDivergence_proof halloc h₁ h₂ with h₁₂ | h₂₁ | hdiv
   · exact .inl h₁₂
   · exact .inr h₂₁
   · exact ((hdiv.extend r₁ r₂).ne htr).elim
 
 theorem EvalFn.prefix_det_proof
-    (hfree : program.AllocationFree)
+    (halloc : program.AllocationDeterministic policy)
     {f : FunctionId} {g g₁ g₂ : Globals} {args : Array Word}
     {outcome₁ outcome₂ : FunctionOutcome}
     {t₁ t₂ r₁ r₂ : Trace}
-    (h₁ : EvalFn program ctx f g args t₁ g₁ outcome₁)
-    (h₂ : EvalFn program ctx f g args t₂ g₂ outcome₂)
+    (h₁ : EvalFn program policy ctx f g args t₁ g₁ outcome₁)
+    (h₂ : EvalFn program policy ctx f g args t₂ g₂ outcome₂)
     (htr : t₁ ++ r₁ = t₂ ++ r₂) :
     t₁ = t₂ ∧ g₁ = g₂ ∧ outcome₁ = outcome₂ := by
-  rcases fnDialogue_all hfree h₁ t₂ g₂ outcome₂ h₂ with hdet | hdiv
+  rcases fnDialogue_all halloc h₁ t₂ g₂ outcome₂ h₂ with hdet | hdiv
   · exact hdet
   · exact ((hdiv.extend r₁ r₂).ne htr).elim
 
 theorem SmallStep.trace_det_proof
-    (hfree : program.AllocationFree)
+    (halloc : program.AllocationDeterministic policy)
     {s s₁ s₂ : MachineState} {t : Trace}
-    (h₁ : SmallStep program ctx s t s₁)
-    (h₂ : SmallStep program ctx s t s₂) : s₁ = s₂ :=
-  (SmallStep.prefix_det_proof hfree h₁ h₂ (r₁ := []) (r₂ := []) rfl).2
+    (h₁ : SmallStep program policy ctx s t s₁)
+    (h₂ : SmallStep program policy ctx s t s₂) : s₁ = s₂ :=
+  (SmallStep.prefix_det_proof halloc h₁ h₂ (r₁ := []) (r₂ := []) rfl).2
 
 theorem EvalFn.trace_det_proof
-    (hfree : program.AllocationFree)
+    (halloc : program.AllocationDeterministic policy)
     {f : FunctionId} {g g₁ g₂ : Globals} {args : Array Word}
     {outcome₁ outcome₂ : FunctionOutcome} {t : Trace}
-    (h₁ : EvalFn program ctx f g args t g₁ outcome₁)
-    (h₂ : EvalFn program ctx f g args t g₂ outcome₂) :
+    (h₁ : EvalFn program policy ctx f g args t g₁ outcome₁)
+    (h₂ : EvalFn program policy ctx f g args t g₂ outcome₂) :
     g₁ = g₂ ∧ outcome₁ = outcome₂ :=
-  (EvalFn.prefix_det_proof hfree h₁ h₂ (r₁ := []) (r₂ := []) rfl).2
+  (EvalFn.prefix_det_proof halloc h₁ h₂ (r₁ := []) (r₂ := []) rfl).2
 
 theorem Steps.stuck_trace_det
-    (hfree : program.AllocationFree)
+    (halloc : program.AllocationDeterministic policy)
     {s e₁ e₂ : MachineState} {t : Trace}
-    (h₁ : Steps program ctx s t e₁) (hs₁ : Stuck program ctx e₁)
-    (h₂ : Steps program ctx s t e₂) (hs₂ : Stuck program ctx e₂) : e₁ = e₂ := by
-  rcases Steps.prefix_confluence_proof hfree h₁ h₂ (r₁ := []) (r₂ := []) rfl with
+    (h₁ : Steps program policy ctx s t e₁) (hs₁ : Stuck program policy ctx e₁)
+    (h₂ : Steps program policy ctx s t e₂) (hs₂ : Stuck program policy ctx e₂) : e₁ = e₂ := by
+  rcases Steps.prefix_confluence_proof halloc h₁ h₂ (r₁ := []) (r₂ := []) rfl with
     ⟨u, hu, -⟩ | ⟨u, hu, -⟩
   · exact (Steps.eq_of_stuck hu hs₁).1.symm
   · exact (Steps.eq_of_stuck hu hs₂).1
 
 theorem Program.RunsTo.trace_det_proof
-    (hfree : program.AllocationFree)
+    (halloc : program.AllocationDeterministic policy)
     {entry : FunctionId} {world₀ : World} {t : Trace}
     {final₁ final₂ : MachineState}
-    (h₁ : program.RunsTo ctx entry world₀ t final₁)
-    (h₂ : program.RunsTo ctx entry world₀ t final₂) : final₁ = final₂ :=
+    (h₁ : program.RunsTo policy ctx entry world₀ t final₁)
+    (h₂ : program.RunsTo policy ctx entry world₀ t final₂) : final₁ = final₂ :=
   by
     rcases h₁ with ⟨⟨initial₁, hentry₁, hsteps₁⟩, hhalt₁⟩
     rcases h₂ with ⟨⟨initial₂, hentry₂, hsteps₂⟩, hhalt₂⟩
     have : initial₁ = initial₂ := Option.some.inj (hentry₁.symm.trans hentry₂)
     subst initial₂
-    exact Steps.stuck_trace_det hfree hsteps₁ (stuck_of_halted hhalt₁)
+    exact Steps.stuck_trace_det halloc hsteps₁ (stuck_of_halted hhalt₁)
       hsteps₂ (stuck_of_halted hhalt₂)
 
 
-variable {program : Program} {ctx : CallContext}
+variable {program : Program} {policy : Generic.MemoryPolicy} {ctx : CallContext}
 
 private theorem Trace.QueryDivergence.not_prefix {t₁ t₂ : Trace}
     (h : Trace.QueryDivergence t₁ t₂) : ¬ t₁ <+: t₂ := by
@@ -131,15 +131,15 @@ private theorem Trace.QueryDivergence.query_eq {t₁ t₂ : Trace}
 theorem Program.RunsTo.unique_or_queryDivergence_proof
     {entry : FunctionId} {world₀ : World}
     {t₁ t₂ : Trace} {final₁ final₂ : MachineState}
-    (hfree : program.AllocationFree)
-    (h₁ : program.RunsTo ctx entry world₀ t₁ final₁)
-    (h₂ : program.RunsTo ctx entry world₀ t₂ final₂) :
+    (halloc : program.AllocationDeterministic policy)
+    (h₁ : program.RunsTo policy ctx entry world₀ t₁ final₁)
+    (h₂ : program.RunsTo policy ctx entry world₀ t₂ final₂) :
     (t₁ = t₂ ∧ final₁ = final₂) ∨ Trace.QueryDivergence t₁ t₂ := by
   rcases h₁ with ⟨⟨initial₁, hentry₁, hrun₁⟩, hhalt₁⟩
   rcases h₂ with ⟨⟨initial₂, hentry₂, hrun₂⟩, hhalt₂⟩
   have : initial₁ = initial₂ := Option.some.inj (hentry₁.symm.trans hentry₂)
   subst initial₂
-  rcases Steps.confluence_or_queryDivergence_proof hfree hrun₁ hrun₂ with
+  rcases Steps.confluence_or_queryDivergence_proof halloc hrun₁ hrun₂ with
     ⟨u, hu, htu⟩ | ⟨u, hu, htu⟩ | hdiv
   · obtain ⟨rfl, rfl⟩ := Steps.eq_of_stuck hu (stuck_of_halted hhalt₁)
     exact .inl ⟨by simpa using htu, rfl⟩
@@ -148,12 +148,12 @@ theorem Program.RunsTo.unique_or_queryDivergence_proof
   · exact .inr hdiv
 
 private theorem Program.RunsFunction.query_eq_at
-    (hfree : program.AllocationFree)
+    (halloc : program.AllocationDeterministic policy)
     {function : FunctionId} {globals : Globals} {args : Array Word}
     {t₁ t₂ history : Trace} {state₁ state₂ : MachineState}
     {event₁ event₂ : Event} {rest₁ rest₂ : Trace}
-    (h₁ : program.RunsFunction ctx function globals args t₁ state₁)
-    (h₂ : program.RunsFunction ctx function globals args t₂ state₂)
+    (h₁ : program.RunsFunction policy ctx function globals args t₁ state₁)
+    (h₂ : program.RunsFunction policy ctx function globals args t₂ state₂)
     (ht₁ : t₁ = history ++ event₁ :: rest₁)
     (ht₂ : t₂ = history ++ event₂ :: rest₂) :
     event₁.query = event₂.query := by
@@ -166,7 +166,7 @@ private theorem Program.RunsFunction.query_eq_at
   have get₂ : t₂[history.length]? = some event₂ := by
     rw [ht₂]
     exact getElem?_append_cons ..
-  rcases Steps.confluence_or_queryDivergence_proof hfree hrun₁ hrun₂ with
+  rcases Steps.confluence_or_queryDivergence_proof halloc hrun₁ hrun₂ with
     ⟨u, -, htu⟩ | ⟨u, -, htu⟩ | hdiv
   · have hlt : history.length < t₁.length := by rw [ht₁]; simp
     have getEq : t₂[history.length]? = t₁[history.length]? := by
@@ -185,13 +185,13 @@ private theorem Program.RunsFunction.query_eq_at
   · exact hdiv.query_eq ht₁ ht₂
 
 private theorem terminalSteps_no_event
-    (hfree : program.AllocationFree)
+    (halloc : program.AllocationDeterministic policy)
     {initial exit state : MachineState} {history trace rest : Trace} {event : Event}
-    (hterm : Steps program ctx initial history exit)
-    (hstuck : Stuck program ctx exit)
-    (hsteps : Steps program ctx initial trace state)
+    (hterm : Steps program policy ctx initial history exit)
+    (hstuck : Stuck program policy ctx exit)
+    (hsteps : Steps program policy ctx initial trace state)
     (htrace : trace = history ++ event :: rest) : False := by
-  rcases Steps.confluence_or_queryDivergence_proof hfree hterm hsteps with
+  rcases Steps.confluence_or_queryDivergence_proof halloc hterm hsteps with
     ⟨u, hu, htu⟩ | ⟨u, -, htu⟩ | hdiv
   · obtain ⟨-, rfl⟩ := Steps.eq_of_stuck hu hstuck
     have hlen := congrArg List.length (htu.trans htrace)
@@ -202,12 +202,12 @@ private theorem terminalSteps_no_event
   · exact hdiv.not_prefix ⟨event :: rest, htrace.symm⟩
 
 private theorem EvalFn.runsFunction_no_event
-    (hfree : program.AllocationFree)
+    (halloc : program.AllocationDeterministic policy)
     {function : FunctionId} {globals finalGlobals : Globals} {args : Array Word}
     {history trace rest : Trace} {outcome : FunctionOutcome} {event : Event}
     {state : MachineState}
-    (heval : EvalFn program ctx function globals args history finalGlobals outcome)
-    (hrun : program.RunsFunction ctx function globals args trace state)
+    (heval : EvalFn program policy ctx function globals args history finalGlobals outcome)
+    (hrun : program.RunsFunction policy ctx function globals args trace state)
     (htrace : trace = history ++ event :: rest) : False := by
   obtain ⟨initial, hentry, hsteps⟩ := hrun
   cases heval with
@@ -216,91 +216,91 @@ private theorem EvalFn.runsFunction_no_event
       rw [sirEntry_eq] at hentry₂
       obtain ⟨initial₂, hcallState₂, rfl⟩ := Option.map_eq_some_iff.mp hentry₂
       obtain rfl := Option.some.inj (hentry.symm.trans hcallState₂)
-      have hrun₂' : Steps program ctx initial history exit.toMachine := by
-        change Generic.GenericSteps localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
+      have hrun₂' : Steps program policy ctx initial history exit.toMachine := by
+        change Generic.GenericSteps localOperandFrame (sirDecoder program) policy ctx
           initial.toGenericState history exit.toMachine.toGenericState
         simpa using hrun₂
-      exact terminalSteps_no_event hfree hrun₂'
+      exact terminalSteps_no_event halloc hrun₂'
         (stuck_of_returned hret) hsteps htrace
   | halted hentry₂ hrun₂ hhalt =>
       rename_i initialGen exit
       rw [sirEntry_eq] at hentry₂
       obtain ⟨initial₂, hcallState₂, rfl⟩ := Option.map_eq_some_iff.mp hentry₂
       obtain rfl := Option.some.inj (hentry.symm.trans hcallState₂)
-      have hrun₂' : Steps program ctx initial history exit.toMachine := by
-        change Generic.GenericSteps localOperandFrame (sirDecoder program) Generic.MemoryPolicy.permissive ctx
+      have hrun₂' : Steps program policy ctx initial history exit.toMachine := by
+        change Generic.GenericSteps localOperandFrame (sirDecoder program) policy ctx
           initial.toGenericState history exit.toMachine.toGenericState
         simpa using hrun₂
-      exact terminalSteps_no_event hfree hrun₂'
+      exact terminalSteps_no_event halloc hrun₂'
         (stuck_of_halted hhalt) hsteps htrace
 
-theorem Program.functionDeterministicFrom_of_memOracleFree_proof
-    (hfree : program.AllocationFree) (ctx : CallContext)
+theorem Program.functionDeterministicFrom_of_allocationDeterministic_proof
+    (halloc : program.AllocationDeterministic policy) (ctx : CallContext)
     (function : FunctionId) (globals : Globals) (args : Array Word) :
-    program.FunctionDeterministicFrom ctx function globals args := by
+    program.FunctionDeterministicFrom policy ctx function globals args := by
   intro history outcome₁ outcome₂ h₁ h₂
   cases outcome₁ <;> cases outcome₂
   · rfl
   · rcases h₁ with ⟨gas, t₁, r₁, s₁, run₁, ht₁⟩
     rcases h₂ with ⟨call, t₂, r₂, s₂, -, run₂, ht₂⟩
-    have hquery := Program.RunsFunction.query_eq_at hfree run₁ run₂ ht₁ ht₂
+    have hquery := Program.RunsFunction.query_eq_at halloc run₁ run₂ ht₁ ht₂
     cases hquery
   · rcases h₁ with ⟨gas, t, rest, s, run, ht⟩
     rcases h₂ with ⟨_, haltRun, -⟩
-    exact (EvalFn.runsFunction_no_event hfree haltRun run ht).elim
+    exact (EvalFn.runsFunction_no_event halloc haltRun run ht).elim
   · rcases h₁ with ⟨gas, t, rest, s, run, ht⟩
     rcases h₂ with ⟨_, returnRun, -⟩
-    exact (EvalFn.runsFunction_no_event hfree returnRun run ht).elim
+    exact (EvalFn.runsFunction_no_event halloc returnRun run ht).elim
   · rcases h₁ with ⟨call, t₁, r₁, s₁, -, run₁, ht₁⟩
     rcases h₂ with ⟨gas, t₂, r₂, s₂, run₂, ht₂⟩
-    have hquery := Program.RunsFunction.query_eq_at hfree run₁ run₂ ht₁ ht₂
+    have hquery := Program.RunsFunction.query_eq_at halloc run₁ run₂ ht₁ ht₂
     cases hquery
   · rename_i input₁ input₂
     rcases h₁ with ⟨call₁, t₁, r₁, s₁, hin₁, run₁, ht₁⟩
     rcases h₂ with ⟨call₂, t₂, r₂, s₂, hin₂, run₂, ht₂⟩
-    have hquery := Program.RunsFunction.query_eq_at hfree run₁ run₂ ht₁ ht₂
+    have hquery := Program.RunsFunction.query_eq_at halloc run₁ run₂ ht₁ ht₂
     have : input₁ = input₂ := by
       simpa [Event.query, hin₁, hin₂] using Query.call.inj hquery
     exact congrArg FunctionObservableOutcome.call this
   · rcases h₁ with ⟨call, t, rest, s, -, run, ht⟩
     rcases h₂ with ⟨_, haltRun, -⟩
-    exact (EvalFn.runsFunction_no_event hfree haltRun run ht).elim
+    exact (EvalFn.runsFunction_no_event halloc haltRun run ht).elim
   · rcases h₁ with ⟨call, t, rest, s, -, run, ht⟩
     rcases h₂ with ⟨_, returnRun, -⟩
-    exact (EvalFn.runsFunction_no_event hfree returnRun run ht).elim
+    exact (EvalFn.runsFunction_no_event halloc returnRun run ht).elim
   · rcases h₁ with ⟨_, haltRun, -⟩
     rcases h₂ with ⟨gas, t, rest, s, run, ht⟩
-    exact (EvalFn.runsFunction_no_event hfree haltRun run ht).elim
+    exact (EvalFn.runsFunction_no_event halloc haltRun run ht).elim
   · rcases h₁ with ⟨_, haltRun, -⟩
     rcases h₂ with ⟨call, t, rest, s, -, run, ht⟩
-    exact (EvalFn.runsFunction_no_event hfree haltRun run ht).elim
+    exact (EvalFn.runsFunction_no_event halloc haltRun run ht).elim
   · rename_i world₁ world₂
     rcases h₁ with ⟨globals₁, run₁, worldEq₁⟩
     rcases h₂ with ⟨globals₂, run₂, worldEq₂⟩
-    rcases fnDialogue_all hfree run₁ _ _ _ run₂ with ⟨-, hglobals, -⟩ | hdiv
+    rcases fnDialogue_all halloc run₁ _ _ _ run₂ with ⟨-, hglobals, -⟩ | hdiv
     · subst globals₂
       exact congrArg FunctionObservableOutcome.halt (worldEq₁.symm.trans worldEq₂)
     · exact (hdiv.ne rfl).elim
   · rcases h₁ with ⟨_, haltRun, -⟩
     rcases h₂ with ⟨_, returnRun, -⟩
-    rcases fnDialogue_all hfree haltRun _ _ _ returnRun with ⟨-, -, h⟩ | hdiv
+    rcases fnDialogue_all halloc haltRun _ _ _ returnRun with ⟨-, -, h⟩ | hdiv
     · cases h
     · exact (hdiv.ne rfl).elim
   · rcases h₁ with ⟨_, returnRun, -⟩
     rcases h₂ with ⟨gas, t, rest, s, run, ht⟩
-    exact (EvalFn.runsFunction_no_event hfree returnRun run ht).elim
+    exact (EvalFn.runsFunction_no_event halloc returnRun run ht).elim
   · rcases h₁ with ⟨_, returnRun, -⟩
     rcases h₂ with ⟨call, t, rest, s, -, run, ht⟩
-    exact (EvalFn.runsFunction_no_event hfree returnRun run ht).elim
+    exact (EvalFn.runsFunction_no_event halloc returnRun run ht).elim
   · rcases h₁ with ⟨_, returnRun, -⟩
     rcases h₂ with ⟨_, haltRun, -⟩
-    rcases fnDialogue_all hfree returnRun _ _ _ haltRun with ⟨-, -, h⟩ | hdiv
+    rcases fnDialogue_all halloc returnRun _ _ _ haltRun with ⟨-, -, h⟩ | hdiv
     · cases h
     · exact (hdiv.ne rfl).elim
   · rename_i world₁ values₁ world₂ values₂
     rcases h₁ with ⟨globals₁, run₁, worldEq₁⟩
     rcases h₂ with ⟨globals₂, run₂, worldEq₂⟩
-    rcases fnDialogue_all hfree run₁ _ _ _ run₂ with
+    rcases fnDialogue_all halloc run₁ _ _ _ run₂ with
       ⟨-, hglobals, houtcome⟩ | hdiv
     · subst globals₂
       obtain rfl := FunctionOutcome.returned.inj houtcome
@@ -308,27 +308,27 @@ theorem Program.functionDeterministicFrom_of_memOracleFree_proof
         (worldEq₁.symm.trans worldEq₂)
     · exact (hdiv.ne rfl).elim
 
-theorem Program.AllocationFree.deterministicFrom_proof
-    (hfree : program.AllocationFree) (ctx : CallContext)
+theorem Program.AllocationDeterministic.deterministicFrom_proof
+    (halloc : program.AllocationDeterministic policy) (ctx : CallContext)
     (entry : FunctionId) (world₀ : World) :
-    program.DeterministicFrom ctx entry world₀ := by
+    program.DeterministicFrom policy ctx entry world₀ := by
   intro history outcome₁ outcome₂ h₁ h₂
-  have h := Program.functionDeterministicFrom_of_memOracleFree_proof hfree
+  have h := Program.functionDeterministicFrom_of_allocationDeterministic_proof halloc
     ctx entry { world := world₀ } #[] history outcome₁.functionOutcome
       outcome₂.functionOutcome h₁ h₂
   cases outcome₁ <;> cases outcome₂ <;> simp_all [ObservableOutcome.functionOutcome]
 
-theorem Program.functionDeterministic_of_memOracleFree_proof
-    (hfree : program.AllocationFree) (function : FunctionId) :
-    program.FunctionDeterministic function := by
+theorem Program.functionDeterministic_of_allocationDeterministic_proof
+    (halloc : program.AllocationDeterministic policy) (function : FunctionId) :
+    program.FunctionDeterministic policy function := by
   intro ctx globals args trace₁ trace₂ finalGlobals₁ finalGlobals₂ outcome₁ outcome₂
     heval₁ heval₂
-  exact fnDialogue_all hfree heval₁ trace₂ finalGlobals₂ outcome₂ heval₂
+  exact fnDialogue_all halloc heval₁ trace₂ finalGlobals₂ outcome₂ heval₂
 
-theorem Program.deterministic_of_memOracleFree_proof
-    (hfree : program.AllocationFree) : program.Deterministic :=
+theorem Program.deterministic_of_allocationDeterministic_proof
+    (halloc : program.AllocationDeterministic policy) : program.Deterministic policy :=
   fun ctx world₀ =>
-    ⟨hfree.deterministicFrom_proof ctx program.initEntry world₀,
-      fun entry _ => hfree.deterministicFrom_proof ctx entry world₀⟩
+    ⟨halloc.deterministicFrom_proof ctx program.initEntry world₀,
+      fun entry _ => halloc.deterministicFrom_proof ctx entry world₀⟩
 
 end Sir
