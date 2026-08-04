@@ -85,135 +85,6 @@ def eval_terminator (program : Program) : Terminator → MachineStateM Unit
       let rs ← liftM (block.outputs.mapM state.locals.lookup)
       modify ({ · with control := .returned rs })
 
-mutual
-
-inductive SmallStep (program : Program) (ctx : CallContext) :
-    MachineState → Trace → MachineState → Prop where
-  | assign
-      {state state' : MachineState}
-      {nextControl : MachineControl}
-      {result : VarId}
-      {expr : Expr}
-      (hstmt : program.decodeStmt state.control = some (nextControl, .assign result expr))
-      (heval : eval_assign ctx state result expr = .ok state') :
-      SmallStep program ctx state [] { state' with control := nextControl }
-  | sstore
-      {state state' : MachineState}
-      {nextControl : MachineControl}
-      {key value : VarId}
-      (hstmt : program.decodeStmt state.control = some (nextControl, .sstore key value))
-      (heval : eval_sstore ctx state key value = .ok state') :
-      SmallStep program ctx state [] { state' with control := nextControl }
-  | gas
-      {state state' : MachineState}
-      {nextControl : MachineControl}
-      {result : VarId}
-      {gas : Word}
-      (hstmt : program.decodeStmt state.control = some (nextControl, .gas result))
-      (heval : (eval_gas result gas).run state = .ok ((), state')) :
-      SmallStep program ctx state [.gas gas] { state' with control := nextControl }
-  | call
-      {state state' : MachineState}
-      {nextControl : MachineControl}
-      {call : Call}
-      {result : CallResult}
-      {record : CallRecord}
-      (hstmt : program.decodeStmt state.control = some (nextControl, .call call))
-      (heval : (eval_call call result).run state = .ok (record, state')) :
-      SmallStep program ctx state [.call record] { state' with control := nextControl }
-  | mallocUninit
-      {state state' : MachineState}
-      {nextControl : MachineControl}
-      {alloc : Allocation}
-      {result size : VarId}
-      (hstmt : program.decodeStmt state.control = some (nextControl, .mallocUninit result size))
-      (halloc : state.globals.memory.IsValidNewAlloc alloc)
-      (heval : (eval_malloc_uninit alloc result size).run state = .ok ((), state')) :
-      SmallStep program ctx state [] { state' with control := nextControl }
-  | mstore32
-      {state state' : MachineState}
-      {nextControl : MachineControl}
-      {offset value : VarId}
-      (hstmt : program.decodeStmt state.control = some (nextControl, .mstore32 offset value))
-      (heval : (eval_mstore32 offset value).run state = .ok ((), state')) :
-      SmallStep program ctx state [] { state' with control := nextControl }
-  | mload32
-      {state state' : MachineState}
-      {nextControl : MachineControl}
-      {assumed : Vector UInt8 32}
-      {result offset : VarId}
-      (hstmt : program.decodeStmt state.control = some (nextControl, .mload32 result offset))
-      (heval : (eval_mload32 ⟨assumed.toArray⟩ result offset).run state = .ok ((), state')) :
-      SmallStep program ctx state [] { state' with control := nextControl }
-  | terminator
-      {state state' : MachineState}
-      {terminator : Terminator}
-      (hterm : program.terminatorAt state.control = some terminator)
-      (heval : (eval_terminator program terminator).run state = .ok ((), state')) :
-      SmallStep program ctx state [] state'
-  | icall
-      {state : MachineState}
-      {nextControl : MachineControl}
-      {callee : FunctionId}
-      {args dests : Array VarId}
-      {vs rs : Array Word}
-      {t : Trace}
-      {g' : Globals}
-      {locals' : Locals}
-      (hstmt : program.decodeStmt state.control = some (nextControl, .icall callee args dests))
-      (hargs : args.mapM (state.locals.lookup ·) = .ok vs)
-      (hcallee : EvalFn program ctx callee state.globals vs t g' (.returned rs))
-      (hbind : Locals.bindReturns state.locals dests rs = .ok locals') :
-      SmallStep program ctx state t
-        { state with globals := g', locals := locals', control := nextControl }
-  | icallHalted
-      {state : MachineState}
-      {nextControl : MachineControl}
-      {callee : FunctionId}
-      {args dests : Array VarId}
-      {vs : Array Word}
-      {t : Trace}
-      {g' : Globals}
-      (hstmt : program.decodeStmt state.control = some (nextControl, .icall callee args dests))
-      (hargs : args.mapM (state.locals.lookup ·) = .ok vs)
-      (hcallee : EvalFn program ctx callee state.globals vs t g' .halted) :
-      SmallStep program ctx state t { globals := g', control := .halted }
-
-inductive Steps (program : Program) (ctx : CallContext) :
-    MachineState → Trace → MachineState → Prop where
-  | refl {s : MachineState} : Steps program ctx s [] s
-  | tail
-      {s mid s' : MachineState}
-      {t₁ t₂ : Trace}
-      (start : Steps program ctx s t₁ mid)
-      (next : SmallStep program ctx mid t₂ s') :
-      Steps program ctx s (t₁ ++ t₂) s'
-
-inductive EvalFn (program : Program) (ctx : CallContext) :
-    FunctionId → Globals → Array Word → Trace → Globals → FunctionOutcome → Prop where
-  | returned
-      {f : FunctionId}
-      {g : Globals}
-      {args rs : Array Word}
-      {t : Trace}
-      {s₀ exit : MachineState}
-      (hentry : program.callState? f g args = some s₀)
-      (hrun : Steps program ctx s₀ t exit)
-      (hret : exit.control = .returned rs) :
-      EvalFn program ctx f g args t exit.globals (.returned rs)
-  | halted
-      {f : FunctionId}
-      {g : Globals}
-      {args : Array Word}
-      {t : Trace}
-      {s₀ exit : MachineState}
-      (hentry : program.callState? f g args = some s₀)
-      (hrun : Steps program ctx s₀ t exit)
-      (hhalt : exit.control = .halted) :
-      EvalFn program ctx f g args t exit.globals .halted
-
-end
-
 open Generic in
 def sirPolicy : Generic.MemoryPolicy where
   Allows memory size allocation :=
@@ -279,6 +150,20 @@ def sirDecoder (program : Program) : Decoder localsFrame where
   control := sirControl program
   resume := sirResume
   entry := sirEntry program
+
+def SmallStep (program : Program) (ctx : CallContext)
+    (state : MachineState) (trace : Trace) (final : MachineState) : Prop :=
+  Generic.GenStep localsFrame (sirDecoder program) sirPolicy ctx
+    state.gen trace final.gen
+
+def Steps (program : Program) (ctx : CallContext)
+    (state : MachineState) (trace : Trace) (final : MachineState) : Prop :=
+  Generic.GenSteps localsFrame (sirDecoder program) sirPolicy ctx
+    state.gen trace final.gen
+
+def EvalFn (program : Program) (ctx : CallContext) :
+    FunctionId → Globals → Array Word → Trace → Globals → FunctionOutcome → Prop :=
+  Generic.GenEvalFn localsFrame (sirDecoder program) sirPolicy ctx
 
 def Program.NonIcallControl (program : Program) (state : MachineState) : Prop :=
   (∃ nextControl statement,

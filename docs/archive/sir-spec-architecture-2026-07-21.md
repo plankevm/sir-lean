@@ -118,9 +118,8 @@ sir/Sir/
 Dissolved files and where their content goes:
 - `Core/Types.lean`, `IR/CFG.lean` → `Spec/Ir.lean`.
 - `Semantics/{World,Memory,State}.lean` → `Spec/State.lean`.
-- `Semantics/Eval.lean` → defs to `Spec/Step.lean`; its three multi-line
-  theorems (`eval_call_ok`, `eval_call_record_result`, `eval_call_record_input`)
-  to `Proofs/StepDet.lean` — they are case-bash proofs, not spec.
+- `Semantics/Eval.lean` → defs to `Spec/Step.lean`; operation execution lemmas
+  to `Proofs/Steps.lean` — they are case-bash proofs, not spec.
 - `Semantics/SmallStep.lean` → the mutual inductives to `Spec/Step.lean`; the
   trailing theorems (`inductionOn`, `single`, `trans`, `head`) to
   `Proofs/Steps.lean`. (`trans` can additionally be surfaced in `Theorems.lean`

@@ -1,4 +1,4 @@
-import Sir.Proofs.Dialogue
+import Sir.Proofs.Steps
 
 namespace Sir
 
@@ -69,8 +69,8 @@ theorem Steps.stuck_trace_det
     (h₂ : Steps program ctx s t e₂) (hs₂ : Stuck program ctx e₂) : e₁ = e₂ := by
   rcases Steps.prefix_confluence_proof hfree h₁ h₂ (r₁ := []) (r₂ := []) rfl with
     ⟨u, hu, -⟩ | ⟨u, hu, -⟩
-  · exact (hu.eq_of_stuck hs₁).1.symm
-  · exact (hu.eq_of_stuck hs₂).1
+  · exact (Steps.eq_of_stuck hu hs₁).1.symm
+  · exact (Steps.eq_of_stuck hu hs₂).1
 
 theorem Program.RunsTo.trace_det_proof
     (hfree : program.MemOracleFree)
@@ -141,9 +141,9 @@ theorem Program.RunsTo.unique_or_queryDivergence_proof
   subst initial₂
   rcases Steps.confluence_or_queryDivergence_proof hfree hrun₁ hrun₂ with
     ⟨u, hu, htu⟩ | ⟨u, hu, htu⟩ | hdiv
-  · obtain ⟨rfl, rfl⟩ := hu.eq_of_stuck (stuck_of_halted hhalt₁)
+  · obtain ⟨rfl, rfl⟩ := Steps.eq_of_stuck hu (stuck_of_halted hhalt₁)
     exact .inl ⟨by simpa using htu, rfl⟩
-  · obtain ⟨rfl, rfl⟩ := hu.eq_of_stuck (stuck_of_halted hhalt₂)
+  · obtain ⟨rfl, rfl⟩ := Steps.eq_of_stuck hu (stuck_of_halted hhalt₂)
     exact .inl ⟨by simpa using htu.symm, rfl⟩
   · exact .inr hdiv
 
@@ -193,7 +193,7 @@ private theorem terminalSteps_no_event
     (htrace : trace = history ++ event :: rest) : False := by
   rcases Steps.confluence_or_queryDivergence_proof hfree hterm hsteps with
     ⟨u, hu, htu⟩ | ⟨u, -, htu⟩ | hdiv
-  · obtain ⟨-, rfl⟩ := hu.eq_of_stuck hstuck
+  · obtain ⟨-, rfl⟩ := Steps.eq_of_stuck hu hstuck
     have hlen := congrArg List.length (htu.trans htrace)
     simp at hlen
   · rw [htrace] at htu
@@ -212,11 +212,27 @@ private theorem EvalFn.runsFunction_no_event
   obtain ⟨initial, hentry, hsteps⟩ := hrun
   cases heval with
   | returned hentry₂ hrun₂ hret =>
-      obtain rfl := Option.some.inj (hentry.symm.trans hentry₂)
-      exact terminalSteps_no_event hfree hrun₂ (stuck_of_returned hret) hsteps htrace
+      rename_i results initialGen exit
+      rw [sirEntry_eq] at hentry₂
+      obtain ⟨initial₂, hcallState₂, rfl⟩ := Option.map_eq_some_iff.mp hentry₂
+      obtain rfl := Option.some.inj (hentry.symm.trans hcallState₂)
+      have hrun₂' : Steps program ctx initial history exit.toMachine := by
+        change Generic.GenSteps localsFrame (sirDecoder program) sirPolicy ctx
+          initial.gen history exit.toMachine.gen
+        simpa using hrun₂
+      exact terminalSteps_no_event hfree hrun₂'
+        (stuck_of_returned hret) hsteps htrace
   | halted hentry₂ hrun₂ hhalt =>
-      obtain rfl := Option.some.inj (hentry.symm.trans hentry₂)
-      exact terminalSteps_no_event hfree hrun₂ (stuck_of_halted hhalt) hsteps htrace
+      rename_i initialGen exit
+      rw [sirEntry_eq] at hentry₂
+      obtain ⟨initial₂, hcallState₂, rfl⟩ := Option.map_eq_some_iff.mp hentry₂
+      obtain rfl := Option.some.inj (hentry.symm.trans hcallState₂)
+      have hrun₂' : Steps program ctx initial history exit.toMachine := by
+        change Generic.GenSteps localsFrame (sirDecoder program) sirPolicy ctx
+          initial.gen history exit.toMachine.gen
+        simpa using hrun₂
+      exact terminalSteps_no_event hfree hrun₂'
+        (stuck_of_halted hhalt) hsteps htrace
 
 theorem Program.functionDeterministicFrom_of_memOracleFree_proof
     (hfree : program.MemOracleFree) (ctx : CallContext)

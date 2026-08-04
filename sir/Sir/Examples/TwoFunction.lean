@@ -112,46 +112,6 @@ theorem witnessAddProgram_add2_deterministic :
   rcases hstmt with (rfl | rfl | rfl) | rfl <;> simp [Stmt.isMemOracle]
 
 private theorem witness_evalFn_add2 (ctx : CallContext) (w : World) :
-    EvalFn witnessAddProgram ctx witnessAdd2 { world := w } #[2, 3] []
-      ({ world := w } : Globals) (.returned #[5]) := by
-  refine EvalFn.returned
-    (s₀ := { globals := { world := w },
-               locals := (Locals.empty.assign witnessX 2).assign witnessY 3,
-               control := .running
-                 { fn := witnessAdd2, block := witnessAddBlock, position := .statement 0 } })
-    (exit := { globals := { world := w },
-               locals := ((Locals.empty.assign witnessX 2).assign witnessY 3).assign witnessZ 5,
-               control := .returned #[5] })
-    ?hentry ?hrun ?hret
-  case hentry =>
-    apply Program.callState?_eq_some_iff.mpr
-    refine ⟨_, _, (Locals.empty.assign witnessX 2).assign witnessY 3,
-      rfl, rfl, ?_, rfl⟩
-    simp only [Locals.bindParams, Locals.bindValues, ← Array.forIn_toList, Array.toList_zip]
-    rfl
-  case hrun =>
-    have step := SmallStep.assign (program := witnessAddProgram) (ctx := ctx)
-      (state := { globals := { world := w },
-                  locals := (Locals.empty.assign witnessX 2).assign witnessY 3,
-                  control := .running
-                    { fn := witnessAdd2, block := witnessAddBlock, position := .statement 0 } })
-      (hstmt := rfl) (heval := rfl)
-    have houtputs : #[witnessZ].mapM
-        ((((Locals.empty.assign witnessX 2).assign witnessY 3).assign witnessZ 5).lookup ·) =
-        .ok #[5] := by
-      rw [Array.mapM_eq_mapM_toList]
-      rfl
-    have ret := SmallStep.terminator (program := witnessAddProgram) (ctx := ctx)
-      (state := { globals := { world := w },
-                  locals := ((Locals.empty.assign witnessX 2).assign witnessY 3).assign witnessZ 5,
-                  control := .running
-                    { fn := witnessAdd2, block := witnessAddBlock, position := .terminator } })
-      (hterm := rfl) (heval := eval_terminator_iret_ok rfl rfl houtputs)
-    exact (Steps.single step).tail ret
-  case hret =>
-    rfl
-
-private theorem witness_evalFn_add2_gen (ctx : CallContext) (w : World) :
     Generic.GenEvalFn localsFrame (sirDecoder witnessAddProgram) sirPolicy ctx
       witnessAdd2 { world := w } #[2, 3] [] ({ world := w } : Globals)
         (.returned #[5]) := by
@@ -185,7 +145,7 @@ private theorem witness_evalFn_add2_gen (ctx : CallContext) (w : World) :
     rfl
   have hadd : Generic.GenStep localsFrame (sirDecoder witnessAddProgram) sirPolicy ctx
       initial.gen [] afterAdd.gen := by
-    apply step_assign_gen (program := witnessAddProgram) (ctx := ctx) rfl
+    apply step_assign (program := witnessAddProgram) (ctx := ctx) rfl
     simp only [decodeExpr, Generic.Instr.Fires]
     exact fires_of hfetch (by trivial)
       (Generic.Operation.execute_add_ok ctx 2 3 ({ world := w } : Globals)) hstore
@@ -196,11 +156,11 @@ private theorem witness_evalFn_add2_gen (ctx : CallContext) (w : World) :
     rfl
   have hreturn : Generic.GenStep localsFrame (sirDecoder witnessAddProgram) sirPolicy ctx
       afterAdd.gen [] final.gen :=
-    step_terminator_gen rfl (eval_terminator_iret_ok rfl rfl houtputs)
-  exact evalFn_returned_gen hentry
+    step_terminator rfl (eval_terminator_iret_ok rfl rfl houtputs)
+  exact EvalFn.returned hentry
     (Generic.GenSteps.tail (Generic.GenSteps.single hadd) hreturn) rfl
 
-private theorem witnessAddProgram_runs_gen (ctx : CallContext) (w : World) :
+private theorem witnessAddProgram_eval (ctx : CallContext) (w : World) :
     Generic.GenEvalFn localsFrame (sirDecoder witnessAddProgram) sirPolicy ctx
       witnessMain { world := w } #[] [] ({ world := w } : Globals) .halted := by
   let initial : MachineState :=
@@ -239,7 +199,7 @@ private theorem witnessAddProgram_runs_gen (ctx : CallContext) (w : World) :
     rfl
   have hstep₁ : Generic.GenStep localsFrame (sirDecoder witnessAddProgram) sirPolicy ctx
       initial.gen [] state₁.gen := by
-    apply step_assign_gen (program := witnessAddProgram) (ctx := ctx) rfl
+    apply step_assign (program := witnessAddProgram) (ctx := ctx) rfl
     simp only [decodeExpr, Generic.Instr.Fires]
     exact fires_of (hfetchEmpty Locals.empty) (by trivial)
       (Generic.Operation.execute_constant_ok ctx 2 ({ world := w } : Globals) #[]) hstoreA
@@ -249,7 +209,7 @@ private theorem witnessAddProgram_runs_gen (ctx : CallContext) (w : World) :
     rfl
   have hstep₂ : Generic.GenStep localsFrame (sirDecoder witnessAddProgram) sirPolicy ctx
       state₁.gen [] state₂.gen := by
-    apply step_assign_gen (program := witnessAddProgram) (ctx := ctx) rfl
+    apply step_assign (program := witnessAddProgram) (ctx := ctx) rfl
     simp only [decodeExpr, Generic.Instr.Fires]
     exact fires_of (hfetchEmpty (Locals.empty.assign witnessA 2)) (by trivial)
       (Generic.Operation.execute_constant_ok ctx 3 ({ world := w } : Globals) #[]) hstoreB
@@ -265,61 +225,14 @@ private theorem witnessAddProgram_runs_gen (ctx : CallContext) (w : World) :
     rfl
   have hstep₃ : Generic.GenStep localsFrame (sirDecoder witnessAddProgram) sirPolicy ctx
       state₂.gen [] state₃.gen :=
-    step_icall_gen rfl hargs (witness_evalFn_add2_gen ctx w) hbind
+    step_icall rfl hargs (witness_evalFn_add2 ctx w) hbind
   have hstep₄ : Generic.GenStep localsFrame (sirDecoder witnessAddProgram) sirPolicy ctx
-      state₃.gen [] final.gen := step_terminator_gen rfl rfl
-  exact evalFn_halted_gen hentry
+      state₃.gen [] final.gen := step_terminator rfl rfl
+  exact EvalFn.halted hentry
     (.tail (.tail (.tail (Generic.GenSteps.single hstep₁) hstep₂) hstep₃) hstep₄) rfl
 
 theorem witnessAddProgram_runs (ctx : CallContext) (w : World) :
-    witnessAddProgram.RunsInit ctx w [] ({ world := w } : Globals) := by
-  let initial : MachineState :=
-    { globals := { world := w }
-      control := .running
-        { fn := witnessMain, block := witnessMainBlock, position := .statement 0 } }
-  let final : MachineState :=
-    { globals := { world := w }
-      locals := ((Locals.empty.assign witnessA 2).assign witnessB 3).assign witnessR 5
-      control := .halted }
-  refine EvalFn.halted (s₀ := initial) (exit := final) ?_ ?_ rfl
-  · apply Program.callState?_eq_some_iff.mpr
-    refine ⟨_, _, Locals.empty, rfl, rfl, ?_, rfl⟩
-    simp only [Locals.bindParams, Locals.bindValues, ← Array.forIn_toList,
-      Array.toList_zip]
-    rfl
-  have step₁ := SmallStep.assign (program := witnessAddProgram) (ctx := ctx)
-    (state := { globals := { world := w },
-                locals := .empty,
-                control := .running
-                  { fn := witnessMain, block := witnessMainBlock, position := .statement 0 } })
-    (hstmt := rfl) (heval := rfl)
-  have step₂ := SmallStep.assign (program := witnessAddProgram) (ctx := ctx)
-    (state := { globals := { world := w },
-                locals := Locals.empty.assign witnessA 2,
-                control := .running
-                  { fn := witnessMain, block := witnessMainBlock, position := .statement 1 } })
-    (hstmt := rfl) (heval := rfl)
-  have hargs : #[witnessA, witnessB].mapM
-      (((Locals.empty.assign witnessA 2).assign witnessB 3).lookup ·) = .ok #[2, 3] := by
-    rw [Array.mapM_eq_mapM_toList]
-    rfl
-  have hbind : Locals.bindReturns ((Locals.empty.assign witnessA 2).assign witnessB 3)
-      #[witnessR] #[5] =
-      .ok (((Locals.empty.assign witnessA 2).assign witnessB 3).assign witnessR 5) := by
-    simp only [Locals.bindReturns, Locals.bindValues, ← Array.forIn_toList, Array.toList_zip]
-    rfl
-  have step₃ := SmallStep.icall (program := witnessAddProgram) (ctx := ctx)
-    (state := { globals := { world := w },
-                locals := (Locals.empty.assign witnessA 2).assign witnessB 3,
-                control := .running
-                  { fn := witnessMain, block := witnessMainBlock, position := .statement 2 } })
-    (hstmt := rfl) (hargs := hargs) (hcallee := witness_evalFn_add2 ctx w) (hbind := hbind)
-  have step₄ := SmallStep.terminator (program := witnessAddProgram) (ctx := ctx)
-    (state := { globals := { world := w },
-                locals := ((Locals.empty.assign witnessA 2).assign witnessB 3).assign witnessR 5,
-                control := .running
-                  { fn := witnessMain, block := witnessMainBlock, position := .terminator } })
-    (hterm := rfl) (heval := rfl)
-  exact Steps.tail (Steps.tail (Steps.tail (Steps.single step₁) step₂) step₃) step₄
+    witnessAddProgram.RunsInit ctx w [] ({ world := w } : Globals) :=
+  witnessAddProgram_eval ctx w
 
 end Sir

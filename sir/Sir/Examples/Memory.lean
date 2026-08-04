@@ -214,97 +214,6 @@ private inductive InitializedReachable (ctx : CallContext) (world : World) : Mac
       InitializedReachable ctx world (initializedState7 ctx world alloc)
 
 @[simp]
-private theorem run_liftM_locals {m : Type → Type} [Monad m] {α : Type}
-    (action : StateT Locals m α) (state : MachineState) :
-    (liftM action : StateT MachineState m α).run state =
-      action.run state.locals >>= fun pair =>
-        pure (pair.1, { state with locals := pair.2 }) := rfl
-
-@[simp]
-private theorem run_lookupM_locals (locals : Locals) (var : VarId) :
-    (Locals.lookupM var).run locals =
-      match locals.lookup var with
-      | .error error => .error error
-      | .ok value => .ok (value, locals) := by
-  simp only [Locals.lookupM, StateT.run_bind]
-  have hget : (StateT.get : StateT Locals (Except IRError) Locals).run locals =
-      .ok (locals, locals) := rfl
-  rw [hget]
-  cases hlookup : locals.lookup? var <;>
-    simp [hlookup, Locals.lookup, bind, Except.bind, pure, Except.pure]
-
-@[simp]
-private theorem run_lookupM_machine (state : MachineState) (var : VarId) :
-    (Locals.lookupM var : MachineStateM Word).run state =
-      match state.locals.lookup var with
-      | .error error => .error error
-      | .ok value => .ok (value, state) := by
-  rw [run_liftM_locals]
-  simp only [Locals.lookupM, StateT.run_bind]
-  have hget : (StateT.get : StateT Locals (Except IRError) Locals).run state.locals =
-      .ok (state.locals, state.locals) := rfl
-  rw [hget]
-  cases hlookup : state.locals.lookup? var <;>
-    simp [hlookup, Locals.lookup, bind, Except.bind, pure, Except.pure]
-
-@[simp]
-private theorem run_assignM_machine (state : MachineState) (var : VarId) (value : Word) :
-    (liftM (Locals.assignM var value) : MachineStateM Unit).run state =
-      .ok ((), { state with locals := state.locals.assign var value }) := rfl
-
-private theorem eval_initialized_malloc {world : World} {alloc : Allocation}
-    {state : MachineState}
-    (heval : (eval_malloc_uninit alloc xVar sizeVar).run (initializedState1 world) =
-      .ok ((), state)) :
-    alloc.size = 32 ∧ state = { initializedState1 world with
-      globals := { (initializedState1 world).globals with
-        memory := MemoryState.empty.push alloc }
-      locals := locals2 alloc } := by
-  simp only [eval_malloc_uninit, StateT.run_bind] at heval
-  rw [run_lookupM_machine] at heval
-  simp [initializedState1, locals1, Locals.lookup, Locals.lookup?, Locals.assign,
-    Locals.empty, bind, Except.bind] at heval
-  have h32 : (32 : Word).toNat = 32 := by decide
-  rw [h32] at heval
-  by_cases hsize : alloc.size = 32
-  · rw [if_pos hsize] at heval
-    change Except.ok ((), { initializedState1 world with
-      globals := { (initializedState1 world).globals with
-        memory := MemoryState.empty.push alloc }
-      locals := locals2 alloc }) =
-        Except.ok ((), state) at heval
-    exact ⟨hsize, (congrArg Prod.snd (Except.ok.inj heval)).symm⟩
-  · rw [if_neg hsize] at heval
-    change Except.error IRError.invalidAlloc = Except.ok ((), state) at heval
-    contradiction
-
-private theorem eval_initialized_mstore {world : World} {alloc : Allocation}
-    {state : MachineState}
-    (heval : (eval_mstore32 xVar valueVar).run (initializedState3 world alloc) =
-      .ok ((), state)) :
-    state = { initializedState3 world alloc with
-      globals := { (initializedState3 world alloc).globals with
-        memory := (MemoryState.empty.push alloc).writeBytes alloc.offset
-          (42 : Word).toByteArray } } := by
-  simp only [eval_mstore32, StateT.run_bind] at heval
-  rw [run_lookupM_machine] at heval
-  simp [initializedState3, locals1, locals2, locals3, run_lookupM_locals, Locals.lookup,
-    Locals.lookup?, Locals.assign, Locals.empty, StateT.run_modify,
-    bind, Except.bind, pure, Except.pure] at heval
-  simpa [initializedState3, locals3] using heval.symm
-
-private theorem eval_initialized_mload {world : World} {alloc : Allocation}
-    {state : MachineState} (hsize : alloc.size = 32) (assumed : Vector UInt8 32)
-    (heval : (eval_mload32 ⟨assumed.toArray⟩ zVar xVar).run
-      (initializedState4 world alloc) = .ok ((), state)) :
-    state = { initializedState4 world alloc with locals := locals5 alloc } := by
-  simp only [eval_mload32, StateT.run_bind] at heval
-  rw [run_lookupM_machine] at heval
-  simp [initializedState4, locals1, locals2, locals3, Locals.lookup,
-    Locals.lookup?, Locals.assign, Locals.empty, bind, Except.bind, pure, Except.pure,
-    read_written_word alloc hsize assumed, fromByteArray_toByteArray, ofNat_toNat] at heval
-  simpa [initializedState4, locals5] using heval.symm
-
 private theorem bindValues_empty (locals : Locals) :
     Locals.bindValues locals #[] #[] = .ok locals := by
   simp [Locals.bindValues, bind, Except.bind, pure, Except.pure]
@@ -313,56 +222,8 @@ private theorem bindValues_singleton (locals : Locals) (var : VarId) (value : Wo
     Locals.bindValues locals #[var] #[value] = .ok (locals.assign var value) := by
   simp [Locals.bindValues, bind, Except.bind, pure, Except.pure]
 
-private theorem initialized_step_closed {ctx : CallContext} {world : World}
-    {state state' : MachineState} {trace : Trace}
-    (hstate : InitializedReachable ctx world state)
-    (hstep : SmallStep initializedLoad ctx state trace state') :
-    trace = [] ∧ InitializedReachable ctx world state' := by
-  cases hstate <;> cases hstep <;>
-    simp_all [initializedLoad, Program.decodeStmt, Program.terminatorAt, Program.block?,
-      Program.function?, Function.block?,
-      BasicBlock.absoluteToPosition, initializedState0, initializedState1, initializedState2,
-      initializedState3, initializedState4, initializedState5, initializedState6,
-      initializedState7, stmtControl, termControl]
-  case state0.assign state' nextControl result expr hstmt heval =>
-    obtain ⟨rfl, rfl, rfl⟩ := hstmt
-    simp [eval_assign, Expr.eval, Locals.assign, bind, Except.bind] at heval
-    subst state'
-    exact .state1
-  case state1.mallocUninit state' nextControl alloc result size hstmt _ heval =>
-    obtain ⟨rfl, rfl, rfl⟩ := hstmt
-    rcases eval_initialized_malloc heval with ⟨hsize, rfl⟩
-    exact .state2 alloc hsize
-  case state2.assign alloc hsize state' nextControl result expr hstmt heval =>
-    obtain ⟨rfl, rfl, rfl⟩ := hstmt
-    simp [eval_assign, Expr.eval, Locals.assign, bind, Except.bind] at heval
-    subst state'
-    exact .state3 alloc hsize
-  case state3.mstore32 alloc hsize state' nextControl offset value hstmt heval =>
-    obtain ⟨rfl, rfl, rfl⟩ := hstmt
-    have := eval_initialized_mstore heval
-    subst state'
-    exact .state4 alloc hsize
-  case state4.mload32 alloc hsize state' nextControl assumed result offset hstmt heval =>
-    obtain ⟨rfl, rfl, rfl⟩ := hstmt
-    have := eval_initialized_mload hsize assumed heval
-    subst state'
-    exact .state5 alloc hsize
-  case state5.sstore alloc hsize state' nextControl key value hstmt heval =>
-    obtain ⟨rfl, rfl, rfl⟩ := hstmt
-    simp [eval_sstore, locals1, locals2, locals3, locals5,
-      Locals.lookup, Locals.lookup?, Locals.empty, Locals.assign, bind, Except.bind,
-      pure, Except.pure] at heval
-    subst state'
-    exact .state6 alloc hsize
-  case state6.terminator alloc hsize terminator hterm heval =>
-    subst terminator
-    simp [eval_terminator, pure, Except.pure] at heval
-    subst state'
-    exact .state7 alloc hsize
-
 set_option linter.unusedSimpArgs false in
-private theorem initialized_step_closed_gen {ctx : CallContext} {world : World}
+private theorem initialized_step_closed {ctx : CallContext} {world : World}
     {state : MachineState} {final : Generic.GenState localsFrame} {trace : Trace}
     (hstate : InitializedReachable ctx world state)
     (hstep : Generic.GenStep localsFrame (sirDecoder initializedLoad) sirPolicy ctx
@@ -426,46 +287,28 @@ private theorem initialized_step_closed_gen {ctx : CallContext} {world : World}
     | exact InitializedReachable.state7 _ (by assumption)
 
 private theorem initialized_steps_from {ctx : CallContext} {world : World}
-    {start : MachineState} {trace : Trace} {state : MachineState}
-    (hstart : InitializedReachable ctx world start)
-    (hsteps : Steps initializedLoad ctx start trace state) :
-    trace = [] ∧ InitializedReachable ctx world state := by
-  induction hsteps using Steps.inductionOn with
-  | refl => exact ⟨rfl, hstart⟩
-  | tail start next ih =>
-      rcases ih hstart with ⟨rfl, hmid⟩
-      rcases initialized_step_closed hmid next with ⟨rfl, hstate⟩
-      exact ⟨rfl, hstate⟩
-
-private theorem initialized_steps {ctx : CallContext} {world : World}
-    {trace : Trace} {state : MachineState}
-    (hsteps : Steps initializedLoad ctx (initializedState0 world) trace state) :
-    trace = [] ∧ InitializedReachable ctx world state :=
-  initialized_steps_from .state0 hsteps
-
-private theorem initialized_steps_from_gen {ctx : CallContext} {world : World}
     {start final : MachineState} {trace : Trace}
     (hstart : InitializedReachable ctx world start)
     (hsteps : Generic.GenSteps localsFrame (sirDecoder initializedLoad) sirPolicy ctx
       start.gen trace final.gen) :
     trace = [] ∧ InitializedReachable ctx world final := by
-  apply Steps.inductionOn_gen
+  apply Steps.inductionOn
     (motive := fun state trace final _ =>
       InitializedReachable ctx world state →
         trace = [] ∧ InitializedReachable ctx world final)
     (fun _ hstate => ⟨rfl, hstate⟩)
     (fun steps next ih hstate => by
       rcases ih hstate with ⟨rfl, hmiddle⟩
-      rcases initialized_step_closed_gen hmiddle next with ⟨rfl, hfinal⟩
+      rcases initialized_step_closed hmiddle next with ⟨rfl, hfinal⟩
       exact ⟨rfl, hfinal⟩)
     hsteps hstart
 
-private theorem initialized_steps_gen {ctx : CallContext} {world : World}
+private theorem initialized_steps {ctx : CallContext} {world : World}
     {trace : Trace} {state : MachineState}
     (hsteps : Generic.GenSteps localsFrame (sirDecoder initializedLoad) sirPolicy ctx
       (initializedState0 world).gen trace state.gen) :
     trace = [] ∧ InitializedReachable ctx world state :=
-  initialized_steps_from_gen .state0 hsteps
+  initialized_steps_from .state0 hsteps
 
 private theorem initialized_entry (world : World) :
     initializedLoad.callState? entryFunction { world := world } #[] =
@@ -489,38 +332,7 @@ private theorem initialized_no_next_event {ctx : CallContext} {world : World}
   have := congrArg List.length hnil
   simp at this
 
-private theorem initialized_no_next_event_gen {ctx : CallContext} {world : World}
-    {trace history rest : Trace} {event : Event} {initial state : MachineState}
-    (hentry : initializedLoad.callState? entryFunction { world := world } #[] = some initial)
-    (hsteps : Generic.GenSteps localsFrame (sirDecoder initializedLoad) sirPolicy ctx
-      initial.gen trace state.gen)
-    (htrace : trace = history ++ event :: rest) : False := by
-  have hinitial : initial = initializedState0 world := Option.some.inj
-    (hentry.symm.trans (initialized_entry world))
-  subst initial
-  have hnil := (initialized_steps_gen hsteps).1
-  rw [htrace] at hnil
-  have := congrArg List.length hnil
-  simp at this
-
 private theorem initialized_halted_world {ctx : CallContext} {world : World}
-    {trace : Trace} {globals : Globals}
-    (hrun : EvalFn initializedLoad ctx entryFunction { world := world } #[]
-      trace globals .halted) :
-    trace = [] ∧ globals.world = world.storeStorage ctx.self 42 42 := by
-  cases hrun with
-  | halted hentry hsteps hhalt =>
-      rename_i initial exit
-      have : initial = initializedState0 world := Option.some.inj
-        (hentry.symm.trans (initialized_entry world))
-      subst initial
-      rcases initialized_steps hsteps with ⟨htrace, hstate⟩
-      refine ⟨htrace, ?_⟩
-      cases hstate <;> simp [initializedState0, initializedState1, initializedState2,
-        initializedState3, initializedState4, initializedState5, initializedState6,
-        initializedState7, stmtControl, termControl] at hhalt ⊢
-
-private theorem initialized_halted_world_gen {ctx : CallContext} {world : World}
     {trace : Trace} {globals : Globals}
     (hrun : Generic.GenEvalFn localsFrame (sirDecoder initializedLoad) sirPolicy ctx
       entryFunction { world := world } #[] trace globals .halted) :
@@ -536,7 +348,7 @@ private theorem initialized_halted_world_gen {ctx : CallContext} {world : World}
         (initializedState0 world).gen trace
         ({ globals := exitGlobals, locals := exitLocals, control := exitControl } : MachineState).gen
         at hsteps
-      rcases initialized_steps_gen hsteps with ⟨htrace, hstate⟩
+      rcases initialized_steps hsteps with ⟨htrace, hstate⟩
       refine ⟨htrace, ?_⟩
       change exitControl = .halted at hhalt
       cases hstate <;> simp [initializedState6, stmtControl, termControl] at hhalt ⊢
@@ -578,62 +390,7 @@ private theorem zero_entry (world : World) :
     Array.toList_zip]
   rfl
 
-private theorem zero_run (ctx : CallContext) (world : World) (offset : Word) :
-    zeroSizeStore.Runs ctx entryFunction world [] (zeroState4 ctx world offset) := by
-  refine ⟨zeroState0 world, zero_entry world, ?_⟩
-  have step01 : SmallStep zeroSizeStore ctx (zeroState0 world) [] (zeroState1 world) := by
-      refine .assign
-        (state' := { zeroState1 world with control := stmtControl 0 })
-        (nextControl := stmtControl 1) (result := sizeVar) (expr := .constant 0) ?_ ?_
-      · simp [zeroSizeStore, Program.decodeStmt, Program.block?, Program.function?,
-          Function.block?, BasicBlock.absoluteToPosition,
-          zeroState0, stmtControl]
-      · simp [eval_assign, Expr.eval, zeroState0, zeroState1, stmtControl,
-          Locals.empty, Locals.assign, bind, Except.bind]
-  have step12 :
-        SmallStep zeroSizeStore ctx (zeroState1 world) [] (zeroState2 world offset) := by
-      unfold zeroState2
-      refine SmallStep.mallocUninit
-        (state' := zeroState2Eval world offset)
-        (nextControl := stmtControl 2) (alloc := zeroAlloc offset)
-        (result := xVar) (size := sizeVar) ?_ ?_ ?_
-      · simp [zeroSizeStore, Program.decodeStmt, Program.block?, Program.function?,
-          Function.block?, BasicBlock.absoluteToPosition,
-          zeroState1, stmtControl]
-      · constructor
-        · change offset.toBitVec.toNat ≤ 2 ^ 256
-          exact offset.toBitVec.isLt.le
-        · simp [zeroState1, MemoryState.empty]
-      · simp only [eval_malloc_uninit, StateT.run_bind]
-        rw [run_lookupM_machine]
-        have hzero : (0 : Word).toNat = 0 := by decide
-        simp [zeroState1, zeroAlloc, Allocation.size, Locals.lookup, Locals.lookup?,
-          Locals.assign, Locals.empty, bind, Except.bind, pure, hzero]
-        rfl
-  have step23 :
-        SmallStep zeroSizeStore ctx (zeroState2 world offset) [] (zeroState3 ctx world offset) := by
-      unfold zeroState3
-      refine SmallStep.sstore
-        (state' := { zeroState2 world offset with
-          globals := { (zeroState2 world offset).globals with
-            world := world.storeStorage ctx.self offset offset } })
-        (nextControl := termControl) (key := xVar) (value := xVar) ?_ ?_
-      · simp [zeroSizeStore, Program.decodeStmt, Program.block?, Program.function?,
-          Function.block?, BasicBlock.absoluteToPosition,
-          zeroState2, stmtControl, termControl]
-      · simp [eval_sstore, zeroState2, stmtControl,
-          Locals.lookup, Locals.lookup?, Locals.empty, Locals.assign, bind, Except.bind,
-          pure, Except.pure]
-  have step34 :
-        SmallStep zeroSizeStore ctx (zeroState3 ctx world offset) []
-          (zeroState4 ctx world offset) := by
-      apply SmallStep.terminator (terminator := .halt)
-      · simp [zeroSizeStore, Program.terminatorAt, Program.block?, Program.function?,
-          Function.block?, zeroState3, termControl]
-      · simp [eval_terminator, zeroState3, zeroState4, pure, Except.pure]
-  exact .tail (.tail (.tail (.tail .refl step01) step12) step23) step34
-
-private theorem zero_run_gen (ctx : CallContext) (world : World) (offset : Word) :
+private theorem zero_steps (ctx : CallContext) (world : World) (offset : Word) :
     Generic.GenSteps localsFrame (sirDecoder zeroSizeStore) sirPolicy ctx
       (zeroState0 world).gen [] (zeroState4 ctx world offset).gen := by
   have hfetchEmpty : (#[] : Array VarId).mapM ((zeroState0 world).locals.lookup ·) =
@@ -647,7 +404,7 @@ private theorem zero_run_gen (ctx : CallContext) (world : World) (offset : Word)
     rfl
   have step01 : Generic.GenStep localsFrame (sirDecoder zeroSizeStore) sirPolicy ctx
       (zeroState0 world).gen [] (zeroState1 world).gen := by
-    apply step_assign_gen (program := zeroSizeStore) (ctx := ctx)
+    apply step_assign (program := zeroSizeStore) (ctx := ctx)
       (result := sizeVar) (expr := .constant 0)
       (by simp [zeroSizeStore, Program.decodeStmt, Program.block?, Program.function?,
         Function.block?, BasicBlock.absoluteToPosition, zeroState0, stmtControl])
@@ -672,7 +429,7 @@ private theorem zero_run_gen (ctx : CallContext) (world : World) (offset : Word)
     decide
   have step12 : Generic.GenStep localsFrame (sirDecoder zeroSizeStore) sirPolicy ctx
       (zeroState1 world).gen [] (zeroState2 world offset).gen := by
-    apply step_mallocUninit_gen (program := zeroSizeStore) (ctx := ctx)
+    apply step_mallocUninit (program := zeroSizeStore) (ctx := ctx)
       (result := xVar) (size := sizeVar)
       (by simp [zeroSizeStore, Program.decodeStmt, Program.block?, Program.function?,
         Function.block?, BasicBlock.absoluteToPosition, zeroState1, stmtControl])
@@ -690,7 +447,7 @@ private theorem zero_run_gen (ctx : CallContext) (world : World) (offset : Word)
     rfl
   have step23 : Generic.GenStep localsFrame (sirDecoder zeroSizeStore) sirPolicy ctx
       (zeroState2 world offset).gen [] (zeroState3 ctx world offset).gen := by
-    apply step_sstore_gen (program := zeroSizeStore) (ctx := ctx)
+    apply step_sstore (program := zeroSizeStore) (ctx := ctx)
       (key := xVar) (value := xVar)
       (by simp [zeroSizeStore, Program.decodeStmt, Program.block?, Program.function?,
         Function.block?, BasicBlock.absoluteToPosition, zeroState2, stmtControl, termControl])
@@ -700,16 +457,16 @@ private theorem zero_run_gen (ctx : CallContext) (world : World) (offset : Word)
       hstoreEmpty
   have step34 : Generic.GenStep localsFrame (sirDecoder zeroSizeStore) sirPolicy ctx
       (zeroState3 ctx world offset).gen [] (zeroState4 ctx world offset).gen :=
-    step_terminator_gen (terminator := .halt)
+    step_terminator (terminator := .halt)
       (by simp [zeroSizeStore, Program.terminatorAt, Program.block?, Program.function?,
         Function.block?, zeroState3, termControl])
       (by simp [eval_terminator, zeroState3, zeroState4, pure, Except.pure])
   exact .tail (.tail (.tail (.tail .refl step01) step12) step23) step34
 
-private theorem zero_eval_gen (ctx : CallContext) (world : World) (offset : Word) :
+private theorem zero_eval (ctx : CallContext) (world : World) (offset : Word) :
     Generic.GenEvalFn localsFrame (sirDecoder zeroSizeStore) sirPolicy ctx
       entryFunction { world := world } #[] [] (zeroState4 ctx world offset).globals .halted :=
-  evalFn_halted_gen (zero_entry world) (zero_run_gen ctx world offset) rfl
+  EvalFn.halted (zero_entry world) (zero_steps ctx world offset) rfl
 
 private def zeroContext : CallContext :=
   { self := 0, caller := 0, value := 0, calldata := ByteArray.empty, isStatic := false }
@@ -763,19 +520,11 @@ theorem initializedLoad_deterministic : initializedLoad.Deterministic := by
 theorem zeroSizeStore_not_deterministic : ¬ zeroSizeStore.Deterministic := by
   intro hdet
   have eval₁ : EvalFn zeroSizeStore zeroContext entryFunction
-      { world := default } #[] [] (zeroState4 zeroContext default 1).globals .halted := by
-    rcases zero_run zeroContext default 1 with ⟨initial, hentry, hsteps⟩
-    have : initial = zeroState0 default :=
-      Option.some.inj (hentry.symm.trans (zero_entry default))
-    subst initial
-    exact .halted (zero_entry default) hsteps rfl
+      { world := default } #[] [] (zeroState4 zeroContext default 1).globals .halted :=
+    zero_eval zeroContext default 1
   have eval₂ : EvalFn zeroSizeStore zeroContext entryFunction
-      { world := default } #[] [] (zeroState4 zeroContext default 2).globals .halted := by
-    rcases zero_run zeroContext default 2 with ⟨initial, hentry, hsteps⟩
-    have : initial = zeroState0 default :=
-      Option.some.inj (hentry.symm.trans (zero_entry default))
-    subst initial
-    exact .halted (zero_entry default) hsteps rfl
+      { world := default } #[] [] (zeroState4 zeroContext default 2).globals .halted :=
+    zero_eval zeroContext default 2
   have heq := (hdet zeroContext (default : World)).1 []
     (.halt ((default : World).storeStorage zeroContext.self 1 1))
     (.halt ((default : World).storeStorage zeroContext.self 2 2))

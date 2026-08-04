@@ -330,7 +330,7 @@ def Generic.Instr.Fires {frame : OpFrame} (instruction : Instr frame)
         env globals trace env' globals'
   | .icall _ => False
 
-theorem step_statement_gen
+theorem step_statement
     {state : MachineState} {next : MachineControl} {statement : Stmt}
     {trace : Trace} {locals' : Locals} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, statement))
@@ -349,7 +349,7 @@ theorem step_statement_gen
           simp [sirDecode, hdecode, hinstruction]) hfires
   | icall callee => simp [Generic.Instr.Fires] at hfires
 
-theorem step_assign_gen
+theorem step_assign
     {state : MachineState} {next : MachineControl} {result : VarId} {expr : Expr}
     {trace : Trace} {locals' : Locals} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .assign result expr))
@@ -357,9 +357,9 @@ theorem step_assign_gen
       trace locals' globals') :
     GenStep localsFrame (sirDecoder program) sirPolicy ctx state.gen trace
       ({ globals := globals', locals := locals', control := next } : MachineState).gen :=
-  step_statement_gen hdecode hfires
+  step_statement hdecode hfires
 
-theorem step_sstore_gen
+theorem step_sstore
     {state : MachineState} {next : MachineControl} {key value : VarId}
     {trace : Trace} {locals' : Locals} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .sstore key value))
@@ -367,9 +367,9 @@ theorem step_sstore_gen
       state.locals state.globals trace locals' globals') :
     GenStep localsFrame (sirDecoder program) sirPolicy ctx state.gen trace
       ({ globals := globals', locals := locals', control := next } : MachineState).gen :=
-  step_statement_gen hdecode hfires
+  step_statement hdecode hfires
 
-theorem step_gas_gen
+theorem step_gas
     {state : MachineState} {next : MachineControl} {result : VarId}
     {trace : Trace} {locals' : Locals} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .gas result))
@@ -377,9 +377,9 @@ theorem step_gas_gen
       state.locals state.globals trace locals' globals') :
     GenStep localsFrame (sirDecoder program) sirPolicy ctx state.gen trace
       ({ globals := globals', locals := locals', control := next } : MachineState).gen :=
-  step_statement_gen hdecode hfires
+  step_statement hdecode hfires
 
-theorem step_call_gen
+theorem step_call
     {state : MachineState} {next : MachineControl} {call : Call}
     {trace : Trace} {locals' : Locals} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .call call))
@@ -387,9 +387,9 @@ theorem step_call_gen
       state.locals state.globals trace locals' globals') :
     GenStep localsFrame (sirDecoder program) sirPolicy ctx state.gen trace
       ({ globals := globals', locals := locals', control := next } : MachineState).gen :=
-  step_statement_gen hdecode hfires
+  step_statement hdecode hfires
 
-theorem step_mallocUninit_gen
+theorem step_mallocUninit
     {state : MachineState} {next : MachineControl} {result size : VarId}
     {trace : Trace} {locals' : Locals} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .mallocUninit result size))
@@ -397,9 +397,9 @@ theorem step_mallocUninit_gen
       state.locals state.globals trace locals' globals') :
     GenStep localsFrame (sirDecoder program) sirPolicy ctx state.gen trace
       ({ globals := globals', locals := locals', control := next } : MachineState).gen :=
-  step_statement_gen hdecode hfires
+  step_statement hdecode hfires
 
-theorem step_mstore32_gen
+theorem step_mstore32
     {state : MachineState} {next : MachineControl} {offset value : VarId}
     {trace : Trace} {locals' : Locals} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .mstore32 offset value))
@@ -407,9 +407,9 @@ theorem step_mstore32_gen
       state.locals state.globals trace locals' globals') :
     GenStep localsFrame (sirDecoder program) sirPolicy ctx state.gen trace
       ({ globals := globals', locals := locals', control := next } : MachineState).gen :=
-  step_statement_gen hdecode hfires
+  step_statement hdecode hfires
 
-theorem step_mload32_gen
+theorem step_mload32
     {state : MachineState} {next : MachineControl} {result offset : VarId}
     {trace : Trace} {locals' : Locals} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .mload32 result offset))
@@ -417,9 +417,9 @@ theorem step_mload32_gen
       state.locals state.globals trace locals' globals') :
     GenStep localsFrame (sirDecoder program) sirPolicy ctx state.gen trace
       ({ globals := globals', locals := locals', control := next } : MachineState).gen :=
-  step_statement_gen hdecode hfires
+  step_statement hdecode hfires
 
-theorem step_terminator_gen
+theorem step_terminator
     {state state' : MachineState} {terminator : Terminator}
     (hterm : program.terminatorAt state.control = some terminator)
     (heval : (eval_terminator program terminator).run state = .ok ((), state')) :
@@ -428,7 +428,7 @@ theorem step_terminator_gen
   apply sirControl_inv.mpr
   exact ⟨terminator, state', hterm, heval, rfl, rfl, rfl, rfl⟩
 
-theorem step_icall_gen
+theorem step_icall
     {state : MachineState} {next : MachineControl} {callee : FunctionId}
     {args dests : Array VarId} {values results : Array Word} {trace : Trace}
     {globals' : Globals} {locals' : Locals}
@@ -447,7 +447,7 @@ theorem step_icall_gen
   · exact hcallee
   · exact sirResume_returned_eq_some_iff.mpr ⟨hbind, rfl⟩
 
-theorem step_icallHalted_gen
+theorem step_icallHalted
     {state : MachineState} {next : MachineControl} {callee : FunctionId}
     {args dests : Array VarId} {values : Array Word} {trace : Trace}
     {globals' : Globals}
@@ -465,7 +465,7 @@ theorem step_icallHalted_gen
   · exact hcallee
   · exact sirResume_halted state.locals dests next
 
-theorem evalFn_returned_gen
+theorem EvalFn.returned
     {function : FunctionId} {globals : Globals} {args results : Array Word}
     {trace : Trace} {initial exit : MachineState}
     (hentry : program.callState? function globals args = some initial)
@@ -477,7 +477,7 @@ theorem evalFn_returned_gen
   GenEvalFn.returned (initial := initial.gen) (exit := exit.gen)
     (by simp [sirEntry_eq, hentry]) hrun hreturn
 
-theorem evalFn_halted_gen
+theorem EvalFn.halted
     {function : FunctionId} {globals : Globals} {args : Array Word}
     {trace : Trace} {initial exit : MachineState}
     (hentry : program.callState? function globals args = some initial)
@@ -490,7 +490,7 @@ theorem evalFn_halted_gen
     (by simp [sirEntry_eq, hentry]) hrun hhalt
 
 @[elab_as_elim]
-theorem Steps.inductionOn_gen {program : Program} {ctx : CallContext}
+theorem Steps.inductionOn {program : Program} {ctx : CallContext}
     {motive : (state : MachineState) → (trace : Trace) → (final : MachineState) →
       GenSteps localsFrame (sirDecoder program) sirPolicy ctx
         state.gen trace final.gen → Prop}
@@ -514,7 +514,7 @@ theorem Steps.inductionOn_gen {program : Program} {ctx : CallContext}
         (final := final.toMachine) (trace₁ := trace₁) (trace₂ := trace₂)
         (by simpa using start) (by simpa using next) (by simpa using ih)) h
 
-theorem Steps.single_gen
+theorem Steps.single
     {state final : MachineState} {trace : Trace}
     (step : GenStep localsFrame (sirDecoder program) sirPolicy ctx
       state.gen trace final.gen) :
@@ -522,7 +522,7 @@ theorem Steps.single_gen
       state.gen trace final.gen :=
   Generic.GenSteps.single step
 
-theorem Steps.trans_gen
+theorem Steps.trans
     {state middle final : MachineState} {trace₁ trace₂ : Trace}
     (h₁ : GenSteps localsFrame (sirDecoder program) sirPolicy ctx
       state.gen trace₁ middle.gen)
@@ -541,7 +541,7 @@ theorem Steps.trans_gen
       simpa [List.append_assoc] using Generic.GenSteps.tail (ih hstart) next)
     h₂) rfl
 
-theorem Steps.head_gen
+theorem Steps.head
     {state middle final : MachineState} {trace₁ trace₂ : Trace}
     (step : GenStep localsFrame (sirDecoder program) sirPolicy ctx
       state.gen trace₁ middle.gen)
@@ -549,23 +549,23 @@ theorem Steps.head_gen
       middle.gen trace₂ final.gen) :
     GenSteps localsFrame (sirDecoder program) sirPolicy ctx
       state.gen (trace₁ ++ trace₂) final.gen :=
-  Steps.trans_gen (Steps.single_gen step) rest
+  Steps.trans (Steps.single step) rest
 
-def Stuck_gen (program : Program) (ctx : CallContext) (state : MachineState) : Prop :=
+def Stuck (program : Program) (ctx : CallContext) (state : MachineState) : Prop :=
   Generic.Stuck (sirDecoder program) sirPolicy ctx state.gen
 
-theorem stuck_of_returned_gen
+theorem stuck_of_returned
     {state : MachineState} {results : Array Word}
     (hcontrol : state.control = .returned results) :
-    Stuck_gen program ctx state :=
+    Stuck program ctx state :=
   Generic.stuck_of_returned (Generic.sirDecoder_terminal program) hcontrol
 
-theorem stuck_of_halted_gen
+theorem stuck_of_halted
     {state : MachineState} (hcontrol : state.control = .halted) :
-    Stuck_gen program ctx state :=
+    Stuck program ctx state :=
   Generic.stuck_of_halted (Generic.sirDecoder_terminal program) hcontrol
 
-theorem Steps.head_decomp_gen
+theorem Steps.head_decomp
     {state final : MachineState} {trace : Trace}
     (h : GenSteps localsFrame (sirDecoder program) sirPolicy ctx
       state.gen trace final.gen) :
@@ -581,15 +581,15 @@ theorem Steps.head_decomp_gen
   · exact .inl ⟨MachineState.gen_inj hstate, htrace⟩
   · exact .inr ⟨middle.toMachine, trace₁, trace₂, step, rest, htrace⟩
 
-theorem Steps.eq_of_stuck_gen
+theorem Steps.eq_of_stuck
     {state final : MachineState} {trace : Trace}
     (h : GenSteps localsFrame (sirDecoder program) sirPolicy ctx
       state.gen trace final.gen)
-    (hstuck : Stuck_gen program ctx state) : final = state ∧ trace = [] := by
+    (hstuck : Stuck program ctx state) : final = state ∧ trace = [] := by
   obtain ⟨hstate, htrace⟩ := Generic.GenSteps.eq_of_stuck h hstuck
   exact ⟨MachineState.gen_inj hstate, htrace⟩
 
-theorem stepDialogue_all_gen
+theorem stepDialogue_all
     (hfree : program.MemOracleFree)
     {state final : MachineState} {trace : Trace}
     (h : GenStep localsFrame (sirDecoder program) sirPolicy ctx
@@ -609,7 +609,7 @@ theorem stepDialogue_all_gen
   · exact .inl ⟨htrace, MachineState.gen_inj hfinal⟩
   · exact .inr hdiv
 
-theorem runDialogue_all_gen
+theorem runDialogue_all
     (hfree : program.MemOracleFree)
     {state final : MachineState} {trace : Trace}
     (h : GenSteps localsFrame (sirDecoder program) sirPolicy ctx
@@ -629,7 +629,7 @@ theorem runDialogue_all_gen
     (Generic.sirDecoder_terminal program)
     (Generic.sirDecoder_noMload hfree) h trace₂ final₂.gen h₂
 
-theorem fnDialogue_all_gen
+theorem fnDialogue_all
     (hfree : program.MemOracleFree)
     {function : FunctionId} {globals globals' : Globals} {args : Array Word}
     {trace : Trace} {outcome : FunctionOutcome}
@@ -646,7 +646,7 @@ theorem fnDialogue_all_gen
     (Generic.sirDecoder_terminal program)
     (Generic.sirDecoder_noMload hfree) h
 
-theorem Steps.confluence_or_queryDivergence_proof_gen
+theorem Steps.confluence_or_queryDivergence_proof
     (hfree : program.MemOracleFree)
     {state final₁ final₂ : MachineState} {trace₁ trace₂ : Trace}
     (h₁ : GenSteps localsFrame (sirDecoder program) sirPolicy ctx
@@ -659,76 +659,6 @@ theorem Steps.confluence_or_queryDivergence_proof_gen
       final₂.gen suffix final₁.gen ∧ trace₂ ++ suffix = trace₁) ∨
     Trace.QueryDivergence trace₁ trace₂ :=
   Generic.sir_steps_confluence_or_queryDivergence hfree h₁ h₂
-
-@[elab_as_elim]
-theorem Steps.inductionOn {program : Program} {ctx : CallContext}
-    {motive : (s : MachineState) → (t : Trace) → (e : MachineState) →
-      Steps program ctx s t e → Prop}
-    (refl : ∀ s, motive s [] s .refl)
-    (tail : ∀ {s mid s' : MachineState} {t₁ t₂ : Trace}
-      (start : Steps program ctx s t₁ mid) (next : SmallStep program ctx mid t₂ s'),
-      motive s t₁ mid start → motive s (t₁ ++ t₂) s' (start.tail next))
-    {s : MachineState} {t : Trace} {e : MachineState}
-    (h : Steps program ctx s t e) : motive s t e h := by
-  refine Steps.rec (motive_1 := fun _ _ _ _ => True)
-      (motive_2 := fun a ta b hh => motive a ta b hh)
-      (motive_3 := fun _ _ _ _ _ _ _ => True)
-      ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?refl ?tail ?_ ?_ h
-  case refl => intro a; exact refl a
-  case tail => intro a m b ta tb start next ih _; exact tail start next ih
-  all_goals intros; trivial
-
-theorem Steps.single {program : Program} {ctx : CallContext}
-    {s s' : MachineState} {t : Trace}
-    (step : SmallStep program ctx s t s') : Steps program ctx s t s' :=
-  Steps.tail Steps.refl step
-
-theorem Steps.trans {program : Program} {ctx : CallContext}
-    {s mid s' : MachineState} {t₁ t₂ : Trace}
-    (h₁ : Steps program ctx s t₁ mid) (h₂ : Steps program ctx mid t₂ s') :
-    Steps program ctx s (t₁ ++ t₂) s' := by
-  induction h₂ using Steps.inductionOn with
-  | refl => simpa using h₁
-  | tail start next ih => simpa [List.append_assoc] using Steps.tail (ih h₁) next
-
-theorem Steps.head {program : Program} {ctx : CallContext}
-    {s mid s' : MachineState} {t₁ t₂ : Trace}
-    (step : SmallStep program ctx s t₁ mid) (rest : Steps program ctx mid t₂ s') :
-    Steps program ctx s (t₁ ++ t₂) s' :=
-  Steps.trans (Steps.single step) rest
-def Stuck (program : Program) (ctx : CallContext) (s : MachineState) : Prop :=
-  ∀ t s', ¬ SmallStep program ctx s t s'
-
-theorem stuck_of_returned
-    {state : MachineState} {rs : Array Word} (hctrl : state.control = .returned rs) :
-    Stuck program ctx state := by
-  intro t s' hstep
-  cases hstep <;> simp_all [Program.decodeStmt, Program.terminatorAt]
-
-theorem stuck_of_halted
-    {state : MachineState} (hctrl : state.control = .halted) :
-    Stuck program ctx state := by
-  intro t s' hstep
-  cases hstep <;> simp_all [Program.decodeStmt, Program.terminatorAt]
-
-theorem Steps.head_decomp
-    {s e : MachineState} {t : Trace} (h : Steps program ctx s t e) :
-    (s = e ∧ t = []) ∨
-      ∃ mid t₁ t₂, SmallStep program ctx s t₁ mid ∧ Steps program ctx mid t₂ e ∧
-        t = t₁ ++ t₂ := by
-  induction h using Steps.inductionOn with
-  | refl => exact .inl ⟨rfl, rfl⟩
-  | tail start next ih =>
-    rcases ih with ⟨rfl, rfl⟩ | ⟨mid, u₁, u₂, step, rest, rfl⟩
-    · exact .inr ⟨_, _, [], next, .refl, by simp⟩
-    · exact .inr ⟨mid, u₁, u₂ ++ _, step, rest.tail next, by simp⟩
-
-theorem Steps.eq_of_stuck
-    {s e : MachineState} {t : Trace}
-    (h : Steps program ctx s t e) (hs : Stuck program ctx s) : e = s ∧ t = [] := by
-  rcases h.head_decomp with ⟨rfl, rfl⟩ | ⟨mid, t₁, t₂, step, -, -⟩
-  · exact ⟨rfl, rfl⟩
-  · exact absurd step (hs t₁ mid)
 
 private theorem eval_jump_control
     {s s' : MachineState} {target : BlockId}
@@ -812,166 +742,7 @@ theorem eval_terminator_iret_inv
           Except.ok.injEq, Prod.mk.injEq, true_and] at h
         exact h.symm
 
-theorem SmallStep.preserves_function
-    {cursor : ProgramCursor} {s s' : MachineState} {t : Trace}
-    (h : SmallStep program ctx s t s')
-    (hctrl : s.control = .running cursor) :
-    s'.control = .halted ∨ (∃ rs, s'.control = .returned rs) ∨
-      ∃ cursor', s'.control = .running cursor' ∧ cursor'.fn = cursor.fn := by
-  cases h with
-  | assign hstmt heval =>
-    obtain ⟨pos, rfl⟩ := Program.decodeStmt_next_block hctrl hstmt
-    exact .inr (.inr ⟨_, rfl, rfl⟩)
-  | sstore hstmt heval =>
-    obtain ⟨pos, rfl⟩ := Program.decodeStmt_next_block hctrl hstmt
-    exact .inr (.inr ⟨_, rfl, rfl⟩)
-  | gas hstmt heval =>
-    obtain ⟨pos, rfl⟩ := Program.decodeStmt_next_block hctrl hstmt
-    exact .inr (.inr ⟨_, rfl, rfl⟩)
-  | call hstmt heval =>
-    obtain ⟨pos, rfl⟩ := Program.decodeStmt_next_block hctrl hstmt
-    exact .inr (.inr ⟨_, rfl, rfl⟩)
-  | mallocUninit hstmt halloc heval =>
-    obtain ⟨pos, rfl⟩ := Program.decodeStmt_next_block hctrl hstmt
-    exact .inr (.inr ⟨_, rfl, rfl⟩)
-  | mstore32 hstmt heval =>
-    obtain ⟨pos, rfl⟩ := Program.decodeStmt_next_block hctrl hstmt
-    exact .inr (.inr ⟨_, rfl, rfl⟩)
-  | mload32 hstmt heval =>
-    obtain ⟨pos, rfl⟩ := Program.decodeStmt_next_block hctrl hstmt
-    exact .inr (.inr ⟨_, rfl, rfl⟩)
-  | icall hstmt hargs hcallee hbind =>
-    obtain ⟨pos, rfl⟩ := Program.decodeStmt_next_block hctrl hstmt
-    exact .inr (.inr ⟨_, rfl, rfl⟩)
-  | icallHalted hstmt hargs hcallee => exact .inl rfl
-  | terminator hterm heval =>
-    rename_i term
-    have hsrc := Program.terminatorAt_inv hctrl hterm
-    cases term with
-    | halt =>
-      have hh : (eval_terminator program .halt).run s =
-          .ok ((), { s with control := .halted }) := rfl
-      rw [hh] at heval
-      obtain ⟨-, rfl⟩ := Prod.mk.inj (Except.ok.inj heval)
-      exact .inl rfl
-    | jump target =>
-      simp only [eval_terminator] at heval
-      obtain ⟨sourceCursor, targetBlock, hsource, htgt, hctrl'⟩ := eval_jump_control heval
-      obtain rfl := MachineControl.running.inj (hsource.symm.trans hctrl)
-      exact .inr (.inr ⟨_, hctrl', rfl⟩)
-    | branch condition thenTarget elseTarget =>
-      simp only [eval_terminator] at heval
-      cases hcond : s.locals.lookup condition with
-      | error e =>
-        simp only [StateT.run, bind, StateT.bind, Locals.lookupM, liftM, monadLift,
-          MonadLift.monadLift, StateT.get, Except.bind, StateT.lift, pure,
-          Except.pure, hcond] at heval
-        simp at heval
-      | ok w =>
-        simp only [StateT.run, bind, StateT.bind, Locals.lookupM, liftM, monadLift,
-          MonadLift.monadLift, StateT.get, Except.bind, StateT.lift, pure,
-          Except.pure, hcond] at heval
-        by_cases hw : w = 0
-        · rw [if_pos hw] at heval
-          obtain ⟨sourceCursor, targetBlock, hsource, htgt, hctrl'⟩ := eval_jump_control heval
-          obtain rfl := MachineControl.running.inj (hsource.symm.trans hctrl)
-          exact .inr (.inr ⟨_, hctrl', rfl⟩)
-        · rw [if_neg hw] at heval
-          obtain ⟨sourceCursor, targetBlock, hsource, htgt, hctrl'⟩ := eval_jump_control heval
-          obtain rfl := MachineControl.running.inj (hsource.symm.trans hctrl)
-          exact .inr (.inr ⟨_, hctrl', rfl⟩)
-    | iret =>
-      obtain ⟨cursor, block, rs, hs, hb, hrs, rfl⟩ := eval_terminator_iret_inv heval
-      exact .inr (.inl ⟨rs, rfl⟩)
-
-theorem Steps.preserves_function_proof
-    {cursor : ProgramCursor} {s e : MachineState} {t : Trace}
-    (h : Steps program ctx s t e)
-    (hctrl : s.control = .running cursor) :
-    e.control = .halted ∨ (∃ rs, e.control = .returned rs) ∨
-      ∃ cursor', e.control = .running cursor' ∧ cursor'.fn = cursor.fn := by
-  induction h using Steps.inductionOn with
-  | refl => exact .inr (.inr ⟨cursor, hctrl, rfl⟩)
-  | tail start next ih =>
-    rcases ih hctrl with hmid | ⟨rs, hmid⟩ | ⟨cursor', hctrl', hfn⟩
-    · exact absurd next (stuck_of_halted hmid _ _)
-    · exact absurd next (stuck_of_returned hmid _ _)
-    · rcases next.preserves_function hctrl' with hhalt | hreturned | ⟨cursor'', hctrl'', hfn'⟩
-      · exact .inl hhalt
-      · exact .inr (.inl hreturned)
-      · exact .inr (.inr ⟨cursor'', hctrl'', hfn'.trans hfn⟩)
-
-theorem SmallStep.returned_inv
-    {s s' : MachineState} {t : Trace} {rs : Array Word}
-    (h : SmallStep program ctx s t s') (hret : s'.control = .returned rs) :
-    ∃ cursor block, s.control = .running cursor ∧
-      program.block? cursor = some block ∧ block.terminator = .iret ∧
-      block.outputs.mapM (s.locals.lookup ·) = .ok rs := by
-  cases h with
-  | assign hstmt heval =>
-    obtain ⟨cursor, rfl⟩ := Program.decodeStmt_next_running hstmt
-    cases hret
-  | sstore hstmt heval =>
-    obtain ⟨cursor, rfl⟩ := Program.decodeStmt_next_running hstmt
-    cases hret
-  | gas hstmt heval =>
-    obtain ⟨cursor, rfl⟩ := Program.decodeStmt_next_running hstmt
-    cases hret
-  | call hstmt heval =>
-    obtain ⟨cursor, rfl⟩ := Program.decodeStmt_next_running hstmt
-    cases hret
-  | mallocUninit hstmt halloc heval =>
-    obtain ⟨cursor, rfl⟩ := Program.decodeStmt_next_running hstmt
-    cases hret
-  | mstore32 hstmt heval =>
-    obtain ⟨cursor, rfl⟩ := Program.decodeStmt_next_running hstmt
-    cases hret
-  | mload32 hstmt heval =>
-    obtain ⟨cursor, rfl⟩ := Program.decodeStmt_next_running hstmt
-    cases hret
-  | icall hstmt hargs hcallee hbind =>
-    obtain ⟨cursor, rfl⟩ := Program.decodeStmt_next_running hstmt
-    cases hret
-  | icallHalted hstmt hargs hcallee => cases hret
-  | terminator hterm heval =>
-    rename_i term
-    cases term with
-    | halt =>
-      simp only [eval_terminator] at heval
-      obtain rfl := (Prod.mk.inj (Except.ok.inj heval)).2
-      cases hret
-    | jump target =>
-      simp only [eval_terminator] at heval
-      obtain ⟨sourceCursor, targetBlock, hsource, htgt, hctrl'⟩ := eval_jump_control heval
-      rw [hctrl'] at hret
-      cases hret
-    | branch condition thenTarget elseTarget =>
-      simp only [eval_terminator] at heval
-      cases hcond : s.locals.lookup condition with
-      | error e =>
-        simp only [StateT.run, bind, StateT.bind, Locals.lookupM, liftM, monadLift,
-          MonadLift.monadLift, StateT.get, Except.bind, StateT.lift, pure,
-          Except.pure, hcond] at heval
-        simp at heval
-      | ok w =>
-        simp only [StateT.run, bind, StateT.bind, Locals.lookupM, liftM, monadLift,
-          MonadLift.monadLift, StateT.get, Except.bind, StateT.lift, pure,
-          Except.pure, hcond] at heval
-        obtain ⟨sourceCursor, targetBlock, hsource, htgt, hctrl'⟩ := eval_jump_control heval
-        rw [hctrl'] at hret
-        cases hret
-    | iret =>
-      obtain ⟨cursor, block, actual, hctrl, hblock, houtputs, rfl⟩ :=
-        eval_terminator_iret_inv heval
-      obtain rfl := MachineControl.returned.inj hret
-      cases hpos : cursor.position with
-      | statement index => simp [Program.terminatorAt, hctrl, hpos] at hterm
-      | terminator =>
-        have hblockTerm : block.terminator = .iret := by
-          simpa [Program.terminatorAt, hctrl, hpos, hblock] using hterm
-        exact ⟨cursor, block, hctrl, hblock, hblockTerm, houtputs⟩
-
-private theorem eval_terminator_preserves_function_gen
+private theorem eval_terminator_preserves_function
     {cursor : ProgramCursor} {state state' : MachineState} {terminator : Terminator}
     (hcontrol : state.control = .running cursor)
     (heval : (eval_terminator program terminator).run state = .ok ((), state')) :
@@ -1010,7 +781,7 @@ private theorem eval_terminator_preserves_function_gen
       obtain ⟨_, _, results, -, -, -, rfl⟩ := eval_terminator_iret_inv heval
       exact .inr (.inl ⟨results, rfl⟩)
 
-private theorem eval_terminator_returned_inv_gen
+private theorem eval_terminator_returned_inv
     {state state' : MachineState} {terminator : Terminator} {results : Array Word}
     (hterm : program.terminatorAt state.control = some terminator)
     (heval : (eval_terminator program terminator).run state = .ok ((), state'))
@@ -1086,9 +857,9 @@ private theorem genStep_preserves_function
       change sirControl program state.env state.globals state.control = _ at hstep
       obtain ⟨terminator, state', -, heval, rfl, rfl, rfl, rfl⟩ :=
         sirControl_inv.mp hstep
-      exact eval_terminator_preserves_function_gen hcontrol heval
+      exact eval_terminator_preserves_function hcontrol heval
 
-theorem SmallStep.preserves_function_gen
+theorem SmallStep.preserves_function
     {cursor : ProgramCursor} {state final : MachineState} {trace : Trace}
     (h : GenStep localsFrame (sirDecoder program) sirPolicy ctx
       state.gen trace final.gen)
@@ -1121,7 +892,7 @@ private theorem genSteps_preserves_function
         · exact .inr (.inr ⟨cursor'', hcontrol'', hfn'.trans hfn⟩))
     h hcontrol
 
-theorem Steps.preserves_function_proof_gen
+theorem Steps.preserves_function_proof
     {cursor : ProgramCursor} {state final : MachineState} {trace : Trace}
     (h : GenSteps localsFrame (sirDecoder program) sirPolicy ctx
       state.gen trace final.gen)
@@ -1165,9 +936,9 @@ private theorem genStep_returned_inv
       change sirControl program state.env state.globals state.control = _ at hstep
       obtain ⟨terminator, state', hterm, heval, rfl, rfl, rfl, rfl⟩ :=
         sirControl_inv.mp hstep
-      exact eval_terminator_returned_inv_gen hterm heval hreturn
+      exact eval_terminator_returned_inv hterm heval hreturn
 
-theorem SmallStep.returned_inv_gen
+theorem SmallStep.returned_inv
     {state final : MachineState} {trace : Trace} {results : Array Word}
     (h : GenStep localsFrame (sirDecoder program) sirPolicy ctx
       state.gen trace final.gen)

@@ -90,21 +90,6 @@ theorem haltedCallProgram_wellFormed : haltedCallProgram.WellFormed := by
       · simp [Terminator.variablesRead]
 
 private theorem haltedCall_evalCallee (ctx : CallContext) (world : World) :
-    EvalFn haltedCallProgram ctx haltedCallCallee { world := world } #[] []
-      ({ world := world } : Globals) .halted := by
-  refine EvalFn.halted (s₀ :=
-      { globals := { world := world }
-        control := .running
-          { fn := haltedCallCallee, block := haltedCallCalleeBlock, position := .terminator } })
-      (exit := { globals := { world := world }, control := .halted }) ?_ ?_ rfl
-  · apply Program.callState?_eq_some_iff.mpr
-    refine ⟨_, _, Locals.empty, rfl, rfl, ?_, rfl⟩
-    simp only [Locals.bindParams, Locals.bindValues, ← Array.forIn_toList,
-      Array.toList_zip]
-    rfl
-  exact Steps.single (.terminator (program := haltedCallProgram) (ctx := ctx) rfl rfl)
-
-private theorem haltedCall_evalCallee_gen (ctx : CallContext) (world : World) :
     Generic.GenEvalFn localsFrame (sirDecoder haltedCallProgram) sirPolicy ctx
       haltedCallCallee { world := world } #[] [] ({ world := world } : Globals) .halted := by
   let initial : MachineState :=
@@ -120,10 +105,10 @@ private theorem haltedCall_evalCallee_gen (ctx : CallContext) (world : World) :
       Array.toList_zip]
     rfl
   have hstep : Generic.GenStep localsFrame (sirDecoder haltedCallProgram) sirPolicy ctx
-      initial.gen [] final.gen := step_terminator_gen rfl rfl
-  exact evalFn_halted_gen hentry (Generic.GenSteps.single hstep) rfl
+      initial.gen [] final.gen := step_terminator rfl rfl
+  exact EvalFn.halted hentry (Generic.GenSteps.single hstep) rfl
 
-private theorem haltedCallProgram_runs_gen (ctx : CallContext) (world : World) :
+private theorem haltedCallProgram_eval (ctx : CallContext) (world : World) :
     Generic.GenEvalFn localsFrame (sirDecoder haltedCallProgram) sirPolicy ctx
       haltedCallCaller { world := world } #[] [] ({ world := world } : Globals) .halted := by
   let initial : MachineState :=
@@ -143,29 +128,11 @@ private theorem haltedCallProgram_runs_gen (ctx : CallContext) (world : World) :
     rfl
   have hstep : Generic.GenStep localsFrame (sirDecoder haltedCallProgram) sirPolicy ctx
       initial.gen [] final.gen :=
-    step_icallHalted_gen rfl hargs (haltedCall_evalCallee_gen ctx world)
-  exact evalFn_halted_gen hentry (Generic.GenSteps.single hstep) rfl
+    step_icallHalted rfl hargs (haltedCall_evalCallee ctx world)
+  exact EvalFn.halted hentry (Generic.GenSteps.single hstep) rfl
 
 theorem haltedCallProgram_runs (ctx : CallContext) (world : World) :
-    haltedCallProgram.RunsInit ctx world [] ({ world := world } : Globals) := by
-  let initial : MachineState :=
-    { globals := { world := world }
-      control := .running
-        { fn := haltedCallCaller, block := haltedCallCallerBlock, position := .statement 0 } }
-  let final : MachineState := { globals := { world := world }, control := .halted }
-  refine EvalFn.halted (s₀ := initial) (exit := final) ?_ (Steps.single ?_) rfl
-  · apply Program.callState?_eq_some_iff.mpr
-    refine ⟨_, _, Locals.empty, rfl, rfl, ?_, rfl⟩
-    simp only [Locals.bindParams, Locals.bindValues, ← Array.forIn_toList,
-      Array.toList_zip]
-    rfl
-  have hargs : (#[] : Array VarId).mapM
-      (initial.locals.lookup ·) =
-      .ok #[] := by
-    rw [Array.mapM_eq_mapM_toList]
-    rfl
-  exact SmallStep.icallHalted (program := haltedCallProgram) (ctx := ctx)
-    (state := initial) (hstmt := rfl) (hargs := hargs)
-    (hcallee := haltedCall_evalCallee ctx world)
+    haltedCallProgram.RunsInit ctx world [] ({ world := world } : Globals) :=
+  haltedCallProgram_eval ctx world
 
 end Sir.Examples
