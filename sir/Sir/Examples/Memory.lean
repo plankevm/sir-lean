@@ -442,6 +442,49 @@ private theorem zero_worlds_differ :
   rw [hleft, hright] at hread
   exact (by decide : (1 : Word) ≠ 0) hread
 
+theorem initializedLoad_wellFormed : initializedLoad.WellFormed := by
+  constructor
+  · rintro callee args dests hstatement
+    simp [Program.HasStmt, Function.HasStmt, initializedLoad] at hstatement
+  · intro fn hfn block hblock hterm
+    simp [initializedLoad] at hfn
+    subst hfn
+    simp at hblock
+    subst hblock
+    simp at hterm
+  · intro function hcycle
+    have absurd {caller callee : FunctionId}
+        (h : Relation.TransGen initializedLoad.callEdge caller callee) : False := by
+      have noEdge (caller callee : FunctionId) : ¬ initializedLoad.callEdge caller callee := by
+        rcases caller with ⟨_ | caller⟩ <;>
+          simp [Program.callEdge, Program.function?, Function.HasStmt, initializedLoad]
+      induction h with
+      | single edge => exact noEdge _ _ edge
+      | tail _ edge _ => exact noEdge _ _ edge
+    exact absurd hcycle
+  · constructor
+    · exact Program.functionInputOutputArity_iff.mpr ⟨_, rfl, rfl, rfl⟩
+    · intro entry hentry
+      simp [initializedLoad] at hentry
+  · intro fn hfn block hblock target htarget
+    simp [initializedLoad] at hfn
+    subst hfn
+    simp at hblock
+    subst hblock
+    simp [Terminator.jumpTargets] at htarget
+  · intro fn hfn block hblock
+    simp [initializedLoad] at hfn
+    subst hfn
+    simp at hblock
+    subst hblock
+    constructor
+    · intro index statement hstatement
+      rcases index with (_ | _ | _ | _ | _ | _ | index) <;> simp at hstatement
+      all_goals subst statement
+      all_goals simp [BasicBlock.variablesDefinedBefore, Expr.variablesRead,
+        Stmt.variablesRead, Stmt.variablesDefined, sizeVar, xVar, valueVar, zVar]
+    · simp [BasicBlock.variablesDefinedBefore, Terminator.variablesRead]
+
 theorem initializedLoad_store_inBounds :
     (MemoryState.empty.push { offset := 0, size := 32 }).InBounds 0 32 := by
   decide
