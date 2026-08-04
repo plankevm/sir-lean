@@ -1,0 +1,43 @@
+name: Lean CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: sir
+            directory: sir
+            targets: ""
+          - name: evm
+            directory: EVM
+            targets: Evm BytecodeLayer Conform
+          - name: ir-lowering
+            directory: experiments/005_ir_lowering
+            targets: LirLean WIP
+          # experiments 001 and 004 are not built here: 001 requires EVMYulLean
+          # from a path outside the repo, and 004 clones ethereum/tests during
+          # its build. 002 is on its own mathlib and imports nothing else.
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: leanprover/lean-action@v1
+        with:
+          auto-config: false
+          build: true
+          build-args: ${{ matrix.targets }}
+          lake-package-directory: ${{ matrix.directory }}
+          use-mathlib-cache: true
+          use-github-cache: true
