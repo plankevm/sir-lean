@@ -186,4 +186,82 @@ theorem Program.icall_halted_step_proof
     (hcallee : EvalFn program ctx callee s.globals vs t g' .halted) :
     SmallStep program ctx s t { globals := g', control := .halted } :=
   .icallHalted hstmt hargs hcallee
+
+theorem Program.WellFormed.evalFn_arity_proof_gen
+    (hwf : program.WellFormed) {function : FunctionId} {globals globals' : Globals}
+    {args results : Array Word} {trace : Trace}
+    (hrun : Generic.GenEvalFn localsFrame (sirDecoder program) sirPolicy ctx
+      function globals args trace globals' (.returned results)) :
+    (program.function? function).bind (·.outputs?) = some results.size := by
+  cases hrun with
+  | returned hentry hsteps hreturn =>
+      rw [sirEntry_eq] at hentry
+      obtain ⟨initial, hcallState, rfl⟩ := Option.map_eq_some_iff.mp hentry
+      obtain ⟨fn, entryBlock, locals₀, hfn, hentryBlock, hbind, rfl⟩ :=
+        Program.callState?_eq_some_iff.mp hcallState
+      cases hsteps with
+      | refl => cases hreturn
+      | tail start next =>
+          have hinv := SmallStep.returned_inv_gen
+            (state := Generic.GenState.toMachine _) (final := Generic.GenState.toMachine _)
+            next hreturn
+          obtain ⟨cursor, block, hcontrol, hblock, hterm, houtputs⟩ := hinv
+          rcases Steps.preserves_function_proof_gen
+              (cursor := ⟨function, fn.entry, entryBlock.startPosition⟩)
+              (state := (⟨globals, locals₀,
+                .running ⟨function, fn.entry, entryBlock.startPosition⟩⟩ : MachineState))
+              (final := Generic.GenState.toMachine _) start rfl with
+            hhalt | ⟨returnedValues, hreturned⟩ | ⟨cursor', hcontrol', hcursorFn⟩
+          · exact absurd next
+              (Generic.stuck_of_halted (Generic.sirDecoder_terminal program) hhalt _ _)
+          · exact absurd next
+              (Generic.stuck_of_returned (Generic.sirDecoder_terminal program) hreturned _ _)
+          · have hsame : cursor' = cursor :=
+              MachineControl.running.inj (hcontrol'.symm.trans hcontrol)
+            subst cursor'
+            change cursor.fn = function at hcursorFn
+            simp only [Program.block?, hcursorFn, hfn] at hblock
+            have harity := hwf.iretArity fn (Program.mem_functions_of_function? hfn)
+              block (Array.mem_of_getElem? hblock) hterm
+            rw [hfn]
+            simp only [Option.bind_some]
+            rw [← harity, mapM_ok_size houtputs]
+
+theorem Program.WellFormed.icall_bindReturns_gen
+    (hwf : program.WellFormed) {state : MachineState} {next : MachineControl}
+    {callee : FunctionId} {args dests : Array VarId}
+    {globals globals' : Globals} {values results : Array Word} {trace : Trace}
+    (hdecode : program.decodeStmt state.control = some (next, .icall callee args dests))
+    (hcallee : Generic.GenEvalFn localsFrame (sirDecoder program) sirPolicy ctx
+      callee globals values trace globals' (.returned results)) :
+    ∃ locals', Locals.bindReturns state.locals dests results = .ok locals' := by
+  obtain ⟨-, houtputs⟩ := hwf.icall_paramsOf hdecode
+  rw [hwf.evalFn_arity_proof_gen hcallee, Option.getD_some] at houtputs
+  exact Locals.bindValues_total state.locals houtputs.symm
+
+theorem Program.WellFormed.icall_step_proof_gen
+    (hwf : program.WellFormed) {state : MachineState} {next : MachineControl}
+    {callee : FunctionId} {args dests : Array VarId} {values results : Array Word}
+    {trace : Trace} {globals' : Globals}
+    (hdecode : program.decodeStmt state.control = some (next, .icall callee args dests))
+    (hargs : args.mapM (state.locals.lookup ·) = .ok values)
+    (hcallee : Generic.GenEvalFn localsFrame (sirDecoder program) sirPolicy ctx
+      callee state.globals values trace globals' (.returned results)) :
+    ∃ locals', Generic.GenStep localsFrame (sirDecoder program) sirPolicy ctx
+      state.gen trace
+        { state with globals := globals', locals := locals', control := next }.gen := by
+  obtain ⟨locals', hbind⟩ := hwf.icall_bindReturns_gen hdecode hcallee
+  exact ⟨locals', step_icall_gen hdecode hargs hcallee hbind⟩
+
+theorem Program.icall_halted_step_proof_gen
+    {state : MachineState} {next : MachineControl}
+    {callee : FunctionId} {args dests : Array VarId} {values : Array Word}
+    {trace : Trace} {globals' : Globals}
+    (hdecode : program.decodeStmt state.control = some (next, .icall callee args dests))
+    (hargs : args.mapM (state.locals.lookup ·) = .ok values)
+    (hcallee : Generic.GenEvalFn localsFrame (sirDecoder program) sirPolicy ctx
+      callee state.globals values trace globals' .halted) :
+    Generic.GenStep localsFrame (sirDecoder program) sirPolicy ctx state.gen trace
+      ({ globals := globals', control := .halted } : MachineState).gen :=
+  step_icallHalted_gen hdecode hargs hcallee
 end Sir
