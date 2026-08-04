@@ -1,36 +1,9 @@
-import Sir.Spec.Observation
+import Sir.Proofs.Decode
 import Sir.Spec.WellFormed
 
 namespace Sir
 
 variable {program : Program} {ctx : CallContext}
-
-theorem Program.callState?_eq_some_iff
-    {p : Program} {f : FunctionId} {g : Globals} {args : Array Word}
-    {s : MachineState} :
-    p.callState? f g args = some s ↔
-      ∃ fn bb locals₀, p.function? f = some fn ∧
-        fn.block? fn.entry = some bb ∧
-        Locals.bindParams bb.inputs args = .ok locals₀ ∧
-        s = ⟨g, locals₀,
-          .running { fn := f, block := fn.entry, position := bb.startPosition }⟩ := by
-  constructor
-  · intro h
-    cases hfn : p.function? f with
-    | none => simp [Program.callState?, hfn] at h
-    | some fn =>
-      cases hbb : fn.block? fn.entry with
-      | none => simp [Program.callState?, hfn, hbb] at h
-      | some bb =>
-        cases hbind : Locals.bindParams bb.inputs args with
-        | error e => simp [Program.callState?, hfn, hbb, hbind] at h
-        | ok locals₀ =>
-          have hs : ⟨g, locals₀, .running {
-              fn := f, block := fn.entry, position := bb.startPosition }⟩ = s := by
-            simpa [Program.callState?, hfn, hbb, hbind] using h
-          exact ⟨fn, bb, locals₀, rfl, hbb, hbind, hs.symm⟩
-  · rintro ⟨fn, bb, locals₀, hfn, hbb, hbind, rfl⟩
-    simp [Program.callState?, hfn, hbb, hbind]
 
 @[elab_as_elim]
 theorem Steps.inductionOn {program : Program} {ctx : CallContext}
@@ -68,17 +41,6 @@ theorem Steps.head {program : Program} {ctx : CallContext}
     (step : SmallStep program ctx s t₁ mid) (rest : Steps program ctx mid t₂ s') :
     Steps program ctx s (t₁ ++ t₂) s' :=
   Steps.trans (Steps.single step) rest
-theorem decodeStmt_terminatorAt_exclusive
-    {control nextControl : MachineControl} {stmt : Stmt} {term : Terminator}
-    (hstmt : program.decodeStmt control = some (nextControl, stmt))
-    (hterm : program.terminatorAt control = some term) : False := by
-  cases control with
-  | halted => simp [Program.decodeStmt] at hstmt
-  | returned rs => simp [Program.decodeStmt] at hstmt
-  | running cursor =>
-    cases hpos : cursor.position <;>
-      simp [Program.decodeStmt, Program.terminatorAt, hpos] at hstmt hterm
-
 def Stuck (program : Program) (ctx : CallContext) (s : MachineState) : Prop :=
   ∀ t s', ¬ SmallStep program ctx s t s'
 
@@ -112,76 +74,6 @@ theorem Steps.eq_of_stuck
   rcases h.head_decomp with ⟨rfl, rfl⟩ | ⟨mid, t₁, t₂, step, -, -⟩
   · exact ⟨rfl, rfl⟩
   · exact absurd step (hs t₁ mid)
-
-theorem Program.decodeStmt_mem
-    {control nextControl : MachineControl} {stmt : Stmt}
-    (h : program.decodeStmt control = some (nextControl, stmt)) :
-    program.HasStmt stmt := by
-  cases control with
-  | halted => simp [Program.decodeStmt] at h
-  | returned rs => simp [Program.decodeStmt] at h
-  | running cursor =>
-    obtain ⟨fid, blk, pos⟩ := cursor
-    cases pos with
-    | terminator => simp [Program.decodeStmt] at h
-    | statement index =>
-      cases hfn : program.function? fid with
-      | none => simp [Program.decodeStmt, Program.block?, hfn] at h
-      | some fn =>
-        cases hblock : fn.block? blk with
-        | none => simp [Program.decodeStmt, Program.block?, hfn, hblock] at h
-        | some block =>
-          cases hstmt : block.statements[index]? with
-          | none => simp [Program.decodeStmt, Program.block?, hfn, hblock, hstmt] at h
-          | some found =>
-            simp [Program.decodeStmt, Program.block?, hfn, hblock, hstmt] at h
-            obtain ⟨rfl, rfl⟩ := h
-            exact ⟨fn, Array.mem_of_getElem? hfn, block,
-              Array.mem_of_getElem? hblock, Array.mem_of_getElem? hstmt⟩
-
-theorem Program.MemOracleFree.not_mallocUninit
-    (hfree : program.MemOracleFree)
-    {control nextControl : MachineControl} {result size : VarId}
-    (h : program.decodeStmt control = some (nextControl, .mallocUninit result size)) :
-    False := by
-  exact hfree _ (Program.decodeStmt_mem h) trivial
-
-theorem Program.MemOracleFree.not_mload32
-    (hfree : program.MemOracleFree)
-    {control nextControl : MachineControl} {result offset : VarId}
-    (h : program.decodeStmt control = some (nextControl, .mload32 result offset)) :
-    False := by
-  exact hfree _ (Program.decodeStmt_mem h) trivial
-theorem Program.decodeStmt_next_block
-    {control next : MachineControl} {stmt : Stmt} {cursor : ProgramCursor}
-    (hctrl : control = .running cursor)
-    (h : program.decodeStmt control = some (next, stmt)) :
-    ∃ pos, next = .running { cursor with position := pos } := by
-  subst hctrl
-  obtain ⟨fid, blk, pos⟩ := cursor
-  cases pos with
-  | terminator => simp [Program.decodeStmt] at h
-  | statement index =>
-    simp only [Program.decodeStmt, Option.bind_eq_bind, Option.bind_eq_some_iff,
-      Option.some.injEq, Prod.mk.injEq] at h
-    obtain ⟨block, hblock, stmt', hstmt', hnext, -⟩ := h
-    exact ⟨_, hnext.symm⟩
-
-theorem Program.terminatorAt_inv
-    {control : MachineControl} {cursor : ProgramCursor} {term : Terminator}
-    (hctrl : control = .running cursor)
-    (h : program.terminatorAt control = some term) :
-    program.terminatorOf cursor = some term := by
-  subst hctrl
-  obtain ⟨fid, blk, pos⟩ := cursor
-  cases pos with
-  | statement index => simp [Program.terminatorAt] at h
-  | terminator =>
-    cases hb : program.block? { fn := fid, block := blk, position := .terminator } with
-    | none => simp [Program.terminatorAt, hb] at h
-    | some bb =>
-      simp only [Program.terminatorAt, hb] at h
-      simpa [Program.terminatorOf, hb] using h
 
 private theorem eval_jump_control
     {s s' : MachineState} {target : BlockId}
@@ -353,17 +245,6 @@ theorem Steps.preserves_function_proof
       · exact .inl hhalt
       · exact .inr (.inl hreturned)
       · exact .inr (.inr ⟨cursor'', hctrl'', hfn'.trans hfn⟩)
-
-theorem Program.decodeStmt_next_running
-    {control next : MachineControl} {stmt : Stmt}
-    (h : program.decodeStmt control = some (next, stmt)) :
-    ∃ cursor, next = .running cursor := by
-  cases control with
-  | returned rs => simp [Program.decodeStmt] at h
-  | halted => simp [Program.decodeStmt] at h
-  | running cursor =>
-    obtain ⟨pos, hnext⟩ := Program.decodeStmt_next_block rfl h
-    exact ⟨_, hnext⟩
 
 theorem SmallStep.returned_inv
     {s s' : MachineState} {t : Trace} {rs : Array Word}

@@ -1,7 +1,6 @@
 import Sir.Generic.Cfg
 import Sir.Generic.Dialogue
-import Sir.Spec.Step
-import Sir.Proofs.Steps
+import Sir.Proofs.Decode
 
 namespace Sir.Generic
 

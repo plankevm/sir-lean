@@ -148,9 +148,6 @@ abbrev MachineStateM := StateT MachineState (Except IRError)
 def Function.block? (fn : Function) (bid : BlockId) : Option BasicBlock :=
   fn.blocks[bid.id]?
 
-def Function.terminatorOf (fn : Function) (block : BlockId) : Option Terminator :=
-  (fn.block? block).map (·.terminator)
-
 def Function.paramsOf (fn : Function) : Option (Array VarId) :=
   (fn.block? fn.entry).map (·.inputs)
 
@@ -166,9 +163,6 @@ def Program.function? (program : Program) (f : FunctionId) : Option Function :=
 def Program.block? (program : Program) (cursor : ProgramCursor) : Option BasicBlock := do
   let fn ← program.function? cursor.fn
   fn.block? cursor.block
-
-def Program.terminatorOf (program : Program) (cursor : ProgramCursor) : Option Terminator :=
-  (program.block? cursor).map (·.terminator)
 
 def Program.HasStmt (program : Program) (stmt : Stmt) : Prop :=
   ∃ fn ∈ program.functions, fn.HasStmt stmt

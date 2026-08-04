@@ -250,52 +250,6 @@ theorem MachineState.stmtReady_of_coversVariables
   | mload32 result offset => exact h offset (by simp [Stmt.variablesRead])
   | icall callee args dests => exact (hnonIcall callee args dests rfl).elim
 
-theorem Program.decodeStmt_cursor
-    {control nextControl : MachineControl} {statement : Stmt}
-    (hdecode : program.decodeStmt control = some (nextControl, statement)) :
-    ∃ cursor block index,
-      control = .running cursor ∧ cursor.position = .statement index ∧
-      program.block? cursor = some block ∧
-      block.statements[index]? = some statement ∧
-      nextControl = .running
-        { cursor with position := block.absoluteToPosition (index + 1) } := by
-  cases control with
-  | returned values => simp [Program.decodeStmt] at hdecode
-  | halted => simp [Program.decodeStmt] at hdecode
-  | running cursor =>
-      cases hposition : cursor.position with
-      | terminator => simp [Program.decodeStmt, hposition] at hdecode
-      | statement index =>
-          cases hblock : program.block? cursor with
-          | none => simp [Program.decodeStmt, hposition, hblock] at hdecode
-          | some block =>
-              cases hstatement : block.statements[index]? with
-              | none =>
-                  simp [Program.decodeStmt, hposition, hblock, hstatement] at hdecode
-              | some found =>
-                  simp [Program.decodeStmt, hposition, hblock, hstatement] at hdecode
-                  obtain ⟨rfl, rfl⟩ := hdecode
-                  exact ⟨cursor, block, index, rfl, hposition, hblock, hstatement, rfl⟩
-
-theorem Program.terminatorAt_cursor
-    {control : MachineControl} {terminator : Terminator}
-    (hterminator : program.terminatorAt control = some terminator) :
-    ∃ cursor block, control = .running cursor ∧ cursor.position = .terminator ∧
-      program.block? cursor = some block ∧ block.terminator = terminator := by
-  cases control with
-  | returned values => simp [Program.terminatorAt] at hterminator
-  | halted => simp [Program.terminatorAt] at hterminator
-  | running cursor =>
-      cases hposition : cursor.position with
-      | statement index => simp [Program.terminatorAt, hposition] at hterminator
-      | terminator =>
-          cases hblock : program.block? cursor with
-          | none => simp [Program.terminatorAt, hposition, hblock] at hterminator
-          | some block =>
-              simp [Program.terminatorAt, hposition, hblock] at hterminator
-              subst terminator
-              exact ⟨cursor, block, rfl, hposition, hblock, rfl⟩
-
 theorem Program.WellFormed.decodeStmt_covers
     (hwf : program.WellFormed) {state : MachineState}
     {nextControl : MachineControl} {statement : Stmt}
