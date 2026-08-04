@@ -220,4 +220,237 @@ theorem progress_nonIcall_proof {s : MachineState}
   · exact progress_stmt_proof hstmt hready
   · obtain ⟨s', hs'⟩ := progress_terminator_proof hctrl hpos hsrc hready
     exact ⟨[], s', hs'⟩
+
+theorem progress_stmt_proof_gen
+    {state : MachineState} {next : MachineControl} {statement : Stmt}
+    (hdecode : program.decodeStmt state.control = some (next, statement))
+    (hready : state.StmtReady statement) :
+    ∃ (trace : Trace) (final : MachineState),
+      Generic.GenStep localsFrame (sirDecoder program) sirPolicy ctx
+      state.gen trace final.gen := by
+  cases statement with
+  | assign result expr =>
+      cases expr with
+      | constant value =>
+          obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
+            (targetVars := #[result]) (vs := #[value]) rfl
+          refine ⟨[], ⟨state.globals, locals', next⟩, step_assign_gen hdecode ?_⟩
+          simp only [decodeExpr, Generic.Instr.Fires]
+          apply fires_of (operation := .constant value) (oracle := ())
+            (operands := #[]) (results := #[value])
+          · change (#[] : Array VarId).mapM (state.locals.lookup ·) = .ok #[]
+            rw [Array.mapM_eq_mapM_toList]
+            rfl
+          · trivial
+          · exact Generic.Operation.execute_constant_ok ctx value state.globals #[]
+          · exact hstore
+      | var v =>
+          obtain ⟨value, hvalue⟩ := hready
+          obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
+            (targetVars := #[result]) (vs := #[value]) rfl
+          refine ⟨[], ⟨state.globals, locals', next⟩, step_assign_gen hdecode ?_⟩
+          simp only [decodeExpr, Generic.Instr.Fires]
+          apply fires_of (operation := .copy) (oracle := ())
+            (operands := #[value]) (results := #[value])
+          · simp [Array.mapM_eq_mapM_toList, hvalue, bind, Except.bind,
+              Functor.map, Except.map, pure, Except.pure]
+          · trivial
+          · exact Generic.Operation.execute_copy_ok ctx value state.globals
+          · exact hstore
+      | add lhs rhs =>
+          obtain ⟨⟨lhsValue, hlhs⟩, rhsValue, hrhs⟩ := hready
+          let resultValue := Evm.UInt256.add lhsValue rhsValue
+          obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
+            (targetVars := #[result]) (vs := #[resultValue]) rfl
+          refine ⟨[], ⟨state.globals, locals', next⟩, step_assign_gen hdecode ?_⟩
+          simp only [decodeExpr, Generic.Instr.Fires]
+          apply fires_of (operation := .add) (oracle := ())
+            (operands := #[lhsValue, rhsValue])
+            (results := #[resultValue])
+          · simp [Array.mapM_eq_mapM_toList, hlhs, hrhs, bind, Except.bind,
+              Functor.map, Except.map, pure, Except.pure]
+          · trivial
+          · exact Generic.Operation.execute_add_ok ctx lhsValue rhsValue state.globals
+          · exact hstore
+      | lt lhs rhs =>
+          obtain ⟨⟨lhsValue, hlhs⟩, rhsValue, hrhs⟩ := hready
+          let resultValue := Evm.UInt256.lt lhsValue rhsValue
+          obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
+            (targetVars := #[result]) (vs := #[resultValue]) rfl
+          refine ⟨[], ⟨state.globals, locals', next⟩, step_assign_gen hdecode ?_⟩
+          simp only [decodeExpr, Generic.Instr.Fires]
+          apply fires_of (operation := .lt) (oracle := ())
+            (operands := #[lhsValue, rhsValue])
+            (results := #[resultValue])
+          · simp [Array.mapM_eq_mapM_toList, hlhs, hrhs, bind, Except.bind,
+              Functor.map, Except.map, pure, Except.pure]
+          · trivial
+          · exact Generic.Operation.execute_lt_ok ctx lhsValue rhsValue state.globals
+          · exact hstore
+      | sload key =>
+          obtain ⟨keyValue, hkey⟩ := hready
+          let resultValue := state.globals.world.loadStorage ctx.self keyValue
+          obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
+            (targetVars := #[result]) (vs := #[resultValue]) rfl
+          refine ⟨[], ⟨state.globals, locals', next⟩, step_assign_gen hdecode ?_⟩
+          simp only [decodeExpr, Generic.Instr.Fires]
+          apply fires_of (operation := .sload) (oracle := ()) (operands := #[keyValue])
+            (results := #[resultValue])
+          · simp [Array.mapM_eq_mapM_toList, hkey, bind, Except.bind,
+              Functor.map, Except.map, pure, Except.pure]
+          · trivial
+          · exact Generic.Operation.execute_sload_ok ctx keyValue state.globals
+          · exact hstore
+  | sstore key value =>
+      obtain ⟨⟨keyValue, hkey⟩, valueValue, hvalue⟩ := hready
+      let globals' := { state.globals with
+        world := state.globals.world.storeStorage ctx.self keyValue valueValue }
+      obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
+        (targetVars := #[]) (vs := #[]) rfl
+      refine ⟨[], ⟨globals', locals', next⟩, step_sstore_gen hdecode ?_⟩
+      simp only [decodeSirStmt, Generic.Instr.Fires]
+      apply fires_of (operation := .sstore) (oracle := ())
+        (operands := #[keyValue, valueValue]) (results := #[])
+      · simp [Array.mapM_eq_mapM_toList, hkey, hvalue, bind, Except.bind,
+          Functor.map, Except.map, pure, Except.pure]
+      · trivial
+      · exact Generic.Operation.execute_sstore_ok ctx keyValue valueValue state.globals
+      · exact hstore
+  | gas result =>
+      obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
+        (targetVars := #[result]) (vs := #[(0 : Word)]) rfl
+      refine ⟨[.gas 0], ⟨state.globals, locals', next⟩, step_gas_gen hdecode ?_⟩
+      simp only [decodeSirStmt, Generic.Instr.Fires]
+      apply fires_of (operation := .gas) (oracle := (0 : Word))
+        (operands := #[]) (results := #[0])
+      · change (#[] : Array VarId).mapM (state.locals.lookup ·) = .ok #[]
+        rw [Array.mapM_eq_mapM_toList]
+        rfl
+      · trivial
+      · exact Generic.Operation.execute_gas_ok ctx 0 state.globals #[]
+      · exact hstore
+  | call call =>
+      obtain ⟨⟨callee, hcallee⟩, gas, hgas⟩ := hready
+      let result : CallResult :=
+        { world' := state.globals.world, success := true, output := ByteArray.empty }
+      let globals' := { state.globals with
+        returnData := result.output, world := result.world' }
+      obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
+        (targetVars := #[call.result])
+        (vs := #[Evm.UInt256.fromBool result.success]) rfl
+      let record : CallRecord :=
+        { input := { target := .ofUInt256 callee, gas, world := state.globals.world }, result }
+      refine ⟨[.call record], ⟨globals', locals', next⟩, step_call_gen hdecode ?_⟩
+      simp only [decodeSirStmt, Generic.Instr.Fires]
+      apply fires_of (operation := .call) (oracle := result) (operands := #[callee, gas])
+        (results := #[Evm.UInt256.fromBool result.success])
+      · simp [Array.mapM_eq_mapM_toList, hcallee, hgas, bind, Except.bind,
+          Functor.map, Except.map, pure, Except.pure]
+      · trivial
+      · exact Generic.Operation.execute_call_ok ctx result state.globals callee gas
+      · exact hstore
+  | mallocUninit result size =>
+      obtain ⟨sizeValue, allocation, hsizeValue, hvalid, hsize⟩ := hready
+      let globals' := { state.globals with memory := state.globals.memory.push allocation }
+      obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
+        (targetVars := #[result]) (vs := #[allocation.offset]) rfl
+      refine ⟨[], ⟨globals', locals', next⟩, step_mallocUninit_gen hdecode ?_⟩
+      simp only [decodeSirStmt, Generic.Instr.Fires]
+      apply fires_of (operation := .mallocUninit) (oracle := allocation)
+        (operands := #[sizeValue])
+        (results := #[allocation.offset])
+      · simp [Array.mapM_eq_mapM_toList, hsizeValue, bind, Except.bind,
+          Functor.map, Except.map, pure, Except.pure]
+      · exact ⟨sizeValue, rfl, ⟨hvalid, hsize⟩, hvalid, hsize⟩
+      · exact Generic.Operation.execute_malloc_ok ctx allocation state.globals sizeValue hsize
+      · exact hstore
+  | mstore32 offset value =>
+      obtain ⟨⟨offsetValue, hoffset⟩, valueValue, hvalue⟩ := hready
+      let globals' := { state.globals with
+        memory := state.globals.memory.writeBytes offsetValue valueValue.toByteArray }
+      obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
+        (targetVars := #[]) (vs := #[]) rfl
+      refine ⟨[], ⟨globals', locals', next⟩, step_mstore32_gen hdecode ?_⟩
+      simp only [decodeSirStmt, Generic.Instr.Fires]
+      apply fires_of (operation := .mstore32) (oracle := ())
+        (operands := #[offsetValue, valueValue]) (results := #[])
+      · simp [Array.mapM_eq_mapM_toList, hoffset, hvalue, bind, Except.bind,
+          Functor.map, Except.map, pure, Except.pure]
+      · trivial
+      · exact Generic.Operation.execute_mstore32_ok ctx state.globals offsetValue valueValue
+      · exact hstore
+  | mload32 result offset =>
+      obtain ⟨offsetValue, hoffset⟩ := hready
+      let assumed : Vector UInt8 32 := Vector.replicate 32 0
+      let resultValue : Word := .ofNat (Evm.fromByteArrayBigEndian
+        (state.globals.memory.readBytes offsetValue ⟨assumed.toArray⟩))
+      obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
+        (targetVars := #[result]) (vs := #[resultValue]) rfl
+      refine ⟨[], ⟨state.globals, locals', next⟩, step_mload32_gen hdecode ?_⟩
+      simp only [decodeSirStmt, Generic.Instr.Fires]
+      apply fires_of (operation := .mload32) (oracle := assumed) (operands := #[offsetValue])
+        (results := #[resultValue])
+      · simp [Array.mapM_eq_mapM_toList, hoffset, bind, Except.bind,
+          Functor.map, Except.map, pure, Except.pure]
+      · trivial
+      · exact Generic.Operation.execute_mload32_ok ctx assumed state.globals offsetValue
+      · exact hstore
+  | icall callee args dests => exact hready.elim
+
+theorem progress_terminator_proof_gen
+    {state : MachineState} {cursor : ProgramCursor} {source : BasicBlock}
+    (hcontrol : state.control = .running cursor)
+    (hposition : cursor.position = .terminator)
+    (hsource : program.block? cursor = some source)
+    (hready : program.TerminatorReady cursor.fn state source) :
+    ∃ (final : MachineState),
+      Generic.GenStep localsFrame (sirDecoder program) sirPolicy ctx
+      state.gen [] final.gen := by
+  have hterm : program.terminatorAt state.control = some source.terminator := by
+    simp [Program.terminatorAt, hcontrol, hposition, hsource]
+  unfold Program.TerminatorReady at hready
+  cases hcase : source.terminator with
+  | halt =>
+      rw [hcase] at hterm
+      exact ⟨_, step_terminator_gen hterm (eval_terminator_halt_ok state)⟩
+  | jump target =>
+      rw [hcase] at hterm hready
+      obtain ⟨⟨values, houtputs⟩, targetBlock, htarget, harity⟩ := hready
+      obtain ⟨final, hfinal⟩ := eval_jump_ok hcontrol hsource htarget houtputs
+        (harity.trans (mapM_ok_size houtputs).symm)
+      exact ⟨final, step_terminator_gen hterm hfinal⟩
+  | branch condition thenTarget elseTarget =>
+      rw [hcase] at hterm hready
+      obtain ⟨value, hcondition, ⟨values, houtputs⟩, targetBlock, htarget, harity⟩ :=
+        hready
+      obtain ⟨final, hfinal⟩ := eval_jump_ok hcontrol hsource htarget houtputs
+        (harity.trans (mapM_ok_size houtputs).symm)
+      refine ⟨final, step_terminator_gen hterm ?_⟩
+      simp only [eval_terminator, StateT.run, bind, StateT.bind, Locals.lookupM,
+        liftM, monadLift, MonadLift.monadLift, StateT.get, Except.bind, StateT.lift,
+        pure, Except.pure, hcondition]
+      exact hfinal
+  | iret =>
+      rw [hcase] at hterm hready
+      obtain ⟨results, houtputs⟩ := hready
+      exact ⟨_, step_terminator_gen hterm
+        (eval_terminator_iret_ok hcontrol hsource houtputs)⟩
+
+theorem progress_nonIcall_proof_gen {state : MachineState}
+    (h : (∃ next statement,
+            program.decodeStmt state.control = some (next, statement) ∧
+            state.StmtReady statement) ∨
+         (∃ cursor source, state.control = .running cursor ∧
+            cursor.position = .terminator ∧
+            program.block? cursor = some source ∧
+            program.TerminatorReady cursor.fn state source)) :
+    ∃ (trace : Trace) (final : MachineState),
+      Generic.GenStep localsFrame (sirDecoder program) sirPolicy ctx
+      state.gen trace final.gen := by
+  rcases h with ⟨next, statement, hdecode, hready⟩ |
+    ⟨cursor, source, hcontrol, hposition, hsource, hready⟩
+  · exact progress_stmt_proof_gen hdecode hready
+  · obtain ⟨final, hfinal⟩ :=
+      progress_terminator_proof_gen hcontrol hposition hsource hready
+    exact ⟨[], final, hfinal⟩
 end Sir
