@@ -442,6 +442,221 @@ private theorem zero_worlds_differ :
   rw [hleft, hright] at hread
   exact (by decide : (1 : Word) ≠ 0) hread
 
+private theorem initialized_valid_alloc :
+    MemoryState.empty.IsValidNewAlloc initializedAlloc := by decide
+
+private theorem permissive_allows_initialized :
+    Generic.MemoryPolicy.permissive.Allows MemoryState.empty (32 : Word).toNat
+      initializedAlloc :=
+  ⟨by decide, by decide⟩
+
+private theorem bump_allows_initialized :
+    Generic.MemoryPolicy.bump.Allows MemoryState.empty (32 : Word).toNat initializedAlloc :=
+  ⟨by decide, rfl⟩
+
+private theorem initialized_step01 (policy : Generic.MemoryPolicy) (ctx : CallContext)
+    (world : World) :
+    SmallStep initializedLoad policy ctx (initializedState0 world) []
+      (initializedState1 world) := by
+  have hfetch : (#[] : Array VarId).mapM ((initializedState0 world).locals.lookup ·) =
+      .ok #[] := by
+    rw [Array.mapM_eq_mapM_toList]
+    rfl
+  have hstore : Locals.bindValues (initializedState0 world).locals #[sizeVar] #[32] =
+      .ok (initializedState1 world).locals := by
+    simpa [initializedState0, initializedState1, locals1] using
+      bindValues_singleton Locals.empty sizeVar 32
+  apply step_assign (program := initializedLoad) (ctx := ctx)
+    (result := sizeVar) (expr := .constant 32)
+    (by simp [initializedLoad, Program.decodeStmt, Program.block?, Program.function?,
+      Function.block?, BasicBlock.absoluteToPosition, initializedState0, stmtControl])
+  simp only [decodeExpression, Generic.Instruction.Fires]
+  exact fires_of hfetch (by trivial)
+    (Generic.Operation.execute_constant_ok ctx 32 (initializedState0 world).globals #[]) hstore
+
+private theorem initialized_step12 (policy : Generic.MemoryPolicy) (ctx : CallContext)
+    (world : World)
+    (hallows : policy.Allows MemoryState.empty (32 : Word).toNat initializedAlloc) :
+    SmallStep initializedLoad policy ctx (initializedState1 world) []
+      (initializedState2 world initializedAlloc) := by
+  have hfetch : #[sizeVar].mapM ((initializedState1 world).locals.lookup ·) = .ok #[32] := by
+    rw [Array.mapM_eq_mapM_toList]
+    rfl
+  have hvalid : (initializedState1 world).globals.memory.IsValidNewAlloc initializedAlloc :=
+    initialized_valid_alloc
+  have hsize : initializedAlloc.size = (32 : Word).toNat := by decide
+  have hstore :
+      Locals.bindValues (initializedState1 world).locals #[xVar] #[initializedAlloc.offset] =
+        .ok (initializedState2 world initializedAlloc).locals := by
+    simpa [initializedState1, initializedState2, locals1, locals2] using
+      bindValues_singleton locals1 xVar initializedAlloc.offset
+  apply step_mallocUninit (program := initializedLoad) (ctx := ctx)
+    (result := xVar) (size := sizeVar)
+    (by simp [initializedLoad, Program.decodeStmt, Program.block?, Program.function?,
+      Function.block?, BasicBlock.absoluteToPosition, initializedState1, stmtControl])
+  simp only [decodeSirStatement, Generic.Instruction.Fires]
+  exact fires_of hfetch ⟨32, rfl, hallows, hvalid, hsize⟩
+    (Generic.Operation.execute_malloc_ok ctx initializedAlloc
+      (initializedState1 world).globals 32 hsize) hstore
+
+private theorem initialized_step23 (policy : Generic.MemoryPolicy) (ctx : CallContext)
+    (world : World) (alloc : Allocation) :
+    SmallStep initializedLoad policy ctx (initializedState2 world alloc) []
+      (initializedState3 world alloc) := by
+  have hfetch : (#[] : Array VarId).mapM ((initializedState2 world alloc).locals.lookup ·) =
+      .ok #[] := by
+    rw [Array.mapM_eq_mapM_toList]
+    rfl
+  have hstore : Locals.bindValues (initializedState2 world alloc).locals #[valueVar] #[42] =
+      .ok (initializedState3 world alloc).locals := by
+    simpa [initializedState2, initializedState3, locals2, locals3] using
+      bindValues_singleton (locals2 alloc) valueVar 42
+  apply step_assign (program := initializedLoad) (ctx := ctx)
+    (result := valueVar) (expr := .constant 42)
+    (by simp [initializedLoad, Program.decodeStmt, Program.block?, Program.function?,
+      Function.block?, BasicBlock.absoluteToPosition, initializedState2, stmtControl])
+  simp only [decodeExpression, Generic.Instruction.Fires]
+  exact fires_of hfetch (by trivial)
+    (Generic.Operation.execute_constant_ok ctx 42
+      (initializedState2 world alloc).globals #[]) hstore
+
+private theorem initialized_step34 (policy : Generic.MemoryPolicy) (ctx : CallContext)
+    (world : World) (alloc : Allocation) (hsize : alloc.size = 32) :
+    SmallStep initializedLoad policy ctx (initializedState3 world alloc) []
+      (initializedState4 world alloc) := by
+  have hfetch : #[xVar, valueVar].mapM ((initializedState3 world alloc).locals.lookup ·) =
+      .ok #[alloc.offset, 42] := by
+    rw [Array.mapM_eq_mapM_toList]
+    rfl
+  have hstore : Locals.bindValues (initializedState3 world alloc).locals #[] #[] =
+      .ok (initializedState3 world alloc).locals := bindValues_empty _
+  have hin : (initializedState3 world alloc).globals.memory.InBounds alloc.offset.toNat 32 :=
+    initialized_inBounds alloc hsize
+  apply step_mstore32 (program := initializedLoad) (ctx := ctx)
+    (offset := xVar) (value := valueVar)
+    (by simp [initializedLoad, Program.decodeStmt, Program.block?, Program.function?,
+      Function.block?, BasicBlock.absoluteToPosition, initializedState3, stmtControl])
+  simp only [decodeSirStatement, Generic.Instruction.Fires]
+  exact fires_of hfetch (by trivial)
+    (Generic.Operation.execute_mstore32_ok ctx (initializedState3 world alloc).globals
+      alloc.offset 42 hin) hstore
+
+private theorem initialized_runs_to_allocation (policy : Generic.MemoryPolicy)
+    (ctx : CallContext) (world : World) :
+    initializedLoad.RunsFunction policy ctx initializedLoad.initEntry { world } #[] []
+      (initializedState1 world) :=
+  ⟨initializedState0 world, initialized_entry world, .tail .refl
+    (initialized_step01 policy ctx world)⟩
+
+private theorem initialized_runs_to_store (policy : Generic.MemoryPolicy) (ctx : CallContext)
+    (world : World)
+    (hallows : policy.Allows MemoryState.empty (32 : Word).toNat initializedAlloc) :
+    initializedLoad.RunsFunction policy ctx initializedLoad.initEntry { world } #[] []
+      (initializedState3 world initializedAlloc) :=
+  ⟨initializedState0 world, initialized_entry world,
+    .tail (.tail (.tail .refl (initialized_step01 policy ctx world))
+      (initialized_step12 policy ctx world hallows))
+      (initialized_step23 policy ctx world initializedAlloc)⟩
+
+private theorem initialized_decode_allocation (world : World) :
+    initializedLoad.decodeStmt (initializedState1 world).control =
+      some (stmtControl 2, .mallocUninit xVar sizeVar) := rfl
+
+private theorem initialized_decode_store (world : World) (alloc : Allocation) :
+    initializedLoad.decodeStmt (initializedState3 world alloc).control =
+      some (stmtControl 4, .mstore32 xVar valueVar) := rfl
+
+private theorem initialized_size_lookup (world : World) {size : VarId} {word : Word}
+    (hsize : sizeVar = size) (hword : (initializedState1 world).locals.lookup size = .ok word) :
+    word = 32 := by
+  subst hsize
+  rw [show (initializedState1 world).locals.lookup sizeVar = .ok (32 : Word) from rfl] at hword
+  injection hword with hword
+  exact hword.symm
+
+private theorem initialized_offset_lookup (world : World) (alloc : Allocation)
+    {offset : VarId} {word : Word} (hoffset : xVar = offset)
+    (hword : (initializedState3 world alloc).locals.lookup offset = .ok word) :
+    word = alloc.offset := by
+  subst hoffset
+  rw [show (initializedState3 world alloc).locals.lookup xVar = .ok alloc.offset from rfl]
+    at hword
+  injection hword with hword
+  exact hword.symm
+
+private theorem initialized_allocation_space (world : World) :
+    ∀ nextControl result size word,
+      initializedLoad.decodeStmt (initializedState1 world).control =
+          some (nextControl, .mallocUninit result size) →
+      (initializedState1 world).locals.lookup size = .ok word →
+      (initializedState1 world).globals.memory.watermark + word.toNat ≤ Evm.UInt256.size := by
+  intro nextControl result size word hdecode hword
+  rw [initialized_decode_allocation] at hdecode
+  simp only [Option.some.injEq, Prod.mk.injEq, Stmt.mallocUninit.injEq] at hdecode
+  rw [initialized_size_lookup world hdecode.2.2 hword]
+  exact bump_allows_initialized.1
+
+private theorem initialized_allocation_fresh (world : World) :
+    ∀ nextControl result size word,
+      initializedLoad.decodeStmt (initializedState1 world).control =
+          some (nextControl, .mallocUninit result size) →
+      (initializedState1 world).locals.lookup size = .ok word →
+      ∃ allocation,
+        Generic.MemoryPolicy.permissive.Allows (initializedState1 world).globals.memory
+          word.toNat allocation ∧
+        (initializedState1 world).globals.memory.IsValidNewAlloc allocation ∧
+        allocation.size = word.toNat := by
+  intro nextControl result size word hdecode hword
+  rw [initialized_decode_allocation] at hdecode
+  simp only [Option.some.injEq, Prod.mk.injEq, Stmt.mallocUninit.injEq] at hdecode
+  rw [initialized_size_lookup world hdecode.2.2 hword]
+  exact ⟨initializedAlloc, permissive_allows_initialized, initialized_valid_alloc, by decide⟩
+
+private theorem initialized_allocation_no_store (world : World) :
+    ∀ nextControl offset value word,
+      initializedLoad.decodeStmt (initializedState1 world).control =
+          some (nextControl, .mstore32 offset value) →
+      (initializedState1 world).locals.lookup offset = .ok word →
+      (initializedState1 world).globals.memory.InBounds word.toNat 32 := by
+  intro nextControl offset value word hdecode _
+  rw [initialized_decode_allocation] at hdecode
+  simp at hdecode
+
+private theorem initialized_store_no_allocation (world : World) (alloc : Allocation) :
+    ∀ nextControl result size word,
+      initializedLoad.decodeStmt (initializedState3 world alloc).control =
+          some (nextControl, .mallocUninit result size) →
+      (initializedState3 world alloc).locals.lookup size = .ok word →
+      (initializedState3 world alloc).globals.memory.watermark + word.toNat ≤
+        Evm.UInt256.size := by
+  intro nextControl result size word hdecode _
+  rw [initialized_decode_store] at hdecode
+  simp at hdecode
+
+private theorem initialized_store_inBounds (world : World) (alloc : Allocation)
+    (hsize : alloc.size = 32) :
+    ∀ nextControl offset value word,
+      initializedLoad.decodeStmt (initializedState3 world alloc).control =
+          some (nextControl, .mstore32 offset value) →
+      (initializedState3 world alloc).locals.lookup offset = .ok word →
+      (initializedState3 world alloc).globals.memory.InBounds word.toNat 32 := by
+  intro nextControl offset value word hdecode hword
+  rw [initialized_decode_store] at hdecode
+  simp only [Option.some.injEq, Prod.mk.injEq, Stmt.mstore32.injEq] at hdecode
+  rw [initialized_offset_lookup world alloc hdecode.2.1 hword]
+  exact initialized_inBounds alloc hsize
+
+private theorem initialized_nonIcall {control : MachineControl}
+    {next : MachineControl} {statement : Stmt}
+    (hdecode : initializedLoad.decodeStmt control = some (next, statement))
+    (hstatement : ∀ callee callArgs destinations,
+      statement ≠ .icall callee callArgs destinations) :
+    (∃ nextControl statement,
+      initializedLoad.decodeStmt control = some (nextControl, statement) ∧
+      ∀ callee callArgs destinations, statement ≠ .icall callee callArgs destinations) ∨
+    ∃ terminator, initializedLoad.terminatorAt control = some terminator :=
+  Or.inl ⟨next, statement, hdecode, hstatement⟩
+
 theorem initializedLoad_wellFormed : initializedLoad.WellFormed := by
   constructor
   · rintro callee args dests hstatement
@@ -489,6 +704,54 @@ theorem initializedLoad_store_inBounds :
     (MemoryState.empty.push { offset := 0, size := 32 }).InBounds 0 32 := by
   decide
 
+theorem initializedLoad_progress_at_allocation_bump (ctx : CallContext) (world : World) :
+    ∃ state next result size,
+      initializedLoad.RunsFunction Generic.MemoryPolicy.bump ctx initializedLoad.initEntry
+        { world } #[] [] state ∧
+      initializedLoad.decodeStmt state.control = some (next, .mallocUninit result size) ∧
+      ∃ trace state',
+        SmallStep initializedLoad Generic.MemoryPolicy.bump ctx state trace state' :=
+  ⟨initializedState1 world, stmtControl 2, xVar, sizeVar,
+    initialized_runs_to_allocation Generic.MemoryPolicy.bump ctx world,
+    initialized_decode_allocation world,
+    initializedLoad_wellFormed.progress_reachable_nonIcall_bump
+      (initialized_runs_to_allocation Generic.MemoryPolicy.bump ctx world)
+      (initialized_nonIcall (initialized_decode_allocation world) (by simp))
+      (initialized_allocation_space world)
+      (initialized_allocation_no_store world)⟩
+
+theorem initializedLoad_progress_at_store_bump (ctx : CallContext) (world : World) :
+    ∃ state next offset value,
+      initializedLoad.RunsFunction Generic.MemoryPolicy.bump ctx initializedLoad.initEntry
+        { world } #[] [] state ∧
+      initializedLoad.decodeStmt state.control = some (next, .mstore32 offset value) ∧
+      ∃ trace state',
+        SmallStep initializedLoad Generic.MemoryPolicy.bump ctx state trace state' :=
+  ⟨initializedState3 world initializedAlloc, stmtControl 4, xVar, valueVar,
+    initialized_runs_to_store Generic.MemoryPolicy.bump ctx world bump_allows_initialized,
+    initialized_decode_store world initializedAlloc,
+    initializedLoad_wellFormed.progress_reachable_nonIcall_bump
+      (initialized_runs_to_store Generic.MemoryPolicy.bump ctx world bump_allows_initialized)
+      (initialized_nonIcall (initialized_decode_store world initializedAlloc) (by simp))
+      (initialized_store_no_allocation world initializedAlloc)
+      (initialized_store_inBounds world initializedAlloc rfl)⟩
+
+theorem initializedLoad_progress_at_allocation_permissive (ctx : CallContext) (world : World) :
+    ∃ state next result size,
+      initializedLoad.RunsFunction Generic.MemoryPolicy.permissive ctx
+        initializedLoad.initEntry { world } #[] [] state ∧
+      initializedLoad.decodeStmt state.control = some (next, .mallocUninit result size) ∧
+      ∃ trace state',
+        SmallStep initializedLoad Generic.MemoryPolicy.permissive ctx state trace state' :=
+  ⟨initializedState1 world, stmtControl 2, xVar, sizeVar,
+    initialized_runs_to_allocation Generic.MemoryPolicy.permissive ctx world,
+    initialized_decode_allocation world,
+    initializedLoad_wellFormed.progress_reachable_nonIcall
+      (initialized_runs_to_allocation Generic.MemoryPolicy.permissive ctx world)
+      (initialized_nonIcall (initialized_decode_allocation world) (by simp))
+      (initialized_allocation_fresh world)
+      (initialized_allocation_no_store world)⟩
+
 theorem initializedLoad_reaches_successful_store :
     ∃ ctx function world initial before after,
       initializedLoad.callState? function { world } #[] = some initial ∧
@@ -499,105 +762,17 @@ theorem initializedLoad_reaches_successful_store :
       after.globals.memory =
         (MemoryState.empty.push { offset := 0, size := 32 }).writeBytes 0
           (42 : Word).toByteArray := by
-  have hfetchEmpty : (#[] : Array VarId).mapM ((initializedState0 default).locals.lookup ·) =
-      .ok #[] := by
-    rw [Array.mapM_eq_mapM_toList]
-    rfl
-  have hstoreSize :
-      Locals.bindValues (initializedState0 default).locals #[sizeVar] #[32] =
-        .ok (initializedState1 default).locals := by
-    simpa [initializedState0, initializedState1, locals1] using
-      bindValues_singleton Locals.empty sizeVar 32
-  have step01 :
-      SmallStep initializedLoad Generic.MemoryPolicy.permissive zeroContext (initializedState0 default) []
-        (initializedState1 default) := by
-    apply step_assign (program := initializedLoad) (ctx := zeroContext)
-      (result := sizeVar) (expr := .constant 32)
-      (by simp [initializedLoad, Program.decodeStmt, Program.block?, Program.function?,
-        Function.block?, BasicBlock.absoluteToPosition, initializedState0, stmtControl])
-    simp only [decodeExpression, Generic.Instruction.Fires]
-    exact fires_of hfetchEmpty (by trivial)
-      (Generic.Operation.execute_constant_ok zeroContext 32
-        (initializedState0 default).globals #[]) hstoreSize
-  have hfetchSize :
-      #[sizeVar].mapM ((initializedState1 default).locals.lookup ·) = .ok #[32] := by
-    rw [Array.mapM_eq_mapM_toList]
-    rfl
-  have hvalid :
-      (initializedState1 default).globals.memory.IsValidNewAlloc initializedAlloc := by
-    decide
-  have hsize : initializedAlloc.size = (32 : Word).toNat := by
-    decide
-  have hstoreOffset :
-      Locals.bindValues (initializedState1 default).locals #[xVar] #[initializedAlloc.offset] =
-        .ok (initializedState2 default initializedAlloc).locals := by
-    simpa [initializedState1, initializedState2, locals1, locals2] using
-      bindValues_singleton locals1 xVar initializedAlloc.offset
-  have step12 :
-      SmallStep initializedLoad Generic.MemoryPolicy.permissive zeroContext (initializedState1 default) []
-        (initializedState2 default initializedAlloc) := by
-    apply step_mallocUninit (program := initializedLoad) (ctx := zeroContext)
-      (result := xVar) (size := sizeVar)
-      (by simp [initializedLoad, Program.decodeStmt, Program.block?, Program.function?,
-        Function.block?, BasicBlock.absoluteToPosition, initializedState1, stmtControl])
-    simp only [decodeSirStatement, Generic.Instruction.Fires]
-    exact fires_of hfetchSize ⟨32, rfl, ⟨hvalid, hsize⟩, hvalid, hsize⟩
-      (Generic.Operation.execute_malloc_ok zeroContext initializedAlloc
-        (initializedState1 default).globals 32 hsize) hstoreOffset
-  have hfetchEmpty₂ :
-      (#[] : Array VarId).mapM ((initializedState2 default initializedAlloc).locals.lookup ·) =
-        .ok #[] := by
-    rw [Array.mapM_eq_mapM_toList]
-    rfl
-  have hstoreValue :
-      Locals.bindValues (initializedState2 default initializedAlloc).locals #[valueVar] #[42] =
-        .ok (initializedState3 default initializedAlloc).locals := by
-    simpa [initializedState2, initializedState3, locals2, locals3] using
-      bindValues_singleton (locals2 initializedAlloc) valueVar 42
-  have step23 :
-      SmallStep initializedLoad Generic.MemoryPolicy.permissive zeroContext (initializedState2 default initializedAlloc) []
-        (initializedState3 default initializedAlloc) := by
-    apply step_assign (program := initializedLoad) (ctx := zeroContext)
-      (result := valueVar) (expr := .constant 42)
-      (by simp [initializedLoad, Program.decodeStmt, Program.block?, Program.function?,
-        Function.block?, BasicBlock.absoluteToPosition, initializedState2, stmtControl])
-    simp only [decodeExpression, Generic.Instruction.Fires]
-    exact fires_of hfetchEmpty₂ (by trivial)
-      (Generic.Operation.execute_constant_ok zeroContext 42
-        (initializedState2 default initializedAlloc).globals #[]) hstoreValue
-  have hfetchStore :
-      #[xVar, valueVar].mapM
-        ((initializedState3 default initializedAlloc).locals.lookup ·) =
-          .ok #[initializedAlloc.offset, 42] := by
-    rw [Array.mapM_eq_mapM_toList]
-    rfl
-  have hstoreEmpty :
-      Locals.bindValues (initializedState3 default initializedAlloc).locals #[] #[] =
-        .ok (initializedState3 default initializedAlloc).locals :=
-    bindValues_empty _
-  have hin :
-      (initializedState3 default initializedAlloc).globals.memory.InBounds
-        initializedAlloc.offset.toNat 32 := by
-    exact initialized_inBounds initializedAlloc rfl
-  have step34 :
-      SmallStep initializedLoad Generic.MemoryPolicy.permissive zeroContext (initializedState3 default initializedAlloc) []
-        (initializedState4 default initializedAlloc) := by
-    apply step_mstore32 (program := initializedLoad) (ctx := zeroContext)
-      (offset := xVar) (value := valueVar)
-      (by simp [initializedLoad, Program.decodeStmt, Program.block?, Program.function?,
-        Function.block?, BasicBlock.absoluteToPosition, initializedState3, stmtControl])
-    simp only [decodeSirStatement, Generic.Instruction.Fires]
-    exact fires_of hfetchStore (by trivial)
-      (Generic.Operation.execute_mstore32_ok zeroContext
-        (initializedState3 default initializedAlloc).globals initializedAlloc.offset 42 hin)
-      hstoreEmpty
   refine ⟨zeroContext, entryFunction, default, initializedState0 default,
     initializedState3 default initializedAlloc, initializedState4 default initializedAlloc,
-    initialized_entry default, ?_, ?_, ?_, step34, ?_⟩
-  · exact .tail (.tail (.tail .refl step01) step12) step23
-  · rfl
+    initialized_entry default, ?_, rfl, ?_,
+    initialized_step34 Generic.MemoryPolicy.permissive zeroContext default initializedAlloc rfl,
+    rfl⟩
+  · exact .tail (.tail (.tail .refl
+      (initialized_step01 Generic.MemoryPolicy.permissive zeroContext default))
+      (initialized_step12 Generic.MemoryPolicy.permissive zeroContext default
+        permissive_allows_initialized))
+      (initialized_step23 Generic.MemoryPolicy.permissive zeroContext default initializedAlloc)
   · simpa [initializedState3, initializedAlloc] using initializedLoad_store_inBounds
-  · rfl
 
 theorem initializedLoad_deterministic : initializedLoad.Deterministic Generic.MemoryPolicy.permissive := by
   intro ctx world
