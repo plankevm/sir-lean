@@ -293,6 +293,34 @@ theorem fires_of
     localsFrame.Fires sirPolicy ctx operation src dst env globals trace env' globals' :=
   .next hadmissible hfetch hexecute hstore
 
+theorem firesHalt_false
+    {operation : Operation} {src : Array VarId} {env : Locals}
+    {globals globals' : Globals} {trace : Trace}
+    (h : localsFrame.FiresHalt sirPolicy ctx operation src env globals trace globals') :
+    False := by
+  cases h with
+  | halted hadmissible hfetch hexecute =>
+      cases operation with
+      | constant value => cases Generic.Operation.execute_constant_inv hexecute
+      | copy => obtain ⟨_, _, h⟩ := Generic.Operation.execute_copy_inv hexecute; cases h
+      | add => obtain ⟨_, _, _, _, h⟩ := Generic.Operation.execute_add_inv hexecute; cases h
+      | lt => obtain ⟨_, _, _, _, h⟩ := Generic.Operation.execute_lt_inv hexecute; cases h
+      | sload => obtain ⟨_, _, h⟩ := Generic.Operation.execute_sload_inv hexecute; cases h
+      | sstore =>
+          obtain ⟨_, _, _, _, h⟩ := Generic.Operation.execute_sstore_inv hexecute
+          cases h
+      | gas => cases Generic.Operation.execute_gas_inv hexecute
+      | call => obtain ⟨_, _, _, _, h⟩ := Generic.Operation.execute_call_inv hexecute; cases h
+      | mallocUninit =>
+          obtain ⟨_, _, _, h⟩ := Generic.Operation.execute_malloc_inv hexecute
+          cases h
+      | mstore32 =>
+          obtain ⟨_, _, _, _, h⟩ := Generic.Operation.execute_mstore32_inv hexecute
+          cases h
+      | mload32 =>
+          obtain ⟨_, _, h⟩ := Generic.Operation.execute_mload32_inv hexecute
+          cases h
+
 def Generic.Instr.Fires {frame : OpFrame} (instruction : Instr frame)
     (policy : MemoryPolicy) (ctx : CallContext) (env : frame.Env) (globals : Globals)
     (trace : Trace) (env' : frame.Env) (globals' : Globals) : Prop :=
