@@ -11,27 +11,12 @@ open Generic
 def Generic.GenState.toMachine (state : GenState localsFrame) : MachineState :=
   ⟨state.globals, state.env, state.control⟩
 
-@[simp]
-theorem MachineState.gen_globals (state : MachineState) : state.gen.globals = state.globals := rfl
-
-@[simp]
-theorem MachineState.gen_env (state : MachineState) : state.gen.env = state.locals := rfl
-
-@[simp]
-theorem MachineState.gen_control (state : MachineState) : state.gen.control = state.control := rfl
-
 theorem MachineState.gen_inj {state₁ state₂ : MachineState}
     (h : state₁.gen = state₂.gen) : state₁ = state₂ := by
   cases state₁
   cases state₂
   cases h
   rfl
-
-@[simp]
-theorem toMachine_gen (state : MachineState) : state.gen.toMachine = state := rfl
-
-@[simp]
-theorem gen_toMachine (state : GenState localsFrame) : state.toMachine.gen = state := rfl
 
 namespace Generic.Operation
 
@@ -93,192 +78,6 @@ theorem execute_mload32_ok (ctx : CallContext) (assumed : Vector UInt8 32)
       .ok (.next #[.ofNat (Evm.fromByteArrayBigEndian
         (globals.memory.readBytes offset ⟨assumed.toArray⟩))] globals []) := rfl
 
-theorem execute_constant_inv
-    {ctx : CallContext} {value : Word} {globals : Globals} {operands : Array Word}
-    {outcome : Outcome}
-    (h : execute ctx (.constant value) () globals operands = .ok outcome) :
-    outcome = .next #[value] globals [] :=
-  (Except.ok.inj h).symm
-
-theorem execute_copy_inv
-    {ctx : CallContext} {globals : Globals} {operands : Array Word} {outcome : Outcome}
-    (h : execute ctx .copy () globals operands = .ok outcome) :
-    ∃ value, operands[0]? = some value ∧ outcome = .next #[value] globals [] := by
-  change (do
-    let some value := operands[0]? |
-      throw (IRError.blockArityMismatch operands.size 1)
-    return Outcome.next #[value] globals []) = Except.ok outcome at h
-  split at h
-  next value hvalue => exact ⟨value, hvalue, (Except.ok.inj h).symm⟩
-  next => contradiction
-
-theorem execute_add_inv
-    {ctx : CallContext} {globals : Globals} {operands : Array Word} {outcome : Outcome}
-    (h : execute ctx .add () globals operands = .ok outcome) :
-    ∃ lhs rhs, operands[0]? = some lhs ∧ operands[1]? = some rhs ∧
-      outcome = .next #[Evm.UInt256.add lhs rhs] globals [] := by
-  change (do
-    let some lhs := operands[0]? |
-      throw (IRError.blockArityMismatch operands.size 2)
-    let some rhs := operands[1]? |
-      throw (IRError.blockArityMismatch operands.size 2)
-    return Outcome.next #[Evm.UInt256.add lhs rhs] globals []) = Except.ok outcome at h
-  split at h
-  next lhs hlhs =>
-    split at h
-    next rhs hrhs => exact ⟨lhs, rhs, hlhs, hrhs, (Except.ok.inj h).symm⟩
-    next => contradiction
-  next => contradiction
-
-theorem execute_lt_inv
-    {ctx : CallContext} {globals : Globals} {operands : Array Word} {outcome : Outcome}
-    (h : execute ctx .lt () globals operands = .ok outcome) :
-    ∃ lhs rhs, operands[0]? = some lhs ∧ operands[1]? = some rhs ∧
-      outcome = .next #[Evm.UInt256.lt lhs rhs] globals [] := by
-  change (do
-    let some lhs := operands[0]? |
-      throw (IRError.blockArityMismatch operands.size 2)
-    let some rhs := operands[1]? |
-      throw (IRError.blockArityMismatch operands.size 2)
-    return Outcome.next #[Evm.UInt256.lt lhs rhs] globals []) = Except.ok outcome at h
-  split at h
-  next lhs hlhs =>
-    split at h
-    next rhs hrhs => exact ⟨lhs, rhs, hlhs, hrhs, (Except.ok.inj h).symm⟩
-    next => contradiction
-  next => contradiction
-
-theorem execute_sload_inv
-    {ctx : CallContext} {globals : Globals} {operands : Array Word} {outcome : Outcome}
-    (h : execute ctx .sload () globals operands = .ok outcome) :
-    ∃ key, operands[0]? = some key ∧
-      outcome = .next #[globals.world.loadStorage ctx.self key] globals [] := by
-  change (do
-    let some key := operands[0]? |
-      throw (IRError.blockArityMismatch operands.size 1)
-    return Outcome.next #[globals.world.loadStorage ctx.self key] globals []) =
-      Except.ok outcome at h
-  split at h
-  next key hkey => exact ⟨key, hkey, (Except.ok.inj h).symm⟩
-  next => contradiction
-
-theorem execute_sstore_inv
-    {ctx : CallContext} {globals : Globals} {operands : Array Word} {outcome : Outcome}
-    (h : execute ctx .sstore () globals operands = .ok outcome) :
-    ∃ key value, operands[0]? = some key ∧ operands[1]? = some value ∧
-      outcome = .next #[]
-        { globals with world := globals.world.storeStorage ctx.self key value } [] := by
-  change (do
-    let some key := operands[0]? |
-      throw (IRError.blockArityMismatch operands.size 2)
-    let some value := operands[1]? |
-      throw (IRError.blockArityMismatch operands.size 2)
-    return Outcome.next #[]
-      { globals with world := globals.world.storeStorage ctx.self key value } []) =
-      Except.ok outcome at h
-  split at h
-  next key hkey =>
-    split at h
-    next value hvalue => exact ⟨key, value, hkey, hvalue, (Except.ok.inj h).symm⟩
-    next => contradiction
-  next => contradiction
-
-theorem execute_gas_inv
-    {ctx : CallContext} {answer : Word} {globals : Globals} {operands : Array Word}
-    {outcome : Outcome} (h : execute ctx .gas answer globals operands = .ok outcome) :
-    outcome = .next #[answer] globals [.gas answer] :=
-  (Except.ok.inj h).symm
-
-theorem execute_call_inv
-    {ctx : CallContext} {result : CallResult} {globals : Globals}
-    {operands : Array Word} {outcome : Outcome}
-    (h : execute ctx .call result globals operands = .ok outcome) :
-    ∃ callee gas,
-      operands[0]? = some callee ∧ operands[1]? = some gas ∧
-      outcome = .next #[Evm.UInt256.fromBool result.success]
-        { globals with returnData := result.output, world := result.world' }
-        [.call {
-          input := { target := .ofUInt256 callee, gas := gas, world := globals.world }
-          result := result }] := by
-  change (do
-    let some callee := operands[0]? |
-      throw (IRError.blockArityMismatch operands.size 2)
-    let some gasValue := operands[1]? |
-      throw (IRError.blockArityMismatch operands.size 2)
-    let input : CallInput :=
-      { target := .ofUInt256 callee, gas := gasValue, world := globals.world }
-    let record : CallRecord := { input, result }
-    return Outcome.next #[Evm.UInt256.fromBool result.success]
-      { globals with returnData := result.output, world := result.world' }
-      [.call record]) = Except.ok outcome at h
-  split at h
-  next callee hcallee =>
-    split at h
-    next gasValue hgas =>
-      exact ⟨callee, gasValue, hcallee, hgas, (Except.ok.inj h).symm⟩
-    next => contradiction
-  next => contradiction
-
-theorem execute_malloc_inv
-    {ctx : CallContext} {allocation : Allocation} {globals : Globals}
-    {operands : Array Word} {outcome : Outcome}
-    (h : execute ctx .mallocUninit allocation globals operands = .ok outcome) :
-    ∃ size, operands[0]? = some size ∧ allocation.size = size.toNat ∧
-      outcome = .next #[allocation.offset]
-        { globals with memory := globals.memory.push allocation } [] := by
-  change (do
-    let some size := operands[0]? |
-      throw (IRError.blockArityMismatch operands.size 1)
-    if allocation.size ≠ size.toNat then
-      throw IRError.invalidAlloc
-    return Outcome.next #[allocation.offset]
-      { globals with memory := globals.memory.push allocation } []) = Except.ok outcome at h
-  split at h
-  next size hsize =>
-    split at h
-    next => contradiction
-    next hvalid =>
-      exact ⟨size, hsize, not_ne_iff.mp hvalid, (Except.ok.inj h).symm⟩
-  next => contradiction
-
-theorem execute_mstore32_inv
-    {ctx : CallContext} {globals : Globals} {operands : Array Word} {outcome : Outcome}
-    (h : execute ctx .mstore32 () globals operands = .ok outcome) :
-    ∃ offset value, operands[0]? = some offset ∧ operands[1]? = some value ∧
-      outcome = .next #[]
-        { globals with memory := globals.memory.writeBytes offset value.toByteArray } [] := by
-  change (do
-    let some offset := operands[0]? |
-      throw (IRError.blockArityMismatch operands.size 2)
-    let some value := operands[1]? |
-      throw (IRError.blockArityMismatch operands.size 2)
-    return Outcome.next #[]
-      { globals with memory := globals.memory.writeBytes offset value.toByteArray } []) =
-      Except.ok outcome at h
-  split at h
-  next offset hoffset =>
-    split at h
-    next value hvalue => exact ⟨offset, value, hoffset, hvalue, (Except.ok.inj h).symm⟩
-    next => contradiction
-  next => contradiction
-
-theorem execute_mload32_inv
-    {ctx : CallContext} {assumed : Vector UInt8 32} {globals : Globals}
-    {operands : Array Word} {outcome : Outcome}
-    (h : execute ctx .mload32 assumed globals operands = .ok outcome) :
-    ∃ offset, operands[0]? = some offset ∧
-      outcome = .next #[.ofNat (Evm.fromByteArrayBigEndian
-        (globals.memory.readBytes offset ⟨assumed.toArray⟩))] globals [] := by
-  change (do
-    let some offset := operands[0]? |
-      throw (IRError.blockArityMismatch operands.size 1)
-    let bytes := globals.memory.readBytes offset ⟨assumed.toArray⟩
-    return Outcome.next #[.ofNat (Evm.fromByteArrayBigEndian bytes)] globals []) =
-      Except.ok outcome at h
-  split at h
-  next offset hoffset => exact ⟨offset, hoffset, (Except.ok.inj h).symm⟩
-  next => contradiction
-
 end Generic.Operation
 
 theorem fires_of
@@ -300,26 +99,10 @@ theorem firesHalt_false
     False := by
   cases h with
   | halted hadmissible hfetch hexecute =>
-      cases operation with
-      | constant value => cases Generic.Operation.execute_constant_inv hexecute
-      | copy => obtain ⟨_, _, h⟩ := Generic.Operation.execute_copy_inv hexecute; cases h
-      | add => obtain ⟨_, _, _, _, h⟩ := Generic.Operation.execute_add_inv hexecute; cases h
-      | lt => obtain ⟨_, _, _, _, h⟩ := Generic.Operation.execute_lt_inv hexecute; cases h
-      | sload => obtain ⟨_, _, h⟩ := Generic.Operation.execute_sload_inv hexecute; cases h
-      | sstore =>
-          obtain ⟨_, _, _, _, h⟩ := Generic.Operation.execute_sstore_inv hexecute
-          cases h
-      | gas => cases Generic.Operation.execute_gas_inv hexecute
-      | call => obtain ⟨_, _, _, _, h⟩ := Generic.Operation.execute_call_inv hexecute; cases h
-      | mallocUninit =>
-          obtain ⟨_, _, _, h⟩ := Generic.Operation.execute_malloc_inv hexecute
-          cases h
-      | mstore32 =>
-          obtain ⟨_, _, _, _, h⟩ := Generic.Operation.execute_mstore32_inv hexecute
-          cases h
-      | mload32 =>
-          obtain ⟨_, _, h⟩ := Generic.Operation.execute_mload32_inv hexecute
-          cases h
+      cases operation <;> simp only [Generic.Operation.execute] at hexecute
+      all_goals repeat' first | split at hexecute <;>
+        simp_all [pure, Except.pure, bind, Except.bind]
+      all_goals cases Except.ok.inj hexecute
 
 def Generic.Instr.Fires {frame : OpFrame} (instruction : Instr frame)
     (policy : MemoryPolicy) (ctx : CallContext) (env : frame.Env) (globals : Globals)
