@@ -212,4 +212,25 @@ inductive EvalFn (program : Program) (ctx : CallContext) :
       EvalFn program ctx f g args t exit.globals .halted
 
 end
+
+def Program.NonIcallControl (program : Program) (state : MachineState) : Prop :=
+  (∃ nextControl statement,
+      program.decodeStmt state.control = some (nextControl, statement) ∧
+      ∀ callee callArgs destinations,
+        statement ≠ .icall callee callArgs destinations) ∨
+    ∃ terminator, program.terminatorAt state.control = some terminator
+
+def Program.AllocationAvailable (program : Program) (state : MachineState) : Prop :=
+  ∀ nextControl result size word,
+    program.decodeStmt state.control = some (nextControl, .mallocUninit result size) →
+    state.locals.lookup size = .ok word →
+    ∃ allocation, state.globals.memory.IsValidNewAlloc allocation ∧
+      allocation.size = word.toNat
+
+def Program.BumpFits (program : Program) (state : MachineState) : Prop :=
+  ∀ nextControl result size word,
+    program.decodeStmt state.control = some (nextControl, .mallocUninit result size) →
+    state.locals.lookup size = .ok word →
+    state.globals.memory.watermark + word.toNat ≤ Evm.UInt256.size
+
 end Sir

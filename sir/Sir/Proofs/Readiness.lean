@@ -609,19 +609,8 @@ theorem Program.WellFormed.progress_reachable_nonIcall_proof
     (hwf : program.WellFormed) {function : FunctionId} {globals : Globals}
     {args : Array Word} {runTrace : Trace} {state : MachineState}
     (hrun : program.RunsFunction ctx function globals args runTrace state)
-    (hcontrol :
-      (∃ nextControl statement,
-        program.decodeStmt state.control = some (nextControl, statement) ∧
-        ∀ callee callArgs destinations,
-          statement ≠ .icall callee callArgs destinations) ∨
-      ∃ terminator, program.terminatorAt state.control = some terminator)
-    (hfreshAllocation :
-      ∀ nextControl result size word,
-        program.decodeStmt state.control =
-            some (nextControl, .mallocUninit result size) →
-        state.locals.lookup size = .ok word →
-        ∃ allocation, state.globals.memory.IsValidNewAlloc allocation ∧
-          allocation.size = word.toNat) :
+    (hcontrol : program.NonIcallControl state)
+    (hfreshAllocation : program.AllocationAvailable state) :
     ∃ trace state', SmallStep program ctx state trace state' := by
   have hinvariant := hwf.localsCoverCursor_runsFn hrun
   rcases hcontrol with

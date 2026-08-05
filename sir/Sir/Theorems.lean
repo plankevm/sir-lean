@@ -111,19 +111,8 @@ theorem Program.WellFormed.progress_reachable_nonIcall
     (hwf : program.WellFormed) {function : FunctionId} {globals : Globals}
     {args : Array Word} {runTrace : Trace} {state : MachineState}
     (hrun : program.RunsFunction ctx function globals args runTrace state)
-    (hcontrol :
-      (∃ nextControl statement,
-        program.decodeStmt state.control = some (nextControl, statement) ∧
-        ∀ callee callArgs destinations,
-          statement ≠ .icall callee callArgs destinations) ∨
-      ∃ terminator, program.terminatorAt state.control = some terminator)
-    (hfreshAllocation :
-      ∀ nextControl result size word,
-        program.decodeStmt state.control =
-            some (nextControl, .mallocUninit result size) →
-        state.locals.lookup size = .ok word →
-        ∃ allocation, state.globals.memory.IsValidNewAlloc allocation ∧
-          allocation.size = word.toNat) :
+    (hcontrol : program.NonIcallControl state)
+    (hfreshAllocation : program.AllocationAvailable state) :
     ∃ trace state', SmallStep program ctx state trace state' :=
   Program.WellFormed.progress_reachable_nonIcall_proof
     hwf hrun hcontrol hfreshAllocation
@@ -132,18 +121,8 @@ theorem Program.WellFormed.progress_reachable_nonIcall_bump
     (hwf : program.WellFormed) {function : FunctionId} {globals : Globals}
     {args : Array Word} {runTrace : Trace} {state : MachineState}
     (hrun : program.RunsFunction ctx function globals args runTrace state)
-    (hcontrol :
-      (∃ nextControl statement,
-        program.decodeStmt state.control = some (nextControl, statement) ∧
-        ∀ callee callArgs destinations,
-          statement ≠ .icall callee callArgs destinations) ∨
-      ∃ terminator, program.terminatorAt state.control = some terminator)
-    (hspace :
-      ∀ nextControl result size word,
-        program.decodeStmt state.control =
-            some (nextControl, .mallocUninit result size) →
-        state.locals.lookup size = .ok word →
-        state.globals.memory.watermark + word.toNat ≤ Evm.UInt256.size) :
+    (hcontrol : program.NonIcallControl state)
+    (hspace : program.BumpFits state) :
     ∃ trace state', SmallStep program ctx state trace state' :=
   Program.WellFormed.progress_reachable_nonIcall_bump_proof
     hwf hrun hcontrol hspace
