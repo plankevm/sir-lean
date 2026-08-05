@@ -27,10 +27,24 @@ def internVariable (name : String) : ParserM VarId := do
       set (names ++ [name])
       return ⟨names.length⟩
 
+def temporaryName (identifier : VarId) : String :=
+  "%" ++ decimalString identifier.id
+
 def freshVariable : ParserM VarId := do
   let names ← get
-  set (names ++ ["%"])
+  set (names ++ [temporaryName ⟨names.length⟩])
   return ⟨names.length⟩
+
+def liftNumbers : List Token → ParserM (List Stmt × List Token)
+  | [] => return ([], [])
+  | .number value :: rest => do
+      let target ← freshVariable
+      let (preludes, tokens) ← liftNumbers rest
+      return (.assign target (.constant (.ofNat value)) :: preludes,
+        .identifier (temporaryName target) :: tokens)
+  | token :: rest => do
+      let (preludes, tokens) ← liftNumbers rest
+      return (preludes, token :: tokens)
 
 def variableList : List Token → ParserM (Array VarId)
   | [] => return #[]
@@ -58,55 +72,60 @@ def parseStatement (functions : List String) (line : Line) : ParserM (List Stmt)
     match line.span (· != .equals) with
     | (before, .equals :: after) => (before, after)
     | _ => ([], line)
-  let results ← variableList resultTokens
   match operandTokens with
-  | .identifier mnemonic :: parameters =>
-      match mnemonic, results.toList, parameters with
-      | "const", [result], [.number value] =>
+  | .identifier "const" :: parameters => do
+      let results ← variableList resultTokens
+      match results.toList, parameters with
+      | [result], [.number value] =>
           return [.assign result (.constant (.ofNat value))]
-      | "copy", [result], [source] => do
-          let (prelude, sourceId) ← operand source
-          return prelude ++ [.assign result (.var sourceId)]
-      | "add", [result], [lhs, rhs] => do
-          let (leftPrelude, lhsId) ← operand lhs
-          let (rightPrelude, rhsId) ← operand rhs
-          return leftPrelude ++ rightPrelude ++ [.assign result (.add lhsId rhsId)]
-      | "lt", [result], [lhs, rhs] => do
-          let (leftPrelude, lhsId) ← operand lhs
-          let (rightPrelude, rhsId) ← operand rhs
-          return leftPrelude ++ rightPrelude ++ [.assign result (.lt lhsId rhsId)]
-      | "sload", [result], [key] => do
-          let (prelude, keyId) ← operand key
-          return prelude ++ [.assign result (.sload keyId)]
-      | "sstore", [], [key, value] => do
-          let (keyPrelude, keyId) ← operand key
-          let (valuePrelude, valueId) ← operand value
-          return keyPrelude ++ valuePrelude ++ [.sstore keyId valueId]
-      | "gas", [result], [] => return [.gas result]
-      | "call", [result], [gas, callee] => do
-          let (gasPrelude, gasId) ← operand gas
-          let (calleePrelude, calleeId) ← operand callee
-          return gasPrelude ++ calleePrelude ++
-            [.call { callee := calleeId, gas := gasId, result := result }]
-      | "malloc", [result], [size] => do
-          let (prelude, sizeId) ← operand size
-          return prelude ++ [.malloc result sizeId]
-      | "mallocany", [result], [size] => do
-          let (prelude, sizeId) ← operand size
-          return prelude ++ [.mallocUninit result sizeId]
-      | "mstore256", [], [offset, value] => do
-          let (offsetPrelude, offsetId) ← operand offset
-          let (valuePrelude, valueId) ← operand value
-          return offsetPrelude ++ valuePrelude ++ [.mstore32 offsetId valueId]
-      | "mload256", [result], [offset] => do
-          let (prelude, offsetId) ← operand offset
-          return prelude ++ [.mload32 result offsetId]
-      | "icall", dests, .label calleeName :: args => do
-          let some calleeIndex := functions.findIdx? (· == calleeName)
-            | throw s!"unknown function '@{calleeName}'"
-          let (prelude, arguments) ← operands args
-          return prelude ++ [.icall ⟨calleeIndex⟩ arguments dests.toArray]
-      | _, _, _ => throw s!"unsupported operation '{describe line}'"
+      | _, _ => throw s!"unsupported operation '{describe line}'"
+  | .identifier mnemonic :: rawParameters => do
+      let (lifted, parameters) ← liftNumbers rawParameters
+      let results ← variableList resultTokens
+      let body ← match mnemonic, results.toList, parameters with
+        | "copy", [result], [source] => do
+            let (_, sourceId) ← operand source
+            pure [.assign result (.var sourceId)]
+        | "add", [result], [lhs, rhs] => do
+            let (_, lhsId) ← operand lhs
+            let (_, rhsId) ← operand rhs
+            pure [.assign result (.add lhsId rhsId)]
+        | "lt", [result], [lhs, rhs] => do
+            let (_, lhsId) ← operand lhs
+            let (_, rhsId) ← operand rhs
+            pure [.assign result (.lt lhsId rhsId)]
+        | "sload", [result], [key] => do
+            let (_, keyId) ← operand key
+            pure [.assign result (.sload keyId)]
+        | "sstore", [], [key, value] => do
+            let (_, keyId) ← operand key
+            let (_, valueId) ← operand value
+            pure [.sstore keyId valueId]
+        | "gas", [result], [] => pure [.gas result]
+        | "call", [result], [gas, callee] => do
+            let (_, gasId) ← operand gas
+            let (_, calleeId) ← operand callee
+            pure [.call { callee := calleeId, gas := gasId, result := result }]
+        | "malloc", [result], [size] => do
+            let (_, sizeId) ← operand size
+            pure [.malloc result sizeId]
+        | "mallocany", [result], [size] => do
+            let (_, sizeId) ← operand size
+            pure [.mallocUninit result sizeId]
+        | "mstore256", [], [offset, value] => do
+            let (_, offsetId) ← operand offset
+            let (_, valueId) ← operand value
+            pure [.mstore32 offsetId valueId]
+        | "mload256", [result], [offset] => do
+            let (_, offsetId) ← operand offset
+            pure [.mload32 result offsetId]
+        | "icall", dests, .label calleeName :: args => do
+            let some calleeIndex := functions.findIdx? (· == calleeName)
+              | throw s!"unknown function '@{calleeName}'"
+            let (_, arguments) ← operands args
+            pure [.icall ⟨calleeIndex⟩ arguments dests.toArray]
+        | _, _, _ => throw s!"unsupported operation '{describe line}'"
+      pure (lifted ++ body)
   | _ => throw s!"expected an operation mnemonic in '{describe line}'"
 
 def resolveBlock (blocks : List String) (name : String) : ParserM BlockId := do
