@@ -14,6 +14,7 @@ import Sir.Examples.Jump
 import Sir.Text.Parser
 import Sir.Text.Printer
 import Sir.Text.Witness
+import Sir.Text.RoundTrip
 import Sir.Text.Extract
 import Sir.Check
 import Sir.Audit

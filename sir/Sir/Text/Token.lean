@@ -36,11 +36,14 @@ def decimalDigitChar : Nat → Char
   | 0 => '0' | 1 => '1' | 2 => '2' | 3 => '3' | 4 => '4'
   | 5 => '5' | 6 => '6' | 7 => '7' | 8 => '8' | _ => '9'
 
+def decimalDigitsAux : Nat → Nat → List Char
+  | 0, value => [decimalDigitChar value]
+  | fuel + 1, value =>
+      if value < 10 then [decimalDigitChar value]
+      else decimalDigitsAux fuel (value / 10) ++ [decimalDigitChar (value % 10)]
+
 def decimalDigits (value : Nat) : List Char :=
-  if value < 10 then [decimalDigitChar value]
-  else decimalDigits (value / 10) ++ [decimalDigitChar (value % 10)]
-termination_by value
-decreasing_by omega
+  decimalDigitsAux value value
 
 def decimalString (value : Nat) : String :=
   String.ofList (decimalDigits value)
