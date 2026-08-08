@@ -146,6 +146,11 @@ private theorem read_written_word (alloc : Allocation)
     rw [assumed.size_toArray, toByteArray_size]
   · simpa [BytecodeLayer.Hoare.MemAlgebra.toByteArray_size] using hsize
 
+private theorem initialized_store_in_bounds (alloc : Allocation) (hsize : alloc.size = 32) :
+    (MemoryState.empty.push alloc).InBounds alloc.offset.toNat 32 := by
+  refine ⟨alloc, by simp [MemoryState.empty, MemoryState.push], ?_⟩
+  exact ⟨Nat.le_refl _, by simp [Allocation.endExclusive, Allocation.start, hsize]⟩
+
 private def stmtControl (index : Nat) : MachineControl :=
   .running { fn := entryFunction, block := entryBlock, position := .statement index }
 
@@ -253,7 +258,7 @@ private theorem initialized_step_closed {ctx : CallContext} {world : World}
     StateT.run, modify, modifyGet, MonadStateOf.modifyGet, StateT.modifyGet,
     bind, Except.bind, pure, Except.pure, Functor.map, Except.map,
     bindValues_empty, bindValues_singleton, read_written_word,
-    fromByteArray_toByteArray, ofNat_toNat]
+    initialized_store_in_bounds, fromByteArray_toByteArray, ofNat_toNat]
   all_goals first
     | obtain ⟨size, hoperand, hvalid, hsize⟩ := ‹∃ _, _›
     | skip
@@ -277,6 +282,13 @@ private theorem initialized_step_closed {ctx : CallContext} {world : World}
   all_goals try simp_all [bindValues_empty, bindValues_singleton, locals1, locals2,
     locals3, locals5, Locals.assign]
   all_goals subst_vars
+  case state3.operation.next =>
+    rename_i alloc hsize env globals results oracle hstore hexecute
+    simp [initialized_store_in_bounds alloc hsize] at hexecute
+    obtain ⟨rfl, rfl, rfl⟩ := hexecute
+    simp [bindValues_empty] at hstore
+    subst env
+    exact ⟨rfl, InitializedReachable.state4 alloc hsize⟩
   all_goals first
     | exact InitializedReachable.state1
     | exact InitializedReachable.state2 _ (by assumption)
@@ -485,6 +497,25 @@ private theorem zero_worlds_differ :
         zeroContext.self 1 = 0 := by decide
   rw [hleft, hright] at hread
   exact (by decide : (1 : Word) ≠ 0) hread
+
+theorem adjacentAllocations_doNotAuthorizeStore
+    (left right : Allocation) (start : Nat)
+    (hinside : start < left.endExclusive) (hcross : left.endExclusive < start + 32)
+    (hadjacent : left.endExclusive = right.start) :
+    ¬ ({ provisioned := #[left, right] } : MemoryState).InBounds start 32 := by
+  rintro ⟨allocation, hmember, hcontains⟩
+  simp at hmember
+  rcases hmember with rfl | rfl
+  · exact (Nat.not_lt_of_ge hcontains.2) hcross
+  · exact (Nat.not_lt_of_ge hcontains.1) (by omega)
+
+theorem emptyMemory_readsAssumedBytes (offset : Word) (assumed : ByteArray) :
+    MemoryState.empty.readBytes offset assumed = assumed := by
+  unfold MemoryState.readBytes MemoryState.readByte? MemoryState.empty
+  have hround : assumed.toList.toByteArray = assumed := by
+    apply ByteArray.ext
+    rw [List.data_toByteArray, toList_eq_data_toList]
+  simp [hround]
 
 theorem initializedLoad_deterministic : initializedLoad.Deterministic := by
   intro ctx world

@@ -14,6 +14,12 @@ def start (a : Allocation) : Nat := a.offset.toNat
 
 def endExclusive (a : Allocation) : Nat := a.start + a.size
 
+def Contains (a : Allocation) (start len : Nat) : Prop :=
+  a.start ≤ start ∧ start + len ≤ a.endExclusive
+
+instance (a : Allocation) (start len : Nat) : Decidable (a.Contains start len) :=
+  decidable_of_iff (a.start ≤ start ∧ start + len ≤ a.endExclusive) Iff.rfl
+
 def readByte? (a : Allocation) (address : Nat) : Option UInt8 :=
   if a.start ≤ address ∧ address < a.endExclusive then
     a.bytes.get? (address - a.start)
@@ -54,6 +60,13 @@ def watermark (m : MemoryState) : Nat :=
 
 def push (m : MemoryState) (a : Allocation) : MemoryState :=
   { provisioned := m.provisioned.push a }
+
+def InBounds (m : MemoryState) (start len : Nat) : Prop :=
+  ∃ a ∈ m.provisioned, a.Contains start len
+
+instance (m : MemoryState) (start len : Nat) : Decidable (m.InBounds start len) :=
+  decidable_of_iff (∃ a ∈ m.provisioned.toList, a.Contains start len)
+    (by simp [MemoryState.InBounds])
 
 def readByte? (m : MemoryState) (address : Nat) : Option UInt8 :=
   m.provisioned.findSome? (·.readByte? address)

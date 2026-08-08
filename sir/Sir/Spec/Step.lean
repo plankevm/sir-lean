@@ -139,4 +139,10 @@ def Program.BumpFits (program : Program) (state : MachineState) : Prop :=
     state.locals.lookup size = .ok word →
     state.globals.memory.watermark + word.toNat ≤ Evm.UInt256.size
 
+def Program.StoreInBounds (program : Program) (state : MachineState) : Prop :=
+  ∀ nextControl offset value word,
+    program.decodeStmt state.control = some (nextControl, .mstore32 offset value) →
+    state.locals.lookup offset = .ok word →
+    state.globals.memory.InBounds word.toNat 32
+
 end Sir

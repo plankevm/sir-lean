@@ -23,6 +23,7 @@ inductive IRError where
   | invalidBlock (block : BlockId)
   | invalidControl
   | invalidAlloc
+  | storeOutOfBounds
   | blockArityMismatch (outputs inputs : Nat)
   deriving DecidableEq, Repr
 

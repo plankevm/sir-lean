@@ -100,8 +100,11 @@ def execute (ctx : CallContext) :
   | .mstore32, _, globals, operands => do
       let some offset := operands[0]? | throw (.blockArityMismatch operands.size 2)
       let some value := operands[1]? | throw (.blockArityMismatch operands.size 2)
-      return .next #[]
-        { globals with memory := globals.memory.writeBytes offset value.toByteArray } []
+      if globals.memory.InBounds offset.toNat 32 then
+        return .next #[]
+          { globals with memory := globals.memory.writeBytes offset value.toByteArray } []
+      else
+        throw .storeOutOfBounds
   | .mload32, assumed, globals, operands => do
       let some offset := operands[0]? | throw (.blockArityMismatch operands.size 1)
       let bytes := globals.memory.readBytes offset ⟨assumed.toArray⟩

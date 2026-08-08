@@ -112,20 +112,22 @@ theorem Program.WellFormed.progress_reachable_nonIcall
     {args : Array Word} {runTrace : Trace} {state : MachineState}
     (hrun : program.RunsFunction ctx function globals args runTrace state)
     (hcontrol : program.NonIcallControl state)
-    (hfreshAllocation : program.AllocationAvailable state) :
+    (hfreshAllocation : program.AllocationAvailable state)
+    (hstore : program.StoreInBounds state) :
     ∃ trace state', SmallStep program ctx state trace state' :=
   Program.WellFormed.progress_reachable_nonIcall_proof
-    hwf hrun hcontrol hfreshAllocation
+    hwf hrun hcontrol hfreshAllocation hstore
 
 theorem Program.WellFormed.progress_reachable_nonIcall_bump
     (hwf : program.WellFormed) {function : FunctionId} {globals : Globals}
     {args : Array Word} {runTrace : Trace} {state : MachineState}
     (hrun : program.RunsFunction ctx function globals args runTrace state)
     (hcontrol : program.NonIcallControl state)
-    (hspace : program.BumpFits state) :
+    (hspace : program.BumpFits state)
+    (hstore : program.StoreInBounds state) :
     ∃ trace state', SmallStep program ctx state trace state' :=
   Program.WellFormed.progress_reachable_nonIcall_bump_proof
-    hwf hrun hcontrol hspace
+    hwf hrun hcontrol hspace hstore
 
 theorem Program.WellFormed.evalFn_arity
     (hwf : program.WellFormed) {f : FunctionId} {g g' : Globals}

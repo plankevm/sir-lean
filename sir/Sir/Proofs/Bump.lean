@@ -65,9 +65,10 @@ theorem Program.WellFormed.progress_reachable_nonIcall_bump_proof
     {args : Array Word} {runTrace : Trace} {state : MachineState}
     (hrun : program.RunsFunction ctx function globals args runTrace state)
     (hcontrol : program.NonIcallControl state)
-    (hspace : program.BumpFits state) :
+    (hspace : program.BumpFits state)
+    (hstore : program.StoreInBounds state) :
     ∃ trace state', SmallStep program ctx state trace state' := by
-  refine hwf.progress_reachable_nonIcall_proof hrun hcontrol ?_
+  refine hwf.progress_reachable_nonIcall_proof hrun hcontrol ?_ hstore
   intro nextControl result size word hdecode hword
   exact ⟨state.globals.memory.bumpAlloc word.toNat,
     state.globals.memory.isValidNewAlloc_bumpAlloc word.toNat

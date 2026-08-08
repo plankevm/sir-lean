@@ -21,7 +21,9 @@ def MachineState.StmtReady (s : MachineState) : Stmt → Prop
   | .mallocUninit _ size =>
       ∃ w alloc, s.locals.lookup size = .ok w ∧
         s.globals.memory.IsValidNewAlloc alloc ∧ alloc.size = w.toNat
-  | .mstore32 offset value => s.locals.Defined offset ∧ s.locals.Defined value
+  | .mstore32 offset value =>
+      ∃ w, s.locals.lookup offset = .ok w ∧ s.locals.Defined value ∧
+        s.globals.memory.InBounds w.toNat 32
   | .mload32 _ offset => s.locals.Defined offset
   | .icall _ _ _ => False
 
@@ -221,7 +223,7 @@ theorem progress_stmt_proof
       · exact Generic.Operation.execute_malloc_ok ctx allocation state.globals sizeValue hsize
       · exact hstore
   | mstore32 offset value =>
-      obtain ⟨⟨offsetValue, hoffset⟩, valueValue, hvalue⟩ := hready
+      obtain ⟨offsetValue, hoffset, ⟨valueValue, hvalue⟩, hin⟩ := hready
       let globals' := { state.globals with
         memory := state.globals.memory.writeBytes offsetValue valueValue.toByteArray }
       obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
@@ -233,7 +235,7 @@ theorem progress_stmt_proof
       · simp [Array.mapM_eq_mapM_toList, hoffset, hvalue, bind, Except.bind,
           Functor.map, Except.map, pure, Except.pure]
       · trivial
-      · exact Generic.Operation.execute_mstore32_ok ctx state.globals offsetValue valueValue
+      · exact Generic.Operation.execute_mstore32_ok ctx state.globals offsetValue valueValue hin
       · exact hstore
   | mload32 result offset =>
       obtain ⟨offsetValue, hoffset⟩ := hready
