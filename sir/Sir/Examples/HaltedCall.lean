@@ -7,7 +7,7 @@ def haltedCallCalleeBlock : BlockId := ⟨0⟩
 def haltedCallCaller : FunctionId := ⟨0⟩
 def haltedCallCallee : FunctionId := ⟨1⟩
 
-def haltedCallProgram : Program :=
+def haltedCallProgram : Vars.Program :=
   { functions := #[
       { blocks := #[{
           inputs := #[]
@@ -29,7 +29,7 @@ private theorem haltedCall_callEdge_iff (caller callee : FunctionId) :
     haltedCallProgram.callEdge caller callee ↔
       caller = haltedCallCaller ∧ callee = haltedCallCallee := by
   rcases caller with ⟨_ | _ | caller⟩ <;>
-    simp [Program.callEdge, Program.function?, Function.HasStmt,
+    simp [Vars.Program.callEdge, Vars.Program.function?, Vars.Function.HasStmt,
       haltedCallProgram, haltedCallCallee, haltedCallCaller]
 
 private theorem haltedCall_acyclicCalls (function : FunctionId) :
@@ -53,16 +53,16 @@ theorem haltedCallProgram_wellFormed : haltedCallProgram.WellFormed := by
   constructor
   · rintro callee args dests hstatement
     rcases callee with ⟨callee⟩
-    simp [Program.HasStmt, Function.HasStmt, haltedCallProgram,
+    simp [Vars.Program.HasStmt, Vars.Function.HasStmt, haltedCallProgram,
       haltedCallCallee] at hstatement
     rcases hstatement with ⟨rfl, rfl, rfl⟩
-    exact ⟨_, Program.functionInputOutputArity_iff.mpr ⟨_, rfl, rfl, rfl⟩, rfl⟩
+    exact ⟨_, Vars.Program.functionInputOutputArity_iff.mpr ⟨_, rfl, rfl, rfl⟩, rfl⟩
   · intro fn hfn block hblock hterm
     simp [haltedCallProgram] at hfn
     rcases hfn with rfl | rfl <;> simp at hblock <;> subst hblock <;> simp at hterm
   · exact haltedCall_acyclicCalls
   · constructor
-    · exact Program.functionInputOutputArity_iff.mpr ⟨_, rfl, rfl, rfl⟩
+    · exact Vars.Program.functionInputOutputArity_iff.mpr ⟨_, rfl, rfl, rfl⟩
     · intro entry hentry
       simp [haltedCallProgram] at hentry
   · intro fn hfn block hblock target htarget
@@ -70,7 +70,7 @@ theorem haltedCallProgram_wellFormed : haltedCallProgram.WellFormed := by
     rcases hfn with rfl | rfl <;>
       · simp at hblock
         subst block
-        simp [Terminator.jumpTargets] at htarget
+        simp [Vars.Terminator.jumpTargets] at htarget
   · intro fn hfn block hblock
     simp [haltedCallProgram] at hfn
     rcases hfn with rfl | rfl
@@ -80,50 +80,60 @@ theorem haltedCallProgram_wellFormed : haltedCallProgram.WellFormed := by
       · intro index statement hstatement
         rcases index with (_ | index) <;> simp at hstatement
         subst statement
-        simp [Stmt.variablesRead, BasicBlock.variablesDefinedBefore]
-      · simp [Terminator.variablesRead]
+        simp [Vars.Stmt.variablesRead, Vars.Block.variablesDefinedBefore]
+      · simp [Vars.Terminator.variablesRead]
     · simp at hblock
       subst block
       constructor
       · intro index statement hstatement
         simp at hstatement
-      · simp [Terminator.variablesRead]
+      · simp [Vars.Terminator.variablesRead]
 
 private theorem haltedCall_evalCallee (ctx : CallContext) (world : World) :
-    EvalFn haltedCallProgram ctx haltedCallCallee { world := world } #[] []
-      ({ world := world } : Globals) .halted := by
-  refine EvalFn.halted (s₀ :=
-      { globals := { world := world }
-        control := .running
-          { fn := haltedCallCallee, block := haltedCallCalleeBlock, position := .terminator } })
-      (exit := { globals := { world := world }, control := .halted }) ?_ ?_ rfl
-  · apply Program.callState?_eq_some_iff.mpr
+    Vars.EvalFn haltedCallProgram ctx
+      haltedCallCallee { world := world } #[] [] ({ world := world } : Globals) .halted := by
+  let initial : MachineState :=
+    { globals := { world := world }
+      control := .running
+        { fn := haltedCallCallee, block := haltedCallCalleeBlock, position := .terminator } }
+  let final : MachineState := { globals := { world := world }, control := .halted }
+  have hentry : haltedCallProgram.callState? haltedCallCallee { world := world } #[] =
+      some initial := by
+    apply Vars.Program.callState?_eq_some_iff.mpr
     refine ⟨_, _, Locals.empty, rfl, rfl, ?_, rfl⟩
     simp only [Locals.bindParams, Locals.bindValues, ← Array.forIn_toList,
       Array.toList_zip]
     rfl
-  exact Steps.single (.terminator (program := haltedCallProgram) (ctx := ctx) rfl rfl)
+  have hstep : Machine.Step Vars.frame (Vars.decoder haltedCallProgram) Machine.memoryPolicy ctx
+      initial.toState [] final.toState := step_terminator rfl rfl
+  exact Vars.EvalFn.halted hentry (Machine.Steps.single hstep) rfl
 
-theorem haltedCallProgram_runs (ctx : CallContext) (world : World) :
-    haltedCallProgram.RunsInit ctx world [] ({ world := world } : Globals) := by
+private theorem haltedCallProgram_eval (ctx : CallContext) (world : World) :
+    Vars.EvalFn haltedCallProgram ctx
+      haltedCallCaller { world := world } #[] [] ({ world := world } : Globals) .halted := by
   let initial : MachineState :=
     { globals := { world := world }
       control := .running
         { fn := haltedCallCaller, block := haltedCallCallerBlock, position := .statement 0 } }
   let final : MachineState := { globals := { world := world }, control := .halted }
-  refine EvalFn.halted (s₀ := initial) (exit := final) ?_ (Steps.single ?_) rfl
-  · apply Program.callState?_eq_some_iff.mpr
+  have hentry : haltedCallProgram.callState? haltedCallCaller { world := world } #[] =
+      some initial := by
+    apply Vars.Program.callState?_eq_some_iff.mpr
     refine ⟨_, _, Locals.empty, rfl, rfl, ?_, rfl⟩
     simp only [Locals.bindParams, Locals.bindValues, ← Array.forIn_toList,
       Array.toList_zip]
     rfl
-  have hargs : (#[] : Array VarId).mapM
-      (initial.locals.lookup ·) =
-      .ok #[] := by
+  have hargs : (#[] : Array VarId).mapM (initial.locals.lookup ·) = .ok #[] := by
     rw [Array.mapM_eq_mapM_toList]
     rfl
-  exact SmallStep.icallHalted (program := haltedCallProgram) (ctx := ctx)
-    (state := initial) (hstmt := rfl) (hargs := hargs)
-    (hcallee := haltedCall_evalCallee ctx world)
+  have hstep : Machine.Step Vars.frame (Vars.decoder haltedCallProgram) Machine.memoryPolicy ctx
+      initial.toState [] final.toState :=
+    step_icallHalted rfl hargs (haltedCall_evalCallee ctx world)
+  exact Vars.EvalFn.halted hentry (Machine.Steps.single hstep) rfl
+
+theorem haltedCallProgram_runs (ctx : CallContext) (world : World) :
+    Vars.EvalFn haltedCallProgram ctx haltedCallProgram.initEntry { world := world } #[] []
+      ({ world := world } : Globals) .halted := by
+  simpa [haltedCallProgram] using haltedCallProgram_eval ctx world
 
 end Sir.Examples

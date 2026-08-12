@@ -2,8 +2,10 @@ import Lean
 import Sir.Theorems
 import Sir.Examples.TwoFunction
 import Sir.Examples.Memory
+import Sir.Examples.ZeroedMalloc
 import Sir.Examples.HaltedCall
 import Sir.Examples.Jump
+import Sir.Examples.Machine
 
 open Lean Elab Command
 
@@ -36,13 +38,15 @@ private def auditTheoremAxioms (theoremName : Name) : CommandElabM Unit := do
   for axiomName in axioms do
     unless allowedAxiom axiomName do
       throwError m!"Sir audit violation: theorem '{theoremName}' depends on disallowed \
-        axiom '{axiomName}'"
+        declaration '{axiomName}'"
 
 elab "audit_sir_theorems" : command => do
   let env ← getEnv
-  for theoremModule in
-      [`Sir.Theorems, `Sir.Examples.TwoFunction, `Sir.Examples.Memory,
-        `Sir.Examples.HaltedCall, `Sir.Examples.Jump] do
+  let theoremModules := env.header.moduleNames.filter fun moduleName =>
+    moduleName != `Sir.Theorems && (`Sir.Theorems).isPrefixOf moduleName
+  let exampleModules := env.header.moduleNames.filter fun moduleName =>
+    (`Sir.Examples).isPrefixOf moduleName
+  for theoremModule in theoremModules ++ exampleModules do
     let some theoremModuleIndex := env.getModuleIdx? theoremModule
       | throwError m!"Sir audit could not resolve module '{theoremModule}'"
     for (declarationName, declarationInfo) in env.constants do
