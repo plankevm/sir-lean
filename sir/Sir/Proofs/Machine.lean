@@ -202,49 +202,6 @@ theorem fires_firesHalt_dialogue (frame : OperandFrame) {policy : MemoryPolicy}
 
 end OperandFrame
 
-def Decoder.Exclusive {frame : OperandFrame} (decoder : Decoder frame) : Prop :=
-  ∀ env globals control instruction next,
-    decoder.decode control = some (instruction, next) →
-    decoder.control env globals control = none
-
-def Decoder.Terminal {frame : OperandFrame} (decoder : Decoder frame) : Prop :=
-  (∀ env globals results,
-    decoder.decode (.returned results) = none ∧
-    decoder.control env globals (.returned results) = none) ∧
-  (∀ env globals,
-    decoder.decode .halted = none ∧
-    decoder.control env globals .halted = none)
-
-def Decoder.NoMload {frame : OperandFrame} (decoder : Decoder frame) : Prop :=
-  ∀ control src dst next,
-    decoder.decode control = some (⟨Instruction.Kind.primitive .mload32, src, dst⟩, next) → False
-
-def Decoder.NoMalloc {frame : OperandFrame} (decoder : Decoder frame) : Prop :=
-  (∀ control src dst next,
-    decoder.decode control = some (⟨Instruction.Kind.primitive .malloc, src, dst⟩, next) → False) ∧
-  (∀ control src dst next,
-    decoder.decode control = some (⟨Instruction.Kind.primitive .mallocUninit, src, dst⟩, next) → False)
-
-def StepDialogue {frame : OperandFrame} (decoder : Decoder frame) (policy : MemoryPolicy)
-    (ctx : CallContext) (state : State frame) (trace : Trace) (final : State frame) : Prop :=
-  ∀ trace₂ final₂, Step frame decoder policy ctx state trace₂ final₂ →
-    (trace = trace₂ ∧ final = final₂) ∨ Trace.QueryDivergence trace trace₂
-
-def RunDialogue {frame : OperandFrame} (decoder : Decoder frame) (policy : MemoryPolicy)
-    (ctx : CallContext) (state : State frame) (trace : Trace) (final : State frame) : Prop :=
-  ∀ trace₂ final₂, Steps frame decoder policy ctx state trace₂ final₂ →
-    (∃ suffix, Steps frame decoder policy ctx final suffix final₂ ∧ trace ++ suffix = trace₂) ∨
-    (∃ suffix, Steps frame decoder policy ctx final₂ suffix final ∧ trace₂ ++ suffix = trace) ∨
-      Trace.QueryDivergence trace trace₂
-
-def EvalDialogue {frame : OperandFrame} (decoder : Decoder frame) (policy : MemoryPolicy)
-    (ctx : CallContext) (function : FunctionId) (globals : Globals) (args : Array Word)
-    (trace : Trace) (finalGlobals : Globals) (outcome : FunctionOutcome) : Prop :=
-  ∀ trace₂ finalGlobals₂ outcome₂,
-    FunctionEvaluation frame decoder policy ctx function globals args trace₂ finalGlobals₂ outcome₂ →
-    (trace = trace₂ ∧ finalGlobals = finalGlobals₂ ∧ outcome = outcome₂) ∨
-      Trace.QueryDivergence trace trace₂
-
 @[elab_as_elim]
 theorem Steps.inductionOn {frame : OperandFrame} {decoder : Decoder frame}
     {policy : MemoryPolicy} {ctx : CallContext}
@@ -608,6 +565,8 @@ private theorem evalDialogue_halted {frame : OperandFrame} {decoder : Decoder fr
         exact .inl ⟨by simpa using heq.symm, rfl, rfl⟩
       · exact .inr hdiv
 
+namespace Proofs
+
 theorem stepDialogue_all {frame : OperandFrame} {decoder : Decoder frame}
     {policy : MemoryPolicy} {ctx : CallContext}
     (halloc : policy.Deterministic ∨ decoder.NoMalloc) (hexclusive : decoder.Exclusive)
@@ -675,5 +634,7 @@ theorem Steps.confluence_or_queryDivergence
       trace₂ ++ suffix = trace₁) ∨
     Trace.QueryDivergence trace₁ trace₂ :=
   runDialogue_all halloc hexclusive hterminal hnomload h₁ trace₂ final₂ h₂
+
+end Proofs
 
 end Sir.Machine

@@ -5,6 +5,8 @@ namespace Sir.Stack
 
 open Sir Machine
 
+namespace Proofs
+
 theorem decoder_exclusive (program : Program) : (decoder program).Exclusive := by
   intro env globals control instruction next hdecode
   cases hstatement : program.decodeInstruction control with
@@ -32,7 +34,9 @@ theorem steps_confluence_or_queryDivergence
     (∃ suffix, Machine.Steps frame (decoder program) policy ctx final₂ suffix final₁ ∧
       trace₂ ++ suffix = trace₁) ∨
     Trace.QueryDivergence trace₁ trace₂ :=
-  Machine.Steps.confluence_or_queryDivergence (.inl hdet) (decoder_exclusive program)
+  Machine.Proofs.Steps.confluence_or_queryDivergence (.inl hdet) (decoder_exclusive program)
     (decoder_terminal program) hnomload h₁ h₂
+
+end Proofs
 
 end Sir.Stack

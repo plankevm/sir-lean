@@ -350,7 +350,7 @@ theorem stepDialogue_all
       (trace = trace₂ ∧ final = final₂) ∨
         Trace.QueryDivergence trace trace₂ := by
   intro trace₂ final₂ h₂
-  rcases Machine.stepDialogue_all
+  rcases Machine.Proofs.stepDialogue_all
       (.inr (Vars.decoder_noMalloc hfree))
       (Vars.decoder_exclusive program)
       (Vars.decoder_terminal program)
@@ -373,7 +373,7 @@ theorem runDialogue_all
           final₂.toState suffix final.toState ∧ trace₂ ++ suffix = trace) ∨
       Trace.QueryDivergence trace trace₂ := by
   intro trace₂ final₂ h₂
-  exact Machine.runDialogue_all
+  exact Machine.Proofs.runDialogue_all
     (.inr (Vars.decoder_noMalloc hfree))
     (Vars.decoder_exclusive program)
     (Vars.decoder_terminal program)
@@ -390,7 +390,7 @@ theorem fnDialogue_all
         function globals args trace₂ globals₂ outcome₂ →
       (trace = trace₂ ∧ globals' = globals₂ ∧ outcome = outcome₂) ∨
         Trace.QueryDivergence trace trace₂ :=
-  Machine.evalDialogue_all
+  Machine.Proofs.evalDialogue_all
     (.inr (Vars.decoder_noMalloc hfree))
     (Vars.decoder_exclusive program)
     (Vars.decoder_terminal program)

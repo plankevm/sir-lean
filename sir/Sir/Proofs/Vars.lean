@@ -102,7 +102,7 @@ theorem steps_confluence_or_queryDivergence
     (∃ suffix, Machine.Steps frame (decoder program) policy ctx final₂ suffix final₁ ∧
       trace₂ ++ suffix = trace₁) ∨
     Trace.QueryDivergence trace₁ trace₂ :=
-  Machine.Steps.confluence_or_queryDivergence (.inr (decoder_noMalloc hfree))
+  Machine.Proofs.Steps.confluence_or_queryDivergence (.inr (decoder_noMalloc hfree))
     (decoder_exclusive program)
     (decoder_terminal program) (decoder_noMload hfree) h₁ h₂
 
