@@ -1,4 +1,4 @@
-import Sir.Spec.Ir
+import Sir.Machine.Spec.Core
 
 namespace Sir
 
@@ -13,6 +13,12 @@ def size (a : Allocation) : Nat := a.bytes.size
 def start (a : Allocation) : Nat := a.offset.toNat
 
 def endExclusive (a : Allocation) : Nat := a.start + a.size
+
+def Contains (a : Allocation) (start len : Nat) : Prop :=
+  a.start ≤ start ∧ start + len ≤ a.endExclusive
+
+instance (a : Allocation) (start len : Nat) : Decidable (a.Contains start len) :=
+  decidable_of_iff (a.start ≤ start ∧ start + len ≤ a.endExclusive) Iff.rfl
 
 def readByte? (a : Allocation) (address : Nat) : Option UInt8 :=
   if a.start ≤ address ∧ address < a.endExclusive then
@@ -49,8 +55,21 @@ instance (m : MemoryState) (a : Allocation) : Decidable (m.IsValidNewAlloc a) :=
     (a.endExclusive ≤ Evm.UInt256.size ∧ ∀ a' ∈ m.provisioned.toList, a.IsDisjoint a')
     (by simp [MemoryState.IsValidNewAlloc])
 
+def watermark (m : MemoryState) : Nat :=
+  m.provisioned.foldl (fun watermark allocation => max watermark allocation.endExclusive) 0
+
+def bumpAlloc (m : MemoryState) (size : Nat) : Allocation :=
+  { offset := .ofNat m.watermark, bytes := ByteArray.mk (Array.replicate size 0) }
+
 def push (m : MemoryState) (a : Allocation) : MemoryState :=
   { provisioned := m.provisioned.push a }
+
+def InBounds (m : MemoryState) (start len : Nat) : Prop :=
+  ∃ a ∈ m.provisioned, a.Contains start len
+
+instance (m : MemoryState) (start len : Nat) : Decidable (m.InBounds start len) :=
+  decidable_of_iff (∃ a ∈ m.provisioned.toList, a.Contains start len)
+    (by simp [MemoryState.InBounds])
 
 def readByte? (m : MemoryState) (address : Nat) : Option UInt8 :=
   m.provisioned.findSome? (·.readByte? address)
@@ -68,5 +87,36 @@ def readBytes (m : MemoryState) (offset : Word) (assumed : ByteArray) : ByteArra
     (m.readByte? (offset.toNat + index)).getD byte
 
 end MemoryState
+
+structure Globals where
+  world : World
+  memory : MemoryState := .empty
+  returnData : ByteArray := ByteArray.empty
+
+namespace Machine
+
+open Sir
+
+structure MemoryPolicy where
+  Allows : MemoryState → Nat → Allocation → Prop
+
+namespace MemoryPolicy
+
+def Deterministic (policy : MemoryPolicy) : Prop :=
+  ∀ memory size allocation₁ allocation₂,
+    policy.Allows memory size allocation₁ →
+    policy.Allows memory size allocation₂ →
+    allocation₁ = allocation₂
+
+def empty : MemoryPolicy where
+  Allows _ _ _ := False
+
+end MemoryPolicy
+
+def memoryPolicy : MemoryPolicy where
+  Allows memory size allocation :=
+    memory.IsValidNewAlloc allocation ∧ allocation.size = size
+
+end Machine
 
 end Sir

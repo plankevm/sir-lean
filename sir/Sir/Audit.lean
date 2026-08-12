@@ -9,8 +9,14 @@ open Lean Elab Command
 
 namespace Sir.Audit
 
+private def moduleContainsSpec : Name → Bool
+  | .anonymous => false
+  | .num parent _ => moduleContainsSpec parent
+  | .str parent segment => segment == "Spec" || moduleContainsSpec parent
+
 private def allowedModule (theoremModule moduleName : Name) : Bool :=
-  [`Sir.Spec, `Init, `Lean, `Std, `Evm].any (·.isPrefixOf moduleName) ||
+  ((`Sir).isPrefixOf moduleName && moduleContainsSpec moduleName) ||
+    [`Init, `Lean, `Std, `Evm].any (·.isPrefixOf moduleName) ||
     (`Sir.Examples).isPrefixOf theoremModule && moduleName == theoremModule
 
 private def auditTheorem (env : Environment) (theoremModule theoremName : Name)

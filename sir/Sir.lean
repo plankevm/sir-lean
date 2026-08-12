@@ -1,6 +1,3 @@
-import Sir.Theorems
-import Sir.Examples.TwoFunction
-import Sir.Examples.Memory
-import Sir.Examples.HaltedCall
-import Sir.Examples.Jump
-import Sir.Audit
+import Sir.Spec.Machine
+import Sir.Spec.Vars
+import Sir.Spec.Stack
