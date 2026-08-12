@@ -196,30 +196,13 @@ theorem toBytes'_length_le (n k : Nat) (h : n < 2 ^ (8 * k)) : (toBytes' n).leng
 
 /-! ## `UInt256` ↔ `Nat` round-trips (`ofNat`/`toNat`, `toUInt64`) -/
 
-/-- `(UInt256.ofNat n).toNat = n % 2 ^ 256` — the eight 32-bit windows of `n`
-reassemble its low 256 bits. -/
-theorem toNat_ofNat (n : Nat) : (UInt256.ofNat n).toNat = n % 2 ^ 256 := by
-  rw [UInt256.toNat_limbs]
-  simp only [UInt256.ofNat, Nat.shiftRight_eq_div_pow]
-  rw [show (2:Nat)^256 = 2^32 * 2^224 by rw [← pow_add],
-      show (2:Nat)^224 = 2^32 * 2^192 by rw [← pow_add],
-      show (2:Nat)^192 = 2^32 * 2^160 by rw [← pow_add],
-      show (2:Nat)^160 = 2^32 * 2^128 by rw [← pow_add],
-      show (2:Nat)^128 = 2^32 * 2^96  by rw [← pow_add],
-      show (2:Nat)^96  = 2^32 * 2^64  by rw [← pow_add],
-      show (2:Nat)^64  = 2^32 * 2^32  by rw [← pow_add]]
-  rw [Nat.mod_mul, Nat.mod_mul, Nat.mod_mul, Nat.mod_mul, Nat.mod_mul, Nat.mod_mul, Nat.mod_mul]
-  simp only [show ∀ m, (UInt32.ofNat m).toNat = m % 2^32 from fun m => UInt32.toNat_ofNat',
-    Nat.div_div_eq_div_mul, ← pow_add]
-  ring
-
 theorem toNat_lt (val : UInt256) : val.toNat < 2 ^ 256 := by
   rw [UInt256.toNat_eq_toBitVec_toNat]; exact val.toBitVec.isLt
 
 /-- `UInt256.ofNat ∘ toNat = id`: `ofNat` recovers any word from its `toNat`. -/
 theorem ofNat_toNat (a : UInt256) : UInt256.ofNat a.toNat = a := by
   apply UInt256.toNat_inj
-  rw [toNat_ofNat, Nat.mod_eq_of_lt (toNat_lt a)]
+  rw [UInt256.toNat_ofNat, Nat.mod_eq_of_lt (toNat_lt a)]
 
 /-- `UInt256.toUInt64` is truncation to the low 64 bits. -/
 theorem toUInt64_toNat (a : UInt256) : a.toUInt64.toNat = a.toNat % 2 ^ 64 := by

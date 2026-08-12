@@ -756,7 +756,7 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
       have : (2 : Nat) ^ 64 ≤ 2 ^ 256 := Nat.pow_le_pow_right (by norm_num) (by norm_num)
       omega
     have hslotEq : (UInt256.ofNat slot).toNat = slot := by
-      rw [BytecodeLayer.Hoare.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt hslotlt256]
+      rw [Evm.UInt256.toNat_ofNat, Nat.mod_eq_of_lt hslotlt256]
     have hslot63' : (UInt256.ofNat slot).toNat + 63 < 2 ^ 64 := by rw [hslotEq]; exact hslot63
     have hslotplat' : (UInt256.ofNat slot).toNat < 2 ^ System.Platform.numBits := by
       rw [hslotEq]; exact hslotplat
@@ -842,7 +842,7 @@ theorem sim_call_stmt {prog : Program} {sloadChg : Tmp → ℕ} {obs : Word}
           have : (2 : Nat) ^ 64 ≤ 2 ^ 256 := Nat.pow_le_pow_right (by norm_num) (by norm_num)
           omega
         have hslot'Eq : (UInt256.ofNat slot').toNat = slot' := by
-          rw [BytecodeLayer.Hoare.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt hslot'lt256]
+          rw [Evm.UInt256.toNat_ofNat, Nat.mod_eq_of_lt hslot'lt256]
         -- the two slots are distinct tmps' 32-aligned slots ⇒ disjoint windows.
         have hslot'def : slot' = slotOf tw := hslots tw slot' hdef
         have htwne : t.id ≠ tw.id := fun h => htw (by cases t; cases tw; cases h; rfl)
@@ -937,7 +937,7 @@ theorem sim_assign_gas {prog : Program} {sloadChg : Tmp → ℕ} {obs ob : Word}
     have : (2 : Nat) ^ 64 ≤ 2 ^ 256 := Nat.pow_le_pow_right (by norm_num) (by norm_num)
     omega
   have hslotEq : (UInt256.ofNat slot).toNat = slot := by
-    rw [BytecodeLayer.Hoare.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt hslotlt256]
+    rw [Evm.UInt256.toNat_ofNat, Nat.mod_eq_of_lt hslotlt256]
   have hslot63' : (UInt256.ofNat slot).toNat + 63 < 2 ^ 64 := by rw [hslotEq]; exact hslot63
   have hslotplat' : (UInt256.ofNat slot).toNat < 2 ^ System.Platform.numBits := by
     rw [hslotEq]; exact hslotplat
@@ -992,7 +992,7 @@ theorem sim_assign_gas {prog : Program} {sloadChg : Tmp → ℕ} {obs ob : Word}
         have : (2 : Nat) ^ 64 ≤ 2 ^ 256 := Nat.pow_le_pow_right (by norm_num) (by norm_num)
         omega
       have hslot'Eq : (UInt256.ofNat slot').toNat = slot' := by
-        rw [BytecodeLayer.Hoare.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt hslot'lt256]
+        rw [Evm.UInt256.toNat_ofNat, Nat.mod_eq_of_lt hslot'lt256]
       have hslot'def : slot' = slotOf tw := hslots tw slot' hdef
       have htwne : t.id ≠ tw.id := fun h => htw (by cases t; cases tw; cases h; rfl)
       have hdisN : slot + 32 ≤ slot' ∨ slot' + 32 ≤ slot := by
@@ -1080,7 +1080,7 @@ theorem sim_assign_sload {prog : Program} {sloadChg : Tmp → ℕ} {obs w : Word
     have : (2 : Nat) ^ 64 ≤ 2 ^ 256 := Nat.pow_le_pow_right (by norm_num) (by norm_num)
     omega
   have hslotEq : (UInt256.ofNat slot).toNat = slot := by
-    rw [BytecodeLayer.Hoare.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt hslotlt256]
+    rw [Evm.UInt256.toNat_ofNat, Nat.mod_eq_of_lt hslotlt256]
   have hslot63' : (UInt256.ofNat slot).toNat + 63 < 2 ^ 64 := by rw [hslotEq]; exact hslot63
   have hslotplat' : (UInt256.ofNat slot).toNat < 2 ^ System.Platform.numBits := by
     rw [hslotEq]; exact hslotplat
@@ -1135,7 +1135,7 @@ theorem sim_assign_sload {prog : Program} {sloadChg : Tmp → ℕ} {obs w : Word
         have : (2 : Nat) ^ 64 ≤ 2 ^ 256 := Nat.pow_le_pow_right (by norm_num) (by norm_num)
         omega
       have hslot'Eq : (UInt256.ofNat slot').toNat = slot' := by
-        rw [BytecodeLayer.Hoare.MemAlgebra.toNat_ofNat, Nat.mod_eq_of_lt hslot'lt256]
+        rw [Evm.UInt256.toNat_ofNat, Nat.mod_eq_of_lt hslot'lt256]
       have hslot'def : slot' = slotOf tw := hslots tw slot' hdef
       have htwne : t.id ≠ tw.id := fun h => htw (by cases t; cases tw; cases h; rfl)
       have hdisN : slot + 32 ≤ slot' ∨ slot' + 32 ≤ slot := by

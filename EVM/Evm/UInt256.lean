@@ -164,6 +164,14 @@ theorem toNat_limbs (a : UInt256) :
     rfl
   · rfl
 
+/-- The eight 32-bit windows of `ofNat` reassemble the low 256 bits of `n`. -/
+theorem toNat_ofNat (n : ℕ) : (ofNat n).toNat = n % 2 ^ 256 := by
+  rw [toNat_limbs]
+  unfold ofNat
+  simp only [show ∀ k : ℕ, (UInt32.ofNat k).toNat = k % 2 ^ 32 from fun k => by simp]
+  simp only [Nat.shiftRight_eq_div_pow]
+  omega
+
 /-! ### Limb-level operations (proven equivalent to `BitVec 256`) -/
 
 def add (a b : UInt256) : UInt256 :=
