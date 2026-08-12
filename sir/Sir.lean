@@ -1,4 +1,10 @@
 import Sir.Theorems
+import Sir.Lowering.Spec
+import Sir.Lowering.Proofs.Replay
+import Sir.Lowering.Proofs.Purity
+import Sir.Lowering.Proofs.Paths
+import Sir.Lowering.Proofs.Block
+import Sir.Lowering.Proofs.Headline
 import Sir.Machine.Proofs.Memory
 import Sir.Examples.TwoFunction
 import Sir.Examples.Memory
