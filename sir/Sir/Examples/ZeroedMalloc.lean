@@ -1,6 +1,6 @@
-import Sir.Proofs.Memory
-import Sir.Proofs.Steps
-import Sir.Spec.Vars
+import Sir.Machine.Proofs.Memory
+import Sir.Vars.Proofs.Steps
+import Sir.Vars.Spec
 
 namespace Sir.Examples
 

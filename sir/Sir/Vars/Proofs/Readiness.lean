@@ -1,4 +1,4 @@
-import Sir.Proofs.Progress
+import Sir.Vars.Proofs.Progress
 
 namespace Sir
 

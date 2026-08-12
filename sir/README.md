@@ -2,30 +2,39 @@
 
 Lean 4 formalization of Plank's Sensei Intermediate Representation (SIR).
 
-The library models a register-based control-flow graph with block inputs and
-outputs, internal functions, storage, explicitly allocated memory, calls, gas
-observations, and event-labelled mixed-step semantics: statements advance one
-small step at a time, while an internal call completes a whole callee run as a
-single step that splices the callee's trace inline.
+The library splits SIR into two languages over one parametric machine. `Machine`
+defines the small-step semantics generically over an operand frame (how instructions
+reach their values), a decoder (what runs next), and a memory policy (which
+allocations are admissible); `Vars` — named variables, block arguments — and
+`Stack` — an operand stack plus spill slots — are its two instances, sharing block
+inputs and outputs, internal functions, storage, memory, calls, and gas observations.
+The semantics is mixed-step: statements advance one small step at a time, while an
+internal call completes a whole callee run as a single step that splices the callee's
+trace inline.
 
-Executions are indexed by traces of gas observations and external calls.
-Observation covers partial executions of any callable function, and a trace
-prefix may reach inside an internal call that never completes, so events
-emitted before a callee diverges remain observable. A function is
-deterministic when a shared trace history determines its next observable
-outcome — a gas query, a call input, a halt with a final world, or a return
-with its values. Program determinism is that property at the entry points,
-where the entry ABI rules out the return outcome.
+Executions are indexed by traces of gas observations and external calls. Observation
+covers partial executions of the running function, and a completed internal call
+contributes its events inline; a callee that never completes contributes nothing
+observable. A function is deterministic when a shared trace history determines its
+next observable outcome — a gas query, a call input, a halt, or a return with its
+values. Program determinism is that property at the entry points, where the entry ABI
+rules out the return outcome.
+
+Memory is flat: stores fault outside provisioned allocations, loads of unprovisioned
+addresses read an oracle. Allocation is nondeterministic — any valid region of the
+requested size, constrained by the memory policy — with `bumpAlloc` as the
+deterministic witness.
 
 ## Layout
 
-- [`Sir/Spec/`](Sir/Spec/) — the definitions: `Ir → Memory → State → Step →
-  Run → Observation`, with `WellFormed` alongside off `State`.
-- [`Sir/Theorems.lean`](Sir/Theorems.lean) — every exported result, stated in
-  `Spec` vocabulary.
-- [`Sir/Proofs/`](Sir/Proofs/) — proof machinery.
+- [`Sir/Machine/`](Sir/Machine/), [`Sir/Vars/`](Sir/Vars/), and
+  [`Sir/Stack/`](Sir/Stack/) — each module's specification, proof machinery,
+  and exported theorems. `Stack`'s exported surface is deliberately thin while it is
+  only a lowering target; well-formedness, progress, and the determinism family arrive
+  with the halting-operations work.
+- [`Sir/Theorems.lean`](Sir/Theorems.lean) — the aggregate exported surface.
 - [`Sir/Examples/`](Sir/Examples/) — well-formedness, (non-)determinism,
-  halting-callee, and diverging-callee observability witnesses.
+  halting-callee, machine-level execution, and memory/allocation witnesses.
 - [`Sir/Audit.lean`](Sir/Audit.lean) — build-time audit of the exported
   surface.
 

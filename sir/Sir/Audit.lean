@@ -43,7 +43,8 @@ private def auditTheoremAxioms (theoremName : Name) : CommandElabM Unit := do
 elab "audit_sir_theorems" : command => do
   let env ← getEnv
   let theoremModules := env.header.moduleNames.filter fun moduleName =>
-    moduleName != `Sir.Theorems && (`Sir.Theorems).isPrefixOf moduleName
+    moduleName != `Sir.Theorems && (`Sir).isPrefixOf moduleName &&
+      (match moduleName with | .str _ "Theorems" => true | _ => false)
   let exampleModules := env.header.moduleNames.filter fun moduleName =>
     (`Sir.Examples).isPrefixOf moduleName
   for theoremModule in theoremModules ++ exampleModules do

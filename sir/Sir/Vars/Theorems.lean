@@ -1,6 +1,6 @@
-import Sir.Proofs.Determinism
-import Sir.Proofs.Readiness
-import Sir.Proofs.Bump
+import Sir.Vars.Proofs.Determinism
+import Sir.Vars.Proofs.Readiness
+import Sir.Vars.Proofs.Bump
 
 namespace Sir
 

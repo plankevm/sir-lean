@@ -1,4 +1,4 @@
-import Sir.Proofs.WellFormed
+import Sir.Vars.Proofs.WellFormed
 
 namespace Sir
 

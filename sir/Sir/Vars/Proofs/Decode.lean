@@ -1,4 +1,4 @@
-import Sir.Spec.Vars
+import Sir.Vars.Spec
 
 namespace Sir
 

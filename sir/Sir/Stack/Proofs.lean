@@ -1,5 +1,5 @@
-import Sir.Proofs.Machine
-import Sir.Spec.Stack
+import Sir.Machine.Proofs
+import Sir.Stack.Spec
 
 namespace Sir.Stack
 

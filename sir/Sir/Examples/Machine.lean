@@ -1,5 +1,5 @@
-import Sir.Theorems.Stack
-import Sir.Theorems.Vars
+import Sir.Stack.Theorems
+import Sir.Vars.Theorems
 
 namespace Sir.Vars
 

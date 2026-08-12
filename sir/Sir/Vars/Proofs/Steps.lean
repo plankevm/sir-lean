@@ -1,4 +1,4 @@
-import Sir.Proofs.Vars
+import Sir.Vars.Proofs
 
 namespace Sir
 

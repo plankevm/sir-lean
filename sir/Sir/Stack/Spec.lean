@@ -1,4 +1,4 @@
-import Sir.Spec.Machine
+import Sir.Machine.Spec
 
 namespace Sir.Stack
 

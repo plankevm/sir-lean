@@ -1,4 +1,4 @@
-import Sir.Proofs.Stack
+import Sir.Stack.Proofs
 
 namespace Sir.Stack
 

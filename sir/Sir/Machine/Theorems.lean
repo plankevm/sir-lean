@@ -1,4 +1,4 @@
-import Sir.Proofs.Machine
+import Sir.Machine.Proofs
 import Sir.Machine.Proofs.Bump
 
 namespace Sir.Machine

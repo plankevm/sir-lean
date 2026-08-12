@@ -1,6 +1,6 @@
-import Sir.Spec.Vars
-import Sir.Proofs.Steps
-import Sir.Proofs.Memory
+import Sir.Vars.Spec
+import Sir.Vars.Proofs.Steps
+import Sir.Machine.Proofs.Memory
 import BytecodeLayer.Semantics.Maps
 
 namespace Sir.Examples

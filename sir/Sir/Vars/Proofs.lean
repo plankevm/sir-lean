@@ -1,5 +1,5 @@
-import Sir.Proofs.Machine
-import Sir.Proofs.Decode
+import Sir.Machine.Proofs
+import Sir.Vars.Proofs.Decode
 
 namespace Sir.Vars
 

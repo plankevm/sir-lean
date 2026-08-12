@@ -1,3 +1,3 @@
-import Sir.Theorems.Machine
-import Sir.Theorems.Vars
-import Sir.Theorems.Stack
+import Sir.Machine.Theorems
+import Sir.Vars.Theorems
+import Sir.Stack.Theorems
