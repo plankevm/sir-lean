@@ -2,17 +2,17 @@ import Sir.Proofs.Progress
 
 namespace Sir
 
-variable {program : Program} {ctx : CallContext}
+variable {program : Vars.Program} {ctx : CallContext}
 
-def BasicBlock.variablesDefinedAtPosition
-    (block : BasicBlock) : BlockPosition → List VarId
+def Vars.Block.variablesDefinedAtPosition
+    (block : Vars.Block) : Machine.BlockPosition → List VarId
   | .statement index => block.variablesDefinedBefore index
   | .terminator => block.variablesDefinedBefore block.statements.size
 
 def Locals.CoversVariables (locals : Locals) (identifiers : List VarId) : Prop :=
   ∀ identifier ∈ identifiers, locals.Defined identifier
 
-def MachineState.LocalsCoverCursor (program : Program) (state : MachineState) : Prop :=
+def MachineState.LocalsCoverCursor (program : Vars.Program) (state : MachineState) : Prop :=
   match state.control with
   | .running cursor =>
       ∃ block, program.block? cursor = some block ∧
@@ -83,7 +83,7 @@ theorem Locals.assignPairs_eq_foldl
       obtain ⟨identifier, value⟩ := pair
       exact ih (locals.assign identifier value)
 
-private theorem Locals.bindValues_assignPairs
+theorem Locals.bindValues_eq_assignPairs
     {locals : Locals} {identifiers : Array VarId} {values : Array Word}
     (hsize : identifiers.size = values.size) :
     Locals.bindValues locals identifiers values =
@@ -108,7 +108,7 @@ theorem Locals.bindValues_covers
     have hbne : (identifiers.size != values.size) = true :=
       bne_iff_ne.mpr hne
     simp [Locals.bindValues, hbne, bind, Except.bind] at hbind
-  rw [Locals.bindValues_assignPairs hsize] at hbind
+  rw [Locals.bindValues_eq_assignPairs hsize] at hbind
   obtain rfl := Except.ok.inj hbind
   apply Locals.assignPairs_zip_defines
   simpa using hsize
@@ -123,7 +123,7 @@ theorem Locals.bindValues_preserves
     have hbne : (identifiers.size != values.size) = true :=
       bne_iff_ne.mpr hne
     simp [Locals.bindValues, hbne, bind, Except.bind] at hbind
-  rw [Locals.bindValues_assignPairs hsize] at hbind
+  rw [Locals.bindValues_eq_assignPairs hsize] at hbind
   obtain rfl := Except.ok.inj hbind
   exact Locals.assignPairs_preserves h
 
@@ -163,20 +163,20 @@ theorem Locals.coversVariables_append
   · exact hfirst identifier hidentifier
   · exact hsecond identifier hidentifier
 
-theorem BasicBlock.variablesDefinedAtPosition_start (block : BasicBlock) :
+theorem Vars.Block.variablesDefinedAtPosition_start (block : Vars.Block) :
     block.variablesDefinedAtPosition block.startPosition = block.inputs.toList := by
   cases hsize : block.statements.size with
   | zero =>
-      simp [BasicBlock.startPosition, BasicBlock.absoluteToPosition,
-        BasicBlock.variablesDefinedAtPosition, BasicBlock.variablesDefinedBefore,
+      simp [Vars.Block.startPosition, Vars.Block.absoluteToPosition,
+        Vars.Block.variablesDefinedAtPosition, Vars.Block.variablesDefinedBefore,
         hsize]
   | succ size =>
-      simp [BasicBlock.startPosition, BasicBlock.absoluteToPosition,
-        BasicBlock.variablesDefinedAtPosition, BasicBlock.variablesDefinedBefore,
+      simp [Vars.Block.startPosition, Vars.Block.absoluteToPosition,
+        Vars.Block.variablesDefinedAtPosition, Vars.Block.variablesDefinedBefore,
         hsize]
 
-theorem BasicBlock.variablesDefinedAtPosition_next
-    {block : BasicBlock} {index : Nat} {statement : Stmt}
+theorem Vars.Block.variablesDefinedAtPosition_next
+    {block : Vars.Block} {index : Nat} {statement : Vars.Stmt}
     (hstatement : block.statements[index]? = some statement) :
     block.variablesDefinedAtPosition (block.absoluteToPosition (index + 1)) =
       block.variablesDefinedBefore index ++ statement.variablesDefined := by
@@ -185,120 +185,85 @@ theorem BasicBlock.variablesDefinedAtPosition_next
   have hbefore :
       block.variablesDefinedBefore (index + 1) =
         block.variablesDefinedBefore index ++ statement.variablesDefined := by
-    simp [BasicBlock.variablesDefinedBefore, hstatement]
+    simp [Vars.Block.variablesDefinedBefore, hstatement]
   by_cases hnext : index + 1 < block.statements.size
-  · simp [BasicBlock.absoluteToPosition, hnext,
-      BasicBlock.variablesDefinedAtPosition, hbefore]
+  · simp [Vars.Block.absoluteToPosition, hnext,
+      Vars.Block.variablesDefinedAtPosition, hbefore]
   · have hsize : block.statements.size = index + 1 := by omega
-    simp [BasicBlock.absoluteToPosition,
-      BasicBlock.variablesDefinedAtPosition, hsize, hbefore]
+    simp [Vars.Block.absoluteToPosition,
+      Vars.Block.variablesDefinedAtPosition, hsize, hbefore]
 
-theorem Program.block?_function
-    {cursor : ProgramCursor} {block : BasicBlock}
+theorem Vars.Program.block?_function
+    {cursor : Machine.ProgramCursor} {block : Vars.Block}
     (hblock : program.block? cursor = some block) :
     ∃ fn, program.function? cursor.fn = some fn ∧ block ∈ fn.blocks := by
   cases hfn : program.function? cursor.fn with
-  | none => simp [Program.block?, hfn] at hblock
+  | none => simp [Vars.Program.block?, hfn] at hblock
   | some fn =>
       have hlocal : fn.block? cursor.block = some block := by
-        simpa [Program.block?, hfn] using hblock
+        simpa [Vars.Program.block?, hfn] using hblock
       exact ⟨fn, rfl, Array.mem_of_getElem? hlocal⟩
 
-theorem Program.callState?_localsCoverCursor
+theorem Vars.Program.callState?_localsCoverCursor
     {function : FunctionId} {globals : Globals} {args : Array Word}
     {state : MachineState}
     (hentry : program.callState? function globals args = some state) :
     state.LocalsCoverCursor program := by
   obtain ⟨fn, block, locals, hfn, hblock, hbind, rfl⟩ :=
-    Program.callState?_eq_some_iff.mp hentry
+    Vars.Program.callState?_eq_some_iff.mp hentry
   refine ⟨block, ?_, ?_⟩
-  · simp [Program.block?, hfn, hblock]
-  · rw [BasicBlock.variablesDefinedAtPosition_start]
+  · simp [Vars.Program.block?, hfn, hblock]
+  · rw [Vars.Block.variablesDefinedAtPosition_start]
     exact Locals.bindParams_covers hbind
 
 theorem Locals.exprReady_of_coversVariables
-    {locals : Locals} {expression : Expr}
+    {locals : Locals} {expression : Vars.Expr}
     (h : locals.CoversVariables expression.variablesRead) :
     locals.ExprReady expression := by
   cases expression with
   | constant value => trivial
-  | var identifier => exact h identifier (by simp [Expr.variablesRead])
+  | var identifier => exact h identifier (by simp [Vars.Expr.variablesRead])
   | add lhs rhs | lt lhs rhs =>
-      exact ⟨h lhs (by simp [Expr.variablesRead]),
-        h rhs (by simp [Expr.variablesRead])⟩
-  | sload key => exact h key (by simp [Expr.variablesRead])
+      exact ⟨h lhs (by simp [Vars.Expr.variablesRead]),
+        h rhs (by simp [Vars.Expr.variablesRead])⟩
+  | sload key => exact h key (by simp [Vars.Expr.variablesRead])
 
 theorem MachineState.stmtReady_of_coversVariables
-    {state : MachineState} {statement : Stmt}
+    {state : MachineState} {statement : Vars.Stmt}
     (h : state.locals.CoversVariables statement.variablesRead)
+    (hmalloc : ∀ result size, statement = .malloc result size →
+      ∃ word alloc, state.locals.lookup size = .ok word ∧
+        state.globals.memory.IsValidNewAlloc alloc ∧ alloc.size = word.toNat ∧
+        alloc.bytes = ByteArray.mk (Array.replicate word.toNat 0))
     (halloc : ∀ result size, statement = .mallocUninit result size →
       ∃ word alloc, state.locals.lookup size = .ok word ∧
         state.globals.memory.IsValidNewAlloc alloc ∧ alloc.size = word.toNat)
+    (hstore : ∀ offset value, statement = .mstore32 offset value →
+      ∃ word, state.locals.lookup offset = .ok word ∧
+        state.globals.memory.InBounds word.toNat 32)
     (hnonIcall : ∀ callee args dests, statement ≠ .icall callee args dests) :
     state.StmtReady statement := by
   cases statement with
   | assign result expression =>
       exact Locals.exprReady_of_coversVariables h
-  | sstore key value | mstore32 key value =>
-      exact ⟨h key (by simp [Stmt.variablesRead]),
-        h value (by simp [Stmt.variablesRead])⟩
+  | sstore key value =>
+      exact ⟨h key (by simp [Vars.Stmt.variablesRead]),
+        h value (by simp [Vars.Stmt.variablesRead])⟩
   | gas result => trivial
   | call callData =>
-      exact ⟨h callData.callee (by simp [Stmt.variablesRead]),
-        h callData.gas (by simp [Stmt.variablesRead])⟩
+      exact ⟨h callData.callee (by simp [Vars.Stmt.variablesRead]),
+        h callData.gas (by simp [Vars.Stmt.variablesRead])⟩
+  | malloc result size => exact hmalloc result size rfl
   | mallocUninit result size => exact halloc result size rfl
-  | mload32 result offset => exact h offset (by simp [Stmt.variablesRead])
+  | mstore32 offset value =>
+      obtain ⟨word, hword, hin⟩ := hstore offset value rfl
+      exact ⟨word, hword, h value (by simp [Vars.Stmt.variablesRead]), hin⟩
+  | mload32 result offset => exact h offset (by simp [Vars.Stmt.variablesRead])
   | icall callee args dests => exact (hnonIcall callee args dests rfl).elim
 
-theorem Program.decodeStmt_cursor
-    {control nextControl : MachineControl} {statement : Stmt}
-    (hdecode : program.decodeStmt control = some (nextControl, statement)) :
-    ∃ cursor block index,
-      control = .running cursor ∧ cursor.position = .statement index ∧
-      program.block? cursor = some block ∧
-      block.statements[index]? = some statement ∧
-      nextControl = .running
-        { cursor with position := block.absoluteToPosition (index + 1) } := by
-  cases control with
-  | returned values => simp [Program.decodeStmt] at hdecode
-  | halted => simp [Program.decodeStmt] at hdecode
-  | running cursor =>
-      cases hposition : cursor.position with
-      | terminator => simp [Program.decodeStmt, hposition] at hdecode
-      | statement index =>
-          cases hblock : program.block? cursor with
-          | none => simp [Program.decodeStmt, hposition, hblock] at hdecode
-          | some block =>
-              cases hstatement : block.statements[index]? with
-              | none =>
-                  simp [Program.decodeStmt, hposition, hblock, hstatement] at hdecode
-              | some found =>
-                  simp [Program.decodeStmt, hposition, hblock, hstatement] at hdecode
-                  obtain ⟨rfl, rfl⟩ := hdecode
-                  exact ⟨cursor, block, index, rfl, hposition, hblock, hstatement, rfl⟩
-
-theorem Program.terminatorAt_cursor
-    {control : MachineControl} {terminator : Terminator}
-    (hterminator : program.terminatorAt control = some terminator) :
-    ∃ cursor block, control = .running cursor ∧ cursor.position = .terminator ∧
-      program.block? cursor = some block ∧ block.terminator = terminator := by
-  cases control with
-  | returned values => simp [Program.terminatorAt] at hterminator
-  | halted => simp [Program.terminatorAt] at hterminator
-  | running cursor =>
-      cases hposition : cursor.position with
-      | statement index => simp [Program.terminatorAt, hposition] at hterminator
-      | terminator =>
-          cases hblock : program.block? cursor with
-          | none => simp [Program.terminatorAt, hposition, hblock] at hterminator
-          | some block =>
-              simp [Program.terminatorAt, hposition, hblock] at hterminator
-              subst terminator
-              exact ⟨cursor, block, rfl, hposition, hblock, rfl⟩
-
-theorem Program.WellFormed.decodeStmt_covers
+theorem Vars.Program.WellFormed.decodeStmt_covers
     (hwf : program.WellFormed) {state : MachineState}
-    {nextControl : MachineControl} {statement : Stmt}
+    {nextControl : Machine.MachineControl} {statement : Vars.Stmt}
     (hinvariant : state.LocalsCoverCursor program)
     (hdecode : program.decodeStmt state.control = some (nextControl, statement)) :
     ∃ cursor block index,
@@ -310,7 +275,7 @@ theorem Program.WellFormed.decodeStmt_covers
       state.locals.CoversVariables (block.variablesDefinedBefore index) ∧
       state.locals.CoversVariables statement.variablesRead := by
   obtain ⟨cursor, block, index, hcontrol, hposition, hblock, hstatement, hnext⟩ :=
-    Program.decodeStmt_cursor hdecode
+    Vars.Program.decodeStmt_cursor hdecode
   unfold MachineState.LocalsCoverCursor at hinvariant
   rw [hcontrol] at hinvariant
   obtain ⟨coveredBlock, hcoveredBlock, hcover⟩ := hinvariant
@@ -318,9 +283,9 @@ theorem Program.WellFormed.decodeStmt_covers
     exact Option.some.inj (hcoveredBlock.symm.trans hblock)
   subst coveredBlock
   rw [hposition] at hcover
-  obtain ⟨fn, hfn, hmembership⟩ := Program.block?_function hblock
+  obtain ⟨fn, hfn, hmembership⟩ := Vars.Program.block?_function hblock
   have hstatic :=
-    (hwf.variablesDefinedBeforeUse fn (Program.mem_functions_of_function? hfn) block hmembership).1
+    (hwf.variablesDefinedBeforeUse fn (Vars.Program.mem_functions_of_function? hfn) block hmembership).1
       index statement hstatement
   refine ⟨cursor, block, index, hcontrol, hposition, hblock, hstatement,
     hnext, hcover, ?_⟩
@@ -328,8 +293,8 @@ theorem Program.WellFormed.decodeStmt_covers
     hcover identifier (hstatic identifier hidentifier)
 
 theorem MachineState.localsCoverCursor_after_statement
-    {state evaluated : MachineState} {nextControl : MachineControl}
-    {statement : Stmt} {cursor : ProgramCursor} {block : BasicBlock} {index : Nat}
+    {state evaluated : MachineState} {nextControl : Machine.MachineControl}
+    {statement : Vars.Stmt} {cursor : Machine.ProgramCursor} {block : Vars.Block} {index : Nat}
     (hblock : program.block? cursor = some block)
     (hstatement : block.statements[index]? = some statement)
     (hnext : nextControl = .running
@@ -341,16 +306,16 @@ theorem MachineState.localsCoverCursor_after_statement
     ({ evaluated with control := nextControl } : MachineState).LocalsCoverCursor program := by
   subst nextControl
   refine ⟨block, ?_, ?_⟩
-  · simpa [Program.block?] using hblock
-  · rw [BasicBlock.variablesDefinedAtPosition_next hstatement]
+  · simpa [Vars.Program.block?] using hblock
+  · rw [Vars.Block.variablesDefinedAtPosition_next hstatement]
     exact Locals.coversVariables_append
       (fun identifier hidentifier => hpreserves identifier
         (hbefore identifier hidentifier))
       hdefines
 
-theorem Program.WellFormed.terminatorReady_of_localsCoverCursor
+theorem Vars.Program.WellFormed.terminatorReady_of_localsCoverCursor
     (hwf : program.WellFormed) {state : MachineState}
-    {cursor : ProgramCursor} {block : BasicBlock}
+    {cursor : Machine.ProgramCursor} {block : Vars.Block}
     (hinvariant : state.LocalsCoverCursor program)
     (hcontrol : state.control = .running cursor)
     (hposition : cursor.position = .terminator)
@@ -363,9 +328,9 @@ theorem Program.WellFormed.terminatorReady_of_localsCoverCursor
     Option.some.inj (hcoveredBlock.symm.trans hblock)
   subst coveredBlock
   rw [hposition] at hcover
-  obtain ⟨fn, hfn, hmembership⟩ := Program.block?_function hblock
+  obtain ⟨fn, hfn, hmembership⟩ := Vars.Program.block?_function hblock
   have hstatic :=
-    (hwf.variablesDefinedBeforeUse fn (Program.mem_functions_of_function? hfn) block hmembership).2
+    (hwf.variablesDefinedBeforeUse fn (Vars.Program.mem_functions_of_function? hfn) block hmembership).2
   have hcoverStatic :
       state.locals.CoversVariables
         (block.terminator.variablesRead ++ block.outputs.toList) :=
@@ -379,250 +344,249 @@ theorem Program.WellFormed.terminatorReady_of_localsCoverCursor
       program.JumpReady cursor.fn state block target := by
     obtain ⟨values, hvalues⟩ := Locals.lookupArray_total houtputs
     obtain ⟨targetBlock, htargetBlock, harity⟩ :=
-      hwf.validJumpTargets fn (Program.mem_functions_of_function? hfn) block hmembership target htarget
+      hwf.validJumpTargets fn (Vars.Program.mem_functions_of_function? hfn) block hmembership target htarget
     refine ⟨⟨values, hvalues⟩, targetBlock, ?_, harity⟩
-    simp [Program.block?, hfn, htargetBlock]
-  unfold Program.TerminatorReady
+    simp [Vars.Program.block?, hfn, htargetBlock]
+  unfold Vars.Program.TerminatorReady
   cases hterminator : block.terminator with
   | halt => trivial
   | jump target =>
-      exact jumpReady target (by simp [hterminator, Terminator.jumpTargets])
+      exact jumpReady target (by simp [hterminator, Vars.Terminator.jumpTargets])
   | branch condition thenTarget elseTarget =>
       have hcondition : state.locals.Defined condition :=
-        hcoverStatic condition (by simp [hterminator, Terminator.variablesRead])
+        hcoverStatic condition (by simp [hterminator, Vars.Terminator.variablesRead])
       obtain ⟨word, hword⟩ := hcondition
       refine ⟨word, hword, jumpReady _ ?_⟩
       by_cases hzero : word = 0
-      · simp [hzero, hterminator, Terminator.jumpTargets]
-      · simp [hzero, hterminator, Terminator.jumpTargets]
+      · simp [hzero, hterminator, Vars.Terminator.jumpTargets]
+      · simp [hzero, hterminator, Vars.Terminator.jumpTargets]
   | iret =>
       exact Locals.lookupArray_total houtputs
 
-theorem Program.WellFormed.localsCoverCursor_step
-    (hwf : program.WellFormed) {state state' : MachineState} {trace : Trace}
+theorem decodeSirStmt_op_dst
+    {statement : Vars.Stmt} {operation : Machine.Operation} {src dst : Array VarId}
+    (hdecode : Vars.decodeStatement statement =
+      ⟨Machine.Instruction.Kind.primitive operation, src, dst⟩) :
+    dst.toList = statement.variablesDefined := by
+  cases statement with
+  | assign result expression =>
+      cases expression <;> simp [Vars.decodeStatement, Vars.decodeExpression] at hdecode
+      all_goals
+        rcases hdecode with ⟨rfl, rfl, rfl⟩
+        rfl
+  | sstore =>
+      simp [Vars.decodeStatement] at hdecode
+      rcases hdecode with ⟨rfl, rfl, rfl⟩
+      rfl
+  | gas =>
+      simp [Vars.decodeStatement] at hdecode
+      rcases hdecode with ⟨rfl, rfl, rfl⟩
+      rfl
+  | call =>
+      simp [Vars.decodeStatement] at hdecode
+      rcases hdecode with ⟨rfl, rfl, rfl⟩
+      rfl
+  | malloc =>
+      simp [Vars.decodeStatement] at hdecode
+      rcases hdecode with ⟨rfl, rfl, rfl⟩
+      rfl
+  | mallocUninit =>
+      simp [Vars.decodeStatement] at hdecode
+      rcases hdecode with ⟨rfl, rfl, rfl⟩
+      rfl
+  | mstore32 =>
+      simp [Vars.decodeStatement] at hdecode
+      rcases hdecode with ⟨rfl, rfl, rfl⟩
+      rfl
+  | mload32 =>
+      simp [Vars.decodeStatement] at hdecode
+      rcases hdecode with ⟨rfl, rfl, rfl⟩
+      rfl
+  | icall => simp [Vars.decodeStatement] at hdecode
+
+theorem decodeSirStmt_icall_inv
+    {statement : Vars.Stmt} {callee : FunctionId} {src dst : Array VarId}
+    (hdecode : Vars.decodeStatement statement =
+      ⟨Machine.Instruction.Kind.icall callee, src, dst⟩) :
+    statement = .icall callee src dst := by
+  cases statement with
+  | assign result expression =>
+      cases expression <;> simp [Vars.decodeStatement, Vars.decodeExpression] at hdecode
+  | sstore => simp [Vars.decodeStatement] at hdecode
+  | gas => simp [Vars.decodeStatement] at hdecode
+  | call => simp [Vars.decodeStatement] at hdecode
+  | malloc => simp [Vars.decodeStatement] at hdecode
+  | mallocUninit => simp [Vars.decodeStatement] at hdecode
+  | mstore32 => simp [Vars.decodeStatement] at hdecode
+  | mload32 => simp [Vars.decodeStatement] at hdecode
+  | icall => simpa [Vars.decodeStatement] using hdecode
+
+private theorem Vars.Program.WellFormed.localsCoverCursor_terminator
+    (hwf : program.WellFormed) {state state' : MachineState} {terminator : Vars.Terminator}
     (hinvariant : state.LocalsCoverCursor program)
-    (hstep : SmallStep program ctx state trace state') :
+    (hterminator : program.terminatorAt state.control = some terminator)
+    (heval : (Vars.evaluateTerminator program terminator).run state = .ok ((), state')) :
     state'.LocalsCoverCursor program := by
-  cases hstep with
-  | assign hdecode heval =>
-      rename_i evaluated nextControl result expression
-      obtain ⟨cursor, block, index, -, -, hblock, hstatement, hnext,
-          hbefore, hreads⟩ := hwf.decodeStmt_covers hinvariant hdecode
-      obtain ⟨word, hword⟩ :=
-        Expr.eval_total (Locals.exprReady_of_coversVariables hreads)
-      rw [eval_assign_ok hword] at heval
-      obtain rfl := Except.ok.inj heval
-      apply MachineState.localsCoverCursor_after_statement
-        hblock hstatement hnext hbefore
-      · exact fun identifier hdefined =>
-          Locals.defined_assign_of_defined hdefined
-      · intro identifier hidentifier
-        simp [Stmt.variablesDefined] at hidentifier
-        subst identifier
-        exact Locals.defined_assign state.locals result word
-  | sstore hdecode heval =>
-      rename_i evaluated nextControl key value
-      obtain ⟨cursor, block, index, -, -, hblock, hstatement, hnext,
-          hbefore, hreads⟩ := hwf.decodeStmt_covers hinvariant hdecode
-      have hready : state.locals.Defined key ∧ state.locals.Defined value :=
-        ⟨hreads key (by simp [Stmt.variablesRead]),
-          hreads value (by simp [Stmt.variablesRead])⟩
-      obtain ⟨⟨keyWord, hkey⟩, valueWord, hvalue⟩ := hready
-      rw [eval_sstore_ok hkey hvalue] at heval
-      obtain rfl := Except.ok.inj heval
-      apply MachineState.localsCoverCursor_after_statement
-        hblock hstatement hnext hbefore
-      · exact fun _ hdefined => hdefined
-      · simp [Locals.CoversVariables, Stmt.variablesDefined]
-  | gas hdecode heval =>
-      rename_i evaluated nextControl result gas
-      obtain ⟨cursor, block, index, -, -, hblock, hstatement, hnext,
-          hbefore, -⟩ := hwf.decodeStmt_covers hinvariant hdecode
-      rw [eval_gas_ok result gas state] at heval
+  obtain ⟨cursor, block, hcontrol, hposition, hblock, hblockTerminator⟩ :=
+    Vars.Program.terminatorAt_cursor hterminator
+  have hready := hwf.terminatorReady_of_localsCoverCursor
+    hinvariant hcontrol hposition hblock
+  have jumpPreserves {target : BlockId}
+      (hjump : (Vars.jump program target).run state = .ok ((), state'))
+      (hjumpReady : program.JumpReady cursor.fn state block target) :
+      state'.LocalsCoverCursor program := by
+    obtain ⟨⟨values, hvalues⟩, targetBlock, htarget, harity⟩ := hjumpReady
+    obtain ⟨locals', hbind⟩ := Locals.bindValues_total state.locals
+      (harity.trans (mapM_ok_size hvalues).symm)
+    have htarget' :
+        program.block? { cursor with block := target } = some targetBlock := by
+      simpa [Vars.Program.block?] using htarget
+    have hexact : (Vars.jump program target).run state =
+        .ok ((), { state with
+          locals := locals'
+          control := .running
+            { cursor with block := target, position := targetBlock.startPosition } }) := by
+      simp [Vars.jump, StateT.run, Locals.transfer, bind, Except.bind, StateT.bind,
+        hcontrol, hblock, htarget', hvalues, hbind, StateT.get, get, getThe,
+        MonadStateOf.get, modify, modifyGet, MonadStateOf.modifyGet,
+        StateT.modifyGet, liftM, monadLift, MonadLift.monadLift, pure, Except.pure]
+    rw [hexact] at hjump
+    obtain rfl := (Prod.mk.inj (Except.ok.inj hjump)).2
+    refine ⟨targetBlock, ?_, ?_⟩
+    · simpa [Vars.Program.block?] using htarget
+    · rw [Vars.Block.variablesDefinedAtPosition_start]
+      exact Locals.bindValues_covers hbind
+  unfold Vars.Program.TerminatorReady at hready
+  cases terminator with
+  | halt =>
+      rw [hblockTerminator] at hready
+      simp only [Vars.evaluateTerminator] at heval
       obtain rfl := (Prod.mk.inj (Except.ok.inj heval)).2
-      apply MachineState.localsCoverCursor_after_statement
-        hblock hstatement hnext hbefore
-      · exact fun identifier hdefined =>
-          Locals.defined_assign_of_defined hdefined
-      · intro identifier hidentifier
-        simp [Stmt.variablesDefined] at hidentifier
-        subst identifier
-        exact Locals.defined_assign state.locals result gas
-  | call hdecode heval =>
-      rename_i evaluated nextControl callData result record
-      obtain ⟨cursor, block, index, -, -, hblock, hstatement, hnext,
-          hbefore, hreads⟩ := hwf.decodeStmt_covers hinvariant hdecode
-      obtain ⟨callee, hcallee⟩ :=
-        hreads callData.callee (by simp [Stmt.variablesRead])
-      obtain ⟨gas, hgas⟩ :=
-        hreads callData.gas (by simp [Stmt.variablesRead])
-      rw [eval_call_ok callData result state callee gas hcallee hgas] at heval
-      obtain ⟨-, rfl⟩ := Prod.mk.inj (Except.ok.inj heval)
-      apply MachineState.localsCoverCursor_after_statement
-        hblock hstatement hnext hbefore
-      · exact fun identifier hdefined =>
-          Locals.defined_assign_of_defined hdefined
-      · intro identifier hidentifier
-        simp [Stmt.variablesDefined] at hidentifier
-        subst identifier
-        exact Locals.defined_assign state.locals callData.result
-          (Evm.UInt256.fromBool result.success)
-  | mallocUninit hdecode hvalid heval =>
-      rename_i evaluated nextControl allocation result size
-      obtain ⟨cursor, block, index, -, -, hblock, hstatement, hnext,
-          hbefore, hreads⟩ := hwf.decodeStmt_covers hinvariant hdecode
-      obtain ⟨word, hword⟩ := hreads size (by simp [Stmt.variablesRead])
-      have hsize : allocation.size = word.toNat := by
-        by_contra hne
-        simp [eval_malloc_uninit, StateT.run, Locals.lookupM, bind, Except.bind,
-          StateT.bind, hword, hne, StateT.get,
-          modify, modifyGet, MonadStateOf.modifyGet, StateT.modifyGet,
-          liftM, monadLift, MonadLift.monadLift, StateT.lift, Locals.assignM,
-          throw, throwThe, MonadExceptOf.throw, pure, Except.pure] at heval
-      rw [eval_malloc_uninit_ok hword hsize] at heval
-      obtain rfl := (Prod.mk.inj (Except.ok.inj heval)).2
-      apply MachineState.localsCoverCursor_after_statement
-        hblock hstatement hnext hbefore
-      · exact fun identifier hdefined =>
-          Locals.defined_assign_of_defined hdefined
-      · intro identifier hidentifier
-        simp [Stmt.variablesDefined] at hidentifier
-        subst identifier
-        exact Locals.defined_assign state.locals result allocation.offset
-  | mstore32 hdecode heval =>
-      rename_i evaluated nextControl offset value
-      obtain ⟨cursor, block, index, -, -, hblock, hstatement, hnext,
-          hbefore, hreads⟩ := hwf.decodeStmt_covers hinvariant hdecode
-      obtain ⟨offsetWord, hoffset⟩ :=
-        hreads offset (by simp [Stmt.variablesRead])
-      obtain ⟨valueWord, hvalue⟩ :=
-        hreads value (by simp [Stmt.variablesRead])
-      rw [eval_mstore32_ok hoffset hvalue] at heval
-      obtain rfl := (Prod.mk.inj (Except.ok.inj heval)).2
-      apply MachineState.localsCoverCursor_after_statement
-        hblock hstatement hnext hbefore
-      · exact fun _ hdefined => hdefined
-      · simp [Locals.CoversVariables, Stmt.variablesDefined]
-  | mload32 hdecode heval =>
-      rename_i evaluated nextControl assumed result offset
-      obtain ⟨cursor, block, index, -, -, hblock, hstatement, hnext,
-          hbefore, hreads⟩ := hwf.decodeStmt_covers hinvariant hdecode
-      obtain ⟨offsetWord, hoffset⟩ :=
-        hreads offset (by simp [Stmt.variablesRead])
-      rw [eval_mload32_ok (assumed := ⟨assumed.toArray⟩) hoffset] at heval
-      obtain rfl := (Prod.mk.inj (Except.ok.inj heval)).2
-      apply MachineState.localsCoverCursor_after_statement
-        hblock hstatement hnext hbefore
-      · exact fun identifier hdefined =>
-          Locals.defined_assign_of_defined hdefined
-      · intro identifier hidentifier
-        simp [Stmt.variablesDefined] at hidentifier
-        subst identifier
-        exact Locals.defined_assign state.locals result _
-  | icall hdecode hargs hcallee hbind =>
-      rename_i globals' locals'
-      obtain ⟨cursor, block, index, -, -, hblock, hstatement, hnext,
-          hbefore, -⟩ := hwf.decodeStmt_covers hinvariant hdecode
-      apply MachineState.localsCoverCursor_after_statement
-        (evaluated := { state with globals := globals', locals := locals' })
-        hblock hstatement hnext hbefore
-      · exact fun identifier hdefined =>
-          Locals.bindValues_preserves hbind hdefined
-      · exact Locals.bindValues_covers hbind
-  | icallHalted hdecode hargs hcallee =>
       trivial
-  | terminator hterminator heval =>
-      rename_i terminator
-      obtain ⟨cursor, block, hcontrol, hposition, hblock, hblockTerminator⟩ :=
-        Program.terminatorAt_cursor hterminator
-      have hready := hwf.terminatorReady_of_localsCoverCursor
-        hinvariant hcontrol hposition hblock
-      have jumpPreserves {target : BlockId}
-          (hjump : (eval_jump program target).run state = .ok ((), state'))
-          (hjumpReady : program.JumpReady cursor.fn state block target) :
-          state'.LocalsCoverCursor program := by
-        obtain ⟨⟨values, hvalues⟩, targetBlock, htarget, harity⟩ := hjumpReady
-        obtain ⟨locals', hbind⟩ := Locals.bindValues_total state.locals
-          (harity.trans (mapM_ok_size hvalues).symm)
-        have htarget' :
-            program.block? { cursor with block := target } = some targetBlock := by
-          simpa [Program.block?] using htarget
-        have hexact : (eval_jump program target).run state =
-            .ok ((), { state with
-              locals := locals'
-              control := .running
-                { cursor with block := target, position := targetBlock.startPosition } }) := by
-          simp [eval_jump, StateT.run, Locals.transfer, bind, Except.bind, StateT.bind,
-            hcontrol, hblock, htarget', hvalues, hbind, StateT.get, get, getThe,
-            MonadStateOf.get, modify, modifyGet, MonadStateOf.modifyGet,
-            StateT.modifyGet, liftM, monadLift, MonadLift.monadLift,
-            pure, Except.pure]
-        rw [hexact] at hjump
-        obtain rfl := (Prod.mk.inj (Except.ok.inj hjump)).2
-        refine ⟨targetBlock, ?_, ?_⟩
-        · simpa [Program.block?] using htarget
-        · rw [BasicBlock.variablesDefinedAtPosition_start]
-          exact Locals.bindValues_covers hbind
-      unfold Program.TerminatorReady at hready
-      cases terminator with
-      | halt =>
-          rw [hblockTerminator] at hready
-          simp only [eval_terminator] at heval
-          obtain rfl := (Prod.mk.inj (Except.ok.inj heval)).2
-          trivial
-      | jump target =>
-          rw [hblockTerminator] at hready
-          exact jumpPreserves heval hready
-      | branch condition thenTarget elseTarget =>
-          rw [hblockTerminator] at hready
-          obtain ⟨word, hword, hjumpReady⟩ := hready
-          simp only [eval_terminator, StateT.run, bind, StateT.bind,
-            Locals.lookupM, liftM, monadLift, MonadLift.monadLift,
-            StateT.get, Except.bind, StateT.lift, pure, Except.pure, hword] at heval
-          exact jumpPreserves heval hjumpReady
-      | iret =>
-          rw [hblockTerminator] at hready
-          obtain ⟨values, hvalues⟩ := hready
-          rw [eval_terminator_iret_ok hcontrol hblock hvalues] at heval
-          obtain rfl := (Prod.mk.inj (Except.ok.inj heval)).2
-          trivial
+  | jump target =>
+      rw [hblockTerminator] at hready
+      exact jumpPreserves heval hready
+  | branch condition thenTarget elseTarget =>
+      rw [hblockTerminator] at hready
+      obtain ⟨word, hword, hjumpReady⟩ := hready
+      simp only [Vars.evaluateTerminator, StateT.run, bind, StateT.bind,
+        Locals.lookupM, liftM, monadLift, MonadLift.monadLift,
+        StateT.get, Except.bind, StateT.lift, pure, Except.pure, hword] at heval
+      exact jumpPreserves heval hjumpReady
+  | iret =>
+      rw [hblockTerminator] at hready
+      obtain ⟨values, hvalues⟩ := hready
+      rw [Vars.evaluateTerminator_iret_ok hcontrol hblock hvalues] at heval
+      obtain rfl := (Prod.mk.inj (Except.ok.inj heval)).2
+      trivial
 
-theorem Program.WellFormed.localsCoverCursor_steps
-    (hwf : program.WellFormed) {initial state : MachineState} {trace : Trace}
+private theorem Vars.Program.WellFormed.localsCoverCursor_genStep
+    (hwf : program.WellFormed) {state final : Machine.State Vars.frame}
+    {trace : Trace}
+    (hinvariant : state.toMachine.LocalsCoverCursor program)
+    (hstep : Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
+      state trace final) :
+    final.toMachine.LocalsCoverCursor program := by
+  cases hstep with
+  | operation hdecode hfires =>
+      change Vars.decode program state.control = _ at hdecode
+      obtain ⟨statement, hstatement, hinstruction⟩ := Vars.decode_inv.mp hdecode
+      cases hfires with
+      | next hadmissible hfetch hexecute hstore =>
+          change Locals.bindValues state.environment _ _ = .ok _ at hstore
+          obtain ⟨cursor, block, index, -, -, hblock, hstatementAt, hnext,
+              hbefore, -⟩ :=
+            hwf.decodeStmt_covers (state := state.toMachine) hinvariant hstatement
+          apply MachineState.localsCoverCursor_after_statement
+            (state := state.toMachine)
+            (evaluated := ⟨_, _, state.control⟩)
+            hblock hstatementAt hnext hbefore
+          · exact fun identifier hdefined =>
+              Locals.bindValues_preserves hstore hdefined
+          · rw [← decodeSirStmt_op_dst hinstruction]
+            exact Locals.bindValues_covers hstore
+  | operationHalted hdecode hfires => trivial
+  | internalCall hdecode hfetch hcallee hresume =>
+      rename_i callee src dst next values globals' outcome env' control'
+      change Vars.decode program state.control = _ at hdecode
+      obtain ⟨statement, hstatement, hinstruction⟩ := Vars.decode_inv.mp hdecode
+      have hstatementEq := decodeSirStmt_icall_inv hinstruction
+      subst statement
+      obtain ⟨cursor, block, index, -, -, hblock, hstatementAt, hnext,
+          hbefore, -⟩ :=
+        hwf.decodeStmt_covers (state := state.toMachine) hinvariant hstatement
+      change Vars.resume outcome state.environment dst next = some (env', control') at hresume
+      cases outcome with
+      | returned results =>
+          obtain ⟨hbind, hcontrol'⟩ := Vars.resume_returned_eq_some_iff.mp hresume
+          subst control'
+          apply MachineState.localsCoverCursor_after_statement
+            (state := state.toMachine)
+            (evaluated := ⟨globals', env', state.control⟩)
+            hblock hstatementAt hnext hbefore
+          · exact fun identifier hdefined =>
+              Locals.bindValues_preserves hbind hdefined
+          · simpa [Vars.Stmt.variablesDefined] using Locals.bindValues_covers hbind
+      | halted =>
+          obtain ⟨rfl, rfl⟩ := Vars.resume_halted_eq_some_iff.mp hresume
+          trivial
+  | control hcontrol =>
+      change Vars.control program state.environment state.globals state.control = _ at hcontrol
+      obtain ⟨terminator, state', hterminator, heval, rfl, rfl, rfl, rfl⟩ :=
+        Vars.control_inv.mp hcontrol
+      exact hwf.localsCoverCursor_terminator hinvariant hterminator heval
+
+theorem Vars.Program.WellFormed.localsCoverCursor_step
+    (hwf : program.WellFormed) {state final : MachineState} {trace : Trace}
+    (hinvariant : state.LocalsCoverCursor program)
+    (hstep : Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
+      state.toState trace final.toState) :
+    final.LocalsCoverCursor program :=
+  hwf.localsCoverCursor_genStep (state := state.toState) (final := final.toState)
+    hinvariant hstep
+
+private theorem Vars.Program.WellFormed.localsCoverCursor_genSteps
+    (hwf : program.WellFormed) {initial final : Machine.State Vars.frame}
+    {trace : Trace}
+    (hinitial : initial.toMachine.LocalsCoverCursor program)
+    (hsteps : Machine.Steps Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
+      initial trace final) :
+    final.toMachine.LocalsCoverCursor program := by
+  exact Machine.Steps.inductionOn
+    (motive := fun initial _ final _ =>
+      initial.toMachine.LocalsCoverCursor program →
+        final.toMachine.LocalsCoverCursor program)
+    (fun _ hinvariant => hinvariant)
+    (fun _ next ih hinvariant =>
+      hwf.localsCoverCursor_genStep (ih hinvariant) next)
+    hsteps hinitial
+
+theorem Vars.Program.WellFormed.localsCoverCursor_steps
+    (hwf : program.WellFormed) {initial final : MachineState} {trace : Trace}
     (hinitial : initial.LocalsCoverCursor program)
-    (hsteps : Steps program ctx initial trace state) :
-    state.LocalsCoverCursor program := by
-  induction hsteps using Steps.inductionOn with
-  | refl => exact hinitial
-  | tail start next ih => exact hwf.localsCoverCursor_step (ih hinitial) next
+    (hsteps : Machine.Steps Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
+      initial.toState trace final.toState) :
+    final.LocalsCoverCursor program :=
+  hwf.localsCoverCursor_genSteps (initial := initial.toState) (final := final.toState)
+    hinitial hsteps
 
-theorem Program.WellFormed.localsCoverCursor_runsFn
+theorem Vars.Program.WellFormed.localsCoverCursor_runsFn
     (hwf : program.WellFormed) {function : FunctionId} {globals : Globals}
     {args : Array Word} {trace : Trace} {state : MachineState}
     (hrun : program.RunsFunction ctx function globals args trace state) :
     state.LocalsCoverCursor program := by
   obtain ⟨initial, hentry, hsteps⟩ := hrun
   exact hwf.localsCoverCursor_steps
-    (Program.callState?_localsCoverCursor hentry) hsteps
+    (Vars.Program.callState?_localsCoverCursor hentry) hsteps
 
-theorem Program.WellFormed.progress_reachable_nonIcall_proof
+theorem Vars.Proofs.Program.WellFormed.progress_reachable_nonIcall
     (hwf : program.WellFormed) {function : FunctionId} {globals : Globals}
     {args : Array Word} {runTrace : Trace} {state : MachineState}
     (hrun : program.RunsFunction ctx function globals args runTrace state)
-    (hcontrol :
-      (∃ nextControl statement,
-        program.decodeStmt state.control = some (nextControl, statement) ∧
-        ∀ callee callArgs destinations,
-          statement ≠ .icall callee callArgs destinations) ∨
-      ∃ terminator, program.terminatorAt state.control = some terminator)
-    (hfreshAllocation :
-      ∀ nextControl result size word,
-        program.decodeStmt state.control =
-            some (nextControl, .mallocUninit result size) →
-        state.locals.lookup size = .ok word →
-        ∃ allocation, state.globals.memory.IsValidNewAlloc allocation ∧
-          allocation.size = word.toNat) :
-    ∃ trace state', SmallStep program ctx state trace state' := by
+    (hcontrol : program.NonIcallControl state)
+    (hfreshAllocation : program.AllocationAvailable state)
+    (hstore : program.StoreInBounds state) :
+    ∃ trace state', Vars.SmallStep program ctx state trace state' := by
   have hinvariant := hwf.localsCoverCursor_runsFn hrun
   rcases hcontrol with
     ⟨nextControl, statement, hdecode, hnonIcall⟩ | ⟨terminator, hterminator⟩
@@ -632,18 +596,28 @@ theorem Program.WellFormed.progress_reachable_nonIcall_proof
       apply MachineState.stmtReady_of_coversVariables hreads
       · intro result size heq
         subst statement
-        obtain ⟨word, hword⟩ := hreads size (by simp [Stmt.variablesRead])
+        obtain ⟨word, hword⟩ := hreads size (by simp [Vars.Stmt.variablesRead])
+        obtain ⟨allocation, hvalid, hsize, hzero⟩ :=
+          hfreshAllocation.1 nextControl result size word hdecode hword
+        exact ⟨word, allocation, hword, hvalid, hsize, hzero⟩
+      · intro result size heq
+        subst statement
+        obtain ⟨word, hword⟩ := hreads size (by simp [Vars.Stmt.variablesRead])
         obtain ⟨allocation, hvalid, hsize⟩ :=
-          hfreshAllocation nextControl result size word hdecode hword
+          hfreshAllocation.2 nextControl result size word hdecode hword
         exact ⟨word, allocation, hword, hvalid, hsize⟩
+      · intro offset value heq
+        subst statement
+        obtain ⟨word, hword⟩ := hreads offset (by simp [Vars.Stmt.variablesRead])
+        exact ⟨word, hword, hstore nextControl offset value word hdecode hword⟩
       · exact hnonIcall
-    exact progress_stmt_proof hdecode hready
+    exact Vars.Proofs.progress_stmt hdecode hready
   · obtain ⟨cursor, block, hstateControl, hposition, hblock, -⟩ :=
-      Program.terminatorAt_cursor hterminator
+      Vars.Program.terminatorAt_cursor hterminator
     have hready := hwf.terminatorReady_of_localsCoverCursor
       hinvariant hstateControl hposition hblock
     obtain ⟨state', hstep⟩ :=
-      progress_terminator_proof hstateControl hposition hblock hready
+      Vars.Proofs.progress_terminator hstateControl hposition hblock hready
     exact ⟨[], state', hstep⟩
 
 end Sir

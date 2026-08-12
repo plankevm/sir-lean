@@ -1,3 +1,14 @@
 import Sir.Spec.Machine
 import Sir.Spec.Vars
 import Sir.Spec.Stack
+import Sir.Proofs.Machine
+import Sir.Proofs.Decode
+import Sir.Proofs.Vars
+import Sir.Proofs.Steps
+import Sir.Proofs.Determinism
+import Sir.Proofs.WellFormed
+import Sir.Proofs.Progress
+import Sir.Proofs.Readiness
+import Sir.Proofs.Bump
+import Sir.Proofs.Stack
+import Sir.Proofs.Memory
