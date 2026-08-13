@@ -691,7 +691,7 @@ theorem Symbolic.executeAll_supported_source_statements
   · exact supported
 
 theorem StackSchedule.Block.statements_not_memory_oracle
-    (certificate : StackSchedule.Block) (accepted : certificate.check = true) :
+    (certificate : StackSchedule.Block) (accepted : certificate.check = .ok ()) :
     ∀ statement ∈ certificate.vars.statements, ¬ statement.isMemOracle := by
   obtain ⟨finalState, _, replay, _, fired, _, _, _⟩ := certificate.check_sound accepted
   have supported := Symbolic.executeAll_not_memory_oracle certificate.vars.statements
@@ -710,7 +710,7 @@ theorem StackSchedule.Block.statements_not_memory_oracle
     certificate.vars.statements[index] (by simp)
 
 theorem StackSchedule.Block.statements_supported
-    (certificate : StackSchedule.Block) (accepted : certificate.check = true) :
+    (certificate : StackSchedule.Block) (accepted : certificate.check = .ok ()) :
     ∀ statement ∈ certificate.vars.statements,
       ∃ symbolicOperation, Symbolic.operationOf statement = some symbolicOperation := by
   obtain ⟨finalState, _, replay, _, fired, _, _, _⟩ := certificate.check_sound accepted
@@ -731,7 +731,7 @@ theorem StackSchedule.Block.statements_supported
     certificate.vars.statements[index] (by simp)
 
 theorem StackSchedule.Block.sourceOrderReferenceLocals_exists
-    (certificate : StackSchedule.Block) (accepted : certificate.check = true)
+    (certificate : StackSchedule.Block) (accepted : certificate.check = .ok ())
     (entryLocals : Locals) (entryValues : List Word)
     (interpretations : certificate.vars.entryLayout.toList.mapM
       (Symbolic.Value.interpret entryLocals) = some entryValues) :
@@ -748,7 +748,7 @@ theorem StackSchedule.Block.sourceOrderReferenceLocals_exists
 
 theorem StackSchedule.vars_program_memOracleFree
     (certificate : StackSchedule)
-    (accepted : certificate.check = true) :
+    (accepted : certificate.check = .ok ()) :
     certificate.vars.MemOracleFree := by
   intro statement hasStatement
   rcases hasStatement with ⟨function, functionMember, block, blockMember, statementMember⟩
@@ -760,7 +760,7 @@ theorem StackSchedule.vars_program_memOracleFree
     simpa [StackSchedule.vars] using indexBound
   let blockCertificate := certificate.blocks[index]'certificateIndexBound
   have blockGet : certificate.blocks[index]'certificateIndexBound = blockCertificate := rfl
-  have blockAccepted : blockCertificate.check = true := by
+  have blockAccepted : blockCertificate.check = .ok () := by
     have acceptedAt :=
       (certificate.check_sound accepted).2.1 index certificateIndexBound
     simpa [blockGet] using acceptedAt
@@ -769,7 +769,7 @@ theorem StackSchedule.vars_program_memOracleFree
 
 theorem StackSchedule.vars_program_statements_supported
     (certificate : StackSchedule)
-    (accepted : certificate.check = true) :
+    (accepted : certificate.check = .ok ()) :
     ∀ statement, certificate.vars.HasStmt statement →
       ∃ symbolicOperation, Symbolic.operationOf statement = some symbolicOperation := by
   intro statement hasStatement
@@ -782,7 +782,7 @@ theorem StackSchedule.vars_program_statements_supported
     simpa [StackSchedule.vars] using indexBound
   let blockCertificate := certificate.blocks[index]'certificateIndexBound
   have blockGet : certificate.blocks[index]'certificateIndexBound = blockCertificate := rfl
-  have blockAccepted : blockCertificate.check = true := by
+  have blockAccepted : blockCertificate.check = .ok () := by
     have acceptedAt :=
       (certificate.check_sound accepted).2.1 index certificateIndexBound
     simpa [blockGet] using acceptedAt
@@ -791,7 +791,7 @@ theorem StackSchedule.vars_program_statements_supported
 
 theorem StackSchedule.vars_program_terminator_not_iret
     (certificate : StackSchedule)
-    (accepted : certificate.check = true)
+    (accepted : certificate.check = .ok ())
     (cursor : Machine.ProgramCursor) (block : Vars.Block)
     (blockAt : certificate.vars.block? cursor = some block) :
     block.terminator ≠ .iret := by
@@ -804,7 +804,7 @@ theorem StackSchedule.vars_program_terminator_not_iret
       of_getElem?_eq_some (c := certificate.blocks) (i := blockIndex) certificateBlockAt
     have blockGet : certificate.blocks[blockIndex] = blockCertificate :=
       (Array.getElem?_eq_some_iff.mp certificateBlockAt).2
-    have blockAccepted : blockCertificate.check = true := by
+    have blockAccepted : blockCertificate.check = .ok () := by
       have acceptedAt :=
         (certificate.check_sound accepted).2.1 blockIndex certificateBlockBound
       simpa [blockGet] using acceptedAt
@@ -819,7 +819,7 @@ theorem StackSchedule.vars_program_terminator_not_iret
 
 theorem StackSchedule.stack_program_terminator_not_iret
     (certificate : StackSchedule)
-    (accepted : certificate.check = true)
+    (accepted : certificate.check = .ok ())
     (cursor : Machine.ProgramCursor) (block : Stack.Block)
     (blockAt : certificate.stack.block? cursor = some block) :
     block.terminator ≠ .iret := by
@@ -832,7 +832,7 @@ theorem StackSchedule.stack_program_terminator_not_iret
       of_getElem?_eq_some (c := certificate.blocks) (i := blockIndex) certificateBlockAt
     have blockGet : certificate.blocks[blockIndex] = blockCertificate :=
       (Array.getElem?_eq_some_iff.mp certificateBlockAt).2
-    have blockAccepted : blockCertificate.check = true := by
+    have blockAccepted : blockCertificate.check = .ok () := by
       have acceptedAt :=
         (certificate.check_sound accepted).2.1 blockIndex certificateBlockBound
       simpa [blockGet] using acceptedAt
@@ -1171,7 +1171,7 @@ theorem Symbolic.executeList_excludes_memory_oracles
           · exact inductionHypothesis nextState replay candidate member
 
 theorem StackSchedule.Block.instructions_exclude_memory_oracles
-    (certificate : StackSchedule.Block) (accepted : certificate.check = true) :
+    (certificate : StackSchedule.Block) (accepted : certificate.check = .ok ()) :
     ∀ instruction ∈ certificate.stack.instructions,
       instruction ≠ .op .mload32 ∧ instruction ≠ .op .malloc ∧
         instruction ≠ .op .mallocUninit := by
@@ -1183,7 +1183,7 @@ theorem StackSchedule.Block.instructions_exclude_memory_oracles
   simpa using instructionMember
 
 theorem StackSchedule.Block.instructions_exclude_internal_calls
-    (certificate : StackSchedule.Block) (accepted : certificate.check = true) :
+    (certificate : StackSchedule.Block) (accepted : certificate.check = .ok ()) :
     ∀ instruction ∈ certificate.stack.instructions, ∀ callee argumentCount resultCount,
       instruction ≠ .icall callee argumentCount resultCount := by
   obtain ⟨finalState, _, replay, _, _, _, _, _⟩ := certificate.check_sound accepted
@@ -1194,7 +1194,7 @@ theorem StackSchedule.Block.instructions_exclude_internal_calls
   simpa using instructionMember
 
 theorem StackSchedule.Block.instructions_operation_supported
-    (certificate : StackSchedule.Block) (accepted : certificate.check = true) :
+    (certificate : StackSchedule.Block) (accepted : certificate.check = .ok ()) :
     ∀ operation, .op operation ∈ certificate.stack.instructions →
       (∃ value, operation = .constant value) ∨ operation = .copy ∨
         operation = .add ∨ operation = .lt := by
@@ -1206,7 +1206,7 @@ theorem StackSchedule.Block.instructions_operation_supported
   simpa using instructionMember
 
 theorem StackSchedule.Block.instructions_flipped_operation_supported
-    (certificate : StackSchedule.Block) (accepted : certificate.check = true) :
+    (certificate : StackSchedule.Block) (accepted : certificate.check = .ok ()) :
     ∀ operation, .flippedOp operation ∈ certificate.stack.instructions →
       operation = .add ∨ operation = .lt := by
   obtain ⟨finalState, _, replay, _, _, _, _, _⟩ := certificate.check_sound accepted
@@ -1261,7 +1261,7 @@ theorem StackSchedule.target_decode_instruction_mem
               Stack.Program.function?, Stack.Function.block?] at decode
 
 theorem StackSchedule.target_decoded_instruction_excludes_memory_oracles
-    (certificate : StackSchedule) (accepted : certificate.check = true)
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
     (control next : Machine.MachineControl) (instruction : Stack.Instr)
     (decode : certificate.stack.decodeInstruction control = some (next, instruction)) :
     instruction ≠ .op .mload32 ∧ instruction ≠ .op .malloc ∧
@@ -1270,14 +1270,14 @@ theorem StackSchedule.target_decoded_instruction_excludes_memory_oracles
     certificate.target_decode_instruction_mem control next instruction decode
   rw [Array.mem_iff_getElem] at blockMember
   obtain ⟨index, indexBound, blockGet⟩ := blockMember
-  have blockAccepted : blockCertificate.check = true := by
+  have blockAccepted : blockCertificate.check = .ok () := by
     have acceptedAt := (certificate.check_sound accepted).2.1 index indexBound
     simpa [blockGet] using acceptedAt
   exact blockCertificate.instructions_exclude_memory_oracles blockAccepted instruction
     instructionMember
 
 theorem StackSchedule.target_decoded_instruction_excludes_internal_calls
-    (certificate : StackSchedule) (accepted : certificate.check = true)
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
     (control next : Machine.MachineControl) (instruction : Stack.Instr)
     (decode : certificate.stack.decodeInstruction control = some (next, instruction)) :
     ∀ callee argumentCount resultCount,
@@ -1286,14 +1286,14 @@ theorem StackSchedule.target_decoded_instruction_excludes_internal_calls
     certificate.target_decode_instruction_mem control next instruction decode
   rw [Array.mem_iff_getElem] at blockMember
   obtain ⟨index, indexBound, blockGet⟩ := blockMember
-  have blockAccepted : blockCertificate.check = true := by
+  have blockAccepted : blockCertificate.check = .ok () := by
     have acceptedAt := (certificate.check_sound accepted).2.1 index indexBound
     simpa [blockGet] using acceptedAt
   exact blockCertificate.instructions_exclude_internal_calls blockAccepted instruction
     instructionMember
 
 theorem StackSchedule.target_decoded_operation_supported
-    (certificate : StackSchedule) (accepted : certificate.check = true)
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
     (control next : Machine.MachineControl) (operation : Machine.Operation)
     (decode : certificate.stack.decodeInstruction control = some (next, .op operation)) :
     (∃ value, operation = .constant value) ∨ operation = .copy ∨
@@ -1302,14 +1302,14 @@ theorem StackSchedule.target_decoded_operation_supported
     certificate.target_decode_instruction_mem control next (.op operation) decode
   rw [Array.mem_iff_getElem] at blockMember
   obtain ⟨index, indexBound, blockGet⟩ := blockMember
-  have blockAccepted : blockCertificate.check = true := by
+  have blockAccepted : blockCertificate.check = .ok () := by
     have acceptedAt := (certificate.check_sound accepted).2.1 index indexBound
     simpa [blockGet] using acceptedAt
   exact blockCertificate.instructions_operation_supported blockAccepted operation
     instructionMember
 
 theorem StackSchedule.target_decoded_flipped_operation_supported
-    (certificate : StackSchedule) (accepted : certificate.check = true)
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
     (control next : Machine.MachineControl) (operation : Machine.Operation)
     (decode : certificate.stack.decodeInstruction control =
       some (next, .flippedOp operation)) : operation = .add ∨ operation = .lt := by
@@ -1317,7 +1317,7 @@ theorem StackSchedule.target_decoded_flipped_operation_supported
     certificate.target_decode_instruction_mem control next (.flippedOp operation) decode
   rw [Array.mem_iff_getElem] at blockMember
   obtain ⟨index, indexBound, blockGet⟩ := blockMember
-  have blockAccepted : blockCertificate.check = true := by
+  have blockAccepted : blockCertificate.check = .ok () := by
     have acceptedAt := (certificate.check_sound accepted).2.1 index indexBound
     simpa [blockGet] using acceptedAt
   exact blockCertificate.instructions_flipped_operation_supported blockAccepted operation
@@ -1325,7 +1325,7 @@ theorem StackSchedule.target_decoded_flipped_operation_supported
 
 theorem StackSchedule.stack_program_noMload
     (certificate : StackSchedule)
-    (accepted : certificate.check = true) :
+    (accepted : certificate.check = .ok ()) :
     (Stack.decoder certificate.stack).NoMload := by
   intro control src dst next decode
   change Stack.decode certificate.stack control =
@@ -1355,7 +1355,7 @@ theorem StackSchedule.stack_program_noMload
 
 theorem StackSchedule.stack_program_noMalloc
     (certificate : StackSchedule)
-    (accepted : certificate.check = true) :
+    (accepted : certificate.check = .ok ()) :
     (Stack.decoder certificate.stack).NoMalloc := by
   constructor
   · intro control src dst next decode

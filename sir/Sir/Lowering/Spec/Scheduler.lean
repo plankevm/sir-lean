@@ -13,7 +13,7 @@ def Scheduler := Array Vars.Stmt → Except Scheduler.Error StackSchedule
 def Scheduler.Accepted (scheduler : Scheduler) : Prop :=
   ∀ statements schedule, scheduler statements = .ok schedule →
     schedule.blocks[0]?.map (fun block => block.vars.statements) = some statements ∧
-      schedule.check = true
+      schedule.check = .ok ()
 
 def spillAll.lowerStatement : Vars.Stmt → Option (Array Stack.Instr)
   | .assign result (.constant value) =>

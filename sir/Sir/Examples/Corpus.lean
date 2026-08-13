@@ -4,7 +4,7 @@ namespace Sir.Lowering
 
 private theorem functionCertificate_evaluation_equivalence
     (certificate : StackSchedule)
-    (accepted : certificate.check = true)
+    (accepted : certificate.check = .ok ())
     (ctx : CallContext) (globals finalGlobals : Globals) (args : Array Word) (trace : Trace)
     (outcome : FunctionOutcome) :
     Vars.EvalFn certificate.vars ctx ⟨0⟩ globals args trace finalGlobals outcome ↔
@@ -34,7 +34,7 @@ def straightLineCorpusCertificate : StackSchedule where
   entry := ⟨0⟩
 
 theorem straightLineCorpus_accepted :
-    straightLineCorpusCertificate.check = true := by decide +kernel
+    straightLineCorpusCertificate.check = .ok () := by decide +kernel
 
 theorem straightLineCorpus_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (trace : Trace)
@@ -121,7 +121,7 @@ def diamondCorpusCertificate : StackSchedule where
   entry := ⟨0⟩
 
 theorem diamondCorpus_accepted :
-    diamondCorpusCertificate.check = true := by decide +kernel
+    diamondCorpusCertificate.check = .ok () := by decide +kernel
 
 theorem diamondCorpus_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (trace : Trace)
@@ -190,7 +190,7 @@ def loopCorpusCertificate : StackSchedule where
         terminator := .halt } }]
   entry := ⟨0⟩
 
-theorem loopCorpus_accepted : loopCorpusCertificate.check = true := by decide +kernel
+theorem loopCorpus_accepted : loopCorpusCertificate.check = .ok () := by decide +kernel
 
 theorem loopCorpus_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (trace : Trace)

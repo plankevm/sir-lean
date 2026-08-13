@@ -3,7 +3,7 @@ import Sir.Lowering.Proofs.Headline
 namespace Sir
 
 theorem Lowering.StackSchedule.equiv (schedule : Lowering.StackSchedule)
-    (accepted : schedule.check = true) :
+    (accepted : schedule.check = .ok ()) :
     Lowering.Equiv schedule.vars schedule.stack :=
   Lowering.Proofs.StackSchedule.equiv schedule accepted
 

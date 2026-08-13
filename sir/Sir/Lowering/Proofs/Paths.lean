@@ -859,12 +859,24 @@ theorem Proofs.spillAll_accepted : spillAll.Accepted := by
                 congrArg Option.isSome definitions
             have variablesUnique : Symbolic.definesOnce statements #[] = true := by
               simpa [Symbolic.definesOnce, spillAll.singleAssignment] using single
+            have checkedReplay : StackSchedule.Block.replay statements
+                targetInstructions.toList (Symbolic.State.initial #[]) = .ok finalState :=
+              StackSchedule.Block.replay_complete statements targetInstructions.toList
+                (Symbolic.State.initial #[]) finalState (by simpa using replay)
+            have noUnavailable : StackSchedule.firstUnavailable statements.toList [] = none := by
+              apply (StackSchedule.firstUnavailable_none_iff _ _).mpr
+              simpa [Symbolic.readsAvailable] using usesAvailable
+            have noDuplicate :
+                StackSchedule.firstDuplicate
+                  (statements.toList.flatMap Vars.Stmt.variablesDefined) = none := by
+              apply (StackSchedule.firstDuplicate_none_iff _).mpr
+              simpa [Symbolic.definesOnce] using variablesUnique
             constructor
             · simp [spillAll.schedule, StackSchedule.ofBlock]
             · apply StackSchedule.ofBlock_check
-              · simp [StackSchedule.Block.check,
-                  StackSchedule.Block.finalStack, StackSchedule.Block.terminatorsAgree,
-                  replay, invariant.2.1, usesAvailable, variablesUnique]
+              · simp [StackSchedule.Block.check, StackSchedule.Block.checkFinalStack,
+                  StackSchedule.Block.terminatorsAgree, checkedReplay, noUnavailable,
+                  noDuplicate, invariant.2.1]
               · rfl
   next => simp at lowered
 

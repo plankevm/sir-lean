@@ -3,7 +3,7 @@ import Sir.Lowering.Proofs.Block
 namespace Sir.Lowering
 
 theorem StackSchedule.forward_halted_path
-    (certificate : StackSchedule) (accepted : certificate.check = true)
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
     (ctx : CallContext) {start final : Vars.State}
     (path : SourcePath certificate.vars ctx start final)
     (finalHalted : final.control = .halted)
@@ -57,7 +57,7 @@ theorem StackSchedule.forward_halted_path
             prefixRest stackValues
 
 theorem StackSchedule.reverse_halted_path
-    (certificate : StackSchedule) (accepted : certificate.check = true)
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
     (ctx : CallContext)
     {start final : Machine.State Stack.frame}
     (path : TargetPath certificate.stack ctx start final)
@@ -124,7 +124,7 @@ theorem StackSchedule.reverse_halted_path
             simp at firstTrace
 
 theorem Proofs.StackSchedule.forward_halted_evaluation
-    (certificate : StackSchedule) (accepted : certificate.check = true)
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
     (ctx : CallContext) (globals finalGlobals : Globals) (args : Array Word) (trace : Trace)
     (sourceEvaluation : Vars.EvalFn certificate.vars ctx ⟨0⟩ globals args trace
       finalGlobals .halted) :
@@ -169,7 +169,7 @@ theorem Proofs.StackSchedule.forward_halted_evaluation
           exact Machine.FunctionEvaluation.exit (outcome := .halted) targetEntry targetRun rfl
 
 theorem Proofs.StackSchedule.reverse_halted_evaluation
-    (certificate : StackSchedule) (accepted : certificate.check = true)
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
     (ctx : CallContext) (globals finalGlobals : Globals) (args : Array Word) (trace : Trace)
     (targetEvaluation : Stack.EvalFn certificate.stack ctx
       ⟨0⟩ globals args trace finalGlobals .halted) :
@@ -206,7 +206,7 @@ theorem Proofs.StackSchedule.reverse_halted_evaluation
       exact Machine.FunctionEvaluation.exit (outcome := .halted) sourceEntry sourceRun rfl
 
 theorem StackSchedule.source_evaluation_not_returned
-    (certificate : StackSchedule) (accepted : certificate.check = true)
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
     (ctx : CallContext) (globals finalGlobals : Globals) (args results : Array Word)
     (trace : Trace)
     (sourceEvaluation : Vars.EvalFn certificate.vars ctx ⟨0⟩ globals args trace
@@ -236,7 +236,7 @@ theorem StackSchedule.source_evaluation_not_returned
             terminator
 
 theorem StackSchedule.target_evaluation_not_returned
-    (certificate : StackSchedule) (accepted : certificate.check = true)
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
     (ctx : CallContext) (globals finalGlobals : Globals) (args results : Array Word)
     (trace : Trace)
     (targetEvaluation : Stack.EvalFn certificate.stack ctx
@@ -268,7 +268,7 @@ theorem StackSchedule.target_evaluation_not_returned
           exact certificate.target_step_not_returned accepted ctx next results finalReturned
 
 private theorem Proofs.StackSchedule.forward_evaluation
-    (certificate : StackSchedule) (accepted : certificate.check = true)
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
     (ctx : CallContext) (globals finalGlobals : Globals) (args : Array Word) (trace : Trace)
     (outcome : FunctionOutcome)
     (sourceEvaluation : Vars.EvalFn certificate.vars ctx ⟨0⟩ globals args trace
@@ -284,7 +284,7 @@ private theorem Proofs.StackSchedule.forward_evaluation
         trace sourceEvaluation
 
 private theorem Proofs.StackSchedule.reverse_evaluation
-    (certificate : StackSchedule) (accepted : certificate.check = true)
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
     (ctx : CallContext) (globals finalGlobals : Globals) (args : Array Word) (trace : Trace)
     (outcome : FunctionOutcome)
     (targetEvaluation : Stack.EvalFn certificate.stack ctx
@@ -327,7 +327,7 @@ private theorem StackSchedule.target_evaluation_function_eq_zero
           Stack.Program.function?] at entry
 
 theorem Proofs.StackSchedule.equiv
-    (certificate : StackSchedule) (accepted : certificate.check = true) :
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ()) :
     Equiv certificate.vars certificate.stack := by
   intro ctx function globals args trace finalGlobals outcome
   constructor

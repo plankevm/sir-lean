@@ -4,8 +4,75 @@ import Sir.Vars.Proofs.Readiness
 
 namespace Sir.Lowering
 
+theorem StackSchedule.Block.replay_sound
+    (statements : Array Vars.Stmt) (instructions : List Stack.Instr)
+    (initial final : Symbolic.State)
+    (replayed : StackSchedule.Block.replay statements instructions initial = .ok final) :
+    Symbolic.executeAll statements instructions.toArray initial = some final := by
+  induction instructions generalizing initial with
+  | nil => simpa [StackSchedule.Block.replay, Symbolic.executeAll] using replayed
+  | cons instruction instructions inductionHypothesis =>
+      cases instruction <;> simp only [StackSchedule.Block.replay] at replayed
+      all_goals try contradiction
+      all_goals split at replayed <;> simp_all [Symbolic.executeAll]
+
+theorem StackSchedule.Block.replay_complete
+    (statements : Array Vars.Stmt) (instructions : List Stack.Instr)
+    (initial final : Symbolic.State)
+    (executed : Symbolic.executeAll statements instructions.toArray initial = some final) :
+    StackSchedule.Block.replay statements instructions initial = .ok final := by
+  induction instructions generalizing initial with
+  | nil => simpa [StackSchedule.Block.replay, Symbolic.executeAll] using executed
+  | cons instruction instructions inductionHypothesis =>
+      cases instruction <;> simp only [StackSchedule.Block.replay]
+      all_goals rw [Symbolic.executeAll, ← Array.foldlM_toList] at executed
+      all_goals simp only [List.foldlM_cons] at executed
+      all_goals try simp
+      case icall => simp [Symbolic.execute] at executed
+      all_goals split <;> simp_all
+      all_goals apply inductionHypothesis
+      all_goals rw [Symbolic.executeAll, ← Array.foldlM_toList]
+      all_goals simpa using executed
+
+theorem StackSchedule.firstUnavailable_none_iff
+    (statements : List Vars.Stmt) (available : List VarId) :
+    StackSchedule.firstUnavailable statements available = none ↔
+      (statements.foldlM Symbolic.recordDefinitions available).isSome := by
+  induction statements generalizing available with
+  | nil => simp [StackSchedule.firstUnavailable]
+  | cons statement statements inductionHypothesis =>
+      simp only [StackSchedule.firstUnavailable]
+      cases unavailable : statement.variablesRead.find?
+          (StackSchedule.identifierUnavailable available) with
+      | some identifier =>
+          have absent : available.contains identifier = false := by
+            have found := List.find?_some unavailable
+            simpa [StackSchedule.identifierUnavailable] using found
+          have read : identifier ∈ statement.variablesRead :=
+            List.mem_of_find?_eq_some unavailable
+          have rejected : statement.variablesRead.all available.contains = false := by
+            rw [List.all_eq_false]
+            exact ⟨identifier, read, by simpa using absent⟩
+          simp [Symbolic.recordDefinitions, rejected]
+      | none =>
+          have acceptedReads : statement.variablesRead.all available.contains = true := by
+            rw [List.all_eq_true]
+            intro identifier member
+            have notFound := (List.find?_eq_none.mp unavailable) identifier member
+            simpa [StackSchedule.identifierUnavailable] using notFound
+          simp [Symbolic.recordDefinitions, acceptedReads,
+            inductionHypothesis]
+
+theorem StackSchedule.firstDuplicate_none_iff (identifiers : List VarId) :
+    StackSchedule.firstDuplicate identifiers = none ↔ identifiers.Nodup := by
+  induction identifiers with
+  | nil => simp [StackSchedule.firstDuplicate]
+  | cons identifier identifiers inductionHypothesis =>
+      by_cases member : identifier ∈ identifiers <;>
+        simp [StackSchedule.firstDuplicate, member, inductionHypothesis]
+
 theorem StackSchedule.Block.check_sound
-    (certificate : StackSchedule.Block) (accepted : certificate.check = true) :
+    (certificate : StackSchedule.Block) (accepted : certificate.check = .ok ()) :
     ∃ finalState expectedStack,
       Symbolic.executeAll certificate.vars.statements certificate.stack.instructions
           (Symbolic.State.initial certificate.vars.entryLayout) = some finalState ∧
@@ -14,58 +81,168 @@ theorem StackSchedule.Block.check_sound
         finalState.firedCount = certificate.vars.statements.size ∧
         StackSchedule.Block.terminatorsAgree certificate.vars.terminator certificate.stack.terminator = true ∧
         finalState.stack = expectedStack ∧ certificate.vars.entryLayout.toList.Nodup := by
-  cases replay : Symbolic.executeAll certificate.vars.statements
-      certificate.stack.instructions (Symbolic.State.initial certificate.vars.entryLayout) with
-  | none =>
-      simp [StackSchedule.Block.check, replay] at accepted
-  | some finalState =>
-      cases expected : StackSchedule.Block.finalStack certificate.vars.terminator certificate.vars.exitLayout
-          finalState.stack with
-      | none =>
-          simp [StackSchedule.Block.check, replay, expected] at accepted
-      | some expectedStack =>
-          refine ⟨finalState, expectedStack, rfl, expected, ?_⟩
-          have accepted' := accepted
-          simp [StackSchedule.Block.check, replay, expected] at accepted'
-          exact accepted'.2.2
+  simp only [StackSchedule.Block.check] at accepted
+  split at accepted <;> try contradiction
+  split at accepted <;> try contradiction
+  split at accepted <;> try contradiction
+  split at accepted <;> try contradiction
+  split at accepted <;> try contradiction
+  split at accepted <;> try contradiction
+  split at accepted <;> try contradiction
+  split at accepted <;> try contradiction
+  cases sourceTerminator : certificate.vars.terminator <;>
+    simp_all [StackSchedule.Block.checkFinalStack,
+      StackSchedule.Block.finalStack, StackSchedule.firstDuplicate_none_iff]
+  all_goals
+    set_option aesop.warn.nonterminal false in
+      aesop (add safe forward [StackSchedule.Block.replay_sound])
+  all_goals
+    apply List.Nodup.of_map Symbolic.Value.identifier
+    exact List.Nodup.of_append_left (by assumption)
 
 theorem StackSchedule.Block.check_source_valid
-    (certificate : StackSchedule.Block) (accepted : certificate.check = true) :
+    (certificate : StackSchedule.Block) (accepted : certificate.check = .ok ()) :
     Symbolic.readsAvailable certificate.vars.statements certificate.vars.entryLayout =
         true ∧
       Symbolic.definesOnce certificate.vars.statements certificate.vars.entryLayout =
         true := by
-  cases replay : Symbolic.executeAll certificate.vars.statements
-      certificate.stack.instructions (Symbolic.State.initial certificate.vars.entryLayout) with
-  | none => simp [StackSchedule.Block.check, replay] at accepted
-  | some finalState =>
-      cases expected : StackSchedule.Block.finalStack certificate.vars.terminator certificate.vars.exitLayout
-          finalState.stack with
-      | none => simp [StackSchedule.Block.check, replay, expected] at accepted
-      | some expectedStack =>
-          have accepted' := accepted
-          simp [StackSchedule.Block.check, replay, expected] at accepted'
-          exact accepted'.2.1
+  simp only [StackSchedule.Block.check] at accepted
+  split at accepted <;> try contradiction
+  split at accepted <;> try contradiction
+  split at accepted <;> try contradiction
+  split at accepted <;> try contradiction
+  split at accepted <;> try contradiction
+  split at accepted <;> try contradiction
+  constructor
+  · change (certificate.vars.statements.toList.foldlM Symbolic.recordDefinitions
+        (certificate.vars.entryLayout.toList.map Symbolic.Value.identifier)).isSome = true
+    exact (StackSchedule.firstUnavailable_none_iff _ _).mp (by assumption)
+  · simpa [Symbolic.definesOnce] using
+      (StackSchedule.firstDuplicate_none_iff _).mp (by assumption)
 
 theorem StackSchedule.Block.check_boundary_names
-    (certificate : StackSchedule.Block) (accepted : certificate.check = true) :
+    (certificate : StackSchedule.Block) (accepted : certificate.check = .ok ()) :
     certificate.vars.entryLayout.map Symbolic.Value.identifier = certificate.vars.inputs ∧
       certificate.vars.exitLayout.map Symbolic.Value.identifier = certificate.vars.outputs := by
-  simp [StackSchedule.Block.check] at accepted
-  exact ⟨accepted.1.1, accepted.1.2.1⟩
+  simp only [StackSchedule.Block.check] at accepted
+  split at accepted <;> try contradiction
+  next entryNames =>
+    split at accepted <;> try contradiction
+    next exitNames =>
+      exact ⟨by simpa using entryNames, by simpa using exitNames⟩
+
+theorem StackSchedule.checkBlocks_get
+    (blocks : List StackSchedule.Block) (accepted : StackSchedule.checkBlocks blocks = .ok ())
+    (index : Nat) (indexBound : index < blocks.length) : blocks[index].check = .ok () := by
+  induction blocks generalizing index with
+  | nil => simp at indexBound
+  | cons block blocks inductionHypothesis =>
+      simp only [StackSchedule.checkBlocks] at accepted
+      cases checked : block.check with
+      | error error => simp [checked] at accepted
+      | ok result =>
+          cases result
+          simp only [checked] at accepted
+          cases index with
+          | zero => simpa using checked
+          | succ index =>
+              apply inductionHypothesis accepted index
+
+theorem StackSchedule.checkEdge_sound
+    (schedule : StackSchedule) (source successor : BlockId)
+    (exitLayout : Array Symbolic.Value)
+    (accepted : schedule.checkEdge source successor exitLayout = .ok ()) :
+    schedule.layoutAgreesAt exitLayout successor = true := by
+  cases successorAt : schedule.blocks[successor.id]? with
+  | none => simp [StackSchedule.checkEdge, successorAt] at accepted
+  | some successorBlock =>
+      simp [StackSchedule.checkEdge, successorAt] at accepted
+      simp [StackSchedule.layoutAgreesAt, successorAt, accepted]
+
+theorem StackSchedule.checkBlockEdges_sound
+    (schedule : StackSchedule) (source : BlockId) (block : StackSchedule.Block)
+    (blockAccepted : block.check = .ok ())
+    (edgesAccepted : schedule.checkBlockEdges source block = .ok ()) :
+    schedule.blockEdgesAgree block = true := by
+  cases terminator : block.vars.terminator with
+  | halt => simp [StackSchedule.blockEdgesAgree, terminator]
+  | jump successor =>
+      simp only [StackSchedule.blockEdgesAgree, terminator]
+      apply StackSchedule.checkEdge_sound schedule source successor block.vars.exitLayout
+      simpa [StackSchedule.checkBlockEdges, terminator] using edgesAccepted
+  | branch condition thenSuccessor elseSuccessor =>
+      have thenAccepted :
+          schedule.checkEdge source thenSuccessor block.vars.exitLayout = .ok () := by
+        simp [StackSchedule.checkBlockEdges, terminator] at edgesAccepted
+        split at edgesAccepted <;> try contradiction
+        assumption
+      have elseAccepted :
+          schedule.checkEdge source elseSuccessor block.vars.exitLayout = .ok () := by
+        simp [StackSchedule.checkBlockEdges, terminator] at edgesAccepted
+        split at edgesAccepted <;> try contradiction
+        simpa using edgesAccepted
+      have thenAgreement :=
+        StackSchedule.checkEdge_sound schedule source thenSuccessor block.vars.exitLayout
+          thenAccepted
+      have elseAgreement :=
+        StackSchedule.checkEdge_sound schedule source elseSuccessor block.vars.exitLayout
+          elseAccepted
+      simp [StackSchedule.blockEdgesAgree, terminator, thenAgreement, elseAgreement]
+  | iret =>
+      obtain ⟨finalState, expectedStack, replay, expected, rest⟩ :=
+        StackSchedule.Block.check_sound block blockAccepted
+      simp [StackSchedule.Block.finalStack, terminator] at expected
+
+theorem StackSchedule.checkEdges_get
+    (schedule : StackSchedule) (blocks : List StackSchedule.Block) (offset index : Nat)
+    (accepted : schedule.checkEdges blocks offset = .ok ())
+    (indexBound : index < blocks.length) :
+    schedule.checkBlockEdges ⟨offset + index⟩ blocks[index] = .ok () := by
+  induction blocks generalizing offset index with
+  | nil => simp at indexBound
+  | cons block blocks inductionHypothesis =>
+      simp only [StackSchedule.checkEdges] at accepted
+      cases checked : schedule.checkBlockEdges ⟨offset⟩ block with
+      | error error => simp [checked] at accepted
+      | ok result =>
+          cases result
+          simp only [checked] at accepted
+          cases index with
+          | zero => simpa using checked
+          | succ index =>
+              simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
+                inductionHypothesis (offset + 1) index accepted (by simpa using indexBound)
 
 theorem StackSchedule.check_sound
-    (certificate : StackSchedule) (accepted : certificate.check = true) :
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ()) :
     certificate.entry.id < certificate.blocks.size ∧
       (∀ index, (indexBound : index < certificate.blocks.size) →
-        certificate.blocks[index].check = true) ∧
+        certificate.blocks[index].check = .ok ()) ∧
       ∀ index, (indexBound : index < certificate.blocks.size) →
         certificate.blockEdgesAgree certificate.blocks[index] = true := by
-  simp [StackSchedule.check] at accepted
-  exact ⟨accepted.1.1, accepted.1.2, accepted.2⟩
+  simp only [StackSchedule.check] at accepted
+  split at accepted <;> try contradiction
+  next entryBound =>
+    cases blocksAccepted : StackSchedule.checkBlocks certificate.blocks.toList with
+    | error error => simp [blocksAccepted] at accepted
+    | ok result =>
+      cases result
+      have edgesAccepted : certificate.checkEdges certificate.blocks.toList = .ok () := by
+        simpa [blocksAccepted] using accepted
+      refine ⟨entryBound, ?_, ?_⟩
+      · intro index indexBound
+        simpa using StackSchedule.checkBlocks_get certificate.blocks.toList blocksAccepted
+          index (by simpa using indexBound)
+      · intro index indexBound
+        apply StackSchedule.checkBlockEdges_sound certificate ⟨index⟩
+          certificate.blocks[index]
+        · simpa using StackSchedule.checkBlocks_get certificate.blocks.toList blocksAccepted
+            index (by simpa using indexBound)
+        · simpa using StackSchedule.checkEdges_get certificate certificate.blocks.toList 0
+            index edgesAccepted (by simpa using indexBound)
 
 theorem StackSchedule.block_boundary_names
-    (certificate : StackSchedule) (accepted : certificate.check = true)
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
     (index : Nat) (blockCertificate : StackSchedule.Block)
     (blockAt : certificate.blocks[index]? = some blockCertificate) :
     blockCertificate.vars.entryLayout.map Symbolic.Value.identifier = blockCertificate.vars.inputs ∧
@@ -80,10 +257,10 @@ theorem StackSchedule.block_boundary_names
   simpa [blockGet] using blockAccepted
 
 theorem StackSchedule.ofBlock_check (block : StackSchedule.Block)
-    (accepted : block.check = true) (halted : block.vars.terminator = .halt) :
-    (StackSchedule.ofBlock block).check = true := by
-  simp [StackSchedule.ofBlock, StackSchedule.check, StackSchedule.blockEdgesAgree,
-    accepted, halted]
+    (accepted : block.check = .ok ()) (halted : block.vars.terminator = .halt) :
+    (StackSchedule.ofBlock block).check = .ok () := by
+  simp [StackSchedule.ofBlock, StackSchedule.check, StackSchedule.checkBlocks,
+    StackSchedule.checkEdges, StackSchedule.checkBlockEdges, accepted, halted]
 
 def Symbolic.Value.interpret (locals : Locals) (value : Symbolic.Value) : Option Word :=
   locals.lookup? value.identifier

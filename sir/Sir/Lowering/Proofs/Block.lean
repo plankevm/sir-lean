@@ -262,7 +262,7 @@ theorem StackSchedule.target_decode_none_at_end
   simp [StackSchedule.Block.Target.toBlock, Stack.Block.absoluteToPosition]
 
 theorem StackSchedule.entry_block
-    (certificate : StackSchedule) (accepted : certificate.check = true) :
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ()) :
     ∃ blockCertificate,
       certificate.blocks[certificate.entry.id]? = some blockCertificate ∧
         blockCertificate.vars.entryLayout.toList.Nodup := by
@@ -272,7 +272,7 @@ theorem StackSchedule.entry_block
     rw [Array.getElem?_eq_getElem entryBound]
   have blockGet : certificate.blocks[certificate.entry.id] = blockCertificate :=
     (Array.getElem?_eq_some_iff.mp blockAt).2
-  have blockAccepted : blockCertificate.check = true := by
+  have blockAccepted : blockCertificate.check = .ok () := by
     have acceptedAt :=
       (certificate.check_sound accepted).2.1 certificate.entry.id entryBound
     simpa [blockGet] using acceptedAt
@@ -280,7 +280,7 @@ theorem StackSchedule.entry_block
   exact ⟨blockCertificate, blockAt, entryNodup⟩
 
 theorem StackSchedule.entry_states
-    (certificate : StackSchedule) (accepted : certificate.check = true)
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
     (blockCertificate : StackSchedule.Block)
     (blockAt : certificate.blocks[certificate.entry.id]? = some blockCertificate)
     (globals : Globals) (args : Array Word) (locals : Locals)
@@ -319,7 +319,7 @@ theorem StackSchedule.entry_states
       Stack.Environment.empty]
 
 theorem StackSchedule.source_step_trace_empty
-    (certificate : StackSchedule) (accepted : certificate.check = true)
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
     (ctx : CallContext) {state final : Machine.State Vars.frame} {trace : Trace}
     (step : Machine.Step Vars.frame (Vars.decoder certificate.vars)
       Machine.memoryPolicy ctx state trace final) :
@@ -427,7 +427,7 @@ theorem StackSchedule.source_step_trace_empty
       exact traceEmpty
 
 theorem StackSchedule.source_steps_path
-    (certificate : StackSchedule) (accepted : certificate.check = true)
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
     (ctx : CallContext) {state final : Vars.State} {trace : Trace}
     (steps : Vars.Steps certificate.vars ctx state trace final) :
     SourcePath certificate.vars ctx state final ∧ trace = [] := by
@@ -443,7 +443,7 @@ theorem StackSchedule.source_steps_path
     steps
 
 theorem StackSchedule.target_step_trace_empty
-    (certificate : StackSchedule) (accepted : certificate.check = true)
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
     (ctx : CallContext)
     {state final : Machine.State Stack.frame} {trace : Trace}
     (step : Machine.Step Stack.frame
@@ -667,7 +667,7 @@ theorem StackSchedule.target_step_trace_empty
                               sizeEq] at controlStep
 
 theorem StackSchedule.target_steps_path
-    (certificate : StackSchedule) (accepted : certificate.check = true)
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
     (ctx : CallContext)
     {state final : Machine.State Stack.frame} {trace : Trace}
     (steps : Machine.Steps Stack.frame
@@ -685,7 +685,7 @@ theorem StackSchedule.target_steps_path
     steps
 
 theorem StackSchedule.target_control_not_returned
-    (certificate : StackSchedule) (accepted : certificate.check = true)
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
     {environment nextEnvironment : Stack.Environment} {globals nextGlobals : Globals}
     {control nextControl : Machine.MachineControl} {trace : Trace}
     (controlStep : Stack.control certificate.stack environment globals control =
@@ -813,7 +813,7 @@ theorem StackSchedule.target_control_not_returned
                                 blockAt] using terminatorAt)).elim
 
 theorem StackSchedule.target_step_not_returned
-    (certificate : StackSchedule) (accepted : certificate.check = true)
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
     (ctx : CallContext) {state final : Machine.State Stack.frame} {trace : Trace}
     (step : Machine.Step Stack.frame
       (Stack.decoder certificate.stack) Machine.memoryPolicy ctx state trace final)
@@ -891,7 +891,7 @@ theorem StackSchedule.target_step_not_returned
       exact certificate.target_control_not_returned accepted controlStep results returned
 
 theorem StackSchedule.block_replay_steps
-    (certificate : StackSchedule) (accepted : certificate.check = true)
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
     (block : BlockId) (blockCertificate : StackSchedule.Block)
     (blockAt : certificate.blocks[block.id]? = some blockCertificate)
     (ctx : CallContext) (globals : Globals) (locals : Locals)
@@ -920,7 +920,7 @@ theorem StackSchedule.block_replay_steps
     of_getElem?_eq_some (c := certificate.blocks) (i := block.id) blockAt
   have blockGet : certificate.blocks[block.id] = blockCertificate :=
     (Array.getElem?_eq_some_iff.mp blockAt).2
-  have blockAccepted : blockCertificate.check = true := by
+  have blockAccepted : blockCertificate.check = .ok () := by
     have acceptedAt := (certificate.check_sound accepted).2.1 block.id blockBound
     simpa [blockGet] using acceptedAt
   obtain ⟨usesAvailable, variablesUnique⟩ :=
@@ -978,7 +978,7 @@ theorem StackSchedule.block_replay_steps
     simpa [stackEq] using finalInterprets.1.1
 
 theorem StackSchedule.block_jump_step
-    (certificate : StackSchedule) (accepted : certificate.check = true)
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
     (block successor : BlockId)
     (blockCertificate successorCertificate : StackSchedule.Block)
     (blockAt : certificate.blocks[block.id]? = some blockCertificate)
@@ -1011,10 +1011,10 @@ theorem StackSchedule.block_jump_step
     (Array.getElem?_eq_some_iff.mp blockAt).2
   have successorGet : certificate.blocks[successor.id] = successorCertificate :=
     (Array.getElem?_eq_some_iff.mp successorAt).2
-  have blockAccepted : blockCertificate.check = true := by
+  have blockAccepted : blockCertificate.check = .ok () := by
     have acceptedAt := (certificate.check_sound accepted).2.1 block.id blockBound
     simpa [blockGet] using acceptedAt
-  have successorAccepted : successorCertificate.check = true := by
+  have successorAccepted : successorCertificate.check = .ok () := by
     have acceptedAt :=
       (certificate.check_sound accepted).2.1 successor.id successorBound
     simpa [successorGet] using acceptedAt
@@ -1085,7 +1085,7 @@ theorem StackSchedule.block_jump_step
       StackSchedule.Block.targetControlAt, Stack.Block.startPosition]
 
 theorem StackSchedule.block_branch_step
-    (certificate : StackSchedule) (accepted : certificate.check = true)
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
     (block thenSuccessor elseSuccessor : BlockId) (condition : VarId)
     (conditionValue : Word)
     (blockCertificate successorCertificate : StackSchedule.Block)
@@ -1128,10 +1128,10 @@ theorem StackSchedule.block_branch_step
   have successorGet : certificate.blocks[(if conditionValue = 0 then elseSuccessor
       else thenSuccessor).id] = successorCertificate :=
     (Array.getElem?_eq_some_iff.mp successorAt).2
-  have blockAccepted : blockCertificate.check = true := by
+  have blockAccepted : blockCertificate.check = .ok () := by
     have acceptedAt := (certificate.check_sound accepted).2.1 block.id blockBound
     simpa [blockGet] using acceptedAt
-  have successorAccepted : successorCertificate.check = true := by
+  have successorAccepted : successorCertificate.check = .ok () := by
     have acceptedAt :=
       (certificate.check_sound accepted).2.1
         (if conditionValue = 0 then elseSuccessor else thenSuccessor).id successorBound
@@ -1231,7 +1231,7 @@ theorem StackSchedule.block_branch_step
       Stack.Block.startPosition]
 
 theorem StackSchedule.block_halted_steps
-    (certificate : StackSchedule) (accepted : certificate.check = true)
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
     (block : BlockId) (blockCertificate : StackSchedule.Block)
     (blockAt : certificate.blocks[block.id]? = some blockCertificate)
     (halt : blockCertificate.vars.terminator = .halt)
@@ -1254,7 +1254,7 @@ theorem StackSchedule.block_halted_steps
     of_getElem?_eq_some (c := certificate.blocks) (i := block.id) blockAt
   have blockGet : certificate.blocks[block.id] = blockCertificate :=
     (Array.getElem?_eq_some_iff.mp blockAt).2
-  have blockAccepted : blockCertificate.check = true := by
+  have blockAccepted : blockCertificate.check = .ok () := by
     have acceptedAt := (certificate.check_sound accepted).2.1 block.id blockBound
     simpa [blockGet] using acceptedAt
   obtain ⟨_, _, _, _, _, terminatorsAgree, _, _⟩ :=
@@ -1294,7 +1294,7 @@ theorem StackSchedule.block_halted_steps
     targetSteps.tail targetHaltStep⟩
 
 theorem StackSchedule.block_transition_steps
-    (certificate : StackSchedule) (accepted : certificate.check = true)
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
     (block : BlockId) (blockCertificate : StackSchedule.Block)
     (blockAt : certificate.blocks[block.id]? = some blockCertificate)
     (ctx : CallContext) (globals : Globals) (locals : Locals)
@@ -1448,14 +1448,14 @@ theorem StackSchedule.block_transition_steps
         (Array.getElem?_eq_some_iff.mp blockAt).2
       have blockAccepted :=
         (certificate.check_sound accepted).2.1 block.id blockBound
-      have blockAccepted' : blockCertificate.check = true := by
+      have blockAccepted' : blockCertificate.check = .ok () := by
         simpa [blockGet] using blockAccepted
       obtain ⟨_, expectedStack, _, expected, _⟩ :=
         blockCertificate.check_sound blockAccepted'
       simp [terminator, StackSchedule.Block.finalStack] at expected
 
 theorem StackSchedule.block_transition_paths
-    (certificate : StackSchedule) (accepted : certificate.check = true)
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
     (block : BlockId) (blockCertificate : StackSchedule.Block)
     (blockAt : certificate.blocks[block.id]? = some blockCertificate)
     (ctx : CallContext) (globals : Globals) (locals : Locals)

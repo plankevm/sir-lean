@@ -7,7 +7,7 @@ namespace Sir.Lowering
 
 private theorem functionCertificate_evaluation_equivalence
     (certificate : StackSchedule)
-    (accepted : certificate.check = true)
+    (accepted : certificate.check = .ok ())
     (ctx : CallContext) (globals finalGlobals : Globals) (args : Array Word) (trace : Trace)
     (outcome : FunctionOutcome) :
     Vars.EvalFn certificate.vars ctx ⟨0⟩ globals args trace finalGlobals outcome ↔
@@ -70,7 +70,7 @@ def replayScheduledExampleCertificate : StackSchedule := StackSchedule.ofBlock {
     terminator := .halt } }
 
 theorem replayScheduledExample_accepted :
-    replayScheduledExampleCertificate.check = true := by decide +kernel
+    replayScheduledExampleCertificate.check = .ok () := by decide +kernel
 
 theorem replayScheduledExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (trace : Trace)
@@ -95,7 +95,7 @@ def replayEntryExampleCertificate : StackSchedule := StackSchedule.ofBlock {
     terminator := .halt } }
 
 theorem replayEntryExample_accepted :
-    replayEntryExampleCertificate.check = true := by decide +kernel
+    replayEntryExampleCertificate.check = .ok () := by decide +kernel
 
 theorem replayEntryExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (argument : Word) (trace : Trace)
@@ -119,7 +119,7 @@ def exchangeExampleCertificate : StackSchedule := StackSchedule.ofBlock {
     instructions := #[.exchange 1 2]
     terminator := .halt } }
 
-theorem exchangeExample_accepted : exchangeExampleCertificate.check = true := by decide +kernel
+theorem exchangeExample_accepted : exchangeExampleCertificate.check = .ok () := by decide +kernel
 
 theorem exchangeExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (first second third : Word)
@@ -144,7 +144,8 @@ def equalDepthExchangeExampleCertificate : StackSchedule := StackSchedule.ofBloc
     terminator := .halt } }
 
 theorem equalDepthExchangeExample_rejected :
-    equalDepthExchangeExampleCertificate.check = false := by decide +kernel
+    equalDepthExchangeExampleCertificate.check =
+      .error (.operandMismatch (.exchange 1 1)) := by decide +kernel
 
 def flippedLessThanExampleCertificate : StackSchedule := StackSchedule.ofBlock {
   vars := {
@@ -159,7 +160,7 @@ def flippedLessThanExampleCertificate : StackSchedule := StackSchedule.ofBlock {
     terminator := .halt } }
 
 theorem flippedLessThanExample_accepted :
-    flippedLessThanExampleCertificate.check = true := by decide +kernel
+    flippedLessThanExampleCertificate.check = .ok () := by decide +kernel
 
 theorem flippedLessThanExample_concrete_result
     (ctx : CallContext) (globals : Globals) (left right : Word) :
@@ -195,7 +196,7 @@ theorem straightLineExample_lowered :
     spillAll straightLineExampleStatements = .ok straightLineExampleCertificate := by
   decide +kernel
 
-theorem straightLineExample_accepted : straightLineExampleCertificate.check = true := by
+theorem straightLineExample_accepted : straightLineExampleCertificate.check = .ok () := by
   decide +kernel
 
 theorem straightLineExample_evaluation_equivalence
@@ -233,7 +234,7 @@ def twoBlockJumpExampleCertificate : StackSchedule where
   entry := ⟨0⟩
 
 theorem twoBlockJumpExample_accepted :
-    twoBlockJumpExampleCertificate.check = true := by decide +kernel
+    twoBlockJumpExampleCertificate.check = .ok () := by decide +kernel
 
 theorem twoBlockJumpExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (trace : Trace)
@@ -274,7 +275,7 @@ def renamedBoundaryExampleCertificate : StackSchedule where
   entry := ⟨0⟩
 
 theorem renamedBoundaryExample_accepted :
-    renamedBoundaryExampleCertificate.check = true := by decide +kernel
+    renamedBoundaryExampleCertificate.check = .ok () := by decide +kernel
 
 theorem renamedBoundaryExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (trace : Trace)
@@ -311,7 +312,8 @@ def mismatchedBoundaryArityExampleCertificate : StackSchedule where
   entry := ⟨0⟩
 
 theorem mismatchedBoundaryArityExample_rejected :
-    mismatchedBoundaryArityExampleCertificate.check = false := by decide +kernel
+    mismatchedBoundaryArityExampleCertificate.check =
+      .error (.boundaryArityMismatch (⟨0⟩, ⟨1⟩) 0 1) := by decide +kernel
 
 def branchLoopExampleCertificate : StackSchedule where
   blocks := #[
@@ -338,7 +340,7 @@ def branchLoopExampleCertificate : StackSchedule where
   entry := ⟨0⟩
 
 theorem branchLoopExample_accepted :
-    branchLoopExampleCertificate.check = true := by decide +kernel
+    branchLoopExampleCertificate.check = .ok () := by decide +kernel
 
 theorem branchLoopExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (condition : Word) (trace : Trace)
@@ -387,7 +389,7 @@ def renamedBackEdgeLoopExampleCertificate : StackSchedule where
   entry := ⟨0⟩
 
 theorem renamedBackEdgeLoopExample_accepted :
-    renamedBackEdgeLoopExampleCertificate.check = true := by decide +kernel
+    renamedBackEdgeLoopExampleCertificate.check = .ok () := by decide +kernel
 
 theorem renamedBackEdgeLoopExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (first second : Word) (trace : Trace)
@@ -416,7 +418,7 @@ def reorderedIndependentExampleCertificate : StackSchedule := StackSchedule.ofBl
     terminator := .halt } }
 
 theorem reorderedIndependentExample_accepted :
-    reorderedIndependentExampleCertificate.check = true := by decide +kernel
+    reorderedIndependentExampleCertificate.check = .ok () := by decide +kernel
 
 theorem reorderedIndependentExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (argument : Word) (trace : Trace)
@@ -432,20 +434,21 @@ def useBeforeDefinitionExampleCertificate : StackSchedule := StackSchedule.ofBlo
   vars := {
     inputs := #[]
     statements := #[
-      .assign ⟨0⟩ (.constant 7),
-      .assign ⟨1⟩ (.var ⟨0⟩)]
+      .assign ⟨1⟩ (.var ⟨0⟩),
+      .assign ⟨0⟩ (.constant 7)]
     terminator := .halt
     outputs := #[]
     entryLayout := #[]
     exitLayout := #[] }
   stack := {
     instructions := #[
-      .op .copy,
-      .op (.constant 7)]
+      .op (.constant 7),
+      .op .copy]
     terminator := .halt } }
 
 theorem useBeforeDefinitionExample_rejected :
-    useBeforeDefinitionExampleCertificate.check = false := by decide +kernel
+    useBeforeDefinitionExampleCertificate.check =
+      .error (.useBeforeDefinition (.assign ⟨1⟩ (.var ⟨0⟩)) ⟨0⟩) := by decide +kernel
 
 def reorderedLoopExampleCertificate : StackSchedule where
   blocks := #[
@@ -480,7 +483,7 @@ def reorderedLoopExampleCertificate : StackSchedule where
   entry := ⟨0⟩
 
 theorem reorderedLoopExample_accepted :
-    reorderedLoopExampleCertificate.check = true := by decide +kernel
+    reorderedLoopExampleCertificate.check = .ok () := by decide +kernel
 
 theorem reorderedLoopExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (condition : Word) (trace : Trace)
