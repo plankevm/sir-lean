@@ -69,10 +69,10 @@ theorem witness_step_halt (policy : MemoryPolicy) (ctx : CallContext)
   exact Machine.Step.control rfl
 
 theorem witness_runs (ctx : CallContext) (globals : Globals) :
-    Machine.Steps frame (decoder witnessProgram) .empty ctx
+    Machine.Steps frame (decoder witnessProgram) Machine.memoryPolicy ctx
       (witnessInitial globals) [] (witnessFinal globals) :=
-  .tail (.tail .refl (witness_step_constant .empty ctx globals))
-    (witness_step_halt .empty ctx globals)
+  .tail (.tail .refl (witness_step_constant Machine.memoryPolicy ctx globals))
+    (witness_step_halt Machine.memoryPolicy ctx globals)
 
 end Sir.Vars
 
@@ -100,31 +100,11 @@ def witnessState (globals : Globals) (stack : List Word) (position : Machine.Blo
     environment := { Environment.empty with stack }
     control := .running { fn := witnessEntry, block := witnessBlock, position } }
 
-theorem witness_noMload : (decoder witnessProgram).NoMload := by
-  intro control src dst next hdecode
-  cases control with
-  | returned results =>
-      simp [decoder, decode, Program.decodeInstruction] at hdecode
-  | halted =>
-      simp [decoder, decode, Program.decodeInstruction] at hdecode
-  | running cursor =>
-      rcases cursor with ⟨⟨functionId⟩, ⟨blockId⟩, position⟩
-      cases position with
-      | terminator =>
-          simp [decoder, decode, Program.decodeInstruction] at hdecode
-      | statement index =>
-          rcases functionId with _ | functionId
-          · rcases blockId with _ | blockId
-            · rcases index with _ | _ | _ | index <;>
-                simp [decoder, decode, Program.decodeInstruction,
-                  Program.block?, Program.function?, Function.block?,
-                  witnessProgram] at hdecode
-            · simp [decoder, decode, Program.decodeInstruction,
-                Program.block?, Program.function?, Function.block?,
-                witnessProgram] at hdecode
-          · simp [decoder, decode, Program.decodeInstruction,
-              Program.block?, Program.function?, Function.block?,
-              witnessProgram] at hdecode
+theorem witness_memOracleFree : witnessProgram.MemOracleFree := by
+  intro instruction hinstruction
+  simp [Program.HasInstr, Function.HasInstr, witnessProgram] at hinstruction
+  rcases hinstruction with rfl | rfl | rfl
+  all_goals simp [Instr.isMemOracle]
 
 theorem witness_step_constant₂ (policy : MemoryPolicy) (ctx : CallContext)
     (globals : Globals) :
@@ -165,17 +145,17 @@ theorem witness_step_halt (policy : MemoryPolicy) (ctx : CallContext)
   exact Machine.Step.control rfl
 
 theorem witness_runs (ctx : CallContext) (globals : Globals) :
-    Machine.Steps frame (decoder witnessProgram) .empty ctx
+    Machine.Steps frame (decoder witnessProgram) Machine.memoryPolicy ctx
       (witnessState globals [] (.statement 0)) []
       { globals, environment := { Environment.empty with stack := [witnessSum] },
         control := .halted } :=
   .tail
     (.tail
       (.tail
-        (.tail .refl (witness_step_constant₂ .empty ctx globals))
-        (witness_step_constant₃ .empty ctx globals))
-      (witness_step_add .empty ctx globals))
-    (witness_step_halt .empty ctx globals)
+        (.tail .refl (witness_step_constant₂ Machine.memoryPolicy ctx globals))
+        (witness_step_constant₃ Machine.memoryPolicy ctx globals))
+      (witness_step_add Machine.memoryPolicy ctx globals))
+    (witness_step_halt Machine.memoryPolicy ctx globals)
 
 end Sir.Stack
 
@@ -185,10 +165,10 @@ open Sir Machine
 
 theorem witness_confluence_consumes_generic (ctx : CallContext) (globals : Globals) :
     (∃ suffix,
-      Machine.Steps frame (decoder witnessProgram) .empty ctx
+      Machine.Steps frame (decoder witnessProgram) Machine.memoryPolicy ctx
         (witnessFinal globals) suffix (witnessFinal globals) ∧ [] ++ suffix = []) ∨
     (∃ suffix,
-      Machine.Steps frame (decoder witnessProgram) .empty ctx
+      Machine.Steps frame (decoder witnessProgram) Machine.memoryPolicy ctx
         (witnessFinal globals) suffix (witnessFinal globals) ∧ [] ++ suffix = []) ∨
     Trace.QueryDivergence [] [] :=
   steps_confluence_or_queryDivergence witness_memOracleFree
@@ -202,21 +182,21 @@ open Sir Machine
 
 theorem witness_confluence_consumes_generic (ctx : CallContext) (globals : Globals) :
     (∃ suffix,
-      Machine.Steps frame (decoder witnessProgram) .empty ctx
+      Machine.Steps frame (decoder witnessProgram) Machine.memoryPolicy ctx
         { globals, environment := { Environment.empty with stack := [witnessSum] },
           control := .halted }
         suffix
         { globals, environment := { Environment.empty with stack := [witnessSum] },
           control := .halted } ∧ [] ++ suffix = []) ∨
     (∃ suffix,
-      Machine.Steps frame (decoder witnessProgram) .empty ctx
+      Machine.Steps frame (decoder witnessProgram) Machine.memoryPolicy ctx
         { globals, environment := { Environment.empty with stack := [witnessSum] },
           control := .halted }
         suffix
         { globals, environment := { Environment.empty with stack := [witnessSum] },
           control := .halted } ∧ [] ++ suffix = []) ∨
     Trace.QueryDivergence [] [] :=
-  steps_confluence_or_queryDivergence MemoryPolicy.empty_deterministic
-    witness_noMload (witness_runs ctx globals) (witness_runs ctx globals)
+  Steps.confluence_or_queryDivergence witness_memOracleFree
+    (witness_runs ctx globals) (witness_runs ctx globals)
 
 end Sir.Stack

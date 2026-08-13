@@ -81,9 +81,9 @@ theorem decoder_noMalloc {program : Program} (hfree : program.MemOracleFree) :
           exact hfree _ hmem (by simp [Instr.isMemOracle])
         case flippedOp operation => cases operation <;> simp at hdecode
 
-theorem steps_confluence_or_queryDivergence
+theorem Steps.confluence_or_queryDivergence
     {program : Program} {policy : MemoryPolicy} {ctx : CallContext}
-    (hdet : policy.Deterministic) (hnomload : (decoder program).NoMload)
+    (hdet : (policy.Deterministic ∧ (decoder program).NoMload) ∨ program.MemOracleFree)
     {state final₁ final₂ : Machine.State frame} {trace₁ trace₂ : Trace}
     (h₁ : Machine.Steps frame (decoder program) policy ctx state trace₁ final₁)
     (h₂ : Machine.Steps frame (decoder program) policy ctx state trace₂ final₂) :
@@ -92,8 +92,82 @@ theorem steps_confluence_or_queryDivergence
     (∃ suffix, Machine.Steps frame (decoder program) policy ctx final₂ suffix final₁ ∧
       trace₂ ++ suffix = trace₁) ∨
     Trace.QueryDivergence trace₁ trace₂ :=
-  Machine.Proofs.Steps.confluence_or_queryDivergence (.inl hdet) (decoder_exclusive program)
-    (decoder_terminal program) hnomload h₁ h₂
+  Machine.Proofs.Steps.confluence_or_queryDivergence
+    (hdet.elim (fun h => .inl h.1) (fun h => .inr (decoder_noMalloc h)))
+    (decoder_exclusive program) (decoder_terminal program)
+    (hdet.elim (fun h => h.2) decoder_noMload) h₁ h₂
+
+private theorem queryDivergence_ne {trace₁ trace₂ : Trace}
+    (h : Trace.QueryDivergence trace₁ trace₂) : trace₁ ≠ trace₂ := by
+  obtain ⟨pre, event₁, rest₁, event₂, rest₂, rfl, rfl, hne, -⟩ := h
+  intro heq
+  exact hne (List.cons.inj (List.append_cancel_left heq)).1
+
+theorem Steps.prefix_confluence
+    {program : Program} {policy : MemoryPolicy} {ctx : CallContext}
+    (hdet : (policy.Deterministic ∧ (decoder program).NoMload) ∨ program.MemOracleFree)
+    {state final₁ final₂ : Machine.State frame} {trace₁ trace₂ rest₁ rest₂ : Trace}
+    (h₁ : Machine.Steps frame (decoder program) policy ctx state trace₁ final₁)
+    (h₂ : Machine.Steps frame (decoder program) policy ctx state trace₂ final₂)
+    (htrace : trace₁ ++ rest₁ = trace₂ ++ rest₂) :
+    (∃ suffix, Machine.Steps frame (decoder program) policy ctx final₁ suffix final₂ ∧
+      trace₁ ++ suffix = trace₂) ∨
+    (∃ suffix, Machine.Steps frame (decoder program) policy ctx final₂ suffix final₁ ∧
+      trace₂ ++ suffix = trace₁) := by
+  rcases Steps.confluence_or_queryDivergence hdet h₁ h₂ with h₁₂ | h₂₁ | hdiv
+  · exact .inl h₁₂
+  · exact .inr h₂₁
+  · exact (queryDivergence_ne (hdiv.extend rest₁ rest₂) htrace).elim
+
+theorem SmallStep.prefix_det
+    {program : Program} {policy : MemoryPolicy} {ctx : CallContext}
+    (hdet : (policy.Deterministic ∧ (decoder program).NoMload) ∨ program.MemOracleFree)
+    {state final₁ final₂ : Machine.State frame} {trace₁ trace₂ rest₁ rest₂ : Trace}
+    (h₁ : Machine.Step frame (decoder program) policy ctx state trace₁ final₁)
+    (h₂ : Machine.Step frame (decoder program) policy ctx state trace₂ final₂)
+    (htrace : trace₁ ++ rest₁ = trace₂ ++ rest₂) :
+    trace₁ = trace₂ ∧ final₁ = final₂ := by
+  rcases Machine.Proofs.stepDialogue_all
+      (hdet.elim (fun h => .inl h.1) (fun h => .inr (decoder_noMalloc h)))
+      (decoder_exclusive program) (decoder_terminal program)
+      (hdet.elim (fun h => h.2) decoder_noMload) h₁ trace₂ final₂ h₂ with heq | hdiv
+  · exact heq
+  · exact (queryDivergence_ne (hdiv.extend rest₁ rest₂) htrace).elim
+
+theorem SmallStep.trace_det
+    {program : Program} {policy : MemoryPolicy} {ctx : CallContext}
+    (hdet : (policy.Deterministic ∧ (decoder program).NoMload) ∨ program.MemOracleFree)
+    {state final₁ final₂ : Machine.State frame} {trace : Trace}
+    (h₁ : Machine.Step frame (decoder program) policy ctx state trace final₁)
+    (h₂ : Machine.Step frame (decoder program) policy ctx state trace final₂) :
+    final₁ = final₂ :=
+  (SmallStep.prefix_det hdet h₁ h₂ (rest₁ := []) (rest₂ := []) rfl).2
+
+theorem EvalFn.prefix_det
+    {program : Program} {ctx : CallContext}
+    (hfree : program.MemOracleFree)
+    {function : FunctionId} {globals finalGlobals₁ finalGlobals₂ : Globals}
+    {args : Array Word} {outcome₁ outcome₂ : FunctionOutcome}
+    {trace₁ trace₂ rest₁ rest₂ : Trace}
+    (h₁ : EvalFn program ctx function globals args trace₁ finalGlobals₁ outcome₁)
+    (h₂ : EvalFn program ctx function globals args trace₂ finalGlobals₂ outcome₂)
+    (htrace : trace₁ ++ rest₁ = trace₂ ++ rest₂) :
+    trace₁ = trace₂ ∧ finalGlobals₁ = finalGlobals₂ ∧ outcome₁ = outcome₂ := by
+  rcases Machine.Proofs.evalDialogue_all (.inr (decoder_noMalloc hfree))
+      (decoder_exclusive program) (decoder_terminal program) (decoder_noMload hfree)
+      h₁ trace₂ finalGlobals₂ outcome₂ h₂ with heq | hdiv
+  · exact heq
+  · exact (queryDivergence_ne (hdiv.extend rest₁ rest₂) htrace).elim
+
+theorem EvalFn.trace_det
+    {program : Program} {ctx : CallContext}
+    (hfree : program.MemOracleFree)
+    {function : FunctionId} {globals finalGlobals₁ finalGlobals₂ : Globals}
+    {args : Array Word} {outcome₁ outcome₂ : FunctionOutcome} {trace : Trace}
+    (h₁ : EvalFn program ctx function globals args trace finalGlobals₁ outcome₁)
+    (h₂ : EvalFn program ctx function globals args trace finalGlobals₂ outcome₂) :
+    finalGlobals₁ = finalGlobals₂ ∧ outcome₁ = outcome₂ :=
+  (EvalFn.prefix_det hfree h₁ h₂ (rest₁ := []) (rest₂ := []) rfl).2
 
 end Proofs
 

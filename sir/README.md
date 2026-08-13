@@ -29,9 +29,8 @@ deterministic witness.
 
 - [`Sir/Machine/`](Sir/Machine/), [`Sir/Vars/`](Sir/Vars/), and
   [`Sir/Stack/`](Sir/Stack/) — each module's specification, proof machinery,
-  and exported theorems. `Stack`'s exported surface is deliberately thin while it is
-  only a lowering target; well-formedness, progress, and the determinism family arrive
-  with the halting-operations work.
+  and exported theorems. `Stack` is only a lowering target; its well-formedness and
+  progress families arrive with the halting-operations work.
 - [`Sir/Theorems.lean`](Sir/Theorems.lean) — the aggregate exported surface.
 - [`Sir/Examples/`](Sir/Examples/) — well-formedness, (non-)determinism,
   halting-callee, machine-level execution, and memory/allocation witnesses.
