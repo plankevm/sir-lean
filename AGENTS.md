@@ -9,10 +9,10 @@ bytecode in Lean**.
 EVM/          bytecode layer (semantics, Hoare, assembler, conformance)
 sir/          canonical SIR package: CFG IR + mixed-step semantics
               (small-step opcodes, big-step internal calls, oracle external calls)
-experiments/  exploratory lines, mostly frozen — read for context; some are
-              still occasionally worked on. Each carries its own local
-              AGENTS.md/CLAUDE.md rules; the spec-architecture rules below do
-              not apply retroactively there.
+experiments/  exploratory lines, mostly frozen — read for context, edit only
+              when the task is about that experiment. Each carries its own
+              local AGENTS.md/CLAUDE.md rules; the spec-architecture rules
+              below do not apply retroactively there.
 forks/        vendored reference repos (read-only)
 docs/         planning / review / reference / archive
 scripts/      tooling
@@ -32,9 +32,15 @@ scripts/      tooling
 - `Theorems.lean` holds the exported results; statements must elaborate against
   `Spec/` alone, and proofs there are one-line delegations into `Proofs/`.
 - **New definitions land in `Proofs/` by default.** Promoting a definition into
-  `Spec/` is a human decision, and the price of admission is: a full-word name
-  (no coined abbreviations — a reviewer must be able to read the statement
-  aloud) and a docstring stating what it means *and why it exists*.
+  `Spec/` is a human decision. Name it so a reviewer can read the statement
+  aloud, which rules out invented abbreviations — but the words the Rust
+  compiler and the IR already use (`alloc`, `ptr`, `mem`, `icall`) are the
+  vocabulary, not abbreviations waiting to be expanded.
+- **What is already in `Spec/` is not a cleanup target.** Do not rename it, do
+  not add docstrings to it, do not audit the directory against the rule above.
+  That rule is a gate a human applies when admitting something new; running it
+  backwards over code that already landed produces renames and comments nobody
+  asked for.
 - Every `WellFormed`-style hypothesis field must have a consumer, or be an
   invariant deliberately mirrored from the Rust compiler / reserved for the
   lowering proof. Unconsumed, unjustified hypotheses are not allowed —
@@ -48,19 +54,23 @@ scripts/      tooling
 
 ## Comments
 
-Near-zero comments outside `Spec/`. In `Spec/`: one short paragraph of
-rationale per *concept* — *why it exists* — not a restatement of the code. No
-dev-narration, no history, no claims about other files' relationship to this
-one (see the cruft rule below).
+**Write none.** That is the default everywhere, `Spec/` included. A
+specification is read through its names, its signatures and the way it is
+split into definitions; a docstring is what you reach for when those failed,
+and the fix is the definition, not the paragraph. `sir/` says no comments at
+all ([`sir/AGENTS.md`](sir/AGENTS.md)) and that rule wins inside the package.
 
-**"Per concept" is a ceiling, not a quota**, and it means concepts — the
-definitions a reader has to understand to read a theorem statement. Plumbing
-(accessors, list-of-operands helpers, per-field structure members) gets
-nothing. A docstring on every definition in a file is the failure mode this
-rule exists to prevent; if every declaration has one, they are all noise and
-none of them is read. When in doubt, write none: an unexplained definition
-costs a reader one lookup, a stale or obvious one costs every reader every
-time.
+The exception, outside `sir/`, is a concept a theorem statement forces the
+reader to understand and whose *reason to exist* is not visible in the code —
+one short paragraph, written in the same commit as the definition. Plumbing
+(accessors, operand helpers, structure fields) never qualifies. A file where
+every declaration carries a docstring is the failure mode this rule exists to
+prevent: they become noise and none of them is read.
+
+Never write dev-narration, history, a hypothesis's consumer, or a claim about
+how another file relates to this one (see the cruft rule below). Never add a
+docstring to a definition that has been readable without one — a commit that
+only adds docstrings is a commit that should not exist.
 
 ## No stale cruft — delete superseded code, keep comments local
 
@@ -80,10 +90,13 @@ they won't. Therefore:
   other file relates to it. Cross-file allegations are exactly what goes stale
   when the other side moves. Name another module only when the pointer is
   genuinely necessary, and then it is your job to keep it true.
-- **When you delete or rename, sweep for references.** `grep` the tree for the
-  old file/symbol name and fix or remove every hit (docstrings, module-map
-  comments, links) in the same change — never leave a dangling pointer. Do this
-  without being asked.
+- **When you delete or rename, sweep for references in live code.** `grep` the
+  packages you touched for the old file/symbol name and fix or remove every hit
+  (docstrings, module-map comments, links) in the same change. Do this without
+  being asked. The sweep stops at live code: `experiments/`, `docs/review/`,
+  `docs/planning/` and every `archive/` describe the tree as it was on the day
+  they were written. A dated document that no longer matches `main` is doing
+  its job; editing it destroys the record.
 
 ## Doc archival
 
@@ -107,6 +120,20 @@ deleted/rewritten per the rule above, not archived.)
   project — don't re-explain it to him), prefer direct sentences over
   parallel-structured prose, and don't use two different verbs for the two
   sides of one comparison.
+- **Don't write like a model.** Everything Eduardo sends to another human —
+  PR bodies, commit messages, issue comments, replies — must not carry the
+  usual LLM tells. Banned outright: the contrast frame ("X rather than Y",
+  "not X but Y", "this isn't A, it's B"); significance-grading ("load-bearing",
+  "the operative reason", "worth noting", "importantly", "crucially",
+  "genuinely", "precisely", "what matters here"); concessive openers ("that's
+  correct, but", "while X, Y"); stacked em-dash asides; rhetorical three-part
+  lists; meta-commentary ("nits, not blockers", "to be clear"); reassurance
+  that something is fine, clean, or safe; and the filler words "actually",
+  "simply", "just", "quite". State the fact and stop. Delete any sentence
+  whose only job is to tell the reader how to feel about another sentence.
+  Length follows from this: PR bodies say what the code does and, where there
+  was a real choice, why — a small PR gets a lead sentence and three or four
+  bullets, not a report. This applies to messages to Eduardo too.
 - **Axiom/sorry status: silence is the baseline.** Sorry-free and axiom-clean
   (nothing beyond `propext` / `Classical.choice` / `Quot.sound`) is the
   standing bar for everything that lands. Therefore PR descriptions, commit
