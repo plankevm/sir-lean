@@ -67,11 +67,59 @@ def operands : List Token → ParserM (List Stmt × Array VarId)
       let (preludes, identifiers) ← operands rest
       return (prelude ++ preludes, #[identifier] ++ identifiers)
 
+def parseMnemonic (functions : List String) (line : Line) (mnemonic : String)
+    (results : List VarId) (parameters : List Token) : ParserM (List Stmt) :=
+  match mnemonic, results, parameters with
+  | "copy", [result], [source] => do
+      let (_, sourceId) ← operand source
+      pure [.assign result (.var sourceId)]
+  | "add", [result], [lhs, rhs] => do
+      let (_, lhsId) ← operand lhs
+      let (_, rhsId) ← operand rhs
+      pure [.assign result (.add lhsId rhsId)]
+  | "lt", [result], [lhs, rhs] => do
+      let (_, lhsId) ← operand lhs
+      let (_, rhsId) ← operand rhs
+      pure [.assign result (.lt lhsId rhsId)]
+  | "sload", [result], [key] => do
+      let (_, keyId) ← operand key
+      pure [.assign result (.sload keyId)]
+  | "sstore", [], [key, value] => do
+      let (_, keyId) ← operand key
+      let (_, valueId) ← operand value
+      pure [.sstore keyId valueId]
+  | "gas", [result], [] => pure [.gas result]
+  | "call", [result], [gas, callee] => do
+      let (_, gasId) ← operand gas
+      let (_, calleeId) ← operand callee
+      pure [.call { callee := calleeId, gas := gasId, result := result }]
+  | "malloc", [result], [size] => do
+      let (_, sizeId) ← operand size
+      pure [.malloc result sizeId]
+  | "mallocany", [result], [size] => do
+      let (_, sizeId) ← operand size
+      pure [.mallocUninit result sizeId]
+  | "mstore256", [], [offset, value] => do
+      let (_, offsetId) ← operand offset
+      let (_, valueId) ← operand value
+      pure [.mstore32 offsetId valueId]
+  | "mload256", [result], [offset] => do
+      let (_, offsetId) ← operand offset
+      pure [.mload32 result offsetId]
+  | "icall", dests, .label calleeName :: args => do
+      let some calleeIndex := functions.findIdx? (· == calleeName)
+        | throw s!"unknown function '@{calleeName}'"
+      let (_, arguments) ← operands args
+      pure [.icall ⟨calleeIndex⟩ arguments dests.toArray]
+  | _, _, _ => throw s!"unsupported operation '{describe line}'"
+
+def statementParts (line : Line) : List Token × List Token :=
+  match line.span (· != .equals) with
+  | (before, .equals :: after) => (before, after)
+  | _ => ([], line)
+
 def parseStatement (functions : List String) (line : Line) : ParserM (List Stmt) := do
-  let (resultTokens, operandTokens) :=
-    match line.span (· != .equals) with
-    | (before, .equals :: after) => (before, after)
-    | _ => ([], line)
+  let (resultTokens, operandTokens) := statementParts line
   match operandTokens with
   | .identifier "const" :: parameters => do
       let results ← variableList resultTokens
@@ -82,49 +130,7 @@ def parseStatement (functions : List String) (line : Line) : ParserM (List Stmt)
   | .identifier mnemonic :: rawParameters => do
       let (lifted, parameters) ← liftNumbers rawParameters
       let results ← variableList resultTokens
-      let body ← match mnemonic, results.toList, parameters with
-        | "copy", [result], [source] => do
-            let (_, sourceId) ← operand source
-            pure [.assign result (.var sourceId)]
-        | "add", [result], [lhs, rhs] => do
-            let (_, lhsId) ← operand lhs
-            let (_, rhsId) ← operand rhs
-            pure [.assign result (.add lhsId rhsId)]
-        | "lt", [result], [lhs, rhs] => do
-            let (_, lhsId) ← operand lhs
-            let (_, rhsId) ← operand rhs
-            pure [.assign result (.lt lhsId rhsId)]
-        | "sload", [result], [key] => do
-            let (_, keyId) ← operand key
-            pure [.assign result (.sload keyId)]
-        | "sstore", [], [key, value] => do
-            let (_, keyId) ← operand key
-            let (_, valueId) ← operand value
-            pure [.sstore keyId valueId]
-        | "gas", [result], [] => pure [.gas result]
-        | "call", [result], [gas, callee] => do
-            let (_, gasId) ← operand gas
-            let (_, calleeId) ← operand callee
-            pure [.call { callee := calleeId, gas := gasId, result := result }]
-        | "malloc", [result], [size] => do
-            let (_, sizeId) ← operand size
-            pure [.malloc result sizeId]
-        | "mallocany", [result], [size] => do
-            let (_, sizeId) ← operand size
-            pure [.mallocUninit result sizeId]
-        | "mstore256", [], [offset, value] => do
-            let (_, offsetId) ← operand offset
-            let (_, valueId) ← operand value
-            pure [.mstore32 offsetId valueId]
-        | "mload256", [result], [offset] => do
-            let (_, offsetId) ← operand offset
-            pure [.mload32 result offsetId]
-        | "icall", dests, .label calleeName :: args => do
-            let some calleeIndex := functions.findIdx? (· == calleeName)
-              | throw s!"unknown function '@{calleeName}'"
-            let (_, arguments) ← operands args
-            pure [.icall ⟨calleeIndex⟩ arguments dests.toArray]
-        | _, _, _ => throw s!"unsupported operation '{describe line}'"
+      let body ← parseMnemonic functions line mnemonic results.toList parameters
       pure (lifted ++ body)
   | _ => throw s!"expected an operation mnemonic in '{describe line}'"
 
@@ -216,22 +222,35 @@ def hasDuplicates : List String → Bool
   | [] => false
   | name :: rest => rest.contains name || hasDuplicates rest
 
-def parseFunction (functions : List String) (body : List Line) : ParserM Function := do
-  let groups ← liftM (splitBlocks body)
+def parseFunctionGroups (functions : List String) (groups : List (Line × List Line)) :
+    ParserM Function := do
   let blocks ← liftM (groups.mapM fun group => blockHeaderName group.fst)
   if hasDuplicates blocks then throw "duplicate block name"
   let parsed ← groups.mapM fun group => parseBlock functions blocks group.fst group.snd
   return { blocks := parsed.toArray, entry := ⟨0⟩ }
 
-def parseTokens (tokens : List Token) : Except String Program := do
-  let groups ← splitFunctions (splitLines tokens)
+def parseFunction (functions : List String) (body : List Line) : ParserM Function :=
+  match splitBlocks body with
+  | .error message => throw message
+  | .ok groups => parseFunctionGroups functions groups
+
+def parseFunctionGroupsList (names : List String) (groups : List (String × List Line)) :
+    ParserM (List Function) :=
+  groups.mapM fun group => parseFunction names group.snd
+
+def parseProgramGroups (groups : List (String × List Line)) : Except String Program := do
   let names := groups.map Prod.fst
   if hasDuplicates names then .error "duplicate function name"
-  let (functions, _) ← (groups.mapM fun group => parseFunction names group.snd).run []
+  let (functions, _) ← (parseFunctionGroupsList names groups).run []
   let some initEntry := names.findIdx? (· == "init")
     | .error "the program has no function named 'init'"
   return { functions := functions.toArray, initEntry := ⟨initEntry⟩,
            mainEntry := (names.findIdx? (· == "main")).map FunctionId.mk }
+
+def parseTokens (tokens : List Token) : Except String Program :=
+  match splitFunctions (splitLines tokens) with
+  | .error message => .error message
+  | .ok groups => parseProgramGroups groups
 
 def parse (source : String) : Except String Program :=
   parseTokens (tokenize source)
