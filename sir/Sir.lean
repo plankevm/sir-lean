@@ -16,6 +16,7 @@ import Sir.Text.Printer
 import Sir.Text.Witness
 import Sir.Text.Lexer
 import Sir.Text.PrintLex
+import Sir.Text.Canonical
 import Sir.Text.RoundTrip
 import Sir.Text.Extract
 import Sir.Check
