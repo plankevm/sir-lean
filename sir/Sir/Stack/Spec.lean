@@ -93,6 +93,20 @@ structure Program where
   initEntry : FunctionId
 deriving Repr
 
+def Function.HasInstr (function : Function) (instruction : Instr) : Prop :=
+  ∃ block ∈ function.blocks, instruction ∈ block.instructions
+
+def Program.HasInstr (program : Program) (instruction : Instr) : Prop :=
+  ∃ function ∈ program.functions, function.HasInstr instruction
+
+def Instr.isMemOracle : Instr → Prop
+  | .op .mload32 | .op .malloc | .op .mallocUninit => True
+  | .flippedOp .mload32 | .flippedOp .malloc | .flippedOp .mallocUninit => True
+  | _ => False
+
+def Program.MemOracleFree (program : Program) : Prop :=
+  ∀ instruction, program.HasInstr instruction → ¬ instruction.isMemOracle
+
 def Function.block? (function : Function) (block : BlockId) : Option Block :=
   function.blocks[block.id]?
 

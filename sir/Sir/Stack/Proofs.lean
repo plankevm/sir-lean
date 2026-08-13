@@ -23,6 +23,64 @@ theorem decoder_terminal (program : Program) : (decoder program).Terminal := by
   · intro env globals
     simp [Stack.decoder, Stack.decode, Stack.control, Program.decodeInstruction]
 
+private theorem Program.decodeInstruction_mem
+    {program : Program} {control next : Machine.MachineControl} {instruction : Instr}
+    (h : program.decodeInstruction control = some (next, instruction)) :
+    program.HasInstr instruction := by
+  cases control with
+  | halted => simp [Program.decodeInstruction] at h
+  | returned results => simp [Program.decodeInstruction] at h
+  | running cursor =>
+      obtain ⟨functionId, blockId, position⟩ := cursor
+      cases position with
+      | terminator => simp [Program.decodeInstruction] at h
+      | statement index =>
+          cases hfunction : program.function? functionId with
+          | none => simp [Program.decodeInstruction, Program.block?, hfunction] at h
+          | some function =>
+              cases hblock : function.block? blockId with
+              | none =>
+                  simp [Program.decodeInstruction, Program.block?, hfunction, hblock] at h
+              | some block =>
+                  cases hinstruction : block.instructions[index]? with
+                  | none =>
+                      simp [Program.decodeInstruction, Program.block?, hfunction, hblock,
+                        hinstruction] at h
+                  | some found =>
+                      simp [Program.decodeInstruction, Program.block?, hfunction, hblock,
+                        hinstruction] at h
+                      obtain ⟨rfl, rfl⟩ := h
+                      exact ⟨function, Array.mem_of_getElem? hfunction, block,
+                        Array.mem_of_getElem? hblock, Array.mem_of_getElem? hinstruction⟩
+
+theorem decoder_noMload {program : Program} (hfree : program.MemOracleFree) :
+    (decoder program).NoMload := by
+  intro control src dst next hdecode
+  cases hstatement : program.decodeInstruction control with
+  | none => simp [decoder, decode, hstatement] at hdecode
+  | some decoded =>
+      rcases decoded with ⟨nextControl, instruction⟩
+      have hmem := Program.decodeInstruction_mem hstatement
+      cases instruction <;> simp [decoder, decode, hstatement] at hdecode
+      case op operation =>
+        cases operation <;> simp at hdecode
+        exact hfree _ hmem (by simp [Instr.isMemOracle])
+      case flippedOp operation => cases operation <;> simp at hdecode
+
+theorem decoder_noMalloc {program : Program} (hfree : program.MemOracleFree) :
+    (decoder program).NoMalloc := by
+  constructor <;> intro control src dst next hdecode <;>
+    cases hstatement : program.decodeInstruction control with
+    | none => simp [decoder, decode, hstatement] at hdecode
+    | some decoded =>
+        rcases decoded with ⟨nextControl, instruction⟩
+        have hmem := Program.decodeInstruction_mem hstatement
+        cases instruction <;> simp [decoder, decode, hstatement] at hdecode
+        case op operation =>
+          cases operation <;> simp at hdecode
+          exact hfree _ hmem (by simp [Instr.isMemOracle])
+        case flippedOp operation => cases operation <;> simp at hdecode
+
 theorem steps_confluence_or_queryDivergence
     {program : Program} {policy : MemoryPolicy} {ctx : CallContext}
     (hdet : policy.Deterministic) (hnomload : (decoder program).NoMload)
