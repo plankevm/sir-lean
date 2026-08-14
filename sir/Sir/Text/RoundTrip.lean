@@ -1428,6 +1428,185 @@ private theorem splitBlocks_functionBodyLines (program : Program) (function : Fu
   rw [splitBlocks, splitBlocksAux_functionBodyLines]
   rfl
 
+private theorem hasDuplicates_blockNames (identifiers : List Nat)
+    (nodup : identifiers.Nodup) :
+    hasDuplicates (identifiers.map fun identifier => blockName ⟨identifier⟩) = false := by
+  induction identifiers with
+  | nil => rfl
+  | cons identifier following induction =>
+      simp only [List.nodup_cons] at nodup
+      have notMember : blockName ⟨identifier⟩ ∉
+          following.map fun followingIdentifier => blockName ⟨followingIdentifier⟩ := by
+        simpa [blockName] using nodup.1
+      have notContained :
+          (following.map fun followingIdentifier =>
+            blockName ⟨followingIdentifier⟩).contains (blockName ⟨identifier⟩) = false := by
+        cases contained : (following.map fun followingIdentifier =>
+            blockName ⟨followingIdentifier⟩).contains (blockName ⟨identifier⟩) with
+        | false => rfl
+        | true => exact False.elim (notMember (List.contains_iff.mp contained))
+      rw [List.map_cons, hasDuplicates.eq_def]
+      simp only
+      rw [notContained, induction nodup.2]
+      rfl
+
+private theorem printedBlockNames_noDuplicates (function : Function) :
+    hasDuplicates (printedBlockNames function) = false := by
+  rw [printedBlockNames]
+  rw [show (function.blocks.toList.zipIdx.map fun pair => blockName ⟨pair.2⟩) =
+      (function.blocks.toList.zipIdx.map Prod.snd).map fun identifier =>
+        blockName ⟨identifier⟩ by
+    rw [List.map_map]
+    rfl]
+  rw [show function.blocks.toList.zipIdx.map Prod.snd =
+      List.range' 0 function.blocks.toList.length by simp]
+  apply hasDuplicates_blockNames
+  exact List.nodup_range'
+
+private theorem mapM_blockHeaderName_printedBlockGroups (program : Program)
+    (function : Function) :
+    (printedBlockGroups program function).mapM (fun group => blockHeaderName group.fst) =
+      .ok (printedBlockNames function) := by
+  rw [printedBlockGroups, printedBlockNames]
+  generalize valuesEq : function.blocks.toList.zipIdx = values
+  clear valuesEq
+  induction values with
+  | nil => rfl
+  | cons pair following induction =>
+      rcases pair with ⟨block, index⟩
+      simp only [List.map_cons, List.mapM_cons]
+      rw [show blockHeaderName (printedBlockHeader ⟨index⟩ block) =
+          .ok (blockName ⟨index⟩) by
+        simp [blockHeaderName, printedBlockHeader]]
+      simp [induction, bind, Except.bind, pure, Except.pure]
+
+private theorem mapM_parseBlock_printed (program : Program) (printable : program.Printable)
+    (function : Function) (full prior : List VarId)
+    (values : List (Block × Nat))
+    (references : ∀ pair ∈ values,
+      pair.1.ReferencesInRange program.functions.size function.blocks.size)
+    (isPrefix : prior ++ values.flatMap (fun pair => pair.1.variableOccurrences) <+:
+      full) :
+    ((values.map fun pair =>
+        (printedBlockHeader ⟨pair.2⟩ pair.1, printedBlockBody program pair.1)).mapM
+      (fun group => parseBlock (printedFunctionNames program) (printedBlockNames function)
+        group.fst group.snd)).run (printedVariableNames prior) =
+      .ok (values.map (fun pair =>
+          pair.1.renameVariables (canonicalRename full)),
+        printedVariableNames
+          (prior ++ values.flatMap (fun pair => pair.1.variableOccurrences))) := by
+  induction values generalizing prior with
+  | nil => simp [StateT.run, pure, StateT.pure, Except.pure]
+  | cons pair following induction =>
+      rcases pair with ⟨block, index⟩
+      simp only [List.map_cons, List.mapM_cons, List.flatMap_cons]
+      simp only [StateT.run, bind, StateT.bind, Except.bind]
+      rw [show parseBlock (printedFunctionNames program) (printedBlockNames function)
+            (printedBlockHeader ⟨index⟩ block) (printedBlockBody program block)
+            (printedVariableNames prior) =
+          .ok (block.renameVariables (canonicalRename full),
+            printedVariableNames (prior ++ block.variableOccurrences)) from by
+        simpa [printedBlockHeader, printedBlockBody] using
+          parseBlock_printed program printable function full prior ⟨index⟩ block
+            (references (block, index) (by simp))
+            ((show prior ++ block.variableOccurrences <+:
+                prior ++ block.variableOccurrences ++
+                  following.flatMap (fun pair => pair.1.variableOccurrences) from
+              ⟨following.flatMap (fun pair => pair.1.variableOccurrences), rfl⟩).trans
+                (by simpa [List.append_assoc] using isPrefix))]
+      simp only [Except.bind]
+      rw [show ((following.map fun pair =>
+            (printedBlockHeader ⟨pair.2⟩ pair.1,
+              printedBlockBody program pair.1)).mapM
+            (fun group => parseBlock (printedFunctionNames program)
+              (printedBlockNames function) group.fst group.snd))
+            (printedVariableNames (prior ++ block.variableOccurrences)) =
+          .ok (following.map (fun pair =>
+              pair.1.renameVariables (canonicalRename full)),
+            printedVariableNames ((prior ++ block.variableOccurrences) ++
+              following.flatMap (fun pair => pair.1.variableOccurrences))) from
+        induction (prior ++ block.variableOccurrences)
+          (fun followingPair member => references followingPair (by simp [member]))
+          (by simpa [List.append_assoc] using isPrefix)]
+      simp [pure, StateT.pure, Except.pure, List.append_assoc]
+
+private theorem parseFunctionGroups_printed (program : Program)
+    (printable : program.Printable) (function : Function)
+    (functionPrintable : function.Printable program.functions.size)
+    (full prior : List VarId)
+    (isPrefix : prior ++ function.variableOccurrences <+: full) :
+    (parseFunctionGroups (printedFunctionNames program)
+      (printedBlockGroups program function)).run (printedVariableNames prior) =
+      .ok (function.renameVariables (canonicalRename full),
+        printedVariableNames (prior ++ function.variableOccurrences)) := by
+  rcases functionPrintable with ⟨entryZero, references⟩
+  simp only [parseFunctionGroups, StateT.run, bind, StateT.bind, Except.bind]
+  rw [mapM_blockHeaderName_printedBlockGroups program function]
+  simp only [StateT.run, bind, StateT.bind, liftM, monadLift, MonadLift.monadLift,
+    StateT.lift, Except.bind]
+  simp only [pure, Except.pure, Except.bind]
+  rw [printedBlockNames_noDuplicates function]
+  simp only [Bool.false_eq_true, if_false]
+  simp only [StateT.run, bind, StateT.bind, pure, StateT.pure, Except.pure,
+    Except.bind]
+  rw [show ((printedBlockGroups program function).mapM fun group =>
+        parseBlock (printedFunctionNames program) (printedBlockNames function)
+          group.fst group.snd) (printedVariableNames prior) =
+      .ok (function.blocks.toList.zipIdx.map (fun pair =>
+          pair.1.renameVariables (canonicalRename full)),
+        printedVariableNames (prior ++ function.blocks.toList.zipIdx.flatMap
+          (fun pair => pair.1.variableOccurrences))) from by
+    simpa [printedBlockGroups] using
+      mapM_parseBlock_printed program printable function full prior
+        function.blocks.toList.zipIdx
+        (fun pair member => references pair.1 (by
+          have : pair.1 ∈ function.blocks.toList := by
+            exact List.fst_mem_of_mem_zipIdx member
+          simpa using this))
+        (by
+          have occurrencesEq :
+              function.blocks.toList.zipIdx.flatMap
+                  (fun pair => pair.1.variableOccurrences) =
+                function.blocks.toList.flatMap Block.variableOccurrences := by
+            rw [← List.flatMap_map, List.zipIdx_map_fst]
+          simpa [Function.variableOccurrences, occurrencesEq] using isPrefix)]
+  have parsedBlocksEq :
+      function.blocks.toList.zipIdx.map (fun pair =>
+          pair.1.renameVariables (canonicalRename full)) =
+        function.blocks.toList.map
+          (·.renameVariables (canonicalRename full)) := by
+    rw [show function.blocks.toList.zipIdx.map (fun pair =>
+          pair.1.renameVariables (canonicalRename full)) =
+        (function.blocks.toList.zipIdx.map Prod.fst).map
+          (·.renameVariables (canonicalRename full)) by
+      rw [List.map_map]
+      rfl]
+    rw [List.zipIdx_map_fst]
+  have occurrencesEq :
+      function.blocks.toList.zipIdx.flatMap (fun pair => pair.1.variableOccurrences) =
+        function.blocks.toList.flatMap Block.variableOccurrences := by
+    rw [← List.flatMap_map, List.zipIdx_map_fst]
+  rw [parsedBlocksEq, occurrencesEq]
+  have blockMap :
+      (function.blocks.toList.map
+          (·.renameVariables (canonicalRename full))).toArray =
+        function.blocks.map (·.renameVariables (canonicalRename full)) := by
+    cases function.blocks
+    simp
+  simp [Function.renameVariables, Function.variableOccurrences, entryZero, blockMap,
+    StateT.run, bind, pure, StateT.pure, Except.bind, Except.pure]
+
+private theorem parseFunction_printed (program : Program) (printable : program.Printable)
+    (function : Function) (functionPrintable : function.Printable program.functions.size)
+    (full prior : List VarId)
+    (isPrefix : prior ++ function.variableOccurrences <+: full) :
+    (parseFunction (printedFunctionNames program)
+      (functionBodyLines program function)).run (printedVariableNames prior) =
+      .ok (function.renameVariables (canonicalRename full),
+        printedVariableNames (prior ++ function.variableOccurrences)) := by
+  rw [parseFunction, splitBlocks_functionBodyLines]
+  exact parseFunctionGroups_printed program printable function functionPrintable full prior isPrefix
+
 namespace Examples
 
 def witnessAddPrinted : String :=
