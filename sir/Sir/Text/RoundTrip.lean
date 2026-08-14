@@ -1325,6 +1325,109 @@ private theorem parseBlock_printed (program : Program) (printable : program.Prin
   simp [Block.renameVariables, Block.variableOccurrences, StateT.run, bind,
     pure, StateT.pure, Except.bind, Except.pure, List.append_assoc]
 
+private def printedBlockHeader (identifier : BlockId) (block : Block) : Line :=
+  [Token.identifier (blockName identifier)] ++ variableTokens block.inputs ++
+    (if block.outputs.isEmpty then [] else
+      Token.arrow :: variableTokens block.outputs) ++ [Token.leftBrace]
+
+private def printedBlockBody (program : Program) (block : Block) : List Line :=
+  block.statements.toList.map (stmtTokens program) ++
+    [terminatorTokens block.terminator]
+
+private def printedBlockGroups (program : Program) (function : Function) :
+    List (Line × List Line) :=
+  function.blocks.toList.zipIdx.map fun pair =>
+    (printedBlockHeader ⟨pair.2⟩ pair.1, printedBlockBody program pair.1)
+
+private theorem blockLines_eq (program : Program) (identifier : BlockId)
+    (block : Block) :
+    blockLines program identifier block =
+      printedBlockHeader identifier block ::
+        printedBlockBody program block ++ [[Token.rightBrace]] := by
+  simp [blockLines, printedBlockHeader, printedBlockBody]
+
+private theorem printedBlockHeader_isHeader (identifier : BlockId) (block : Block) :
+    isBlockHeader (printedBlockHeader identifier block) = true := by
+  rw [show printedBlockHeader identifier block =
+      ([Token.identifier (blockName identifier)] ++ variableTokens block.inputs ++
+        (if block.outputs.isEmpty then [] else
+          Token.arrow :: variableTokens block.outputs)) ++ [Token.leftBrace] by
+    simp [printedBlockHeader, List.append_assoc]]
+  unfold isBlockHeader
+  rw [List.getLast?_append]
+  rfl
+
+private theorem printedBlockBody_ne_rightBrace (program : Program) (block : Block) :
+    ∀ line ∈ printedBlockBody program block, line ≠ [Token.rightBrace] := by
+  intro line member
+  simp only [printedBlockBody, List.mem_append, List.mem_map, List.mem_singleton] at member
+  rcases member with ⟨statement, _, rfl⟩ | rfl
+  · cases statement with
+    | assign _ value =>
+        cases value <;> simp [stmtTokens, definitionTokens, variableTokens, variableToken]
+    | icall callee args dests =>
+        rcases dests with ⟨dests⟩
+        cases dests <;> simp [stmtTokens, definitionTokens, variableTokens, variableToken]
+    | sstore | gas | call | malloc | mallocUninit | mstore32 | mload32 =>
+        simp [stmtTokens, definitionTokens, variableTokens, variableToken]
+  · cases block.terminator <;> simp [terminatorTokens]
+
+private theorem splitBlocksAux_body (groups : List (Line × List Line))
+    (header : Line) (accumulated body rest : List Line)
+    (notRightBrace : ∀ line ∈ body, line ≠ [Token.rightBrace]) :
+    splitBlocksAux ((header, accumulated) :: groups) true
+        (body ++ [Token.rightBrace] :: rest) =
+      splitBlocksAux ((header, body.reverse ++ accumulated) :: groups) false rest := by
+  induction body generalizing accumulated with
+  | nil => simp [splitBlocksAux]
+  | cons line following induction =>
+      rw [List.cons_append, splitBlocksAux.eq_def]
+      simp only
+      rw [show (line == [Token.rightBrace]) = false by
+        simp [notRightBrace line (by simp)]]
+      simp only [Bool.false_eq_true, if_false]
+      rw [induction (line :: accumulated)]
+      · simp
+      · intro next member
+        exact notRightBrace next (by simp [member])
+
+private theorem splitBlocksAux_functionBodyLines (program : Program) (function : Function)
+    (groupsPrefix : List (Line × List Line)) :
+    splitBlocksAux groupsPrefix false (functionBodyLines program function) =
+      .ok (groupsPrefix.reverse.map (fun group => (group.fst, group.snd.reverse)) ++
+        printedBlockGroups program function) := by
+  rw [functionBodyLines, printedBlockGroups]
+  generalize valuesEq : function.blocks.toList.zipIdx = values
+  clear valuesEq
+  induction values generalizing groupsPrefix with
+  | nil => simp [splitBlocksAux]
+  | cons pair following induction =>
+      rcases pair with ⟨block, index⟩
+      simp only [List.flatMap_cons, List.map_cons]
+      rw [blockLines_eq]
+      rw [show printedBlockHeader ⟨index⟩ block ::
+            printedBlockBody program block ++ [[Token.rightBrace]] ++
+              following.flatMap (fun pair => blockLines program ⟨pair.2⟩ pair.1) =
+          printedBlockHeader ⟨index⟩ block ::
+            (printedBlockBody program block ++ [Token.rightBrace] ::
+              following.flatMap (fun pair => blockLines program ⟨pair.2⟩ pair.1)) by
+        simp [List.append_assoc]]
+      rw [splitBlocksAux.eq_def]
+      simp only [Bool.false_eq_true, if_false]
+      rw [if_pos (printedBlockHeader_isHeader ⟨index⟩ block)]
+      rw [splitBlocksAux_body groupsPrefix (printedBlockHeader ⟨index⟩ block) []
+        (printedBlockBody program block)
+        (following.flatMap fun pair => blockLines program ⟨pair.2⟩ pair.1)
+        (printedBlockBody_ne_rightBrace program block)]
+      rw [induction]
+      simp
+
+private theorem splitBlocks_functionBodyLines (program : Program) (function : Function) :
+    splitBlocks (functionBodyLines program function) =
+      .ok (printedBlockGroups program function) := by
+  rw [splitBlocks, splitBlocksAux_functionBodyLines]
+  rfl
+
 namespace Examples
 
 def witnessAddPrinted : String :=
