@@ -1607,6 +1607,199 @@ private theorem parseFunction_printed (program : Program) (printable : program.P
   rw [parseFunction, splitBlocks_functionBodyLines]
   exact parseFunctionGroups_printed program printable function functionPrintable full prior isPrefix
 
+private theorem hasDuplicates_eq_false_of_nodup (names : List String)
+    (nodup : names.Nodup) : hasDuplicates names = false := by
+  induction names with
+  | nil => rfl
+  | cons name following induction =>
+      simp only [List.nodup_cons] at nodup
+      have notContained : following.contains name = false := by
+        cases contained : following.contains name with
+        | false => rfl
+        | true => exact False.elim (nodup.1 (List.contains_iff.mp contained))
+      rw [hasDuplicates.eq_def]
+      simp only
+      rw [notContained, induction nodup.2]
+      rfl
+
+private theorem printedFunctionNames_noDuplicates (program : Program)
+    (printable : program.Printable) :
+    hasDuplicates (printedFunctionNames program) = false := by
+  apply hasDuplicates_eq_false_of_nodup
+  rw [printedFunctionNames_eq]
+  rw [show (program.functions.toList.zipIdx.map fun pair =>
+        functionName program ⟨pair.2⟩) =
+      (program.functions.toList.zipIdx.map Prod.snd).map fun identifier =>
+        functionName program ⟨identifier⟩ by
+    rw [List.map_map]
+    rfl]
+  rw [show program.functions.toList.zipIdx.map Prod.snd =
+      List.range' 0 program.functions.toList.length by simp]
+  apply List.Nodup.map_on
+  · intro left leftMember right rightMember equality
+    apply congrArg FunctionId.id
+    apply functionName_injective printable
+    · rcases List.mem_range'.mp leftMember with ⟨index, bound, equality⟩
+      simpa [equality] using bound
+    · rcases List.mem_range'.mp rightMember with ⟨index, bound, equality⟩
+      simpa [equality] using bound
+    · exact equality
+  · exact List.nodup_range'
+
+private theorem mapM_parseFunction_printed (program : Program)
+    (printable : program.Printable) (full prior : List VarId)
+    (values : List (Function × Nat))
+    (functionPrintables : ∀ pair ∈ values,
+      pair.1.Printable program.functions.size)
+    (isPrefix : prior ++ values.flatMap (fun pair => pair.1.variableOccurrences) <+:
+      full) :
+    ((values.map fun pair =>
+        (functionName program ⟨pair.2⟩, functionBodyLines program pair.1)).mapM
+      (fun group => parseFunction (printedFunctionNames program) group.snd)).run
+        (printedVariableNames prior) =
+      .ok (values.map (fun pair =>
+          pair.1.renameVariables (canonicalRename full)),
+        printedVariableNames
+          (prior ++ values.flatMap (fun pair => pair.1.variableOccurrences))) := by
+  induction values generalizing prior with
+  | nil => simp [StateT.run, pure, StateT.pure, Except.pure]
+  | cons pair following induction =>
+      rcases pair with ⟨function, index⟩
+      simp only [List.map_cons, List.mapM_cons, List.flatMap_cons]
+      simp only [StateT.run, bind, StateT.bind, Except.bind]
+      rw [show parseFunction (printedFunctionNames program)
+            (functionBodyLines program function) (printedVariableNames prior) =
+          .ok (function.renameVariables (canonicalRename full),
+            printedVariableNames (prior ++ function.variableOccurrences)) from
+        parseFunction_printed program printable function
+          (functionPrintables (function, index) (by simp)) full prior
+          ((show prior ++ function.variableOccurrences <+:
+              prior ++ function.variableOccurrences ++
+                following.flatMap (fun pair => pair.1.variableOccurrences) from
+            ⟨following.flatMap (fun pair => pair.1.variableOccurrences), rfl⟩).trans
+              (by simpa [List.append_assoc] using isPrefix))]
+      simp only [Except.bind]
+      rw [show ((following.map fun pair =>
+            (functionName program ⟨pair.2⟩, functionBodyLines program pair.1)).mapM
+          (fun group => parseFunction (printedFunctionNames program) group.snd))
+          (printedVariableNames (prior ++ function.variableOccurrences)) =
+        .ok (following.map (fun pair =>
+            pair.1.renameVariables (canonicalRename full)),
+          printedVariableNames ((prior ++ function.variableOccurrences) ++
+            following.flatMap (fun pair => pair.1.variableOccurrences))) from
+        induction (prior ++ function.variableOccurrences)
+          (fun followingPair member => functionPrintables followingPair (by simp [member]))
+          (by simpa [List.append_assoc] using isPrefix)]
+      simp [pure, StateT.pure, Except.pure, List.append_assoc]
+
+private theorem parseFunctionGroupsList_printed (program : Program)
+    (printable : program.Printable) :
+    (parseFunctionGroupsList (printedFunctionNames program)
+      (printedFunctionGroups program)).run [] =
+      .ok (program.functions.toList.map
+          (·.renameVariables (canonicalRename program.variableOccurrences)),
+        printedVariableNames program.variableOccurrences) := by
+  rw [parseFunctionGroupsList]
+  have occurrencesEq :
+      program.functions.toList.zipIdx.flatMap (fun pair => pair.1.variableOccurrences) =
+        program.variableOccurrences := by
+    rw [← List.flatMap_map, List.zipIdx_map_fst]
+    rfl
+  have parsed := mapM_parseFunction_printed program printable
+    program.variableOccurrences [] program.functions.toList.zipIdx
+    (fun pair member => printable.2.2 pair.1 (by
+      have : pair.1 ∈ program.functions.toList := List.fst_mem_of_mem_zipIdx member
+      simpa using this))
+    (by simpa [occurrencesEq])
+  have parsedFunctionsEq :
+      program.functions.toList.zipIdx.map (fun pair =>
+          pair.1.renameVariables (canonicalRename program.variableOccurrences)) =
+        program.functions.toList.map
+          (·.renameVariables (canonicalRename program.variableOccurrences)) := by
+    rw [show program.functions.toList.zipIdx.map (fun pair =>
+          pair.1.renameVariables (canonicalRename program.variableOccurrences)) =
+        (program.functions.toList.zipIdx.map Prod.fst).map
+          (·.renameVariables (canonicalRename program.variableOccurrences)) by
+      rw [List.map_map]
+      rfl]
+    rw [List.zipIdx_map_fst]
+  simpa [printedFunctionGroups, printedFunctionNames, parsedFunctionsEq,
+    occurrencesEq] using parsed
+
+private theorem printedFunctionNames_main_findIdx (program : Program)
+    (printable : program.Printable) :
+    (printedFunctionNames program).findIdx? (· == "main") =
+      program.mainEntry.map FunctionId.id := by
+  cases mainEq : program.mainEntry with
+  | none =>
+      simp only [mainEq, Option.map_none]
+      rw [List.findIdx?_eq_none_iff]
+      intro name member
+      simp only [printedFunctionNames_eq, List.mem_map] at member
+      rcases member with ⟨pair, _, rfl⟩
+      by_cases isInit : (⟨pair.2⟩ : FunctionId) = program.initEntry
+      · simp [functionName, mainEq, isInit]
+      · simp [functionName, mainEq, isInit]
+  | some mainEntry =>
+      have mainValid := printable.2.1
+      simp [mainEq] at mainValid
+      have bound : mainEntry.id < program.functions.size := by
+        exact mainValid.1
+      have nameEq : functionName program mainEntry = "main" := by
+        simp [functionName, mainEq, mainValid.2]
+      simp only [mainEq, Option.map_some]
+      rw [← nameEq]
+      exact printedFunctionNames_findIdx program printable mainEntry bound
+
+private theorem parseProgramGroups_printed (program : Program)
+    (printable : program.Printable) :
+    parseProgramGroups (printedFunctionGroups program) =
+      .ok (program.canonicalize) := by
+  rw [parseProgramGroups]
+  rw [show (printedFunctionGroups program).map Prod.fst =
+      printedFunctionNames program by rfl]
+  rw [printedFunctionNames_noDuplicates program printable]
+  simp only [Bool.false_eq_true, if_false]
+  rw [show (parseFunctionGroupsList (printedFunctionNames program)
+      (printedFunctionGroups program)).run [] =
+      .ok (program.functions.toList.map
+          (·.renameVariables (canonicalRename program.variableOccurrences)),
+        printedVariableNames program.variableOccurrences) from
+    parseFunctionGroupsList_printed program printable]
+  simp only [bind, Except.bind]
+  rw [printedFunctionNames_init_findIdx program printable]
+  simp only [printedFunctionNames_main_findIdx program printable]
+  have functionMap :
+      (program.functions.toList.map
+          (·.renameVariables (canonicalRename program.variableOccurrences))).toArray =
+        program.functions.map
+          (·.renameVariables (canonicalRename program.variableOccurrences)) := by
+    cases program.functions
+    simp
+  have renameEq : canonicalRename program.variableOccurrences =
+      program.canonicalVariable := by
+    funext identifier
+    rfl
+  rw [renameEq] at functionMap ⊢
+  rw [functionMap]
+  cases mainEq : program.mainEntry with
+  | none => simp [Program.canonicalize, Program.renameVariables, mainEq, pure, Except.pure]
+  | some mainEntry =>
+      cases mainEntry
+      simp [Program.canonicalize, Program.renameVariables, mainEq, pure, Except.pure]
+
+private theorem parseTokens_programTokens (program : Program)
+    (printable : program.Printable) :
+    parseTokens (programTokens program) = .ok program.canonicalize := by
+  rw [parseTokens, splitLines_programTokens, splitFunctions_programLines]
+  exact parseProgramGroups_printed program printable
+
+theorem parse_print_canonicalize {program : Program}
+    (printable : program.Printable) :
+    parse (print program) = .ok program.canonicalize := by
+  rw [parse, tokenize_print]
+  exact parseTokens_programTokens program printable
+
 namespace Examples
 
 def witnessAddPrinted : String :=
