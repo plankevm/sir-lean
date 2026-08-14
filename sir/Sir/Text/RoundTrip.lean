@@ -1,6 +1,6 @@
 import Sir.Text.Witness
 import Sir.Text.PrintLex
-import Sir.Text.ParseCanonical
+import Sir.Text.ParsePrintable
 import Sir.Examples.Jump
 import Sir.Examples.Memory
 import Sir.Examples.HaltedCall
