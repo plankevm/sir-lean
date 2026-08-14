@@ -1116,6 +1116,67 @@ private theorem parseTerminator_printed (function : Function) (full prior : List
       rw [printedBlockNames_findIdx function elseTarget elseBound]
       simp [pure, StateT.pure, Except.pure]
 
+private theorem parseBlockBody_printed (program : Program) (printable : program.Printable)
+    (function : Function) (full prior : List VarId) (statements : List Stmt)
+    (terminator : Terminator)
+    (statementReferences : ∀ statement ∈ statements,
+      statement.FunctionReferencesInRange program.functions.size)
+    (terminatorReferences : terminator.BlockReferencesInRange function.blocks.size)
+    (isPrefix : prior ++ statements.flatMap Stmt.variableOccurrences ++
+        terminator.variableOccurrences <+: full) :
+    (parseBlockBody (printedFunctionNames program) (printedBlockNames function)
+        (statements.map (stmtTokens program) ++ [terminatorTokens terminator])).run
+        (printedVariableNames prior) =
+      .ok (((statements.map (·.renameVariables (canonicalRename full))).toArray,
+        terminator.renameVariables (canonicalRename full)),
+        printedVariableNames (prior ++ statements.flatMap Stmt.variableOccurrences ++
+          terminator.variableOccurrences)) := by
+  induction statements generalizing prior with
+  | nil =>
+      simp only [List.map_nil, List.nil_append, List.flatMap_nil, List.nil_append] at isPrefix ⊢
+      rw [parseBlockBody.eq_2]
+      simp only [StateT.run, bind, StateT.bind, Except.bind]
+      rw [show parseTerminator (printedBlockNames function) (terminatorTokens terminator)
+            (printedVariableNames prior) =
+          .ok (terminator.renameVariables (canonicalRename full),
+            printedVariableNames (prior ++ terminator.variableOccurrences)) from
+        parseTerminator_printed function full prior terminator terminatorReferences
+          (by simpa using isPrefix)]
+      simp [StateT.run, pure, StateT.pure, Except.pure]
+  | cons statement following induction =>
+      simp only [List.map_cons, List.cons_append, List.flatMap_cons] at isPrefix ⊢
+      have isPrefix' : prior ++ statement.variableOccurrences ++
+          following.flatMap Stmt.variableOccurrences ++ terminator.variableOccurrences <+:
+          full := by
+        simpa [List.append_assoc] using isPrefix
+      rw [parseBlockBody.eq_3 _ _ _ _ (by simp)]
+      simp only [StateT.run, bind, StateT.bind, Except.bind]
+      rw [show parseStatement (printedFunctionNames program) (stmtTokens program statement)
+            (printedVariableNames prior) =
+          .ok ([statement.renameVariables (canonicalRename full)],
+            printedVariableNames (prior ++ statement.variableOccurrences)) from
+        parseStatement_printed program printable full prior statement
+          (statementReferences statement (by simp))
+          ((show prior ++ statement.variableOccurrences <+:
+              prior ++ statement.variableOccurrences ++
+                following.flatMap Stmt.variableOccurrences ++
+                  terminator.variableOccurrences from
+            ⟨following.flatMap Stmt.variableOccurrences ++ terminator.variableOccurrences,
+              by simp [List.append_assoc]⟩).trans isPrefix')]
+      simp only [Except.bind]
+      rw [show parseBlockBody (printedFunctionNames program) (printedBlockNames function)
+            (following.map (stmtTokens program) ++ [terminatorTokens terminator])
+            (printedVariableNames (prior ++ statement.variableOccurrences)) =
+          .ok (((following.map (·.renameVariables (canonicalRename full))).toArray,
+            terminator.renameVariables (canonicalRename full)),
+            printedVariableNames ((prior ++ statement.variableOccurrences) ++
+              following.flatMap Stmt.variableOccurrences ++ terminator.variableOccurrences)) from
+        induction (prior ++ statement.variableOccurrences)
+          (fun followingStatement member =>
+            statementReferences followingStatement (by simp [member]))
+          (by simpa [List.append_assoc] using isPrefix')]
+      simp [pure, StateT.pure, Except.pure, List.append_assoc]
+
 namespace Examples
 
 def witnessAddPrinted : String :=
