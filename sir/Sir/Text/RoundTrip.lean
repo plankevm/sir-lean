@@ -522,6 +522,62 @@ private def canonicalRename (full : List VarId) (identifier : VarId) : VarId :=
     (Token.identifier name != Token.equals) = true := by
   rfl
 
+@[simp] private theorem label_ne_equals (name : String) :
+    (Token.label name != Token.equals) = true := by
+  rfl
+
+private theorem span_variableTokens_end_aux (identifiers : List VarId)
+    (accumulated : List Token) :
+    List.span.loop (· != Token.equals) (identifiers.map variableToken) accumulated =
+      (accumulated.reverse ++ identifiers.map variableToken, []) := by
+  induction identifiers generalizing accumulated with
+  | nil => simp [List.span.loop]
+  | cons identifier following induction =>
+      simp only [List.map_cons, variableToken, List.span.loop, identifier_ne_equals,
+        if_true]
+      rw [induction (Token.identifier (variableName identifier) :: accumulated)]
+      simp
+
+private theorem span_variableTokens_end (identifiers : List VarId) :
+    (identifiers.map variableToken).span (· != Token.equals) =
+      (identifiers.map variableToken, []) := by
+  simpa [List.span] using span_variableTokens_end_aux identifiers []
+
+private theorem span_variableTokens_equals_aux (identifiers : List VarId)
+    (rest accumulated : List Token) :
+    List.span.loop (· != Token.equals)
+        (identifiers.map variableToken ++ Token.equals :: rest) accumulated =
+      (accumulated.reverse ++ identifiers.map variableToken, Token.equals :: rest) := by
+  induction identifiers generalizing accumulated with
+  | nil => simp [List.span.loop]
+  | cons identifier following induction =>
+      simp only [List.map_cons, List.cons_append, variableToken, List.span.loop,
+        identifier_ne_equals, if_true]
+      rw [induction (Token.identifier (variableName identifier) :: accumulated)]
+      simp
+
+private theorem span_variableTokens_equals (identifiers : List VarId) (rest : List Token) :
+    (identifiers.map variableToken ++ Token.equals :: rest).span (· != Token.equals) =
+      (identifiers.map variableToken, Token.equals :: rest) := by
+  simpa [List.span] using span_variableTokens_equals_aux identifiers rest []
+
+private theorem statementParts_icall_no_results (name : String) (args : List VarId) :
+    statementParts
+        (Token.identifier "icall" :: Token.label name :: args.map variableToken) =
+      ([], Token.identifier "icall" :: Token.label name :: args.map variableToken) := by
+  rw [statementParts]
+  simp only [List.span, List.span.loop, identifier_ne_equals, label_ne_equals, if_true]
+  rw [span_variableTokens_end_aux args [Token.label name, Token.identifier "icall"]]
+
+private theorem statementParts_icall_results (results args : List VarId) (name : String)
+    (_nonempty : results ≠ []) :
+    statementParts
+        (results.map variableToken ++ Token.equals ::
+          Token.identifier "icall" :: Token.label name :: args.map variableToken) =
+      (results.map variableToken,
+        Token.identifier "icall" :: Token.label name :: args.map variableToken) := by
+  rw [statementParts, span_variableTokens_equals]
+
 @[simp] private theorem word_ofNat_toNat (value : Word) :
     (.ofNat value.toNat : Word) = value := by
   calc
@@ -558,6 +614,440 @@ private theorem parseStatement_assign_constant (functions : List String)
       .ok (#[canonicalRename full result], printedVariableNames (prior ++ [result])) from by
     simpa [canonicalRename] using variableList_printed full prior [result] isPrefix]
   simp [StateT.run, pure, StateT.pure, Except.pure]
+
+@[simp] private theorem liftNumbers_variableTokens (identifiers : List VarId)
+    (names : List String) :
+    (liftNumbers (identifiers.map variableToken)).run names =
+      .ok (([], identifiers.map variableToken), names) := by
+  induction identifiers with
+  | nil => simp [liftNumbers, StateT.run, pure, StateT.pure, Except.pure]
+  | cons identifier following induction =>
+      simp only [List.map_cons, liftNumbers, variableToken, StateT.run, bind,
+        StateT.bind, Except.bind]
+      rw [show liftNumbers (following.map variableToken) names =
+          .ok (([], following.map variableToken), names) from induction]
+      simp [pure, StateT.pure, Except.pure]
+
+private theorem liftNumbers_icall (name : String) (identifiers : List VarId)
+    (names : List String) :
+    liftNumbers (Token.label name :: identifiers.map variableToken) names =
+      .ok (([], Token.label name :: identifiers.map variableToken), names) := by
+  simp only [liftNumbers, StateT.run, bind, StateT.bind, Except.bind]
+  rw [show liftNumbers (identifiers.map variableToken) names =
+      .ok (([], identifiers.map variableToken), names) from
+    liftNumbers_variableTokens identifiers names]
+  simp [pure, StateT.pure, Except.pure]
+
+private theorem operand_printed (full prior : List VarId) (identifier : VarId)
+    (isPrefix : prior ++ [identifier] <+: full) :
+    (operand (variableToken identifier)).run (printedVariableNames prior) =
+      .ok (([], canonicalRename full identifier),
+        printedVariableNames (prior ++ [identifier])) := by
+  simp only [operand, variableToken, StateT.run, bind, StateT.bind, Except.bind]
+  rw [show internVariable (variableName identifier) (printedVariableNames prior) =
+      .ok (canonicalRename full identifier,
+        printedVariableNames (prior ++ [identifier])) from by
+    simpa [canonicalRename] using internVariable_canonical full prior identifier isPrefix]
+  simp [pure, StateT.pure, Except.pure]
+
+private theorem operands_printed (full prior identifiers : List VarId)
+    (isPrefix : prior ++ identifiers <+: full) :
+    (operands (identifiers.map variableToken)).run (printedVariableNames prior) =
+      .ok (([], identifiers.map (canonicalRename full) |>.toArray),
+        printedVariableNames (prior ++ identifiers)) := by
+  induction identifiers generalizing prior with
+  | nil => simp [operands, StateT.run, pure, StateT.pure, Except.pure]
+  | cons identifier following induction =>
+      simp only [List.map_cons, operands, StateT.run, bind, StateT.bind, Except.bind]
+      rw [show operand (variableToken identifier) (printedVariableNames prior) =
+          .ok (([], canonicalRename full identifier),
+            printedVariableNames (prior ++ [identifier])) from
+        operand_printed full prior identifier
+        ((show prior ++ [identifier] <+: prior ++ identifier :: following from
+          ⟨following, by simp⟩).trans isPrefix)]
+      simp only [Except.bind]
+      rw [show operands (following.map variableToken)
+            (printedVariableNames (prior ++ [identifier])) =
+          .ok (([], following.map (canonicalRename full) |>.toArray),
+            printedVariableNames ((prior ++ [identifier]) ++ following)) from
+        induction (prior ++ [identifier]) (by simpa [List.append_assoc] using isPrefix)]
+      simp [pure, StateT.pure, Except.pure, List.append_assoc]
+
+private theorem parseStatement_printed (program : Program) (printable : program.Printable)
+    (full prior : List VarId) (statement : Stmt)
+    (references : statement.FunctionReferencesInRange program.functions.size)
+    (isPrefix : prior ++ statement.variableOccurrences <+: full) :
+    (parseStatement (printedFunctionNames program) (stmtTokens program statement)).run
+        (printedVariableNames prior) =
+      .ok ([statement.renameVariables (canonicalRename full)],
+        printedVariableNames (prior ++ statement.variableOccurrences)) := by
+  cases statement with
+  | assign result value =>
+      cases value with
+      | constant value =>
+          simpa [Stmt.variableOccurrences, Stmt.renameVariables] using
+            parseStatement_assign_constant (printedFunctionNames program) full prior result value
+              isPrefix
+      | var source =>
+          simp only [Stmt.variableOccurrences, Expr.variableOccurrences, List.cons_append,
+            List.nil_append] at isPrefix ⊢
+          simp [stmtTokens, definitionTokens, exprTokens, parseStatement, statementParts,
+            variableTokens, variableToken, List.span, List.span.loop, Stmt.renameVariables,
+            Expr.renameVariables]
+          simp only [StateT.run, bind, StateT.bind, Except.bind]
+          rw [show liftNumbers [Token.identifier (variableName source)]
+                (printedVariableNames prior) =
+              .ok (([], [Token.identifier (variableName source)]),
+                printedVariableNames prior) from by
+            simpa [variableToken] using liftNumbers_variableTokens [source]
+              (printedVariableNames prior)]
+          simp only [Except.bind]
+          rw [show variableList [Token.identifier (variableName result)]
+              (printedVariableNames prior) =
+                .ok (#[canonicalRename full result],
+                  printedVariableNames (prior ++ [result])) from by
+            simpa [canonicalRename] using variableList_printed full prior [result]
+              ((show prior ++ [result] <+: prior ++ [result, source] from
+                ⟨[source], by simp⟩).trans isPrefix)]
+          simp only [parseMnemonic, operand, StateT.run, bind, StateT.bind, Except.bind]
+          rw [show internVariable (variableName source)
+              (printedVariableNames (prior ++ [result])) =
+                .ok (canonicalRename full source,
+                  printedVariableNames (prior ++ [result, source])) from by
+            simpa [canonicalRename, List.append_assoc] using
+              internVariable_canonical full (prior ++ [result]) source (by
+                simpa [List.append_assoc] using isPrefix)]
+          simp [StateT.run, pure, StateT.pure, Except.pure, List.append_assoc]
+      | add lhs rhs =>
+          simp only [Stmt.variableOccurrences, Expr.variableOccurrences, List.cons_append,
+            List.nil_append] at isPrefix ⊢
+          simp [stmtTokens, definitionTokens, exprTokens, parseStatement, statementParts,
+            variableTokens, variableToken, List.span, List.span.loop, Stmt.renameVariables,
+            Expr.renameVariables]
+          simp only [StateT.run, bind, StateT.bind, Except.bind]
+          rw [show liftNumbers
+                [Token.identifier (variableName lhs), Token.identifier (variableName rhs)]
+                (printedVariableNames prior) =
+              .ok (([], [Token.identifier (variableName lhs),
+                  Token.identifier (variableName rhs)]), printedVariableNames prior) from by
+            simpa [variableToken] using liftNumbers_variableTokens [lhs, rhs]
+              (printedVariableNames prior)]
+          simp only [Except.bind]
+          rw [show variableList [Token.identifier (variableName result)]
+              (printedVariableNames prior) =
+                .ok (#[canonicalRename full result],
+                  printedVariableNames (prior ++ [result])) from by
+            simpa [canonicalRename] using variableList_printed full prior [result]
+              ((show prior ++ [result] <+: prior ++ [result, lhs, rhs] from
+                ⟨[lhs, rhs], by simp⟩).trans isPrefix)]
+          simp only [parseMnemonic, operand, StateT.run, bind, StateT.bind, Except.bind]
+          rw [show internVariable (variableName lhs)
+              (printedVariableNames (prior ++ [result])) =
+                .ok (canonicalRename full lhs,
+                  printedVariableNames (prior ++ [result, lhs])) from by
+            simpa [canonicalRename, List.append_assoc] using
+              internVariable_canonical full (prior ++ [result]) lhs (by
+                simpa [List.append_assoc] using
+                  ((show prior ++ [result, lhs] <+: prior ++ [result, lhs, rhs] from
+                    ⟨[rhs], by simp⟩).trans isPrefix))]
+          simp only [pure, StateT.pure, Except.pure, Except.bind]
+          rw [show internVariable (variableName rhs)
+              (printedVariableNames (prior ++ [result, lhs])) =
+                .ok (canonicalRename full rhs,
+                  printedVariableNames (prior ++ [result, lhs, rhs])) from by
+            simpa [canonicalRename, List.append_assoc] using
+              internVariable_canonical full (prior ++ [result, lhs]) rhs (by
+                simpa [List.append_assoc] using isPrefix)]
+          simp [StateT.run, pure, StateT.pure, Except.pure, List.append_assoc]
+      | lt lhs rhs =>
+          simp only [Stmt.variableOccurrences, Expr.variableOccurrences, List.cons_append,
+            List.nil_append] at isPrefix ⊢
+          simp [stmtTokens, definitionTokens, exprTokens, parseStatement, statementParts,
+            variableTokens, variableToken, List.span, List.span.loop, Stmt.renameVariables,
+            Expr.renameVariables]
+          simp only [StateT.run, bind, StateT.bind, Except.bind]
+          rw [show liftNumbers
+                [Token.identifier (variableName lhs), Token.identifier (variableName rhs)]
+                (printedVariableNames prior) =
+              .ok (([], [Token.identifier (variableName lhs),
+                  Token.identifier (variableName rhs)]), printedVariableNames prior) from by
+            simpa [variableToken] using liftNumbers_variableTokens [lhs, rhs]
+              (printedVariableNames prior)]
+          simp only [Except.bind]
+          rw [show variableList [Token.identifier (variableName result)]
+              (printedVariableNames prior) =
+                .ok (#[canonicalRename full result],
+                  printedVariableNames (prior ++ [result])) from by
+            simpa [canonicalRename] using variableList_printed full prior [result]
+              ((show prior ++ [result] <+: prior ++ [result, lhs, rhs] from
+                ⟨[lhs, rhs], by simp⟩).trans isPrefix)]
+          simp only [parseMnemonic, operand, StateT.run, bind, StateT.bind, Except.bind]
+          rw [show internVariable (variableName lhs)
+              (printedVariableNames (prior ++ [result])) =
+                .ok (canonicalRename full lhs,
+                  printedVariableNames (prior ++ [result, lhs])) from by
+            simpa [canonicalRename, List.append_assoc] using
+              internVariable_canonical full (prior ++ [result]) lhs (by
+                simpa [List.append_assoc] using
+                  ((show prior ++ [result, lhs] <+: prior ++ [result, lhs, rhs] from
+                    ⟨[rhs], by simp⟩).trans isPrefix))]
+          simp only [pure, StateT.pure, Except.pure, Except.bind]
+          rw [show internVariable (variableName rhs)
+              (printedVariableNames (prior ++ [result, lhs])) =
+                .ok (canonicalRename full rhs,
+                  printedVariableNames (prior ++ [result, lhs, rhs])) from by
+            simpa [canonicalRename, List.append_assoc] using
+              internVariable_canonical full (prior ++ [result, lhs]) rhs (by
+                simpa [List.append_assoc] using isPrefix)]
+          simp [StateT.run, pure, StateT.pure, Except.pure, List.append_assoc]
+      | sload key =>
+          simp only [Stmt.variableOccurrences, Expr.variableOccurrences, List.cons_append,
+            List.nil_append] at isPrefix ⊢
+          simp [stmtTokens, definitionTokens, exprTokens, parseStatement, statementParts,
+            variableTokens, variableToken, List.span, List.span.loop, Stmt.renameVariables,
+            Expr.renameVariables]
+          simp only [StateT.run, bind, StateT.bind, Except.bind]
+          rw [show liftNumbers [Token.identifier (variableName key)]
+                (printedVariableNames prior) =
+              .ok (([], [Token.identifier (variableName key)]),
+                printedVariableNames prior) from by
+            simpa [variableToken] using liftNumbers_variableTokens [key]
+              (printedVariableNames prior)]
+          simp only [Except.bind]
+          rw [show variableList [Token.identifier (variableName result)]
+              (printedVariableNames prior) =
+                .ok (#[canonicalRename full result],
+                  printedVariableNames (prior ++ [result])) from by
+            simpa [canonicalRename] using variableList_printed full prior [result]
+              ((show prior ++ [result] <+: prior ++ [result, key] from
+                ⟨[key], by simp⟩).trans isPrefix)]
+          simp only [parseMnemonic, operand, StateT.run, bind, StateT.bind, Except.bind]
+          rw [show internVariable (variableName key)
+              (printedVariableNames (prior ++ [result])) =
+                .ok (canonicalRename full key,
+                  printedVariableNames (prior ++ [result, key])) from by
+            simpa [canonicalRename, List.append_assoc] using
+              internVariable_canonical full (prior ++ [result]) key (by
+                simpa [List.append_assoc] using isPrefix)]
+          simp [StateT.run, pure, StateT.pure, Except.pure, List.append_assoc]
+  | sstore key value =>
+      simp only [Stmt.variableOccurrences] at isPrefix ⊢
+      simp [stmtTokens, parseStatement, statementParts, parseMnemonic, liftNumbers,
+        variableToken, List.span, List.span.loop, Stmt.renameVariables]
+      simp only [StateT.run, bind, StateT.bind, Except.bind]
+      simp only [variableList, pure, StateT.pure, Except.pure, parseMnemonic, operand,
+        StateT.run, bind, StateT.bind, Except.bind]
+      rw [show internVariable (variableName key) (printedVariableNames prior) =
+          .ok (canonicalRename full key, printedVariableNames (prior ++ [key])) from by
+        simpa [canonicalRename] using internVariable_canonical full prior key
+          ((show prior ++ [key] <+: prior ++ [key, value] from ⟨[value], by simp⟩).trans
+            isPrefix)]
+      simp only [pure, StateT.pure, Except.pure, Except.bind, Functor.map, Except.map,
+        StateT.map]
+      simp only [StateT.bind, StateT.pure, Except.bind, Except.pure]
+      rw [show internVariable (variableName value) (printedVariableNames (prior ++ [key])) =
+          .ok (canonicalRename full value, printedVariableNames (prior ++ [key, value])) from by
+        simpa [canonicalRename, List.append_assoc] using
+          internVariable_canonical full (prior ++ [key]) value (by
+            simpa [List.append_assoc] using isPrefix)]
+      simp [StateT.run, bind, pure, StateT.pure, Except.pure, Except.bind,
+        List.append_assoc]
+  | gas result =>
+      simp only [Stmt.variableOccurrences] at isPrefix ⊢
+      simp [stmtTokens, definitionTokens, parseStatement, statementParts, parseMnemonic,
+        variableTokens, variableToken, List.span, List.span.loop, Stmt.renameVariables]
+      simp only [StateT.run, bind, StateT.bind, Except.bind]
+      rw [show liftNumbers [] (printedVariableNames prior) =
+          .ok (([], []), printedVariableNames prior) from by
+        simpa using liftNumbers_variableTokens [] (printedVariableNames prior)]
+      simp only [Except.bind]
+      rw [show variableList [Token.identifier (variableName result)]
+          (printedVariableNames prior) =
+            .ok (#[canonicalRename full result], printedVariableNames (prior ++ [result])) from by
+        simpa [canonicalRename] using variableList_printed full prior [result] isPrefix]
+      simp [parseMnemonic, StateT.run, pure, StateT.pure, Except.pure]
+  | call callData =>
+      rcases callData with ⟨callee, gas, result⟩
+      simp only [Stmt.variableOccurrences] at isPrefix ⊢
+      simp [stmtTokens, definitionTokens, parseStatement, statementParts, parseMnemonic,
+        liftNumbers, variableTokens, variableToken, List.span, List.span.loop,
+        Stmt.renameVariables]
+      simp only [StateT.run, bind, StateT.bind, Except.bind]
+      rw [show variableList [Token.identifier (variableName result)]
+          (printedVariableNames prior) =
+            .ok (#[canonicalRename full result], printedVariableNames (prior ++ [result])) from by
+        simpa [canonicalRename] using variableList_printed full prior [result]
+          ((show prior ++ [result] <+: prior ++ [result, gas, callee] from
+            ⟨[gas, callee], by simp⟩).trans isPrefix)]
+      simp only [parseMnemonic, operand, StateT.run, bind, StateT.bind, Except.bind]
+      rw [show internVariable (variableName gas) (printedVariableNames (prior ++ [result])) =
+          .ok (canonicalRename full gas, printedVariableNames (prior ++ [result, gas])) from by
+        simpa [canonicalRename, List.append_assoc] using
+          internVariable_canonical full (prior ++ [result]) gas (by
+            simpa [List.append_assoc] using
+              ((show prior ++ [result, gas] <+: prior ++ [result, gas, callee] from
+                ⟨[callee], by simp⟩).trans isPrefix))]
+      simp only [pure, StateT.pure, Except.pure, Except.bind, Functor.map, Except.map,
+        StateT.map]
+      simp only [StateT.bind, StateT.pure, Except.bind, Except.pure]
+      rw [show internVariable (variableName callee)
+          (printedVariableNames (prior ++ [result, gas])) =
+            .ok (canonicalRename full callee,
+              printedVariableNames (prior ++ [result, gas, callee])) from by
+        simpa [canonicalRename, List.append_assoc] using
+          internVariable_canonical full (prior ++ [result, gas]) callee (by
+            simpa [List.append_assoc] using isPrefix)]
+      simp [StateT.run, bind, pure, StateT.pure, Except.pure, Except.bind,
+        List.append_assoc]
+  | malloc result size | mallocUninit result size =>
+      simp only [Stmt.variableOccurrences] at isPrefix ⊢
+      simp [stmtTokens, definitionTokens, parseStatement, statementParts, parseMnemonic,
+        liftNumbers, variableTokens, variableToken, List.span, List.span.loop,
+        Stmt.renameVariables]
+      simp only [StateT.run, bind, StateT.bind, Except.bind]
+      rw [show variableList [Token.identifier (variableName result)]
+          (printedVariableNames prior) =
+            .ok (#[canonicalRename full result], printedVariableNames (prior ++ [result])) from by
+        simpa [canonicalRename] using variableList_printed full prior [result]
+          ((show prior ++ [result] <+: prior ++ [result, size] from
+            ⟨[size], by simp⟩).trans isPrefix)]
+      simp only [parseMnemonic, operand, StateT.run, bind, StateT.bind, Except.bind]
+      simp only [StateT.bind, pure, StateT.pure, Except.pure, Except.bind,
+        Functor.map, Except.map, StateT.map]
+      rw [show internVariable (variableName size) (printedVariableNames (prior ++ [result])) =
+          .ok (canonicalRename full size, printedVariableNames (prior ++ [result, size])) from by
+        simpa [canonicalRename, List.append_assoc] using
+          internVariable_canonical full (prior ++ [result]) size (by
+            simpa [List.append_assoc] using isPrefix)]
+      simp [StateT.run, bind, pure, StateT.pure, Except.pure, Except.bind,
+        List.append_assoc]
+  | mstore32 offset value =>
+      simp only [Stmt.variableOccurrences] at isPrefix ⊢
+      simp [stmtTokens, parseStatement, statementParts, parseMnemonic, liftNumbers,
+        variableToken, List.span, List.span.loop, Stmt.renameVariables]
+      simp only [StateT.run, bind, StateT.bind, Except.bind]
+      simp only [variableList, pure, StateT.pure, Except.pure, parseMnemonic, operand,
+        StateT.run, bind, StateT.bind, Except.bind]
+      rw [show internVariable (variableName offset) (printedVariableNames prior) =
+          .ok (canonicalRename full offset, printedVariableNames (prior ++ [offset])) from by
+        simpa [canonicalRename] using internVariable_canonical full prior offset
+          ((show prior ++ [offset] <+: prior ++ [offset, value] from ⟨[value], by simp⟩).trans
+            isPrefix)]
+      simp only [pure, StateT.pure, Except.pure, Except.bind, Functor.map, Except.map,
+        StateT.map]
+      simp only [StateT.bind, StateT.pure, Except.bind, Except.pure]
+      rw [show internVariable (variableName value) (printedVariableNames (prior ++ [offset])) =
+          .ok (canonicalRename full value, printedVariableNames (prior ++ [offset, value])) from by
+        simpa [canonicalRename, List.append_assoc] using
+          internVariable_canonical full (prior ++ [offset]) value (by
+            simpa [List.append_assoc] using isPrefix)]
+      simp [StateT.run, bind, pure, StateT.pure, Except.pure, Except.bind,
+        List.append_assoc]
+  | mload32 result offset =>
+      simp only [Stmt.variableOccurrences] at isPrefix ⊢
+      simp [stmtTokens, definitionTokens, parseStatement, statementParts, parseMnemonic,
+        liftNumbers, variableTokens, variableToken, List.span, List.span.loop,
+        Stmt.renameVariables]
+      simp only [StateT.run, bind, StateT.bind, Except.bind]
+      rw [show variableList [Token.identifier (variableName result)]
+          (printedVariableNames prior) =
+            .ok (#[canonicalRename full result], printedVariableNames (prior ++ [result])) from by
+        simpa [canonicalRename] using variableList_printed full prior [result]
+          ((show prior ++ [result] <+: prior ++ [result, offset] from
+            ⟨[offset], by simp⟩).trans isPrefix)]
+      simp only [parseMnemonic, operand, StateT.run, bind, StateT.bind, Except.bind]
+      simp only [StateT.bind, pure, StateT.pure, Except.pure, Except.bind,
+        Functor.map, Except.map, StateT.map]
+      rw [show internVariable (variableName offset) (printedVariableNames (prior ++ [result])) =
+          .ok (canonicalRename full offset, printedVariableNames (prior ++ [result, offset])) from by
+        simpa [canonicalRename, List.append_assoc] using
+          internVariable_canonical full (prior ++ [result]) offset (by
+            simpa [List.append_assoc] using isPrefix)]
+      simp [StateT.run, bind, pure, StateT.pure, Except.pure, Except.bind,
+        List.append_assoc]
+  | icall callee args dests =>
+      rcases args with ⟨args⟩
+      rcases dests with ⟨dests⟩
+      simp only [Stmt.variableOccurrences,
+        Stmt.FunctionReferencesInRange] at references isPrefix ⊢
+      cases dests with
+      | nil =>
+          simp only [List.nil_append] at isPrefix ⊢
+          simp [stmtTokens, definitionTokens, variableTokens]
+          rw [parseStatement]
+          rw [statementParts_icall_no_results]
+          simp
+          simp only [StateT.run, bind, StateT.bind, Except.bind]
+          rw [show liftNumbers
+                (Token.label (functionName program callee) :: args.map variableToken)
+                (printedVariableNames prior) =
+              .ok (([], Token.label (functionName program callee) :: args.map variableToken),
+                printedVariableNames prior) from
+            liftNumbers_icall (functionName program callee) args _]
+          simp only [Except.bind]
+          rw [show variableList [] (printedVariableNames prior) =
+              .ok (#[], printedVariableNames prior) from by
+            simpa using variableList_printed full prior []
+              (by simpa using
+                ((show prior <+: prior ++ args from ⟨args, rfl⟩).trans isPrefix))]
+          simp only [Except.bind]
+          simp only [parseMnemonic, StateT.run, bind, StateT.bind, Except.bind]
+          rw [printedFunctionNames_findIdx program printable callee references]
+          simp only [StateT.bind, Except.bind]
+          rw [show operands (args.map variableToken) (printedVariableNames prior) =
+              .ok (([], args.map (canonicalRename full) |>.toArray),
+                printedVariableNames (prior ++ args)) from
+            operands_printed full prior args isPrefix]
+          simp [parseMnemonic, StateT.run, bind, pure, StateT.pure, Except.bind,
+            Except.pure, Stmt.renameVariables]
+      | cons destination following =>
+          simp only [List.cons_append] at isPrefix ⊢
+          simp [stmtTokens, definitionTokens, variableTokens]
+          rw [parseStatement]
+          rw [show statementParts
+                (variableToken destination ::
+                  (following.map variableToken ++ Token.equals ::
+                    Token.identifier "icall" :: Token.label (functionName program callee) ::
+                      args.map variableToken)) =
+              ((destination :: following).map variableToken,
+                Token.identifier "icall" :: Token.label (functionName program callee) ::
+                  args.map variableToken) from by
+            simpa [List.map_cons, List.cons_append] using
+              statementParts_icall_results (destination :: following) args
+                (functionName program callee) (by simp)]
+          simp
+          simp only [StateT.run, bind, StateT.bind, Except.bind]
+          rw [show liftNumbers
+                (Token.label (functionName program callee) :: args.map variableToken)
+                (printedVariableNames prior) =
+              .ok (([], Token.label (functionName program callee) :: args.map variableToken),
+                printedVariableNames prior) from
+            liftNumbers_icall (functionName program callee) args _]
+          simp only [Except.bind]
+          rw [show variableList
+                (variableToken destination :: following.map variableToken)
+                (printedVariableNames prior) =
+              .ok ((destination :: following).map (canonicalRename full) |>.toArray,
+                printedVariableNames (prior ++ destination :: following)) from
+            by
+              simpa [List.map_cons] using
+                variableList_printed full prior (destination :: following)
+                  ((show prior ++ destination :: following <+:
+                      prior ++ (destination :: following) ++ args from
+                    ⟨args, by simp⟩).trans
+                    (by simpa [List.append_assoc] using isPrefix))]
+          simp only [Except.bind]
+          simp only [parseMnemonic, StateT.run, bind, StateT.bind, Except.bind]
+          rw [printedFunctionNames_findIdx program printable callee references]
+          simp only [StateT.bind, Except.bind]
+          rw [show operands (args.map variableToken)
+                (printedVariableNames (prior ++ destination :: following)) =
+              .ok (([], args.map (canonicalRename full) |>.toArray),
+                printedVariableNames ((prior ++ destination :: following) ++ args)) from
+            operands_printed full (prior ++ destination :: following) args (by
+              simpa [List.append_assoc] using isPrefix)]
+          simp [parseMnemonic, StateT.run, bind, pure, StateT.pure, Except.bind,
+            Except.pure, List.append_assoc, Stmt.renameVariables]
 
 namespace Examples
 
