@@ -86,6 +86,36 @@ def Program.canonicalVariable (program : Program) (identifier : VarId) : VarId :
 def Program.canonicalize (program : Program) : Program :=
   program.renameVariables program.canonicalVariable
 
+def Stmt.FunctionReferencesInRange (functionCount : Nat) : Stmt → Prop
+  | .icall callee _ _ => callee.id < functionCount
+  | _ => True
+
+def Terminator.BlockReferencesInRange (blockCount : Nat) : Terminator → Prop
+  | .jump target => target.id < blockCount
+  | .branch _ thenTarget elseTarget =>
+      thenTarget.id < blockCount ∧ elseTarget.id < blockCount
+  | _ => True
+
+def Block.ReferencesInRange (functionCount blockCount : Nat)
+    (block : Block) : Prop :=
+  (∀ statement ∈ block.statements,
+    statement.FunctionReferencesInRange functionCount) ∧
+  block.terminator.BlockReferencesInRange blockCount
+
+def Function.Printable (functionCount : Nat) (function : Function) : Prop :=
+  function.entry = ⟨0⟩ ∧
+  ∀ block ∈ function.blocks,
+    block.ReferencesInRange functionCount function.blocks.size
+
+def Program.Printable (program : Program) : Prop :=
+  program.initEntry.id < program.functions.size ∧
+  (match program.mainEntry with
+    | none => True
+    | some mainEntry =>
+        mainEntry.id < program.functions.size ∧ mainEntry ≠ program.initEntry) ∧
+  ∀ function ∈ program.functions,
+    function.Printable program.functions.size
+
 def Program.Canonical (program : Program) : Prop :=
   program.canonicalize = program
 
@@ -161,6 +191,45 @@ theorem renameVariables_compose (outer inner : VarId → VarId) (program : Progr
       program.renameVariables (outer ∘ inner) := by
   cases program
   simp [Program.renameVariables, Function.comp_def]
+
+private theorem Stmt.functionReferencesInRange_renameVariables
+    (rename : VarId → VarId) (functionCount : Nat) (statement : Stmt) :
+    (statement.renameVariables rename).FunctionReferencesInRange functionCount ↔
+      statement.FunctionReferencesInRange functionCount := by
+  cases statement <;> simp [Stmt.renameVariables, Stmt.FunctionReferencesInRange]
+
+private theorem Terminator.blockReferencesInRange_renameVariables
+    (rename : VarId → VarId) (blockCount : Nat) (terminator : Terminator) :
+    (terminator.renameVariables rename).BlockReferencesInRange blockCount ↔
+      terminator.BlockReferencesInRange blockCount := by
+  cases terminator <;>
+    simp [Terminator.renameVariables, Terminator.BlockReferencesInRange]
+
+private theorem Block.referencesInRange_renameVariables
+    (rename : VarId → VarId) (functionCount blockCount : Nat)
+    (block : Block) :
+    (block.renameVariables rename).ReferencesInRange functionCount blockCount ↔
+      block.ReferencesInRange functionCount blockCount := by
+  simp [Block.renameVariables, Block.ReferencesInRange,
+    Stmt.functionReferencesInRange_renameVariables,
+    Terminator.blockReferencesInRange_renameVariables]
+
+private theorem Function.printable_renameVariables
+    (rename : VarId → VarId) (functionCount : Nat) (function : Function) :
+    (function.renameVariables rename).Printable functionCount ↔
+      function.Printable functionCount := by
+  simp [Function.renameVariables, Function.Printable,
+    Block.referencesInRange_renameVariables]
+
+theorem Printable.renameVariables {program : Program} (printable : program.Printable)
+    (rename : VarId → VarId) :
+    (program.renameVariables rename).Printable := by
+  simpa [Program.Printable, Program.renameVariables,
+    Function.printable_renameVariables] using printable
+
+theorem Printable.canonicalize {program : Program} (printable : program.Printable) :
+    program.canonicalize.Printable := by
+  exact printable.renameVariables program.canonicalVariable
 
 @[simp] theorem Expr.variableOccurrences_renameVariables (rename : VarId → VarId)
     (value : Expr) :
