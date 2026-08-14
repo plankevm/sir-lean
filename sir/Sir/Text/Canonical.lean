@@ -530,5 +530,41 @@ theorem alphaEquiv_iff_canonicalize_eq {left right : Program} :
     exact AlphaEquiv.trans (AlphaEquiv.symm (canonicalize_alphaEquiv left))
       (hequal ▸ canonicalize_alphaEquiv right)
 
+instance alphaEquivalenceSetoid : Setoid Program where
+  r := AlphaEquiv
+  iseqv := {
+    refl := AlphaEquiv.refl
+    symm := AlphaEquiv.symm
+    trans := AlphaEquiv.trans }
+
+theorem canonicalize_canonical (program : Program) :
+    program.canonicalize.Canonical :=
+  alphaEquiv_iff_canonicalize_eq.mp (canonicalize_alphaEquiv program)
+
+def canonicalizeEquivalenceClass :
+    Quotient alphaEquivalenceSetoid → { program : Program // program.Canonical } :=
+  Quotient.lift
+    (fun program => ⟨program.canonicalize, canonicalize_canonical program⟩)
+    (fun _ _ equivalent => Subtype.ext (alphaEquiv_iff_canonicalize_eq.mp equivalent))
+
+private def canonicalProgramEquivalenceClass :
+    { program : Program // program.Canonical } → Quotient alphaEquivalenceSetoid :=
+  fun program => Quotient.mk alphaEquivalenceSetoid program
+
+private theorem canonicalProgramEquivalenceClass_leftInverse :
+    Function.LeftInverse canonicalProgramEquivalenceClass canonicalizeEquivalenceClass := by
+  intro equivalenceClass
+  refine Quotient.inductionOn equivalenceClass ?_
+  intro program
+  exact Quotient.sound (canonicalize_alphaEquiv program)
+
+theorem canonicalizeEquivalenceClass_bijective :
+    Function.Bijective canonicalizeEquivalenceClass := by
+  constructor
+  · exact canonicalProgramEquivalenceClass_leftInverse.injective
+  · intro program
+    refine ⟨canonicalProgramEquivalenceClass program, ?_⟩
+    exact Subtype.ext program.property
+
 end Program
 end Sir.Vars
