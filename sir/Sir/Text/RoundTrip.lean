@@ -1266,6 +1266,65 @@ private theorem parseBlockHeader_printed (full prior : List VarId) (identifier :
           (by simpa [List.append_assoc] using isPrefix)]
     simp [StateT.run, pure, StateT.pure, Except.pure, List.append_assoc]
 
+private theorem parseBlock_printed (program : Program) (printable : program.Printable)
+    (function : Function) (full prior : List VarId) (identifier : BlockId)
+    (block : Block)
+    (references : block.ReferencesInRange program.functions.size function.blocks.size)
+    (isPrefix : prior ++ block.variableOccurrences <+: full) :
+    (parseBlock (printedFunctionNames program) (printedBlockNames function)
+      ([Token.identifier (blockName identifier)] ++ variableTokens block.inputs ++
+        (if block.outputs.isEmpty then [] else
+          Token.arrow :: variableTokens block.outputs) ++ [Token.leftBrace])
+      (block.statements.toList.map (stmtTokens program) ++
+        [terminatorTokens block.terminator])).run (printedVariableNames prior) =
+      .ok (block.renameVariables (canonicalRename full),
+        printedVariableNames (prior ++ block.variableOccurrences)) := by
+  rcases references with ⟨statementReferences, terminatorReferences⟩
+  simp only [parseBlock, StateT.run, bind, StateT.bind, Except.bind]
+  rw [show parseBlockHeader
+        ([Token.identifier (blockName identifier)] ++ variableTokens block.inputs ++
+          (if block.outputs.isEmpty then [] else
+            Token.arrow :: variableTokens block.outputs) ++ [Token.leftBrace])
+        (printedVariableNames prior) =
+      .ok ((block.inputs.map (canonicalRename full),
+        block.outputs.map (canonicalRename full)),
+        printedVariableNames
+          (prior ++ block.inputs.toList ++ block.outputs.toList)) from
+    parseBlockHeader_printed full prior identifier block
+      ((show prior ++ block.inputs.toList ++ block.outputs.toList <+:
+          prior ++ block.variableOccurrences from
+        ⟨block.statements.toList.flatMap Stmt.variableOccurrences ++
+            block.terminator.variableOccurrences,
+          by simp [Block.variableOccurrences, List.append_assoc]⟩).trans isPrefix)]
+  simp only [Except.bind]
+  rw [show parseBlockBody (printedFunctionNames program) (printedBlockNames function)
+        (block.statements.toList.map (stmtTokens program) ++
+          [terminatorTokens block.terminator])
+        (printedVariableNames
+          (prior ++ block.inputs.toList ++ block.outputs.toList)) =
+      .ok (((block.statements.toList.map
+          (·.renameVariables (canonicalRename full))).toArray,
+        block.terminator.renameVariables (canonicalRename full)),
+        printedVariableNames
+          ((prior ++ block.inputs.toList ++ block.outputs.toList) ++
+            block.statements.toList.flatMap Stmt.variableOccurrences ++
+              block.terminator.variableOccurrences)) from
+    parseBlockBody_printed program printable function full
+      (prior ++ block.inputs.toList ++ block.outputs.toList) block.statements.toList
+      block.terminator
+      (fun statement member => statementReferences statement (by simpa using member))
+      terminatorReferences (by
+        simpa [Block.variableOccurrences, List.append_assoc] using isPrefix)]
+  have statementMap :
+      (block.statements.toList.map
+          (·.renameVariables (canonicalRename full))).toArray =
+        block.statements.map (·.renameVariables (canonicalRename full)) := by
+    cases block.statements
+    simp
+  rw [statementMap]
+  simp [Block.renameVariables, Block.variableOccurrences, StateT.run, bind,
+    pure, StateT.pure, Except.bind, Except.pure, List.append_assoc]
+
 namespace Examples
 
 def witnessAddPrinted : String :=
