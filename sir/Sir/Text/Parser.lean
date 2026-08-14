@@ -255,8 +255,7 @@ def parseTokens (tokens : List Token) : Except String Program :=
 def parse (source : String) : Except String Program :=
   parseTokens (tokenize source)
 
-/-- Smart unfolding copies the unreduced lexer term held in the interning state once per
-unfolding attempt; plain delta reduction does not. -/
+-- Smart unfolding copies the unreduced lexer term once per unfolding attempt; delta does not.
 macro "parse_rfl" : tactic =>
   `(tactic| set_option smartUnfolding false in set_option maxRecDepth 100000 in rfl)
 

@@ -13,7 +13,7 @@ deriving Repr
 
 abbrev CheckM := Except Diagnostic
 
-/-- A check that hands back a proof of `P` when it succeeds. -/
+-- A check that hands back a proof of `P` when it succeeds.
 abbrev Ensures (P : Prop) := CheckM (PLift P)
 
 def ensure (diagnostic : Diagnostic) (P : Prop) [Decidable P] : Ensures P :=
