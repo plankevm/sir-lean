@@ -1800,6 +1800,20 @@ theorem parse_print_canonicalize {program : Program}
   rw [parse, tokenize_print]
   exact parseTokens_programTokens program printable
 
+theorem parse_print {source : String} {program : Program}
+    (parsed : parse source = .ok program) :
+    parse (print program) = .ok program := by
+  rw [parse_print_canonicalize (parse_printable parsed), parse_canonical parsed]
+
+theorem parse_print_alphaEquiv {program parsedProgram : Program}
+    (printable : program.Printable)
+    (parsed : parse (print program) = .ok parsedProgram) :
+    parsedProgram.AlphaEquiv program := by
+  have canonicalized : parsedProgram = program.canonicalize :=
+    Except.ok.inj (parsed.symm.trans (parse_print_canonicalize printable))
+  rw [canonicalized]
+  exact Program.canonicalize_alphaEquiv program
+
 namespace Examples
 
 def witnessAddPrinted : String :=
