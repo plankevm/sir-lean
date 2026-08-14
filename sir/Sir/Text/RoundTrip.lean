@@ -1049,6 +1049,73 @@ private theorem parseStatement_printed (program : Program) (printable : program.
           simp [parseMnemonic, StateT.run, bind, pure, StateT.pure, Except.bind,
             Except.pure, List.append_assoc, Stmt.renameVariables]
 
+private def printedBlockNames (function : Function) : List String :=
+  function.blocks.toList.zipIdx.map fun pair => blockName ⟨pair.2⟩
+
+private theorem printedBlockNames_length (function : Function) :
+    (printedBlockNames function).length = function.blocks.size := by
+  simp [printedBlockNames]
+
+private theorem printedBlockNames_getElem (function : Function) (index : Nat)
+    (bound : index < (printedBlockNames function).length) :
+    (printedBlockNames function)[index] = blockName ⟨index⟩ := by
+  simp [printedBlockNames]
+
+private theorem printedBlockNames_findIdx (function : Function) (identifier : BlockId)
+    (bound : identifier.id < function.blocks.size) :
+    (printedBlockNames function).findIdx? (· == blockName identifier) =
+      some identifier.id := by
+  rw [List.findIdx?_eq_some_iff_findIdx_eq]
+  have listBound : identifier.id < (printedBlockNames function).length := by
+    simpa [printedBlockNames_length] using bound
+  refine ⟨listBound, (List.findIdx_eq listBound).2 ⟨?_, ?_⟩⟩
+  · simp [printedBlockNames_getElem]
+  · intro index indexBound
+    simp only [beq_eq_false_iff_ne]
+    intro equality
+    have nameEquality : blockName ⟨index⟩ = blockName identifier := by
+      rw [← printedBlockNames_getElem function index (by omega)]
+      exact equality
+    have identifiersEqual : (⟨index⟩ : BlockId) = identifier := by
+      cases identifier
+      simp [blockName] at nameEquality ⊢
+      exact nameEquality
+    exact Nat.ne_of_lt indexBound (congrArg BlockId.id identifiersEqual)
+
+private theorem parseTerminator_printed (function : Function) (full prior : List VarId)
+    (terminator : Terminator)
+    (references : terminator.BlockReferencesInRange function.blocks.size)
+    (isPrefix : prior ++ terminator.variableOccurrences <+: full) :
+    (parseTerminator (printedBlockNames function) (terminatorTokens terminator)).run
+        (printedVariableNames prior) =
+      .ok (terminator.renameVariables (canonicalRename full),
+        printedVariableNames (prior ++ terminator.variableOccurrences)) := by
+  cases terminator with
+  | halt => simp [parseTerminator, terminatorTokens, Terminator.renameVariables,
+      Terminator.variableOccurrences, StateT.run, pure, StateT.pure, Except.pure]
+  | iret => simp [parseTerminator, terminatorTokens, Terminator.renameVariables,
+      Terminator.variableOccurrences, StateT.run, pure, StateT.pure, Except.pure]
+  | jump target =>
+      simp only [Terminator.BlockReferencesInRange] at references
+      simp [parseTerminator, terminatorTokens, resolveBlock, Terminator.renameVariables,
+        Terminator.variableOccurrences, StateT.run, bind, StateT.bind, Except.bind]
+      rw [printedBlockNames_findIdx function target references]
+      simp [pure, StateT.pure, Except.pure]
+  | branch condition thenTarget elseTarget =>
+      rcases references with ⟨thenBound, elseBound⟩
+      simp only [Terminator.variableOccurrences] at isPrefix ⊢
+      simp [parseTerminator, terminatorTokens, resolveBlock, Terminator.renameVariables,
+        variableToken, StateT.run, bind, StateT.bind, Except.bind]
+      rw [show internVariable (variableName condition) (printedVariableNames prior) =
+          .ok (canonicalRename full condition, printedVariableNames (prior ++ [condition])) from by
+        simpa [canonicalRename] using
+          internVariable_canonical full prior condition isPrefix]
+      simp only [Except.bind]
+      rw [printedBlockNames_findIdx function thenTarget thenBound]
+      simp only [Except.bind]
+      rw [printedBlockNames_findIdx function elseTarget elseBound]
+      simp [pure, StateT.pure, Except.pure]
+
 namespace Examples
 
 def witnessAddPrinted : String :=
