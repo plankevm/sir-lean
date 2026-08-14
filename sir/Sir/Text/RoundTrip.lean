@@ -1177,6 +1177,95 @@ private theorem parseBlockBody_printed (program : Program) (printable : program.
           (by simpa [List.append_assoc] using isPrefix')]
       simp [pure, StateT.pure, Except.pure, List.append_assoc]
 
+@[simp] private theorem variableToken_ne_arrow (identifier : VarId) :
+    (variableToken identifier != Token.arrow) = true := by
+  rfl
+
+private theorem spanVariableTokensToEndAux (identifiers : List VarId)
+    (accumulated : List Token) :
+    List.span.loop (· != Token.arrow) (identifiers.map variableToken) accumulated =
+      (accumulated.reverse ++ identifiers.map variableToken, []) := by
+  induction identifiers generalizing accumulated with
+  | nil => simp [List.span.loop]
+  | cons identifier following induction =>
+      simp only [List.map_cons, List.span.loop, variableToken_ne_arrow, if_true]
+      rw [induction (variableToken identifier :: accumulated)]
+      simp
+
+private theorem spanVariableTokensToEnd (identifiers : List VarId) :
+    (identifiers.map variableToken).span (· != Token.arrow) =
+      (identifiers.map variableToken, []) := by
+  simpa [List.span] using spanVariableTokensToEndAux identifiers []
+
+private theorem spanVariableTokensToArrowAux (identifiers : List VarId)
+    (rest accumulated : List Token) :
+    List.span.loop (· != Token.arrow)
+        (identifiers.map variableToken ++ Token.arrow :: rest) accumulated =
+      (accumulated.reverse ++ identifiers.map variableToken, Token.arrow :: rest) := by
+  induction identifiers generalizing accumulated with
+  | nil => simp [List.span.loop]
+  | cons identifier following induction =>
+      simp only [List.map_cons, List.cons_append, List.span.loop, variableToken_ne_arrow,
+        if_true]
+      rw [induction (variableToken identifier :: accumulated)]
+      simp
+
+private theorem spanVariableTokensToArrow (identifiers : List VarId) (rest : List Token) :
+    (identifiers.map variableToken ++ Token.arrow :: rest).span (· != Token.arrow) =
+      (identifiers.map variableToken, Token.arrow :: rest) := by
+  simpa [List.span] using spanVariableTokensToArrowAux identifiers rest []
+
+private theorem parseBlockHeader_printed (full prior : List VarId) (identifier : BlockId)
+    (block : Block)
+    (isPrefix : prior ++ block.inputs.toList ++ block.outputs.toList <+: full) :
+    (parseBlockHeader
+      ([Token.identifier (blockName identifier)] ++ variableTokens block.inputs ++
+        (if block.outputs.isEmpty then [] else
+          Token.arrow :: variableTokens block.outputs) ++ [Token.leftBrace])).run
+        (printedVariableNames prior) =
+      .ok ((block.inputs.map (canonicalRename full),
+        block.outputs.map (canonicalRename full)),
+        printedVariableNames (prior ++ block.inputs.toList ++ block.outputs.toList)) := by
+  rcases block with ⟨inputs, statements, terminator, outputs⟩
+  rcases inputs with ⟨inputs⟩
+  rcases outputs with ⟨outputs⟩
+  cases outputs with
+  | nil =>
+    simp only [List.append_nil] at isPrefix ⊢
+    simp [parseBlockHeader, variableTokens, spanVariableTokensToEnd]
+    rw [← List.span_eq_takeWhile_dropWhile, spanVariableTokensToEnd]
+    simp only
+    rw [show StateT.run (variableList (inputs.map variableToken))
+          (printedVariableNames prior) =
+        .ok (inputs.map (canonicalRename full) |>.toArray,
+          printedVariableNames (prior ++ inputs)) from
+      variableList_printed full prior inputs (by
+        simpa using isPrefix)]
+    simp [variableList, StateT.run, bind, StateT.bind, pure, StateT.pure,
+      Except.bind, Except.pure, Functor.map, Except.map, StateT.map]
+  | cons output following =>
+    simp only at isPrefix ⊢
+    simp [parseBlockHeader, variableTokens]
+    rw [← List.span_eq_takeWhile_dropWhile, spanVariableTokensToArrow]
+    simp only
+    rw [show StateT.run (variableList (inputs.map variableToken))
+          (printedVariableNames prior) =
+        .ok (inputs.map (canonicalRename full) |>.toArray,
+          printedVariableNames (prior ++ inputs)) from
+      variableList_printed full prior inputs
+        ((show prior ++ inputs <+: prior ++ inputs ++ output :: following from
+          ⟨output :: following, rfl⟩).trans isPrefix)]
+    simp only [bind, Except.bind]
+    rw [show StateT.run
+          (variableList (variableToken output :: following.map variableToken))
+          (printedVariableNames (prior ++ inputs)) =
+        .ok ((output :: following).map (canonicalRename full) |>.toArray,
+          printedVariableNames ((prior ++ inputs) ++ output :: following)) from by
+      simpa [List.map_cons] using
+        variableList_printed full (prior ++ inputs) (output :: following)
+          (by simpa [List.append_assoc] using isPrefix)]
+    simp [StateT.run, pure, StateT.pure, Except.pure, List.append_assoc]
+
 namespace Examples
 
 def witnessAddPrinted : String :=
