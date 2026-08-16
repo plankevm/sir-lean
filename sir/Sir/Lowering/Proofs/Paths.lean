@@ -861,8 +861,8 @@ theorem Proofs.spillAll_accepted : spillAll.Accepted := by
               simpa [Symbolic.definesOnce, spillAll.singleAssignment] using single
             have checkedReplay : StackSchedule.Block.replay statements
                 targetInstructions.toList (Symbolic.State.initial #[]) = .ok finalState :=
-              StackSchedule.Block.replay_complete statements targetInstructions.toList
-                (Symbolic.State.initial #[]) finalState (by simpa using replay)
+              (StackSchedule.Block.replay_eq_ok_iff statements targetInstructions.toList
+                (Symbolic.State.initial #[]) finalState).mpr (by simpa using replay)
             have noUnavailable : StackSchedule.firstUnavailable statements.toList [] = none := by
               apply (StackSchedule.firstUnavailable_none_iff _ _).mpr
               simpa [Symbolic.readsAvailable] using usesAvailable

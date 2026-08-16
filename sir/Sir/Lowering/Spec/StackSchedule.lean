@@ -124,17 +124,18 @@ def StackSchedule.unfiredStatements (statements : List Vars.Stmt) (fired : List 
       else
         statement :: StackSchedule.unfiredStatements remaining fired (index + 1)
 
+def StackSchedule.rejection : Stack.Instr → StackSchedule.Error
+  | .icall callee argumentCount resultCount =>
+      .unsupportedInstruction (.icall callee argumentCount resultCount)
+  | instruction => .operandMismatch instruction
+
 def StackSchedule.Block.replay (sourceStatements : Array Vars.Stmt) :
     List Stack.Instr → Symbolic.State → Except StackSchedule.Error Symbolic.State
   | [], state => .ok state
   | instruction :: remaining, state =>
-      match instruction with
-      | .icall callee argumentCount resultCount =>
-          .error (.unsupportedInstruction (.icall callee argumentCount resultCount))
-      | instruction =>
-          match Symbolic.execute sourceStatements state instruction with
-          | none => .error (.operandMismatch instruction)
-          | some next => StackSchedule.Block.replay sourceStatements remaining next
+      match Symbolic.execute sourceStatements state instruction with
+      | none => .error (StackSchedule.rejection instruction)
+      | some next => StackSchedule.Block.replay sourceStatements remaining next
 
 def StackSchedule.Block.checkFinalStack (block : StackSchedule.Block)
     (finalState : Symbolic.State) : Except StackSchedule.Error Unit :=
