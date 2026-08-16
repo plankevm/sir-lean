@@ -2,18 +2,18 @@ import Sir.Theorems
 
 namespace Sir.Lowering
 
-private theorem functionCertificate_evaluation_equivalence
-    (certificate : StackSchedule)
-    (accepted : certificate.check = .ok ())
+private theorem schedule_evaluation_equivalence
+    (schedule : StackSchedule)
+    (accepted : schedule.check = .ok ())
     (ctx : CallContext) (globals finalGlobals : Globals) (args : Array Word) (trace : Trace)
     (outcome : FunctionOutcome) :
-    Vars.EvalFn certificate.vars ctx ⟨0⟩ globals args trace finalGlobals outcome ↔
-      Stack.EvalFn certificate.stack ctx
+    Vars.EvalFn schedule.vars ctx ⟨0⟩ globals args trace finalGlobals outcome ↔
+      Stack.EvalFn schedule.stack ctx
         ⟨0⟩ globals args trace finalGlobals outcome := by
-  exact certificate.equiv accepted ctx ⟨0⟩ globals args trace finalGlobals outcome
+  exact schedule.equiv accepted ctx ⟨0⟩ globals args trace finalGlobals outcome
 
-def straightLineCorpusCertificate : StackSchedule where
-  blocks := #[{
+def straightLineCorpusSchedule : StackSchedule where
+  entry := {
     vars := {
       statements := #[
         .assign ⟨0⟩ (.constant 1),
@@ -30,24 +30,24 @@ def straightLineCorpusCertificate : StackSchedule where
         .op (.constant 2),
         .swap 1,
         .op .add]
-      terminator := .halt } }]
-  entry := ⟨0⟩
+      terminator := .halt } }
+  rest := #[]
 
 theorem straightLineCorpus_accepted :
-    straightLineCorpusCertificate.check = .ok () := by decide +kernel
+    straightLineCorpusSchedule.check = .ok () := by decide +kernel
 
 theorem straightLineCorpus_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (trace : Trace)
     (outcome : FunctionOutcome) :
-    Vars.EvalFn straightLineCorpusCertificate.vars ctx ⟨0⟩ globals #[] trace
+    Vars.EvalFn straightLineCorpusSchedule.vars ctx ⟨0⟩ globals #[] trace
         finalGlobals outcome ↔
-      Stack.EvalFn straightLineCorpusCertificate.stack ctx
+      Stack.EvalFn straightLineCorpusSchedule.stack ctx
         ⟨0⟩ globals #[] trace finalGlobals outcome := by
-  exact functionCertificate_evaluation_equivalence straightLineCorpusCertificate
+  exact schedule_evaluation_equivalence straightLineCorpusSchedule
     straightLineCorpus_accepted ctx globals finalGlobals #[] trace outcome
 
-def diamondCorpusCertificate : StackSchedule where
-  blocks := #[
+def diamondCorpusSchedule : StackSchedule where
+  entry :=
     { vars := {
         statements := #[
         .assign ⟨0⟩ (.constant 0),
@@ -65,7 +65,8 @@ def diamondCorpusCertificate : StackSchedule where
         .dup 0,
         .swap 2,
         .op .lt]
-        terminator := .jump ⟨1⟩ } },
+        terminator := .jump ⟨1⟩ } }
+  rest := #[
     { vars := {
         statements := #[]
         inputs := #[⟨3⟩, ⟨4⟩]
@@ -118,23 +119,22 @@ def diamondCorpusCertificate : StackSchedule where
       stack := {
         instructions := #[]
         terminator := .halt } }]
-  entry := ⟨0⟩
 
 theorem diamondCorpus_accepted :
-    diamondCorpusCertificate.check = .ok () := by decide +kernel
+    diamondCorpusSchedule.check = .ok () := by decide +kernel
 
 theorem diamondCorpus_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (trace : Trace)
     (outcome : FunctionOutcome) :
-    Vars.EvalFn diamondCorpusCertificate.vars ctx ⟨0⟩ globals #[] trace
+    Vars.EvalFn diamondCorpusSchedule.vars ctx ⟨0⟩ globals #[] trace
         finalGlobals outcome ↔
-      Stack.EvalFn diamondCorpusCertificate.stack ctx
+      Stack.EvalFn diamondCorpusSchedule.stack ctx
         ⟨0⟩ globals #[] trace finalGlobals outcome := by
-  exact functionCertificate_evaluation_equivalence diamondCorpusCertificate
+  exact schedule_evaluation_equivalence diamondCorpusSchedule
     diamondCorpus_accepted ctx globals finalGlobals #[] trace outcome
 
-def loopCorpusCertificate : StackSchedule where
-  blocks := #[
+def loopCorpusSchedule : StackSchedule where
+  entry :=
     { vars := {
         statements := #[
         .assign ⟨0⟩ (.constant 0),
@@ -149,7 +149,8 @@ def loopCorpusCertificate : StackSchedule where
         .op (.constant 0),
         .op (.constant 3),
         .swap 1]
-        terminator := .jump ⟨1⟩ } },
+        terminator := .jump ⟨1⟩ } }
+  rest := #[
     { vars := {
         statements := #[.assign ⟨4⟩ (.lt ⟨2⟩ ⟨3⟩)]
         inputs := #[⟨2⟩, ⟨3⟩]
@@ -188,18 +189,17 @@ def loopCorpusCertificate : StackSchedule where
       stack := {
         instructions := #[]
         terminator := .halt } }]
-  entry := ⟨0⟩
 
-theorem loopCorpus_accepted : loopCorpusCertificate.check = .ok () := by decide +kernel
+theorem loopCorpus_accepted : loopCorpusSchedule.check = .ok () := by decide +kernel
 
 theorem loopCorpus_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (trace : Trace)
     (outcome : FunctionOutcome) :
-    Vars.EvalFn loopCorpusCertificate.vars ctx ⟨0⟩ globals #[] trace
+    Vars.EvalFn loopCorpusSchedule.vars ctx ⟨0⟩ globals #[] trace
         finalGlobals outcome ↔
-      Stack.EvalFn loopCorpusCertificate.stack ctx
+      Stack.EvalFn loopCorpusSchedule.stack ctx
         ⟨0⟩ globals #[] trace finalGlobals outcome := by
-  exact functionCertificate_evaluation_equivalence loopCorpusCertificate
+  exact schedule_evaluation_equivalence loopCorpusSchedule
     loopCorpus_accepted ctx globals finalGlobals #[] trace outcome
 
 end Sir.Lowering

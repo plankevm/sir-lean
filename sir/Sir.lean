@@ -1,6 +1,6 @@
 import Sir.Theorems
 import Sir.Lowering.Spec
-import Sir.Lowering.Proofs.Replay
+import Sir.Lowering.Proofs.Check
 import Sir.Lowering.Proofs.Purity
 import Sir.Lowering.Proofs.Paths
 import Sir.Lowering.Proofs.Block

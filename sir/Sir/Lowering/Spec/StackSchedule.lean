@@ -39,9 +39,12 @@ structure StackSchedule.Block where
 deriving DecidableEq, Repr
 
 structure StackSchedule where
-  blocks : Array StackSchedule.Block
-  entry : BlockId
+  entry : StackSchedule.Block
+  rest : Array StackSchedule.Block
 deriving DecidableEq, Repr
+
+def StackSchedule.blocks (schedule : StackSchedule) : Array StackSchedule.Block :=
+  #[schedule.entry] ++ schedule.rest
 
 inductive StackSchedule.Error where
   | inputLayoutMismatch (expected got : Array VarId)
@@ -56,25 +59,24 @@ inductive StackSchedule.Error where
   | residualStackAtNonHalt
   | boundaryArityMismatch (edge : BlockId × BlockId) (expected got : Nat)
   | missingBlock (block : BlockId)
-  | badEntry
 deriving DecidableEq
 
 def StackSchedule.ofBlock (block : StackSchedule.Block) : StackSchedule where
-  blocks := #[block]
-  entry := ⟨0⟩
+  entry := block
+  rest := #[]
 
 def StackSchedule.vars (schedule : StackSchedule) : Vars.Program :=
-  { functions := #[
-      { blocks := schedule.blocks.map fun block => block.vars.toBlock
-        entry := schedule.entry }]
-    initEntry := ⟨0⟩
-    mainEntry := none }
+  { init :=
+      { entry := schedule.entry.vars.toBlock
+        rest := schedule.rest.map fun block => block.vars.toBlock }
+    main := none
+    rest := #[] }
 
 def StackSchedule.stack (schedule : StackSchedule) : Stack.Program :=
-  { functions := #[
-      { blocks := schedule.blocks.map fun block => block.stack.toBlock
-        entry := schedule.entry }]
-    initEntry := ⟨0⟩ }
+  { init :=
+      { entry := schedule.entry.stack.toBlock
+        rest := schedule.rest.map fun block => block.stack.toBlock }
+    rest := #[] }
 
 def StackSchedule.Block.terminatorsAgree : Vars.Terminator → Stack.Terminator → Bool
   | .halt, .halt => true
@@ -129,13 +131,13 @@ def StackSchedule.rejection : Stack.Instr → StackSchedule.Error
       .unsupportedInstruction (.icall callee argumentCount resultCount)
   | instruction => .operandMismatch instruction
 
-def StackSchedule.Block.replay (sourceStatements : Array Vars.Stmt) :
+def StackSchedule.Block.execute (sourceStatements : Array Vars.Stmt) :
     List Stack.Instr → Symbolic.State → Except StackSchedule.Error Symbolic.State
   | [], state => .ok state
   | instruction :: remaining, state =>
       match Symbolic.execute sourceStatements state instruction with
       | none => .error (StackSchedule.rejection instruction)
-      | some next => StackSchedule.Block.replay sourceStatements remaining next
+      | some next => StackSchedule.Block.execute sourceStatements remaining next
 
 def StackSchedule.Block.checkFinalStack (block : StackSchedule.Block)
     (finalState : Symbolic.State) : Except StackSchedule.Error Unit :=
@@ -164,7 +166,7 @@ def StackSchedule.Block.check (block : StackSchedule.Block) :
   else if block.vars.terminator = .halt && block.vars.outputs != #[] then
     .error (.outputsAtHalt block.vars.outputs)
   else
-    match StackSchedule.Block.replay block.vars.statements block.stack.instructions.toList
+    match StackSchedule.Block.execute block.vars.statements block.stack.instructions.toList
         (Symbolic.State.initial block.vars.entryLayout) with
     | .error error => .error error
     | .ok finalState =>
@@ -242,11 +244,8 @@ def StackSchedule.checkEdges (schedule : StackSchedule) (blocks : List StackSche
       | .ok () => schedule.checkEdges remaining (index + 1)
 
 def StackSchedule.check (schedule : StackSchedule) : Except StackSchedule.Error Unit :=
-  if schedule.entry.id < schedule.blocks.size then
-    match StackSchedule.checkBlocks schedule.blocks.toList with
-    | .error error => .error error
-    | .ok () => schedule.checkEdges schedule.blocks.toList
-  else
-    .error .badEntry
+  match StackSchedule.checkBlocks schedule.blocks.toList with
+  | .error error => .error error
+  | .ok () => schedule.checkEdges schedule.blocks.toList
 
 end Sir.Lowering

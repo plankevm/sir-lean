@@ -12,16 +12,16 @@ theorem Symbolic.executeAll_cons (statements : Array Vars.Stmt) (instruction : S
   simp only [Symbolic.executeAll, ← Array.foldlM_toList, List.foldlM_cons]
   rfl
 
-theorem StackSchedule.Block.replay_eq_ok_iff
+theorem StackSchedule.Block.execute_eq_ok_iff
     (statements : Array Vars.Stmt) (instructions : List Stack.Instr)
     (initial final : Symbolic.State) :
-    StackSchedule.Block.replay statements instructions initial = .ok final ↔
+    StackSchedule.Block.execute statements instructions initial = .ok final ↔
       Symbolic.executeAll statements instructions.toArray initial = some final := by
   induction instructions generalizing initial with
-  | nil => simp [StackSchedule.Block.replay, Symbolic.executeAll]
+  | nil => simp [StackSchedule.Block.execute, Symbolic.executeAll]
   | cons instruction instructions inductionHypothesis =>
       rw [Symbolic.executeAll_cons]
-      simp only [StackSchedule.Block.replay]
+      simp only [StackSchedule.Block.execute]
       cases Symbolic.execute statements initial instruction with
       | none => simp
       | some next => simpa using inductionHypothesis (initial := next)
@@ -64,22 +64,22 @@ theorem StackSchedule.firstDuplicate_none_iff (identifiers : List VarId) :
         simp [StackSchedule.firstDuplicate, member, inductionHypothesis]
 
 theorem StackSchedule.Block.check_inv
-    (certificate : StackSchedule.Block) (accepted : certificate.check = .ok ()) :
+    (schedule : StackSchedule.Block) (accepted : schedule.check = .ok ()) :
     ∃ finalState,
-      certificate.vars.entryLayout.map Symbolic.Value.identifier = certificate.vars.inputs ∧
-        certificate.vars.exitLayout.map Symbolic.Value.identifier = certificate.vars.outputs ∧
-        StackSchedule.Block.replay certificate.vars.statements
-            certificate.stack.instructions.toList
-            (Symbolic.State.initial certificate.vars.entryLayout) = .ok finalState ∧
-        StackSchedule.firstUnavailable certificate.vars.statements.toList
-            (certificate.vars.entryLayout.toList.map Symbolic.Value.identifier) = none ∧
+      schedule.vars.entryLayout.map Symbolic.Value.identifier = schedule.vars.inputs ∧
+        schedule.vars.exitLayout.map Symbolic.Value.identifier = schedule.vars.outputs ∧
+        StackSchedule.Block.execute schedule.vars.statements
+            schedule.stack.instructions.toList
+            (Symbolic.State.initial schedule.vars.entryLayout) = .ok finalState ∧
+        StackSchedule.firstUnavailable schedule.vars.statements.toList
+            (schedule.vars.entryLayout.toList.map Symbolic.Value.identifier) = none ∧
         StackSchedule.firstDuplicate
-            ((certificate.vars.entryLayout.toList.map Symbolic.Value.identifier) ++
-              certificate.vars.statements.toList.flatMap Vars.Stmt.variablesDefined) = none ∧
-        finalState.firedCount = certificate.vars.statements.size ∧
-        StackSchedule.Block.terminatorsAgree certificate.vars.terminator
-            certificate.stack.terminator = true ∧
-        certificate.checkFinalStack finalState = .ok () := by
+            ((schedule.vars.entryLayout.toList.map Symbolic.Value.identifier) ++
+              schedule.vars.statements.toList.flatMap Vars.Stmt.variablesDefined) = none ∧
+        finalState.firedCount = schedule.vars.statements.size ∧
+        StackSchedule.Block.terminatorsAgree schedule.vars.terminator
+            schedule.stack.terminator = true ∧
+        schedule.checkFinalStack finalState = .ok () := by
   simp only [StackSchedule.Block.check] at accepted
   split at accepted <;> try contradiction
   rename_i entryNames
@@ -87,7 +87,7 @@ theorem StackSchedule.Block.check_inv
   rename_i exitNames
   split at accepted <;> try contradiction
   split at accepted <;> try contradiction
-  rename_i finalState replayed
+  rename_i finalState executed
   split at accepted <;> try contradiction
   rename_i available
   split at accepted <;> try contradiction
@@ -96,13 +96,13 @@ theorem StackSchedule.Block.check_inv
   rename_i fired
   split at accepted <;> try contradiction
   rename_i agree
-  exact ⟨finalState, by simpa using entryNames, by simpa using exitNames, replayed, available,
+  exact ⟨finalState, by simpa using entryNames, by simpa using exitNames, executed, available,
     distinct, by simpa using fired, by simpa using agree, accepted⟩
 
 theorem StackSchedule.Block.checkFinalStack_final
-    (certificate : StackSchedule.Block) (finalState : Symbolic.State)
-    (checked : certificate.checkFinalStack finalState = .ok ()) :
-    StackSchedule.Block.finalStack certificate.vars.terminator certificate.vars.exitLayout
+    (schedule : StackSchedule.Block) (finalState : Symbolic.State)
+    (checked : schedule.checkFinalStack finalState = .ok ()) :
+    StackSchedule.Block.finalStack schedule.vars.terminator schedule.vars.exitLayout
       finalState.stack = some finalState.stack := by
   simp only [StackSchedule.Block.checkFinalStack] at checked
   split at checked <;> rename_i sourceTerminator <;>
@@ -113,41 +113,41 @@ theorem StackSchedule.Block.checkFinalStack_final
       | simp at checked
 
 theorem StackSchedule.Block.check_sound
-    (certificate : StackSchedule.Block) (accepted : certificate.check = .ok ()) :
+    (schedule : StackSchedule.Block) (accepted : schedule.check = .ok ()) :
     ∃ finalState expectedStack,
-      Symbolic.executeAll certificate.vars.statements certificate.stack.instructions
-          (Symbolic.State.initial certificate.vars.entryLayout) = some finalState ∧
-        StackSchedule.Block.finalStack certificate.vars.terminator certificate.vars.exitLayout finalState.stack =
+      Symbolic.executeAll schedule.vars.statements schedule.stack.instructions
+          (Symbolic.State.initial schedule.vars.entryLayout) = some finalState ∧
+        StackSchedule.Block.finalStack schedule.vars.terminator schedule.vars.exitLayout finalState.stack =
           some expectedStack ∧
-        finalState.firedCount = certificate.vars.statements.size ∧
-        StackSchedule.Block.terminatorsAgree certificate.vars.terminator certificate.stack.terminator = true ∧
-        finalState.stack = expectedStack ∧ certificate.vars.entryLayout.toList.Nodup := by
-  obtain ⟨finalState, _, _, replayed, _, distinct, fired, agree, finalStack⟩ :=
-    certificate.check_inv accepted
+        finalState.firedCount = schedule.vars.statements.size ∧
+        StackSchedule.Block.terminatorsAgree schedule.vars.terminator schedule.stack.terminator = true ∧
+        finalState.stack = expectedStack ∧ schedule.vars.entryLayout.toList.Nodup := by
+  obtain ⟨finalState, _, _, executed, _, distinct, fired, agree, finalStack⟩ :=
+    schedule.check_inv accepted
   refine ⟨finalState, finalState.stack, ?_, ?_, fired, agree, rfl, ?_⟩
-  · simpa using (StackSchedule.Block.replay_eq_ok_iff _ _ _ _).mp replayed
-  · exact StackSchedule.Block.checkFinalStack_final certificate finalState finalStack
+  · simpa using (StackSchedule.Block.execute_eq_ok_iff _ _ _ _).mp executed
+  · exact StackSchedule.Block.checkFinalStack_final schedule finalState finalStack
   · exact List.Nodup.of_map Symbolic.Value.identifier
       (List.Nodup.of_append_left ((StackSchedule.firstDuplicate_none_iff _).mp distinct))
 
 theorem StackSchedule.Block.check_source_valid
-    (certificate : StackSchedule.Block) (accepted : certificate.check = .ok ()) :
-    Symbolic.readsAvailable certificate.vars.statements certificate.vars.entryLayout =
+    (schedule : StackSchedule.Block) (accepted : schedule.check = .ok ()) :
+    Symbolic.readsAvailable schedule.vars.statements schedule.vars.entryLayout =
         true ∧
-      Symbolic.definesOnce certificate.vars.statements certificate.vars.entryLayout =
+      Symbolic.definesOnce schedule.vars.statements schedule.vars.entryLayout =
         true := by
-  obtain ⟨_, _, _, _, available, distinct, _⟩ := certificate.check_inv accepted
+  obtain ⟨_, _, _, _, available, distinct, _⟩ := schedule.check_inv accepted
   refine ⟨?_, ?_⟩
-  · change (certificate.vars.statements.toList.foldlM Symbolic.recordDefinitions
-        (certificate.vars.entryLayout.toList.map Symbolic.Value.identifier)).isSome = true
+  · change (schedule.vars.statements.toList.foldlM Symbolic.recordDefinitions
+        (schedule.vars.entryLayout.toList.map Symbolic.Value.identifier)).isSome = true
     exact (StackSchedule.firstUnavailable_none_iff _ _).mp available
   · simpa [Symbolic.definesOnce] using (StackSchedule.firstDuplicate_none_iff _).mp distinct
 
 theorem StackSchedule.Block.check_boundary_names
-    (certificate : StackSchedule.Block) (accepted : certificate.check = .ok ()) :
-    certificate.vars.entryLayout.map Symbolic.Value.identifier = certificate.vars.inputs ∧
-      certificate.vars.exitLayout.map Symbolic.Value.identifier = certificate.vars.outputs := by
-  obtain ⟨_, entryNames, exitNames, _⟩ := certificate.check_inv accepted
+    (schedule : StackSchedule.Block) (accepted : schedule.check = .ok ()) :
+    schedule.vars.entryLayout.map Symbolic.Value.identifier = schedule.vars.inputs ∧
+      schedule.vars.exitLayout.map Symbolic.Value.identifier = schedule.vars.outputs := by
+  obtain ⟨_, entryNames, exitNames, _⟩ := schedule.check_inv accepted
   exact ⟨entryNames, exitNames⟩
 
 theorem StackSchedule.checkBlocks_get
@@ -208,7 +208,7 @@ theorem StackSchedule.checkBlockEdges_sound
           elseAccepted
       simp [StackSchedule.blockEdgesAgree, terminator, thenAgreement, elseAgreement]
   | iret =>
-      obtain ⟨finalState, expectedStack, replay, expected, rest⟩ :=
+      obtain ⟨finalState, expectedStack, executed, expected, rest⟩ :=
         StackSchedule.Block.check_sound block blockAccepted
       simp [StackSchedule.Block.finalStack, terminator] at expected
 
@@ -233,46 +233,46 @@ theorem StackSchedule.checkEdges_get
                 inductionHypothesis (offset + 1) index accepted (by simpa using indexBound)
 
 theorem StackSchedule.check_sound
-    (certificate : StackSchedule) (accepted : certificate.check = .ok ()) :
-    certificate.entry.id < certificate.blocks.size ∧
-      (∀ index, (indexBound : index < certificate.blocks.size) →
-        certificate.blocks[index].check = .ok ()) ∧
-      ∀ index, (indexBound : index < certificate.blocks.size) →
-        certificate.blockEdgesAgree certificate.blocks[index] = true := by
+    (schedule : StackSchedule) (accepted : schedule.check = .ok ()) :
+    schedule.entry.id < schedule.blocks.size ∧
+      (∀ index, (indexBound : index < schedule.blocks.size) →
+        schedule.blocks[index].check = .ok ()) ∧
+      ∀ index, (indexBound : index < schedule.blocks.size) →
+        schedule.blockEdgesAgree schedule.blocks[index] = true := by
   simp only [StackSchedule.check] at accepted
   split at accepted <;> try contradiction
   next entryBound =>
-    cases blocksAccepted : StackSchedule.checkBlocks certificate.blocks.toList with
+    cases blocksAccepted : StackSchedule.checkBlocks schedule.blocks.toList with
     | error error => simp [blocksAccepted] at accepted
     | ok result =>
       cases result
-      have edgesAccepted : certificate.checkEdges certificate.blocks.toList = .ok () := by
+      have edgesAccepted : schedule.checkEdges schedule.blocks.toList = .ok () := by
         simpa [blocksAccepted] using accepted
       refine ⟨entryBound, ?_, ?_⟩
       · intro index indexBound
-        simpa using StackSchedule.checkBlocks_get certificate.blocks.toList blocksAccepted
+        simpa using StackSchedule.checkBlocks_get schedule.blocks.toList blocksAccepted
           index (by simpa using indexBound)
       · intro index indexBound
-        apply StackSchedule.checkBlockEdges_sound certificate ⟨index⟩
-          certificate.blocks[index]
-        · simpa using StackSchedule.checkBlocks_get certificate.blocks.toList blocksAccepted
+        apply StackSchedule.checkBlockEdges_sound schedule ⟨index⟩
+          schedule.blocks[index]
+        · simpa using StackSchedule.checkBlocks_get schedule.blocks.toList blocksAccepted
             index (by simpa using indexBound)
-        · simpa using StackSchedule.checkEdges_get certificate certificate.blocks.toList 0
+        · simpa using StackSchedule.checkEdges_get schedule schedule.blocks.toList 0
             index edgesAccepted (by simpa using indexBound)
 
 theorem StackSchedule.block_boundary_names
-    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
-    (index : Nat) (blockCertificate : StackSchedule.Block)
-    (blockAt : certificate.blocks[index]? = some blockCertificate) :
-    blockCertificate.vars.entryLayout.map Symbolic.Value.identifier = blockCertificate.vars.inputs ∧
-      blockCertificate.vars.exitLayout.map Symbolic.Value.identifier =
-        blockCertificate.vars.outputs := by
-  have indexBound : index < certificate.blocks.size :=
-    of_getElem?_eq_some (c := certificate.blocks) (i := index) blockAt
-  have blockGet : certificate.blocks[index] = blockCertificate :=
+    (schedule : StackSchedule) (accepted : schedule.check = .ok ())
+    (index : Nat) (blockSchedule : StackSchedule.Block)
+    (blockAt : schedule.blocks[index]? = some blockSchedule) :
+    blockSchedule.vars.entryLayout.map Symbolic.Value.identifier = blockSchedule.vars.inputs ∧
+      blockSchedule.vars.exitLayout.map Symbolic.Value.identifier =
+        blockSchedule.vars.outputs := by
+  have indexBound : index < schedule.blocks.size :=
+    of_getElem?_eq_some (c := schedule.blocks) (i := index) blockAt
+  have blockGet : schedule.blocks[index] = blockSchedule :=
     (Array.getElem?_eq_some_iff.mp blockAt).2
-  have blockAccepted := (certificate.check_sound accepted).2.1 index indexBound
-  apply StackSchedule.Block.check_boundary_names blockCertificate
+  have blockAccepted := (schedule.check_sound accepted).2.1 index indexBound
+  apply StackSchedule.Block.check_boundary_names blockSchedule
   simpa [blockGet] using blockAccepted
 
 theorem StackSchedule.ofBlock_check (block : StackSchedule.Block)
@@ -627,16 +627,16 @@ theorem Symbolic.State.Interprets.after_fire (state nextState : Symbolic.State)
     rw [Symbolic.Value.interpret_assign_of_ne locals symbolicValue result resultValue different]
     exact valueEq
 
-theorem Symbolic.State.Interprets.replay_pop (sourceStatements : Array Vars.Stmt)
+theorem Symbolic.State.Interprets.execute_pop (sourceStatements : Array Vars.Stmt)
     (state nextState : Symbolic.State) (locals : Locals)
     (environment : Stack.Environment) (interprets : state.Interprets locals environment)
-    (replay : Symbolic.execute sourceStatements state .pop = some nextState) :
+    (executed : Symbolic.execute sourceStatements state .pop = some nextState) :
     ∃ value stack, environment.stack = value :: stack ∧
       nextState.Interprets locals { environment with stack } := by
   cases stackEq : state.stack with
-  | nil => simp [Symbolic.execute, stackEq] at replay
+  | nil => simp [Symbolic.execute, stackEq] at executed
   | cons value stack =>
-      simp [Symbolic.execute, stackEq] at replay
+      simp [Symbolic.execute, stackEq] at executed
       subst nextState
       cases valueEq : Symbolic.Value.interpret locals value with
       | none => simp [Symbolic.State.Interprets, stackEq, valueEq] at interprets
@@ -652,15 +652,15 @@ theorem Symbolic.State.Interprets.replay_pop (sourceStatements : Array Vars.Stmt
               refine ⟨word, stackValues, environmentStackEq.symm, ?_⟩
               exact ⟨stackValuesEq, interprets.2⟩
 
-theorem Symbolic.State.Interprets.replay_dup (sourceStatements : Array Vars.Stmt)
+theorem Symbolic.State.Interprets.execute_dup (sourceStatements : Array Vars.Stmt)
     (state nextState : Symbolic.State) (locals : Locals)
     (environment : Stack.Environment) (interprets : state.Interprets locals environment)
     (depth : Nat)
-    (replay : Symbolic.execute sourceStatements state (.dup depth) = some nextState) :
+    (executed : Symbolic.execute sourceStatements state (.dup depth) = some nextState) :
     ∃ value, environment.stack[depth]? = some value ∧
       nextState.Interprets locals { environment with stack := value :: environment.stack } := by
-  simp [Symbolic.execute] at replay
-  obtain ⟨depthWithinReach, symbolicValue, symbolicValueAtDepth, rfl⟩ := replay
+  simp [Symbolic.execute] at executed
+  obtain ⟨depthWithinReach, symbolicValue, symbolicValueAtDepth, rfl⟩ := executed
   obtain ⟨value, valueAtDepth, symbolicValueEq⟩ :=
     Symbolic.Value.interpret_at_depth locals state.stack environment.stack interprets.1 depth
       symbolicValue symbolicValueAtDepth
@@ -669,23 +669,23 @@ theorem Symbolic.State.Interprets.replay_dup (sourceStatements : Array Vars.Stmt
   · simp [symbolicValueEq, interprets.1]
   · exact interprets.2
 
-theorem Symbolic.State.Interprets.replay_swap (sourceStatements : Array Vars.Stmt)
+theorem Symbolic.State.Interprets.execute_swap (sourceStatements : Array Vars.Stmt)
     (state nextState : Symbolic.State) (locals : Locals)
     (environment : Stack.Environment) (interprets : state.Interprets locals environment)
     (depth : Nat)
-    (replay : Symbolic.execute sourceStatements state (.swap depth) = some nextState) :
+    (executed : Symbolic.execute sourceStatements state (.swap depth) = some nextState) :
     ∃ stack, Stack.exchange environment.stack 0 depth = some stack ∧
       nextState.Interprets locals { environment with stack } := by
   change (if 1 ≤ depth ∧ depth ≤ 16 then
       (Symbolic.exchange state.stack 0 depth).map fun stack => { state with stack }
-    else none) = some nextState at replay
+    else none) = some nextState at executed
   by_cases depthWithinReach : 1 ≤ depth ∧ depth ≤ 16
-  · rw [if_pos depthWithinReach] at replay
+  · rw [if_pos depthWithinReach] at executed
     cases exchangeEq : Symbolic.exchange state.stack 0 depth with
-    | none => rw [exchangeEq] at replay; simp at replay
+    | none => rw [exchangeEq] at executed; simp at executed
     | some symbolicStack =>
-      rw [exchangeEq] at replay
-      simp at replay
+      rw [exchangeEq] at executed
+      simp at executed
       subst nextState
       unfold Symbolic.exchange at exchangeEq
       cases topEq : state.stack[0]? with
@@ -716,29 +716,29 @@ theorem Symbolic.State.Interprets.replay_swap (sourceStatements : Array Vars.Stm
                 (environment.stack.set 0 otherValue) firstInterpretations depth top topValue
                 topInterpretation (by simpa using depthWithinStack)
             · exact interprets.2
-  · rw [if_neg depthWithinReach] at replay
-    simp at replay
+  · rw [if_neg depthWithinReach] at executed
+    simp at executed
 
-theorem Symbolic.State.Interprets.replay_exchange (sourceStatements : Array Vars.Stmt)
+theorem Symbolic.State.Interprets.execute_exchange (sourceStatements : Array Vars.Stmt)
     (state nextState : Symbolic.State) (locals : Locals)
     (environment : Stack.Environment) (interprets : state.Interprets locals environment)
     (firstDepth secondDepth : Nat)
-    (replay : Symbolic.execute sourceStatements state
+    (executed : Symbolic.execute sourceStatements state
       (.exchange firstDepth secondDepth) = some nextState) :
     ∃ stack, Stack.exchange environment.stack firstDepth secondDepth = some stack ∧
       nextState.Interprets locals { environment with stack } := by
   change (if firstDepth ≠ secondDepth ∧ max firstDepth secondDepth ≤ 16 then
       (Symbolic.exchange state.stack firstDepth secondDepth).map fun stack =>
         { state with stack }
-    else none) = some nextState at replay
+    else none) = some nextState at executed
   by_cases depthsWithinReach :
       firstDepth ≠ secondDepth ∧ max firstDepth secondDepth ≤ 16
-  · rw [if_pos depthsWithinReach] at replay
+  · rw [if_pos depthsWithinReach] at executed
     cases exchangeEq : Symbolic.exchange state.stack firstDepth secondDepth with
-    | none => rw [exchangeEq] at replay; simp at replay
+    | none => rw [exchangeEq] at executed; simp at executed
     | some symbolicStack =>
-      rw [exchangeEq] at replay
-      simp at replay
+      rw [exchangeEq] at executed
+      simp at executed
       subst nextState
       unfold Symbolic.exchange at exchangeEq
       cases firstEq : state.stack[firstDepth]? with
@@ -770,8 +770,8 @@ theorem Symbolic.State.Interprets.replay_exchange (sourceStatements : Array Vars
                 (environment.stack.set firstDepth secondValue) firstInterpretations secondDepth first
                 firstValue firstInterpretation (by simpa using secondWithinStack)
             · exact interprets.2
-  · rw [if_neg depthsWithinReach] at replay
-    simp at replay
+  · rw [if_neg depthsWithinReach] at executed
+    simp at executed
 
 theorem Symbolic.State.slotValue?_push (state : Symbolic.State)
     (slot candidate : Nat) (value : Symbolic.Value) (absent : state.slotValue? slot = none) :
@@ -786,22 +786,22 @@ theorem Symbolic.State.slotValue?_push (state : Symbolic.State)
   · have slotNe : slot ≠ candidate := Ne.symm candidateEq
     simp [Symbolic.State.slotValue?, Array.find?_push, candidateEq, slotNe]
 
-theorem Symbolic.State.Interprets.replay_store (sourceStatements : Array Vars.Stmt)
+theorem Symbolic.State.Interprets.execute_store (sourceStatements : Array Vars.Stmt)
     (state nextState : Symbolic.State) (locals : Locals)
     (environment : Stack.Environment) (interprets : state.Interprets locals environment)
     (slot : Nat)
-    (replay : Symbolic.execute sourceStatements state (.store slot) = some nextState) :
+    (executed : Symbolic.execute sourceStatements state (.store slot) = some nextState) :
     ∃ value stack, environment.stack = value :: stack ∧
       nextState.Interprets locals
         (Stack.Environment.mk stack (environment.storeSlot slot value).slots) := by
-  simp only [Symbolic.execute] at replay
+  simp only [Symbolic.execute] at executed
   cases stackEq : state.stack with
-  | nil => simp [stackEq] at replay
+  | nil => simp [stackEq] at executed
   | cons symbolicValue symbolicStack =>
       cases absentEq : state.slotValue? slot with
-      | some existing => simp [stackEq, absentEq] at replay
+      | some existing => simp [stackEq, absentEq] at executed
       | none =>
-          simp [stackEq, absentEq] at replay
+          simp [stackEq, absentEq] at executed
           subst nextState
           cases valueEq : symbolicValue.interpret locals with
           | none => simp [Symbolic.State.Interprets, stackEq, valueEq] at interprets
@@ -838,18 +838,18 @@ theorem Symbolic.State.Interprets.replay_store (sourceStatements : Array Vars.St
                       exact ⟨candidateWord, candidateValueEq, by
                         simpa [Stack.Environment.storeSlot, candidateEq] using candidateSlotEq⟩
 
-theorem Symbolic.State.Interprets.replay_load (sourceStatements : Array Vars.Stmt)
+theorem Symbolic.State.Interprets.execute_load (sourceStatements : Array Vars.Stmt)
     (state nextState : Symbolic.State) (locals : Locals)
     (environment : Stack.Environment) (interprets : state.Interprets locals environment)
     (slot : Nat)
-    (replay : Symbolic.execute sourceStatements state (.load slot) = some nextState) :
+    (executed : Symbolic.execute sourceStatements state (.load slot) = some nextState) :
     ∃ value, environment.slots slot = some value ∧
       nextState.Interprets locals { environment with stack := value :: environment.stack } := by
-  simp only [Symbolic.execute] at replay
+  simp only [Symbolic.execute] at executed
   cases bindingEq : state.slotValue? slot with
-  | none => simp [bindingEq] at replay
+  | none => simp [bindingEq] at executed
   | some symbolicValue =>
-      simp [bindingEq] at replay
+      simp [bindingEq] at executed
       subst nextState
       have slotInterpretation := interprets.2 slot symbolicValue bindingEq
       obtain ⟨value, valueEq, slotValueEq⟩ := slotInterpretation
@@ -858,64 +858,64 @@ theorem Symbolic.State.Interprets.replay_load (sourceStatements : Array Vars.Stm
       · simp [valueEq, interprets.1]
       · exact interprets.2
 
-theorem Symbolic.State.Interprets.replay_pop_step {targetProgram : Stack.Program}
+theorem Symbolic.State.Interprets.execute_pop_step {targetProgram : Stack.Program}
     (sourceStatements : Array Vars.Stmt) (state nextState : Symbolic.State)
     (ctx : CallContext) (globals : Globals) (locals : Locals)
     (environment : Stack.Environment) (interprets : state.Interprets locals environment)
     (targetControl targetNext : Machine.MachineControl)
-    (replay : Symbolic.execute sourceStatements state .pop = some nextState)
+    (executed : Symbolic.execute sourceStatements state .pop = some nextState)
     (targetDecode : targetProgram.decodeInstruction targetControl = some (targetNext, .pop)) :
     ∃ environment',
       Machine.Step Stack.frame (Stack.decoder targetProgram) Machine.memoryPolicy ctx
         ⟨globals, environment, targetControl⟩ [] ⟨globals, environment', targetNext⟩ ∧
       nextState.Interprets locals environment' := by
   obtain ⟨value, stack, stackEq, nextInterprets⟩ :=
-    interprets.replay_pop sourceStatements state nextState locals environment replay
+    interprets.execute_pop sourceStatements state nextState locals environment executed
   refine ⟨{ environment with stack }, ?_, nextInterprets⟩
   apply Machine.Step.control
   simp [Stack.decoder, Stack.control, targetDecode, stackEq]
 
-theorem Symbolic.State.Interprets.replay_dup_step {targetProgram : Stack.Program}
+theorem Symbolic.State.Interprets.execute_dup_step {targetProgram : Stack.Program}
     (sourceStatements : Array Vars.Stmt) (state nextState : Symbolic.State)
     (ctx : CallContext) (globals : Globals) (locals : Locals)
     (environment : Stack.Environment) (interprets : state.Interprets locals environment)
     (targetControl targetNext : Machine.MachineControl) (depth : Nat)
-    (replay : Symbolic.execute sourceStatements state (.dup depth) = some nextState)
+    (executed : Symbolic.execute sourceStatements state (.dup depth) = some nextState)
     (targetDecode : targetProgram.decodeInstruction targetControl = some (targetNext, .dup depth)) :
     ∃ environment',
       Machine.Step Stack.frame (Stack.decoder targetProgram) Machine.memoryPolicy ctx
         ⟨globals, environment, targetControl⟩ [] ⟨globals, environment', targetNext⟩ ∧
       nextState.Interprets locals environment' := by
   obtain ⟨value, valueAt, nextInterprets⟩ :=
-    interprets.replay_dup sourceStatements state nextState locals environment depth replay
+    interprets.execute_dup sourceStatements state nextState locals environment depth executed
   refine ⟨{ environment with stack := value :: environment.stack }, ?_, nextInterprets⟩
   apply Machine.Step.control
   simp [Stack.decoder, Stack.control, targetDecode, valueAt]
 
-theorem Symbolic.State.Interprets.replay_swap_step {targetProgram : Stack.Program}
+theorem Symbolic.State.Interprets.execute_swap_step {targetProgram : Stack.Program}
     (sourceStatements : Array Vars.Stmt) (state nextState : Symbolic.State)
     (ctx : CallContext) (globals : Globals) (locals : Locals)
     (environment : Stack.Environment) (interprets : state.Interprets locals environment)
     (targetControl targetNext : Machine.MachineControl) (depth : Nat)
-    (replay : Symbolic.execute sourceStatements state (.swap depth) = some nextState)
+    (executed : Symbolic.execute sourceStatements state (.swap depth) = some nextState)
     (targetDecode : targetProgram.decodeInstruction targetControl = some (targetNext, .swap depth)) :
     ∃ environment',
       Machine.Step Stack.frame (Stack.decoder targetProgram) Machine.memoryPolicy ctx
         ⟨globals, environment, targetControl⟩ [] ⟨globals, environment', targetNext⟩ ∧
       nextState.Interprets locals environment' := by
   obtain ⟨stack, stackEq, nextInterprets⟩ :=
-    interprets.replay_swap sourceStatements state nextState locals environment depth replay
+    interprets.execute_swap sourceStatements state nextState locals environment depth executed
   refine ⟨{ environment with stack }, ?_, nextInterprets⟩
   apply Machine.Step.control
   simp [Stack.decoder, Stack.control, targetDecode, stackEq]
 
-theorem Symbolic.State.Interprets.replay_exchange_step
+theorem Symbolic.State.Interprets.execute_exchange_step
     {targetProgram : Stack.Program}
     (sourceStatements : Array Vars.Stmt) (state nextState : Symbolic.State)
     (ctx : CallContext) (globals : Globals) (locals : Locals)
     (environment : Stack.Environment) (interprets : state.Interprets locals environment)
     (targetControl targetNext : Machine.MachineControl) (firstDepth secondDepth : Nat)
-    (replay : Symbolic.execute sourceStatements state
+    (executed : Symbolic.execute sourceStatements state
       (.exchange firstDepth secondDepth) = some nextState)
     (targetDecode : targetProgram.decodeInstruction targetControl =
       some (targetNext, .exchange firstDepth secondDepth)) :
@@ -924,47 +924,47 @@ theorem Symbolic.State.Interprets.replay_exchange_step
         ⟨globals, environment, targetControl⟩ [] ⟨globals, environment', targetNext⟩ ∧
       nextState.Interprets locals environment' := by
   obtain ⟨stack, stackEq, nextInterprets⟩ :=
-    interprets.replay_exchange sourceStatements state nextState locals environment firstDepth
-      secondDepth replay
+    interprets.execute_exchange sourceStatements state nextState locals environment firstDepth
+      secondDepth executed
   have depthsDifferent : firstDepth ≠ secondDepth := by
     intro equal
     subst secondDepth
-    simp [Symbolic.execute] at replay
+    simp [Symbolic.execute] at executed
   refine ⟨{ environment with stack }, ?_, nextInterprets⟩
   apply Machine.Step.control
   simp [Stack.decoder, Stack.control, targetDecode, stackEq, depthsDifferent]
 
-theorem Symbolic.State.Interprets.replay_store_step {targetProgram : Stack.Program}
+theorem Symbolic.State.Interprets.execute_store_step {targetProgram : Stack.Program}
     (sourceStatements : Array Vars.Stmt) (state nextState : Symbolic.State)
     (ctx : CallContext) (globals : Globals) (locals : Locals)
     (environment : Stack.Environment) (interprets : state.Interprets locals environment)
     (targetControl targetNext : Machine.MachineControl) (slot : Nat)
-    (replay : Symbolic.execute sourceStatements state (.store slot) = some nextState)
+    (executed : Symbolic.execute sourceStatements state (.store slot) = some nextState)
     (targetDecode : targetProgram.decodeInstruction targetControl = some (targetNext, .store slot)) :
     ∃ environment',
       Machine.Step Stack.frame (Stack.decoder targetProgram) Machine.memoryPolicy ctx
         ⟨globals, environment, targetControl⟩ [] ⟨globals, environment', targetNext⟩ ∧
       nextState.Interprets locals environment' := by
   obtain ⟨value, stack, stackEq, nextInterprets⟩ :=
-    interprets.replay_store sourceStatements state nextState locals environment slot replay
+    interprets.execute_store sourceStatements state nextState locals environment slot executed
   refine ⟨Stack.Environment.mk stack (environment.storeSlot slot value).slots, ?_, nextInterprets⟩
   apply Machine.Step.control
   simp [Stack.decoder, Stack.control, targetDecode, stackEq,
     Stack.Environment.storeSlot]
 
-theorem Symbolic.State.Interprets.replay_load_step {targetProgram : Stack.Program}
+theorem Symbolic.State.Interprets.execute_load_step {targetProgram : Stack.Program}
     (sourceStatements : Array Vars.Stmt) (state nextState : Symbolic.State)
     (ctx : CallContext) (globals : Globals) (locals : Locals)
     (environment : Stack.Environment) (interprets : state.Interprets locals environment)
     (targetControl targetNext : Machine.MachineControl) (slot : Nat)
-    (replay : Symbolic.execute sourceStatements state (.load slot) = some nextState)
+    (executed : Symbolic.execute sourceStatements state (.load slot) = some nextState)
     (targetDecode : targetProgram.decodeInstruction targetControl = some (targetNext, .load slot)) :
     ∃ environment',
       Machine.Step Stack.frame (Stack.decoder targetProgram) Machine.memoryPolicy ctx
         ⟨globals, environment, targetControl⟩ [] ⟨globals, environment', targetNext⟩ ∧
       nextState.Interprets locals environment' := by
   obtain ⟨value, valueAt, nextInterprets⟩ :=
-    interprets.replay_load sourceStatements state nextState locals environment slot replay
+    interprets.execute_load sourceStatements state nextState locals environment slot executed
   refine ⟨{ environment with stack := value :: environment.stack }, ?_, nextInterprets⟩
   apply Machine.Step.control
   simp [Stack.decoder, Stack.control, targetDecode, valueAt]
@@ -1776,11 +1776,11 @@ theorem Symbolic.State.AvailableVariablesAgree.after_checker_fire
         simpa [Locals.lookup?, Locals.assign, identifierEq] using
           agrees identifier previouslyAvailable
 
-theorem Symbolic.State.Interprets.replay_operation (sourceStatements : Array Vars.Stmt)
+theorem Symbolic.State.Interprets.execute_operation (sourceStatements : Array Vars.Stmt)
     (state nextState : Symbolic.State) (locals : Locals)
     (environment : Stack.Environment) (interprets : state.Interprets locals environment)
     (operation : Machine.Operation)
-    (replay : Symbolic.execute sourceStatements state (.op operation) = some nextState) :
+    (executed : Symbolic.execute sourceStatements state (.op operation) = some nextState) :
     ∃ (statementIndex : Nat) (statement : Vars.Stmt)
         (symbolicOperands : List Symbolic.Value) (operands : List Word)
         (result : VarId) (resultValue : Word),
@@ -1797,17 +1797,17 @@ theorem Symbolic.State.Interprets.replay_operation (sourceStatements : Array Var
         nextState.Interprets (locals.assign result resultValue)
           { environment with
             stack := resultValue :: environment.stack.drop operation.inputCount } := by
-  simp only [Symbolic.execute] at replay
-  unfold Symbolic.State.fireNextStatement at replay
+  simp only [Symbolic.execute] at executed
+  unfold Symbolic.State.fireNextStatement at executed
   cases foundEq : state.firstFireable sourceStatements operation with
-  | none => simp [foundEq] at replay
+  | none => simp [foundEq] at executed
   | some candidate =>
       obtain ⟨statement, statementIndex⟩ := candidate
       obtain ⟨statementAt, canFire⟩ :=
         state.firstFireable_eq_some sourceStatements operation statement
           statementIndex foundEq
       cases symbolicOperationEq : Symbolic.operationOf statement with
-      | none => simp [foundEq, symbolicOperationEq] at replay
+      | none => simp [foundEq, symbolicOperationEq] at executed
       | some symbolicOperation =>
           obtain ⟨expectedOperation, symbolicOperands, symbolicResult⟩ := symbolicOperation
           have canFire' := canFire
@@ -1818,7 +1818,7 @@ theorem Symbolic.State.Interprets.replay_operation (sourceStatements : Array Var
           subst expectedOperation
           obtain ⟨result, rfl⟩ := Symbolic.operationOf_result_variable statement
             operation symbolicOperands symbolicResult symbolicOperationEq
-          simp [foundEq, symbolicOperationEq] at replay
+          simp [foundEq, symbolicOperationEq] at executed
           subst nextState
           have operandLength := Symbolic.operationOf_operand_length statement operation
             symbolicOperands (.variable result) symbolicOperationEq
@@ -1851,11 +1851,11 @@ theorem Stack.exchange_zero_one (environment : Stack.Environment)
           subst stack
           simp [Stack.sourceFetch, environmentStackEq]
 
-theorem Symbolic.State.Interprets.replay_flipped_operation
+theorem Symbolic.State.Interprets.execute_flipped_operation
     (sourceStatements : Array Vars.Stmt) (state nextState : Symbolic.State)
     (locals : Locals) (environment : Stack.Environment)
     (interprets : state.Interprets locals environment) (operation : Machine.Operation)
-    (replay : Symbolic.execute sourceStatements state (.flippedOp operation) =
+    (executed : Symbolic.execute sourceStatements state (.flippedOp operation) =
       some nextState) :
     ∃ (statementIndex : Nat) (statement : Vars.Stmt)
         (symbolicOperands : List Symbolic.Value) (operands : List Word)
@@ -1876,25 +1876,25 @@ theorem Symbolic.State.Interprets.replay_flipped_operation
           firedStatementIndices := statementIndex :: flippedState.firedStatementIndices } ∧
         nextState.Interprets (locals.assign result resultValue)
           { environment with stack := resultValue :: environment.stack.drop 2 } := by
-  simp only [Symbolic.execute] at replay
+  simp only [Symbolic.execute] at executed
   by_cases binary : operation.inputCount = 2
-  · rw [if_pos binary] at replay
+  · rw [if_pos binary] at executed
     cases symbolicExchange : Symbolic.exchange state.stack 0 1 with
-    | none => simp [symbolicExchange] at replay
+    | none => simp [symbolicExchange] at executed
     | some symbolicStack =>
-        rw [symbolicExchange] at replay
+        rw [symbolicExchange] at executed
         let flippedState : Symbolic.State := { state with stack := symbolicStack }
-        have exchangeReplay : Symbolic.execute sourceStatements state (.exchange 0 1) =
+        have exchangeExecution : Symbolic.execute sourceStatements state (.exchange 0 1) =
             some flippedState := by
           simp [Symbolic.execute, symbolicExchange, flippedState]
         obtain ⟨concreteStack, concreteExchange, flippedInterprets⟩ :=
-          interprets.replay_exchange sourceStatements state flippedState locals environment 0 1
-            exchangeReplay
+          interprets.execute_exchange sourceStatements state flippedState locals environment 0 1
+            exchangeExecution
         obtain ⟨statementIndex, statement, symbolicOperands, operands, result, resultValue,
             statementAt, symbolicOperation, canFire, concreteOperation, stackPrefix, nextStateEq,
             nextInterprets⟩ :=
-          flippedInterprets.replay_operation sourceStatements flippedState nextState locals
-            { environment with stack := concreteStack } operation replay
+          flippedInterprets.execute_operation sourceStatements flippedState nextState locals
+            { environment with stack := concreteStack } operation executed
         obtain ⟨fetch, dropEq⟩ :=
           Stack.exchange_zero_one environment concreteStack concreteExchange
         have flippedFetch : Stack.sourceFetch environment .reversedPair =
@@ -1908,8 +1908,8 @@ theorem Symbolic.State.Interprets.replay_flipped_operation
           flippedFetch, ?_, nextStateEq, ?_⟩
         · simp [flippedState]
         · simpa [binary, dropEq] using nextInterprets
-  · rw [if_neg binary] at replay
-    simp at replay
+  · rw [if_neg binary] at executed
+    simp at executed
 
 theorem sourceStatementConcreteOperation_source_step {sourceProgram : Vars.Program}
     (ctx : CallContext) (globals : Globals) (locals : Locals)

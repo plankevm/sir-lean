@@ -5,15 +5,15 @@ import Sir.Theorems
 
 namespace Sir.Lowering
 
-private theorem functionCertificate_evaluation_equivalence
-    (certificate : StackSchedule)
-    (accepted : certificate.check = .ok ())
+private theorem schedule_evaluation_equivalence
+    (schedule : StackSchedule)
+    (accepted : schedule.check = .ok ())
     (ctx : CallContext) (globals finalGlobals : Globals) (args : Array Word) (trace : Trace)
     (outcome : FunctionOutcome) :
-    Vars.EvalFn certificate.vars ctx ⟨0⟩ globals args trace finalGlobals outcome ↔
-      Stack.EvalFn certificate.stack ctx
+    Vars.EvalFn schedule.vars ctx ⟨0⟩ globals args trace finalGlobals outcome ↔
+      Stack.EvalFn schedule.stack ctx
         ⟨0⟩ globals args trace finalGlobals outcome := by
-  exact certificate.equiv accepted ctx ⟨0⟩ globals args trace finalGlobals outcome
+  exact schedule.equiv accepted ctx ⟨0⟩ globals args trace finalGlobals outcome
 
 def firstFireableExampleState : Symbolic.State :=
   Symbolic.State.initial #[.variable ⟨0⟩]
@@ -45,7 +45,7 @@ theorem firstFireable_rejects_unavailable_operand :
     Symbolic.State.slotFree, unavailableOperandExampleState,
     Vars.Stmt.variablesRead, Vars.Expr.variablesRead]
 
-def replayScheduledExampleCertificate : StackSchedule := StackSchedule.ofBlock {
+def spillRoundTripExampleSchedule : StackSchedule := StackSchedule.ofBlock {
   vars := {
     inputs := #[]
     statements := #[
@@ -69,20 +69,20 @@ def replayScheduledExampleCertificate : StackSchedule := StackSchedule.ofBlock {
       .load 10]
     terminator := .halt } }
 
-theorem replayScheduledExample_accepted :
-    replayScheduledExampleCertificate.check = .ok () := by decide +kernel
+theorem spillRoundTripExample_accepted :
+    spillRoundTripExampleSchedule.check = .ok () := by decide +kernel
 
-theorem replayScheduledExample_evaluation_equivalence
+theorem spillRoundTripExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (trace : Trace)
     (outcome : FunctionOutcome) :
-    Vars.EvalFn replayScheduledExampleCertificate.vars ctx ⟨0⟩ globals #[] trace
+    Vars.EvalFn spillRoundTripExampleSchedule.vars ctx ⟨0⟩ globals #[] trace
         finalGlobals outcome ↔
-      Stack.EvalFn replayScheduledExampleCertificate.stack ctx
+      Stack.EvalFn spillRoundTripExampleSchedule.stack ctx
         ⟨0⟩ globals #[] trace finalGlobals outcome := by
-  exact functionCertificate_evaluation_equivalence replayScheduledExampleCertificate
-    replayScheduledExample_accepted ctx globals finalGlobals #[] trace outcome
+  exact schedule_evaluation_equivalence spillRoundTripExampleSchedule
+    spillRoundTripExample_accepted ctx globals finalGlobals #[] trace outcome
 
-def replayEntryExampleCertificate : StackSchedule := StackSchedule.ofBlock {
+def entryLayoutExampleSchedule : StackSchedule := StackSchedule.ofBlock {
   vars := {
     inputs := #[⟨0⟩]
     statements := #[.assign ⟨1⟩ (.var ⟨0⟩)]
@@ -94,20 +94,20 @@ def replayEntryExampleCertificate : StackSchedule := StackSchedule.ofBlock {
     instructions := #[.op .copy]
     terminator := .halt } }
 
-theorem replayEntryExample_accepted :
-    replayEntryExampleCertificate.check = .ok () := by decide +kernel
+theorem entryLayoutExample_accepted :
+    entryLayoutExampleSchedule.check = .ok () := by decide +kernel
 
-theorem replayEntryExample_evaluation_equivalence
+theorem entryLayoutExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (argument : Word) (trace : Trace)
     (outcome : FunctionOutcome) :
-    Vars.EvalFn replayEntryExampleCertificate.vars ctx ⟨0⟩ globals #[argument] trace
+    Vars.EvalFn entryLayoutExampleSchedule.vars ctx ⟨0⟩ globals #[argument] trace
         finalGlobals outcome ↔
-      Stack.EvalFn replayEntryExampleCertificate.stack ctx
+      Stack.EvalFn entryLayoutExampleSchedule.stack ctx
         ⟨0⟩ globals #[argument] trace finalGlobals outcome := by
-  exact functionCertificate_evaluation_equivalence replayEntryExampleCertificate
-    replayEntryExample_accepted ctx globals finalGlobals #[argument] trace outcome
+  exact schedule_evaluation_equivalence entryLayoutExampleSchedule
+    entryLayoutExample_accepted ctx globals finalGlobals #[argument] trace outcome
 
-def exchangeExampleCertificate : StackSchedule := StackSchedule.ofBlock {
+def exchangeExampleSchedule : StackSchedule := StackSchedule.ofBlock {
   vars := {
     inputs := #[⟨0⟩, ⟨1⟩, ⟨2⟩]
     statements := #[]
@@ -119,19 +119,19 @@ def exchangeExampleCertificate : StackSchedule := StackSchedule.ofBlock {
     instructions := #[.exchange 1 2]
     terminator := .halt } }
 
-theorem exchangeExample_accepted : exchangeExampleCertificate.check = .ok () := by decide +kernel
+theorem exchangeExample_accepted : exchangeExampleSchedule.check = .ok () := by decide +kernel
 
 theorem exchangeExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (first second third : Word)
     (trace : Trace) (outcome : FunctionOutcome) :
-    Vars.EvalFn exchangeExampleCertificate.vars ctx ⟨0⟩ globals #[first, second, third]
+    Vars.EvalFn exchangeExampleSchedule.vars ctx ⟨0⟩ globals #[first, second, third]
         trace finalGlobals outcome ↔
-      Stack.EvalFn exchangeExampleCertificate.stack ctx ⟨0⟩
+      Stack.EvalFn exchangeExampleSchedule.stack ctx ⟨0⟩
         globals #[first, second, third] trace finalGlobals outcome := by
-  exact functionCertificate_evaluation_equivalence exchangeExampleCertificate exchangeExample_accepted
+  exact schedule_evaluation_equivalence exchangeExampleSchedule exchangeExample_accepted
     ctx globals finalGlobals #[first, second, third] trace outcome
 
-def equalDepthExchangeExampleCertificate : StackSchedule := StackSchedule.ofBlock {
+def equalDepthExchangeExampleSchedule : StackSchedule := StackSchedule.ofBlock {
   vars := {
     inputs := #[⟨0⟩, ⟨1⟩]
     statements := #[]
@@ -144,10 +144,10 @@ def equalDepthExchangeExampleCertificate : StackSchedule := StackSchedule.ofBloc
     terminator := .halt } }
 
 theorem equalDepthExchangeExample_rejected :
-    equalDepthExchangeExampleCertificate.check =
+    equalDepthExchangeExampleSchedule.check =
       .error (.operandMismatch (.exchange 1 1)) := by decide +kernel
 
-def flippedLessThanExampleCertificate : StackSchedule := StackSchedule.ofBlock {
+def flippedLessThanExampleSchedule : StackSchedule := StackSchedule.ofBlock {
   vars := {
     inputs := #[⟨1⟩, ⟨0⟩]
     statements := #[.assign ⟨2⟩ (.lt ⟨0⟩ ⟨1⟩)]
@@ -160,7 +160,7 @@ def flippedLessThanExampleCertificate : StackSchedule := StackSchedule.ofBlock {
     terminator := .halt } }
 
 theorem flippedLessThanExample_accepted :
-    flippedLessThanExampleCertificate.check = .ok () := by decide +kernel
+    flippedLessThanExampleSchedule.check = .ok () := by decide +kernel
 
 theorem flippedLessThanExample_concrete_result
     (ctx : CallContext) (globals : Globals) (left right : Word) :
@@ -176,11 +176,11 @@ theorem flippedLessThanExample_concrete_result
 theorem flippedLessThanExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (left right : Word)
     (trace : Trace) (outcome : FunctionOutcome) :
-    Vars.EvalFn flippedLessThanExampleCertificate.vars ctx ⟨0⟩ globals #[right, left]
+    Vars.EvalFn flippedLessThanExampleSchedule.vars ctx ⟨0⟩ globals #[right, left]
         trace finalGlobals outcome ↔
-      Stack.EvalFn flippedLessThanExampleCertificate.stack ctx
+      Stack.EvalFn flippedLessThanExampleSchedule.stack ctx
         ⟨0⟩ globals #[right, left] trace finalGlobals outcome := by
-  exact functionCertificate_evaluation_equivalence flippedLessThanExampleCertificate
+  exact schedule_evaluation_equivalence flippedLessThanExampleSchedule
     flippedLessThanExample_accepted ctx globals finalGlobals #[right, left] trace outcome
 
 def straightLineExampleStatements : Array Vars.Stmt := #[
@@ -189,27 +189,27 @@ def straightLineExampleStatements : Array Vars.Stmt := #[
   .assign ⟨2⟩ (.add ⟨0⟩ ⟨1⟩),
   .assign ⟨3⟩ (.lt ⟨2⟩ ⟨0⟩)]
 
-def straightLineExampleCertificate : StackSchedule :=
+def straightLineExampleSchedule : StackSchedule :=
   (spillAll straightLineExampleStatements).toOption.get (by decide +kernel)
 
 theorem straightLineExample_lowered :
-    spillAll straightLineExampleStatements = .ok straightLineExampleCertificate := by
+    spillAll straightLineExampleStatements = .ok straightLineExampleSchedule := by
   decide +kernel
 
-theorem straightLineExample_accepted : straightLineExampleCertificate.check = .ok () := by
+theorem straightLineExample_accepted : straightLineExampleSchedule.check = .ok () := by
   decide +kernel
 
 theorem straightLineExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (trace : Trace)
     (outcome : FunctionOutcome) :
-    Vars.EvalFn straightLineExampleCertificate.vars ctx ⟨0⟩ globals #[] trace
+    Vars.EvalFn straightLineExampleSchedule.vars ctx ⟨0⟩ globals #[] trace
         finalGlobals outcome ↔
-      Stack.EvalFn straightLineExampleCertificate.stack ctx
+      Stack.EvalFn straightLineExampleSchedule.stack ctx
         ⟨0⟩ globals #[] trace finalGlobals outcome := by
-  exact functionCertificate_evaluation_equivalence straightLineExampleCertificate
+  exact schedule_evaluation_equivalence straightLineExampleSchedule
     straightLineExample_accepted ctx globals finalGlobals #[] trace outcome
 
-def twoBlockJumpExampleCertificate : StackSchedule where
+def twoBlockJumpExampleSchedule : StackSchedule where
   blocks := #[
     { vars := {
         statements := #[.assign ⟨0⟩ (.constant 7)]
@@ -234,19 +234,19 @@ def twoBlockJumpExampleCertificate : StackSchedule where
   entry := ⟨0⟩
 
 theorem twoBlockJumpExample_accepted :
-    twoBlockJumpExampleCertificate.check = .ok () := by decide +kernel
+    twoBlockJumpExampleSchedule.check = .ok () := by decide +kernel
 
 theorem twoBlockJumpExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (trace : Trace)
     (outcome : FunctionOutcome) :
-    Vars.EvalFn twoBlockJumpExampleCertificate.vars ctx ⟨0⟩ globals #[] trace
+    Vars.EvalFn twoBlockJumpExampleSchedule.vars ctx ⟨0⟩ globals #[] trace
         finalGlobals outcome ↔
-      Stack.EvalFn twoBlockJumpExampleCertificate.stack ctx
+      Stack.EvalFn twoBlockJumpExampleSchedule.stack ctx
         ⟨0⟩ globals #[] trace finalGlobals outcome := by
-  exact functionCertificate_evaluation_equivalence twoBlockJumpExampleCertificate
+  exact schedule_evaluation_equivalence twoBlockJumpExampleSchedule
     twoBlockJumpExample_accepted ctx globals finalGlobals #[] trace outcome
 
-def renamedBoundaryExampleCertificate : StackSchedule where
+def renamedBoundaryExampleSchedule : StackSchedule where
   blocks := #[
     { vars := {
         statements := #[
@@ -275,19 +275,19 @@ def renamedBoundaryExampleCertificate : StackSchedule where
   entry := ⟨0⟩
 
 theorem renamedBoundaryExample_accepted :
-    renamedBoundaryExampleCertificate.check = .ok () := by decide +kernel
+    renamedBoundaryExampleSchedule.check = .ok () := by decide +kernel
 
 theorem renamedBoundaryExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (trace : Trace)
     (outcome : FunctionOutcome) :
-    Vars.EvalFn renamedBoundaryExampleCertificate.vars ctx ⟨0⟩ globals #[] trace
+    Vars.EvalFn renamedBoundaryExampleSchedule.vars ctx ⟨0⟩ globals #[] trace
         finalGlobals outcome ↔
-      Stack.EvalFn renamedBoundaryExampleCertificate.stack ctx
+      Stack.EvalFn renamedBoundaryExampleSchedule.stack ctx
         ⟨0⟩ globals #[] trace finalGlobals outcome := by
-  exact functionCertificate_evaluation_equivalence renamedBoundaryExampleCertificate
+  exact schedule_evaluation_equivalence renamedBoundaryExampleSchedule
     renamedBoundaryExample_accepted ctx globals finalGlobals #[] trace outcome
 
-def mismatchedBoundaryArityExampleCertificate : StackSchedule where
+def mismatchedBoundaryArityExampleSchedule : StackSchedule where
   blocks := #[
     { vars := {
         statements := #[]
@@ -312,10 +312,10 @@ def mismatchedBoundaryArityExampleCertificate : StackSchedule where
   entry := ⟨0⟩
 
 theorem mismatchedBoundaryArityExample_rejected :
-    mismatchedBoundaryArityExampleCertificate.check =
+    mismatchedBoundaryArityExampleSchedule.check =
       .error (.boundaryArityMismatch (⟨0⟩, ⟨1⟩) 0 1) := by decide +kernel
 
-def branchLoopExampleCertificate : StackSchedule where
+def branchLoopExampleSchedule : StackSchedule where
   blocks := #[
     { vars := {
         statements := #[]
@@ -340,19 +340,19 @@ def branchLoopExampleCertificate : StackSchedule where
   entry := ⟨0⟩
 
 theorem branchLoopExample_accepted :
-    branchLoopExampleCertificate.check = .ok () := by decide +kernel
+    branchLoopExampleSchedule.check = .ok () := by decide +kernel
 
 theorem branchLoopExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (condition : Word) (trace : Trace)
     (outcome : FunctionOutcome) :
-    Vars.EvalFn branchLoopExampleCertificate.vars ctx ⟨0⟩ globals #[condition] trace
+    Vars.EvalFn branchLoopExampleSchedule.vars ctx ⟨0⟩ globals #[condition] trace
         finalGlobals outcome ↔
-      Stack.EvalFn branchLoopExampleCertificate.stack ctx
+      Stack.EvalFn branchLoopExampleSchedule.stack ctx
         ⟨0⟩ globals #[condition] trace finalGlobals outcome := by
-  exact functionCertificate_evaluation_equivalence branchLoopExampleCertificate
+  exact schedule_evaluation_equivalence branchLoopExampleSchedule
     branchLoopExample_accepted ctx globals finalGlobals #[condition] trace outcome
 
-def renamedBackEdgeLoopExampleCertificate : StackSchedule where
+def renamedBackEdgeLoopExampleSchedule : StackSchedule where
   blocks := #[
     { vars := {
         statements := #[]
@@ -389,19 +389,19 @@ def renamedBackEdgeLoopExampleCertificate : StackSchedule where
   entry := ⟨0⟩
 
 theorem renamedBackEdgeLoopExample_accepted :
-    renamedBackEdgeLoopExampleCertificate.check = .ok () := by decide +kernel
+    renamedBackEdgeLoopExampleSchedule.check = .ok () := by decide +kernel
 
 theorem renamedBackEdgeLoopExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (first second : Word) (trace : Trace)
     (outcome : FunctionOutcome) :
-    Vars.EvalFn renamedBackEdgeLoopExampleCertificate.vars ctx ⟨0⟩ globals
+    Vars.EvalFn renamedBackEdgeLoopExampleSchedule.vars ctx ⟨0⟩ globals
         #[first, second] trace finalGlobals outcome ↔
-      Stack.EvalFn renamedBackEdgeLoopExampleCertificate.stack ctx
+      Stack.EvalFn renamedBackEdgeLoopExampleSchedule.stack ctx
         ⟨0⟩ globals #[first, second] trace finalGlobals outcome := by
-  exact functionCertificate_evaluation_equivalence renamedBackEdgeLoopExampleCertificate
+  exact schedule_evaluation_equivalence renamedBackEdgeLoopExampleSchedule
     renamedBackEdgeLoopExample_accepted ctx globals finalGlobals #[first, second] trace outcome
 
-def reorderedIndependentExampleCertificate : StackSchedule := StackSchedule.ofBlock {
+def reorderedIndependentExampleSchedule : StackSchedule := StackSchedule.ofBlock {
   vars := {
     inputs := #[⟨2⟩]
     statements := #[
@@ -418,19 +418,19 @@ def reorderedIndependentExampleCertificate : StackSchedule := StackSchedule.ofBl
     terminator := .halt } }
 
 theorem reorderedIndependentExample_accepted :
-    reorderedIndependentExampleCertificate.check = .ok () := by decide +kernel
+    reorderedIndependentExampleSchedule.check = .ok () := by decide +kernel
 
 theorem reorderedIndependentExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (argument : Word) (trace : Trace)
     (outcome : FunctionOutcome) :
-    Vars.EvalFn reorderedIndependentExampleCertificate.vars ctx ⟨0⟩ globals #[argument]
+    Vars.EvalFn reorderedIndependentExampleSchedule.vars ctx ⟨0⟩ globals #[argument]
         trace finalGlobals outcome ↔
-      Stack.EvalFn reorderedIndependentExampleCertificate.stack ctx ⟨0⟩ globals
+      Stack.EvalFn reorderedIndependentExampleSchedule.stack ctx ⟨0⟩ globals
         #[argument] trace finalGlobals outcome := by
-  exact functionCertificate_evaluation_equivalence reorderedIndependentExampleCertificate
+  exact schedule_evaluation_equivalence reorderedIndependentExampleSchedule
     reorderedIndependentExample_accepted ctx globals finalGlobals #[argument] trace outcome
 
-def useBeforeDefinitionExampleCertificate : StackSchedule := StackSchedule.ofBlock {
+def useBeforeDefinitionExampleSchedule : StackSchedule := StackSchedule.ofBlock {
   vars := {
     inputs := #[]
     statements := #[
@@ -447,10 +447,10 @@ def useBeforeDefinitionExampleCertificate : StackSchedule := StackSchedule.ofBlo
     terminator := .halt } }
 
 theorem useBeforeDefinitionExample_rejected :
-    useBeforeDefinitionExampleCertificate.check =
+    useBeforeDefinitionExampleSchedule.check =
       .error (.useBeforeDefinition (.assign ⟨1⟩ (.var ⟨0⟩)) ⟨0⟩) := by decide +kernel
 
-def reorderedLoopExampleCertificate : StackSchedule where
+def reorderedLoopExampleSchedule : StackSchedule where
   blocks := #[
     { vars := {
         statements := #[
@@ -483,16 +483,16 @@ def reorderedLoopExampleCertificate : StackSchedule where
   entry := ⟨0⟩
 
 theorem reorderedLoopExample_accepted :
-    reorderedLoopExampleCertificate.check = .ok () := by decide +kernel
+    reorderedLoopExampleSchedule.check = .ok () := by decide +kernel
 
 theorem reorderedLoopExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (condition : Word) (trace : Trace)
     (outcome : FunctionOutcome) :
-    Vars.EvalFn reorderedLoopExampleCertificate.vars ctx ⟨0⟩ globals #[condition] trace
+    Vars.EvalFn reorderedLoopExampleSchedule.vars ctx ⟨0⟩ globals #[condition] trace
         finalGlobals outcome ↔
-      Stack.EvalFn reorderedLoopExampleCertificate.stack ctx
+      Stack.EvalFn reorderedLoopExampleSchedule.stack ctx
         ⟨0⟩ globals #[condition] trace finalGlobals outcome := by
-  exact functionCertificate_evaluation_equivalence reorderedLoopExampleCertificate
+  exact schedule_evaluation_equivalence reorderedLoopExampleSchedule
     reorderedLoopExample_accepted ctx globals finalGlobals #[condition] trace outcome
 
 end Sir.Lowering

@@ -65,7 +65,7 @@ theorem sourceOrderReferenceLocals_source_steps {sourceProgram : Vars.Program}
 theorem Symbolic.execute_preserves_available_variables
     (sourceStatements : Array Vars.Stmt) (state nextState : Symbolic.State)
     (instruction : Stack.Instr)
-    (replay : Symbolic.execute sourceStatements state instruction = some nextState)
+    (executed : Symbolic.execute sourceStatements state instruction = some nextState)
     (notOperation : ∀ operation,
       instruction ≠ .op operation ∧ instruction ≠ .flippedOp operation) :
     ∀ identifier,
@@ -73,49 +73,49 @@ theorem Symbolic.execute_preserves_available_variables
         state.available sourceStatements identifier := by
   cases instruction with
   | swap depth =>
-      simp [Symbolic.execute] at replay
-      obtain ⟨_, stack, _, rfl⟩ := replay
+      simp [Symbolic.execute] at executed
+      obtain ⟨_, stack, _, rfl⟩ := executed
       intro identifier
       rfl
   | exchange firstDepth secondDepth =>
-      simp [Symbolic.execute] at replay
-      obtain ⟨_, stack, _, rfl⟩ := replay
+      simp [Symbolic.execute] at executed
+      obtain ⟨_, stack, _, rfl⟩ := executed
       intro identifier
       rfl
   | dup depth =>
-      simp [Symbolic.execute] at replay
-      obtain ⟨_, value, _, rfl⟩ := replay
+      simp [Symbolic.execute] at executed
+      obtain ⟨_, value, _, rfl⟩ := executed
       intro identifier
       rfl
   | pop =>
       cases stackEq : state.stack with
-      | nil => simp [Symbolic.execute, stackEq] at replay
+      | nil => simp [Symbolic.execute, stackEq] at executed
       | cons value stack =>
-          simp [Symbolic.execute, stackEq] at replay
+          simp [Symbolic.execute, stackEq] at executed
           subst nextState
           intro identifier
           rfl
   | op operation => exact (notOperation operation).1 rfl |>.elim
   | flippedOp operation => exact (notOperation operation).2 rfl |>.elim
-  | icall callee argumentCount resultCount => simp [Symbolic.execute] at replay
+  | icall callee argumentCount resultCount => simp [Symbolic.execute] at executed
   | store slot =>
       cases stackEq : state.stack with
-      | nil => simp [Symbolic.execute, stackEq] at replay
+      | nil => simp [Symbolic.execute, stackEq] at executed
       | cons value stack =>
           cases bindingEq : state.slotValue? slot with
-          | some binding => simp [Symbolic.execute, stackEq, bindingEq] at replay
+          | some binding => simp [Symbolic.execute, stackEq, bindingEq] at executed
           | none =>
-              simp [Symbolic.execute, stackEq, bindingEq] at replay
+              simp [Symbolic.execute, stackEq, bindingEq] at executed
               subst nextState
               intro identifier
               rfl
   | load slot =>
-      simp [Symbolic.execute] at replay
-      obtain ⟨value, _, rfl⟩ := replay
+      simp [Symbolic.execute] at executed
+      obtain ⟨value, _, rfl⟩ := executed
       intro identifier
       rfl
 
-theorem Symbolic.State.InterpretsReference.replay_instruction_target_step
+theorem Symbolic.State.InterpretsReference.execute_instruction_target_step
     {sourceProgram : Vars.Program} {targetProgram : Stack.Program}
     (sourceStatements : Array Vars.Stmt) (entryLayout : Array Symbolic.Value)
     (state nextState : Symbolic.State) (ctx : CallContext) (globals : Globals)
@@ -126,7 +126,7 @@ theorem Symbolic.State.InterpretsReference.replay_instruction_target_step
     (interprets : state.InterpretsReference sourceStatements locals referenceLocals environment)
     (sourceControl : Nat → Machine.MachineControl) (targetControl targetNext : Machine.MachineControl)
     (instruction : Stack.Instr)
-    (replay : Symbolic.execute sourceStatements state instruction = some nextState)
+    (executed : Symbolic.execute sourceStatements state instruction = some nextState)
     (sourceDecode : ∀ index statement,
       sourceStatements[index]? = some statement →
         sourceProgram.decodeStmt (sourceControl index) =
@@ -141,50 +141,50 @@ theorem Symbolic.State.InterpretsReference.replay_instruction_target_step
   cases instruction with
   | swap depth =>
       obtain ⟨nextEnvironment, targetStep, nextInterprets⟩ :=
-        interprets.1.replay_swap_step sourceStatements state nextState ctx globals locals environment
-          targetControl targetNext depth replay targetDecode
+        interprets.1.execute_swap_step sourceStatements state nextState ctx globals locals environment
+          targetControl targetNext depth executed targetDecode
       refine ⟨locals, nextEnvironment, targetStep, nextInterprets, ?_⟩
       intro identifier available
       apply interprets.2 identifier
       rw [← Symbolic.execute_preserves_available_variables sourceStatements state
-        nextState (.swap depth) replay (by intro operation; simp)]
+        nextState (.swap depth) executed (by intro operation; simp)]
       exact available
   | exchange firstDepth secondDepth =>
       obtain ⟨nextEnvironment, targetStep, nextInterprets⟩ :=
-        interprets.1.replay_exchange_step sourceStatements state nextState ctx globals locals
-          environment targetControl targetNext firstDepth secondDepth replay targetDecode
+        interprets.1.execute_exchange_step sourceStatements state nextState ctx globals locals
+          environment targetControl targetNext firstDepth secondDepth executed targetDecode
       refine ⟨locals, nextEnvironment, targetStep, nextInterprets, ?_⟩
       intro identifier available
       apply interprets.2 identifier
       rw [← Symbolic.execute_preserves_available_variables sourceStatements state
-        nextState (.exchange firstDepth secondDepth) replay (by intro operation; simp)]
+        nextState (.exchange firstDepth secondDepth) executed (by intro operation; simp)]
       exact available
   | dup depth =>
       obtain ⟨nextEnvironment, targetStep, nextInterprets⟩ :=
-        interprets.1.replay_dup_step sourceStatements state nextState ctx globals locals environment
-          targetControl targetNext depth replay targetDecode
+        interprets.1.execute_dup_step sourceStatements state nextState ctx globals locals environment
+          targetControl targetNext depth executed targetDecode
       refine ⟨locals, nextEnvironment, targetStep, nextInterprets, ?_⟩
       intro identifier available
       apply interprets.2 identifier
       rw [← Symbolic.execute_preserves_available_variables sourceStatements state
-        nextState (.dup depth) replay (by intro operation; simp)]
+        nextState (.dup depth) executed (by intro operation; simp)]
       exact available
   | pop =>
       obtain ⟨nextEnvironment, targetStep, nextInterprets⟩ :=
-        interprets.1.replay_pop_step sourceStatements state nextState ctx globals locals environment
-          targetControl targetNext replay targetDecode
+        interprets.1.execute_pop_step sourceStatements state nextState ctx globals locals environment
+          targetControl targetNext executed targetDecode
       refine ⟨locals, nextEnvironment, targetStep, nextInterprets, ?_⟩
       intro identifier available
       apply interprets.2 identifier
       rw [← Symbolic.execute_preserves_available_variables sourceStatements state
-        nextState .pop replay (by intro operation; simp)]
+        nextState .pop executed (by intro operation; simp)]
       exact available
   | op operation =>
       obtain ⟨statementIndex, statement, symbolicOperands, operands, result, resultValue,
           statementAt, symbolicOperation, canFire, concreteOperation, stackPrefix, nextStateEq,
           nextInterprets⟩ :=
-        interprets.1.replay_operation sourceStatements state nextState locals environment operation
-          replay
+        interprets.1.execute_operation sourceStatements state nextState locals environment operation
+          executed
       obtain ⟨sourceStep, targetStep⟩ := sourceStatementConcreteOperation_steps ctx globals
         locals environment (sourceControl statementIndex) (sourceControl (statementIndex + 1))
         targetControl targetNext statement operation operands result resultValue concreteOperation
@@ -203,8 +203,8 @@ theorem Symbolic.State.InterpretsReference.replay_instruction_target_step
       obtain ⟨statementIndex, statement, symbolicOperands, operands, result, resultValue,
           flippedStack, flippedState, binary, statementAt, symbolicOperation, canFire,
           concreteOperation, fetch, flippedStateEq, nextStateEq, nextInterprets⟩ :=
-        interprets.1.replay_flipped_operation sourceStatements state nextState locals environment
-          operation replay
+        interprets.1.execute_flipped_operation sourceStatements state nextState locals environment
+          operation executed
       have flippedAgrees : flippedState.AvailableVariablesAgree sourceStatements locals
           referenceLocals := by
         intro identifier available
@@ -222,29 +222,29 @@ theorem Symbolic.State.InterpretsReference.replay_instruction_target_step
       exact ⟨locals.assign result resultValue,
         { environment with stack := resultValue :: environment.stack.drop 2 },
         targetStep, nextInterprets, nextAgrees⟩
-  | icall callee argumentCount resultCount => simp [Symbolic.execute] at replay
+  | icall callee argumentCount resultCount => simp [Symbolic.execute] at executed
   | store slot =>
       obtain ⟨nextEnvironment, targetStep, nextInterprets⟩ :=
-        interprets.1.replay_store_step sourceStatements state nextState ctx globals locals environment
-          targetControl targetNext slot replay targetDecode
+        interprets.1.execute_store_step sourceStatements state nextState ctx globals locals environment
+          targetControl targetNext slot executed targetDecode
       refine ⟨locals, nextEnvironment, targetStep, nextInterprets, ?_⟩
       intro identifier available
       apply interprets.2 identifier
       rw [← Symbolic.execute_preserves_available_variables sourceStatements state
-        nextState (.store slot) replay (by intro operation; simp)]
+        nextState (.store slot) executed (by intro operation; simp)]
       exact available
   | load slot =>
       obtain ⟨nextEnvironment, targetStep, nextInterprets⟩ :=
-        interprets.1.replay_load_step sourceStatements state nextState ctx globals locals environment
-          targetControl targetNext slot replay targetDecode
+        interprets.1.execute_load_step sourceStatements state nextState ctx globals locals environment
+          targetControl targetNext slot executed targetDecode
       refine ⟨locals, nextEnvironment, targetStep, nextInterprets, ?_⟩
       intro identifier available
       apply interprets.2 identifier
       rw [← Symbolic.execute_preserves_available_variables sourceStatements state
-        nextState (.load slot) replay (by intro operation; simp)]
+        nextState (.load slot) executed (by intro operation; simp)]
       exact available
 
-theorem Symbolic.State.InterpretsReference.replay_instructions_target_steps
+theorem Symbolic.State.InterpretsReference.execute_instructions_target_steps
     {sourceProgram : Vars.Program} {targetProgram : Stack.Program}
     (sourceStatements : Array Vars.Stmt) (entryLayout : Array Symbolic.Value)
     (instructions : List Stack.Instr) (state finalState : Symbolic.State)
@@ -255,7 +255,7 @@ theorem Symbolic.State.InterpretsReference.replay_instructions_target_steps
     (evaluated : sourceOrderReferenceLocals sourceStatements entryLocals = some referenceLocals)
     (interprets : state.InterpretsReference sourceStatements locals referenceLocals environment)
     (sourceControl targetControl : Nat → Machine.MachineControl) (targetIndex : Nat)
-    (replay : instructions.foldlM (Symbolic.execute sourceStatements) state =
+    (executed : instructions.foldlM (Symbolic.execute sourceStatements) state =
       some finalState)
     (sourceDecode : ∀ index statement,
       sourceStatements[index]? = some statement →
@@ -273,24 +273,24 @@ theorem Symbolic.State.InterpretsReference.replay_instructions_target_steps
         finalEnvironment := by
   induction instructions generalizing state locals environment targetIndex with
   | nil =>
-      simp at replay
+      simp at executed
       subst finalState
       exact ⟨locals, environment, Machine.Steps.refl, interprets⟩
   | cons instruction instructions inductionHypothesis =>
-      simp only [List.foldlM_cons] at replay
-      cases replayInstruction : Symbolic.execute sourceStatements state instruction with
-      | none => simp [replayInstruction] at replay
+      simp only [List.foldlM_cons] at executed
+      cases instructionExecution : Symbolic.execute sourceStatements state instruction with
+      | none => simp [instructionExecution] at executed
       | some nextState =>
-          rw [replayInstruction] at replay
+          rw [instructionExecution] at executed
           obtain ⟨nextLocals, nextEnvironment, targetStep, nextInterprets⟩ :=
-            interprets.replay_instruction_target_step sourceStatements entryLayout state nextState
+            interprets.execute_instruction_target_step sourceStatements entryLayout state nextState
               ctx globals entryLocals locals referenceLocals environment usesAvailable
               variablesUnique evaluated sourceControl (targetControl targetIndex)
-              (targetControl (targetIndex + 1)) instruction replayInstruction sourceDecode
+              (targetControl (targetIndex + 1)) instruction instructionExecution sourceDecode
               (by simpa using targetDecode 0 instruction (by simp))
           obtain ⟨finalLocals, finalEnvironment, targetRest, finalInterprets⟩ :=
             inductionHypothesis nextState nextLocals nextEnvironment nextInterprets (targetIndex + 1)
-              replay (fun index nextInstruction instructionAt => by
+              executed (fun index nextInstruction instructionAt => by
                 have originalAt : (instruction :: instructions)[index + 1]? =
                     some nextInstruction := by
                   simpa using instructionAt
@@ -300,7 +300,7 @@ theorem Symbolic.State.InterpretsReference.replay_instructions_target_steps
           simpa only [List.length_cons, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using
             Machine.Steps.trans (Machine.Steps.single targetStep) targetRest
 
-theorem Symbolic.State.InterpretsReference.replay_symbolic_instructions_target_steps
+theorem Symbolic.State.InterpretsReference.execute_symbolic_instructions_target_steps
     {sourceProgram : Vars.Program} {targetProgram : Stack.Program}
     (sourceStatements : Array Vars.Stmt) (entryLayout : Array Symbolic.Value)
     (targetInstructions : Array Stack.Instr) (state finalState : Symbolic.State)
@@ -311,7 +311,7 @@ theorem Symbolic.State.InterpretsReference.replay_symbolic_instructions_target_s
     (evaluated : sourceOrderReferenceLocals sourceStatements entryLocals = some referenceLocals)
     (interprets : state.InterpretsReference sourceStatements locals referenceLocals environment)
     (sourceControl targetControl : Nat → Machine.MachineControl) (targetIndex : Nat)
-    (replay : Symbolic.executeAll sourceStatements targetInstructions state = some finalState)
+    (executed : Symbolic.executeAll sourceStatements targetInstructions state = some finalState)
     (sourceDecode : ∀ index statement,
       sourceStatements[index]? = some statement →
         sourceProgram.decodeStmt (sourceControl index) =
@@ -326,16 +326,16 @@ theorem Symbolic.State.InterpretsReference.replay_symbolic_instructions_target_s
         ⟨globals, finalEnvironment, targetControl (targetIndex + targetInstructions.size)⟩ ∧
       finalState.InterpretsReference sourceStatements finalLocals referenceLocals
         finalEnvironment := by
-  apply interprets.replay_instructions_target_steps sourceStatements entryLayout
+  apply interprets.execute_instructions_target_steps sourceStatements entryLayout
     targetInstructions.toList state finalState ctx globals entryLocals locals referenceLocals
     environment usesAvailable variablesUnique evaluated sourceControl targetControl targetIndex
-  · simpa [Symbolic.executeAll] using replay
+  · simpa [Symbolic.executeAll] using executed
   · exact sourceDecode
   · intro index instruction instructionAt
     apply targetDecode index instruction
     simpa using instructionAt
 
-def SpillAllReplayInvariant (sourceStatements : Array Vars.Stmt) (state : Symbolic.State)
+def SpillAllInvariant (sourceStatements : Array Vars.Stmt) (state : Symbolic.State)
     (defined : List VarId) (fired : Nat) : Prop :=
   state.stack = [] ∧ state.firedCount = fired ∧
     state.firedStatementIndices = (List.range fired).reverse ∧
@@ -346,10 +346,10 @@ def SpillAllReplayInvariant (sourceStatements : Array Vars.Stmt) (state : Symbol
     ∀ binding ∈ state.slotBindings,
       ∃ identifier ∈ defined, binding = (identifier.id, .variable identifier)
 
-theorem SpillAllReplayInvariant.slot_absent
+theorem SpillAllInvariant.slot_absent
     {sourceStatements : Array Vars.Stmt} {state : Symbolic.State} {defined : List VarId}
     {fired : Nat} {result : VarId}
-    (invariant : SpillAllReplayInvariant sourceStatements state defined fired)
+    (invariant : SpillAllInvariant sourceStatements state defined fired)
     (fresh : result ∉ defined) : state.slotValue? result.id = none := by
   unfold Symbolic.State.slotValue?
   rw [Option.map_eq_none_iff]
@@ -363,10 +363,10 @@ theorem SpillAllReplayInvariant.slot_absent
     simp_all
   exact fresh (this ▸ identifierMember)
 
-theorem SpillAllReplayInvariant.binding_value_ne
+theorem SpillAllInvariant.binding_value_ne
     {sourceStatements : Array Vars.Stmt} {state : Symbolic.State} {defined : List VarId}
     {fired : Nat} {result : VarId}
-    (invariant : SpillAllReplayInvariant sourceStatements state defined fired)
+    (invariant : SpillAllInvariant sourceStatements state defined fired)
     (fresh : result ∉ defined) :
     ∀ binding ∈ state.slotBindings, binding.2 ≠ .variable result := by
   intro binding member equal
@@ -394,13 +394,13 @@ theorem Symbolic.State.slotValue?_push_self_of_none (state : Symbolic.State)
   rw [Array.find?_push, lookup]
   simp
 
-theorem SpillAllReplayInvariant.store_result
+theorem SpillAllInvariant.store_result
     {sourceStatements : Array Vars.Stmt} {state : Symbolic.State} {defined : List VarId}
     {fired : Nat} {result : VarId} {statement : Vars.Stmt}
-    (invariant : SpillAllReplayInvariant sourceStatements state defined fired)
+    (invariant : SpillAllInvariant sourceStatements state defined fired)
     (fresh : result ∉ defined) (statementAt : sourceStatements[fired]? = some statement)
     (resultDefined : result ∈ statement.variablesDefined) :
-    SpillAllReplayInvariant sourceStatements
+    SpillAllInvariant sourceStatements
       { state with
         stack := List.nil
         slotBindings := state.slotBindings.push (result.id, .variable result)
@@ -433,10 +433,10 @@ theorem SpillAllReplayInvariant.store_result
       exact ⟨identifier, by simp [identifierMember]⟩
     · exact ⟨result, by simp⟩
 
-theorem replay_lowerStatement
+theorem execute_lowerStatement
     (sourceStatements : Array Vars.Stmt) (index : Nat) (statement : Vars.Stmt)
     (state : Symbolic.State) (defined : List VarId)
-    (invariant : SpillAllReplayInvariant sourceStatements state defined index)
+    (invariant : SpillAllInvariant sourceStatements state defined index)
     (statementAt : sourceStatements[index]? = some statement)
     (readsDefined : ∀ identifier ∈ statement.variablesRead, identifier ∈ defined)
     (definitionsFresh : ∀ identifier ∈ statement.variablesDefined, identifier ∉ defined)
@@ -444,7 +444,7 @@ theorem replay_lowerStatement
     (lowered : spillAll.lowerStatement statement = some instructions) :
     ∃ nextState,
       instructions.foldlM (Symbolic.execute sourceStatements) state = some nextState ∧
-      SpillAllReplayInvariant sourceStatements nextState
+      SpillAllInvariant sourceStatements nextState
         (statement.variablesDefined ++ defined) (index + 1) := by
   have firedLength : state.firedStatementIndices.length = index := by
     simpa [Symbolic.State.firedCount] using invariant.2.1
@@ -474,7 +474,7 @@ theorem replay_lowerStatement
               stack := List.nil
               slotBindings := state.slotBindings.push (result.id, .variable result)
               firedStatementIndices := index :: state.firedStatementIndices }
-          have opReplay : Symbolic.execute sourceStatements state
+          have opExecution : Symbolic.execute sourceStatements state
               (.op (.constant value)) = some firedState := by
             have canFire : state.fireable sourceStatements (.constant value)
                 (.assign result (.constant value), index) = true := by
@@ -488,12 +488,12 @@ theorem replay_lowerStatement
               Symbolic.operationOf, invariant.1, firedState]
           have firedSlotAbsent : firedState.slotValue? result.id = none := by
             simpa [firedState] using slotAbsent
-          have storeReplay : Symbolic.execute sourceStatements firedState
+          have storeExecution : Symbolic.execute sourceStatements firedState
               (.store result.id) = some nextState := by
             simp only [Symbolic.execute]
             rw [firedSlotAbsent]
           refine ⟨nextState, ?_, ?_⟩
-          · simp [opReplay, storeReplay]
+          · simp [opExecution, storeExecution]
           · simpa [nextState, Vars.Stmt.variablesDefined] using invariant.store_result fresh
               statementAt (by simp [Vars.Stmt.variablesDefined])
       | var source =>
@@ -516,12 +516,12 @@ theorem replay_lowerStatement
               stack := List.nil
               slotBindings := state.slotBindings.push (result.id, .variable result)
               firedStatementIndices := index :: state.firedStatementIndices }
-          have loadReplay : Symbolic.execute sourceStatements state
+          have loadExecution : Symbolic.execute sourceStatements state
               (.load source.id) = some loadedState := by
             simp only [Symbolic.execute]
             rw [sourceLookup]
             simp [loadedState, invariant.1]
-          have opReplay : Symbolic.execute sourceStatements loadedState
+          have opExecution : Symbolic.execute sourceStatements loadedState
               (.op .copy) = some firedState := by
             have sourceAvailable := invariant.2.2.2.1 source sourceDefined
             have loadedReadsAvailable : ∀ identifier ∈
@@ -546,12 +546,12 @@ theorem replay_lowerStatement
               Symbolic.operationOf, loadedState, firedState]
           have firedSlotAbsent : firedState.slotValue? result.id = none := by
             simpa [firedState] using slotAbsent
-          have storeReplay : Symbolic.execute sourceStatements firedState
+          have storeExecution : Symbolic.execute sourceStatements firedState
               (.store result.id) = some nextState := by
             simp only [Symbolic.execute]
             rw [firedSlotAbsent]
           refine ⟨nextState, ?_, ?_⟩
-          · simp [loadReplay, opReplay, storeReplay]
+          · simp [loadExecution, opExecution, storeExecution]
           · simpa [nextState, Vars.Stmt.variablesDefined] using invariant.store_result fresh
               statementAt (by simp [Vars.Stmt.variablesDefined])
       | add lhs rhs =>
@@ -579,19 +579,19 @@ theorem replay_lowerStatement
               stack := List.nil
               slotBindings := state.slotBindings.push (result.id, .variable result)
               firedStatementIndices := index :: state.firedStatementIndices }
-          have rhsLoadReplay : Symbolic.execute sourceStatements state
+          have rhsLoadExecution : Symbolic.execute sourceStatements state
               (.load rhs.id) = some rhsLoadedState := by
             simp only [Symbolic.execute]
             rw [rhsLookup]
             simp [rhsLoadedState, invariant.1]
           have lhsLoadedLookup : rhsLoadedState.slotValue? lhs.id =
               some (.variable lhs) := by simpa [rhsLoadedState] using lhsLookup
-          have lhsLoadReplay : Symbolic.execute sourceStatements rhsLoadedState
+          have lhsLoadExecution : Symbolic.execute sourceStatements rhsLoadedState
               (.load lhs.id) = some operandsLoadedState := by
             simp only [Symbolic.execute]
             rw [lhsLoadedLookup]
             simp [rhsLoadedState, operandsLoadedState]
-          have opReplay : Symbolic.execute sourceStatements operandsLoadedState
+          have opExecution : Symbolic.execute sourceStatements operandsLoadedState
               (.op .add) = some firedState := by
             have lhsAvailable := invariant.2.2.2.1 lhs lhsDefined
             have rhsAvailable := invariant.2.2.2.1 rhs rhsDefined
@@ -620,12 +620,12 @@ theorem replay_lowerStatement
               Symbolic.operationOf, operandsLoadedState, firedState]
           have firedSlotAbsent : firedState.slotValue? result.id = none := by
             simpa [firedState] using slotAbsent
-          have storeReplay : Symbolic.execute sourceStatements firedState
+          have storeExecution : Symbolic.execute sourceStatements firedState
               (.store result.id) = some nextState := by
             simp only [Symbolic.execute]
             rw [firedSlotAbsent]
           refine ⟨nextState, ?_, ?_⟩
-          · simp [rhsLoadReplay, lhsLoadReplay, opReplay, storeReplay]
+          · simp [rhsLoadExecution, lhsLoadExecution, opExecution, storeExecution]
           · simpa [nextState, Vars.Stmt.variablesDefined] using invariant.store_result fresh
               statementAt (by simp [Vars.Stmt.variablesDefined])
       | lt lhs rhs =>
@@ -653,19 +653,19 @@ theorem replay_lowerStatement
               stack := List.nil
               slotBindings := state.slotBindings.push (result.id, .variable result)
               firedStatementIndices := index :: state.firedStatementIndices }
-          have rhsLoadReplay : Symbolic.execute sourceStatements state
+          have rhsLoadExecution : Symbolic.execute sourceStatements state
               (.load rhs.id) = some rhsLoadedState := by
             simp only [Symbolic.execute]
             rw [rhsLookup]
             simp [rhsLoadedState, invariant.1]
           have lhsLoadedLookup : rhsLoadedState.slotValue? lhs.id =
               some (.variable lhs) := by simpa [rhsLoadedState] using lhsLookup
-          have lhsLoadReplay : Symbolic.execute sourceStatements rhsLoadedState
+          have lhsLoadExecution : Symbolic.execute sourceStatements rhsLoadedState
               (.load lhs.id) = some operandsLoadedState := by
             simp only [Symbolic.execute]
             rw [lhsLoadedLookup]
             simp [rhsLoadedState, operandsLoadedState]
-          have opReplay : Symbolic.execute sourceStatements operandsLoadedState
+          have opExecution : Symbolic.execute sourceStatements operandsLoadedState
               (.op .lt) = some firedState := by
             have lhsAvailable := invariant.2.2.2.1 lhs lhsDefined
             have rhsAvailable := invariant.2.2.2.1 rhs rhsDefined
@@ -694,12 +694,12 @@ theorem replay_lowerStatement
               Symbolic.operationOf, operandsLoadedState, firedState]
           have firedSlotAbsent : firedState.slotValue? result.id = none := by
             simpa [firedState] using slotAbsent
-          have storeReplay : Symbolic.execute sourceStatements firedState
+          have storeExecution : Symbolic.execute sourceStatements firedState
               (.store result.id) = some nextState := by
             simp only [Symbolic.execute]
             rw [firedSlotAbsent]
           refine ⟨nextState, ?_, ?_⟩
-          · simp [rhsLoadReplay, lhsLoadReplay, opReplay, storeReplay]
+          · simp [rhsLoadExecution, lhsLoadExecution, opExecution, storeExecution]
           · simpa [nextState, Vars.Stmt.variablesDefined] using invariant.store_result fresh
               statementAt (by simp [Vars.Stmt.variablesDefined])
       | sload key => simp [spillAll.lowerStatement] at lowered
@@ -726,12 +726,12 @@ theorem Symbolic.recordDefinitions_sound
     simpa using List.all_eq_true.mp accepted identifier member
   next rejected => simp at recorded
 
-theorem replay_lowerStatementList
+theorem execute_lowerStatementList
     (sourceStatements : Array Vars.Stmt) (processed remaining : List Vars.Stmt)
     (instructionArrays : List (Array Stack.Instr))
     (state : Symbolic.State) (defined finalDefined : List VarId)
     (sourceSplit : sourceStatements.toList = processed ++ remaining)
-    (invariant : SpillAllReplayInvariant sourceStatements state defined processed.length)
+    (invariant : SpillAllInvariant sourceStatements state defined processed.length)
     (definitions : remaining.foldlM Symbolic.recordDefinitions defined =
       some finalDefined)
     (lowered : remaining.mapM spillAll.lowerStatement = some instructionArrays)
@@ -739,7 +739,7 @@ theorem replay_lowerStatementList
     ∃ finalState,
       (instructionArrays.flatMap Array.toList).foldlM
           (Symbolic.execute sourceStatements) state = some finalState ∧
-      SpillAllReplayInvariant sourceStatements finalState finalDefined sourceStatements.size := by
+      SpillAllInvariant sourceStatements finalState finalDefined sourceStatements.size := by
   induction remaining generalizing processed instructionArrays state defined with
   | nil =>
       simp at definitions lowered
@@ -788,19 +788,19 @@ theorem replay_lowerStatementList
                   have statementAt : sourceStatements[processed.length]? = some statement := by
                     rw [← Array.getElem?_toList, sourceSplit]
                     simp
-                  obtain ⟨nextState, statementReplay, nextInvariant⟩ :=
-                    replay_lowerStatement sourceStatements processed.length statement state
+                  obtain ⟨nextState, statementExecution, nextInvariant⟩ :=
+                    execute_lowerStatement sourceStatements processed.length statement state
                       defined invariant statementAt readsDefined definitionsFresh
                       statementInstructions loweredStatement
-                  obtain ⟨finalState, remainingReplay, finalInvariant⟩ :=
+                  obtain ⟨finalState, remainingExecution, finalInvariant⟩ :=
                     inductionHypothesis (processed ++ [statement]) remainingInstructions nextState
                       (statement.variablesDefined ++ defined)
                       (by simpa [List.append_assoc] using sourceSplit)
                       (by simpa using nextInvariant) definitions loweredRemaining nextNodup
                   refine ⟨finalState, ?_, finalInvariant⟩
-                  simpa [List.foldlM_append, statementReplay] using remainingReplay
+                  simpa [List.foldlM_append, statementExecution] using remainingExecution
 
-theorem lowerStatements_replay
+theorem lowerStatements_execute
     (sourceStatements : Array Vars.Stmt) (finalDefined : List VarId)
     (targetInstructions : Array Stack.Instr)
     (definitions : spillAll.definitions sourceStatements = some finalDefined)
@@ -809,7 +809,7 @@ theorem lowerStatements_replay
     ∃ finalState,
       Symbolic.executeAll sourceStatements targetInstructions
           (Symbolic.State.initial #[]) = some finalState ∧
-      SpillAllReplayInvariant sourceStatements finalState finalDefined sourceStatements.size := by
+      SpillAllInvariant sourceStatements finalState finalDefined sourceStatements.size := by
   unfold spillAll.lowerStatements at lowered
   cases mapped : sourceStatements.mapM spillAll.lowerStatement with
   | none => simp [mapped] at lowered
@@ -821,25 +821,25 @@ theorem lowerStatements_replay
         symm
         simpa [mapped] using
           (Array.toList_mapM (f := spillAll.lowerStatement) (xs := sourceStatements))
-      have initialInvariant : SpillAllReplayInvariant sourceStatements
+      have initialInvariant : SpillAllInvariant sourceStatements
           (Symbolic.State.initial #[]) [] 0 := by
-        simp [SpillAllReplayInvariant, Symbolic.State.initial,
+        simp [SpillAllInvariant, Symbolic.State.initial,
           Symbolic.State.slotValue?, Symbolic.State.firedCount]
       have definitionsList : sourceStatements.toList.foldlM
           Symbolic.recordDefinitions [] = some finalDefined := by
         simpa [spillAll.definitions] using definitions
       have nodup : (sourceStatements.toList.flatMap Vars.Stmt.variablesDefined ++ []).Nodup := by
         simpa [Sir.Lowering.spillAll.singleAssignment] using single
-      obtain ⟨finalState, replay, finalInvariant⟩ :=
-        replay_lowerStatementList sourceStatements [] sourceStatements.toList
+      obtain ⟨finalState, executed, finalInvariant⟩ :=
+        execute_lowerStatementList sourceStatements [] sourceStatements.toList
           instructionArrays.toList (Symbolic.State.initial #[]) [] finalDefined
           (by simp) initialInvariant definitionsList mappedList nodup
       refine ⟨finalState, ?_, finalInvariant⟩
       rw [Symbolic.executeAll, ← Array.foldlM_toList]
-      simpa [List.flatMap] using replay
+      simpa [List.flatMap] using executed
 
 theorem Proofs.spillAll_accepted : spillAll.Accepted := by
-  intro statements certificate lowered
+  intro statements schedule lowered
   unfold spillAll at lowered
   split at lowered
   next single =>
@@ -850,19 +850,19 @@ theorem Proofs.spillAll_accepted : spillAll.Accepted := by
         | none => simp [definitions, instructions] at lowered
         | some targetInstructions =>
             simp [definitions, instructions] at lowered
-            subst certificate
-            obtain ⟨finalState, replay, invariant⟩ :=
-              lowerStatements_replay statements finalDefined targetInstructions
+            subst schedule
+            obtain ⟨finalState, executed, invariant⟩ :=
+              lowerStatements_execute statements finalDefined targetInstructions
                 definitions instructions single
             have usesAvailable : Symbolic.readsAvailable statements #[] = true := by
               simpa [Symbolic.readsAvailable, spillAll.definitions] using
                 congrArg Option.isSome definitions
             have variablesUnique : Symbolic.definesOnce statements #[] = true := by
               simpa [Symbolic.definesOnce, spillAll.singleAssignment] using single
-            have checkedReplay : StackSchedule.Block.replay statements
+            have checkedExecution : StackSchedule.Block.execute statements
                 targetInstructions.toList (Symbolic.State.initial #[]) = .ok finalState :=
-              (StackSchedule.Block.replay_eq_ok_iff statements targetInstructions.toList
-                (Symbolic.State.initial #[]) finalState).mpr (by simpa using replay)
+              (StackSchedule.Block.execute_eq_ok_iff statements targetInstructions.toList
+                (Symbolic.State.initial #[]) finalState).mpr (by simpa using executed)
             have noUnavailable : StackSchedule.firstUnavailable statements.toList [] = none := by
               apply (StackSchedule.firstUnavailable_none_iff _ _).mpr
               simpa [Symbolic.readsAvailable] using usesAvailable
@@ -875,7 +875,7 @@ theorem Proofs.spillAll_accepted : spillAll.Accepted := by
             · simp [spillAll.schedule, StackSchedule.ofBlock]
             · apply StackSchedule.ofBlock_check
               · simp [StackSchedule.Block.check, StackSchedule.Block.checkFinalStack,
-                  StackSchedule.Block.terminatorsAgree, checkedReplay, noUnavailable,
+                  StackSchedule.Block.terminatorsAgree, checkedExecution, noUnavailable,
                   noDuplicate, invariant.2.1]
               · rfl
   next => simp at lowered

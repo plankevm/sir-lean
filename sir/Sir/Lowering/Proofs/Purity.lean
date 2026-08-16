@@ -1,4 +1,4 @@
-import Sir.Lowering.Proofs.Replay
+import Sir.Lowering.Proofs.Check
 
 namespace Sir.Lowering
 
@@ -74,35 +74,35 @@ theorem Symbolic.State.fireNextStatement_eq_some
 theorem Symbolic.execute_preserves_fired_statement_indices
     (sourceStatements : Array Vars.Stmt) (state nextState : Symbolic.State)
     (instruction : Stack.Instr)
-    (replay : Symbolic.execute sourceStatements state instruction = some nextState)
+    (executed : Symbolic.execute sourceStatements state instruction = some nextState)
     (valid : state.firedStatementIndices.Nodup ∧
       ∀ index ∈ state.firedStatementIndices, index < sourceStatements.size) :
     nextState.firedStatementIndices.Nodup ∧
       ∀ index ∈ nextState.firedStatementIndices, index < sourceStatements.size := by
   cases instruction with
   | swap depth =>
-      simp [Symbolic.execute] at replay
-      obtain ⟨_, stack, _, rfl⟩ := replay
+      simp [Symbolic.execute] at executed
+      obtain ⟨_, stack, _, rfl⟩ := executed
       exact valid
   | exchange firstDepth secondDepth =>
-      simp [Symbolic.execute] at replay
-      obtain ⟨_, stack, _, rfl⟩ := replay
+      simp [Symbolic.execute] at executed
+      obtain ⟨_, stack, _, rfl⟩ := executed
       exact valid
   | dup depth =>
-      simp [Symbolic.execute] at replay
-      obtain ⟨_, value, _, rfl⟩ := replay
+      simp [Symbolic.execute] at executed
+      obtain ⟨_, value, _, rfl⟩ := executed
       exact valid
   | pop =>
       cases stackEq : state.stack with
-      | nil => simp [Symbolic.execute, stackEq] at replay
+      | nil => simp [Symbolic.execute, stackEq] at executed
       | cons value stack =>
-          simp [Symbolic.execute, stackEq] at replay
+          simp [Symbolic.execute, stackEq] at executed
           subst nextState
           exact valid
   | op operation =>
-      simp only [Symbolic.execute] at replay
+      simp only [Symbolic.execute] at executed
       obtain ⟨statement, statementIndex, operands, result, foundEq, operationEq, canFire,
-          rfl⟩ := state.fireNextStatement_eq_some nextState sourceStatements operation replay
+          rfl⟩ := state.fireNextStatement_eq_some nextState sourceStatements operation executed
       obtain ⟨statementAt, _⟩ :=
         state.firstFireable_eq_some sourceStatements operation statement
           statementIndex foundEq
@@ -115,14 +115,14 @@ theorem Symbolic.execute_preserves_fired_statement_indices
       · exact (Array.getElem?_eq_some_iff.mp statementAt).1
       · exact valid.2 index member
   | flippedOp operation =>
-      simp only [Symbolic.execute] at replay
-      split at replay <;> rename_i binary
-      · split at replay <;> rename_i exchangeEq
-        · simp at replay
+      simp only [Symbolic.execute] at executed
+      split at executed <;> rename_i binary
+      · split at executed <;> rename_i exchangeEq
+        · simp at executed
         · rename_i stack
           obtain ⟨statement, statementIndex, operands, result, foundEq, operationEq, canFire,
               rfl⟩ := ({ state with stack } : Symbolic.State).fireNextStatement_eq_some
-                nextState sourceStatements operation replay
+                nextState sourceStatements operation executed
           obtain ⟨statementAt, _⟩ :=
             ({ state with stack } : Symbolic.State).firstFireable_eq_some
               sourceStatements operation statement statementIndex foundEq
@@ -134,27 +134,27 @@ theorem Symbolic.execute_preserves_fired_statement_indices
           rcases member with rfl | member
           · exact (Array.getElem?_eq_some_iff.mp statementAt).1
           · exact valid.2 index member
-      · simp at replay
-  | icall callee argumentCount resultCount => simp [Symbolic.execute] at replay
+      · simp at executed
+  | icall callee argumentCount resultCount => simp [Symbolic.execute] at executed
   | store slot =>
       cases stackEq : state.stack with
-      | nil => simp [Symbolic.execute, stackEq] at replay
+      | nil => simp [Symbolic.execute, stackEq] at executed
       | cons value stack =>
           cases bindingEq : state.slotValue? slot with
-          | some binding => simp [Symbolic.execute, stackEq, bindingEq] at replay
+          | some binding => simp [Symbolic.execute, stackEq, bindingEq] at executed
           | none =>
-              simp [Symbolic.execute, stackEq, bindingEq] at replay
+              simp [Symbolic.execute, stackEq, bindingEq] at executed
               subst nextState
               exact valid
   | load slot =>
-      simp [Symbolic.execute] at replay
-      obtain ⟨value, _, rfl⟩ := replay
+      simp [Symbolic.execute] at executed
+      obtain ⟨value, _, rfl⟩ := executed
       exact valid
 
 theorem Symbolic.executeList_preserves_fired_statement_indices
     (sourceStatements : Array Vars.Stmt) (targetInstructions : List Stack.Instr)
     (state finalState : Symbolic.State)
-    (replay : targetInstructions.foldlM (Symbolic.execute sourceStatements) state =
+    (executed : targetInstructions.foldlM (Symbolic.execute sourceStatements) state =
       some finalState)
     (valid : state.firedStatementIndices.Nodup ∧
       ∀ index ∈ state.firedStatementIndices, index < sourceStatements.size) :
@@ -162,30 +162,30 @@ theorem Symbolic.executeList_preserves_fired_statement_indices
       ∀ index ∈ finalState.firedStatementIndices, index < sourceStatements.size := by
   induction targetInstructions generalizing state with
   | nil =>
-      simp at replay
+      simp at executed
       subst finalState
       exact valid
   | cons instruction instructions inductionHypothesis =>
-      simp only [List.foldlM_cons] at replay
-      cases replayInstruction : Symbolic.execute sourceStatements state instruction with
-      | none => simp [replayInstruction] at replay
+      simp only [List.foldlM_cons] at executed
+      cases instructionExecution : Symbolic.execute sourceStatements state instruction with
+      | none => simp [instructionExecution] at executed
       | some nextState =>
-          rw [replayInstruction] at replay
-          exact inductionHypothesis nextState replay
+          rw [instructionExecution] at executed
+          exact inductionHypothesis nextState executed
             (Symbolic.execute_preserves_fired_statement_indices sourceStatements state
-              nextState instruction replayInstruction valid)
+              nextState instruction instructionExecution valid)
 
 theorem Symbolic.executeAll_preserves_fired_statement_indices
     (sourceStatements : Array Vars.Stmt) (targetInstructions : Array Stack.Instr)
     (state finalState : Symbolic.State)
-    (replay : Symbolic.executeAll sourceStatements targetInstructions state = some finalState)
+    (executed : Symbolic.executeAll sourceStatements targetInstructions state = some finalState)
     (valid : state.firedStatementIndices.Nodup ∧
       ∀ index ∈ state.firedStatementIndices, index < sourceStatements.size) :
     finalState.firedStatementIndices.Nodup ∧
       ∀ index ∈ finalState.firedStatementIndices, index < sourceStatements.size := by
   apply Symbolic.executeList_preserves_fired_statement_indices sourceStatements
     targetInstructions.toList state finalState
-  · simpa [Symbolic.executeAll] using replay
+  · simpa [Symbolic.executeAll] using executed
   · exact valid
 
 theorem fired_statement_indices_complete (state : Symbolic.State)
@@ -262,34 +262,34 @@ theorem Symbolic.State.available_after_fire
 theorem Symbolic.execute_preserves_values_available
     (sourceStatements : Array Vars.Stmt) (state nextState : Symbolic.State)
     (instruction : Stack.Instr)
-    (replay : Symbolic.execute sourceStatements state instruction = some nextState)
+    (executed : Symbolic.execute sourceStatements state instruction = some nextState)
     (available : state.ValuesAvailable sourceStatements) :
     nextState.ValuesAvailable sourceStatements := by
   cases instruction with
   | swap depth =>
       change (if 1 ≤ depth ∧ depth ≤ 16 then
           (Symbolic.exchange state.stack 0 depth).map fun stack => { state with stack }
-        else none) = some nextState at replay
+        else none) = some nextState at executed
       by_cases depthWithinReach : 1 ≤ depth ∧ depth ≤ 16
-      · rw [if_pos depthWithinReach] at replay
+      · rw [if_pos depthWithinReach] at executed
         cases exchanged : Symbolic.exchange state.stack 0 depth with
-        | none => simp [exchanged] at replay
+        | none => simp [exchanged] at executed
         | some nextStack =>
-            simp [exchanged] at replay
+            simp [exchanged] at executed
             subst nextState
             exact ⟨fun value member => available.1 value
               (Symbolic.exchange_subset state.stack nextStack 0 depth exchanged member),
               available.2⟩
-      · simp [depthWithinReach] at replay
+      · simp [depthWithinReach] at executed
   | exchange firstDepth secondDepth =>
-      simp [Symbolic.execute] at replay
-      obtain ⟨_, nextStack, exchanged, rfl⟩ := replay
+      simp [Symbolic.execute] at executed
+      obtain ⟨_, nextStack, exchanged, rfl⟩ := executed
       exact ⟨fun value member => available.1 value
         (Symbolic.exchange_subset state.stack nextStack firstDepth secondDepth exchanged member),
         available.2⟩
   | dup depth =>
-      simp [Symbolic.execute] at replay
-      obtain ⟨depthBound, value, valueAt, nextStateEq⟩ := replay
+      simp [Symbolic.execute] at executed
+      obtain ⟨depthBound, value, valueAt, nextStateEq⟩ := executed
       subst nextState
       refine ⟨?_, available.2⟩
       intro candidate member
@@ -299,29 +299,29 @@ theorem Symbolic.execute_preserves_values_available
       · exact available.1 candidate member
   | pop =>
       cases stackEq : state.stack with
-      | nil => simp [Symbolic.execute, stackEq] at replay
+      | nil => simp [Symbolic.execute, stackEq] at executed
       | cons value stack =>
-          simp [Symbolic.execute, stackEq] at replay
+          simp [Symbolic.execute, stackEq] at executed
           subst nextState
           exact ⟨fun candidate member => available.1 candidate (by simp [stackEq, member]),
             available.2⟩
   | op operation =>
-      simp only [Symbolic.execute] at replay
-      unfold Symbolic.State.fireNextStatement at replay
+      simp only [Symbolic.execute] at executed
+      unfold Symbolic.State.fireNextStatement at executed
       cases foundEq : state.firstFireable sourceStatements operation with
-      | none => simp [foundEq] at replay
+      | none => simp [foundEq] at executed
       | some candidate =>
           obtain ⟨statement, statementIndex⟩ := candidate
           obtain ⟨statementAt, canFire⟩ :=
             state.firstFireable_eq_some sourceStatements operation statement
               statementIndex foundEq
           cases symbolicOperationEq : Symbolic.operationOf statement with
-          | none => simp [foundEq, symbolicOperationEq] at replay
+          | none => simp [foundEq, symbolicOperationEq] at executed
           | some symbolicOperation =>
               obtain ⟨expectedOperation, symbolicOperands, symbolicResult⟩ := symbolicOperation
               obtain ⟨result, rfl⟩ := Symbolic.operationOf_result_variable statement
                 expectedOperation symbolicOperands symbolicResult symbolicOperationEq
-              simp [foundEq, symbolicOperationEq] at replay
+              simp [foundEq, symbolicOperationEq] at executed
               subst nextState
               have resultDefined := Symbolic.operationOf_result_mem statement
                 expectedOperation symbolicOperands result symbolicOperationEq
@@ -342,10 +342,10 @@ theorem Symbolic.execute_preserves_values_available
                 exact state.available_after_fire sourceStatements statementIndex
                   binding.2.identifier (available.2 binding member)
   | flippedOp operation =>
-      simp only [Symbolic.execute] at replay
-      split at replay
-      · split at replay <;> rename_i exchangeEq
-        · simp at replay
+      simp only [Symbolic.execute] at executed
+      split at executed
+      · split at executed <;> rename_i exchangeEq
+        · simp at executed
         · rename_i stack
           let flippedState : Symbolic.State := { state with stack }
           have flippedAvailable : flippedState.ValuesAvailable sourceStatements :=
@@ -353,23 +353,23 @@ theorem Symbolic.execute_preserves_values_available
                 (Symbolic.exchange_subset state.stack stack 0 1 exchangeEq member),
               available.2⟩
           change flippedState.fireNextStatement sourceStatements operation = some nextState
-            at replay
-          unfold Symbolic.State.fireNextStatement at replay
+            at executed
+          unfold Symbolic.State.fireNextStatement at executed
           cases foundEq : flippedState.firstFireable sourceStatements operation with
-          | none => simp [foundEq] at replay
+          | none => simp [foundEq] at executed
           | some candidate =>
               obtain ⟨statement, statementIndex⟩ := candidate
               obtain ⟨statementAt, canFire⟩ :=
                 flippedState.firstFireable_eq_some sourceStatements operation
                   statement statementIndex foundEq
               cases symbolicOperationEq : Symbolic.operationOf statement with
-              | none => simp [foundEq, symbolicOperationEq] at replay
+              | none => simp [foundEq, symbolicOperationEq] at executed
               | some symbolicOperation =>
                   obtain ⟨expectedOperation, symbolicOperands, symbolicResult⟩ := symbolicOperation
                   obtain ⟨result, rfl⟩ :=
                     Symbolic.operationOf_result_variable statement expectedOperation
                       symbolicOperands symbolicResult symbolicOperationEq
-                  simp [foundEq, symbolicOperationEq] at replay
+                  simp [foundEq, symbolicOperationEq] at executed
                   subst nextState
                   have resultDefined := Symbolic.operationOf_result_mem statement
                     expectedOperation symbolicOperands result symbolicOperationEq
@@ -390,16 +390,16 @@ theorem Symbolic.execute_preserves_values_available
                   · intro binding member
                     exact flippedState.available_after_fire sourceStatements
                       statementIndex binding.2.identifier (flippedAvailable.2 binding member)
-      · simp at replay
-  | icall callee argumentCount resultCount => simp [Symbolic.execute] at replay
+      · simp at executed
+  | icall callee argumentCount resultCount => simp [Symbolic.execute] at executed
   | store slot =>
       cases stackEq : state.stack with
-      | nil => simp [Symbolic.execute, stackEq] at replay
+      | nil => simp [Symbolic.execute, stackEq] at executed
       | cons value stack =>
           cases bindingEq : state.slotValue? slot with
-          | some binding => simp [Symbolic.execute, stackEq, bindingEq] at replay
+          | some binding => simp [Symbolic.execute, stackEq, bindingEq] at executed
           | none =>
-              simp [Symbolic.execute, stackEq, bindingEq] at replay
+              simp [Symbolic.execute, stackEq, bindingEq] at executed
               subst nextState
               refine ⟨fun candidate member => available.1 candidate (by simp [stackEq, member]), ?_⟩
               intro binding member
@@ -408,8 +408,8 @@ theorem Symbolic.execute_preserves_values_available
               · exact available.2 binding member
               · exact available.1 value (by simp [stackEq])
   | load slot =>
-      simp [Symbolic.execute] at replay
-      obtain ⟨loadedValue, valueAt, nextStateEq⟩ := replay
+      simp [Symbolic.execute] at executed
+      obtain ⟨loadedValue, valueAt, nextStateEq⟩ := executed
       subst nextState
       refine ⟨?_, available.2⟩
       intro candidate member
@@ -424,78 +424,78 @@ theorem Symbolic.execute_preserves_values_available
 theorem Symbolic.executeList_preserves_values_available
     (sourceStatements : Array Vars.Stmt) (instructions : List Stack.Instr)
     (state finalState : Symbolic.State)
-    (replay : instructions.foldlM (Symbolic.execute sourceStatements) state =
+    (executed : instructions.foldlM (Symbolic.execute sourceStatements) state =
       some finalState) (available : state.ValuesAvailable sourceStatements) :
     finalState.ValuesAvailable sourceStatements := by
   induction instructions generalizing state with
   | nil =>
-      simp at replay
+      simp at executed
       subst finalState
       exact available
   | cons instruction instructions inductionHypothesis =>
-      simp only [List.foldlM_cons] at replay
-      cases replayInstruction : Symbolic.execute sourceStatements state instruction with
-      | none => simp [replayInstruction] at replay
+      simp only [List.foldlM_cons] at executed
+      cases instructionExecution : Symbolic.execute sourceStatements state instruction with
+      | none => simp [instructionExecution] at executed
       | some nextState =>
-          rw [replayInstruction] at replay
-          exact inductionHypothesis nextState replay
+          rw [instructionExecution] at executed
+          exact inductionHypothesis nextState executed
             (Symbolic.execute_preserves_values_available sourceStatements state nextState
-              instruction replayInstruction available)
+              instruction instructionExecution available)
 
 theorem Symbolic.executeAll_preserves_values_available
     (sourceStatements : Array Vars.Stmt) (instructions : Array Stack.Instr)
     (state finalState : Symbolic.State)
-    (replay : Symbolic.executeAll sourceStatements instructions state = some finalState)
+    (executed : Symbolic.executeAll sourceStatements instructions state = some finalState)
     (available : state.ValuesAvailable sourceStatements) :
     finalState.ValuesAvailable sourceStatements := by
   apply Symbolic.executeList_preserves_values_available sourceStatements
     instructions.toList state finalState
-  · simpa [Symbolic.executeAll] using replay
+  · simpa [Symbolic.executeAll] using executed
   · exact available
 
 theorem Symbolic.execute_preserves_not_memory_oracle
     (sourceStatements : Array Vars.Stmt) (state nextState : Symbolic.State)
     (instruction : Stack.Instr)
-    (replay : Symbolic.execute sourceStatements state instruction = some nextState)
+    (executed : Symbolic.execute sourceStatements state instruction = some nextState)
     (supported : ∀ index ∈ state.firedStatementIndices, ∀ statement,
       sourceStatements[index]? = some statement → ¬ statement.isMemOracle) :
     ∀ index ∈ nextState.firedStatementIndices, ∀ statement,
       sourceStatements[index]? = some statement → ¬ statement.isMemOracle := by
   cases instruction with
   | swap depth =>
-      simp [Symbolic.execute] at replay
-      obtain ⟨_, stack, _, rfl⟩ := replay
+      simp [Symbolic.execute] at executed
+      obtain ⟨_, stack, _, rfl⟩ := executed
       exact supported
   | exchange firstDepth secondDepth =>
-      simp [Symbolic.execute] at replay
-      obtain ⟨_, stack, _, rfl⟩ := replay
+      simp [Symbolic.execute] at executed
+      obtain ⟨_, stack, _, rfl⟩ := executed
       exact supported
   | dup depth =>
-      simp [Symbolic.execute] at replay
-      obtain ⟨_, value, _, rfl⟩ := replay
+      simp [Symbolic.execute] at executed
+      obtain ⟨_, value, _, rfl⟩ := executed
       exact supported
   | pop =>
       cases stackEq : state.stack with
-      | nil => simp [Symbolic.execute, stackEq] at replay
+      | nil => simp [Symbolic.execute, stackEq] at executed
       | cons value stack =>
-          simp [Symbolic.execute, stackEq] at replay
+          simp [Symbolic.execute, stackEq] at executed
           subst nextState
           exact supported
   | op operation =>
-      simp only [Symbolic.execute] at replay
-      unfold Symbolic.State.fireNextStatement at replay
+      simp only [Symbolic.execute] at executed
+      unfold Symbolic.State.fireNextStatement at executed
       cases foundEq : state.firstFireable sourceStatements operation with
-      | none => simp [foundEq] at replay
+      | none => simp [foundEq] at executed
       | some candidate =>
           obtain ⟨firedStatement, statementIndex⟩ := candidate
           obtain ⟨statementEq, canFire⟩ :=
             state.firstFireable_eq_some sourceStatements operation
               firedStatement statementIndex foundEq
           cases operationEq : Symbolic.operationOf firedStatement with
-          | none => simp [foundEq, operationEq] at replay
+          | none => simp [foundEq, operationEq] at executed
           | some symbolicOperation =>
               obtain ⟨expectedOperation, operands, result⟩ := symbolicOperation
-              simp [foundEq, operationEq] at replay
+              simp [foundEq, operationEq] at executed
               subst nextState
               intro index member statement statementAt
               simp only [List.mem_cons] at member
@@ -505,15 +505,15 @@ theorem Symbolic.execute_preserves_not_memory_oracle
                   (expectedOperation, operands, result) operationEq
               · exact supported index member statement statementAt
   | flippedOp operation =>
-      simp only [Symbolic.execute] at replay
-      split at replay
-      · split at replay
-        · simp at replay
+      simp only [Symbolic.execute] at executed
+      split at executed
+      · split at executed
+        · simp at executed
         · rename_i stack exchangeEq
           obtain ⟨firedStatement, statementIndex, operands, result, foundEq, operationEq,
               canFire, rfl⟩ :=
             ({ state with stack } : Symbolic.State).fireNextStatement_eq_some nextState
-              sourceStatements operation replay
+              sourceStatements operation executed
           obtain ⟨statementEq, _⟩ :=
             ({ state with stack } : Symbolic.State).firstFireable_eq_some
               sourceStatements operation firedStatement statementIndex foundEq
@@ -524,26 +524,26 @@ theorem Symbolic.execute_preserves_not_memory_oracle
             exact Symbolic.operationOf_not_memory_oracle firedStatement
               (operation, operands, result) operationEq
           · exact supported index member statement statementAt
-      · simp at replay
-  | icall callee argumentCount resultCount => simp [Symbolic.execute] at replay
+      · simp at executed
+  | icall callee argumentCount resultCount => simp [Symbolic.execute] at executed
   | store slot =>
       cases stackEq : state.stack with
-      | nil => simp [Symbolic.execute, stackEq] at replay
+      | nil => simp [Symbolic.execute, stackEq] at executed
       | cons value stack =>
           cases bindingEq : state.slotValue? slot with
-          | some binding => simp [Symbolic.execute, stackEq, bindingEq] at replay
+          | some binding => simp [Symbolic.execute, stackEq, bindingEq] at executed
           | none =>
-              simp [Symbolic.execute, stackEq, bindingEq] at replay
+              simp [Symbolic.execute, stackEq, bindingEq] at executed
               subst nextState
               exact supported
   | load slot =>
-      simp [Symbolic.execute] at replay
-      obtain ⟨value, _, rfl⟩ := replay
+      simp [Symbolic.execute] at executed
+      obtain ⟨value, _, rfl⟩ := executed
       exact supported
 
 theorem Symbolic.executeList_not_memory_oracle (sourceStatements : Array Vars.Stmt)
     (targetInstructions : List Stack.Instr) (state finalState : Symbolic.State)
-    (replay : targetInstructions.foldlM (Symbolic.execute sourceStatements) state =
+    (executed : targetInstructions.foldlM (Symbolic.execute sourceStatements) state =
       some finalState)
     (supported : ∀ index ∈ state.firedStatementIndices, ∀ statement,
       sourceStatements[index]? = some statement → ¬ statement.isMemOracle) :
@@ -551,35 +551,35 @@ theorem Symbolic.executeList_not_memory_oracle (sourceStatements : Array Vars.St
       sourceStatements[index]? = some statement → ¬ statement.isMemOracle := by
   induction targetInstructions generalizing state with
   | nil =>
-      simp at replay
+      simp at executed
       subst finalState
       exact supported
   | cons instruction instructions inductionHypothesis =>
-      simp only [List.foldlM_cons] at replay
-      cases replayInstruction : Symbolic.execute sourceStatements state instruction with
-      | none => simp [replayInstruction] at replay
+      simp only [List.foldlM_cons] at executed
+      cases instructionExecution : Symbolic.execute sourceStatements state instruction with
+      | none => simp [instructionExecution] at executed
       | some nextState =>
-          rw [replayInstruction] at replay
-          exact inductionHypothesis nextState replay
+          rw [instructionExecution] at executed
+          exact inductionHypothesis nextState executed
             (Symbolic.execute_preserves_not_memory_oracle sourceStatements state nextState
-              instruction replayInstruction supported)
+              instruction instructionExecution supported)
 
 theorem Symbolic.executeAll_not_memory_oracle (sourceStatements : Array Vars.Stmt)
     (targetInstructions : Array Stack.Instr) (state finalState : Symbolic.State)
-    (replay : Symbolic.executeAll sourceStatements targetInstructions state = some finalState)
+    (executed : Symbolic.executeAll sourceStatements targetInstructions state = some finalState)
     (supported : ∀ index ∈ state.firedStatementIndices, ∀ statement,
       sourceStatements[index]? = some statement → ¬ statement.isMemOracle) :
     ∀ index ∈ finalState.firedStatementIndices, ∀ statement,
       sourceStatements[index]? = some statement → ¬ statement.isMemOracle := by
   apply Symbolic.executeList_not_memory_oracle sourceStatements
     targetInstructions.toList state finalState
-  · simpa [Symbolic.executeAll] using replay
+  · simpa [Symbolic.executeAll] using executed
   · exact supported
 
 theorem Symbolic.execute_preserves_supported_source_statements
     (sourceStatements : Array Vars.Stmt) (state nextState : Symbolic.State)
     (instruction : Stack.Instr)
-    (replay : Symbolic.execute sourceStatements state instruction = some nextState)
+    (executed : Symbolic.execute sourceStatements state instruction = some nextState)
     (supported : ∀ index ∈ state.firedStatementIndices, ∀ statement,
       sourceStatements[index]? = some statement →
         ∃ symbolicOperation, Symbolic.operationOf statement = some symbolicOperation) :
@@ -588,39 +588,39 @@ theorem Symbolic.execute_preserves_supported_source_statements
         ∃ symbolicOperation, Symbolic.operationOf statement = some symbolicOperation := by
   cases instruction with
   | swap depth =>
-      simp [Symbolic.execute] at replay
-      obtain ⟨_, stack, _, rfl⟩ := replay
+      simp [Symbolic.execute] at executed
+      obtain ⟨_, stack, _, rfl⟩ := executed
       exact supported
   | exchange firstDepth secondDepth =>
-      simp [Symbolic.execute] at replay
-      obtain ⟨_, stack, _, rfl⟩ := replay
+      simp [Symbolic.execute] at executed
+      obtain ⟨_, stack, _, rfl⟩ := executed
       exact supported
   | dup depth =>
-      simp [Symbolic.execute] at replay
-      obtain ⟨_, value, _, rfl⟩ := replay
+      simp [Symbolic.execute] at executed
+      obtain ⟨_, value, _, rfl⟩ := executed
       exact supported
   | pop =>
       cases stackEq : state.stack with
-      | nil => simp [Symbolic.execute, stackEq] at replay
+      | nil => simp [Symbolic.execute, stackEq] at executed
       | cons value stack =>
-          simp [Symbolic.execute, stackEq] at replay
+          simp [Symbolic.execute, stackEq] at executed
           subst nextState
           exact supported
   | op operation =>
-      simp only [Symbolic.execute] at replay
-      unfold Symbolic.State.fireNextStatement at replay
+      simp only [Symbolic.execute] at executed
+      unfold Symbolic.State.fireNextStatement at executed
       cases foundEq : state.firstFireable sourceStatements operation with
-      | none => simp [foundEq] at replay
+      | none => simp [foundEq] at executed
       | some candidate =>
           obtain ⟨firedStatement, statementIndex⟩ := candidate
           obtain ⟨statementEq, canFire⟩ :=
             state.firstFireable_eq_some sourceStatements operation
               firedStatement statementIndex foundEq
           cases operationEq : Symbolic.operationOf firedStatement with
-          | none => simp [foundEq, operationEq] at replay
+          | none => simp [foundEq, operationEq] at executed
           | some symbolicOperation =>
               obtain ⟨expectedOperation, operands, result⟩ := symbolicOperation
-              simp [foundEq, operationEq] at replay
+              simp [foundEq, operationEq] at executed
               subst nextState
               intro index member statement statementAt
               simp only [List.mem_cons] at member
@@ -629,15 +629,15 @@ theorem Symbolic.execute_preserves_supported_source_statements
                 exact ⟨(expectedOperation, operands, result), operationEq⟩
               · exact supported index member statement statementAt
   | flippedOp operation =>
-      simp only [Symbolic.execute] at replay
-      split at replay
-      · split at replay
-        · simp at replay
+      simp only [Symbolic.execute] at executed
+      split at executed
+      · split at executed
+        · simp at executed
         · rename_i stack exchangeEq
           obtain ⟨firedStatement, statementIndex, operands, result, foundEq, operationEq,
               canFire, rfl⟩ :=
             ({ state with stack } : Symbolic.State).fireNextStatement_eq_some nextState
-              sourceStatements operation replay
+              sourceStatements operation executed
           obtain ⟨statementEq, _⟩ :=
             ({ state with stack } : Symbolic.State).firstFireable_eq_some
               sourceStatements operation firedStatement statementIndex foundEq
@@ -647,27 +647,27 @@ theorem Symbolic.execute_preserves_supported_source_statements
           · obtain rfl := Option.some.inj (statementEq.symm.trans statementAt)
             exact ⟨(operation, operands, result), operationEq⟩
           · exact supported index member statement statementAt
-      · simp at replay
-  | icall callee argumentCount resultCount => simp [Symbolic.execute] at replay
+      · simp at executed
+  | icall callee argumentCount resultCount => simp [Symbolic.execute] at executed
   | store slot =>
       cases stackEq : state.stack with
-      | nil => simp [Symbolic.execute, stackEq] at replay
+      | nil => simp [Symbolic.execute, stackEq] at executed
       | cons value stack =>
           cases bindingEq : state.slotValue? slot with
-          | some binding => simp [Symbolic.execute, stackEq, bindingEq] at replay
+          | some binding => simp [Symbolic.execute, stackEq, bindingEq] at executed
           | none =>
-              simp [Symbolic.execute, stackEq, bindingEq] at replay
+              simp [Symbolic.execute, stackEq, bindingEq] at executed
               subst nextState
               exact supported
   | load slot =>
-      simp [Symbolic.execute] at replay
-      obtain ⟨value, _, rfl⟩ := replay
+      simp [Symbolic.execute] at executed
+      obtain ⟨value, _, rfl⟩ := executed
       exact supported
 
 theorem Symbolic.executeList_supported_source_statements
     (sourceStatements : Array Vars.Stmt) (targetInstructions : List Stack.Instr)
     (state finalState : Symbolic.State)
-    (replay : targetInstructions.foldlM (Symbolic.execute sourceStatements) state =
+    (executed : targetInstructions.foldlM (Symbolic.execute sourceStatements) state =
       some finalState)
     (supported : ∀ index ∈ state.firedStatementIndices, ∀ statement,
       sourceStatements[index]? = some statement →
@@ -677,23 +677,23 @@ theorem Symbolic.executeList_supported_source_statements
         ∃ symbolicOperation, Symbolic.operationOf statement = some symbolicOperation := by
   induction targetInstructions generalizing state with
   | nil =>
-      simp at replay
+      simp at executed
       subst finalState
       exact supported
   | cons instruction instructions inductionHypothesis =>
-      simp only [List.foldlM_cons] at replay
-      cases replayInstruction : Symbolic.execute sourceStatements state instruction with
-      | none => simp [replayInstruction] at replay
+      simp only [List.foldlM_cons] at executed
+      cases instructionExecution : Symbolic.execute sourceStatements state instruction with
+      | none => simp [instructionExecution] at executed
       | some nextState =>
-          rw [replayInstruction] at replay
-          exact inductionHypothesis nextState replay
+          rw [instructionExecution] at executed
+          exact inductionHypothesis nextState executed
             (Symbolic.execute_preserves_supported_source_statements sourceStatements state
-              nextState instruction replayInstruction supported)
+              nextState instruction instructionExecution supported)
 
 theorem Symbolic.executeAll_supported_source_statements
     (sourceStatements : Array Vars.Stmt) (targetInstructions : Array Stack.Instr)
     (state finalState : Symbolic.State)
-    (replay : Symbolic.executeAll sourceStatements targetInstructions state = some finalState)
+    (executed : Symbolic.executeAll sourceStatements targetInstructions state = some finalState)
     (supported : ∀ index ∈ state.firedStatementIndices, ∀ statement,
       sourceStatements[index]? = some statement →
         ∃ symbolicOperation, Symbolic.operationOf statement = some symbolicOperation) :
@@ -702,118 +702,94 @@ theorem Symbolic.executeAll_supported_source_statements
         ∃ symbolicOperation, Symbolic.operationOf statement = some symbolicOperation := by
   apply Symbolic.executeList_supported_source_statements sourceStatements
     targetInstructions.toList state finalState
-  · simpa [Symbolic.executeAll] using replay
+  · simpa [Symbolic.executeAll] using executed
   · exact supported
 
 theorem StackSchedule.Block.statements_not_memory_oracle
-    (certificate : StackSchedule.Block) (accepted : certificate.check = .ok ()) :
-    ∀ statement ∈ certificate.vars.statements, ¬ statement.isMemOracle := by
-  obtain ⟨finalState, _, replay, _, fired, _, _, _⟩ := certificate.check_sound accepted
-  have supported := Symbolic.executeAll_not_memory_oracle certificate.vars.statements
-    certificate.stack.instructions (Symbolic.State.initial certificate.vars.entryLayout)
-    finalState replay (by simp [Symbolic.State.initial])
+    (schedule : StackSchedule.Block) (accepted : schedule.check = .ok ()) :
+    ∀ statement ∈ schedule.vars.statements, ¬ statement.isMemOracle := by
+  obtain ⟨finalState, _, executed, _, fired, _, _, _⟩ := schedule.check_sound accepted
+  have supported := Symbolic.executeAll_not_memory_oracle schedule.vars.statements
+    schedule.stack.instructions (Symbolic.State.initial schedule.vars.entryLayout)
+    finalState executed (by simp [Symbolic.State.initial])
   obtain ⟨nodup, bounded⟩ := Symbolic.executeAll_preserves_fired_statement_indices
-    certificate.vars.statements certificate.stack.instructions
-    (Symbolic.State.initial certificate.vars.entryLayout) finalState replay
+    schedule.vars.statements schedule.stack.instructions
+    (Symbolic.State.initial schedule.vars.entryLayout) finalState executed
     (by simp [Symbolic.State.initial])
-  have complete := fired_statement_indices_complete finalState certificate.vars.statements
+  have complete := fired_statement_indices_complete finalState schedule.vars.statements
     nodup bounded fired
   intro statement statementMember
   rw [Array.mem_iff_getElem] at statementMember
   obtain ⟨index, indexBound, rfl⟩ := statementMember
   exact supported index (complete index indexBound)
-    certificate.vars.statements[index] (by simp)
+    schedule.vars.statements[index] (by simp)
 
 theorem StackSchedule.Block.statements_supported
-    (certificate : StackSchedule.Block) (accepted : certificate.check = .ok ()) :
-    ∀ statement ∈ certificate.vars.statements,
+    (schedule : StackSchedule.Block) (accepted : schedule.check = .ok ()) :
+    ∀ statement ∈ schedule.vars.statements,
       ∃ symbolicOperation, Symbolic.operationOf statement = some symbolicOperation := by
-  obtain ⟨finalState, _, replay, _, fired, _, _, _⟩ := certificate.check_sound accepted
+  obtain ⟨finalState, _, executed, _, fired, _, _, _⟩ := schedule.check_sound accepted
   have supported := Symbolic.executeAll_supported_source_statements
-    certificate.vars.statements certificate.stack.instructions
-    (Symbolic.State.initial certificate.vars.entryLayout) finalState replay
+    schedule.vars.statements schedule.stack.instructions
+    (Symbolic.State.initial schedule.vars.entryLayout) finalState executed
     (by simp [Symbolic.State.initial])
   obtain ⟨nodup, bounded⟩ := Symbolic.executeAll_preserves_fired_statement_indices
-    certificate.vars.statements certificate.stack.instructions
-    (Symbolic.State.initial certificate.vars.entryLayout) finalState replay
+    schedule.vars.statements schedule.stack.instructions
+    (Symbolic.State.initial schedule.vars.entryLayout) finalState executed
     (by simp [Symbolic.State.initial])
-  have complete := fired_statement_indices_complete finalState certificate.vars.statements
+  have complete := fired_statement_indices_complete finalState schedule.vars.statements
     nodup bounded fired
   intro statement statementMember
   rw [Array.mem_iff_getElem] at statementMember
   obtain ⟨index, indexBound, rfl⟩ := statementMember
   exact supported index (complete index indexBound)
-    certificate.vars.statements[index] (by simp)
+    schedule.vars.statements[index] (by simp)
 
 theorem StackSchedule.Block.sourceOrderReferenceLocals_exists
-    (certificate : StackSchedule.Block) (accepted : certificate.check = .ok ())
+    (schedule : StackSchedule.Block) (accepted : schedule.check = .ok ())
     (entryLocals : Locals) (entryValues : List Word)
-    (interpretations : certificate.vars.entryLayout.toList.mapM
+    (interpretations : schedule.vars.entryLayout.toList.mapM
       (Symbolic.Value.interpret entryLocals) = some entryValues) :
     ∃ referenceLocals,
-      sourceOrderReferenceLocals certificate.vars.statements entryLocals =
+      sourceOrderReferenceLocals schedule.vars.statements entryLocals =
         some referenceLocals := by
   obtain ⟨usesAvailable, _⟩ :=
-    StackSchedule.Block.check_source_valid certificate accepted
-  apply Sir.Lowering.sourceOrderReferenceLocals_exists certificate.vars.statements
-    certificate.vars.entryLayout entryLocals usesAvailable
-    (certificate.statements_supported accepted)
-  exact Symbolic.Value.interpretations_cover_variables certificate.vars.entryLayout.toList entryValues
+    StackSchedule.Block.check_source_valid schedule accepted
+  apply Sir.Lowering.sourceOrderReferenceLocals_exists schedule.vars.statements
+    schedule.vars.entryLayout entryLocals usesAvailable
+    (schedule.statements_supported accepted)
+  exact Symbolic.Value.interpretations_cover_variables schedule.vars.entryLayout.toList entryValues
     entryLocals interpretations
 
 theorem StackSchedule.vars_program_memOracleFree
-    (certificate : StackSchedule)
-    (accepted : certificate.check = .ok ()) :
-    certificate.vars.MemOracleFree := by
+    (schedule : StackSchedule)
+    (accepted : schedule.check = .ok ()) :
+    schedule.vars.MemOracleFree := by
   intro statement hasStatement
-  rcases hasStatement with ⟨function, functionMember, block, blockMember, statementMember⟩
-  simp [StackSchedule.vars] at functionMember
-  subst function
-  rw [Array.mem_iff_getElem] at blockMember
-  obtain ⟨index, indexBound, rfl⟩ := blockMember
-  have certificateIndexBound : index < certificate.blocks.size := by
-    simpa [StackSchedule.vars] using indexBound
-  let blockCertificate := certificate.blocks[index]'certificateIndexBound
-  have blockGet : certificate.blocks[index]'certificateIndexBound = blockCertificate := rfl
-  have blockAccepted : blockCertificate.check = .ok () := by
-    have acceptedAt :=
-      (certificate.check_sound accepted).2.1 index certificateIndexBound
-    simpa [blockGet] using acceptedAt
-  apply blockCertificate.statements_not_memory_oracle blockAccepted statement
-  simpa [StackSchedule.Block.Source.toBlock, blockGet] using statementMember
+  obtain ⟨blockSchedule, member, statementMember⟩ := schedule.vars_hasStmt hasStatement
+  exact blockSchedule.statements_not_memory_oracle
+    (schedule.mem_blocks_check accepted blockSchedule member) statement statementMember
 
 theorem StackSchedule.vars_program_statements_supported
-    (certificate : StackSchedule)
-    (accepted : certificate.check = .ok ()) :
-    ∀ statement, certificate.vars.HasStmt statement →
+    (schedule : StackSchedule)
+    (accepted : schedule.check = .ok ()) :
+    ∀ statement, schedule.vars.HasStmt statement →
       ∃ symbolicOperation, Symbolic.operationOf statement = some symbolicOperation := by
   intro statement hasStatement
-  rcases hasStatement with ⟨function, functionMember, block, blockMember, statementMember⟩
-  simp [StackSchedule.vars] at functionMember
-  subst function
-  rw [Array.mem_iff_getElem] at blockMember
-  obtain ⟨index, indexBound, rfl⟩ := blockMember
-  have certificateIndexBound : index < certificate.blocks.size := by
-    simpa [StackSchedule.vars] using indexBound
-  let blockCertificate := certificate.blocks[index]'certificateIndexBound
-  have blockGet : certificate.blocks[index]'certificateIndexBound = blockCertificate := rfl
-  have blockAccepted : blockCertificate.check = .ok () := by
-    have acceptedAt :=
-      (certificate.check_sound accepted).2.1 index certificateIndexBound
-    simpa [blockGet] using acceptedAt
-  apply blockCertificate.statements_supported blockAccepted statement
-  simpa [StackSchedule.Block.Source.toBlock, blockGet] using statementMember
+  obtain ⟨blockSchedule, member, statementMember⟩ := schedule.vars_hasStmt hasStatement
+  exact blockSchedule.statements_supported
+    (schedule.mem_blocks_check accepted blockSchedule member) statement statementMember
 
 theorem StackSchedule.source_decode_primitive_pure
-    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
+    (schedule : StackSchedule) (accepted : schedule.check = .ok ())
     {control next : Machine.MachineControl} {operation : Machine.Operation}
     {src : Vars.frame.Source} {dst : Vars.frame.Destination}
-    (decode : Vars.decode certificate.vars control =
+    (decode : Vars.decode schedule.vars control =
       some (⟨Machine.Instruction.Kind.primitive operation, src, dst⟩, next)) :
     operation ≠ .gas ∧ operation ≠ .call := by
   obtain ⟨statement, statementAt, decoded⟩ := Vars.decode_inv.mp decode
   obtain ⟨symbolicOperation, supported⟩ :=
-    certificate.vars_program_statements_supported accepted statement
+    schedule.vars_program_statements_supported accepted statement
       (Vars.Program.decodeStmt_mem statementAt)
   obtain ⟨kindEq, notGas, notCall⟩ := Symbolic.operationOf_decodes_pure supported
   rw [decoded] at kindEq
@@ -822,75 +798,71 @@ theorem StackSchedule.source_decode_primitive_pure
   exact ⟨notGas, notCall⟩
 
 theorem StackSchedule.source_decode_icall_false
-    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
+    (schedule : StackSchedule) (accepted : schedule.check = .ok ())
     {control next : Machine.MachineControl} {callee : FunctionId}
     {src : Vars.frame.Source} {dst : Vars.frame.Destination}
-    (decode : Vars.decode certificate.vars control =
+    (decode : Vars.decode schedule.vars control =
       some (⟨Machine.Instruction.Kind.icall callee, src, dst⟩, next)) : False := by
   obtain ⟨statement, statementAt, decoded⟩ := Vars.decode_inv.mp decode
   obtain ⟨symbolicOperation, supported⟩ :=
-    certificate.vars_program_statements_supported accepted statement
+    schedule.vars_program_statements_supported accepted statement
       (Vars.Program.decodeStmt_mem statementAt)
   obtain ⟨kindEq, -, -⟩ := Symbolic.operationOf_decodes_pure supported
   rw [decoded] at kindEq
   simp at kindEq
 
 theorem StackSchedule.vars_program_terminator_not_iret
-    (certificate : StackSchedule)
-    (accepted : certificate.check = .ok ())
+    (schedule : StackSchedule)
+    (accepted : schedule.check = .ok ())
     (cursor : Machine.ProgramCursor) (block : Vars.Block)
-    (blockAt : certificate.vars.block? cursor = some block) :
+    (blockAt : schedule.vars.block? cursor = some block) :
     block.terminator ≠ .iret := by
   rcases cursor with ⟨⟨functionIndex⟩, ⟨blockIndex⟩, position⟩
   rcases functionIndex with _ | functionIndex
-  · simp [StackSchedule.vars, Vars.Program.block?, Vars.Program.function?,
-      Vars.Function.block?] at blockAt
-    obtain ⟨blockCertificate, certificateBlockAt, blockSourceEq⟩ := blockAt
-    have certificateBlockBound : blockIndex < certificate.blocks.size :=
-      of_getElem?_eq_some (c := certificate.blocks) (i := blockIndex) certificateBlockAt
-    have blockGet : certificate.blocks[blockIndex] = blockCertificate :=
-      (Array.getElem?_eq_some_iff.mp certificateBlockAt).2
-    have blockAccepted : blockCertificate.check = .ok () := by
+  · simp [Vars.Program.block?, Vars.Program.function?, Vars.Function.block?] at blockAt
+    obtain ⟨blockSchedule, scheduleBlockAt, blockSourceEq⟩ := blockAt
+    have scheduleBlockBound : blockIndex < schedule.blocks.size :=
+      of_getElem?_eq_some (c := schedule.blocks) (i := blockIndex) scheduleBlockAt
+    have blockGet : schedule.blocks[blockIndex] = blockSchedule :=
+      (Array.getElem?_eq_some_iff.mp scheduleBlockAt).2
+    have blockAccepted : blockSchedule.check = .ok () := by
       have acceptedAt :=
-        (certificate.check_sound accepted).2.1 blockIndex certificateBlockBound
+        (schedule.check_sound accepted).1 blockIndex scheduleBlockBound
       simpa [blockGet] using acceptedAt
     obtain ⟨_, expectedStack, _, expected, _⟩ :=
-      blockCertificate.check_sound blockAccepted
+      blockSchedule.check_sound blockAccepted
     rw [← blockSourceEq]
     intro terminator
-    change blockCertificate.vars.terminator = .iret at terminator
+    change blockSchedule.vars.terminator = .iret at terminator
     simp [terminator, StackSchedule.Block.finalStack] at expected
-  · simp [StackSchedule.vars, Vars.Program.block?, Vars.Program.function?,
-      Vars.Function.block?] at blockAt
+  · simp [Vars.Program.block?, Vars.Program.function?, Vars.Function.block?] at blockAt
 
 theorem StackSchedule.stack_program_terminator_not_iret
-    (certificate : StackSchedule)
-    (accepted : certificate.check = .ok ())
+    (schedule : StackSchedule)
+    (accepted : schedule.check = .ok ())
     (cursor : Machine.ProgramCursor) (block : Stack.Block)
-    (blockAt : certificate.stack.block? cursor = some block) :
+    (blockAt : schedule.stack.block? cursor = some block) :
     block.terminator ≠ .iret := by
   rcases cursor with ⟨⟨functionIndex⟩, ⟨blockIndex⟩, position⟩
   rcases functionIndex with _ | functionIndex
-  · simp [StackSchedule.stack, Stack.Program.block?,
-      Stack.Program.function?, Stack.Function.block?] at blockAt
-    obtain ⟨blockCertificate, certificateBlockAt, blockTargetEq⟩ := blockAt
-    have certificateBlockBound : blockIndex < certificate.blocks.size :=
-      of_getElem?_eq_some (c := certificate.blocks) (i := blockIndex) certificateBlockAt
-    have blockGet : certificate.blocks[blockIndex] = blockCertificate :=
-      (Array.getElem?_eq_some_iff.mp certificateBlockAt).2
-    have blockAccepted : blockCertificate.check = .ok () := by
+  · simp [Stack.Program.block?, Stack.Program.function?, Stack.Function.block?] at blockAt
+    obtain ⟨blockSchedule, scheduleBlockAt, blockTargetEq⟩ := blockAt
+    have scheduleBlockBound : blockIndex < schedule.blocks.size :=
+      of_getElem?_eq_some (c := schedule.blocks) (i := blockIndex) scheduleBlockAt
+    have blockGet : schedule.blocks[blockIndex] = blockSchedule :=
+      (Array.getElem?_eq_some_iff.mp scheduleBlockAt).2
+    have blockAccepted : blockSchedule.check = .ok () := by
       have acceptedAt :=
-        (certificate.check_sound accepted).2.1 blockIndex certificateBlockBound
+        (schedule.check_sound accepted).1 blockIndex scheduleBlockBound
       simpa [blockGet] using acceptedAt
     obtain ⟨_, _, _, _, _, terminatorsAgree, _⟩ :=
-      blockCertificate.check_sound blockAccepted
+      blockSchedule.check_sound blockAccepted
     rw [← blockTargetEq]
     intro terminator
-    change blockCertificate.stack.terminator = .iret at terminator
-    cases blockCertificate.vars.terminator <;>
+    change blockSchedule.stack.terminator = .iret at terminator
+    cases blockSchedule.vars.terminator <;>
       simp [terminator, StackSchedule.Block.terminatorsAgree] at terminatorsAgree
-  · simp [StackSchedule.stack, Stack.Program.block?,
-      Stack.Program.function?, Stack.Function.block?] at blockAt
+  · simp [Stack.Program.block?, Stack.Program.function?, Stack.Function.block?] at blockAt
 
 theorem stackDecodeInstruction_next_running
     (program : Stack.Program) (control next : Machine.MachineControl)
@@ -1050,22 +1022,22 @@ theorem stackControl_returned_inv {program : Stack.Program} {env env' : Stack.En
 
 theorem Symbolic.execute_source_operation (sourceStatements : Array Vars.Stmt)
     (state nextState : Symbolic.State) (operation : Machine.Operation)
-    (replay : Symbolic.execute sourceStatements state (.op operation) = some nextState) :
+    (executed : Symbolic.execute sourceStatements state (.op operation) = some nextState) :
     ∃ (statement : Vars.Stmt) (statementIndex : Nat) (operands : List Symbolic.Value)
         (result : Symbolic.Value),
       sourceStatements[statementIndex]? = some statement ∧
         Symbolic.operationOf statement = some (operation, operands, result) := by
-  simp only [Symbolic.execute] at replay
-  unfold Symbolic.State.fireNextStatement at replay
+  simp only [Symbolic.execute] at executed
+  unfold Symbolic.State.fireNextStatement at executed
   cases foundEq : state.firstFireable sourceStatements operation with
-  | none => simp [foundEq] at replay
+  | none => simp [foundEq] at executed
   | some candidate =>
       obtain ⟨statement, statementIndex⟩ := candidate
       obtain ⟨statementAt, canFire⟩ :=
         state.firstFireable_eq_some sourceStatements operation statement
           statementIndex foundEq
       cases operationEq : Symbolic.operationOf statement with
-      | none => simp [foundEq, operationEq] at replay
+      | none => simp [foundEq, operationEq] at executed
       | some symbolicOperation =>
           obtain ⟨expectedOperation, operands, result⟩ := symbolicOperation
           simp only [Symbolic.State.fireable, operationEq,
@@ -1075,36 +1047,36 @@ theorem Symbolic.execute_source_operation (sourceStatements : Array Vars.Stmt)
 
 theorem Symbolic.execute_source_flipped_operation (sourceStatements : Array Vars.Stmt)
     (state nextState : Symbolic.State) (operation : Machine.Operation)
-    (replay : Symbolic.execute sourceStatements state (.flippedOp operation) =
+    (executed : Symbolic.execute sourceStatements state (.flippedOp operation) =
       some nextState) :
     operation.inputCount = 2 ∧
       ∃ (statement : Vars.Stmt) (statementIndex : Nat) (operands : List Symbolic.Value)
           (result : Symbolic.Value),
         sourceStatements[statementIndex]? = some statement ∧
           Symbolic.operationOf statement = some (operation, operands, result) := by
-  simp only [Symbolic.execute] at replay
-  split at replay <;> rename_i binary
-  · split at replay
-    · simp at replay
+  simp only [Symbolic.execute] at executed
+  split at executed <;> rename_i binary
+  · split at executed
+    · simp at executed
     · rename_i stack exchangeEq
       obtain ⟨statement, statementIndex, operands, result, foundEq, operationEq, canFire,
           nextStateEq⟩ :=
         ({ state with stack } : Symbolic.State).fireNextStatement_eq_some nextState
-          sourceStatements operation replay
+          sourceStatements operation executed
       obtain ⟨statementAt, _⟩ :=
         ({ state with stack } : Symbolic.State).firstFireable_eq_some
           sourceStatements operation statement statementIndex foundEq
       exact ⟨binary, statement, statementIndex, operands, result, statementAt, operationEq⟩
-  · simp at replay
+  · simp at executed
 
 theorem Symbolic.execute_not_mload (sourceStatements : Array Vars.Stmt)
     (state nextState : Symbolic.State) (instruction : Stack.Instr)
-    (replay : Symbolic.execute sourceStatements state instruction = some nextState) :
+    (executed : Symbolic.execute sourceStatements state instruction = some nextState) :
     instruction ≠ .op .mload32 := by
   intro instructionEq
   subst instruction
   obtain ⟨statement, statementIndex, operands, result, statementAt, supported⟩ :=
-    Symbolic.execute_source_operation sourceStatements state nextState .mload32 replay
+    Symbolic.execute_source_operation sourceStatements state nextState .mload32 executed
   cases statement with
     | assign result expression =>
         cases expression <;> simp [Symbolic.operationOf] at supported
@@ -1119,12 +1091,12 @@ theorem Symbolic.execute_not_mload (sourceStatements : Array Vars.Stmt)
 
 theorem Symbolic.execute_not_malloc (sourceStatements : Array Vars.Stmt)
     (state nextState : Symbolic.State) (instruction : Stack.Instr)
-    (replay : Symbolic.execute sourceStatements state instruction = some nextState) :
+    (executed : Symbolic.execute sourceStatements state instruction = some nextState) :
     instruction ≠ .op .malloc := by
   intro instructionEq
   subst instruction
   obtain ⟨statement, statementIndex, operands, result, statementAt, supported⟩ :=
-    Symbolic.execute_source_operation sourceStatements state nextState .malloc replay
+    Symbolic.execute_source_operation sourceStatements state nextState .malloc executed
   cases statement with
     | assign result expression =>
         cases expression <;> simp [Symbolic.operationOf] at supported
@@ -1139,12 +1111,12 @@ theorem Symbolic.execute_not_malloc (sourceStatements : Array Vars.Stmt)
 
 theorem Symbolic.execute_not_mallocUninit (sourceStatements : Array Vars.Stmt)
     (state nextState : Symbolic.State) (instruction : Stack.Instr)
-    (replay : Symbolic.execute sourceStatements state instruction = some nextState) :
+    (executed : Symbolic.execute sourceStatements state instruction = some nextState) :
     instruction ≠ .op .mallocUninit := by
   intro instructionEq
   subst instruction
   obtain ⟨statement, statementIndex, operands, result, statementAt, supported⟩ :=
-    Symbolic.execute_source_operation sourceStatements state nextState .mallocUninit replay
+    Symbolic.execute_source_operation sourceStatements state nextState .mallocUninit executed
   cases statement with
     | assign result expression =>
         cases expression <;> simp [Symbolic.operationOf] at supported
@@ -1159,20 +1131,20 @@ theorem Symbolic.execute_not_mallocUninit (sourceStatements : Array Vars.Stmt)
 
 theorem Symbolic.execute_excludes_internal_calls (sourceStatements : Array Vars.Stmt)
     (state nextState : Symbolic.State) (instruction : Stack.Instr)
-    (replay : Symbolic.execute sourceStatements state instruction = some nextState) :
+    (executed : Symbolic.execute sourceStatements state instruction = some nextState) :
     ∀ callee argumentCount resultCount,
       instruction ≠ .icall callee argumentCount resultCount := by
   intro callee argumentCount resultCount instructionEq
   subst instruction
-  simp [Symbolic.execute] at replay
+  simp [Symbolic.execute] at executed
 
 theorem Symbolic.execute_operation_supported (sourceStatements : Array Vars.Stmt)
     (state nextState : Symbolic.State) (operation : Machine.Operation)
-    (replay : Symbolic.execute sourceStatements state (.op operation) = some nextState) :
+    (executed : Symbolic.execute sourceStatements state (.op operation) = some nextState) :
     (∃ value, operation = .constant value) ∨ operation = .copy ∨
       operation = .add ∨ operation = .lt := by
   obtain ⟨statement, statementIndex, operands, result, statementAt, supported⟩ :=
-    Symbolic.execute_source_operation sourceStatements state nextState operation replay
+    Symbolic.execute_source_operation sourceStatements state nextState operation executed
   cases statement with
     | assign result expression =>
         cases expression with
@@ -1201,11 +1173,11 @@ theorem Symbolic.execute_operation_supported (sourceStatements : Array Vars.Stmt
 theorem Symbolic.execute_flipped_operation_supported
     (sourceStatements : Array Vars.Stmt) (state nextState : Symbolic.State)
     (operation : Machine.Operation)
-    (replay : Symbolic.execute sourceStatements state (.flippedOp operation) =
+    (executed : Symbolic.execute sourceStatements state (.flippedOp operation) =
       some nextState) : operation = .add ∨ operation = .lt := by
   obtain ⟨binary, statement, statementIndex, operands, result, statementAt, supported⟩ :=
     Symbolic.execute_source_flipped_operation sourceStatements state nextState operation
-      replay
+      executed
   cases statement with
   | assign assigned expression =>
       cases expression with
@@ -1236,7 +1208,7 @@ theorem Symbolic.execute_flipped_operation_supported
 theorem Symbolic.executeList_operation_supported
     (sourceStatements : Array Vars.Stmt) (targetInstructions : List Stack.Instr)
     (state finalState : Symbolic.State)
-    (replay : targetInstructions.foldlM (Symbolic.execute sourceStatements) state =
+    (executed : targetInstructions.foldlM (Symbolic.execute sourceStatements) state =
       some finalState) :
     ∀ operation, .op operation ∈ targetInstructions →
       (∃ value, operation = .constant value) ∨ operation = .copy ∨
@@ -1244,69 +1216,69 @@ theorem Symbolic.executeList_operation_supported
   induction targetInstructions generalizing state with
   | nil => simp
   | cons instruction instructions inductionHypothesis =>
-      simp only [List.foldlM_cons] at replay
-      cases replayInstruction : Symbolic.execute sourceStatements state instruction with
-      | none => simp [replayInstruction] at replay
+      simp only [List.foldlM_cons] at executed
+      cases instructionExecution : Symbolic.execute sourceStatements state instruction with
+      | none => simp [instructionExecution] at executed
       | some nextState =>
-          rw [replayInstruction] at replay
+          rw [instructionExecution] at executed
           intro operation member
           simp only [List.mem_cons] at member
           rcases member with instructionEq | member
           · subst instruction
             exact Symbolic.execute_operation_supported sourceStatements state nextState
-              operation replayInstruction
-          · exact inductionHypothesis nextState replay operation member
+              operation instructionExecution
+          · exact inductionHypothesis nextState executed operation member
 
 theorem Symbolic.executeList_flipped_operation_supported
     (sourceStatements : Array Vars.Stmt) (targetInstructions : List Stack.Instr)
     (state finalState : Symbolic.State)
-    (replay : targetInstructions.foldlM (Symbolic.execute sourceStatements) state =
+    (executed : targetInstructions.foldlM (Symbolic.execute sourceStatements) state =
       some finalState) :
     ∀ operation, .flippedOp operation ∈ targetInstructions →
       operation = .add ∨ operation = .lt := by
   induction targetInstructions generalizing state with
   | nil => simp
   | cons instruction instructions inductionHypothesis =>
-      simp only [List.foldlM_cons] at replay
-      cases replayInstruction : Symbolic.execute sourceStatements state instruction with
-      | none => simp [replayInstruction] at replay
+      simp only [List.foldlM_cons] at executed
+      cases instructionExecution : Symbolic.execute sourceStatements state instruction with
+      | none => simp [instructionExecution] at executed
       | some nextState =>
-          rw [replayInstruction] at replay
+          rw [instructionExecution] at executed
           intro operation member
           simp only [List.mem_cons] at member
           rcases member with instructionEq | member
           · subst instruction
             exact Symbolic.execute_flipped_operation_supported sourceStatements state
-              nextState operation replayInstruction
-          · exact inductionHypothesis nextState replay operation member
+              nextState operation instructionExecution
+          · exact inductionHypothesis nextState executed operation member
 
 theorem Symbolic.executeList_excludes_internal_calls
     (sourceStatements : Array Vars.Stmt) (targetInstructions : List Stack.Instr)
     (state finalState : Symbolic.State)
-    (replay : targetInstructions.foldlM (Symbolic.execute sourceStatements) state =
+    (executed : targetInstructions.foldlM (Symbolic.execute sourceStatements) state =
       some finalState) :
     ∀ instruction ∈ targetInstructions, ∀ callee argumentCount resultCount,
       instruction ≠ .icall callee argumentCount resultCount := by
   induction targetInstructions generalizing state with
   | nil => simp
   | cons instruction instructions inductionHypothesis =>
-      simp only [List.foldlM_cons] at replay
-      cases replayInstruction : Symbolic.execute sourceStatements state instruction with
-      | none => simp [replayInstruction] at replay
+      simp only [List.foldlM_cons] at executed
+      cases instructionExecution : Symbolic.execute sourceStatements state instruction with
+      | none => simp [instructionExecution] at executed
       | some nextState =>
-          rw [replayInstruction] at replay
+          rw [instructionExecution] at executed
           intro candidate member
           simp only [List.mem_cons] at member
           rcases member with candidateEq | member
           · subst candidate
             exact Symbolic.execute_excludes_internal_calls sourceStatements state
-              nextState instruction replayInstruction
-          · exact inductionHypothesis nextState replay candidate member
+              nextState instruction instructionExecution
+          · exact inductionHypothesis nextState executed candidate member
 
 theorem Symbolic.executeList_excludes_memory_oracles
     (sourceStatements : Array Vars.Stmt) (targetInstructions : List Stack.Instr)
     (state finalState : Symbolic.State)
-    (replay : targetInstructions.foldlM (Symbolic.execute sourceStatements) state =
+    (executed : targetInstructions.foldlM (Symbolic.execute sourceStatements) state =
       some finalState) :
     ∀ instruction ∈ targetInstructions,
       instruction ≠ .op .mload32 ∧ instruction ≠ .op .malloc ∧
@@ -1314,75 +1286,75 @@ theorem Symbolic.executeList_excludes_memory_oracles
   induction targetInstructions generalizing state with
   | nil => simp
   | cons instruction instructions inductionHypothesis =>
-      simp only [List.foldlM_cons] at replay
-      cases replayInstruction : Symbolic.execute sourceStatements state instruction with
-      | none => simp [replayInstruction] at replay
+      simp only [List.foldlM_cons] at executed
+      cases instructionExecution : Symbolic.execute sourceStatements state instruction with
+      | none => simp [instructionExecution] at executed
       | some nextState =>
-          rw [replayInstruction] at replay
+          rw [instructionExecution] at executed
           intro candidate member
           simp only [List.mem_cons] at member
           rcases member with candidateEq | member
           · subst candidate
             exact ⟨Symbolic.execute_not_mload sourceStatements state nextState instruction
-                replayInstruction,
+                instructionExecution,
               Symbolic.execute_not_malloc sourceStatements state nextState instruction
-                replayInstruction,
+                instructionExecution,
               Symbolic.execute_not_mallocUninit sourceStatements state nextState
-                instruction replayInstruction⟩
-          · exact inductionHypothesis nextState replay candidate member
+                instruction instructionExecution⟩
+          · exact inductionHypothesis nextState executed candidate member
 
 theorem StackSchedule.Block.instructions_exclude_memory_oracles
-    (certificate : StackSchedule.Block) (accepted : certificate.check = .ok ()) :
-    ∀ instruction ∈ certificate.stack.instructions,
+    (schedule : StackSchedule.Block) (accepted : schedule.check = .ok ()) :
+    ∀ instruction ∈ schedule.stack.instructions,
       instruction ≠ .op .mload32 ∧ instruction ≠ .op .malloc ∧
         instruction ≠ .op .mallocUninit := by
-  obtain ⟨finalState, _, replay, _, _, _, _, _⟩ := certificate.check_sound accepted
+  obtain ⟨finalState, _, executed, _, _, _, _, _⟩ := schedule.check_sound accepted
   intro instruction instructionMember
-  apply Symbolic.executeList_excludes_memory_oracles certificate.vars.statements
-    certificate.stack.instructions.toList (Symbolic.State.initial certificate.vars.entryLayout)
-    finalState (by simpa [Symbolic.executeAll] using replay) instruction
+  apply Symbolic.executeList_excludes_memory_oracles schedule.vars.statements
+    schedule.stack.instructions.toList (Symbolic.State.initial schedule.vars.entryLayout)
+    finalState (by simpa [Symbolic.executeAll] using executed) instruction
   simpa using instructionMember
 
 theorem StackSchedule.Block.instructions_exclude_internal_calls
-    (certificate : StackSchedule.Block) (accepted : certificate.check = .ok ()) :
-    ∀ instruction ∈ certificate.stack.instructions, ∀ callee argumentCount resultCount,
+    (schedule : StackSchedule.Block) (accepted : schedule.check = .ok ()) :
+    ∀ instruction ∈ schedule.stack.instructions, ∀ callee argumentCount resultCount,
       instruction ≠ .icall callee argumentCount resultCount := by
-  obtain ⟨finalState, _, replay, _, _, _, _, _⟩ := certificate.check_sound accepted
+  obtain ⟨finalState, _, executed, _, _, _, _, _⟩ := schedule.check_sound accepted
   intro instruction instructionMember
-  apply Symbolic.executeList_excludes_internal_calls certificate.vars.statements
-    certificate.stack.instructions.toList (Symbolic.State.initial certificate.vars.entryLayout)
-    finalState (by simpa [Symbolic.executeAll] using replay) instruction
+  apply Symbolic.executeList_excludes_internal_calls schedule.vars.statements
+    schedule.stack.instructions.toList (Symbolic.State.initial schedule.vars.entryLayout)
+    finalState (by simpa [Symbolic.executeAll] using executed) instruction
   simpa using instructionMember
 
 theorem StackSchedule.Block.instructions_operation_supported
-    (certificate : StackSchedule.Block) (accepted : certificate.check = .ok ()) :
-    ∀ operation, .op operation ∈ certificate.stack.instructions →
+    (schedule : StackSchedule.Block) (accepted : schedule.check = .ok ()) :
+    ∀ operation, .op operation ∈ schedule.stack.instructions →
       (∃ value, operation = .constant value) ∨ operation = .copy ∨
         operation = .add ∨ operation = .lt := by
-  obtain ⟨finalState, _, replay, _, _, _, _, _⟩ := certificate.check_sound accepted
+  obtain ⟨finalState, _, executed, _, _, _, _, _⟩ := schedule.check_sound accepted
   intro operation instructionMember
-  apply Symbolic.executeList_operation_supported certificate.vars.statements
-    certificate.stack.instructions.toList (Symbolic.State.initial certificate.vars.entryLayout)
-    finalState (by simpa [Symbolic.executeAll] using replay) operation
+  apply Symbolic.executeList_operation_supported schedule.vars.statements
+    schedule.stack.instructions.toList (Symbolic.State.initial schedule.vars.entryLayout)
+    finalState (by simpa [Symbolic.executeAll] using executed) operation
   simpa using instructionMember
 
 theorem StackSchedule.Block.instructions_flipped_operation_supported
-    (certificate : StackSchedule.Block) (accepted : certificate.check = .ok ()) :
-    ∀ operation, .flippedOp operation ∈ certificate.stack.instructions →
+    (schedule : StackSchedule.Block) (accepted : schedule.check = .ok ()) :
+    ∀ operation, .flippedOp operation ∈ schedule.stack.instructions →
       operation = .add ∨ operation = .lt := by
-  obtain ⟨finalState, _, replay, _, _, _, _, _⟩ := certificate.check_sound accepted
+  obtain ⟨finalState, _, executed, _, _, _, _, _⟩ := schedule.check_sound accepted
   intro operation instructionMember
-  apply Symbolic.executeList_flipped_operation_supported certificate.vars.statements
-    certificate.stack.instructions.toList (Symbolic.State.initial certificate.vars.entryLayout)
-    finalState (by simpa [Symbolic.executeAll] using replay) operation
+  apply Symbolic.executeList_flipped_operation_supported schedule.vars.statements
+    schedule.stack.instructions.toList (Symbolic.State.initial schedule.vars.entryLayout)
+    finalState (by simpa [Symbolic.executeAll] using executed) operation
   simpa using instructionMember
 
 theorem StackSchedule.target_decode_instruction_mem
-    (certificate : StackSchedule) (control next : Machine.MachineControl)
+    (schedule : StackSchedule) (control next : Machine.MachineControl)
     (instruction : Stack.Instr)
-    (decode : certificate.stack.decodeInstruction control = some (next, instruction)) :
-    ∃ blockCertificate, blockCertificate ∈ certificate.blocks ∧
-      instruction ∈ blockCertificate.stack.instructions := by
+    (decode : schedule.stack.decodeInstruction control = some (next, instruction)) :
+    ∃ blockSchedule, blockSchedule ∈ schedule.blocks ∧
+      instruction ∈ blockSchedule.stack.instructions := by
   cases control with
   | returned results =>
       simp [Stack.Program.decodeInstruction] at decode
@@ -1395,126 +1367,124 @@ theorem StackSchedule.target_decode_instruction_mem
           simp [Stack.Program.decodeInstruction] at decode
       | statement index =>
           rcases functionIndex with _ | functionIndex
-          · simp [StackSchedule.stack,
-              Stack.Program.decodeInstruction, Stack.Program.block?,
+          · simp [Stack.Program.decodeInstruction, Stack.Program.block?,
               Stack.Program.function?, Stack.Function.block?] at decode
-            cases blockAt : certificate.blocks[blockIndex]? with
+            cases blockAt : schedule.blocks[blockIndex]? with
             | none => simp [blockAt] at decode
-            | some blockCertificate =>
-                cases instructionAt : blockCertificate.stack.instructions[index]? with
+            | some blockSchedule =>
+                cases instructionAt : blockSchedule.stack.instructions[index]? with
                 | none =>
                     simp [blockAt, StackSchedule.Block.Target.toBlock,
                       instructionAt] at decode
                 | some decodedInstruction =>
                     simp [blockAt, StackSchedule.Block.Target.toBlock,
                       instructionAt] at decode
-                    refine ⟨blockCertificate, ?_, ?_⟩
+                    refine ⟨blockSchedule, ?_, ?_⟩
                     · exact Array.mem_iff_getElem.mpr ⟨blockIndex,
-                        of_getElem?_eq_some (c := certificate.blocks) (i := blockIndex) blockAt,
+                        of_getElem?_eq_some (c := schedule.blocks) (i := blockIndex) blockAt,
                         (Array.getElem?_eq_some_iff.mp blockAt).2⟩
                     · rw [← decode.2]
                       exact Array.mem_iff_getElem.mpr ⟨index,
-                        of_getElem?_eq_some (c := blockCertificate.stack.instructions) (i := index)
+                        of_getElem?_eq_some (c := blockSchedule.stack.instructions) (i := index)
                           instructionAt,
                         (Array.getElem?_eq_some_iff.mp instructionAt).2⟩
-          · simp [StackSchedule.stack,
-              Stack.Program.decodeInstruction, Stack.Program.block?,
+          · simp [Stack.Program.decodeInstruction, Stack.Program.block?,
               Stack.Program.function?, Stack.Function.block?] at decode
 
 theorem StackSchedule.target_decoded_instruction_excludes_memory_oracles
-    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
+    (schedule : StackSchedule) (accepted : schedule.check = .ok ())
     (control next : Machine.MachineControl) (instruction : Stack.Instr)
-    (decode : certificate.stack.decodeInstruction control = some (next, instruction)) :
+    (decode : schedule.stack.decodeInstruction control = some (next, instruction)) :
     instruction ≠ .op .mload32 ∧ instruction ≠ .op .malloc ∧
       instruction ≠ .op .mallocUninit := by
-  obtain ⟨blockCertificate, blockMember, instructionMember⟩ :=
-    certificate.target_decode_instruction_mem control next instruction decode
+  obtain ⟨blockSchedule, blockMember, instructionMember⟩ :=
+    schedule.target_decode_instruction_mem control next instruction decode
   rw [Array.mem_iff_getElem] at blockMember
   obtain ⟨index, indexBound, blockGet⟩ := blockMember
-  have blockAccepted : blockCertificate.check = .ok () := by
-    have acceptedAt := (certificate.check_sound accepted).2.1 index indexBound
+  have blockAccepted : blockSchedule.check = .ok () := by
+    have acceptedAt := (schedule.check_sound accepted).1 index indexBound
     simpa [blockGet] using acceptedAt
-  exact blockCertificate.instructions_exclude_memory_oracles blockAccepted instruction
+  exact blockSchedule.instructions_exclude_memory_oracles blockAccepted instruction
     instructionMember
 
 theorem StackSchedule.target_decoded_instruction_excludes_internal_calls
-    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
+    (schedule : StackSchedule) (accepted : schedule.check = .ok ())
     (control next : Machine.MachineControl) (instruction : Stack.Instr)
-    (decode : certificate.stack.decodeInstruction control = some (next, instruction)) :
+    (decode : schedule.stack.decodeInstruction control = some (next, instruction)) :
     ∀ callee argumentCount resultCount,
       instruction ≠ .icall callee argumentCount resultCount := by
-  obtain ⟨blockCertificate, blockMember, instructionMember⟩ :=
-    certificate.target_decode_instruction_mem control next instruction decode
+  obtain ⟨blockSchedule, blockMember, instructionMember⟩ :=
+    schedule.target_decode_instruction_mem control next instruction decode
   rw [Array.mem_iff_getElem] at blockMember
   obtain ⟨index, indexBound, blockGet⟩ := blockMember
-  have blockAccepted : blockCertificate.check = .ok () := by
-    have acceptedAt := (certificate.check_sound accepted).2.1 index indexBound
+  have blockAccepted : blockSchedule.check = .ok () := by
+    have acceptedAt := (schedule.check_sound accepted).1 index indexBound
     simpa [blockGet] using acceptedAt
-  exact blockCertificate.instructions_exclude_internal_calls blockAccepted instruction
+  exact blockSchedule.instructions_exclude_internal_calls blockAccepted instruction
     instructionMember
 
 theorem StackSchedule.target_decoded_operation_supported
-    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
+    (schedule : StackSchedule) (accepted : schedule.check = .ok ())
     (control next : Machine.MachineControl) (operation : Machine.Operation)
-    (decode : certificate.stack.decodeInstruction control = some (next, .op operation)) :
+    (decode : schedule.stack.decodeInstruction control = some (next, .op operation)) :
     (∃ value, operation = .constant value) ∨ operation = .copy ∨
       operation = .add ∨ operation = .lt := by
-  obtain ⟨blockCertificate, blockMember, instructionMember⟩ :=
-    certificate.target_decode_instruction_mem control next (.op operation) decode
+  obtain ⟨blockSchedule, blockMember, instructionMember⟩ :=
+    schedule.target_decode_instruction_mem control next (.op operation) decode
   rw [Array.mem_iff_getElem] at blockMember
   obtain ⟨index, indexBound, blockGet⟩ := blockMember
-  have blockAccepted : blockCertificate.check = .ok () := by
-    have acceptedAt := (certificate.check_sound accepted).2.1 index indexBound
+  have blockAccepted : blockSchedule.check = .ok () := by
+    have acceptedAt := (schedule.check_sound accepted).1 index indexBound
     simpa [blockGet] using acceptedAt
-  exact blockCertificate.instructions_operation_supported blockAccepted operation
+  exact blockSchedule.instructions_operation_supported blockAccepted operation
     instructionMember
 
 theorem StackSchedule.target_decoded_flipped_operation_supported
-    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
+    (schedule : StackSchedule) (accepted : schedule.check = .ok ())
     (control next : Machine.MachineControl) (operation : Machine.Operation)
-    (decode : certificate.stack.decodeInstruction control =
+    (decode : schedule.stack.decodeInstruction control =
       some (next, .flippedOp operation)) : operation = .add ∨ operation = .lt := by
-  obtain ⟨blockCertificate, blockMember, instructionMember⟩ :=
-    certificate.target_decode_instruction_mem control next (.flippedOp operation) decode
+  obtain ⟨blockSchedule, blockMember, instructionMember⟩ :=
+    schedule.target_decode_instruction_mem control next (.flippedOp operation) decode
   rw [Array.mem_iff_getElem] at blockMember
   obtain ⟨index, indexBound, blockGet⟩ := blockMember
-  have blockAccepted : blockCertificate.check = .ok () := by
-    have acceptedAt := (certificate.check_sound accepted).2.1 index indexBound
+  have blockAccepted : blockSchedule.check = .ok () := by
+    have acceptedAt := (schedule.check_sound accepted).1 index indexBound
     simpa [blockGet] using acceptedAt
-  exact blockCertificate.instructions_flipped_operation_supported blockAccepted operation
+  exact blockSchedule.instructions_flipped_operation_supported blockAccepted operation
     instructionMember
 
 theorem StackSchedule.target_decode_primitive_pure
-    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
+    (schedule : StackSchedule) (accepted : schedule.check = .ok ())
     {control next : Machine.MachineControl} {operation : Machine.Operation}
     {src : Stack.Source} {dst : Stack.Destination}
-    (decode : Stack.decode certificate.stack control =
+    (decode : Stack.decode schedule.stack control =
       some (⟨Machine.Instruction.Kind.primitive operation, src, dst⟩, next)) :
     operation ≠ .gas ∧ operation ≠ .call := by
   rcases stackDecode_primitive_inv decode with instructionDecode | instructionDecode
-  · rcases certificate.target_decoded_operation_supported accepted control next operation
+  · rcases schedule.target_decoded_operation_supported accepted control next operation
       instructionDecode with ⟨value, rfl⟩ | rfl | rfl | rfl <;> simp
-  · rcases certificate.target_decoded_flipped_operation_supported accepted control next operation
+  · rcases schedule.target_decoded_flipped_operation_supported accepted control next operation
       instructionDecode with rfl | rfl <;> simp
 
 theorem StackSchedule.target_decode_icall_false
-    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
+    (schedule : StackSchedule) (accepted : schedule.check = .ok ())
     {control next : Machine.MachineControl} {callee : FunctionId}
     {src : Stack.Source} {dst : Stack.Destination}
-    (decode : Stack.decode certificate.stack control =
+    (decode : Stack.decode schedule.stack control =
       some (⟨Machine.Instruction.Kind.icall callee, src, dst⟩, next)) : False := by
   obtain ⟨argumentCount, resultCount, instructionDecode⟩ := stackDecode_icall_inv decode
-  exact certificate.target_decoded_instruction_excludes_internal_calls accepted control next
+  exact schedule.target_decoded_instruction_excludes_internal_calls accepted control next
     (.icall callee argumentCount resultCount) instructionDecode callee argumentCount resultCount rfl
 
 theorem StackSchedule.stack_program_noMload
-    (certificate : StackSchedule)
-    (accepted : certificate.check = .ok ()) :
-    (Stack.decoder certificate.stack).NoMload := by
+    (schedule : StackSchedule)
+    (accepted : schedule.check = .ok ()) :
+    (Stack.decoder schedule.stack).NoMload := by
   intro control src dst next decode
-  change Stack.decode certificate.stack control =
+  change Stack.decode schedule.stack control =
     some (⟨Machine.Instruction.Kind.primitive .mload32, src, dst⟩, next) at decode
-  cases instructionDecode : certificate.stack.decodeInstruction control with
+  cases instructionDecode : schedule.stack.decodeInstruction control with
   | none => simp [Stack.decode, instructionDecode] at decode
   | some decoded =>
       obtain ⟨instructionNext, instruction⟩ := decoded
@@ -1523,7 +1493,7 @@ theorem StackSchedule.stack_program_noMload
           simp [Stack.decode, instructionDecode] at decode
           have operationEq := decode.1.1
           subst operation
-          exact (certificate.target_decoded_instruction_excludes_memory_oracles accepted control
+          exact (schedule.target_decoded_instruction_excludes_memory_oracles accepted control
             instructionNext (.op .mload32) instructionDecode).1 rfl
       | flippedOp operation =>
           cases operation <;> simp [Stack.decode, instructionDecode] at decode
@@ -1538,14 +1508,14 @@ theorem StackSchedule.stack_program_noMload
       | load slot => simp [Stack.decode, instructionDecode] at decode
 
 theorem StackSchedule.stack_program_noMalloc
-    (certificate : StackSchedule)
-    (accepted : certificate.check = .ok ()) :
-    (Stack.decoder certificate.stack).NoMalloc := by
+    (schedule : StackSchedule)
+    (accepted : schedule.check = .ok ()) :
+    (Stack.decoder schedule.stack).NoMalloc := by
   constructor
   · intro control src dst next decode
-    change Stack.decode certificate.stack control =
+    change Stack.decode schedule.stack control =
       some (⟨Machine.Instruction.Kind.primitive .malloc, src, dst⟩, next) at decode
-    cases instructionDecode : certificate.stack.decodeInstruction control with
+    cases instructionDecode : schedule.stack.decodeInstruction control with
     | none => simp [Stack.decode, instructionDecode] at decode
     | some decoded =>
         obtain ⟨instructionNext, instruction⟩ := decoded
@@ -1554,7 +1524,7 @@ theorem StackSchedule.stack_program_noMalloc
             simp [Stack.decode, instructionDecode] at decode
             have operationEq := decode.1.1
             subst operation
-            exact (certificate.target_decoded_instruction_excludes_memory_oracles accepted control
+            exact (schedule.target_decoded_instruction_excludes_memory_oracles accepted control
               instructionNext (.op .malloc) instructionDecode).2.1 rfl
         | flippedOp operation =>
             cases operation <;> simp [Stack.decode, instructionDecode] at decode
@@ -1568,9 +1538,9 @@ theorem StackSchedule.stack_program_noMalloc
         | store slot => simp [Stack.decode, instructionDecode] at decode
         | load slot => simp [Stack.decode, instructionDecode] at decode
   · intro control src dst next decode
-    change Stack.decode certificate.stack control =
+    change Stack.decode schedule.stack control =
       some (⟨Machine.Instruction.Kind.primitive .mallocUninit, src, dst⟩, next) at decode
-    cases instructionDecode : certificate.stack.decodeInstruction control with
+    cases instructionDecode : schedule.stack.decodeInstruction control with
     | none => simp [Stack.decode, instructionDecode] at decode
     | some decoded =>
         obtain ⟨instructionNext, instruction⟩ := decoded
@@ -1579,7 +1549,7 @@ theorem StackSchedule.stack_program_noMalloc
             simp [Stack.decode, instructionDecode] at decode
             have operationEq := decode.1.1
             subst operation
-            exact (certificate.target_decoded_instruction_excludes_memory_oracles accepted control
+            exact (schedule.target_decoded_instruction_excludes_memory_oracles accepted control
               instructionNext (.op .mallocUninit) instructionDecode).2.2 rfl
         | flippedOp operation =>
             cases operation <;> simp [Stack.decode, instructionDecode] at decode
