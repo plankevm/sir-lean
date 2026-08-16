@@ -15,6 +15,7 @@ import Sir.Examples.Jump
 import Sir.Examples.Machine
 import Sir.Examples.Lowering
 import Sir.Examples.Corpus
+import Sir.Examples.Text
 
 open Lean Elab Command
 
@@ -33,7 +34,7 @@ private def auditedModule (moduleName : Name) : Bool :=
 private def allowedModule (theoremModule moduleName : Name) : Bool :=
   ((`Sir).isPrefixOf moduleName && moduleContainsSpec moduleName) ||
     [`Init, `Lean, `Std, `Evm].any (·.isPrefixOf moduleName) ||
-    (`Sir.Examples).isPrefixOf theoremModule && moduleName == theoremModule
+    ((`Sir.Examples).isPrefixOf theoremModule && (`Sir.Examples).isPrefixOf moduleName)
 
 private def auditTheorem (env : Environment) (theoremModule theoremName : Name)
     (theoremInfo : ConstantInfo) : CommandElabM Nat := do

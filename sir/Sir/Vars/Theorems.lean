@@ -1,6 +1,8 @@
 import Sir.Vars.Proofs.Determinism
 import Sir.Vars.Proofs.Readiness
 import Sir.Vars.Proofs.Bump
+import Sir.Vars.Proofs.Check
+import Sir.Vars.Proofs.Quotient
 
 namespace Sir
 
@@ -152,5 +154,25 @@ theorem Vars.Program.icall_halted_step
     (hcallee : Vars.EvalFn program ctx callee s.globals vs t g' .halted) :
     s =[t]=> { globals := g', environment := .empty, control := .halted } :=
   Vars.Proofs.Program.icall_halted_step hstmt hargs hcallee
+
+theorem Vars.rank_lt_of_transGen {rank : FunctionId → Nat}
+    (decreasing : Vars.RankDecreases program rank) {f g}
+    (path : Relation.TransGen program.callEdge f g) : rank g < rank f :=
+  Vars.Proofs.rank_lt_of_transGen decreasing path
+
+theorem Vars.acyclic_of_rank {rank : FunctionId → Nat}
+    (decreasing : Vars.RankDecreases program rank) (f : FunctionId) :
+    ¬ Relation.TransGen program.callEdge f f :=
+  Vars.Proofs.acyclic_of_rank decreasing f
+
+theorem Vars.Program.canonicalizeEquivalenceClass_bijective :
+    (∀ left right : Quotient Vars.Program.alphaEquivalenceSetoid,
+        Vars.Program.canonicalizeEquivalenceClass left =
+          Vars.Program.canonicalizeEquivalenceClass right → left = right) ∧
+      ∀ canonical : { program : Vars.Program // program.Canonical },
+        ∃ equivalenceClass,
+          Vars.Program.canonicalizeEquivalenceClass equivalenceClass = canonical :=
+  ⟨fun _ _ equal => Vars.Proofs.Program.canonicalizeEquivalenceClass_bijective.1 equal,
+    Vars.Proofs.Program.canonicalizeEquivalenceClass_bijective.2⟩
 
 end Sir

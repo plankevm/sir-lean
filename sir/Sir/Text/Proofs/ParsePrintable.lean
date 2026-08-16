@@ -1,4 +1,5 @@
-import Sir.Text.ParseCanonical
+import Sir.Text.Proofs.ParseCanonical
+import Sir.Text.Spec.Printable
 
 namespace Sir.Vars.Text
 
@@ -456,8 +457,11 @@ private theorem parseTokens_printable {tokens : List Token} {program : Program}
   | error message => contradiction
   | ok groups => exact parseProgramGroups_printable parsed
 
+namespace Proofs
+
 theorem parse_printable {source : String} {program : Program}
     (parsed : parse source = .ok program) : program.Printable :=
   parseTokens_printable parsed
 
+end Proofs
 end Sir.Vars.Text

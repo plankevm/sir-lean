@@ -1,5 +1,5 @@
-import Sir.Text.Lexer
-import Sir.Text.Printer
+import Sir.Text.Proofs.Lexer
+import Sir.Text.Spec.Printer
 
 namespace Sir.Vars.Text
 
@@ -147,8 +147,11 @@ theorem renderable_programTokens (program : Program) :
   intro _ _
   exact renderable_functionTokens _ _ _
 
+namespace Proofs
+
 theorem tokenize_print (program : Program) :
     tokenize (print program) = programTokens program :=
   tokenize_render (renderable_programTokens program)
 
+end Proofs
 end Sir.Vars.Text

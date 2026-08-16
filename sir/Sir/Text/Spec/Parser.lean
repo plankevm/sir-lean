@@ -1,4 +1,4 @@
-import Sir.Text.Token
+import Sir.Text.Spec.Lexer
 
 namespace Sir.Vars.Text
 
@@ -227,7 +227,9 @@ def parseFunctionGroups (functions : List String) (groups : List (Line × List L
   let blocks ← liftM (groups.mapM fun group => blockHeaderName group.fst)
   if hasDuplicates blocks then throw "duplicate block name"
   let parsed ← groups.mapM fun group => parseBlock functions blocks group.fst group.snd
-  return { blocks := parsed.toArray, entry := ⟨0⟩ }
+  match parsed with
+  | [] => throw "a function must have at least one block"
+  | entry :: rest => return { entry := entry, rest := rest.toArray }
 
 def parseFunction (functions : List String) (body : List Line) : ParserM Function :=
   match splitBlocks body with
@@ -238,14 +240,34 @@ def parseFunctionGroupsList (names : List String) (groups : List (String × List
     ParserM (List Function) :=
   groups.mapM fun group => parseFunction names group.snd
 
+def parseFunctionSlots (names : List String) (initGroup : String × List Line)
+    (following : List (String × List Line)) : ParserM (Function × List Function) := do
+  let init ← parseFunction names initGroup.snd
+  let parsed ← parseFunctionGroupsList names following
+  return (init, parsed)
+
+def programOfSlots (hasMain : Bool) (init : Function) (following : List Function) : Program :=
+  if hasMain then
+    { init := init, main := following.head?, rest := following.tail.toArray }
+  else
+    { init := init, main := none, rest := following.toArray }
+
+def parseProgramSlots (initGroup : String × List Line)
+    (mainGroup : Option (String × List Line))
+    (others : List (String × List Line)) : Except String Program :=
+  let following := mainGroup.toList ++ others
+  match (parseFunctionSlots (initGroup.fst :: following.map Prod.fst)
+      initGroup following).run [] with
+  | .error message => .error message
+  | .ok result => .ok (programOfSlots mainGroup.isSome result.1.1 result.1.2)
+
 def parseProgramGroups (groups : List (String × List Line)) : Except String Program := do
   let names := groups.map Prod.fst
   if hasDuplicates names then .error "duplicate function name"
-  let (functions, _) ← (parseFunctionGroupsList names groups).run []
-  let some initEntry := names.findIdx? (· == "init")
+  let some initGroup := groups.find? (fun group => group.fst == "init")
     | .error "the program has no function named 'init'"
-  return { functions := functions.toArray, initEntry := ⟨initEntry⟩,
-           mainEntry := (names.findIdx? (· == "main")).map FunctionId.mk }
+  parseProgramSlots initGroup (groups.find? (fun group => group.fst == "main"))
+    (groups.filter (fun group => group.fst != "init" && group.fst != "main"))
 
 def parseTokens (tokens : List Token) : Except String Program :=
   match splitFunctions (splitLines tokens) with

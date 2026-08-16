@@ -1,10 +1,10 @@
-import Sir.Text.Token
+import Sir.Text.Spec.Lexer
 
 namespace Sir.Vars.Text
 
 def functionName (program : Program) (function : FunctionId) : String :=
-  if function = program.initEntry then "init"
-  else if program.mainEntry = some function then "main"
+  if function = program.initId then "init"
+  else if program.mainId? = some function then "main"
   else "fn" ++ decimalString function.id
 
 def blockName (block : BlockId) : String :=

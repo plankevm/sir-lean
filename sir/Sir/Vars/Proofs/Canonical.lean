@@ -1,129 +1,6 @@
-import Sir.Text.Printer
+import Sir.Vars.Spec.Canonical
 
 namespace Sir.Vars
-
-def Expr.renameVariables (rename : VarId → VarId) : Expr → Expr
-  | .constant value => .constant value
-  | .var source => .var (rename source)
-  | .add lhs rhs => .add (rename lhs) (rename rhs)
-  | .lt lhs rhs => .lt (rename lhs) (rename rhs)
-  | .sload key => .sload (rename key)
-
-def Stmt.renameVariables (rename : VarId → VarId) : Stmt → Stmt
-  | .assign result value => .assign (rename result) (value.renameVariables rename)
-  | .sstore key value => .sstore (rename key) (rename value)
-  | .gas result => .gas (rename result)
-  | .call callData => .call {
-      callee := rename callData.callee
-      gas := rename callData.gas
-      result := rename callData.result }
-  | .malloc result size => .malloc (rename result) (rename size)
-  | .mallocUninit result size => .mallocUninit (rename result) (rename size)
-  | .mstore32 offset value => .mstore32 (rename offset) (rename value)
-  | .mload32 result offset => .mload32 (rename result) (rename offset)
-  | .icall callee args dests => .icall callee (args.map rename) (dests.map rename)
-
-def Terminator.renameVariables (rename : VarId → VarId) : Terminator → Terminator
-  | .halt => .halt
-  | .jump target => .jump target
-  | .branch condition thenTarget elseTarget =>
-      .branch (rename condition) thenTarget elseTarget
-  | .iret => .iret
-
-def Block.renameVariables (rename : VarId → VarId) (block : Block) : Block :=
-  { inputs := block.inputs.map rename
-    statements := block.statements.map (Stmt.renameVariables rename)
-    terminator := block.terminator.renameVariables rename
-    outputs := block.outputs.map rename }
-
-def Function.renameVariables (rename : VarId → VarId) (function : Function) : Function :=
-  { blocks := function.blocks.map (Block.renameVariables rename)
-    entry := function.entry }
-
-def Program.renameVariables (rename : VarId → VarId) (program : Program) : Program :=
-  { functions := program.functions.map (Function.renameVariables rename)
-    initEntry := program.initEntry
-    mainEntry := program.mainEntry }
-
-def Expr.variableOccurrences : Expr → List VarId
-  | .constant _ => []
-  | .var source => [source]
-  | .add lhs rhs => [lhs, rhs]
-  | .lt lhs rhs => [lhs, rhs]
-  | .sload key => [key]
-
-def Stmt.variableOccurrences : Stmt → List VarId
-  | .assign result value => result :: value.variableOccurrences
-  | .sstore key value => [key, value]
-  | .gas result => [result]
-  | .call callData => [callData.result, callData.gas, callData.callee]
-  | .malloc result size => [result, size]
-  | .mallocUninit result size => [result, size]
-  | .mstore32 offset value => [offset, value]
-  | .mload32 result offset => [result, offset]
-  | .icall _ args dests => dests.toList ++ args.toList
-
-def Terminator.variableOccurrences : Terminator → List VarId
-  | .halt => []
-  | .jump _ => []
-  | .branch condition _ _ => [condition]
-  | .iret => []
-
-def Block.variableOccurrences (block : Block) : List VarId :=
-  block.inputs.toList ++ block.outputs.toList ++
-    block.statements.toList.flatMap Stmt.variableOccurrences ++
-    block.terminator.variableOccurrences
-
-def Function.variableOccurrences (function : Function) : List VarId :=
-  function.blocks.toList.flatMap Block.variableOccurrences
-
-def Program.variableOccurrences (program : Program) : List VarId :=
-  program.functions.toList.flatMap Function.variableOccurrences
-
-def Program.canonicalVariable (program : Program) (identifier : VarId) : VarId :=
-  ⟨program.variableOccurrences.eraseDups.idxOf identifier⟩
-
-def Program.canonicalize (program : Program) : Program :=
-  program.renameVariables program.canonicalVariable
-
-def Stmt.FunctionReferencesInRange (functionCount : Nat) : Stmt → Prop
-  | .icall callee _ _ => callee.id < functionCount
-  | _ => True
-
-def Terminator.BlockReferencesInRange (blockCount : Nat) : Terminator → Prop
-  | .jump target => target.id < blockCount
-  | .branch _ thenTarget elseTarget =>
-      thenTarget.id < blockCount ∧ elseTarget.id < blockCount
-  | _ => True
-
-def Block.ReferencesInRange (functionCount blockCount : Nat)
-    (block : Block) : Prop :=
-  (∀ statement ∈ block.statements,
-    statement.FunctionReferencesInRange functionCount) ∧
-  block.terminator.BlockReferencesInRange blockCount
-
-def Function.Printable (functionCount : Nat) (function : Function) : Prop :=
-  function.entry = ⟨0⟩ ∧
-  ∀ block ∈ function.blocks,
-    block.ReferencesInRange functionCount function.blocks.size
-
-def Program.Printable (program : Program) : Prop :=
-  program.initEntry.id < program.functions.size ∧
-  (match program.mainEntry with
-    | none => True
-    | some mainEntry =>
-        mainEntry.id < program.functions.size ∧ mainEntry ≠ program.initEntry) ∧
-  ∀ function ∈ program.functions,
-    function.Printable program.functions.size
-
-def Program.Canonical (program : Program) : Prop :=
-  program.canonicalize = program
-
-def Program.AlphaEquiv (left right : Program) : Prop :=
-  ∃ forward backward : VarId → VarId,
-    left.renameVariables forward = right ∧ right.renameVariables backward = left
-
-namespace Program
 
 @[simp] theorem Expr.renameVariables_id (value : Expr) :
     value.renameVariables id = value := by
@@ -180,56 +57,17 @@ namespace Program
   cases function
   simp [Function.renameVariables, Function.comp_def]
 
-theorem renameVariables_id (program : Program) :
+theorem Program.renameVariables_id (program : Program) :
     program.renameVariables id = program := by
   have hfunction : Function.renameVariables id = id := funext Function.renameVariables_id
   cases program
   simp [Program.renameVariables, hfunction]
 
-theorem renameVariables_compose (outer inner : VarId → VarId) (program : Program) :
+theorem Program.renameVariables_compose (outer inner : VarId → VarId) (program : Program) :
     (program.renameVariables inner).renameVariables outer =
       program.renameVariables (outer ∘ inner) := by
   cases program
   simp [Program.renameVariables, Function.comp_def]
-
-private theorem Stmt.functionReferencesInRange_renameVariables
-    (rename : VarId → VarId) (functionCount : Nat) (statement : Stmt) :
-    (statement.renameVariables rename).FunctionReferencesInRange functionCount ↔
-      statement.FunctionReferencesInRange functionCount := by
-  cases statement <;> simp [Stmt.renameVariables, Stmt.FunctionReferencesInRange]
-
-private theorem Terminator.blockReferencesInRange_renameVariables
-    (rename : VarId → VarId) (blockCount : Nat) (terminator : Terminator) :
-    (terminator.renameVariables rename).BlockReferencesInRange blockCount ↔
-      terminator.BlockReferencesInRange blockCount := by
-  cases terminator <;>
-    simp [Terminator.renameVariables, Terminator.BlockReferencesInRange]
-
-private theorem Block.referencesInRange_renameVariables
-    (rename : VarId → VarId) (functionCount blockCount : Nat)
-    (block : Block) :
-    (block.renameVariables rename).ReferencesInRange functionCount blockCount ↔
-      block.ReferencesInRange functionCount blockCount := by
-  simp [Block.renameVariables, Block.ReferencesInRange,
-    Stmt.functionReferencesInRange_renameVariables,
-    Terminator.blockReferencesInRange_renameVariables]
-
-private theorem Function.printable_renameVariables
-    (rename : VarId → VarId) (functionCount : Nat) (function : Function) :
-    (function.renameVariables rename).Printable functionCount ↔
-      function.Printable functionCount := by
-  simp [Function.renameVariables, Function.Printable,
-    Block.referencesInRange_renameVariables]
-
-theorem Printable.renameVariables {program : Program} (printable : program.Printable)
-    (rename : VarId → VarId) :
-    (program.renameVariables rename).Printable := by
-  simpa [Program.Printable, Program.renameVariables,
-    Function.printable_renameVariables] using printable
-
-theorem Printable.canonicalize {program : Program} (printable : program.Printable) :
-    program.canonicalize.Printable := by
-  exact printable.renameVariables program.canonicalVariable
 
 @[simp] theorem Expr.variableOccurrences_renameVariables (rename : VarId → VarId)
     (value : Expr) :
@@ -265,7 +103,7 @@ theorem Printable.canonicalize {program : Program} (printable : program.Printabl
   simp [Function.renameVariables, Function.variableOccurrences, List.map_flatMap,
     List.flatMap_map]
 
-@[simp] theorem variableOccurrences_renameVariables (rename : VarId → VarId)
+@[simp] theorem Program.variableOccurrences_renameVariables (rename : VarId → VarId)
     (program : Program) :
     (program.renameVariables rename).variableOccurrences =
       program.variableOccurrences.map rename := by
@@ -364,7 +202,7 @@ theorem Function.renameVariables_congr {left right : VarId → VarId}
       exact ⟨block, hblock', hidentifier⟩)
   simp [Function.renameVariables, hblocks]
 
-theorem renameVariables_congr {left right : VarId → VarId} {program : Program}
+theorem Program.renameVariables_congr {left right : VarId → VarId} {program : Program}
     (h : ∀ identifier ∈ program.variableOccurrences,
       left identifier = right identifier) :
     program.renameVariables left = program.renameVariables right := by
@@ -443,33 +281,34 @@ private theorem idxOf_map_of_injective_on {rename : VarId → VarId}
         intro left hleft right hright hrenamed
         exact hinjective left (by simp [hleft]) right (by simp [hright]) hrenamed
 
-theorem AlphaEquiv.refl (program : Program) : AlphaEquiv program program := by
-  exact ⟨id, id, renameVariables_id program, renameVariables_id program⟩
+theorem Program.AlphaEquiv.refl (program : Program) : Program.AlphaEquiv program program := by
+  exact ⟨id, id, Program.renameVariables_id program, Program.renameVariables_id program⟩
 
-theorem AlphaEquiv.symm {left right : Program} :
-    AlphaEquiv left right → AlphaEquiv right left := by
+theorem Program.AlphaEquiv.symm {left right : Program} :
+    Program.AlphaEquiv left right → Program.AlphaEquiv right left := by
   rintro ⟨forward, backward, hforward, hbackward⟩
   exact ⟨backward, forward, hbackward, hforward⟩
 
-theorem AlphaEquiv.trans {first second third : Program} :
-    AlphaEquiv first second → AlphaEquiv second third → AlphaEquiv first third := by
+theorem Program.AlphaEquiv.trans {first second third : Program} :
+    Program.AlphaEquiv first second → Program.AlphaEquiv second third →
+      Program.AlphaEquiv first third := by
   rintro ⟨forward₁, backward₁, hforward₁, hbackward₁⟩
     ⟨forward₂, backward₂, hforward₂, hbackward₂⟩
   refine ⟨forward₂ ∘ forward₁, backward₁ ∘ backward₂, ?_, ?_⟩
-  · rw [← renameVariables_compose, hforward₁, hforward₂]
-  · rw [← renameVariables_compose, hbackward₂, hbackward₁]
+  · rw [← Program.renameVariables_compose, hforward₁, hforward₂]
+  · rw [← Program.renameVariables_compose, hbackward₂, hbackward₁]
 
-theorem canonicalize_alphaEquiv (program : Program) :
-    AlphaEquiv program.canonicalize program := by
+theorem Program.canonicalize_alphaEquiv (program : Program) :
+    Program.AlphaEquiv program.canonicalize program := by
   let identifiers := program.variableOccurrences.eraseDups
   let restore : VarId → VarId := fun identifier =>
     identifiers.getD identifier.id ⟨0⟩
   refine ⟨restore, program.canonicalVariable, ?_, rfl⟩
-  rw [Program.canonicalize, renameVariables_compose]
+  rw [Program.canonicalize, Program.renameVariables_compose]
   calc
     program.renameVariables (restore ∘ program.canonicalVariable) =
         program.renameVariables id := by
-      apply renameVariables_congr
+      apply Program.renameVariables_congr
       intro identifier hidentifier
       simp only [Function.comp_apply, id_eq]
       have hinIdentifiers : identifier ∈ identifiers := by
@@ -478,7 +317,7 @@ theorem canonicalize_alphaEquiv (program : Program) :
       change identifiers.getD (identifiers.idxOf identifier) ⟨0⟩ = identifier
       rw [← List.getElem_eq_getD (h := hindex) ⟨0⟩]
       exact List.getElem_idxOf hindex
-    _ = program := renameVariables_id program
+    _ = program := Program.renameVariables_id program
 
 private theorem canonicalVariable_renameVariables {left right : Program}
     {rename : VarId → VarId}
@@ -489,7 +328,7 @@ private theorem canonicalVariable_renameVariables {left right : Program}
     {identifier : VarId} (hidentifier : identifier ∈ left.variableOccurrences) :
     right.canonicalVariable (rename identifier) = left.canonicalVariable identifier := by
   have hoccurrences := congrArg Program.variableOccurrences hrenamed
-  rw [variableOccurrences_renameVariables] at hoccurrences
+  rw [Program.variableOccurrences_renameVariables] at hoccurrences
   simp only [Program.canonicalVariable]
   rw [← hoccurrences]
   rw [eraseDups_map_of_injective_on hinjective]
@@ -500,14 +339,14 @@ private theorem canonicalVariable_renameVariables {left right : Program}
     exact hinjective first (List.mem_eraseDups.mp hfirst) second
       (List.mem_eraseDups.mp hsecond) hequal
 
-theorem alphaEquiv_iff_canonicalize_eq {left right : Program} :
-    AlphaEquiv left right ↔ left.canonicalize = right.canonicalize := by
+theorem Program.alphaEquiv_iff_canonicalize_eq {left right : Program} :
+    Program.AlphaEquiv left right ↔ left.canonicalize = right.canonicalize := by
   constructor
   · rintro ⟨forward, backward, hforward, hbackward⟩
     have hforwardOccurrences := congrArg Program.variableOccurrences hforward
     have hbackwardOccurrences := congrArg Program.variableOccurrences hbackward
-    rw [variableOccurrences_renameVariables] at hforwardOccurrences
-    rw [variableOccurrences_renameVariables] at hbackwardOccurrences
+    rw [Program.variableOccurrences_renameVariables] at hforwardOccurrences
+    rw [Program.variableOccurrences_renameVariables] at hbackwardOccurrences
     have hinverse : ∀ identifier ∈ left.variableOccurrences,
         backward (forward identifier) = identifier := by
       have hmapped : left.variableOccurrences.map (backward ∘ forward) =
@@ -521,50 +360,17 @@ theorem alphaEquiv_iff_canonicalize_eq {left right : Program} :
       intro first hfirst second hsecond hequal
       rw [← hinverse first hfirst, ← hinverse second hsecond, hequal]
     rw [Program.canonicalize, Program.canonicalize, ← hforward,
-      renameVariables_compose]
-    apply renameVariables_congr
+      Program.renameVariables_compose]
+    apply Program.renameVariables_congr
     intro identifier hidentifier
     simpa only [Function.comp_apply, hforward] using
       (canonicalVariable_renameVariables hforward hinjective hidentifier).symm
   · intro hequal
-    exact AlphaEquiv.trans (AlphaEquiv.symm (canonicalize_alphaEquiv left))
-      (hequal ▸ canonicalize_alphaEquiv right)
+    exact Program.AlphaEquiv.trans (Program.AlphaEquiv.symm (Program.canonicalize_alphaEquiv left))
+      (hequal ▸ Program.canonicalize_alphaEquiv right)
 
-instance alphaEquivalenceSetoid : Setoid Program where
-  r := AlphaEquiv
-  iseqv := {
-    refl := AlphaEquiv.refl
-    symm := AlphaEquiv.symm
-    trans := AlphaEquiv.trans }
-
-theorem canonicalize_canonical (program : Program) :
+theorem Program.canonicalize_canonical (program : Program) :
     program.canonicalize.Canonical :=
-  alphaEquiv_iff_canonicalize_eq.mp (canonicalize_alphaEquiv program)
+  Program.alphaEquiv_iff_canonicalize_eq.mp (Program.canonicalize_alphaEquiv program)
 
-def canonicalizeEquivalenceClass :
-    Quotient alphaEquivalenceSetoid → { program : Program // program.Canonical } :=
-  Quotient.lift
-    (fun program => ⟨program.canonicalize, canonicalize_canonical program⟩)
-    (fun _ _ equivalent => Subtype.ext (alphaEquiv_iff_canonicalize_eq.mp equivalent))
-
-private def canonicalProgramEquivalenceClass :
-    { program : Program // program.Canonical } → Quotient alphaEquivalenceSetoid :=
-  fun program => Quotient.mk alphaEquivalenceSetoid program
-
-private theorem canonicalProgramEquivalenceClass_leftInverse :
-    Function.LeftInverse canonicalProgramEquivalenceClass canonicalizeEquivalenceClass := by
-  intro equivalenceClass
-  refine Quotient.inductionOn equivalenceClass ?_
-  intro program
-  exact Quotient.sound (canonicalize_alphaEquiv program)
-
-theorem canonicalizeEquivalenceClass_bijective :
-    Function.Bijective canonicalizeEquivalenceClass := by
-  constructor
-  · exact canonicalProgramEquivalenceClass_leftInverse.injective
-  · intro program
-    refine ⟨canonicalProgramEquivalenceClass program, ?_⟩
-    exact Subtype.ext program.property
-
-end Program
 end Sir.Vars

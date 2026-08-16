@@ -33,11 +33,13 @@ deterministic witness.
   progress families arrive with the halting-operations work.
 - [`Sir/Theorems.lean`](Sir/Theorems.lean) — the aggregate exported surface.
 - [`Sir/Examples/`](Sir/Examples/) — well-formedness, (non-)determinism,
-  halting-callee, machine-level execution, and memory/allocation witnesses.
-- [`Sir/Check.lean`](Sir/Check.lean) — checks that return a proof of the
-  well-formedness clause they discharge.
-- [`Sir/Text/`](Sir/Text/) — the text format: lexer, parser, printer, and an
-  extractor that emits a parsed program as Lean source.
+  halting-callee, machine-level execution, round-trip, and memory/allocation
+  witnesses.
+- [`Sir/Vars/Spec/Check.lean`](Sir/Vars/Spec/Check.lean) — one check, returning a
+  proof of the well-formedness clause it discharges.
+- [`Sir/Text/`](Sir/Text/) — the text format: printing a program and parsing it
+  back returns the same program up to renaming, in canonical form; an extractor
+  emits a parsed program as Lean source.
 - [`Sir/Audit.lean`](Sir/Audit.lean) — build-time audit of the exported
   surface.
 

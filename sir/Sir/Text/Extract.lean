@@ -1,4 +1,4 @@
-import Sir.Text.Parser
+import Sir.Text.Spec.Parser
 
 namespace Sir.Vars.Text
 

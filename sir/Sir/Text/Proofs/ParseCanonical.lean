@@ -1,5 +1,5 @@
-import Sir.Text.Parser
-import Sir.Text.Canonical
+import Sir.Text.Spec.Parser
+import Sir.Vars.Proofs.Canonical
 
 namespace Sir.Vars.Text
 
@@ -890,8 +890,11 @@ theorem parseTokens_canonical {tokens : List Token} {program : Program}
                 apply InterningInvariant.canonical
                 simpa [Program.variableOccurrences, functionsOccurrences] using invariant
 
+namespace Proofs
+
 theorem parse_canonical {source : String} {program : Program}
     (parsed : parse source = .ok program) : program.Canonical :=
   parseTokens_canonical parsed
 
+end Proofs
 end Sir.Vars.Text

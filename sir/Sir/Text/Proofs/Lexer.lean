@@ -1,4 +1,4 @@
-import Sir.Text.Token
+import Sir.Text.Spec.Lexer
 
 namespace Sir.Vars.Text
 
