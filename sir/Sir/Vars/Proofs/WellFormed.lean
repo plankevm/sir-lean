@@ -121,7 +121,7 @@ theorem Vars.Proofs.Program.WellFormed.evalFn_arity
       function globals args trace globals' (.returned results)) :
     (program.function? function).bind (·.outputs?) = some results.size := by
   cases hrun with
-  | returned hentry hsteps hreturn =>
+  | exit hentry hsteps hreturn =>
       rw [Vars.entry_eq] at hentry
       obtain ⟨initial, hcallState, rfl⟩ := Option.map_eq_some_iff.mp hentry
       obtain ⟨fn, entryBlock, locals₀, hfn, hentryBlock, hbind, rfl⟩ :=
@@ -140,9 +140,11 @@ theorem Vars.Proofs.Program.WellFormed.evalFn_arity
               (final := Machine.State.toMachine _) start rfl with
             hhalt | ⟨returnedValues, hreturned⟩ | ⟨cursor', hcontrol', hcursorFn⟩
           · exact absurd next
-              (Machine.stuck_of_halted (Vars.decoder_terminal program) hhalt _ _)
+              (Machine.stuck_of_exit (outcome := .halted) (Vars.decoder_terminal program)
+                hhalt _ _)
           · exact absurd next
-              (Machine.stuck_of_returned (Vars.decoder_terminal program) hreturned _ _)
+              (Machine.stuck_of_exit (outcome := .returned _) (Vars.decoder_terminal program)
+                hreturned _ _)
           · have hsame : cursor' = cursor :=
               Machine.MachineControl.running.inj (hcontrol'.symm.trans hcontrol)
             subst cursor'

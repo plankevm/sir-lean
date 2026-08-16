@@ -547,7 +547,7 @@ private theorem initialized_halted_world {ctx : CallContext} {world : World}
       entryFunction { world := world } #[] trace globals .halted) :
     trace = [] ∧ globals.world = world.storeStorage ctx.self 42 42 := by
   cases hrun with
-  | halted hentry hsteps hhalt =>
+  | exit hentry hsteps hhalt =>
       rename_i initial exit
       have hinitial : initial = (initializedState0 world).toState := Option.some.inj
         (hentry.symm.trans (by simp [Vars.entry_eq, initialized_entry]))

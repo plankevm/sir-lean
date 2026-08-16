@@ -83,8 +83,8 @@ theorem Vars.Proofs.Program.RunsTo.trace_det
     rcases h₂ with ⟨⟨initial₂, hentry₂, hsteps₂⟩, hhalt₂⟩
     have : initial₁ = initial₂ := Option.some.inj (hentry₁.symm.trans hentry₂)
     subst initial₂
-    exact Vars.Steps.stuck_trace_det hfree hsteps₁ (stuck_of_halted hhalt₁)
-      hsteps₂ (stuck_of_halted hhalt₂)
+    exact Vars.Steps.stuck_trace_det hfree hsteps₁ (stuck_of_exit (outcome := .halted) hhalt₁)
+      hsteps₂ (stuck_of_exit (outcome := .halted) hhalt₂)
 
 
 variable {program : Vars.Program} {ctx : CallContext}
@@ -141,9 +141,9 @@ theorem Vars.Proofs.Program.RunsTo.unique_or_queryDivergence
   subst initial₂
   rcases Vars.Proofs.Steps.confluence_or_queryDivergence hfree hrun₁ hrun₂ with
     ⟨u, hu, htu⟩ | ⟨u, hu, htu⟩ | hdiv
-  · obtain ⟨rfl, rfl⟩ := Vars.Steps.eq_of_stuck hu (stuck_of_halted hhalt₁)
+  · obtain ⟨rfl, rfl⟩ := Vars.Steps.eq_of_stuck hu (stuck_of_exit (outcome := .halted) hhalt₁)
     exact .inl ⟨by simpa using htu, rfl⟩
-  · obtain ⟨rfl, rfl⟩ := Vars.Steps.eq_of_stuck hu (stuck_of_halted hhalt₂)
+  · obtain ⟨rfl, rfl⟩ := Vars.Steps.eq_of_stuck hu (stuck_of_exit (outcome := .halted) hhalt₂)
     exact .inl ⟨by simpa using htu.symm, rfl⟩
   · exact .inr hdiv
 
@@ -211,18 +211,7 @@ private theorem Vars.EvalFn.runsFunction_no_event
     (htrace : trace = history ++ event :: rest) : False := by
   obtain ⟨initial, hentry, hsteps⟩ := hrun
   cases heval with
-  | returned hentry₂ hrun₂ hret =>
-      rename_i results initialGen exit
-      rw [Vars.entry_eq] at hentry₂
-      obtain ⟨initial₂, hcallState₂, rfl⟩ := Option.map_eq_some_iff.mp hentry₂
-      obtain rfl := Option.some.inj (hentry.symm.trans hcallState₂)
-      have hrun₂' : Vars.Steps program ctx initial history exit.toMachine := by
-        change Machine.Steps Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
-          initial.toState history exit.toMachine.toState
-        simpa using hrun₂
-      exact terminalSteps_no_event hfree hrun₂'
-        (stuck_of_returned hret) hsteps htrace
-  | halted hentry₂ hrun₂ hhalt =>
+  | exit hentry₂ hrun₂ hexit =>
       rename_i initialGen exit
       rw [Vars.entry_eq] at hentry₂
       obtain ⟨initial₂, hcallState₂, rfl⟩ := Option.map_eq_some_iff.mp hentry₂
@@ -232,7 +221,7 @@ private theorem Vars.EvalFn.runsFunction_no_event
           initial.toState history exit.toMachine.toState
         simpa using hrun₂
       exact terminalSteps_no_event hfree hrun₂'
-        (stuck_of_halted hhalt) hsteps htrace
+        (stuck_of_exit hexit) hsteps htrace
 
 theorem Vars.Proofs.Program.functionDeterministicFrom_of_memOracleFree
     (hfree : program.MemOracleFree) (ctx : CallContext)

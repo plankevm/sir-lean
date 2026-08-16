@@ -25,6 +25,14 @@ theorem symmetric {trace₁ trace₂ : Trace}
 
 end Sir.Trace.QueryDivergence
 
+namespace Sir.FunctionOutcome
+
+theorem toControl_inj {outcome₁ outcome₂ : FunctionOutcome}
+    (h : outcome₁.toControl = outcome₂.toControl) : outcome₁ = outcome₂ := by
+  cases outcome₁ <;> cases outcome₂ <;> simp_all [toControl]
+
+end Sir.FunctionOutcome
+
 namespace Sir.Machine
 
 open Sir
@@ -233,7 +241,7 @@ theorem Steps.inductionOn {frame : OperandFrame} {decoder : Decoder frame}
   refine Steps.rec (motive_1 := fun _ _ _ _ => True)
       (motive_2 := fun state trace final h => motive state trace final h)
       (motive_3 := fun _ _ _ _ _ _ _ => True)
-      ?_ ?_ ?_ ?_ ?refl ?tail ?_ ?_ h
+      ?_ ?_ ?_ ?_ ?refl ?tail ?_ h
   case refl => intro state; exact refl state
   case tail => intro state middle final trace₁ trace₂ start next ih _
                exact tail start next ih
@@ -296,21 +304,18 @@ theorem Steps.eq_of_stuck {frame : OperandFrame} {decoder : Decoder frame}
   · exact ⟨rfl, rfl⟩
   · exact absurd step (hstuck trace₁ middle)
 
-theorem stuck_of_returned {frame : OperandFrame} {decoder : Decoder frame}
+theorem stuck_of_exit {frame : OperandFrame} {decoder : Decoder frame}
     {policy : MemoryPolicy} {ctx : CallContext} (hterminal : decoder.Terminal)
-    {state : State frame} {results : Array Word}
-    (hcontrol : state.control = .returned results) : Stuck decoder policy ctx state := by
+    {state : State frame} {outcome : FunctionOutcome}
+    (hcontrol : state.control = outcome.toControl) : Stuck decoder policy ctx state := by
   intro trace final hstep
-  rcases hterminal.1 state.environment state.globals results with ⟨hdecode, hcontrolStep⟩
-  cases hstep <;> simp_all
-
-theorem stuck_of_halted {frame : OperandFrame} {decoder : Decoder frame}
-    {policy : MemoryPolicy} {ctx : CallContext} (hterminal : decoder.Terminal)
-    {state : State frame} (hcontrol : state.control = .halted) :
-    Stuck decoder policy ctx state := by
-  intro trace final hstep
-  rcases hterminal.2 state.environment state.globals with ⟨hdecode, hcontrolStep⟩
-  cases hstep <;> simp_all
+  cases outcome with
+  | returned results =>
+      rcases hterminal.1 state.environment state.globals results with ⟨hdecode, hcontrolStep⟩
+      cases hstep <;> simp_all [FunctionOutcome.toControl]
+  | halted =>
+      rcases hterminal.2 state.environment state.globals with ⟨hdecode, hcontrolStep⟩
+      cases hstep <;> simp_all [FunctionOutcome.toControl]
 
 private theorem dialogue_op {frame : OperandFrame} {decoder : Decoder frame}
     {policy : MemoryPolicy} {ctx : CallContext}
@@ -507,77 +512,27 @@ private theorem runDialogue_tail {frame : OperandFrame} {decoder : Decoder frame
   · exact .inr (.inr (by
       simpa using Trace.QueryDivergence.extend trace₂ [] hdiv))
 
-private theorem evalDialogue_returned {frame : OperandFrame} {decoder : Decoder frame}
-    {policy : MemoryPolicy} {ctx : CallContext} (hterminal : decoder.Terminal)
-    {function : FunctionId} {globals : Globals} {args results : Array Word}
-    {trace : Trace} {initial exit : State frame}
-    (hentry : decoder.entry function globals args = some initial)
-    (hreturn : exit.control = .returned results)
-    (ihRun : RunDialogue decoder policy ctx initial trace exit) :
-    EvalDialogue decoder policy ctx function globals args trace exit.globals
-      (.returned results) := by
-  intro trace₂ globals₂ outcome₂ heval₂
-  cases heval₂ with
-  | returned hentry₂ hrun₂ hreturn₂ =>
-      rw [hentry] at hentry₂
-      obtain rfl := Option.some.inj hentry₂
-      rcases ihRun _ _ hrun₂ with ⟨suffix, hrun, heq⟩ |
-          ⟨suffix, hrun, heq⟩ | hdiv
-      · obtain ⟨rfl, rfl⟩ := hrun.eq_of_stuck
-          (stuck_of_returned hterminal hreturn)
-        obtain rfl := Machine.MachineControl.returned.inj (hreturn.symm.trans hreturn₂)
-        exact .inl ⟨by simpa using heq, rfl, rfl⟩
-      · obtain ⟨rfl, rfl⟩ := hrun.eq_of_stuck
-          (stuck_of_returned hterminal hreturn₂)
-        obtain rfl := Machine.MachineControl.returned.inj (hreturn.symm.trans hreturn₂)
-        exact .inl ⟨by simpa using heq.symm, rfl, rfl⟩
-      · exact .inr hdiv
-  | halted hentry₂ hrun₂ hhalt₂ =>
-      rw [hentry] at hentry₂
-      obtain rfl := Option.some.inj hentry₂
-      rcases ihRun _ _ hrun₂ with ⟨suffix, hrun, _⟩ |
-          ⟨suffix, hrun, _⟩ | hdiv
-      · obtain ⟨rfl, _⟩ := hrun.eq_of_stuck
-          (stuck_of_returned hterminal hreturn)
-        cases hreturn.symm.trans hhalt₂
-      · obtain ⟨rfl, _⟩ := hrun.eq_of_stuck
-          (stuck_of_halted hterminal hhalt₂)
-        cases hreturn.symm.trans hhalt₂
-      · exact .inr hdiv
-
-private theorem evalDialogue_halted {frame : OperandFrame} {decoder : Decoder frame}
+private theorem evalDialogue_exit {frame : OperandFrame} {decoder : Decoder frame}
     {policy : MemoryPolicy} {ctx : CallContext} (hterminal : decoder.Terminal)
     {function : FunctionId} {globals : Globals} {args : Array Word}
-    {trace : Trace} {initial exit : State frame}
+    {trace : Trace} {initial exit : State frame} {outcome : FunctionOutcome}
     (hentry : decoder.entry function globals args = some initial)
-    (hhalt : exit.control = .halted)
+    (hexit : exit.control = outcome.toControl)
     (ihRun : RunDialogue decoder policy ctx initial trace exit) :
-    EvalDialogue decoder policy ctx function globals args trace exit.globals .halted := by
+    EvalDialogue decoder policy ctx function globals args trace exit.globals outcome := by
   intro trace₂ globals₂ outcome₂ heval₂
   cases heval₂ with
-  | returned hentry₂ hrun₂ hreturn₂ =>
-      rw [hentry] at hentry₂
-      obtain rfl := Option.some.inj hentry₂
-      rcases ihRun _ _ hrun₂ with ⟨suffix, hrun, _⟩ |
-          ⟨suffix, hrun, _⟩ | hdiv
-      · obtain ⟨rfl, _⟩ := hrun.eq_of_stuck
-          (stuck_of_halted hterminal hhalt)
-        cases hhalt.symm.trans hreturn₂
-      · obtain ⟨rfl, _⟩ := hrun.eq_of_stuck
-          (stuck_of_returned hterminal hreturn₂)
-        cases hhalt.symm.trans hreturn₂
-      · exact .inr hdiv
-  | halted hentry₂ hrun₂ hhalt₂ =>
+  | exit hentry₂ hrun₂ hexit₂ =>
       rw [hentry] at hentry₂
       obtain rfl := Option.some.inj hentry₂
       rcases ihRun _ _ hrun₂ with ⟨suffix, hrun, heq⟩ |
           ⟨suffix, hrun, heq⟩ | hdiv
-      · obtain ⟨rfl, rfl⟩ := hrun.eq_of_stuck
-          (stuck_of_halted hterminal hhalt)
-        exact .inl ⟨by simpa using heq, rfl, rfl⟩
-      · obtain ⟨rfl, rfl⟩ := hrun.eq_of_stuck
-          (stuck_of_halted hterminal hhalt₂)
-        exact .inl ⟨by simpa using heq.symm, rfl, rfl⟩
+      · obtain ⟨rfl, rfl⟩ := hrun.eq_of_stuck (stuck_of_exit hterminal hexit)
+        exact .inl ⟨by simpa using heq, rfl,
+          FunctionOutcome.toControl_inj (hexit.symm.trans hexit₂)⟩
+      · obtain ⟨rfl, rfl⟩ := hrun.eq_of_stuck (stuck_of_exit hterminal hexit₂)
+        exact .inl ⟨by simpa using heq.symm, rfl,
+          FunctionOutcome.toControl_inj (hexit.symm.trans hexit₂)⟩
       · exact .inr hdiv
 
 namespace Proofs
@@ -596,15 +551,14 @@ theorem stepDialogue_all {frame : OperandFrame} {decoder : Decoder frame}
       RunDialogue decoder policy ctx state trace final)
     (motive_3 := fun function globals args trace globals' outcome _ =>
       EvalDialogue decoder policy ctx function globals args trace globals' outcome)
-    ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ h
+    ?_ ?_ ?_ ?_ ?_ ?_ ?_ h
   case refine_1 => intros; apply dialogue_op halloc hexclusive hnomload <;> assumption
   case refine_2 => intros; apply dialogue_opHalted halloc hexclusive hnomload <;> assumption
   case refine_3 => intros; apply dialogue_icall hexclusive <;> assumption
   case refine_4 => intros; apply dialogue_control hexclusive; assumption
   case refine_5 => intros; exact runDialogue_refl
   case refine_6 => intros; apply runDialogue_tail <;> assumption
-  case refine_7 => intros; apply evalDialogue_returned hterminal <;> assumption
-  case refine_8 => intros; apply evalDialogue_halted hterminal <;> assumption
+  case refine_7 => intros; apply evalDialogue_exit hterminal <;> assumption
 
 theorem runDialogue_all {frame : OperandFrame} {decoder : Decoder frame}
     {policy : MemoryPolicy} {ctx : CallContext}
@@ -628,11 +582,8 @@ theorem evalDialogue_all {frame : OperandFrame} {decoder : Decoder frame}
     (h : FunctionEvaluation frame decoder policy ctx function globals args trace globals' outcome) :
     EvalDialogue decoder policy ctx function globals args trace globals' outcome := by
   cases h with
-  | returned hentry hrun hreturn =>
-      exact evalDialogue_returned hterminal hentry hreturn
-        (runDialogue_all halloc hexclusive hterminal hnomload hrun)
-  | halted hentry hrun hhalt =>
-      exact evalDialogue_halted hterminal hentry hhalt
+  | exit hentry hrun hexit =>
+      exact evalDialogue_exit hterminal hentry hexit
         (runDialogue_all halloc hexclusive hterminal hnomload hrun)
 
 theorem Steps.confluence_or_queryDivergence

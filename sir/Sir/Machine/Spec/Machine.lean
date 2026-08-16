@@ -21,6 +21,10 @@ inductive MachineControl where
   | halted
   deriving DecidableEq, Repr
 
+def _root_.Sir.FunctionOutcome.toControl : FunctionOutcome → MachineControl
+  | .returned results => .returned results
+  | .halted => .halted
+
 structure OperandFrame where
   Environment : Type
   Source : Type
@@ -160,21 +164,13 @@ inductive FunctionEvaluation (frame : OperandFrame) (decoder : Decoder frame)
     (policy : MemoryPolicy) (ctx : CallContext) :
     FunctionId → Globals → Array Word → Trace → Globals →
       FunctionOutcome → Prop where
-  | returned
-      {function : FunctionId} {globals : Globals} {args results : Array Word}
-      {trace : Trace} {initial exit : State frame}
-      (hentry : decoder.entry function globals args = some initial)
-      (hrun : Steps frame decoder policy ctx initial trace exit)
-      (hreturn : exit.control = .returned results) :
-      FunctionEvaluation frame decoder policy ctx function globals args trace exit.globals
-        (.returned results)
-  | halted
+  | exit
       {function : FunctionId} {globals : Globals} {args : Array Word}
-      {trace : Trace} {initial exit : State frame}
+      {trace : Trace} {initial exit : State frame} {outcome : FunctionOutcome}
       (hentry : decoder.entry function globals args = some initial)
       (hrun : Steps frame decoder policy ctx initial trace exit)
-      (hhalt : exit.control = .halted) :
-      FunctionEvaluation frame decoder policy ctx function globals args trace exit.globals .halted
+      (hexit : exit.control = outcome.toControl) :
+      FunctionEvaluation frame decoder policy ctx function globals args trace exit.globals outcome
 
 end
 

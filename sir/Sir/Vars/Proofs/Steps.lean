@@ -266,8 +266,8 @@ theorem Vars.EvalFn.returned
     (hreturn : exit.control = .returned results) :
     Machine.FunctionEvaluation Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx function globals args
       trace exit.globals (.returned results) :=
-  Machine.FunctionEvaluation.returned (initial := initial.toState) (exit := exit.toState)
-    (by simp [Vars.entry_eq, hentry]) hrun hreturn
+  Machine.FunctionEvaluation.exit (initial := initial.toState) (exit := exit.toState)
+    (outcome := .returned results) (by simp [Vars.entry_eq, hentry]) hrun hreturn
 
 theorem Vars.EvalFn.halted
     {function : FunctionId} {globals : Globals} {args : Array Word}
@@ -278,8 +278,8 @@ theorem Vars.EvalFn.halted
     (hhalt : exit.control = .halted) :
     Machine.FunctionEvaluation Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx function globals args
       trace exit.globals .halted :=
-  Machine.FunctionEvaluation.halted (initial := initial.toState) (exit := exit.toState)
-    (by simp [Vars.entry_eq, hentry]) hrun hhalt
+  Machine.FunctionEvaluation.exit (initial := initial.toState) (exit := exit.toState)
+    (outcome := .halted) (by simp [Vars.entry_eq, hentry]) hrun hhalt
 
 @[elab_as_elim]
 theorem Vars.Steps.inductionOn {program : Vars.Program} {ctx : CallContext}
@@ -309,16 +309,11 @@ theorem Vars.Steps.inductionOn {program : Vars.Program} {ctx : CallContext}
 def Stuck (program : Vars.Program) (ctx : CallContext) (state : MachineState) : Prop :=
   Machine.Stuck (Vars.decoder program) Machine.memoryPolicy ctx state.toState
 
-theorem stuck_of_returned
-    {state : MachineState} {results : Array Word}
-    (hcontrol : state.control = .returned results) :
+theorem stuck_of_exit
+    {state : MachineState} {outcome : FunctionOutcome}
+    (hcontrol : state.control = outcome.toControl) :
     Stuck program ctx state :=
-  Machine.stuck_of_returned (Vars.decoder_terminal program) hcontrol
-
-theorem stuck_of_halted
-    {state : MachineState} (hcontrol : state.control = .halted) :
-    Stuck program ctx state :=
-  Machine.stuck_of_halted (Vars.decoder_terminal program) hcontrol
+  Machine.stuck_of_exit (Vars.decoder_terminal program) hcontrol
 
 theorem Vars.Steps.eq_of_stuck
     {state final : MachineState} {trace : Trace}
@@ -621,9 +616,10 @@ private theorem genSteps_preserves_function
     (fun _ next ih hcontrol => by
       rcases ih hcontrol with hhalt | ⟨results, hreturn⟩ | ⟨cursor', hcontrol', hfn⟩
       · exact absurd next
-          (Machine.stuck_of_halted (Vars.decoder_terminal program) hhalt _ _)
+          (Machine.stuck_of_exit (outcome := .halted) (Vars.decoder_terminal program) hhalt _ _)
       · exact absurd next
-          (Machine.stuck_of_returned (Vars.decoder_terminal program) hreturn _ _)
+          (Machine.stuck_of_exit (outcome := .returned _) (Vars.decoder_terminal program)
+            hreturn _ _)
       · rcases genStep_preserves_function next hcontrol' with
           hhalt | hreturned | ⟨cursor'', hcontrol'', hfn'⟩
         · exact .inl hhalt
