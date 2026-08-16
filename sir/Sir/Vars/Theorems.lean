@@ -30,7 +30,7 @@ theorem Vars.Program.MemOracleFree.deterministicFrom
 
 theorem Vars.Program.RunsTo.unique_or_queryDivergence
     {entry : FunctionId} {world₀ : World}
-    {t₁ t₂ : Trace} {final₁ final₂ : MachineState}
+    {t₁ t₂ : Trace} {final₁ final₂ : Vars.State}
     (hfree : program.MemOracleFree)
     (h₁ : program.RunsTo ctx entry world₀ t₁ final₁)
     (h₂ : program.RunsTo ctx entry world₀ t₂ final₂) :
@@ -40,14 +40,14 @@ theorem Vars.Program.RunsTo.unique_or_queryDivergence
 theorem Vars.Program.RunsTo.trace_det
     (hfree : program.MemOracleFree)
     {entry : FunctionId} {world₀ : World} {t : Trace}
-    {final₁ final₂ : MachineState}
+    {final₁ final₂ : Vars.State}
     (h₁ : program.RunsTo ctx entry world₀ t final₁)
     (h₂ : program.RunsTo ctx entry world₀ t final₂) : final₁ = final₂ :=
   Vars.Proofs.Program.RunsTo.trace_det hfree h₁ h₂
 
 theorem Vars.Steps.confluence_or_queryDivergence
     (hfree : program.MemOracleFree)
-    {s e₁ e₂ : MachineState} {t₁ t₂ : Trace}
+    {s e₁ e₂ : Vars.State} {t₁ t₂ : Trace}
     (h₁ : Vars.Steps program ctx s t₁ e₁) (h₂ : Vars.Steps program ctx s t₂ e₂) :
     (∃ u, Vars.Steps program ctx e₁ u e₂ ∧ t₁ ++ u = t₂) ∨
       (∃ u, Vars.Steps program ctx e₂ u e₁ ∧ t₂ ++ u = t₁) ∨
@@ -56,7 +56,7 @@ theorem Vars.Steps.confluence_or_queryDivergence
 
 theorem Vars.Steps.prefix_confluence
     (hfree : program.MemOracleFree)
-    {s e₁ e₂ : MachineState} {t₁ t₂ r₁ r₂ : Trace}
+    {s e₁ e₂ : Vars.State} {t₁ t₂ r₁ r₂ : Trace}
     (h₁ : Vars.Steps program ctx s t₁ e₁)
     (h₂ : Vars.Steps program ctx s t₂ e₂)
     (htr : t₁ ++ r₁ = t₂ ++ r₂) :
@@ -66,7 +66,7 @@ theorem Vars.Steps.prefix_confluence
 
 theorem Vars.SmallStep.prefix_det
     (hfree : program.MemOracleFree)
-    {s s₁ s₂ : MachineState} {t₁ t₂ r₁ r₂ : Trace}
+    {s s₁ s₂ : Vars.State} {t₁ t₂ r₁ r₂ : Trace}
     (h₁ : Vars.SmallStep program ctx s t₁ s₁)
     (h₂ : Vars.SmallStep program ctx s t₂ s₂)
     (htr : t₁ ++ r₁ = t₂ ++ r₂) : t₁ = t₂ ∧ s₁ = s₂ :=
@@ -74,7 +74,7 @@ theorem Vars.SmallStep.prefix_det
 
 theorem Vars.SmallStep.trace_det
     (hfree : program.MemOracleFree)
-    {s s₁ s₂ : MachineState} {t : Trace}
+    {s s₁ s₂ : Vars.State} {t : Trace}
     (h₁ : Vars.SmallStep program ctx s t s₁)
     (h₂ : Vars.SmallStep program ctx s t s₂) : s₁ = s₂ :=
   Vars.Proofs.SmallStep.trace_det hfree h₁ h₂
@@ -100,7 +100,7 @@ theorem Vars.EvalFn.trace_det
   Vars.Proofs.EvalFn.trace_det hfree h₁ h₂
 
 theorem Vars.Steps.preserves_function
-    {cursor : Machine.ProgramCursor} {s e : MachineState} {t : Trace}
+    {cursor : Machine.ProgramCursor} {s e : Vars.State} {t : Trace}
     (h : Vars.Steps program ctx s t e)
     (hctrl : s.control = .running cursor) :
     e.control = .halted ∨ (∃ rs, e.control = .returned rs) ∨
@@ -108,7 +108,7 @@ theorem Vars.Steps.preserves_function
   Vars.Proofs.Steps.preserves_function h hctrl
 
 theorem Vars.Program.WellFormed.progress
-    (hwf : program.WellFormed) {state : MachineState}
+    (hwf : program.WellFormed) {state : Vars.State}
     (ready : program.ReadyState ctx state) :
     ∃ trace state', Vars.SmallStep program ctx state trace state' :=
   Vars.Proofs.Program.WellFormed.progress hwf ready
@@ -129,24 +129,24 @@ theorem Vars.Program.WellFormed.evalFn_entry_not_returned
   Vars.Proofs.Program.WellFormed.evalFn_entry_not_returned hwf hentry hrun
 
 theorem Vars.Program.WellFormed.icall_step
-    (hwf : program.WellFormed) {s : MachineState} {nextControl : Machine.MachineControl}
+    (hwf : program.WellFormed) {s : Vars.State} {nextControl : Machine.MachineControl}
     {callee : FunctionId} {args dests : Array VarId} {vs rs : Array Word}
     {t : Trace} {g' : Globals}
     (hstmt : program.decodeStmt s.control = some (nextControl, .icall callee args dests))
-    (hargs : args.mapM (s.locals.lookup ·) = .ok vs)
+    (hargs : args.mapM (s.environment.lookup ·) = .ok vs)
     (hcallee : Vars.EvalFn program ctx callee s.globals vs t g' (.returned rs)) :
     ∃ locals', Vars.SmallStep program ctx s t
-      { s with globals := g', locals := locals', control := nextControl } :=
+      { s with globals := g', environment := locals', control := nextControl } :=
   Vars.Proofs.Program.WellFormed.icall_step hwf hstmt hargs hcallee
 
 theorem Vars.Program.icall_halted_step
-    {s : MachineState} {nextControl : Machine.MachineControl}
+    {s : Vars.State} {nextControl : Machine.MachineControl}
     {callee : FunctionId} {args dests : Array VarId} {vs : Array Word}
     {t : Trace} {g' : Globals}
     (hstmt : program.decodeStmt s.control = some (nextControl, .icall callee args dests))
-    (hargs : args.mapM (s.locals.lookup ·) = .ok vs)
+    (hargs : args.mapM (s.environment.lookup ·) = .ok vs)
     (hcallee : Vars.EvalFn program ctx callee s.globals vs t g' .halted) :
-    Vars.SmallStep program ctx s t { globals := g', control := .halted } :=
+    Vars.SmallStep program ctx s t { globals := g', environment := .empty, control := .halted } :=
   Vars.Proofs.Program.icall_halted_step hstmt hargs hcallee
 
 end Sir

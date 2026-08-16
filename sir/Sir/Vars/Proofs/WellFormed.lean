@@ -103,10 +103,10 @@ theorem Vars.Program.WellFormed.icall_paramsOf
       · simp [hfn, houtputs, hdests]
 
 theorem Vars.Program.WellFormed.icall_bindParams
-    (hwf : program.WellFormed) {s : MachineState} {nextControl : Machine.MachineControl}
+    (hwf : program.WellFormed) {s : Vars.State} {nextControl : Machine.MachineControl}
     {callee : FunctionId} {args dests : Array VarId} {vs : Array Word}
     (hstmt : program.decodeStmt s.control = some (nextControl, .icall callee args dests))
-    (hargs : args.mapM (s.locals.lookup ·) = .ok vs) :
+    (hargs : args.mapM (s.environment.lookup ·) = .ok vs) :
     ∃ ps locals₀, program.paramsOf callee = some ps ∧
       Locals.bindParams ps vs = .ok locals₀ := by
   obtain ⟨⟨ps, hps, hsize⟩, -⟩ := hwf.icall_paramsOf hstmt
@@ -123,21 +123,18 @@ theorem Vars.Proofs.Program.WellFormed.evalFn_arity
   cases hrun with
   | exit hentry hsteps hreturn =>
       rw [Vars.entry_eq] at hentry
-      obtain ⟨initial, hcallState, rfl⟩ := Option.map_eq_some_iff.mp hentry
       obtain ⟨fn, entryBlock, locals₀, hfn, hentryBlock, hbind, rfl⟩ :=
-        Vars.Program.callState?_eq_some_iff.mp hcallState
+        Vars.Program.callState?_eq_some_iff.mp hentry
       cases hsteps with
       | refl => cases hreturn
       | tail start next =>
-          have hinv := Vars.SmallStep.returned_inv
-            (state := Machine.State.toMachine _) (final := Machine.State.toMachine _)
-            next hreturn
+          have hinv := Vars.SmallStep.returned_inv next hreturn
           obtain ⟨cursor, block, hcontrol, hblock, hterm, houtputs⟩ := hinv
           rcases Vars.Proofs.Steps.preserves_function
               (cursor := ⟨function, fn.entry, entryBlock.startPosition⟩)
               (state := (⟨globals, locals₀,
-                .running ⟨function, fn.entry, entryBlock.startPosition⟩⟩ : MachineState))
-              (final := Machine.State.toMachine _) start rfl with
+                .running ⟨function, fn.entry, entryBlock.startPosition⟩⟩ : Vars.State))
+              start rfl with
             hhalt | ⟨returnedValues, hreturned⟩ | ⟨cursor', hcontrol', hcursorFn⟩
           · exact absurd next
               (Machine.stuck_of_exit (outcome := .halted) (Vars.decoder_terminal program)
@@ -173,39 +170,39 @@ theorem Vars.Proofs.Program.WellFormed.evalFn_entry_not_returned
   simp [houtputs] at hreturn
 
 theorem Vars.Program.WellFormed.icall_bindReturns
-    (hwf : program.WellFormed) {s : MachineState} {nextControl : Machine.MachineControl}
+    (hwf : program.WellFormed) {s : Vars.State} {nextControl : Machine.MachineControl}
     {callee : FunctionId} {args dests : Array VarId}
     {g g' : Globals} {vs rs : Array Word} {t : Trace}
     (hstmt : program.decodeStmt s.control = some (nextControl, .icall callee args dests))
     (hcallee : Vars.EvalFn program ctx callee g vs t g' (.returned rs)) :
-    ∃ locals', Locals.bindReturns s.locals dests rs = .ok locals' := by
+    ∃ locals', Locals.bindReturns s.environment dests rs = .ok locals' := by
   obtain ⟨-, houtputs⟩ := hwf.icall_paramsOf hstmt
   rw [Vars.Proofs.Program.WellFormed.evalFn_arity hwf hcallee, Option.getD_some] at houtputs
-  exact Locals.bindValues_total s.locals houtputs.symm
+  exact Locals.bindValues_total s.environment houtputs.symm
 
 theorem Vars.Proofs.Program.WellFormed.icall_step
-    (hwf : program.WellFormed) {state : MachineState} {next : Machine.MachineControl}
+    (hwf : program.WellFormed) {state : Vars.State} {next : Machine.MachineControl}
     {callee : FunctionId} {args dests : Array VarId} {values results : Array Word}
     {trace : Trace} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .icall callee args dests))
-    (hargs : args.mapM (state.locals.lookup ·) = .ok values)
+    (hargs : args.mapM (state.environment.lookup ·) = .ok values)
     (hcallee : Vars.EvalFn program ctx
       callee state.globals values trace globals' (.returned results)) :
     ∃ locals', Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
-      state.toState trace
-        { state with globals := globals', locals := locals', control := next }.toState := by
+      state trace
+        { state with globals := globals', environment := locals', control := next } := by
   obtain ⟨locals', hbind⟩ := hwf.icall_bindReturns hdecode hcallee
   exact ⟨locals', step_icall hdecode hargs hcallee hbind⟩
 
 theorem Vars.Proofs.Program.icall_halted_step
-    {state : MachineState} {next : Machine.MachineControl}
+    {state : Vars.State} {next : Machine.MachineControl}
     {callee : FunctionId} {args dests : Array VarId} {values : Array Word}
     {trace : Trace} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .icall callee args dests))
-    (hargs : args.mapM (state.locals.lookup ·) = .ok values)
+    (hargs : args.mapM (state.environment.lookup ·) = .ok values)
     (hcallee : Vars.EvalFn program ctx
       callee state.globals values trace globals' .halted) :
-    Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state.toState trace
-      ({ globals := globals', control := .halted } : MachineState).toState :=
+    Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state trace
+      ({ globals := globals', environment := .empty, control := .halted } : Vars.State) :=
   step_icallHalted hdecode hargs hcallee
 end Sir

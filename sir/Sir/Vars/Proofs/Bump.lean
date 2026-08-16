@@ -7,7 +7,7 @@ variable {program : Vars.Program} {ctx : CallContext}
 
 theorem Vars.Proofs.Program.WellFormed.progress_reachable_nonIcall_bump
     (hwf : program.WellFormed) {function : FunctionId} {globals : Globals}
-    {args : Array Word} {runTrace : Trace} {state : MachineState}
+    {args : Array Word} {runTrace : Trace} {state : Vars.State}
     (hrun : program.RunsFunction ctx function globals args runTrace state)
     (hcontrol : program.NonIcallControl state)
     (hspace : program.BumpFits state)
@@ -28,7 +28,7 @@ theorem Vars.Proofs.Program.WellFormed.progress_reachable_nonIcall_bump
       state.globals.memory.bumpAlloc_size word.toNat⟩
 
 theorem Vars.Proofs.Program.WellFormed.progress
-    (hwf : program.WellFormed) {state : MachineState}
+    (hwf : program.WellFormed) {state : Vars.State}
     (ready : program.ReadyState ctx state) :
     ∃ trace state', Vars.SmallStep program ctx state trace state' := by
   obtain ⟨⟨function, globals, args, runTrace, hrun⟩, hcontrol,

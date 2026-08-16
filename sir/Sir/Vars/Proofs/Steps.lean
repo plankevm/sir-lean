@@ -6,16 +6,6 @@ variable {program : Vars.Program} {ctx : CallContext}
 
 open Machine
 
-def Machine.State.toMachine (state : Machine.State Vars.frame) : MachineState :=
-  ⟨state.globals, state.environment, state.control⟩
-
-theorem MachineState.toState_inj {state₁ state₂ : MachineState}
-    (h : state₁.toState = state₂.toState) : state₁ = state₂ := by
-  cases state₁
-  cases state₂
-  cases h
-  rfl
-
 namespace Machine.Operation
 
 theorem execute_constant_ok (ctx : CallContext) (value : Word) (globals : Globals)
@@ -113,13 +103,13 @@ def Machine.Instruction.Fires {frame : OperandFrame} (instruction : Instruction 
   | .icall _ => False
 
 theorem step_statement
-    {state : MachineState} {next : Machine.MachineControl} {statement : Vars.Stmt}
+    {state : Vars.State} {next : Machine.MachineControl} {statement : Vars.Stmt}
     {trace : Trace} {locals' : Locals} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, statement))
-    (hfires : (Vars.decodeStatement statement).Fires Machine.memoryPolicy ctx state.locals state.globals
+    (hfires : (Vars.decodeStatement statement).Fires Machine.memoryPolicy ctx state.environment state.globals
       trace locals' globals') :
-    Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state.toState trace
-      ({ globals := globals', locals := locals', control := next } : MachineState).toState := by
+    Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state trace
+      ({ globals := globals', environment := locals', control := next } : Vars.State) := by
   generalize hinstruction : Vars.decodeStatement statement = instruction at hfires
   obtain ⟨kind, src, dst⟩ := instruction
   cases kind with
@@ -132,105 +122,105 @@ theorem step_statement
   | icall callee => simp [Machine.Instruction.Fires] at hfires
 
 theorem step_assign
-    {state : MachineState} {next : Machine.MachineControl} {result : VarId} {expr : Vars.Expr}
+    {state : Vars.State} {next : Machine.MachineControl} {result : VarId} {expr : Vars.Expr}
     {trace : Trace} {locals' : Locals} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .assign result expr))
-    (hfires : (Vars.decodeExpression result expr).Fires Machine.memoryPolicy ctx state.locals state.globals
+    (hfires : (Vars.decodeExpression result expr).Fires Machine.memoryPolicy ctx state.environment state.globals
       trace locals' globals') :
-    Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state.toState trace
-      ({ globals := globals', locals := locals', control := next } : MachineState).toState :=
+    Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state trace
+      ({ globals := globals', environment := locals', control := next } : Vars.State) :=
   step_statement hdecode hfires
 
 theorem step_sstore
-    {state : MachineState} {next : Machine.MachineControl} {key value : VarId}
+    {state : Vars.State} {next : Machine.MachineControl} {key value : VarId}
     {trace : Trace} {locals' : Locals} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .sstore key value))
     (hfires : (Vars.decodeStatement (.sstore key value)).Fires Machine.memoryPolicy ctx
-      state.locals state.globals trace locals' globals') :
-    Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state.toState trace
-      ({ globals := globals', locals := locals', control := next } : MachineState).toState :=
+      state.environment state.globals trace locals' globals') :
+    Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state trace
+      ({ globals := globals', environment := locals', control := next } : Vars.State) :=
   step_statement hdecode hfires
 
 theorem step_gas
-    {state : MachineState} {next : Machine.MachineControl} {result : VarId}
+    {state : Vars.State} {next : Machine.MachineControl} {result : VarId}
     {trace : Trace} {locals' : Locals} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .gas result))
     (hfires : (Vars.decodeStatement (.gas result)).Fires Machine.memoryPolicy ctx
-      state.locals state.globals trace locals' globals') :
-    Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state.toState trace
-      ({ globals := globals', locals := locals', control := next } : MachineState).toState :=
+      state.environment state.globals trace locals' globals') :
+    Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state trace
+      ({ globals := globals', environment := locals', control := next } : Vars.State) :=
   step_statement hdecode hfires
 
 theorem step_call
-    {state : MachineState} {next : Machine.MachineControl} {call : Vars.Call}
+    {state : Vars.State} {next : Machine.MachineControl} {call : Vars.Call}
     {trace : Trace} {locals' : Locals} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .call call))
     (hfires : (Vars.decodeStatement (.call call)).Fires Machine.memoryPolicy ctx
-      state.locals state.globals trace locals' globals') :
-    Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state.toState trace
-      ({ globals := globals', locals := locals', control := next } : MachineState).toState :=
+      state.environment state.globals trace locals' globals') :
+    Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state trace
+      ({ globals := globals', environment := locals', control := next } : Vars.State) :=
   step_statement hdecode hfires
 
 theorem step_mallocUninit
-    {state : MachineState} {next : Machine.MachineControl} {result size : VarId}
+    {state : Vars.State} {next : Machine.MachineControl} {result size : VarId}
     {trace : Trace} {locals' : Locals} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .mallocUninit result size))
     (hfires : (Vars.decodeStatement (.mallocUninit result size)).Fires Machine.memoryPolicy ctx
-      state.locals state.globals trace locals' globals') :
-    Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state.toState trace
-      ({ globals := globals', locals := locals', control := next } : MachineState).toState :=
+      state.environment state.globals trace locals' globals') :
+    Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state trace
+      ({ globals := globals', environment := locals', control := next } : Vars.State) :=
   step_statement hdecode hfires
 
 theorem step_malloc
-    {state : MachineState} {next : Machine.MachineControl} {result size : VarId}
+    {state : Vars.State} {next : Machine.MachineControl} {result size : VarId}
     {trace : Trace} {locals' : Locals} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .malloc result size))
     (hfires : (Vars.decodeStatement (.malloc result size)).Fires Machine.memoryPolicy ctx
-      state.locals state.globals trace locals' globals') :
-    Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state.toState trace
-      ({ globals := globals', locals := locals', control := next } : MachineState).toState :=
+      state.environment state.globals trace locals' globals') :
+    Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state trace
+      ({ globals := globals', environment := locals', control := next } : Vars.State) :=
   step_statement hdecode hfires
 
 theorem step_mstore32
-    {state : MachineState} {next : Machine.MachineControl} {offset value : VarId}
+    {state : Vars.State} {next : Machine.MachineControl} {offset value : VarId}
     {trace : Trace} {locals' : Locals} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .mstore32 offset value))
     (hfires : (Vars.decodeStatement (.mstore32 offset value)).Fires Machine.memoryPolicy ctx
-      state.locals state.globals trace locals' globals') :
-    Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state.toState trace
-      ({ globals := globals', locals := locals', control := next } : MachineState).toState :=
+      state.environment state.globals trace locals' globals') :
+    Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state trace
+      ({ globals := globals', environment := locals', control := next } : Vars.State) :=
   step_statement hdecode hfires
 
 theorem step_mload32
-    {state : MachineState} {next : Machine.MachineControl} {result offset : VarId}
+    {state : Vars.State} {next : Machine.MachineControl} {result offset : VarId}
     {trace : Trace} {locals' : Locals} {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .mload32 result offset))
     (hfires : (Vars.decodeStatement (.mload32 result offset)).Fires Machine.memoryPolicy ctx
-      state.locals state.globals trace locals' globals') :
-    Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state.toState trace
-      ({ globals := globals', locals := locals', control := next } : MachineState).toState :=
+      state.environment state.globals trace locals' globals') :
+    Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state trace
+      ({ globals := globals', environment := locals', control := next } : Vars.State) :=
   step_statement hdecode hfires
 
 theorem step_terminator
-    {state state' : MachineState} {terminator : Vars.Terminator}
+    {state state' : Vars.State} {terminator : Vars.Terminator}
     (hterm : program.terminatorAt state.control = some terminator)
     (heval : (Vars.evaluateTerminator program terminator).run state = .ok ((), state')) :
-    Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state.toState [] state'.toState := by
+    Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state [] state' := by
   apply Machine.Step.control
   apply Vars.control_inv.mpr
   exact ⟨terminator, state', hterm, heval, rfl, rfl, rfl, rfl⟩
 
 theorem step_icall
-    {state : MachineState} {next : Machine.MachineControl} {callee : FunctionId}
+    {state : Vars.State} {next : Machine.MachineControl} {callee : FunctionId}
     {args dests : Array VarId} {values results : Array Word} {trace : Trace}
     {globals' : Globals} {locals' : Locals}
     (hdecode : program.decodeStmt state.control = some (next, .icall callee args dests))
-    (hargs : args.mapM (state.locals.lookup ·) = .ok values)
+    (hargs : args.mapM (state.environment.lookup ·) = .ok values)
     (hcallee : Machine.FunctionEvaluation Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx callee
       state.globals values trace globals' (.returned results))
-    (hbind : Locals.bindReturns state.locals dests results = .ok locals') :
-    Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state.toState trace
-      { state with globals := globals', locals := locals', control := next }.toState := by
+    (hbind : Locals.bindReturns state.environment dests results = .ok locals') :
+    Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state trace
+      { state with globals := globals', environment := locals', control := next } := by
   apply Machine.Step.internalCall
   · change Vars.decode program state.control =
       some (⟨Instruction.Kind.icall callee, args, dests⟩, next)
@@ -240,128 +230,95 @@ theorem step_icall
   · exact Vars.resume_returned_eq_some_iff.mpr ⟨hbind, rfl⟩
 
 theorem step_icallHalted
-    {state : MachineState} {next : Machine.MachineControl} {callee : FunctionId}
+    {state : Vars.State} {next : Machine.MachineControl} {callee : FunctionId}
     {args dests : Array VarId} {values : Array Word} {trace : Trace}
     {globals' : Globals}
     (hdecode : program.decodeStmt state.control = some (next, .icall callee args dests))
-    (hargs : args.mapM (state.locals.lookup ·) = .ok values)
+    (hargs : args.mapM (state.environment.lookup ·) = .ok values)
     (hcallee : Machine.FunctionEvaluation Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx callee
       state.globals values trace globals' .halted) :
-    Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state.toState trace
-      ({ globals := globals', control := .halted } : MachineState).toState := by
+    Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state trace
+      ({ globals := globals', environment := .empty, control := .halted } : Vars.State) := by
   apply Machine.Step.internalCall
   · change Vars.decode program state.control =
       some (⟨Instruction.Kind.icall callee, args, dests⟩, next)
     simp [Vars.decode, hdecode, Vars.decodeStatement]
   · exact hargs
   · exact hcallee
-  · exact Vars.resume_halted state.locals dests next
+  · exact Vars.resume_halted state.environment dests next
 
 theorem Vars.EvalFn.returned
     {function : FunctionId} {globals : Globals} {args results : Array Word}
-    {trace : Trace} {initial exit : MachineState}
+    {trace : Trace} {initial exit : Vars.State}
     (hentry : program.callState? function globals args = some initial)
     (hrun : Machine.Steps Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
-      initial.toState trace exit.toState)
+      initial trace exit)
     (hreturn : exit.control = .returned results) :
     Machine.FunctionEvaluation Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx function globals args
       trace exit.globals (.returned results) :=
-  Machine.FunctionEvaluation.exit (initial := initial.toState) (exit := exit.toState)
-    (outcome := .returned results) (by simp [Vars.entry_eq, hentry]) hrun hreturn
+  Machine.FunctionEvaluation.exit (outcome := .returned results) hentry hrun hreturn
 
 theorem Vars.EvalFn.halted
     {function : FunctionId} {globals : Globals} {args : Array Word}
-    {trace : Trace} {initial exit : MachineState}
+    {trace : Trace} {initial exit : Vars.State}
     (hentry : program.callState? function globals args = some initial)
     (hrun : Machine.Steps Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
-      initial.toState trace exit.toState)
+      initial trace exit)
     (hhalt : exit.control = .halted) :
     Machine.FunctionEvaluation Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx function globals args
       trace exit.globals .halted :=
-  Machine.FunctionEvaluation.exit (initial := initial.toState) (exit := exit.toState)
-    (outcome := .halted) (by simp [Vars.entry_eq, hentry]) hrun hhalt
+  Machine.FunctionEvaluation.exit (outcome := .halted) hentry hrun hhalt
 
-@[elab_as_elim]
-theorem Vars.Steps.inductionOn {program : Vars.Program} {ctx : CallContext}
-    {motive : (state : MachineState) → (trace : Trace) → (final : MachineState) →
-      Machine.Steps Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
-        state.toState trace final.toState → Prop}
-    (refl : ∀ state, motive state [] state .refl)
-    (tail : ∀ {state middle final : MachineState} {trace₁ trace₂ : Trace}
-      (start : Machine.Steps Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
-        state.toState trace₁ middle.toState)
-      (next : Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
-        middle.toState trace₂ final.toState),
-      motive state trace₁ middle start →
-        motive state (trace₁ ++ trace₂) final (start.tail next))
-    {state final : MachineState} {trace : Trace}
-    (h : Machine.Steps Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
-      state.toState trace final.toState) : motive state trace final h := by
-  simpa using Machine.Steps.inductionOn
-    (motive := fun state trace final h =>
-      motive state.toMachine trace final.toMachine h)
-    (fun state => refl state.toMachine)
-    (fun {state middle final trace₁ trace₂} start next ih =>
-      tail (state := state.toMachine) (middle := middle.toMachine)
-        (final := final.toMachine) (trace₁ := trace₁) (trace₂ := trace₂)
-        (by simpa using start) (by simpa using next) (by simpa using ih)) h
-
-def Stuck (program : Vars.Program) (ctx : CallContext) (state : MachineState) : Prop :=
-  Machine.Stuck (Vars.decoder program) Machine.memoryPolicy ctx state.toState
+def Stuck (program : Vars.Program) (ctx : CallContext) (state : Vars.State) : Prop :=
+  Machine.Stuck (Vars.decoder program) Machine.memoryPolicy ctx state
 
 theorem stuck_of_exit
-    {state : MachineState} {outcome : FunctionOutcome}
+    {state : Vars.State} {outcome : FunctionOutcome}
     (hcontrol : state.control = outcome.toControl) :
     Stuck program ctx state :=
   Machine.stuck_of_exit (Vars.decoder_terminal program) hcontrol
 
 theorem Vars.Steps.eq_of_stuck
-    {state final : MachineState} {trace : Trace}
+    {state final : Vars.State} {trace : Trace}
     (h : Machine.Steps Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
-      state.toState trace final.toState)
-    (hstuck : Stuck program ctx state) : final = state ∧ trace = [] := by
-  obtain ⟨hstate, htrace⟩ := Machine.Steps.eq_of_stuck h hstuck
-  exact ⟨MachineState.toState_inj hstate, htrace⟩
+      state trace final)
+    (hstuck : Stuck program ctx state) : final = state ∧ trace = [] :=
+  Machine.Steps.eq_of_stuck h hstuck
 
 theorem stepDialogue_all
     (hfree : program.MemOracleFree)
-    {state final : MachineState} {trace : Trace}
+    {state final : Vars.State} {trace : Trace}
     (h : Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
-      state.toState trace final.toState) :
-    ∀ (trace₂ : Trace) (final₂ : MachineState),
+      state trace final) :
+    ∀ (trace₂ : Trace) (final₂ : Vars.State),
       Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
-        state.toState trace₂ final₂.toState →
+        state trace₂ final₂ →
       (trace = trace₂ ∧ final = final₂) ∨
-        Trace.QueryDivergence trace trace₂ := by
-  intro trace₂ final₂ h₂
-  rcases Machine.Proofs.stepDialogue_all
-      (.inr (Vars.decoder_noMalloc hfree))
-      (Vars.decoder_exclusive program)
-      (Vars.decoder_terminal program)
-      (Vars.decoder_noMload hfree) h trace₂ final₂.toState h₂ with
-    ⟨htrace, hfinal⟩ | hdiv
-  · exact .inl ⟨htrace, MachineState.toState_inj hfinal⟩
-  · exact .inr hdiv
-
-theorem runDialogue_all
-    (hfree : program.MemOracleFree)
-    {state final : MachineState} {trace : Trace}
-    (h : Machine.Steps Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
-      state.toState trace final.toState) :
-    ∀ (trace₂ : Trace) (final₂ : MachineState),
-      Machine.Steps Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
-        state.toState trace₂ final₂.toState →
-      (∃ suffix, Machine.Steps Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
-          final.toState suffix final₂.toState ∧ trace ++ suffix = trace₂) ∨
-      (∃ suffix, Machine.Steps Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
-          final₂.toState suffix final.toState ∧ trace₂ ++ suffix = trace) ∨
-      Trace.QueryDivergence trace trace₂ := by
-  intro trace₂ final₂ h₂
-  exact Machine.Proofs.runDialogue_all
+        Trace.QueryDivergence trace trace₂ :=
+  Machine.Proofs.stepDialogue_all
     (.inr (Vars.decoder_noMalloc hfree))
     (Vars.decoder_exclusive program)
     (Vars.decoder_terminal program)
-    (Vars.decoder_noMload hfree) h trace₂ final₂.toState h₂
+    (Vars.decoder_noMload hfree) h
+
+theorem runDialogue_all
+    (hfree : program.MemOracleFree)
+    {state final : Vars.State} {trace : Trace}
+    (h : Machine.Steps Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
+      state trace final) :
+    ∀ (trace₂ : Trace) (final₂ : Vars.State),
+      Machine.Steps Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
+        state trace₂ final₂ →
+      (∃ suffix, Machine.Steps Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
+          final suffix final₂ ∧ trace ++ suffix = trace₂) ∨
+      (∃ suffix, Machine.Steps Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
+          final₂ suffix final ∧ trace₂ ++ suffix = trace) ∨
+      Trace.QueryDivergence trace trace₂ :=
+  Machine.Proofs.runDialogue_all
+    (.inr (Vars.decoder_noMalloc hfree))
+    (Vars.decoder_exclusive program)
+    (Vars.decoder_terminal program)
+    (Vars.decoder_noMload hfree) h
 
 theorem fnDialogue_all
     (hfree : program.MemOracleFree)
@@ -382,20 +339,20 @@ theorem fnDialogue_all
 
 theorem Vars.Proofs.Steps.confluence_or_queryDivergence
     (hfree : program.MemOracleFree)
-    {state final₁ final₂ : MachineState} {trace₁ trace₂ : Trace}
+    {state final₁ final₂ : Vars.State} {trace₁ trace₂ : Trace}
     (h₁ : Machine.Steps Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
-      state.toState trace₁ final₁.toState)
+      state trace₁ final₁)
     (h₂ : Machine.Steps Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
-      state.toState trace₂ final₂.toState) :
+      state trace₂ final₂) :
     (∃ suffix, Machine.Steps Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
-      final₁.toState suffix final₂.toState ∧ trace₁ ++ suffix = trace₂) ∨
+      final₁ suffix final₂ ∧ trace₁ ++ suffix = trace₂) ∨
     (∃ suffix, Machine.Steps Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
-      final₂.toState suffix final₁.toState ∧ trace₂ ++ suffix = trace₁) ∨
+      final₂ suffix final₁ ∧ trace₂ ++ suffix = trace₁) ∨
     Trace.QueryDivergence trace₁ trace₂ :=
   Vars.steps_confluence_or_queryDivergence hfree h₁ h₂
 
 private theorem Vars.jump_control
-    {s s' : MachineState} {target : BlockId}
+    {s s' : Vars.State} {target : BlockId}
     (h : (Vars.jump program target).run s = .ok ((), s')) :
     ∃ cursor targetBlock, s.control = .running cursor ∧
       program.block? { cursor with block := target } = some targetBlock ∧
@@ -424,7 +381,7 @@ private theorem Vars.jump_control
           MonadExceptOf.throw, StateT.lift, pure, Except.pure] at h
       | some targetBlock =>
         refine ⟨cursor, targetBlock, rfl, htgt, ?_⟩
-        cases htr : Locals.transfer sourceBlock.outputs targetBlock.inputs s.locals with
+        cases htr : Locals.transfer sourceBlock.outputs targetBlock.inputs s.environment with
         | error e =>
           simp [Vars.jump, StateT.run, bind, Except.bind, StateT.bind, StateT.get,
             get, getThe, MonadStateOf.get, hctrl, hsrc, htgt, liftM, monadLift,
@@ -440,11 +397,11 @@ private theorem Vars.jump_control
           rw [← h]
 
 theorem Vars.evaluateTerminator_iret_inv
-    {s s' : MachineState}
+    {s s' : Vars.State}
     (h : (Vars.evaluateTerminator program .iret).run s = .ok ((), s')) :
     ∃ cursor block rs, s.control = .running cursor ∧
       program.block? cursor = some block ∧
-      block.outputs.mapM (s.locals.lookup ·) = .ok rs ∧
+      block.outputs.mapM (s.environment.lookup ·) = .ok rs ∧
       s' = { s with control := .returned rs } := by
   cases hctrl : s.control with
   | returned old =>
@@ -462,7 +419,7 @@ theorem Vars.evaluateTerminator_iret_inv
         get, getThe, MonadStateOf.get, hctrl, hblock, throw, throwThe,
         MonadExceptOf.throw, StateT.lift, pure, Except.pure] at h
     | some block =>
-      cases hrs : block.outputs.mapM (s.locals.lookup ·) with
+      cases hrs : block.outputs.mapM (s.environment.lookup ·) with
       | error e =>
         simp [Vars.evaluateTerminator, StateT.run, bind, Except.bind, StateT.bind, StateT.get,
           get, getThe, MonadStateOf.get, hctrl, hblock, hrs, liftM, monadLift,
@@ -477,7 +434,7 @@ theorem Vars.evaluateTerminator_iret_inv
         exact h.symm
 
 private theorem Vars.evaluateTerminator_preserves_function
-    {cursor : Machine.ProgramCursor} {state state' : MachineState} {terminator : Vars.Terminator}
+    {cursor : Machine.ProgramCursor} {state state' : Vars.State} {terminator : Vars.Terminator}
     (hcontrol : state.control = .running cursor)
     (heval : (Vars.evaluateTerminator program terminator).run state = .ok ((), state')) :
     state'.control = .halted ∨ (∃ results, state'.control = .returned results) ∨
@@ -497,7 +454,7 @@ private theorem Vars.evaluateTerminator_preserves_function
       exact .inr (.inr ⟨_, hcontrol', rfl⟩)
   | branch condition thenTarget elseTarget =>
       simp only [Vars.evaluateTerminator] at heval
-      cases hcondition : state.locals.lookup condition with
+      cases hcondition : state.environment.lookup condition with
       | error error =>
           simp only [StateT.run, bind, StateT.bind, Locals.lookupM, liftM, monadLift,
             MonadLift.monadLift, StateT.get, Except.bind, StateT.lift, pure,
@@ -516,13 +473,13 @@ private theorem Vars.evaluateTerminator_preserves_function
       exact .inr (.inl ⟨results, rfl⟩)
 
 private theorem Vars.evaluateTerminator_returned_inv
-    {state state' : MachineState} {terminator : Vars.Terminator} {results : Array Word}
+    {state state' : Vars.State} {terminator : Vars.Terminator} {results : Array Word}
     (hterm : program.terminatorAt state.control = some terminator)
     (heval : (Vars.evaluateTerminator program terminator).run state = .ok ((), state'))
     (hreturn : state'.control = .returned results) :
     ∃ cursor block, state.control = .running cursor ∧
       program.block? cursor = some block ∧ block.terminator = .iret ∧
-      block.outputs.mapM (state.locals.lookup ·) = .ok results := by
+      block.outputs.mapM (state.environment.lookup ·) = .ok results := by
   cases terminator with
   | halt =>
       simp only [Vars.evaluateTerminator] at heval
@@ -535,7 +492,7 @@ private theorem Vars.evaluateTerminator_returned_inv
       cases hreturn
   | branch condition thenTarget elseTarget =>
       simp only [Vars.evaluateTerminator] at heval
-      cases hcondition : state.locals.lookup condition with
+      cases hcondition : state.environment.lookup condition with
       | error error =>
           simp only [StateT.run, bind, StateT.bind, Locals.lookupM, liftM, monadLift,
             MonadLift.monadLift, StateT.get, Except.bind, StateT.lift, pure,
@@ -559,8 +516,8 @@ private theorem Vars.evaluateTerminator_returned_inv
             simpa [Vars.Program.terminatorAt, hcontrol, hposition, hblock] using hterm
           exact ⟨cursor, block, hcontrol, hblock, hblockTerminator, houtputs⟩
 
-private theorem genStep_preserves_function
-    {cursor : Machine.ProgramCursor} {state final : Machine.State Vars.frame} {trace : Trace}
+theorem Vars.SmallStep.preserves_function
+    {cursor : Machine.ProgramCursor} {state final : Vars.State} {trace : Trace}
     (h : Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state trace final)
     (hcontrol : state.control = .running cursor) :
     final.control = .halted ∨ (∃ results, final.control = .returned results) ∨
@@ -593,17 +550,8 @@ private theorem genStep_preserves_function
         Vars.control_inv.mp hstep
       exact Vars.evaluateTerminator_preserves_function hcontrol heval
 
-theorem Vars.SmallStep.preserves_function
-    {cursor : Machine.ProgramCursor} {state final : MachineState} {trace : Trace}
-    (h : Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
-      state.toState trace final.toState)
-    (hcontrol : state.control = .running cursor) :
-    final.control = .halted ∨ (∃ results, final.control = .returned results) ∨
-      ∃ cursor', final.control = .running cursor' ∧ cursor'.fn = cursor.fn :=
-  genStep_preserves_function h hcontrol
-
-private theorem genSteps_preserves_function
-    {cursor : Machine.ProgramCursor} {state final : Machine.State Vars.frame} {trace : Trace}
+theorem Vars.Proofs.Steps.preserves_function
+    {cursor : Machine.ProgramCursor} {state final : Vars.State} {trace : Trace}
     (h : Machine.Steps Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state trace final)
     (hcontrol : state.control = .running cursor) :
     final.control = .halted ∨ (∃ results, final.control = .returned results) ∨
@@ -620,24 +568,15 @@ private theorem genSteps_preserves_function
       · exact absurd next
           (Machine.stuck_of_exit (outcome := .returned _) (Vars.decoder_terminal program)
             hreturn _ _)
-      · rcases genStep_preserves_function next hcontrol' with
+      · rcases Vars.SmallStep.preserves_function next hcontrol' with
           hhalt | hreturned | ⟨cursor'', hcontrol'', hfn'⟩
         · exact .inl hhalt
         · exact .inr (.inl hreturned)
         · exact .inr (.inr ⟨cursor'', hcontrol'', hfn'.trans hfn⟩))
     h hcontrol
 
-theorem Vars.Proofs.Steps.preserves_function
-    {cursor : Machine.ProgramCursor} {state final : MachineState} {trace : Trace}
-    (h : Machine.Steps Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
-      state.toState trace final.toState)
-    (hcontrol : state.control = .running cursor) :
-    final.control = .halted ∨ (∃ results, final.control = .returned results) ∨
-      ∃ cursor', final.control = .running cursor' ∧ cursor'.fn = cursor.fn :=
-  genSteps_preserves_function h hcontrol
-
-private theorem genStep_returned_inv
-    {state final : Machine.State Vars.frame} {trace : Trace} {results : Array Word}
+theorem Vars.SmallStep.returned_inv
+    {state final : Vars.State} {trace : Trace} {results : Array Word}
     (h : Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx state trace final)
     (hreturn : final.control = .returned results) :
     ∃ cursor block, state.control = .running cursor ∧
@@ -672,15 +611,5 @@ private theorem genStep_returned_inv
       obtain ⟨terminator, state', hterm, heval, rfl, rfl, rfl, rfl⟩ :=
         Vars.control_inv.mp hstep
       exact Vars.evaluateTerminator_returned_inv hterm heval hreturn
-
-theorem Vars.SmallStep.returned_inv
-    {state final : MachineState} {trace : Trace} {results : Array Word}
-    (h : Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
-      state.toState trace final.toState)
-    (hreturn : final.control = .returned results) :
-    ∃ cursor block, state.control = .running cursor ∧
-      program.block? cursor = some block ∧ block.terminator = .iret ∧
-      block.outputs.mapM (state.locals.lookup ·) = .ok results :=
-  genStep_returned_inv h hreturn
 
 end Sir

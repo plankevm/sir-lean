@@ -94,7 +94,7 @@ open Sir Machine
 theorem steps_confluence_or_queryDivergence
     {program : Program} {policy : MemoryPolicy} {ctx : CallContext}
     (hfree : program.MemOracleFree)
-    {state final₁ final₂ : Machine.State frame} {trace₁ trace₂ : Trace}
+    {state final₁ final₂ : Vars.State} {trace₁ trace₂ : Trace}
     (h₁ : Machine.Steps frame (decoder program) policy ctx state trace₁ final₁)
     (h₂ : Machine.Steps frame (decoder program) policy ctx state trace₂ final₂) :
     (∃ suffix, Machine.Steps frame (decoder program) policy ctx final₁ suffix final₂ ∧

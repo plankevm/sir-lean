@@ -20,19 +20,19 @@ def witnessProgram : Program :=
     initEntry := witnessEntry
     mainEntry := none }
 
-def witnessInitial (globals : Globals) : Machine.State frame :=
+def witnessInitial (globals : Globals) : Vars.State :=
   { globals
     environment := .empty
     control := .running
       { fn := witnessEntry, block := witnessBlock, position := .statement 0 } }
 
-def witnessAfterConstant (globals : Globals) : Machine.State frame :=
+def witnessAfterConstant (globals : Globals) : Vars.State :=
   { globals
     environment := Locals.empty.assign witnessResult 7
     control := .running
       { fn := witnessEntry, block := witnessBlock, position := .terminator } }
 
-def witnessFinal (globals : Globals) : Machine.State frame :=
+def witnessFinal (globals : Globals) : Vars.State :=
   { globals, environment := Locals.empty.assign witnessResult 7, control := .halted }
 
 theorem witness_memOracleFree : witnessProgram.MemOracleFree := by

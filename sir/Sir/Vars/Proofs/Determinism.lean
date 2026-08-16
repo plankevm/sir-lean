@@ -12,7 +12,7 @@ private theorem Trace.QueryDivergence.ne {t₁ t₂ : Trace}
 
 theorem Vars.Proofs.SmallStep.prefix_det
     (hfree : program.MemOracleFree)
-    {s s₁ s₂ : MachineState} {t₁ t₂ r₁ r₂ : Trace}
+    {s s₁ s₂ : Vars.State} {t₁ t₂ r₁ r₂ : Trace}
     (h₁ : Vars.SmallStep program ctx s t₁ s₁)
     (h₂ : Vars.SmallStep program ctx s t₂ s₂)
     (htr : t₁ ++ r₁ = t₂ ++ r₂) : t₁ = t₂ ∧ s₁ = s₂ := by
@@ -22,7 +22,7 @@ theorem Vars.Proofs.SmallStep.prefix_det
 
 theorem Vars.Proofs.Steps.prefix_confluence
     (hfree : program.MemOracleFree)
-    {s e₁ e₂ : MachineState} {t₁ t₂ r₁ r₂ : Trace}
+    {s e₁ e₂ : Vars.State} {t₁ t₂ r₁ r₂ : Trace}
     (h₁ : Vars.Steps program ctx s t₁ e₁)
     (h₂ : Vars.Steps program ctx s t₂ e₂)
     (htr : t₁ ++ r₁ = t₂ ++ r₂) :
@@ -48,7 +48,7 @@ theorem Vars.Proofs.EvalFn.prefix_det
 
 theorem Vars.Proofs.SmallStep.trace_det
     (hfree : program.MemOracleFree)
-    {s s₁ s₂ : MachineState} {t : Trace}
+    {s s₁ s₂ : Vars.State} {t : Trace}
     (h₁ : Vars.SmallStep program ctx s t s₁)
     (h₂ : Vars.SmallStep program ctx s t s₂) : s₁ = s₂ :=
   (Vars.Proofs.SmallStep.prefix_det hfree h₁ h₂ (r₁ := []) (r₂ := []) rfl).2
@@ -64,7 +64,7 @@ theorem Vars.Proofs.EvalFn.trace_det
 
 theorem Vars.Steps.stuck_trace_det
     (hfree : program.MemOracleFree)
-    {s e₁ e₂ : MachineState} {t : Trace}
+    {s e₁ e₂ : Vars.State} {t : Trace}
     (h₁ : Vars.Steps program ctx s t e₁) (hs₁ : Stuck program ctx e₁)
     (h₂ : Vars.Steps program ctx s t e₂) (hs₂ : Stuck program ctx e₂) : e₁ = e₂ := by
   rcases Vars.Proofs.Steps.prefix_confluence hfree h₁ h₂ (r₁ := []) (r₂ := []) rfl with
@@ -75,7 +75,7 @@ theorem Vars.Steps.stuck_trace_det
 theorem Vars.Proofs.Program.RunsTo.trace_det
     (hfree : program.MemOracleFree)
     {entry : FunctionId} {world₀ : World} {t : Trace}
-    {final₁ final₂ : MachineState}
+    {final₁ final₂ : Vars.State}
     (h₁ : program.RunsTo ctx entry world₀ t final₁)
     (h₂ : program.RunsTo ctx entry world₀ t final₂) : final₁ = final₂ :=
   by
@@ -130,7 +130,7 @@ private theorem Trace.QueryDivergence.query_eq {t₁ t₂ : Trace}
 
 theorem Vars.Proofs.Program.RunsTo.unique_or_queryDivergence
     {entry : FunctionId} {world₀ : World}
-    {t₁ t₂ : Trace} {final₁ final₂ : MachineState}
+    {t₁ t₂ : Trace} {final₁ final₂ : Vars.State}
     (hfree : program.MemOracleFree)
     (h₁ : program.RunsTo ctx entry world₀ t₁ final₁)
     (h₂ : program.RunsTo ctx entry world₀ t₂ final₂) :
@@ -150,7 +150,7 @@ theorem Vars.Proofs.Program.RunsTo.unique_or_queryDivergence
 private theorem Vars.Program.RunsFunction.query_eq_at
     (hfree : program.MemOracleFree)
     {function : FunctionId} {globals : Globals} {args : Array Word}
-    {t₁ t₂ history : Trace} {state₁ state₂ : MachineState}
+    {t₁ t₂ history : Trace} {state₁ state₂ : Vars.State}
     {event₁ event₂ : Event} {rest₁ rest₂ : Trace}
     (h₁ : program.RunsFunction ctx function globals args t₁ state₁)
     (h₂ : program.RunsFunction ctx function globals args t₂ state₂)
@@ -186,7 +186,7 @@ private theorem Vars.Program.RunsFunction.query_eq_at
 
 private theorem terminalSteps_no_event
     (hfree : program.MemOracleFree)
-    {initial exit state : MachineState} {history trace rest : Trace} {event : Event}
+    {initial exit state : Vars.State} {history trace rest : Trace} {event : Event}
     (hterm : Vars.Steps program ctx initial history exit)
     (hstuck : Stuck program ctx exit)
     (hsteps : Vars.Steps program ctx initial trace state)
@@ -205,7 +205,7 @@ private theorem Vars.EvalFn.runsFunction_no_event
     (hfree : program.MemOracleFree)
     {function : FunctionId} {globals finalGlobals : Globals} {args : Array Word}
     {history trace rest : Trace} {outcome : FunctionOutcome} {event : Event}
-    {state : MachineState}
+    {state : Vars.State}
     (heval : Vars.EvalFn program ctx function globals args history finalGlobals outcome)
     (hrun : program.RunsFunction ctx function globals args trace state)
     (htrace : trace = history ++ event :: rest) : False := by
@@ -214,13 +214,8 @@ private theorem Vars.EvalFn.runsFunction_no_event
   | exit hentry₂ hrun₂ hexit =>
       rename_i initialGen exit
       rw [Vars.entry_eq] at hentry₂
-      obtain ⟨initial₂, hcallState₂, rfl⟩ := Option.map_eq_some_iff.mp hentry₂
-      obtain rfl := Option.some.inj (hentry.symm.trans hcallState₂)
-      have hrun₂' : Vars.Steps program ctx initial history exit.toMachine := by
-        change Machine.Steps Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
-          initial.toState history exit.toMachine.toState
-        simpa using hrun₂
-      exact terminalSteps_no_event hfree hrun₂'
+      obtain rfl := Option.some.inj (hentry.symm.trans hentry₂)
+      exact terminalSteps_no_event hfree hrun₂
         (stuck_of_exit hexit) hsteps htrace
 
 theorem Vars.Proofs.Program.functionDeterministicFrom_of_memOracleFree

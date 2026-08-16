@@ -46,18 +46,26 @@ def transfer (outputs inputs : Array VarId) : StateT Locals (Except IRError) Uni
 
 end Locals
 
-structure MachineState where
-  globals : Globals
-  locals : Locals := .empty
-  control : Machine.MachineControl
+namespace Vars
+
+abbrev frame : Machine.OperandFrame where
+  Environment := Locals
+  Source := Array VarId
+  Destination := Array VarId
+  fetch env src := src.mapM env.lookup
+  store env dst values := Locals.bindValues env dst values
+
+abbrev State := Machine.State frame
+
+abbrev EvalM := StateT State (Except IRError)
+
+end Vars
 
 instance {m : Type → Type} [Monad m] :
-    MonadLift (StateT Locals m) (StateT MachineState m) where
+    MonadLift (StateT Locals m) (StateT Vars.State m) where
   monadLift action state := do
-    let (result, locals') ← action.run state.locals
-    return (result, { state with locals := locals' })
-
-abbrev MachineStateM := StateT MachineState (Except IRError)
+    let (result, environment') ← action.run state.environment
+    return (result, { state with environment := environment' })
 
 namespace Vars
 
@@ -152,12 +160,12 @@ def Vars.Block.startPosition (block : Vars.Block) : Machine.BlockPosition :=
   block.absoluteToPosition 0
 
 def Vars.Program.callState? (p : Vars.Program) (f : FunctionId) (g : Globals)
-    (args : Array Word) : Option MachineState := do
+    (args : Array Word) : Option Vars.State := do
   let fn ← p.function? f
   let bb ← fn.block? fn.entry
   let .ok locals₀ := Locals.bindParams bb.inputs args | none
-  let state : MachineState :=
-    { globals := g, locals := locals₀,
+  let state : Vars.State :=
+    { globals := g, environment := locals₀,
       control := .running { fn := f, block := fn.entry, position := bb.startPosition } }
   some state
 
@@ -180,7 +188,7 @@ end Sir
 
 namespace Sir.Vars
 
-def jump (program : Program) (target : BlockId) : MachineStateM Unit := do
+def jump (program : Program) (target : BlockId) : Vars.EvalM Unit := do
   let .running cursor := (← get).control | throw .invalidControl
   let source := cursor.block
   let some sourceBlock := program.block? cursor | throw (.invalidBlock source)
@@ -190,7 +198,7 @@ def jump (program : Program) (target : BlockId) : MachineStateM Unit := do
   let targetCursor := { targetCursor with position := targetBlock.startPosition }
   modify ({ · with control := .running targetCursor })
 
-def evaluateTerminator (program : Program) : Terminator → MachineStateM Unit
+def evaluateTerminator (program : Program) : Terminator → Vars.EvalM Unit
   | .halt => modify (fun state => { state with control := .halted })
   | .jump target => jump program target
   | .branch condition thenTarget elseTarget => do
@@ -200,17 +208,10 @@ def evaluateTerminator (program : Program) : Terminator → MachineStateM Unit
       let .running cursor := (← get).control | throw .invalidControl
       let some block := program.block? cursor | throw (.invalidBlock cursor.block)
       let state ← get
-      let rs ← liftM (block.outputs.mapM state.locals.lookup)
+      let rs ← liftM (block.outputs.mapM state.environment.lookup)
       modify ({ · with control := .returned rs })
 
 open Machine
-
-abbrev frame : OperandFrame where
-  Environment := Locals
-  Source := Array VarId
-  Destination := Array VarId
-  fetch env src := src.mapM env.lookup
-  store env dst values := Locals.bindValues env dst values
 
 def decodeExpression (result : VarId) : Expr → Instruction frame
   | .constant value => ⟨Instruction.Kind.primitive (.constant value), #[], #[result]⟩
@@ -240,9 +241,9 @@ def control (program : Program) (env : Locals) (globals : Globals)
     (control : Machine.MachineControl) :
     Option (Trace × Locals × Globals × Machine.MachineControl) := do
   let terminator ← program.terminatorAt control
-  let state : MachineState := { globals, locals := env, control }
+  let state : Vars.State := { globals, environment := env, control }
   let .ok ((), state') := (evaluateTerminator program terminator).run state | none
-  some ([], state'.locals, state'.globals, state'.control)
+  some ([], state'.environment, state'.globals, state'.control)
 
 def resume (outcome : FunctionOutcome) (env : Locals) (dst : Array VarId)
     (next : Machine.MachineControl) : Option (Locals × Machine.MachineControl) :=
@@ -255,75 +256,62 @@ def resume (outcome : FunctionOutcome) (env : Locals) (dst : Array VarId)
 
 end Sir.Vars
 
-namespace Sir
-
-def MachineState.toState (state : MachineState) : Machine.State Vars.frame :=
-  ⟨state.globals, state.locals, state.control⟩
-
-end Sir
-
 namespace Sir.Vars
 
 open Machine
-
-def entry (program : Program) (function : FunctionId) (globals : Globals)
-    (args : Array Word) : Option (State frame) :=
-  (program.callState? function globals args).map MachineState.toState
 
 def decoder (program : Program) : Decoder frame where
   decode := decode program
   control := control program
   resume := resume
-  entry := entry program
+  entry := program.callState?
 
 def SmallStep (program : Program) (ctx : CallContext)
-    (state : MachineState) (trace : Trace) (final : MachineState) : Prop :=
-  Machine.Step frame (decoder program) memoryPolicy ctx
-    state.toState trace final.toState
+    (state : Vars.State) (trace : Trace) (final : Vars.State) : Prop :=
+  Machine.Step frame (decoder program) memoryPolicy ctx state trace final
 
 def Steps (program : Program) (ctx : CallContext)
-    (state : MachineState) (trace : Trace) (final : MachineState) : Prop :=
-  Machine.Steps frame (decoder program) memoryPolicy ctx
-    state.toState trace final.toState
+    (state : Vars.State) (trace : Trace) (final : Vars.State) : Prop :=
+  Machine.Steps frame (decoder program) memoryPolicy ctx state trace final
 
 def EvalFn (program : Program) (ctx : CallContext) :
     FunctionId → Globals → Array Word → Trace → Globals → FunctionOutcome → Prop :=
   Machine.FunctionEvaluation frame (decoder program) memoryPolicy ctx
 
-def Program.NonIcallControl (program : Program) (state : MachineState) : Prop :=
+def Program.NonIcallControl (program : Program) (state : Vars.State) : Prop :=
   (∃ nextControl statement,
       program.decodeStmt state.control = some (nextControl, statement) ∧
       ∀ callee callArgs destinations,
         statement ≠ .icall callee callArgs destinations) ∨
     ∃ terminator, program.terminatorAt state.control = some terminator
 
-def Program.AllocationAvailable (program : Program) (state : MachineState) : Prop :=
+def Program.AllocationAvailable (program : Program) (state : Vars.State) : Prop :=
   (∀ nextControl result size word,
       program.decodeStmt state.control = some (nextControl, .malloc result size) →
-      state.locals.lookup size = .ok word →
+      state.environment.lookup size = .ok word →
       ∃ allocation, state.globals.memory.IsValidNewAlloc allocation ∧
         allocation.size = word.toNat ∧
         allocation.bytes = ByteArray.mk (Array.replicate word.toNat 0)) ∧
     ∀ nextControl result size word,
       program.decodeStmt state.control = some (nextControl, .mallocUninit result size) →
-      state.locals.lookup size = .ok word →
+      state.environment.lookup size = .ok word →
       ∃ allocation, state.globals.memory.IsValidNewAlloc allocation ∧
         allocation.size = word.toNat
 
-def Program.BumpFits (program : Program) (state : MachineState) : Prop :=
+def Program.BumpFits (program : Program) (state : Vars.State) : Prop :=
   (∀ nextControl result size word,
       program.decodeStmt state.control = some (nextControl, .malloc result size) →
-      state.locals.lookup size = .ok word →
+      state.environment.lookup size = .ok word →
       state.globals.memory.watermark + word.toNat ≤ Evm.UInt256.size) ∧
     ∀ nextControl result size word,
       program.decodeStmt state.control = some (nextControl, .mallocUninit result size) →
-      state.locals.lookup size = .ok word →
+      state.environment.lookup size = .ok word →
       state.globals.memory.watermark + word.toNat ≤ Evm.UInt256.size
 
-def Program.StoreInBounds (program : Program) (state : MachineState) : Prop :=
+def Program.StoreInBounds (program : Program) (state : Vars.State) : Prop :=
   ∀ nextControl offset value word,
     program.decodeStmt state.control = some (nextControl, .mstore32 offset value) →
-    state.locals.lookup offset = .ok word →
+    state.environment.lookup offset = .ok word →
     state.globals.memory.InBounds word.toNat 32
 
 end Sir.Vars
@@ -331,20 +319,20 @@ end Sir.Vars
 namespace Sir.Vars
 
 def Program.RunsFunction (program : Program) (ctx : CallContext) (function : FunctionId)
-    (globals : Globals) (args : Array Word) (trace : Trace) (state : MachineState) : Prop :=
+    (globals : Globals) (args : Array Word) (trace : Trace) (state : Vars.State) : Prop :=
   ∃ initial,
     program.callState? function globals args = some initial ∧
     Steps program ctx initial trace state
 
 def Program.Runs (program : Program) (ctx : CallContext) (entry : FunctionId)
-    (world : World) (trace : Trace) (state : MachineState) : Prop :=
+    (world : World) (trace : Trace) (state : Vars.State) : Prop :=
   program.RunsFunction ctx entry { world := world } #[] trace state
 
 def Program.RunsTo (program : Program) (ctx : CallContext) (entry : FunctionId)
-    (world : World) (trace : Trace) (final : MachineState) : Prop :=
+    (world : World) (trace : Trace) (final : Vars.State) : Prop :=
   program.Runs ctx entry world trace final ∧ final.control = .halted
 
-def Program.ReadyState (program : Program) (ctx : CallContext) (state : MachineState) : Prop :=
+def Program.ReadyState (program : Program) (ctx : CallContext) (state : Vars.State) : Prop :=
   (∃ function globals args trace,
       program.RunsFunction ctx function globals args trace state) ∧
     program.NonIcallControl state ∧

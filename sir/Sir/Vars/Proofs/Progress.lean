@@ -13,51 +13,51 @@ def Locals.ExprReady (locals : Locals) : Vars.Expr → Prop
   | .add a b | .lt a b => locals.Defined a ∧ locals.Defined b
   | .sload k => locals.Defined k
 
-def MachineState.StmtReady (s : MachineState) : Vars.Stmt → Prop
-  | .assign _ e => s.locals.ExprReady e
-  | .sstore key value => s.locals.Defined key ∧ s.locals.Defined value
+def Vars.State.StmtReady (s : Vars.State) : Vars.Stmt → Prop
+  | .assign _ e => s.environment.ExprReady e
+  | .sstore key value => s.environment.Defined key ∧ s.environment.Defined value
   | .gas _ => True
-  | .call c => s.locals.Defined c.callee ∧ s.locals.Defined c.gas
+  | .call c => s.environment.Defined c.callee ∧ s.environment.Defined c.gas
   | .malloc _ size =>
-      ∃ w alloc, s.locals.lookup size = .ok w ∧
+      ∃ w alloc, s.environment.lookup size = .ok w ∧
         s.globals.memory.IsValidNewAlloc alloc ∧ alloc.size = w.toNat ∧
         alloc.bytes = ByteArray.mk (Array.replicate w.toNat 0)
   | .mallocUninit _ size =>
-      ∃ w alloc, s.locals.lookup size = .ok w ∧
+      ∃ w alloc, s.environment.lookup size = .ok w ∧
         s.globals.memory.IsValidNewAlloc alloc ∧ alloc.size = w.toNat
   | .mstore32 offset value =>
-      ∃ w, s.locals.lookup offset = .ok w ∧ s.locals.Defined value ∧
+      ∃ w, s.environment.lookup offset = .ok w ∧ s.environment.Defined value ∧
         s.globals.memory.InBounds w.toNat 32
-  | .mload32 _ offset => s.locals.Defined offset
+  | .mload32 _ offset => s.environment.Defined offset
   | .icall _ _ _ => False
 
-def Vars.Program.JumpReady (program : Vars.Program) (fn : FunctionId) (s : MachineState)
+def Vars.Program.JumpReady (program : Vars.Program) (fn : FunctionId) (s : Vars.State)
     (src : Vars.Block) (target : BlockId) : Prop :=
-  (∃ vs, src.outputs.mapM (s.locals.lookup ·) = .ok vs) ∧
+  (∃ vs, src.outputs.mapM (s.environment.lookup ·) = .ok vs) ∧
     ∃ targetBlock,
       program.block? { fn := fn, block := target, position := .terminator } = some targetBlock ∧
       targetBlock.inputs.size = src.outputs.size
 
-def Vars.Program.TerminatorReady (program : Vars.Program) (fn : FunctionId) (s : MachineState)
+def Vars.Program.TerminatorReady (program : Vars.Program) (fn : FunctionId) (s : Vars.State)
     (src : Vars.Block) : Prop :=
   match src.terminator with
   | .halt => True
   | .jump target => program.JumpReady fn s src target
   | .branch condition thenTarget elseTarget =>
-      ∃ w, s.locals.lookup condition = .ok w ∧
+      ∃ w, s.environment.lookup condition = .ok w ∧
         program.JumpReady fn s src (if w = 0 then elseTarget else thenTarget)
-  | .iret => ∃ rs, src.outputs.mapM (s.locals.lookup ·) = .ok rs
+  | .iret => ∃ rs, src.outputs.mapM (s.environment.lookup ·) = .ok rs
 
-theorem Vars.evaluateTerminator_halt_ok (s : MachineState) :
+theorem Vars.evaluateTerminator_halt_ok (s : Vars.State) :
     (Vars.evaluateTerminator program .halt).run s =
       .ok ((), { s with control := .halted }) := rfl
 
 theorem Vars.evaluateTerminator_iret_ok
-    {s : MachineState} {cursor : Machine.ProgramCursor} {block : Vars.Block}
+    {s : Vars.State} {cursor : Machine.ProgramCursor} {block : Vars.Block}
     {rs : Array Word}
     (hctrl : s.control = .running cursor)
     (hblock : program.block? cursor = some block)
-    (houtputs : block.outputs.mapM (s.locals.lookup ·) = .ok rs) :
+    (houtputs : block.outputs.mapM (s.environment.lookup ·) = .ok rs) :
     (Vars.evaluateTerminator program .iret).run s =
       .ok ((), { s with control := .returned rs }) := by
   simp [Vars.evaluateTerminator, StateT.run, bind, Except.bind, StateT.bind, StateT.get,
@@ -66,16 +66,16 @@ theorem Vars.evaluateTerminator_iret_ok
     StateT.modifyGet, pure, Except.pure]
 
 private theorem Vars.jump_ok
-    {s : MachineState} {cursor : Machine.ProgramCursor} {target : BlockId}
+    {s : Vars.State} {cursor : Machine.ProgramCursor} {target : BlockId}
     {sourceBlock targetBlock : Vars.Block} {vs : Array Word}
     (hctrl : s.control = .running cursor)
     (hsrc : program.block? cursor = some sourceBlock)
     (htgt : program.block? { cursor with block := target } = some targetBlock)
-    (houts : sourceBlock.outputs.mapM (s.locals.lookup ·) = .ok vs)
+    (houts : sourceBlock.outputs.mapM (s.environment.lookup ·) = .ok vs)
     (harity : targetBlock.inputs.size = vs.size) :
     ∃ s', (Vars.jump program target).run s = .ok ((), s') := by
-  obtain ⟨l', hbind⟩ := Locals.bindValues_total s.locals harity
-  refine ⟨{ s with locals := l',
+  obtain ⟨l', hbind⟩ := Locals.bindValues_total s.environment harity
+  refine ⟨{ s with environment := l',
                    control := .running
                      { cursor with block := target, position := targetBlock.startPosition } }, ?_⟩
   simp [Vars.jump, StateT.run, Locals.transfer, bind, Except.bind, StateT.bind,
@@ -84,23 +84,23 @@ private theorem Vars.jump_ok
     MonadLift.monadLift, pure, Except.pure]
 
 theorem Vars.Proofs.progress_stmt
-    {state : MachineState} {next : Machine.MachineControl} {statement : Vars.Stmt}
+    {state : Vars.State} {next : Machine.MachineControl} {statement : Vars.Stmt}
     (hdecode : program.decodeStmt state.control = some (next, statement))
     (hready : state.StmtReady statement) :
-    ∃ (trace : Trace) (final : MachineState),
+    ∃ (trace : Trace) (final : Vars.State),
       Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
-      state.toState trace final.toState := by
+      state trace final := by
   cases statement with
   | assign result expr =>
       cases expr with
       | constant value =>
-          obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
+          obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.environment
             (targetVars := #[result]) (vs := #[value]) rfl
           refine ⟨[], ⟨state.globals, locals', next⟩, step_assign hdecode ?_⟩
           simp only [Vars.decodeExpression, Machine.Instruction.Fires]
           apply fires_of (operation := .constant value) (oracle := ())
             (operands := #[]) (results := #[value])
-          · change (#[] : Array VarId).mapM (state.locals.lookup ·) = .ok #[]
+          · change (#[] : Array VarId).mapM (state.environment.lookup ·) = .ok #[]
             rw [Array.mapM_eq_mapM_toList]
             rfl
           · trivial
@@ -108,7 +108,7 @@ theorem Vars.Proofs.progress_stmt
           · exact hstore
       | var v =>
           obtain ⟨value, hvalue⟩ := hready
-          obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
+          obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.environment
             (targetVars := #[result]) (vs := #[value]) rfl
           refine ⟨[], ⟨state.globals, locals', next⟩, step_assign hdecode ?_⟩
           simp only [Vars.decodeExpression, Machine.Instruction.Fires]
@@ -122,7 +122,7 @@ theorem Vars.Proofs.progress_stmt
       | add lhs rhs =>
           obtain ⟨⟨lhsValue, hlhs⟩, rhsValue, hrhs⟩ := hready
           let resultValue := Evm.UInt256.add lhsValue rhsValue
-          obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
+          obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.environment
             (targetVars := #[result]) (vs := #[resultValue]) rfl
           refine ⟨[], ⟨state.globals, locals', next⟩, step_assign hdecode ?_⟩
           simp only [Vars.decodeExpression, Machine.Instruction.Fires]
@@ -137,7 +137,7 @@ theorem Vars.Proofs.progress_stmt
       | lt lhs rhs =>
           obtain ⟨⟨lhsValue, hlhs⟩, rhsValue, hrhs⟩ := hready
           let resultValue := Evm.UInt256.lt lhsValue rhsValue
-          obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
+          obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.environment
             (targetVars := #[result]) (vs := #[resultValue]) rfl
           refine ⟨[], ⟨state.globals, locals', next⟩, step_assign hdecode ?_⟩
           simp only [Vars.decodeExpression, Machine.Instruction.Fires]
@@ -152,7 +152,7 @@ theorem Vars.Proofs.progress_stmt
       | sload key =>
           obtain ⟨keyValue, hkey⟩ := hready
           let resultValue := state.globals.world.loadStorage ctx.self keyValue
-          obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
+          obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.environment
             (targetVars := #[result]) (vs := #[resultValue]) rfl
           refine ⟨[], ⟨state.globals, locals', next⟩, step_assign hdecode ?_⟩
           simp only [Vars.decodeExpression, Machine.Instruction.Fires]
@@ -167,7 +167,7 @@ theorem Vars.Proofs.progress_stmt
       obtain ⟨⟨keyValue, hkey⟩, valueValue, hvalue⟩ := hready
       let globals' := { state.globals with
         world := state.globals.world.storeStorage ctx.self keyValue valueValue }
-      obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
+      obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.environment
         (targetVars := #[]) (vs := #[]) rfl
       refine ⟨[], ⟨globals', locals', next⟩, step_sstore hdecode ?_⟩
       simp only [Vars.decodeStatement, Machine.Instruction.Fires]
@@ -179,13 +179,13 @@ theorem Vars.Proofs.progress_stmt
       · exact Machine.Operation.execute_sstore_ok ctx keyValue valueValue state.globals
       · exact hstore
   | gas result =>
-      obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
+      obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.environment
         (targetVars := #[result]) (vs := #[(0 : Word)]) rfl
       refine ⟨[.gas 0], ⟨state.globals, locals', next⟩, step_gas hdecode ?_⟩
       simp only [Vars.decodeStatement, Machine.Instruction.Fires]
       apply fires_of (operation := .gas) (oracle := (0 : Word))
         (operands := #[]) (results := #[0])
-      · change (#[] : Array VarId).mapM (state.locals.lookup ·) = .ok #[]
+      · change (#[] : Array VarId).mapM (state.environment.lookup ·) = .ok #[]
         rw [Array.mapM_eq_mapM_toList]
         rfl
       · trivial
@@ -197,7 +197,7 @@ theorem Vars.Proofs.progress_stmt
         { world' := state.globals.world, success := true, output := ByteArray.empty }
       let globals' := { state.globals with
         returnData := result.output, world := result.world' }
-      obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
+      obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.environment
         (targetVars := #[call.result])
         (vs := #[Evm.UInt256.fromBool result.success]) rfl
       let record : CallRecord :=
@@ -214,7 +214,7 @@ theorem Vars.Proofs.progress_stmt
   | malloc result size =>
       obtain ⟨sizeValue, allocation, hsizeValue, hvalid, hsize, hzero⟩ := hready
       let globals' := { state.globals with memory := state.globals.memory.push allocation }
-      obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
+      obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.environment
         (targetVars := #[result]) (vs := #[allocation.offset]) rfl
       refine ⟨[], ⟨globals', locals', next⟩, step_malloc hdecode ?_⟩
       simp only [Vars.decodeStatement, Machine.Instruction.Fires]
@@ -230,7 +230,7 @@ theorem Vars.Proofs.progress_stmt
   | mallocUninit result size =>
       obtain ⟨sizeValue, allocation, hsizeValue, hvalid, hsize⟩ := hready
       let globals' := { state.globals with memory := state.globals.memory.push allocation }
-      obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
+      obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.environment
         (targetVars := #[result]) (vs := #[allocation.offset]) rfl
       refine ⟨[], ⟨globals', locals', next⟩, step_mallocUninit hdecode ?_⟩
       simp only [Vars.decodeStatement, Machine.Instruction.Fires]
@@ -246,7 +246,7 @@ theorem Vars.Proofs.progress_stmt
       obtain ⟨offsetValue, hoffset, ⟨valueValue, hvalue⟩, hin⟩ := hready
       let globals' := { state.globals with
         memory := state.globals.memory.writeBytes offsetValue valueValue.toByteArray }
-      obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
+      obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.environment
         (targetVars := #[]) (vs := #[]) rfl
       refine ⟨[], ⟨globals', locals', next⟩, step_mstore32 hdecode ?_⟩
       simp only [Vars.decodeStatement, Machine.Instruction.Fires]
@@ -262,7 +262,7 @@ theorem Vars.Proofs.progress_stmt
       let assumed : Vector UInt8 32 := Vector.replicate 32 0
       let resultValue : Word := .ofNat (Evm.fromByteArrayBigEndian
         (state.globals.memory.readBytes offsetValue ⟨assumed.toArray⟩))
-      obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.locals
+      obtain ⟨locals', hstore⟩ := Locals.bindValues_total state.environment
         (targetVars := #[result]) (vs := #[resultValue]) rfl
       refine ⟨[], ⟨state.globals, locals', next⟩, step_mload32 hdecode ?_⟩
       simp only [Vars.decodeStatement, Machine.Instruction.Fires]
@@ -276,14 +276,14 @@ theorem Vars.Proofs.progress_stmt
   | icall callee args dests => exact hready.elim
 
 theorem Vars.Proofs.progress_terminator
-    {state : MachineState} {cursor : Machine.ProgramCursor} {source : Vars.Block}
+    {state : Vars.State} {cursor : Machine.ProgramCursor} {source : Vars.Block}
     (hcontrol : state.control = .running cursor)
     (hposition : cursor.position = .terminator)
     (hsource : program.block? cursor = some source)
     (hready : program.TerminatorReady cursor.fn state source) :
-    ∃ (final : MachineState),
+    ∃ (final : Vars.State),
       Machine.Step Vars.frame (Vars.decoder program) Machine.memoryPolicy ctx
-      state.toState [] final.toState := by
+      state [] final := by
   have hterm : program.terminatorAt state.control = some source.terminator := by
     simp [Vars.Program.terminatorAt, hcontrol, hposition, hsource]
   unfold Vars.Program.TerminatorReady at hready
@@ -314,7 +314,7 @@ theorem Vars.Proofs.progress_terminator
       exact ⟨_, step_terminator hterm
         (Vars.evaluateTerminator_iret_ok hcontrol hsource houtputs)⟩
 
-theorem Vars.Proofs.progress_nonIcall {s : MachineState}
+theorem Vars.Proofs.progress_nonIcall {s : Vars.State}
     (h : (∃ nextControl stmt,
             program.decodeStmt s.control = some (nextControl, stmt) ∧
             s.StmtReady stmt) ∨

@@ -33,26 +33,26 @@ private def zeroedMallocControl (position : Machine.BlockPosition) : Machine.Mac
     block := zeroedMallocLoadBlock
     position }
 
-private def zeroedMallocState0 (world : World) : MachineState :=
-  { globals := { world }, control := zeroedMallocControl (.statement 0) }
+private def zeroedMallocState0 (world : World) : Vars.State :=
+  { globals := { world }, environment := .empty, control := zeroedMallocControl (.statement 0) }
 
-private def zeroedMallocState1 (world : World) : MachineState :=
+private def zeroedMallocState1 (world : World) : Vars.State :=
   { globals := { world }
-    locals := Locals.empty.assign zeroedMallocLoadSize 32
+    environment := Locals.empty.assign zeroedMallocLoadSize 32
     control := zeroedMallocControl (.statement 1) }
 
-private def zeroedMallocState2 (world : World) : MachineState :=
+private def zeroedMallocState2 (world : World) : Vars.State :=
   { globals := { world, memory := MemoryState.empty.push zeroedMallocAllocation }
-    locals := (Locals.empty.assign zeroedMallocLoadSize 32).assign zeroedMallocLoadOffset 0
+    environment := (Locals.empty.assign zeroedMallocLoadSize 32).assign zeroedMallocLoadOffset 0
     control := zeroedMallocControl (.statement 2) }
 
-private def zeroedMallocState3 (world : World) : MachineState :=
+private def zeroedMallocState3 (world : World) : Vars.State :=
   { globals := { world, memory := MemoryState.empty.push zeroedMallocAllocation }
-    locals := ((Locals.empty.assign zeroedMallocLoadSize 32).assign
+    environment := ((Locals.empty.assign zeroedMallocLoadSize 32).assign
       zeroedMallocLoadOffset 0).assign zeroedMallocLoadResult 0
     control := zeroedMallocControl .terminator }
 
-private def zeroedMallocState4 (world : World) : MachineState :=
+private def zeroedMallocState4 (world : World) : Vars.State :=
   { zeroedMallocState3 world with control := .halted }
 
 private theorem zeroedMallocEntry (world : World) :
@@ -76,12 +76,12 @@ private theorem zeroedMallocSteps (ctx : CallContext) (world : World) :
   have hadmissible : Machine.Operation.Admissible Machine.memoryPolicy .malloc
       (zeroedMallocState1 world).globals #[32] zeroedMallocAllocation :=
     ⟨32, rfl, ⟨hvalid, hsize⟩, hvalid, hsize, hzero⟩
-  have hfetchEmpty : (#[] : Array VarId).mapM ((zeroedMallocState0 world).locals.lookup ·) =
+  have hfetchEmpty : (#[] : Array VarId).mapM ((zeroedMallocState0 world).environment.lookup ·) =
       .ok #[] := by
     rw [Array.mapM_eq_mapM_toList]
     rfl
-  have hstoreSize : Locals.bindValues (zeroedMallocState0 world).locals
-      #[zeroedMallocLoadSize] #[32] = .ok (zeroedMallocState1 world).locals := by
+  have hstoreSize : Locals.bindValues (zeroedMallocState0 world).environment
+      #[zeroedMallocLoadSize] #[32] = .ok (zeroedMallocState1 world).environment := by
     simp only [zeroedMallocState0, zeroedMallocState1, Locals.bindValues,
       ← Array.forIn_toList, Array.toList_zip]
     rfl
@@ -98,11 +98,11 @@ private theorem zeroedMallocSteps (ctx : CallContext) (world : World) :
       (Machine.Operation.execute_constant_ok ctx 32 (zeroedMallocState0 world).globals #[])
       hstoreSize
   have hfetchSize : #[zeroedMallocLoadSize].mapM
-      ((zeroedMallocState1 world).locals.lookup ·) = .ok #[32] := by
+      ((zeroedMallocState1 world).environment.lookup ·) = .ok #[32] := by
     rw [Array.mapM_eq_mapM_toList]
     rfl
-  have hstoreOffset : Locals.bindValues (zeroedMallocState1 world).locals
-      #[zeroedMallocLoadOffset] #[0] = .ok (zeroedMallocState2 world).locals := by
+  have hstoreOffset : Locals.bindValues (zeroedMallocState1 world).environment
+      #[zeroedMallocLoadOffset] #[0] = .ok (zeroedMallocState2 world).environment := by
     simp only [zeroedMallocState1, zeroedMallocState2, Locals.bindValues,
       ← Array.forIn_toList, Array.toList_zip]
     rfl
@@ -127,11 +127,11 @@ private theorem zeroedMallocSteps (ctx : CallContext) (world : World) :
     simpa [zeroedMallocState1, zeroedMallocState2] using
       Machine.Operation.malloc_readBytes_zeroed_word hadmissible hcontains assumed
   have hfetchOffset : #[zeroedMallocLoadOffset].mapM
-      ((zeroedMallocState2 world).locals.lookup ·) = .ok #[0] := by
+      ((zeroedMallocState2 world).environment.lookup ·) = .ok #[0] := by
     rw [Array.mapM_eq_mapM_toList]
     rfl
-  have hstoreResult : Locals.bindValues (zeroedMallocState2 world).locals
-      #[zeroedMallocLoadResult] #[0] = .ok (zeroedMallocState3 world).locals := by
+  have hstoreResult : Locals.bindValues (zeroedMallocState2 world).environment
+      #[zeroedMallocLoadResult] #[0] = .ok (zeroedMallocState3 world).environment := by
     simp only [zeroedMallocState2, zeroedMallocState3, Locals.bindValues,
       ← Array.forIn_toList, Array.toList_zip]
     rfl
@@ -168,7 +168,7 @@ private theorem zeroedMallocSteps (ctx : CallContext) (world : World) :
 theorem zeroedMallocLoad_readsZero (ctx : CallContext) (world : World) :
     ∃ state,
       zeroedMallocLoad.RunsFunction ctx zeroedMallocLoadEntry { world := world } #[] [] state ∧
-      state.locals.lookup zeroedMallocLoadResult = .ok 0 ∧
+      state.environment.lookup zeroedMallocLoadResult = .ok 0 ∧
       state.control = .halted := by
   refine ⟨zeroedMallocState4 world, ⟨zeroedMallocState0 world,
     zeroedMallocEntry world, zeroedMallocSteps ctx world⟩, ?_, rfl⟩

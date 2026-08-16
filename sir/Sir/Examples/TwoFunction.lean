@@ -115,17 +115,17 @@ private theorem witness_evalFn_add2 (ctx : CallContext) (w : World) :
     Vars.EvalFn witnessAddProgram ctx
       witnessAdd2 { world := w } #[2, 3] [] ({ world := w } : Globals)
         (.returned #[5]) := by
-  let initial : MachineState :=
+  let initial : Vars.State :=
     { globals := { world := w }
-      locals := (Locals.empty.assign witnessX 2).assign witnessY 3
+      environment := (Locals.empty.assign witnessX 2).assign witnessY 3
       control := .running
         { fn := witnessAdd2, block := witnessAddBlock, position := .statement 0 } }
-  let afterAdd : MachineState :=
+  let afterAdd : Vars.State :=
     { globals := { world := w }
-      locals := ((Locals.empty.assign witnessX 2).assign witnessY 3).assign witnessZ 5
+      environment := ((Locals.empty.assign witnessX 2).assign witnessY 3).assign witnessZ 5
       control := .running
         { fn := witnessAdd2, block := witnessAddBlock, position := .terminator } }
-  let final : MachineState := { afterAdd with control := .returned #[5] }
+  let final : Vars.State := { afterAdd with control := .returned #[5] }
   have hentry : witnessAddProgram.callState? witnessAdd2 { world := w } #[2, 3] =
       some initial := by
     apply Vars.Program.callState?_eq_some_iff.mpr
@@ -144,7 +144,7 @@ private theorem witness_evalFn_add2 (ctx : CallContext) (w : World) :
     simp only [Locals.bindValues, ← Array.forIn_toList, Array.toList_zip]
     rfl
   have hadd : Machine.Step Vars.frame (Vars.decoder witnessAddProgram) Machine.memoryPolicy ctx
-      initial.toState [] afterAdd.toState := by
+      initial [] afterAdd := by
     apply step_assign (program := witnessAddProgram) (ctx := ctx) rfl
     simp only [Vars.decodeExpression, Machine.Instruction.Fires]
     exact fires_of hfetch (by trivial)
@@ -155,7 +155,7 @@ private theorem witness_evalFn_add2 (ctx : CallContext) (w : World) :
     rw [Array.mapM_eq_mapM_toList]
     rfl
   have hreturn : Machine.Step Vars.frame (Vars.decoder witnessAddProgram) Machine.memoryPolicy ctx
-      afterAdd.toState [] final.toState :=
+      afterAdd [] final :=
     step_terminator rfl (Vars.evaluateTerminator_iret_ok rfl rfl houtputs)
   exact Vars.EvalFn.returned hentry
     (Machine.Steps.tail (Machine.Steps.single hadd) hreturn) rfl
@@ -163,26 +163,27 @@ private theorem witness_evalFn_add2 (ctx : CallContext) (w : World) :
 private theorem witnessAddProgram_eval (ctx : CallContext) (w : World) :
     Vars.EvalFn witnessAddProgram ctx
       witnessMain { world := w } #[] [] ({ world := w } : Globals) .halted := by
-  let initial : MachineState :=
+  let initial : Vars.State :=
     { globals := { world := w }
+      environment := .empty
       control := .running
         { fn := witnessMain, block := witnessMainBlock, position := .statement 0 } }
-  let state₁ : MachineState :=
+  let state₁ : Vars.State :=
     { globals := { world := w }
-      locals := Locals.empty.assign witnessA 2
+      environment := Locals.empty.assign witnessA 2
       control := .running
         { fn := witnessMain, block := witnessMainBlock, position := .statement 1 } }
-  let state₂ : MachineState :=
+  let state₂ : Vars.State :=
     { globals := { world := w }
-      locals := (Locals.empty.assign witnessA 2).assign witnessB 3
+      environment := (Locals.empty.assign witnessA 2).assign witnessB 3
       control := .running
         { fn := witnessMain, block := witnessMainBlock, position := .statement 2 } }
-  let state₃ : MachineState :=
+  let state₃ : Vars.State :=
     { globals := { world := w }
-      locals := ((Locals.empty.assign witnessA 2).assign witnessB 3).assign witnessR 5
+      environment := ((Locals.empty.assign witnessA 2).assign witnessB 3).assign witnessR 5
       control := .running
         { fn := witnessMain, block := witnessMainBlock, position := .terminator } }
-  let final : MachineState := { state₃ with control := .halted }
+  let final : Vars.State := { state₃ with control := .halted }
   have hentry : witnessAddProgram.callState? witnessMain { world := w } #[] = some initial := by
     apply Vars.Program.callState?_eq_some_iff.mpr
     refine ⟨_, _, Locals.empty, rfl, rfl, ?_, rfl⟩
@@ -198,7 +199,7 @@ private theorem witnessAddProgram_eval (ctx : CallContext) (w : World) :
     simp only [Locals.bindValues, ← Array.forIn_toList, Array.toList_zip]
     rfl
   have hstep₁ : Machine.Step Vars.frame (Vars.decoder witnessAddProgram) Machine.memoryPolicy ctx
-      initial.toState [] state₁.toState := by
+      initial [] state₁ := by
     apply step_assign (program := witnessAddProgram) (ctx := ctx) rfl
     simp only [Vars.decodeExpression, Machine.Instruction.Fires]
     exact fires_of (hfetchEmpty Locals.empty) (by trivial)
@@ -208,7 +209,7 @@ private theorem witnessAddProgram_eval (ctx : CallContext) (w : World) :
     simp only [Locals.bindValues, ← Array.forIn_toList, Array.toList_zip]
     rfl
   have hstep₂ : Machine.Step Vars.frame (Vars.decoder witnessAddProgram) Machine.memoryPolicy ctx
-      state₁.toState [] state₂.toState := by
+      state₁ [] state₂ := by
     apply step_assign (program := witnessAddProgram) (ctx := ctx) rfl
     simp only [Vars.decodeExpression, Machine.Instruction.Fires]
     exact fires_of (hfetchEmpty (Locals.empty.assign witnessA 2)) (by trivial)
@@ -224,10 +225,10 @@ private theorem witnessAddProgram_eval (ctx : CallContext) (w : World) :
       Array.toList_zip]
     rfl
   have hstep₃ : Machine.Step Vars.frame (Vars.decoder witnessAddProgram) Machine.memoryPolicy ctx
-      state₂.toState [] state₃.toState :=
+      state₂ [] state₃ :=
     step_icall rfl hargs (witness_evalFn_add2 ctx w) hbind
   have hstep₄ : Machine.Step Vars.frame (Vars.decoder witnessAddProgram) Machine.memoryPolicy ctx
-      state₃.toState [] final.toState := step_terminator rfl rfl
+      state₃ [] final := step_terminator rfl rfl
   exact Vars.EvalFn.halted hentry
     (.tail (.tail (.tail (Machine.Steps.single hstep₁) hstep₂) hstep₃) hstep₄) rfl
 

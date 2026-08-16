@@ -92,11 +92,13 @@ theorem haltedCallProgram_wellFormed : haltedCallProgram.WellFormed := by
 private theorem haltedCall_evalCallee (ctx : CallContext) (world : World) :
     Vars.EvalFn haltedCallProgram ctx
       haltedCallCallee { world := world } #[] [] ({ world := world } : Globals) .halted := by
-  let initial : MachineState :=
+  let initial : Vars.State :=
     { globals := { world := world }
+      environment := .empty
       control := .running
         { fn := haltedCallCallee, block := haltedCallCalleeBlock, position := .terminator } }
-  let final : MachineState := { globals := { world := world }, control := .halted }
+  let final : Vars.State :=
+    { globals := { world := world }, environment := .empty, control := .halted }
   have hentry : haltedCallProgram.callState? haltedCallCallee { world := world } #[] =
       some initial := by
     apply Vars.Program.callState?_eq_some_iff.mpr
@@ -105,17 +107,19 @@ private theorem haltedCall_evalCallee (ctx : CallContext) (world : World) :
       Array.toList_zip]
     rfl
   have hstep : Machine.Step Vars.frame (Vars.decoder haltedCallProgram) Machine.memoryPolicy ctx
-      initial.toState [] final.toState := step_terminator rfl rfl
+      initial [] final := step_terminator rfl rfl
   exact Vars.EvalFn.halted hentry (Machine.Steps.single hstep) rfl
 
 private theorem haltedCallProgram_eval (ctx : CallContext) (world : World) :
     Vars.EvalFn haltedCallProgram ctx
       haltedCallCaller { world := world } #[] [] ({ world := world } : Globals) .halted := by
-  let initial : MachineState :=
+  let initial : Vars.State :=
     { globals := { world := world }
+      environment := .empty
       control := .running
         { fn := haltedCallCaller, block := haltedCallCallerBlock, position := .statement 0 } }
-  let final : MachineState := { globals := { world := world }, control := .halted }
+  let final : Vars.State :=
+    { globals := { world := world }, environment := .empty, control := .halted }
   have hentry : haltedCallProgram.callState? haltedCallCaller { world := world } #[] =
       some initial := by
     apply Vars.Program.callState?_eq_some_iff.mpr
@@ -123,11 +127,11 @@ private theorem haltedCallProgram_eval (ctx : CallContext) (world : World) :
     simp only [Locals.bindParams, Locals.bindValues, ← Array.forIn_toList,
       Array.toList_zip]
     rfl
-  have hargs : (#[] : Array VarId).mapM (initial.locals.lookup ·) = .ok #[] := by
+  have hargs : (#[] : Array VarId).mapM (initial.environment.lookup ·) = .ok #[] := by
     rw [Array.mapM_eq_mapM_toList]
     rfl
   have hstep : Machine.Step Vars.frame (Vars.decoder haltedCallProgram) Machine.memoryPolicy ctx
-      initial.toState [] final.toState :=
+      initial [] final :=
     step_icallHalted rfl hargs (haltedCall_evalCallee ctx world)
   exact Vars.EvalFn.halted hentry (Machine.Steps.single hstep) rfl
 

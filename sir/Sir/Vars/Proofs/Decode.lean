@@ -6,7 +6,7 @@ variable {program : Vars.Program}
 
 theorem Vars.Program.callState?_eq_some_iff
     {p : Vars.Program} {f : FunctionId} {g : Globals} {args : Array Word}
-    {s : MachineState} :
+    {s : Vars.State} :
     p.callState? f g args = some s ↔
       ∃ fn bb locals₀, p.function? f = some fn ∧
         fn.block? fn.entry = some bb ∧
@@ -193,7 +193,7 @@ theorem Vars.decode_inv
 @[simp]
 theorem Vars.entry_eq (function : FunctionId) (globals : Globals) (args : Array Word) :
     (Vars.decoder program).entry function globals args =
-      (program.callState? function globals args).map MachineState.toState := rfl
+      program.callState? function globals args := rfl
 
 theorem Vars.control_inv
     {env env' : Locals} {globals globals' : Globals}
@@ -202,20 +202,20 @@ theorem Vars.control_inv
       ∃ terminator state',
         program.terminatorAt control = some terminator ∧
         (Vars.evaluateTerminator program terminator).run
-            { globals := globals, locals := env, control := control } = .ok ((), state') ∧
-        trace = [] ∧ env' = state'.locals ∧ globals' = state'.globals ∧
+            { globals := globals, environment := env, control := control } = .ok ((), state') ∧
+        trace = [] ∧ env' = state'.environment ∧ globals' = state'.globals ∧
         control' = state'.control := by
   constructor
   · intro h
     change ((program.terminatorAt control).bind fun terminator =>
       match (Vars.evaluateTerminator program terminator).run
-          { globals := globals, locals := env, control := control } with
-      | .ok ((), state') => some ([], state'.locals, state'.globals, state'.control)
+          { globals := globals, environment := env, control := control } with
+      | .ok ((), state') => some ([], state'.environment, state'.globals, state'.control)
       | _ => none) = some (trace, env', globals', control') at h
     rw [Option.bind_eq_some_iff] at h
     obtain ⟨terminator, hterminator, h⟩ := h
     cases heval : (Vars.evaluateTerminator program terminator).run
-        { globals := globals, locals := env, control := control } with
+        { globals := globals, environment := env, control := control } with
     | error error => simp [heval] at h
     | ok result =>
       obtain ⟨resultUnit, state'⟩ := result
@@ -226,9 +226,9 @@ theorem Vars.control_inv
   · rintro ⟨terminator, state', hterminator, heval, rfl, rfl, rfl, rfl⟩
     change ((program.terminatorAt control).bind fun terminator =>
       match (Vars.evaluateTerminator program terminator).run
-          { globals := globals, locals := env, control := control } with
-      | .ok ((), state') => some ([], state'.locals, state'.globals, state'.control)
-      | _ => none) = some ([], state'.locals, state'.globals, state'.control)
+          { globals := globals, environment := env, control := control } with
+      | .ok ((), state') => some ([], state'.environment, state'.globals, state'.control)
+      | _ => none) = some ([], state'.environment, state'.globals, state'.control)
     rw [Option.bind_eq_some_iff]
     exact ⟨terminator, hterminator, by simp [heval]⟩
 
