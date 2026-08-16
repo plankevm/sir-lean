@@ -1,6 +1,3 @@
-import Sir.Lowering.Proofs.Paths
-import Sir.Vars.Proofs.Determinism
-import Sir.Vars.Proofs.Steps
 import Sir.Theorems
 
 namespace Sir.Lowering
