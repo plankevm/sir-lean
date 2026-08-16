@@ -234,7 +234,7 @@ private theorem initialized_step_closed {ctx : CallContext} {world : World}
     trace = [] ∧ InitializedReachable ctx world
       { globals := final.globals, locals := final.environment, control := final.control } := by
   cases hstate <;> cases hstep
-  all_goals try { exact (firesHalt_false (ctx := ctx) (by assumption)).elim }
+  all_goals try { exact (Machine.OperandFrame.firesHalt_false _ (by assumption)).elim }
   all_goals simp_all [Vars.decoder, Vars.decode, Vars.control, initializedLoad,
     Vars.Program.decodeStmt, Vars.Program.terminatorAt, Vars.Program.block?, Vars.Program.function?,
     Vars.Function.block?, Vars.Block.absoluteToPosition, Vars.decodeStatement, Vars.decodeExpression,

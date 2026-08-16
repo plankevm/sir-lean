@@ -103,17 +103,6 @@ theorem fires_of
     Vars.frame.Fires Machine.memoryPolicy ctx operation src dst env globals trace env' globals' :=
   .next hadmissible hfetch hexecute hstore
 
-theorem firesHalt_false
-    {operation : Operation} {src : Array VarId} {env : Locals}
-    {globals globals' : Globals} {trace : Trace}
-    (h : Vars.frame.FiresHalt Machine.memoryPolicy ctx operation src env globals trace globals') :
-    False := by
-  cases h with
-  | halted hadmissible hfetch hexecute =>
-      cases operation <;> simp only [Machine.Operation.execute] at hexecute
-      all_goals repeat' first | split at hexecute
-      all_goals simp_all [pure, Except.pure, bind, Except.bind]
-
 def Machine.Instruction.Fires {frame : OperandFrame} (instruction : Instruction frame)
     (policy : MemoryPolicy) (ctx : CallContext) (env : frame.Environment) (globals : Globals)
     (trace : Trace) (env' : frame.Environment) (globals' : Globals) : Prop :=

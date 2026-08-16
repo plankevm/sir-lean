@@ -42,6 +42,14 @@ namespace Operation
 def Outcome.trace : Outcome → Trace
   | .next _ _ trace | .halted _ trace => trace
 
+theorem execute_ne_halted {ctx : CallContext} {operation : Operation}
+    {oracle : operation.Oracle} {globals globals' : Globals} {operands : Array Word}
+    {trace : Trace} :
+    operation.execute ctx oracle globals operands ≠ .ok (.halted globals' trace) := by
+  intro h
+  cases operation <;> simp only [execute, pure, Except.pure] at h <;>
+    (repeat' split at h) <;> cases h
+
 private theorem executeCallInv {ctx : CallContext} {result : CallResult}
     {globals : Globals} {operands : Array Word} {outcome : Outcome}
     (h : @Operation.execute ctx Operation.call result globals operands = .ok outcome) :
@@ -130,6 +138,13 @@ theorem execute_dialogue {policy : MemoryPolicy} (ctx : CallContext)
 end Operation
 
 namespace OperandFrame
+
+theorem firesHalt_false (frame : OperandFrame) {policy : MemoryPolicy} {ctx : CallContext}
+    {operation : Operation} {src : frame.Source} {env : frame.Environment}
+    {globals globals' : Globals} {trace : Trace}
+    (h : frame.FiresHalt policy ctx operation src env globals trace globals') : False := by
+  cases h with
+  | halted _ _ hexecute => exact Operation.execute_ne_halted hexecute
 
 theorem fires_dialogue (frame : OperandFrame) {policy : MemoryPolicy}
     {operation : Operation}
