@@ -155,19 +155,16 @@ def PreservesInterning {α : Type} (action : ParserM α) (occurrences : α → L
 theorem internVariable_preserves (name : String) :
     PreservesInterning (internVariable name) (fun identifier => [identifier]) := by
   intro names prior identifier finalNames invariant run
-  simp [internVariable, StateT.run, bind, StateT.bind, get, getThe,
-    MonadStateOf.get, StateT.get, set, StateT.set, modifyGet,
-    MonadStateOf.modifyGet, StateT.modifyGet, pure, StateT.pure,
-    Except.pure, Except.bind] at run
+  simp [internVariable, StateT.run, bind, StateT.bind, get, getThe, MonadStateOf.get, StateT.get,
+    set, pure, Except.pure, Except.bind] at run
   generalize foundEq : names.findIdx? (· == name) = found at run
   cases found with
   | none =>
-      simp [StateT.run, bind, StateT.bind, set, StateT.set, pure,
-        StateT.pure, Except.pure, Except.bind] at run
+      simp [bind, StateT.bind, StateT.set, pure, StateT.pure, Except.pure, Except.bind] at run
       rcases run with ⟨rfl, rfl⟩
       exact InterningInvariant.fresh invariant
   | some index =>
-      simp [StateT.run, pure, StateT.pure, Except.pure] at run
+      simp [pure, StateT.pure, Except.pure] at run
       rcases run with ⟨rfl, rfl⟩
       apply InterningInvariant.existing invariant
       exact (List.findIdx?_eq_some_iff_findIdx_eq.mp foundEq).1
@@ -191,7 +188,7 @@ private theorem run_bind_ok {α β : Type} {action : ParserM α}
   cases firstRun : action.run initial with
   | error message => simp [firstRun, bind, Except.bind] at run
   | ok pair =>
-      refine ⟨pair.1, pair.2, by simpa only [Prod.eta] using firstRun, ?_⟩
+      refine ⟨pair.1, pair.2, by simp only [Prod.eta], ?_⟩
       simpa [firstRun] using run
 
 theorem variableList_preserves (tokens : List Token) :
@@ -220,7 +217,7 @@ theorem variableList_preserves (tokens : List Token) :
       | _ =>
           intro names prior identifiers finalNames invariant run
           simp [variableList, StateT.run, throw, throwThe, MonadExceptOf.throw,
-            StateT.lift, Except.bind] at run
+            StateT.lift] at run
 
 def statementOccurrences (statements : List Stmt) : List VarId :=
   statements.flatMap Stmt.variableOccurrences
@@ -593,7 +590,7 @@ theorem parseStatement_preserves (functions : List String) (line : Line) :
                         | _ =>
                             simp [resultListEq, StateT.run, throw, throwThe,
                               MonadExceptOf.throw, StateT.lift] at followingRun
-          · simp only [constant] at run
+          · simp only at run
             obtain ⟨liftedResult, liftedNames, liftedRun, afterLiftRun⟩ :=
               run_bind_ok run
             rcases liftedResult with ⟨lifted, liftedTokens⟩
@@ -623,8 +620,8 @@ private theorem resolveBlock_preserves_state {blocks : List String} {name : Stri
   generalize foundEq : blocks.findIdx? (· == name) = found at run
   cases found with
   | none =>
-      simp [StateT.run, bind, Except.bind, pure, StateT.pure, Except.pure,
-        throw, throwThe, MonadExceptOf.throw, StateT.lift] at run
+      simp [StateT.run, bind, Except.bind, throw, throwThe, MonadExceptOf.throw,
+        StateT.lift] at run
   | some index =>
       simp [StateT.run, pure, StateT.pure, Except.pure] at run
       exact run.2.symm
@@ -760,7 +757,7 @@ theorem mapM_parseBlock_preserves (functions blocks : List String)
   induction groups with
   | nil =>
       intro names prior parsed finalNames invariant run
-      simp [StateT.run, pure, StateT.pure, Except.pure, blocksOccurrences] at run
+      simp [StateT.run, pure, StateT.pure, Except.pure] at run
       rcases run with ⟨rfl, rfl⟩
       change InterningInvariant names (prior ++ [])
       simpa using invariant
@@ -794,15 +791,13 @@ theorem parseFunction_preserves (functions : List String) (body : List Line) :
       generalize blocksEq : groups.mapM (fun group => blockHeaderName group.fst) =
         blocksResult at run
       cases blocksResult with
-      | error message => simp [Except.bind] at run
+      | error message => simp at run
       | ok blockNames =>
           by_cases duplicates : hasDuplicates blockNames
-          · simp [duplicates, StateT.run, bind, StateT.bind, pure, StateT.pure,
-              Except.pure, Except.bind, throw, throwThe, MonadExceptOf.throw,
-              StateT.lift] at run
-          · simp [duplicates, StateT.run, bind, StateT.bind, pure, StateT.pure,
-              Except.pure, Except.bind, throw, throwThe, MonadExceptOf.throw,
-              StateT.lift] at run
+          · simp [duplicates, bind, StateT.bind, pure, Except.pure, Except.bind, throw, throwThe,
+              MonadExceptOf.throw, StateT.lift] at run
+          · simp [duplicates, bind, StateT.bind, pure, StateT.pure, Except.pure,
+              Except.bind] at run
             generalize parsedEq :
               (groups.mapM fun group => parseBlock functions blockNames group.fst group.snd)
                 names = parsedResult
@@ -831,7 +826,7 @@ theorem mapM_parseFunction_preserves (names : List String)
   induction groups with
   | nil =>
       intro stateNames prior parsed finalNames invariant run
-      simp [StateT.run, pure, StateT.pure, Except.pure, functionsOccurrences] at run
+      simp [StateT.run, pure, StateT.pure, Except.pure] at run
       rcases run with ⟨rfl, rfl⟩
       simpa [functionsOccurrences] using invariant
   | cons group rest induction =>
@@ -864,7 +859,7 @@ theorem parseTokens_canonical {tokens : List Token} {program : Program}
           (parseFunctionGroupsList names groups).run [] = functionsResult
           at parsed
         cases functionsResult with
-        | error message => simp [bind, Except.bind, pure, Except.pure] at parsed
+        | error message => simp [pure, Except.pure] at parsed
         | ok result =>
             rcases result with ⟨functions, finalNames⟩
             have invariant := mapM_parseFunction_preserves names groups [] [] functions
@@ -876,14 +871,14 @@ theorem parseTokens_canonical {tokens : List Token} {program : Program}
                 have groupInitEq :
                     groups.findIdx? ((fun name => name == "init") ∘ Prod.fst) = none := by
                   simpa [names, List.findIdx?_map, Function.comp_def] using initEq
-                simp only [bind, Except.bind, pure, Except.pure] at parsed
+                simp only [pure, Except.pure] at parsed
                 rw [groupInitEq] at parsed
                 contradiction
             | some initEntry =>
                 have groupInitEq :
                     groups.findIdx? ((fun name => name == "init") ∘ Prod.fst) = some initEntry := by
                   simpa [names, List.findIdx?_map, Function.comp_def] using initEq
-                simp only [bind, Except.bind, pure, Except.pure] at parsed
+                simp only [pure, Except.pure] at parsed
                 rw [groupInitEq] at parsed
                 simp only [Except.ok.injEq] at parsed
                 subst program

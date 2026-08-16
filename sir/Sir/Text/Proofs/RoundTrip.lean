@@ -169,7 +169,7 @@ private theorem programLines_noNewline (program : Program) :
         cases value <;>
           simp [stmtTokens, definitionTokens, exprTokens, variableTokens, variableToken]
     | sstore | gas | call | malloc | mallocUninit | mstore32 | mload32 | icall =>
-        simp [stmtTokens, definitionTokens, exprTokens, variableTokens, variableToken]
+        simp [stmtTokens, definitionTokens, variableTokens, variableToken]
   rcases following with rfl | following
   · cases block.terminator <;>
       simp [terminatorTokens, variableToken]
@@ -303,7 +303,7 @@ private theorem splitFunctions_programLines (program : Program) :
 
 private theorem functionName_injective {program : Program} (printable : program.Printable)
     {left right : FunctionId}
-    (leftBound : left.id < program.functions.size)
+    (_leftBound : left.id < program.functions.size)
     (rightBound : right.id < program.functions.size)
     (equality : functionName program left = functionName program right) :
     left = right := by
@@ -312,16 +312,20 @@ private theorem functionName_injective {program : Program} (printable : program.
   | none =>
       by_cases leftInit : left = program.initEntry <;>
         by_cases rightInit : right = program.initEntry <;>
-        simp_all [functionName, eq_comm] <;>
-        cases left <;> cases right <;> simp_all
+        simp_all [functionName, eq_comm]
+      cases left
+      cases right
+      simp_all
   | some mainEntry =>
       simp [mainEq] at mainValid
       by_cases leftInit : left = program.initEntry <;>
         by_cases rightInit : right = program.initEntry <;>
         by_cases leftMain : left = mainEntry <;>
         by_cases rightMain : right = mainEntry <;>
-        simp_all [functionName, eq_comm] <;>
-        cases left <;> cases right <;> simp_all
+        simp_all [functionName, eq_comm]
+      cases left
+      cases right
+      simp_all
 
 private theorem printedFunctionNames_eq (program : Program) :
     printedFunctionNames program =
@@ -384,7 +388,7 @@ private theorem printedVariableNames_findIdx (identifiers : List VarId)
   rw [printedVariableNames, List.findIdx?_map]
   apply congrArg (fun predicate => identifiers.eraseDups.findIdx? predicate)
   funext other
-  simp [Function.comp_def]
+  simp
 
 private theorem singleton_removeAll_eq_nil {identifier : VarId} {identifiers : List VarId}
     (member : identifier ∈ identifiers) :
@@ -416,10 +420,8 @@ private theorem internVariable_printed (prior : List VarId) (identifier : VarId)
     (internVariable (variableName identifier)).run (printedVariableNames prior) =
       .ok (⟨prior.eraseDups.idxOf identifier⟩,
         printedVariableNames (prior ++ [identifier])) := by
-  simp only [internVariable, StateT.run, bind, StateT.bind, get, getThe,
-    MonadStateOf.get, StateT.get, set, StateT.set, modifyGet,
-    MonadStateOf.modifyGet, StateT.modifyGet, pure, StateT.pure,
-    Except.pure, Except.bind]
+  simp only [internVariable, StateT.run, bind, StateT.bind, get, getThe, MonadStateOf.get,
+    StateT.get, set, pure, Except.pure, Except.bind]
   rw [printedVariableNames_findIdx]
   by_cases member : identifier ∈ prior
   · have eraseMember : identifier ∈ prior.eraseDups :=
@@ -434,8 +436,7 @@ private theorem internVariable_printed (prior : List VarId) (identifier : VarId)
         printedVariableNames prior by
       simp [printedVariableNames, List.eraseDups_append,
         singleton_removeAll_eq_nil member]]
-    simp [StateT.run, bind, StateT.bind, set, StateT.set, pure, StateT.pure,
-      Except.pure, Except.bind]
+    simp [pure, StateT.pure, Except.pure]
   · have eraseNotMember : identifier ∉ prior.eraseDups := by
       simpa using member
     rw [List.idxOf?_eq_none_iff.mpr eraseNotMember]
@@ -446,9 +447,8 @@ private theorem internVariable_printed (prior : List VarId) (identifier : VarId)
       simp only [List.eraseDups_cons, List.filter_nil, List.eraseDups_nil,
         List.map_append, List.map_singleton]
       rfl]
-    simp [StateT.run, bind, StateT.bind, set, StateT.set, pure, StateT.pure,
-      Except.pure, Except.bind, printedVariableNames,
-      List.idxOf_eq_length eraseNotMember]
+    simp [bind, StateT.bind, StateT.set, pure, StateT.pure, Except.pure, Except.bind,
+      printedVariableNames, List.idxOf_eq_length eraseNotMember]
 
 private theorem eraseDups_idxOf_of_prefix {listPrefix full : List VarId}
     {identifier : VarId} (isPrefix : listPrefix <+: full)
@@ -463,11 +463,11 @@ private theorem eraseDups_idxOf_append_self (prior : List VarId) (identifier : V
       prior.eraseDups.idxOf identifier := by
   by_cases member : identifier ∈ prior
   · rw [List.eraseDups_append, singleton_removeAll_eq_nil member]
-    simp [List.idxOf_append, List.mem_eraseDups.mpr member]
+    simp
   · have eraseNotMember : identifier ∉ prior.eraseDups := by simpa using member
     rw [List.eraseDups_append, singleton_removeAll_eq_self member,
       List.eraseDups_cons]
-    simp [List.idxOf_append, eraseNotMember, List.idxOf_eq_length eraseNotMember]
+    simp [List.idxOf_append, eraseNotMember]
 
 private theorem internVariable_canonical (full prior : List VarId) (identifier : VarId)
     (isPrefix : prior ++ [identifier] <+: full) :
@@ -507,7 +507,7 @@ private theorem variableList_printed (full prior identifiers : List VarId)
             (⟨full.eraseDups.idxOf identifier⟩ : VarId)).toArray,
           printedVariableNames ((prior ++ [identifier]) ++ following)) from
         induction (prior ++ [identifier]) tailPrefix]
-      simp [StateT.run, pure, StateT.pure, Except.pure, List.append_assoc]
+      simp [List.append_assoc]
 
 private def canonicalRename (full : List VarId) (identifier : VarId) : VarId :=
   ⟨full.eraseDups.idxOf identifier⟩
@@ -527,8 +527,7 @@ private theorem span_variableTokens_end_aux (identifiers : List VarId)
   induction identifiers generalizing accumulated with
   | nil => simp [List.span.loop]
   | cons identifier following induction =>
-      simp only [List.map_cons, variableToken, List.span.loop, identifier_ne_equals,
-        if_true]
+      simp only [List.map_cons, variableToken, List.span.loop, identifier_ne_equals]
       rw [induction (Token.identifier (variableName identifier) :: accumulated)]
       simp
 
@@ -546,7 +545,7 @@ private theorem span_variableTokens_equals_aux (identifiers : List VarId)
   | nil => simp [List.span.loop]
   | cons identifier following induction =>
       simp only [List.map_cons, List.cons_append, variableToken, List.span.loop,
-        identifier_ne_equals, if_true]
+        identifier_ne_equals]
       rw [induction (Token.identifier (variableName identifier) :: accumulated)]
       simp
 
@@ -560,7 +559,7 @@ private theorem statementParts_icall_no_results (name : String) (args : List Var
         (Token.identifier "icall" :: Token.label name :: args.map variableToken) =
       ([], Token.identifier "icall" :: Token.label name :: args.map variableToken) := by
   rw [statementParts]
-  simp only [List.span, List.span.loop, identifier_ne_equals, label_ne_equals, if_true]
+  simp only [List.span, List.span.loop, identifier_ne_equals, label_ne_equals]
   rw [span_variableTokens_end_aux args [Token.label name, Token.identifier "icall"]]
 
 private theorem statementParts_results (results : List VarId) (rest : List Token) :
@@ -598,12 +597,12 @@ private theorem parseStatement_assign_constant (functions : List String)
         printedVariableNames (prior ++ [result])) := by
   simp [stmtTokens, definitionTokens, exprTokens, parseStatement, statementParts,
     variableTokens, variableToken, List.span, List.span.loop]
-  simp only [StateT.run, bind, StateT.bind, Except.bind]
+  simp only [StateT.run, bind, Except.bind]
   rw [show variableList [Token.identifier (variableName result)]
       (printedVariableNames prior) =
       .ok (#[canonicalRename full result], printedVariableNames (prior ++ [result])) from by
     simpa [canonicalRename] using variableList_printed full prior [result] isPrefix]
-  simp [StateT.run, pure, StateT.pure, Except.pure]
+  simp [pure, StateT.pure, Except.pure]
 
 @[simp] private theorem liftNumbers_variableTokens (identifiers : List VarId)
     (names : List String) :
@@ -622,7 +621,7 @@ private theorem liftNumbers_icall (name : String) (identifiers : List VarId)
     (names : List String) :
     liftNumbers (Token.label name :: identifiers.map variableToken) names =
       .ok (([], Token.label name :: identifiers.map variableToken), names) := by
-  simp only [liftNumbers, StateT.run, bind, StateT.bind, Except.bind]
+  simp only [liftNumbers, bind, StateT.bind, Except.bind]
   rw [show liftNumbers (identifiers.map variableToken) names =
       .ok (([], identifiers.map variableToken), names) from
     liftNumbers_variableTokens identifiers names]
@@ -655,7 +654,7 @@ private theorem operands_printed (full prior identifiers : List VarId)
         operand_printed full prior identifier
         ((show prior ++ [identifier] <+: prior ++ identifier :: following from
           ⟨following, by simp⟩).trans isPrefix)]
-      simp only [Except.bind]
+      simp only
       rw [show operands (following.map variableToken)
             (printedVariableNames (prior ++ [identifier])) =
           .ok (([], following.map (canonicalRename full) |>.toArray),
@@ -1084,9 +1083,9 @@ private theorem parseTerminator_printed (function : Function) (full prior : List
           .ok (canonicalRename full condition, printedVariableNames (prior ++ [condition])) from by
         simpa [canonicalRename] using
           internVariable_canonical full prior condition isPrefix]
-      simp only [Except.bind]
+      simp only
       rw [printedBlockNames_findIdx function thenTarget thenBound]
-      simp only [Except.bind]
+      simp only
       rw [printedBlockNames_findIdx function elseTarget elseBound]
       simp [pure, StateT.pure, Except.pure]
 
@@ -1116,7 +1115,7 @@ private theorem parseBlockBody_printed (program : Program) (printable : program.
             printedVariableNames (prior ++ terminator.variableOccurrences)) from
         parseTerminator_printed function full prior terminator terminatorReferences
           (by simpa using isPrefix)]
-      simp [StateT.run, pure, StateT.pure, Except.pure]
+      simp [pure, StateT.pure, Except.pure]
   | cons statement following induction =>
       simp only [List.map_cons, List.cons_append, List.flatMap_cons] at isPrefix ⊢
       have isPrefix' : prior ++ statement.variableOccurrences ++
@@ -1137,7 +1136,7 @@ private theorem parseBlockBody_printed (program : Program) (printable : program.
                   terminator.variableOccurrences from
             ⟨following.flatMap Stmt.variableOccurrences ++ terminator.variableOccurrences,
               by simp [List.append_assoc]⟩).trans isPrefix')]
-      simp only [Except.bind]
+      simp only
       rw [show parseBlockBody (printedFunctionNames program) (printedBlockNames function)
             (following.map (stmtTokens program) ++ [terminatorTokens terminator])
             (printedVariableNames (prior ++ statement.variableOccurrences)) =
@@ -1162,7 +1161,7 @@ private theorem spanVariableTokensToEndAux (identifiers : List VarId)
   induction identifiers generalizing accumulated with
   | nil => simp [List.span.loop]
   | cons identifier following induction =>
-      simp only [List.map_cons, List.span.loop, variableToken_ne_arrow, if_true]
+      simp only [List.map_cons, List.span.loop, variableToken_ne_arrow]
       rw [induction (variableToken identifier :: accumulated)]
       simp
 
@@ -1179,8 +1178,7 @@ private theorem spanVariableTokensToArrowAux (identifiers : List VarId)
   induction identifiers generalizing accumulated with
   | nil => simp [List.span.loop]
   | cons identifier following induction =>
-      simp only [List.map_cons, List.cons_append, List.span.loop, variableToken_ne_arrow,
-        if_true]
+      simp only [List.map_cons, List.cons_append, List.span.loop, variableToken_ne_arrow]
       rw [induction (variableToken identifier :: accumulated)]
       simp
 
@@ -1206,7 +1204,7 @@ private theorem parseBlockHeader_printed (full prior : List VarId) (identifier :
   cases outputs with
   | nil =>
     simp only [List.append_nil] at isPrefix ⊢
-    simp [parseBlockHeader, variableTokens, spanVariableTokensToEnd]
+    simp [parseBlockHeader, variableTokens]
     rw [← List.span_eq_takeWhile_dropWhile, spanVariableTokensToEnd]
     simp only
     rw [show StateT.run (variableList (inputs.map variableToken))
@@ -1215,8 +1213,8 @@ private theorem parseBlockHeader_printed (full prior : List VarId) (identifier :
           printedVariableNames (prior ++ inputs)) from
       variableList_printed full prior inputs (by
         simpa using isPrefix)]
-    simp [variableList, StateT.run, bind, StateT.bind, pure, StateT.pure,
-      Except.bind, Except.pure, Functor.map, Except.map, StateT.map]
+    simp [variableList, StateT.run, bind, pure, StateT.pure, Except.bind, Except.pure,
+      Functor.map, Except.map]
   | cons output following =>
     simp only at isPrefix ⊢
     simp [parseBlockHeader, variableTokens]
@@ -1238,7 +1236,7 @@ private theorem parseBlockHeader_printed (full prior : List VarId) (identifier :
       simpa [List.map_cons] using
         variableList_printed full (prior ++ inputs) (output :: following)
           (by simpa [List.append_assoc] using isPrefix)]
-    simp [StateT.run, pure, StateT.pure, Except.pure, List.append_assoc]
+    simp [List.append_assoc]
 
 private theorem parseBlock_printed (program : Program) (printable : program.Printable)
     (function : Function) (full prior : List VarId) (identifier : BlockId)
@@ -1270,7 +1268,7 @@ private theorem parseBlock_printed (program : Program) (printable : program.Prin
         ⟨block.statements.toList.flatMap Stmt.variableOccurrences ++
             block.terminator.variableOccurrences,
           by simp [Block.variableOccurrences, List.append_assoc]⟩).trans isPrefix)]
-  simp only [Except.bind]
+  simp only
   rw [show parseBlockBody (printedFunctionNames program) (printedBlockNames function)
         (block.statements.toList.map (stmtTokens program) ++
           [terminatorTokens block.terminator])
@@ -1296,8 +1294,8 @@ private theorem parseBlock_printed (program : Program) (printable : program.Prin
     cases block.statements
     simp
   rw [statementMap]
-  simp [Block.renameVariables, Block.variableOccurrences, StateT.run, bind,
-    pure, StateT.pure, Except.bind, Except.pure, List.append_assoc]
+  simp [Block.renameVariables, Block.variableOccurrences, pure, StateT.pure, Except.pure,
+    List.append_assoc]
 
 private def printedBlockHeader (identifier : BlockId) (block : Block) : Line :=
   [Token.identifier (blockName identifier)] ++ variableTokens block.inputs ++
@@ -1418,7 +1416,7 @@ private theorem hasDuplicates_blockNames (identifiers : List Nat)
         cases contained : (following.map fun followingIdentifier =>
             blockName ⟨followingIdentifier⟩).contains (blockName ⟨identifier⟩) with
         | false => rfl
-        | true => exact False.elim (notMember (List.contains_iff.mp contained))
+        | true => exact False.elim (notMember (List.contains_iff_mem.mp contained))
       rw [List.map_cons, hasDuplicates.eq_def]
       simp only
       rw [notContained, induction nodup.2]
@@ -1488,7 +1486,7 @@ private theorem mapM_parseBlock_printed (program : Program) (printable : program
                   following.flatMap (fun pair => pair.1.variableOccurrences) from
               ⟨following.flatMap (fun pair => pair.1.variableOccurrences), rfl⟩).trans
                 (by simpa [List.append_assoc] using isPrefix))]
-      simp only [Except.bind]
+      simp only
       rw [show ((following.map fun pair =>
             (printedBlockHeader ⟨pair.2⟩ pair.1,
               printedBlockBody program pair.1)).mapM
@@ -1516,13 +1514,11 @@ private theorem parseFunctionGroups_printed (program : Program)
   rcases functionPrintable with ⟨entryZero, references⟩
   simp only [parseFunctionGroups, StateT.run, bind, StateT.bind, Except.bind]
   rw [mapM_blockHeaderName_printedBlockGroups program function]
-  simp only [StateT.run, bind, StateT.bind, liftM, monadLift, MonadLift.monadLift,
-    StateT.lift, Except.bind]
-  simp only [pure, Except.pure, Except.bind]
+  simp only [bind, liftM, monadLift, MonadLift.monadLift, StateT.lift, Except.bind]
+  simp only [pure, Except.pure]
   rw [printedBlockNames_noDuplicates function]
   simp only [Bool.false_eq_true, if_false]
-  simp only [StateT.run, bind, StateT.bind, pure, StateT.pure, Except.pure,
-    Except.bind]
+  simp only [bind, StateT.bind, pure, StateT.pure, Except.pure, Except.bind]
   rw [show ((printedBlockGroups program function).mapM fun group =>
         parseBlock (printedFunctionNames program) (printedBlockNames function)
           group.fst group.snd) (printedVariableNames prior) =
@@ -1567,8 +1563,7 @@ private theorem parseFunctionGroups_printed (program : Program)
         function.blocks.map (·.renameVariables (canonicalRename full)) := by
     cases function.blocks
     simp
-  simp [Function.renameVariables, Function.variableOccurrences, entryZero, blockMap,
-    StateT.run, bind, pure, StateT.pure, Except.bind, Except.pure]
+  simp [Function.renameVariables, Function.variableOccurrences, entryZero, blockMap]
 
 private theorem parseFunction_printed (program : Program) (printable : program.Printable)
     (function : Function) (functionPrintable : function.Printable program.functions.size)
@@ -1590,7 +1585,7 @@ private theorem hasDuplicates_eq_false_of_nodup (names : List String)
       have notContained : following.contains name = false := by
         cases contained : following.contains name with
         | false => rfl
-        | true => exact False.elim (nodup.1 (List.contains_iff.mp contained))
+        | true => exact False.elim (nodup.1 (List.contains_iff_mem.mp contained))
       rw [hasDuplicates.eq_def]
       simp only
       rw [notContained, induction nodup.2]
@@ -1652,7 +1647,7 @@ private theorem mapM_parseFunction_printed (program : Program)
                 following.flatMap (fun pair => pair.1.variableOccurrences) from
             ⟨following.flatMap (fun pair => pair.1.variableOccurrences), rfl⟩).trans
               (by simpa [List.append_assoc] using isPrefix))]
-      simp only [Except.bind]
+      simp only
       rw [show ((following.map fun pair =>
             (functionName program ⟨pair.2⟩, functionBodyLines program pair.1)).mapM
           (fun group => parseFunction (printedFunctionNames program) group.snd))
@@ -1684,7 +1679,7 @@ private theorem parseFunctionGroupsList_printed (program : Program)
     (fun pair member => printable.2.2 pair.1 (by
       have : pair.1 ∈ program.functions.toList := List.fst_mem_of_mem_zipIdx member
       simpa using this))
-    (by simpa [occurrencesEq])
+    (by simp [occurrencesEq])
   have parsedFunctionsEq :
       program.functions.toList.zipIdx.map (fun pair =>
           pair.1.renameVariables (canonicalRename program.variableOccurrences)) =
@@ -1706,13 +1701,13 @@ private theorem printedFunctionNames_main_findIdx (program : Program)
       program.mainEntry.map FunctionId.id := by
   cases mainEq : program.mainEntry with
   | none =>
-      simp only [mainEq, Option.map_none]
+      simp only [Option.map_none]
       rw [List.findIdx?_eq_none_iff]
       intro name member
       simp only [printedFunctionNames_eq, List.mem_map] at member
       rcases member with ⟨pair, _, rfl⟩
       by_cases isInit : (⟨pair.2⟩ : FunctionId) = program.initEntry
-      · simp [functionName, mainEq, isInit]
+      · simp [functionName, isInit]
       · simp [functionName, mainEq, isInit]
   | some mainEntry =>
       have mainValid := printable.2.1
@@ -1721,7 +1716,7 @@ private theorem printedFunctionNames_main_findIdx (program : Program)
         exact mainValid.1
       have nameEq : functionName program mainEntry = "main" := by
         simp [functionName, mainEq, mainValid.2]
-      simp only [mainEq, Option.map_some]
+      simp only [Option.map_some]
       rw [← nameEq]
       exact printedFunctionNames_findIdx program printable mainEntry bound
 

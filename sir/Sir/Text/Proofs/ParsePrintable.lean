@@ -19,7 +19,7 @@ private theorem run_bind_ok {α β : Type} {action : ParserM α}
   cases firstRun : action.run initial with
   | error message => simp [firstRun, bind, Except.bind] at run
   | ok pair =>
-      refine ⟨pair.1, pair.2, by simpa only [Prod.eta] using firstRun, ?_⟩
+      refine ⟨pair.1, pair.2, by simp only [Prod.eta], ?_⟩
       simpa [firstRun] using run
 
 private theorem parseMnemonic_functionReferencesInRange
@@ -114,13 +114,13 @@ private theorem parseStatement_functionReferencesInRange
                                   MonadExceptOf.throw, StateT.lift] at followingRun
                             | nil =>
                                 simp [resultListEq, StateT.run, pure, StateT.pure,
-                                  Except.pure, Stmt.FunctionReferencesInRange] at followingRun
+                                  Except.pure] at followingRun
                                 rcases followingRun with ⟨rfl, rfl⟩
                                 simp [Stmt.FunctionReferencesInRange]
                         | _ =>
                             simp [resultListEq, StateT.run, throw, throwThe,
                               MonadExceptOf.throw, StateT.lift] at followingRun
-          · simp only [constant] at run
+          · simp only at run
             obtain ⟨liftedResult, liftedNames, liftedRun, afterLiftRun⟩ :=
               run_bind_ok run
             rcases liftedResult with ⟨lifted, liftedTokens⟩
@@ -146,8 +146,8 @@ private theorem resolveBlock_bound {blocks : List String} {name : String}
   generalize foundEq : blocks.findIdx? (· == name) = found at run
   cases found with
   | none =>
-      simp [StateT.run, bind, Except.bind, pure, StateT.pure, Except.pure,
-        throw, throwThe, MonadExceptOf.throw, StateT.lift] at run
+      simp [StateT.run, bind, Except.bind, throw, throwThe, MonadExceptOf.throw,
+        StateT.lift] at run
   | some index =>
       simp [StateT.run, pure, StateT.pure, Except.pure] at run
       rcases run with ⟨rfl, rfl⟩
@@ -313,15 +313,13 @@ private theorem parseFunction_printable (functions : List String) (body : List L
       generalize blocksEq : groups.mapM (fun group => blockHeaderName group.fst) =
         blocksResult at run
       cases blocksResult with
-      | error message => simp [Except.bind] at run
+      | error message => simp at run
       | ok blockNames =>
           by_cases duplicates : hasDuplicates blockNames
-          · simp [duplicates, StateT.run, bind, StateT.bind, pure, StateT.pure,
-              Except.pure, Except.bind, throw, throwThe, MonadExceptOf.throw,
-              StateT.lift] at run
-          · simp [duplicates, StateT.run, bind, StateT.bind, pure, StateT.pure,
-              Except.pure, Except.bind, throw, throwThe, MonadExceptOf.throw,
-              StateT.lift] at run
+          · simp [duplicates, bind, StateT.bind, pure, Except.pure, Except.bind, throw, throwThe,
+              MonadExceptOf.throw, StateT.lift] at run
+          · simp [duplicates, bind, StateT.bind, pure, StateT.pure, Except.pure,
+              Except.bind] at run
             generalize parsedEq :
               (groups.mapM fun group => parseBlock functions blockNames group.fst group.snd)
                 names = parsedResult
@@ -383,7 +381,7 @@ private theorem parseProgramGroups_printable {groups : List (String × List Line
     generalize functionsRunEq :
       (parseFunctionGroupsList names groups).run [] = functionsResult at parsed
     cases functionsResult with
-    | error message => simp [bind, Except.bind, pure, Except.pure] at parsed
+    | error message => simp [pure, Except.pure] at parsed
     | ok result =>
         rcases result with ⟨functions, finalNames⟩
         have functionsValid :=
@@ -409,7 +407,7 @@ private theorem parseProgramGroups_printable {groups : List (String × List Line
                     groups.findIdx? ((fun name => name == "main") ∘ Prod.fst) = none := by
                   simpa [names, List.findIdx?_map, Function.comp_def] using mainEq
                 rw [groupMainEq] at parsed
-                simp [pure, Except.pure, bind, Except.bind] at parsed
+                simp [pure, Except.pure] at parsed
                 rcases parsed with rfl
                 refine ⟨?_, trivial, ?_⟩
                 · simpa [functionsValid.1, names] using findIdx?_bound initEq
@@ -422,7 +420,7 @@ private theorem parseProgramGroups_printable {groups : List (String × List Line
                       some mainEntry := by
                   simpa [names, List.findIdx?_map, Function.comp_def] using mainEq
                 rw [groupMainEq] at parsed
-                simp [pure, Except.pure, bind, Except.bind] at parsed
+                simp [pure, Except.pure] at parsed
                 rcases parsed with rfl
                 refine ⟨?_, ⟨?_, ?_⟩, ?_⟩
                 · simpa [functionsValid.1, names] using findIdx?_bound initEq
