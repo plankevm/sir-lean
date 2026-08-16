@@ -1,3 +1,4 @@
+import Sir.Text.Proofs.Printable
 import Sir.Text.Proofs.RoundTrip
 
 namespace Sir.Vars.Text
@@ -17,6 +18,10 @@ theorem parse_printable {source : String} {program : Program}
 theorem parse_print_canonicalize {program : Program} (printable : program.Printable) :
     parse (print program) = .ok program.canonicalize :=
   Proofs.parse_print_canonicalize printable
+
+theorem Program.Printable.canonicalize {program : Program}
+    (printable : program.Printable) : program.canonicalize.Printable :=
+  Proofs.Program.Printable.canonicalize printable
 
 theorem parse_print {source : String} {program : Program}
     (parsed : parse source = .ok program) :
