@@ -12,7 +12,14 @@ theorem Lowering.Scheduler.Accepted.equiv
     {statements : Array Vars.Stmt} {schedule : Lowering.StackSchedule}
     (produced : scheduler statements = .ok schedule) :
     Lowering.Equiv schedule.vars schedule.stack :=
-  schedule.equiv (accepted statements schedule produced).2
+  Lowering.Proofs.Scheduler.Accepted.equiv accepted produced
+
+theorem Lowering.Scheduler.Accepted.schedules_input
+    {scheduler : Lowering.Scheduler} (accepted : scheduler.Accepted)
+    {statements : Array Vars.Stmt} {schedule : Lowering.StackSchedule}
+    (produced : scheduler statements = .ok schedule) :
+    schedule.entry.vars.statements = statements :=
+  Lowering.Proofs.Scheduler.Accepted.schedules_input accepted produced
 
 theorem Lowering.spillAll_accepted : Lowering.spillAll.Accepted :=
   Lowering.Proofs.spillAll_accepted

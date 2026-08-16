@@ -342,4 +342,19 @@ theorem Proofs.StackSchedule.equiv
     exact Proofs.StackSchedule.reverse_evaluation certificate accepted ctx globals
       finalGlobals args trace outcome targetEvaluation
 
+theorem Proofs.Scheduler.Accepted.equiv
+    {scheduler : Scheduler} (accepted : scheduler.Accepted)
+    {statements : Array Vars.Stmt} {schedule : StackSchedule}
+    (produced : scheduler statements = .ok schedule) :
+    Equiv schedule.vars schedule.stack :=
+  Proofs.StackSchedule.equiv schedule (accepted statements schedule produced).2
+
+theorem Proofs.Scheduler.Accepted.schedules_input
+    {scheduler : Scheduler} (accepted : scheduler.Accepted)
+    {statements : Array Vars.Stmt} {schedule : StackSchedule}
+    (produced : scheduler statements = .ok schedule) :
+    schedule.blocks[schedule.entry.id]?.map (fun block => block.vars.statements) =
+      some statements :=
+  (accepted statements schedule produced).1
+
 end Sir.Lowering
