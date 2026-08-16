@@ -137,16 +137,4 @@ def executeAll (sourceStatements : Array Vars.Stmt) (targetInstructions : Array 
     (initialState : State) : Option State :=
   targetInstructions.foldlM (execute sourceStatements) initialState
 
-def accepts (sourceStatements : Array Vars.Stmt) (sourceTerminator : Vars.Terminator)
-    (targetInstructions : Array Stack.Instr) (targetTerminator : Stack.Terminator)
-    (entryLayout exitLayout : Array Value) : Bool :=
-  match executeAll sourceStatements targetInstructions (State.initial entryLayout) with
-  | none => false
-  | some finalState =>
-      readsAvailable sourceStatements entryLayout &&
-      definesOnce sourceStatements entryLayout &&
-      decide (finalState.firedCount = sourceStatements.size ∧
-        sourceTerminator = .halt ∧ targetTerminator = .halt ∧
-        exitLayout = #[] ∧ entryLayout.toList.Nodup)
-
 end Sir.Lowering.Symbolic

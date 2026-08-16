@@ -4,6 +4,42 @@ import Sir.Vars.Proofs.Readiness
 
 namespace Sir.Lowering
 
+@[simp]
+theorem StackSchedule.blocks_size (schedule : StackSchedule) :
+    schedule.blocks.size = schedule.rest.size + 1 := by
+  simp [StackSchedule.blocks]
+  omega
+
+@[simp]
+theorem StackSchedule.blocks_zero (schedule : StackSchedule) :
+    schedule.blocks[0]? = some schedule.entry := by
+  simp [StackSchedule.blocks]
+
+@[simp]
+theorem StackSchedule.blocks_succ (schedule : StackSchedule) (n : Nat) :
+    schedule.blocks[n + 1]? = schedule.rest[n]? := by
+  simp [StackSchedule.blocks, Array.getElem?_append_right]
+
+@[simp]
+theorem StackSchedule.vars_functions (schedule : StackSchedule) :
+    schedule.vars.functions = #[schedule.vars.init] := by
+  simp [StackSchedule.vars, Vars.Program.functions]
+
+@[simp]
+theorem StackSchedule.stack_functions (schedule : StackSchedule) :
+    schedule.stack.functions = #[schedule.stack.init] := by
+  simp [StackSchedule.stack, Stack.Program.functions]
+
+@[simp]
+theorem StackSchedule.vars_blocks (schedule : StackSchedule) :
+    schedule.vars.init.blocks = schedule.blocks.map fun block => block.vars.toBlock := by
+  simp [StackSchedule.vars, StackSchedule.blocks, Vars.Function.blocks]
+
+@[simp]
+theorem StackSchedule.stack_blocks (schedule : StackSchedule) :
+    schedule.stack.init.blocks = schedule.blocks.map fun block => block.stack.toBlock := by
+  simp [StackSchedule.stack, StackSchedule.blocks, Stack.Function.blocks]
+
 theorem Symbolic.executeAll_cons (statements : Array Vars.Stmt) (instruction : Stack.Instr)
     (instructions : List Stack.Instr) (initial : Symbolic.State) :
     Symbolic.executeAll statements (instruction :: instructions).toArray initial =
@@ -234,31 +270,46 @@ theorem StackSchedule.checkEdges_get
 
 theorem StackSchedule.check_sound
     (schedule : StackSchedule) (accepted : schedule.check = .ok ()) :
-    schedule.entry.id < schedule.blocks.size ∧
-      (∀ index, (indexBound : index < schedule.blocks.size) →
+    (∀ index, (indexBound : index < schedule.blocks.size) →
         schedule.blocks[index].check = .ok ()) ∧
       ∀ index, (indexBound : index < schedule.blocks.size) →
         schedule.blockEdgesAgree schedule.blocks[index] = true := by
   simp only [StackSchedule.check] at accepted
-  split at accepted <;> try contradiction
-  next entryBound =>
-    cases blocksAccepted : StackSchedule.checkBlocks schedule.blocks.toList with
-    | error error => simp [blocksAccepted] at accepted
-    | ok result =>
-      cases result
-      have edgesAccepted : schedule.checkEdges schedule.blocks.toList = .ok () := by
-        simpa [blocksAccepted] using accepted
-      refine ⟨entryBound, ?_, ?_⟩
-      · intro index indexBound
-        simpa using StackSchedule.checkBlocks_get schedule.blocks.toList blocksAccepted
+  cases blocksAccepted : StackSchedule.checkBlocks schedule.blocks.toList with
+  | error error => simp [blocksAccepted] at accepted
+  | ok result =>
+    cases result
+    have edgesAccepted : schedule.checkEdges schedule.blocks.toList = .ok () := by
+      simpa [blocksAccepted] using accepted
+    refine ⟨?_, ?_⟩
+    · intro index indexBound
+      simpa using StackSchedule.checkBlocks_get schedule.blocks.toList blocksAccepted
+        index (by simpa using indexBound)
+    · intro index indexBound
+      apply StackSchedule.checkBlockEdges_sound schedule ⟨index⟩
+        schedule.blocks[index]
+      · simpa using StackSchedule.checkBlocks_get schedule.blocks.toList blocksAccepted
           index (by simpa using indexBound)
-      · intro index indexBound
-        apply StackSchedule.checkBlockEdges_sound schedule ⟨index⟩
-          schedule.blocks[index]
-        · simpa using StackSchedule.checkBlocks_get schedule.blocks.toList blocksAccepted
-            index (by simpa using indexBound)
-        · simpa using StackSchedule.checkEdges_get schedule schedule.blocks.toList 0
-            index edgesAccepted (by simpa using indexBound)
+      · simpa using StackSchedule.checkEdges_get schedule schedule.blocks.toList 0
+          index edgesAccepted (by simpa using indexBound)
+
+theorem StackSchedule.mem_blocks_check (schedule : StackSchedule)
+    (accepted : schedule.check = .ok ()) (blockSchedule : StackSchedule.Block)
+    (member : blockSchedule ∈ schedule.blocks) : blockSchedule.check = .ok () := by
+  rw [Array.mem_iff_getElem] at member
+  obtain ⟨index, indexBound, rfl⟩ := member
+  exact (schedule.check_sound accepted).1 index indexBound
+
+theorem StackSchedule.vars_hasStmt (schedule : StackSchedule) {statement : Vars.Stmt}
+    (hasStatement : schedule.vars.HasStmt statement) :
+    ∃ blockSchedule ∈ schedule.blocks, statement ∈ blockSchedule.vars.statements := by
+  rcases hasStatement with ⟨function, functionMember, block, blockMember, statementMember⟩
+  have functionEq : function = schedule.vars.init := by
+    simpa [StackSchedule.vars] using functionMember
+  subst functionEq
+  rw [schedule.vars_blocks, Array.mem_map] at blockMember
+  obtain ⟨blockSchedule, member, rfl⟩ := blockMember
+  exact ⟨blockSchedule, member, statementMember⟩
 
 theorem StackSchedule.block_boundary_names
     (schedule : StackSchedule) (accepted : schedule.check = .ok ())
@@ -271,15 +322,16 @@ theorem StackSchedule.block_boundary_names
     of_getElem?_eq_some (c := schedule.blocks) (i := index) blockAt
   have blockGet : schedule.blocks[index] = blockSchedule :=
     (Array.getElem?_eq_some_iff.mp blockAt).2
-  have blockAccepted := (schedule.check_sound accepted).2.1 index indexBound
+  have blockAccepted := (schedule.check_sound accepted).1 index indexBound
   apply StackSchedule.Block.check_boundary_names blockSchedule
   simpa [blockGet] using blockAccepted
 
 theorem StackSchedule.ofBlock_check (block : StackSchedule.Block)
     (accepted : block.check = .ok ()) (halted : block.vars.terminator = .halt) :
     (StackSchedule.ofBlock block).check = .ok () := by
-  simp [StackSchedule.ofBlock, StackSchedule.check, StackSchedule.checkBlocks,
-    StackSchedule.checkEdges, StackSchedule.checkBlockEdges, accepted, halted]
+  simp [StackSchedule.ofBlock, StackSchedule.check, StackSchedule.blocks,
+    StackSchedule.checkBlocks, StackSchedule.checkEdges, StackSchedule.checkBlockEdges,
+    accepted, halted]
 
 def Symbolic.Value.interpret (locals : Locals) (value : Symbolic.Value) : Option Word :=
   locals.lookup? value.identifier
@@ -1512,45 +1564,6 @@ theorem evaluateSourceStatementList_lookup?_eq_of_not_mem (statements : List Var
             (evaluateSourceStatement_lookup?_eq_of_not_mem locals nextLocals statement
               identifier nextEq absent.1)
 
-theorem evaluateSourceStatementList_result_at (statements : List Vars.Stmt)
-    (locals finalLocals : Locals) (index : Nat) (statement : Vars.Stmt)
-    (evaluated : statements.foldlM evaluateSourceStatement locals = some finalLocals)
-    (definitionsNodup : (statements.flatMap Vars.Stmt.variablesDefined).Nodup)
-    (statementAt : statements[index]? = some statement) :
-    ∃ statementLocals operation operands result resultValue,
-      sourceStatementConcreteOperation statementLocals statement =
-          some (operation, operands, result, resultValue) ∧
-        finalLocals.lookup? result = some resultValue := by
-  induction statements generalizing locals index with
-  | nil => simp at statementAt
-  | cons head statements inductionHypothesis =>
-      simp only [List.foldlM_cons] at evaluated
-      cases nextEq : evaluateSourceStatement locals head with
-      | none => simp [nextEq] at evaluated
-      | some nextLocals =>
-          rw [nextEq] at evaluated
-          cases index with
-          | zero =>
-              simp at statementAt
-              subst head
-              obtain ⟨operation, operands, result, resultValue, concreteOperation, rfl⟩ :=
-                evaluateSourceStatement_eq_some locals nextLocals statement nextEq
-              refine ⟨locals, operation, operands, result, resultValue, concreteOperation, ?_⟩
-              have resultDefined : result ∈ statement.variablesDefined :=
-                sourceStatementConcreteOperation_result_mem locals statement operation operands
-                  result resultValue concreteOperation
-              have resultAbsent : result ∉ statements.flatMap Vars.Stmt.variablesDefined := by
-                intro resultInRemaining
-                exact (List.nodup_append.mp definitionsNodup).2.2 result resultDefined result
-                  resultInRemaining rfl
-              rw [evaluateSourceStatementList_lookup?_eq_of_not_mem statements
-                (locals.assign result resultValue) finalLocals result evaluated resultAbsent]
-              simp [Locals.lookup?, Locals.assign]
-          | succ index =>
-              simp only [List.getElem?_cons_succ] at statementAt
-              exact inductionHypothesis nextLocals index evaluated
-                (List.nodup_append.mp definitionsNodup).2.1 statementAt
-
 theorem evaluateSourceStatementList_operation_at (statements : List Vars.Stmt)
     (defined finalDefined : List VarId) (locals finalLocals : Locals)
     (recorded : statements.foldlM Symbolic.recordDefinitions defined = some finalDefined)
@@ -2058,10 +2071,10 @@ theorem sourceStatementConcreteOperation_flipped_target_step
                   apply Machine.Step.operation (frame := Stack.frame)
                     (operation := .add) (src := .reversedPair) (dst := ⟨2, 1⟩)
                     (hdecode := by simp [Stack.decoder, Stack.decode, targetDecode])
-                  exact Machine.OperandFrame.Fires.next (oracle := ()) (by trivial)
-                    (by simpa [Stack.frame] using fetch)
-                    (Machine.Operation.execute_add_ok ctx lhsValue rhsValue globals)
-                    (by simp [Stack.frame, Stack.store, stackEq])
+                  exact ⟨_, _, (), by trivial,
+                    by simpa [Stack.frame] using fetch,
+                    Machine.Operation.execute_add_ok ctx lhsValue rhsValue globals,
+                    by simp [Stack.frame, Stack.store, stackEq]⟩
       | lt lhs rhs =>
           cases lhsValueEq : locals.lookup? lhs with
           | none => simp [sourceStatementConcreteOperation, lhsValueEq] at concreteOperation
@@ -2077,10 +2090,10 @@ theorem sourceStatementConcreteOperation_flipped_target_step
                   apply Machine.Step.operation (frame := Stack.frame)
                     (operation := .lt) (src := .reversedPair) (dst := ⟨2, 1⟩)
                     (hdecode := by simp [Stack.decoder, Stack.decode, targetDecode])
-                  exact Machine.OperandFrame.Fires.next (oracle := ()) (by trivial)
-                    (by simpa [Stack.frame] using fetch)
-                    (Machine.Operation.execute_lt_ok ctx lhsValue rhsValue globals)
-                    (by simp [Stack.frame, Stack.store, stackEq])
+                  exact ⟨_, _, (), by trivial,
+                    by simpa [Stack.frame] using fetch,
+                    Machine.Operation.execute_lt_ok ctx lhsValue rhsValue globals,
+                    by simp [Stack.frame, Stack.store, stackEq]⟩
       | sload key => simp [sourceStatementConcreteOperation] at concreteOperation
   | sstore key value => simp [sourceStatementConcreteOperation] at concreteOperation
   | gas result => simp [sourceStatementConcreteOperation] at concreteOperation
@@ -2131,10 +2144,10 @@ theorem sourceStatementConcreteOperation_steps {sourceProgram : Vars.Program}
               (operation := .constant value) (src := .inOrder 0) (dst := ⟨0, 1⟩)
               (hdecode := by simp [Stack.decoder, Stack.decode, targetDecode,
                 Machine.Operation.inputCount, Machine.Operation.outputCount])
-            exact Machine.OperandFrame.Fires.next (oracle := ()) (by trivial) rfl
-              (Machine.Operation.execute_constant_ok ctx value globals #[])
-              (by simp [Stack.frame, Stack.store,
-                Machine.Operation.inputCount])
+            exact ⟨_, _, (), by trivial, rfl,
+              Machine.Operation.execute_constant_ok ctx value globals #[],
+              by simp [Stack.frame, Stack.store,
+                Machine.Operation.inputCount]⟩
       | var source =>
           cases sourceValueEq : locals.lookup? source with
           | none => simp [sourceStatementConcreteOperation, sourceValueEq] at concreteOperation
@@ -2162,15 +2175,13 @@ theorem sourceStatementConcreteOperation_steps {sourceProgram : Vars.Program}
                     (operation := .copy) (src := .inOrder 1) (dst := ⟨1, 1⟩)
                     (hdecode := by simp [Stack.decoder, Stack.decode, targetDecode,
                       Machine.Operation.inputCount, Machine.Operation.outputCount])
-                exact Machine.OperandFrame.Fires.next (oracle := ()) (by trivial)
-                  (by
-                    change Stack.fetch environment 1 = .ok #[sourceValue]
-                    rw [Stack.fetch, if_pos (by rw [stackEq]; simp), stackPrefix'])
-                  (Machine.Operation.execute_copy_ok ctx sourceValue globals)
-                  (by
-                    change Stack.store environment ⟨1, 1⟩ #[sourceValue] = .ok _
-                    rw [Stack.store, if_pos (by rw [stackEq]; simp)]
-                    simp [Machine.Operation.inputCount])
+                refine ⟨_, _, (), by trivial, ?_,
+                  Machine.Operation.execute_copy_ok ctx sourceValue globals, ?_⟩
+                · change Stack.fetch environment 1 = .ok #[sourceValue]
+                  rw [Stack.fetch, if_pos (by rw [stackEq]; simp), stackPrefix']
+                · change Stack.store environment ⟨1, 1⟩ #[sourceValue] = .ok _
+                  rw [Stack.store, if_pos (by rw [stackEq]; simp)]
+                  simp [Machine.Operation.inputCount]
       | add lhs rhs =>
           cases lhsValueEq : locals.lookup? lhs with
           | none => simp [sourceStatementConcreteOperation, lhsValueEq] at concreteOperation
@@ -2206,16 +2217,14 @@ theorem sourceStatementConcreteOperation_steps {sourceProgram : Vars.Program}
                         (operation := .add) (src := .inOrder 2) (dst := ⟨2, 1⟩)
                         (hdecode := by simp [Stack.decoder, Stack.decode, targetDecode,
                           Machine.Operation.inputCount, Machine.Operation.outputCount])
-                    exact Machine.OperandFrame.Fires.next (oracle := ()) (by trivial)
-                      (by
-                        change Stack.fetch environment 2 = .ok #[lhsValue, rhsValue]
-                        rw [Stack.fetch, if_pos (by rw [stackEq]; simp), stackPrefix'])
-                      (Machine.Operation.execute_add_ok ctx lhsValue rhsValue globals)
-                      (by
-                        change Stack.store environment ⟨2, 1⟩
-                          #[Evm.UInt256.add lhsValue rhsValue] = .ok _
-                        rw [Stack.store, if_pos (by rw [stackEq]; simp)]
-                        simp [Machine.Operation.inputCount])
+                    refine ⟨_, _, (), by trivial, ?_,
+                      Machine.Operation.execute_add_ok ctx lhsValue rhsValue globals, ?_⟩
+                    · change Stack.fetch environment 2 = .ok #[lhsValue, rhsValue]
+                      rw [Stack.fetch, if_pos (by rw [stackEq]; simp), stackPrefix']
+                    · change Stack.store environment ⟨2, 1⟩
+                        #[Evm.UInt256.add lhsValue rhsValue] = .ok _
+                      rw [Stack.store, if_pos (by rw [stackEq]; simp)]
+                      simp [Machine.Operation.inputCount]
       | lt lhs rhs =>
           cases lhsValueEq : locals.lookup? lhs with
           | none => simp [sourceStatementConcreteOperation, lhsValueEq] at concreteOperation
@@ -2251,16 +2260,14 @@ theorem sourceStatementConcreteOperation_steps {sourceProgram : Vars.Program}
                         (operation := .lt) (src := .inOrder 2) (dst := ⟨2, 1⟩)
                         (hdecode := by simp [Stack.decoder, Stack.decode, targetDecode,
                           Machine.Operation.inputCount, Machine.Operation.outputCount])
-                    exact Machine.OperandFrame.Fires.next (oracle := ()) (by trivial)
-                      (by
-                        change Stack.fetch environment 2 = .ok #[lhsValue, rhsValue]
-                        rw [Stack.fetch, if_pos (by rw [stackEq]; simp), stackPrefix'])
-                      (Machine.Operation.execute_lt_ok ctx lhsValue rhsValue globals)
-                      (by
-                        change Stack.store environment ⟨2, 1⟩
-                          #[Evm.UInt256.lt lhsValue rhsValue] = .ok _
-                        rw [Stack.store, if_pos (by rw [stackEq]; simp)]
-                        simp [Machine.Operation.inputCount])
+                    refine ⟨_, _, (), by trivial, ?_,
+                      Machine.Operation.execute_lt_ok ctx lhsValue rhsValue globals, ?_⟩
+                    · change Stack.fetch environment 2 = .ok #[lhsValue, rhsValue]
+                      rw [Stack.fetch, if_pos (by rw [stackEq]; simp), stackPrefix']
+                    · change Stack.store environment ⟨2, 1⟩
+                        #[Evm.UInt256.lt lhsValue rhsValue] = .ok _
+                      rw [Stack.store, if_pos (by rw [stackEq]; simp)]
+                      simp [Machine.Operation.inputCount]
       | sload key => simp [sourceStatementConcreteOperation] at concreteOperation
   | sstore key value => simp [sourceStatementConcreteOperation] at concreteOperation
   | gas result => simp [sourceStatementConcreteOperation] at concreteOperation

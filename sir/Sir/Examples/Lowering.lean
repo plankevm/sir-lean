@@ -144,6 +144,24 @@ theorem equalDepthExchangeExample_rejected :
     equalDepthExchangeExampleSchedule.check =
       .error (.operandMismatch (.exchange 1 1)) := by decide +kernel
 
+def internalCallExampleSchedule : StackSchedule := StackSchedule.ofBlock {
+  vars := {
+    inputs := #[]
+    statements := #[.assign ⟨0⟩ (.constant 7)]
+    terminator := .halt
+    outputs := #[]
+    entryLayout := #[]
+    exitLayout := #[] }
+  stack := {
+    instructions := #[
+      .op (.constant 7),
+      .icall ⟨1⟩ 1 1]
+    terminator := .halt } }
+
+theorem internalCallExample_rejected :
+    internalCallExampleSchedule.check =
+      .error (.unsupportedInstruction (.icall ⟨1⟩ 1 1)) := by decide +kernel
+
 def flippedLessThanExampleSchedule : StackSchedule := StackSchedule.ofBlock {
   vars := {
     inputs := #[⟨1⟩, ⟨0⟩]
@@ -207,7 +225,7 @@ theorem straightLineExample_evaluation_equivalence
     straightLineExample_accepted ctx globals finalGlobals #[] trace outcome
 
 def twoBlockJumpExampleSchedule : StackSchedule where
-  blocks := #[
+  entry :=
     { vars := {
         statements := #[.assign ⟨0⟩ (.constant 7)]
         inputs := #[]
@@ -217,7 +235,8 @@ def twoBlockJumpExampleSchedule : StackSchedule where
         exitLayout := #[.variable ⟨0⟩] }
       stack := {
         instructions := #[.op (.constant 7)]
-        terminator := .jump ⟨1⟩ } },
+        terminator := .jump ⟨1⟩ } }
+  rest := #[
     { vars := {
         statements := #[.assign ⟨1⟩ (.var ⟨0⟩)]
         inputs := #[⟨0⟩]
@@ -228,7 +247,6 @@ def twoBlockJumpExampleSchedule : StackSchedule where
       stack := {
         instructions := #[.op .copy]
         terminator := .halt } }]
-  entry := ⟨0⟩
 
 theorem twoBlockJumpExample_accepted :
     twoBlockJumpExampleSchedule.check = .ok () := by decide +kernel
@@ -244,7 +262,7 @@ theorem twoBlockJumpExample_evaluation_equivalence
     twoBlockJumpExample_accepted ctx globals finalGlobals #[] trace outcome
 
 def renamedBoundaryExampleSchedule : StackSchedule where
-  blocks := #[
+  entry :=
     { vars := {
         statements := #[
         .assign ⟨1⟩ (.constant 7),
@@ -258,7 +276,8 @@ def renamedBoundaryExampleSchedule : StackSchedule where
         instructions := #[
         .op (.constant 7),
         .op (.constant 8)]
-        terminator := .jump ⟨1⟩ } },
+        terminator := .jump ⟨1⟩ } }
+  rest := #[
     { vars := {
         statements := #[.assign ⟨5⟩ (.add ⟨3⟩ ⟨4⟩)]
         inputs := #[⟨3⟩, ⟨4⟩]
@@ -269,7 +288,6 @@ def renamedBoundaryExampleSchedule : StackSchedule where
       stack := {
         instructions := #[.op .add]
         terminator := .halt } }]
-  entry := ⟨0⟩
 
 theorem renamedBoundaryExample_accepted :
     renamedBoundaryExampleSchedule.check = .ok () := by decide +kernel
@@ -285,7 +303,7 @@ theorem renamedBoundaryExample_evaluation_equivalence
     renamedBoundaryExample_accepted ctx globals finalGlobals #[] trace outcome
 
 def mismatchedBoundaryArityExampleSchedule : StackSchedule where
-  blocks := #[
+  entry :=
     { vars := {
         statements := #[]
         inputs := #[⟨0⟩]
@@ -295,7 +313,8 @@ def mismatchedBoundaryArityExampleSchedule : StackSchedule where
         exitLayout := #[.variable ⟨0⟩] }
       stack := {
         instructions := #[]
-        terminator := .jump ⟨1⟩ } },
+        terminator := .jump ⟨1⟩ } }
+  rest := #[
     { vars := {
         statements := #[]
         inputs := #[]
@@ -306,14 +325,13 @@ def mismatchedBoundaryArityExampleSchedule : StackSchedule where
       stack := {
         instructions := #[]
         terminator := .halt } }]
-  entry := ⟨0⟩
 
 theorem mismatchedBoundaryArityExample_rejected :
     mismatchedBoundaryArityExampleSchedule.check =
       .error (.boundaryArityMismatch (⟨0⟩, ⟨1⟩) 0 1) := by decide +kernel
 
 def branchLoopExampleSchedule : StackSchedule where
-  blocks := #[
+  entry :=
     { vars := {
         statements := #[]
         inputs := #[⟨0⟩]
@@ -323,7 +341,8 @@ def branchLoopExampleSchedule : StackSchedule where
         exitLayout := #[.variable ⟨0⟩] }
       stack := {
         instructions := #[.dup 0]
-        terminator := .branch ⟨0⟩ ⟨1⟩ } },
+        terminator := .branch ⟨0⟩ ⟨1⟩ } }
+  rest := #[
     { vars := {
         statements := #[]
         inputs := #[⟨0⟩]
@@ -334,7 +353,6 @@ def branchLoopExampleSchedule : StackSchedule where
       stack := {
         instructions := #[]
         terminator := .halt } }]
-  entry := ⟨0⟩
 
 theorem branchLoopExample_accepted :
     branchLoopExampleSchedule.check = .ok () := by decide +kernel
@@ -350,7 +368,7 @@ theorem branchLoopExample_evaluation_equivalence
     branchLoopExample_accepted ctx globals finalGlobals #[condition] trace outcome
 
 def renamedBackEdgeLoopExampleSchedule : StackSchedule where
-  blocks := #[
+  entry :=
     { vars := {
         statements := #[]
         inputs := #[⟨2⟩, ⟨3⟩]
@@ -360,7 +378,8 @@ def renamedBackEdgeLoopExampleSchedule : StackSchedule where
         exitLayout := #[.variable ⟨2⟩, .variable ⟨3⟩] }
       stack := {
         instructions := #[.dup 0]
-        terminator := .branch ⟨1⟩ ⟨2⟩ } },
+        terminator := .branch ⟨1⟩ ⟨2⟩ } }
+  rest := #[
     { vars := {
         statements := #[
         .assign ⟨6⟩ (.var ⟨4⟩),
@@ -383,7 +402,6 @@ def renamedBackEdgeLoopExampleSchedule : StackSchedule where
       stack := {
         instructions := #[]
         terminator := .halt } }]
-  entry := ⟨0⟩
 
 theorem renamedBackEdgeLoopExample_accepted :
     renamedBackEdgeLoopExampleSchedule.check = .ok () := by decide +kernel
@@ -448,7 +466,7 @@ theorem useBeforeDefinitionExample_rejected :
       .error (.useBeforeDefinition (.assign ⟨1⟩ (.var ⟨0⟩)) ⟨0⟩) := by decide +kernel
 
 def reorderedLoopExampleSchedule : StackSchedule where
-  blocks := #[
+  entry :=
     { vars := {
         statements := #[
         .assign ⟨1⟩ (.constant 7),
@@ -466,7 +484,8 @@ def reorderedLoopExampleSchedule : StackSchedule where
         .pop,
         .pop,
         .dup 0]
-        terminator := .branch ⟨0⟩ ⟨1⟩ } },
+        terminator := .branch ⟨0⟩ ⟨1⟩ } }
+  rest := #[
     { vars := {
         statements := #[]
         inputs := #[⟨0⟩]
@@ -477,7 +496,6 @@ def reorderedLoopExampleSchedule : StackSchedule where
       stack := {
         instructions := #[]
         terminator := .halt } }]
-  entry := ⟨0⟩
 
 theorem reorderedLoopExample_accepted :
     reorderedLoopExampleSchedule.check = .ok () := by decide +kernel
