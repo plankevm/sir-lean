@@ -18,6 +18,21 @@ theorem Symbolic.operationOf_not_memory_oracle (statement : Vars.Stmt)
   | mload32 => simp [Symbolic.operationOf] at supported
   | icall => simp [Symbolic.operationOf] at supported
 
+theorem Symbolic.operationOf_decodes_pure {statement : Vars.Stmt}
+    {symbolicOperation : Machine.Operation × List Symbolic.Value × Symbolic.Value}
+    (supported : Symbolic.operationOf statement = some symbolicOperation) :
+    (Vars.decodeStatement statement).kind = .primitive symbolicOperation.1 ∧
+      symbolicOperation.1 ≠ .gas ∧ symbolicOperation.1 ≠ .call := by
+  obtain ⟨operation, operands, resultValue⟩ := symbolicOperation
+  cases statement with
+  | assign result expression =>
+      cases expression <;>
+        simp only [Symbolic.operationOf, Option.some.injEq, Prod.mk.injEq,
+          reduceCtorEq] at supported
+      all_goals obtain ⟨rfl, -, -⟩ := supported
+      all_goals simp [Vars.decodeStatement, Vars.decodeExpression]
+  | _ => simp [Symbolic.operationOf] at supported
+
 theorem Symbolic.State.fireNextStatement_eq_some
     (state nextState : Symbolic.State) (sourceStatements : Array Vars.Stmt)
     (operation : Machine.Operation)
@@ -789,6 +804,37 @@ theorem StackSchedule.vars_program_statements_supported
   apply blockCertificate.statements_supported blockAccepted statement
   simpa [StackSchedule.Block.Source.toBlock, blockGet] using statementMember
 
+theorem StackSchedule.source_decode_primitive_pure
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
+    {control next : Machine.MachineControl} {operation : Machine.Operation}
+    {src : Vars.frame.Source} {dst : Vars.frame.Destination}
+    (decode : Vars.decode certificate.vars control =
+      some (⟨Machine.Instruction.Kind.primitive operation, src, dst⟩, next)) :
+    operation ≠ .gas ∧ operation ≠ .call := by
+  obtain ⟨statement, statementAt, decoded⟩ := Vars.decode_inv.mp decode
+  obtain ⟨symbolicOperation, supported⟩ :=
+    certificate.vars_program_statements_supported accepted statement
+      (Vars.Program.decodeStmt_mem statementAt)
+  obtain ⟨kindEq, notGas, notCall⟩ := Symbolic.operationOf_decodes_pure supported
+  rw [decoded] at kindEq
+  simp at kindEq
+  subst kindEq
+  exact ⟨notGas, notCall⟩
+
+theorem StackSchedule.source_decode_icall_false
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
+    {control next : Machine.MachineControl} {callee : FunctionId}
+    {src : Vars.frame.Source} {dst : Vars.frame.Destination}
+    (decode : Vars.decode certificate.vars control =
+      some (⟨Machine.Instruction.Kind.icall callee, src, dst⟩, next)) : False := by
+  obtain ⟨statement, statementAt, decoded⟩ := Vars.decode_inv.mp decode
+  obtain ⟨symbolicOperation, supported⟩ :=
+    certificate.vars_program_statements_supported accepted statement
+      (Vars.Program.decodeStmt_mem statementAt)
+  obtain ⟨kindEq, -, -⟩ := Symbolic.operationOf_decodes_pure supported
+  rw [decoded] at kindEq
+  simp at kindEq
+
 theorem StackSchedule.vars_program_terminator_not_iret
     (certificate : StackSchedule)
     (accepted : certificate.check = .ok ())
@@ -886,6 +932,121 @@ theorem stackJump_next_running
           · simp [sourceAt, targetAt, mismatch] at jump
           · simp [sourceAt, targetAt, mismatch] at jump
             exact ⟨_, jump.2.symm⟩
+
+theorem stackTerminatorAt_inv {program : Stack.Program} {control : Machine.MachineControl}
+    {terminator : Stack.Terminator}
+    (terminatorAt : program.terminatorAt control = some terminator) :
+    ∃ cursor block, control = .running cursor ∧ program.block? cursor = some block ∧
+      block.terminator = terminator := by
+  cases control with
+  | returned values => simp [Stack.Program.terminatorAt] at terminatorAt
+  | halted => simp [Stack.Program.terminatorAt] at terminatorAt
+  | running cursor =>
+      cases position : cursor.position with
+      | statement index => simp [Stack.Program.terminatorAt, position] at terminatorAt
+      | terminator =>
+          cases blockAt : program.block? cursor with
+          | none => simp [Stack.Program.terminatorAt, position, blockAt] at terminatorAt
+          | some block =>
+              simp [Stack.Program.terminatorAt, position, blockAt] at terminatorAt
+              exact ⟨cursor, block, rfl, blockAt, terminatorAt⟩
+
+theorem stackDecode_decodeInstruction {program : Stack.Program}
+    {control next : Machine.MachineControl} {instruction : Machine.Instruction Stack.frame}
+    (decode : Stack.decode program control = some (instruction, next)) :
+    ∃ decodedInstruction, program.decodeInstruction control = some (next, decodedInstruction) := by
+  unfold Stack.decode at decode
+  split at decode <;> simp_all
+
+theorem stackDecode_next_running {program : Stack.Program}
+    {control next : Machine.MachineControl} {instruction : Machine.Instruction Stack.frame}
+    (decode : Stack.decode program control = some (instruction, next)) :
+    ∃ cursor, next = .running cursor := by
+  obtain ⟨decodedInstruction, instructionDecode⟩ := stackDecode_decodeInstruction decode
+  exact stackDecodeInstruction_next_running program control next decodedInstruction
+    instructionDecode
+
+theorem stackDecode_primitive_inv {program : Stack.Program}
+    {control next : Machine.MachineControl} {operation : Machine.Operation}
+    {src : Stack.Source} {dst : Stack.Destination}
+    (decode : Stack.decode program control =
+      some (⟨Machine.Instruction.Kind.primitive operation, src, dst⟩, next)) :
+    program.decodeInstruction control = some (next, .op operation) ∨
+      program.decodeInstruction control = some (next, .flippedOp operation) := by
+  unfold Stack.decode at decode
+  split at decode <;> simp_all
+
+theorem stackDecode_icall_inv {program : Stack.Program}
+    {control next : Machine.MachineControl} {callee : FunctionId}
+    {src : Stack.Source} {dst : Stack.Destination}
+    (decode : Stack.decode program control =
+      some (⟨Machine.Instruction.Kind.icall callee, src, dst⟩, next)) :
+    ∃ argumentCount resultCount,
+      program.decodeInstruction control = some (next, .icall callee argumentCount resultCount) := by
+  unfold Stack.decode at decode
+  split at decode <;> simp_all
+
+theorem stackControl_trace_nil {program : Stack.Program} {env env' : Stack.Environment}
+    {globals globals' : Globals} {control next : Machine.MachineControl} {trace : Trace}
+    (controlStep : Stack.control program env globals control =
+      some (trace, env', globals', next)) :
+    trace = [] := by
+  unfold Stack.control at controlStep
+  repeat' split at controlStep
+  all_goals grind [Option.bind_eq_some_iff]
+
+theorem stackControl_returned_inv {program : Stack.Program} {env env' : Stack.Environment}
+    {globals globals' : Globals} {control : Machine.MachineControl} {trace : Trace}
+    {results : Array Word}
+    (controlStep : Stack.control program env globals control =
+      some (trace, env', globals', .returned results)) :
+    ∃ cursor block, control = .running cursor ∧ program.block? cursor = some block ∧
+      block.terminator = .iret := by
+  cases instructionDecode : program.decodeInstruction control with
+  | some decoded =>
+      obtain ⟨instructionNext, instruction⟩ := decoded
+      obtain ⟨cursor, rfl⟩ := stackDecodeInstruction_next_running program control instructionNext
+        instruction instructionDecode
+      cases instruction <;>
+        simp [Stack.control, instructionDecode, Option.bind_eq_some_iff] at controlStep
+      all_goals split at controlStep <;> simp_all
+  | none =>
+      cases terminatorAt : program.terminatorAt control with
+      | none =>
+          simp [Stack.control, instructionDecode, terminatorAt] at controlStep
+          split at controlStep <;> simp_all
+      | some terminator =>
+          obtain ⟨cursor, block, controlEq, blockAt, terminatorEq⟩ :=
+            stackTerminatorAt_inv terminatorAt
+          subst controlEq
+          cases terminator with
+          | halt => simp [Stack.control, instructionDecode, terminatorAt] at controlStep
+          | jump target =>
+              cases jumpAt : Stack.jump program env cursor target with
+              | none => simp [Stack.control, instructionDecode, terminatorAt, jumpAt] at controlStep
+              | some jumpResult =>
+                  obtain ⟨jumpEnvironment, jumpControl⟩ := jumpResult
+                  obtain ⟨nextCursor, rfl⟩ := stackJump_next_running program env jumpEnvironment
+                    cursor target jumpControl jumpAt
+                  simp [Stack.control, instructionDecode, terminatorAt, jumpAt] at controlStep
+          | branch thenTarget elseTarget =>
+              cases stackAt : env.stack with
+              | nil =>
+                  simp [Stack.control, instructionDecode, terminatorAt, stackAt] at controlStep
+              | cons condition stack =>
+                  cases jumpAt : Stack.jump program { env with stack } cursor
+                      (if condition = 0 then elseTarget else thenTarget) with
+                  | none =>
+                      simp [Stack.control, instructionDecode, terminatorAt, stackAt, jumpAt]
+                        at controlStep
+                  | some jumpResult =>
+                      obtain ⟨jumpEnvironment, jumpControl⟩ := jumpResult
+                      obtain ⟨nextCursor, rfl⟩ := stackJump_next_running program
+                        { env with stack } jumpEnvironment cursor
+                        (if condition = 0 then elseTarget else thenTarget) jumpControl jumpAt
+                      simp [Stack.control, instructionDecode, terminatorAt, stackAt, jumpAt]
+                        at controlStep
+          | iret => exact ⟨cursor, block, rfl, blockAt, terminatorEq⟩
 
 theorem Symbolic.execute_source_operation (sourceStatements : Array Vars.Stmt)
     (state nextState : Symbolic.State) (operation : Machine.Operation)
@@ -1322,6 +1483,29 @@ theorem StackSchedule.target_decoded_flipped_operation_supported
     simpa [blockGet] using acceptedAt
   exact blockCertificate.instructions_flipped_operation_supported blockAccepted operation
     instructionMember
+
+theorem StackSchedule.target_decode_primitive_pure
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
+    {control next : Machine.MachineControl} {operation : Machine.Operation}
+    {src : Stack.Source} {dst : Stack.Destination}
+    (decode : Stack.decode certificate.stack control =
+      some (⟨Machine.Instruction.Kind.primitive operation, src, dst⟩, next)) :
+    operation ≠ .gas ∧ operation ≠ .call := by
+  rcases stackDecode_primitive_inv decode with instructionDecode | instructionDecode
+  · rcases certificate.target_decoded_operation_supported accepted control next operation
+      instructionDecode with ⟨value, rfl⟩ | rfl | rfl | rfl <;> simp
+  · rcases certificate.target_decoded_flipped_operation_supported accepted control next operation
+      instructionDecode with rfl | rfl <;> simp
+
+theorem StackSchedule.target_decode_icall_false
+    (certificate : StackSchedule) (accepted : certificate.check = .ok ())
+    {control next : Machine.MachineControl} {callee : FunctionId}
+    {src : Stack.Source} {dst : Stack.Destination}
+    (decode : Stack.decode certificate.stack control =
+      some (⟨Machine.Instruction.Kind.icall callee, src, dst⟩, next)) : False := by
+  obtain ⟨argumentCount, resultCount, instructionDecode⟩ := stackDecode_icall_inv decode
+  exact certificate.target_decoded_instruction_excludes_internal_calls accepted control next
+    (.icall callee argumentCount resultCount) instructionDecode callee argumentCount resultCount rfl
 
 theorem StackSchedule.stack_program_noMload
     (certificate : StackSchedule)
