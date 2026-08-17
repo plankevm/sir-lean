@@ -11,6 +11,11 @@ theorem Function.mem_blocks {function : Function} {block : Block} :
   simp [Function.blocks]
 
 @[simp]
+theorem Program.mem_functions {program : Program} {function : Function} :
+    function ∈ program.functions ↔ function = program.init ∨ function ∈ program.rest := by
+  simp [Program.functions]
+
+@[simp]
 theorem Function.block?_zero (function : Function) :
     function.block? ⟨0⟩ = some function.entry := by
   simp [Function.block?, Function.blocks]

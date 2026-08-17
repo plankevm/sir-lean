@@ -312,7 +312,7 @@ theorem Vars.Proofs.Program.functionDeterministic_of_memOracleFree
 theorem Vars.Proofs.Program.deterministic_of_memOracleFree
     (hfree : program.MemOracleFree) : program.Deterministic :=
   fun ctx world₀ =>
-    ⟨Vars.Proofs.Program.MemOracleFree.deterministicFrom hfree ctx program.initEntry world₀,
+    ⟨Vars.Proofs.Program.MemOracleFree.deterministicFrom hfree ctx program.initId world₀,
       fun entry _ => Vars.Proofs.Program.MemOracleFree.deterministicFrom hfree ctx entry world₀⟩
 
 end Sir

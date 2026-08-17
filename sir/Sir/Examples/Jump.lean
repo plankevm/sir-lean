@@ -3,13 +3,12 @@ import Sir.Theorems
 namespace Sir.Examples
 
 def jumpTargetBlock : BlockId := ⟨1⟩
-def jumpEntry : FunctionId := ⟨0⟩
 def jumpDefined : VarId := ⟨0⟩
 def jumpParameter : VarId := ⟨1⟩
 def jumpDoubled : VarId := ⟨2⟩
 
 def jumpProgram : Vars.Program :=
-  { functions := #[
+  { init :=
       { entry :=
           { inputs := #[]
             statements := #[.assign jumpDefined (.constant 7)]
@@ -19,14 +18,15 @@ def jumpProgram : Vars.Program :=
           { inputs := #[jumpParameter]
             statements := #[.assign jumpDoubled (.add jumpParameter jumpParameter)]
             terminator := .halt
-            outputs := #[] }] }]
-    initEntry := jumpEntry
-    mainEntry := none }
+            outputs := #[] }] }
+    main := none
+    rest := #[] }
 
 private theorem jump_no_callEdge (caller callee : FunctionId) :
     ¬ jumpProgram.callEdge caller callee := by
   rcases caller with ⟨_ | caller⟩ <;>
-    simp [Vars.Program.callEdge, Vars.Program.function?, Vars.Function.HasStmt, jumpProgram]
+    simp [Vars.Program.callEdge, Vars.Program.function?, Vars.Program.functions,
+      Vars.Function.HasStmt, jumpProgram]
 
 private theorem jump_acyclicCalls (function : FunctionId) :
     ¬ Relation.TransGen jumpProgram.callEdge function function := by
@@ -47,10 +47,9 @@ theorem jumpProgram_wellFormed : jumpProgram.WellFormed := by
     simp at hblock
     rcases hblock with rfl | rfl <;> simp at hterm
   · exact jump_acyclicCalls
-  · constructor
-    · exact Vars.Program.functionInputOutputArity_iff.mpr ⟨_, rfl, rfl, rfl⟩
-    · intro entry hentry
-      simp [jumpProgram] at hentry
+  · refine ⟨⟨rfl, rfl⟩, ?_⟩
+    intro m hmain
+    simp [jumpProgram] at hmain
   · intro fn hfn block hblock target htarget
     simp [jumpProgram] at hfn
     subst hfn

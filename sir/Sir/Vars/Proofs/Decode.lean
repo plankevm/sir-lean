@@ -18,6 +18,26 @@ theorem Vars.Function.block?_succ (fn : Vars.Function) (n : Nat) :
     fn.block? ⟨n + 1⟩ = fn.rest[n]? := by
   simp [Vars.Function.block?, Vars.Function.blocks, Array.getElem?_append_right]
 
+@[simp]
+theorem Vars.Program.mem_functions {p : Vars.Program} {fn : Vars.Function} :
+    fn ∈ p.functions ↔ fn = p.init ∨ p.main = some fn ∨ fn ∈ p.rest := by
+  simp [Vars.Program.functions, Option.mem_toArray]
+
+@[simp]
+theorem Vars.Program.function?_initId (p : Vars.Program) :
+    p.function? p.initId = some p.init := by
+  simp [Vars.Program.function?, Vars.Program.functions, Vars.Program.initId]
+
+theorem Vars.Program.function?_mainId {p : Vars.Program} {f : FunctionId}
+    (h : p.mainId? = some f) : ∃ m, p.main = some m ∧ p.function? f = some m := by
+  cases hmain : p.main with
+  | none => simp [Vars.Program.mainId?, hmain] at h
+  | some m =>
+    refine ⟨m, rfl, ?_⟩
+    simp [Vars.Program.mainId?, hmain] at h
+    subst h
+    simp [Vars.Program.function?, Vars.Program.functions, hmain, Array.getElem?_append]
+
 theorem Vars.Program.callState?_eq_some_iff
     {p : Vars.Program} {f : FunctionId} {g : Globals} {args : Array Word}
     {s : Vars.State} :

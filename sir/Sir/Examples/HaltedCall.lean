@@ -8,29 +8,28 @@ def haltedCallCaller : FunctionId := ⟨0⟩
 def haltedCallCallee : FunctionId := ⟨1⟩
 
 def haltedCallProgram : Vars.Program :=
-  { functions := #[
+  { init :=
       { entry := {
           inputs := #[]
           statements := #[.icall haltedCallCallee #[] #[]]
           terminator := .halt
           outputs := #[] }
-        rest := #[] },
+        rest := #[] }
+    main := some
       { entry := {
           inputs := #[]
           statements := #[]
           terminator := .halt
           outputs := #[] }
         rest := #[] }
-    ]
-    initEntry := haltedCallCaller
-    mainEntry := none }
+    rest := #[] }
 
 private theorem haltedCall_callEdge_iff (caller callee : FunctionId) :
     haltedCallProgram.callEdge caller callee ↔
       caller = haltedCallCaller ∧ callee = haltedCallCallee := by
   rcases caller with ⟨_ | _ | caller⟩ <;>
-    simp [Vars.Program.callEdge, Vars.Program.function?, Vars.Function.HasStmt,
-      haltedCallProgram, haltedCallCallee, haltedCallCaller]
+    simp [Vars.Program.callEdge, Vars.Program.function?, Vars.Program.functions,
+      Vars.Function.HasStmt, haltedCallProgram, haltedCallCallee, haltedCallCaller]
 
 private theorem haltedCall_acyclicCalls (function : FunctionId) :
     ¬ Relation.TransGen haltedCallProgram.callEdge function function := by
@@ -61,10 +60,11 @@ theorem haltedCallProgram_wellFormed : haltedCallProgram.WellFormed := by
     simp [haltedCallProgram] at hfn
     rcases hfn with rfl | rfl <;> simp at hblock <;> subst hblock <;> simp at hterm
   · exact haltedCall_acyclicCalls
-  · constructor
-    · exact Vars.Program.functionInputOutputArity_iff.mpr ⟨_, rfl, rfl, rfl⟩
-    · intro entry hentry
-      simp [haltedCallProgram] at hentry
+  · refine ⟨⟨rfl, rfl⟩, ?_⟩
+    intro m hmain
+    simp [haltedCallProgram] at hmain
+    subst hmain
+    exact ⟨rfl, rfl⟩
   · intro fn hfn block hblock target htarget
     simp [haltedCallProgram] at hfn
     rcases hfn with rfl | rfl <;>
@@ -136,8 +136,8 @@ private theorem haltedCallProgram_eval (ctx : CallContext) (world : World) :
   exact Vars.EvalFn.halted hentry (Machine.Steps.single hstep) rfl
 
 theorem haltedCallProgram_runs (ctx : CallContext) (world : World) :
-    Vars.EvalFn haltedCallProgram ctx haltedCallProgram.initEntry { world := world } #[] []
+    Vars.EvalFn haltedCallProgram ctx haltedCallProgram.initId { world := world } #[] []
       ({ world := world } : Globals) .halted := by
-  simpa [haltedCallProgram] using haltedCallProgram_eval ctx world
+  simpa [Vars.Program.initId, haltedCallCaller] using haltedCallProgram_eval ctx world
 
 end Sir.Examples

@@ -115,9 +115,9 @@ structure Function where
 deriving Repr
 
 structure Program where
-  functions : Array Function
-  initEntry : FunctionId
-  mainEntry : Option FunctionId
+  init : Function
+  main : Option Function
+  rest : Array Function
 deriving Repr
 
 end Vars
@@ -135,8 +135,16 @@ def Vars.Function.outputs? (fn : Vars.Function) : Option Nat :=
 def Vars.Function.HasStmt (fn : Vars.Function) (stmt : Vars.Stmt) : Prop :=
   ∃ block ∈ fn.blocks, stmt ∈ block.statements
 
+def Vars.Program.functions (program : Vars.Program) : Array Vars.Function :=
+  #[program.init] ++ program.main.toArray ++ program.rest
+
 def Vars.Program.function? (program : Vars.Program) (f : FunctionId) : Option Vars.Function :=
   program.functions[f.id]?
+
+def Vars.Program.initId (_ : Vars.Program) : FunctionId := ⟨0⟩
+
+def Vars.Program.mainId? (program : Vars.Program) : Option FunctionId :=
+  if program.main.isSome then some ⟨1⟩ else none
 
 def Vars.Program.block? (program : Vars.Program) (cursor : Machine.ProgramCursor) : Option Vars.Block := do
   let fn ← program.function? cursor.fn
@@ -149,10 +157,6 @@ def Vars.Program.FunctionInputOutputArity (program : Vars.Program) (inputCount :
     (outputCount : Option Nat) (functionId : FunctionId) : Prop :=
   ∃ fn, program.function? functionId = some fn ∧
     fn.paramsOf.size = inputCount ∧ fn.outputs? = outputCount
-
-def Vars.Program.AtEntries (program : Vars.Program) (condition : FunctionId → Prop) : Prop :=
-  condition program.initEntry ∧
-    ∀ entry, program.mainEntry = some entry → condition entry
 
 def Vars.Block.absoluteToPosition (block : Vars.Block) (index : Nat) : Machine.BlockPosition :=
   if index < block.statements.size then .statement index else .terminator
@@ -402,7 +406,9 @@ structure Program.WellFormed (p : Program) : Prop where
     ∀ fn ∈ p.functions, ∀ block ∈ fn.blocks,
       block.terminator = .iret → some block.outputs.size = fn.outputs?
   acyclicCalls : ∀ f, ¬ Relation.TransGen p.callEdge f f
-  entryArity : p.AtEntries (p.FunctionInputOutputArity 0 none)
+  entryArity :
+    (p.init.paramsOf.size = 0 ∧ p.init.outputs? = none) ∧
+      ∀ m, p.main = some m → m.paramsOf.size = 0 ∧ m.outputs? = none
   validJumpTargets :
     ∀ fn ∈ p.functions,
       ∀ block ∈ fn.blocks, ∀ target ∈ block.terminator.jumpTargets,
@@ -474,7 +480,9 @@ def Vars.Program.DeterministicFrom (program : Vars.Program) (ctx : CallContext)
 
 def Vars.Program.Deterministic (program : Vars.Program) : Prop :=
   ∀ ctx world₀,
-    program.AtEntries (fun entry => program.DeterministicFrom ctx entry world₀)
+    program.DeterministicFrom ctx program.initId world₀ ∧
+      ∀ entry, program.mainId? = some entry →
+        program.DeterministicFrom ctx entry world₀
 
 def Vars.Stmt.isMemOracle : Vars.Stmt → Prop
   | .malloc _ _ | .mallocUninit _ _ | .mload32 _ _ => True

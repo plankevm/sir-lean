@@ -15,7 +15,7 @@ def witnessY : VarId := ⟨4⟩
 def witnessZ : VarId := ⟨5⟩
 
 def witnessAddProgram : Vars.Program :=
-  { functions := #[
+  { init :=
       { entry := {
           inputs := #[]
           statements := #[
@@ -25,22 +25,21 @@ def witnessAddProgram : Vars.Program :=
           ]
           terminator := .halt
           outputs := #[] }
-        rest := #[] },
+        rest := #[] }
+    main := none
+    rest := #[
       { entry := {
           inputs := #[witnessX, witnessY]
           statements := #[.assign witnessZ (.add witnessX witnessY)]
           terminator := .iret
           outputs := #[witnessZ] }
-        rest := #[] }
-    ]
-    initEntry := witnessMain
-    mainEntry := none }
+        rest := #[] }] }
 
 private theorem witness_callEdge_iff (caller callee : FunctionId) :
     witnessAddProgram.callEdge caller callee ↔ caller = witnessMain ∧ callee = witnessAdd2 := by
   rcases caller with ⟨_ | _ | caller⟩ <;>
-    simp [Vars.Program.callEdge, Vars.Program.function?, Vars.Function.HasStmt, witnessAddProgram,
-      witnessAdd2, witnessMain]
+    simp [Vars.Program.callEdge, Vars.Program.function?, Vars.Program.functions,
+      Vars.Function.HasStmt, witnessAddProgram, witnessAdd2, witnessMain]
 
 private theorem witness_acyclicCalls (f : FunctionId) :
     ¬ Relation.TransGen witnessAddProgram.callEdge f f := by
@@ -71,10 +70,9 @@ theorem witnessAddProgram_wellFormed : witnessAddProgram.WellFormed := by
     rcases hfn with rfl | rfl <;> simp at hblock <;> subst hblock <;>
       simp [Vars.Function.outputs?, Vars.Function.blocks] at hterm ⊢
   · exact witness_acyclicCalls
-  · constructor
-    · exact Vars.Program.functionInputOutputArity_iff.mpr ⟨_, rfl, rfl, rfl⟩
-    · intro e he
-      simp [witnessAddProgram] at he
+  · refine ⟨⟨rfl, rfl⟩, ?_⟩
+    intro m hmain
+    simp [witnessAddProgram] at hmain
   · intro fn hfn block hblock target htarget
     simp [witnessAddProgram] at hfn
     rcases hfn with rfl | rfl <;>
@@ -232,8 +230,8 @@ private theorem witnessAddProgram_eval (ctx : CallContext) (w : World) :
     (.tail (.tail (.tail (Machine.Steps.single hstep₁) hstep₂) hstep₃) hstep₄) rfl
 
 theorem witnessAddProgram_runs (ctx : CallContext) (w : World) :
-    Vars.EvalFn witnessAddProgram ctx witnessAddProgram.initEntry { world := w } #[] []
+    Vars.EvalFn witnessAddProgram ctx witnessAddProgram.initId { world := w } #[] []
       ({ world := w } : Globals) .halted := by
-  simpa [witnessAddProgram] using witnessAddProgram_eval ctx w
+  simpa [Vars.Program.initId, witnessMain] using witnessAddProgram_eval ctx w
 
 end Sir

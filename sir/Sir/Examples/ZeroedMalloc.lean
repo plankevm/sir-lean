@@ -11,7 +11,7 @@ def zeroedMallocLoadBlock : BlockId := ⟨0⟩
 def zeroedMallocLoadEntry : FunctionId := ⟨0⟩
 
 def zeroedMallocLoad : Vars.Program :=
-  { functions := #[{
+  { init := {
       entry := {
         inputs := #[]
         statements := #[
@@ -20,9 +20,9 @@ def zeroedMallocLoad : Vars.Program :=
           .mload32 zeroedMallocLoadResult zeroedMallocLoadOffset]
         terminator := .halt
         outputs := #[]}
-      rest := #[] }]
-    initEntry := zeroedMallocLoadEntry
-    mainEntry := none }
+      rest := #[] }
+    main := none
+    rest := #[] }
 
 private def zeroedMallocAllocation : Allocation :=
   { offset := 0, bytes := ⟨Array.replicate 32 0⟩ }
@@ -89,8 +89,9 @@ private theorem zeroedMallocSteps (ctx : CallContext) (world : World) :
       (zeroedMallocState1 world) := by
     apply step_assign (program := zeroedMallocLoad) (ctx := ctx)
       (result := zeroedMallocLoadSize) (expr := .constant 32)
-      (by simp [zeroedMallocLoad, Vars.Program.decodeStmt, Vars.Program.block?, Vars.Program.function?,
-        Vars.Function.block?, Vars.Function.blocks, Vars.Block.absoluteToPosition, zeroedMallocState0,
+      (by simp [zeroedMallocLoad, Vars.Program.decodeStmt, Vars.Program.block?,
+        Vars.Program.function?, Vars.Program.functions, Vars.Function.block?,
+        Vars.Function.blocks, Vars.Block.absoluteToPosition, zeroedMallocState0,
         zeroedMallocControl, zeroedMallocLoadEntry, zeroedMallocLoadBlock,
         zeroedMallocLoadSize, zeroedMallocLoadOffset, zeroedMallocLoadResult])
     simp only [Vars.decodeExpression, Machine.Instruction.Fires]
@@ -110,8 +111,9 @@ private theorem zeroedMallocSteps (ctx : CallContext) (world : World) :
       (zeroedMallocState2 world) := by
     apply step_malloc (program := zeroedMallocLoad) (ctx := ctx)
       (result := zeroedMallocLoadOffset) (size := zeroedMallocLoadSize)
-      (by simp [zeroedMallocLoad, Vars.Program.decodeStmt, Vars.Program.block?, Vars.Program.function?,
-        Vars.Function.block?, Vars.Function.blocks, Vars.Block.absoluteToPosition, zeroedMallocState1,
+      (by simp [zeroedMallocLoad, Vars.Program.decodeStmt, Vars.Program.block?,
+        Vars.Program.function?, Vars.Program.functions, Vars.Function.block?,
+        Vars.Function.blocks, Vars.Block.absoluteToPosition, zeroedMallocState1,
         zeroedMallocControl, zeroedMallocLoadEntry, zeroedMallocLoadBlock,
         zeroedMallocLoadSize, zeroedMallocLoadOffset, zeroedMallocLoadResult])
     simp only [Vars.decodeStatement, Machine.Instruction.Fires]
@@ -149,8 +151,9 @@ private theorem zeroedMallocSteps (ctx : CallContext) (world : World) :
       (zeroedMallocState3 world) := by
     apply step_mload32 (program := zeroedMallocLoad) (ctx := ctx)
       (result := zeroedMallocLoadResult) (offset := zeroedMallocLoadOffset)
-      (by simp [zeroedMallocLoad, Vars.Program.decodeStmt, Vars.Program.block?, Vars.Program.function?,
-        Vars.Function.block?, Vars.Function.blocks, Vars.Block.absoluteToPosition, zeroedMallocState2,
+      (by simp [zeroedMallocLoad, Vars.Program.decodeStmt, Vars.Program.block?,
+        Vars.Program.function?, Vars.Program.functions, Vars.Function.block?,
+        Vars.Function.blocks, Vars.Block.absoluteToPosition, zeroedMallocState2,
         zeroedMallocControl, zeroedMallocLoadEntry, zeroedMallocLoadBlock,
         zeroedMallocLoadSize, zeroedMallocLoadOffset, zeroedMallocLoadResult])
     simp only [Vars.decodeStatement, Machine.Instruction.Fires]
@@ -158,8 +161,9 @@ private theorem zeroedMallocSteps (ctx : CallContext) (world : World) :
   have step34 : Vars.SmallStep zeroedMallocLoad ctx (zeroedMallocState3 world) []
       (zeroedMallocState4 world) :=
     step_terminator (terminator := .halt)
-      (by simp [zeroedMallocLoad, Vars.Program.terminatorAt, Vars.Program.block?, Vars.Program.function?,
-        Vars.Function.block?, Vars.Function.blocks, zeroedMallocState3, zeroedMallocControl,
+      (by simp [zeroedMallocLoad, Vars.Program.terminatorAt, Vars.Program.block?,
+        Vars.Program.function?, Vars.Program.functions, Vars.Function.block?,
+        Vars.Function.blocks, zeroedMallocState3, zeroedMallocControl,
         zeroedMallocLoadEntry, zeroedMallocLoadBlock])
       (by simp [Vars.evaluateTerminator, zeroedMallocState3, zeroedMallocState4,
         pure, Except.pure])

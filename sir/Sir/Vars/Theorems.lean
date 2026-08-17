@@ -123,7 +123,7 @@ theorem Vars.Program.WellFormed.evalFn_arity
 theorem Vars.Program.WellFormed.evalFn_entry_not_returned
     (hwf : program.WellFormed) {entry : FunctionId} {globals finalGlobals : Globals}
     {values : Array Word} {trace : Trace}
-    (hentry : entry = program.initEntry ∨ program.mainEntry = some entry)
+    (hentry : entry = program.initId ∨ program.mainId? = some entry)
     (hrun : Vars.EvalFn program ctx entry globals #[] trace finalGlobals (.returned values)) :
     False :=
   Vars.Proofs.Program.WellFormed.evalFn_entry_not_returned hwf hentry hrun

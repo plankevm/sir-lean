@@ -89,11 +89,13 @@ structure Function where
 deriving Repr
 
 structure Program where
-  functions : Array Function
-  initEntry : FunctionId
+  init : Function
+  rest : Array Function
 deriving Repr
 
 def Function.blocks (function : Function) : Array Block := #[function.entry] ++ function.rest
+
+def Program.functions (program : Program) : Array Function := #[program.init] ++ program.rest
 
 def Function.HasInstr (function : Function) (instruction : Instr) : Prop :=
   ∃ block ∈ function.blocks, instruction ∈ block.instructions

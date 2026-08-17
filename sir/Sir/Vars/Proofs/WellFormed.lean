@@ -152,15 +152,15 @@ theorem Vars.Proofs.Program.WellFormed.evalFn_arity
 theorem Vars.Proofs.Program.WellFormed.evalFn_entry_not_returned
     (hwf : program.WellFormed) {entry : FunctionId} {globals finalGlobals : Globals}
     {values : Array Word} {trace : Trace}
-    (hentry : entry = program.initEntry ∨ program.mainEntry = some entry)
+    (hentry : entry = program.initId ∨ program.mainId? = some entry)
     (hrun : Vars.EvalFn program ctx entry globals #[] trace finalGlobals (.returned values)) :
     False := by
-  have harity : program.FunctionInputOutputArity 0 none entry := by
+  obtain ⟨fn, hfn, houtputs⟩ :
+      ∃ fn, program.function? entry = some fn ∧ fn.outputs? = none := by
     rcases hentry with rfl | hmain
-    · exact hwf.entryArity.1
-    · exact hwf.entryArity.2 entry hmain
-  rcases Vars.Program.functionInputOutputArity_iff.mp harity with
-    ⟨fn, hfn, -, houtputs⟩
+    · exact ⟨program.init, Vars.Program.function?_initId program, hwf.entryArity.1.2⟩
+    · obtain ⟨m, hmain', hfn⟩ := Vars.Program.function?_mainId hmain
+      exact ⟨m, hfn, (hwf.entryArity.2 m hmain').2⟩
   have hreturn := Vars.Proofs.Program.WellFormed.evalFn_arity hwf hrun
   rw [hfn] at hreturn
   simp [houtputs] at hreturn
