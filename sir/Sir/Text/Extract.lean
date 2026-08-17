@@ -1,4 +1,5 @@
 import Sir.Text.Spec.Parser
+import Sir.Vars.Spec.Check
 
 namespace Sir.Vars.Text
 
@@ -56,23 +57,29 @@ def blockLit (depth : Nat) (block : Block) : String :=
     indent (depth + 1) ++ "outputs := " ++ varArrayLit block.outputs ++ " }"
 
 def functionLit (depth : Nat) (function : Function) : String :=
-  "{ blocks := #[\n" ++
+  "{ entry := " ++ blockLit (depth + 1) function.entry ++ ",\n" ++
+    indent (depth + 1) ++ "rest := " ++
+    (if function.rest.isEmpty then "#[]"
+     else "#[\n" ++
+       String.intercalate ",\n"
+         (function.rest.toList.map fun block =>
+           indent (depth + 2) ++ blockLit (depth + 2) block) ++ "]") ++ " }"
+
+def functionArrayLit (depth : Nat) (functions : Array Function) : String :=
+  if functions.isEmpty then "#[]"
+  else "#[\n" ++
     String.intercalate ",\n"
-      (function.blocks.toList.map fun block =>
-        indent (depth + 2) ++ blockLit (depth + 2) block) ++ "],\n" ++
-    indent (depth + 1) ++ "entry := " ++ idLit function.entry.id ++ " }"
+      (functions.toList.map fun function =>
+        indent (depth + 1) ++ functionLit (depth + 1) function) ++ "]"
 
 def toLeanModule (declaration : String) (program : Program) : String :=
   "import Sir.Vars.Spec\n\nnamespace Sir.Vars\n\ndef " ++ declaration ++ " : Program :=\n" ++
-  "  { functions := #[\n" ++
-    String.intercalate ",\n"
-      (program.functions.toList.map fun function =>
-        indent 3 ++ functionLit 3 function) ++ "],\n" ++
-  "    initEntry := " ++ idLit program.initEntry.id ++ ",\n" ++
-  "    mainEntry := " ++
-    (match program.mainEntry with
+  "  { init := " ++ functionLit 2 program.init ++ ",\n" ++
+  "    main := " ++
+    (match program.main with
      | none => "none"
-     | some entry => "some " ++ idLit entry.id) ++ " }\n\nend Sir.Vars\n"
+     | some function => "some " ++ functionLit 2 function) ++ ",\n" ++
+  "    rest := " ++ functionArrayLit 2 program.rest ++ " }\n\nend Sir.Vars\n"
 
 def isDeclarationStart (character : Char) : Bool :=
   character.isAlpha || character == '_'
@@ -89,6 +96,9 @@ def extract (source declaration : String) : Except String String := do
   if !isDeclarationName declaration then
     throw s!"invalid declaration name {String.quote declaration}"
   let program ← parse source
-  return toLeanModule declaration program
+  match checkIretArity program with
+  | .error (.iretArity declared actual) =>
+      throw s!"iret returns {actual} values but the function declares {declared}"
+  | .ok _ => return toLeanModule declaration program
 
 end Sir.Vars.Text
