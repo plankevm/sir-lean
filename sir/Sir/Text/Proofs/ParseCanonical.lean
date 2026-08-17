@@ -139,10 +139,10 @@ theorem canonical {program : Program} {names : List String}
   calc
     program.renameVariables program.canonicalVariable =
         program.renameVariables id := by
-      apply Program.renameVariables_congr
+      apply Vars.Proofs.Program.renameVariables_congr
       intro identifier member
       exact canonicalVariable_eq invariant rfl member
-    _ = program := Program.renameVariables_id program
+    _ = program := Vars.Proofs.Program.renameVariables_id program
 
 end InterningInvariant
 

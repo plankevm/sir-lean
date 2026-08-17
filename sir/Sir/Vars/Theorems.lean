@@ -165,6 +165,14 @@ theorem Vars.acyclic_of_rank {rank : FunctionId → Nat}
     ¬ Relation.TransGen program.callEdge f f :=
   Vars.Proofs.acyclic_of_rank decreasing f
 
+theorem Vars.Program.canonicalize_alphaEquiv (program : Vars.Program) :
+    Vars.Program.AlphaEquiv program.canonicalize program :=
+  Vars.Proofs.Program.canonicalize_alphaEquiv program
+
+theorem Vars.Program.alphaEquiv_iff_canonicalize_eq {left right : Vars.Program} :
+    Vars.Program.AlphaEquiv left right ↔ left.canonicalize = right.canonicalize :=
+  Vars.Proofs.Program.alphaEquiv_iff_canonicalize_eq
+
 theorem Vars.Program.canonicalizeEquivalenceClass_bijective :
     (∀ left right : Quotient Vars.Program.alphaEquivalenceSetoid,
         Vars.Program.canonicalizeEquivalenceClass left =

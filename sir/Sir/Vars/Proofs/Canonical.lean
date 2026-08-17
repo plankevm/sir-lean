@@ -1,6 +1,6 @@
 import Sir.Vars.Spec.Canonical
 
-namespace Sir.Vars
+namespace Sir.Vars.Proofs
 
 @[simp] theorem Expr.renameVariables_id (value : Expr) :
     value.renameVariables id = value := by
@@ -373,4 +373,4 @@ theorem Program.canonicalize_canonical (program : Program) :
     program.canonicalize.Canonical :=
   Program.alphaEquiv_iff_canonicalize_eq.mp (Program.canonicalize_alphaEquiv program)
 
-end Sir.Vars
+end Sir.Vars.Proofs

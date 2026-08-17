@@ -1783,7 +1783,7 @@ theorem parse_print_alphaEquiv {program parsedProgram : Program}
   have canonicalized : parsedProgram = program.canonicalize :=
     Except.ok.inj (parsed.symm.trans (parse_print_canonicalize printable))
   rw [canonicalized]
-  exact Program.canonicalize_alphaEquiv program
+  exact Vars.Proofs.Program.canonicalize_alphaEquiv program
 
 end Proofs
 end Sir.Vars.Text
