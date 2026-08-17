@@ -11,12 +11,12 @@ def witnessBlock : BlockId := ⟨0⟩
 
 def witnessProgram : Program :=
   { functions := #[
-      { blocks := #[
+      { entry :=
           { inputs := #[]
             statements := #[.assign witnessResult (.constant 7)]
             terminator := .halt
-            outputs := #[] }]
-        entry := witnessBlock }]
+            outputs := #[] }
+        rest := #[] }]
     initEntry := witnessEntry
     mainEntry := none }
 
@@ -86,12 +86,12 @@ def witnessSum : Word := Evm.UInt256.add 3 2
 
 def witnessProgram : Program :=
   { functions := #[
-      { blocks := #[
+      { entry :=
           { inputCount := 0
             instructions := #[.op (.constant 2), .op (.constant 3), .op .add]
             terminator := .halt
-            outputCount := 1 }]
-        entry := witnessBlock }]
+            outputCount := 1 }
+        rest := #[] }]
     initEntry := witnessEntry }
 
 def witnessState (globals : Globals) (stack : List Word) (position : Machine.BlockPosition) :

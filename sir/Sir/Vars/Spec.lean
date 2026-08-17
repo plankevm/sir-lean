@@ -110,8 +110,8 @@ structure Block where
 deriving Repr
 
 structure Function where
-  blocks : Array Block
-  entry : BlockId
+  entry : Block
+  rest : Array Block
 deriving Repr
 
 structure Program where
@@ -122,11 +122,12 @@ deriving Repr
 
 end Vars
 
+def Vars.Function.blocks (fn : Vars.Function) : Array Vars.Block := #[fn.entry] ++ fn.rest
+
 def Vars.Function.block? (fn : Vars.Function) (bid : BlockId) : Option Vars.Block :=
   fn.blocks[bid.id]?
 
-def Vars.Function.paramsOf (fn : Vars.Function) : Option (Array VarId) :=
-  (fn.block? fn.entry).map (·.inputs)
+def Vars.Function.paramsOf (fn : Vars.Function) : Array VarId := fn.entry.inputs
 
 def Vars.Function.outputs? (fn : Vars.Function) : Option Nat :=
   (fn.blocks.find? (fun block => decide (block.terminator = .iret))).map (·.outputs.size)
@@ -147,7 +148,7 @@ def Vars.Program.HasStmt (program : Vars.Program) (stmt : Vars.Stmt) : Prop :=
 def Vars.Program.FunctionInputOutputArity (program : Vars.Program) (inputCount : Nat)
     (outputCount : Option Nat) (functionId : FunctionId) : Prop :=
   ∃ fn, program.function? functionId = some fn ∧
-    fn.paramsOf.map (·.size) = some inputCount ∧ fn.outputs? = outputCount
+    fn.paramsOf.size = inputCount ∧ fn.outputs? = outputCount
 
 def Vars.Program.AtEntries (program : Vars.Program) (condition : FunctionId → Prop) : Prop :=
   condition program.initEntry ∧
@@ -162,11 +163,10 @@ def Vars.Block.startPosition (block : Vars.Block) : Machine.BlockPosition :=
 def Vars.Program.callState? (p : Vars.Program) (f : FunctionId) (g : Globals)
     (args : Array Word) : Option Vars.State := do
   let fn ← p.function? f
-  let bb ← fn.block? fn.entry
-  let .ok locals₀ := Locals.bindParams bb.inputs args | none
+  let .ok locals₀ := Locals.bindParams fn.entry.inputs args | none
   let state : Vars.State :=
     { globals := g, environment := locals₀,
-      control := .running { fn := f, block := fn.entry, position := bb.startPosition } }
+      control := .running { fn := f, block := ⟨0⟩, position := fn.entry.startPosition } }
   some state
 
 def Vars.Program.decodeStmt (program : Vars.Program) (control : Machine.MachineControl) :

@@ -16,7 +16,7 @@ def witnessZ : VarId := ⟨5⟩
 
 def witnessAddProgram : Vars.Program :=
   { functions := #[
-      { blocks := #[{
+      { entry := {
           inputs := #[]
           statements := #[
             .assign witnessA (.constant 2),
@@ -24,14 +24,14 @@ def witnessAddProgram : Vars.Program :=
             .icall witnessAdd2 #[witnessA, witnessB] #[witnessR]
           ]
           terminator := .halt
-          outputs := #[] }]
-        entry := witnessMainBlock },
-      { blocks := #[{
+          outputs := #[] }
+        rest := #[] },
+      { entry := {
           inputs := #[witnessX, witnessY]
           statements := #[.assign witnessZ (.add witnessX witnessY)]
           terminator := .iret
-          outputs := #[witnessZ] }]
-        entry := witnessAddBlock }
+          outputs := #[witnessZ] }
+        rest := #[] }
     ]
     initEntry := witnessMain
     mainEntry := none }
@@ -69,7 +69,7 @@ theorem witnessAddProgram_wellFormed : witnessAddProgram.WellFormed := by
   · intro fn hfn block hblock hterm
     simp [witnessAddProgram] at hfn
     rcases hfn with rfl | rfl <;> simp at hblock <;> subst hblock <;>
-      simp [Vars.Function.outputs?] at hterm ⊢
+      simp [Vars.Function.outputs?, Vars.Function.blocks] at hterm ⊢
   · exact witness_acyclicCalls
   · constructor
     · exact Vars.Program.functionInputOutputArity_iff.mpr ⟨_, rfl, rfl, rfl⟩
@@ -129,8 +129,7 @@ private theorem witness_evalFn_add2 (ctx : CallContext) (w : World) :
   have hentry : witnessAddProgram.callState? witnessAdd2 { world := w } #[2, 3] =
       some initial := by
     apply Vars.Program.callState?_eq_some_iff.mpr
-    refine ⟨_, _, (Locals.empty.assign witnessX 2).assign witnessY 3,
-      rfl, rfl, ?_, rfl⟩
+    refine ⟨_, (Locals.empty.assign witnessX 2).assign witnessY 3, rfl, ?_, rfl⟩
     simp only [Locals.bindParams, Locals.bindValues, ← Array.forIn_toList,
       Array.toList_zip]
     rfl
@@ -186,7 +185,7 @@ private theorem witnessAddProgram_eval (ctx : CallContext) (w : World) :
   let final : Vars.State := { state₃ with control := .halted }
   have hentry : witnessAddProgram.callState? witnessMain { world := w } #[] = some initial := by
     apply Vars.Program.callState?_eq_some_iff.mpr
-    refine ⟨_, _, Locals.empty, rfl, rfl, ?_, rfl⟩
+    refine ⟨_, Locals.empty, rfl, ?_, rfl⟩
     simp only [Locals.bindParams, Locals.bindValues, ← Array.forIn_toList,
       Array.toList_zip]
     rfl

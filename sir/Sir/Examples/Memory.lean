@@ -15,7 +15,7 @@ private abbrev entryFunction : FunctionId := ⟨0⟩
 
 def initializedLoad : Vars.Program :=
   { functions := #[{
-      blocks := #[{
+      entry := {
         inputs := #[]
         statements := #[
           .assign sizeVar (.constant 32),
@@ -25,22 +25,22 @@ def initializedLoad : Vars.Program :=
           .mload32 zVar xVar,
           .sstore zVar zVar]
         terminator := .halt
-        outputs := #[]}]
-      entry := entryBlock }]
+        outputs := #[]}
+      rest := #[] }]
     initEntry := entryFunction
     mainEntry := none }
 
 def zeroSizeStore : Vars.Program :=
   { functions := #[{
-      blocks := #[{
+      entry := {
         inputs := #[]
         statements := #[
           .assign sizeVar (.constant 0),
           .mallocUninit xVar sizeVar,
           .sstore xVar xVar]
         terminator := .halt
-        outputs := #[]}]
-      entry := entryBlock }]
+        outputs := #[]}
+      rest := #[] }]
     initEntry := entryFunction
     mainEntry := none }
 
@@ -513,7 +513,7 @@ private theorem initialized_entry (world : World) :
     initializedLoad.callState? entryFunction { world := world } #[] =
       some (initializedState0 world) := by
   apply Vars.Program.callState?_eq_some_iff.mpr
-  refine ⟨_, _, Locals.empty, rfl, rfl, ?_, rfl⟩
+  refine ⟨_, Locals.empty, rfl, ?_, rfl⟩
   simp only [Locals.bindParams, Locals.bindValues, ← Array.forIn_toList,
     Array.toList_zip]
   rfl
@@ -580,7 +580,7 @@ private def zeroState4 (ctx : CallContext) (world : World) (offset : Word) : Var
 private theorem zero_entry (world : World) :
     zeroSizeStore.callState? entryFunction { world := world } #[] = some (zeroState0 world) := by
   apply Vars.Program.callState?_eq_some_iff.mpr
-  refine ⟨_, _, Locals.empty, rfl, rfl, ?_, rfl⟩
+  refine ⟨_, Locals.empty, rfl, ?_, rfl⟩
   simp only [Locals.bindParams, Locals.bindValues, ← Array.forIn_toList,
     Array.toList_zip]
   rfl
@@ -602,7 +602,7 @@ private theorem zero_steps (ctx : CallContext) (world : World) (offset : Word) :
     apply step_assign (program := zeroSizeStore) (ctx := ctx)
       (result := sizeVar) (expr := .constant 0)
       (by simp [zeroSizeStore, Vars.Program.decodeStmt, Vars.Program.block?, Vars.Program.function?,
-        Vars.Function.block?, Vars.Block.absoluteToPosition, zeroState0, stmtControl])
+        Vars.Function.block?, Vars.Function.blocks, Vars.Block.absoluteToPosition, zeroState0, stmtControl])
     simp only [Vars.decodeExpression, Machine.Instruction.Fires]
     exact fires_of hfetchEmpty (by trivial)
       (Machine.Operation.execute_constant_ok ctx 0 (zeroState0 world).globals #[]) hstoreSize
@@ -627,7 +627,7 @@ private theorem zero_steps (ctx : CallContext) (world : World) (offset : Word) :
     apply step_mallocUninit (program := zeroSizeStore) (ctx := ctx)
       (result := xVar) (size := sizeVar)
       (by simp [zeroSizeStore, Vars.Program.decodeStmt, Vars.Program.block?, Vars.Program.function?,
-        Vars.Function.block?, Vars.Block.absoluteToPosition, zeroState1, stmtControl])
+        Vars.Function.block?, Vars.Function.blocks, Vars.Block.absoluteToPosition, zeroState1, stmtControl])
     simp only [Vars.decodeStatement, Machine.Instruction.Fires]
     exact fires_of hfetchSize ⟨0, rfl, ⟨hvalid, hsize⟩, hvalid, hsize⟩
       (Machine.Operation.execute_mallocUninit_ok ctx (zeroAlloc offset)
@@ -645,7 +645,7 @@ private theorem zero_steps (ctx : CallContext) (world : World) (offset : Word) :
     apply step_sstore (program := zeroSizeStore) (ctx := ctx)
       (key := xVar) (value := xVar)
       (by simp [zeroSizeStore, Vars.Program.decodeStmt, Vars.Program.block?, Vars.Program.function?,
-        Vars.Function.block?, Vars.Block.absoluteToPosition, zeroState2, stmtControl, termControl])
+        Vars.Function.block?, Vars.Function.blocks, Vars.Block.absoluteToPosition, zeroState2, stmtControl, termControl])
     simp only [Vars.decodeStatement, Machine.Instruction.Fires]
     exact fires_of hfetchOffset (by trivial)
       (Machine.Operation.execute_sstore_ok ctx offset offset (zeroState2 world offset).globals)
@@ -654,7 +654,7 @@ private theorem zero_steps (ctx : CallContext) (world : World) (offset : Word) :
       (zeroState3 ctx world offset) [] (zeroState4 ctx world offset) :=
     step_terminator (terminator := .halt)
       (by simp [zeroSizeStore, Vars.Program.terminatorAt, Vars.Program.block?, Vars.Program.function?,
-        Vars.Function.block?, zeroState3, termControl])
+        Vars.Function.block?, Vars.Function.blocks, zeroState3, termControl])
       (by simp [Vars.evaluateTerminator, zeroState3, zeroState4, pure, Except.pure])
   exact .tail (.tail (.tail (.tail .refl step01) step12) step23) step34
 

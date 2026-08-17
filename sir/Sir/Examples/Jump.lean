@@ -2,7 +2,6 @@ import Sir.Theorems
 
 namespace Sir.Examples
 
-def jumpSourceBlock : BlockId := ⟨0⟩
 def jumpTargetBlock : BlockId := ⟨1⟩
 def jumpEntry : FunctionId := ⟨0⟩
 def jumpDefined : VarId := ⟨0⟩
@@ -11,16 +10,16 @@ def jumpDoubled : VarId := ⟨2⟩
 
 def jumpProgram : Vars.Program :=
   { functions := #[
-      { blocks := #[
+      { entry :=
           { inputs := #[]
             statements := #[.assign jumpDefined (.constant 7)]
             terminator := .jump jumpTargetBlock
-            outputs := #[jumpDefined] },
+            outputs := #[jumpDefined] }
+        rest := #[
           { inputs := #[jumpParameter]
             statements := #[.assign jumpDoubled (.add jumpParameter jumpParameter)]
             terminator := .halt
-            outputs := #[] }]
-        entry := jumpSourceBlock }]
+            outputs := #[] }] }]
     initEntry := jumpEntry
     mainEntry := none }
 

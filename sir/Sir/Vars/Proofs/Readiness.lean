@@ -209,10 +209,10 @@ theorem Vars.Program.callState?_localsCoverCursor
     {state : Vars.State}
     (hentry : program.callState? function globals args = some state) :
     state.LocalsCoverCursor program := by
-  obtain ⟨fn, block, locals, hfn, hblock, hbind, rfl⟩ :=
+  obtain ⟨fn, locals, hfn, hbind, rfl⟩ :=
     Vars.Program.callState?_eq_some_iff.mp hentry
-  refine ⟨block, ?_, ?_⟩
-  · simp [Vars.Program.block?, hfn, hblock]
+  refine ⟨fn.entry, ?_, ?_⟩
+  · simp [Vars.Program.block?, hfn]
   · rw [Vars.Block.variablesDefinedAtPosition_start]
     exact Locals.bindParams_covers hbind
 

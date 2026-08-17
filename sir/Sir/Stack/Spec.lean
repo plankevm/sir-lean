@@ -84,14 +84,16 @@ structure Block where
 deriving Repr
 
 structure Function where
-  blocks : Array Block
-  entry : BlockId
+  entry : Block
+  rest : Array Block
 deriving Repr
 
 structure Program where
   functions : Array Function
   initEntry : FunctionId
 deriving Repr
+
+def Function.blocks (function : Function) : Array Block := #[function.entry] ++ function.rest
 
 def Function.HasInstr (function : Function) (instruction : Instr) : Prop :=
   ∃ block ∈ function.blocks, instruction ∈ block.instructions
@@ -228,13 +230,12 @@ def resume (outcome : FunctionOutcome) (env : Environment)
 def entry (program : Program) (functionId : FunctionId) (globals : Globals)
     (args : Array Word) : Option (State frame) := do
   let function ← program.function? functionId
-  let block ← function.block? function.entry
-  if args.size ≠ block.inputCount then none
+  if args.size ≠ function.entry.inputCount then none
   some
     { globals
       environment := { Environment.empty with stack := args.toList }
       control := .running
-        { fn := functionId, block := function.entry, position := block.startPosition } }
+        { fn := functionId, block := ⟨0⟩, position := function.entry.startPosition } }
 
 def decoder (program : Program) : Decoder frame where
   decode := decode program

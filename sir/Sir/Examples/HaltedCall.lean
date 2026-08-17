@@ -9,18 +9,18 @@ def haltedCallCallee : FunctionId := ⟨1⟩
 
 def haltedCallProgram : Vars.Program :=
   { functions := #[
-      { blocks := #[{
+      { entry := {
           inputs := #[]
           statements := #[.icall haltedCallCallee #[] #[]]
           terminator := .halt
-          outputs := #[] }]
-        entry := haltedCallCallerBlock },
-      { blocks := #[{
+          outputs := #[] }
+        rest := #[] },
+      { entry := {
           inputs := #[]
           statements := #[]
           terminator := .halt
-          outputs := #[] }]
-        entry := haltedCallCalleeBlock }
+          outputs := #[] }
+        rest := #[] }
     ]
     initEntry := haltedCallCaller
     mainEntry := none }
@@ -102,7 +102,7 @@ private theorem haltedCall_evalCallee (ctx : CallContext) (world : World) :
   have hentry : haltedCallProgram.callState? haltedCallCallee { world := world } #[] =
       some initial := by
     apply Vars.Program.callState?_eq_some_iff.mpr
-    refine ⟨_, _, Locals.empty, rfl, rfl, ?_, rfl⟩
+    refine ⟨_, Locals.empty, rfl, ?_, rfl⟩
     simp only [Locals.bindParams, Locals.bindValues, ← Array.forIn_toList,
       Array.toList_zip]
     rfl
@@ -123,7 +123,7 @@ private theorem haltedCallProgram_eval (ctx : CallContext) (world : World) :
   have hentry : haltedCallProgram.callState? haltedCallCaller { world := world } #[] =
       some initial := by
     apply Vars.Program.callState?_eq_some_iff.mpr
-    refine ⟨_, _, Locals.empty, rfl, rfl, ?_, rfl⟩
+    refine ⟨_, Locals.empty, rfl, ?_, rfl⟩
     simp only [Locals.bindParams, Locals.bindValues, ← Array.forIn_toList,
       Array.toList_zip]
     rfl

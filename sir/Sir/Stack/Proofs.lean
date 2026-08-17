@@ -5,6 +5,21 @@ namespace Sir.Stack
 
 open Sir Machine
 
+@[simp]
+theorem Function.mem_blocks {function : Function} {block : Block} :
+    block ∈ function.blocks ↔ block = function.entry ∨ block ∈ function.rest := by
+  simp [Function.blocks]
+
+@[simp]
+theorem Function.block?_zero (function : Function) :
+    function.block? ⟨0⟩ = some function.entry := by
+  simp [Function.block?, Function.blocks]
+
+@[simp]
+theorem Function.block?_succ (function : Function) (n : Nat) :
+    function.block? ⟨n + 1⟩ = function.rest[n]? := by
+  simp [Function.block?, Function.blocks, Array.getElem?_append_right]
+
 namespace Proofs
 
 theorem decoder_exclusive (program : Program) : (decoder program).Exclusive := by

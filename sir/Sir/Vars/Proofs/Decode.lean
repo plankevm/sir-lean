@@ -4,32 +4,42 @@ namespace Sir
 
 variable {program : Vars.Program}
 
+@[simp]
+theorem Vars.Function.mem_blocks {fn : Vars.Function} {b : Vars.Block} :
+    b ∈ fn.blocks ↔ b = fn.entry ∨ b ∈ fn.rest := by
+  simp [Vars.Function.blocks]
+
+@[simp]
+theorem Vars.Function.block?_zero (fn : Vars.Function) : fn.block? ⟨0⟩ = some fn.entry := by
+  simp [Vars.Function.block?, Vars.Function.blocks]
+
+@[simp]
+theorem Vars.Function.block?_succ (fn : Vars.Function) (n : Nat) :
+    fn.block? ⟨n + 1⟩ = fn.rest[n]? := by
+  simp [Vars.Function.block?, Vars.Function.blocks, Array.getElem?_append_right]
+
 theorem Vars.Program.callState?_eq_some_iff
     {p : Vars.Program} {f : FunctionId} {g : Globals} {args : Array Word}
     {s : Vars.State} :
     p.callState? f g args = some s ↔
-      ∃ fn bb locals₀, p.function? f = some fn ∧
-        fn.block? fn.entry = some bb ∧
-        Locals.bindParams bb.inputs args = .ok locals₀ ∧
+      ∃ fn locals₀, p.function? f = some fn ∧
+        Locals.bindParams fn.entry.inputs args = .ok locals₀ ∧
         s = ⟨g, locals₀,
-          .running { fn := f, block := fn.entry, position := bb.startPosition }⟩ := by
+          .running { fn := f, block := ⟨0⟩, position := fn.entry.startPosition }⟩ := by
   constructor
   · intro h
     cases hfn : p.function? f with
     | none => simp [Vars.Program.callState?, hfn] at h
     | some fn =>
-      cases hbb : fn.block? fn.entry with
-      | none => simp [Vars.Program.callState?, hfn, hbb] at h
-      | some bb =>
-        cases hbind : Locals.bindParams bb.inputs args with
-        | error e => simp [Vars.Program.callState?, hfn, hbb, hbind] at h
-        | ok locals₀ =>
-          have hs : ⟨g, locals₀, .running {
-              fn := f, block := fn.entry, position := bb.startPosition }⟩ = s := by
-            simpa [Vars.Program.callState?, hfn, hbb, hbind] using h
-          exact ⟨fn, bb, locals₀, rfl, hbb, hbind, hs.symm⟩
-  · rintro ⟨fn, bb, locals₀, hfn, hbb, hbind, rfl⟩
-    simp [Vars.Program.callState?, hfn, hbb, hbind]
+      cases hbind : Locals.bindParams fn.entry.inputs args with
+      | error e => simp [Vars.Program.callState?, hfn, hbind] at h
+      | ok locals₀ =>
+        have hs : ⟨g, locals₀, .running {
+            fn := f, block := ⟨0⟩, position := fn.entry.startPosition }⟩ = s := by
+          simpa [Vars.Program.callState?, hfn, hbind] using h
+        exact ⟨fn, locals₀, rfl, hbind, hs.symm⟩
+  · rintro ⟨fn, locals₀, hfn, hbind, rfl⟩
+    simp [Vars.Program.callState?, hfn, hbind]
 
 theorem decodeStmt_terminatorAt_exclusive
     {control nextControl : Machine.MachineControl} {stmt : Vars.Stmt} {term : Vars.Terminator}

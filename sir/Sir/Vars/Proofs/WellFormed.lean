@@ -4,9 +4,8 @@ namespace Sir
 
 variable {program : Vars.Program} {ctx : CallContext}
 
-def Vars.Program.paramsOf (program : Vars.Program) (function : FunctionId) : Option (Array VarId) := do
-  let fn ← program.function? function
-  fn.paramsOf
+def Vars.Program.paramsOf (program : Vars.Program) (function : FunctionId) : Option (Array VarId) :=
+  (program.function? function).map (·.paramsOf)
 
 theorem Vars.Program.mem_functions_of_function? {p : Vars.Program} {f : FunctionId} {fn : Vars.Function}
     (h : p.function? f = some fn) : fn ∈ p.functions :=
@@ -17,7 +16,7 @@ theorem Vars.Program.functionInputOutputArity_iff
     {functionId : FunctionId} :
     p.FunctionInputOutputArity inputCount outputCount functionId ↔
       ∃ fn, p.function? functionId = some fn ∧
-        fn.paramsOf.map (·.size) = some inputCount ∧ fn.outputs? = outputCount := by
+        fn.paramsOf.size = inputCount ∧ fn.outputs? = outputCount := by
   rfl
 
 theorem Vars.Program.WellFormed.callEdge_wellFounded
@@ -95,12 +94,9 @@ theorem Vars.Program.WellFormed.icall_paramsOf
     hwf.icallArity callee args dests (Vars.Program.decodeStmt_mem hstmt)
   rcases Vars.Program.functionInputOutputArity_iff.mp harity with
     ⟨fn, hfn, hparams, houtputs⟩
-  cases hps : fn.paramsOf with
-  | none => simp [hps] at hparams
-  | some ps =>
-      refine ⟨⟨ps, ?_, by simpa [hps] using hparams⟩, ?_⟩
-      · simp [Vars.Program.paramsOf, hfn, hps]
-      · simp [hfn, houtputs, hdests]
+  refine ⟨⟨fn.paramsOf, ?_, hparams⟩, ?_⟩
+  · simp [Vars.Program.paramsOf, hfn]
+  · simp [hfn, houtputs, hdests]
 
 theorem Vars.Program.WellFormed.icall_bindParams
     (hwf : program.WellFormed) {s : Vars.State} {nextControl : Machine.MachineControl}
@@ -123,7 +119,7 @@ theorem Vars.Proofs.Program.WellFormed.evalFn_arity
   cases hrun with
   | exit hentry hsteps hreturn =>
       rw [Vars.entry_eq] at hentry
-      obtain ⟨fn, entryBlock, locals₀, hfn, hentryBlock, hbind, rfl⟩ :=
+      obtain ⟨fn, locals₀, hfn, hbind, rfl⟩ :=
         Vars.Program.callState?_eq_some_iff.mp hentry
       cases hsteps with
       | refl => cases hreturn
@@ -131,9 +127,9 @@ theorem Vars.Proofs.Program.WellFormed.evalFn_arity
           have hinv := Vars.SmallStep.returned_inv next hreturn
           obtain ⟨cursor, block, hcontrol, hblock, hterm, houtputs⟩ := hinv
           rcases Vars.Proofs.Steps.preserves_function
-              (cursor := ⟨function, fn.entry, entryBlock.startPosition⟩)
+              (cursor := ⟨function, ⟨0⟩, fn.entry.startPosition⟩)
               (state := (⟨globals, locals₀,
-                .running ⟨function, fn.entry, entryBlock.startPosition⟩⟩ : Vars.State))
+                .running ⟨function, ⟨0⟩, fn.entry.startPosition⟩⟩ : Vars.State))
               start rfl with
             hhalt | ⟨returnedValues, hreturned⟩ | ⟨cursor', hcontrol', hcursorFn⟩
           · exact absurd next
