@@ -37,13 +37,13 @@ def Block.renameVariables (rename : VarId → VarId) (block : Block) : Block :=
     outputs := block.outputs.map rename }
 
 def Function.renameVariables (rename : VarId → VarId) (function : Function) : Function :=
-  { blocks := function.blocks.map (Block.renameVariables rename)
-    entry := function.entry }
+  { entry := function.entry.renameVariables rename
+    rest := function.rest.map (Block.renameVariables rename) }
 
 def Program.renameVariables (rename : VarId → VarId) (program : Program) : Program :=
-  { functions := program.functions.map (Function.renameVariables rename)
-    initEntry := program.initEntry
-    mainEntry := program.mainEntry }
+  { init := program.init.renameVariables rename
+    main := program.main.map (Function.renameVariables rename)
+    rest := program.rest.map (Function.renameVariables rename) }
 
 def Expr.variableOccurrences : Expr → List VarId
   | .constant _ => []
@@ -80,14 +80,14 @@ def Function.variableOccurrences (function : Function) : List VarId :=
 def Program.variableOccurrences (program : Program) : List VarId :=
   program.functions.toList.flatMap Function.variableOccurrences
 
-def Program.canonicalVariable (program : Program) (identifier : VarId) : VarId :=
+def Program.normalVariable (program : Program) (identifier : VarId) : VarId :=
   ⟨program.variableOccurrences.eraseDups.idxOf identifier⟩
 
-def Program.canonicalize (program : Program) : Program :=
-  program.renameVariables program.canonicalVariable
+def Program.normalize (program : Program) : Program :=
+  program.renameVariables program.normalVariable
 
-def Program.Canonical (program : Program) : Prop :=
-  program.canonicalize = program
+def Program.Normal (program : Program) : Prop :=
+  program.normalize = program
 
 def Program.AlphaEquiv (left right : Program) : Prop :=
   ∃ forward backward : VarId → VarId,

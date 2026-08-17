@@ -7,21 +7,21 @@ theorem tokenize_print (program : Program) :
     tokenize (print program) = programTokens program :=
   Proofs.tokenize_print program
 
-theorem parse_canonical {source : String} {program : Program}
-    (parsed : parse source = .ok program) : program.Canonical :=
-  Proofs.parse_canonical parsed
+theorem parse_normal {source : String} {program : Program}
+    (parsed : parse source = .ok program) : program.Normal :=
+  Proofs.parse_normal parsed
 
 theorem parse_printable {source : String} {program : Program}
     (parsed : parse source = .ok program) : program.Printable :=
   Proofs.parse_printable parsed
 
-theorem parse_print_canonicalize {program : Program} (printable : program.Printable) :
-    parse (print program) = .ok program.canonicalize :=
-  Proofs.parse_print_canonicalize printable
+theorem parse_print_normalize {program : Program} (printable : program.Printable) :
+    parse (print program) = .ok program.normalize :=
+  Proofs.parse_print_normalize printable
 
-theorem Program.Printable.canonicalize {program : Program}
-    (printable : program.Printable) : program.canonicalize.Printable :=
-  Proofs.Program.Printable.canonicalize printable
+theorem Program.Printable.normalize {program : Program}
+    (printable : program.Printable) : program.normalize.Printable :=
+  Proofs.Program.Printable.normalize printable
 
 theorem parse_print {source : String} {program : Program}
     (parsed : parse source = .ok program) :

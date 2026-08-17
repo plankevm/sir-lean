@@ -165,22 +165,22 @@ theorem Vars.acyclic_of_rank {rank : FunctionId → Nat}
     ¬ Relation.TransGen program.callEdge f f :=
   Vars.Proofs.acyclic_of_rank decreasing f
 
-theorem Vars.Program.canonicalize_alphaEquiv (program : Vars.Program) :
-    Vars.Program.AlphaEquiv program.canonicalize program :=
-  Vars.Proofs.Program.canonicalize_alphaEquiv program
+theorem Vars.Program.normalize_alphaEquiv (program : Vars.Program) :
+    Vars.Program.AlphaEquiv program.normalize program :=
+  Vars.Proofs.Program.normalize_alphaEquiv program
 
-theorem Vars.Program.alphaEquiv_iff_canonicalize_eq {left right : Vars.Program} :
-    Vars.Program.AlphaEquiv left right ↔ left.canonicalize = right.canonicalize :=
-  Vars.Proofs.Program.alphaEquiv_iff_canonicalize_eq
+theorem Vars.Program.alphaEquiv_iff_normalize_eq {left right : Vars.Program} :
+    Vars.Program.AlphaEquiv left right ↔ left.normalize = right.normalize :=
+  Vars.Proofs.Program.alphaEquiv_iff_normalize_eq
 
-theorem Vars.Program.canonicalizeEquivalenceClass_bijective :
+theorem Vars.Program.normalizeEquivalenceClass_bijective :
     (∀ left right : Quotient Vars.Program.alphaEquivalenceSetoid,
-        Vars.Program.canonicalizeEquivalenceClass left =
-          Vars.Program.canonicalizeEquivalenceClass right → left = right) ∧
-      ∀ canonical : { program : Vars.Program // program.Canonical },
+        Vars.Program.normalizeEquivalenceClass left =
+          Vars.Program.normalizeEquivalenceClass right → left = right) ∧
+      ∀ normal : { program : Vars.Program // program.Normal },
         ∃ equivalenceClass,
-          Vars.Program.canonicalizeEquivalenceClass equivalenceClass = canonical :=
-  ⟨fun _ _ equal => Vars.Proofs.Program.canonicalizeEquivalenceClass_bijective.1 equal,
-    Vars.Proofs.Program.canonicalizeEquivalenceClass_bijective.2⟩
+          Vars.Program.normalizeEquivalenceClass equivalenceClass = normal :=
+  ⟨fun _ _ equal => Vars.Proofs.Program.normalizeEquivalenceClass_bijective.1 equal,
+    Vars.Proofs.Program.normalizeEquivalenceClass_bijective.2⟩
 
 end Sir

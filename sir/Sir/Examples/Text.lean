@@ -47,40 +47,9 @@ theorem parse_print_zeroedMallocLoad :
   exact parse_print (source := zeroedMallocLoadPrinted) (by parse_rfl)
 
 def haltedCallPrinted : String :=
-  "fn init : \nblock0 { \nicall @fn1 \nstop \n} \nfn fn1 : \nblock0 { \nstop \n} \n"
+  "fn init : \nblock0 { \nicall @main \nstop \n} \nfn main : \nblock0 { \nstop \n} \n"
 
 theorem parse_print_haltedCall : parse (print haltedCallProgram) = .ok haltedCallProgram := by
   exact parse_print (source := haltedCallPrinted) (by parse_rfl)
-
-def nonzeroEntryProgram : Program :=
-  { functions := #[{
-      blocks := #[{
-        inputs := #[], statements := #[], terminator := .halt, outputs := #[] }]
-      entry := ⟨1⟩ }]
-    initEntry := ⟨0⟩
-    mainEntry := none }
-
-def zeroEntryProgram : Program :=
-  { functions := #[{
-      blocks := #[{
-        inputs := #[], statements := #[], terminator := .halt, outputs := #[] }]
-      entry := ⟨0⟩ }]
-    initEntry := ⟨0⟩
-    mainEntry := none }
-
-theorem parse_print_nonzeroEntry :
-    parse (print nonzeroEntryProgram) = .ok zeroEntryProgram := by
-  parse_rfl
-
-theorem parse_print_nonzeroEntry_ne_canonicalize :
-    parse (print nonzeroEntryProgram) ≠ .ok nonzeroEntryProgram.canonicalize := by
-  intro equality
-  rw [parse_print_nonzeroEntry] at equality
-  have programsEqual : zeroEntryProgram = nonzeroEntryProgram.canonicalize :=
-    Except.ok.inj equality
-  have entriesEqual := congrArg
-    (fun program => (program.functions[0]?).map Function.entry) programsEqual
-  simp [zeroEntryProgram, nonzeroEntryProgram, Program.canonicalize,
-    Program.renameVariables, Function.renameVariables] at entriesEqual
 
 end Sir.Examples

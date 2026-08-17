@@ -1,4 +1,4 @@
-import Sir.Text.Proofs.ParseCanonical
+import Sir.Text.Proofs.ParseNormal
 import Sir.Text.Spec.Printable
 
 namespace Sir.Vars.Text
@@ -328,20 +328,23 @@ private theorem parseFunction_printable (functions : List String) (body : List L
             | error message => contradiction
             | ok result =>
                 rcases result with ⟨parsed, parsedNames⟩
-                change Except.ok
-                  ({ blocks := parsed.toArray, entry := ⟨0⟩ }, parsedNames) =
-                    Except.ok (function, finalNames) at run
-                simp only [Except.ok.injEq, Prod.mk.injEq] at run
-                rcases run with ⟨rfl, rfl⟩
                 have blockNamesLength := except_mapM_length
                   (fun group : Line × List Line => blockHeaderName group.fst) blocksEq
                 have parsedValid := mapM_parseBlock_referencesInRange
                   functions blockNames groups parsedEq
-                constructor
-                · rfl
-                · intro block member
-                  have blockValid := parsedValid.2 block (by simpa using member)
-                  simpa [parsedValid.1, blockNamesLength] using blockValid
+                cases parsed with
+                | nil =>
+                    simp [throw, throwThe, MonadExceptOf.throw, StateT.lift] at run
+                | cons entry rest =>
+                    change Except.ok
+                      ({ entry := entry, rest := rest.toArray }, parsedNames) =
+                        Except.ok (function, finalNames) at run
+                    simp only [Except.ok.injEq, Prod.mk.injEq] at run
+                    rcases run with ⟨rfl, rfl⟩
+                    intro block member
+                    have blockValid := parsedValid.2 block
+                      (by simpa [Function.blocks] using member)
+                    simpa [Function.blocks, parsedValid.1, blockNamesLength] using blockValid
 
 private theorem mapM_parseFunction_printable
     (names : List String) (groups : List (String × List Line))
@@ -370,82 +373,62 @@ private theorem mapM_parseFunction_printable
       · exact functionValid
       · exact followingValid.2 candidate followingMember
 
+private theorem parseFunctionSlots_printable (names : List String)
+    (initGroup : String × List Line) (following : List (String × List Line))
+    {stateNames finalNames : List String} {slots : Function × List Function}
+    (run : (parseFunctionSlots names initGroup following).run stateNames =
+      .ok (slots, finalNames)) :
+    slots.2.length = following.length ∧
+    ∀ function ∈ slots.1 :: slots.2, function.Printable names.length := by
+  unfold parseFunctionSlots at run
+  obtain ⟨init, initNames, initRun, followingRun⟩ := run_bind_ok run
+  obtain ⟨parsed, parsedNames, parsedRun, returnRun⟩ := run_bind_ok followingRun
+  have initValid := parseFunction_printable names initGroup.snd initRun
+  have followingValid := mapM_parseFunction_printable names following parsedRun
+  simp [StateT.run, pure, StateT.pure, Except.pure] at returnRun
+  rcases returnRun with ⟨rfl, rfl⟩
+  refine ⟨followingValid.1, ?_⟩
+  intro function member
+  rcases List.mem_cons.mp member with rfl | followingMember
+  · exact initValid
+  · exact followingValid.2 function followingMember
+
+private theorem parseProgramSlots_printable {initGroup : String × List Line}
+    {mainGroup : Option (String × List Line)} {others : List (String × List Line)}
+    {program : Program}
+    (parsed : parseProgramSlots initGroup mainGroup others = .ok program) :
+    program.Printable := by
+  unfold parseProgramSlots at parsed
+  simp only [] at parsed
+  split at parsed
+  · simp at parsed
+  · rename_i result slotsEq
+    rcases result with ⟨slots, slotNames⟩
+    simp only [Except.ok.injEq] at parsed
+    subst program
+    have valid := parseFunctionSlots_printable _ initGroup _ slotsEq
+    have sizeEq : (programOfSlots mainGroup.isSome slots.1 slots.2).functions.size =
+        (initGroup.fst :: (mainGroup.toList ++ others).map Prod.fst).length := by
+      simp [programOfSlots_functions, valid.1]
+    intro function member
+    rw [sizeEq]
+    exact valid.2 function (by simpa [programOfSlots_functions] using member)
+
 private theorem parseProgramGroups_printable {groups : List (String × List Line)}
     {program : Program} (parsed : parseProgramGroups groups = .ok program) :
     program.Printable := by
   unfold parseProgramGroups at parsed
-  let names := groups.map Prod.fst
-  by_cases duplicates : hasDuplicates names
-  · simp [names, duplicates, bind, Except.bind] at parsed
-  · simp [names, duplicates, bind, Except.bind] at parsed
-    generalize functionsRunEq :
-      (parseFunctionGroupsList names groups).run [] = functionsResult at parsed
-    cases functionsResult with
-    | error message => simp [pure, Except.pure] at parsed
-    | ok result =>
-        rcases result with ⟨functions, finalNames⟩
-        have functionsValid :=
-          mapM_parseFunction_printable names groups functionsRunEq
-        generalize initEq : names.findIdx? (· == "init") = initResult at parsed
-        cases initResult with
-        | none =>
-            have groupInitEq :
-                groups.findIdx? ((fun name => name == "init") ∘ Prod.fst) = none := by
-              simpa [names, List.findIdx?_map, Function.comp_def] using initEq
-            rw [groupInitEq] at parsed
-            contradiction
-        | some initEntry =>
-            have groupInitEq :
-                groups.findIdx? ((fun name => name == "init") ∘ Prod.fst) =
-                  some initEntry := by
-              simpa [names, List.findIdx?_map, Function.comp_def] using initEq
-            rw [groupInitEq] at parsed
-            generalize mainEq : names.findIdx? (· == "main") = mainResult at parsed
-            cases mainResult with
-            | none =>
-                have groupMainEq :
-                    groups.findIdx? ((fun name => name == "main") ∘ Prod.fst) = none := by
-                  simpa [names, List.findIdx?_map, Function.comp_def] using mainEq
-                rw [groupMainEq] at parsed
-                simp [pure, Except.pure] at parsed
-                rcases parsed with rfl
-                refine ⟨?_, trivial, ?_⟩
-                · simpa [functionsValid.1, names] using findIdx?_bound initEq
-                · intro function member
-                  simpa [functionsValid.1, names] using
-                    functionsValid.2 function (by simpa using member)
-            | some mainEntry =>
-                have groupMainEq :
-                    groups.findIdx? ((fun name => name == "main") ∘ Prod.fst) =
-                      some mainEntry := by
-                  simpa [names, List.findIdx?_map, Function.comp_def] using mainEq
-                rw [groupMainEq] at parsed
-                simp [pure, Except.pure] at parsed
-                rcases parsed with rfl
-                refine ⟨?_, ⟨?_, ?_⟩, ?_⟩
-                · simpa [functionsValid.1, names] using findIdx?_bound initEq
-                · simpa [functionsValid.1, names] using findIdx?_bound mainEq
-                · intro identifiersEqual
-                  have initInformation :=
-                    List.findIdx?_eq_some_iff_findIdx_eq.mp initEq
-                  have initPredicate :=
-                    (List.findIdx_eq initInformation.1).mp initInformation.2 |>.1
-                  have initName : names[initEntry]'initInformation.1 = "init" := by
-                    simpa using initPredicate
-                  have mainInformation :=
-                    List.findIdx?_eq_some_iff_findIdx_eq.mp mainEq
-                  have mainPredicate :=
-                    (List.findIdx_eq mainInformation.1).mp mainInformation.2 |>.1
-                  have mainName : names[mainEntry]'mainInformation.1 = "main" := by
-                    simpa using mainPredicate
-                  have indexesEqual : mainEntry = initEntry :=
-                    congrArg FunctionId.id identifiersEqual
-                  subst mainEntry
-                  rw [initName] at mainName
-                  contradiction
-                · intro function member
-                  simpa [functionsValid.1, names] using
-                    functionsValid.2 function (by simpa using member)
+  by_cases duplicates : hasDuplicates (groups.map Prod.fst)
+  · simp [duplicates, bind, Except.bind] at parsed
+  · simp only [duplicates, Bool.false_eq_true, if_false, bind, Except.bind, pure,
+      Except.pure] at parsed
+    cases initEq : groups.find? (fun group => group.fst == "init") with
+    | none =>
+        rw [initEq] at parsed
+        simp at parsed
+    | some initGroup =>
+        rw [initEq] at parsed
+        exact parseProgramSlots_printable parsed
 
 private theorem parseTokens_printable {tokens : List Token} {program : Program}
     (parsed : parseTokens tokens = .ok program) : program.Printable := by

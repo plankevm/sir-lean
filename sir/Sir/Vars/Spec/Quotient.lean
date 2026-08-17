@@ -1,4 +1,4 @@
-import Sir.Vars.Proofs.Canonical
+import Sir.Vars.Proofs.Normalize
 
 namespace Sir.Vars
 
@@ -9,11 +9,11 @@ instance Program.alphaEquivalenceSetoid : Setoid Program where
     symm := Proofs.Program.AlphaEquiv.symm
     trans := Proofs.Program.AlphaEquiv.trans }
 
-def Program.canonicalizeEquivalenceClass :
-    Quotient Program.alphaEquivalenceSetoid → { program : Program // program.Canonical } :=
+def Program.normalizeEquivalenceClass :
+    Quotient Program.alphaEquivalenceSetoid → { program : Program // program.Normal } :=
   Quotient.lift
-    (fun program => ⟨program.canonicalize, Proofs.Program.canonicalize_canonical program⟩)
+    (fun program => ⟨program.normalize, Proofs.Program.normalize_normal program⟩)
     (fun _ _ equivalent =>
-      Subtype.ext (Proofs.Program.alphaEquiv_iff_canonicalize_eq.mp equivalent))
+      Subtype.ext (Proofs.Program.alphaEquiv_iff_normalize_eq.mp equivalent))
 
 end Sir.Vars

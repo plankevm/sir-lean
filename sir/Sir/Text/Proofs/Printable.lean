@@ -1,5 +1,5 @@
 import Sir.Text.Spec.Printable
-import Sir.Vars.Proofs.Canonical
+import Sir.Vars.Proofs.Normalize
 
 namespace Sir.Vars.Text
 
@@ -28,20 +28,18 @@ private theorem Function.printable_renameVariables
     (rename : VarId → VarId) (functionCount : Nat) (function : Function) :
     (function.renameVariables rename).Printable functionCount ↔
       function.Printable functionCount := by
-  simp [Function.renameVariables, Function.Printable,
-    Block.referencesInRange_renameVariables]
+  simp [Function.Printable, Block.referencesInRange_renameVariables]
 
 namespace Proofs
 
 theorem Program.Printable.renameVariables {program : Program}
     (printable : program.Printable) (rename : VarId → VarId) :
     (program.renameVariables rename).Printable := by
-  simpa [Vars.Program.Printable, Vars.Program.renameVariables,
-    Function.printable_renameVariables] using printable
+  simpa [Vars.Program.Printable, Function.printable_renameVariables] using printable
 
-theorem Program.Printable.canonicalize {program : Program}
-    (printable : program.Printable) : program.canonicalize.Printable :=
-  Program.Printable.renameVariables printable program.canonicalVariable
+theorem Program.Printable.normalize {program : Program}
+    (printable : program.Printable) : program.normalize.Printable :=
+  Program.Printable.renameVariables printable program.normalVariable
 
 end Proofs
 end Sir.Vars.Text

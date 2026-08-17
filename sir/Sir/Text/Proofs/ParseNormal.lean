@@ -1,5 +1,5 @@
 import Sir.Text.Spec.Parser
-import Sir.Vars.Proofs.Canonical
+import Sir.Vars.Proofs.Normalize
 
 namespace Sir.Vars.Text
 
@@ -122,26 +122,26 @@ private theorem idxOf_range (index count : Nat) (bound : index < count) :
           simp
         simp [notMember]
 
-theorem canonicalVariable_eq {program : Program} {names occurrences}
+theorem normalVariable_eq {program : Program} {names occurrences}
     (invariant : InterningInvariant names occurrences)
     (occurrences_eq : occurrences = program.variableOccurrences)
     {identifier : VarId} (member : identifier ∈ program.variableOccurrences) :
-    program.canonicalVariable identifier = identifier := by
+    program.normalVariable identifier = identifier := by
   have bound : identifier.id < names.length :=
     identifiers_bounded invariant identifier (occurrences_eq ▸ member)
-  simp only [Program.canonicalVariable]
+  simp only [Program.normalVariable]
   rw [← occurrences_eq, eraseDups_eq_range invariant, idxOf_range _ _ bound]
 
-theorem canonical {program : Program} {names : List String}
+theorem normal {program : Program} {names : List String}
     (invariant : InterningInvariant names program.variableOccurrences) :
-    program.Canonical := by
-  rw [Program.Canonical, Program.canonicalize]
+    program.Normal := by
+  rw [Program.Normal, Program.normalize]
   calc
-    program.renameVariables program.canonicalVariable =
+    program.renameVariables program.normalVariable =
         program.renameVariables id := by
       apply Vars.Proofs.Program.renameVariables_congr
       intro identifier member
-      exact canonicalVariable_eq invariant rfl member
+      exact normalVariable_eq invariant rfl member
     _ = program := Vars.Proofs.Program.renameVariables_id program
 
 end InterningInvariant
@@ -806,14 +806,19 @@ theorem parseFunction_preserves (functions : List String) (body : List Line) :
             | error message => contradiction
             | ok result =>
                 rcases result with ⟨parsed, parsedNames⟩
-                change Except.ok
-                  ({ blocks := parsed.toArray, entry := ⟨0⟩ }, parsedNames) =
-                    Except.ok (function, finalNames) at run
-                simp only [Except.ok.injEq, Prod.mk.injEq] at run
-                rcases run with ⟨rfl, rfl⟩
                 have afterParsed := mapM_parseBlock_preserves functions blockNames groups
                   names prior parsed parsedNames invariant parsedEq
-                simpa [Function.variableOccurrences, blocksOccurrences] using afterParsed
+                cases parsed with
+                | nil =>
+                    simp [throw, throwThe, MonadExceptOf.throw, StateT.lift] at run
+                | cons entry rest =>
+                    change Except.ok
+                      ({ entry := entry, rest := rest.toArray }, parsedNames) =
+                        Except.ok (function, finalNames) at run
+                    simp only [Except.ok.injEq, Prod.mk.injEq] at run
+                    rcases run with ⟨rfl, rfl⟩
+                    simpa [Function.variableOccurrences, Function.blocks,
+                      blocksOccurrences] using afterParsed
 
 def functionsOccurrences (functions : List Function) : List VarId :=
   functions.flatMap Function.variableOccurrences
@@ -843,53 +848,79 @@ theorem mapM_parseFunction_preserves (names : List String)
       rcases returnRun with ⟨rfl, rfl⟩
       simpa [functionsOccurrences, List.append_assoc] using afterRest
 
-theorem parseTokens_canonical {tokens : List Token} {program : Program}
-    (parsed : parseTokens tokens = .ok program) : program.Canonical := by
+theorem parseFunctionSlots_preserves (names : List String) (initGroup : String × List Line)
+    (following : List (String × List Line)) :
+    PreservesInterning (parseFunctionSlots names initGroup following)
+      (fun slots => slots.1.variableOccurrences ++ functionsOccurrences slots.2) := by
+  intro stateNames prior slots finalNames invariant run
+  unfold parseFunctionSlots at run
+  obtain ⟨init, initNames, initRun, followingRun⟩ := run_bind_ok run
+  obtain ⟨following, followingNames, followingParsedRun, returnRun⟩ :=
+    run_bind_ok followingRun
+  have afterInit := parseFunction_preserves names initGroup.snd stateNames prior init
+    initNames invariant initRun
+  have afterFollowing := mapM_parseFunction_preserves names _ initNames
+    (prior ++ init.variableOccurrences) following followingNames afterInit followingParsedRun
+  simp [StateT.run, pure, StateT.pure, Except.pure] at returnRun
+  rcases returnRun with ⟨rfl, rfl⟩
+  simpa [List.append_assoc] using afterFollowing
+
+theorem programOfSlots_functions (hasMain : Bool) (init : Function)
+    (following : List Function) :
+    (programOfSlots hasMain init following).functions = #[init] ++ following.toArray := by
+  cases hasMain <;> cases following <;> simp [programOfSlots, Program.functions]
+
+theorem programOfSlots_variableOccurrences (hasMain : Bool) (init : Function)
+    (following : List Function) :
+    (programOfSlots hasMain init following).variableOccurrences =
+      init.variableOccurrences ++ functionsOccurrences following := by
+  simp [Program.variableOccurrences, programOfSlots_functions, functionsOccurrences]
+
+theorem parseProgramSlots_normal {initGroup : String × List Line}
+    {mainGroup : Option (String × List Line)} {others : List (String × List Line)}
+    {program : Program} (parsed : parseProgramSlots initGroup mainGroup others = .ok program) :
+    program.Normal := by
+  unfold parseProgramSlots at parsed
+  simp only [] at parsed
+  split at parsed
+  · simp at parsed
+  · rename_i result slotsEq
+    rcases result with ⟨slots, slotNames⟩
+    simp only [Except.ok.injEq] at parsed
+    subst program
+    have invariant := parseFunctionSlots_preserves _ initGroup _ [] [] slots slotNames
+      .empty slotsEq
+    apply InterningInvariant.normal
+    simpa [programOfSlots_variableOccurrences] using invariant
+
+theorem parseProgramGroups_normal {groups : List (String × List Line)} {program : Program}
+    (parsed : parseProgramGroups groups = .ok program) : program.Normal := by
+  unfold parseProgramGroups at parsed
+  by_cases duplicates : hasDuplicates (groups.map Prod.fst)
+  · simp [duplicates, bind, Except.bind] at parsed
+  · simp only [duplicates, Bool.false_eq_true, if_false, bind, Except.bind, pure,
+      Except.pure] at parsed
+    cases initEq : groups.find? (fun group => group.fst == "init") with
+    | none =>
+        rw [initEq] at parsed
+        simp at parsed
+    | some initGroup =>
+        rw [initEq] at parsed
+        exact parseProgramSlots_normal parsed
+
+theorem parseTokens_normal {tokens : List Token} {program : Program}
+    (parsed : parseTokens tokens = .ok program) : program.Normal := by
   unfold parseTokens at parsed
   generalize splitEq : splitFunctions (splitLines tokens) = groupsResult at parsed
   cases groupsResult with
   | error message => contradiction
-  | ok groups =>
-      unfold parseProgramGroups at parsed
-      let names := groups.map Prod.fst
-      by_cases duplicates : hasDuplicates names
-      · simp [names, duplicates, bind, Except.bind] at parsed
-      · simp [names, duplicates, bind, Except.bind] at parsed
-        generalize functionsRunEq :
-          (parseFunctionGroupsList names groups).run [] = functionsResult
-          at parsed
-        cases functionsResult with
-        | error message => simp [pure, Except.pure] at parsed
-        | ok result =>
-            rcases result with ⟨functions, finalNames⟩
-            have invariant := mapM_parseFunction_preserves names groups [] [] functions
-              finalNames .empty functionsRunEq
-            have namesEq : names = groups.map Prod.fst := rfl
-            generalize initEq : names.findIdx? (· == "init") = initResult
-            cases initResult with
-            | none =>
-                have groupInitEq :
-                    groups.findIdx? ((fun name => name == "init") ∘ Prod.fst) = none := by
-                  simpa [names, List.findIdx?_map, Function.comp_def] using initEq
-                simp only [pure, Except.pure] at parsed
-                rw [groupInitEq] at parsed
-                contradiction
-            | some initEntry =>
-                have groupInitEq :
-                    groups.findIdx? ((fun name => name == "init") ∘ Prod.fst) = some initEntry := by
-                  simpa [names, List.findIdx?_map, Function.comp_def] using initEq
-                simp only [pure, Except.pure] at parsed
-                rw [groupInitEq] at parsed
-                simp only [Except.ok.injEq] at parsed
-                subst program
-                apply InterningInvariant.canonical
-                simpa [Program.variableOccurrences, functionsOccurrences] using invariant
+  | ok groups => exact parseProgramGroups_normal parsed
 
 namespace Proofs
 
-theorem parse_canonical {source : String} {program : Program}
-    (parsed : parse source = .ok program) : program.Canonical :=
-  parseTokens_canonical parsed
+theorem parse_normal {source : String} {program : Program}
+    (parsed : parse source = .ok program) : program.Normal :=
+  parseTokens_normal parsed
 
 end Proofs
 end Sir.Vars.Text

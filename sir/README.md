@@ -38,7 +38,7 @@ deterministic witness.
 - [`Sir/Vars/Spec/Check.lean`](Sir/Vars/Spec/Check.lean) — one check, returning a
   proof of the well-formedness clause it discharges.
 - [`Sir/Text/`](Sir/Text/) — the text format: printing a program and parsing it
-  back returns the same program up to renaming, in canonical form; an extractor
+  back returns the same program up to renaming, in normal form; an extractor
   emits a parsed program as Lean source.
 - [`Sir/Audit.lean`](Sir/Audit.lean) — build-time audit of the exported
   surface.

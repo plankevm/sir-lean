@@ -1,4 +1,4 @@
-import Sir.Vars.Spec.Canonical
+import Sir.Vars.Spec.Normalize
 
 namespace Sir.Vars.Proofs
 
@@ -57,6 +57,19 @@ namespace Sir.Vars.Proofs
   cases function
   simp [Function.renameVariables, Function.comp_def]
 
+@[simp] theorem Function.blocks_renameVariables (rename : VarId → VarId)
+    (function : Function) :
+    (function.renameVariables rename).blocks =
+      function.blocks.map (Block.renameVariables rename) := by
+  simp [Function.renameVariables, Function.blocks]
+
+@[simp] theorem Program.functions_renameVariables (rename : VarId → VarId)
+    (program : Program) :
+    (program.renameVariables rename).functions =
+      program.functions.map (Function.renameVariables rename) := by
+  rcases program with ⟨init, main, rest⟩
+  cases main <;> simp [Program.renameVariables, Program.functions]
+
 theorem Program.renameVariables_id (program : Program) :
     program.renameVariables id = program := by
   have hfunction : Function.renameVariables id = id := funext Function.renameVariables_id
@@ -99,17 +112,13 @@ theorem Program.renameVariables_compose (outer inner : VarId → VarId) (program
     (function : Function) :
     (function.renameVariables rename).variableOccurrences =
       function.variableOccurrences.map rename := by
-  cases function
-  simp [Function.renameVariables, Function.variableOccurrences, List.map_flatMap,
-    List.flatMap_map]
+  simp [Function.variableOccurrences, List.map_flatMap, List.flatMap_map]
 
 @[simp] theorem Program.variableOccurrences_renameVariables (rename : VarId → VarId)
     (program : Program) :
     (program.renameVariables rename).variableOccurrences =
       program.variableOccurrences.map rename := by
-  cases program
-  simp [Program.renameVariables, Program.variableOccurrences, List.map_flatMap,
-    List.flatMap_map]
+  simp [Program.variableOccurrences, List.map_flatMap, List.flatMap_map]
 
 theorem Expr.renameVariables_congr {left right : VarId → VarId} {value : Expr}
     (h : ∀ identifier ∈ value.variableOccurrences, left identifier = right identifier) :
@@ -190,9 +199,8 @@ theorem Function.renameVariables_congr {left right : VarId → VarId}
     (h : ∀ identifier ∈ function.variableOccurrences,
       left identifier = right identifier) :
     function.renameVariables left = function.renameVariables right := by
-  have hblocks : function.blocks.map (Block.renameVariables left) =
-      function.blocks.map (Block.renameVariables right) := by
-    apply Array.map_congr_left
+  have hblock : ∀ block ∈ function.blocks,
+      block.renameVariables left = block.renameVariables right := by
     intro block hblock
     apply Block.renameVariables_congr
     intro identifier hidentifier
@@ -200,15 +208,22 @@ theorem Function.renameVariables_congr {left right : VarId → VarId}
     exact h identifier (by
       simp only [Function.variableOccurrences, List.mem_flatMap]
       exact ⟨block, hblock', hidentifier⟩)
-  simp [Function.renameVariables, hblocks]
+  have hentry : function.entry.renameVariables left =
+      function.entry.renameVariables right :=
+    hblock function.entry (by simp [Function.blocks])
+  have hrest : function.rest.map (Block.renameVariables left) =
+      function.rest.map (Block.renameVariables right) := by
+    apply Array.map_congr_left
+    intro block hblock'
+    exact hblock block (by simp [Function.blocks, hblock'])
+  simp [Function.renameVariables, hentry, hrest]
 
 theorem Program.renameVariables_congr {left right : VarId → VarId} {program : Program}
     (h : ∀ identifier ∈ program.variableOccurrences,
       left identifier = right identifier) :
     program.renameVariables left = program.renameVariables right := by
-  have hfunctions : program.functions.map (Function.renameVariables left) =
-      program.functions.map (Function.renameVariables right) := by
-    apply Array.map_congr_left
+  have hfunction : ∀ function ∈ program.functions,
+      function.renameVariables left = function.renameVariables right := by
     intro function hfunction
     apply Function.renameVariables_congr
     intro identifier hidentifier
@@ -216,7 +231,20 @@ theorem Program.renameVariables_congr {left right : VarId → VarId} {program : 
     exact h identifier (by
       simp only [Program.variableOccurrences, List.mem_flatMap]
       exact ⟨function, hfunction', hidentifier⟩)
-  simp [Program.renameVariables, hfunctions]
+  have hinit : program.init.renameVariables left = program.init.renameVariables right :=
+    hfunction program.init (by simp [Program.functions])
+  have hmain : program.main.map (Function.renameVariables left) =
+      program.main.map (Function.renameVariables right) := by
+    cases hmainEq : program.main with
+    | none => rfl
+    | some function =>
+        simp [hfunction function (by simp [Program.functions, hmainEq])]
+  have hrest : program.rest.map (Function.renameVariables left) =
+      program.rest.map (Function.renameVariables right) := by
+    apply Array.map_congr_left
+    intro function hfunction'
+    exact hfunction function (by simp [Program.functions, hfunction'])
+  simp [Program.renameVariables, hinit, hmain, hrest]
 
 private theorem eraseDups_map_of_injective_on {rename : VarId → VarId}
     {identifiers : List VarId}
@@ -298,15 +326,15 @@ theorem Program.AlphaEquiv.trans {first second third : Program} :
   · rw [← Program.renameVariables_compose, hforward₁, hforward₂]
   · rw [← Program.renameVariables_compose, hbackward₂, hbackward₁]
 
-theorem Program.canonicalize_alphaEquiv (program : Program) :
-    Program.AlphaEquiv program.canonicalize program := by
+theorem Program.normalize_alphaEquiv (program : Program) :
+    Program.AlphaEquiv program.normalize program := by
   let identifiers := program.variableOccurrences.eraseDups
   let restore : VarId → VarId := fun identifier =>
     identifiers.getD identifier.id ⟨0⟩
-  refine ⟨restore, program.canonicalVariable, ?_, rfl⟩
-  rw [Program.canonicalize, Program.renameVariables_compose]
+  refine ⟨restore, program.normalVariable, ?_, rfl⟩
+  rw [Program.normalize, Program.renameVariables_compose]
   calc
-    program.renameVariables (restore ∘ program.canonicalVariable) =
+    program.renameVariables (restore ∘ program.normalVariable) =
         program.renameVariables id := by
       apply Program.renameVariables_congr
       intro identifier hidentifier
@@ -319,17 +347,17 @@ theorem Program.canonicalize_alphaEquiv (program : Program) :
       exact List.getElem_idxOf hindex
     _ = program := Program.renameVariables_id program
 
-private theorem canonicalVariable_renameVariables {left right : Program}
+private theorem normalVariable_renameVariables {left right : Program}
     {rename : VarId → VarId}
     (hrenamed : left.renameVariables rename = right)
     (hinjective : ∀ first ∈ left.variableOccurrences,
       ∀ second ∈ left.variableOccurrences,
       rename first = rename second → first = second)
     {identifier : VarId} (hidentifier : identifier ∈ left.variableOccurrences) :
-    right.canonicalVariable (rename identifier) = left.canonicalVariable identifier := by
+    right.normalVariable (rename identifier) = left.normalVariable identifier := by
   have hoccurrences := congrArg Program.variableOccurrences hrenamed
   rw [Program.variableOccurrences_renameVariables] at hoccurrences
-  simp only [Program.canonicalVariable]
+  simp only [Program.normalVariable]
   rw [← hoccurrences]
   rw [eraseDups_map_of_injective_on hinjective]
   apply congrArg VarId.mk
@@ -339,8 +367,8 @@ private theorem canonicalVariable_renameVariables {left right : Program}
     exact hinjective first (List.mem_eraseDups.mp hfirst) second
       (List.mem_eraseDups.mp hsecond) hequal
 
-theorem Program.alphaEquiv_iff_canonicalize_eq {left right : Program} :
-    Program.AlphaEquiv left right ↔ left.canonicalize = right.canonicalize := by
+theorem Program.alphaEquiv_iff_normalize_eq {left right : Program} :
+    Program.AlphaEquiv left right ↔ left.normalize = right.normalize := by
   constructor
   · rintro ⟨forward, backward, hforward, hbackward⟩
     have hforwardOccurrences := congrArg Program.variableOccurrences hforward
@@ -359,18 +387,18 @@ theorem Program.alphaEquiv_iff_canonicalize_eq {left right : Program} :
         forward first = forward second → first = second := by
       intro first hfirst second hsecond hequal
       rw [← hinverse first hfirst, ← hinverse second hsecond, hequal]
-    rw [Program.canonicalize, Program.canonicalize, ← hforward,
+    rw [Program.normalize, Program.normalize, ← hforward,
       Program.renameVariables_compose]
     apply Program.renameVariables_congr
     intro identifier hidentifier
     simpa only [Function.comp_apply, hforward] using
-      (canonicalVariable_renameVariables hforward hinjective hidentifier).symm
+      (normalVariable_renameVariables hforward hinjective hidentifier).symm
   · intro hequal
-    exact Program.AlphaEquiv.trans (Program.AlphaEquiv.symm (Program.canonicalize_alphaEquiv left))
-      (hequal ▸ Program.canonicalize_alphaEquiv right)
+    exact Program.AlphaEquiv.trans (Program.AlphaEquiv.symm (Program.normalize_alphaEquiv left))
+      (hequal ▸ Program.normalize_alphaEquiv right)
 
-theorem Program.canonicalize_canonical (program : Program) :
-    program.canonicalize.Canonical :=
-  Program.alphaEquiv_iff_canonicalize_eq.mp (Program.canonicalize_alphaEquiv program)
+theorem Program.normalize_normal (program : Program) :
+    program.normalize.Normal :=
+  Program.alphaEquiv_iff_normalize_eq.mp (Program.normalize_alphaEquiv program)
 
 end Sir.Vars.Proofs

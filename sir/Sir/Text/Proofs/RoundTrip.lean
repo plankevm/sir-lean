@@ -281,6 +281,18 @@ private theorem splitFunctions_programLines (program : Program) :
     simpa [digitsValue_decimalDigits] using values
   · exact congrArg decimalString
 
+@[simp] private theorem fn_decimal_inj {left right : Nat} :
+    "fn" ++ decimalString left = "fn" ++ decimalString right ↔ left = right := by
+  constructor
+  · intro equality
+    have characters := congrArg String.toList equality
+    rw [String.toList_append, String.toList_append] at characters
+    have digits := List.append_cancel_left characters
+    rw [toList_decimalString, toList_decimalString] at digits
+    have values := congrArg (digitsValue 10) digits
+    simpa [digitsValue_decimalDigits] using values
+  · exact fun equality => congrArg _ (congrArg decimalString equality)
+
 @[simp] private theorem fn_decimal_ne_init (identifier : Nat) :
     "fn" ++ decimalString identifier ≠ "init" := by
   intro equality
@@ -301,31 +313,31 @@ private theorem splitFunctions_programLines (program : Program) :
     "main" ≠ "fn" ++ decimalString identifier :=
   Ne.symm (fn_decimal_ne_main identifier)
 
-private theorem functionName_injective {program : Program} (printable : program.Printable)
-    {left right : FunctionId}
-    (_leftBound : left.id < program.functions.size)
-    (rightBound : right.id < program.functions.size)
+private theorem functionName_cases (program : Program) (identifier : FunctionId) :
+    (functionName program identifier = "init" ∧ identifier.id = 0) ∨
+      (functionName program identifier = "main" ∧ identifier.id = 1) ∨
+      functionName program identifier = "fn" ++ decimalString identifier.id := by
+  by_cases isInit : identifier = program.initId
+  · exact Or.inl ⟨by simp [functionName, isInit], by simp [isInit, Program.initId]⟩
+  · by_cases isMain : program.mainId? = some identifier
+    · refine Or.inr (Or.inl ⟨by simp [functionName, isInit, isMain], ?_⟩)
+      simp only [Program.mainId?] at isMain
+      split at isMain
+      · exact congrArg FunctionId.id (Option.some.inj isMain).symm
+      · simp at isMain
+    · exact Or.inr (Or.inr (by simp [functionName, isInit, isMain]))
+
+private theorem functionName_injective {program : Program} {left right : FunctionId}
     (equality : functionName program left = functionName program right) :
     left = right := by
-  rcases printable with ⟨initBound, mainValid, functionsValid⟩
-  cases mainEq : program.mainEntry with
-  | none =>
-      by_cases leftInit : left = program.initEntry <;>
-        by_cases rightInit : right = program.initEntry <;>
-        simp_all [functionName, eq_comm]
-      cases left
-      cases right
-      simp_all
-  | some mainEntry =>
-      simp [mainEq] at mainValid
-      by_cases leftInit : left = program.initEntry <;>
-        by_cases rightInit : right = program.initEntry <;>
-        by_cases leftMain : left = mainEntry <;>
-        by_cases rightMain : right = mainEntry <;>
-        simp_all [functionName, eq_comm]
-      cases left
-      cases right
-      simp_all
+  rcases left with ⟨left⟩
+  rcases right with ⟨right⟩
+  apply congrArg FunctionId.mk
+  rcases functionName_cases program ⟨left⟩ with ⟨leftName, leftId⟩ | ⟨leftName, leftId⟩ |
+      leftName <;>
+    rcases functionName_cases program ⟨right⟩ with ⟨rightName, rightId⟩ |
+      ⟨rightName, rightId⟩ | rightName <;>
+    rw [leftName, rightName] at equality <;> simp_all
 
 private theorem printedFunctionNames_eq (program : Program) :
     printedFunctionNames program =
@@ -343,8 +355,7 @@ private theorem printedFunctionNames_getElem (program : Program) (index : Nat)
   simp [printedFunctionNames, printedFunctionGroups]
 
 private theorem printedFunctionNames_findIdx (program : Program)
-    (printable : program.Printable) (identifier : FunctionId)
-    (bound : identifier.id < program.functions.size) :
+    (identifier : FunctionId) (bound : identifier.id < program.functions.size) :
     (printedFunctionNames program).findIdx? (· == functionName program identifier) =
       some identifier.id := by
   rw [List.findIdx?_eq_some_iff_findIdx_eq]
@@ -360,17 +371,8 @@ private theorem printedFunctionNames_findIdx (program : Program)
       rw [← printedFunctionNames_getElem program index (by omega)]
       exact equality
     have identifiersEqual : (⟨index⟩ : FunctionId) = identifier :=
-      functionName_injective printable (Nat.lt_trans indexBound bound) bound nameEquality
+      functionName_injective nameEquality
     exact Nat.ne_of_lt indexBound (congrArg FunctionId.id identifiersEqual)
-
-private theorem printedFunctionNames_init_findIdx (program : Program)
-    (printable : program.Printable) :
-    (printedFunctionNames program).findIdx? (· == "init") =
-      some program.initEntry.id := by
-  have nameEq : functionName program program.initEntry = "init" := by
-    simp [functionName]
-  rw [← nameEq]
-  exact printedFunctionNames_findIdx program printable program.initEntry printable.1
 
 private def printedVariableNames (identifiers : List VarId) : List String :=
   identifiers.eraseDups.map variableName
@@ -469,7 +471,7 @@ private theorem eraseDups_idxOf_append_self (prior : List VarId) (identifier : V
       List.eraseDups_cons]
     simp [List.idxOf_append, eraseNotMember]
 
-private theorem internVariable_canonical (full prior : List VarId) (identifier : VarId)
+private theorem internVariable_normal (full prior : List VarId) (identifier : VarId)
     (isPrefix : prior ++ [identifier] <+: full) :
     (internVariable (variableName identifier)).run (printedVariableNames prior) =
       .ok (⟨full.eraseDups.idxOf identifier⟩,
@@ -497,7 +499,7 @@ private theorem variableList_printed (full prior identifiers : List VarId)
         (printedVariableNames prior) =
           .ok (⟨full.eraseDups.idxOf identifier⟩,
             printedVariableNames (prior ++ [identifier])) from
-        internVariable_canonical full prior identifier headPrefix]
+        internVariable_normal full prior identifier headPrefix]
       simp only [pure, StateT.pure, Except.pure]
       have tailPrefix : (prior ++ [identifier]) ++ following <+: full := by
         simpa [List.append_assoc] using isPrefix
@@ -509,7 +511,7 @@ private theorem variableList_printed (full prior identifiers : List VarId)
         induction (prior ++ [identifier]) tailPrefix]
       simp [List.append_assoc]
 
-private def canonicalRename (full : List VarId) (identifier : VarId) : VarId :=
+private def normalRename (full : List VarId) (identifier : VarId) : VarId :=
   ⟨full.eraseDups.idxOf identifier⟩
 
 @[simp] private theorem identifier_ne_equals (name : String) :
@@ -586,22 +588,20 @@ private theorem statementParts_results (results : List VarId) (rest : List Token
       simp
     _ = value := Evm.UInt256.ofBitVec_toBitVec value
 
-private theorem parseStatement_assign_constant (functions : List String)
+private theorem parseStatement_assign_constant (program : Program) (functions : List String)
     (full prior : List VarId) (result : VarId) (value : Word)
     (isPrefix : prior ++ [result] <+: full) :
     (parseStatement functions
-      (stmtTokens {
-        functions := #[], initEntry := ⟨0⟩, mainEntry := none }
-        (.assign result (.constant value)))).run (printedVariableNames prior) =
-      .ok ([.assign (canonicalRename full result) (.constant value)],
+      (stmtTokens program (.assign result (.constant value)))).run (printedVariableNames prior) =
+      .ok ([.assign (normalRename full result) (.constant value)],
         printedVariableNames (prior ++ [result])) := by
   simp [stmtTokens, definitionTokens, exprTokens, parseStatement, statementParts,
     variableTokens, variableToken, List.span, List.span.loop]
   simp only [StateT.run, bind, Except.bind]
   rw [show variableList [Token.identifier (variableName result)]
       (printedVariableNames prior) =
-      .ok (#[canonicalRename full result], printedVariableNames (prior ++ [result])) from by
-    simpa [canonicalRename] using variableList_printed full prior [result] isPrefix]
+      .ok (#[normalRename full result], printedVariableNames (prior ++ [result])) from by
+    simpa [normalRename] using variableList_printed full prior [result] isPrefix]
   simp [pure, StateT.pure, Except.pure]
 
 @[simp] private theorem liftNumbers_variableTokens (identifiers : List VarId)
@@ -630,26 +630,26 @@ private theorem liftNumbers_icall (name : String) (identifiers : List VarId)
 private theorem operand_printed (full prior : List VarId) (identifier : VarId)
     (isPrefix : prior ++ [identifier] <+: full) :
     (operand (variableToken identifier)).run (printedVariableNames prior) =
-      .ok (([], canonicalRename full identifier),
+      .ok (([], normalRename full identifier),
         printedVariableNames (prior ++ [identifier])) := by
   simp only [operand, variableToken, StateT.run, bind, StateT.bind, Except.bind]
   rw [show internVariable (variableName identifier) (printedVariableNames prior) =
-      .ok (canonicalRename full identifier,
+      .ok (normalRename full identifier,
         printedVariableNames (prior ++ [identifier])) from by
-    simpa [canonicalRename] using internVariable_canonical full prior identifier isPrefix]
+    simpa [normalRename] using internVariable_normal full prior identifier isPrefix]
   simp [pure, StateT.pure, Except.pure]
 
 private theorem operands_printed (full prior identifiers : List VarId)
     (isPrefix : prior ++ identifiers <+: full) :
     (operands (identifiers.map variableToken)).run (printedVariableNames prior) =
-      .ok (([], identifiers.map (canonicalRename full) |>.toArray),
+      .ok (([], identifiers.map (normalRename full) |>.toArray),
         printedVariableNames (prior ++ identifiers)) := by
   induction identifiers generalizing prior with
   | nil => simp [operands, StateT.run, pure, StateT.pure, Except.pure]
   | cons identifier following induction =>
       simp only [List.map_cons, operands, StateT.run, bind, StateT.bind, Except.bind]
       rw [show operand (variableToken identifier) (printedVariableNames prior) =
-          .ok (([], canonicalRename full identifier),
+          .ok (([], normalRename full identifier),
             printedVariableNames (prior ++ [identifier])) from
         operand_printed full prior identifier
         ((show prior ++ [identifier] <+: prior ++ identifier :: following from
@@ -657,7 +657,7 @@ private theorem operands_printed (full prior identifiers : List VarId)
       simp only
       rw [show operands (following.map variableToken)
             (printedVariableNames (prior ++ [identifier])) =
-          .ok (([], following.map (canonicalRename full) |>.toArray),
+          .ok (([], following.map (normalRename full) |>.toArray),
             printedVariableNames ((prior ++ [identifier]) ++ following)) from
         induction (prior ++ [identifier]) (by simpa [List.append_assoc] using isPrefix)]
       simp [pure, StateT.pure, Except.pure, List.append_assoc]
@@ -686,7 +686,7 @@ private theorem parseStatement_printed_head (functions : List String)
         (printedVariableNames prior) =
       (parseMnemonic functions
           (definitionTokens results.toArray ++ Token.identifier mnemonic :: parameters)
-          mnemonic (results.map (canonicalRename full)) parameters).run
+          mnemonic (results.map (normalRename full)) parameters).run
         (printedVariableNames (prior ++ results)) := by
   rw [parseStatement]
   simp only [statementParts_definition results (Token.identifier mnemonic :: parameters)
@@ -695,32 +695,32 @@ private theorem parseStatement_printed_head (functions : List String)
   rw [numberFree]
   simp only []
   rw [show variableList (results.map variableToken) (printedVariableNames prior) =
-      .ok ((results.map (canonicalRename full)).toArray,
+      .ok ((results.map (normalRename full)).toArray,
         printedVariableNames (prior ++ results)) from by
-    simpa [canonicalRename] using variableList_printed full prior results isPrefix]
+    simpa [normalRename] using variableList_printed full prior results isPrefix]
   simp only []
   cases outcome : parseMnemonic functions
       (definitionTokens results.toArray ++ Token.identifier mnemonic :: parameters) mnemonic
-      (results.map (canonicalRename full)) parameters
+      (results.map (normalRename full)) parameters
       (printedVariableNames (prior ++ results)) with
   | error message => rfl
   | ok pair => rfl
 
-private theorem parseStatement_printed (program : Program) (printable : program.Printable)
+private theorem parseStatement_printed (program : Program)
     (full prior : List VarId) (statement : Stmt)
     (references : statement.FunctionReferencesInRange program.functions.size)
     (isPrefix : prior ++ statement.variableOccurrences <+: full) :
     (parseStatement (printedFunctionNames program) (stmtTokens program statement)).run
         (printedVariableNames prior) =
-      .ok ([statement.renameVariables (canonicalRename full)],
+      .ok ([statement.renameVariables (normalRename full)],
         printedVariableNames (prior ++ statement.variableOccurrences)) := by
   cases statement with
   | assign result value =>
       cases value with
       | constant value =>
           simpa [Stmt.variableOccurrences, Stmt.renameVariables] using
-            parseStatement_assign_constant (printedFunctionNames program) full prior result value
-              isPrefix
+            parseStatement_assign_constant program (printedFunctionNames program) full prior
+              result value isPrefix
       | var source =>
           simp only [Stmt.variableOccurrences, Expr.variableOccurrences] at isPrefix ⊢
           rw [show stmtTokens program (.assign result (.var source)) =
@@ -735,7 +735,7 @@ private theorem parseStatement_printed (program : Program) (printable : program.
           simp only [List.map_cons, List.map_nil, parseMnemonic, StateT.run, bind,
             StateT.bind, Except.bind]
           rw [show operand (variableToken source) (printedVariableNames (prior ++ [result])) =
-              .ok (([], canonicalRename full source),
+              .ok (([], normalRename full source),
                 printedVariableNames (prior ++ [result] ++ [source])) from
             operand_printed full (prior ++ [result]) source
               (by simpa [List.append_assoc] using isPrefix)]
@@ -755,7 +755,7 @@ private theorem parseStatement_printed (program : Program) (printable : program.
           simp only [List.map_cons, List.map_nil, parseMnemonic, StateT.run, bind,
             StateT.bind, Except.bind]
           rw [show operand (variableToken lhs) (printedVariableNames (prior ++ [result])) =
-              .ok (([], canonicalRename full lhs),
+              .ok (([], normalRename full lhs),
                 printedVariableNames (prior ++ [result] ++ [lhs])) from
             operand_printed full (prior ++ [result]) lhs
               (by simpa [List.append_assoc] using
@@ -764,7 +764,7 @@ private theorem parseStatement_printed (program : Program) (printable : program.
           simp only []
           rw [show operand (variableToken rhs)
               (printedVariableNames (prior ++ [result] ++ [lhs])) =
-              .ok (([], canonicalRename full rhs),
+              .ok (([], normalRename full rhs),
                 printedVariableNames (prior ++ [result] ++ [lhs] ++ [rhs])) from
             operand_printed full (prior ++ [result] ++ [lhs]) rhs
               (by simpa [List.append_assoc] using isPrefix)]
@@ -784,7 +784,7 @@ private theorem parseStatement_printed (program : Program) (printable : program.
           simp only [List.map_cons, List.map_nil, parseMnemonic, StateT.run, bind,
             StateT.bind, Except.bind]
           rw [show operand (variableToken lhs) (printedVariableNames (prior ++ [result])) =
-              .ok (([], canonicalRename full lhs),
+              .ok (([], normalRename full lhs),
                 printedVariableNames (prior ++ [result] ++ [lhs])) from
             operand_printed full (prior ++ [result]) lhs
               (by simpa [List.append_assoc] using
@@ -793,7 +793,7 @@ private theorem parseStatement_printed (program : Program) (printable : program.
           simp only []
           rw [show operand (variableToken rhs)
               (printedVariableNames (prior ++ [result] ++ [lhs])) =
-              .ok (([], canonicalRename full rhs),
+              .ok (([], normalRename full rhs),
                 printedVariableNames (prior ++ [result] ++ [lhs] ++ [rhs])) from
             operand_printed full (prior ++ [result] ++ [lhs]) rhs
               (by simpa [List.append_assoc] using isPrefix)]
@@ -813,7 +813,7 @@ private theorem parseStatement_printed (program : Program) (printable : program.
           simp only [List.map_cons, List.map_nil, parseMnemonic, StateT.run, bind,
             StateT.bind, Except.bind]
           rw [show operand (variableToken key) (printedVariableNames (prior ++ [result])) =
-              .ok (([], canonicalRename full key),
+              .ok (([], normalRename full key),
                 printedVariableNames (prior ++ [result] ++ [key])) from
             operand_printed full (prior ++ [result]) key
               (by simpa [List.append_assoc] using isPrefix)]
@@ -833,13 +833,13 @@ private theorem parseStatement_printed (program : Program) (printable : program.
       simp only [List.map_nil, List.append_nil, parseMnemonic, StateT.run, bind,
         StateT.bind, Except.bind]
       rw [show operand (variableToken key) (printedVariableNames prior) =
-          .ok (([], canonicalRename full key), printedVariableNames (prior ++ [key])) from
+          .ok (([], normalRename full key), printedVariableNames (prior ++ [key])) from
         operand_printed full prior key
           ((show prior ++ [key] <+: prior ++ [key, value] from
             ⟨[value], by simp⟩).trans isPrefix)]
       simp only []
       rw [show operand (variableToken value) (printedVariableNames (prior ++ [key])) =
-          .ok (([], canonicalRename full value),
+          .ok (([], normalRename full value),
             printedVariableNames (prior ++ [key] ++ [value])) from
         operand_printed full (prior ++ [key]) value
           (by simpa [List.append_assoc] using isPrefix)]
@@ -870,7 +870,7 @@ private theorem parseStatement_printed (program : Program) (printable : program.
       simp only [List.map_cons, List.map_nil, parseMnemonic, StateT.run, bind,
         StateT.bind, Except.bind]
       rw [show operand (variableToken gas) (printedVariableNames (prior ++ [result])) =
-          .ok (([], canonicalRename full gas),
+          .ok (([], normalRename full gas),
             printedVariableNames (prior ++ [result] ++ [gas])) from
         operand_printed full (prior ++ [result]) gas
           (by simpa [List.append_assoc] using
@@ -879,7 +879,7 @@ private theorem parseStatement_printed (program : Program) (printable : program.
       simp only []
       rw [show operand (variableToken callee)
           (printedVariableNames (prior ++ [result] ++ [gas])) =
-          .ok (([], canonicalRename full callee),
+          .ok (([], normalRename full callee),
             printedVariableNames (prior ++ [result] ++ [gas] ++ [callee])) from
         operand_printed full (prior ++ [result] ++ [gas]) callee
           (by simpa [List.append_assoc] using isPrefix)]
@@ -898,7 +898,7 @@ private theorem parseStatement_printed (program : Program) (printable : program.
       simp only [List.map_cons, List.map_nil, parseMnemonic, StateT.run, bind,
         StateT.bind, Except.bind]
       rw [show operand (variableToken size) (printedVariableNames (prior ++ [result])) =
-          .ok (([], canonicalRename full size),
+          .ok (([], normalRename full size),
             printedVariableNames (prior ++ [result] ++ [size])) from
         operand_printed full (prior ++ [result]) size
           (by simpa [List.append_assoc] using isPrefix)]
@@ -917,7 +917,7 @@ private theorem parseStatement_printed (program : Program) (printable : program.
       simp only [List.map_cons, List.map_nil, parseMnemonic, StateT.run, bind,
         StateT.bind, Except.bind]
       rw [show operand (variableToken size) (printedVariableNames (prior ++ [result])) =
-          .ok (([], canonicalRename full size),
+          .ok (([], normalRename full size),
             printedVariableNames (prior ++ [result] ++ [size])) from
         operand_printed full (prior ++ [result]) size
           (by simpa [List.append_assoc] using isPrefix)]
@@ -939,13 +939,13 @@ private theorem parseStatement_printed (program : Program) (printable : program.
       simp only [List.map_nil, List.append_nil, parseMnemonic, StateT.run, bind,
         StateT.bind, Except.bind]
       rw [show operand (variableToken offset) (printedVariableNames prior) =
-          .ok (([], canonicalRename full offset), printedVariableNames (prior ++ [offset])) from
+          .ok (([], normalRename full offset), printedVariableNames (prior ++ [offset])) from
         operand_printed full prior offset
           ((show prior ++ [offset] <+: prior ++ [offset, value] from
             ⟨[value], by simp⟩).trans isPrefix)]
       simp only []
       rw [show operand (variableToken value) (printedVariableNames (prior ++ [offset])) =
-          .ok (([], canonicalRename full value),
+          .ok (([], normalRename full value),
             printedVariableNames (prior ++ [offset] ++ [value])) from
         operand_printed full (prior ++ [offset]) value
           (by simpa [List.append_assoc] using isPrefix)]
@@ -964,7 +964,7 @@ private theorem parseStatement_printed (program : Program) (printable : program.
       simp only [List.map_cons, List.map_nil, parseMnemonic, StateT.run, bind,
         StateT.bind, Except.bind]
       rw [show operand (variableToken offset) (printedVariableNames (prior ++ [result])) =
-          .ok (([], canonicalRename full offset),
+          .ok (([], normalRename full offset),
             printedVariableNames (prior ++ [result] ++ [offset])) from
         operand_printed full (prior ++ [result]) offset
           (by simpa [List.append_assoc] using isPrefix)]
@@ -988,10 +988,10 @@ private theorem parseStatement_printed (program : Program) (printable : program.
               (by simpa using
                 (show prior <+: prior ++ args from ⟨args, rfl⟩).trans isPrefix)]
           simp only [List.map_nil, List.append_nil, parseMnemonic, StateT.run, bind]
-          rw [printedFunctionNames_findIdx program printable callee references]
+          rw [printedFunctionNames_findIdx program callee references]
           simp only [StateT.bind]
           rw [show operands (args.map variableToken) (printedVariableNames prior) =
-              .ok (([], args.map (canonicalRename full) |>.toArray),
+              .ok (([], args.map (normalRename full) |>.toArray),
                 printedVariableNames (prior ++ args)) from
             operands_printed full prior args isPrefix]
           simp [bind, Except.bind, pure, StateT.pure, Except.pure, Stmt.renameVariables]
@@ -1011,11 +1011,11 @@ private theorem parseStatement_printed (program : Program) (printable : program.
                   prior ++ (destination :: following) ++ args from ⟨args, by simp⟩).trans
                 (by simpa [List.append_assoc] using isPrefix))]
           simp only [parseMnemonic, StateT.run, bind]
-          rw [printedFunctionNames_findIdx program printable callee references]
+          rw [printedFunctionNames_findIdx program callee references]
           simp only [StateT.bind]
           rw [show operands (args.map variableToken)
                 (printedVariableNames (prior ++ destination :: following)) =
-              .ok (([], args.map (canonicalRename full) |>.toArray),
+              .ok (([], args.map (normalRename full) |>.toArray),
                 printedVariableNames (prior ++ destination :: following ++ args)) from
             operands_printed full (prior ++ destination :: following) args
               (by simpa [List.append_assoc] using isPrefix)]
@@ -1061,7 +1061,7 @@ private theorem parseTerminator_printed (function : Function) (full prior : List
     (isPrefix : prior ++ terminator.variableOccurrences <+: full) :
     (parseTerminator (printedBlockNames function) (terminatorTokens terminator)).run
         (printedVariableNames prior) =
-      .ok (terminator.renameVariables (canonicalRename full),
+      .ok (terminator.renameVariables (normalRename full),
         printedVariableNames (prior ++ terminator.variableOccurrences)) := by
   cases terminator with
   | halt => simp [parseTerminator, terminatorTokens, Terminator.renameVariables,
@@ -1080,16 +1080,16 @@ private theorem parseTerminator_printed (function : Function) (full prior : List
       simp [parseTerminator, terminatorTokens, resolveBlock, Terminator.renameVariables,
         variableToken, StateT.run, bind, StateT.bind, Except.bind]
       rw [show internVariable (variableName condition) (printedVariableNames prior) =
-          .ok (canonicalRename full condition, printedVariableNames (prior ++ [condition])) from by
-        simpa [canonicalRename] using
-          internVariable_canonical full prior condition isPrefix]
+          .ok (normalRename full condition, printedVariableNames (prior ++ [condition])) from by
+        simpa [normalRename] using
+          internVariable_normal full prior condition isPrefix]
       simp only
       rw [printedBlockNames_findIdx function thenTarget thenBound]
       simp only
       rw [printedBlockNames_findIdx function elseTarget elseBound]
       simp [pure, StateT.pure, Except.pure]
 
-private theorem parseBlockBody_printed (program : Program) (printable : program.Printable)
+private theorem parseBlockBody_printed (program : Program)
     (function : Function) (full prior : List VarId) (statements : List Stmt)
     (terminator : Terminator)
     (statementReferences : ∀ statement ∈ statements,
@@ -1100,8 +1100,8 @@ private theorem parseBlockBody_printed (program : Program) (printable : program.
     (parseBlockBody (printedFunctionNames program) (printedBlockNames function)
         (statements.map (stmtTokens program) ++ [terminatorTokens terminator])).run
         (printedVariableNames prior) =
-      .ok (((statements.map (·.renameVariables (canonicalRename full))).toArray,
-        terminator.renameVariables (canonicalRename full)),
+      .ok (((statements.map (·.renameVariables (normalRename full))).toArray,
+        terminator.renameVariables (normalRename full)),
         printedVariableNames (prior ++ statements.flatMap Stmt.variableOccurrences ++
           terminator.variableOccurrences)) := by
   induction statements generalizing prior with
@@ -1111,7 +1111,7 @@ private theorem parseBlockBody_printed (program : Program) (printable : program.
       simp only [StateT.run, bind, StateT.bind, Except.bind]
       rw [show parseTerminator (printedBlockNames function) (terminatorTokens terminator)
             (printedVariableNames prior) =
-          .ok (terminator.renameVariables (canonicalRename full),
+          .ok (terminator.renameVariables (normalRename full),
             printedVariableNames (prior ++ terminator.variableOccurrences)) from
         parseTerminator_printed function full prior terminator terminatorReferences
           (by simpa using isPrefix)]
@@ -1126,9 +1126,9 @@ private theorem parseBlockBody_printed (program : Program) (printable : program.
       simp only [StateT.run, bind, StateT.bind, Except.bind]
       rw [show parseStatement (printedFunctionNames program) (stmtTokens program statement)
             (printedVariableNames prior) =
-          .ok ([statement.renameVariables (canonicalRename full)],
+          .ok ([statement.renameVariables (normalRename full)],
             printedVariableNames (prior ++ statement.variableOccurrences)) from
-        parseStatement_printed program printable full prior statement
+        parseStatement_printed program full prior statement
           (statementReferences statement (by simp))
           ((show prior ++ statement.variableOccurrences <+:
               prior ++ statement.variableOccurrences ++
@@ -1140,8 +1140,8 @@ private theorem parseBlockBody_printed (program : Program) (printable : program.
       rw [show parseBlockBody (printedFunctionNames program) (printedBlockNames function)
             (following.map (stmtTokens program) ++ [terminatorTokens terminator])
             (printedVariableNames (prior ++ statement.variableOccurrences)) =
-          .ok (((following.map (·.renameVariables (canonicalRename full))).toArray,
-            terminator.renameVariables (canonicalRename full)),
+          .ok (((following.map (·.renameVariables (normalRename full))).toArray,
+            terminator.renameVariables (normalRename full)),
             printedVariableNames ((prior ++ statement.variableOccurrences) ++
               following.flatMap Stmt.variableOccurrences ++ terminator.variableOccurrences)) from
         induction (prior ++ statement.variableOccurrences)
@@ -1195,8 +1195,8 @@ private theorem parseBlockHeader_printed (full prior : List VarId) (identifier :
         (if block.outputs.isEmpty then [] else
           Token.arrow :: variableTokens block.outputs) ++ [Token.leftBrace])).run
         (printedVariableNames prior) =
-      .ok ((block.inputs.map (canonicalRename full),
-        block.outputs.map (canonicalRename full)),
+      .ok ((block.inputs.map (normalRename full),
+        block.outputs.map (normalRename full)),
         printedVariableNames (prior ++ block.inputs.toList ++ block.outputs.toList)) := by
   rcases block with ⟨inputs, statements, terminator, outputs⟩
   rcases inputs with ⟨inputs⟩
@@ -1209,7 +1209,7 @@ private theorem parseBlockHeader_printed (full prior : List VarId) (identifier :
     simp only
     rw [show StateT.run (variableList (inputs.map variableToken))
           (printedVariableNames prior) =
-        .ok (inputs.map (canonicalRename full) |>.toArray,
+        .ok (inputs.map (normalRename full) |>.toArray,
           printedVariableNames (prior ++ inputs)) from
       variableList_printed full prior inputs (by
         simpa using isPrefix)]
@@ -1222,7 +1222,7 @@ private theorem parseBlockHeader_printed (full prior : List VarId) (identifier :
     simp only
     rw [show StateT.run (variableList (inputs.map variableToken))
           (printedVariableNames prior) =
-        .ok (inputs.map (canonicalRename full) |>.toArray,
+        .ok (inputs.map (normalRename full) |>.toArray,
           printedVariableNames (prior ++ inputs)) from
       variableList_printed full prior inputs
         ((show prior ++ inputs <+: prior ++ inputs ++ output :: following from
@@ -1231,14 +1231,14 @@ private theorem parseBlockHeader_printed (full prior : List VarId) (identifier :
     rw [show StateT.run
           (variableList (variableToken output :: following.map variableToken))
           (printedVariableNames (prior ++ inputs)) =
-        .ok ((output :: following).map (canonicalRename full) |>.toArray,
+        .ok ((output :: following).map (normalRename full) |>.toArray,
           printedVariableNames ((prior ++ inputs) ++ output :: following)) from by
       simpa [List.map_cons] using
         variableList_printed full (prior ++ inputs) (output :: following)
           (by simpa [List.append_assoc] using isPrefix)]
     simp [List.append_assoc]
 
-private theorem parseBlock_printed (program : Program) (printable : program.Printable)
+private theorem parseBlock_printed (program : Program)
     (function : Function) (full prior : List VarId) (identifier : BlockId)
     (block : Block)
     (references : block.ReferencesInRange program.functions.size function.blocks.size)
@@ -1249,7 +1249,7 @@ private theorem parseBlock_printed (program : Program) (printable : program.Prin
           Token.arrow :: variableTokens block.outputs) ++ [Token.leftBrace])
       (block.statements.toList.map (stmtTokens program) ++
         [terminatorTokens block.terminator])).run (printedVariableNames prior) =
-      .ok (block.renameVariables (canonicalRename full),
+      .ok (block.renameVariables (normalRename full),
         printedVariableNames (prior ++ block.variableOccurrences)) := by
   rcases references with ⟨statementReferences, terminatorReferences⟩
   simp only [parseBlock, StateT.run, bind, StateT.bind, Except.bind]
@@ -1258,8 +1258,8 @@ private theorem parseBlock_printed (program : Program) (printable : program.Prin
           (if block.outputs.isEmpty then [] else
             Token.arrow :: variableTokens block.outputs) ++ [Token.leftBrace])
         (printedVariableNames prior) =
-      .ok ((block.inputs.map (canonicalRename full),
-        block.outputs.map (canonicalRename full)),
+      .ok ((block.inputs.map (normalRename full),
+        block.outputs.map (normalRename full)),
         printedVariableNames
           (prior ++ block.inputs.toList ++ block.outputs.toList)) from
     parseBlockHeader_printed full prior identifier block
@@ -1275,13 +1275,13 @@ private theorem parseBlock_printed (program : Program) (printable : program.Prin
         (printedVariableNames
           (prior ++ block.inputs.toList ++ block.outputs.toList)) =
       .ok (((block.statements.toList.map
-          (·.renameVariables (canonicalRename full))).toArray,
-        block.terminator.renameVariables (canonicalRename full)),
+          (·.renameVariables (normalRename full))).toArray,
+        block.terminator.renameVariables (normalRename full)),
         printedVariableNames
           ((prior ++ block.inputs.toList ++ block.outputs.toList) ++
             block.statements.toList.flatMap Stmt.variableOccurrences ++
               block.terminator.variableOccurrences)) from
-    parseBlockBody_printed program printable function full
+    parseBlockBody_printed program function full
       (prior ++ block.inputs.toList ++ block.outputs.toList) block.statements.toList
       block.terminator
       (fun statement member => statementReferences statement (by simpa using member))
@@ -1289,8 +1289,8 @@ private theorem parseBlock_printed (program : Program) (printable : program.Prin
         simpa [Block.variableOccurrences, List.append_assoc] using isPrefix)]
   have statementMap :
       (block.statements.toList.map
-          (·.renameVariables (canonicalRename full))).toArray =
-        block.statements.map (·.renameVariables (canonicalRename full)) := by
+          (·.renameVariables (normalRename full))).toArray =
+        block.statements.map (·.renameVariables (normalRename full)) := by
     cases block.statements
     simp
   rw [statementMap]
@@ -1452,7 +1452,7 @@ private theorem mapM_blockHeaderName_printedBlockGroups (program : Program)
         simp [blockHeaderName, printedBlockHeader]]
       simp [induction, bind, Except.bind, pure, Except.pure]
 
-private theorem mapM_parseBlock_printed (program : Program) (printable : program.Printable)
+private theorem mapM_parseBlock_printed (program : Program)
     (function : Function) (full prior : List VarId)
     (values : List (Block × Nat))
     (references : ∀ pair ∈ values,
@@ -1464,7 +1464,7 @@ private theorem mapM_parseBlock_printed (program : Program) (printable : program
       (fun group => parseBlock (printedFunctionNames program) (printedBlockNames function)
         group.fst group.snd)).run (printedVariableNames prior) =
       .ok (values.map (fun pair =>
-          pair.1.renameVariables (canonicalRename full)),
+          pair.1.renameVariables (normalRename full)),
         printedVariableNames
           (prior ++ values.flatMap (fun pair => pair.1.variableOccurrences))) := by
   induction values generalizing prior with
@@ -1476,10 +1476,10 @@ private theorem mapM_parseBlock_printed (program : Program) (printable : program
       rw [show parseBlock (printedFunctionNames program) (printedBlockNames function)
             (printedBlockHeader ⟨index⟩ block) (printedBlockBody program block)
             (printedVariableNames prior) =
-          .ok (block.renameVariables (canonicalRename full),
+          .ok (block.renameVariables (normalRename full),
             printedVariableNames (prior ++ block.variableOccurrences)) from by
         simpa [printedBlockHeader, printedBlockBody] using
-          parseBlock_printed program printable function full prior ⟨index⟩ block
+          parseBlock_printed program function full prior ⟨index⟩ block
             (references (block, index) (by simp))
             ((show prior ++ block.variableOccurrences <+:
                 prior ++ block.variableOccurrences ++
@@ -1494,7 +1494,7 @@ private theorem mapM_parseBlock_printed (program : Program) (printable : program
               (printedBlockNames function) group.fst group.snd))
             (printedVariableNames (prior ++ block.variableOccurrences)) =
           .ok (following.map (fun pair =>
-              pair.1.renameVariables (canonicalRename full)),
+              pair.1.renameVariables (normalRename full)),
             printedVariableNames ((prior ++ block.variableOccurrences) ++
               following.flatMap (fun pair => pair.1.variableOccurrences))) from
         induction (prior ++ block.variableOccurrences)
@@ -1503,15 +1503,15 @@ private theorem mapM_parseBlock_printed (program : Program) (printable : program
       simp [pure, StateT.pure, Except.pure, List.append_assoc]
 
 private theorem parseFunctionGroups_printed (program : Program)
-    (printable : program.Printable) (function : Function)
+    (function : Function)
     (functionPrintable : function.Printable program.functions.size)
     (full prior : List VarId)
     (isPrefix : prior ++ function.variableOccurrences <+: full) :
     (parseFunctionGroups (printedFunctionNames program)
       (printedBlockGroups program function)).run (printedVariableNames prior) =
-      .ok (function.renameVariables (canonicalRename full),
+      .ok (function.renameVariables (normalRename full),
         printedVariableNames (prior ++ function.variableOccurrences)) := by
-  rcases functionPrintable with ⟨entryZero, references⟩
+  have references := functionPrintable
   simp only [parseFunctionGroups, StateT.run, bind, StateT.bind, Except.bind]
   rw [mapM_blockHeaderName_printedBlockGroups program function]
   simp only [bind, liftM, monadLift, MonadLift.monadLift, StateT.lift, Except.bind]
@@ -1523,11 +1523,11 @@ private theorem parseFunctionGroups_printed (program : Program)
         parseBlock (printedFunctionNames program) (printedBlockNames function)
           group.fst group.snd) (printedVariableNames prior) =
       .ok (function.blocks.toList.zipIdx.map (fun pair =>
-          pair.1.renameVariables (canonicalRename full)),
+          pair.1.renameVariables (normalRename full)),
         printedVariableNames (prior ++ function.blocks.toList.zipIdx.flatMap
           (fun pair => pair.1.variableOccurrences))) from by
     simpa [printedBlockGroups] using
-      mapM_parseBlock_printed program printable function full prior
+      mapM_parseBlock_printed program function full prior
         function.blocks.toList.zipIdx
         (fun pair member => references pair.1 (by
           have : pair.1 ∈ function.blocks.toList := by
@@ -1542,13 +1542,13 @@ private theorem parseFunctionGroups_printed (program : Program)
           simpa [Function.variableOccurrences, occurrencesEq] using isPrefix)]
   have parsedBlocksEq :
       function.blocks.toList.zipIdx.map (fun pair =>
-          pair.1.renameVariables (canonicalRename full)) =
+          pair.1.renameVariables (normalRename full)) =
         function.blocks.toList.map
-          (·.renameVariables (canonicalRename full)) := by
+          (·.renameVariables (normalRename full)) := by
     rw [show function.blocks.toList.zipIdx.map (fun pair =>
-          pair.1.renameVariables (canonicalRename full)) =
+          pair.1.renameVariables (normalRename full)) =
         (function.blocks.toList.zipIdx.map Prod.fst).map
-          (·.renameVariables (canonicalRename full)) by
+          (·.renameVariables (normalRename full)) by
       rw [List.map_map]
       rfl]
     rw [List.zipIdx_map_fst]
@@ -1557,24 +1557,26 @@ private theorem parseFunctionGroups_printed (program : Program)
         function.blocks.toList.flatMap Block.variableOccurrences := by
     rw [← List.flatMap_map, List.zipIdx_map_fst]
   rw [parsedBlocksEq, occurrencesEq]
-  have blockMap :
-      (function.blocks.toList.map
-          (·.renameVariables (canonicalRename full))).toArray =
-        function.blocks.map (·.renameVariables (canonicalRename full)) := by
-    cases function.blocks
+  rw [show function.blocks.toList = function.entry :: function.rest.toList from by
+    simp [Function.blocks]]
+  have restMap :
+      (function.rest.toList.map (·.renameVariables (normalRename full))).toArray =
+        function.rest.map (·.renameVariables (normalRename full)) := by
+    cases function.rest
     simp
-  simp [Function.renameVariables, Function.variableOccurrences, entryZero, blockMap]
+  simp [Function.renameVariables, Function.variableOccurrences, Function.blocks, restMap,
+    pure, StateT.pure, Except.pure]
 
-private theorem parseFunction_printed (program : Program) (printable : program.Printable)
+private theorem parseFunction_printed (program : Program)
     (function : Function) (functionPrintable : function.Printable program.functions.size)
     (full prior : List VarId)
     (isPrefix : prior ++ function.variableOccurrences <+: full) :
     (parseFunction (printedFunctionNames program)
       (functionBodyLines program function)).run (printedVariableNames prior) =
-      .ok (function.renameVariables (canonicalRename full),
+      .ok (function.renameVariables (normalRename full),
         printedVariableNames (prior ++ function.variableOccurrences)) := by
   rw [parseFunction, splitBlocks_functionBodyLines]
-  exact parseFunctionGroups_printed program printable function functionPrintable full prior isPrefix
+  exact parseFunctionGroups_printed program function functionPrintable full prior isPrefix
 
 private theorem hasDuplicates_eq_false_of_nodup (names : List String)
     (nodup : names.Nodup) : hasDuplicates names = false := by
@@ -1591,8 +1593,7 @@ private theorem hasDuplicates_eq_false_of_nodup (names : List String)
       rw [notContained, induction nodup.2]
       rfl
 
-private theorem printedFunctionNames_noDuplicates (program : Program)
-    (printable : program.Printable) :
+private theorem printedFunctionNames_noDuplicates (program : Program) :
     hasDuplicates (printedFunctionNames program) = false := by
   apply hasDuplicates_eq_false_of_nodup
   rw [printedFunctionNames_eq]
@@ -1605,18 +1606,12 @@ private theorem printedFunctionNames_noDuplicates (program : Program)
   rw [show program.functions.toList.zipIdx.map Prod.snd =
       List.range' 0 program.functions.toList.length by simp]
   apply List.Nodup.map_on
-  · intro left leftMember right rightMember equality
-    apply congrArg FunctionId.id
-    apply functionName_injective printable
-    · rcases List.mem_range'.mp leftMember with ⟨index, bound, equality⟩
-      simpa [equality] using bound
-    · rcases List.mem_range'.mp rightMember with ⟨index, bound, equality⟩
-      simpa [equality] using bound
-    · exact equality
+  · intro left _ right _ equality
+    exact congrArg FunctionId.id (functionName_injective equality)
   · exact List.nodup_range'
 
 private theorem mapM_parseFunction_printed (program : Program)
-    (printable : program.Printable) (full prior : List VarId)
+    (full prior : List VarId)
     (values : List (Function × Nat))
     (functionPrintables : ∀ pair ∈ values,
       pair.1.Printable program.functions.size)
@@ -1627,7 +1622,7 @@ private theorem mapM_parseFunction_printed (program : Program)
       (fun group => parseFunction (printedFunctionNames program) group.snd)).run
         (printedVariableNames prior) =
       .ok (values.map (fun pair =>
-          pair.1.renameVariables (canonicalRename full)),
+          pair.1.renameVariables (normalRename full)),
         printedVariableNames
           (prior ++ values.flatMap (fun pair => pair.1.variableOccurrences))) := by
   induction values generalizing prior with
@@ -1638,9 +1633,9 @@ private theorem mapM_parseFunction_printed (program : Program)
       simp only [StateT.run, bind, StateT.bind, Except.bind]
       rw [show parseFunction (printedFunctionNames program)
             (functionBodyLines program function) (printedVariableNames prior) =
-          .ok (function.renameVariables (canonicalRename full),
+          .ok (function.renameVariables (normalRename full),
             printedVariableNames (prior ++ function.variableOccurrences)) from
-        parseFunction_printed program printable function
+        parseFunction_printed program function
           (functionPrintables (function, index) (by simp)) full prior
           ((show prior ++ function.variableOccurrences <+:
               prior ++ function.variableOccurrences ++
@@ -1653,7 +1648,7 @@ private theorem mapM_parseFunction_printed (program : Program)
           (fun group => parseFunction (printedFunctionNames program) group.snd))
           (printedVariableNames (prior ++ function.variableOccurrences)) =
         .ok (following.map (fun pair =>
-            pair.1.renameVariables (canonicalRename full)),
+            pair.1.renameVariables (normalRename full)),
           printedVariableNames ((prior ++ function.variableOccurrences) ++
             following.flatMap (fun pair => pair.1.variableOccurrences))) from
         induction (prior ++ function.variableOccurrences)
@@ -1661,129 +1656,266 @@ private theorem mapM_parseFunction_printed (program : Program)
           (by simpa [List.append_assoc] using isPrefix)]
       simp [pure, StateT.pure, Except.pure, List.append_assoc]
 
-private theorem parseFunctionGroupsList_printed (program : Program)
+private def printedFollowingGroups (program : Program) : List (String × List Line) :=
+  ((program.main.toList ++ program.rest.toList).zipIdx 1).map fun pair =>
+    (functionName program ⟨pair.2⟩, functionBodyLines program pair.1)
+
+private def printedRestGroups (program : Program) (start : Nat) :
+    List (String × List Line) :=
+  (program.rest.toList.zipIdx start).map fun pair =>
+    (functionName program ⟨pair.2⟩, functionBodyLines program pair.1)
+
+private theorem functions_toList (program : Program) :
+    program.functions.toList =
+      program.init :: (program.main.toList ++ program.rest.toList) := by
+  simp [Program.functions]
+
+private theorem printedFunctionGroups_cons (program : Program) :
+    printedFunctionGroups program =
+      ("init", functionBodyLines program program.init) :: printedFollowingGroups program := by
+  rw [printedFunctionGroups, printedFollowingGroups, functions_toList]
+  simp [functionName, Program.initId]
+
+private theorem printedFunctionNames_cons (program : Program) :
+    printedFunctionNames program =
+      "init" :: (printedFollowingGroups program).map Prod.fst := by
+  rw [printedFunctionNames, printedFunctionGroups_cons]
+  simp
+
+private theorem le_of_mem_zipIdx {α : Type} {values : List α} {start : Nat}
+    {pair : α × Nat} (member : pair ∈ values.zipIdx start) : start ≤ pair.2 := by
+  induction values generalizing start with
+  | nil => simp at member
+  | cons value following induction =>
+      rw [List.zipIdx_cons] at member
+      rcases List.mem_cons.mp member with rfl | following'
+      · exact Nat.le_refl _
+      · exact Nat.le_of_succ_le (induction following')
+
+private theorem functionName_fn_of_main_none (program : Program)
+    (mainEq : program.main = none) {index : Nat} (notInit : index ≠ 0) :
+    functionName program ⟨index⟩ = "fn" ++ decimalString index := by
+  simp [functionName, Program.initId, Program.mainId?, mainEq, notInit]
+
+private theorem functionName_fn_of_two_le (program : Program) {index : Nat}
+    (bound : 2 ≤ index) :
+    functionName program ⟨index⟩ = "fn" ++ decimalString index := by
+  have notInit : index ≠ 0 := by omega
+  have notMain : ¬ (1 = index) := by omega
+  simp [functionName, Program.initId, Program.mainId?, notInit, notMain]
+
+private theorem printedRestGroups_names (program : Program) {start : Nat}
+    (bound : 2 ≤ start) :
+    ∀ group ∈ printedRestGroups program start,
+      group.fst ≠ "init" ∧ group.fst ≠ "main" := by
+  intro group member
+  simp only [printedRestGroups, List.mem_map] at member
+  rcases member with ⟨pair, memberPair, rfl⟩
+  have indexBound := le_of_mem_zipIdx memberPair
+  rw [functionName_fn_of_two_le program (by omega)]
+  simp
+
+private theorem printedFollowingGroups_names_of_main_none (program : Program)
+    (mainEq : program.main = none) :
+    ∀ group ∈ printedFollowingGroups program,
+      group.fst ≠ "init" ∧ group.fst ≠ "main" := by
+  intro group member
+  simp only [printedFollowingGroups, List.mem_map] at member
+  rcases member with ⟨pair, memberPair, rfl⟩
+  have indexBound := le_of_mem_zipIdx memberPair
+  rw [functionName_fn_of_main_none program mainEq (by omega)]
+  simp
+
+private theorem printedFollowingGroups_of_main_some (program : Program) {main : Function}
+    (mainEq : program.main = some main) :
+    printedFollowingGroups program =
+      ("main", functionBodyLines program main) :: printedRestGroups program 2 := by
+  rw [printedFollowingGroups, printedRestGroups, mainEq]
+  simp [List.zipIdx_cons, functionName, Program.initId, Program.mainId?, mainEq]
+
+private theorem find?_init_printed (program : Program) :
+    (printedFunctionGroups program).find? (fun group => group.fst == "init") =
+      some ("init", functionBodyLines program program.init) := by
+  rw [printedFunctionGroups_cons]
+  simp
+
+private theorem find?_main_printed (program : Program) :
+    ((printedFunctionGroups program).find? (fun group => group.fst == "main")).toList ++
+        (printedFunctionGroups program).filter
+          (fun group => group.fst != "init" && group.fst != "main") =
+      printedFollowingGroups program ∧
+      ((printedFunctionGroups program).find?
+        (fun group => group.fst == "main")).isSome = program.main.isSome := by
+  rw [printedFunctionGroups_cons]
+  cases mainEq : program.main with
+  | none =>
+      have names := printedFollowingGroups_names_of_main_none program mainEq
+      have findNone : (printedFollowingGroups program).find?
+          (fun group => group.fst == "main") = none := by
+        rw [List.find?_eq_none]
+        intro group member
+        simpa using (names group member).2
+      have filterSelf : (printedFollowingGroups program).filter
+          (fun group => group.fst != "init" && group.fst != "main") =
+            printedFollowingGroups program := by
+        rw [List.filter_eq_self]
+        intro group member
+        have valid := names group member
+        simp [valid.1, valid.2]
+      refine ⟨?_, ?_⟩ <;> simp [findNone, filterSelf]
+  | some main =>
+      have restNames := printedRestGroups_names program (start := 2) (by omega)
+      have splitEq := printedFollowingGroups_of_main_some program mainEq
+      have findMain : (printedFollowingGroups program).find?
+          (fun group => group.fst == "main") =
+            some ("main", functionBodyLines program main) := by
+        rw [splitEq]
+        simp
+      have filterRest : (printedRestGroups program 2).filter
+          (fun group => group.fst != "init" && group.fst != "main") =
+            printedRestGroups program 2 := by
+        rw [List.filter_eq_self]
+        intro group member
+        have valid := restNames group member
+        simp [valid.1, valid.2]
+      refine ⟨?_, ?_⟩
+      · rw [splitEq]
+        simp [filterRest]
+      · simp [findMain]
+
+private theorem parseFunctionSlots_printed (program : Program)
     (printable : program.Printable) :
-    (parseFunctionGroupsList (printedFunctionNames program)
-      (printedFunctionGroups program)).run [] =
-      .ok (program.functions.toList.map
-          (·.renameVariables (canonicalRename program.variableOccurrences)),
+    (parseFunctionSlots (printedFunctionNames program)
+      ("init", functionBodyLines program program.init)
+      (printedFollowingGroups program)).run [] =
+      .ok ((program.init.renameVariables (normalRename program.variableOccurrences),
+          (program.main.toList ++ program.rest.toList).map
+            (·.renameVariables (normalRename program.variableOccurrences))),
         printedVariableNames program.variableOccurrences) := by
-  rw [parseFunctionGroupsList]
-  have occurrencesEq :
-      program.functions.toList.zipIdx.flatMap (fun pair => pair.1.variableOccurrences) =
-        program.variableOccurrences := by
+  have occurrencesEq : program.variableOccurrences =
+      program.init.variableOccurrences ++
+        (program.main.toList ++ program.rest.toList).flatMap Function.variableOccurrences := by
+    rw [Program.variableOccurrences, functions_toList]
+    simp
+  have zipOccurrencesEq :
+      ((program.main.toList ++ program.rest.toList).zipIdx 1).flatMap
+          (fun pair => pair.1.variableOccurrences) =
+        (program.main.toList ++ program.rest.toList).flatMap Function.variableOccurrences := by
     rw [← List.flatMap_map, List.zipIdx_map_fst]
-    rfl
-  have parsed := mapM_parseFunction_printed program printable
-    program.variableOccurrences [] program.functions.toList.zipIdx
-    (fun pair member => printable.2.2 pair.1 (by
-      have : pair.1 ∈ program.functions.toList := List.fst_mem_of_mem_zipIdx member
-      simpa using this))
-    (by simp [occurrencesEq])
-  have parsedFunctionsEq :
-      program.functions.toList.zipIdx.map (fun pair =>
-          pair.1.renameVariables (canonicalRename program.variableOccurrences)) =
-        program.functions.toList.map
-          (·.renameVariables (canonicalRename program.variableOccurrences)) := by
-    rw [show program.functions.toList.zipIdx.map (fun pair =>
-          pair.1.renameVariables (canonicalRename program.variableOccurrences)) =
-        (program.functions.toList.zipIdx.map Prod.fst).map
-          (·.renameVariables (canonicalRename program.variableOccurrences)) by
+  simp only [parseFunctionSlots, StateT.run, bind, StateT.bind, Except.bind]
+  rw [show parseFunction (printedFunctionNames program)
+        (functionBodyLines program program.init) [] =
+      .ok (program.init.renameVariables (normalRename program.variableOccurrences),
+        printedVariableNames ([] ++ program.init.variableOccurrences)) from
+    parseFunction_printed program program.init
+      (printable program.init (by simp [Program.functions]))
+      program.variableOccurrences []
+      ⟨(program.main.toList ++ program.rest.toList).flatMap Function.variableOccurrences, by
+        simpa using occurrencesEq.symm⟩]
+  simp only [List.nil_append]
+  rw [show (parseFunctionGroupsList (printedFunctionNames program)
+        (printedFollowingGroups program))
+        (printedVariableNames program.init.variableOccurrences) =
+      .ok (((program.main.toList ++ program.rest.toList).zipIdx 1).map
+          (fun pair => pair.1.renameVariables (normalRename program.variableOccurrences)),
+        printedVariableNames (program.init.variableOccurrences ++
+          ((program.main.toList ++ program.rest.toList).zipIdx 1).flatMap
+            (fun pair => pair.1.variableOccurrences))) from
+    mapM_parseFunction_printed program program.variableOccurrences
+      program.init.variableOccurrences ((program.main.toList ++ program.rest.toList).zipIdx 1)
+      (fun pair member => printable pair.1 (by
+        have memberList : pair.1 ∈ program.main.toList ++ program.rest.toList :=
+          List.fst_mem_of_mem_zipIdx member
+        refine Array.mem_toList_iff.mp ?_
+        rw [functions_toList]
+        exact List.mem_cons_of_mem program.init memberList))
+      (by rw [zipOccurrencesEq]; exact ⟨[], by simpa using occurrencesEq.symm⟩)]
+  rw [zipOccurrencesEq, ← occurrencesEq]
+  have mappedEq :
+      ((program.main.toList ++ program.rest.toList).zipIdx 1).map
+          (fun pair => pair.1.renameVariables (normalRename program.variableOccurrences)) =
+        (program.main.toList ++ program.rest.toList).map
+          (·.renameVariables (normalRename program.variableOccurrences)) := by
+    rw [show ((program.main.toList ++ program.rest.toList).zipIdx 1).map (fun pair =>
+          pair.1.renameVariables (normalRename program.variableOccurrences)) =
+        (((program.main.toList ++ program.rest.toList).zipIdx 1).map Prod.fst).map
+          (·.renameVariables (normalRename program.variableOccurrences)) by
       rw [List.map_map]
       rfl]
     rw [List.zipIdx_map_fst]
-  simpa [printedFunctionGroups, printedFunctionNames, parsedFunctionsEq,
-    occurrencesEq] using parsed
+  rw [mappedEq]
+  simp [pure, StateT.pure, Except.pure]
 
-private theorem printedFunctionNames_main_findIdx (program : Program)
-    (printable : program.Printable) :
-    (printedFunctionNames program).findIdx? (· == "main") =
-      program.mainEntry.map FunctionId.id := by
-  cases mainEq : program.mainEntry with
+private theorem parseProgramSlots_printed (program : Program)
+    (printable : program.Printable) {initGroup : String × List Line}
+    {mainGroup : Option (String × List Line)} {others : List (String × List Line)}
+    (initEq : initGroup = ("init", functionBodyLines program program.init))
+    (followingEq : mainGroup.toList ++ others = printedFollowingGroups program)
+    (isSomeEq : mainGroup.isSome = program.main.isSome) :
+    parseProgramSlots initGroup mainGroup others = .ok program.normalize := by
+  unfold parseProgramSlots
+  simp only []
+  rw [followingEq, initEq, isSomeEq]
+  rw [show (("init", functionBodyLines program program.init) : String × List Line).fst ::
+      (printedFollowingGroups program).map Prod.fst = printedFunctionNames program from
+    (printedFunctionNames_cons program).symm]
+  rw [parseFunctionSlots_printed program printable]
+  have renameEq : normalRename program.variableOccurrences = program.normalVariable := by
+    funext identifier
+    rfl
+  have restMap :
+      (program.rest.toList.map (·.renameVariables program.normalVariable)).toArray =
+        program.rest.map (·.renameVariables program.normalVariable) := by
+    cases program.rest
+    simp
+  cases mainEq : program.main with
   | none =>
-      simp only [Option.map_none]
-      rw [List.findIdx?_eq_none_iff]
-      intro name member
-      simp only [printedFunctionNames_eq, List.mem_map] at member
-      rcases member with ⟨pair, _, rfl⟩
-      by_cases isInit : (⟨pair.2⟩ : FunctionId) = program.initEntry
-      · simp [functionName, isInit]
-      · simp [functionName, mainEq, isInit]
-  | some mainEntry =>
-      have mainValid := printable.2.1
-      simp [mainEq] at mainValid
-      have bound : mainEntry.id < program.functions.size := by
-        exact mainValid.1
-      have nameEq : functionName program mainEntry = "main" := by
-        simp [functionName, mainEq, mainValid.2]
-      simp only [Option.map_some]
-      rw [← nameEq]
-      exact printedFunctionNames_findIdx program printable mainEntry bound
+      simp [programOfSlots, Program.normalize, Program.renameVariables, mainEq, renameEq,
+        restMap]
+  | some main =>
+      simp [programOfSlots, Program.normalize, Program.renameVariables, mainEq, renameEq,
+        restMap]
 
 private theorem parseProgramGroups_printed (program : Program)
     (printable : program.Printable) :
     parseProgramGroups (printedFunctionGroups program) =
-      .ok (program.canonicalize) := by
+      .ok (program.normalize) := by
   rw [parseProgramGroups]
   rw [show (printedFunctionGroups program).map Prod.fst =
       printedFunctionNames program by rfl]
-  rw [printedFunctionNames_noDuplicates program printable]
-  simp only [Bool.false_eq_true, if_false]
-  rw [show (parseFunctionGroupsList (printedFunctionNames program)
-      (printedFunctionGroups program)).run [] =
-      .ok (program.functions.toList.map
-          (·.renameVariables (canonicalRename program.variableOccurrences)),
-        printedVariableNames program.variableOccurrences) from
-    parseFunctionGroupsList_printed program printable]
-  simp only [bind, Except.bind]
-  rw [printedFunctionNames_init_findIdx program printable]
-  simp only [printedFunctionNames_main_findIdx program printable]
-  have functionMap :
-      (program.functions.toList.map
-          (·.renameVariables (canonicalRename program.variableOccurrences))).toArray =
-        program.functions.map
-          (·.renameVariables (canonicalRename program.variableOccurrences)) := by
-    cases program.functions
-    simp
-  have renameEq : canonicalRename program.variableOccurrences =
-      program.canonicalVariable := by
-    funext identifier
-    rfl
-  rw [renameEq] at functionMap ⊢
-  rw [functionMap]
-  cases mainEq : program.mainEntry with
-  | none => simp [Program.canonicalize, Program.renameVariables, mainEq, pure, Except.pure]
-  | some mainEntry =>
-      cases mainEntry
-      simp [Program.canonicalize, Program.renameVariables, mainEq, pure, Except.pure]
+  rw [printedFunctionNames_noDuplicates program]
+  simp only [Bool.false_eq_true, if_false, bind, Except.bind, pure, Except.pure]
+  rw [find?_init_printed program]
+  exact parseProgramSlots_printed program printable rfl
+    (find?_main_printed program).1 (find?_main_printed program).2
 
 private theorem parseTokens_programTokens (program : Program)
     (printable : program.Printable) :
-    parseTokens (programTokens program) = .ok program.canonicalize := by
+    parseTokens (programTokens program) = .ok program.normalize := by
   rw [parseTokens, splitLines_programTokens, splitFunctions_programLines]
   exact parseProgramGroups_printed program printable
 
 namespace Proofs
 
-theorem parse_print_canonicalize {program : Program}
+theorem parse_print_normalize {program : Program}
     (printable : program.Printable) :
-    parse (print program) = .ok program.canonicalize := by
+    parse (print program) = .ok program.normalize := by
   rw [parse, tokenize_print]
   exact parseTokens_programTokens program printable
 
 theorem parse_print {source : String} {program : Program}
     (parsed : parse source = .ok program) :
     parse (print program) = .ok program := by
-  rw [parse_print_canonicalize (parse_printable parsed), parse_canonical parsed]
+  rw [parse_print_normalize (parse_printable parsed), parse_normal parsed]
 
 theorem parse_print_alphaEquiv {program parsedProgram : Program}
     (printable : program.Printable)
     (parsed : parse (print program) = .ok parsedProgram) :
     parsedProgram.AlphaEquiv program := by
-  have canonicalized : parsedProgram = program.canonicalize :=
-    Except.ok.inj (parsed.symm.trans (parse_print_canonicalize printable))
-  rw [canonicalized]
-  exact Vars.Proofs.Program.canonicalize_alphaEquiv program
+  have normalized : parsedProgram = program.normalize :=
+    Except.ok.inj (parsed.symm.trans (parse_print_normalize printable))
+  rw [normalized]
+  exact Vars.Proofs.Program.normalize_alphaEquiv program
 
 end Proofs
 end Sir.Vars.Text
