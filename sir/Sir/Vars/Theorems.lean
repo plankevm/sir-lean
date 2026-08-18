@@ -1,7 +1,7 @@
 import Sir.Vars.Proofs.Determinism
 import Sir.Vars.Proofs.Readiness
 import Sir.Vars.Proofs.Bump
-import Sir.Vars.Proofs.Check
+import Sir.Vars.Proofs.Rank
 import Sir.Vars.Proofs.Normalize
 
 namespace Sir

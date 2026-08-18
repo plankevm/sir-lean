@@ -1,17 +1,42 @@
-import Sir.Vars.Spec.Check
+import Sir.Vars.Spec
 
-namespace Sir.Vars.Proofs
+namespace Sir.Vars
 
-theorem rank_lt_of_transGen {p : Program} {rank : FunctionId → Nat}
-    (decreasing : RankDecreases p rank) {f g} (path : Relation.TransGen p.callEdge f g) :
-    rank g < rank f := by
-  induction path with
-  | single edge => exact decreasing _ _ edge
-  | tail _ edge ih => exact Nat.lt_trans (decreasing _ _ edge) ih
+theorem lt_size_of_getElem? {α : Type} {xs : Array α} {index : Nat} {x : α}
+    (h : xs[index]? = some x) : index < xs.size := by
+  by_contra hle
+  rw [Array.getElem?_eq_none (Nat.le_of_not_lt hle)] at h
+  simp at h
 
-theorem acyclic_of_rank {p : Program} {rank : FunctionId → Nat}
-    (decreasing : RankDecreases p rank) (f : FunctionId) :
-    ¬ Relation.TransGen p.callEdge f f :=
-  fun path => Nat.lt_irrefl _ (rank_lt_of_transGen decreasing path)
+def Block.DefinedBeforeUseAt (block : Block) (index : Nat) : Prop :=
+  ∀ statement, block.statements[index]? = some statement →
+    ∀ identifier ∈ statement.variablesRead, identifier ∈ block.variablesDefinedBefore index
 
-end Sir.Vars.Proofs
+instance (block : Block) (index : Nat) : Decidable (block.DefinedBeforeUseAt index) :=
+  match h : block.statements[index]? with
+  | none =>
+      isTrue (by
+        intro statement hstatement
+        rw [h] at hstatement
+        simp at hstatement)
+  | some statement =>
+      decidable_of_iff
+        (∀ identifier ∈ statement.variablesRead,
+          identifier ∈ block.variablesDefinedBefore index)
+        ⟨fun hall _ hother => by rw [h] at hother; cases hother; exact hall,
+          fun hall => hall statement h⟩
+
+theorem Block.variablesDefinedBeforeUse_iff (block : Block) :
+    ((∀ index ∈ List.range block.statements.size, block.DefinedBeforeUseAt index) ∧
+      ∀ identifier ∈ block.terminator.variablesRead ++ block.outputs.toList,
+        identifier ∈ block.variablesDefinedBefore block.statements.size) ↔
+      block.VariablesDefinedBeforeUse := by
+  constructor
+  · rintro ⟨hstatements, houtputs⟩
+    refine ⟨fun index statement hstatement => ?_, houtputs⟩
+    exact hstatements index (List.mem_range.mpr (lt_size_of_getElem? hstatement)) statement
+      hstatement
+  · rintro ⟨hstatements, houtputs⟩
+    exact ⟨fun index _ statement hstatement => hstatements index statement hstatement, houtputs⟩
+
+end Sir.Vars

@@ -1,4 +1,5 @@
 import Sir.Text.Theorems
+import Sir.Vars.Spec.Check
 import Sir.Examples.TwoFunction
 import Sir.Examples.Jump
 import Sir.Examples.Memory
@@ -51,5 +52,29 @@ def haltedCallPrinted : String :=
 
 theorem parse_print_haltedCall : parse (print haltedCallProgram) = .ok haltedCallProgram := by
   exact parse_print (source := haltedCallPrinted) (by parse_rfl)
+
+def selfCallProgram : Program :=
+  { init :=
+      { entry :=
+          { inputs := #[]
+            statements := #[.icall ⟨0⟩ #[] #[]]
+            terminator := .halt
+            outputs := #[] }
+        rest := #[] }
+    main := none
+    rest := #[] }
+
+theorem checkWellFormed_witnessAdd : (checkWellFormed witnessAddProgram).isOk = true := by
+  rfl
+
+theorem checkWellFormed_haltedCall : (checkWellFormed haltedCallProgram).isOk = true := by
+  rfl
+
+theorem checkWellFormed_jump : (checkWellFormed jumpProgram).isOk = true := by
+  rfl
+
+theorem checkWellFormed_selfCall :
+    checkWellFormed selfCallProgram = .error (.recursiveCall ⟨0⟩ ⟨0⟩) := by
+  rfl
 
 end Sir.Examples

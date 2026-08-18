@@ -92,13 +92,27 @@ def isDeclarationName (name : String) : Bool :=
   | [] => false
   | first :: rest => isDeclarationStart first && rest.all isDeclarationRest
 
+def diagnosticMessage : Diagnostic → String
+  | .icallArity callee args dests =>
+      s!"icall of function {callee.id} passes {args} arguments and binds {dests} results"
+  | .iretArity declared actual =>
+      s!"iret returns {actual} values but the function declares {declared}"
+  | .recursiveCall caller callee =>
+      s!"function {caller.id} calls function {callee.id} recursively"
+  | .entryArity function params outputs =>
+      s!"entry function {function.id} takes {params} arguments and returns {outputs} values"
+  | .jumpTarget target none _ => s!"jump to missing block {target.id}"
+  | .jumpTarget target (some inputs) outputs =>
+      s!"jump to block {target.id} passes {outputs} values to {inputs} parameters"
+  | .variableUse identifier =>
+      s!"variable {identifier.id} is used before it is defined"
+
 def extract (source declaration : String) : Except String String := do
   if !isDeclarationName declaration then
     throw s!"invalid declaration name {String.quote declaration}"
   let program ← parse source
-  match checkIretArity program with
-  | .error (.iretArity declared actual) =>
-      throw s!"iret returns {actual} values but the function declares {declared}"
+  match checkWellFormed program with
+  | .error diagnostic => throw (diagnosticMessage diagnostic)
   | .ok _ => return toLeanModule declaration program
 
 end Sir.Vars.Text
