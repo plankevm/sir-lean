@@ -1,5 +1,32 @@
 import Sir.Text.Proofs.ParseNormal
-import Sir.Text.Spec.Printable
+
+namespace Sir.Vars
+
+def Stmt.FunctionReferencesInRange (functionCount : Nat) : Stmt → Prop
+  | .icall callee _ _ => callee.id < functionCount
+  | _ => True
+
+def Terminator.BlockReferencesInRange (blockCount : Nat) : Terminator → Prop
+  | .jump target => target.id < blockCount
+  | .branch _ thenTarget elseTarget =>
+      thenTarget.id < blockCount ∧ elseTarget.id < blockCount
+  | _ => True
+
+def Block.ReferencesInRange (functionCount blockCount : Nat)
+    (block : Block) : Prop :=
+  (∀ statement ∈ block.statements,
+    statement.FunctionReferencesInRange functionCount) ∧
+  block.terminator.BlockReferencesInRange blockCount
+
+def Function.ReferencesInRange (functionCount : Nat) (function : Function) : Prop :=
+  ∀ block ∈ function.blocks,
+    block.ReferencesInRange functionCount function.blocks.size
+
+def Program.ReferencesInRange (program : Program) : Prop :=
+  ∀ function ∈ program.functions,
+    function.ReferencesInRange program.functions.size
+
+end Sir.Vars
 
 namespace Sir.Vars.Text
 
@@ -296,10 +323,10 @@ private theorem mapM_parseBlock_referencesInRange
       · exact blockValid
       · exact followingValid.2 candidate followingMember
 
-private theorem parseFunction_printable (functions : List String) (body : List Line)
+private theorem parseFunction_referencesInRange (functions : List String) (body : List Line)
     {names finalNames : List String} {function : Function}
     (run : (parseFunction functions body).run names = .ok (function, finalNames)) :
-    function.Printable functions.length := by
+    function.ReferencesInRange functions.length := by
   unfold parseFunction at run
   generalize groupsEq : splitBlocks body = groupsResult at run
   cases groupsResult with
@@ -346,13 +373,13 @@ private theorem parseFunction_printable (functions : List String) (body : List L
                       (by simpa [Function.blocks] using member)
                     simpa [Function.blocks, parsedValid.1, blockNamesLength] using blockValid
 
-private theorem mapM_parseFunction_printable
+private theorem mapM_parseFunction_referencesInRange
     (names : List String) (groups : List (String × List Line))
     {stateNames finalNames : List String} {functions : List Function}
     (run : (parseFunctionGroupsList names groups).run stateNames =
       .ok (functions, finalNames)) :
     functions.length = groups.length ∧
-    ∀ function ∈ functions, function.Printable names.length := by
+    ∀ function ∈ functions, function.ReferencesInRange names.length := by
   induction groups generalizing stateNames finalNames functions with
   | nil =>
       simp [parseFunctionGroupsList, StateT.run, pure, StateT.pure, Except.pure] at run
@@ -363,7 +390,7 @@ private theorem mapM_parseFunction_printable
       obtain ⟨function, functionNames, functionRun, restFollowingRun⟩ := run_bind_ok run
       obtain ⟨following, followingNames, restRun, returnRun⟩ :=
         run_bind_ok restFollowingRun
-      have functionValid := parseFunction_printable names group.snd functionRun
+      have functionValid := parseFunction_referencesInRange names group.snd functionRun
       have followingValid := induction restRun
       simp [StateT.run, pure, StateT.pure, Except.pure] at returnRun
       rcases returnRun with ⟨rfl, rfl⟩
@@ -373,18 +400,18 @@ private theorem mapM_parseFunction_printable
       · exact functionValid
       · exact followingValid.2 candidate followingMember
 
-private theorem parseFunctionSlots_printable (names : List String)
+private theorem parseFunctionSlots_referencesInRange (names : List String)
     (initGroup : String × List Line) (following : List (String × List Line))
     {stateNames finalNames : List String} {slots : Function × List Function}
     (run : (parseFunctionSlots names initGroup following).run stateNames =
       .ok (slots, finalNames)) :
     slots.2.length = following.length ∧
-    ∀ function ∈ slots.1 :: slots.2, function.Printable names.length := by
+    ∀ function ∈ slots.1 :: slots.2, function.ReferencesInRange names.length := by
   unfold parseFunctionSlots at run
   obtain ⟨init, initNames, initRun, followingRun⟩ := run_bind_ok run
   obtain ⟨parsed, parsedNames, parsedRun, returnRun⟩ := run_bind_ok followingRun
-  have initValid := parseFunction_printable names initGroup.snd initRun
-  have followingValid := mapM_parseFunction_printable names following parsedRun
+  have initValid := parseFunction_referencesInRange names initGroup.snd initRun
+  have followingValid := mapM_parseFunction_referencesInRange names following parsedRun
   simp [StateT.run, pure, StateT.pure, Except.pure] at returnRun
   rcases returnRun with ⟨rfl, rfl⟩
   refine ⟨followingValid.1, ?_⟩
@@ -393,11 +420,11 @@ private theorem parseFunctionSlots_printable (names : List String)
   · exact initValid
   · exact followingValid.2 function followingMember
 
-private theorem parseProgramSlots_printable {initGroup : String × List Line}
+private theorem parseProgramSlots_referencesInRange {initGroup : String × List Line}
     {mainGroup : Option (String × List Line)} {others : List (String × List Line)}
     {program : Program}
     (parsed : parseProgramSlots initGroup mainGroup others = .ok program) :
-    program.Printable := by
+    program.ReferencesInRange := by
   unfold parseProgramSlots at parsed
   simp only [] at parsed
   split at parsed
@@ -406,7 +433,7 @@ private theorem parseProgramSlots_printable {initGroup : String × List Line}
     rcases result with ⟨slots, slotNames⟩
     simp only [Except.ok.injEq] at parsed
     subst program
-    have valid := parseFunctionSlots_printable _ initGroup _ slotsEq
+    have valid := parseFunctionSlots_referencesInRange _ initGroup _ slotsEq
     have sizeEq : (programOfSlots mainGroup.isSome slots.1 slots.2).functions.size =
         (initGroup.fst :: (mainGroup.toList ++ others).map Prod.fst).length := by
       simp [programOfSlots_functions, valid.1]
@@ -414,9 +441,9 @@ private theorem parseProgramSlots_printable {initGroup : String × List Line}
     rw [sizeEq]
     exact valid.2 function (by simpa [programOfSlots_functions] using member)
 
-private theorem parseProgramGroups_printable {groups : List (String × List Line)}
+private theorem parseProgramGroups_referencesInRange {groups : List (String × List Line)}
     {program : Program} (parsed : parseProgramGroups groups = .ok program) :
-    program.Printable := by
+    program.ReferencesInRange := by
   unfold parseProgramGroups at parsed
   by_cases duplicates : hasDuplicates (groups.map Prod.fst)
   · simp [duplicates, bind, Except.bind] at parsed
@@ -428,21 +455,21 @@ private theorem parseProgramGroups_printable {groups : List (String × List Line
         simp at parsed
     | some initGroup =>
         rw [initEq] at parsed
-        exact parseProgramSlots_printable parsed
+        exact parseProgramSlots_referencesInRange parsed
 
-private theorem parseTokens_printable {tokens : List Token} {program : Program}
-    (parsed : parseTokens tokens = .ok program) : program.Printable := by
+private theorem parseTokens_referencesInRange {tokens : List Token} {program : Program}
+    (parsed : parseTokens tokens = .ok program) : program.ReferencesInRange := by
   unfold parseTokens at parsed
   generalize splitEq : splitFunctions (splitLines tokens) = groupsResult at parsed
   cases groupsResult with
   | error message => contradiction
-  | ok groups => exact parseProgramGroups_printable parsed
+  | ok groups => exact parseProgramGroups_referencesInRange parsed
 
 namespace Proofs
 
-theorem parse_printable {source : String} {program : Program}
-    (parsed : parse source = .ok program) : program.Printable :=
-  parseTokens_printable parsed
+theorem parse_referencesInRange {source : String} {program : Program}
+    (parsed : parse source = .ok program) : program.ReferencesInRange :=
+  parseTokens_referencesInRange parsed
 
 end Proofs
 end Sir.Vars.Text

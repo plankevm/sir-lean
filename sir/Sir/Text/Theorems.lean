@@ -1,4 +1,3 @@
-import Sir.Text.Proofs.Printable
 import Sir.Text.Proofs.RoundTrip
 
 namespace Sir.Vars.Text
@@ -11,17 +10,9 @@ theorem parse_normal {source : String} {program : Program}
     (parsed : parse source = .ok program) : program.Normal :=
   Proofs.parse_normal parsed
 
-theorem parse_printable {source : String} {program : Program}
-    (parsed : parse source = .ok program) : program.Printable :=
-  Proofs.parse_printable parsed
-
-theorem parse_print_normalize {program : Program} (printable : program.Printable) :
+theorem parse_print_normalize {program : Program} (wellFormed : program.WellFormed) :
     parse (print program) = .ok program.normalize :=
-  Proofs.parse_print_normalize printable
-
-theorem Program.Printable.normalize {program : Program}
-    (printable : program.Printable) : program.normalize.Printable :=
-  Proofs.Program.Printable.normalize printable
+  Proofs.parse_print_normalize wellFormed
 
 theorem parse_print {source : String} {program : Program}
     (parsed : parse source = .ok program) :
@@ -29,9 +20,9 @@ theorem parse_print {source : String} {program : Program}
   Proofs.parse_print parsed
 
 theorem parse_print_alphaEquiv {program parsedProgram : Program}
-    (printable : program.Printable)
+    (wellFormed : program.WellFormed)
     (parsed : parse (print program) = .ok parsedProgram) :
     parsedProgram.AlphaEquiv program :=
-  Proofs.parse_print_alphaEquiv printable parsed
+  Proofs.parse_print_alphaEquiv wellFormed parsed
 
 end Sir.Vars.Text

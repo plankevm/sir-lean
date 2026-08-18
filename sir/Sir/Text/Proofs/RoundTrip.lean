@@ -1,5 +1,5 @@
 import Sir.Text.Proofs.Printer
-import Sir.Text.Proofs.ParsePrintable
+import Sir.Text.Proofs.References
 
 namespace Sir.Vars.Text
 
@@ -1504,14 +1504,14 @@ private theorem mapM_parseBlock_printed (program : Program)
 
 private theorem parseFunctionGroups_printed (program : Program)
     (function : Function)
-    (functionPrintable : function.Printable program.functions.size)
+    (functionReferences : function.ReferencesInRange program.functions.size)
     (full prior : List VarId)
     (isPrefix : prior ++ function.variableOccurrences <+: full) :
     (parseFunctionGroups (printedFunctionNames program)
       (printedBlockGroups program function)).run (printedVariableNames prior) =
       .ok (function.renameVariables (normalRename full),
         printedVariableNames (prior ++ function.variableOccurrences)) := by
-  have references := functionPrintable
+  have references := functionReferences
   simp only [parseFunctionGroups, StateT.run, bind, StateT.bind, Except.bind]
   rw [mapM_blockHeaderName_printedBlockGroups program function]
   simp only [bind, liftM, monadLift, MonadLift.monadLift, StateT.lift, Except.bind]
@@ -1568,7 +1568,7 @@ private theorem parseFunctionGroups_printed (program : Program)
     pure, StateT.pure, Except.pure]
 
 private theorem parseFunction_printed (program : Program)
-    (function : Function) (functionPrintable : function.Printable program.functions.size)
+    (function : Function) (functionReferences : function.ReferencesInRange program.functions.size)
     (full prior : List VarId)
     (isPrefix : prior ++ function.variableOccurrences <+: full) :
     (parseFunction (printedFunctionNames program)
@@ -1576,7 +1576,7 @@ private theorem parseFunction_printed (program : Program)
       .ok (function.renameVariables (normalRename full),
         printedVariableNames (prior ++ function.variableOccurrences)) := by
   rw [parseFunction, splitBlocks_functionBodyLines]
-  exact parseFunctionGroups_printed program function functionPrintable full prior isPrefix
+  exact parseFunctionGroups_printed program function functionReferences full prior isPrefix
 
 private theorem hasDuplicates_eq_false_of_nodup (names : List String)
     (nodup : names.Nodup) : hasDuplicates names = false := by
@@ -1613,8 +1613,8 @@ private theorem printedFunctionNames_noDuplicates (program : Program) :
 private theorem mapM_parseFunction_printed (program : Program)
     (full prior : List VarId)
     (values : List (Function × Nat))
-    (functionPrintables : ∀ pair ∈ values,
-      pair.1.Printable program.functions.size)
+    (functionReferencesAll : ∀ pair ∈ values,
+      pair.1.ReferencesInRange program.functions.size)
     (isPrefix : prior ++ values.flatMap (fun pair => pair.1.variableOccurrences) <+:
       full) :
     ((values.map fun pair =>
@@ -1636,7 +1636,7 @@ private theorem mapM_parseFunction_printed (program : Program)
           .ok (function.renameVariables (normalRename full),
             printedVariableNames (prior ++ function.variableOccurrences)) from
         parseFunction_printed program function
-          (functionPrintables (function, index) (by simp)) full prior
+          (functionReferencesAll (function, index) (by simp)) full prior
           ((show prior ++ function.variableOccurrences <+:
               prior ++ function.variableOccurrences ++
                 following.flatMap (fun pair => pair.1.variableOccurrences) from
@@ -1652,7 +1652,7 @@ private theorem mapM_parseFunction_printed (program : Program)
           printedVariableNames ((prior ++ function.variableOccurrences) ++
             following.flatMap (fun pair => pair.1.variableOccurrences))) from
         induction (prior ++ function.variableOccurrences)
-          (fun followingPair member => functionPrintables followingPair (by simp [member]))
+          (fun followingPair member => functionReferencesAll followingPair (by simp [member]))
           (by simpa [List.append_assoc] using isPrefix)]
       simp [pure, StateT.pure, Except.pure, List.append_assoc]
 
@@ -1784,7 +1784,7 @@ private theorem find?_main_printed (program : Program) :
       · simp [findMain]
 
 private theorem parseFunctionSlots_printed (program : Program)
-    (printable : program.Printable) :
+    (inRange : program.ReferencesInRange) :
     (parseFunctionSlots (printedFunctionNames program)
       ("init", functionBodyLines program program.init)
       (printedFollowingGroups program)).run [] =
@@ -1808,7 +1808,7 @@ private theorem parseFunctionSlots_printed (program : Program)
       .ok (program.init.renameVariables (normalRename program.variableOccurrences),
         printedVariableNames ([] ++ program.init.variableOccurrences)) from
     parseFunction_printed program program.init
-      (printable program.init (by simp [Program.functions]))
+      (inRange program.init (by simp [Program.functions]))
       program.variableOccurrences []
       ⟨(program.main.toList ++ program.rest.toList).flatMap Function.variableOccurrences, by
         simpa using occurrencesEq.symm⟩]
@@ -1823,7 +1823,7 @@ private theorem parseFunctionSlots_printed (program : Program)
             (fun pair => pair.1.variableOccurrences))) from
     mapM_parseFunction_printed program program.variableOccurrences
       program.init.variableOccurrences ((program.main.toList ++ program.rest.toList).zipIdx 1)
-      (fun pair member => printable pair.1 (by
+      (fun pair member => inRange pair.1 (by
         have memberList : pair.1 ∈ program.main.toList ++ program.rest.toList :=
           List.fst_mem_of_mem_zipIdx member
         refine Array.mem_toList_iff.mp ?_
@@ -1847,7 +1847,7 @@ private theorem parseFunctionSlots_printed (program : Program)
   simp [pure, StateT.pure, Except.pure]
 
 private theorem parseProgramSlots_printed (program : Program)
-    (printable : program.Printable) {initGroup : String × List Line}
+    (inRange : program.ReferencesInRange) {initGroup : String × List Line}
     {mainGroup : Option (String × List Line)} {others : List (String × List Line)}
     (initEq : initGroup = ("init", functionBodyLines program program.init))
     (followingEq : mainGroup.toList ++ others = printedFollowingGroups program)
@@ -1859,7 +1859,7 @@ private theorem parseProgramSlots_printed (program : Program)
   rw [show (("init", functionBodyLines program program.init) : String × List Line).fst ::
       (printedFollowingGroups program).map Prod.fst = printedFunctionNames program from
     (printedFunctionNames_cons program).symm]
-  rw [parseFunctionSlots_printed program printable]
+  rw [parseFunctionSlots_printed program inRange]
   have renameEq : normalRename program.variableOccurrences = program.normalVariable := by
     funext identifier
     rfl
@@ -1877,7 +1877,7 @@ private theorem parseProgramSlots_printed (program : Program)
         restMap]
 
 private theorem parseProgramGroups_printed (program : Program)
-    (printable : program.Printable) :
+    (inRange : program.ReferencesInRange) :
     parseProgramGroups (printedFunctionGroups program) =
       .ok (program.normalize) := by
   rw [parseProgramGroups]
@@ -1886,34 +1886,70 @@ private theorem parseProgramGroups_printed (program : Program)
   rw [printedFunctionNames_noDuplicates program]
   simp only [Bool.false_eq_true, if_false, bind, Except.bind, pure, Except.pure]
   rw [find?_init_printed program]
-  exact parseProgramSlots_printed program printable rfl
+  exact parseProgramSlots_printed program inRange rfl
     (find?_main_printed program).1 (find?_main_printed program).2
 
 private theorem parseTokens_programTokens (program : Program)
-    (printable : program.Printable) :
+    (inRange : program.ReferencesInRange) :
     parseTokens (programTokens program) = .ok program.normalize := by
   rw [parseTokens, splitLines_programTokens, splitFunctions_programLines]
-  exact parseProgramGroups_printed program printable
+  exact parseProgramGroups_printed program inRange
+
+private theorem parse_print_normalize_of_referencesInRange {program : Program}
+    (inRange : program.ReferencesInRange) :
+    parse (print program) = .ok program.normalize := by
+  rw [parse, Proofs.tokenize_print]
+  exact parseTokens_programTokens program inRange
+
+private theorem referencesInRange_of_wellFormed {program : Program}
+    (wellFormed : program.WellFormed) : program.ReferencesInRange := by
+  intro function member block blockMember
+  refine ⟨fun statement statementMember => ?_, ?_⟩
+  · cases statement with
+    | icall callee args dests =>
+        obtain ⟨outputs, ⟨target, targetEq, _⟩, _⟩ :=
+          wellFormed.icallArity callee args dests
+            ⟨function, member, block, blockMember, statementMember⟩
+        simp only [Program.function?, Array.getElem?_eq_some_iff] at targetEq
+        exact targetEq.1
+    | _ => trivial
+  · have targets := wellFormed.validJumpTargets function member block blockMember
+    cases terminatorEq : block.terminator with
+    | jump target =>
+        rw [terminatorEq] at targets
+        simp only [Terminator.jumpTargets, List.mem_singleton, forall_eq] at targets
+        obtain ⟨targetBlock, targetEq, _⟩ := targets
+        simp only [Function.block?, Array.getElem?_eq_some_iff] at targetEq
+        exact targetEq.1
+    | branch condition thenTarget elseTarget =>
+        rw [terminatorEq] at targets
+        simp only [Terminator.jumpTargets, List.mem_cons, List.not_mem_nil,
+          or_false] at targets
+        obtain ⟨thenBlock, thenEq, _⟩ := targets thenTarget (by simp)
+        obtain ⟨elseBlock, elseEq, _⟩ := targets elseTarget (by simp)
+        simp only [Function.block?, Array.getElem?_eq_some_iff] at thenEq elseEq
+        exact ⟨thenEq.1, elseEq.1⟩
+    | halt => trivial
+    | iret => trivial
 
 namespace Proofs
 
-theorem parse_print_normalize {program : Program}
-    (printable : program.Printable) :
-    parse (print program) = .ok program.normalize := by
-  rw [parse, tokenize_print]
-  exact parseTokens_programTokens program printable
+theorem parse_print_normalize {program : Program} (wellFormed : program.WellFormed) :
+    parse (print program) = .ok program.normalize :=
+  parse_print_normalize_of_referencesInRange (referencesInRange_of_wellFormed wellFormed)
 
 theorem parse_print {source : String} {program : Program}
     (parsed : parse source = .ok program) :
     parse (print program) = .ok program := by
-  rw [parse_print_normalize (parse_printable parsed), parse_normal parsed]
+  rw [parse_print_normalize_of_referencesInRange (parse_referencesInRange parsed),
+    parse_normal parsed]
 
 theorem parse_print_alphaEquiv {program parsedProgram : Program}
-    (printable : program.Printable)
+    (wellFormed : program.WellFormed)
     (parsed : parse (print program) = .ok parsedProgram) :
     parsedProgram.AlphaEquiv program := by
   have normalized : parsedProgram = program.normalize :=
-    Except.ok.inj (parsed.symm.trans (parse_print_normalize printable))
+    Except.ok.inj (parsed.symm.trans (parse_print_normalize wellFormed))
   rw [normalized]
   exact Vars.Proofs.Program.normalize_alphaEquiv program
 
