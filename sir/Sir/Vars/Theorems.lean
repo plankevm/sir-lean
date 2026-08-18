@@ -2,6 +2,7 @@ import Sir.Vars.Proofs.Determinism
 import Sir.Vars.Proofs.Readiness
 import Sir.Vars.Proofs.Bump
 import Sir.Vars.Proofs.Rank
+import Sir.Vars.Proofs.Check
 import Sir.Vars.Proofs.Normalize
 
 namespace Sir
@@ -164,6 +165,10 @@ theorem Vars.acyclic_of_rank {rank : FunctionId → Nat}
     (decreasing : Vars.RankDecreases program rank) (f : FunctionId) :
     ¬ Relation.TransGen program.callEdge f f :=
   Vars.Proofs.acyclic_of_rank decreasing f
+
+theorem Vars.Program.wellFormed_of_check
+    (h : Vars.checkWellFormed program = .ok ()) : program.WellFormed :=
+  Vars.Proofs.Program.wellFormed_of_check h
 
 theorem Vars.Program.normalize_alphaEquiv (program : Vars.Program) :
     Vars.Program.AlphaEquiv program.normalize program :=

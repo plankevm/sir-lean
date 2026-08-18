@@ -1,5 +1,4 @@
-import Sir.Text.Theorems
-import Sir.Vars.Spec.Check
+import Sir.Theorems
 import Sir.Examples.TwoFunction
 import Sir.Examples.Jump
 import Sir.Examples.Memory
@@ -64,14 +63,14 @@ def selfCallProgram : Program :=
     main := none
     rest := #[] }
 
-theorem checkWellFormed_witnessAdd : (checkWellFormed witnessAddProgram).isOk = true := by
-  rfl
+theorem witnessAdd_wellFormed : witnessAddProgram.WellFormed :=
+  Vars.Program.wellFormed_of_check (by rfl)
 
-theorem checkWellFormed_haltedCall : (checkWellFormed haltedCallProgram).isOk = true := by
-  rfl
+theorem haltedCall_wellFormed : haltedCallProgram.WellFormed :=
+  Vars.Program.wellFormed_of_check (by rfl)
 
-theorem checkWellFormed_jump : (checkWellFormed jumpProgram).isOk = true := by
-  rfl
+theorem jump_wellFormed : jumpProgram.WellFormed :=
+  Vars.Program.wellFormed_of_check (by rfl)
 
 theorem checkWellFormed_selfCall :
     checkWellFormed selfCallProgram = .error (.recursiveCall ⟨0⟩ ⟨0⟩) := by

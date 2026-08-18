@@ -113,6 +113,6 @@ def extract (source declaration : String) : Except String String := do
   let program ← parse source
   match checkWellFormed program with
   | .error diagnostic => throw (diagnosticMessage diagnostic)
-  | .ok _ => return toLeanModule declaration program
+  | .ok () => return toLeanModule declaration program
 
 end Sir.Vars.Text
