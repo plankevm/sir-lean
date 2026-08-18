@@ -47,26 +47,33 @@ structure State (frame : OperandFrame) where
   environment : frame.Environment
   control : MachineControl
 
-structure Decoder (frame : OperandFrame) where
-  decode : MachineControl → Option (Instruction frame × MachineControl)
-  control : frame.Environment → Globals → MachineControl →
+abbrev Decode (frame : OperandFrame) : Type :=
+  MachineControl → Option (Instruction frame × MachineControl)
+
+abbrev Control (frame : OperandFrame) : Type :=
+  frame.Environment → Globals → MachineControl →
     Option (Trace × frame.Environment × Globals × MachineControl)
+
+def DecodeControlExclusive {frame : OperandFrame} (decode : Decode frame)
+    (control : Control frame) : Prop :=
+  ∀ env globals point instruction next,
+    decode point = some (instruction, next) → control env globals point = none
+
+def DecodeControlTerminal {frame : OperandFrame} (decode : Decode frame)
+    (control : Control frame) : Prop :=
+  (∀ env globals results,
+    decode (.returned results) = none ∧ control env globals (.returned results) = none) ∧
+  (∀ env globals,
+    decode .halted = none ∧ control env globals .halted = none)
+
+structure Decoder (frame : OperandFrame) where
+  decode : Decode frame
+  control : Control frame
   resume : FunctionOutcome → frame.Environment → frame.Destination → MachineControl →
     Option (frame.Environment × MachineControl)
   entry : FunctionId → Globals → Array Word → Option (State frame)
-
-def Decoder.Exclusive {frame : OperandFrame} (decoder : Decoder frame) : Prop :=
-  ∀ env globals control instruction next,
-    decoder.decode control = some (instruction, next) →
-    decoder.control env globals control = none
-
-def Decoder.Terminal {frame : OperandFrame} (decoder : Decoder frame) : Prop :=
-  (∀ env globals results,
-    decoder.decode (.returned results) = none ∧
-    decoder.control env globals (.returned results) = none) ∧
-  (∀ env globals,
-    decoder.decode .halted = none ∧
-    decoder.control env globals .halted = none)
+  exclusive : DecodeControlExclusive decode control
+  terminal : DecodeControlTerminal decode control
 
 def Decoder.NoMload {frame : OperandFrame} (decoder : Decoder frame) : Prop :=
   ∀ control src dst next,
@@ -173,6 +180,11 @@ inductive FunctionEvaluation (frame : OperandFrame) (decoder : Decoder frame)
       FunctionEvaluation frame decoder policy ctx function globals args trace exit.globals outcome
 
 end
+
+def Steps.Extends (frame : OperandFrame) (decoder : Decoder frame) (policy : MemoryPolicy)
+    (ctx : CallContext) (state₁ : State frame) (trace₁ : Trace) (state₂ : State frame)
+    (trace₂ : Trace) : Prop :=
+  ∃ suffix, Steps frame decoder policy ctx state₁ suffix state₂ ∧ trace₁ ++ suffix = trace₂
 
 def StepDialogue {frame : OperandFrame} (decoder : Decoder frame) (policy : MemoryPolicy)
     (ctx : CallContext) (state : State frame) (trace : Trace) (final : State frame) : Prop :=

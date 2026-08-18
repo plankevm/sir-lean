@@ -305,22 +305,21 @@ theorem Steps.eq_of_stuck {frame : OperandFrame} {decoder : Decoder frame}
   · exact absurd step (hstuck trace₁ middle)
 
 theorem stuck_of_exit {frame : OperandFrame} {decoder : Decoder frame}
-    {policy : MemoryPolicy} {ctx : CallContext} (hterminal : decoder.Terminal)
+    {policy : MemoryPolicy} {ctx : CallContext}
     {state : State frame} {outcome : FunctionOutcome}
     (hcontrol : state.control = outcome.toControl) : Stuck decoder policy ctx state := by
   intro trace final hstep
   cases outcome with
   | returned results =>
-      rcases hterminal.1 state.environment state.globals results with ⟨hdecode, hcontrolStep⟩
+      rcases decoder.terminal.1 state.environment state.globals results with ⟨hdecode, hcontrolStep⟩
       cases hstep <;> simp_all [FunctionOutcome.toControl]
   | halted =>
-      rcases hterminal.2 state.environment state.globals with ⟨hdecode, hcontrolStep⟩
+      rcases decoder.terminal.2 state.environment state.globals with ⟨hdecode, hcontrolStep⟩
       cases hstep <;> simp_all [FunctionOutcome.toControl]
 
 private theorem dialogue_op {frame : OperandFrame} {decoder : Decoder frame}
     {policy : MemoryPolicy} {ctx : CallContext}
-    (halloc : policy.Deterministic ∨ decoder.NoMalloc) (hexclusive : decoder.Exclusive)
-    (hnomload : decoder.NoMload)
+    (halloc : policy.Deterministic ∨ decoder.NoMalloc) (hnomload : decoder.NoMload)
     {state : State frame} {operation : Operation} {src : frame.Source} {dst : frame.Destination}
     {next : Machine.MachineControl} {trace : Trace} {env' : frame.Environment} {globals' : Globals}
     (hdecode : decoder.decode state.control =
@@ -362,14 +361,13 @@ private theorem dialogue_op {frame : OperandFrame} {decoder : Decoder frame}
       have heq := Option.some.inj (hdecode.symm.trans hdecode₂)
       exact Instruction.Kind.noConfusion (congrArg Instruction.kind (congrArg Prod.fst heq))
   | control hcontrol₂ =>
-      have hnone := hexclusive state.environment state.globals state.control _ _ hdecode
+      have hnone := decoder.exclusive state.environment state.globals state.control _ _ hdecode
       rw [hcontrol₂] at hnone
       contradiction
 
 private theorem dialogue_opHalted {frame : OperandFrame} {decoder : Decoder frame}
     {policy : MemoryPolicy} {ctx : CallContext}
-    (halloc : policy.Deterministic ∨ decoder.NoMalloc) (hexclusive : decoder.Exclusive)
-    (hnomload : decoder.NoMload)
+    (halloc : policy.Deterministic ∨ decoder.NoMalloc) (hnomload : decoder.NoMload)
     {state : State frame} {operation : Operation} {src : frame.Source} {dst : frame.Destination}
     {next : Machine.MachineControl} {trace : Trace} {globals' : Globals}
     (hdecode : decoder.decode state.control =
@@ -411,12 +409,12 @@ private theorem dialogue_opHalted {frame : OperandFrame} {decoder : Decoder fram
       have heq := Option.some.inj (hdecode.symm.trans hdecode₂)
       exact Instruction.Kind.noConfusion (congrArg Instruction.kind (congrArg Prod.fst heq))
   | control hcontrol₂ =>
-      have hnone := hexclusive state.environment state.globals state.control _ _ hdecode
+      have hnone := decoder.exclusive state.environment state.globals state.control _ _ hdecode
       rw [hcontrol₂] at hnone
       contradiction
 
 private theorem dialogue_icall {frame : OperandFrame} {decoder : Decoder frame}
-    {policy : MemoryPolicy} {ctx : CallContext} (hexclusive : decoder.Exclusive)
+    {policy : MemoryPolicy} {ctx : CallContext}
     {state : State frame} {callee : FunctionId} {src : frame.Source} {dst : frame.Destination}
     {next : Machine.MachineControl} {values : Array Word} {trace : Trace}
     {globals' : Globals} {outcome : FunctionOutcome} {env' : frame.Environment}
@@ -449,12 +447,12 @@ private theorem dialogue_icall {frame : OperandFrame} {decoder : Decoder frame}
         exact .inl ⟨rfl, rfl⟩
       · exact .inr hdiv
   | control hcontrol₂ =>
-      have hnone := hexclusive state.environment state.globals state.control _ _ hdecode
+      have hnone := decoder.exclusive state.environment state.globals state.control _ _ hdecode
       rw [hcontrol₂] at hnone
       contradiction
 
 private theorem dialogue_control {frame : OperandFrame} {decoder : Decoder frame}
-    {policy : MemoryPolicy} {ctx : CallContext} (hexclusive : decoder.Exclusive)
+    {policy : MemoryPolicy} {ctx : CallContext}
     {state : State frame} {trace : Trace} {env' : frame.Environment}
     {globals' : Globals} {control' : Machine.MachineControl}
     (hcontrol : decoder.control state.environment state.globals state.control =
@@ -464,15 +462,15 @@ private theorem dialogue_control {frame : OperandFrame} {decoder : Decoder frame
   intro trace₂ final₂ hstep₂
   cases hstep₂ with
   | operation hdecode₂ _ =>
-      have hnone := hexclusive state.environment state.globals state.control _ _ hdecode₂
+      have hnone := decoder.exclusive state.environment state.globals state.control _ _ hdecode₂
       rw [hcontrol] at hnone
       contradiction
   | operationHalted hdecode₂ _ =>
-      have hnone := hexclusive state.environment state.globals state.control _ _ hdecode₂
+      have hnone := decoder.exclusive state.environment state.globals state.control _ _ hdecode₂
       rw [hcontrol] at hnone
       contradiction
   | internalCall hdecode₂ _ _ _ =>
-      have hnone := hexclusive state.environment state.globals state.control _ _ hdecode₂
+      have hnone := decoder.exclusive state.environment state.globals state.control _ _ hdecode₂
       rw [hcontrol] at hnone
       contradiction
   | control hcontrol₂ =>
@@ -513,7 +511,7 @@ private theorem runDialogue_tail {frame : OperandFrame} {decoder : Decoder frame
       simpa using Trace.QueryDivergence.extend trace₂ [] hdiv))
 
 private theorem evalDialogue_exit {frame : OperandFrame} {decoder : Decoder frame}
-    {policy : MemoryPolicy} {ctx : CallContext} (hterminal : decoder.Terminal)
+    {policy : MemoryPolicy} {ctx : CallContext}
     {function : FunctionId} {globals : Globals} {args : Array Word}
     {trace : Trace} {initial exit : State frame} {outcome : FunctionOutcome}
     (hentry : decoder.entry function globals args = some initial)
@@ -527,10 +525,10 @@ private theorem evalDialogue_exit {frame : OperandFrame} {decoder : Decoder fram
       obtain rfl := Option.some.inj hentry₂
       rcases ihRun _ _ hrun₂ with ⟨suffix, hrun, heq⟩ |
           ⟨suffix, hrun, heq⟩ | hdiv
-      · obtain ⟨rfl, rfl⟩ := hrun.eq_of_stuck (stuck_of_exit hterminal hexit)
+      · obtain ⟨rfl, rfl⟩ := hrun.eq_of_stuck (stuck_of_exit hexit)
         exact .inl ⟨by simpa using heq, rfl,
           FunctionOutcome.toControl_inj (hexit.symm.trans hexit₂)⟩
-      · obtain ⟨rfl, rfl⟩ := hrun.eq_of_stuck (stuck_of_exit hterminal hexit₂)
+      · obtain ⟨rfl, rfl⟩ := hrun.eq_of_stuck (stuck_of_exit hexit₂)
         exact .inl ⟨by simpa using heq.symm, rfl,
           FunctionOutcome.toControl_inj (hexit.symm.trans hexit₂)⟩
       · exact .inr hdiv
@@ -539,8 +537,7 @@ namespace Proofs
 
 theorem stepDialogue_all {frame : OperandFrame} {decoder : Decoder frame}
     {policy : MemoryPolicy} {ctx : CallContext}
-    (halloc : policy.Deterministic ∨ decoder.NoMalloc) (hexclusive : decoder.Exclusive)
-    (hterminal : decoder.Terminal) (hnomload : decoder.NoMload)
+    (halloc : policy.Deterministic ∨ decoder.NoMalloc) (hnomload : decoder.NoMload)
     {state final : State frame} {trace : Trace}
     (h : Step frame decoder policy ctx state trace final) :
     StepDialogue decoder policy ctx state trace final := by
@@ -552,18 +549,17 @@ theorem stepDialogue_all {frame : OperandFrame} {decoder : Decoder frame}
     (motive_3 := fun function globals args trace globals' outcome _ =>
       EvalDialogue decoder policy ctx function globals args trace globals' outcome)
     ?_ ?_ ?_ ?_ ?_ ?_ ?_ h
-  case refine_1 => intros; apply dialogue_op halloc hexclusive hnomload <;> assumption
-  case refine_2 => intros; apply dialogue_opHalted halloc hexclusive hnomload <;> assumption
-  case refine_3 => intros; apply dialogue_icall hexclusive <;> assumption
-  case refine_4 => intros; apply dialogue_control hexclusive; assumption
+  case refine_1 => intros; apply dialogue_op halloc hnomload <;> assumption
+  case refine_2 => intros; apply dialogue_opHalted halloc hnomload <;> assumption
+  case refine_3 => intros; apply dialogue_icall <;> assumption
+  case refine_4 => intros; apply dialogue_control; assumption
   case refine_5 => intros; exact runDialogue_refl
   case refine_6 => intros; apply runDialogue_tail <;> assumption
-  case refine_7 => intros; apply evalDialogue_exit hterminal <;> assumption
+  case refine_7 => intros; apply evalDialogue_exit <;> assumption
 
 theorem runDialogue_all {frame : OperandFrame} {decoder : Decoder frame}
     {policy : MemoryPolicy} {ctx : CallContext}
-    (halloc : policy.Deterministic ∨ decoder.NoMalloc) (hexclusive : decoder.Exclusive)
-    (hterminal : decoder.Terminal) (hnomload : decoder.NoMload)
+    (halloc : policy.Deterministic ∨ decoder.NoMalloc) (hnomload : decoder.NoMload)
     {state final : State frame} {trace : Trace}
     (h : Steps frame decoder policy ctx state trace final) :
     RunDialogue decoder policy ctx state trace final := by
@@ -571,25 +567,23 @@ theorem runDialogue_all {frame : OperandFrame} {decoder : Decoder frame}
       RunDialogue decoder policy ctx state trace final)
     (fun _ => runDialogue_refl)
     (fun _ next ihRun => runDialogue_tail next ihRun
-      (stepDialogue_all halloc hexclusive hterminal hnomload next)) h
+      (stepDialogue_all halloc hnomload next)) h
 
 theorem evalDialogue_all {frame : OperandFrame} {decoder : Decoder frame}
     {policy : MemoryPolicy} {ctx : CallContext}
-    (halloc : policy.Deterministic ∨ decoder.NoMalloc) (hexclusive : decoder.Exclusive)
-    (hterminal : decoder.Terminal) (hnomload : decoder.NoMload)
+    (halloc : policy.Deterministic ∨ decoder.NoMalloc) (hnomload : decoder.NoMload)
     {function : FunctionId} {globals globals' : Globals} {args : Array Word}
     {trace : Trace} {outcome : FunctionOutcome}
     (h : FunctionEvaluation frame decoder policy ctx function globals args trace globals' outcome) :
     EvalDialogue decoder policy ctx function globals args trace globals' outcome := by
   cases h with
   | exit hentry hrun hexit =>
-      exact evalDialogue_exit hterminal hentry hexit
-        (runDialogue_all halloc hexclusive hterminal hnomload hrun)
+      exact evalDialogue_exit hentry hexit
+        (runDialogue_all halloc hnomload hrun)
 
 theorem Steps.confluence_or_queryDivergence
     {frame : OperandFrame} {decoder : Decoder frame} {policy : MemoryPolicy}
     {ctx : CallContext} (halloc : policy.Deterministic ∨ decoder.NoMalloc)
-    (hexclusive : decoder.Exclusive) (hterminal : decoder.Terminal)
     (hnomload : decoder.NoMload)
     {state final₁ final₂ : State frame} {trace₁ trace₂ : Trace}
     (h₁ : Steps frame decoder policy ctx state trace₁ final₁)
@@ -599,7 +593,7 @@ theorem Steps.confluence_or_queryDivergence
     (∃ suffix, Steps frame decoder policy ctx final₂ suffix final₁ ∧
       trace₂ ++ suffix = trace₁) ∨
     Trace.QueryDivergence trace₁ trace₂ :=
-  runDialogue_all halloc hexclusive hterminal hnomload h₁ trace₂ final₂ h₂
+  runDialogue_all halloc hnomload h₁ trace₂ final₂ h₂
 
 end Proofs
 

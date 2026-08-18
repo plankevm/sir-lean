@@ -244,6 +244,21 @@ def decoder (program : Program) : Decoder frame where
   control := control program
   resume := resume
   entry := entry program
+  exclusive := by
+    intro env globals point instruction next hdecode
+    cases hinstruction : program.decodeInstruction point with
+    | none => simp [Stack.decode, hinstruction] at hdecode
+    | some decoded =>
+        rcases decoded with ⟨nextControl, instruction'⟩
+        cases instruction' <;>
+          simp [Stack.decode, Stack.control, hinstruction] at hdecode ⊢
+  terminal := by
+    refine ⟨fun env globals results => ?_, fun env globals => ?_⟩ <;>
+      simp [Stack.decode, Stack.control, Program.decodeInstruction]
+
+def Steps.Extends (program : Program) (policy : MemoryPolicy) (ctx : CallContext)
+    (state₁ : State frame) (trace₁ : Trace) (state₂ : State frame) (trace₂ : Trace) : Prop :=
+  Machine.Steps.Extends frame (decoder program) policy ctx state₁ trace₁ state₂ trace₂
 
 def EvalFn (program : Program) (ctx : CallContext) :
     FunctionId → Globals → Array Word → Trace → Globals → FunctionOutcome → Prop :=

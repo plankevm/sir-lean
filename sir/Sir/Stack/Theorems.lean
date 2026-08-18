@@ -4,53 +4,48 @@ namespace Sir.Stack
 
 open Sir Machine
 
+variable {program : Program} {policy : MemoryPolicy} {ctx : CallContext}
+
+local notation:50 s " =[" t "]=>* " f =>
+  Machine.Steps frame (decoder program) policy ctx s t f
+
+local notation:50 s " =[" t "]=> " f =>
+  Machine.Step frame (decoder program) policy ctx s t f
+
 theorem Steps.confluence_or_queryDivergence
-    {program : Program} {policy : MemoryPolicy} {ctx : CallContext}
     (hfree : program.MemOracleFree)
     {state final₁ final₂ : Machine.State frame} {trace₁ trace₂ : Trace}
-    (h₁ : Machine.Steps frame (decoder program) policy ctx state trace₁ final₁)
-    (h₂ : Machine.Steps frame (decoder program) policy ctx state trace₂ final₂) :
-    (∃ suffix, Machine.Steps frame (decoder program) policy ctx final₁ suffix final₂ ∧
-      trace₁ ++ suffix = trace₂) ∨
-    (∃ suffix, Machine.Steps frame (decoder program) policy ctx final₂ suffix final₁ ∧
-      trace₂ ++ suffix = trace₁) ∨
-    Trace.QueryDivergence trace₁ trace₂ :=
+    (h₁ : state =[trace₁]=>* final₁) (h₂ : state =[trace₂]=>* final₂) :
+    Steps.Extends program policy ctx final₁ trace₁ final₂ trace₂ ∨
+      Steps.Extends program policy ctx final₂ trace₂ final₁ trace₁ ∨
+        Trace.QueryDivergence trace₁ trace₂ :=
   Proofs.Steps.confluence_or_queryDivergence (.inr hfree) h₁ h₂
 
 theorem Steps.prefix_confluence
-    {program : Program} {policy : MemoryPolicy} {ctx : CallContext}
     (hfree : program.MemOracleFree)
     {state final₁ final₂ : Machine.State frame} {trace₁ trace₂ rest₁ rest₂ : Trace}
-    (h₁ : Machine.Steps frame (decoder program) policy ctx state trace₁ final₁)
-    (h₂ : Machine.Steps frame (decoder program) policy ctx state trace₂ final₂)
+    (h₁ : state =[trace₁]=>* final₁) (h₂ : state =[trace₂]=>* final₂)
     (htrace : trace₁ ++ rest₁ = trace₂ ++ rest₂) :
-    (∃ suffix, Machine.Steps frame (decoder program) policy ctx final₁ suffix final₂ ∧
-      trace₁ ++ suffix = trace₂) ∨
-    (∃ suffix, Machine.Steps frame (decoder program) policy ctx final₂ suffix final₁ ∧
-      trace₂ ++ suffix = trace₁) :=
+    Steps.Extends program policy ctx final₁ trace₁ final₂ trace₂ ∨
+      Steps.Extends program policy ctx final₂ trace₂ final₁ trace₁ :=
   Proofs.Steps.prefix_confluence (.inr hfree) h₁ h₂ htrace
 
 theorem SmallStep.prefix_det
-    {program : Program} {policy : MemoryPolicy} {ctx : CallContext}
     (hfree : program.MemOracleFree)
     {state final₁ final₂ : Machine.State frame} {trace₁ trace₂ rest₁ rest₂ : Trace}
-    (h₁ : Machine.Step frame (decoder program) policy ctx state trace₁ final₁)
-    (h₂ : Machine.Step frame (decoder program) policy ctx state trace₂ final₂)
+    (h₁ : state =[trace₁]=> final₁) (h₂ : state =[trace₂]=> final₂)
     (htrace : trace₁ ++ rest₁ = trace₂ ++ rest₂) :
     trace₁ = trace₂ ∧ final₁ = final₂ :=
   Proofs.SmallStep.prefix_det (.inr hfree) h₁ h₂ htrace
 
 theorem SmallStep.trace_det
-    {program : Program} {policy : MemoryPolicy} {ctx : CallContext}
     (hfree : program.MemOracleFree)
     {state final₁ final₂ : Machine.State frame} {trace : Trace}
-    (h₁ : Machine.Step frame (decoder program) policy ctx state trace final₁)
-    (h₂ : Machine.Step frame (decoder program) policy ctx state trace final₂) :
+    (h₁ : state =[trace]=> final₁) (h₂ : state =[trace]=> final₂) :
     final₁ = final₂ :=
   Proofs.SmallStep.trace_det (.inr hfree) h₁ h₂
 
 theorem EvalFn.prefix_det
-    {program : Program} {ctx : CallContext}
     (hfree : program.MemOracleFree)
     {function : FunctionId} {globals finalGlobals₁ finalGlobals₂ : Globals}
     {args : Array Word} {outcome₁ outcome₂ : FunctionOutcome}
@@ -62,7 +57,6 @@ theorem EvalFn.prefix_det
   Proofs.EvalFn.prefix_det hfree h₁ h₂ htrace
 
 theorem EvalFn.trace_det
-    {program : Program} {ctx : CallContext}
     (hfree : program.MemOracleFree)
     {function : FunctionId} {globals finalGlobals₁ finalGlobals₂ : Globals}
     {args : Array Word} {outcome₁ outcome₂ : FunctionOutcome} {trace : Trace}

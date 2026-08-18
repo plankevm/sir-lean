@@ -144,7 +144,7 @@ def Vars.Program.function? (program : Vars.Program) (f : FunctionId) : Option Va
 def Vars.Program.initId (_ : Vars.Program) : FunctionId := ⟨0⟩
 
 def Vars.Program.mainId? (program : Vars.Program) : Option FunctionId :=
-  if program.main.isSome then some ⟨1⟩ else none
+  program.main.map fun _ => ⟨1⟩
 
 def Vars.Program.block? (program : Vars.Program) (cursor : Machine.ProgramCursor) : Option Vars.Block := do
   let fn ← program.function? cursor.fn
@@ -187,6 +187,17 @@ def Vars.Program.terminatorAt (program : Vars.Program) (control : Machine.Machin
   let .terminator := cursor.position | none
   let block ← program.block? cursor
   some block.terminator
+
+theorem decodeStmt_terminatorAt_exclusive {program : Vars.Program}
+    {control nextControl : Machine.MachineControl} {stmt : Vars.Stmt} {term : Vars.Terminator}
+    (hstmt : program.decodeStmt control = some (nextControl, stmt))
+    (hterm : program.terminatorAt control = some term) : False := by
+  cases control with
+  | halted => simp [Vars.Program.decodeStmt] at hstmt
+  | returned rs => simp [Vars.Program.decodeStmt] at hstmt
+  | running cursor =>
+    cases hpos : cursor.position <;>
+      simp [Vars.Program.decodeStmt, Vars.Program.terminatorAt, hpos] at hstmt hterm
 
 end Sir
 
@@ -269,6 +280,20 @@ def decoder (program : Program) : Decoder frame where
   control := control program
   resume := resume
   entry := program.callState?
+  exclusive := by
+    intro env globals point instruction next hdecode
+    cases hstmt : program.decodeStmt point with
+    | none => simp [Vars.decode, hstmt] at hdecode
+    | some decoded =>
+        rcases decoded with ⟨nextControl, stmt⟩
+        have hterm : program.terminatorAt point = none := by
+          cases h : program.terminatorAt point with
+          | none => rfl
+          | some terminator => exact False.elim (decodeStmt_terminatorAt_exclusive hstmt h)
+        simp [Vars.control, hterm]
+  terminal := by
+    refine ⟨fun env globals results => ?_, fun env globals => ?_⟩ <;>
+      simp [Vars.decode, Vars.control, Program.decodeStmt, Program.terminatorAt]
 
 def SmallStep (program : Program) (ctx : CallContext)
     (state : Vars.State) (trace : Trace) (final : Vars.State) : Prop :=
@@ -277,6 +302,10 @@ def SmallStep (program : Program) (ctx : CallContext)
 def Steps (program : Program) (ctx : CallContext)
     (state : Vars.State) (trace : Trace) (final : Vars.State) : Prop :=
   Machine.Steps frame (decoder program) memoryPolicy ctx state trace final
+
+def Steps.Extends (program : Program) (ctx : CallContext) (state₁ : Vars.State) (trace₁ : Trace)
+    (state₂ : Vars.State) (trace₂ : Trace) : Prop :=
+  Machine.Steps.Extends frame (decoder program) memoryPolicy ctx state₁ trace₁ state₂ trace₂
 
 def EvalFn (program : Program) (ctx : CallContext) :
     FunctionId → Globals → Array Word → Trace → Globals → FunctionOutcome → Prop :=

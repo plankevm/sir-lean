@@ -276,7 +276,7 @@ theorem stuck_of_exit
     {state : Vars.State} {outcome : FunctionOutcome}
     (hcontrol : state.control = outcome.toControl) :
     Stuck program ctx state :=
-  Machine.stuck_of_exit (Vars.decoder_terminal program) hcontrol
+  Machine.stuck_of_exit hcontrol
 
 theorem Vars.Steps.eq_of_stuck
     {state final : Vars.State} {trace : Trace}
@@ -297,8 +297,6 @@ theorem stepDialogue_all
         Trace.QueryDivergence trace trace₂ :=
   Machine.Proofs.stepDialogue_all
     (.inr (Vars.decoder_noMalloc hfree))
-    (Vars.decoder_exclusive program)
-    (Vars.decoder_terminal program)
     (Vars.decoder_noMload hfree) h
 
 theorem runDialogue_all
@@ -316,8 +314,6 @@ theorem runDialogue_all
       Trace.QueryDivergence trace trace₂ :=
   Machine.Proofs.runDialogue_all
     (.inr (Vars.decoder_noMalloc hfree))
-    (Vars.decoder_exclusive program)
-    (Vars.decoder_terminal program)
     (Vars.decoder_noMload hfree) h
 
 theorem fnDialogue_all
@@ -333,8 +329,6 @@ theorem fnDialogue_all
         Trace.QueryDivergence trace trace₂ :=
   Machine.Proofs.evalDialogue_all
     (.inr (Vars.decoder_noMalloc hfree))
-    (Vars.decoder_exclusive program)
-    (Vars.decoder_terminal program)
     (Vars.decoder_noMload hfree) h
 
 theorem Vars.Proofs.Steps.confluence_or_queryDivergence
@@ -564,10 +558,9 @@ theorem Vars.Proofs.Steps.preserves_function
     (fun _ next ih hcontrol => by
       rcases ih hcontrol with hhalt | ⟨results, hreturn⟩ | ⟨cursor', hcontrol', hfn⟩
       · exact absurd next
-          (Machine.stuck_of_exit (outcome := .halted) (Vars.decoder_terminal program) hhalt _ _)
+          (Machine.stuck_of_exit (outcome := .halted) hhalt _ _)
       · exact absurd next
-          (Machine.stuck_of_exit (outcome := .returned _) (Vars.decoder_terminal program)
-            hreturn _ _)
+          (Machine.stuck_of_exit (outcome := .returned _) hreturn _ _)
       · rcases Vars.SmallStep.preserves_function next hcontrol' with
           hhalt | hreturned | ⟨cursor'', hcontrol'', hfn'⟩
         · exact .inl hhalt

@@ -5,26 +5,6 @@ namespace Sir.Vars
 
 open Sir Machine
 
-theorem decoder_exclusive (program : Program) : (decoder program).Exclusive := by
-  intro env globals control instruction next hdecode
-  cases hstmt : program.decodeStmt control with
-  | none => simp [decoder, decode, hstmt] at hdecode
-  | some decoded =>
-      rcases decoded with ⟨nextControl, stmt⟩
-      have hterm : program.terminatorAt control = none := by
-        cases h : program.terminatorAt control with
-        | none => rfl
-        | some terminator =>
-            exact False.elim (decodeStmt_terminatorAt_exclusive hstmt h)
-      simp [Vars.decoder, Vars.control, hterm]
-
-theorem decoder_terminal (program : Program) : (decoder program).Terminal := by
-  constructor
-  · intro env globals results
-    simp [Vars.decoder, Vars.decode, Vars.control, Program.decodeStmt, Program.terminatorAt]
-  · intro env globals
-    simp [Vars.decoder, Vars.decode, Vars.control, Program.decodeStmt, Program.terminatorAt]
-
 theorem decoder_noMload {program : Program} (hfree : program.MemOracleFree) :
     (decoder program).NoMload := by
   intro control src dst next hdecode
@@ -103,7 +83,6 @@ theorem steps_confluence_or_queryDivergence
       trace₂ ++ suffix = trace₁) ∨
     Trace.QueryDivergence trace₁ trace₂ :=
   Machine.Proofs.Steps.confluence_or_queryDivergence (.inr (decoder_noMalloc hfree))
-    (decoder_exclusive program)
-    (decoder_terminal program) (decoder_noMload hfree) h₁ h₂
+    (decoder_noMload hfree) h₁ h₂
 
 end Sir.Vars

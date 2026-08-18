@@ -61,17 +61,6 @@ theorem Vars.Program.callState?_eq_some_iff
   · rintro ⟨fn, locals₀, hfn, hbind, rfl⟩
     simp [Vars.Program.callState?, hfn, hbind]
 
-theorem decodeStmt_terminatorAt_exclusive
-    {control nextControl : Machine.MachineControl} {stmt : Vars.Stmt} {term : Vars.Terminator}
-    (hstmt : program.decodeStmt control = some (nextControl, stmt))
-    (hterm : program.terminatorAt control = some term) : False := by
-  cases control with
-  | halted => simp [Vars.Program.decodeStmt] at hstmt
-  | returned rs => simp [Vars.Program.decodeStmt] at hstmt
-  | running cursor =>
-    cases hpos : cursor.position <;>
-      simp [Vars.Program.decodeStmt, Vars.Program.terminatorAt, hpos] at hstmt hterm
-
 theorem Vars.Program.decodeStmt_mem
     {control nextControl : Machine.MachineControl} {stmt : Vars.Stmt}
     (h : program.decodeStmt control = some (nextControl, stmt)) :

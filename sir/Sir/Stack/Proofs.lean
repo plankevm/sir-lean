@@ -27,22 +27,6 @@ theorem Function.block?_succ (function : Function) (n : Nat) :
 
 namespace Proofs
 
-theorem decoder_exclusive (program : Program) : (decoder program).Exclusive := by
-  intro env globals control instruction next hdecode
-  cases hstatement : program.decodeInstruction control with
-  | none => simp [Stack.decoder, Stack.decode, hstatement] at hdecode
-  | some decoded =>
-      rcases decoded with ⟨nextControl, statement⟩
-      cases statement <;>
-        simp [Stack.decoder, Stack.decode, Stack.control, hstatement] at hdecode ⊢
-
-theorem decoder_terminal (program : Program) : (decoder program).Terminal := by
-  constructor
-  · intro env globals results
-    simp [Stack.decoder, Stack.decode, Stack.control, Program.decodeInstruction]
-  · intro env globals
-    simp [Stack.decoder, Stack.decode, Stack.control, Program.decodeInstruction]
-
 private theorem Program.decodeInstruction_mem
     {program : Program} {control next : Machine.MachineControl} {instruction : Instr}
     (h : program.decodeInstruction control = some (next, instruction)) :
@@ -114,7 +98,6 @@ theorem Steps.confluence_or_queryDivergence
     Trace.QueryDivergence trace₁ trace₂ :=
   Machine.Proofs.Steps.confluence_or_queryDivergence
     (hdet.elim (fun h => .inl h.1) (fun h => .inr (decoder_noMalloc h)))
-    (decoder_exclusive program) (decoder_terminal program)
     (hdet.elim (fun h => h.2) decoder_noMload) h₁ h₂
 
 private theorem queryDivergence_ne {trace₁ trace₂ : Trace}
@@ -149,7 +132,6 @@ theorem SmallStep.prefix_det
     trace₁ = trace₂ ∧ final₁ = final₂ := by
   rcases Machine.Proofs.stepDialogue_all
       (hdet.elim (fun h => .inl h.1) (fun h => .inr (decoder_noMalloc h)))
-      (decoder_exclusive program) (decoder_terminal program)
       (hdet.elim (fun h => h.2) decoder_noMload) h₁ trace₂ final₂ h₂ with heq | hdiv
   · exact heq
   · exact (queryDivergence_ne (hdiv.extend rest₁ rest₂) htrace).elim
@@ -174,8 +156,7 @@ theorem EvalFn.prefix_det
     (htrace : trace₁ ++ rest₁ = trace₂ ++ rest₂) :
     trace₁ = trace₂ ∧ finalGlobals₁ = finalGlobals₂ ∧ outcome₁ = outcome₂ := by
   rcases Machine.Proofs.evalDialogue_all (.inr (decoder_noMalloc hfree))
-      (decoder_exclusive program) (decoder_terminal program) (decoder_noMload hfree)
-      h₁ trace₂ finalGlobals₂ outcome₂ h₂ with heq | hdiv
+      (decoder_noMload hfree) h₁ trace₂ finalGlobals₂ outcome₂ h₂ with heq | hdiv
   · exact heq
   · exact (queryDivergence_ne (hdiv.extend rest₁ rest₂) htrace).elim
 

@@ -133,11 +133,9 @@ theorem Vars.Proofs.Program.WellFormed.evalFn_arity
               start rfl with
             hhalt | ⟨returnedValues, hreturned⟩ | ⟨cursor', hcontrol', hcursorFn⟩
           · exact absurd next
-              (Machine.stuck_of_exit (outcome := .halted) (Vars.decoder_terminal program)
-                hhalt _ _)
+              (Machine.stuck_of_exit (outcome := .halted) hhalt _ _)
           · exact absurd next
-              (Machine.stuck_of_exit (outcome := .returned _) (Vars.decoder_terminal program)
-                hreturned _ _)
+              (Machine.stuck_of_exit (outcome := .returned _) hreturned _ _)
           · have hsame : cursor' = cursor :=
               Machine.MachineControl.running.inj (hcontrol'.symm.trans hcontrol)
             subst cursor'
