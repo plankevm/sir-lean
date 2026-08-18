@@ -321,10 +321,9 @@ private theorem functionName_cases (program : Program) (identifier : FunctionId)
   · exact Or.inl ⟨by simp [functionName, isInit], by simp [isInit, Program.initId]⟩
   · by_cases isMain : program.mainId? = some identifier
     · refine Or.inr (Or.inl ⟨by simp [functionName, isInit, isMain], ?_⟩)
-      simp only [Program.mainId?] at isMain
-      split at isMain
-      · exact congrArg FunctionId.id (Option.some.inj isMain).symm
-      · simp at isMain
+      simp only [Program.mainId?, Option.map_eq_some_iff] at isMain
+      obtain ⟨_, _, identity⟩ := isMain
+      exact congrArg FunctionId.id identity.symm
     · exact Or.inr (Or.inr (by simp [functionName, isInit, isMain]))
 
 private theorem functionName_injective {program : Program} {left right : FunctionId}
@@ -1943,15 +1942,6 @@ theorem parse_print {source : String} {program : Program}
     parse (print program) = .ok program := by
   rw [parse_print_normalize_of_referencesInRange (parse_referencesInRange parsed),
     parse_normal parsed]
-
-theorem parse_print_alphaEquiv {program parsedProgram : Program}
-    (wellFormed : program.WellFormed)
-    (parsed : parse (print program) = .ok parsedProgram) :
-    parsedProgram.AlphaEquiv program := by
-  have normalized : parsedProgram = program.normalize :=
-    Except.ok.inj (parsed.symm.trans (parse_print_normalize wellFormed))
-  rw [normalized]
-  exact Vars.Proofs.Program.normalize_alphaEquiv program
 
 end Proofs
 end Sir.Vars.Text

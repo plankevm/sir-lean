@@ -2,7 +2,7 @@ import Sir.Vars.Proofs.Determinism
 import Sir.Vars.Proofs.Readiness
 import Sir.Vars.Proofs.Bump
 import Sir.Vars.Proofs.Check
-import Sir.Vars.Proofs.Quotient
+import Sir.Vars.Proofs.Normalize
 
 namespace Sir
 
@@ -173,14 +173,8 @@ theorem Vars.Program.alphaEquiv_iff_normalize_eq {left right : Vars.Program} :
     Vars.Program.AlphaEquiv left right ↔ left.normalize = right.normalize :=
   Vars.Proofs.Program.alphaEquiv_iff_normalize_eq
 
-theorem Vars.Program.normalizeEquivalenceClass_bijective :
-    (∀ left right : Quotient Vars.Program.alphaEquivalenceSetoid,
-        Vars.Program.normalizeEquivalenceClass left =
-          Vars.Program.normalizeEquivalenceClass right → left = right) ∧
-      ∀ normal : { program : Vars.Program // program.Normal },
-        ∃ equivalenceClass,
-          Vars.Program.normalizeEquivalenceClass equivalenceClass = normal :=
-  ⟨fun _ _ equal => Vars.Proofs.Program.normalizeEquivalenceClass_bijective.1 equal,
-    Vars.Proofs.Program.normalizeEquivalenceClass_bijective.2⟩
+theorem Vars.Program.alphaEquiv_equivalence : Equivalence Vars.Program.AlphaEquiv :=
+  ⟨Vars.Proofs.Program.AlphaEquiv.refl, Vars.Proofs.Program.AlphaEquiv.symm,
+    Vars.Proofs.Program.AlphaEquiv.trans⟩
 
 end Sir

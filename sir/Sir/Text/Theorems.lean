@@ -19,10 +19,4 @@ theorem parse_print {source : String} {program : Program}
     parse (print program) = .ok program :=
   Proofs.parse_print parsed
 
-theorem parse_print_alphaEquiv {program parsedProgram : Program}
-    (wellFormed : program.WellFormed)
-    (parsed : parse (print program) = .ok parsedProgram) :
-    parsedProgram.AlphaEquiv program :=
-  Proofs.parse_print_alphaEquiv wellFormed parsed
-
 end Sir.Vars.Text
