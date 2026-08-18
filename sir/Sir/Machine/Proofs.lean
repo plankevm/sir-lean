@@ -151,8 +151,8 @@ theorem firesHalt_false (frame : OperandFrame) {policy : MemoryPolicy} {ctx : Ca
     {operation : Operation} {src : frame.Source} {env : frame.Environment}
     {globals globals' : Globals} {trace : Trace}
     (h : frame.FiresHalt policy ctx operation src env globals trace globals') : False := by
-  cases h with
-  | halted _ _ hexecute => exact Operation.execute_ne_halted hexecute
+  obtain ⟨_, _, _, _, hexecute⟩ := h
+  exact Operation.execute_ne_halted hexecute
 
 theorem fires_dialogue (frame : OperandFrame) {policy : MemoryPolicy}
     {operation : Operation}
@@ -165,19 +165,17 @@ theorem fires_dialogue (frame : OperandFrame) {policy : MemoryPolicy}
     (h₂ : frame.Fires policy ctx operation src dst env globals trace₂ env₂ globals₂) :
     (trace₁ = trace₂ ∧ env₁ = env₂ ∧ globals₁ = globals₂) ∨
       Trace.QueryDivergence trace₁ trace₂ := by
-  cases h₁ with
-  | next hadmissible₁ hfetch₁ hexecute₁ hstore₁ =>
-    cases h₂ with
-    | next hadmissible₂ hfetch₂ hexecute₂ hstore₂ =>
-      rw [hfetch₁] at hfetch₂
-      obtain rfl := Except.ok.inj hfetch₂
-      rcases Operation.execute_dialogue ctx operation hmalloc globals _
-          hadmissible₁ hadmissible₂ hexecute₁ hexecute₂ hmload with heq | hdiv
-      · injection heq with hresults hglobals htrace
-        subst hresults hglobals htrace
-        rw [hstore₁] at hstore₂
-        exact .inl ⟨rfl, Except.ok.inj hstore₂, rfl⟩
-      · exact .inr hdiv
+  obtain ⟨_, _, _, hadmissible₁, hfetch₁, hexecute₁, hstore₁⟩ := h₁
+  obtain ⟨_, _, _, hadmissible₂, hfetch₂, hexecute₂, hstore₂⟩ := h₂
+  rw [hfetch₁] at hfetch₂
+  obtain rfl := Except.ok.inj hfetch₂
+  rcases Operation.execute_dialogue ctx operation hmalloc globals _
+      hadmissible₁ hadmissible₂ hexecute₁ hexecute₂ hmload with heq | hdiv
+  · injection heq with hresults hglobals htrace
+    subst hresults hglobals htrace
+    rw [hstore₁] at hstore₂
+    exact .inl ⟨rfl, Except.ok.inj hstore₂, rfl⟩
+  · exact .inr hdiv
 
 theorem firesHalt_dialogue (frame : OperandFrame) {policy : MemoryPolicy}
     {operation : Operation}
@@ -189,18 +187,16 @@ theorem firesHalt_dialogue (frame : OperandFrame) {policy : MemoryPolicy}
     (h₂ : frame.FiresHalt policy ctx operation src env globals trace₂ globals₂) :
     (trace₁ = trace₂ ∧ globals₁ = globals₂) ∨
       Trace.QueryDivergence trace₁ trace₂ := by
-  cases h₁ with
-  | halted hadmissible₁ hfetch₁ hexecute₁ =>
-    cases h₂ with
-    | halted hadmissible₂ hfetch₂ hexecute₂ =>
-      rw [hfetch₁] at hfetch₂
-      obtain rfl := Except.ok.inj hfetch₂
-      rcases Operation.execute_dialogue ctx operation hmalloc globals _
-          hadmissible₁ hadmissible₂ hexecute₁ hexecute₂ hmload with heq | hdiv
-      · injection heq with hglobals htrace
-        subst hglobals htrace
-        exact .inl ⟨rfl, rfl⟩
-      · exact .inr hdiv
+  obtain ⟨_, _, hadmissible₁, hfetch₁, hexecute₁⟩ := h₁
+  obtain ⟨_, _, hadmissible₂, hfetch₂, hexecute₂⟩ := h₂
+  rw [hfetch₁] at hfetch₂
+  obtain rfl := Except.ok.inj hfetch₂
+  rcases Operation.execute_dialogue ctx operation hmalloc globals _
+      hadmissible₁ hadmissible₂ hexecute₁ hexecute₂ hmload with heq | hdiv
+  · injection heq with hglobals htrace
+    subst hglobals htrace
+    exact .inl ⟨rfl, rfl⟩
+  · exact .inr hdiv
 
 theorem fires_firesHalt_dialogue (frame : OperandFrame) {policy : MemoryPolicy}
     {operation : Operation}
@@ -212,16 +208,14 @@ theorem fires_firesHalt_dialogue (frame : OperandFrame) {policy : MemoryPolicy}
     (h₁ : frame.Fires policy ctx operation src dst env globals trace₁ env' globals₁)
     (h₂ : frame.FiresHalt policy ctx operation src env globals trace₂ globals₂) :
     Trace.QueryDivergence trace₁ trace₂ := by
-  cases h₁ with
-  | next hadmissible₁ hfetch₁ hexecute₁ _ =>
-    cases h₂ with
-    | halted hadmissible₂ hfetch₂ hexecute₂ =>
-      rw [hfetch₁] at hfetch₂
-      obtain rfl := Except.ok.inj hfetch₂
-      rcases Operation.execute_dialogue ctx operation hmalloc globals _
-          hadmissible₁ hadmissible₂ hexecute₁ hexecute₂ hmload with heq | hdiv
-      · cases heq
-      · exact hdiv
+  obtain ⟨_, _, _, hadmissible₁, hfetch₁, hexecute₁, _⟩ := h₁
+  obtain ⟨_, _, hadmissible₂, hfetch₂, hexecute₂⟩ := h₂
+  rw [hfetch₁] at hfetch₂
+  obtain rfl := Except.ok.inj hfetch₂
+  rcases Operation.execute_dialogue ctx operation hmalloc globals _
+      hadmissible₁ hadmissible₂ hexecute₁ hexecute₂ hmload with heq | hdiv
+  · cases heq
+  · exact hdiv
 
 end OperandFrame
 

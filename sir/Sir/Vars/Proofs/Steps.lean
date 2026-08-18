@@ -91,7 +91,7 @@ theorem fires_of
       .ok (.next results globals' trace))
     (hstore : Vars.frame.store env dst results = .ok env') :
     Vars.frame.Fires Machine.memoryPolicy ctx operation src dst env globals trace env' globals' :=
-  .next hadmissible hfetch hexecute hstore
+  ⟨operands, results, oracle, hadmissible, hfetch, hexecute, hstore⟩
 
 def Machine.Instruction.Fires {frame : OperandFrame} (instruction : Instruction frame)
     (policy : MemoryPolicy) (ctx : CallContext) (env : frame.Environment) (globals : Globals)

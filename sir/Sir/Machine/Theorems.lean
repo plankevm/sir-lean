@@ -28,30 +28,6 @@ variable {frame : OperandFrame} {decoder : Decoder frame} {policy : MemoryPolicy
 
 local notation:50 s " =[" t "]=>* " f => Steps frame decoder policy ctx s t f
 
-local notation:50 s " =[" t "]=> " f => Step frame decoder policy ctx s t f
-
-theorem stepDialogue_all
-    (halloc : policy.Deterministic ∨ decoder.NoMalloc) (hnomload : decoder.NoMload)
-    {state final : State frame} {trace : Trace}
-    (h : state =[trace]=> final) :
-    StepDialogue decoder policy ctx state trace final :=
-  Proofs.stepDialogue_all halloc hnomload h
-
-theorem runDialogue_all
-    (halloc : policy.Deterministic ∨ decoder.NoMalloc) (hnomload : decoder.NoMload)
-    {state final : State frame} {trace : Trace}
-    (h : state =[trace]=>* final) :
-    RunDialogue decoder policy ctx state trace final :=
-  Proofs.runDialogue_all halloc hnomload h
-
-theorem evalDialogue_all
-    (halloc : policy.Deterministic ∨ decoder.NoMalloc) (hnomload : decoder.NoMload)
-    {function : FunctionId} {globals globals' : Globals} {args : Array Word}
-    {trace : Trace} {outcome : FunctionOutcome}
-    (h : FunctionEvaluation frame decoder policy ctx function globals args trace globals' outcome) :
-    EvalDialogue decoder policy ctx function globals args trace globals' outcome :=
-  Proofs.evalDialogue_all halloc hnomload h
-
 theorem Steps.confluence_or_queryDivergence
     (halloc : policy.Deterministic ∨ decoder.NoMalloc) (hnomload : decoder.NoMload)
     {state final₁ final₂ : State frame} {trace₁ trace₂ : Trace}

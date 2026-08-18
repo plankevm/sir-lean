@@ -50,8 +50,7 @@ theorem witness_step_constant (policy : MemoryPolicy) (ctx : CallContext)
     Machine.Step frame (decoder witnessProgram) policy ctx
       (witnessInitial globals) [] (witnessAfterConstant globals) := by
   apply Machine.Step.operation (hdecode := rfl)
-  refine OperandFrame.Fires.next (oracle := ()) (operands := #[]) (results := #[7])
-    (by trivial) ?_ rfl ?_
+  refine ⟨#[], #[7], (), by trivial, ?_, rfl, ?_⟩
   · have hfetch : (#[] : Array VarId).mapM (Locals.empty.lookup ·) = .ok #[] := by
       rw [Array.mapM_eq_mapM_toList]
       rfl
@@ -112,9 +111,9 @@ theorem witness_step_constant₂ (policy : MemoryPolicy) (ctx : CallContext)
       (witnessState globals [] (.statement 0)) []
       (witnessState globals [2] (.statement 1)) := by
   apply Machine.Step.operation (hdecode := rfl)
-  exact OperandFrame.Fires.next (oracle := ()) (by trivial) rfl rfl
-    (by simp [frame, store, witnessState, Operation.inputCount,
-      Operation.outputCount])
+  exact ⟨_, _, (), by trivial, rfl, rfl,
+    by simp [frame, store, witnessState, Operation.inputCount,
+      Operation.outputCount]⟩
 
 theorem witness_step_constant₃ (policy : MemoryPolicy) (ctx : CallContext)
     (globals : Globals) :
@@ -122,9 +121,9 @@ theorem witness_step_constant₃ (policy : MemoryPolicy) (ctx : CallContext)
       (witnessState globals [2] (.statement 1)) []
       (witnessState globals [3, 2] (.statement 2)) := by
   apply Machine.Step.operation (hdecode := rfl)
-  exact OperandFrame.Fires.next (oracle := ()) (by trivial) rfl rfl
-    (by simp [frame, store, witnessState, Operation.inputCount,
-      Operation.outputCount])
+  exact ⟨_, _, (), by trivial, rfl, rfl,
+    by simp [frame, store, witnessState, Operation.inputCount,
+      Operation.outputCount]⟩
 
 theorem witness_step_add (policy : MemoryPolicy) (ctx : CallContext)
     (globals : Globals) :
@@ -132,9 +131,9 @@ theorem witness_step_add (policy : MemoryPolicy) (ctx : CallContext)
       (witnessState globals [3, 2] (.statement 2)) []
       (witnessState globals [witnessSum] .terminator) := by
   apply Machine.Step.operation (hdecode := rfl)
-  exact OperandFrame.Fires.next (oracle := ()) (by trivial) rfl rfl
-    (by simp [frame, store, witnessState, Operation.inputCount,
-      Operation.outputCount, witnessSum])
+  exact ⟨_, _, (), by trivial, rfl, rfl,
+    by simp [frame, store, witnessState, Operation.inputCount,
+      Operation.outputCount, witnessSum]⟩
 
 theorem witness_step_halt (policy : MemoryPolicy) (ctx : CallContext)
     (globals : Globals) :

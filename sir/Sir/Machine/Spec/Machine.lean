@@ -85,30 +85,23 @@ def Decoder.NoMalloc {frame : OperandFrame} (decoder : Decoder frame) : Prop :=
   (∀ control src dst next,
     decoder.decode control = some (⟨Instruction.Kind.primitive .mallocUninit, src, dst⟩, next) → False)
 
-inductive OperandFrame.Fires (frame : OperandFrame) (policy : MemoryPolicy) (ctx : CallContext)
-    (operation : Operation) (src : frame.Source) (dst : frame.Destination) :
-    frame.Environment → Globals → Trace → frame.Environment → Globals → Prop where
-  | next
-      {env env' : frame.Environment} {globals globals' : Globals}
-      {operands results : Array Word} {trace : Trace} {oracle : operation.Oracle}
-      (hadmissible : operation.Admissible policy globals operands oracle)
-      (hfetch : frame.fetch env src = .ok operands)
-      (hexecute : operation.execute ctx oracle globals operands =
-        .ok (.next results globals' trace))
-      (hstore : frame.store env dst results = .ok env') :
-      frame.Fires policy ctx operation src dst env globals trace env' globals'
+def OperandFrame.Fires (frame : OperandFrame) (policy : MemoryPolicy) (ctx : CallContext)
+    (operation : Operation) (src : frame.Source) (dst : frame.Destination)
+    (env : frame.Environment) (globals : Globals) (trace : Trace)
+    (env' : frame.Environment) (globals' : Globals) : Prop :=
+  ∃ (operands results : Array Word) (oracle : operation.Oracle),
+    operation.Admissible policy globals operands oracle ∧
+    frame.fetch env src = .ok operands ∧
+    operation.execute ctx oracle globals operands = .ok (.next results globals' trace) ∧
+    frame.store env dst results = .ok env'
 
-inductive OperandFrame.FiresHalt (frame : OperandFrame) (policy : MemoryPolicy) (ctx : CallContext)
-    (operation : Operation) (src : frame.Source) :
-    frame.Environment → Globals → Trace → Globals → Prop where
-  | halted
-      {env : frame.Environment} {globals globals' : Globals}
-      {operands : Array Word} {trace : Trace} {oracle : operation.Oracle}
-      (hadmissible : operation.Admissible policy globals operands oracle)
-      (hfetch : frame.fetch env src = .ok operands)
-      (hexecute : operation.execute ctx oracle globals operands =
-        .ok (.halted globals' trace)) :
-      frame.FiresHalt policy ctx operation src env globals trace globals'
+def OperandFrame.FiresHalt (frame : OperandFrame) (policy : MemoryPolicy) (ctx : CallContext)
+    (operation : Operation) (src : frame.Source) (env : frame.Environment) (globals : Globals)
+    (trace : Trace) (globals' : Globals) : Prop :=
+  ∃ (operands : Array Word) (oracle : operation.Oracle),
+    operation.Admissible policy globals operands oracle ∧
+    frame.fetch env src = .ok operands ∧
+    operation.execute ctx oracle globals operands = .ok (.halted globals' trace)
 
 mutual
 
@@ -186,24 +179,32 @@ def Steps.Extends (frame : OperandFrame) (decoder : Decoder frame) (policy : Mem
     (trace₂ : Trace) : Prop :=
   ∃ suffix, Steps frame decoder policy ctx state₁ suffix state₂ ∧ trace₁ ++ suffix = trace₂
 
-def StepDialogue {frame : OperandFrame} (decoder : Decoder frame) (policy : MemoryPolicy)
-    (ctx : CallContext) (state : State frame) (trace : Trace) (final : State frame) : Prop :=
-  ∀ trace₂ final₂, Step frame decoder policy ctx state trace₂ final₂ →
+section
+
+variable {frame : OperandFrame} (decoder : Decoder frame) (policy : MemoryPolicy)
+  (ctx : CallContext)
+
+local notation:50 s " =[" t "]=>* " f => Steps frame decoder policy ctx s t f
+
+local notation:50 s " =[" t "]=> " f => Step frame decoder policy ctx s t f
+
+def StepDialogue (state : State frame) (trace : Trace) (final : State frame) : Prop :=
+  ∀ trace₂ final₂, (state =[trace₂]=> final₂) →
     (trace = trace₂ ∧ final = final₂) ∨ Trace.QueryDivergence trace trace₂
 
-def RunDialogue {frame : OperandFrame} (decoder : Decoder frame) (policy : MemoryPolicy)
-    (ctx : CallContext) (state : State frame) (trace : Trace) (final : State frame) : Prop :=
-  ∀ trace₂ final₂, Steps frame decoder policy ctx state trace₂ final₂ →
-    (∃ suffix, Steps frame decoder policy ctx final suffix final₂ ∧ trace ++ suffix = trace₂) ∨
-    (∃ suffix, Steps frame decoder policy ctx final₂ suffix final ∧ trace₂ ++ suffix = trace) ∨
+def RunDialogue (state : State frame) (trace : Trace) (final : State frame) : Prop :=
+  ∀ trace₂ final₂, (state =[trace₂]=>* final₂) →
+    Steps.Extends frame decoder policy ctx final trace final₂ trace₂ ∨
+    Steps.Extends frame decoder policy ctx final₂ trace₂ final trace ∨
       Trace.QueryDivergence trace trace₂
 
-def EvalDialogue {frame : OperandFrame} (decoder : Decoder frame) (policy : MemoryPolicy)
-    (ctx : CallContext) (function : FunctionId) (globals : Globals) (args : Array Word)
+def EvalDialogue (function : FunctionId) (globals : Globals) (args : Array Word)
     (trace : Trace) (finalGlobals : Globals) (outcome : FunctionOutcome) : Prop :=
   ∀ trace₂ finalGlobals₂ outcome₂,
     FunctionEvaluation frame decoder policy ctx function globals args trace₂ finalGlobals₂ outcome₂ →
     (trace = trace₂ ∧ finalGlobals = finalGlobals₂ ∧ outcome = outcome₂) ∨
       Trace.QueryDivergence trace trace₂
+
+end
 
 end Sir.Machine

@@ -303,9 +303,8 @@ private theorem primitive_step_inv {ctx : CallContext} {operation : Machine.Oper
       simp only [Option.some.injEq, Prod.mk.injEq, Machine.Instruction.mk.injEq,
         Machine.Instruction.Kind.primitive.injEq] at hdec
       obtain ⟨⟨rfl, rfl, rfl⟩, rfl⟩ := hdec
-      cases hfires with
-      | next hadmissible hfetch hexecute hstore =>
-          exact ⟨_, _, _, _, _, hadmissible, hfetch, hexecute, hstore, rfl⟩
+      obtain ⟨_, _, _, hadmissible, hfetch, hexecute, hstore⟩ := hfires
+      exact ⟨_, _, _, _, _, hadmissible, hfetch, hexecute, hstore, rfl⟩
   | operationHalted _ hfires => exact (Machine.OperandFrame.firesHalt_false _ hfires).elim
   | internalCall hdec _ _ _ =>
       rw [hstate, hdecode] at hdec

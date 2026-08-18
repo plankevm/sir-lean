@@ -490,19 +490,18 @@ theorem Vars.Program.WellFormed.localsCoverCursor_step
   | operation hdecode hfires =>
       change Vars.decode program state.control = _ at hdecode
       obtain ⟨statement, hstatement, hinstruction⟩ := Vars.decode_inv.mp hdecode
-      cases hfires with
-      | next hadmissible hfetch hexecute hstore =>
-          change Locals.bindValues state.environment _ _ = .ok _ at hstore
-          obtain ⟨cursor, block, index, -, -, hblock, hstatementAt, hnext,
-              hbefore, -⟩ :=
-            hwf.decodeStmt_covers hinvariant hstatement
-          apply Vars.State.localsCoverCursor_after_statement
-            (evaluated := ⟨_, _, state.control⟩)
-            hblock hstatementAt hnext hbefore
-          · exact fun identifier hdefined =>
-              Locals.bindValues_preserves hstore hdefined
-          · rw [← decodeSirStmt_op_dst hinstruction]
-            exact Locals.bindValues_covers hstore
+      obtain ⟨_, _, _, -, -, -, hstore⟩ := hfires
+      change Locals.bindValues state.environment _ _ = .ok _ at hstore
+      obtain ⟨cursor, block, index, -, -, hblock, hstatementAt, hnext,
+          hbefore, -⟩ :=
+        hwf.decodeStmt_covers hinvariant hstatement
+      apply Vars.State.localsCoverCursor_after_statement
+        (evaluated := ⟨_, _, state.control⟩)
+        hblock hstatementAt hnext hbefore
+      · exact fun identifier hdefined =>
+          Locals.bindValues_preserves hstore hdefined
+      · rw [← decodeSirStmt_op_dst hinstruction]
+        exact Locals.bindValues_covers hstore
   | operationHalted hdecode hfires => trivial
   | internalCall hdecode hfetch hcallee hresume =>
       rename_i callee src dst next values globals' outcome env' control'
