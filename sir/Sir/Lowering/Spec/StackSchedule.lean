@@ -65,18 +65,13 @@ def StackSchedule.ofBlock (block : StackSchedule.Block) : StackSchedule where
   entry := block
   rest := #[]
 
-def StackSchedule.vars (schedule : StackSchedule) : Vars.Program :=
-  { init :=
-      { entry := schedule.entry.vars.toBlock
-        rest := schedule.rest.map fun block => block.vars.toBlock }
-    main := none
-    rest := #[] }
+def StackSchedule.varsFunction (schedule : StackSchedule) : Vars.Function :=
+  { entry := schedule.entry.vars.toBlock
+    rest := schedule.rest.map fun block => block.vars.toBlock }
 
-def StackSchedule.stack (schedule : StackSchedule) : Stack.Program :=
-  { init :=
-      { entry := schedule.entry.stack.toBlock
-        rest := schedule.rest.map fun block => block.stack.toBlock }
-    rest := #[] }
+def StackSchedule.stackFunction (schedule : StackSchedule) : Stack.Function :=
+  { entry := schedule.entry.stack.toBlock
+    rest := schedule.rest.map fun block => block.stack.toBlock }
 
 def StackSchedule.Block.terminatorsAgree : Vars.Terminator → Stack.Terminator → Bool
   | .halt, .halt => true
@@ -247,5 +242,30 @@ def StackSchedule.check (schedule : StackSchedule) : Except StackSchedule.Error 
   match StackSchedule.checkBlocks schedule.blocks.toList with
   | .error error => .error error
   | .ok () => schedule.checkEdges schedule.blocks.toList
+
+structure ProgramSchedule where
+  init : StackSchedule
+  main : Option StackSchedule
+deriving DecidableEq, Repr
+
+def StackSchedule.program (schedule : StackSchedule) : ProgramSchedule :=
+  { init := schedule, main := none }
+
+def ProgramSchedule.vars (schedule : ProgramSchedule) : Vars.Program :=
+  { init := schedule.init.varsFunction
+    main := schedule.main.map StackSchedule.varsFunction
+    rest := #[] }
+
+def ProgramSchedule.stack (schedule : ProgramSchedule) : Stack.Program :=
+  { init := schedule.init.stackFunction
+    rest := schedule.main.toArray.map StackSchedule.stackFunction }
+
+def ProgramSchedule.check (schedule : ProgramSchedule) : Except StackSchedule.Error Unit :=
+  match schedule.init.check with
+  | .error error => .error error
+  | .ok () =>
+      match schedule.main with
+      | none => .ok ()
+      | some main => main.check
 
 end Sir.Lowering

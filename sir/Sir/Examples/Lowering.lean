@@ -7,8 +7,8 @@ private theorem schedule_evaluation_equivalence
     (accepted : schedule.check = .ok ())
     (ctx : CallContext) (globals finalGlobals : Globals) (args : Array Word) (trace : Trace)
     (outcome : FunctionOutcome) :
-    Vars.EvalFn schedule.vars ctx ⟨0⟩ globals args trace finalGlobals outcome ↔
-      Stack.EvalFn schedule.stack ctx
+    Vars.EvalFn schedule.program.vars ctx ⟨0⟩ globals args trace finalGlobals outcome ↔
+      Stack.EvalFn schedule.program.stack ctx
         ⟨0⟩ globals args trace finalGlobals outcome := by
   exact schedule.equiv accepted ctx ⟨0⟩ globals args trace finalGlobals outcome
 
@@ -72,9 +72,9 @@ theorem spillRoundTripExample_accepted :
 theorem spillRoundTripExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (trace : Trace)
     (outcome : FunctionOutcome) :
-    Vars.EvalFn spillRoundTripExampleSchedule.vars ctx ⟨0⟩ globals #[] trace
+    Vars.EvalFn spillRoundTripExampleSchedule.program.vars ctx ⟨0⟩ globals #[] trace
         finalGlobals outcome ↔
-      Stack.EvalFn spillRoundTripExampleSchedule.stack ctx
+      Stack.EvalFn spillRoundTripExampleSchedule.program.stack ctx
         ⟨0⟩ globals #[] trace finalGlobals outcome := by
   exact schedule_evaluation_equivalence spillRoundTripExampleSchedule
     spillRoundTripExample_accepted ctx globals finalGlobals #[] trace outcome
@@ -97,9 +97,9 @@ theorem entryLayoutExample_accepted :
 theorem entryLayoutExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (argument : Word) (trace : Trace)
     (outcome : FunctionOutcome) :
-    Vars.EvalFn entryLayoutExampleSchedule.vars ctx ⟨0⟩ globals #[argument] trace
+    Vars.EvalFn entryLayoutExampleSchedule.program.vars ctx ⟨0⟩ globals #[argument] trace
         finalGlobals outcome ↔
-      Stack.EvalFn entryLayoutExampleSchedule.stack ctx
+      Stack.EvalFn entryLayoutExampleSchedule.program.stack ctx
         ⟨0⟩ globals #[argument] trace finalGlobals outcome := by
   exact schedule_evaluation_equivalence entryLayoutExampleSchedule
     entryLayoutExample_accepted ctx globals finalGlobals #[argument] trace outcome
@@ -121,9 +121,9 @@ theorem exchangeExample_accepted : exchangeExampleSchedule.check = .ok () := by 
 theorem exchangeExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (first second third : Word)
     (trace : Trace) (outcome : FunctionOutcome) :
-    Vars.EvalFn exchangeExampleSchedule.vars ctx ⟨0⟩ globals #[first, second, third]
+    Vars.EvalFn exchangeExampleSchedule.program.vars ctx ⟨0⟩ globals #[first, second, third]
         trace finalGlobals outcome ↔
-      Stack.EvalFn exchangeExampleSchedule.stack ctx ⟨0⟩
+      Stack.EvalFn exchangeExampleSchedule.program.stack ctx ⟨0⟩
         globals #[first, second, third] trace finalGlobals outcome := by
   exact schedule_evaluation_equivalence exchangeExampleSchedule exchangeExample_accepted
     ctx globals finalGlobals #[first, second, third] trace outcome
@@ -191,9 +191,9 @@ theorem flippedLessThanExample_concrete_result
 theorem flippedLessThanExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (left right : Word)
     (trace : Trace) (outcome : FunctionOutcome) :
-    Vars.EvalFn flippedLessThanExampleSchedule.vars ctx ⟨0⟩ globals #[right, left]
+    Vars.EvalFn flippedLessThanExampleSchedule.program.vars ctx ⟨0⟩ globals #[right, left]
         trace finalGlobals outcome ↔
-      Stack.EvalFn flippedLessThanExampleSchedule.stack ctx
+      Stack.EvalFn flippedLessThanExampleSchedule.program.stack ctx
         ⟨0⟩ globals #[right, left] trace finalGlobals outcome := by
   exact schedule_evaluation_equivalence flippedLessThanExampleSchedule
     flippedLessThanExample_accepted ctx globals finalGlobals #[right, left] trace outcome
@@ -217,9 +217,9 @@ theorem straightLineExample_accepted : straightLineExampleSchedule.check = .ok (
 theorem straightLineExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (trace : Trace)
     (outcome : FunctionOutcome) :
-    Vars.EvalFn straightLineExampleSchedule.vars ctx ⟨0⟩ globals #[] trace
+    Vars.EvalFn straightLineExampleSchedule.program.vars ctx ⟨0⟩ globals #[] trace
         finalGlobals outcome ↔
-      Stack.EvalFn straightLineExampleSchedule.stack ctx
+      Stack.EvalFn straightLineExampleSchedule.program.stack ctx
         ⟨0⟩ globals #[] trace finalGlobals outcome := by
   exact schedule_evaluation_equivalence straightLineExampleSchedule
     straightLineExample_accepted ctx globals finalGlobals #[] trace outcome
@@ -254,9 +254,9 @@ theorem twoBlockJumpExample_accepted :
 theorem twoBlockJumpExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (trace : Trace)
     (outcome : FunctionOutcome) :
-    Vars.EvalFn twoBlockJumpExampleSchedule.vars ctx ⟨0⟩ globals #[] trace
+    Vars.EvalFn twoBlockJumpExampleSchedule.program.vars ctx ⟨0⟩ globals #[] trace
         finalGlobals outcome ↔
-      Stack.EvalFn twoBlockJumpExampleSchedule.stack ctx
+      Stack.EvalFn twoBlockJumpExampleSchedule.program.stack ctx
         ⟨0⟩ globals #[] trace finalGlobals outcome := by
   exact schedule_evaluation_equivalence twoBlockJumpExampleSchedule
     twoBlockJumpExample_accepted ctx globals finalGlobals #[] trace outcome
@@ -295,9 +295,9 @@ theorem renamedBoundaryExample_accepted :
 theorem renamedBoundaryExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (trace : Trace)
     (outcome : FunctionOutcome) :
-    Vars.EvalFn renamedBoundaryExampleSchedule.vars ctx ⟨0⟩ globals #[] trace
+    Vars.EvalFn renamedBoundaryExampleSchedule.program.vars ctx ⟨0⟩ globals #[] trace
         finalGlobals outcome ↔
-      Stack.EvalFn renamedBoundaryExampleSchedule.stack ctx
+      Stack.EvalFn renamedBoundaryExampleSchedule.program.stack ctx
         ⟨0⟩ globals #[] trace finalGlobals outcome := by
   exact schedule_evaluation_equivalence renamedBoundaryExampleSchedule
     renamedBoundaryExample_accepted ctx globals finalGlobals #[] trace outcome
@@ -360,9 +360,9 @@ theorem branchLoopExample_accepted :
 theorem branchLoopExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (condition : Word) (trace : Trace)
     (outcome : FunctionOutcome) :
-    Vars.EvalFn branchLoopExampleSchedule.vars ctx ⟨0⟩ globals #[condition] trace
+    Vars.EvalFn branchLoopExampleSchedule.program.vars ctx ⟨0⟩ globals #[condition] trace
         finalGlobals outcome ↔
-      Stack.EvalFn branchLoopExampleSchedule.stack ctx
+      Stack.EvalFn branchLoopExampleSchedule.program.stack ctx
         ⟨0⟩ globals #[condition] trace finalGlobals outcome := by
   exact schedule_evaluation_equivalence branchLoopExampleSchedule
     branchLoopExample_accepted ctx globals finalGlobals #[condition] trace outcome
@@ -409,9 +409,9 @@ theorem renamedBackEdgeLoopExample_accepted :
 theorem renamedBackEdgeLoopExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (first second : Word) (trace : Trace)
     (outcome : FunctionOutcome) :
-    Vars.EvalFn renamedBackEdgeLoopExampleSchedule.vars ctx ⟨0⟩ globals
+    Vars.EvalFn renamedBackEdgeLoopExampleSchedule.program.vars ctx ⟨0⟩ globals
         #[first, second] trace finalGlobals outcome ↔
-      Stack.EvalFn renamedBackEdgeLoopExampleSchedule.stack ctx
+      Stack.EvalFn renamedBackEdgeLoopExampleSchedule.program.stack ctx
         ⟨0⟩ globals #[first, second] trace finalGlobals outcome := by
   exact schedule_evaluation_equivalence renamedBackEdgeLoopExampleSchedule
     renamedBackEdgeLoopExample_accepted ctx globals finalGlobals #[first, second] trace outcome
@@ -438,9 +438,9 @@ theorem reorderedIndependentExample_accepted :
 theorem reorderedIndependentExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (argument : Word) (trace : Trace)
     (outcome : FunctionOutcome) :
-    Vars.EvalFn reorderedIndependentExampleSchedule.vars ctx ⟨0⟩ globals #[argument]
+    Vars.EvalFn reorderedIndependentExampleSchedule.program.vars ctx ⟨0⟩ globals #[argument]
         trace finalGlobals outcome ↔
-      Stack.EvalFn reorderedIndependentExampleSchedule.stack ctx ⟨0⟩ globals
+      Stack.EvalFn reorderedIndependentExampleSchedule.program.stack ctx ⟨0⟩ globals
         #[argument] trace finalGlobals outcome := by
   exact schedule_evaluation_equivalence reorderedIndependentExampleSchedule
     reorderedIndependentExample_accepted ctx globals finalGlobals #[argument] trace outcome
@@ -503,9 +503,9 @@ theorem reorderedLoopExample_accepted :
 theorem reorderedLoopExample_evaluation_equivalence
     (ctx : CallContext) (globals finalGlobals : Globals) (condition : Word) (trace : Trace)
     (outcome : FunctionOutcome) :
-    Vars.EvalFn reorderedLoopExampleSchedule.vars ctx ⟨0⟩ globals #[condition] trace
+    Vars.EvalFn reorderedLoopExampleSchedule.program.vars ctx ⟨0⟩ globals #[condition] trace
         finalGlobals outcome ↔
-      Stack.EvalFn reorderedLoopExampleSchedule.stack ctx
+      Stack.EvalFn reorderedLoopExampleSchedule.program.stack ctx
         ⟨0⟩ globals #[condition] trace finalGlobals outcome := by
   exact schedule_evaluation_equivalence reorderedLoopExampleSchedule
     reorderedLoopExample_accepted ctx globals finalGlobals #[condition] trace outcome

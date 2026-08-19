@@ -177,7 +177,7 @@ theorem StackSchedule.source_decode_at
     (blockAt : schedule.blocks[block.id]? = some blockSchedule)
     (index : Nat) (statement : Vars.Stmt)
     (statementAt : blockSchedule.vars.statements[index]? = some statement) :
-    schedule.vars.decodeStmt (blockSchedule.sourceControlAt block index) =
+    schedule.program.vars.decodeStmt (blockSchedule.sourceControlAt block index) =
       some (blockSchedule.sourceControlAt block (index + 1), statement) := by
   have indexBound : index < blockSchedule.vars.statements.size :=
     of_getElem?_eq_some (c := blockSchedule.vars.statements) (i := index) statementAt
@@ -194,7 +194,7 @@ theorem StackSchedule.target_decode_at
     (blockAt : schedule.blocks[block.id]? = some blockSchedule)
     (index : Nat) (instruction : Stack.Instr)
     (instructionAt : blockSchedule.stack.instructions[index]? = some instruction) :
-    schedule.stack.decodeInstruction (blockSchedule.targetControlAt block index) =
+    schedule.program.stack.decodeInstruction (blockSchedule.targetControlAt block index) =
       some (blockSchedule.targetControlAt block (index + 1), instruction) := by
   have indexBound : index < blockSchedule.stack.instructions.size :=
     of_getElem?_eq_some (c := blockSchedule.stack.instructions) (i := index) instructionAt
@@ -209,7 +209,7 @@ theorem StackSchedule.source_terminator_at_end
     (schedule : StackSchedule) (block : BlockId)
     (blockSchedule : StackSchedule.Block)
     (blockAt : schedule.blocks[block.id]? = some blockSchedule) :
-    schedule.vars.terminatorAt
+    schedule.program.vars.terminatorAt
       (blockSchedule.sourceControlAt block blockSchedule.vars.statements.size) =
         some blockSchedule.vars.terminator := by
   unfold StackSchedule.Block.sourceControlAt Vars.Program.terminatorAt
@@ -220,7 +220,7 @@ theorem StackSchedule.target_terminator_at_end
     (schedule : StackSchedule) (block : BlockId)
     (blockSchedule : StackSchedule.Block)
     (blockAt : schedule.blocks[block.id]? = some blockSchedule) :
-    schedule.stack.terminatorAt
+    schedule.program.stack.terminatorAt
       (blockSchedule.targetControlAt block blockSchedule.stack.instructions.size) =
         some blockSchedule.stack.terminator := by
   unfold StackSchedule.Block.targetControlAt Stack.Program.terminatorAt
@@ -230,7 +230,7 @@ theorem StackSchedule.target_terminator_at_end
 theorem StackSchedule.target_decode_none_at_end
     (schedule : StackSchedule) (block : BlockId)
     (blockSchedule : StackSchedule.Block) :
-    schedule.stack.decodeInstruction
+    schedule.program.stack.decodeInstruction
       (blockSchedule.targetControlAt block blockSchedule.stack.instructions.size) = none := by
   unfold StackSchedule.Block.targetControlAt
     Stack.Program.decodeInstruction
@@ -253,10 +253,10 @@ theorem StackSchedule.entry_states
     (globals : Globals) (args : Array Word) (locals : Locals)
     (bound : Locals.bindParams
       (schedule.entry.vars.entryLayout.map Symbolic.Value.identifier) args = .ok locals) :
-    (Vars.decoder schedule.vars).entry ⟨0⟩ globals args =
+    (Vars.decoder schedule.program.vars).entry ⟨0⟩ globals args =
         some ((⟨globals, locals,
           schedule.entry.sourceControlAt ⟨0⟩ 0⟩ : Vars.State)) ∧
-      (Stack.decoder schedule.stack).entry ⟨0⟩ globals args =
+      (Stack.decoder schedule.program.stack).entry ⟨0⟩ globals args =
         some ⟨globals, { Stack.Environment.empty with stack := args.toList },
           schedule.entry.targetControlAt ⟨0⟩ 0⟩ ∧
       schedule.entry.vars.entryLayout.toList.mapM (Symbolic.Value.interpret locals) =
@@ -271,11 +271,13 @@ theorem StackSchedule.entry_states
     simp [Locals.bindParams, Locals.bindValues, sizeMismatch, bind, Except.bind] at bound
   refine ⟨?_, ?_, Locals.bindParams_interprets_symbolic_values
     schedule.entry.vars.entryLayout args locals entryNodup bound⟩
-  · simp [Vars.decoder, StackSchedule.vars, Vars.Program.functions,
+  · simp [Vars.decoder, StackSchedule.program, ProgramSchedule.vars, StackSchedule.varsFunction,
+    Vars.Program.functions,
       Vars.Program.callState?, Vars.Program.function?,
       StackSchedule.Block.Source.toBlock, ← boundaryNames.1, bound,
       StackSchedule.Block.sourceControlAt, Vars.Block.startPosition]
-  · simp [Stack.decoder, Stack.entry, StackSchedule.stack, Stack.Program.functions,
+  · simp [Stack.decoder, Stack.entry, StackSchedule.program, ProgramSchedule.stack,
+    StackSchedule.stackFunction, Stack.Program.functions,
       Stack.Program.function?, StackSchedule.Block.Target.toBlock, argumentSize,
       StackSchedule.Block.targetControlAt, Stack.Block.startPosition,
       Stack.Environment.empty]
@@ -283,7 +285,7 @@ theorem StackSchedule.entry_states
 theorem StackSchedule.source_step_trace_empty
     (schedule : StackSchedule) (accepted : schedule.check = .ok ())
     (ctx : CallContext) {state final : Machine.State Vars.frame} {trace : Trace}
-    (step : Machine.Step Vars.frame (Vars.decoder schedule.vars)
+    (step : Machine.Step Vars.frame (Vars.decoder schedule.program.vars)
       Machine.memoryPolicy ctx state trace final) :
     trace = [] := by
   cases step with
@@ -301,11 +303,11 @@ theorem StackSchedule.source_step_trace_empty
 theorem StackSchedule.source_steps_path
     (schedule : StackSchedule) (accepted : schedule.check = .ok ())
     (ctx : CallContext) {state final : Vars.State} {trace : Trace}
-    (steps : Vars.Steps schedule.vars ctx state trace final) :
-    SourcePath schedule.vars ctx state final ∧ trace = [] := by
+    (steps : Vars.Steps schedule.program.vars ctx state trace final) :
+    SourcePath schedule.program.vars ctx state final ∧ trace = [] := by
   exact Machine.Steps.inductionOn
     (motive := fun state trace final _ =>
-      SourcePath schedule.vars ctx state final ∧ trace = [])
+      SourcePath schedule.program.vars ctx state final ∧ trace = [])
     (fun state => ⟨.refl state, rfl⟩)
     (fun start next inductionHypothesis => by
       obtain ⟨path, traceEmpty⟩ := inductionHypothesis
@@ -319,7 +321,7 @@ theorem StackSchedule.target_step_trace_empty
     (ctx : CallContext)
     {state final : Machine.State Stack.frame} {trace : Trace}
     (step : Machine.Step Stack.frame
-      (Stack.decoder schedule.stack) Machine.memoryPolicy ctx state trace final) :
+      (Stack.decoder schedule.program.stack) Machine.memoryPolicy ctx state trace final) :
     trace = [] := by
   cases step with
   | operation hdecode fires =>
@@ -336,11 +338,11 @@ theorem StackSchedule.target_steps_path
     (ctx : CallContext)
     {state final : Machine.State Stack.frame} {trace : Trace}
     (steps : Machine.Steps Stack.frame
-      (Stack.decoder schedule.stack) Machine.memoryPolicy ctx state trace final) :
-    TargetPath schedule.stack ctx state final ∧ trace = [] := by
+      (Stack.decoder schedule.program.stack) Machine.memoryPolicy ctx state trace final) :
+    TargetPath schedule.program.stack ctx state final ∧ trace = [] := by
   exact Machine.Steps.inductionOn
     (motive := fun state trace final _ =>
-      TargetPath schedule.stack ctx state final ∧ trace = [])
+      TargetPath schedule.program.stack ctx state final ∧ trace = [])
     (fun state => ⟨.refl state, rfl⟩)
     (fun start next inductionHypothesis => by
       obtain ⟨path, traceEmpty⟩ := inductionHypothesis
@@ -353,7 +355,7 @@ theorem StackSchedule.target_step_not_returned
     (schedule : StackSchedule) (accepted : schedule.check = .ok ())
     (ctx : CallContext) {state final : Machine.State Stack.frame} {trace : Trace}
     (step : Machine.Step Stack.frame
-      (Stack.decoder schedule.stack) Machine.memoryPolicy ctx state trace final)
+      (Stack.decoder schedule.program.stack) Machine.memoryPolicy ctx state trace final)
     (results : Array Word) :
     final.control ≠ .returned results := by
   intro returned
@@ -381,7 +383,7 @@ theorem StackSchedule.block_execute_steps
     (stackValues : blockSchedule.vars.entryLayout.toList.mapM
       (Symbolic.Value.interpret locals) = some environment.stack) :
     ∃ finalLocals finalEnvironment expectedStack,
-      Machine.Steps Vars.frame (Vars.decoder schedule.vars)
+      Machine.Steps Vars.frame (Vars.decoder schedule.program.vars)
           Machine.memoryPolicy ctx
           ((⟨globals, locals, blockSchedule.sourceControlAt block 0⟩ : Vars.State))
           []
@@ -389,7 +391,7 @@ theorem StackSchedule.block_execute_steps
             blockSchedule.sourceControlAt block blockSchedule.vars.statements.size⟩ :
               Vars.State)) ∧
         Machine.Steps Stack.frame
-          (Stack.decoder schedule.stack) Machine.memoryPolicy ctx
+          (Stack.decoder schedule.program.stack) Machine.memoryPolicy ctx
           ⟨globals, environment,
             blockSchedule.targetControlAt block 0⟩ []
           ⟨globals, finalEnvironment,
@@ -430,7 +432,7 @@ theorem StackSchedule.block_execute_steps
     ⟨interprets, initialAgrees⟩
   obtain ⟨scheduledLocals, finalEnvironment, targetSteps, finalInterprets⟩ :=
     interpretsReference.execute_symbolic_instructions_target_steps
-      (sourceProgram := schedule.vars) (targetProgram := schedule.stack)
+      (sourceProgram := schedule.program.vars) (targetProgram := schedule.program.stack)
       blockSchedule.vars.statements blockSchedule.vars.entryLayout
       blockSchedule.stack.instructions (Symbolic.State.initial blockSchedule.vars.entryLayout)
       finalState ctx globals locals locals referenceLocals environment usesAvailable variablesUnique
@@ -441,7 +443,7 @@ theorem StackSchedule.block_execute_steps
         simpa using schedule.target_decode_at block blockSchedule blockAt index instruction
           instructionAt)
   have sourceSteps := sourceOrderReferenceLocals_source_steps
-    (sourceProgram := schedule.vars) blockSchedule.vars.statements ctx globals
+    (sourceProgram := schedule.program.vars) blockSchedule.vars.statements ctx globals
     locals referenceLocals (blockSchedule.sourceControlAt block) evaluated
     (schedule.source_decode_at block blockSchedule blockAt)
   have finalValuesAvailable := Symbolic.executeAll_preserves_values_available
@@ -471,7 +473,7 @@ theorem StackSchedule.block_jump_step
     (exitValues : blockSchedule.vars.exitLayout.toList.mapM
       (Symbolic.Value.interpret locals) = some environment.stack) :
     ∃ nextLocals,
-      Machine.Step Vars.frame (Vars.decoder schedule.vars)
+      Machine.Step Vars.frame (Vars.decoder schedule.program.vars)
           Machine.memoryPolicy ctx
           ((⟨globals, locals,
             blockSchedule.sourceControlAt block blockSchedule.vars.statements.size⟩ :
@@ -479,7 +481,7 @@ theorem StackSchedule.block_jump_step
           ((⟨globals, nextLocals, successorSchedule.sourceControlAt successor 0⟩ :
               Vars.State)) ∧
         Machine.Step Stack.frame
-          (Stack.decoder schedule.stack) Machine.memoryPolicy ctx
+          (Stack.decoder schedule.program.stack) Machine.memoryPolicy ctx
           ⟨globals, environment,
             blockSchedule.targetControlAt block blockSchedule.stack.instructions.size⟩ []
           ⟨globals, environment, successorSchedule.targetControlAt successor 0⟩ ∧
@@ -553,11 +555,11 @@ theorem StackSchedule.block_jump_step
       StackSchedule.Block.sourceControlAt, Vars.Block.startPosition,
       pure, Except.pure]
   · apply Machine.Step.control
-    change Stack.control schedule.stack environment globals
+    change Stack.control schedule.program.stack environment globals
       (blockSchedule.targetControlAt block blockSchedule.stack.instructions.size) = _
     unfold Stack.control
     rw [schedule.target_decode_none_at_end block blockSchedule]
-    change (schedule.stack.terminatorAt
+    change (schedule.program.stack.terminatorAt
       (blockSchedule.targetControlAt block blockSchedule.stack.instructions.size)).bind _ = _
     rw [schedule.target_terminator_at_end block blockSchedule blockAt, targetJump]
     simp [Stack.jump,
@@ -581,7 +583,7 @@ theorem StackSchedule.block_branch_step
     (branchValues : (.variable condition :: blockSchedule.vars.exitLayout.toList).mapM
       (Symbolic.Value.interpret locals) = some (conditionValue :: exitStack)) :
     ∃ nextLocals,
-      Machine.Step Vars.frame (Vars.decoder schedule.vars)
+      Machine.Step Vars.frame (Vars.decoder schedule.program.vars)
           Machine.memoryPolicy ctx
           ((⟨globals, locals,
             blockSchedule.sourceControlAt block blockSchedule.vars.statements.size⟩ :
@@ -591,7 +593,7 @@ theorem StackSchedule.block_branch_step
               (if conditionValue = 0 then elseSuccessor else thenSuccessor) 0⟩ :
               Vars.State)) ∧
         Machine.Step Stack.frame
-          (Stack.decoder schedule.stack) Machine.memoryPolicy ctx
+          (Stack.decoder schedule.program.stack) Machine.memoryPolicy ctx
           ⟨globals, { environment with stack := conditionValue :: exitStack },
             blockSchedule.targetControlAt block blockSchedule.stack.instructions.size⟩ []
           ⟨globals, { environment with stack := exitStack },
@@ -698,12 +700,12 @@ theorem StackSchedule.block_branch_step
       StackSchedule.Block.sourceControlAt, Vars.Block.startPosition,
       pure, Except.pure]
   · apply Machine.Step.control
-    change Stack.control schedule.stack
+    change Stack.control schedule.program.stack
       { environment with stack := conditionValue :: exitStack } globals
       (blockSchedule.targetControlAt block blockSchedule.stack.instructions.size) = _
     unfold Stack.control
     rw [schedule.target_decode_none_at_end block blockSchedule]
-    change (schedule.stack.terminatorAt
+    change (schedule.program.stack.terminatorAt
       (blockSchedule.targetControlAt block blockSchedule.stack.instructions.size)).bind _ = _
     rw [schedule.target_terminator_at_end block blockSchedule blockAt, targetBranch]
     simp [Stack.jump,
@@ -722,13 +724,13 @@ theorem StackSchedule.block_halted_steps
     (stackValues : blockSchedule.vars.entryLayout.toList.mapM
       (Symbolic.Value.interpret locals) = some environment.stack) :
     ∃ finalLocals finalEnvironment,
-      Machine.Steps Vars.frame (Vars.decoder schedule.vars)
+      Machine.Steps Vars.frame (Vars.decoder schedule.program.vars)
           Machine.memoryPolicy ctx
           ((⟨globals, locals, blockSchedule.sourceControlAt block 0⟩ : Vars.State))
           []
           ((⟨globals, finalLocals, .halted⟩ : Vars.State)) ∧
         Machine.Steps Stack.frame
-          (Stack.decoder schedule.stack) Machine.memoryPolicy ctx
+          (Stack.decoder schedule.program.stack) Machine.memoryPolicy ctx
           ⟨globals, environment,
             blockSchedule.targetControlAt block 0⟩ []
           ⟨globals, finalEnvironment, .halted⟩ := by
@@ -751,7 +753,7 @@ theorem StackSchedule.block_halted_steps
     schedule.block_execute_steps accepted block blockSchedule blockAt ctx globals locals
       environment stackValues
   have sourceHalt : Machine.Step Vars.frame
-      (Vars.decoder schedule.vars) Machine.memoryPolicy ctx
+      (Vars.decoder schedule.program.vars) Machine.memoryPolicy ctx
       ((⟨globals, finalLocals,
         blockSchedule.sourceControlAt block blockSchedule.vars.statements.size⟩ :
           Vars.State)) []
@@ -759,16 +761,16 @@ theorem StackSchedule.block_halted_steps
     exact Sir.step_terminator (schedule.source_terminator_at_end block blockSchedule blockAt)
       (by rw [halt]; rfl)
   have targetHaltStep : Machine.Step Stack.frame
-      (Stack.decoder schedule.stack) Machine.memoryPolicy ctx
+      (Stack.decoder schedule.program.stack) Machine.memoryPolicy ctx
       ⟨globals, finalEnvironment,
         blockSchedule.targetControlAt block blockSchedule.stack.instructions.size⟩ []
       ⟨globals, finalEnvironment, .halted⟩ := by
     apply Machine.Step.control
-    change Stack.control schedule.stack finalEnvironment globals
+    change Stack.control schedule.program.stack finalEnvironment globals
       (blockSchedule.targetControlAt block blockSchedule.stack.instructions.size) = _
     unfold Stack.control
     rw [schedule.target_decode_none_at_end block blockSchedule]
-    change (schedule.stack.terminatorAt
+    change (schedule.program.stack.terminatorAt
       (blockSchedule.targetControlAt block blockSchedule.stack.instructions.size)).bind _ = _
     rw [schedule.target_terminator_at_end block blockSchedule blockAt, targetHalt]
     rfl
@@ -784,34 +786,34 @@ theorem StackSchedule.block_transition_steps
     (stackValues : blockSchedule.vars.entryLayout.toList.mapM
       (Symbolic.Value.interpret locals) = some environment.stack) :
     (∃ finalLocals finalEnvironment,
-      Machine.Steps Vars.frame (Vars.decoder schedule.vars)
+      Machine.Steps Vars.frame (Vars.decoder schedule.program.vars)
           Machine.memoryPolicy ctx
           ((⟨globals, locals, blockSchedule.sourceControlAt block 0⟩ :
             Vars.State)) []
           ((⟨globals, finalLocals, .halted⟩ : Vars.State)) ∧
         Machine.Steps Stack.frame
-          (Stack.decoder schedule.stack) Machine.memoryPolicy ctx
+          (Stack.decoder schedule.program.stack) Machine.memoryPolicy ctx
           ⟨globals, environment, blockSchedule.targetControlAt block 0⟩ []
           ⟨globals, finalEnvironment, .halted⟩) ∨
       ∃ (successor : BlockId)
           (successorSchedule : StackSchedule.Block)
           (nextLocals : Locals) (nextEnvironment : Stack.Environment),
         schedule.blocks[successor.id]? = some successorSchedule ∧
-          Machine.Steps Vars.frame (Vars.decoder schedule.vars)
+          Machine.Steps Vars.frame (Vars.decoder schedule.program.vars)
             Machine.memoryPolicy ctx
             ((⟨globals, locals, blockSchedule.sourceControlAt block 0⟩ :
               Vars.State)) []
             ((⟨globals, nextLocals, successorSchedule.sourceControlAt successor 0⟩ :
               Vars.State)) ∧
-          NonemptySourcePath schedule.vars ctx
+          NonemptySourcePath schedule.program.vars ctx
             ⟨globals, locals, blockSchedule.sourceControlAt block 0⟩
             ⟨globals, nextLocals, successorSchedule.sourceControlAt successor 0⟩ ∧
           Machine.Steps Stack.frame
-            (Stack.decoder schedule.stack) Machine.memoryPolicy ctx
+            (Stack.decoder schedule.program.stack) Machine.memoryPolicy ctx
             ⟨globals, environment, blockSchedule.targetControlAt block 0⟩ []
             ⟨globals, nextEnvironment,
               successorSchedule.targetControlAt successor 0⟩ ∧
-          NonemptyTargetPath schedule.stack ctx
+          NonemptyTargetPath schedule.program.stack ctx
             ⟨globals, environment, blockSchedule.targetControlAt block 0⟩
             ⟨globals, nextEnvironment,
               successorSchedule.targetControlAt successor 0⟩ ∧
@@ -945,29 +947,29 @@ theorem StackSchedule.block_transition_paths
     (stackValues : blockSchedule.vars.entryLayout.toList.mapM
       (Symbolic.Value.interpret locals) = some environment.stack) :
     (∃ finalLocals finalEnvironment,
-      SourcePath schedule.vars ctx
+      SourcePath schedule.program.vars ctx
           ⟨globals, locals, blockSchedule.sourceControlAt block 0⟩
           ⟨globals, finalLocals, .halted⟩ ∧
         Machine.Steps Stack.frame
-          (Stack.decoder schedule.stack) Machine.memoryPolicy ctx
+          (Stack.decoder schedule.program.stack) Machine.memoryPolicy ctx
           ⟨globals, environment, blockSchedule.targetControlAt block 0⟩ []
           ⟨globals, finalEnvironment, .halted⟩) ∨
       ∃ (successor : BlockId)
           (successorSchedule : StackSchedule.Block)
           (nextLocals : Locals) (nextEnvironment : Stack.Environment),
         schedule.blocks[successor.id]? = some successorSchedule ∧
-          SourcePath schedule.vars ctx
+          SourcePath schedule.program.vars ctx
             ⟨globals, locals, blockSchedule.sourceControlAt block 0⟩
             ⟨globals, nextLocals, successorSchedule.sourceControlAt successor 0⟩ ∧
-          NonemptySourcePath schedule.vars ctx
+          NonemptySourcePath schedule.program.vars ctx
             ⟨globals, locals, blockSchedule.sourceControlAt block 0⟩
             ⟨globals, nextLocals, successorSchedule.sourceControlAt successor 0⟩ ∧
           Machine.Steps Stack.frame
-            (Stack.decoder schedule.stack) Machine.memoryPolicy ctx
+            (Stack.decoder schedule.program.stack) Machine.memoryPolicy ctx
             ⟨globals, environment, blockSchedule.targetControlAt block 0⟩ []
             ⟨globals, nextEnvironment,
               successorSchedule.targetControlAt successor 0⟩ ∧
-          NonemptyTargetPath schedule.stack ctx
+          NonemptyTargetPath schedule.program.stack ctx
             ⟨globals, environment, blockSchedule.targetControlAt block 0⟩
             ⟨globals, nextEnvironment,
               successorSchedule.targetControlAt successor 0⟩ ∧

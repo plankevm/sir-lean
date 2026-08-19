@@ -5,25 +5,25 @@ namespace Sir.Lowering
 theorem StackSchedule.forward_halted_path
     (schedule : StackSchedule) (accepted : schedule.check = .ok ())
     (ctx : CallContext) {start final : Vars.State}
-    (path : SourcePath schedule.vars ctx start final)
+    (path : SourcePath schedule.program.vars ctx start final)
     (finalHalted : final.control = .halted)
     (block : BlockId) (blockSchedule : StackSchedule.Block)
     (blockAt : schedule.blocks[block.id]? = some blockSchedule)
     (globals : Globals) (locals : Locals) (environment : Stack.Environment)
-    (initialPath : SourcePath schedule.vars ctx start
+    (initialPath : SourcePath schedule.program.vars ctx start
       ⟨globals, locals, blockSchedule.sourceControlAt block 0⟩)
     (stackValues : blockSchedule.vars.entryLayout.toList.mapM
       (Symbolic.Value.interpret locals) = some environment.stack) :
     ∃ finalEnvironment,
       Machine.Steps Stack.frame
-        (Stack.decoder schedule.stack) Machine.memoryPolicy ctx
+        (Stack.decoder schedule.program.stack) Machine.memoryPolicy ctx
         ⟨globals, environment, blockSchedule.targetControlAt block 0⟩ []
         ⟨final.globals, finalEnvironment, .halted⟩ := by
   have sourcePure := schedule.vars_program_memOracleFree accepted
   induction path generalizing block blockSchedule globals locals environment with
   | refl state =>
       obtain ⟨stateEq, _⟩ := Vars.Steps.eq_of_stuck initialPath.to_steps
-        (stuck_of_exit (program := schedule.vars) (outcome := .halted) finalHalted)
+        (stuck_of_exit (program := schedule.program.vars) (outcome := .halted) finalHalted)
       have controlEq := congrArg Machine.State.control stateEq
       rw [finalHalted] at controlEq
       simp [StackSchedule.Block.sourceControlAt] at controlEq
@@ -35,9 +35,9 @@ theorem StackSchedule.forward_halted_path
           · obtain ⟨certifiedFinalLocals, finalEnvironment, certifiedSource,
                 certifiedTarget⟩ := halted
             have remaining := certifiedSource.cancel_prefix sourcePure (.head first rest)
-              (stuck_of_exit (program := schedule.vars) (outcome := .halted) finalHalted)
+              (stuck_of_exit (program := schedule.program.vars) (outcome := .halted) finalHalted)
             obtain ⟨stateEq, _⟩ := Vars.Steps.eq_of_stuck remaining.to_steps
-              (stuck_of_exit (program := schedule.vars) (outcome := .halted) rfl)
+              (stuck_of_exit (program := schedule.program.vars) (outcome := .halted) rfl)
             have globalsEq : pathFinal.globals = globals :=
               congrArg Machine.State.globals stateEq
             simpa [globalsEq] using ⟨finalEnvironment, certifiedTarget⟩
@@ -60,18 +60,18 @@ theorem StackSchedule.reverse_halted_path
     (schedule : StackSchedule) (accepted : schedule.check = .ok ())
     (ctx : CallContext)
     {start final : Machine.State Stack.frame}
-    (path : TargetPath schedule.stack ctx start final)
+    (path : TargetPath schedule.program.stack ctx start final)
     (finalHalted : final.control = .halted)
     (block : BlockId) (blockSchedule : StackSchedule.Block)
     (blockAt : schedule.blocks[block.id]? = some blockSchedule)
     (globals : Globals) (locals : Locals) (environment : Stack.Environment)
-    (initialPath : TargetPath schedule.stack ctx start
+    (initialPath : TargetPath schedule.program.stack ctx start
       ⟨globals, environment, blockSchedule.targetControlAt block 0⟩)
     (stackValues : blockSchedule.vars.entryLayout.toList.mapM
       (Symbolic.Value.interpret locals) = some environment.stack) :
     ∃ finalLocals,
       Machine.Steps Vars.frame
-        (Vars.decoder schedule.vars) Machine.memoryPolicy ctx
+        (Vars.decoder schedule.program.vars) Machine.memoryPolicy ctx
         ((⟨globals, locals, blockSchedule.sourceControlAt block 0⟩ :
           Vars.State)) []
         ((⟨final.globals, finalLocals, .halted⟩ : Vars.State)) := by
@@ -123,9 +123,9 @@ theorem StackSchedule.reverse_halted_path
 theorem Proofs.StackSchedule.forward_halted_evaluation
     (schedule : StackSchedule) (accepted : schedule.check = .ok ())
     (ctx : CallContext) (globals finalGlobals : Globals) (args : Array Word) (trace : Trace)
-    (sourceEvaluation : Vars.EvalFn schedule.vars ctx ⟨0⟩ globals args trace
+    (sourceEvaluation : Vars.EvalFn schedule.program.vars ctx ⟨0⟩ globals args trace
       finalGlobals .halted) :
-    Stack.EvalFn schedule.stack ctx
+    Stack.EvalFn schedule.program.stack ctx
       ⟨0⟩ globals args trace finalGlobals .halted := by
   have boundaryNames :=
     schedule.block_boundary_names accepted 0 schedule.entry schedule.blocks_zero
@@ -135,7 +135,8 @@ theorem Proofs.StackSchedule.forward_halted_evaluation
       cases bound : Locals.bindParams
           (schedule.entry.vars.entryLayout.map Symbolic.Value.identifier) args with
       | error error =>
-          simp [Vars.decoder, StackSchedule.vars, Vars.Program.functions,
+          simp [Vars.decoder, StackSchedule.program, ProgramSchedule.vars,
+            StackSchedule.varsFunction, Vars.Program.functions,
             Vars.Program.callState?, Vars.Program.function?,
             StackSchedule.Block.Source.toBlock, ← boundaryNames.1, bound] at sourceEntry
       | ok initialLocals =>
@@ -148,7 +149,7 @@ theorem Proofs.StackSchedule.forward_halted_evaluation
           subst initial
           let finalState : Vars.State :=
             ⟨exit.globals, exit.environment, exit.control⟩
-          have sourceSteps : Vars.Steps schedule.vars ctx
+          have sourceSteps : Vars.Steps schedule.program.vars ctx
               ⟨globals, initialLocals,
                 schedule.entry.sourceControlAt ⟨0⟩ 0⟩ trace finalState := by
             simpa [Vars.Steps, finalState] using sourceRun
@@ -166,15 +167,16 @@ theorem Proofs.StackSchedule.forward_halted_evaluation
 theorem Proofs.StackSchedule.reverse_halted_evaluation
     (schedule : StackSchedule) (accepted : schedule.check = .ok ())
     (ctx : CallContext) (globals finalGlobals : Globals) (args : Array Word) (trace : Trace)
-    (targetEvaluation : Stack.EvalFn schedule.stack ctx
+    (targetEvaluation : Stack.EvalFn schedule.program.stack ctx
       ⟨0⟩ globals args trace finalGlobals .halted) :
-    Vars.EvalFn schedule.vars ctx ⟨0⟩ globals args trace finalGlobals .halted := by
+    Vars.EvalFn schedule.program.vars ctx ⟨0⟩ globals args trace finalGlobals .halted := by
   cases targetEvaluation with
   | exit targetEntry targetRun finalHalted =>
       rename_i initial exit
       have argumentSize : args.size = schedule.entry.vars.entryLayout.size := by
         simp [Stack.decoder, Stack.entry,
-          StackSchedule.stack, Stack.Program.functions, Stack.Program.function?,
+          StackSchedule.program, ProgramSchedule.stack, StackSchedule.stackFunction,
+            Stack.Program.functions, Stack.Program.function?,
           StackSchedule.Block.Target.toBlock]
           at targetEntry
         omega
@@ -204,7 +206,7 @@ theorem StackSchedule.source_evaluation_not_returned
     (schedule : StackSchedule) (accepted : schedule.check = .ok ())
     (ctx : CallContext) (globals finalGlobals : Globals) (args results : Array Word)
     (trace : Trace)
-    (sourceEvaluation : Vars.EvalFn schedule.vars ctx ⟨0⟩ globals args trace
+    (sourceEvaluation : Vars.EvalFn schedule.program.vars ctx ⟨0⟩ globals args trace
       finalGlobals (.returned results)) :
     False := by
   cases sourceEvaluation with
@@ -212,7 +214,8 @@ theorem StackSchedule.source_evaluation_not_returned
       rename_i initial exit
       cases sourceRun with
       | refl =>
-          simp [Vars.decoder, StackSchedule.vars, Vars.Program.functions,
+          simp [Vars.decoder, StackSchedule.program, ProgramSchedule.vars,
+            StackSchedule.varsFunction, Vars.Program.functions,
             Vars.Program.callState?, Vars.Program.function?,
             StackSchedule.Block.Source.toBlock] at sourceEntry
           cases bound : Locals.bindParams schedule.entry.vars.inputs args with
@@ -223,7 +226,7 @@ theorem StackSchedule.source_evaluation_not_returned
               simp [FunctionOutcome.toControl] at finalReturned
       | tail start next =>
           have returnedStep := Vars.SmallStep.returned_inv
-            (program := schedule.vars) (ctx := ctx) next
+            (program := schedule.program.vars) (ctx := ctx) next
             (by simpa [FunctionOutcome.toControl] using finalReturned)
           obtain ⟨cursor, block, _, blockAt, terminator, _⟩ := returnedStep
           exact schedule.vars_program_terminator_not_iret accepted cursor block blockAt
@@ -233,14 +236,14 @@ theorem StackSchedule.target_evaluation_not_returned
     (schedule : StackSchedule) (accepted : schedule.check = .ok ())
     (ctx : CallContext) (globals finalGlobals : Globals) (args results : Array Word)
     (trace : Trace)
-    (targetEvaluation : Stack.EvalFn schedule.stack ctx
+    (targetEvaluation : Stack.EvalFn schedule.program.stack ctx
       ⟨0⟩ globals args trace finalGlobals (.returned results)) :
     False := by
   cases targetEvaluation with
   | exit targetEntry targetRun finalReturned =>
       cases targetRun with
       | refl =>
-          cases functionAt : schedule.stack.function? ⟨0⟩ with
+          cases functionAt : schedule.program.stack.function? ⟨0⟩ with
           | none =>
               simp [Stack.decoder, Stack.entry, functionAt] at targetEntry
           | some function =>
@@ -258,9 +261,9 @@ private theorem Proofs.StackSchedule.forward_evaluation
     (schedule : StackSchedule) (accepted : schedule.check = .ok ())
     (ctx : CallContext) (globals finalGlobals : Globals) (args : Array Word) (trace : Trace)
     (outcome : FunctionOutcome)
-    (sourceEvaluation : Vars.EvalFn schedule.vars ctx ⟨0⟩ globals args trace
+    (sourceEvaluation : Vars.EvalFn schedule.program.vars ctx ⟨0⟩ globals args trace
       finalGlobals outcome) :
-    Stack.EvalFn schedule.stack ctx
+    Stack.EvalFn schedule.program.stack ctx
       ⟨0⟩ globals args trace finalGlobals outcome := by
   cases outcome with
   | returned results =>
@@ -274,9 +277,9 @@ private theorem Proofs.StackSchedule.reverse_evaluation
     (schedule : StackSchedule) (accepted : schedule.check = .ok ())
     (ctx : CallContext) (globals finalGlobals : Globals) (args : Array Word) (trace : Trace)
     (outcome : FunctionOutcome)
-    (targetEvaluation : Stack.EvalFn schedule.stack ctx
+    (targetEvaluation : Stack.EvalFn schedule.program.stack ctx
       ⟨0⟩ globals args trace finalGlobals outcome) :
-    Vars.EvalFn schedule.vars ctx ⟨0⟩ globals args trace finalGlobals outcome := by
+    Vars.EvalFn schedule.program.vars ctx ⟨0⟩ globals args trace finalGlobals outcome := by
   cases outcome with
   | returned results =>
       exact (schedule.target_evaluation_not_returned accepted ctx globals finalGlobals args
@@ -289,33 +292,35 @@ private theorem StackSchedule.source_evaluation_function_eq_zero
     (schedule : StackSchedule) {ctx : CallContext} {function : FunctionId}
     {globals finalGlobals : Globals} {args : Array Word} {trace : Trace}
     {outcome : FunctionOutcome}
-    (evaluation : Vars.EvalFn schedule.vars ctx function globals args trace
+    (evaluation : Vars.EvalFn schedule.program.vars ctx function globals args trace
       finalGlobals outcome) :
     function = ⟨0⟩ := by
   rcases function with ⟨_ | function⟩
   · rfl
   · cases evaluation with
     | exit entry _ _ =>
-        simp [Vars.decoder, StackSchedule.vars, Vars.Program.functions,
+        simp [Vars.decoder, StackSchedule.program, ProgramSchedule.vars,
+          StackSchedule.varsFunction, Vars.Program.functions,
           Vars.Program.callState?, Vars.Program.function?] at entry
 
 private theorem StackSchedule.target_evaluation_function_eq_zero
     (schedule : StackSchedule) {ctx : CallContext} {function : FunctionId}
     {globals finalGlobals : Globals} {args : Array Word} {trace : Trace}
     {outcome : FunctionOutcome}
-    (evaluation : Stack.EvalFn schedule.stack ctx function globals args trace
+    (evaluation : Stack.EvalFn schedule.program.stack ctx function globals args trace
       finalGlobals outcome) :
     function = ⟨0⟩ := by
   rcases function with ⟨_ | function⟩
   · rfl
   · cases evaluation with
     | exit entry _ _ =>
-        simp [Stack.decoder, Stack.entry, StackSchedule.stack, Stack.Program.functions,
+        simp [Stack.decoder, Stack.entry, StackSchedule.program, ProgramSchedule.stack,
+          StackSchedule.stackFunction, Stack.Program.functions,
           Stack.Program.function?] at entry
 
 theorem Proofs.StackSchedule.equiv
     (schedule : StackSchedule) (accepted : schedule.check = .ok ()) :
-    Equiv schedule.vars schedule.stack := by
+    Equiv schedule.program.vars schedule.program.stack := by
   intro ctx function globals args trace finalGlobals outcome
   constructor
   · intro sourceEvaluation
@@ -333,7 +338,7 @@ theorem Proofs.Scheduler.Accepted.equiv
     {scheduler : Scheduler} (accepted : scheduler.Accepted)
     {statements : Array Vars.Stmt} {schedule : StackSchedule}
     (produced : scheduler statements = .ok schedule) :
-    Equiv schedule.vars schedule.stack :=
+    Equiv schedule.program.vars schedule.program.stack :=
   Proofs.StackSchedule.equiv schedule (accepted statements schedule produced).2
 
 theorem Proofs.Scheduler.Accepted.schedules_input

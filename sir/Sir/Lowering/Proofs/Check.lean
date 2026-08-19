@@ -22,23 +22,27 @@ theorem StackSchedule.blocks_succ (schedule : StackSchedule) (n : Nat) :
 
 @[simp]
 theorem StackSchedule.vars_functions (schedule : StackSchedule) :
-    schedule.vars.functions = #[schedule.vars.init] := by
-  simp [StackSchedule.vars, Vars.Program.functions]
+    schedule.program.vars.functions = #[schedule.program.vars.init] := by
+  simp [StackSchedule.program, ProgramSchedule.vars, StackSchedule.varsFunction,
+    Vars.Program.functions]
 
 @[simp]
 theorem StackSchedule.stack_functions (schedule : StackSchedule) :
-    schedule.stack.functions = #[schedule.stack.init] := by
-  simp [StackSchedule.stack, Stack.Program.functions]
+    schedule.program.stack.functions = #[schedule.program.stack.init] := by
+  simp [StackSchedule.program, ProgramSchedule.stack, StackSchedule.stackFunction,
+    Stack.Program.functions]
 
 @[simp]
 theorem StackSchedule.vars_blocks (schedule : StackSchedule) :
-    schedule.vars.init.blocks = schedule.blocks.map fun block => block.vars.toBlock := by
-  simp [StackSchedule.vars, StackSchedule.blocks, Vars.Function.blocks]
+    schedule.program.vars.init.blocks = schedule.blocks.map fun block => block.vars.toBlock := by
+  simp [StackSchedule.program, ProgramSchedule.vars, StackSchedule.varsFunction,
+    StackSchedule.blocks, Vars.Function.blocks]
 
 @[simp]
 theorem StackSchedule.stack_blocks (schedule : StackSchedule) :
-    schedule.stack.init.blocks = schedule.blocks.map fun block => block.stack.toBlock := by
-  simp [StackSchedule.stack, StackSchedule.blocks, Stack.Function.blocks]
+    schedule.program.stack.init.blocks = schedule.blocks.map fun block => block.stack.toBlock := by
+  simp [StackSchedule.program, ProgramSchedule.stack, StackSchedule.stackFunction,
+    StackSchedule.blocks, Stack.Function.blocks]
 
 theorem Symbolic.executeAll_cons (statements : Array Vars.Stmt) (instruction : Stack.Instr)
     (instructions : List Stack.Instr) (initial : Symbolic.State) :
@@ -301,11 +305,12 @@ theorem StackSchedule.mem_blocks_check (schedule : StackSchedule)
   exact (schedule.check_sound accepted).1 index indexBound
 
 theorem StackSchedule.vars_hasStmt (schedule : StackSchedule) {statement : Vars.Stmt}
-    (hasStatement : schedule.vars.HasStmt statement) :
+    (hasStatement : schedule.program.vars.HasStmt statement) :
     ∃ blockSchedule ∈ schedule.blocks, statement ∈ blockSchedule.vars.statements := by
   rcases hasStatement with ⟨function, functionMember, block, blockMember, statementMember⟩
-  have functionEq : function = schedule.vars.init := by
-    simpa [StackSchedule.vars] using functionMember
+  have functionEq : function = schedule.program.vars.init := by
+    simpa [StackSchedule.program, ProgramSchedule.vars,
+      StackSchedule.varsFunction] using functionMember
   subst functionEq
   rw [schedule.vars_blocks, Array.mem_map] at blockMember
   obtain ⟨blockSchedule, member, rfl⟩ := blockMember

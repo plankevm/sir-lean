@@ -5,6 +5,8 @@ import Sir.Lowering.Proofs.Purity
 import Sir.Lowering.Proofs.Paths
 import Sir.Lowering.Proofs.Block
 import Sir.Lowering.Proofs.Headline
+import Sir.Lowering.Proofs.Relocate
+import Sir.Lowering.Proofs.Program
 import Sir.Examples.TwoFunction
 import Sir.Examples.Memory
 import Sir.Examples.ZeroedMalloc

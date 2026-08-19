@@ -764,7 +764,7 @@ theorem StackSchedule.Block.sourceOrderReferenceLocals_exists
 theorem StackSchedule.vars_program_memOracleFree
     (schedule : StackSchedule)
     (accepted : schedule.check = .ok ()) :
-    schedule.vars.MemOracleFree := by
+    schedule.program.vars.MemOracleFree := by
   intro statement hasStatement
   obtain ⟨blockSchedule, member, statementMember⟩ := schedule.vars_hasStmt hasStatement
   exact blockSchedule.statements_not_memory_oracle
@@ -773,7 +773,7 @@ theorem StackSchedule.vars_program_memOracleFree
 theorem StackSchedule.vars_program_statements_supported
     (schedule : StackSchedule)
     (accepted : schedule.check = .ok ()) :
-    ∀ statement, schedule.vars.HasStmt statement →
+    ∀ statement, schedule.program.vars.HasStmt statement →
       ∃ symbolicOperation, Symbolic.operationOf statement = some symbolicOperation := by
   intro statement hasStatement
   obtain ⟨blockSchedule, member, statementMember⟩ := schedule.vars_hasStmt hasStatement
@@ -784,7 +784,7 @@ theorem StackSchedule.source_decode_primitive_pure
     (schedule : StackSchedule) (accepted : schedule.check = .ok ())
     {control next : Machine.MachineControl} {operation : Machine.Operation}
     {src : Vars.frame.Source} {dst : Vars.frame.Destination}
-    (decode : Vars.decode schedule.vars control =
+    (decode : Vars.decode schedule.program.vars control =
       some (⟨Machine.Instruction.Kind.primitive operation, src, dst⟩, next)) :
     operation ≠ .gas ∧ operation ≠ .call := by
   obtain ⟨statement, statementAt, decoded⟩ := Vars.decode_inv.mp decode
@@ -801,7 +801,7 @@ theorem StackSchedule.source_decode_icall_false
     (schedule : StackSchedule) (accepted : schedule.check = .ok ())
     {control next : Machine.MachineControl} {callee : FunctionId}
     {src : Vars.frame.Source} {dst : Vars.frame.Destination}
-    (decode : Vars.decode schedule.vars control =
+    (decode : Vars.decode schedule.program.vars control =
       some (⟨Machine.Instruction.Kind.icall callee, src, dst⟩, next)) : False := by
   obtain ⟨statement, statementAt, decoded⟩ := Vars.decode_inv.mp decode
   obtain ⟨symbolicOperation, supported⟩ :=
@@ -815,7 +815,7 @@ theorem StackSchedule.vars_program_terminator_not_iret
     (schedule : StackSchedule)
     (accepted : schedule.check = .ok ())
     (cursor : Machine.ProgramCursor) (block : Vars.Block)
-    (blockAt : schedule.vars.block? cursor = some block) :
+    (blockAt : schedule.program.vars.block? cursor = some block) :
     block.terminator ≠ .iret := by
   rcases cursor with ⟨⟨functionIndex⟩, ⟨blockIndex⟩, position⟩
   rcases functionIndex with _ | functionIndex
@@ -841,7 +841,7 @@ theorem StackSchedule.stack_program_terminator_not_iret
     (schedule : StackSchedule)
     (accepted : schedule.check = .ok ())
     (cursor : Machine.ProgramCursor) (block : Stack.Block)
-    (blockAt : schedule.stack.block? cursor = some block) :
+    (blockAt : schedule.program.stack.block? cursor = some block) :
     block.terminator ≠ .iret := by
   rcases cursor with ⟨⟨functionIndex⟩, ⟨blockIndex⟩, position⟩
   rcases functionIndex with _ | functionIndex
@@ -1352,7 +1352,7 @@ theorem StackSchedule.Block.instructions_flipped_operation_supported
 theorem StackSchedule.target_decode_instruction_mem
     (schedule : StackSchedule) (control next : Machine.MachineControl)
     (instruction : Stack.Instr)
-    (decode : schedule.stack.decodeInstruction control = some (next, instruction)) :
+    (decode : schedule.program.stack.decodeInstruction control = some (next, instruction)) :
     ∃ blockSchedule, blockSchedule ∈ schedule.blocks ∧
       instruction ∈ blockSchedule.stack.instructions := by
   cases control with
@@ -1394,7 +1394,7 @@ theorem StackSchedule.target_decode_instruction_mem
 theorem StackSchedule.target_decoded_instruction_excludes_memory_oracles
     (schedule : StackSchedule) (accepted : schedule.check = .ok ())
     (control next : Machine.MachineControl) (instruction : Stack.Instr)
-    (decode : schedule.stack.decodeInstruction control = some (next, instruction)) :
+    (decode : schedule.program.stack.decodeInstruction control = some (next, instruction)) :
     instruction ≠ .op .mload32 ∧ instruction ≠ .op .malloc ∧
       instruction ≠ .op .mallocUninit := by
   obtain ⟨blockSchedule, blockMember, instructionMember⟩ :=
@@ -1410,7 +1410,7 @@ theorem StackSchedule.target_decoded_instruction_excludes_memory_oracles
 theorem StackSchedule.target_decoded_instruction_excludes_internal_calls
     (schedule : StackSchedule) (accepted : schedule.check = .ok ())
     (control next : Machine.MachineControl) (instruction : Stack.Instr)
-    (decode : schedule.stack.decodeInstruction control = some (next, instruction)) :
+    (decode : schedule.program.stack.decodeInstruction control = some (next, instruction)) :
     ∀ callee argumentCount resultCount,
       instruction ≠ .icall callee argumentCount resultCount := by
   obtain ⟨blockSchedule, blockMember, instructionMember⟩ :=
@@ -1426,7 +1426,7 @@ theorem StackSchedule.target_decoded_instruction_excludes_internal_calls
 theorem StackSchedule.target_decoded_operation_supported
     (schedule : StackSchedule) (accepted : schedule.check = .ok ())
     (control next : Machine.MachineControl) (operation : Machine.Operation)
-    (decode : schedule.stack.decodeInstruction control = some (next, .op operation)) :
+    (decode : schedule.program.stack.decodeInstruction control = some (next, .op operation)) :
     (∃ value, operation = .constant value) ∨ operation = .copy ∨
       operation = .add ∨ operation = .lt := by
   obtain ⟨blockSchedule, blockMember, instructionMember⟩ :=
@@ -1442,7 +1442,7 @@ theorem StackSchedule.target_decoded_operation_supported
 theorem StackSchedule.target_decoded_flipped_operation_supported
     (schedule : StackSchedule) (accepted : schedule.check = .ok ())
     (control next : Machine.MachineControl) (operation : Machine.Operation)
-    (decode : schedule.stack.decodeInstruction control =
+    (decode : schedule.program.stack.decodeInstruction control =
       some (next, .flippedOp operation)) : operation = .add ∨ operation = .lt := by
   obtain ⟨blockSchedule, blockMember, instructionMember⟩ :=
     schedule.target_decode_instruction_mem control next (.flippedOp operation) decode
@@ -1458,7 +1458,7 @@ theorem StackSchedule.target_decode_primitive_pure
     (schedule : StackSchedule) (accepted : schedule.check = .ok ())
     {control next : Machine.MachineControl} {operation : Machine.Operation}
     {src : Stack.Source} {dst : Stack.Destination}
-    (decode : Stack.decode schedule.stack control =
+    (decode : Stack.decode schedule.program.stack control =
       some (⟨Machine.Instruction.Kind.primitive operation, src, dst⟩, next)) :
     operation ≠ .gas ∧ operation ≠ .call := by
   rcases stackDecode_primitive_inv decode with instructionDecode | instructionDecode
@@ -1471,7 +1471,7 @@ theorem StackSchedule.target_decode_icall_false
     (schedule : StackSchedule) (accepted : schedule.check = .ok ())
     {control next : Machine.MachineControl} {callee : FunctionId}
     {src : Stack.Source} {dst : Stack.Destination}
-    (decode : Stack.decode schedule.stack control =
+    (decode : Stack.decode schedule.program.stack control =
       some (⟨Machine.Instruction.Kind.icall callee, src, dst⟩, next)) : False := by
   obtain ⟨argumentCount, resultCount, instructionDecode⟩ := stackDecode_icall_inv decode
   exact schedule.target_decoded_instruction_excludes_internal_calls accepted control next
@@ -1480,11 +1480,11 @@ theorem StackSchedule.target_decode_icall_false
 theorem StackSchedule.stack_program_noMload
     (schedule : StackSchedule)
     (accepted : schedule.check = .ok ()) :
-    (Stack.decoder schedule.stack).NoMload := by
+    (Stack.decoder schedule.program.stack).NoMload := by
   intro control src dst next decode
-  change Stack.decode schedule.stack control =
+  change Stack.decode schedule.program.stack control =
     some (⟨Machine.Instruction.Kind.primitive .mload32, src, dst⟩, next) at decode
-  cases instructionDecode : schedule.stack.decodeInstruction control with
+  cases instructionDecode : schedule.program.stack.decodeInstruction control with
   | none => simp [Stack.decode, instructionDecode] at decode
   | some decoded =>
       obtain ⟨instructionNext, instruction⟩ := decoded
@@ -1510,12 +1510,12 @@ theorem StackSchedule.stack_program_noMload
 theorem StackSchedule.stack_program_noMalloc
     (schedule : StackSchedule)
     (accepted : schedule.check = .ok ()) :
-    (Stack.decoder schedule.stack).NoMalloc := by
+    (Stack.decoder schedule.program.stack).NoMalloc := by
   constructor
   · intro control src dst next decode
-    change Stack.decode schedule.stack control =
+    change Stack.decode schedule.program.stack control =
       some (⟨Machine.Instruction.Kind.primitive .malloc, src, dst⟩, next) at decode
-    cases instructionDecode : schedule.stack.decodeInstruction control with
+    cases instructionDecode : schedule.program.stack.decodeInstruction control with
     | none => simp [Stack.decode, instructionDecode] at decode
     | some decoded =>
         obtain ⟨instructionNext, instruction⟩ := decoded
@@ -1538,9 +1538,9 @@ theorem StackSchedule.stack_program_noMalloc
         | store slot => simp [Stack.decode, instructionDecode] at decode
         | load slot => simp [Stack.decode, instructionDecode] at decode
   · intro control src dst next decode
-    change Stack.decode schedule.stack control =
+    change Stack.decode schedule.program.stack control =
       some (⟨Machine.Instruction.Kind.primitive .mallocUninit, src, dst⟩, next) at decode
-    cases instructionDecode : schedule.stack.decodeInstruction control with
+    cases instructionDecode : schedule.program.stack.decodeInstruction control with
     | none => simp [Stack.decode, instructionDecode] at decode
     | some decoded =>
         obtain ⟨instructionNext, instruction⟩ := decoded
