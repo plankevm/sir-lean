@@ -1,4 +1,5 @@
 import Sir.Text.Spec.Parser
+import Sir.Text.Proofs.Mnemonic
 import Sir.Vars.Proofs.Normalize
 
 namespace Sir.Vars.Text
@@ -379,168 +380,47 @@ theorem parseMnemonic_preserves (functions : List String) (line : Line)
   intro names prior statements finalNames invariant run
   unfold parseMnemonic at run
   split at run
-  case h_1 result source =>
-    obtain ⟨operandResult, operandNames, operandRun, returnRun⟩ := run_bind_ok run
-    have tokenNotNumber : ∀ value, source ≠ .number value := by
-      intro value equality
-      exact noNumbers value (by simp [equality])
-    have afterOperand := operand_preserves_of_not_number tokenNotNumber names
-      (prior ++ [result]) operandResult operandNames invariant operandRun
-    simp [StateT.run, pure, StateT.pure, Except.pure] at returnRun
-    rcases returnRun with ⟨rfl, rfl⟩
-    simpa [statementOccurrences, Stmt.variableOccurrences, List.append_assoc] using
-      afterOperand
-  case h_2 result lhs rhs =>
-    obtain ⟨leftResult, leftNames, leftRun, afterLeftRun⟩ := run_bind_ok run
-    obtain ⟨rightResult, rightNames, rightRun, returnRun⟩ := run_bind_ok afterLeftRun
-    have leftNotNumber : ∀ value, lhs ≠ .number value := by
-      intro value equality
-      exact noNumbers value (by simp [equality])
-    have rightNotNumber : ∀ value, rhs ≠ .number value := by
-      intro value equality
-      exact noNumbers value (by simp [equality])
-    have afterLeft := operand_preserves_of_not_number leftNotNumber names
-      (prior ++ [result]) leftResult leftNames invariant leftRun
-    have afterRight := operand_preserves_of_not_number rightNotNumber leftNames
-      (prior ++ [result] ++ [leftResult.2]) rightResult rightNames afterLeft rightRun
-    simp [StateT.run, pure, StateT.pure, Except.pure] at returnRun
-    rcases returnRun with ⟨rfl, rfl⟩
-    simpa [statementOccurrences, Stmt.variableOccurrences, List.append_assoc] using
-      afterRight
-  case h_3 result lhs rhs =>
-    obtain ⟨leftResult, leftNames, leftRun, afterLeftRun⟩ := run_bind_ok run
-    obtain ⟨rightResult, rightNames, rightRun, returnRun⟩ := run_bind_ok afterLeftRun
-    have leftNotNumber : ∀ value, lhs ≠ .number value := by
-      intro value equality
-      exact noNumbers value (by simp [equality])
-    have rightNotNumber : ∀ value, rhs ≠ .number value := by
-      intro value equality
-      exact noNumbers value (by simp [equality])
-    have afterLeft := operand_preserves_of_not_number leftNotNumber names
-      (prior ++ [result]) leftResult leftNames invariant leftRun
-    have afterRight := operand_preserves_of_not_number rightNotNumber leftNames
-      (prior ++ [result] ++ [leftResult.2]) rightResult rightNames afterLeft rightRun
-    simp [StateT.run, pure, StateT.pure, Except.pure] at returnRun
-    rcases returnRun with ⟨rfl, rfl⟩
-    simpa [statementOccurrences, Stmt.variableOccurrences, List.append_assoc] using
-      afterRight
-  case h_4 result key =>
-    obtain ⟨operandResult, operandNames, operandRun, returnRun⟩ := run_bind_ok run
-    have tokenNotNumber : ∀ value, key ≠ .number value := by
-      intro value equality
-      exact noNumbers value (by simp [equality])
-    have afterOperand := operand_preserves_of_not_number tokenNotNumber names
-      (prior ++ [result]) operandResult operandNames invariant operandRun
-    simp [StateT.run, pure, StateT.pure, Except.pure] at returnRun
-    rcases returnRun with ⟨rfl, rfl⟩
-    simpa [statementOccurrences, Stmt.variableOccurrences, List.append_assoc] using
-      afterOperand
-  case h_5 key storedValue =>
-    obtain ⟨leftResult, leftNames, leftRun, afterLeftRun⟩ := run_bind_ok run
-    obtain ⟨rightResult, rightNames, rightRun, returnRun⟩ := run_bind_ok afterLeftRun
-    have leftNotNumber : ∀ number, key ≠ .number number := by
-      intro number equality
-      exact noNumbers number (by simp [equality])
-    have rightNotNumber : ∀ number, storedValue ≠ .number number := by
-      intro number equality
-      exact noNumbers number (by simp [equality])
-    have afterLeft := operand_preserves_of_not_number leftNotNumber names prior
-      leftResult leftNames (by simpa using invariant) leftRun
-    have afterRight := operand_preserves_of_not_number rightNotNumber leftNames
-      (prior ++ [leftResult.2]) rightResult rightNames afterLeft rightRun
-    simp [StateT.run, pure, StateT.pure, Except.pure] at returnRun
-    rcases returnRun with ⟨rfl, rfl⟩
-    simpa [statementOccurrences, Stmt.variableOccurrences, List.append_assoc] using
-      afterRight
-  case h_6 =>
-    simp [StateT.run, pure, StateT.pure, Except.pure] at run
-    rcases run with ⟨rfl, rfl⟩
-    simpa [statementOccurrences, Stmt.variableOccurrences] using invariant
-  case h_7 result gas callee =>
-    obtain ⟨leftResult, leftNames, leftRun, afterLeftRun⟩ := run_bind_ok run
-    obtain ⟨rightResult, rightNames, rightRun, returnRun⟩ := run_bind_ok afterLeftRun
-    have leftNotNumber : ∀ number, gas ≠ .number number := by
-      intro number equality
-      exact noNumbers number (by simp [equality])
-    have rightNotNumber : ∀ number, callee ≠ .number number := by
-      intro number equality
-      exact noNumbers number (by simp [equality])
-    have afterLeft := operand_preserves_of_not_number leftNotNumber names
-      (prior ++ [result]) leftResult leftNames invariant leftRun
-    have afterRight := operand_preserves_of_not_number rightNotNumber leftNames
-      (prior ++ [result] ++ [leftResult.2]) rightResult rightNames afterLeft rightRun
-    simp [StateT.run, pure, StateT.pure, Except.pure] at returnRun
-    rcases returnRun with ⟨rfl, rfl⟩
-    simpa [statementOccurrences, Stmt.variableOccurrences, List.append_assoc] using
-      afterRight
-  case h_8 result size =>
-    obtain ⟨operandResult, operandNames, operandRun, returnRun⟩ := run_bind_ok run
-    have tokenNotNumber : ∀ value, size ≠ .number value := by
-      intro value equality
-      exact noNumbers value (by simp [equality])
-    have afterOperand := operand_preserves_of_not_number tokenNotNumber names
-      (prior ++ [result]) operandResult operandNames invariant operandRun
-    simp [StateT.run, pure, StateT.pure, Except.pure] at returnRun
-    rcases returnRun with ⟨rfl, rfl⟩
-    simpa [statementOccurrences, Stmt.variableOccurrences, List.append_assoc] using
-      afterOperand
-  case h_9 result size =>
-    obtain ⟨operandResult, operandNames, operandRun, returnRun⟩ := run_bind_ok run
-    have tokenNotNumber : ∀ value, size ≠ .number value := by
-      intro value equality
-      exact noNumbers value (by simp [equality])
-    have afterOperand := operand_preserves_of_not_number tokenNotNumber names
-      (prior ++ [result]) operandResult operandNames invariant operandRun
-    simp [StateT.run, pure, StateT.pure, Except.pure] at returnRun
-    rcases returnRun with ⟨rfl, rfl⟩
-    simpa [statementOccurrences, Stmt.variableOccurrences, List.append_assoc] using
-      afterOperand
-  case h_10 offset storedValue =>
-    obtain ⟨leftResult, leftNames, leftRun, afterLeftRun⟩ := run_bind_ok run
-    obtain ⟨rightResult, rightNames, rightRun, returnRun⟩ := run_bind_ok afterLeftRun
-    have leftNotNumber : ∀ number, offset ≠ .number number := by
-      intro number equality
-      exact noNumbers number (by simp [equality])
-    have rightNotNumber : ∀ number, storedValue ≠ .number number := by
-      intro number equality
-      exact noNumbers number (by simp [equality])
-    have afterLeft := operand_preserves_of_not_number leftNotNumber names prior
-      leftResult leftNames (by simpa using invariant) leftRun
-    have afterRight := operand_preserves_of_not_number rightNotNumber leftNames
-      (prior ++ [leftResult.2]) rightResult rightNames afterLeft rightRun
-    simp [StateT.run, pure, StateT.pure, Except.pure] at returnRun
-    rcases returnRun with ⟨rfl, rfl⟩
-    simpa [statementOccurrences, Stmt.variableOccurrences, List.append_assoc] using
-      afterRight
-  case h_11 result offset =>
-    obtain ⟨operandResult, operandNames, operandRun, returnRun⟩ := run_bind_ok run
-    have tokenNotNumber : ∀ value, offset ≠ .number value := by
-      intro value equality
-      exact noNumbers value (by simp [equality])
-    have afterOperand := operand_preserves_of_not_number tokenNotNumber names
-      (prior ++ [result]) operandResult operandNames invariant operandRun
-    simp [StateT.run, pure, StateT.pure, Except.pure] at returnRun
-    rcases returnRun with ⟨rfl, rfl⟩
-    simpa [statementOccurrences, Stmt.variableOccurrences, List.append_assoc] using
-      afterOperand
-  case h_12 calleeName args =>
-    generalize foundEq : functions.findIdx? (· == calleeName) = found at run
+  · unfold parseInternalCall at run
+    split at run
+    case h_1 calleeName args =>
+      generalize foundEq : functions.findIdx? (· == calleeName) = found at run
+      cases found with
+      | none =>
+          simp [StateT.run, throw, throwThe, MonadExceptOf.throw, StateT.lift] at run
+      | some calleeIndex =>
+          obtain ⟨argumentResult, argumentNames, argumentRun, returnRun⟩ := run_bind_ok run
+          have argsNoNumbers : ContainsNoNumbers args := by
+            intro value member
+            exact noNumbers value (by simp [member])
+          have afterArguments := operands_preserves_of_containsNoNumbers argsNoNumbers
+            names (prior ++ results) argumentResult argumentNames invariant argumentRun
+          simp [StateT.run, pure, StateT.pure, Except.pure] at returnRun
+          rcases returnRun with ⟨rfl, rfl⟩
+          simpa [statementOccurrences, Stmt.variableOccurrences, List.append_assoc] using
+            afterArguments
+    case h_2 =>
+      simp [StateT.run, throw, throwThe, MonadExceptOf.throw, StateT.lift] at run
+  · unfold parseOperation at run
+    generalize foundEq : mnemonics.find? (·.name == mnemonic) = found at run
     cases found with
     | none =>
         simp [StateT.run, throw, throwThe, MonadExceptOf.throw, StateT.lift] at run
-    | some calleeIndex =>
-        obtain ⟨argumentResult, argumentNames, argumentRun, returnRun⟩ := run_bind_ok run
-        have argsNoNumbers : ContainsNoNumbers args := by
-          intro value member
-          exact noNumbers value (by simp [member])
-        have afterArguments := operands_preserves_of_containsNoNumbers argsNoNumbers
-          names (prior ++ results) argumentResult argumentNames invariant argumentRun
-        simp [StateT.run, pure, StateT.pure, Except.pure] at returnRun
-        rcases returnRun with ⟨rfl, rfl⟩
-        simpa [statementOccurrences, Stmt.variableOccurrences, List.append_assoc] using
-          afterArguments
-  case h_13 =>
-    simp [StateT.run, throw, throwThe, MonadExceptOf.throw, StateT.lift] at run
+    | some entry =>
+        have member := List.mem_of_find?_eq_some foundEq
+        simp only at run
+        split at run
+        · obtain ⟨operandResult, operandNames, operandRun, returnRun⟩ := run_bind_ok run
+          rcases operandResult with ⟨preludes, operandIds⟩
+          have afterOperands := operands_preserves_of_containsNoNumbers noNumbers names
+            (prior ++ results) (preludes, operandIds) operandNames invariant operandRun
+          simp only at returnRun
+          split at returnRun
+          · simp [StateT.run, pure, StateT.pure, Except.pure] at returnRun
+            rcases returnRun with ⟨rfl, rfl⟩
+            simpa [statementOccurrences, variableOccurrences_spelling, spelling_build member,
+              List.append_assoc] using afterOperands
+          · simp [StateT.run, throw, throwThe, MonadExceptOf.throw, StateT.lift] at returnRun
+        · simp [StateT.run, throw, throwThe, MonadExceptOf.throw, StateT.lift] at run
 
 theorem parseStatement_preserves (functions : List String) (line : Line) :
     PreservesInterning (parseStatement functions line) statementOccurrences := by

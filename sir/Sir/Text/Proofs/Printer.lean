@@ -77,34 +77,43 @@ theorem renderable_label_decimal {lead : String} {first : Char} {rest : List Cha
     ∀ token ∈ variableTokens identifiers, token.Renderable := by
   simp [variableTokens]
 
-@[simp] theorem renderable_definitionTokens (results : Array VarId) :
+@[simp] theorem renderable_definitionTokens (results : List VarId) :
     ∀ token ∈ definitionTokens results, token.Renderable := by
   rw [definitionTokens]
   split
   · simp
-  · simp only [List.forall_mem_append, List.forall_mem_cons]
-    exact ⟨renderable_variableTokens results, trivial, by simp⟩
+  · simp only [List.forall_mem_append, List.forall_mem_cons, List.forall_mem_map]
+    simp
 
-@[simp] theorem renderable_exprTokens (value : Expr) :
-    ∀ token ∈ exprTokens value, token.Renderable := by
-  cases value <;>
-    simp only [exprTokens, List.forall_mem_cons]
-  all_goals repeat' apply And.intro
-  all_goals first
-    | exact ⟨_, _, rfl, by decide, by decide⟩
-    | simp
+theorem renderable_identifier_of_chars {name : String} (nonempty : name.toList ≠ [])
+    (notDigit : name.toList.head!.isDigit = false)
+    (body : name.toList.all isIdentifierBody = true) : (Token.identifier name).Renderable := by
+  generalize chars : name.toList = characters at *
+  cases characters with
+  | nil => exact (nonempty rfl).elim
+  | cons first rest => exact ⟨first, rest, chars, by simpa using notDigit, body⟩
+
+@[simp] theorem renderable_spellingName (statement : Stmt) :
+    (Token.identifier (spelling statement).name).Renderable := by
+  cases statement with
+  | assign result value =>
+      cases value <;> simp only [spelling] <;>
+        exact renderable_identifier_of_chars (by decide) (by decide) (by decide)
+  | _ =>
+      simp only [spelling]
+      exact renderable_identifier_of_chars (by decide) (by decide) (by decide)
+
+@[simp] theorem renderable_immediateTokens (program : Program) (statement : Stmt) :
+    ∀ token ∈ immediateTokens program statement, token.Renderable := by
+  cases statement with
+  | assign result value => cases value <;> simp [immediateTokens]
+  | _ => simp [immediateTokens]
 
 @[simp] theorem renderable_stmtTokens (program : Program) (statement : Stmt) :
     ∀ token ∈ stmtTokens program statement, token.Renderable := by
-  cases statement <;>
-    simp only [stmtTokens, List.forall_mem_append, List.forall_mem_cons]
-  all_goals repeat' apply And.intro
-  all_goals first
-    | exact ⟨_, _, rfl, by decide, by decide⟩
-    | exact renderable_definitionTokens _
-    | exact renderable_exprTokens _
-    | exact renderable_variableTokens _
-    | simp
+  simp only [stmtTokens, List.forall_mem_append, List.forall_mem_cons, List.forall_mem_map]
+  exact ⟨renderable_definitionTokens _, renderable_spellingName _,
+    renderable_immediateTokens _ _, fun _ _ => renderable_variableToken _⟩
 
 @[simp] theorem renderable_terminatorTokens (terminator : Terminator) :
     ∀ token ∈ terminatorTokens terminator, token.Renderable := by

@@ -131,6 +131,35 @@ private theorem splitLines_lineTokens (lines : List Line)
             (induction (fun line member => nonempty line (by simp [member]))
               (fun line member => noNewline line (by simp [member])))
 
+private theorem spelling_name_ne_fn (statement : Stmt) : (spelling statement).name ≠ "fn" := by
+  cases statement with
+  | assign _ value => cases value <;> simp [spelling]
+  | _ => simp [spelling]
+
+private theorem stmtTokens_head (program : Program) (statement : Stmt) :
+    (∃ identifier rest, stmtTokens program statement = variableToken identifier :: rest) ∨
+      ∃ rest,
+        stmtTokens program statement = Token.identifier (spelling statement).name :: rest := by
+  rw [stmtTokens, definitionTokens]
+  split
+  · exact .inr ⟨_, rfl⟩
+  · rename_i nonempty
+    cases results : (spelling statement).results with
+    | nil => simp [results] at nonempty
+    | cons identifier following =>
+        refine .inl ⟨identifier, List.map variableToken following ++ [Token.equals] ++
+          Token.identifier (spelling statement).name ::
+            (immediateTokens program statement ++
+              List.map variableToken (spelling statement).operands), ?_⟩
+        simp
+
+private theorem stmtTokens_noNewline (program : Program) (statement : Stmt) :
+    Token.newline ∉ stmtTokens program statement := by
+  cases statement with
+  | assign _ value =>
+      cases value <;> simp [stmtTokens, spelling, immediateTokens, definitionTokens, variableToken]
+  | _ => simp [stmtTokens, spelling, immediateTokens, definitionTokens, variableToken]
+
 private theorem programLines_nonempty (program : Program) :
     ∀ line ∈ programLines program, line ≠ [] := by
   intro line member
@@ -144,7 +173,7 @@ private theorem programLines_nonempty (program : Program) :
   simp only [blockLines, List.mem_cons, List.mem_append, List.mem_map] at member
   rcases member with (rfl | ⟨statement, _, rfl⟩) | following
   · simp
-  · cases statement <;> simp [stmtTokens, definitionTokens]
+  · simp [stmtTokens]
   rcases following with rfl | following
   · cases block.terminator <;> simp [terminatorTokens]
   rcases following with rfl | impossible
@@ -164,12 +193,7 @@ private theorem programLines_noNewline (program : Program) :
   simp only [blockLines, List.mem_cons, List.mem_append, List.mem_map] at member
   rcases member with (rfl | ⟨statement, _, rfl⟩) | following
   · simp [variableTokens, variableToken]
-  · cases statement with
-    | assign _ value =>
-        cases value <;>
-          simp [stmtTokens, definitionTokens, exprTokens, variableTokens, variableToken]
-    | sstore | gas | call | malloc | mallocUninit | mstore32 | mload32 | icall =>
-        simp [stmtTokens, definitionTokens, variableTokens, variableToken]
+  · exact stmtTokens_noNewline program statement
   rcases following with rfl | following
   · cases block.terminator <;>
       simp [terminatorTokens, variableToken]
@@ -207,16 +231,9 @@ private theorem functionBodyLines_not_header (program : Program) (function : Fun
   · subst line
     simp
   · subst line
-    cases statement with
-    | assign _ value =>
-        cases value <;>
-          simp [stmtTokens, definitionTokens, variableTokens, variableToken]
-    | icall callee args dests =>
-        rcases dests with ⟨dests⟩
-        cases dests <;>
-          simp [stmtTokens, definitionTokens, variableTokens, variableToken]
-    | sstore | gas | call | malloc | mallocUninit | mstore32 | mload32 =>
-        simp [stmtTokens, definitionTokens, variableTokens, variableToken]
+    rcases stmtTokens_head program statement with
+        ⟨identifier, rest, lineEq⟩ | ⟨rest, lineEq⟩ <;>
+      simp [lineEq, variableToken, spelling_name_ne_fn]
   rcases following with lineEq | following
   · subst line
     cases block.terminator <;> simp [terminatorTokens]
@@ -532,11 +549,6 @@ private theorem span_variableTokens_end_aux (identifiers : List VarId)
       rw [induction (Token.identifier (variableName identifier) :: accumulated)]
       simp
 
-private theorem span_variableTokens_end (identifiers : List VarId) :
-    (identifiers.map variableToken).span (· != Token.equals) =
-      (identifiers.map variableToken, []) := by
-  simpa [List.span] using span_variableTokens_end_aux identifiers []
-
 private theorem span_variableTokens_equals_aux (identifiers : List VarId)
     (rest accumulated : List Token) :
     List.span.loop (· != Token.equals)
@@ -594,8 +606,8 @@ private theorem parseStatement_assign_constant (program : Program) (functions : 
       (stmtTokens program (.assign result (.constant value)))).run (printedVariableNames prior) =
       .ok ([.assign (normalRename full result) (.constant value)],
         printedVariableNames (prior ++ [result])) := by
-  simp [stmtTokens, definitionTokens, exprTokens, parseStatement, statementParts,
-    variableTokens, variableToken, List.span, List.span.loop]
+  simp [stmtTokens, definitionTokens, spelling, immediateTokens, parseStatement,
+    statementParts, variableToken, List.span, List.span.loop]
   simp only [StateT.run, bind, Except.bind]
   rw [show variableList [Token.identifier (variableName result)]
       (printedVariableNames prior) =
@@ -664,12 +676,12 @@ private theorem operands_printed (full prior identifiers : List VarId)
 private theorem statementParts_definition (results : List VarId)
     (operandTokens : List Token)
     (headless : statementParts operandTokens = ([], operandTokens)) :
-    statementParts (definitionTokens results.toArray ++ operandTokens) =
+    statementParts (definitionTokens results ++ operandTokens) =
       (results.map variableToken, operandTokens) := by
   cases results with
   | nil => simpa [definitionTokens] using headless
   | cons head tail =>
-      simpa [definitionTokens, variableTokens] using
+      simpa [definitionTokens] using
         statementParts_results (head :: tail) operandTokens
 
 private theorem parseStatement_printed_head (functions : List String)
@@ -681,10 +693,10 @@ private theorem parseStatement_printed_head (functions : List String)
       .ok (([], parameters), printedVariableNames prior))
     (isPrefix : prior ++ results <+: full) :
     (parseStatement functions
-        (definitionTokens results.toArray ++ Token.identifier mnemonic :: parameters)).run
+        (definitionTokens results ++ Token.identifier mnemonic :: parameters)).run
         (printedVariableNames prior) =
       (parseMnemonic functions
-          (definitionTokens results.toArray ++ Token.identifier mnemonic :: parameters)
+          (definitionTokens results ++ Token.identifier mnemonic :: parameters)
           mnemonic (results.map (normalRename full)) parameters).run
         (printedVariableNames (prior ++ results)) := by
   rw [parseStatement]
@@ -699,11 +711,72 @@ private theorem parseStatement_printed_head (functions : List String)
     simpa [normalRename] using variableList_printed full prior results isPrefix]
   simp only []
   cases outcome : parseMnemonic functions
-      (definitionTokens results.toArray ++ Token.identifier mnemonic :: parameters) mnemonic
+      (definitionTokens results ++ Token.identifier mnemonic :: parameters) mnemonic
       (results.map (normalRename full)) parameters
       (printedVariableNames (prior ++ results)) with
   | error message => rfl
   | ok pair => rfl
+
+private theorem statementParts_operation (name : String) (operands : List VarId) :
+    statementParts (Token.identifier name :: operands.map variableToken) =
+      ([], Token.identifier name :: operands.map variableToken) := by
+  rw [statementParts]
+  simp only [List.span, List.span.loop, identifier_ne_equals]
+  rw [span_variableTokens_end_aux operands [Token.identifier name]]
+
+private theorem immediateTokens_operation (program : Program) (statement : Stmt)
+    (notConst : (spelling statement).name ≠ "const")
+    (notIcall : (spelling statement).name ≠ "icall") :
+    immediateTokens program statement = [] := by
+  cases statement with
+  | assign result value =>
+      cases value with
+      | constant => exact (notConst rfl).elim
+      | _ => rfl
+  | icall => exact (notIcall rfl).elim
+  | _ => rfl
+
+private theorem parseStatement_printed_operation (program : Program)
+    (full prior : List VarId) (statement : Stmt)
+    (notConst : (spelling statement).name ≠ "const")
+    (notIcall : (spelling statement).name ≠ "icall")
+    (isPrefix : prior ++ statement.variableOccurrences <+: full) :
+    (parseStatement (printedFunctionNames program) (stmtTokens program statement)).run
+        (printedVariableNames prior) =
+      .ok ([statement.renameVariables (normalRename full)],
+        printedVariableNames (prior ++ statement.variableOccurrences)) := by
+  have occurrences := variableOccurrences_spelling statement
+  rw [occurrences] at isPrefix ⊢
+  rw [show stmtTokens program statement =
+      definitionTokens (spelling statement).results ++
+        Token.identifier (spelling statement).name ::
+          (spelling statement).operands.map variableToken from by
+    rw [stmtTokens, immediateTokens_operation program statement notConst notIcall]
+    rfl]
+  rw [parseStatement_printed_head (printedFunctionNames program) full prior
+    (spelling statement).results (spelling statement).name
+    ((spelling statement).operands.map variableToken) notConst
+    (statementParts_operation _ _)
+    (liftNumbers_variableTokens (spelling statement).operands (printedVariableNames prior))
+    ((show prior ++ (spelling statement).results <+:
+        prior ++ ((spelling statement).results ++ (spelling statement).operands) from
+      ⟨(spelling statement).operands, by simp⟩).trans isPrefix)]
+  rw [parseMnemonic, if_neg notIcall, parseOperation]
+  obtain ⟨entry, foundEq, resultsOk, operandsOk, buildEq⟩ :=
+    build_spelling statement (normalRename full) notConst notIcall
+  simp only [StateT.run, foundEq]
+  rw [dif_pos (by simpa using resultsOk)]
+  simp only [bind, StateT.bind]
+  rw [show operands ((spelling statement).operands.map variableToken)
+      (printedVariableNames (prior ++ (spelling statement).results)) =
+      .ok (([], (spelling statement).operands.map (normalRename full) |>.toArray),
+        printedVariableNames
+          (prior ++ (spelling statement).results ++ (spelling statement).operands)) from
+    operands_printed full (prior ++ (spelling statement).results)
+      (spelling statement).operands (by simpa [List.append_assoc] using isPrefix)]
+  simp only [Except.bind]
+  rw [dif_pos operandsOk]
+  simp only [pure, StateT.pure, Except.pure, List.append_assoc, buildEq]
 
 private theorem parseStatement_printed (program : Program)
     (full prior : List VarId) (statement : Stmt)
@@ -720,254 +793,9 @@ private theorem parseStatement_printed (program : Program)
           simpa [Stmt.variableOccurrences, Stmt.renameVariables] using
             parseStatement_assign_constant program (printedFunctionNames program) full prior
               result value isPrefix
-      | var source =>
-          simp only [Stmt.variableOccurrences, Expr.variableOccurrences] at isPrefix ⊢
-          rw [show stmtTokens program (.assign result (.var source)) =
-              definitionTokens ([result] : List VarId).toArray ++
-                Token.identifier "copy" :: [variableToken source] from rfl,
-            parseStatement_printed_head (printedFunctionNames program) full prior [result]
-              "copy" [variableToken source] (by decide)
-              (by simp [statementParts, variableToken, List.span, List.span.loop])
-              (by simpa using liftNumbers_variableTokens [source] (printedVariableNames prior))
-              ((show prior ++ [result] <+: prior ++ [result, source] from
-                ⟨[source], by simp⟩).trans isPrefix)]
-          simp only [List.map_cons, List.map_nil, parseMnemonic, StateT.run, bind,
-            StateT.bind, Except.bind]
-          rw [show operand (variableToken source) (printedVariableNames (prior ++ [result])) =
-              .ok (([], normalRename full source),
-                printedVariableNames (prior ++ [result] ++ [source])) from
-            operand_printed full (prior ++ [result]) source
-              (by simpa [List.append_assoc] using isPrefix)]
-          simp [pure, StateT.pure, Except.pure, Stmt.renameVariables, Expr.renameVariables,
-            List.append_assoc]
-      | add lhs rhs =>
-          simp only [Stmt.variableOccurrences, Expr.variableOccurrences] at isPrefix ⊢
-          rw [show stmtTokens program (.assign result (.add lhs rhs)) =
-              definitionTokens ([result] : List VarId).toArray ++
-                Token.identifier "add" :: [variableToken lhs, variableToken rhs] from rfl,
-            parseStatement_printed_head (printedFunctionNames program) full prior [result]
-              "add" [variableToken lhs, variableToken rhs] (by decide)
-              (by simp [statementParts, variableToken, List.span, List.span.loop])
-              (by simpa using liftNumbers_variableTokens [lhs, rhs] (printedVariableNames prior))
-              ((show prior ++ [result] <+: prior ++ [result, lhs, rhs] from
-                ⟨[lhs, rhs], by simp⟩).trans isPrefix)]
-          simp only [List.map_cons, List.map_nil, parseMnemonic, StateT.run, bind,
-            StateT.bind, Except.bind]
-          rw [show operand (variableToken lhs) (printedVariableNames (prior ++ [result])) =
-              .ok (([], normalRename full lhs),
-                printedVariableNames (prior ++ [result] ++ [lhs])) from
-            operand_printed full (prior ++ [result]) lhs
-              (by simpa [List.append_assoc] using
-                ((show prior ++ [result, lhs] <+: prior ++ [result, lhs, rhs] from
-                  ⟨[rhs], by simp⟩).trans isPrefix))]
-          simp only []
-          rw [show operand (variableToken rhs)
-              (printedVariableNames (prior ++ [result] ++ [lhs])) =
-              .ok (([], normalRename full rhs),
-                printedVariableNames (prior ++ [result] ++ [lhs] ++ [rhs])) from
-            operand_printed full (prior ++ [result] ++ [lhs]) rhs
-              (by simpa [List.append_assoc] using isPrefix)]
-          simp [pure, StateT.pure, Except.pure, Stmt.renameVariables, Expr.renameVariables,
-            List.append_assoc]
-      | lt lhs rhs =>
-          simp only [Stmt.variableOccurrences, Expr.variableOccurrences] at isPrefix ⊢
-          rw [show stmtTokens program (.assign result (.lt lhs rhs)) =
-              definitionTokens ([result] : List VarId).toArray ++
-                Token.identifier "lt" :: [variableToken lhs, variableToken rhs] from rfl,
-            parseStatement_printed_head (printedFunctionNames program) full prior [result]
-              "lt" [variableToken lhs, variableToken rhs] (by decide)
-              (by simp [statementParts, variableToken, List.span, List.span.loop])
-              (by simpa using liftNumbers_variableTokens [lhs, rhs] (printedVariableNames prior))
-              ((show prior ++ [result] <+: prior ++ [result, lhs, rhs] from
-                ⟨[lhs, rhs], by simp⟩).trans isPrefix)]
-          simp only [List.map_cons, List.map_nil, parseMnemonic, StateT.run, bind,
-            StateT.bind, Except.bind]
-          rw [show operand (variableToken lhs) (printedVariableNames (prior ++ [result])) =
-              .ok (([], normalRename full lhs),
-                printedVariableNames (prior ++ [result] ++ [lhs])) from
-            operand_printed full (prior ++ [result]) lhs
-              (by simpa [List.append_assoc] using
-                ((show prior ++ [result, lhs] <+: prior ++ [result, lhs, rhs] from
-                  ⟨[rhs], by simp⟩).trans isPrefix))]
-          simp only []
-          rw [show operand (variableToken rhs)
-              (printedVariableNames (prior ++ [result] ++ [lhs])) =
-              .ok (([], normalRename full rhs),
-                printedVariableNames (prior ++ [result] ++ [lhs] ++ [rhs])) from
-            operand_printed full (prior ++ [result] ++ [lhs]) rhs
-              (by simpa [List.append_assoc] using isPrefix)]
-          simp [pure, StateT.pure, Except.pure, Stmt.renameVariables, Expr.renameVariables,
-            List.append_assoc]
-      | sload key =>
-          simp only [Stmt.variableOccurrences, Expr.variableOccurrences] at isPrefix ⊢
-          rw [show stmtTokens program (.assign result (.sload key)) =
-              definitionTokens ([result] : List VarId).toArray ++
-                Token.identifier "sload" :: [variableToken key] from rfl,
-            parseStatement_printed_head (printedFunctionNames program) full prior [result]
-              "sload" [variableToken key] (by decide)
-              (by simp [statementParts, variableToken, List.span, List.span.loop])
-              (by simpa using liftNumbers_variableTokens [key] (printedVariableNames prior))
-              ((show prior ++ [result] <+: prior ++ [result, key] from
-                ⟨[key], by simp⟩).trans isPrefix)]
-          simp only [List.map_cons, List.map_nil, parseMnemonic, StateT.run, bind,
-            StateT.bind, Except.bind]
-          rw [show operand (variableToken key) (printedVariableNames (prior ++ [result])) =
-              .ok (([], normalRename full key),
-                printedVariableNames (prior ++ [result] ++ [key])) from
-            operand_printed full (prior ++ [result]) key
-              (by simpa [List.append_assoc] using isPrefix)]
-          simp [pure, StateT.pure, Except.pure, Stmt.renameVariables, Expr.renameVariables,
-            List.append_assoc]
-  | sstore key value =>
-      simp only [Stmt.variableOccurrences] at isPrefix ⊢
-      rw [show stmtTokens program (.sstore key value) =
-          definitionTokens ([] : List VarId).toArray ++
-            Token.identifier "sstore" :: [variableToken key, variableToken value] from rfl,
-        parseStatement_printed_head (printedFunctionNames program) full prior [] "sstore"
-          [variableToken key, variableToken value] (by decide)
-          (by simp [statementParts, variableToken, List.span, List.span.loop])
-          (by simpa using liftNumbers_variableTokens [key, value] (printedVariableNames prior))
-          (by simpa using
-            (show prior <+: prior ++ [key, value] from ⟨[key, value], rfl⟩).trans isPrefix)]
-      simp only [List.map_nil, List.append_nil, parseMnemonic, StateT.run, bind,
-        StateT.bind, Except.bind]
-      rw [show operand (variableToken key) (printedVariableNames prior) =
-          .ok (([], normalRename full key), printedVariableNames (prior ++ [key])) from
-        operand_printed full prior key
-          ((show prior ++ [key] <+: prior ++ [key, value] from
-            ⟨[value], by simp⟩).trans isPrefix)]
-      simp only []
-      rw [show operand (variableToken value) (printedVariableNames (prior ++ [key])) =
-          .ok (([], normalRename full value),
-            printedVariableNames (prior ++ [key] ++ [value])) from
-        operand_printed full (prior ++ [key]) value
-          (by simpa [List.append_assoc] using isPrefix)]
-      simp [pure, StateT.pure, Except.pure, Stmt.renameVariables, List.append_assoc]
-  | gas result =>
-      simp only [Stmt.variableOccurrences] at isPrefix ⊢
-      rw [show stmtTokens program (.gas result) =
-          definitionTokens ([result] : List VarId).toArray ++
-            Token.identifier "gas" :: [] from rfl,
-        parseStatement_printed_head (printedFunctionNames program) full prior [result] "gas"
-          [] (by decide) (by simp [statementParts, List.span, List.span.loop])
-          (by simpa using liftNumbers_variableTokens [] (printedVariableNames prior))
-          isPrefix]
-      simp [List.map_cons, List.map_nil, parseMnemonic, StateT.run, pure, StateT.pure,
-        Except.pure, Stmt.renameVariables]
-  | call callData =>
-      rcases callData with ⟨callee, gas, result⟩
-      simp only [Stmt.variableOccurrences] at isPrefix ⊢
-      rw [show stmtTokens program (.call ⟨callee, gas, result⟩) =
-          definitionTokens ([result] : List VarId).toArray ++
-            Token.identifier "call" :: [variableToken gas, variableToken callee] from rfl,
-        parseStatement_printed_head (printedFunctionNames program) full prior [result] "call"
-          [variableToken gas, variableToken callee] (by decide)
-          (by simp [statementParts, variableToken, List.span, List.span.loop])
-          (by simpa using liftNumbers_variableTokens [gas, callee] (printedVariableNames prior))
-          ((show prior ++ [result] <+: prior ++ [result, gas, callee] from
-            ⟨[gas, callee], by simp⟩).trans isPrefix)]
-      simp only [List.map_cons, List.map_nil, parseMnemonic, StateT.run, bind,
-        StateT.bind, Except.bind]
-      rw [show operand (variableToken gas) (printedVariableNames (prior ++ [result])) =
-          .ok (([], normalRename full gas),
-            printedVariableNames (prior ++ [result] ++ [gas])) from
-        operand_printed full (prior ++ [result]) gas
-          (by simpa [List.append_assoc] using
-            ((show prior ++ [result, gas] <+: prior ++ [result, gas, callee] from
-              ⟨[callee], by simp⟩).trans isPrefix))]
-      simp only []
-      rw [show operand (variableToken callee)
-          (printedVariableNames (prior ++ [result] ++ [gas])) =
-          .ok (([], normalRename full callee),
-            printedVariableNames (prior ++ [result] ++ [gas] ++ [callee])) from
-        operand_printed full (prior ++ [result] ++ [gas]) callee
-          (by simpa [List.append_assoc] using isPrefix)]
-      simp [pure, StateT.pure, Except.pure, Stmt.renameVariables, List.append_assoc]
-  | malloc result size =>
-      simp only [Stmt.variableOccurrences] at isPrefix ⊢
-      rw [show stmtTokens program (.malloc result size) =
-          definitionTokens ([result] : List VarId).toArray ++
-            Token.identifier "malloc" :: [variableToken size] from rfl,
-        parseStatement_printed_head (printedFunctionNames program) full prior [result]
-          "malloc" [variableToken size] (by decide)
-          (by simp [statementParts, variableToken, List.span, List.span.loop])
-          (by simpa using liftNumbers_variableTokens [size] (printedVariableNames prior))
-          ((show prior ++ [result] <+: prior ++ [result, size] from
-            ⟨[size], by simp⟩).trans isPrefix)]
-      simp only [List.map_cons, List.map_nil, parseMnemonic, StateT.run, bind,
-        StateT.bind, Except.bind]
-      rw [show operand (variableToken size) (printedVariableNames (prior ++ [result])) =
-          .ok (([], normalRename full size),
-            printedVariableNames (prior ++ [result] ++ [size])) from
-        operand_printed full (prior ++ [result]) size
-          (by simpa [List.append_assoc] using isPrefix)]
-      simp [pure, StateT.pure, Except.pure, Stmt.renameVariables, List.append_assoc]
-  | mallocUninit result size =>
-      simp only [Stmt.variableOccurrences] at isPrefix ⊢
-      rw [show stmtTokens program (.mallocUninit result size) =
-          definitionTokens ([result] : List VarId).toArray ++
-            Token.identifier "mallocany" :: [variableToken size] from rfl,
-        parseStatement_printed_head (printedFunctionNames program) full prior [result]
-          "mallocany" [variableToken size] (by decide)
-          (by simp [statementParts, variableToken, List.span, List.span.loop])
-          (by simpa using liftNumbers_variableTokens [size] (printedVariableNames prior))
-          ((show prior ++ [result] <+: prior ++ [result, size] from
-            ⟨[size], by simp⟩).trans isPrefix)]
-      simp only [List.map_cons, List.map_nil, parseMnemonic, StateT.run, bind,
-        StateT.bind, Except.bind]
-      rw [show operand (variableToken size) (printedVariableNames (prior ++ [result])) =
-          .ok (([], normalRename full size),
-            printedVariableNames (prior ++ [result] ++ [size])) from
-        operand_printed full (prior ++ [result]) size
-          (by simpa [List.append_assoc] using isPrefix)]
-      simp [pure, StateT.pure, Except.pure, Stmt.renameVariables, List.append_assoc]
-  | mstore32 offset value =>
-      simp only [Stmt.variableOccurrences] at isPrefix ⊢
-      rw [show stmtTokens program (.mstore32 offset value) =
-          definitionTokens ([] : List VarId).toArray ++
-            Token.identifier "mstore256" ::
-              [variableToken offset, variableToken value] from rfl,
-        parseStatement_printed_head (printedFunctionNames program) full prior [] "mstore256"
-          [variableToken offset, variableToken value] (by decide)
-          (by simp [statementParts, variableToken, List.span, List.span.loop])
-          (by simpa using
-            liftNumbers_variableTokens [offset, value] (printedVariableNames prior))
-          (by simpa using
-            (show prior <+: prior ++ [offset, value] from
-              ⟨[offset, value], rfl⟩).trans isPrefix)]
-      simp only [List.map_nil, List.append_nil, parseMnemonic, StateT.run, bind,
-        StateT.bind, Except.bind]
-      rw [show operand (variableToken offset) (printedVariableNames prior) =
-          .ok (([], normalRename full offset), printedVariableNames (prior ++ [offset])) from
-        operand_printed full prior offset
-          ((show prior ++ [offset] <+: prior ++ [offset, value] from
-            ⟨[value], by simp⟩).trans isPrefix)]
-      simp only []
-      rw [show operand (variableToken value) (printedVariableNames (prior ++ [offset])) =
-          .ok (([], normalRename full value),
-            printedVariableNames (prior ++ [offset] ++ [value])) from
-        operand_printed full (prior ++ [offset]) value
-          (by simpa [List.append_assoc] using isPrefix)]
-      simp [pure, StateT.pure, Except.pure, Stmt.renameVariables, List.append_assoc]
-  | mload32 result offset =>
-      simp only [Stmt.variableOccurrences] at isPrefix ⊢
-      rw [show stmtTokens program (.mload32 result offset) =
-          definitionTokens ([result] : List VarId).toArray ++
-            Token.identifier "mload256" :: [variableToken offset] from rfl,
-        parseStatement_printed_head (printedFunctionNames program) full prior [result]
-          "mload256" [variableToken offset] (by decide)
-          (by simp [statementParts, variableToken, List.span, List.span.loop])
-          (by simpa using liftNumbers_variableTokens [offset] (printedVariableNames prior))
-          ((show prior ++ [result] <+: prior ++ [result, offset] from
-            ⟨[offset], by simp⟩).trans isPrefix)]
-      simp only [List.map_cons, List.map_nil, parseMnemonic, StateT.run, bind,
-        StateT.bind, Except.bind]
-      rw [show operand (variableToken offset) (printedVariableNames (prior ++ [result])) =
-          .ok (([], normalRename full offset),
-            printedVariableNames (prior ++ [result] ++ [offset])) from
-        operand_printed full (prior ++ [result]) offset
-          (by simpa [List.append_assoc] using isPrefix)]
-      simp [pure, StateT.pure, Except.pure, Stmt.renameVariables, List.append_assoc]
+      | var | add | lt | sload =>
+          exact parseStatement_printed_operation program full prior _
+            (by simp [spelling]) (by simp [spelling]) isPrefix
   | icall callee args dests =>
       rcases args with ⟨args⟩
       rcases dests with ⟨dests⟩
@@ -977,7 +805,7 @@ private theorem parseStatement_printed (program : Program)
       | nil =>
           simp only [List.nil_append] at isPrefix ⊢
           rw [show stmtTokens program (.icall callee ⟨args⟩ ⟨[]⟩) =
-              definitionTokens ([] : List VarId).toArray ++
+              definitionTokens ([] : List VarId) ++
                 Token.identifier "icall" :: Token.label (functionName program callee) ::
                   args.map variableToken from rfl,
             parseStatement_printed_head (printedFunctionNames program) full prior [] "icall"
@@ -986,7 +814,8 @@ private theorem parseStatement_printed (program : Program)
               (liftNumbers_icall (functionName program callee) args _)
               (by simpa using
                 (show prior <+: prior ++ args from ⟨args, rfl⟩).trans isPrefix)]
-          simp only [List.map_nil, List.append_nil, parseMnemonic, StateT.run, bind]
+          simp only [List.map_nil, List.append_nil, parseMnemonic, reduceIte,
+            parseInternalCall, StateT.run, bind]
           rw [printedFunctionNames_findIdx program callee references]
           simp only [StateT.bind]
           rw [show operands (args.map variableToken) (printedVariableNames prior) =
@@ -997,10 +826,10 @@ private theorem parseStatement_printed (program : Program)
       | cons destination following =>
           simp only [List.cons_append] at isPrefix ⊢
           rw [show stmtTokens program (.icall callee ⟨args⟩ ⟨destination :: following⟩) =
-              definitionTokens (destination :: following : List VarId).toArray ++
+              definitionTokens (destination :: following : List VarId) ++
                 Token.identifier "icall" :: Token.label (functionName program callee) ::
                   args.map variableToken from by
-              simp [stmtTokens, definitionTokens, variableTokens, List.append_assoc],
+              simp [stmtTokens, spelling, immediateTokens],
             parseStatement_printed_head (printedFunctionNames program) full prior
               (destination :: following) "icall"
               (Token.label (functionName program callee) :: args.map variableToken)
@@ -1009,7 +838,7 @@ private theorem parseStatement_printed (program : Program)
               ((show prior ++ (destination :: following) <+:
                   prior ++ (destination :: following) ++ args from ⟨args, by simp⟩).trans
                 (by simpa [List.append_assoc] using isPrefix))]
-          simp only [parseMnemonic, StateT.run, bind]
+          simp only [parseMnemonic, reduceIte, parseInternalCall, StateT.run, bind]
           rw [printedFunctionNames_findIdx program callee references]
           simp only [StateT.bind]
           rw [show operands (args.map variableToken)
@@ -1020,6 +849,9 @@ private theorem parseStatement_printed (program : Program)
               (by simpa [List.append_assoc] using isPrefix)]
           simp [bind, Except.bind, pure, StateT.pure, Except.pure, List.append_assoc,
             Stmt.renameVariables]
+  | sstore | gas | call | malloc | mallocUninit | mstore32 | mload32 =>
+      exact parseStatement_printed_operation program full prior _
+        (by simp [spelling]) (by simp [spelling]) isPrefix
 
 private def printedBlockNames (function : Function) : List String :=
   function.blocks.toList.zipIdx.map fun pair => blockName ⟨pair.2⟩
@@ -1333,14 +1165,9 @@ private theorem printedBlockBody_ne_rightBrace (program : Program) (block : Bloc
   intro line member
   simp only [printedBlockBody, List.mem_append, List.mem_map, List.mem_singleton] at member
   rcases member with ⟨statement, _, rfl⟩ | rfl
-  · cases statement with
-    | assign _ value =>
-        cases value <;> simp [stmtTokens, definitionTokens, variableTokens, variableToken]
-    | icall callee args dests =>
-        rcases dests with ⟨dests⟩
-        cases dests <;> simp [stmtTokens, definitionTokens, variableTokens, variableToken]
-    | sstore | gas | call | malloc | mallocUninit | mstore32 | mload32 =>
-        simp [stmtTokens, definitionTokens, variableTokens, variableToken]
+  · rcases stmtTokens_head program statement with
+        ⟨identifier, rest, lineEq⟩ | ⟨rest, lineEq⟩ <;>
+      simp [lineEq, variableToken]
   · cases block.terminator <;> simp [terminatorTokens]
 
 private theorem splitBlocksAux_body (groups : List (Line × List Line))

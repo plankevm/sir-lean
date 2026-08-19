@@ -49,6 +49,18 @@ private theorem run_bind_ok {α β : Type} {action : ParserM α}
       refine ⟨pair.1, pair.2, by simp only [Prod.eta], ?_⟩
       simpa [firstRun] using run
 
+private theorem build_functionReferencesInRange {entry : Mnemonic} (member : entry ∈ mnemonics)
+    (results : Vector VarId entry.results) (operands : Vector VarId entry.operands)
+    (functionCount : Nat) :
+    (entry.build results operands).FunctionReferencesInRange functionCount := by
+  have spelled := spelling_build member results operands
+  cases built : entry.build results operands with
+  | icall callee args dests =>
+      rw [built] at spelled
+      exact ((mnemonic_name member).2
+        (by simpa [spelling] using congrArg Spelling.name spelled.symm)).elim
+  | _ => trivial
+
 private theorem parseMnemonic_functionReferencesInRange
     (functions : List String) (line : Line) (mnemonic : String)
     (results : List VarId) (parameters : List Token)
@@ -59,12 +71,32 @@ private theorem parseMnemonic_functionReferencesInRange
       statement.FunctionReferencesInRange functions.length := by
   unfold parseMnemonic at run
   split at run
-  all_goals repeat' split at run
-  all_goals
-    simp_all [StateT.run, bind, StateT.bind, pure, StateT.pure, Except.bind,
-      Except.pure, throw, throwThe, MonadExceptOf.throw, StateT.lift,
-      Stmt.FunctionReferencesInRange]
-  all_goals grind [findIdx?_bound]
+  · unfold parseInternalCall at run
+    split at run
+    all_goals repeat' split at run
+    all_goals
+      simp_all [StateT.run, bind, StateT.bind, pure, StateT.pure, Except.bind,
+        Except.pure, throw, throwThe, MonadExceptOf.throw, StateT.lift,
+        Stmt.FunctionReferencesInRange]
+    all_goals grind [findIdx?_bound]
+  · unfold parseOperation at run
+    generalize foundEq : mnemonics.find? (·.name == mnemonic) = found at run
+    cases found with
+    | none =>
+        simp [StateT.run, throw, throwThe, MonadExceptOf.throw, StateT.lift] at run
+    | some entry =>
+        have member := List.mem_of_find?_eq_some foundEq
+        simp only at run
+        split at run
+        · obtain ⟨operandResult, operandNames, operandRun, returnRun⟩ := run_bind_ok run
+          rcases operandResult with ⟨preludes, operandIds⟩
+          simp only at returnRun
+          split at returnRun
+          · simp [StateT.run, pure, StateT.pure, Except.pure] at returnRun
+            rcases returnRun with ⟨rfl, rfl⟩
+            simpa using build_functionReferencesInRange member _ _ functions.length
+          · simp [StateT.run, throw, throwThe, MonadExceptOf.throw, StateT.lift] at returnRun
+        · simp [StateT.run, throw, throwThe, MonadExceptOf.throw, StateT.lift] at run
 
 private theorem liftNumbers_functionReferencesInRange (functionCount : Nat)
     (tokens : List Token)

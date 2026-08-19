@@ -1,4 +1,4 @@
-import Sir.Text.Spec.Lexer
+import Sir.Text.Spec.Mnemonic
 
 namespace Sir.Vars.Text
 
@@ -67,51 +67,31 @@ def operands : List Token → ParserM (List Stmt × Array VarId)
       let (preludes, identifiers) ← operands rest
       return (prelude ++ preludes, #[identifier] ++ identifiers)
 
-def parseMnemonic (functions : List String) (line : Line) (mnemonic : String)
-    (results : List VarId) (parameters : List Token) : ParserM (List Stmt) :=
-  match mnemonic, results, parameters with
-  | "copy", [result], [source] => do
-      let (_, sourceId) ← operand source
-      pure [.assign result (.var sourceId)]
-  | "add", [result], [lhs, rhs] => do
-      let (_, lhsId) ← operand lhs
-      let (_, rhsId) ← operand rhs
-      pure [.assign result (.add lhsId rhsId)]
-  | "lt", [result], [lhs, rhs] => do
-      let (_, lhsId) ← operand lhs
-      let (_, rhsId) ← operand rhs
-      pure [.assign result (.lt lhsId rhsId)]
-  | "sload", [result], [key] => do
-      let (_, keyId) ← operand key
-      pure [.assign result (.sload keyId)]
-  | "sstore", [], [key, value] => do
-      let (_, keyId) ← operand key
-      let (_, valueId) ← operand value
-      pure [.sstore keyId valueId]
-  | "gas", [result], [] => pure [.gas result]
-  | "call", [result], [gas, callee] => do
-      let (_, gasId) ← operand gas
-      let (_, calleeId) ← operand callee
-      pure [.call { callee := calleeId, gas := gasId, result := result }]
-  | "malloc", [result], [size] => do
-      let (_, sizeId) ← operand size
-      pure [.malloc result sizeId]
-  | "mallocany", [result], [size] => do
-      let (_, sizeId) ← operand size
-      pure [.mallocUninit result sizeId]
-  | "mstore256", [], [offset, value] => do
-      let (_, offsetId) ← operand offset
-      let (_, valueId) ← operand value
-      pure [.mstore32 offsetId valueId]
-  | "mload256", [result], [offset] => do
-      let (_, offsetId) ← operand offset
-      pure [.mload32 result offsetId]
-  | "icall", dests, .label calleeName :: args => do
+def parseInternalCall (functions : List String) (line : Line) (dests : List VarId) :
+    List Token → ParserM (List Stmt)
+  | .label calleeName :: args => do
       let some calleeIndex := functions.findIdx? (· == calleeName)
         | throw s!"unknown function '@{calleeName}'"
       let (_, arguments) ← operands args
       pure [.icall ⟨calleeIndex⟩ arguments dests.toArray]
-  | _, _, _ => throw s!"unsupported operation '{describe line}'"
+  | _ => throw s!"expected a function label in '{describe line}'"
+
+def parseOperation (line : Line) (mnemonic : String) (results : List VarId)
+    (parameters : List Token) : ParserM (List Stmt) := do
+  let some entry := mnemonics.find? (·.name == mnemonic)
+    | throw s!"unknown operation '{mnemonic}' in '{describe line}'"
+  if resultsOk : results.length = entry.results then
+    let (_, operandIds) ← operands parameters
+    if operandsOk : operandIds.size = entry.operands then
+      pure [entry.build ⟨results.toArray, by simpa using resultsOk⟩
+        ⟨operandIds, operandsOk⟩]
+    else throw s!"'{mnemonic}' takes {entry.operands} operands in '{describe line}'"
+  else throw s!"'{mnemonic}' defines {entry.results} results in '{describe line}'"
+
+def parseMnemonic (functions : List String) (line : Line) (mnemonic : String)
+    (results : List VarId) (parameters : List Token) : ParserM (List Stmt) :=
+  if mnemonic = "icall" then parseInternalCall functions line results parameters
+  else parseOperation line mnemonic results parameters
 
 def statementParts (line : Line) : List Token × List Token :=
   match line.span (· != .equals) with

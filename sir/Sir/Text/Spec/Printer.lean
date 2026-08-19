@@ -1,4 +1,4 @@
-import Sir.Text.Spec.Lexer
+import Sir.Text.Spec.Mnemonic
 
 namespace Sir.Vars.Text
 
@@ -19,34 +19,18 @@ def variableToken (identifier : VarId) : Token :=
 def variableTokens (identifiers : Array VarId) : List Token :=
   identifiers.toList.map variableToken
 
-def definitionTokens (results : Array VarId) : List Token :=
-  if results.isEmpty then [] else variableTokens results ++ [.equals]
+def definitionTokens (results : List VarId) : List Token :=
+  if results.isEmpty then [] else results.map variableToken ++ [.equals]
 
-def exprTokens : Expr → List Token
-  | .constant value => [.identifier "const", .number value.toNat]
-  | .var source => [.identifier "copy", variableToken source]
-  | .add lhs rhs => [.identifier "add", variableToken lhs, variableToken rhs]
-  | .lt lhs rhs => [.identifier "lt", variableToken lhs, variableToken rhs]
-  | .sload key => [.identifier "sload", variableToken key]
+def immediateTokens (program : Program) : Stmt → List Token
+  | .assign _ (.constant value) => [.number value.toNat]
+  | .icall callee _ _ => [.label (functionName program callee)]
+  | _ => []
 
-def stmtTokens (program : Program) : Stmt → List Token
-  | .assign result value => definitionTokens #[result] ++ exprTokens value
-  | .sstore key value => [.identifier "sstore", variableToken key, variableToken value]
-  | .gas result => definitionTokens #[result] ++ [.identifier "gas"]
-  | .call callData =>
-      definitionTokens #[callData.result] ++
-        [.identifier "call", variableToken callData.gas, variableToken callData.callee]
-  | .malloc result size =>
-      definitionTokens #[result] ++ [.identifier "malloc", variableToken size]
-  | .mallocUninit result size =>
-      definitionTokens #[result] ++ [.identifier "mallocany", variableToken size]
-  | .mstore32 offset value =>
-      [.identifier "mstore256", variableToken offset, variableToken value]
-  | .mload32 result offset =>
-      definitionTokens #[result] ++ [.identifier "mload256", variableToken offset]
-  | .icall callee args dests =>
-      definitionTokens dests ++
-        [.identifier "icall", .label (functionName program callee)] ++ variableTokens args
+def stmtTokens (program : Program) (statement : Stmt) : List Token :=
+  definitionTokens (spelling statement).results ++
+    .identifier (spelling statement).name ::
+      (immediateTokens program statement ++ (spelling statement).operands.map variableToken)
 
 def terminatorTokens : Terminator → List Token
   | .halt => [.identifier "stop"]
