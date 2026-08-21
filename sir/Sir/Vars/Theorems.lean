@@ -9,6 +9,8 @@ local notation:50 s " =[" t "]=>* " f => Vars.Steps program ctx s t f
 
 local notation:50 s " =[" t "]=> " f => Vars.SmallStep program ctx s t f
 
+local notation:50 s " =[" t "]=>! " f => Vars.Steps.Halted program ctx s t f
+
 theorem Vars.Program.deterministic_of_memOracleFree
     (hfree : program.MemOracleFree) : program.Deterministic :=
   Vars.Proofs.Program.deterministic_of_memOracleFree hfree
@@ -138,8 +140,7 @@ theorem Vars.Program.WellFormed.icall_step
     (hstmt : program.AtStmt s nextControl (.icall callee args dests))
     (hargs : args.mapM s.lookup = .ok vs)
     (hcallee : Vars.EvalFn program ctx callee s.globals vs t g' (.returned rs)) :
-    ∃ locals', s =[t]=>
-      { s with globals := g', environment := locals', control := nextControl } :=
+    ∃ locals', s =[t]=> State.of g' locals' nextControl :=
   Vars.Proofs.Program.WellFormed.icall_step hwf hstmt hargs hcallee
 
 theorem Vars.Program.icall_halted_step

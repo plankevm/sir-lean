@@ -663,7 +663,7 @@ theorem Vars.Proofs.Program.WellFormed.icall_step
     (hcallee : Vars.EvalFn program ctx
       callee state.globals values trace globals' (.returned results)) :
     ∃ locals', Vars.SmallStep program ctx state trace
-        { state with globals := globals', environment := locals', control := next } := by
+        (State.of globals' locals' next) := by
   obtain ⟨locals', hbind⟩ := hwf.icall_bindReturns hstmt hcallee
   exact ⟨locals', Vars.SmallStep.icall hstmt hargs hcallee
     (Vars.resume_returned_eq_some_iff.mpr ⟨hbind, rfl⟩)⟩

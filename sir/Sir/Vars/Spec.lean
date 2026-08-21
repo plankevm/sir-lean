@@ -61,6 +61,9 @@ abbrev State.lookup (state : State) (var : VarId) : Except IRError Word :=
 def State.halted (globals : Globals) : State :=
   { globals, environment := .empty, control := .halted }
 
+def State.of (globals : Globals) (environment : Locals) (control : Control) : State :=
+  ⟨globals, environment, control⟩
+
 def State.assign (state : State) (var : VarId) (value : Word) (next : Control) : State :=
   { state with environment := state.environment.assign var value, control := next }
 
@@ -364,8 +367,7 @@ inductive SmallStep (program : Program) (context : CallContext) :
       (hcall : EvalFn program context callee state.globals values trace globals outcome)
       (hresume : resume outcome state.environment dests next =
         some (environment, resumed)) :
-      SmallStep program context state trace
-        { globals := globals, environment := environment, control := resumed }
+      SmallStep program context state trace (State.of globals environment resumed)
   | control
       (hterm : program.AtTerm state terminator)
       (heval : (evaluateTerminator program terminator).run state = .ok ((), final)) :
@@ -392,6 +394,10 @@ end
 def Steps.Extends (program : Program) (context : CallContext) (state₁ : State)
     (trace₁ : Trace) (state₂ : State) (trace₂ : Trace) : Prop :=
   ∃ suffix, Steps program context state₁ suffix state₂ ∧ trace₁ ++ suffix = trace₂
+
+def Steps.Halted (program : Program) (context : CallContext)
+    (state : State) (trace : Trace) (final : State) : Prop :=
+  Steps program context state trace final ∧ final.control = .halted
 
 def Program.NonIcallControl (program : Program) (state : Vars.State) : Prop :=
   (∃ nextControl statement,
