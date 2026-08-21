@@ -379,8 +379,6 @@ def Steps.Extends (program : Program) (context : CallContext) (state₁ : State)
     (trace₁ : Trace) (state₂ : State) (trace₂ : Trace) : Prop :=
   ∃ suffix, Steps program context state₁ suffix state₂ ∧ trace₁ ++ suffix = trace₂
 
-def Steps.Halted (program : Program) (context : CallContext)
-    (state : State) (trace : Trace) (final : State) : Prop :=
-  Steps program context state trace final ∧ final.control = .halted
+
 
 end Sir.Stack

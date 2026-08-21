@@ -10,7 +10,7 @@ local notation:50 s " =[" t "]=>* " f => Steps program ctx s t f
 
 local notation:50 s " =[" t "]=> " f => SmallStep program ctx s t f
 
-local notation:50 s " =[" t "]=>! " f => Steps.Halted program ctx s t f
+
 
 theorem Steps.confluence_or_queryDivergence
     (hfree : program.MemOracleFree)
