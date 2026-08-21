@@ -100,19 +100,19 @@ theorem Vars.Proofs.progress_stmt
           obtain ⟨⟨leftValue, hleft⟩, rightValue, hright⟩ := hready
           let value := Evm.UInt256.add leftValue rightValue
           exact ⟨[], _, .assign (value := value) hstmt
-            (by simp [Vars.evalExpr, hleft, hright, value, bind, Except.bind,
+            (by simp [Vars.State.evaluate, Vars.evalExpr, hleft, hright, value, bind, Except.bind,
               pure, Except.pure])⟩
       | lt left right =>
           obtain ⟨⟨leftValue, hleft⟩, rightValue, hright⟩ := hready
           let value := Evm.UInt256.lt leftValue rightValue
           exact ⟨[], _, .assign (value := value) hstmt
-            (by simp [Vars.evalExpr, hleft, hright, value, bind, Except.bind,
+            (by simp [Vars.State.evaluate, Vars.evalExpr, hleft, hright, value, bind, Except.bind,
               pure, Except.pure])⟩
       | sload key =>
           obtain ⟨keyValue, hkey⟩ := hready
           let value := state.globals.world.loadStorage ctx.self keyValue
           exact ⟨[], _, .assign (value := value) hstmt
-            (by simp [Vars.evalExpr, hkey, value])⟩
+            (by simp [Vars.State.evaluate, Vars.evalExpr, hkey, value])⟩
   | sstore key value =>
       obtain ⟨⟨keyWord, hkey⟩, valueWord, hvalue⟩ := hready
       exact ⟨[], _, .sstore hstmt hkey hvalue⟩

@@ -84,6 +84,12 @@ inductive Expr where
   | sload (key : VarId)
 deriving DecidableEq, Repr
 
+def Expr.variablesRead : Expr → List VarId
+  | .constant _ => []
+  | .var identifier => [identifier]
+  | .add lhs rhs | .lt lhs rhs => [lhs, rhs]
+  | .sload key => [key]
+
 inductive Stmt where
   | assign (result : VarId) (value : Expr)
   | sstore (key value : VarId)
@@ -100,12 +106,38 @@ def Stmt.isMemOracle : Stmt → Prop
   | .malloc _ _ | .mallocUninit _ _ | .mload32 _ _ => True
   | _ => False
 
+def Stmt.variablesRead : Stmt → List VarId
+  | .assign _ value => value.variablesRead
+  | .sstore key value => [key, value]
+  | .gas _ => []
+  | .call callData => [callData.callee, callData.gas]
+  | .malloc _ size | .mallocUninit _ size => [size]
+  | .mstore32 offset value => [offset, value]
+  | .mload32 _ offset => [offset]
+  | .icall _ args _ => args.toList
+
+def Stmt.variablesDefined : Stmt → List VarId
+  | .assign result _ | .gas result | .malloc result _ | .mallocUninit result _
+  | .mload32 result _ => [result]
+  | .call callData => [callData.result]
+  | .icall _ _ dests => dests.toList
+  | .sstore _ _ | .mstore32 _ _ => []
+
 inductive Terminator where
   | halt
   | jump (target : BlockId)
   | branch (condition : VarId) (thenTarget elseTarget : BlockId)
   | iret
 deriving DecidableEq, Repr
+
+def Terminator.variablesRead : Terminator → List VarId
+  | .branch condition _ _ => [condition]
+  | .halt | .jump _ | .iret => []
+
+def Terminator.jumpTargets : Terminator → List BlockId
+  | .jump target => [target]
+  | .branch _ thenTarget elseTarget => [thenTarget, elseTarget]
+  | .halt | .iret => []
 
 structure Block where
   inputs : Array VarId
@@ -114,15 +146,30 @@ structure Block where
   outputs : Array VarId
 deriving Repr
 
+def Block.absoluteToPosition (block : Block) (index : Nat) : BlockPosition :=
+  if index < block.statements.size then .statement index else .terminator
+
+def Block.startPosition (block : Block) : BlockPosition :=
+  block.absoluteToPosition 0
+
+def Block.variablesDefinedBefore (block : Block) : Nat → List VarId
+  | 0 => block.inputs.toList
+  | index + 1 =>
+      match block.statements[index]? with
+      | some statement =>
+          block.variablesDefinedBefore index ++ statement.variablesDefined
+      | none => block.variablesDefinedBefore index
+
+def Block.VariablesDefinedBeforeUse (block : Block) : Prop :=
+  (∀ index statement, block.statements[index]? = some statement →
+    ∀ identifier ∈ statement.variablesRead,
+      identifier ∈ block.variablesDefinedBefore index) ∧
+  ∀ identifier ∈ block.terminator.variablesRead ++ block.outputs.toList,
+    identifier ∈ block.variablesDefinedBefore block.statements.size
+
 structure Function where
   entry : Block
   rest : Array Block
-deriving Repr
-
-structure Program where
-  init : Function
-  main : Option Function
-  rest : Array Function
 deriving Repr
 
 def Function.blocks (fn : Function) : Array Block := #[fn.entry] ++ fn.rest
@@ -137,6 +184,12 @@ def Function.outputs? (fn : Function) : Option Nat :=
 
 def Function.HasStmt (fn : Function) (stmt : Stmt) : Prop :=
   ∃ block ∈ fn.blocks, stmt ∈ block.statements
+
+structure Program where
+  init : Function
+  main : Option Function
+  rest : Array Function
+deriving Repr
 
 def Program.functions (program : Program) : Array Function :=
   #[program.init] ++ program.main.toArray ++ program.rest
@@ -160,12 +213,6 @@ def Program.FunctionInputOutputArity (program : Program) (inputCount : Nat)
     (outputCount : Option Nat) (functionId : FunctionId) : Prop :=
   ∃ fn, program.function? functionId = some fn ∧
     fn.paramsOf.size = inputCount ∧ fn.outputs? = outputCount
-
-def Block.absoluteToPosition (block : Block) (index : Nat) : BlockPosition :=
-  if index < block.statements.size then .statement index else .terminator
-
-def Block.startPosition (block : Block) : BlockPosition :=
-  block.absoluteToPosition 0
 
 def Program.callState? (p : Program) (f : FunctionId) (g : Globals)
     (args : Array Word) : Option State := do
@@ -230,6 +277,10 @@ def evalExpr (context : CallContext) (environment : Locals) (globals : Globals) 
   | .lt left right => do return .lt (← environment.lookup left) (← environment.lookup right)
   | .sload key => do return globals.world.loadStorage context.self (← environment.lookup key)
 
+def State.evaluate (state : State) (context : CallContext) (expression : Expr) :
+    Except IRError Word :=
+  evalExpr context state.environment state.globals expression
+
 def resume (outcome : FunctionOutcome) (env : Locals) (dst : Array VarId)
     (next : Control) : Option (Locals × Control) :=
   match outcome with
@@ -246,7 +297,7 @@ inductive SmallStep (program : Program) (context : CallContext) :
     State → Trace → State → Prop where
   | assign
       (hstmt : program.atStmt state = some (next, .assign result expression))
-      (heval : evalExpr context state.environment state.globals expression = .ok value) :
+      (heval : state.evaluate context expression = .ok value) :
       SmallStep program context state [] (state.assign result value next)
   | sstore
       (hstmt : program.atStmt state = some (next, .sstore keyVar valueVar))
@@ -392,52 +443,7 @@ def Program.ReadyState (program : Program) (ctx : CallContext) (state : Vars.Sta
 def Program.callEdge (p : Program) (caller callee : FunctionId) : Prop :=
   ∃ args dests fn, p.function? caller = some fn ∧ fn.HasStmt (.icall callee args dests)
 
-def Expr.variablesRead : Expr → List VarId
-  | .constant _ => []
-  | .var identifier => [identifier]
-  | .add lhs rhs | .lt lhs rhs => [lhs, rhs]
-  | .sload key => [key]
 
-def Stmt.variablesRead : Stmt → List VarId
-  | .assign _ value => value.variablesRead
-  | .sstore key value => [key, value]
-  | .gas _ => []
-  | .call callData => [callData.callee, callData.gas]
-  | .malloc _ size | .mallocUninit _ size => [size]
-  | .mstore32 offset value => [offset, value]
-  | .mload32 _ offset => [offset]
-  | .icall _ args _ => args.toList
-
-def Stmt.variablesDefined : Stmt → List VarId
-  | .assign result _ | .gas result | .malloc result _ | .mallocUninit result _
-  | .mload32 result _ => [result]
-  | .call callData => [callData.result]
-  | .icall _ _ dests => dests.toList
-  | .sstore _ _ | .mstore32 _ _ => []
-
-def Terminator.variablesRead : Terminator → List VarId
-  | .branch condition _ _ => [condition]
-  | .halt | .jump _ | .iret => []
-
-def Terminator.jumpTargets : Terminator → List BlockId
-  | .jump target => [target]
-  | .branch _ thenTarget elseTarget => [thenTarget, elseTarget]
-  | .halt | .iret => []
-
-def Block.variablesDefinedBefore (block : Block) : Nat → List VarId
-  | 0 => block.inputs.toList
-  | index + 1 =>
-      match block.statements[index]? with
-      | some statement =>
-          block.variablesDefinedBefore index ++ statement.variablesDefined
-      | none => block.variablesDefinedBefore index
-
-def Block.VariablesDefinedBeforeUse (block : Block) : Prop :=
-  (∀ index statement, block.statements[index]? = some statement →
-    ∀ identifier ∈ statement.variablesRead,
-      identifier ∈ block.variablesDefinedBefore index) ∧
-  ∀ identifier ∈ block.terminator.variablesRead ++ block.outputs.toList,
-    identifier ∈ block.variablesDefinedBefore block.statements.size
 
 structure Program.WellFormed (p : Program) : Prop where
   icallArity :
