@@ -14,6 +14,24 @@ theorem Program.statementAt_terminatorAt_exclusive {program : Program}
       obtain ⟨functionId, blockId, position⟩ := cursor
       cases position <;> simp [Program.statementAt, Program.terminatorAt] at hstatement ⊢
 
+theorem Program.AtStmt.unique {program : Program} {state : State}
+    {next₁ next₂ : Control} {stmt₁ stmt₂ : Stmt}
+    (h₁ : program.AtStmt state next₁ stmt₁) (h₂ : program.AtStmt state next₂ stmt₂) :
+    next₁ = next₂ ∧ stmt₁ = stmt₂ :=
+  Prod.mk.inj (Option.some.inj (h₁.symm.trans h₂))
+
+theorem Program.AtTerm.unique {program : Program} {state : State}
+    {terminator₁ terminator₂ : Terminator}
+    (h₁ : program.AtTerm state terminator₁) (h₂ : program.AtTerm state terminator₂) :
+    terminator₁ = terminator₂ :=
+  Option.some.inj (h₁.symm.trans h₂)
+
+theorem Program.AtStmt_AtTerm_exclusive {program : Program} {state : State}
+    {next : Control} {statement : Stmt} {terminator : Terminator}
+    (hstmt : program.AtStmt state next statement)
+    (hterm : program.AtTerm state terminator) : False :=
+  program.statementAt_terminatorAt_exclusive hstmt hterm
+
 theorem Program.statementAt_mem {program : Program} {control next : Control}
     {statement : Stmt}
     (h : program.statementAt control = some (next, statement)) :

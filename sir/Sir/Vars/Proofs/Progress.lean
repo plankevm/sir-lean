@@ -19,15 +19,14 @@ def Vars.State.StmtReady (s : Vars.State) : Vars.Stmt → Prop
   | .gas _ => True
   | .call c => s.environment.Defined c.callee ∧ s.environment.Defined c.gas
   | .malloc _ size =>
-      ∃ w alloc, s.environment.lookup size = .ok w ∧
+      ∃ w alloc, s.lookup size = .ok w ∧
         s.globals.memory.IsValidNewAlloc alloc ∧ alloc.size = w.toNat ∧
         alloc.bytes = ByteArray.mk (Array.replicate w.toNat 0)
   | .mallocUninit _ size =>
-      ∃ w alloc, s.environment.lookup size = .ok w ∧
+      ∃ w alloc, s.lookup size = .ok w ∧
         s.globals.memory.IsValidNewAlloc alloc ∧ alloc.size = w.toNat
   | .mstore32 offset value =>
-      ∃ w, s.environment.lookup offset = .ok w ∧ s.environment.Defined value ∧
-        s.globals.memory.InBounds w.toNat 32
+      ∃ w, s.lookup offset = .ok w ∧ s.environment.Defined value ∧ s.inBounds w
   | .mload32 _ offset => s.environment.Defined offset
   | .icall _ _ _ => False
 

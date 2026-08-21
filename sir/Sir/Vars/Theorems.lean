@@ -135,8 +135,8 @@ theorem Vars.Program.WellFormed.icall_step
     (hwf : program.WellFormed) {s : Vars.State} {nextControl : Control}
     {callee : FunctionId} {args dests : Array VarId} {vs rs : Array Word}
     {t : Trace} {g' : Globals}
-    (hstmt : program.atStmt s = some (nextControl, .icall callee args dests))
-    (hargs : args.mapM (s.environment.lookup ·) = .ok vs)
+    (hstmt : program.AtStmt s nextControl (.icall callee args dests))
+    (hargs : args.mapM s.lookup = .ok vs)
     (hcallee : Vars.EvalFn program ctx callee s.globals vs t g' (.returned rs)) :
     ∃ locals', s =[t]=>
       { s with globals := g', environment := locals', control := nextControl } :=
@@ -146,8 +146,8 @@ theorem Vars.Program.icall_halted_step
     {s : Vars.State} {nextControl : Control}
     {callee : FunctionId} {args dests : Array VarId} {vs : Array Word}
     {t : Trace} {g' : Globals}
-    (hstmt : program.atStmt s = some (nextControl, .icall callee args dests))
-    (hargs : args.mapM (s.environment.lookup ·) = .ok vs)
+    (hstmt : program.AtStmt s nextControl (.icall callee args dests))
+    (hargs : args.mapM s.lookup = .ok vs)
     (hcallee : Vars.EvalFn program ctx callee s.globals vs t g' .halted) :
     s =[t]=> State.halted g' :=
   Vars.Proofs.Program.icall_halted_step hstmt hargs hcallee

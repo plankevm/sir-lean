@@ -245,6 +245,18 @@ abbrev Program.atTerm (program : Program) (state : State) :
     Option Terminator :=
   program.terminatorAt state.control
 
+@[simp] def Program.AtStmt (program : Program) (state : State) (next : Control) (stmt : Stmt) : Prop :=
+  program.atStmt state = some (next, stmt)
+
+@[simp] def Program.AtTerm (program : Program) (state : State) (terminator : Terminator) : Prop :=
+  program.atTerm state = some terminator
+
+def State.allows (state : State) (size : Word) (allocation : Allocation) : Prop :=
+  memoryPolicy.Allows state.globals.memory size.toNat allocation
+
+def State.inBounds (state : State) (offset : Word) : Prop :=
+  state.globals.memory.InBounds offset.toNat 32
+
 
 def jump (program : Program) (target : BlockId) : EvalM Unit := do
   let .running cursor := (← get).control | throw .invalidControl
@@ -296,20 +308,20 @@ mutual
 inductive SmallStep (program : Program) (context : CallContext) :
     State → Trace → State → Prop where
   | assign
-      (hstmt : program.atStmt state = some (next, .assign result expression))
+      (hstmt : program.AtStmt state next (.assign result expression))
       (heval : state.evaluate context expression = .ok value) :
       SmallStep program context state [] (state.assign result value next)
   | sstore
-      (hstmt : program.atStmt state = some (next, .sstore keyVar valueVar))
+      (hstmt : program.AtStmt state next (.sstore keyVar valueVar))
       (hkey : state.lookup keyVar = .ok key)
       (hvalue : state.lookup valueVar = .ok value) :
       SmallStep program context state []
         { state with globals := state.globals.storeStorage context key value, control := next }
   | gas
-      (hstmt : program.atStmt state = some (next, .gas result)) :
+      (hstmt : program.AtStmt state next (.gas result)) :
       SmallStep program context state [.gas answer] (state.assign result answer next)
   | call
-      (hstmt : program.atStmt state = some (next, .call call))
+      (hstmt : program.AtStmt state next (.call call))
       (htarget : state.lookup call.callee = .ok target)
       (hgas : state.lookup call.gas = .ok gasLimit) :
       SmallStep program context state
@@ -318,36 +330,36 @@ inductive SmallStep (program : Program) (context : CallContext) :
           { state with globals := state.globals.applyCall answer }
           call.result (.fromBool answer.success) next)
   | malloc
-      (hstmt : program.atStmt state = some (next, .malloc result sizeVar))
+      (hstmt : program.AtStmt state next (.malloc result sizeVar))
       (hsize : state.lookup sizeVar = .ok size)
-      (hallow : memoryPolicy.Allows state.globals.memory size.toNat allocation)
+      (hallow : state.allows size allocation)
       (hzero : allocation.bytes = ByteArray.mk (Array.replicate size.toNat 0)) :
       SmallStep program context state []
         (State.assign
           { state with globals := state.globals.pushAlloc allocation }
           result allocation.offset next)
   | mallocUninit
-      (hstmt : program.atStmt state = some (next, .mallocUninit result sizeVar))
+      (hstmt : program.AtStmt state next (.mallocUninit result sizeVar))
       (hsize : state.lookup sizeVar = .ok size)
-      (hallow : memoryPolicy.Allows state.globals.memory size.toNat allocation) :
+      (hallow : state.allows size allocation) :
       SmallStep program context state []
         (State.assign
           { state with globals := state.globals.pushAlloc allocation }
           result allocation.offset next)
   | mstore32
-      (hstmt : program.atStmt state = some (next, .mstore32 offsetVar valueVar))
+      (hstmt : program.AtStmt state next (.mstore32 offsetVar valueVar))
       (hoffset : state.lookup offsetVar = .ok offset)
       (hvalue : state.lookup valueVar = .ok value)
-      (hbound : state.globals.memory.InBounds offset.toNat 32) :
+      (hbound : state.inBounds offset) :
       SmallStep program context state []
         { state with globals := state.globals.writeWord32 offset value, control := next }
   | mload32
-      (hstmt : program.atStmt state = some (next, .mload32 result offsetVar))
+      (hstmt : program.AtStmt state next (.mload32 result offsetVar))
       (hoffset : state.lookup offsetVar = .ok offset) :
       SmallStep program context state []
         (state.assign result (state.globals.readWord32 offset assumed) next)
   | icall
-      (hstmt : program.atStmt state = some (next, .icall callee args dests))
+      (hstmt : program.AtStmt state next (.icall callee args dests))
       (hargs : args.mapM state.lookup = .ok values)
       (hcall : EvalFn program context callee state.globals values trace globals outcome)
       (hresume : resume outcome state.environment dests next =
@@ -355,7 +367,7 @@ inductive SmallStep (program : Program) (context : CallContext) :
       SmallStep program context state trace
         { globals := globals, environment := environment, control := resumed }
   | control
-      (hterm : program.atTerm state = some terminator)
+      (hterm : program.AtTerm state terminator)
       (heval : (evaluateTerminator program terminator).run state = .ok ((), final)) :
       SmallStep program context state [] final
 
@@ -383,39 +395,39 @@ def Steps.Extends (program : Program) (context : CallContext) (state₁ : State)
 
 def Program.NonIcallControl (program : Program) (state : Vars.State) : Prop :=
   (∃ nextControl statement,
-      program.atStmt state = some (nextControl, statement) ∧
+      program.AtStmt state nextControl statement ∧
       ∀ callee callArgs destinations,
         statement ≠ .icall callee callArgs destinations) ∨
-    ∃ terminator, program.atTerm state = some terminator
+    ∃ terminator, program.AtTerm state terminator
 
 def Program.AllocationAvailable (program : Program) (state : Vars.State) : Prop :=
   (∀ nextControl result size word,
-      program.atStmt state = some (nextControl, .malloc result size) →
-      state.environment.lookup size = .ok word →
+      program.AtStmt state nextControl (.malloc result size) →
+      state.lookup size = .ok word →
       ∃ allocation, state.globals.memory.IsValidNewAlloc allocation ∧
         allocation.size = word.toNat ∧
         allocation.bytes = ByteArray.mk (Array.replicate word.toNat 0)) ∧
     ∀ nextControl result size word,
-      program.atStmt state = some (nextControl, .mallocUninit result size) →
-      state.environment.lookup size = .ok word →
+      program.AtStmt state nextControl (.mallocUninit result size) →
+      state.lookup size = .ok word →
       ∃ allocation, state.globals.memory.IsValidNewAlloc allocation ∧
         allocation.size = word.toNat
 
 def Program.BumpFits (program : Program) (state : Vars.State) : Prop :=
   (∀ nextControl result size word,
-      program.atStmt state = some (nextControl, .malloc result size) →
-      state.environment.lookup size = .ok word →
+      program.AtStmt state nextControl (.malloc result size) →
+      state.lookup size = .ok word →
       state.globals.memory.watermark + word.toNat ≤ Evm.UInt256.size) ∧
     ∀ nextControl result size word,
-      program.atStmt state = some (nextControl, .mallocUninit result size) →
-      state.environment.lookup size = .ok word →
+      program.AtStmt state nextControl (.mallocUninit result size) →
+      state.lookup size = .ok word →
       state.globals.memory.watermark + word.toNat ≤ Evm.UInt256.size
 
 def Program.StoreInBounds (program : Program) (state : Vars.State) : Prop :=
   ∀ nextControl offset value word,
-    program.atStmt state = some (nextControl, .mstore32 offset value) →
-    state.environment.lookup offset = .ok word →
-    state.globals.memory.InBounds word.toNat 32
+    program.AtStmt state nextControl (.mstore32 offset value) →
+    state.lookup offset = .ok word →
+    state.inBounds word
 
 
 def Program.RunsFunction (program : Program) (ctx : CallContext) (function : FunctionId)

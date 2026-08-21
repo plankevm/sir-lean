@@ -658,8 +658,8 @@ theorem Vars.Proofs.Program.WellFormed.icall_step
     (hwf : program.WellFormed) {state : Vars.State} {next : Control}
     {callee : FunctionId} {args dests : Array VarId} {values results : Array Word}
     {trace : Trace} {globals' : Globals}
-    (hstmt : program.atStmt state = some (next, .icall callee args dests))
-    (hargs : args.mapM (state.environment.lookup ·) = .ok values)
+    (hstmt : program.AtStmt state next (.icall callee args dests))
+    (hargs : args.mapM state.lookup = .ok values)
     (hcallee : Vars.EvalFn program ctx
       callee state.globals values trace globals' (.returned results)) :
     ∃ locals', Vars.SmallStep program ctx state trace
@@ -672,8 +672,8 @@ theorem Vars.Proofs.Program.icall_halted_step
     {state : Vars.State} {next : Control}
     {callee : FunctionId} {args dests : Array VarId} {values : Array Word}
     {trace : Trace} {globals' : Globals}
-    (hstmt : program.atStmt state = some (next, .icall callee args dests))
-    (hargs : args.mapM (state.environment.lookup ·) = .ok values)
+    (hstmt : program.AtStmt state next (.icall callee args dests))
+    (hargs : args.mapM state.lookup = .ok values)
     (hcallee : Vars.EvalFn program ctx
       callee state.globals values trace globals' .halted) :
     Vars.SmallStep program ctx state trace (State.halted globals') :=
