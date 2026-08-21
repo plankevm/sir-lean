@@ -43,8 +43,15 @@ theorem resume_rejects_arity (env : Locals) (next : Control) :
   simp [resume, Locals.bindReturns, Locals.bindValues, Functor.map, Except.map]
 
 theorem witness_step_constant (ctx : CallContext) (globals : Globals) :
-    SmallStep witnessProgram ctx (witnessInitial globals) [] (witnessAfterConstant globals) :=
-  SmallStep.assign rfl rfl
+    SmallStep witnessProgram ctx (witnessInitial globals) [] (witnessAfterConstant globals) := by
+  have hstmt : witnessProgram.AtStmt (witnessInitial globals)
+      (witnessAfterConstant globals).control (.assign witnessResult (.constant 7)) := rfl
+  have heval :
+      (witnessInitial globals).evaluate ctx (.assign witnessResult (.constant 7)) =
+        .ok { witnessInitial globals with
+          environment := (witnessInitial globals).environment.assign witnessResult 7 } := by
+    simp [State.evaluate, evalStmt, evalExpr]
+  exact SmallStep.assign hstmt heval
 
 theorem witness_step_halt (ctx : CallContext) (globals : Globals) :
     SmallStep witnessProgram ctx (witnessAfterConstant globals) [] (witnessFinal globals) :=

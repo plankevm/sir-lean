@@ -48,39 +48,34 @@ def Vars.Program.TerminatorReady (program : Vars.Program) (fn : FunctionId) (s :
   | .iret => ∃ rs, src.outputs.mapM (s.environment.lookup ·) = .ok rs
 
 theorem Vars.evaluateTerminator_halt_ok (s : Vars.State) :
-    (Vars.evaluateTerminator program .halt).run s =
-      .ok ((), { s with control := .halted }) := rfl
+    Vars.evaluateTerminator program s.environment s.control .halt =
+      .ok (s.environment, .halted) := rfl
 
 theorem Vars.evaluateTerminator_iret_ok
     {s : Vars.State} {cursor : ProgramCursor} {block : Vars.Block}
     {rs : Array Word}
-    (hctrl : s.control = .running cursor)
+    (_hctrl : s.control = .running cursor)
     (hblock : program.block? cursor = some block)
     (houtputs : block.outputs.mapM (s.environment.lookup ·) = .ok rs) :
-    (Vars.evaluateTerminator program .iret).run s =
-      .ok ((), { s with control := .returned rs }) := by
-  simp [Vars.evaluateTerminator, StateT.run, bind, Except.bind, StateT.bind, StateT.get,
-    get, getThe, MonadStateOf.get, hctrl, hblock, houtputs, liftM, monadLift,
-    MonadLift.monadLift, StateT.lift, modify, modifyGet, MonadStateOf.modifyGet,
-    StateT.modifyGet, pure, Except.pure]
+    Vars.evaluateTerminator program s.environment s.control .iret =
+      .ok (s.environment, .returned rs) := by
+  simp [Vars.evaluateTerminator, _hctrl, hblock, houtputs]
 
 private theorem Vars.jump_ok
     {s : Vars.State} {cursor : ProgramCursor} {target : BlockId}
     {sourceBlock targetBlock : Vars.Block} {vs : Array Word}
-    (hctrl : s.control = .running cursor)
+    (_hctrl : s.control = .running cursor)
     (hsrc : program.block? cursor = some sourceBlock)
     (htgt : program.block? { cursor with block := target } = some targetBlock)
     (houts : sourceBlock.outputs.mapM (s.environment.lookup ·) = .ok vs)
     (harity : targetBlock.inputs.size = vs.size) :
-    ∃ s', (Vars.jump program target).run s = .ok ((), s') := by
+    ∃ locals,
+      Vars.jump program s.environment cursor target =
+        .ok (locals, .running
+          { cursor with block := target, position := targetBlock.startPosition }) := by
   obtain ⟨l', hbind⟩ := Locals.bindValues_total s.environment harity
-  refine ⟨{ s with environment := l',
-                   control := .running
-                     { cursor with block := target, position := targetBlock.startPosition } }, ?_⟩
-  simp [Vars.jump, StateT.run, Locals.transfer, bind, Except.bind, StateT.bind,
-    hctrl, hsrc, htgt, houts, hbind, StateT.get, get, getThe, MonadStateOf.get,
-    modify, modifyGet, MonadStateOf.modifyGet, StateT.modifyGet, liftM, monadLift,
-    MonadLift.monadLift, pure, Except.pure]
+  refine ⟨l', ?_⟩
+  simp [Vars.jump, hsrc, htgt, houts, hbind, harity]
 
 theorem Vars.Proofs.progress_stmt
     {state : Vars.State} {next : Control} {statement : Vars.Stmt}
@@ -91,30 +86,41 @@ theorem Vars.Proofs.progress_stmt
   cases statement with
   | assign result expression =>
       cases expression with
-      | constant value => exact ⟨[], _, .assign hstmt rfl⟩
+      | constant value =>
+          exact ⟨[], _, .assign (evaluated :=
+              { state with environment := state.environment.assign result value })
+            hstmt (by simp [Vars.State.evaluate, Vars.evalStmt, Vars.evalExpr])⟩
       | var identifier =>
           obtain ⟨value, hvalue⟩ := hready
-          exact ⟨[], _, .assign hstmt hvalue⟩
+          exact ⟨[], _, .assign (evaluated :=
+              { state with environment := state.environment.assign result value })
+            hstmt (by simp [Vars.State.evaluate, Vars.evalStmt, Vars.evalExpr, hvalue])⟩
       | add left right =>
           obtain ⟨⟨leftValue, hleft⟩, rightValue, hright⟩ := hready
           let value := Evm.UInt256.add leftValue rightValue
-          exact ⟨[], _, .assign (value := value) hstmt
-            (by simp [Vars.State.evaluate, Vars.evalExpr, hleft, hright, value, bind, Except.bind,
-              pure, Except.pure])⟩
+          exact ⟨[], _, .assign (evaluated :=
+              { state with environment := state.environment.assign result value })
+            hstmt (by simp [Vars.State.evaluate, Vars.evalStmt, Vars.evalExpr, hleft, hright,
+              value, bind, Except.bind, pure, Except.pure])⟩
       | lt left right =>
           obtain ⟨⟨leftValue, hleft⟩, rightValue, hright⟩ := hready
           let value := Evm.UInt256.lt leftValue rightValue
-          exact ⟨[], _, .assign (value := value) hstmt
-            (by simp [Vars.State.evaluate, Vars.evalExpr, hleft, hright, value, bind, Except.bind,
-              pure, Except.pure])⟩
+          exact ⟨[], _, .assign (evaluated :=
+              { state with environment := state.environment.assign result value })
+            hstmt (by simp [Vars.State.evaluate, Vars.evalStmt, Vars.evalExpr, hleft, hright,
+              value, bind, Except.bind, pure, Except.pure])⟩
       | sload key =>
           obtain ⟨keyValue, hkey⟩ := hready
           let value := state.globals.world.loadStorage ctx.self keyValue
-          exact ⟨[], _, .assign (value := value) hstmt
-            (by simp [Vars.State.evaluate, Vars.evalExpr, hkey, value])⟩
+          exact ⟨[], _, .assign (evaluated :=
+              { state with environment := state.environment.assign result value })
+            hstmt (by simp [Vars.State.evaluate, Vars.evalStmt, Vars.evalExpr, hkey, value])⟩
   | sstore key value =>
       obtain ⟨⟨keyWord, hkey⟩, valueWord, hvalue⟩ := hready
-      exact ⟨[], _, .sstore hstmt hkey hvalue⟩
+      exact ⟨[], _, .sstore (evaluated :=
+          { state with globals := state.globals.storeStorage ctx keyWord valueWord })
+        hstmt (by simp [Vars.State.evaluate, Vars.evalStmt, hkey, hvalue, bind, Except.bind,
+          pure, Except.pure])⟩
   | gas result => exact ⟨[.gas 0], _, .gas hstmt⟩
   | call call =>
       obtain ⟨⟨target, htarget⟩, gas, hgas⟩ := hready
@@ -154,20 +160,20 @@ theorem Vars.Proofs.progress_terminator
   | jump target =>
       rw [hcase] at hterm hready
       obtain ⟨⟨values, houtputs⟩, targetBlock, htarget, harity⟩ := hready
-      obtain ⟨final, hfinal⟩ := Vars.jump_ok hcontrol hsource htarget houtputs
+      obtain ⟨locals, hjump⟩ := Vars.jump_ok hcontrol hsource htarget houtputs
         (harity.trans (mapM_ok_size houtputs).symm)
-      exact ⟨final, .control hterm hfinal⟩
+      exact ⟨_, .control hterm (by
+        simp [Vars.evaluateTerminator, hcontrol]
+        exact hjump)⟩
   | branch condition thenTarget elseTarget =>
       rw [hcase] at hterm hready
       obtain ⟨value, hcondition, ⟨values, houtputs⟩, targetBlock, htarget, harity⟩ :=
         hready
-      obtain ⟨final, hfinal⟩ := Vars.jump_ok hcontrol hsource htarget houtputs
+      obtain ⟨locals, hjump⟩ := Vars.jump_ok hcontrol hsource htarget houtputs
         (harity.trans (mapM_ok_size houtputs).symm)
-      refine ⟨final, .control hterm ?_⟩
-      simp only [Vars.evaluateTerminator, StateT.run, bind, StateT.bind, Locals.lookupM,
-        liftM, monadLift, MonadLift.monadLift, StateT.get, Except.bind, StateT.lift,
-        pure, Except.pure, hcondition]
-      exact hfinal
+      exact ⟨_, .control hterm (by
+        simp [Vars.evaluateTerminator, hcontrol, hcondition]
+        exact hjump)⟩
   | iret =>
       rw [hcase] at hterm hready
       obtain ⟨results, houtputs⟩ := hready

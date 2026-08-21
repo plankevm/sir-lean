@@ -195,168 +195,130 @@ namespace Sir
 variable {program : Vars.Program} {ctx : CallContext}
 
 private theorem Vars.jump_control
-    {s s' : Vars.State} {target : BlockId}
-    (h : (Vars.jump program target).run s = .ok ((), s')) :
-    ∃ cursor targetBlock, s.control = .running cursor ∧
+    {locals : Locals} {cursor : ProgramCursor} {target : BlockId}
+    {nextLocals : Locals} {control : Control}
+    (h : Vars.jump program locals cursor target = .ok (nextLocals, control)) :
+    ∃ targetBlock,
       program.block? { cursor with block := target } = some targetBlock ∧
-      s'.control = .running
+      control = .running
         { cursor with block := target, position := targetBlock.startPosition } := by
-  cases hctrl : s.control with
-  | returned rs =>
-    simp [Vars.jump, StateT.run, bind, Except.bind, StateT.bind, StateT.get, get,
-      getThe, MonadStateOf.get, hctrl, Function.comp, throw, throwThe,
-      MonadExceptOf.throw, StateT.lift, pure, Except.pure] at h
-  | halted =>
-    simp [Vars.jump, StateT.run, bind, Except.bind, StateT.bind, StateT.get, get,
-      getThe, MonadStateOf.get, hctrl, Function.comp, throw, throwThe,
-      MonadExceptOf.throw, StateT.lift, pure, Except.pure] at h
-  | running cursor =>
-    cases hsrc : program.block? cursor with
-    | none =>
-      simp [Vars.jump, StateT.run, bind, Except.bind, StateT.bind, StateT.get, get,
-        getThe, MonadStateOf.get, hctrl, hsrc, Function.comp, throw, throwThe,
-        MonadExceptOf.throw, StateT.lift, pure, Except.pure] at h
-    | some sourceBlock =>
+  cases hsrc : program.block? cursor with
+  | none => simp [Vars.jump, hsrc] at h
+  | some sourceBlock =>
       cases htgt : program.block? { cursor with block := target } with
-      | none =>
-        simp [Vars.jump, StateT.run, bind, Except.bind, StateT.bind, StateT.get, get,
-          getThe, MonadStateOf.get, hctrl, hsrc, htgt, Function.comp, throw, throwThe,
-          MonadExceptOf.throw, StateT.lift, pure, Except.pure] at h
+      | none => simp [Vars.jump, hsrc, htgt] at h
       | some targetBlock =>
-        refine ⟨cursor, targetBlock, rfl, htgt, ?_⟩
-        cases htr : Locals.transfer sourceBlock.outputs targetBlock.inputs s.environment with
-        | error e =>
-          simp [Vars.jump, StateT.run, bind, Except.bind, StateT.bind, StateT.get,
-            get, getThe, MonadStateOf.get, hctrl, hsrc, htgt, liftM, monadLift,
-            MonadLift.monadLift, htr, pure, Except.pure, modify, modifyGet,
-            MonadStateOf.modifyGet] at h
-        | ok res =>
-          obtain ⟨⟨⟩, locals'⟩ := res
-          simp only [Vars.jump, StateT.run, bind, StateT.bind, Except.bind, StateT.get,
-            get, getThe, MonadStateOf.get, hctrl, hsrc, htgt, liftM, monadLift,
-            MonadLift.monadLift, htr, modify, modifyGet, MonadStateOf.modifyGet,
-            StateT.modifyGet, pure, Except.pure, Except.ok.injEq, Prod.mk.injEq,
-            true_and] at h
-          rw [← h]
+          refine ⟨targetBlock, rfl, ?_⟩
+          cases hmap : sourceBlock.outputs.mapM locals.lookup with
+          | error _ => simp [Vars.jump, hsrc, htgt, hmap] at h
+          | ok values =>
+              simp [Vars.jump, hsrc, htgt, hmap] at h
+              split at h
+              · cases hbind : Locals.bindValues locals targetBlock.inputs values with
+                | error _ => simp [hbind] at h
+                | ok _ =>
+                    simp [hbind] at h
+                    exact h.2.symm
+              · cases h
 
 theorem Vars.evaluateTerminator_iret_inv
-    {s s' : Vars.State}
-    (h : (Vars.evaluateTerminator program .iret).run s = .ok ((), s')) :
+    {s : Vars.State} {locals : Locals} {control : Control}
+    (h : Vars.evaluateTerminator program s.environment s.control .iret =
+      .ok (locals, control)) :
     ∃ cursor block rs, s.control = .running cursor ∧
       program.block? cursor = some block ∧
       block.outputs.mapM (s.environment.lookup ·) = .ok rs ∧
-      s' = { s with control := .returned rs } := by
+      locals = s.environment ∧ control = .returned rs := by
   cases hctrl : s.control with
-  | returned old =>
-    simp [Vars.evaluateTerminator, StateT.run, bind, Except.bind, StateT.bind, StateT.get,
-      get, getThe, MonadStateOf.get, hctrl, throw, throwThe, MonadExceptOf.throw,
-      StateT.lift, pure, Except.pure] at h
-  | halted =>
-    simp [Vars.evaluateTerminator, StateT.run, bind, Except.bind, StateT.bind, StateT.get,
-      get, getThe, MonadStateOf.get, hctrl, throw, throwThe, MonadExceptOf.throw,
-      StateT.lift, pure, Except.pure] at h
+  | returned _ | halted => simp [Vars.evaluateTerminator, hctrl] at h
   | running cursor =>
-    cases hblock : program.block? cursor with
-    | none =>
-      simp [Vars.evaluateTerminator, StateT.run, bind, Except.bind, StateT.bind, StateT.get,
-        get, getThe, MonadStateOf.get, hctrl, hblock, throw, throwThe,
-        MonadExceptOf.throw, StateT.lift, pure, Except.pure] at h
-    | some block =>
-      cases hrs : block.outputs.mapM (s.environment.lookup ·) with
-      | error e =>
-        simp [Vars.evaluateTerminator, StateT.run, bind, Except.bind, StateT.bind, StateT.get,
-          get, getThe, MonadStateOf.get, hctrl, hblock, hrs, liftM, monadLift,
-          MonadLift.monadLift, StateT.lift, pure, Except.pure] at h
-      | ok rs =>
-        refine ⟨cursor, block, rs, rfl, hblock, hrs, ?_⟩
-        simp only [Vars.evaluateTerminator, StateT.run, bind, StateT.bind, StateT.get, get,
-          getThe, MonadStateOf.get, hctrl, hblock, liftM, monadLift,
-          MonadLift.monadLift, hrs, StateT.lift, Except.bind, modify, modifyGet,
-          MonadStateOf.modifyGet, StateT.modifyGet, pure, Except.pure,
-          Except.ok.injEq, Prod.mk.injEq, true_and] at h
-        exact h.symm
+      cases hblock : program.block? cursor with
+      | none => simp [Vars.evaluateTerminator, hctrl, hblock] at h
+      | some block =>
+          cases hrs : block.outputs.mapM (s.environment.lookup ·) with
+          | error _ => simp [Vars.evaluateTerminator, hctrl, hblock, hrs] at h
+          | ok rs =>
+              simp [Vars.evaluateTerminator, hctrl, hblock, hrs] at h
+              obtain ⟨rfl, rfl⟩ := h
+              exact ⟨cursor, block, rs, rfl, hblock, hrs, rfl, rfl⟩
 
 private theorem Vars.evaluateTerminator_preserves_function
-    {cursor : ProgramCursor} {state state' : Vars.State} {terminator : Vars.Terminator}
+    {cursor : ProgramCursor} {state : Vars.State} {terminator : Vars.Terminator}
+    {locals : Locals} {finalControl : Control}
     (hcontrol : state.control = .running cursor)
-    (heval : (Vars.evaluateTerminator program terminator).run state = .ok ((), state')) :
-    state'.control = .halted ∨ (∃ results, state'.control = .returned results) ∨
-      ∃ cursor', state'.control = .running cursor' ∧ cursor'.fn = cursor.fn := by
+    (heval : Vars.evaluateTerminator program state.environment state.control terminator =
+      .ok (locals, finalControl)) :
+    finalControl = .halted ∨ (∃ results, finalControl = .returned results) ∨
+      ∃ cursor', finalControl = .running cursor' ∧ cursor'.fn = cursor.fn := by
   cases terminator with
   | halt =>
-      have hhalt : (Vars.evaluateTerminator program .halt).run state =
-          .ok ((), { state with control := .halted }) := rfl
-      rw [hhalt] at heval
-      obtain ⟨-, rfl⟩ := Prod.mk.inj (Except.ok.inj heval)
+      simp [Vars.evaluateTerminator] at heval
+      obtain ⟨rfl, rfl⟩ := heval
       exact .inl rfl
   | jump target =>
-      simp only [Vars.evaluateTerminator] at heval
-      obtain ⟨sourceCursor, targetBlock, hsource, -, hcontrol'⟩ :=
-        Vars.jump_control heval
-      obtain rfl := Control.running.inj (hsource.symm.trans hcontrol)
+      simp [Vars.evaluateTerminator, hcontrol] at heval
+      obtain ⟨targetBlock, -, hcontrol'⟩ := Vars.jump_control heval
       exact .inr (.inr ⟨_, hcontrol', rfl⟩)
   | branch condition thenTarget elseTarget =>
-      simp only [Vars.evaluateTerminator] at heval
+      simp [Vars.evaluateTerminator, hcontrol] at heval
       cases hcondition : state.environment.lookup condition with
-      | error error =>
-          simp only [StateT.run, bind, StateT.bind, Locals.lookupM, liftM, monadLift,
-            MonadLift.monadLift, StateT.get, Except.bind, StateT.lift, pure,
-            Except.pure, hcondition] at heval
-          simp at heval
+      | error _ => simp [hcondition, bind, Except.bind] at heval
       | ok value =>
-          simp only [StateT.run, bind, StateT.bind, Locals.lookupM, liftM, monadLift,
-            MonadLift.monadLift, StateT.get, Except.bind, StateT.lift, pure,
-            Except.pure, hcondition] at heval
-          obtain ⟨sourceCursor, targetBlock, hsource, -, hcontrol'⟩ :=
-            Vars.jump_control heval
-          obtain rfl := Control.running.inj (hsource.symm.trans hcontrol)
+          simp [hcondition, bind, Except.bind] at heval
+          obtain ⟨targetBlock, -, hcontrol'⟩ := Vars.jump_control heval
           exact .inr (.inr ⟨_, hcontrol', rfl⟩)
   | iret =>
-      obtain ⟨_, _, results, -, -, -, rfl⟩ := Vars.evaluateTerminator_iret_inv heval
+      obtain ⟨_, _, results, -, -, -, -, rfl⟩ := Vars.evaluateTerminator_iret_inv heval
       exact .inr (.inl ⟨results, rfl⟩)
 
 private theorem Vars.evaluateTerminator_returned_inv
-    {state state' : Vars.State} {terminator : Vars.Terminator} {results : Array Word}
+    {state : Vars.State} {terminator : Vars.Terminator} {results : Array Word}
+    {locals : Locals} {finalControl : Control}
     (hterm : program.atTerm state = some terminator)
-    (heval : (Vars.evaluateTerminator program terminator).run state = .ok ((), state'))
-    (hreturn : state'.control = .returned results) :
+    (heval : Vars.evaluateTerminator program state.environment state.control terminator =
+      .ok (locals, finalControl))
+    (hreturn : finalControl = .returned results) :
     ∃ cursor block, state.control = .running cursor ∧
       program.block? cursor = some block ∧ block.terminator = .iret ∧
       block.outputs.mapM (state.environment.lookup ·) = .ok results := by
   cases terminator with
   | halt =>
-      simp only [Vars.evaluateTerminator] at heval
-      obtain rfl := (Prod.mk.inj (Except.ok.inj heval)).2
+      simp [Vars.evaluateTerminator] at heval
+      obtain ⟨rfl, rfl⟩ := heval
       cases hreturn
   | jump target =>
-      simp only [Vars.evaluateTerminator] at heval
-      obtain ⟨_, _, _, -, hcontrol'⟩ := Vars.jump_control heval
-      rw [hcontrol'] at hreturn
-      cases hreturn
-  | branch condition thenTarget elseTarget =>
-      simp only [Vars.evaluateTerminator] at heval
-      cases hcondition : state.environment.lookup condition with
-      | error error =>
-          simp only [StateT.run, bind, StateT.bind, Locals.lookupM, liftM, monadLift,
-            MonadLift.monadLift, StateT.get, Except.bind, StateT.lift, pure,
-            Except.pure, hcondition] at heval
-          simp at heval
-      | ok value =>
-          simp only [StateT.run, bind, StateT.bind, Locals.lookupM, liftM, monadLift,
-            MonadLift.monadLift, StateT.get, Except.bind, StateT.lift, pure,
-            Except.pure, hcondition] at heval
-          obtain ⟨_, _, _, -, hcontrol'⟩ := Vars.jump_control heval
+      simp [Vars.evaluateTerminator] at heval
+      cases hctrl : state.control with
+      | returned _ | halted => simp [hctrl] at heval
+      | running cursor =>
+          simp [hctrl] at heval
+          obtain ⟨_, -, hcontrol'⟩ := Vars.jump_control heval
           rw [hcontrol'] at hreturn
           cases hreturn
+  | branch condition thenTarget elseTarget =>
+      simp [Vars.evaluateTerminator] at heval
+      cases hctrl : state.control with
+      | returned _ | halted => simp [hctrl] at heval
+      | running cursor =>
+          simp [hctrl] at heval
+          cases hcondition : state.environment.lookup condition with
+          | error _ => simp [hcondition, bind, Except.bind] at heval
+          | ok value =>
+              simp [hcondition, bind, Except.bind] at heval
+              obtain ⟨_, -, hcontrol'⟩ := Vars.jump_control heval
+              rw [hcontrol'] at hreturn
+              cases hreturn
   | iret =>
-      obtain ⟨cursor, block, actual, hcontrol, hblock, houtputs, rfl⟩ :=
+      obtain ⟨cursor, block, actual, hcontrol, hblock, houtputs, -, rfl⟩ :=
         Vars.evaluateTerminator_iret_inv heval
       obtain rfl := Control.returned.inj hreturn
       cases hposition : cursor.position with
-      | statement index => simp [Vars.Program.atTerm, Vars.Program.terminatorAt, hcontrol, hposition] at hterm
+      | statement index =>
+          simp [Vars.Program.atTerm, Vars.Program.terminatorAt, hcontrol, hposition] at hterm
       | terminator =>
           have hblockTerminator : block.terminator = .iret := by
-            simpa [Vars.Program.atTerm, Vars.Program.terminatorAt, hcontrol, hposition, hblock] using hterm
+            simpa [Vars.Program.atTerm, Vars.Program.terminatorAt, hcontrol, hposition,
+              hblock] using hterm
           exact ⟨cursor, block, hcontrol, hblock, hblockTerminator, houtputs⟩
 
 theorem Vars.SmallStep.preserves_function
@@ -369,7 +331,7 @@ theorem Vars.SmallStep.preserves_function
   | assign hstmt _ =>
       obtain ⟨position, hnext⟩ := Vars.Program.statementAt_next_block hcontrol hstmt
       exact .inr (.inr ⟨_, hnext, rfl⟩)
-  | sstore hstmt =>
+  | sstore hstmt _ =>
       obtain ⟨position, hnext⟩ := Vars.Program.statementAt_next_block hcontrol hstmt
       exact .inr (.inr ⟨_, hnext, rfl⟩)
   | gas hstmt =>
@@ -401,7 +363,8 @@ theorem Vars.SmallStep.preserves_function
           obtain ⟨-, hcontrol'⟩ := Vars.resume_halted_eq_some_iff.mp hresume
           subst hcontrol'
           exact .inl rfl
-  | control hterm heval => exact Vars.evaluateTerminator_preserves_function hcontrol heval
+  | control hterm heval =>
+      simpa [State.of] using Vars.evaluateTerminator_preserves_function hcontrol heval
 
 theorem Vars.Proofs.Steps.preserves_function
     {cursor : ProgramCursor} {state final : Vars.State} {trace : Trace}
@@ -437,7 +400,7 @@ theorem Vars.SmallStep.returned_inv
       obtain ⟨cursor, hnext⟩ := Vars.Program.statementAt_next_running hstmt
       rw [hnext] at hreturn
       cases hreturn
-  | sstore hstmt =>
+  | sstore hstmt _ =>
       obtain ⟨cursor, hnext⟩ := Vars.Program.statementAt_next_running hstmt
       rw [hnext] at hreturn
       cases hreturn
@@ -477,7 +440,9 @@ theorem Vars.SmallStep.returned_inv
           obtain ⟨-, hcontrol'⟩ := Vars.resume_halted_eq_some_iff.mp hresume
           subst hcontrol'
           cases hreturn
-  | control hterm heval => exact Vars.evaluateTerminator_returned_inv hterm heval hreturn
+  | control hterm heval =>
+      exact Vars.evaluateTerminator_returned_inv hterm heval (by
+        simp [State.of] at hreturn; exact hreturn)
 
 end Sir
 

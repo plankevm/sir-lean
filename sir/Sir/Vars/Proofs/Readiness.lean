@@ -364,63 +364,80 @@ theorem Vars.Program.WellFormed.terminatorReady_of_localsCoverCursor
       exact Locals.lookupArray_total houtputs
 
 private theorem Vars.Program.WellFormed.localsCoverCursor_terminator
-    (hwf : program.WellFormed) {state state' : Vars.State} {terminator : Vars.Terminator}
+    (hwf : program.WellFormed) {state : Vars.State} {terminator : Vars.Terminator}
+    {environment : Locals} {finalControl : Control}
     (hinvariant : state.LocalsCoverCursor program)
     (hterminator : program.atTerm state = some terminator)
-    (heval : (Vars.evaluateTerminator program terminator).run state = .ok ((), state')) :
-    state'.LocalsCoverCursor program := by
+    (heval : Vars.evaluateTerminator program state.environment state.control terminator =
+      .ok (environment, finalControl)) :
+    (State.of state.globals environment finalControl).LocalsCoverCursor program := by
   obtain ⟨cursor, block, hcontrol, hposition, hblock, hblockTerminator⟩ :=
     Vars.Program.terminatorAt_cursor hterminator
   have hready := hwf.terminatorReady_of_localsCoverCursor
     hinvariant hcontrol hposition hblock
-  have jumpPreserves {target : BlockId}
-      (hjump : (Vars.jump program target).run state = .ok ((), state'))
-      (hjumpReady : program.JumpReady cursor.fn state block target) :
-      state'.LocalsCoverCursor program := by
+  have jumpPreserves {target : BlockId} {locals : Locals} {control : Control}
+      (hjump : Vars.jump program state.environment cursor target = .ok (locals, control))
+      (hjumpReady : program.JumpReady cursor.fn state block target)
+      (hfinal : environment = locals ∧ finalControl = control) :
+      (State.of state.globals environment finalControl).LocalsCoverCursor program := by
     obtain ⟨⟨values, hvalues⟩, targetBlock, htarget, harity⟩ := hjumpReady
     obtain ⟨locals', hbind⟩ := Locals.bindValues_total state.environment
       (harity.trans (mapM_ok_size hvalues).symm)
     have htarget' :
         program.block? { cursor with block := target } = some targetBlock := by
       simpa [Vars.Program.block?] using htarget
-    have hexact : (Vars.jump program target).run state =
-        .ok ((), { state with
-          environment := locals'
-          control := .running
-            { cursor with block := target, position := targetBlock.startPosition } }) := by
-      simp [Vars.jump, StateT.run, Locals.transfer, bind, Except.bind, StateT.bind,
-        hcontrol, hblock, htarget', hvalues, hbind, StateT.get, get, getThe,
-        MonadStateOf.get, modify, modifyGet, MonadStateOf.modifyGet,
-        StateT.modifyGet, liftM, monadLift, MonadLift.monadLift, pure, Except.pure]
+    have hexact :
+        Vars.jump program state.environment cursor target =
+          .ok (locals', .running
+            { cursor with block := target, position := targetBlock.startPosition }) := by
+      have hsize := mapM_ok_size hvalues
+      simp [Vars.jump, hblock, htarget', hvalues, hbind, harity, hsize]
     rw [hexact] at hjump
-    obtain rfl := (Prod.mk.inj (Except.ok.inj hjump)).2
+    obtain ⟨rfl, rfl⟩ := Prod.mk.inj (Except.ok.inj hjump)
+    obtain ⟨rfl, rfl⟩ := hfinal
     refine ⟨targetBlock, ?_, ?_⟩
-    · simpa [Vars.Program.block?] using htarget
+    · simpa [Vars.Program.block?, State.of] using htarget
     · rw [Vars.Block.variablesDefinedAtPosition_start]
       exact Locals.bindValues_covers hbind
   unfold Vars.Program.TerminatorReady at hready
   cases terminator with
   | halt =>
       rw [hblockTerminator] at hready
-      simp only [Vars.evaluateTerminator] at heval
-      obtain rfl := (Prod.mk.inj (Except.ok.inj heval)).2
+      simp [Vars.evaluateTerminator] at heval
+      obtain ⟨rfl, rfl⟩ := heval
       trivial
   | jump target =>
       rw [hblockTerminator] at hready
-      exact jumpPreserves heval hready
+      simp [Vars.evaluateTerminator, hcontrol] at heval
+      exact jumpPreserves heval hready ⟨rfl, rfl⟩
   | branch condition thenTarget elseTarget =>
       rw [hblockTerminator] at hready
       obtain ⟨word, hword, hjumpReady⟩ := hready
-      simp only [Vars.evaluateTerminator, StateT.run, bind, StateT.bind,
-        Locals.lookupM, liftM, monadLift, MonadLift.monadLift,
-        StateT.get, Except.bind, StateT.lift, pure, Except.pure, hword] at heval
-      exact jumpPreserves heval hjumpReady
+      simp [Vars.evaluateTerminator, hcontrol, hword] at heval
+      exact jumpPreserves heval hjumpReady ⟨rfl, rfl⟩
   | iret =>
       rw [hblockTerminator] at hready
       obtain ⟨values, hvalues⟩ := hready
       rw [Vars.evaluateTerminator_iret_ok hcontrol hblock hvalues] at heval
-      obtain rfl := (Prod.mk.inj (Except.ok.inj heval)).2
+      obtain ⟨rfl, rfl⟩ := heval
       trivial
+
+theorem Vars.evalStmt_sstore_environment
+    {state evaluated : Vars.State} {keyVar valueVar : VarId}
+    (h : Vars.evalStmt ctx state (.sstore keyVar valueVar) = .ok evaluated) :
+    evaluated.environment = state.environment := by
+  simp [Vars.evalStmt] at h
+  cases hkey : state.lookup keyVar with
+  | error _ =>
+      simp [hkey, bind, Except.bind] at h
+  | ok key =>
+      cases hvalue : state.lookup valueVar with
+      | error _ =>
+          simp [hkey, hvalue, bind, Except.bind] at h
+      | ok value =>
+          simp [hkey, hvalue, bind, Except.bind] at h
+          cases h
+          rfl
 
 theorem Vars.Program.WellFormed.localsCoverCursor_step
     (hwf : program.WellFormed) {state final : Vars.State} {trace : Trace}
@@ -429,21 +446,34 @@ theorem Vars.Program.WellFormed.localsCoverCursor_step
     final.LocalsCoverCursor program := by
   cases hstep with
   | assign hstmt heval =>
+      rename_i evaluated
       obtain ⟨cursor, block, index, -, -, hblock, hstatementAt, hnext, hbefore, -⟩ :=
         hwf.statementAt_covers hinvariant hstmt
+      simp [Vars.State.evaluate, Vars.evalStmt] at heval
+      cases hexpr : Vars.evalExpr ctx state.environment state.globals ‹Expr› with
+      | error _ => simp [hexpr] at heval
+      | ok value =>
+          simp [hexpr] at heval
+          subst evaluated
+          apply Vars.State.localsCoverCursor_after_statement
+            (evaluated := ⟨state.globals, state.environment.assign _ value, state.control⟩)
+            hblock hstatementAt hnext hbefore
+          · exact fun identifier hdefined => Locals.defined_assign_of_defined hdefined
+          · intro identifier hidentifier
+            simp [Vars.Stmt.variablesDefined] at hidentifier
+            subst identifier
+            exact Locals.defined_assign _ _ _
+  | sstore hstmt heval =>
+      rename_i evaluated
+      obtain ⟨cursor, block, index, -, -, hblock, hstatementAt, hnext, hbefore, -⟩ :=
+        hwf.statementAt_covers hinvariant hstmt
+      have henv := Vars.evalStmt_sstore_environment (by
+        simpa [Vars.State.evaluate] using heval)
       apply Vars.State.localsCoverCursor_after_statement
-        (evaluated := ⟨state.globals, state.environment.assign _ _, state.control⟩)
+        (evaluated := { state with environment := evaluated.environment })
         hblock hstatementAt hnext hbefore
-      · exact fun identifier hdefined => Locals.defined_assign_of_defined hdefined
-      · intro identifier hidentifier
-        simp [Vars.Stmt.variablesDefined] at hidentifier
-        subst identifier
-        exact Locals.defined_assign _ _ _
-  | sstore hstmt =>
-      obtain ⟨cursor, block, index, -, -, hblock, hstatementAt, hnext, hbefore, -⟩ :=
-        hwf.statementAt_covers hinvariant hstmt
-      apply Vars.State.localsCoverCursor_after_statement hblock hstatementAt hnext hbefore
-      · exact fun _ h => h
+      · intro identifier hdefined
+        simpa [henv] using hdefined
       · simp [Locals.CoversVariables, Vars.Stmt.variablesDefined]
   | gas hstmt =>
       obtain ⟨cursor, block, index, -, -, hblock, hstatementAt, hnext, hbefore, -⟩ :=

@@ -87,4 +87,21 @@ def Trace.QueryDivergence (first second : Trace) : Prop :=
       second = pre ++ secondEvent :: secondRest ∧
       firstEvent ≠ secondEvent ∧ firstEvent.query = secondEvent.query
 
+inductive ObservableOutcome where
+  | gas
+  | call (input : CallInput)
+  | halt (world : World)
+
+inductive FunctionObservableOutcome where
+  | gas
+  | call (input : CallInput)
+  | halt (world : World)
+  | returned (world : World) (values : Array Word)
+
+def ObservableOutcome.functionOutcome : ObservableOutcome → FunctionObservableOutcome
+  | .gas => .gas
+  | .call input => .call input
+  | .halt world => .halt world
+
+
 end Sir

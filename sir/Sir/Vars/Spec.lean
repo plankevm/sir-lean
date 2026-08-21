@@ -17,8 +17,6 @@ def lookup (locals : Locals) (var : VarId) : Except IRError Word :=
   | none => .error (.undefinedVariable var)
   | some value => .ok value
 
-def lookupM (var : VarId) : StateT Locals (Except IRError) Word := StateT.get >>= (·.lookup var)
-
 def assign (locals : Locals) (var : VarId) (value : Word) : Locals :=
   ⟨fun candidate => if candidate = var then some value else locals.values candidate⟩
 
@@ -38,12 +36,6 @@ def bindReturns (callerLocals : Locals) (dests : Array VarId) (rs : Array Word) 
     Except IRError Locals :=
   Locals.bindValues callerLocals dests rs
 
-def transfer (outputs inputs : Array VarId) : StateT Locals (Except IRError) Unit :=
-  fun locals₀ => do
-    let vs ← outputs.mapM locals₀.lookup
-    let locals' ← Locals.bindValues locals₀ inputs vs
-    return ((), locals')
-
 end Locals
 
 namespace Vars
@@ -52,9 +44,6 @@ structure State where
   globals : Globals
   environment : Locals
   control : Control
-
-abbrev EvalM := StateT State (Except IRError)
-
 abbrev State.lookup (state : State) (var : VarId) : Except IRError Word :=
   state.environment.lookup var
 
@@ -67,11 +56,7 @@ def State.of (globals : Globals) (environment : Locals) (control : Control) : St
 def State.assign (state : State) (var : VarId) (value : Word) (next : Control) : State :=
   { state with environment := state.environment.assign var value, control := next }
 
-instance {m : Type → Type} [Monad m] :
-    MonadLift (StateT Locals m) (StateT State m) where
-  monadLift action state := do
-    let (result, environment') ← action.run state.environment
-    return (result, { state with environment := environment' })
+
 
 structure Call where
   callee : VarId
@@ -261,28 +246,50 @@ def State.inBounds (state : State) (offset : Word) : Prop :=
   state.globals.memory.InBounds offset.toNat 32
 
 
-def jump (program : Program) (target : BlockId) : EvalM Unit := do
-  let .running cursor := (← get).control | throw .invalidControl
-  let source := cursor.block
-  let some sourceBlock := program.block? cursor | throw (.invalidBlock source)
-  let targetCursor := { cursor with block := target }
-  let some targetBlock := program.block? targetCursor | throw (.invalidBlock target)
-  Locals.transfer sourceBlock.outputs targetBlock.inputs
-  let targetCursor := { targetCursor with position := targetBlock.startPosition }
-  modify ({ · with control := .running targetCursor })
+def jump (program : Program) (locals : Locals) (cursor : ProgramCursor)
+    (target : BlockId) : Except IRError (Locals × Control) :=
+  match program.block? cursor, program.block? { cursor with block := target } with
+  | none, _ => .error (.invalidBlock cursor.block)
+  | _, none => .error (.invalidBlock target)
+  | some source, some targetBlock =>
+      match source.outputs.mapM locals.lookup with
+      | .error err => .error err
+      | .ok values =>
+          if values.size ≠ targetBlock.inputs.size then
+            .error (.blockArityMismatch values.size targetBlock.inputs.size)
+          else
+            match Locals.bindValues locals targetBlock.inputs values with
+            | .error err => .error err
+            | .ok nextLocals =>
+                .ok (nextLocals, .running
+                  { cursor with block := target, position := targetBlock.startPosition })
 
-def evaluateTerminator (program : Program) : Terminator → EvalM Unit
-  | .halt => modify (fun state => { state with control := .halted })
-  | .jump target => jump program target
-  | .branch condition thenTarget elseTarget => do
-      let value ← Locals.lookupM condition
-      jump program (if value = 0 then elseTarget else thenTarget)
-  | .iret => do
-      let .running cursor := (← get).control | throw .invalidControl
-      let some block := program.block? cursor | throw (.invalidBlock cursor.block)
-      let state ← get
-      let rs ← liftM (block.outputs.mapM state.environment.lookup)
-      modify ({ · with control := .returned rs })
+def evaluateTerminator (program : Program) (locals : Locals) (control : Control) :
+    Terminator → Except IRError (Locals × Control)
+  | .halt => .ok (locals, .halted)
+  | .jump target =>
+      match control with
+      | .running cursor => jump program locals cursor target
+      | _ => .error .invalidControl
+  | .branch condition thenTarget elseTarget =>
+      match control with
+      | .running cursor =>
+          match locals.lookup condition with
+          | .error err => .error err
+          | .ok value =>
+              jump program locals cursor (if value = 0 then elseTarget else thenTarget)
+      | _ => .error .invalidControl
+  | .iret =>
+      match control with
+      | .running cursor =>
+          match program.block? cursor with
+          | none => .error (.invalidBlock cursor.block)
+          | some block =>
+              match block.outputs.mapM locals.lookup with
+              | .error err => .error err
+              | .ok results => .ok (locals, .returned results)
+      | _ => .error .invalidControl
+
 
 def evalExpr (context : CallContext) (environment : Locals) (globals : Globals) :
     Expr → Except IRError Word
@@ -292,9 +299,19 @@ def evalExpr (context : CallContext) (environment : Locals) (globals : Globals) 
   | .lt left right => do return .lt (← environment.lookup left) (← environment.lookup right)
   | .sload key => do return globals.world.loadStorage context.self (← environment.lookup key)
 
-def State.evaluate (state : State) (context : CallContext) (expression : Expr) :
-    Except IRError Word :=
-  evalExpr context state.environment state.globals expression
+def evalStmt (context : CallContext) (state : State) : Stmt → Except IRError State
+  | .assign result expression => do
+      let value ← evalExpr context state.environment state.globals expression
+      return { state with environment := state.environment.assign result value }
+  | .sstore keyVar valueVar => do
+      let key ← state.lookup keyVar
+      let value ← state.lookup valueVar
+      return { state with globals := state.globals.storeStorage context key value }
+  | _ => .error .invalidControl
+
+def State.evaluate (state : State) (context : CallContext) (statement : Stmt) :
+    Except IRError State :=
+  evalStmt context state statement
 
 def resume (outcome : FunctionOutcome) (env : Locals) (dst : Array VarId)
     (next : Control) : Option (Locals × Control) :=
@@ -312,14 +329,14 @@ inductive SmallStep (program : Program) (context : CallContext) :
     State → Trace → State → Prop where
   | assign
       (hstmt : program.AtStmt state next (.assign result expression))
-      (heval : state.evaluate context expression = .ok value) :
-      SmallStep program context state [] (state.assign result value next)
+      (heval : state.evaluate context (.assign result expression) = .ok evaluated) :
+      SmallStep program context state []
+        (State.of evaluated.globals evaluated.environment next)
   | sstore
       (hstmt : program.AtStmt state next (.sstore keyVar valueVar))
-      (hkey : state.lookup keyVar = .ok key)
-      (hvalue : state.lookup valueVar = .ok value) :
+      (heval : state.evaluate context (.sstore keyVar valueVar) = .ok evaluated) :
       SmallStep program context state []
-        { state with globals := state.globals.storeStorage context key value, control := next }
+        (State.of evaluated.globals evaluated.environment next)
   | gas
       (hstmt : program.AtStmt state next (.gas result)) :
       SmallStep program context state [.gas answer] (state.assign result answer next)
@@ -370,8 +387,10 @@ inductive SmallStep (program : Program) (context : CallContext) :
       SmallStep program context state trace (State.of globals environment resumed)
   | control
       (hterm : program.AtTerm state terminator)
-      (heval : (evaluateTerminator program terminator).run state = .ok ((), final)) :
-      SmallStep program context state [] final
+      (heval : evaluateTerminator program state.environment state.control terminator =
+        .ok (environment, finalControl)) :
+      SmallStep program context state []
+        (State.of state.globals environment finalControl)
 
 inductive Steps (program : Program) (context : CallContext) :
     State → Trace → State → Prop where
@@ -486,17 +505,6 @@ end Sir.Vars
 
 namespace Sir
 
-inductive ObservableOutcome where
-  | gas
-  | call (input : CallInput)
-  | halt (world : World)
-
-inductive FunctionObservableOutcome where
-  | gas
-  | call (input : CallInput)
-  | halt (world : World)
-  | returned (world : World) (values : Array Word)
-
 def Vars.Program.FnNextEffect (program : Vars.Program) (ctx : CallContext)
     (function : FunctionId) (globals : Globals) (args : Array Word)
     (history : Trace) : FunctionObservableOutcome → Prop
@@ -518,10 +526,6 @@ def Vars.Program.FnNextEffect (program : Vars.Program) (ctx : CallContext)
         Vars.EvalFn program ctx function globals args history finalGlobals (.returned values) ∧
         finalGlobals.world = world
 
-def ObservableOutcome.functionOutcome : ObservableOutcome → FunctionObservableOutcome
-  | .gas => .gas
-  | .call input => .call input
-  | .halt world => .halt world
 
 def Vars.Program.NextEffect (program : Vars.Program) (ctx : CallContext)
     (entry : FunctionId) (world₀ : World) (history : Trace) (outcome : ObservableOutcome) : Prop :=
