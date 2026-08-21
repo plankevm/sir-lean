@@ -1,4 +1,5 @@
 import Sir.Stack.Proofs.Determinism
+import Sir.Stack.Proofs.Progress
 
 namespace Sir.Stack
 
@@ -64,5 +65,54 @@ theorem EvalFn.trace_det
     (h₂ : EvalFn program ctx function globals args trace finalGlobals₂ outcome₂) :
     finalGlobals₁ = finalGlobals₂ ∧ outcome₁ = outcome₂ :=
   Proofs.EvalFn.trace_det hfree h₁ h₂
+
+theorem Program.deterministic_of_memOracleFree
+    (hfree : program.MemOracleFree) : program.Deterministic :=
+  Proofs.Program.deterministic_of_memOracleFree hfree
+
+theorem Program.functionDeterministic_of_memOracleFree
+    (hfree : program.MemOracleFree) (function : FunctionId) :
+    program.FunctionDeterministic function :=
+  Proofs.Program.functionDeterministic_of_memOracleFree hfree function
+
+theorem Program.functionDeterministicFrom_of_memOracleFree
+    (hfree : program.MemOracleFree) (ctx : CallContext)
+    (function : FunctionId) (globals : Globals) (args : Array Word) :
+    program.FunctionDeterministicFrom ctx function globals args :=
+  Proofs.Program.functionDeterministicFrom_of_memOracleFree
+    hfree ctx function globals args
+
+theorem Program.MemOracleFree.deterministicFrom
+    (hfree : program.MemOracleFree) (ctx : CallContext)
+    (entry : FunctionId) (world₀ : World) :
+    program.DeterministicFrom ctx entry world₀ :=
+  Proofs.Program.MemOracleFree.deterministicFrom hfree ctx entry world₀
+
+variable {entry : FunctionId} {world₀ : World}
+
+local notation:50 e " =[" t "]=>! " f => program.RunsTo ctx e world₀ t f
+
+theorem Program.RunsTo.unique_or_queryDivergence
+    {t₁ t₂ : Trace} {final₁ final₂ : State}
+    (hfree : program.MemOracleFree)
+    (h₁ : entry =[t₁]=>! final₁)
+    (h₂ : entry =[t₂]=>! final₂) :
+    (t₁ = t₂ ∧ final₁ = final₂) ∨ Trace.QueryDivergence t₁ t₂ :=
+  Proofs.Program.RunsTo.unique_or_queryDivergence hfree h₁ h₂
+
+theorem Program.RunsTo.trace_det
+    (hfree : program.MemOracleFree)
+    {t : Trace} {final₁ final₂ : State}
+    (h₁ : entry =[t]=>! final₁)
+    (h₂ : entry =[t]=>! final₂) : final₁ = final₂ :=
+  Proofs.Program.RunsTo.trace_det hfree h₁ h₂
+
+theorem Program.WellFormed.progress
+    (hwf : program.WellFormed) {state : State}
+    (ready : program.ReadyState ctx state) :
+    ∃ trace state', state =[trace]=> state' :=
+  Proofs.Program.WellFormed.progress hwf ready
+
+
 
 end Sir.Stack

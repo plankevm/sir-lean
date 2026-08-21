@@ -16,6 +16,7 @@ def witnessProgram : Program :=
             terminator := .halt
             outputCount := 1 }
         rest := #[] }
+    main := none
     rest := #[] }
 
 def witnessState (globals : Globals) (stack : List Word) (position : BlockPosition) :
@@ -56,15 +57,13 @@ theorem witness_step_add (ctx : CallContext) (globals : Globals) :
 theorem witness_step_halt (ctx : CallContext) (globals : Globals) :
     SmallStep witnessProgram ctx
       (witnessState globals [witnessSum] .terminator) []
-      { globals, environment := { Environment.empty with stack := [witnessSum] },
-        control := .halted } :=
+      (State.of globals { Environment.empty with stack := [witnessSum] } .halted) :=
   SmallStep.control rfl rfl
 
 theorem witness_runs (ctx : CallContext) (globals : Globals) :
     Steps witnessProgram ctx
       (witnessState globals [] (.statement 0)) []
-      { globals, environment := { Environment.empty with stack := [witnessSum] },
-        control := .halted } :=
+      (State.of globals { Environment.empty with stack := [witnessSum] } .halted) :=
   .tail
     (.tail
       (.tail
@@ -76,18 +75,16 @@ theorem witness_runs (ctx : CallContext) (globals : Globals) :
 theorem witness_confluence (ctx : CallContext) (globals : Globals) :
     (∃ suffix,
       Steps witnessProgram ctx
-        { globals, environment := { Environment.empty with stack := [witnessSum] },
-          control := .halted }
+        (State.of globals { Environment.empty with stack := [witnessSum] } .halted)
         suffix
-        { globals, environment := { Environment.empty with stack := [witnessSum] },
-          control := .halted } ∧ [] ++ suffix = []) ∨
+        (State.of globals { Environment.empty with stack := [witnessSum] } .halted) ∧
+          [] ++ suffix = []) ∨
     (∃ suffix,
       Steps witnessProgram ctx
-        { globals, environment := { Environment.empty with stack := [witnessSum] },
-          control := .halted }
+        (State.of globals { Environment.empty with stack := [witnessSum] } .halted)
         suffix
-        { globals, environment := { Environment.empty with stack := [witnessSum] },
-          control := .halted } ∧ [] ++ suffix = []) ∨
+        (State.of globals { Environment.empty with stack := [witnessSum] } .halted) ∧
+          [] ++ suffix = []) ∨
     Trace.QueryDivergence [] [] :=
   .inl ⟨[], .refl, rfl⟩
 

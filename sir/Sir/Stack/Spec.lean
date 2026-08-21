@@ -124,15 +124,31 @@ def Function.blocks (function : Function) : Array Block := #[function.entry] ++ 
 def Function.block? (function : Function) (block : BlockId) : Option Block :=
   function.blocks[block.id]?
 
+def Function.outputs? (function : Function) : Option Nat :=
+  (function.blocks.find? (fun block => decide (block.terminator = .iret))).map (·.outputCount)
+
+def Terminator.jumpTargets : Terminator → List BlockId
+  | .jump target => [target]
+  | .branch thenTarget elseTarget => [thenTarget, elseTarget]
+  | .halt | .iret => []
+
+
 def Function.HasInstr (function : Function) (instruction : Instr) : Prop :=
   ∃ block ∈ function.blocks, instruction ∈ block.instructions
 
 structure Program where
   init : Function
+  main : Option Function
   rest : Array Function
 deriving Repr
 
-def Program.functions (program : Program) : Array Function := #[program.init] ++ program.rest
+def Program.functions (program : Program) : Array Function :=
+  #[program.init] ++ program.main.toArray ++ program.rest
+
+def Program.initId (_ : Program) : FunctionId := ⟨0⟩
+
+def Program.mainId? (program : Program) : Option FunctionId :=
+  program.main.map fun _ => ⟨1⟩
 
 def Program.function? (program : Program) (function : FunctionId) : Option Function :=
   program.functions[function.id]?
@@ -203,43 +219,53 @@ def evalSload (context : CallContext) (globals : Globals) (environment : Environ
   push environment ⟨1, 1⟩ #[globals.world.loadStorage context.self key]
 
 def evalInstr (context : CallContext) (globals : Globals) (environment : Environment) :
-    Instr → Except IRError Environment
-  | .push value => push environment ⟨0, 1⟩ #[value]
+    Instr → Except IRError (Globals × Environment)
+  | .push value =>
+      (push environment ⟨0, 1⟩ #[value]).map fun environment => (globals, environment)
   | .swap depth =>
       match exchange environment.stack 0 depth with
-      | some stack => .ok { environment with stack }
+      | some stack => .ok (globals, { environment with stack })
       | none => .error .invalidControl
   | .exchange firstDepth secondDepth =>
       if firstDepth = secondDepth then .error .invalidControl else
         match exchange environment.stack firstDepth secondDepth with
-        | some stack => .ok { environment with stack }
+        | some stack => .ok (globals, { environment with stack })
         | none => .error .invalidControl
   | .dup depth =>
       match environment.stack[depth]? with
-      | some value => .ok { environment with stack := value :: environment.stack }
+      | some value => .ok (globals, { environment with stack := value :: environment.stack })
       | none => .error .invalidControl
   | .pop =>
       match environment.stack with
-      | _ :: stack => .ok { environment with stack }
+      | _ :: stack => .ok (globals, { environment with stack })
       | [] => .error .invalidControl
   | .store slot =>
       match environment.stack with
-      | value :: stack => .ok { environment.storeSlot slot value with stack }
+      | value :: stack => .ok (globals, { environment.storeSlot slot value with stack })
       | [] => .error .invalidControl
   | .load slot =>
       match environment.slots slot with
-      | some value => .ok { environment with stack := value :: environment.stack }
+      | some value => .ok (globals, { environment with stack := value :: environment.stack })
       | none => .error .invalidControl
-  | .op .add => evalBinary .add environment (sourceFetch environment 2)
-  | .op .lt => evalBinary .lt environment (sourceFetch environment 2)
+  | .op .add =>
+      (evalBinary .add environment (sourceFetch environment 2)).map (globals, ·)
+  | .op .lt =>
+      (evalBinary .lt environment (sourceFetch environment 2)).map (globals, ·)
   | .flippedOp operation =>
-      evalBinary operation.apply environment (sourceFetchFlipped environment)
-  | .op .sload => evalSload context globals environment
-  | .op .sstore | .op .gas | .op .call | .op .malloc | .op .mallocUninit |
+      (evalBinary operation.apply environment (sourceFetchFlipped environment)).map (globals, ·)
+  | .op .sload =>
+      (evalSload context globals environment).map (globals, ·)
+  | .op .sstore => do
+      let values ← sourceFetch environment 2
+      let some key := values[0]? | throw (.blockArityMismatch values.size 2)
+      let some value := values[1]? | throw (.blockArityMismatch values.size 2)
+      let environment ← push environment ⟨2, 0⟩ #[]
+      return (globals.storeStorage context key value, environment)
+  | .op .gas | .op .call | .op .malloc | .op .mallocUninit |
     .op .mstore32 | .op .mload32 | .icall _ _ _ => .error .invalidControl
 
 def State.evaluate (state : State) (context : CallContext) (instruction : Instr) :
-    Except IRError Environment :=
+    Except IRError (Globals × Environment) :=
   evalInstr context state.globals state.environment instruction
 
 def jump (program : Program) (environment : Environment) (cursor : ProgramCursor)
@@ -295,26 +321,20 @@ inductive SmallStep (program : Program) (context : CallContext) :
     State → Trace → State → Prop where
   | pure
       (hinstr : program.AtInstr state next instruction)
-      (heval : state.evaluate context instruction = .ok environment) :
-      SmallStep program context state [] { state with environment, control := next }
-  | sstore
-      (hinstr : program.AtInstr state next (.op .sstore))
-      (hfetch : state.fetch 2 = .ok #[key, value])
-      (hpush : state.pushValues ⟨2, 0⟩ #[] = .ok environment) :
-      SmallStep program context state []
-        { globals := state.globals.storeStorage context key value, environment, control := next }
+      (heval : state.evaluate context instruction = .ok (globals, environment)) :
+      SmallStep program context state [] (State.of globals environment next)
   | gas
       (hinstr : program.AtInstr state next (.op .gas))
       (hpush : state.pushValues ⟨0, 1⟩ #[answer] = .ok environment) :
       SmallStep program context state [.gas answer]
-        { state with environment, control := next }
+        (State.of state.globals environment next)
   | call
       (hinstr : program.AtInstr state next (.op .call))
       (hfetch : state.fetch 2 = .ok #[target, gasLimit])
       (hpush : state.pushValues ⟨2, 1⟩ #[.fromBool answer.success] = .ok environment) :
       SmallStep program context state
         [.call { input := state.globals.callInput target gasLimit, result := answer }]
-        { globals := state.globals.applyCall answer, environment, control := next }
+        (State.of (state.globals.applyCall answer) environment next)
   | malloc
       (hinstr : program.AtInstr state next (.op .malloc))
       (hfetch : state.fetch 1 = .ok #[size])
@@ -322,27 +342,27 @@ inductive SmallStep (program : Program) (context : CallContext) :
       (hzero : allocation.bytes = ByteArray.mk (Array.replicate size.toNat 0))
       (hpush : state.pushValues ⟨1, 1⟩ #[allocation.offset] = .ok environment) :
       SmallStep program context state []
-        { globals := state.globals.pushAlloc allocation, environment, control := next }
+        (State.of (state.globals.pushAlloc allocation) environment next)
   | mallocUninit
       (hinstr : program.AtInstr state next (.op .mallocUninit))
       (hfetch : state.fetch 1 = .ok #[size])
       (hallow : state.allows size allocation)
       (hpush : state.pushValues ⟨1, 1⟩ #[allocation.offset] = .ok environment) :
       SmallStep program context state []
-        { globals := state.globals.pushAlloc allocation, environment, control := next }
+        (State.of (state.globals.pushAlloc allocation) environment next)
   | mstore32
       (hinstr : program.AtInstr state next (.op .mstore32))
       (hfetch : state.fetch 2 = .ok #[offset, value])
       (hbound : state.inBounds offset)
       (hpush : state.pushValues ⟨2, 0⟩ #[] = .ok environment) :
       SmallStep program context state []
-        { globals := state.globals.writeWord32 offset value, environment, control := next }
+        (State.of (state.globals.writeWord32 offset value) environment next)
   | mload32
       (hinstr : program.AtInstr state next (.op .mload32))
       (hfetch : state.fetch 1 = .ok #[offset])
       (hpush : state.pushValues ⟨1, 1⟩ #[state.globals.readWord32 offset assumed] =
         .ok environment) :
-      SmallStep program context state [] { state with environment, control := next }
+      SmallStep program context state [] (State.of state.globals environment next)
   | icall
       (hinstr : program.AtInstr state next (.icall callee argumentCount resultCount))
       (hargs : state.fetch argumentCount = .ok args)
@@ -355,7 +375,7 @@ inductive SmallStep (program : Program) (context : CallContext) :
       (heval : evaluateTerminator program state.environment state.control terminator =
         some (environment, finalControl)) :
       SmallStep program context state []
-        { state with environment := environment, control := finalControl }
+        (State.of state.globals environment finalControl)
 
 inductive Steps (program : Program) (context : CallContext) :
     State → Trace → State → Prop where
@@ -379,6 +399,181 @@ def Steps.Extends (program : Program) (context : CallContext) (state₁ : State)
     (trace₁ : Trace) (state₂ : State) (trace₂ : Trace) : Prop :=
   ∃ suffix, Steps program context state₁ suffix state₂ ∧ trace₁ ++ suffix = trace₂
 
+def Program.FunctionInputOutputArity (program : Program) (inputCount : Nat)
+    (outputCount : Option Nat) (functionId : FunctionId) : Prop :=
+  ∃ fn, program.function? functionId = some fn ∧
+    fn.entry.inputCount = inputCount ∧ fn.outputs? = outputCount
 
+def Program.callEdge (program : Program) (caller callee : FunctionId) : Prop :=
+  ∃ argumentCount resultCount function,
+    program.function? caller = some function ∧
+      function.HasInstr (.icall callee argumentCount resultCount)
+
+def Program.NonIcallControl (program : Program) (state : State) : Prop :=
+  (∃ next instruction,
+      program.AtInstr state next instruction ∧
+      ∀ callee argumentCount resultCount,
+        instruction ≠ .icall callee argumentCount resultCount) ∨
+    ∃ terminator, program.AtTerm state terminator
+
+def Program.AllocationAvailable (program : Program) (state : State) : Prop :=
+  (∀ next size,
+      program.AtInstr state next (.op .malloc) →
+      state.fetch 1 = .ok #[size] →
+      ∃ allocation, state.globals.memory.IsValidNewAlloc allocation ∧
+        allocation.size = size.toNat ∧
+        allocation.bytes = ByteArray.mk (Array.replicate size.toNat 0)) ∧
+    ∀ next size,
+      program.AtInstr state next (.op .mallocUninit) →
+      state.fetch 1 = .ok #[size] →
+      ∃ allocation, state.globals.memory.IsValidNewAlloc allocation ∧
+        allocation.size = size.toNat
+
+def Program.BumpFits (program : Program) (state : State) : Prop :=
+  (∀ next size,
+      program.AtInstr state next (.op .malloc) →
+      state.fetch 1 = .ok #[size] →
+      state.globals.memory.watermark + size.toNat ≤ Evm.UInt256.size) ∧
+    ∀ next size,
+      program.AtInstr state next (.op .mallocUninit) →
+      state.fetch 1 = .ok #[size] →
+      state.globals.memory.watermark + size.toNat ≤ Evm.UInt256.size
+
+def Program.StoreInBounds (program : Program) (state : State) : Prop :=
+  ∀ next offset value,
+    program.AtInstr state next (.op .mstore32) →
+    state.fetch 2 = .ok #[offset, value] →
+    state.inBounds offset
+
+def Program.RunsFunction (program : Program) (ctx : CallContext) (function : FunctionId)
+    (globals : Globals) (args : Array Word) (trace : Trace) (state : State) : Prop :=
+  ∃ initial,
+    entry program function globals args = some initial ∧
+    Steps program ctx initial trace state
+
+def Program.Runs (program : Program) (ctx : CallContext) (entry : FunctionId)
+    (world : World) (trace : Trace) (state : State) : Prop :=
+  program.RunsFunction ctx entry { world := world } #[] trace state
+
+def Program.RunsTo (program : Program) (ctx : CallContext) (entry : FunctionId)
+    (world : World) (trace : Trace) (final : State) : Prop :=
+  program.Runs ctx entry world trace final ∧ final.control = .halted
+
+def Program.CurrentReady (program : Program) (context : CallContext) (state : State) : Prop :=
+  (∃ next instruction,
+      program.AtInstr state next instruction ∧
+      (∀ callee argumentCount resultCount,
+        instruction ≠ .icall callee argumentCount resultCount) ∧
+      ((∃ globals environment,
+          state.evaluate context instruction = .ok (globals, environment)) ∨
+        (∃ answer environment,
+          instruction = .op .gas ∧
+            state.pushValues ⟨0, 1⟩ #[answer] = .ok environment) ∨
+        (∃ target gasLimit environment,
+          instruction = .op .call ∧
+            state.fetch 2 = .ok #[target, gasLimit] ∧
+            state.pushValues ⟨2, 1⟩ #[.fromBool true] = .ok environment) ∨
+        (∃ size allocation environment,
+          instruction = .op .malloc ∧
+            state.fetch 1 = .ok #[size] ∧
+            state.allows size allocation ∧
+            allocation.bytes = ByteArray.mk (Array.replicate size.toNat 0) ∧
+            state.pushValues ⟨1, 1⟩ #[allocation.offset] = .ok environment) ∨
+        (∃ size allocation environment,
+          instruction = .op .mallocUninit ∧
+            state.fetch 1 = .ok #[size] ∧
+            state.allows size allocation ∧
+            state.pushValues ⟨1, 1⟩ #[allocation.offset] = .ok environment) ∨
+        (∃ offset value environment,
+          instruction = .op .mstore32 ∧
+            state.fetch 2 = .ok #[offset, value] ∧
+            state.inBounds offset ∧
+            state.pushValues ⟨2, 0⟩ #[] = .ok environment) ∨
+        (∃ offset assumed environment,
+          instruction = .op .mload32 ∧
+            state.fetch 1 = .ok #[offset] ∧
+            state.pushValues ⟨1, 1⟩ #[state.globals.readWord32 offset assumed] =
+              .ok environment))) ∨
+    ∃ terminator environment finalControl,
+      program.AtTerm state terminator ∧
+        evaluateTerminator program state.environment state.control terminator =
+          some (environment, finalControl)
+
+def Program.ReadyState (program : Program) (ctx : CallContext) (state : State) : Prop :=
+  (∃ function globals args trace,
+      program.RunsFunction ctx function globals args trace state) ∧
+    program.CurrentReady ctx state ∧
+    (program.AllocationAvailable state ∨ program.BumpFits state) ∧
+    program.StoreInBounds state
+
+structure Program.WellFormed (program : Program) : Prop where
+  icallArity :
+    ∀ callee argumentCount resultCount, program.HasInstr (.icall callee argumentCount resultCount) →
+      ∃ outputs, program.FunctionInputOutputArity argumentCount outputs callee ∧
+        outputs.getD 0 = resultCount
+  iretArity :
+    ∀ function ∈ program.functions, ∀ block ∈ function.blocks,
+      block.terminator = .iret → some block.outputCount = function.outputs?
+  entryArity :
+    (program.init.entry.inputCount = 0 ∧ program.init.outputs? = none) ∧
+      ∀ main, program.main = some main → main.entry.inputCount = 0 ∧ main.outputs? = none
+  validJumpTargets :
+    ∀ function ∈ program.functions,
+      ∀ block ∈ function.blocks, ∀ target ∈ block.terminator.jumpTargets,
+        ∃ targetBlock, function.block? target = some targetBlock ∧
+          targetBlock.inputCount = block.outputCount
+
+def Program.FnNextEffect (program : Program) (ctx : CallContext)
+    (function : FunctionId) (globals : Globals) (args : Array Word)
+    (history : Trace) : FunctionObservableOutcome → Prop
+  | .gas =>
+      ∃ gas trace rest state,
+        program.RunsFunction ctx function globals args trace state ∧
+        trace = history ++ .gas gas :: rest
+  | .call input =>
+      ∃ call trace rest state,
+        call.input = input ∧
+        program.RunsFunction ctx function globals args trace state ∧
+        trace = history ++ .call call :: rest
+  | .halt world =>
+      ∃ finalGlobals,
+        EvalFn program ctx function globals args history finalGlobals .halted ∧
+        finalGlobals.world = world
+  | .returned world values =>
+      ∃ finalGlobals,
+        EvalFn program ctx function globals args history finalGlobals (.returned values) ∧
+        finalGlobals.world = world
+
+def Program.NextEffect (program : Program) (ctx : CallContext)
+    (entry : FunctionId) (world₀ : World) (history : Trace) (outcome : ObservableOutcome) : Prop :=
+  program.FnNextEffect ctx entry { world := world₀ } #[] history
+    outcome.functionOutcome
+
+def Program.FunctionDeterministicFrom (program : Program) (ctx : CallContext)
+    (function : FunctionId) (globals : Globals) (args : Array Word) : Prop :=
+  ∀ history outcome₁ outcome₂,
+    program.FnNextEffect ctx function globals args history outcome₁ →
+    program.FnNextEffect ctx function globals args history outcome₂ →
+    outcome₁ = outcome₂
+
+def Program.DeterministicFrom (program : Program) (ctx : CallContext)
+    (entry : FunctionId) (world₀ : World) : Prop :=
+  ∀ history outcome₁ outcome₂,
+    program.NextEffect ctx entry world₀ history outcome₁ →
+    program.NextEffect ctx entry world₀ history outcome₂ →
+    outcome₁ = outcome₂
+
+def Program.Deterministic (program : Program) : Prop :=
+  ∀ ctx world₀,
+    program.DeterministicFrom ctx program.initId world₀ ∧
+      ∀ entry, program.mainId? = some entry →
+        program.DeterministicFrom ctx entry world₀
+
+def Program.FunctionDeterministic (program : Program) (function : FunctionId) : Prop :=
+  ∀ ctx globals args trace₁ trace₂ finalGlobals₁ finalGlobals₂ outcome₁ outcome₂,
+    EvalFn program ctx function globals args trace₁ finalGlobals₁ outcome₁ →
+    EvalFn program ctx function globals args trace₂ finalGlobals₂ outcome₂ →
+    (trace₁ = trace₂ ∧ finalGlobals₁ = finalGlobals₂ ∧ outcome₁ = outcome₂) ∨
+      trace₁.QueryDivergence trace₂
 
 end Sir.Stack
