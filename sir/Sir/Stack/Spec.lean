@@ -50,6 +50,9 @@ structure State where
 abbrev State.fetch (state : State) (count : Nat) : Except IRError (Array Word) :=
   sourceFetch state.environment count
 
+def State.halted (globals : Globals) : State :=
+  { globals, environment := .empty, control := .halted }
+
 inductive Op where
   | add
   | lt
@@ -63,6 +66,15 @@ inductive Op where
   | mload32
 deriving DecidableEq, Repr
 
+inductive Binary where
+  | add
+  | lt
+deriving DecidableEq, Repr
+
+def Binary.apply : Binary → Word → Word → Word
+  | .add => .add
+  | .lt => .lt
+
 inductive Instr where
   | push (value : Word)
   | swap (depth : Nat)
@@ -70,7 +82,7 @@ inductive Instr where
   | dup (depth : Nat)
   | pop
   | op (operation : Op)
-  | flippedOp (operation : Op)
+  | flippedOp (operation : Binary)
   | icall (callee : FunctionId) (argumentCount resultCount : Nat)
   | store (slot : Nat)
   | load (slot : Nat)
@@ -111,8 +123,7 @@ def Program.HasInstr (program : Program) (instruction : Instr) : Prop :=
   ∃ function ∈ program.functions, function.HasInstr instruction
 
 def Instr.isMemOracle : Instr → Prop
-  | .op .malloc | .op .mallocUninit | .op .mload32 |
-    .flippedOp .malloc | .flippedOp .mallocUninit | .flippedOp .mload32 => True
+  | .op .malloc | .op .mallocUninit | .op .mload32 => True
   | _ => False
 
 def Program.MemOracleFree (program : Program) : Prop :=
@@ -201,14 +212,11 @@ def evalInstr (context : CallContext) (globals : Globals) (environment : Environ
       | none => .error .invalidControl
   | .op .add => evalBinary .add environment (sourceFetch environment 2)
   | .op .lt => evalBinary .lt environment (sourceFetch environment 2)
-  | .flippedOp .add => evalBinary .add environment (sourceFetchFlipped environment)
-  | .flippedOp .lt => evalBinary .lt environment (sourceFetchFlipped environment)
+  | .flippedOp operation =>
+      evalBinary operation.apply environment (sourceFetchFlipped environment)
   | .op .sload => evalSload context globals environment
-  | .flippedOp .sload => .error .invalidControl
   | .op .sstore | .op .gas | .op .call | .op .malloc | .op .mallocUninit |
-    .op .mstore32 | .op .mload32 | .flippedOp .sstore | .flippedOp .gas |
-    .flippedOp .call | .flippedOp .malloc | .flippedOp .mallocUninit |
-    .flippedOp .mstore32 | .flippedOp .mload32 | .icall _ _ _ => .error .invalidControl
+    .op .mstore32 | .op .mload32 | .icall _ _ _ => .error .invalidControl
 
 def jump (program : Program) (environment : Environment) (cursor : ProgramCursor)
     (target : BlockId) : Option (Environment × Control) := do
