@@ -269,40 +269,55 @@ def State.evaluate (state : State) (context : CallContext) (instruction : Instr)
   evalInstr context state.globals state.environment instruction
 
 def jump (program : Program) (environment : Environment) (cursor : ProgramCursor)
-    (target : BlockId) : Option (Environment × Control) := do
-  let source ← program.block? cursor
-  let targetCursor := { cursor with block := target }
-  let targetBlock ← program.block? targetCursor
-  if environment.stack.length ≠ source.outputCount ∨ source.outputCount ≠ targetBlock.inputCount then
-    none
-  some (environment,
-    .running { targetCursor with position := targetBlock.startPosition })
+    (target : BlockId) : Except IRError (Environment × Control) :=
+  match program.block? cursor, program.block? { cursor with block := target } with
+  | none, _ => .error (.invalidBlock cursor.block)
+  | _, none => .error (.invalidBlock target)
+  | some source, some targetBlock =>
+      if environment.stack.length ≠ source.outputCount then
+        .error (.blockArityMismatch environment.stack.length source.outputCount)
+      else if source.outputCount ≠ targetBlock.inputCount then
+        .error (.blockArityMismatch source.outputCount targetBlock.inputCount)
+      else
+        .ok (environment, .running
+          { cursor with block := target, position := targetBlock.startPosition })
 
 def evaluateTerminator (program : Program) (environment : Environment)
-    (control : Control) : Terminator → Option (Environment × Control)
-  | .halt => some (environment, .halted)
-  | .jump target => do
-      let .running cursor := control | none
-      jump program environment cursor target
-  | .branch thenTarget elseTarget => do
-      let .running cursor := control | none
-      let condition :: stack := environment.stack | none
-      jump program { environment with stack } cursor
-        (if condition = 0 then elseTarget else thenTarget)
-  | .iret => do
-      let .running cursor := control | none
-      let block ← program.block? cursor
-      if environment.stack.length ≠ block.outputCount then none
-      some (environment, .returned environment.stack.toArray)
+    (control : Control) : Terminator → Except IRError (Environment × Control)
+  | .halt => .ok (environment, .halted)
+  | .jump target =>
+      match control with
+      | .running cursor => jump program environment cursor target
+      | _ => .error .invalidControl
+  | .branch thenTarget elseTarget =>
+      match control with
+      | .running cursor =>
+          match environment.stack with
+          | [] => .error (.blockArityMismatch 0 1)
+          | condition :: stack =>
+              jump program { environment with stack } cursor
+                (if condition = 0 then elseTarget else thenTarget)
+      | _ => .error .invalidControl
+  | .iret =>
+      match control with
+      | .running cursor =>
+          match program.block? cursor with
+          | none => .error (.invalidBlock cursor.block)
+          | some block =>
+              if environment.stack.length ≠ block.outputCount then
+                .error (.blockArityMismatch environment.stack.length block.outputCount)
+              else
+                .ok (environment, .returned environment.stack.toArray)
+      | _ => .error .invalidControl
 
 def resume (outcome : FunctionOutcome) (environment : Environment)
-    (destination : Destination) (next : Control) : Option (Environment × Control) :=
+    (destination : Destination) (next : Control) : Except IRError (Environment × Control) :=
   match outcome with
   | .returned results =>
       match push environment destination results with
-      | .ok environment => some (environment, next)
-      | .error _ => none
-  | .halted => some (.empty, .halted)
+      | .ok environment => .ok (environment, next)
+      | .error err => .error err
+  | .halted => .ok (.empty, .halted)
 
 def entry (program : Program) (functionId : FunctionId) (globals : Globals)
     (args : Array Word) : Option State := do
@@ -368,12 +383,12 @@ inductive SmallStep (program : Program) (context : CallContext) :
       (hargs : state.fetch argumentCount = .ok args)
       (hcall : EvalFn program context callee state.globals args trace globals outcome)
       (hresume : resume outcome state.environment ⟨argumentCount, resultCount⟩ next =
-        some (environment, resumed)) :
+        .ok (environment, resumed)) :
       SmallStep program context state trace (State.of globals environment resumed)
   | control
       (hterm : program.AtTerm state terminator)
       (heval : evaluateTerminator program state.environment state.control terminator =
-        some (environment, finalControl)) :
+        .ok (environment, finalControl)) :
       SmallStep program context state []
         (State.of state.globals environment finalControl)
 
@@ -497,7 +512,7 @@ def Program.CurrentReady (program : Program) (context : CallContext) (state : St
     ∃ terminator environment finalControl,
       program.AtTerm state terminator ∧
         evaluateTerminator program state.environment state.control terminator =
-          some (environment, finalControl)
+          .ok (environment, finalControl)
 
 def Program.ReadyState (program : Program) (ctx : CallContext) (state : State) : Prop :=
   (∃ function globals args trace,

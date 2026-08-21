@@ -115,7 +115,7 @@ private theorem dialogue_icall {program : Program} {ctx : CallContext}
     (hinstr : program.AtInstr state next (.icall callee argumentCount resultCount))
     (hfetch : state.fetch argumentCount = .ok values)
     (hresume : resume outcome state.environment ⟨argumentCount, resultCount⟩ next =
-      some (env', control'))
+      .ok (env', control'))
     (ih : EvalDialogue program ctx callee state.globals values trace globals' outcome) :
     StepDialogue program ctx state trace
       { globals := globals', environment := env', control := control' } := by
@@ -128,7 +128,7 @@ private theorem dialogue_icall {program : Program} {ctx : CallContext}
       obtain rfl := Except.ok.inj hfetch₂
       rcases ih _ _ _ hcallee₂ with ⟨rfl, rfl, rfl⟩ | hdiv
       · rw [hresume] at hresume₂
-        obtain ⟨rfl, rfl⟩ := Prod.mk.inj (Option.some.inj hresume₂)
+        obtain ⟨rfl, rfl⟩ := Prod.mk.inj (Except.ok.inj hresume₂)
         exact .inl ⟨rfl, rfl⟩
       · exact .inr hdiv
   | control hterm₂ _ =>
@@ -147,14 +147,14 @@ private theorem dialogue_control {program : Program} {ctx : CallContext}
     {control : Control}
     (hterm : program.AtTerm state terminator)
     (heval : evaluateTerminator program state.environment state.control terminator =
-      some (environment, control)) :
+      .ok (environment, control)) :
     StepDialogue program ctx state [] (State.of state.globals environment control) := by
   intro trace₂ final₂ hstep₂
   cases hstep₂ with
   | control hterm₂ heval₂ =>
       obtain rfl := Program.AtTerm.unique hterm hterm₂
       rw [heval] at heval₂
-      obtain ⟨rfl, rfl⟩ := Prod.mk.inj (Option.some.inj heval₂)
+      obtain ⟨rfl, rfl⟩ := Prod.mk.inj (Except.ok.inj heval₂)
       exact .inl ⟨rfl, rfl⟩
   | pure hstmt _ | gas hstmt _ | call hstmt _ _
   | malloc hstmt _ _ _ | mallocUninit hstmt _ _
