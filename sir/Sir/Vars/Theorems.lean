@@ -9,8 +9,6 @@ local notation:50 s " =[" t "]=>* " f => Vars.Steps program ctx s t f
 
 local notation:50 s " =[" t "]=> " f => Vars.SmallStep program ctx s t f
 
-local notation:50 s " =[" t "]=>! " f => Vars.Steps.Halted program ctx s t f
-
 theorem Vars.Program.deterministic_of_memOracleFree
     (hfree : program.MemOracleFree) : program.Deterministic :=
   Vars.Proofs.Program.deterministic_of_memOracleFree hfree
@@ -33,21 +31,23 @@ theorem Vars.Program.MemOracleFree.deterministicFrom
     program.DeterministicFrom ctx entry world₀ :=
   Vars.Proofs.Program.MemOracleFree.deterministicFrom hfree ctx entry world₀
 
+variable {entry : FunctionId} {world₀ : World}
+
+local notation:50 e " =[" t "]=>! " f => program.RunsTo ctx e world₀ t f
+
 theorem Vars.Program.RunsTo.unique_or_queryDivergence
-    {entry : FunctionId} {world₀ : World}
     {t₁ t₂ : Trace} {final₁ final₂ : Vars.State}
     (hfree : program.MemOracleFree)
-    (h₁ : program.RunsTo ctx entry world₀ t₁ final₁)
-    (h₂ : program.RunsTo ctx entry world₀ t₂ final₂) :
+    (h₁ : entry =[t₁]=>! final₁)
+    (h₂ : entry =[t₂]=>! final₂) :
     (t₁ = t₂ ∧ final₁ = final₂) ∨ Trace.QueryDivergence t₁ t₂ :=
   Vars.Proofs.Program.RunsTo.unique_or_queryDivergence hfree h₁ h₂
 
 theorem Vars.Program.RunsTo.trace_det
     (hfree : program.MemOracleFree)
-    {entry : FunctionId} {world₀ : World} {t : Trace}
-    {final₁ final₂ : Vars.State}
-    (h₁ : program.RunsTo ctx entry world₀ t final₁)
-    (h₂ : program.RunsTo ctx entry world₀ t final₂) : final₁ = final₂ :=
+    {t : Trace} {final₁ final₂ : Vars.State}
+    (h₁ : entry =[t]=>! final₁)
+    (h₂ : entry =[t]=>! final₂) : final₁ = final₂ :=
   Vars.Proofs.Program.RunsTo.trace_det hfree h₁ h₂
 
 theorem Vars.Steps.confluence_or_queryDivergence
