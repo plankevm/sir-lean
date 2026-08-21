@@ -88,6 +88,10 @@ inductive Instr where
   | load (slot : Nat)
 deriving DecidableEq, Repr
 
+def Instr.isMemOracle : Instr → Prop
+  | .op .malloc | .op .mallocUninit | .op .mload32 => True
+  | _ => False
+
 inductive Terminator where
   | halt
   | jump (target : BlockId)
@@ -102,35 +106,30 @@ structure Block where
   outputCount : Nat
 deriving Repr
 
+def Block.absoluteToPosition (block : Block) (index : Nat) : BlockPosition :=
+  if index < block.instructions.size then .statement index else .terminator
+
+def Block.startPosition (block : Block) : BlockPosition := block.absoluteToPosition 0
+
 structure Function where
   entry : Block
   rest : Array Block
 deriving Repr
+
+def Function.blocks (function : Function) : Array Block := #[function.entry] ++ function.rest
+
+def Function.block? (function : Function) (block : BlockId) : Option Block :=
+  function.blocks[block.id]?
+
+def Function.HasInstr (function : Function) (instruction : Instr) : Prop :=
+  ∃ block ∈ function.blocks, instruction ∈ block.instructions
 
 structure Program where
   init : Function
   rest : Array Function
 deriving Repr
 
-def Function.blocks (function : Function) : Array Block := #[function.entry] ++ function.rest
-
 def Program.functions (program : Program) : Array Function := #[program.init] ++ program.rest
-
-def Function.HasInstr (function : Function) (instruction : Instr) : Prop :=
-  ∃ block ∈ function.blocks, instruction ∈ block.instructions
-
-def Program.HasInstr (program : Program) (instruction : Instr) : Prop :=
-  ∃ function ∈ program.functions, function.HasInstr instruction
-
-def Instr.isMemOracle : Instr → Prop
-  | .op .malloc | .op .mallocUninit | .op .mload32 => True
-  | _ => False
-
-def Program.MemOracleFree (program : Program) : Prop :=
-  ∀ instruction, program.HasInstr instruction → ¬ instruction.isMemOracle
-
-def Function.block? (function : Function) (block : BlockId) : Option Block :=
-  function.blocks[block.id]?
 
 def Program.function? (program : Program) (function : FunctionId) : Option Function :=
   program.functions[function.id]?
@@ -139,10 +138,11 @@ def Program.block? (program : Program) (cursor : ProgramCursor) : Option Block :
   let function ← program.function? cursor.fn
   function.block? cursor.block
 
-def Block.absoluteToPosition (block : Block) (index : Nat) : BlockPosition :=
-  if index < block.instructions.size then .statement index else .terminator
+def Program.HasInstr (program : Program) (instruction : Instr) : Prop :=
+  ∃ function ∈ program.functions, function.HasInstr instruction
 
-def Block.startPosition (block : Block) : BlockPosition := block.absoluteToPosition 0
+def Program.MemOracleFree (program : Program) : Prop :=
+  ∀ instruction, program.HasInstr instruction → ¬ instruction.isMemOracle
 
 def Program.instructionAt (program : Program) (control : Control) :
     Option (Control × Instr) := do
