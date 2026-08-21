@@ -441,13 +441,13 @@ theorem Vars.Program.WellFormed.localsCoverCursor_step
         exact Locals.defined_assign _ _ _
   | sstore hstmt =>
       obtain ⟨cursor, block, index, -, -, hblock, hstatementAt, hnext, hbefore, -⟩ :=
-        hwf.statementAt_covers hinvariant hstmt.stmt
+        hwf.statementAt_covers hinvariant hstmt
       apply Vars.State.localsCoverCursor_after_statement hblock hstatementAt hnext hbefore
       · exact fun _ h => h
       · simp [Locals.CoversVariables, Vars.Stmt.variablesDefined]
   | gas hstmt =>
       obtain ⟨cursor, block, index, -, -, hblock, hstatementAt, hnext, hbefore, -⟩ :=
-        hwf.statementAt_covers hinvariant hstmt.stmt
+        hwf.statementAt_covers hinvariant hstmt
       apply Vars.State.localsCoverCursor_after_statement
         (evaluated := ⟨state.globals, state.environment.assign _ _, state.control⟩)
         hblock hstatementAt hnext hbefore
@@ -458,7 +458,7 @@ theorem Vars.Program.WellFormed.localsCoverCursor_step
         exact Locals.defined_assign _ _ _
   | call hstmt =>
       obtain ⟨cursor, block, index, -, -, hblock, hstatementAt, hnext, hbefore, -⟩ :=
-        hwf.statementAt_covers hinvariant hstmt.stmt
+        hwf.statementAt_covers hinvariant hstmt
       apply Vars.State.localsCoverCursor_after_statement
         (evaluated := ⟨state.globals, state.environment.assign _ _, state.control⟩)
         hblock hstatementAt hnext hbefore
@@ -469,7 +469,7 @@ theorem Vars.Program.WellFormed.localsCoverCursor_step
         exact Locals.defined_assign _ _ _
   | malloc hstmt _ _ =>
       obtain ⟨cursor, block, index, -, -, hblock, hstatementAt, hnext, hbefore, -⟩ :=
-        hwf.statementAt_covers hinvariant hstmt.stmt
+        hwf.statementAt_covers hinvariant hstmt
       apply Vars.State.localsCoverCursor_after_statement
         (evaluated := ⟨state.globals, state.environment.assign _ _, state.control⟩)
         hblock hstatementAt hnext hbefore
@@ -480,7 +480,7 @@ theorem Vars.Program.WellFormed.localsCoverCursor_step
         exact Locals.defined_assign _ _ _
   | mallocUninit hstmt _ =>
       obtain ⟨cursor, block, index, -, -, hblock, hstatementAt, hnext, hbefore, -⟩ :=
-        hwf.statementAt_covers hinvariant hstmt.stmt
+        hwf.statementAt_covers hinvariant hstmt
       apply Vars.State.localsCoverCursor_after_statement
         (evaluated := ⟨state.globals, state.environment.assign _ _, state.control⟩)
         hblock hstatementAt hnext hbefore
@@ -491,14 +491,14 @@ theorem Vars.Program.WellFormed.localsCoverCursor_step
         exact Locals.defined_assign _ _ _
   | mstore32 hstmt _ =>
       obtain ⟨cursor, block, index, -, -, hblock, hstatementAt, hnext, hbefore, -⟩ :=
-        hwf.statementAt_covers hinvariant hstmt.stmt
+        hwf.statementAt_covers hinvariant hstmt
       have hcover := Vars.State.localsCoverCursor_after_statement
         (evaluated := state) hblock hstatementAt hnext hbefore
         (fun _ h => h) (by simp [Locals.CoversVariables, Vars.Stmt.variablesDefined])
       simpa [Vars.State.LocalsCoverCursor] using hcover
   | mload32 hstmt =>
       obtain ⟨cursor, block, index, -, -, hblock, hstatementAt, hnext, hbefore, -⟩ :=
-        hwf.statementAt_covers hinvariant hstmt.stmt
+        hwf.statementAt_covers hinvariant hstmt
       apply Vars.State.localsCoverCursor_after_statement
         (evaluated := ⟨state.globals, state.environment.assign _ _, state.control⟩)
         hblock hstatementAt hnext hbefore

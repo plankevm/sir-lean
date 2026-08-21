@@ -58,15 +58,17 @@ abbrev EvalM := StateT State (Except IRError)
 abbrev State.lookup (state : State) (var : VarId) : Except IRError Word :=
   state.environment.lookup var
 
-end Vars
+def State.halted (globals : Globals) : State :=
+  { globals, environment := .empty, control := .halted }
+
+def State.assign (state : State) (var : VarId) (value : Word) (next : Control) : State :=
+  { state with environment := state.environment.assign var value, control := next }
 
 instance {m : Type → Type} [Monad m] :
-    MonadLift (StateT Locals m) (StateT Vars.State m) where
+    MonadLift (StateT Locals m) (StateT State m) where
   monadLift action state := do
     let (result, environment') ← action.run state.environment
     return (result, { state with environment := environment' })
-
-namespace Vars
 
 structure Call where
   callee : VarId
@@ -94,6 +96,10 @@ inductive Stmt where
   | icall (callee : FunctionId) (args dests : Array VarId)
 deriving DecidableEq, Repr
 
+def Stmt.isMemOracle : Stmt → Prop
+  | .malloc _ _ | .mallocUninit _ _ | .mload32 _ _ => True
+  | _ => False
+
 inductive Terminator where
   | halt
   | jump (target : BlockId)
@@ -119,98 +125,81 @@ structure Program where
   rest : Array Function
 deriving Repr
 
-end Vars
+def Function.blocks (fn : Function) : Array Block := #[fn.entry] ++ fn.rest
 
-def Vars.Function.blocks (fn : Vars.Function) : Array Vars.Block := #[fn.entry] ++ fn.rest
-
-def Vars.Function.block? (fn : Vars.Function) (bid : BlockId) : Option Vars.Block :=
+def Function.block? (fn : Function) (bid : BlockId) : Option Block :=
   fn.blocks[bid.id]?
 
-def Vars.Function.paramsOf (fn : Vars.Function) : Array VarId := fn.entry.inputs
+def Function.paramsOf (fn : Function) : Array VarId := fn.entry.inputs
 
-def Vars.Function.outputs? (fn : Vars.Function) : Option Nat :=
+def Function.outputs? (fn : Function) : Option Nat :=
   (fn.blocks.find? (fun block => decide (block.terminator = .iret))).map (·.outputs.size)
 
-def Vars.Function.HasStmt (fn : Vars.Function) (stmt : Vars.Stmt) : Prop :=
+def Function.HasStmt (fn : Function) (stmt : Stmt) : Prop :=
   ∃ block ∈ fn.blocks, stmt ∈ block.statements
 
-def Vars.Program.functions (program : Vars.Program) : Array Vars.Function :=
+def Program.functions (program : Program) : Array Function :=
   #[program.init] ++ program.main.toArray ++ program.rest
 
-def Vars.Program.function? (program : Vars.Program) (f : FunctionId) : Option Vars.Function :=
+def Program.function? (program : Program) (f : FunctionId) : Option Function :=
   program.functions[f.id]?
 
-def Vars.Program.initId (_ : Vars.Program) : FunctionId := ⟨0⟩
+def Program.initId (_ : Program) : FunctionId := ⟨0⟩
 
-def Vars.Program.mainId? (program : Vars.Program) : Option FunctionId :=
+def Program.mainId? (program : Program) : Option FunctionId :=
   program.main.map fun _ => ⟨1⟩
 
-def Vars.Program.block? (program : Vars.Program) (cursor : ProgramCursor) : Option Vars.Block := do
+def Program.block? (program : Program) (cursor : ProgramCursor) : Option Block := do
   let fn ← program.function? cursor.fn
   fn.block? cursor.block
 
-def Vars.Program.HasStmt (program : Vars.Program) (stmt : Vars.Stmt) : Prop :=
+def Program.HasStmt (program : Program) (stmt : Stmt) : Prop :=
   ∃ fn ∈ program.functions, fn.HasStmt stmt
 
-def Vars.Program.FunctionInputOutputArity (program : Vars.Program) (inputCount : Nat)
+def Program.FunctionInputOutputArity (program : Program) (inputCount : Nat)
     (outputCount : Option Nat) (functionId : FunctionId) : Prop :=
   ∃ fn, program.function? functionId = some fn ∧
     fn.paramsOf.size = inputCount ∧ fn.outputs? = outputCount
 
-def Vars.Block.absoluteToPosition (block : Vars.Block) (index : Nat) : BlockPosition :=
+def Block.absoluteToPosition (block : Block) (index : Nat) : BlockPosition :=
   if index < block.statements.size then .statement index else .terminator
 
-def Vars.Block.startPosition (block : Vars.Block) : BlockPosition :=
+def Block.startPosition (block : Block) : BlockPosition :=
   block.absoluteToPosition 0
 
-def Vars.Program.callState? (p : Vars.Program) (f : FunctionId) (g : Globals)
-    (args : Array Word) : Option Vars.State := do
+def Program.callState? (p : Program) (f : FunctionId) (g : Globals)
+    (args : Array Word) : Option State := do
   let fn ← p.function? f
   let .ok locals₀ := Locals.bindParams fn.entry.inputs args | none
-  let state : Vars.State :=
+  some
     { globals := g, environment := locals₀,
       control := .running { fn := f, block := ⟨0⟩, position := fn.entry.startPosition } }
-  some state
 
-def Vars.Program.statementAt (program : Vars.Program) (control : Control) :
-    Option (Control × Vars.Stmt) := do
+def Program.statementAt (program : Program) (control : Control) :
+    Option (Control × Stmt) := do
   let .running cursor := control | none
   let .statement index := cursor.position | none
   let block ← program.block? cursor
   let stmt ← block.statements[index]?
   some (.running { cursor with position := block.absoluteToPosition (index + 1) }, stmt)
 
-def Vars.Program.terminatorAt (program : Vars.Program) (control : Control) :
-    Option Vars.Terminator := do
+def Program.terminatorAt (program : Program) (control : Control) :
+    Option Terminator := do
   let .running cursor := control | none
   let .terminator := cursor.position | none
   let block ← program.block? cursor
   some block.terminator
 
-abbrev Vars.Program.atStmt (program : Vars.Program) (state : Vars.State) :
-    Option (Control × Vars.Stmt) :=
+abbrev Program.atStmt (program : Program) (state : State) :
+    Option (Control × Stmt) :=
   program.statementAt state.control
 
-abbrev Vars.Program.atTerm (program : Vars.Program) (state : Vars.State) :
-    Option Vars.Terminator :=
+abbrev Program.atTerm (program : Program) (state : State) :
+    Option Terminator :=
   program.terminatorAt state.control
 
-def Vars.Program.At (program : Vars.Program) (state : Vars.State) (next : Control)
-    (stmt : Vars.Stmt) (binds : List (VarId × Word)) : Prop :=
-  program.atStmt state = some (next, stmt) ∧
-    (binds.map (·.1)).mapM state.lookup = .ok (binds.map (·.2))
 
-theorem Vars.Program.At.stmt {program : Vars.Program} {state : Vars.State}
-    {next : Control} {stmt : Vars.Stmt} {binds : List (VarId × Word)}
-    (h : program.At state next stmt binds) :
-    program.atStmt state = some (next, stmt) :=
-  h.1
-
-end Sir
-
-namespace Sir.Vars
-
-def jump (program : Program) (target : BlockId) : Vars.EvalM Unit := do
+def jump (program : Program) (target : BlockId) : EvalM Unit := do
   let .running cursor := (← get).control | throw .invalidControl
   let source := cursor.block
   let some sourceBlock := program.block? cursor | throw (.invalidBlock source)
@@ -220,7 +209,7 @@ def jump (program : Program) (target : BlockId) : Vars.EvalM Unit := do
   let targetCursor := { targetCursor with position := targetBlock.startPosition }
   modify ({ · with control := .running targetCursor })
 
-def evaluateTerminator (program : Program) : Terminator → Vars.EvalM Unit
+def evaluateTerminator (program : Program) : Terminator → EvalM Unit
   | .halt => modify (fun state => { state with control := .halted })
   | .jump target => jump program target
   | .branch condition thenTarget elseTarget => do
@@ -250,10 +239,6 @@ def resume (outcome : FunctionOutcome) (env : Locals) (dst : Array VarId)
       | .error _ => none
   | .halted => some (.empty, .halted)
 
-end Sir.Vars
-
-namespace Sir.Vars
-
 set_option autoImplicit true in
 mutual
 
@@ -262,50 +247,54 @@ inductive SmallStep (program : Program) (context : CallContext) :
   | assign
       (hstmt : program.atStmt state = some (next, .assign result expression))
       (heval : evalExpr context state.environment state.globals expression = .ok value) :
-      SmallStep program context state []
-        { state with environment := state.environment.assign result value, control := next }
+      SmallStep program context state [] (state.assign result value next)
   | sstore
-      (h : program.At state next (.sstore keyVar valueVar) [(keyVar, key), (valueVar, value)]) :
+      (hstmt : program.atStmt state = some (next, .sstore keyVar valueVar))
+      (hkey : state.lookup keyVar = .ok key)
+      (hvalue : state.lookup valueVar = .ok value) :
       SmallStep program context state []
         { state with globals := state.globals.storeStorage context key value, control := next }
   | gas
-      (h : program.At state next (.gas result) []) :
-      SmallStep program context state [.gas answer]
-        { state with environment := state.environment.assign result answer, control := next }
+      (hstmt : program.atStmt state = some (next, .gas result)) :
+      SmallStep program context state [.gas answer] (state.assign result answer next)
   | call
-      (h : program.At state next (.call call) [(call.callee, target), (call.gas, gasLimit)]) :
+      (hstmt : program.atStmt state = some (next, .call call))
+      (htarget : state.lookup call.callee = .ok target)
+      (hgas : state.lookup call.gas = .ok gasLimit) :
       SmallStep program context state
         [.call { input := state.globals.callInput target gasLimit, result := answer }]
-        { globals := state.globals.applyCall answer
-          environment := state.environment.assign call.result (.fromBool answer.success)
-          control := next }
+        (State.assign
+          { state with globals := state.globals.applyCall answer }
+          call.result (.fromBool answer.success) next)
   | malloc
-      (h : program.At state next (.malloc result sizeVar) [(sizeVar, size)])
+      (hstmt : program.atStmt state = some (next, .malloc result sizeVar))
+      (hsize : state.lookup sizeVar = .ok size)
       (hallow : memoryPolicy.Allows state.globals.memory size.toNat allocation)
       (hzero : allocation.bytes = ByteArray.mk (Array.replicate size.toNat 0)) :
       SmallStep program context state []
-        { globals := state.globals.pushAlloc allocation
-          environment := state.environment.assign result allocation.offset
-          control := next }
+        (State.assign
+          { state with globals := state.globals.pushAlloc allocation }
+          result allocation.offset next)
   | mallocUninit
-      (h : program.At state next (.mallocUninit result sizeVar) [(sizeVar, size)])
+      (hstmt : program.atStmt state = some (next, .mallocUninit result sizeVar))
+      (hsize : state.lookup sizeVar = .ok size)
       (hallow : memoryPolicy.Allows state.globals.memory size.toNat allocation) :
       SmallStep program context state []
-        { globals := state.globals.pushAlloc allocation
-          environment := state.environment.assign result allocation.offset
-          control := next }
+        (State.assign
+          { state with globals := state.globals.pushAlloc allocation }
+          result allocation.offset next)
   | mstore32
-      (h : program.At state next (.mstore32 offsetVar valueVar) [(offsetVar, offset), (valueVar, value)])
+      (hstmt : program.atStmt state = some (next, .mstore32 offsetVar valueVar))
+      (hoffset : state.lookup offsetVar = .ok offset)
+      (hvalue : state.lookup valueVar = .ok value)
       (hbound : state.globals.memory.InBounds offset.toNat 32) :
       SmallStep program context state []
         { state with globals := state.globals.writeWord32 offset value, control := next }
   | mload32
-      (h : program.At state next (.mload32 result offsetVar) [(offsetVar, offset)]) :
+      (hstmt : program.atStmt state = some (next, .mload32 result offsetVar))
+      (hoffset : state.lookup offsetVar = .ok offset) :
       SmallStep program context state []
-        { state with
-          environment := state.environment.assign result
-            (state.globals.readWord32 offset assumed)
-          control := next }
+        (state.assign result (state.globals.readWord32 offset assumed) next)
   | icall
       (hstmt : program.atStmt state = some (next, .icall callee args dests))
       (hargs : args.mapM state.lookup = .ok values)
@@ -377,9 +366,6 @@ def Program.StoreInBounds (program : Program) (state : Vars.State) : Prop :=
     state.environment.lookup offset = .ok word →
     state.globals.memory.InBounds word.toNat 32
 
-end Sir.Vars
-
-namespace Sir.Vars
 
 def Program.RunsFunction (program : Program) (ctx : CallContext) (function : FunctionId)
     (globals : Globals) (args : Array Word) (trace : Trace) (state : Vars.State) : Prop :=
@@ -402,9 +388,6 @@ def Program.ReadyState (program : Program) (ctx : CallContext) (state : Vars.Sta
     (program.AllocationAvailable state ∨ program.BumpFits state) ∧
     program.StoreInBounds state
 
-end Sir.Vars
-
-namespace Sir.Vars
 
 def Program.callEdge (p : Program) (caller callee : FunctionId) : Prop :=
   ∃ args dests fn, p.function? caller = some fn ∧ fn.HasStmt (.icall callee args dests)
@@ -543,9 +526,7 @@ def Vars.Program.Deterministic (program : Vars.Program) : Prop :=
       ∀ entry, program.mainId? = some entry →
         program.DeterministicFrom ctx entry world₀
 
-def Vars.Stmt.isMemOracle : Vars.Stmt → Prop
-  | .malloc _ _ | .mallocUninit _ _ | .mload32 _ _ => True
-  | _ => False
+
 
 def Vars.Program.MemOracleFree (p : Vars.Program) : Prop :=
   ∀ s, p.HasStmt s → ¬ s.isMemOracle

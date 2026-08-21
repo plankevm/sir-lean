@@ -149,7 +149,7 @@ theorem Vars.Program.icall_halted_step
     (hstmt : program.atStmt s = some (nextControl, .icall callee args dests))
     (hargs : args.mapM (s.environment.lookup ·) = .ok vs)
     (hcallee : Vars.EvalFn program ctx callee s.globals vs t g' .halted) :
-    s =[t]=> { globals := g', environment := .empty, control := .halted } :=
+    s =[t]=> State.halted g' :=
   Vars.Proofs.Program.icall_halted_step hstmt hargs hcallee
 
 end Sir

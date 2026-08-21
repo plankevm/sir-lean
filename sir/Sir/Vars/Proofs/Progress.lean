@@ -115,27 +115,26 @@ theorem Vars.Proofs.progress_stmt
             (by simp [Vars.evalExpr, hkey, value])⟩
   | sstore key value =>
       obtain ⟨⟨keyWord, hkey⟩, valueWord, hvalue⟩ := hready
-      exact ⟨[], _, .sstore (Vars.Program.At.mk2 hstmt hkey hvalue)⟩
-  | gas result => exact ⟨[.gas 0], _, .gas ⟨hstmt, rfl⟩⟩
+      exact ⟨[], _, .sstore hstmt hkey hvalue⟩
+  | gas result => exact ⟨[.gas 0], _, .gas hstmt⟩
   | call call =>
       obtain ⟨⟨target, htarget⟩, gas, hgas⟩ := hready
       let answer : CallResult :=
         { world' := state.globals.world, success := true, output := ByteArray.empty }
       exact ⟨[Event.call { input := state.globals.callInput target gas, result := answer }],
-        _, .call (Vars.Program.At.mk2 hstmt htarget hgas)⟩
+        _, .call hstmt htarget hgas⟩
   | malloc result size =>
       obtain ⟨word, allocation, hword, hvalid, hsize, hbytes⟩ := hready
-      exact ⟨[], _, .malloc (Vars.Program.At.mk1 hstmt hword) ⟨hvalid, hsize⟩ hbytes⟩
+      exact ⟨[], _, .malloc hstmt hword ⟨hvalid, hsize⟩ hbytes⟩
   | mallocUninit result size =>
       obtain ⟨word, allocation, hword, hvalid, hsize⟩ := hready
-      exact ⟨[], _, .mallocUninit (Vars.Program.At.mk1 hstmt hword) ⟨hvalid, hsize⟩⟩
+      exact ⟨[], _, .mallocUninit hstmt hword ⟨hvalid, hsize⟩⟩
   | mstore32 offset value =>
       obtain ⟨offsetWord, hoffset, ⟨valueWord, hvalue⟩, hbound⟩ := hready
-      exact ⟨[], _, .mstore32 (Vars.Program.At.mk2 hstmt hoffset hvalue) hbound⟩
+      exact ⟨[], _, .mstore32 hstmt hoffset hvalue hbound⟩
   | mload32 result offset =>
       obtain ⟨offsetWord, hoffset⟩ := hready
-      exact ⟨[], _, .mload32 (assumed := ⟨Array.replicate 32 0, by simp⟩)
-        (Vars.Program.At.mk1 hstmt hoffset)⟩
+      exact ⟨[], _, .mload32 (assumed := ⟨Array.replicate 32 0, by simp⟩) hstmt hoffset⟩
   | icall callee args dests => exact False.elim hready
 
 theorem Vars.Proofs.progress_terminator

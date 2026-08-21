@@ -370,25 +370,25 @@ theorem Vars.SmallStep.preserves_function
       obtain ⟨position, hnext⟩ := Vars.Program.statementAt_next_block hcontrol hstmt
       exact .inr (.inr ⟨_, hnext, rfl⟩)
   | sstore hstmt =>
-      obtain ⟨position, hnext⟩ := Vars.Program.statementAt_next_block hcontrol hstmt.stmt
+      obtain ⟨position, hnext⟩ := Vars.Program.statementAt_next_block hcontrol hstmt
       exact .inr (.inr ⟨_, hnext, rfl⟩)
   | gas hstmt =>
-      obtain ⟨position, hnext⟩ := Vars.Program.statementAt_next_block hcontrol hstmt.stmt
+      obtain ⟨position, hnext⟩ := Vars.Program.statementAt_next_block hcontrol hstmt
       exact .inr (.inr ⟨_, hnext, rfl⟩)
   | call hstmt =>
-      obtain ⟨position, hnext⟩ := Vars.Program.statementAt_next_block hcontrol hstmt.stmt
+      obtain ⟨position, hnext⟩ := Vars.Program.statementAt_next_block hcontrol hstmt
       exact .inr (.inr ⟨_, hnext, rfl⟩)
   | malloc hstmt _ _ =>
-      obtain ⟨position, hnext⟩ := Vars.Program.statementAt_next_block hcontrol hstmt.stmt
+      obtain ⟨position, hnext⟩ := Vars.Program.statementAt_next_block hcontrol hstmt
       exact .inr (.inr ⟨_, hnext, rfl⟩)
   | mallocUninit hstmt _ =>
-      obtain ⟨position, hnext⟩ := Vars.Program.statementAt_next_block hcontrol hstmt.stmt
+      obtain ⟨position, hnext⟩ := Vars.Program.statementAt_next_block hcontrol hstmt
       exact .inr (.inr ⟨_, hnext, rfl⟩)
   | mstore32 hstmt _ =>
-      obtain ⟨position, hnext⟩ := Vars.Program.statementAt_next_block hcontrol hstmt.stmt
+      obtain ⟨position, hnext⟩ := Vars.Program.statementAt_next_block hcontrol hstmt
       exact .inr (.inr ⟨_, hnext, rfl⟩)
   | mload32 hstmt =>
-      obtain ⟨position, hnext⟩ := Vars.Program.statementAt_next_block hcontrol hstmt.stmt
+      obtain ⟨position, hnext⟩ := Vars.Program.statementAt_next_block hcontrol hstmt
       exact .inr (.inr ⟨_, hnext, rfl⟩)
   | icall hstmt hargs hcallee hresume =>
       obtain ⟨position, hnext⟩ := Vars.Program.statementAt_next_block hcontrol hstmt
@@ -438,31 +438,31 @@ theorem Vars.SmallStep.returned_inv
       rw [hnext] at hreturn
       cases hreturn
   | sstore hstmt =>
-      obtain ⟨cursor, hnext⟩ := Vars.Program.statementAt_next_running hstmt.stmt
+      obtain ⟨cursor, hnext⟩ := Vars.Program.statementAt_next_running hstmt
       rw [hnext] at hreturn
       cases hreturn
   | gas hstmt =>
-      obtain ⟨cursor, hnext⟩ := Vars.Program.statementAt_next_running hstmt.stmt
+      obtain ⟨cursor, hnext⟩ := Vars.Program.statementAt_next_running hstmt
       rw [hnext] at hreturn
       cases hreturn
   | call hstmt =>
-      obtain ⟨cursor, hnext⟩ := Vars.Program.statementAt_next_running hstmt.stmt
+      obtain ⟨cursor, hnext⟩ := Vars.Program.statementAt_next_running hstmt
       rw [hnext] at hreturn
       cases hreturn
   | malloc hstmt _ _ =>
-      obtain ⟨cursor, hnext⟩ := Vars.Program.statementAt_next_running hstmt.stmt
+      obtain ⟨cursor, hnext⟩ := Vars.Program.statementAt_next_running hstmt
       rw [hnext] at hreturn
       cases hreturn
   | mallocUninit hstmt _ =>
-      obtain ⟨cursor, hnext⟩ := Vars.Program.statementAt_next_running hstmt.stmt
+      obtain ⟨cursor, hnext⟩ := Vars.Program.statementAt_next_running hstmt
       rw [hnext] at hreturn
       cases hreturn
   | mstore32 hstmt _ =>
-      obtain ⟨cursor, hnext⟩ := Vars.Program.statementAt_next_running hstmt.stmt
+      obtain ⟨cursor, hnext⟩ := Vars.Program.statementAt_next_running hstmt
       rw [hnext] at hreturn
       cases hreturn
   | mload32 hstmt =>
-      obtain ⟨cursor, hnext⟩ := Vars.Program.statementAt_next_running hstmt.stmt
+      obtain ⟨cursor, hnext⟩ := Vars.Program.statementAt_next_running hstmt
       rw [hnext] at hreturn
       cases hreturn
   | icall hstmt hargs hcallee hresume =>
@@ -676,8 +676,7 @@ theorem Vars.Proofs.Program.icall_halted_step
     (hargs : args.mapM (state.environment.lookup ·) = .ok values)
     (hcallee : Vars.EvalFn program ctx
       callee state.globals values trace globals' .halted) :
-    Vars.SmallStep program ctx state trace
-      ({ globals := globals', environment := .empty, control := .halted } : Vars.State) :=
+    Vars.SmallStep program ctx state trace (State.halted globals') :=
   Vars.SmallStep.icall hstmt hargs hcallee
     (Vars.resume_halted state.environment dests next)
 

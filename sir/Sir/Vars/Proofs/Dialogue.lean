@@ -106,10 +106,10 @@ theorem stuck_of_exit {program : Vars.Program} {ctx : CallContext}
   intro trace final hstep
   cases outcome with
   | returned results =>
-      cases hstep <;> simp_all [FunctionOutcome.toControl, Vars.Program.At,
+      cases hstep <;> simp_all [FunctionOutcome.toControl,
         Vars.Program.atStmt, Vars.Program.statementAt, Vars.Program.terminatorAt]
   | halted =>
-      cases hstep <;> simp_all [FunctionOutcome.toControl, Vars.Program.At,
+      cases hstep <;> simp_all [FunctionOutcome.toControl,
         Vars.Program.atStmt, Vars.Program.statementAt, Vars.Program.terminatorAt]
 
 end Sir
@@ -146,11 +146,9 @@ private theorem dialogue_icall {program : Program} {ctx : CallContext}
       exact (program.statementAt_terminatorAt_exclusive hstmt hterm₂).elim
   | assign hstmt₂ _ =>
       rw [hstmt] at hstmt₂; simp at hstmt₂
-  | sstore h₂ | gas h₂ | call h₂ | malloc h₂ _ _ | mallocUninit h₂ _
-  | mstore32 h₂ _ | mload32 h₂ =>
-      simp [Program.At] at h₂
-      rw [hstmt] at h₂
-      simp at h₂
+  | sstore hstmt₂ _ _ | gas hstmt₂ | call hstmt₂ _ _ | malloc hstmt₂ _ _ _
+  | mallocUninit hstmt₂ _ _ | mstore32 hstmt₂ _ _ _ | mload32 hstmt₂ _ =>
+      rw [hstmt] at hstmt₂; simp at hstmt₂
 
 private theorem dialogue_control {program : Program} {ctx : CallContext}
     {state state' : State} {terminator : Terminator}
@@ -165,11 +163,10 @@ private theorem dialogue_control {program : Program} {ctx : CallContext}
       rw [heval] at heval₂
       obtain ⟨-, rfl⟩ := Prod.mk.inj (Except.ok.inj heval₂)
       exact .inl ⟨rfl, rfl⟩
-  | assign hstmt _ | icall hstmt _ _ _ =>
+  | assign hstmt _ | icall hstmt _ _ _ | sstore hstmt _ _ | gas hstmt
+  | call hstmt _ _ | malloc hstmt _ _ _ | mallocUninit hstmt _ _
+  | mstore32 hstmt _ _ _ | mload32 hstmt _ =>
       exact (program.statementAt_terminatorAt_exclusive hstmt hterm).elim
-  | sstore h | gas h | call h | malloc h _ _ | mallocUninit h _
-  | mstore32 h _ | mload32 h =>
-      exact (program.statementAt_terminatorAt_exclusive h.stmt hterm).elim
 
 private theorem runDialogue_refl {program : Program} {ctx : CallContext} {state : State} :
     RunDialogue program ctx state [] state :=
@@ -247,116 +244,93 @@ theorem stepDialogue_all {program : Program} {ctx : CallContext}
         exact .inl ⟨rfl, rfl⟩
     | control hterm _ =>
         exact (program.statementAt_terminatorAt_exclusive hstmt hterm).elim
-    | icall hstmt₂ _ _ _ =>
+    | icall hstmt₂ _ _ _ | sstore hstmt₂ _ _ | gas hstmt₂ | call hstmt₂ _ _
+    | malloc hstmt₂ _ _ _ | mallocUninit hstmt₂ _ _ | mstore32 hstmt₂ _ _ _
+    | mload32 hstmt₂ _ =>
         rw [hstmt] at hstmt₂; simp at hstmt₂
-    | sstore h₂ | gas h₂ | call h₂ | malloc h₂ _ _ | mallocUninit h₂ _
-    | mstore32 h₂ _ | mload32 h₂ =>
-        simp [Program.At] at h₂
-        rw [hstmt] at h₂
-        simp at h₂
   case refine_2 =>
-    intro state next keyVar valueVar key value h
+    intro state next keyVar valueVar key value hstmt hkey hvalue
     intro trace₂ final₂ h₂
     cases h₂ with
-    | sstore h₂ =>
-        obtain ⟨hstmt, hbinds⟩ := h
-        obtain ⟨hstmt₂, hbinds₂⟩ := h₂
+    | sstore hstmt₂ hkey₂ hvalue₂ =>
         obtain ⟨rfl, heq⟩ := Prod.mk.inj (Option.some.inj (hstmt.symm.trans hstmt₂))
         obtain ⟨rfl, rfl⟩ := Stmt.sstore.inj heq
-        simp [List.map] at hbinds hbinds₂
-        rw [hbinds] at hbinds₂
-        obtain ⟨rfl, htl⟩ := List.cons.inj (Except.ok.inj hbinds₂)
-        obtain ⟨rfl, -⟩ := List.cons.inj htl
+        rw [hkey] at hkey₂
+        obtain rfl := Except.ok.inj hkey₂
+        rw [hvalue] at hvalue₂
+        obtain rfl := Except.ok.inj hvalue₂
         exact .inl ⟨rfl, rfl⟩
     | control hterm _ =>
-        exact (program.statementAt_terminatorAt_exclusive h.stmt hterm).elim
-    | assign hstmt₂ _ | icall hstmt₂ _ _ _ =>
-        rw [h.stmt] at hstmt₂; simp at hstmt₂
-    | gas h₂ | call h₂ | malloc h₂ _ _ | mallocUninit h₂ _
-    | mstore32 h₂ _ | mload32 h₂ =>
-        simp [Program.At] at h₂
-        rw [h.stmt] at h₂
-        simp at h₂
+        exact (program.statementAt_terminatorAt_exclusive hstmt hterm).elim
+    | assign hstmt₂ _ | icall hstmt₂ _ _ _ | gas hstmt₂ | call hstmt₂ _ _
+    | malloc hstmt₂ _ _ _ | mallocUninit hstmt₂ _ _ | mstore32 hstmt₂ _ _ _
+    | mload32 hstmt₂ _ =>
+        rw [hstmt] at hstmt₂; simp at hstmt₂
   case refine_3 =>
-    intro state next result answer₁ h
+    intro state next result answer₁ hstmt
     intro trace₂ final₂ h₂
     cases h₂ with
-    | gas h₂ =>
+    | gas hstmt₂ =>
         rename_i answer₂
-        obtain ⟨hstmt, -⟩ := h
-        obtain ⟨hstmt₂, -⟩ := h₂
         obtain ⟨rfl, heq⟩ := Prod.mk.inj (Option.some.inj (hstmt.symm.trans hstmt₂))
         obtain rfl := Stmt.gas.inj heq
         rcases Globals.gas_dialogue answer₁ answer₂ with rfl | hdiv
         · exact .inl ⟨rfl, rfl⟩
         · exact .inr hdiv
     | control hterm _ =>
-        exact (program.statementAt_terminatorAt_exclusive h.stmt hterm).elim
-    | assign hstmt₂ _ | icall hstmt₂ _ _ _ =>
-        rw [h.stmt] at hstmt₂; simp at hstmt₂
-    | sstore h₂ | call h₂ | malloc h₂ _ _ | mallocUninit h₂ _
-    | mstore32 h₂ _ | mload32 h₂ =>
-        simp [Program.At] at h₂
-        rw [h.stmt] at h₂
-        simp at h₂
+        exact (program.statementAt_terminatorAt_exclusive hstmt hterm).elim
+    | assign hstmt₂ _ | icall hstmt₂ _ _ _ | sstore hstmt₂ _ _ | call hstmt₂ _ _
+    | malloc hstmt₂ _ _ _ | mallocUninit hstmt₂ _ _ | mstore32 hstmt₂ _ _ _
+    | mload32 hstmt₂ _ =>
+        rw [hstmt] at hstmt₂; simp at hstmt₂
   case refine_4 =>
-    intro state next call target gasLimit answer₁ h
+    intro state next call target gasLimit answer₁ hstmt htarget hgas
     intro trace₂ final₂ h₂
     cases h₂ with
-    | call h₂ =>
+    | call hstmt₂ htarget₂ hgas₂ =>
         rename_i answer₂
-        obtain ⟨hstmt, hbinds⟩ := h
-        obtain ⟨hstmt₂, hbinds₂⟩ := h₂
         obtain ⟨rfl, heq⟩ := Prod.mk.inj (Option.some.inj (hstmt.symm.trans hstmt₂))
         obtain rfl := Stmt.call.inj heq
-        simp [List.map] at hbinds hbinds₂
-        rw [hbinds] at hbinds₂
-        obtain ⟨rfl, htl⟩ := List.cons.inj (Except.ok.inj hbinds₂)
-        obtain ⟨rfl, -⟩ := List.cons.inj htl
+        rw [htarget] at htarget₂
+        obtain rfl := Except.ok.inj htarget₂
+        rw [hgas] at hgas₂
+        obtain rfl := Except.ok.inj hgas₂
         rcases Globals.call_dialogue _ _ _ answer₁ answer₂ with ⟨rfl, _⟩ | hdiv
         · exact .inl ⟨rfl, rfl⟩
         · exact .inr hdiv
     | control hterm _ =>
-        exact (program.statementAt_terminatorAt_exclusive h.stmt hterm).elim
-    | assign hstmt₂ _ | icall hstmt₂ _ _ _ =>
-        rw [h.stmt] at hstmt₂; simp at hstmt₂
-    | sstore h₂ | gas h₂ | malloc h₂ _ _ | mallocUninit h₂ _
-    | mstore32 h₂ _ | mload32 h₂ =>
-        simp [Program.At] at h₂
-        rw [h.stmt] at h₂
-        simp at h₂
+        exact (program.statementAt_terminatorAt_exclusive hstmt hterm).elim
+    | assign hstmt₂ _ | icall hstmt₂ _ _ _ | sstore hstmt₂ _ _ | gas hstmt₂
+    | malloc hstmt₂ _ _ _ | mallocUninit hstmt₂ _ _ | mstore32 hstmt₂ _ _ _
+    | mload32 hstmt₂ _ =>
+        rw [hstmt] at hstmt₂; simp at hstmt₂
   case refine_5 =>
-    intro _ _ _ _ _ _ h _ _
-    exact (program.memOracleFree_not_malloc hfree h.stmt).elim
+    intro _ _ _ _ _ _ hstmt _ _ _
+    exact (program.memOracleFree_not_malloc hfree hstmt).elim
   case refine_6 =>
-    intro _ _ _ _ _ _ h _
-    exact (program.memOracleFree_not_mallocUninit hfree h.stmt).elim
+    intro _ _ _ _ _ _ hstmt _ _
+    exact (program.memOracleFree_not_mallocUninit hfree hstmt).elim
   case refine_7 =>
-    intro state next offsetVar valueVar offset value h hbound
+    intro state next offsetVar valueVar offset value hstmt hoffset hvalue hbound
     intro trace₂ final₂ h₂
     cases h₂ with
-    | mstore32 h₂ _ =>
-        obtain ⟨hstmt, hbinds⟩ := h
-        obtain ⟨hstmt₂, hbinds₂⟩ := h₂
+    | mstore32 hstmt₂ hoffset₂ hvalue₂ _ =>
         obtain ⟨rfl, heq⟩ := Prod.mk.inj (Option.some.inj (hstmt.symm.trans hstmt₂))
         obtain ⟨rfl, rfl⟩ := Stmt.mstore32.inj heq
-        simp [List.map] at hbinds hbinds₂
-        rw [hbinds] at hbinds₂
-        obtain ⟨rfl, htl⟩ := List.cons.inj (Except.ok.inj hbinds₂)
-        obtain ⟨rfl, -⟩ := List.cons.inj htl
+        rw [hoffset] at hoffset₂
+        obtain rfl := Except.ok.inj hoffset₂
+        rw [hvalue] at hvalue₂
+        obtain rfl := Except.ok.inj hvalue₂
         exact .inl ⟨rfl, rfl⟩
     | control hterm _ =>
-        exact (program.statementAt_terminatorAt_exclusive h.stmt hterm).elim
-    | assign hstmt₂ _ | icall hstmt₂ _ _ _ =>
-        rw [h.stmt] at hstmt₂; simp at hstmt₂
-    | sstore h₂ | gas h₂ | call h₂ | malloc h₂ _ _ | mallocUninit h₂ _
-    | mload32 h₂ =>
-        simp [Program.At] at h₂
-        rw [h.stmt] at h₂
-        simp at h₂
+        exact (program.statementAt_terminatorAt_exclusive hstmt hterm).elim
+    | assign hstmt₂ _ | icall hstmt₂ _ _ _ | sstore hstmt₂ _ _ | gas hstmt₂
+    | call hstmt₂ _ _ | malloc hstmt₂ _ _ _ | mallocUninit hstmt₂ _ _
+    | mload32 hstmt₂ _ =>
+        rw [hstmt] at hstmt₂; simp at hstmt₂
   case refine_8 =>
-    intro _ _ _ _ _ _ h
-    exact (program.memOracleFree_not_mload32 hfree h.stmt).elim
+    intro _ _ _ _ _ _ hstmt _
+    exact (program.memOracleFree_not_mload32 hfree hstmt).elim
   case refine_9 =>
     intros
     apply dialogue_icall <;> assumption

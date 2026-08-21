@@ -67,19 +67,6 @@ theorem Program.memOracleFree_not_mload32 {program : Program}
   intro h
   exact program.memOracleFree_statement hfree h trivial
 
-theorem Program.At.mk1 {program : Program} {state : State} {next : Control}
-    {stmt : Stmt} {var : VarId} {value : Word}
-    (hstmt : program.atStmt state = some (next, stmt))
-    (hvar : state.lookup var = .ok value) :
-    program.At state next stmt [(var, value)] :=
-  ⟨hstmt, by simp [hvar, Bind.bind, Except.bind, Pure.pure, Except.pure]⟩
 
-theorem Program.At.mk2 {program : Program} {state : State} {next : Control}
-    {stmt : Stmt} {var₁ var₂ : VarId} {value₁ value₂ : Word}
-    (hstmt : program.atStmt state = some (next, stmt))
-    (h₁ : state.lookup var₁ = .ok value₁)
-    (h₂ : state.lookup var₂ = .ok value₂) :
-    program.At state next stmt [(var₁, value₁), (var₂, value₂)] :=
-  ⟨hstmt, by simp [h₁, h₂, Bind.bind, Except.bind, Pure.pure, Except.pure]⟩
 
 end Sir.Vars
