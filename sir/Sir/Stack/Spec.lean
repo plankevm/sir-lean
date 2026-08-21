@@ -164,6 +164,23 @@ abbrev Program.atInstr (program : Program) (state : State) : Option (Control × 
 abbrev Program.atTerm (program : Program) (state : State) : Option Terminator :=
   program.terminatorAt state.control
 
+@[simp] def Program.AtInstr (program : Program) (state : State) (next : Control)
+    (instruction : Instr) : Prop :=
+  program.atInstr state = some (next, instruction)
+
+@[simp] def Program.AtTerm (program : Program) (state : State) (terminator : Terminator) : Prop :=
+  program.atTerm state = some terminator
+
+def State.allows (state : State) (size : Word) (allocation : Allocation) : Prop :=
+  memoryPolicy.Allows state.globals.memory size.toNat allocation
+
+def State.inBounds (state : State) (offset : Word) : Prop :=
+  state.globals.memory.InBounds offset.toNat 32
+
+def State.pushValues (state : State) (destination : Destination) (values : Array Word) :
+    Except IRError Environment :=
+  push state.environment destination values
+
 def exchange (stack : List Word) (firstDepth secondDepth : Nat) : Option (List Word) := do
   let first ← stack[firstDepth]?
   let second ← stack[secondDepth]?
@@ -218,6 +235,10 @@ def evalInstr (context : CallContext) (globals : Globals) (environment : Environ
   | .op .sstore | .op .gas | .op .call | .op .malloc | .op .mallocUninit |
     .op .mstore32 | .op .mload32 | .icall _ _ _ => .error .invalidControl
 
+def State.evaluate (state : State) (context : CallContext) (instruction : Instr) :
+    Except IRError Environment :=
+  evalInstr context state.globals state.environment instruction
+
 def jump (program : Program) (environment : Environment) (cursor : ProgramCursor)
     (target : BlockId) : Option (Environment × Control) := do
   let source ← program.block? cursor
@@ -270,58 +291,57 @@ mutual
 inductive SmallStep (program : Program) (context : CallContext) :
     State → Trace → State → Prop where
   | pure
-      (hinstr : program.atInstr state = some (next, instruction))
-      (heval : evalInstr context state.globals state.environment instruction = .ok environment) :
+      (hinstr : program.AtInstr state next instruction)
+      (heval : state.evaluate context instruction = .ok environment) :
       SmallStep program context state [] { state with environment, control := next }
   | sstore
-      (hinstr : program.atInstr state = some (next, .op .sstore))
+      (hinstr : program.AtInstr state next (.op .sstore))
       (hfetch : state.fetch 2 = .ok #[key, value])
-      (hpush : push state.environment ⟨2, 0⟩ #[] = .ok environment) :
+      (hpush : state.pushValues ⟨2, 0⟩ #[] = .ok environment) :
       SmallStep program context state []
         { globals := state.globals.storeStorage context key value, environment, control := next }
   | gas
-      (hinstr : program.atInstr state = some (next, .op .gas))
-      (hpush : push state.environment ⟨0, 1⟩ #[answer] = .ok environment) :
+      (hinstr : program.AtInstr state next (.op .gas))
+      (hpush : state.pushValues ⟨0, 1⟩ #[answer] = .ok environment) :
       SmallStep program context state [.gas answer]
         { state with environment, control := next }
   | call
-      (hinstr : program.atInstr state = some (next, .op .call))
+      (hinstr : program.AtInstr state next (.op .call))
       (hfetch : state.fetch 2 = .ok #[target, gasLimit])
-      (hpush : push state.environment ⟨2, 1⟩ #[.fromBool answer.success] = .ok environment) :
+      (hpush : state.pushValues ⟨2, 1⟩ #[.fromBool answer.success] = .ok environment) :
       SmallStep program context state
         [.call { input := state.globals.callInput target gasLimit, result := answer }]
         { globals := state.globals.applyCall answer, environment, control := next }
   | malloc
-      (hinstr : program.atInstr state = some (next, .op .malloc))
+      (hinstr : program.AtInstr state next (.op .malloc))
       (hfetch : state.fetch 1 = .ok #[size])
-      (hallow : memoryPolicy.Allows state.globals.memory size.toNat allocation)
+      (hallow : state.allows size allocation)
       (hzero : allocation.bytes = ByteArray.mk (Array.replicate size.toNat 0))
-      (hpush : push state.environment ⟨1, 1⟩ #[allocation.offset] = .ok environment) :
+      (hpush : state.pushValues ⟨1, 1⟩ #[allocation.offset] = .ok environment) :
       SmallStep program context state []
         { globals := state.globals.pushAlloc allocation, environment, control := next }
   | mallocUninit
-      (hinstr : program.atInstr state = some (next, .op .mallocUninit))
+      (hinstr : program.AtInstr state next (.op .mallocUninit))
       (hfetch : state.fetch 1 = .ok #[size])
-      (hallow : memoryPolicy.Allows state.globals.memory size.toNat allocation)
-      (hpush : push state.environment ⟨1, 1⟩ #[allocation.offset] = .ok environment) :
+      (hallow : state.allows size allocation)
+      (hpush : state.pushValues ⟨1, 1⟩ #[allocation.offset] = .ok environment) :
       SmallStep program context state []
         { globals := state.globals.pushAlloc allocation, environment, control := next }
   | mstore32
-      (hinstr : program.atInstr state = some (next, .op .mstore32))
+      (hinstr : program.AtInstr state next (.op .mstore32))
       (hfetch : state.fetch 2 = .ok #[offset, value])
-      (hbound : state.globals.memory.InBounds offset.toNat 32)
-      (hpush : push state.environment ⟨2, 0⟩ #[] = .ok environment) :
+      (hbound : state.inBounds offset)
+      (hpush : state.pushValues ⟨2, 0⟩ #[] = .ok environment) :
       SmallStep program context state []
         { globals := state.globals.writeWord32 offset value, environment, control := next }
   | mload32
-      (hinstr : program.atInstr state = some (next, .op .mload32))
+      (hinstr : program.AtInstr state next (.op .mload32))
       (hfetch : state.fetch 1 = .ok #[offset])
-      (hpush : push state.environment ⟨1, 1⟩ #[state.globals.readWord32 offset assumed] =
+      (hpush : state.pushValues ⟨1, 1⟩ #[state.globals.readWord32 offset assumed] =
         .ok environment) :
       SmallStep program context state [] { state with environment, control := next }
   | icall
-      (hinstr : program.atInstr state =
-        some (next, .icall callee argumentCount resultCount))
+      (hinstr : program.AtInstr state next (.icall callee argumentCount resultCount))
       (hargs : state.fetch argumentCount = .ok args)
       (hcall : EvalFn program context callee state.globals args trace globals outcome)
       (hresume : resume outcome state.environment ⟨argumentCount, resultCount⟩ next =
@@ -329,7 +349,7 @@ inductive SmallStep (program : Program) (context : CallContext) :
       SmallStep program context state trace
         { globals := globals, environment := environment, control := resumed }
   | control
-      (hterm : program.atTerm state = some terminator)
+      (hterm : program.AtTerm state terminator)
       (heval : evaluateTerminator program state.environment state.control terminator =
         some (environment, finalControl)) :
       SmallStep program context state []

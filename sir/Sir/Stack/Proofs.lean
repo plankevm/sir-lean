@@ -14,6 +14,24 @@ theorem Program.instructionAt_terminatorAt_exclusive {program : Program}
       obtain ⟨function, block, position⟩ := cursor
       cases position <;> simp_all [Program.instructionAt, Program.terminatorAt]
 
+theorem Program.AtInstr.unique {program : Program} {state : State}
+    {next₁ next₂ : Control} {instr₁ instr₂ : Instr}
+    (h₁ : program.AtInstr state next₁ instr₁) (h₂ : program.AtInstr state next₂ instr₂) :
+    next₁ = next₂ ∧ instr₁ = instr₂ :=
+  Prod.mk.inj (Option.some.inj (h₁.symm.trans h₂))
+
+theorem Program.AtTerm.unique {program : Program} {state : State}
+    {terminator₁ terminator₂ : Terminator}
+    (h₁ : program.AtTerm state terminator₁) (h₂ : program.AtTerm state terminator₂) :
+    terminator₁ = terminator₂ :=
+  Option.some.inj (h₁.symm.trans h₂)
+
+theorem Program.AtInstr_AtTerm_exclusive {program : Program} {state : State}
+    {next : Control} {instruction : Instr} {terminator : Terminator}
+    (hinstr : program.AtInstr state next instruction)
+    (hterm : program.AtTerm state terminator) : False :=
+  program.instructionAt_terminatorAt_exclusive hinstr hterm
+
 theorem Program.instructionAt_mem {program : Program} {control next : Control}
     {instruction : Instr}
     (h : program.instructionAt control = some (next, instruction)) :

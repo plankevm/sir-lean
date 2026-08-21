@@ -102,18 +102,17 @@ theorem stuck_of_exit {program : Program} {ctx : CallContext}
   intro trace final hstep
   cases outcome with
   | returned results =>
-      cases hstep <;> simp_all [FunctionOutcome.toControl, Stack.Program.instructionAt,
-        Stack.Program.terminatorAt]
+      cases hstep <;> simp_all [FunctionOutcome.toControl, Program.AtInstr, Program.AtTerm,
+        Program.atInstr, Program.instructionAt, Program.atTerm, Program.terminatorAt]
   | halted =>
-      cases hstep <;> simp_all [FunctionOutcome.toControl, Stack.Program.instructionAt,
-        Stack.Program.terminatorAt]
+      cases hstep <;> simp_all [FunctionOutcome.toControl, Program.AtInstr, Program.AtTerm,
+        Program.atInstr, Program.instructionAt, Program.atTerm, Program.terminatorAt]
 
 private theorem dialogue_icall {program : Program} {ctx : CallContext}
     {state : State} {callee : FunctionId} {argumentCount resultCount : Nat}
     {next : Control} {values : Array Word} {trace : Trace} {globals' : Globals}
     {outcome : FunctionOutcome} {env' : Environment} {control' : Control}
-    (hinstr : program.atInstr state =
-      some (next, .icall callee argumentCount resultCount))
+    (hinstr : program.AtInstr state next (.icall callee argumentCount resultCount))
     (hfetch : state.fetch argumentCount = .ok values)
     (hresume : resume outcome state.environment ⟨argumentCount, resultCount⟩ next =
       some (env', control'))
@@ -123,8 +122,8 @@ private theorem dialogue_icall {program : Program} {ctx : CallContext}
   intro trace₂ final₂ hstep₂
   cases hstep₂ with
   | icall hinstr₂ hfetch₂ hcallee₂ hresume₂ =>
-      obtain ⟨rfl, rfl, rfl, rfl⟩ :=
-        Prod.mk.inj (Option.some.inj (hinstr.symm.trans hinstr₂))
+      obtain ⟨rfl, heq⟩ := Program.AtInstr.unique hinstr hinstr₂
+      obtain ⟨rfl, rfl, rfl⟩ := Instr.icall.inj heq
       rw [hfetch] at hfetch₂
       obtain rfl := Except.ok.inj hfetch₂
       rcases ih _ _ _ hcallee₂ with ⟨rfl, rfl, rfl⟩ | hdiv
@@ -133,36 +132,34 @@ private theorem dialogue_icall {program : Program} {ctx : CallContext}
         exact .inl ⟨rfl, rfl⟩
       · exact .inr hdiv
   | control hterm₂ _ =>
-      exact (program.instructionAt_terminatorAt_exclusive hinstr hterm₂).elim
+      exact (Program.AtInstr_AtTerm_exclusive hinstr hterm₂).elim
   | pure hstmt₂ heval₂ =>
-      rw [hinstr] at hstmt₂
-      obtain ⟨rfl, rfl⟩ := hstmt₂
-      simp [evalInstr] at heval₂
+      obtain ⟨rfl, heq⟩ := Program.AtInstr.unique hinstr hstmt₂
+      subst heq
+      simp [State.evaluate, evalInstr] at heval₂
   | sstore hstmt₂ _ _ | gas hstmt₂ _ | call hstmt₂ _ _
   | malloc hstmt₂ _ _ _ | mallocUninit hstmt₂ _ _
   | mstore32 hstmt₂ _ _ _ | mload32 hstmt₂ _ =>
-      rw [hinstr] at hstmt₂
-      simp at hstmt₂
+      cases (Program.AtInstr.unique hinstr hstmt₂).2
 
 private theorem dialogue_control {program : Program} {ctx : CallContext}
     {state : State} {terminator : Terminator} {environment : Environment}
     {control : Control}
-    (hterm : program.atTerm state = some terminator)
+    (hterm : program.AtTerm state terminator)
     (heval : evaluateTerminator program state.environment state.control terminator =
       some (environment, control)) :
     StepDialogue program ctx state [] { state with environment, control } := by
   intro trace₂ final₂ hstep₂
   cases hstep₂ with
   | control hterm₂ heval₂ =>
-      rw [hterm] at hterm₂
-      obtain rfl := Option.some.inj hterm₂
+      obtain rfl := Program.AtTerm.unique hterm hterm₂
       rw [heval] at heval₂
       obtain ⟨rfl, rfl⟩ := Prod.mk.inj (Option.some.inj heval₂)
       exact .inl ⟨rfl, rfl⟩
   | pure hstmt _ | sstore hstmt _ _ | gas hstmt _ | call hstmt _ _
   | malloc hstmt _ _ _ | mallocUninit hstmt _ _
   | mstore32 hstmt _ _ _ | mload32 hstmt _ | icall hstmt _ _ _ =>
-      exact (program.instructionAt_terminatorAt_exclusive hstmt hterm).elim
+      exact (Program.AtInstr_AtTerm_exclusive hstmt hterm).elim
 
 private theorem runDialogue_refl {program : Program} {ctx : CallContext} {state : State} :
     RunDialogue program ctx state [] state :=
@@ -229,24 +226,24 @@ theorem stepDialogue_all {program : Program} {ctx : CallContext}
     intro trace₂ final₂ h₂
     cases h₂ with
     | pure hinstr₂ heval₂ =>
-        obtain ⟨rfl, rfl⟩ := Prod.mk.inj (Option.some.inj (hinstr.symm.trans hinstr₂))
+        obtain ⟨rfl, rfl⟩ := Program.AtInstr.unique hinstr hinstr₂
         rw [heval] at heval₂
         obtain rfl := Except.ok.inj heval₂
         exact .inl ⟨rfl, rfl⟩
     | control hterm _ =>
-        exact (program.instructionAt_terminatorAt_exclusive hinstr hterm).elim
+        exact (Program.AtInstr_AtTerm_exclusive hinstr hterm).elim
     | sstore hinstr₂ _ _ | gas hinstr₂ _ | call hinstr₂ _ _
     | malloc hinstr₂ _ _ _ | mallocUninit hinstr₂ _ _
     | mstore32 hinstr₂ _ _ _ | mload32 hinstr₂ _ | icall hinstr₂ _ _ _ =>
-        rw [hinstr] at hinstr₂
-        obtain ⟨rfl, rfl⟩ := hinstr₂
-        simp [evalInstr] at heval
+        obtain ⟨rfl, heq⟩ := Program.AtInstr.unique hinstr hinstr₂
+        subst heq
+        simp [State.evaluate, evalInstr] at heval
   case refine_2 =>
     intro next key value environment state hinstr hfetch hpush
     intro trace₂ final₂ h₂
     cases h₂ with
     | sstore hinstr₂ hfetch₂ hpush₂ =>
-        obtain ⟨rfl, _⟩ := Prod.mk.inj (Option.some.inj (hinstr.symm.trans hinstr₂))
+        obtain ⟨rfl, _⟩ := Program.AtInstr.unique hinstr hinstr₂
         rw [hfetch] at hfetch₂
         have harray := Except.ok.inj hfetch₂
         have hkey := congrArg (fun values => values[0]?) harray
@@ -258,44 +255,42 @@ theorem stepDialogue_all {program : Program} {ctx : CallContext}
         obtain rfl := Except.ok.inj hpush₂
         exact .inl ⟨rfl, rfl⟩
     | control hterm _ =>
-        exact (program.instructionAt_terminatorAt_exclusive hinstr hterm).elim
+        exact (Program.AtInstr_AtTerm_exclusive hinstr hterm).elim
     | pure hinstr₂ heval₂ =>
-        rw [hinstr] at hinstr₂
-        obtain ⟨rfl, rfl⟩ := hinstr₂
-        simp [evalInstr] at heval₂
+        obtain ⟨rfl, heq⟩ := Program.AtInstr.unique hinstr hinstr₂
+        subst heq
+        simp [State.evaluate, evalInstr] at heval₂
     | gas hinstr₂ _ | call hinstr₂ _ _
     | malloc hinstr₂ _ _ _ | mallocUninit hinstr₂ _ _
     | mstore32 hinstr₂ _ _ _ | mload32 hinstr₂ _ | icall hinstr₂ _ _ _ =>
-        rw [hinstr] at hinstr₂
-        simp at hinstr₂
+        cases (Program.AtInstr.unique hinstr hinstr₂).2
   case refine_3 =>
     intro state next answer₁ environment₁ hinstr hpush₁
     intro trace₂ final₂ h₂
     cases h₂ with
     | @gas state₂ next₂ answer₂ environment₂ hinstr₂ hpush₂ =>
-        obtain ⟨rfl, _⟩ := Prod.mk.inj (Option.some.inj (hinstr.symm.trans hinstr₂))
+        obtain ⟨rfl, _⟩ := Program.AtInstr.unique hinstr hinstr₂
         rcases Globals.gas_dialogue answer₁ answer₂ with rfl | hdiv
         · rw [hpush₁] at hpush₂
           obtain rfl := Except.ok.inj hpush₂
           exact .inl ⟨rfl, rfl⟩
         · exact .inr hdiv
     | control hterm _ =>
-        exact (program.instructionAt_terminatorAt_exclusive hinstr hterm).elim
+        exact (Program.AtInstr_AtTerm_exclusive hinstr hterm).elim
     | pure hinstr₂ heval₂ =>
-        rw [hinstr] at hinstr₂
-        obtain ⟨rfl, rfl⟩ := hinstr₂
-        simp [evalInstr] at heval₂
+        obtain ⟨rfl, heq⟩ := Program.AtInstr.unique hinstr hinstr₂
+        subst heq
+        simp [State.evaluate, evalInstr] at heval₂
     | sstore hinstr₂ _ _ | call hinstr₂ _ _
     | malloc hinstr₂ _ _ _ | mallocUninit hinstr₂ _ _
     | mstore32 hinstr₂ _ _ _ | mload32 hinstr₂ _ | icall hinstr₂ _ _ _ =>
-        rw [hinstr] at hinstr₂
-        simp at hinstr₂
+        cases (Program.AtInstr.unique hinstr hinstr₂).2
   case refine_4 =>
     intro state next target gasLimit environment₁ answer₁ hinstr hfetch₁ hpush₁
     intro trace₂ final₂ h₂
     cases h₂ with
     | @call state₂ next₂ target₂ gas₂ environment₂ answer₂ hinstr₂ hfetch₂ hpush₂ =>
-        obtain ⟨rfl, _⟩ := Prod.mk.inj (Option.some.inj (hinstr.symm.trans hinstr₂))
+        obtain ⟨rfl, _⟩ := Program.AtInstr.unique hinstr hinstr₂
         rw [hfetch₁] at hfetch₂
         have harray := Except.ok.inj hfetch₂
         have htarget := congrArg (fun values => values[0]?) harray
@@ -309,16 +304,15 @@ theorem stepDialogue_all {program : Program} {ctx : CallContext}
           exact .inl ⟨rfl, rfl⟩
         · exact .inr hdiv
     | control hterm _ =>
-        exact (program.instructionAt_terminatorAt_exclusive hinstr hterm).elim
+        exact (Program.AtInstr_AtTerm_exclusive hinstr hterm).elim
     | pure hinstr₂ heval₂ =>
-        rw [hinstr] at hinstr₂
-        obtain ⟨rfl, rfl⟩ := hinstr₂
-        simp [evalInstr] at heval₂
+        obtain ⟨rfl, heq⟩ := Program.AtInstr.unique hinstr hinstr₂
+        subst heq
+        simp [State.evaluate, evalInstr] at heval₂
     | sstore hinstr₂ _ _ | gas hinstr₂ _
     | malloc hinstr₂ _ _ _ | mallocUninit hinstr₂ _ _
     | mstore32 hinstr₂ _ _ _ | mload32 hinstr₂ _ | icall hinstr₂ _ _ _ =>
-        rw [hinstr] at hinstr₂
-        simp at hinstr₂
+        cases (Program.AtInstr.unique hinstr hinstr₂).2
   case refine_5 =>
     intros
     exact (program.memOracleFree_not_malloc hfree ‹_›).elim
@@ -330,7 +324,7 @@ theorem stepDialogue_all {program : Program} {ctx : CallContext}
     intro trace₂ final₂ h₂
     cases h₂ with
     | mstore32 hinstr₂ hfetch₂ _ hpush₂ =>
-        obtain ⟨rfl, _⟩ := Prod.mk.inj (Option.some.inj (hinstr.symm.trans hinstr₂))
+        obtain ⟨rfl, _⟩ := Program.AtInstr.unique hinstr hinstr₂
         rw [hfetch] at hfetch₂
         have harray := Except.ok.inj hfetch₂
         have hoffset := congrArg (fun values => values[0]?) harray
@@ -342,16 +336,15 @@ theorem stepDialogue_all {program : Program} {ctx : CallContext}
         obtain rfl := Except.ok.inj hpush₂
         exact .inl ⟨rfl, rfl⟩
     | control hterm _ =>
-        exact (program.instructionAt_terminatorAt_exclusive hinstr hterm).elim
+        exact (Program.AtInstr_AtTerm_exclusive hinstr hterm).elim
     | pure hinstr₂ heval₂ =>
-        rw [hinstr] at hinstr₂
-        obtain ⟨rfl, rfl⟩ := hinstr₂
-        simp [evalInstr] at heval₂
+        obtain ⟨rfl, heq⟩ := Program.AtInstr.unique hinstr hinstr₂
+        subst heq
+        simp [State.evaluate, evalInstr] at heval₂
     | sstore hinstr₂ _ _ | gas hinstr₂ _ | call hinstr₂ _ _
     | malloc hinstr₂ _ _ _ | mallocUninit hinstr₂ _ _
     | mload32 hinstr₂ _ | icall hinstr₂ _ _ _ =>
-        rw [hinstr] at hinstr₂
-        simp at hinstr₂
+        cases (Program.AtInstr.unique hinstr hinstr₂).2
   case refine_8 =>
     intros
     exact (program.memOracleFree_not_mload32 hfree ‹_›).elim
