@@ -497,7 +497,7 @@ inductive FunctionObservableOutcome where
   | halt (world : World)
   | returned (world : World) (values : Array Word)
 
-def Vars.Program.NextFunctionObservableEffect (program : Vars.Program) (ctx : CallContext)
+def Vars.Program.FnNextEffect (program : Vars.Program) (ctx : CallContext)
     (function : FunctionId) (globals : Globals) (args : Array Word)
     (history : Trace) : FunctionObservableOutcome → Prop
   | .gas =>
@@ -523,23 +523,23 @@ def ObservableOutcome.functionOutcome : ObservableOutcome → FunctionObservable
   | .call input => .call input
   | .halt world => .halt world
 
-def Vars.Program.NextObservableEffect (program : Vars.Program) (ctx : CallContext)
+def Vars.Program.NextEffect (program : Vars.Program) (ctx : CallContext)
     (entry : FunctionId) (world₀ : World) (history : Trace) (outcome : ObservableOutcome) : Prop :=
-  program.NextFunctionObservableEffect ctx entry { world := world₀ } #[] history
+  program.FnNextEffect ctx entry { world := world₀ } #[] history
     outcome.functionOutcome
 
 def Vars.Program.FunctionDeterministicFrom (program : Vars.Program) (ctx : CallContext)
     (function : FunctionId) (globals : Globals) (args : Array Word) : Prop :=
   ∀ history outcome₁ outcome₂,
-    program.NextFunctionObservableEffect ctx function globals args history outcome₁ →
-    program.NextFunctionObservableEffect ctx function globals args history outcome₂ →
+    program.FnNextEffect ctx function globals args history outcome₁ →
+    program.FnNextEffect ctx function globals args history outcome₂ →
     outcome₁ = outcome₂
 
 def Vars.Program.DeterministicFrom (program : Vars.Program) (ctx : CallContext)
     (entry : FunctionId) (world₀ : World) : Prop :=
   ∀ history outcome₁ outcome₂,
-    program.NextObservableEffect ctx entry world₀ history outcome₁ →
-    program.NextObservableEffect ctx entry world₀ history outcome₂ →
+    program.NextEffect ctx entry world₀ history outcome₁ →
+    program.NextEffect ctx entry world₀ history outcome₂ →
     outcome₁ = outcome₂
 
 def Vars.Program.Deterministic (program : Vars.Program) : Prop :=
