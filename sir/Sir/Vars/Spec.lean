@@ -247,22 +247,14 @@ def State.inBounds (state : State) (offset : Word) : Prop :=
 
 
 def jump (program : Program) (locals : Locals) (cursor : ProgramCursor)
-    (target : BlockId) : Except IRError (Locals × Control) :=
-  match program.block? cursor, program.block? { cursor with block := target } with
-  | none, _ => .error (.invalidBlock cursor.block)
-  | _, none => .error (.invalidBlock target)
-  | some source, some targetBlock =>
-      match source.outputs.mapM locals.lookup with
-      | .error err => .error err
-      | .ok values =>
-          if values.size ≠ targetBlock.inputs.size then
-            .error (.blockArityMismatch values.size targetBlock.inputs.size)
-          else
-            match Locals.bindValues locals targetBlock.inputs values with
-            | .error err => .error err
-            | .ok nextLocals =>
-                .ok (nextLocals, .running
-                  { cursor with block := target, position := targetBlock.startPosition })
+    (target : BlockId) : Except IRError (Locals × Control) := do
+  let source := program.block? cursor | .error (.invalidBlock cursor.block)
+  let targetBlock := program.block? { cursor with block := target } | .error (.invalidBlock target)
+  let values ← source.outputs.mapM locals.lookup
+  if values.size ≠ targetBlock.inputs.size then
+    throw (.blockArityMismatch values.size targetBlock.inputs.size)
+  let nextLocals ← Locals.bindValues locals targetBlock.inputs values
+  .ok (nextLocals, .running { cursor with block := target, position := targetBlock.startPosition })
 
 def evaluateTerminator (program : Program) (locals : Locals) (control : Control) :
     Terminator → Except IRError (Locals × Control)
@@ -304,9 +296,9 @@ def State.evaluate (state : State) (context : CallContext) (statement : Stmt) :
   evalStmt context state statement
 
 def resume (outcome : FunctionOutcome) (env : Locals) (dst : Array VarId)
-    (next : Control) : Except IRError (Locals × Control) :=
+    (next : Control) : Except IRError (Locals × Control) := do
   match outcome with
-  | .returned results => do
+  | .returned results =>
       let env' ← Locals.bindReturns env dst results
       .ok (env', next)
   | .halted => .ok (.empty, .halted)
