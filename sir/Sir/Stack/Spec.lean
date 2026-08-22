@@ -269,54 +269,41 @@ def State.evaluate (state : State) (context : CallContext) (instruction : Instr)
   evalInstr context state.globals state.environment instruction
 
 def jump (program : Program) (environment : Environment) (cursor : ProgramCursor)
-    (target : BlockId) : Except IRError (Environment × Control) :=
-  match program.block? cursor, program.block? { cursor with block := target } with
-  | none, _ => .error (.invalidBlock cursor.block)
-  | _, none => .error (.invalidBlock target)
-  | some source, some targetBlock =>
-      if environment.stack.length ≠ source.outputCount then
-        .error (.blockArityMismatch environment.stack.length source.outputCount)
-      else if source.outputCount ≠ targetBlock.inputCount then
-        .error (.blockArityMismatch source.outputCount targetBlock.inputCount)
-      else
-        .ok (environment, .running
-          { cursor with block := target, position := targetBlock.startPosition })
+    (target : BlockId) : Except IRError (Environment × Control) := do
+  let some source := program.block? cursor | .error (.invalidBlock cursor.block)
+  let some targetBlock := program.block? { cursor with block := target } |
+    .error (.invalidBlock target)
+  if environment.stack.length ≠ source.outputCount then
+    throw (.blockArityMismatch environment.stack.length source.outputCount)
+  if source.outputCount ≠ targetBlock.inputCount then
+    throw (.blockArityMismatch source.outputCount targetBlock.inputCount)
+  .ok (environment, .running
+    { cursor with block := target, position := targetBlock.startPosition })
 
 def evaluateTerminator (program : Program) (environment : Environment)
     (control : Control) : Terminator → Except IRError (Environment × Control)
   | .halt => .ok (environment, .halted)
-  | .jump target =>
-      match control with
-      | .running cursor => jump program environment cursor target
-      | _ => .error .invalidControl
-  | .branch thenTarget elseTarget =>
-      match control with
-      | .running cursor =>
-          match environment.stack with
-          | [] => .error (.blockArityMismatch 0 1)
-          | condition :: stack =>
-              jump program { environment with stack } cursor
-                (if condition = 0 then elseTarget else thenTarget)
-      | _ => .error .invalidControl
-  | .iret =>
-      match control with
-      | .running cursor =>
-          match program.block? cursor with
-          | none => .error (.invalidBlock cursor.block)
-          | some block =>
-              if environment.stack.length ≠ block.outputCount then
-                .error (.blockArityMismatch environment.stack.length block.outputCount)
-              else
-                .ok (environment, .returned environment.stack.toArray)
-      | _ => .error .invalidControl
+  | .jump target => do
+      let .running cursor := control | .error .invalidControl
+      jump program environment cursor target
+  | .branch thenTarget elseTarget => do
+      let .running cursor := control | .error .invalidControl
+      let condition :: stack := environment.stack | .error (.blockArityMismatch 0 1)
+      jump program { environment with stack } cursor
+        (if condition = 0 then elseTarget else thenTarget)
+  | .iret => do
+      let .running cursor := control | .error .invalidControl
+      let some block := program.block? cursor | .error (.invalidBlock cursor.block)
+      if environment.stack.length ≠ block.outputCount then
+        throw (.blockArityMismatch environment.stack.length block.outputCount)
+      .ok (environment, .returned environment.stack.toArray)
 
 def resume (outcome : FunctionOutcome) (environment : Environment)
-    (destination : Destination) (next : Control) : Except IRError (Environment × Control) :=
+    (destination : Destination) (next : Control) : Except IRError (Environment × Control) := do
   match outcome with
-  | .returned results =>
-      match push environment destination results with
-      | .ok environment => .ok (environment, next)
-      | .error err => .error err
+  | .returned results => do
+      let environment ← push environment destination results
+      .ok (environment, next)
   | .halted => .ok (.empty, .halted)
 
 def entry (program : Program) (functionId : FunctionId) (globals : Globals)
