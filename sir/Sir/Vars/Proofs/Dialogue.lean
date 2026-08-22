@@ -124,7 +124,7 @@ private theorem dialogue_icall {program : Program} {ctx : CallContext}
     {outcome : FunctionOutcome} {env' : Locals} {control' : Control}
     (hstmt : program.AtStmt state next (.icall callee args dests))
     (hfetch : args.mapM state.lookup = .ok values)
-    (hresume : resume outcome state.environment dests next = some (env', control'))
+    (hresume : resume outcome state.environment dests next = .ok (env', control'))
     (ih : EvalDialogue program ctx callee state.globals values trace globals' outcome) :
     StepDialogue program ctx state trace
       { globals := globals', environment := env', control := control' } := by
@@ -137,7 +137,7 @@ private theorem dialogue_icall {program : Program} {ctx : CallContext}
       obtain rfl := Except.ok.inj hfetch₂
       rcases ih _ _ _ hcallee₂ with ⟨rfl, rfl, rfl⟩ | hdiv
       · rw [hresume] at hresume₂
-        obtain ⟨rfl, rfl⟩ := Prod.mk.inj (Option.some.inj hresume₂)
+        obtain ⟨rfl, rfl⟩ := Prod.mk.inj (Except.ok.inj hresume₂)
         exact .inl ⟨rfl, rfl⟩
       · exact .inr hdiv
   | control hterm₂ _ =>

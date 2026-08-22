@@ -59,7 +59,7 @@ theorem Vars.evaluateTerminator_iret_ok
     (houtputs : block.outputs.mapM (s.environment.lookup ·) = .ok rs) :
     Vars.evaluateTerminator program s.environment s.control .iret =
       .ok (s.environment, .returned rs) := by
-  simp [Vars.evaluateTerminator, _hctrl, hblock, houtputs]
+  simp [Vars.evaluateTerminator, _hctrl, hblock, houtputs, bind, Except.bind]
 
 private theorem Vars.jump_ok
     {s : Vars.State} {cursor : ProgramCursor} {target : BlockId}
@@ -75,7 +75,7 @@ private theorem Vars.jump_ok
           { cursor with block := target, position := targetBlock.startPosition }) := by
   obtain ⟨l', hbind⟩ := Locals.bindValues_total s.environment harity
   refine ⟨l', ?_⟩
-  simp [Vars.jump, hsrc, htgt, houts, hbind, harity]
+  exact Vars.jump_eq_ok hsrc htgt houts harity.symm hbind
 
 theorem Vars.Proofs.progress_stmt
     {state : Vars.State} {next : Control} {statement : Vars.Stmt}

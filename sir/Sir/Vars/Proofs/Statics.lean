@@ -170,22 +170,22 @@ theorem Vars.Program.terminatorAt_returned (results : Array Word) :
 theorem Vars.Program.terminatorAt_halted : program.terminatorAt .halted = none := rfl
 
 @[simp]
-theorem Vars.resume_returned_eq_some_iff
+theorem Vars.resume_returned_eq_ok_iff
     {results : Array Word} {env env' : Locals} {dst : Array VarId}
     {next control' : Control} :
-    Vars.resume (.returned results) env dst next = some (env', control') ↔
+    Vars.resume (.returned results) env dst next = .ok (env', control') ↔
       Locals.bindReturns env dst results = .ok env' ∧ control' = next := by
   cases hbind : Locals.bindReturns env dst results <;>
-    simp [Vars.resume, hbind, eq_comm]
+    simp [Vars.resume, hbind, bind, Except.bind, eq_comm]
 
 @[simp]
 theorem Vars.resume_halted (env : Locals) (dst : Array VarId) (next : Control) :
-    Vars.resume .halted env dst next = some (.empty, .halted) := rfl
+    Vars.resume .halted env dst next = .ok (.empty, .halted) := rfl
 
 @[simp]
-theorem Vars.resume_halted_eq_some_iff
+theorem Vars.resume_halted_eq_ok_iff
     {env env' : Locals} {dst : Array VarId} {next control' : Control} :
-    Vars.resume .halted env dst next = some (env', control') ↔
+    Vars.resume .halted env dst next = .ok (env', control') ↔
       env' = .empty ∧ control' = .halted := by
   simp [Vars.resume, eq_comm]
 
@@ -193,6 +193,19 @@ end Sir
 namespace Sir
 
 variable {program : Vars.Program} {ctx : CallContext}
+
+theorem Vars.jump_eq_ok
+    {locals nextLocals : Locals} {cursor : ProgramCursor} {target : BlockId}
+    {sourceBlock targetBlock : Vars.Block} {values : Array Word}
+    (hsource : program.block? cursor = some sourceBlock)
+    (htarget : program.block? { cursor with block := target } = some targetBlock)
+    (houtputs : sourceBlock.outputs.mapM locals.lookup = .ok values)
+    (harity : values.size = targetBlock.inputs.size)
+    (hbind : Locals.bindValues locals targetBlock.inputs values = .ok nextLocals) :
+    Vars.jump program locals cursor target = .ok (nextLocals, .running
+      { cursor with block := target, position := targetBlock.startPosition }) := by
+  simp [Vars.jump, hsource, htarget, houtputs, bind, Except.bind, pure, Except.pure,
+    harity, hbind]
 
 private theorem Vars.jump_control
     {locals : Locals} {cursor : ProgramCursor} {target : BlockId}
@@ -202,24 +215,24 @@ private theorem Vars.jump_control
       program.block? { cursor with block := target } = some targetBlock ∧
       control = .running
         { cursor with block := target, position := targetBlock.startPosition } := by
+  dsimp (config := {zetaDelta := true}) [Vars.jump] at h
   cases hsrc : program.block? cursor with
-  | none => simp [Vars.jump, hsrc] at h
+  | none => simp [hsrc] at h
   | some sourceBlock =>
       cases htgt : program.block? { cursor with block := target } with
-      | none => simp [Vars.jump, hsrc, htgt] at h
+      | none => simp [hsrc, htgt] at h
       | some targetBlock =>
+          simp [hsrc, htgt] at h
           refine ⟨targetBlock, rfl, ?_⟩
           cases hmap : sourceBlock.outputs.mapM locals.lookup with
-          | error _ => simp [Vars.jump, hsrc, htgt, hmap] at h
+          | error e => simp [hmap, bind, Except.bind] at h
           | ok values =>
-              simp [Vars.jump, hsrc, htgt, hmap] at h
-              split at h
+              simp [hmap] at h
+              simp only [bind, Except.bind] at h
+              split_ifs at h with hsize
               · cases hbind : Locals.bindValues locals targetBlock.inputs values with
-                | error _ => simp [hbind] at h
-                | ok _ =>
-                    simp [hbind] at h
-                    exact h.2.symm
-              · cases h
+                | error e => simp [hbind] at h
+                | ok _ => simp [hbind] at h; exact h.2.symm
 
 theorem Vars.evaluateTerminator_iret_inv
     {s : Vars.State} {locals : Locals} {control : Control}
@@ -236,7 +249,7 @@ theorem Vars.evaluateTerminator_iret_inv
       | none => simp [Vars.evaluateTerminator, hctrl, hblock] at h
       | some block =>
           cases hrs : block.outputs.mapM (s.environment.lookup ·) with
-          | error _ => simp [Vars.evaluateTerminator, hctrl, hblock, hrs] at h
+          | error _ => simp [Vars.evaluateTerminator, hctrl, hblock, hrs, bind, Except.bind] at h
           | ok rs =>
               simp [Vars.evaluateTerminator, hctrl, hblock, hrs] at h
               obtain ⟨rfl, rfl⟩ := h
@@ -356,11 +369,11 @@ theorem Vars.SmallStep.preserves_function
       obtain ⟨position, hnext⟩ := Vars.Program.statementAt_next_block hcontrol hstmt
       cases ‹FunctionOutcome› with
       | returned results =>
-          obtain ⟨-, hcontrol'⟩ := Vars.resume_returned_eq_some_iff.mp hresume
+          obtain ⟨-, hcontrol'⟩ := Vars.resume_returned_eq_ok_iff.mp hresume
           subst hcontrol'
           exact .inr (.inr ⟨_, hnext, rfl⟩)
       | halted =>
-          obtain ⟨-, hcontrol'⟩ := Vars.resume_halted_eq_some_iff.mp hresume
+          obtain ⟨-, hcontrol'⟩ := Vars.resume_halted_eq_ok_iff.mp hresume
           subst hcontrol'
           exact .inl rfl
   | control hterm heval =>
@@ -432,12 +445,12 @@ theorem Vars.SmallStep.returned_inv
       obtain ⟨cursor, hnext⟩ := Vars.Program.statementAt_next_running hstmt
       cases ‹FunctionOutcome› with
       | returned actual =>
-          obtain ⟨-, hcontrol'⟩ := Vars.resume_returned_eq_some_iff.mp hresume
+          obtain ⟨-, hcontrol'⟩ := Vars.resume_returned_eq_ok_iff.mp hresume
           subst hcontrol'
           rw [hnext] at hreturn
           cases hreturn
       | halted =>
-          obtain ⟨-, hcontrol'⟩ := Vars.resume_halted_eq_some_iff.mp hresume
+          obtain ⟨-, hcontrol'⟩ := Vars.resume_halted_eq_ok_iff.mp hresume
           subst hcontrol'
           cases hreturn
   | control hterm heval =>
@@ -631,7 +644,7 @@ theorem Vars.Proofs.Program.WellFormed.icall_step
         (State.of globals' locals' next) := by
   obtain ⟨locals', hbind⟩ := hwf.icall_bindReturns hstmt hcallee
   exact ⟨locals', Vars.SmallStep.icall hstmt hargs hcallee
-    (Vars.resume_returned_eq_some_iff.mpr ⟨hbind, rfl⟩)⟩
+    (Vars.resume_returned_eq_ok_iff.mpr ⟨hbind, rfl⟩)⟩
 
 theorem Vars.Proofs.Program.icall_halted_step
     {state : Vars.State} {next : Control}

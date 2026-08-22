@@ -39,8 +39,9 @@ theorem witness_memOracleFree : witnessProgram.MemOracleFree := by
   simp [Stmt.isMemOracle]
 
 theorem resume_rejects_arity (env : Locals) (next : Control) :
-    resume (.returned #[]) env #[witnessResult] next = none := by
-  simp [resume, Locals.bindReturns, Locals.bindValues, Functor.map, Except.map]
+    resume (.returned #[]) env #[witnessResult] next = .error (.blockArityMismatch 0 1) := by
+  dsimp (config := {zetaDelta := true}) [resume]
+  simp [Locals.bindReturns, Locals.bindValues, bind, Except.bind]
 
 theorem witness_step_constant (ctx : CallContext) (globals : Globals) :
     SmallStep witnessProgram ctx (witnessInitial globals) [] (witnessAfterConstant globals) := by
@@ -69,4 +70,3 @@ theorem witness_confluence_consumes_export (ctx : CallContext) (globals : Global
     (witness_runs ctx globals) (witness_runs ctx globals)
 
 end Sir.Vars
-

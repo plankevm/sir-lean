@@ -390,8 +390,8 @@ private theorem Vars.Program.WellFormed.localsCoverCursor_terminator
         Vars.jump program state.environment cursor target =
           .ok (locals', .running
             { cursor with block := target, position := targetBlock.startPosition }) := by
-      have hsize := mapM_ok_size hvalues
-      simp [Vars.jump, hblock, htarget', hvalues, hbind, harity, hsize]
+      apply Vars.jump_eq_ok hblock htarget' hvalues
+        ((mapM_ok_size hvalues).trans harity.symm) hbind
     rw [hexact] at hjump
     obtain ⟨rfl, rfl⟩ := Prod.mk.inj (Except.ok.inj hjump)
     obtain ⟨rfl, rfl⟩ := hfinal
@@ -543,7 +543,7 @@ theorem Vars.Program.WellFormed.localsCoverCursor_step
         hwf.statementAt_covers hinvariant hstmt
       cases ‹FunctionOutcome› with
       | returned results =>
-          obtain ⟨hbind, hcontrol'⟩ := Vars.resume_returned_eq_some_iff.mp hresume
+          obtain ⟨hbind, hcontrol'⟩ := Vars.resume_returned_eq_ok_iff.mp hresume
           subst_vars
           apply Vars.State.localsCoverCursor_after_statement
             (evaluated := ⟨_, _, state.control⟩)
@@ -552,7 +552,7 @@ theorem Vars.Program.WellFormed.localsCoverCursor_step
               Locals.bindValues_preserves hbind hdefined
           · simpa [Vars.Stmt.variablesDefined] using Locals.bindValues_covers hbind
       | halted =>
-          obtain ⟨rfl, rfl⟩ := Vars.resume_halted_eq_some_iff.mp hresume
+          obtain ⟨rfl, rfl⟩ := Vars.resume_halted_eq_ok_iff.mp hresume
           trivial
   | control hterminator heval =>
       exact hwf.localsCoverCursor_terminator hinvariant hterminator heval
