@@ -97,10 +97,11 @@ def StackSchedule.firstUnavailable (statements : List Vars.Stmt) (available : Li
   match statements with
   | [] => none
   | statement :: remaining =>
-      match statement.variablesRead.find? (StackSchedule.identifierUnavailable available) with
-      | some identifier => some (statement, identifier)
-      | none =>
-          StackSchedule.firstUnavailable remaining (statement.variablesDefined ++ available)
+      if let some identifier :=
+          statement.variablesRead.find? (StackSchedule.identifierUnavailable available) then
+        some (statement, identifier)
+      else
+        StackSchedule.firstUnavailable remaining (statement.variablesDefined ++ available)
 
 def StackSchedule.firstDuplicate (identifiers : List VarId) : Option VarId :=
   match identifiers with
@@ -135,54 +136,52 @@ def StackSchedule.Block.execute (sourceStatements : Array Vars.Stmt) :
       | some next => StackSchedule.Block.execute sourceStatements remaining next
 
 def StackSchedule.Block.checkFinalStack (block : StackSchedule.Block)
-    (finalState : Symbolic.State) : Except StackSchedule.Error Unit :=
+    (finalState : Symbolic.State) : Except StackSchedule.Error Unit := do
   match block.vars.terminator with
-  | .halt => .ok ()
+  | .halt => pure ()
   | .jump _ =>
       if finalState.stack = block.vars.exitLayout.toList then
-        .ok ()
+        pure ()
       else
-        .error .residualStackAtNonHalt
+        throw .residualStackAtNonHalt
   | .branch condition _ _ =>
       if finalState.stack = .variable condition :: block.vars.exitLayout.toList then
-        .ok ()
+        pure ()
       else
-        .error .residualStackAtNonHalt
-  | .iret => .error .terminatorMismatch
+        throw .residualStackAtNonHalt
+  | .iret => throw .terminatorMismatch
 
 def StackSchedule.Block.check (block : StackSchedule.Block) :
-    Except StackSchedule.Error Unit :=
+    Except StackSchedule.Error Unit := do
   let entryIdentifiers := block.vars.entryLayout.map Symbolic.Value.identifier
   let exitIdentifiers := block.vars.exitLayout.map Symbolic.Value.identifier
   if entryIdentifiers != block.vars.inputs then
-    .error (.inputLayoutMismatch block.vars.inputs entryIdentifiers)
-  else if exitIdentifiers != block.vars.outputs then
-    .error (.outputLayoutMismatch block.vars.outputs exitIdentifiers)
-  else if block.vars.terminator = .halt && block.vars.outputs != #[] then
-    .error (.outputsAtHalt block.vars.outputs)
-  else
-    match StackSchedule.Block.execute block.vars.statements block.stack.instructions.toList
-        (Symbolic.State.initial block.vars.entryLayout) with
-    | .error error => .error error
-    | .ok finalState =>
-        match StackSchedule.firstUnavailable block.vars.statements.toList
-            (block.vars.entryLayout.toList.map Symbolic.Value.identifier) with
-        | some (statement, identifier) => .error (.useBeforeDefinition statement identifier)
-        | none =>
-            let identifiers := (block.vars.entryLayout.toList.map Symbolic.Value.identifier) ++
-              block.vars.statements.toList.flatMap Vars.Stmt.variablesDefined
-            match StackSchedule.firstDuplicate identifiers with
-            | some identifier => .error (.notSingleAssignment identifier)
-            | none =>
-                if finalState.firedCount != block.vars.statements.size then
-                  .error (.unfiredStatements
-                    (StackSchedule.unfiredStatements block.vars.statements.toList
-                      finalState.firedStatementIndices).toArray)
-                else if !StackSchedule.Block.terminatorsAgree block.vars.terminator
-                    block.stack.terminator then
-                  .error .terminatorMismatch
-                else
-                  block.checkFinalStack finalState
+    throw (.inputLayoutMismatch block.vars.inputs entryIdentifiers)
+  if exitIdentifiers != block.vars.outputs then
+    throw (.outputLayoutMismatch block.vars.outputs exitIdentifiers)
+  if block.vars.terminator = .halt && block.vars.outputs != #[] then
+    throw (.outputsAtHalt block.vars.outputs)
+
+  let finalState ← StackSchedule.Block.execute block.vars.statements block.stack.instructions.toList
+      (Symbolic.State.initial block.vars.entryLayout)
+
+  if let some (statement, identifier) := StackSchedule.firstUnavailable block.vars.statements.toList
+        (block.vars.entryLayout.toList.map Symbolic.Value.identifier) then
+    throw (.useBeforeDefinition statement identifier)
+
+  let identifiers := (block.vars.entryLayout.toList.map Symbolic.Value.identifier) ++
+      block.vars.statements.toList.flatMap Vars.Stmt.variablesDefined
+  if let some identifier := StackSchedule.firstDuplicate identifiers then
+    throw (.notSingleAssignment identifier)
+
+  if finalState.firedCount != block.vars.statements.size then
+    throw (.unfiredStatements
+      (StackSchedule.unfiredStatements block.vars.statements.toList
+        finalState.firedStatementIndices).toArray)
+  if !StackSchedule.Block.terminatorsAgree block.vars.terminator block.stack.terminator then
+    throw .terminatorMismatch
+
+  block.checkFinalStack finalState
 
 def StackSchedule.layoutAgreesAt (schedule : StackSchedule)
     (exitLayout : Array Symbolic.Value) (successor : BlockId) : Bool :=
@@ -201,47 +200,41 @@ def StackSchedule.blockEdgesAgree (schedule : StackSchedule) (block : StackSched
 
 def StackSchedule.checkBlocks : List StackSchedule.Block → Except StackSchedule.Error Unit
   | [] => .ok ()
-  | block :: remaining =>
-      match block.check with
-      | .error error => .error error
-      | .ok () => StackSchedule.checkBlocks remaining
+  | block :: remaining => do
+      block.check
+      StackSchedule.checkBlocks remaining
 
 def StackSchedule.checkEdge (schedule : StackSchedule) (source successor : BlockId)
-    (exitLayout : Array Symbolic.Value) : Except StackSchedule.Error Unit :=
-  match schedule.blocks[successor.id]? with
-  | none => .error (.missingBlock successor)
-  | some successorBlock =>
-      let expected := successorBlock.vars.entryLayout.size
-      let got := exitLayout.size
-      if expected = got then
-        .ok ()
-      else
-        .error (.boundaryArityMismatch (source, successor) expected got)
+    (exitLayout : Array Symbolic.Value) : Except StackSchedule.Error Unit := do
+  let some successorBlock := schedule.blocks[successor.id]? | throw (.missingBlock successor)
+  let expected := successorBlock.vars.entryLayout.size
+  let got := exitLayout.size
+  if expected = got then
+    pure ()
+  else
+    throw (.boundaryArityMismatch (source, successor) expected got)
 
 def StackSchedule.checkBlockEdges (schedule : StackSchedule) (source : BlockId)
-    (block : StackSchedule.Block) : Except StackSchedule.Error Unit :=
+    (block : StackSchedule.Block) : Except StackSchedule.Error Unit := do
   match block.vars.terminator with
-  | .halt => .ok ()
+  | .halt => pure ()
   | .jump successor => schedule.checkEdge source successor block.vars.exitLayout
-  | .branch _ thenSuccessor elseSuccessor =>
-      match schedule.checkEdge source thenSuccessor block.vars.exitLayout with
-      | .error error => .error error
-      | .ok () => schedule.checkEdge source elseSuccessor block.vars.exitLayout
-  | .iret => .ok ()
+  | .branch _ thenSuccessor elseSuccessor => do
+      schedule.checkEdge source thenSuccessor block.vars.exitLayout
+      schedule.checkEdge source elseSuccessor block.vars.exitLayout
+  | .iret => pure ()
 
 def StackSchedule.checkEdges (schedule : StackSchedule) (blocks : List StackSchedule.Block)
     (index : Nat := 0) : Except StackSchedule.Error Unit :=
   match blocks with
   | [] => .ok ()
-  | block :: remaining =>
-      match schedule.checkBlockEdges ⟨index⟩ block with
-      | .error error => .error error
-      | .ok () => schedule.checkEdges remaining (index + 1)
+  | block :: remaining => do
+      schedule.checkBlockEdges ⟨index⟩ block
+      schedule.checkEdges remaining (index + 1)
 
-def StackSchedule.check (schedule : StackSchedule) : Except StackSchedule.Error Unit :=
-  match StackSchedule.checkBlocks schedule.blocks.toList with
-  | .error error => .error error
-  | .ok () => schedule.checkEdges schedule.blocks.toList
+def StackSchedule.check (schedule : StackSchedule) : Except StackSchedule.Error Unit := do
+  StackSchedule.checkBlocks schedule.blocks.toList
+  schedule.checkEdges schedule.blocks.toList
 
 structure ProgramSchedule where
   init : StackSchedule
@@ -260,12 +253,10 @@ def ProgramSchedule.stack (schedule : ProgramSchedule) : Stack.Program :=
   { init := schedule.init.stackFunction
     rest := schedule.main.toArray.map StackSchedule.stackFunction }
 
-def ProgramSchedule.check (schedule : ProgramSchedule) : Except StackSchedule.Error Unit :=
-  match schedule.init.check with
-  | .error error => .error error
-  | .ok () =>
-      match schedule.main with
-      | none => .ok ()
-      | some main => main.check
+def ProgramSchedule.check (schedule : ProgramSchedule) : Except StackSchedule.Error Unit := do
+  schedule.init.check
+  match schedule.main with
+  | none => pure ()
+  | some main => main.check
 
 end Sir.Lowering

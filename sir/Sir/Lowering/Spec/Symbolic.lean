@@ -96,41 +96,32 @@ def State.fireNextStatement (sourceStatements : Array Vars.Stmt)
             firedStatementIndices := statementIndex :: state.firedStatementIndices }
 
 def execute (sourceStatements : Array Vars.Stmt) (state : State) : Stack.Instr → Option State
-  | .swap depth =>
-      if 1 ≤ depth ∧ depth ≤ 16 then
-        (exchange state.stack 0 depth).map fun stack => { state with stack }
-      else
-        none
-  | .exchange firstDepth secondDepth =>
-      if firstDepth ≠ secondDepth ∧ max firstDepth secondDepth ≤ 16 then
-        (exchange state.stack firstDepth secondDepth).map fun stack => { state with stack }
-      else
-        none
-  | .dup depth =>
-      if depth ≤ 15 then
-        state.stack[depth]?.map fun value => { state with stack := value :: state.stack }
-      else
-        none
-  | .pop =>
-      match state.stack with
-      | [] => none
-      | _ :: stack => some { state with stack }
-  | .store slot =>
-      match state.stack, state.slotValue? slot with
-      | value :: stack, none =>
-          some { state with stack, slotBindings := state.slotBindings.push (slot, value) }
-      | _, _ => none
+  | .swap depth => do
+      guard (1 ≤ depth ∧ depth ≤ 16)
+      let stack ← exchange state.stack 0 depth
+      some { state with stack }
+  | .exchange firstDepth secondDepth => do
+      guard (firstDepth ≠ secondDepth ∧ max firstDepth secondDepth ≤ 16)
+      let stack ← exchange state.stack firstDepth secondDepth
+      some { state with stack }
+  | .dup depth => do
+      guard (depth ≤ 15)
+      let value ← state.stack[depth]?
+      some { state with stack := value :: state.stack }
+  | .pop => do
+      let _ :: stack := state.stack | none
+      some { state with stack }
+  | .store slot => do
+      let value :: stack := state.stack | none
+      let none := state.slotValue? slot | none
+      some { state with stack, slotBindings := state.slotBindings.push (slot, value) }
   | .load slot =>
       (state.slotValue? slot).map fun value => { state with stack := value :: state.stack }
   | .op operation => state.fireNextStatement sourceStatements operation
-  | .flippedOp operation =>
-      if operation.inputCount = 2 then
-        match exchange state.stack 0 1 with
-        | none => none
-        | some stack =>
-            ({ state with stack } : State).fireNextStatement sourceStatements operation
-      else
-        none
+  | .flippedOp operation => do
+      guard (operation.inputCount = 2)
+      let stack ← exchange state.stack 0 1
+      ({ state with stack } : State).fireNextStatement sourceStatements operation
   | .icall _ _ _ => none
 
 def executeAll (sourceStatements : Array Vars.Stmt) (targetInstructions : Array Stack.Instr)

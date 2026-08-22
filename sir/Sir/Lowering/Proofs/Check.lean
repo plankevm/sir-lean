@@ -120,7 +120,7 @@ theorem StackSchedule.Block.check_inv
         StackSchedule.Block.terminatorsAgree schedule.vars.terminator
             schedule.stack.terminator = true ∧
         schedule.checkFinalStack finalState = .ok () := by
-  simp only [StackSchedule.Block.check] at accepted
+  simp only [StackSchedule.Block.check, bind, Except.bind, pure, Except.pure] at accepted
   split at accepted <;> try contradiction
   rename_i entryNames
   split at accepted <;> try contradiction
@@ -136,8 +136,26 @@ theorem StackSchedule.Block.check_inv
   rename_i fired
   split at accepted <;> try contradiction
   rename_i agree
-  exact ⟨finalState, by simpa using entryNames, by simpa using exitNames, executed, available,
-    distinct, by simpa using fired, by simpa using agree, accepted⟩
+  have unavailableNone :
+      StackSchedule.firstUnavailable schedule.vars.statements.toList
+          (schedule.vars.entryLayout.toList.map Symbolic.Value.identifier) = none := by
+    cases unavailable : StackSchedule.firstUnavailable schedule.vars.statements.toList
+        (schedule.vars.entryLayout.toList.map Symbolic.Value.identifier) with
+    | none => rfl
+    | some pair =>
+        obtain ⟨statement, identifier⟩ := pair
+        exact (available statement identifier unavailable).elim
+  have duplicateNone :
+      StackSchedule.firstDuplicate
+          ((schedule.vars.entryLayout.toList.map Symbolic.Value.identifier) ++
+            schedule.vars.statements.toList.flatMap Vars.Stmt.variablesDefined) = none := by
+    cases duplicate : StackSchedule.firstDuplicate
+        ((schedule.vars.entryLayout.toList.map Symbolic.Value.identifier) ++
+          schedule.vars.statements.toList.flatMap Vars.Stmt.variablesDefined) with
+    | none => rfl
+    | some identifier => exact (distinct identifier duplicate).elim
+  exact ⟨finalState, by simpa using entryNames, by simpa using exitNames, executed,
+    unavailableNone, duplicateNone, by simpa using fired, by simpa using agree, accepted⟩
 
 theorem StackSchedule.Block.checkFinalStack_final
     (schedule : StackSchedule.Block) (finalState : Symbolic.State)
@@ -196,7 +214,7 @@ theorem StackSchedule.checkBlocks_get
   induction blocks generalizing index with
   | nil => simp at indexBound
   | cons block blocks inductionHypothesis =>
-      simp only [StackSchedule.checkBlocks] at accepted
+      simp only [StackSchedule.checkBlocks, bind, Except.bind] at accepted
       cases checked : block.check with
       | error error => simp [checked] at accepted
       | ok result =>
@@ -215,8 +233,11 @@ theorem StackSchedule.checkEdge_sound
   cases successorAt : schedule.blocks[successor.id]? with
   | none => simp [StackSchedule.checkEdge, successorAt] at accepted
   | some successorBlock =>
-      simp [StackSchedule.checkEdge, successorAt] at accepted
-      simp [StackSchedule.layoutAgreesAt, successorAt, accepted]
+      simp only [StackSchedule.checkEdge, successorAt] at accepted
+      split at accepted
+      · rename_i sameSize
+        simp [StackSchedule.layoutAgreesAt, successorAt, sameSize.symm]
+      · simp at accepted
 
 theorem StackSchedule.checkBlockEdges_sound
     (schedule : StackSchedule) (source : BlockId) (block : StackSchedule.Block)
@@ -232,12 +253,12 @@ theorem StackSchedule.checkBlockEdges_sound
   | branch condition thenSuccessor elseSuccessor =>
       have thenAccepted :
           schedule.checkEdge source thenSuccessor block.vars.exitLayout = .ok () := by
-        simp [StackSchedule.checkBlockEdges, terminator] at edgesAccepted
+        simp [StackSchedule.checkBlockEdges, terminator, bind, Except.bind] at edgesAccepted
         split at edgesAccepted <;> try contradiction
         assumption
       have elseAccepted :
           schedule.checkEdge source elseSuccessor block.vars.exitLayout = .ok () := by
-        simp [StackSchedule.checkBlockEdges, terminator] at edgesAccepted
+        simp [StackSchedule.checkBlockEdges, terminator, bind, Except.bind] at edgesAccepted
         split at edgesAccepted <;> try contradiction
         simpa using edgesAccepted
       have thenAgreement :=
@@ -260,7 +281,7 @@ theorem StackSchedule.checkEdges_get
   induction blocks generalizing offset index with
   | nil => simp at indexBound
   | cons block blocks inductionHypothesis =>
-      simp only [StackSchedule.checkEdges] at accepted
+      simp only [StackSchedule.checkEdges, bind, Except.bind] at accepted
       cases checked : schedule.checkBlockEdges ⟨offset⟩ block with
       | error error => simp [checked] at accepted
       | ok result =>
@@ -278,7 +299,7 @@ theorem StackSchedule.check_sound
         schedule.blocks[index].check = .ok ()) ∧
       ∀ index, (indexBound : index < schedule.blocks.size) →
         schedule.blockEdgesAgree schedule.blocks[index] = true := by
-  simp only [StackSchedule.check] at accepted
+  simp only [StackSchedule.check, bind, Except.bind] at accepted
   cases blocksAccepted : StackSchedule.checkBlocks schedule.blocks.toList with
   | error error => simp [blocksAccepted] at accepted
   | ok result =>
@@ -336,7 +357,7 @@ theorem StackSchedule.ofBlock_check (block : StackSchedule.Block)
     (StackSchedule.ofBlock block).check = .ok () := by
   simp [StackSchedule.ofBlock, StackSchedule.check, StackSchedule.blocks,
     StackSchedule.checkBlocks, StackSchedule.checkEdges, StackSchedule.checkBlockEdges,
-    accepted, halted]
+    accepted, halted, bind, Except.bind, pure, Except.pure]
 
 def Symbolic.Value.interpret (locals : Locals) (value : Symbolic.Value) : Option Word :=
   locals.lookup? value.identifier
@@ -684,6 +705,44 @@ theorem Symbolic.State.Interprets.after_fire (state nextState : Symbolic.State)
     rw [Symbolic.Value.interpret_assign_of_ne locals symbolicValue result resultValue different]
     exact valueEq
 
+theorem Symbolic.execute_swap_eq_some
+    (sourceStatements : Array Vars.Stmt) (state nextState : Symbolic.State) (depth : Nat) :
+    Symbolic.execute sourceStatements state (.swap depth) = some nextState ↔
+      (1 ≤ depth ∧ depth ≤ 16) ∧
+        ∃ stack, Symbolic.exchange state.stack 0 depth = some stack ∧
+          { state with stack } = nextState := by
+  simp only [Symbolic.execute, guard]
+  split <;> simp_all [Option.bind_eq_some_iff]
+
+theorem Symbolic.execute_exchange_eq_some
+    (sourceStatements : Array Vars.Stmt) (state nextState : Symbolic.State)
+    (firstDepth secondDepth : Nat) :
+    Symbolic.execute sourceStatements state (.exchange firstDepth secondDepth) = some nextState ↔
+      (firstDepth ≠ secondDepth ∧ firstDepth ≤ 16 ∧ secondDepth ≤ 16) ∧
+        ∃ stack, Symbolic.exchange state.stack firstDepth secondDepth = some stack ∧
+          { state with stack } = nextState := by
+  simp only [Symbolic.execute, guard]
+  split <;> simp_all [Option.bind_eq_some_iff]
+
+theorem Symbolic.execute_dup_eq_some
+    (sourceStatements : Array Vars.Stmt) (state nextState : Symbolic.State) (depth : Nat) :
+    Symbolic.execute sourceStatements state (.dup depth) = some nextState ↔
+      depth ≤ 15 ∧ ∃ value, state.stack[depth]? = some value ∧
+        { state with stack := value :: state.stack } = nextState := by
+  simp only [Symbolic.execute, guard]
+  split <;> simp_all [Option.bind_eq_some_iff]
+
+theorem Symbolic.execute_flippedOp_eq_some
+    (sourceStatements : Array Vars.Stmt) (state nextState : Symbolic.State)
+    (operation : Machine.Operation) :
+    Symbolic.execute sourceStatements state (.flippedOp operation) = some nextState ↔
+      operation.inputCount = 2 ∧
+        ∃ stack, Symbolic.exchange state.stack 0 1 = some stack ∧
+          ({ state with stack } : Symbolic.State).fireNextStatement sourceStatements operation =
+            some nextState := by
+  simp [Symbolic.execute, guard, Option.bind_eq_some_iff]
+
+
 theorem Symbolic.State.Interprets.execute_pop (sourceStatements : Array Vars.Stmt)
     (state nextState : Symbolic.State) (locals : Locals)
     (environment : Stack.Environment) (interprets : state.Interprets locals environment)
@@ -716,8 +775,9 @@ theorem Symbolic.State.Interprets.execute_dup (sourceStatements : Array Vars.Stm
     (executed : Symbolic.execute sourceStatements state (.dup depth) = some nextState) :
     ∃ value, environment.stack[depth]? = some value ∧
       nextState.Interprets locals { environment with stack := value :: environment.stack } := by
-  simp [Symbolic.execute] at executed
-  obtain ⟨depthWithinReach, symbolicValue, symbolicValueAtDepth, rfl⟩ := executed
+  obtain ⟨_, symbolicValue, symbolicValueAtDepth, nextStateEq⟩ :=
+    (Symbolic.execute_dup_eq_some sourceStatements state nextState depth).mp executed
+  subst nextState
   obtain ⟨value, valueAtDepth, symbolicValueEq⟩ :=
     Symbolic.Value.interpret_at_depth locals state.stack environment.stack interprets.1 depth
       symbolicValue symbolicValueAtDepth
@@ -733,48 +793,38 @@ theorem Symbolic.State.Interprets.execute_swap (sourceStatements : Array Vars.St
     (executed : Symbolic.execute sourceStatements state (.swap depth) = some nextState) :
     ∃ stack, Stack.exchange environment.stack 0 depth = some stack ∧
       nextState.Interprets locals { environment with stack } := by
-  change (if 1 ≤ depth ∧ depth ≤ 16 then
-      (Symbolic.exchange state.stack 0 depth).map fun stack => { state with stack }
-    else none) = some nextState at executed
-  by_cases depthWithinReach : 1 ≤ depth ∧ depth ≤ 16
-  · rw [if_pos depthWithinReach] at executed
-    cases exchangeEq : Symbolic.exchange state.stack 0 depth with
-    | none => rw [exchangeEq] at executed; simp at executed
-    | some symbolicStack =>
-      rw [exchangeEq] at executed
-      simp at executed
-      subst nextState
-      unfold Symbolic.exchange at exchangeEq
-      cases topEq : state.stack[0]? with
-      | none => simp [topEq] at exchangeEq
-      | some top =>
-        cases otherEq : state.stack[depth]? with
-        | none => simp [topEq, otherEq] at exchangeEq
-        | some other =>
-          simp [topEq, otherEq] at exchangeEq
-          subst symbolicStack
-          obtain ⟨topValue, topValueAt, topInterpretation⟩ :=
-            Symbolic.Value.interpret_at_depth locals state.stack environment.stack interprets.1
-              0 top topEq
-          obtain ⟨otherValue, otherValueAt, otherInterpretation⟩ :=
-            Symbolic.Value.interpret_at_depth locals state.stack environment.stack interprets.1
-              depth other otherEq
-          refine ⟨(environment.stack.set 0 otherValue).set depth topValue, ?_, ?_⟩
-          · simp [Stack.exchange, topValueAt, otherValueAt]
-          · constructor
-            · have zeroWithinStack : 0 < state.stack.length :=
-                List.getElem?_eq_some_iff.mp topEq |>.1
-              have depthWithinStack : depth < state.stack.length :=
-                List.getElem?_eq_some_iff.mp otherEq |>.1
-              have firstInterpretations := Symbolic.Value.interpret_set locals state.stack
-                environment.stack interprets.1 0 other otherValue otherInterpretation
-                zeroWithinStack
-              exact Symbolic.Value.interpret_set locals (state.stack.set 0 other)
-                (environment.stack.set 0 otherValue) firstInterpretations depth top topValue
-                topInterpretation (by simpa using depthWithinStack)
-            · exact interprets.2
-  · rw [if_neg depthWithinReach] at executed
-    simp at executed
+  obtain ⟨_, symbolicStack, exchangeEq, nextStateEq⟩ :=
+    (Symbolic.execute_swap_eq_some sourceStatements state nextState depth).mp executed
+  subst nextState
+  unfold Symbolic.exchange at exchangeEq
+  cases topEq : state.stack[0]? with
+  | none => simp [topEq] at exchangeEq
+  | some top =>
+    cases otherEq : state.stack[depth]? with
+    | none => simp [topEq, otherEq] at exchangeEq
+    | some other =>
+      simp [topEq, otherEq] at exchangeEq
+      subst symbolicStack
+      obtain ⟨topValue, topValueAt, topInterpretation⟩ :=
+        Symbolic.Value.interpret_at_depth locals state.stack environment.stack interprets.1
+          0 top topEq
+      obtain ⟨otherValue, otherValueAt, otherInterpretation⟩ :=
+        Symbolic.Value.interpret_at_depth locals state.stack environment.stack interprets.1
+          depth other otherEq
+      refine ⟨(environment.stack.set 0 otherValue).set depth topValue, ?_, ?_⟩
+      · simp [Stack.exchange, topValueAt, otherValueAt]
+      · constructor
+        · have zeroWithinStack : 0 < state.stack.length :=
+            List.getElem?_eq_some_iff.mp topEq |>.1
+          have depthWithinStack : depth < state.stack.length :=
+            List.getElem?_eq_some_iff.mp otherEq |>.1
+          have firstInterpretations := Symbolic.Value.interpret_set locals state.stack
+            environment.stack interprets.1 0 other otherValue otherInterpretation
+            zeroWithinStack
+          exact Symbolic.Value.interpret_set locals (state.stack.set 0 other)
+            (environment.stack.set 0 otherValue) firstInterpretations depth top topValue
+            topInterpretation (by simpa using depthWithinStack)
+        · exact interprets.2
 
 theorem Symbolic.State.Interprets.execute_exchange (sourceStatements : Array Vars.Stmt)
     (state nextState : Symbolic.State) (locals : Locals)
@@ -784,51 +834,40 @@ theorem Symbolic.State.Interprets.execute_exchange (sourceStatements : Array Var
       (.exchange firstDepth secondDepth) = some nextState) :
     ∃ stack, Stack.exchange environment.stack firstDepth secondDepth = some stack ∧
       nextState.Interprets locals { environment with stack } := by
-  change (if firstDepth ≠ secondDepth ∧ max firstDepth secondDepth ≤ 16 then
-      (Symbolic.exchange state.stack firstDepth secondDepth).map fun stack =>
-        { state with stack }
-    else none) = some nextState at executed
-  by_cases depthsWithinReach :
-      firstDepth ≠ secondDepth ∧ max firstDepth secondDepth ≤ 16
-  · rw [if_pos depthsWithinReach] at executed
-    cases exchangeEq : Symbolic.exchange state.stack firstDepth secondDepth with
-    | none => rw [exchangeEq] at executed; simp at executed
-    | some symbolicStack =>
-      rw [exchangeEq] at executed
-      simp at executed
-      subst nextState
-      unfold Symbolic.exchange at exchangeEq
-      cases firstEq : state.stack[firstDepth]? with
-      | none => simp [firstEq] at exchangeEq
-      | some first =>
-        cases secondEq : state.stack[secondDepth]? with
-        | none => simp [firstEq, secondEq] at exchangeEq
-        | some second =>
-          simp [firstEq, secondEq] at exchangeEq
-          subst symbolicStack
-          obtain ⟨firstValue, firstValueAt, firstInterpretation⟩ :=
-            Symbolic.Value.interpret_at_depth locals state.stack environment.stack interprets.1
-              firstDepth first firstEq
-          obtain ⟨secondValue, secondValueAt, secondInterpretation⟩ :=
-            Symbolic.Value.interpret_at_depth locals state.stack environment.stack interprets.1
-              secondDepth second secondEq
-          refine ⟨(environment.stack.set firstDepth secondValue).set secondDepth firstValue,
-            ?_, ?_⟩
-          · simp [Stack.exchange, firstValueAt, secondValueAt]
-          · constructor
-            · have firstWithinStack : firstDepth < state.stack.length :=
-                List.getElem?_eq_some_iff.mp firstEq |>.1
-              have secondWithinStack : secondDepth < state.stack.length :=
-                List.getElem?_eq_some_iff.mp secondEq |>.1
-              have firstInterpretations := Symbolic.Value.interpret_set locals state.stack
-                environment.stack interprets.1 firstDepth second secondValue secondInterpretation
-                firstWithinStack
-              exact Symbolic.Value.interpret_set locals (state.stack.set firstDepth second)
-                (environment.stack.set firstDepth secondValue) firstInterpretations secondDepth first
-                firstValue firstInterpretation (by simpa using secondWithinStack)
-            · exact interprets.2
-  · rw [if_neg depthsWithinReach] at executed
-    simp at executed
+  obtain ⟨_, symbolicStack, exchangeEq, nextStateEq⟩ :=
+    (Symbolic.execute_exchange_eq_some sourceStatements state nextState firstDepth
+      secondDepth).mp executed
+  subst nextState
+  unfold Symbolic.exchange at exchangeEq
+  cases firstEq : state.stack[firstDepth]? with
+  | none => simp [firstEq] at exchangeEq
+  | some first =>
+    cases secondEq : state.stack[secondDepth]? with
+    | none => simp [firstEq, secondEq] at exchangeEq
+    | some second =>
+      simp [firstEq, secondEq] at exchangeEq
+      subst symbolicStack
+      obtain ⟨firstValue, firstValueAt, firstInterpretation⟩ :=
+        Symbolic.Value.interpret_at_depth locals state.stack environment.stack interprets.1
+          firstDepth first firstEq
+      obtain ⟨secondValue, secondValueAt, secondInterpretation⟩ :=
+        Symbolic.Value.interpret_at_depth locals state.stack environment.stack interprets.1
+          secondDepth second secondEq
+      refine ⟨(environment.stack.set firstDepth secondValue).set secondDepth firstValue,
+        ?_, ?_⟩
+      · simp [Stack.exchange, firstValueAt, secondValueAt]
+      · constructor
+        · have firstWithinStack : firstDepth < state.stack.length :=
+            List.getElem?_eq_some_iff.mp firstEq |>.1
+          have secondWithinStack : secondDepth < state.stack.length :=
+            List.getElem?_eq_some_iff.mp secondEq |>.1
+          have firstInterpretations := Symbolic.Value.interpret_set locals state.stack
+            environment.stack interprets.1 firstDepth second secondValue secondInterpretation
+            firstWithinStack
+          exact Symbolic.Value.interpret_set locals (state.stack.set firstDepth second)
+            (environment.stack.set firstDepth secondValue) firstInterpretations secondDepth first
+            firstValue firstInterpretation (by simpa using secondWithinStack)
+        · exact interprets.2
 
 theorem Symbolic.State.slotValue?_push (state : Symbolic.State)
     (slot candidate : Nat) (value : Symbolic.Value) (absent : state.slotValue? slot = none) :
@@ -1894,40 +1933,33 @@ theorem Symbolic.State.Interprets.execute_flipped_operation
           firedStatementIndices := statementIndex :: flippedState.firedStatementIndices } ∧
         nextState.Interprets (locals.assign result resultValue)
           { environment with stack := resultValue :: environment.stack.drop 2 } := by
-  simp only [Symbolic.execute] at executed
-  by_cases binary : operation.inputCount = 2
-  · rw [if_pos binary] at executed
-    cases symbolicExchange : Symbolic.exchange state.stack 0 1 with
-    | none => simp [symbolicExchange] at executed
-    | some symbolicStack =>
-        rw [symbolicExchange] at executed
-        let flippedState : Symbolic.State := { state with stack := symbolicStack }
-        have exchangeExecution : Symbolic.execute sourceStatements state (.exchange 0 1) =
-            some flippedState := by
-          simp [Symbolic.execute, symbolicExchange, flippedState]
-        obtain ⟨concreteStack, concreteExchange, flippedInterprets⟩ :=
-          interprets.execute_exchange sourceStatements state flippedState locals environment 0 1
-            exchangeExecution
-        obtain ⟨statementIndex, statement, symbolicOperands, operands, result, resultValue,
-            statementAt, symbolicOperation, canFire, concreteOperation, stackPrefix, nextStateEq,
-            nextInterprets⟩ :=
-          flippedInterprets.execute_operation sourceStatements flippedState nextState locals
-            { environment with stack := concreteStack } operation executed
-        obtain ⟨fetch, dropEq⟩ :=
-          Stack.exchange_zero_one environment concreteStack concreteExchange
-        have flippedFetch : Stack.sourceFetch environment .reversedPair =
-            .ok operands.toArray := by
-          rw [fetch]
-          rw [binary] at stackPrefix
-          simpa using congrArg List.toArray stackPrefix
-        refine ⟨statementIndex, statement, symbolicOperands, operands, result, resultValue,
-          symbolicStack, flippedState, binary, statementAt, symbolicOperation, canFire,
-          concreteOperation,
-          flippedFetch, ?_, nextStateEq, ?_⟩
-        · simp [flippedState]
-        · simpa [binary, dropEq] using nextInterprets
-  · rw [if_neg binary] at executed
-    simp at executed
+  obtain ⟨binary, symbolicStack, symbolicExchange, executed⟩ :=
+    (Symbolic.execute_flippedOp_eq_some sourceStatements state nextState operation).mp executed
+  let flippedState : Symbolic.State := { state with stack := symbolicStack }
+  have exchangeExecution : Symbolic.execute sourceStatements state (.exchange 0 1) =
+      some flippedState :=
+    (Symbolic.execute_exchange_eq_some sourceStatements state flippedState 0 1).mpr
+      ⟨by simp, symbolicStack, symbolicExchange, rfl⟩
+  obtain ⟨concreteStack, concreteExchange, flippedInterprets⟩ :=
+    interprets.execute_exchange sourceStatements state flippedState locals environment 0 1
+      exchangeExecution
+  obtain ⟨statementIndex, statement, symbolicOperands, operands, result, resultValue,
+      statementAt, symbolicOperation, canFire, concreteOperation, stackPrefix, nextStateEq,
+      nextInterprets⟩ :=
+    flippedInterprets.execute_operation sourceStatements flippedState nextState locals
+      { environment with stack := concreteStack } operation executed
+  obtain ⟨fetch, dropEq⟩ :=
+    Stack.exchange_zero_one environment concreteStack concreteExchange
+  have flippedFetch : Stack.sourceFetch environment .reversedPair =
+      .ok operands.toArray := by
+    rw [fetch]
+    rw [binary] at stackPrefix
+    simpa using congrArg List.toArray stackPrefix
+  refine ⟨statementIndex, statement, symbolicOperands, operands, result, resultValue,
+    symbolicStack, flippedState, binary, statementAt, symbolicOperation, canFire,
+    concreteOperation, flippedFetch, ?_, nextStateEq, ?_⟩
+  · simp [flippedState]
+  · simpa [binary, dropEq] using nextInterprets
 
 theorem sourceStatementConcreteOperation_source_step {sourceProgram : Vars.Program}
     (ctx : CallContext) (globals : Globals) (locals : Locals)

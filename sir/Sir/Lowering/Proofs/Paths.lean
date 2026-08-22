@@ -73,18 +73,19 @@ theorem Symbolic.execute_preserves_available_variables
         state.available sourceStatements identifier := by
   cases instruction with
   | swap depth =>
-      simp [Symbolic.execute] at executed
-      obtain ⟨_, stack, _, rfl⟩ := executed
+      obtain ⟨_, stack, _, rfl⟩ :=
+        (Symbolic.execute_swap_eq_some sourceStatements state nextState depth).mp executed
       intro identifier
       rfl
   | exchange firstDepth secondDepth =>
-      simp [Symbolic.execute] at executed
-      obtain ⟨_, stack, _, rfl⟩ := executed
+      obtain ⟨_, stack, _, rfl⟩ :=
+        (Symbolic.execute_exchange_eq_some sourceStatements state nextState firstDepth
+          secondDepth).mp executed
       intro identifier
       rfl
   | dup depth =>
-      simp [Symbolic.execute] at executed
-      obtain ⟨_, value, _, rfl⟩ := executed
+      obtain ⟨_, value, _, rfl⟩ :=
+        (Symbolic.execute_dup_eq_some sourceStatements state nextState depth).mp executed
       intro identifier
       rfl
   | pop =>
@@ -876,7 +877,7 @@ theorem Proofs.spillAll_accepted : spillAll.Accepted := by
             · apply StackSchedule.ofBlock_check
               · simp [StackSchedule.Block.check, StackSchedule.Block.checkFinalStack,
                   StackSchedule.Block.terminatorsAgree, checkedExecution, noUnavailable,
-                  noDuplicate, invariant.2.1]
+                  noDuplicate, invariant.2.1, bind, Except.bind, pure, Except.pure]
               · rfl
   next => simp at lowered
 

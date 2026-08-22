@@ -561,7 +561,7 @@ theorem ProgramSchedule.check_init {schedule : ProgramSchedule}
     (accepted : schedule.check = .ok ()) : schedule.init.check = .ok () := by
   unfold ProgramSchedule.check at accepted
   cases hinit : schedule.init.check with
-  | error error => simp [hinit] at accepted
+  | error error => simp [hinit, bind, Except.bind] at accepted
   | ok result => cases result; rfl
 
 theorem ProgramSchedule.check_main {schedule : ProgramSchedule} {main : StackSchedule}
@@ -569,7 +569,7 @@ theorem ProgramSchedule.check_main {schedule : ProgramSchedule} {main : StackSch
     main.check = .ok () := by
   unfold ProgramSchedule.check at accepted
   cases hinit : schedule.init.check with
-  | error error => simp [hinit] at accepted
+  | error error => simp [hinit, bind, Except.bind] at accepted
   | ok result =>
       cases result
       simpa [hinit, hmain] using accepted

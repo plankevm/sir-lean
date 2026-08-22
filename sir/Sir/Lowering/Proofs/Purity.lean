@@ -81,16 +81,17 @@ theorem Symbolic.execute_preserves_fired_statement_indices
       ∀ index ∈ nextState.firedStatementIndices, index < sourceStatements.size := by
   cases instruction with
   | swap depth =>
-      simp [Symbolic.execute] at executed
-      obtain ⟨_, stack, _, rfl⟩ := executed
+      obtain ⟨_, stack, _, rfl⟩ :=
+        (Symbolic.execute_swap_eq_some sourceStatements state nextState depth).mp executed
       exact valid
   | exchange firstDepth secondDepth =>
-      simp [Symbolic.execute] at executed
-      obtain ⟨_, stack, _, rfl⟩ := executed
+      obtain ⟨_, stack, _, rfl⟩ :=
+        (Symbolic.execute_exchange_eq_some sourceStatements state nextState firstDepth
+          secondDepth).mp executed
       exact valid
   | dup depth =>
-      simp [Symbolic.execute] at executed
-      obtain ⟨_, value, _, rfl⟩ := executed
+      obtain ⟨_, value, _, rfl⟩ :=
+        (Symbolic.execute_dup_eq_some sourceStatements state nextState depth).mp executed
       exact valid
   | pop =>
       cases stackEq : state.stack with
@@ -115,26 +116,22 @@ theorem Symbolic.execute_preserves_fired_statement_indices
       · exact (Array.getElem?_eq_some_iff.mp statementAt).1
       · exact valid.2 index member
   | flippedOp operation =>
-      simp only [Symbolic.execute] at executed
-      split at executed <;> rename_i binary
-      · split at executed <;> rename_i exchangeEq
-        · simp at executed
-        · rename_i stack
-          obtain ⟨statement, statementIndex, operands, result, foundEq, operationEq, canFire,
-              rfl⟩ := ({ state with stack } : Symbolic.State).fireNextStatement_eq_some
-                nextState sourceStatements operation executed
-          obtain ⟨statementAt, _⟩ :=
-            ({ state with stack } : Symbolic.State).firstFireable_eq_some
-              sourceStatements operation statement statementIndex foundEq
-          simp only [Symbolic.State.fireable, operationEq,
-            decide_eq_true_eq] at canFire
-          refine ⟨List.nodup_cons.mpr ⟨canFire.1, valid.1⟩, ?_⟩
-          intro index member
-          simp only [List.mem_cons] at member
-          rcases member with rfl | member
-          · exact (Array.getElem?_eq_some_iff.mp statementAt).1
-          · exact valid.2 index member
-      · simp at executed
+      obtain ⟨_, stack, _, executed⟩ :=
+        (Symbolic.execute_flippedOp_eq_some sourceStatements state nextState operation).mp executed
+      obtain ⟨statement, statementIndex, operands, result, foundEq, operationEq, canFire,
+          rfl⟩ := ({ state with stack } : Symbolic.State).fireNextStatement_eq_some
+            nextState sourceStatements operation executed
+      obtain ⟨statementAt, _⟩ :=
+        ({ state with stack } : Symbolic.State).firstFireable_eq_some
+          sourceStatements operation statement statementIndex foundEq
+      simp only [Symbolic.State.fireable, operationEq,
+        decide_eq_true_eq] at canFire
+      refine ⟨List.nodup_cons.mpr ⟨canFire.1, valid.1⟩, ?_⟩
+      intro index member
+      simp only [List.mem_cons] at member
+      rcases member with rfl | member
+      · exact (Array.getElem?_eq_some_iff.mp statementAt).1
+      · exact valid.2 index member
   | icall callee argumentCount resultCount => simp [Symbolic.execute] at executed
   | store slot =>
       cases stackEq : state.stack with
@@ -267,29 +264,20 @@ theorem Symbolic.execute_preserves_values_available
     nextState.ValuesAvailable sourceStatements := by
   cases instruction with
   | swap depth =>
-      change (if 1 ≤ depth ∧ depth ≤ 16 then
-          (Symbolic.exchange state.stack 0 depth).map fun stack => { state with stack }
-        else none) = some nextState at executed
-      by_cases depthWithinReach : 1 ≤ depth ∧ depth ≤ 16
-      · rw [if_pos depthWithinReach] at executed
-        cases exchanged : Symbolic.exchange state.stack 0 depth with
-        | none => simp [exchanged] at executed
-        | some nextStack =>
-            simp [exchanged] at executed
-            subst nextState
-            exact ⟨fun value member => available.1 value
-              (Symbolic.exchange_subset state.stack nextStack 0 depth exchanged member),
-              available.2⟩
-      · simp [depthWithinReach] at executed
+      obtain ⟨_, nextStack, exchanged, rfl⟩ :=
+        (Symbolic.execute_swap_eq_some sourceStatements state nextState depth).mp executed
+      exact ⟨fun value member => available.1 value
+        (Symbolic.exchange_subset state.stack nextStack 0 depth exchanged member), available.2⟩
   | exchange firstDepth secondDepth =>
-      simp [Symbolic.execute] at executed
-      obtain ⟨_, nextStack, exchanged, rfl⟩ := executed
+      obtain ⟨_, nextStack, exchanged, rfl⟩ :=
+        (Symbolic.execute_exchange_eq_some sourceStatements state nextState firstDepth
+          secondDepth).mp executed
       exact ⟨fun value member => available.1 value
         (Symbolic.exchange_subset state.stack nextStack firstDepth secondDepth exchanged member),
         available.2⟩
   | dup depth =>
-      simp [Symbolic.execute] at executed
-      obtain ⟨depthBound, value, valueAt, nextStateEq⟩ := executed
+      obtain ⟨depthBound, value, valueAt, nextStateEq⟩ :=
+        (Symbolic.execute_dup_eq_some sourceStatements state nextState depth).mp executed
       subst nextState
       refine ⟨?_, available.2⟩
       intro candidate member
@@ -342,55 +330,51 @@ theorem Symbolic.execute_preserves_values_available
                 exact state.available_after_fire sourceStatements statementIndex
                   binding.2.identifier (available.2 binding member)
   | flippedOp operation =>
-      simp only [Symbolic.execute] at executed
-      split at executed
-      · split at executed <;> rename_i exchangeEq
-        · simp at executed
-        · rename_i stack
-          let flippedState : Symbolic.State := { state with stack }
-          have flippedAvailable : flippedState.ValuesAvailable sourceStatements :=
-            ⟨fun value member => available.1 value
-                (Symbolic.exchange_subset state.stack stack 0 1 exchangeEq member),
-              available.2⟩
-          change flippedState.fireNextStatement sourceStatements operation = some nextState
-            at executed
-          unfold Symbolic.State.fireNextStatement at executed
-          cases foundEq : flippedState.firstFireable sourceStatements operation with
-          | none => simp [foundEq] at executed
-          | some candidate =>
-              obtain ⟨statement, statementIndex⟩ := candidate
-              obtain ⟨statementAt, canFire⟩ :=
-                flippedState.firstFireable_eq_some sourceStatements operation
-                  statement statementIndex foundEq
-              cases symbolicOperationEq : Symbolic.operationOf statement with
-              | none => simp [foundEq, symbolicOperationEq] at executed
-              | some symbolicOperation =>
-                  obtain ⟨expectedOperation, symbolicOperands, symbolicResult⟩ := symbolicOperation
-                  obtain ⟨result, rfl⟩ :=
-                    Symbolic.operationOf_result_variable statement expectedOperation
-                      symbolicOperands symbolicResult symbolicOperationEq
-                  simp [foundEq, symbolicOperationEq] at executed
-                  subst nextState
-                  have resultDefined := Symbolic.operationOf_result_mem statement
-                    expectedOperation symbolicOperands result symbolicOperationEq
-                  have resultAvailable :
-                      ({ flippedState with firedStatementIndices :=
-                          statementIndex :: flippedState.firedStatementIndices } :
-                        Symbolic.State).available sourceStatements result = true := by
-                    simp [Symbolic.State.available,
-                      Symbolic.definesVariable, statementAt, resultDefined]
-                  constructor
-                  · intro value member
-                    simp only [List.mem_cons] at member
-                    rcases member with rfl | member
-                    · exact resultAvailable
-                    · exact flippedState.available_after_fire sourceStatements
-                        statementIndex value.identifier
-                        (flippedAvailable.1 value (List.mem_of_mem_drop member))
-                  · intro binding member
-                    exact flippedState.available_after_fire sourceStatements
-                      statementIndex binding.2.identifier (flippedAvailable.2 binding member)
-      · simp at executed
+      obtain ⟨_, stack, exchangeEq, executed⟩ :=
+        (Symbolic.execute_flippedOp_eq_some sourceStatements state nextState operation).mp executed
+      let flippedState : Symbolic.State := { state with stack }
+      have flippedAvailable : flippedState.ValuesAvailable sourceStatements :=
+        ⟨fun value member => available.1 value
+            (Symbolic.exchange_subset state.stack stack 0 1 exchangeEq member),
+          available.2⟩
+      change flippedState.fireNextStatement sourceStatements operation = some nextState
+        at executed
+      unfold Symbolic.State.fireNextStatement at executed
+      cases foundEq : flippedState.firstFireable sourceStatements operation with
+      | none => simp [foundEq] at executed
+      | some candidate =>
+          obtain ⟨statement, statementIndex⟩ := candidate
+          obtain ⟨statementAt, canFire⟩ :=
+            flippedState.firstFireable_eq_some sourceStatements operation
+              statement statementIndex foundEq
+          cases symbolicOperationEq : Symbolic.operationOf statement with
+          | none => simp [foundEq, symbolicOperationEq] at executed
+          | some symbolicOperation =>
+              obtain ⟨expectedOperation, symbolicOperands, symbolicResult⟩ := symbolicOperation
+              obtain ⟨result, rfl⟩ :=
+                Symbolic.operationOf_result_variable statement expectedOperation
+                  symbolicOperands symbolicResult symbolicOperationEq
+              simp [foundEq, symbolicOperationEq] at executed
+              subst nextState
+              have resultDefined := Symbolic.operationOf_result_mem statement
+                expectedOperation symbolicOperands result symbolicOperationEq
+              have resultAvailable :
+                  ({ flippedState with firedStatementIndices :=
+                      statementIndex :: flippedState.firedStatementIndices } :
+                    Symbolic.State).available sourceStatements result = true := by
+                simp [Symbolic.State.available,
+                  Symbolic.definesVariable, statementAt, resultDefined]
+              constructor
+              · intro value member
+                simp only [List.mem_cons] at member
+                rcases member with rfl | member
+                · exact resultAvailable
+                · exact flippedState.available_after_fire sourceStatements
+                    statementIndex value.identifier
+                    (flippedAvailable.1 value (List.mem_of_mem_drop member))
+              · intro binding member
+                exact flippedState.available_after_fire sourceStatements
+                  statementIndex binding.2.identifier (flippedAvailable.2 binding member)
   | icall callee argumentCount resultCount => simp [Symbolic.execute] at executed
   | store slot =>
       cases stackEq : state.stack with
@@ -463,16 +447,17 @@ theorem Symbolic.execute_preserves_not_memory_oracle
       sourceStatements[index]? = some statement → ¬ statement.isMemOracle := by
   cases instruction with
   | swap depth =>
-      simp [Symbolic.execute] at executed
-      obtain ⟨_, stack, _, rfl⟩ := executed
+      obtain ⟨_, stack, _, rfl⟩ :=
+        (Symbolic.execute_swap_eq_some sourceStatements state nextState depth).mp executed
       exact supported
   | exchange firstDepth secondDepth =>
-      simp [Symbolic.execute] at executed
-      obtain ⟨_, stack, _, rfl⟩ := executed
+      obtain ⟨_, stack, _, rfl⟩ :=
+        (Symbolic.execute_exchange_eq_some sourceStatements state nextState firstDepth
+          secondDepth).mp executed
       exact supported
   | dup depth =>
-      simp [Symbolic.execute] at executed
-      obtain ⟨_, value, _, rfl⟩ := executed
+      obtain ⟨_, value, _, rfl⟩ :=
+        (Symbolic.execute_dup_eq_some sourceStatements state nextState depth).mp executed
       exact supported
   | pop =>
       cases stackEq : state.stack with
@@ -505,26 +490,22 @@ theorem Symbolic.execute_preserves_not_memory_oracle
                   (expectedOperation, operands, result) operationEq
               · exact supported index member statement statementAt
   | flippedOp operation =>
-      simp only [Symbolic.execute] at executed
-      split at executed
-      · split at executed
-        · simp at executed
-        · rename_i stack exchangeEq
-          obtain ⟨firedStatement, statementIndex, operands, result, foundEq, operationEq,
-              canFire, rfl⟩ :=
-            ({ state with stack } : Symbolic.State).fireNextStatement_eq_some nextState
-              sourceStatements operation executed
-          obtain ⟨statementEq, _⟩ :=
-            ({ state with stack } : Symbolic.State).firstFireable_eq_some
-              sourceStatements operation firedStatement statementIndex foundEq
-          intro index member statement statementAt
-          simp only [List.mem_cons] at member
-          rcases member with rfl | member
-          · obtain rfl := Option.some.inj (statementEq.symm.trans statementAt)
-            exact Symbolic.operationOf_not_memory_oracle firedStatement
-              (operation, operands, result) operationEq
-          · exact supported index member statement statementAt
-      · simp at executed
+      obtain ⟨_, stack, _, executed⟩ :=
+        (Symbolic.execute_flippedOp_eq_some sourceStatements state nextState operation).mp executed
+      obtain ⟨firedStatement, statementIndex, operands, result, foundEq, operationEq,
+          canFire, rfl⟩ :=
+        ({ state with stack } : Symbolic.State).fireNextStatement_eq_some nextState
+          sourceStatements operation executed
+      obtain ⟨statementEq, _⟩ :=
+        ({ state with stack } : Symbolic.State).firstFireable_eq_some
+          sourceStatements operation firedStatement statementIndex foundEq
+      intro index member statement statementAt
+      simp only [List.mem_cons] at member
+      rcases member with rfl | member
+      · obtain rfl := Option.some.inj (statementEq.symm.trans statementAt)
+        exact Symbolic.operationOf_not_memory_oracle firedStatement
+          (operation, operands, result) operationEq
+      · exact supported index member statement statementAt
   | icall callee argumentCount resultCount => simp [Symbolic.execute] at executed
   | store slot =>
       cases stackEq : state.stack with
@@ -588,16 +569,17 @@ theorem Symbolic.execute_preserves_supported_source_statements
         ∃ symbolicOperation, Symbolic.operationOf statement = some symbolicOperation := by
   cases instruction with
   | swap depth =>
-      simp [Symbolic.execute] at executed
-      obtain ⟨_, stack, _, rfl⟩ := executed
+      obtain ⟨_, stack, _, rfl⟩ :=
+        (Symbolic.execute_swap_eq_some sourceStatements state nextState depth).mp executed
       exact supported
   | exchange firstDepth secondDepth =>
-      simp [Symbolic.execute] at executed
-      obtain ⟨_, stack, _, rfl⟩ := executed
+      obtain ⟨_, stack, _, rfl⟩ :=
+        (Symbolic.execute_exchange_eq_some sourceStatements state nextState firstDepth
+          secondDepth).mp executed
       exact supported
   | dup depth =>
-      simp [Symbolic.execute] at executed
-      obtain ⟨_, value, _, rfl⟩ := executed
+      obtain ⟨_, value, _, rfl⟩ :=
+        (Symbolic.execute_dup_eq_some sourceStatements state nextState depth).mp executed
       exact supported
   | pop =>
       cases stackEq : state.stack with
@@ -629,25 +611,21 @@ theorem Symbolic.execute_preserves_supported_source_statements
                 exact ⟨(expectedOperation, operands, result), operationEq⟩
               · exact supported index member statement statementAt
   | flippedOp operation =>
-      simp only [Symbolic.execute] at executed
-      split at executed
-      · split at executed
-        · simp at executed
-        · rename_i stack exchangeEq
-          obtain ⟨firedStatement, statementIndex, operands, result, foundEq, operationEq,
-              canFire, rfl⟩ :=
-            ({ state with stack } : Symbolic.State).fireNextStatement_eq_some nextState
-              sourceStatements operation executed
-          obtain ⟨statementEq, _⟩ :=
-            ({ state with stack } : Symbolic.State).firstFireable_eq_some
-              sourceStatements operation firedStatement statementIndex foundEq
-          intro index member statement statementAt
-          simp only [List.mem_cons] at member
-          rcases member with rfl | member
-          · obtain rfl := Option.some.inj (statementEq.symm.trans statementAt)
-            exact ⟨(operation, operands, result), operationEq⟩
-          · exact supported index member statement statementAt
-      · simp at executed
+      obtain ⟨_, stack, _, executed⟩ :=
+        (Symbolic.execute_flippedOp_eq_some sourceStatements state nextState operation).mp executed
+      obtain ⟨firedStatement, statementIndex, operands, result, foundEq, operationEq,
+          canFire, rfl⟩ :=
+        ({ state with stack } : Symbolic.State).fireNextStatement_eq_some nextState
+          sourceStatements operation executed
+      obtain ⟨statementEq, _⟩ :=
+        ({ state with stack } : Symbolic.State).firstFireable_eq_some
+          sourceStatements operation firedStatement statementIndex foundEq
+      intro index member statement statementAt
+      simp only [List.mem_cons] at member
+      rcases member with rfl | member
+      · obtain rfl := Option.some.inj (statementEq.symm.trans statementAt)
+        exact ⟨(operation, operands, result), operationEq⟩
+      · exact supported index member statement statementAt
   | icall callee argumentCount resultCount => simp [Symbolic.execute] at executed
   | store slot =>
       cases stackEq : state.stack with
@@ -1054,20 +1032,16 @@ theorem Symbolic.execute_source_flipped_operation (sourceStatements : Array Vars
           (result : Symbolic.Value),
         sourceStatements[statementIndex]? = some statement ∧
           Symbolic.operationOf statement = some (operation, operands, result) := by
-  simp only [Symbolic.execute] at executed
-  split at executed <;> rename_i binary
-  · split at executed
-    · simp at executed
-    · rename_i stack exchangeEq
-      obtain ⟨statement, statementIndex, operands, result, foundEq, operationEq, canFire,
-          nextStateEq⟩ :=
-        ({ state with stack } : Symbolic.State).fireNextStatement_eq_some nextState
-          sourceStatements operation executed
-      obtain ⟨statementAt, _⟩ :=
-        ({ state with stack } : Symbolic.State).firstFireable_eq_some
-          sourceStatements operation statement statementIndex foundEq
-      exact ⟨binary, statement, statementIndex, operands, result, statementAt, operationEq⟩
-  · simp at executed
+  obtain ⟨binary, stack, exchangeEq, executed⟩ :=
+    (Symbolic.execute_flippedOp_eq_some sourceStatements state nextState operation).mp executed
+  obtain ⟨statement, statementIndex, operands, result, foundEq, operationEq, canFire,
+      nextStateEq⟩ :=
+    ({ state with stack } : Symbolic.State).fireNextStatement_eq_some nextState
+      sourceStatements operation executed
+  obtain ⟨statementAt, _⟩ :=
+    ({ state with stack } : Symbolic.State).firstFireable_eq_some
+      sourceStatements operation statement statementIndex foundEq
+  exact ⟨binary, statement, statementIndex, operands, result, statementAt, operationEq⟩
 
 theorem Symbolic.execute_not_mload (sourceStatements : Array Vars.Stmt)
     (state nextState : Symbolic.State) (instruction : Stack.Instr)
