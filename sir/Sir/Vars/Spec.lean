@@ -267,28 +267,18 @@ def jump (program : Program) (locals : Locals) (cursor : ProgramCursor)
 def evaluateTerminator (program : Program) (locals : Locals) (control : Control) :
     Terminator → Except IRError (Locals × Control)
   | .halt => .ok (locals, .halted)
-  | .jump target =>
-      match control with
-      | .running cursor => jump program locals cursor target
-      | _ => .error .invalidControl
-  | .branch condition thenTarget elseTarget =>
-      match control with
-      | .running cursor =>
-          match locals.lookup condition with
-          | .error err => .error err
-          | .ok value =>
-              jump program locals cursor (if value = 0 then elseTarget else thenTarget)
-      | _ => .error .invalidControl
-  | .iret =>
-      match control with
-      | .running cursor =>
-          match program.block? cursor with
-          | none => .error (.invalidBlock cursor.block)
-          | some block =>
-              match block.outputs.mapM locals.lookup with
-              | .error err => .error err
-              | .ok results => .ok (locals, .returned results)
-      | _ => .error .invalidControl
+  | .jump target => do
+      let .running cursor := control | .error .invalidControl
+      jump program locals cursor target
+  | .branch condition thenTarget elseTarget => do
+      let .running cursor := control | .error .invalidControl
+      let value ← locals.lookup condition
+      jump program locals cursor (if value = 0 then elseTarget else thenTarget)
+  | .iret => do
+      let .running cursor := control | .error .invalidControl
+      let block ← program.block? cursor | .error (.invalidBlock cursor.block)
+      let results ← block.outputs.mapM locals.lookup
+      .ok (locals, .returned results)
 
 
 def evalExpr (context : CallContext) (environment : Locals) (globals : Globals) :
@@ -314,13 +304,12 @@ def State.evaluate (state : State) (context : CallContext) (statement : Stmt) :
   evalStmt context state statement
 
 def resume (outcome : FunctionOutcome) (env : Locals) (dst : Array VarId)
-    (next : Control) : Option (Locals × Control) :=
+    (next : Control) : Except IRError (Locals × Control) :=
   match outcome with
-  | .returned results =>
-      match Locals.bindReturns env dst results with
-      | .ok env' => some (env', next)
-      | .error _ => none
-  | .halted => some (.empty, .halted)
+  | .returned results => do
+      let env' ← Locals.bindReturns env dst results
+      .ok (env', next)
+  | .halted => .ok (.empty, .halted)
 
 set_option autoImplicit true in
 mutual
@@ -383,7 +372,7 @@ inductive SmallStep (program : Program) (context : CallContext) :
       (hargs : args.mapM state.lookup = .ok values)
       (hcall : EvalFn program context callee state.globals values trace globals outcome)
       (hresume : resume outcome state.environment dests next =
-        some (environment, resumed)) :
+        .ok (environment, resumed)) :
       SmallStep program context state trace (State.of globals environment resumed)
   | control
       (hterm : program.AtTerm state terminator)
