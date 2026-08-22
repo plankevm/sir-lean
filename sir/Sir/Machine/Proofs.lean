@@ -58,6 +58,22 @@ theorem execute_ne_halted {ctx : CallContext} {operation : Operation}
   cases operation <;> simp only [execute, pure, Except.pure] at h <;>
     (repeat' split at h) <;> cases h
 
+theorem execute_trace_nil {ctx : CallContext} {operation : Operation}
+    {oracle : operation.Oracle} {globals globals' : Globals}
+    {operands results : Array Word} {trace : Trace}
+    (hgas : operation ≠ .gas) (hcall : operation ≠ .call)
+    (hexecute : operation.execute ctx oracle globals operands =
+      .ok (.next results globals' trace)) :
+    trace = [] := by
+  cases operation with
+  | gas => exact (hgas rfl).elim
+  | call => exact (hcall rfl).elim
+  | _ =>
+      simp only [execute, pure, Except.pure] at hexecute
+      repeat' split at hexecute
+      all_goals cases hexecute
+      all_goals rfl
+
 private theorem executeCallInv {ctx : CallContext} {result : CallResult}
     {globals : Globals} {operands : Array Word} {outcome : Outcome}
     (h : @Operation.execute ctx Operation.call result globals operands = .ok outcome) :
@@ -153,6 +169,15 @@ theorem firesHalt_false (frame : OperandFrame) {policy : MemoryPolicy} {ctx : Ca
     (h : frame.FiresHalt policy ctx operation src env globals trace globals') : False := by
   obtain ⟨_, _, _, _, hexecute⟩ := h
   exact Operation.execute_ne_halted hexecute
+
+theorem fires_trace_nil (frame : OperandFrame) {policy : MemoryPolicy} {ctx : CallContext}
+    {operation : Operation} {src : frame.Source} {dst : frame.Destination}
+    {env env' : frame.Environment} {globals globals' : Globals} {trace : Trace}
+    (hgas : operation ≠ .gas) (hcall : operation ≠ .call)
+    (h : frame.Fires policy ctx operation src dst env globals trace env' globals') :
+    trace = [] := by
+  obtain ⟨_, _, _, _, _, hexecute, _⟩ := h
+  exact Operation.execute_trace_nil hgas hcall hexecute
 
 theorem fires_dialogue (frame : OperandFrame) {policy : MemoryPolicy}
     {operation : Operation}
