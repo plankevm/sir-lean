@@ -118,9 +118,6 @@ theorem resume_halted_eq_ok_iff {environment environment' : Environment}
       environment' = .empty ∧ control = .halted := by
   simp [resume, eq_comm]
 
-theorem Program.block?_position (cursor : ProgramCursor) (position : BlockPosition) :
-    program.block? { cursor with position := position } = program.block? cursor := rfl
-
 theorem Program.instructionAt_cursor {control next : Control} {instruction : Instr}
     (hinstr : program.instructionAt control = some (next, instruction)) :
     ∃ cursor block index,
