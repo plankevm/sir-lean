@@ -107,11 +107,55 @@ theorem Program.RunsTo.trace_det
     (h₂ : entry =[t]=>! final₂) : final₁ = final₂ :=
   Proofs.Program.RunsTo.trace_det hfree h₁ h₂
 
+theorem Steps.preserves_function
+    {cursor : ProgramCursor} {state final : State} {trace : Trace}
+    (h : state =[trace]=>* final)
+    (hcontrol : state.control = .running cursor) :
+    final.control = .halted ∨ (∃ results, final.control = .returned results) ∨
+      ∃ cursor', final.control = .running cursor' ∧ cursor'.fn = cursor.fn :=
+  Proofs.Steps.preserves_function h hcontrol
+
 theorem Program.WellFormed.progress
     (hwf : program.WellFormed) {state : State}
     (ready : program.ReadyState ctx state) :
     ∃ trace state', state =[trace]=> state' :=
   Proofs.Program.WellFormed.progress hwf ready
+
+theorem Program.WellFormed.evalFn_arity
+    (hwf : program.WellFormed) {function : FunctionId} {globals globals' : Globals}
+    {args results : Array Word} {trace : Trace}
+    (hrun : EvalFn program ctx function globals args trace globals' (.returned results)) :
+    (program.function? function).bind (·.outputs?) = some results.size :=
+  Proofs.Program.WellFormed.evalFn_arity hwf hrun
+
+theorem Program.WellFormed.evalFn_entry_not_returned
+    (hwf : program.WellFormed) {entry : FunctionId} {globals finalGlobals : Globals}
+    {values : Array Word} {trace : Trace}
+    (hentry : entry = program.initId ∨ program.mainId? = some entry)
+    (hrun : EvalFn program ctx entry globals #[] trace finalGlobals (.returned values)) :
+    False :=
+  Proofs.Program.WellFormed.evalFn_entry_not_returned hwf hentry hrun
+
+theorem Program.WellFormed.icall_step
+    (hwf : program.WellFormed) {state : State} {next : Control}
+    {callee : FunctionId} {argumentCount resultCount : Nat}
+    {args results : Array Word} {trace : Trace} {globals' : Globals}
+    (hinstr : program.AtInstr state next (.icall callee argumentCount resultCount))
+    (hargs : state.fetch argumentCount = .ok args)
+    (hcallee : EvalFn program ctx callee state.globals args trace globals'
+      (.returned results)) :
+    ∃ environment, state =[trace]=> State.of globals' environment next :=
+  Proofs.Program.WellFormed.icall_step hwf hinstr hargs hcallee
+
+theorem Program.icall_halted_step
+    {state : State} {next : Control} {callee : FunctionId}
+    {argumentCount resultCount : Nat} {args : Array Word} {trace : Trace}
+    {globals' : Globals}
+    (hinstr : program.AtInstr state next (.icall callee argumentCount resultCount))
+    (hargs : state.fetch argumentCount = .ok args)
+    (hcallee : EvalFn program ctx callee state.globals args trace globals' .halted) :
+    state =[trace]=> State.halted globals' :=
+  Proofs.Program.icall_halted_step hinstr hargs hcallee
 
 
 

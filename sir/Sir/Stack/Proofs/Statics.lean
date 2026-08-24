@@ -232,3 +232,344 @@ theorem Stack.Program.WellFormed.callEdge_wellFounded
   · simp [rank, predecessorValid, callerValid]
 
 end Sir
+
+namespace Sir.Stack
+
+variable {program : Program} {ctx : CallContext}
+
+theorem Program.function?_initId (program : Program) :
+    program.function? program.initId = some program.init := by
+  simp [Program.function?, Program.functions, Program.initId]
+
+theorem Program.function?_mainId {functionId : FunctionId}
+    (hmainId : program.mainId? = some functionId) :
+    ∃ main, program.main = some main ∧ program.function? functionId = some main := by
+  cases hmain : program.main with
+  | none => simp [Program.mainId?, hmain] at hmainId
+  | some main =>
+      refine ⟨main, rfl, ?_⟩
+      simp [Program.mainId?, hmain] at hmainId
+      subst hmainId
+      simp [Program.function?, Program.functions, hmain, Array.getElem?_append]
+
+theorem sourceFetch_length_le {environment : Environment} {count : Nat}
+    {values : Array Word} (hfetch : sourceFetch environment count = .ok values) :
+    count ≤ environment.stack.length := by
+  by_cases hfits : count ≤ environment.stack.length
+  · exact hfits
+  · simp [sourceFetch, hfits] at hfetch
+
+theorem Program.instructionAt_next_block {control next : Control} {instruction : Instr}
+    {cursor : ProgramCursor}
+    (hcontrol : control = .running cursor)
+    (hinstr : program.instructionAt control = some (next, instruction)) :
+    ∃ position, next = .running { cursor with position := position } := by
+  obtain ⟨found, block, index, hfound, -, -, -, hnext⟩ := Program.instructionAt_cursor hinstr
+  obtain rfl := Control.running.inj (hfound.symm.trans hcontrol)
+  exact ⟨_, hnext⟩
+
+theorem Program.instructionAt_next_running {control next : Control} {instruction : Instr}
+    (hinstr : program.instructionAt control = some (next, instruction)) :
+    ∃ cursor, next = .running cursor := by
+  obtain ⟨cursor, block, index, -, -, -, -, hnext⟩ := Program.instructionAt_cursor hinstr
+  exact ⟨_, hnext⟩
+
+theorem evaluateTerminator_iret_inv {state : State} {environment : Environment}
+    {control : Control}
+    (heval : evaluateTerminator program state.environment state.control .iret =
+      .ok (environment, control)) :
+    ∃ cursor block, state.control = .running cursor ∧
+      program.block? cursor = some block ∧
+      state.environment.stack.length = block.outputCount ∧
+      environment = state.environment ∧
+      control = .returned state.environment.stack.toArray := by
+  cases hcontrol : state.control with
+  | returned _ | halted => simp [evaluateTerminator, hcontrol] at heval
+  | running cursor =>
+      cases hblock : program.block? cursor with
+      | none => simp [evaluateTerminator, hcontrol, hblock] at heval
+      | some block =>
+          by_cases hheight : state.environment.stack.length = block.outputCount
+          · simp [evaluateTerminator, hcontrol, hblock, hheight] at heval
+            obtain ⟨rfl, rfl⟩ := heval
+            exact ⟨cursor, block, rfl, hblock, hheight, rfl, rfl⟩
+          · simp [evaluateTerminator, hcontrol, hblock, hheight, bind, Except.bind] at heval
+
+private theorem evaluateTerminator_preserves_function
+    {cursor : ProgramCursor} {state : State} {terminator : Terminator}
+    {environment : Environment} {finalControl : Control}
+    (hcontrol : state.control = .running cursor)
+    (heval : evaluateTerminator program state.environment state.control terminator =
+      .ok (environment, finalControl)) :
+    finalControl = .halted ∨ (∃ results, finalControl = .returned results) ∨
+      ∃ cursor', finalControl = .running cursor' ∧ cursor'.fn = cursor.fn := by
+  cases terminator with
+  | halt =>
+      simp [evaluateTerminator] at heval
+      obtain ⟨rfl, rfl⟩ := heval
+      exact .inl rfl
+  | jump target =>
+      simp [evaluateTerminator, hcontrol] at heval
+      obtain ⟨source, targetBlock, -, -, -, -, -, hfinal⟩ := jump_ok_inv heval
+      exact .inr (.inr ⟨_, hfinal, rfl⟩)
+  | branch thenTarget elseTarget =>
+      cases hstack : state.environment.stack with
+      | nil => simp [evaluateTerminator, hcontrol, hstack] at heval
+      | cons condition rest =>
+          simp [evaluateTerminator, hcontrol, hstack] at heval
+          obtain ⟨source, targetBlock, -, -, -, -, -, hfinal⟩ := jump_ok_inv heval
+          exact .inr (.inr ⟨_, hfinal, rfl⟩)
+  | iret =>
+      obtain ⟨cursor', block, -, -, -, -, hfinal⟩ := evaluateTerminator_iret_inv heval
+      exact .inr (.inl ⟨_, hfinal⟩)
+
+private theorem evaluateTerminator_returned_inv
+    {state : State} {terminator : Terminator} {results : Array Word}
+    {environment : Environment} {finalControl : Control}
+    (hterm : program.atTerm state = some terminator)
+    (heval : evaluateTerminator program state.environment state.control terminator =
+      .ok (environment, finalControl))
+    (hreturn : finalControl = .returned results) :
+    ∃ cursor block, state.control = .running cursor ∧
+      program.block? cursor = some block ∧ block.terminator = .iret ∧
+      results.size = block.outputCount := by
+  cases terminator with
+  | halt =>
+      simp [evaluateTerminator] at heval
+      obtain ⟨rfl, rfl⟩ := heval
+      cases hreturn
+  | jump target =>
+      obtain ⟨cursor, hcontrol⟩ : ∃ cursor, state.control = .running cursor := by
+        cases hcontrol : state.control with
+        | running cursor => exact ⟨cursor, rfl⟩
+        | returned _ | halted => simp [evaluateTerminator, hcontrol] at heval
+      simp [evaluateTerminator, hcontrol] at heval
+      obtain ⟨source, targetBlock, -, -, -, -, -, hfinal⟩ := jump_ok_inv heval
+      rw [hfinal] at hreturn
+      cases hreturn
+  | branch thenTarget elseTarget =>
+      obtain ⟨cursor, hcontrol⟩ : ∃ cursor, state.control = .running cursor := by
+        cases hcontrol : state.control with
+        | running cursor => exact ⟨cursor, rfl⟩
+        | returned _ | halted => simp [evaluateTerminator, hcontrol] at heval
+      cases hstack : state.environment.stack with
+      | nil => simp [evaluateTerminator, hcontrol, hstack] at heval
+      | cons condition rest =>
+          simp [evaluateTerminator, hcontrol, hstack] at heval
+          obtain ⟨source, targetBlock, -, -, -, -, -, hfinal⟩ := jump_ok_inv heval
+          rw [hfinal] at hreturn
+          cases hreturn
+  | iret =>
+      obtain ⟨cursor, block, hcontrol, hblock, hheight, -, hfinal⟩ :=
+        evaluateTerminator_iret_inv heval
+      rw [hfinal] at hreturn
+      obtain rfl := Control.returned.inj hreturn
+      refine ⟨cursor, block, hcontrol, hblock, ?_, by simpa using hheight⟩
+      obtain ⟨cursor', block', hcontrol', hposition, hblock', hterminator⟩ :=
+        Program.terminatorAt_cursor hterm
+      obtain rfl := Control.running.inj (hcontrol'.symm.trans hcontrol)
+      obtain rfl := Option.some.inj (hblock'.symm.trans hblock)
+      exact hterminator
+
+theorem SmallStep.preserves_function
+    {cursor : ProgramCursor} {state final : State} {trace : Trace}
+    (h : SmallStep program ctx state trace final)
+    (hcontrol : state.control = .running cursor) :
+    final.control = .halted ∨ (∃ results, final.control = .returned results) ∨
+      ∃ cursor', final.control = .running cursor' ∧ cursor'.fn = cursor.fn := by
+  cases h with
+  | evaluate hinstr _ =>
+      obtain ⟨position, hnext⟩ := Program.instructionAt_next_block hcontrol hinstr
+      exact .inr (.inr ⟨_, hnext, rfl⟩)
+  | gas hinstr _ =>
+      obtain ⟨position, hnext⟩ := Program.instructionAt_next_block hcontrol hinstr
+      exact .inr (.inr ⟨_, hnext, rfl⟩)
+  | call hinstr _ _ =>
+      obtain ⟨position, hnext⟩ := Program.instructionAt_next_block hcontrol hinstr
+      exact .inr (.inr ⟨_, hnext, rfl⟩)
+  | malloc hinstr _ _ _ _ =>
+      obtain ⟨position, hnext⟩ := Program.instructionAt_next_block hcontrol hinstr
+      exact .inr (.inr ⟨_, hnext, rfl⟩)
+  | mallocUninit hinstr _ _ _ =>
+      obtain ⟨position, hnext⟩ := Program.instructionAt_next_block hcontrol hinstr
+      exact .inr (.inr ⟨_, hnext, rfl⟩)
+  | mstore32 hinstr _ _ _ =>
+      obtain ⟨position, hnext⟩ := Program.instructionAt_next_block hcontrol hinstr
+      exact .inr (.inr ⟨_, hnext, rfl⟩)
+  | mload32 hinstr _ =>
+      obtain ⟨position, hnext⟩ := Program.instructionAt_next_block hcontrol hinstr
+      exact .inr (.inr ⟨_, hnext, rfl⟩)
+  | icall hinstr hargs hcall hresume =>
+      obtain ⟨position, hnext⟩ := Program.instructionAt_next_block hcontrol hinstr
+      cases ‹FunctionOutcome› with
+      | returned results =>
+          obtain ⟨-, hresumed⟩ := resume_returned_eq_ok_iff.mp hresume
+          subst hresumed
+          exact .inr (.inr ⟨_, hnext, rfl⟩)
+      | halted =>
+          obtain ⟨-, hresumed⟩ := resume_halted_eq_ok_iff.mp hresume
+          subst hresumed
+          exact .inl rfl
+  | control hterm heval =>
+      simpa [State.of] using evaluateTerminator_preserves_function hcontrol heval
+
+theorem Proofs.Steps.preserves_function
+    {cursor : ProgramCursor} {state final : State} {trace : Trace}
+    (h : Steps program ctx state trace final)
+    (hcontrol : state.control = .running cursor) :
+    final.control = .halted ∨ (∃ results, final.control = .returned results) ∨
+      ∃ cursor', final.control = .running cursor' ∧ cursor'.fn = cursor.fn :=
+  Steps.inductionOn
+    (motive := fun state _ final _ => state.control = .running cursor →
+      final.control = .halted ∨ (∃ results, final.control = .returned results) ∨
+        ∃ cursor', final.control = .running cursor' ∧ cursor'.fn = cursor.fn)
+    (fun _ hcontrol => .inr (.inr ⟨cursor, hcontrol, rfl⟩))
+    (fun _ next ih hcontrol => by
+      rcases ih hcontrol with hhalt | ⟨results, hreturn⟩ | ⟨cursor', hcontrol', hfn⟩
+      · exact absurd next (stuck_of_exit (outcome := .halted) hhalt _ _)
+      · exact absurd next (stuck_of_exit (outcome := .returned _) hreturn _ _)
+      · rcases SmallStep.preserves_function next hcontrol' with
+          hhalt | hreturned | ⟨cursor'', hcontrol'', hfn'⟩
+        · exact .inl hhalt
+        · exact .inr (.inl hreturned)
+        · exact .inr (.inr ⟨cursor'', hcontrol'', hfn'.trans hfn⟩))
+    h hcontrol
+
+theorem SmallStep.returned_inv
+    {state final : State} {trace : Trace} {results : Array Word}
+    (h : SmallStep program ctx state trace final)
+    (hreturn : final.control = .returned results) :
+    ∃ cursor block, state.control = .running cursor ∧
+      program.block? cursor = some block ∧ block.terminator = .iret ∧
+      results.size = block.outputCount := by
+  cases h with
+  | evaluate hinstr _ =>
+      obtain ⟨cursor, hnext⟩ := Program.instructionAt_next_running hinstr
+      rw [hnext] at hreturn
+      cases hreturn
+  | gas hinstr _ =>
+      obtain ⟨cursor, hnext⟩ := Program.instructionAt_next_running hinstr
+      rw [hnext] at hreturn
+      cases hreturn
+  | call hinstr _ _ =>
+      obtain ⟨cursor, hnext⟩ := Program.instructionAt_next_running hinstr
+      rw [hnext] at hreturn
+      cases hreturn
+  | malloc hinstr _ _ _ _ =>
+      obtain ⟨cursor, hnext⟩ := Program.instructionAt_next_running hinstr
+      rw [hnext] at hreturn
+      cases hreturn
+  | mallocUninit hinstr _ _ _ =>
+      obtain ⟨cursor, hnext⟩ := Program.instructionAt_next_running hinstr
+      rw [hnext] at hreturn
+      cases hreturn
+  | mstore32 hinstr _ _ _ =>
+      obtain ⟨cursor, hnext⟩ := Program.instructionAt_next_running hinstr
+      rw [hnext] at hreturn
+      cases hreturn
+  | mload32 hinstr _ =>
+      obtain ⟨cursor, hnext⟩ := Program.instructionAt_next_running hinstr
+      rw [hnext] at hreturn
+      cases hreturn
+  | icall hinstr hargs hcall hresume =>
+      obtain ⟨cursor, hnext⟩ := Program.instructionAt_next_running hinstr
+      cases ‹FunctionOutcome› with
+      | returned actual =>
+          obtain ⟨-, hresumed⟩ := resume_returned_eq_ok_iff.mp hresume
+          subst hresumed
+          rw [hnext] at hreturn
+          cases hreturn
+      | halted =>
+          obtain ⟨-, hresumed⟩ := resume_halted_eq_ok_iff.mp hresume
+          subst hresumed
+          cases hreturn
+  | control hterm heval =>
+      exact evaluateTerminator_returned_inv hterm heval (by simpa [State.of] using hreturn)
+
+theorem Proofs.Program.WellFormed.evalFn_arity
+    (hwf : program.WellFormed) {function : FunctionId} {globals globals' : Globals}
+    {args results : Array Word} {trace : Trace}
+    (hrun : EvalFn program ctx function globals args trace globals' (.returned results)) :
+    (program.function? function).bind (·.outputs?) = some results.size := by
+  cases hrun with
+  | exit hentry hsteps hexit =>
+      obtain ⟨entry, hfunction, harity, rfl⟩ := Program.callState?_eq_some_iff.mp hentry
+      cases hsteps with
+      | refl => cases hexit
+      | tail start next =>
+          obtain ⟨cursor, block, hcontrol, hblock, hterminator, hsize⟩ :=
+            SmallStep.returned_inv next hexit
+          rcases Proofs.Steps.preserves_function
+              (cursor := ⟨function, ⟨0⟩, entry.entry.startPosition⟩) start rfl with
+            hhalt | ⟨returnedValues, hreturned⟩ | ⟨cursor', hcontrol', hcursorFn⟩
+          · exact absurd next (stuck_of_exit (outcome := .halted) hhalt _ _)
+          · exact absurd next (stuck_of_exit (outcome := .returned _) hreturned _ _)
+          · have hcursor : cursor' = cursor := Control.running.inj (hcontrol'.symm.trans hcontrol)
+            have hcursorFunction : cursor.fn = function := by
+              rw [← hcursor]; exact hcursorFn
+            simp only [Program.block?, hcursorFunction, hfunction] at hblock
+            have hiret := hwf.iretArity entry (Program.mem_functions_of_function? hfunction)
+              block (Array.mem_of_getElem? hblock) hterminator
+            rw [hfunction]
+            simp only [Option.bind_some]
+            rw [← hiret]
+            exact congrArg some hsize.symm
+
+theorem Proofs.Program.WellFormed.evalFn_entry_not_returned
+    (hwf : program.WellFormed) {entry : FunctionId} {globals finalGlobals : Globals}
+    {values : Array Word} {trace : Trace}
+    (hentry : entry = program.initId ∨ program.mainId? = some entry)
+    (hrun : EvalFn program ctx entry globals #[] trace finalGlobals (.returned values)) :
+    False := by
+  obtain ⟨function, hfunction, houtputs⟩ :
+      ∃ function, program.function? entry = some function ∧ function.outputs? = none := by
+    rcases hentry with rfl | hmainId
+    · exact ⟨program.init, Program.function?_initId program, hwf.entryArity.1.2⟩
+    · obtain ⟨main, hmain, hfunction⟩ := Program.function?_mainId hmainId
+      exact ⟨main, hfunction, (hwf.entryArity.2 main hmain).2⟩
+  have harity := Proofs.Program.WellFormed.evalFn_arity hwf hrun
+  rw [hfunction] at harity
+  simp [houtputs] at harity
+
+theorem Program.WellFormed.icall_resultCount (hwf : program.WellFormed)
+    {state : State} {next : Control} {callee : FunctionId}
+    {argumentCount resultCount : Nat} {globals' : Globals}
+    {args results : Array Word} {trace : Trace}
+    (hinstr : program.AtInstr state next (.icall callee argumentCount resultCount))
+    (hcallee : EvalFn program ctx callee state.globals args trace globals'
+      (.returned results)) :
+    results.size = resultCount := by
+  obtain ⟨outputs, harity, houtputs⟩ :=
+    hwf.icallArity callee argumentCount resultCount (Program.instructionAt_mem hinstr)
+  obtain ⟨function, hfunction, -, hfunctionOutputs⟩ := harity
+  have hbind := Proofs.Program.WellFormed.evalFn_arity hwf hcallee
+  rw [hfunction, Option.bind_some, hfunctionOutputs] at hbind
+  rw [hbind] at houtputs
+  simpa using houtputs
+
+theorem Proofs.Program.WellFormed.icall_step
+    (hwf : program.WellFormed) {state : State} {next : Control}
+    {callee : FunctionId} {argumentCount resultCount : Nat}
+    {args results : Array Word} {trace : Trace} {globals' : Globals}
+    (hinstr : program.AtInstr state next (.icall callee argumentCount resultCount))
+    (hargs : state.fetch argumentCount = .ok args)
+    (hcallee : EvalFn program ctx callee state.globals args trace globals'
+      (.returned results)) :
+    ∃ environment, SmallStep program ctx state trace (State.of globals' environment next) := by
+  obtain ⟨environment, hpush⟩ :=
+    push_ok (environment := state.environment) (destination := ⟨argumentCount, resultCount⟩)
+      (sourceFetch_length_le hargs) (hwf.icall_resultCount hinstr hcallee)
+  exact ⟨environment, SmallStep.icall hinstr hargs hcallee
+    (resume_returned_eq_ok_iff.mpr ⟨hpush, rfl⟩)⟩
+
+theorem Proofs.Program.icall_halted_step
+    {state : State} {next : Control} {callee : FunctionId}
+    {argumentCount resultCount : Nat} {args : Array Word} {trace : Trace}
+    {globals' : Globals}
+    (hinstr : program.AtInstr state next (.icall callee argumentCount resultCount))
+    (hargs : state.fetch argumentCount = .ok args)
+    (hcallee : EvalFn program ctx callee state.globals args trace globals' .halted) :
+    SmallStep program ctx state trace (State.halted globals') :=
+  SmallStep.icall hinstr hargs hcallee (resume_halted_eq_ok_iff.mpr ⟨rfl, rfl⟩)
+
+end Sir.Stack
