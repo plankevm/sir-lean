@@ -1,5 +1,5 @@
 import Sir.Stack.Proofs.Determinism
-import Sir.Stack.Proofs.Progress
+import Sir.Stack.Proofs.Bump
 
 namespace Sir.Stack
 

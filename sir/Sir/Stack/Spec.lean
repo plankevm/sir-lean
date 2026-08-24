@@ -9,6 +9,9 @@ structure Destination where
   produce : Nat
 deriving DecidableEq, Repr
 
+def Destination.after (destination : Destination) (height : Nat) : Nat :=
+  height - destination.consume + destination.produce
+
 structure Environment where
   stack : List Word
   slots : Nat → Option Word
@@ -69,6 +72,12 @@ inductive Op where
   | mload32
 deriving DecidableEq, Repr
 
+def Op.effect : Op → Destination
+  | .gas => ⟨0, 1⟩
+  | .add | .lt | .call => ⟨2, 1⟩
+  | .sload | .malloc | .mallocUninit | .mload32 => ⟨1, 1⟩
+  | .sstore | .mstore32 => ⟨2, 0⟩
+
 inductive Binary where
   | add
   | lt
@@ -95,12 +104,37 @@ def Instr.isMemOracle : Instr → Prop
   | .op .malloc | .op .mallocUninit | .op .mload32 => True
   | _ => False
 
+def Instr.effect : Instr → Destination
+  | .push _ | .load _ => ⟨0, 1⟩
+  | .pop | .store _ => ⟨1, 0⟩
+  | .swap depth => ⟨depth + 1, depth + 1⟩
+  | .dup depth => ⟨depth + 1, depth + 2⟩
+  | .exchange firstDepth secondDepth =>
+      ⟨max firstDepth secondDepth + 1, max firstDepth secondDepth + 1⟩
+  | .flippedOp _ => ⟨2, 1⟩
+  | .icall _ argumentCount resultCount => ⟨argumentCount, resultCount⟩
+  | .op operation => operation.effect
+
+def Instr.slotsStored : Instr → List Nat
+  | .store slot => [slot]
+  | _ => []
+
+def Instr.slotsRead : Instr → List Nat
+  | .load slot => [slot]
+  | _ => []
+
 inductive Terminator where
   | halt
   | jump (target : BlockId)
   | branch (thenTarget elseTarget : BlockId)
   | iret
 deriving DecidableEq, Repr
+
+def Terminator.HeightFits : Terminator → Nat → Nat → Prop
+  | .halt, _, _ => True
+  | .jump _, height, outputCount => height = outputCount
+  | .branch _ _, height, outputCount => height = outputCount + 1
+  | .iret, height, outputCount => height = outputCount
 
 structure Block where
   inputCount : Nat
@@ -113,6 +147,29 @@ def Block.absoluteToPosition (block : Block) (index : Nat) : BlockPosition :=
   if index < block.instructions.size then .statement index else .terminator
 
 def Block.startPosition (block : Block) : BlockPosition := block.absoluteToPosition 0
+
+def Block.heightBefore (block : Block) : Nat → Nat
+  | 0 => block.inputCount
+  | index + 1 =>
+      match block.instructions[index]? with
+      | some instruction => instruction.effect.after (block.heightBefore index)
+      | none => block.heightBefore index
+
+def Block.slotsStoredBefore (block : Block) : Nat → List Nat
+  | 0 => []
+  | index + 1 =>
+      match block.instructions[index]? with
+      | some instruction => block.slotsStoredBefore index ++ instruction.slotsStored
+      | none => block.slotsStoredBefore index
+
+def Block.StackHeightsFit (block : Block) : Prop :=
+  (∀ index instruction, block.instructions[index]? = some instruction →
+    instruction.effect.consume ≤ block.heightBefore index) ∧
+  block.terminator.HeightFits (block.heightBefore block.instructions.size) block.outputCount
+
+def Block.SlotsStoredBeforeLoad (block : Block) : Prop :=
+  ∀ index instruction, block.instructions[index]? = some instruction →
+    ∀ slot ∈ instruction.slotsRead, slot ∈ block.slotsStoredBefore index
 
 structure Function where
   entry : Block
@@ -462,50 +519,10 @@ def Program.RunsTo (program : Program) (ctx : CallContext) (entry : FunctionId)
     (world : World) (trace : Trace) (final : State) : Prop :=
   program.Runs ctx entry world trace final ∧ final.control = .halted
 
-def Program.CurrentReady (program : Program) (context : CallContext) (state : State) : Prop :=
-  (∃ next instruction,
-      program.AtInstr state next instruction ∧
-      (∀ callee argumentCount resultCount,
-        instruction ≠ .icall callee argumentCount resultCount) ∧
-      ((∃ globals environment,
-          state.evaluate context instruction = .ok (globals, environment)) ∨
-        (∃ answer environment,
-          instruction = .op .gas ∧
-            state.pushValues ⟨0, 1⟩ #[answer] = .ok environment) ∨
-        (∃ target gasLimit environment,
-          instruction = .op .call ∧
-            state.fetch 2 = .ok #[target, gasLimit] ∧
-            state.pushValues ⟨2, 1⟩ #[.fromBool true] = .ok environment) ∨
-        (∃ size allocation environment,
-          instruction = .op .malloc ∧
-            state.fetch 1 = .ok #[size] ∧
-            state.allows size allocation ∧
-            allocation.bytes = ByteArray.mk (Array.replicate size.toNat 0) ∧
-            state.pushValues ⟨1, 1⟩ #[allocation.offset] = .ok environment) ∨
-        (∃ size allocation environment,
-          instruction = .op .mallocUninit ∧
-            state.fetch 1 = .ok #[size] ∧
-            state.allows size allocation ∧
-            state.pushValues ⟨1, 1⟩ #[allocation.offset] = .ok environment) ∨
-        (∃ offset value environment,
-          instruction = .op .mstore32 ∧
-            state.fetch 2 = .ok #[offset, value] ∧
-            state.inBounds offset ∧
-            state.pushValues ⟨2, 0⟩ #[] = .ok environment) ∨
-        (∃ offset assumed environment,
-          instruction = .op .mload32 ∧
-            state.fetch 1 = .ok #[offset] ∧
-            state.pushValues ⟨1, 1⟩ #[state.globals.readWord32 offset assumed] =
-              .ok environment))) ∨
-    ∃ terminator environment finalControl,
-      program.AtTerm state terminator ∧
-        evaluateTerminator program state.environment state.control terminator =
-          .ok (environment, finalControl)
-
 def Program.ReadyState (program : Program) (ctx : CallContext) (state : State) : Prop :=
   (∃ function globals args trace,
       program.RunsFunction ctx function globals args trace state) ∧
-    program.CurrentReady ctx state ∧
+    program.NonIcallControl state ∧
     (program.AllocationAvailable state ∨ program.BumpFits state) ∧
     program.StoreInBounds state
 
@@ -526,6 +543,13 @@ structure Program.WellFormed (program : Program) : Prop where
       ∀ block ∈ function.blocks, ∀ target ∈ block.terminator.jumpTargets,
         ∃ targetBlock, function.block? target = some targetBlock ∧
           targetBlock.inputCount = block.outputCount
+  exchangeDepthsDistinct :
+    ∀ firstDepth secondDepth, program.HasInstr (.exchange firstDepth secondDepth) →
+      firstDepth ≠ secondDepth
+  stackHeightsFit :
+    ∀ function ∈ program.functions, ∀ block ∈ function.blocks, block.StackHeightsFit
+  slotsStoredBeforeLoad :
+    ∀ function ∈ program.functions, ∀ block ∈ function.blocks, block.SlotsStoredBeforeLoad
 
 def Program.FnNextEffect (program : Program) (ctx : CallContext)
     (function : FunctionId) (globals : Globals) (args : Array Word)
