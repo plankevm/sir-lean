@@ -13,6 +13,15 @@ local notation:50 s " =[" t "]=> " f => SmallStep program ctx s t f
 
 
 
+theorem Steps.single {state final : State} {trace : Trace}
+    (h : state =[trace]=> final) : state =[trace]=>* final :=
+  Proofs.Steps.single h
+
+theorem Steps.trans {state middle final : State} {trace₁ trace₂ : Trace}
+    (first : state =[trace₁]=>* middle) (second : middle =[trace₂]=>* final) :
+    state =[trace₁ ++ trace₂]=>* final :=
+  Proofs.Steps.trans first second
+
 theorem Steps.confluence_or_queryDivergence
     (hfree : program.MemOracleFree)
     {state final₁ final₂ : State} {trace₁ trace₂ : Trace}
