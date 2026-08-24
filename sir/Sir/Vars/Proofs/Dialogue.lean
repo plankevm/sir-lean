@@ -228,7 +228,7 @@ theorem stepDialogue_all {program : Program} {ctx : CallContext}
       EvalDialogue program ctx function globals args trace globals' outcome)
     ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ h
   case refine_1 =>
-    intro state next result expression evaluated hstmt heval
+    intro state next result expression globals environment hstmt heval
     intro trace₂ final₂ h₂
     cases h₂ with
     | assign hstmt₂ heval₂ =>
@@ -239,7 +239,7 @@ theorem stepDialogue_all {program : Program} {ctx : CallContext}
         subst hresult
         subst hexpression
         rw [heval] at heval₂
-        obtain rfl := Except.ok.inj heval₂
+        obtain ⟨rfl, rfl⟩ := Prod.mk.inj (Except.ok.inj heval₂)
         exact .inl ⟨rfl, rfl⟩
     | control hterm _ =>
         exact (Program.AtStmt_AtTerm_exclusive hstmt hterm).elim
@@ -248,14 +248,14 @@ theorem stepDialogue_all {program : Program} {ctx : CallContext}
     | mload32 hstmt₂ _ =>
         cases (Program.AtStmt.unique hstmt hstmt₂).2
   case refine_2 =>
-    intro state next keyVar valueVar evaluated hstmt heval
+    intro state next keyVar valueVar globals environment hstmt heval
     intro trace₂ final₂ h₂
     cases h₂ with
     | sstore hstmt₂ heval₂ =>
         obtain ⟨rfl, heq⟩ := Program.AtStmt.unique hstmt hstmt₂
         obtain ⟨rfl, rfl⟩ := Stmt.sstore.inj heq
         rw [heval] at heval₂
-        obtain rfl := Except.ok.inj heval₂
+        obtain ⟨rfl, rfl⟩ := Prod.mk.inj (Except.ok.inj heval₂)
         exact .inl ⟨rfl, rfl⟩
     | control hterm _ =>
         exact (Program.AtStmt_AtTerm_exclusive hstmt hterm).elim

@@ -423,9 +423,9 @@ private theorem Vars.Program.WellFormed.localsCoverCursor_terminator
       trivial
 
 theorem Vars.evalStmt_sstore_environment
-    {state evaluated : Vars.State} {keyVar valueVar : VarId}
-    (h : Vars.evalStmt ctx state (.sstore keyVar valueVar) = .ok evaluated) :
-    evaluated.environment = state.environment := by
+    {state : Vars.State} {globals : Globals} {environment : Locals} {keyVar valueVar : VarId}
+    (h : Vars.evalStmt ctx state (.sstore keyVar valueVar) = .ok (globals, environment)) :
+    environment = state.environment := by
   simp [Vars.evalStmt] at h
   cases hkey : state.lookup keyVar with
   | error _ =>
@@ -436,8 +436,7 @@ theorem Vars.evalStmt_sstore_environment
           simp [hkey, hvalue, bind, Except.bind] at h
       | ok value =>
           simp [hkey, hvalue, bind, Except.bind] at h
-          cases h
-          rfl
+          exact h.2.symm
 
 theorem Vars.Program.WellFormed.localsCoverCursor_step
     (hwf : program.WellFormed) {state final : Vars.State} {trace : Trace}
@@ -446,7 +445,7 @@ theorem Vars.Program.WellFormed.localsCoverCursor_step
     final.LocalsCoverCursor program := by
   cases hstep with
   | assign hstmt heval =>
-      rename_i evaluated
+      rename_i globals environment
       obtain ⟨cursor, block, index, -, -, hblock, hstatementAt, hnext, hbefore, -⟩ :=
         hwf.statementAt_covers hinvariant hstmt
       simp [Vars.State.evaluate, Vars.evalStmt] at heval
@@ -454,7 +453,7 @@ theorem Vars.Program.WellFormed.localsCoverCursor_step
       | error _ => simp [hexpr] at heval
       | ok value =>
           simp [hexpr] at heval
-          subst evaluated
+          obtain ⟨rfl, rfl⟩ := heval
           apply Vars.State.localsCoverCursor_after_statement
             (evaluated := ⟨state.globals, state.environment.assign _ value, state.control⟩)
             hblock hstatementAt hnext hbefore
@@ -464,13 +463,13 @@ theorem Vars.Program.WellFormed.localsCoverCursor_step
             subst identifier
             exact Locals.defined_assign _ _ _
   | sstore hstmt heval =>
-      rename_i evaluated
+      rename_i globals environment
       obtain ⟨cursor, block, index, -, -, hblock, hstatementAt, hnext, hbefore, -⟩ :=
         hwf.statementAt_covers hinvariant hstmt
       have henv := Vars.evalStmt_sstore_environment (by
         simpa [Vars.State.evaluate] using heval)
       apply Vars.State.localsCoverCursor_after_statement
-        (evaluated := { state with environment := evaluated.environment })
+        (evaluated := ⟨globals, environment, state.control⟩)
         hblock hstatementAt hnext hbefore
       · intro identifier hdefined
         simpa [henv] using hdefined

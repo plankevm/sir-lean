@@ -49,9 +49,8 @@ theorem witness_step_constant (ctx : CallContext) (globals : Globals) :
       (witnessAfterConstant globals).control (.assign witnessResult (.constant 7)) := rfl
   have heval :
       (witnessInitial globals).evaluate ctx (.assign witnessResult (.constant 7)) =
-        .ok { witnessInitial globals with
-          environment := (witnessInitial globals).environment.assign witnessResult 7 } := by
-    simp [State.evaluate, evalStmt, evalExpr]
+        .ok (globals, (witnessInitial globals).environment.assign witnessResult 7) := by
+    simp [State.evaluate, evalStmt, evalExpr, witnessInitial]
   exact SmallStep.assign hstmt heval
 
 theorem witness_step_halt (ctx : CallContext) (globals : Globals) :

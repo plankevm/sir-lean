@@ -281,18 +281,19 @@ def evalExpr (context : CallContext) (environment : Locals) (globals : Globals) 
   | .lt left right => do return .lt (← environment.lookup left) (← environment.lookup right)
   | .sload key => do return globals.world.loadStorage context.self (← environment.lookup key)
 
-def evalStmt (context : CallContext) (state : State) : Stmt → Except IRError State
+def evalStmt (context : CallContext) (state : State) :
+    Stmt → Except IRError (Globals × Locals)
   | .assign result expression => do
       let value ← evalExpr context state.environment state.globals expression
-      return { state with environment := state.environment.assign result value }
+      return (state.globals, state.environment.assign result value)
   | .sstore keyVar valueVar => do
       let key ← state.lookup keyVar
       let value ← state.lookup valueVar
-      return { state with globals := state.globals.storeStorage context key value }
+      return (state.globals.storeStorage context key value, state.environment)
   | _ => .error .invalidControl
 
 def State.evaluate (state : State) (context : CallContext) (statement : Stmt) :
-    Except IRError State :=
+    Except IRError (Globals × Locals) :=
   evalStmt context state statement
 
 def resume (outcome : FunctionOutcome) (env : Locals) (dst : Array VarId)
@@ -310,14 +311,12 @@ inductive SmallStep (program : Program) (context : CallContext) :
     State → Trace → State → Prop where
   | assign
       (hstmt : program.AtStmt state next (.assign result expression))
-      (heval : state.evaluate context (.assign result expression) = .ok evaluated) :
-      SmallStep program context state []
-        (State.of evaluated.globals evaluated.environment next)
+      (heval : state.evaluate context (.assign result expression) = .ok (globals, environment)) :
+      SmallStep program context state [] (State.of globals environment next)
   | sstore
       (hstmt : program.AtStmt state next (.sstore keyVar valueVar))
-      (heval : state.evaluate context (.sstore keyVar valueVar) = .ok evaluated) :
-      SmallStep program context state []
-        (State.of evaluated.globals evaluated.environment next)
+      (heval : state.evaluate context (.sstore keyVar valueVar) = .ok (globals, environment)) :
+      SmallStep program context state [] (State.of globals environment next)
   | gas
       (hstmt : program.AtStmt state next (.gas result)) :
       SmallStep program context state [.gas answer] (state.assign result answer next)
