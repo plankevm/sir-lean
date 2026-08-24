@@ -3,7 +3,49 @@ import Sir.Core.Proofs.Bump
 
 namespace Sir
 
+namespace Trace
+
+theorem getElem?_append_cons (pre : Trace) (event : Event) (rest : Trace) :
+    (pre ++ event :: rest)[pre.length]? = some event := by
+  simp
+
+end Trace
+
 namespace Trace.QueryDivergence
+
+theorem ne {trace₁ trace₂ : Trace}
+    (h : Trace.QueryDivergence trace₁ trace₂) : trace₁ ≠ trace₂ := by
+  obtain ⟨pre, event₁, rest₁, event₂, rest₂, rfl, rfl, hne, -⟩ := h
+  intro heq
+  exact hne (List.cons.inj (List.append_cancel_left heq)).1
+
+theorem query_eq {trace₁ trace₂ : Trace}
+    (hdiv : Trace.QueryDivergence trace₁ trace₂)
+    {pre : Trace} {event₁ event₂ : Event} {rest₁ rest₂ : Trace}
+    (h₁ : trace₁ = pre ++ event₁ :: rest₁) (h₂ : trace₂ = pre ++ event₂ :: rest₂) :
+    event₁.query = event₂.query := by
+  obtain ⟨common, a, ra, b, rb, hpa, hpb, hne, hq⟩ := hdiv
+  have gA1 : trace₁[pre.length]? = some event₁ := by rw [h₁]; exact getElem?_append_cons ..
+  have gA2 : trace₁[common.length]? = some a := by rw [hpa]; exact getElem?_append_cons ..
+  have gB1 : trace₂[pre.length]? = some event₂ := by rw [h₂]; exact getElem?_append_cons ..
+  have gB2 : trace₂[common.length]? = some b := by rw [hpb]; exact getElem?_append_cons ..
+  rcases Nat.lt_trichotomy pre.length common.length with hlt | hlen | hgt
+  · have c₁ : trace₁[pre.length]? = common[pre.length]? := by
+      rw [hpa]; exact List.getElem?_append_left hlt
+    have c₂ : trace₂[pre.length]? = common[pre.length]? := by
+      rw [hpb]; exact List.getElem?_append_left hlt
+    obtain rfl : event₁ = event₂ :=
+      Option.some.inj ((c₁.symm.trans gA1).symm.trans (c₂.symm.trans gB1))
+    rfl
+  · obtain rfl : event₁ = a := Option.some.inj ((hlen ▸ gA1).symm.trans gA2)
+    obtain rfl : event₂ = b := Option.some.inj ((hlen ▸ gB1).symm.trans gB2)
+    exact hq
+  · have c₁ : trace₁[common.length]? = pre[common.length]? := by
+      rw [h₁]; exact List.getElem?_append_left hgt
+    have c₂ : trace₂[common.length]? = pre[common.length]? := by
+      rw [h₂]; exact List.getElem?_append_left hgt
+    exact absurd
+      (Option.some.inj ((c₁.symm.trans gA2).symm.trans (c₂.symm.trans gB2))) hne
 
 theorem extend {trace₁ trace₂ : Trace} (suffix₁ suffix₂ : Trace)
     (h : Trace.QueryDivergence trace₁ trace₂) :

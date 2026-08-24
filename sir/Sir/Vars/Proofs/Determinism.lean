@@ -4,12 +4,6 @@ namespace Sir
 
 variable {program : Vars.Program} {ctx : CallContext}
 
-private theorem Trace.QueryDivergence.ne {t₁ t₂ : Trace}
-    (h : Trace.QueryDivergence t₁ t₂) : t₁ ≠ t₂ := by
-  obtain ⟨p, a, ra, b, rb, rfl, rfl, hne, -⟩ := h
-  intro he
-  exact hne (List.cons.inj (List.append_cancel_left he)).1
-
 theorem Vars.Proofs.SmallStep.prefix_det
     (hfree : program.MemOracleFree)
     {s s₁ s₂ : Vars.State} {t₁ t₂ r₁ r₂ : Trace}
@@ -96,38 +90,6 @@ private theorem Trace.QueryDivergence.not_prefix {t₁ t₂ : Trace}
   rw [List.append_assoc] at hu
   exact hne (List.cons.inj (List.append_cancel_left hu)).1
 
-private theorem getElem?_append_cons (l : Trace) (x : Event) (r : Trace) :
-    (l ++ x :: r)[l.length]? = some x := by
-  simp
-
-private theorem Trace.QueryDivergence.query_eq {t₁ t₂ : Trace}
-    (hdiv : Trace.QueryDivergence t₁ t₂)
-    {pre : Trace} {e₁ e₂ : Event} {r₁ r₂ : Trace}
-    (h₁ : t₁ = pre ++ e₁ :: r₁) (h₂ : t₂ = pre ++ e₂ :: r₂) :
-    e₁.query = e₂.query := by
-  obtain ⟨p, a, ra, b, rb, hpa, hpb, hne, hq⟩ := hdiv
-  have gA1 : t₁[pre.length]? = some e₁ := by rw [h₁]; exact getElem?_append_cons ..
-  have gA2 : t₁[p.length]? = some a := by rw [hpa]; exact getElem?_append_cons ..
-  have gB1 : t₂[pre.length]? = some e₂ := by rw [h₂]; exact getElem?_append_cons ..
-  have gB2 : t₂[p.length]? = some b := by rw [hpb]; exact getElem?_append_cons ..
-  rcases Nat.lt_trichotomy pre.length p.length with hlt | hlen | hgt
-  · have c₁ : t₁[pre.length]? = p[pre.length]? := by
-      rw [hpa]; exact List.getElem?_append_left hlt
-    have c₂ : t₂[pre.length]? = p[pre.length]? := by
-      rw [hpb]; exact List.getElem?_append_left hlt
-    obtain rfl : e₁ = e₂ :=
-      Option.some.inj ((c₁.symm.trans gA1).symm.trans (c₂.symm.trans gB1))
-    rfl
-  · obtain rfl : e₁ = a := Option.some.inj ((hlen ▸ gA1).symm.trans gA2)
-    obtain rfl : e₂ = b := Option.some.inj ((hlen ▸ gB1).symm.trans gB2)
-    exact hq
-  · have c₁ : t₁[p.length]? = pre[p.length]? := by
-      rw [h₁]; exact List.getElem?_append_left hgt
-    have c₂ : t₂[p.length]? = pre[p.length]? := by
-      rw [h₂]; exact List.getElem?_append_left hgt
-    exact absurd
-      (Option.some.inj ((c₁.symm.trans gA2).symm.trans (c₂.symm.trans gB2))) hne
-
 theorem Vars.Proofs.Program.RunsTo.unique_or_queryDivergence
     {entry : FunctionId} {world₀ : World}
     {t₁ t₂ : Trace} {final₁ final₂ : Vars.State}
@@ -162,10 +124,10 @@ private theorem Vars.Program.RunsFunction.query_eq_at
   obtain rfl := Option.some.inj (hentry₁.symm.trans hentry₂)
   have get₁ : t₁[history.length]? = some event₁ := by
     rw [ht₁]
-    exact getElem?_append_cons ..
+    exact Trace.getElem?_append_cons ..
   have get₂ : t₂[history.length]? = some event₂ := by
     rw [ht₂]
-    exact getElem?_append_cons ..
+    exact Trace.getElem?_append_cons ..
   rcases Vars.Proofs.Steps.confluence_or_queryDivergence hfree hrun₁ hrun₂ with
     ⟨u, -, htu⟩ | ⟨u, -, htu⟩ | hdiv
   · have hlt : history.length < t₁.length := by rw [ht₁]; simp
