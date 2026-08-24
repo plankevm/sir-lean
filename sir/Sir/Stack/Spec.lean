@@ -517,6 +517,7 @@ structure Program.WellFormed (program : Program) : Prop where
   iretArity :
     ∀ function ∈ program.functions, ∀ block ∈ function.blocks,
       block.terminator = .iret → some block.outputCount = function.outputs?
+  acyclicCalls : ∀ f, ¬ Relation.TransGen program.callEdge f f
   entryArity :
     (program.init.entry.inputCount = 0 ∧ program.init.outputs? = none) ∧
       ∀ main, program.main = some main → main.entry.inputCount = 0 ∧ main.outputs? = none

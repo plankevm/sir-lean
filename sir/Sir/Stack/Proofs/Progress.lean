@@ -1,4 +1,4 @@
-import Sir.Stack.Proofs.Dialogue
+import Sir.Stack.Proofs.Statics
 
 namespace Sir.Stack
 
