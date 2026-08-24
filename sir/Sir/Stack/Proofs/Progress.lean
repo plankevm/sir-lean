@@ -17,7 +17,7 @@ theorem Proofs.progress_current
         ⟨size, allocation, environment, hop, hfetch, hallow, hpush⟩ |
         ⟨offset, value, environment, hop, hfetch, hbound, hpush⟩ |
         ⟨offset, assumed, environment, hop, hfetch, hpush⟩
-    · exact ⟨[], _, .pure hinstr heval⟩
+    · exact ⟨[], _, .evaluate hinstr heval⟩
     · subst hop
       exact ⟨[.gas answer], _, .gas hinstr hpush⟩
     · subst hop

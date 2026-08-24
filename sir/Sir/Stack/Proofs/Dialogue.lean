@@ -133,7 +133,7 @@ private theorem dialogue_icall {program : Program} {ctx : CallContext}
       · exact .inr hdiv
   | control hterm₂ _ =>
       exact (Program.AtInstr_AtTerm_exclusive hinstr hterm₂).elim
-  | pure hstmt₂ heval₂ =>
+  | evaluate hstmt₂ heval₂ =>
       obtain ⟨rfl, heq⟩ := Program.AtInstr.unique hinstr hstmt₂
       subst heq
       simp [State.evaluate, evalInstr] at heval₂
@@ -156,7 +156,7 @@ private theorem dialogue_control {program : Program} {ctx : CallContext}
       rw [heval] at heval₂
       obtain ⟨rfl, rfl⟩ := Prod.mk.inj (Except.ok.inj heval₂)
       exact .inl ⟨rfl, rfl⟩
-  | pure hstmt _ | gas hstmt _ | call hstmt _ _
+  | evaluate hstmt _ | gas hstmt _ | call hstmt _ _
   | malloc hstmt _ _ _ | mallocUninit hstmt _ _
   | mstore32 hstmt _ _ _ | mload32 hstmt _ | icall hstmt _ _ _ =>
       exact (Program.AtInstr_AtTerm_exclusive hstmt hterm).elim
@@ -225,7 +225,7 @@ theorem stepDialogue_all {program : Program} {ctx : CallContext}
     intro next instruction globals environment state hinstr heval
     intro trace₂ final₂ h₂
     cases h₂ with
-    | pure hinstr₂ heval₂ =>
+    | evaluate hinstr₂ heval₂ =>
         obtain ⟨rfl, rfl⟩ := Program.AtInstr.unique hinstr hinstr₂
         rw [heval] at heval₂
         obtain ⟨rfl, rfl⟩ := Prod.mk.inj (Except.ok.inj heval₂)
@@ -251,7 +251,7 @@ theorem stepDialogue_all {program : Program} {ctx : CallContext}
         · exact .inr hdiv
     | control hterm _ =>
         exact (Program.AtInstr_AtTerm_exclusive hinstr hterm).elim
-    | pure hinstr₂ heval₂ =>
+    | evaluate hinstr₂ heval₂ =>
         obtain ⟨rfl, heq⟩ := Program.AtInstr.unique hinstr hinstr₂
         subst heq
         simp [State.evaluate, evalInstr] at heval₂
@@ -279,7 +279,7 @@ theorem stepDialogue_all {program : Program} {ctx : CallContext}
         · exact .inr hdiv
     | control hterm _ =>
         exact (Program.AtInstr_AtTerm_exclusive hinstr hterm).elim
-    | pure hinstr₂ heval₂ =>
+    | evaluate hinstr₂ heval₂ =>
         obtain ⟨rfl, heq⟩ := Program.AtInstr.unique hinstr hinstr₂
         subst heq
         simp [State.evaluate, evalInstr] at heval₂
@@ -311,7 +311,7 @@ theorem stepDialogue_all {program : Program} {ctx : CallContext}
         exact .inl ⟨rfl, rfl⟩
     | control hterm _ =>
         exact (Program.AtInstr_AtTerm_exclusive hinstr hterm).elim
-    | pure hinstr₂ heval₂ =>
+    | evaluate hinstr₂ heval₂ =>
         obtain ⟨rfl, heq⟩ := Program.AtInstr.unique hinstr hinstr₂
         subst heq
         simp [State.evaluate, evalInstr] at heval₂

@@ -321,7 +321,8 @@ mutual
 
 inductive SmallStep (program : Program) (context : CallContext) :
     State → Trace → State → Prop where
-  | pure
+  -- matches: push, swap, exchange, dup, pop, store, load, flippedOp, op add/lt/sload/sstore
+  | evaluate
       (hinstr : program.AtInstr state next instruction)
       (heval : state.evaluate context instruction = .ok (globals, environment)) :
       SmallStep program context state [] (State.of globals environment next)

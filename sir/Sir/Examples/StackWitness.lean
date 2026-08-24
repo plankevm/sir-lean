@@ -40,19 +40,19 @@ theorem witness_step_constant₂ (ctx : CallContext) (globals : Globals) :
     SmallStep witnessProgram ctx
       (witnessState globals [] (.statement 0)) []
       (witnessState globals [2] (.statement 1)) := by
-  exact SmallStep.pure rfl (by rfl)
+  exact SmallStep.evaluate rfl (by rfl)
 
 theorem witness_step_constant₃ (ctx : CallContext) (globals : Globals) :
     SmallStep witnessProgram ctx
       (witnessState globals [2] (.statement 1)) []
       (witnessState globals [3, 2] (.statement 2)) := by
-  exact SmallStep.pure rfl (by rfl)
+  exact SmallStep.evaluate rfl (by rfl)
 
 theorem witness_step_add (ctx : CallContext) (globals : Globals) :
     SmallStep witnessProgram ctx
       (witnessState globals [3, 2] (.statement 2)) []
       (witnessState globals [witnessSum] .terminator) := by
-  exact SmallStep.pure rfl (by rfl)
+  exact SmallStep.evaluate rfl (by rfl)
 
 theorem witness_step_halt (ctx : CallContext) (globals : Globals) :
     SmallStep witnessProgram ctx
