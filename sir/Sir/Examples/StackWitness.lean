@@ -54,16 +54,17 @@ theorem witness_step_add (ctx : CallContext) (globals : Globals) :
       (witnessState globals [witnessSum] .terminator) := by
   exact SmallStep.evaluate rfl (by rfl)
 
+def witnessFinal (globals : Globals) : State :=
+  State.of globals { Environment.empty with stack := [witnessSum] } .halted
+
 theorem witness_step_halt (ctx : CallContext) (globals : Globals) :
     SmallStep witnessProgram ctx
-      (witnessState globals [witnessSum] .terminator) []
-      (State.of globals { Environment.empty with stack := [witnessSum] } .halted) :=
+      (witnessState globals [witnessSum] .terminator) [] (witnessFinal globals) :=
   SmallStep.control rfl rfl
 
 theorem witness_runs (ctx : CallContext) (globals : Globals) :
     Steps witnessProgram ctx
-      (witnessState globals [] (.statement 0)) []
-      (State.of globals { Environment.empty with stack := [witnessSum] } .halted) :=
+      (witnessState globals [] (.statement 0)) [] (witnessFinal globals) :=
   .tail
     (.tail
       (.tail
@@ -73,20 +74,11 @@ theorem witness_runs (ctx : CallContext) (globals : Globals) :
     (witness_step_halt ctx globals)
 
 theorem witness_confluence (ctx : CallContext) (globals : Globals) :
-    (∃ suffix,
-      Steps witnessProgram ctx
-        (State.of globals { Environment.empty with stack := [witnessSum] } .halted)
-        suffix
-        (State.of globals { Environment.empty with stack := [witnessSum] } .halted) ∧
-          [] ++ suffix = []) ∨
-    (∃ suffix,
-      Steps witnessProgram ctx
-        (State.of globals { Environment.empty with stack := [witnessSum] } .halted)
-        suffix
-        (State.of globals { Environment.empty with stack := [witnessSum] } .halted) ∧
-          [] ++ suffix = []) ∨
+    Steps.Extends witnessProgram ctx (witnessFinal globals) [] (witnessFinal globals) [] ∨
+    Steps.Extends witnessProgram ctx (witnessFinal globals) [] (witnessFinal globals) [] ∨
     Trace.QueryDivergence [] [] :=
-  .inl ⟨[], .refl, rfl⟩
+  Steps.confluence_or_queryDivergence witness_memOracleFree
+    (witness_runs ctx globals) (witness_runs ctx globals)
 
 theorem witness_wellFormed : witnessProgram.WellFormed where
   icallArity := by
