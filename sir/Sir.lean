@@ -11,5 +11,7 @@ import Sir.Examples.TwoFunction
 import Sir.Examples.Memory
 import Sir.Examples.HaltedCall
 import Sir.Examples.Jump
-import Sir.Audit
 import Sir.Examples.Machine
+import Sir.Examples.Text
+import Sir.Text.Extract
+import Sir.Audit

@@ -33,7 +33,13 @@ deterministic witness.
   progress families arrive with the halting-operations work.
 - [`Sir/Theorems.lean`](Sir/Theorems.lean) — the aggregate exported surface.
 - [`Sir/Examples/`](Sir/Examples/) — well-formedness, (non-)determinism,
-  halting-callee, machine-level execution, and memory/allocation witnesses.
+  halting-callee, machine-level execution, round-trip, and memory/allocation
+  witnesses.
+- [`Sir/Vars/Spec/Check.lean`](Sir/Vars/Spec/Check.lean) — one check, returning a
+  proof of the well-formedness clause it discharges.
+- [`Sir/Text/`](Sir/Text/) — the text format: printing a program and parsing it
+  back returns the same program up to renaming, in normal form; an extractor
+  emits a parsed program as Lean source.
 - [`Sir/Audit.lean`](Sir/Audit.lean) — build-time audit of the exported
   surface.
 
@@ -41,4 +47,10 @@ deterministic witness.
 
 ```sh
 lake build
+```
+
+Extract a `.sir` file into a Lean module:
+
+```sh
+lake env lean --run SirExtract.lean input.sir Output.lean programName
 ```

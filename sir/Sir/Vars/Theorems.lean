@@ -1,6 +1,9 @@
 import Sir.Vars.Proofs.Determinism
 import Sir.Vars.Proofs.Readiness
 import Sir.Vars.Proofs.Bump
+import Sir.Vars.Proofs.Rank
+import Sir.Vars.Proofs.Check
+import Sir.Vars.Proofs.Normalize
 
 namespace Sir
 
@@ -152,5 +155,31 @@ theorem Vars.Program.icall_halted_step
     (hcallee : Vars.EvalFn program ctx callee s.globals vs t g' .halted) :
     s =[t]=> { globals := g', environment := .empty, control := .halted } :=
   Vars.Proofs.Program.icall_halted_step hstmt hargs hcallee
+
+theorem Vars.rank_lt_of_transGen {rank : FunctionId → Nat}
+    (decreasing : Vars.RankDecreases program rank) {f g}
+    (path : Relation.TransGen program.callEdge f g) : rank g < rank f :=
+  Vars.Proofs.rank_lt_of_transGen decreasing path
+
+theorem Vars.acyclic_of_rank {rank : FunctionId → Nat}
+    (decreasing : Vars.RankDecreases program rank) (f : FunctionId) :
+    ¬ Relation.TransGen program.callEdge f f :=
+  Vars.Proofs.acyclic_of_rank decreasing f
+
+theorem Vars.Program.wellFormed_of_check
+    (h : Vars.checkWellFormed program = .ok ()) : program.WellFormed :=
+  Vars.Proofs.Program.wellFormed_of_check h
+
+theorem Vars.Program.normalize_alphaEquiv (program : Vars.Program) :
+    Vars.Program.AlphaEquiv program.normalize program :=
+  Vars.Proofs.Program.normalize_alphaEquiv program
+
+theorem Vars.Program.alphaEquiv_iff_normalize_eq {left right : Vars.Program} :
+    Vars.Program.AlphaEquiv left right ↔ left.normalize = right.normalize :=
+  Vars.Proofs.Program.alphaEquiv_iff_normalize_eq
+
+theorem Vars.Program.alphaEquiv_equivalence : Equivalence Vars.Program.AlphaEquiv :=
+  ⟨Vars.Proofs.Program.AlphaEquiv.refl, Vars.Proofs.Program.AlphaEquiv.symm,
+    Vars.Proofs.Program.AlphaEquiv.trans⟩
 
 end Sir
