@@ -5,6 +5,7 @@ import Sir.Examples.VarsJump
 import Sir.Examples.VarsMemory
 import Sir.Examples.VarsIcall
 import Sir.Examples.VarsNondeterminism
+import Sir.Examples.StackWitness
 
 open Lean Elab Command
 
