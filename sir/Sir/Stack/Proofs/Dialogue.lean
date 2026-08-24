@@ -239,10 +239,10 @@ theorem stepDialogue_all {program : Program} {ctx : CallContext}
         subst heq
         simp [State.evaluate, evalInstr] at heval
   case refine_2 =>
-    intro state next answer₁ environment₁ hinstr hpush₁
+    intro state next environment₁ answer₁ hinstr hpush₁
     intro trace₂ final₂ h₂
     cases h₂ with
-    | @gas state₂ next₂ answer₂ environment₂ hinstr₂ hpush₂ =>
+    | @gas state₂ next₂ environment₂ answer₂ hinstr₂ hpush₂ =>
         obtain ⟨rfl, _⟩ := Program.AtInstr.unique hinstr hinstr₂
         rcases Globals.gas_dialogue answer₁ answer₂ with rfl | hdiv
         · rw [hpush₁] at hpush₂

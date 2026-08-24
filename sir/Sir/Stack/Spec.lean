@@ -326,19 +326,19 @@ inductive SmallStep (program : Program) (context : CallContext) :
       (hinstr : program.AtInstr state next instruction)
       (heval : state.evaluate context instruction = .ok (globals, environment)) :
       SmallStep program context state [] (State.of globals environment next)
-  | gas
+  | gas {answer : Word}
       (hinstr : program.AtInstr state next (.op .gas))
       (hpush : state.pushValues ⟨0, 1⟩ #[answer] = .ok environment) :
       SmallStep program context state [.gas answer]
         (State.of state.globals environment next)
-  | call
+  | call {answer : CallResult}
       (hinstr : program.AtInstr state next (.op .call))
       (hfetch : state.fetch 2 = .ok #[target, gasLimit])
       (hpush : state.pushValues ⟨2, 1⟩ #[.fromBool answer.success] = .ok environment) :
       SmallStep program context state
         [.call { input := state.globals.callInput target gasLimit, result := answer }]
         (State.of (state.globals.applyCall answer) environment next)
-  | malloc
+  | malloc {allocation : Allocation}
       (hinstr : program.AtInstr state next (.op .malloc))
       (hfetch : state.fetch 1 = .ok #[size])
       (hallow : state.allows size allocation)
@@ -346,7 +346,7 @@ inductive SmallStep (program : Program) (context : CallContext) :
       (hpush : state.pushValues ⟨1, 1⟩ #[allocation.offset] = .ok environment) :
       SmallStep program context state []
         (State.of (state.globals.pushAlloc allocation) environment next)
-  | mallocUninit
+  | mallocUninit {allocation : Allocation}
       (hinstr : program.AtInstr state next (.op .mallocUninit))
       (hfetch : state.fetch 1 = .ok #[size])
       (hallow : state.allows size allocation)
@@ -360,7 +360,7 @@ inductive SmallStep (program : Program) (context : CallContext) :
       (hpush : state.pushValues ⟨2, 0⟩ #[] = .ok environment) :
       SmallStep program context state []
         (State.of (state.globals.writeWord32 offset value) environment next)
-  | mload32
+  | mload32 {assumed : Vector UInt8 32}
       (hinstr : program.AtInstr state next (.op .mload32))
       (hfetch : state.fetch 1 = .ok #[offset])
       (hpush : state.pushValues ⟨1, 1⟩ #[state.globals.readWord32 offset assumed] =
