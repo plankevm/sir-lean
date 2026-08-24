@@ -3,6 +3,7 @@ import Sir.Theorems
 import Sir.Examples.VarsWitness
 import Sir.Examples.VarsJump
 import Sir.Examples.VarsMemory
+import Sir.Examples.VarsIcall
 
 open Lean Elab Command
 
