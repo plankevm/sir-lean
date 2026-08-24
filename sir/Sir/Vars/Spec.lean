@@ -314,10 +314,10 @@ inductive SmallStep (program : Program) (context : CallContext) :
       (hstmt : program.AtStmt state next statement)
       (heval : state.evaluate context statement = .ok (globals, environment)) :
       SmallStep program context state [] (State.of globals environment next)
-  | gas
+  | gas {answer : Word}
       (hstmt : program.AtStmt state next (.gas result)) :
       SmallStep program context state [.gas answer] (state.assign result answer next)
-  | call
+  | call {answer : CallResult}
       (hstmt : program.AtStmt state next (.call call))
       (htarget : state.lookup call.callee = .ok target)
       (hgas : state.lookup call.gas = .ok gasLimit) :
@@ -326,7 +326,7 @@ inductive SmallStep (program : Program) (context : CallContext) :
         (State.assign
           { state with globals := state.globals.applyCall answer }
           call.result (.fromBool answer.success) next)
-  | malloc
+  | malloc {allocation : Allocation}
       (hstmt : program.AtStmt state next (.malloc result sizeVar))
       (hsize : state.lookup sizeVar = .ok size)
       (hallow : state.allows size allocation)
@@ -335,7 +335,7 @@ inductive SmallStep (program : Program) (context : CallContext) :
         (State.assign
           { state with globals := state.globals.pushAlloc allocation }
           result allocation.offset next)
-  | mallocUninit
+  | mallocUninit {allocation : Allocation}
       (hstmt : program.AtStmt state next (.mallocUninit result sizeVar))
       (hsize : state.lookup sizeVar = .ok size)
       (hallow : state.allows size allocation) :
@@ -350,7 +350,7 @@ inductive SmallStep (program : Program) (context : CallContext) :
       (hbound : state.inBounds offset) :
       SmallStep program context state []
         { state with globals := state.globals.writeWord32 offset value, control := next }
-  | mload32
+  | mload32 {assumed : Vector UInt8 32}
       (hstmt : program.AtStmt state next (.mload32 result offsetVar))
       (hoffset : state.lookup offsetVar = .ok offset) :
       SmallStep program context state []
