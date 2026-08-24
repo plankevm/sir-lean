@@ -1,6 +1,7 @@
 import Lean
 import Sir.Theorems
 import Sir.Examples.VarsWitness
+import Sir.Examples.VarsJump
 
 open Lean Elab Command
 
