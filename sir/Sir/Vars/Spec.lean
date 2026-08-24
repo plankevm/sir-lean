@@ -309,13 +309,10 @@ mutual
 
 inductive SmallStep (program : Program) (context : CallContext) :
     State → Trace → State → Prop where
-  | assign
-      (hstmt : program.AtStmt state next (.assign result expression))
-      (heval : state.evaluate context (.assign result expression) = .ok (globals, environment)) :
-      SmallStep program context state [] (State.of globals environment next)
-  | sstore
-      (hstmt : program.AtStmt state next (.sstore keyVar valueVar))
-      (heval : state.evaluate context (.sstore keyVar valueVar) = .ok (globals, environment)) :
+  -- matches: assign, sstore
+  | evaluate
+      (hstmt : program.AtStmt state next statement)
+      (heval : state.evaluate context statement = .ok (globals, environment)) :
       SmallStep program context state [] (State.of globals environment next)
   | gas
       (hstmt : program.AtStmt state next (.gas result)) :

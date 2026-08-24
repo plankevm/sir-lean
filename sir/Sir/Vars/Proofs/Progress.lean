@@ -87,37 +87,37 @@ theorem Vars.Proofs.progress_stmt
   | assign result expression =>
       cases expression with
       | constant value =>
-          exact ⟨[], _, .assign (globals := state.globals)
+          exact ⟨[], _, .evaluate (globals := state.globals)
               (environment := state.environment.assign result value)
             hstmt (by simp [Vars.State.evaluate, Vars.evalStmt, Vars.evalExpr])⟩
       | var identifier =>
           obtain ⟨value, hvalue⟩ := hready
-          exact ⟨[], _, .assign (globals := state.globals)
+          exact ⟨[], _, .evaluate (globals := state.globals)
               (environment := state.environment.assign result value)
             hstmt (by simp [Vars.State.evaluate, Vars.evalStmt, Vars.evalExpr, hvalue])⟩
       | add left right =>
           obtain ⟨⟨leftValue, hleft⟩, rightValue, hright⟩ := hready
           let value := Evm.UInt256.add leftValue rightValue
-          exact ⟨[], _, .assign (globals := state.globals)
+          exact ⟨[], _, .evaluate (globals := state.globals)
               (environment := state.environment.assign result value)
             hstmt (by simp [Vars.State.evaluate, Vars.evalStmt, Vars.evalExpr, hleft, hright,
               value, bind, Except.bind, pure, Except.pure])⟩
       | lt left right =>
           obtain ⟨⟨leftValue, hleft⟩, rightValue, hright⟩ := hready
           let value := Evm.UInt256.lt leftValue rightValue
-          exact ⟨[], _, .assign (globals := state.globals)
+          exact ⟨[], _, .evaluate (globals := state.globals)
               (environment := state.environment.assign result value)
             hstmt (by simp [Vars.State.evaluate, Vars.evalStmt, Vars.evalExpr, hleft, hright,
               value, bind, Except.bind, pure, Except.pure])⟩
       | sload key =>
           obtain ⟨keyValue, hkey⟩ := hready
           let value := state.globals.world.loadStorage ctx.self keyValue
-          exact ⟨[], _, .assign (globals := state.globals)
+          exact ⟨[], _, .evaluate (globals := state.globals)
               (environment := state.environment.assign result value)
             hstmt (by simp [Vars.State.evaluate, Vars.evalStmt, Vars.evalExpr, hkey, value])⟩
   | sstore key value =>
       obtain ⟨⟨keyWord, hkey⟩, valueWord, hvalue⟩ := hready
-      exact ⟨[], _, .sstore (globals := state.globals.storeStorage ctx keyWord valueWord)
+      exact ⟨[], _, .evaluate (globals := state.globals.storeStorage ctx keyWord valueWord)
         (environment := state.environment)
         hstmt (by simp [Vars.State.evaluate, Vars.evalStmt, hkey, hvalue, bind, Except.bind,
           pure, Except.pure])⟩

@@ -341,10 +341,7 @@ theorem Vars.SmallStep.preserves_function
     final.control = .halted ∨ (∃ results, final.control = .returned results) ∨
       ∃ cursor', final.control = .running cursor' ∧ cursor'.fn = cursor.fn := by
   cases h with
-  | assign hstmt _ =>
-      obtain ⟨position, hnext⟩ := Vars.Program.statementAt_next_block hcontrol hstmt
-      exact .inr (.inr ⟨_, hnext, rfl⟩)
-  | sstore hstmt _ =>
+  | evaluate hstmt _ =>
       obtain ⟨position, hnext⟩ := Vars.Program.statementAt_next_block hcontrol hstmt
       exact .inr (.inr ⟨_, hnext, rfl⟩)
   | gas hstmt =>
@@ -409,11 +406,7 @@ theorem Vars.SmallStep.returned_inv
       program.block? cursor = some block ∧ block.terminator = .iret ∧
       block.outputs.mapM (state.environment.lookup ·) = .ok results := by
   cases h with
-  | assign hstmt _ =>
-      obtain ⟨cursor, hnext⟩ := Vars.Program.statementAt_next_running hstmt
-      rw [hnext] at hreturn
-      cases hreturn
-  | sstore hstmt _ =>
+  | evaluate hstmt _ =>
       obtain ⟨cursor, hnext⟩ := Vars.Program.statementAt_next_running hstmt
       rw [hnext] at hreturn
       cases hreturn

@@ -422,21 +422,38 @@ private theorem Vars.Program.WellFormed.localsCoverCursor_terminator
       obtain ⟨rfl, rfl⟩ := heval
       trivial
 
-theorem Vars.evalStmt_sstore_environment
-    {state : Vars.State} {globals : Globals} {environment : Locals} {keyVar valueVar : VarId}
-    (h : Vars.evalStmt ctx state (.sstore keyVar valueVar) = .ok (globals, environment)) :
-    environment = state.environment := by
-  simp [Vars.evalStmt] at h
-  cases hkey : state.lookup keyVar with
-  | error _ =>
-      simp [hkey, bind, Except.bind] at h
-  | ok key =>
-      cases hvalue : state.lookup valueVar with
-      | error _ =>
-          simp [hkey, hvalue, bind, Except.bind] at h
+theorem Vars.State.evaluate_covers
+    {state : Vars.State} {statement : Vars.Stmt} {globals : Globals} {environment : Locals}
+    (h : state.evaluate ctx statement = .ok (globals, environment)) :
+    (∀ identifier, state.environment.Defined identifier → environment.Defined identifier) ∧
+      environment.CoversVariables statement.variablesDefined := by
+  cases statement with
+  | assign result expression =>
+      cases hexpr : Vars.evalExpr ctx state.environment state.globals expression with
+      | error _ => simp [Vars.State.evaluate, Vars.evalStmt, hexpr] at h
       | ok value =>
-          simp [hkey, hvalue, bind, Except.bind] at h
-          exact h.2.symm
+          simp [Vars.State.evaluate, Vars.evalStmt, hexpr] at h
+          obtain ⟨-, rfl⟩ := h
+          refine ⟨fun _ hdefined => Locals.defined_assign_of_defined hdefined, ?_⟩
+          intro identifier hidentifier
+          simp [Vars.Stmt.variablesDefined] at hidentifier
+          subst identifier
+          exact Locals.defined_assign _ _ _
+  | sstore keyVar valueVar =>
+      cases hkey : state.lookup keyVar with
+      | error _ => simp [Vars.State.evaluate, Vars.evalStmt, hkey, bind, Except.bind] at h
+      | ok key =>
+          cases hvalue : state.lookup valueVar with
+          | error _ =>
+              simp [Vars.State.evaluate, Vars.evalStmt, hkey, hvalue, bind, Except.bind] at h
+          | ok value =>
+              simp [Vars.State.evaluate, Vars.evalStmt, hkey, hvalue, bind, Except.bind] at h
+              obtain ⟨-, rfl⟩ := h
+              exact ⟨fun _ hdefined => hdefined, by
+                simp [Locals.CoversVariables, Vars.Stmt.variablesDefined]⟩
+  | gas _ | call _ | malloc _ _ | mallocUninit _ _ | mstore32 _ _ | mload32 _ _
+  | icall _ _ _ =>
+      simp [Vars.State.evaluate, Vars.evalStmt] at h
 
 theorem Vars.Program.WellFormed.localsCoverCursor_step
     (hwf : program.WellFormed) {state final : Vars.State} {trace : Trace}
@@ -444,36 +461,13 @@ theorem Vars.Program.WellFormed.localsCoverCursor_step
     (hstep : Vars.SmallStep program ctx state trace final) :
     final.LocalsCoverCursor program := by
   cases hstep with
-  | assign hstmt heval =>
-      rename_i globals environment
+  | evaluate hstmt heval =>
       obtain ⟨cursor, block, index, -, -, hblock, hstatementAt, hnext, hbefore, -⟩ :=
         hwf.statementAt_covers hinvariant hstmt
-      simp [Vars.State.evaluate, Vars.evalStmt] at heval
-      cases hexpr : Vars.evalExpr ctx state.environment state.globals ‹Expr› with
-      | error _ => simp [hexpr] at heval
-      | ok value =>
-          simp [hexpr] at heval
-          obtain ⟨rfl, rfl⟩ := heval
-          apply Vars.State.localsCoverCursor_after_statement
-            (evaluated := ⟨state.globals, state.environment.assign _ value, state.control⟩)
-            hblock hstatementAt hnext hbefore
-          · exact fun identifier hdefined => Locals.defined_assign_of_defined hdefined
-          · intro identifier hidentifier
-            simp [Vars.Stmt.variablesDefined] at hidentifier
-            subst identifier
-            exact Locals.defined_assign _ _ _
-  | sstore hstmt heval =>
-      rename_i globals environment
-      obtain ⟨cursor, block, index, -, -, hblock, hstatementAt, hnext, hbefore, -⟩ :=
-        hwf.statementAt_covers hinvariant hstmt
-      have henv := Vars.evalStmt_sstore_environment (by
-        simpa [Vars.State.evaluate] using heval)
-      apply Vars.State.localsCoverCursor_after_statement
-        (evaluated := ⟨globals, environment, state.control⟩)
-        hblock hstatementAt hnext hbefore
-      · intro identifier hdefined
-        simpa [henv] using hdefined
-      · simp [Locals.CoversVariables, Vars.Stmt.variablesDefined]
+      obtain ⟨hpreserves, hdefines⟩ := Vars.State.evaluate_covers heval
+      exact Vars.State.localsCoverCursor_after_statement
+        (evaluated := ⟨_, _, state.control⟩)
+        hblock hstatementAt hnext hbefore hpreserves hdefines
   | gas hstmt =>
       obtain ⟨cursor, block, index, -, -, hblock, hstatementAt, hnext, hbefore, -⟩ :=
         hwf.statementAt_covers hinvariant hstmt

@@ -17,7 +17,7 @@ theorem Steps.inductionOn {program : Program} {ctx : CallContext}
   refine Steps.rec (motive_1 := fun _ _ _ _ => True)
       (motive_2 := fun state trace final h => motive state trace final h)
       (motive_3 := fun _ _ _ _ _ _ _ => True)
-      ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?refl ?tail ?_ h
+      ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?refl ?tail ?_ h
   case refl => intro state; exact refl state
   case tail => intro state middle final trace₁ trace₂ start next ih _
                exact tail start next ih
@@ -142,7 +142,10 @@ private theorem dialogue_icall {program : Program} {ctx : CallContext}
       · exact .inr hdiv
   | control hterm₂ _ =>
       exact (Program.AtStmt_AtTerm_exclusive hstmt hterm₂).elim
-  | assign hstmt₂ _ | sstore hstmt₂ _ | gas hstmt₂ | call hstmt₂ _ _
+  | evaluate hstmt₂ heval₂ =>
+      obtain ⟨-, rfl⟩ := Program.AtStmt.unique hstmt hstmt₂
+      simp [State.evaluate, evalStmt] at heval₂
+  | gas hstmt₂ | call hstmt₂ _ _
   | malloc hstmt₂ _ _ _ | mallocUninit hstmt₂ _ _ | mstore32 hstmt₂ _ _ _
   | mload32 hstmt₂ _ =>
       cases (Program.AtStmt.unique hstmt hstmt₂).2
@@ -161,7 +164,7 @@ private theorem dialogue_control {program : Program} {ctx : CallContext}
       rw [heval] at heval₂
       obtain ⟨rfl, rfl⟩ := Prod.mk.inj (Except.ok.inj heval₂)
       exact .inl ⟨rfl, rfl⟩
-  | assign hstmt _ | icall hstmt _ _ _ | sstore hstmt _ | gas hstmt
+  | evaluate hstmt _ | icall hstmt _ _ _ | gas hstmt
   | call hstmt _ _ | malloc hstmt _ _ _ | mallocUninit hstmt _ _
   | mstore32 hstmt _ _ _ | mload32 hstmt _ =>
       exact (Program.AtStmt_AtTerm_exclusive hstmt hterm).elim
@@ -226,44 +229,24 @@ theorem stepDialogue_all {program : Program} {ctx : CallContext}
     (motive_2 := fun state trace final _ => RunDialogue program ctx state trace final)
     (motive_3 := fun function globals args trace globals' outcome _ =>
       EvalDialogue program ctx function globals args trace globals' outcome)
-    ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ h
+    ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ h
   case refine_1 =>
-    intro state next result expression globals environment hstmt heval
+    intro state next statement globals environment hstmt heval
     intro trace₂ final₂ h₂
     cases h₂ with
-    | assign hstmt₂ heval₂ =>
-        obtain ⟨hnext, hstatement⟩ :=
-          Program.AtStmt.unique hstmt hstmt₂
-        obtain ⟨hresult, hexpression⟩ := Stmt.assign.inj hstatement
-        subst hnext
-        subst hresult
-        subst hexpression
+    | evaluate hstmt₂ heval₂ =>
+        obtain ⟨rfl, rfl⟩ := Program.AtStmt.unique hstmt hstmt₂
         rw [heval] at heval₂
         obtain ⟨rfl, rfl⟩ := Prod.mk.inj (Except.ok.inj heval₂)
         exact .inl ⟨rfl, rfl⟩
     | control hterm _ =>
         exact (Program.AtStmt_AtTerm_exclusive hstmt hterm).elim
-    | icall hstmt₂ _ _ _ | sstore hstmt₂ _ | gas hstmt₂ | call hstmt₂ _ _
+    | icall hstmt₂ _ _ _ | gas hstmt₂ | call hstmt₂ _ _
     | malloc hstmt₂ _ _ _ | mallocUninit hstmt₂ _ _ | mstore32 hstmt₂ _ _ _
     | mload32 hstmt₂ _ =>
-        cases (Program.AtStmt.unique hstmt hstmt₂).2
+        obtain ⟨-, rfl⟩ := Program.AtStmt.unique hstmt hstmt₂
+        simp [State.evaluate, evalStmt] at heval
   case refine_2 =>
-    intro state next keyVar valueVar globals environment hstmt heval
-    intro trace₂ final₂ h₂
-    cases h₂ with
-    | sstore hstmt₂ heval₂ =>
-        obtain ⟨rfl, heq⟩ := Program.AtStmt.unique hstmt hstmt₂
-        obtain ⟨rfl, rfl⟩ := Stmt.sstore.inj heq
-        rw [heval] at heval₂
-        obtain ⟨rfl, rfl⟩ := Prod.mk.inj (Except.ok.inj heval₂)
-        exact .inl ⟨rfl, rfl⟩
-    | control hterm _ =>
-        exact (Program.AtStmt_AtTerm_exclusive hstmt hterm).elim
-    | assign hstmt₂ _ | icall hstmt₂ _ _ _ | gas hstmt₂ | call hstmt₂ _ _
-    | malloc hstmt₂ _ _ _ | mallocUninit hstmt₂ _ _ | mstore32 hstmt₂ _ _ _
-    | mload32 hstmt₂ _ =>
-        cases (Program.AtStmt.unique hstmt hstmt₂).2
-  case refine_3 =>
     intro state next result answer₁ hstmt
     intro trace₂ final₂ h₂
     cases h₂ with
@@ -276,11 +259,14 @@ theorem stepDialogue_all {program : Program} {ctx : CallContext}
         · exact .inr hdiv
     | control hterm _ =>
         exact (Program.AtStmt_AtTerm_exclusive hstmt hterm).elim
-    | assign hstmt₂ _ | icall hstmt₂ _ _ _ | sstore hstmt₂ _ | call hstmt₂ _ _
+    | evaluate hstmt₂ heval₂ =>
+        obtain ⟨-, rfl⟩ := Program.AtStmt.unique hstmt hstmt₂
+        simp [State.evaluate, evalStmt] at heval₂
+    | icall hstmt₂ _ _ _ | call hstmt₂ _ _
     | malloc hstmt₂ _ _ _ | mallocUninit hstmt₂ _ _ | mstore32 hstmt₂ _ _ _
     | mload32 hstmt₂ _ =>
         cases (Program.AtStmt.unique hstmt hstmt₂).2
-  case refine_4 =>
+  case refine_3 =>
     intro state next call target gasLimit answer₁ hstmt htarget hgas
     intro trace₂ final₂ h₂
     cases h₂ with
@@ -297,17 +283,20 @@ theorem stepDialogue_all {program : Program} {ctx : CallContext}
         · exact .inr hdiv
     | control hterm _ =>
         exact (Program.AtStmt_AtTerm_exclusive hstmt hterm).elim
-    | assign hstmt₂ _ | icall hstmt₂ _ _ _ | sstore hstmt₂ _ | gas hstmt₂
+    | evaluate hstmt₂ heval₂ =>
+        obtain ⟨-, rfl⟩ := Program.AtStmt.unique hstmt hstmt₂
+        simp [State.evaluate, evalStmt] at heval₂
+    | icall hstmt₂ _ _ _ | gas hstmt₂
     | malloc hstmt₂ _ _ _ | mallocUninit hstmt₂ _ _ | mstore32 hstmt₂ _ _ _
     | mload32 hstmt₂ _ =>
         cases (Program.AtStmt.unique hstmt hstmt₂).2
-  case refine_5 =>
+  case refine_4 =>
     intro _ _ _ _ _ _ hstmt _ _ _
     exact (program.memOracleFree_not_malloc hfree hstmt).elim
-  case refine_6 =>
+  case refine_5 =>
     intro _ _ _ _ _ _ hstmt _ _
     exact (program.memOracleFree_not_mallocUninit hfree hstmt).elim
-  case refine_7 =>
+  case refine_6 =>
     intro state next offsetVar valueVar offset value hstmt hoffset hvalue hbound
     intro trace₂ final₂ h₂
     cases h₂ with
@@ -321,22 +310,25 @@ theorem stepDialogue_all {program : Program} {ctx : CallContext}
         exact .inl ⟨rfl, rfl⟩
     | control hterm _ =>
         exact (Program.AtStmt_AtTerm_exclusive hstmt hterm).elim
-    | assign hstmt₂ _ | icall hstmt₂ _ _ _ | sstore hstmt₂ _ | gas hstmt₂
+    | evaluate hstmt₂ heval₂ =>
+        obtain ⟨-, rfl⟩ := Program.AtStmt.unique hstmt hstmt₂
+        simp [State.evaluate, evalStmt] at heval₂
+    | icall hstmt₂ _ _ _ | gas hstmt₂
     | call hstmt₂ _ _ | malloc hstmt₂ _ _ _ | mallocUninit hstmt₂ _ _
     | mload32 hstmt₂ _ =>
         cases (Program.AtStmt.unique hstmt hstmt₂).2
-  case refine_8 =>
+  case refine_7 =>
     intro _ _ _ _ _ _ hstmt _
     exact (program.memOracleFree_not_mload32 hfree hstmt).elim
-  case refine_9 =>
+  case refine_8 =>
     intros
     apply dialogue_icall <;> assumption
-  case refine_10 =>
+  case refine_9 =>
     intros
     apply dialogue_control <;> assumption
-  case refine_11 => intros; exact runDialogue_refl
-  case refine_12 => intros; apply runDialogue_tail <;> assumption
-  case refine_13 => intros; apply evalDialogue_exit <;> assumption
+  case refine_10 => intros; exact runDialogue_refl
+  case refine_11 => intros; apply runDialogue_tail <;> assumption
+  case refine_12 => intros; apply evalDialogue_exit <;> assumption
 
 theorem runDialogue_all {program : Program} {ctx : CallContext}
     (hfree : program.MemOracleFree) {state final : State} {trace : Trace}
