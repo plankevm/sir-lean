@@ -9,6 +9,15 @@ local notation:50 s " =[" t "]=>* " f => Vars.Steps program ctx s t f
 
 local notation:50 s " =[" t "]=> " f => Vars.SmallStep program ctx s t f
 
+theorem Vars.Steps.single {s e : Vars.State} {t : Trace}
+    (h : s =[t]=> e) : s =[t]=>* e :=
+  Vars.Proofs.Steps.single h
+
+theorem Vars.Steps.trans {s m e : Vars.State} {t₁ t₂ : Trace}
+    (first : s =[t₁]=>* m) (second : m =[t₂]=>* e) :
+    s =[t₁ ++ t₂]=>* e :=
+  Vars.Proofs.Steps.trans first second
+
 theorem Vars.Program.deterministic_of_memOracleFree
     (hfree : program.MemOracleFree) : program.Deterministic :=
   Vars.Proofs.Program.deterministic_of_memOracleFree hfree

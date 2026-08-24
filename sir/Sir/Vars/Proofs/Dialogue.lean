@@ -23,6 +23,8 @@ theorem Steps.inductionOn {program : Program} {ctx : CallContext}
                exact tail start next ih
   all_goals intros; trivial
 
+namespace Proofs
+
 theorem Steps.trans {program : Program} {ctx : CallContext}
     {start middle final : State} {firstTrace secondTrace : Trace}
     (first : Steps program ctx start firstTrace middle)
@@ -44,6 +46,8 @@ theorem Steps.single {program : Program} {ctx : CallContext} {state final : Stat
     {trace : Trace} (h : SmallStep program ctx state trace final) :
     Steps program ctx state trace final :=
   .tail .refl h
+
+end Proofs
 
 theorem Steps.headDecomp {program : Program} {ctx : CallContext} {state final : State}
     {trace : Trace} (h : Steps program ctx state trace final) :
@@ -185,7 +189,7 @@ private theorem runDialogue_tail {program : Program} {ctx : CallContext}
       ⟨suffix, hrun, heq⟩ | ⟨suffix, hrun, heq⟩ | hdiv
   · rcases hrun.headDecomp with ⟨rfl, rfl⟩ |
         ⟨middle', prefixTrace, suffixTrace, first, rest, rfl⟩
-    · exact .inr (.inl ⟨trace₂, Steps.single next, by simp [← heq]⟩)
+    · exact .inr (.inl ⟨trace₂, Proofs.Steps.single next, by simp [← heq]⟩)
     · rcases ihStep prefixTrace middle' first with ⟨rfl, rfl⟩ | hdiv
       · exact .inl ⟨suffixTrace, rest, by simp [← heq]⟩
       · exact .inr (.inr (by
