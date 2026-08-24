@@ -250,4 +250,71 @@ theorem slotted_wellFormed : slottedProgram.WellFormed where
       | 0 => simp at hindex; subst hindex; decide
       | n + 1 => simp at hindex
 
+def slottedSum : Word := Evm.UInt256.add 2 3
+def slottedTotal : Word := Evm.UInt256.add slottedSum 5
+
+def slottedEnv (stack : List Word) : Environment :=
+  { Environment.empty.storeSlot slottedSlot 5 with stack }
+
+def slottedAt (globals : Globals) (environment : Environment) (block : BlockId)
+    (position : BlockPosition) : State :=
+  { globals, environment
+    control := .running { fn := slottedProgram.initId, block, position } }
+
+def slottedInitial (globals : Globals) : State :=
+  slottedAt globals { Environment.empty with stack := [] } ⟨0⟩ (.statement 0)
+
+theorem slotted_callState (globals : Globals) :
+    slottedProgram.callState? slottedProgram.initId globals #[] = some (slottedInitial globals) :=
+  rfl
+
+theorem slotted_ready (ctx : CallContext) (globals : Globals) :
+    slottedProgram.ReadyState ctx (slottedInitial globals) := by
+  have hat : slottedProgram.instructionAt (slottedInitial globals).control =
+      some (.running { fn := slottedProgram.initId, block := ⟨0⟩, position := .statement 1 },
+        .push 5) := rfl
+  have hop : ∀ next operation,
+      ¬ slottedProgram.AtInstr (slottedInitial globals) next (.op operation) := by
+    intro next operation hinstr
+    simp [hat] at hinstr
+  exact ⟨⟨slottedProgram.initId, globals, #[], [], _, slotted_callState globals, .refl⟩,
+    .inl ⟨_, _, hat, by simp⟩,
+    .inr ⟨fun next _ hinstr => absurd hinstr (hop next .malloc),
+      fun next _ hinstr => absurd hinstr (hop next .mallocUninit)⟩,
+    fun next _ _ hinstr => absurd hinstr (hop next .mstore32)⟩
+
+theorem slotted_progress (ctx : CallContext) (globals : Globals) :
+    ∃ trace state',
+      SmallStep slottedProgram ctx (slottedInitial globals) trace state' :=
+  slotted_wellFormed.progress (slotted_ready ctx globals)
+
+theorem slotted_runs (ctx : CallContext) (world : World) :
+    ∃ final, slottedProgram.RunsTo ctx slottedProgram.initId world [] final := by
+  have run : ∀ globals : Globals,
+      Steps slottedProgram ctx (slottedInitial globals) []
+        (State.of globals (slottedEnv [slottedTotal]) .halted) := by
+    intro globals
+    have entry : Steps slottedProgram ctx (slottedInitial globals) [] (slottedInitial globals) :=
+      .refl
+    have pushed := entry.tail (SmallStep.evaluate rfl rfl)
+    have stored : Steps slottedProgram ctx (slottedInitial globals) []
+        (slottedAt globals (slottedEnv []) ⟨0⟩ (.statement 2)) :=
+      pushed.tail (SmallStep.evaluate rfl rfl)
+    have operand₂ := stored.tail (SmallStep.evaluate rfl rfl)
+    have operand₃ := operand₂.tail (SmallStep.evaluate rfl rfl)
+    have loaded : Steps slottedProgram ctx (slottedInitial globals) []
+        (slottedAt globals (slottedEnv [5, 3, 2]) ⟨0⟩ (.statement 5)) :=
+      operand₃.tail (SmallStep.evaluate rfl rfl)
+    have exchanged := loaded.tail (SmallStep.evaluate rfl rfl)
+    have summed : Steps slottedProgram ctx (slottedInitial globals) []
+        (slottedAt globals (slottedEnv [slottedSum, 5]) ⟨0⟩ .terminator) :=
+      exchanged.tail (SmallStep.evaluate rfl rfl)
+    have jumped : Steps slottedProgram ctx (slottedInitial globals) []
+        (slottedAt globals (slottedEnv [slottedSum, 5]) slottedTarget (.statement 0)) :=
+      summed.tail (SmallStep.control rfl rfl)
+    have added := jumped.tail (SmallStep.evaluate rfl rfl)
+    exact added.tail (SmallStep.control rfl rfl)
+  exact ⟨State.of { world := world } (slottedEnv [slottedTotal]) .halted,
+    ⟨_, slotted_callState _, run _⟩, rfl⟩
+
 end Sir.Stack
