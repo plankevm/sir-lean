@@ -190,7 +190,7 @@ private theorem runDialogue_tail {program : Program} {ctx : CallContext}
 private theorem evalDialogue_exit {program : Program} {ctx : CallContext}
     {function : FunctionId} {globals : Globals} {args : Array Word}
     {trace : Trace} {initial exit : State} {outcome : FunctionOutcome}
-    (hentry : entry program function globals args = some initial)
+    (hentry : program.callState? function globals args = some initial)
     (hexit : exit.control = outcome.toControl)
     (ihRun : RunDialogue program ctx initial trace exit) :
     EvalDialogue program ctx function globals args trace exit.globals outcome := by

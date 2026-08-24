@@ -306,7 +306,7 @@ def resume (outcome : FunctionOutcome) (environment : Environment)
       .ok (environment, next)
   | .halted => .ok (.empty, .halted)
 
-def entry (program : Program) (functionId : FunctionId) (globals : Globals)
+def Program.callState? (program : Program) (functionId : FunctionId) (globals : Globals)
     (args : Array Word) : Option State := do
   let function ← program.function? functionId
   if args.size ≠ function.entry.inputCount then none
@@ -390,7 +390,7 @@ inductive Steps (program : Program) (context : CallContext) :
 inductive EvalFn (program : Program) (context : CallContext) :
     FunctionId → Globals → Array Word → Trace → Globals → FunctionOutcome → Prop where
   | exit
-      (hentry : entry program function globals args = some initial)
+      (hentry : program.callState? function globals args = some initial)
       (hrun : Steps program context initial trace final)
       (hexit : final.control = outcome.toControl) :
       EvalFn program context function globals args trace final.globals outcome
@@ -450,7 +450,7 @@ def Program.StoreInBounds (program : Program) (state : State) : Prop :=
 def Program.RunsFunction (program : Program) (ctx : CallContext) (function : FunctionId)
     (globals : Globals) (args : Array Word) (trace : Trace) (state : State) : Prop :=
   ∃ initial,
-    entry program function globals args = some initial ∧
+    program.callState? function globals args = some initial ∧
     Steps program ctx initial trace state
 
 def Program.Runs (program : Program) (ctx : CallContext) (entry : FunctionId)
