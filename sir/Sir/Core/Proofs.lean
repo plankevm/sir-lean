@@ -3,6 +3,40 @@ import Sir.Core.Proofs.Bump
 
 namespace Sir
 
+theorem wellFounded_swap_of_acyclic {α : Type} {r : α → α → Prop} {index : α → Nat}
+    {bound : Nat} (hindex : Function.Injective index)
+    (hbound : ∀ source target, r source target → index source < bound)
+    (hacyclic : ∀ a, ¬ Relation.TransGen r a a) :
+    WellFounded (Function.swap r) := by
+  classical
+  let ancestors (a : α) : Finset Nat :=
+    (Finset.range bound).filter fun i =>
+      ∃ b, index b = i ∧ Relation.TransGen (Function.swap r) b a
+  let rank (a : α) := if index a < bound then (ancestors a).card + 1 else 0
+  apply Subrelation.wf (r := fun predecessor caller => rank predecessor < rank caller) _
+    (measure rank).wf
+  intro predecessor caller hedge
+  have callerBound : index caller < bound := hbound caller predecessor hedge
+  by_cases predecessorBound : index predecessor < bound
+  · have subset : ancestors predecessor ⊆ ancestors caller := by
+      intro i hi
+      simp only [ancestors, Finset.mem_filter] at hi ⊢
+      obtain ⟨hlt, b, hb, htrans⟩ := hi
+      exact ⟨hlt, b, hb, htrans.tail hedge⟩
+    have mem : index predecessor ∈ ancestors caller := by
+      simp only [ancestors, Finset.mem_filter, Finset.mem_range]
+      exact ⟨predecessorBound, predecessor, rfl, Relation.TransGen.single hedge⟩
+    have notMem : index predecessor ∉ ancestors predecessor := by
+      intro h
+      obtain ⟨-, b, hb, htrans⟩ := Finset.mem_filter.mp h
+      rw [hindex hb] at htrans
+      exact hacyclic predecessor htrans.swap
+    have strict : ancestors predecessor ⊂ ancestors caller :=
+      Finset.ssubset_iff_subset_ne.mpr ⟨subset, fun h => notMem (h ▸ mem)⟩
+    simp only [rank, predecessorBound, callerBound, ↓reduceIte]
+    exact Nat.add_lt_add_right (Finset.card_lt_card strict) 1
+  · simp [rank, predecessorBound, callerBound]
+
 namespace Trace
 
 theorem getElem?_append_cons (pre : Trace) (event : Event) (rest : Trace) :
