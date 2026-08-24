@@ -87,28 +87,6 @@ theorem Vars.Program.statementAt_next_running
     obtain ⟨pos, hnext⟩ := Vars.Program.statementAt_next_block rfl h
     exact ⟨_, hnext⟩
 
-def Vars.Function.terminatorOf (fn : Vars.Function) (block : BlockId) : Option Vars.Terminator :=
-  (fn.block? block).map (·.terminator)
-
-def Vars.Program.terminatorOf (program : Vars.Program) (cursor : ProgramCursor) : Option Vars.Terminator :=
-  (program.block? cursor).map (·.terminator)
-
-theorem Vars.Program.terminatorAt_inv
-    {control : Control} {cursor : ProgramCursor} {term : Vars.Terminator}
-    (hctrl : control = .running cursor)
-    (h : program.terminatorAt control = some term) :
-    program.terminatorOf cursor = some term := by
-  subst hctrl
-  obtain ⟨fid, blk, pos⟩ := cursor
-  cases pos with
-  | statement index => simp [Vars.Program.terminatorAt] at h
-  | terminator =>
-    cases hb : program.block? { fn := fid, block := blk, position := .terminator } with
-    | none => simp [Vars.Program.terminatorAt, hb] at h
-    | some bb =>
-      simp only [Vars.Program.terminatorAt, hb] at h
-      simpa [Vars.Program.terminatorOf, hb] using h
-
 theorem Vars.Program.statementAt_cursor
     {control nextControl : Control} {statement : Vars.Stmt}
     (hstmt : program.statementAt control = some (nextControl, statement)) :
