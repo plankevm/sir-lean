@@ -1,81 +1,75 @@
-import Sir.Proofs.Dialogue
+import Sir.Vars.Proofs.Dialogue
 
 namespace Sir
 
-variable {program : Program} {ctx : CallContext}
+variable {program : Vars.Program} {ctx : CallContext}
 
-private theorem Trace.QueryDivergence.ne {t₁ t₂ : Trace}
-    (h : Trace.QueryDivergence t₁ t₂) : t₁ ≠ t₂ := by
-  obtain ⟨p, a, ra, b, rb, rfl, rfl, hne, -⟩ := h
-  intro he
-  exact hne (List.cons.inj (List.append_cancel_left he)).1
-
-theorem SmallStep.prefix_det_proof
+theorem Vars.Proofs.SmallStep.prefix_det
     (hfree : program.MemOracleFree)
-    {s s₁ s₂ : MachineState} {t₁ t₂ r₁ r₂ : Trace}
-    (h₁ : SmallStep program ctx s t₁ s₁)
-    (h₂ : SmallStep program ctx s t₂ s₂)
+    {s s₁ s₂ : Vars.State} {t₁ t₂ r₁ r₂ : Trace}
+    (h₁ : Vars.SmallStep program ctx s t₁ s₁)
+    (h₂ : Vars.SmallStep program ctx s t₂ s₂)
     (htr : t₁ ++ r₁ = t₂ ++ r₂) : t₁ = t₂ ∧ s₁ = s₂ := by
   rcases stepDialogue_all hfree h₁ t₂ s₂ h₂ with hdet | hdiv
   · exact hdet
   · exact ((hdiv.extend r₁ r₂).ne htr).elim
 
-theorem Steps.prefix_confluence_proof
+theorem Vars.Proofs.Steps.prefix_confluence
     (hfree : program.MemOracleFree)
-    {s e₁ e₂ : MachineState} {t₁ t₂ r₁ r₂ : Trace}
-    (h₁ : Steps program ctx s t₁ e₁)
-    (h₂ : Steps program ctx s t₂ e₂)
+    {s e₁ e₂ : Vars.State} {t₁ t₂ r₁ r₂ : Trace}
+    (h₁ : Vars.Steps program ctx s t₁ e₁)
+    (h₂ : Vars.Steps program ctx s t₂ e₂)
     (htr : t₁ ++ r₁ = t₂ ++ r₂) :
-    (∃ u, Steps program ctx e₁ u e₂ ∧ t₁ ++ u = t₂) ∨
-      (∃ u, Steps program ctx e₂ u e₁ ∧ t₂ ++ u = t₁) := by
-  rcases Steps.confluence_or_queryDivergence_proof hfree h₁ h₂ with h₁₂ | h₂₁ | hdiv
+    (∃ u, Vars.Steps program ctx e₁ u e₂ ∧ t₁ ++ u = t₂) ∨
+      (∃ u, Vars.Steps program ctx e₂ u e₁ ∧ t₂ ++ u = t₁) := by
+  rcases Vars.Proofs.Steps.confluence_or_queryDivergence hfree h₁ h₂ with h₁₂ | h₂₁ | hdiv
   · exact .inl h₁₂
   · exact .inr h₂₁
   · exact ((hdiv.extend r₁ r₂).ne htr).elim
 
-theorem EvalFn.prefix_det_proof
+theorem Vars.Proofs.EvalFn.prefix_det
     (hfree : program.MemOracleFree)
     {f : FunctionId} {g g₁ g₂ : Globals} {args : Array Word}
     {outcome₁ outcome₂ : FunctionOutcome}
     {t₁ t₂ r₁ r₂ : Trace}
-    (h₁ : EvalFn program ctx f g args t₁ g₁ outcome₁)
-    (h₂ : EvalFn program ctx f g args t₂ g₂ outcome₂)
+    (h₁ : Vars.EvalFn program ctx f g args t₁ g₁ outcome₁)
+    (h₂ : Vars.EvalFn program ctx f g args t₂ g₂ outcome₂)
     (htr : t₁ ++ r₁ = t₂ ++ r₂) :
     t₁ = t₂ ∧ g₁ = g₂ ∧ outcome₁ = outcome₂ := by
   rcases fnDialogue_all hfree h₁ t₂ g₂ outcome₂ h₂ with hdet | hdiv
   · exact hdet
   · exact ((hdiv.extend r₁ r₂).ne htr).elim
 
-theorem SmallStep.trace_det_proof
+theorem Vars.Proofs.SmallStep.trace_det
     (hfree : program.MemOracleFree)
-    {s s₁ s₂ : MachineState} {t : Trace}
-    (h₁ : SmallStep program ctx s t s₁)
-    (h₂ : SmallStep program ctx s t s₂) : s₁ = s₂ :=
-  (SmallStep.prefix_det_proof hfree h₁ h₂ (r₁ := []) (r₂ := []) rfl).2
+    {s s₁ s₂ : Vars.State} {t : Trace}
+    (h₁ : Vars.SmallStep program ctx s t s₁)
+    (h₂ : Vars.SmallStep program ctx s t s₂) : s₁ = s₂ :=
+  (Vars.Proofs.SmallStep.prefix_det hfree h₁ h₂ (r₁ := []) (r₂ := []) rfl).2
 
-theorem EvalFn.trace_det_proof
+theorem Vars.Proofs.EvalFn.trace_det
     (hfree : program.MemOracleFree)
     {f : FunctionId} {g g₁ g₂ : Globals} {args : Array Word}
     {outcome₁ outcome₂ : FunctionOutcome} {t : Trace}
-    (h₁ : EvalFn program ctx f g args t g₁ outcome₁)
-    (h₂ : EvalFn program ctx f g args t g₂ outcome₂) :
+    (h₁ : Vars.EvalFn program ctx f g args t g₁ outcome₁)
+    (h₂ : Vars.EvalFn program ctx f g args t g₂ outcome₂) :
     g₁ = g₂ ∧ outcome₁ = outcome₂ :=
-  (EvalFn.prefix_det_proof hfree h₁ h₂ (r₁ := []) (r₂ := []) rfl).2
+  (Vars.Proofs.EvalFn.prefix_det hfree h₁ h₂ (r₁ := []) (r₂ := []) rfl).2
 
-theorem Steps.stuck_trace_det
+theorem Vars.Steps.stuck_trace_det
     (hfree : program.MemOracleFree)
-    {s e₁ e₂ : MachineState} {t : Trace}
-    (h₁ : Steps program ctx s t e₁) (hs₁ : Stuck program ctx e₁)
-    (h₂ : Steps program ctx s t e₂) (hs₂ : Stuck program ctx e₂) : e₁ = e₂ := by
-  rcases Steps.prefix_confluence_proof hfree h₁ h₂ (r₁ := []) (r₂ := []) rfl with
+    {s e₁ e₂ : Vars.State} {t : Trace}
+    (h₁ : Vars.Steps program ctx s t e₁) (hs₁ : Stuck program ctx e₁)
+    (h₂ : Vars.Steps program ctx s t e₂) (hs₂ : Stuck program ctx e₂) : e₁ = e₂ := by
+  rcases Vars.Proofs.Steps.prefix_confluence hfree h₁ h₂ (r₁ := []) (r₂ := []) rfl with
     ⟨u, hu, -⟩ | ⟨u, hu, -⟩
-  · exact (hu.eq_of_stuck hs₁).1.symm
-  · exact (hu.eq_of_stuck hs₂).1
+  · exact (Vars.Steps.eq_of_stuck hu hs₁).1.symm
+  · exact (Vars.Steps.eq_of_stuck hu hs₂).1
 
-theorem Program.RunsTo.trace_det_proof
+theorem Vars.Proofs.Program.RunsTo.trace_det
     (hfree : program.MemOracleFree)
     {entry : FunctionId} {world₀ : World} {t : Trace}
-    {final₁ final₂ : MachineState}
+    {final₁ final₂ : Vars.State}
     (h₁ : program.RunsTo ctx entry world₀ t final₁)
     (h₂ : program.RunsTo ctx entry world₀ t final₂) : final₁ = final₂ :=
   by
@@ -83,11 +77,11 @@ theorem Program.RunsTo.trace_det_proof
     rcases h₂ with ⟨⟨initial₂, hentry₂, hsteps₂⟩, hhalt₂⟩
     have : initial₁ = initial₂ := Option.some.inj (hentry₁.symm.trans hentry₂)
     subst initial₂
-    exact Steps.stuck_trace_det hfree hsteps₁ (stuck_of_halted hhalt₁)
-      hsteps₂ (stuck_of_halted hhalt₂)
+    exact Vars.Steps.stuck_trace_det hfree hsteps₁ (stuck_of_exit (outcome := .halted) hhalt₁)
+      hsteps₂ (stuck_of_exit (outcome := .halted) hhalt₂)
 
 
-variable {program : Program} {ctx : CallContext}
+variable {program : Vars.Program} {ctx : CallContext}
 
 private theorem Trace.QueryDivergence.not_prefix {t₁ t₂ : Trace}
     (h : Trace.QueryDivergence t₁ t₂) : ¬ t₁ <+: t₂ := by
@@ -96,41 +90,9 @@ private theorem Trace.QueryDivergence.not_prefix {t₁ t₂ : Trace}
   rw [List.append_assoc] at hu
   exact hne (List.cons.inj (List.append_cancel_left hu)).1
 
-private theorem getElem?_append_cons (l : Trace) (x : Event) (r : Trace) :
-    (l ++ x :: r)[l.length]? = some x := by
-  simp
-
-private theorem Trace.QueryDivergence.query_eq {t₁ t₂ : Trace}
-    (hdiv : Trace.QueryDivergence t₁ t₂)
-    {pre : Trace} {e₁ e₂ : Event} {r₁ r₂ : Trace}
-    (h₁ : t₁ = pre ++ e₁ :: r₁) (h₂ : t₂ = pre ++ e₂ :: r₂) :
-    e₁.query = e₂.query := by
-  obtain ⟨p, a, ra, b, rb, hpa, hpb, hne, hq⟩ := hdiv
-  have gA1 : t₁[pre.length]? = some e₁ := by rw [h₁]; exact getElem?_append_cons ..
-  have gA2 : t₁[p.length]? = some a := by rw [hpa]; exact getElem?_append_cons ..
-  have gB1 : t₂[pre.length]? = some e₂ := by rw [h₂]; exact getElem?_append_cons ..
-  have gB2 : t₂[p.length]? = some b := by rw [hpb]; exact getElem?_append_cons ..
-  rcases Nat.lt_trichotomy pre.length p.length with hlt | hlen | hgt
-  · have c₁ : t₁[pre.length]? = p[pre.length]? := by
-      rw [hpa]; exact List.getElem?_append_left hlt
-    have c₂ : t₂[pre.length]? = p[pre.length]? := by
-      rw [hpb]; exact List.getElem?_append_left hlt
-    obtain rfl : e₁ = e₂ :=
-      Option.some.inj ((c₁.symm.trans gA1).symm.trans (c₂.symm.trans gB1))
-    rfl
-  · obtain rfl : e₁ = a := Option.some.inj ((hlen ▸ gA1).symm.trans gA2)
-    obtain rfl : e₂ = b := Option.some.inj ((hlen ▸ gB1).symm.trans gB2)
-    exact hq
-  · have c₁ : t₁[p.length]? = pre[p.length]? := by
-      rw [h₁]; exact List.getElem?_append_left hgt
-    have c₂ : t₂[p.length]? = pre[p.length]? := by
-      rw [h₂]; exact List.getElem?_append_left hgt
-    exact absurd
-      (Option.some.inj ((c₁.symm.trans gA2).symm.trans (c₂.symm.trans gB2))) hne
-
-theorem Program.RunsTo.unique_or_queryDivergence_proof
+theorem Vars.Proofs.Program.RunsTo.unique_or_queryDivergence
     {entry : FunctionId} {world₀ : World}
-    {t₁ t₂ : Trace} {final₁ final₂ : MachineState}
+    {t₁ t₂ : Trace} {final₁ final₂ : Vars.State}
     (hfree : program.MemOracleFree)
     (h₁ : program.RunsTo ctx entry world₀ t₁ final₁)
     (h₂ : program.RunsTo ctx entry world₀ t₂ final₂) :
@@ -139,18 +101,18 @@ theorem Program.RunsTo.unique_or_queryDivergence_proof
   rcases h₂ with ⟨⟨initial₂, hentry₂, hrun₂⟩, hhalt₂⟩
   have : initial₁ = initial₂ := Option.some.inj (hentry₁.symm.trans hentry₂)
   subst initial₂
-  rcases Steps.confluence_or_queryDivergence_proof hfree hrun₁ hrun₂ with
+  rcases Vars.Proofs.Steps.confluence_or_queryDivergence hfree hrun₁ hrun₂ with
     ⟨u, hu, htu⟩ | ⟨u, hu, htu⟩ | hdiv
-  · obtain ⟨rfl, rfl⟩ := hu.eq_of_stuck (stuck_of_halted hhalt₁)
+  · obtain ⟨rfl, rfl⟩ := Vars.Steps.eq_of_stuck hu (stuck_of_exit (outcome := .halted) hhalt₁)
     exact .inl ⟨by simpa using htu, rfl⟩
-  · obtain ⟨rfl, rfl⟩ := hu.eq_of_stuck (stuck_of_halted hhalt₂)
+  · obtain ⟨rfl, rfl⟩ := Vars.Steps.eq_of_stuck hu (stuck_of_exit (outcome := .halted) hhalt₂)
     exact .inl ⟨by simpa using htu.symm, rfl⟩
   · exact .inr hdiv
 
-private theorem Program.RunsFunction.query_eq_at
+private theorem Vars.Program.RunsFunction.query_eq_at
     (hfree : program.MemOracleFree)
     {function : FunctionId} {globals : Globals} {args : Array Word}
-    {t₁ t₂ history : Trace} {state₁ state₂ : MachineState}
+    {t₁ t₂ history : Trace} {state₁ state₂ : Vars.State}
     {event₁ event₂ : Event} {rest₁ rest₂ : Trace}
     (h₁ : program.RunsFunction ctx function globals args t₁ state₁)
     (h₂ : program.RunsFunction ctx function globals args t₂ state₂)
@@ -162,11 +124,11 @@ private theorem Program.RunsFunction.query_eq_at
   obtain rfl := Option.some.inj (hentry₁.symm.trans hentry₂)
   have get₁ : t₁[history.length]? = some event₁ := by
     rw [ht₁]
-    exact getElem?_append_cons ..
+    exact Trace.getElem?_append_cons ..
   have get₂ : t₂[history.length]? = some event₂ := by
     rw [ht₂]
-    exact getElem?_append_cons ..
-  rcases Steps.confluence_or_queryDivergence_proof hfree hrun₁ hrun₂ with
+    exact Trace.getElem?_append_cons ..
+  rcases Vars.Proofs.Steps.confluence_or_queryDivergence hfree hrun₁ hrun₂ with
     ⟨u, -, htu⟩ | ⟨u, -, htu⟩ | hdiv
   · have hlt : history.length < t₁.length := by rw [ht₁]; simp
     have getEq : t₂[history.length]? = t₁[history.length]? := by
@@ -186,14 +148,14 @@ private theorem Program.RunsFunction.query_eq_at
 
 private theorem terminalSteps_no_event
     (hfree : program.MemOracleFree)
-    {initial exit state : MachineState} {history trace rest : Trace} {event : Event}
-    (hterm : Steps program ctx initial history exit)
+    {initial exit state : Vars.State} {history trace rest : Trace} {event : Event}
+    (hterm : Vars.Steps program ctx initial history exit)
     (hstuck : Stuck program ctx exit)
-    (hsteps : Steps program ctx initial trace state)
+    (hsteps : Vars.Steps program ctx initial trace state)
     (htrace : trace = history ++ event :: rest) : False := by
-  rcases Steps.confluence_or_queryDivergence_proof hfree hterm hsteps with
+  rcases Vars.Proofs.Steps.confluence_or_queryDivergence hfree hterm hsteps with
     ⟨u, hu, htu⟩ | ⟨u, -, htu⟩ | hdiv
-  · obtain ⟨-, rfl⟩ := hu.eq_of_stuck hstuck
+  · obtain ⟨-, rfl⟩ := Vars.Steps.eq_of_stuck hu hstuck
     have hlen := congrArg List.length (htu.trans htrace)
     simp at hlen
   · rw [htrace] at htu
@@ -201,24 +163,23 @@ private theorem terminalSteps_no_event
     simp at hlen
   · exact hdiv.not_prefix ⟨event :: rest, htrace.symm⟩
 
-private theorem EvalFn.runsFunction_no_event
+private theorem Vars.EvalFn.runsFunction_no_event
     (hfree : program.MemOracleFree)
     {function : FunctionId} {globals finalGlobals : Globals} {args : Array Word}
     {history trace rest : Trace} {outcome : FunctionOutcome} {event : Event}
-    {state : MachineState}
-    (heval : EvalFn program ctx function globals args history finalGlobals outcome)
+    {state : Vars.State}
+    (heval : Vars.EvalFn program ctx function globals args history finalGlobals outcome)
     (hrun : program.RunsFunction ctx function globals args trace state)
     (htrace : trace = history ++ event :: rest) : False := by
   obtain ⟨initial, hentry, hsteps⟩ := hrun
   cases heval with
-  | returned hentry₂ hrun₂ hret =>
+  | exit hentry₂ hrun₂ hexit =>
+      rename_i initialGen exit
       obtain rfl := Option.some.inj (hentry.symm.trans hentry₂)
-      exact terminalSteps_no_event hfree hrun₂ (stuck_of_returned hret) hsteps htrace
-  | halted hentry₂ hrun₂ hhalt =>
-      obtain rfl := Option.some.inj (hentry.symm.trans hentry₂)
-      exact terminalSteps_no_event hfree hrun₂ (stuck_of_halted hhalt) hsteps htrace
+      exact terminalSteps_no_event hfree hrun₂
+        (stuck_of_exit hexit) hsteps htrace
 
-theorem Program.functionDeterministicFrom_of_memOracleFree_proof
+theorem Vars.Proofs.Program.functionDeterministicFrom_of_memOracleFree
     (hfree : program.MemOracleFree) (ctx : CallContext)
     (function : FunctionId) (globals : Globals) (args : Array Word) :
     program.FunctionDeterministicFrom ctx function globals args := by
@@ -227,37 +188,37 @@ theorem Program.functionDeterministicFrom_of_memOracleFree_proof
   · rfl
   · rcases h₁ with ⟨gas, t₁, r₁, s₁, run₁, ht₁⟩
     rcases h₂ with ⟨call, t₂, r₂, s₂, -, run₂, ht₂⟩
-    have hquery := Program.RunsFunction.query_eq_at hfree run₁ run₂ ht₁ ht₂
+    have hquery := Vars.Program.RunsFunction.query_eq_at hfree run₁ run₂ ht₁ ht₂
     cases hquery
   · rcases h₁ with ⟨gas, t, rest, s, run, ht⟩
     rcases h₂ with ⟨_, haltRun, -⟩
-    exact (EvalFn.runsFunction_no_event hfree haltRun run ht).elim
+    exact (Vars.EvalFn.runsFunction_no_event hfree haltRun run ht).elim
   · rcases h₁ with ⟨gas, t, rest, s, run, ht⟩
     rcases h₂ with ⟨_, returnRun, -⟩
-    exact (EvalFn.runsFunction_no_event hfree returnRun run ht).elim
+    exact (Vars.EvalFn.runsFunction_no_event hfree returnRun run ht).elim
   · rcases h₁ with ⟨call, t₁, r₁, s₁, -, run₁, ht₁⟩
     rcases h₂ with ⟨gas, t₂, r₂, s₂, run₂, ht₂⟩
-    have hquery := Program.RunsFunction.query_eq_at hfree run₁ run₂ ht₁ ht₂
+    have hquery := Vars.Program.RunsFunction.query_eq_at hfree run₁ run₂ ht₁ ht₂
     cases hquery
   · rename_i input₁ input₂
     rcases h₁ with ⟨call₁, t₁, r₁, s₁, hin₁, run₁, ht₁⟩
     rcases h₂ with ⟨call₂, t₂, r₂, s₂, hin₂, run₂, ht₂⟩
-    have hquery := Program.RunsFunction.query_eq_at hfree run₁ run₂ ht₁ ht₂
+    have hquery := Vars.Program.RunsFunction.query_eq_at hfree run₁ run₂ ht₁ ht₂
     have : input₁ = input₂ := by
       simpa [Event.query, hin₁, hin₂] using Query.call.inj hquery
     exact congrArg FunctionObservableOutcome.call this
   · rcases h₁ with ⟨call, t, rest, s, -, run, ht⟩
     rcases h₂ with ⟨_, haltRun, -⟩
-    exact (EvalFn.runsFunction_no_event hfree haltRun run ht).elim
+    exact (Vars.EvalFn.runsFunction_no_event hfree haltRun run ht).elim
   · rcases h₁ with ⟨call, t, rest, s, -, run, ht⟩
     rcases h₂ with ⟨_, returnRun, -⟩
-    exact (EvalFn.runsFunction_no_event hfree returnRun run ht).elim
+    exact (Vars.EvalFn.runsFunction_no_event hfree returnRun run ht).elim
   · rcases h₁ with ⟨_, haltRun, -⟩
     rcases h₂ with ⟨gas, t, rest, s, run, ht⟩
-    exact (EvalFn.runsFunction_no_event hfree haltRun run ht).elim
+    exact (Vars.EvalFn.runsFunction_no_event hfree haltRun run ht).elim
   · rcases h₁ with ⟨_, haltRun, -⟩
     rcases h₂ with ⟨call, t, rest, s, -, run, ht⟩
-    exact (EvalFn.runsFunction_no_event hfree haltRun run ht).elim
+    exact (Vars.EvalFn.runsFunction_no_event hfree haltRun run ht).elim
   · rename_i world₁ world₂
     rcases h₁ with ⟨globals₁, run₁, worldEq₁⟩
     rcases h₂ with ⟨globals₂, run₂, worldEq₂⟩
@@ -272,10 +233,10 @@ theorem Program.functionDeterministicFrom_of_memOracleFree_proof
     · exact (hdiv.ne rfl).elim
   · rcases h₁ with ⟨_, returnRun, -⟩
     rcases h₂ with ⟨gas, t, rest, s, run, ht⟩
-    exact (EvalFn.runsFunction_no_event hfree returnRun run ht).elim
+    exact (Vars.EvalFn.runsFunction_no_event hfree returnRun run ht).elim
   · rcases h₁ with ⟨_, returnRun, -⟩
     rcases h₂ with ⟨call, t, rest, s, -, run, ht⟩
-    exact (EvalFn.runsFunction_no_event hfree returnRun run ht).elim
+    exact (Vars.EvalFn.runsFunction_no_event hfree returnRun run ht).elim
   · rcases h₁ with ⟨_, returnRun, -⟩
     rcases h₂ with ⟨_, haltRun, -⟩
     rcases fnDialogue_all hfree returnRun _ _ _ haltRun with ⟨-, -, h⟩ | hdiv
@@ -292,27 +253,28 @@ theorem Program.functionDeterministicFrom_of_memOracleFree_proof
         (worldEq₁.symm.trans worldEq₂)
     · exact (hdiv.ne rfl).elim
 
-theorem Program.MemOracleFree.deterministicFrom_proof
+theorem Vars.Proofs.Program.MemOracleFree.deterministicFrom
     (hfree : program.MemOracleFree) (ctx : CallContext)
     (entry : FunctionId) (world₀ : World) :
     program.DeterministicFrom ctx entry world₀ := by
   intro history outcome₁ outcome₂ h₁ h₂
-  have h := Program.functionDeterministicFrom_of_memOracleFree_proof hfree
+  have h := Vars.Proofs.Program.functionDeterministicFrom_of_memOracleFree hfree
     ctx entry { world := world₀ } #[] history outcome₁.functionOutcome
       outcome₂.functionOutcome h₁ h₂
   cases outcome₁ <;> cases outcome₂ <;> simp_all [ObservableOutcome.functionOutcome]
 
-theorem Program.functionDeterministic_of_memOracleFree_proof
+theorem Vars.Proofs.Program.functionDeterministic_of_memOracleFree
     (hfree : program.MemOracleFree) (function : FunctionId) :
     program.FunctionDeterministic function := by
   intro ctx globals args trace₁ trace₂ finalGlobals₁ finalGlobals₂ outcome₁ outcome₂
     heval₁ heval₂
   exact fnDialogue_all hfree heval₁ trace₂ finalGlobals₂ outcome₂ heval₂
 
-theorem Program.deterministic_of_memOracleFree_proof
+theorem Vars.Proofs.Program.deterministic_of_memOracleFree
     (hfree : program.MemOracleFree) : program.Deterministic :=
   fun ctx world₀ =>
-    ⟨hfree.deterministicFrom_proof ctx program.initEntry world₀,
-      fun entry _ => hfree.deterministicFrom_proof ctx entry world₀⟩
+    ⟨Vars.Proofs.Program.MemOracleFree.deterministicFrom hfree ctx program.initId world₀,
+      fun entry _ => Vars.Proofs.Program.MemOracleFree.deterministicFrom hfree ctx entry world₀⟩
 
 end Sir
+
