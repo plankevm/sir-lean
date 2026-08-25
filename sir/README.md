@@ -2,11 +2,12 @@
 
 Lean 4 formalization of Plank's Sensei Intermediate Representation (SIR).
 
-This package defines native mixed-step semantics for `Vars`: named variables
-and block arguments. Shared vocabulary (storage, memory, calls, gas, control,
-traces) lives in `Core`. Instructions advance one small step at a time; an
-internal call completes a whole callee run as a single step that splices the
-callee's trace inline.
+This package defines native mixed-step semantics for two languages: `Vars`,
+with named variables and block arguments, and `Stack`, with an operand stack
+and spill slots. They share the core storage, memory, call, gas, control, and
+trace vocabulary. Instructions advance one small step at a time; an internal
+call completes a whole callee run as a single step that splices the callee's
+trace inline.
 
 Executions are indexed by traces of gas observations and external calls.
 Observation covers partial executions of the running function, and a completed
@@ -25,7 +26,7 @@ refines `memoryPolicy`.
 ## Layout
 
 - [`Sir/Core/`](Sir/Core/) — shared values, effects, memory, control, and traces.
-- [`Sir/Vars/`](Sir/Vars/) — `Spec`, `Proofs/`, and `Theorems`.
+- [`Sir/Vars/`](Sir/Vars/) and [`Sir/Stack/`](Sir/Stack/) — each language's `Spec`, `Proofs/`, and `Theorems`.
 - [`Sir/Theorems.lean`](Sir/Theorems.lean) — the aggregate exported surface.
 - [`Sir/Audit.lean`](Sir/Audit.lean) — build-time audit of the exported
   surface.
