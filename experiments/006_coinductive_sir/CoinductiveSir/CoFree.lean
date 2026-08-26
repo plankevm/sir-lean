@@ -1,9 +1,7 @@
-
 inductive CoStep (Effect : Type → Type) (Res State : Type) : Type 1 where
   | pure (value : Res)
   | silent (next : State)
   | impure {X : Type} (operation : Effect X) (next : X → State)
-
 
 structure CoFree (Effect : Type → Type) (Res : Type) : Type 1 where
   State : Type
@@ -38,19 +36,30 @@ def CoFree.bind (program : CoFree E A) (next : A → CoFree E B) : CoFree E B wh
       | .silent next => .silent (.target value next)
       | .impure operation continueWith => .impure operation (.target value ∘ continueWith)
 
+def CoFree.map (f : A → B) (program : CoFree E A) : CoFree E B where
+  State := program.State
+  initial := program.initial
+  observe state :=
+    match program.observe state with
+    | .pure value => .pure (f value)
+    | .silent next => .silent next
+    | .impure operation resume => .impure operation resume
+
+instance : Functor (CoFree E) where
+  map := CoFree.map
+
 instance : Pure (CoFree E) where
   pure := CoFree.pure
 
 instance : Monad (CoFree E) where
   bind := CoFree.bind
 
-private structure TailState
-    (next : S → CoFree E (Sum S A)) where
+private structure IterState (next : S → CoFree E (Sum S A)) where
   index : S
   state : (next index).State
 
-def CoFree.iter (start : S) (next : S → CoFree E (Sum S A)) : CoFree E A where
-  State := TailState next
+def CoFree.iter (start : S) (next : S → CoFree E (S ⊕ A)) : CoFree E A where
+  State := IterState next
   initial := ⟨start, (next start).initial⟩
   observe control :=
     match (next control.index).observe control.state with
@@ -58,6 +67,13 @@ def CoFree.iter (start : S) (next : S → CoFree E (Sum S A)) : CoFree E A where
     | .pure (.inr value) => .pure value
     | .silent state => .silent ⟨control.index, state⟩
     | .impure operation resume => .impure operation (fun answer => ⟨control.index, resume answer⟩)
+
+instance : ForIn (CoFree E) Lean.Loop Unit where
+  forIn _ initial body :=
+    CoFree.iter initial fun state => (body () state).map
+      (fun
+       | .done state'  => .inr state'
+       | .yield state' => .inl state')
 
 inductive EffectSum (L R : Type → Type) : Type → Type where
   | inl {X} : L X → EffectSum L R X
@@ -92,3 +108,4 @@ def CoFree.fix
       | .impure (.inl (.call input)) resume, stack => .silent ⟨input, (body input).initial, ⟨control.input, resume⟩ :: stack⟩
       | .impure (.inr operation) resume, stack => .impure operation (fun x => ⟨control.input, resume x, stack⟩)
   }
+

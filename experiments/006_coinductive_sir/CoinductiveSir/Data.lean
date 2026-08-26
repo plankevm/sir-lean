@@ -1,6 +1,5 @@
 import Evm.UInt256
 
-
 abbrev Word := Evm.UInt256
 
 structure VarId where
