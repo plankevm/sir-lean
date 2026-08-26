@@ -40,7 +40,6 @@ inductive SirEffect : Type → Type where
   | mstore32 (offset value : Word) : SirEffect Unit
   | mload32 (offset : Word) : SirEffect Word
   | halt (final : World) : SirEffect Empty
-  | unreachable : SirEffect Empty
 
 abbrev SirM := CoFree SirEffect
 
@@ -96,6 +95,11 @@ private abbrev EvalOutput := Except IRError FunctionResult
 private abbrev EvalEffects := Recur FunctionInput EvalOutput ⊕ₑ SirEffect
 private abbrev EvalM := ExceptT IRError (CoFree EvalEffects)
 
+private structure EvalState where
+  world : World
+  locals : Locals
+  block : Block
+
 private def request (effect : SirEffect X) : EvalM X :=
   ExceptT.lift (CoFree.perform (.inr effect))
 
@@ -119,65 +123,68 @@ private instance : MonadLift (Except IRError) EvalM where
 
 def eval (program : Program) (context : CallContext) :
     FunctionInput → SirM (Except IRError FunctionResult) :=
-  CoFree.fix fun eval input => (do
-    let mut world := input.world
-    let mut locals ← Locals.bind .empty input.function.entry.inputs input.arguments
-    let mut block := input.function.entry
-    repeat do
-      for statement in block.statements do
-        match statement with
-        | .assign result expression =>
-            let value ← evalExpr context world locals expression
-            locals := locals.assign result value
-        | .sstore keyVariable valueVariable =>
-            let key ← locals.lookup keyVariable
-            let value ← locals.lookup valueVariable
-            world := world.storeStorage context.self key value
-        | .gas result =>
-            let value ← request .gas
-            locals := locals.assign result value
-        | .call callData =>
-            let target ← locals.lookup callData.callee
-            let gasLimit ← locals.lookup callData.gas
-            let answer ← request (.call {
-              target := .ofUInt256 target,
-              gas := gasLimit,
-              world
-            })
-            world := answer.world'
-            locals := locals.assign callData.result (.fromBool answer.success)
-        | .malloc result sizeVariable =>
-            let size ← locals.lookup sizeVariable
-            let offset ← request (.mallocZeroed size)
-            locals := locals.assign result offset
-        | .mallocUninit result sizeVariable =>
-            let size ← locals.lookup sizeVariable
-            let offset ← request (.mallocUninit size)
-            locals := locals.assign result offset
-        | .mstore32 offsetVariable valueVariable =>
-            let offset ← locals.lookup offsetVariable
-            let value ← locals.lookup valueVariable
-            request (.mstore32 offset value)
-        | .mload32 result offsetVariable =>
-            let offset ← locals.lookup offsetVariable
-            let value ← request (.mload32 offset)
-            locals := locals.assign result value
-        | .icall callee inputs outputs =>
-            let some function := program.function? callee | throw (.invalidFunction callee)
-            let arguments ← (inputs.mapM locals.lookup : Except _ _)
-            let result ← ExceptT.mk (eval { function, world, arguments })
-            world := result.world
-            locals ← locals.bind outputs result.values
-      match block.terminator with
-      | .halt => nomatch ← request (.halt world)
-      | .jump target =>
-          (block, locals) ← transfer input.function block target locals
-      | .branch condition thenTarget elseTarget =>
-          let value ← locals.lookup condition
-          let target := if value = 0 then elseTarget else thenTarget
-          (block, locals) ← transfer input.function block target locals
-      | .iret =>
-          let values ← (block.outputs.mapM locals.lookup : Except _ _)
-          return { world, values }
-    nomatch ← request (.unreachable)
-  : EvalM FunctionResult).run
+  CoFree.fix fun eval input => ExceptT.run do
+    let locals ← Locals.bind .empty input.function.entry.inputs input.arguments
+    CoFree.iterExcept ({ world := input.world, locals, block := input.function.entry } : EvalState)
+      fun state => do
+        let mut world := state.world
+        let mut locals := state.locals
+        let mut block := state.block
+        for statement in block.statements do
+          match statement with
+          | .assign result expression =>
+              let value ← evalExpr context world locals expression
+              locals := locals.assign result value
+          | .sstore keyVariable valueVariable =>
+              let key ← locals.lookup keyVariable
+              let value ← locals.lookup valueVariable
+              world := world.storeStorage context.self key value
+          | .gas result =>
+              let value ← request .gas
+              locals := locals.assign result value
+          | .call callData =>
+              let target ← locals.lookup callData.callee
+              let gasLimit ← locals.lookup callData.gas
+              let answer ← request (.call {
+                target := .ofUInt256 target,
+                gas := gasLimit,
+                world
+              })
+              world := answer.world'
+              locals := locals.assign callData.result (.fromBool answer.success)
+          | .malloc result sizeVariable =>
+              let size ← locals.lookup sizeVariable
+              let offset ← request (.mallocZeroed size)
+              locals := locals.assign result offset
+          | .mallocUninit result sizeVariable =>
+              let size ← locals.lookup sizeVariable
+              let offset ← request (.mallocUninit size)
+              locals := locals.assign result offset
+          | .mstore32 offsetVariable valueVariable =>
+              let offset ← locals.lookup offsetVariable
+              let value ← locals.lookup valueVariable
+              request (.mstore32 offset value)
+          | .mload32 result offsetVariable =>
+              let offset ← locals.lookup offsetVariable
+              let value ← request (.mload32 offset)
+              locals := locals.assign result value
+          | .icall callee inputs outputs =>
+              let some function := program.function? callee | throw (.invalidFunction callee)
+              let arguments ← (inputs.mapM locals.lookup : Except _ _)
+              let result ← ExceptT.mk (eval { function, world, arguments })
+              world := result.world
+              locals ← locals.bind outputs result.values
+        match block.terminator with
+        | .halt => nomatch ← request (.halt world)
+        | .jump target =>
+            (block, locals) ← transfer input.function block target locals
+            return .repeat { world, locals, block }
+        | .branch condition thenTarget elseTarget =>
+            let value ← locals.lookup condition
+            let target := if value = 0 then elseTarget else thenTarget
+            (block, locals) ← transfer input.function block target locals
+            return .repeat { world, locals, block }
+        | .iret =>
+            let values ← (block.outputs.mapM locals.lookup : Except _ _)
+            return .exit { world, values }
+

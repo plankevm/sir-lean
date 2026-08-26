@@ -56,7 +56,7 @@ instance : Monad (CoFree E) where
 
 
 inductive IterStep (S E : Type) where
-  | step : S → IterStep S E
+  | repeat : S → IterStep S E
   | exit : E → IterStep S E
 
 private structure IterState (next : S → CoFree E (IterStep S A)) where
@@ -68,16 +68,26 @@ def CoFree.iter (start : S) (next : S → CoFree E (IterStep S A)) : CoFree E A 
   initial := ⟨start, (next start).initial⟩
   observe control :=
     match (next control.index).observe control.state with
-    | .pure (.step index) => .silent ⟨index, (next index).initial⟩
+    | .pure (.repeat index) => .silent ⟨index, (next index).initial⟩
     | .pure (.exit value) => .pure value
     | .silent state => .silent ⟨control.index, state⟩
     | .impure operation resume => .impure operation (fun answer => ⟨control.index, resume answer⟩)
+
+def CoFree.iterExcept (start : S)
+    (next : S → ExceptT ε (CoFree E) (IterStep S A)) : ExceptT ε (CoFree E) A :=
+  ExceptT.mk <| CoFree.iter start fun state =>
+    Functor.map
+      (fun
+       | .ok (.repeat state) => .repeat state
+       | .ok (.exit value) => .exit (.ok value)
+       | .error error => .exit (.error error))
+      (ExceptT.run (next state))
 
 instance : ForIn (CoFree E) Lean.Loop Unit where
   forIn _ initial body :=
     CoFree.iter initial fun state => (body () state).map
       (fun
-       | .yield state' => .step state'
+       | .yield state' => .repeat state'
        | .done state'  => .exit state')
 
 inductive EffectSum (L R : Type → Type) : Type → Type where
