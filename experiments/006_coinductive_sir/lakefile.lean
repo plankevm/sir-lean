@@ -7,8 +7,6 @@ require evm from "../../EVM"
 
 package "CoinductiveSir" where
   version := v!"0.1.0"
-  moreLeanArgs := #["-DautoImplicit=false"]
-  moreServerOptions := #[⟨`autoImplicit, false⟩]
 
 @[default_target]
 lean_lib «CoinductiveSir»
