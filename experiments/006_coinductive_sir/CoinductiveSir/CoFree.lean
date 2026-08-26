@@ -73,16 +73,6 @@ def CoFree.iter (start : S) (next : S → CoFree E (IterStep S A)) : CoFree E A 
     | .silent state => .silent ⟨control.index, state⟩
     | .impure operation resume => .impure operation (fun answer => ⟨control.index, resume answer⟩)
 
-def CoFree.iterExcept (start : S)
-    (next : S → ExceptT ε (CoFree E) (IterStep S A)) : ExceptT ε (CoFree E) A :=
-  ExceptT.mk <| CoFree.iter start fun state =>
-    Functor.map
-      (fun
-       | .ok (.repeat state) => .repeat state
-       | .ok (.exit value) => .exit (.ok value)
-       | .error error => .exit (.error error))
-      (ExceptT.run (next state))
-
 instance : ForIn (CoFree E) Lean.Loop Unit where
   forIn _ initial body :=
     CoFree.iter initial fun state => (body () state).map
@@ -98,6 +88,17 @@ inductive Recur (Inp Out : Type) : Type → Type where
   | call (args : Inp) : Recur Inp Out Out
 
 infixr:65 " ⊕ₑ " => EffectSum
+
+instance : MonadLift (CoFree E) (CoFree (Recur Inp Out ⊕ₑ E)) where
+  monadLift program := {
+    State := program.State
+    initial := program.initial
+    observe state :=
+      match program.observe state with
+      | .pure value => .pure value
+      | .silent next => .silent next
+      | .impure operation resume => .impure (.inr operation) resume
+  }
 
 structure FixFrame (body : Inp → CoFree (Recur Inp Out ⊕ₑ E) Out) : Type where
   caller : Inp

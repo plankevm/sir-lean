@@ -20,11 +20,15 @@ structure Call where
   result : VarId
 deriving DecidableEq, Repr
 
+inductive BinOp where
+  | add
+  | lt
+deriving DecidableEq, Repr
+
 inductive Expr where
   | constant (value : Word)
   | var (var : VarId)
-  | add (lhs rhs : VarId)
-  | lt (lhs rhs : VarId)
+  | binaryOp (op : BinOp) (lhs rhs : VarId)
   | sload (key : VarId)
 deriving DecidableEq, Repr
 
