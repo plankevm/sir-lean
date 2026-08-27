@@ -174,15 +174,6 @@ abbrev SpecM := CoFree SpecEffect
 
 def nondetByte : SpecM UInt8 := UInt8.ofFin <$> CoFree.perform (.nondet 256)
 
-def SpecM.mload32 (memory : MemoryState) (offset : Nat) : SpecM U256 := do
-  let bytes ← (List.finRange 32).mapM (fun i => do
-    match memory.readByte? (offset + i) with
-    | some b => return b
-    | none => nondetByte
-  )
-  return .ofNat <| Evm.fromBytesBigEndian bytes
-
-
 def prog_to_spec (ctx : CallContext) (w₀ : World) (p : ProgramM A) : SpecM A := do
   let mut world := w₀
   let mut memory := MemoryState.empty
@@ -209,7 +200,13 @@ def prog_to_spec (ctx : CallContext) (w₀ : World) (p : ProgramM A) : SpecM A :
         | .mstore32 offset value =>
             memory := memory.writeBytes offset value.toByteArray
             inner := next ()
-        | .mload32 offset => inner := next (← SpecM.mload32 memory offset.toNat)
+        | .mload32 offset =>
+            let bytes ← (List.finRange 32).mapM (fun i => do
+              match memory.readByte? (offset.toNat + i) with
+              | some b => return b
+              | none => nondetByte
+            )
+            inner := next (.ofNat <| Evm.fromBytesBigEndian bytes)
         | .sstore slot value =>
             world := world.storeStorage ctx.address slot value
             inner := next ()

@@ -65,8 +65,4 @@ def writeBytes (m : MemoryState) (offset : U256) (bytes : ByteArray) : MemorySta
     (fun memory (byte, index) => memory.writeByte (offset.toNat + index) byte)
     m
 
-def readBytes (m : MemoryState) (offset : U256) (assumed : ByteArray) : ByteArray :=
-  List.toByteArray <| assumed.toList.zipIdx.map fun (byte, index) =>
-    (m.readByte? (offset.toNat + index)).getD byte
-
 end MemoryState
