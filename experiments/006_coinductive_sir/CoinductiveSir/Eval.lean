@@ -131,3 +131,91 @@ def eval (program : Program) : Func × Array U256 → ProgramM (Array U256) :=
             return .repeat (← locals.transfer function block target)
         | .iret =>
             return .exit (← (block.outputs.mapM locals.lookup : Except _ _))
+
+
+abbrev Address := Evm.AccountAddress
+abbrev World := Evm.AccountMap
+
+namespace World
+
+def loadStorage (world : World) (address : Address) (key : U256) : U256 :=
+  match world.find? address with
+  | none => 0
+  | some account => account.lookupStorage key
+
+def storeStorage (world : World) (address : Address) (key value : U256) : World :=
+  let account := (world.find? address).getD default
+  world.insert address (account.updateStorage key value)
+
+end World
+
+structure CallInput where
+  target : Address
+  gasLimit : U256
+  world : World
+
+structure CallResult where
+  world' : World
+  success : Bool
+
+structure CallContext where
+  address : Address
+
+inductive SpecEffect : Type → Type where
+  | gas : SpecEffect U256
+  | nondet (I : Nat) : SpecEffect (Fin I)
+  | call (input : CallInput) : SpecEffect CallResult
+  | alloc (size : Nat) (state : MemoryState) : SpecEffect { a : Allocation // a.size = size ∧ state.IsValidNewAlloc a }
+  | halt (state : World) : SpecEffect Empty
+  | failure (error : IRError) : SpecEffect Empty
+
+
+abbrev SpecM := CoFree SpecEffect
+
+def nondetByte : SpecM UInt8 := UInt8.ofFin <$> CoFree.perform (.nondet 256)
+
+def SpecM.mload32 (memory : MemoryState) (offset : Nat) : SpecM U256 := do
+  let bytes ← (List.finRange 32).mapM (fun i => do
+    match memory.readByte? (offset + i) with
+    | some b => return b
+    | none => nondetByte
+  )
+  return .ofNat <| Evm.fromBytesBigEndian bytes
+
+
+def prog_to_spec (ctx : CallContext) (w₀ : World) (p : ProgramM A) : SpecM A := do
+  let mut world := w₀
+  let mut memory := MemoryState.empty
+  let mut inner := p.initial
+  repeat
+    match p.observe inner with
+      | .pure value => return value
+      | .silent s => inner := s
+      | .impure op next =>
+        match op with
+        | .call target gasLimit => do
+            let res ← CoFree.perform (.call ⟨.ofUInt256 target, gasLimit, world⟩)
+            world := res.world'
+            inner := next res.success
+        | .gas => inner := next (← CoFree.perform .gas)
+        | .mallocUninit size =>
+            let mut alloc := (← CoFree.perform (.alloc size.toNat memory)).val
+            memory := memory.push alloc
+            inner := next alloc.offset
+        | .mallocZeroed size =>
+            let mut alloc := (← CoFree.perform (.alloc size.toNat memory)).val
+            memory := memory.push ⟨alloc.offset, ByteArray.ofFn (n := size.toNat) (fun _ => 0)⟩
+            inner := next alloc.offset
+        | .mstore32 offset value =>
+            memory := memory.writeBytes offset value.toByteArray
+            inner := next ()
+        | .mload32 offset => inner := next (← SpecM.mload32 memory offset.toNat)
+        | .sstore slot value =>
+            world := world.storeStorage ctx.address slot value
+            inner := next ()
+        | .sload slot => inner := next (world.loadStorage ctx.address slot)
+        | .halt => nomatch ← CoFree.perform (.halt world)
+        | .failure error => nomatch ← CoFree.perform (.failure error)
+  -- should be unreachable
+  nomatch ← CoFree.perform (.halt world)
+
