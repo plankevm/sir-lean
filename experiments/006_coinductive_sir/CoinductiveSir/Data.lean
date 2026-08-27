@@ -1,6 +1,6 @@
 import Evm.UInt256
 
-abbrev Word := Evm.UInt256
+abbrev U256 := Evm.UInt256
 
 structure VarId where
   id : Nat
@@ -14,10 +14,9 @@ structure FunctionId where
   id : Nat
 deriving DecidableEq, Repr
 
-structure Call where
+structure CallArgs where
   callee : VarId
   gas : VarId
-  result : VarId
 deriving DecidableEq, Repr
 
 inductive BinOp where
@@ -26,21 +25,21 @@ inductive BinOp where
 deriving DecidableEq, Repr
 
 inductive Expr where
-  | constant (value : Word)
+  | constant (value : U256)
   | var (var : VarId)
   | binaryOp (op : BinOp) (lhs rhs : VarId)
   | sload (key : VarId)
+  | gas
+  | call (call : CallArgs)
+  | malloc (size : VarId)
+  | mallocUninit (size : VarId)
+  | mload32 (offset : VarId)
 deriving DecidableEq, Repr
 
 inductive Stmt where
-  | assign (result : VarId) (value : Expr)
+  | assign (result : VarId) (expr : Expr)
   | sstore (key value : VarId)
-  | gas (result : VarId)
-  | call (call : Call)
-  | malloc (result size : VarId)
-  | mallocUninit (result size : VarId)
   | mstore32 (offset value : VarId)
-  | mload32 (result offset : VarId)
   | icall (callee : FunctionId) (ins outs : Array VarId)
 deriving DecidableEq, Repr
 

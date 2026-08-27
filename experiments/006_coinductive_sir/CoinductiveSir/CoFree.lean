@@ -89,7 +89,7 @@ inductive Recur (Inp Out : Type) : Type → Type where
 
 infixr:65 " ⊕ₑ " => EffectSum
 
-instance : MonadLift (CoFree E) (CoFree (Recur Inp Out ⊕ₑ E)) where
+instance : MonadLift (CoFree E) (CoFree (F ⊕ₑ E)) where
   monadLift program := {
     State := program.State
     initial := program.initial
@@ -98,6 +98,17 @@ instance : MonadLift (CoFree E) (CoFree (Recur Inp Out ⊕ₑ E)) where
       | .pure value => .pure value
       | .silent next => .silent next
       | .impure operation resume => .impure (.inr operation) resume
+  }
+
+instance : MonadLift (CoFree E) (CoFree (E ⊕ₑ F)) where
+  monadLift program := {
+    State := program.State
+    initial := program.initial
+    observe state :=
+      match program.observe state with
+      | .pure value => .pure value
+      | .silent next => .silent next
+      | .impure operation resume => .impure (.inl operation) resume
   }
 
 structure FixFrame (body : Inp → CoFree (Recur Inp Out ⊕ₑ E) Out) : Type where
