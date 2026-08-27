@@ -169,7 +169,6 @@ inductive SpecEffect : Type → Type where
   | halt (state : World) : SpecEffect Empty
   | failure (error : IRError) : SpecEffect Empty
 
-
 abbrev SpecM := CoFree SpecEffect
 
 def nondetByte : SpecM UInt8 := UInt8.ofFin <$> CoFree.perform (.nondet 256)
